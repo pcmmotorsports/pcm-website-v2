@@ -9,30 +9,27 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0(repo 初始化前置作業)
-**當前 slice:** 無(尚未開始)
-**Branch:** 無(repo 尚未 init)
+**Milestone:** M-0(monorepo 骨架已建)
+**當前 slice:** slice 5 完成、待 slice 6 monorepo 套件初次安裝
+**Branch:** dev
 
 ## 最後更新
 
-**時間:** 待 busboy-end 第一次跑後填入
-**更新者:** 待 busboy-end 第一次跑後填入
+**時間:** 2026-04-30
+**更新者:** Claude Code(slice 5 + busboy-fix)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| — | repo 尚未 init、無 commit | — |
-| — | — | — |
-| — | — | — |
+| 619e96d | chore(monorepo): 初始化 pnpm + Turborepo 骨架 [slice-5] | 2026-04-30 |
+| d692553 | chore(submodule): 更新 design-reference 指針 d700ca4 → d5ea3aa | 2026-04-30 |
+| a151ca5 | chore: 加 .gitignore 並移除誤入的 .DS_Store | 2026-04-30 |
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 開新 GitHub repo `pcm-website-v2`(private、SSH only)** ← 當前
-2. Sean 在本機 `git clone` 新 repo
-3. Sean 把 .md 庫存放進新 repo
-4. Sean 加 design-reference 為 submodule
-5. Claude Code 第一個 slice:monorepo 骨架初始化
+1. **Claude Code slice 6:框架初次安裝(待 Claude.ai 寫指令)** ← 當前
+2. (待 slice 6 完成後 Claude.ai 規劃 slice 7)
 
 ## Sean 待決策
 
@@ -116,5 +113,6 @@
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 待 day-1 commit 後填 | 初始化 STATUS.md | Sean(手動) |
+| 2026-04-30 | slice 5 完成 + busboy fix | Claude Code |
 
 — END —

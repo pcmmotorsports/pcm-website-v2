@@ -1,0 +1,6 @@
+{
+  "name": "@pcm/schemas",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PCM 共用型別 / Zod(前後台合約)— 殼、待後續 slice 加型別"
+}

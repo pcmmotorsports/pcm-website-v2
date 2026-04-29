@@ -7,6 +7,7 @@
 node_modules/
 .pnpm-store/
 .pnpm-debug.log*
+pnpm-debug.log*
 npm-debug.log*
 
 # Next.js
@@ -22,6 +23,7 @@ build/
 .env
 .env.local
 .env.*.local
+!.env.example
 
 # IDE
 .vscode/
@@ -44,3 +46,10 @@ storybook-static/
 
 # OS
 Thumbs.db
+
+# Design reference uploads(submodule 內、submodule 自己也已加 .gitignore)
+design-reference/uploads/
+
+# Medusa
+apps/medusa/.medusa/
+apps/medusa/uploads/
