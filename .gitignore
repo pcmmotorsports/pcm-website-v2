@@ -1,0 +1,46 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Node
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+
+# Next.js
+.next/
+out/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Turborepo
+.turbo/
+
+# Logs
+logs/
+*.log
+
+# Test coverage
+coverage/
+
+# Storybook
+storybook-static/
+
+# OS
+Thumbs.db
