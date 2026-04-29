@@ -1,0 +1,3 @@
+[submodule "design-reference"]
+	path = design-reference
+	url = git@github.com:pcmmotorsports/pcm-website-design.git
