@@ -9,37 +9,41 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0(monorepo 骨架已建)
-**當前 slice:** design-sync-finalize 完成、Phase 1 進入 Claude Design 補完階段
+**Milestone:** M-0(brainstorming + 後台+自動化 spec 完成、待 setup + writing-plans)
+**當前 slice:** brainstorming-architecture-spec 完成(含 Claude.ai review)、Sean 待 4 件 setup
 **Branch:** dev
 
 ## 最後更新
 
 **時間:** 2026-04-30
-**更新者:** Claude Code(slice design-sync-finalize)
+**更新者:** Claude Code(brainstorming + architecture spec + Claude.ai feedback)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| (此 slice) | docs(recon): v2 偵察報告 + 偵察方法論教訓 + STATUS 更新 [slice-design-sync-finalize] | 2026-04-30 |
+| (此 slice) | docs(architecture): brainstorming + 後台+自動化 spec + Claude.ai feedback | 2026-04-30 |
+| 75142f1 | docs(recon): v2 偵察報告 + 偵察方法論教訓 + STATUS 更新 [slice-design-sync-finalize] | 2026-04-30 |
 | 13dec48 | docs(recon): design-reference 完整偵察 [slice-recon-design] | 2026-04-30 |
-| 5750c70 | docs(backlog): 寫入 #1 #2 結案 + #3 新增 STATUS Busboy 段 stale | 2026-04-30 |
 
 ## 下一步(第 1 條優先)
 
-1. **Claude.ai 寫 Claude Design 工作交辦單、Sean 貼給 Claude Design 動工** ← 當前
-2. (待 Claude Design 補完成 / Claude.ai 規劃下個 slice、含 slice 6 monorepo 套件初次安裝)
+1. **Sean 做 4 件 setup**(Supabase / GCP via setup-wizard slice / Vercel / Railway)← 當前
+2. Sean 開新 Claude Code session 跑 `/writing-plans` skill
+3. Claude Code 產出 `docs/PHASE-1-MILESTONES.md`(納入 Claude.ai feedback §4 修訂版 milestone)+ `docs/decisions/0002-architecture-pivot.md` + `docs/architecture/scaling-triggers.md`
+4. M-0 第一個 slice 動工
+5. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
 
 ## Sean 待決策
 
 | # | 決策內容 | 阻塞什麼 |
 |---|---|---|
-| 1 | PRD-rewrite.md 內容(待 Claude.ai 寫完草稿後 Sean 看) | M-0 後所有 milestone |
-| 2 | TapPay sandbox 是否沿用舊環境 / 需重申請 | 結帳流程 slice |
-| 3 | Vercel / Railway 部署是否新建 / 沿用 | 部署 slice |
+| 1 | A3 Phase 1 階段 1 是否做發票自動化(綠界 / 藍新 / 國稅局)| M-3 訂單後段 |
+| 2 | G2 測試覆蓋率目標 + E2E 範圍 | M-6 整合測試 |
+| 3 | TapPay sandbox 是否沿用舊環境 / 需重申請 | M-3 結帳 |
+| 4 | Vercel / Railway 部署是否新建 / 沿用 | M-6 部署 |
 
-(其他項目:無)
+(其他項目:無、A1 / A2 / A4-A7 / B / C / D / E / F 已寫進 feedback 檔、進 writing-plans 自動納入)
 
 ---
 
@@ -115,5 +119,6 @@
 | 待 day-1 commit 後填 | 初始化 STATUS.md | Sean(手動) |
 | 2026-04-30 | slice 5 完成 + busboy fix | Claude Code |
 | 2026-04-30 | design-sync-finalize 完成 | Claude Code |
+| 2026-04-30 | brainstorming + 後台+自動化 spec + Claude.ai feedback | Claude Code |
 
 — END —
