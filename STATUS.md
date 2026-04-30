@@ -9,26 +9,26 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0(brainstorming + spec + 4 件 setup 完成、待 writing-plans)
-**當前 slice:** setup 4/4 完成(Supabase / Vercel / Railway / GCP)、待 Sean 開新 session 跑 /writing-plans
+**Milestone:** M-0(/writing-plans 完成、待 Sean push 後開 M-0-01)
+**當前 slice:** /writing-plans 完成(3 commit + 2 backlog)、待 Sean push、待 M-0-01 動工
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
-**時間:** 2026-04-30
-**更新者:** Claude Code(setup 4/4 完成 + handoff §10 進度紀錄)
+**時間:** 2026-05-01
+**更新者:** Claude Code(/writing-plans 完成、3 commit + 2 backlog 同步)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| (此 slice) | docs(architecture): brainstorming + 後台+自動化 spec + Claude.ai feedback | 2026-04-30 |
-| 75142f1 | docs(recon): v2 偵察報告 + 偵察方法論教訓 + STATUS 更新 [slice-design-sync-finalize] | 2026-04-30 |
-| 13dec48 | docs(recon): design-reference 完整偵察 [slice-recon-design] | 2026-04-30 |
+| fd2b0a4 | docs(backlog): 加 #4 GCP JSON key 路徑規範 + #5 dev→main baseline 時機 | 2026-04-30 |
+| b47cb85 | docs(decisions): 新增 0002 架構 Pivot ADR + scaling-triggers.md | 2026-04-30 |
+| ed27569 | docs(milestones): 新增 PHASE-1-MILESTONES.md(M-0 ~ M-6 共 75 slice) | 2026-04-30 |
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 開新 Claude Code session 跑 `/writing-plans` skill** ← 當前
+1. **Sean 手動 push 後開新 Claude Code session、跑 M-0-01**(packages/{domain,use-cases,ports,adapters} 4 個空殼) ← 當前
 2. Claude Code 產出 `docs/PHASE-1-MILESTONES.md`(納入 Claude.ai feedback §4 修訂版 milestone)+ `docs/decisions/0002-architecture-pivot.md` + `docs/architecture/scaling-triggers.md`
 3. M-0 第一個 slice 動工(packages skeleton + apps skeleton + ESLint 守門)
 4. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
