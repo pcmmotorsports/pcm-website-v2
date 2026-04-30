@@ -124,6 +124,63 @@
 
 ---
 
+### #4. ⏳ GCP JSON key 路徑安全規範
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - GCP Service Account JSON key 是 sync-engine 認證憑證、洩漏 = SA 完全失控、客戶資料 + Sheets 全洩漏
+  - setup §10 紀錄 key 已放 `~/Documents/pcm-credentials/gcp-sync-engine.json`、但「規範」沒明文寫進 repo 文件
+  - 新 Claude Code session 看不到約定、可能誤把 key 放 repo 內(例如 `apps/sync-engine/.env` 或 `apps/sync-engine/credentials.json`)
+- **觸發事件:**
+  - 2026-04-30 setup §10.5「安全紅線維持」紀錄、writing-plans review 時 Sean 提出進 backlog
+- **預期解法:**
+  - 寫 `docs/patterns/credentials-management.md` 明文規範:
+    - 所有第三方 JSON key / token 一律放 `~/Documents/pcm-credentials/`(不在 repo)
+    - sync-engine 用環境變數 `GCP_CREDENTIALS_PATH` 指向該路徑
+    - `.gitignore` 全 repo 掃過、確保 `*.json`(含 credentials)不入 git
+    - 例外清單(allow list):design-reference/data/stores.json 等公開資料 JSON
+  - 在 M-5-02 slice(adapters/sheets-api 實作)前完成
+- **不修會痛在:**
+  - 擴充性:Phase 2 加更多 adapter(LINE OA / 物流 API)、每個都要 SA key、無規範會散落各處、有的進 git 有的沒
+  - 可維護性:Sean / 員工 / 新 Claude Code 不知道 key 在哪、找一次學一次、半年後找不回
+  - bug 可追蹤性:若 key 真進 git、檢查歷史 commit 找洩漏點時、git log 內可能含 key 字面、需要 git filter-branch 重寫(成本高)
+- **估時:** 30 分鐘
+- **依賴:** 無、可獨立做、建議在 M-5-01 啟動前完成
+- **發現於:** 2026-04-30 / writing-plans skill review
+- **相關:** 無
+
+---
+
+### #5. ⏳ dev → main baseline 設立時機紀錄
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - setup §10.2(a) 紀錄「dev merge main 是 Phase 1 baseline」事件:Vercel import 預設讀 main、main 是空的、Sean 在 Terminal 跑 `git merge dev --ff-only && git push origin main` 解
+  - 9f609b0 已 push 到 main、main 與 dev 同步
+  - 但「Phase 1 baseline 何時 merge dev → main」沒有規範:每個 slice 都 merge?每個 milestone merge 一次?上線時才 merge?
+  - 缺規範會導致:有時 main 落後 dev 很久、有時 main 跟 dev 太頻繁(失去 review checkpoint 意義)
+- **觸發事件:**
+  - 2026-04-30 setup §10.2(a) Vercel deploy 事件、writing-plans review 時 Sean 提出進 backlog
+- **預期解法:**
+  - 寫 `docs/patterns/branching-strategy.md` 明文規範:
+    - dev → main 觸發點:**每個 milestone 結束**(M-0 / M-1 / ... / M-6 完成)
+    - 不在 slice 結束 merge(slice 是 dev 內單元、main 是 milestone 級別)
+    - 不在「想到」就 merge(失去 review checkpoint 意義)
+    - 上線當天 main 跟 dev 同步、production 走 main(對齊 NORTHSTAR §1.1 部署)
+  - 補 STATUS.md 「最後 milestone main HEAD」欄位、追蹤 main 落後 dev 多少
+- **不修會痛在:**
+  - 擴充性:Phase 2 啟動時、新 Claude Code 不知道何時 merge、可能誤 push dev 的不穩定 commit 到 main
+  - 可維護性:main HEAD 跟 dev HEAD 差距無預期、Vercel main branch deploy 可能跟員工看到的 dev preview 不同步
+  - bug 可追蹤性:production 出包時、main 與 dev 差幾個 milestone 不明、無法快速定位 production HEAD = 哪個 milestone
+- **估時:** 30 分鐘
+- **依賴:** 無、可獨立做、建議在 M-1 結束前完成(M-0 結束時 main 跟 dev 已同步、可 baseline)
+- **發現於:** 2026-04-30 / writing-plans skill review
+- **相關:** 無
+
+---
+
 ---
 
 ## 紀錄模板
