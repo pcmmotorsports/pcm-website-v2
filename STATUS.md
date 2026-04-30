@@ -10,26 +10,26 @@
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
 **Milestone:** M-0(monorepo 骨架已建)
-**當前 slice:** slice 5 完成、待 slice 6 monorepo 套件初次安裝
+**當前 slice:** design-sync-finalize 完成、Phase 1 進入 Claude Design 補完階段
 **Branch:** dev
 
 ## 最後更新
 
 **時間:** 2026-04-30
-**更新者:** Claude Code(slice 5 + busboy-fix)
+**更新者:** Claude Code(slice design-sync-finalize)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 619e96d | chore(monorepo): 初始化 pnpm + Turborepo 骨架 [slice-5] | 2026-04-30 |
-| d692553 | chore(submodule): 更新 design-reference 指針 d700ca4 → d5ea3aa | 2026-04-30 |
-| a151ca5 | chore: 加 .gitignore 並移除誤入的 .DS_Store | 2026-04-30 |
+| (此 slice) | docs(recon): v2 偵察報告 + 偵察方法論教訓 + STATUS 更新 [slice-design-sync-finalize] | 2026-04-30 |
+| 13dec48 | docs(recon): design-reference 完整偵察 [slice-recon-design] | 2026-04-30 |
+| 5750c70 | docs(backlog): 寫入 #1 #2 結案 + #3 新增 STATUS Busboy 段 stale | 2026-04-30 |
 
 ## 下一步(第 1 條優先)
 
-1. **Claude Code slice 6:框架初次安裝(待 Claude.ai 寫指令)** ← 當前
-2. (待 slice 6 完成後 Claude.ai 規劃 slice 7)
+1. **Claude.ai 寫 Claude Design 工作交辦單、Sean 貼給 Claude Design 動工** ← 當前
+2. (待 Claude Design 補完成 / Claude.ai 規劃下個 slice、含 slice 6 monorepo 套件初次安裝)
 
 ## Sean 待決策
 
@@ -114,5 +114,6 @@
 |---|---|---|
 | 待 day-1 commit 後填 | 初始化 STATUS.md | Sean(手動) |
 | 2026-04-30 | slice 5 完成 + busboy fix | Claude Code |
+| 2026-04-30 | design-sync-finalize 完成 | Claude Code |
 
 — END —
