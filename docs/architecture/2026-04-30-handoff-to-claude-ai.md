@@ -473,4 +473,81 @@ Claude Code 把新拍板加進 spec / 寫新 decision
 
 > **本對話用 brainstorming + architecture-patterns 兩 skill、把 Sean 卡關 6 週的「後台 + 自動化」釐清成可執行 spec。架構大方向 = Medusa-as-API + Next.js 自家倉庫、漸進式階段 1 MVP 上線、AI 機器在本機跑 Node.js + Sheets 同步。13 題拍板已收斂、待 Sean 與你 review 後進 writing-plans skill 拆 milestone。**
 
+---
+
+## 10. 後續更新(2026-04-30 setup 完成)
+
+> **新增於本對話末段、4 件 setup 全部完成後寫入。**
+
+### 10.1 4 件 setup 結果
+
+| Setup | 結果 | 細節 |
+|---|---|---|
+| ✅ Supabase | 完成 | Project URL + anon + service_role key、Region SG、**RLS auto enable 已啟用**(治第一輪 RLS 警告事件根因) |
+| ✅ Vercel | 完成、deploy fail | Project `pcm-website-v2`、Production URL = `pcm-website-v2-git-main-pcm-motorsports.vercel.app`、Root Directory = `apps/storefront`、**deploy fail = pnpm 6.35.1 vs ≥9.15.0**(M-1 解) |
+| ✅ Railway | 完成、deploy fail | Service URL = `pcmmedusa-production.up.railway.app`、port 8080、**deploy fail = Medusa env vars 沒設**(M-3 解) |
+| ✅ GCP | 完成 | Project = `pcm-sync-engine`、SA email = `pcm-sync-engine@pcm-sync-engine.iam.gserviceaccount.com`、JSON key = `~/Documents/pcm-credentials/gcp-sync-engine.json`、Sheets API + Drive API enabled |
+
+### 10.2 setup 途中事件(經驗、寫進 lessons-learned 候選)
+
+**a) dev merge main 是 Phase 1 baseline**
+- Vercel import 預設讀 main、但 main 是空的、看不到 apps/
+- Sean 在 Terminal 跑 `git merge dev --ff-only && git push origin main` 解
+- 9f609b0 已 push 到 main、main 與 dev 同步
+
+**b) GCP 組織政策 `iam.disableServiceAccountKeyCreation` 預設啟用**
+- 新 Google Workspace organization 預設禁止建 SA key(Google 推 OAuth/WIF)
+- Sean 是組織擁有者、但缺 `roles/orgpolicy.policyAdmin` role
+- 解法:給自己加 `Organization Policy Administrator` role → 改政策「未強制執行」 → 等 propagate 1-2 分鐘 → 重建 SA key
+- **教訓:未來 lessons-learned 可寫「GCP 新 org 預設 SA key 政策、setup 流程必含改 policy 步驟」**
+
+**c) Vercel monorepo Root Directory 必改**
+- Vercel 預設 Root Directory = `./`、但 PCM 是 monorepo、storefront 在 `apps/storefront/`
+- 必須在 import 階段點 [Edit] 改 Root Directory(setup 流程必含)
+
+**d) Railway 自動偵測兩個 service**
+- Railway 看到 monorepo 兩個 app、自動建議建兩個 service(@pcm/medusa + @pcm/storefront)
+- PCM 設計 storefront 用 Vercel、Railway 只跑 medusa
+- Sean 刪掉 @pcm/storefront、只留 medusa(setup 流程必含「刪多餘 service」步驟)
+
+### 10.3 兩個失敗預期、M-1/M-3 解
+
+| 失敗 | 根因 | 何時解 |
+|---|---|---|
+| Vercel deploy fail | pnpm 6.35.1 vs decision 0001 拍板 ≥9.15.0 | M-1:加 `vercel.json` + 環境變數 `ENABLE_EXPERIMENTAL_COREPACK=1` |
+| Railway deploy fail | Medusa 沒 DATABASE_URL / JWT_SECRET / COOKIE_SECRET 等 env | M-3:補 env vars(從 Setup 1 Supabase 拿 connection string) |
+
+### 10.4 setup-wizard slice 經驗(寫進 lessons-learned 候選)
+
+Claude.ai feedback Q15-A 寫「GCP 用 setup-wizard slice、Sean 不摸 IAM」。實際執行:
+- Claude Code 在同一個 session 內 step-by-step 引導、Sean 跟著點
+- 中文 dashboard 對應英文官方文件、Claude Code 自動翻譯按鈕名
+- 卡點(組織政策 + 無 orgpolicy.policyAdmin role)Claude Code 即時診斷 + 給解
+- **結論:setup-wizard slice 不一定要新 session 跑、現場引導也行、但要備好「常見卡點」清單**
+
+### 10.5 安全紅線維持(setup 過程嚴守)
+
+- ❌ Supabase service_role key 沒貼對話、沒 push
+- ❌ GCP JSON key 內容沒貼對話、移到 `~/Documents/pcm-credentials/`
+- ❌ Vercel team token / Railway service token 沒碰
+- ✅ Public URL / SA email / Project URL 可貼(原本就公開)
+- ✅ JSON key 路徑可貼(內容才敏感)
+
+### 10.6 下一步(取代 §8.1)
+
+```
+1. ✅ Claude Code commit 兩份 spec + 交接檔 + feedback 檔(已完成、9f609b0)
+2. ✅ Sean push GitHub(已完成、9f609b0 在 dev + main)
+3. ✅ Sean 做 4 件 setup(已完成、本 §10 紀錄)
+4. ⏳ Sean 開新 Claude Code session
+5. ⏳ Sean 啟動 /writing-plans skill
+6. ⏳ Claude Code 產出 docs/PHASE-1-MILESTONES.md(納入 feedback §4 修訂版)
+7. ⏳ Claude Code 寫 docs/decisions/0002-architecture-pivot.md
+8. ⏳ M-0 第一個 slice 動工
+```
+
+— 後續更新結束 —
+
+---
+
 — 交接結束 —

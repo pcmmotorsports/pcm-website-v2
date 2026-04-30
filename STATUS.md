@@ -9,14 +9,14 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0(brainstorming + 後台+自動化 spec 完成、待 setup + writing-plans)
-**當前 slice:** brainstorming-architecture-spec 完成(含 Claude.ai review)、Sean 待 4 件 setup
-**Branch:** dev
+**Milestone:** M-0(brainstorming + spec + 4 件 setup 完成、待 writing-plans)
+**當前 slice:** setup 4/4 完成(Supabase / Vercel / Railway / GCP)、待 Sean 開新 session 跑 /writing-plans
+**Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-04-30
-**更新者:** Claude Code(brainstorming + architecture spec + Claude.ai feedback)
+**更新者:** Claude Code(setup 4/4 完成 + handoff §10 進度紀錄)
 
 ## 最近 3 commit
 
@@ -28,11 +28,11 @@
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 做 4 件 setup**(Supabase / GCP via setup-wizard slice / Vercel / Railway)← 當前
-2. Sean 開新 Claude Code session 跑 `/writing-plans` skill
-3. Claude Code 產出 `docs/PHASE-1-MILESTONES.md`(納入 Claude.ai feedback §4 修訂版 milestone)+ `docs/decisions/0002-architecture-pivot.md` + `docs/architecture/scaling-triggers.md`
-4. M-0 第一個 slice 動工
-5. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
+1. **Sean 開新 Claude Code session 跑 `/writing-plans` skill** ← 當前
+2. Claude Code 產出 `docs/PHASE-1-MILESTONES.md`(納入 Claude.ai feedback §4 修訂版 milestone)+ `docs/decisions/0002-architecture-pivot.md` + `docs/architecture/scaling-triggers.md`
+3. M-0 第一個 slice 動工(packages skeleton + apps skeleton + ESLint 守門)
+4. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
+5. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
 
 ## Sean 待決策
 
@@ -120,5 +120,6 @@
 | 2026-04-30 | slice 5 完成 + busboy fix | Claude Code |
 | 2026-04-30 | design-sync-finalize 完成 | Claude Code |
 | 2026-04-30 | brainstorming + 後台+自動化 spec + Claude.ai feedback | Claude Code |
+| 2026-04-30 | 4 件 setup 完成(Supabase / Vercel / Railway / GCP)+ handoff §10 進度紀錄 | Claude Code |
 
 — END —
