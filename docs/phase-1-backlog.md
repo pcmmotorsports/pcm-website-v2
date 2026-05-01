@@ -148,7 +148,7 @@
 - **估時:** 30 分鐘
 - **依賴:** 無、可獨立做、建議在 M-5-01 啟動前完成
 - **發現於:** 2026-04-30 / writing-plans skill review
-- **相關:** 無
+- **相關:** `docs/architecture/security-timeline.md` §3 M-0 / M-5 對應條目 C2 / C9
 
 ---
 
@@ -277,7 +277,7 @@
 - **估時:** 60-90 min(寫 workflow + 跑通 CI + 配 Vercel preview hook + branch protection rule)
 - **依賴:** M-0-09(busboy-end L2)完成後排
 - **發現於:** 2026-05-01 / C5 拍板選 L1+L2、L3 留 backlog
-- **相關:** #6(M-0-01a 字面 vs 事實事件)、`docs/patterns/slice-checkpoint.md` §6
+- **相關:** #6(M-0-01a 字面 vs 事實事件)、`docs/patterns/slice-checkpoint.md` §6、`docs/architecture/security-timeline.md` §3.D 依賴安全 / §5 三綠 checkpoint 交集點
 
 ---
 

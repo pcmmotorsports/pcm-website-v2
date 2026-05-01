@@ -9,26 +9,26 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0(M-0-07 完成、待 Sean push 後開 M-0-08)
-**當前 slice:** M-0-07 完成(C3 ADR-0003 + C5 L1 規則層 + NORTHSTAR §1.1 補敘 + backlog #6.1 ✅ + #7/#8 新增 + M-0 排程加 M-0-07/08/09 三 slice)、1 commit 待 push、待 M-0-08 動工
+**Milestone:** M-0(M-0-08 完成、待 Sean push 後開 M-0-09)
+**當前 slice:** M-0-08 完成(C4 三權分立 — `docs/architecture/security-timeline.md` Phase 1 安全時序統一表 6 類 30 條對應 M-0~M-6 + backlog #4/#7 加交叉引用 + §3.6 對齊 skip)、1 commit 待 push、待 M-0-09 動工
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-01
-**更新者:** Claude Code(M-0-07 完成、busboy-end 收工)
+**更新者:** Claude Code(M-0-08 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 19f5575 | docs(M-0-07): C3+C5-L1 拍板落地 + NORTHSTAR §1.1 補敘 + M-0 排程 patch | 2026-05-01 |
+| 850482b | docs(M-0-08): C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 | 2026-05-01 |
+| 9d04f71 | docs(M-0-07): C3+C5-L1 拍板落地 + NORTHSTAR §1.1 補敘 + M-0 排程 patch | 2026-05-01 |
 | 36559ca | feat(M-0-01b): 4 packages 空殼 + ui/schemas TS 環境 + pnpm catalog 補裝 typescript | 2026-05-01 |
-| dd7b606 | feat(monorepo): M-0-01a 建 root TS 環境 + turbo typecheck pipeline | 2026-05-01 |
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 手動 push 後開新 Claude Code session、跑 M-0-08**(C4 三權分立 — `docs/architecture/security-timeline.md` Phase 1 安全時序統一表)← 當前
+1. **Sean 手動 push 後開新 Claude Code session、跑 M-0-09**(C5 L2 工具層 — `busboy-end.js` pre-flight 三綠檢查、跨 repo pcm-tools、busboy-start 用 `tools` 參數而非 `pcm`)← 當前
 2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
 3. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
 
@@ -122,5 +122,6 @@
 | 2026-05-01 | M-0-01a 完成(root TS 環境 + turbo typecheck pipeline)、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-01b 補丁完整版完成(4 packages 空殼 + ui/schemas + pnpm catalog typescript)、backlog #6 字面 vs 事實事件、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-07 完成(C3 ADR-0003 + C5 L1 規則層 + NORTHSTAR §1.1 補敘 + backlog #6.1 ✅ / #7 / #8 新增 + M-0 排程 patch)、busboy-end 收工 | Claude Code |
+| 2026-05-01 | M-0-08 完成(C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 30 條 + backlog #4/#7 加交叉引用)、busboy-end 收工 | Claude Code |
 
 — END —
