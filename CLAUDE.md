@@ -111,6 +111,12 @@ Sean 批准後才執行。
 
 backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
 
+### 鐵則 11:Slice 收工三綠 Checkpoint
+
+每個 slice 結束 commit 前、強制跑 typecheck + lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道、不 disable / skip / ignore。詳見 `docs/patterns/slice-checkpoint.md`。
+
+字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明。背景:M-0-01a 事件(commit `dd7b606` 聲稱「建 root TS 環境」、實際 typescript 套件未裝)。
+
 ---
 
 ## Slice 指令格式(你寫給 Sean / 自己執行的)
@@ -433,7 +439,8 @@ A: 選項 X
 ## 快速自檢清單(slice 結束前)
 
 - [ ] 肉眼驗(前台啟動、操作流程跑一遍)?
-- [ ] typecheck + lint 通過?
+- [ ] **三綠 checkpoint:** typecheck + lint(動 .ts/.tsx 加 build)全綠才允許 commit、不可 disable / skip / ignore(詳見 `docs/patterns/slice-checkpoint.md`)?
+- [ ] commit 訊息字面 vs 事實一致?字面與事實偏離必在 commit body 註明?
 - [ ] 精準 git add(不用 git add . / -A)?
 - [ ] commit 訊息符合 `type(scope): subject [milestone]` 格式?
 - [ ] STATUS.md 6 欄位更新(同 slice commit、不另開)?

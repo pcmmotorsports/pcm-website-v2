@@ -117,7 +117,7 @@ M-6 SEO + 整合測試 + 部署
 
 ### 3.1 目標
 
-建立 monorepo 4 packages + 2 apps 空殼、寫 ESLint 依賴規則守門、定義 ports 抽象介面、產出 medusa-schema-design.md(架構決策支撐文件)。讓 M-1 之後所有 milestone 在這基礎上走、不必反覆改 schema。
+建立 monorepo 4 packages + 2 apps 空殼、寫 ESLint 依賴規則守門、定義 ports 抽象介面、產出 medusa-schema-design.md + ADR-0003(domain entity 命名)+ slice-checkpoint 規範 + busboy-end L2 pre-flight + security-timeline 安全時序統一表(架構決策支撐文件)。讓 M-1 之後所有 milestone 在這基礎上走、不必反覆改 schema。
 
 ### 3.2 範圍
 
@@ -127,6 +127,10 @@ M-6 SEO + 整合測試 + 部署
 - ESLint 規則守門依賴方向(domain ← ports ← use-cases ← adapters / apps)
 - ports 抽象介面定義(IProductRepository / ICustomerRepository / IOrderRepository / ISheetsAdapter / ITapPayAdapter)
 - ⭐ docs/architecture/medusa-schema-design.md(product 全欄位對應 / tier price 存法 / 訂單狀態機對應 Medusa / ports 介面簽名 / Medusa vs Supabase 責任分割表)
+- ⭐ docs/decisions/0003-domain-entity-naming.md(C3 拍板 A2 Domain 獨立命名 + 9 衝突處置表 + 三視角 Rationale + Rollback 訊號)
+- ⭐ docs/patterns/slice-checkpoint.md + CLAUDE.md L1 補強(C5 拍板 L1+L2 的 L1 規則層、鐵則 11 + 自檢清單外掛)
+- ⭐ docs/architecture/security-timeline.md(C4 拍板 C 三權分立、Phase 1 安全時序統一表)
+- ⭐ pcm-tools/scripts/busboy-end.js L2 pre-flight 三綠檢查(C5 L2 工具層、跨 repo)
 
 **不做:**
 - domain entities 實作(M-1 起逐 context 做)
@@ -141,7 +145,7 @@ M-6 SEO + 整合測試 + 部署
 
 ### 3.4 估時
 
-4-5 工時、約 1 週(Sean 可用時間)。
+7-9 工時、約 1.5 週(含 C3 / C4 / C5 拍板落地)。
 
 ### 3.5 Slice 列表
 
@@ -153,6 +157,9 @@ M-6 SEO + 整合測試 + 部署
 | M-0-04 | ports 抽象介面定義(I*Repository / I*Adapter 簽名) | 45 min | 無 | M-0-01 |
 | M-0-05 | medusa-schema-design.md Part 1: product / brand / category mapping + tier price | 45 min | 無 | M-0-04 |
 | M-0-06 | medusa-schema-design.md Part 2: order state machine + ports + responsibility split | 45 min | 無 | M-0-05 |
+| M-0-07 | C3 ADR-0003 + C5 L1 規則 + NORTHSTAR §1.1 補敘 + backlog #6.1/#7 + M-0 排程 patch | 90-120 min | 無 | M-0-01b |
+| M-0-08 | C4 三權分立 — security-timeline.md(Phase 1 安全時序統一表) | 60-90 min | 無 | M-0-07 |
+| M-0-09 | C5 L2 工具層 — busboy-end.js pre-flight 三綠檢查(跨 repo pcm-tools) | 45-60 min | 無 | M-0-07 |
 
 ### 3.6 驗收條件
 
@@ -160,12 +167,19 @@ M-6 SEO + 整合測試 + 部署
 - [ ] `pnpm lint` 跑 ESLint 依賴規則、刻意違規 import 跳錯
 - [ ] `pnpm typecheck` 全綠
 - [ ] `docs/architecture/medusa-schema-design.md` 兩個 Part 寫完、引用 9 條 design vs Medusa 衝突(來自 design-reference-recon §7)、含 ports 介面簽名
+- [ ] `docs/decisions/0003-domain-entity-naming.md` 完整(含 9 衝突處置表 + 三視角 Rationale + Rollback 訊號)
+- [ ] `docs/patterns/slice-checkpoint.md` 完整(L1 / L2 / L3 三層關係明確、字面 vs 事實守則完整)
+- [ ] `docs/architecture/security-timeline.md` 完整(對應每項到 milestone + 驗收條件)
+- [ ] `busboy-end.js` 跑「typecheck 紅」狀態 → 拒絕 amend STATUS、提示 Code 修紅
 
 ### 3.7 風險與緩解
 
 - **風險:** medusa-schema-design.md 估時 1-2 hr、超 45 min 上限。寫到一半發現新衝突會卡。
 - **緩解:** 拆 Part 1 / Part 2 兩 slice。Part 1 先處理 product / brand / category(已有 design 9 條衝突清單)、Part 2 處理訂單狀態機(已有 brainstorming 拍板)。新衝突進 backlog、不擴張本 slice。
 - **三視角帶到:** 擴充性 — 9 contexts 邊界先定 / 可維護性 — 介面簽名先定 ; bug 可追蹤性 — 責任分割表清楚每個錯找誰。
+
+- **風險:** M-0-07 / 08 / 09 文件層集中規劃、若拍板出新衝突會卡。
+- **緩解:** Sean 已拍 C3=A2 / C4=C / C5=L1+L2、無新衝突可能。新衝突進 backlog #8+ 不擴張本三 slice。
 
 ---
 

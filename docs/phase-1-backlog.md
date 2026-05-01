@@ -213,21 +213,23 @@
 - **發現於:** 2026-05-01 / M-0-01b Phase A typecheck 失敗
 - **相關:** 子項 6.1(NORTHSTAR §1.1 補註)/ 子項 6.2(lessons-learned 候選)
 
-#### #6.1 — NORTHSTAR §1.1 過時敘述補註(衍生子項、未做、開新 slice)
+#### #6.1 — NORTHSTAR §1.1 過時敘述補註(衍生子項、✅ 完成、由 M-0-07 處理)
 
-- **狀態:** ⏳ 待執行
-- **優先級:** 🟠 中
-- **問題:**
+- **狀態:** ✅ 完成
+- **優先級:** 🟠 中(已解決)
+- **完成日:** 2026-05-01 / M-0-07
+- **問題(已解決前):**
   - `docs/PHASE-1-NORTHSTAR.md` §1.1 仍寫「用 Medusa 內建 Admin UI、不客製」
   - 但 `docs/decisions/0002-architecture-pivot.md` §1.1 已推翻為「Next.js 自寫 `apps/admin/`、Medusa Admin 完全不用」
   - NORTHSTAR §1.1 字面 vs 0002 ADR 衝突、後續 Claude Code session 讀到舊 NORTHSTAR 可能走錯方向
-- **預期解法:**
-  - NORTHSTAR §1.1 加註:「**注意:** 本段已被 0002 ADR §1.1 推翻、admin 改 Next.js 自寫、見 `docs/decisions/0002-architecture-pivot.md`」
-  - 不直接重寫 NORTHSTAR(保留歷史脈絡、用註解指向新決策)
-- **不修會痛在:**
+- **解法落點:**
+  - NORTHSTAR §1.1 字面替換為「依 0002 ADR、後台 admin 由 `apps/admin` Next.js 寫、用 `@pcm/ui` design tokens 自組、不用 Medusa Admin 內建 UI(0001 ADR §4『Phase 1 不寫客製 admin』已被 0002 ADR 推翻)」
+  - 字面內含 0001 §4 推翻歷史脈絡、不另加註解段、單行整合
+  - pcm-website-v2 commit(M-0-07)
+- **不修會痛在(已解決前):**
   - 可維護性:未來 session 起手讀 NORTHSTAR、走錯 admin 路線、再回頭發現浪費時間
   - bug 可追蹤性:NORTHSTAR vs 0002 衝突誰對誰錯不明、需另外 grep 比對
-- **估時:** 15 分鐘(純文件、加 1 行註解)
+- **估時:** 實際 ~5 分鐘(純文件、單行替換)
 - **發現於:** 2026-05-01 / M-0-01b 架構深度評估
 - **相關:** #6 主條目
 
@@ -249,6 +251,59 @@
 - **相關:** #6 主條目
 
 ---
+
+### #7. ⏳ GitHub Actions CI gate(C5 L3 設施層)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(C5 L1+L2 已落地、L3 是第三層保險)
+- **問題:**
+  - 即使 L1(規則層、`docs/patterns/slice-checkpoint.md`)+ L2(busboy-end pre-flight、M-0-09 落地)雙保險、本地 commit 仍可能有 drift:
+    - busboy-end pre-flight 被 force-skip 或 bypass
+    - Sean 跨機器跑(假設未來)、機器環境不一致
+    - main branch 被誤推、無 gate 攔
+    - Vercel preview URL 是 runtime 真實驗、本地 build 過不代表 runtime 過(`ignoreBuildErrors` lessons-learned 教訓)
+- **觸發事件:**
+  - 2026-05-01 / C5 拍板選 L1+L2、L3 留 backlog 等 follow-up slice
+- **預期解法:**
+  - 寫 `.github/workflows/ci.yml`
+  - push 自動跑 typecheck + lint + build
+  - PR / push to main 必須全綠才允許 merge
+  - Vercel preview URL deploy 起得來為終驗
+  - main branch protection rule 要求所有 status check 通過
+- **不修會痛在:**
+  - 擴充性:Phase 2 75+ slice 規模、L1 + L2 漏網會 systemic accumulate、無第三層 catch、漏網率隨 slice 數線性升高
+  - 可維護性:沒有「CI history view」、debug 時不知道哪個 commit 起壞、要 git bisect 慢
+  - bug 可追蹤性:Vercel preview URL 是 runtime 真實驗、本地 build 過 ≠ runtime 過、上線前才發現 = 第一輪 `ignoreBuildErrors` 教訓重演
+- **估時:** 60-90 min(寫 workflow + 跑通 CI + 配 Vercel preview hook + branch protection rule)
+- **依賴:** M-0-09(busboy-end L2)完成後排
+- **發現於:** 2026-05-01 / C5 拍板選 L1+L2、L3 留 backlog
+- **相關:** #6(M-0-01a 字面 vs 事實事件)、`docs/patterns/slice-checkpoint.md` §6
+
+---
+
+### #8. ⏳ ADR-0003 衝突處置表 7.9 / 7.10 補入
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 低
+- **問題:**
+  - M-0-07 指令驗證階段發現:`docs/recon/design-reference-recon-2026-04-30.md` §7 實際 7.1 ~ 7.10(10 條)
+  - M-0-07 指令採 7.1 ~ 7.8 + (新)order status = 9 條表、漏 §7.9(VehicleFinder 篩選器 vs Phase 2 vehicles entity)+ §7.10(HANDOFF docs 數量名單)
+  - Sean 拍板「9 條表為準、§7.9/§7.10 進 backlog 後續 follow-up」
+- **觸發事件:**
+  - 2026-05-01 / M-0-07 指令驗證階段、Code 報「漏 §7.9 / §7.10」、Sean 選 A1 接續執行(本條目記錄為 follow-up)
+- **預期解法:**
+  - 讀 recon §7.9 / §7.10 字面
+  - 補入 ADR-0003 §4 衝突處置表為 #10(VehicleFinder 篩選器 vs Phase 2 vehicles entity 命名)+ #11(HANDOFF docs 為 meta-doc 議題、處置=非技術衝突、不需 adapter)
+  - ADR-0003 §4 表頭從「9 個」改「11 個」、表後說明文字同步更新
+  - 變更紀錄欄位加新行
+- **不修會痛在:**
+  - 擴充性:M-1 寫 Catalog spike 若踩 §7.9 處置邊界(motoBrands 篩選器 vs vehicles entity 命名重疊)、ADR-0003 沒覆蓋、Code 沒有對應依據要回頭修
+  - 可維護性:9 條表自稱完整(§4 標題「9 個衝突點處置表」)、實際 90% 覆蓋、新人讀 ADR 假設覆蓋全、走到漏條 case 才發現
+  - bug 可追蹤性:落後條目散落兩處(ADR-0003 9 條 + recon §7 10 條)、未來 review 來源不單一、需 grep 比對
+- **估時:** 30 min(讀字面 + 補表 + 同步說明)
+- **依賴:** 無
+- **發現於:** 2026-05-01 / M-0-07 指令驗證
+- **相關:** ADR-0003 §4、recon §7.9 / §7.10
 
 ---
 

@@ -42,7 +42,7 @@
 - product / order / customer / cart 完整、含 metadata 欄位
 - 三級會員(general / store / premium_store)tier 機制
 - 儲值金 ledger 基本功能(加值 / 扣款 / 退款 / 餘額查詢)
-- 用 Medusa 內建 Admin UI、不客製
+- 依 0002 ADR、後台 admin 由 `apps/admin` Next.js 寫、用 `@pcm/ui` design tokens 自組、不用 Medusa Admin 內建 UI(0001 ADR §4「Phase 1 不寫客製 admin」已被 0002 ADR 推翻)
 
 **共用(`packages/`):**
 - `packages/ui`(@pcm/ui)— design tokens + 共用元件 + Storybook
