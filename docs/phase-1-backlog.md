@@ -666,6 +666,100 @@
 - **發現於:** 2026-05-01 / M-0-04 第二輪 simplify N3
 - **相關:** catalog/types.ts Brand、catalog/types.ts FitmentSpec @see M-1 升級 MotoBrand
 
+### #22. ⏳ 字串 leak ESLint rule(ADR-0003 §3.4 對應、Phase 1 不馬上加)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(Phase 1 靠 review 流程攔、Phase 2 視需要補)
+- **問題:**
+  - ADR-0003 §3.4 字面寫「不允許 wire 字串 leak 出 adapter 邊界」+「列入 backlog #8 候選、Phase 1 本決策不馬上加 lint rule」
+  - 但實際 backlog #8 為他事(ADR-0003 衝突處置表 7.9 / 7.10 補入)、字串 leak 條目從未建立
+  - M-0-03 落地 ESLint 邊界守門時發現此 backlog 編號錯置、本條目補開
+  - M-0-03 的 `eslint.config.js` 只守 7 條依賴方向、不守字串 leak
+- **觸發事件:**
+  - 2026-05-02 / M-0-03 落地 ESLint 邊界守門 + engineering:code-review audit C2 揭示
+- **預期解法:**
+  - Phase 2 啟動時(或 M-1+ 若提早遇到 wire leak 風險),寫 custom ESLint rule `pcm/no-wire-leak-in-ports`
+  - 檢查 packages/ports/ 與 packages/domain/ src 中 string literal 不含 Medusa wire 命名(`metadata.fits` / `region_id` / `shipping_options.metadata.*` 等)
+  - 或用既有 `no-restricted-syntax` rule 配 AST selector 攔截
+  - 落地時更新 `docs/architecture/dependency-rules.md` §4 移除「未守」標記
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 use-case 時、若 use-case 拿到 ports 介面回傳值含 wire 字串、整個 Clean Architecture 邊界破功
+  - 可維護性:lint 不擋、只能靠 review、人力成本高、易漏
+  - bug 可追蹤性:本條目 + ADR-0003 §3.4 + dependency-rules.md §4 三點為錨點
+- **估時:** 30-60 min(寫 custom rule + 7 條 wire pattern dry-run + 文件 update)
+- **依賴:** 無前置(可獨立做)、建議與 M-1-01 第一個 ports 介面實作 slice 同期或之後做
+- **發現於:** 2026-05-02 / M-0-03 audit
+- **相關:** ADR-0003 §3.4、`docs/architecture/dependency-rules.md` §4、#23(import resolver、可同 slice 順手做)
+
+### #23. ⏳ ESLint typescript-aware import resolver 配置(M-1 第一次跨 package import 前必補)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1 第一次跨 package import 前必補、否則 boundaries 規則失效)
+- **問題:**
+  - M-0-03 落地的 boundaries plugin 用 node 預設 resolver、不認 `.ts` 副檔名
+  - 無法解析 workspace alias `@pcm/ports`(走 package.json `main: './src/index.ts'`、node 不認 `.ts`)
+  - 無法解析無副檔名相對路徑 `'../../ports/src/index'`(node resolver 找不到 `.ts`)
+  - M-0-03 dry-run 用 `.ts` 副檔名繞過(`'../../ports/src/index.ts'`)是 transient hack、production code 不會這樣寫
+  - **影響**:M-1+ 用 `import { X } from '@pcm/ports'` 寫跨 package import 時、boundaries 可能無法解析 target、不擋違規
+- **觸發事件:**
+  - 2026-05-02 / M-0-03 落地時發現 + engineering:code-review audit S1 揭示
+- **預期解法:**
+  - 加 `eslint-import-resolver-typescript` 進 catalog + root devDeps
+  - `eslint.config.js` 加 `settings['import/resolver'].typescript = { project: ['packages/*/tsconfig.json', 'apps/*/tsconfig.json'] }`
+  - 重跑 dry-run 7 條(改用 `@pcm/ports` alias + 無副檔名)、確認 boundaries 仍 catch
+  - 更新 `docs/architecture/dependency-rules.md` §5.1 標 ✅ 完成、移除 limitation
+- **不修會痛在:**
+  - 擴充性:M-1 跨 package import 時、boundaries 看不出 target element、規則失效
+  - 可維護性:limitation 不修、所有 cross-package import 都得用 .ts 副檔名繞、不合 ts 慣例
+  - bug 可追蹤性:本條目 + dependency-rules.md §5.1 為錨點
+- **估時:** 20-30 min(裝套件 + 配 settings + 7 條 dry-run 重跑 + 文件 update)
+- **依賴:** 各 package 已有 tsconfig.json(M-0-01b 已建)、無其他前置
+- **發現於:** 2026-05-02 / M-0-03 audit
+- **相關:** `docs/architecture/dependency-rules.md` §5.1、#22(字串 leak、可同 slice 順手做)
+
+### #24. ⏳ dependency-rules.md §6.2 補 apps→apps 預設禁的維運說明
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(doc 維運盲點、不阻塞但維運者可能踩雷)
+- **問題:**
+  - `docs/architecture/dependency-rules.md` §6.2「加新 app」流程只說「不需動 boundaries/elements」、未提 **apps 之間預設不可互相 import**(default disallow)
+  - 若維運者新 app 真的需要 import 既存 app(罕見場景)、會遇到 lint error 不知所以然
+  - dry-run 5 已驗證 apps storefront → apps medusa 被擋、但 §6.2 沒提
+- **觸發事件:**
+  - 2026-05-02 / M-0-03 engineering:code-review audit S2 揭示
+- **預期解法:**
+  - dependency-rules.md §6.2 補一行:「⚠️ 注意:apps 之間預設不可互相 import(default disallow)。若新 app 真的需要 import 既存 app(罕見場景)、需要在 `boundaries/dependencies.rules` 補 `from: { type: 'apps', app: 'X' }, allow: { to: { type: 'apps', app: 'Y' } }` 規則。」
+  - 順手在 §1 實作映射段落加一行說 apps→apps 也禁
+- **不修會痛在:**
+  - 擴充性:加新 app 時若想 import 既存 app、卡關不知為何
+  - 可維護性:doc 維運須知不完整
+  - bug 可追蹤性:本條目為錨點、未來實際遇到時可參考
+- **估時:** 5 min(改 dependency-rules.md 兩段)
+- **依賴:** 無
+- **發現於:** 2026-05-02 / M-0-03 audit
+- **相關:** `docs/architecture/dependency-rules.md` §6.2、§1
+
+### #25. ⏳ dependency-rules.md §5.3 字面前後一致統一
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(doc 字面 polish)
+- **問題:**
+  - dependency-rules.md §5.3「apps 純殼用 `--no-error-on-unmatched-pattern`」段落字面前後語氣不一致
+  - 開頭寫「為讓 8 個 task 都跑通」(必要)、結尾寫「flag 仍可保留(無副作用、保險用)」(降級為保險)
+  - reader 讀完不確定 M-1+ 後此 flag 該保留還是該移除
+- **觸發事件:**
+  - 2026-05-02 / M-0-03 engineering:code-review audit S5 揭示
+- **預期解法:**
+  - dependency-rules.md §5.3 結尾改為:「M-1 / M-2 裝完 Next.js / Medusa 後、apps 會有 .tsx 檔、本 flag 從必要降為保險、可選保留」
+  - 統一語氣、明確標出何時轉態
+- **不修會痛在:**
+  - 可維護性:doc 字面前後語氣不一致、reader 困惑
+  - bug 可追蹤性:本條目為錨點
+- **估時:** 2 min
+- **依賴:** 無
+- **發現於:** 2026-05-02 / M-0-03 audit
+- **相關:** `docs/architecture/dependency-rules.md` §5.3
+
 ---
 
 ## 紀錄模板
