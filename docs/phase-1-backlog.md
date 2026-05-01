@@ -181,6 +181,75 @@
 
 ---
 
+### #6. ✅ M-0-01a 字面 vs 事實:typescript 套件實際未裝(主洞已補)
+
+- **狀態:** ✅ 主洞完成(M-0-01b Phase B 補裝完畢)+ ⏳ 子項 6.1 / 6.2 待執行
+- **優先級:** 🟠 中(主洞已解、衍生子項中等優先)
+- **問題:**
+  - M-0-01a commit `dd7b606` 訊息聲稱「建 root TS 環境 + turbo typecheck pipeline」
+  - 實際只建了 `tsconfig.base.json` + `turbo.json` typecheck task、**typescript 套件本身沒安裝**
+  - M-0-01b Phase A 跑 `pnpm typecheck` 時 6 packages 全部 `tsc: command not found`
+  - 字面 vs 事實 drift、commit 訊息誤導後續 slice 規劃
+- **觸發事件:**
+  - 2026-05-01 M-0-01b Phase A 跑 pnpm typecheck 第一次失敗、Sean 偵察 4 件字面後拍板
+- **預期解法(主洞已落地):**
+  - 用 pnpm catalog 機制(pnpm 9.5+):
+    - `pnpm-workspace.yaml` 加 `catalog: typescript: ^5.7.0` 集中宣告
+    - 6 個 packages 各自 `devDependencies` 加 `"typescript": "catalog:"` 引用
+  - 避開 `.npmrc shamefully-hoist=false` 的嚴格隔離問題
+  - 升 TS 版本只動 `pnpm-workspace.yaml` 一處、不需翻 6 個 package.json
+- **根因(供未來避雷):**
+  - M-0-01a 把「TS 環境」概念限縮在「設定檔就位」、未驗證實際工具鏈可執行
+  - turbo typecheck task 設定了 pipeline、但未要求每個 package 真能跑 tsc
+  - Claude.ai 寫 slice 指令無 sandbox 驗證、依靠「邏輯推斷」slice 順序、無實跑 checkpoint
+- **不修會痛在(已解決前):**
+  - 擴充性:未來其他 milestone 若也用「commit 訊息聲稱完成」當依據、不驗證實跑、會累積技術債
+  - 可維護性:`git log` 翻 `dd7b606` 看不到「typescript 未裝」線索、本 backlog 條目作為交叉索引
+  - bug 可追蹤性:未來 typecheck 異常先查此條目、確認 typescript 版本與 catalog 設定
+- **解法落點:**
+  - pcm-website-v2 commit(本檔同 commit、M-0-01b 補丁完整版)
+- **估時:** 主洞實際 ~2 工時(含偵察 + 架構評估 + 補裝);子項 6.1 / 6.2 各 15-30 分鐘
+- **依賴:** 無
+- **發現於:** 2026-05-01 / M-0-01b Phase A typecheck 失敗
+- **相關:** 子項 6.1(NORTHSTAR §1.1 補註)/ 子項 6.2(lessons-learned 候選)
+
+#### #6.1 — NORTHSTAR §1.1 過時敘述補註(衍生子項、未做、開新 slice)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `docs/PHASE-1-NORTHSTAR.md` §1.1 仍寫「用 Medusa 內建 Admin UI、不客製」
+  - 但 `docs/decisions/0002-architecture-pivot.md` §1.1 已推翻為「Next.js 自寫 `apps/admin/`、Medusa Admin 完全不用」
+  - NORTHSTAR §1.1 字面 vs 0002 ADR 衝突、後續 Claude Code session 讀到舊 NORTHSTAR 可能走錯方向
+- **預期解法:**
+  - NORTHSTAR §1.1 加註:「**注意:** 本段已被 0002 ADR §1.1 推翻、admin 改 Next.js 自寫、見 `docs/decisions/0002-architecture-pivot.md`」
+  - 不直接重寫 NORTHSTAR(保留歷史脈絡、用註解指向新決策)
+- **不修會痛在:**
+  - 可維護性:未來 session 起手讀 NORTHSTAR、走錯 admin 路線、再回頭發現浪費時間
+  - bug 可追蹤性:NORTHSTAR vs 0002 衝突誰對誰錯不明、需另外 grep 比對
+- **估時:** 15 分鐘(純文件、加 1 行註解)
+- **發現於:** 2026-05-01 / M-0-01b 架構深度評估
+- **相關:** #6 主條目
+
+#### #6.2 — lessons-learned 立規範:slice 完成驗收必跑實際命令(候選、未滿足條件)
+
+- **狀態:** 🟢 觀察(再發生 1-2 次類似事件才啟動)
+- **優先級:** 🟡 低(觀察期)
+- **觸發條件:**
+  - 若 M-0 / M-1 期間再發生 ≥1 次「commit 訊息字面 vs 實際工具鏈不符」事件
+- **預期解法:**
+  - 進 `docs/lessons-learned.md` 立規範:
+    - 「TS / lint / build 環境 slice 完成驗收必須跑一次實際命令、不只看設定檔」
+    - 「commit 訊息禁寫『建 X 環境』之類抽象語、必寫『裝了什麼套件 + 實跑哪個命令通過』具體事實」
+- **不修會痛在(若不立規範):**
+  - 擴充性:Claude.ai 寫 slice 無 sandbox 持續存在、systemic 風險無 mitigate
+  - 可維護性:每次踩坑要重新整理一次教訓、teach 不 over time
+- **估時:** 30 分鐘(寫進 lessons-learned)
+- **發現於:** 2026-05-01 / M-0-01b 架構深度評估
+- **相關:** #6 主條目
+
+---
+
 ---
 
 ## 紀錄模板

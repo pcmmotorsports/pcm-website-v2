@@ -1,8 +1,8 @@
 {
-  "name": "@pcm/ui",
+  "name": "@pcm/ports",
   "version": "0.0.0",
   "private": true,
-  "description": "PCM 共用元件 + design tokens(editorial)— 殼、待後續 slice 裝 Storybook",
+  "description": "抽象介面(殼、M-0-04 slice 裝 I*Repository / I*Adapter 簽名)",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
