@@ -161,6 +161,24 @@ M-6 SEO + 整合測試 + 部署
 | M-0-08 | C4 三權分立 — security-timeline.md(Phase 1 安全時序統一表) | 60-90 min | 無 | M-0-07 |
 | M-0-09 | C5 L2 工具層 — busboy-end.js pre-flight 三綠檢查(跨 repo pcm-tools) | 45-60 min | 無 | M-0-07 |
 
+### 3.5.1 實際執行順序註記(2026-05-01 新增)
+
+M-0 實際執行採跳號順序、不照 slice ID 數字排:
+
+| 階段 | Slice | 原因 |
+|---|---|---|
+| 1 | M-0-01a / M-0-01b | monorepo 骨架 + typescript 補裝(2026-04-30 ~ 05-01) |
+| 2 | M-0-07 / M-0-08 | C3 / C4 / C5 拍板落地插隊(2026-05-01) |
+| 3 | M-0-04 | ports 介面、解 M-1-02 阻塞最深、依賴鏈最先補 |
+| 4 | M-0-03 | ESLint 邊界守門、依賴 M-0-04 ports 結構才能寫對 |
+| 5 | M-0-05 → M-0-06 | schema design 文件兩 slice 連續執行、M-1-02 設計時要查、不阻 M-1 程式但缺會猜錯 |
+| 6 | M-0-02 | apps/admin + apps/sync-engine 空殼、M-4a / M-5 才用、最後做 |
+| 7 | M-0-09 | C5 L2 工具層、保險升級、放最後跑(M-0-03 補完 lint 才真跑東西、L2 pre-flight 才有實質效果) |
+
+原 §3.5 slice 列表表格按 slice ID 數字排、是規劃順序、不是執行順序。執行順序按依賴鏈重排、本註記補充說明。
+
+若未來執行偏離本順序、busboy-end 會自動覆蓋 STATUS.md「下一步」段、本檔不必修。
+
 ### 3.6 驗收條件
 
 - [ ] `pnpm install` 全綠、no warnings

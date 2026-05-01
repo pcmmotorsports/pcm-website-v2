@@ -9,28 +9,39 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0(M-0-08 完成、待 Sean push 後開 M-0-09)
-**當前 slice:** M-0-08 完成(C4 三權分立 — `docs/architecture/security-timeline.md` Phase 1 安全時序統一表 6 類 30 條對應 M-0~M-6 + backlog #4/#7 加交叉引用 + §3.6 對齊 skip)、1 commit 待 push、待 M-0-09 動工
+**Milestone:** M-0 進度 3/9 — 跳號實作中、5 slice 待回頭補
+- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08(共 3 slice、01a+01b 是 M-0-01 拆兩階)
+- **待回頭補(依賴鏈順序):** M-0-04 → M-0-03 → M-0-05 → M-0-06 → M-0-02 → M-0-09
+
+**當前 slice:** STATUS-fix 完成(字面校準 + backlog #3 解 + #9 新增 + §3.5.1 執行順序註記)、1 commit 待 push、待 M-0-04 動工
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-01
-**更新者:** Claude Code(M-0-08 完成、busboy-end 收工)
+**更新者:** Claude Code(STATUS-fix 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 850482b | docs(M-0-08): C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 | 2026-05-01 |
+| 95bc926 | docs(status): STATUS-fix 字面校準 + backlog #3 解 + #9 新增 + M-0 執行順序註記 | 2026-05-01 |
+| 0e4853d | docs(M-0-08): C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 | 2026-05-01 |
 | 9d04f71 | docs(M-0-07): C3+C5-L1 拍板落地 + NORTHSTAR §1.1 補敘 + M-0 排程 patch | 2026-05-01 |
-| 36559ca | feat(M-0-01b): 4 packages 空殼 + ui/schemas TS 環境 + pnpm catalog 補裝 typescript | 2026-05-01 |
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 手動 push 後開新 Claude Code session、跑 M-0-09**(C5 L2 工具層 — `busboy-end.js` pre-flight 三綠檢查、跨 repo pcm-tools、busboy-start 用 `tools` 參數而非 `pcm`)← 當前
-2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
-3. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
+1. **Sean 手動 push 後開新 Code session 跑 M-0-04**(ports 介面定義 I*Repository / I*Adapter、對齊 ADR-0003 domain 獨立命名、解 M-1-02 阻塞最深、估 45 min)← 當前
+2. 接著 M-0-03(ESLint 邊界守門 domain ← ports ← use-cases ← adapters + dependency-rules.md)
+3. 接著 M-0-05(medusa-schema-design.md Part 1:product / brand / category mapping + tier price)
+4. 接著 M-0-06(medusa-schema-design.md Part 2:訂單狀態機 + Medusa vs Supabase 責任分割)
+5. 接著 M-0-02(apps/admin + apps/sync-engine 空殼 + tsconfig)
+6. 最後 M-0-09(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)
+
+> 上述 1-6 完成後 → M-0 收尾、進 M-1
+
+7. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
+8. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
 
 ## Sean 待決策
 
@@ -103,10 +114,12 @@
 ## Busboy 機制(沿用第一輪)
 
 - **busboy-start.js:** Sean 在 Terminal 跑、輸出貼新 Claude Code session 第一則訊息
-- **busboy-end.js:** Claude Code 在 session 最後跑、自動更新本檔 4 個欄位(最後更新 / 最近 3 commit / 當前 / 下一步第 1 條)、commit、不 push(Sean 手動推當 review checkpoint)
-- repo 參數:`pcm`(本 repo)/ `api`(舊 pcm-website)/ `tools`(pcm-tools)
+- **busboy-end.js:** Claude Code 在 session 最後跑、自動更新本檔 6 個欄位(最後更新 / Phase Milestone slice Branch / 最近 3 commit / 下一步 / Sean 待決策 / 變更紀錄)、commit、不 push(Sean 手動推當 review checkpoint)
+- repo 參數:`pcm`(本 repo)/ `tools`(pcm-tools)
 
 第一次 busboy-end 跑之前、本檔欄位手動填(start template 用、由 Claude.ai 維護)。
+
+busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 
 ---
 
@@ -123,5 +136,6 @@
 | 2026-05-01 | M-0-01b 補丁完整版完成(4 packages 空殼 + ui/schemas + pnpm catalog typescript)、backlog #6 字面 vs 事實事件、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-07 完成(C3 ADR-0003 + C5 L1 規則層 + NORTHSTAR §1.1 補敘 + backlog #6.1 ✅ / #7 / #8 新增 + M-0 排程 patch)、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-08 完成(C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 30 條 + backlog #4/#7 加交叉引用)、busboy-end 收工 | Claude Code |
+| 2026-05-01 | STATUS-fix 完成(字面校準 + backlog #3 解 + #9 新增 + M-0 §3.5.1 執行順序註記)、busboy-end 收工 | Claude Code |
 
 — END —
