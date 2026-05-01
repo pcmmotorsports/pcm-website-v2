@@ -29,6 +29,9 @@ export type SheetRow = {
  *
  * 對齊 PHASE-1-MILESTONES §8 M-5-03(sync-product-candidates 等);
  * 業務語意層、不對齊任何 wire format。
+ *
+ * use-case 層返(非 adapter 層)。
+ * adapter 層返 SheetRow[];use-case 處理 SheetRow[] 後返 SyncResult。
  */
 export type SyncResult = {
   rowsRead: number;

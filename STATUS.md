@@ -13,21 +13,21 @@
 - **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04(共 4 slice、01a+01b 是 M-0-01 拆兩階)
 - **待回頭補(依賴鏈順序):** M-0-03 → M-0-05 → M-0-06 → M-0-02 → M-0-09
 
-**當前 slice:** M-0-04 完成 + Sean skill audit amend(MemberTier 移 shared / findByFitment → listByFitment / ports JSDoc TODO + @see anchor / backlog 擴 #11 + 加 #14 #15)、1 commit 待 push、待 M-0-03 動工
+**當前 slice:** M-0-04 完成 + skill audit 雙輪 follow-up(第一輪 engineering:code-review 抓 5 / 第二輪 simplify 抓 12 / 共 17 個議題、本 commit 處理 7 個低風險命名+JSDoc + backlog 9 條更新)、1 commit 待 push、待 M-0-03 動工
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-01
-**更新者:** Claude Code(M-0-04 + audit amend 完成、busboy-end 收工)
+**更新者:** Claude Code(M-0-04 完成 + 雙輪 skill audit follow-up、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| ceefe52 | feat(M-0-04): ports 5 介面 + domain 6 context type stub(audit amend) | 2026-05-01 |
+| f416422 | fix(M-0-04): skill audit 雙輪 follow-up 命名/JSDoc 修正 + backlog 8 條更新 | 2026-05-01 |
+| 5c16124 | feat(M-0-04): ports 5 介面 + domain 6 context type stub | 2026-05-01 |
 | 6ba2380 | docs(status): STATUS-fix 字面校準 + backlog #3 解 + #9 新增 + M-0 執行順序註記 | 2026-05-01 |
-| 0e4853d | docs(M-0-08): C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 | 2026-05-01 |
 
 ## 下一步(第 1 條優先)
 
@@ -138,5 +138,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-01 | STATUS-fix 完成(字面校準 + backlog #3 解 + #9 新增 + M-0 §3.5.1 執行順序註記)、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-04 完成(ports 5 介面 IProductRepository / ICustomerRepository / IOrderRepository / ISheetsAdapter / ITapPayAdapter + domain 6 context type stub shared/catalog/identity/order/sync/payment + @pcm/domain workspace dep + backlog #10/#11/#12/#13)、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-04 audit amend 完成(MemberTier 移 shared / findByFitment → listByFitment / ports JSDoc TODO milestone-anchored M-1-03/M-4a-08/M-4a-10/M-4a-XX / FitmentSpec + CategoryPath @see anchor / backlog #11 擴 ITapPayAdapter 命名抽象化 + 加 #14 SheetRangeSpec 抽象化 + 加 #15 Sean skill audit 工作流)、busboy-end 收工 | Claude Code |
+| 2026-05-01 | M-0-04 雙輪 skill audit follow-up 完成(第一輪 engineering:code-review 抓 5 / 第二輪 simplify 抓 12 / 處理 7 個命名+JSDoc:S1 listByBrand/S2 searchByKeyword/S4 SyncResult JSDoc/N5 ICustomerRepository import note/N6 OrderItem.quantity guard/N7 Product enumerate/N8 Cardholder PII expand;backlog 9 條更新:擴 #11/#14、新 #16-#21、更新 #15)、busboy-end 收工 | Claude Code |
 
 — END —

@@ -15,4 +15,5 @@ export interface ICustomerRepository {
   save(customer: Customer): Promise<Customer>;
 
   // TODO M-4a-10: 補 listByTier(tier: MemberTier) — admin 會員列表用
+  //   實作時 import type { MemberTier } from '@pcm/domain'(目前 JSDoc-only 引用未 import)
 }

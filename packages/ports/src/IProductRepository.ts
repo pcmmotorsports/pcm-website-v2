@@ -1,7 +1,6 @@
 import type {
   Product,
   ProductId,
-  Brand,
   CategoryPath,
   FitmentSpec,
 } from '@pcm/domain';
@@ -15,8 +14,8 @@ import type {
 export interface IProductRepository {
   findById(id: ProductId): Promise<Product | null>;
   listByCategory(category: CategoryPath): Promise<Product[]>;
-  listByBrand(brand: Brand): Promise<Product[]>;
+  listByBrand(brandId: string): Promise<Product[]>;
   listByFitment(spec: FitmentSpec): Promise<Product[]>;
   /** TODO M-1-03: 補分頁參數(limit / offset / cursor、storefront 商品列表用) */
-  search(query: string): Promise<Product[]>;
+  searchByKeyword(query: string): Promise<Product[]>;
 }

@@ -79,7 +79,10 @@ export type PriceByTier = Record<MemberTier, Money>;
  * Product: 商品 entity(M-0-04 type stub、最小欄位集)。
  *
  * 對齊 ADR-0003 §3.1 命名規則(camelCase + 業務語意);
- * 完整欄位(imageUrls / description / stock / 等)在 M-1-02 補。
+ * 推延欄位(對齊 Money / Customer JSDoc 樣式):
+ * - description / images / inventory / variants(M-1-02 補)
+ * - createdAt / updatedAt(M-1-02 entity 補)
+ * - SEO metadata(M-1-09 補)
  */
 export type Product = {
   id: ProductId;

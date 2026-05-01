@@ -375,6 +375,10 @@
     - ITapPayAdapter → IPaymentAdapter(對齊 ADR-0003 §3.4 廠商 wire 困在 adapter、ports 抽象 + 業務語意)
     - 實作命名:TapPayPaymentAdapter(廠商前綴 + 介面名稱)
     - 未來換金流(藍新 / 綠界 / Stripe)只動 adapter 實作、不動 ports / use-case
+  - **ChargeStatus enum 補 'pending':**
+    - 來源:M-0-04 第一輪 engineering:code-review skill audit
+    - TapPay 真實流程含 3DS / OTP async、結果可能 pending(非立即 succeeded / failed)
+    - M-3-08 寫實作時、ChargeStatus 加 'pending' member、processCharge use-case 處理 async polling
   - 不單獨開 slice 改、跟 M-3-08 adapter 實作合併
 - **不修會痛在:**
   - 擴充性:PCM 沒換金流計畫、不修 OK(若未來換金流、本條目 trigger 重檢)
@@ -454,6 +458,11 @@
   - Phase 2 換廠商前重檢、抽象成 DataSourceQuery / DataRow 業務語意 type
   - Phase 1 只有 Sheets、stub 階段不阻塞
   - 修法時機:Phase 2 啟動前、跟 sync-engine 重新規劃一起做
+  - **SheetRow.values 假設全字串:**
+    - 來源:M-0-04 第一輪 engineering:code-review skill audit
+    - 現:SheetRow.values: string[](假設 Sheets API valueRenderOption=FORMATTED_VALUE)
+    - 若 Phase 2 改用 valueRenderOption=UNFORMATTED_VALUE 模式、API 會返 number / boolean / 等
+    - 屆時 type 改 (string | number | boolean)[] 對齊 Google API 字面、或進一步抽象 DataRow.values: unknown[]
 - **不修會痛在:**
   - 擴充性:Phase 2 真換廠商時、domain/sync/types.ts 全改、跨 use-case 影響面大
   - 可維護性:看 domain code 看到 spreadsheetId 字眼以為綁死 Google、降低跨平台移植性
@@ -481,6 +490,13 @@
     - Claude.ai 處置邏輯:audit 抓到問題後評估 amend / backlog 處置(本次模板:🔴 設計缺陷 amend / 🟠 範圍補強 backlog / 🟡 細節 stub 一致不動 / 🟢 已拍板 trade-off 不動)
     - slice 種類 → skill 對應表(security / DDD / UI / 計算 / PR;Code 已分析、見 M-0-04 對話)
     - M-1-02 試跑 architecture-patterns / M-2-02 試跑 /security-review 驗證盲區、把實測結果回填本工作流
+  - **條 1:雙跑 skill 結論(來源 M-0-04 兩輪 audit 實測):**
+    - 所有有實質 code 的 slice(含 type stub)→ engineering:code-review + simplify 雙跑
+    - 純 docs slice(M-0-07 / M-0-08 / M-0-05 規範文件等)→ 不需 skill
+    - 依據:M-0-04 雙輪實測 engineering 抓 5 / simplify 抓 12、互不重疊、各有獨家視角(security / correctness vs reuse / quality / efficiency)。Claude.ai 之前預測「type stub 階段 skill 邊際效益遞減」實測打臉。
+  - **條 2(N4 並入):JSDoc cross-reference tag 統一規範**
+    - 來源:M-0-04 第二輪 simplify N4。跨 12+ 處改、需先拍 tag 規範(@adr vs @see、何時用哪個、是否引入 @adr 0003-§3.1 路徑風格)、跟 #15 working-style 規範同檔同時機補
+    - 修法:working-style.md M-0-09 完工 trigger 補時、加一節「JSDoc cross-reference 規範」、跨 6 個 domain context types.ts + 5 個 ports interface 統一 tag 風格
 - **不修會痛在:**
   - 擴充性:M-1 起 75 slice 都可能 audit、不寫規範、Code session 換手時對流程不一致
   - 可維護性:M-0-04 是第一次 audit amend、下次 Claude.ai 可能誤以為「commit 是 final」抗拒 amend(amend 安全的判準是 ahead-of-origin、不是 commit 在不在;此判準需明文寫進規範)
@@ -489,6 +505,166 @@
 - **依賴:** M-0-09 完成
 - **發現於:** 2026-05-01 / M-0-04 audit Q3=D 拍板
 - **相關:** docs/working-style.md(待補新節)、backlog #12(Claude.ai 跨 package import 自檢、同 trigger M-0-09)
+
+---
+
+### #16. ⏳ TapPay Cardholder PII logging mask 規範待 M-3-08 寫實作前補
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - Cardholder.email / phoneNumber 是 PII、type 層無 mask 守門
+  - rawResponse: unknown 也含 cardholder 資訊(TapPay wire 原樣保留)
+  - 來源:M-0-04 第一輪 engineering:code-review skill audit + 第二輪 simplify N8 補強
+  - 未來 use-case logging 需特別處理、否則違 GDPR / 個資法
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 雙輪 skill audit
+- **預期解法:**
+  - M-3-08 寫 ITapPayAdapter 實作前、必須立 PII logging mask 規範、選一:
+    - (a) brand type:`type Email = string & { __brand: 'Email' }`、使用 toEmail() / mask 統一
+    - (b) mask helper:`function maskPII(payload: TapPayChargePayload): string`、logging 統一呼叫
+    - (c) logging guideline:寫進 docs/patterns/logging.md、所有 logger 必走 mask middleware
+  - 配合 M-3-08 實作 slice 一起補、不單獨開 slice
+- **不修會痛在:**
+  - 擴充性:不立規範、後續 logging 寫法各自為政、PII 洩漏點散
+  - 可維護性:個資法風險、寫實作前必補(audit 找漏點靠 grep 但 logger 變體多)
+  - bug 可追蹤性:本條目 + M-3-08 前置點明確
+- **估時:** 30-60 min(M-3-08 啟動前 + 寫 docs/patterns/logging.md + brand type / helper 任一)
+- **依賴:** M-3-08 啟動
+- **發現於:** 2026-05-01 / M-0-04 第一輪 engineering:code-review + 第二輪 simplify N8
+- **相關:** payment/types.ts Cardholder JSDoc(已加 @see #16)、CLAUDE.md「敏感資訊」段
+
+---
+
+### #17. ⏳ export type * 跨 context 命名衝突防護待 M-1-02 寫第一個 entity 時拍
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - domain/src/index.ts + ports/src/index.ts 用 export type * 跨 6 個 context 同名 type silent collision 風險
+  - 例:若 sync 加 Product (sheet row mapping)、catalog Product 被遮蓋、TS 不報錯
+  - 來源:M-0-04 第一輪 engineering:code-review skill audit
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 第一輪 engineering:code-review
+- **預期解法:**
+  - M-1-02 寫第一個 entity 時拍命名規範、選一:
+    - (a) 加 namespace prefix:`export type * as Catalog from './catalog/types'` → `import { Catalog } from '@pcm/domain'`
+    - (b) 改用具名 export:`export type { Product } from './catalog/types'` 顯式列出每個 type、collision 編譯時報錯
+    - (c) domain/sync 不放業務 entity 概念類型(只放 Adapter wire types)、避免 sync.Product 衝突
+  - 拍板後寫進 docs/patterns/cross-context-naming.md、本 commit 跟之後 entity 統一遵守
+- **不修會痛在:**
+  - 擴充性:M-1 起寫 entity 加 type 必撞、不立規範自由心證
+  - 可維護性:silent collision 看 type 不報錯、debug 困難(需 grep 找重名)
+  - bug 可追蹤性:本條目 + M-1-02 trigger 為錨點
+- **估時:** 15-30 min(M-1-02 內附帶決議 + 寫 docs/patterns/cross-context-naming.md)
+- **依賴:** M-1-02 啟動
+- **發現於:** 2026-05-01 / M-0-04 第一輪 engineering:code-review
+- **相關:** domain/src/index.ts、ports/src/index.ts、ADR-0003 §3.1 命名分區
+
+---
+
+### #18. ⏳ RawResponseEnvelope<T> generic 抽 TapPay verbs 增加時拍
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - TapPayChargeResult + TapPayRefundResult 共享 envelope { status, <id>: string, rawResponse: unknown }、現各自定義
+  - 來源:M-0-04 第二輪 simplify S3(Reuse / Efficiency)
+  - Q3=A 最小集精神反對預先抽 generic、留 verbs 增加時拍
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 第二輪 simplify
+- **預期解法:**
+  - M-3-08 寫 TapPay adapter 時、若 verbs(void / inquiry / capture 等)增加 ≥ 3 個共享 envelope:
+    - 抽 `type RawResponseEnvelope<T> = T & { rawResponse: unknown }`
+    - TapPayChargeResult / RefundResult / VoidResult / 等 reuse
+  - Phase 1 只 charge / refund 兩個 verbs、不抽
+- **不修會痛在:**
+  - 擴充性:TapPay verbs 後續可能 ≥ 5 個、不抽 envelope 重複定義
+  - 可維護性:預先抽是過度設計、Q3=A 反對
+  - bug 可追蹤性:本條目 + M-3-08 verbs 增加 trigger
+- **估時:** 5-10 min(M-3-08 verbs 增加時抽 generic、低成本)
+- **依賴:** M-3-08 寫 verbs ≥ 3 個共享 envelope
+- **發現於:** 2026-05-01 / M-0-04 第二輪 simplify S3
+- **相關:** payment/types.ts、backlog #11(TapPay 純度全面重檢)
+
+---
+
+### #19. ⏳ Repository<T,ID> base interface 預抽決議待 M-1-02 寫第一個 repo 實作撞重複時拍
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - 3 ports findById / save 簽名重複、可抽 `interface Repository<T, ID> { findById; save }` base、各 ports extends
+  - 來源:M-0-04 第二輪 simplify N1(Reuse 視角)
+  - Q3=A 最小集精神反對預先抽
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 第二輪 simplify
+- **預期解法:**
+  - M-1-02 寫第一個 repo 實作時、若實作工作真撞到 findById / save 重複定義模式 ≥ 3 處、拍是否預抽 base interface:
+    - (a) `interface Repository<T, ID> { findById(id: ID): Promise<T | null>; save(entity: T): Promise<T> }`、IProductRepository extends Repository<Product, ProductId>、IOrderRepository extends Repository<Order, OrderId>、ICustomerRepository extends Repository<Customer, CustomerId>
+    - (b) 維持各 port 各自定義(顯式優於隱式、stub 階段對齊 Q3=A)
+  - 拍板時看 use-case + adapter 層真實 import / type 用法決定
+- **不修會痛在:**
+  - 擴充性:M-1 寫實作必撞 findById / save 重複(InMemory / Medusa adapter 內 method 簽名 copy-paste 3 次)
+  - 可維護性:預先抽是過度設計、實際撞到再抽更精準
+  - bug 可追蹤性:本條目 + M-1-02 repo 實作 trigger 為錨點
+- **估時:** 15-30 min(M-1-02 內附帶決議 + 若選 a 抽 Repository<T, ID> 加進 packages/ports/src/Repository.ts)
+- **依賴:** M-1-02 啟動
+- **發現於:** 2026-05-01 / M-0-04 第二輪 simplify N1
+- **相關:** ports interfaces、ADR-0003 §3.3 ports 介面字面要求
+
+---
+
+### #20. ⏳ PaginationParams + Paginated<T> 預定義決議待 M-1-03 寫第一個分頁 use-case 時拍
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - 4 處 TODO 補分頁(IProductRepository.searchByKeyword / IOrderRepository.listByCustomer / listByStatus / listByDateRange)共享同一未來 contract、現各自 TODO 標
+  - 來源:M-0-04 第二輪 simplify N2(Reuse 視角)
+  - Q3=A 最小集精神反對預先定義
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 第二輪 simplify
+- **預期解法:**
+  - M-1-03 寫第一個分頁 use-case 時、預定義 PaginationParams + Paginated<T>:
+    - `type PaginationParams = { limit: number; offset?: number; cursor?: string }`
+    - `type Paginated<T> = { items: T[]; total?: number; nextCursor?: string }`
+    - 放 packages/domain/src/shared/types.ts(跨 context 共用、對齊 MemberTier 模式)
+  - 同步更新 4 處 TODO 為實際 method 簽名:`searchByKeyword(query: string, params: PaginationParams): Promise<Paginated<Product>>`
+- **不修會痛在:**
+  - 擴充性:M-1 起寫分頁 use-case 多、不預定義各自寫法不一致
+  - 可維護性:預先定義是過度設計、實際撞到再定義更精準(對齊真實 use-case 需求)
+  - bug 可追蹤性:本條目 + M-1-03 trigger 為錨點
+- **估時:** 15-20 min(M-1-03 內附帶定義 + 4 處 TODO 換實簽名)
+- **依賴:** M-1-03 啟動
+- **發現於:** 2026-05-01 / M-0-04 第二輪 simplify N2
+- **相關:** ports interfaces 4 處 TODO 分頁註解、shared/types.ts MemberTier 模式
+
+---
+
+### #21. ⏳ SluggedEntity 抽 utility type 決議待 M-1 寫到第二個 slugged entity 撞重複時拍
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - Brand / 未來 MotoBrand / 可能的 CategoryEntity 共享 { id; name; slug } shape、可抽 `type SluggedEntity = { id: string; name: string; slug: string }`
+  - 來源:M-0-04 第二輪 simplify N3(Reuse 視角)
+  - Q3=A 最小集精神反對預先抽
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 第二輪 simplify
+- **預期解法:**
+  - M-1 寫到第二個 slugged entity 時(可能 M-1 升級 MotoBrand value-object 或 M-1-09 SEO 相關 entity)、若實作工作真撞到第二個 { id; name; slug } 模式:
+    - 抽 `type SluggedEntity = { id: string; name: string; slug: string }` 進 shared/types.ts
+    - Brand / MotoBrand / 等 entity extends SluggedEntity、加自己特殊欄位
+  - 不預先抽、留 trigger 點實作撞到再抽
+- **不修會痛在:**
+  - 擴充性:M-1 起 slugged entity 多、不抽 utility 重複定義
+  - 可維護性:預先抽是過度設計、Q3=A 反對
+  - bug 可追蹤性:本條目 + M-1 第二 slugged entity trigger 為錨點
+- **估時:** 5-10 min(M-1 第二 slugged entity slice 內附帶抽 utility)
+- **依賴:** M-1 寫第二個 slugged entity slice
+- **發現於:** 2026-05-01 / M-0-04 第二輪 simplify N3
+- **相關:** catalog/types.ts Brand、catalog/types.ts FitmentSpec @see M-1 升級 MotoBrand
 
 ---
 

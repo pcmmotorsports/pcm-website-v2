@@ -18,7 +18,10 @@ import type { OrderId } from '../order/types';
 export type ChargeStatus = 'succeeded' | 'failed';
 
 /**
- * Cardholder: 持卡人資訊(TapPay charge 必填)。
+ * Cardholder: 持卡人資訊(TapPay charge 必填)。包含 PII(email / phoneNumber)。
+ *
+ * @see backlog #16 — PII logging mask 規範待 M-3-08 寫實作前補
+ * @see M-3-08 ITapPayAdapter 實作:logging 必 mask PII、rawResponse 不可直接寫 log
  */
 export type Cardholder = {
   name: string;

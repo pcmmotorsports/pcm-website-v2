@@ -41,7 +41,10 @@ export type FulfillmentStatus = 'notOrdered' | 'ordered' | 'inStock' | 'shipped'
  */
 export type OrderItem = {
   productId: ProductId;
-  /** 數量、整數 ≥ 1 */
+  /**
+   * 訂購數量(整數 ≥ 1)。
+   * @see M-3-02 entity guard:OrderItem 建構時 invariant 檢查
+   */
   quantity: number;
   /** 結帳當下單價(整數、最小貨幣單位) */
   unitPrice: Money;
