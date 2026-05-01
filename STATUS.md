@@ -9,39 +9,38 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0 進度 3/9 — 跳號實作中、5 slice 待回頭補
-- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08(共 3 slice、01a+01b 是 M-0-01 拆兩階)
-- **待回頭補(依賴鏈順序):** M-0-04 → M-0-03 → M-0-05 → M-0-06 → M-0-02 → M-0-09
+**Milestone:** M-0 進度 4/9 — 跳號實作中、5 slice 待回頭補
+- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04(共 4 slice、01a+01b 是 M-0-01 拆兩階)
+- **待回頭補(依賴鏈順序):** M-0-03 → M-0-05 → M-0-06 → M-0-02 → M-0-09
 
-**當前 slice:** STATUS-fix 完成(字面校準 + backlog #3 解 + #9 新增 + §3.5.1 執行順序註記)、1 commit 待 push、待 M-0-04 動工
+**當前 slice:** M-0-04 完成 + Sean skill audit amend(MemberTier 移 shared / findByFitment → listByFitment / ports JSDoc TODO + @see anchor / backlog 擴 #11 + 加 #14 #15)、1 commit 待 push、待 M-0-03 動工
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-01
-**更新者:** Claude Code(STATUS-fix 完成、busboy-end 收工)
+**更新者:** Claude Code(M-0-04 + audit amend 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 95bc926 | docs(status): STATUS-fix 字面校準 + backlog #3 解 + #9 新增 + M-0 執行順序註記 | 2026-05-01 |
+| ceefe52 | feat(M-0-04): ports 5 介面 + domain 6 context type stub(audit amend) | 2026-05-01 |
+| 6ba2380 | docs(status): STATUS-fix 字面校準 + backlog #3 解 + #9 新增 + M-0 執行順序註記 | 2026-05-01 |
 | 0e4853d | docs(M-0-08): C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 | 2026-05-01 |
-| 9d04f71 | docs(M-0-07): C3+C5-L1 拍板落地 + NORTHSTAR §1.1 補敘 + M-0 排程 patch | 2026-05-01 |
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 手動 push 後開新 Code session 跑 M-0-04**(ports 介面定義 I*Repository / I*Adapter、對齊 ADR-0003 domain 獨立命名、解 M-1-02 阻塞最深、估 45 min)← 當前
-2. 接著 M-0-03(ESLint 邊界守門 domain ← ports ← use-cases ← adapters + dependency-rules.md)
-3. 接著 M-0-05(medusa-schema-design.md Part 1:product / brand / category mapping + tier price)
-4. 接著 M-0-06(medusa-schema-design.md Part 2:訂單狀態機 + Medusa vs Supabase 責任分割)
-5. 接著 M-0-02(apps/admin + apps/sync-engine 空殼 + tsconfig)
-6. 最後 M-0-09(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)
+1. **Sean 手動 push 後開新 Code session 跑 M-0-03**(ESLint 邊界守門 domain ← ports ← use-cases ← adapters + dependency-rules.md、依賴 M-0-04 ports 結構已就緒、估 45 min)← 當前
+2. 接著 M-0-05(medusa-schema-design.md Part 1:product / brand / category mapping + tier price)
+3. 接著 M-0-06(medusa-schema-design.md Part 2:訂單狀態機 + Medusa vs Supabase 責任分割)
+4. 接著 M-0-02(apps/admin + apps/sync-engine 空殼 + tsconfig)
+5. 最後 M-0-09(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)
 
-> 上述 1-6 完成後 → M-0 收尾、進 M-1
+> 上述 1-5 完成後 → M-0 收尾、進 M-1
 
-7. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
-8. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
+6. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
+7. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
 
 ## Sean 待決策
 
@@ -137,5 +136,7 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-01 | M-0-07 完成(C3 ADR-0003 + C5 L1 規則層 + NORTHSTAR §1.1 補敘 + backlog #6.1 ✅ / #7 / #8 新增 + M-0 排程 patch)、busboy-end 收工 | Claude Code |
 | 2026-05-01 | M-0-08 完成(C4 三權分立 — security-timeline.md Phase 1 安全時序統一表 30 條 + backlog #4/#7 加交叉引用)、busboy-end 收工 | Claude Code |
 | 2026-05-01 | STATUS-fix 完成(字面校準 + backlog #3 解 + #9 新增 + M-0 §3.5.1 執行順序註記)、busboy-end 收工 | Claude Code |
+| 2026-05-01 | M-0-04 完成(ports 5 介面 IProductRepository / ICustomerRepository / IOrderRepository / ISheetsAdapter / ITapPayAdapter + domain 6 context type stub shared/catalog/identity/order/sync/payment + @pcm/domain workspace dep + backlog #10/#11/#12/#13)、busboy-end 收工 | Claude Code |
+| 2026-05-01 | M-0-04 audit amend 完成(MemberTier 移 shared / findByFitment → listByFitment / ports JSDoc TODO milestone-anchored M-1-03/M-4a-08/M-4a-10/M-4a-XX / FitmentSpec + CategoryPath @see anchor / backlog #11 擴 ITapPayAdapter 命名抽象化 + 加 #14 SheetRangeSpec 抽象化 + 加 #15 Sean skill audit 工作流)、busboy-end 收工 | Claude Code |
 
 — END —

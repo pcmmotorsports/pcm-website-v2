@@ -8,6 +8,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@pcm/domain": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "catalog:"
   }

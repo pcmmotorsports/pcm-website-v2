@@ -330,6 +330,168 @@
 
 ---
 
+### #10. ⏳ IShopAdapter Phase 1 補一個 slice 候選
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - ADR-0003 §4 #4 字面:「Phase 1 ShopAdapter 介面 + StaticJsonShopAdapter 實作」
+  - PHASE-1-MILESTONES.md M-0-04 字面只列 5 ports(IProductRepository / ICustomerRepository / IOrderRepository / ISheetsAdapter / ITapPayAdapter)
+  - 兩字面衝突、M-0-04 拍板 Q1=A 維持 PHASE-1-MILESTONES 字面 5 個、IShopAdapter 等真寫 stores.json adapter 那 slice 才補
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 brainstorm Q1 拍板 A
+- **預期解法:**
+  - 在 M-1 後段或 Phase 2 寫 stores.json adapter 那 slice、開頭加「補 IShopAdapter 介面 + Shop entity type」步驟
+  - 不單獨開 slice 補介面、跟 adapter 實作併包
+  - 預期落點:M-1 結束前(若 storefront 需要店家列表 UI)或 Phase 2 開工前
+- **不修會痛在:**
+  - 擴充性:stores.json adapter 可能 M-1 後段或 Phase 2 才寫、屆時補介面 + 實作雙工(同 slice 內合理、跨 slice 拆 = 雙工)
+  - 可維護性:不修 OK、ADR §4 #4 處置表已記、不會掉(本條目為交叉錨點)
+  - bug 可追蹤性:本條目為追蹤錨點、未來 stores.json adapter slice 開工時 grep 此條目知道有未補介面
+- **估時:** 30-45 min(寫進 stores.json adapter slice 的開頭步驟、不單獨估)
+- **依賴:** 無、跟 stores.json adapter slice 一起做
+- **發現於:** 2026-05-01 / M-0-04 brainstorm Q1
+- **相關:** ADR-0003 §4 #4、PHASE-1-MILESTONES §3.5 M-0-04
+
+---
+
+### #11. ⏳ TapPay 純度全面重檢:type 位置 + ITapPayAdapter 命名抽象化(待 M-3-08)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - M-0-04 把 TapPayChargePayload / TapPayChargeResult / TapPayRefundPayload / TapPayRefundResult / Cardholder / ChargeStatus 放 packages/domain/src/payment/types.ts
+  - 嚴格 ports 純度應放 packages/ports/src/tappay/types.ts(Sean 拍板 Q4=X 暫放 domain)
+  - domain 看 TapPay 字眼會困惑(domain 應為 PCM 業務語意、TapPay 是 third-party 廠商)
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 brainstorm Q4=X 拍板暫放 domain
+- **預期解法:**
+  - M-3-08 寫 ITapPayAdapter 實作時、跟 adapter 一起重檢
+  - **type 位置選一:**
+    - (a) 維持現狀(domain/payment 含 TapPay 字眼、註解清楚)
+    - (b) 搬到 packages/ports/src/tappay/types.ts(嚴格 ports 純度)
+    - (c) 搬到 packages/adapters/src/tappay/types.ts(廠商私域、不入 domain / ports)
+  - **介面命名抽象化:**
+    - ITapPayAdapter → IPaymentAdapter(對齊 ADR-0003 §3.4 廠商 wire 困在 adapter、ports 抽象 + 業務語意)
+    - 實作命名:TapPayPaymentAdapter(廠商前綴 + 介面名稱)
+    - 未來換金流(藍新 / 綠界 / Stripe)只動 adapter 實作、不動 ports / use-case
+  - 不單獨開 slice 改、跟 M-3-08 adapter 實作合併
+- **不修會痛在:**
+  - 擴充性:PCM 沒換金流計畫、不修 OK(若未來換金流、本條目 trigger 重檢)
+  - 可維護性:domain 跟 ports 邊界目前模糊、看 domain code 看到 TapPay 字眼會困惑(M-1 / M-2 寫 entity 的人需註解才知道為何 payment context 含 third-party type)
+  - bug 可追蹤性:本條目 + M-3-08 adapter slice 開工點明確、不會漏
+- **估時:** 15-30 min(M-3-08 內附帶處理、若選 b/c 加 grep + 移動)
+- **依賴:** M-3-08 啟動
+- **發現於:** 2026-05-01 / M-0-04 brainstorm Q4
+- **相關:** ADR-0003 §3.4 adapter 邊界、PHASE-1-MILESTONES M-3-08
+
+---
+
+### #12. ⏳ Claude.ai 指令撰寫 — 跨 package import slice 前必檢 .npmrc 嚴格模式 + 預留 workspace deps 例外條款
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - M-0-04 執行階段 Code 抓到禁止清單字面「不可動 package.json」與執行步驟字面「ports 引用 domain types via @pcm/domain」衝突
+  - .npmrc shamefully-hoist=false 嚴格隔離下、跨 package import 必須 workspace dep 前置;Claude.ai 指令禁止清單字面忽略此前置
+  - 後續 M-1 / M-2 / M-3 跨 package import slice 多、不修每個都會重蹈覆轍(每個都觸發中斷 + 衝突回報 + 重新拍板)
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 執行階段、Code 抓到禁止清單 vs 步驟字面衝突、Sean 拍板 A 加 dep 解、教訓進此條目
+- **預期解法:**
+  - 待 M-0 全清(M-0-09 完成)後、寫進 docs/working-style.md「Claude.ai 指令發送前自檢」第 8 條:
+    - 「跨 package import slice 前必檢 .npmrc 嚴格模式;若有 shamefully-hoist=false / strict-peer-dependencies / 等嚴格設定、執行步驟必含 workspace deps 前置;禁止清單必預留例外條款」
+  - 不中斷當前 milestone、待 M-0 收尾時補
+- **不修會痛在:**
+  - 擴充性:M-1 / M-2 / M-3 跨 package import slice 估 ≥ 10 個(M-1-02 / M-1-03 / M-1-14 / M-2-01 / M-3-02 / M-3-04 / M-3-08 / M-4a-08 / M-5-02 / M-5-03 等)、不修每個都會中斷一次
+  - 可維護性:自檢清單第 8 條補上即可、不複雜
+  - bug 可追蹤性:本條目為追蹤錨點、M-0-09 完工 trigger 補
+- **估時:** 15-30 min(寫 working-style.md 第 8 條 + grep 既有指令樣板核對)
+- **依賴:** M-0-09 完成
+- **發現於:** 2026-05-01 / M-0-04 衝突回報
+- **相關:** docs/working-style.md(待補第 8 條)、.npmrc shamefully-hoist=false
+
+---
+
+### #13. ⏳ Money.amount 守門策略待 M-1-02 重檢
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - M-0-04 Q4=A 拍板 Money.amount 用 number 整數 + JSDoc + 運算層守門
+  - 違反 CLAUDE.md「Server 端鐵則」字面「禁用 number 處理價格」
+  - 精神對齊(整數運算避免浮點誤差)、但守門責任分散到各 use-case
+  - 不拍守門策略、各 use-case 自由心證、守門品質難 audit
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 brainstorm Q4=A 拍板
+- **預期解法:**
+  - M-1-02 第一個用 Money 運算的 use-case(InMemoryProductRepository test 或 calculate-something use-case)時拍板:
+    - (a) 維持 number + 各 use-case 寫 `Number.isInteger(amount)` guard
+    - (b) 升 bigint(運算精確、但 JSON serialization 要 toString 處理)
+    - (c) 升 brand type MoneyAmount + helper toMoneyAmount(n) 守門(集中守門、type-level 防混用)
+  - 拍板後寫進 docs/patterns/money-handling.md、所有 use-case 統一遵守
+- **不修會痛在:**
+  - 擴充性:M-2 / M-3 起 Money 運算 slice 多(calculate-shipping / 折扣 / 退款 / premium_store 升級判斷 / 等)、不拍守門策略每個 slice 自由心證、規範不一致
+  - 可維護性:守門責任分散到各 use-case 風險中(漏守門 = 浮點 bug 復發)、未來 audit 找漏點靠 grep 但語法散亂
+  - bug 可追蹤性:本條目 + M-1-02 trigger 為錨點、M-1-02 開工時 grep 此條目決議
+- **估時:** 30-60 min(M-1-02 內附帶決議 + 寫 docs/patterns/money-handling.md)
+- **依賴:** M-1-02 啟動
+- **發現於:** 2026-05-01 / M-0-04 brainstorm Q4
+- **相關:** CLAUDE.md「Server 端鐵則」、shared/types.ts Money 註解
+
+---
+
+### #14. ⏳ SheetRangeSpec / SheetRow wire-aligned 抽象化待 Phase 2 換廠商前重檢
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - SheetRangeSpec.spreadsheetId / SheetRow.rowIndex 等 Google Sheets API 字面放在 packages/domain/src/sync/types.ts
+  - 對比 ADR-0003 §3.4 wire 字面該困在 adapter、ports 介面用 PCM 業務語意
+  - 未來換 Airtable / Notion / 等資料源 type 不適用
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 audit 議題 4
+- **預期解法:**
+  - Phase 2 換廠商前重檢、抽象成 DataSourceQuery / DataRow 業務語意 type
+  - Phase 1 只有 Sheets、stub 階段不阻塞
+  - 修法時機:Phase 2 啟動前、跟 sync-engine 重新規劃一起做
+- **不修會痛在:**
+  - 擴充性:Phase 2 真換廠商時、domain/sync/types.ts 全改、跨 use-case 影響面大
+  - 可維護性:看 domain code 看到 spreadsheetId 字眼以為綁死 Google、降低跨平台移植性
+  - bug 可追蹤性:本條目 + Phase 2 trigger 為錨點
+- **估時:** 30-45 min(抽象 type + grep 全 use-case 修 + 更新 sync-engine adapter mapping)
+- **依賴:** Phase 2 啟動 + 換廠商需求明確
+- **發現於:** 2026-05-01 / M-0-04 audit
+- **相關:** ADR-0003 §3.4、PHASE-1-MILESTONES §8 M-5-02 sheets-api adapter
+
+---
+
+### #15. ⏳ Sean skill audit 反查工作流納入 working-style.md(M-0-09 完工 trigger 補)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - M-0-04 commit 後 Sean 用 skill audit 反查 Code 產出、抓出 5 議題 + 細節 6-8、觸發 amend
+  - 新工作模式(Sean slice-level audit + Code 評估 amend / backlog 處置)vs 既有 working-style.md「Sean 看 milestone 級驗收、異常才找」不同
+  - 後續 slice commit 後 Sean audit 是常態、若不寫進規範、下個 Claude.ai / Code session 不知此流程、可能誤以為「commit 是 final」抗拒 amend
+- **觸發事件:**
+  - 2026-05-01 / M-0-04 audit 反查 + Q3=D 拍板「skill 流程化等 M-0 收尾」
+- **預期解法:**
+  - M-0-09 全清完(含 #12 / #15)時、補 docs/working-style.md 一節「Sean skill audit 反查工作流」、含:
+    - 框架定位:Sean 二次驗收手段、不是 Claude.ai 自動化流程
+    - Claude.ai 處置邏輯:audit 抓到問題後評估 amend / backlog 處置(本次模板:🔴 設計缺陷 amend / 🟠 範圍補強 backlog / 🟡 細節 stub 一致不動 / 🟢 已拍板 trade-off 不動)
+    - slice 種類 → skill 對應表(security / DDD / UI / 計算 / PR;Code 已分析、見 M-0-04 對話)
+    - M-1-02 試跑 architecture-patterns / M-2-02 試跑 /security-review 驗證盲區、把實測結果回填本工作流
+- **不修會痛在:**
+  - 擴充性:M-1 起 75 slice 都可能 audit、不寫規範、Code session 換手時對流程不一致
+  - 可維護性:M-0-04 是第一次 audit amend、下次 Claude.ai 可能誤以為「commit 是 final」抗拒 amend(amend 安全的判準是 ahead-of-origin、不是 commit 在不在;此判準需明文寫進規範)
+  - bug 可追蹤性:本條目 + M-0-09 trigger 為錨點
+- **估時:** 30-45 min(寫 working-style.md 一節 + 範例 + 跟 #12 一起補)
+- **依賴:** M-0-09 完成
+- **發現於:** 2026-05-01 / M-0-04 audit Q3=D 拍板
+- **相關:** docs/working-style.md(待補新節)、backlog #12(Claude.ai 跨 package import 自檢、同 trigger M-0-09)
+
+---
+
 ## 紀錄模板
 
 ```markdown

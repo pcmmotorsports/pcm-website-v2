@@ -35,6 +35,10 @@ importers:
         version: 5.9.3
 
   packages/ports:
+    dependencies:
+      '@pcm/domain':
+        specifier: workspace:*
+        version: link:../domain
     devDependencies:
       typescript:
         specifier: 'catalog:'
