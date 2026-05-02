@@ -1363,6 +1363,7 @@
 - **依賴:** M-0-02
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/architecture/dependency-rules.md` §3、`docs/audits/2026-05-02-full-audit.md` Audit-F26
+- **Supersede 註(2026-05-02 / commit 686afc8 audit follow-up):** trigger 從本條原寫的「M-0-02 啟動時補 dry-run」**修正延後至**「M-1-01 / M-4a-01 / M-5-01 三點分別補(apps 真寫 .ts 時 boundaries 才有檔可掃、現補無實質效果)」。
 
 ### #55. ⏳ contract test 框架(Phase 2 觸發)
 
@@ -1773,6 +1774,70 @@
 - **依賴:** M-4a-01 / M-5-01 啟動前
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** STATUS Sean 待決策 #4(部分 overlap)、`docs/audits/2026-05-02-full-audit.md` Audit-F36
+
+### #75. ⏳ 4 空殼 packages JSDoc 格式對稱化
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - M-0-02 落地的 `packages/{use-cases,adapters,schemas}/src/index.ts` JSDoc 用「對應 ADR-XXX §X」結構化格式
+  - `packages/ui/src/index.ts` 仍是「殼、M-1-04 起裝 tokens」單行 placeholder、無 ADR 引用
+  - 4 個空殼 packages JSDoc 格式不對稱、新 dev 讀 packages 不知哪個是標準
+- **觸發事件:**
+  - 2026-05-02 / M-0-02 audit follow-up / 第一輪 engineering:code-review CR-5
+- **預期解法:**
+  - M-1-04(ui 裝 tokens slice)啟動時順手把 ui src/index.ts JSDoc 升級成「對應 ADR § X」結構化格式、對齊其他 3 個 packages
+- **不修會痛在:**
+  - 擴充性:Phase 2 加新 dev、學 monorepo 結構靠各 src/index.ts JSDoc、4 個格式不一不知哪個對標
+  - 可維護性:M-1-04 ui 真開工時順手對齊零成本、現在強改無 tokens 上下文
+  - bug 可追蹤性:本條目 + M-1-04 trigger 為錨點
+- **估時:** M-1-04 同 slice 加 5 min
+- **依賴:** M-1-04(ui 裝 tokens)
+- **發現於:** 2026-05-02 / M-0-02 audit follow-up
+- **相關:** `packages/ui/src/index.ts`、Audit findings CR-5
+
+### #76. ⏳ M-0-09 完工 trigger 補:4 套編號規範 + JSDoc trigger 抽象化規範
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - **CR-7 編號系統紀律:** 4 套編號系統(backlog #N / Audit-F\<N\> / Tech-debt T\<N\> / Risk R\<N\>)未明確區分、commit body / JSDoc / .md 引用 audit 時編號交叉錯(M-0-02 commit body 寫「audit #65 / T22」、實際 #65 是部署 region 無關;JSDoc 寫「audit #60 / T17」、實際 #60 是 Railway 容量無關)
+  - **S-C JSDoc trigger 抽象化規範:** JSDoc trigger 字面用具體 milestone ID(M-1-02 / M-1-03 / M-1-14)、現在已 drift(CR-2 / CR-3 抓出)+ 未來 milestone 重編號 / 拆分時會持續 drift
+- **觸發事件:**
+  - 2026-05-02 / M-0-02 audit follow-up / 第一輪 CR-7 + 第二輪 S-C
+- **預期解法:**
+  - M-0-09 完工 trigger 補時、跟既有 #12 / #15 一起進 `working-style.md`、加兩節:
+  - **節 1:4 套編號引用紀律** — commit body / JSDoc / .md 引用 audit 時必明確標 source(例:「Audit-F25」/「Tech-debt T17」/「Backlog #48」)、禁混用「audit #N」+「#N」短語(因 #N 易誤指 backlog)
+  - **節 2:JSDoc trigger 寫法紀律** — trigger 用抽象描述(「M-1 期間第一個 X 落地時」)、避免具體 milestone ID(易 drift);若必寫 ID、加「(目前對應 M-X)」括號註、milestone ID 重編號 / 拆分工序時必同步 grep JSDoc trigger 字面
+- **不修會痛在:**
+  - 擴充性:Phase 2 編號系統擴(可能加 Vehicle / Booking 議題編號)、不立紀律會繼續混
+  - 可維護性:JSDoc trigger drift 不斷、每次 milestone 調整都要 grep 修
+  - bug 可追蹤性:本條目 + M-0-09 trigger 為錨點
+- **估時:** M-0-09 完工 trigger 補時加 30-45 min(寫兩節 + 範例)
+- **依賴:** M-0-09 完成
+- **發現於:** 2026-05-02 / M-0-02 audit follow-up
+- **相關:** 既有 backlog #12 / #15(同 M-0-09 trigger 補時機)、Audit findings CR-7 + S-C
+
+### #77. ⏳ 8 lint script 字面重複(觀察、未來 lint 工序升級評估)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(by-design、不阻塞)
+- **問題:**
+  - 8 個 package(4 apps + 4 packages)package.json lint script 字面重複定義 `eslint . --max-warnings 0 --no-error-on-unmatched-pattern`、本 commit 加 admin / sync-engine 重複 2 次
+  - `dependency-rules.md` §5.3 / §6.1-6.2 設計就是 per-package 各定義(維運字面要求加新 app 必加 script)、是 by-design 不是疏失
+  - 但加新 package 時容易忘加、是維運盲點
+- **觸發事件:**
+  - 2026-05-02 / M-0-02 audit follow-up / 第二輪 simplify S-A
+- **預期解法:**
+  - 未來 lint 工序升級時(例 ESLint v11 / 加 typescript-aware import resolver / Phase 2 多 adapter 加進來)、評估集中於 turbo.json 或 root package.json 的 lint script preset、降低 per-package 重複
+- **不修會痛在:**
+  - 擴充性:目前 8 個重複可控、Phase 2 加 contexts 後 12-15 個重複會更明顯
+  - 可維護性:加新 package 忘加 lint script 是維運盲點、`dependency-rules.md` §6.1 已寫但靠人工守
+  - bug 可追蹤性:本條目為錨點、未來工序升級評估時 grep
+- **估時:** 評估 30 min / 若實作集中 1-2 hr
+- **依賴:** 無、未來 lint 工序升級時 trigger
+- **發現於:** 2026-05-02 / M-0-02 audit follow-up
+- **相關:** `docs/architecture/dependency-rules.md` §5.3 / §6.1-6.2、Audit findings S-A
 
 ---
 
