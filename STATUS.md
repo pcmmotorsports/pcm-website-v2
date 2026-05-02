@@ -9,33 +9,33 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0 進度 8/9 — 跳號實作中、1 slice 待回頭補(audit 為獨立 sanity-check slice、不算 M-0 milestone slice)
-- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06 / M-0-02(共 9 slice、8 個 milestone)+ 全專案 audit(獨立 slice)
-- **待回頭補:** M-0-09
+**Milestone:** M-0 進度 9/9 — **完成**(M-0 收尾完整、進 M-1)
+- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06 / M-0-02 / M-0-09(共 11 slice、9 個 milestone)+ 全專案 audit(獨立 slice)
+- **下一步:** M-1-01
 
-**當前 slice:** M-0-02 audit follow-up 完成(雙輪 skill audit:engineering:code-review 抓 7 條實質 issue + simplify 抓 1 條新增 + 1 條補強、互補去重 7/1/1;立即修 4 處 JSDoc 字面 CR-1 編號 #60→#48 / CR-2 use-cases trigger 改抽象 / CR-3 schemas trigger 改抽象 / CR-4 ADR-0002 §5→§5.3;backlog #54 加 supersede 註 + 新 #75/#76/#77 三條 CR-5/CR-7+S-C/S-A;Sean Q1=A1/Q2=A3/Q3=A1/Q4=A1 拍板;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純字面修可省)、待 Sean 推 commit
+**當前 slice:** M-0-09 完成(a + b 兩 sub-slice 跨 repo:M-0-09a busboy-end.js console.log template 加 pre-flight 三綠提示段、pcm-tools repo commit f00f2a7;M-0-09b working-style.md §6.3 新節「指令發送前自檢」第 8 / 第 10 / 第 11-13 條從 backlog #12 / #15 / #76 integrate、含 #76 節 1 / 節 2 supplementary、backlog #12 / #15 / #76 標 ✅、Sean Q1=A1/Q2=B1/Q3=C3/Q4=D2/Q5=E1 拍板;L1 typecheck 6/6 + lint 10/10 全綠 build 純 docs / md 可省)、待 Sean 各 repo 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
-**時間:** 2026-05-02
-**更新者:** Claude Code(M-0-02 audit follow-up 完成、busboy-end 收工)
+**時間:** 2026-05-03
+**更新者:** Claude Code(M-0-09 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| a7f7f0d | fix(M-0-02): audit follow-up — JSDoc 字面修 + backlog 處置 | 2026-05-02 |
+| 215e8cd | docs(M-0-09b): working-style.md §6.3 + backlog #12 / #15 / #76 完成 | 2026-05-03 |
+| cc45c4a | fix(M-0-02): audit follow-up — JSDoc 字面修 + backlog 處置 | 2026-05-02 |
 | 686afc8 | feat(M-0-02): apps/admin + apps/sync-engine 極簡空殼 + packages JSDoc | 2026-05-02 |
-| dcceecc | docs(audits): 2026-05-02 全專案 audit - tech-debt + risk-assessment | 2026-05-02 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-0-09**(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)← 當前
+1. **M-1-01**(Vercel deploy fix:vercel.json + ENABLE_EXPERIMENTAL_COREPACK=1)← 當前(M-0 已完整收尾、進 M-1)
 
-> 上述 完成後 → M-0 收尾、進 M-1
-> M-1-02 / M-1-03 啟動前需處理 audit Critical / High:#57 Supabase Pro 升級 / #66 Medusa-as-API spike checklist / #43 image CDN / #36 monitoring;M-1-16 啟動前需處理 #44 種子 transition
-> M-1-01 / M-4a-01 / M-5-01 啟動前需處理 audit #54 trigger 修正(apps 真寫 .ts 時各補一般性 boundaries 驗證、commit body M-0-02 已揭示)
+> M-1-01 / M-4a-01 / M-5-01 啟動前需處理 audit #54 trigger 修正(apps 真寫 .ts 時各補一般性 boundaries 驗證、commit 686afc8 已揭示)
+> M-1-02 / M-1-03 啟動前需處理 audit Critical / High:#57 Supabase Pro 升級 / #66 Medusa-as-API spike checklist / #43 image CDN / #36 monitoring
+> M-1-16 啟動前需處理 #44 種子 transition
 
 2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
 3. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
@@ -144,5 +144,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-02 | 全專案 audit 完成(獨立 sanity-check slice、Sean 拍板 Q1=A3 / Q2=B3 / Q3=C1 主 session 跑 2 Skill;engineering:tech-debt 抓 25 + operations:risk-assessment 抓 19、過三視角 filter 留 43 條進 backlog #32-#74;T13 合併 R16;§4.2 既有條目引用 #4 / #16 / #20 / #27 / #29 / #30 / #31;STATUS Sean 待決策 #1-#4 對應 Audit-F12 / F15 / F22 / F27 / F36;優先級 🔴 Critical 1 / High 13 / 🟠 Medium 22 / 🟡 Low 6 / 🟢 觀察 2;`docs/audits/2026-05-02-full-audit.md` 落地;L1 typecheck 6/6 + lint 8/8 全綠 build §2.2 純 docs 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | M-0-02 完成(apps/admin + apps/sync-engine 極簡空殼字面複製 storefront/medusa 純殼結構、無 tsconfig/src/README、對齊 dependency-rules.md §5.3;packages/{use-cases,adapters,schemas}/src/index.ts file-level JSDoc 處置 audit #65/T22;Code sanity-check 抓 Claude.ai 原指令 Step 5-7 違反 ADR-0002 §4.2 + Step 1 假設 storefront/medusa 有 tsconfig pattern 偏離 4 條、Sean Q1=A1/Q2=B1/Q4=D1 拍板;audit #54/T23 trigger 修正延後到 M-1-01/M-4a-01/M-5-01;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 stub 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | M-0-02 audit follow-up 完成(雙輪 skill audit:engineering:code-review 抓 7 + simplify 抓 1 新 + 1 補強、互補 7/1/1;立即修 4 處 JSDoc 字面 CR-1/2/3/4 — adapters audit #60→#48 編號修正 + use-cases/schemas trigger 改抽象 + use-cases ADR-0002 §5→§5.3;backlog #54 加 supersede 註 + 新 #75/#76/#77 三條 CR-5/CR-7+S-C/S-A;Sean Q1=A1/Q2=A3/Q3=A1/Q4=A1 拍板;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純字面修可省)、busboy-end 收工 | Claude Code |
+| 2026-05-03 | M-0-09 完成(a + b 兩 sub-slice 跨 repo:M-0-09a busboy-end.js pre-flight 三綠提示段 pcm-tools commit f00f2a7;M-0-09b working-style.md §6.3「指令發送前自檢」新節從 backlog #12 / #15 / #76 integrate 第 8 / 第 10 / 第 11-13 條 + #76 節 1 節 2 supplementary、backlog 三條標 ✅、Sean Q1=A1/Q2=B1/Q3=C3/Q4=D2/Q5=E1 拍板;sanity-check 抓 9 處字面 vs 事實偏離 multi-select 回報、Sean 拍板修正版指令;M-0 收尾完整 9/9 進 M-1;L1 typecheck 6/6 + lint 10/10 全綠 build 純 docs / md 可省)、busboy-end 收工 | Claude Code |
 
 — END —
