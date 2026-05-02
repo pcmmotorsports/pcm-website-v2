@@ -895,6 +895,885 @@
 - **發現於:** 2026-05-02 / M-0-06 全專案 audit sneak peek
 - **相關:** `docs/architecture/security-timeline.md` §3 #C8、`docs/features/vehicle-service-ecosystem.md` §4.8 / §11.3
 
+### #32. ⏳ IPricingRepository / IPricingService 抽象(Pricing context port 缺位)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - schema-design §5 + ADR-0003 §4 #6 規劃 Pricing 走 Medusa price_list + customer_group、但 5 ports 不含 Pricing
+  - storefront server-side render 直接讀 `Product.priceByTier[customer.tier]`、邏輯散在 storefront / use-case / adapter、無集中 PricingService
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T1)
+- **預期解法:**
+  - M-2-08 落地時抽 `IPricingService.computePriceForCustomer(productId, customerId): Money`、storefront 走 service 不直接讀 Product.priceByTier
+- **不修會痛在:**
+  - 擴充性:Phase 2 「廠牌折扣 + VIP + tier」三層 stack(0002 §4.3)、無 IPricingService = storefront server bundle 含計算邏輯
+  - 可維護性:M-2-09 / M-3-06 兩處算 price 邏輯、改規則(NT$ 1000 滿減運費)需改兩處
+  - bug 可追蹤性:客訴「某商品價格不對」、查 storefront log / use-case log / adapter log 三處才能定位
+- **估時:** M-2-08 同 slice 加 60-90 min(IPricingService 抽 + storefront 改路徑)
+- **依賴:** M-2-08(Pricing Price List)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §5、`docs/decisions/0003-domain-entity-naming.md` §4 第 6 條、`docs/audits/2026-05-02-full-audit.md` Audit-F16
+
+### #33. ⏳ IInventoryRepository 缺位(inventory context port + entity 欄位)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - PHASE-1-MILESTONES §8 M-5-05 規劃 auto-update-inventory use-case、schema-design §2.1 寫「inventory 推延到 M-1-02 補」、但無 IInventoryRepository
+  - 10w 商品庫存批次同步、靠 `IProductRepository.save(product)` 整 entity 覆寫、N 次 round-trip 效能差
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T2)
+- **預期解法:**
+  - M-1-02 / M-5-05 啟動前抽 `IInventoryRepository.updateStock(productId, quantity)` + `getStock(productId)`
+- **不修會痛在:**
+  - 擴充性:Phase 2 多倉庫(PCM 倉 + 合作店家倉)inventory 分散、無 IInventoryRepository = inventory 跨倉邏輯散
+  - 可維護性:sync-engine 改庫存走 IProductRepository.save 整體 update、N 次 round-trip
+  - bug 可追蹤性:「客人下單顯示有貨實際缺」、查 product update log 找不到 inventory 變動 trace
+- **估時:** M-1-02 同 slice 加 30-45 min(介面字面)、M-5-05 落地實作 60 min
+- **依賴:** M-1-02 / M-5-05
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §2.1、`docs/audits/2026-05-02-full-audit.md` Audit-F17
+
+### #34. ⏳ Order.total 缺 breakdown(subtotal / shipping / discount / tax)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/domain/src/order/types.ts:76-77` 只 total: Money 一條
+  - 退款 / dispute 時無法拆 subtotal / shipping / discount / tax;發票自動化拆 line 也無法依靠
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T3)
+- **預期解法:**
+  - M-3-02 加 `Order.subtotal / shippingFee / discount / total` 4 個 Money 欄位
+- **不修會痛在:**
+  - 擴充性:A3 發票自動化拍板要做時、發票拆 line 必有金額 breakdown、Order.total 一條無法切
+  - 可維護性:M-3-08 partial refund 跑 amount 計算複雜、邊算邊查 wire 還原而非 entity
+  - bug 可追蹤性:客服「我的訂單退款少 300」、查 Order.total 看不到拆解、必須 grep TapPay rec_trade_id 找原始 amount
+- **估時:** M-3-02 同 slice 加 30 min
+- **依賴:** M-3-02(Order entity)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/order/types.ts:76-77`、`docs/audits/2026-05-02-full-audit.md` Audit-F2
+
+### #35. ⏳ search engine plan 未拍(searchByKeyword 對 10w 商品 PG ILIKE 慢)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/ports/src/IProductRepository.ts:20` searchByKeyword 介面已存、但 Phase 1 預期 PG ILIKE 對 10w 商品必慢(p99 > 5s)
+  - fitment 篩選 scale(#30)只解 fitment、keyword search(品名 / brand / category 自由打)是另一條 query path
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T4)
+- **預期解法:**
+  - 候選 A:M-1-03 落地時用 PG `tsvector` + GIN(零外部依賴、TWD 中文需 `pg_jieba` extension)、Phase 2 觸發再升 Meilisearch【推薦】
+  - 候選 B:Phase 1 直上 Meilisearch / Algolia(管理成本但 search UX 即用)
+  - 候選 C:維持 PG ILIKE、上線後監控、超過閾值再升(風險高)
+- **不修會痛在:**
+  - 擴充性:Algolia / Meilisearch / PG GIN 三方案、改架構成本不一、不先決就直接 PG ILIKE 上線後爆
+  - 可維護性:Phase 2 換 search engine、storefront search bar / VehicleFinder 改寫
+  - bug 可追蹤性:客人「搜某商品搜不到」、不知是 ILIKE 大小寫敏感 / encoding / metadata 欄位差異、無 search query log
+- **估時:** M-1-03 拍板 30 min / 若選 A 額外 60 min(GIN index)/ 若選 B 額外 4-6 hr(Meilisearch 接入)
+- **依賴:** M-1-03(MedusaProductAdapter)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/ports/src/IProductRepository.ts:20`、`docs/phase-1-backlog.md` #30(fitment scale)、`docs/audits/2026-05-02-full-audit.md` Audit-F18
+
+### #36. ⏳ monitoring / alerting plan 缺(p99 latency / error rate / 慢查詢)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `docs/architecture/security-timeline.md` §7 劃線「監控不足屬 OWASP 但無 specific plan」
+  - p99 latency / error rate / 慢查詢 / TapPay 失敗率 / sync-engine 跑批失敗 都無 monitoring;F1 兩層保險只覆蓋 sync-engine
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T5)
+- **預期解法:**
+  - M-6-08 上線前加 Sentry(error monitoring)+ Vercel Analytics(p99)、最小可行;Phase 2 視需要升 OpenTelemetry
+- **不修會痛在:**
+  - 擴充性:Phase 2 多 adapter(LINE / 物流 API / 廠商爬蟲)加進來、無 monitoring 框架、新 adapter 各自 print log 散落
+  - 可維護性:錯誤分散在 Vercel log / Railway log / sync-engine local log、找 1 個錯走 3 處
+  - bug 可追蹤性:客人「下單失敗」、無 distributed tracing、不知是 storefront / Medusa / TapPay / Supabase 哪一段失敗
+- **估時:** M-6-08 加 2-3 hr(Sentry 接入 + Vercel Analytics 設定)
+- **依賴:** M-6-08
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/security-timeline.md` §7、`docs/phase-1-backlog.md` #30(fitment scale 提及 query 時間 monitoring)、`docs/audits/2026-05-02-full-audit.md` Audit-F19
+
+### #37. ⏳ OrderItem 缺 lineTotal + tierAtCheckout(B2B 對帳 / dispute 追溯)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/domain/src/order/types.ts:42-51` OrderItem 結帳當下 customer.tier 未記錄、tier 變動歷史對帳找不出
+  - 客訴「我那時是 store tier、admin 看到我訂單 unitPrice 是 retail price?」無法回溯
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T6)
+- **預期解法:**
+  - M-3-02 加 `OrderItem.lineTotal: Money` + `OrderItem.tierAtCheckout: MemberTier`
+- **不修會痛在:**
+  - 擴充性:Phase 2「premium_store 自動降級」(累積消費低於閾值)、查歷史訂單 tier 變動軌跡需 OrderItem.tierAtCheckout
+  - 可維護性:M-3-11 premium_store 自動升級邏輯依賴歷史訂單金額、若 unitPrice 是 retail 但客人那時是 store、計算錯
+  - bug 可追蹤性:稽核「為何同商品同時段 admin 看到的 unitPrice 不同」、無 tier 紀錄找不到 root cause
+- **估時:** M-3-02 同 slice 加 15 min
+- **依賴:** M-3-02
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/order/types.ts:42-51`、`docs/audits/2026-05-02-full-audit.md` Audit-F7
+
+### #38. ⏳ listByFitment(spec) 單數 vs 多選衝突(篩選器多車型 OR)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/ports/src/IProductRepository.ts:18` 介面字面 spec 單數
+  - design 篩選器(VehicleFinder + FilterSide cascade)允許「Yamaha CBR600RR + Honda CB1000R」多選 OR、需 specs[]
+  - Product.fitments: FitmentSpec[] 是 array、query 介面卻單 spec、不一致
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T7)
+- **預期解法:**
+  - 改 `listByFitment(specs: FitmentSpec[]): Promise<Product[]>` 表達 OR 多選
+- **不修會痛在:**
+  - 擴充性:Phase 1 storefront 4 篩選器(M-1-09/10/11/12)只能單車型搜、客人多車主場景搜不出
+  - 可維護性:M-1-03 adapter 落地時、要解構單 spec 為 metadata_filters wire query、若改多 spec 要改 wire query 邏輯
+  - bug 可追蹤性:無
+- **估時:** M-1-03 / M-1-12 同 slice 加 15 min(介面字面 + adapter wire query 改)
+- **依賴:** M-1-03(MedusaProductAdapter)/ M-1-12(ProductsPage 4 篩選整合)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/ports/src/IProductRepository.ts:18`、`docs/audits/2026-05-02-full-audit.md` Audit-F3
+
+### #39. ⏳ Order.fulfillmentMethod 欄位缺(寄家 / 寄店家 / 自取)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/domain/src/order/types.ts:69-78` Order entity 字面無 fulfillmentMethod
+  - M-3-05 calculate-shipping use-case「滿 4000 免運 + 偏遠 + 寄店家固定 100」需要知道客人選哪種運送
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T8)
+- **預期解法:**
+  - M-3-02 加 `Order.fulfillmentMethod: 'home' | 'shop' | 'pickup'`
+- **不修會痛在:**
+  - 擴充性:Phase 2 加宅配 / 超商 / 機車快遞、enum 加值、現在加成本零、之後 migrate 成本高
+  - 可維護性:calculate-shipping 內 hardcode 三 case、Order 看不到、admin 詳情頁要 derive
+  - bug 可追蹤性:客人「我選寄家但收到簡訊去店家領」、Order 無紀錄、靠 metadata 解
+- **估時:** M-3-02 同 slice 加 10 min
+- **依賴:** M-3-02
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/order/types.ts:69-78`、`docs/phase-1-backlog.md` #29(paymentMethod、不同欄位)、`docs/audits/2026-05-02-full-audit.md` Audit-F4
+
+### #40. ⏳ Customer phoneNumber + address 欄位缺
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `packages/domain/src/identity/types.ts:13-17` Customer 只 id / email / tier、結帳必填 phoneNumber + address 欄位字面無
+  - security-timeline §C7 寫客人手機 / 地址 PII server-side 才查全、但 entity 缺欄位不知哪個 PII 是 customer-level / 哪個 order-level
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T9)
+- **預期解法:**
+  - M-2-04 落地時加 `Customer.phoneNumber: string` + `Customer.addresses: Address[]` + `Order.shippingAddress: Address`(snapshot)
+- **不修會痛在:**
+  - 擴充性:M-2-04 AccountPage 6 tab(profile / address / vehicles)需 Customer.address 結構、不先定設計散
+  - 可維護性:訂單下單表單 vs Customer profile 兩處填地址、不同步
+  - bug 可追蹤性:客人「我地址改了但訂單通知用舊地址」、address 是 Customer-level 還是 Order-level snapshot 不清
+- **估時:** M-2-04 同 slice 加 30 min
+- **依賴:** M-2-04(AccountPage 6 tab)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/identity/types.ts:13-17`、`docs/architecture/security-timeline.md` §3 #C7、`docs/audits/2026-05-02-full-audit.md` Audit-F20
+
+### #41. ⏳ ChargeStatus 缺 disputed / chargedBack(production dispute 場景)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/domain/src/payment/types.ts:18` ChargeStatus = 'succeeded' | 'failed' 不夠用
+  - production 銀行 dispute 是非同步、可能 2 週後 issuer 撤回 charge、需 disputed / chargedBack 字面
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T10)
+- **預期解法:**
+  - M-3-08 落地前加 `'succeeded' | 'failed' | 'pending' | 'disputed' | 'chargedBack'`
+- **不修會痛在:**
+  - 擴充性:Phase 2 dispute 場景、enum 加值零成本、現加比後改
+  - 可維護性:M-3-08 sandbox 預設不會回 pending、production dispute 漏處理
+  - bug 可追蹤性:dispute 發生時、admin 看 ChargeStatus 仍 succeeded 但實際銀行已撤回、PCM 收不到錢
+- **估時:** M-3-08 同 slice 加 10 min(enum + adapter mapper)
+- **依賴:** M-3-08(TapPay sandbox 整合)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/payment/types.ts:18`、`docs/audits/2026-05-02-full-audit.md` Audit-F5
+
+### #42. ⏳ logging strategy / PII masking utility(集中 mask / log format)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `docs/architecture/`(無 logging-strategy.md)、各 adapter 各自 log、無集中規範(level / format / 敏感欄位 mask)
+  - security-timeline §C7 / §C8 / §C6 三條都依賴 logging mask、但無 utility
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T11)
+- **預期解法:**
+  - M-3-08 啟動前寫 `packages/use-cases/src/utils/log-masking.ts`(maskPhone / maskEmail / maskAddress / maskTapPayCardholder)+ 各 adapter 必呼叫
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 LINE / 物流 / claude-api adapter、各 adapter 各 log 不一致格式、aggregator 無法 parse
+  - 可維護性:每個 adapter 自己決定 mask 邏輯、改 mask 規則(例追加身分證遮蔽)散在多處
+  - bug 可追蹤性:dispute 客訴「PCM 把我電話 log 出來」、grep log 找不到統一遮蔽點
+- **估時:** M-3-08 啟動前 90-120 min(utility + 各 adapter 接入規範)
+- **依賴:** M-3-08(TapPay PII 落地)、優先於 backlog #16
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/security-timeline.md` §3 #C7 / #C8、`docs/phase-1-backlog.md` #16(範圍擴展)、`docs/audits/2026-05-02-full-audit.md` Audit-F8
+
+### #43. ⏳ image CDN / storage strategy(10w 商品 50w 圖)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - schema-design §2.1 寫「images 推延 M-1-02」但只是欄位、CDN 不在那
+  - 10w 商品每個 1-5 張圖 = 50w 圖、PG storage 不適合大量 binary、必走 S3 / Cloudflare R2 / Vercel Blob
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T12)
+- **預期解法:**
+  - 候選 A:M-1-02 啟動前拍板 Cloudflare R2 + image transform CDN(免費額度大)【推薦】
+  - 候選 B:Phase 1 直上 Vercel Blob、Phase 2 換
+  - 候選 C:Medusa default storage Phase 1 容忍、上線後再換
+- **不修會痛在:**
+  - 擴充性:image upload 走哪個 service 不拍、Phase 2 換 CDN 必 migrate 全 image URL
+  - 可維護性:image transform(resize / webp)在 backend 做還是 CDN 做不一致
+  - bug 可追蹤性:客人「圖載很慢」、無 image performance log
+- **估時:** M-1-02 拍板 30 min / 若選 A 額外 2-3 hr(R2 接入 + transform 設定)
+- **依賴:** M-1-02(Product entity images 落地)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §2.1、`docs/audits/2026-05-02-full-audit.md` Audit-F21
+
+### #44. ⏳ 種子 200 SKU → ongoing import transition plan(合併 sync conflict 風險)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - PHASE-1-MILESTONES §4 M-1-16 規劃 200 SKU 一次性 import、§8 M-5-03 才落 sync-engine ongoing
+  - M-1 ~ M-4 期間(6-9 週)若 Sean 想加新 SKU、走哪個流程?無規範
+  - 同一商品在「種子」與「sync-engine 寫候選」兩流程觸發、可能重複建商品 / 蓋寫 metadata(合併 R16 conflict 風險)
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T13)+ operations:risk-assessment(R16 合併)
+- **預期解法:**
+  - M-1-16 啟動前寫 `docs/runbooks/manual-product-upload.md`(M-1 ~ M-4 期間 Medusa Admin 直接上)+ dedupe key(SKU code)、sync-engine 同 key matcher 不重建
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 vendor crawler、source-of-truth 衝突更多
+  - 可維護性:M-1 ~ M-4 期間若新品上架需求、員工沒流程、走 ad-hoc 慣例後續沿用
+  - bug 可追蹤性:重複商品出現時、查哪邊是 source 不易;某 SKU 是 M-1-16 一次性還是 M-3 員工手動 admin 上、無 trace
+- **估時:** M-1-16 啟動前 60 min(runbook + dedupe key 設計)
+- **依賴:** M-1-16(種子 import)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` §4 M-1-16 / §8 M-5-03、`docs/audits/2026-05-02-full-audit.md` Audit-F6
+
+### #45. ⏳ testing-strategy.md 待寫(0002 ADR §7 列待寫)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `docs/architecture/`(無 testing-strategy.md)、0002 ADR §7 列「待寫(M-6 / G2 拍板後)」
+  - M-1-02 起寫 test 前無集中規範(test 位置 / vitest / mock 風格 / coverage 目標 / contract test 框架)
+  - 各 slice 自由發揮、test 風格散
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T14)
+- **預期解法:**
+  - M-1-02 啟動前寫 testing-strategy.md(test 位置 / vitest 設定 / mock 風格 / contract test 框架是否 Phase 1)、不等 G2 拍板
+- **不修會痛在:**
+  - 擴充性:Phase 2 9 大 contexts 各自 test 風格、後續整合 E2E 苦
+  - 可維護性:M-1-02 寫的 test 風格 vs M-3-02 寫的不同、回頭 review 不知道誰是對標
+  - bug 可追蹤性:test 失敗時、不知道測了什麼、test description 風格不一致
+- **估時:** M-1-02 啟動前 60-90 min
+- **依賴:** M-1-02 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/decisions/0002-architecture-pivot.md` §7、STATUS Sean 待決策 #2(G2 測試覆蓋率)、`docs/audits/2026-05-02-full-audit.md` Audit-F22
+
+### #46. ⏳ bounded-contexts.md 待寫(0002 ADR §7 列待寫)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `docs/architecture/`(無 bounded-contexts.md)、0002 ADR §7 列「待寫」
+  - 9 contexts 邊界目前散在 schema-design §8.3(7 條簡述)+ ADR-0003 §3.1(命名規則)+ PHASE-2-VISION + 0002 §4.3、無集中文件
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T15)
+- **預期解法:**
+  - M-1-02 啟動前寫 bounded-contexts.md(9 contexts × ubiquitous language × Medusa 蓋面 × milestone)
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 Booking / Wallet entity、邊界決策歷史散落、不知為何 Vehicle 走 PCM 自家 / Catalog 走 Medusa-as-API
+  - 可維護性:domain 改命名(motoBrand → vehicleBrand)、要 grep 全 repo + 4 ADR + schema-design + 各 context types.ts、無單一 source
+  - bug 可追蹤性:bug「下單後 Vehicle entity 沒 created」、不知 Vehicle 屬 Order 還 Identity、邊界不明
+- **估時:** M-1-02 啟動前 90-120 min
+- **依賴:** M-1-02 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/decisions/0002-architecture-pivot.md` §7、`docs/audits/2026-05-02-full-audit.md` Audit-F23
+
+### #47. ⏳ Phase 2 三層折扣疊加 schema 預留(Order.discountsApplied)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 0002 ADR §4.3 寫「Pricing Phase 1 雙 tier、Phase 2 三層折扣疊加(廠牌 / VIP)」
+  - ADR-0003 §4 #6 只規劃 priceByTier、無 Discount entity / DiscountRule struct
+  - Phase 2 啟用時 Order.total 計算邏輯改大、若 Order.total 已上線、歷史 Order 無 discount breakdown 無法回溯
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T16)
+- **預期解法:**
+  - M-3-02 Order entity 加 `discountsApplied: DiscountSnapshot[]`(空 array、Phase 1 不啟用業務邏輯、只留欄位)
+- **不修會痛在:**
+  - 擴充性:Phase 2 折扣疊加上線時、回頭加欄位、歷史 Order 無此欄位
+  - 可維護性:結帳邏輯重寫、cart 計算 / Order entity / TapPay charge amount 三處改
+  - bug 可追蹤性:Phase 2 客人「我有 VIP 折扣但沒應用」、Order 無 discount breakdown 找不到
+- **估時:** M-3-02 同 slice 加 15 min(欄位預留 + DiscountSnapshot type stub)
+- **依賴:** M-3-02
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/decisions/0002-architecture-pivot.md` §4.3、`docs/decisions/0003-domain-entity-naming.md` §4 第 6 條、`docs/audits/2026-05-02-full-audit.md` Audit-F24
+
+### #48. ⏳ adapters 子目錄結構規劃(ports-and-adapters.md 待寫)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `packages/adapters/src/`(空殼、無子目錄)、0002 ADR §4.1 列 medusa / supabase / sheets-api / tappay 四 adapter 範圍但無子目錄規劃
+  - M-1-03 第一個 adapter 落地時臨機決定子目錄結構、可能跑出不一致
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T17)
+- **預期解法:**
+  - M-1-03 啟動前寫 `docs/architecture/ports-and-adapters.md`(對齊 0002 §7 待寫)、含 adapters 子目錄結構模板 + 命名規則 + mapper 位置
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 claude-api / image-processor / vendor-crawler、各自取名 random
+  - 可維護性:M-1-03 / M-3-04 / M-3-08 / M-5-02 四 adapter 結構不一致
+  - bug 可追蹤性:bug「Medusa adapter mapping 錯」、要找 mapper 在哪
+- **估時:** M-0 收尾 / M-1-03 啟動前 60 min
+- **依賴:** M-1-03 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/decisions/0002-architecture-pivot.md` §4.1 / §7、`docs/audits/2026-05-02-full-audit.md` Audit-F25
+
+### #49. ⏳ MotoBrand 升級 value-object trigger(JSDoc 已提無對應 slice)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/domain/src/catalog/types.ts:55-56` JSDoc 提及「M-1 升級 MotoBrand value-object」、但 milestone 字面無對應 slice
+  - 篩選器需結構化(motoBrand 對應 logo / 中英對照)時、升級時機未定
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T18)
+- **預期解法:**
+  - M-1-09 ~ M-1-11 篩選器搬時若 design 真權威需要結構化、再升級為 MotoBrand value-object
+- **不修會痛在:**
+  - 擴充性:Phase 2 車輛履歷需 motoBrand 結構化(年份 / 排氣量分類)
+  - 可維護性:JSDoc 寫了但無對應 slice、容易漏
+  - bug 可追蹤性:無
+- **估時:** M-1-09 ~ M-1-11 同 slice 加 15-30 min(看 design 真權威需求)
+- **依賴:** M-1-09 ~ M-1-11(篩選器搬)
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/catalog/types.ts:55-56`、`docs/phase-1-backlog.md` #17(命名衝突)、`docs/audits/2026-05-02-full-audit.md` Audit-F37
+
+### #50. ⏳ SyncResult.errors 結構化(rowIndex / sourceRow 對應)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/domain/src/sync/types.ts:39` errors 是 string[]、無 row 對應
+  - sync-engine batch sync 某 row 失敗、admin 看不到「哪一 row」「什麼欄位」「原始值」
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T19)
+- **預期解法:**
+  - M-5-03 落地前改 `errors: { rowIndex: number; reason: string; sourceRow?: SheetRow }[]`
+- **不修會痛在:**
+  - 擴充性:Phase 2 vendor crawler 加進來、errors 結構不變、各 source 統一格式好
+  - 可維護性:sync-engine sub-use-case 各自寫 error string、format 不一致
+  - bug 可追蹤性:某 row 失敗找原因要還原 SheetRow
+- **估時:** M-5-03 同 slice 加 15 min
+- **依賴:** M-5-03
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/sync/types.ts:39`、`docs/phase-1-backlog.md` #14(SheetRangeSpec 抽象化、不同議題)、`docs/audits/2026-05-02-full-audit.md` Audit-F38
+
+### #51. ⏳ list 三方法分頁 TODO 一致性(IProductRepository JSDoc)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/ports/src/IProductRepository.ts:16-18` listByCategory / listByBrand / listByFitment 三方法 JSDoc 無分頁 TODO 標記
+  - searchByKeyword 已標 TODO M-1-03 補分頁、但其他三方法 10w 商品列表頁同樣面臨 scale
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T20)
+- **預期解法:**
+  - M-0 收尾前 / M-1-03 落地前在三方法 JSDoc 加 TODO M-1-03 補分頁
+- **不修會痛在:**
+  - 擴充性:#20 PaginationParams 預定義決議時、若漏 list 三方法、回頭補
+  - 可維護性:M-1-03 落地時靠 grep TODO 列、漏一條方法
+  - bug 可追蹤性:無
+- **估時:** 5-10 min(JSDoc 加註)
+- **依賴:** M-0 收尾 / M-1-03 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/ports/src/IProductRepository.ts:16-18`、`docs/phase-1-backlog.md` #20(PaginationParams 預定義)、`docs/audits/2026-05-02-full-audit.md` Audit-F39
+
+### #52. ⏳ Order.total JSDoc drift(對齊 #34 後 sync 字面)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/domain/src/order/types.ts:76` JSDoc 寫「items + 運費」但無 discount 提示
+  - schema-design §8.4 也未提 discount、JSDoc vs schema-design drift
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T21)
+- **預期解法:**
+  - M-3-02 Order entity 落地時 sync JSDoc(對齊 #34 breakdown 後字面)
+- **不修會痛在:**
+  - 擴充性:Phase 2 折扣加進來、JSDoc 不更新、新 dev 看 JSDoc 不知道 total 含哪些
+  - 可維護性:JSDoc 與 schema-design §8.4 不一致
+  - bug 可追蹤性:無
+- **估時:** M-3-02 同 slice 加 5 min(JSDoc 字面同步)
+- **依賴:** M-3-02 + #34 落地
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/domain/src/order/types.ts:76`、`docs/phase-1-backlog.md` #34、`docs/audits/2026-05-02-full-audit.md` Audit-F40
+
+### #53. ⏳ packages 空殼 README / file-level JSDoc(use-cases / adapters / schemas)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/{use-cases,adapters,schemas}/`(均空殼、僅 package.json + index.ts)
+  - 各 package 為什麼存在、何時填、怎麼填、無 README
+  - 新 dev 看 packages/use-cases/ 空殼、不知道是 M-1-02 起填、還是 M-3-02 起填
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T22)
+- **預期解法:**
+  - M-0 收尾前各 package src/index.ts 加 file-level JSDoc、註明何時填、對應 ADR § 編號
+- **不修會痛在:**
+  - 擴充性:Phase 2 加新 dev、學 monorepo 結構靠 grep ADR
+  - 可維護性:三 package 寫 file-level JSDoc + 對應 milestone 引用、新 dev 一看就懂
+  - bug 可追蹤性:無
+- **估時:** M-0 收尾 30 min(三 package src/index.ts 加 JSDoc)
+- **依賴:** M-0 收尾
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `packages/use-cases/src/index.ts`、`packages/adapters/src/index.ts`、`packages/schemas/src/index.ts`、`docs/audits/2026-05-02-full-audit.md` Audit-F41
+
+### #54. ⏳ admin/sync-engine ESLint dry-run 補(M-0-02 啟動時)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `apps/`(只 storefront / medusa)、`docs/architecture/dependency-rules.md` §3 dry-run 只覆蓋 storefront / medusa
+  - admin / sync-engine 對 packages/* import 邊界守門未驗
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T23)
+- **預期解法:**
+  - M-0-02 啟動時加 admin / sync-engine 對 packages/* 違規 dry-run(對齊現有 7 條 dry-run)
+- **不修會痛在:**
+  - 擴充性:M-4a / M-5 啟動時 boundaries 對 admin / sync-engine 未測、可能漏
+  - 可維護性:現有 ADR 字面假設 4 apps、實體 2 apps、字面 vs 事實 drift
+  - bug 可追蹤性:M-4a-01 落地時、若 boundaries 對 admin 失靈、debug 多繞路
+- **估時:** M-0-02 同 slice 加 15-20 min(2 apps × dry-run + dependency-rules.md §3 表格更新)
+- **依賴:** M-0-02
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/dependency-rules.md` §3、`docs/audits/2026-05-02-full-audit.md` Audit-F26
+
+### #55. ⏳ contract test 框架(Phase 2 觸發)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - 5 ports 介面、現規劃 InMemory(test)+ Medusa(real)兩實作對
+  - 但兩實作的「行為」要對齊(InMemory 跑通 Medusa 也要跑通)、無 contract test 框架
+  - M-1-03 Medusa adapter 落地時、對齊 InMemory 靠 review 防呆、邊界 case 漏
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T24)
+- **預期解法:**
+  - Phase 2 觸發時補(等 9 contexts 都有 adapter 再投入框架成本)
+- **不修會痛在:**
+  - 擴充性:Phase 2 加新 adapter(SupabaseProductAdapter)、行為對齊靠 review、不靠 test
+  - 可維護性:M-1-03 的 Medusa adapter 與 M-1-02 InMemory 兩處改 invariant、不同步
+  - bug 可追蹤性:bug「InMemory test 過、Medusa adapter 上 production 出 schema 違規」、無 contract test 早抓
+- **估時:** Phase 2 評估 / 若做 4-6 hr(框架 + 第一個 contract test 樣本)
+- **依賴:** Phase 2 啟動 / M-6-08 上線後觀察 review 防呆是否足
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/audits/2026-05-02-full-audit.md` Audit-F43
+
+### #56. ⏳ disaster recovery plan(backup / restore SOP)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - `docs/architecture/`(無 disaster-recovery.md)
+  - Supabase 自帶 backup、但 retention(免費版 7 天 / Pro 30 天)、restore 流程、災難演練 都無規範
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / engineering:tech-debt(T25)
+- **預期解法:**
+  - M-6-08 上線前寫 `docs/runbooks/disaster-recovery.md`(restore 流程 + 模擬演練 1 次)/ Phase 2 後再做(觀察 Phase 1 是否有事)
+- **不修會痛在:**
+  - 擴充性:Phase 2 加自家 PG 表(Vehicle / Booking / Wallet)、backup 範圍擴
+  - 可維護性:無
+  - bug 可追蹤性:資料庫崩、員工慌、走 Supabase support
+- **估時:** M-6-08 90 min(runbook 寫 + 1 次 restore 演練)
+- **依賴:** M-6-08 / Phase 2
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/audits/2026-05-02-full-audit.md` Audit-F44
+
+### #57. ⏳ Supabase free tier 容量升級拍板(Critical / 10w 商品)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 Critical
+- **問題:**
+  - Supabase 免費版 500MB DB / 5GB bandwidth / socket 連線限制
+  - 10w 商品 + 50w image refs + Phase 2 訂單 + 客人 row 上看 1M+
+  - Phase 1 階段 1 上線 200 SKU 看不出問題、上線後 SKU 上千接近 quota 靜默崩
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R1)
+- **預期解法:**
+  - M-1-16(200 SKU 種子)落地前 Sean 拍板升 Supabase Pro($25/mo)
+  - M-6-08 上線前 checklist 加 quota 驗證
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 Vehicle / Booking / Wallet 表、row 數爆、不升級無法擴
+  - 可維護性:免費版突 quota、Sean 不會立即知道直到 user 抱怨
+  - bug 可追蹤性:quota 紅燈在 Supabase Dashboard、admin / Sean 沒看、靜默 fail
+- **估時:** Sean 拍板 + 升級 30 min / M-6-08 quota 驗證 15 min
+- **依賴:** M-1-16 啟動前 Sean 拍板
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10(setup)、`docs/audits/2026-05-02-full-audit.md` Audit-F1
+
+### #58. ⏳ sync-engine 本機 redundancy(SMS 通知 + Phase 2 雲端 cron)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - PHASE-1-MILESTONES §8.7 風險 1 已知「本機機器壞了會停」、F1 兩層保險(被動紅燈 + daily email)只是告警、不是 continuity
+  - 電腦壞 / 停電 / Sean 出差中斷數天、商品候選不更新 / 報價不告警 / 庫存不自動更新
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R2)
+- **預期解法:**
+  - M-5-09 daily summary email 加「2 hr 無 ping → SMS 通知 Sean」+ Phase 2 移雲端(GCP Cloud Run cron)
+- **不修會痛在:**
+  - 擴充性:Phase 2 多 adapter(LINE / 物流 / 廠商爬蟲)進來、本機機器更不能停
+  - 可維護性:Sean 出差時無人 sync、員工只能等
+  - bug 可追蹤性:電腦失聯時、admin 看到紅燈但不知為何、要 Sean 回家確認
+- **估時:** M-5-09 同 slice 加 60-90 min(SMS 接入 + 2hr no-ping 邏輯)/ Phase 2 雲端遷移 1-2 週
+- **依賴:** M-5-09 / Phase 2
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` §8.7、`docs/audits/2026-05-02-full-audit.md` Audit-F9
+
+### #59. ⏳ TapPay sandbox→production env vars 切換驗證機制
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - NORTHSTAR §1.2「上線時切 production 是 Phase 1 收尾事件」
+  - Vercel + Railway 兩處 env vars 改、漏一處 production 走 sandbox = 付款不收錢 + 客人收貨
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R3)
+- **預期解法:**
+  - M-6-08 上線前 checklist 加「TapPay env var = production key 自動驗證」(curl TapPay verify endpoint、回 production confirm)
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 LINE Pay / Apple Pay 同類風險、無自動化驗證機制
+  - 可維護性:無 production cutover 自動化驗證
+  - bug 可追蹤性:charge 0 元異常時、查 logs 才知道走 sandbox、上線當天才發現
+- **估時:** M-6-08 同 slice 加 30 min(curl script + checklist 字面)
+- **依賴:** M-6-08
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-NORTHSTAR.md` §1.2、`docs/architecture/security-timeline.md` §3 #F5、`docs/audits/2026-05-02-full-audit.md` Audit-F10
+
+### #60. ⏳ Railway free tier 容量升級拍板(cold start)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - Railway 免費版 $5/mo credit、Medusa 啟動 RAM ~512MB、idle 限制、container 自動 sleep
+  - 客人凌晨下單、Medusa cold start 30s、TapPay redirect 超時、結帳失敗
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R4)
+- **預期解法:**
+  - M-3-01 啟動前升 Railway Pro($20/mo、no sleep)
+- **不修會痛在:**
+  - 擴充性:Phase 2 後台流量上升、free tier 完全不夠
+  - 可維護性:cold start 是 silent fail、客人不投訴看不出問題範圍
+  - bug 可追蹤性:「凌晨下單失敗」無 log、reproduce 困難
+- **估時:** Sean 拍板 + 升級 15 min
+- **依賴:** M-3-01 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-3-01、`docs/audits/2026-05-02-full-audit.md` Audit-F11
+
+### #61. ⏳ TapPay production 申請時序(M-3 啟動時同步申請)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - TapPay 申請 production 流程 1-2 週(商業登記 / 銀行帳戶 / 商家代號)
+  - 上線當下若 production 沒批 = 上線只能 sandbox(實際不收錢)、客人下單免費送商品
+  - STATUS Sean 待決策 #3 涵蓋 sandbox 沿用、但 production 啟用時序不在
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R5)
+- **預期解法:**
+  - M-3 啟動時 Sean 同步申請 production TapPay(申請 ≠ 啟用、可平行 backend dev)
+- **不修會痛在:**
+  - 擴充性:Phase 2 加新支付 channel 同類問題
+  - 可維護性:無 production 拿到時程、其他 milestone 收尾不明
+  - bug 可追蹤性:無
+- **估時:** Sean 申請 production 時間 1-2 週(背景進行、不阻 dev)
+- **依賴:** M-3 啟動前 Sean 動作
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** STATUS Sean 待決策 #3、`docs/PHASE-1-MILESTONES.md` §11、`docs/audits/2026-05-02-full-audit.md` Audit-F12
+
+### #62. ⏳ 客服退款 SOP(customer-refund-sop.md runbook)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - M-3-08 TapPay refund 介面落地、但「客服收到客訴 → 判斷 → 退款 → 通知客人」整套 SOP 缺
+  - 員工不知:多久內回應 / 哪些情況可全退 / 哪些部分退 / 誰拍板 / 退款後客人通知 channel
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R6)
+- **預期解法:**
+  - M-4a-12 客服 inbox 落地時同步寫 `docs/runbooks/customer-refund-sop.md`
+- **不修會痛在:**
+  - 擴充性:Phase 2 多 channel 客訴(LINE / Email / 電話)、SOP 沒先定、各 channel 處理不同
+  - 可維護性:員工換人 / 訓練成本高
+  - bug 可追蹤性:客訴歷史散在 channel、無系統紀錄
+- **估時:** M-4a-12 同 slice 加 60-90 min(SOP doc + admin inbox 模板)
+- **依賴:** M-4a-12
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-4a-12、`docs/phase-1-backlog.md` #31(客服 schema、不同議題)、`docs/audits/2026-05-02-full-audit.md` Audit-F13
+
+### #63. ⏳ dispute / chargeback SOP(dispute-response-sop.md runbook)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - production 上線後客人銀行 dispute 發生、PCM 員工 24-48h 內必回應(銀行限時)
+  - 無 SOP = 員工不知怎回 = 預設輸 = TapPay 強制扣回 + 商品已出 = PCM 雙輸
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R7)
+- **預期解法:**
+  - M-6-08 上線前寫 `docs/runbooks/dispute-response-sop.md`(48h response template + 證據清單)
+- **不修會痛在:**
+  - 擴充性:Phase 2 訂單量上升、dispute 頻率必升、無 SOP 各個臨機
+  - 可維護性:員工不知收哪些證據(出貨單 / 簽收單 / 客人通訊紀錄)
+  - bug 可追蹤性:dispute 失敗後、無 retrospective 找改善點
+- **估時:** M-6-08 同 slice 加 90 min
+- **依賴:** M-6-08
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-6-08、`docs/phase-1-backlog.md` #41(ChargeStatus disputed enum、schema)、`docs/audits/2026-05-02-full-audit.md` Audit-F14
+
+### #64. ⏳ 發票自動化未拍 — 不拍會痛在哪(STATUS #1 補三視角)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - STATUS Sean 待決策 #1 / PHASE-1-MILESTONES §11 拍板項目 A3
+  - Phase 1 階段 1 不做 = 員工每天額外 1-2 hr 開發票、累積成本爆
+  - B2B 月結客戶要求合併發票、手動易錯
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R8、補 STATUS #1 三視角)
+- **預期解法:**
+  - 候選 A:M-3 啟動前 Sean 拍板選綠界(產業標)、自動串接、估 1 週 dev【推薦】
+  - 候選 B:Phase 1 階段 1 純手動、Phase 2 補(累積成本高)
+  - 候選 C:外包(成本中)
+- **不修會痛在:**
+  - 擴充性:Phase 2 訂單量上升、手動成本指數上升
+  - 可維護性:漏開 / 開錯統編 / 跳號成本高
+  - bug 可追蹤性:發票號碼跳號 / 漏號、國稅局查時無法解
+- **估時:** Sean 拍板 + 若選 A:綠界接入 1 週 dev / 若選 B / C:Phase 1 不做
+- **依賴:** M-3 啟動前 Sean 拍板
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** STATUS Sean 待決策 #1、`docs/PHASE-1-MILESTONES.md` §11、`docs/audits/2026-05-02-full-audit.md` Audit-F15
+
+### #65. ⏳ Vercel / Railway / Supabase 部署 region 規劃
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - Vercel global edge / Railway 預設可能 US / Supabase SG
+  - Phase 1 客人主要台灣 + 歐洲、跨 region latency 累積
+  - 部分 overlap STATUS #4(部署是否新建)、本條 focus region
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R9)
+- **預期解法:**
+  - M-6-06 / M-6-07 啟動前 Sean 拍板部署 region(Railway 改 SG;Vercel 維持 global edge)
+- **不修會痛在:**
+  - 擴充性:Phase 2 客人量大、p99 latency 上升 200-500ms 客人感受
+  - 可維護性:Railway region 改後 IP / DNS 連帶變
+  - bug 可追蹤性:跨 region 慢時、log 在 region A 查 region B 找不到
+- **估時:** Sean 拍板 + 改 region 30-60 min
+- **依賴:** M-6-06 / M-6-07 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** STATUS Sean 待決策 #4(部分 overlap)、`docs/audits/2026-05-02-full-audit.md` Audit-F27
+
+### #66. ⏳ Medusa-as-API spike verification checklist(0002 §6.1 強訊號 #1)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 0002 ADR §6.1 強訊號 #1 列「M-1 spike 出現 Medusa schema 完全無法對應 PCM 業務」為 rollback 訊號
+  - 但 M-0 階段 schema-design 純 docs、未 spike 驗證
+  - M-1-02 / M-1-03 落地時若發現 mapping 套不上、整 0002 翻盤、Phase 1 延宕 4-6 週
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R10)
+- **預期解法:**
+  - M-1-02 / M-1-03 落地前 Sean 確認 spike 驗證標準(metadata 套上 = 過 / 套不上 = 觸發 §6.3 rollback)、寫 verification checklist
+- **不修會痛在:**
+  - 擴充性:Phase 2 啟動時若 0002 假設仍未驗、Vehicle / Booking 補上時才發現
+  - 可維護性:rollback 路徑 0002 §6.3 已寫、但回退成本 ~1 週是樂觀估
+  - bug 可追蹤性:spike 失敗時、辨識「設計錯」vs「實作錯」需文件
+- **估時:** M-1-02 / M-1-03 啟動前 30-45 min(verification checklist + 拍板字面)
+- **依賴:** M-1-02 / M-1-03 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/decisions/0002-architecture-pivot.md` §6.1 / §6.3、`docs/audits/2026-05-02-full-audit.md` Audit-F28
+
+### #67. ⏳ submodule design-reference 失靈 fallback 流程
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - design-reference submodule 來自 pcmmotorsports/pcm-website-design repo、若被誤刪 / 改 access / 倉庫 force push、submodule pointer 找不到、storefront 無法 build
+  - NORTHSTAR §2.2 / CLAUDE.md submodule 操作無 fallback 流程
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R11)
+- **預期解法:**
+  - 候選 A:NORTHSTAR §2.2 加「submodule 失靈 fallback」流程(Phase 1 起每月 mirror 到 PCM repo `design-reference-snapshot/` 只讀 backup)【推薦】
+  - 候選 B:不做、容忍
+- **不修會痛在:**
+  - 擴充性:Phase 2 design 持續進化、submodule 是長期依賴
+  - 可維護性:無 submodule fallback 流程、新 Claude Code 不知道走哪
+  - bug 可追蹤性:submodule 失靈時、新 Claude Code 不知道是 PCM 端錯還 design 端錯
+- **估時:** NORTHSTAR 修訂 30 min + 建 design-reference-snapshot 流程 30 min
+- **依賴:** M-1 啟動前 / M-6-08 上線前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-NORTHSTAR.md` §2.2、`docs/audits/2026-05-02-full-audit.md` Audit-F29
+
+### #68. ⏳ oncall / incident response runbook(P0/P1/P2 escalation)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 上線後 production 出事、誰接電話?哪個時段?升級 Sean 的 trigger?無流程
+  - Phase 1 階段 1 員工少 2-3 人、Sean 出差時 production 中斷 4 hr 沒人察覺
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R12)
+- **預期解法:**
+  - M-6-08 上線前寫 `docs/runbooks/incident-response.md`(P0/P1/P2 嚴重程度 + escalation 階梯 + on-call schedule)
+- **不修會痛在:**
+  - 擴充性:Phase 2 員工增加、SLA 流程沒先定、tier-up 時混亂
+  - 可維護性:incident 處理散在 LINE 對話、無 retrospective
+  - bug 可追蹤性:incident 後找 root cause、無 timeline trace
+- **估時:** M-6-08 同 slice 加 60-90 min
+- **依賴:** M-6-08
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-6-08、`docs/phase-1-backlog.md` #36(monitoring、不同議題)、`docs/audits/2026-05-02-full-audit.md` Audit-F30
+
+### #69. ⏳ 個資法資料權利流程(取出 / 刪除、30 天回應)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 台灣個資法第 11 條客人有權「請求刪除個資」「請求複本」、PCM 收到後 30 天內回
+  - 無流程 = 收到刪除請求時員工不知道:刪 Customer entity?Order 留嗎?支付紀錄 PII?
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R13)
+- **預期解法:**
+  - M-4a-10(admin/customers)階段寫 `docs/runbooks/data-rights-sop.md`(刪除請求處理 + 保留範圍 + 法律保存規則)
+- **不修會痛在:**
+  - 擴充性:Phase 2 個資量爆增、刪除流程沒自動化、員工每件 30+ 分鐘
+  - 可維護性:刪除 Customer 時 Order 是否需保留(法律保存 5 年要求)、無規範
+  - bug 可追蹤性:法律稽核時、無流程紀錄無法證明合規
+- **估時:** M-4a-10 / M-6-08 同 slice 加 60-90 min(SOP + 與 Customer entity 對應)
+- **依賴:** M-4a-10 / M-6-08
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/architecture/security-timeline.md` §3 #C7 / #C8、`docs/audits/2026-05-02-full-audit.md` Audit-F31
+
+### #70. ⏳ B2B 月結對帳 SOP(月底跑列表 + 加總)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - store / premiumStore tier 月結客戶、月底結帳、admin 怎麼產對帳單?無 SOP
+  - 對應 backlog #27(markPartiallyPaid 多次累積)是 schema 端、本條是流程端
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R14)
+- **預期解法:**
+  - M-4a-08 admin 訂單列表落地時同步寫 SOP(月底跑 listByCustomer + listByDateRange + sum 月結金額)
+- **不修會痛在:**
+  - 擴充性:Phase 2 多店家 tier、月結 SOP 沒先定、各 tier 處理散
+  - 可維護性:月結對帳每月跑一次、若 SOP 漏定則每月返工
+  - bug 可追蹤性:客戶質疑對帳金額、無 query log 還原
+- **估時:** M-4a-08 同 slice 加 30-45 min(SOP + admin 訂單列表月結 query 樣本)
+- **依賴:** M-4a-08
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-4a-08、`docs/phase-1-backlog.md` #27(schema 端)、`docs/audits/2026-05-02-full-audit.md` Audit-F32
+
+### #71. ⏳ TapPay 商家合約檢核(月交易上限 / 高風險商品禁令)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - TapPay 商家合約有月交易額度上限 / 特定商品(機車改裝零件部分品類可能算高風險)、合約細節 PCM 端應該驗
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R15)
+- **預期解法:**
+  - M-3-08 啟動前 Sean 跟 TapPay 確認商品類別 OK 簽約
+- **不修會痛在:**
+  - 擴充性:Phase 2 加新商品類別(可能含禁令)、要重核合約
+  - 可維護性:無 compliance checklist、員工新增商品不知是否合規
+  - bug 可追蹤性:被凍結帳戶時、不知是哪個商品觸發
+- **估時:** Sean 跟 TapPay 對接 1-2 hr
+- **依賴:** M-3-08 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-3-08、`docs/audits/2026-05-02-full-audit.md` Audit-F33
+
+### #72. ⏳ 篩選器資料 source-of-truth(design mock vs Medusa)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - design 端有 mock data(brands.js / vehicles.js)、Medusa 端商品建好後實際 brand / motoBrand 來自商品 metadata
+  - Phase 1 早期 storefront 篩選器可能還是直讀 design mock、後期改 fetch Medusa list
+  - Phase 過渡時、篩選器選項與商品實際 metadata 不一致(篩選顯示「Brembo」但 Medusa 沒商品)
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R17)
+- **預期解法:**
+  - M-1-12(ProductsPage 整合 4 篩選)落地前明確規範「篩選選項從 IProductRepository.listBrands() 拿、不從 design mock」
+- **不修會痛在:**
+  - 擴充性:Phase 2 加新 brand、篩選器自動同步嗎?
+  - 可維護性:design mock 改一處、Medusa 改一處、不同步
+  - bug 可追蹤性:客人投訴「篩選沒結果」、查不出是 mock 漏還是 Medusa 漏
+- **估時:** M-1-12 同 slice 加 30 min(規範字面 + listBrands port 補)
+- **依賴:** M-1-12
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/PHASE-1-MILESTONES.md` M-1-12、`docs/audits/2026-05-02-full-audit.md` Audit-F34
+
+### #73. ⏳ sync-engine 寫 Medusa metadata race condition 預防(0002 §6.1 #4)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - sync-engine 跑 hourly cron、若同 hour 內 admin 員工也手動改商品(M-4a-06)、兩個 source 同時寫、後寫者覆蓋前者
+  - 0002 ADR §6.1 強訊號 #4 已列為 rollback 訊號、但無預防策略
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R18)
+- **預期解法:**
+  - M-5-03 落地時加「last-write-wins + audit log」流程、sync-engine 寫前查 timestamp、admin 改後 1 hr 內 sync 跳過該 SKU
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 vendor crawler、source 變 3 個、race 風險指數上升
+  - 可維護性:無 audit log policy、覆蓋還原靠 Medusa Admin 歷史(若有)
+  - bug 可追蹤性:metadata 突然變、不知是 sync 還是員工改
+- **估時:** M-5-03 同 slice 加 45-60 min(timestamp check + audit log + 1hr 跳過邏輯)
+- **依賴:** M-5-03
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** `docs/decisions/0002-architecture-pivot.md` §6.1、`docs/audits/2026-05-02-full-audit.md` Audit-F35
+
+### #74. ⏳ admin / sync-engine 部署 plan(Vercel / Railway / 本機規劃)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - apps/admin 部署在哪?Vercel 同 storefront 還是 Railway?apps/sync-engine 部署本機已知、是否雲端 cron 備援?
+  - setup §10.x 只規劃 storefront / medusa、無 admin / sync-engine 部署 plan
+- **觸發事件:**
+  - 2026-05-02 / 全專案 audit / operations:risk-assessment(R19)
+- **預期解法:**
+  - M-4a-01 啟動前 Sean 拍板部署 plan(admin 走 Vercel、sync-engine 維持本機)、寫進 setup §10
+- **不修會痛在:**
+  - 擴充性:Phase 2 admin 流量上升、若 free tier 不夠回頭遷
+  - 可維護性:多 app 部署在不同 platform、env vars / secrets 分散
+  - bug 可追蹤性:cross-app log 散在 Vercel / Railway / local、debug 多走幾處
+- **估時:** Sean 拍板 + setup §10 補 30 min
+- **依賴:** M-4a-01 / M-5-01 啟動前
+- **發現於:** 2026-05-02 / 全專案 audit
+- **相關:** STATUS Sean 待決策 #4(部分 overlap)、`docs/audits/2026-05-02-full-audit.md` Audit-F36
+
 ---
 
 ## 紀錄模板
