@@ -22,7 +22,7 @@
 | Part | 範圍 | 落地 milestone | 狀態 |
 |---|---|---|---|
 | **Part 1** | product / brand / category / tier price | M-0-05 | 🟢 本檔本次落地 |
-| **Part 2** | order state machine + Medusa vs Supabase 責任分割 | M-0-06 | ⏳ placeholder(本檔末段) |
+| **Part 2** | order state machine + 責任分割 | M-0-06 | 🟢 本檔本次落地 |
 
 本文不展開 M-0 milestone 計畫之外的 Part 3。
 
@@ -305,10 +305,266 @@ PCM 用 Medusa **price_list + customer_group** 機制做 tier price:
 
 ---
 
-## §8 變更紀錄
+## §8 Part 2:訂單狀態機 + 責任分割
+
+> **狀態:** 🟢 本檔本次落地(M-0-06)
+> **本節角色:** Part 1 §1.1 結構表「Part 2 = order state machine + 責任分割」之工程落地
+> **承接:** ADR-0003 §4 第 9 條(雙欄業務語意 enum、共 8 狀態)+ §7 placeholder 預定 scope 5 條
+
+### §8.1 訂單狀態機 — 雙維度 8 狀態(雙軸獨立、4 + 4)
+
+**真權威字面位置**(本節不重述 enum 字面、避免 drift)
+
+- `PaymentStatus` 4 個 enum 值:見 `packages/domain/src/order/types.ts:20`
+- `FulfillmentStatus` 4 個 enum 值:見 `packages/domain/src/order/types.ts:34`
+
+**為何雙欄、非 single status enum**
+
+對齊 ADR-0003 §4 第 9 條拍板:一筆訂單同時持有「金流狀態」與「履約狀態」、Medusa 內建 schema 即雙欄(`payment_status` × `fulfillment_status`)、PCM 沿用此模型、進 domain 為 `Order.paymentStatus` × `Order.fulfillmentStatus`(camelCase)。
+
+ADR-0003 §3.2 補充:Medusa `fulfillment_status` 不夠用、PCM 自家 4 階段 enum 走 metadata、不退化為 Medusa 內建 4 階段(`notOrdered` / `ordered` / `inStock` 三條 Medusa 無對應 wire 字面)。
+
+**8 狀態 = 兩軸獨立合計、不是笛卡兒積 16 組合**
+
+- PaymentStatus 4 個 enum 值
+- FulfillmentStatus 4 個 enum 值
+- **合計 8 個 enum 值(4 + 4)**、屬於兩個獨立欄位
+- 笛卡兒積 16 種組合是 *理論上* valid 狀態空間、實務上多數組合不存在或屬例外
+
+**實務常見組合**(典型 7 個業務場景、非全 16 組合)
+
+| paymentStatus | fulfillmentStatus | 業務語意 | 典型觸發點 |
+|---|---|---|---|
+| `unpaid` | `notOrdered` | 客人剛下單、未付款、未跟廠商訂貨 | 結帳完 TapPay redirect 中 |
+| `paid` | `notOrdered` | 客人已付款、PCM 待跟廠商下訂貨 | 結帳成功、員工待 admin 觸發訂貨 |
+| `paid` | `ordered` | 客人已付款、PCM 已下訂貨、待現貨 | 廠商交期 7-14 天 |
+| `paid` | `inStock` | 客人已付款、商品已到 PCM 倉庫(或合作店家)、待出貨 | 倉庫待打包 |
+| `paid` | `shipped` | 客人已付款、商品已出貨、訂單接近結束 | 出貨單號開後 |
+| `partiallyPaid` | `inStock` | 月結店家、部分付款、商品已現貨 | B2B 月結場景 |
+| `refunded` | `shipped` | 商品已出貨後退款(瑕疵 / 客人退貨成功) | M-3 後段 / 客服處理 |
+
+合法 transition 由 §8.4 use-case 邊界規範、本節僅說明 enum 結構與業務意圖。
+
+---
+
+### §8.2 Medusa wire ↔ domain enum 對照(引用、不重述)
+
+**對照表真權威**
+
+完整 PaymentStatus 4 條 + FulfillmentStatus 4 條 wire ↔ domain 對照、見 ADR-0003 §3.2 line 86-104(`docs/decisions/0003-domain-entity-naming.md`)。
+
+本節**不重述**對照表內容、避免字面 drift、ADR 字面為單一 source of truth、未來 Medusa 升級或 enum 字面調整、改 ADR § 即可、本檔指向 ADR § 編號不變。
+
+**Mapper 落地點**
+
+`packages/adapters-medusa/src/order-mapper.ts`(M-3-04 落地);本 slice 不展開 mapper 函數實作、對齊 §1.2「不展開 mapper 函數實作」字面。
+
+**澄清:`ChargeStatus` ≠ `PaymentStatus`**
+
+| 名稱 | 真權威字面位置 | 屬於 | 業務意義 |
+|---|---|---|---|
+| `PaymentStatus` | `packages/domain/src/order/types.ts:20` | Order context | 訂單付款狀態 4 級(`paid` / `unpaid` / `partiallyPaid` / `refunded`) |
+| `ChargeStatus` | `packages/domain/src/payment/types.ts:18` | Payment context(TapPay-specific) | 單次金流交易結果 2 級(`succeeded` / `failed`) |
+
+**兩者不混用**
+
+- `ChargeStatus` 是「TapPay charge / refund 此次呼叫成功與否」、TapPay-specific 字面
+- `PaymentStatus` 是「Order entity 整體付款狀態」、PCM 業務語意
+- 一筆 charge `succeeded` 可能讓 order 從 `unpaid` 進 `paid`(全額)或 `partiallyPaid`(部分)
+- 一筆 refund `succeeded` 可能讓 order 進 `refunded`
+- charge / refund 結果 → order PaymentStatus 推進、由 charge / refund use-case 處理(M-3-08 落地)
+
+**命名空間規約**(嚴格區分、對齊 ADR-0003 §3.1)
+
+| 層 | 命名風格 | 字面位置 |
+|---|---|---|
+| domain(`packages/domain/*` / `packages/use-cases/*` / `packages/ports/*` / apps) | camelCase | `paymentStatus` / `fulfillmentStatus` / `chargeStatus` / `partiallyPaid` / `notOrdered` / `inStock` |
+| Medusa wire(進入 adapter 邊界內部) | snake_case | `payment_status` / `fulfillment_status` / `partially_captured` |
+| TapPay wire(進入 adapter 邊界內部) | TapPay 自家字串 | `rec_trade_id` 等 |
+
+wire 字面只在 adapter 邊界內部出現、不外洩 use-case 與 storefront、對齊 ADR-0003 §3.4。
+
+---
+
+### §8.3 責任分割表 — Medusa-as-API context vs PCM 自家 context
+
+**二分軸定義**
+
+- **Medusa-as-API context**:Medusa v2 schema 蓋面足夠(走 Prisma 連 Supabase PG)、PCM 直接吃 Medusa entity、adapter 做 wire ↔ domain mapping
+- **PCM 自家 context**:Medusa 蓋不到、PCM 走 sync-engine 直連 Postgres / Supabase auth 備用、自家 schema 設計
+
+⚠️ 注:Supabase **不是與 Medusa 並列的主存系統**(見 PROJECT-OVERVIEW §3.2)— Supabase 是 Medusa 的底層 PG;「PCM 自家 context」走的是同一個 PG、但繞過 Medusa Service 直接 query 或寫入。
+
+**9 contexts 分配**
+
+| context | 屬類 | 一句說明 | 落地 milestone |
+|---|---|---|---|
+| **Catalog** | Medusa-as-API | Medusa product / collection / category 蓋面 100%、design 衝突 8 條由 adapter 邊界 mapper 處理 | M-0-05(schema design)/ M-1-02(domain entity)/ M-1-03(adapter)/ M-1-09(SEO)/ M-1-16(種子) |
+| **Identity** | Medusa-as-API | Medusa customer + customer_group 蓋會員與三級制度、`tier` 透過 customer_group enum 對齊 ADR-0003 §4 #8 | M-1-14(Customer adapter)/ M-2-01(tier 落地)/ M-2-02(server-side 驗證) |
+| **Order** | Medusa-as-API | Medusa order + payment_status × fulfillment_status 雙欄蓋雙維度狀態機、PCM 4 階段 enum 走 metadata 補強 Medusa 不夠用部分(對齊 ADR-0003 §4 #9) | M-3-02(entity guard)/ M-3-04(Order adapter)/ M-3-09(訂單詳情) |
+| **Pricing** | Medusa-as-API | Medusa Price List + customer_group 機制蓋三層折扣、`priceByTier` Record 由 adapter 對應 customer.tier 計算、對齊 ADR-0003 §4 #6 | M-2-08(Pricing Price List)/ M-2-09(tier-aware price 顯示) |
+| **Vehicle** | PCM 自家(Phase 2) | Medusa 無 Vehicle entity、Phase 1 暫存 customer.metadata.vehicles(對齊 ADR-0003 §4 #5)、Phase 2 走 sync-engine + 自家表 | Phase 1 customer metadata field / Phase 2 SupabaseVehicleAdapter |
+| **Booking** | PCM 自家(Phase 2) | Medusa 無 booking entity、Phase 1 不做(NORTHSTAR §1.2 不做清單)、Phase 2 走自家表 + LINE OA 通訊 | Phase 2(本檔不展開) |
+| **Wallet** | PCM 自家(Phase 2) | Phase 1 schema 預留 customer.tier + 累積金額欄位、不啟用業務邏輯;ledger 表結構 + 折扣交互完整功能 Phase 2 落地 | Phase 1 schema 預留 / Phase 2 ledger + 自動升級 |
+| **Shop** | PCM 自家(混合) | Phase 1 直讀 design `data/stores.json` submodule(StaticJsonShopAdapter)、Phase 2 SaaS 走 SupabaseShopAdapter(對齊 ADR-0003 §4 #4) | Phase 1 storefront 直讀 / Phase 2 SaaS |
+| **Sync** | PCM 自家 | apps/sync-engine workspace 獨立執行、走 GCP SA + Google Sheets API + 寫 Medusa 的 import flow | M-5-01(sync-engine 骨架)/ M-5-02(sheets-api adapter) |
+
+**三視角檢查**
+
+| 視角 | 理由 |
+|---|---|
+| **擴充性** | Phase 2 Vehicle / Booking / Wallet 三個 PCM 自家 context 啟動時、不影響 Medusa-as-API 4 個 context 的 schema、可在自家表獨立 migration;新 PCM 自家 context 加進來時、9 條表新增 row 即可、不重整現有結構 |
+| **可維護性** | 9 contexts 邊界由「主存系統」自然分割、code review 看 context 名即知資料源、不混淆;Medusa SDK 升級僅影響 4 個 Medusa-as-API context、不波及 5 個 PCM 自家 context |
+| **bug 可追蹤性** | 資料異常時、Medusa-as-API context 查 Medusa Admin / SDK log、PCM 自家 context 查 Supabase Dashboard / sync-engine log、故障定位範圍可預測;9 條表 + milestone 指針讓 oncall 一查就知道責任歸屬 |
+
+---
+
+### §8.4 訂單狀態機 use-case 邊界(介面字面、不含實作)
+
+**File path 提案**
+
+`packages/use-cases/src/order-state-machine.ts`(M-3-02 落地實作);本 slice 不動 `packages/use-cases/src/`(目前僅殼)、僅在本檔規範介面字面草案。
+
+⚠️ 注:Part 1 §7 placeholder 字面為「`packages/use-cases/order-state-machine.ts`」、屬 M-0-05 寫入時的 early proposal;本節取最終路徑 `packages/use-cases/src/order-state-machine.ts`(對齊 `packages/domain/src/order/` 子目錄結構、未來 Order context 多 use-case 擴展友善)、§7 字面不修、保留歷史脈絡。
+
+**雙軸獨立、分兩組**
+
+PaymentStatus 軸與 FulfillmentStatus 軸**獨立 transition**、不耦合:
+
+- PaymentStatus 軸 transition 不影響 FulfillmentStatus(`markPaid` 不會自動 `markOrdered`)
+- FulfillmentStatus 軸 transition 不影響 PaymentStatus(`markShipped` 不會自動 `markPaid`)
+- 業務組合(如「客人付款後員工觸發訂貨」)由呼叫端 use-case 串接兩軸 transition、不在本介面內隱含
+
+**PaymentStatus 軸 transitions**(3 條基本)
+
+```typescript
+import type { Order } from '@pcm/domain/order/types';
+
+/**
+ * 標記訂單為部分付款(月結 B2B 場景、客人先付一部分)。
+ *
+ * @invariant order.paymentStatus 必為 'unpaid'
+ *            (只能從 unpaid 進、不可從 paid 退回 partiallyPaid)
+ * @throws InvalidTransitionError 當 paymentStatus 非 'unpaid'
+ */
+export function markPartiallyPaid(order: Order): Order;
+
+/**
+ * 標記訂單為全額付款。
+ *
+ * @invariant order.paymentStatus 必為 'unpaid' 或 'partiallyPaid'
+ *            (不可從 paid 重複 markPaid、不可從 refunded 退回)
+ * @throws InvalidTransitionError 當 paymentStatus 為 'paid' 或 'refunded'
+ */
+export function markPaid(order: Order): Order;
+
+/**
+ * 標記訂單為全額退款。
+ *
+ * @invariant order.paymentStatus 必為 'paid' 或 'partiallyPaid'
+ *            (必過收款階段、不可從 unpaid 直接 refunded)
+ * @throws InvalidTransitionError 當 paymentStatus 為 'unpaid' 或 'refunded'
+ */
+export function markRefunded(order: Order): Order;
+```
+
+**FulfillmentStatus 軸 transitions**(3 條基本、線性前進)
+
+```typescript
+/**
+ * 標記訂單已跟廠商下訂貨(員工在 admin 觸發)。
+ *
+ * @invariant order.fulfillmentStatus 必為 'notOrdered'
+ *            (只能從 notOrdered 進、不可從更後面狀態退回)
+ * @throws InvalidTransitionError 當 fulfillmentStatus 非 'notOrdered'
+ */
+export function markOrdered(order: Order): Order;
+
+/**
+ * 標記訂單商品已現貨(到 PCM 倉庫或合作店家)。
+ *
+ * @invariant order.fulfillmentStatus 必為 'ordered' 或 'notOrdered'
+ *            (PCM 自家庫存場景跳過 ordered:notOrdered → inStock;
+ *             廠商訂貨場景線性前進:notOrdered → ordered → inStock;
+ *             不可從 inStock 重複、不可從 shipped 退回)
+ * @throws InvalidTransitionError 當 fulfillmentStatus 為 'inStock' 或 'shipped'
+ */
+export function markInStock(order: Order): Order;
+
+/**
+ * 標記訂單已出貨給客人。
+ *
+ * @invariant order.fulfillmentStatus 必為 'inStock'
+ *            (不可從 ordered 跳過 inStock)
+ * @throws InvalidTransitionError 當 fulfillmentStatus 非 'inStock'
+ */
+export function markShipped(order: Order): Order;
+```
+
+**為何 6 條 transition、非全 4 × 4 = 16 矩陣**
+
+PaymentStatus 軸實際只 3 條(`unpaid` 為初始狀態、構造 Order 時即為 unpaid、不需 transition function 進入):
+
+- `markPartiallyPaid`:`unpaid` → `partiallyPaid`
+- `markPaid`:`unpaid` | `partiallyPaid` → `paid`
+- `markRefunded`:`paid` | `partiallyPaid` → `refunded`
+
+FulfillmentStatus 軸實際只 3 條(`notOrdered` 為初始狀態、線性前進):
+
+- `markOrdered`:`notOrdered` → `ordered`
+- `markInStock`:`ordered` → `inStock` | `notOrdered` → `inStock`(PCM 自家庫存跳階)
+- `markShipped`:`inStock` → `shipped`
+
+**未列 transitions**(留 backlog 或 Phase 2)
+
+- **部分退款**:目前 PaymentStatus 無 `partiallyRefunded` 字面、部分退款結果保留 `paid`(僅退一部分);完整 partial refund 邏輯由 M-3-08 落地時依 TapPay 實況評估(backlog #26)
+- **B2B 月結 markPartiallyPaid 多次累積**:目前 `markPartiallyPaid` invariant 只支援 `unpaid → partiallyPaid` 單次進入、無法表達「分多次部分付款」;月結客戶累積邏輯由 M-3-02 Order entity 落地時加 amount 參數評估(backlog #27)
+- **split shipment(line-item-level fulfillment)**:目前 `fulfillmentStatus` 是 order-level、Phase 1 簡化、Phase 2 評估 line-item-level(backlog #28)
+- **`Order.paymentMethod` 欄位**:目前 PaymentStatus 不分支付方式(信用卡 / 儲值金 / 月結)、Phase 2 Wallet 啟用前評估補欄位(backlog #29)
+
+**Phase 1 邊界與 Phase 2 接力**(本 slice 不規範、客服流程 / Phase 2 補)
+
+- **取消未付款訂單**(`unpaid` 訂單客人 / 員工 / 系統超時取消):本 slice 不在系統 transition 處理、走客服人工流程記錄;Phase 1 進客服 ticket、Phase 2 客服 inbox 落地時評估擴 `cancelled` enum 或 `Order.cancelledAt` 欄位
+- **付款失敗多次**(TapPay charge 連續失敗):`ChargeStatus failed` 不影響 `PaymentStatus`(order 維持 `unpaid`)、admin 查 M-3-08 TapPay charge logs;不擴 `paymentFailed` enum、用 audit log 區分「未嘗試付款 vs 失敗多次」
+- **客人簽收 / 超商取貨完成**(`shipped` → 實際送達):Phase 1 不追蹤、`shipped` 為終態;Phase 2 評估 `delivered` enum(對應 `vehicle-service-ecosystem.md` §4.6 儲值金回饋觸發點)
+- **廠商缺貨 / 已出貨退貨 / 超商 7 天未取**(reverse logistics):本 slice 不規範、Phase 1 走客服人工流程;Phase 2 設計 reverse logistics 狀態機(對應 `vehicle-service-ecosystem.md` §4.8)
+
+**實作說明**
+
+- 本 slice 不寫 function body、`packages/use-cases/src/order-state-machine.ts` 落地點 M-3-02
+- M-3-02 entity guard 同時實作 `OrderItem.quantity` invariant(對齊 `packages/domain/src/order/types.ts:46` JSDoc)
+- transition function 純函數、不副作用、回傳新 `Order`、原 `Order` 不可變(immutable update)
+- `InvalidTransitionError` 自家 error class、落地 M-3-02、訊息含當前 status / 嘗試 transition 名
+
+---
+
+### §8.5 Security Checks 對應(規劃接力、本 slice 不落地)
+
+本 §8 訂單狀態機 + 責任分割涉及的安全檢查項目、依 `docs/architecture/security-timeline.md` §3 主表規劃、**本 slice 為規劃接力、不落地任何 check**:
+
+| Sec ID | 主題 | 真權威字面位置 | Owner Milestone | 落地 slice |
+|---|---|---|---|---|
+| **#A4** | cart / order 認證 server-side(客人不能改別人的 order) | `security-timeline.md` line 93 | M-3 | M-3-04(Order adapter)/ M-3-06(CartPage) |
+| **#B4** | cart 金額 server-side 重算(client 送的小計不信、server 從 line items 重算) | `security-timeline.md` line 94 | M-3 | M-3-05(calculate-shipping use-case)/ M-3-06(CartPage) |
+| **#C7** | 訂單號 / 客人手機 / 地址 PII server-side 才能查全、列表頁部分遮蔽 | `security-timeline.md` line 97 | M-3 | M-3-04(Order adapter)/ M-3-09(訂單詳情) |
+
+**規劃接力意涵**
+
+本檔 §8 把訂單狀態機 + 責任分割的 schema / use-case 介面字面落地;**訂單行為層的 server-side 守門**(認證 / 金額重算 / PII 遮蔽)由 M-3 各 slice 落地時對應 #A4 / #B4 / #C7 條目進驗收條件。
+
+對齊 `security-timeline.md` §1「規劃集中(本檔安全規劃)/ 執行分散(各 milestone 驗收)/ 整合收網(M-6-08 上線前 checklist)」三權分立精神。
+
+**M-6-08 上線前 checklist 回查**
+
+#A4 / #B4 / #C7 三條最終由 M-6-08(上線前 checklist 全項回查)收網、確保訂單流程 server-side 守門上線前 100% 落地、不依賴各 slice 自驗。
+
+---
+
+## §9 變更紀錄
 
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-05-02 | 初始化 medusa-schema-design.md(M-0-05 / Part 1 / product / brand / category / tier price 四 entity 三節結構 + tier 命名對照表 + Security Checks §C4 落地 + Part 2 placeholder) | Claude Code(M-0-05) |
+| 2026-05-02 | M-0-06 / Part 2 落地(§8 + §8.1 雙維度 8 狀態機 + §8.2 wire ↔ domain 對照引用 + §8.3 9 contexts 責任分割 + §8.4 use-case 邊界 6 transitions(含 deep audit 4 修法 / Phase 1 邊界 4 條)+ §8.5 Security Checks 規劃接力 #A4 / #B4 / #C7 + §1.1 結構表 Part 2 狀態欄更新)+ phase-1-backlog.md 加 6 條(#26-#31) | Claude Code(M-0-06) |
 
 — END —

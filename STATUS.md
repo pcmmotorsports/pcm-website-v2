@@ -9,31 +9,31 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0 進度 6/9 — 跳號實作中、3 slice 待回頭補
-- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05(共 7 slice、6 個 milestone — M-0-01a + M-0-01b 合算 M-0-01)
-- **待回頭補(依賴鏈順序):** M-0-06 → M-0-02 → M-0-09
+**Milestone:** M-0 進度 7/9 — 跳號實作中、2 slice 待回頭補
+- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06(共 8 slice、7 個 milestone — M-0-01a + M-0-01b 合算 M-0-01)
+- **待回頭補(依賴鏈順序):** M-0-02 → M-0-09
 
-**當前 slice:** M-0-05 完成(docs/architecture/medusa-schema-design.md Part 1 落地 314 行;product / brand / category / tier price 四 entity 三節結構 + tier 命名對照表 + Security Checks §C4 落地 + Part 2 placeholder)、待 Sean 推 commit、待 M-0-06 動工
+**當前 slice:** M-0-06 完成(medusa-schema-design.md Part 2 落地;§8 訂單狀態機 + 9 contexts 責任分割 + §8.4 deep audit 4 修法 + §8.5 Security Checks 規劃接力 #A4/#B4/#C7;phase-1-backlog.md 加 6 條 #26-#31)、待 Sean 推 commit
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-02
-**更新者:** Claude Code(M-0-05 完成、busboy-end 收工)
+**更新者:** Claude Code(M-0-06 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 61c8b9d | docs(arch): M-0-05 schema-design Part 1 - product/brand/category/tier | 2026-05-02 |
+| 2f337e2 | docs(arch): M-0-06 schema-design Part 2 - state-machine + split | 2026-05-02 |
+| e840990 | docs(arch): M-0-05 schema-design Part 1 - product/brand/category/tier | 2026-05-02 |
 | fdcc40a | fix(M-0-03): audit follow-up — deep round 處置 | 2026-05-02 |
-| 9362f25 | feat(M-0-03): ESLint 邊界守門 7 條 boundaries 規則 + 8 task lint script + dry-run 全 CAUGHT | 2026-05-02 |
 
 ## 下一步(第 1 條優先)
 
-1. **Sean 手動 push 後開新 Code session 跑 M-0-06**(medusa-schema-design.md Part 2:訂單狀態機 + Medusa vs Supabase 責任分割、估 45 min)← 當前
-2. 接著 M-0-02(apps/admin + apps/sync-engine 空殼 + tsconfig)
-3. 最後 M-0-09(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)
+1. **Sean 推 + 開新對話跑全專案 audit 獨立 slice**(B 路線:2 Explore agent + `engineering:tech-debt` + `operations:risk-assessment`、產出 `docs/audits/2026-05-02-full-audit.md`、估 20-25 min、對應 Sean 三維 prompt:10w 商品 / 種類多 / 難搞客人)← 當前
+2. M-0-02(apps/admin + apps/sync-engine 空殼 + tsconfig)
+3. M-0-09(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)
 
 > 上述 1-3 完成後 → M-0 收尾、進 M-1
 
@@ -140,5 +140,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-02 | M-0-03 完成(ESLint 邊界守門 7 條 boundaries/dependencies + 8 task lint script + 7 條 dry-run 全 CAUGHT + dependency-rules.md;字面 vs 事實偏離 4 條 commit body 揭示:eslint v10.3.0/v9 + --no-error-on-unmatched-pattern + .ts 副檔名 dry-run hack + ADR-0003 §3.4 backlog 條目錯置;engineering:code-review audit 抓 8、立即修 C1/C2/C3/S1、backlog 加 #22-#25 4 條、config-only slice 豁免 simplify)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | M-0-03 audit follow-up — deep round 處置完成(自跑第二輪 audit 抓 5 處立即修:D1+D2 slice-checkpoint.md §4.1→§2 字面錯置、G1 STATUS「共 5 slice」→6 slice/5 milestone、C3 dependency-rules.md §6.1 補 apps allow 同步提醒、tsPlugin 移除對齊第一輪 C3 unused 標準;catalog @typescript-eslint/eslint-plugin 清理連動;N1 ADR-0002 §4.2 ui/schemas 字面 vs 實作 disallow * 偏離 Sean Q2=A2 拍板不動 ADR、保持 dependency-rules.md §1 揭示)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | M-0-05 完成(docs/architecture/medusa-schema-design.md Part 1 落地 314 行;product / brand / category / tier price 四 entity 三節結構 domain camelCase / Medusa wire / mapping § 編號;tier 命名對照表 premiumStore ↔ premium_store ↔ pcm_premium_wholesale 字面對齊 packages/domain/shared/types.ts:43;Security Checks §C4 priceByTier 不洩漏鐵則 §6.2 集中記錄 + 後續 milestone 接力 M-1-02/M-1-03/M-2-08/M-2-09/M-6-08;Part 2 placeholder 預定 scope;不留 Part 3;L1 typecheck+lint 全綠 build §2.2 純 docs 可省)、busboy-end 收工 | Claude Code |
+| 2026-05-02 | M-0-06 完成(medusa-schema-design.md Part 2 落地;§8 訂單狀態機 + 9 contexts 責任分割;§8.4 deep audit 4 修法:P0 file path drift / A1 取消黑洞 / B 跳階 / A1-A4 Phase 1 邊界 4 條;§8.5 Security Checks 規劃接力 #A4/#B4/#C7;phase-1-backlog.md 加 6 條 #26-#31:partiallyRefunded / B2B 月結 / split shipment / paymentMethod / fitment scale / 客服 schema;sneak peek 2 條進 backlog、全專案 audit 推遲到新對話獨立 slice;L1 typecheck+lint 全綠 build §2.2 純 docs 可省)、busboy-end 收工 | Claude Code |
 
 — END —

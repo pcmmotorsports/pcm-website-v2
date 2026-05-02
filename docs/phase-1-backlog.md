@@ -760,6 +760,141 @@
 - **發現於:** 2026-05-02 / M-0-03 audit
 - **相關:** `docs/architecture/dependency-rules.md` §5.3
 
+### #26. ⏳ partiallyRefunded transition 評估
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - PaymentStatus 4 條無 `partiallyRefunded` enum 字面、部分退款結果保留 `paid`(僅退一部分)
+  - TapPay 支援 partial refund、客服可能跑「退一半保留 paid」流程、無細粒度狀態追蹤
+- **觸發事件:**
+  - 2026-05-02 / M-0-06 §8.4 deep audit
+- **預期解法:**
+  - M-3-08 TapPay refund 實作時依 TapPay 實況評估擴 enum
+  - 若擴、加 `partiallyRefunded` enum 字面 + ADR-0003 §3.2 對照表 + adapter mapping 同步
+- **不修會痛在:**
+  - 擴充性:enum 加值低成本(string literal type 加一條)、Phase 1 客服流程未定型避免過設計
+  - 可維護性:M-3-08 直接對 TapPay 字面定形時、enum 字面同步、避免重複決策
+  - bug 可追蹤性:客服無細粒度狀態時、「全退 vs 退一半」混在 `paid` / `refunded` 兩態、admin 看不出
+- **估時:** M-3-08 同 slice 評估 / 若擴額外 30 min
+- **依賴:** M-3-08(TapPay refund 實作)
+- **發現於:** 2026-05-02 / M-0-06 §8.4 deep audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §8.4「未列 transitions」、`packages/domain/src/order/types.ts:20`、`docs/decisions/0003-domain-entity-naming.md` §3.2
+
+### #27. ⏳ B2B 月結 markPartiallyPaid 分多次累積評估
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 現介面 `markPartiallyPaid` invariant 只支援 `unpaid → partiallyPaid` 單次進入
+  - B2B store / premium_store tier 月結客戶可能多次部分付款、無法精確記錄累積金額
+  - tier 升級閾值依賴累積金額時、依賴鏈不完整
+- **觸發事件:**
+  - 2026-05-02 / M-0-06 §8.4 deep audit
+- **預期解法:**
+  - M-3-02 Order entity 落地時加 `markPartiallyPaid(order, amount)` 參數
+  - 介面允許從 `partiallyPaid → partiallyPaid` 累積、不變狀態只更新累積 amount
+- **不修會痛在:**
+  - 擴充性:M-3-02 同 slice 加 amount 參數零時間差
+  - 可維護性:Order entity 完整欄位 M-3-02 才補、避免承諾未驗證 entity 欄位
+  - bug 可追蹤性:欄位 ↔ 介面同時定形、避免欄位先有但介面後加的不一致
+- **估時:** M-3-02 同 slice 加 30 min
+- **依賴:** M-3-02(Order entity 落地)
+- **發現於:** 2026-05-02 / M-0-06 §8.4 deep audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §8.4「未列 transitions」、§8.3 Wallet row(累積金額欄位)
+
+### #28. ⏳ split shipment line-item-level fulfillment 評估
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - 目前 `Order.fulfillmentStatus` 是 order-level
+  - 一筆訂單拆多次出貨(品項分批到貨)無法精確追蹤
+  - Medusa 內建有 line-item-level fulfillment、Phase 1 簡化用 order-level
+- **觸發事件:**
+  - 2026-05-02 / M-0-06 §8.4 deep audit
+- **預期解法:**
+  - Phase 1 維持 order-level、Phase 2 大訂單再加 line-item-level
+  - 或 M-3-02 Order entity 落地時、`OrderItem` 預留 `fulfillmentStatus` 欄位、預設等於 order-level
+- **不修會痛在:**
+  - 擴充性:Medusa line-item-level 可漸進啟用、不破壞 order-level 介面
+  - 可維護性:Phase 1 簡化清楚、Phase 2 大訂單時再加細粒度
+  - bug 可追蹤性:line-item metadata 補齊後、客人查詢「我的部分商品在哪」admin 有分包資訊
+- **估時:** Phase 2 評估 / 若擴額外 4-6 hr
+- **依賴:** Phase 2 啟動 / 或 Phase 1 出現大訂單需求
+- **發現於:** 2026-05-02 / M-0-06 §8.4 deep audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §8.4「未列 transitions」、`packages/domain/src/order/types.ts:34`
+
+### #29. ⏳ Order paymentMethod 欄位評估
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 目前 PaymentStatus 不分支付方式(信用卡 / 儲值金 / 月結)
+  - Phase 2 Wallet 啟用後、儲值金回饋邏輯需要區分支付方式才能判斷觸發條件
+  - tier 升級閾值依賴「累積消費金額」、需要區分「儲值金支付」vs「信用卡支付」
+- **觸發事件:**
+  - 2026-05-02 / M-0-06 §8.4 deep audit
+- **預期解法:**
+  - M-3-02 Order entity 落地時加 `Order.paymentMethod: PaymentMethod` 欄位
+  - 字面待定:候選 `'tappay' | 'wallet' | 'invoice'`(對齊 PaymentStatus camelCase 風格)
+- **不修會痛在:**
+  - 擴充性:M-3-02 同 slice 加 paymentMethod 欄位零時間差
+  - 可維護性:Wallet Phase 2 啟用前必有此欄位、避免 Phase 2 啟用時回頭 migrate
+  - bug 可追蹤性:支付方式 ↔ 儲值金回饋邏輯 ↔ tier 升級依賴鏈完整、Phase 2 啟用時邏輯清晰
+- **估時:** M-3-02 同 slice 加 15 min
+- **依賴:** M-3-02(Order entity 落地)/ Wallet Phase 2 啟用
+- **發現於:** 2026-05-02 / M-0-06 §8.4 deep audit
+- **相關:** `docs/architecture/medusa-schema-design.md` §8.4「未列 transitions」、§8.3 Wallet row、`docs/features/vehicle-service-ecosystem.md` §4.6
+
+### #30. ⏳ fitment 篩選 scale 風險評估
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高
+- **問題:**
+  - `Product.fitments: FitmentSpec[]` 落 Medusa `metadata.fits[]` 自由字串 array
+  - Medusa metadata 無 native 索引(JSONB 預設無索引)
+  - 10 萬商品 × 多 fitment 篩選 query 可能掃全表、Catalog adapter 落地必踩
+  - Phase 1 上線後 fitment 篩選慢到不能用(query > 5s)、客人搜不到適用零件、第一個 scale 爆炸點
+- **觸發事件:**
+  - 2026-05-02 / M-0-06 全專案 audit sneak peek(對應 Sean「販售上架破 10w 商品」訴求)
+- **預期解法:**
+  - M-1-03 Catalog adapter 落地時測 scale 後決定方案
+  - 候選 A:Postgres GIN index on JSONB(`CREATE INDEX ... USING GIN (metadata jsonb_path_ops)`)
+  - 候選 B:抽 fitments 為獨立表 entity(`product_fitments` 表 + FK)、走 Medusa custom module
+  - 候選 C:走 search engine(Algolia / Meilisearch)、Phase 2 規模時加
+- **不修會痛在:**
+  - 擴充性:scale 解法選 A 改 schema 最少、選 B 對 fitment query 最快、選 C 對 search UX 最好
+  - 可維護性:M-1-03 落地時測 scale 後再決定方案、避免過早優化
+  - bug 可追蹤性:scale issue 必須有 query 時間 monitoring(p50 / p95 / p99)、否則上線後爆才發現
+- **估時:** M-1-03 評估 30 min / 若選 A 額外 1 hr / 若選 B 額外 4-6 hr / 若選 C 額外 1-2 週(Phase 2 啟動時)
+- **依賴:** M-1-03(Catalog adapter 落地)/ 上線後 product 數 > 10000
+- **發現於:** 2026-05-02 / M-0-06 全專案 audit sneak peek
+- **相關:** `docs/architecture/medusa-schema-design.md` §2(Product)、`docs/decisions/0003-domain-entity-naming.md` §4 第 3 條(fits)、`docs/PHASE-2-VISION.md` §1 #1(大量上架)
+
+### #31. ⏳ 客服 schema 預留評估
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `vehicle-service-ecosystem.md` §4.8 字面「客服人工管道」、Phase 1 不入系統
+  - `Customer.metadata` 沒預留客訴 / SLA / dispute 欄位
+  - Phase 2 客服 inbox(`security-timeline.md` §3 #C8)落地時要回頭 migrate
+  - 客訴歷史散落 LINE / email / Slack、admin 無系統紀錄查歷史
+- **觸發事件:**
+  - 2026-05-02 / M-0-06 全專案 audit sneak peek(對應 Sean「客人也很難搞」訴求)
+- **預期解法:**
+  - M-3 Customer entity 落地時、`Customer.metadata` 預留 `supportTickets[]` 欄位(空 array)
+  - Phase 1 不啟用業務邏輯、只留欄位、Phase 2 客服 inbox 啟用時直接 backfill
+- **不修會痛在:**
+  - 擴充性:M-3 customer.metadata 預留 supportTickets[] 零成本
+  - 可維護性:Phase 1 不啟用業務邏輯、只留欄位、避免過設計
+  - bug 可追蹤性:難搞客人歷史紀錄完整可追溯、admin 一查就知道過往爭議
+- **估時:** M-3 同 slice 加 5 min(欄位預留)/ Phase 2 客服 inbox 啟用 1-2 週
+- **依賴:** M-3(Customer entity 落地)/ Phase 2 客服 inbox 啟用
+- **發現於:** 2026-05-02 / M-0-06 全專案 audit sneak peek
+- **相關:** `docs/architecture/security-timeline.md` §3 #C8、`docs/features/vehicle-service-ecosystem.md` §4.8 / §11.3
+
 ---
 
 ## 紀錄模板
