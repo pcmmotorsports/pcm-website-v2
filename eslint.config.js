@@ -15,12 +15,11 @@
  * 交叉引用:
  *   - docs/architecture/dependency-rules.md(本 config 配套說明)
  *   - docs/decisions/0002-architecture-pivot.md §4.2(規則來源)
- *   - docs/patterns/slice-checkpoint.md §4.1(三綠定義、--max-warnings 0)
+ *   - docs/patterns/slice-checkpoint.md §2(Three-Green 定義、--max-warnings 0)
  */
 
 const boundaries = require('eslint-plugin-boundaries');
 const tsParser = require('@typescript-eslint/parser');
-const tsPlugin = require('@typescript-eslint/eslint-plugin');
 
 const MONOREPO_ROOT = __dirname;
 
@@ -55,7 +54,6 @@ module.exports = [
     },
     plugins: {
       boundaries,
-      '@typescript-eslint': tsPlugin,
     },
     settings: {
       'boundaries/elements': [

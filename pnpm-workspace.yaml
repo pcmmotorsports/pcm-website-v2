@@ -7,4 +7,3 @@ catalog:
   eslint: ^10.3.0
   eslint-plugin-boundaries: ^6.0.2
   '@typescript-eslint/parser': ^8.59.1
-  '@typescript-eslint/eslint-plugin': ^8.59.1
