@@ -1,2 +1,5 @@
-// @pcm/schemas — 共用前後台型別(殼、後續 slice 裝 Zod schema)
+// @pcm/schemas — 跨前後台共用 zod schema, 殼、M-1-14 起、第一個跨前後台 schema 落地時填
+//
+// 對應 ADR-0001 §3.5、ADR-0002 §4.1。
+
 export {};

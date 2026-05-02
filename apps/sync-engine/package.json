@@ -1,0 +1,9 @@
+{
+  "name": "@pcm/sync-engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "PCM 同步機器人(本機 Node.js daemon、Sheets ↔ Medusa 同步)— 殼、待 M-5-01 起逐 slice 裝框架",
+  "scripts": {
+    "lint": "eslint . --max-warnings 0 --no-error-on-unmatched-pattern"
+  }
+}

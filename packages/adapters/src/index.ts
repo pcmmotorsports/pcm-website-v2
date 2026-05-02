@@ -1,2 +1,5 @@
-// @pcm/adapters — Medusa / Supabase / Sheets / TapPay 實作,待後續 slice 裝
+// @pcm/adapters — 外部系統 adapter 實作(Medusa / Supabase / Google Sheets / TapPay), 殼、M-1-03 起落地
+//
+// 對應 ADR-0002 §4.1。子目錄結構待 audit #60 / T17 trigger 拍。
+
 export {};

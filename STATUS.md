@@ -9,36 +9,36 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0 進度 7/9 — 跳號實作中、2 slice 待回頭補(audit 為獨立 sanity-check slice、不算 M-0 milestone slice)
-- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06(共 8 slice、7 個 milestone)+ 全專案 audit(獨立 slice)
-- **待回頭補(依賴鏈順序):** M-0-02 → M-0-09
+**Milestone:** M-0 進度 8/9 — 跳號實作中、1 slice 待回頭補(audit 為獨立 sanity-check slice、不算 M-0 milestone slice)
+- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06 / M-0-02(共 9 slice、8 個 milestone)+ 全專案 audit(獨立 slice)
+- **待回頭補:** M-0-09
 
-**當前 slice:** 全專案 audit 完成(主 session 跑 2 Skill:engineering:tech-debt 25 條 + operations:risk-assessment 19 條、過 filter 留 43 條進 backlog #32-#74、T13 合併 R16;對應 Sean 三維 prompt:10w 商品 / 種類多 / 難搞客人;`docs/audits/2026-05-02-full-audit.md` 落地)、待 Sean 推 commit
+**當前 slice:** M-0-02 完成(apps/admin + apps/sync-engine 極簡空殼字面複製 storefront/medusa 純殼結構、無 tsconfig/src/README、對齊 dependency-rules.md §5.3;packages/{use-cases,adapters,schemas}/src/index.ts file-level JSDoc 處置 audit #65/T22;Code sanity-check 抓 [Claude.ai](http://Claude.ai) 原指令 Step 5-7 違反 ADR-0002 §4.2 + Step 1 假設 storefront/medusa 有 tsconfig pattern 偏離、Sean Q1=A1/Q2=B1/Q4=D1 拍板砍 Step 5-7 + 對齊純殼 + commit body 揭示;audit #54/T23 trigger 修正延後到 M-1-01/M-4a-01/M-5-01;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 stub 可省)、待 Sean 推 commit
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-02
-**更新者:** Claude Code(全專案 audit 完成、busboy-end 收工)
+**更新者:** Claude Code(M-0-02 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| e202dbb | docs(audits): 2026-05-02 全專案 audit - tech-debt + risk-assessment | 2026-05-02 |
+| 7ceb3f4 | feat(M-0-02): apps/admin + apps/sync-engine 極簡空殼 + packages JSDoc | 2026-05-02 |
+| dcceecc | docs(audits): 2026-05-02 全專案 audit - tech-debt + risk-assessment | 2026-05-02 |
 | 481b9f9 | docs(arch): M-0-06 schema-design Part 2 - state-machine + split | 2026-05-02 |
-| e840990 | docs(arch): M-0-05 schema-design Part 1 - product/brand/category/tier | 2026-05-02 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-0-02**(apps/admin + apps/sync-engine 空殼 + tsconfig + audit backlog #54 admin/sync-engine ESLint dry-run 補)← 當前
-2. M-0-09(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)
+1. **M-0-09**(C5 L2 busboy-end pre-flight、跨 repo pcm-tools、busboy-start 用 tools 參數)← 當前
 
-> 上述 1-2 完成後 → M-0 收尾、進 M-1
+> 上述 完成後 → M-0 收尾、進 M-1
 > M-1-02 / M-1-03 啟動前需處理 audit Critical / High:#57 Supabase Pro 升級 / #66 Medusa-as-API spike checklist / #43 image CDN / #36 monitoring;M-1-16 啟動前需處理 #44 種子 transition
+> M-1-01 / M-4a-01 / M-5-01 啟動前需處理 audit #54 trigger 修正(apps 真寫 .ts 時各補一般性 boundaries 驗證、commit body M-0-02 已揭示)
 
-3. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
-4. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
+2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
+3. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
 
 ## Sean 待決策
 
@@ -142,5 +142,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-02 | M-0-05 完成(docs/architecture/medusa-schema-design.md Part 1 落地 314 行;product / brand / category / tier price 四 entity 三節結構 domain camelCase / Medusa wire / mapping § 編號;tier 命名對照表 premiumStore ↔ premium_store ↔ pcm_premium_wholesale 字面對齊 packages/domain/shared/types.ts:43;Security Checks §C4 priceByTier 不洩漏鐵則 §6.2 集中記錄 + 後續 milestone 接力 M-1-02/M-1-03/M-2-08/M-2-09/M-6-08;Part 2 placeholder 預定 scope;不留 Part 3;L1 typecheck+lint 全綠 build §2.2 純 docs 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | M-0-06 完成(medusa-schema-design.md Part 2 落地;§8 訂單狀態機 + 9 contexts 責任分割;§8.4 deep audit 4 修法:P0 file path drift / A1 取消黑洞 / B 跳階 / A1-A4 Phase 1 邊界 4 條;§8.5 Security Checks 規劃接力 #A4/#B4/#C7;phase-1-backlog.md 加 6 條 #26-#31:partiallyRefunded / B2B 月結 / split shipment / paymentMethod / fitment scale / 客服 schema;sneak peek 2 條進 backlog、全專案 audit 推遲到新對話獨立 slice;L1 typecheck+lint 全綠 build §2.2 純 docs 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | 全專案 audit 完成(獨立 sanity-check slice、Sean 拍板 Q1=A3 / Q2=B3 / Q3=C1 主 session 跑 2 Skill;engineering:tech-debt 抓 25 + operations:risk-assessment 抓 19、過三視角 filter 留 43 條進 backlog #32-#74;T13 合併 R16;§4.2 既有條目引用 #4 / #16 / #20 / #27 / #29 / #30 / #31;STATUS Sean 待決策 #1-#4 對應 Audit-F12 / F15 / F22 / F27 / F36;優先級 🔴 Critical 1 / High 13 / 🟠 Medium 22 / 🟡 Low 6 / 🟢 觀察 2;`docs/audits/2026-05-02-full-audit.md` 落地;L1 typecheck 6/6 + lint 8/8 全綠 build §2.2 純 docs 可省)、busboy-end 收工 | Claude Code |
+| 2026-05-02 | M-0-02 完成(apps/admin + apps/sync-engine 極簡空殼字面複製 storefront/medusa 純殼結構、無 tsconfig/src/README、對齊 dependency-rules.md §5.3;packages/{use-cases,adapters,schemas}/src/index.ts file-level JSDoc 處置 audit #65/T22;Code sanity-check 抓 Claude.ai 原指令 Step 5-7 違反 ADR-0002 §4.2 + Step 1 假設 storefront/medusa 有 tsconfig pattern 偏離 4 條、Sean Q1=A1/Q2=B1/Q4=D1 拍板;audit #54/T23 trigger 修正延後到 M-1-01/M-4a-01/M-5-01;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 stub 可省)、busboy-end 收工 | Claude Code |
 
 — END —
