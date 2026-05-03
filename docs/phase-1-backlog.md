@@ -1913,6 +1913,34 @@
 - **發現於:** 2026-05-03 / ADR-0004 wrs Q3 / Q6 拍板
 - **相關:** `docs/research/wrs-ia-decomposition.md` §10 / §11、`docs/decisions/0004-m1-pre-launch-decisions.md` wrs Q3 / Q6、`docs/PHASE-1-NORTHSTAR.md` §2 視覺真權威紀律
 
+### #80. ⏳ design-reference submodule Vercel deploy fetch warning
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1-05 啟動前必修、之前不阻)
+- **問題:**
+  - M-1-01 push 後 Vercel deploy log 出現 `Warning: Failed to fetch one or more git submodules`
+  - 成因:design-reference submodule 是 SSH-only(`git@github.com:pcmmotorsports/pcm-website-design.git`)、Vercel build 環境無 SSH key、clone submodule fail
+  - 現在不阻塞:apps/storefront 純殼、未 import design-reference 內容
+  - M-1-05 起(Header.tsx 直接搬)storefront 會 import design-reference 內容、Vercel build 找不到 submodule 內容必爆
+- **觸發事件:**
+  - 2026-05-03 / M-1-01 push 後 Vercel deploy log warning(commit abf5089 對應 deploy)
+- **預期解法:**
+  - **候選 A(推薦):** GitHub deploy key 配對機制(GitHub design repo Settings → Deploy keys 加 Vercel public key、Vercel Settings → Git → Deploy Keys / Custom Git Configuration 配對)
+    - 對齊 SSH only 紀律(不切 HTTPS / 不用 token、對齊 lessons-learned 04-23 token 事件後 SSH 鐵則)
+  - **候選 B:** 把 design repo 改 public、Vercel HTTPS clone 不需 key
+    - 違反 SSH only 紀律 + 商業設計圖不該 public
+  - **候選 C:** 把 design-reference 內容 vendoring 進 main repo(不用 submodule)
+    - 違反 NORTHSTAR §2.2「design-reference 是 submodule、視覺真權威」
+  - 推薦 A、實作流程在 M-1-05 啟動前一個獨立 slice 處理(估 30-45 min:Vercel 文件研究 + GitHub deploy key 加 + Vercel 配對 + push 觸發 deploy 驗證)
+- **不修會痛在:**
+  - 擴充性:M-1-05 ~ M-1-15 共 11 個 slice 全部需要 design-reference、Vercel deploy 全爆
+  - 可維護性:是 Vercel + GitHub 兩端設定問題、設一次永久、不是 code 改;不修每次 deploy 都看到 warning、心理麻痺、真錯訊號被噪音淹
+  - bug 可追蹤性:M-1-05 撞坑時不知道是 submodule fetch 還是元件搬錯、繞路偵察 30+ min;本條目為錨點、撞坑時 grep 立刻定位
+- **估時:** 30-45 min(Vercel deploy key 文件研究 + GitHub Settings 操作 + Vercel Dashboard 配對 + 驗證 deploy)
+- **依賴:** 無前置、M-1-05 啟動前必修、可獨立做(建議在 M-1-04 與 M-1-05 之間插一個獨立 slice)
+- **發現於:** 2026-05-03 / M-1-01 deploy log review
+- **相關:** M-1-05、`docs/PHASE-1-NORTHSTAR.md` §2.2(submodule 機制)、`docs/lessons-learned.md`(SSH only 紀律 04-23 事件)、Vercel deploy abf5089
+
 ---
 
 ## 紀錄模板
