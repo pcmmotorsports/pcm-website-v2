@@ -266,11 +266,11 @@ schemas     ← 不可 import domain / use-cases / adapters / ports
 | `docs/architecture/proposed-architecture-2026-04-30.md` | ✅ 已存在 | 架構提案(Clean Arch + Hexagonal + DDD) |
 | `docs/PHASE-1-MILESTONES.md` | ✅ 已存在 | 本檔架構落地排程(M-0 ~ M-6) |
 | `docs/architecture/scaling-triggers.md` | ✅ 已存在 | 階段 2/3 觸發指標 |
-| `docs/architecture/medusa-schema-design.md` | 🟡 **待寫** — M-0-05/06 | product / brand / category mapping + tier price + order state machine + ports + responsibility split |
-| `docs/architecture/bounded-contexts.md` | 🟡 **待寫** — writing-plans 進度產出 | 9 個 context 詳細邊界 + ubiquitous language |
-| `docs/architecture/ports-and-adapters.md` | 🟡 **待寫** — writing-plans 進度產出 | 完整 port / adapter 對應表 + interface 簽名 |
-| `docs/architecture/dependency-rules.md` | 🟡 **待寫** — M-0-03 | ESLint 規則設定 + lint script |
-| `docs/architecture/testing-strategy.md` | 🟡 **待寫** — M-6 / G2 拍板後 | in-memory adapter / use-case 單元測試方針 |
+| `docs/architecture/medusa-schema-design.md` | ✅ 已存在 — M-0-05 / M-0-06 落地 | product / brand / category mapping + tier price + order state machine + ports + responsibility split |
+| `docs/architecture/bounded-contexts.md` | ✅ 已存在 — M-0-10a 落地(minimum 版、ADR-0004 Q6=A3) | 9 個 context 一句話定義 + Medusa 蓋面對照表(完整 ubiquitous language 字典留 Phase 2 啟動前擴) |
+| `docs/architecture/ports-and-adapters.md` | 🟡 **待寫** — M-1-03 啟動前(對齊 backlog #48) | 完整 port / adapter 對應表 + interface 簽名 |
+| `docs/architecture/dependency-rules.md` | ✅ 已存在 — M-0-03 落地 | ESLint 規則設定 + lint script |
+| `docs/architecture/testing-strategy.md` | ✅ 已存在 — M-0-10a 落地(minimum 版、ADR-0004 Q5=A3) | test 位置 / vitest / mock 風格 / description 慣例(coverage / E2E 留 G2 / M-6 拍板後擴) |
 | `docs/features/PRD-rewrite.md` | 🟡 **待寫** — 0001 §3.8 + brainstorming 補章節 | Phase 1 完整 PRD(含三級會員 / SEO / structured data) |
 
 ---
@@ -280,5 +280,6 @@ schemas     ← 不可 import domain / use-cases / adapters / ports
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-04-30 | 初始化 0002 architecture pivot ADR、推翻 0001 §4 | Claude Code(/writing-plans) |
+| 2026-05-03 | §7 待寫文件清單同步 stale 修(4 條改 ✅:medusa-schema-design / bounded-contexts / dependency-rules / testing-strategy);ports-and-adapters / PRD-rewrite 維持 🟡 待寫 | Claude Code(M-0-10a、對齊 ADR-0004 落地 + slice Q2=A1 拍板) |
 
 — END —
