@@ -107,8 +107,9 @@ C4 議題是「Phase 1 安全檢查項目該怎麼分布」。三候選:
 | **F3** | F | Vercel production env vars 完整檢查 | M-6 | M-6-06 同步 | M-6-08 checklist 對 Vercel env vars 全項勾;漏一條 build 過但 runtime 出錯(對齊 §10.7 風險 2) | `PHASE-1-MILESTONES.md` M-6 §10.7 | ✅ |
 | **F4** | F | Railway production env vars 完整檢查 | M-6 | M-6-07(Railway production env vars) | M-6-08 checklist 對 Railway env vars 全項勾;Medusa 啟動所需 env(DATABASE_URL / JWT_SECRET / COOKIE_SECRET 等)無漏 | `PHASE-1-MILESTONES.md` M-6 §10.7 + M-3-01 setup | ✅ |
 | **F5** | F | production 上線前 production secret 全部換新、不沿用 dev / sandbox key | M-6 | M-6-08(上線前 checklist) | TapPay 切 production key、Supabase production project key、所有 env 對齊 production scope;dev / sandbox key 不殘留 | `CLAUDE.md`「敏感資訊」+ NORTHSTAR §1.2 上線時切 production | ✅ |
+| **F6** | F | Supabase 升 Pro $25/月(DB 8GB / bandwidth 250GB / Storage 100GB / pg_jieba extension)、search 切 tsvector + pg_jieba | M-6 | M-6-08(上線前 checklist) | Sean 在 Supabase Dashboard 完成升級、checklist 確認 plan = Pro;升 Pro 後 search 切 tsvector + pg_jieba(對齊 medusa-schema-design.md §2.5 兩階段切換要點) | ADR-0004 Q1=A2 + Q2=A2 + Q3=A1、`docs/phase-1-backlog.md` #57 ✅ | ✅ |
 
-**總計 30 條安全檢查項**:M-0 = 5、M-1 = 3、M-2 = 5、M-3 = 5、M-4a/4b = 3、M-5 = 3、M-6 = 6。
+**總計 31 條安全檢查項**:M-0 = 5、M-1 = 3、M-2 = 5、M-3 = 5、M-4a/4b = 3、M-5 = 3、M-6 = 7。
 
 ---
 
@@ -198,5 +199,6 @@ C4 議題是「Phase 1 安全檢查項目該怎麼分布」。三候選:
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-05-01 | 初始化 security-timeline.md(C4 拍板 C 三權分立、§3 主表 30 條 M-0~M-6、§4 對應索引、§5 與三綠 checkpoint 關係、§6 三視角、§7 劃線) | Claude.ai + Sean / 由 Claude Code(M-0-08)落地 |
+| 2026-05-03 | §3 主表加 #F6 Supabase 升 Pro trigger(M-6-08、對齊 ADR-0004 Q1=A2);總計 30 → 31 條、M-6 6 → 7 條 | Claude Code(M-0-10c) |
 
 — 文件結束 —

@@ -16,6 +16,14 @@ export interface IProductRepository {
   listByCategory(category: CategoryPath): Promise<Product[]>;
   listByBrand(brandId: string): Promise<Product[]>;
   listByFitment(spec: FitmentSpec): Promise<Product[]>;
-  /** TODO M-1-03: 補分頁參數(limit / offset / cursor、storefront 商品列表用) */
+  /**
+   * Search products by keyword (full-text search across title / metadata.fits).
+   *
+   * 兩階段實作(對齊 ADR-0004 Q3=A1 + medusa-schema-design.md §2.5):
+   * - M-1-03 Medusa adapter 落地用 PG ILIKE 暫代(p99 1-3s @ 200 SKU)
+   * - M-6 上線前切 PG tsvector + GIN + pg_jieba(p99 < 100ms @ 5w SKU、需 Supabase Pro)
+   *
+   * TODO M-1-03: 加 PaginationParams + Paginated<Product>(對應 backlog #20)
+   */
   searchByKeyword(query: string): Promise<Product[]>;
 }

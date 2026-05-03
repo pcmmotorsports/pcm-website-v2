@@ -165,7 +165,7 @@ interface IProductRepositoryBad {
 |---|---|---|---|---|---|
 | 1 | §7.4 brand | 字串 `'CNC RACING'` | brand collection FK(brand_id) | `product.brand: Brand`(value-object: id + name + slug) | adapter 雙向 resolve FK ↔ name string;cache 名稱→ID |
 | 2 | §7.5 category | 字串 `「引擎部品 · 排氣管」` | category 樹(parent_id 巢狀) | `product.category: CategoryPath`(value-object: 字串 path + 解析陣列) | adapter parse 字串 ↔ 樹節點;mapper 處理多語空格分隔 |
-| 3 | §7.2 fits | 自由字串 `'CBR600RR'`、`string.includes` 比對 | metadata.vehicle_ids[](Medusa metadata 自由欄位) | `product.fitment: FitmentSpec[]`(value-object array) | adapter 雙向;mapper 將自由字串斷詞為品牌+車型;sync-engine 也用同 mapper |
+| 3 | §7.2 fits | 自由字串 `'CBR600RR'`、`string.includes` 比對 | metadata.vehicle_ids[](Medusa metadata 自由欄位) | `product.fitment: FitmentSpec[]`(value-object array、含 motoBrand / modelCode / yearStart / yearEnd) | adapter 雙向;mapper 將自由字串斷詞為品牌+車型+年份範圍(yearStart / yearEnd、yearEnd null = "2025+" 開放式;對齊 ADR-0004 wrs Q1=A1 + medusa-schema-design.md §2.4 雙向 mapping 範例);sync-engine 也用同 mapper |
 | 4 | §7.6 stores | data/stores.json 36 筆靜態 | (Medusa 無 Store entity) | `Phase 1 ShopAdapter` 介面、StaticJsonShopAdapter 實作 | Phase 1 直讀 stores.json submodule;Phase 2 換 SupabaseShopAdapter |
 | 5 | §7.3 vehicles | localStorage(`pcm-vehicles`)嵌 user、簡欄位 | (Medusa 無 Vehicle entity) | `customer.vehicles: VehicleSnapshot[]`(Phase 1 簡欄位、Phase 2 獨立 Vehicle entity) | Phase 1 用 customer metadata field;Phase 2 完整 SupabaseVehicleAdapter、保留同 ports 介面 |
 | 6 | §7.8 三層價格 | design 只一個 `price` 欄位 | Medusa Price List(多 tier) | `product.priceByTier: Map<MemberTier, Money>` | adapter 取 customer.tier 對應 price;storefront server-side render 後傳 client |
@@ -277,5 +277,6 @@ interface IProductRepositoryBad {
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-05-01 | 初始化 ADR-0003(C3 拍板 A2 Domain 獨立命名 + 9 衝突處置表 + 三視角 + Rollback 訊號) | Claude.ai + Sean / 由 Claude Code(M-0-07)落地 |
+| 2026-05-03 | §4 第 3 條 fitment 處置補 yearStart / yearEnd 字面(對齊 ADR-0004 wrs Q1=A1) | Claude Code(M-0-10c) |
 
 — END —

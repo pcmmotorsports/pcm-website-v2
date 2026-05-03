@@ -29,7 +29,7 @@ PCM Phase 1 階段 1 MVP 拆 8 個 milestone(M-0 / M-1 / M-2 / M-3 / M-4a / M-5 
 
 | Milestone | 目標 | Slice 數 | 估時(工時) | 估時(週)| 主要阻塞 |
 |---|---|---|---|---|---|
-| M-0 | 骨架就位 + medusa-schema-design.md ⭐ | 6 | 4-5 hr | 1 週 | 無 |
+| M-0 | 骨架就位 + medusa-schema-design.md ⭐ + ADR-0003 / 0004 落地 | 10 | 7-9 hr | 1.5 週 | 無 |
 | M-1 | Catalog spike + 基本 Customer + 種子資料 | 16 | 12-14 hr | 1.5-2 週 | Vehicle Finder 微調(部分) |
 | M-2 | Identity 完整(三級會員)+ Pricing 雙 tier | 9 | 7-9 hr | 1-1.5 週 | 經銷申請頁 |
 | M-3 | Order + 8 狀態機 + TapPay + 結帳 | 11 | 10-12 hr | 2 週 | 結帳後段、訂單詳情、TapPay 拍板 |
@@ -160,6 +160,7 @@ M-6 SEO + 整合測試 + 部署
 | M-0-07 | C3 ADR-0003 + C5 L1 規則 + NORTHSTAR §1.1 補敘 + backlog #6.1/#7 + M-0 排程 patch | 90-120 min | 無 | M-0-01b |
 | M-0-08 | C4 三權分立 — security-timeline.md(Phase 1 安全時序統一表) | 60-90 min | 無 | M-0-07 |
 | M-0-09 | C5 L2 工具層 — busboy-end.js pre-flight 三綠檢查(跨 repo pcm-tools) | 45-60 min | 無 | M-0-07 |
+| M-0-10 | M-1 啟動前 ADR 落地(ADR-0004 + testing-strategy / bounded-contexts / money-handling + Money brand type + FitmentSpec yearStart/yearEnd + ADR-0002 §7 stale 修);拆 a / b / c 三 sub-slice | 2.5-3.5 hr | 無 | M-0-09 |
 
 ### 3.5.1 實際執行順序註記(2026-05-01 新增)
 
@@ -638,7 +639,7 @@ SEO meta + structured data + sitemap 全頁 day 1 起(NORTHSTAR §1.1)、E2E 主
 | M-6-05 | E2E 主流程 happy path(瀏覽 → 加購 → 結帳 → 後台出貨) | 60 min | 啟動前需拍板 G2(覆蓋率 / E2E 範圍) | M-4a 完成 |
 | M-6-06 | Vercel production env vars + production build | 30 min | 啟動前需拍板 Vercel(新建 / 沿用) | M-1-01 |
 | M-6-07 | Railway production env vars + production build | 30 min | 無 | M-3-01 |
-| M-6-08 | 上線前 checklist 走完(lessons-learned 規範 + 連續一週 lint / typecheck / build 三綠) | 60 min | 無 | M-6-05 / 06 / 07 |
+| M-6-08 | 上線前 checklist 走完(lessons-learned 規範 + 連續一週 lint / typecheck / build 三綠 + Supabase Pro 升級驗證 + search 切 tsvector + pg_jieba) | 90 min | 無 | M-6-05 / 06 / 07 |
 
 ### 10.6 驗收條件
 
@@ -670,6 +671,7 @@ SEO meta + structured data + sitemap 全頁 day 1 起(NORTHSTAR §1.1)、E2E 主
 | **G2** 測試覆蓋率 + E2E 範圍 | M-6 | **是** | 影響 M-6-05 工作量、不拍會卡 |
 | **TapPay** sandbox 沿用 / 重申請 | M-3 | **是** | 影響 M-3-08 估時(沿用 30 min / 重申請 60 min + 等審核) |
 | **Vercel** production 新建 / 沿用 | M-6 | **是** | 影響 M-6-06 deploy 流程 |
+| **Supabase Pro** 升級(ADR-0004 Q1=A2 已拍) | M-6 | 已拍 ✅ | M-6-08 trigger 動作、Sean 在 Dashboard 升($25/月)、checklist 確認 plan = Pro;升完 search 切 tsvector + pg_jieba |
 
 **M-3 啟動前必拍:** A3 + TapPay
 **M-6 啟動前必拍:** G2 + Vercel
@@ -764,5 +766,6 @@ unblock 條件: <具體可驗證條件>
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-04-30 | 初始化 PHASE-1-MILESTONES.md(M-0 ~ M-6 共 75 slice) | Claude Code(/writing-plans) |
+| 2026-05-03 | M-0 §1 一覽表 slice 數 6 → 10 + 估時 4-5 hr → 7-9 hr;§3.5 加 M-0-10 條目;§10.5 M-6-08 任務名補 Supabase Pro 升級 + search 切 tsvector(60 → 90 min);§11 加 Supabase Pro trigger(對齊 ADR-0004 落地) | Claude Code(M-0-10c) |
 
 — END —

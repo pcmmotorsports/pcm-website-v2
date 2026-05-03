@@ -9,25 +9,25 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0 進度 9/9 — **完成**(M-0 收尾完整、進 M-1)
-- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06 / M-0-02 / M-0-09(共 11 slice、9 個 milestone)+ 全專案 audit(獨立 slice)
+**Milestone:** M-0 進度 10/10 — **完成**(M-0 收尾完整、進 M-1)
+- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06 / M-0-02 / M-0-09 / M-0-10(共 14 slice、10 個 milestone)+ 全專案 audit(獨立 slice)
 - **下一步:** M-1-01
 
-**當前 slice:** M-0-09 完成(a + b 兩 sub-slice 跨 repo:M-0-09a busboy-end.js console.log template 加 pre-flight 三綠提示段、pcm-tools repo commit f00f2a7;M-0-09b working-style.md §6.3 新節「指令發送前自檢」第 8 / 第 10 / 第 11-13 條從 backlog #12 / #15 / #76 integrate、含 #76 節 1 / 節 2 supplementary、backlog #12 / #15 / #76 標 ✅、Sean Q1=A1/Q2=B1/Q3=C3/Q4=D2/Q5=E1 拍板;L1 typecheck 6/6 + lint 10/10 全綠 build 純 docs / md 可省)、待 Sean 各 repo 手動推
+**當前 slice:** M-0-10 完成(a / b / c 三 sub-slice、ADR-0004 落地;M-0-10a 6e04c35 文件層:ADR-0004 + testing-strategy / bounded-contexts / money-handling 三新 doc + ADR-0002 §7 stale 修 + wrs.it IA 報告 git track;M-0-10b b9e43c9 .ts 字面層 25 min 嚴守 §11.5 規則 1:Money brand type MoneyAmount + toMoneyAmount() helper / FitmentSpec.year → yearStart + yearEnd \| null;M-0-10c 8dbc241 規範字面 + backlog:medusa-schema-design §2.4 補 yearStart/yearEnd + §2.5 新增 search 兩階段 / ADR-0003 §4 第 3 條補 / IProductRepository JSDoc 兩階段 / security-timeline #F6 30→31 條 / PHASE-1-MILESTONES M-0 §1+§3.5+§10.5+§11 + backlog #13/#45/#46/#57 ✅ + 新 #78/#79;Sean 拍板 Q1=A2/Q2=A2/Q3=A1/Q4=A3/Q5=A3/Q6=A3 + wrs Q1=A1/Q3=A2/Q4=#78/Q5=撤銷/Q6=B2 + slice 結構 Q1=A1/Q2=A1/Q3=A3;sanity-check 抓 3 處需拍板 multi-select 回報;L1 typecheck 6/6 + lint 10/10 三綠、build 純 type stub / docs 可省)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-03
-**更新者:** Claude Code(M-0-09 完成、busboy-end 收工)
+**更新者:** Claude Code(M-0-10 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 215e8cd | docs(M-0-09b): working-style.md §6.3 + backlog #12 / #15 / #76 完成 | 2026-05-03 |
-| cc45c4a | fix(M-0-02): audit follow-up — JSDoc 字面修 + backlog 處置 | 2026-05-02 |
-| 686afc8 | feat(M-0-02): apps/admin + apps/sync-engine 極簡空殼 + packages JSDoc | 2026-05-02 |
+| 8dbc241 | docs(M-0-10c): 規範字面更新 + backlog 處置 | 2026-05-03 |
+| b9e43c9 | feat(M-0-10b): domain types — Money brand type + FitmentSpec yearStart/yearEnd | 2026-05-03 |
+| 6e04c35 | docs(M-0-10a): ADR-0004 + 3 新 doc + ADR-0002 §7 stale 修 + wrs.it IA 報告 | 2026-05-03 |
 
 ## 下一步(第 1 條優先)
 
@@ -145,5 +145,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-02 | M-0-02 完成(apps/admin + apps/sync-engine 極簡空殼字面複製 storefront/medusa 純殼結構、無 tsconfig/src/README、對齊 dependency-rules.md §5.3;packages/{use-cases,adapters,schemas}/src/index.ts file-level JSDoc 處置 audit #65/T22;Code sanity-check 抓 Claude.ai 原指令 Step 5-7 違反 ADR-0002 §4.2 + Step 1 假設 storefront/medusa 有 tsconfig pattern 偏離 4 條、Sean Q1=A1/Q2=B1/Q4=D1 拍板;audit #54/T23 trigger 修正延後到 M-1-01/M-4a-01/M-5-01;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 stub 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-02 | M-0-02 audit follow-up 完成(雙輪 skill audit:engineering:code-review 抓 7 + simplify 抓 1 新 + 1 補強、互補 7/1/1;立即修 4 處 JSDoc 字面 CR-1/2/3/4 — adapters audit #60→#48 編號修正 + use-cases/schemas trigger 改抽象 + use-cases ADR-0002 §5→§5.3;backlog #54 加 supersede 註 + 新 #75/#76/#77 三條 CR-5/CR-7+S-C/S-A;Sean Q1=A1/Q2=A3/Q3=A1/Q4=A1 拍板;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純字面修可省)、busboy-end 收工 | Claude Code |
 | 2026-05-03 | M-0-09 完成(a + b 兩 sub-slice 跨 repo:M-0-09a busboy-end.js pre-flight 三綠提示段 pcm-tools commit f00f2a7;M-0-09b working-style.md §6.3「指令發送前自檢」新節從 backlog #12 / #15 / #76 integrate 第 8 / 第 10 / 第 11-13 條 + #76 節 1 節 2 supplementary、backlog 三條標 ✅、Sean Q1=A1/Q2=B1/Q3=C3/Q4=D2/Q5=E1 拍板;sanity-check 抓 9 處字面 vs 事實偏離 multi-select 回報、Sean 拍板修正版指令;M-0 收尾完整 9/9 進 M-1;L1 typecheck 6/6 + lint 10/10 全綠 build 純 docs / md 可省)、busboy-end 收工 | Claude Code |
+| 2026-05-03 | M-0-10 完成(三 sub-slice a/b/c:M-0-10a 6e04c35 文件層 — ADR-0004 m1-pre-launch-decisions 6+4 題拍板 + testing-strategy / bounded-contexts / money-handling 三新 doc + ADR-0002 §7 4 條 stale 修(medusa-schema-design / dependency-rules / testing-strategy / bounded-contexts → ✅、ports-and-adapters / PRD-rewrite 維持 🟡)+ wrs.it IA 報告 git track;M-0-10b b9e43c9 .ts 25 min 嚴守 §11.5 規則 1 — Money brand type MoneyAmount + toMoneyAmount() helper、FitmentSpec.year → yearStart + yearEnd \| null;M-0-10c 8dbc241 規範字面 + backlog — medusa-schema-design §2.4 yearStart/yearEnd 4 種範例 + §2.5 search 兩階段(M-1-03 ILIKE / M-6 tsvector+pg_jieba)、ADR-0003 §4 第 3 條補、IProductRepository JSDoc 兩階段、security-timeline #F6 Supabase Pro 30→31 條、PHASE-1-MILESTONES §1 M-0 6→10 / §3.5 加 M-0-10 / §10.5 M-6-08 60→90 min / §11 加 Supabase Pro trigger、backlog #13/#45/#46/#57 ✅ + 新 #78 商品名硬規範 / #79 wrs IA 觀察;Sean 拍板 Q1=A2/Q2=A2/Q3=A1/Q4=A3/Q5=A3/Q6=A3 + wrs Q1=A1/Q3=A2/Q4=#78/Q5=撤銷/Q6=B2 + slice 結構 Q1=A1/Q2=A1/Q3=A3;sanity-check 抓 3 處 multi-select 回報、Sean 拍板修正版指令;L1 typecheck 6/6 + lint 10/10 三綠、build 純 type stub / docs 可省)、busboy-end 收工 | Claude Code |
 
 — END —

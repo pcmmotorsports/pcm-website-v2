@@ -101,14 +101,46 @@ export type Product = {
 | `listByBrand(brandId: string)` | adapter 內 `sdk.products.list({ collection_id: brandId })` + map | ADR-0003 §3.3 + §4 #1 |
 | `listByFitment(spec: FitmentSpec)` | adapter 內 `sdk.products.list({ metadata_filters: { fits: ... } })` + map | ADR-0003 §3.3 + §4 #3 |
 
-### 2.4 Fitment 字面落地(對齊 ADR-0003 §4 第 3 條)
+### 2.4 Fitment 字面落地(對齊 ADR-0003 §4 第 3 條 + ADR-0004 wrs Q1=A1)
 
 `Product.fitments: FitmentSpec[]` 是 domain 結構化字面、Medusa 端落 `metadata.fits` 自由字串陣列、由 adapter 邊界雙向斷詞:
 
+**單年 / 無年份:**
 - domain → wire:`fitmentToWireString({ motoBrand: 'Yamaha', modelCode: 'CBR600RR' })` → `'Yamaha CBR600RR'`
 - wire → domain:`parseWireFitment('Yamaha CBR600RR')` → `{ motoBrand: 'Yamaha', modelCode: 'CBR600RR' }`
 
+**年份範圍(對齊 ADR-0004 wrs Q1=A1、wrs.it IA 報告 §5 報價單格式):**
+- domain → wire:`fitmentToWireString({ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2018, yearEnd: 2024 })` → `'Yamaha CBR600RR 2018-2024'`
+- wire → domain:`parseWireFitment('Yamaha CBR600RR 2018-2024')` → `{ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2018, yearEnd: 2024 }`
+
+**開放式範圍(yearEnd null = "2025+"):**
+- domain → wire:`fitmentToWireString({ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2025, yearEnd: null })` → `'Yamaha CBR600RR 2025+'`
+- wire → domain:`parseWireFitment('Yamaha CBR600RR 2025+')` → `{ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2025, yearEnd: null }`
+
+**單年(yearEnd 同 yearStart):**
+- domain → wire:`fitmentToWireString({ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2024, yearEnd: 2024 })` → `'Yamaha CBR600RR 2024'`
+- wire → domain:`parseWireFitment('Yamaha CBR600RR 2024')` → `{ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2024, yearEnd: 2024 }`
+
 斷詞 helper M-1-02 落地、本檔僅規範 wire 字面位置(`metadata.fits[]`)。
+
+### 2.5 Search query 兩階段實作(對齊 ADR-0004 Q3=A1)
+
+product 全文檢索(對 product.title / metadata.fits / 其他文字欄位)分兩階段落地:
+
+| 階段 | Owner Milestone | 實作方式 | 性能預期 | 觸發條件 |
+|---|---|---|---|---|
+| dev 期 | M-1-03(MedusaProductAdapter 落地) | PG `ILIKE '%query%'`(`unaccent` extension 可選) | p99 1-3s @ 200 SKU | 即可、free tier 內可跑 |
+| production 切換 | M-6-08(上線前 checklist) | PG `tsvector` + `GIN` index + `pg_jieba`(中文分詞) | p99 < 100ms @ 5w SKU | 需 Supabase 升 Pro(`pg_jieba` extension Pro plan only、對應 ADR-0004 Q1=A2 + #F6 security-timeline) |
+
+**M-1-03 實作要點:**
+- adapter 內 `searchByKeyword` 用 `medusa_search_v2 ILIKE` 暫代
+- JSDoc 註明「M-6 切 tsvector」(對齊 packages/ports/src/IProductRepository.ts 註記)
+- 不預先建 GIN index、避免 free tier extension 衝突
+
+**M-6 切換要點:**
+- Supabase Pro 升完(M-6-08 checklist)、跑 migration 加 tsvector 欄位 + GIN index + pg_jieba 配置
+- adapter 內 `searchByKeyword` 改 `to_tsquery` + `ts_rank` 排序
+- 上線前回測「中文搜尋 / 英文搜尋 / 數字 SKU」三類 query 各 5 條、p99 達標再切
 
 ---
 

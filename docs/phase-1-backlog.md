@@ -419,9 +419,12 @@
 
 ---
 
-### #13. ⏳ Money.amount 守門策略待 M-1-02 重檢
+### #13. ✅ Money.amount 守門策略待 M-1-02 重檢
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-03 / M-0-10b / ADR-0004 Q4=A3 拍板選 (c) brand type MoneyAmount + helper toMoneyAmount(n);docs/patterns/money-handling.md 落地規範字面、packages/domain/src/shared/types.ts 落地實作字面
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
   - M-0-04 Q4=A 拍板 Money.amount 用 number 整數 + JSDoc + 運算層守門
@@ -1168,9 +1171,12 @@
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/PHASE-1-MILESTONES.md` §4 M-1-16 / §8 M-5-03、`docs/audits/2026-05-02-full-audit.md` Audit-F6
 
-### #45. ⏳ testing-strategy.md 待寫(0002 ADR §7 列待寫)
+### #45. ✅ testing-strategy.md 待寫(0002 ADR §7 列待寫)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-03 / M-0-10a / ADR-0004 Q5=A3(minimum 版);docs/architecture/testing-strategy.md 落地(test 位置 / vitest / mock 風格 / description 慣例);coverage / E2E 範圍留 G2 / M-6 拍板後擴
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
   - `docs/architecture/`(無 testing-strategy.md)、0002 ADR §7 列「待寫(M-6 / G2 拍板後)」
@@ -1189,9 +1195,12 @@
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/decisions/0002-architecture-pivot.md` §7、STATUS Sean 待決策 #2(G2 測試覆蓋率)、`docs/audits/2026-05-02-full-audit.md` Audit-F22
 
-### #46. ⏳ bounded-contexts.md 待寫(0002 ADR §7 列待寫)
+### #46. ✅ bounded-contexts.md 待寫(0002 ADR §7 列待寫)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-03 / M-0-10a / ADR-0004 Q6=A3(minimum 版);docs/architecture/bounded-contexts.md 落地(9 contexts × 一句話定義 × Medusa 蓋面對照表);ubiquitous language 完整字典 / context 間 message contract 留 Phase 2 啟動前擴
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
   - `docs/architecture/`(無 bounded-contexts.md)、0002 ADR §7 列「待寫」
@@ -1413,9 +1422,12 @@
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/audits/2026-05-02-full-audit.md` Audit-F44
 
-### #57. ⏳ Supabase free tier 容量升級拍板(Critical / 10w 商品)
+### #57. ✅ Supabase free tier 容量升級拍板(Critical / 10w 商品)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(拍板)
+- **完成於:** 2026-05-03 / M-0-10c / ADR-0004 Q1=A2 拍板「上架完畢 / 上線前升 $25/月」;trigger 推遲到 M-6-08 上線前 checklist(實際升級動作)、不再開新條目;security-timeline.md §3 加 #F6 對應、PHASE-1-MILESTONES.md M-6-08 任務名補 + §11 拍板項目登記
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🔴 Critical
 - **問題:**
   - Supabase 免費版 500MB DB / 5GB bandwidth / socket 連線限制
@@ -1852,6 +1864,54 @@
 - **依賴:** 無、未來 lint 工序升級時 trigger
 - **發現於:** 2026-05-02 / M-0-02 audit follow-up
 - **相關:** `docs/architecture/dependency-rules.md` §5.3 / §6.1-6.2、Audit findings S-A
+
+### #78. ⏳ 商品名硬規範 + concat helper(M-5-03 sync-engine 上架 pipeline)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - Sean 真實業務報價單格式「{零件廠牌} {變體} {零件名} {車廠} {車型} {年份範圍}」(對齊 wrs.it IA 報告 §5)
+  - Phase 1 後台用 Medusa Admin 內建表單上架、員工手動填、不能硬規範格式
+  - M-5-03 sync-engine 上架 pipeline 才有實作上下文(Sheet row 拉欄位 + concat 寫 product.title)
+- **觸發事件:**
+  - 2026-05-03 / ADR-0004 wrs Q4 拍板「進 backlog」
+- **預期解法:**
+  - M-5-03(sync-product-candidates use-case)落地時、寫商品名 concat helper:
+    - 輸入:`{ manufacturer, variant, partName, motoBrand, modelCode, yearStart, yearEnd }`
+    - 輸出:標準格式商品名 string(對齊 FitmentSpec yearStart/yearEnd 雙向 mapping、yearEnd null 出 "2025+")
+  - sync-engine 從 Sheet row 拉欄位 + concat、Medusa product.title 寫入規範格式
+  - Phase 1 階段 1 員工手動上架不強制(只 sync-engine pipeline 走)
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 vendor crawler、商品名格式不一致 → SEO / search 受影響(對齊 ADR-0004 Q3 search 兩階段切 tsvector 後尤其重要)
+  - 可維護性:員工手動上架時格式自由、後續 audit 找不一致靠 grep、規範靠人工守
+  - bug 可追蹤性:客人「搜某 SKU 找不到」、可能商品名格式偏離規範、本條目 + M-5-03 trigger 為錨點
+- **估時:** M-5-03 同 slice 加 30-45 min(concat helper + sync 流程整合)
+- **依賴:** M-5-03(sync-product-candidates)
+- **發現於:** 2026-05-03 / ADR-0004 wrs Q4 拍板
+- **相關:** `docs/research/wrs-ia-decomposition.md` §5、`docs/decisions/0004-m1-pre-launch-decisions.md` wrs Q4
+
+### #79. ⏳ wrs.it IA 競品研究觀察條目(Phase 1 完工後 Sean 評估)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - wrs.it IA 報告 6 拍板題、Sean 拍板處置:Q1=A1 修 schema(已落地 ADR-0004 + M-0-10b FitmentSpec)/ Q4=backlog #78 / Q5=撤銷不做
+  - **Q3(4 軸 selector)** + **Q6(雙 breadcrumb)** Sean 拍 A2 / B2 維持 design 現狀、留 Phase 1 完工後實際操作再決定
+  - 視覺真權威紀律:wrs.it 不是真權威、修動 storefront 應走 Claude Design 流程(對齊 NORTHSTAR §2 視覺真權威鐵則)
+- **觸發事件:**
+  - 2026-05-03 / ADR-0004 wrs Q3 / Q6 拍板
+- **預期解法:**
+  - Phase 1 完工後 / 上線實際 user 行為觀察後、Sean 跟 Claude Design 對話評估「HomePage hero 4 軸 selector」/「ProductDetailPage 雙 breadcrumb」是否需要
+  - 若需要、走 Claude Design 改 design-reference → submodule update → storefront 對應 slice(對齊 NORTHSTAR §2.2 真權威更新流程)
+  - 若不需要、條目標 ❌ 棄用、紀錄理由
+- **不修會痛在:**
+  - 擴充性:上線後若 user 篩選器使用率 / 轉換率指標顯示有需要、現在不修也 OK、之後 1-2 hr Claude Design 改 + 4-8 hr storefront 實作可承受
+  - 可維護性:維持 design 真權威單一基準、不被外部研究啟發污染、wrs.it 不是真權威
+  - bug 可追蹤性:本條目為 anchor、未來 Sean 想到時 grep「wrs」找此條目決議
+- **估時:** 評估 30 min / 若改 Claude Design 1-2 hr + storefront 對應 4-8 hr
+- **依賴:** Phase 1 完工 / 上線後 user 行為觀察
+- **發現於:** 2026-05-03 / ADR-0004 wrs Q3 / Q6 拍板
+- **相關:** `docs/research/wrs-ia-decomposition.md` §10 / §11、`docs/decisions/0004-m1-pre-launch-decisions.md` wrs Q3 / Q6、`docs/PHASE-1-NORTHSTAR.md` §2 視覺真權威紀律
 
 ---
 
