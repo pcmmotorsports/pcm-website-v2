@@ -44,7 +44,7 @@ export type CategoryPath = {
 /**
  * FitmentSpec: 商品適配車型(value-object array element)。
  *
- * 對齊 ADR-0003 §4 #3:
+ * 對齊 ADR-0003 §4 #3 + ADR-0004 wrs Q1=A1:
  * - design 字面是自由字串('CBR600RR'、`string.includes` 比對)
  * - Medusa wire 是 metadata.vehicle_ids[]
  * - domain 用結構化 value-object;adapter 邊界斷詞自由字串 → 結構化
@@ -52,14 +52,23 @@ export type CategoryPath = {
  * `motoBrand`(車輛廠牌口語名)為 string、與 catalog `Brand`(商品廠牌)語意分離;
  * M-1 storefront 寫 VehicleFinder / FilterSide 時若需結構化、可升級為 MotoBrand value-object。
  *
+ * 年份範圍(對齊 ADR-0004 wrs Q1=A1、wrs.it IA 報告 §5):
+ * - `yearStart` / `yearEnd` 雙欄位、對應 Sean 真實業務報價單格式("2018-2024" / "2025+")
+ * - `yearEnd` 為 `null` 表示開放式範圍(例:"2025+" → yearStart=2025, yearEnd=null)
+ * - `yearEnd` 為 undefined / 同 `yearStart` 表示單年(例:"2024" → yearStart=2024, yearEnd=2024)
+ *
  * @see M-1 升級 MotoBrand value-object
+ * @see docs/architecture/medusa-schema-design.md §2.4(adapter 邊界 fitmentToWireString / parseWireFitment 雙向 mapping)
  */
 export type FitmentSpec = {
   /** 車輛廠牌口語名(例:'Yamaha' / 'Honda' / 'Ducati')、非商品廠牌 */
   motoBrand: string;
   /** 車型代號(例:'CBR600RR' / 'MT-09') */
   modelCode: string;
-  year?: number;
+  /** 適用年份起(例:2018);若無年份限制可省略 */
+  yearStart?: number;
+  /** 適用年份迄;`null` = 開放式範圍("2025+");同 yearStart = 單年 */
+  yearEnd?: number | null;
 };
 
 /**
