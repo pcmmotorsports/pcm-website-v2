@@ -9,32 +9,34 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-0 進度 10/10 — **完成**(M-0 收尾完整、進 M-1)
-- **已完成:** M-0-01a / M-0-01b / M-0-07 / M-0-08 / M-0-04 / M-0-03 / M-0-05 / M-0-06 / M-0-02 / M-0-09 / M-0-10(共 14 slice、10 個 milestone)+ 全專案 audit(獨立 slice)
-- **下一步:** M-1-01
+**Milestone:** M-1 進度 1/16(M-0 10/10 完成、進 M-1 Catalog spike + 基本 Customer)
+- **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
+- **M-1 進度:** M-1-01 ✅
+- **下一步:** M-1-02
 
-**當前 slice:** M-0-10 完成(a / b / c 三 sub-slice、ADR-0004 落地;M-0-10a 6e04c35 文件層:ADR-0004 + testing-strategy / bounded-contexts / money-handling 三新 doc + ADR-0002 §7 stale 修 + wrs.it IA 報告 git track;M-0-10b b9e43c9 .ts 字面層 25 min 嚴守 §11.5 規則 1:Money brand type MoneyAmount + toMoneyAmount() helper / FitmentSpec.year → yearStart + yearEnd \| null;M-0-10c 8dbc241 規範字面 + backlog:medusa-schema-design §2.4 補 yearStart/yearEnd + §2.5 新增 search 兩階段 / ADR-0003 §4 第 3 條補 / IProductRepository JSDoc 兩階段 / security-timeline #F6 30→31 條 / PHASE-1-MILESTONES M-0 §1+§3.5+§10.5+§11 + backlog #13/#45/#46/#57 ✅ + 新 #78/#79;Sean 拍板 Q1=A2/Q2=A2/Q3=A1/Q4=A3/Q5=A3/Q6=A3 + wrs Q1=A1/Q3=A2/Q4=#78/Q5=撤銷/Q6=B2 + slice 結構 Q1=A1/Q2=A1/Q3=A3;sanity-check 抓 3 處需拍板 multi-select 回報;L1 typecheck 6/6 + lint 10/10 三綠、build 純 type stub / docs 可省)、待 Sean 手動推
+**當前 slice:** M-1-01 完成(6b00b5d Vercel deploy fix:monorepo root vercel.json 含 framework: nextjs + installCommand corepack enable + pnpm install --frozen-lockfile;對齊 setup §10.3 字面、解 Vercel pnpm 6.35.1 vs ≥9.15.0;字面 vs 事實 4 處 commit body 揭示:1. Vercel 官方建議 vercel.json 放 Root Directory(apps/storefront)Sean 拍板 monorepo root、deploy fail 時評估搬位置;2. installCommand 含 corepack 是冗餘但無害;3. 不寫 buildCommand 預期 next 套件找不到 fail = M-1-04/05 起裝;4. STATUS hash drift 上輪 amend 後修;ENABLE_EXPERIMENTAL_COREPACK=1 由 Sean 在 Vercel Dashboard 加;L1 typecheck 6/6 + lint 10/10 全綠、build §2.2 純 config 可省;不跑 skill audit 對齊 working-style §6.3 第 10 條)、待 Sean 手動推 + Vercel Dashboard env var
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-03
-**更新者:** Claude Code(M-0-10 完成、busboy-end 收工)
+**更新者:** Claude Code(M-1-01 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 8dbc241 | docs(M-0-10c): 規範字面更新 + backlog 處置 | 2026-05-03 |
+| 6b00b5d | feat(M-1-01): Vercel deploy fix — monorepo root vercel.json + corepack + pnpm 9.15 | 2026-05-03 |
+| 194b710 | docs(M-0-10c): 規範字面更新 + backlog 處置 | 2026-05-03 |
 | b9e43c9 | feat(M-0-10b): domain types — Money brand type + FitmentSpec yearStart/yearEnd | 2026-05-03 |
-| 6e04c35 | docs(M-0-10a): ADR-0004 + 3 新 doc + ADR-0002 §7 stale 修 + wrs.it IA 報告 | 2026-05-03 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-01**(Vercel deploy fix:vercel.json + ENABLE_EXPERIMENTAL_COREPACK=1)← 當前(M-0 已完整收尾、進 M-1)
+1. **M-1-02**(domain/catalog entities + InMemoryProductRepository + tests、45 min)← 當前
 
-> M-1-01 / M-4a-01 / M-5-01 啟動前需處理 audit #54 trigger 修正(apps 真寫 .ts 時各補一般性 boundaries 驗證、commit 686afc8 已揭示)
-> M-1-02 / M-1-03 啟動前需處理 audit Critical / High:#57 Supabase Pro 升級 / #66 Medusa-as-API spike checklist / #43 image CDN / #36 monitoring
+> M-1-01 完成(待 Sean push + Vercel Dashboard 加 ENABLE_EXPERIMENTAL_COREPACK=1)、push 後看 deploy log:預期 corepack 跑通 + Next.js build fail(找不到 next 套件)= ✅ 完整解;若撞坑 Sean 截 log 回 Claude.ai
+> M-1-02 啟動前需處理 audit #54 trigger 修正(apps/medusa/admin/sync-engine 純殼 boundaries dry-run、推遲到對應 milestone 真寫 .ts);#23 typescript-aware import resolver(M-1-02 第一次跨 package import 時加)
+> M-1-02 / M-1-03 啟動前需處理 audit Critical / High:#57 已拍 ✅ M-6-08 trigger / #66 Medusa-as-API spike checklist / #43 image CDN / #36 monitoring
 > M-1-16 啟動前需處理 #44 種子 transition
 
 2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
@@ -146,5 +148,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-02 | M-0-02 audit follow-up 完成(雙輪 skill audit:engineering:code-review 抓 7 + simplify 抓 1 新 + 1 補強、互補 7/1/1;立即修 4 處 JSDoc 字面 CR-1/2/3/4 — adapters audit #60→#48 編號修正 + use-cases/schemas trigger 改抽象 + use-cases ADR-0002 §5→§5.3;backlog #54 加 supersede 註 + 新 #75/#76/#77 三條 CR-5/CR-7+S-C/S-A;Sean Q1=A1/Q2=A3/Q3=A1/Q4=A1 拍板;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純字面修可省)、busboy-end 收工 | Claude Code |
 | 2026-05-03 | M-0-09 完成(a + b 兩 sub-slice 跨 repo:M-0-09a busboy-end.js pre-flight 三綠提示段 pcm-tools commit f00f2a7;M-0-09b working-style.md §6.3「指令發送前自檢」新節從 backlog #12 / #15 / #76 integrate 第 8 / 第 10 / 第 11-13 條 + #76 節 1 節 2 supplementary、backlog 三條標 ✅、Sean Q1=A1/Q2=B1/Q3=C3/Q4=D2/Q5=E1 拍板;sanity-check 抓 9 處字面 vs 事實偏離 multi-select 回報、Sean 拍板修正版指令;M-0 收尾完整 9/9 進 M-1;L1 typecheck 6/6 + lint 10/10 全綠 build 純 docs / md 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-03 | M-0-10 完成(三 sub-slice a/b/c:M-0-10a 6e04c35 文件層 — ADR-0004 m1-pre-launch-decisions 6+4 題拍板 + testing-strategy / bounded-contexts / money-handling 三新 doc + ADR-0002 §7 4 條 stale 修(medusa-schema-design / dependency-rules / testing-strategy / bounded-contexts → ✅、ports-and-adapters / PRD-rewrite 維持 🟡)+ wrs.it IA 報告 git track;M-0-10b b9e43c9 .ts 25 min 嚴守 §11.5 規則 1 — Money brand type MoneyAmount + toMoneyAmount() helper、FitmentSpec.year → yearStart + yearEnd \| null;M-0-10c 8dbc241 規範字面 + backlog — medusa-schema-design §2.4 yearStart/yearEnd 4 種範例 + §2.5 search 兩階段(M-1-03 ILIKE / M-6 tsvector+pg_jieba)、ADR-0003 §4 第 3 條補、IProductRepository JSDoc 兩階段、security-timeline #F6 Supabase Pro 30→31 條、PHASE-1-MILESTONES §1 M-0 6→10 / §3.5 加 M-0-10 / §10.5 M-6-08 60→90 min / §11 加 Supabase Pro trigger、backlog #13/#45/#46/#57 ✅ + 新 #78 商品名硬規範 / #79 wrs IA 觀察;Sean 拍板 Q1=A2/Q2=A2/Q3=A1/Q4=A3/Q5=A3/Q6=A3 + wrs Q1=A1/Q3=A2/Q4=#78/Q5=撤銷/Q6=B2 + slice 結構 Q1=A1/Q2=A1/Q3=A3;sanity-check 抓 3 處 multi-select 回報、Sean 拍板修正版指令;L1 typecheck 6/6 + lint 10/10 三綠、build 純 type stub / docs 可省)、busboy-end 收工 | Claude Code |
+| 2026-05-03 | M-1-01 完成(6b00b5d Vercel deploy fix — monorepo root vercel.json 含 framework: nextjs + installCommand corepack enable + pnpm install --frozen-lockfile;對齊 setup §10.3 字面解 Vercel pnpm 6.35.1 vs ≥9.15.0;字面 vs 事實 4 處 commit body 揭示:1. Vercel 官方建議 vercel.json 放 Root Directory(apps/storefront)Sean 拍板 monorepo root → 對齊字面、deploy fail 時評估;2. installCommand 含 corepack 冗餘但無害(明確意圖、deploy log 清楚);3. 不寫 buildCommand 預期 next 套件找不到 fail = M-1-04/05 起裝;4. STATUS hash drift 上輪 amend 後;ENABLE_EXPERIMENTAL_COREPACK=1 由 Sean 在 Vercel Dashboard 加;sanity-check 抓 buildCommand 字面與 storefront 純殼預期 fail 模式不一致 → Q1 拍板移除 buildCommand 解;L1 typecheck 6/6 + lint 10/10 全綠、build §2.2 純 config 可省、不跑 skill audit 對齊 working-style §6.3 第 10 條 + backlog #15)、busboy-end 收工 | Claude Code |
 
 — END —
