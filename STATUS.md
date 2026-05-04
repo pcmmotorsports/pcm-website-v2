@@ -14,21 +14,21 @@
 - **M-1 進度:** M-1-01 ✅
 - **下一步:** M-1-02
 
-**當前 slice:** M-1-03-pre0c 完成(純 docs 2 檔:docs/architecture/supabase-schema-design.md 落地 + STATUS 微調;對齊 ADR-0005 採用後 9 contexts 完整 Supabase 表 schema 取代 medusa-schema-design.md;Part 1 §1-§6 Catalog 4 條核心(Product 7 欄位 SQL + Brand FK + Category 樹 + Tier Price jsonb + Security Checks 對應 #C4 priceByTier 不洩漏);Part 2 §7-§10 Order 雙維度狀態機(SQL CHECK 4 enum payment + 4 enum fulfillment + 5 enum partiallyRefunded 補 #26)+ 9 contexts 全 Supabase 對應表清單 + RLS policy 4 表(ADR-0005 後策略變化:無 Medusa service role bypass、改 anon key + RLS)+ 索引策略 3 階段(M-1-16 基本 / GIN on fitments / tsvector + pg_jieba);Part 3 §11-§13 9 大藍圖預留 checklist(客人端 8 條 / 店家端 4 條 / 員工後台 3 條);Sean 待決策 #5=i apps/medusa→apps/api 標 ✅、本 slice schema 引用 apps/api 字面實際 rename 在後續 M-1-03 主實作 slice;字面對齊 ADR-0003 §4 9 條衝突 / ADR-0004 4 題 / security-timeline §3 7 條 / PHASE-2-VISION §3 9 條預留;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 docs 可省、不跑 skill audit)、待 Sean 手動推
+**當前 slice:** M-1-03-pre0d 完成(純 docs 1 檔:STATUS.md「下一步」段「M-1-03 主實作」blockquote 內補 1 段 C 切法 8 slice 拆法字面、對齊 2026-05-04 Claude.ai 拍板紀錄 Sean Q2=A1「先落 STATUS 再啟動 pre1」;8 slice = pre1(rename + #20/#51 PaginationParams + Paginated\<T\> 預定義) → prep(#86 thematic1 BC + #83 matchFitment yearStart/yearEnd) → main-a(Supabase schema migration + RLS basic + env) → main-b(SupabaseProductAdapter 6 method + mappers) → main-c(spike round-trip 驗 4 mapping) → main-d-pre(apps/storefront tsconfig + boundaries Rule 5 + import resolver glob) → main-d(storefront 首頁從 Supabase 拉真資料) → audit(雙跑 skill audit follow-up);為 M-1-03 後續 7 slice 提供進度錨點;字面 vs 事實揭示 2 處:1. 指令 §C old_str/new_str 字面缺 markdown blockquote 標記、實作對齊 STATUS L45-46 既有結構恢復;2. Paginated\<T\> 落實 backslash + 角括號避免 markdown render 失真;L1 typecheck 6/6 + lint 10/10 + test 7/7 全綠 build §2.2 純 docs 可省、不跑 skill audit 對齊 working-style §6.3 第 10 條)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-04
-**更新者:** Claude Code(M-1-03-pre0c 完成、busboy-end 收工)
+**更新者:** Claude Code(M-1-03-pre0d 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| f13ca53 | docs(M-1-03-pre0c): supabase-schema-design.md(取代廢的 medusa-schema-design.md) | 2026-05-04 |
+| 5d17011 | docs(M-1-03-pre0d): STATUS 補 C 切法 8 slice 拆法字面(純 docs) | 2026-05-04 |
+| e234e0b | docs(M-1-03-pre0c): supabase-schema-design.md(取代廢的 medusa-schema-design.md) | 2026-05-04 |
 | 8cda1d4 | docs(M-1-03-pre0b): ADR-0005 — Custom + Supabase 直寫架構(廢 Medusa-as-API) | 2026-05-04 |
-| e9f97c5 | docs(M-1-03-pre0): Medusa monorepo integration plan(研究、不裝) | 2026-05-04 |
 
 ## 下一步(第 1 條優先)
 
@@ -43,6 +43,8 @@
 >   - SupabaseProductAdapter 寫 packages/adapters/src/supabase/(取代原 medusa/ 子目錄、對齊 ADR-0005 §8.1)
 >   - 對齊 supabase-schema-design.md §2-§5 + §10 索引策略階段 1(M-1-16 種子 200 SKU 規模)
 > **M-1-03 啟動前(本 slice 前) 順手:** apps/medusa/ → apps/api/ rename(對齊 ADR-0005 §2.4 Sean 拍板 i、本 slice 不真實 rename、實際 rename 進 M-1-03 主實作 slice 含)
+> **C 切法 8 slice 拆法(2026-05-04 Claude.ai 拍板、Sean Q2=A1):**
+> pre1(rename + 件 #2 #20/#51 PaginationParams + Paginated\<T\> 預定義) → prep(件 #3 #86 thematic1 BC + 件 #4 #83 matchFitment yearStart/yearEnd 真邏輯) → main-a(Supabase schema migration + RLS basic + env) → main-b(SupabaseProductAdapter 6 method + mappers + helpers + JSDoc TODO) → main-c(spike round-trip 驗 4 mapping + clean up) → main-d-pre(apps/storefront tsconfig + boundaries Rule 5 + import resolver glob、對齊 backlog #54/#23) → main-d(storefront 首頁從 Supabase 拉真資料) → audit(雙跑 skill audit follow-up: engineering:code-review + simplify)
 > **M-1-13 啟動前必修:**
 >   - backlog #81 Product variants schema spike + 落地(60-90 min spike + 90-120 min 落地)
 >   - backlog #82 design `inStock: boolean` ↔ domain ProductAvailability mapper(30 min)
@@ -171,5 +173,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-04 | M-1-03-pre0 完成(9e3c66b 純 docs 1 檔:docs/architecture/medusa-monorepo-integration-plan.md 研究產出 + Sean 拓寬「不用 medusa 用什麼」;WebFetch 5 URL 抓 Medusa v2 docs 官方 stance「pnpm only single-package、推薦 yarn/npm for monorepo」+ GitHub issues #14833 Zod v4 hoisting OPEN active blocker / #15280 OPEN + Vendure GPLv3 NestJS GraphQL 8.1k stars + Saleor Python 排除;PoC 跳過(核心問題已知);5 方案 A Medusa+hoist例外 / B 手動裝 minimal / C apps/medusa 排除 workspace / D Vendure / E Custom+Supabase 直寫;三視角評估表 E 全高;推薦 E 含 Phase 2 9 大藍圖視角理由 — Vehicle/Booking/Wallet/Shop/Sync 5 context 本來走 Supabase、剩 4 context 自寫 cart/order/payment/Price List 1-2 週;Sean multi-select 拍板範圍 A vs E + ADR-0005 落地時機;字面 vs 事實 4 處揭示;L1 typecheck 6/6 + lint 10/10 全綠 build 純 docs 可省)、busboy-end 收工 | Claude Code |
 | 2026-05-04 | M-1-03-pre0b 完成(73bb63c 純 docs 5 檔架構級轉向:Sean 拍板 Q1=A1 廢 ADR-0002 §1.2 Pivot 2「Medusa-as-API」改 Custom + Supabase 直寫、9 contexts 統一架構;ADR-0005 docs/decisions/0005-custom-supabase-direct.md 落地含 §1 Context + §2 Decision + §3 5 候選方案決策摘要 + §4 沒有更優解確認(Medusa/Vendure/Saleor/Payload/SaaS/Bun 排除)+ §5 三視角 + §6 Rollback 訊號 4 強 3 弱 + §7 影響清單 + §8 後續 milestone 字面變更(M-1-03 estimate 75-90 min → 6-8 hr)+ §9 變更紀錄;medusa-schema-design.md / spike-verification-checklist.md 加 ⚠️ Superseded metadata 字面保留;backlog #66 補廢註;STATUS 待決策表加 #5 apps/medusa 改用途(候選 i/ii/iii、ADR-0005 §2.4 待 M-1-03-pre0c 拍);字面 vs 事實 4 處揭示:1. slice 字面誤指 ADR-0002 §3 Medusa-as-API、實際在 §1.2 Pivot 2、本 commit 對齊實際 ADR-0002 結構;2. slice §2.4 「待決策清單」語意偏離、SupabaseProductAdapter 等動作項寫進下一步段、apps/medusa 改用途加進待決策表;3. M-1-03 estimate 變更 75-90 min → 6-8 hr;4. ahead origin/dev = 2 跨 e9f97c5 + 73bb63c;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 docs 可省、不跑 skill audit;STATUS amend 補 hash + 變更紀錄行)、busboy-end 走例外規則「不再 amend」 | Claude Code |
 | 2026-05-04 | M-1-03-pre0c 完成(純 docs 2 檔:docs/architecture/supabase-schema-design.md 落地取代廢的 medusa-schema-design.md、Sean 待決策 #5=i apps/medusa→apps/api 標 ✅;Part 1 §1-§6 Catalog 4 條核心(Product 7 欄位 SQL CHECK constraint availability + price_by_tier_keys + Brand value-object FK + Category 樹 parent_category_id + Tier Price jsonb 內聯三 tier + customer_groups 表 + Security Checks 對應 #C4 priceByTier 不洩漏 + 後續 milestone 接力);Part 2 §7-§10 Order 雙維度狀態機(SQL CHECK 5 enum payment 含 partiallyRefunded + 4 enum fulfillment + 3 enum fulfillment_method + 雙軸獨立 transitions + 取消 transitions reject + order_items snapshot)+ 9 contexts 全 Supabase 對應表清單(Catalog/Identity/Order/Pricing/Vehicle/Booking/Wallet/Shop/Sync)+ RLS policy 4 表(ADR-0005 後變化:無 Medusa service role bypass、改 anon key + RLS、products 全 SELECT public + service role 寫 / customers SELECT 限自己 / customer_groups SELECT 限 service role / orders SELECT 限 customer_id = auth.uid)+ service role key 紀律 + 索引策略 3 階段(M-1-16 基本 7 索引 / GIN on fitments jsonb_path_ops backlog #30 / tsvector + pg_jieba + websearch_to_tsquery 對齊 ADR-0004 Q3=A1 後段 backlog #35);Part 3 §11-§13 9 大藍圖預留 checklist(客人端 8 條對齊 PHASE-2-VISION §3 / 店家端 4 條 vehicle 獨立 entity + shops + bookings + order fulfillment 深化 / 員工後台 3 條 wallet_ledger / member_discount_overrides / discounts_applied jsonb 對齊 backlog #47);字面對齊 ADR-0003 §4 9 條 + ADR-0004 4 題 + security-timeline §3 7 條 + PHASE-2-VISION §3 9 條預留 + ADR-0005 §2 + §8;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 docs 可省、不跑 skill audit)、busboy-end 走例外規則「不再 amend」 | Claude Code |
+| 2026-05-04 | M-1-03-pre0d 完成(5d17011 純 docs 1 檔:STATUS.md「下一步」段「M-1-03 主實作」blockquote 內補 1 段 C 切法 8 slice 拆法字面、對齊 2026-05-04 Claude.ai 拍板紀錄 Sean Q2=A1「先落 STATUS 再啟動 pre1」;8 slice = pre1(rename + #20/#51 PaginationParams + Paginated\<T\> 預定義) → prep(#86 thematic1 BC + #83 matchFitment yearStart/yearEnd) → main-a(Supabase schema migration + RLS basic + env) → main-b(SupabaseProductAdapter 6 method + mappers) → main-c(spike round-trip 驗 4 mapping) → main-d-pre(apps/storefront tsconfig + boundaries Rule 5 + import resolver glob) → main-d(storefront 首頁從 Supabase 拉真資料) → audit(雙跑 skill audit follow-up);為 M-1-03 後續 7 slice 提供進度錨點;字面 vs 事實揭示 2 處:1. 指令 §C old_str/new_str 字面缺 markdown blockquote 標記、實作對齊 STATUS L45-46 既有結構恢復;2. Paginated\<T\> 落實 backslash + 角括號避免 markdown render 失真;L1 typecheck 6/6 + lint 10/10 + test 7/7 全綠 build §2.2 純 docs 可省、不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
 
 — END —
