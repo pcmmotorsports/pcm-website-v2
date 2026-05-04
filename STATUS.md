@@ -14,32 +14,33 @@
 - **M-1 進度:** M-1-01 ✅
 - **下一步:** M-1-02
 
-**當前 slice:** M-1-02-audit 完成(b089d79 skill audit 雙輪 findings 處置 9 檔 — 5 立即修 + 4 規範類 + 6 backlog;雙輪互補 100% 零重疊:engineering:code-review 0C/3M/3L correctness + simplify 17 議題 reuse/quality/efficiency = 23 議題扣合併 ≈ 18 unique;立即修:C1 save defensive copy structuredClone / M2 searchByKeyword empty query reject / L1 ProductAvailability type alias 抽出 / E1 vitest glob 擴 .tsx+.spec+apps/** / Q8 domain/src/index.ts 5 行註解壓 1 行;規範類:Q3 ADR-0003 §3.2 string union type alias 規則 / Q6 ADR-0003 §3.3 ports JSDoc contract vs adapter TODO 規則(連動修 IProductRepository.save JSDoc 移除 adapter TODO)/ Q2-E2-E5 testing-strategy.md §3.4 in-memory 樣板不搬到真實 adapter / E1 testing-strategy.md §1 同步擴字面;backlog 6 條:#82 design boolean↔domain enum mapper M-1-13 / #83 matchFitment yearStart/yearEnd M-1-03 / #84 Timestamped utility 第3處撞才抽 / #85 createFakeProduct 第3處撞才抽 / #86 thematic1 M-1-03 啟動前樣板leak+contract test+edge cases 三合一 / #87 thematic2 in-memory dev singleton lifecycle;Sean 拍板 Q1=A1 / Q2=B1 / Q3=C2 / Q4=D1 + 處置精修 E1 跨類雙落地;字面 vs 事實 5 處揭示:E1 跨立即修+規範類雙類 / IProductRepository.save JSDoc 連動修移除 adapter TODO / L1 type alias 落地 test fixture literal 仍 valid / structuredClone Node22 OK / C1 改 test reference equality assertion;L1 typecheck 6/6 + lint 10/10 + test 1file/7tests + build 0task 4 綠)、待 Sean 手動推
+**當前 slice:** M-1-03-prep 完成(15eda71 純 docs 2 檔:docs/architecture/medusa-spike-verification-checklist.md 落地 backlog #66;Sean 拍板 Q1=A1 / Q2=A2 / Q3=A1 / Q4=A2;§1 範圍 = Catalog 4 條核心 Product / Brand / Category / Tier Price + 排除項對齊 ADR-0004 Q2 Q3 + backlog #81 / Order / Vehicle / Booking / Wallet / search / image storage / variants 全推延;§2 過判斷 = 真實 round-trip 5 步建/查/map/比對/clean up + 通過條件 + 不在驗項;§3 decision tree 設計錯訊號 4 條(觸發 §4 rollback)+ 裝錯訊號 4 條(本 spike 內修)+ 模糊預設視為設計錯;§4 rollback 路徑重述 ADR-0002 §6.3 自包含(packages 處置 5 條 + 文件處置 + Sean 通知時機);#66 ✅ 完成;字面 vs 事實 4 處揭示:1. §4.1 表合 5 條對齊 ADR §6.3 字面(ports 包進 monorepo 結構行);2. §3.1 第 1 條 Brand collection 訊號精修(原寫「不存在」實際 Medusa v2 必存在、改寫機制限制過嚴);3. §1 排除項補引用 ADR-0004 + #81;4. STATUS hash drift 上輪 amend 後修;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 docs 可省、不跑 skill audit)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-04
-**更新者:** Claude Code(M-1-02-audit 完成、busboy-end 收工)
+**更新者:** Claude Code(M-1-03-prep 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| b089d79 | chore(M-1-02-audit): skill audit 雙輪 findings 處置 — 5 立即修 + 4 規範類 + 6 backlog | 2026-05-04 |
-| d56c52d | feat(M-1-02): catalog 7 欄位擴 + InMemoryProductRepository + tests + 4 議題拍板 | 2026-05-04 |
-| 6cbf18b | chore(M-1-02-prep): backlog 字面修 #43/#66 + 補 import resolver #23 | 2026-05-04 |
+| 15eda71 | docs(M-1-03-prep): backlog #66 — Medusa-as-API spike verification checklist | 2026-05-04 |
+| d6711d5 | chore(M-1-02-audit): skill audit 雙輪 findings 處置 — 5 立即修 + 4 規範類 + 6 backlog | 2026-05-04 |
+| 1dd42ac | feat(M-1-02): catalog 7 欄位擴 + InMemoryProductRepository + tests + 4 議題拍板 | 2026-05-04 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-03**(adapters/MedusaProductAdapter + storefront 連通、45 min)← 當前(audit 處置完整、可動工)
+1. **M-1-03**(adapters/MedusaProductAdapter + storefront 連通、45 min)← 當前(prep #66 ✅ 完整、可動工)
 
-> M-1-02-audit b089d79 完成(雙輪 audit findings 5+4+6 處置);M-1-02 主實作 + audit 兩 commit 待 Sean push
-> **M-1-03 啟動前必處理:**
->   - backlog #66 Medusa-as-API spike verification checklist(30-45 min)
->   - backlog #86 thematic1 in-memory 樣板 leak 防 + contract test + edge cases 三合一(60-90 min)
->   - backlog #83 matchFitment yearStart/yearEnd 範圍重疊邏輯(M-1-03 真實 adapter 落地時補 + InMemory 同步 + false-positive test case)
->   - M-1-03 真實 adapter JSDoc 加樂觀鎖 / idempotency / audit trail TODO(對齊 ADR-0003 §3.3 規則 + backlog #86 / #73 race + security-timeline §C7)
+> M-1-03-prep 15eda71 完成(spike checklist 落地 #66 ✅);M-1-03 主實作啟動有 single source、Code 撞 mapping 問題時 grep `docs/architecture/medusa-spike-verification-checklist.md` 自判
+> **M-1-03 主實作必吸收(對齊 prep checklist 落地後 trigger):**
+>   - backlog #86 thematic1 樣板 leak 防 + contract test + edge cases 三合一(60-90 min)
+>   - backlog #83 matchFitment yearStart/yearEnd 範圍重疊邏輯(InMemory 同步補 + false-positive test case)
+>   - backlog #20 PaginationParams + Paginated<Product>(對齊 IProductRepository.searchByKeyword JSDoc)
+>   - 真實 adapter JSDoc 加樂觀鎖 / idempotency / audit trail TODO(對齊 ADR-0003 §3.3 規則 + #86 / #73 race + security-timeline §C7)
+>   - spike 跑前必過 medusa-spike-verification-checklist §1-§4(round-trip 4 條核心 mapping)
 > **M-1-13 啟動前必修:**
 >   - backlog #81 Product variants schema spike + 落地(60-90 min spike + 90-120 min 落地)
 >   - backlog #82 design `inStock: boolean` ↔ domain ProductAvailability mapper(30 min)
@@ -163,5 +164,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-04 | M-1-02-prep 完成(b3eebf5 純 config + docs:M-1-02 啟動前 3 trigger 處理 — #43 image CDN Supersede 推薦改 Supabase Storage 對齊 ADR-0004 Q2=A2 + trigger 精修 M-1-13 / M-1-16;#66 Medusa spike Supersede trigger 精修 M-1-03 啟動前;#23 import resolver 標 ✅ 完成 = 裝 eslint-import-resolver-typescript@4.4.4 + 配 settings packages/* glob + 6 條 dry-run 重跑全 CAUGHT 用相對路徑無副檔名 + dependency-rules.md §5.1 改「已落地」+ §7 變更紀錄;字面 vs 事實 5 處 commit body 揭示:1. apps/* glob 暫不加(apps 純殼、對齊 backlog #54 Supersede);2. dry-run Rule 5 跳過(apps 純殼、待 M-1-01-true 等補);3. Supersede 註多 sub-bullet vs 既有 #54 單行;4. pnpm install +12/-3 transitive deps;5. pnpm 9.15 不升 10.33;L1 typecheck 6/6 + lint 10/10 全綠、build 純 config + docs 可省、不跑 skill audit 對齊 working-style.md §6.3 第 10 條 + backlog #15)、busboy-end 收工 | Claude Code |
 | 2026-05-04 | M-1-02 完成(d56c52d 主實作 12 檔:catalog/types.ts Product 擴 7 欄位 description / images / availability / handle / subtitle / createdAt / updatedAt + IProductRepository.save method JSDoc milestone-anchored TODO + InMemoryProductRepository.ts 真實作 6 method + InMemoryProductRepository.test.ts 7 test cases + vitest.config.ts root + ADR-0003 §3.1.1 跨 context 命名業務規則 + runtime helper 跨 package re-export 規則 + domain/src/index.ts 加 export toMoneyAmount runtime;Sean 拍板 Q1=A2 / Q2=A3 / Q3=A2 / Q4=A1 + slice 結構 Q1=A1 加 IProductRepository.save + Q1=A1 patch 修 domain/src/index.ts;backlog #17 ✅ / #19 ✅ / #33 Supersede 業務訊號推翻 audit-F17 / 新 #81 variants schema spike trigger M-1-13 啟動前;字面 vs 事實 5 處 commit body 揭示:1. IProductRepository 加 save 對齊 Q4 業務精神;2. toMoneyAmount runtime cross-package gap M-0-10b 遺漏 / Q1=A1 補 + ADR-0003 §3.1.1 補規則;3. vitest 套件裝 add list 擴 root package.json + pnpm-workspace.yaml + pnpm-lock.yaml;4. §6 → §9 變更紀錄位置修正;5. subject「6 欄位」實際 7 欄位 body 揭示;L1 typecheck 6/6 + lint 10/10 + test 7/7 + build 0 task 4 綠;Sean 主 session 跑雙輪 skill audit 建議)、busboy-end 收工 | Claude Code |
 | 2026-05-04 | M-1-02-audit 完成(b089d79 skill audit 雙輪 findings 處置 9 檔:雙輪互補 100% 零重疊、engineering:code-review 0C/3M/3L correctness + simplify 17 議題 reuse/quality/efficiency = 23 議題扣合併 ≈ 18 unique;5 立即修:C1 save defensive copy structuredClone / M2 searchByKeyword empty query reject / L1 ProductAvailability type alias / E1 vitest glob 擴 .tsx+.spec+apps/** / Q8 domain/src/index.ts 5 行壓 1 行;4 規範類:Q3 ADR-0003 §3.2 string union type alias 規則 / Q6 ADR-0003 §3.3 ports JSDoc contract vs adapter TODO 規則(連動移 IProductRepository.save adapter TODO)/ Q2-E2-E5 testing-strategy.md §3.4 in-memory 樣板不搬到真實 adapter / E1 testing-strategy.md §1 同步擴字面;6 backlog:#82 design boolean↔domain enum mapper M-1-13 / #83 matchFitment yearStart/yearEnd M-1-03 / #84 Timestamped utility 第3處撞才抽 / #85 createFakeProduct 第3處撞才抽 / #86 thematic1 M-1-03 啟動前樣板leak+contract test+edge cases / #87 thematic2 in-memory dev singleton lifecycle;Sean 拍板 Q1=A1 / Q2=B1 / Q3=C2 / Q4=D1 + 處置精修 E1 跨類雙落地;字面 vs 事實 5 處揭示;L1 typecheck 6/6 + lint 10/10 + test 7/7 + build 0 task 4 綠;不再跑第三輪 skill audit 對齊 working-style §6.3 第 10 條雙跑紀律)、busboy-end 收工 | Claude Code |
+| 2026-05-04 | M-1-03-prep 完成(15eda71 純 docs 2 檔:docs/architecture/medusa-spike-verification-checklist.md 落地 backlog #66;Sean 拍板 Q1=A1 / Q2=A2 / Q3=A1 / Q4=A2;§1 範圍 = Catalog 4 條核心 Product / Brand / Category / Tier Price + 排除項對齊 ADR-0004 Q2 / Q3 + backlog #81;§2 過判斷 = 真實 round-trip 5 步 + 通過條件 + 不在驗項;§3 decision tree 設計錯訊號 4 條(觸發 §4 rollback)+ 裝錯訊號 4 條(本 spike 內修)+ 模糊預設視為設計錯;§4 rollback 路徑重述 ADR-0002 §6.3 自包含 + 文件處置 + Sean 通知時機;#66 ✅ 完成;字面 vs 事實 4 處揭示:1. §4.1 表合 5 條對齊 ADR §6.3(ports 包進 monorepo 結構行);2. §3.1 第 1 條 Brand collection 訊號精修(Medusa v2 product_collection 必存在、改寫機制限制過嚴);3. §1 排除項補引用 ADR-0004 Q2/Q3 + #81;4. STATUS hash drift 上輪 amend 後修;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 docs 可省、不跑 skill audit 對齊 working-style §6.3 第 10 條 + backlog #15)、busboy-end 收工 | Claude Code |
 
 — END —
