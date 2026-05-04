@@ -1986,6 +1986,152 @@
 - **發現於:** 2026-05-04 / M-1-02 拍板 Q1
 - **相關:** `packages/domain/src/catalog/types.ts` Product variants 推延欄位、`design-reference/components/ProductPage.jsx`(state color / size / qty)、`docs/PHASE-1-MILESTONES.md` M-1-13
 
+### #82. ⏳ design `inStock: boolean` ↔ domain `ProductAvailability` mapper(M-1-13 ProductPage 啟動前)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1-13 ProductPage 直接搬時必撞、之前不阻)
+- **問題:**
+  - design 真權威字面用 `inStock: boolean`(design-reference/components/{ProductCard,ProductPage,FilterTop,FilterSide,FilterDrawer,Pages,ProductsPage}.jsx + data/PRODUCTS-README.md)
+  - M-1-02-audit L1 立即修把 domain 改 `ProductAvailability = 'in-stock' | 'out-of-stock'` string union type alias
+  - **跨層 mapping 缺位:** M-1-13 ProductPage 直接搬 design 時、storefront component 必須 map domain enum ↔ design boolean、否則 component 散寫 ternary (`product.availability === 'in-stock' ? ... : ...`)
+- **觸發事件:**
+  - 2026-05-04 / M-1-02-audit reuse agent R1 抓出
+- **預期解法:**
+  - M-1-13 啟動前抽 mapper:`availabilityToBool(a: ProductAvailability): boolean` + `boolToAvailability(b: boolean): ProductAvailability`
+  - 放置候選:`packages/adapters/src/storefront-mappers/`(新子目錄)/ 或 component 內部 inline + 集中 import
+  - 不能讓 storefront component 散寫 ternary、必過 mapper
+- **不修會痛在:**
+  - 擴充性:Phase 2 加第三 availability state(例 `'discontinued'`)、storefront component 全要改 ternary;mapper 集中改一處
+  - 可維護性:design 字面 vs domain 字面雙軌不對齊、grep 找對應靠記憶
+  - bug 可追蹤性:客人「有貨顯示 Out of stock」、不知是 mapper 錯還 backend 錯、層次不分
+- **估時:** M-1-13 同 slice 加 30 min(mapper + 集中 import)
+- **依賴:** M-1-13 啟動前(可獨立 slice、或合進 M-1-13 主實作)
+- **發現於:** 2026-05-04 / M-1-02-audit reuse R1
+- **相關:** `packages/domain/src/catalog/types.ts` ProductAvailability、`design-reference/components/ProductCard.jsx` / `ProductPage.jsx`、ADR-0003 §3.2(string literal union type alias 規則)
+
+### #83. ⏳ matchFitment yearStart/yearEnd 範圍重疊邏輯(M-1-03 真實 adapter)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1-03 真實 adapter 落地時補、之前 in-memory 簡化版可)
+- **問題:**
+  - InMemoryProductRepository.matchFitment 簡化版只判 motoBrand + modelCode、yearStart/yearEnd silently 忽略(對齊 M-1-02 slice 字面簡化)
+  - false-positive 風險:若 actual = Ducati Panigale V4 / 2018-2020、spec = Ducati Panigale V4 / 2025、應該不 match 但目前會 match
+  - M-1-02-audit engineering:code-review M1 抓出
+- **觸發事件:**
+  - 2026-05-04 / M-1-02-audit engineering:code-review M1
+- **預期解法:**
+  - M-1-03 MedusaProductAdapter 落地時、補完整年份範圍邏輯:
+    - actual yearStart-yearEnd 與 spec 年份(或 spec yearStart-yearEnd)有重疊 = match
+    - actual yearEnd null(開放式 "2025+") = 與任何 ≥ yearStart 的 spec match
+    - spec 無年份 = match 任意 yearRange
+  - InMemoryProductRepository 同步補(對齊 ADR-0002 §4.1 in-memory 真實作精神、或標 simplified、test 補 false-positive case 證明)
+  - 補 false-positive test case(actual 2018-2020 vs spec 2025 預期不 match)
+- **不修會痛在:**
+  - 擴充性:M-1-03+ 客人查「2025 Panigale 配件」會看到 2018-2020 only 商品、誤購率高
+  - 可維護性:InMemory 簡化版隱藏 risky behavior、test 不抓
+  - bug 可追蹤性:客人投訴「配件不適用」、查 fitment matching 邏輯需 deep dive
+- **估時:** M-1-03 真實 adapter 同 slice 加 30-45 min(邏輯 + InMemory 同步 + 補 test case)
+- **依賴:** M-1-03(MedusaProductAdapter)
+- **發現於:** 2026-05-04 / M-1-02-audit engineering:code-review M1
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts` matchFitment、`packages/domain/src/catalog/types.ts` FitmentSpec yearStart/yearEnd | null、ADR-0004 wrs Q1=A1
+
+### #84. ⏳ Timestamped utility type 第 3 處撞才抽(對齊 #19 trigger 哲學)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - M-1-02 catalog Product 加 `createdAt: Date; updatedAt: Date;` 是第一處
+  - PHASE-1-MILESTONES 預告 Order 補 createdAt(M-3-02)、Customer 必有(會員時間戳、M-1-14)、Vehicle M-2-05 也必有
+  - 對齊 backlog #19 「未來撞重複 ≥ 3 處再回頭抽」trigger 字面
+- **觸發事件:**
+  - 2026-05-04 / M-1-02-audit reuse agent R2
+- **預期解法:**
+  - 第 3 處撞時(預期 = M-1-14 Customer、或 M-2-05 Vehicle、或 M-3-02 Order),抽 `Timestamped = { createdAt: Date; updatedAt: Date; }` 進 `packages/domain/src/shared/types.ts`
+  - 各 entity 用 `Product extends Timestamped` 或 `& Timestamped` 合成
+  - 同步補 ADR-0003 §3.1.1 規範說明「跨 entity 共用結構抽到 shared/」
+- **不修會痛在:**
+  - 擴充性:第 3 / 4 處撞時改 4 entity、對應 mapper / test fixture 也 4 處改
+  - 可維護性:第 3 處撞才抽、避免過度設計(對齊 #19 拍板 Q3=A2 最小集精神)
+  - bug 可追蹤性:本條目為錨點、第 3 處撞時 grep 找抽
+- **估時:** 第 3 處撞同 slice 加 15-20 min(抽 type + 各 entity 改 + ADR 補)
+- **依賴:** M-1-14 / M-2-05 / M-3-02 任一作為「第 3 處」trigger
+- **發現於:** 2026-05-04 / M-1-02-audit reuse R2
+- **相關:** `packages/domain/src/catalog/types.ts` Product createdAt/updatedAt、backlog #19(同 trigger 哲學「撞重複再抽」)
+
+### #85. ⏳ createFakeProduct test fixture 抽到共用位置(第 3 處撞才抽)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - M-1-02 InMemoryProductRepository.test.ts 內 inline `createFakeProduct(overrides)` helper
+  - 對齊 Q3=A 最小集精神不抽到 packages/adapters/test-fixtures/ 是合規
+  - 但本 fixture 將被 placeOrder use-case test(M-1-15)、ProductPage server-render test(M-1-13)、searchByKeyword Medusa adapter test(M-1-03)複用
+  - 第 3 處 test 需要時必複製貼上、第三處撞才抽
+- **觸發事件:**
+  - 2026-05-04 / M-1-02-audit reuse agent R3
+- **預期解法:**
+  - 第 3 處 test 需要 createFakeProduct 時、抽到 `packages/adapters/test-fixtures/createFakeProduct.ts`(或 packages/domain/src/catalog/test-fixtures.ts)
+  - 各 test 檔 `import { createFakeProduct } from '...'`
+  - 對齊 testing-strategy.md §3 補規範「fixture 抽到共用位置 trigger 點 = 第 3 處 test 需要」
+- **不修會痛在:**
+  - 擴充性:第 3 處 test 撞時若沒抽、4 / 5 處 test 都複製貼上、fixture drift
+  - 可維護性:Product entity 加新欄位時、若 fixture 散在多 test 檔、改一處漏其他
+  - bug 可追蹤性:本條目為錨點、第 3 處 test 撞時 grep 找抽
+- **估時:** 第 3 處 test 撞同 slice 加 15-20 min(抽 fixture + 各 test 改 import)
+- **依賴:** M-1-03 / M-1-13 / M-1-15 任一 test 落地作為「第 3 處」trigger
+- **發現於:** 2026-05-04 / M-1-02-audit reuse R3
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts` createFakeProduct、backlog #19 / #84(同 trigger 哲學「撞重複再抽」)
+
+### #86. ⏳ M-1-03 啟動前 in-memory adapter 樣板 leak 防 + contract test + edge cases 三合一(thematic)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1-03 啟動前必處理、之前不阻)
+- **問題:**
+  - M-1-02-audit 抓 3 個 thematic 互補議題、合併處置以對齊 backlog #15「同檔同時機補可合併」精神:
+    - **A) 樣板 leak 防(Q2 + E2 + E5):** in-memory 4 method 用 `Array.from(values()).filter(...)` + `toLowerCase().includes()` 樣板、規範類已落 testing-strategy.md §3.4(M-1-02-audit 已修)、但需 M-1-03 開發者 review checklist 確認 MedusaProductAdapter 不照抄(走 SDK / SQL 過濾)
+    - **B) save contract test 補(E3):** IProductRepository.save 字面已寫 contract、但無 contract test 確保 M-1-03 真實 adapter 補完樂觀鎖 / idempotency / audit trail(對齊 backlog #73 race + security-timeline §C7);M-1-03 啟動前在 IProductRepository.ts 文件加「contract test 必補項目」清單
+    - **C) test edge cases 補(M3):** InMemoryProductRepository.test.ts 7 test 全 happy path、缺 empty Map / null / 邊界 case;M-1-03 啟動前統一補(連同 #83 false-positive case 一起做)
+- **觸發事件:**
+  - 2026-05-04 / M-1-02-audit simplify quality + efficiency 雙 agent 抓出
+- **預期解法:**
+  - M-1-03 啟動前獨立 slice 跑 3 件:
+    - A) MedusaProductAdapter review checklist(SDK / SQL 過濾、不照抄 in-memory)
+    - B) IProductRepository.save contract test 必補項目清單寫進文件 + InMemory 補 race / idempotency stub test
+    - C) InMemoryProductRepository.test 補 edge cases:empty Map listByX / empty query / null 邊界 / #83 false-positive
+- **不修會痛在:**
+  - 擴充性:M-1-03 開發者照 InMemory 樣板抄、Medusa adapter 完全走偏 ADR-0004 Q3=A1 拍板路徑;contract test 不就位、樂觀鎖漏補不抓
+  - 可維護性:edge case 不補、bug 復發無 regression test
+  - bug 可追蹤性:M-1-03 撞 race / over-fetch / 邊界 bug 時、無 anchor 條目
+- **估時:** M-1-03 啟動前獨立 slice 60-90 min(A 30 min + B 20-30 min + C 30 min)
+- **依賴:** M-1-03 啟動前
+- **發現於:** 2026-05-04 / M-1-02-audit simplify Q2 / E2 / E3 / E5 / M3
+- **相關:** `packages/ports/src/IProductRepository.ts`、`packages/adapters/src/in-memory/InMemoryProductRepository.ts`、`docs/architecture/testing-strategy.md` §3.4、backlog #73(sync-engine race)、`docs/architecture/security-timeline.md` §C7、backlog #83(yearStart/yearEnd)
+
+### #87. ⏳ in-memory adapter dev singleton lifecycle(Map.clear / HMR / dev wire-up)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(test scope 內 test isolated 無問題、dev singleton wire-up 才浮現)
+- **問題:**
+  - InMemoryProductRepository.ts 的 Map 無 `clear()` method、無 dev singleton lifecycle 規範
+  - 對 vitest test scope 不是問題(每個 describe `new InMemoryProductRepository()`、test 完 GC)
+  - 但 class doc 字面寫「dev 期 spike:M-1-02 商品瀏覽流程不接 Medusa 也能 round-trip」
+  - 若 dev server 把 InMemoryProductRepository 當 singleton inject、HMR / 多 request 跨 process boundary 就會累積
+- **觸發事件:**
+  - 2026-05-04 / M-1-02-audit efficiency E4
+- **預期解法:**
+  - storefront wire-up slice(M-1-02 後續 / M-1-13 / 視 storefront 第一個用 InMemoryProductRepository 的 slice)啟動前:
+    - 加 `clear(): void` method 到 InMemoryProductRepository(`this.products.clear()`)
+    - 加 dev singleton lifecycle 規範文件(HMR 觸發 reset / multi-request 同 instance 處置)
+    - 對齊 testing-strategy.md §3.3 補「in-memory adapter dev wire-up 紀律」段
+- **不修會痛在:**
+  - 擴充性:Phase 2 多 adapter 進 dev wire-up、無一致 lifecycle 規範、各 adapter 自由心證
+  - 可維護性:HMR 跨 reload 累積資料、dev 期看不出 bug、上線後 (Medusa 真實 adapter) 才發現邏輯靠 stale state
+  - bug 可追蹤性:本條目為錨點、storefront wire-up 撞時 grep 找
+- **估時:** storefront wire-up slice 加 15-20 min(clear method + 規範 1 段)
+- **依賴:** storefront 第一次用 InMemoryProductRepository wire-up(對齊 dev spike 假設)
+- **發現於:** 2026-05-04 / M-1-02-audit efficiency E4
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts`、`docs/architecture/testing-strategy.md` §3.3 / §3.4
+
 ---
 
 ## 紀錄模板

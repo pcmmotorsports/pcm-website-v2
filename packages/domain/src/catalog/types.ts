@@ -72,6 +72,23 @@ export type FitmentSpec = {
 };
 
 /**
+ * ProductAvailability: 商品 availability 字面 union(M-1-02-audit L1 抽 type alias)。
+ *
+ * 對齊 ADR-0003 §3.2 enum 業務語意精神 + ADR-0004 Q4=A1 拍板訂貨型業務:
+ * - `'in-stock'`:可訂(現貨 / 廠商 3-6 週訂貨範圍內)
+ * - `'out-of-stock'`:訂不到(廠商停產 / 報價無 / 客服自行協調)
+ *
+ * 跨 layer 共用:catalog Product.availability(domain)、admin UI tier badge(M-4a)、
+ * sync-engine 上架 pipeline 寫入(M-5-03)、storefront ProductCard / ProductPage 顯示
+ * (M-1-06 / M-1-13)、Order 不直接引用(訂單下單時才 snapshot 價 + 庫存決定、
+ * 不存 availability 字面)。
+ *
+ * 對齊 ADR-0003 §3.2 規範「entity 內 string literal union ≥ 2 個 consumer 必抽 type alias」
+ * (M-1-02-audit Q3 規範類落地)。
+ */
+export type ProductAvailability = 'in-stock' | 'out-of-stock';
+
+/**
  * PriceByTier: 三級會員多 tier 價格(keyed-map struct)。
  *
  * 對齊 ADR-0003 §4 #6:
@@ -115,12 +132,12 @@ export type Product = {
   /** 商品圖片 URL 陣列、來源含廠商 URL 與 Supabase Storage 上傳(對齊 ADR-0004 Q2=A2、上傳機制 M-1-13 / M-1-16 落地) */
   images: string[];
   /**
-   * 商品 availability:'in-stock'(可訂)| 'out-of-stock'(訂不到)
+   * 商品 availability(對齊 ProductAvailability type alias、跨 layer 共用)
    *
    * 對齊 PCM 訂貨型業務(商品基本無庫存、需訂貨 3-6 週)、不顯示數字。
    * 不抽 IInventoryRepository(對齊 ADR-0004 Q4=A1 拍板 + backlog #33 Supersede)、availability 變動走 IProductRepository.save 改值。
    */
-  availability: 'in-stock' | 'out-of-stock';
+  availability: ProductAvailability;
   /** SEO URL slug、kebab-case、例:'akrapovic-titanium-full-exhaust'(M-1-09 SEO slice 用) */
   handle: string;
   /** 商品副標、例:'適用 Panigale V4 / 2018-2024 / 輕量化 35%'(M-1-13 ProductPage 顯示) */

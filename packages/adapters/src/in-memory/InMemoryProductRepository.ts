@@ -32,8 +32,13 @@ export class InMemoryProductRepository implements IProductRepository {
   }
 
   async save(product: Product): Promise<Product> {
-    this.products.set(product.id, product);
-    return product;
+    // M-1-02-audit C1 defensive copy:caller 後續 mutate 不影響 stored entity、
+    // structuredClone 涵蓋 nested objects(brand / category / fitments[] / priceByTier / images[])
+    // 對齊 ADR-0002 §4.1 in-memory 真實作精神(M-1-03 真實 adapter 走 wire round-trip 自然 immutable、
+    // 此 helper 模擬 production isolation 行為)
+    const cloned = structuredClone(product);
+    this.products.set(cloned.id, cloned);
+    return cloned;
   }
 
   async listByCategory(category: CategoryPath): Promise<Product[]> {
@@ -57,7 +62,11 @@ export class InMemoryProductRepository implements IProductRepository {
   }
 
   async searchByKeyword(query: string): Promise<Product[]> {
-    const q = query.toLowerCase();
+    // M-1-02-audit M2 empty query reject:trim 後空字串 → 返回空陣列
+    // (對齊 RESTful 慣例「空查詢 = 無結果」、storefront 顯示「請輸入關鍵字」由 UI 層處理、
+    //  不在 repository 層 throw error)
+    const q = query.trim().toLowerCase();
+    if (q === '') return [];
     return Array.from(this.products.values()).filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||

@@ -32,13 +32,11 @@ export interface IProductRepository {
    * @param product 完整 Product entity(對齊 catalog/types.ts 7 欄位)
    * @returns 儲存後的 Product
    *
-   * TODO(M-1-03):MedusaProductAdapter 真實 adapter 落地時補:
-   * - 樂觀鎖(updatedAt 比對防 race condition、對齊 backlog #73 sync-engine race)
-   * - idempotency(同 product save 多次只一次 wire round-trip)
-   * - audit trail(誰改、何時、改哪些欄位、對齊 security-timeline §C7)
-   *
    * 對齊 ADR-0003 §3.3 ports 介面字面只出現 domain 命名 +
    * ADR-0004 Q4=A1 拍板 availability 走 save 改值(不抽 IInventoryRepository、對齊 backlog #33 Supersede)。
+   *
+   * 註:adapter 實作關注(樂觀鎖 / idempotency / audit trail)寫進對應 adapter class JSDoc、
+   * 不在 port contract 字面(對齊 ADR-0003 §3.3「ports JSDoc contract vs adapter implementation TODO」規則、M-1-02-audit Q6 落地)。
    */
   save(product: Product): Promise<Product>;
 }

@@ -41,13 +41,19 @@ describe('InMemoryProductRepository', () => {
     expect(result).toBeNull();
   });
 
-  it('should save and retrieve product by id', async () => {
+  it('should save and retrieve product by id (defensive copy isolation)', async () => {
     const repo = new InMemoryProductRepository();
     const product = createFakeProduct({ id: 'p-save-test' });
     const saved = await repo.save(product);
-    expect(saved).toBe(product);
+    // M-1-02-audit C1 defensive copy:save 返回 deep clone、不是同一引用
+    expect(saved).not.toBe(product);
+    expect(saved).toEqual(product);
     const found = await repo.findById('p-save-test');
     expect(found).toEqual(product);
+    // caller mutate 原 product 不影響 stored entity
+    product.name = 'mutated';
+    const foundAgain = await repo.findById('p-save-test');
+    expect(foundAgain?.name).not.toBe('mutated');
   });
 
   it('should list products by category raw match', async () => {

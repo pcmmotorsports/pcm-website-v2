@@ -17,12 +17,24 @@
 
 ## §1 Test 位置
 
-- **同層 `*.test.ts`**(對齊 vitest 預設)、不放 `__tests__/` folder
+- **同層 `*.test.ts` / `*.test.tsx` / `*.spec.ts` / `*.spec.tsx`**(對齊 vitest 預設)、不放 `__tests__/` folder
 - 例:`packages/domain/src/catalog/types.test.ts`(若 catalog 有 entity 邏輯)
 - adapters 可放 `packages/adapters/src/medusa/MedusaProductAdapter.test.ts`(同層)
 - use-cases 可放 `packages/use-cases/src/place-order/place-order.test.ts`(同層)
+- React component test 用 `.test.tsx`(M-1-05+ storefront / packages/ui)
+- apps server-side test 用 `.test.ts`(`apps/storefront` / `apps/admin` / `apps/sync-engine`、M-1-01-true / M-4a-01 / M-5-01 起)
 
 理由:同層 *.test.ts 比 __tests__/ folder 更容易 grep、改檔時 test 跟著一起見、不會散到隔壁目錄。
+
+**vitest config include glob 字面對齊(M-1-02-audit E1 規範類落地):**
+
+`vitest.config.ts` 的 `include` glob 必涵蓋兩維度:
+- 副檔名:`{ts,tsx}` + `{test,spec}` 兩慣例都收(對齊 vitest 預設)
+- 路徑:`{packages,apps}/**` 涵蓋兩 workspace(M-1-02 起 packages 寫、M-1-01-true 起 apps 寫)
+
+具體 glob 字面:`'{packages,apps}/**/*.{test,spec}.{ts,tsx}'`
+
+教訓來源:M-1-02 vitest config include 只寫 `packages/**/*.test.ts`、漏 .tsx + .spec + apps/**、M-1-03+ storefront / ui React component test 會 silently skipped(M-1-02-audit E1 抓出、立即修)。
 
 ---
 
@@ -79,6 +91,21 @@ const result = await placeOrder(input, { productRepo: repo });
 
 理由:InMemory adapter 跟 Medusa adapter 共用同一個 `IProductRepository` 介面、test 過 = 介面合約過、不需 mock。
 
+### 3.4 in-memory 樣板不搬到真實 adapter(M-1-02-audit Q2/E2/E5 規範類落地)
+
+InMemory adapter 內部慣用 `Array.from(this.products.values()).filter(predicate)` 樣板(O(n) 記憶體 filter)、合理對 in-memory + test scope。
+
+**禁止把此樣板搬到 Medusa / Supabase 等真實 adapter:**
+
+- ❌ MedusaProductAdapter.listByCategory:fetch all products + JS filter(N+1 / over-fetch、對 200 SKU 已痛、對 5w SKU 災難)
+- ❌ MedusaProductAdapter.searchByKeyword:fetch all + `toLowerCase().includes()` JS filter(完全走偏 ADR-0004 Q3=A1 PG ILIKE → tsvector + GIN + pg_jieba 拍板路徑)
+- ✅ MedusaProductAdapter.listByCategory:走 Medusa SDK `products.list({ category_id: ... })`、PG WHERE 過濾、O(log n) index lookup
+- ✅ MedusaProductAdapter.searchByKeyword:M-1-03 走 PG ILIKE(對齊 ADR-0004 Q3=A1 dev 期 / IProductRepository.searchByKeyword JSDoc 兩階段註記)、M-6 切 tsvector
+
+理由:in-memory + test scope 用 O(n) 樣板無問題;但 production adapter 必走 wire-level filter(SDK / SQL / 索引),否則效能災難 + 違反 ADR 拍板路徑。
+
+教訓來源:M-1-02-audit simplify 視角抓出 4 個 list method 樣板若 leak 進 MedusaProductAdapter 必踩 anti-pattern;規範化防 M-1-03 開發者照 InMemory 樣板抄。
+
 ---
 
 ## §4 Test description 慣例
@@ -119,5 +146,6 @@ describe('placeOrder', () => {
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-05-03 | 初始化 minimum 版(test 位置 / vitest 設定 / mock 風格 / description 慣例) | ADR-0004 Q5=A3 落地、由 Claude Code(M-0-10a)寫 |
+| 2026-05-04 | §1 擴 .tsx + .spec + apps/** 字面(E1 規範類);加 vitest config include glob 字面對齊段(M-1-02 教訓);§3.4 新節「in-memory 樣板不搬到真實 adapter」(Q2/E2/E5 規範類、防 M-1-03 開發者照 InMemory 樣板抄 leak 進 MedusaProductAdapter) | Claude Code(M-1-02-audit) |
 
 — END —

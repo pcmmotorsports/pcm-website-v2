@@ -18,7 +18,11 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['packages/**/*.test.ts'],
+    // include glob 擴 .tsx + .spec + apps/**(M-1-02-audit E1 修):
+    // - 原 'packages/**/*.test.ts' 只抓 .ts、M-1-03+ storefront / ui React component test (.tsx) 會 silently skipped
+    // - 補 .tsx 涵蓋 React component test、補 .spec 對齊 vitest 預設兩者都收慣例、補 apps/** 涵蓋 storefront server-side test
+    // - 對齊 testing-strategy.md §1 字面同步擴
+    include: ['{packages,apps}/**/*.{test,spec}.{ts,tsx}'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',
