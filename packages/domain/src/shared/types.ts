@@ -68,3 +68,39 @@ export function toMoneyAmount(n: number): MoneyAmount {
  * 跨 context 共用 type 住 shared/、避免 catalog ↔ identity 雙向依賴。
  */
 export type MemberTier = 'general' | 'store' | 'premiumStore';
+
+/**
+ * 分頁參數(對齊 backlog #20)
+ *
+ * 用於 list / search 類 method 限制單次返回 row 數、避免 5w SKU 規模 over-fetch。
+ *
+ * @property limit  單次返回上限(必填、典型 20-100)
+ * @property offset offset-based 分頁(可選、跟 cursor 二擇一)
+ * @property cursor cursor-based 分頁(可選、適用 timestamp / id 連續流)
+ *
+ * @see packages/ports/src/IProductRepository.ts:searchByKeyword
+ * @see docs/phase-1-backlog.md #20
+ */
+export type PaginationParams = {
+  limit: number;
+  offset?: number;
+  cursor?: string;
+};
+
+/**
+ * 分頁結果包(對齊 backlog #20)
+ *
+ * 通用 generic、適用任何 entity list 結果。T 為 entity 型(例:Paginated<Product>)。
+ *
+ * @property items      本頁 entity 陣列
+ * @property total      總筆數(可選、cursor 模式可省、提供時方便 UI 顯示「共 N 筆」)
+ * @property nextCursor 下一頁 cursor(可選、cursor 模式 only;若無下一頁回 undefined)
+ *
+ * @see packages/ports/src/IProductRepository.ts:searchByKeyword
+ * @see docs/phase-1-backlog.md #20
+ */
+export type Paginated<T> = {
+  items: T[];
+  total?: number;
+  nextCursor?: string;
+};

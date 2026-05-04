@@ -196,7 +196,7 @@ Medusa schema 重新規劃、對應 design 已定義的資料結構(products moc
 
 **範圍:**
 - 前台:`apps/storefront` 整個重做、design 直接搬
-- 後台:`apps/medusa` 重新規劃 schema 對應 design 資料結構
+- 後台:`apps/api` 重新規劃 schema 對應 design 資料結構
 - 共用:`packages/ui` + `packages/schemas`
 - 部署:Vercel + Railway
 

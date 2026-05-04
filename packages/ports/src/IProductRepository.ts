@@ -3,6 +3,8 @@ import type {
   ProductId,
   CategoryPath,
   FitmentSpec,
+  PaginationParams,
+  Paginated,
 } from '@pcm/domain';
 
 /**
@@ -13,19 +15,40 @@ import type {
  */
 export interface IProductRepository {
   findById(id: ProductId): Promise<Product | null>;
+  /**
+   * 依 category 列出 product。
+   *
+   * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)
+   */
   listByCategory(category: CategoryPath): Promise<Product[]>;
+  /**
+   * 依 brand 列出 product。
+   *
+   * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)
+   */
   listByBrand(brandId: string): Promise<Product[]>;
+  /**
+   * 依 fitment spec 列出 product(motoBrand + modelCode 配對)。
+   *
+   * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)
+   */
   listByFitment(spec: FitmentSpec): Promise<Product[]>;
   /**
-   * Search products by keyword (full-text search across title / metadata.fits).
+   * 依關鍵字模糊搜尋 product entity、回分頁包。
    *
-   * 兩階段實作(對齊 ADR-0004 Q3=A1 + medusa-schema-design.md §2.5):
-   * - M-1-03 Medusa adapter 落地用 PG ILIKE 暫代(p99 1-3s @ 200 SKU)
+   * Contract:
+   * - 字面 substring 比對(case-insensitive)、跨 name / subtitle / description / fitments[].motoBrand / fitments[].modelCode
+   * - empty query(trim 後空字串)→ 回空 items + total = 0
+   * - 結果依 params.limit + params.offset 分頁
+   *
+   * 性能(adapter 兩階段、對齊 ADR-0004 Q3=A1 + supabase-schema-design.md §2.5):
+   * - M-1-03 main-b SupabaseProductAdapter 用 PG ILIKE 暫代(p99 1-3s @ 200 SKU、dev 期可接受)
    * - M-6 上線前切 PG tsvector + GIN + pg_jieba(p99 < 100ms @ 5w SKU、需 Supabase Pro)
    *
-   * TODO M-1-03: 加 PaginationParams + Paginated<Product>(對應 backlog #20)
+   * @see backlog #20(分頁簽名)
+   * @see backlog #86(contract test、main-b/prep 補)
    */
-  searchByKeyword(query: string): Promise<Product[]>;
+  searchByKeyword(query: string, params: PaginationParams): Promise<Paginated<Product>>;
   /**
    * 儲存 product entity(create / update 統一入口)
    *

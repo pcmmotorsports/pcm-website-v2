@@ -37,7 +37,7 @@
 - 共用元件抽 `packages/ui`(只在 design 真的需要共用時)
 - SEO + structured data + sitemap day 1 起就建
 
-**後台(`apps/medusa`):**
+**後台(`apps/api`):**
 - Medusa v2 重新規劃、schema 對應 design 已定義的資料結構
 - product / order / customer / cart 完整、含 metadata 欄位
 - 三級會員(general / store / premium_store)tier 機制

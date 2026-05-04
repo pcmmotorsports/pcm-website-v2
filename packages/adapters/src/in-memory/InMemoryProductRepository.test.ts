@@ -106,13 +106,29 @@ describe('InMemoryProductRepository', () => {
     const repo = new InMemoryProductRepository([titaniumExhaust, carbonShield]);
 
     // hit name(case-insensitive)
-    const byName = await repo.searchByKeyword('akrapovič');
-    expect(byName).toHaveLength(1);
-    expect(byName[0]?.id).toBe('p-1');
+    const byName = await repo.searchByKeyword('akrapovič', { limit: 10 });
+    expect(byName.items).toHaveLength(1);
+    expect(byName.items[0]?.id).toBe('p-1');
 
     // hit description
-    const byDesc = await repo.searchByKeyword('輕量化');
-    expect(byDesc).toHaveLength(2);
+    const byDesc = await repo.searchByKeyword('輕量化', { limit: 10 });
+    expect(byDesc.items).toHaveLength(2);
+  });
+
+  it('should respect pagination limit and report total', async () => {
+    // 7 個 product 都含 name "排氣管"、query 都 match
+    const products = Array.from({ length: 7 }, (_, i) =>
+      createFakeProduct({
+        id: `p-${i + 1}`,
+        name: `排氣管 ${i + 1}`,
+      })
+    );
+    const repo = new InMemoryProductRepository(products);
+
+    const result = await repo.searchByKeyword('排氣管', { limit: 3, offset: 0 });
+    expect(result.items).toHaveLength(3);
+    expect(result.total).toBe(7);
+    expect(result.nextCursor).toBeUndefined();
   });
 
   it('should overwrite existing product when save is called with same id', async () => {

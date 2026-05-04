@@ -4,6 +4,8 @@ import type {
   ProductId,
   CategoryPath,
   FitmentSpec,
+  PaginationParams,
+  Paginated,
 } from '@pcm/domain';
 
 /**
@@ -61,17 +63,25 @@ export class InMemoryProductRepository implements IProductRepository {
     );
   }
 
-  async searchByKeyword(query: string): Promise<Product[]> {
-    // M-1-02-audit M2 empty query reject:trim 後空字串 → 返回空陣列
+  async searchByKeyword(
+    query: string,
+    params: PaginationParams
+  ): Promise<Paginated<Product>> {
+    // M-1-02-audit M2 empty query reject:trim 後空字串 → 返回空 Paginated 包
     // (對齊 RESTful 慣例「空查詢 = 無結果」、storefront 顯示「請輸入關鍵字」由 UI 層處理、
     //  不在 repository 層 throw error)
     const q = query.trim().toLowerCase();
-    if (q === '') return [];
-    return Array.from(this.products.values()).filter(
+    if (q === '') return { items: [], total: 0 };
+    // 既有 toLowerCase().includes() filter(name + description)維持不動;
+    // contract JSDoc 涵蓋 subtitle / fitments 為 main-b 真 adapter 拓寬範圍(對齊 backlog #86)。
+    const matched = Array.from(this.products.values()).filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.description.toLowerCase().includes(q)
     );
+    const offset = params.offset ?? 0;
+    const items = matched.slice(offset, offset + params.limit);
+    return { items, total: matched.length };
   }
 
   /**

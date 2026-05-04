@@ -165,7 +165,7 @@ M-1-02-prep 重跑 dry-run 驗證(改用相對路徑無副檔名 + typescript re
 | 7 | schemas → domain | ✅ catch | ✅ catch |
 
 **apps/* 暫不在 project glob 內**(對齊 backlog #54 Supersede 精神):
-- apps/storefront / apps/medusa / apps/admin / apps/sync-engine 目前皆為純殼、無 `tsconfig.json`(對齊 §5.3 純殼設計)
+- apps/storefront / apps/api / apps/admin / apps/sync-engine 目前皆為純殼、無 `tsconfig.json`(對齊 §5.3 純殼設計)
 - 加 `apps/*/tsconfig.json` 進 glob 會讓 typescript resolver 報「找不到 tsconfig」錯
 - 待 apps 真寫 .ts(M-1-01-true / M-4a-01 / M-5-01)時、各自補 tsconfig.json 同時加進 import resolver glob、同時補 boundaries dry-run Rule 5
 
@@ -181,7 +181,7 @@ M-1-02-prep 重跑 dry-run 驗證(改用相對路徑無副檔名 + typescript re
 
 ### 5.3 apps 純殼用 `--no-error-on-unmatched-pattern`
 
-`apps/storefront` 與 `apps/medusa` 目前是純殼、無 .ts/.tsx 檔。`eslint .` 預設行為是 unmatched pattern → exit 2。為讓 8 個 task 都跑通、lint script 加 `--no-error-on-unmatched-pattern`:
+`apps/storefront` 與 `apps/api` 目前是純殼、無 .ts/.tsx 檔。`eslint .` 預設行為是 unmatched pattern → exit 2。為讓 8 個 task 都跑通、lint script 加 `--no-error-on-unmatched-pattern`:
 
 ```json
 "lint": "eslint . --max-warnings 0 --no-error-on-unmatched-pattern"
