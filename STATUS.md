@@ -14,32 +14,33 @@
 - **M-1 進度:** M-1-01 ✅
 - **下一步:** M-1-02
 
-**當前 slice:** M-1-02-prep 完成(b3eebf5 純 config + docs:backlog #43 / #66 加 Supersede 註 + #23 標 ✅ 完成;#43 推薦處置改 Supabase Storage 對齊 ADR-0004 Q2=A2 + trigger 精修 M-1-13 / M-1-16;#66 trigger 精修 M-1-03 啟動前;#23 import resolver 落地:eslint-import-resolver-typescript@4.4.4 進 catalog + root devDeps + eslint.config.js settings 加 import/resolver.typescript = packages/*/tsconfig.json glob + 6 條 dry-run 重跑全 CAUGHT 用相對路徑無副檔名 + dependency-rules.md §5.1 從「未配置」改「已落地」+ §7 變更紀錄;字面 vs 事實 5 處 commit body 揭示:1. apps/* glob 暫不加(apps 純殼無 tsconfig、對齊 backlog #54 Supersede);2. dry-run Rule 5 跳過(apps 純殼);3. Supersede 註用多 sub-bullet vs 既有 #54 單行;4. pnpm install 加 12 transitive deps - 3 dedup;5. pnpm 9.15 不升 10.33;L1 typecheck 6/6 + lint 10/10 全綠、build §2.2 純 config + docs 可省、不跑 skill audit)、待 Sean 手動推
+**當前 slice:** M-1-02 完成(d56c52d 主實作 12 檔:catalog/types.ts Product 擴 7 欄位 description / images / availability / handle / subtitle / createdAt / updatedAt + IProductRepository.save method JSDoc milestone-anchored TODO M-1-03 + InMemoryProductRepository.ts 真實作 6 method 含 save + InMemoryProductRepository.test.ts 7 test cases + vitest.config.ts root + ADR-0003 §3.1.1 跨 context 命名業務規則 + runtime helper 跨 package re-export 規則 + domain/src/index.ts 加 export toMoneyAmount runtime;Sean 拍板 Q1=A2 / Q2=A3 / Q3=A2 / Q4=A1 + slice 結構 Q1=A1 加 IProductRepository.save + Q1=A1 patch 修 domain/src/index.ts 加 toMoneyAmount runtime export;backlog #17 ✅ / #19 ✅ / #33 Supersede 業務訊號推翻 audit-F17 / 新 #81 variants schema spike trigger M-1-13 啟動前;字面 vs 事實 5 處 commit body 揭示:1. IProductRepository 加 save 對齊 Q4 業務精神;2. toMoneyAmount runtime cross-package gap M-0-10b 遺漏 / Q1=A1 補 + ADR-0003 §3.1.1 補規則;3. vitest 套件裝 add list 擴 root package.json + pnpm-workspace.yaml + pnpm-lock.yaml;4. §6 → §9 變更紀錄位置修正;5. subject「6 欄位」實際 7 欄位 body 揭示;L1 typecheck 6/6 + lint 10/10 + test 7/7 + build 0 task 4 綠;Sean 主 session 跑雙輪 skill audit 建議)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-04
-**更新者:** Claude Code(M-1-02-prep 完成、busboy-end 收工)
+**更新者:** Claude Code(M-1-02 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| b3eebf5 | chore(M-1-02-prep): backlog 字面修 #43/#66 + 補 import resolver #23 | 2026-05-04 |
+| d56c52d | feat(M-1-02): catalog 7 欄位擴 + InMemoryProductRepository + tests + 4 議題拍板 | 2026-05-04 |
+| 6cbf18b | chore(M-1-02-prep): backlog 字面修 #43/#66 + 補 import resolver #23 | 2026-05-04 |
 | e132ca0 | docs(M-1-01-followup): backlog #80 — design-reference submodule Vercel fetch warning | 2026-05-03 |
-| abf5089 | feat(M-1-01): Vercel deploy fix — monorepo root vercel.json + corepack + pnpm 9.15 | 2026-05-03 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-02**(domain/catalog entities + InMemoryProductRepository + tests、45 min)← 當前(prep 已完、可主實作)
+1. **M-1-03**(adapters/MedusaProductAdapter + storefront 連通、45 min)← 當前
 
-> M-1-02-prep b3eebf5 完成(backlog #43 / #66 Supersede + #23 ✅ import resolver 落地);Sean push 後啟動 M-1-02 主實作
+> M-1-02 d56c52d 完成(主實作:catalog 7 欄位擴 + InMemoryProductRepository + 7 tests + 4 議題拍板 + Q1=A1 patch 加 save / toMoneyAmount runtime export);Sean 主 session 跑雙輪 skill audit 建議
 > **M-1-03 啟動前必處理 backlog #66**(Medusa-as-API spike verification checklist、30-45 min)
 > **M-1-05 啟動前必修 backlog #80**(design-reference submodule SSH-only + Vercel deploy key 配對機制、30-45 min 獨立 slice、建議插 M-1-04 與 M-1-05 之間)
+> **M-1-13 啟動前必修 backlog #81**(Product variants schema spike + 落地、60-90 min spike + 90-120 min 落地、配合 Claude Design 補設計)
 > **M-1-13 / M-1-16 啟動前必處理 backlog #43**(image upload 落 Supabase Storage、對齊 ADR-0004 Q2=A2)
+> M-1-03 落地 MedusaProductAdapter.save 時補 IProductRepository.save TODO(樂觀鎖 / idempotency / audit trail、對齊 backlog #73 sync-engine race + security-timeline §C7)
 > M-1-01-true / M-4a-01 / M-5-01(apps 真寫 .ts)時補 boundaries dry-run Rule 5 + import resolver glob 加 apps/*/tsconfig.json(對齊 backlog #54 Supersede + #23 完成註)
-> M-1-02 / M-1-03 啟動前需處理 audit Critical / High:#57 已拍 ✅ M-6-08 trigger / #43 已 Supersede / #36 monitoring
 > M-1-16 啟動前需處理 #44 種子 transition
 
 2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
@@ -154,5 +155,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-03 | M-1-01 完成(6b00b5d Vercel deploy fix — monorepo root vercel.json 含 framework: nextjs + installCommand corepack enable + pnpm install --frozen-lockfile;對齊 setup §10.3 字面解 Vercel pnpm 6.35.1 vs ≥9.15.0;字面 vs 事實 4 處 commit body 揭示:1. Vercel 官方建議 vercel.json 放 Root Directory(apps/storefront)Sean 拍板 monorepo root → 對齊字面、deploy fail 時評估;2. installCommand 含 corepack 冗餘但無害(明確意圖、deploy log 清楚);3. 不寫 buildCommand 預期 next 套件找不到 fail = M-1-04/05 起裝;4. STATUS hash drift 上輪 amend 後;ENABLE_EXPERIMENTAL_COREPACK=1 由 Sean 在 Vercel Dashboard 加;sanity-check 抓 buildCommand 字面與 storefront 純殼預期 fail 模式不一致 → Q1 拍板移除 buildCommand 解;L1 typecheck 6/6 + lint 10/10 全綠、build §2.2 純 config 可省、不跑 skill audit 對齊 working-style §6.3 第 10 條 + backlog #15)、busboy-end 收工 | Claude Code |
 | 2026-05-03 | M-1-01-followup 完成(2e044cc 純 docs:backlog 加 #80 design-reference submodule Vercel deploy fetch warning;成因 SSH-only submodule + Vercel build 無 SSH key、現不阻 / M-1-05 起 Header.tsx 搬時必爆;預期解候選 A 推薦 = GitHub deploy key + Vercel 配對機制 30-45 min 獨立 slice、M-1-05 啟動前必修;Sean 拍板 A1 進 backlog 不馬上修;字面 vs 事實 2 處:1. backlog 編號 grep #79 +1 = #80;2. slice 指令字面假設「ahead 1 未 push」實際 Sean 已 push abf5089、本 slice 完成 ahead = 1 不是 Step 7 預期 2;順手修上輪 STATUS 最近 commit hash drift 6b00b5d → abf5089;L1 typecheck 6/6 + lint 10/10 全綠、build 純 docs 可省、不跑 skill audit)、busboy-end 收工 | Claude Code |
 | 2026-05-04 | M-1-02-prep 完成(b3eebf5 純 config + docs:M-1-02 啟動前 3 trigger 處理 — #43 image CDN Supersede 推薦改 Supabase Storage 對齊 ADR-0004 Q2=A2 + trigger 精修 M-1-13 / M-1-16;#66 Medusa spike Supersede trigger 精修 M-1-03 啟動前;#23 import resolver 標 ✅ 完成 = 裝 eslint-import-resolver-typescript@4.4.4 + 配 settings packages/* glob + 6 條 dry-run 重跑全 CAUGHT 用相對路徑無副檔名 + dependency-rules.md §5.1 改「已落地」+ §7 變更紀錄;字面 vs 事實 5 處 commit body 揭示:1. apps/* glob 暫不加(apps 純殼、對齊 backlog #54 Supersede);2. dry-run Rule 5 跳過(apps 純殼、待 M-1-01-true 等補);3. Supersede 註多 sub-bullet vs 既有 #54 單行;4. pnpm install +12/-3 transitive deps;5. pnpm 9.15 不升 10.33;L1 typecheck 6/6 + lint 10/10 全綠、build 純 config + docs 可省、不跑 skill audit 對齊 working-style.md §6.3 第 10 條 + backlog #15)、busboy-end 收工 | Claude Code |
+| 2026-05-04 | M-1-02 完成(d56c52d 主實作 12 檔:catalog/types.ts Product 擴 7 欄位 description / images / availability / handle / subtitle / createdAt / updatedAt + IProductRepository.save method JSDoc milestone-anchored TODO + InMemoryProductRepository.ts 真實作 6 method + InMemoryProductRepository.test.ts 7 test cases + vitest.config.ts root + ADR-0003 §3.1.1 跨 context 命名業務規則 + runtime helper 跨 package re-export 規則 + domain/src/index.ts 加 export toMoneyAmount runtime;Sean 拍板 Q1=A2 / Q2=A3 / Q3=A2 / Q4=A1 + slice 結構 Q1=A1 加 IProductRepository.save + Q1=A1 patch 修 domain/src/index.ts;backlog #17 ✅ / #19 ✅ / #33 Supersede 業務訊號推翻 audit-F17 / 新 #81 variants schema spike trigger M-1-13 啟動前;字面 vs 事實 5 處 commit body 揭示:1. IProductRepository 加 save 對齊 Q4 業務精神;2. toMoneyAmount runtime cross-package gap M-0-10b 遺漏 / Q1=A1 補 + ADR-0003 §3.1.1 補規則;3. vitest 套件裝 add list 擴 root package.json + pnpm-workspace.yaml + pnpm-lock.yaml;4. §6 → §9 變更紀錄位置修正;5. subject「6 欄位」實際 7 欄位 body 揭示;L1 typecheck 6/6 + lint 10/10 + test 7/7 + build 0 task 4 綠;Sean 主 session 跑雙輪 skill audit 建議)、busboy-end 收工 | Claude Code |
 
 — END —

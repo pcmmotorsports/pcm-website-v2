@@ -9,6 +9,10 @@
     "lint": "eslint . --max-warnings 0 --no-error-on-unmatched-pattern",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@pcm/domain": "workspace:*",
+    "@pcm/ports": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "catalog:"
   }

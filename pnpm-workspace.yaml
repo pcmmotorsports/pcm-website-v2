@@ -8,3 +8,4 @@ catalog:
   eslint-plugin-boundaries: ^6.0.2
   eslint-import-resolver-typescript: ^4.4.4
   '@typescript-eslint/parser': ^8.59.1
+  vitest: ^4.1.5

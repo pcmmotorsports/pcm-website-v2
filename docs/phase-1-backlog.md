@@ -546,9 +546,12 @@
 
 ---
 
-### #17. ⏳ export type * 跨 context 命名衝突防護待 M-1-02 寫第一個 entity 時拍
+### #17. ✅ export type * 跨 context 命名衝突防護待 M-1-02 寫第一個 entity 時拍
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-04 / M-1-02 / Q2=A3 拍板維持 export type * 現狀 + ADR-0003 §3.1.1 補業務規則「跨 context 不准用同名 type」(3 條具體禁止例:sync 不准 Product / order 不准 Customer / payment 不准 Order)+ 順手補「runtime helper 跨 package re-export 規則」(M-1-02 撞 toMoneyAmount typecheck fail 教訓);Phase 2 真撞名再 migrate(加 namespace prefix 或具名 export)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中
 - **問題:**
   - domain/src/index.ts + ports/src/index.ts 用 export type * 跨 6 個 context 同名 type silent collision 風險
@@ -599,9 +602,12 @@
 
 ---
 
-### #19. ⏳ Repository<T,ID> base interface 預抽決議待 M-1-02 寫第一個 repo 實作撞重複時拍
+### #19. ✅ Repository<T,ID> base interface 預抽決議待 M-1-02 寫第一個 repo 實作撞重複時拍
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-04 / M-1-02 / Q3=A2 拍板選 (b) 維持各 port 各自定義 — 本 slice 加 `IProductRepository.save` 字面落地 (b) 候選精神;未來撞重複 ≥ 3 處(`IProductRepository.save` + `ICustomerRepository.save` M-1-14 + `IOrderRepository.save` M-3-02)再回頭抽 base interface
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟢 觀察
 - **問題:**
   - 3 ports findById / save 簽名重複、可抽 `interface Repository<T, ID> { findById; save }` base、各 ports extends
@@ -947,6 +953,11 @@
 - **依賴:** M-1-02 / M-5-05
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/architecture/medusa-schema-design.md` §2.1、`docs/audits/2026-05-02-full-audit.md` Audit-F17
+- **Supersede 註(2026-05-04 / M-1-02):**
+  - **業務訊號推翻原推薦處置:** Sean 2026-05-04 業務訊號(PCM 訂貨型業務、商品基本無庫存、需訂貨 3-6 週)、客人只需看「可訂 / 訂不到」、不需要數字
+  - **解法變更:** 不抽 IInventoryRepository、不加 inventoryQuantity 數字欄位;改加 `Product.availability: 'in-stock' | 'out-of-stock'`(語意化)、走 `IProductRepository.save` 改值(M-1-02 拍板 Q4=A1)
+  - **trigger 變更:** 從「M-1-02 / M-5-05 啟動前」**精修為**「Phase 2 真撞高頻 availability 變動 / 多倉庫業務(PCM 倉 + 合作店家倉)需求時」
+  - **audit-F17 處置:** 原 audit 推薦「N round-trip 效能差」對 200 SKU + 訂貨型業務不適用、留錨點供 Phase 2 重評
 
 ### #34. ⏳ Order.total 缺 breakdown(subtotal / shipping / discount / tax)
 
@@ -1948,6 +1959,32 @@
 - **依賴:** 無前置、M-1-05 啟動前必修、可獨立做(建議在 M-1-04 與 M-1-05 之間插一個獨立 slice)
 - **發現於:** 2026-05-03 / M-1-01 deploy log review
 - **相關:** M-1-05、`docs/PHASE-1-NORTHSTAR.md` §2.2(submodule 機制)、`docs/lessons-learned.md`(SSH only 紀律 04-23 事件)、Vercel deploy abf5089
+
+### #81. ⏳ Product variants schema 設計(規格變體 1-20 種選項 × 雙層 / 三層)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高(M-1-13 ProductPage 啟動前必修、本 slice 推延)
+- **問題:**
+  - Sean 2026-05-04 業務訊號:同個商品多規格(顏色 × 材質 × 年式對應)、員工後台自行新增、1-20 種選項、雙層或三層巢狀
+  - design ProductPage.jsx 字面只 hardcode `state: color / size / qty`、size options 依 product.category 字串(排氣 / 碳纖 / 避震 / 卡鉗)分支動態算、color options 主色 + 額外 2 色從 pool slice
+  - design 字面遠遠不夠覆蓋 Sean 業務需求(1-20 種規格、巢狀)
+  - M-1-13 ProductPage 直接搬時、必踩此 gap
+- **觸發事件:**
+  - 2026-05-04 / M-1-02 拍板 Q1=A2 推延 variants(本 slice 不補)
+- **預期解法:**
+  - **候選 A:** Medusa v2 內建 product_option + product_variant(spike 驗證能否蓋雙層 / 三層)
+  - **候選 B:** PCM 自家 schema、走 metadata.variants jsonb(完全自由、設計成本高、Medusa Admin UI 不支援)
+  - **候選 C:** 混合(產品基本層 Medusa option / variant、複雜層 PCM 自家 metadata 補)
+  - 啟動順序:M-1-13 啟動前獨立 slice 跑 spike + 拍板候選、估時 60-90 min
+  - 配合 Claude Design 補設計(design 字面不足、需擴 ProductPage UI 顯示 1-20 種規格)
+- **不修會痛在:**
+  - 擴充性:M-1-13 ProductPage 直接搬時撞 gap、design 字面不夠;Phase 2 vendor crawler 抓變體資料、schema 不就位無法落地
+  - 可維護性:design 字面 hardcode color + size、sync-engine 上架 pipeline(M-5-03)無法寫變體、員工手動 admin 上架走 ad-hoc
+  - bug 可追蹤性:客人「我要紅色不鏽鋼長 200mm」、Order 看不到完整變體選擇、客服回溯困難
+- **估時:** spike 60-90 min + 落地 90-120 min(獨立 slice)
+- **依賴:** M-1-02 完成、M-1-13 啟動前獨立 slice 處理
+- **發現於:** 2026-05-04 / M-1-02 拍板 Q1
+- **相關:** `packages/domain/src/catalog/types.ts` Product variants 推延欄位、`design-reference/components/ProductPage.jsx`(state color / size / qty)、`docs/PHASE-1-MILESTONES.md` M-1-13
 
 ---
 

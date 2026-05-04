@@ -85,19 +85,48 @@ export type FitmentSpec = {
 export type PriceByTier = Record<MemberTier, Money>;
 
 /**
- * Product: 商品 entity(M-0-04 type stub、最小欄位集)。
+ * Product: 商品 entity(M-1-02 擴 7 欄位、對齊 ADR-0004 Q1=A2 拍板)。
  *
  * 對齊 ADR-0003 §3.1 命名規則(camelCase + 業務語意);
- * 推延欄位(對齊 Money / Customer JSDoc 樣式):
- * - description / images / inventory / variants(M-1-02 補)
- * - createdAt / updatedAt(M-1-02 entity 補)
+ * 對齊 ADR-0004 Q1=A2(本 slice 擴 description / images / availability / handle / subtitle / createdAt / updatedAt 7 欄位)、Q4=A1(availability 'in-stock' | 'out-of-stock'、不顯示數字、訂貨型業務)、Q2=A2(images URL string、上傳走 Supabase Storage 由 M-1-13 / M-1-16 落地)。
+ *
+ * 推延欄位(本 slice 不補):
+ * - variants:M-1-02 Q1=A2 推延、見 backlog #81 spike trigger M-1-13 啟動前
+ * - inventoryQuantity:M-1-02 Q4=A1 拍板不做(訂貨型業務不需數字)、見 backlog #33 Supersede 註
  * - SEO metadata(M-1-09 補)
+ *
+ * @see docs/architecture/medusa-schema-design.md §2 Product
+ * @see docs/decisions/0003-domain-entity-naming.md §4 #1 brand / #2 category / #3 fits / #6 priceByTier
+ * @see docs/decisions/0004-m1-pre-launch-decisions.md(本 slice Q1 / Q2 / Q4 拍板擴欄位)
+ * @see docs/phase-1-backlog.md #33(Supersede 註不抽 IInventoryRepository)、#81(variants spike)
  */
 export type Product = {
+  // 既有 6 欄位(M-0-04 / M-0-10b 落地、本 slice 不動)
   id: ProductId;
   name: string;
   brand: Brand;
   category: CategoryPath;
   fitments: FitmentSpec[];
   priceByTier: PriceByTier;
+
+  // 本 slice Q1=A2 擴 7 欄位:
+  /** 商品描述、純文字 / Markdown 後續決定 */
+  description: string;
+  /** 商品圖片 URL 陣列、來源含廠商 URL 與 Supabase Storage 上傳(對齊 ADR-0004 Q2=A2、上傳機制 M-1-13 / M-1-16 落地) */
+  images: string[];
+  /**
+   * 商品 availability:'in-stock'(可訂)| 'out-of-stock'(訂不到)
+   *
+   * 對齊 PCM 訂貨型業務(商品基本無庫存、需訂貨 3-6 週)、不顯示數字。
+   * 不抽 IInventoryRepository(對齊 ADR-0004 Q4=A1 拍板 + backlog #33 Supersede)、availability 變動走 IProductRepository.save 改值。
+   */
+  availability: 'in-stock' | 'out-of-stock';
+  /** SEO URL slug、kebab-case、例:'akrapovic-titanium-full-exhaust'(M-1-09 SEO slice 用) */
+  handle: string;
+  /** 商品副標、例:'適用 Panigale V4 / 2018-2024 / 輕量化 35%'(M-1-13 ProductPage 顯示) */
+  subtitle: string;
+  /** entity 建立時間(adapter 邊界從 wire mapper 填) */
+  createdAt: Date;
+  /** entity 最後更新時間(adapter 邊界從 wire mapper 填、對齊 IProductRepository.save 樂觀鎖 trigger M-1-03) */
+  updatedAt: Date;
 };

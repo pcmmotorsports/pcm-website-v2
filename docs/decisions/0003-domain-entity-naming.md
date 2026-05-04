@@ -81,6 +81,30 @@ Sean 拍板 **A2(獨立命名)**。
 
 不混用、不在 use-cases 寫 `payment_status`、不在 domain 寫 `metadata.fits`。
 
+### 3.1.1 跨 context 命名衝突防護(對齊 backlog #17 拍板 Q2=A3)
+
+`packages/domain/src/index.ts` 與 `packages/ports/src/index.ts` 用 `export type *` 攤平 export 6 contexts(catalog / identity / order / payment / sync / shared)的 type。
+
+**業務規則:** 不同 context 不准用同名 type、避免 silent collision(TS 不報錯但 runtime 行為錯)。
+
+具體禁止:
+- ❌ sync 不准用 `Product`(已被 catalog 用)、可用 `ProductSyncRow` / `SyncProductCandidate`
+- ❌ order 不准用 `Customer`(已被 identity 用、雖然 Order.customerId 引用)、order 內若需 Customer 投影、用 `OrderCustomerSnapshot`
+- ❌ payment 不准用 `Order`(已被 order 用)、payment 內 envelope 用 `TapPayChargePayload` 等
+
+新增 type 前必過此規則 review。Phase 2 真撞名再 migrate(加 namespace prefix 或具名 export)、現靠人工守。
+
+**runtime helper 跨 package re-export 規則:**
+
+`domain/src/index.ts` 既有 `export type *` 只攤平 type、不含 runtime function。
+若 `shared/types.ts` 等 context 加 runtime helper(例如 `toMoneyAmount`)、
+`domain/src/index.ts` 必加具名 `export { helperName } from './<context>/types'`、
+否則跨 package import 撈不到 value(只能撈 type)。
+
+教訓來源:M-1-02 撞 `toMoneyAmount` typecheck fail(`'toMoneyAmount' cannot be used as a value because it was exported using 'export type'`)、M-0-10b Q4=A3 拍板字面遺漏跨 package 可見性、M-1-02 Q1=A1 拍板補 `export { toMoneyAmount }` 解。
+
+對齊 working-style.md §6.3「教訓寫進規範防再踩」精神。
+
 ### 3.2 enum 業務語意
 
 domain enum 用 PCM 業務動詞 / 名詞、不直接套用 Medusa wire 字串。
@@ -278,5 +302,6 @@ interface IProductRepositoryBad {
 |---|---|---|
 | 2026-05-01 | 初始化 ADR-0003(C3 拍板 A2 Domain 獨立命名 + 9 衝突處置表 + 三視角 + Rollback 訊號) | Claude.ai + Sean / 由 Claude Code(M-0-07)落地 |
 | 2026-05-03 | §4 第 3 條 fitment 處置補 yearStart / yearEnd 字面(對齊 ADR-0004 wrs Q1=A1) | Claude Code(M-0-10c) |
+| 2026-05-04 | §3.1.1 跨 context 命名衝突防護新節落地(對齊 backlog #17 拍板 Q2=A3 維持 export type * 現狀 + 加業務規則「不同 context 不准用同名 type」、3 條具體禁止例) | Claude Code(M-1-02) |
 
 — END —

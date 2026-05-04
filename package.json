@@ -13,6 +13,7 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
+    "test": "vitest run",
     "clean": "turbo run clean"
   },
   "devDependencies": {
@@ -20,6 +21,7 @@
     "eslint": "catalog:",
     "eslint-import-resolver-typescript": "catalog:",
     "eslint-plugin-boundaries": "catalog:",
-    "turbo": "^2.3.0"
+    "turbo": "^2.3.0",
+    "vitest": "catalog:"
   }
 }
