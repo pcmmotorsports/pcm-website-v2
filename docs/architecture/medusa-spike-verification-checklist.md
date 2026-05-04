@@ -1,7 +1,16 @@
 # Medusa-as-API Spike Verification Checklist
 
-> **Status:** 🟢 拍板 / 2026-05-04 / backlog #66 落地
-> **拍板人:** Sean(2026-05-04 4 題拍板:Q1=A1 / Q2=A2 / Q3=A1 / Q4=A2)
+> ⚠️ **Status: SUPERSEDED**
+> 廢於:2026-05-04 / M-1-03-pre0b / ADR-0005「Custom + Supabase 直寫架構」採用
+> 取代於:`docs/decisions/0005-custom-supabase-direct.md`
+> Medusa-as-API spike 不再進行(本 ADR-0005 主動採用 ADR-0002 §6.3 rollback 路徑、非 spike 失敗被動 rollback)
+> 字面內容**保留**作歷史紀錄(decision tree 設計錯 vs 裝錯邏輯仍可參考、適用於未來其他 framework spike)
+> 不刪除、不改本檔字面、只加本標記
+>
+> ---
+>
+> **Status(原):** 🟢 拍板 / 2026-05-04 / backlog #66 落地
+> **拍板人(原):** Sean(2026-05-04 4 題拍板:Q1=A1 / Q2=A2 / Q3=A1 / Q4=A2)
 > **層級:** docs/architecture/、衝突仲裁僅次 STATUS.md / NORTHSTAR / 0002-0004 ADR
 > **本檔角色:** M-1-03 啟動前驗證 ADR-0002 Medusa-as-API 假設、避免 schema mapping 套不上整體翻盤
 >

@@ -1,6 +1,14 @@
 # Medusa Schema Design — Domain ↔ Wire 落地對應
 
-> **狀態:** 🟢 拍板 / Part 1 落地 2026-05-02 / Part 2 待 M-0-06
+> ⚠️ **Status: SUPERSEDED**
+> 廢於:2026-05-04 / M-1-03-pre0b / ADR-0005「Custom + Supabase 直寫架構」採用
+> 取代於:`docs/decisions/0005-custom-supabase-direct.md`
+> 字面內容**保留**作歷史紀錄(ADR-0003 §4 9 條 wire ↔ domain mapping 仍可參考、wire 端從 Medusa schema 換為 Supabase 表 schema、由 `docs/architecture/supabase-schema-design.md` 重寫於 M-1-03-pre0c)
+> 不刪除、不改本檔字面、只加本標記
+>
+> ---
+>
+> **狀態(原):** 🟢 拍板 / Part 1 落地 2026-05-02 / Part 2 待 M-0-06
 > **拍板人:** Sean(C3 ADR-0003 已拍板 A2 獨立命名、本檔僅落地對應、不重新設計)
 > **層級:** docs/architecture/、衝突仲裁僅次 STATUS.md / NORTHSTAR / 0002-0003 ADR
 > **本檔角色:** ADR-0003 §4 9 條衝突處置的工程落地對應、不重述 ADR、只展開 schema 字面與 mapping 規則
