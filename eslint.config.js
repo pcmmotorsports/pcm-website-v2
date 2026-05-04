@@ -67,6 +67,16 @@ module.exports = [
       ],
       'boundaries/include': ['packages/**/*', 'apps/**/*'],
       'boundaries/root-path': MONOREPO_ROOT,
+      // Import resolver(typescript-aware、對齊 backlog #23 完成):
+      // - boundaries plugin 透過 eslint-module-utils 解析 import target
+      // - typescript resolver 認 .ts / .tsx + tsconfig path mapping + workspace alias
+      // - project glob 只放 packages/*/tsconfig.json(apps/* 純殼無 tsconfig、
+      //   待 apps 真寫 .ts 時補、對齊 backlog #54 Supersede 精神)
+      'import/resolver': {
+        typescript: {
+          project: ['packages/*/tsconfig.json'],
+        },
+      },
     },
     rules: {
       'boundaries/dependencies': [

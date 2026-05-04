@@ -701,9 +701,12 @@
 - **發現於:** 2026-05-02 / M-0-03 audit
 - **相關:** ADR-0003 §3.4、`docs/architecture/dependency-rules.md` §4、#23(import resolver、可同 slice 順手做)
 
-### #23. ⏳ ESLint typescript-aware import resolver 配置(M-1 第一次跨 package import 前必補)
+### #23. ✅ ESLint typescript-aware import resolver 配置(M-1 第一次跨 package import 前必補)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-04 / M-1-02-prep(裝 eslint-import-resolver-typescript@4.4.4 進 catalog + root devDeps;eslint.config.js settings 配 `import/resolver.typescript = { project: ['packages/*/tsconfig.json'] }`;6 條 dry-run 重跑全 CAUGHT 用相對路徑無副檔名 + typescript resolver、不再用 .ts 副檔名 hack;Rule 5 apps→apps 跳過 apps 純殼對齊 backlog #54 Supersede 待 M-1-01-true / M-4a-01 / M-5-01 apps 真寫 .ts 時補;dependency-rules.md §5.1 從「未配置」改「已落地(packages/* 範圍)」+ §7 變更紀錄加新行)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中(M-1 第一次跨 package import 前必補、否則 boundaries 規則失效)
 - **問題:**
   - M-0-03 落地的 boundaries plugin 用 node 預設 resolver、不認 `.ts` 副檔名
@@ -1149,6 +1152,9 @@
 - **依賴:** M-1-02(Product entity images 落地)
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/architecture/medusa-schema-design.md` §2.1、`docs/audits/2026-05-02-full-audit.md` Audit-F21
+- **Supersede 註(2026-05-04 / M-1-02-prep):**
+  - **推薦處置變更:** ADR-0004 Q2=A2 拍板 Image storage = **Supabase Storage**(跟 Q1 同生態、上線時同步升 Pro)、推翻原候選 A 推薦的 Cloudflare R2;候選 B Vercel Blob / 候選 C Medusa default storage 仍可作為 Phase 2 重新評估時的對照案
+  - **trigger 變更:** 從「M-1-02 啟動前」**精修為**「M-1-13(ProductPage 顯示)/ M-1-16(種子 import 真上傳圖)啟動前」(M-1-02 只寫 images URL string field、不真實 upload)
 
 ### #44. ⏳ 種子 200 SKU → ongoing import transition plan(合併 sync conflict 風險)
 
@@ -1632,6 +1638,8 @@
 - **依賴:** M-1-02 / M-1-03 啟動前
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/decisions/0002-architecture-pivot.md` §6.1 / §6.3、`docs/audits/2026-05-02-full-audit.md` Audit-F28
+- **Supersede 註(2026-05-04 / M-1-02-prep):**
+  - **trigger 變更:** 從「M-1-02 / M-1-03 啟動前」**精修為**「M-1-03 啟動前」(M-1-02 是 in-memory ProductRepository、不接 Medusa schema、spike 驗證真實壓力在 M-1-03 MedusaProductAdapter 落地)
 
 ### #67. ⏳ submodule design-reference 失靈 fallback 流程
 
