@@ -9,26 +9,26 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-1 進度 2/16(M-0 10/10 完成、M-1-01 + M-1-02 ✅、M-1-03 主實作 8 slice 進行中 pre1 完成 1/8)
+**Milestone:** M-1 進度 2/16(M-0 10/10 完成、M-1-01 + M-1-02 ✅、M-1-03 主實作 8 slice 進行中 pre1 完成 1/8 + 1 side product-import-spec 完成)
 - **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
 - **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
 - **下一步:** M-1-03 主實作(8 slice 拆法、pre1 完成 1/8、後 7 slice:prep / main-a / main-b / main-c / main-d-pre / main-d / audit)
 
-**當前 slice:** M-1-03-pre1 完成(refactor 9 檔 + 2 rename:apps/medusa→apps/api git mv 保留 history、apps/api/package.json name @pcm/medusa→@pcm/api + description 對齊 ADR-0005、5 處 active docs 字面同步 PROJECT-OVERVIEW L199 / PHASE-1-NORTHSTAR L40 / pcm-specific L289 / dependency-rules L168+L184 replace_all;件 #2 PaginationParams + Paginated 泛型預定義對齊 backlog #20:packages/domain/src/shared/types.ts append + IProductRepository.ts import 補 + searchByKeyword 簽名 (query, params) → Paginated of Product + JSDoc 重寫 contract 涵蓋 name/subtitle/description/fitments + 性能兩階段 PG ILIKE/tsvector + 移除既有 TODO + list 三方法 JSDoc 加 @TODO M-1-09/10 PaginationParams 對齊 backlog #51 + InMemoryProductRepository.searchByKeyword 改回 { items, total } 結構維持既有 name+description filter + 補 1 個分頁 boundary test 7 product limit 3 offset 0;字面 vs 事實揭示 6 處:1. Markdown 失真備援觸發 #1/#2/#3/#5 按指令備援清單還原 Paginated 泛型;2. STATUS L29 hash drift 既有 5d17011 vs dc5611a 留 busboy-end 自動覆蓋;3. InMemory contract gap subtitle/fitments 留 backlog #86 prep slice 對齊;4. IProductRepository header comment 順手改去 Medusa 後 revert 對齊 §F 字面 scope;5. NORTHSTAR L41-45 + pcm-specific L286-291 stale Medusa 段未動推遲後續 slice;6. apps/api/package.json git rename 顯示 new+deleted 因內容 4/9 行修改超 git similarity threshold .gitkeep 維持 renamed 顯示;L1 typecheck 6/6 + lint 10/10 含新 @pcm/api task + test 8/8 + build 0 task 4 綠;不跑 skill audit 對齊 working-style §6.3 第 10 條 + backlog #15)、待 Sean 手動推
+**當前 slice:** M-1-03-side 完成(純 docs 2 檔:新建 docs/product-import-spec.md 19 欄 CSV 格式 v1.0 Sean 2026-05-04 拍板定案 93 行;phase-1-backlog.md 補 3 條:#88 規格照片切換 M-1 商品頁 slice 45-60 min / #89 庫存顯示 M-1 商品頁 slice 15 min / #90 CSV 匯入腳本 M-1-03 主實作完成後獨立 slice 90-120 min;適用車種/年份 Alt+Enter 換行垂直列、規格圖片多張分號隔開、庫存前台只顯示有貨/缺貨;此 slice 屬 M-1-03 期間 side task 獨立於 8 slice 拆法、插在 pre1 與 prep 之間、不阻擋接續 prep slice;字面 vs 事實揭示:1. 指令字面起手 4 綠第 4 條預期 HEAD = e234e0b 過時 Claude.ai 跨 session stale、Sean 拍板 A1 用實際 HEAD 4f064ac 為基準執行;2. 多處 markdown auto-link 失真按 A1 還原 backtick 包本地路徑;3. commit subject 改 docs(M-1-03-side): ... 對齊專案 type(scope) convention;L1 三綠可省 對齊 working-style §6.3 第 10 條 + backlog #15、不跑 skill audit)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
-**時間:** 2026-05-04
-**更新者:** Claude Code(M-1-03-pre1 完成、busboy-end 收工)
+**時間:** 2026-05-05
+**更新者:** Claude Code(M-1-03-side 完成、busboy-end 收工)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| ccf40a5 | refactor(M-1-03-pre1): apps/medusa → apps/api rename + PaginationParams 預定義 + searchByKeyword 簽名落地 | 2026-05-04 |
+| cc5c475 | docs(M-1-03-side): product-import-spec v1.0 + backlog #88/#89/#90 | 2026-05-05 |
+| 4f064ac | refactor(M-1-03-pre1): apps/medusa → apps/api rename + PaginationParams 預定義 + searchByKeyword 簽名落地 | 2026-05-04 |
 | dc5611a | docs(M-1-03-pre0d): STATUS 補 C 切法 8 slice 拆法字面(純 docs) | 2026-05-04 |
-| e234e0b | docs(M-1-03-pre0c): supabase-schema-design.md(取代廢的 medusa-schema-design.md) | 2026-05-04 |
 
 ## 下一步(第 1 條優先)
 
@@ -175,5 +175,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-04 | M-1-03-pre0c 完成(純 docs 2 檔:docs/architecture/supabase-schema-design.md 落地取代廢的 medusa-schema-design.md、Sean 待決策 #5=i apps/medusa→apps/api 標 ✅;Part 1 §1-§6 Catalog 4 條核心(Product 7 欄位 SQL CHECK constraint availability + price_by_tier_keys + Brand value-object FK + Category 樹 parent_category_id + Tier Price jsonb 內聯三 tier + customer_groups 表 + Security Checks 對應 #C4 priceByTier 不洩漏 + 後續 milestone 接力);Part 2 §7-§10 Order 雙維度狀態機(SQL CHECK 5 enum payment 含 partiallyRefunded + 4 enum fulfillment + 3 enum fulfillment_method + 雙軸獨立 transitions + 取消 transitions reject + order_items snapshot)+ 9 contexts 全 Supabase 對應表清單(Catalog/Identity/Order/Pricing/Vehicle/Booking/Wallet/Shop/Sync)+ RLS policy 4 表(ADR-0005 後變化:無 Medusa service role bypass、改 anon key + RLS、products 全 SELECT public + service role 寫 / customers SELECT 限自己 / customer_groups SELECT 限 service role / orders SELECT 限 customer_id = auth.uid)+ service role key 紀律 + 索引策略 3 階段(M-1-16 基本 7 索引 / GIN on fitments jsonb_path_ops backlog #30 / tsvector + pg_jieba + websearch_to_tsquery 對齊 ADR-0004 Q3=A1 後段 backlog #35);Part 3 §11-§13 9 大藍圖預留 checklist(客人端 8 條對齊 PHASE-2-VISION §3 / 店家端 4 條 vehicle 獨立 entity + shops + bookings + order fulfillment 深化 / 員工後台 3 條 wallet_ledger / member_discount_overrides / discounts_applied jsonb 對齊 backlog #47);字面對齊 ADR-0003 §4 9 條 + ADR-0004 4 題 + security-timeline §3 7 條 + PHASE-2-VISION §3 9 條預留 + ADR-0005 §2 + §8;L1 typecheck 6/6 + lint 10/10 全綠 build §2.2 純 docs 可省、不跑 skill audit)、busboy-end 走例外規則「不再 amend」 | Claude Code |
 | 2026-05-04 | M-1-03-pre0d 完成(5d17011 純 docs 1 檔:STATUS.md「下一步」段「M-1-03 主實作」blockquote 內補 1 段 C 切法 8 slice 拆法字面、對齊 2026-05-04 Claude.ai 拍板紀錄 Sean Q2=A1「先落 STATUS 再啟動 pre1」;8 slice = pre1(rename + #20/#51 PaginationParams + Paginated\<T\> 預定義) → prep(#86 thematic1 BC + #83 matchFitment yearStart/yearEnd) → main-a(Supabase schema migration + RLS basic + env) → main-b(SupabaseProductAdapter 6 method + mappers) → main-c(spike round-trip 驗 4 mapping) → main-d-pre(apps/storefront tsconfig + boundaries Rule 5 + import resolver glob) → main-d(storefront 首頁從 Supabase 拉真資料) → audit(雙跑 skill audit follow-up);為 M-1-03 後續 7 slice 提供進度錨點;字面 vs 事實揭示 2 處:1. 指令 §C old_str/new_str 字面缺 markdown blockquote 標記、實作對齊 STATUS L45-46 既有結構恢復;2. Paginated\<T\> 落實 backslash + 角括號避免 markdown render 失真;L1 typecheck 6/6 + lint 10/10 + test 7/7 全綠 build §2.2 純 docs 可省、不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
 | 2026-05-04 | M-1-03-pre1 完成(ccf40a5 refactor 9 檔 + 2 rename:apps/medusa→apps/api git mv 保留 history、apps/api/package.json name @pcm/medusa→@pcm/api + description 對齊 ADR-0005、5 處 active docs 字面同步 PROJECT-OVERVIEW/PHASE-1-NORTHSTAR/pcm-specific/dependency-rules;件 #2 PaginationParams + Paginated 泛型預定義對齊 backlog #20:domain shared/types.ts append + IProductRepository import 補 + searchByKeyword 簽名 (query, params) → Paginated of Product + JSDoc 重寫 contract + 性能兩階段 + list 三方法 @TODO M-1-09/10 對齊 backlog #51 + InMemoryProductRepository 改 + 補分頁 boundary test 7 product limit 3 offset 0;字面 vs 事實揭示 6 處:1. Markdown 失真備援 #1/#2/#3/#5 還原;2. STATUS L29 hash drift 留 busboy-end 自動覆蓋;3. InMemory contract gap 留 backlog #86 prep;4. IProductRepository header revert 對齊 §F scope;5. NORTHSTAR + pcm-specific stale 段未動推遲;6. package.json git rename 顯示 new+deleted 因 similarity threshold;L1 typecheck 6/6 + lint 10/10 含新 @pcm/api task + test 8/8 + build 0 task 4 綠;不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
+| 2026-05-05 | M-1-03-side 完成(cc5c475 純 docs 2 檔:新建 docs/product-import-spec.md 19 欄 CSV 格式 v1.0 Sean 2026-05-04 拍板定案 93 行 + phase-1-backlog.md 補 3 條 #88 規格照片切換 / #89 庫存顯示 / #90 CSV 匯入腳本;此 slice 屬 M-1-03 期間 side task 獨立於 8 slice 拆法、插在 pre1 與 prep 之間、不阻擋 prep;字面 vs 事實揭示 3 處:1. 指令字面起手 4 綠第 4 條預期 HEAD = e234e0b 過時、Sean 拍板 A1 用實際 HEAD 4f064ac 為基準執行;2. markdown auto-link 失真按 A1 還原 backtick 包本地路徑;3. commit subject docs(M-1-03-side) 對齊專案 convention;順手修 STATUS L29 pre1 hash drift ccf40a5 → 4f064ac;L1 三綠可省、不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
 
 — END —

@@ -2136,6 +2136,67 @@
 - **發現於:** 2026-05-04 / M-1-02-audit efficiency E4
 - **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts`、`docs/architecture/testing-strategy.md` §3.3 / §3.4
 
+### #88. ⏳ 規格照片切換實作
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 商品頁選不同規格時、gallery 需切換到該規格的照片組(多張)、滑完後回商品主圖
+  - 目前設計只有單一 gallery、無規格照片群組概念
+- **觸發事件:**
+  - 2026-05-04 / Sean 拍板 `docs/product-import-spec.md` §6
+- **預期解法:**
+  - 商品頁 gallery 元件支援「規格照片群組」、選規格 → gallery source 切換
+  - 無規格圖片則 fallback 商品主圖
+- **不修會痛在:**
+  - 擴充性:碳纖維 / 顏色類商品照片無法區分規格、體驗退化為普通電商
+  - 可維護性:gallery 邏輯若寫死單一 source、之後插入規格群組需大改
+  - bug 可追蹤性:客人選錯規格圖不知是資料問題還是元件問題
+- **估時:** 45-60 min(M-1 商品頁 slice 內附帶)
+- **依賴:** M-1 商品頁 slice、`docs/product-import-spec.md` §6
+- **發現於:** 2026-05-04 / 商品上架規範討論
+- **相關:** `docs/product-import-spec.md` §6
+
+### #89. ⏳ 前台庫存只顯示有貨/缺貨
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 庫存數字不對外顯示、前台只顯示「有貨」/「缺貨(售完)」
+- **觸發事件:**
+  - 2026-05-04 / Sean 拍板
+- **預期解法:**
+  - 商品頁 / 商品列表、stock > 0 顯示「有貨」、stock = 0 顯示「缺貨(售完)」、不渲染數字
+- **不修會痛在:**
+  - 擴充性:庫存數字外露、競爭對手可探知庫存水位
+  - 可維護性:邏輯簡單、但若散落多個元件需多處修
+  - bug 可追蹤性:顯示邏輯集中在一個 helper、易定位
+- **估時:** 15 min(M-1 商品頁 slice 內附帶)
+- **依賴:** M-1 商品頁 slice
+- **發現於:** 2026-05-04 / 商品上架規範討論
+- **相關:** `docs/product-import-spec.md` §7
+
+### #90. ⏳ Phase 1 CSV 批次匯入腳本
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 第一波 1000-2000 筆商品需批次匯入、不可能手動單筆建立
+- **觸發事件:**
+  - 2026-05-04 / Sean 拍板 `docs/product-import-spec.md` §9
+- **預期解法:**
+  - 寫 `scripts/import-products.ts`、讀符合 `docs/product-import-spec.md` 格式的 CSV
+  - groupBy 主商品貨號、解析 fitments / images、upsert 進 Supabase
+  - 重複執行安全
+- **不修會痛在:**
+  - 擴充性:格式已定案、Phase 2 批次 UI 吃同一格式、腳本可直接複用解析邏輯
+  - 可維護性:一次性腳本、Phase 2 做 UI 時抽 parse 邏輯進 shared util
+  - bug 可追蹤性:CSV 格式標準化後、資料問題容易定位到哪一行哪一欄
+- **估時:** 90-120 min(M-1-03 主實作完成後獨立 slice)
+- **依賴:** M-1-03 主實作完成(Supabase schema 穩定後才寫匯入腳本)、`docs/product-import-spec.md` §9
+- **發現於:** 2026-05-04 / 商品上架規範討論
+- **相關:** `docs/product-import-spec.md` §9、`docs/architecture/supabase-schema-design.md` §2-§5
+
 ---
 
 ## 紀錄模板
