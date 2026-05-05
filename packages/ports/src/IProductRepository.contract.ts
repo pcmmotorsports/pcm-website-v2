@@ -23,7 +23,9 @@ import type { IProductRepository } from './IProductRepository';
  * @example
  * ```ts
  * import { describe } from 'vitest';
- * import { runProductRepositoryContract } from '@pcm/ports';
+ * // 必走 subpath '@pcm/ports/contract'、不走 '@pcm/ports' main entry
+ * // (M-1-03-prep-audit S1 修正:阻斷 vitest 經 main entry 洩漏 production bundle)
+ * import { runProductRepositoryContract } from '@pcm/ports/contract';
  * import { SupabaseProductAdapter } from './SupabaseProductAdapter';
  *
  * describe('SupabaseProductAdapter', () => {

@@ -8,7 +8,9 @@ export type * from './IOrderRepository';
 export type * from './ISheetsAdapter';
 export type * from './ITapPayAdapter';
 
-// Contract test framework re-export(M-1-03-prep 件 #3 子項 B、backlog #86):
-// - 純 test 用 framework、production code 不要 invoke
-// - tree-shaking 友好(callsite 不呼叫即不 bundle)
-export { runProductRepositoryContract } from './IProductRepository.contract';
+// Contract test framework 不從 main entry re-export(M-1-03-prep-audit S1 修正):
+// - tree-shaking 樂觀假設不可信、main entry re-export 會把 vitest 拉進 production bundle
+// - adapter test 端必走 subpath:`import { runProductRepositoryContract } from '@pcm/ports/contract'`
+// - 對應 package.json `exports` field `./contract` 子路徑、Bundler moduleResolution 生效
+// - 規範:`docs/lessons-learned.md` §12-1
+// - audit 來源:`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F1 / F19(雙視角 Critical)
