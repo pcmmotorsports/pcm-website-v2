@@ -85,15 +85,32 @@ export class InMemoryProductRepository implements IProductRepository {
   }
 
   /**
-   * 單 spec 配對 helper。
+   * 單 spec 配對 helper(M-1-03-prep 件 #4 補完整年份邏輯、對齊 backlog #83 +
+   * docs/architecture/supabase-schema-design.md §2.4)
    *
-   * 本 slice 簡化版:只判 motoBrand + modelCode 必對。
-   * 年份範圍(yearStart / yearEnd)實作 M-1-03 真實 MedusaProductAdapter 落地時補,
-   * test 不深測年份範圍 case(對齊 backlog #38 / FitmentSpec yearEnd null 開放式語意)。
+   * 規則:
+   * 1. motoBrand 必相同
+   * 2. modelCode 必相同
+   * 3. 年份範圍重疊判定:
+   *    - 任一邊無年份(yearStart undefined)→ match(無年份限制 = 不限年份)
+   *    - actual.yearEnd null = 開放式範圍("2025+"、無上限)、轉 Infinity 比對
+   *    - actual.yearEnd undefined = 單年、轉 yearStart 比對
+   *    - 範圍重疊判定:actual.start ≤ spec.end 且 spec.start ≤ actual.end
+   *    - 無交集 → 不 match(false-positive 防線、修正 M-1-02 簡化版 silent bug)
    */
   private matchFitment(actual: FitmentSpec, spec: FitmentSpec): boolean {
+    // 規則 1 + 2
     if (actual.motoBrand !== spec.motoBrand) return false;
     if (actual.modelCode !== spec.modelCode) return false;
-    return true;
+
+    // 規則 3:年份範圍重疊
+    // 任一邊無年份 → match(narrowing 後 yearStart 為 number、不需 ! assertion)
+    if (actual.yearStart === undefined || spec.yearStart === undefined) return true;
+
+    // yearEnd null = 開放式("2025+")→ Infinity;undefined = 單年 → yearStart
+    const actualEnd = actual.yearEnd === null ? Infinity : actual.yearEnd ?? actual.yearStart;
+    const specEnd = spec.yearEnd === null ? Infinity : spec.yearEnd ?? spec.yearStart;
+
+    return actual.yearStart <= specEnd && spec.yearStart <= actualEnd;
   }
 }

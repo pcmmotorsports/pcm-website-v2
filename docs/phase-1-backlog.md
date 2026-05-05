@@ -631,9 +631,12 @@
 
 ---
 
-### #20. ⏳ PaginationParams + Paginated<T> 預定義決議待 M-1-03 寫第一個分頁 use-case 時拍
+### #20. ✅ PaginationParams + Paginated<T> 預定義決議待 M-1-03 寫第一個分頁 use-case 時拍
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-04 / M-1-03-pre1(`4f064ac`、`packages/domain/src/shared/types.ts:72-106` 落地 PaginationParams + Paginated\<T\> 泛型 + IProductRepository.searchByKeyword 簽名 (query, params) → Paginated\<Product\> + InMemoryProductRepository 對齊新簽名 + 7-product limit-3 boundary test);M-1-03-prep verify 通過 typecheck 6/6 + lint 10/10 + test 12/12
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟢 觀察
 - **問題:**
   - 4 處 TODO 補分頁(IProductRepository.searchByKeyword / IOrderRepository.listByCustomer / listByStatus / listByDateRange)共享同一未來 contract、現各自 TODO 標
@@ -2013,9 +2016,12 @@
 - **發現於:** 2026-05-04 / M-1-02-audit reuse R1
 - **相關:** `packages/domain/src/catalog/types.ts` ProductAvailability、`design-reference/components/ProductCard.jsx` / `ProductPage.jsx`、ADR-0003 §3.2(string literal union type alias 規則)
 
-### #83. ⏳ matchFitment yearStart/yearEnd 範圍重疊邏輯(M-1-03 真實 adapter)
+### #83. ✅ matchFitment yearStart/yearEnd 範圍重疊邏輯(M-1-03 真實 adapter)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-05 / M-1-03-prep 件 #4(`packages/adapters/src/in-memory/InMemoryProductRepository.ts` private matchFitment method 補完整 3 規則:motoBrand + modelCode + 年份重疊;narrowing 取代 `!` non-null assertion、yearEnd null = Infinity、yearEnd undefined = 單年;`InMemoryProductRepository.test.ts` describe('matchFitment year-range') 段 4 個 test 涵蓋範圍重疊 / 開放式 / spec 無年份 / false-positive 防線;對齊 supabase-schema-design.md §2.4 4 種狀態)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中(M-1-03 真實 adapter 落地時補、之前 in-memory 簡化版可)
 - **問題:**
   - InMemoryProductRepository.matchFitment 簡化版只判 motoBrand + modelCode、yearStart/yearEnd silently 忽略(對齊 M-1-02 slice 字面簡化)
@@ -2086,9 +2092,15 @@
 - **發現於:** 2026-05-04 / M-1-02-audit reuse R3
 - **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts` createFakeProduct、backlog #19 / #84(同 trigger 哲學「撞重複再抽」)
 
-### #86. ⏳ M-1-03 啟動前 in-memory adapter 樣板 leak 防 + contract test + edge cases 三合一(thematic)
+### #86. ✅ M-1-03 啟動前 in-memory adapter 樣板 leak 防 + contract test + edge cases 三合一(thematic)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-05 / M-1-03-prep 三軸合一:
+  - 軸 1(樣板 leak 防):2026-05-04 / M-1-02-audit Q2/E2/E5 落地 `docs/architecture/testing-strategy.md` §3.4「in-memory 樣板不搬到真實 adapter」L94-107(prep 件 #3 子項 A verify 已落地、跳過)
+  - 軸 2(contract test):2026-05-05 / prep 件 #3 子項 B+C 落地 `packages/ports/src/IProductRepository.contract.ts`(81 行純架子、6 method + matchFitment 4 it.todo + JSDoc + example、Sean Q1=A3 拍板純架子 + TODO marker、待 main-b SupabaseProductAdapter 落地時 callsite 注入 factory 跑實際 assertion)
+  - 軸 3(edge cases):2026-05-05 / prep 件 #4 落地 `InMemoryProductRepository.test.ts` describe('matchFitment year-range') 段 4 個 test(對齊 軸 2 contract 4 個 it.todo)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中(M-1-03 啟動前必處理、之前不阻)
 - **問題:**
   - M-1-02-audit 抓 3 個 thematic 互補議題、合併處置以對齊 backlog #15「同檔同時機補可合併」精神:

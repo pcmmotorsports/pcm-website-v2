@@ -141,4 +141,78 @@ describe('InMemoryProductRepository', () => {
     const found = await repo.findById('p-1');
     expect(found?.availability).toBe('out-of-stock');
   });
+
+  // 件 #4 / 4(對齊 backlog #83 + supabase-schema-design.md §2.4):
+  // matchFitment 為 private method、本段透過 listByFitment 間接測 4 個 year-range case;
+  // contract 級 it.todo 在 packages/ports/src/IProductRepository.contract.ts(件 #3 子項 C)
+  describe('matchFitment year-range', () => {
+    it('yearStart/yearEnd 範圍重疊 → match', async () => {
+      const inRange = createFakeProduct({
+        id: 'p-cbr-2018-2024',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2018, yearEnd: 2024 }],
+      });
+      const outOfRange = createFakeProduct({
+        id: 'p-cbr-2010-2015',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'CBR600RR', yearStart: 2010, yearEnd: 2015 }],
+      });
+      const repo = new InMemoryProductRepository([inRange, outOfRange]);
+
+      const result = await repo.listByFitment({
+        motoBrand: 'Yamaha',
+        modelCode: 'CBR600RR',
+        yearStart: 2020,
+        yearEnd: 2022,
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('p-cbr-2018-2024');
+    });
+
+    it('yearEnd null 開放式範圍("2025+") → match 任何 ≥ yearStart 的 spec', async () => {
+      const openEnded = createFakeProduct({
+        id: 'p-mt09-open',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2025, yearEnd: null }],
+      });
+      const repo = new InMemoryProductRepository([openEnded]);
+
+      const result = await repo.listByFitment({
+        motoBrand: 'Yamaha',
+        modelCode: 'MT-09',
+        yearStart: 2026,
+        yearEnd: 2026,
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('p-mt09-open');
+    });
+
+    it('spec 無年份 → match 任意 yearRange', async () => {
+      const honda = createFakeProduct({
+        id: 'p-honda-cbr',
+        fitments: [{ motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2018, yearEnd: 2024 }],
+      });
+      const repo = new InMemoryProductRepository([honda]);
+
+      const result = await repo.listByFitment({
+        motoBrand: 'Honda',
+        modelCode: 'CBR600RR',
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('p-honda-cbr');
+    });
+
+    it('false-positive 防線:actual 2018-2020 vs spec 2025 → 不 match', async () => {
+      const ducati = createFakeProduct({
+        id: 'p-pani-2018-2020',
+        fitments: [{ motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2018, yearEnd: 2020 }],
+      });
+      const repo = new InMemoryProductRepository([ducati]);
+
+      const result = await repo.listByFitment({
+        motoBrand: 'Ducati',
+        modelCode: 'Panigale V4',
+        yearStart: 2025,
+        yearEnd: 2025,
+      });
+      expect(result).toHaveLength(0);
+    });
+  });
 });

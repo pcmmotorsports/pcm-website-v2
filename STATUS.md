@@ -9,26 +9,26 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-1 進度 2/16(M-0 10/10 完成、M-1-01 + M-1-02 ✅、M-1-03 主實作 8 slice 進行中 pre1 完成 1/8 + 1 side product-import-spec 完成)
+**Milestone:** M-1 進度 2/16(M-0 10/10 完成、M-1-01 + M-1-02 ✅、M-1-03 主實作 8 slice 進行中 pre1 + prep 完成 2/8 + 1 side product-import-spec 完成)
 - **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
 - **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
-- **下一步:** M-1-03 主實作(8 slice 拆法、pre1 完成 1/8、後 7 slice:prep / main-a / main-b / main-c / main-d-pre / main-d / audit)
+- **下一步:** M-1-03 主實作(8 slice 拆法、pre1 + prep 完成 2/8、後 6 slice:main-a / main-b / main-c / main-d-pre / main-d / audit)
 
-**當前 slice:** M-1-03-side 完成(純 docs 2 檔:新建 docs/product-import-spec.md 19 欄 CSV 格式 v1.0 Sean 2026-05-04 拍板定案 93 行;phase-1-backlog.md 補 3 條:#88 規格照片切換 M-1 商品頁 slice 45-60 min / #89 庫存顯示 M-1 商品頁 slice 15 min / #90 CSV 匯入腳本 M-1-03 主實作完成後獨立 slice 90-120 min;適用車種/年份 Alt+Enter 換行垂直列、規格圖片多張分號隔開、庫存前台只顯示有貨/缺貨;此 slice 屬 M-1-03 期間 side task 獨立於 8 slice 拆法、插在 pre1 與 prep 之間、不阻擋接續 prep slice;字面 vs 事實揭示:1. 指令字面起手 4 綠第 4 條預期 HEAD = e234e0b 過時 Claude.ai 跨 session stale、Sean 拍板 A1 用實際 HEAD 4f064ac 為基準執行;2. 多處 markdown auto-link 失真按 A1 還原 backtick 包本地路徑;3. commit subject 改 docs(M-1-03-side): ... 對齊專案 type(scope) convention;L1 三綠可省 對齊 working-style §6.3 第 10 條 + backlog #15、不跑 skill audit)、待 Sean 手動推
+**當前 slice:** M-1-03-prep 完成(3 commits 8 檔:件 #1 0e0452f docs spec §10/§11 重複上架+匯出 CSV + backlog #91;件 #3 953f435 packages/ports/src/IProductRepository.contract.ts 81 行純架子 6 method + matchFitment 4 it.todo + JSDoc + example + ports/index.ts re-export;件 #4 a57d9d8 InMemoryProductRepository.ts matchFitment 補完整 3 規則 narrowing 取代 ! assertion + .test.ts describe('matchFitment year-range') 段 4 test 透過 listByFitment 間接測;件 #2 跳過原因 pre1 4f064ac 已落地 PaginationParams + Paginated<T> + searchByKeyword 簽名 / 件 #3 子項 A 跳過原因 M-1-02-audit Q2-E2-E5 已落地 testing-strategy §3.4 完整 L94-107;Sean 拍板 Q1=A1 件 #2 跳 / Q2=A1 件 #4 .test.ts / Q3=A1 先 verify L1 三綠 / Q1=A3 contract.ts 純架子拍板;字面 vs 事實揭示 6 處 commit body 註明:1. handoff 字面假設 pre1 未落地實際已落地 → 跳件 #2 / 2. handoff §5.1 子項 B __tests__/ 路徑違反 testing-strategy §1 同層精神改用同層 / 3. handoff §5.1 子項 B 字面 listAll method 不存在 IProductRepository 對齊現況 6 method / 4. handoff §6.1 字面 function matchFitment 改回 private matchFitment 保留封裝 / 5. handoff §6.1 字面 ! assertion 改為 narrowing / 6. handoff §6.2 字面 .spec.ts 實際 .test.ts;backlog #20 ✅ pre1 落地 / #83 ✅ 件 #4 落地 / #86 ✅ 三軸合一(M-1-02-audit §3.4 + 件 #3 contract framework + 件 #4 yearRange test)/ #91 ⏳ 新建;L1 三綠 typecheck 6/6 + lint 10/10 + test 12/12 全綠;不跑 skill audit;手動 amend 補 6 欄位)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-05
-**更新者:** Claude Code(M-1-03-side 完成、busboy-end 收工)
+**更新者:** Claude Code(M-1-03-prep 完成、手動 amend 補 6 欄位)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| cc5c475 | docs(M-1-03-side): product-import-spec v1.0 + backlog #88/#89/#90 | 2026-05-05 |
-| 4f064ac | refactor(M-1-03-pre1): apps/medusa → apps/api rename + PaginationParams 預定義 + searchByKeyword 簽名落地 | 2026-05-04 |
-| dc5611a | docs(M-1-03-pre0d): STATUS 補 C 切法 8 slice 拆法字面(純 docs) | 2026-05-04 |
+| a57d9d8 | feat(M-1-03-prep): #83 matchFitment year-range + backlog 收工 ✅ | 2026-05-05 |
+| 953f435 | test(M-1-03-prep): #86 thematic1 BC contract framework 純架子 | 2026-05-05 |
+| 0e0452f | docs(M-1-03-prep): spec §10/§11 + backlog #91 | 2026-05-05 |
 
 ## 下一步(第 1 條優先)
 
@@ -176,5 +176,6 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-04 | M-1-03-pre0d 完成(5d17011 純 docs 1 檔:STATUS.md「下一步」段「M-1-03 主實作」blockquote 內補 1 段 C 切法 8 slice 拆法字面、對齊 2026-05-04 Claude.ai 拍板紀錄 Sean Q2=A1「先落 STATUS 再啟動 pre1」;8 slice = pre1(rename + #20/#51 PaginationParams + Paginated\<T\> 預定義) → prep(#86 thematic1 BC + #83 matchFitment yearStart/yearEnd) → main-a(Supabase schema migration + RLS basic + env) → main-b(SupabaseProductAdapter 6 method + mappers) → main-c(spike round-trip 驗 4 mapping) → main-d-pre(apps/storefront tsconfig + boundaries Rule 5 + import resolver glob) → main-d(storefront 首頁從 Supabase 拉真資料) → audit(雙跑 skill audit follow-up);為 M-1-03 後續 7 slice 提供進度錨點;字面 vs 事實揭示 2 處:1. 指令 §C old_str/new_str 字面缺 markdown blockquote 標記、實作對齊 STATUS L45-46 既有結構恢復;2. Paginated\<T\> 落實 backslash + 角括號避免 markdown render 失真;L1 typecheck 6/6 + lint 10/10 + test 7/7 全綠 build §2.2 純 docs 可省、不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
 | 2026-05-04 | M-1-03-pre1 完成(ccf40a5 refactor 9 檔 + 2 rename:apps/medusa→apps/api git mv 保留 history、apps/api/package.json name @pcm/medusa→@pcm/api + description 對齊 ADR-0005、5 處 active docs 字面同步 PROJECT-OVERVIEW/PHASE-1-NORTHSTAR/pcm-specific/dependency-rules;件 #2 PaginationParams + Paginated 泛型預定義對齊 backlog #20:domain shared/types.ts append + IProductRepository import 補 + searchByKeyword 簽名 (query, params) → Paginated of Product + JSDoc 重寫 contract + 性能兩階段 + list 三方法 @TODO M-1-09/10 對齊 backlog #51 + InMemoryProductRepository 改 + 補分頁 boundary test 7 product limit 3 offset 0;字面 vs 事實揭示 6 處:1. Markdown 失真備援 #1/#2/#3/#5 還原;2. STATUS L29 hash drift 留 busboy-end 自動覆蓋;3. InMemory contract gap 留 backlog #86 prep;4. IProductRepository header revert 對齊 §F scope;5. NORTHSTAR + pcm-specific stale 段未動推遲;6. package.json git rename 顯示 new+deleted 因 similarity threshold;L1 typecheck 6/6 + lint 10/10 含新 @pcm/api task + test 8/8 + build 0 task 4 綠;不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
 | 2026-05-05 | M-1-03-side 完成(cc5c475 純 docs 2 檔:新建 docs/product-import-spec.md 19 欄 CSV 格式 v1.0 Sean 2026-05-04 拍板定案 93 行 + phase-1-backlog.md 補 3 條 #88 規格照片切換 / #89 庫存顯示 / #90 CSV 匯入腳本;此 slice 屬 M-1-03 期間 side task 獨立於 8 slice 拆法、插在 pre1 與 prep 之間、不阻擋 prep;字面 vs 事實揭示 3 處:1. 指令字面起手 4 綠第 4 條預期 HEAD = e234e0b 過時、Sean 拍板 A1 用實際 HEAD 4f064ac 為基準執行;2. markdown auto-link 失真按 A1 還原 backtick 包本地路徑;3. commit subject docs(M-1-03-side) 對齊專案 convention;順手修 STATUS L29 pre1 hash drift ccf40a5 → 4f064ac;L1 三綠可省、不跑 skill audit;手動跑 busboy-end 6 步 procedure amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
+| 2026-05-05 | M-1-03-prep 完成(3 commits 8 檔:件 #1 0e0452f docs spec §10/§11 重複上架+匯出 + backlog #91;件 #3 953f435 packages/ports/src/IProductRepository.contract.ts 81 行純架子 6 method it.todo + matchFitment 4 it.todo + JSDoc + ports/index.ts re-export;件 #4 a57d9d8 InMemoryProductRepository matchFitment 補完整 3 規則 narrowing 取代 ! + .test.ts describe matchFitment year-range 段 4 test 透過 listByFitment 間接測;件 #2 + 件 #3 子項 A 跳過原因 = pre1 4f064ac / M-1-02-audit Q2-E2-E5 已落地 Sean Q1=A1 拍板;Sean 拍板 Q1=A1 件 #2 跳 / Q2=A1 件 #4 .test.ts / Q3=A1 先 verify L1 三綠 / Q1=A3 contract.ts 純架子;字面 vs 事實揭示 6 處 commit body 註明 — pre1 落地狀態 / __tests__/ 路徑違反 §1 同層 / listAll 憑空 method / function vs private matchFitment / ! assertion 改 narrowing / .spec.ts vs .test.ts;backlog #20 ✅ pre1 落地 / #83 ✅ 件 #4 落地 / #86 ✅ 三軸合一(M-1-02-audit §3.4 + 件 #3 contract framework + 件 #4 yearRange test)/ #91 ⏳ 新建;L1 三綠 typecheck 6/6 + lint 10/10 + test 12/12 全綠;不跑 skill audit;手動 amend 補 6 欄位)、busboy-end 走例外規則「手動 amend 補 6 欄位」 | Claude Code |
 
 — END —
