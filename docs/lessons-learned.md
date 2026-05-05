@@ -312,6 +312,101 @@ Medusa schema 設計對應 design 資料結構、不反向。
 
 ---
 
+## 12. Test framework + contract 紀律(M-1-03-prep audit 教訓、2026-05-05 拍板)
+
+### 12-1. test framework re-export 必走 subpath
+
+**事故脈絡:**
+M-1-03-prep 件 #3 把 `runProductRepositoryContract`(內含 `import { describe, it } from 'vitest'`)從 `packages/ports/src/IProductRepository.contract.ts` re-export 進 `packages/ports/src/index.ts` main entry。`@pcm/ports` 被 storefront / sync-engine 等 production app import 時、vitest 透過 main entry 拉進 production bundle。
+
+tree-shaking 樂觀假設不可信(pnpm workspace + esbuild + 沒標 `sideEffects: false`、或 vitest 模組自身有 side effects)。
+
+audit Round 1 F1 + Round 2 F19(雙視角 Critical 同向命中)抓出。
+
+**規則:**
+- 純 test framework(含 vitest 等 devDependency)不可從 main entry index.ts re-export
+- 必走 subpath export:`package.json` `exports` field 加 `./contract` 子路徑
+- 保留 `main` + `types`(對齊 monorepo 既有 main+types 寫法、雙保險)
+- adapter test 端 import 走 `@pcm/{pkg}/contract`、不走 `@pcm/{pkg}`
+- tsconfig `moduleResolution: "Bundler"`(或 `node16` / `nodenext`)才 honor exports field、加 exports 前先確認
+
+**範例(正確 vs 錯誤):**
+
+❌ 錯誤(main entry re-export):
+```ts
+// packages/ports/src/index.ts
+export type * from './IProductRepository';
+export { runProductRepositoryContract } from './IProductRepository.contract';
+// ↑ vitest 跟著進 production bundle
+```
+
+✅ 正確(subpath export):
+```ts
+// packages/ports/src/index.ts
+export type * from './IProductRepository';
+// 不 re-export contract.ts
+```
+
+```jsonc
+// packages/ports/package.json
+{
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": { "types": "./src/index.ts", "default": "./src/index.ts" },
+    "./contract": {
+      "types": "./src/IProductRepository.contract.ts",
+      "default": "./src/IProductRepository.contract.ts"
+    }
+  }
+}
+```
+
+```ts
+// adapter test 端
+import { runProductRepositoryContract } from '@pcm/ports/contract';
+// ↑ subpath、production bundle 不會拉到
+```
+
+### 12-2. contract 命名以 port public method 為錨
+
+**事故脈絡:**
+M-1-03-prep 件 #3 contract.ts `describe('matchFitment year-range', ...)` 暴露 InMemoryProductRepository 的 private method 名(matchFitment)。matchFitment 不在 IProductRepository 介面字面、是 InMemory 內部 helper。
+
+main-b SupabaseProductAdapter 用 PG range query 實作、無 matchFitment、describe 名變誤導。
+
+audit Round 1 F2 / F3 + Round 2 F16(雙視角 Major 同向命中)抓出。
+
+**規則:**
+- contract 級 describe 名必以 IProductRepository 公開 method 為錨
+- 不暴露 adapter 內部 helper / private method 名
+- 同 method 多維度測試用嵌套 describe 表達層次
+- 延伸 `docs/architecture/testing-strategy.md` §3.4「樣板不外洩」精神
+
+**範例(正確 vs 錯誤):**
+
+❌ 錯誤(暴露 InMemory private method):
+```ts
+describe('matchFitment year-range', () => {
+  // ↑ matchFitment 是 InMemory private、Supabase adapter 無此 helper
+  it.todo('範圍重疊 match');
+});
+```
+
+✅ 正確(嵌套子 describe 表達多維度):
+```ts
+describe('listByFitment', () => {
+  it.todo('依 FitmentSpec 配對 fitments[] 任一筆');
+  describe('year-range matching', () => {
+    it.todo('範圍重疊 match');
+    it.todo('開放式範圍 match');
+    // ...
+  });
+});
+```
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |

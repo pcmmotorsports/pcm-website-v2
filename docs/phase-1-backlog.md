@@ -2238,6 +2238,219 @@
 
 ---
 
+### #92. ⏳ resolveEnd helper 抽到 packages/domain/src/catalog/year-range.ts
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - InMemoryProductRepository.matchFitment 內 `actual.yearEnd === null ? Infinity : actual.yearEnd ?? actual.yearStart` 對 actual / spec 兩端對稱重複
+  - 兩行三狀態(null / undefined / number)擠一行、reader 需理解 `??` 不會吞 null
+  - 來源:M-1-03-prep audit Round 1 F4 + Round 2 F12 + F15(三視角同向命中)
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit
+- **預期解法:**
+  - main-b SupabaseProductAdapter 落地時、PG range query 也需 yearEnd null/undefined 處理、第二個使用點出現
+  - 抽 `resolveEnd(start: number, end: number | null | undefined): number` helper 到 `packages/domain/src/catalog/year-range.ts`
+  - InMemory + Supabase 兩 adapter 共用、避免雙寫
+  - 兼解 yearEnd null vs undefined 雙語意 type guard
+- **不修會痛在:**
+  - 擴充性:main-b 落地時 InMemory + Supabase 各寫一份相同邏輯、雙語意 type guard 散兩處
+  - 可維護性:未來改邏輯(例支援更精確的範圍匹配)需改兩處、易遺漏
+  - bug 可追蹤性:邏輯不一致時難對齊、客人投訴「同 product 兩 adapter 行為不同」debug 成本高
+- **估時:** main-b 同 slice 加 30 min(抽 helper + 兩 adapter 替換 + JSDoc)
+- **依賴:** main-b SupabaseProductAdapter 落地(M-1-03 主實作)
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 2 F12
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts` matchFitment、`docs/architecture/supabase-schema-design.md` §2.4、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F4/F12/F15
+
+---
+
+### #93. ⏳ matchFitment 補 8 個 boundary case test
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - M-1-03-prep 件 #4 落地 4 個 yearRange test、覆蓋 4 種主要狀態(範圍重疊 / null 開放式 / 無年份 / false-positive)
+  - audit Round 1 F6 抓出 8 個 boundary case 漏測:
+    - 單年 actual(yearEnd=undefined)+ 範圍 spec → 應 match
+    - 單年 actual + 單年 spec、相同年 → 應 match
+    - 單年 actual + 單年 spec、相鄰年 → 不應 match
+    - 邊界 inclusive(actual.yearEnd=2020 vs spec.yearStart=2020)→ 應 match(驗 `≤` 含等於)
+    - 空 fitments[] → some() 回 false、不 match
+    - 多 fitments[] OR(product 有 fit1+fit2、spec 只 match fit2)→ 應 match
+    - yearEnd null 開放式 + spec 早於 yearStart(actual=2025+ vs spec=2024)→ 不應 match
+    - actual 無年份的鏡像(test case 3 只測 spec 無年份、沒測 actual 無年份)
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit Round 1 F6
+- **預期解法:**
+  - main-b SupabaseProductAdapter 落地時、確保 InMemory + Supabase 兩 adapter 行為對齊
+  - 補 8 個 boundary case 到 InMemoryProductRepository.test.ts「listByFitment year-range matching」describe 內
+  - main-b SupabaseProductAdapter 落地後 contract test 跑同樣 8 case 驗 PG range query 行為
+- **不修會痛在:**
+  - 擴充性:main-b 兩 adapter 行為對不齊、未來加第三 adapter 又漏 boundary
+  - 可維護性:漏測 boundary 不知、改邏輯時 silent regression
+  - bug 可追蹤性:客人投訴「2025 配件出現 2018-2020 商品」邏輯查找成本高、無 boundary test 證明邏輯
+- **估時:** 60-90 min(main-b 落地後獨立 slice、含 8 case 寫 + InMemory + Supabase 雙跑)
+- **依賴:** main-b SupabaseProductAdapter 落地、#92(resolveEnd helper 共用)
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 1 F6
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts` listByFitment year-range matching、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F6
+
+---
+
+### #94. ⏳ matchFitment JSDoc 補 spec 端對稱處理說明
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - InMemoryProductRepository.matchFitment JSDoc 規則 3 只寫 actual.yearEnd 三狀態、沒明寫 specEnd 也走同樣處理
+  - 程式碼第 112 行 specEnd 邏輯實際存在、但 JSDoc 漏寫對稱性
+  - reader 讀 JSDoc 不知道 spec 端如何處理、需讀程式碼推斷
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit Round 1 F5
+- **預期解法:**
+  - #92 抽 resolveEnd helper 時順手改 JSDoc
+  - 規則 3 補:「actual / spec 兩端對稱處理 yearEnd null/undefined」
+- **不修會痛在:**
+  - 擴充性:未來加第三維度(例 trim level)、JSDoc 對稱性沒立、易漏寫
+  - 可維護性:reader 讀 JSDoc 推斷不出 spec 端處理、需 grep 程式碼
+  - bug 可追蹤性:JSDoc 與實作 drift 時無 anchor 抓出
+- **估時:** 5 min(合進 #92 同 slice)
+- **依賴:** #92
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 1 F5
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts` matchFitment、#92、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F5
+
+---
+
+### #95. ⏳ fitment motoBrand / modelCode case-sensitivity normalize
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - matchFitment line 103-104 用 strict equality(`actual.motoBrand !== spec.motoBrand`)
+  - case 不一致會 silent miss:'Yamaha' !== 'yamaha' = false negative
+  - 廠商報價單可能用 'YAMAHA' / 'Yamaha' / 'yamaha' 等不一致 case
+  - 對齊 ADR-0004 wrs Q1=A1 字面(自由字串)、但實作策略未定
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit Round 1 F7
+- **預期解法:**
+  - M-5-03 sync engine 上架時 normalize 進 DB('Yamaha' 統一格式、Title Case)
+  - InMemory + Supabase 兩 adapter 維持 strict equality(normalize 是 sync engine 責任、不在 adapter)
+  - sync engine 補 normalizeMotoBrand / normalizeModelCode helper
+- **不修會痛在:**
+  - 擴充性:廠商資料源多、case 不一致將來會撞、不 normalize 全資料層污染
+  - 可維護性:sync engine 責任、不在 InMemory;混淆責任會撒進 multiple layers
+  - bug 可追蹤性:silent miss 無 log、客人「找不到我的車的配件」reproduce 困難
+- **估時:** 15-30 min(M-5-03 內附帶)
+- **依賴:** M-5-03 sync engine
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 1 F7
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts:103-104`、`docs/decisions/0004-m1-pre-launch-decisions.md` Q1=A1、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F7
+
+---
+
+### #96. ⏳ fitment yearStart > yearEnd 資料異常防呆
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - matchFitment 範圍重疊判定無 yearStart > yearEnd 防呆
+  - 若資料 yearStart=2024, yearEnd=2018(廠商輸入錯)、邏輯不報錯、回 false negative
+  - 屬資料層責任、但無 log / no warning
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit Round 1 F8
+- **預期解法:**
+  - M-5-03 sync engine validation 階段檢測 yearStart > yearEnd
+  - 報錯停下、寫進 sync error log(對齊 sync-engine error structure)
+  - 不在 adapter / domain 層加防呆(責任在資料源驗證)
+- **不修會痛在:**
+  - 擴充性:未來廠商上架自動化、資料異常頻率上升、無防呆會 silent miss
+  - 可維護性:sync engine validation 集中、不散落各 adapter
+  - bug 可追蹤性:客人投訴「找不到 2018 配件」、查 fitment 才發現 yearStart=2024 錯資料
+- **估時:** 15 min(M-5-03 validation 階段附帶)
+- **依賴:** M-5-03 sync engine
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 1 F8
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts:99`、#95(同 M-5-03 trigger)、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F8
+
+---
+
+### #97. ⏳ listByFitment 結果排序契約定義
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - InMemoryProductRepository.listByFitment 用 `Array.from(this.products.values()).filter(...)` 回 Map insertion order
+  - V8 stable insertion 是實作細節、契約上無排序保證
+  - caller 若期待按某順序(例 yearStart desc / 庫存 desc)、需自行 sort
+  - 第一個 caller 未定(M-1 商品列表頁 / M-2 篩選頁)
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit Round 1 F9
+- **預期解法:**
+  - 第一個 caller 真撞到順序需求時、再定義排序契約
+  - 候選方向:
+    - A:listByFitment 加 `sort?: 'yearStart-desc' | 'stock-desc'` 參數(推薦、明確)
+    - B:caller 自行 sort、listByFitment 無排序保證(簡單、但每個 caller 重複)
+  - 拍板後更新 IProductRepository.listByFitment JSDoc + InMemory + Supabase 同步實作
+- **不修會痛在:**
+  - 擴充性:第一個 caller 隨意定排序、第二個 caller 又重定義、契約散
+  - 可維護性:JSDoc 字面寫排序保證、實作隨意、drift
+  - bug 可追蹤性:客人「為什麼這個排序看起來怪怪的」debug 成本高
+- **估時:** 30 min(第一個 caller 同 slice 拍板 + 落地)
+- **依賴:** 第一個 listByFitment caller 真撞到順序需求(可能 M-1 商品列表頁 / M-2 篩選頁)
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 1 F9
+- **相關:** `packages/ports/src/IProductRepository.ts` listByFitment、`packages/adapters/src/in-memory/InMemoryProductRepository.ts`、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F9
+
+---
+
+### #98. ⏳ matchFitment test setup it.each table-driven 重構
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - M-1-03-prep 件 #4 落地 4 個 yearRange test、setup 模式重複(createFakeProduct + new InMemoryProductRepository + listByFitment + expect)
+  - audit Round 2 F17 建議 it.each table-driven、或抽 helper expectFitmentMatch
+  - #93 補 8 個 boundary case 後總 test 數 12+、表格化提升維護性
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep audit Round 2 F17
+- **預期解法:**
+  - #93 補完 boundary cases 後、總 test 數 12+ 時評估
+  - 候選方向:
+    - A:it.each([...]) table-driven、列 motoBrand / modelCode / yearStart / yearEnd / expected 維度
+    - B:helper expectFitmentMatch(fitments, query, expectedIds)
+  - 4 個 test 各自表達意圖反而清楚、12+ test 才有重構價值
+- **不修會痛在:**
+  - 擴充性:8 個 boundary case 補完不重構、加新 dimension(trim / displacement)會擴成 16+ 個 test
+  - 可維護性:table-driven 在多維度時可讀性可能變差、需評估
+  - bug 可追蹤性:test 失敗時 table row 比 it 名抽象、debug 成本看設計
+- **估時:** 30 min(合進 #93 同 slice、或 #93 後獨立 slice)
+- **依賴:** #93 補完 8 個 boundary case
+- **發現於:** 2026-05-05 / M-1-03-prep audit Round 2 F17
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts`、#93、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` F17
+
+---
+
+### #99. ⏳ lessons-learned.md 結構整理(「偵察 slice 方法論」段歸位)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - `docs/lessons-learned.md` 結構在「附錄 B」後還有一段沒編號的「偵察 slice 方法論」(line 348-369、原立於 2026-04-30)
+  - 邏輯上應歸併到 §10 或新章節、現散在附錄後造成結構混亂
+  - 來源:M-1-03-prep-audit follow-up reality check V1(本 slice 不動既有結構、Sean Q12=L1)
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-prep-audit follow-up reality check V1
+- **預期解法:**
+  - 獨立 slice 整理 `docs/lessons-learned.md` 結構
+  - 「偵察 slice 方法論」歸併到 §10 或開新 §13(依語意判斷)
+  - 順手 review 全檔結構一致性
+- **不修會痛在:**
+  - 擴充性:lessons-learned 持續累積、結構混亂會放大
+  - 可維護性:reader 找「為什麼這樣設計」的歷史教訓、附錄後段被忽略
+  - bug 可追蹤性:未來引用「偵察 slice 方法論」字面、無 § 編號錨點
+- **估時:** 30-45 min(獨立 slice)
+- **依賴:** 無(隨時可做、優先級低)
+- **發現於:** 2026-05-05 / M-1-03-prep-audit follow-up reality check V1
+- **相關:** `docs/lessons-learned.md`、`docs/reviews/M-1-03-prep-audit-2026-05-05.md` reality check V1
+
+---
+
 ## 紀錄模板
 
 ```markdown
