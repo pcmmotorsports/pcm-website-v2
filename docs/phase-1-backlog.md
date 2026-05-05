@@ -2197,6 +2197,33 @@
 - **發現於:** 2026-05-04 / 商品上架規範討論
 - **相關:** `docs/product-import-spec.md` §9、`docs/architecture/supabase-schema-design.md` §2-§5
 
+### #91. ⏳ Phase 1 簡易匯出腳本(CSV 雙向格式)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - Sean 整理資料時可能會發現錯字、價格要改、車種要補
+  - 直接從 Supabase Dashboard 撈 CSV、欄位順序與 `docs/product-import-spec.md` 不對齊
+  - 需要「下載 → Excel 改 → 重新上傳」的閉環
+- **觸發事件:**
+  - 2026-05-05 / Sean Claude.ai 拍板(雙向格式 + Phase 1 提前補)
+- **預期解法:**
+  - 寫 `scripts/export-products.ts`、從 Supabase 撈 products + fitments + variants + images
+  - 按 `docs/product-import-spec.md` §2 19 欄反向組裝
+  - 多車種合併 Alt+Enter(對應 §4)
+  - 多規格展開多行(對應 §3)
+  - 多圖片分號隔開(對應 §5)
+  - 輸出檔名 `products-export-YYYY-MM-DD.csv`
+  - 與匯入腳本(#90)共用 parse / serialize 邏輯(抽 shared util)
+- **不修會痛在:**
+  - 擴充性:Phase 2 後台批次工具吃同邏輯、序列化邏輯可直接複用
+  - 可維護性:不寫匯出、Sean 修資料只能進後台單筆改、1000 筆改不動
+  - bug 可追蹤性:雙向往返驗證可早期抓出 import / export 邏輯不一致
+- **估時:** 60-90 min(依賴 #90 匯入腳本完成、共用 serialize 邏輯)
+- **依賴:** #90 匯入腳本完成、`docs/product-import-spec.md` §10/§11
+- **發現於:** 2026-05-05 / Claude.ai 拍板
+- **相關:** `docs/product-import-spec.md` §10/§11、backlog #90、`docs/architecture/supabase-schema-design.md` §2-§5
+
 ---
 
 ## 紀錄模板
