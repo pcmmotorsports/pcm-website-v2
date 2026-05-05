@@ -53,3 +53,6 @@ design-reference/uploads/
 # Medusa
 apps/medusa/.medusa/
 apps/medusa/uploads/
+
+# Supabase CLI cache(對齊 M-1-03-main-a2-1 Q2-temp=A1 拍板)
+supabase/.temp/

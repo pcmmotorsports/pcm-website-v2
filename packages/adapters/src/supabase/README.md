@@ -6,16 +6,16 @@
 
 ```
 packages/adapters/src/supabase/
-├── migrations/      ← Supabase CLI migrations(supabase db push 同步)
-│   └── *.sql        ← 由 M-1-03 main-a2 起逐步落地
 ├── SupabaseProductAdapter.ts    ← M-1-03 main-b 落地
 ├── mappers/         ← M-1-03 main-b 落地
 └── README.md        ← 本檔
 ```
 
+> **Migration .sql 不在此目錄**:Supabase CLI 寫死 migration file 路徑為 repo 根 `supabase/migrations/`(無 config 選項可改、M-1-03-main-a2-1 §C 觀察驗證)。本目錄保留作 `SupabaseProductAdapter.ts`(M-1-03-main-b 落地)+ future SQL helpers / mappers 用。
+
 ## Migration 工作流(B 方案、Sean 2026-05-05 拍板)
 
-1. Claude Code 在 migrations/ 寫新的 .sql(命名 `{timestamp}_{name}.sql`、Supabase CLI 慣例)
+1. Claude Code 在 **repo 根** `supabase/migrations/` 寫新的 .sql(用 `supabase migration new <name>` 自動產 `{timestamp}_{name}.sql`、Supabase CLI 寫死路徑)
 2. Sean Terminal 跑 `supabase db push`(從 monorepo root)
 3. Supabase Dashboard 驗證表 / policy 落地
 4. commit migration 檔(SQL 進 git、是 source of truth)
