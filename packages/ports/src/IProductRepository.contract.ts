@@ -60,6 +60,18 @@ export function runProductRepositoryContract(
 
     describe('listByFitment', () => {
       it.todo('main-b SupabaseProductAdapter 落地時實作:依 FitmentSpec(motoBrand + modelCode + 年份)配對 fitments[] 任一筆');
+
+      // year-range matching 嵌套子 describe(M-1-03-prep-audit S2、Sean Q5=E1):
+      // 對齊 port public method listByFitment、不暴露 adapter 內部 helper 名(matchFitment 是
+      // InMemoryProductRepository private method、main-b SupabaseProductAdapter 用 PG range
+      // query 無 matchFitment、contract 級不該知道實作細節)。
+      // 規範:docs/lessons-learned.md §12-2、reviews 檔 F2 / F3 / F16(雙視角 Major)
+      describe('year-range matching', () => {
+        it.todo('main-b 落地時實作:範圍重疊 match');
+        it.todo('main-b 落地時實作:yearEnd null 開放式範圍 match');
+        it.todo('main-b 落地時實作:spec 無年份 match 任意 yearRange');
+        it.todo('main-b 落地時實作:false-positive 防線 - 範圍無交集不 match');
+      });
     });
 
     describe('searchByKeyword', () => {
@@ -68,13 +80,6 @@ export function runProductRepositoryContract(
 
     describe('save', () => {
       it.todo('main-b SupabaseProductAdapter 落地時實作:create / update 統一入口、wire-level immutability(對齊 ADR-0003 §3.3)');
-    });
-
-    describe('matchFitment year-range', () => {
-      it.todo('與件 #4 InMemoryProductRepository.test.ts 連動:yearStart/yearEnd 範圍重疊 match');
-      it.todo('與件 #4 InMemoryProductRepository.test.ts 連動:yearEnd null 開放式範圍 match');
-      it.todo('與件 #4 InMemoryProductRepository.test.ts 連動:spec 無年份 match 任意 yearRange');
-      it.todo('與件 #4 InMemoryProductRepository.test.ts 連動:false-positive(actual 2018-2020 vs spec 2025)應不 match');
     });
   });
 }

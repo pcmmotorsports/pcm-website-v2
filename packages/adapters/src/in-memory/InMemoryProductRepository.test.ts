@@ -143,9 +143,14 @@ describe('InMemoryProductRepository', () => {
   });
 
   // 件 #4 / 4(對齊 backlog #83 + supabase-schema-design.md §2.4):
-  // matchFitment 為 private method、本段透過 listByFitment 間接測 4 個 year-range case;
-  // contract 級 it.todo 在 packages/ports/src/IProductRepository.contract.ts(件 #3 子項 C)
-  describe('matchFitment year-range', () => {
+  // matchFitment 為 InMemoryProductRepository private method、本段透過 listByFitment
+  // 間接測 4 個 year-range case;contract 級 it.todo 嵌套在 packages/ports/src/
+  // IProductRepository.contract.ts 內 describe('listByFitment') > describe('year-range matching')
+  //
+  // describe 命名以 port public method 為錨(M-1-03-prep-audit S2、Sean Q5=E1):
+  // 不暴露 adapter 內部 helper 名(對應 contract 級 listByFitment > year-range matching 嵌套)
+  // 規範:docs/lessons-learned.md §12-2、reviews 檔 F2 / F3 / F16(雙視角 Major)
+  describe('listByFitment year-range matching', () => {
     it('yearStart/yearEnd 範圍重疊 → match', async () => {
       const inRange = createFakeProduct({
         id: 'p-cbr-2018-2024',
