@@ -2609,6 +2609,32 @@
 
 ---
 
+### #105. ⏳ PROJECT-OVERVIEW / tools-and-skills 字面 drift(apps/medusa + Medusa 後台 + Railway vs ADR-0005 Supabase + apps/api/)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(不阻擋實作、僅影響新 Code session 讀套件入門時的真權威指引)
+- **問題:**
+  - ADR-0005 拍板(2026-05-04 / M-1-03-pre0c 落地)「Custom + Supabase 直寫架構、apps/medusa/ → apps/api/」、但下列字面尚未同步:
+    - `docs/PROJECT-OVERVIEW.md` §3.1 monorepo 結構仍寫 `apps/medusa/` + §3.2 技術棧寫「後台 Medusa.js v2 + Prisma」+「後台部署 Railway」+ §3.3「為什麼選這套」Medusa v2 段
+    - `docs/tools-and-skills.md` §1.2 busboy repo 參數註提「新 medusa repo」+ §6.1 Supabase「Medusa 用 service role key 連、bypass RLS」+ §8.x Railway 後台部署 + Medusa Admin UI URL 字面
+- **觸發事件:**
+  - 2026-05-07 M-1-03-a2-2 v3 Slice A1 起手 Code 讀 7 份必讀套件偵察揭示(對齊 Slice 0 v2 已揭示 backlog #100「全 catalog 表 §10.1 vs .sql drift」同方向、本條補揭示 PROJECT-OVERVIEW + tools-and-skills 同 trigger 連鎖、屬 ADR-0005 落地後文件同步遺漏)
+- **預期解法:**
+  - 獨立 docs slice 同步字面對齊 ADR-0005:
+    - `docs/PROJECT-OVERVIEW.md` §3.1 monorepo 結構 + §3.2 技術棧 + §3.3「為什麼選這套」(Medusa v2 / Railway 段)
+    - `docs/tools-and-skills.md` §1.2 busboy repo 參數 + §6.x Supabase 段(Medusa service role 字面)+ §8.x Railway 段(整節評估保留 / 重寫 / 刪除)+ §13 硬規則
+  - 落點候選:M-0-09 docs sync follow-up / 或新 mini-slice 獨立做、與 backlog #100 全 catalog drift 同 trigger 合併處理可能更省工
+- **不修會痛在:**
+  - 擴充性:新 Code session 讀套件看舊 Medusa + Railway 字面、誤判技術棧、後續決策依舊字面走偏(例:設計 SupabaseProductAdapter 時誤以為要對齊 Medusa adapter pattern、或誤以為後台部署在 Railway)
+  - 可維護性:ADR-0005 是頂層架構決策、PROJECT-OVERVIEW + tools-and-skills 是新 Code 套件入門必讀、不同步 = 規範新人困惑(雙軌真權威 ADR vs 套件入門無單一答案、CLAUDE.md「第一天起手檢查清單」9 份必讀引向不一致)
+  - bug 可追蹤性:出現「為什麼 PROJECT-OVERVIEW 寫 Medusa 但 supabase-schema-design 寫 Supabase 直寫」追究、無單一錨點、需跨多檔對照才能釐清真權威
+- **估時:** 30-45 min(獨立 docs slice 跑 PROJECT-OVERVIEW + tools-and-skills 字面同步)/ 60-90 min(與 #100 全 catalog drift 合併同 trigger 一起處理)
+- **依賴:** ADR-0005 落地(已完成 / M-1-03-pre0c)
+- **發現於:** 2026-05-07 / M-1-03-a2-2 v3 Slice A1 起手 Code 套件偵察
+- **相關:** ADR-0005、M-1-03-pre0c、`docs/PROJECT-OVERVIEW.md` §3.1-§3.3、`docs/tools-and-skills.md` §1.2/§6/§8/§13、backlog #100(全 catalog 表 .sql vs 真權威 drift、同 trigger 連鎖揭示)
+
+---
+
 ## 紀錄模板
 
 ```markdown
