@@ -2451,6 +2451,71 @@
 
 ---
 
+### #100. ⏳ supabase-schema-design.md §10.1 補 brands / categories 索引列表
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(doc 補洞、不阻擋實作、有 a2-1 .sql 為事實依據)
+- **問題:**
+  - `docs/architecture/supabase-schema-design.md §10.1 Phase 1 階段 1` 既有 12 條索引(products / orders / order_items / customers)
+  - brands / categories 表 0 條索引列入 §10.1
+  - a2-1 SQL migration 實際加 1 條:`idx_categories_parent_category_id ON categories(parent_category_id)`
+  - brands 表自承「靠 name + slug UNIQUE 自動 unique index、不需額外索引」(a2-1 commit body 揭示)
+  - categories.raw_path UNIQUE 也自動 unique index、a2-1 不重列
+  - 真權威 §10.1 vs a2-1 .sql 實作有 drift
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-main-a2-1 期間 Sean 拍板 Q4=D2「加 idx 不擴張改 docs」、本 slice 不補真權威字面、開條目追蹤
+  - 2026-05-06 / M-1-03-main-a2-1-followup-recon C1 偵察揭示 §10.1 既有 12 條 + a2-1 SQL 實際加 1 條
+- **預期解法:**
+  - 在 supabase-schema-design.md §10.1 line 498(idx_customers_tier 之後)、line 499 空行之前、補 1 條:
+    `CREATE INDEX idx_categories_parent_category_id ON categories(parent_category_id);`(註:categories 樹查詢)
+  - §10.1 結尾或表頭備註說明:「brands 表靠 name + slug UNIQUE 自動 unique index;categories.raw_path UNIQUE 也自動 unique index、不重列顯式 CREATE INDEX」
+  - 落點:下次涉及 §10.1 修改的 slice(M-1-03-main-a2-2 / main-b / main-d 任一)順手補、或獨立 docs slice
+- **不修會痛在:**
+  - 擴充性:後續 slice 加 brands / categories 索引時、若依 §10.1 真權威會以為「沒既有索引」、可能重複加 idx_categories_parent_category_id 衝突
+  - 可維護性:reader 讀 §10.1 假設「Phase 1 階段 1 完整索引列表」、實際 SQL migration 比 doc 多 1 條、信任受損
+  - bug 可追蹤性:未來 categories 查詢效能 issue 排查、§10.1 沒 idx_categories_parent_category_id 字面、誤判「沒索引」走重建
+- **估時:** 15-30 min(獨立 docs slice;併進其他 docs slice 5 min)
+- **依賴:** 無、隨時可做
+- **發現於:** 2026-05-05 / M-1-03-main-a2-1 拍板 Q4=D2、2026-05-06 followup-recon C1 偵察揭示
+- **相關:** `docs/architecture/supabase-schema-design.md` §10.1、`supabase/migrations/20260505130758_init_brands_categories.sql`、M-1-03-main-a2-1 commit body 第 5 點
+
+---
+
+### #101. ⏳ Supabase advisor 2 WARN 處置 — public.rls_auto_enable() function
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(SECURITY 類 WARN、暴露給 anon + authenticated、上線前必處置)
+- **問題:**
+  - Supabase advisor 抓 2 條 SECURITY 類 WARN、都指向同一個 function:`public.rls_auto_enable()`
+  - WARN-1 `anon_security_definer_function_executable`:`anon` role 可呼叫 `/rest/v1/rpc/rls_auto_enable`
+  - WARN-2 `authenticated_security_definer_function_executable`:`authenticated` role 可呼叫 `/rest/v1/rpc/rls_auto_enable`
+  - function 是 SECURITY DEFINER、無參數、plpgsql
+  - 不在 a2-1 SQL migration 字面內(grep 確認、a1 setup 或 Supabase project bootstrap 期間建立、起源待後續 slice grep a1 commits .sql 檔或查 Supabase 文件確認)
+- **觸發事件:**
+  - 2026-05-05 / M-1-03-main-a2-1 §G Dashboard 驗順手 advisor 抓 2 WARN
+  - 2026-05-06 / M-1-03-main-a2-1-followup-recon C2 偵察跑 supabase MCP get_advisors 撈完整字面
+- **預期解法(兩方向、後續 slice 拍板):**
+  - **方向 A:REVOKE EXECUTE 斷權**
+    - SQL:`REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM anon, authenticated;`
+    - 利:技術上較安全、anon + authenticated 完全不能呼叫;保留 SECURITY DEFINER 屬性、function 仍可被 service_role 以 owner 權限執行(維持 RLS auto-enable 工具運作);不改 function 本體、變更面小
+    - 弊:若未來新 role 加入需再 grant、額外維護;REVOKE 是 explicit deny、若 schema migration 重建需重跑
+  - **方向 B:改 SECURITY INVOKER**
+    - SQL:`ALTER FUNCTION public.rls_auto_enable() SECURITY INVOKER;`
+    - 利:function 跟 caller 權限走、自動繼承 caller policy;不需 explicit REVOKE、語義更清楚
+    - 弊:RLS auto-enable 工具需 owner 權限才能 ALTER TABLE ENABLE ROW LEVEL SECURITY、改 INVOKER 後 anon / authenticated 呼叫仍會因權限不足跑不動、但語義模糊(從「拒絕」變「跑不動」);若 service_role 呼叫、SECURITY INVOKER 也是 service_role 權限、行為跟 DEFINER 等價、看似無差別、實際是「無人能用」;跟 function 設計意圖(provide RLS bootstrap helper for service_role)衝突
+    - **方向 B 不推**
+  - **建議方向:A REVOKE EXECUTE**
+- **不修會痛在:**
+  - 擴充性:future role(如 dashboard_user)加入時需 explicit deny、若忘了會繼承 PUBLIC default、再次暴露
+  - 可維護性:advisor 持續 warn 噪音、Sean 跑 dashboard 看到一直要解釋為何「無視」、心智成本累積
+  - bug 可追蹤性:若 anon / authenticated 真呼叫 rls_auto_enable() 觸發 RLS 變更事件、無 audit log、Phase 2 排查無 anchor
+- **估時:** 15-30 min(寫 migration + apply + 重跑 advisor 確認 2 WARN 消失;若選方向 A 跑 REVOKE 簡單)
+- **依賴:** 無、上線前必處置
+- **發現於:** 2026-05-05 / M-1-03-main-a2-1 §G、2026-05-06 followup-recon C2
+- **相關:** `docs/architecture/security-timeline.md` §C5 RLS policy、`docs/architecture/supabase-schema-design.md` §9.2 RLS、M-1-03-main-a2-1 commit body 第 8 點
+
+---
+
 ## 紀錄模板
 
 ```markdown

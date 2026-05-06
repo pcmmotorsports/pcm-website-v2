@@ -405,6 +405,39 @@ describe('listByFitment', () => {
 });
 ```
 
+### 12-3. 字面 vs 事實守則延伸 — 不憑記憶 / 歷史字面寫死
+
+**核心規則:** Claude.ai 寫指令字面前、必先以「最新真權威 / 最新事實」對齊、不憑記憶 / 歷史字面推測。
+
+**兩個適用維度:**
+
+**維度 A:具體技術細節(SQL / API / config / 工具能力 / 路徑 / 函式簽名)**
+
+- 必先請 Code grep 真權威 + 查官方文件 / 跑 `--help`、摘要回報後組指令
+- 不確定的、標 `<待 Code 字面確認>`、不寫死
+- 真權威類型:
+  - 視覺 slice → design-reference 字面(.jsx + .css)
+  - schema slice → docs/architecture/*.md(supabase-schema-design / ADR-*)
+  - 工具能力 slice → 官方文件 + `--help`
+  - API slice → 既有 code
+- inventory md 是 Code 寫的、可能含 drift、不算字面真權威
+- 教訓來源:M-1-03-main-a2-1 連續兩輪憑記憶錯 6 處(§ 編號 §3/§4 錯置 / ON DELETE SET NULL→RESTRICT / categories column 數 8→3 / RLS policy 預設 4 policy 真權威留白 / 索引憑記憶寫真權威沒列 / supabase config.toml [db.migrations] 同等選項憑記憶寫實際 CLI 寫死路徑技術不可行)、Code §B grep 真權威 + §C 工具能力查驗抗住兩輪 raise multi-select、Sean 拍板修正
+
+**維度 B:當前 git 狀態(push / ahead / 同步)**
+
+- 必以最近一次 `git rev-list` / `git log` / `git status` 輸出為準
+- 不算當前事實的字面來源:
+  - STATUS.md 內 commit body 字面(「待 Sean 手動推」「ahead = N」「未 commit」等)
+  - 過去 N 輪對話的 git 數字
+  - busboy-end 自動更新的 STATUS 內字面(寫入時刻 vs 當前可能差很多)
+  - 上輪 slice 結束時的 working tree 狀態描述
+- 涉及 push / ahead / 同步狀態的指令、必先請 Sean 跑 `git rev-list --count origin/<branch>..HEAD` 拿事實數、貼回後 Claude.ai 才寫指令字面
+- 教訓來源:M-1-03-main-a2-1-followup 段 1A Claude.ai 字面「預期 3 commits = a35f797 + cb55373 + d93a20c」實際 ahead=0 + HEAD = 3684036(amend 後 hash 重算、a35f797 dangling)、字面 vs 事實第 4 次踩同類坑;進一步揭示 amend 後 working tree 改變使 hash 重算但 message 沒動、兩 commit body 逐字一致 git object 並存、其中一 dangling、git gc 後字面不再可解、STATUS hash drift 修正不只「美觀」是事實追溯能力的維護
+
+**雙維度共通:** 字面寫死前必先校準事實、不憑記憶 / 歷史字面推測。
+
+**規範定位:** 對齊 working-style.md 原則 10(維度 A 字面不憑記憶)+ 原則 9(維度 B 含數字提醒 Sean 跑 git 命令拿事實)+ 自檢條 9 + 11。lessons §12-3 提供「為什麼這樣設計」的歷史教訓、working-style 提供「規則本身」、互補。
+
 ---
 
 ## 附錄 A:第一輪事件年表(精簡)
