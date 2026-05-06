@@ -51,8 +51,8 @@ CREATE TABLE products (
   fitments        jsonb NOT NULL DEFAULT '[]', -- structured array(motoBrand / modelCode / yearStart / yearEnd)、對齊 ADR-0004 wrs Q1=A1
   images          jsonb NOT NULL DEFAULT '[]', -- URL string array、對齊 ADR-0004 Q2=A2 Supabase Storage
   availability    text NOT NULL DEFAULT 'in-stock', -- 對齊 M-1-02 Q4=A1 訂貨型業務、ProductAvailability type alias
-  brand_id        uuid REFERENCES brands(id),
-  category_id     uuid REFERENCES categories(id),
+  brand_id        uuid REFERENCES brands(id) ON DELETE RESTRICT,
+  category_id     uuid REFERENCES categories(id) ON DELETE RESTRICT,
   metadata        jsonb NOT NULL DEFAULT '{}',
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),

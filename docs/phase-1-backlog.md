@@ -2451,7 +2451,7 @@
 
 ---
 
-### #100. ⏳ supabase-schema-design.md §10.1 補 brands / categories 索引列表
+### #100. ⏳ 全 catalog 表 §10.1 vs .sql drift(brands / categories / products / 未來 variants)
 
 - **狀態:** ⏳ 待執行
 - **優先級:** 🟡 低(doc 補洞、不阻擋實作、有 a2-1 .sql 為事實依據)
@@ -2465,13 +2465,14 @@
 - **觸發事件:**
   - 2026-05-05 / M-1-03-main-a2-1 期間 Sean 拍板 Q4=D2「加 idx 不擴張改 docs」、本 slice 不補真權威字面、開條目追蹤
   - 2026-05-06 / M-1-03-main-a2-1-followup-recon C1 偵察揭示 §10.1 既有 12 條 + a2-1 SQL 實際加 1 條
+  - 2026-05-06 / a2-2 v3 落地揭示 products 同 drift(§10.1 真權威列 5 條 explicit、a2-2 v3 §7 對齊 a2-1 慣例寫 3+2)
 - **預期解法:**
   - 在 supabase-schema-design.md §10.1 line 498(idx_customers_tier 之後)、line 499 空行之前、補 1 條:
     `CREATE INDEX idx_categories_parent_category_id ON categories(parent_category_id);`(註:categories 樹查詢)
   - §10.1 結尾或表頭備註說明:「brands 表靠 name + slug UNIQUE 自動 unique index;categories.raw_path UNIQUE 也自動 unique index、不重列顯式 CREATE INDEX」
   - 落點:下次涉及 §10.1 修改的 slice(M-1-03-main-a2-2 / main-b / main-d 任一)順手補、或獨立 docs slice
 - **不修會痛在:**
-  - 擴充性:後續 slice 加 brands / categories 索引時、若依 §10.1 真權威會以為「沒既有索引」、可能重複加 idx_categories_parent_category_id 衝突
+  - 擴充性:後續 slice 加 brands / categories / products 索引時、若依 §10.1 真權威會以為「沒既有索引」、可能重複加 idx_categories_parent_category_id 或 products explicit index 衝突;a2-2 follow-up slice 若同樣踩 drift(§10.1 真權威 vs a2-1+a2-2 落地 .sql 慣例)、reader 信任受損連鎖、新加入者讀 doc 對齊狀態時錨點失準
   - 可維護性:reader 讀 §10.1 假設「Phase 1 階段 1 完整索引列表」、實際 SQL migration 比 doc 多 1 條、信任受損
   - bug 可追蹤性:未來 categories 查詢效能 issue 排查、§10.1 沒 idx_categories_parent_category_id 字面、誤判「沒索引」走重建
 - **估時:** 15-30 min(獨立 docs slice;併進其他 docs slice 5 min)
@@ -2551,6 +2552,60 @@
 - **依賴:** 無、隨時可做(獨立 ops slice、不阻擋 M-1-03 主實作)
 - **發現於:** 2026-05-06 / M-1-03-a2-2 v3 PRD review mini-slice(處置 a2-2 v3 review 遺留事項時 Code 偵察 busboy-end.js 字面)
 - **相關:** `/Users/sean_1/pcm-tools/scripts/busboy-end.js` L50-51 + L65、`docs/lessons-learned.md` §12-2(reality check)+ §12-3 line 408 起(字面 vs 事實守則延伸維度 B)、`docs/working-style.md` 原則 9(不憑記憶 / 不重複手動修)、跨 repo:pcm-tools
+
+---
+
+### #103. ⏳ products updated_at UPDATE 不自動更新風險
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(non-blocking、application 端可補、不阻擋 a2-2 / Slice A1+A2 落地)
+- **問題:**
+  - UPDATE 操作不會自動更新 `updated_at`(欄位 `DEFAULT now()` 只在 INSERT 觸發、UPDATE 不重新 evaluate DEFAULT)
+  - a2-2 v3 PRD §5 拍板 Q2=B「不寫 trigger、updated_at 由 application 端 server-side 寫入時手動 set」
+  - 需 application 端統一處理、否則 updated_at 失準、無法當「資料最後變更時間」可信來源
+- **觸發事件:**
+  - 2026-05-06 / a2-2 v3 PRD §5 拍板 Q2=B 不寫 trigger、開條目記風險錨點供 M-1-14 application 端啟動時拍板
+- **預期解法(三選項並列、後續 slice 拍板):**
+  - **(a) application 端 SupabaseAdapter update 時統一 set updated_at = now()**:M-1-14 SupabaseAdapter 落地時實作、所有 update 路徑強制經 adapter
+  - **(b) 補 BEFORE UPDATE trigger 在 PostgreSQL 層**:集中、跨 application 路徑統一、SQL 直接 UPDATE 也涵蓋
+  - **(c) 其他**:如 audit log 替代、updated_at 不再可靠、改用 audit_log 表記錄變更時序
+  - **建議方向:** M-1-14 application 端啟動時評估拍板、本條目暫不預設方向
+- **不修會痛在:**
+  - 擴充性:M-1-14 之後若有 SQL 直接 UPDATE 路徑(SQL admin / migration data fix / Supabase Dashboard 手改)、updated_at 不更新、後續 audit log 追溯失效;若 (a) 落地後新加 adapter 路徑忘記補 set、漏洞累積
+  - 可維護性:application 端散落 `set updated_at = now()` vs DB 層 trigger 集中、選擇後維護心智負擔差異大;reader 看 schema 預期 updated_at 自動準確、實際需查 application 端是否補、信任受損
+  - bug 可追蹤性:updated_at 不準時、debug「資料何時改的」失效、出事故無法定位時間線;Phase 2 加 audit log 時若依賴 updated_at 當基準時間、誤判事件序
+- **估時:** 評估 5 min + 若選 (b) 額外 30-60 min(BEFORE UPDATE trigger + 全表 ALTER + a2-1 brands / categories falls back 補)
+- **依賴:** M-1-14 啟動(application 端 SupabaseAdapter 統一補時)
+- **發現於:** 2026-05-06 / a2-2 v3 PRD review 階段拍板 Q2=B
+- **相關:** `docs/specs/M-1-03-products-schema-prd-v3.md` §5 / §9 #3、`docs/architecture/supabase-schema-design.md` §2.1 updated_at 字面、a2-2 v3 Slice 0 commit body 第 4 點
+
+---
+
+### #104. ⏳ Claude Code IDE 自動 spawn worktree + 殘留處置(2026-05-06 兩次事故反覆)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(反覆事故 2 次、影響工作流穩定性與起手檢查心智、不阻擋實作)
+- **問題:**
+  - 2026-05-06 兩次 Code session 起手、IDE 自動 spawn `.claude/worktrees/admiring-nightingale-811ca4` worktree(branch: `claude/admiring-nightingale-811ca4` / HEAD: `9f609b0` = origin/main 最新 commit)
+  - memory 條 1 已寫「Desktop Phase 1 全程關 Worktree」、設定即便已關仍 spawn(根因不明、待偵察)
+  - 現有殘留:`.claude/worktrees/admiring-nightingale-811ca4` 工作目錄 + `claude/admiring-nightingale-811ca4` branch ref 仍存在
+  - Code 自身在主 worktree(toplevel = `/Users/sean_1/pcm-website-v2`)、可正常工作、不阻擋本 slice;但屬「未預期 worktree 殘留」、需揭示
+- **觸發事件:**
+  - 2026-05-06 第一次 Code session 起手、Sean 補 5 項驗證揭示 `.claude/worktrees/admiring-nightingale-811ca4` 存在
+  - 2026-05-06 同日 Slice 0 v2 起手再驗、同樣偵察揭示子 worktree 仍存、屬反覆事故第 2 次
+- **預期解法(三選項並列、後續 slice 拍板):**
+  - **(a) 偵察 IDE 自動 spawn 機制根因 + 治本關閉 + 殘留清理**:查 Desktop Settings + extension config + `~/.claude.json`、找出「即便關 Worktree 仍 spawn」根因、治本關閉;`git worktree remove --force .claude/worktrees/admiring-nightingale-811ca4` + `git branch -D claude/admiring-nightingale-811ca4` 清殘留
+  - **(b) 接受 worktree spawn 為環境特性、不治本**:每次起手前置 5 項驗證偵察、確認 Code 自身在主 worktree 即繼續、現況維持(memory 條 1 現狀)
+  - **(c) 改起手檢查邏輯 + CLAUDE.md 對齊**:Code 起手檢查改為「偵測殘留 worktree、警示但不阻擋(若 Code 自身在主 repo)」、CLAUDE.md「第一天起手檢查清單」3 條 → 5 條同步升級對齊 memory 條 1 規範、消除規範漂移
+  - **建議方向:** (a) — 治本最徹底、避免反覆累積殘留、降低後續 git 操作(branch listing / push --all 自動化腳本)意外干擾風險
+- **不修會痛在:**
+  - 擴充性:每次新 Code session 都可能 spawn、累積 `.claude/worktrees/` 殘留;若 IDE 升版改機制、行為再變、難預測;新加入者(同事 / 未來 collaborator)踩同一坑無錨點
+  - 可維護性:Code 起手檢查需考慮兩種情境(自身在子 worktree 偏離 vs 自身在主 repo 但有殘留)、邏輯複雜化;CLAUDE.md「第一天起手檢查清單」3 條 vs memory 條 1 5 項規範漂移、規範雙軌、新 session 易誤判
+  - bug 可追蹤性:殘留 worktree branch 可能在某 git 操作意外干擾(`git branch -a` 看到 `claude/xxx` 干擾識讀、`git push --all` 不小心推到 origin 上、未來若有 CI 自動化腳本踩雷無錨點)
+- **估時:** 偵察根因 30-60 min + 若選 (a) 治本 60-90 min(含 Desktop Settings + extension config 偵察 + 殘留清理 + 跨 session 驗) / 若選 (b) 0 min / 若選 (c) 30 min(改 CLAUDE.md + working-style + memory 條 1 對齊)
+- **依賴:** Sean 拍板選 (a) / (b) / (c)
+- **發現於:** 2026-05-06 / 新 session 起手 5 項驗證(Sean 補)+ Code 偵察(`.claude/worktrees/admiring-nightingale-811ca4 / 9f609b0`)、第 2 次反覆
+- **相關:** memory 條 1(Desktop Phase 1 全程關 Worktree)、`CLAUDE.md`「第一天起手檢查清單」(舊版 3 條 vs memory 5 項規範漂移)、a2-2 v3 Slice 0 commit body 第 5 + 8 點揭示
 
 ---
 
