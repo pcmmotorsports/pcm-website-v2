@@ -2516,6 +2516,44 @@
 
 ---
 
+### #102. ⏳ busboy-end script L29 hash drift 治本
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(non-blocking、累積性 drift、不影響 build / runtime / 部署)
+- **問題:**
+  - `/Users/sean_1/pcm-tools/scripts/busboy-end.js`(74 行純 echo 腳本、無函式封裝、Claude Code 依步驟手動執行)
+  - L50-51 echo 提示「最近 3 commit:hash + 訊息 + 時間」+「amend 後 slice commit 的 hash 會變、寫當下值即可、下個 slice 會再覆蓋」(L51 字面已承認此 drift 機制)
+  - busboy-end.js 自身不抓 hash;Claude Code 在 step 4 用 `git log --oneline -3` 拿 amend 前 HEAD hash 寫 STATUS L29、step 6(L65)`git commit --amend --no-edit` 後 commit hash 變、L29 已寫死 → drift
+  - 結果:每個 slice 收工的 L29 都是 amend 前快照 hash、需下個 slice 順手修(M-1-01-followup / M-1-02 / M-1-03-pre0b / pre0c / pre0d / pre1 / side / prep / prep-audit follow-up / main-a1 / main-a2-1 / main-a2-1-followup / a2-2 v3 連續多輪重複手動修、教訓 lessons §12-2 reality check + §12-3 維度 B)
+- **觸發事件:**
+  - 2026-05-06 / M-1-03-a2-2 v3 PRD review 階段 mini-slice、amend 後 busboy-end 收工寫 L29 為 amend 前快照 hash 而非實際 commit hash、Code 偵察揭示根因
+  - Anchor:`docs/lessons-learned.md` §12-3 line 408 起(字面 vs 事實守則延伸 — 雙維度共通字面寫死前必先校準事實、維度 B 揭示 amend 後 hash drift 修正不只「美觀」是事實追溯能力的維護)
+- **預期解法(主修方向 + 替代方向、後續 slice 拍板):**
+  - **主修方向:雙 amend(改 busboy-end.js L50-65 echo 步驟順序)**
+    - L50-51 改:step 4 寫 STATUS 6 欄位但 L29 用 placeholder(如 `<<HEAD>>`、不寫實 hash)
+    - L65 後追加新步驟:step 6.1 第一次 amend 後 `HEAD_NEW=$(git rev-parse --short HEAD)` 拿新 hash → step 6.2 sed 把 `<<HEAD>>` 替換成 `$HEAD_NEW` → step 6.3 第二次 `git commit --amend --no-edit`
+    - 利:STATUS L29 hash = 實際 push 後 commit hash、無 drift、單次 slice 收工根治
+    - 弊:增加一次 amend、執行步驟複雜度上升、新人 / 跨 session 易誤跳;`<<HEAD>>` placeholder 需明確 echo 提示否則 Claude Code 可能誤填實 hash
+  - **替代方向 A:STATUS L29 不寫 hash(改穩定 anchor)**
+    - L29 表格欄改成「commit subject + 時間」、移除 hash 欄
+    - 利:從根本消除 drift、L29 不需任何 amend 後修
+    - 弊:hash 是 commit 唯一標識、移除後追溯 milestone commit 需另跑 `git log --grep`、降低 STATUS 即時可讀性
+  - **替代方向 B:接受 drift、只在下個 slice 順手修(現況)**
+    - 不改 busboy-end.js、依賴每個 slice 觸發 lessons §12-2 reality check 字面修
+    - 利:不改 script、流程不變
+    - 弊:drift 累積、每個 slice 都需 commit body 揭示「順手修上輪 hash drift」、認知負擔持續(現況痛點)
+  - **建議方向:主修方向(雙 amend)**
+- **不修會痛在:**
+  - 擴充性:每次 amend 後 busboy-end 收工都會留 drift、累積後 L29 與 git HEAD 偏離越來越遠;新增第三方 trigger amend(如 hooks / pre-commit)時 drift 機制更隱蔽、追根更難
+  - 可維護性:Sean / 新加入者讀 STATUS 對齊狀態時 L29 不可信、需另跑 `git log` 對比、破壞 STATUS = single source of truth 設計;每個 slice commit body 重複揭示「順手修上輪 hash drift」屬機械性負擔、跟 working-style 原則 9「不憑記憶 / 不重複手動修」精神衝突
+  - bug 可追蹤性:回查 milestone 時 L29 hash 對應不到實際 commit、追溯 amend 前後差異成本提高;dangling commit object(amend 前 commit、git gc 後字面不再可解)使「為何當時 STATUS 寫此 hash」追根斷線、對應 lessons §12-3 維度 B 教訓
+- **估時:** 30-60 min(改 busboy-end.js L50-65 echo 字面 + 雙 amend 步驟 + 跨 repo 同步至 pcm-tools / pcm-website-v2 + 測試一次 slice 收工驗 L29 = 實際 commit hash)
+- **依賴:** 無、隨時可做(獨立 ops slice、不阻擋 M-1-03 主實作)
+- **發現於:** 2026-05-06 / M-1-03-a2-2 v3 PRD review mini-slice(處置 a2-2 v3 review 遺留事項時 Code 偵察 busboy-end.js 字面)
+- **相關:** `/Users/sean_1/pcm-tools/scripts/busboy-end.js` L50-51 + L65、`docs/lessons-learned.md` §12-2(reality check)+ §12-3 line 408 起(字面 vs 事實守則延伸維度 B)、`docs/working-style.md` 原則 9(不憑記憶 / 不重複手動修)、跨 repo:pcm-tools
+
+---
+
 ## 紀錄模板
 
 ```markdown
