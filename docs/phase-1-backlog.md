@@ -2746,6 +2746,32 @@
 
 ---
 
+### #110. ⏳ searchByKeyword count: 'exact' → 'planned'/'estimated' 切換(M-6 tsvector 同期)
+
+- **狀態:** ⏳ 待執行(M-6 切 tsvector + GIN + pg_jieba 同期、不獨立啟動)
+- **優先級:** 🟡 低(Phase 1 200 SKU dev 可接受、上線前必修)
+- **問題:**
+  - SupabaseProductAdapter.searchByKeyword 用 `count: 'exact'` 每次 query 強制 PG 對 result set 做 full count
+  - 200 SKU Phase 1 可接受、5w SKU production 規模會撞 latency budget
+  - count 唯一用途 = UI 顯示 total 頁數、不需要 row-precise(±10% 可接受)
+  - 來源:M-1-03 main-b sub-slice 4 雙 audit simplify E2(Medium)
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 4 雙 audit 抓出
+- **預期解法:**
+  - M-6 切 tsvector + GIN + pg_jieba slice 同期、改 `count: 'planned'`(query planner estimate)或 `count: 'estimated'`(table stats estimate)
+  - 替代:UI 改顯示「N+ 筆」(估計值)、不顯示精確總頁數
+  - JSDoc TODO 在 searchByKeyword 已預告 M-6 切換、本條 backlog 補 count 子項對齊
+- **不修會痛在:**
+  - 擴充性:5w SKU 撞 search latency p99 budget、tsvector 切換時 count 仍跑 full scan
+  - 可維護性:M-6 切換 slice 漏改 count 字面、upgrade 後性能不如預期
+  - bug 可追蹤性:Phase 1 客人投訴「搜尋慢」、無 trigger pointer 找 count 元凶
+- **估時:** 5-10 min(M-6 切 tsvector slice 內附帶、單字面修正)
+- **依賴:** M-6-08 上線前 checklist + Supabase Pro(對齊 ADR-0004 Q3=A1 + security-timeline #F6)
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 4 雙 audit
+- **相關:** `packages/adapters/src/supabase/SupabaseProductAdapter.ts:searchByKeyword`、IProductRepository.searchByKeyword JSDoc 兩階段、ADR-0004 Q3=A1、supabase-schema-design.md §2.5、E2(simplify Medium)
+
+---
+
 ## 紀錄模板
 
 ```markdown
