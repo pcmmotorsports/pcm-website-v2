@@ -12,6 +12,7 @@ import {
   mapSupabaseProductToDomain,
   type SupabaseProductRow,
 } from './mappers/product';
+import { matchFitmentYear } from './helpers/fitment';
 
 /**
  * SELECT projection 對齊 mapper consumed columns(避免讀 metadata / external_id 等 deferred 欄位)。
@@ -119,10 +120,33 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
-   * @TODO M-1-03 main-b sub-slice 3 落地(對齊 PRD §3.4 + §9、吸收 backlog #92 resolveEnd helper)
+   * 依 fitment spec 列出 product。對齊 PRD §3.4 + supabase-schema-design.md §2.3 第 6 行 + §2.4。
+   *
+   * 兩階段過濾:
+   * - Server-side: `.contains('fitments', [{motoBrand, modelCode}])`(jsonb @> operator、規則 1+2)
+   * - Client-side: `matchFitmentYear` filter(年份範圍重疊、規則 3、對齊 backlog #92 共用 resolveEnd)
+   *
+   * Phase 1 階段 1 不建 GIN index(對齊 supabase-schema-design.md §10.2 backlog #30 階段 2 trigger)。
    */
-  async listByFitment(_spec: FitmentSpec): Promise<Product[]> {
-    throw new Error('Not implemented');
+  async listByFitment(spec: FitmentSpec): Promise<Product[]> {
+    const { data, error } = await this.supabase
+      .from('products')
+      .select(PRODUCT_SELECT)
+      .contains('fitments', [
+        { motoBrand: spec.motoBrand, modelCode: spec.modelCode },
+      ]);
+
+    if (error) {
+      throw error;
+    }
+
+    const products = (data as unknown as SupabaseProductRow[]).map(
+      mapSupabaseProductToDomain,
+    );
+
+    return products.filter((p) =>
+      p.fitments.some((f) => matchFitmentYear(f, spec)),
+    );
   }
 
   /**

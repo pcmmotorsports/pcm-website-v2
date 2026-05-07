@@ -1,11 +1,12 @@
 import type { IProductRepository } from '@pcm/ports';
-import type {
-  Product,
-  ProductId,
-  CategoryPath,
-  FitmentSpec,
-  PaginationParams,
-  Paginated,
+import {
+  resolveEnd,
+  type Product,
+  type ProductId,
+  type CategoryPath,
+  type FitmentSpec,
+  type PaginationParams,
+  type Paginated,
 } from '@pcm/domain';
 
 /**
@@ -85,7 +86,8 @@ export class InMemoryProductRepository implements IProductRepository {
   }
 
   /**
-   * 單 spec 配對 helper(M-1-03-prep 件 #4 補完整年份邏輯、對齊 backlog #83 +
+   * 單 spec 配對 helper(M-1-03-prep 件 #4 補完整年份邏輯、M-1-03 main-b sub-slice 3
+   * 重構引 resolveEnd helper、對齊 backlog #83 + #92 + #94 +
    * docs/architecture/supabase-schema-design.md §2.4)
    *
    * 規則:
@@ -93,10 +95,15 @@ export class InMemoryProductRepository implements IProductRepository {
    * 2. modelCode 必相同
    * 3. 年份範圍重疊判定:
    *    - 任一邊無年份(yearStart undefined)→ match(無年份限制 = 不限年份)
-   *    - actual.yearEnd null = 開放式範圍("2025+"、無上限)、轉 Infinity 比對
-   *    - actual.yearEnd undefined = 單年、轉 yearStart 比對
+   *    - 否則 actual / spec 兩端對稱處理 yearEnd null/undefined(對齊 #94):
+   *      - yearEnd null = 開放式範圍("2025+"、無上限)、轉 Infinity 比對
+   *      - yearEnd undefined = 單年、轉 yearStart 比對
+   *      - yearEnd 為 number = 範圍上限直接用
+   *      - 由 resolveEnd helper 統一解析(對齊 #92、跨 adapter 共用)
    *    - 範圍重疊判定:actual.start ≤ spec.end 且 spec.start ≤ actual.end
    *    - 無交集 → 不 match(false-positive 防線、修正 M-1-02 簡化版 silent bug)
+   *
+   * @see resolveEnd(packages/domain/src/catalog/year-range.ts)
    */
   private matchFitment(actual: FitmentSpec, spec: FitmentSpec): boolean {
     // 規則 1 + 2
@@ -107,9 +114,9 @@ export class InMemoryProductRepository implements IProductRepository {
     // 任一邊無年份 → match(narrowing 後 yearStart 為 number、不需 ! assertion)
     if (actual.yearStart === undefined || spec.yearStart === undefined) return true;
 
-    // yearEnd null = 開放式("2025+")→ Infinity;undefined = 單年 → yearStart
-    const actualEnd = actual.yearEnd === null ? Infinity : actual.yearEnd ?? actual.yearStart;
-    const specEnd = spec.yearEnd === null ? Infinity : spec.yearEnd ?? spec.yearStart;
+    // actualEnd / specEnd 由 resolveEnd 統一解析(對齊 #92 + #94 兩端對稱處理)
+    const actualEnd = resolveEnd(actual.yearStart, actual.yearEnd);
+    const specEnd = resolveEnd(spec.yearStart, spec.yearEnd);
 
     return actual.yearStart <= specEnd && spec.yearStart <= actualEnd;
   }

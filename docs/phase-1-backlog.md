@@ -2238,9 +2238,9 @@
 
 ---
 
-### #92. ⏳ resolveEnd helper 抽到 packages/domain/src/catalog/year-range.ts
+### #92. ✅ resolveEnd helper 抽到 packages/domain/src/catalog/year-range.ts
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-05-07 / M-1-03-main-b sub-slice 3)
 - **優先級:** 🟠 中
 - **問題:**
   - InMemoryProductRepository.matchFitment 內 `actual.yearEnd === null ? Infinity : actual.yearEnd ?? actual.yearStart` 對 actual / spec 兩端對稱重複
@@ -2296,9 +2296,9 @@
 
 ---
 
-### #94. ⏳ matchFitment JSDoc 補 spec 端對稱處理說明
+### #94. ✅ matchFitment JSDoc 補 spec 端對稱處理說明
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-05-07 / M-1-03-main-b sub-slice 3、合進 #92 同 slice)
 - **優先級:** 🟡 低
 - **問題:**
   - InMemoryProductRepository.matchFitment JSDoc 規則 3 只寫 actual.yearEnd 三狀態、沒明寫 specEnd 也走同樣處理
@@ -2658,6 +2658,91 @@
 - **依賴:** Supabase project linked(已完成 / M-1-03-main-a1)、無其他依賴
 - **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 1 雙 audit
 - **相關:** `packages/adapters/src/supabase/SupabaseProductAdapter.ts:findById`、`packages/adapters/src/supabase/mappers/product.ts:SupabaseProductRow`、Q4(simplify)+ M1(engineering)+ E7(efficiency)三視角共識、未來 SupabaseCustomerAdapter / SupabaseOrderAdapter 受益
+
+---
+
+### #107. ⏳ parseWireFitment trailing tokens silent drop + 邊界 case 補強
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(M-5 sync engine 啟動前必修、Phase 1 storefront 用不到 parseWireFitment)
+- **問題:**
+  - `packages/adapters/src/supabase/helpers/fitment.ts` parseWireFitment regex `/(\d{4})(?:-(\d{4})|(\+))?/` 只匹配第一個年份 token、後續 token 進 segments 但只取前 2 段為 motoBrand + modelCode
+  - 範例 silent drop:`'Brand X 2018 Y'` → motoBrand='Brand'、modelCode='X'、yearStart=2018、yearEnd=undefined、'Y' silent drop
+  - 範例 silent drop:`'Honda CBR1000RR-R 2024'` → 數字 1000 不被當年份(regex 需 4-digit)、modelCode='CBR1000RR-R' 對、但 'CBR1000RR-R' 含 4-digit 'CBR1' 失敗(實際 \d{4} 是 1000、會偽匹配 1000 為 yearStart;真實年份 2024 殘留 segments)
+  - 範例 silent drop:`'YamahaCBR600RR2018-2024'` 無空格 → yearMatch='2018-2024'、remaining='YamahaCBR600RR'、motoBrand='YamahaCBR600RR'、modelCode=''
+  - 範例 silent drop:多 4-digit token(model 本身含 4-digit 如 'CB1000R 2024')→ 第一個 \d{4} 匹配 model 數字段、年份段失準
+  - 來源:M-1-03-main-b sub-slice 3 雙 audit engineering:code-review CR-1(Major)
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit 抓出
+- **預期解法:**
+  - M-5 sync engine 啟動前實測廠商真實報價單 wire format、收集 30+ 樣本範圍
+  - 強化 regex:從尾端取 4-digit 年份段(避免 model 數字干擾)、或 model + year 用明確分隔符規範
+  - 補 fitment.ts unit test:覆蓋 `'Brand X 2018 Y'`、`'CB1000R 2024'`、無空格、多空格、缺年份等 8-10 case
+  - 替代方案:wire format 上游規範化(廠商報價單轉檔時加分隔符 / 結構化 csv)、parseWireFitment 簡化
+- **不修會痛在:**
+  - 擴充性:M-5 sync engine 上架時實測廠商輸入 silent drop、import 後 fitment 缺 token 客人「找不到我的車」抱怨
+  - 可維護性:JSDoc @example 不涵蓋邊界、reader 不知 silent drop 條件、改邏輯時無 test 驗
+  - bug 可追蹤性:silent drop 無 log、客人投訴「2024 年份配件查不到」reproduce 困難、需 grep 整段 wire string + regex 追蹤
+- **估時:** 60-90 min(M-5 sync engine spike slice 內附帶 + 8-10 test case)
+- **依賴:** M-5-03 sync engine 廠商輸入解析啟動、廠商真實報價單樣本 30+
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit
+- **相關:** `packages/adapters/src/supabase/helpers/fitment.ts:parseWireFitment`、CR-1(engineering:code-review Major)、#95 case-sensitivity normalize(同 M-5 sync engine 範圍)、ADR-0004 wrs Q1=A1(自由字串)
+
+---
+
+### #108. ⏳ fitment helpers + matchFitmentYear 行為等價 contract test 補
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(M-1-13 storefront ProductPage / FilterSide 啟動前必修)
+- **問題:**
+  - `packages/adapters/src/supabase/helpers/fitment.ts` 三 public helper(fitmentToWireString / parseWireFitment / matchFitmentYear)無對應 .test.ts
+  - JSDoc @example 是文檔不是 executable 驗證、未來改邏輯無 test 抓 silent regression
+  - matchFitmentYear 與 InMemoryProductRepository.matchFitment 規則 3 行為等價但無 cross-adapter contract test 證明
+  - 來源:M-1-03-main-b sub-slice 3 雙 audit simplify R1 + Q1
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit 抓出
+- **預期解法:**
+  - 建 `packages/adapters/src/supabase/helpers/fitment.test.ts`(對齊 in-memory __tests__ 結構)
+  - test cases:
+    - fitmentToWireString 4 種 yearEnd 狀態 round-trip + 空段過濾 + trim
+    - parseWireFitment regex 邊界(納入 #107 8-10 case)
+    - matchFitmentYear 對齊 InMemoryProductRepository.matchFitment year-range 4 既有 it.todo case + #93 8 boundary case
+  - 跨 adapter 行為等價驗:同 input 走 InMemory.matchFitment(rule 3 部分)+ Supabase.matchFitmentYear、output 一致
+- **不修會痛在:**
+  - 擴充性:M-1-13 ProductPage 顯示用 fitmentToWireString、format 改動無 test 抓 silent regression、storefront 顯示錯字面
+  - 可維護性:reader 改 matchFitmentYear 邏輯、無 test 驗等價性、InMemory 跟 Supabase silent drift
+  - bug 可追蹤性:cross-adapter 行為不一致時、客人投訴「同 product 兩 adapter 行為不同」debug 成本高、無 contract test 證明
+- **估時:** 30-45 min(M-1-13 啟動前獨立 slice、含 8-10 case 寫 + describe 結構對齊既有慣例)
+- **依賴:** #107(parseWireFitment 邊界補強)、#93(matchFitment 8 boundary case test)
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit(simplify R1 + Q1)
+- **相關:** `packages/adapters/src/supabase/helpers/fitment.ts`、`packages/adapters/src/in-memory/InMemoryProductRepository.test.ts`、#93、#107、M-1-13 ProductPage 啟動前
+
+---
+
+### #109. ⏳ matchFitmentYear / matchFitment 規則 3 行為 dup — Defer(2 處、第 3 處撞才抽)
+
+- **狀態:** ⏳ Defer(達 2 處、第 3 處撞才抽 trigger 對齊 sub-slice 1+2 listByColumn / unwrapSingle Defer 模式)
+- **優先級:** 🟢 觀察
+- **問題:**
+  - `packages/adapters/src/supabase/helpers/fitment.ts` matchFitmentYear(規則 3 年份範圍重疊)
+  - `packages/adapters/src/in-memory/InMemoryProductRepository.ts` matchFitment(規則 1+2+3 全跑、規則 3 內嵌)
+  - 規則 3 字面接近但不完全 identical:InMemory matchFitment 含規則 1+2 motoBrand+modelCode + 規則 3 年份;Supabase matchFitmentYear 只規則 3
+  - 兩處共用 resolveEnd helper、行為等價、但 5 行 yearStart undefined check + 2 resolveEnd + range comparison 仍各寫一份
+  - 來源:M-1-03-main-b sub-slice 3 雙 audit simplify Q1(Major)
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit Q1 抓出、達 2 處 Defer
+- **預期解法(第 3 處撞才抽):**
+  - InMemory.matchFitment 內聯 motoBrand+modelCode check 後 delegate matchFitmentYear(InMemory 跨 import @pcm/adapters/supabase/helpers/fitment 同 package 內可、但 architectural awkwardness)
+  - 替代:matchFitmentYear 移 packages/domain/src/catalog/year-range.ts 與 resolveEnd 同檔(純 logic、跨 adapter neutral)、PRD §5.5 字面 path drift 揭示
+  - 第 3 處撞 trigger:加 GraphQL adapter / API mock adapter / FE-only adapter 重複規則 3 字面、即抽
+- **不修會痛在:**
+  - 擴充性:第 3 個 adapter 出現時雙寫漂移風險(規則 3 邏輯 silent drift)
+  - 可維護性:resolveEnd 改三狀態語意(rare)需同步兩處
+  - bug 可追蹤性:cross-adapter 行為不一致時 debug 成本(由 #108 contract test 緩解)
+- **估時:** 15-30 min(第 3 處撞時 / matchFitmentYear 移 domain + adapter 改 import + JSDoc 對齊)
+- **依賴:** 第 3 個 adapter 出現
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.ts:matchFitment`、`packages/adapters/src/supabase/helpers/fitment.ts:matchFitmentYear`、`packages/domain/src/catalog/year-range.ts:resolveEnd`、Q1(simplify)、Defer 模式對齊 #84 / #85 / sub-slice 1+2 listByColumn / unwrapSingle
 
 ---
 
