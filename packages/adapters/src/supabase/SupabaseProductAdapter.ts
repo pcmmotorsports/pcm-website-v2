@@ -60,13 +60,17 @@ function buildIlikeOrFilter(columns: readonly string[], q: string): string {
  * - `docs/decisions/0003-domain-entity-naming.md` §3.3 ports JSDoc contract vs adapter implementation TODO
  * - `docs/decisions/0005-custom-supabase-direct.md` §8.1
  *
- * @TODO 樂觀鎖(updated_at 比對):save 時驗 wire updated_at(M-1-03 main-b sub-slice 4 後、
- *   M-1-13 落地完整;對齊 backlog #86 contract test)
- * @TODO idempotency:save 重複呼叫同 entity 應冪等(對齊 backlog #86、M-1-13 落地)
+ * @TODO 樂觀鎖(updated_at 比對):save 衝突偵測待 M-1-13 落地;sub-slice 4
+ *   依賴 upsert onConflict='id' 替代、未實作 updated_at 比對(對齊 backlog #86 contract test)
+ * @TODO idempotency:save 重複呼叫同 entity 應冪等;sub-slice 4 用 upsert
+ *   onConflict='id' 對齊 PG 行為(對齊 backlog #86 contract test、M-1-13 完整化)
  * @TODO audit trail:寫操作記錄 customer_id + timestamp 進 audit log(M-3-04 落地、
- *   對齊 security-timeline §C7)
- * @TODO brand / category resolve cache:LRU cache 名稱→ID(本 main-b sub-slice 4 落地、
- *   避免 save 時對同一 brand / category 重複 round-trip)
+ *   對齊 security-timeline §C7;sub-slice 4 未實作)
+ * @TODO brand / category resolve cache:`resolveCategoryId` 私有 method 已抽
+ *   (sub-slice 2 / sub-slice 4、第 2 處用:listByCategory + save);brand 為
+ *   value-object 已含 UUID(`Brand.id: string`)、不需 name→ID resolve;
+ *   LRU cache 抽出待第 3 處撞才抽 trigger(對齊 lessons #84/#85 Defer 模式)、
+ *   Phase 1 dev 200 SKU 規模 round-trip 開銷可接受
  */
 export class SupabaseProductAdapter implements IProductRepository {
   constructor(private readonly supabase: SupabaseClient) {}

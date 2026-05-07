@@ -1266,6 +1266,7 @@
 - **問題:**
   - `packages/adapters/src/`(空殼、無子目錄)、0002 ADR §4.1 列 medusa / supabase / sheets-api / tappay 四 adapter 範圍但無子目錄規劃
   - M-1-03 第一個 adapter 落地時臨機決定子目錄結構、可能跑出不一致
+  - **補(2026-05-07 / M-1-03 main-b sub-slice 5 simplify Q-3 Minor):** `packages/adapters/src/index.ts:1` 註解字面「殼、M-1-03 起落地」stale(SupabaseProductAdapter sub-slice 1-4 已落地、`package.json:5` description 已更新「(M-1-03 main-b SupabaseProductAdapter 落地)」、index.ts:1 未同步)、子目錄結構拍時順手對齊 L1 字面
 - **觸發事件:**
   - 2026-05-02 / 全專案 audit / engineering:tech-debt(T17)
 - **預期解法:**
@@ -2617,6 +2618,10 @@
   - ADR-0005 拍板(2026-05-04 / M-1-03-pre0c 落地)「Custom + Supabase 直寫架構、apps/medusa/ → apps/api/」、但下列字面尚未同步:
     - `docs/PROJECT-OVERVIEW.md` §3.1 monorepo 結構仍寫 `apps/medusa/` + §3.2 技術棧寫「後台 Medusa.js v2 + Prisma」+「後台部署 Railway」+ §3.3「為什麼選這套」Medusa v2 段
     - `docs/tools-and-skills.md` §1.2 busboy repo 參數註提「新 medusa repo」+ §6.1 Supabase「Medusa 用 service role key 連、bypass RLS」+ §8.x Railway 後台部署 + Medusa Admin UI URL 字面
+  - **補(2026-05-07 / M-1-03 main-b sub-slice 5 simplify Q-5 Nit、對齊 PRD §10.1 D3 推遲指定收容處):** ADR-0003 §3.3-§3.5+§4 多處 Medusa 字面屬 D3 推遲範圍、已在 PRD §10.1 列「併 backlog #105 後續 docs slice」,具體擴範圍包含:
+    - `docs/decisions/0003-domain-entity-naming.md` §3.3 ports 介面字面 example 段「Medusa wire 字串 leak」表述(屬 ADR 引用 wire 概念、語境為 Medusa-as-API pivot 時期遺留、ADR-0005 後該維持但補敘)
+    - §3.4 wire 紀律 Medusa 引用、§3.5 example block `class MedusaProductAdapter implements IProductRepository`(reader copy-paste 風險)、§4 cross-context 命名表 Medusa 列
+    - 對齊 ADR-0005 §7「9 衝突仍適用、wire 端改 Supabase」
 - **觸發事件:**
   - 2026-05-07 M-1-03-a2-2 v3 Slice A1 起手 Code 讀 7 份必讀套件偵察揭示(對齊 Slice 0 v2 已揭示 backlog #100「全 catalog 表 §10.1 vs .sql drift」同方向、本條補揭示 PROJECT-OVERVIEW + tools-and-skills 同 trigger 連鎖、屬 ADR-0005 落地後文件同步遺漏)
 - **預期解法:**
@@ -2643,8 +2648,9 @@
   - SupabaseProductAdapter.findById 用 `data as unknown as SupabaseProductRow` 雙 cast bypass type safety(audit 三視角共識:engineering M1 + simplify Q4 + efficiency E7 同向命中)
   - 根因:supabase-js v2 `.from('products').select(...)` 預設返 `any` / generic 推不出 wire shape、需 `Database` generic 型 typed 才能避 cast
   - main-b sub-slice 2-4 + future Customer / Order adapter 都會撞同問題、雙 cast 模式跨 adapter 散
+  - **補(2026-05-07 / M-1-03 main-b sub-slice 5 simplify R-3 Nit cumulative 確認):** 跨 5 callsite 雙 cast pattern 落地計數:findById(sub-slice 1)+ listByCategory(sub-slice 2)+ listByBrand(sub-slice 2)+ listByFitment(sub-slice 3)+ searchByKeyword(sub-slice 4)+ resolveCategoryId 私有 helper(sub-slice 2)= 6 處 escape hatch、本 #106 落地時可同時消除全部 cast、同時評估 mapRows helper 抽出(列表 method dup pattern)
 - **觸發事件:**
-  - 2026-05-07 / M-1-03 main-b sub-slice 1 雙 audit 抓出(engineering:code-review + simplify Phase 2 三 agent 共識)
+  - 2026-05-07 / M-1-03 main-b sub-slice 1 雙 audit 抓出(engineering:code-review + simplify Phase 2 三 agent 共識);main-b sub-slice 5 cumulative 確認 6 callsite 範圍
 - **預期解法:**
   - 跑 `supabase gen types typescript --linked > packages/adapters/src/supabase/database.types.ts` 生成 typed schema
   - 改 `client.ts` 用 `SupabaseClient<Database>` generic 注入
@@ -2769,6 +2775,57 @@
 - **依賴:** M-6-08 上線前 checklist + Supabase Pro(對齊 ADR-0004 Q3=A1 + security-timeline #F6)
 - **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 4 雙 audit
 - **相關:** `packages/adapters/src/supabase/SupabaseProductAdapter.ts:searchByKeyword`、IProductRepository.searchByKeyword JSDoc 兩階段、ADR-0004 Q3=A1、supabase-schema-design.md §2.5、E2(simplify Medium)
+
+---
+
+### #111. ⏳ parseCategoryPath helper orphan 風險 + JSDoc trigger 字面修
+
+- **狀態:** ⏳ 待執行 / 🟢 觀察(0-caller、未撞 trigger)
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/adapters/src/supabase/helpers/category-path.ts` parseCategoryPath helper(sub-slice 2 落地)目前 0 caller
+  - JSDoc 自承「落地後暫無 importer ... save 落地時 import」、但 sub-slice 4 save 已落地、走 resolveCategoryId(raw_path UNIQUE query)不解析 segments、parseCategoryPath 仍無 importer
+  - 風險:預先抽象 vs 真 trigger 模糊、helper 0-caller 累積 → JSDoc/實況 drift、後人讀 helper 不知何時可刪
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 5 雙 audit / simplify R-1 Minor
+- **預期解法:**
+  - 候選 A:JSDoc trigger 字面改「M-1-16 seed slice 啟動時 import」(現字面「save 落地時 import」誤導)、確保 trigger 點明確、5-10 min(輕量字面修)
+  - 候選 B:M-1-13 ProductPage / FilterSide 啟動前再評,若 seed slice 也走 raw_path UNIQUE 不解析 segments、考慮刪 helper 等真正 trigger
+  - 候選 C:M-1-16 seed slice 啟動時實測「name + segments」結構對 import 是否必要、對齊 supabase-schema-design.md §4.3「處理「·」與全形空格分隔」實作落點
+- **不修會痛在:**
+  - 擴充性:0-caller helper 累積、未來 audit 不知 helper 是「待用」還是「廢棄」
+  - 可維護性:JSDoc 字面「save 落地時 import」與實況偏離(sub-slice 4 save 不用)、reader 困惑
+  - bug 可追蹤性:0-caller 不會被測、若 silent regression 沒 test 抓
+- **估時:** 5-10 min(候選 A 輕量字面修)/ 30-45 min(候選 B+C 實測 + 決策刪/留 + 對齊 supabase-schema-design.md §4.3)
+- **依賴:** M-1-13 storefront ProductPage / FilterSide 啟動 / M-1-16 seed slice 啟動
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 5 雙 audit
+- **相關:** `packages/adapters/src/supabase/helpers/category-path.ts:parseCategoryPath`、supabase-schema-design.md §4.3、R-1(simplify Minor)
+
+---
+
+### #112. ⏳ PRD M-1-03-main-b §8 第 4 條 @TODO 字面 vs sub-slice 5 Code 字面偏離 PRD 同步
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(commit body 已揭示偏離、PRD 字面同步留 trigger)
+- **問題:**
+  - `docs/specs/M-1-03-main-b-PRD.md` §8 第 4 條 @TODO 字面:「@TODO brand / category resolve cache:LRU cache 名稱→ID(本 main-b sub-slice 4 落地)」
+  - sub-slice 5 SupabaseProductAdapter.ts class JSDoc 第 4 條 @TODO 落地揭示:「LRU cache 抽出待第 3 處撞才抽 trigger(對齊 lessons #84/#85 Defer 模式)、Phase 1 dev 200 SKU 規模 round-trip 開銷可接受」
+  - 偏離:PRD 說「sub-slice 4 落地 LRU cache」、Code 說「Defer 至第 3 處撞」、未在 PRD §10.2「預期偏離」標註
+  - 鐵則 11「字面 vs 事實守則」:sub-slice 5 commit body 已揭示偏離、但 PRD 字面未同步
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 5 雙 audit / simplify Q-4 Minor
+- **預期解法:**
+  - 候選 A:PRD §8 第 4 條 inline 標註「(註:sub-slice 5 落地依 lessons #84/#85 Defer 模式、改 LRU cache 待第 3 處撞 trigger;見 SupabaseProductAdapter.ts class JSDoc)」
+  - 候選 B:PRD §10.2「預期偏離」加第 4 條「§8 第 4 條 @TODO 字面落地時調整為 Defer 模式」+ §11 變更紀錄補一行
+  - 候選 C:main-c 啟動前 PRD 大版本更新時一併處理(順 main-c 帶)
+- **不修會痛在:**
+  - 擴充性:PRD = 規格藍圖、Code = 實作、兩者字面偏離未揭示違反鐵則 11
+  - 可維護性:後續 audit 對齊 PRD §8 vs Code 字面時誤判 drift
+  - bug 可追蹤性:PRD 變更紀錄未記、未來 reader 對照 PRD §8 vs Code 困惑
+- **估時:** 5 min(候選 A inline 標註)/ 10 min(候選 B §10.2 + §11 加條)
+- **依賴:** main-b sub-slice 5 落地後(本條目寫入時)
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 5 雙 audit
+- **相關:** `docs/specs/M-1-03-main-b-PRD.md` §8 + §10.2 + §11、`packages/adapters/src/supabase/SupabaseProductAdapter.ts` class JSDoc 第 4 條 @TODO、Q-4(simplify Minor)、鐵則 11
 
 ---
 
