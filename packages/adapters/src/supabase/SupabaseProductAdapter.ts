@@ -73,17 +73,49 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
-   * @TODO M-1-03 main-b sub-slice 2 落地(對齊 PRD §3.2 + §9)
+   * 依 category 列出 product。對齊 PRD §3.2 + supabase-schema-design.md §4.3。
+   *
+   * Resolve 流程:`categories.raw_path` UNIQUE query → categoryId(內部 resolveCategoryId);
+   * 找不到 categoryId → return [](不 throw、對齊 PRD §3.2)。
    */
-  async listByCategory(_category: CategoryPath): Promise<Product[]> {
-    throw new Error('Not implemented');
+  async listByCategory(category: CategoryPath): Promise<Product[]> {
+    const categoryId = await this.resolveCategoryId(category.raw);
+    if (categoryId === null) {
+      return [];
+    }
+
+    const { data, error } = await this.supabase
+      .from('products')
+      .select(PRODUCT_SELECT)
+      .eq('category_id', categoryId);
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as unknown as SupabaseProductRow[]).map(
+      mapSupabaseProductToDomain,
+    );
   }
 
   /**
-   * @TODO M-1-03 main-b sub-slice 2 落地(對齊 PRD §3.3 + §9)
+   * 依 brand 列出 product。對齊 PRD §3.3 + supabase-schema-design.md §3.3。
+   *
+   * `brandId` 已是 UUID、不需 resolve(對齊 IProductRepository.listByBrand 簽名)。
    */
-  async listByBrand(_brandId: string): Promise<Product[]> {
-    throw new Error('Not implemented');
+  async listByBrand(brandId: string): Promise<Product[]> {
+    const { data, error } = await this.supabase
+      .from('products')
+      .select(PRODUCT_SELECT)
+      .eq('brand_id', brandId);
+
+    if (error) {
+      throw error;
+    }
+
+    return (data as unknown as SupabaseProductRow[]).map(
+      mapSupabaseProductToDomain,
+    );
   }
 
   /**
@@ -108,5 +140,35 @@ export class SupabaseProductAdapter implements IProductRepository {
    */
   async save(_product: Product): Promise<Product> {
     throw new Error('Not implemented');
+  }
+
+  /**
+   * 內部 helper:`categories.raw_path` UNIQUE query 取 leaf node id。
+   * 對齊 PRD §3.2 + supabase-schema-design.md §4.3。
+   *
+   * Error: PGRST116(`.single()` 找不到 row)→ return null;其他 throw。
+   *
+   * 注:只取 leaf node id;parent_id_chain 解析屬 save 路徑(對齊 PRD §5.1 末段)、
+   * 不在本 helper 範圍。
+   */
+  private async resolveCategoryId(rawPath: string): Promise<string | null> {
+    const { data, error } = await this.supabase
+      .from('categories')
+      .select('id')
+      .eq('raw_path', rawPath)
+      .single();
+
+    if (error) {
+      if (error.code === PGRST_NOT_FOUND) {
+        return null;
+      }
+      throw error;
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return (data as unknown as { id: string }).id;
   }
 }
