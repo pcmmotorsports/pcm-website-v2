@@ -2829,6 +2829,37 @@
 
 ---
 
+### #113. ✅ 後台 products 表 brand_id + category_id 改 NOT NULL(B1 schema 對齊 domain 必填)
+
+- **狀態:** ✅ 完成(2026-05-07 / M-1-03-main-c drift-fix)
+- **優先級:** 🟠 中(已解決)
+- **問題:**
+  - schema §2.1 `brand_id` + `category_id` 無 NOT NULL = schema 允許 nullable
+  - wire `SupabaseProductRow`(`packages/adapters/src/supabase/mappers/product.ts:L56-57`)顯式 nullable(`brand_id: string | null` / `category_id: string | null`)
+  - mapper L78-80 + L81-83 兩處 `throw new Error('Product ... missing brand/category JOIN')`(資料完整性違反、不 silent ignore)
+  - domain `Product.brand: Brand` + `Product.category: CategoryPath` 必填(non-nullable、catalog/types.ts:L120-149)
+  - 四角字面在 nullable 行為設計層 drift
+- **觸發事件:**
+  - 2026-05-07 / M-1-03-main-c sub-slice 2 reconnaissance Step 1 字面確認後揭示 C5 字面 vs 事實偏離(指令字面 C5「不 throw」vs mapper L81-83 真實 throw 字面)
+  - Sean Q1=A1 拍板揭示 + cross-check 揭示 brand_id 同類對稱
+  - Sean 推翻 main-c sub-slice 2 raise B4 推遲方向、拍板「資料有缺就擋下、不准存」業務直覺、走 B1 schema NOT NULL 從根本解
+- **解法落點:** 本 commit hash(本 slice 落地)
+  - `supabase/migrations/20260507222633_products_brand_category_not_null.sql`:`ALTER TABLE products ALTER COLUMN brand_id` + `category_id` `SET NOT NULL`
+  - 預檢 SELECT NULL count = 0(Step 1)、ALTER 安全
+  - 驗證 `column is_nullable='NO'` 兩欄(Step 4)+ INSERT 漏填 `ERROR 23502 null value in column "brand_id" of relation "products" violates not-null constraint`(Step 5、BEGIN/ROLLBACK 不持久化)
+  - migration record 寫入 `supabase_migrations.schema_migrations` 第 4 條 `20260507222633 / products_brand_category_not_null`
+- **不修會痛在(已解決前):**
+  - 擴充性:M-1-13 ProductPage 啟動時若 schema 有 NULL row、findById 全 throw、客人看不到該 product
+  - 可維護性:schema/wire/mapper/domain 四角字面不一致、新進開發看 mapper throw 困惑為何 schema 允許 NULL
+  - bug 可追蹤性:M-1-16 種子資料若漏填 brand/category、上線後 findById 炸、log 才追到 mapper 邊界
+- **估時:** 實際 ~10-15 分鐘
+- **依賴:** 無
+- **發現於:** 2026-05-07 / M-1-03-main-c sub-slice 2 reconnaissance(Step 1 真權威字面確認後)
+- **相關:** `supabase/migrations/20260507222633_products_brand_category_not_null.sql`、`docs/architecture/supabase-schema-design.md` §2.1(原寫無 NOT NULL、字面修留 docs sync slice 統一處理對齊 D3 推遲精神)、`packages/adapters/src/supabase/mappers/product.ts:L56-57+L78-83`(wire type + mapper throw 字面、留 #106 typed Database schema gen-types 落地時自動對齊)、#106(雙 cast)、#100(全 catalog drift)、#105(docs sync)、ADR-0003 §3.5、ADR-0005 §7
+- **Phase 2 例外考量:** 廠商報價單匯入「待審商品候選」可能還沒對應 PCM 分類/品牌、屆時用獨立的 `product_candidates` 表 / 或 `product_status='pending'` 欄位區隔、不影響正式 products 表 NOT NULL 規則(對齊 PHASE-2-VISION #1 + Sean 拍板「Phase 2 PRD 一起想」)
+
+---
+
 ## 紀錄模板
 
 ```markdown
