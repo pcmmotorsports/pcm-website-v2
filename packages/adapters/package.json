@@ -11,9 +11,11 @@
   },
   "dependencies": {
     "@pcm/domain": "workspace:*",
-    "@pcm/ports": "workspace:*"
+    "@pcm/ports": "workspace:*",
+    "@supabase/supabase-js": "^2.105.3"
   },
   "devDependencies": {
+    "@types/node": "^25.6.0",
     "typescript": "catalog:"
   }
 }

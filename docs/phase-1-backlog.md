@@ -2635,6 +2635,32 @@
 
 ---
 
+### #106. ⏳ Supabase typed Database schema(supabase gen-types)— 解 adapter 雙 cast escape hatch
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低-中(不阻擋 main-b 落地、影響 type safety + 未來跨 adapter)
+- **問題:**
+  - SupabaseProductAdapter.findById 用 `data as unknown as SupabaseProductRow` 雙 cast bypass type safety(audit 三視角共識:engineering M1 + simplify Q4 + efficiency E7 同向命中)
+  - 根因:supabase-js v2 `.from('products').select(...)` 預設返 `any` / generic 推不出 wire shape、需 `Database` generic 型 typed 才能避 cast
+  - main-b sub-slice 2-4 + future Customer / Order adapter 都會撞同問題、雙 cast 模式跨 adapter 散
+- **觸發事件:**
+  - 2026-05-07 / M-1-03 main-b sub-slice 1 雙 audit 抓出(engineering:code-review + simplify Phase 2 三 agent 共識)
+- **預期解法:**
+  - 跑 `supabase gen types typescript --linked > packages/adapters/src/supabase/database.types.ts` 生成 typed schema
+  - 改 `client.ts` 用 `SupabaseClient<Database>` generic 注入
+  - SupabaseProductAdapter / 未來 SupabaseCustomerAdapter / SupabaseOrderAdapter 全部受益、單 cast(或無 cast)即可
+  - 替代:zod 在 adapter 邊界 runtime 驗(對齊 M-1-13 contract test slice 候選、雙保險)
+- **不修會痛在:**
+  - 擴充性:每個新 adapter / 新 method(sub-slice 2-4 listByCategory / listByBrand / listByFitment / searchByKeyword / save)都重複 `as unknown as XxxRow` 雙 cast、type safety escape hatch 散
+  - 可維護性:supabase schema 改(加欄位 / 改型)、TypeScript 不擋、runtime 才炸;雙 cast 規避 strict 模式價值
+  - bug 可追蹤性:wire row 結構錯(JOIN 缺欄位 / nullable 漏 check)只 runtime mapper throw、無 compile-time guard
+- **估時:** 60-90 min(獨立 slice、含 gen-types CLI 跑 + client.ts 改 generic + adapter 改 cast + 重跑 typecheck + 驗 round-trip)
+- **依賴:** Supabase project linked(已完成 / M-1-03-main-a1)、無其他依賴
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 1 雙 audit
+- **相關:** `packages/adapters/src/supabase/SupabaseProductAdapter.ts:findById`、`packages/adapters/src/supabase/mappers/product.ts:SupabaseProductRow`、Q4(simplify)+ M1(engineering)+ E7(efficiency)三視角共識、未來 SupabaseCustomerAdapter / SupabaseOrderAdapter 受益
+
+---
+
 ## 紀錄模板
 
 ```markdown
