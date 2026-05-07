@@ -141,8 +141,13 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 依 fitment spec 列出 product。對齊 PRD §3.4 + supabase-schema-design.md §2.3 第 6 行 + §2.4。
    *
    * 兩階段過濾:
-   * - Server-side: `.contains('fitments', [{motoBrand, modelCode}])`(jsonb @> operator、規則 1+2)
+   * - Server-side: `.contains('fitments', JSON.stringify([{motoBrand, modelCode}]))`(jsonb @> operator、規則 1+2)
    * - Client-side: `matchFitmentYear` filter(年份範圍重疊、規則 3、對齊 backlog #92 共用 resolveEnd)
+   *
+   * 注:第二參數須走 `JSON.stringify([...])` 字面;直傳 array of objects 會被 supabase-js
+   * 序列化成 PostgREST array literal `cs.{...}`(curly outer)、PG JSON parser 22P02 reject
+   * (M-1-03 main-c spike 揭示)。JSON 字串強制走 `cs.[...]` 格式對齊真實 SQL
+   * `fitments @> '[{...}]'::jsonb`(對齊 supabase-schema-design.md §10.2 字面 + PG MCP 真權威驗 hits=1)。
    *
    * Phase 1 階段 1 不建 GIN index(對齊 supabase-schema-design.md §10.2 backlog #30 階段 2 trigger)。
    */
@@ -150,9 +155,12 @@ export class SupabaseProductAdapter implements IProductRepository {
     const { data, error } = await this.supabase
       .from('products')
       .select(PRODUCT_SELECT)
-      .contains('fitments', [
-        { motoBrand: spec.motoBrand, modelCode: spec.modelCode },
-      ]);
+      .contains(
+        'fitments',
+        JSON.stringify([
+          { motoBrand: spec.motoBrand, modelCode: spec.modelCode },
+        ]),
+      );
 
     if (error) {
       throw error;
