@@ -67,14 +67,15 @@ module.exports = [
       ],
       'boundaries/include': ['packages/**/*', 'apps/**/*'],
       'boundaries/root-path': MONOREPO_ROOT,
-      // Import resolver(typescript-aware、對齊 backlog #23 完成):
+      // Import resolver(typescript-aware、對齊 backlog #23 完成 + #54 storefront 部分解開):
       // - boundaries plugin 透過 eslint-module-utils 解析 import target
       // - typescript resolver 認 .ts / .tsx + tsconfig path mapping + workspace alias
-      // - project glob 只放 packages/*/tsconfig.json(apps/* 純殼無 tsconfig、
-      //   待 apps 真寫 .ts 時補、對齊 backlog #54 Supersede 精神)
+      // - project glob:packages/*/tsconfig.json + apps/storefront/tsconfig.json
+      //   (M-1-03-main-d-pre 補 storefront 進 glob、apps/api / apps/admin / apps/sync-engine
+      //   仍純殼、待 M-4a-01 / M-5-01 真寫 .ts 時各自補、對齊 backlog #54 Supersede 精神)
       'import/resolver': {
         typescript: {
-          project: ['packages/*/tsconfig.json'],
+          project: ['packages/*/tsconfig.json', 'apps/storefront/tsconfig.json'],
         },
       },
     },

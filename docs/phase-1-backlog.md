@@ -714,6 +714,7 @@
 
 - **狀態:** ✅ 完成
 - **完成於:** 2026-05-04 / M-1-02-prep(裝 eslint-import-resolver-typescript@4.4.4 進 catalog + root devDeps;eslint.config.js settings 配 `import/resolver.typescript = { project: ['packages/*/tsconfig.json'] }`;6 條 dry-run 重跑全 CAUGHT 用相對路徑無副檔名 + typescript resolver、不再用 .ts 副檔名 hack;Rule 5 apps→apps 跳過 apps 純殼對齊 backlog #54 Supersede 待 M-1-01-true / M-4a-01 / M-5-01 apps 真寫 .ts 時補;dependency-rules.md §5.1 從「未配置」改「已落地(packages/* 範圍)」+ §7 變更紀錄加新行)
+- **補強註(2026-05-08 / M-1-03-main-d-pre):** project glob 從 `['packages/*/tsconfig.json']` 補強為 `['packages/*/tsconfig.json', 'apps/storefront/tsconfig.json']`(對齊原 L730 預期解法字面 + #54 storefront 部分解開);apps/storefront/tsconfig.json 同 slice 新建對齊 packages/* 模板;apps/api / apps/admin / apps/sync-engine 仍純殼、留 M-4a-01 / M-5-01 各自補時加進 glob
 - **(原狀態保留以下記錄)**
 - **狀態(原):** ⏳ 待執行
 - **優先級:** 🟠 中(M-1 第一次跨 package import 前必補、否則 boundaries 規則失效)
@@ -1401,6 +1402,7 @@
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** `docs/architecture/dependency-rules.md` §3、`docs/audits/2026-05-02-full-audit.md` Audit-F26
 - **Supersede 註(2026-05-02 / commit 686afc8 audit follow-up):** trigger 從本條原寫的「M-0-02 啟動時補 dry-run」**修正延後至**「M-1-01 / M-4a-01 / M-5-01 三點分別補(apps 真寫 .ts 時 boundaries 才有檔可掃、現補無實質效果)」。
+- **Supersede 解開註(2026-05-08 / M-1-03-main-d-pre):** storefront 部分解開。apps/storefront/tsconfig.json 補齊(對齊 packages/* 模板)+ 進 `import/resolver.typescript.project` glob、boundaries Rule 5 對 storefront 真實生效;dependency-rules.md §5.1 同步更新。**apps/admin / apps/sync-engine 仍 ⏳ 待 M-4a-01 / M-5-01 補(同模板:tsconfig + glob);本條目維持 ⏳ 至兩 apps 全部解開**。
 
 ### #55. ⏳ contract test 框架(Phase 2 觸發)
 
