@@ -43,6 +43,29 @@ const BRAND_SLUG = `${PREFIX}brand`;
 const CAT_A_RAW = `${PREFIX}cat-a`;
 const CAT_B_RAW = `${PREFIX}cat-b`;
 
+/**
+ * Prod-safety guard:white-list 模式、只允許跑在指定 Supabase dev project ref。
+ *
+ * spike script 是 destructive(setup INSERT + cleanup DELETE 對 'spike-fixture-' 前綴);若
+ * .env.local 字面誤指 prod URL、cleanup 會刪除任何 prefix 撞上的 row。Phase 1 階段 1 dev
+ * project ref 寫死(對齊 audit 立即修 + Sean Q1=A1 拍板);Phase 2 multi-env 觸發時白名單擴。
+ *
+ * Override:`ALLOWED_DEV_REF` env var(顯式 opt-in、不替代字面 default、避免靜默誤跑)。
+ */
+const DEFAULT_ALLOWED_DEV_REF = 'bmpnplmnldofgaohnaok';
+
+function assertDevProject(): void {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const allowedRef = process.env.ALLOWED_DEV_REF ?? DEFAULT_ALLOWED_DEV_REF;
+  if (!url.includes(allowedRef)) {
+    throw new Error(
+      `spike-script aborted: SUPABASE_URL not whitelisted dev project. ` +
+        `Spike scripts only allow project ref containing '${allowedRef}'. ` +
+        `If you intentionally want to run against another project, set ALLOWED_DEV_REF env var.`,
+    );
+  }
+}
+
 const supabase = createSupabaseServiceClient();
 const adapter = new SupabaseProductAdapter(supabase);
 
@@ -131,6 +154,9 @@ async function cleanUp(): Promise<{ p: number; c: number; b: number }> {
 }
 
 async function main(): Promise<void> {
+  // Prod-safety guard:setup 任何 INSERT 之前 abort、防 .env.local URL 誤指 prod
+  assertDevProject();
+
   let brandId = '';
   let catAId = '';
   let catBId = '';

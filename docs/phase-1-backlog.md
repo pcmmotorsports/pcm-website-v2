@@ -2714,14 +2714,15 @@
     - parseWireFitment regex 邊界(納入 #107 8-10 case)
     - matchFitmentYear 對齊 InMemoryProductRepository.matchFitment year-range 4 既有 it.todo case + #93 8 boundary case
   - 跨 adapter 行為等價驗:同 input 走 InMemory.matchFitment(rule 3 部分)+ Supabase.matchFitmentYear、output 一致
+  - **(2026-05-07 / sub-slice 3 補強)補 SDK regression sub-task:** SupabaseProductAdapter.listByFitment 內 `.contains('fitments', JSON.stringify([{...}]))` workaround 字面對齊真權威 jsonb @>(supabase-schema-design.md §10.2);test 走真 Supabase / supabase local 跑 round-trip、防 supabase-js 升版/重構不小心改回 array 直傳(commit 9d8ef93 揭示 array 直傳會撞 PG 22P02);對齊 sub-slice 3 雙 audit code-review #4 finding
 - **不修會痛在:**
   - 擴充性:M-1-13 ProductPage 顯示用 fitmentToWireString、format 改動無 test 抓 silent regression、storefront 顯示錯字面
   - 可維護性:reader 改 matchFitmentYear 邏輯、無 test 驗等價性、InMemory 跟 Supabase silent drift
   - bug 可追蹤性:cross-adapter 行為不一致時、客人投訴「同 product 兩 adapter 行為不同」debug 成本高、無 contract test 證明
-- **估時:** 30-45 min(M-1-13 啟動前獨立 slice、含 8-10 case 寫 + describe 結構對齊既有慣例)
+- **估時:** 30-45 min 原(+ ~15 min SDK regression sub-task = 45-60 min 含補強範圍、M-1-13 啟動前獨立 slice)
 - **依賴:** #107(parseWireFitment 邊界補強)、#93(matchFitment 8 boundary case test)
-- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit(simplify R1 + Q1)
-- **相關:** `packages/adapters/src/supabase/helpers/fitment.ts`、`packages/adapters/src/in-memory/InMemoryProductRepository.test.ts`、#93、#107、M-1-13 ProductPage 啟動前
+- **發現於:** 2026-05-07 / M-1-03 main-b sub-slice 3 雙 audit(simplify R1 + Q1);sub-slice 3 補強 SDK regression(雙 audit code-review #4)
+- **相關:** `packages/adapters/src/supabase/helpers/fitment.ts`、`packages/adapters/src/in-memory/InMemoryProductRepository.test.ts`、`packages/adapters/src/supabase/SupabaseProductAdapter.ts:listByFitment`(SDK literal regression test 補強範圍)、#93、#107、M-1-13 ProductPage 啟動前、commit 9d8ef93(SDK 字面修)
 
 ---
 
@@ -2857,6 +2858,60 @@
 - **發現於:** 2026-05-07 / M-1-03-main-c sub-slice 2 reconnaissance(Step 1 真權威字面確認後)
 - **相關:** `supabase/migrations/20260507222633_products_brand_category_not_null.sql`、`docs/architecture/supabase-schema-design.md` §2.1(原寫無 NOT NULL、字面修留 docs sync slice 統一處理對齊 D3 推遲精神)、`packages/adapters/src/supabase/mappers/product.ts:L56-57+L78-83`(wire type + mapper throw 字面、留 #106 typed Database schema gen-types 落地時自動對齊)、#106(雙 cast)、#100(全 catalog drift)、#105(docs sync)、ADR-0003 §3.5、ADR-0005 §7
 - **Phase 2 例外考量:** 廠商報價單匯入「待審商品候選」可能還沒對應 PCM 分類/品牌、屆時用獨立的 `product_candidates` 表 / 或 `product_status='pending'` 欄位區隔、不影響正式 products 表 NOT NULL 規則(對齊 PHASE-2-VISION #1 + Sean 拍板「Phase 2 PRD 一起想」)
+
+---
+
+### #114. ⏳ Vehicle Finder 通用零件呈現策略待拍板
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(M-1-13 啟動時必拍)
+- **問題:**
+  - 客人在 Vehicle Finder 選了車型後、**通用零件**(`fitments=[]` 空陣列、代表任何車適用)要不要出現在篩選結果頁?
+  - 當前 SupabaseProductAdapter.listByFitment server-side `.contains('fitments', JSON.stringify([{motoBrand, modelCode}]))` 對 empty fitments=[] 直接 false、通用零件不在篩選結果(對齊 main-c spike C6a 行為驗 PASS);**業務拍板未定**、客人 UX 體驗不一致
+- **三選項並列(Sean M-1-13 啟動時拍):**
+  - **A.** 結果含通用零件(客人選 R1 → 結果頁同時看到 R1 專用 + 通用配件)
+  - **B.** 結果只含專用、通用另闢入口(分類頁 / 商品列表頁有「通用配件」獨立入口)
+  - **C.** Vehicle Finder 加「通用 / Universal」車款選項(三層篩選旁多一個按鈕、客人主動選看通用)
+- **觸發事件:**
+  - 2026-05-07 / M-1-03-main-c sub-slice 2 spike C6 empty fitments 驗證後 Sean raise UX 業務拍板需求
+  - 推遲到 M-1-13 商品列表頁 + Vehicle Finder UI 啟動時資訊更全再拍(現預設行為 = B 選項)
+- **預期解法:**
+  - 依 design 真權威 ProductsPage filterProducts string match 邏輯對齊(目前 design 字面通用零件 fits='通用款'、客人選具體車型不會出現 = 等同選項 B)
+  - 或 Sean 拍板改 A:adapter listByFitment client filter 加 `||fitments.length===0`(含通用)
+  - 或 Sean 拍板改 C:Vehicle Finder UI 加新按鈕 + adapter 新方法 listUniversal()(返 fitments=[] 商品)
+- **不修會痛在(三視角):**
+  - 擴充性:M-1-13 Vehicle Finder UX 啟動時、通用零件呈現策略影響商品列表頁結構 + 客人選購流程 + adapter listByFitment / listUniversal 方法切割
+  - 可維護性:不拍板 = 工程師三選一憑感覺實作 / 改 design 真權威 / 留兩種行為實作交織、後續 bug fix 沒有共識基準
+  - bug 可追蹤性:不拍 = 客人投訴「為什麼選 R1 看不到/看到通用配件」客服回應方向不一致、影響業務口徑
+- **估時:** 30-45 min(M-1-13 啟動時拍板 + 設計確認)+ 0-60 min(本身工程修改視策略 A/B/C、A=15 min adapter / B=0 min 對齊既有 / C=30-60 min 新方法 + UI 入口)
+- **依賴:** M-1-13 ProductPage / FilterSide / Vehicle Finder UI 啟動時觸發
+- **發現於:** 2026-05-07 / M-1-03-main-c sub-slice 2 spike C6 empty fitments 驗證後 Sean 業務 raise
+- **相關:** `design-reference/` ProductsPage filterProducts string match 邏輯、`packages/adapters/src/supabase/SupabaseProductAdapter.ts:listByFitment`、Phase 2 vehicle ecosystem PRD `docs/features/vehicle-service-ecosystem.md`
+
+---
+
+### #115. ⏳ SupabaseProductAdapter listByFitment filter-before-map hot path 優化
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(M-1-13 啟動時改、Phase 1 ~200 SKU 規模目前 OK)
+- **問題:**
+  - 當前 `SupabaseProductAdapter.listByFitment`(L177-189)先 map 全部 server-side prefilter row → domain Product[]、再 client filter cross-check brand+model+year
+  - hot path 應 filter row 在 map 前(`data.filter(rawRowCrossCheck).map(mapSupabaseProductToDomain)`)、減少不必要 mapper 工作(server-side `.contains` 通過 row 數 vs 通過 client cross-check 的差距 = 跨車型 false-positive 範圍)
+  - Phase 1 ~200 SKU dev 規模 mapping 全部 row 開銷 negligible;5w SKU production 規模 mapping cost 撞 latency budget
+- **觸發事件:**
+  - 2026-05-07 / M-1-03-main-c sub-slice 3 雙 audit 共識(simplify E-1 + engineering:code-review #5 雙視角命中)
+- **預期解法:**
+  - 重排 listByFitment 內部:`(data as unknown as SupabaseProductRow[]).filter(row => row.fitments.some(f => f.motoBrand===spec.motoBrand && f.modelCode===spec.modelCode && matchFitmentYear(f, spec))).map(mapSupabaseProductToDomain)`
+  - 範圍純 listByFitment method 內、不影響其他 method
+  - 補 contract test 一個 perf 觀察 case(可選、對齊 #108 fitment helpers contract test 範圍)
+- **不修會痛在(三視角):**
+  - 擴充性:5w SKU 規模 mapping 全部 row 撞 ProductPage 首頁列表 latency budget(p99 < 500ms 預期)
+  - 可維護性:hot path 邏輯應 filter-before-map、reader 看到先 map 後 filter 困惑為何不是反過來
+  - bug 可追蹤性:production 真實流量打入後 latency 監控才看到、非單元 test 抓得到
+- **估時:** 15-30 min(method 內重排 + 跑 spike 驗 round-trip 仍 PASS + 補 contract test 一個 perf 觀察 case)
+- **依賴:** M-1-13 storefront ProductPage 啟動 trigger / 或 200+ SKU 種子資料規模 trigger / 或 #108 fitment helpers contract test 落地時順手
+- **發現於:** 2026-05-07 / M-1-03-main-c sub-slice 3 雙 audit(simplify E-1 + engineering:code-review #5)
+- **相關:** `packages/adapters/src/supabase/SupabaseProductAdapter.ts:listByFitment`、#108(fitment helpers contract test)、#106(typed Database schema)、M-1-13 ProductPage hot path readiness、commit 2e9abfb(cross-車型 false positive 修)
 
 ---
 
