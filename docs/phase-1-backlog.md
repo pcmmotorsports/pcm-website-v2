@@ -2917,6 +2917,34 @@
 
 ---
 
+### #116. ⏳ server-client boundary 優化:純展示 sections 改用 next/link
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(Phase 1 Polish)
+- **問題:**
+  - main-d-d1 階段 design 真權威字面**全 8 sections 都含 onNav callback prop**(L25 HomeHero / L131 FeatureEditorial / L174 CategoryGrid / L210 HomeSelect / L245 HomeStatement / L277 BrandIndex / L311+ HomeFooter)
+  - Next.js 16 RSC 規矩**不可從 server component 傳 function prop 給 client component**(server-client boundary 字面限制)
+  - 本 slice 維持全 'use client'(對齊 d1 指令 Step 4.1「className / onClick / onNav 字面維持」精神 + lessons §1.1「直接搬」)
+  - hydration 成本:8 sections + Header + ProductCard 都 client、Phase 1 ~200 SKU 規模可接受、未來規模擴張可能撞 first-load JS budget
+- **觸發事件:**
+  - 2026-05-08 / M-1-03-main-d-d1 commit body 註記 8 揭示偏離 + Sean Q2=B1+B3 拍板留 backlog
+- **預期解法(M-1-04 trigger 順手評估):**
+  - **候選分流:** 純展示 sections(無 onClick / 無 useState 互動)→ 改 server component + `<Link href>` 取代 onNav callback
+    - HomeHero / FeatureEditorial / HomeStatement / HomeFooter / CategoryGrid / BrandIndex(純展示、僅 onNav)→ 改 Link
+    - VehicleFinder / Header / ProductCard(含互動 useState / window dispatchEvent / hover state)→ 維持 'use client'
+  - 配 `Link.prefetch`、降首頁 hydration 成本 + 提升路由切換速度
+  - 拆「server with Link」vs「client with onNav」雙路徑、需 boundary 文件化(可能加 ADR-0006 / docs/architecture/server-client-boundary.md)
+- **不修會痛在(三視角):**
+  - 擴充性:M-1-04+ 接 next/navigation router 後 onNav callback → router.push、保留全 client 浪費 RSC 機會、規模擴張後 first-load JS 上升
+  - 可維護性:全 client 簡單一致、改混合模式增加 boundary 認知負擔、需文件化 + e2e 驗 hydration mismatch
+  - bug 可追蹤性:hydration mismatch 風險、改 Link 後需配 e2e test 驗 router 行為
+- **估時:** M-1-04 接 next/navigation router 時順手評估、實際遷移 30-60 min(6 sections × ~5-10 min + 配 Link.prefetch + e2e 驗)
+- **依賴:** M-1-04 接 next/navigation 真 router(目前 onNav 是 console.log stub)
+- **發現於:** 2026-05-08 / M-1-03-main-d-d1(commit body 註記 8、Sean Q2=B1+B3 拍板)
+- **相關:** `apps/storefront/src/components/{HomeHero,FeatureEditorial,HomeStatement,HomeFooter,CategoryGrid,BrandIndex}.tsx`(候選改 Link)、`{VehicleFinder,Header,ProductCard}.tsx`(維持 client)、d1 指令 Step 4.1 字面維持精神 + lessons §1.1 直接搬精神 + Next.js 16 RSC server-client boundary
+
+---
+
 ## 紀錄模板
 
 ```markdown

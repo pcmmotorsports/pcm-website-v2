@@ -1,0 +1,107 @@
+/* PCM Motorsports — Design Tokens */
+:root {
+  /* Neutral scale (warm-cool neutral, slightly cool) */
+  --c-bg: #fafafa;
+  --c-surface: #ffffff;
+  --c-surface-2: #f4f4f5;
+  --c-surface-3: #e9e9eb;
+  --c-border: #e4e4e7;
+  --c-border-strong: #d4d4d8;
+  --c-text: #0a0a0a;
+  --c-text-2: #52525b;
+  --c-text-3: #a1a1aa;
+  --c-text-inverse: #fafafa;
+
+  /* Accent — RIZOMA red, reserved */
+  --c-red: #dc2626;
+  --c-red-soft: #fee2e2;
+  --c-red-dark: #991b1b;
+
+  /* Type */
+  --f-sans: "Inter", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* Scale multipliers (tweak via panel) */
+  --scale: 1;
+
+  /* Radii — intentionally minimal, sharp */
+  --r-sm: 2px;
+  --r-md: 4px;
+  --r-lg: 8px;
+
+  /* Shadows */
+  --sh-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --sh-md: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  --sh-lg: 0 4px 24px rgba(0,0,0,0.08);
+
+  /* Spacing rhythm */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+}
+
+[data-theme="dark"] {
+  --c-bg: #0a0a0a;
+  --c-surface: #18181b;
+  --c-surface-2: #27272a;
+  --c-surface-3: #3f3f46;
+  --c-border: #27272a;
+  --c-border-strong: #3f3f46;
+  --c-text: #fafafa;
+  --c-text-2: #a1a1aa;
+  --c-text-3: #71717a;
+  --c-text-inverse: #0a0a0a;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: var(--f-sans);
+  background: var(--c-bg);
+  color: var(--c-text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
+}
+button { font-family: inherit; cursor: pointer; border: 0; background: transparent; color: inherit; padding: 0; }
+input, select, textarea { font-family: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* Placeholder image — striped, shows label */
+.ph {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 10px,
+      rgba(0,0,0,0.025) 10px 20px
+    ),
+    var(--c-surface-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-3);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+[data-theme="dark"] .ph {
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent 0 10px,
+      rgba(255,255,255,0.03) 10px 20px
+    ),
+    var(--c-surface-2);
+}
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--c-text);
+  outline-offset: 2px;
+}

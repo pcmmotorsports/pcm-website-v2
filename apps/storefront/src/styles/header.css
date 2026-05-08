@@ -1,0 +1,118 @@
+/* Header */
+.pcm-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  backdrop-filter: blur(12px);
+}
+.pcm-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 14px 48px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+.pcm-header-inner[data-mobile="true"] {
+  padding: 12px 16px;
+}
+.pcm-header-left {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+}
+.pcm-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pcm-logo {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--c-text);
+}
+.pcm-nav {
+  display: flex;
+  gap: 22px;
+}
+.pcm-nav-item {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  padding: 6px 0;
+  position: relative;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+.pcm-nav-item:hover, .pcm-nav-item.is-active {
+  color: var(--c-text);
+}
+.pcm-nav-item.is-active::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: -14px;
+  height: 2px;
+  background: var(--c-text);
+}
+.pcm-nav-sale { color: var(--c-red); }
+.pcm-nav-sale:hover { color: var(--c-red-dark); }
+
+.pcm-search {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--c-surface-2);
+  border: 1px solid transparent;
+  width: 220px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.pcm-search.is-focus {
+  background: var(--c-surface);
+  border-color: var(--c-text);
+}
+.pcm-search svg { color: var(--c-text-2); flex-shrink: 0; }
+.pcm-search input {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  width: 100%;
+  font-size: 13px;
+  color: var(--c-text);
+}
+.pcm-search input::placeholder { color: var(--c-text-3); }
+
+.pcm-icon-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text);
+  position: relative;
+  transition: background 0.15s;
+}
+.pcm-icon-btn:hover { background: var(--c-surface-2); }
+.pcm-cart-dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--c-red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}

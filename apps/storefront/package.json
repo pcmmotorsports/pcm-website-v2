@@ -4,6 +4,21 @@
   "private": true,
   "description": "PCM 前台(Next.js 16 + Tailwind v4)— 殼、待後續 slice 裝框架",
   "scripts": {
-    "lint": "eslint . --max-warnings 0 --no-error-on-unmatched-pattern"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings 0 --no-error-on-unmatched-pattern",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "catalog:"
   }
 }
