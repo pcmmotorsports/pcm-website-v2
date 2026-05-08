@@ -142,7 +142,16 @@ export class SupabaseProductAdapter implements IProductRepository {
    *
    * 兩階段過濾:
    * - Server-side: `.contains('fitments', JSON.stringify([{motoBrand, modelCode}]))`(jsonb @> operator、規則 1+2)
-   * - Client-side: `matchFitmentYear` filter(年份範圍重疊、規則 3、對齊 backlog #92 共用 resolveEnd)
+   * - Client-side: 三條 cross-check `f.motoBrand === spec.motoBrand && f.modelCode === spec.modelCode
+   *   && matchFitmentYear(f, spec)`(規則 1+2+3、對齊 InMemoryProductRepository.matchFitment 行為等價)
+   *
+   * 注:client-side 必須 cross-check brand+model,server-side prefilter 是 product 級別
+   * (product 含**至少一條** fitment 含 spec.motoBrand+modelCode 即通過)、product.fitments 可
+   * 含其他車型 fitment。若 client 只跑 matchFitmentYear(year-only)、會撞跨車型 false positive:
+   * fitments=[{Yamaha,R1,2018-2024},{Honda,CBR,2010-2012}] 對 spec=(Honda,CBR,2020) → server
+   * @> 通過 + client matchFitmentYear vs Yamaha R1 fitment year=2020 ∈ [2018,2024] some=true
+   * 但實際 Honda CBR 2010-2012 不 cover 2020 → false positive。
+   * (M-1-03 main-c sub-slice 2.5 修、Sean 業務拍板「跨車型常態、Phase 1 必修」)
    *
    * 注:第二參數須走 `JSON.stringify([...])` 字面;直傳 array of objects 會被 supabase-js
    * 序列化成 PostgREST array literal `cs.{...}`(curly outer)、PG JSON parser 22P02 reject
@@ -171,7 +180,12 @@ export class SupabaseProductAdapter implements IProductRepository {
     );
 
     return products.filter((p) =>
-      p.fitments.some((f) => matchFitmentYear(f, spec)),
+      p.fitments.some(
+        (f) =>
+          f.motoBrand === spec.motoBrand &&
+          f.modelCode === spec.modelCode &&
+          matchFitmentYear(f, spec),
+      ),
     );
   }
 

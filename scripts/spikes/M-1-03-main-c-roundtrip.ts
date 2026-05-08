@@ -221,8 +221,22 @@ async function main(): Promise<void> {
       fitments: [{ motoBrand: 'BMW', modelCode: 'S1000RR' }],
     });
 
+    // F7 跨車型(C3i 用)— 同 product 含 2 條不同車型 fitment、驗 client-side 三條 cross-check 修
+    // 對齊 sub-slice 2.5 commit:fitment A 含 spec brand+model 且 year-out / fitment B 不含 spec brand+model 但 year-match
+    pids.f7 = await insertProduct({
+      handle: `${PREFIX}f7`,
+      title: 'F7 cross-vehicle false positive guard',
+      brandId,
+      categoryId: catAId,
+      priceByTier: tier3(4500, 4000, 3800),
+      fitments: [
+        { motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2018, yearEnd: 2024 },
+        { motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2010, yearEnd: 2012 },
+      ],
+    });
+
     console.log(
-      `Inserted 8 products: F1=${pids.f1!.slice(0, 8)}.. F2[noYear/range/open/single]=${pids.f2_noYear!.slice(0, 8)}../${pids.f2_range!.slice(0, 8)}../${pids.f2_open!.slice(0, 8)}../${pids.f2_single!.slice(0, 8)}.. F4=${pids.f4!.slice(0, 8)}.. F5=${pids.f5!.slice(0, 8)}.. F6=${pids.f6!.slice(0, 8)}..`,
+      `Inserted 9 products: F1=${pids.f1!.slice(0, 8)}.. F2[noYear/range/open/single]=${pids.f2_noYear!.slice(0, 8)}../${pids.f2_range!.slice(0, 8)}../${pids.f2_open!.slice(0, 8)}../${pids.f2_single!.slice(0, 8)}.. F4=${pids.f4!.slice(0, 8)}.. F5=${pids.f5!.slice(0, 8)}.. F6=${pids.f6!.slice(0, 8)}.. F7=${pids.f7!.slice(0, 8)}..`,
     );
 
     // ============ C1 brand JOIN ============
@@ -248,12 +262,12 @@ async function main(): Promise<void> {
 
     const byBrand = await adapter.listByBrand(brandId);
     const byBrandIds = new Set(byBrand.map((p) => p.id));
-    const allFixtureIds = [pids.f1, pids.f2_noYear, pids.f2_range, pids.f2_open, pids.f2_single, pids.f4, pids.f5, pids.f6];
-    const expectAll8 = allFixtureIds.every((id) => byBrandIds.has(id!));
+    const allFixtureIds = [pids.f1, pids.f2_noYear, pids.f2_range, pids.f2_open, pids.f2_single, pids.f4, pids.f5, pids.f6, pids.f7];
+    const expectAll9 = allFixtureIds.every((id) => byBrandIds.has(id!));
     record(
       'C1b brand JOIN listByBrand cardinality',
-      byBrand.length >= 2 && expectAll8,
-      `listByBrand returned ${byBrand.length} rows, contains all 8 fixture products: ${expectAll8}`,
+      byBrand.length >= 2 && expectAll9,
+      `listByBrand returned ${byBrand.length} rows, contains all 9 fixture products: ${expectAll9}`,
     );
 
     // ============ C2 category JOIN ============
@@ -273,12 +287,13 @@ async function main(): Promise<void> {
       byCatIds.has(pids.f2_single!) &&
       byCatIds.has(pids.f4!) &&
       byCatIds.has(pids.f5!) &&
+      byCatIds.has(pids.f7!) &&
       !byCatIds.has(pids.f6!); // F6 in catB
     record(
       'C2 category JOIN listByCategory',
       okCatShape && expectCatA,
       okCatShape && expectCatA
-        ? `listByCategory(${CAT_A_RAW}) returned ${byCat.length} rows, all CategoryPath shape OK, F1+F2(4 split)+F4+F5 in catA / F6 excluded(in catB)`
+        ? `listByCategory(${CAT_A_RAW}) returned ${byCat.length} rows, all CategoryPath shape OK, F1+F2(4 split)+F4+F5+F7 in catA / F6 excluded(in catB)`
         : `shape OK=${okCatShape}, expectedSet=${expectCatA}`,
     );
 
@@ -337,6 +352,39 @@ async function main(): Promise<void> {
       c3hExpect
         ? '無年份=true / 範圍 2018-2024=true / 開放式 2025+=false / 單年 2024=false 全對齊'
         : `行為偏離 sup-schema §2.4`);
+
+    // ============ C3i 跨車型 false positive 防護 ============
+    // F7.fitments=[{Yamaha,R1,2018-2024},{Honda,CBR600RR,2010-2012}]
+    // 修前(只 matchFitmentYear year-only):spec=(Honda,CBR600RR,2020) → server @> 通過 +
+    //   client some over fitments → Yamaha R1 fitment(2018-2024 含 2020)matchFitmentYear=true
+    //   → F7 false positive in result。
+    // 修後(三條 cross-check brand+model+year):各 fitment cross-check 該條 brand+model+year 三條全符,
+    //   Honda CBR fitment year=2020 不在 [2010,2012] → false / Yamaha R1 fitment brand 不對 → false
+    //   → F7 correctly excluded。
+    const c3iCross = await adapter.listByFitment({
+      motoBrand: 'Honda',
+      modelCode: 'CBR600RR',
+      yearStart: 2020,
+      yearEnd: 2020,
+    });
+    const c3iCrossPass = !c3iCross.some((p) => p.id === pids.f7);
+    record('C3i 跨車型 false positive 防護:spec=(Honda,CBR600RR,2020) F7 should excluded', c3iCrossPass,
+      c3iCrossPass
+        ? `F7 correctly excluded(Honda CBR fitment 2010-2012 不 cover 2020、Yamaha R1 fitment brand 不對齊)`
+        : `F7 wrongly in result — cross-車型 false positive 仍存在`);
+
+    // C3i 對照組:正常 match 應仍通過
+    const c3iPositive = await adapter.listByFitment({
+      motoBrand: 'Yamaha',
+      modelCode: 'R1',
+      yearStart: 2020,
+      yearEnd: 2020,
+    });
+    const c3iPositivePass = c3iPositive.some((p) => p.id === pids.f7);
+    record('C3i 對照組:spec=(Yamaha,R1,2020) F7 should match', c3iPositivePass,
+      c3iPositivePass
+        ? `F7 in result(Yamaha R1 fitment 2018-2024 cover 2020、三條全符)`
+        : `F7 not in result — 修法過頭、正常 match 也壞了`);
 
     // ============ C4 priceByTier mapper boundary ============
     const p5 = await adapter.findById(pids.f5!);

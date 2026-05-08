@@ -220,4 +220,39 @@ describe('InMemoryProductRepository', () => {
       expect(result).toHaveLength(0);
     });
   });
+
+  // 跨車型 false positive 防護(M-1-03-main-c sub-slice 2.5 落地、Sean 業務拍板):
+  // product.fitments 含多車型時、必須 cross-check 該條 fitment 三條(brand+model+year)全符,
+  // 避免 fitment A match brand+model + fitment B match year 交叉觸發 false positive。
+  // InMemory.matchFitment(L108-111)已 cross-check brand+model+year 三條、本 test 防 regression。
+  it('listByFitment 跨車型 false positive:fitment A match brand+model + fitment B match year → 不應 cross-match', async () => {
+    const multiFitment = createFakeProduct({
+      id: 'p-multi-fitment',
+      fitments: [
+        { motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2018, yearEnd: 2024 },
+        { motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2010, yearEnd: 2012 },
+      ],
+    });
+    const repo = new InMemoryProductRepository([multiFitment]);
+
+    // spec=(Honda, CBR600RR, 2020):若無 cross-check brand+model 在 fitment 級、會撞
+    // Yamaha R1 fitment(year 2020 ∈ [2018,2024])false positive。
+    const result = await repo.listByFitment({
+      motoBrand: 'Honda',
+      modelCode: 'CBR600RR',
+      yearStart: 2020,
+      yearEnd: 2020,
+    });
+    expect(result).toHaveLength(0);
+
+    // 對照組:spec=(Yamaha, R1, 2020) → 應 match(該條 fitment 三條全符)
+    const positive = await repo.listByFitment({
+      motoBrand: 'Yamaha',
+      modelCode: 'R1',
+      yearStart: 2020,
+      yearEnd: 2020,
+    });
+    expect(positive).toHaveLength(1);
+    expect(positive[0]?.id).toBe('p-multi-fitment');
+  });
 });

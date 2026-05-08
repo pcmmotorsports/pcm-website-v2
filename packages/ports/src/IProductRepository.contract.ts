@@ -72,6 +72,13 @@ export function runProductRepositoryContract(
         it.todo('main-b 落地時實作:spec 無年份 match 任意 yearRange');
         it.todo('main-b 落地時實作:false-positive 防線 - 範圍無交集不 match');
       });
+
+      // cross-車型 false positive 防護(M-1-03-main-c sub-slice 2.5 落地、Sean 業務拍板):
+      // product.fitments 含多車型時、server-side prefilter(motoBrand+modelCode @>)為 product
+      // 級別、client-side 必須 cross-check 該條 fitment 三條(brand+model+year)全符、
+      // 避免 fitment A match brand+model + fitment B match year 交叉觸發 false positive。
+      // 規範:M-1-03-main-c sub-slice 2.5 commit body
+      it.todo('SupabaseProductAdapter 接 contract 時實作:跨車型 false positive 防護 — fitments=[{Yamaha,R1,2018-2024},{Honda,CBR,2010-2012}] 對 spec=(Honda,CBR,2020) 應 not match(Honda CBR 2010-2012 不 cover 2020、Yamaha R1 brand+model 不對 spec 不算)');
     });
 
     describe('searchByKeyword', () => {
