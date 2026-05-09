@@ -56,6 +56,12 @@ importers:
 
   apps/storefront:
     dependencies:
+      '@pcm/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@pcm/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       next:
         specifier: 16.2.6
         version: 16.2.6(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
