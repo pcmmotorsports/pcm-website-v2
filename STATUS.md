@@ -26,7 +26,7 @@
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 58f2452 | feat(M-1-03): main-d-d2 — N°04 真資料接入 + priceByTier strip + adapter export [main-d-d2] | 2026-05-09 |
+| 1147fbe | feat(M-1-03): main-d-d2 — N°04 真資料接入 + priceByTier strip + adapter export [main-d-d2] | 2026-05-09 |
 | 8b8e2c4 | feat(M-1-03): main-d-d1 — apps/storefront Next.js 16 + design 8 sections 直接搬 [main-d-d1] | 2026-05-08 |
 | 45a8a7e | feat(M-1-03): main-d-pre — apps/storefront 工程基礎設施對齊 [main-d-pre] | 2026-05-08 |
 
