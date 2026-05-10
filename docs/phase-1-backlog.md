@@ -2996,6 +2996,32 @@
 
 ---
 
+### #120. 🔴 @pcm/adapters server subpath export + server-only enforce(議題 2 anchor)
+
+- **狀態:** 🔴 立即啟動(Slice B 三 sub-slice 中)
+- **優先級:** 🔴 高(M-1-13 ProductPage 啟動前必修、避免 service_role key 進 client bundle)
+- **問題:**
+  - `packages/adapters/src/index.ts` root export 包 `createSupabaseServiceClient`、storefront 任何位置 import 都拿得到、含 client component
+  - service_role key 進 client bundle = 整個 Supabase DB 完全淪陷(bypass RLS)
+  - 目前防線:lib/products.ts 開頭 runtime guard `if (typeof window !== 'undefined') throw`(運行時擋)、但 build time 不擋、bundler 仍可能 trace import graph 把 service factory 打包進 client chunk
+  - 三層防需要:server-only npm 套件(編譯期擋)+ subpath export 拆 public/server(import path 級隔離)+ ESLint rule(寫 code 即時警示)
+- **觸發事件:**
+  - 2026-05-10 / M-1-03-audit Slice B(議題 2 處置):雙 audit findings R1 #2 Critical 揭示 service factory 從 root export 暴露給 client bundle 風險
+- **預期解法(三 sub-slice 拆法、Slice B):**
+  - **sub-slice B-1**(本 sub):server-only npm 套件 deps 加進 packages/adapters + apps/storefront、`import 'server-only'` 加 packages/adapters/src/supabase/client.ts 檔頭
+  - **sub-slice B-2**:packages/adapters/package.json `exports` field 加 `./server` subpath、新建 packages/adapters/src/server.ts export 含 service factory、root index.ts 移除 service factory export、apps/storefront/src/lib/products.ts import path 改 `@pcm/adapters/server`
+  - **sub-slice B-3**:eslint.config.js 加 boundaries / no-restricted-imports rule 擋 client component(`'use client'` 標記)import `@pcm/adapters/server`、dry-run 7 條(server import OK / client import CAUGHT)
+- **不修會痛在:**
+  - 擴充性:M-1-13 加 client component(ProductPage 互動 / FilterSide 篩選器)、若手抖 import 到 service factory、整 Supabase 淪陷;sub-slice B-3 ESLint rule 是 IDE 即時警示、避免 review 漏抓
+  - 可維護性:三層防分散在 deps / exports / lint config、無 anchor 條目追蹤連帶關係、未來 audit 找不到「為何 server.ts 拆出去」
+  - bug 可追蹤性:若 service_role key 真進 client bundle 上線後洩漏、查 webpack stats / Vercel build output 才知道、回溯 commit history 無此 anchor 條目找根因
+- **估時:** 三 sub-slice 合計 60-90 min(B-1 15-20 min + B-2 20-30 min + B-3 25-40 min)
+- **依賴:** 無前置(Slice A products_public view 已 push、本 slice 從乾淨 base 起跑)
+- **發現於:** 2026-05-10 / M-1-03-audit Slice B 議題 2 處置
+- **相關:** Slice A 議題 1+6(view 防漏經銷價、不同層次防)、ADR-0003 §C2 RLS column-level、ADR-0005 §7 service_role key 紀律
+
+---
+
 ## 紀錄模板
 
 ```markdown

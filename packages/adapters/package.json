@@ -12,7 +12,8 @@
   "dependencies": {
     "@pcm/domain": "workspace:*",
     "@pcm/ports": "workspace:*",
-    "@supabase/supabase-js": "^2.105.3"
+    "@supabase/supabase-js": "^2.105.3",
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
