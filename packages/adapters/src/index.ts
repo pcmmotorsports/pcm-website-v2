@@ -2,15 +2,15 @@
 //
 // 對應 ADR-0002 §4.1。子目錄結構待 backlog #48 / Audit-F25 / T17(adapters 子目錄結構) trigger 拍。
 //
-// Public API(對齊 M-1-03-main-d-d2 落地、Step 1 真權威字面確認 packages/adapters/src/supabase/client.ts):
+// Public API(對齊 sub-slice B-2 subpath exports 拆法):
 // - SupabaseProductAdapter:domain Product 真實 adapter 實作(ADR-0005 後 main wire-up)
-// - createSupabaseAnonClient / createSupabaseServiceClient:client factory(server-side DI)
+// - createSupabaseAnonClient:anon factory(可進 client bundle、RLS-protected、storefront 公開讀用)
 //
-// 注:Public API 範圍 d2 階段限 storefront 直接需要的字面(adapter + 兩 factory)。
+// Server-only API(從 @pcm/adapters/server import、不在本檔):
+// - createSupabaseServiceClient:service_role factory(繞 RLS、apps/api 寫操作用、絕不入 client bundle)
+//
+// 注:Public API 範圍限 storefront 直接需要的字面(adapter + anon factory)。
 // 未來 Sheets / TapPay adapter 落地時順手擴(對齊 ADR-0002 §4.1 + backlog #48 trigger)。
 
 export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
-export {
-  createSupabaseAnonClient,
-  createSupabaseServiceClient,
-} from './supabase/client';
+export { createSupabaseAnonClient } from './supabase/client';

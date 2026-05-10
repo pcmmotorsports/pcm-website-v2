@@ -3022,6 +3022,35 @@
 
 ---
 
+### #121. ⏳ spike script API surface 規範(workspace 範圍限制處理)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(spike 是 dev tool、現有 deep import 仍能跑、不阻擋)
+- **問題:**
+  - `scripts/spikes/*.ts` 不在 `pnpm-workspace.yaml` include 範圍(`apps/*` + `packages/*`)
+  - `.npmrc` 設 `shamefully-hoist=false` 嚴格隔離、`@pcm/*` 不 hoist 進 root node_modules
+  - spike script 從 root context 跑、無法 resolve `@pcm/adapters` / `@pcm/adapters/server` 等 package name
+  - 目前 4 個 deep import:`createSupabaseServiceClient` / `SupabaseProductAdapter` / `matchFitmentYear` / `@pcm/domain` types
+    (其中 `@pcm/domain` 為何能 resolve 待偵察 — 可能 tsx 解析機制 + workspace deps 透過 @pcm/adapters 傳遞)
+  - 規範缺位:未來新人寫 spike 不知道「能不能用 package name」、可能踩同坑(sub-slice B-2 即踩過、Sean Q-G4-spike=A1 拍板還原)
+- **觸發事件:**
+  - 2026-05-10 / sub-slice B-2 §G.4 偵測:Code 將 createSupabaseServiceClient 改為 @pcm/adapters/server、tsx 解析失敗、Sean 拍板還原
+- **預期解法(三選項並列、後續 slice 拍板):**
+  - **(a) workspace 擴張**:`pnpm-workspace.yaml` 加 `'scripts/**'` 或類似 include、將 spike 納入 workspace、可 resolve package name;但 scripts/ 通常無 package.json、要新建一個或結構調整、scope 大
+  - **(b) root devDeps 加 @pcm/* alias**:root `package.json` 加 `"@pcm/adapters": "workspace:*"` 等 devDeps、讓 root context 能 resolve;scope 中等、對 root 影響面要評估
+  - **(c) spike 維持 deep import 慣例**:寫進 working-style.md「spike script 用 deep relative import、不走 package name(workspace 範圍限制)」;scope 最小、但留「未來新人可能仿 deep import」風險
+  - **建議方向:** 拍板時依 spike 數量 + 規模評估;若 spike 持續累積(M-1-13 / M-2-XX 各有自己 spike)選 (a) 最徹底;若是 dev tool 一次性精神選 (c) 最簡
+- **不修會痛在:**
+  - 擴充性:Phase 2 各 milestone spike 累積、無規範各 spike 自由發揮;若有人寫 spike 用 package name 會踩同坑
+  - 可維護性:spike script 4 個 import 風格不一致(假設未來部分改 package name 部分留 deep)、新人困惑哪個是對的
+  - bug 可追蹤性:本條目為 anchor、未來 spike 撞 resolution 議題時 grep 找此條目決議
+- **估時:** 拍板 + 落地 30-60 min(視選 a/b/c 工作量不同)
+- **依賴:** 無、隨時可做
+- **發現於:** 2026-05-10 / M-1-03-audit sub-slice B-2 §G.4
+- **相關:** `scripts/spikes/M-1-03-main-c-roundtrip.ts`、backlog #120(議題 2 anchor、本條目從 #120 sub-slice B-2 衍生)、`pnpm-workspace.yaml`、`.npmrc` shamefully-hoist=false
+
+---
+
 ## 紀錄模板
 
 ```markdown
