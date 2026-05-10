@@ -2943,6 +2943,57 @@
 - **發現於:** 2026-05-08 / M-1-03-main-d-d1(commit body 註記 8、Sean Q2=B1+B3 拍板)
 - **相關:** `apps/storefront/src/components/{HomeHero,FeatureEditorial,HomeStatement,HomeFooter,CategoryGrid,BrandIndex}.tsx`(候選改 Link)、`{VehicleFinder,Header,ProductCard}.tsx`(維持 client)、d1 指令 Step 4.1 字面維持精神 + lessons §1.1 直接搬精神 + Next.js 16 RSC server-client boundary
 
+### #118. ⏳ SupabaseProductAdapter 6 method 切換讀 products_public view
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1-16 種子前必修、種子上線後 storefront 仍走 base products 表 = 經銷價洩漏)
+- **問題:**
+  - slice-A 已建 products_public view 排除 price_by_tier
+  - 但 SupabaseProductAdapter 6 method(findById / searchByKeyword / listByFitment / listByCategory / listByBrand / save)仍讀 base products 表
+  - storefront 端目前靠 main-d-d2 application 層 priceByTier strip 防線、若漏 strip 仍洩
+  - 切到 view 後、防線下沉到 DB 層、application 層 strip 為輔助而非主防線
+- **觸發事件:**
+  - 2026-05-10 / M-1-03-audit Slice A 完成 view、留接縫待 adapter 切換
+- **預期解法:**
+  - SupabaseProductAdapter 6 method 全切到 `.from('products_public')`
+  - InMemoryProductRepository 同步調整(testing 對齊 view 形狀、不回 priceByTier)
+  - 對應 contract test 加 case「products_public view 不回 price_by_tier」
+- **不修會痛在:**
+  - 擴充性:Phase 2 加分類頁 / 品牌頁、application 層漏 strip 機率上升、view 防線下沉前每頁都要重做
+  - 可維護性:防線散兩層(adapter + application strip)、未來 review 不易定位
+  - bug 可追蹤性:洩漏時不知道是 adapter 漏 view 還是 application 漏 strip
+- **估時:** 60-90 min(6 method 切換 + InMemory 對齊 + contract test 補)
+- **依賴:** M-1-16 種子前必修
+- **發現於:** 2026-05-10 / M-1-03-audit Slice A audit follow-up(slice-A-fix amend 開立)
+- **相關:** `supabase/migrations/20260510134708_products_public_view.sql`、ADR-0003 §C2 RLS column-level、`docs/architecture/supabase-schema-design.md` §6.1 / §9.2
+
+---
+
+### #119. ⏳ products_public view 拆分:list-projection vs detail-projection
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 低(Phase 1 規模(M-1-16 200 SKU)可接受、規模長大才痛)
+- **問題:**
+  - 目前 products_public view 投射 description / images / fitments 三 jsonb 全字段
+  - list 頁 query(50 SKU)實測 ~7KB jsonb / row × 50 = ~350KB / query
+  - 實際 list 卡片只需 ~50KB(title / handle / images 第 1 張縮圖)
+  - 7x over-fetch、Phase 1 規模可接受、分類頁 / 品牌頁啟用後痛
+- **觸發事件:**
+  - 2026-05-10 / M-1-03-audit Slice A audit follow-up / simplify D5 finding
+- **預期解法:**
+  - 拆 `products_list_public` view(僅 list 必需欄位、排除 description / fitments / 取 images[0])
+  - 維持 `products_public` view(detail 用、全公開欄位)
+  - adapter listByCategory / listByBrand / searchByKeyword 切到 list view
+  - adapter findById 維持 detail view
+- **不修會痛在:**
+  - 擴充性:分類頁 / 品牌頁啟用後 query 變慢、客戶體驗下降
+  - 可維護性:現在不拆、未來拆需動 adapter 多 method 切換、commit 跨多檔
+  - bug 可追蹤性:慢 query 來源易定位、但 view 不分時要 join 多 query 才能優化
+- **估時:** 30-45 min(2 view DDL + adapter 對應切換)
+- **依賴:** 分類頁 / 品牌頁 milestone 啟用前(M-2-XX、待 milestone 排程拍板)
+- **發現於:** 2026-05-10 / M-1-03-audit Slice A simplify audit D5 finding(slice-A-fix amend 開立)
+- **相關:** `supabase/migrations/20260510134708_products_public_view.sql`、#118(adapter 切換、為 view 拆分後 adapter 對應切換的前置)
+
 ---
 
 ## 紀錄模板
