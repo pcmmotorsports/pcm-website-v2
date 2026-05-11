@@ -22,7 +22,7 @@ import { matchFitmentYear } from './helpers/fitment';
  * 對齊 docs/architecture/supabase-schema-design.md §3.3 + §4.3 JOIN strategy。
  */
 const PRODUCT_SELECT =
-  'id, title, subtitle, description, handle, price_by_tier, fitments, images, availability, created_at, updated_at, brands(id, name, slug), categories(raw_path, segments)';
+  'id, title, subtitle, description, handle, price_by_tier, fitments, images, availability, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 const PGRST_NOT_FOUND = 'PGRST116';

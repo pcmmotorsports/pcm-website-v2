@@ -2963,7 +2963,7 @@
   - 可維護性:防線散兩層(adapter + application strip)、未來 review 不易定位
   - bug 可追蹤性:洩漏時不知道是 adapter 漏 view 還是 application 漏 strip
 - **估時:** 60-90 min(6 method 切換 + InMemory 對齊 + contract test 補)
-- **依賴:** M-1-16 種子前必修
+- **依賴:** 刀 4 storefront 公式 dispatch 落地後配合切(原 M-1-16 種子前 anchor、修正為 view 切配合 priceByTier strip 路徑落地時機;單獨切 view 會撞 mapper priceByTier 三 tier 設計意圖、2026-05-12 / M-1-03-main-a 刀 2 偵察揭示)
 - **發現於:** 2026-05-10 / M-1-03-audit Slice A audit follow-up(slice-A-fix amend 開立)
 - **相關:** `supabase/migrations/20260510134708_products_public_view.sql`、ADR-0003 §C2 RLS column-level、`docs/architecture/supabase-schema-design.md` §6.1 / §9.2
 
@@ -3048,6 +3048,35 @@
 - **依賴:** 無、隨時可做
 - **發現於:** 2026-05-10 / M-1-03-audit sub-slice B-2 §G.4
 - **相關:** `scripts/spikes/M-1-03-main-c-roundtrip.ts`、backlog #120(議題 2 anchor、本條目從 #120 sub-slice B-2 衍生)、`pnpm-workspace.yaml`、`.npmrc` shamefully-hoist=false
+
+---
+
+### #122. ⏳ brand name→ID cache + invalidation(adapter / sync-engine / admin 三層連動)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(adapter 內 Brand value-object 已含 id、無使用點;sync-engine / admin 廠商導入啟動才有 brand name 字串需 resolve)
+- **問題:**
+  - SupabaseProductAdapter Brand resolve 無 name → id cache(`SupabaseProductAdapter.ts` L69-72 + L241-244 兩處 JSDoc anchor 明示「第 3 處撞才抽」Defer 模式、對齊 lessons #84/#85)
+  - `docs/architecture/supabase-schema-design.md` §3.3 設計意圖描述「adapter 邊界雙向 resolve FK ↔ name string;cache 名稱→ID」、刀 2 偵察揭示無使用點:adapter Brand value-object 已含 id、save 直接用 product.brand.id、findById / list / search 走 JOIN 拿 brands(*) 結構、無 name → id resolve 路徑
+  - 未來 sync-engine 廠商爬蟲 / Sheets 雙寫 / admin 手動 import 啟動時、會從廠商 wire 字串(brand name)resolve brand id、需 cache 防重複 query(N+1 預防)
+- **觸發事件(任一觸發即啟動實作):**
+  - sync-engine 廠商爬蟲 / Sheets 雙寫啟動(需從廠商 wire 字串 resolve brand id)
+  - admin 手動 import 流程啟動(需從 CSV / 表單字串 resolve brand id)
+  - 同 brand name 字串 → id resolve 場景累積第 3 處(對齊 lessons #84/#85 + `SupabaseProductAdapter.ts` L69-72 既有 anchor)
+- **預期解法:**
+  - 結構:`Map<string, string>`(brand name → brand id)、容量上限 100(Phase 1 廠牌數 < 50、buffer ×2)
+  - invalidation 二選一(拍板時定):TTL(短期過期、簡單)/ admin write hook 主動清(精準、需 admin / sync-engine 加 hook)
+  - 位置:`packages/adapters/src/supabase/helpers/brand-cache.ts`(對齊 helpers/ 既有 pattern:category-path.ts / fitment.ts)
+  - 整合點:SupabaseProductAdapter 加 private `resolveBrandId(name)` method、整合 cache 邏輯
+  - 不引入新 npm dep(用內建 Map、防 package.json drift)
+- **不修會痛在:**
+  - 擴充性:brand rename / 刪除時 cache stale 返錯 id、sync-engine 廠商更名 / admin 改 brand 無 cache invalidation → product wrong-brand 連鎖
+  - 可維護性:既有 JSDoc 兩處 anchor(L69-72 + L241-244)散落 code、條目化集中追蹤;新人寫 sync-engine / admin 不知道既有「Defer 模式」設計、可能重複 resolve 無 cache(N+1 query)
+  - bug 可追蹤性:cache stale → product wrong-brand bug、log 需 brand id resolve 路徑追蹤;條目編號便於 grep 找決議
+- **估時:** 60-90 min(實作 cache + invalidation policy + adapter / sync-engine 整合 test)
+- **依賴:** 任一 trigger 觸發即啟動(無前置 milestone 依賴)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 2 偵察(Sean Q-brand-cache=A4 拍板不實作 cache、條目化開立)
+- **相關:** `packages/adapters/src/supabase/SupabaseProductAdapter.ts` L69-72 + L241-244 既有 JSDoc anchor、`docs/architecture/supabase-schema-design.md` §3.3 cache 描述、`docs/lessons-learned.md` 第 84 / 85 條 Defer 模式、`docs/working-style.md` §6.3 第 14+ 條教訓
 
 ---
 
