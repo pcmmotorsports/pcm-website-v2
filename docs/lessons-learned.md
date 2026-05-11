@@ -438,6 +438,137 @@ describe('listByFitment', () => {
 
 **規範定位:** 對齊 working-style.md 原則 10(維度 A 字面不憑記憶)+ 原則 9(維度 B 含數字提醒 Sean 跑 git 命令拿事實)+ 自檢條 9 + 11。lessons §12-3 提供「為什麼這樣設計」的歷史教訓、working-style 提供「規則本身」、互補。
 
+### 12-4. 跨 workspace 議題前 grep pnpm-workspace include 範圍
+
+**事故脈絡:**
+M-1-03-audit-disposition Slice B-2 過程、Claude.ai 推「spike script API surface 規範」字面、未先讀 pnpm-workspace.yaml include 範圍。實況 spike 不在 workspace + .npmrc `shamefully-hoist=false` 嚴格模式 = package name 無法 resolve、字面方向錯。Sean Q-G4-spike=A1 拍板還原 spike + 新開 backlog #121 anchor 處置、修正鏈完整記錄 commit `8e31b0a` body §G.4。
+
+**規則:**
+- 寫跨 workspace 議題(import / dep 引用 / 共享 type / 規範擴張)字面前、必先 grep `pnpm-workspace.yaml` `packages:` include 範圍 + `.npmrc` `shamefully-hoist` 設定
+- 確認 importer / importee package 是否同 workspace、避免「workspace 內 vs 外」字面誤推
+- 嚴格模式(`shamefully-hoist=false`)下、cross-package 必須走顯式 `workspace:*` deps、否則 phantom dep / resolve fail
+- 同類風險:spike script / one-off tool / 不在 workspace 的 dev script、不可預設 workspace import 慣例
+
+**教訓來源:** M-1-03-audit-disposition Slice B-2(commit `8e31b0a`)Sean Q-G4-spike=A1 拍板鏈、字面 enforce 第 7 次踩
+
+### 12-5. 業務字面 vs schema 字面不一致時、必 multi-select 問 Sean
+
+**事故脈絡:**
+M-1-03-post-supplement sub-slice 0b 過程、發現三層字面拼法不同:
+- schema / wire / TS type:`'premiumStore'`(camelCase、`MemberTier` 列舉真權威)
+- 後台 UI / 業務語意:「高級店家」(中文)
+- design-handoff 慣例:`premium_store`(snake_case、業務溝通用)
+- STATUS L35 字面:「業務字面權威 general/store/premium_store」
+
+Claude.ai 寫指令字面易混用三層、Code 執行端難判「對齊哪層」。
+
+**規則:**
+- 遇 design / 業務 / schema 字面拼法不同、必 multi-select 問 Sean「字面權威是哪層 / 是否要統一」、不擅自選邊
+- 文件層必明示三層對應(schema vs 業務 vs design-handoff)、提供 mapping 表、避免後續實作端混淆
+- 若必須先動字面(避免阻塞 slice)、優先對齊 schema 真權威(技術字面、grep 可驗證)、業務字面用註腳對應
+- 同類風險:任何「業務溝通字面」與「technical key 字面」分歧、必三層對應
+
+**教訓來源:** M-1-03-post-supplement sub-slice 0b §2.4 Pricing 公式字面對照(指令字面 `premium_store` snake_case vs schema 真權威 `premiumStore` camelCase)、Code raise 三層對應補進 §2.4 註腳
+
+### 12-6. 寫 rsync / 跨 system 同步前必 grep target .gitignore + 既有目錄結構
+
+**事故脈絡:**
+M-1-03-post-audit-design-bump-v2.0-v2.1 過程、Claude.ai 寫 rsync 字面 3 次未先 grep design repo `.gitignore` + 既有目錄結構、雜質進 working tree:
+- PCM Motorsports v2.html 16MB bundle(本不該進 design repo)
+- scraps/ Claude Design sketch(被 design repo 排除的本地草稿)
+- uploads/ Sean 中文檔名截圖(本地 working file、非設計成品)
+
+3 次需 Code raise multi-select 救、Sean Q-zip-extract=C1 / Q-scraps=S4 / Q-uploads=U1 三題拍板 exclude 模式。
+
+**規則:**
+- 寫 rsync(或 cp -r / git clone bare 模式 / 任何跨 system 同步)字面前、必先讀 target repo `.gitignore` + 既有目錄結構
+- 用 `--exclude` / `--filter` 排除 .gitignore 命中的檔、避免雜質
+- 若 source 無 `.gitignore` / target 有 / 兩邊有但內容不同、必先列差、multi-select 問 Sean 拍板 exclude 模式
+- 同類風險:zip 解壓進 working tree / submodule update --remote / 跨 fork merge — 都需先讀 target .gitignore
+
+**教訓來源:** M-1-03-post-audit-design-bump-v2.0-v2.1 §F.2 rsync 3 雜質 exclude(commit `c2240e4` body)
+
+### 12-7. 不憑印象推測檔名慣例、必 grep 既有引用層雙看
+
+**事故脈絡:**
+M-1-03-post-audit-design-bump-v2.0-v2.1 過程、Claude.ai 寫指令字面推測「`?v=1` query string 不該入檔名」、認為應 strip。Sean Q-walletcache=W1a 拍板「rename 純檔名取 v2.1 中文化『進階會員』字面」— 揭示實況:`?v=1` 是 HTML 引用層快取破壞字面、filesystem 檔名層另一回事、兩層各自獨立、不能憑印象推「一定不該入檔名」。
+
+**規則:**
+- 寫指令推測「字面慣例」前、必先 grep 既有引用層(HTML import / Markdown link / 配置 path)+ filesystem 實況雙看
+- 同 token 在不同層字面有不同意義(`?v=`HTML 快取 vs filesystem 檔名)、不可預設「一致跨層」
+- 涉及 rename / 規範化指令、必先列出當前實況 + 推論依據、multi-select 問 Sean 拍板、不憑印象寫死字面
+- 同類風險:檔名空格 / hash / 中文字符 / 副檔名大小寫 — 任何「我以為這樣才對」的字面假設
+
+**教訓來源:** M-1-03-post-audit-design-bump-v2.0-v2.1 Q-walletcache=W1a `WalletTab.jsx?v=1` rename 事件
+
+### 12-8. 寫跨 repo 同步前必 grep target README + .gitignore(退役 / 不入版控慣例)
+
+**事故脈絡:**
+M-1-03-post-audit-design-bump-v2.0-v2.1 過程、design submodule bump 含 `PCM Motorsports v2.html` 16MB bundle exclude 等議題、Claude.ai 寫 rsync 字面未先讀 design repo README + .gitignore 慣例、字面方向需 Code raise 救。target repo 既有「退役檔不入版控」「scraps/ 本地草稿」等慣例、Claude.ai 未事先掌握。
+
+**規則:**
+- 跨 repo 同步前(rsync / submodule update / merge / clone)必 grep target repo `README` + `.gitignore` 找慣例:
+  - 退役檔(舊版本 / legacy bundle)
+  - 本地草稿(scraps/ / drafts/ / tmp/)
+  - 環境特定檔(.env.local / .DS_Store)
+  - 大檔 / binary(LFS 規則)
+- 若 target README 無明文、必 multi-select 問 Sean 拍板「哪些檔該進 / 該排除」
+- 同類風險:第一次接觸的 repo / fork / 第三方專案 — 不可預設「跟主 repo 慣例一樣」
+
+**教訓來源:** M-1-03-post-audit-design-bump-v2.0-v2.1 design submodule bump §F.2 雜質 exclude 拍板鏈
+
+### 12-9. 寫 rsync --delete 前必 grep target dotfile / infra 預先 restore
+
+**事故脈絡:**
+M-1-03-post-audit-design-bump-v2.0-v2.1 過程、rsync --delete 誤殺 design repo `.gitignore`、Sean Q-gitignore=N1 拍板「git restore .gitignore」救回。Claude.ai 寫 rsync --delete 字面未提醒「dotfile / infra 檔可能在 --delete 範圍內、需預先 restore 或 exclude」。
+
+**規則:**
+- 寫 rsync --delete(或 `git clean -fd` / 任何「同步刪除非預期檔」指令)前、必 grep target dotfile / infra 檔列表:
+  - `.gitignore` / `.gitattributes` / `.editorconfig` / `.npmrc`
+  - `.github/` / `.vscode/` / `.husky/`
+  - 任何 `.<name>` 開頭的隱藏設定
+- 提醒 Code 預先 `git restore` 或 `--exclude` 這些檔、避免誤殺
+- --delete 類指令本質「source 沒的 target 全砍」、必須事先列 target 獨有檔
+- 同類風險:`git checkout .` / `git clean -fdx` / `rm -rf` — 任何「批次刪除非預期檔」操作
+
+**教訓來源:** M-1-03-post-audit-design-bump-v2.0-v2.1 Q-gitignore=N1 `.gitignore` 誤殺事件
+
+### 12-10. 寫指令字面前自檢「是否能讀真權威」、不能讀必標待確認
+
+**事故脈絡:**
+M-1-03-post-audit-design-bump-v2.0-v2.1 過程、Sean Q-wrs=R1 拍板「wrs.png 接受 deletion 對齊 brand-logos 重組」— 實況唯一 1 檔、但 Claude.ai 指令字面預期「多筆」、未先 grep 實況。類似事件累積第 11+ 次踩字面、揭示「不憑印象 / 歷史記憶推測檔列表 / 編號數量」鐵則需強化。
+
+**規則:**
+- 寫指令字面前自檢:
+  - 是否已 grep 真權威字面、不憑印象?
+  - 是否能精準寫死字面(file name / count / list)、不能精準時必標 `<待 Code 字面確認>`?
+  - 字面數量(N 筆 / N 個)是否能 grep 驗、不憑歷史推測?
+- 不能讀 / 不能精準時、指令字面留待確認占位、Code 偵察補實況再寫死
+- 同類風險:任何「我以為這檔列表是這樣」「我記得有 N 個」的字面假設
+
+**教訓來源:** M-1-03-post-audit-design-bump-v2.0-v2.1 Q-wrs=R1 wrs.png 1 筆 vs 多筆預期偏離事件(累積第 11+ 次字面踩)
+
+### 12-11. STATUS 文件內候選編號 vs backlog 既有條目編號必區分
+
+**事故脈絡:**
+M-1-03-post-supplement sub-slice 0a 偵察、指令字面 Step 6 寫「確認 STATUS.md 提到的 #117/#120/#121/#122 在 backlog 既有狀態」。Code 0a grep 揭示:
+- #117 / #120 / #121:在 backlog 字面存在(#117 是 reserved anchor、#120 / #121 已開條目)
+- #122:在 backlog 無字面、且 STATUS.md 全文無 `#122` 字面
+- STATUS L35 字面有「累積教訓 #7 + #8 + 候選 #9-#13」— 這串是 working-style §6.3「第 N 條教訓」候選編號、非 backlog 條目編號
+- 指令字面似把 STATUS 內候選教訓編號誤讀為 backlog 條目編號
+
+**規則:**
+- 寫指令字面引用編號前、必明示來源:
+  - `backlog #N` = `docs/phase-1-backlog.md` 條目編號
+  - `lessons §12-N` = `docs/lessons-learned.md` §12 子節編號
+  - `working-style 第 N 條` = `docs/working-style.md` §6.3 教訓條目編號
+  - `STATUS 候選 #N` = STATUS.md 內 commit body 候選編號(尚未落地、非正式條目)
+- 不可混用 `#N` 短語、避免誤讀(STATUS 文件內候選 vs backlog 既有條目)
+- 寫字面前必 grep 確認編號真存在於指定文件、不憑記憶
+- 同類風險:跨文件編號引用(ADR-N / audit-F\<N\> / tech-debt T\<N\> / risk R\<N\>)— 必標 source 文件
+
+**教訓來源:** M-1-03-post-supplement sub-slice 0a 偵察糾正(指令字面 #122 為 STATUS 內候選教訓編號、非 backlog 條目、Code 偵察揭示後 sub-slice 0b 補進 §12-11 防同類)
+
 ---
 
 ## 附錄 A:第一輪事件年表(精簡)

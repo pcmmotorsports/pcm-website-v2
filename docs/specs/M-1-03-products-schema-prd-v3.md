@@ -81,8 +81,7 @@ CREATE TABLE products (
   ),
   CONSTRAINT price_by_tier_keys CHECK (
     price_by_tier ? 'general' AND
-    price_by_tier ? 'store' AND
-    price_by_tier ? 'premiumStore'
+    price_by_tier ? 'store'
   )
 );
 ```
@@ -91,20 +90,54 @@ CREATE TABLE products (
 
 ```json
 {
-  "general":      { "amount": 4500, "currency": "TWD" },
-  "store":        { "amount": 4000, "currency": "TWD" },
-  "premiumStore": { "amount": 3800, "currency": "TWD" }
+  "general": { "amount": 4500, "currency": "TWD" },
+  "store":   { "amount": 4000, "currency": "TWD" }
 }
 ```
 
-設計理由(對齊 supabase-schema-design.md §5.1):
-- jsonb 內聯:5w SKU × 3 tier = 15w row vs 5w row、節省 join cost
-- CHECK constraint 強制三 tier 全部存在、避免漏 tier 引發 server-side render fall-back 邏輯複雜
+設計理由(對齊 supabase-schema-design.md §5.1 + §2.4 Pricing 公式):
+- jsonb 內聯 2 key:5w SKU × 2 tier = 10w row vs 5w row、節省 join cost
+- CHECK constraint 強制 `general` + `store` 兩 tier 全部存在、避免漏 tier 引發 server-side render fall-back 邏輯複雜
+- `premiumStore` tier 不在 jsonb 內 seed、由 §2.4 Pricing 公式 storefront 動態算(`store × (1 - brand.premium_extra_pct / 100)`)
 - amount 是 integer(分位 / TWD 元位)、對齊 packages/domain/src/shared/types.ts:MoneyAmount brand type + security-timeline #B3
 
 ### 2.3 字面 vs 事實揭示
 
 真權威 §2.1 brand_id / category_id 無 ON DELETE 子句、本檔補 ON DELETE RESTRICT 對齊 a2-1 Q2=B1 拍板;同 commit 補 supabase-schema-design.md §2.1 真權威字面對齊(§9 #1 揭示)。
+
+### 2.4 Pricing 公式(三 tier 顯示計算、對齊 M-1-03-post-supplement)
+
+**後台只填 2 個價 + 1 個廠牌參數:**
+
+| 欄位 | 型 | 來源 |
+|---|---|---|
+| `products.price_by_tier.general` | jsonb key:Money(integer amount + 'TWD') | 商品逐筆填、後台 UI 一般售價 |
+| `products.price_by_tier.store` | jsonb key:Money | 商品逐筆填、後台 UI 店家經銷價 |
+| `brands.premium_extra_pct` | integer(0-30、預設 0) | 廠牌一筆填、後台 UI 廠牌加碼 % |
+
+**storefront 渲染各 tier 顯示價(server-side、對齊 §6.1 priceByTier 不洩漏):**
+
+| customer.tier | 顯示價計算 |
+|---|---|
+| `general` | `price_by_tier.general.amount` |
+| `store` | `price_by_tier.store.amount`(server-side render、不 leak 給 general client) |
+| `premiumStore` | `Math.round(price_by_tier.store.amount × (1 - brand.premium_extra_pct / 100))`(server-side、不 leak 給 general / store client) |
+
+**範例:**
+- 商品 A:`price_by_tier.general = 4500` / `price_by_tier.store = 4000`、廠牌 RIZOMA `premium_extra_pct = 5`
+- `general` tier 看 4500、`store` tier 看 4000、`premiumStore` tier 看 `round(4000 × 0.95) = 3800`
+- 廠牌不加碼(`premium_extra_pct = 0`)時、`premiumStore` 看價等同 `store`
+
+**設計動機:**
+- 後台不爆欄位:商品逐筆 2 個價 + 廠牌一處集中加碼參數、不是每商品填 3 個價、減少漏填 / 不一致風險
+- 廠牌加碼集中調整:改一處、整廠牌商品 `premiumStore` 看價同步、避免逐商品改
+- tier 列舉仍三級(`general` / `store` / `premiumStore`、§5.2 customer_groups 三筆 INSERT + §5.3 customer.tier CHECK 維持三 key)、僅 pricing 表達由「三 key 全 seed」改為「二 key seed + 公式算第三」
+
+**業務字面 vs schema 字面對應(避免混淆):**
+- schema / wire / TS type 字面:`'general'` / `'store'` / `'premiumStore'`(camelCase、MemberTier 列舉)
+- 後台 UI / 業務語意:一般會員 / 店家經銷 / 高級店家(中文)
+- design-handoff 字面慣例:`general` / `store` / `premium_store`(snake_case、業務溝通用、非 schema key)
+- 三層字面語意對齊、僅拼法層次不同、實作端以 schema 字面 `premiumStore` 為準
 
 ---
 

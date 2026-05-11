@@ -62,11 +62,13 @@ CREATE TABLE products (
   ),
   CONSTRAINT price_by_tier_keys CHECK (
     price_by_tier ? 'general' AND
-    price_by_tier ? 'store' AND
-    price_by_tier ? 'premiumStore'
+    price_by_tier ? 'store'
   )
 );
 ```
+
+**CHECK 二 key 設計理由(對齊 M-1-03-post-supplement Pricing 公式):**
+`price_by_tier` 僅 seed `general` + `store` 兩 key、`premiumStore` tier 由 storefront 用 `brands.premium_extra_pct` 動態算(`store × (1 - premium_extra_pct / 100)`)、不在 jsonb 內寫死;tier 列舉仍維持三級(`general` / `store` / `premiumStore`、§5.2 + §5.3 字面)、僅 pricing 表達方式由「三 key 全 seed」改為「二 key seed + 公式算第三」。
 
 索引策略見 §10。
 
@@ -160,6 +162,9 @@ CREATE TABLE brands (
   slug        text NOT NULL UNIQUE,         -- URL slug、kebab-case、例:'cnc-racing'
   description text,
   logo_url    text,                          -- Supabase Storage URL(對齊 ADR-0004 Q2=A2)
+  premium_extra_pct integer NOT NULL DEFAULT 0
+    CHECK (premium_extra_pct >= 0 AND premium_extra_pct <= 30),
+                                              -- premium tier 加碼 %(0-30、預設 0 = 不加碼);對齊 M-1-03-post-supplement Pricing 公式、storefront 算 `store × (1 - premium_extra_pct / 100)`
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
