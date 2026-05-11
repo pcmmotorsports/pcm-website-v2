@@ -13,7 +13,7 @@ function createFakeProduct(overrides: Partial<Product> = {}): Product {
   return {
     id: 'p-001',
     name: 'Akrapovič 鈦合金全段排氣管',
-    brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic' },
+    brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic', premium_extra_pct: 0 },
     category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] },
     fitments: [
       { motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2018, yearEnd: 2024 },
@@ -67,8 +67,8 @@ describe('InMemoryProductRepository', () => {
   });
 
   it('should list products by brand id match', async () => {
-    const akra = createFakeProduct({ id: 'p-1', brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic' } });
-    const brembo = createFakeProduct({ id: 'p-2', brand: { id: 'b-brembo', name: 'Brembo', slug: 'brembo' } });
+    const akra = createFakeProduct({ id: 'p-1', brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic', premium_extra_pct: 0 } });
+    const brembo = createFakeProduct({ id: 'p-2', brand: { id: 'b-brembo', name: 'Brembo', slug: 'brembo', premium_extra_pct: 0 } });
     const repo = new InMemoryProductRepository([akra, brembo]);
 
     const result = await repo.listByBrand('b-akrapovic');

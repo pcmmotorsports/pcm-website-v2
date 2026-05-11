@@ -27,6 +27,8 @@ export type SupabaseBrandRow = {
   slug: string;
   description: string | null;
   logo_url: string | null;
+  /** premium 店家加碼 %(0-30、預設 0);optional 為過渡態、刀 2 擴 SELECT 字面後改 required(對齊 schema doc §3.1 brands NOT NULL DEFAULT 0)。 */
+  premium_extra_pct?: number;
   created_at: string;
   updated_at: string;
 };
@@ -82,10 +84,12 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     throw new Error(`Product ${row.id} missing category JOIN`);
   }
 
+  // premium_extra_pct: optional type(SupabaseBrandRow)+ SELECT 字面尚未擴(留刀 2)、暫用 ?? 0 fallback
   const brand: Brand = {
     id: row.brands.id,
     name: row.brands.name,
     slug: row.brands.slug,
+    premium_extra_pct: row.brands.premium_extra_pct ?? 0,
   };
 
   const category: CategoryPath = {

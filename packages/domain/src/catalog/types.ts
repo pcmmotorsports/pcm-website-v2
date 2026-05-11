@@ -19,6 +19,18 @@ export type Brand = {
   name: string;
   /** URL slug、例:'cnc-racing' */
   slug: string;
+  /**
+   * premium 店家 tier 在 store 價上的加碼折扣 %(0-30、預設 0 = 不加碼)。
+   *
+   * 對齊 supabase-schema-design.md §3.1 brands.premium_extra_pct +
+   * M-1-03-post-supplement Pricing 公式。
+   *
+   * storefront 公式:
+   *   `premiumStore` 顯示價 = round(priceByTier.store.amount × (1 - premium_extra_pct / 100))
+   *
+   * 字面慣例:snake_case `premium_extra_pct`(對齊 schema + design 字面、不用 camelCase)。
+   */
+  premium_extra_pct: number;
 };
 
 /**
