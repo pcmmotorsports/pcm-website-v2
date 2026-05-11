@@ -64,6 +64,9 @@ export type SupabaseProductRow = {
   categories: SupabaseCategoryRow | null;
 };
 
+/** premium_store placeholder amount(amount 0、刀 4 公式 dispatch 落地後重寫此區域、const 同時刪除)。 */
+const PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4 = 0;
+
 /**
  * wire row → domain Product(對齊 docs/specs/M-1-03-main-b-PRD.md §4.1 +
  * docs/architecture/supabase-schema-design.md §2.2)。
@@ -103,10 +106,14 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     brand,
     category,
     fitments: row.fitments,
+    // priceByTier:
+    //   - general / store 從 jsonb 直讀(對齊 schema doc §2.1 CHECK 二 key + 刀 3 migration 落地)
+    //   - premiumStore 暫 const 0 placeholder(刀 4 storefront 公式 dispatch 落地後計算 store × (1 - brand.premium_extra_pct / 100))
+    //   - wire type SupabaseProductRow.price_by_tier 仍 Record<MemberTier, ...> 三 key 期待、與實況二 key drift、type 字面 narrow 留刀 4 公式 dispatch 連動修
     priceByTier: {
       general: toMoney(row.price_by_tier.general),
       store: toMoney(row.price_by_tier.store),
-      premiumStore: toMoney(row.price_by_tier.premiumStore),
+      premiumStore: { amount: toMoneyAmount(PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4), currency: row.price_by_tier.store.currency },
     },
     description: row.description ?? '',
     images: row.images,

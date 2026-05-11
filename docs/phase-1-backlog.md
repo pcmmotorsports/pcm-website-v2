@@ -3080,6 +3080,32 @@
 
 ---
 
+### #123. ⏳ zeroMoney helper 候選(placeholder Money 場景收斂)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(目前 1 處使用、刀 4 後重評)
+- **問題:**
+  - placeholder Money(`{ amount: 0, currency }`)場景累積、無共用 helper、各處字面分散
+  - 當前 1 處用例:mappers/product.ts L113 `PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4` placeholder(amount 0、currency 對齊 store tier)
+  - 刀 4 公式 dispatch 落地後此處將被重寫、placeholder 自然消失;若刀 4 後仍累積其他 placeholder Money 場景、需評估抽 helper
+- **觸發事件(任一觸發即啟動實作):**
+  - 刀 4 公式 dispatch 落地後、placeholder Money 仍需求第 2 處
+  - 同模式 placeholder Money 累積第 3 處(對齊 lessons #84/#85 Defer 模式)
+- **預期解法:**
+  - 結構:`export function zeroMoney(currency: Currency): Money`、收斂 placeholder amount + currency 取用路徑
+  - 位置:`packages/domain/src/shared/types.ts`(與 `toMoneyAmount` 同檔、對齊既有 helper 風格)
+  - 替換點:mappers/product.ts L113 + 未來 placeholder Money 場景
+- **不修會痛在:**
+  - 擴充性:placeholder 邏輯散落、各處 currency 取用路徑可能 drift
+  - 可維護性:無共用 anchor、grep placeholder 場景需多處比對
+  - bug 可追蹤性:placeholder amount 字面 0 易與商業價 0 混淆(目前 lifecycle marker `_DEFERRED_TO_SLICE_4` 緩解、但僅 mapper 內)
+- **估時:** 10-15 min(helper + 替換 + JSDoc)
+- **依賴:** 刀 4 完工後重評(若 placeholder 自然消失、條目可關)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 3 雙 audit findings(simplify R2 reuse 揭示 zeroMoney helper 缺失、Sean Q-audit-disposition=X4+Y1+Z3 拍板)
+- **相關:** `packages/adapters/src/supabase/mappers/product.ts` L113 `PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4`、`packages/domain/src/shared/types.ts` toMoneyAmount + Money type、`docs/lessons-learned.md` 第 84/85 條 Defer 模式、累積教訓 #6 audit 處置
+
+---
+
 ## 紀錄模板
 
 ```markdown
