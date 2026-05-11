@@ -100,4 +100,27 @@ module.exports = [
       ],
     },
   },
+  // ===== sub-slice B-3:storefront server-only API import 紀律(對齊 backlog #120 議題 2)=====
+  // ESLint 9 flat config 無 directive-aware files filter('use client' 字面只在檔頭、parser 不暴露 directive 給 ESLint rules)、
+  // 用 storefront-wide files glob 替代精準篩 'use client' 檔。覆蓋面更廣、保護更嚴:
+  // - storefront 任何檔(含 server file 如 lib/products.ts)都不該直接 import @pcm/adapters/server
+  // - 對齊 ADR-0005 §6 storefront 公開讀走 RLS public、storefront 不該繞 RLS 拿 service_role
+  // - 真需 service factory 的場合(如後台 admin / apps/api 寫操作)從各自 app context import
+  {
+    files: ['apps/storefront/**/*.ts', 'apps/storefront/**/*.tsx'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@pcm/adapters/server', '@pcm/adapters/server/**'],
+              message:
+                "storefront 不可 import @pcm/adapters/server(對齊 sub-slice B-1/B-2/B-3 三層防、ADR-0005 §7 service_role key 紀律)。如需 anon factory、改 import '@pcm/adapters'。",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
