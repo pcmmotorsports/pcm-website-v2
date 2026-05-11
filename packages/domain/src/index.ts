@@ -12,3 +12,4 @@ export type * from './payment/types';
 // runtime helper re-export(規則見 ADR-0003 §3.1.1)
 export { toMoneyAmount } from './shared/types';
 export { resolveEnd } from './catalog/year-range';
+export { designTierToSchema, schemaTierToDesign } from './shared/utils';

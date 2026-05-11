@@ -254,7 +254,7 @@ export type MemberTier = 'general' | 'store' | 'premiumStore';
 
 理由(對齊 medusa-schema-design.md §5.1 設計選擇精神 + 簡化):
 - jsonb 內聯:5w SKU × 3 tier = 15w row vs 5w row、節省 join cost
-- CHECK constraint(`price_by_tier ? 'general' AND ...`)強制三 tier 全部存在、避免漏 tier 引發 server-side render fall-back 邏輯複雜
+- CHECK constraint(`price_by_tier ? 'general' AND price_by_tier ? 'store'`)強制 general + store 兩 key 全部存在;`premiumStore` tier 不在 jsonb 內、由 storefront 用 `brands.premium_extra_pct` 公式算(對齊 §2.1 CHECK 二 key + M-1-03-post-supplement Pricing 公式)
 - amount 是 integer(分位、TWD 元位)、對齊 packages/domain/src/shared/types.ts:MoneyAmount brand type + security-timeline #B3
 
 ### 5.2 customer_groups 表(對齊 ADR-0003 §4 #8)
@@ -305,7 +305,7 @@ ALTER TABLE customers ADD CONSTRAINT customer_tier_fk FOREIGN KEY (tier)
 1. **`products.price_by_tier` 整個 jsonb 絕不直接出現在 client wire response**
    - storefront server-side render 才解 `price_by_tier->>customer.tier` → 單一 `Money`、傳 client
    - 一般客人 client bundle 永遠看不到 store / premiumStore 經銷價
-   - **wire 端從 Medusa Price List × customer_group 改 Supabase products.price_by_tier jsonb、語意對等**
+   - wire 端為 Supabase `products.price_by_tier` jsonb(`general` + `store` 二 key、`premiumStore` 由公式算)
 
 2. **`Customer.tier` server-side 重查**(M-2-02 / M-2-03 落地、對齊 security-timeline #A3)
    - client 送的 tier header / cookie 一律 ignore
