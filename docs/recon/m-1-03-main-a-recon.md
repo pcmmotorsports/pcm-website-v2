@@ -498,6 +498,10 @@ sed -n '524,534p' design-reference/components/ProductPage.jsx
 sed -n '115,125p' design-reference/components/AccountPages.jsx
 sed -n '473,484p' design-reference/components/AccountPages.jsx
 sed -n '160,170p' design-reference/design-handoff/HANDOFF-v2.1.md
+
+# 補偵察(2026-05-12 sub-slice、Q-A2a + Q-A3a)
+ grep -rn "function toMoney|const toMoney|export.*toMoney" packages/
+ grep -rn "SupabaseBrandRow|type SupabaseBrandRow" packages/
 ```
 
 ---
@@ -557,10 +561,64 @@ sed -n '160,170p' design-reference/design-handoff/HANDOFF-v2.1.md
    - 若 migration 改二 key 後、row.price_by_tier.premiumStore = undefined
    - `<待確認:toMoney 是否 throw / 回 null / 回 fallback>` — 影響 mapper 是否需先重構才能安全改 migration
 
+   **補偵察結果(2026-05-12 sub-slice、Q-A2a):**
+
+   **`toMoney` 定義位置:** `packages/adapters/src/supabase/mappers/product.ts` L163-168
+
+   ```ts
+   function toMoney(wire: { amount: number; currency: Currency }): Money {
+     return {
+       amount: toMoneyAmount(wire.amount),
+       currency: wire.currency,
+     };
+   }
+   ```
+
+   **`toMoneyAmount` 定義位置:** `packages/domain/src/shared/types.ts` L44-52
+
+   ```ts
+   export function toMoneyAmount(n: number): MoneyAmount {
+     if (!Number.isInteger(n)) {
+       throw new Error(`MoneyAmount must be integer, got ${n}`);
+     }
+     if (n < 0) {
+       throw new Error(`MoneyAmount must be non-negative, got ${n}`);
+     }
+     return n as MoneyAmount;
+   }
+   ```
+
+   **undefined 行為結論:** 不 fallback / 不回 null、**兩段式 throw**(具體):
+   - 路徑 A:若 `wire` 本身 = `undefined`(call 點傳 `toMoney(undefined)`)→ runtime 執行 `wire.amount` → **JS 原生 `TypeError: Cannot read properties of undefined (reading 'amount')`**(不是 explicit throw new Error、是 V8 引擎拋)
+   - 路徑 B:若 `wire = { amount: undefined, currency: 'TWD' }`(amount key 缺)→ 進 `toMoneyAmount(undefined)` → `Number.isInteger(undefined)` = false → **`throw new Error('MoneyAmount must be integer, got undefined')`**(explicit throw)
+   - 實況 mapper L105 `toMoney(row.price_by_tier.premiumStore)`:若 jsonb 二 key、`row.price_by_tier.premiumStore` 是 `undefined`(整個 wire 物件 undefined)、走路徑 A、TypeError
+
 3. **`SupabaseBrandRow` 型別完整定義**
    - mappers/product.ts L61 引用 `SupabaseBrandRow`(本次偵察未 grep 該 type 字面)
    - 若 brands 加 `premium_extra_pct`、需擴此 type
    - `<待確認:SupabaseBrandRow 字面位置 + 既有欄位>`
+
+   **補偵察結果(2026-05-12 sub-slice、Q-A3a):**
+
+   **`SupabaseBrandRow` 定義位置:** `packages/adapters/src/supabase/mappers/product.ts` L24-32
+
+   ```ts
+   export type SupabaseBrandRow = {
+     id: string;
+     name: string;
+     slug: string;
+     description: string | null;
+     logo_url: string | null;
+     created_at: string;
+     updated_at: string;
+   };
+   ```
+
+   **既有欄位列表:** 7 欄位 — `id` / `name` / `slug` / `description` / `logo_url` / `created_at` / `updated_at`、**無 `premium_extra_pct`**。
+
+   對齊狀態:與 migration `init_brands_categories.sql` L22-30 brands 表 7 欄位字面一致、與 schema doc supabase-schema-design.md L159-167 brands 8 欄位(含 `premium_extra_pct`)drift。
+
+   附註:L20-22 type 區段 header 字面「對齊 ADR-0003 §3.4 wire 字串紀律:本 type 是 wire 字面、只在 mapper 邊界出現、不 leak 至 domain / ports / use-case。」
 
 4. **`App.jsx` L290 dev tweaks-hint「8.5 折」字面**
    - 與 v2.1「絕對不寫硬編碼折扣率」自我矛盾
