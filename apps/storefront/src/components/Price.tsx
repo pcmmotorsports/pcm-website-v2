@@ -33,6 +33,13 @@ export function Price({
   className = '',
 }: PriceProps): ReactNode {
   const isMember = tierLabel !== null;
+  /**
+   * 三條件 AND:
+   * (1) !isMember — 訪客 / 一般會員、無 dealer 價
+   * (2) originalPrice !== null — 商品有原價(非 null fallback)
+   * (3) originalPrice > price — 真有折扣、非 originalPrice <= price 異常狀態
+   * 三條件互斥於 isMember 分支(dealer 不顯示 retail discount)
+   */
   const hasRetailDiscount = !isMember && originalPrice !== null && originalPrice > price;
 
   // isMember:劃線 originalPrice + tier 價 + tierLabel pill

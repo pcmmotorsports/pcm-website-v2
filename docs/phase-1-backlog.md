@@ -2093,7 +2093,8 @@
 - **估時:** 第 3 處 test 撞同 slice 加 15-20 min(抽 fixture + 各 test 改 import)
 - **依賴:** M-1-03 / M-1-13 / M-1-15 任一 test 落地作為「第 3 處」trigger
 - **發現於:** 2026-05-04 / M-1-02-audit reuse R3
-- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts` createFakeProduct、backlog #19 / #84(同 trigger 哲學「撞重複再抽」)
+- **trigger 重評於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8d(雙 audit simp-13 揭示 createFakeProduct 第 2 處撞、pricing.test.ts L14-37 + InMemoryProductRepository.test.ts L12-35、對齊既有「第 3 處撞才抽 fixture」trigger 哲學、留條目觀察、第 3 處撞時啟動)
+- **相關:** `packages/adapters/src/in-memory/InMemoryProductRepository.test.ts` createFakeProduct、`packages/domain/src/catalog/pricing.test.ts` createFakeProduct(sub 8d simp-13 第 2 處)、backlog #19 / #84(同 trigger 哲學「撞重複再抽」)、`docs/audits/M-1-03-main-a-刀-4-sub-8d-findings.md` simp-13
 
 ### #86. ✅ M-1-03 啟動前 in-memory adapter 樣板 leak 防 + contract test + edge cases 三合一(thematic)
 
@@ -2943,6 +2944,34 @@
 - **發現於:** 2026-05-08 / M-1-03-main-d-d1(commit body 註記 8、Sean Q2=B1+B3 拍板)
 - **相關:** `apps/storefront/src/components/{HomeHero,FeatureEditorial,HomeStatement,HomeFooter,CategoryGrid,BrandIndex}.tsx`(候選改 Link)、`{VehicleFinder,Header,ProductCard}.tsx`(維持 client)、d1 指令 Step 4.1 字面維持精神 + lessons §1.1 直接搬精神 + Next.js 16 RSC server-client boundary
 
+---
+
+### #117. ⏳ id NaN cast 故障鏈 anchor — string ProductId → number 串接(audit 雙命中)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(NaN 路徑只在 Supabase 0 row → mock fallback 落地時 hit、M-1-16 種子前需修;真資料模式下 mock fallback 路徑廢、視 ProductPage M-1-13 啟動再評)
+- **問題:**
+  - `apps/storefront/src/lib/products.ts:77` `id: product.id as unknown as number` 把 string ProductId cast 成 number(MockProduct.id 字面 number)
+  - `apps/storefront/src/components/ProductCard.tsx:34-42` `PRODUCT_IMG_POOL[seed % n] ?? ''` 若 seed === NaN → NaN % n = NaN → array index NaN → undefined → '' → broken URL
+  - `apps/storefront/src/components/ProductCard.tsx:129` `seed={p.id}` 三處字面互關(page L65 `data-tier` + ProductCard L129 + lib L77)、debug 鏈未明示
+- **觸發事件(任一觸發即啟動實作):**
+  - M-1-13 ProductPage 啟動前(ProductCardProps 真改造時機)
+  - M-1-16 種子前(0 row fallback 路徑廢之前)
+- **預期解法:**
+  - ProductCardProps.p.id 接 string(對齊 domain ProductId)
+  - ProductImage seed 改 hash 函式(string → number 確定性映射、避免 NaN)
+  - 三處字面 debug 鏈 JSDoc 連結(page L65 / ProductCard L129 / lib L77)
+- **不修會痛在:**
+  - 擴充性:M-1-13 ProductCardProps 真改造時必撞、現在不修留三處字面 drift
+  - 可維護性:NaN 故障鏈三處字面散落、debug 時需多處交叉比對
+  - bug 可追蹤性:NaN propagation 路徑(eng-1 root cause → eng-8 NaN 傳播 → simp-12 三處字面散落)、Phase 1 0 row 路徑下 hit
+- **估時:** 30-45 min
+- **依賴:** M-1-13 ProductPage 啟動前(對齊 ProductCardProps 真改造時機)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8d 雙 audit 命中(eng-1 + eng-8 + simp-6 + simp-12)、本對話 sub 8c Q1=A1 拍板 skip 撤回(sub 8d findings 揭示有實質內容可填、anchor 化比缺號空白更有 trace value)
+- **相關:** `docs/audits/M-1-03-main-a-刀-4-sub-8d-findings.md` eng-1 / eng-8 / simp-6 / simp-12 + `apps/storefront/src/lib/products.ts:77` + `apps/storefront/src/components/ProductCard.tsx:34-42` + `apps/storefront/src/components/ProductCard.tsx:129` + `apps/storefront/src/app/page.tsx:65` + d2 commit body「id cast trade-off 揭示」
+
+---
+
 ### #118. 🔴 SupabaseProductAdapter 6 method 切換讀 products_public view
 
 - **狀態:** 🔴 立即啟動(刀 4 sub 7 公式 dispatch 落地、sub 8c 重評確認 trigger 條件已熟、隨時可啟動)
@@ -3235,6 +3264,104 @@
 - **依賴:** sub 8e 教訓批次落地
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8b 收工後 Claude.ai Step 3 指令前置 HEAD 字面錯、Code raise Q-sub8b-redo
 - **相關:** sub 8b commit `1f934a2`、原則 10、累積教訓 §12-N3 第 1/2 條精神擴張
+
+---
+
+### #129. ⏳ 'NT$' currency → symbol helper(Phase 2 多幣別準備)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - `apps/storefront/src/components/Price.tsx` L43 / L45 / L56 / L58 / L67 `'NT$'` hardcode 5 處、未來多幣別需散修
+  - 對齊 PRD §7.2 預估「'NT$' currency → symbol helper Phase 2 多幣別」、本對話 sub 8c #125 編號已被 git push 處置佔用、新編號 #129
+- **觸發事件(任一觸發即啟動實作):**
+  - Phase 2 多幣別啟動(USD / EUR / JPY 等加入)
+  - 同 currency symbol hardcode 場景累積第 3 處
+- **預期解法:**
+  - 結構:`export function currencySymbol(currency: Currency): string`、收斂 'NT$' / 'US$' / '€' 等 symbol 字面
+  - 位置:`packages/domain/src/shared/types.ts`(與 Currency / Money 同檔)
+  - 替換點:Price.tsx 5 處 + 未來 LinePrice / CheckoutPage 等
+- **不修會痛在:**
+  - 擴充性:Phase 2 多幣別啟動時、5+ 處 hardcode 散修
+  - 可維護性:無共用 anchor、grep 'NT$' 找散落點
+  - bug 可追蹤性:幣別新增時、漏改一處 → UI 顯示錯幣別
+- **估時:** 30-45 min(helper + Price.tsx 替換 + JSDoc)
+- **依賴:** Phase 2 多幣別啟動(無前置 milestone)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8d 雙 audit eng-6
+- **相關:** `docs/audits/M-1-03-main-a-刀-4-sub-8d-findings.md` eng-6、`apps/storefront/src/components/Price.tsx` L43/45/56/58/67、PRD §7.2 預估清單、`packages/domain/src/shared/types.ts` Currency / Money 同檔
+
+---
+
+### #130. ⏳ tier resolution helper(第 3 處撞才抽、Defer 模式)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `apps/storefront/src/app/page.tsx` L42-58 `tierOverride / cookie / 'general'` priority + `designTierToSchema` guard、tier 解析邏輯第 1 處落地
+  - 未來 ProductPage(M-1-13)/ CheckoutPage(M-1-XX)各 page server-side render 需 resolve tier、各自重寫
+- **觸發事件(任一觸發即啟動實作):**
+  - 第 3 處撞(ProductPage / CheckoutPage 累積到 3 處)(對齊 lessons §84/§85 Defer 模式)
+- **預期解法:**
+  - 結構:`export async function resolveTierFromRequest(searchParams, cookies, options?): Promise<MemberTier>`
+  - 位置:`apps/storefront/src/lib/tier.ts`(新檔)或 `@pcm/domain/identity`(視 cross-app 共用需求)
+  - 整合點:各 server page 開頭 `const tier = await resolveTierFromRequest(...)`
+- **不修會痛在:**
+  - 擴充性:各 page 自己 resolve、邏輯散落、防 tier=store override env guard 漏配
+  - 可維護性:M-1-14 真 auth 落地時、各 page 解析路徑需同步改
+  - bug 可追蹤性:tier 解析漏 fallback 'general' → server throw 500、debug 路徑散落
+- **估時:** 30-45 min(helper + 第 1 處 page.tsx refactor + 其他 page 改造)
+- **依賴:** 第 3 處撞(無前置 milestone、視 ProductPage / CheckoutPage 啟動時機)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8d simp-10
+- **相關:** `docs/audits/M-1-03-main-a-刀-4-sub-8d-findings.md` simp-10、`apps/storefront/src/app/page.tsx` L42-58、`docs/lessons-learned.md` 第 84/85 條 Defer 模式
+
+---
+
+### #131. ⏳ toMoney helper 集中至 packages/adapters/src/supabase/helpers/(第 3 處撞才抽)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/adapters/src/supabase/mappers/product.ts` L171-175 `toMoney` helper 私有 module-level、僅 mapper 內使用
+  - 未來其他 adapter(OrderAdapter / CustomerAdapter 等)wire→Money 轉換可能重複
+- **觸發事件(任一觸發即啟動實作):**
+  - 第 3 處撞(其他 adapter mapper 需 wire→Money 轉換、達 3 處)(對齊 lessons §85)
+- **預期解法:**
+  - 結構:`export function toMoney(wire: { amount: number; currency: Currency }): Money`
+  - 位置:`packages/adapters/src/supabase/helpers/money.ts`(新檔、對齊 helpers/ 既有 pattern:category-path.ts / fitment.ts)
+  - 替換點:mappers/product.ts L171-175 + 未來其他 mapper
+- **不修會痛在:**
+  - 擴充性:其他 mapper 各自寫 toMoney、字面 drift 風險(amount/currency 字面拼錯)
+  - 可維護性:Money brand type 改造時(toMoneyAmount guard 調整)、散修
+  - bug 可追蹤性:guard 邊界 case 抓不到、單元 test 散落各 mapper
+- **估時:** 20-30 min(helper + mapper refactor + test)
+- **依賴:** 第 3 處撞(無前置 milestone、視其他 adapter 落地時機)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8d simp-11
+- **相關:** `docs/audits/M-1-03-main-a-刀-4-sub-8d-findings.md` simp-11、`packages/adapters/src/supabase/mappers/product.ts` L171-175、`docs/lessons-learned.md` 第 85 條 Defer 模式
+
+---
+
+### #132. ⏳ TierLabel union type alias 抽出
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(達 ADR-0003 §3.2 規範類門檻、可立即執行)
+- **問題:**
+  - `apps/storefront/src/components/Price.tsx` L19 + `apps/storefront/src/lib/products.ts` L73 + `apps/storefront/src/data/mock-products.ts` L24 三處重複 `'P價' | '店價' | null` union 字面
+  - 對齊 ADR-0003 §3.2「entity 內 string literal union ≥ 2 個 consumer 必抽 type alias」規範類、目前 3 處已達門檻
+- **觸發事件(任一觸發即啟動實作):**
+  - 隨時可執行(已達規範類門檻、不需 trigger 等待)
+  - 新增 tier label(例:'Premium' / 'VIP' 等)時必先抽 alias 再加值
+- **預期解法:**
+  - 結構:`export type TierLabel = 'P價' | '店價' | null;`
+  - 位置:`apps/storefront/src/data/mock-products.ts`(對齊 MockProduct.tierLabel 既有定義位置)
+  - 替換點:Price.tsx L19 PriceProps.tierLabel + lib/products.ts L73 toUIProduct 返回字面 + mock-products.ts L24 MockProduct.tierLabel 三處 import
+- **不修會痛在:**
+  - 擴充性:新 tier label 時、3 處散修易漏
+  - 可維護性:union 字面散落、grep 找消費點需多處比對
+  - bug 可追蹤性:字面拼錯('P價' 半形 / 全形)、TypeScript narrow 抓不到
+- **估時:** 15-20 min(抽 type alias + 3 處 import + lint)
+- **依賴:** 隨時可執行(已達規範類門檻)
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8d simp-14
+- **相關:** `docs/audits/M-1-03-main-a-刀-4-sub-8d-findings.md` simp-14、`apps/storefront/src/components/Price.tsx` L19 + `apps/storefront/src/lib/products.ts` L73 + `apps/storefront/src/data/mock-products.ts` L24、`docs/decisions/0003-domain-entity-naming.md` §3.2 規範類
 
 ---
 

@@ -54,7 +54,6 @@
 /* When inside .pcard-price-row, downsize tag and orig */
 .pcard-price-row .price-wrap { gap: 6px; }
 .pcard-price-row .price-wrap.price-md .price-main { font-size: 14px; }
-.pcard-price-row .price-wrap.is-red .price-main { color: var(--c-red, #c0392b); }
 
-/* Red price override (existing tweak) */
+/* Red price override (existing tweak、covers .pcard-price-row .price-wrap.is-red via cascade) */
 .price-wrap.is-red .price-main { color: var(--c-red, #c0392b); }

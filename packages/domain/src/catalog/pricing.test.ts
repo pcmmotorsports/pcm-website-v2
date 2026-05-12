@@ -108,6 +108,12 @@ describe('computeEffectivePrice', () => {
     });
   });
 
+  /**
+   * 為何用 `as unknown as number`:
+   * Brand.premium_extra_pct 型別已強制 number、TS 不允許直接賦 null / string;
+   * test 需偽造 corrupt data 驗 runtime guard、繞過 type system 是必要 trade-off
+   * (對齊 simp-17「雙重 type+runtime 防護」教訓)
+   */
   describe('premium_extra_pct 非 number 邊界 fallback 0%', () => {
     it('premium_extra_pct = null → fallback 0%、回 store 價', () => {
       const product = createFakeProduct({

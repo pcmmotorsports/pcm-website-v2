@@ -43,6 +43,17 @@ function productGallery(seed: number): string[] {
 
 type Tone = 'cool' | 'neutral' | 'warm' | 'dark' | 'red' | 'gold';
 
+// module-level const、避免 ProductImage 每次 render 重建 6-entry object
+// (對齊 sub 8d simp-7 efficiency finding)
+const PALETTES: Record<Tone, [string, string]> = {
+  cool: ['#f1f3f5', '#e4e7ec'],
+  neutral: ['#f4f4f5', '#e8e8e8'],
+  warm: ['#f6f2ec', '#e8dfd0'],
+  dark: ['#1e1e20', '#141416'],
+  red: ['#fdf0ef', '#f5d8d4'],
+  gold: ['#faf4e4', '#ede0b8'],
+};
+
 type ProductImageProps = {
   tone?: Tone | string;
   label?: string;
@@ -53,15 +64,7 @@ type ProductImageProps = {
 export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, hover = false }: ProductImageProps) {
   const imgs = useMemo(() => productGallery(seed), [seed]);
   const [failedIdx, setFailedIdx] = useState<Record<number, boolean>>({});
-  const palettes: Record<Tone, [string, string]> = {
-    cool: ['#f1f3f5', '#e4e7ec'],
-    neutral: ['#f4f4f5', '#e8e8e8'],
-    warm: ['#f6f2ec', '#e8dfd0'],
-    dark: ['#1e1e20', '#141416'],
-    red: ['#fdf0ef', '#f5d8d4'],
-    gold: ['#faf4e4', '#ede0b8'],
-  };
-  const [c1, c2] = palettes[tone as Tone] ?? palettes.neutral;
+  const [c1, c2] = PALETTES[tone as Tone] ?? PALETTES.neutral;
   return (
     <div className="pcard-gallery" style={{
       width: '100%', height: '100%', position: 'relative',
