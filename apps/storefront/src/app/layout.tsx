@@ -1,7 +1,7 @@
 // app/layout.tsx — root layout(全域 CSS import)
 //
-// CSS load order 對齊 design-reference/index.html @ d5ea3aa:
-//   tokens → header → product-card → home
+// CSS load order 對齊 design-reference/index.html @ 25d3a2a:
+//   tokens → header → product-card → pricing → home
 // 其他 CSS(filter-* / products-page / product-page / pages / vehicle-drawer / account / search-overlay / tweaks)
 // d1 不引(首頁不需要、後續 slice trigger 才加)
 //
@@ -12,6 +12,7 @@ import type { ReactNode } from 'react';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/product-card.css';
+import '../styles/pricing.css';
 import '../styles/home.css';
 
 export const metadata = {

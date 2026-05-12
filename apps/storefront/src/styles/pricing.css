@@ -1,0 +1,60 @@
+/* ===== Dealer pricing display ===== */
+
+.price-wrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.price-wrap.price-stack { flex-direction: column; align-items: flex-start; gap: 2px; }
+.price-wrap .price-main {
+  font-weight: 700;
+  color: var(--c-text, #0a0a0a);
+}
+.price-wrap .price-main.is-sale {
+  color: var(--c-red, #c0392b);
+}
+.price-wrap .price-orig {
+  font-size: 0.78em;
+  font-weight: 500;
+  color: var(--c-text-3, #a0a0a8);
+}
+.price-wrap .price-strike { text-decoration: line-through; }
+.price-wrap .price-tag-dealer {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  background: var(--c-accent, #c0392b);
+  color: #fff;
+  border-radius: 2px;
+  align-self: center;
+}
+.price-wrap .price-tag-save {
+  font-size: 10px;
+  color: var(--c-red, #c0392b);
+  letter-spacing: 0.1em;
+}
+
+/* Size scale */
+.price-wrap.price-sm .price-main { font-size: 13px; }
+.price-wrap.price-md .price-main { font-size: 15px; }
+.price-wrap.price-lg .price-main { font-size: 22px; }
+.price-wrap.price-xl .price-main { font-size: 32px; line-height: 1.1; }
+
+/* Dealer accent line */
+.price-wrap.is-dealer .price-main { color: var(--c-accent, #c0392b); }
+
+/* Mobile: hide retail strike-through to save space, keep dealer only */
+@media (max-width: 720px) {
+  .price-wrap.is-dealer .price-orig { display: none; }
+  .price-wrap.is-dealer .price-tag-dealer { font-size: 8px; padding: 1px 5px; }
+}
+
+/* When inside .pcard-price-row, downsize tag and orig */
+.pcard-price-row .price-wrap { gap: 6px; }
+.pcard-price-row .price-wrap.price-md .price-main { font-size: 14px; }
+.pcard-price-row .price-wrap.is-red .price-main { color: var(--c-red, #c0392b); }
+
+/* Red price override (existing tweak) */
+.price-wrap.is-red .price-main { color: var(--c-red, #c0392b); }
