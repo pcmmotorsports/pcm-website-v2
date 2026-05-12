@@ -192,7 +192,7 @@
 - **驗收:**
   - typecheck + lint 全綠
   - dev server hover / discount badge / oos 三狀態仍正常
-  - 三 tier 切換(`PCM_DEV_TIER_OVERRIDE=1 ?tier=store|premiumStore`)顯示對
+  - 三 tier 切換(`PCM_DEV_TIER_OVERRIDE=1 ?tier=store|premium_store`)顯示對
 - **估時:** 25-35 min
 
 ### sub 8:刀 3 placeholder 清理 + wire type narrow + backlog #123 重評(刀 4 收工)

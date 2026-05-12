@@ -11,6 +11,7 @@
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MockProduct } from '@/data/mock-products';
+import { Price } from './Price';
 
 const PRODUCT_IMG_POOL = [
   'photo-1558981285-6f0c94958bb6', // brake caliper
@@ -100,7 +101,6 @@ export type ProductCardProps = {
 export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false, onClick }: ProductCardProps) {
   const [hover, setHover] = useState(false);
   const [liked, setLiked] = useState(false);
-  const hasDiscount = p.origPrice !== null && p.origPrice > p.price;
 
   const badge: ReactNode = (() => {
     if (badgeStyle === 'none') return null;
@@ -160,18 +160,13 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         <div className="pcard-name">{p.name}</div>
         {!compact && <div className="pcard-fits">適用 {p.fits}</div>}
         <div className="pcard-price-row">
-          {hasDiscount && p.origPrice !== null ? (
-            <>
-              <span className={`pcard-price ${showRedPrice ? 'is-red' : ''}`}>
-                NT$ {p.price.toLocaleString()}
-              </span>
-              <span className="pcard-price-orig">NT$ {p.origPrice.toLocaleString()}</span>
-            </>
-          ) : (
-            <span className={`pcard-price ${showRedPrice ? 'is-red' : ''}`}>
-              NT$ {p.price.toLocaleString()}
-            </span>
-          )}
+          <Price
+            price={p.price}
+            originalPrice={p.originalPrice ?? null}
+            tierLabel={p.tierLabel ?? null}
+            size="md"
+            className={showRedPrice ? 'is-red' : ''}
+          />
         </div>
       </div>
     </article>

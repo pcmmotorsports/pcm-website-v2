@@ -189,25 +189,7 @@
   border-top: 1px solid var(--c-border);
   margin-top: 8px;
 }
-.pcard-price {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--c-text);
-  font-variant-numeric: tabular-nums;
-  font-family: var(--f-mono, monospace);
-}
-.pcard-price.is-red { color: var(--c-red); }
-.pcard-price-orig {
-  font-size: 11px;
-  color: var(--c-text-3);
-  text-decoration: line-through;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--f-mono, monospace);
-}
-
 /* Font-size variants */
 [data-font-size="lg"] .pcard-name { font-size: 15px; }
-[data-font-size="lg"] .pcard-price { font-size: 16px; }
 [data-font-size="lg"] .pcard-brand { font-size: 11px; }
 [data-font-size="sm"] .pcard-name { font-size: 12.5px; }
-[data-font-size="sm"] .pcard-price { font-size: 13px; }
