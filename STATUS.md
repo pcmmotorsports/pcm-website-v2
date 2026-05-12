@@ -14,25 +14,25 @@
 - **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
 - **下一步:** M-1-03-audit-disposition 剩餘 slice(slice-A ✅ 議題 1+6 view + Slice B ✅ 議題 2 三層防、剩 slice-C 議題 4 NaN bug / 規範類批量;待 Sean 拍板處置 雙 skill audit raw findings 三視角複核)
 
-**當前 slice:** M-1-03-main-a 刀 4 PRD 落地 + STATUS drift 補 sub 0 ✅(本 sub:docs/specs/M-1-03-main-a-刀-4-PRD.md 新建 411 行 §0-§8 全章節覆蓋 + STATUS L17/L22-23/L29-L31/L35 4 處同步;範圍純 docs 2 檔 不動 storefront / packages / apps / supabase / migrations / design-reference;A-C-B-C-A 拍板 + R 階段 Q1=B/Q2=A/Q3=A/Q4=A/Q5a=A/Q5b=B + R1=A 8 commit / R2=A Claude.ai 逐刀指令 Code 執行(非 Code Auto Mode);8 sub-slice 拆法 sub 0 / 1 / 3 / 4a / 4b / 6 / 7 / 8、總估時 3.5-4.5 hr;後續 sub 1-8 走 amend 流程同步 STATUS L29 對齊 lessons §12-3 維度 B 滾動修正模式;字面 vs 事實揭示 5 條 commit body:1) §3.1 安全 guard 採 PCM_DEV_TIER_OVERRIDE env flag 與 PRD v1 ?tier= 無 guard 偏離 R 階段 Q1=B 拍板 / 2) §2 sub 4 拆 4a/4b 與 PRD v1 sub 4+5 偏離 R 階段 Q2=A 拍板 / 3) §2 sub 6 不預拆 R 階段 Q4=A 拍板 / 4) STATUS L29 累積 drift 實際 5 commit(刀 1a 49ae7b7 / 刀 1b b3c9c48 / 刀 2 3dd70ec / 刀 3 2234f5e / 刀 4 偵察 1707e41、L29-L31 結構限制只列前 3、Sean 指令字面「3 commit」Code 對齊事實揭示) / 5) PRD §6.3 §12-N3 教訓 anchor 預留(A mode PRD 寫作 5 維度 self-check);ahead origin/dev = 1)、待 Sean 手動推
+**當前 slice:** M-1-03-main-a 刀 4 sub 1 ✅(本 sub:packages/domain catalog 新增 pricing.ts(58 行)+ pricing.test.ts(161 行、11 case)+ domain/src/index.ts re-export(+1 行)、共 3 檔 +220 行;computeEffectivePrice pure function 公式對齊 design-reference/components/Pricing.jsx L27-42 + supabase-schema-design.md §3.1 brands L167 + §5.1 + Brand L29 JSDoc;範圍純 packages/domain 3 檔 不動 storefront / apps / packages/adapters/ports/use-cases/schemas/ui / supabase / migrations / design-reference;R 階段 R1=A 不開 catalog/index.ts 中介層 + R2=A' sub 1a/1b 合併(test 環境補在內)+ R3=A JSDoc 字面源用實際 §(非 Sean 指令字面誤寫的 §2.4 fitments);test 環境 reasonable call 不加 domain package.json test script(對齊 adapters mirror 慣例)、走 root `pnpm test` 跑、Sean 指令 §G3 `pnpm --filter @pcm/domain test` 跑不通(vitest include pattern root-relative、filter cwd 後找不到、vitest workspace 配置補修不在 sub 1 體積範圍)、改用 root pnpm test 驗 24/24 全綠(11 pricing + 13 既有 adapters);三綠 typecheck 7/7 + lint 10/10 + test 24/24;字面 vs 事實揭示 5 條 commit body(design 邊界轉換 / legacy fallback 不採 / tier 命名 design ↔ domain 邊界 / test 環境 reasonable call / R 階段 R1+R2+R3 修訂落地);ahead origin/dev = 1)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-12
-**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 0 — PRD docs 落地 + STATUS L29 累積 drift 補;A-C-B-C-A 拍板 + R 階段 Q1=B/Q2=A/Q3=A/Q4=A/Q5a=A/Q5b=B + R1=A 8 commit / R2=A Claude.ai 逐刀指令 Code 執行;PRD 411 行 §0-§8 全章節覆蓋;累積 drift 實際 5 commit(刀 1a/1b/2/3/4 偵察)L29-L31 結構限制只列前 3、commit body 揭示;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
+**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 1 — packages/domain pricing.ts pure function + 11 test case + index.ts re-export 落地;R 階段 R1=A 不開 catalog/index.ts 中介層 + R2=A' sub 1a/1b 合併 + R3=A JSDoc 字面源用實際 §;test 環境 reasonable call 不加 domain package.json test script 對齊 adapters mirror;Sean 指令 §G3 `pnpm --filter @pcm/domain test` 跑不通 vitest workspace 限制、改用 root pnpm test 驗 24/24 全綠;三綠 typecheck 7/7 + lint 10/10 + test 24/24;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| a268320 | docs(specs): M-1-03-main-a 刀 4 PRD 落定 + STATUS L29 drift 補 | 2026-05-12 |
+| 1680767 | feat(M-1-03-main-a 刀 4 sub 1): packages/domain pricing.ts pure function + unit test + index re-export | 2026-05-12 |
+| 2548342 | docs(specs): M-1-03-main-a 刀 4 PRD 落定 + STATUS L29 drift 補 | 2026-05-12 |
 | 1707e41 | docs(recon): M-1-03-main-a 刀 4 偵察 Pricing/storefront/dealer-label/tier-display | 2026-05-11 |
-| 2234f5e | feat(adapters): migration price_by_tier 二 key + brands premium_extra_pct + mapper 修(刀 3) | 2026-05-11 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-03-main-a 刀 4 sub 1**(packages/domain pricing.ts pure function + unit test;新建 packages/domain/src/catalog/pricing.ts ~40 行 export `computeEffectivePrice(product, tier): Money` 對齊 Pricing.jsx L27-42 + supabase-schema-design.md §2.4 公式、premium_store 算式 `Math.round(store.amount × (1 - brand.premium_extra_pct / 100))` + 新建 pricing.test.ts ~80 行三 tier × 邊界 case 8-12 test + catalog/index.ts re-export;PRD §2 sub 1 原 sub 1+2 合併、估時 40-50 min;驗收 typecheck 7/7 + lint 10/10 + `pnpm --filter @pcm/domain test` 全綠)← 當前
+1. **M-1-03-main-a 刀 4 sub 3**(apps/storefront page.tsx + 引入 tier cookie 路徑 + env guard;page.tsx 加 `cookies()` 讀 `pcm-tier`(預設 'general')+ `?tier=` searchParams 處理(僅 `process.env.PCM_DEV_TIER_OVERRIDE === '1'` 時生效)+ designTierToSchema() 轉換(若 design ↔ domain 命名邊界需要)+ 傳給 fetchFeaturedProducts(tier) 參數(sub 4b 後落地);PRD §2 sub 3、估時 30-40 min;驗收 typecheck + lint 全綠 + dev server `PCM_DEV_TIER_OVERRIDE=1 ?tier=store` 拿到 store 價 + 無 env flag `?tier=store` 不生效)← 當前
 
 > Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
 > **M-1-03 主實作必吸收:**
