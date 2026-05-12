@@ -3138,9 +3138,9 @@
 
 ---
 
-### #124. ⏳ Claude.ai 寫 slice 指令字面涉 script 啟動方式必先 grep shebang + 既有 .md 實測
+### #124. ✅ Claude.ai 寫 slice 指令字面涉 script 啟動方式必先 grep shebang + 既有 .md 實測
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-12 + working-style §6.3 第 22 條落地)
 - **優先級:** 🟠 中(每個 slice 指令發送都可能觸發、防 Code raise 成本)
 - **問題:**
   - Claude.ai 寫 slice 指令字面涉「執行檔 / script 啟動方式」(bash / node / python / sh / pnpm exec 等)時、若憑記憶寫死啟動命令、可能與 script 實況 / 既有 .md / CLAUDE.md 字面真權威 drift
@@ -3157,15 +3157,15 @@
   - 可維護性:每個 slice 指令發送前自檢一行、預防成本極低、事後修正成本高(Code raise + 重組指令 + 字面 vs 事實註記)
   - bug 可追蹤性:啟動字面錯導致 Code raise、累積多次造成「Claude.ai 指令不可信」印象、自檢項立後可追蹤 trigger 觸發歷史
 - **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
-- **依賴:** sub 8e 教訓批次落地
+- **依賴:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-12~16 + working-style §6.3 第 22-26 條落地、跨專案明示)
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 6(busboy-end `bash` 字面踩雷、Sean Q-execution-deviations 拍板)
-- **相關:** `CLAUDE.md` Busboy 流程段、`/Users/sean_1/pcm-tools/scripts/busboy-end.js` L1 shebang 真權威、原則 10、累積教訓 §12-N3 第 4 條
+- **相關:** `CLAUDE.md` Busboy 流程段、`/Users/sean_1/pcm-tools/scripts/busboy-end.js` L1 shebang 真權威、原則 10、累積教訓 §12-N3 第 4 條、`docs/lessons-learned.md` §12-12 + `docs/working-style.md` §6.3 第 22 條(sub 8e-2 落地)
 
 ---
 
-### #125. ⏳ Claude.ai 寫 git push 字面 / 處置選項必先 grep ahead 狀態 + 評估 push 範圍 = HEAD
+### #125. ✅ Claude.ai 寫 git push 字面 / 處置選項必先 grep ahead 狀態 + 評估 push 範圍 = HEAD
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-13 + working-style §6.3 第 23 條落地)
 - **優先級:** 🔴 高(誤判 push 範圍導致已 push 狀態不可逆、補救成本高)
 - **問題:**
   - Claude.ai 寫含 `git push` 字面 / 評估 push 處置選項時、若假設 push 只推單一目標 commit、實況 push 推所有 ahead commit、可能導致未完成狀態被推到 origin
@@ -3183,15 +3183,15 @@
   - 可維護性:每個 push 字面 / 選項前自檢一行、預防 push 後 origin 狀態不一致 / 補救 docs(status) 獨立 commit / 重做 sub 等高成本場景
   - bug 可追蹤性:push 行為一旦發生不可逆、事後 force-push 補救破 history;trigger 落地後 push 處置設計時即考慮 ahead 範圍、降低事故率
 - **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
-- **依賴:** sub 8e 教訓批次落地
+- **依賴:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-12~16 + working-style §6.3 第 22-26 條落地、跨專案明示)
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 6 Q-busboy-multi-commit C 處置事故
-- **相關:** sub 6 docs(status) 補救 commit `81eff40`、原則 10、累積教訓 §12-N3 第 1/2 條
+- **相關:** sub 6 docs(status) 補救 commit `81eff40`、原則 10、累積教訓 §12-N3 第 1/2 條、`docs/lessons-learned.md` §12-13 + `docs/working-style.md` §6.3 第 23 條(sub 8e-2 落地)
 
 ---
 
-### #126. ⏳ Claude.ai 寫 monorepo 設定處置字面必先 web_fetch 官方文件 + grep 本地實況
+### #126. ✅ Claude.ai 寫 monorepo 設定處置字面必先 web_fetch 官方文件 + grep 本地實況
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-14 + working-style §6.3 第 24 條落地)
 - **優先級:** 🟠 中(每次 monorepo 設定變更都可能觸發、防憑記憶踩過時/錯誤慣例)
 - **問題:**
   - Claude.ai 寫含 monorepo 設定(env / config / build / deploy)處置字面時、若憑記憶或既有慣例推測、可能與官方真權威 drift、踩過時或錯誤慣例
@@ -3209,15 +3209,15 @@
   - 可維護性:web_fetch + grep 雙真權威成本低(5-10 min)、預防 Q-X 拍板字面錯需 rollback 重做高成本場景
   - bug 可追蹤性:設定字面錯導致 dev server / build / deploy 失敗、debug 從應用層往 monorepo 層追耗時、trigger 落地後設計時即考慮真權威、降低事故率
 - **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
-- **依賴:** sub 8e 教訓批次落地
+- **依賴:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-12~16 + working-style §6.3 第 22-26 條落地、跨專案明示)
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 7 dev server F3 HTTP 500 + sub 8b 偵察 web_fetch Next.js + Turborepo 雙官方真權威揭示
-- **相關:** sub 8b commit、Next.js 16 docs env-variables、Turborepo docs using-environment-variables、原則 10
+- **相關:** sub 8b commit、Next.js 16 docs env-variables、Turborepo docs using-environment-variables、原則 10、`docs/lessons-learned.md` §12-14 + `docs/working-style.md` §6.3 第 24 條(sub 8e-2 落地)
 
 ---
 
-### #127. 🔴 Claude.ai 操作含 env / secret / token 字面檔案前強制 redaction、絕不讀整檔內容
+### #127. ✅ Claude.ai 操作含 env / secret / token 字面檔案前強制 redaction、絕不讀整檔內容
 
-- **狀態:** ⏳ 待執行(此條 trigger 已立、本對話已實證、優先級高)
+- **狀態:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-15 + working-style §6.3 第 25 條落地、🔴 高優先級保留 history)
 - **優先級:** 🔴 高(本對話最嚴重事故、Supabase keys 洩露需走切新版 + disable Legacy 雙步驟補救)
 - **問題:**
   - Claude.ai 操作含 `.env` / `secret` / `token` / `apikey` / `password` 字面檔案時、若用 `read_multiple_files` / `read_file` / `view` 整檔、檔案內容(含 keys / tokens / passwords)會被拉進對話上下文、不可逆洩露
@@ -3236,15 +3236,15 @@
   - 可維護性:redaction 操作 30 秒、預防 keys 洩露事故補救 30-60 min(Dashboard 切新版 + 更新所有 env + disable Legacy)
   - bug 可追蹤性:keys 洩露不可逆、補救期間 production / 其他部署點同步更新風險高;trigger 落地後 env 操作即走 metadata-only 路徑、根本性消除事故源
 - **估時:** 10 min(working-style §6.3 加 1 條主體 + 1 條擴張條款 + lessons §12 對應)
-- **依賴:** sub 8e 教訓批次落地
+- **依賴:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-12~16 + working-style §6.3 第 22-26 條落地、跨專案明示)
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8 前置偵察期間 Supabase keys 洩露事故 + 補救字面錯雙重觸發
-- **相關:** Supabase keys 補救 commit / 安全規則第 1 條 + 第 5 條 / 原則 10、累積教訓 §12-N3 第 1-5 條精神擴張
+- **相關:** Supabase keys 補救 commit / 安全規則第 1 條 + 第 5 條 / 原則 10、累積教訓 §12-N3 第 1-5 條精神擴張、`docs/lessons-learned.md` §12-15 + `docs/working-style.md` §6.3 第 25 條(sub 8e-2 落地、🔴 高優先級)
 
 ---
 
-### #128. ⏳ Claude.ai 寫 slice 指令前置必先讀 Code/Sean 上輪訊息全文 + 驗 git log
+### #128. ✅ Claude.ai 寫 slice 指令前置必先讀 Code/Sean 上輪訊息全文 + 驗 git log
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-16 + working-style §6.3 第 26 條落地)
 - **優先級:** 🟠 中(每次 slice 指令前置都可能觸發、防 Code raise + Sean 二次確認成本)
 - **問題:**
   - Claude.ai 寫 slice 指令前置(A 段狀態檢查)字面時、若憑記憶寫 HEAD hash / 進度 / 上一個 sub 完成狀態、可能與實況 drift、導致 Code raise「實際狀態已是 sub X+1 完成、不重複執行」
@@ -3261,9 +3261,9 @@
   - 可維護性:讀上輪訊息全文 + filesystem metadata 驗證成本低(2-3 min)、預防 Code raise + Sean 二次確認 + 指令重發成本(10-15 min)
   - bug 可追蹤性:憑記憶寫死導致跨訊息上下文 drift、Code 難判斷是否該執行、trigger 落地後前置字面與實況同步、降低事故率
 - **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
-- **依賴:** sub 8e 教訓批次落地
+- **依賴:** ✅ 完成於 2026-05-12 / M-1-03-main-a 刀 4 sub 8e-2(lessons §12-12~16 + working-style §6.3 第 22-26 條落地、跨專案明示)
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8b 收工後 Claude.ai Step 3 指令前置 HEAD 字面錯、Code raise Q-sub8b-redo
-- **相關:** sub 8b commit `1f934a2`、原則 10、累積教訓 §12-N3 第 1/2 條精神擴張
+- **相關:** sub 8b commit `1f934a2`、原則 10、累積教訓 §12-N3 第 1/2 條精神擴張、`docs/lessons-learned.md` §12-16 + `docs/working-style.md` §6.3 第 26 條(sub 8e-2 落地)
 
 ---
 

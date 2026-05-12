@@ -374,6 +374,21 @@
 - 本 sub 0 不寫 lessons §12-N(避免擴大 scope、本 sub 純 PRD docs)
 - 刀 4 sub 8 收工後 batch 落地(若量 ≥ 3 條、開獨立 docs commit;若量 < 3、併 sub 8 commit)
 
+### §6.4 sub 8e-2 落地映射(2026-05-12 收尾)
+
+PRD §6.1 / §6.2 預留 §12-N1/N2/N3 為 PRD v1 sub 0 寫時預測、實際刀 4 sub 1-8a 過程累積教訓走另一路徑、sub 8d 雙 audit 揭示後 sub 8c backlog #124-#128 trigger 條目化、sub 8e-2 lessons §12-12~16 + working-style §6.3 第 22-26 條落地、跨專案明示(適用所有 Sean 用 Claude Code 開發的專案):
+
+- §12-12 / 第 22 條:slice 指令 script 啟動 + hook 行為(來源 backlog #124)
+- §12-13 / 第 23 條:git push ahead 範圍 + 處置選項(來源 backlog #125)
+- §12-14 / 第 24 條:monorepo 工具配置真權威(來源 backlog #126)
+- §12-15 / 第 25 條:env / secret redaction(🔴 高、來源 backlog #127)
+- §12-16 / 第 26 條:跨訊息上下文同步 + 多 session 字面交織(來源 backlog #128)
+
+§6.1 / §6.2 預留條目處置:
+- §12-N1(STATUS drift 累積 3 commit 重複機率)→ 已在 lessons §12-3 維度 B「滾動修正模式」既有條目涵蓋、本 sub 不重複落地
+- §12-N2(HANDOFF v2.1 §5.5 與 .jsx 字面 drift 揭示模式)→ 刀 4 過程未撞、不落地、留為 PRD v1 預留 history
+- §12-N3(anchor:A mode PRD 寫作 5 維度 self-check)→ 部分精神已併入 §12-16 跨訊息上下文同步、本 sub 不重複落地
+
 ---
 
 ## §7 backlog 影響面

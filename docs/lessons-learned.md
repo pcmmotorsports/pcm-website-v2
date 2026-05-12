@@ -571,6 +571,117 @@ M-1-03-post-supplement sub-slice 0a 偵察、指令字面 Step 6 寫「確認 ST
 
 ---
 
+### 12-12. slice 指令字面對 script 啟動方式 + 工具 hook 行為必先 grep 真權威
+
+**事故脈絡:**
+M-1-03-main-a 刀 4 sub 6 過程、Claude.ai 寫 busboy-end 指令字面預設 `bash` 啟動、實況 busboy-end.js 是 node script 必須 `node /Users/sean_1/pcm-tools/scripts/busboy-end.js pcm` 啟動。Code raise multi-select 救、Sean Q-busboy-launch=A 拍板用 node。同類擴張:本對話 sub 8e-1 撞 husky pre-commit hook bootstrap commit 雞生蛋(hook 對自身裝設 commit 撞 .test.ts ESLint ignore false-warning)、後續 sub 8e-1 撞同類 hook fail、揭示「script 啟動方式 + hook 行為」需作為 slice 指令前置自檢項。
+
+**規則:**
+- 寫涉及 script 啟動 / hook 觸發 / CI gate 字面前、必先 grep 真權威:
+  - script 啟動:`cat script_path | head -1` 看 shebang / `package.json scripts` 看慣例
+  - git hook 行為:`.husky/` 目錄 + `lint-staged` 配置 + `package.json prepare`
+  - CI gate:`.github/workflows/` 內 yaml
+- hook 對自身裝設 commit 撞 bootstrap 問題、`--no-verify` 一次性例外、之後恢復 hook 正常運作
+- 同類風險:tools install commit / config 自身改 / 依賴 hook 行為的指令
+
+**規範定位:** 對齊 working-style.md §6.3 第 22 條(lessons §12-12 對應簡潔版)+ 維度 A「具體技術細節」延伸
+
+**教訓來源:** M-1-03-main-a 刀 4 sub 6 busboy-end bash vs node 事故 + sub 8e-1 husky hook bootstrap 撞 .test.ts ignore false-warning 事故、本對話累積教訓 #124 + 撞坑連鎖(chore tooling + tooling-fix + sub 8e-1 重新 commit)、A5 路徑根因處置
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案(PCM + 蝦皮 + 報價 + 訂單)。Sean 多 session 多 repo 平行運作、script 啟動 + hook 行為跨專案差異需 grep 真權威確認、不憑印象
+
+---
+
+### 12-13. git push 字面前必 grep ahead 範圍 + 評估 push 處置選項
+
+**事故脈絡:**
+M-1-03-main-a 刀 4 sub 6 過程、Sean push 帶上 sub 4b + sub 6 兩個 commit(Code 處置選項 C「Sean 先 push sub 4b 再 amend」漏想 sub 6 主 commit 已 commit 會被 push 帶上去、ahead=0 不可再 amend)。改走 docs(status) 補救獨立 commit。
+
+**規則:**
+- 寫 push 字面前、必先 grep ahead 範圍:
+  - `git rev-list --count origin/<branch>..HEAD` 拿事實數
+  - `git log origin/<branch>..HEAD --oneline` 列出未推 commit
+  - 確認 push 範圍 = HEAD 與否、避免「Sean 推 X 結果連 Y 也推」
+- 涉 amend / 多 commit 並存時、評估處置選項:
+  - ahead=1 + amend → 安全(未推、amend hash drift 可接受)
+  - ahead≥2 + amend → 拒絕(不能 amend 已被新 commit 蓋過的舊 commit、應走新 commit / docs(status) 補救)
+  - 已 push → 不可 amend、走新 commit
+- 提醒 Sean push 範圍 = HEAD 內容、再執行 push、避免「漏想 commit」
+
+**規範定位:** 對齊 working-style.md §6.3 第 23 條(lessons §12-13 對應簡潔版)+ 維度 B「git push / ahead」延伸
+
+**教訓來源:** M-1-03-main-a 刀 4 sub 6 Q-busboy-multi-commit 事故、本對話累積教訓 #125、sub 8c push + sub 8d push + sub 8e-1 路徑全程實證 trigger 生效
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案。Sean 多 repo 操作、push 紀律跨專案統一、避免不同 repo push 規矩混淆
+
+---
+
+### 12-14. monorepo 工具配置真權威確認 + 文件官方雙 source 驗證
+
+**事故脈絡:**
+M-1-03-main-a 刀 4 sub 7 dev server 啟動 fail(apps/storefront/.env.local 不存在、NEXT_PUBLIC_SUPABASE_URL not set HTTP 500)+ sub 8b 評估 monorepo env load 位置(root vs apps/storefront)需 web_fetch Next.js 官方 + Turborepo 官方雙文件確認。Claude.ai 寫指令字面前未先確認真權威、Code raise multi-select 救。
+
+**規則:**
+- 寫 monorepo 工具配置字面前、必先確認真權威:
+  - Next.js env load → web_fetch Next.js 官方 docs
+  - Turborepo task pipeline → web_fetch Turborepo 官方 docs
+  - pnpm workspace 行為 → `pnpm-workspace.yaml` + `.npmrc` + pnpm docs
+  - ESLint flat config → eslint.config.js + ESLint 9+ docs
+- 跨工具交互(如 Turborepo + Next.js + pnpm + ESLint)必雙 source 驗證、避免單一文件 outdated
+- 不憑記憶寫「我以為這樣配」、必 grep 真權威
+
+**規範定位:** 對齊 working-style.md §6.3 第 24 條(lessons §12-14 對應簡潔版)+ 維度 A「工具能力」延伸
+
+**教訓來源:** M-1-03-main-a 刀 4 sub 7 dev server fail + sub 8b apps/storefront .env per-package 落地路徑評估、本對話累積教訓 #126
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案。Sean 多框架(PCM Next.js + 蝦皮 Apps Script + 報價 Python)、monorepo 工具配置真權威確認跨專案必要
+
+---
+
+### 12-15. env / secret 檔案操作必 redaction、絕不讀整檔內容(🔴 高)
+
+**事故脈絡:**
+M-1-03-main-a 刀 4 sub 8 前置偵察期間 Supabase keys 洩露事故。Claude.ai 用 Filesystem:read_multiple_files 讀 .env.local 整檔、keys 進對話上下文、不可逆。補救:(1) Supabase Dashboard /settings/api-keys/legacy disable Legacy keys、(2) .env.local 更新 sb_publishable + sb_secret 雙新 keys。Supabase 2025 後 Legacy keys 不可 rotate、必須走切新版 sb_publishable + sb_secret + disable Legacy 雙步驟。
+
+**規則:**
+- Claude.ai 操作含 env / secret / token 字面檔案前強制 redaction、絕不讀整檔內容:
+  - 不可用 Filesystem:read_multiple_files 讀 .env / .env.local / secrets / credentials 整檔
+  - 不可用 Code 端 cat / view 等命令讀 secret 整檔到對話上下文
+  - 必要時用 `grep -v 'key\|token\|secret\|password'` redaction、僅讀無 secret 字面
+- 處理 secret rotate / disable 走 Dashboard 操作、不寫對話
+- 補救紀律:洩露發生後 (1) Dashboard 切新版 keys + disable Legacy、(2) 應用層更新 keys、(3) commit body 揭示事故 + 補救完成
+
+**規範定位:** 對齊 working-style.md §6.3 第 25 條(lessons §12-15 對應簡潔版)+ 安全規則第 1 條 + 第 5 條 + 原則 10 延伸
+
+**教訓來源:** M-1-03-main-a 刀 4 sub 8 前置偵察期間 Supabase keys 洩露事故、本對話累積教訓 #127、§12-N3 第 1-5 條精神擴張
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案。Sean 多 service(PCM Supabase + 蝦皮 token + 供應商 B2B 後台)、env / secret 紀律跨專案統一、洩露補救流程跨平台類似(Dashboard 切新 keys + disable 舊 keys + 應用層更新)
+
+---
+
+### 12-16. 跨訊息上下文同步、含「多 session 同 repo 字面交織」風險
+
+**事故脈絡:**
+M-1-03-main-a 刀 4 sub 8b 完成後寫 Step 3「HEAD = 6f9c072 sub 8a」字面錯、Code raise Q-sub8b-redo(憑記憶寫 HEAD 而非 grep 上一輪 Code 回報)。同類擴張:sub 8e-1 啟動前 Claude.ai 端 dirty tree 屬本 repo 還是另一專案的字面交織(兩個 session 平行運作、Claude.ai 多次接受 Sean 單方面回報而未交叉驗證、Code 偵察揭示後校準)。
+
+**規則:**
+- Claude.ai 寫指令字面前、必先讀上一輪 Claude Code 回報 + 本對話事實校準:
+  - HEAD / commit hash / ahead 數 / sub 進度字面 → 必先 grep / view STATUS.md L17/L29 或 git rev-parse 拿事實數
+  - 「上一輪我說 X / 上輪 Code 說 X」字面有 stale 風險(amend 後 hash 重算、busboy-end 自動更新 STATUS、Sean 改變主意推翻舊拍板)
+  - 不可憑「2-3 輪前印象」寫死字面
+- 多 session 同 repo 平行運作風險:
+  - 同 Sean 另一個 session 在本 repo 做事、本 session 不知道、working tree 字面交織
+  - Sean 單方面回報「dirty tree 是別的 repo」可能本身字面混淆、必交叉驗(grep / git status)
+  - 不可僅憑 Sean / Code 單方面回報接受、必字面真權威交叉驗(特別是狀態類資訊)
+
+**規範定位:** 對齊 working-style.md §6.3 第 26 條(lessons §12-16 對應簡潔版)+ 維度 B「當前 git 狀態」延伸 + 多 session 場景
+
+**教訓來源:** M-1-03-main-a 刀 4 sub 8b Q-sub8b-redo 事故 + sub 8e-1 啟動前 dirty tree 多 session 字面交織事故、本對話累積教訓 #128(雙次踩 + trigger 範圍擴張)
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案。Sean 多 session 多 repo 平行運作為常態(工具配備揭示 80+ skill 包 + 10 MCP 連線、跨專案併行做生意自動化)、跨訊息上下文同步紀律跨專案必要、字面交織風險全面(不限 PCM)
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
