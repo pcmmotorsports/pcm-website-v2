@@ -3080,9 +3080,9 @@
 
 ---
 
-### #123. ⏳ zeroMoney helper 候選(placeholder Money 場景收斂)
+### #123. ✅ zeroMoney helper 候選(placeholder Money 場景收斂)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ closed
 - **優先級:** 🟡 低(目前 1 處使用、刀 4 後重評)
 - **問題:**
   - placeholder Money(`{ amount: 0, currency }`)場景累積、無共用 helper、各處字面分散
@@ -3103,6 +3103,8 @@
 - **依賴:** 刀 4 完工後重評(若 placeholder 自然消失、條目可關)
 - **發現於:** 2026-05-12 / M-1-03-main-a 刀 3 雙 audit findings(simplify R2 reuse 揭示 zeroMoney helper 缺失、Sean Q-audit-disposition=X4+Y1+Z3 拍板)
 - **相關:** `packages/adapters/src/supabase/mappers/product.ts` L113 `PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4`、`packages/domain/src/shared/types.ts` toMoneyAmount + Money type、`docs/lessons-learned.md` 第 84/85 條 Defer 模式、累積教訓 #6 audit 處置
+- **✅ 關閉於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8a
+- **關閉原因:** 刀 4 公式 dispatch 落地後 mapper L67-68 `PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4` placeholder 整段移除、L113 trigger 自然消失;sub 8a wire-only narrow 後 mapper 內無新 placeholder Money 累積需求、zeroMoney helper 不抽
 
 ---
 

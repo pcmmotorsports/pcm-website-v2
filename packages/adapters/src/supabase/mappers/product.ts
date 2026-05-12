@@ -4,7 +4,6 @@ import {
   type CategoryPath,
   type Currency,
   type FitmentSpec,
-  type MemberTier,
   type Money,
   type Product,
   type ProductAvailability,
@@ -51,7 +50,10 @@ export type SupabaseProductRow = {
   subtitle: string | null;
   description: string | null;
   handle: string;
-  price_by_tier: Record<MemberTier, { amount: number; currency: Currency }>;
+  price_by_tier: {
+    general: { amount: number; currency: Currency };
+    store: { amount: number; currency: Currency };
+  };
   fitments: FitmentSpec[];
   images: string[];
   availability: ProductAvailability;
@@ -63,9 +65,6 @@ export type SupabaseProductRow = {
   brands: SupabaseBrandRow | null;
   categories: SupabaseCategoryRow | null;
 };
-
-/** premium_store placeholder amount(amount 0、刀 4 公式 dispatch 落地後重寫此區域、const 同時刪除)。 */
-const PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4 = 0;
 
 /**
  * wire row → domain Product(對齊 docs/specs/M-1-03-main-b-PRD.md §4.1 +
@@ -106,14 +105,15 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     brand,
     category,
     fitments: row.fitments,
-    // priceByTier:
-    //   - general / store 從 jsonb 直讀(對齊 schema doc §2.1 CHECK 二 key + 刀 3 migration 落地)
-    //   - premiumStore 暫 const 0 placeholder(刀 4 storefront 公式 dispatch 落地後計算 store × (1 - brand.premium_extra_pct / 100))
-    //   - wire type SupabaseProductRow.price_by_tier 仍 Record<MemberTier, ...> 三 key 期待、與實況二 key drift、type 字面 narrow 留刀 4 公式 dispatch 連動修
+    // priceByTier(wire-only narrow、sub 8a 落地):
+    //   - wire 層 price_by_tier 二 key(general / store)、對齊 schema doc §2.1 CHECK 二 key + 刀 3 migration 落地
+    //   - premiumStore tier 由 domain layer computeEffectivePrice 動態算(store × (1 - brand.premium_extra_pct / 100))
+    //   - domain Product.priceByTier 保留三 key Record<MemberTier, Money>(Q2-clarify=A1 拍板、不 narrow domain)
+    //   - mapper 端 premiumStore key 構造 placeholder Money({amount: 0, currency: store.currency})、由 computeEffectivePrice 在 storefront 端 dispatch 時覆蓋
     priceByTier: {
       general: toMoney(row.price_by_tier.general),
       store: toMoney(row.price_by_tier.store),
-      premiumStore: { amount: toMoneyAmount(PREMIUM_STORE_PLACEHOLDER_AMOUNT_DEFERRED_TO_SLICE_4), currency: row.price_by_tier.store.currency },
+      premiumStore: { amount: toMoneyAmount(0), currency: row.price_by_tier.store.currency },
     },
     description: row.description ?? '',
     images: row.images,
@@ -154,10 +154,6 @@ export function mapDomainProductToSupabase(
       store: {
         amount: domain.priceByTier.store.amount,
         currency: domain.priceByTier.store.currency,
-      },
-      premiumStore: {
-        amount: domain.priceByTier.premiumStore.amount,
-        currency: domain.priceByTier.premiumStore.currency,
       },
     },
     fitments: domain.fitments,
