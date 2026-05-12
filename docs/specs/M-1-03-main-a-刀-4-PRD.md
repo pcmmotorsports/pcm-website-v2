@@ -333,7 +333,7 @@
 - `PCM_DEV_TIER_OVERRIDE=1 pnpm dev` 啟動
 - `http://localhost:3000/` 預設 = general(純價)
 - `http://localhost:3000/?tier=store` = store(劃線 general + store 價 + `'店價'` 標)
-- `http://localhost:3000/?tier=premiumStore` = premium_store(劃線 general + premium 價 + `'P價'` 標)
+- `http://localhost:3000/?tier=premium_store` = premium_store(劃線 general + premium 價 + `'P價'` 標)
 - 無 env flag 時:`?tier=` 不生效、回 general
 
 ### §5.3 雙 audit(sub 8 收工後)

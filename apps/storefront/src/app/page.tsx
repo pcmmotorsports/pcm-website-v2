@@ -57,9 +57,9 @@ export default async function HomePage({
     tier = 'general';
   }
 
-  // sub 3 過渡:tier 算出但 fetchFeaturedProducts 簽名加 tier 參數留 sub 4b、本 sub 純路徑接通
-  // tier 寫進 data-tier 供 dev DOM inspector debug + 防 unused-var lint(server-side render 不影響 UI)
-  const featured = await fetchFeaturedProducts();
+  // tier 傳給 fetchFeaturedProducts、由 toUIProduct 走 computeEffectivePrice 算 price / originalPrice / tierLabel
+  // tier 同時寫進 data-tier 供 dev DOM inspector debug(server-side render 不影響 UI)
+  const featured = await fetchFeaturedProducts(tier);
 
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">

@@ -35,6 +35,7 @@ import {
   SupabaseProductAdapter,
   createSupabaseAnonClient,
 } from '@pcm/adapters';
+import { computeEffectivePrice } from '@pcm/domain';
 import type { CategoryPath, MemberTier, Product } from '@pcm/domain';
 import type { MockProduct } from '@/data/mock-products';
 
@@ -64,12 +65,20 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     ? `${firstFitment.motoBrand} ${firstFitment.modelCode}`
     : '通用款';
 
+  const effectivePrice = computeEffectivePrice(product, tier);
+  const originalPrice =
+    tier === 'general'
+      ? null
+      : computeEffectivePrice(product, 'general').amount;
+  const tierLabel: 'P價' | '店價' | null =
+    tier === 'premiumStore' ? 'P價' : tier === 'store' ? '店價' : null;
+
   return {
     id: product.id as unknown as number,
     brand: product.brand.name,
     name: product.name,
     fits,
-    price: product.priceByTier[tier].amount,
+    price: effectivePrice.amount,
     origPrice: null,
     isNew: false,
     isSale: false,
@@ -77,6 +86,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     category: product.category.raw,
     color: 'silver',
     imgTone: 'neutral',
+    originalPrice,
+    tierLabel,
   };
 }
 
@@ -103,9 +114,9 @@ export type FeaturedResult = {
  *   - 找不到 category(adapter 回 [])→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → console.error + 回 `{ products: [], error: true }`、UI 走 error 分支
  *
- * tier 固定 'general'(d2 階段、未來接 auth 後從 session 取)。
+ * tier 由 caller 傳入(page.tsx 從 cookie / ?tier= override 取得、sub 4b 接通)。
  */
-export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
+export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedResult> {
   const client = createSupabaseAnonClient();
   const adapter = new SupabaseProductAdapter(client);
 
@@ -118,7 +129,7 @@ export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
   try {
     const products = await adapter.listByCategory(category);
     return {
-      products: products.slice(0, 4).map((p) => toUIProduct(p, 'general')),
+      products: products.slice(0, 4).map((p) => toUIProduct(p, tier)),
       error: false,
     };
   } catch (err) {
