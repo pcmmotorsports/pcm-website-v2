@@ -13,6 +13,9 @@
 // = MockProduct[] + error flag)、priceByTier server-side strip 在 lib/products.ts toUIProduct 落實。
 // 真實狀態:Supabase products 表 0 row(M-1-16 種子前)、HomeSelect 必走 Q-empty=b 分支。
 
+import { cookies } from 'next/headers';
+import { designTierToSchema } from '@pcm/domain';
+import type { MemberTier } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeHero } from '@/components/HomeHero';
 import { VehicleFinder } from '@/components/VehicleFinder';
@@ -31,11 +34,35 @@ import { fetchFeaturedProducts } from '@/lib/products';
 // 未來考慮 ISR(`export const revalidate = N`)平衡 latency vs 即時性、待 M-1-XX trigger。
 export const dynamic = 'force-dynamic';
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
+}) {
+  // tier 來源 priority:?tier= 覆寫(PCM_DEV_TIER_OVERRIDE=1 時)→ cookie `pcm-tier` → 預設 'general'
+  // env flag 包 ?tier=:production 預設關、防訪客 URL 加 ?tier=store 取得 dealer 價(對齊 PRD §3.1 R Q1=B)
+  const params = await searchParams;
+  const cookieStore = await cookies();
+  const tierOverride =
+    process.env.PCM_DEV_TIER_OVERRIDE === '1' && typeof params.tier === 'string'
+      ? params.tier
+      : undefined;
+  const rawTier = tierOverride ?? cookieStore.get('pcm-tier')?.value ?? 'general';
+
+  // designTierToSchema 對非預期值 throw、server 端 corrupt cookie / 攻擊 URL fallback 'general'
+  let tier: MemberTier;
+  try {
+    tier = designTierToSchema(rawTier);
+  } catch {
+    tier = 'general';
+  }
+
+  // sub 3 過渡:tier 算出但 fetchFeaturedProducts 簽名加 tier 參數留 sub 4b、本 sub 純路徑接通
+  // tier 寫進 data-tier 供 dev DOM inspector debug + 防 unused-var lint(server-side render 不影響 UI)
   const featured = await fetchFeaturedProducts();
 
   return (
-    <div data-screen-label="Home" className="ed-page">
+    <div data-screen-label="Home" data-tier={tier} className="ed-page">
       <Header cartCount={4} currentPage="home" />
       <HomeHero />
       <VehicleFinder />

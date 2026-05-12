@@ -14,25 +14,25 @@
 - **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
 - **下一步:** M-1-03-audit-disposition 剩餘 slice(slice-A ✅ 議題 1+6 view + Slice B ✅ 議題 2 三層防、剩 slice-C 議題 4 NaN bug / 規範類批量;待 Sean 拍板處置 雙 skill audit raw findings 三視角複核)
 
-**當前 slice:** M-1-03-main-a 刀 4 sub 1 ✅(本 sub:packages/domain catalog 新增 pricing.ts(58 行)+ pricing.test.ts(161 行、11 case)+ domain/src/index.ts re-export(+1 行)、共 3 檔 +220 行;computeEffectivePrice pure function 公式對齊 design-reference/components/Pricing.jsx L27-42 + supabase-schema-design.md §3.1 brands L167 + §5.1 + Brand L29 JSDoc;範圍純 packages/domain 3 檔 不動 storefront / apps / packages/adapters/ports/use-cases/schemas/ui / supabase / migrations / design-reference;R 階段 R1=A 不開 catalog/index.ts 中介層 + R2=A' sub 1a/1b 合併(test 環境補在內)+ R3=A JSDoc 字面源用實際 §(非 Sean 指令字面誤寫的 §2.4 fitments);test 環境 reasonable call 不加 domain package.json test script(對齊 adapters mirror 慣例)、走 root `pnpm test` 跑、Sean 指令 §G3 `pnpm --filter @pcm/domain test` 跑不通(vitest include pattern root-relative、filter cwd 後找不到、vitest workspace 配置補修不在 sub 1 體積範圍)、改用 root pnpm test 驗 24/24 全綠(11 pricing + 13 既有 adapters);三綠 typecheck 7/7 + lint 10/10 + test 24/24;字面 vs 事實揭示 5 條 commit body(design 邊界轉換 / legacy fallback 不採 / tier 命名 design ↔ domain 邊界 / test 環境 reasonable call / R 階段 R1+R2+R3 修訂落地);ahead origin/dev = 1)、待 Sean 手動推
+**當前 slice:** M-1-03-main-a 刀 4 sub 3 ✅(本 sub:apps/storefront/src/app/page.tsx tier 來源路徑接通、+29/-2 共 1 檔;Next.js 16.2.6 cookies() async + searchParams Promise(node_modules type def grep 真權威確認)、PCM_DEV_TIER_OVERRIDE env flag 包 ?tier= 覆寫對齊 R Q1=B 拍板;tier 來源 priority:?tier= 覆寫(env flag 開時)→ cookie pcm-tier → 預設 'general'、designTierToSchema 轉 domain MemberTier camelCase;範圍純 1 檔 不動 lib/products.ts(fetchFeaturedProducts 加 tier 參數留 sub 4b)/ components / packages / design-reference / supabase / .env / next.config.js;reasonable call drift 2 條:1) designTierToSchema 非法值 throw、本實作 try/catch fallback 'general' 防 corrupt cookie / 攻擊 URL → 500(對齊 PRD §3.1 不可信任 client 精神);2) tier 算出但 fetchFeaturedProducts 暫不傳(過渡狀態 sub 4b 加參數)、tier 寫進 `<div data-tier={tier}>` 供 dev DOM inspector debug + 防 unused-var lint;三綠 typecheck 7/7 + lint 10/10 + test 24/24;字面 vs 事實揭示 5 條 commit body(過渡狀態 + env guard + Next.js 16 真權威 grep + try/catch fallback + 字面邊界轉換);ahead origin/dev = 1)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-12
-**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 1 — packages/domain pricing.ts pure function + 11 test case + index.ts re-export 落地;R 階段 R1=A 不開 catalog/index.ts 中介層 + R2=A' sub 1a/1b 合併 + R3=A JSDoc 字面源用實際 §;test 環境 reasonable call 不加 domain package.json test script 對齊 adapters mirror;Sean 指令 §G3 `pnpm --filter @pcm/domain test` 跑不通 vitest workspace 限制、改用 root pnpm test 驗 24/24 全綠;三綠 typecheck 7/7 + lint 10/10 + test 24/24;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
+**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 3 — apps/storefront page.tsx tier 來源路徑接通(cookies + searchParams + designTierToSchema + env-guarded ?tier= 覆寫);Next.js 16.2.6 真權威 node_modules grep:cookies() async + searchParams Promise(對齊 PRD §6.2 §12-N3 anchor 不憑記憶);reasonable call 2 條:designTierToSchema throw → try/catch fallback 'general'、tier 暫不傳 fetcher 寫進 data-tier 防 unused-var lint;PCM_DEV_TIER_OVERRIDE env flag 包 ?tier= 覆寫(R Q1=B 拍板、production 預設關);三綠 typecheck 7/7 + lint 10/10 + test 24/24;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 1680767 | feat(M-1-03-main-a 刀 4 sub 1): packages/domain pricing.ts pure function + unit test + index re-export | 2026-05-12 |
+| 5e89f1c | feat(M-1-03-main-a 刀 4 sub 3): page.tsx tier 來源 cookie + env-guarded ?tier= 覆寫 | 2026-05-12 |
+| 3faaa6d | feat(M-1-03-main-a 刀 4 sub 1): packages/domain pricing.ts pure function + unit test + index re-export | 2026-05-12 |
 | 2548342 | docs(specs): M-1-03-main-a 刀 4 PRD 落定 + STATUS L29 drift 補 | 2026-05-12 |
-| 1707e41 | docs(recon): M-1-03-main-a 刀 4 偵察 Pricing/storefront/dealer-label/tier-display | 2026-05-11 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-03-main-a 刀 4 sub 3**(apps/storefront page.tsx + 引入 tier cookie 路徑 + env guard;page.tsx 加 `cookies()` 讀 `pcm-tier`(預設 'general')+ `?tier=` searchParams 處理(僅 `process.env.PCM_DEV_TIER_OVERRIDE === '1'` 時生效)+ designTierToSchema() 轉換(若 design ↔ domain 命名邊界需要)+ 傳給 fetchFeaturedProducts(tier) 參數(sub 4b 後落地);PRD §2 sub 3、估時 30-40 min;驗收 typecheck + lint 全綠 + dev server `PCM_DEV_TIER_OVERRIDE=1 ?tier=store` 拿到 store 價 + 無 env flag `?tier=store` 不生效)← 當前
+1. **M-1-03-main-a 刀 4 sub 4a**(MockProduct shape 加兩欄 + mock 補 null;apps/storefront/src/data/mock-products.ts:type `MockProduct` 加 `originalPrice: number | null` + `tierLabel: 'P價' | '店價' | null`、20 筆既有 mock 補 `originalPrice: null` + `tierLabel: null`(general tier 預設);PRD §2 sub 4a、估時 20-25 min;驗收 typecheck + lint 全綠、mock 仍可作 fallback / storybook)← 當前
 
 > Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
 > **M-1-03 主實作必吸收:**
