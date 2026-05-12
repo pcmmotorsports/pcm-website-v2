@@ -14,14 +14,24 @@
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
-    "clean": "turbo run clean"
+    "clean": "turbo run clean",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": "eslint --max-warnings 0 --no-error-on-unmatched-pattern"
   },
   "devDependencies": {
+    "@types/papaparse": "^5.5.2",
     "@typescript-eslint/parser": "catalog:",
     "eslint": "catalog:",
     "eslint-import-resolver-typescript": "catalog:",
     "eslint-plugin-boundaries": "catalog:",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.4",
+    "papaparse": "^5.5.3",
     "turbo": "^2.3.0",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "xlsx": "^0.18.5",
+    "zod": "^4.4.3"
   }
 }
