@@ -2943,9 +2943,9 @@
 - **發現於:** 2026-05-08 / M-1-03-main-d-d1(commit body 註記 8、Sean Q2=B1+B3 拍板)
 - **相關:** `apps/storefront/src/components/{HomeHero,FeatureEditorial,HomeStatement,HomeFooter,CategoryGrid,BrandIndex}.tsx`(候選改 Link)、`{VehicleFinder,Header,ProductCard}.tsx`(維持 client)、d1 指令 Step 4.1 字面維持精神 + lessons §1.1 直接搬精神 + Next.js 16 RSC server-client boundary
 
-### #118. ⏳ SupabaseProductAdapter 6 method 切換讀 products_public view
+### #118. 🔴 SupabaseProductAdapter 6 method 切換讀 products_public view
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🔴 立即啟動(刀 4 sub 7 公式 dispatch 落地、sub 8c 重評確認 trigger 條件已熟、隨時可啟動)
 - **優先級:** 🟠 中(M-1-16 種子前必修、種子上線後 storefront 仍走 base products 表 = 經銷價洩漏)
 - **問題:**
   - slice-A 已建 products_public view 排除 price_by_tier
@@ -2965,6 +2965,7 @@
 - **估時:** 60-90 min(6 method 切換 + InMemory 對齊 + contract test 補)
 - **依賴:** 刀 4 storefront 公式 dispatch 落地後配合切(原 M-1-16 種子前 anchor、修正為 view 切配合 priceByTier strip 路徑落地時機;單獨切 view 會撞 mapper priceByTier 三 tier 設計意圖、2026-05-12 / M-1-03-main-a 刀 2 偵察揭示)
 - **發現於:** 2026-05-10 / M-1-03-audit Slice A audit follow-up(slice-A-fix amend 開立)
+- **trigger 重評於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8c(刀 4 sub 7 storefront 公式 dispatch 落地、依賴條件成立、改 ⏳ → 🔴)
 - **相關:** `supabase/migrations/20260510134708_products_public_view.sql`、ADR-0003 §C2 RLS column-level、`docs/architecture/supabase-schema-design.md` §6.1 / §9.2
 
 ---
@@ -3108,6 +3109,135 @@
 
 ---
 
+### #124. ⏳ Claude.ai 寫 slice 指令字面涉 script 啟動方式必先 grep shebang + 既有 .md 實測
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(每個 slice 指令發送都可能觸發、防 Code raise 成本)
+- **問題:**
+  - Claude.ai 寫 slice 指令字面涉「執行檔 / script 啟動方式」(bash / node / python / sh / pnpm exec 等)時、若憑記憶寫死啟動命令、可能與 script 實況 / 既有 .md / CLAUDE.md 字面真權威 drift
+  - 痛點實況:sub 6 收工指令字面 `bash /Users/sean_1/pcm-tools/scripts/busboy-end.js pcm`、實況該 script L1 無 shebang、必須 `node` 跑、Code 上一輪 raise 才修正
+  - 違反原則 10「不憑記憶寫具體技術字面」、累積教訓 §12-N3 第 4 條 helper 簽名類似精神、本條擴張到「script 啟動命令字面」維度
+- **觸發事件(任一觸發即啟動實作):**
+  - 每次 slice 指令發送前自檢項加入此條(working-style §6.3 第 N 條)
+  - 同類錯第二次出現觸發 lessons §12 條目落地
+- **預期解法:**
+  - working-style §6.3 自檢清單新增條:「指令字面涉 script 啟動方式時、必先 grep script L1 shebang + 既有 .md 既有實測字面、不憑記憶」
+  - sub 8e 落地對應 lessons §12-N 條目
+- **不修會痛在:**
+  - 擴充性:未來新工具 script 入鍊(busboy v3 / 新 audit script / 新 deploy script 等)都可能踩同類錯、單條 trigger 涵蓋全範圍
+  - 可維護性:每個 slice 指令發送前自檢一行、預防成本極低、事後修正成本高(Code raise + 重組指令 + 字面 vs 事實註記)
+  - bug 可追蹤性:啟動字面錯導致 Code raise、累積多次造成「Claude.ai 指令不可信」印象、自檢項立後可追蹤 trigger 觸發歷史
+- **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
+- **依賴:** sub 8e 教訓批次落地
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 6(busboy-end `bash` 字面踩雷、Sean Q-execution-deviations 拍板)
+- **相關:** `CLAUDE.md` Busboy 流程段、`/Users/sean_1/pcm-tools/scripts/busboy-end.js` L1 shebang 真權威、原則 10、累積教訓 §12-N3 第 4 條
+
+---
+
+### #125. ⏳ Claude.ai 寫 git push 字面 / 處置選項必先 grep ahead 狀態 + 評估 push 範圍 = HEAD
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🔴 高(誤判 push 範圍導致已 push 狀態不可逆、補救成本高)
+- **問題:**
+  - Claude.ai 寫含 `git push` 字面 / 評估 push 處置選項時、若假設 push 只推單一目標 commit、實況 push 推所有 ahead commit、可能導致未完成狀態被推到 origin
+  - 痛點實況:sub 6 Q-busboy-multi-commit 處置 C 字面「Sean push sub 4b、ahead 變 1、我再 amend」、Sean 執行後把 sub 4b + sub 6 兩個都推到 origin(sub 6 還未收工 STATUS 6 欄位)、走 docs(status) 獨立 commit 補救
+  - 違反原則 10「不憑記憶寫具體技術字面」、git push 行為屬具體技術細節
+- **觸發事件(任一觸發即啟動實作):**
+  - 每次 slice 指令含 git push 字面 / push 處置選項前自檢項加入此條
+  - 同類錯第二次出現觸發 lessons §12 條目落地
+- **預期解法:**
+  - working-style §6.3 自檢清單新增條:「寫含 git push 字面 / 評估 push 處置選項時、必先 grep `git log origin/dev..HEAD --oneline` 確認 local ahead 狀態、評估 push 推所有 ahead commit 後果、不可假設 push 只推單一目標 commit」
+  - **特別在 ahead≥2 環境寫 push 處置選項時**、所有選項字面都要明確標示「push 範圍 = HEAD」而非「push 單一 commit」
+  - sub 8e 落地對應 lessons §12-N 條目
+- **不修會痛在:**
+  - 擴充性:未來所有 git push 字面指令 + 含 push 處置選項都適用、條目涵蓋面廣
+  - 可維護性:每個 push 字面 / 選項前自檢一行、預防 push 後 origin 狀態不一致 / 補救 docs(status) 獨立 commit / 重做 sub 等高成本場景
+  - bug 可追蹤性:push 行為一旦發生不可逆、事後 force-push 補救破 history;trigger 落地後 push 處置設計時即考慮 ahead 範圍、降低事故率
+- **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
+- **依賴:** sub 8e 教訓批次落地
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 6 Q-busboy-multi-commit C 處置事故
+- **相關:** sub 6 docs(status) 補救 commit `81eff40`、原則 10、累積教訓 §12-N3 第 1/2 條
+
+---
+
+### #126. ⏳ Claude.ai 寫 monorepo 設定處置字面必先 web_fetch 官方文件 + grep 本地實況
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(每次 monorepo 設定變更都可能觸發、防憑記憶踩過時/錯誤慣例)
+- **問題:**
+  - Claude.ai 寫含 monorepo 設定(env / config / build / deploy)處置字面時、若憑記憶或既有慣例推測、可能與官方真權威 drift、踩過時或錯誤慣例
+  - 痛點實況:sub 7 dev server F3 揭示 monorepo root .env.local 無法被 Next.js inherit、Q-env-fix-timing 拍板前完全沒查官方文件、靠 sub 8b 偵察 web_fetch 才揭示 Next.js + Turborepo 雙官方推薦 per-package 模型
+  - 違反原則 10「不憑記憶寫具體技術字面」、monorepo 工具設定屬具體技術細節
+- **觸發事件(任一觸發即啟動實作):**
+  - 每次 slice 指令含 monorepo 設定字面前自檢項加入此條
+  - 新 app 加入 monorepo(admin / sync-engine 等)觸發 env / build / deploy 設定時
+  - 同類錯第二次出現觸發 lessons §12 條目落地
+- **預期解法:**
+  - working-style §6.3 自檢清單新增條:「寫含 monorepo 設定(env / config / build / deploy)的處置字面時、必先 web_fetch 對應工具官方文件(Next.js / Turborepo / Vercel / pnpm 等)+ grep 本地當前實況、不憑記憶或既有慣例推測」
+  - sub 8e 落地對應 lessons §12-N 條目
+- **不修會痛在:**
+  - 擴充性:未來所有 monorepo 工具設定(Next.js 17/18 升級 / Turborepo 新版本 / Vercel deploy 設定 / pnpm catalog 變更等)都適用
+  - 可維護性:web_fetch + grep 雙真權威成本低(5-10 min)、預防 Q-X 拍板字面錯需 rollback 重做高成本場景
+  - bug 可追蹤性:設定字面錯導致 dev server / build / deploy 失敗、debug 從應用層往 monorepo 層追耗時、trigger 落地後設計時即考慮真權威、降低事故率
+- **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
+- **依賴:** sub 8e 教訓批次落地
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 7 dev server F3 HTTP 500 + sub 8b 偵察 web_fetch Next.js + Turborepo 雙官方真權威揭示
+- **相關:** sub 8b commit、Next.js 16 docs env-variables、Turborepo docs using-environment-variables、原則 10
+
+---
+
+### #127. 🔴 Claude.ai 操作含 env / secret / token 字面檔案前強制 redaction、絕不讀整檔內容
+
+- **狀態:** ⏳ 待執行(此條 trigger 已立、本對話已實證、優先級高)
+- **優先級:** 🔴 高(本對話最嚴重事故、Supabase keys 洩露需走切新版 + disable Legacy 雙步驟補救)
+- **問題:**
+  - Claude.ai 操作含 `.env` / `secret` / `token` / `apikey` / `password` 字面檔案時、若用 `read_multiple_files` / `read_file` / `view` 整檔、檔案內容(含 keys / tokens / passwords)會被拉進對話上下文、不可逆洩露
+  - 痛點實況:本對話 sub 8 前置偵察期間、Claude.ai 用 `Filesystem:read_multiple_files` 讀 `.env.local` 整檔、Supabase anon + service_role JWT keys 洩露到對話上下文、走 Supabase 切新版 API keys(sb_publishable / sb_secret)+ disable Legacy keys 雙步驟補救
+  - 補救字面錯:原處置「Dashboard rotate anon + service_role key」字面、實況 Supabase 2025 後 Legacy keys 不可 rotate、必須走 disable + 切新版雙步驟、Sean Dashboard 找不到 rotate 入口才揭示
+  - 違反安全規則第 1 條「API key / token / 密碼不出現在對話、只在終端機處理」+ 第 5 條「.env 等命令必加 redaction」
+- **觸發事件(任一觸發即啟動實作):**
+  - 每次 slice 指令涉 .env / secret / token / apikey / password 字面檔案操作前自檢項加入此條
+  - 安全事故第二次發生觸發 lessons §12 條目落地(本對話已立、不等第二次)
+- **預期解法:**
+  - working-style §6.3 自檢清單新增條:「操作含 `.env` / `secret` / `token` / `apikey` / `password` 字面檔案前、強制 redaction(grep -v / sed mask)或改讀結構(`get_file_info` 看 metadata / `git check-ignore` / `ls -la`、絕不 `read_multiple_files` / `read_file` / `view` 整檔。Sean 端 terminal 操作時、Claude.ai 指令字面只可說「在 terminal 跑」、不可說「Claude.ai 幫你看內容」」
+  - **擴張條款**:Claude.ai 寫安全事故補救字面時、必先 web_search 確認當前 Dashboard / 工具操作真權威、不憑記憶寫死「點哪個按鈕」(對齊本事故補救字面錯)
+  - sub 8e 落地對應 lessons §12-N 條目
+- **不修會痛在:**
+  - 擴充性:未來所有 env / secret 檔案操作(新 app .env / GCP credentials / API tokens / Supabase service role 等)都適用、條目涵蓋面廣
+  - 可維護性:redaction 操作 30 秒、預防 keys 洩露事故補救 30-60 min(Dashboard 切新版 + 更新所有 env + disable Legacy)
+  - bug 可追蹤性:keys 洩露不可逆、補救期間 production / 其他部署點同步更新風險高;trigger 落地後 env 操作即走 metadata-only 路徑、根本性消除事故源
+- **估時:** 10 min(working-style §6.3 加 1 條主體 + 1 條擴張條款 + lessons §12 對應)
+- **依賴:** sub 8e 教訓批次落地
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8 前置偵察期間 Supabase keys 洩露事故 + 補救字面錯雙重觸發
+- **相關:** Supabase keys 補救 commit / 安全規則第 1 條 + 第 5 條 / 原則 10、累積教訓 §12-N3 第 1-5 條精神擴張
+
+---
+
+### #128. ⏳ Claude.ai 寫 slice 指令前置必先讀 Code/Sean 上輪訊息全文 + 驗 git log
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(每次 slice 指令前置都可能觸發、防 Code raise + Sean 二次確認成本)
+- **問題:**
+  - Claude.ai 寫 slice 指令前置(A 段狀態檢查)字面時、若憑記憶寫 HEAD hash / 進度 / 上一個 sub 完成狀態、可能與實況 drift、導致 Code raise「實際狀態已是 sub X+1 完成、不重複執行」
+  - 痛點實況:sub 8b 落地後、Claude.ai 寫 Step 3 指令前置「HEAD = 6f9c072 sub 8a」、實況 Code 上一輪已收工 sub 8b(amend 後 `1f934a2`)、Code 跑 A 段預期 vs 實際偏離、raise Q-sub8b-redo
+  - 違反原則 10「不憑記憶寫具體技術字面」、累積教訓 §12-N3 第 1/2 條精神擴張到「跨訊息上下文同步」維度
+- **觸發事件(任一觸發即啟動實作):**
+  - 每次 slice 指令發送前自檢項加入此條
+  - 同類錯第二次出現觸發 lessons §12 條目落地
+- **預期解法:**
+  - working-style §6.3 自檢清單新增條:「寫 slice 指令前置(A 段狀態檢查)字面前、必先讀 Code / Sean 上一輪訊息全文 + 用 filesystem `get_file_info` 看 STATUS.md 修改時間 + 或 grep 驗 git log 字面、不憑記憶寫 HEAD hash / 進度 / 上一個 sub 完成狀態」
+  - sub 8e 落地對應 lessons §12-N 條目
+- **不修會痛在:**
+  - 擴充性:未來所有 slice 指令前置 + 含 HEAD/sub 進度字面都適用、條目涵蓋面廣
+  - 可維護性:讀上輪訊息全文 + filesystem metadata 驗證成本低(2-3 min)、預防 Code raise + Sean 二次確認 + 指令重發成本(10-15 min)
+  - bug 可追蹤性:憑記憶寫死導致跨訊息上下文 drift、Code 難判斷是否該執行、trigger 落地後前置字面與實況同步、降低事故率
+- **估時:** 5 min(working-style §6.3 加 1 條 + lessons §12 對應)
+- **依賴:** sub 8e 教訓批次落地
+- **發現於:** 2026-05-12 / M-1-03-main-a 刀 4 sub 8b 收工後 Claude.ai Step 3 指令前置 HEAD 字面錯、Code raise Q-sub8b-redo
+- **相關:** sub 8b commit `1f934a2`、原則 10、累積教訓 §12-N3 第 1/2 條精神擴張
+
+---
+
 ## 紀錄模板
 
 ```markdown
@@ -3117,7 +3247,7 @@
 - **優先級:** 🔴 高 / 🟠 中 / 🟡 低 / 🟢 觀察
 - **問題:**
   - (描述)
-- **觸發事件:**
+- **觸發事件(可加「(任一觸發即啟動實作)」變體、對齊 #122/#118 等既有條目格式):**
   - (何時、為何發現)
 - **預期解法:**
   - (想怎麼解)
