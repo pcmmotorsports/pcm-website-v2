@@ -14,25 +14,25 @@
 - **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
 - **下一步:** M-1-03-audit-disposition 剩餘 slice(slice-A ✅ 議題 1+6 view + Slice B ✅ 議題 2 三層防、剩 slice-C 議題 4 NaN bug / 規範類批量;待 Sean 拍板處置 雙 skill audit raw findings 三視角複核)
 
-**當前 slice:** M-1-03-main-a 刀 4 sub 3 ✅(本 sub:apps/storefront/src/app/page.tsx tier 來源路徑接通、+29/-2 共 1 檔;Next.js 16.2.6 cookies() async + searchParams Promise(node_modules type def grep 真權威確認)、PCM_DEV_TIER_OVERRIDE env flag 包 ?tier= 覆寫對齊 R Q1=B 拍板;tier 來源 priority:?tier= 覆寫(env flag 開時)→ cookie pcm-tier → 預設 'general'、designTierToSchema 轉 domain MemberTier camelCase;範圍純 1 檔 不動 lib/products.ts(fetchFeaturedProducts 加 tier 參數留 sub 4b)/ components / packages / design-reference / supabase / .env / next.config.js;reasonable call drift 2 條:1) designTierToSchema 非法值 throw、本實作 try/catch fallback 'general' 防 corrupt cookie / 攻擊 URL → 500(對齊 PRD §3.1 不可信任 client 精神);2) tier 算出但 fetchFeaturedProducts 暫不傳(過渡狀態 sub 4b 加參數)、tier 寫進 `<div data-tier={tier}>` 供 dev DOM inspector debug + 防 unused-var lint;三綠 typecheck 7/7 + lint 10/10 + test 24/24;字面 vs 事實揭示 5 條 commit body(過渡狀態 + env guard + Next.js 16 真權威 grep + try/catch fallback + 字面邊界轉換);ahead origin/dev = 1)、待 Sean 手動推
+**當前 slice:** M-1-03-main-a 刀 4 sub 4a ✅(本 sub:apps/storefront/src/data/mock-products.ts MockProduct shape 加 `originalPrice?: number | null` + `tierLabel?: 'P價' | '店價' | null` 兩欄 + 20 筆 MOCK_PRODUCTS 補 null、+24/-20 共 1 檔;tierLabel 字面源 design Pricing.jsx L62/L103 真權威('P價'/'店價' 繁體全形)非 HANDOFF v2.1 §5.5 過時字面;範圍純 1 檔 不動 toUIProduct(d2 落地、留 sub 4b)/ ProductCard / HomeSelect / packages / design-reference;reasonable call drift:兩欄 optional 而非 Sean §C1 字面 required(對齊 Sean §E 預先處置選項 a)、原因:既有 caller toUIProduct@lib/products.ts:61 inline 構造 12 欄位 return 若加 required 立即觸發 typecheck 紅、Sean 禁止清單明示「不可動 toUIProduct」、optional 路徑保持三綠 + 不動禁止範圍、PRD §1.1 Q4=C 字面 required 延後到 sub 4b 同步收緊(sub 4b toUIProduct 加 server-side dispatch 算非 null 值 + type 改 required);caller 影響面 grep 4 處(mock-products 自定義 / ProductCard:93 props 接收型 / lib/products:39+61+94 toUIProduct+FeaturedResult)加 optional 後 0 處需動;三綠 typecheck 7/7 + lint 10/10 + test 24/24;字面 vs 事實揭示 3 條 commit body(optional reasonable call + caller 影響面 + tierLabel 字面源 .jsx 真權威);ahead origin/dev = 1)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-12
-**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 3 — apps/storefront page.tsx tier 來源路徑接通(cookies + searchParams + designTierToSchema + env-guarded ?tier= 覆寫);Next.js 16.2.6 真權威 node_modules grep:cookies() async + searchParams Promise(對齊 PRD §6.2 §12-N3 anchor 不憑記憶);reasonable call 2 條:designTierToSchema throw → try/catch fallback 'general'、tier 暫不傳 fetcher 寫進 data-tier 防 unused-var lint;PCM_DEV_TIER_OVERRIDE env flag 包 ?tier= 覆寫(R Q1=B 拍板、production 預設關);三綠 typecheck 7/7 + lint 10/10 + test 24/24;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
+**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 4a — apps/storefront mock-products.ts shape 加 originalPrice + tierLabel 兩欄 optional + 20 筆 MOCK_PRODUCTS 補 null;reasonable call 兩欄 optional(對齊 Sean §E 預先處置選項 a)、原因:既有 toUIProduct@d2 落地若加 required 即破 typecheck + Sean 禁止清單「不可動 toUIProduct」、optional 路徑保三綠;PRD §1.1 Q4=C 字面 required 延後到 sub 4b 同步收緊;tierLabel 字面源 Pricing.jsx L62/L103 .jsx 真權威 'P價'/'店價' 非 HANDOFF §5.5 過時;三綠 typecheck 7/7 + lint 10/10 + test 24/24;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 5e89f1c | feat(M-1-03-main-a 刀 4 sub 3): page.tsx tier 來源 cookie + env-guarded ?tier= 覆寫 | 2026-05-12 |
+| 2ff0d84 | feat(M-1-03-main-a 刀 4 sub 4a): MockProduct shape 加 originalPrice + tierLabel 兩欄 | 2026-05-12 |
+| e2cdecb | feat(M-1-03-main-a 刀 4 sub 3): page.tsx tier 來源 cookie + env-guarded ?tier= 覆寫 | 2026-05-12 |
 | 3faaa6d | feat(M-1-03-main-a 刀 4 sub 1): packages/domain pricing.ts pure function + unit test + index re-export | 2026-05-12 |
-| 2548342 | docs(specs): M-1-03-main-a 刀 4 PRD 落定 + STATUS L29 drift 補 | 2026-05-12 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-03-main-a 刀 4 sub 4a**(MockProduct shape 加兩欄 + mock 補 null;apps/storefront/src/data/mock-products.ts:type `MockProduct` 加 `originalPrice: number | null` + `tierLabel: 'P價' | '店價' | null`、20 筆既有 mock 補 `originalPrice: null` + `tierLabel: null`(general tier 預設);PRD §2 sub 4a、估時 20-25 min;驗收 typecheck + lint 全綠、mock 仍可作 fallback / storybook)← 當前
+1. **M-1-03-main-a 刀 4 sub 4b**(lib/products.ts fetchFeaturedProducts 接 tier + toUIProduct 公式 dispatch;`fetchFeaturedProducts(tier: MemberTier)` 簽名加參數 + toUIProduct 內接 `computeEffectivePrice(tier)` → price + 新算 originalPrice(若 tier ≠ 'general')+ tierLabel + MockProduct shape 兩欄從 optional 收緊為 required(對齊 PRD §1.1 Q4=C 拍板字面、sub 4a optional 過渡收尾);page.tsx 把 tier 傳給 fetchFeaturedProducts(消費 sub 3 已算出 tier);PRD §2 sub 4b、估時 30-40 min;驗收 typecheck + lint + test 全綠 + dev server `?tier=general` / `?tier=store` 拿到不同 price)← 當前
 
 > Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
 > **M-1-03 主實作必吸收:**
