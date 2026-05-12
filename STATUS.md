@@ -14,25 +14,25 @@
 - **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
 - **下一步:** M-1-03-audit-disposition 剩餘 slice(slice-A ✅ 議題 1+6 view + Slice B ✅ 議題 2 三層防、剩 slice-C 議題 4 NaN bug / 規範類批量;待 Sean 拍板處置 雙 skill audit raw findings 三視角複核)
 
-**當前 slice:** M-1-03-post-supplement sub-slice 0b ✅(d100244 docs 4 檔 +247/-10:supabase-schema-design.md §2.1 price_by_tier CHECK 三→二 key + §3.1 brands 加 premium_extra_pct integer CHECK(0-30)+ M-1-03 PRD §2.1 CHECK + §2.2 範例同步二 key + §2.4 Pricing 公式新段落 + lessons §12-4~§12-11 8 條教訓 + working-style §6.3 第 14~21 條 8 條教訓;Q1=A2 / Q2=B1 / Q3=C1 拍板鏈:Q1=A2 §2.4 加在原 §2.3 後不重編號 / Q2=B1 §5.2 name 註解 + §5.3 customer.tier CHECK 都保留三 key + customer_groups INSERT 三筆保留(預設選項 b)/ Q3=C1 教訓用指令 1 行描述為基 Code 對齊既有 §12-N + 第 N 條格式展開;sub-slice 0a 偵察 raise #122 字面誤讀(STATUS 候選 vs backlog 條目)、補進 §12-11 + 第 21 條(7 → 8 條偏離原因 commit body 揭示);業務字面 vs schema 字面三層對應(`premiumStore` camelCase / 高級店家 / `premium_store` snake_case)落地 §2.4 mapping 表 + §12-5 + 第 15 條教訓;範圍純 docs 4 檔 不動 storefront / packages / apps / supabase / migrations / design-reference;未做(留後續):真實 migration SQL / §3.2 brands 對應 domain entity 加 premium_extra_pct / MemberTier 維持三 key / backlog #122 不開(對齊禁止清單、§12-11 教訓替代);ahead origin/dev = 1)、待 Sean 手動推
+**當前 slice:** M-1-03-main-a 刀 4 PRD 落地 + STATUS drift 補 sub 0 ✅(本 sub:docs/specs/M-1-03-main-a-刀-4-PRD.md 新建 411 行 §0-§8 全章節覆蓋 + STATUS L17/L22-23/L29-L31/L35 4 處同步;範圍純 docs 2 檔 不動 storefront / packages / apps / supabase / migrations / design-reference;A-C-B-C-A 拍板 + R 階段 Q1=B/Q2=A/Q3=A/Q4=A/Q5a=A/Q5b=B + R1=A 8 commit / R2=A Claude.ai 逐刀指令 Code 執行(非 Code Auto Mode);8 sub-slice 拆法 sub 0 / 1 / 3 / 4a / 4b / 6 / 7 / 8、總估時 3.5-4.5 hr;後續 sub 1-8 走 amend 流程同步 STATUS L29 對齊 lessons §12-3 維度 B 滾動修正模式;字面 vs 事實揭示 5 條 commit body:1) §3.1 安全 guard 採 PCM_DEV_TIER_OVERRIDE env flag 與 PRD v1 ?tier= 無 guard 偏離 R 階段 Q1=B 拍板 / 2) §2 sub 4 拆 4a/4b 與 PRD v1 sub 4+5 偏離 R 階段 Q2=A 拍板 / 3) §2 sub 6 不預拆 R 階段 Q4=A 拍板 / 4) STATUS L29 累積 drift 實際 5 commit(刀 1a 49ae7b7 / 刀 1b b3c9c48 / 刀 2 3dd70ec / 刀 3 2234f5e / 刀 4 偵察 1707e41、L29-L31 結構限制只列前 3、Sean 指令字面「3 commit」Code 對齊事實揭示) / 5) PRD §6.3 §12-N3 教訓 anchor 預留(A mode PRD 寫作 5 維度 self-check);ahead origin/dev = 1)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
-**時間:** 2026-05-11
-**更新者:** Claude Code(M-1-03-post-supplement sub-slice 0b — schema 字面修正 price_by_tier CHECK 三→二 key + brands.premium_extra_pct + M-1-03 PRD §2.4 Pricing 公式 + lessons §12-4~§12-11 + working-style 第 14~21 條;Q1=A2 / Q2=B1 / Q3=C1 拍板鏈;0a 偵察 raise #122 字面誤讀補 §12-11 + 第 21 條;busboy-end 手動 amend 補 6 欄位)
+**時間:** 2026-05-12
+**更新者:** Claude Code(M-1-03-main-a 刀 4 sub 0 — PRD docs 落地 + STATUS L29 累積 drift 補;A-C-B-C-A 拍板 + R 階段 Q1=B/Q2=A/Q3=A/Q4=A/Q5a=A/Q5b=B + R1=A 8 commit / R2=A Claude.ai 逐刀指令 Code 執行;PRD 411 行 §0-§8 全章節覆蓋;累積 drift 實際 5 commit(刀 1a/1b/2/3/4 偵察)L29-L31 結構限制只列前 3、commit body 揭示;busboy-end 手動 amend 補 6 欄位 + STATUS L29 hash)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| d100244 | docs(M-1-03-post-supplement): schema 字面修正 + Pricing 公式 + 教訓 §12-4~§12-11 | 2026-05-11 |
-| c2240e4 | chore: bump design-reference submodule (v2.0 + v2.1 整合 + brand-logos 重組) | 2026-05-11 |
-| 133683e | feat(M-1-03-audit): ESLint no-restricted-imports rule 擋 @pcm/adapters/server — 議題 2 第三層防 [audit-slice-B-3] | 2026-05-11 |
+| a268320 | docs(specs): M-1-03-main-a 刀 4 PRD 落定 + STATUS L29 drift 補 | 2026-05-12 |
+| 1707e41 | docs(recon): M-1-03-main-a 刀 4 偵察 Pricing/storefront/dealer-label/tier-display | 2026-05-11 |
+| 2234f5e | feat(adapters): migration price_by_tier 二 key + brands premium_extra_pct + mapper 修(刀 3) | 2026-05-11 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-03-post-supplement sub-slice 1**(Pricing 元件直譯 + brand schema migration + 修「· 經銷」硬編碼;依本 slice 0b 落地 §2.4 Pricing 公式 + brands.premium_extra_pct 字面、真實 SQL migration 寫入 supabase/migrations/ + storefront ProductCard / WalletTab tier 顯示元件對齊 design @ 25d3a2a)+ **M-1-03-post-audit 補頁實作 slice 排程**(Claude.ai 待寫、依 design @ 25d3a2a / design-handoff/HANDOFF-v2.0.md + HANDOFF-v2.1.md §1 檔案清單 + §5 既有檔更動拆 6-8 sub-slice;含 6 頁補設計實作 + StorePicker + Pricing + 三 tier 完整 + 廠牌加碼公式落地)+ **M-1-03-audit-disposition 剩餘 slice**(slice-C 議題 4 NaN bug + 規範類批量、留 #117 anchor;#121 spike API surface 規範 anchor 三選項待拍)← 當前
+1. **M-1-03-main-a 刀 4 sub 1**(packages/domain pricing.ts pure function + unit test;新建 packages/domain/src/catalog/pricing.ts ~40 行 export `computeEffectivePrice(product, tier): Money` 對齊 Pricing.jsx L27-42 + supabase-schema-design.md §2.4 公式、premium_store 算式 `Math.round(store.amount × (1 - brand.premium_extra_pct / 100))` + 新建 pricing.test.ts ~80 行三 tier × 邊界 case 8-12 test + catalog/index.ts re-export;PRD §2 sub 1 原 sub 1+2 合併、估時 40-50 min;驗收 typecheck 7/7 + lint 10/10 + `pnpm --filter @pcm/domain test` 全綠)← 當前
 
 > Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
 > **M-1-03 主實作必吸收:**
