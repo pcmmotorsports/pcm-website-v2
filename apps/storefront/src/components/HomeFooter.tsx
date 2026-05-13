@@ -1,19 +1,16 @@
 // HomeFooter.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (© MMXXVI · PCM MOTOR PARTS LTD.、新莊化成路 736 巷 18 號)
-'use client';
+//
+// M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
+// onNav target 對映(本檔 7 條):
+//   'catalog' → /products / 'brands' → /brands / 'new' → /products?filter=new / 'sale' → /products?filter=sale
+//   'install' → /install / 'stores' → /stores / 'shipping' → /info/shipping
+// social / 聯絡客服 4 條 <a href="#"> 無 onClick(純 placeholder)保留、不在 onNav 範圍
+// 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
-import { useCallback, type MouseEvent } from 'react';
+import Link from 'next/link';
 
 export function HomeFooter() {
-  const onNav = useCallback((target: string, ctx?: object) => {
-    console.log('[onNav]', target, ctx);
-  }, []);
-
-  const handle = (e: MouseEvent, target: string, ctx?: object) => {
-    e.preventDefault();
-    onNav(target, ctx);
-  };
-
   return (
     <footer className="ed-footer">
       <div className="ed-footer-inner">
@@ -32,16 +29,16 @@ export function HomeFooter() {
         <div className="ed-footer-cols">
           <div>
             <div className="ed-mono ed-footer-h">購物</div>
-            <a href="#" onClick={(e) => handle(e, 'catalog')}>商品目錄</a>
-            <a href="#" onClick={(e) => handle(e, 'brands')}>品牌專區</a>
-            <a href="#" onClick={(e) => handle(e, 'new')}>新品上架</a>
-            <a href="#" onClick={(e) => handle(e, 'sale')}>特價專區</a>
+            <Link href="/products">商品目錄</Link>
+            <Link href="/brands">品牌專區</Link>
+            <Link href="/products?filter=new">新品上架</Link>
+            <Link href="/products?filter=sale">特價專區</Link>
           </div>
           <div>
             <div className="ed-mono ed-footer-h">服務</div>
-            <a href="#" onClick={(e) => handle(e, 'install')}>安裝預約</a>
-            <a href="#" onClick={(e) => handle(e, 'stores')}>合作店家</a>
-            <a href="#" onClick={(e) => handle(e, 'shipping')}>配送 & 退貨</a>
+            <Link href="/install">安裝預約</Link>
+            <Link href="/stores">合作店家</Link>
+            <Link href="/info/shipping">配送 & 退貨</Link>
             <a href="#">聯絡客服</a>
           </div>
           <div>

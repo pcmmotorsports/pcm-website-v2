@@ -1,19 +1,12 @@
 // HomeHero.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬(N°01 SPRING EDITORIAL)
-'use client';
+//
+// M-1-04 刀 1a:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
+// onNav target 對映(本檔 1 條):'new' → /products?filter=new
+// 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
-import { useCallback, type MouseEvent } from 'react';
+import Link from 'next/link';
 
 export function HomeHero() {
-  const onNav = useCallback((target: string, ctx?: object) => {
-    // d1 階段 stub、M-1-04 加 next/navigation 後改 router.push
-    console.log('[onNav]', target, ctx);
-  }, []);
-
-  const handle = (e: MouseEvent, target: string, ctx?: object) => {
-    e.preventDefault();
-    onNav(target, ctx);
-  };
-
   return (
     <section className="ed-hero">
       <div className="ed-hero-media">
@@ -33,10 +26,10 @@ export function HomeHero() {
           <span className="ed-hero-italic">ride&nbsp;differently.</span>
         </h1>
         <div className="ed-hero-foot">
-          <a href="#" onClick={(e) => handle(e, 'new')} className="ed-link">
+          <Link href="/products?filter=new" className="ed-link">
             <span>Discover the collection</span>
             <span className="ed-link-arrow">→</span>
-          </a>
+          </Link>
           <div className="ed-hero-meta">
             <span className="ed-mono">N°01</span>
             <span>·</span>

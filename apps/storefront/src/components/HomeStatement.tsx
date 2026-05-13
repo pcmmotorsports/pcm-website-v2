@@ -1,19 +1,13 @@
 // HomeStatement.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°05 · Service · 黑色 slab、原廠授權 / 合作店家安裝 / 終身技術諮詢 三 col)
-'use client';
+//
+// M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
+// onNav target 對映(本檔 2 條):'install' → /install / 'stores' → /stores
+// 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
-import { useCallback, type MouseEvent } from 'react';
+import Link from 'next/link';
 
 export function HomeStatement() {
-  const onNav = useCallback((target: string, ctx?: object) => {
-    console.log('[onNav]', target, ctx);
-  }, []);
-
-  const handle = (e: MouseEvent, target: string, ctx?: object) => {
-    e.preventDefault();
-    onNav(target, ctx);
-  };
-
   return (
     <section className="ed-statement">
       <div className="ed-statement-inner">
@@ -40,14 +34,14 @@ export function HomeStatement() {
           </div>
         </div>
         <div className="ed-statement-cta">
-          <a href="#" onClick={(e) => handle(e, 'install')} className="ed-link ed-link-light">
+          <Link href="/install" className="ed-link ed-link-light">
             <span>預約安裝</span>
             <span className="ed-link-arrow">→</span>
-          </a>
-          <a href="#" onClick={(e) => handle(e, 'stores')} className="ed-link ed-link-light ed-link-sm">
+          </Link>
+          <Link href="/stores" className="ed-link ed-link-light ed-link-sm">
             <span>合作店家地圖</span>
             <span className="ed-link-arrow">→</span>
-          </a>
+          </Link>
         </div>
       </div>
     </section>

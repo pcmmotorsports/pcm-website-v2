@@ -1,19 +1,14 @@
 // FeatureEditorial.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°02 · This month · RIZOMA · 工藝之鏡)
-'use client';
+//
+// M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
+// onNav target 對映(本檔 1 條):'brand-detail' + brandId='rizoma'(硬寫死) → /brands/rizoma
+// anchor:MOCK_BRANDS 16 個無 RIZOMA、點 Link 後落 404、刀 1b2 補(對齊 recon §7 候選刀 5 跨範圍評估)
+// 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
-import { useCallback, type MouseEvent } from 'react';
+import Link from 'next/link';
 
 export function FeatureEditorial() {
-  const onNav = useCallback((target: string, ctx?: object) => {
-    console.log('[onNav]', target, ctx);
-  }, []);
-
-  const handle = (e: MouseEvent, target: string, ctx?: object) => {
-    e.preventDefault();
-    onNav(target, ctx);
-  };
-
   return (
     <section className="ed-feature">
       <div className="ed-feature-inner">
@@ -45,10 +40,10 @@ export function FeatureEditorial() {
               <div className="ed-feature-meta-v">CNC · Anodized</div>
             </div>
           </div>
-          <a href="#" onClick={(e) => handle(e, 'brand-detail', { brandId: 'rizoma' })} className="ed-link ed-link-dark">
+          <Link href="/brands/rizoma" className="ed-link ed-link-dark">
             <span>探索 RIZOMA</span>
             <span className="ed-link-arrow">→</span>
-          </a>
+          </Link>
         </aside>
         <div className="ed-feature-media">
           <img src="https://images.unsplash.com/photo-1558981852-426c6c22a060?w=1600&q=85&auto=format&fit=crop" alt="RIZOMA"/>
