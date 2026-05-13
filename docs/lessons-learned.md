@@ -802,6 +802,63 @@ M-1-04 wrs.png 修復、Claude.ai 默認 onboarding doc 多處字面「Sean 在 
 
 ---
 
+### 12-22. DevTools 操作驗範圍界線 — Sean 不會 inspect / Network 結構解析、超範圍改 Code 字面估算
+
+**事故脈絡:**
+M-1-04 刀 1b2 audit Q4 操作驗、Claude.ai 推薦 Q4 = Sean 操作驗 4 件、其中 WCAG 2.5.5 觸控目標 ≥ 44×44 需 DevTools inspect element 量元素尺寸、Sean 回「我不會」、改 Code 用 CSS 字面估算才解決(HomeFooter `.ed-footer-cols a` 字面 font-size 13.5px × line-height 1.6 = 21.6px、實算 < AA-24px FAIL、進 backlog #138)。
+
+**規則:**
+- **Sean 能做(寫驗收清單可給):**
+  - 看視覺(視覺對 / 不對 / 歪)
+  - 看 Console 紅字字面(不解析 stack trace、只看字面有無「Error」)
+  - 點連結看 URL bar(對 / 404 / 跳哪)
+  - Cmd+F 在 Response / source 搜文字(找特定字面有無)
+  - 在頁面內滾動 / 點按鈕 / 填表單
+- **Sean 不會做(寫驗收清單不可給):**
+  - DevTools inspect element 量尺寸 / 比對 CSS box model
+  - DevTools Network panel Response 結構解析(只看 status code OK、不看 headers / payload 結構)
+  - DevTools Performance / Memory / Application panel 操作
+  - 用 querySelector / $0 / console.assert 互動操作
+  - 量 a11y 屬性(aria-* / tabindex / focus order)
+- **超範圍處置:** Claude.ai 寫驗收清單前每項自檢「Sean 在不接受 DevTools 中高階教學的前提下能做嗎?」、不能 → 改 Code 用 CSS / HTML / runtime 字面估算、不靠 Sean 操作 DevTools
+- **enforce:** 違反 = Sean raise「我不會」、Claude.ai 不解釋直接改 Code 驗證版本、不教 Sean DevTools 操作
+
+**規範定位:** 對齊 working-style.md §6.3 第 29 條(精簡版自檢入口)+ 維度 A「Sean 工具能力真權威」延伸 + lessons §12-21「工具能力字面 vs 事實」精神延伸
+
+**教訓來源:** M-1-04 刀 1b2 audit Q4-2 觸控目標 ≥ 44×44 驗收項目、Sean 回「我不會」、Claude.ai 改 Code CSS 字面估算 21.6px FAIL 進 backlog #138
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案、Sean 不接受 DevTools 中高階教學是穩定偏好(不限本專案)
+
+**首例:** M-1-04 刀 1b2 @ `477f249` audit Q4-2 觸控目標驗收項目重寫事故
+
+---
+
+### 12-23. skill audit 雙跑字面實況校正 — engineering:code-review + simplify stale、實況 requesting-code-review + accessibility-review
+
+**事故脈絡:**
+M-1-04 刀 1b2 audit、Claude.ai 寫指令字面「engineering:code-review + simplify 雙跑」、Code step 1 `ls ~/.claude/skills/` 撈 60 skill 完整清單揭示:**無 engineering / engineering:code-review / simplify** 同名 skill、實際 audit 視角候選只有 requesting-code-review / accessibility-review / audit-website / memory-leak-audit / design-critique 等。Claude.ai 補偵察拍 Q-B = requesting-code-review + accessibility-review 雙跑、實測:engineering 視角抓 3 Important + 4 Minor、a11y 視角抓 2 Major + 7 Minor pre-existing、互補揭示。
+
+**規則:**
+- **stale 字面安置:** `engineering:code-review` + `simplify` 字面源 = M-0-04 雙輪實測命名、Claude.ai memory + working-style §3.b + lessons §12-19 內字面沿用、實況 ~/.claude/skills/ 60 個 skill 不存在此 2 名
+- **歷史 anchor 保留:** M-0-04「engineering 5 + simplify 12 + 共 17 + 互不重疊」歷史數據保留為 audit 雙跑紀律 anchor、**不為當下 audit 範本字面**(即「雙視角互補」精神留、「skill 名」改實況)
+- **當下實況雙跑字面:**
+  - `requesting-code-review`(engineering 通用視角、Critical / Important / Minor、dispatch superpowers:code-reviewer subagent — 若 subagent type 不存在、改用 Agent general-purpose 代)
+  - `accessibility-review`(WCAG 2.1 AA framework、Perceivable / Operable / Understandable / Robust 4 大類、直接 framework 跑、非 dispatcher)
+- **新雙跑數據 anchor(取代 M-0-04 stale 範本):**
+  - M-1-04-1b2:code-review 3 Important + 4 Minor、a11y 2 Major + 7 Minor pre-existing(本條 trigger commit 即此數據首例)
+- **第二視角彈性:** 視 slice 性質、accessibility-review 可換 audit-website / memory-leak-audit / design-critique(依 audit 視角覆蓋面互補性決定、不憑記憶寫死)
+- **enforce:** Claude.ai 寫 audit 指令前必先 `ls ~/.claude/skills/` 撈實況清單、grep 用得到的 skill 對應 audit 視角、不憑 memory / lessons 字面寫 skill 名;違反 = Code step 1 撈實況 raise multi-select、Sean 拍板才執行
+
+**規範定位:** 對齊 working-style.md §3.b 雙跑字面同步(本 commit 一併修)+ 維度 A「工具能力真權威」延伸 + lessons §12-21「Claude Design GitHub 工具能力字面 vs 事實」精神同類延伸(不同工具、同類教訓)
+
+**教訓來源:** M-1-04 刀 1b2 audit Q-B 子拍偵察、Code 撈 60 skill 清單揭示 simplify 不存在、Claude.ai 寫指令字面憑 memory 沿用 stale 名
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案(~/.claude/skills/ 路徑跨專案一致、Claude Code 全域 skill 庫共享)
+
+**首例:** M-1-04 刀 1b2 @ `477f249` audit Q-B 子拍偵察揭示
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
