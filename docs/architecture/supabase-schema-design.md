@@ -306,6 +306,7 @@ ALTER TABLE customers ADD CONSTRAINT customer_tier_fk FOREIGN KEY (tier)
    - storefront server-side render 才解 `price_by_tier->>customer.tier` → 單一 `Money`、傳 client
    - 一般客人 client bundle 永遠看不到 store / premiumStore 經銷價
    - wire 端為 Supabase `products.price_by_tier` jsonb(`general` + `store` 二 key、`premiumStore` 由公式算)
+   - **DB 層第二道防線:** `products_public` view 排除 `price_by_tier` 整欄(M-1-03-audit-slice-A 落地、migration `20260510134708_products_public_view.sql`、adapter 切換 trigger backlog #118)
 
 2. **`Customer.tier` server-side 重查**(M-2-02 / M-2-03 落地、對齊 security-timeline #A3)
    - client 送的 tier header / cookie 一律 ignore
@@ -457,7 +458,7 @@ shipped → delivered        (客人收件)
 
 | 表 | RLS policy(讀)| RLS policy(寫)| 對應 security-timeline | 落地 milestone |
 |---|---|---|---|---|
-| **products** | 全 SELECT 公開(server-side filter price_by_tier 解 tier、對齊 §6.1) | INSERT / UPDATE / DELETE 限 service role(admin / sync-engine 用)| #C4 priceByTier 不洩漏需 server-side 過濾 | M-1-03 |
+| **products** | 全 SELECT 公開(server-side filter price_by_tier 解 tier、對齊 §6.1) | INSERT / UPDATE / DELETE 限 service role(admin / sync-engine 用)| #C4 priceByTier 不洩漏需 server-side 過濾 + **DB 層 `products_public` view 第二道防線(M-1-03-audit-slice-A、backlog #118 trigger)** | M-1-03 |
 | **brands** | 全 SELECT 公開 | service role only | — | M-1-03 |
 | **categories** | 全 SELECT 公開 | service role only | — | M-1-03 |
 | **customers** | SELECT 限 `auth.uid() = id`(自己看自己)| UPDATE 限自己(限欄位:不可改 tier);DELETE service role only | #A2 + #A3 + #C5 | M-1-14 + M-2-01 |
@@ -471,6 +472,10 @@ shipped → delivered        (客人收件)
 - **storefront(`apps/storefront/`)不可 import** service role key、只用 anon key + RLS
 - **env 不入 git**:`.env.local` only、Vercel / Railway dashboard 設定
 - 對齊 dependency-rules.md §1 字面「ui / schemas 不 import domain」精神、storefront 不 import server-only module(security-timeline #C3)
+- **M-1-03-audit-slice-B 三層防實作**(對齊本 §9.3 紀律):
+  - **第一層(編譯期)**:`packages/adapters/src/supabase/client.ts` 檔頭 `import 'server-only'`、client component import 即時 fail
+  - **第二層(import 路徑)**:`@pcm/adapters/server` subpath exports 隔離(`packages/adapters/package.json` exports field 拆 `.` + `./server`)
+  - **第三層(ESLint rule)**:`eslint.config.js` `no-restricted-imports` 擋 `apps/storefront/**/*.{ts,tsx}` import `@pcm/adapters/server`
 
 ---
 

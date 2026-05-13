@@ -59,6 +59,19 @@ import type { MockProduct } from '@/data/mock-products';
  * fits 字面:取第一個 fitment、format `{motoBrand} {modelCode}`、無 fitment → '通用款'。
  * (對齊 design mock fits 字面風格如 'CBR600RR' / 'Panigale V4' / '通用款')
  */
+/**
+ * domain ProductId(string、UUID 格式)→ deterministic number、用於 ProductImage seed 算術
+ *
+ * 對齊 #117 anchor 預期解法「ProductImage seed 改 hash 函式(string → number 確定性映射、避免 NaN)」+
+ * sub 8d findings eng-1 / eng-8 / simp-6 / simp-12 雙 audit 命中 id NaN 故障鏈。
+ * djb2-like rolling hash + Math.abs 防負;同 input 永遠回同 output(deterministic gallery 對齊)。
+ */
+function hashIdToNumber(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
 export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   const firstFitment = product.fitments[0];
   const fits = firstFitment
@@ -74,7 +87,7 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     tier === 'premiumStore' ? 'P價' : tier === 'store' ? '店價' : null;
 
   return {
-    id: product.id as unknown as number,
+    id: hashIdToNumber(product.id),
     brand: product.brand.name,
     name: product.name,
     fits,
