@@ -5,10 +5,15 @@
 // - React.useState / useEffect → import { useState, useEffect }
 // - window.Header UMD 註冊移除(改 ES export)
 // - className 字面完全不動
-// - onNav d1 階段 stub console.log(M-1-04+ next/navigation router.push 接入)
+//
+// M-1-04 Header mini-slice:Header 維持 client(useState searchQuery/autoMobile + useEffect + dispatchEvent)、
+// 9 a 標籤(2 logo + 7 navItems)改 <Link href>(對齊刀 1 全範圍 + Q-Header A3 拍板);
+// 3 button(cart / account / search)onClick stub 留候選刀 3 router.push;
+// onNavLocal / handleNav wrapper / MouseEvent type import 保留(button 還用)
 
 'use client';
 
+import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
 import type { MouseEvent } from 'react';
 
@@ -32,7 +37,8 @@ export function Header({
       onNav(target, ctx);
       return;
     }
-    // d1 階段 stub、M-1-04 加 next/navigation router 後改 router.push
+    // nav a 已 Header mini-slice 改 <Link href>(本檔 navItems href + 2 logo)、
+    // button onClick stub 仍消費 handleNav wrapper(cart / account / search)、候選刀 3 router.push 接
     console.log('[onNav]', target, ctx);
   }, [onNav]);
 
@@ -57,13 +63,13 @@ export function Header({
   const isMobile = isMobileProp !== undefined ? isMobileProp : autoMobile;
 
   const navItems = [
-    { id: 'catalog', label: '商品目錄' },
-    { id: 'vehicle', label: '依車輛搜尋' },
-    { id: 'brands', label: '品牌' },
-    { id: 'new', label: '新品' },
-    { id: 'sale', label: '特價', sale: true },
-    { id: 'install', label: '安裝預約' },
-    { id: 'stores', label: '合作店家' },
+    { id: 'catalog', label: '商品目錄', href: '/products' },
+    { id: 'vehicle', label: '依車輛搜尋', href: '/#vehicle-finder' },
+    { id: 'brands', label: '品牌', href: '/brands' },
+    { id: 'new', label: '新品', href: '/products?filter=new' },
+    { id: 'sale', label: '特價', href: '/products?filter=sale', sale: true },
+    { id: 'install', label: '安裝預約', href: '/install' },
+    { id: 'stores', label: '合作店家', href: '/stores' },
   ];
   const handleNav = (e: MouseEvent, id: string) => { e.preventDefault(); onNavLocal(id); };
 
@@ -77,7 +83,7 @@ export function Header({
                 <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
               </svg>
             </button>
-            <a href="#" onClick={(e) => handleNav(e, 'home')} className="pcm-logo">PCM</a>
+            <Link href="/" className="pcm-logo">PCM</Link>
             <div className="pcm-header-right">
               <button className="pcm-icon-btn pcm-cart" aria-label="cart" onClick={(e) => handleNav(e, 'cart')}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -91,15 +97,14 @@ export function Header({
         ) : (
           <>
             <div className="pcm-header-left">
-              <a href="#" onClick={(e) => handleNav(e, 'home')} className="pcm-logo">PCM MOTORSPORTS</a>
+              <Link href="/" className="pcm-logo">PCM MOTORSPORTS</Link>
               <nav className="pcm-nav">
                 {navItems.map(item => (
-                  <a key={item.id}
-                     href="#"
-                     onClick={(e) => handleNav(e, item.id)}
-                     className={`pcm-nav-item ${currentPage === item.id ? 'is-active' : ''} ${item.sale ? 'pcm-nav-sale' : ''}`}>
+                  <Link key={item.id}
+                        href={item.href}
+                        className={`pcm-nav-item ${currentPage === item.id ? 'is-active' : ''} ${item.sale ? 'pcm-nav-sale' : ''}`}>
                     {item.label}
-                  </a>
+                  </Link>
                 ))}
               </nav>
             </div>
