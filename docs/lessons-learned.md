@@ -725,6 +725,33 @@ M-1-03-audit-disposition slice-C 偵察報告 § 5 列出 5 題給 Claude.ai 拍
 
 ---
 
+### 12-19. Skill audit 適用範圍補丁(skip 條款)
+
+**事故脈絡:**
+M-1-03-audit-disposition slice-C(commit `6f0ba36`)首次破例 skip skill audit、變動規模:apps/storefront/src/lib/products.ts +14/-1 行(hashIdToNumber helper 7 行 + L77 cast 替換 1 行 + JSDoc 6 行)+ docs 字面同步 4 處(supabase-schema-design.md 3 + lessons §12-17/18 + working-style 第 27 條)。實質 source code 變動僅 8 行、ROI 偏低、跑雙 audit 規模不符。slice-A 既有先例(commit body 揭示「對齊 working-style §6.3 第 10 條 + backlog #15、純 SQL migration 不 cover」)+ slice-B-3 先例(「不跑 build 對齊 working-style §6.3 第 10 條 + backlog #15」)、但兩先例字面理由不一、無統一條款防未來無依據援用。
+
+**規則:**
+- 純收尾 slice、同時滿足以下三條件可 skip skill audit:
+  - **(1) 新 code 變動規模 < 10 行**(以 `git diff --stat` 真 +N/-N 為準、不算 JSDoc / 註解)
+  - **(2) 主要 scope 為 doc 字面同步 / trigger 立法 / 收尾**(不是 entity / adapter / API surface / use-case logic 改造)
+  - **(3) 無新 entity / 新 adapter / 新 schema / 新 API surface**
+- skip 時 **commit body 必寫**:
+  - skip audit 理由(白話一行)
+  - 變動規模(行數、引 `git diff --stat`)
+  - **對齊 §12-19 三條件逐條檢視**(條件 1 ✅ X 行 / 條件 2 ✅ scope X / 條件 3 ✅ 無 X)
+- **不破例不寫理由、援用條款必逐條對照、不可只引條款名**(防「援用 §12-19 但不對照三條件」rot)
+- 同類風險:CI gate / pre-commit hook skip 條款、build skip 條款、test skip 條款(本條為 skill audit only、其他 skip 場景需獨立立條款)
+
+**規範定位:** 對齊 working-style.md §6.3 第 10 條 Skill audit 工作流 + backlog #15 + 維度 A「具體技術細節」延伸
+
+**教訓來源:** M-1-03-audit-disposition slice-C @ `6f0ba36` 首次破例 skip audit 事故、slice-A / slice-B-3 兩先例字面理由不一統一條款立法、本對話累積條款 ROI 偏低慣例化
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案。Sean 多專案多 slice 收尾頻繁、skill audit ROI 評估跨專案紀律必要、避免「為跑而跑」浪費 multi-round skill audit 預算
+
+**首例:** M-1-03-audit-disposition slice-C @ `6f0ba36`(本條觸發案例、即本 slice-C 收工事實)
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
