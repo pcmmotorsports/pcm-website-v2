@@ -142,7 +142,7 @@ PCM 視覺與前台結構**唯一基準** = `design-reference/` submodule(來自
 
 **流程:**
 ```
-Sean 在 Claude Design 改 → push 到 pcm-website-design GitHub
+Sean 在 Claude Design 改 → Sean 從 Claude Design 取出設計檔 → Sean 本地 commit + push pcm-website-design GitHub(Claude Design 對 GitHub 唯讀、不 push;對齊 lessons §12-21)
                        ↓
 本地 git submodule update 拉 design-reference/
                        ↓

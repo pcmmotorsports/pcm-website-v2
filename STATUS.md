@@ -9,26 +9,26 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-1 進度 2/16(M-0 10/10 完成、M-1-01 + M-1-02 ✅、M-1-03 主實作 11/11 ✅ 完工 + audit disposition 進行中:slice-0 ✅ + slice-A ✅ products_public view + Slice B ✅ 三層防 + post-audit-design-bump ✅ design @ 25d3a2a 升 + post-supplement sub-slice 0a/0b ✅ schema 二 key + brands.premium_extra_pct + M-1-03 PRD §2.4 Pricing 公式 + 教訓批量 §12-4~§12-11)+ 1 side product-import-spec 完成
+**Milestone:** M-1 進度 3/16(M-0 10/10 ✅、M-1-01 + M-1-02 + M-1-03 ✅、M-1-04 進行中:recon ✅ + mini-slice 13 處註解對齊 ✅ + submodule pointer 25d3a2a→797e386 ✅ + mini-B trigger 立法 ✅(lessons §12-20/§12-21 + working-style 第 28 條 + onboarding 5 檔字面校正)+ 後續刀 1 純展示 sections server + Link 化 next)+ 1 side product-import-spec 完成
 - **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
-- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)
-- **下一步:** **M-1-03-audit-disposition 全收口 ✅**(slice-A ✅ 議題 1+6 view + Slice B ✅ 議題 2 三層防 + slice-C ✅ 議題 4 NaN bug 源頭修 + 規範類批量收;M-1-03 主實作 + audit 雙完整)、進 M-1-04 / M-1-13 等下個 milestone 拍板
+- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅(含 -prep / -audit follow-up)/ M-1-03 ✅(主實作 11/11 + audit disposition 全收口 slice-A/B/C)/ M-1-04 進行中(recon + mini-slice + submodule + mini-B 收尾)
+- **下一步:** **M-1-04 主刀(刀 1 純展示 sections server + Link 化、對齊 #116)** — mini-B 立 §12-20/§12-21/第 28 條 trigger 完成、進主刀拆刀執行
 
-**當前 slice:** M-1-04-submodule-update(70fe5a0 本 slice amend 前 hash:design-reference submodule pointer 25d3a2a → 797e386 更新、對齊 Sean 手動 push pcm-website-design main 完成 wrs.png 修復;順手修 M-1-04-mini-slice L17 amend drift c192eca → 9db2def 十二先例;範圍 design-reference pointer 1 binary + STATUS doc 修、零 storefront code/UI 變更;design 新 HEAD `797e386 fix(assets): 補回 wrs.png 去背版本 + 清舊路徑`(Sean macOS Preview Instant Alpha 處理、解決 25d3a2a 內部 data/products.js L26 logo path 與 deleted file 不一致);**字面 vs 事實揭示:** 上輪 M-1-04-mini-slice L17 寫 c192eca (pre-amend)、實際 9db2def (post-amend、Sean 已 push)、本 slice 順手修對齊 lessons §12-3 維度 B 滾動修正模式十二先例;design HEAD 由 25d3a2a → 797e386、其中 797e386 為 fix(assets) 純資產補丁、不影響 v2.0 6 頁 + v2.1 三 tier 設計字面(對齊不變);**skill audit skip 自檢(§12-19 三條件):** 條件 1 ✅ 0 code 行(純 binary pointer + STATUS doc 修)/ 條件 2 ✅ scope = submodule pointer 對齊外部修復 + 收尾 / 條件 3 ✅ 無新 entity / adapter / schema / API surface、skip ROI 低;recon 檔 docs/recon/M-1-03-audit-disposition-slice-C-recon.md 仍 untracked、本 slice 不處置;本 slice 走 amend 模式、新 hash 1 步 drift 留下個 slice(mini-B)修(十三次先例);**進 mini-B(三檔 trigger 立法:lessons §12-20 zsh # 註解禁止 + working-style §6.3 第 28 條 + onboarding Claude Design GitHub 字面歧義校正)→ M-1-04 刀 1**)、待 Sean 手動推
+**當前 slice:** M-1-04-trigger-lift mini-B(25adaed 本 slice amend 前 hash:三檔 trigger 立法 — lessons §12-20 zsh # 註解禁止強化 + lessons §12-21 Claude Design GitHub 工具能力字面校正 + working-style §6.3 第 28 條(精簡版自檢入口)+ 5 檔 onboarding 字面修(CLAUDE.md L417 / PROJECT-OVERVIEW.md L145 / working-style §8.3 L432+§8.5 L446 / PHASE-1-MILESTONES.md L734 / tools-and-skills.md L339);順手修 mini-A submodule-update L17 amend drift 70fe5a0 → 857c074 十三先例 + STATUS L12/L14/L15 milestone 字面 stale 修 + L29 表三行更新;範圍 lessons + working-style + STATUS + 4 onboarding doc + CLAUDE.md = 9 檔、零 storefront code/UI 變更;**事故脈絡揭示:** §12-20 為 §4-1 既有條款執行紀律重犯立規(M-1-04 wrs.png push 過程 Terminal 連續 5+ 行 `zsh: command not found: #` 揭示);§12-21 為 Sean 詢問 Claude Design 揭示工具能力真權威「✅ 從 GitHub 讀取、❌ 推送回 GitHub」、push 一直是 Sean 手動;**字面 vs 事實揭示:** 上輪 mini-A L17 寫 70fe5a0 (pre-amend)、實際 857c074 (post-amend、Sean 已 push)、本 slice 修;**skill audit skip 自檢(§12-19 三條件):** 條件 1 ✅ 0 code 行(純 doc 字面修 + trigger 立法 + STATUS)/ 條件 2 ✅ scope = trigger 立法 + onboarding 字面校正 + 收尾 / 條件 3 ✅ 無新 entity / adapter / schema / API surface、skip ROI 低;recon 檔 docs/recon/M-1-03-audit-disposition-slice-C-recon.md 仍 untracked、本 slice 不處置;本 slice 走 amend 模式、新 hash 1 步 drift 留下個 slice(刀 1)修(十四次先例);**進 M-1-04 主刀(刀 1 純展示 sections server + Link 化、對齊 #116)**)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-13
-**更新者:** Claude Code(M-1-04-submodule-update 70fe5a0 amend 前 hash — design-reference submodule pointer 25d3a2a → 797e386 更新、對齊 Sean 手動 push pcm-website-design main 完成 wrs.png 修復(macOS Preview Instant Alpha 去背 + 補回 + 清舊路徑、解決 design 25d3a2a 內部 data path 與 deleted file 不一致);順手修 M-1-04-mini-slice L17 amend drift c192eca → 9db2def 十二先例;範圍 design-reference pointer + STATUS、零 storefront code/UI 變更;design 新 HEAD `797e386 fix(assets)` 純資產補丁、v2.0+v2.1 設計字面對齊不變;skill audit skip §12-19 三條件自檢 ✅(0 code 行 / submodule pointer 對齊外部修復 + 收尾 / 無新 surface)、ROI 低;ahead origin/dev = 0(M-1-04-mini-slice 已 push)、本 slice 待 Sean 手動推)
+**更新者:** Claude Code(M-1-04-trigger-lift mini-B 25adaed amend 前 hash — 三檔 trigger 立法:lessons §12-20 zsh # 註解禁止強化(§4-1 重犯第 N+1 次)+ lessons §12-21 Claude Design GitHub 工具能力字面校正(單向讀取、Sean 唯一寫手)+ working-style §6.3 第 28 條精簡版自檢入口;5 檔 onboarding 字面修(CLAUDE.md 四方分工 / PROJECT-OVERVIEW.md / working-style §8.3+§8.5 / PHASE-1-MILESTONES.md / tools-and-skills.md);順手修 mini-A L17 amend drift 70fe5a0 → 857c074 十三先例 + L12/L14/L15 milestone 字面 stale 修 + L29 表更新;範圍 9 檔、零 storefront code/UI 變更;事故脈絡:§12-20 wrs.png push Terminal 連續 5+ 行 `zsh: command not found: #` + §12-21 Sean 詢問 Claude Design 揭示工具能力真權威;skill audit skip §12-19 三條件自檢 ✅(0 code 行 / trigger 立法 + onboarding 字面校正 / 無新 surface)、ROI 低;ahead origin/dev = 1(mini-A 待 Sean push)、本 slice 待 Sean 手動推)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| 6f4ffeb | docs(lessons): §12-19 skill audit skip 適用範圍 trigger | 2026-05-13 |
-| 6f0ba36 | fix(M-1-03): slice-C disposition - NaN源頭 + audit規範類 + lessons/working-style trigger | 2026-05-13 |
-| 86b776d | feat(M-1-03-main-a 刀 4 sub 8e-2): lessons §12-12~16 + working-style §6.3 第 22-26 條落地 + 刀 4 收口 | 2026-05-13 |
+| 25adaed | docs(lessons+working-style): §12-20/§12-21 + 第 28 條 立 trigger + onboarding Claude Design GitHub 字面校正 | 2026-05-13 |
+| 857c074 | chore(design-reference): submodule pointer 25d3a2a → 797e386(wrs.png 修復 + 舊路徑清) | 2026-05-13 |
+| 9db2def | docs(M-1-04-mini-slice): 13 處 design HEAD 註解 d5ea3aa → 25d3a2a + STATUS L17 drift 修 | 2026-05-13 |
 
 ## 下一步(第 1 條優先)
 

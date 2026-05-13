@@ -414,7 +414,7 @@ A: 選項 X
 | Claude.ai | 規劃 / 架構 / 寫 slice 指令 / 驗收 / 寫 .md / multi-select 決策題 | 寫實作 code / 操作 dashboard / 拍板 / 視覺設計 |
 | Sean | 拍板 / 操作 dashboard / push commit / 在 Terminal 跑命令 / 在 Claude Design 改設計 / 肉眼驗收 | 寫 code / debug / git diff 細節 |
 | Claude Code(你) | 跑命令 / 實作 code / git commit / 跑測試 / 偵察 design / 寫 inventory | push / deploy production / 替 Sean 拍板 / 視覺設計 |
-| Claude Design | 視覺與前台設計 / push pcm-website-design repo | 寫 storefront 程式 / 後台設計 |
+| Claude Design | 視覺與前台設計、輸出 .jsx/.css(交給 Sean 取出後本地 push;Claude Design 對 GitHub 唯讀、不 commit / 不 push;對齊 lessons §12-21) | 寫 storefront 程式 / 後台設計 / push GitHub |
 
 四方分工清楚、不越界。
 

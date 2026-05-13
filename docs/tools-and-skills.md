@@ -336,7 +336,7 @@ git clone --recurse-submodules git@github.com:pcmmotorsports/pcm-website-v2.git
 # 已 clone 但沒 init submodule
 git submodule update --init --recursive
 
-# Sean 改了 design、push 到 pcm-website-design 後
+# Sean 從 Claude Design 取出設計檔、本地 commit + push pcm-website-design 後(Claude Design 對 GitHub 唯讀、不 push;對齊 lessons §12-21)
 git submodule update --remote design-reference/
 git diff design-reference                          # 看改動
 git add design-reference

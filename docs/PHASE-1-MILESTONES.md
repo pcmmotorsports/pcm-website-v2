@@ -731,7 +731,7 @@ unblock 條件: <具體可驗證條件>
 | 經銷申請頁(三級會員申請) | M-2-07 | `design-reference/dealer-apply/` 出現對應 .jsx + .css | M-2 部分功能、不阻 M-2 整體(可平行 M-2-08 / M-2-09) |
 | Vehicle Finder 「我的車」按鈕(微調) | M-1-07 部分 | design-reference HomePage VehicleFinder 區塊加按鈕 | M-1 部分功能、不阻 M-1-07 commit(按鈕補完再 follow-up) |
 
-**進度追蹤建議:** 每次 M-2 / M-3 啟動前、Sean 確認 Claude Design 是否補到、若未補、列入啟動前 blocker、Sean 在 Claude Design 開新對話補頁、push pcm-website-design repo。
+**進度追蹤建議:** 每次 M-2 / M-3 啟動前、Sean 確認 Claude Design 是否補到、若未補、列入啟動前 blocker、Sean 在 Claude Design 開新對話補頁、Sean 從 Claude Design 取出設計檔後本地 commit + push pcm-website-design repo(Claude Design 對 GitHub 唯讀、不 push;對齊 lessons §12-21)。
 
 ---
 
