@@ -1,4 +1,4 @@
-// CategoryGrid.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬
+// CategoryGrid.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°03 · Categories · 部品分類、8 cats hardcoded、view all 11 類)
 'use client';
 

@@ -1,5 +1,5 @@
 /**
- * Mock brand catalog — 字面從 design-reference/data/products.js @ d5ea3aa 直接搬
+ * Mock brand catalog — 字面從 design-reference/data/products.js @ 25d3a2a 直接搬(M-1-04-mini-slice 修:25d3a2a 加 5 新 brands rizoma/akrapovic/brembo/ohlins/termignoni + premium_extra_pct;mock 不對齊、d2 已走 Supabase、mock d1 era artifact 未來廢)
  * BrandIndex section 用、d2 接 SupabaseBrandAdapter(M-1-14 / Phase 2)時 fallback
  */
 

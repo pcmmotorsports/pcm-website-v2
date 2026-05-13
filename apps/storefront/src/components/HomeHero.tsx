@@ -1,4 +1,4 @@
-// HomeHero.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬(N°01 SPRING EDITORIAL)
+// HomeHero.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬(N°01 SPRING EDITORIAL)
 'use client';
 
 import { useCallback, type MouseEvent } from 'react';

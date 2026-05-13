@@ -1,4 +1,4 @@
-// FeatureEditorial.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬
+// FeatureEditorial.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°02 · This month · RIZOMA · 工藝之鏡)
 'use client';
 

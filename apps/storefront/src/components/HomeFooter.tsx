@@ -1,4 +1,4 @@
-// HomeFooter.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬
+// HomeFooter.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (© MMXXVI · PCM MOTOR PARTS LTD.、新莊化成路 736 巷 18 號)
 'use client';
 

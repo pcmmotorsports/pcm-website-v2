@@ -1,5 +1,5 @@
 /**
- * Mock product catalog — 字面從 design-reference/data/products.js @ d5ea3aa 直接搬
+ * Mock product catalog — 字面從 design-reference/data/products.js @ 25d3a2a 直接搬(M-1-04-mini-slice 修:25d3a2a products 加 priceByTier × 20;mock 不對齊、d2 已走 Supabase、mock d1 era artifact 未來廢)
  * 對齊 main-d-d1 拍板「直接搬、不翻譯」精神
  *
  * d2 接 SupabaseProductAdapter 真資料時、本檔保留作 fallback / Storybook 樣本(待 d2 拍板)

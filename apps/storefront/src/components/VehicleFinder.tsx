@@ -1,4 +1,4 @@
-// VehicleFinder.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬
+// VehicleFinder.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°01 · 輸入你的車輛、brand → models → years 三層 select)
 //
 // design 用 window.PCM_DATA.motoBrands → 改 import { MOCK_MOTO_BRANDS }

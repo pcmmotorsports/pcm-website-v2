@@ -1,4 +1,4 @@
-// HomeSelect.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬
+// HomeSelect.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬(M-1-04-mini-slice 修:25d3a2a L210 加 ProductCard tier prop、storefront 走 server-side tier 預算 tierLabel conceptually equivalent)
 // (N°04 · The Selection · 編輯精選、4 ProductCard、main-d 真資料接入點)
 //
 // d1 階段:用 MOCK_PRODUCTS.slice(0, 4) 對齊 design 字面 window.PCM_DATA.products.slice(0, 4)

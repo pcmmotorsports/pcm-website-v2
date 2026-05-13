@@ -1,4 +1,4 @@
-// HomeStatement.tsx — 字面從 design-reference/components/HomePage.jsx @ d5ea3aa 直接搬
+// HomeStatement.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°05 · Service · 黑色 slab、原廠授權 / 合作店家安裝 / 終身技術諮詢 三 col)
 'use client';
 

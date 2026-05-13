@@ -1,6 +1,6 @@
 // Header.tsx — Light theme, sticky, multi-variant, nav-aware
 //
-// 字面從 design-reference/components/Header.jsx @ d5ea3aa 直接搬:
+// 字面從 design-reference/components/Header.jsx @ 25d3a2a 直接搬:
 // - jsx → tsx + props type 推斷
 // - React.useState / useEffect → import { useState, useEffect }
 // - window.Header UMD 註冊移除(改 ES export)

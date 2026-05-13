@@ -1,5 +1,5 @@
 /**
- * Mock moto brands(車輛廠牌)— 字面從 design-reference/data/products.js @ d5ea3aa 直接搬
+ * Mock moto brands(車輛廠牌)— 字面從 design-reference/data/products.js @ 25d3a2a 直接搬
  * VehicleFinder section 用、d2 接 vehicle adapter(Phase 2 vehicle ecosystem)時 fallback
  */
 

@@ -1,6 +1,6 @@
 // app/page.tsx — 首頁(8 sections compose)
 //
-// 對齊 design-reference/components/HomePage.jsx @ d5ea3aa 字面:
+// 對齊 design-reference/components/HomePage.jsx @ 25d3a2a 字面(M-1-04-mini-slice 修:25d3a2a HomePage.jsx 加 tier prop、storefront 走 server-side cookie + designTierToSchema + tierLabel 預算 conceptually 更佳、不重做):
 //   <Header /> + <HomeHero /> + <VehicleFinder /> + <FeatureEditorial />
 //   + <CategoryGrid /> + <HomeSelect /> + <HomeStatement /> + <BrandIndex /> + <HomeFooter />
 //

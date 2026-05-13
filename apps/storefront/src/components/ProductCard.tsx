@@ -1,7 +1,7 @@
 // ProductCard.tsx — editorial · hover-swap images
 // Each product has a small gallery (2-3 images). On hover, cross-fade to next image.
 //
-// 字面從 design-reference/components/ProductCard.jsx @ d5ea3aa 直接搬:
+// 字面從 design-reference/components/ProductCard.jsx @ 25d3a2a 直接搬(M-1-04-mini-slice 修:25d3a2a 加 tier prop + window.Price 條件渲染、storefront 用 import <Price> + tierLabel 優於 window.Price UMD、不重做):
 // - jsx → tsx + props type 推斷
 // - React.useState / useMemo → import { useState, useMemo }
 // - window.ProductCard / window.ProductImage UMD 註冊移除(改 ES export)
