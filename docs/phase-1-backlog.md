@@ -3365,6 +3365,164 @@
 
 ---
 
+### #133. ⏳ mock-brands logo 檔補 + 4 新 brands(akrapovic/brembo/ohlins/termignoni)
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(BrandDetailPage / brand 詳情頁啟動時必撞)
+- **問題:**
+  - mock-brands.ts JSDoc 頂部已預告 25d3a2a design 加 5 新 brands(rizoma/akrapovic/brembo/ohlins/termignoni + premium_extra_pct)、本刀 1b2 只補 rizoma 1 條(對齊 FeatureEditorial L48 字面)、其他 4 條 mock data 未補
+  - `apps/storefront/public/assets/brand-logos/` 不存在、所有 17 brand 的 logo path 字面如 'assets/brand-logos/bonamici.webp' 對應 storefront/public/ 0 命中(dormant 因 BrandIndex 不讀 b.logo、Phase 2 真資料未撞)
+  - rizoma.webp 同樣 dormant(本刀 1b2 audit b1 揭示)
+- **觸發事件(任一觸發即啟動實作):**
+  - BrandDetailPage / brand 系列頁啟動時必撞
+  - 25d3a2a design 4 brand 補對齊 mock data 時
+- **預期解法:**
+  - storefront/public/assets/brand-logos/ 補實際 .webp / .avif / .png logo 檔(17 brands × 1 logo)
+  - mock-brands.ts 補 akrapovic / brembo / ohlins / termignoni 4 條(對齊 25d3a2a JSDoc 預告字面 + premium_extra_pct 欄位)
+  - 或:改寫 BrandIndex 不讀 b.logo(若 Phase 1 design 字面不需 logo、純文字 wall)
+  - 對齊 #137 patterns/mock-data-handling.md 規範(若已落地)
+- **不修會痛在:**
+  - 擴充性:BrandDetailPage / brand 系列頁啟動時統一 logo 規範、避免每頁分散補
+  - 可維護性:logo path 字面 vs storefront/public/ 實況 drift、開發者讀檔誤判已有 asset
+  - bug 可追蹤性:dormant 404 訊號(asset 缺)在 BrandIndex 不讀 b.logo 時不顯、啟動時撞才現
+- **估時:** 30-60 min(取決於是否同步補 4 brand 完整 schema、和 #137 是否先落地)
+- **依賴:** BrandDetailPage milestone(M-1-04 後 / Phase 2)/ #137 patterns/mock-data-handling.md(可同期)
+- **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit b1(requesting-code-review Important #2 + Minor #5)
+- **相關:** `apps/storefront/src/data/mock-brands.ts` JSDoc + L33 RIZOMA / `apps/storefront/src/components/BrandIndex.tsx` / `apps/storefront/public/assets/brand-logos/`(不存在)/ #137
+
+---
+
+### #134. ⏳ ADR-0006 + docs/architecture/server-client-boundary.md
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟠 中(候選刀 4 純 docs slice、可獨立啟動)
+- **問題:**
+  - M-1-04 刀 1 完成後、storefront 6 sections server / 4 sections client(VehicleFinder / Header / ProductCard / HomeSelect)混合模式落地
+  - 缺一份單一 ADR + architecture doc 紀錄「為何 server / 為何 client」決策規矩
+  - backlog #116 預期解法字面已預告「可能加 ADR-0006 / docs/architecture/server-client-boundary.md」
+  - recon §7 候選刀 4 預埋對應字面
+- **觸發事件(任一觸發即啟動實作):**
+  - 候選刀 3 互動 sections router.push 啟動前(避免「為何不用 server 拆?」反覆問)
+  - 多人協作 / future Claude session 對齊 server-client boundary 規矩時撞
+- **預期解法:**
+  - 寫 ADR-0006「server-client boundary」decision record(short version、純 ADR)
+  - 寫 docs/architecture/server-client-boundary.md(long version、含選擇樹 + 邊界規矩 + e2e 驗 hydration mismatch 紀律)
+  - 內容:何時 server / 何時 client / function prop 不可跨 boundary / Link vs router.push 選擇樹 / RSC trade-off 紀錄
+- **不修會痛在:**
+  - 擴充性:Phase 2 / M-1-13 ProductPage 啟動時、開發者沒依循 → 隨意拆 server/client、boundary 認知散落
+  - 可維護性:多人協作 / future Claude session 對齊 boundary 規矩、需多處 grep / commit body 讀
+  - bug 可追蹤性:hydration mismatch / function prop boundary error 出現時、無單一 doc 對齊 root cause
+- **估時:** 60-90 min(ADR-0006 short + architecture long 雙檔)
+- **依賴:** M-1-04 刀 1 完成(本 slice 已收口、可隨時啟動)
+- **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit b2(requesting-code-review Important #3)/ 對齊 backlog #116 預期解法字面 + recon §7 候選刀 4
+- **相關:** backlog #116 / docs/recon/M-1-04-recon.md §7 / `apps/storefront/src/app/page.tsx` L7-L10 註解 / `apps/storefront/src/components/*.tsx` 6 sections + 4 client mix
+
+---
+
+### #135. ⏳ 9 處 `→` arrow span 加 aria-hidden="true"
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(a11y polish slice 入口、不阻 Phase 1)
+- **問題:**
+  - 6 sections 內裝飾性 `→` arrow span(`<span className="ed-link-arrow">→</span>` / `<span className="ed-brand-arrow">→</span>`)共 9 處
+  - screen reader 會讀出「right arrow」/「to」、與已有 link text 重複、噪音
+  - 本刀 1 改 client → server + Link 後、Link semantic 變正確、arrow 噪音變顯眼(原 `<a href="#">` 整個 link 都壞、現在 link 正常但 arrow 多餘)
+  - BrandIndex link accessible name 5 spans concat verbose(num + arrow 加 aria-hidden 可清乾淨)
+- **觸發事件:**
+  - 2026-05-14 / M-1-04-slice-1b2 audit b3(accessibility-review Major R1 + Minor R2)
+- **預期解法:**
+  - 9 處 arrow span 加 `aria-hidden="true"` 屬性
+  - BrandIndex.tsx 加 `.ed-brand-num` span aria-hidden(對齊 R2)
+  - 範圍:HomeHero / FeatureEditorial / HomeStatement(×2)/ CategoryGrid / BrandIndex(num + arrow)/ HomeFooter section-head / 對齊 design 字面「保留 className / 文字 100%」精神、僅加 a11y 屬性
+- **不修會痛在:**
+  - 擴充性:未來新增 link with arrow、無 a11y polish 規範、開發者沒依循
+  - 可維護性:跨 6 檔 9 處散落、polish 時 grep `ed-link-arrow|ed-brand-arrow|ed-brand-num` 統一補
+  - bug 可追蹤性:screen reader 噪音輸出、自動化 a11y test 抓出時 root cause 不明
+- **估時:** 30-45 min(9 處 arrow + 17 處 brand-num + a11y polish slice 並 #138 觸控目標同期)
+- **依賴:** a11y polish slice 啟動時統一補
+- **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit b3(accessibility-review Major R1 + Minor R2)
+- **相關:** `apps/storefront/src/components/HomeHero.tsx` / `FeatureEditorial.tsx` / `HomeStatement.tsx` / `CategoryGrid.tsx` / `BrandIndex.tsx` / `HomeFooter.tsx`、accessibility-review WCAG 4.1.2 + 1.3.1
+
+---
+
+### #136. ⏳ HomeFooter 4 條 `<a href="#">` placeholder 處置(Facebook/Instagram/LINE/聯絡客服)
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(a11y polish slice + PRD 決策同期)
+- **問題:**
+  - HomeFooter.tsx L13-L15 三條 social links(Facebook / Instagram / LINE)+ L42 聯絡客服 = 4 條 `<a href="#">` 殘留 placeholder
+  - 與本刀 1 修的 11 條 `<a href="#" onClick={handle}>` 是同類 a11y 問題(右鍵/中鍵/Cmd+click/hover URL/screen reader 全部空轉)
+  - 屬 design 字面 placeholder、後續 PRD 拍板真 destination 才可決
+- **觸發事件:**
+  - 2026-05-14 / M-1-04-slice-1b2 audit b4(accessibility-review Major O1)
+- **預期解法:**
+  - 候選 A(推薦):replace `<a href="#">` with `<button type="button" disabled aria-label="Facebook(尚未上線)">` 語意聲明「未上線」
+  - 候選 B:真 href + target="_blank" rel="noopener"(需 PRD 拍板真 destination)
+  - 候選 C:omit 4 條 placeholder 直到 PRD 拍板再加
+- **不修會痛在:**
+  - 擴充性:PRD 拍板真 destination 後、4 處散修 vs 統一改 button 半成本差
+  - 可維護性:placeholder 字面 vs 真功能不一致、新人讀檔不知該 click 還是該等
+  - bug 可追蹤性:點不動 placeholder 在 a11y audit / UX test 重複命中
+- **估時:** 20-45 min(取決於 A/B/C 哪個)
+- **依賴:** PRD 拍板真 destination(社群平台連結策略 + 聯絡客服路由)
+- **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit b4(accessibility-review Major O1)
+- **相關:** `apps/storefront/src/components/HomeFooter.tsx` L13-L15 + L42、accessibility-review WCAG 2.1.1 + 2.4.4
+
+---
+
+### #137. ⏳ 立 docs/patterns/mock-data-handling.md(mock data logo/image path 規範)
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟢 觀察(規範類、不急、Phase 1 後期或下次 mock data 補新 entity 時觸發)
+- **問題:**
+  - mock-brands.ts / mock-products.ts / mock-moto-brands.ts 的 logo / image path 字面 = design-reference asset path 直接搬
+  - storefront/public/ 不必同步存在(Phase 2 真資料替換階段)、但每次 audit / sanity-check 都重新討論慣例
+  - 缺一份 patterns/ 規範 anchor、規範散落 commit body
+- **觸發事件(任一觸發即啟動實作):**
+  - 下次 mock data 補新 entity(brand / category / product)時撞同問
+  - #133 logo+brand schema 啟動時(可同期落地)
+- **預期解法:**
+  - 寫 docs/patterns/mock-data-handling.md(短 doc)
+  - 內容:mock-* 資料 logo/image path 慣例 = design-reference asset path / storefront/public/ 不必同步 / Phase 2 真資料替換階段 / commit body 揭示「mock data、Phase 2 真資料替換」
+  - 對齊既有 patterns/ 目錄結構慣例
+- **不修會痛在:**
+  - 擴充性:未來 mock entity 補檔(akrapovic / brembo 等)、每次都重新討論 logo path 慣例
+  - 可維護性:規範散落、新人 / future Claude 對齊需多處 commit body grep
+  - bug 可追蹤性:audit 紀錄 mock-* path drift 屬「設計性 anchor」、無單一 doc 對齊
+- **估時:** 15-30 min(純 docs slice、短檔)
+- **依賴:** 隨時可執行(獨立 docs slice)/ #133 logo+brand schema 補時可同期落地
+- **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit Q3=C / working-style §6.3 trigger 改進(規範類議題進 backlog 不立 lessons)
+- **相關:** `apps/storefront/src/data/mock-brands.ts` JSDoc / `mock-products.ts` / #133 brand logo
+
+---
+
+### #138. ⏳ WCAG 2.5.5 觸控目標 < AA — HomeFooter 21.6px
+
+- **狀態:** ⏳ 待 trigger
+- **優先級:** 🟡 中(a11y polish slice 統一處理、與 #135 #136 同期)
+- **問題:**
+  - HomeFooter column links(`.ed-footer-cols a`)CSS 字面:font-size 13.5px / line-height 1.6 / margin-bottom 10px / 無 padding
+  - effective click target 高度 = 13.5 × 1.6 = 21.6px(text only、margin 不算 click range)
+  - WCAG 2.5.8 AA(2.2+)規定 ≥ 24px、實際 21.6px 邊際 fail
+  - WCAG 2.5.5 AAA 推薦 ≥ 44px、明顯 fail
+  - BrandIndex(~80px desktop / 62px mobile)+ CategoryGrid(~350px)PASS、僅 HomeFooter 此問題
+- **觸發事件:**
+  - 2026-05-14 / M-1-04-slice-1b2 audit Q4-2 觸控目標 Code CSS 估算
+- **預期解法:**
+  - apps/storefront/src/styles/home.css L657 區改:加 padding-top / padding-bottom 各 ≥ 12px(讓 effective height ≥ 44px AAA)、或 ≥ 6px(讓 ≥ 24px AA)
+  - 對齊 design-reference/styles/home.css 真權威字面、避免 storefront vs design drift
+  - 若 design 字面也是 21.6px、屬 design issue、需 Claude Design 拍板更新 design vs storefront 雙改
+- **不修會痛在:**
+  - 擴充性:未來 footer 加新 link、繼承同樣 fail / 移動裝置使用體驗差
+  - 可維護性:跨 home.css 規範散修
+  - bug 可追蹤性:a11y AAA audit / Lighthouse 抓出時 root cause 不明
+- **估時:** 15-30 min(CSS 字面 + 視覺驗 design vs storefront)
+- **依賴:** a11y polish slice / 或 Claude Design 同步更新 design-reference home.css 真權威
+- **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit Q4-2 觸控目標 Code CSS 估算
+- **相關:** `apps/storefront/src/styles/home.css` L657 `.ed-footer-cols a` / `design-reference/styles/home.css` 真權威對比、WCAG 2.5.5 AAA + 2.5.8 AA、#135 / #136(a11y polish slice 同期)
+
+---
+
 ## 紀錄模板
 
 ```markdown

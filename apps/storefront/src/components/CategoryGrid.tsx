@@ -1,19 +1,13 @@
 // CategoryGrid.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
 // (N°03 · Categories · 部品分類、8 cats hardcoded、view all 11 類)
-'use client';
+//
+// M-1-04 刀 1b2:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
+// onNav target 對映(本檔):'catalog' → /products / 'products'+category → /products?category=${c.id}(8 cats map dynamic)
+// 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
-import { useCallback, type MouseEvent } from 'react';
+import Link from 'next/link';
 
 export function CategoryGrid() {
-  const onNav = useCallback((target: string, ctx?: object) => {
-    console.log('[onNav]', target, ctx);
-  }, []);
-
-  const handle = (e: MouseEvent, target: string, ctx?: object) => {
-    e.preventDefault();
-    onNav(target, ctx);
-  };
-
   const cats = [
     { id: 'exhaust', name: '排氣管', en: 'Exhaust', count: 58, img: 'photo-1568772585407-9361f9bf3a87' },
     { id: 'brake', name: '煞車系統', en: 'Brake', count: 42, img: 'photo-1580310614729-ccd69652491d' },
@@ -32,15 +26,14 @@ export function CategoryGrid() {
           <span className="ed-mono">N°03</span>
           <span>Categories · 部品分類</span>
         </div>
-        <a href="#" onClick={(e) => handle(e, 'catalog')} className="ed-link ed-link-sm">
+        <Link href="/products" className="ed-link ed-link-sm">
           <span>查看全部 11 類</span>
           <span className="ed-link-arrow">→</span>
-        </a>
+        </Link>
       </div>
       <div className="ed-cat-grid">
         {cats.map((c) => (
-          <a key={c.id} href="#" className="ed-cat"
-             onClick={(e) => handle(e, 'products', { category: c.id })}>
+          <Link key={c.id} href={`/products?category=${c.id}`} className="ed-cat">
             <div className="ed-cat-media">
               <img src={`https://images.unsplash.com/${c.img}?w=700&q=75&auto=format&fit=crop`} alt=""/>
             </div>
@@ -51,7 +44,7 @@ export function CategoryGrid() {
               </div>
               <div className="ed-mono ed-cat-en">{c.en}</div>
             </div>
-          </a>
+          </Link>
         ))}
       </div>
     </section>

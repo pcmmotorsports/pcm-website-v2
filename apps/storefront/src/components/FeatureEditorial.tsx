@@ -3,7 +3,7 @@
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 1 條):'brand-detail' + brandId='rizoma'(硬寫死) → /brands/rizoma
-// anchor:MOCK_BRANDS 16 個無 RIZOMA、點 Link 後落 404、刀 1b2 補(對齊 recon §7 候選刀 5 跨範圍評估)
+// anchor:RIZOMA 已於本刀 1b2 補入 MOCK_BRANDS 位置 14(see mock-brands.ts:33)
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
 import Link from 'next/link';

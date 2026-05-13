@@ -30,6 +30,7 @@ export const MOCK_BRANDS: MockBrand[] = [
   { id: 'lightech', name: 'LIGHTECH', count: 74, country: 'IT', tagline: '義式賽道工藝精品', since: 1997, hero: '#f7eab8', logo: 'assets/brand-logos/lightech.png', logoBg: 'transparent', heroText: 'dark' },
   { id: 'materya', name: 'MATERYA', count: 24, country: 'IT', tagline: '數位美學的極致體現', since: 2018, hero: '#0a0e1a', logo: 'assets/brand-logos/materya.webp', logoBg: 'transparent' },
   { id: 'motogadget', name: 'MOTOGADGET', count: 32, country: 'DE', tagline: '德系極簡電系工藝', since: 2004, hero: '#dde0e6', logo: 'assets/brand-logos/motogadget.svg', logoBg: 'transparent', heroText: 'dark' },
+  { id: 'rizoma', name: 'RIZOMA', count: 38, country: 'IT', tagline: '米蘭 CNC 削切的工藝精品', since: 2000, hero: '#0a0a0a', logo: 'assets/brand-logos/rizoma.webp', logoBg: 'transparent' },
   { id: 'rpm-carbon', name: 'RPM CARBON', count: 38, country: 'TH', tagline: '頂級真空碳纖維專家', since: 2010, hero: '#1c0a0a', logo: 'assets/brand-logos/rpm-carbon.avif', logoBg: 'transparent' },
   { id: 'samco', name: 'SAMCO SPORT', count: 44, country: 'UK', tagline: '全球防爆水管領導品牌', since: 1990, hero: '#cee0f5', logo: 'assets/brand-logos/samco.svg', logoBg: 'transparent', heroText: 'dark' },
   { id: 'wrs', name: 'WRS', count: 26, country: 'IT', tagline: '頂級風鏡:冠軍視野', since: 2008, hero: '#ffffff', logo: 'assets/logos/wrs.png', logoBg: 'transparent', heroText: 'dark' },
