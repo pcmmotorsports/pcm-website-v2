@@ -21,9 +21,10 @@
 //
 // server-only 紀律:
 //   - 本檔含 createSupabaseAnonClient + adapter 構造、絕不該進 client bundle
-//   - 不裝 'server-only' npm package(範圍紀律不擴張 deps、對齊 Sean d2 例外條款只覆蓋
-//     @pcm/adapters + @pcm/domain)、用 module load 時 runtime window guard 替代
-//   - 未來 storefront 規模擴張可考慮加 'server-only' package(對齊 Next.js 13+ 推薦)
+//   - 第一層(編譯期擋):server-only ^0.0.1 已 dep + @pcm/adapters/src/supabase/client.ts
+//     檔頭 `import 'server-only';`(audit B-1 `89a20a8` / 2026-05-10 推翻 d2 `1147fbe` /
+//     2026-05-09「不裝」原拍板、原因 = R1 #2 Critical service_role key 從 root export 暴露)
+//   - 次層保險(runtime guard、下方 `typeof window` block):server module load throw、捕第一層編譯期未涵蓋邊界
 
 if (typeof window !== 'undefined') {
   throw new Error(

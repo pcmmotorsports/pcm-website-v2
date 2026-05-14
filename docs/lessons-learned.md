@@ -859,6 +859,36 @@ M-1-04 刀 1b2 audit、Claude.ai 寫指令字面「engineering:code-review + sim
 
 ---
 
+### 12-24. audit 推翻先前拍板時、必同步更新 stale 字面 — 4 處 stale 處置分流
+
+**事故脈絡:**
+M-1-04 候選刀 4 PRD 偵察揭示:2026-05-09 main-d-d2(commit `1147fbe`)拍板「不裝 `server-only` npm package、用 `typeof window` runtime guard 替代(範圍紀律不擴張 deps、Sean 例外條款只覆蓋 @pcm/adapters + @pcm/domain)」、2026-05-10 audit slice B-1(commit `89a20a8`)因 R1 #2 Critical(service_role key 從 @pcm/adapters root export 暴露給 client bundle)推翻 d2、加 `server-only ^0.0.1` dep 進 `packages/adapters/` + `apps/storefront/` package.json + 在 `packages/adapters/src/supabase/client.ts` 檔頭加 `import 'server-only';`(編譯期擋第一層)。**但 d2 原拍板字面散落 4 處未隨 B-1 同步:**
+- `apps/storefront/src/lib/products.ts` L22-26 註解仍寫「不裝 'server-only' npm package」
+- audit sub-8d L62 引「對齊 d2 Sean 拍板『範圍紀律不擴張 deps』」(歷史快照、不改)
+- 4 份 recon 報告引同字面(M-1-04-recon / pre-recon / recon / recon-supplement、歷史快照、不改)
+- d2 commit `1147fbe` body 內字面源頭(歷史不可變、絕不改)
+
+**規則:**
+- **推翻 commit body 必含「字面 vs 事實揭示」段、列:**
+  - 推翻來源:audit 名 + commit hash + 日期
+  - 原拍板出處:slice 編號(d2 / dx / 等)+ commit hash + 日期
+  - **同步更新清單(本 slice 必修):** code 註解 + active docs / patterns
+  - **歷史快照不改清單:** audit 報告 + recon 報告 + 原 commit body(歷史不可變、Sean 紀錄 anchor、絕不改)
+- **code 註解引推翻前字面 → 必同步更新揭示時間軸 + 雙層架構說明**(編譯期 vs runtime guard 各自角色、不只刪舊字面)
+- **active docs / patterns 引推翻前字面 → 必同步更新**(若該檔仍為 active 規範)
+- **enforce:** 推翻 commit body 寫「待同步字面清單」、收工前清空、未清空進 backlog、**不允許「下次順手」**(累積 stale 字面風險高、跨 slice 易遺漏)
+- **觸發點:** 任何 audit / 偵察結論為「先前 slice 拍板 A 推翻、改採 A'」時、Step 1 立即 grep 全 repo 引 A 字面位置、列同步清單
+
+**規範定位:** 對齊鐵則 11(commit 字面 vs 事實)+ working-style §6.3 第 10 條(skill audit 工作流)+ lessons §12-3 維度 A(字面 vs 事實守則):本條為「推翻拍板」特殊場景的字面同步配套
+
+**教訓來源:** M-1-04 候選刀 4 pre-PRD 偵察、發現 `89a20a8`(2026-05-10 audit B-1)推翻 d2(`1147fbe` 2026-05-09)後、4 處字面 stale 未同步(products.ts 註解 / audit sub-8d / 4 份 recon / d2 commit body)、本 slice 修 products.ts 註解 + 立 trigger 防再犯
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案(audit 推翻先前拍板屬通用工作模式、字面同步紀律跨專案一致)
+
+**首例:** M-1-04 候選刀 4 pre-PRD 偵察、本 trigger commit 即同步修 `apps/storefront/src/lib/products.ts` L22-26 註解
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
