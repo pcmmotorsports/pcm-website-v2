@@ -889,6 +889,33 @@ M-1-04 候選刀 4 PRD 偵察揭示:2026-05-09 main-d-d2(commit `1147fbe`)拍板
 
 ---
 
+### 12-25. 跨 session slice 指令字面內嵌義務 — 不靠「Code 看得到上輪對話」假設
+
+**事故脈絡:**
+M-1-04 slice 4 主刀(commit `9e40120` amend 前 `4b80769`):Claude.ai 上輪對話貼出 ADR-0006 + boundary.md 完整草稿、下輪 slice 指令引「上輪 Claude.ai 草稿、字面照搬」。但 Claude Code 是**新 session 啟動、看不到上輪對話**、只能依 task L3 章節大綱 + 既有事實 anchor 引用自行構造 ADR-0006 字面;boundary.md 因 Sean 在本 session 親自貼了完整 content、Code 有源可參。Claude.ai 後 review 抓 3 處字面 issue(boundary §4 4 條 link 缺 GitHub 行號 anchor / ADR packages/ui 字面與 boundary §1.1 不一致 / ADR server-only dep 字面漏 packages/adapters)、amend 修。
+
+**規則:**
+- **slice 指令引用「Claude.ai 上輪貼出」草稿字面時、必擇一處置:**
+  1. **完整字面內嵌進 slice 指令**(指令長、但 Code 拿到完整字面、零跨 session 假設)
+  2. **先請 Code 把上輪草稿存進 `docs/specs/`**(獨立小 slice)、後續 slice 指令引 `docs/specs/` 檔案路徑
+  3. **Code 跑 slice 前明確問**「上輪草稿在哪?若無、停下回報」(防 Code 看不到時自行構造)
+- **不允許:** slice 指令字面假設「Code 看得到上輪 Claude.ai 對話」、不允許 Code 在無草稿可參時自行構造章節字面繼續執行(除非指令明示豁免、且豁免後 Claude.ai 必後 review)
+- **處置(發生時):**
+  - Code 構造完成、Claude.ai 後驗 review、列字面 issue
+  - amend slice 修字面(對齊「commit 不等於 slice 終結」原則)
+  - 立法 trigger 防未來重蹈(本條 §12-25 即為此次教訓立法)
+- **enforce:** Claude.ai 寫 slice 指令時自檢「Code 看得到本字面嗎?」、看不到 → 選處置 1 / 2 / 3 任一、不假設;違反 = Code 跑指令時 raise multi-select、Sean 拍板才執行(對齊 memory feedback「懷疑 claude.ai 指令、先檢查再動作」)
+
+**規範定位:** 對齊 working-style §6.3 第 11-13 條(寫指令前 grep 真權威紀律)+ lessons §12-3 維度 A「Sean 工具能力真權威」延伸 + memory feedback「claude.ai 跨 session 會 forget 已拍板事」精神同類延伸(不同 actor、同類教訓:跨 session 無共享記憶)
+
+**教訓來源:** M-1-04 slice 4 主刀、Claude.ai 上輪貼出 ADR-0006 + boundary.md 草稿、slice 指令引「上輪草稿」、Code 新 session 看不到、依大綱自寫、Claude.ai 後 review 3 處需修(boundary §4 anchor / ADR packages/ui 字面 / ADR server-only dep 字面)、屬「Code 構造能力夠、但字面細節需 Claude.ai 後驗」模式
+
+**跨專案適用:** 適用所有 Claude.ai + Claude Code 跨 session 協作場景(claude.ai 對話與 claude code 對話獨立、無共享狀態、跨 session 字面引用必明示傳遞機制)
+
+**首例:** M-1-04 slice 4 主刀 @ `9e40120` 落地、本 trigger amend 同 commit 立 + 3 處字面修
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
