@@ -73,12 +73,21 @@
 ```
 pcm-website-v2/
 └── design-reference/        ← submodule、視覺真權威
-    ├── components/          ← 13 個 .jsx
-    ├── styles/              ← 15 個 .css
+    ├── components/          ← 20 個 .jsx
+    ├── styles/              ← 23 個 .css
     ├── data/                ← mock data
-    ├── design-reference/    ← HANDOFF docs(9 份)
+    ├── design-reference/    ← HANDOFF docs(10 份)
+    ├── design-handoff/      ← HANDOFF v2.0 / v2.1 + index.html(3 檔)
+    ├── assets/              ← logos / brand-logos
+    ├── screenshots/         ← 89 entries
+    ├── HANDOFF.md           ← 根目錄單檔
+    ├── README.md            ← 根目錄
     └── index.html           ← SPA 入口
 ```
+
+⚠️ 嵌套 `design-reference/design-reference/` 是 design submodule 內部結構、勿與外層 `design-reference/` 混淆。
+
+※ 字面以最後對齊 commit 為準、實況以 `ls design-reference/` + `ls design-reference/design-reference/` 為準。drift 出現時、以實況為準、本字面 follow up。
 
 ### 2.2 真權威更新流程
 
@@ -114,6 +123,12 @@ DETAILS > TOKENS > COMPONENTS > PAGES > OVERVIEW > index.html SPA 行為
 ```
 
 但實務上、**.jsx + .css 字面 > HANDOFF docs**(因為 jsx + css 是真實渲染源)。HANDOFF docs 是說明、可能未隨 jsx 更新。
+
+其餘 HANDOFF docs(無優先序、補列以對齊實況):
+
+```
+API / CHANGELOG / DEPLOY / ROADMAP / TWEAKS
+```
 
 ---
 
