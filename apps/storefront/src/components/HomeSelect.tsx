@@ -8,7 +8,8 @@
 // 'use client' 因 ProductCard 是 client component + 傳 onClick callback、server-client boundary 需 client
 'use client';
 
-import { useCallback, type MouseEvent } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { FeaturedResult } from '@/lib/products';
 import { ProductCard } from './ProductCard';
 
@@ -17,17 +18,10 @@ export type HomeSelectProps = {
 };
 
 export function HomeSelect({ featured }: HomeSelectProps) {
+  const router = useRouter();
+
   // d1 階段 tweaks default(對齊 design HomePage tweaks panel default)、d2 / 後續 slice tweaks panel 落地時 hoist
   const tweaks = { showRedPrice: false, badgeStyle: 'minimal' as const };
-
-  const onNav = useCallback((target: string, ctx?: object) => {
-    console.log('[onNav]', target, ctx);
-  }, []);
-
-  const handle = (e: MouseEvent, target: string, ctx?: object) => {
-    e.preventDefault();
-    onNav(target, ctx);
-  };
 
   // 三條 UI 分支(對齊 Sean 2026-05-09 d2 拍板 Q-empty=b / Q-error=b):
   //   - error → 「載入失敗、請稍後再試」
@@ -46,10 +40,10 @@ export function HomeSelect({ featured }: HomeSelectProps) {
           <span className="ed-mono">N°04</span>
           <span>The Selection · 編輯精選</span>
         </div>
-        <a href="#" onClick={(e) => handle(e, 'new')} className="ed-link ed-link-sm">
+        <Link href="/products?filter=new" className="ed-link ed-link-sm">
           <span>查看所有新品</span>
           <span className="ed-link-arrow">→</span>
-        </a>
+        </Link>
       </div>
       {isError ? (
         <div
@@ -85,7 +79,7 @@ export function HomeSelect({ featured }: HomeSelectProps) {
               p={p}
               showRedPrice={tweaks.showRedPrice}
               badgeStyle={tweaks.badgeStyle}
-              onClick={() => onNav('product', { productId: p.id, source: 'home', sourceLabel: '首頁' })}
+              onClick={() => router.push('/products/' + p.id)}
             />
           ))}
         </div>
