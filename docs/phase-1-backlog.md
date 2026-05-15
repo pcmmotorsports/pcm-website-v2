@@ -3580,6 +3580,59 @@
 
 ---
 
+### #141. ⏳ Claude.ai 引用 STATUS 行號 / 字面位置必先 grep 確認
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 中(Claude.ai 端規範修改、影響後續 slice 指令字面準確度)
+- **問題:**
+  - Claude.ai 寫 slice 指令引用 STATUS 具體行號 / 字面位置時、憑跨 session 對話印象推、未先請 Code grep 字面位置確認
+  - 引入字面失準 → Code 偵察階段 raise → 增加跨 session 來回成本
+  - 屬 lessons §12-30「Claude.ai 連環誤判」前置場景之一(行號 / 字面位置引用為起點)
+- **觸發事件:**
+  - 2026-05-15 / M-1-04 刀 3-a(`eb5196e`)指令字面寫 STATUS L17 偏離實況、實況刀 3-a 當下 L17 為 ADR-0006 amend 描述、Header 字面在 L35;eb5196e commit body 完整揭示歷史快照(對齊 lessons §12-30 事故脈絡引用字面源)
+  - 2026-05-15 / 刀 3-c.1(`b7b755b`)Claude.ai 在 commit body 把 eb5196e 歷史快照重新詮釋成「Sean 跨 session 失準」、未 view 字面源、屬連環誤判(對齊 lessons §12-30)
+- **預期解法:**
+  - Claude.ai 寫 slice 指令前置自檢加 1 條:引用 STATUS 行號 / 具體字面位置前、必請 Code grep 確認位置、不憑跨 session 對話印象推
+  - 對應 working-style §6.3 第 39 條(Claude.ai 引用 commit body 必先 view)自身延伸至 STATUS 行號引用
+  - 整合進 Claude.ai 端 prompt template / slice 指令模板自檢清單
+- **不修會痛在:**
+  - 擴充性:未來引用 STATUS 字面失準、Code 連環 raise 增加來回成本
+  - 可維護性:Claude.ai 公信力下降、Sean 對指令字面信任度降低
+  - bug 可追蹤性:行號引用失準與字面失準難區分、根因定位困難(本條目為 anchor)
+- **估時:** Sean 評估(Claude.ai 端 prompt / 自檢規範修改、無 Code 端實作)
+- **依賴:** lessons §12-30(Claude.ai 連環誤判立法、已 `e4935cc` 落地)、§12-25(跨 session 字面內嵌義務)
+- **發現於:** 2026-05-15 / M-1-04 刀 3-a 指令字面偏離事故(`eb5196e` commit body 揭示)+ 刀 3-c.2.1(`e4935cc`)立 §12-30 揭示連環誤判前置場景
+- **相關:** #142(STATUS L31 自動填表)、lessons §12-25 / §12-30、working-style §6.3 第 34 / 39 條
+
+---
+
+### #142. ⏳ STATUS L31「最近 3 commit」表格手動 vs Busboy 自動填表抉擇
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(Busboy 腳本端、跨 repo 議題、不阻塞主開發)
+- **問題:**
+  - STATUS L31「最近 3 commit」表格目前手動維護
+  - 每次 slice 收工 Code 手動更新表格欄位(hash + message + 時間)
+  - amend 流程引入 1 step stale:本 commit 寫 `XXXXXXX` placeholder、amend 後撈真 hash sed 修;但本 commit STATUS 內 hash = amend 前 hash、與 git log 真 hash 1 step stale(對齊 lessons §12-3 維度 B 滾動修正慣例)
+  - 慣例累積:M-1-04 刀 3 series 已累積二十七先例(每 amend 累積一步 stale)
+- **觸發事件:**
+  - 2026-05-15 / M-1-04 刀 3-a(`eb5196e`)偵察揭示 STATUS L29 表格寫「`7fa9f42` | docs(M-1-04-slice-4): ADR-0006...」實況 7fa9f42 message 為 `docs(working-style+lessons): §6.3 補...`、屬純 sed 後表格 message drift(歷史快照、為觸發事件、無 Sean 失準);eb5196e commit body 揭示
+  - 2026-05-15 / 刀 3-c.1(`b7b755b`)/ 3-c.2.1(`e4935cc`)/ 3-c.2.2(本 commit)amend 慣例累積二十六 / 二十七先例(每 slice STATUS L29 hash 留 1 step stale 給下個 slice 順手修)
+- **預期解法:**
+  - Busboy end 流程加 `git log -3 --format="%h | %s | %cd" --date=short` 自動填表、取代手動維護
+  - 或評估更簡單方案:STATUS L31 改為「最後一 commit」單列(`git log -1 --format`)、不維護表格、消除 hash vs message mismatch + amend stale 兩個問題
+  - 需 view `/Users/sean_1/pcm-tools/scripts/busboy-end.js` 確認 Busboy 既有 hook 點(屬跨 repo 議題)
+- **不修會痛在:**
+  - 擴充性:每次 slice 收工 Code 手動更新 STATUS L31、累積 drift、跨 session 對齊失準
+  - 可維護性:amend 後 hash 永遠 1 step stale、留給下個 slice 順手修、慣例累積無上限
+  - bug 可追蹤性:hash vs message mismatch / amend stale 兩類 drift 混在同個 commit body、字面 vs 事實揭示複雜度上升
+- **估時:** Sean 評估(Busboy 腳本端、需 view `/Users/sean_1/pcm-tools/scripts/busboy-end.js` 跨 repo)
+- **依賴:** 無
+- **發現於:** 2026-05-15 / M-1-04 刀 3 series amend 慣例累積二十六先例
+- **相關:** #141(Claude.ai STATUS 行號自檢)、Busboy 腳本(`/Users/sean_1/pcm-tools/scripts/busboy-end.js`)、lessons §12-3 維度 B(滾動修正慣例)
+
+---
+
 ## 紀錄模板
 
 ```markdown
