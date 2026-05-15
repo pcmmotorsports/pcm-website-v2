@@ -8,14 +8,20 @@
 //
 // M-1-04 Header mini-slice:Header 維持 client(useState searchQuery/autoMobile + useEffect + dispatchEvent)、
 // 9 a 標籤(2 logo + 7 navItems)改 <Link href>(對齊刀 1 全範圍 + Q-Header A3 拍板);
-// 3 button(cart / account / search)onClick stub 留候選刀 3 router.push;
-// onNavLocal / handleNav wrapper / MouseEvent type import 保留(button 還用)
+// M-1-04 刀 3-b:3 nav button(mobile cart / desktop cart / desktop account)舊 useCallback stub 整段移除 → handleNav 改寫 router.push(NAV_ROUTE_MAP)+ props.onNav fallback;
+// mobile search(dispatchEvent)/ desktop search div / input(非 nav)字面不動;handleNav wrapper + MouseEvent type 保留(props.onNav fallback 維持)
 
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
 import type { MouseEvent } from 'react';
+
+const NAV_ROUTE_MAP: Record<string, string> = {
+  cart: '/cart',
+  account: '/account',
+};
 
 export type HeaderProps = {
   cartCount?: number;
@@ -31,16 +37,8 @@ export function Header({
   currentPage = 'products',
   onNav,
 }: HeaderProps) {
+  const router = useRouter();
   const [searchQuery] = useState('');
-  const onNavLocal = useCallback((target: string, ctx?: object) => {
-    if (onNav) {
-      onNav(target, ctx);
-      return;
-    }
-    // nav a 已 Header mini-slice 改 <Link href>(本檔 navItems href + 2 logo)、
-    // button onClick stub 仍消費 handleNav wrapper(cart / account / search)、候選刀 3 router.push 接
-    console.log('[onNav]', target, ctx);
-  }, [onNav]);
 
   const openSearch = (q: string = '') => {
     if (typeof window === 'undefined') return;
@@ -71,7 +69,14 @@ export function Header({
     { id: 'install', label: '安裝預約', href: '/install' },
     { id: 'stores', label: '合作店家', href: '/stores' },
   ];
-  const handleNav = (e: MouseEvent, id: string) => { e.preventDefault(); onNavLocal(id); };
+  const handleNav = (e: MouseEvent, id: string) => {
+    e.preventDefault();
+    if (onNav) {
+      onNav(id);
+      return;
+    }
+    router.push(NAV_ROUTE_MAP[id] ?? `/${id}`);
+  };
 
   return (
     <header className="pcm-header">
