@@ -6,21 +6,18 @@
 
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 
 export function VehicleFinder() {
+  const router = useRouter();
   const data = { motoBrands: MOCK_MOTO_BRANDS };
   const [sel, setSel] = useState({ brand: '', model: '', year: '' });
   const brand = data.motoBrands.find(b => b.id === sel.brand);
   const model = brand?.models.find(m => m.id === sel.model);
 
   const ready = sel.brand && sel.model && sel.year;
-
-  const onNav = useCallback((target: string, ctx?: object) => {
-    // d1 階段 stub
-    console.log('[onNav]', target, ctx);
-  }, []);
 
   return (
     <section id="vehicle-finder" className="ed-finder">
@@ -57,7 +54,14 @@ export function VehicleFinder() {
           <button
             className={`ed-finder-go ${ready ? 'is-ready' : ''}`}
             disabled={!ready}
-            onClick={() => onNav('products', { vehicle: { brand: sel.brand, model: sel.model, year: sel.year } })}>
+            onClick={() => {
+              const params = new URLSearchParams({
+                brand: sel.brand,
+                model: sel.model,
+                year: sel.year,
+              });
+              router.push(`/products?${params.toString()}`);
+            }}>
             <span>搜尋部品</span>
             <span className="ed-finder-go-arrow">→</span>
           </button>
