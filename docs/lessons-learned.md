@@ -962,6 +962,77 @@ M-1-03-audit Slice A(2026-05-10、`supabase/migrations/20260510134708_products_p
 
 ---
 
+### 12-28. Claude.ai 指令字面「整段移除」+ 上游 prop 合約存在時、Code 自行裁決保留 wrapper fallback
+
+**事故脈絡:**
+M-1-04 刀 3-b(commit `7f99033`):Claude.ai 指令字面 3(c)「Header 3 nav button onNavLocal stub 整段移除 + handleNav 直接 router.push」、純照字面執行會引入 `onNav` destructure unused-vars 紅(因 HeaderProps.onNav prop 字面仍宣告);Code 自行裁決保留 props.onNav fallback 進 handleNav body(非 onNavLocal 復活、handleNav 接管 fallback 機制)、HeaderProps 合約不破、lint `--max-warnings 0` 通過。commit body 揭示「字面 vs 事實偏離」段、屬鐵則 11「事實 > 字面」允許範圍、未中斷 raise(偏離方向對齊三視角非規避指令)。
+
+**規則:**
+- **指令字面「整段移除」+ 上游 prop 合約存在時、Code 自行裁決保留 wrapper fallback**(維持上游 caller 字面合約不破、避免 destructure unused-vars 紅;lint --max-warnings 0 強制下尤其重要)
+- **commit body 必揭示字面 vs 事實偏離**(對齊鐵則 11 預防條 + lessons §12-3 維度 A);揭示為前提、不揭示等於規避
+- **不需中斷 raise**(偏離方向是「對齊三視角」非「規避指令」、屬鐵則 11 允許範圍)
+- **邊界:**
+  - 「整段移除」+ **無** prop 合約 → 純照字面執行、無 fallback 需求
+  - 「整段移除」+ **有** prop 合約 + 三視角優於照字面(擴充性 / 可維護性 / bug 可追蹤性) → 自行裁決保留 wrapper + commit body 揭示(本條規範)
+  - 「整段移除」+ 有 prop 合約 + **三視角無優於照字面** → raise multi-select 拍板、不擅自裁決
+- **enforce:** 字面偏離後 commit body 揭示為硬性要求(commit body 缺揭示 → 視為違反鐵則 11);prop 合約存在判定 = grep destructure caller / function signature、不憑記憶
+
+**規範定位:** 對齊 working-style §6.3 第 37 條(本條對應)+ 鐵則 11「事實 > 字面」允許範圍(commit body 揭示為前提)+ lessons §12-3 維度 A「字面 vs 事實守則」延伸(字面整段移除 vs 事實 prop 合約對齊)
+
+**教訓來源:** M-1-04 刀 3-b 主刀(commit `7f99033`)、Claude.ai 指令字面「onNavLocal stub 整段移除 + handleNav 直接 router.push」、Code 偵察揭示 `HeaderProps.onNav` prop 合約字面、自行裁決保留 props.onNav fallback、commit body 揭示「handleNav 接管 fallback 機制、非 onNavLocal 復活」、屬本 repo 內生事故
+
+**跨專案適用:** 適用所有有 prop 合約 + lint `--max-warnings 0` / 嚴格 unused-vars 強制的專案(React / TypeScript / Vue / Svelte 等元件框架通用)
+
+**首例:** M-1-04 刀 3-b @ `7f99033` Header.tsx handleNav fallback 保留(對齊 boundary.md §2.2 第 2 列「互動後 nav」第 2 次落地)
+
+---
+
+### 12-29. Claude.ai 預警範圍超界時、預設拆 sub-slice、不留「邊緣合一」選項
+
+**事故脈絡:**
+M-1-04 刀 3-c:Claude.ai 指令字面自寫「範圍超出 15-45 min 上界邊緣」預警、卻同段建議「合一」(整段 HomeSelect 主刀 + STATUS 對齊 3 件 + backlog #141/#142 + lessons §12-28 + working-style §6.3 第 37 條 + #118 評估、未預設拆);Code 偵察揭示實況 60-95 min 嚴重超鐵則 4(15-45 min)、自行裁決拆 3-c.1(commit `b7b755b`、HomeSelect + STATUS)+ 3-c.2(立法 + backlog + STATUS)、Sean「你建議」拍板;3-c.2 指令字面再次落入相同陷阱(Sean §2.6 估 35-55 min 邊緣超界 + §2.6 (b) 留「Code 評估超 45 min raise 拆」邊緣合一選項)、Code 偵察揭示實況 51-71 min、Sean 再次拆 3-c.2.1(本 commit、純 .md 立法 + STATUS)+ 3-c.2.2(backlog #141/#142)。**Claude.ai 寫指令時自身預警邊緣超界、但同段留邊緣合一選項屬陷阱重複違反鐵則 4**。
+
+**規則:**
+- **Claude.ai 寫 slice 指令、若自己預警範圍可能超界、必預設拆 sub-slice、不留邊緣合一選項**(預警即拆、不留 Claude.ai 自我寬容空間)
+- **硬要合一需具體列「為何合一三視角優於拆」**(擴充性 / 可維護性 / bug 可追蹤性)、**不能僅以邏輯耦合為由**(邏輯耦合不等於必須單 slice)
+- **Code 偵察揭示超界 → 自行裁決拆 + commit body 揭示為正確 raise**(對齊「事實 > 字面」鐵則 11、屬正確介入非規避指令)
+- **enforce:** Claude.ai 寫指令時自檢「最大估時是否超 45 min?」、超即拆;Code 偵察揭示超 45 min raise multi-select 拍板拆法、不擅自合一
+
+**規範定位:** 鐵則 4(15-45 min)強制、預警即拆、不留 Claude.ai 自我寬容空間;對齊 working-style §6.3 第 38 條(本條對應)+ lessons §12-3 維度 B 滾動修正(本 slice 即 §12-29 規則 1 違反 + 修正自身落地驗證一次)
+
+**教訓來源:** M-1-04 刀 3-c(`b7b755b` 拆出 3-c.1、本 commit 為 3-c.2.1、§12-29 規則 1 違反 + 修正自身落地驗證二次:第一次 3-c → 3-c.1+3-c.2、第二次 3-c.2 → 3-c.2.1+3-c.2.2)、本 repo 內生
+
+**跨專案適用:** 適用所有 milestone-driven + slice 切分制專案(對齊「最小 commit、最大可控、可中斷」slice 設計哲學)
+
+**首例:** M-1-04 刀 3-c → 3-c.1(`b7b755b`)+ 3-c.2 拆分(Code raise + Sean「你建議」拍板)為 §12-29 規則 1 違反 + 修正首例;本 commit(3-c.2.1)為第二次違反 + 修正案例、§12-29 自身落地驗證二次
+
+---
+
+### 12-30. Claude.ai 不可把 Code 在 commit body 揭示的歷史快照重新詮釋成「對方失準」、必先 view commit body 字面
+
+**事故脈絡:**
+M-1-04 刀 3-a 主刀(`eb5196e`)Code 在 commit body 完整誠實揭示:「指令字面 L17 有『Header 3 button』需修、實況 L17 字面無此字串(L17 為 ADR-0006 amend 描述)、實況 L15 + L35 才有對應字面、本 slice 改 L15 + L35」+「7fa9f42 commit 訊息實為『docs(working-style+lessons): §6.3 補...』非 ADR-0006 amend、純 sed 後 L17 / L23 / L29 / L236 引入 hash vs 訊息 mismatch(L29 表格寫『7fa9f42 | docs(M-1-04-slice-4): ADR-0006...』、實況 7fa9f42 訊息屬 working-style)」 — 屬刀 3-a **當下**歷史快照、commit body 字面源完整。Claude.ai 在 b7b755b(3-c.1 commit body)後續對話中、把此歷史揭示重新詮釋成「Sean 跨 session 事故描述失準 2 處」(#141 觸發「刀 3-a L17 偏離 ADR-0006」+ #142 觸發「7fa9f42 hash vs ADR-0006 message mismatch」)、**未回 view eb5196e commit body 字面源**、誤判 Sean 字面意思(Sean 描述對齊 eb5196e 歷史快照);寫 3-c.2 指令時把此誤判字面寫進 §2.4 + §3.1 #142 + commit body 揭示要求;Code 在 3-c.2 偵察階段 view eb5196e + b7b755b commit body 揭示 Claude.ai 自身連環誤判、Sean 重發 3-c.2.1 含 §12-30 立法。**屬「Code 事實揭示 → Claude.ai 詮釋失準 → 詮釋失準延續進 slice 指令字面 → Code 二次偵察揭示」連環誤判模式**。
+
+**規則:**
+- **Claude.ai 引用「跨 session 對話內容」時、必區分兩類字面:**
+  - (a) **對話內當事人原述**(Sean / Code 在對話內當下說的話)
+  - (b) **對話內引用既有 commit body / 文件字面**(歷史快照、git 不可變)
+  - 不可混為一談、不可把 (b) 引用詮釋成 (a) 失準
+- **引用 commit body 內容時必先 `git log --format="%h %s%n%n%b" -1 <hash>` view 字面、不憑印象推**(對齊原則 10「不憑記憶寫具體技術字面」+ 原則 13「規劃稿字面 vs 既有 code 實況交叉檢查」)
+- **把 Code「事實揭示」重新詮釋成「對方失準」前、必交叉檢查原始字面源**(commit body / eb5196e 等 anchor 為事實源、Sean 字面引用為 secondary)
+- **違反 = 連環誤判**(誤判延續進 slice 指令字面、Code 二次偵察揭示時已造成 1 commit + 1 後續 slice 指令字面污染)
+- **enforce:** commit body 內若引用「對方失準」、必同段內列 anchor commit hash + 字面源 grep 結果;違反 = 視為違反鐵則 11
+
+**規範定位:** 鐵則 11「事實 > 字面」+ working-style 原則 10「不憑記憶寫具體技術字面」+ 原則 13「規劃稿字面 vs 既有 code 實況交叉檢查」+ lessons §12-25「跨 session 字面內嵌義務」綜合場景(本條為跨 session 字面引用失準的特殊型態 — 詮釋失準);對齊 working-style §6.3 第 39 條(本條對應)
+
+**教訓來源:** M-1-04 刀 3-c.1 主刀(`b7b755b` commit body 內 Claude.ai 誤判:把 eb5196e commit body 歷史快照重新詮釋成「Sean 跨 session 失準」)+ 3-c.2 指令字面誤判延續(Sean 寫 §2.4 + §3.1 (c) #142 + commit body 揭示要求時延續 b7b755b 誤判字面)、Code 在 3-c.2 偵察階段(本 commit 3-c.2.1 前置 §2.3 (a)(b))view 字面源揭示連環誤判、Sean 重發 3-c.2.1 含 §12-30 立法、本 repo 內生
+
+**跨專案適用:** 適用所有有「commit body 字面揭示制度」+「跨 session 對話協作」的專案(Claude.ai + Claude Code / Cursor + Composer / GitHub Copilot Chat 等跨 session AI 協作場景通用)
+
+**首例:** M-1-04 刀 3-c.2.1 @ 本 commit(§12-30 自身落地驗證:§2.3 (b) view b7b755b commit body 字面為規則 2 自身驗證行為);b7b755b commit body 已 push 不 amend、本 commit body 為對齊鐵則 11 的後續揭示(對齊鐵則 11 字面 vs 事實守則:後續揭示優於 amend 既有 commit history)
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
