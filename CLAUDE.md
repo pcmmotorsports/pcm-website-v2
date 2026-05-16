@@ -445,6 +445,7 @@ A: 選項 X
 - [ ] commit 訊息符合 `type(scope): subject [milestone]` 格式?
 - [ ] STATUS.md 6 欄位更新(同 slice commit、不另開)?
 - [ ] 跑 busboy-end?
+- [ ] 跑 `/pcm-roadmap` 更新進度地圖(docs/progress-roadmap.html)?
 - [ ] 不 push(等 Sean 手動推)?
 
 ---

@@ -405,4 +405,55 @@ docs/patterns/(若有)
 | 同 slice 一起更新 STATUS.md | 不另開 commit |
 | Commit 訊息繁體中文 | 沿用第一輪約定 |
 
+---
+
+## 14. pcm-roadmap skill(進度施工地圖)
+
+> **2026-05-16 新增。** Sean 要求「進度地圖能跟著進度自動更新」而建的第一個
+> pcm-website-v2 專屬自訂 skill。本節為交接說明。
+
+### 14.1 用途
+
+把專案進度產成一份**給非技術讀者(Sean)看的視覺化「施工地圖」HTML** ——
+`docs/progress-roadmap.html`。用「開一間店」比喻講解 Phase 1 的 8 個施工段、
+79 個小步驟做到哪、Phase 2 / 3 願景、需要 Sean 拍板的事。
+
+### 14.2 怎麼觸發
+
+任何 Claude Code session 裡跟 Claude 說「**更新地圖 / 進度地圖 / 看進度到哪**」、
+或直接打 `/pcm-roadmap`。skill 是全域自動掃描、新 session 不需任何設定。
+
+### 14.3 skill 的三個檔案
+
+放在 `~/.claude/skills/pcm-roadmap/`(**全域、不在本 repo 內** —— 與 PCM 既有
+自訂 skill 同慣例):
+
+| 檔案 | 作用 |
+|---|---|
+| `SKILL.md` | 指令檔:觸發條件、執行流程、狀態判定規則、誠實守則 |
+| `roadmap-data.json` | 地圖**唯一內容來源**:8 milestone × 79 slice 白話文字 + 狀態 |
+| `generate.js` | 零相依 Node 產生器:讀 json → 寫 HTML |
+
+輸出 `docs/progress-roadmap.html` 落在本 repo(目前**未納入 git tracking**、屬本機產生物)。
+
+### 14.4 invoke 時做什麼
+
+1. 讀 `STATUS.md`(+ `git log` 對照)判斷各 slice 現況。
+2. 更新 `roadmap-data.json` 每個 slice 的 `status`(done / active / todo)、保守判定不灌水。
+3. **漂移檢查:** `STATUS.md` / `PHASE-1-MILESTONES.md` 若出現 json 沒有的新 slice
+   或 milestone 改組 → 回報 Sean、不靜默(不自行臆造白話翻譯)。
+4. 跑 `generate.js` 重產 HTML —— 完成數 / 百分比 / 「你在這裡」/ 狀態燈**全自動算**。
+5. 回報變更(哪些 slice 翻狀態、新百分比)。
+
+### 14.5 何時跑
+
+已納入 `CLAUDE.md`「快速自檢清單(slice 結束前)」—— 每個 slice 收工、busboy-end 之後
+順手 invoke 一次 `/pcm-roadmap`、地圖即跟最新進度同步。
+
+### 14.6 維護注意
+
+- **不手改 `docs/progress-roadmap.html`** —— 它是產生物。改內容改 `roadmap-data.json` 後重跑。
+- 藍圖結構真的變動(新增 / 改組 slice)→ skill 會回報、需人工更新 json 結構。
+- 詳細規則見 skill 自己的 `SKILL.md`。
+
 — END —
