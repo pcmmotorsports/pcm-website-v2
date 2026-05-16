@@ -9,30 +9,30 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-1 進度 5/16(M-0 10/10 ✅、M-1-01 + M-1-02 + M-1-03 ✅、M-1-04 ✅ 整段收工、M-1-05 ✅ 整段收工:刀 1.5 + 刀 1 spike + 刀 2 五 sub-slice 切 view 系列 DB 層 + adapter 層)+ 1 side product-import-spec 完成
+**Milestone:** M-1 進度 5/16(M-0 10/10 ✅、M-1-01 + M-1-02 + M-1-03 ✅、M-1-04 ✅ 整段收工、M-1-05 ✅:刀 1.5 + 刀 1 spike + 刀 2 五 sub-slice 切 view 系列 + 刀 3-a ✅ 立法收工)+ 1 side product-import-spec 完成
 - **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
-- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅ / M-1-03 ✅ / M-1-04 ✅(刀 1 + 刀 3 + 刀 4 全收工:6 純展示 sections client → server + Header/VehicleFinder/3 nav button router.push + ADR-0006)/ M-1-05 ✅(backlog #118 切 view 系列:刀 1.5 ✅ 補 drift + 刀 1 spike ✅ 三層連動偵察 + 2-1 ✅ products 加雙欄 + 2-2 ✅ 新建 products_list_public + 2-3 ✅ adapter 5 read method 切 products_public view + save 雙寫 + 2-4 contract test 空殼跳走入 #143 + 2-5 ✅ docs+backlog 收工、#118+#119 ✅、#143+#144 開立)
-- **下一步:** **M-1-05 刀 3 立法收工**(累積教訓 §12-31/32 + §12-XX/YY/ZZ/AA/BB 立法 + working-style §6.3 + 指令自檢條目化;#143 contract test infra / #144 migration apply SOP 已開立)
+- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅ / M-1-03 ✅ / M-1-04 ✅(刀 1 + 刀 3 + 刀 4 全收工:6 純展示 sections client → server + Header/VehicleFinder/3 nav button router.push + ADR-0006)/ M-1-05 ✅(backlog #118 切 view 系列:刀 1.5 ✅ 補 drift + 刀 1 spike ✅ 三層連動偵察 + 2-1 ✅ products 加雙欄 + 2-2 ✅ 新建 products_list_public + 2-3 ✅ adapter 5 read method 切 products_public view + save 雙寫 + 2-4 contract test 空殼跳走入 #143 + 2-5 ✅ docs+backlog 收工、#118+#119 ✅、#143+#144 開立 + 刀 3-a ✅ §12-31/32 + ws 第 40/41 條立法)
+- **下一步:** **M-1-05 刀 3-b 立法收工**(§12-33/34/35 Claude.ai 規劃紀律:callsite 字面真權威 / 規則編號 view / 多選項跨選項一致性;working-style §6.3 對應條 + 指令自檢條目化)
 
-**當前 slice:** M-1-05 ✅ 已完工(刀 2 Sub-slice 2-5 `698f9dd` — docs 3 檔雙寫過渡期紀律同步 + backlog #118+#119 ✅ Resolution + #143 contract test infra + #144 migration apply SOP 新建;M-1-05 刀 2 五 sub-slice 全完工:2-1 雙欄 / 2-2 雙 view / 2-3 adapter 切 + save 雙寫 / 2-4 contract test 空殼跳走入 #143 / 2-5 docs+backlog 收工、下一刀 = 刀 3 立法收工;字面 vs 事實(鐵則 11):slice 原 #119 Resolution 寫 products_list_public 排除 fitments、實況 migration 含 fitments、Sean 對話修正後落地;三綠 typecheck 7/7 + lint 10/10 + build 純 docs §2.2 豁免)、待 Sean 手動推
+**當前 slice:** M-1-05 刀 3-a 立法收工 ✅(`36ffede` — lessons §12-31 commit 落地 ≠ apply 落地 + §12-32 不憑印象推 MCP/CLI 工具行為 2 條立法 + working-style §6.3 第 40/41 條對應 + backlog #144 trigger 字面更新;字面 vs 事實(鐵則 11):slice 原引 刀 1.5 commit d0b1939(amend 前孤兒、不在 dev 分支)、Code 揭示、Sean 拍 A1 改 canonical e2ac99a;三綠 typecheck 7/7 + lint 10/10 + build §2.2 純 .md 豁免;刀 3-b 待開 §12-33/34/35)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-16
-**更新者:** Claude Code(M-1-05 刀 2 Sub-slice 2-5 `698f9dd` — docs 3 檔同步雙寫過渡期紀律 + backlog #118+#119 ✅ + #143 contract test infra + #144 migration apply SOP 新建;M-1-05 整段收工、下一刀刀 3 立法收工)
+**更新者:** Claude Code(M-1-05 刀 3-a 立法收工 `36ffede` — lessons §12-31/32 + working-style §6.3 第 40/41 條立法 + backlog #144 字面更新;下一刀 3-b §12-33/34/35)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `698f9dd` | docs: M-1-05 刀 2 Sub-slice 2-5 收工(M-1-05 ✅) | 2026-05-16 |
+| `36ffede` | docs(lessons): M-1-05 刀 3-a 立法收工(§12-31 + §12-32 + working-style 第 40-41 條) | 2026-05-16 |
+| `e86b650` | docs: M-1-05 刀 2 Sub-slice 2-5 收工(M-1-05 ✅) | 2026-05-16 |
 | `650279a` | feat(adapter): M-1-05 刀 2 Sub-slice 2-3 SupabaseProductAdapter 5 read method 切 view + save 雙寫 | 2026-05-16 |
-| `f7f72fc` | feat(db): M-1-05 刀 2 Sub-slice 2-2 新建 products_list_public + 改 products_public 投射 price_general | 2026-05-16 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-05 刀 3 立法收工**(累積教訓立法:§12-31 commit 落地 ≠ apply 落地 + §12-32 MCP/CLI 工具行為紀律 + §12-XX spike 結論 vs backlog 推遲字面 drift + §12-YY Claude.ai 引用條目前必 view 真檔 + §12-ZZ 多選項跨選項字面一致性 + §12-AA callsite 欄位讀取算字面真權威 + §12-BB contract test slice 前必 grep contract.ts 接線狀態;working-style §6.3 + 指令自檢條目化;#143 contract test infra + #144 migration apply SOP 已開立)/ **候選 a11y polish slice**(backlog #135 9 處 arrow aria-hidden + #136 4 footer placeholder + #138 觸控目標、估 30-60 min)
+1. **M-1-05 刀 3-b 立法收工**(§12-33/34/35 Claude.ai 規劃紀律:callsite 字面真權威 / 規則編號 view / 多選項跨選項一致性;working-style §6.3 對應條 + 指令自檢條目化;3-a §12-31/32 + 第 40/41 條已落地)/ **候選 a11y polish slice**(backlog #135 9 處 arrow aria-hidden + #136 4 footer placeholder + #138 觸控目標、估 30-60 min)
 
 > Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
 > **M-1-03 主實作必吸收:**
@@ -244,5 +244,7 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-16 | M-1-05 刀 2 Sub-slice 2-3 ✅(`97eb962` 2 檔 SupabaseProductAdapter.ts + mappers/product.ts:5 read method(findById + searchByKeyword + listByFitment + listByCategory + listByBrand)切 `.from('products_public')` detail view、save 維持 `.from('products')` base 表;PRODUCT_SELECT → PRODUCT_SELECT_DETAIL(14 欄含 price_general、排除 price_by_tier/price_store/metadata、舊 const 刪除);mapper read 路徑 general 從 price_general 真讀(null→throw 不 silent 補 0)、store dummy(amount 0/TWD)+ TODO M-2-08 IPricingService、premiumStore 保留 placeholder;mapper save 路徑 mapDomainProductToSupabase 雙寫 price_by_tier jsonb + price_general + price_store(同 row 單次 upsert atomic、jsonb 過渡期 source of truth);SupabaseProductRow price_by_tier 改 optional + 加 price_general(number|null)+ price_store?(number|null);Sean 拍板 save 雙寫=A / view 路徑 store dummy=A;Option A 拍板(本 slice 執行中 Code raise multi-select):products_list_public 9 欄缺 description/images/created_at/updated_at、單一 mapSupabaseProductToDomain 還原不出完整 domain Product、Sean 拍 A 全 5 read method 改讀 products_public detail view、products_list_public 暫不接線留後續 list-projection slice;不動 domain Product/PriceByTier/port IProductRepository/view DDL/base schema/RLS、InMemoryProductRepository + contract test 留 Sub-slice 2-4;三綠 typecheck 7/7 + lint 10/10 + build 1/1(@pcm/storefront next build);字面 vs 事實(鐵則 11):1. 指令原計畫拆 DETAIL+LIST 兩 const + mapper detail/list 分流、Option A 後收斂單一 detail 投射 + 單一 mapper、不建 PRODUCT_SELECT_LIST 避免 dead code;2. slice Step 7 稱「build §2.2 純 .ts 可省」、實查 slice-checkpoint.md §2.2 僅豁免純文件 slice(只動 .md/.json)、本 slice 動 .ts → §3.1 build 必跑、已補跑通;3. PRODUCT_SELECT_DETAIL 採單行字串規避多行 template literal 換行對 PostgREST select 未測風險;4. premiumStore 保留 placeholder(Step 5 範例公式 store=0 下恆 0、等值)、price_general 缺值檢查採 ===null;ahead origin/dev = 1 待 Sean push、走 amend 模式修 STATUS hash placeholder §12-3 維度 B 滾動修正、L29 上輪 3580ae5→f7f72fc drift 順手修)、busboy-end 收工 | Claude Code |
 
 | 2026-05-16 | M-1-05 刀 2 Sub-slice 2-5 收工 ✅(`698f9dd` docs 3 檔:supabase-schema-design.md §2.1+§5.1 雙寫過渡期紀律 + M-1-03-products-schema-prd-v3.md §2.1/§2.2/§2.4 雙欄引用 + phase-1-backlog.md #118+#119 ✅ Resolution + #143 contract test infra + #144 migration apply SOP 新建;M-1-05 刀 2 五 sub-slice 全完工、M-1-05 整段收工、下一刀刀 3 立法收工;2-4 contract test 空殼揭示跳走入 #143(Sean B 拍板);字面 vs 事實(鐵則 11):slice 原 #119 Resolution 寫 products_list_public 排除 fitments、實況 migration 20260516072210 含 fitments(對齊既有 fitments=A 拍板)、Sean 對話修正字面後落地;§5.1 slice 字面「字面字面」疊字去重;三綠 typecheck 7/7 + lint 10/10 + build §2.2 純 docs 豁免;上輪 STATUS L29 hash drift 97eb962→650279a 順手修;busboy-end amend 補 6 欄位)、busboy-end 走預設規則「自動 amend 補 6 欄位」 | Claude Code |
+
+| 2026-05-16 | M-1-05 刀 3-a 立法收工 ✅(`36ffede` 3 檔:lessons-learned.md §12-31 commit 落地 ≠ apply 落地 + §12-32 不憑印象推 MCP/CLI 工具行為(6 段模板對齊 §12-26~30)/ working-style.md §6.3 第 40 + 41 條對應 / phase-1-backlog.md #144 trigger 字面更新(立法雛形 → 已落地、留 M-5-03 引用 trigger);刀 3 立法收工拆 3-a 工具紀律 + 3-b Claude.ai 規劃紀律、本刀 3-a;字面 vs 事實(鐵則 11):slice 原 §12-31/32 引 刀 1.5 commit d0b1939(amend 前孤兒 commit、不在 dev 分支)、Code 偵察揭示、Sean 拍 A1、改 canonical hash e2ac99a;三綠 typecheck 7/7 + lint 10/10 + build §2.2 純 .md 豁免;backlog #144 commit hash 占位符 amend 同期修 TBD→36ffede、§12-3 維度 B;上輪 STATUS L17/L23/L29 hash drift 698f9dd→e86b650 順手修;刀 3-b 待開 §12-33/34/35)、busboy-end amend 補 6 欄位 | Claude Code |
 
 — END —

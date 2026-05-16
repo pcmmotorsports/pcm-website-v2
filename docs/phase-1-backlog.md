@@ -3701,7 +3701,8 @@
     - apply 路徑:`supabase db push`(必要時 `--include-all`)、不用 MCP `apply_migration`
     - Sean 手動跑、Code 不代跑(對齊四方分工)
     - dry-run 先驗:`supabase db push --dry-run` 確認待推清單
-  - 對齊 §12-31(commit 落地 ≠ apply 落地)+ §12-32(MCP / CLI 工具行為紀律)的立法雛形、刀 3 立法收工時 §12-31 / §12-32 落地、本條目為「規範化條目」(立法 → 工作風格條目 雙落地)
+  - 對齊 §12-31(commit 落地 ≠ apply 落地)+ §12-32(MCP / CLI 工具行為紀律)、本刀 3-a(`36ffede`)立法落地;working-style §6.3 第 40 + 41 條對應落地
+  - 本條目為「規範化條目」(立法 → 工作風格條目 雙落地)、立法已完成;本 #144 trigger 條件:M-5-03 sync-engine pipeline 落地時、該 slice 必引用 §12-31 + §12-32 確認執行
 - **不修會痛在:**
   - 擴充性:Phase 2 多 milestone 動 schema、新 Code session 不重踩需條目化
   - 可維護性:lessons §12 立法 + working-style / tools-and-skills 條目化 雙落地、單點修正易飄
