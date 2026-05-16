@@ -36,11 +36,11 @@ export function HomeStatement() {
         <div className="ed-statement-cta">
           <Link href="/install" className="ed-link ed-link-light">
             <span>預約安裝</span>
-            <span className="ed-link-arrow">→</span>
+            <span className="ed-link-arrow" aria-hidden="true">→</span>
           </Link>
           <Link href="/stores" className="ed-link ed-link-light ed-link-sm">
             <span>合作店家地圖</span>
-            <span className="ed-link-arrow">→</span>
+            <span className="ed-link-arrow" aria-hidden="true">→</span>
           </Link>
         </div>
       </div>

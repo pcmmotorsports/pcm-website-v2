@@ -63,7 +63,7 @@ export function VehicleFinder() {
               router.push(`/products?${params.toString()}`);
             }}>
             <span>搜尋部品</span>
-            <span className="ed-finder-go-arrow">→</span>
+            <span className="ed-finder-go-arrow" aria-hidden="true">→</span>
           </button>
         </div>
       </div>

@@ -1159,6 +1159,33 @@ M-1-05 刀 3-a(commit `f8271aa`、2026-05-16)規劃階段:Claude.ai 指令字面
 
 ---
 
+### 12-36. Claude.ai 寫立法字面前必 view 既有條目格式真權威(模板 / bullet 結構 / 段落 marker)
+
+**事故脈絡:**
+M-1-06 a11y polish slice(2026-05-17、commit `61d7fc0` amend 補入)累積 4 處「指令字面 vs 既有 code 實況交叉檢查不足」事故(回答原則 13 violation):(1) Step 2 CSS 副作用評估事實錯誤 — slice 字面寫「4 條 placeholder 全在 `.ed-footer-cols` 容器」、實況 social 3 條在 `.ed-footer-social`、僅聯絡客服 1 條在 `.ed-footer-cols`、Sean Q7 = 選項 1 拍板補齊 CSS 動 3 處;(2) backlog #135「9 處 arrow」範圍預估 — slice 偵察 grep pattern 僅命中 8 處、ed-finder-go-arrow(VehicleFinder L66 button 內裝飾)未命中、Sean Q4 = A 拍板補入湊足 9;(3) M-1-06-amend Step 1 grep pattern 自身命中 0(meta 第 1 印證)— slice grep `^### §12-` 命中 0、lessons §12 實際標題格式 `### 12-N.` 不帶 `§`;(4) M-1-06-amend Step 2 立法字面結構錯誤(meta 第 2 印證、本條直接事故)— Claude.ai 寫 §12-36 / 第 45 條字面用 7 段 prose 格式、未 view §12-33/34/35 + 第 42/43/44 真實 6 段模板 / bullet 結構、屬同族「憑記憶推結構」、Code raise Q9 multi-select、Sean Q9 = C 拍板 Claude.ai view 真權威後重寫、本條 §12-36 自身誕生符合本條規則。事件累積 8+ 次跨歷史同族(回答原則 10 + 13 同族:CSS 選擇器 / grep pattern / 表格結構 / commit 字面 / view 字面 / 立法模板 ...)、依 working-style §6.3「7+ 次必立法」enforce。
+
+**規則:**
+- Claude.ai 寫「立法新條」字面前必 view 既有條目格式真權威:
+  - lessons §12 末三條完整字面:`view docs/lessons-learned.md` 範圍涵蓋 §12-(N-2) 至 §12-N 條尾(確認模板結構穩定性、非單條看)
+  - working-style §6.3 末三條完整字面:`view docs/working-style.md` 範圍涵蓋 第 (M-2) 至 第 M 條條尾
+  - ADR 末條完整字面:`view docs/decisions/000N-*.md`(確認段落 marker / Status 風格)
+  - backlog 末條完整字面:`view docs/phase-1-backlog.md` 末條條尾
+- view 範圍含「條尾 marker」(下一條起始 / 章節分隔 / 檔尾):確認新條插入點精確
+- view 後 verbatim 比對立法字面:6 段模板(lessons)/ bullet 結構(working-style)/ 段落 marker(`**N:**` 同行 vs 換行)/ 條間 marker(`---` 或空行)— 任一不對齊即重寫
+- 不憑「上次落地是 6 段」/「印象中是 bullet」推:跨 session 期間既有條目格式可能微調、必字面驗
+- 立法字面內引「跨檔對應條」(例 lessons §12-N ↔ working-style 第 M 條)時、必雙向 view 驗對應存在
+- **enforce:** Claude.ai 寫立法字面前自檢「既有末三條模板已 view?」、未 view → 標 `<待 Code view 確認模板>` 占位、不寫死;違反 = Code raise multi-select、Sean 拍板採 C 路線(Claude.ai 重寫、不允 B 路線 Code 代排、守四方分工)
+
+**規範定位:** 對齊 working-style §6.3 第 45 條(本條對應)+ lessons §12-34 「寫立法字面前必 view 末條編號」延伸(§12-34 立「編號」/ §12-36 立「結構模板」、兩條合構成「立法字面前 view 完整工序」)+ lessons §12-33 「callsite 真權威 grep」立法 doc 域對應(§12-33 立 code 域 / §12-36 立 docs 立法域、雙域同精神)+ 四方分工「Claude.ai 立法主筆權」守護(C 路線 enforce、不允 B 路線越界)
+
+**教訓來源:** M-1-06 a11y polish slice(`61d7fc0` amend)4 處同族事故累積源:CSS 評估容器結構誤判 / 9 處 arrow grep pattern 範圍不足 / amend slice grep pattern 命中 0 meta / amend Step 2 立法字面 7 段 prose 結構錯誤 meta。本條 §12-36 自身誕生過程(Code raise Q9 → Sean Q9 = C → Claude.ai view 六條真權威字面 → verbatim 比對 6 段模板 + bullet 重寫)即本條規則完整工序執行驗證一次
+
+**跨專案適用:** 適用所有有「編號制立法 + 模板格式」的專案(lessons / ADR / RFC / patterns / backlog 等通用、不限 PCM);Phase 2 vehicle-service-ecosystem 立 ADR / patterns / 領域 lessons 時同紀律
+
+**首例:** M-1-06 a11y polish slice amend(`61d7fc0` → 新 hash)4 處同族事故源、本立法 commit 即首例 anchor;本條 §12-36 自身落地驗證 = Code raise Q9 → Sean Q9 = C → Claude.ai view §12-33/34/35 + 第 42/43/44 真權威字面後重寫、6 段模板 + bullet 結構 verbatim 對齊、§12-36 規則自身落地驗證一次(對齊 §12-34 刀 3-b 自身落地驗證先例)
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |

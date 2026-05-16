@@ -42,7 +42,7 @@ export function HomeSelect({ featured }: HomeSelectProps) {
         </div>
         <Link href="/products?filter=new" className="ed-link ed-link-sm">
           <span>查看所有新品</span>
-          <span className="ed-link-arrow">→</span>
+          <span className="ed-link-arrow" aria-hidden="true">→</span>
         </Link>
       </div>
       {isError ? (

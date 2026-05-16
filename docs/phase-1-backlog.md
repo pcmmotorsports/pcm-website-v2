@@ -3439,9 +3439,9 @@
 
 ---
 
-### #135. ⏳ 9 處 `→` arrow span 加 aria-hidden="true"
+### #135. ✅ 9 處 `→` arrow span 加 aria-hidden="true"
 
-- **狀態:** ⏳ 待 trigger
+- **狀態:** ✅ 已解 / 2026-05-17 / M-1-06
 - **優先級:** 🟡 中(a11y polish slice 入口、不阻 Phase 1)
 - **問題:**
   - 6 sections 內裝飾性 `→` arrow span(`<span className="ed-link-arrow">→</span>` / `<span className="ed-brand-arrow">→</span>`)共 9 處
@@ -3454,6 +3454,9 @@
   - 9 處 arrow span 加 `aria-hidden="true"` 屬性
   - BrandIndex.tsx 加 `.ed-brand-num` span aria-hidden(對齊 R2)
   - 範圍:HomeHero / FeatureEditorial / HomeStatement(×2)/ CategoryGrid / BrandIndex(num + arrow)/ HomeFooter section-head / 對齊 design 字面「保留 className / 文字 100%」精神、僅加 a11y 屬性
+  - 實際落地範圍(2026-05-17 / M-1-06):9 處 = 8 處 ed-link-arrow / ed-brand-arrow + 1 處 ed-finder-go-arrow(VehicleFinder 搜尋部品 button 內裝飾、M-1-06 偵察補入、原 backlog 預期 grep pattern 未涵蓋)
+  - ed-brand-num(BrandIndex.tsx 源碼 1 行、runtime 17 處)M-1-06 未動、屬獨立議題(brand link accessible name verbose、accessibility-review R2 Minor)、留後續或開新條目
+- **解法落地:** 2026-05-17 / M-1-06 a11y polish slice — 9 處 arrow span 加 `aria-hidden="true"`、screen reader 不再讀出多餘「→」;storefront 加、design-reference 不動(design 真權威 9 處本無 aria-hidden、a11y 屬性為純 storefront 工程層補強、Sean Q3=A 拍板兩層分權)
 - **不修會痛在:**
   - 擴充性:未來新增 link with arrow、無 a11y polish 規範、開發者沒依循
   - 可維護性:跨 6 檔 9 處散落、polish 時 grep `ed-link-arrow|ed-brand-arrow|ed-brand-num` 統一補
@@ -3465,9 +3468,9 @@
 
 ---
 
-### #136. ⏳ HomeFooter 4 條 `<a href="#">` placeholder 處置(Facebook/Instagram/LINE/聯絡客服)
+### #136. ✅ HomeFooter 4 條 `<a href="#">` placeholder 處置(Facebook/Instagram/LINE/聯絡客服)
 
-- **狀態:** ⏳ 待 trigger
+- **狀態:** ✅ 已解 / 2026-05-17 / M-1-06
 - **優先級:** 🟡 中(a11y polish slice + PRD 決策同期)
 - **問題:**
   - HomeFooter.tsx L13-L15 三條 social links(Facebook / Instagram / LINE)+ L42 聯絡客服 = 4 條 `<a href="#">` 殘留 placeholder
@@ -3479,6 +3482,8 @@
   - 候選 A(推薦):replace `<a href="#">` with `<button type="button" disabled aria-label="Facebook(尚未上線)">` 語意聲明「未上線」
   - 候選 B:真 href + target="_blank" rel="noopener"(需 PRD 拍板真 destination)
   - 候選 C:omit 4 條 placeholder 直到 PRD 拍板再加
+- **解法落地:** 2026-05-17 / M-1-06 a11y polish slice — 候選 A:4 條 `<a href="#">` 改 `<button type="button" disabled aria-label="...(尚未上線)">`、語意聲明未上線(Sean Q2=A 拍板)
+- **CSS 副作用揭示:** 4 條 placeholder 跨**兩個容器**(Facebook / Instagram / LINE 在 `.ed-footer-social`、聯絡客服 在 `.ed-footer-cols`)、`<a>` → `<button>` 後原 `.ed-footer-social a` / `.ed-footer-cols a` 選擇器不再 match。`apps/storefront/src/styles/home.css` 修 3 處:(1) 新增 `.ed-footer button` reset(background / border / padding / text-align / cursor / font、排在容器規則前、讓兩容器 contextual 規則蓋回)(2) `.ed-footer-social a` 選擇器加 `button`(3) `.ed-footer-cols a, .ed-footer-cols p` 選擇器加 `.ed-footer-cols button`。`design-reference/styles/home.css` 未同步加 button 規則(design 字面仍是 `<a>`)、storefront vs design CSS 短期偏離屬 button 化必要連動、後續若 Claude Design 同步 button 化、design CSS 同步加 button 規則
 - **不修會痛在:**
   - 擴充性:PRD 拍板真 destination 後、4 處散修 vs 統一改 button 半成本差
   - 可維護性:placeholder 字面 vs 真功能不一致、新人讀檔不知該 click 還是該等
@@ -3526,18 +3531,20 @@
   - WCAG 2.5.8 AA(2.2+)規定 ≥ 24px、實際 21.6px 邊際 fail
   - WCAG 2.5.5 AAA 推薦 ≥ 44px、明顯 fail
   - BrandIndex(~80px desktop / 62px mobile)+ CategoryGrid(~350px)PASS、僅 HomeFooter 此問題
+  - 2026-05-16 / M-1-06 偵察揭示:storefront `.ed-footer-cols a`(home.css L657)與 `design-reference/styles/home.css` 同區段 **byte-for-byte 一致**(font-size 13.5px / line-height 1.6 / margin-bottom 10px / 無 padding)、21.6px 觸控目標屬 design 真權威決定、storefront 對齊 design 無偏離
 - **觸發事件:**
   - 2026-05-14 / M-1-04-slice-1b2 audit Q4-2 觸控目標 Code CSS 估算
 - **預期解法:**
   - apps/storefront/src/styles/home.css L657 區改:加 padding-top / padding-bottom 各 ≥ 12px(讓 effective height ≥ 44px AAA)、或 ≥ 6px(讓 ≥ 24px AA)
   - 對齊 design-reference/styles/home.css 真權威字面、避免 storefront vs design drift
   - 若 design 字面也是 21.6px、屬 design issue、需 Claude Design 拍板更新 design vs storefront 雙改
+  - **議題歸位(2026-05-17 / M-1-06):** 偵察既證實 design 真權威本身即 21.6px、需 Claude Design 先改 `design-reference/styles/home.css` 加 padding / 調 line-height、storefront 再 submodule sync 對齊。屬視覺真權威範圍、**不能單方面在 storefront 改 CSS 製造 drift**
 - **不修會痛在:**
   - 擴充性:未來 footer 加新 link、繼承同樣 fail / 移動裝置使用體驗差
   - 可維護性:跨 home.css 規範散修
   - bug 可追蹤性:a11y AAA audit / Lighthouse 抓出時 root cause 不明
 - **估時:** 15-30 min(CSS 字面 + 視覺驗 design vs storefront)
-- **依賴:** a11y polish slice / 或 Claude Design 同步更新 design-reference home.css 真權威
+- **依賴:** Claude Design 拍板更新 `design-reference/styles/home.css` 真權威(加 padding / 調 line-height)、storefront 再 submodule sync 對齊
 - **發現於:** 2026-05-14 / M-1-04-slice-1b2 audit Q4-2 觸控目標 Code CSS 估算
 - **相關:** `apps/storefront/src/styles/home.css` L657 `.ed-footer-cols a` / `design-reference/styles/home.css` 真權威對比、WCAG 2.5.5 AAA + 2.5.8 AA、#135 / #136(a11y polish slice 同期)
 

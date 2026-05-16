@@ -28,7 +28,7 @@ export function HomeHero() {
         <div className="ed-hero-foot">
           <Link href="/products?filter=new" className="ed-link">
             <span>Discover the collection</span>
-            <span className="ed-link-arrow">→</span>
+            <span className="ed-link-arrow" aria-hidden="true">→</span>
           </Link>
           <div className="ed-hero-meta">
             <span className="ed-mono">N°01</span>

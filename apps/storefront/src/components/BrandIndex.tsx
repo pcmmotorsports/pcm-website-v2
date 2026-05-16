@@ -22,7 +22,7 @@ export function BrandIndex() {
         </div>
         <Link href="/brands" className="ed-link ed-link-sm">
           <span>品牌專區</span>
-          <span className="ed-link-arrow">→</span>
+          <span className="ed-link-arrow" aria-hidden="true">→</span>
         </Link>
       </div>
       <ul className="ed-brand-list">
@@ -33,7 +33,7 @@ export function BrandIndex() {
               <span className="ed-brand-name">{b.name}</span>
               <span className="ed-brand-tag">{b.tagline}</span>
               <span className="ed-brand-country ed-mono">{b.country?.toUpperCase()}</span>
-              <span className="ed-brand-arrow">→</span>
+              <span className="ed-brand-arrow" aria-hidden="true">→</span>
             </Link>
           </li>
         ))}

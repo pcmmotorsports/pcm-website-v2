@@ -5,7 +5,7 @@
 // onNav target 對映(本檔 7 條):
 //   'catalog' → /products / 'brands' → /brands / 'new' → /products?filter=new / 'sale' → /products?filter=sale
 //   'install' → /install / 'stores' → /stores / 'shipping' → /info/shipping
-// social / 聯絡客服 4 條 <a href="#"> 無 onClick(純 placeholder)保留、不在 onNav 範圍
+// social / 聯絡客服 4 條 placeholder:不在 onNav 範圍、M-1-06 #136 改 <button disabled aria-label> 宣告未上線
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
 import Link from 'next/link';
@@ -21,9 +21,9 @@ export function HomeFooter() {
             是風格與態度的延伸。
           </p>
           <div className="ed-footer-social">
-            <a href="#">Facebook</a>
-            <a href="#">Instagram</a>
-            <a href="#">LINE</a>
+            <button type="button" disabled aria-label="Facebook(尚未上線)">Facebook</button>
+            <button type="button" disabled aria-label="Instagram(尚未上線)">Instagram</button>
+            <button type="button" disabled aria-label="LINE(尚未上線)">LINE</button>
           </div>
         </div>
         <div className="ed-footer-cols">
@@ -39,7 +39,7 @@ export function HomeFooter() {
             <Link href="/install">安裝預約</Link>
             <Link href="/stores">合作店家</Link>
             <Link href="/info/shipping">配送 & 退貨</Link>
-            <a href="#">聯絡客服</a>
+            <button type="button" disabled aria-label="聯絡客服(尚未上線)">聯絡客服</button>
           </div>
           <div>
             <div className="ed-mono ed-footer-h">門市</div>

@@ -28,7 +28,7 @@ export function CategoryGrid() {
         </div>
         <Link href="/products" className="ed-link ed-link-sm">
           <span>查看全部 11 類</span>
-          <span className="ed-link-arrow">→</span>
+          <span className="ed-link-arrow" aria-hidden="true">→</span>
         </Link>
       </div>
       <div className="ed-cat-grid">

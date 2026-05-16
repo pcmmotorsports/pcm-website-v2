@@ -42,7 +42,7 @@ export function FeatureEditorial() {
           </div>
           <Link href="/brands/rizoma" className="ed-link ed-link-dark">
             <span>探索 RIZOMA</span>
-            <span className="ed-link-arrow">→</span>
+            <span className="ed-link-arrow" aria-hidden="true">→</span>
           </Link>
         </aside>
         <div className="ed-feature-media">
