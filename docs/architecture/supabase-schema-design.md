@@ -72,6 +72,22 @@ CREATE TABLE products (
 
 索引策略見 §10。
 
+**M-1-05 刀 2 Sub-slice 2-1 新增雙欄(雙寫過渡期):**
+
+```sql
+ALTER TABLE products ADD COLUMN price_general integer;
+ALTER TABLE products ADD COLUMN price_store integer;
+ALTER TABLE products ADD CONSTRAINT price_general_non_negative CHECK (price_general IS NULL OR price_general >= 0);
+ALTER TABLE products ADD CONSTRAINT price_store_non_negative CHECK (price_store IS NULL OR price_store >= 0);
+```
+
+雙寫過渡期紀律:
+- source of truth 仍是 `price_by_tier` jsonb(本表 CHECK 二 key 維持不變)
+- save 路徑 application 層雙寫(`price_by_tier` jsonb + `price_general` + `price_store`、Sub-slice 2-3 落地)
+- view 投射用 `price_general`(`products_public` + `products_list_public` 皆含)、`price_store` 永不投射
+- NOT NULL 加上推遲(雙寫穩定後另開 migration、防 save 漏雙寫即炸)
+- 退場路徑:M-2-08 IPricingService 落地後評估退場 `price_by_tier` jsonb、改 price_general / price_store 為 source of truth
+
 ### 2.2 對應 domain entity(packages/domain/src/catalog/types.ts、M-1-02 落地)
 
 | Supabase 欄位 | 型 | 對應 domain | 備註 |
@@ -256,6 +272,9 @@ export type MemberTier = 'general' | 'store' | 'premiumStore';
 - jsonb 內聯:5w SKU × 3 tier = 15w row vs 5w row、節省 join cost
 - CHECK constraint(`price_by_tier ? 'general' AND price_by_tier ? 'store'`)強制 general + store 兩 key 全部存在;`premiumStore` tier 不在 jsonb 內、由 storefront 用 `brands.premium_extra_pct` 公式算(對齊 §2.1 CHECK 二 key + M-1-03-post-supplement Pricing 公式)
 - amount 是 integer(分位、TWD 元位)、對齊 packages/domain/src/shared/types.ts:MoneyAmount brand type + security-timeline #B3
+
+**雙寫過渡期(M-1-05 刀 2 完工):**
+本節 jsonb 字面 source of truth 仍存在、雙欄 `price_general` / `price_store` 為 view 投射來源(§2.1 雙寫紀律詳述)。M-2-08 IPricingService 落地後評估退場 jsonb、改雙欄為 source of truth。
 
 ### 5.2 customer_groups 表(對齊 ADR-0003 §4 #8)
 

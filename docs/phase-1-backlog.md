@@ -2972,9 +2972,17 @@
 
 ---
 
-### #118. 🔴 SupabaseProductAdapter 6 method 切換讀 products_public view
+### #118. ✅ SupabaseProductAdapter 6 method 切換讀 products_public view
 
-- **狀態:** 🔴 立即啟動(刀 4 sub 7 公式 dispatch 落地、sub 8c 重評確認 trigger 條件已熟、隨時可啟動)
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-16 / M-1-05 刀 2 Sub-slice 2-3 完工(commit `650279a`、Sean A 拍板「5 read method 全切 products_public detail view、避免 list view 9 欄不足組 Product entity」)
+- **實際解法 vs 原預期解法:**
+  - 原預期:6 method 切 view + InMemory 對齊 view 形狀 + contract test 加 case
+  - 實際:5 read method 切 products_public detail view(A 拍板)、save 維持 base 表雙寫、InMemory 維持 ADR-0002 真實作精神不對齊 view 形狀(Sub-slice 2-4 B 拍板)、contract test 接線 #143 independent milestone(空殼揭示)
+  - 偏離理由:list view 9 欄不足組完整 Product entity(無 description / images / created_at / updated_at)、A 拍板「都用 detail view、誠實 mapper、零假資料」
+- **依賴消除:** 雙寫過渡期穩定後評估 NOT NULL + 退場 price_by_tier jsonb(M-2-08 IPricingService anchor)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** 🔴 立即啟動(刀 4 sub 7 公式 dispatch 落地、sub 8c 重評確認 trigger 條件已熟、隨時可啟動)
 - **優先級:** 🟠 中(M-1-16 種子前必修、種子上線後 storefront 仍走 base products 表 = 經銷價洩漏)
 - **問題:**
   - slice-A 已建 products_public view 排除 price_by_tier
@@ -2999,9 +3007,21 @@
 
 ---
 
-### #119. ⏳ products_public view 拆分:list-projection vs detail-projection
+### #119. ✅ products_public view 拆分:list-projection vs detail-projection
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-16 / M-1-05 刀 2 Sub-slice 2-2 完工(commit `f7f72fc`、提前因 #118 mapper 處置強耦合、同 M-1-05 完成)
+- **實際解法 vs 原預期解法:**
+  - 原預期:拆 list view 排除 description / fitments / 取 images[0]、findById 維持 detail view、4 list method 切 list view
+  - 實際:list view 已建(products_list_public 9 欄、含 fitments、含 price_general、排除 description / images / price_by_tier / price_store / metadata / external_id / timestamps)、但 adapter 5 method 全切 detail view(A 拍板字面、避免 list view 9 欄不足組 Product entity)、list view 暫擺著等未來 sub-slice 接線
+  - 偏離理由:
+    - fitments 由「排除」改「含」:Sean 拍板「fitments=A 露」(Vehicle Finder + toUIProduct 讀 fitments[0]、不露會破壞既有 UI)、migration 20260516072210 檔頭字面紀錄
+    - images 由「取 [0]」改「完全排除」:Sean 拍板「images=A 不露」(toUIProduct 不讀 product.images、ProductCard 走 Unsplash by seed、露了 over-fetch 零價值)
+    - adapter 5 method 全切 detail view(非「4 list 切 list」):同 #118 完成 Resolution、A 拍板字面、list view 9 欄不足組 Product
+- **依賴消除:** 分類頁 / 品牌頁 milestone 啟用前(M-2-XX、原依賴條件)由本刀提前完成
+- **trigger 重評於:** 2026-05-16 / M-1-05 刀 2 Sub-slice 2-2 mapper 處置耦合(spike §5 揭示與 #118 強耦合、同 M-1-05 完成)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **優先級:** 🟢 低(Phase 1 規模(M-1-16 200 SKU)可接受、規模長大才痛)
 - **問題:**
   - 目前 products_public view 投射 description / images / fitments 三 jsonb 全字段
@@ -3630,6 +3650,66 @@
 - **依賴:** 無
 - **發現於:** 2026-05-15 / M-1-04 刀 3 series amend 慣例累積二十六先例
 - **相關:** #141(Claude.ai STATUS 行號自檢)、Busboy 腳本(`/Users/sean_1/pcm-tools/scripts/busboy-end.js`)、lessons §12-3 維度 B(滾動修正慣例)
+
+---
+
+### #143. ⏳ contract test infra independent milestone(框架接線 + 11 it.todo 填真 it + Supabase 測試 client)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-1-05 刀 2 完工後 view 切換已落地、但無 contract test 守 regression、未來 #118 預期解法字面「contract test 加 case」靠本 milestone 落地)
+- **問題:**
+  - `runProductRepositoryContract(factory)` 框架已建(M-1-03-prep 件 #3 落地)、但全 repo 0 個測試檔呼叫、`factory` 參數被 `void factory;` 釋放、形同空殼
+  - `IProductRepository.contract.ts` 11 個 it.todo 佔位、原訂 main-b 落地填真 it、實際未填
+  - 無 SupabaseProductAdapter 測試檔、無 Supabase 測試 client / 測試 DB seed / CI 配置
+  - M-1-05 刀 2 Sub-slice 2-4 原規劃「contract test 加 6 it」、撞空殼揭示、Sean B 拍板跳 2-4 創本 milestone
+- **觸發事件:**
+  - 2026-05-16 / M-1-05 刀 2 Sub-slice 2-4 偵察揭示 contract test 空殼
+  - 2026-05-16 / Sean B 拍板「contract 框架接線入 #143 independent milestone」
+- **預期解法:**
+  - 步驟 1:InMemory 測試檔呼叫 `runProductRepositoryContract(() => new InMemoryProductRepository())`、驗框架接線
+  - 步驟 2:填 11 個 it.todo 為真 it(對齊 IProductRepository 6 method + 既有 listByFitment year-range matching 4 case + 跨車型 1 case)
+  - 步驟 3:建 Supabase 測試 client(獨立於 production client、用 test schema 或 test DB project ref)
+  - 步驟 4:建 SupabaseProductAdapter.test.ts、呼叫 `runProductRepositoryContract(() => new SupabaseProductAdapter(testClient))`
+  - 步驟 5:CI 配置(Vercel CI / GitHub Actions、跑 contract test)
+  - 步驟 6:M-1-05 view-projection case 補(對齊 #118 + #119 預期解法字面「contract test 加 case」)
+- **不修會痛在:**
+  - 擴充性:#118 預期解法字面「contract test 加 case 驗 view 不回敏感欄位」未落地、未來 view DDL 改動無自動防線
+  - 可維護性:adapter regression 靠 typecheck + 手動驗、無雙 adapter 一致性自動驗
+  - bug 可追蹤性:adapter 行為差異(view 路徑 dummy vs InMemory 完整)無 test 量化、未來 IPricingService 接入時退場路徑無明確 anchor
+- **估時:** 4-6 hr(跨多 sub-slice、獨立 milestone 級工作)
+- **依賴:** M-1-05 刀 2 完工(本 milestone 必要前置、已達成)
+- **發現於:** 2026-05-16 / M-1-05 刀 2 Sub-slice 2-4 偵察揭示
+- **相關:** `packages/ports/src/IProductRepository.contract.ts`(11 it.todo 佔位)、`packages/adapters/src/in-memory/InMemoryProductRepository.ts`、未建 `packages/adapters/src/supabase/SupabaseProductAdapter.test.ts`、lessons §12-1(contract subpath export)+ §12-2(contract 命名以 port public method 為錨)
+
+---
+
+### #144. ⏳ migration apply SOP 工作風格條目化
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(M-1-05 已踩過、流程已熟、條目化讓未來新 Code session 不重踩)
+- **問題:**
+  - M-1-05 刀 1.5 揭示:MCP `apply_migration` 用當下 timestamp 套用、若 commit 落地的 migration timestamp 早於 remote 最新、會製造版本倒掛
+  - M-1-05 刀 1.5 修法:改走 Supabase CLI `supabase db push`(必要時加 `--include-all` flag)
+  - M-1-05 後續 sub-slice 沿用 CLI 路徑、未撞坑
+  - 但無 docs 條目化、新 Code session 接手仍可能誤用 MCP apply_migration
+- **觸發事件:**
+  - 2026-05-12 / M-1-05 刀 1.5 揭示
+  - 2026-05-16 / M-1-05 刀 2 完工、流程已驗證、條目化時機到
+- **預期解法:**
+  - 在 `docs/working-style.md` 或 `docs/tools-and-skills.md` 加段「Supabase migration apply SOP」、條目化:
+    - commit 落地 ≠ apply 落地(兩階段、commit body 字面區分)
+    - apply 路徑:`supabase db push`(必要時 `--include-all`)、不用 MCP `apply_migration`
+    - Sean 手動跑、Code 不代跑(對齊四方分工)
+    - dry-run 先驗:`supabase db push --dry-run` 確認待推清單
+  - 對齊 §12-31(commit 落地 ≠ apply 落地)+ §12-32(MCP / CLI 工具行為紀律)的立法雛形、刀 3 立法收工時 §12-31 / §12-32 落地、本條目為「規範化條目」(立法 → 工作風格條目 雙落地)
+- **不修會痛在:**
+  - 擴充性:Phase 2 多 milestone 動 schema、新 Code session 不重踩需條目化
+  - 可維護性:lessons §12 立法 + working-style / tools-and-skills 條目化 雙落地、單點修正易飄
+  - bug 可追蹤性:踩坑路徑明確(MCP vs CLI 抉擇)、條目化即一查就知
+- **估時:** 30-45 min(加段字面 + 對齊 §12-31 / §12-32 引用、刀 3 立法收工同 session 完成)
+- **依賴:** 刀 3 立法收工(§12-31 + §12-32 落地)
+- **發現於:** 2026-05-12 / M-1-05 刀 1.5
+- **相關:** `docs/lessons-learned.md` §12-31 + §12-32(刀 3 立法目標)、`docs/working-style.md` / `docs/tools-and-skills.md`、刀 1.5 commit body 字面
 
 ---
 

@@ -86,6 +86,9 @@ CREATE TABLE products (
 );
 ```
 
+**M-1-05 刀 2 Sub-slice 2-1 新增雙欄:**
+詳見 `docs/architecture/supabase-schema-design.md` §2.1 雙寫過渡期紀律。本 PRD 為 M-1-03 階段規格、雙欄為 M-1-05 後續演進、不修本 PRD 既有 §2.1 字面。
+
 ### 2.2 price_by_tier jsonb 字面範例
 
 ```json
@@ -100,6 +103,9 @@ CREATE TABLE products (
 - CHECK constraint 強制 `general` + `store` 兩 tier 全部存在、避免漏 tier 引發 server-side render fall-back 邏輯複雜
 - `premiumStore` tier 不在 jsonb 內 seed、由 §2.4 Pricing 公式 storefront 動態算(`store × (1 - brand.premium_extra_pct / 100)`)
 - amount 是 integer(分位 / TWD 元位)、對齊 packages/domain/src/shared/types.ts:MoneyAmount brand type + security-timeline #B3
+
+**M-1-05 刀 2 Sub-slice 2-1 新增雙欄:**
+詳見 `docs/architecture/supabase-schema-design.md` §2.1 雙寫過渡期紀律。本 PRD 為 M-1-03 階段規格、雙欄為 M-1-05 後續演進、不修本 PRD 既有 §2.2 字面。
 
 ### 2.3 字面 vs 事實揭示
 
@@ -138,6 +144,9 @@ CREATE TABLE products (
 - 後台 UI / 業務語意:一般會員 / 店家經銷 / 高級店家(中文)
 - design-handoff 字面慣例:`general` / `store` / `premium_store`(snake_case、業務溝通用、非 schema key)
 - 三層字面語意對齊、僅拼法層次不同、實作端以 schema 字面 `premiumStore` 為準
+
+**M-1-05 刀 2 Sub-slice 2-1 新增雙欄:**
+詳見 `docs/architecture/supabase-schema-design.md` §2.1 雙寫過渡期紀律。本 PRD 為 M-1-03 階段規格、雙欄為 M-1-05 後續演進、不修本 PRD 既有 §2.4 字面。
 
 ---
 
