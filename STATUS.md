@@ -9,30 +9,30 @@
 ## 當前狀態
 
 **Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-1 進度 4/16(M-0 10/10 ✅、M-1-01 + M-1-02 + M-1-03 ✅、M-1-04 ✅ 整段收工、M-1-05 進行中:刀 1.5 ✅ + 刀 1 spike ✅ + 刀 2 Sub-slice 2-1 ✅ products 加 price_general/price_store 兩欄)+ 1 side product-import-spec 完成
+**Milestone:** M-1 進度 4/16(M-0 10/10 ✅、M-1-01 + M-1-02 + M-1-03 ✅、M-1-04 ✅ 整段收工、M-1-05 進行中:刀 1.5 ✅ + 刀 1 spike ✅ + 刀 2 Sub-slice 2-1 ✅ + 2-2 ✅ 切 view 系列 DB 層)+ 1 side product-import-spec 完成
 - **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
-- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅ / M-1-03 ✅ / M-1-04 ✅(刀 1 + 刀 3 + 刀 4 全收工:6 純展示 sections client → server + Header/VehicleFinder/3 nav button router.push + ADR-0006)/ M-1-05 進行中(backlog #118 切 view 系列:刀 1.5 ✅ 補 drift + 刀 1 spike ✅ 三層連動偵察 + 刀 2 Sub-slice 2-1 ✅ products 加 price_general/price_store 兩欄)
-- **下一步:** **M-1-05 刀 2 Sub-slice 2-2**(刀 2 5 sub-slice 架構第 2 刀、待 claude.ai sub-slice 指令;預期新 view migration:products_list_public + products_public 投射 price_general)
+- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅ / M-1-03 ✅ / M-1-04 ✅(刀 1 + 刀 3 + 刀 4 全收工:6 純展示 sections client → server + Header/VehicleFinder/3 nav button router.push + ADR-0006)/ M-1-05 進行中(backlog #118 切 view 系列:刀 1.5 ✅ 補 drift + 刀 1 spike ✅ 三層連動偵察 + 刀 2 Sub-slice 2-1 ✅ products 加 price_general/price_store + 2-2 ✅ 新建 products_list_public + products_public 投射 price_general)
+- **下一步:** **M-1-05 刀 2 Sub-slice 2-3**(刀 2 5 sub-slice 架構第 3 刀、待 claude.ai 指令;預期 adapter save 雙寫:price_by_tier jsonb + price_general/price_store 兩欄)
 
-**當前 slice:** M-1-05 刀 2 Sub-slice 2-1 ✅(`3f3320b` migration `20260516064013_products_add_price_general_store.sql`:products base 表加 price_general + price_store 兩 integer 欄(皆 nullable + CHECK ≥ 0 + COMMENT)、為切 view 系列鋪雙寫過渡期前置;Sean 拍板架構洞 (ii) base 表 price_by_tier 拆 price_general 公開 / price_store 敏感、未來 view 投射 price_general;保留 price_by_tier jsonb 為雙寫過渡期 source of truth、NOT NULL 推遲 sub-slice 2-3 雙寫穩定後;apply via Supabase CLI db push(Sean 手動);Step 1+4 MCP 唯讀驗證全綠(products 15→17 欄 / 0 row / 2 CHECK clause / schema_migrations 最新對齊);三綠 typecheck 7/7 + lint 10/10、純 SQL build 省;**字面 vs 事實揭示(鐵則 11):** slice 字面源稱既有 migration 最後一條 20260507222633、實況 20260511180231(claude.ai grep 漏 products_public_view + pricing_tier_alignment 2 條)、Sean 拍板「原 2-1 指令跑、門檻內部以 > 20260511180231 為準、不等重發」、date -u 生 timestamp 自然滿足)、待 Sean 手動推
+**當前 slice:** M-1-05 刀 2 Sub-slice 2-2 ✅(`3580ae5` migration `20260516072210_products_views_pricing_split.sql`:新建 products_list_public(list 用、9 欄)+ CREATE OR REPLACE products_public(13→14 欄、加 price_general);兩 view 投射 price_general、仍排除 price_store / price_by_tier / metadata;Sean 拍板 fitments=A 露 / images=A 不露;apply via Supabase CLI db push(Sean 手動);Step 1+4 MCP 唯讀 + 刀 1 spike script 驗證全綠(products_list_public 9 欄 / products_public 14 欄 price_general 末位 / L1+D1 anon embedded JOIN status 200 error null);三綠 typecheck 7/7 + lint 10/10、純 SQL build 省;**字面 vs 事實揭示(鐵則 11):** slice Step 2 SQL 將 price_general 置 products_public created_at 之前、Postgres CREATE OR REPLACE VIEW 僅允許既有欄位末尾 append、Code raise multi-select + Sean 拍板 A、price_general 移 SELECT 末欄、view 欄序純排列與指令意圖等價)、待 Sean 手動推
 **Branch:** dev(main 已同步至 9f609b0)
 
 ## 最後更新
 
 **時間:** 2026-05-16
-**更新者:** Claude Code(M-1-05 刀 2 Sub-slice 2-1 `3f3320b` — products base 表加 price_general + price_store 兩 integer 欄(nullable / CHECK ≥ 0 / COMMENT);Sean 拍板架構洞 (ii) base 表 price_by_tier 拆 price_general 公開 / price_store 敏感、view 投射 price_general;migration 20260516064013 Supabase CLI db push apply(Sean 手動);Step 1+4 MCP 唯讀驗證全綠;三綠 typecheck 7/7 + lint 10/10、純 SQL build 省;字面 vs 事實:slice 字面源稱 migration 最後一條 20260507222633、實況 20260511180231、Sean 拍板門檻內部以 > 20260511180231 為準)
+**更新者:** Claude Code(M-1-05 刀 2 Sub-slice 2-2 `3580ae5` — 新建 products_list_public(9 欄)+ CREATE OR REPLACE products_public(14 欄、加 price_general);兩 view 投射 price_general、仍排除敏感欄 price_store / price_by_tier / metadata;Sean 拍板 fitments=A 露 / images=A 不露;migration 20260516072210 Supabase CLI db push apply(Sean 手動);Step 1+4 MCP + 刀 1 spike JOIN 驗證全綠;三綠 typecheck 7/7 + lint 10/10、純 SQL build 省;字面 vs 事實:Code raise CREATE OR REPLACE VIEW 欄序限制、Sean 拍板 A price_general 移 SELECT 末欄)
 
 ## 最近 3 commit
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `3f3320b` | feat(db): M-1-05 刀 2 Sub-slice 2-1 products 加 price_general + price_store 兩欄 | 2026-05-16 |
+| `3580ae5` | feat(db): M-1-05 刀 2 Sub-slice 2-2 新建 products_list_public + 改 products_public 投射 price_general | 2026-05-16 |
+| `a5f62e4` | feat(db): M-1-05 刀 2 Sub-slice 2-1 products 加 price_general + price_store 兩欄 | 2026-05-16 |
 | `0684fef` | docs(recon): M-1-05 刀 1 spike 切 view 三層連動偵察 | 2026-05-16 |
-| `cf1803e` | docs(claude+tools): 交接 pcm-roadmap skill(收工清單 + §14) | 2026-05-16 |
 
 ## 下一步(第 1 條優先)
 
-1. **M-1-05 刀 2 Sub-slice 2-2**(刀 2 5 sub-slice 架構第 2 刀、待 claude.ai sub-slice 指令;Sean 拍板架構洞 (ii) base 表 price_by_tier 拆 price_general / price_store ✅ Sub-slice 2-1 落地、Sub-slice 2-2 預期新 view migration(products_list_public + products_public 投射 price_general)、後續 2-3 雙寫 / 2-4 adapter 切讀 view + mapper / 2-5 docs 同步)/ **候選 a11y polish slice**(backlog #135 9 處 arrow aria-hidden + #136 4 footer placeholder + #138 觸控目標、估 30-60 min)
+1. **M-1-05 刀 2 Sub-slice 2-3**(刀 2 5 sub-slice 架構第 3 刀、待 claude.ai sub-slice 指令;Sean 拍板架構洞 (ii) — 2-1 ✅ base 表加 price_general/price_store + 2-2 ✅ 兩 view 投射 price_general,2-3 預期 adapter save 雙寫(price_by_tier jsonb + 兩新欄)、後續 2-4 adapter 切讀 view + mapper / 2-5 docs 同步 + backlog #118/#119 標 ✅)/ **候選 a11y polish slice**(backlog #135 9 處 arrow aria-hidden + #136 4 footer placeholder + #138 觸控目標、估 30-60 min)
 
 > Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
 > **M-1-03 主實作必吸收:**
@@ -238,5 +238,7 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-16 | M-1-05 刀 1 spike ✅(`5b3a255` 切 view 三層連動偵察 recon md;§4 四組 supabase-js embedded JOIN 實測皆 status 200 / error null → PostgREST embedded JOIN 在 products_public view work、維度 1 D1.A 不需 FK/inner hint;§5 維度 2 price_by_tier 取價與 backlog #119 projection 拆分耦合、留 Sean 拍刀 2;spike script .mjs 留檔不入 git;三綠 typecheck 7/7 + lint 10/10、純偵察不需 build;字面 vs 事實:上輪指令 PRODUCT_SELECT 簡化字面 + tsx 未裝 + env 字面校準、D2.C §12-26 引用不實更正)、busboy-end 收工 | Claude Code |
 
 | 2026-05-16 | M-1-05 刀 2 Sub-slice 2-1 ✅(`3f3320b` 1 檔 supabase/migrations/20260516064013_products_add_price_general_store.sql:products base 表加 price_general + price_store 兩 integer 欄、為切 view 系列鋪雙寫過渡期前置;ADD COLUMN ×2 皆 nullable + 2 CHECK(IS NULL OR >= 0、對齊 brands.premium_extra_pct pattern)+ 2 COMMENT;Sean 拍板架構洞 (ii):base 表 price_by_tier 拆 price_general 公開 / price_store 敏感、未來 view 投射 price_general、對齊 backlog #118 + #119;保留 price_by_tier jsonb 為雙寫過渡期 source of truth、NOT NULL 推遲 sub-slice 2-3 雙寫穩定後另開 migration;apply via Supabase CLI supabase db push(Sean 手動)、非 MCP apply_migration(對齊刀 1.5 版本倒掛);Step 1 MCP 唯讀驗:products 15 欄 / 0 row / 本地 6 migration == 遠端 6 applied 無 drift;Step 4 MCP 唯讀驗:price_general + price_store 皆 integer + nullable / 2 CHECK clause 正確 / schema_migrations 最新 20260516064013;三綠 typecheck 7/7 + lint 10/10、純 SQL build 省;字面 vs 事實揭示(鐵則 11):slice 字面源稱既有 migration 最後一條 20260507222633、實況 20260511180231(claude.ai grep 漏 products_public_view + pricing_tier_alignment 2 條)、Code 偵察揭示後 Sean 拍板「原 2-1 指令跑、timestamp 門檻內部以 > 20260511180231 為準、不等重發」、date -u 生 20260516064013 自然滿足、已讀 pricing_tier_alignment 確認只動 brands + price_by_tier CHECK 不撞;對齊 lessons §12-26 規則 1 投射欄位 × 角色矩陣;ahead origin/dev = 1 待 Sean push、走 amend 模式修 STATUS hash placeholder §12-3 維度 B 滾動修正)、busboy-end 收工 | Claude Code |
+
+| 2026-05-16 | M-1-05 刀 2 Sub-slice 2-2 ✅(`3580ae5` 1 檔 supabase/migrations/20260516072210_products_views_pricing_split.sql:新建 products_list_public(list 用、9 欄:id/title/subtitle/handle/brand_id/category_id/availability/fitments/price_general)+ CREATE OR REPLACE products_public(13→14 欄、加 price_general、仍排除 price_by_tier/price_store/metadata 敏感欄);兩 view security_invoker=true + GRANT SELECT anon,authenticated + COMMENT;Sean 拍板 fitments=A 露(Vehicle Finder + toUIProduct 讀 fitments[0])/ images=A 不露(toUIProduct 不讀、M-1-13 走 products_public);對齊 lessons §12-26 規則 1 投射欄位×角色矩陣 + backlog #119 list/detail projection 拆分;apply via Supabase CLI db push(Sean 手動)、非 MCP apply_migration;Step 1 MCP 驗:products 17 欄 / products_public 13 欄 / products_list_public 不存在;Step 4 驗 1-3 MCP:products_list_public 9 欄 / products_public 14 欄 price_general 末位 / schema_migrations 最新 20260516072210;Step 4 驗 4:暫改刀 1 spike script(anon key + embedded JOIN query)、L1 products_list_public + D1 products_public 皆 status 200/error null、跑後還原刀 1 原版;三綠 typecheck 7/7 + lint 10/10、純 SQL build 省;字面 vs 事實揭示(鐵則 11):slice Step 2 products_public SQL 將 price_general 置 created_at/updated_at 之前、Postgres CREATE OR REPLACE VIEW 僅允許既有欄位末尾 append 不可插中段(會 apply 失敗)、Code raise multi-select + Sean 拍板 A、price_general 移 SELECT 末欄(view 欄序純排列、adapter 以欄名取值、與指令意圖等價);#118/#119 未標 ✅ 留 Sub-slice 2-5;不立法留刀 3;ahead origin/dev = 1 待 Sean push、走 amend 模式修 STATUS hash placeholder §12-3 維度 B 滾動修正)、busboy-end 收工 | Claude Code |
 
 — END —
