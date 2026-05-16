@@ -12,7 +12,7 @@ import {
 /**
  * Supabase products row schema(對齊 docs/architecture/supabase-schema-design.md §2.1)。
  *
- * JOIN 結果(走 `.select(PRODUCT_SELECT)` 在 SupabaseProductAdapter):
+ * JOIN 結果(走 `.select(PRODUCT_SELECT_DETAIL)` 在 SupabaseProductAdapter):
  * - `brands`: 對應 brands 表 row 或 null
  * - `categories`: 對應 categories 表 row 或 null
  *
@@ -50,10 +50,27 @@ export type SupabaseProductRow = {
   subtitle: string | null;
   description: string | null;
   handle: string;
-  price_by_tier: {
+  /**
+   * price_by_tier jsonb(雙寫過渡期 source of truth)。
+   *
+   * optional:M-1-05 刀 2 Sub-slice 2-3 起、5 read method 走 products_public view、
+   * view 排除 price_by_tier;僅 save 路徑 mapDomainProductToSupabase 寫此欄。
+   */
+  price_by_tier?: {
     general: { amount: number; currency: Currency };
     store: { amount: number; currency: Currency };
   };
+  /**
+   * 公開售價(TWD 元位整數)。products_public view + base products 表皆投射、
+   * read 路徑唯一取價來源(M-1-05 刀 2 Sub-slice 2-1 新欄、nullable:NOT NULL
+   * 推遲至雙寫穩定後另開 migration、對齊 migration 註解)。
+   */
+  price_general: number | null;
+  /**
+   * 經銷敏感價(TWD 元位整數)。view 永遠排除、僅 save 路徑寫入;
+   * read 投射(PRODUCT_SELECT_DETAIL)不含此欄 → optional。
+   */
+  price_store?: number | null;
   fitments: FitmentSpec[];
   images: string[];
   availability: ProductAvailability;
@@ -74,9 +91,12 @@ export type SupabaseProductRow = {
  * - `title` → `name`(wire title、domain name)
  * - `brands` JOIN → `Brand` value-object(id + name + slug)
  * - `categories` JOIN → `CategoryPath` value-object(raw_path → raw、segments 直送)
- * - `price_by_tier` amount(integer)→ `MoneyAmount` brand type(過 `toMoneyAmount` guard)
+ * - `price_general`(integer)→ `priceByTier.general`(過 `toMoneyAmount` guard);
+ *   `priceByTier.store` 走 dummy、`priceByTier.premiumStore` 走 placeholder
+ *   (M-1-05 刀 2 Sub-slice 2-3、見函式內取價註解)
  *
  * @throws 若 `brands` / `categories` JOIN 為 null(資料完整性違反、不 silent ignore)
+ * @throws 若 `price_general` 為 null(雙寫過渡期缺欄、不 silent 補 0)
  */
 export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
   if (!row.brands) {
@@ -99,22 +119,36 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     segments: row.categories.segments,
   };
 
+  // 取價(M-1-05 刀 2 Sub-slice 2-3、對齊 Sean 兩題拍板):
+  //   - general:從 products_public view + base products 表共有的 price_general 欄讀
+  //     (view 排除 price_by_tier jsonb、price_general 為 read 路徑唯一公開取價來源)
+  //   - store:5 read method + save 的 select 投射皆排除 price_store(經銷敏感)→ 走 dummy
+  //   - premiumStore:placeholder(domain Product.priceByTier 三 key 必填、Q2-clarify=A1
+  //     拍板不 narrow domain);真實 premiumStore 顯示價由 storefront computeEffectivePrice
+  //     依 brand.premium_extra_pct 動態算
+  if (row.price_general === null) {
+    throw new Error(
+      `Product ${row.id} missing price_general (M-1-05 雙寫過渡期、save 路徑應已雙寫、缺欄表示 seed 或既有 row 漏遷移)`,
+    );
+  }
+  const general: Money = toMoney({ amount: row.price_general, currency: 'TWD' });
+
+  // store dummy(amount 0 / TWD)。
+  // TODO M-2-08:IPricingService 落地後、tier-aware 取價改走 server-side pricing
+  //   endpoint(讀 base 表 price_store / price_by_tier)、本 dummy 退場。
+  const store: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
+
+  // premiumStore placeholder(對齊 Q2-clarify=A1:mapper 端構造 placeholder、
+  //   真值由 computeEffectivePrice 在 storefront dispatch 時覆蓋)。
+  const premiumStore: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
+
   return {
     id: row.id,
     name: row.title,
     brand,
     category,
     fitments: row.fitments,
-    // priceByTier(wire-only narrow、sub 8a 落地):
-    //   - wire 層 price_by_tier 二 key(general / store)、對齊 schema doc §2.1 CHECK 二 key + 刀 3 migration 落地
-    //   - premiumStore tier 由 domain layer computeEffectivePrice 動態算(store × (1 - brand.premium_extra_pct / 100))
-    //   - domain Product.priceByTier 保留三 key Record<MemberTier, Money>(Q2-clarify=A1 拍板、不 narrow domain)
-    //   - mapper 端 premiumStore key 構造 placeholder Money({amount: 0, currency: store.currency})、由 computeEffectivePrice 在 storefront 端 dispatch 時覆蓋
-    priceByTier: {
-      general: toMoney(row.price_by_tier.general),
-      store: toMoney(row.price_by_tier.store),
-      premiumStore: { amount: toMoneyAmount(0), currency: row.price_by_tier.store.currency },
-    },
+    priceByTier: { general, store, premiumStore },
     description: row.description ?? '',
     images: row.images,
     availability: row.availability,
@@ -129,6 +163,10 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
  * domain Product → wire row(寫部分、對齊 docs/specs/M-1-03-main-b-PRD.md §4.2)。
  *
  * 對應規則:`name` → `title`、`subtitle` / `description` empty string → null、`Date` → ISO string。
+ *
+ * 雙寫(M-1-05 刀 2 Sub-slice 2-3):同時寫 `price_by_tier` jsonb + `price_general`
+ * + `price_store` 兩 integer 欄;jsonb 為雙寫過渡期 source of truth、整 row 單次
+ * upsert(Postgres atomic)、無「寫一邊漏一邊」中間態。
  *
  * 注(本 mapper 偏離 spec、本 sub-slice commit body 揭示):
  * - `external_id` Phase 1 用 domain `id` 作同步(Phase 2 vendor crawler 落地時改寫)
@@ -156,6 +194,10 @@ export function mapDomainProductToSupabase(
         currency: domain.priceByTier.store.currency,
       },
     },
+    // 雙寫:price_general / price_store 兩 integer 欄(從 priceByTier 拆 amount);
+    // 與上方 price_by_tier jsonb 同一 row、單次 upsert atomic 落地。
+    price_general: domain.priceByTier.general.amount,
+    price_store: domain.priceByTier.store.amount,
     fitments: domain.fitments,
     images: domain.images,
     availability: domain.availability,

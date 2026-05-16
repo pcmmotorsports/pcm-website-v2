@@ -16,13 +16,24 @@ import {
 import { matchFitmentYear } from './helpers/fitment';
 
 /**
- * SELECT projection 對齊 mapper consumed columns(避免讀 metadata / external_id 等 deferred 欄位)。
- * 跨 sub-slice 2-4 共用、單一 source of truth。
+ * Detail projection(M-1-05 刀 2 Sub-slice 2-3):products_public detail view 14 欄
+ * + brands / categories embedded JOIN、單一 source of truth。
+ *
+ * 5 read method(findById / searchByKeyword / listByFitment / listByCategory /
+ * listByBrand)全走 products_public view 取此投射;save 走 base products 表、
+ * upsert 後 `.select()` 重用此投射(products_public 為 products 欄位子集、欄名相容)。
+ *
+ * view 排除 price_store / price_by_tier / metadata(經銷敏感 + 內部欄位、對齊
+ * backlog #118 + #119);price_general 對齊 M-1-05 刀 2 Sub-slice 2-1 新欄。
+ *
+ * 注:list-projection(products_list_public 9 欄)本 sub-slice 暫不接線 —— Sean
+ * 拍板 list method 改讀 detail view(9 欄 list view 缺 description / images /
+ * timestamps、還原不出完整 domain Product);list/detail projection 拆分留後續 slice。
  *
  * 對齊 docs/architecture/supabase-schema-design.md §3.3 + §4.3 JOIN strategy。
  */
-const PRODUCT_SELECT =
-  'id, title, subtitle, description, handle, price_by_tier, fitments, images, availability, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
+const PRODUCT_SELECT_DETAIL =
+  'id, external_id, title, subtitle, description, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 const PGRST_NOT_FOUND = 'PGRST116';
@@ -83,8 +94,8 @@ export class SupabaseProductAdapter implements IProductRepository {
   async findById(id: ProductId): Promise<Product | null> {
     const row = await this.findSingle<SupabaseProductRow>(
       this.supabase
-        .from('products')
-        .select(PRODUCT_SELECT)
+        .from('products_public')
+        .select(PRODUCT_SELECT_DETAIL)
         .eq('id', id)
         .single(),
     );
@@ -104,8 +115,8 @@ export class SupabaseProductAdapter implements IProductRepository {
     }
 
     const { data, error } = await this.supabase
-      .from('products')
-      .select(PRODUCT_SELECT)
+      .from('products_public')
+      .select(PRODUCT_SELECT_DETAIL)
       .eq('category_id', categoryId);
 
     if (error) {
@@ -124,8 +135,8 @@ export class SupabaseProductAdapter implements IProductRepository {
    */
   async listByBrand(brandId: string): Promise<Product[]> {
     const { data, error } = await this.supabase
-      .from('products')
-      .select(PRODUCT_SELECT)
+      .from('products_public')
+      .select(PRODUCT_SELECT_DETAIL)
       .eq('brand_id', brandId);
 
     if (error) {
@@ -162,8 +173,8 @@ export class SupabaseProductAdapter implements IProductRepository {
    */
   async listByFitment(spec: FitmentSpec): Promise<Product[]> {
     const { data, error } = await this.supabase
-      .from('products')
-      .select(PRODUCT_SELECT)
+      .from('products_public')
+      .select(PRODUCT_SELECT_DETAIL)
       .contains(
         'fitments',
         JSON.stringify([
@@ -214,8 +225,8 @@ export class SupabaseProductAdapter implements IProductRepository {
     const filter = buildIlikeOrFilter(SEARCHABLE_COLUMNS, q);
 
     const { data, error, count } = await this.supabase
-      .from('products')
-      .select(PRODUCT_SELECT, { count: 'exact' })
+      .from('products_public')
+      .select(PRODUCT_SELECT_DETAIL, { count: 'exact' })
       .or(filter)
       .range(offset, offset + params.limit - 1);
 
@@ -262,7 +273,7 @@ export class SupabaseProductAdapter implements IProductRepository {
       this.supabase
         .from('products')
         .upsert(row, { onConflict: 'id' })
-        .select(PRODUCT_SELECT)
+        .select(PRODUCT_SELECT_DETAIL)
         .single(),
     );
 
