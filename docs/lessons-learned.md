@@ -1084,6 +1084,81 @@ M-1-05 刀 1 spike 補 migration drift 時、Claude.ai 規劃用 Supabase MCP `a
 
 ---
 
+### 12-33. Claude.ai 寫指令字面前必先 grep callsite 真權威(投射欄位 / type 簽名 / 既有 method 字面)
+
+**事故脈絡:**
+M-1-05 刀 2 Sub-slice 2-3(commit `650279a`、2026-05-16)規劃階段:Claude.ai 指令字面預設「SupabaseProductAdapter 5 read method 拆 DETAIL + LIST 兩 const + mapper 分流 detail/list、分別還原 domain Product」、未 grep callsite 真實投射欄位事實(products_list_public 9 欄 vs domain Product 完整欄位差);Code 落地撞 products_list_public 缺 description / images / created_at / updated_at、單一 mapSupabaseProductToDomain 還原不出完整 domain Product、raise Option A multi-select(全 5 read method 改讀 products_public detail view、products_list_public 暫不接線留 list-projection slice);Sean 拍 A、本 sub-slice 收斂為單一 detail 投射 + 單一 mapper、不建 PRODUCT_SELECT_LIST 避免 dead code。Claude.ai 規劃時憑「list view 投射欄位夠用」印象、未 grep callsite 真權威。
+
+**規則:**
+- 寫指令字面涉「mapper 拆分 / 投射欄位列舉 / type 簽名 / 既有 method 字面」前必 grep callsite 真權威:
+  - mapper 簽名 / domain type 完整欄位(`packages/domain/src/catalog/types.ts`)
+  - DB view / table 投射欄位(`supabase/migrations/*.sql` 字面 / `information_schema.columns`)
+  - 既有 method 字面(adapter / use-case / port contract 字面)
+- 不憑「概念上應該夠用」印象推:投射欄位 / type 簽名 / 既有 method 簽名屬具體技術細節、必字面驗(對齊 lessons §12-3 維度 A)
+- callsite 真權威 grep 三層:
+  - 第一層 domain / port:`packages/domain/src/**/types.ts` + `packages/ports/src/I*.ts`
+  - 第二層 DB:`supabase/migrations/*.sql` view DDL 字面 + base table schema 字面
+  - 第三層 adapter / use-case:既有 method 簽名 + mapper 簽名字面(grep `map.*ToDomain` / `map.*ToSupabase`)
+- **enforce:** Claude.ai 寫涉 mapper 拆 / 投射欄位 / type 簽名指令字面前自檢「三層 callsite 已 grep?」、未 grep → 必標 `<待 Code 字面確認>` 占位、不寫死;違反 = Code raise multi-select、Sean 拍板再執行
+
+**規範定位:** 對齊 working-style §6.3 第 42 條(本條對應)+ lessons §12-3 維度 A「具體技術細節字面真權威」延伸(投射欄位 / type 簽名 / 既有 method 字面為其中三類)+ §12-25 跨 session 字面內嵌義務(callsite 字面為「不靠記憶」核心應用)
+
+**教訓來源:** M-1-05 刀 2 Sub-slice 2-3 拍板拆 mapper / 落地撞 products_list_public 缺欄事故源、Option A 全 5 read method 收斂 detail view 修法、Claude.ai 規劃憑「list view 投射欄位夠用」印象未 grep callsite 事故源
+
+**跨專案適用:** 適用所有 Sean 用 Claude Code 開發的專案(callsite 真權威 grep 紀律跨專案通用、不限 Supabase / Prisma / TypeORM);Phase 2 vehicle-service-ecosystem adapter 落地時、各 adapter mapper / 投射欄位字面同紀律
+
+**首例:** M-1-05 刀 2 Sub-slice 2-3(`650279a`)Option A 收斂事故源、本立法 commit 即首例 anchor
+
+---
+
+### 12-34. Claude.ai 寫「working-style / lessons / ADR / backlog 條目」字面前必 view 末條編號
+
+**事故脈絡:**
+M-1-05 刀 3-a(commit `f8271aa`、2026-05-16)規劃階段:Claude.ai 指令字面寫「working-style §6.3 第 40 + 41 條對應」、實況 §6.3 末條為第 39 條、刀 3-a 補 40 + 41 為正確編號、無 raise;但 Claude.ai 字面寫前憑印象推「上次落地到 39」、未 grep view §6.3 真實末條編號(`grep "^**第" docs/working-style.md | tail -3`)、本次推對 = 僥倖。同類風險:lessons §12-N 子節編號 / ADR-N 編號 / backlog #N 條目編號、若 Claude.ai 寫立法字面前憑印象推下一條編號、推錯 = 編號倒置 / 跳號 / 重複(已 §12-11 立規則編號區分、但「寫條前 view 末條編號」工序未明文)。
+
+**規則:**
+- Claude.ai 寫「立法新條」字面前必 view 末條編號:
+  - working-style §6.3:`grep "^**第" docs/working-style.md | tail -3` 拿末三條編號
+  - lessons §12:`grep "^### 12-" docs/lessons-learned.md | tail -3` 拿末三節編號
+  - ADR:`ls docs/decisions/` 拿最大編號
+  - backlog #N:`grep "^### #" docs/phase-1-backlog.md | tail -3` 拿末三條編號
+- 不憑「上次落地到 N、下次 N+1」印象推:跨 session 期間可能有其他 slice 落地中間編號、編號倒置 / 跳號 / 重複風險(對齊 §12-11 規則編號區分立規則精神延伸)
+- 立法字面內引「對應條」編號時必同樣 grep view 驗:例「對應 working-style §6.3 第 N 條」字面、必 grep 該條真存在
+- **enforce:** Claude.ai 寫立法字面前自檢「末條編號已 view?」、未 view → 標 `<待 Code view 確認末條編號>` 占位、不寫死;違反 = Code raise multi-select、Sean 拍板再寫
+
+**規範定位:** 對齊 working-style §6.3 第 43 條(本條對應)+ §12-11 規則編號區分立規則延伸(「區分編號 source」+「view 末條編號」雙工序、區分後仍需 view 才不踩跳號)+ lessons §12-3 維度 A「不憑記憶寫具體技術字面」延伸(編號為其中一類)
+
+**教訓來源:** M-1-05 刀 3-a 規劃憑印象推「第 40 + 41 條」、本次推對僥倖、揭示「寫條前 view 末條編號」工序未明文事故源
+
+**跨專案適用:** 適用所有有「編號制立法 / 條目系統」的專案(lessons / ADR / RFC / backlog / patterns 等通用)
+
+**首例:** M-1-05 刀 3-a(`f8271aa`)「working-style §6.3 第 40 + 41 條對應」字面(刀 3-a 規劃時 §6.3 末條為第 39 條、補 40 + 41 為正確、惟 Claude.ai 憑印象推未 grep view)、本立法 commit 為首例 anchor;刀 3-b 自身落地驗證 = 寫本條前 grep view §6.3 末條為第 41 條(刀 3-a 已補 40 / 41)、確認本刀補 42 / 43 / 44 為正確編號、§12-34 規則自身落地驗證一次
+
+---
+
+### 12-35. Claude.ai 列 multi-select 跨選項字面格式 / 詳簡度 / 三視角描述必統一
+
+**事故脈絡:**
+本條為「**立規型**」— 規則本身可立、惟具體事故脈絡無 git 可查實據、透明標明(對齊既有 §12-27 立規型先例)。M-1-05 刀 2 Sub-slice 2-3(commit `650279a`、2026-05-16)有 Code raise + Sean multi-select 拍板(`650279a` commit body 可證「Option A(本 slice 執行中 Code raise + Sean multi-select 拍板)」+ Option A 收斂結果);Claude.ai 規劃端回報「列 Option A / B / C multi-select 時跨選項字面格式 / 詳簡度 / 三視角描述深度不一致、Sean 拍板需多輪比對」、惟該不一致細節屬對話層、commit body 與 STATUS 變更紀錄皆只記「Option A 拍板」結果、非 git 可 grep 之具體事故。刀 3-b 偵察階段 Code grep `650279a` body 揭示此點、Sean 拍板採立規型框架 — 規則照立、事故脈絡誠實標明「multi-select 拍板確曾發生、跨選項一致性為預防性立規、具體不一致無 git 痕跡」。
+
+**規則:**
+- Claude.ai 列 multi-select 跨選項字面必統一以下三層:
+  - 格式層:選項標題 / 描述段落數 / 列舉項數量 / 字面術語(同題內不混用「投射欄位」/「列出欄位」/「query 字段」三種說法、固定一個)
+  - 詳簡度層:跨選項描述長度相當(不容 Option A 詳述、Option B 一句話帶過)
+  - 三視角層:跨選項三視角(擴充性 / 可維護性 / bug 可追蹤性)描述深度相當、每選項三視角各一句、不缺(回答原則 4 強制「每個選項附三視角推薦理由」)
+- 不統一徵兆:Sean 拍板需多輪「比對」/「對齊」/ Code raise multi-select「哪選項對應實況」、即屬跨選項字面不一致
+- **enforce:** Claude.ai 列多選項字面後自檢「跨選項格式 / 詳簡度 / 三視角是否統一?」、不統一即重寫;違反 = Code raise multi-select 列「跨選項字面格式不一致清單」、Sean 拍板修正字面後再執行
+
+**規範定位:** 對齊 working-style §6.3 第 44 條(本條對應)+ 回答原則 4「涉及選擇用 multi-select 選項(2-4 個)、每個選項附三視角推薦理由」延伸(強制三視角為其中一層、本條補「跨選項格式 / 詳簡度統一」雙層)+ lessons §12-27 立規型先例(本條同採立規型框架、透明標明事故脈絡無 git 實據)
+
+**教訓來源:** M-1-05 刀 2 Sub-slice 2-3(`650279a`)multi-select 拍板(commit body 可證 Option A 收斂結果);Claude.ai 規劃端回報「Option A / B / C 跨選項字面格式 / 詳簡度 / 三視角不一致」、惟具體不一致細節屬對話層、非 git 可 grep — 屬「立規型」(對齊 §12-27)、規則可立而具體事故無 git 痕跡、刀 3-b 偵察 Code grep `650279a` body 揭示後 Sean 拍板採立規型框架
+
+**跨專案適用:** 適用所有 Sean + Claude.ai 用 multi-select 拍板協作的專案(回答原則 4 跨專案統一)
+
+**首例:** 本立法 commit 即立規(立規型、無 git 可查事故首例);M-1-05 刀 2 Sub-slice 2-3(`650279a`)multi-select 拍板為相關非直接錨點(commit body 可證拍板發生、不證跨選項不一致細節)
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
