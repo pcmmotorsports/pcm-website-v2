@@ -209,7 +209,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    *
    * Empty query:`query.trim() === ''` → return `{ items: [], total: 0 }`(對齊 contract)。
    *
-   * 注:ILIKE 特殊字符(`%` / `_`)經 `escapeLikePattern` 轉義、避免使用者輸入觸發
+   * 注:ILIKE 特殊字符(`%` / `_`)經 `buildIlikeOrFilter` 轉義、避免使用者輸入觸發
    * unintended wildcard 行為。
    */
   async searchByKeyword(
