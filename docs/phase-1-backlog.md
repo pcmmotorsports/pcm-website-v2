@@ -3634,9 +3634,9 @@
 
 ---
 
-### #142. ⏳ STATUS L31「最近 3 commit」表格手動 vs Busboy 自動填表抉擇
+### #142. ✅ STATUS L31「最近 3 commit」表格 hash drift 治本(雙 amend 機制)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-05-17 WO-1)
 - **優先級:** 🟡 低(Busboy 腳本端、跨 repo 議題、不阻塞主開發)
 - **問題:**
   - STATUS L31「最近 3 commit」表格目前手動維護
@@ -3658,6 +3658,11 @@
 - **依賴:** 無
 - **發現於:** 2026-05-15 / M-1-04 刀 3 series amend 慣例累積二十六先例
 - **相關:** #141(Claude.ai STATUS 行號自檢)、Busboy 腳本(`/Users/sean_1/pcm-tools/scripts/busboy-end.js`)、lessons §12-3 維度 B(滾動修正慣例)
+- **解法落點:**
+  - pcm-tools commit `5446d5b`(busboy-end.js 雙 amend 機制、WO-1)
+  - 實際解法 vs 預期解法:預期「`git log -3` 自動填表」→ 實際採更精準方案「<<HEAD>> placeholder + 雙 amend sed 替換」
+  - Step 4 最新 commit 欄改寫 `<<HEAD>>` placeholder;Step 6 拆成 6a(第一次 amend)→ 6b(sed 替換)→ 6c(第二次 amend)
+  - 累積 10+ 次手動修終結;STATUS 最近 commit hash 永遠對齊實際 amend 後真值
 
 ---
 
@@ -3719,6 +3724,58 @@
 - **依賴:** 刀 3 立法收工(§12-31 + §12-32 落地)
 - **發現於:** 2026-05-12 / M-1-05 刀 1.5
 - **相關:** `docs/lessons-learned.md` §12-31 + §12-32(刀 3 立法目標)、`docs/working-style.md` / `docs/tools-and-skills.md`、刀 1.5 commit body 字面
+
+---
+
+### #145. ⏳ PHASE-1-MILESTONES §4.5 M-1-08 字面校準(useCascadeFilter → cascadeFilterReducer)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `docs/PHASE-1-MILESTONES.md` §4.5 M-1-08 原字面「packages/ui useCascadeFilter hook 抽出(三 Filter 共用邏輯)」
+  - M-1-08 實作偵察揭示:`packages/ui` 為純 TS 套件、零 React 依賴(與 @pcm/domain / @pcm/adapters 同調);React hook 需 react 依賴 + jsdom + @testing-library 測試 infra、違反鐵則 4 / 8
+  - Q2-redo=B 拍板:改為 framework-free `cascadeFilterReducer` 純函式 + `makeInitialCascadeState()` + action creators、三 Filter 元件自己 `useReducer` 接
+  - §4.5 字面仍寫「useCascadeFilter hook」、與實作 `cascadeFilterReducer` drift
+- **觸發事件(下次 PHASE-1-MILESTONES 修改 slice 順手即校準):**
+  - 2026-05-17 / M-1-08 Q2-redo=B 拍板揭示
+- **預期解法:**
+  - 校準 §4.5 M-1-08 字面:`useCascadeFilter hook` → `cascadeFilterReducer 純函式`
+  - 順手檢視 M-1-09 / M-1-10 / M-1-11 描述、若提及 hook 接法、對齊 `useReducer(cascadeFilterReducer, …)`
+- **不修會痛在:**
+  - 擴充性:Phase 2 新人依 §4.5 字面找「useCascadeFilter hook」會找不到、誤判功能未做
+  - 可維護性:milestone 規劃文件字面 vs 實作 drift、文件失去 audit 價值
+  - bug 可追蹤性:M-1-09/10/11 接 reducer 時若依 §4.5 舊字面推 hook 接法、撞型別錯
+- **估時:** 10-15 min(§4.5 一行 + M-1-09/10/11 描述順手檢視)
+- **依賴:** 無(下次動 PHASE-1-MILESTONES.md 順手)
+- **發現於:** 2026-05-17 / M-1-08
+- **相關:** #146、`packages/ui/src/filters/cascadeFilterReducer.ts`
+
+---
+
+### #146. ⏳ cascadeFilterReducer useReducer bail-out 最佳化
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `cascadeFilterReducer` 對「邏輯上未改變狀態」的 input(重選已選的同一品牌 / 同一大分類、對空狀態 dispatch `clear-all`)仍配新物件回傳
+  - 新參考使 React `useReducer` 無法 bail-out、強制 consumer 元件多餘 re-render
+  - M-1-08 skill audit Round 2 效率 agent 揭示;A3 拍板:本刀不寫 guard、進 backlog
+- **觸發事件:**
+  - 2026-05-17 / M-1-08 skill audit Round 2 揭示
+  - M-1-09 `FilterSide.tsx` 接 reducer 時啟動(consume reducer、真實 render 行為可驗 guard 精細度)
+- **預期解法:**
+  - `select-brand` / `select-main` / `select-model` 加「重選同值」檢查 guard(=== 比對 + 下層 ===undefined 確認)
+  - `clear-vehicle` / `clear-category` / `clear-all` 加 isAlreadyEmpty guard
+  - 寫 6 case 對應測試(3 重選 no-op + 3 clear no-op、`reducer(s, a) === s` 參考斷言)
+  - guard 精細度對真實 render 驗、不可誤殺合法 cascade reset(重選同品牌時若已有 model/year 仍須清空)
+- **不修會痛在:**
+  - 擴充性:M-1-09/10/11 三 Filter + Phase 2 admin filter consume reducer、皆受多餘 re-render
+  - 可維護性:`cascadeFilterReducer.ts` 註解校準後明示「全配新物件」為現行契約、bail-out 屬效能優化非正確性契約、延後不影響行為正確
+  - bug 可追蹤性:consumer 多餘 render 屬微優化、生產環境 React DevTools profiler 可量、未做不阻功能
+- **估時:** 30-45 min(M-1-09 內附帶)
+- **依賴:** M-1-09 FilterSide.tsx 接 reducer
+- **發現於:** 2026-05-17 / M-1-08 skill audit Round 2
+- **相關:** #145、`packages/ui/src/filters/cascadeFilterReducer.ts`(reducer + L171 註解)
 
 ---
 

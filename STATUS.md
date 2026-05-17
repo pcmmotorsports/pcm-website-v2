@@ -2,22 +2,22 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1 進度 7/16(M-0 ✅ + M-1-01~06 ✅)
-**當前 slice:** M-1-07 STATUS-shrink ✅
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~08 ✅、餘 M-1-09~16)
+**當前 slice:** M-1-08 cascadeFilterReducer 抽出 ✅
 **Branch:** dev
 
 ## 最後更新
-2026-05-17 — Claude Code [M-1-07 STATUS-shrink]
+2026-05-17 — Claude Code [M-1-08 cascadeFilterReducer]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `32f2b8e` | docs: STATUS-shrink [M-1-07] | 2026-05-17 |
-| `e4c7bd4` | feat: a11y polish [M-1-06] | 2026-05-17 |
-| `57d031e` | docs: M-1-05 刀 3-b 立法 | 2026-05-16 |
+| `503a77a` | feat(ui): cascadeFilterReducer 抽出 [M-1-08] | 2026-05-17 |
+| `00995d2` | chore: 移除 LINE bot 程式碼(拆獨立 repo) | 2026-05-17 |
+| `c8337a9` | feat(line-bot): 追單儀表板 + FAQ 自動回覆 | 2026-05-17 |
 
 ## 下一步
-Claude.ai 排下一 milestone slice(#138 待 Claude Design 更新 home.css 真權威)
+Claude.ai 排 M-1-09 FilterSide.tsx(接 cascadeFilterReducer、附帶 backlog #146 bail-out);#138 home.css 真權威待 Claude Design
 
 ## Sean 待決策
 #1 發票自動化 / #2 測試覆蓋率 / #3 TapPay sandbox / #4 部署(Vercel+Railway)
@@ -210,5 +210,7 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-17 | M-1-06 a11y polish ✅(`48bb6c2` 10 檔:8 components + home.css + phase-1-backlog.md;#135 9 處 arrow span 加 aria-hidden="true"(7 ed-link-arrow + 1 ed-brand-arrow + 1 ed-finder-go-arrow、ed-brand-arrow 在 BrandIndex .map() runtime 渲染 17 份、合計 runtime 25 處全 aria-hidden 生效 DevTools 確認)+ #136 HomeFooter 4 條 <a href="#"> → <button type="button" disabled aria-label="...(尚未上線)">;字面 vs 事實(鐵則 11):1. slice 原指令誤判 4 placeholder 全在 .ed-footer-cols、實際 Facebook/Instagram/LINE 在 .ed-footer-social、Code 偵察揭示、Sean 拍選項 1 補齊兩容器 — home.css 新增 .ed-footer button reset(background/border/padding/text-align/cursor/font、排容器規則前)+ .ed-footer-social a 與 .ed-footer-cols a 兩選擇器各加 button、design-reference/styles/home.css 未同步屬 button 化必要連動;2. #135「9 處」為 source 行數、原 backlog grep pattern 僅命中 8、Sean Q4=A 補 ed-finder-go-arrow 湊 9;3. design-reference 9 arrow 無 aria-hidden、storefront 加屬補 a11y、Sean Q3=A storefront 加 design 不動兩層分權;4. ed-brand-num(source 1 行 runtime 17 處)本刀不動留獨立議題;5. HomeFooter L8 註解同步更新;6. next-env.d.ts Step 4 build 自動重生回退、不納入 commit;backlog #135+#136 ✅、#138 觸控目標議題歸位 Claude Design;三綠 typecheck 7/7 + lint 10/10 + build 1/1;肉眼驗 7 項全綠 DevTools+Playwright 程式化驗證代 Sean 驗;上輪 STATUS L29 hash drift 998e7ee→57d031e 順手修;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 6 欄位 | Claude Code |
 
 | 2026-05-17 | M-1-07 STATUS-shrink ✅(`32f2b8e` 4 檔:STATUS.md 254→主表≤30+附屬區不限 / CLAUDE.md 三處 6→7 欄位 / PROGRESS.md M-1-03 blockquote 歷史快照 19 行搬位 / backlog #9 ✅ Resolved;先提 plan 等批准;Q1=A #9 vs #4 指令字面偏離修正 + Q2=A CLAUDE.md 三處 7 欄同步 + Q3=A 原文搬位不詮釋;純 docs slice §2.2 typecheck/lint/build 豁免;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 7 欄位 | Claude Code |
+
+| 2026-05-17 | M-1-08 cascadeFilterReducer 抽出 ✅(`503a77a` 4 檔:packages/ui/src/filters/cascadeFilterReducer.ts 新建 framework-free cascade 篩選狀態機(reducer + makeInitialCascadeState + 9 action creators + VehicleSelection/CategorySelection/CascadeFilterState/CascadeFilterAction 4 型別)+ cascadeFilterReducer.test.ts 24 case + index.ts export * + phase-1-backlog.md #145/#146;Q2-redo=B 拍板:原指令「useCascadeFilter hook」改 framework-free 純函式 reducer(packages/ui 零 React 依賴、React hook 需 react+jsdom+@testing-library 違反鐵則 4/8);三 Filter(FilterSide/Top/Drawer)共用車輛(品牌→車型→年份)+ 分類(大分類→細項)cascade + 品牌 toggle 入 reducer、UI 導覽中介 state + price/colors/flags 留各元件;skill audit Round 1 requesting-code-review + Round 2 simplify×3:Critical 0、組 B(select-sub spread + test immutability 斷言)+ 組 C(consumer 契約 JSDoc)A3 拍板併入、bail-out 最佳化 A3 拍板進 backlog #146 trigger M-1-09;三綠 typecheck 7/7 + lint 10/10 + build 1/1 + test 48/48(本檔 24);字面 vs 事實:Claude.ai 字面 vs 實況事故族本 session 累積第 5 次(packages/ui 零 React vs 禁止清單「無 deps 新增」)、commit body 完整列;§4.5「useCascadeFilter hook」drift → backlog #145;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 6 欄位 | Claude Code |
 
 — END —
