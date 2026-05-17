@@ -54,6 +54,29 @@ export async function sendPushMessage(
   }
 }
 
+// 回覆訊息（用 replyToken，免費、不計 push 額度）— FAQ 自動回覆用
+export async function sendReplyMessage(
+  replyToken: string,
+  messages: ReadonlyArray<{ type: 'text'; text: string }>,
+): Promise<void> {
+  const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+  if (!token) throw new Error('LINE_CHANNEL_ACCESS_TOKEN not set');
+
+  const res = await fetch(`${LINE_API}/message/reply`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ replyToken, messages }),
+  });
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`LINE reply failed ${res.status}: ${err}`);
+  }
+}
+
 export async function getUserProfile(
   userId: string,
 ): Promise<{ displayName: string; pictureUrl?: string } | null> {
