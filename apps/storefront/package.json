@@ -14,6 +14,7 @@
   "dependencies": {
     "@pcm/adapters": "workspace:*",
     "@pcm/domain": "workspace:*",
+    "@supabase/supabase-js": "^2.105.3",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6",
