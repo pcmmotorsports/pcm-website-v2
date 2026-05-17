@@ -78,9 +78,6 @@ importers:
       '@pcm/domain':
         specifier: workspace:*
         version: link:../../packages/domain
-      '@supabase/supabase-js':
-        specifier: ^2.105.3
-        version: 2.105.3
       next:
         specifier: 16.2.6
         version: 16.2.6(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
