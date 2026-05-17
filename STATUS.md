@@ -1,73 +1,31 @@
 # STATUS.md
-
-> 用途:PCM Phase 1 重做的 single source of truth。Claude.ai 與 Claude Code 每次新對話必先讀此檔對齊狀態。每完成一個 slice 後由 busboy-end 自動更新。
->
-> 衝突仲裁:STATUS.md > docs/PHASE-1-NORTHSTAR.md > 其他 md > 對話歷史。
-
----
+> PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-
-**Phase:** Phase 1(整個重做、新 repo `pcm-website-v2`)
-**Milestone:** M-1 進度 6/16(M-0 10/10 ✅、M-1-01 + M-1-02 + M-1-03 ✅、M-1-04 ✅ 整段收工、M-1-05 ✅:刀 1.5 + 刀 1 spike + 刀 2 五 sub-slice 切 view 系列 + 刀 3 ✅ 立法收工(3-a + 3-b)、M-1-06 ✅ a11y polish)+ 1 side product-import-spec 完成
-- **M-0 完成:** M-0-01a/01b/07/08/04/03/05/06/02/09/10(14 slice、10 milestone)+ 全專案 audit
-- **M-1 進度:** M-1-01 ✅ / M-1-02 ✅ / M-1-03 ✅ / M-1-04 ✅(刀 1 + 刀 3 + 刀 4 全收工:6 純展示 sections client → server + Header/VehicleFinder/3 nav button router.push + ADR-0006)/ M-1-05 ✅(backlog #118 切 view 系列:刀 1.5 ✅ 補 drift + 刀 1 spike ✅ 三層連動偵察 + 2-1 ✅ products 加雙欄 + 2-2 ✅ 新建 products_list_public + 2-3 ✅ adapter 5 read method 切 products_public view + save 雙寫 + 2-4 contract test 空殼跳走入 #143 + 2-5 ✅ docs+backlog 收工、#118+#119 ✅、#143+#144 開立 + 刀 3 ✅ 立法收工(3-a §12-31/32 + ws 第 40/41、3-b §12-33/34/35 + ws 第 42/43/44 條))/ M-1-06 ✅(a11y polish:#135 9 處 arrow span aria-hidden + #136 4 footer placeholder <a href="#"> → <button disabled aria-label> + 兩容器 CSS + #138 議題歸位 Claude Design)
-- **下一步:** **Claude.ai 排下一 slice**(M-1-06 a11y polish ✅ — #135/#136 解;#138 觸控目標議題歸位 Claude Design、待更新 design-reference home.css 真權威)
-
-**當前 slice:** M-1-06 a11y polish ✅(`48bb6c2` — #135 9 處 arrow span 加 aria-hidden="true"(7 ed-link-arrow + 1 ed-brand-arrow + 1 ed-finder-go-arrow、ed-brand-arrow 在 BrandIndex .map() runtime 渲染 17 份、合計 25 處全生效)+ #136 HomeFooter 4 條 <a href="#"> → <button type="button" disabled aria-label>;#138 觸控目標議題歸位 Claude Design;字面 vs 事實(鐵則 11):slice 原指令誤判 4 placeholder 全在 .ed-footer-cols、實際 3 條在 .ed-footer-social、Code 偵察揭示、Sean 拍選項 1 — home.css 加 .ed-footer button reset + .ed-footer-social/cols 兩選擇器各加 button;Sean Q2=A button 化 / Q3=A storefront 加 design 不動 / Q4=A 範圍含 ed-finder-go-arrow;三綠 typecheck 7/7 + lint 10/10 + build 1/1;肉眼驗 7 項全綠 DevTools 驗證;amend 補 lessons §12-36 + working-style 第 45 條立法、Sean Q8'=A 程序違規處置 + Q9=C 立法字面 C 路線重寫拍板)、待 Sean 手動推
-**Branch:** dev(main 已同步至 9f609b0)
+**Phase:** Phase 1 / **Milestone:** M-1 進度 7/16(M-0 ✅ + M-1-01~06 ✅)
+**當前 slice:** M-1-07 STATUS-shrink ✅
+**Branch:** dev
 
 ## 最後更新
-
-**時間:** 2026-05-17
-**更新者:** Claude Code(M-1-06 a11y polish `48bb6c2` — #135 arrow aria-hidden + #136 footer placeholder button 化 + #138 議題歸位 Claude Design;下一步 Claude.ai 排下一 slice)
+2026-05-17 — Claude Code [M-1-07 STATUS-shrink]
 
 ## 最近 3 commit
-
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `48bb6c2` | feat(storefront): a11y polish — 9 處 arrow aria-hidden + 4 條 footer placeholder button 化 [M-1-06] | 2026-05-17 |
-| `57d031e` | docs(lessons): M-1-05 刀 3-b 立法收工(§12-33 + §12-34 + §12-35 + working-style 第 42-44 條) | 2026-05-16 |
-| `f8271aa` | docs(lessons): M-1-05 刀 3-a 立法收工(§12-31 + §12-32 + working-style 第 40-41 條) | 2026-05-16 |
+| `32f2b8e` | docs: STATUS-shrink [M-1-07] | 2026-05-17 |
+| `e4c7bd4` | feat: a11y polish [M-1-06] | 2026-05-17 |
+| `57d031e` | docs: M-1-05 刀 3-b 立法 | 2026-05-16 |
 
-## 下一步(第 1 條優先)
-
-1. **Claude.ai 排下一 milestone slice**(M-1-06 a11y polish ✅ — #135 9 處 arrow aria-hidden + #136 4 footer placeholder button 化已解;#138 觸控目標議題歸位 Claude Design — 待 Claude Design 更新 design-reference/styles/home.css 真權威加 padding / 調 line-height、storefront 再 submodule sync)
-
-> Sean 拍板 ADR-0005(M-1-03-pre0b 落地)+ #5=i apps/medusa/ → apps/api/(M-1-03-pre0c 落地);supabase-schema-design.md 完整(Part 1 / 2 / 3)
-> **M-1-03 主實作必吸收:**
->   - backlog #86 thematic1 樣板 leak 防 + contract test + edge cases 三合一(60-90 min)
->   - backlog #83 matchFitment yearStart/yearEnd 範圍重疊邏輯(InMemory 同步補 + false-positive test case)
->   - backlog #20 PaginationParams + Paginated<Product>(對齊 IProductRepository.searchByKeyword JSDoc)
->   - SupabaseProductAdapter JSDoc 加樂觀鎖 / idempotency / audit trail TODO(對齊 ADR-0003 §3.3 規則 + #86 / #73 race + security-timeline §C7)
->   - SupabaseProductAdapter 寫 packages/adapters/src/supabase/(取代原 medusa/ 子目錄、對齊 ADR-0005 §8.1)
->   - 對齊 supabase-schema-design.md §2-§5 + §10 索引策略階段 1(M-1-16 種子 200 SKU 規模)
-> **M-1-03 啟動前(本 slice 前) 順手:** apps/medusa/ → apps/api/ rename(對齊 ADR-0005 §2.4 Sean 拍板 i、本 slice 不真實 rename、實際 rename 進 M-1-03 主實作 slice 含)
-> **C 切法 8 slice 拆法(2026-05-04 Claude.ai 拍板、Sean Q2=A1):**
-> pre1 ✅(rename + 件 #2 #20/#51 PaginationParams + Paginated\<T\> 預定義) → prep ✅(件 #3 #86 thematic1 BC + 件 #4 #83 matchFitment yearStart/yearEnd 真邏輯) → prep-audit follow-up ✅(雙輪 audit findings 處置:S1 vitest subpath / S2 contract 命名 / backlog #92-#99 / lessons §12 / reviews 快照檔) → main-a ✅ 完工(a1 ✅ Supabase CLI setup + .env.local 樣板 + migrations 骨架 / a2-1 ✅ brands+categories schema + RLS + 索引 / a2-2 ✅ 完工:v3 5Q 共識 ✅ + Slice 0 PRD 落地 ✅ + Slice A1 products migration ✅ + Slice A2 RLS 4 policy 落地 ✅)→ main-b ✅ 完工(Slice 0 PRD ✅ 287 行 / sub-slice 1-5 ✅ 6 method 全實作 + 14 helper + 雙 audit + Drift D1+D2 修 + #106-#112 開 + #48/#105/#106 補強)→ main-c ✅ 完工(三刀:drift-fix 93ba36e 後台 brand_id+category_id NOT NULL / spike+SDK fix 9d8ef93 5 case 全 PASS + .contains JSON.stringify SDK 字面修 / fitment-fix 2e9abfb client filter cross-check 三條防 false positive / sub-slice 3 收工 雙 audit findings 三類分流 + #114/#115 開 + #108 補強 + 教訓 #6 + STATUS L29 修 + 累積教訓 #1-#6 全程紀錄;Vehicle Finder 資料管線根本驗通 16 sub-cases 雙 audit 過 13/13 InMemory test) → main-d-pre ✅ 完工(apps/storefront/tsconfig.json 對齊 packages/* 模板 + eslint.config.js import resolver glob 加 apps/storefront + dependency-rules.md §5.1 同步 + #54 Supersede 解開 storefront 部分 + #23 補強;為 main-d 真資料接入鋪路)→ main-d-d1 ✅ 完工(Next.js 16.2.6 + React 19.2.6 + design @ d5ea3aa 8 sections jsx → tsx 直接搬 + ProductCard mock 4 筆 + CSS 純引入 + 全 'use client' RSC trade-off + Q1=B1 catalog TS / Q2=A1 不裝 eslint-config-next + Q1=A1 視覺對齊驗收 + #116 開)→ **main-d-d2 ✅ 完工**(@pcm/adapters root export + lib/products.ts server-only fetcher + toUIProduct mapper + priceByTier server-side strip 取 general tier + page.tsx async server component force-dynamic + HomeSelect 三條 UI 分支(error/empty/正常)+ Sean 拍板 Q-empty=b 「目前沒有商品」/ Q-error=b 「載入失敗、請稍後再試」/ Q-category=a 操控部品 + force-dynamic SSR + id cast trade-off 揭示 + dev .env.local 揭示)→ **audit**(雙跑 skill audit follow-up: engineering:code-review + simplify Phase 2 三 agent on M-1-03 全部 commits)
-> **M-1-13 啟動前必修:**
->   - backlog #81 Product variants schema spike + 落地(60-90 min spike + 90-120 min 落地)
->   - backlog #82 design `inStock: boolean` ↔ domain ProductAvailability mapper(30 min)
->   - backlog #43 image upload 落 Supabase Storage(對齊 ADR-0004 Q2=A2)
-> **storefront wire-up slice 啟動前:** backlog #87 in-memory dev singleton lifecycle(Map.clear + HMR)
-> **第 3 處撞才抽 trigger:** backlog #84 Timestamped utility(M-1-14 / M-2-05 / M-3-02 任一)、#85 createFakeProduct fixture(M-1-03 / M-1-13 / M-1-15 任一)
-> M-1-01-true / M-4a-01 / M-5-01(apps 真寫 .ts)時補 boundaries dry-run Rule 5 + import resolver glob 加 apps/*/tsconfig.json(對齊 backlog #54 Supersede + #23 完成註)
-> M-1-16 啟動前需處理 #44 種子 transition
-
-2. (背景)Claude Design 補 3 頁 + 1 微調(M-2 / M-3 前完成)
-3. (✅ 完成)4 件 setup:Supabase / Vercel / Railway / GCP — 細節見 `docs/architecture/2026-04-30-handoff-to-claude-ai.md` §10
+## 下一步
+Claude.ai 排下一 milestone slice(#138 待 Claude Design 更新 home.css 真權威)
 
 ## Sean 待決策
+#1 發票自動化 / #2 測試覆蓋率 / #3 TapPay sandbox / #4 部署(Vercel+Railway)
 
-| # | 決策內容 | 阻塞什麼 |
-|---|---|---|
-| 1 | A3 Phase 1 階段 1 是否做發票自動化(綠界 / 藍新 / 國稅局)| M-3 訂單後段 |
-| 2 | G2 測試覆蓋率目標 + E2E 範圍 | M-6 整合測試 |
-| 3 | TapPay sandbox 是否沿用舊環境 / 需重申請 | M-3 結帳 |
-| 4 | Vercel / Railway 部署是否新建 / 沿用 | M-6 部署 |
-| 5 | ✅ apps/medusa/ 改用途(對齊 ADR-0005 §2.4)— Sean 2026-05-04 拍板 i:改名 apps/api/(實際 rename 在後續 slice、本 supabase-schema-design 已引用 apps/api/ 字面)| 已解 |
-
-(其他項目:無、A1 / A2 / A4-A7 / B / C / D / E / F 已寫進 feedback 檔、進 writing-plans 自動納入)
+## Blocker
+無
+## 緊急 backlog
+無
 
 ---
 
@@ -250,5 +208,7 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-16 | M-1-05 刀 3-b 立法收工 ✅(`998e7ee` 2 檔 docs:lessons-learned.md §12-33 寫指令前必 grep callsite 真權威 + §12-34 寫立法字面前必 view 末條編號 + §12-35 multi-select 跨選項格式/詳簡度/三視角必統一(立規型)3 條(6 段模板對齊 §12-26~32)/ working-style.md §6.3 第 42/43/44 條對應;刀 3 立法收工後段(3-a 工具紀律 + 3-b Claude.ai 規劃紀律)、3-a + 3-b 全完工、M-1-05 整段收工;Step 1 三事件源 grep 確認:§12-33+§12-35 = 刀 2 Sub-slice 2-3 `650279a` body / §12-34 = 刀 3-a `f8271aa` body;§12-34 自身落地驗證:寫前 grep view lessons 末節 §12-32 + working-style §6.3 末條第 41、確認補 §12-33/34/35 + 第 42/43/44 正確編號;字面 vs 事實(鐵則 11):1. slice 全程引刀 3-a 為 36ffede(STATUS L29 記載值、busboy-end amend 前 pre-amend 孤兒、body byte-identical 不在 dev 歷史)、Code Step 1 偵察揭示、Sean 拍 hash 校正、§12-34 事故脈絡+首例改 canonical f8271aa;2. §12-34 首例編號 slice 原寫「末條 39」、Sean 拍校正「刀 3-a 補 40/41 前末條 39、刀 3-b 補 42/43/44 此刻末條 41」;3. §12-35 slice 原描述「Option A/B/C 跨選項格式不一致」具體事故、grep 650279a body 僅證「Option A 拍板」結果、跨選項不一致細節無 git 實據、Sean 拍 §12-35 處置=B 改立規型框架(對齊 §12-27 立規型先例);4. Step 6 backlog grep 命中 3 行皆 false positive(callsite 一字在 #106 雙 cast + #143 contract test factory 注入語境)、§12-33/34/35 無對應條目、不動 backlog;三綠 typecheck 7/7 + lint 10/10 全 cache hit + build §2.2 純 .md 豁免、skill audit 不跑(working-style §6.3 第 10 條);上輪 STATUS L29 hash drift 36ffede→f8271aa 順手修(§12-3 維度 B);ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 6 欄位 | Claude Code |
 
 | 2026-05-17 | M-1-06 a11y polish ✅(`48bb6c2` 10 檔:8 components + home.css + phase-1-backlog.md;#135 9 處 arrow span 加 aria-hidden="true"(7 ed-link-arrow + 1 ed-brand-arrow + 1 ed-finder-go-arrow、ed-brand-arrow 在 BrandIndex .map() runtime 渲染 17 份、合計 runtime 25 處全 aria-hidden 生效 DevTools 確認)+ #136 HomeFooter 4 條 <a href="#"> → <button type="button" disabled aria-label="...(尚未上線)">;字面 vs 事實(鐵則 11):1. slice 原指令誤判 4 placeholder 全在 .ed-footer-cols、實際 Facebook/Instagram/LINE 在 .ed-footer-social、Code 偵察揭示、Sean 拍選項 1 補齊兩容器 — home.css 新增 .ed-footer button reset(background/border/padding/text-align/cursor/font、排容器規則前)+ .ed-footer-social a 與 .ed-footer-cols a 兩選擇器各加 button、design-reference/styles/home.css 未同步屬 button 化必要連動;2. #135「9 處」為 source 行數、原 backlog grep pattern 僅命中 8、Sean Q4=A 補 ed-finder-go-arrow 湊 9;3. design-reference 9 arrow 無 aria-hidden、storefront 加屬補 a11y、Sean Q3=A storefront 加 design 不動兩層分權;4. ed-brand-num(source 1 行 runtime 17 處)本刀不動留獨立議題;5. HomeFooter L8 註解同步更新;6. next-env.d.ts Step 4 build 自動重生回退、不納入 commit;backlog #135+#136 ✅、#138 觸控目標議題歸位 Claude Design;三綠 typecheck 7/7 + lint 10/10 + build 1/1;肉眼驗 7 項全綠 DevTools+Playwright 程式化驗證代 Sean 驗;上輪 STATUS L29 hash drift 998e7ee→57d031e 順手修;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 6 欄位 | Claude Code |
+
+| 2026-05-17 | M-1-07 STATUS-shrink ✅(`32f2b8e` 4 檔:STATUS.md 254→主表≤30+附屬區不限 / CLAUDE.md 三處 6→7 欄位 / PROGRESS.md M-1-03 blockquote 歷史快照 19 行搬位 / backlog #9 ✅ Resolved;先提 plan 等批准;Q1=A #9 vs #4 指令字面偏離修正 + Q2=A CLAUDE.md 三處 7 欄同步 + Q3=A 原文搬位不詮釋;純 docs slice §2.2 typecheck/lint/build 豁免;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 7 欄位 | Claude Code |
 
 — END —

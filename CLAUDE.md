@@ -264,16 +264,23 @@ busboy 失敗 → 停下回報、不自行 retry。
 
 ## STATUS.md 維護
 
-每個 slice 結束、**同一個 commit**(slice commit 本身、不另開)更新 STATUS.md 6 欄位:
+每個 slice 結束、**同一個 commit**(slice commit 本身、不另開)更新 STATUS.md 7 欄位:
 
-1. 📍 當前(milestone / slice / branch)
-2. 🕐 最近 3 commit(挑有意義的、不機械對齊 git log -3)
-3. ➡️ 下一步(第 1 條優先)
-4. ❓ Sean 待決策
-5. 🚧 Blocker(若有)
-6. 🔥 緊急 backlog 編號
+1. 📍 當前狀態(milestone / slice / branch)
+2. 🕐 最後更新(時間 / 更新者)
+3. 📝 最近 3 commit(挑有意義的、不機械對齊 git log -3)
+4. ➡️ 下一步(第 1 條優先)
+5. ❓ Sean 待決策
+6. 🚧 Blocker(若有)
+7. 🔥 緊急 backlog 編號
 
-STATUS.md 上限 30 行(含空行)。超過 → 精簡 content 但保留六大欄位結構。
+STATUS.md 結構:
+- 主表(7 欄、`---` 分隔線上方)≤30 行嚴守、超過 → 精簡 content、不准砍欄位
+- 附屬區(`---` 分隔線下方):變更紀錄 / Busboy 機制 / 文件交叉引用 / 速查、不限長度自然增長
+
+7 欄(順序):當前狀態 / 最後更新 / 最近 3 commit / 下一步 / Sean 待決策 / Blocker / 緊急 backlog
+
+附屬區內容不寫進主表;歷史 blockquote 一律去 PROGRESS.md。
 
 STATUS.md **不寫歷史**(去 PROGRESS.md)、**不複製 backlog 細節**(只列編號)。
 
@@ -443,7 +450,7 @@ A: 選項 X
 - [ ] commit 訊息字面 vs 事實一致?字面與事實偏離必在 commit body 註明?
 - [ ] 精準 git add(不用 git add . / -A)?
 - [ ] commit 訊息符合 `type(scope): subject [milestone]` 格式?
-- [ ] STATUS.md 6 欄位更新(同 slice commit、不另開)?
+- [ ] STATUS.md 7 欄位更新(同 slice commit、不另開)?
 - [ ] 跑 busboy-end?
 - [ ] 跑 `/pcm-roadmap` 更新進度地圖(docs/progress-roadmap.html)?
 - [ ] 不 push(等 Sean 手動推)?

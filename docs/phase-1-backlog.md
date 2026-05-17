@@ -308,9 +308,9 @@
 
 ---
 
-### #9. ⏳ STATUS.md 30 行上限政策待 Sean 重新拍板
+### #9. ✅ STATUS.md 30 行上限政策待 Sean 重新拍板
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ Resolved
 - **優先級:** 🟡 低
 - **問題:** CLAUDE.md「STATUS.md 維護」段字面寫「上限 30 行(含空行)。超過 → 精簡 content 但保留六大欄位結構。」但 STATUS.md 實際使用約 70+ 行(因為 6 欄位結構 + 文件交叉引用 + 速查段 + Busboy 機制 + 變更紀錄等內容自然需要的篇幅)、30 行上限明顯不貼合實際。STATUS-fix slice(2026-05-01)Q2 拍板 C「視為待重新拍板、不本次處理」、開本條目追蹤。
 - **觸發事件:** 2026-05-01 / STATUS-fix slice review
@@ -327,6 +327,7 @@
 - **依賴:** 無、Sean 看到本條目隨時可拍
 - **發現於:** 2026-05-01 / STATUS-fix slice Q2
 - **相關:** CLAUDE.md「STATUS.md 維護」段、STATUS-fix slice commit
+- **Resolution:** 2026-05-17 / M-1-07 STATUS-shrink slice / Sean 拍選項 (b) 路線「主表(7 欄)≤30 + 附屬區不限」、CLAUDE.md「STATUS.md 維護」段字面同步改、STATUS.md 254 行重組落地;附屬區含變更紀錄表 / Busboy 機制 / 文件交叉引用 / 速查、不限長度
 
 ---
 
