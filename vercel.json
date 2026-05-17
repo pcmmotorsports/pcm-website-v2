@@ -1,11 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "installCommand": "corepack enable && pnpm install --frozen-lockfile",
-  "crons": [
-    {
-      "path": "/api/line/cron",
-      "schedule": "0 * * * *"
-    }
-  ]
+  "installCommand": "corepack enable && pnpm install --frozen-lockfile"
 }
