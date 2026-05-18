@@ -12,9 +12,9 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `cd4ffb0` | docs(workflow): backlog 115 條待執行分 4 流 + 寫法規範補分流標籤 [WO-5] | 2026-05-19 |
 | `0c48c70` | docs(workflow): STATUS.md 瘦身 — 變更紀錄移 PROGRESS、速查抽出 [WO-6] | 2026-05-19 |
 | `27a0271` | refactor(storefront): 抽 dev-preview 共用骨架 PreviewHarness [WO-4] | 2026-05-19 |
-| `7c70aca` | test(storefront): 補 11 個前台元件 smoke test + vitest @ alias [WO-3] | 2026-05-19 |
 
 ## 下一步
 工作流優化 6 個 WO 全完成;回主線 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 的 PreviewHarness);backlog P1-now 17 條可優先排(#38/#72/#81/#82/#88/#89 等);#146 / #138 待排
