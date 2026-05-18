@@ -24,6 +24,7 @@
 10. **依賴**(前置條目 / Sean 決策 / 外部因素)
 11. **發現於**(日期 + 哪個 slice / session)
 12. **相關**(其他相關條目編號)
+13. **分流標籤**(待執行條目必標、WO-5 落地):`P1-now` / `P1-before-launch` / `P2-later` / `wont-do`、定義見下方「分流標籤」段
 
 ### 禁止寫法
 
@@ -35,6 +36,21 @@
 | 「建議改進」 | 不修會怎樣? |
 
 詳細範例見 `docs/patterns/pcm-specific.md` §8。
+
+### 分流標籤(待執行條目必標)
+
+每條待執行(⏳ / 🔴)條目在 `- **狀態:**` 行下方加一行 `- **分流:** <標籤>`、四選一:
+
+| 標籤 | 意思 | 判定 |
+|---|---|---|
+| `P1-now` | 當前 milestone(M-1)就要處理 | 依賴指向 M-1 剩餘 slice(M-1-10~16)或 M-1 範圍內 |
+| `P1-before-launch` | Phase 1 範圍、上線前要做 | 依賴指向 M-2~M-6 / 已過期 milestone / 無依賴的文件補強類 |
+| `P2-later` | 推遲到 Phase 2 | 條目本身指向 Phase 2 / 換廠商 / Phase 1 完工後 |
+| `wont-do` | 不做 | 已被取代 / 過時 / 決定不做 |
+
+✅ 完成 / ❌ 棄用 條目不需分流標籤。新增條目必標(對齊上方必含元素 #13)。
+
+WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1-before-launch 91 / P2-later 6 / wont-do 1)。
 
 ---
 
@@ -128,6 +144,7 @@
 ### #4. ⏳ GCP JSON key 路徑安全規範
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - GCP Service Account JSON key 是 sync-engine 認證憑證、洩漏 = SA 完全失控、客戶資料 + Sheets 全洩漏
@@ -156,6 +173,7 @@
 ### #5. ⏳ dev → main baseline 設立時機紀錄
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟡 低
 - **問題:**
   - setup §10.2(a) 紀錄「dev merge main 是 Phase 1 baseline」事件:Vercel import 預設讀 main、main 是空的、Sean 在 Terminal 跑 `git merge dev --ff-only && git push origin main` 解
@@ -256,6 +274,7 @@
 ### #7. ⏳ GitHub Actions CI gate(C5 L3 設施層)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(C5 L1+L2 已落地、L3 是第三層保險)
 - **問題:**
   - 即使 L1(規則層、`docs/patterns/slice-checkpoint.md`)+ L2(busboy-end pre-flight、M-0-09 落地)雙保險、本地 commit 仍可能有 drift:
@@ -285,6 +304,7 @@
 ### #8. ⏳ ADR-0003 衝突處置表 7.9 / 7.10 補入
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 低
 - **問題:**
   - M-0-07 指令驗證階段發現:`docs/recon/design-reference-recon-2026-04-30.md` §7 實際 7.1 ~ 7.10(10 條)
@@ -334,6 +354,7 @@
 ### #10. ⏳ IShopAdapter Phase 1 補一個 slice 候選
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - ADR-0003 §4 #4 字面:「Phase 1 ShopAdapter 介面 + StaticJsonShopAdapter 實作」
@@ -359,6 +380,7 @@
 ### #11. ⏳ TapPay 純度全面重檢:type 位置 + ITapPayAdapter 命名抽象化(待 M-3-08)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - M-0-04 把 TapPayChargePayload / TapPayChargeResult / TapPayRefundPayload / TapPayRefundResult / Cardholder / ChargeStatus 放 packages/domain/src/payment/types.ts
@@ -454,6 +476,7 @@
 ### #14. ⏳ SheetRangeSpec / SheetRow wire-aligned 抽象化待 Phase 2 換廠商前重檢
 
 - **狀態:** ⏳ 待執行
+- **分流:** P2-later
 - **優先級:** 🟢 觀察
 - **問題:**
   - SheetRangeSpec.spreadsheetId / SheetRow.rowIndex 等 Google Sheets API 字面放在 packages/domain/src/sync/types.ts
@@ -522,6 +545,7 @@
 ### #16. ⏳ TapPay Cardholder PII logging mask 規範待 M-3-08 寫實作前補
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - Cardholder.email / phoneNumber 是 PII、type 層無 mask 守門
@@ -580,6 +604,7 @@
 ### #18. ⏳ RawResponseEnvelope<T> generic 抽 TapPay verbs 增加時拍
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - TapPayChargeResult + TapPayRefundResult 共享 envelope { status, <id>: string, rawResponse: unknown }、現各自定義
@@ -665,6 +690,7 @@
 ### #21. ⏳ SluggedEntity 抽 utility type 決議待 M-1 寫到第二個 slugged entity 撞重複時拍
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟢 觀察
 - **問題:**
   - Brand / 未來 MotoBrand / 可能的 CategoryEntity 共享 { id; name; slug } shape、可抽 `type SluggedEntity = { id: string; name: string; slug: string }`
@@ -689,6 +715,7 @@
 ### #22. ⏳ 字串 leak ESLint rule(ADR-0003 §3.4 對應、Phase 1 不馬上加)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P2-later
 - **優先級:** 🟡 低(Phase 1 靠 review 流程攔、Phase 2 視需要補)
 - **問題:**
   - ADR-0003 §3.4 字面寫「不允許 wire 字串 leak 出 adapter 邊界」+「列入 backlog #8 候選、Phase 1 本決策不馬上加 lint rule」
@@ -744,6 +771,7 @@
 ### #24. ⏳ dependency-rules.md §6.2 補 apps→apps 預設禁的維運說明
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(doc 維運盲點、不阻塞但維運者可能踩雷)
 - **問題:**
   - `docs/architecture/dependency-rules.md` §6.2「加新 app」流程只說「不需動 boundaries/elements」、未提 **apps 之間預設不可互相 import**(default disallow)
@@ -766,6 +794,7 @@
 ### #25. ⏳ dependency-rules.md §5.3 字面前後一致統一
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(doc 字面 polish)
 - **問題:**
   - dependency-rules.md §5.3「apps 純殼用 `--no-error-on-unmatched-pattern`」段落字面前後語氣不一致
@@ -787,6 +816,7 @@
 ### #26. ⏳ partiallyRefunded transition 評估
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - PaymentStatus 4 條無 `partiallyRefunded` enum 字面、部分退款結果保留 `paid`(僅退一部分)
@@ -808,6 +838,7 @@
 ### #27. ⏳ B2B 月結 markPartiallyPaid 分多次累積評估
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - 現介面 `markPartiallyPaid` invariant 只支援 `unpaid → partiallyPaid` 單次進入
@@ -830,6 +861,7 @@
 ### #28. ⏳ split shipment line-item-level fulfillment 評估
 
 - **狀態:** ⏳ 待執行
+- **分流:** P2-later
 - **優先級:** 🟡 低
 - **問題:**
   - 目前 `Order.fulfillmentStatus` 是 order-level
@@ -852,6 +884,7 @@
 ### #29. ⏳ Order paymentMethod 欄位評估
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - 目前 PaymentStatus 不分支付方式(信用卡 / 儲值金 / 月結)
@@ -874,6 +907,7 @@
 ### #30. ⏳ fitment 篩選 scale 風險評估
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `Product.fitments: FitmentSpec[]` 落 Medusa `metadata.fits[]` 自由字串 array
@@ -899,6 +933,7 @@
 ### #31. ⏳ 客服 schema 預留評估
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - `vehicle-service-ecosystem.md` §4.8 字面「客服人工管道」、Phase 1 不入系統
@@ -922,6 +957,7 @@
 ### #32. ⏳ IPricingRepository / IPricingService 抽象(Pricing context port 缺位)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - schema-design §5 + ADR-0003 §4 #6 規劃 Pricing 走 Medusa price_list + customer_group、但 5 ports 不含 Pricing
@@ -942,6 +978,7 @@
 ### #33. ⏳ IInventoryRepository 缺位(inventory context port + entity 欄位)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - PHASE-1-MILESTONES §8 M-5-05 規劃 auto-update-inventory use-case、schema-design §2.1 寫「inventory 推延到 M-1-02 補」、但無 IInventoryRepository
@@ -967,6 +1004,7 @@
 ### #34. ⏳ Order.total 缺 breakdown(subtotal / shipping / discount / tax)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/domain/src/order/types.ts:76-77` 只 total: Money 一條
@@ -987,6 +1025,7 @@
 ### #35. ⏳ search engine plan 未拍(searchByKeyword 對 10w 商品 PG ILIKE 慢)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/ports/src/IProductRepository.ts:20` searchByKeyword 介面已存、但 Phase 1 預期 PG ILIKE 對 10w 商品必慢(p99 > 5s)
@@ -1009,6 +1048,7 @@
 ### #36. ⏳ monitoring / alerting plan 缺(p99 latency / error rate / 慢查詢)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `docs/architecture/security-timeline.md` §7 劃線「監控不足屬 OWASP 但無 specific plan」
@@ -1029,6 +1069,7 @@
 ### #37. ⏳ OrderItem 缺 lineTotal + tierAtCheckout(B2B 對帳 / dispute 追溯)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/domain/src/order/types.ts:42-51` OrderItem 結帳當下 customer.tier 未記錄、tier 變動歷史對帳找不出
@@ -1049,6 +1090,7 @@
 ### #38. ⏳ listByFitment(spec) 單數 vs 多選衝突(篩選器多車型 OR)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/ports/src/IProductRepository.ts:18` 介面字面 spec 單數
@@ -1070,6 +1112,7 @@
 ### #39. ⏳ Order.fulfillmentMethod 欄位缺(寄家 / 寄店家 / 自取)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/domain/src/order/types.ts:69-78` Order entity 字面無 fulfillmentMethod
@@ -1090,6 +1133,7 @@
 ### #40. ⏳ Customer phoneNumber + address 欄位缺
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - `packages/domain/src/identity/types.ts:13-17` Customer 只 id / email / tier、結帳必填 phoneNumber + address 欄位字面無
@@ -1110,6 +1154,7 @@
 ### #41. ⏳ ChargeStatus 缺 disputed / chargedBack(production dispute 場景)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/domain/src/payment/types.ts:18` ChargeStatus = 'succeeded' | 'failed' 不夠用
@@ -1130,6 +1175,7 @@
 ### #42. ⏳ logging strategy / PII masking utility(集中 mask / log format)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - `docs/architecture/`(無 logging-strategy.md)、各 adapter 各自 log、無集中規範(level / format / 敏感欄位 mask)
@@ -1150,6 +1196,7 @@
 ### #43. ⏳ image CDN / storage strategy(10w 商品 50w 圖)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - schema-design §2.1 寫「images 推延 M-1-02」但只是欄位、CDN 不在那
@@ -1175,6 +1222,7 @@
 ### #44. ⏳ 種子 200 SKU → ongoing import transition plan(合併 sync conflict 風險)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🔴 高
 - **問題:**
   - PHASE-1-MILESTONES §4 M-1-16 規劃 200 SKU 一次性 import、§8 M-5-03 才落 sync-engine ongoing
@@ -1243,6 +1291,7 @@
 ### #47. ⏳ Phase 2 三層折扣疊加 schema 預留(Order.discountsApplied)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - 0002 ADR §4.3 寫「Pricing Phase 1 雙 tier、Phase 2 三層折扣疊加(廠牌 / VIP)」
@@ -1264,6 +1313,7 @@
 ### #48. ⏳ adapters 子目錄結構規劃(ports-and-adapters.md 待寫)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - `packages/adapters/src/`(空殼、無子目錄)、0002 ADR §4.1 列 medusa / supabase / sheets-api / tappay 四 adapter 範圍但無子目錄規劃
@@ -1285,6 +1335,7 @@
 ### #49. ⏳ MotoBrand 升級 value-object trigger(JSDoc 已提無對應 slice)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/domain/src/catalog/types.ts:55-56` JSDoc 提及「M-1 升級 MotoBrand value-object」、但 milestone 字面無對應 slice
@@ -1305,6 +1356,7 @@
 ### #50. ⏳ SyncResult.errors 結構化(rowIndex / sourceRow 對應)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/domain/src/sync/types.ts:39` errors 是 string[]、無 row 對應
@@ -1325,6 +1377,7 @@
 ### #51. ⏳ list 三方法分頁 TODO 一致性(IProductRepository JSDoc)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/ports/src/IProductRepository.ts:16-18` listByCategory / listByBrand / listByFitment 三方法 JSDoc 無分頁 TODO 標記
@@ -1345,6 +1398,7 @@
 ### #52. ⏳ Order.total JSDoc drift(對齊 #34 後 sync 字面)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/domain/src/order/types.ts:76` JSDoc 寫「items + 運費」但無 discount 提示
@@ -1365,6 +1419,7 @@
 ### #53. ⏳ packages 空殼 README / file-level JSDoc(use-cases / adapters / schemas)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/{use-cases,adapters,schemas}/`(均空殼、僅 package.json + index.ts)
@@ -1386,6 +1441,7 @@
 ### #54. ⏳ admin/sync-engine ESLint dry-run 補(M-0-02 啟動時)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - `apps/`(只 storefront / medusa)、`docs/architecture/dependency-rules.md` §3 dry-run 只覆蓋 storefront / medusa
@@ -1408,6 +1464,7 @@
 ### #55. ⏳ contract test 框架(Phase 2 觸發)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P2-later
 - **優先級:** 🟢 觀察
 - **問題:**
   - 5 ports 介面、現規劃 InMemory(test)+ Medusa(real)兩實作對
@@ -1429,6 +1486,7 @@
 ### #56. ⏳ disaster recovery plan(backup / restore SOP)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - `docs/architecture/`(無 disaster-recovery.md)
@@ -1474,6 +1532,7 @@
 ### #58. ⏳ sync-engine 本機 redundancy(SMS 通知 + Phase 2 雲端 cron)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - PHASE-1-MILESTONES §8.7 風險 1 已知「本機機器壞了會停」、F1 兩層保險(被動紅燈 + daily email)只是告警、不是 continuity
@@ -1494,6 +1553,7 @@
 ### #59. ⏳ TapPay sandbox→production env vars 切換驗證機制
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - NORTHSTAR §1.2「上線時切 production 是 Phase 1 收尾事件」
@@ -1514,6 +1574,7 @@
 ### #60. ⏳ Railway free tier 容量升級拍板(cold start)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - Railway 免費版 $5/mo credit、Medusa 啟動 RAM ~512MB、idle 限制、container 自動 sleep
@@ -1534,6 +1595,7 @@
 ### #61. ⏳ TapPay production 申請時序(M-3 啟動時同步申請)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - TapPay 申請 production 流程 1-2 週(商業登記 / 銀行帳戶 / 商家代號)
@@ -1555,6 +1617,7 @@
 ### #62. ⏳ 客服退款 SOP(customer-refund-sop.md runbook)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - M-3-08 TapPay refund 介面落地、但「客服收到客訴 → 判斷 → 退款 → 通知客人」整套 SOP 缺
@@ -1575,6 +1638,7 @@
 ### #63. ⏳ dispute / chargeback SOP(dispute-response-sop.md runbook)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - production 上線後客人銀行 dispute 發生、PCM 員工 24-48h 內必回應(銀行限時)
@@ -1595,6 +1659,7 @@
 ### #64. ⏳ 發票自動化未拍 — 不拍會痛在哪(STATUS #1 補三視角)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🔴 高
 - **問題:**
   - STATUS Sean 待決策 #1 / PHASE-1-MILESTONES §11 拍板項目 A3
@@ -1618,6 +1683,7 @@
 ### #65. ⏳ Vercel / Railway / Supabase 部署 region 規劃
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - Vercel global edge / Railway 預設可能 US / Supabase SG
@@ -1666,6 +1732,7 @@
 ### #67. ⏳ submodule design-reference 失靈 fallback 流程
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - design-reference submodule 來自 pcmmotorsports/pcm-website-design repo、若被誤刪 / 改 access / 倉庫 force push、submodule pointer 找不到、storefront 無法 build
@@ -1687,6 +1754,7 @@
 ### #68. ⏳ oncall / incident response runbook(P0/P1/P2 escalation)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - 上線後 production 出事、誰接電話?哪個時段?升級 Sean 的 trigger?無流程
@@ -1707,6 +1775,7 @@
 ### #69. ⏳ 個資法資料權利流程(取出 / 刪除、30 天回應)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - 台灣個資法第 11 條客人有權「請求刪除個資」「請求複本」、PCM 收到後 30 天內回
@@ -1727,6 +1796,7 @@
 ### #70. ⏳ B2B 月結對帳 SOP(月底跑列表 + 加總)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - store / premiumStore tier 月結客戶、月底結帳、admin 怎麼產對帳單?無 SOP
@@ -1747,6 +1817,7 @@
 ### #71. ⏳ TapPay 商家合約檢核(月交易上限 / 高風險商品禁令)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - TapPay 商家合約有月交易額度上限 / 特定商品(機車改裝零件部分品類可能算高風險)、合約細節 PCM 端應該驗
@@ -1766,6 +1837,7 @@
 ### #72. ⏳ 篩選器資料 source-of-truth(design mock vs Medusa)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟠 中
 - **問題:**
   - design 端有 mock data(brands.js / vehicles.js)、Medusa 端商品建好後實際 brand / motoBrand 來自商品 metadata
@@ -1787,6 +1859,7 @@
 ### #73. ⏳ sync-engine 寫 Medusa metadata race condition 預防(0002 §6.1 #4)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - sync-engine 跑 hourly cron、若同 hour 內 admin 員工也手動改商品(M-4a-06)、兩個 source 同時寫、後寫者覆蓋前者
@@ -1807,6 +1880,7 @@
 ### #74. ⏳ admin / sync-engine 部署 plan(Vercel / Railway / 本機規劃)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - apps/admin 部署在哪?Vercel 同 storefront 還是 Railway?apps/sync-engine 部署本機已知、是否雲端 cron 備援?
@@ -1827,6 +1901,7 @@
 ### #75. ⏳ 4 空殼 packages JSDoc 格式對稱化
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - M-0-02 落地的 `packages/{use-cases,adapters,schemas}/src/index.ts` JSDoc 用「對應 ADR-XXX §X」結構化格式
@@ -1877,6 +1952,7 @@
 ### #77. ⏳ 8 lint script 字面重複(觀察、未來 lint 工序升級評估)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(by-design、不阻塞)
 - **問題:**
   - 8 個 package(4 apps + 4 packages)package.json lint script 字面重複定義 `eslint . --max-warnings 0 --no-error-on-unmatched-pattern`、本 commit 加 admin / sync-engine 重複 2 次
@@ -1898,6 +1974,7 @@
 ### #78. ⏳ 商品名硬規範 + concat helper(M-5-03 sync-engine 上架 pipeline)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - Sean 真實業務報價單格式「{零件廠牌} {變體} {零件名} {車廠} {車型} {年份範圍}」(對齊 wrs.it IA 報告 §5)
@@ -1923,6 +2000,7 @@
 ### #79. ⏳ wrs.it IA 競品研究觀察條目(Phase 1 完工後 Sean 評估)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P2-later
 - **優先級:** 🟢 觀察
 - **問題:**
   - wrs.it IA 報告 6 拍板題、Sean 拍板處置:Q1=A1 修 schema(已落地 ADR-0004 + M-0-10b FitmentSpec)/ Q4=backlog #78 / Q5=撤銷不做
@@ -1946,6 +2024,7 @@
 ### #80. ⏳ design-reference submodule Vercel deploy fetch warning
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(M-1-05 啟動前必修、之前不阻)
 - **問題:**
   - M-1-01 push 後 Vercel deploy log 出現 `Warning: Failed to fetch one or more git submodules`
@@ -1974,6 +2053,7 @@
 ### #81. ⏳ Product variants schema 設計(規格變體 1-20 種選項 × 雙層 / 三層)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🔴 高(M-1-13 ProductPage 啟動前必修、本 slice 推延)
 - **問題:**
   - Sean 2026-05-04 業務訊號:同個商品多規格(顏色 × 材質 × 年式對應)、員工後台自行新增、1-20 種選項、雙層或三層巢狀
@@ -2000,6 +2080,7 @@
 ### #82. ⏳ design `inStock: boolean` ↔ domain `ProductAvailability` mapper(M-1-13 ProductPage 啟動前)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟠 中(M-1-13 ProductPage 直接搬時必撞、之前不阻)
 - **問題:**
   - design 真權威字面用 `inStock: boolean`(design-reference/components/{ProductCard,ProductPage,FilterTop,FilterSide,FilterDrawer,Pages,ProductsPage}.jsx + data/PRODUCTS-README.md)
@@ -2052,6 +2133,7 @@
 ### #84. ⏳ Timestamped utility type 第 3 處撞才抽(對齊 #19 trigger 哲學)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - M-1-02 catalog Product 加 `createdAt: Date; updatedAt: Date;` 是第一處
@@ -2075,6 +2157,7 @@
 ### #85. ⏳ createFakeProduct test fixture 抽到共用位置(第 3 處撞才抽)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - M-1-02 InMemoryProductRepository.test.ts 內 inline `createFakeProduct(overrides)` helper
@@ -2131,6 +2214,7 @@
 ### #87. ⏳ in-memory adapter dev singleton lifecycle(Map.clear / HMR / dev wire-up)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(test scope 內 test isolated 無問題、dev singleton wire-up 才浮現)
 - **問題:**
   - InMemoryProductRepository.ts 的 Map 無 `clear()` method、無 dev singleton lifecycle 規範
@@ -2156,6 +2240,7 @@
 ### #88. ⏳ 規格照片切換實作
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟠 中
 - **問題:**
   - 商品頁選不同規格時、gallery 需切換到該規格的照片組(多張)、滑完後回商品主圖
@@ -2177,6 +2262,7 @@
 ### #89. ⏳ 前台庫存只顯示有貨/缺貨
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟠 中
 - **問題:**
   - 庫存數字不對外顯示、前台只顯示「有貨」/「缺貨(售完)」
@@ -2196,6 +2282,7 @@
 ### #90. ⏳ Phase 1 CSV 批次匯入腳本
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - 第一波 1000-2000 筆商品需批次匯入、不可能手動單筆建立
@@ -2217,6 +2304,7 @@
 ### #91. ⏳ Phase 1 簡易匯出腳本(CSV 雙向格式)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - Sean 整理資料時可能會發現錯字、價格要改、車種要補
@@ -2272,6 +2360,7 @@
 ### #93. ⏳ matchFitment 補 8 個 boundary case test
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - M-1-03-prep 件 #4 落地 4 個 yearRange test、覆蓋 4 種主要狀態(範圍重疊 / null 開放式 / 無年份 / false-positive)
@@ -2328,6 +2417,7 @@
 ### #95. ⏳ fitment motoBrand / modelCode case-sensitivity normalize
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
   - matchFitment line 103-104 用 strict equality(`actual.motoBrand !== spec.motoBrand`)
@@ -2354,6 +2444,7 @@
 ### #96. ⏳ fitment yearStart > yearEnd 資料異常防呆
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - matchFitment 範圍重疊判定無 yearStart > yearEnd 防呆
@@ -2379,6 +2470,7 @@
 ### #97. ⏳ listByFitment 結果排序契約定義
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - InMemoryProductRepository.listByFitment 用 `Array.from(this.products.values()).filter(...)` 回 Map insertion order
@@ -2407,6 +2499,7 @@
 ### #98. ⏳ matchFitment test setup it.each table-driven 重構
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - M-1-03-prep 件 #4 落地 4 個 yearRange test、setup 模式重複(createFakeProduct + new InMemoryProductRepository + listByFitment + expect)
@@ -2434,6 +2527,7 @@
 ### #99. ⏳ lessons-learned.md 結構整理(「偵察 slice 方法論」段歸位)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - `docs/lessons-learned.md` 結構在「附錄 B」後還有一段沒編號的「偵察 slice 方法論」(line 348-369、原立於 2026-04-30)
@@ -2459,6 +2553,7 @@
 ### #100. ⏳ 全 catalog 表 §10.1 vs .sql drift(brands / categories / products / 未來 variants)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(doc 補洞、不阻擋實作、有 a2-1 .sql 為事實依據)
 - **問題:**
   - `docs/architecture/supabase-schema-design.md §10.1 Phase 1 階段 1` 既有 12 條索引(products / orders / order_items / customers)
@@ -2490,6 +2585,7 @@
 ### #101. ⏳ Supabase advisor 2 WARN 處置 — public.rls_auto_enable() function
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(SECURITY 類 WARN、暴露給 anon + authenticated、上線前必處置)
 - **問題:**
   - Supabase advisor 抓 2 條 SECURITY 類 WARN、都指向同一個 function:`public.rls_auto_enable()`
@@ -2525,6 +2621,7 @@
 ### #102. ⏳ busboy-end script L29 hash drift 治本
 
 - **狀態:** ⏳ 待執行
+- **分流:** wont-do
 - **優先級:** 🟡 低(non-blocking、累積性 drift、不影響 build / runtime / 部署)
 - **問題:**
   - `/Users/sean_1/pcm-tools/scripts/busboy-end.js`(74 行純 echo 腳本、無函式封裝、Claude Code 依步驟手動執行)
@@ -2563,6 +2660,7 @@
 ### #103. ⏳ products updated_at UPDATE 不自動更新風險
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟡 低(non-blocking、application 端可補、不阻擋 a2-2 / Slice A1+A2 落地)
 - **問題:**
   - UPDATE 操作不會自動更新 `updated_at`(欄位 `DEFAULT now()` 只在 INSERT 觸發、UPDATE 不重新 evaluate DEFAULT)
@@ -2589,6 +2687,7 @@
 ### #104. ⏳ Claude Code IDE 自動 spawn worktree + 殘留處置(2026-05-06 兩次事故反覆)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(反覆事故 2 次、影響工作流穩定性與起手檢查心智、不阻擋實作)
 - **問題:**
   - 2026-05-06 兩次 Code session 起手、IDE 自動 spawn `.claude/worktrees/admiring-nightingale-811ca4` worktree(branch: `claude/admiring-nightingale-811ca4` / HEAD: `9f609b0` = origin/main 最新 commit)
@@ -2617,6 +2716,7 @@
 ### #105. ⏳ PROJECT-OVERVIEW / tools-and-skills 字面 drift(apps/medusa + Medusa 後台 + Railway vs ADR-0005 Supabase + apps/api/)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(不阻擋實作、僅影響新 Code session 讀套件入門時的真權威指引)
 - **問題:**
   - ADR-0005 拍板(2026-05-04 / M-1-03-pre0c 落地)「Custom + Supabase 直寫架構、apps/medusa/ → apps/api/」、但下列字面尚未同步:
@@ -2647,6 +2747,7 @@
 ### #106. ⏳ Supabase typed Database schema(supabase gen-types)— 解 adapter 雙 cast escape hatch
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低-中(不阻擋 main-b 落地、影響 type safety + 未來跨 adapter)
 - **問題:**
   - SupabaseProductAdapter.findById 用 `data as unknown as SupabaseProductRow` 雙 cast bypass type safety(audit 三視角共識:engineering M1 + simplify Q4 + efficiency E7 同向命中)
@@ -2674,6 +2775,7 @@
 ### #107. ⏳ parseWireFitment trailing tokens silent drop + 邊界 case 補強
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(M-5 sync engine 啟動前必修、Phase 1 storefront 用不到 parseWireFitment)
 - **問題:**
   - `packages/adapters/src/supabase/helpers/fitment.ts` parseWireFitment regex `/(\d{4})(?:-(\d{4})|(\+))?/` 只匹配第一個年份 token、後續 token 進 segments 但只取前 2 段為 motoBrand + modelCode
@@ -2703,6 +2805,7 @@
 ### #108. ⏳ fitment helpers + matchFitmentYear 行為等價 contract test 補
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟡 低(M-1-13 storefront ProductPage / FilterSide 啟動前必修)
 - **問題:**
   - `packages/adapters/src/supabase/helpers/fitment.ts` 三 public helper(fitmentToWireString / parseWireFitment / matchFitmentYear)無對應 .test.ts
@@ -2733,6 +2836,7 @@
 ### #109. ⏳ matchFitmentYear / matchFitment 規則 3 行為 dup — Defer(2 處、第 3 處撞才抽)
 
 - **狀態:** ⏳ Defer(達 2 處、第 3 處撞才抽 trigger 對齊 sub-slice 1+2 listByColumn / unwrapSingle Defer 模式)
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
   - `packages/adapters/src/supabase/helpers/fitment.ts` matchFitmentYear(規則 3 年份範圍重疊)
@@ -2760,6 +2864,7 @@
 ### #110. ⏳ searchByKeyword count: 'exact' → 'planned'/'estimated' 切換(M-6 tsvector 同期)
 
 - **狀態:** ⏳ 待執行(M-6 切 tsvector + GIN + pg_jieba 同期、不獨立啟動)
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(Phase 1 200 SKU dev 可接受、上線前必修)
 - **問題:**
   - SupabaseProductAdapter.searchByKeyword 用 `count: 'exact'` 每次 query 強制 PG 對 result set 做 full count
@@ -2786,6 +2891,7 @@
 ### #111. ⏳ parseCategoryPath helper orphan 風險 + JSDoc trigger 字面修
 
 - **狀態:** ⏳ 待執行 / 🟢 觀察(0-caller、未撞 trigger)
+- **分流:** P1-now
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/adapters/src/supabase/helpers/category-path.ts` parseCategoryPath helper(sub-slice 2 落地)目前 0 caller
@@ -2811,6 +2917,7 @@
 ### #112. ⏳ PRD M-1-03-main-b §8 第 4 條 @TODO 字面 vs sub-slice 5 Code 字面偏離 PRD 同步
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(commit body 已揭示偏離、PRD 字面同步留 trigger)
 - **問題:**
   - `docs/specs/M-1-03-main-b-PRD.md` §8 第 4 條 @TODO 字面:「@TODO brand / category resolve cache:LRU cache 名稱→ID(本 main-b sub-slice 4 落地)」
@@ -2868,6 +2975,7 @@
 ### #114. ⏳ Vehicle Finder 通用零件呈現策略待拍板
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-now
 - **優先級:** 🟡 中(M-1-13 啟動時必拍)
 - **問題:**
   - 客人在 Vehicle Finder 選了車型後、**通用零件**(`fitments=[]` 空陣列、代表任何車適用)要不要出現在篩選結果頁?
@@ -2897,6 +3005,7 @@
 ### #115. ⏳ SupabaseProductAdapter listByFitment filter-before-map hot path 優化
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-now
 - **優先級:** 🟡 中(M-1-13 啟動時改、Phase 1 ~200 SKU 規模目前 OK)
 - **問題:**
   - 當前 `SupabaseProductAdapter.listByFitment`(L177-189)先 map 全部 server-side prefilter row → domain Product[]、再 client filter cross-check brand+model+year
@@ -2922,6 +3031,7 @@
 ### #116. ⏳ server-client boundary 優化:純展示 sections 改用 next/link
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-before-launch
 - **優先級:** 🟡 中(Phase 1 Polish)
 - **問題:**
   - main-d-d1 階段 design 真權威字面**全 8 sections 都含 onNav callback prop**(L25 HomeHero / L131 FeatureEditorial / L174 CategoryGrid / L210 HomeSelect / L245 HomeStatement / L277 BrandIndex / L311+ HomeFooter)
@@ -2950,6 +3060,7 @@
 ### #117. ⏳ id NaN cast 故障鏈 anchor — string ProductId → number 串接(audit 雙命中)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-now
 - **優先級:** 🟠 中(NaN 路徑只在 Supabase 0 row → mock fallback 落地時 hit、M-1-16 種子前需修;真資料模式下 mock fallback 路徑廢、視 ProductPage M-1-13 啟動再評)
 - **問題:**
   - `apps/storefront/src/lib/products.ts:77` `id: product.id as unknown as number` 把 string ProductId cast 成 number(MockProduct.id 字面 number)
@@ -3050,6 +3161,7 @@
 ### #120. 🔴 @pcm/adapters server subpath export + server-only enforce(議題 2 anchor)
 
 - **狀態:** 🔴 立即啟動(Slice B 三 sub-slice 中)
+- **分流:** P1-now
 - **優先級:** 🔴 高(M-1-13 ProductPage 啟動前必修、避免 service_role key 進 client bundle)
 - **問題:**
   - `packages/adapters/src/index.ts` root export 包 `createSupabaseServiceClient`、storefront 任何位置 import 都拿得到、含 client component
@@ -3076,6 +3188,7 @@
 ### #121. ⏳ spike script API surface 規範(workspace 範圍限制處理)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(spike 是 dev tool、現有 deep import 仍能跑、不阻擋)
 - **問題:**
   - `scripts/spikes/*.ts` 不在 `pnpm-workspace.yaml` include 範圍(`apps/*` + `packages/*`)
@@ -3105,6 +3218,7 @@
 ### #122. ⏳ brand name→ID cache + invalidation(adapter / sync-engine / admin 三層連動)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低(adapter 內 Brand value-object 已含 id、無使用點;sync-engine / admin 廠商導入啟動才有 brand name 字串需 resolve)
 - **問題:**
   - SupabaseProductAdapter Brand resolve 無 name → id cache(`SupabaseProductAdapter.ts` L69-72 + L241-244 兩處 JSDoc anchor 明示「第 3 處撞才抽」Defer 模式、對齊 lessons #84/#85)
@@ -3291,6 +3405,7 @@
 ### #129. ⏳ 'NT$' currency → symbol helper(Phase 2 多幣別準備)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P2-later
 - **優先級:** 🟢 觀察
 - **問題:**
   - `apps/storefront/src/components/Price.tsx` L43 / L45 / L56 / L58 / L67 `'NT$'` hardcode 5 處、未來多幣別需散修
@@ -3316,6 +3431,7 @@
 ### #130. ⏳ tier resolution helper(第 3 處撞才抽、Defer 模式)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `apps/storefront/src/app/page.tsx` L42-58 `tierOverride / cookie / 'general'` priority + `designTierToSchema` guard、tier 解析邏輯第 1 處落地
@@ -3340,6 +3456,7 @@
 ### #131. ⏳ toMoney helper 集中至 packages/adapters/src/supabase/helpers/(第 3 處撞才抽)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/adapters/src/supabase/mappers/product.ts` L171-175 `toMoney` helper 私有 module-level、僅 mapper 內使用
@@ -3364,6 +3481,7 @@
 ### #132. ⏳ TierLabel union type alias 抽出
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(達 ADR-0003 §3.2 規範類門檻、可立即執行)
 - **問題:**
   - `apps/storefront/src/components/Price.tsx` L19 + `apps/storefront/src/lib/products.ts` L73 + `apps/storefront/src/data/mock-products.ts` L24 三處重複 `'P價' | '店價' | null` union 字面
@@ -3389,6 +3507,7 @@
 ### #133. ⏳ mock-brands logo 檔補 + 4 新 brands(akrapovic/brembo/ohlins/termignoni)
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-before-launch
 - **優先級:** 🟡 中(BrandDetailPage / brand 詳情頁啟動時必撞)
 - **問題:**
   - mock-brands.ts JSDoc 頂部已預告 25d3a2a design 加 5 新 brands(rizoma/akrapovic/brembo/ohlins/termignoni + premium_extra_pct)、本刀 1b2 只補 rizoma 1 條(對齊 FeatureEditorial L48 字面)、其他 4 條 mock data 未補
@@ -3416,6 +3535,7 @@
 ### #134. ⏳ ADR-0006 + docs/architecture/server-client-boundary.md
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(候選刀 4 純 docs slice、可獨立啟動)
 - **問題:**
   - M-1-04 刀 1 完成後、storefront 6 sections server / 4 sections client(VehicleFinder / Header / ProductCard / HomeSelect)混合模式落地
@@ -3499,6 +3619,7 @@
 ### #137. ⏳ 立 docs/patterns/mock-data-handling.md(mock data logo/image path 規範)
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(規範類、不急、Phase 1 後期或下次 mock data 補新 entity 時觸發)
 - **問題:**
   - mock-brands.ts / mock-products.ts / mock-moto-brands.ts 的 logo / image path 字面 = design-reference asset path 直接搬
@@ -3525,6 +3646,7 @@
 ### #138. ⏳ WCAG 2.5.5 觸控目標 < AA — HomeFooter 21.6px
 
 - **狀態:** ⏳ 待 trigger
+- **分流:** P1-before-launch
 - **優先級:** 🟡 中(a11y polish slice 統一處理、與 #135 #136 同期)
 - **問題:**
   - HomeFooter column links(`.ed-footer-cols a`)CSS 字面:font-size 13.5px / line-height 1.6 / margin-bottom 10px / 無 padding
@@ -3554,6 +3676,7 @@
 ### #139. ⏳ 回收 ADR-0001 ~ 0005 Status 欄位風格、統一改用 0006 格式
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - ADR-0001 `> **狀態:** 已拍板 / 2026-04-29`(中文「狀態」、無 emoji)
@@ -3584,6 +3707,7 @@
 ### #140. ⏳ STATUS.md L17「當前 slice」字面密度重構(commit body 摘要拆段)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - L17「當前 slice」單行內嵌大段 commit body 摘要(本次 M-1-04 slice 4 主刀 ~30 行單行)
@@ -3611,6 +3735,7 @@
 ### #141. ⏳ Claude.ai 引用 STATUS 行號 / 字面位置必先 grep 確認
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 中(Claude.ai 端規範修改、影響後續 slice 指令字面準確度)
 - **問題:**
   - Claude.ai 寫 slice 指令引用 STATUS 具體行號 / 字面位置時、憑跨 session 對話印象推、未先請 Code grep 字面位置確認
@@ -3669,6 +3794,7 @@
 ### #143. ⏳ contract test infra independent milestone(框架接線 + 11 it.todo 填真 it + Supabase 測試 client)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟠 中(M-1-05 刀 2 完工後 view 切換已落地、但無 contract test 守 regression、未來 #118 預期解法字面「contract test 加 case」靠本 milestone 落地)
 - **問題:**
   - `runProductRepositoryContract(factory)` 框架已建(M-1-03-prep 件 #3 落地)、但全 repo 0 個測試檔呼叫、`factory` 參數被 `void factory;` 釋放、形同空殼
@@ -3699,6 +3825,7 @@
 ### #144. ⏳ migration apply SOP 工作風格條目化
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(M-1-05 已踩過、流程已熟、條目化讓未來新 Code session 不重踩)
 - **問題:**
   - M-1-05 刀 1.5 揭示:MCP `apply_migration` 用當下 timestamp 套用、若 commit 落地的 migration timestamp 早於 remote 最新、會製造版本倒掛
@@ -3730,6 +3857,7 @@
 ### #145. ⏳ PHASE-1-MILESTONES §4.5 M-1-08 字面校準(useCascadeFilter → cascadeFilterReducer)
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `docs/PHASE-1-MILESTONES.md` §4.5 M-1-08 原字面「packages/ui useCascadeFilter hook 抽出(三 Filter 共用邏輯)」
@@ -3755,6 +3883,7 @@
 ### #146. ⏳ cascadeFilterReducer useReducer bail-out 最佳化
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - `cascadeFilterReducer` 對「邏輯上未改變狀態」的 input(重選已選的同一品牌 / 同一大分類、對空狀態 dispatch `clear-all`)仍配新物件回傳
@@ -3780,6 +3909,7 @@
 ### #147. ⏳ mock-categories.ts L2 內容真實分類來源
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - M-1-09 新增 `apps/storefront/src/data/mock-categories.ts`(11 大分類巢狀、字面從 `design-reference/data/products.js` L73-157 直接搬)
@@ -3805,6 +3935,7 @@
 ### #148. ⏳ dev-preview/* 臨時驗證 route 部署前移除
 
 - **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
   - M-1-09 新增 `apps/storefront/src/app/dev-preview/filter-side/page.tsx` 作為 FilterSide 元件肉眼驗 harness(ProductsPage M-1-12 尚未做、無宿主頁)

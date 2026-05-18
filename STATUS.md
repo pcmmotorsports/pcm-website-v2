@@ -3,11 +3,11 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~09 ✅、餘 M-1-10~16)
-**當前 slice:** M-1-09 ✅;工作流優化 WO-1~4 + WO-6 ✅(WO-5 待續)
+**當前 slice:** M-1-09 ✅;工作流優化 WO-1~6 ✅ 全完成
 **Branch:** dev
 
 ## 最後更新
-2026-05-19 — Claude Code [工作流優化 WO-6]
+2026-05-19 — Claude Code [工作流優化 WO-5]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
@@ -17,10 +17,10 @@
 | `7c70aca` | test(storefront): 補 11 個前台元件 smoke test + vitest @ alias [WO-3] | 2026-05-19 |
 
 ## 下一步
-工作流優化 WO-5 待續(backlog 123 條分 4 流、估 ~1hr、開工前先拆 2-3 子 slice;詳見 plan 檔 `~/.claude/plans/skill-radiant-dragon.md`);之後 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 的 PreviewHarness);#146 / #138 待排
+工作流優化 6 個 WO 全完成;回主線 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 的 PreviewHarness);backlog P1-now 17 條可優先排(#38/#72/#81/#82/#88/#89 等);#146 / #138 待排
 
 ## Sean 待決策
-#1 發票自動化 / #2 測試覆蓋率 / #3 TapPay sandbox / #4 部署(Vercel+Railway)
+#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6）
 
 ## Blocker
 無
