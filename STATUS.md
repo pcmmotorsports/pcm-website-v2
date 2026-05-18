@@ -2,22 +2,22 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~08 ✅、餘 M-1-09~16)
-**當前 slice:** M-1-08 cascadeFilterReducer 抽出 ✅
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~09 ✅、餘 M-1-10~16)
+**當前 slice:** M-1-09 FilterSide.tsx 直接搬 ✅
 **Branch:** dev
 
 ## 最後更新
-2026-05-17 — Claude Code [M-1-08 cascadeFilterReducer]
+2026-05-18 — Claude Code [M-1-09 FilterSide.tsx]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `503a77a` | feat(ui): cascadeFilterReducer 抽出 [M-1-08] | 2026-05-17 |
-| `00995d2` | chore: 移除 LINE bot 程式碼(拆獨立 repo) | 2026-05-17 |
-| `c8337a9` | feat(line-bot): 追單儀表板 + FAQ 自動回覆 | 2026-05-17 |
+| `0c3052a` | feat(storefront): FilterSide.tsx 直接搬 + filter-side.css [M-1-09] | 2026-05-18 |
+| `03ada9d` | feat(ui): cascadeFilterReducer 抽出、解鎖 M-1-09/10/11 [M-1-08] | 2026-05-17 |
+| `00995d2` | chore(storefront): 移除 LINE bot 程式碼(已拆至獨立 repo) | 2026-05-17 |
 
 ## 下一步
-Claude.ai 排 M-1-09 FilterSide.tsx(接 cascadeFilterReducer、附帶 backlog #146 bail-out);#138 home.css 真權威待 Claude Design
+Claude.ai 排 M-1-10 FilterTop.tsx 直接搬(含 CascadeFilterTop)+ filter-top.css;#146 cascadeFilterReducer bail-out 待排獨立 slice;#138 home.css 真權威待 Claude Design
 
 ## Sean 待決策
 #1 發票自動化 / #2 測試覆蓋率 / #3 TapPay sandbox / #4 部署(Vercel+Railway)
@@ -212,5 +212,7 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-17 | M-1-07 STATUS-shrink ✅(`32f2b8e` 4 檔:STATUS.md 254→主表≤30+附屬區不限 / CLAUDE.md 三處 6→7 欄位 / PROGRESS.md M-1-03 blockquote 歷史快照 19 行搬位 / backlog #9 ✅ Resolved;先提 plan 等批准;Q1=A #9 vs #4 指令字面偏離修正 + Q2=A CLAUDE.md 三處 7 欄同步 + Q3=A 原文搬位不詮釋;純 docs slice §2.2 typecheck/lint/build 豁免;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 7 欄位 | Claude Code |
 
 | 2026-05-17 | M-1-08 cascadeFilterReducer 抽出 ✅(`503a77a` 4 檔:packages/ui/src/filters/cascadeFilterReducer.ts 新建 framework-free cascade 篩選狀態機(reducer + makeInitialCascadeState + 9 action creators + VehicleSelection/CategorySelection/CascadeFilterState/CascadeFilterAction 4 型別)+ cascadeFilterReducer.test.ts 24 case + index.ts export * + phase-1-backlog.md #145/#146;Q2-redo=B 拍板:原指令「useCascadeFilter hook」改 framework-free 純函式 reducer(packages/ui 零 React 依賴、React hook 需 react+jsdom+@testing-library 違反鐵則 4/8);三 Filter(FilterSide/Top/Drawer)共用車輛(品牌→車型→年份)+ 分類(大分類→細項)cascade + 品牌 toggle 入 reducer、UI 導覽中介 state + price/colors/flags 留各元件;skill audit Round 1 requesting-code-review + Round 2 simplify×3:Critical 0、組 B(select-sub spread + test immutability 斷言)+ 組 C(consumer 契約 JSDoc)A3 拍板併入、bail-out 最佳化 A3 拍板進 backlog #146 trigger M-1-09;三綠 typecheck 7/7 + lint 10/10 + build 1/1 + test 48/48(本檔 24);字面 vs 事實:Claude.ai 字面 vs 實況事故族本 session 累積第 5 次(packages/ui 零 React vs 禁止清單「無 deps 新增」)、commit body 完整列;§4.5「useCascadeFilter hook」drift → backlog #145;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 6 欄位 | Claude Code |
+
+| 2026-05-18 | M-1-09 FilterSide.tsx 直接搬 ✅(`0c3052a` 9 檔:apps/storefront 新增 components/FilterSide.tsx(330 行、design FilterSide.jsx 直接搬 + 接 @pcm/ui cascadeFilterReducer B 混合模式:vehicle/category/brands 走 reducer、price/colors/inStock/isNew/isSale 本元件 useState 自管、樹展開收合 local state)+ data/mock-categories.ts(11 大分類巢狀、字面從 design-reference/data/products.js L73-157 直接搬、內容分級 L2)+ styles/filter-side.css(cp byte-identical 250 行)+ app/dev-preview/filter-side/page.tsx(肉眼驗 harness、並排 side/cascade 兩模式)、改 package.json 加 @pcm/ui workspace dep + layout.tsx 接 filter-side.css(load order pricing→filter-side→home 對齊 design index.html)+ pnpm-lock.yaml + phase-1-backlog.md #147/#148;reducer 接法:VehicleTree 點年份順序 dispatch selectVehicleBrand/Model/Year、CategoryTree 點細項 isActive→clearCategory 否則 selectCategoryMain+selectCategorySub;字面 vs 事實(鐵則 11):1. 計畫白話「12 大分類」實際 design 11、照真權威搬 11;2. 計畫列 6 檔實際 9 檔(+layout.tsx filter-side.css 掛載必要連動 +pnpm-lock.yaml @pcm/ui dep 連動);3. 計畫「補 #147」實際 #147+#148 二條(mock-categories L2 來源 / dev-preview route 移除、一條一個 trigger 紀律);FilterSide.tsx 330 行落 300-400 硬警戒未破 400、6 子元件對齊 design 單檔結構不拆;三綠 typecheck 7/7 + lint 10/10 + build 1/1;肉眼驗 Sean 確認 side/cascade 兩模式正確;#146 bail-out 拆獨立 slice 不附帶;ahead origin/dev 待 Sean push)、STATUS 手動更新跳 busboy-end amend | Claude Code |
 
 — END —

@@ -1,0 +1,330 @@
+// FilterSide.tsx — Variant B: Farfetch-style left sidebar
+// Accordion sections, multi-level category tree, persistent
+//
+// 字面從 design-reference/components/FilterSide.jsx 直接搬(M-1-09):
+// - jsx → tsx + props type
+// - React.useState → import { useState };新增 useReducer
+// - window.FilterSide UMD 註冊移除(改 ES export)
+// - 狀態管理 B 混合模式(M-1-08 拍板):vehicle / category / brands 接 @pcm/ui
+//   cascadeFilterReducer;price / colors / inStock / isNew / isSale 由本元件 useState 自管
+// - 樹展開 / 收合(expandedBrand / expandedModel / expanded / Accordion open)維持
+//   各子元件 local useState(UI 導覽 state、不入 reducer)
+// - className 字面完全不動
+
+'use client';
+
+import { useReducer, useState, type Dispatch, type ReactNode } from 'react';
+import {
+  cascadeFilterReducer,
+  makeInitialCascadeState,
+  selectVehicleBrand,
+  selectVehicleModel,
+  selectVehicleYear,
+  selectCategoryMain,
+  selectCategorySub,
+  clearCategory,
+  toggleBrand,
+  clearAll,
+  type VehicleSelection,
+  type CategorySelection,
+  type CascadeFilterAction,
+} from '@pcm/ui';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { MockCategory } from '@/data/mock-categories';
+import type { MockBrand } from '@/data/mock-brands';
+
+export type FilterSideData = {
+  motoBrands: MockMotoBrand[];
+  categories: MockCategory[];
+  brands: MockBrand[];
+};
+
+function Accordion({
+  title,
+  children,
+  defaultOpen = false,
+  count,
+}: {
+  title: string;
+  children: ReactNode;
+  defaultOpen?: boolean;
+  count?: number;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="fs-section">
+      <button className="fs-section-head" onClick={() => setOpen(!open)}>
+        <span className="fs-section-title">{title}</span>
+        {count != null && <span className="fs-section-count">({count})</span>}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+          style={{ marginLeft: 'auto', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="fs-section-body">{children}</div>}
+    </div>
+  );
+}
+
+function VehicleTree({
+  motoBrands,
+  vehicle,
+  dispatch,
+}: {
+  motoBrands: MockMotoBrand[];
+  vehicle: VehicleSelection | null;
+  dispatch: Dispatch<CascadeFilterAction>;
+}) {
+  const [expandedBrand, setExpandedBrand] = useState<string | null>(null);
+  const [expandedModel, setExpandedModel] = useState<string | null>(null);
+  return (
+    <div className="fs-tree">
+      {motoBrands.map((b) => (
+        <div key={b.id}>
+          <button className="fs-tree-row fs-tree-l1"
+            onClick={() => setExpandedBrand(expandedBrand === b.id ? null : b.id)}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              style={{ transform: expandedBrand === b.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+            <span>{b.name}</span>
+          </button>
+          {expandedBrand === b.id && b.models.map((m) => (
+            <div key={m.id}>
+              <button className="fs-tree-row fs-tree-l2"
+                onClick={() => setExpandedModel(expandedModel === m.id ? null : m.id)}>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                  style={{ transform: expandedModel === m.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+                  <path d="m9 18 6-6-6-6" />
+                </svg>
+                <span>{m.name}</span>
+              </button>
+              {expandedModel === m.id && m.years.map((y) => (
+                <button key={y}
+                  className={`fs-tree-row fs-tree-l3 ${vehicle?.brand === b.name && vehicle?.model === m.name && vehicle?.year === y ? 'is-active' : ''}`}
+                  onClick={() => {
+                    dispatch(selectVehicleBrand(b.name));
+                    dispatch(selectVehicleModel(m.name));
+                    dispatch(selectVehicleYear(y));
+                  }}>
+                  <span>{y}</span>
+                </button>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CategoryTree({
+  categories,
+  category,
+  dispatch,
+}: {
+  categories: MockCategory[];
+  category: CategorySelection | null;
+  dispatch: Dispatch<CascadeFilterAction>;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(category?.mainId ?? null);
+  return (
+    <div className="fs-tree">
+      {categories.map((c) => (
+        <div key={c.id}>
+          <button className="fs-tree-row fs-tree-l1"
+            onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+              style={{ transform: expanded === c.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+              <path d="m9 18 6-6-6-6" />
+            </svg>
+            <span>{c.name}</span>
+            <span className="fs-tree-count">{c.count}</span>
+          </button>
+          {expanded === c.id && c.children.map((s) => {
+            const isActive = category?.subId === s.id;
+            return (
+              <button key={s.id}
+                className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''}`}
+                onClick={() => {
+                  if (isActive) {
+                    dispatch(clearCategory());
+                  } else {
+                    dispatch(selectCategoryMain(c.id, c.name));
+                    dispatch(selectCategorySub(s.id, s.name));
+                  }
+                }}>
+                <span>{s.name}</span>
+                <span className="fs-tree-count">{s.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CheckboxList({
+  items,
+  selected,
+  onToggle,
+}: {
+  items: { id: string; name: string; count?: number }[];
+  selected: string[];
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="fs-cbx-list">
+      {items.map((it) => {
+        const checked = selected.includes(it.id);
+        return (
+          <label key={it.id} className={`fs-cbx-row ${checked ? 'is-checked' : ''}`}>
+            <input type="checkbox" checked={checked} onChange={() => onToggle(it.id)} />
+            <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+            <span className="fs-cbx-name">{it.name}</span>
+            {it.count != null && <span className="fs-cbx-count">{it.count}</span>}
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function PriceRangeSlider({
+  value,
+  onChange,
+}: {
+  value: [number, number] | undefined;
+  onChange: (v: [number, number]) => void;
+}) {
+  const min = 0, max = 150000;
+  const [lo, hi] = value || [min, max];
+  return (
+    <div className="fs-price">
+      <div className="fs-price-readout">
+        <span>NT$ {lo.toLocaleString()}</span>
+        <span>NT$ {hi.toLocaleString()}</span>
+      </div>
+      <div className="fs-price-track">
+        <div className="fs-price-fill" style={{
+          left: `${(lo - min) / (max - min) * 100}%`,
+          right: `${100 - (hi - min) / (max - min) * 100}%`,
+        }} />
+        <input type="range" min={min} max={max} step={500} value={lo}
+          onChange={(e) => onChange([Math.min(+e.target.value, hi - 500), hi])} />
+        <input type="range" min={min} max={max} step={500} value={hi}
+          onChange={(e) => onChange([lo, Math.max(+e.target.value, lo + 500)])} />
+      </div>
+      <div className="fs-price-presets">
+        <button onClick={() => onChange([0, 5000])}>&lt; 5K</button>
+        <button onClick={() => onChange([5000, 20000])}>5K–20K</button>
+        <button onClick={() => onChange([20000, 50000])}>20K–50K</button>
+        <button onClick={() => onChange([50000, 150000])}>50K+</button>
+      </div>
+    </div>
+  );
+}
+
+export function FilterSide({
+  data,
+  hideVehicle,
+}: {
+  data: FilterSideData;
+  hideVehicle?: boolean;
+}) {
+  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const [priceRange, setPriceRange] = useState<[number, number] | undefined>(undefined);
+  const [colors, setColors] = useState<string[]>([]);
+  const [inStock, setInStock] = useState(false);
+  const [isNew, setIsNew] = useState(false);
+  const [isSale, setIsSale] = useState(false);
+
+  const clearAllFilters = () => {
+    dispatch(clearAll());
+    setPriceRange(undefined);
+    setColors([]);
+    setInStock(false);
+    setIsNew(false);
+    setIsSale(false);
+  };
+
+  return (
+    <aside className="fs-side">
+      <div className="fs-side-head">
+        <span>篩選條件</span>
+        <button className="fs-clear" onClick={clearAllFilters}>清除全部</button>
+      </div>
+
+      {!hideVehicle && (
+        <Accordion title="依車輛搜尋" defaultOpen={true}>
+          <VehicleTree motoBrands={data.motoBrands} vehicle={cascade.vehicle} dispatch={dispatch} />
+        </Accordion>
+      )}
+
+      <Accordion title="零件分類" defaultOpen={true}>
+        <CategoryTree categories={data.categories} category={cascade.category} dispatch={dispatch} />
+      </Accordion>
+
+      <Accordion title="品牌" defaultOpen={false} count={data.brands.length}>
+        <div className="fs-brand-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+          </svg>
+          <input placeholder="搜尋品牌" />
+        </div>
+        <CheckboxList
+          items={data.brands}
+          selected={cascade.brands}
+          onToggle={(id) => dispatch(toggleBrand(id))}
+        />
+      </Accordion>
+
+      <Accordion title="價格範圍">
+        <PriceRangeSlider value={priceRange} onChange={(v) => setPriceRange(v)} />
+      </Accordion>
+
+      <Accordion title="顏色">
+        <div className="fs-colors">
+          {[
+            { id: 'black', name: '黑', hex: '#1a1a1a' },
+            { id: 'silver', name: '銀', hex: '#c4c4c4' },
+            { id: 'red', name: '紅', hex: '#dc2626' },
+            { id: 'gold', name: '金', hex: '#c9a552' },
+            { id: 'titanium', name: '鈦', hex: '#8a8578' },
+            { id: 'blue', name: '藍', hex: '#2563eb' },
+            { id: 'white', name: '白', hex: '#f4f4f5' },
+          ].map((c) => {
+            const on = colors.includes(c.id);
+            return (
+              <button key={c.id} className={`fs-color ${on ? 'is-on' : ''}`}
+                onClick={() => setColors(on ? colors.filter((x) => x !== c.id) : [...colors, c.id])}
+                title={c.name}>
+                <span style={{ background: c.hex, border: c.id === 'white' ? '1px solid var(--c-border-strong)' : 'none' }} />
+                <span className="fs-color-name">{c.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      </Accordion>
+
+      <Accordion title="其他">
+        <label className="fs-cbx-row">
+          <input type="checkbox" checked={inStock} onChange={() => setInStock(!inStock)} />
+          <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+          <span className="fs-cbx-name">僅顯示現貨</span>
+        </label>
+        <label className="fs-cbx-row">
+          <input type="checkbox" checked={isNew} onChange={() => setIsNew(!isNew)} />
+          <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+          <span className="fs-cbx-name">新品</span>
+        </label>
+        <label className="fs-cbx-row">
+          <input type="checkbox" checked={isSale} onChange={() => setIsSale(!isSale)} />
+          <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+          <span className="fs-cbx-name">特價中</span>
+        </label>
+      </Accordion>
+    </aside>
+  );
+}

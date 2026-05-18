@@ -1,9 +1,11 @@
 // app/layout.tsx — root layout(全域 CSS import)
 //
 // CSS load order 對齊 design-reference/index.html @ 25d3a2a:
-//   tokens → header → product-card → pricing → home
-// 其他 CSS(filter-* / products-page / product-page / pages / vehicle-drawer / account / search-overlay / tweaks)
-// d1 不引(首頁不需要、後續 slice trigger 才加)
+//   tokens → header → product-card → pricing → filter-side → home
+//   (filter-side.css 由 M-1-09 加入;design 完整序 filter-top / filter-drawer / products-page
+//    環繞 filter-side、M-1-10 / 11 / 12 trigger 才補)
+// 其他 CSS(product-page / pages / vehicle-drawer / account / search-overlay / tweaks)
+// 後續 slice trigger 才加(首頁不需要)
 //
 // fonts 對齊 design index.html(Inter / Noto Sans TC / Noto Serif TC / Cormorant Garamond / JetBrains Mono)
 // 走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)
@@ -13,6 +15,7 @@ import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/product-card.css';
 import '../styles/pricing.css';
+import '../styles/filter-side.css';
 import '../styles/home.css';
 
 export const metadata = {

@@ -3777,6 +3777,54 @@
 - **發現於:** 2026-05-17 / M-1-08 skill audit Round 2
 - **相關:** #145、`packages/ui/src/filters/cascadeFilterReducer.ts`(reducer + L171 註解)
 
+### #147. ⏳ mock-categories.ts L2 內容真實分類來源
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - M-1-09 新增 `apps/storefront/src/data/mock-categories.ts`(11 大分類巢狀、字面從 `design-reference/data/products.js` L73-157 直接搬)
+  - 分類資料屬內容分級 L2(偶爾季度調整)、目前 hardcode mock、無後台來源
+  - `count` 欄為 design mock 靜態值、與真實商品數無連動
+- **觸發事件(任一觸發即啟動實作):**
+  - 2026-05-18 / M-1-09 FilterSide.tsx CategoryTree 需巢狀 categories、storefront 無對應 mock 故新建
+  - Phase 2 category 後台 CRUD / Supabase category 來源建立時
+- **預期解法:**
+  - mock-categories.ts 接 Supabase category 真資料(對齊 `mock-brands.ts` / `mock-products.ts` 同 d1-era mock → d2 adapter 模式)
+  - `count` 改由真實商品數聚合、非靜態值
+- **不修會痛在:**
+  - 擴充性:Phase 2 後台改分類、前台 mock 不同步、FilterSide / FilterTop / FilterDrawer 三處顯示舊分類
+  - 可維護性:分類調整需手改 mock-categories.ts、無單一真權威
+  - bug 可追蹤性:`count` 與真實商品數不符時、難判是 mock 舊或聚合錯
+- **估時:** 30-60 min(視 Supabase category schema)
+- **依賴:** Supabase category 來源 / Phase 2 category CRUD
+- **發現於:** 2026-05-18 / M-1-09
+- **相關:** #148、`apps/storefront/src/data/mock-categories.ts`、`apps/storefront/src/data/mock-brands.ts`(同 d1-era mock 模式)
+
+---
+
+### #148. ⏳ dev-preview/* 臨時驗證 route 部署前移除
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - M-1-09 新增 `apps/storefront/src/app/dev-preview/filter-side/page.tsx` 作為 FilterSide 元件肉眼驗 harness(ProductsPage M-1-12 尚未做、無宿主頁)
+  - M-1-10 / M-1-11(FilterTop / FilterDrawer)預期同樣新增 dev-preview route
+  - dev-preview/* 屬開發臨時頁、不應上 production
+- **觸發事件(任一觸發即啟動實作):**
+  - M-1-12 ProductsPage 完成、Filter 元件有正式宿主頁、dev-preview 失去用途
+  - M-6 / 部署前最終清理
+- **預期解法:**
+  - 刪除 `apps/storefront/src/app/dev-preview/` 整個目錄
+  - 或保留但加 production 環境 404(視部署前討論)
+- **不修會痛在:**
+  - 擴充性:dev-preview route 隨 M-1-10 / 11 累積、不清理越來越多臨時頁
+  - 可維護性:production 暴露 /dev-preview/* 開發頁、非預期對外
+  - bug 可追蹤性:臨時頁混入正式 route、sitemap / SEO 掃描出非預期頁面
+- **估時:** 10 min(刪目錄)
+- **依賴:** M-1-12 ProductsPage 完成 / 或 M-6 部署前
+- **發現於:** 2026-05-18 / M-1-09
+- **相關:** #147、`apps/storefront/src/app/dev-preview/`
+
 ---
 
 ## 紀錄模板

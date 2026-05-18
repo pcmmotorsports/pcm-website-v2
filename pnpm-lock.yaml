@@ -78,6 +78,9 @@ importers:
       '@pcm/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@pcm/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       next:
         specifier: 16.2.6
         version: 16.2.6(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
