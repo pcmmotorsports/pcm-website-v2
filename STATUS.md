@@ -3,21 +3,21 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~09 ✅、餘 M-1-10~16)
-**當前 slice:** M-1-09 FilterSide.tsx 直接搬 ✅
+**當前 slice:** M-1-09 ✅;工作流優化 WO-1 + WO-2 ✅(WO-3~6 待續)
 **Branch:** dev
 
 ## 最後更新
-2026-05-18 — Claude Code [M-1-09 FilterSide.tsx]
+2026-05-18 — Claude Code [工作流優化 WO-1 + WO-2]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `0c3052a` | feat(storefront): FilterSide.tsx 直接搬 + filter-side.css [M-1-09] | 2026-05-18 |
-| `03ada9d` | feat(ui): cascadeFilterReducer 抽出、解鎖 M-1-09/10/11 [M-1-08] | 2026-05-17 |
-| `00995d2` | chore(storefront): 移除 LINE bot 程式碼(已拆至獨立 repo) | 2026-05-17 |
+| `d0d3d32` | test(storefront): storefront 測試 infra + FilterSide smoke test [WO-2] | 2026-05-18 |
+| `9661772` | docs(workflow): CLAUDE.md 補 slice 開工自檢清單 + 前台 smoke test 慣例 [WO-1] | 2026-05-18 |
+| `97652bb` | feat(storefront): FilterSide.tsx 直接搬 + filter-side.css [M-1-09] | 2026-05-18 |
 
 ## 下一步
-Claude.ai 排 M-1-10 FilterTop.tsx 直接搬(含 CascadeFilterTop)+ filter-top.css;#146 cascadeFilterReducer bail-out 待排獨立 slice;#138 home.css 真權威待 Claude Design
+工作流優化 WO-3~6 待續(WO-3 其餘前台元件 smoke test 起、須先建 next/navigation mock 策略;WO-4 dev-preview 模板化 / WO-5 backlog 分流 / WO-6 STATUS 瘦身;詳見 plan 檔 `~/.claude/plans/skill-radiant-dragon.md`);之後 M-1-10 FilterTop.tsx(含 CascadeFilterTop);#146 / #138 待排
 
 ## Sean 待決策
 #1 發票自動化 / #2 測試覆蓋率 / #3 TapPay sandbox / #4 部署(Vercel+Railway)
@@ -214,5 +214,9 @@ busboy-end 跑完後 amend 進 slice 主 commit、不另開 commit。
 | 2026-05-17 | M-1-08 cascadeFilterReducer 抽出 ✅(`503a77a` 4 檔:packages/ui/src/filters/cascadeFilterReducer.ts 新建 framework-free cascade 篩選狀態機(reducer + makeInitialCascadeState + 9 action creators + VehicleSelection/CategorySelection/CascadeFilterState/CascadeFilterAction 4 型別)+ cascadeFilterReducer.test.ts 24 case + index.ts export * + phase-1-backlog.md #145/#146;Q2-redo=B 拍板:原指令「useCascadeFilter hook」改 framework-free 純函式 reducer(packages/ui 零 React 依賴、React hook 需 react+jsdom+@testing-library 違反鐵則 4/8);三 Filter(FilterSide/Top/Drawer)共用車輛(品牌→車型→年份)+ 分類(大分類→細項)cascade + 品牌 toggle 入 reducer、UI 導覽中介 state + price/colors/flags 留各元件;skill audit Round 1 requesting-code-review + Round 2 simplify×3:Critical 0、組 B(select-sub spread + test immutability 斷言)+ 組 C(consumer 契約 JSDoc)A3 拍板併入、bail-out 最佳化 A3 拍板進 backlog #146 trigger M-1-09;三綠 typecheck 7/7 + lint 10/10 + build 1/1 + test 48/48(本檔 24);字面 vs 事實:Claude.ai 字面 vs 實況事故族本 session 累積第 5 次(packages/ui 零 React vs 禁止清單「無 deps 新增」)、commit body 完整列;§4.5「useCascadeFilter hook」drift → backlog #145;ahead origin/dev = 1 待 Sean push)、busboy-end amend 補 6 欄位 | Claude Code |
 
 | 2026-05-18 | M-1-09 FilterSide.tsx 直接搬 ✅(`0c3052a` 9 檔:apps/storefront 新增 components/FilterSide.tsx(330 行、design FilterSide.jsx 直接搬 + 接 @pcm/ui cascadeFilterReducer B 混合模式:vehicle/category/brands 走 reducer、price/colors/inStock/isNew/isSale 本元件 useState 自管、樹展開收合 local state)+ data/mock-categories.ts(11 大分類巢狀、字面從 design-reference/data/products.js L73-157 直接搬、內容分級 L2)+ styles/filter-side.css(cp byte-identical 250 行)+ app/dev-preview/filter-side/page.tsx(肉眼驗 harness、並排 side/cascade 兩模式)、改 package.json 加 @pcm/ui workspace dep + layout.tsx 接 filter-side.css(load order pricing→filter-side→home 對齊 design index.html)+ pnpm-lock.yaml + phase-1-backlog.md #147/#148;reducer 接法:VehicleTree 點年份順序 dispatch selectVehicleBrand/Model/Year、CategoryTree 點細項 isActive→clearCategory 否則 selectCategoryMain+selectCategorySub;字面 vs 事實(鐵則 11):1. 計畫白話「12 大分類」實際 design 11、照真權威搬 11;2. 計畫列 6 檔實際 9 檔(+layout.tsx filter-side.css 掛載必要連動 +pnpm-lock.yaml @pcm/ui dep 連動);3. 計畫「補 #147」實際 #147+#148 二條(mock-categories L2 來源 / dev-preview route 移除、一條一個 trigger 紀律);FilterSide.tsx 330 行落 300-400 硬警戒未破 400、6 子元件對齊 design 單檔結構不拆;三綠 typecheck 7/7 + lint 10/10 + build 1/1;肉眼驗 Sean 確認 side/cascade 兩模式正確;#146 bail-out 拆獨立 slice 不附帶;ahead origin/dev 待 Sean push)、STATUS 手動更新跳 busboy-end amend | Claude Code |
+
+| 2026-05-18 | 工作流優化 WO-1 ✅(`9661772` 2 檔:CLAUDE.md 新增「快速自檢清單(slice 開工)」6 項 + 收工清單補「動前台元件順手補 smoke test」條;testing-strategy.md §1 補「前台元件 smoke test 慣例」+ §6 變更紀錄、明示 smoke test ≠ coverage 數字目標;6 個工作流優化 WO 之一;純 docs slice、slice-checkpoint §2.2 三綠豁免)| Claude Code |
+
+| 2026-05-18 | 工作流優化 WO-2 ✅(`d0d3d32` 5 檔:storefront 前台測試 infra — root package.json 加 jsdom + @vitejs/plugin-react、apps/storefront/package.json 加 @testing-library/react、root vitest.config.ts 加 react plugin、新增 FilterSide.test.tsx 4 smoke test、pnpm-lock;字面 vs 事實:計畫原寫「新增 apps/storefront/vitest.config.ts」、實況偵察 repo 為單一 root config + root `vitest run` 無 per-package 繼承機制、改為改 root config 加 plugin + per-file `// @vitest-environment jsdom` docblock;先試 esbuild.jsx automatic、vitest 4 / vite 8 / rolldown 不接、改 @vitejs/plugin-react;三綠 typecheck 7/7 + lint 10/10 + build 1/1 + test 4 檔 52 全綠;WO-1 + WO-2 已推 origin/dev `97652bb..d0d3d32`)| Claude Code |
 
 — END —
