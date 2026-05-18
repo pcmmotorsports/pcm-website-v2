@@ -3,21 +3,21 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~09 ✅、餘 M-1-10~16)
-**當前 slice:** M-1-09 ✅;工作流優化 WO-1~3 ✅(WO-4~6 待續)
+**當前 slice:** M-1-09 ✅;工作流優化 WO-1~4 ✅(WO-5~6 待續)
 **Branch:** dev
 
 ## 最後更新
-2026-05-19 — Claude Code [工作流優化 WO-3]
+2026-05-19 — Claude Code [工作流優化 WO-4]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `27a0271` | refactor(storefront): 抽 dev-preview 共用骨架 PreviewHarness [WO-4] | 2026-05-19 |
 | `7c70aca` | test(storefront): 補 11 個前台元件 smoke test + vitest @ alias [WO-3] | 2026-05-19 |
 | `d0d3d32` | test(storefront): storefront 測試 infra + FilterSide smoke test [WO-2] | 2026-05-18 |
-| `9661772` | docs(workflow): CLAUDE.md 補 slice 開工自檢清單 + 前台 smoke test 慣例 [WO-1] | 2026-05-18 |
 
 ## 下一步
-工作流優化 WO-4~6 待續(WO-4 dev-preview harness 模板化、M-1-10 前完成 / WO-5 backlog 123 條分 4 流 / WO-6 STATUS 瘦身;詳見 plan 檔 `~/.claude/plans/skill-radiant-dragon.md`);之後 M-1-10 FilterTop.tsx(含 CascadeFilterTop);#146 / #138 待排
+工作流優化 WO-5~6 待續(WO-5 backlog 123 條分 4 流 / WO-6 STATUS 瘦身;詳見 plan 檔 `~/.claude/plans/skill-radiant-dragon.md`);之後 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 的 PreviewHarness);#146 / #138 待排
 
 ## Sean 待決策
 #1 發票自動化 / #2 測試覆蓋率 / #3 TapPay sandbox / #4 部署(Vercel+Railway)
