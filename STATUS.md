@@ -12,9 +12,9 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `0c48c70` | docs(workflow): STATUS.md 瘦身 — 變更紀錄移 PROGRESS、速查抽出 [WO-6] | 2026-05-19 |
 | `27a0271` | refactor(storefront): 抽 dev-preview 共用骨架 PreviewHarness [WO-4] | 2026-05-19 |
 | `7c70aca` | test(storefront): 補 11 個前台元件 smoke test + vitest @ alias [WO-3] | 2026-05-19 |
-| `d0d3d32` | test(storefront): storefront 測試 infra + FilterSide smoke test [WO-2] | 2026-05-18 |
 
 ## 下一步
 工作流優化 WO-5 待續(backlog 123 條分 4 流、估 ~1hr、開工前先拆 2-3 子 slice;詳見 plan 檔 `~/.claude/plans/skill-radiant-dragon.md`);之後 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 的 PreviewHarness);#146 / #138 待排
