@@ -276,7 +276,7 @@ busboy 失敗 → 停下回報、不自行 retry。
 
 STATUS.md 結構:
 - 主表(7 欄、`---` 分隔線上方)≤30 行嚴守、超過 → 精簡 content、不准砍欄位
-- 附屬區(`---` 分隔線下方):變更紀錄 / Busboy 機制 / 文件交叉引用 / 速查、不限長度自然增長
+- 附屬區(`---` 分隔線下方):Busboy 機制 / 文件交叉引用 / 外移指標、不限長度自然增長(WO-6 後:變更紀錄已移 `PROGRESS.md`「STATUS.md 變更紀錄歸檔」段、速查已移 `docs/quick-reference.md`、STATUS 不再收這兩類)
 
 7 欄(順序):當前狀態 / 最後更新 / 最近 3 commit / 下一步 / Sean 待決策 / Blocker / 緊急 backlog
 
