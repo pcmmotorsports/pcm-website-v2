@@ -14,10 +14,20 @@
  *
  * environment: 'node'(domain 邏輯不需 jsdom)
  */
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 export default defineConfig({
+  // storefront 元件 runtime import `@/...`(對齊 apps/storefront/tsconfig.json
+  // paths `@/*` → `./src/*`)。vitest 不讀 tsconfig paths、需顯式 alias、否則
+  // VehicleFinder / BrandIndex 等 runtime `@/` import 的元件 test 會 resolve 失敗。
+  // (WO-2 未觸及:FilterSide.tsx 走 props 注入 data、無 runtime `@/` import。)
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./apps/storefront/src', import.meta.url)),
+    },
+  },
   test: {
     // include glob 擴 .tsx + .spec + apps/**(M-1-02-audit E1 修):
     // - 原 'packages/**/*.test.ts' 只抓 .ts、M-1-03+ storefront / ui React component test (.tsx) 會 silently skipped
