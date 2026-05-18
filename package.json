@@ -23,10 +23,12 @@
   "devDependencies": {
     "@types/papaparse": "^5.5.2",
     "@typescript-eslint/parser": "catalog:",
+    "@vitejs/plugin-react": "^5.0.0",
     "eslint": "catalog:",
     "eslint-import-resolver-typescript": "catalog:",
     "eslint-plugin-boundaries": "catalog:",
     "husky": "^9.1.7",
+    "jsdom": "^26.0.0",
     "lint-staged": "^17.0.4",
     "papaparse": "^5.5.3",
     "turbo": "^2.3.0",

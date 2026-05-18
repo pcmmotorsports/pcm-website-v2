@@ -15,6 +15,7 @@
  * environment: 'node'(domain 邏輯不需 jsdom)
  */
 import { defineConfig } from 'vitest/config';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   test: {
@@ -32,4 +33,8 @@ export default defineConfig({
     ],
     environment: 'node',
   },
+  // React component test(.tsx)JSX 轉譯(WO-2 storefront 測試 infra)。
+  // 純 TS 測試(domain / adapters)無 JSX、plugin 不影響。
+  // 個別 component test 檔以 `// @vitest-environment jsdom` docblock 切 jsdom 環境。
+  plugins: [react()],
 });
