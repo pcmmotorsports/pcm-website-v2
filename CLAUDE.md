@@ -427,6 +427,19 @@ A: 選項 X
 
 ---
 
+## 快速自檢清單(slice 開工)
+
+每個 slice 動手前跑(M-1-09 驗證過的開工順序、固化):
+
+- [ ] 起手檢查綠?(branch = dev / 工作樹乾淨 / HEAD 對齊 STATUS,或 1 步 amend drift 屬慣例)
+- [ ] 已讀 STATUS.md「下一步」、確認本 slice 範圍?
+- [ ] 動 design 元件 → 已 grep design-reference 真權威字面、不憑記憶?
+- [ ] 內容分級 L1 / L2 / L3 已標?(發現 L3 立即停、寫 PRD)
+- [ ] 判定是否「重大改動」(鐵則 8:跨 3+ 檔 / 動 schema / 共用元件 / config)→ 是則先提 plan 等 Sean 批?
+- [ ] 估時 15-45 分鐘?(超出先拆 slice)
+
+---
+
 ## 快速自檢清單(寫 slice 指令前)
 
 - [ ] 是「直接搬 design」還是「翻譯 / 重寫」?(後者錯)
@@ -447,6 +460,7 @@ A: 選項 X
 
 - [ ] 肉眼驗(前台啟動、操作流程跑一遍)?
 - [ ] **三綠 checkpoint:** typecheck + lint(動 .ts/.tsx 加 build)全綠才允許 commit、不可 disable / skip / ignore(詳見 `docs/patterns/slice-checkpoint.md`)?
+- [ ] 動到前台元件 → 已順手補 / 更新該元件 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`)?
 - [ ] commit 訊息字面 vs 事實一致?字面與事實偏離必在 commit body 註明?
 - [ ] 精準 git add(不用 git add . / -A)?
 - [ ] commit 訊息符合 `type(scope): subject [milestone]` 格式?

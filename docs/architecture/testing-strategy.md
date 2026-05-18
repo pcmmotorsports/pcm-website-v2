@@ -36,6 +36,15 @@
 
 教訓來源:M-1-02 vitest config include 只寫 `packages/**/*.test.ts`、漏 .tsx + .spec + apps/**、M-1-03+ storefront / ui React component test 會 silently skipped(M-1-02-audit E1 抓出、立即修)。
 
+**前台元件 smoke test 慣例(2026-05-18 WO-1 落地、對應 STATUS Sean 待決策 #2):**
+
+Phase 1 期間,動到 storefront 前台元件的每個 slice,收工三綠前順手補 / 更新該元件的
+`*.test.tsx` smoke test —— 驗「能正常 render 不報錯 + 關鍵互動不報錯」,作為剩餘 50+ 個
+前台 slice 連續開發的 regression 安全網。
+
+此慣例 **≠ coverage 數字目標**:smoke test 是「測試檔案存在、擋 regression」;coverage
+百分比門檻仍依 §5 留 G2 / M-6 拍板。
+
 ---
 
 ## §2 vitest 設定
@@ -147,5 +156,7 @@ describe('placeOrder', () => {
 |---|---|---|
 | 2026-05-03 | 初始化 minimum 版(test 位置 / vitest 設定 / mock 風格 / description 慣例) | ADR-0004 Q5=A3 落地、由 Claude Code(M-0-10a)寫 |
 | 2026-05-04 | §1 擴 .tsx + .spec + apps/** 字面(E1 規範類);加 vitest config include glob 字面對齊段(M-1-02 教訓);§3.4 新節「in-memory 樣板不搬到真實 adapter」(Q2/E2/E5 規範類、防 M-1-03 開發者照 InMemory 樣板抄 leak 進 MedusaProductAdapter) | Claude Code(M-1-02-audit) |
+
+| 2026-05-18 | §1 補「前台元件 smoke test 慣例」(WO-1 工作流優化、對應 STATUS Sean 待決策 #2;Phase 1 動前台 slice 順手補 `*.test.tsx`、≠ coverage 目標) | Claude Code(WO-1) |
 
 — END —
