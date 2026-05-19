@@ -3,24 +3,24 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~09 ✅、餘 M-1-10~16)
-**當前 slice:** Codex 審查後續處置 Slice 0 ✅(鐵則 12 + codex-review-packet 固化)
+**當前 slice:** Codex 審查後續處置 Slice A ✅(products base 表欄位級 GRANT)
 **Branch:** dev
 
 ## 最後更新
-2026-05-19 — Claude Code [Codex 審查後續處置 Slice 0]
+2026-05-19 — Claude Code [Codex 審查後續處置 Slice A]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(待補)` | docs(workflow): 鐵則 12 + codex-review-packet.md 固化 Codex 唯讀審查流程 | 2026-05-19 |
+| `(待補)` | fix(schemas): products base 表改欄位級 GRANT 防經銷價繞 view 洩漏 | 2026-05-19 |
+| `096856f` | docs(workflow): 鐵則 12 + codex-review-packet.md 固化 Codex 唯讀審查流程 | 2026-05-19 |
 | `cd4ffb0` | docs(workflow): backlog 115 條待執行分 4 流 + 寫法規範補分流標籤 [WO-5] | 2026-05-19 |
-| `0c48c70` | docs(workflow): STATUS.md 瘦身 — 變更紀錄移 PROGRESS、速查抽出 [WO-6] | 2026-05-19 |
 
 ## 下一步
-Codex 審查後續處置 Slice A(products base 表欄位級 GRANT、修經銷價繞 view 直接洩漏)→ Slice B(testing-strategy §4.1 測試驗意圖);之後回主線 M-1-10 FilterTop.tsx
+Codex 審查後續處置 Slice B(testing-strategy §4.1 測試驗意圖);之後偵察 pcm-line-bot 提共用 DB 處置 plan(backlog #149);回主線 M-1-10 FilterTop.tsx
 
 ## Sean 待決策
-#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6）
+#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway) / pcm-line-bot 共用 Supabase DB 處置(backlog #149)（#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6）
 
 ## Blocker
 無

@@ -3958,6 +3958,37 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #149. ⏳ pcm-website-v2 與 pcm-line-bot 共用 Supabase DB 處置評估
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟠 中
+- **問題:**
+  - pcm-website-v2 與另一專案 `/Users/sean_1/pcm-line-bot` 共用同一個 Supabase 專案(`bmpnplmnldofgaohnaok`)
+  - 兩 repo 各有獨立 `supabase/migrations/`:pcm-line-bot 的 7 支 `line_*` migration 在 remote DB、不在本 repo;本 repo 的 `products` 系列 migration 不在 line-bot repo
+  - 後果:`supabase db push` 從本 repo 跑會偵測到「remote 有 local 沒有的 migration」直接拒絕(Slice A 實測);本 repo 不再是 DB schema 完整真權威
+- **觸發事件:**
+  - 2026-05-19 Codex 審查後續處置 Slice A(products 欄位級 GRANT)套用時、`supabase db push` 失敗、改用 MCP `apply_migration` 繞過
+- **預期解法(待 Sean 拍板,對應先前 Q2=A 延後決策):**
+  - 方案 A:pcm-line-bot 併入本 monorepo(成 `apps/line-bot`)、單一 `supabase/migrations/`
+  - 方案 B:維持兩 repo、指定本 repo 為 Supabase schema 唯一擁有者
+  - 方案 C:pcm-line-bot 改用獨立 Supabase 專案、徹底解耦
+  - 方案 D:維持現狀 + migration 紀律(見下)
+  - 由 Claude Code 先偵察 pcm-line-bot(結構 / 技術棧 / 部署)再提完整 plan
+- **操作紀律(立即生效、不待方案拍板):**
+  - 任一 repo **絕不**跑 `supabase db pull` / `supabase db reset` / `supabase migration repair` —— 會試圖對齊而清掉另一專案的 migration
+  - migration 一律走 MCP `apply_migration` 或精準手動套用、且 migration 檔版本對齊 remote ledger
+- **不修會痛在:**
+  - 擴充性:未來任一專案加 migration 都撞同樣的 db push 拒絕、每次繞過
+  - 可維護性:兩 repo schema 真權威分裂、新人 clone 任一 repo 重建 DB 都不完整
+  - bug 可追蹤性:DB schema 變更散在兩 repo + MCP 直套、出錯難定位是哪邊改的
+- **估時:** 偵察 + 提 plan 30 min;方案落地視拍板(合併 repo 可能數小時)
+- **依賴:** Sean 拍板選方案;Codex 審查後續處置 Slice A / B 收尾後啟動偵察
+- **發現於:** 2026-05-19 / Codex 審查後續處置 Slice A
+- **相關:** `supabase/migrations/20260519031049_products_base_table_column_grants.sql`
+
+---
+
 ## 紀錄模板
 
 ```markdown

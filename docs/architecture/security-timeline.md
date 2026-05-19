@@ -200,5 +200,6 @@ C4 議題是「Phase 1 安全檢查項目該怎麼分布」。三候選:
 |---|---|---|
 | 2026-05-01 | 初始化 security-timeline.md(C4 拍板 C 三權分立、§3 主表 30 條 M-0~M-6、§4 對應索引、§5 與三綠 checkpoint 關係、§6 三視角、§7 劃線) | Claude.ai + Sean / 由 Claude Code(M-0-08)落地 |
 | 2026-05-03 | §3 主表加 #F6 Supabase 升 Pro trigger(M-6-08、對齊 ADR-0004 Q1=A2);總計 30 → 31 條、M-6 6 → 7 條 | Claude Code(M-0-10c) |
+| 2026-05-19 | #C4 落地補強:base `products` 表改欄位級 GRANT(migration `20260519031049`、REVOKE 整表 ALL、column-GRANT 14 公開欄)、阻 anon / authenticated 繞 `products_public` view 直取 `price_by_tier` / `price_store` / `metadata` | Claude Code(Codex 審查後續處置 Slice A) |
 
 — 文件結束 —

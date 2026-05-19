@@ -326,6 +326,7 @@ ALTER TABLE customers ADD CONSTRAINT customer_tier_fk FOREIGN KEY (tier)
    - 一般客人 client bundle 永遠看不到 store / premiumStore 經銷價
    - wire 端為 Supabase `products.price_by_tier` jsonb(`general` + `store` 二 key、`premiumStore` 由公式算)
    - **DB 層第二道防線:** `products_public` view 排除 `price_by_tier` 整欄(M-1-03-audit-slice-A 落地、migration `20260510134708_products_public_view.sql`、adapter 切換 trigger backlog #118)
+   - **DB 層第三道防線:** base `products` 表改欄位級 GRANT(migration `20260519031049_products_base_table_column_grants.sql`、Codex 審查後續處置 Slice A)—— REVOKE 整表 ALL、只 column-GRANT SELECT 14 個公開欄給 anon / authenticated;`price_by_tier` / `price_store` / `metadata` 連直接打 base 表(繞 view)都取不到、寫權限(含不走 RLS 的 TRUNCATE)亦全收回。security_invoker view 因只投射這 14 欄、不受影響。⚠️ 未來 `products` 加公開欄須同步加進此 GRANT(另開 migration)、否則 view 投射該欄會壞
 
 2. **`Customer.tier` server-side 重查**(M-2-02 / M-2-03 落地、對齊 security-timeline #A3)
    - client 送的 tier header / cookie 一律 ignore
@@ -477,7 +478,7 @@ shipped → delivered        (客人收件)
 
 | 表 | RLS policy(讀)| RLS policy(寫)| 對應 security-timeline | 落地 milestone |
 |---|---|---|---|---|
-| **products** | 全 SELECT 公開(server-side filter price_by_tier 解 tier、對齊 §6.1) | INSERT / UPDATE / DELETE 限 service role(admin / sync-engine 用)| #C4 priceByTier 不洩漏需 server-side 過濾 + **DB 層 `products_public` view 第二道防線(M-1-03-audit-slice-A、backlog #118 trigger)** | M-1-03 |
+| **products** | RLS policy 全 SELECT 公開(USING true);GRANT 為欄位級、anon / authenticated 只 14 公開欄(見備註) | INSERT / UPDATE / DELETE 限 service role(admin / sync-engine 用)| #C4 priceByTier 不洩漏需 server-side 過濾 + **DB 層 `products_public` view 第二道防線(M-1-03-audit-slice-A、backlog #118 trigger)** + **base 表欄位級 GRANT 第三道防線(migration `20260519031049`、REVOKE 整表 ALL、column-GRANT 14 公開欄)** | M-1-03 |
 | **brands** | 全 SELECT 公開 | service role only | — | M-1-03 |
 | **categories** | 全 SELECT 公開 | service role only | — | M-1-03 |
 | **customers** | SELECT 限 `auth.uid() = id`(自己看自己)| UPDATE 限自己(限欄位:不可改 tier);DELETE service role only | #A2 + #A3 + #C5 | M-1-14 + M-2-01 |
