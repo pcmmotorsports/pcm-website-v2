@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(待補)` | chore(config): 新增 GitHub Actions CI gate lint/typecheck/test | 2026-05-19 |
+| `39b6ccd` | chore(config): 新增 GitHub Actions CI gate lint/typecheck/test | 2026-05-19 |
 | `8f5d90c` | feat(storefront): 新增 FilterDrawer 對齊 design 真權威 [M-1-11] | 2026-05-19 |
 | `e5a809e` | feat(storefront): 新增 FilterTop + CascadeFilterTop 對齊 design 真權威 [M-1-10] | 2026-05-19 |
 
