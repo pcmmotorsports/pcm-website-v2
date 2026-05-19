@@ -4,14 +4,16 @@
 //
 // 字面從 design-reference/components/FilterTop.jsx L286-407 直接搬(M-1-10):
 // - jsx → tsx + props type
-// - React.useState → import { useReducer, useState }
 // - window.CascadeFilterTop UMD 註冊移除(改 ES export)
-// - 狀態管理 B 混合模式(M-1-08 拍板):vehicle 接 @pcm/ui cascadeFilterReducer;
-//   tmpBrand / tmpModel / tmpYear 為 select 導覽 state、維持 local useState
-// - design 的 filters / setFilters props 來自尚未做的 ProductsPage(M-1-12)→ 比照
-//   M-1-09 FilterSide 移除、元件自管;onOpenDrawer 留成 optional prop(接 M-1-11
-//   FilterDrawer)
+// - tmpBrand / tmpModel / tmpYear 為 select 導覽 state、維持 local useState
+// - onOpenDrawer 留成 optional prop(接 FilterDrawer)
 // - className 字面完全不動
+//
+// 狀態管理(M-1-08 拍板 B 混合模式 → M-1-12a 改 controlled):
+// - vehicle 走 @pcm/ui cascadeFilterReducer;本元件不持 extras(僅車款 cascade)。
+// - M-1-10 期間本元件自管 cascade;M-1-12a 起改 controlled —— cascade / dispatch
+//   由宿主透過 props 傳入(Sean 拍板狀態架構=方案 1、見
+//   docs/recon/M-1-12-products-page-recon.md)。
 //
 // 字面 vs 事實揭示:
 // 1. design 的 searchVehicle 函式定義了但 JSX 無按鈕引用(死碼)→ 不搬
@@ -25,25 +27,25 @@
 
 'use client';
 
-import { useReducer, useState, type ChangeEvent } from 'react';
+import { useState, type ChangeEvent } from 'react';
 import {
-  cascadeFilterReducer,
-  makeInitialCascadeState,
   selectVehicleBrand,
   selectVehicleModel,
   selectVehicleYear,
   clearVehicle,
 } from '@pcm/ui';
+import type { CascadeControlledProps } from './filter-state';
 import type { FilterTopData } from './FilterTop';
 
 export function CascadeFilterTop({
   data,
   onOpenDrawer,
+  cascade,
+  dispatch,
 }: {
   data: FilterTopData;
   onOpenDrawer?: (target: string) => void;
-}) {
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+} & CascadeControlledProps) {
   const [tmpBrand, setTmpBrand] = useState('');
   const [tmpModel, setTmpModel] = useState('');
   const [tmpYear, setTmpYear] = useState('');

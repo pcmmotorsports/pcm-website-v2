@@ -3,25 +3,23 @@
 //
 // 字面從 design-reference/components/FilterTop.jsx 直接搬(M-1-10):
 // - jsx → tsx + props type
-// - React.useState → import { useEffect, useReducer, useState }
 // - window.FilterTop / window.CategoryPanel UMD 註冊移除(改 ES export)
-// - 狀態管理 B 混合模式(M-1-08 拍板):vehicle / category / brands 接 @pcm/ui
-//   cascadeFilterReducer;price / inStock 由本元件 useState 自管
-// - design 的 filters / setFilters / onSortChange / sort props 來自尚未做的
-//   ProductsPage(M-1-12)→ 比照 M-1-09 FilterSide 移除、元件自管:sort 改本元件
-//   useState、resultCount 留成 prop(外部資料、元件算不出)
 // - dropdown 導覽 state(open / vehBrand / vehModel / CategoryPanel main)維持各
 //   元件 local useState(UI 特異、不入 reducer)
 // - className 字面完全不動
-// - design FilterTop.jsx 的 ActiveChips 不在 M-1-10 scope(非本元件依賴、ProductsPage
-//   M-1-12 用)→ 不搬
+// - design FilterTop.jsx 的 ActiveChips 不在本元件 scope(ProductsPage M-1-12 用)→ 不搬
+//
+// 狀態管理(M-1-08 拍板 B 混合模式 → M-1-12a 改 controlled):
+// - vehicle / category / brands 走 @pcm/ui cascadeFilterReducer;price / inStock
+//   收斂進 ProductExtraFilters(見 filter-state.ts);sort 為排序、由宿主獨立持有。
+// - M-1-10 期間本元件自管上述 state;M-1-12a 起改 controlled —— cascade / dispatch /
+//   extras / setExtras / sort / setSort 一律由宿主透過 props 傳入
+//   (Sean 拍板狀態架構=方案 1、見 docs/recon/M-1-12-products-page-recon.md)。
 
 'use client';
 
-import { useEffect, useReducer, useState, type Dispatch } from 'react';
+import { useEffect, useState, type Dispatch } from 'react';
 import {
-  cascadeFilterReducer,
-  makeInitialCascadeState,
   selectVehicleBrand,
   selectVehicleModel,
   selectVehicleYear,
@@ -34,6 +32,11 @@ import {
   type CategorySelection,
   type CascadeFilterAction,
 } from '@pcm/ui';
+import {
+  makeInitialExtraFilters,
+  type CascadeControlledProps,
+  type ExtrasControlledProps,
+} from './filter-state';
 import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockBrand } from '@/data/mock-brands';
@@ -63,12 +66,21 @@ function Chevron({ open }: { open: boolean }) {
   );
 }
 
-export function FilterTop({ data, resultCount }: { data: FilterTopData; resultCount: number }) {
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  const [price, setPrice] = useState<string | null>(null);
-  const [inStock, setInStock] = useState(false);
-  const [sort, setSort] = useState('recommend');
-
+export function FilterTop({
+  data,
+  resultCount,
+  cascade,
+  dispatch,
+  extras,
+  setExtras,
+  sort,
+  setSort,
+}: {
+  data: FilterTopData;
+  resultCount: number;
+  sort: string;
+  setSort: (value: string) => void;
+} & CascadeControlledProps & ExtrasControlledProps) {
   const [open, setOpen] = useState<DropdownKey | null>(null);
   const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
   const [vehModel, setVehModel] = useState<MockMotoModel | null>(null);
@@ -96,12 +108,11 @@ export function FilterTop({ data, resultCount }: { data: FilterTopData; resultCo
 
   const clearEverything = () => {
     dispatch(clearAll());
-    setPrice(null);
-    setInStock(false);
+    setExtras(makeInitialExtraFilters());
   };
 
   const hasAnyFilter =
-    cascade.vehicle || cascade.category || cascade.brands.length || price || inStock;
+    cascade.vehicle || cascade.category || cascade.brands.length || extras.price || extras.inStock;
 
   return (
     <>
@@ -120,13 +131,13 @@ export function FilterTop({ data, resultCount }: { data: FilterTopData; resultCo
               <span>{cascade.brands.length ? `品牌 · ${cascade.brands.length}` : '品牌'}</span>
               <Chevron open={open === 'brand'} />
             </button>
-            <button className={`ft-chip ${price ? 'is-selected' : ''} ${open === 'price' ? 'is-open' : ''}`} onClick={() => toggle('price')}>
-              <span>{price || '價格'}</span>
+            <button className={`ft-chip ${extras.price ? 'is-selected' : ''} ${open === 'price' ? 'is-open' : ''}`} onClick={() => toggle('price')}>
+              <span>{extras.price || '價格'}</span>
               <Chevron open={open === 'price'} />
             </button>
-            <button className={`ft-chip ${inStock ? 'is-selected' : ''}`} onClick={() => setInStock(!inStock)}>
+            <button className={`ft-chip ${extras.inStock ? 'is-selected' : ''}`} onClick={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))}>
               <span>僅顯示現貨</span>
-              {inStock && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>}
+              {extras.inStock && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>}
             </button>
           </div>
           <div className="ft-right">
@@ -224,8 +235,8 @@ export function FilterTop({ data, resultCount }: { data: FilterTopData; resultCo
                 <div className="ft-price">
                   {PRICE_RANGES.map((r) => (
                     <button key={r.v}
-                      className={`ft-price-row ${price === r.label ? 'is-active' : ''}`}
-                      onClick={() => { setPrice(r.label); close(); }}>
+                      className={`ft-price-row ${extras.price === r.label ? 'is-active' : ''}`}
+                      onClick={() => { setExtras((e) => ({ ...e, price: r.label })); close(); }}>
                       {r.label}
                     </button>
                   ))}
@@ -262,14 +273,14 @@ export function FilterTop({ data, resultCount }: { data: FilterTopData; resultCo
                 </span>
               );
             })}
-            {price && (
-              <span className="ft-pill">{price}
-                <button onClick={() => setPrice(null)}>×</button>
+            {extras.price && (
+              <span className="ft-pill">{extras.price}
+                <button onClick={() => setExtras((e) => ({ ...e, price: null }))}>×</button>
               </span>
             )}
-            {inStock && (
+            {extras.inStock && (
               <span className="ft-pill">現貨
-                <button onClick={() => setInStock(false)}>×</button>
+                <button onClick={() => setExtras((e) => ({ ...e, inStock: false }))}>×</button>
               </span>
             )}
             <button className="ft-clear" onClick={clearEverything}>清除全部</button>

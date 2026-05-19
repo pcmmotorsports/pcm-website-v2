@@ -3,22 +3,22 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~11 ✅、餘 M-1-12~16)
-**當前 slice:** M-1-12a-1 — FilterSide / FilterDrawer 改 controlled ✅(篩選 state 提升宿主、新增 filter-state.ts 契約、三綠)
+**當前 slice:** M-1-12a-2 — FilterTop / CascadeFilterTop 改 controlled ✅(M-1-12a 接線完成、4 篩選元件皆 controlled、三綠)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-12a-1 FilterSide/FilterDrawer controlled]
+2026-05-20 — Claude Code [M-1-12a-2 FilterTop/CascadeFilterTop controlled]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `(本commit)` | feat(storefront): FilterTop / CascadeFilterTop 改 controlled [M-1-12a-2] | 2026-05-20 |
 | `7b284cc` | feat(storefront): FilterSide / FilterDrawer 改 controlled [M-1-12a-1] | 2026-05-20 |
 | `68c78d6` | docs(recon): 歸檔 M-1-12 ProductsPage 偵察報告 | 2026-05-20 |
-| `39b6ccd` | chore(config): 新增 GitHub Actions CI gate lint/typecheck/test | 2026-05-19 |
 
 ## 下一步
-M-1-12a-2 FilterTop / CascadeFilterTop 改 controlled(接著 12b ProductsPage 骨架 / 12c 篩選邏輯);M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
+M-1-12b ProductsPage 骨架(products-page.css + /products route + PageHeader + SortBar + 掛 cascade / 側邊篩選器);接著 12c 篩選邏輯 + 分頁 + 手機;M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
