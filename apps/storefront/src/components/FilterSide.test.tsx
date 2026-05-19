@@ -62,4 +62,14 @@ describe('FilterSide', () => {
     fireEvent.click(screen.getByText('代理配件'));
     expect(screen.getByText('BONAMICI RACING')).toBeDefined();
   });
+
+  // regression:勾選「其他」checkbox 後 row 應帶 is-checked class(勾勾才顯示)
+  it('should mark the 其他 checkbox row as checked after clicking it', () => {
+    render(<Harness />);
+    // 「其他」accordion 預設收合、先展開再勾選「僅顯示現貨」
+    fireEvent.click(screen.getByText('其他'));
+    fireEvent.click(screen.getByText('僅顯示現貨'));
+    const row = screen.getByText('僅顯示現貨').closest('label');
+    expect(row?.className).toContain('is-checked');
+  });
 });

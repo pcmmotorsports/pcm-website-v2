@@ -315,17 +315,17 @@ export function FilterSide({
       </Accordion>
 
       <Accordion title="其他">
-        <label className="fs-cbx-row">
+        <label className={`fs-cbx-row ${extras.inStock ? 'is-checked' : ''}`}>
           <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
           <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
           <span className="fs-cbx-name">僅顯示現貨</span>
         </label>
-        <label className="fs-cbx-row">
+        <label className={`fs-cbx-row ${extras.isNew ? 'is-checked' : ''}`}>
           <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
           <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
           <span className="fs-cbx-name">新品</span>
         </label>
-        <label className="fs-cbx-row">
+        <label className={`fs-cbx-row ${extras.isSale ? 'is-checked' : ''}`}>
           <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
           <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
           <span className="fs-cbx-name">特價中</span>
