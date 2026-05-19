@@ -139,6 +139,24 @@ describe('placeOrder', () => {
 
 ---
 
+## §4.1 Test 驗意圖、不只驗行為(M-2/M-3 商業邏輯落地前置)
+
+§4 管「test 怎麼命名」;本節管「test 該驗什麼」。
+
+原則:**牽涉商業規則的 test、必須在規則被改錯時會紅。** 一個無論商業邏輯怎麼改都不會 fail 的 test 是壞 test(同義反覆 / 純快照)。
+
+- ❌ 壞例:`expect(price).toBeDefined()` —— 經銷價隔離邏輯整個拿掉它也綠
+- ✅ 好例:`it('should never expose store price to a general member')` —— 斷言一般會員 payload 不含經銷價欄位;隔離一壞就紅
+
+特別適用(M-2 / M-3 起):
+
+- M-2 三級價格:驗「一般會員 server 端重查 tier 後、拿不到經銷價」
+- M-3 訂單 8 狀態機:驗「非法狀態轉移被拒」、非只驗合法轉移成功
+
+與 §1 smoke test 分工:smoke test 驗「畫得出來、不報錯」;本節驗「商業規則正確、改錯會被擋」。前台元件兩者都要;domain / use-cases 以本節為主。
+
+---
+
 ## §5 待 G2 / M-6 拍板擴
 
 以下項目本檔不寫、Phase 1 後段或 G2 拍板後再擴:
@@ -156,7 +174,7 @@ describe('placeOrder', () => {
 |---|---|---|
 | 2026-05-03 | 初始化 minimum 版(test 位置 / vitest 設定 / mock 風格 / description 慣例) | ADR-0004 Q5=A3 落地、由 Claude Code(M-0-10a)寫 |
 | 2026-05-04 | §1 擴 .tsx + .spec + apps/** 字面(E1 規範類);加 vitest config include glob 字面對齊段(M-1-02 教訓);§3.4 新節「in-memory 樣板不搬到真實 adapter」(Q2/E2/E5 規範類、防 M-1-03 開發者照 InMemory 樣板抄 leak 進 MedusaProductAdapter) | Claude Code(M-1-02-audit) |
-
 | 2026-05-18 | §1 補「前台元件 smoke test 慣例」(WO-1 工作流優化、對應 STATUS Sean 待決策 #2;Phase 1 動前台 slice 順手補 `*.test.tsx`、≠ coverage 目標) | Claude Code(WO-1) |
+| 2026-05-19 | 新增 §4.1「Test 驗意圖、不只驗行為」(Codex 審查後續處置 Slice B、M-2/M-3 商業邏輯落地前置) | Claude Code(Slice B) |
 
 — END —
