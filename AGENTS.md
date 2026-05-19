@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-> **這份是 Claude Code 工作規則檔。** 進入此 repo 的每個 Claude Code session 自動載入此檔。
+> **這份是 Codex 工作規則檔。** 進入此 repo 的每個 Codex session 自動載入此檔。
 >
 > 詳細「為什麼」見其他 .md;本檔只寫「怎麼做」。
 >
@@ -14,7 +14,7 @@
 
 ## 第一天起手檢查清單
 
-新 Claude Code session 第一件事:
+新 Codex session 第一件事:
 
 ```bash
 cd /Users/sean_1/pcm-website-v2
@@ -117,19 +117,17 @@ backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」
 
 字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明。背景:M-0-01a 事件(commit `dd7b606` 聲稱「建 root TS 環境」、實際 typescript 套件未裝)。
 
-### 鐵則 12:重大改動 / 進度結束產 Codex Review Packet
+### 鐵則 12:收到 Codex Review Packet 做唯讀審查
 
-遇下列任一情境、停下、跑完三綠後、**commit 前**產出「Codex Review Packet」、提醒 Sean 貼給 Codex 唯讀審查、等 Codex findings 回來再決定(修正 / 補 backlog / 才 commit)。**不 push**。
+收到 Sean 轉貼的「Codex Review Packet」時:**唯讀審查、不改任何檔、不跑寫入工具、不 commit、不 push**。只回 findings / 風險點 / 是否可繼續(可 commit / 需修正 / 需 Sean 拍板)。
 
-觸發情境(任一):
-- 鐵則 8 定義的重大改動
-- 動 security / RLS / GRANT / migration / schema / API
-- 動會員 tier / 經銷價 / pricing / order / payment
-- 一個完整進度單元結束(slice 群 / milestone 收尾)
-- commit 前自評有風險
-- Sean 說「Ready for review」
+審查重點(任一漏掉就點出):
+- 安全 / 權限有無漏(RLS / GRANT / 經銷價洩漏)
+- schema / migration 會否破壞現有行為
+- 是否符合 STATUS.md / NORTHSTAR / 本檔鐵則
+- 是否有該補的 backlog 或文件
 
-Codex Review 與鐵則 8 plan 互補不重複:plan 在「動手前」、Codex Review Packet 在「commit 前」。Packet 格式與完整人機協作流程見 `docs/patterns/codex-review-packet.md`;Packet 須自帶相關規則摘錄、讓 Codex 無需 repo 存取即可審查。
+Codex Review 與鐵則 8 plan 互補不重複:plan 在「動手前」、Codex Review 在「commit 前」。Packet 由 Claude Code 整理、Sean 轉貼;格式與完整人機協作流程見 `docs/patterns/codex-review-packet.md`。
 
 ---
 
@@ -261,11 +259,11 @@ Sean 在 Terminal 跑:
 node /Users/sean_1/pcm-tools/scripts/busboy-start.js pcm
 ```
 
-輸出 template、Sean 貼進新 Claude Code session 第一則訊息。
+輸出 template、Sean 貼進新 Codex session 第一則訊息。
 
 ### Session 結束
 
-你在 Claude Code 跑:
+你在 Codex 跑:
 ```bash
 node /Users/sean_1/pcm-tools/scripts/busboy-end.js pcm
 ```
@@ -432,10 +430,10 @@ A: 選項 X
 
 | 角色 | 做什麼 | 不做什麼 |
 |---|---|---|
-| Claude.ai | 規劃 / 架構 / 寫 slice 指令 / 驗收 / 寫 .md / multi-select 決策題 | 寫實作 code / 操作 dashboard / 拍板 / 視覺設計 |
-| Sean | 拍板 / 操作 dashboard / push commit / 在 Terminal 跑命令 / 在 Claude Design 改設計 / 肉眼驗收 | 寫 code / debug / git diff 細節 |
-| Claude Code(你) | 跑命令 / 實作 code / git commit / 跑測試 / 偵察 design / 寫 inventory | push / deploy production / 替 Sean 拍板 / 視覺設計 |
-| Claude Design | 視覺與前台設計、輸出 .jsx/.css(交給 Sean 取出後本地 push;Claude Design 對 GitHub 唯讀、不 commit / 不 push;對齊 lessons §12-21) | 寫 storefront 程式 / 後台設計 / push GitHub |
+| Codex.ai | 規劃 / 架構 / 寫 slice 指令 / 驗收 / 寫 .md / multi-select 決策題 | 寫實作 code / 操作 dashboard / 拍板 / 視覺設計 |
+| Sean | 拍板 / 操作 dashboard / push commit / 在 Terminal 跑命令 / 在 Codex Design 改設計 / 肉眼驗收 | 寫 code / debug / git diff 細節 |
+| Codex(你) | 跑命令 / 實作 code / git commit / 跑測試 / 偵察 design / 寫 inventory | push / deploy production / 替 Sean 拍板 / 視覺設計 |
+| Codex Design | 視覺與前台設計、輸出 .jsx/.css(交給 Sean 取出後本地 push;Codex Design 對 GitHub 唯讀、不 commit / 不 push;對齊 lessons §12-21) | 寫 storefront 程式 / 後台設計 / push GitHub |
 
 四方分工清楚、不越界。
 
@@ -474,7 +472,6 @@ A: 選項 X
 
 - [ ] 肉眼驗(前台啟動、操作流程跑一遍)?
 - [ ] **三綠 checkpoint:** typecheck + lint(動 .ts/.tsx 加 build)全綠才允許 commit、不可 disable / skip / ignore(詳見 `docs/patterns/slice-checkpoint.md`)?
-- [ ] 命中鐵則 12 觸發情境(重大改動 / 動 security·migration·pricing·order / 進度單元結束 / 自評有風險)→ 已產 Codex Review Packet、已提醒 Sean 貼給 Codex 審查、未 push?
 - [ ] 動到前台元件 → 已順手補 / 更新該元件 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`)?
 - [ ] commit 訊息字面 vs 事實一致?字面與事實偏離必在 commit body 註明?
 - [ ] 精準 git add(不用 git add . / -A)?
