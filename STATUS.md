@@ -2,25 +2,26 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~10 ✅、餘 M-1-11~16)
-**當前 slice:** M-1-11 FilterDrawer ✅(直接搬 design、複用 PreviewHarness、三綠)
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~11 ✅、餘 M-1-12~16)
+**當前 slice:** premortem 應對 step-1 — 新增 GitHub Actions CI gate ✅(lint/typecheck/test、三綠)
+
 **Branch:** dev
 
 ## 最後更新
-2026-05-19 — Claude Code [M-1-11 FilterDrawer]
+2026-05-19 — Claude Code [premortem 應對 step-1 CI gate]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `(待補)` | chore(config): 新增 GitHub Actions CI gate lint/typecheck/test | 2026-05-19 |
 | `8f5d90c` | feat(storefront): 新增 FilterDrawer 對齊 design 真權威 [M-1-11] | 2026-05-19 |
 | `e5a809e` | feat(storefront): 新增 FilterTop + CascadeFilterTop 對齊 design 真權威 [M-1-10] | 2026-05-19 |
-| `ea66bff` | fix(schemas): 移除 Supabase 殘留 5 張孤兒 line_* 表 + 清 migration ledger | 2026-05-19 |
 
 ## 下一步
-M-1-12 ProductsPage 直接搬(整合 FilterSide / FilterTop / CascadeFilterTop / FilterDrawer 宿主頁);backlog P1-now 條目可優先排
+M-1-12 ProductsPage 直接搬(整合 FilterSide / FilterTop / CascadeFilterTop / FilterDrawer 宿主頁);M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
 
 ## Sean 待決策
-#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
+#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
 
 ## Blocker
 無
