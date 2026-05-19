@@ -3,20 +3,22 @@
 //
 // 字面從 design-reference/components/FilterSide.jsx 直接搬(M-1-09):
 // - jsx → tsx + props type
-// - React.useState → import { useState };新增 useReducer
 // - window.FilterSide UMD 註冊移除(改 ES export)
-// - 狀態管理 B 混合模式(M-1-08 拍板):vehicle / category / brands 接 @pcm/ui
-//   cascadeFilterReducer;price / colors / inStock / isNew / isSale 由本元件 useState 自管
 // - 樹展開 / 收合(expandedBrand / expandedModel / expanded / Accordion open)維持
 //   各子元件 local useState(UI 導覽 state、不入 reducer)
 // - className 字面完全不動
+//
+// 狀態管理(M-1-08 拍板 B 混合模式 → M-1-12a 改 controlled):
+// - vehicle / category / brands 走 @pcm/ui cascadeFilterReducer;price / priceRange /
+//   colors / inStock / isNew / isSale 收斂為 ProductExtraFilters(見 filter-state.ts)。
+// - M-1-09~11 期間本元件自管上述 state;M-1-12a 起改 controlled —— cascade / dispatch /
+//   extras / setExtras 一律由宿主(ProductsPage / dev-preview 頁)透過 props 傳入
+//   (Sean 拍板狀態架構=方案 1、見 docs/recon/M-1-12-products-page-recon.md)。
 
 'use client';
 
-import { useReducer, useState, type Dispatch, type ReactNode } from 'react';
+import { useState, type Dispatch, type ReactNode } from 'react';
 import {
-  cascadeFilterReducer,
-  makeInitialCascadeState,
   selectVehicleBrand,
   selectVehicleModel,
   selectVehicleYear,
@@ -29,6 +31,11 @@ import {
   type CategorySelection,
   type CascadeFilterAction,
 } from '@pcm/ui';
+import {
+  makeInitialExtraFilters,
+  type CascadeControlledProps,
+  type ExtrasControlledProps,
+} from './filter-state';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockBrand } from '@/data/mock-brands';
@@ -229,24 +236,17 @@ function PriceRangeSlider({
 export function FilterSide({
   data,
   hideVehicle,
+  cascade,
+  dispatch,
+  extras,
+  setExtras,
 }: {
   data: FilterSideData;
   hideVehicle?: boolean;
-}) {
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  const [priceRange, setPriceRange] = useState<[number, number] | undefined>(undefined);
-  const [colors, setColors] = useState<string[]>([]);
-  const [inStock, setInStock] = useState(false);
-  const [isNew, setIsNew] = useState(false);
-  const [isSale, setIsSale] = useState(false);
-
+} & CascadeControlledProps & ExtrasControlledProps) {
   const clearAllFilters = () => {
     dispatch(clearAll());
-    setPriceRange(undefined);
-    setColors([]);
-    setInStock(false);
-    setIsNew(false);
-    setIsSale(false);
+    setExtras(makeInitialExtraFilters());
   };
 
   return (
@@ -281,7 +281,10 @@ export function FilterSide({
       </Accordion>
 
       <Accordion title="價格範圍">
-        <PriceRangeSlider value={priceRange} onChange={(v) => setPriceRange(v)} />
+        <PriceRangeSlider
+          value={extras.priceRange}
+          onChange={(v) => setExtras((e) => ({ ...e, priceRange: v }))}
+        />
       </Accordion>
 
       <Accordion title="顏色">
@@ -295,10 +298,13 @@ export function FilterSide({
             { id: 'blue', name: '藍', hex: '#2563eb' },
             { id: 'white', name: '白', hex: '#f4f4f5' },
           ].map((c) => {
-            const on = colors.includes(c.id);
+            const on = extras.colors.includes(c.id);
             return (
               <button key={c.id} className={`fs-color ${on ? 'is-on' : ''}`}
-                onClick={() => setColors(on ? colors.filter((x) => x !== c.id) : [...colors, c.id])}
+                onClick={() => setExtras((e) => ({
+                  ...e,
+                  colors: on ? e.colors.filter((x) => x !== c.id) : [...e.colors, c.id],
+                }))}
                 title={c.name}>
                 <span style={{ background: c.hex, border: c.id === 'white' ? '1px solid var(--c-border-strong)' : 'none' }} />
                 <span className="fs-color-name">{c.name}</span>
@@ -310,17 +316,17 @@ export function FilterSide({
 
       <Accordion title="其他">
         <label className="fs-cbx-row">
-          <input type="checkbox" checked={inStock} onChange={() => setInStock(!inStock)} />
+          <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
           <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
           <span className="fs-cbx-name">僅顯示現貨</span>
         </label>
         <label className="fs-cbx-row">
-          <input type="checkbox" checked={isNew} onChange={() => setIsNew(!isNew)} />
+          <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
           <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
           <span className="fs-cbx-name">新品</span>
         </label>
         <label className="fs-cbx-row">
-          <input type="checkbox" checked={isSale} onChange={() => setIsSale(!isSale)} />
+          <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
           <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
           <span className="fs-cbx-name">特價中</span>
         </label>

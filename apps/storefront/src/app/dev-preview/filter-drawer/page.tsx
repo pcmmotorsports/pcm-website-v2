@@ -1,8 +1,9 @@
 // app/dev-preview/filter-drawer/page.tsx — M-1-11 肉眼驗 harness
 //
 // FilterDrawer 元件單獨預覽頁(ProductsPage M-1-12 尚未做、無宿主頁可驗)。
-// FilterDrawer 為 position:fixed modal、需宿主控制 open;本頁用 DrawerDemo 小型
-// client wrapper 提供「開啟篩選抽屜」按鈕 + open state、模擬宿主。
+// FilterDrawer 為 position:fixed modal、需宿主控制 open;M-1-12a 起 FilterDrawer 亦
+// 改 controlled、篩選 state 由宿主持有。本頁用 DrawerDemo 小型 client wrapper 持
+// open + useReducer + useState、模擬宿主。
 // 並排兩變體:
 //   桌機 modal — 預設右側 440px 抽屜
 //   手機模擬   — 包 [data-mobile="true"]、套 filter-drawer.css 手機浮動面板樣式
@@ -12,8 +13,10 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useReducer, useState } from 'react';
+import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
 import { FilterDrawer, type FilterDrawerData } from '@/components/FilterDrawer';
+import { makeInitialExtraFilters, type ProductExtraFilters } from '@/components/filter-state';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '@/data/mock-categories';
 import { MOCK_BRANDS } from '@/data/mock-brands';
@@ -37,10 +40,21 @@ const openButtonStyle = {
 
 function DrawerDemo({ mobile }: { mobile?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const content = (
     <>
       <button style={openButtonStyle} onClick={() => setOpen(true)}>開啟篩選抽屜</button>
-      <FilterDrawer open={open} onClose={() => setOpen(false)} data={data} resultCount={128} />
+      <FilterDrawer
+        open={open}
+        onClose={() => setOpen(false)}
+        data={data}
+        resultCount={128}
+        cascade={cascade}
+        dispatch={dispatch}
+        extras={extras}
+        setExtras={setExtras}
+      />
     </>
   );
   return mobile ? <div data-mobile="true">{content}</div> : content;

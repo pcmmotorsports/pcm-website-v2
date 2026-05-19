@@ -3,32 +3,31 @@
 //
 // 字面從 design-reference/components/FilterDrawer.jsx 直接搬(M-1-11):
 // - jsx → tsx + props type
-// - React.useState / React.useEffect → import { useEffect, useReducer, useState }
 // - window.FilterDrawer UMD 註冊移除(改 ES export)
-// - 狀態管理 B 混合模式(M-1-08 拍板):vehicle / category / brands 接 @pcm/ui
-//   cascadeFilterReducer;price / colors / inStock / isNew / isSale 由本元件 useState 自管
-// - design 的 filters / setFilters props 來自尚未做的 ProductsPage(M-1-12)→ 比照
-//   M-1-09 FilterSide / M-1-10 FilterTop 移除、改 reducer + 自管 useState
-// - open / onClose / resultCount / initialTab 留成 prop(宿主控制抽屜開合 / 起始分頁;
-//   resultCount 為外部資料、元件算不出。比照 CascadeFilterTop 留 onOpenDrawer)
+// - open / onClose / resultCount / initialTab 留成 prop(宿主控制抽屜開合 / 起始分頁)
 // - 抽屜導覽 state(tab / vehBrand / vehModel / catMain)維持本元件 local useState
 //   (UI 特異、不入 reducer)
 // - className 字面完全不動
 //
+// 狀態管理(M-1-08 拍板 B 混合模式 → M-1-12a 改 controlled):
+// - vehicle / category / brands 走 @pcm/ui cascadeFilterReducer;price / colors /
+//   inStock / isNew / isSale 收斂為 ProductExtraFilters(見 filter-state.ts)。
+// - M-1-11 期間本元件自管上述 state;M-1-12a 起改 controlled —— cascade / dispatch /
+//   extras / setExtras 一律由宿主(ProductsPage / dev-preview 頁)透過 props 傳入
+//   (Sean 拍板狀態架構=方案 1、見 docs/recon/M-1-12-products-page-recon.md)。
+//
 // 字面 vs 事實揭示:
 // 1. design 用 lifted filters 物件 + setFilters spread;本實作 vehicle/category/brands
-//    改 reducer + action、price/colors/flags 改 useState,語意等價、API 不同。
+//    走 reducer + action、price/colors/flags 走 ProductExtraFilters,語意等價、API 不同。
 // 2. design fd-foot-clear 的 setFilters({ brands: [] }) 清整個 filters;本實作
-//    clearAllFilters() = clearAll() + 重置自管 useState,等價(比照 FilterSide)。
-// 3. 細項 toggle 比照 FilterSide:點 active sub → dispatch(clearCategory());
-//    否則 dispatch(selectCategoryMain) + dispatch(selectCategorySub)。
+//    clearAllFilters() = clearAll() + setExtras(makeInitialExtraFilters()),等價。
+// 3. 細項 toggle 比照 FilterSide:點 active sub → clearCategory();否則
+//    selectCategoryMain + selectCategorySub。
 
 'use client';
 
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  cascadeFilterReducer,
-  makeInitialCascadeState,
   selectVehicleBrand,
   selectVehicleModel,
   selectVehicleYear,
@@ -38,6 +37,11 @@ import {
   toggleBrand,
   clearAll,
 } from '@pcm/ui';
+import {
+  makeInitialExtraFilters,
+  type CascadeControlledProps,
+  type ExtrasControlledProps,
+} from './filter-state';
 import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockBrand } from '@/data/mock-brands';
@@ -73,20 +77,17 @@ export function FilterDrawer({
   data,
   resultCount,
   initialTab,
+  cascade,
+  dispatch,
+  extras,
+  setExtras,
 }: {
   open: boolean;
   onClose: () => void;
   data: FilterDrawerData;
   resultCount: number;
   initialTab?: DrawerTab;
-}) {
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  const [price, setPrice] = useState<string | null>(null);
-  const [colors, setColors] = useState<string[]>([]);
-  const [inStock, setInStock] = useState(false);
-  const [isNew, setIsNew] = useState(false);
-  const [isSale, setIsSale] = useState(false);
-
+} & CascadeControlledProps & ExtrasControlledProps) {
   const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'vehicle');
   const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
   const [vehModel, setVehModel] = useState<MockMotoModel | null>(null);
@@ -108,32 +109,31 @@ export function FilterDrawer({
     (cascade.vehicle ? 1 : 0) +
     (cascade.category ? 1 : 0) +
     cascade.brands.length +
-    (price ? 1 : 0) +
-    (inStock ? 1 : 0) +
-    (isNew ? 1 : 0) +
-    (isSale ? 1 : 0) +
-    colors.length;
+    (extras.price ? 1 : 0) +
+    (extras.inStock ? 1 : 0) +
+    (extras.isNew ? 1 : 0) +
+    (extras.isSale ? 1 : 0) +
+    extras.colors.length;
 
   const tabs: { id: DrawerTab; label: string; count: number }[] = [
     { id: 'vehicle', label: '依車輛搜尋', count: cascade.vehicle ? 1 : 0 },
     { id: 'category', label: '零件分類', count: cascade.category ? 1 : 0 },
     { id: 'brand', label: '品牌', count: cascade.brands.length },
-    { id: 'price', label: '價格', count: price ? 1 : 0 },
-    { id: 'color', label: '顏色', count: colors.length },
-    { id: 'other', label: '其他', count: (inStock ? 1 : 0) + (isNew ? 1 : 0) + (isSale ? 1 : 0) },
+    { id: 'price', label: '價格', count: extras.price ? 1 : 0 },
+    { id: 'color', label: '顏色', count: extras.colors.length },
+    { id: 'other', label: '其他', count: (extras.inStock ? 1 : 0) + (extras.isNew ? 1 : 0) + (extras.isSale ? 1 : 0) },
   ];
 
   const toggleColor = (id: string) => {
-    setColors(colors.includes(id) ? colors.filter((x) => x !== id) : [...colors, id]);
+    setExtras((e) => ({
+      ...e,
+      colors: e.colors.includes(id) ? e.colors.filter((x) => x !== id) : [...e.colors, id],
+    }));
   };
 
   const clearAllFilters = () => {
     dispatch(clearAll());
-    setPrice(null);
-    setColors([]);
-    setInStock(false);
-    setIsNew(false);
-    setIsSale(false);
+    setExtras(makeInitialExtraFilters());
   };
 
   const isYearActive = (y: number) =>
@@ -293,10 +293,10 @@ export function FilterDrawer({
               <div style={{ padding: 16 }}>
                 {PRICE_RANGES.map((r) => (
                   <button key={r}
-                    className={`fd-row ${price === r ? 'is-active' : ''}`}
-                    onClick={() => setPrice(price === r ? null : r)}>
+                    className={`fd-row ${extras.price === r ? 'is-active' : ''}`}
+                    onClick={() => setExtras((e) => ({ ...e, price: e.price === r ? null : r }))}>
                     <span>{r}</span>
-                    {price === r && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5" /></svg>}
+                    {extras.price === r && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5" /></svg>}
                   </button>
                 ))}
               </div>
@@ -305,7 +305,7 @@ export function FilterDrawer({
             {tab === 'color' && (
               <div className="fd-colors">
                 {COLORS.map((c) => {
-                  const on = colors.includes(c.id);
+                  const on = extras.colors.includes(c.id);
                   return (
                     <button key={c.id} className={`fd-color ${on ? 'is-on' : ''}`}
                       onClick={() => toggleColor(c.id)}>
@@ -320,17 +320,17 @@ export function FilterDrawer({
             {tab === 'other' && (
               <div>
                 <label className="fd-cbx">
-                  <input type="checkbox" checked={inStock} onChange={() => setInStock(!inStock)} />
+                  <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
                   <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
                   <span className="fd-cbx-name">僅顯示現貨</span>
                 </label>
                 <label className="fd-cbx">
-                  <input type="checkbox" checked={isNew} onChange={() => setIsNew(!isNew)} />
+                  <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
                   <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
                   <span className="fd-cbx-name">新品</span>
                 </label>
                 <label className="fd-cbx">
-                  <input type="checkbox" checked={isSale} onChange={() => setIsSale(!isSale)} />
+                  <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
                   <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
                   <span className="fd-cbx-name">特價中</span>
                 </label>
