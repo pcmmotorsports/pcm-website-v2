@@ -3990,6 +3990,32 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #150. 🧹 遺留未追蹤檔 triage(每 session 起手檢查雜訊)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - working tree 長期帶數筆遺留未追蹤檔 + 一個 auto-drift 檔,每個 Claude Code session 起手檢查都不全綠、要逐次人工判讀「哪些該管、哪些是噪音」
+  - `.claude/` — session 設定資料夾,應進 `.gitignore`
+  - `docs/progress-roadmap.html` — `/pcm-roadmap` skill 產物,需 decide commit 或 gitignore
+  - `docs/recon/M-1-03-*.md`、`docs/recon/M-1-04-*.md` — 先前 slice 偵察文件,需 decide commit 或刪
+  - `packages/adapters/scripts/` — 未追蹤腳本,需 decide commit 或刪
+  - `apps/storefront/next-env.d.ts` — Next.js 自動產生檔,import 路徑被 build 改寫(`.next/dev/types` → `.next/types`),需 decide 還原或接受
+- **觸發事件:**
+  - 2026-05-19 M-1-10 起手檢查,工作樹不全綠;確認非 M-1-10 造成、屬先前 slice / skill 遺留,Sean 拍板 triage 獨立一輪做、不併進 M-1-10
+- **預期解法:**
+  - 獨立一輪逐檔 triage:`.claude/` 加 `.gitignore`;recon 文件 / `progress-roadmap.html` / `adapters/scripts/` 各自 decide commit 或刪;`next-env.d.ts` 還原(Next 會自動再產)
+- **不修會痛在:**
+  - 擴充性:遺留檔只會越積越多,未來 session 起手檢查雜訊更大
+  - 可維護性:每 session 都要人工判讀「哪些該管哪些是噪音」、重複成本
+  - bug 可追蹤性:真正該 commit 的產物(如 recon 文件)混在噪音裡、可能漏 commit
+- **估時:** 20-30 min
+- **依賴:** 無;Sean 對各檔去留拍板
+- **發現於:** 2026-05-19 / M-1-10 起手檢查
+- **相關:** #147
+
+---
+
 ## 紀錄模板
 
 ```markdown

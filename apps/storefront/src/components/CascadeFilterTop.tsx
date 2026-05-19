@@ -1,0 +1,140 @@
+// CascadeFilterTop.tsx — 車款 cascade selects(Slice C 風格)
+// 桌機:sticky bar、品牌 / 車型 / 年份 連動下拉。
+// 手機:精簡 chip、點擊由 ProductsPage / FilterDrawer 接手開抽屜。
+//
+// 字面從 design-reference/components/FilterTop.jsx L286-407 直接搬(M-1-10):
+// - jsx → tsx + props type
+// - React.useState → import { useReducer, useState }
+// - window.CascadeFilterTop UMD 註冊移除(改 ES export)
+// - 狀態管理 B 混合模式(M-1-08 拍板):vehicle 接 @pcm/ui cascadeFilterReducer;
+//   tmpBrand / tmpModel / tmpYear 為 select 導覽 state、維持 local useState
+// - design 的 filters / setFilters props 來自尚未做的 ProductsPage(M-1-12)→ 比照
+//   M-1-09 FilterSide 移除、元件自管;onOpenDrawer 留成 optional prop(接 M-1-11
+//   FilterDrawer)
+// - className 字面完全不動
+//
+// 字面 vs 事實揭示:
+// 1. design 的 searchVehicle 函式定義了但 JSX 無按鈕引用(死碼)→ 不搬
+//    (no-unused-vars 會擋、且搬死碼違三視角可維護性)。
+// 2. design 的「filters.vehicle 被外部清除時 reset tmp」useEffect → 自管模式無外部
+//    清除者、handleClearVehicle 一次重置 reducer + tmp → 該 effect 不搬。
+// 3. design 從既有 filters.vehicle hydrate initBrand / initModel 的初始化 → 自管模式
+//    起始恆為空(makeInitialCascadeState)→ tmp 直接初始 '' 、不搬 hydrate 邏輯。
+// 4. design 的 local clearVehicle 函式與 @pcm/ui 同名 action creator import 衝突 →
+//    local 改名 handleClearVehicle。
+
+'use client';
+
+import { useReducer, useState, type ChangeEvent } from 'react';
+import {
+  cascadeFilterReducer,
+  makeInitialCascadeState,
+  selectVehicleBrand,
+  selectVehicleModel,
+  selectVehicleYear,
+  clearVehicle,
+} from '@pcm/ui';
+import type { FilterTopData } from './FilterTop';
+
+export function CascadeFilterTop({
+  data,
+  onOpenDrawer,
+}: {
+  data: FilterTopData;
+  onOpenDrawer?: (target: string) => void;
+}) {
+  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const [tmpBrand, setTmpBrand] = useState('');
+  const [tmpModel, setTmpModel] = useState('');
+  const [tmpYear, setTmpYear] = useState('');
+
+  const brands = data.motoBrands;
+  const curBrand = brands.find((b) => b.id === tmpBrand);
+  const models = curBrand?.models ?? [];
+  const curModel = models.find((m) => m.id === tmpModel);
+  const years = curModel?.years ?? [];
+
+  const onBrandChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setTmpBrand(val);
+    setTmpModel('');
+    setTmpYear('');
+    const b = brands.find((x) => x.id === val);
+    if (b) dispatch(selectVehicleBrand(b.name));
+    else dispatch(clearVehicle());
+  };
+
+  const onModelChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setTmpModel(val);
+    setTmpYear('');
+    const b = brands.find((x) => x.id === tmpBrand);
+    const m = b?.models.find((x) => x.id === val);
+    if (b && m) dispatch(selectVehicleModel(m.name));
+    else if (b) dispatch(selectVehicleBrand(b.name));
+  };
+
+  const onYearChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setTmpYear(val);
+    const b = brands.find((x) => x.id === tmpBrand);
+    const m = b?.models.find((x) => x.id === tmpModel);
+    if (b && m && val) dispatch(selectVehicleYear(Number(val)));
+    else if (b && m) dispatch(selectVehicleModel(m.name));
+  };
+
+  const handleClearVehicle = () => {
+    setTmpBrand('');
+    setTmpModel('');
+    setTmpYear('');
+    dispatch(clearVehicle());
+  };
+
+  // 手機版 chip 顯示文字
+  const vehShort = cascade.vehicle
+    ? `${cascade.vehicle.model} '${String(cascade.vehicle.year).slice(-2)}`
+    : null;
+
+  return (
+    <>
+      {/* ── 桌機 cascade bar ── */}
+      <div className="cft-bar">
+        <div className="cft-inner">
+          <div className="cft-cascade">
+            <span className="cft-label">確認適用車款</span>
+            <select className="cft-select" value={tmpBrand} onChange={onBrandChange}>
+              <option value="">品牌</option>
+              {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+            <select className="cft-select" value={tmpModel} onChange={onModelChange} disabled={!tmpBrand}>
+              <option value="">車型</option>
+              {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <select className="cft-select" value={tmpYear} onChange={onYearChange} disabled={!tmpModel}>
+              <option value="">—</option>
+              {years.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
+          <div className="cft-right">
+            {cascade.vehicle && (
+              <button className="cft-clear" onClick={handleClearVehicle} aria-label="清除車輛篩選">清除車輛</button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 手機精簡 chip(無 label,避免擠到第二行)── */}
+      <div className="cft-mobile-bar">
+        <button className="cft-mobile-chip" onClick={() => onOpenDrawer?.('vehicle')}>
+          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
+          </svg>
+          <span className="cft-mobile-name">{vehShort || '選擇車款'}</span>
+          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+      </div>
+    </>
+  );
+}
