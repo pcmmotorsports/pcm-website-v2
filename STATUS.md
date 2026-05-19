@@ -3,22 +3,22 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~11 ✅、餘 M-1-12~16)
-**當前 slice:** M-1-12b — ProductsPage 骨架 ✅(/products route + PageHeader / SortBar / 商品 grid + 掛 4 篩選元件、三綠)
+**當前 slice:** M-1-12c-1 — ProductsPage 篩選/排序邏輯 + ActiveChips ✅(filterProducts / sortProducts 接線、已選條件標籤列、三綠)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-12b ProductsPage 骨架]
+2026-05-20 — Claude Code [M-1-12c-1 篩選邏輯 + ActiveChips]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `(本commit)` | feat(storefront): ProductsPage 接 filterProducts / sortProducts + ActiveChips [M-1-12c-1] | 2026-05-20 |
 | `62a0fee` | feat(storefront): 新增 ProductsPage 骨架 + /products route [M-1-12b] | 2026-05-20 |
 | `cc1df47` | feat(storefront): FilterTop / CascadeFilterTop 改 controlled [M-1-12a-2] | 2026-05-20 |
-| `7b284cc` | feat(storefront): FilterSide / FilterDrawer 改 controlled [M-1-12a-1] | 2026-05-20 |
 
 ## 下一步
-M-1-12c ProductsPage 篩選邏輯(filterProducts / sortProducts 接線)+ Pagination + ActiveChips + MobileFab;M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
+M-1-12c-2 ProductsPage Pagination + MobileFab(M-1-12 收尾);完成後跑 Codex Review Packet(M-1-12 整組重大改動收尾);M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)

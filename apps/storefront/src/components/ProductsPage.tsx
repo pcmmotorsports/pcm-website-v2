@@ -3,17 +3,22 @@
 // 字面對齊 design-reference/components/ProductsPage.jsx(M-1-12):
 // - Sean 拍板版面 filterStyle = cascade:頂部 CascadeFilterTop + 桌機左側
 //   FilterSide(hideVehicle)+ 手機 FilterDrawer。
-// - M-1-12b 骨架:Header / PageHeader / SortBar / 商品 grid + 掛 4 篩選元件;
-//   商品先全列。filterProducts / sortProducts 篩選排序、Pagination、ActiveChips、
-//   MobileFab 為 M-1-12c scope、本 slice 不含。
+// - M-1-12b 骨架:Header / PageHeader / SortBar / 商品 grid + 掛 4 篩選元件。
+// - M-1-12c-1:filterProducts / sortProducts 接線(篩選真的生效)+ ActiveChips
+//   已選條件標籤列。Pagination、MobileFab 為 M-1-12c-2 scope、本 slice 不含。
 //
 // 字面 vs 事實揭示:
-// - design ProductsPage 收 tweaks / onNav、用 window.PCM_DATA + 4-variant
-//   filterStyle 開關 + 跨頁 localStorage / postMessage 同步;本實作只搬 cascade
-//   單一版面、data 改 storefront mock import、跨頁同步機制不搬(屬 design harness、
-//   見 docs/recon/M-1-12-products-page-recon.md §4)。
+// - design ProductsPage 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle
+//   開關 / 跨頁 localStorage·postMessage 同步不搬(屬 design harness、見
+//   docs/recon/M-1-12-products-page-recon.md §4);data 改 storefront mock import。
 // - design PageHeader 麵包屑用 onNav harness 導覽;本實作首頁 / 商品目錄改 Next
-//   <Link> route,大分類 / 細項為純 span(分類由側邊 / 上方篩選器操作)。
+//   <Link>,大分類 / 細項為純 span。
+// - filterProducts 對齊 design L85-116:依 brands / inStock / isNew / isSale /
+//   colors / price / priceRange 過濾;design 同樣「不」依 category / vehicle 過濾
+//   (mock category 字串與分類樹未對映、vehicle 為 p.fits 自由字串)→ 照搬不過濾。
+//   design 的 search 篩選本頁無搜尋入口、不搬。
+// - design 的 demo 資料 tiling(把商品複製到 142 筆讓分頁有料)為 demo hack、不搬;
+//   M-1-16 真資料(200 SKU)落地後分頁自然有多頁。
 // - 篩選 state 提升至本元件(Sean 拍板方案 1):本元件持 cascadeFilterReducer +
 //   ProductExtraFilters + sort,傳入 4 個 controlled 篩選元件。
 
@@ -21,25 +26,96 @@
 
 import { useReducer, useState } from 'react';
 import Link from 'next/link';
-import { cascadeFilterReducer, makeInitialCascadeState, type CascadeFilterState } from '@pcm/ui';
+import {
+  cascadeFilterReducer,
+  makeInitialCascadeState,
+  clearVehicle,
+  clearCategory,
+  toggleBrand,
+  clearAll,
+  type CascadeFilterState,
+} from '@pcm/ui';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { FilterSide } from './FilterSide';
 import { FilterDrawer } from './FilterDrawer';
 import { ProductCard } from './ProductCard';
-import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
+import {
+  makeInitialExtraFilters,
+  type ProductExtraFilters,
+  type CascadeControlledProps,
+  type ExtrasControlledProps,
+} from './filter-state';
 import type { FilterTopData } from './FilterTop';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '@/data/mock-categories';
 import { MOCK_BRANDS } from '@/data/mock-brands';
-import { MOCK_PRODUCTS } from '@/data/mock-products';
+import { MOCK_PRODUCTS, type MockProduct } from '@/data/mock-products';
 
 const data: FilterTopData = {
   motoBrands: MOCK_MOTO_BRANDS,
   categories: MOCK_CATEGORIES,
   brands: MOCK_BRANDS,
 };
+
+// 價格區間字串標籤 → [低, 高](對齊 design ProductsPage.jsx L100-106)
+const PRICE_RANGE_TABLE: Record<string, [number, number]> = {
+  'NT$ 0 – 3,000': [0, 3000],
+  'NT$ 3,000 – 10,000': [3000, 10000],
+  'NT$ 10,000 – 30,000': [10000, 30000],
+  'NT$ 30,000 – 100,000': [30000, 100000],
+  'NT$ 100,000 以上': [100000, Infinity],
+};
+
+// 商品篩選 — 對齊 design filterProducts(L85-116);依 brands / 旗標 / colors /
+// price / priceRange 過濾,不依 category / vehicle(同 design)。
+function filterProducts(
+  products: MockProduct[],
+  cascade: CascadeFilterState,
+  extras: ProductExtraFilters,
+): MockProduct[] {
+  return products.filter((p) => {
+    if (
+      cascade.brands.length &&
+      !cascade.brands.some((b) =>
+        p.brand.toLowerCase().includes(b.replace(/-/g, '').substring(0, 4).toLowerCase()),
+      )
+    ) {
+      return false;
+    }
+    if (extras.inStock && !p.inStock) return false;
+    if (extras.isNew && !p.isNew) return false;
+    if (extras.isSale && !p.isSale) return false;
+    if (extras.colors.length && !extras.colors.includes(p.color)) return false;
+    if (extras.price) {
+      const [lo, hi] = PRICE_RANGE_TABLE[extras.price] ?? [0, Infinity];
+      if (p.price < lo || p.price > hi) return false;
+    }
+    if (extras.priceRange) {
+      const [lo, hi] = extras.priceRange;
+      if (p.price < lo || p.price > hi) return false;
+    }
+    return true;
+  });
+}
+
+// 商品排序 — 對齊 design sortProducts(L117-126)
+function sortProducts(products: MockProduct[], sort: string): MockProduct[] {
+  const arr = [...products];
+  switch (sort) {
+    case 'new':
+      return arr.sort((a, b) => (b.isNew ? 1 : 0) - (a.isNew ? 1 : 0));
+    case 'price-asc':
+      return arr.sort((a, b) => a.price - b.price);
+    case 'price-desc':
+      return arr.sort((a, b) => b.price - a.price);
+    case 'sale':
+      return arr.sort((a, b) => (b.isSale ? 1 : 0) - (a.isSale ? 1 : 0));
+    default:
+      return arr;
+  }
+}
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
 function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
@@ -70,6 +146,87 @@ function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
           )}
         </nav>
       </div>
+    </div>
+  );
+}
+
+// ActiveChips — 已選篩選條件標籤列(對齊 design FilterTop.jsx L413-470)
+function ActiveChips({
+  data,
+  cascade,
+  dispatch,
+  extras,
+  setExtras,
+}: {
+  data: FilterTopData;
+} & CascadeControlledProps & ExtrasControlledProps) {
+  const chips: { key: string; label: string; onRemove: () => void }[] = [];
+
+  if (cascade.vehicle) {
+    const { brand, model, year } = cascade.vehicle;
+    chips.push({
+      key: 'vehicle',
+      label: [brand, model, year].filter(Boolean).join(' · '),
+      onRemove: () => dispatch(clearVehicle()),
+    });
+  }
+  if (cascade.category) {
+    chips.push({
+      key: 'category',
+      label: cascade.category.sub ?? cascade.category.main,
+      onRemove: () => dispatch(clearCategory()),
+    });
+  }
+  cascade.brands.forEach((bid) => {
+    const b = data.brands.find((x) => x.id === bid);
+    chips.push({
+      key: `brand-${bid}`,
+      label: b?.name ?? bid,
+      onRemove: () => dispatch(toggleBrand(bid)),
+    });
+  });
+  if (extras.price) {
+    chips.push({
+      key: 'price',
+      label: extras.price,
+      onRemove: () => setExtras((e) => ({ ...e, price: null })),
+    });
+  }
+  if (extras.inStock) {
+    chips.push({ key: 'inStock', label: '僅顯示現貨', onRemove: () => setExtras((e) => ({ ...e, inStock: false })) });
+  }
+  if (extras.isNew) {
+    chips.push({ key: 'isNew', label: '新品', onRemove: () => setExtras((e) => ({ ...e, isNew: false })) });
+  }
+  if (extras.isSale) {
+    chips.push({ key: 'isSale', label: '特價中', onRemove: () => setExtras((e) => ({ ...e, isSale: false })) });
+  }
+  extras.colors.forEach((c) => {
+    chips.push({
+      key: `color-${c}`,
+      label: c,
+      onRemove: () => setExtras((e) => ({ ...e, colors: e.colors.filter((x) => x !== c) })),
+    });
+  });
+
+  if (chips.length === 0) return null;
+
+  return (
+    <div className="ac-bar">
+      {chips.map((chip) => (
+        <button key={chip.key} className="ac-chip" onClick={chip.onRemove}>
+          {chip.label}
+          <span className="ac-x">×</span>
+        </button>
+      ))}
+      <button
+        className="ac-clear-all"
+        onClick={() => {
+          dispatch(clearAll());
+          setExtras(makeInitialExtraFilters());
+        }}>
+        清除全部
+      </button>
     </div>
   );
 }
@@ -128,9 +285,10 @@ export function ProductsPage() {
   const [gridCols, setGridCols] = useState(5);
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  // M-1-12b 骨架:商品先全列;filterProducts / sortProducts 篩選排序 M-1-12c 接。
-  const products = MOCK_PRODUCTS;
-  const resultCount = products.length;
+  // 篩選 → 排序;M-1-12c-2 將補分頁切片。
+  const filtered = filterProducts(MOCK_PRODUCTS, cascade, extras);
+  const sorted = sortProducts(filtered, sort);
+  const resultCount = sorted.length;
 
   return (
     <>
@@ -154,6 +312,13 @@ export function ProductsPage() {
         />
         <main className="pp-main">
           <PageHeader cascade={cascade} />
+          <ActiveChips
+            data={data}
+            cascade={cascade}
+            dispatch={dispatch}
+            extras={extras}
+            setExtras={setExtras}
+          />
           <SortBar
             count={resultCount}
             gridCols={gridCols}
@@ -165,7 +330,7 @@ export function ProductsPage() {
             gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
             gap: gridCols <= 2 ? 20 : 14,
           }}>
-            {products.map((p) => (
+            {sorted.map((p) => (
               <ProductCard key={p.id} p={p} />
             ))}
           </div>
