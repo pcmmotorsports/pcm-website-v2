@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(本commit)` | feat(storefront): 新增 ProductsPage 骨架 + /products route [M-1-12b] | 2026-05-20 |
+| `62a0fee` | feat(storefront): 新增 ProductsPage 骨架 + /products route [M-1-12b] | 2026-05-20 |
 | `cc1df47` | feat(storefront): FilterTop / CascadeFilterTop 改 controlled [M-1-12a-2] | 2026-05-20 |
 | `7b284cc` | feat(storefront): FilterSide / FilterDrawer 改 controlled [M-1-12a-1] | 2026-05-20 |
 
