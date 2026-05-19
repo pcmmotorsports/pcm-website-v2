@@ -3,24 +3,24 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~09 ✅、餘 M-1-10~16)
-**當前 slice:** docs SUPABASE-LINE-BOT-MOVED.md 納版控 ✅(Codex 審查後續 Slice 0/A/B 已全完成)
+**當前 slice:** A 庫 line_* 清理 ✅(DROP 5 孤兒表 + 清 ledger、db push 恢復正常)
 **Branch:** dev
 
 ## 最後更新
-2026-05-19 — Claude Code [SUPABASE-LINE-BOT-MOVED 收尾]
+2026-05-19 — Claude Code [A 庫 line_* 清理]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `(待補)` | fix(schemas): 移除 Supabase 殘留 5 張孤兒 line_* 表 + 清 migration ledger | 2026-05-19 |
 | `3bfd33a` | docs: 納入 SUPABASE-LINE-BOT-MOVED.md + backlog #149 同步搬遷決策 | 2026-05-19 |
 | `7a2fb25` | docs(architecture): testing-strategy 補 §4.1 測試驗意圖 | 2026-05-19 |
-| `2f670b8` | fix(schemas): products base 表改欄位級 GRANT 防經銷價繞 view 洩漏 | 2026-05-19 |
 
 ## 下一步
-待 pcm-quote-v2 端確認 line_* 搬遷驗證全綠 → A 庫 line_* 清理 slice(backlog #149);回主線 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 PreviewHarness)
+回主線 M-1-10 FilterTop.tsx(含 CascadeFilterTop、可複用 WO-4 PreviewHarness);backlog P1-now 條目可優先排
 
 ## Sean 待決策
-#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway) / pcm-line-bot 共用 Supabase DB 處置(backlog #149)（#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6）
+#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
 
 ## Blocker
 無

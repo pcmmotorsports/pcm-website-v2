@@ -3958,10 +3958,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #149. ⏳ pcm-website-v2 與 pcm-line-bot 共用 Supabase DB 處置評估
+### #149. ✅ pcm-website-v2 與 pcm-line-bot 共用 Supabase DB 處置評估
 
-- **狀態:** ⏳ 待執行(範圍已收斂、見下方更新)
-- **2026-05-19 更新:** Sean 已拍板並執行 —— LINE bot 併入 `pcm-quote-v2`、`line_*` 表搬去 pcm-quote-v2 的 Supabase(ref `dllwkkfanaebrsuyuedy`)。剩餘工作收斂為「A 庫 `line_*` 清理 slice」(DROP 5 表 + `migration repair` 清 7 筆 ledger),須等 pcm-quote-v2 端確認搬遷驗證全綠才動。詳見 `docs/SUPABASE-LINE-BOT-MOVED.md`。
+- **狀態:** ✅ 完成(2026-05-19)
+- **2026-05-19 完成:** LINE bot 併入 `pcm-quote-v2`、`line_*` 表搬去 pcm-quote-v2 的 Supabase(ref `dllwkkfanaebrsuyuedy`)。執行前檢查抓到 split-brain 分岔、已把 A 庫獨有 1 對話 + 10 訊息補進 pcm-quote-v2;A 庫殘留 5 張 `line_*` 表 + 7 筆孤兒 ledger 紀錄已清(migration `20260519152353_drop_orphan_line_tables`、走 Codex Review),`supabase db push` 已恢復正常。詳見 `docs/SUPABASE-LINE-BOT-MOVED.md`。
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
