@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(本commit)` | feat(storefront): ProductsPage 補 Pagination + MobileFab [M-1-12c-2] | 2026-05-20 |
+| `18bb281` | feat(storefront): ProductsPage 補 Pagination + MobileFab [M-1-12c-2] | 2026-05-20 |
 | `c7a9ee9` | fix(storefront): CascadeFilterTop 補 vehicle 外部清除同步 effect | 2026-05-20 |
 | `b1a536c` | fix(storefront): 篩選器「其他」checkbox 補 is-checked class | 2026-05-20 |
 
