@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(本commit)` | fix(storefront): M-1-12 Codex review 修正(拆檔 + 品牌篩選 + 0 筆分頁) | 2026-05-20 |
+| `d9b01b5` | fix(storefront): M-1-12 Codex review 修正(拆檔 + 品牌篩選 + 0 筆分頁) | 2026-05-20 |
 | `18bb281` | feat(storefront): ProductsPage 補 Pagination + MobileFab [M-1-12c-2] | 2026-05-20 |
 | `c7a9ee9` | fix(storefront): CascadeFilterTop 補 vehicle 外部清除同步 effect | 2026-05-20 |
 
