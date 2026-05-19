@@ -18,8 +18,10 @@
 // 字面 vs 事實揭示:
 // 1. design 的 searchVehicle 函式定義了但 JSX 無按鈕引用(死碼)→ 不搬
 //    (no-unused-vars 會擋、且搬死碼違三視角可維護性)。
-// 2. design 的「filters.vehicle 被外部清除時 reset tmp」useEffect → 自管模式無外部
-//    清除者、handleClearVehicle 一次重置 reducer + tmp → 該 effect 不搬。
+// 2. design 的「vehicle 被外部清除時 reset tmp」useEffect:M-1-10 自管模式無外部
+//    清除者、當時判定不搬;M-1-12a 改 controlled 後 ActiveChips /「清除全部」等
+//    外部清除者出現、select 下拉會與 cascade 失同步(M-1-12c-1 肉眼驗發現)→
+//    M-1-12c 補回此 effect(對齊 design 真權威、推翻 M-1-10 不搬判定)。
 // 3. design 從既有 filters.vehicle hydrate initBrand / initModel 的初始化 → 自管模式
 //    起始恆為空(makeInitialCascadeState)→ tmp 直接初始 '' 、不搬 hydrate 邏輯。
 // 4. design 的 local clearVehicle 函式與 @pcm/ui 同名 action creator import 衝突 →
@@ -27,7 +29,7 @@
 
 'use client';
 
-import { useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -49,6 +51,16 @@ export function CascadeFilterTop({
   const [tmpBrand, setTmpBrand] = useState('');
   const [tmpModel, setTmpModel] = useState('');
   const [tmpYear, setTmpYear] = useState('');
+
+  // cascade.vehicle 被外部清除(ActiveChips /「清除全部」/「清除車輛」等)時、同步
+  // 清空 select 導覽 state,避免下拉殘留已清除的車款(對齊 design 真權威 effect)。
+  useEffect(() => {
+    if (!cascade.vehicle) {
+      setTmpBrand('');
+      setTmpModel('');
+      setTmpYear('');
+    }
+  }, [cascade.vehicle]);
 
   const brands = data.motoBrands;
   const curBrand = brands.find((b) => b.id === tmpBrand);

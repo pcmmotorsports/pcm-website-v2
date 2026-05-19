@@ -8,14 +8,14 @@
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-12c-1 肉眼驗修正:其他 checkbox is-checked]
+2026-05-20 — Claude Code [M-1-12c-1 肉眼驗修正:CascadeFilterTop 外部清除同步]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `(本commit)` | fix(storefront): CascadeFilterTop 補 vehicle 外部清除同步 effect | 2026-05-20 |
 | `b1a536c` | fix(storefront): 篩選器「其他」checkbox 補 is-checked class | 2026-05-20 |
 | `33f7ec0` | feat(storefront): ProductsPage 接 filterProducts / sortProducts + ActiveChips [M-1-12c-1] | 2026-05-20 |
-| `62a0fee` | feat(storefront): 新增 ProductsPage 骨架 + /products route [M-1-12b] | 2026-05-20 |
 
 ## 下一步
 M-1-12c-2 ProductsPage Pagination + MobileFab(M-1-12 收尾);完成後跑 Codex Review Packet(M-1-12 整組重大改動收尾);M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
