@@ -12,7 +12,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(待補)` | fix(schemas): 移除 Supabase 殘留 5 張孤兒 line_* 表 + 清 migration ledger | 2026-05-19 |
+| `ea66bff` | fix(schemas): 移除 Supabase 殘留 5 張孤兒 line_* 表 + 清 migration ledger | 2026-05-19 |
 | `3bfd33a` | docs: 納入 SUPABASE-LINE-BOT-MOVED.md + backlog #149 同步搬遷決策 | 2026-05-19 |
 | `7a2fb25` | docs(architecture): testing-strategy 補 §4.1 測試驗意圖 | 2026-05-19 |
 
