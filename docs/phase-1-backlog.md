@@ -4041,6 +4041,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #152. ⏳ ProductsPage 篩選未依車款 / 分類過濾商品
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - ProductsPage 的 `filterProducts` 只依 brands / 現貨 / 新品 / 特價 / 顏色 / 價格過濾,**不依 cascade.vehicle / cascade.category**;使用者選車款或分類後,頁首標題、麵包屑、ActiveChips 標籤會變,但商品數與商品列表不變
+  - 此為照搬 design ProductsPage.jsx —— design `filterProducts`(L85-116)本身就不過濾 vehicle / category
+  - 根因:mock 資料未對映 —— 商品 `p.category` 為自由字串(如「操控部品 · 腳踏後移」)、與分類樹(`mock-categories`)節點名不對應;`p.fits` 為車輛適用自由字串(如「CBR600RR」「通用款」)、與 cascade.vehicle 結構化品牌/車型/年份無對映表
+- **觸發事件(任一觸發即啟動實作):**
+  - M-1-16 種子資料 import(200 SKU)落地 —— 真資料若帶結構化分類 id / 車輛適用對照,即可實作此過濾
+  - 商品分類 schema / 車輛適用(fitment)schema 正式定義時
+- **預期解法:**
+  - 商品需帶結構化分類 id(對映分類樹 mainId/subId)+ 結構化車輛適用清單(品牌/車型/年份);`filterProducts` 補 category / vehicle 兩段過濾
+  - 過渡期可考慮 UI 揭示(選了車款/分類但結果未變時提示),或暫時隱藏不生效的入口
+- **不修會痛在:**
+  - 擴充性:車款 / 分類是 PCM「依車找零件」核心,長期必須真的過濾,愈晚補牽動商品 schema 愈大
+  - 可維護性:現況「UI 變、結果不變」對使用者是隱性 bug,易被誤報為故障
+  - bug 可追蹤性:篩選邏輯與商品 schema 對映散落,無單一對照表時跨層 bug 難定位
+- **估時:** 待商品分類 / fitment schema 定義後評估;非單一 slice
+- **依賴:** M-1-16 種子資料 + 商品分類 / fitment schema
+- **發現於:** 2026-05-20 / M-1-12 Codex review finding 4
+- **相關:** #151 / M-1-12 偵察報告 §3 / M-1-16
+
+---
+
 ## 紀錄模板
 
 ```markdown

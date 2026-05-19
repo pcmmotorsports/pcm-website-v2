@@ -3,22 +3,22 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅、餘 M-1-13~16)
-**當前 slice:** M-1-12c-2 — ProductsPage Pagination + MobileFab ✅(M-1-12 整組完成、瀏覽器實測過、三綠)
+**當前 slice:** M-1-12 Codex review round-1 修正 ✅(拆 ProductsPage 264 行 + 品牌篩選 / 0 筆分頁修正 + backlog #152、三綠、瀏覽器實測)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-12c-2 / M-1-12 ProductsPage 整組完成]
+2026-05-20 — Claude Code [M-1-12 Codex review round-1 修正]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `(本commit)` | fix(storefront): M-1-12 Codex review 修正(拆檔 + 品牌篩選 + 0 筆分頁) | 2026-05-20 |
 | `18bb281` | feat(storefront): ProductsPage 補 Pagination + MobileFab [M-1-12c-2] | 2026-05-20 |
 | `c7a9ee9` | fix(storefront): CascadeFilterTop 補 vehicle 外部清除同步 effect | 2026-05-20 |
-| `b1a536c` | fix(storefront): 篩選器「其他」checkbox 補 is-checked class | 2026-05-20 |
 
 ## 下一步
-M-1-12 整組重大改動收尾 → 產 Codex Review Packet 提醒 Sean 貼 Codex 審查(鐵則 12);通過後接 M-1-13 ProductPage 直接搬;M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
+重出 Codex Review Packet 給 Codex round-2 複審(鐵則 12);通過後接 M-1-13 ProductPage 直接搬;M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
