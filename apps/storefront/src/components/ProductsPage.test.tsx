@@ -1,0 +1,53 @@
+// @vitest-environment jsdom
+//
+// ProductsPage smoke test — 前台 regression 安全網。
+// 驗「商品列表頁 render 不報錯 + 標題 / 商品數 / 商品卡 / 篩選器顯示」。
+// Header useRouter 走 vi.mock、matchMedia 走 beforeAll stub(同 Header.test.tsx)。
+// 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
+
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
+import { ProductsPage } from './ProductsPage';
+import { MOCK_PRODUCTS } from '../data/mock-products';
+
+beforeAll(() => {
+  // jsdom 不實作 matchMedia、Header useEffect 會呼叫 → 補最小 stub
+  window.matchMedia = window.matchMedia || ((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  } as MediaQueryList));
+});
+
+afterEach(cleanup);
+
+describe('ProductsPage', () => {
+  it('should render the products listing without crashing', () => {
+    render(<ProductsPage />);
+    // 預設標題「全部商品」(無篩選)+ 商品數
+    expect(screen.getByText('全部商品')).toBeDefined();
+    expect(screen.getByText(`${MOCK_PRODUCTS.length} 件商品`)).toBeDefined();
+  });
+
+  it('should mount the cascade bar and side filter', () => {
+    render(<ProductsPage />);
+    expect(screen.getByText('確認適用車款')).toBeDefined();
+    expect(screen.getByText('篩選條件')).toBeDefined();
+  });
+
+  it('should render product cards', () => {
+    render(<ProductsPage />);
+    // MOCK_PRODUCTS 含多筆 LIGHTECH 品牌商品
+    expect(screen.getAllByText('LIGHTECH').length).toBeGreaterThan(0);
+  });
+});
