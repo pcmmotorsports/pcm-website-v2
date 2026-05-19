@@ -12,7 +12,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(本commit)` | feat(storefront): 新增 FilterDrawer 對齊 design 真權威 [M-1-11] | 2026-05-19 |
+| `8f5d90c` | feat(storefront): 新增 FilterDrawer 對齊 design 真權威 [M-1-11] | 2026-05-19 |
 | `e5a809e` | feat(storefront): 新增 FilterTop + CascadeFilterTop 對齊 design 真權威 [M-1-10] | 2026-05-19 |
 | `ea66bff` | fix(schemas): 移除 Supabase 殘留 5 張孤兒 line_* 表 + 清 migration ledger | 2026-05-19 |
 
