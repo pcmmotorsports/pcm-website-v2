@@ -1,9 +1,9 @@
 // app/layout.tsx — root layout(全域 CSS import)
 //
 // CSS load order 對齊 design-reference/index.html @ 25d3a2a:
-//   tokens → header → product-card → pricing → filter-top → filter-side → home
-//   (filter-side.css 由 M-1-09 加入、filter-top.css 由 M-1-10 加入;design 完整序
-//    filter-drawer / products-page 環繞 filter-side、M-1-11 / 12 trigger 才補)
+//   tokens → header → product-card → pricing → filter-top → filter-side → filter-drawer → home
+//   (filter-side.css 由 M-1-09 加入、filter-top.css 由 M-1-10 加入、filter-drawer.css 由
+//    M-1-11 加入;design 完整序 products-page 接於 filter-drawer 之後、M-1-12 trigger 才補)
 // 其他 CSS(product-page / pages / vehicle-drawer / account / search-overlay / tweaks)
 // 後續 slice trigger 才加(首頁不需要)
 //
@@ -17,6 +17,7 @@ import '../styles/product-card.css';
 import '../styles/pricing.css';
 import '../styles/filter-top.css';
 import '../styles/filter-side.css';
+import '../styles/filter-drawer.css';
 import '../styles/home.css';
 
 export const metadata = {
