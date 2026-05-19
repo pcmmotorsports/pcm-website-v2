@@ -12,7 +12,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `2752eb3` | docs(architecture): testing-strategy 補 §4.1 測試驗意圖 | 2026-05-19 |
+| `7a2fb25` | docs(architecture): testing-strategy 補 §4.1 測試驗意圖 | 2026-05-19 |
 | `2f670b8` | fix(schemas): products base 表改欄位級 GRANT 防經銷價繞 view 洩漏 | 2026-05-19 |
 | `096856f` | docs(workflow): 鐵則 12 + codex-review-packet.md 固化 Codex 唯讀審查流程 | 2026-05-19 |
 
