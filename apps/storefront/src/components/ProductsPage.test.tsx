@@ -50,4 +50,10 @@ describe('ProductsPage', () => {
     // MOCK_PRODUCTS 含多筆 LIGHTECH 品牌商品
     expect(screen.getAllByText('LIGHTECH').length).toBeGreaterThan(0);
   });
+
+  it('should render pagination and the mobile filter fab', () => {
+    render(<ProductsPage />);
+    expect(screen.getByLabelText('每頁')).toBeDefined();
+    expect(screen.getByText('篩選')).toBeDefined();
+  });
 });
