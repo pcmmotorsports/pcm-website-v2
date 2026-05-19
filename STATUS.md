@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `(本commit)` | feat(storefront): FilterSide / FilterDrawer 改 controlled [M-1-12a-1] | 2026-05-20 |
+| `7b284cc` | feat(storefront): FilterSide / FilterDrawer 改 controlled [M-1-12a-1] | 2026-05-20 |
 | `68c78d6` | docs(recon): 歸檔 M-1-12 ProductsPage 偵察報告 | 2026-05-20 |
 | `39b6ccd` | chore(config): 新增 GitHub Actions CI gate lint/typecheck/test | 2026-05-19 |
 
