@@ -4234,6 +4234,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #159. ⏳ filter-top.css 手機 responsive 字級漏(design 缺、storefront 對齊一致)
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟢 觀察(Phase 1 內手機字小但仍可讀、Phase 1 收尾 premortem 階段重評是否影響 conversion)
+- **問題:**
+  - design `filter-top.css` 全檔字面用 11/12/13/14 px 桌機字級階梯、**沒設計 @media 手機 fallback**(M-1-13d-fix-1 audit 證實 design 全 `styles/` 目錄無任何 `@media` 規則對 `.cft-*` / `.ft-*` selector)
+  - storefront `filter-top.css` 100% 對齊 design 字面(對齊鐵則 1「design 是成品、直接搬」)、所以手機 viewport 看就是縮小看桌機字、字偏小
+  - Sean 2026-05-20 M-1-13d 收工肉眼驗在 iPhone 14 Pro Max 模擬器發現:ProductsPage CascadeFilterTop 3 下拉「DUCATI 大 / Monster 中 / 2023 小、手機更小」、提及「之前就說過要修復」(可能涵蓋全站手機 responsive 字級、本條目僅 filter-top、其他元件若有同類問題另開條目)
+- **觸發事件:**
+  - 2026-05-20 / M-1-13d 收工肉眼驗 + M-1-13d-fix-1 audit 證實 design 缺手機 responsive
+- **預期解法:**
+  - **候選 A(Q2=A 拍板採用):** 報 Claude Design 補 `design-reference/styles/filter-top.css` 手機 @media fallback、storefront 跟著搬(對齊鐵則 1「design 是成品、直接搬」)
+  - **候選 B:** storefront 自加手機 responsive、偏離 design、Design 補回對齊時雙軌清理(技術債、不採用)
+- **不修會痛在:**
+  - 擴充性:手機用戶選車款體驗差、字小難讀、可能影響 conversion(Phase 1 80% 流量來自手機假設下風險高)
+  - 可維護性:全站可能有其他元件同類問題(Header / ProductCard / FilterDrawer 等)、若不立 backlog 系統追蹤、零星發現散落、未來全站盤點時要重做
+  - bug 可追蹤性:Sean 提及「之前說過」表示已 lose 過一次、需立 backlog 確保下次不再 lose
+- **估時:** Claude Design 補 + storefront 搬 30-45 min(視 design 字面複雜度)
+- **依賴:** Claude Design 補完 `design-reference/styles/filter-top.css` 手機 @media fallback
+- **發現於:** 2026-05-20 / M-1-13d 收工肉眼驗(Q2=A 拍板 audit)
+- **相關:** `design-reference/styles/filter-top.css`、`apps/storefront/src/styles/filter-top.css`、`apps/storefront/src/components/CascadeFilterTop.tsx`、`apps/storefront/src/components/FilterTop.tsx`、M-1-13g responsive 收口時對齊評估
+
+---
+
 ## 紀錄模板
 
 ```markdown
