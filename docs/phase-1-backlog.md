@@ -3429,9 +3429,12 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #130. ⏳ tier resolution helper(第 3 處撞才抽、Defer 模式)
+### #130. ✅ tier resolution helper(第 3 處撞才抽、Defer 模式 — Sean Q1=B 業務拍板覆寫)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-20 / M-1-13e-pre-1(`apps/storefront/src/lib/tier.ts` 抽 `resolveTierFromRequest(searchParams, cookieStore): Promise<MemberTier>` helper + 檔頭 `import 'server-only';` 編譯期擋 client bundle;`app/page.tsx` L42-58 inline 邏輯移除、改用 helper、移除 `designTierToSchema` import;`app/products/[slug]/page.tsx` 加 server-side resolve + TODO 註預埋 13e 真接 ProductPage prop;`lib/tier.test.ts` 5 test pass)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
@@ -3439,6 +3442,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 未來 ProductPage(M-1-13)/ CheckoutPage(M-1-XX)各 page server-side render 需 resolve tier、各自重寫
 - **觸發事件(任一觸發即啟動實作):**
   - 第 3 處撞(ProductPage / CheckoutPage 累積到 3 處)(對齊 lessons §84/§85 Defer 模式)
+  - 2026-05-20 / M-1-13e-pre-1 Sean Q1=B 業務拍板覆寫:金額頁面必須區分會員(商品頁 / 品牌頁 / 特價 / 購物車 / 結帳 / 訂單 / 任何金額頁面)、helper 立即抽、不等第 3 處撞 trigger;Q5=A 拍板「商品頁短期顯一般零售價接受、M-1-16 真資料來時自動生效」
 - **預期解法:**
   - 結構:`export async function resolveTierFromRequest(searchParams, cookies, options?): Promise<MemberTier>`
   - 位置:`apps/storefront/src/lib/tier.ts`(新檔)或 `@pcm/domain/identity`(視 cross-app 共用需求)
@@ -4256,6 +4260,39 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** Claude Design 補完 `design-reference/styles/filter-top.css` 手機 @media fallback
 - **發現於:** 2026-05-20 / M-1-13d 收工肉眼驗(Q2=A 拍板 audit)
 - **相關:** `design-reference/styles/filter-top.css`、`apps/storefront/src/styles/filter-top.css`、`apps/storefront/src/components/CascadeFilterTop.tsx`、`apps/storefront/src/components/FilterTop.tsx`、M-1-13g responsive 收口時對齊評估
+
+---
+
+### #160. ⏳ ProductInfo 未來擴張清單(說明書連結 / 適用車款列表 / 影片 / 額外說明圖片)
+
+- **狀態:** ⏳ 待 trigger
+- **分流:** P1-now 或 Phase 2(待 13f audit 確認)
+- **優先級:** 🟡 低(13f Tabs 啟動 / Phase 2 vehicle-service-ecosystem 啟動時撞)
+- **問題:**
+  - Sean 2026-05-20 M-1-13e Q3=A 拍板時補述、ProductInfo 商品資訊區未來除商品描述外、還會有:
+    1. 商品說明書連結
+    2. 適用車款列表(不只一台車、多車款結構化)
+    3. 影片連結
+    4. 額外提供的說明圖片
+  - 本 backlog 為錨點、追蹤:
+    - design `ProductPage.jsx` 字面有沒對應(Tabs L382-460 內 description / specs panel 可能含部分)
+    - 是 Phase 1(隨 13f Tabs 處理、簡單版 hardcode mock 字面)還 Phase 2(屬 vehicle-service-ecosystem、影響商品 schema)
+    - schema 預留欄位(若 Phase 2、影響 `packages/domain/src/catalog/types.ts` Product 結構)
+- **觸發事件(任一觸發即啟動實作):**
+  - 13f Tabs 啟動前 audit(對照 design Tabs 字面 + Sean 補述、判定 Phase 1 / 2 範圍)
+  - Phase 2 `vehicle-service-ecosystem` PRD 啟動時(若 schema 預留欄位需就位)
+- **預期解法:**
+  - 13f 啟動前 audit `design-reference/components/ProductPage.jsx` L382-460(Tabs section、4 個 panel:description / specs / install / warranty)字面、對照 Sean 4 項補述清單
+  - 判定:每項是 Phase 1 隨 13f hardcode mock 字面落地 / Phase 2 真實 schema 落地
+  - 若 Phase 2、補 schema 預留欄位(`Product` entity 加可選欄位 `manuals: ManualLink[] | null` / `fits: VehicleFitment[]`(已存)/ `videos: VideoLink[] | null` / `extraImages: string[] | null`)
+- **不修會痛在:**
+  - 擴充性:Tabs schema 不就位、Phase 2 補時要回頭改商品 entity 與 mapper、影響面大
+  - 可維護性:Sean 業務情報散在對話歷史、無 backlog 錨點易遺失(對齊鐵則 10「backlog 條目必寫」)
+  - bug 可追蹤性:本條為錨點、防 lose、13f 啟動前自動觸發 audit
+- **估時:** audit 30-45 min(13f 啟動前 + Sean 4 項補述對齊 + Phase 1/2 範圍拍板)
+- **依賴:** 13f Tabs 啟動 / Phase 2 `vehicle-service-ecosystem` PRD 啟動
+- **發現於:** 2026-05-20 / M-1-13e Q3=A 拍板補述(Sean 親口講 ProductInfo 未來擴張內容)
+- **相關:** `design-reference/components/ProductPage.jsx` L382-460 Tabs section、`docs/features/vehicle-service-ecosystem.md`、`apps/storefront/src/components/ProductInfo.tsx`、`packages/domain/src/catalog/types.ts` Product entity
 
 ---
 

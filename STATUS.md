@@ -2,26 +2,26 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a/b/c/d ✅、餘 M-1-13e~g + M-1-14~16)
-**當前 slice:** M-1-13d Info column + Options state(size/color)+ CSS sec 4+5 + 拆 ProductInfo 子元件 + 補 ProductGallery test(13c 違鐵則 11 補回)+ #81 處置時程更新 ✅(合一版 328 行超鐵則 6 警戒、Q3=A 觸發即拆 ProductInfo 173 行 + ProductPage 192 行 + ProductGallery 230 行;Q1=A / Q2=A / Q3=A 拍板 + 8 自審漏點全修;3 file test 拆分:ProductGallery 6 case + ProductInfo 10 case + ProductPage 7 case(原 8 - 3 gallery + 2 整合)= 119 全 pass)
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a~d ✅ + M-1-13e-pre-1 ✅、餘 13e-pre-2 + 13e/f/g + M-1-14~16)
+**當前 slice:** M-1-13e-pre-1 抽 resolveTierFromRequest helper(從 app/page.tsx L42-58 抽 + 檔頭 server-only)+ 首頁 + 商品頁接上 + backlog #130 markdone + #160 新增 ✅(Sean Q1=B 業務拍板覆寫 Defer 第 3 處撞 + Q5=A 商品頁短期顯一般零售價接受 + 商品頁 route 改 dynamic 是預期;四綠 typecheck/lint/build/test 124 全 pass、5 新 test + 既有 119)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-13d 完成]
+2026-05-20 — Claude Code [M-1-13e-pre-1 完成]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `3c34f71` | feat(storefront): ProductPage 拆 ProductInfo + Options state + CSS sec 4+5 + ProductGallery test + #81 處置 [M-1-13d] | 2026-05-20 |
-| `e3d5ac2` | docs(backlog): 新增 #158 MobileTabBar 漏元件追蹤(M-1-13c 收工肉眼驗發現) | 2026-05-20 |
-| `df30fdd` | feat(storefront): ProductPage gallery + lightbox 拆 ProductGallery 子元件 + CSS sec 3+12 [M-1-13c] | 2026-05-20 |
+| `81909b7` | feat(storefront): 抽 resolveTierFromRequest helper、首頁與商品頁接上 [M-1-13e-pre-1] | 2026-05-20 |
+| `59b4517` | docs(backlog): 新增 #159 filter-top.css 手機 responsive 字級漏(design 缺、M-1-13d 收工肉眼驗發現) | 2026-05-20 |
+| `3414741` | fix(storefront): ProductsPage ProductCard href 補帶 vehicle param [M-1-13d-fix-1] | 2026-05-20 |
 
 ## 下一步
-M-1-13e Buy row + Buy now + Services + Mobile sticky buy bar(tier helper #130 第 3 處撞 trigger + #82 inStock↔availability mapper Q2=A trigger)+ CSS sec 6+7+13;後續 M-1-13f Tabs(spec/desc/faq/review)/ M-1-13g Related + Toast + Responsive(Codex Review Packet 鐵則 12 觸發);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地、5 tab 中 3 個指向 M-1-15 後可用頁)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD);M-1 收尾跑 premortem 應對 step-2
+M-1-13e-pre-2 抽 availability mapper(Q2=A 位置 `packages/adapters/src/storefront-mappers/availability.ts`、估時 15-20 分鐘);後續 M-1-13e Buy row + Buy now + Services + Mobile sticky buy bar + CSS sec 6+7+13(13e 開工前 raise「有貨顯示交期 3-5 工作天 / 沒貨空白」design 字面 gap、Sean 補述 vs design 字面無對應、需拍 design 端補 or storefront 自加);M-1-13f Tabs(spec/desc/faq/review)/ M-1-13g Related + Toast + Responsive(Codex Review Packet 鐵則 12 觸發);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD);M-1 收尾跑 premortem 應對 step-2
 
 ## Sean 待決策
-#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成;Q-1=B / Q-2=B 已 2026-05-20 拍板「不急、判斷時機追加」、memory project_phase-1-scope-expansion-2026-05-20 已記、M-1-14/15/16 audit 階段 raise;#81 variants schema 已 2026-05-20 M-1-13d Q1=A 推延至 M-5-03 sync engine 前真撞才 spike + Sean 親口講 1-20 種規格業務細節)
+M-1-13e 開工前 raise design 字面 gap「Sean 補述『有貨:交期 3-5 工作天 / 沒貨:空白』vs design ProductPage.jsx 字面僅按鈕『加入購物車/補貨中·通知我』無交期、需拍板 design 端補 or storefront 自加(違鐵則 1)」;#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成;Q-1=B / Q-2=B 已 2026-05-20 拍板「不急、判斷時機追加」、memory project_phase-1-scope-expansion-2026-05-20 已記、M-1-14/15/16 audit 階段 raise;#81 variants schema 已 2026-05-20 M-1-13d Q1=A 推延至 M-5-03 sync engine 前真撞才 spike + Sean 親口講 1-20 種規格業務細節;#130 tier helper 2026-05-20 M-1-13e-pre-1 Sean Q1=B 業務拍板立即抽完成 ✅;#160 ProductInfo 擴張清單(說明書 / 適用車款列表 / 影片 / 圖片、Sean Q3 補述)13f Tabs / Phase 2 啟動前 audit)
 
 ## Blocker
 無

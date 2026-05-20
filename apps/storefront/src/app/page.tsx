@@ -14,8 +14,6 @@
 // 真實狀態:Supabase products 表 0 row(M-1-16 種子前)、HomeSelect 必走 Q-empty=b 分支。
 
 import { cookies } from 'next/headers';
-import { designTierToSchema } from '@pcm/domain';
-import type { MemberTier } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeHero } from '@/components/HomeHero';
 import { VehicleFinder } from '@/components/VehicleFinder';
@@ -26,6 +24,7 @@ import { HomeStatement } from '@/components/HomeStatement';
 import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
 import { fetchFeaturedProducts } from '@/lib/products';
+import { resolveTierFromRequest } from '@/lib/tier';
 
 // d2 build 揭示:本頁 server-side fetch Supabase、build 階段預生成 SSG 會撞 env 未注入
 // (build worker 不讀 monorepo root .env.local、`createSupabaseAnonClient` requireEnv throw)。
@@ -39,23 +38,12 @@ export default async function HomePage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  // tier 來源 priority:?tier= 覆寫(PCM_DEV_TIER_OVERRIDE=1 時)→ cookie `pcm-tier` → 預設 'general'
-  // env flag 包 ?tier=:production 預設關、防訪客 URL 加 ?tier=store 取得 dealer 價(對齊 PRD §3.1 R Q1=B)
+  // tier 解析:?tier= override(env flag PCM_DEV_TIER_OVERRIDE=1)> cookie `pcm-tier` > 'general'
+  // 邏輯抽至 @/lib/tier resolveTierFromRequest(M-1-13e-pre-1、Sean Q1=B 業務拍板:
+  // 金額頁面必須區分會員、helper 立即抽、不等第 3 處撞 trigger)
   const params = await searchParams;
   const cookieStore = await cookies();
-  const tierOverride =
-    process.env.PCM_DEV_TIER_OVERRIDE === '1' && typeof params.tier === 'string'
-      ? params.tier
-      : undefined;
-  const rawTier = tierOverride ?? cookieStore.get('pcm-tier')?.value ?? 'general';
-
-  // designTierToSchema 對非預期值 throw、server 端 corrupt cookie / 攻擊 URL fallback 'general'
-  let tier: MemberTier;
-  try {
-    tier = designTierToSchema(rawTier);
-  } catch {
-    tier = 'general';
-  }
+  const tier = await resolveTierFromRequest(params, cookieStore);
 
   // tier 傳給 fetchFeaturedProducts、由 toUIProduct 走 computeEffectivePrice 算 price / originalPrice / tierLabel
   // tier 同時寫進 data-tier 供 dev DOM inspector debug(server-side render 不影響 UI)
