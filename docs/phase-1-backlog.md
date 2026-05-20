@@ -4066,6 +4066,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #153. ⏳ 3 篩選元件介於 300-400 行硬警戒區,候選拆子元件
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - FilterSide.tsx 336 行 / FilterTop.tsx 351 行 / FilterDrawer.tsx 350 行 —— 均落在鐵則 6「>300 行硬警戒、>400 行硬上限」之間,未超上限但長期應拆
+  - 內含可獨立的子元件:FilterSide 的 `Accordion` / `VehicleTree` / `CategoryTree` / `CheckboxList` / `PriceRangeSlider`;FilterTop 的 `CategoryPanel`(L284 已是子函式)+ 5 個 dropdown 面板;FilterDrawer 的 6 個 tab panel
+- **觸發事件(任一觸發即啟動實作):**
+  - 任一檔案下次新增功能後接近或超過 400 行硬上限
+  - M-1 段落間有空檔(M-1-13~16 完成後 / M-2 之前)
+- **預期解法:**
+  - FilterSide:抽出 `filter-side-parts.tsx` 或拆 5 子元件檔(Accordion 已可獨立)
+  - FilterTop:`CategoryPanel` 抽檔;5 個 dropdown 面板抽 `filter-top-panels.tsx`
+  - FilterDrawer:6 個 tab panel 抽 `filter-drawer-tabs.tsx`
+- **不修會痛在:**
+  - 擴充性:下一次加篩選欄位或子元件就會撞 400 上限,屆時被迫拆 + 新功能耦合
+  - 可維護性:單檔 300+ 行讀起來吃力,定位某個 panel 要捲很遠
+  - bug 可追蹤性:子元件 inline 在主檔,單元測試只能透過 Harness 整體測,不易精準 isolate
+- **估時:** 各檔 30-45 min,3 檔合計 ~2 小時(可分 3 個 sub-slice 做)
+- **依賴:** 無;建議 M-1-13~16 完成後一輪做完
+- **發現於:** 2026-05-20 / M-1-12 Codex review round-2 次要觀察
+- **相關:** 鐵則 6 / M-1-12
+
+---
+
 ## 紀錄模板
 
 ```markdown
