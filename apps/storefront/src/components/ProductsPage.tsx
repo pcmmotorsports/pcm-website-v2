@@ -222,9 +222,13 @@ export function ProductsPage() {
               gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
               gap: gridCols <= 2 ? 20 : 14,
             }}>
-              {displayed.map((p) => (
-                <ProductCard key={p.id} p={p} href={`/products/${p.slug}?from=catalog`} />
-              ))}
+              {displayed.map((p) => {
+                const categoryMain = p.category.split('·')[0]?.trim() || '';
+                const href = categoryMain
+                  ? `/products/${p.slug}?from=catalog&category=${encodeURIComponent(categoryMain)}`
+                  : `/products/${p.slug}?from=catalog`;
+                return <ProductCard key={p.id} p={p} href={href} />;
+              })}
             </div>
           ) : (
             <div style={{ padding: '64px 0', textAlign: 'center', color: 'var(--c-text-3)', font: '14px/1.6 system-ui, sans-serif' }}>

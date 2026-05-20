@@ -4089,6 +4089,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-20 / M-1-12 Codex review round-2 次要觀察
 - **相關:** 鐵則 6 / M-1-12
 
+### #154. ⏳ 商品 not found 自訂 404 頁延後 M-6 SEO 統一(Q5=C 拍板)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(M-6-01 SEO 統一處理時 trigger)
+- **問題:**
+  - M-1-13b `/products/[slug]` 用 Next.js 預設 `notFound()` → 英文「This page could not be found.」、無自訂中文文案
+  - 與既有 M-1-03 main-d-d2 拍板「目前沒有商品」/「載入失敗、請稍後再試」中文風格不一致
+- **觸發事件:**
+  - 2026-05-20 / M-1-13b 啟動前 audit 發現、Sean Q5 拍 C(延後處理 + 開 backlog 防 lose)
+  - 觸發實作:M-6-01「SEO meta tags 各 page type」啟動時、連同 product / brand / category not-found 自訂頁一輪做完
+- **預期解法:**
+  - 沿用 d2 拍板字面風格、新建 `app/products/[slug]/not-found.tsx`(Next.js 16 慣例)
+  - 文案類似:「商品不存在 — 請回商品目錄逛逛」+ Link 回 `/products`
+  - 一併處理 brand / category / order not-found(M-6-01 範圍)
+- **不修會痛在:**
+  - 擴充性:Phase 1 上線後使用者遇到舊連結失效會看到英文 404、品牌一致性差
+  - 可維護性:M-6-01 啟動時若忘記 backlog、會 lose 掉「沿用 d2 拍板字面」共識
+  - bug 可追蹤性:無(純 UX)
+- **估時:** 30-45 min(M-6-01 範圍內順手做)
+- **依賴:** M-6-01 SEO meta tags 各 page type
+- **發現於:** 2026-05-20 / M-1-13b 啟動前 audit
+- **相關:** M-1-03 main-d-d2(d2 拍板 Q-empty=b / Q-error=b)/ M-6-01 / Q5=C
+
 ---
 
 ## 紀錄模板

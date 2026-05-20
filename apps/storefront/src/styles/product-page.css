@@ -1,0 +1,89 @@
+/* product-page.css — 字面從 design-reference/styles/product-page.css 直接搬
+ * (M-1-13b 落地 line 1-86:base + token bridge 9 alias + crumbs + vehicle pill + main grid;
+ *  後續 sections 由 M-1-13c~g 累積補) */
+
+/* product-page.css — editorial product detail */
+
+/* Bridge design-token aliases so this file uses the same var names as rest of site */
+.pd-page, .pd-page * {
+  --ink: var(--c-text);
+  --ink-tert: var(--c-text-2);
+  --ink-mute: var(--c-text-3);
+  --paper: var(--c-surface);
+  --paper-2: var(--c-surface-2);
+  --line: var(--c-border);
+  --font-sans: var(--f-sans);
+  --font-serif: var(--f-serif);
+  --font-mono: var(--f-mono);
+}
+
+.pd-page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px 48px 80px;
+}
+
+.pd-crumbs {
+  display: flex; align-items: center; gap: 8px;
+  font: 500 12px/1 var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--ink-tert); margin-bottom: 32px;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pd-crumbs::-webkit-scrollbar { display: none; }
+.pd-crumbs a { color: var(--ink-tert); text-decoration: none; flex-shrink: 0; }
+.pd-crumbs a:hover { color: var(--ink); }
+.pd-crumbs .pd-crumbs-sep { color: var(--ink-mute); flex-shrink: 0; }
+.pd-crumbs .pd-crumbs-current {
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Vehicle filter pill — sits at end of breadcrumb */
+.pd-vehicle-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 4px 4px 4px 9px;
+  background: #fff5e0;
+  border: 1px solid #f0d68a;
+  border-radius: 999px;
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: #6b4a00;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s;
+  white-space: nowrap;
+}
+.pd-vehicle-pill:hover { background: #ffeec1; border-color: #d4a853; }
+.pd-vehicle-pill svg { color: #6b4a00; flex-shrink: 0; }
+.pd-vehicle-pill-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  background: transparent;
+  color: #8a6700;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+  padding: 0;
+}
+.pd-vehicle-pill-x:hover { background: rgba(0,0,0,0.08); color: #000; }
+
+/* ========= Main grid ========= */
+.pd-main {
+  display: grid;
+  grid-template-columns: 1fr 480px;
+  gap: 64px;
+  margin-bottom: 80px;
+}

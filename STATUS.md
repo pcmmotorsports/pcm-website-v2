@@ -2,23 +2,23 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a ✅、餘 M-1-13b~g + M-1-14~16)
-**當前 slice:** M-1-13a mock-products slug 欄 + ProductCard href 打底 ✅(SEO 真 anchor、Q1=B / Q2=A 7 sub-slice / Q3=A / Q4=B 拍板;recon docs/recon/M-1-13-product-page-recon.md)
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a/b ✅、餘 M-1-13c~g + M-1-14~16)
+**當前 slice:** M-1-13b ProductPage 路由骨架 + Breadcrumb 8-source + Vehicle Pill + CSS sec 1+2 ✅(Q5=C 拍板 404 走 Next.js 預設、backlog #154 開條目;ADR-0006 對齊 'use client';不撞 #130/#81/#82)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-13a 完成]
+2026-05-20 — Claude Code [M-1-13b 完成]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `6b5e06c` | feat(storefront): mock-products slug 欄 + ProductCard href 打底 [M-1-13a] | 2026-05-20 |
+| `71474c1` | feat(storefront): ProductPage 路由骨架 + Breadcrumb + Vehicle Pill + CSS sec 1+2 [M-1-13b] | 2026-05-20 |
+| `603aa0f` | feat(storefront): mock-products slug 欄 + ProductCard href 打底 [M-1-13a] | 2026-05-20 |
 | `add56e0` | docs(backlog): 新增 #153 3 篩選元件 300 行警戒追蹤 | 2026-05-20 |
-| `d9b01b5` | fix(storefront): M-1-12 Codex review 修正(拆檔 + 品牌篩選 + 0 筆分頁) | 2026-05-20 |
 
 ## 下一步
-M-1-13b ProductPage 路由 + 骨架 + Breadcrumb(8-source 完整邏輯)+ Vehicle Pill + product-page.css sec 1+2(base + main grid + crumbs + pill);後續 M-1-13c~g(原 Q2=A 6 個 sub-slice 微調為 7 個、13a 為打底、13b~g 為 design 字面搬);接著 M-1-14 Customer schema / M-1-15 LoginPage·RegisterPage / M-1-16 200 SKU 種子(slug 必填規格寫進 ADR);M-1 收尾跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
+M-1-13c Gallery + Lightbox + lightbox state hooks(swipe useRef + keyboard nav useEffect)+ CSS sec 3+12;後續 M-1-13d Info+Options / 13e Buy row+Services+Mobile bar(tier helper #130 第 3 處撞 trigger)/ 13f Tabs / 13g Related+Toast+Responsive(Codex Review Packet);接著 M-1-14 Customer schema / M-1-15 LoginPage·RegisterPage / M-1-16 200 SKU 種子;M-1 收尾跑 premortem 應對 step-2
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)

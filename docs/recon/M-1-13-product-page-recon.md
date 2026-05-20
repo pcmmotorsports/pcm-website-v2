@@ -189,4 +189,32 @@ M-1-13 完整收尾(最後 sub-slice 結束)額外:
 6. 鐵則 12 觸發 → 產 Codex Review Packet、提醒 Sean 貼給 Codex 唯讀審查
 7. `/pcm-roadmap` 更新進度地圖
 
+---
+
+## 7. 2026-05-20 更新:sub-slice 編號重排 + 13b audit 補拍板
+
+Sean 拍 X(7 個 sub-slice、原 13a 拆兩半)後實際編號:
+
+| 現編號 | 原 §6 編號 | 範圍 | 狀態 |
+|---|---|---|---|
+| **13a** | (新增打底) | mock-products slug 欄 + ProductCard href(SEO 真 anchor)+ ProductsPage 連結改 | ✅ commit `603aa0f` |
+| **13b** | 原「13a」 | `/products/[slug]` route + ProductPage 骨架 + Breadcrumb 8-source + Vehicle Pill + product-page.css line 1-86 | ✅ 本 commit |
+| **13c** | 原「13b」 | Gallery + Lightbox + lightbox state hooks(swipe useRef + keyboard nav useEffect)+ CSS sec 3+12 | ⏳ 後續 |
+| **13d** | 原「13c」 | Info column + Options(size/color/qty state)+ CSS sec 4+5 | ⏳ 後續 |
+| **13e** | 原「13d」 | Buy row + Services strip + Mobile sticky buy bar(tier resolution helper #130 第 3 處撞 trigger)+ CSS sec 6+7+13 | ⏳ 後續 |
+| **13f** | 原「13e」 | Tabs(spec/desc/faq/review)+ CSS sec 8 | ⏳ 後續 |
+| **13g** | 原「13f」 | Related + Toast + Responsive 收口 + Codex Review Packet(鐵則 12 觸發) | ⏳ 後續 |
+
+13b 啟動前 audit 補拍板(Q5):
+
+- **Q5(404 文案)= C**:走 Next.js 預設 404、新建 backlog #154「商品 not found 自訂 404 頁延後 M-6 SEO 統一」、Phase 1 不留屎、未來 M-6-01 trigger 沿用 d2 拍板「目前沒有商品」字面風格
+
+13b 啟動前 audit 對齊文件(防 lose):
+
+- 對齊 **ADR-0006 server-component-default**:route `page.tsx` server-only、ProductPage.tsx 必標 'use client' 因含 useSearchParams / useRouter / useMemo hook(白名單情境)
+- 不撞 **backlog #130 tier resolution helper**(Defer 模式、13b 不顯 price / tier、留 13e Buy Row 真撞時抽)
+- 不啟動 **backlog #81 #82**(variants schema / inStock↔availability mapper、留 13c-e 真做 options / inStock UI 時 trigger)
+- breadcrumb category 顯示簡化:用 raw 字面「操控部品」直接顯示、不查 MOCK_CATEGORIES.id→name 映射(對齊一致、不留屎)
+- Header `currentPage='catalog'`(對齊 ProductsPage、storefront Header navItems 無 'product' id、刪 design 字面 onNav prop)
+
 — END —
