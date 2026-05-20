@@ -13,19 +13,24 @@
 // ./ProductGallery.tsx(對齊鐵則 6「>300 行硬警戒」、本檔 13c 加完累計 366 行立即拆);
 // 本檔 13c 範圍 = `<ProductGallery product={product} />` 一行 + section.pd-main 含 pd-info 空殼預埋。
 //
+// M-1-13d 拆檔:pd-info column 上半(brand row + sku + title + fits-banner + color/size options)
+// + COLOR_MAP + 13d hooks(sizeOptions/colorOptions useMemo + color/size useState + reset useEffect)
+// 全部移至 ./ProductInfo.tsx(對齊鐵則 6「>300 行硬警戒」、Q3=A 2026-05-20 拍板「邊寫邊看 ≥300 立即拆」、
+// 13d 合一版 328 行立即拆;對齊 13c 拆 ProductGallery 模式);本檔 13d 範圍 = `<ProductInfo product={product} />` 一行。
+//
 // 'use client' 必要:useSearchParams / useRouter / useMemo + 互動 onClick(vehicle pill ×)
 // 對齊 ADR-0006 §1 白名單「Hooks → 'use client'」、不違 server-component-default。
 //
 // 後續 sub-slice 預埋:
-// - 13d info / options + size/color/qty state hooks(進 ProductGallery 同層子元件 ProductInfo 或留 ProductPage)
-// - 13d buy row + services + mobile sticky buy bar
-// - 13e tabs(spec / desc / faq / review)
-// - 13f related + toast
-// - 13g responsive media queries(product-page.css line 618-669)
+// - 13d info column 上半 + size/color/qty state(本 sub-slice、ProductPage 內、≥300 行才拆 ProductInfo)
+// - 13e buy row + buy-now + services + mobile sticky buy bar(tier resolution helper #130 + #82 mapper trigger)
+// - 13f tabs(spec / desc / faq / review)
+// - 13g related + toast + responsive media queries(product-page.css line 618-669)
 //
-// 本 sub-slice 不渲染 product.price / product.tierLabel(防誤觸 backlog #130 tier resolution helper
-// 第 3 處撞、13e Buy Row 真撞才抽);不動 backlog #81/#82(variants schema / inStock↔availability、
-// 留 13d-e 真做 options / inStock UI 時 trigger)。
+// 本檔截至 M-1-13d:不渲染 product.price / origPrice / discountPct / tierLabel(留 13e Buy Row、
+// #130 tier resolution helper 第 3 處撞才抽);不渲染 product.inStock / availability(留 13e Buy Row、
+// 對齊 Q2=A 2026-05-20 拍板 + #82 mapper trigger);不動 backlog #81 variants schema
+// (Q1=A 2026-05-20 拍板:hardcoded 落地、M-5-03 sync engine 前真撞才 spike + Sean 親口講 1-20 種規格業務細節)。
 
 'use client';
 
@@ -37,6 +42,7 @@ import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
+import { ProductInfo } from './ProductInfo';
 import '@/styles/product-page.css';
 
 export type ProductPageProps = { product: MockProduct };
@@ -171,13 +177,12 @@ export function ProductPage({ product }: ProductPageProps) {
           )}
         </nav>
 
-        {/* TODO M-1-13d: section.pd-services / pd-buy-row + pd-mobile-buy-bar + pd-info column(brand row / sku / title / fits-banner / options) */}
-        {/* TODO M-1-13e: section.pd-tabs-section */}
-        {/* TODO M-1-13f: section.pd-related + pd-toast */}
-        {/* TODO M-1-13g: responsive media queries(product-page.css line 618-669) */}
+        {/* TODO M-1-13e: pd-buy-row + pd-buynow-btn + pd-services + pd-mobile-buy-bar(tier #130 + #82 mapper trigger) */}
+        {/* TODO M-1-13f: pd-tabs-section(spec / desc / faq / review) */}
+        {/* TODO M-1-13g: pd-related + pd-toast + responsive media queries(product-page.css line 618-669) */}
         <section className="pd-main">
           <ProductGallery product={product} />
-          <aside className="pd-info">{/* TODO M-1-13d: brand row + sku + title + fits-banner + options */}</aside>
+          <ProductInfo product={product} />
         </section>
       </main>
 

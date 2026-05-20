@@ -215,6 +215,152 @@
 }
 .pd-hero-badge-new { background: var(--ink); }
 
+/* ========= Info column ========= */
+/* M-1-13d:字面從 design-reference/styles/product-page.css line 214-300 直接搬(sec 4 Info column 87 行)
+   注意 .pd-price-block / .pd-price-* CSS 提前搬進、JSX 13d 不渲染、留 13e Buy Row 補渲染(對齊 #130 trigger) */
+.pd-info { padding-top: 4px; }
+
+.pd-brand-row {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px;
+}
+.pd-brand-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font: 500 13px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid var(--ink);
+  padding-bottom: 3px;
+}
+.pd-brand-link:hover { color: var(--accent, #c41e3a); border-color: var(--accent, #c41e3a); }
+.pd-sku {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--ink-tert);
+  letter-spacing: 0.05em;
+}
+
+.pd-title {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 38px; line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0 0 28px;
+  text-wrap: pretty;
+}
+
+.pd-fits-banner {
+  display: flex; gap: 14px; align-items: center;
+  padding: 14px 18px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--ink);
+  margin-bottom: 32px;
+}
+.pd-fits-banner svg { flex-shrink: 0; color: var(--ink); }
+.pd-fits-label {
+  font: 500 10px/1 var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--ink-tert);
+  margin-bottom: 4px;
+}
+.pd-fits-value {
+  font: 500 14px/1.3 var(--font-sans);
+  color: var(--ink);
+}
+
+.pd-price-block {
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+}
+.pd-price-row {
+  display: flex; align-items: baseline; gap: 12px;
+  flex-wrap: wrap;
+}
+.pd-price {
+  font-family: var(--font-serif);
+  font-weight: 500;
+  font-size: 36px; line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.pd-price.is-red { color: #c41e3a; }
+.pd-price-orig {
+  font: 400 16px/1 var(--font-sans);
+  color: var(--ink-tert);
+  text-decoration: line-through;
+}
+.pd-price-save {
+  font: 500 11px/1 var(--font-mono);
+  background: #c41e3a; color: white;
+  padding: 5px 8px;
+  letter-spacing: 0.05em;
+}
+.pd-price-meta {
+  font: 400 12px/1 var(--font-sans);
+  color: var(--ink-tert);
+  margin-top: 8px;
+}
+
+/* ========= Options ========= */
+/* M-1-13d:字面從 design-reference/styles/product-page.css line 301-356 直接搬(sec 5 Options 56 行) */
+.pd-opt { margin-bottom: 24px; }
+.pd-opt-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 10px;
+}
+.pd-opt-label {
+  font: 500 11px/1 var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.12em;
+  color: var(--ink-tert);
+}
+.pd-opt-value {
+  font: 500 13px/1 var(--font-sans);
+  color: var(--ink);
+}
+.pd-opt-guide {
+  font: 400 11px/1 var(--font-mono);
+  color: var(--ink-tert);
+  text-decoration: none;
+  letter-spacing: 0.05em;
+}
+.pd-opt-guide:hover { color: var(--ink); }
+
+.pd-swatches { display: flex; gap: 10px; }
+.pd-swatch {
+  width: 40px; height: 40px;
+  padding: 3px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: border-color 150ms;
+}
+.pd-swatch.is-active { border-color: var(--ink); }
+.pd-swatch:hover { border-color: var(--ink-tert); }
+.pd-swatch-dot {
+  display: block; width: 100%; height: 100%;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.08);
+}
+
+.pd-size-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
+.pd-size-btn {
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  font: 500 13px/1 var(--font-sans);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 150ms;
+}
+.pd-size-btn:hover { border-color: var(--ink); }
+.pd-size-btn.is-active {
+  background: var(--ink); color: var(--paper);
+  border-color: var(--ink);
+}
+
 /* ========= Lightbox ========= */
 .pd-lightbox {
   position: fixed;

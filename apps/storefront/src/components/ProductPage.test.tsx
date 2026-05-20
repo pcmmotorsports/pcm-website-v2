@@ -93,25 +93,22 @@ describe('ProductPage', () => {
     expect(calledWith).not.toContain('vehicle');
   });
 
-  it('should render gallery with 3 thumbnails + counter 01 / 03', () => {
+  // ProductGallery / ProductInfo 獨立單元測試移至 ProductGallery.test.tsx / ProductInfo.test.tsx
+  // 本檔留 2 個整合 case、證明 ProductPage 正確 mount 兩個子元件、不重複測 internal state
+
+  it('should integrate ProductGallery (render counter 01 / 03)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
-    expect(screen.getByLabelText('圖片 1')).toBeDefined();
-    expect(screen.getByLabelText('圖片 2')).toBeDefined();
-    expect(screen.getByLabelText('圖片 3')).toBeDefined();
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 
-  it('should advance activeImg when right arrow clicked', () => {
+  it('should integrate ProductInfo (render brand row + SKU)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
-    fireEvent.click(screen.getByLabelText('下一張'));
-    expect(screen.getByText('02 / 03')).toBeDefined();
-  });
-
-  it('should not render lightbox dialog by default', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const product = MOCK_PRODUCTS[0]!;
+    render(<ProductPage product={product} />);
+    expect(screen.getByText(product.brand)).toBeDefined();
+    expect(
+      screen.getByText(`SKU · PCM-${String(product.id).padStart(5, '0')}`),
+    ).toBeDefined();
   });
 });

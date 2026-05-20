@@ -2054,7 +2054,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 - **狀態:** ⏳ 待執行
 - **分流:** P1-now
-- **優先級:** 🔴 高(M-1-13 ProductPage 啟動前必修、本 slice 推延)
+- **優先級:** 🟠 中(M-5-03 sync engine 啟動前真撞才 spike、Q1=A 2026-05-20 拍板推延)
 - **問題:**
   - Sean 2026-05-04 業務訊號:同個商品多規格(顏色 × 材質 × 年式對應)、員工後台自行新增、1-20 種選項、雙層或三層巢狀
   - design ProductPage.jsx 字面只 hardcode `state: color / size / qty`、size options 依 product.category 字串(排氣 / 碳纖 / 避震 / 卡鉗)分支動態算、color options 主色 + 額外 2 色從 pool slice
@@ -2062,20 +2062,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - M-1-13 ProductPage 直接搬時、必踩此 gap
 - **觸發事件:**
   - 2026-05-04 / M-1-02 拍板 Q1=A2 推延 variants(本 slice 不補)
+  - 2026-05-20 / M-1-13d 啟動前 audit:Q1=A 拍板推延、對齊鐵則 1 直接搬 design hardcoded 3 選項落地(M-1-13d ProductInfo 已搬 COLOR_MAP 8 色 + sizeOptions 4 category 分支);真撞時點推到 M-5-03 員工後台 admin / sync engine 上架階段、屆時 Sean 親口講 1-20 種規格業務細節 + spike 候選 A/B/C 拍板
 - **預期解法:**
   - **候選 A:** Medusa v2 內建 product_option + product_variant(spike 驗證能否蓋雙層 / 三層)
   - **候選 B:** PCM 自家 schema、走 metadata.variants jsonb(完全自由、設計成本高、Medusa Admin UI 不支援)
   - **候選 C:** 混合(產品基本層 Medusa option / variant、複雜層 PCM 自家 metadata 補)
-  - 啟動順序:M-1-13 啟動前獨立 slice 跑 spike + 拍板候選、估時 60-90 min
+  - 啟動順序:M-1-13 hardcoded 落地後、M-5-03 sync engine 啟動前獨立 slice spike + 拍板候選、估時 60-90 min
   - 配合 Claude Design 補設計(design 字面不足、需擴 ProductPage UI 顯示 1-20 種規格)
 - **不修會痛在:**
-  - 擴充性:M-1-13 ProductPage 直接搬時撞 gap、design 字面不夠;Phase 2 vendor crawler 抓變體資料、schema 不就位無法落地
+  - 擴充性:M-1-13d hardcoded 3 選項落地、員工後台真要上架 1-20 種規格商品時無法存;Phase 2 vendor crawler 抓變體資料、schema 不就位無法落地
   - 可維護性:design 字面 hardcode color + size、sync-engine 上架 pipeline(M-5-03)無法寫變體、員工手動 admin 上架走 ad-hoc
   - bug 可追蹤性:客人「我要紅色不鏽鋼長 200mm」、Order 看不到完整變體選擇、客服回溯困難
 - **估時:** spike 60-90 min + 落地 90-120 min(獨立 slice)
-- **依賴:** M-1-02 完成、M-1-13 啟動前獨立 slice 處理
+- **依賴:** M-1-02 完成、M-1-13 hardcoded 落地後(M-1-13d ✅)、M-5-03 sync engine 啟動前獨立 slice 處理
 - **發現於:** 2026-05-04 / M-1-02 拍板 Q1
-- **相關:** `packages/domain/src/catalog/types.ts` Product variants 推延欄位、`design-reference/components/ProductPage.jsx`(state color / size / qty)、`docs/PHASE-1-MILESTONES.md` M-1-13
+- **相關:** `packages/domain/src/catalog/types.ts` Product variants 推延欄位、`design-reference/components/ProductPage.jsx`(state color / size / qty)、`apps/storefront/src/components/ProductInfo.tsx`(M-1-13d 落地、COLOR_MAP 8 色 + sizeOptions 4 分支 hardcode)、`docs/PHASE-1-MILESTONES.md` M-1-13 / M-5-03
 
 ### #82. ⏳ design `inStock: boolean` ↔ domain `ProductAvailability` mapper(M-1-13 ProductPage 啟動前)
 
