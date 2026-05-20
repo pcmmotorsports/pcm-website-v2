@@ -9,6 +9,7 @@
 
 'use client';
 
+import Link from 'next/link';
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MockProduct } from '@/data/mock-products';
 import { Price } from './Price';
@@ -98,10 +99,16 @@ export type ProductCardProps = {
   showRedPrice?: boolean;
   badgeStyle?: 'minimal' | 'pill' | 'corner' | 'none';
   compact?: boolean;
+  /**
+   * 有 href 時用 Next.js Link 包外層、card 為 SEO 真 anchor;
+   * 無 href 時沿用 onClick(向後相容 HomeSelect 等既有用法)。
+   * 兩者擇一、有 href 時 onClick 不觸發(避免雙觸發 confusion)。
+   */
+  href?: string;
   onClick?: () => void;
 };
 
-export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false, onClick }: ProductCardProps) {
+export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact = false, href, onClick }: ProductCardProps) {
   const [hover, setHover] = useState(false);
   const [liked, setLiked] = useState(false);
 
@@ -120,12 +127,12 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
     return null;
   })();
 
-  return (
+  const cardInner = (
     <article
       className="pcard"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      onClick={onClick}
+      onClick={href ? undefined : onClick}
       style={{ cursor: 'pointer' }}
     >
       <div className="pcard-img-wrap">
@@ -173,5 +180,14 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         </div>
       </div>
     </article>
+  );
+
+  // 有 href 時 Link 包外層、display:contents 避免破壞 grid layout、a 字面屬於 SEO 真 anchor
+  return href ? (
+    <Link href={href} style={{ display: 'contents', color: 'inherit', textDecoration: 'none' }}>
+      {cardInner}
+    </Link>
+  ) : (
+    cardInner
   );
 }

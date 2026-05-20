@@ -89,6 +89,7 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
 
   return {
     id: hashIdToNumber(product.id),
+    slug: product.handle,
     brand: product.brand.name,
     name: product.name,
     fits,

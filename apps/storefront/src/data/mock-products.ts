@@ -3,10 +3,28 @@
  * 對齊 main-d-d1 拍板「直接搬、不翻譯」精神
  *
  * d2 接 SupabaseProductAdapter 真資料時、本檔保留作 fallback / Storybook 樣本(待 d2 拍板)
+ *
+ * M-1-13a 加 slug 欄(Q1=B `/products/[slug]` 路由用、SEO 友善 ASCII slug、unique)
  */
+
+/**
+ * 將 brand 字串(可能含 unicode diacritics 如 Č / Ö)轉為 URL-safe ASCII slug。
+ * 用法:`brandToSlug('AKRAPOVIČ')` → `'akrapovic'`、`brandToSlug('CNC RACING')` → `'cnc-racing'`
+ * 機制:NFD normalize 拆 diacritic → 移 combining marks → 小寫 → 非 ASCII 字元換 hyphen → 收頭尾 hyphen
+ */
+export function brandToSlug(brand: string): string {
+  return brand
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
 
 export type MockProduct = {
   id: number;
+  /** URL-safe ASCII slug,格式 `${brandToSlug(brand)}-${id}`、unique(brand+id 天然 unique);M-1-13a 落地、M-1-16 真資料種子時必填 */
+  slug: string;
   brand: string;
   name: string;
   fits: string;
@@ -25,24 +43,31 @@ export type MockProduct = {
 };
 
 export const MOCK_PRODUCTS: MockProduct[] = [
-  { id: 1, brand: 'LIGHTECH', name: 'Lightech 鋁合金腳踏組', fits: 'CBR600RR', price: 12800, origPrice: null, isNew: true, isSale: false, inStock: true, category: '操控部品 · 腳踏後移', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
-  { id: 2, brand: 'LIGHTECH', name: 'Lightech 可調式拉桿組', fits: 'YAMAHA R6', price: 5800, origPrice: 7200, isNew: false, isSale: true, inStock: true, category: '操控部品 · 拉桿', color: 'red', imgTone: 'red', originalPrice: null, tierLabel: null },
-  { id: 3, brand: 'CNC RACING', name: 'CNC Racing 油箱蓋', fits: 'Ducati Panigale V4', price: 6500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 油箱蓋', color: 'silver', imgTone: 'neutral', originalPrice: null, tierLabel: null },
-  { id: 4, brand: 'GB RACING', name: 'GB Racing 引擎護蓋套組', fits: 'BMW S1000RR', price: 8900, origPrice: null, isNew: false, isSale: false, inStock: true, category: '車身套件 · 引擎護蓋', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
-  { id: 5, brand: 'RIZOMA', name: 'RIZOMA CIRCUIT 959 後視鏡', fits: '通用款', price: 4200, origPrice: null, isNew: true, isSale: false, inStock: true, category: '精品配件 · 後視鏡', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
-  { id: 6, brand: 'AKRAPOVIČ', name: 'Akrapovič 鈦合金全段排氣', fits: 'Panigale V4', price: 98000, origPrice: 112000, isNew: false, isSale: true, inStock: false, category: '引擎部品 · 排氣管', color: 'titanium', imgTone: 'warm', originalPrice: null, tierLabel: null },
-  { id: 7, brand: 'BREMBO', name: 'Brembo GP4-RX 輻射卡鉗', fits: 'BMW S1000RR', price: 52000, origPrice: null, isNew: true, isSale: false, inStock: true, category: '煞車系統 · 卡鉗', color: 'gold', imgTone: 'warm', originalPrice: null, tierLabel: null },
-  { id: 8, brand: 'ÖHLINS', name: 'Öhlins TTX GP 後避震', fits: 'ZX-10R', price: 68000, origPrice: null, isNew: false, isSale: false, inStock: true, category: '避震 · 後避震', color: 'yellow', imgTone: 'gold', originalPrice: null, tierLabel: null },
-  { id: 9, brand: 'RIZOMA', name: 'RIZOMA 鋁合金油箱蓋', fits: 'MT-09', price: 3800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 油箱蓋', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
-  { id: 10, brand: 'CNC RACING', name: 'CNC 可折式拉桿組', fits: 'Panigale V2', price: 7200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品 · 拉桿', color: 'red', imgTone: 'red', originalPrice: null, tierLabel: null },
-  { id: 11, brand: 'LIGHTECH', name: 'Lightech 車架防倒球', fits: 'MT-10', price: 2400, origPrice: 2800, isNew: false, isSale: true, inStock: true, category: '車身套件 · 防倒球', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
-  { id: 12, brand: 'TERMIGNONI', name: 'Termignoni 碳纖維中段', fits: 'Streetfighter V4', price: 42000, origPrice: null, isNew: true, isSale: false, inStock: true, category: '引擎部品 · 排氣管', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
-  { id: 13, brand: 'GB RACING', name: 'GB Racing 變速箱護蓋', fits: 'ZX-10R', price: 3600, origPrice: null, isNew: false, isSale: false, inStock: true, category: '車身套件 · 引擎護蓋', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
-  { id: 14, brand: 'RIZOMA', name: 'RIZOMA Quantum 方向燈', fits: '通用款', price: 2800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · LED', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
-  { id: 15, brand: 'BREMBO', name: 'Brembo T-Drive 浮動碟盤', fits: 'RSV4', price: 18500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '煞車系統 · 碟盤', color: 'silver', imgTone: 'neutral', originalPrice: null, tierLabel: null },
-  { id: 16, brand: 'CNC RACING', name: 'CNC 鑰匙蓋防盜組', fits: 'Monster', price: 2100, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 鑰匙蓋', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
-  { id: 17, brand: 'LIGHTECH', name: 'Lightech 碳纖維土除', fits: 'Tuono V4', price: 9200, origPrice: null, isNew: true, isSale: false, inStock: true, category: '車身套件 · 土除', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
-  { id: 18, brand: 'AKRAPOVIČ', name: 'Akrapovič Slip-On 尾段', fits: 'MT-09', price: 38000, origPrice: 45000, isNew: false, isSale: true, inStock: true, category: '引擎部品 · 排氣管', color: 'titanium', imgTone: 'warm', originalPrice: null, tierLabel: null },
-  { id: 19, brand: 'ÖHLINS', name: 'Öhlins FGK 前叉套件', fits: 'Panigale V4', price: 125000, origPrice: null, isNew: false, isSale: false, inStock: false, category: '避震 · 前叉', color: 'gold', imgTone: 'gold', originalPrice: null, tierLabel: null },
-  { id: 20, brand: 'RIZOMA', name: 'RIZOMA 腳踏後移', fits: 'MT-10', price: 18500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品 · 腳踏後移', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 1, slug: 'lightech-1', brand: 'LIGHTECH', name: 'Lightech 鋁合金腳踏組', fits: 'CBR600RR', price: 12800, origPrice: null, isNew: true, isSale: false, inStock: true, category: '操控部品 · 腳踏後移', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 2, slug: 'lightech-2', brand: 'LIGHTECH', name: 'Lightech 可調式拉桿組', fits: 'YAMAHA R6', price: 5800, origPrice: 7200, isNew: false, isSale: true, inStock: true, category: '操控部品 · 拉桿', color: 'red', imgTone: 'red', originalPrice: null, tierLabel: null },
+  { id: 3, slug: 'cnc-racing-3', brand: 'CNC RACING', name: 'CNC Racing 油箱蓋', fits: 'Ducati Panigale V4', price: 6500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 油箱蓋', color: 'silver', imgTone: 'neutral', originalPrice: null, tierLabel: null },
+  { id: 4, slug: 'gb-racing-4', brand: 'GB RACING', name: 'GB Racing 引擎護蓋套組', fits: 'BMW S1000RR', price: 8900, origPrice: null, isNew: false, isSale: false, inStock: true, category: '車身套件 · 引擎護蓋', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
+  { id: 5, slug: 'rizoma-5', brand: 'RIZOMA', name: 'RIZOMA CIRCUIT 959 後視鏡', fits: '通用款', price: 4200, origPrice: null, isNew: true, isSale: false, inStock: true, category: '精品配件 · 後視鏡', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 6, slug: 'akrapovic-6', brand: 'AKRAPOVIČ', name: 'Akrapovič 鈦合金全段排氣', fits: 'Panigale V4', price: 98000, origPrice: 112000, isNew: false, isSale: true, inStock: false, category: '引擎部品 · 排氣管', color: 'titanium', imgTone: 'warm', originalPrice: null, tierLabel: null },
+  { id: 7, slug: 'brembo-7', brand: 'BREMBO', name: 'Brembo GP4-RX 輻射卡鉗', fits: 'BMW S1000RR', price: 52000, origPrice: null, isNew: true, isSale: false, inStock: true, category: '煞車系統 · 卡鉗', color: 'gold', imgTone: 'warm', originalPrice: null, tierLabel: null },
+  { id: 8, slug: 'ohlins-8', brand: 'ÖHLINS', name: 'Öhlins TTX GP 後避震', fits: 'ZX-10R', price: 68000, origPrice: null, isNew: false, isSale: false, inStock: true, category: '避震 · 後避震', color: 'yellow', imgTone: 'gold', originalPrice: null, tierLabel: null },
+  { id: 9, slug: 'rizoma-9', brand: 'RIZOMA', name: 'RIZOMA 鋁合金油箱蓋', fits: 'MT-09', price: 3800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 油箱蓋', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 10, slug: 'cnc-racing-10', brand: 'CNC RACING', name: 'CNC 可折式拉桿組', fits: 'Panigale V2', price: 7200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品 · 拉桿', color: 'red', imgTone: 'red', originalPrice: null, tierLabel: null },
+  { id: 11, slug: 'lightech-11', brand: 'LIGHTECH', name: 'Lightech 車架防倒球', fits: 'MT-10', price: 2400, origPrice: 2800, isNew: false, isSale: true, inStock: true, category: '車身套件 · 防倒球', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
+  { id: 12, slug: 'termignoni-12', brand: 'TERMIGNONI', name: 'Termignoni 碳纖維中段', fits: 'Streetfighter V4', price: 42000, origPrice: null, isNew: true, isSale: false, inStock: true, category: '引擎部品 · 排氣管', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
+  { id: 13, slug: 'gb-racing-13', brand: 'GB RACING', name: 'GB Racing 變速箱護蓋', fits: 'ZX-10R', price: 3600, origPrice: null, isNew: false, isSale: false, inStock: true, category: '車身套件 · 引擎護蓋', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
+  { id: 14, slug: 'rizoma-14', brand: 'RIZOMA', name: 'RIZOMA Quantum 方向燈', fits: '通用款', price: 2800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · LED', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 15, slug: 'brembo-15', brand: 'BREMBO', name: 'Brembo T-Drive 浮動碟盤', fits: 'RSV4', price: 18500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '煞車系統 · 碟盤', color: 'silver', imgTone: 'neutral', originalPrice: null, tierLabel: null },
+  { id: 16, slug: 'cnc-racing-16', brand: 'CNC RACING', name: 'CNC 鑰匙蓋防盜組', fits: 'Monster', price: 2100, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 鑰匙蓋', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 17, slug: 'lightech-17', brand: 'LIGHTECH', name: 'Lightech 碳纖維土除', fits: 'Tuono V4', price: 9200, origPrice: null, isNew: true, isSale: false, inStock: true, category: '車身套件 · 土除', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
+  { id: 18, slug: 'akrapovic-18', brand: 'AKRAPOVIČ', name: 'Akrapovič Slip-On 尾段', fits: 'MT-09', price: 38000, origPrice: 45000, isNew: false, isSale: true, inStock: true, category: '引擎部品 · 排氣管', color: 'titanium', imgTone: 'warm', originalPrice: null, tierLabel: null },
+  { id: 19, slug: 'ohlins-19', brand: 'ÖHLINS', name: 'Öhlins FGK 前叉套件', fits: 'Panigale V4', price: 125000, origPrice: null, isNew: false, isSale: false, inStock: false, category: '避震 · 前叉', color: 'gold', imgTone: 'gold', originalPrice: null, tierLabel: null },
+  { id: 20, slug: 'rizoma-20', brand: 'RIZOMA', name: 'RIZOMA 腳踏後移', fits: 'MT-10', price: 18500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品 · 腳踏後移', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
 ];
+
+/**
+ * 依 slug 取 product;Q1=B `/products/[slug]` server component 用、404 處理 caller 負責。
+ */
+export function findProductBySlug(slug: string): MockProduct | undefined {
+  return MOCK_PRODUCTS.find((p) => p.slug === slug);
+}

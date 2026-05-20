@@ -33,4 +33,17 @@ describe('ProductCard', () => {
     fireEvent.click(screen.getByLabelText('收藏'));
     expect(screen.getByLabelText('收藏')).toBeDefined();
   });
+
+  it('should render an anchor with href when href prop is provided', () => {
+    render(<ProductCard p={product} href={`/products/${product.slug}?from=catalog`} />);
+    const anchor = screen.getByText(product.name).closest('a');
+    expect(anchor).not.toBeNull();
+    expect(anchor!.getAttribute('href')).toBe(`/products/${product.slug}?from=catalog`);
+  });
+
+  it('should fall back to article + onClick when href is absent', () => {
+    render(<ProductCard p={product} />);
+    expect(screen.getByText(product.name).closest('a')).toBeNull();
+    expect(screen.getByText(product.name).closest('article')).not.toBeNull();
+  });
 });

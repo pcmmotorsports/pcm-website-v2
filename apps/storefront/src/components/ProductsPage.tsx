@@ -223,7 +223,7 @@ export function ProductsPage() {
               gap: gridCols <= 2 ? 20 : 14,
             }}>
               {displayed.map((p) => (
-                <ProductCard key={p.id} p={p} />
+                <ProductCard key={p.id} p={p} href={`/products/${p.slug}?from=catalog`} />
               ))}
             </div>
           ) : (

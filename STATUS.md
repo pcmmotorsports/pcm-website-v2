@@ -2,23 +2,23 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅、餘 M-1-13~16)
-**當前 slice:** M-1-12 ProductsPage 整組 ✅(Codex round-1 + round-2 通過、已 push 至 4d5c595;backlog #153 篩選元件 300 行警戒追蹤條目)
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a ✅、餘 M-1-13b~g + M-1-14~16)
+**當前 slice:** M-1-13a mock-products slug 欄 + ProductCard href 打底 ✅(SEO 真 anchor、Q1=B / Q2=A 7 sub-slice / Q3=A / Q4=B 拍板;recon docs/recon/M-1-13-product-page-recon.md)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-12 收工 + backlog #153]
+2026-05-20 — Claude Code [M-1-13a 完成]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `6b5e06c` | feat(storefront): mock-products slug 欄 + ProductCard href 打底 [M-1-13a] | 2026-05-20 |
 | `add56e0` | docs(backlog): 新增 #153 3 篩選元件 300 行警戒追蹤 | 2026-05-20 |
 | `d9b01b5` | fix(storefront): M-1-12 Codex review 修正(拆檔 + 品牌篩選 + 0 筆分頁) | 2026-05-20 |
-| `18bb281` | feat(storefront): ProductsPage 補 Pagination + MobileFab [M-1-12c-2] | 2026-05-20 |
 
 ## 下一步
-M-1-13 ProductPage.tsx 直接搬(全站最大檔、design 584 行)+ product-page.css;接著 M-1-14 Customer schema / M-1-15 LoginPage·RegisterPage / M-1-16 200 SKU 種子;M-1 收尾時跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
+M-1-13b ProductPage 路由 + 骨架 + Breadcrumb(8-source 完整邏輯)+ Vehicle Pill + product-page.css sec 1+2(base + main grid + crumbs + pill);後續 M-1-13c~g(原 Q2=A 6 個 sub-slice 微調為 7 個、13a 為打底、13b~g 為 design 字面搬);接著 M-1-14 Customer schema / M-1-15 LoginPage·RegisterPage / M-1-16 200 SKU 種子(slug 必填規格寫進 ADR);M-1 收尾跑 premortem 應對 step-2(誠實重估 + 最小可上線定義 + 3 決策設 deadline)
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
