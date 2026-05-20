@@ -63,13 +63,14 @@ describe('FilterSide', () => {
     expect(screen.getByText('BONAMICI RACING')).toBeDefined();
   });
 
-  // regression:勾選「其他」checkbox 後 row 應帶 is-checked class(勾勾才顯示)
-  it('should mark the 其他 checkbox row as checked after clicking it', () => {
+  // M-1-13e-pre-3:Sean 2026-05-21 業務拍板「不顯示有無庫存」、SHOW_IN_STOCK_FILTER=false
+  // 隱藏「僅顯示現貨」checkbox;原「勾選後 row 帶 is-checked class」測點失效、翻轉為
+  // 「verify hidden」。未來業務 revisit 把 flag 改 true 時、本 test 會 alert(需改回測
+  // click 互動)、是 regression 錨點。
+  it('should not render 僅顯示現貨 checkbox when SHOW_IN_STOCK_FILTER=false', () => {
     render(<Harness />);
-    // 「其他」accordion 預設收合、先展開再勾選「僅顯示現貨」
+    // 「其他」accordion 預設收合、展開後仍應無「僅顯示現貨」label(flag 隱藏)
     fireEvent.click(screen.getByText('其他'));
-    fireEvent.click(screen.getByText('僅顯示現貨'));
-    const row = screen.getByText('僅顯示現貨').closest('label');
-    expect(row?.className).toContain('is-checked');
+    expect(screen.queryByText('僅顯示現貨')).toBeNull();
   });
 });

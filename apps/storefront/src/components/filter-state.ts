@@ -14,6 +14,23 @@ import type { Dispatch, SetStateAction } from 'react';
 import type { CascadeFilterState, CascadeFilterAction } from '@pcm/ui';
 
 /**
+ * 「現貨」篩選 UI feature flag(M-1-13e-pre-3 落地)。
+ *
+ * Sean 2026-05-21 業務拍板「不顯示有無庫存、商品永遠可加購」、UI(FilterTop /
+ * FilterSide / FilterDrawer 的「現貨」chip / checkbox)隱藏、邏輯保留。
+ *
+ * 未來業務改回顯示庫存 → 改 `true`、3 處 UI 同步出現、無需動其他邏輯。
+ * `extras.inStock` state default 仍 false(見 makeInitialExtraFilters)、用戶
+ * 不能勾就永遠 false、過濾邏輯(products-filter-logic.ts)自然不啟動。
+ * ActiveChips / ProductsPage 活動 filter 計數 / FilterDrawer tab count 同理
+ * 不渲染、刻意保留條件、未來 revisit 0 成本(對齊鐵則 9 業務試水溫精神)。
+ *
+ * 對齊 backlog #161:storefront 偏離 design 字面(design 仍含「現貨」filter
+ * + 沒貨徽章)、待 Claude Design 補對齊或 Sean 業務 revisit。
+ */
+export const SHOW_IN_STOCK_FILTER = false;
+
+/**
  * 階層篩選(車輛 / 分類 / 品牌、見 @pcm/ui CascadeFilterState)以外的篩選欄位。
  *
  * 對齊 design `filters` 物件剩餘欄位:price / priceRange / colors / inStock /

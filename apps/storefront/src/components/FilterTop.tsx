@@ -33,6 +33,7 @@ import {
   type CascadeFilterAction,
 } from '@pcm/ui';
 import {
+  SHOW_IN_STOCK_FILTER,
   makeInitialExtraFilters,
   type CascadeControlledProps,
   type ExtrasControlledProps,
@@ -135,10 +136,12 @@ export function FilterTop({
               <span>{extras.price || '價格'}</span>
               <Chevron open={open === 'price'} />
             </button>
-            <button className={`ft-chip ${extras.inStock ? 'is-selected' : ''}`} onClick={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))}>
-              <span>僅顯示現貨</span>
-              {extras.inStock && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>}
-            </button>
+            {SHOW_IN_STOCK_FILTER && (
+              <button className={`ft-chip ${extras.inStock ? 'is-selected' : ''}`} onClick={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))}>
+                <span>僅顯示現貨</span>
+                {extras.inStock && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg>}
+              </button>
+            )}
           </div>
           <div className="ft-right">
             <span className="ft-count">{resultCount} 件商品</span>

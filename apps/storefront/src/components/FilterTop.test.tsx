@@ -56,10 +56,11 @@ describe('FilterTop', () => {
     expect(screen.getByText('BONAMICI RACING')).toBeDefined();
   });
 
-  it('should show the active pill row after toggling 僅顯示現貨', () => {
+  // M-1-13e-pre-3:Sean 2026-05-21 業務拍板「不顯示有無庫存」、SHOW_IN_STOCK_FILTER=false
+  // 隱藏「僅顯示現貨」chip;原「toggle 後出現清除全部 pill」測點失效、翻轉為「verify hidden」。
+  // 未來業務 revisit 把 flag 改 true 時、本 test 會 alert(需改回測 click 互動)、是 regression 錨點。
+  it('should not render 僅顯示現貨 chip when SHOW_IN_STOCK_FILTER=false', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByText('僅顯示現貨'));
-    // pill 區出現「清除全部」
-    expect(screen.getByText('清除全部')).toBeDefined();
+    expect(screen.queryByText('僅顯示現貨')).toBeNull();
   });
 });

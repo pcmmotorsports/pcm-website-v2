@@ -4300,6 +4300,40 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #161. ⏳ storefront 偏離 design 字面(不顯庫存)— 待 Claude Design 補對齊
+
+- **狀態:** ⏳ 待 trigger
+- **分流:** P1-now(影響 13e + 後續金額頁面 + 全站 UX 一致性)
+- **優先級:** 🟠 中(防 design ↔ storefront 雙軌長期 drift、新 Claude Code session 進入 repo 讀 design 真權威時困惑)
+- **問題:** Sean 2026-05-21 業務拍板「不顯示有無庫存、商品永遠可加購」、storefront 短期偏離 design 字面 3 處:
+    1. **ProductCard 沒貨徽章**(M-1-13e-pre-3 落地):
+       - design `ProductCard.jsx` L101-103 仍含 `{!p.inStock && <div className="pcard-oos"><span>補貨中</span></div>}`
+       - storefront `ProductCard.tsx` L141-145 已移除 JSX + `product-card.css` L58-75 已刪 `.pcard-oos` CSS
+    2. **ProductPage Buy Btn conditional**(M-1-13 真做時將偏離):
+       - design `ProductPage.jsx` L340-342 `pd-add-btn` conditional className + disabled + 「加入購物車/補貨中·通知我」conditional text
+       - design L351 `pd-buynow-btn` disabled when !inStock
+       - design L502-545 `pd-mobile-buybar` cart + buynow btn 同樣 disabled
+       - storefront 13e 將寫死「加入購物車」永遠可點、無 disabled / 無 conditional text
+    3. **現貨 filter UI 入口**(M-1-13e-pre-3 落地):
+       - design `ProductsPage.jsx` / `FilterTop.jsx` / `FilterSide.jsx` / `FilterDrawer.jsx` 含「現貨」chip / checkbox
+       - storefront 用 `SHOW_IN_STOCK_FILTER = false` feature flag 隱藏 UI、邏輯 / state / 過濾函式刻意保留(對齊鐵則 9 業務試水溫精神、未來 revisit 0 成本)
+- **觸發事件(任一觸發即啟動實作):**
+  - 2026-05-21 / M-1-13e-pre-3 Sean 業務拍板「不顯庫存」+ Q=A「storefront 短期偏離 design」+ 補述「隱藏 filter」(實質 3 處偏離正式落地)
+  - Sean 在 Claude Design 補 design 字面對齊(刪沒貨徽章 / 改 buy btn 字面無 conditional / 刪現貨 filter UI)、推 pcm-website-design GitHub 後、storefront 走 `git submodule update --remote design-reference/` 同步、grep 驗對齊
+- **預期解法:**
+  - Sean 在 Claude Design 修改 ProductCard.jsx / ProductPage.jsx / ProductsPage.jsx / FilterTop.jsx / FilterSide.jsx / FilterDrawer.jsx 對應字面、刪不顯庫存相關 UI / state branch
+  - 推完後 storefront `git submodule update --remote design-reference/` + grep 驗對齊 + 刪 `SHOW_IN_STOCK_FILTER` flag(若 design 確定對齊、邏輯 / state 也可順手清:`extras.inStock` 欄、`products-filter-logic.ts` L52、ActiveChips 條件、ProductsPage / FilterDrawer 計數)
+- **不修會痛在:**
+  - 擴充性:design ↔ storefront 字面長期 drift、未來新功能對齊真權威時要先判斷「design 字面是 stale 還新」、開發成本上升
+  - 可維護性:新 Claude Code session 進入 repo 讀 design 真權威時、發現 storefront 字面與 design 不一致、可能誤判 storefront 是 bug
+  - bug 可追蹤性:本條為錨點、storefront 偏離 design 點明確記錄、未來 revisit 時 grep `SHOW_IN_STOCK_FILTER` / `.pcard-oos` / `補貨中` 即可找回偏離歷史
+- **估時:** Claude Design 補(Sean 操作、視時間)+ storefront submodule update + grep 驗 30-45 min(視 design 補完範圍)
+- **依賴:** Sean 在 Claude Design 修改 + 推 pcm-website-design GitHub
+- **發現於:** 2026-05-21 / M-1-13e-pre-3 規劃階段 self-check audit(grep 抓出全站「現貨」filter 7 處使用點 + ProductCard 沒貨徽章 + ProductPage buy btn conditional 等多處偏離點)
+- **相關:** design-reference/components/ProductCard.jsx L101-103 / ProductPage.jsx L340-342, L351, L502-545 / ProductsPage.jsx / FilterTop.jsx / FilterSide.jsx / FilterDrawer.jsx;storefront `ProductCard.tsx`(徽章移除)/ `product-card.css`(.pcard-oos 刪)/ `filter-state.ts`(SHOW_IN_STOCK_FILTER flag)/ `FilterTop.tsx` `FilterSide.tsx` `FilterDrawer.tsx`(flag 條件包);Sean 2026-05-21 業務拍板
+
+---
+
 ## 紀錄模板
 
 ```markdown

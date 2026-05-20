@@ -38,6 +38,7 @@ import {
   clearAll,
 } from '@pcm/ui';
 import {
+  SHOW_IN_STOCK_FILTER,
   makeInitialExtraFilters,
   type CascadeControlledProps,
   type ExtrasControlledProps,
@@ -319,11 +320,13 @@ export function FilterDrawer({
 
             {tab === 'other' && (
               <div>
-                <label className={`fd-cbx ${extras.inStock ? 'is-checked' : ''}`}>
-                  <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
-                  <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
-                  <span className="fd-cbx-name">僅顯示現貨</span>
-                </label>
+                {SHOW_IN_STOCK_FILTER && (
+                  <label className={`fd-cbx ${extras.inStock ? 'is-checked' : ''}`}>
+                    <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
+                    <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+                    <span className="fd-cbx-name">僅顯示現貨</span>
+                  </label>
+                )}
                 <label className={`fd-cbx ${extras.isNew ? 'is-checked' : ''}`}>
                   <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
                   <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>

@@ -138,11 +138,8 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       <div className="pcard-img-wrap">
         <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} hover={hover} />
         {badge && <div className="pcard-badge">{badge}</div>}
-        {!p.inStock && (
-          <div className="pcard-oos">
-            <span>補貨中</span>
-          </div>
-        )}
+        {/* 沒貨徽章移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
+            storefront 偏離 design 字面 L101-103、backlog #161 追蹤 Claude Design 補對齊) */}
         <button
           className="pcard-heart"
           onClick={(e) => { e.stopPropagation(); setLiked(!liked); }}

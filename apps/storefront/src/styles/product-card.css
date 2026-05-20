@@ -55,24 +55,8 @@
 .badge-dark { background: var(--c-text); color: var(--c-text-inverse); }
 .badge-red { background: var(--c-red); color: #fff; }
 
-/* Out-of-stock overlay */
-.pcard-oos {
-  position: absolute;
-  inset: 0;
-  background: rgba(250,250,250,0.78);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 3;
-}
-.pcard-oos span {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  padding: 6px 14px;
-  background: var(--c-text);
-  color: var(--c-text-inverse);
-}
+/* Out-of-stock overlay 移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
+   storefront 偏離 design 字面、backlog #161 追蹤 Claude Design 補對齊) */
 
 /* Wishlist heart */
 .pcard-heart {
