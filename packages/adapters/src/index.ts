@@ -14,3 +14,7 @@
 
 export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
 export { createSupabaseAnonClient } from './supabase/client';
+export {
+  availabilityToBool,
+  boolToAvailability,
+} from './storefront-mappers/availability';

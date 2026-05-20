@@ -35,6 +35,7 @@ if (typeof window !== 'undefined') {
 import {
   SupabaseProductAdapter,
   createSupabaseAnonClient,
+  availabilityToBool,
 } from '@pcm/adapters';
 import { computeEffectivePrice } from '@pcm/domain';
 import type { CategoryPath, MemberTier, Product } from '@pcm/domain';
@@ -97,7 +98,7 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     origPrice: null,
     isNew: false,
     isSale: false,
-    inStock: product.availability === 'in-stock',
+    inStock: availabilityToBool(product.availability),
     category: product.category.raw,
     color: 'silver',
     imgTone: 'neutral',

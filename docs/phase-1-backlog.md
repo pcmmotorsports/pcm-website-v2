@@ -2078,9 +2078,12 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-04 / M-1-02 拍板 Q1
 - **相關:** `packages/domain/src/catalog/types.ts` Product variants 推延欄位、`design-reference/components/ProductPage.jsx`(state color / size / qty)、`apps/storefront/src/components/ProductInfo.tsx`(M-1-13d 落地、COLOR_MAP 8 色 + sizeOptions 4 分支 hardcode)、`docs/PHASE-1-MILESTONES.md` M-1-13 / M-5-03
 
-### #82. ⏳ design `inStock: boolean` ↔ domain `ProductAvailability` mapper(M-1-13 ProductPage 啟動前)
+### #82. ✅ design `inStock: boolean` ↔ domain `ProductAvailability` mapper(M-1-13 ProductPage 啟動前)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成
+- **完成於:** 2026-05-20 / M-1-13e-pre-2(`packages/adapters/src/storefront-mappers/availability.ts` 新檔含雙向 helper `availabilityToBool(a: ProductAvailability): boolean` + `boolToAvailability(b: boolean): ProductAvailability`、純函式無 server-only;`packages/adapters/src/index.ts` 新增 export;`apps/storefront/src/lib/products.ts` L100 inline `availability === 'in-stock'` 改 `availabilityToBool(product.availability)` 呼叫;`availability.test.ts` 4 test pass 雙向覆蓋)
+- **(原狀態保留以下記錄)**
+- **狀態(原):** ⏳ 待執行
 - **分流:** P1-now
 - **優先級:** 🟠 中(M-1-13 ProductPage 直接搬時必撞、之前不阻)
 - **問題:**
@@ -2089,6 +2092,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - **跨層 mapping 缺位:** M-1-13 ProductPage 直接搬 design 時、storefront component 必須 map domain enum ↔ design boolean、否則 component 散寫 ternary (`product.availability === 'in-stock' ? ... : ...`)
 - **觸發事件:**
   - 2026-05-04 / M-1-02-audit reuse agent R1 抓出
+  - 2026-05-20 / M-1-13e-pre-2 Sean Q2=A 拍板執行(對齊 Q4=A 拆 3 段、純架構抽工具、無 UI 動;位置選 packages/adapters/src/storefront-mappers/ 新子目錄、跨 package 共用準備)
 - **預期解法:**
   - M-1-13 啟動前抽 mapper:`availabilityToBool(a: ProductAvailability): boolean` + `boolToAvailability(b: boolean): ProductAvailability`
   - 放置候選:`packages/adapters/src/storefront-mappers/`(新子目錄)/ 或 component 內部 inline + 集中 import
