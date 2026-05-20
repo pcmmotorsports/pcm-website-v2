@@ -4202,6 +4202,37 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #158. ⏳ 手機底部 5 tab bar(MobileTabBar)漏元件補搬(M-1-14 / M-1-15 啟動前順手做)
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟠 中(M-1-14 / M-1-15 啟動前處理、不阻 13d~g 主線)
+- **問題:**
+  - design `App.jsx` line 162-193 有完整 `<nav className="mobile-tabbar">` 字面、5 個 tab(首頁 / 商品 / 找車 / 會員 / 購物車)+ SVG icon + label + active dot
+  - storefront 完全沒搬(`apps/storefront/src/components/Mobile*` 不存在)
+  - 為什麼漏:design 把 MobileTabBar 放在 `App.jsx`(SPA harness 容器)、不像 Header / Footer 是獨立 .jsx 檔;之前 audit 沒抓到「藏在 App.jsx 裡的元件」
+  - 2026-05-20 / M-1-13c 收工肉眼驗階段 Sean 發現缺漏
+- **觸發事件(任一觸發即啟動實作):**
+  - M-1-14 Customer schema 落地後(會員 tab 連結需要登入頁存在)
+  - M-1-15 LoginPage / RegisterPage 落地前 audit(那時補最自然、5 tab 連結指向 3 個未落地頁:找車 / 會員 / 購物車)
+- **預期解法:**
+  - 新建 `apps/storefront/src/components/MobileTabBar.tsx`(對齊 design `mobile-tabbar` className 字面)
+  - 新建 `apps/storefront/src/styles/mobile-tabbar.css`(對齊 design styles/app.css 或 home.css 內 `.mobile-tabbar*` selectors)
+  - 5 tab 用 Next.js `<Link href>` + `usePathname` 判定 active(取代 design SPA setPage state)
+  - tab 路由對映:首頁 `/` / 商品 `/products` / 找車 `/vehicle-search`(待 M-1-15+ 建)/ 會員 `/account`(待 M-1-15)/ 購物車 `/cart`(待 M-3)
+  - **特殊邏輯:** 商品詳細頁需**隱藏** tab bar(design line 193 字面:「Hide tabbar on product page — sticky buy bar is the primary control there」、跟 13e mobile-buy-bar 二選一);用 usePathname 判 `/products/[slug]` 隱藏
+  - 接點:各 page layout / root layout 加 `<MobileTabBar />`(只在 < 900px 顯示、CSS @media query 控)
+- **不修會痛在:**
+  - 擴充性:手機體驗缺核心 nav、客人沒有快速跳 5 大區的入口
+  - 可維護性:design 真權威字面落地不全、後台 / 前台對齊出 gap
+  - bug 可追蹤性:Sean 肉眼驗已發現「沒做」、未來 audit / Codex Review 也會抓
+- **估時:** 30-45 min(MobileTabBar.tsx + CSS + 商品頁隱藏 + 各 page 接)
+- **依賴:** 無前置(可在 M-1-14 啟動前獨立 slice 跑、或合進 M-1-15 啟動前 audit 後)
+- **發現於:** 2026-05-20 / M-1-13c 收工肉眼驗 Sean raise
+- **相關:** `design-reference/components/App.jsx` line 162-193、M-1-14 / M-1-15、13e mobile-buy-bar 隱藏邏輯撞點
+
+---
+
 ## 紀錄模板
 
 ```markdown

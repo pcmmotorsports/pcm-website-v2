@@ -18,7 +18,7 @@
 | `603aa0f` | feat(storefront): mock-products slug 欄 + ProductCard href 打底 [M-1-13a] | 2026-05-20 |
 
 ## 下一步
-M-1-13d Info+Options(brand row + sku + title + fits-banner + size/color/qty state、CSS sec 4+5;可考量入 ProductInfo 子元件、視範圍判斷);後續 M-1-13e Buy row+Services+Mobile bar(tier helper #130 第 3 處撞 trigger)/ 13f Tabs / 13g Related+Toast+Responsive(Codex Review Packet);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請流程 PRD)/ M-1-15 LoginPage·RegisterPage(順帶 #156)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD);M-1 收尾跑 premortem 應對 step-2
+M-1-13d Info+Options(brand row + sku + title + fits-banner + size/color/qty state、CSS sec 4+5;可考量入 ProductInfo 子元件、視範圍判斷);後續 M-1-13e Buy row+Services+Mobile bar(tier helper #130 第 3 處撞 trigger)/ 13f Tabs / 13g Related+Toast+Responsive(Codex Review Packet);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地、5 tab 中 3 個指向 M-1-15 後可用頁)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD);M-1 收尾跑 premortem 應對 step-2
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成;Q-1=B / Q-2=B 已 2026-05-20 拍板「不急、判斷時機追加」、memory project_phase-1-scope-expansion-2026-05-20 已記、M-1-14/15/16 audit 階段 raise)
