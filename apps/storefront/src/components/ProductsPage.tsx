@@ -224,9 +224,29 @@ export function ProductsPage() {
             }}>
               {displayed.map((p) => {
                 const categoryMain = p.category.split('·')[0]?.trim() || '';
-                const href = categoryMain
-                  ? `/products/${p.slug}?from=catalog&category=${encodeURIComponent(categoryMain)}`
-                  : `/products/${p.slug}?from=catalog`;
+                // M-1-13d-fix-1:構建商品連結 URL params + 補帶 vehicle param(13a 漏)
+                // cascade.vehicle 存 name(MOCK_MOTO_BRANDS .name 大寫)、ProductPage 解析端
+                // 期望 id 格式 `brandId:modelId:year`、此處反查 MOCK_MOTO_BRANDS 拿 id 後串接。
+                const params = new URLSearchParams({ from: 'catalog' });
+                if (categoryMain) params.set('category', categoryMain);
+                if (cascade.vehicle) {
+                  const v = cascade.vehicle;
+                  const brandObj = MOCK_MOTO_BRANDS.find((b) => b.name === v.brand);
+                  if (brandObj) {
+                    const parts: string[] = [brandObj.id];
+                    if (v.model) {
+                      const modelObj = brandObj.models?.find((m) => m.name === v.model);
+                      if (modelObj) {
+                        parts.push(modelObj.id);
+                        if (v.year !== undefined) {
+                          parts.push(String(v.year));
+                        }
+                      }
+                    }
+                    params.set('vehicle', parts.join(':'));
+                  }
+                }
+                const href = `/products/${p.slug}?${params.toString()}`;
                 return <ProductCard key={p.id} p={p} href={href} />;
               })}
             </div>
