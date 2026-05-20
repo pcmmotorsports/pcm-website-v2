@@ -92,4 +92,26 @@ describe('ProductPage', () => {
     expect(calledWith).toContain('category');
     expect(calledWith).not.toContain('vehicle');
   });
+
+  it('should render gallery with 3 thumbnails + counter 01 / 03', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    expect(screen.getByLabelText('圖片 1')).toBeDefined();
+    expect(screen.getByLabelText('圖片 2')).toBeDefined();
+    expect(screen.getByLabelText('圖片 3')).toBeDefined();
+    expect(screen.getByText('01 / 03')).toBeDefined();
+  });
+
+  it('should advance activeImg when right arrow clicked', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    fireEvent.click(screen.getByLabelText('下一張'));
+    expect(screen.getByText('02 / 03')).toBeDefined();
+  });
+
+  it('should not render lightbox dialog by default', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
 });

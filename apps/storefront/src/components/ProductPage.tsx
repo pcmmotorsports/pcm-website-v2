@@ -1,4 +1,4 @@
-// ProductPage.tsx — 商品詳細頁主元件(M-1-13b 骨架 + breadcrumb + vehicle pill;13c-g 累積補)
+// ProductPage.tsx — 商品詳細頁主元件(M-1-13b 骨架 + breadcrumb + vehicle pill;13c gallery 拆 ProductGallery 子元件;13d-g 累積補)
 //
 // 字面從 design-reference/components/ProductPage.jsx @ 25d3a2a 直接搬(M-1-13b 範圍:line 1-12、29-94、153-189):
 // - jsx → tsx + props type 推斷
@@ -8,12 +8,16 @@
 //   (storefront Header 不接 onNav、navItems 無 'product' id、對齊 ProductsPage 既存慣例)
 // - <Footer onNav={onNav} /> → <HomeFooter />(對齊 M-1-12 ProductsPage 既存用法)
 //
+// M-1-13c 拆檔:gallery + lightbox + 5 swipe useRef + keyboard nav useEffect + body scroll lock
+// + PRODUCT_IMG_POOL + productGallery helper + hasDiscount/discountPct derived 全部移至
+// ./ProductGallery.tsx(對齊鐵則 6「>300 行硬警戒」、本檔 13c 加完累計 366 行立即拆);
+// 本檔 13c 範圍 = `<ProductGallery product={product} />` 一行 + section.pd-main 含 pd-info 空殼預埋。
+//
 // 'use client' 必要:useSearchParams / useRouter / useMemo + 互動 onClick(vehicle pill ×)
 // 對齊 ADR-0006 §1 白名單「Hooks → 'use client'」、不違 server-component-default。
 //
 // 後續 sub-slice 預埋:
-// - 13c gallery + lightbox + lightbox state hooks(activeImg / lightbox / keyboard nav useEffect)
-// - 13c info / options + size/color/qty state hooks
+// - 13d info / options + size/color/qty state hooks(進 ProductGallery 同層子元件 ProductInfo 或留 ProductPage)
 // - 13d buy row + services + mobile sticky buy bar
 // - 13e tabs(spec / desc / faq / review)
 // - 13f related + toast
@@ -21,7 +25,7 @@
 //
 // 本 sub-slice 不渲染 product.price / product.tierLabel(防誤觸 backlog #130 tier resolution helper
 // 第 3 處撞、13e Buy Row 真撞才抽);不動 backlog #81/#82(variants schema / inStock↔availability、
-// 留 13c-e 真做 options / inStock UI 時 trigger)。
+// 留 13d-e 真做 options / inStock UI 時 trigger)。
 
 'use client';
 
@@ -32,6 +36,7 @@ import type { MockProduct } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
+import { ProductGallery } from './ProductGallery';
 import '@/styles/product-page.css';
 
 export type ProductPageProps = { product: MockProduct };
@@ -166,22 +171,13 @@ export function ProductPage({ product }: ProductPageProps) {
           )}
         </nav>
 
-        {/* TODO M-1-13c: section.pd-main / pd-gallery + lightbox JSX / lightbox state hooks / pd-info / pd-options */}
-        {/* TODO M-1-13d: section.pd-services / pd-buy-row + pd-mobile-buy-bar */}
+        {/* TODO M-1-13d: section.pd-services / pd-buy-row + pd-mobile-buy-bar + pd-info column(brand row / sku / title / fits-banner / options) */}
         {/* TODO M-1-13e: section.pd-tabs-section */}
         {/* TODO M-1-13f: section.pd-related + pd-toast */}
         {/* TODO M-1-13g: responsive media queries(product-page.css line 618-669) */}
-        <section
-          style={{
-            minHeight: '40vh',
-            padding: '80px 0',
-            textAlign: 'center',
-            color: 'var(--c-text-3)',
-            fontSize: 13,
-            letterSpacing: '0.04em',
-          }}
-        >
-          (商品詳細內容 — M-1-13c~g sub-slice 待補)
+        <section className="pd-main">
+          <ProductGallery product={product} />
+          <aside className="pd-info">{/* TODO M-1-13d: brand row + sku + title + fits-banner + options */}</aside>
         </section>
       </main>
 

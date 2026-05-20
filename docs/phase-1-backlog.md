@@ -4114,6 +4114,94 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #155. ⏳ 抽共用 PRODUCT_IMG_POOL + productGallery + swipe useRef hook(第 3 處撞才抽、Defer 模式)
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟡 低
+- **問題:**
+  - ProductCard.tsx 已有 PRODUCT_IMG_POOL + productGallery(M-1-04-mini-slice 搬入)
+  - ProductPage.tsx M-1-13c 第 2 處 inline 同字面(因 13c 範圍小、不擴大動既有元件)
+  - M-1-13c 新立 swipe useRef + onTouchStart/End pattern、storefront 第 1 處;第 3 處撞抽 hook
+- **觸發事件(任一觸發即啟動實作):**
+  - 第 3 處撞(對齊 lessons §84/§85 Defer 模式 + backlog #130 慣例)
+  - M-1-16 真資料種子上線、PRODUCT_IMG_POOL + productGallery 整支廢、本條順手收
+- **預期解法:**
+  - lib:`apps/storefront/src/lib/product-gallery.ts`(共用 helper)/ `apps/storefront/src/hooks/useSwipeGesture.ts`(共用 hook)
+- **不修會痛在:**
+  - 擴充性:第 3 處撞需各自 inline、不一致風險
+  - 可維護性:Unsplash photo id pool 變動需 2 處同步
+  - bug 可追蹤性:swipe threshold(40px / 8px / 280ms)散落
+- **估時:** 30-45 min
+- **依賴:** 第 3 處撞 / M-1-16(任一)
+- **發現於:** 2026-05-20 / M-1-13c
+- **相關:** ProductCard.tsx line 17-41、ProductPage.tsx M-1-13c、backlog #130 Defer 模式
+
+---
+
+### #156. ⏳ 店家會員申請流程 PRD(Q-1=B 拍板)
+
+- **狀態:** ⏳ 待執行(PRD 階段)
+- **分流:** P1-before-launch(Sean 拍板 Phase 1 做)
+- **優先級:** 🟠 中
+- **問題:**
+  - Customer schema(M-0-04)只有 id / email / tier 三欄、預設 tier='general'
+  - 變 store / premium_store 目前**唯一**路徑 = 後台手動改 tier 欄位(無稽核紀錄)
+  - 缺前台「店家申請」入口 + 後台「審核」介面 + 升等通知流程
+  - 業務真實情境:店家不會「升等」、而是「原本就是店家、註冊後申請」(Sean 2026-05-20 業務語意澄清)
+- **觸發事件(任一觸發即啟動 PRD):**
+  - M-1-14 Customer schema 落地前 audit(register flow + tier 預設邏輯撞點)
+  - M-1-15 LoginPage / RegisterPage 落地前 audit(前台註冊流程入口分流 — 一般客人 vs 店家入口)
+- **預期解法(PRD 草稿方向):**
+  - 申請表前台頁面(公司名 / 統編 / 聯絡人 / 營業地址 / 期望 tier)
+  - Customer schema 擴欄:`application_status` enum(none / pending / approved / rejected)+ `requested_tier` + `applied_at` + `reviewed_at` + `reviewed_by`
+  - 後台 admin 審核介面(apps/admin 新建 ApplicationsPage)
+  - 通過 → 自動升等 tier + email / line 通知
+  - 拒絕 → 註明原因 + 客戶可重新申請
+- **不修會痛在:**
+  - 擴充性:店家想申請只能打電話 / line 業務、無 self-service
+  - 可維護性:後台手動改 tier 留無稽核紀錄、誰改的 / 何時改 / 為何改全失
+  - bug 可追蹤性:某客人為何是 store tier 沒記錄、爭議時無據
+- **估時:** PRD 60-90 min + 落地 3-5 個 slice(~3-4 hr)
+- **依賴:** M-1-14 Customer schema
+- **發現於:** 2026-05-20 / M-1-13c slice 對話岔題
+- **相關:** Sean 拍板 Q-1=B、`packages/domain/src/identity/types.ts` Customer、M-1-14 / M-1-15
+
+---
+
+### #157. ⏳ 促銷活動系統 PRD(Q-2=B 拍板、B 路徑、L3 強制 PRD)
+
+- **狀態:** ⏳ 待執行(PRD 階段、L3 內容、鐵則 9 強制 PRD)
+- **分流:** P1-before-launch(Sean 拍板 Phase 1 做、推翻 NORTHSTAR v2 範圍)
+- **優先級:** 🟠 中
+- **問題:**
+  - mock-products.ts 有 isSale + origPrice、但 Supabase products 表**無對應欄**(SALE 標純 mock 驅動)
+  - 缺品牌層級促銷(LIGHTECH 全品牌 8 折)、缺分類層級促銷(避震全打 7 折)
+  - 缺活動期間機制(雙 11 / 黑五 / 季末 5/20-5/27)
+  - 跟三級 tier 折扣需獨立系統(身份折扣 vs 活動折扣不同維度)
+  - 屬 L3 內容(每週可能新建活動、強制需後台 CRUD)、依鐵則 9 必先 PRD
+- **觸發事件(任一觸發即啟動 PRD):**
+  - **早 trigger:** M-1-16 真資料種子上架前(產品經理 admin 上架時需 SALE 機制)— Sean 拍 Phase 1 做、應為此 trigger
+  - **晚 trigger:** Phase 2 M-3 期間獨立做(若 Sean 之後反悔回 NORTHSTAR v2 留 Phase 2)
+- **預期解法(PRD 草稿方向):**
+  - 新建 `promotions` 表:`id / type(product/brand/category) / target_id / discount_pct / start_at / end_at / active`
+  - Promotion entity + IPromotionRepository port + SupabasePromotionAdapter
+  - `computeEffectivePrice` 擴充:tier 算完價 × 適用 promotion 折扣(疊加邏輯需 PRD 拍板)
+  - 後台 admin UI(apps/admin 新建 PromotionsPage、CRUD + 期間預覽)
+  - 前台:ProductCard / ProductPage SALE 標來源從 product.isSale 改 promotion 查詢
+  - ProductsPage 篩選器加「促銷中」分類
+  - 首頁 Banner / 活動區塊(可選)
+- **不修會痛在:**
+  - 擴充性:雙 11 / 黑五靠人工逐筆改 origPrice、不可重複用、不可預先排程
+  - 可維護性:活動結束要 unset、忘了 unset 變永久打折
+  - bug 可追蹤性:某商品為何打折(身份 tier vs 活動 promotion 來源混)
+- **估時:** PRD 90-120 min + 落地 5-7 個 milestone(~6-10 hr、屬獨立系列)
+- **依賴:** M-1-14(Customer 含 tier、確認 server-side dispatch)/ M-1-16 種子前(若早 trigger)
+- **發現於:** 2026-05-20 / M-1-13c slice 對話岔題
+- **相關:** Sean 拍板 Q-2=B / 推翻 NORTHSTAR v2 / 鐵則 9 L3 強制 PRD / backlog #47(Order 層折扣)獨立議題 / `design-reference/components/Pricing.jsx` getPriceForTier
+
+---
+
 ## 紀錄模板
 
 ```markdown

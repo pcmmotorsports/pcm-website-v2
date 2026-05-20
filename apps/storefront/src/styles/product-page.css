@@ -87,3 +87,210 @@
   gap: 64px;
   margin-bottom: 80px;
 }
+
+/* ========= Gallery ========= */
+.pd-gallery {
+  position: sticky;
+  top: 100px;
+  align-self: start;
+}
+
+.pd-hero-img {
+  position: relative;
+  aspect-ratio: 4 / 5;
+  background: var(--paper-2);
+  overflow: hidden;
+  touch-action: pan-y;
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pd-hero-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 450ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pd-hero-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  position: relative;
+}
+.pd-hero-slide img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.pd-hero-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px; height: 40px;
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  opacity: 0;
+  transition: opacity 200ms, background 200ms;
+  z-index: 3;
+  border: none;
+  cursor: pointer;
+}
+.pd-hero-img:hover .pd-hero-arrow { opacity: 1; }
+.pd-hero-arrow:hover:not(:disabled) { background: rgba(255,255,255,0.85); }
+.pd-hero-arrow:disabled { opacity: 0 !important; cursor: not-allowed; }
+.pd-hero-arrow-left { left: 12px; }
+.pd-hero-arrow-right { right: 12px; }
+
+/* Floating overlay thumb strip — replaces side column & bottom strip */
+.pd-thumb-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(255,255,255,0.32);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,0.4);
+  z-index: 3;
+  max-width: calc(100% - 32px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  opacity: 0.82;
+  transition: opacity 180ms;
+}
+.pd-thumb-overlay::-webkit-scrollbar { display: none; }
+.pd-hero-img:hover .pd-thumb-overlay { opacity: 1; }
+.pd-thumb-ov {
+  flex: 0 0 48px;
+  width: 48px; height: 48px;
+  padding: 0;
+  border: 1.5px solid transparent;
+  background: transparent;
+  cursor: pointer;
+  transition: border-color 180ms;
+  overflow: hidden;
+}
+.pd-thumb-ov img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0.75;
+  transition: opacity 180ms;
+}
+.pd-thumb-ov.is-active { border-color: #fff; }
+.pd-thumb-ov.is-active img { opacity: 1; }
+.pd-thumb-ov:hover img { opacity: 1; }
+
+.pd-hero-counter {
+  position: absolute;
+  right: 14px; bottom: 14px;
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  background: rgba(255,255,255,0.55);
+  backdrop-filter: blur(6px);
+  padding: 5px 8px;
+  z-index: 3;
+  pointer-events: none;
+}
+.pd-hero-badge {
+  position: absolute;
+  top: 16px; left: 16px;
+  font: 500 12px/1 var(--font-mono);
+  background: #c41e3a; color: white;
+  padding: 6px 10px;
+  letter-spacing: 0.05em;
+  z-index: 3;
+  pointer-events: none;
+}
+.pd-hero-badge-new { background: var(--ink); }
+
+/* ========= Lightbox ========= */
+.pd-lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.92);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: pd-lb-in 180ms ease-out;
+}
+@keyframes pd-lb-in { from { opacity: 0; } to { opacity: 1; } }
+.pd-lb-stage {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  padding: 48px;
+  touch-action: pan-y;
+}
+.pd-lb-stage img {
+  max-width: 100%; max-height: 100%;
+  object-fit: contain;
+  cursor: zoom-out;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.pd-lb-close {
+  position: absolute;
+  top: 20px; right: 20px;
+  width: 44px; height: 44px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: #fff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 180ms;
+}
+.pd-lb-close:hover { background: rgba(255,255,255,0.22); }
+.pd-lb-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 48px; height: 48px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  color: #fff;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 180ms, opacity 180ms;
+}
+.pd-lb-arrow:hover:not(:disabled) { background: rgba(255,255,255,0.22); }
+.pd-lb-arrow:disabled { opacity: 0.3; cursor: not-allowed; }
+.pd-lb-arrow-left { left: 20px; }
+.pd-lb-arrow-right { right: 20px; }
+.pd-lb-counter {
+  position: absolute;
+  bottom: 24px; left: 50%;
+  transform: translateX(-50%);
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.72);
+}
+@media (max-width: 900px) {
+  .pd-lb-stage { padding: 16px; }
+  .pd-lb-arrow { width: 38px; height: 38px; }
+  .pd-lb-arrow-left { left: 8px; }
+  .pd-lb-arrow-right { right: 8px; }
+}
+
+/* M-1-13c minimum responsive fix(Q-3=A 拍板)— 手機 grid collapse 單欄、避免 .pd-main 1fr+480px 把左欄擠到負寬;
+   完整 responsive 字面留 M-1-13g 搬 design line 618-669 sec 11 一次性收口 */
+@media (max-width: 900px) {
+  .pd-main {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .pd-gallery {
+    position: static;
+  }
+}

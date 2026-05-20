@@ -2,26 +2,26 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a/b ✅、餘 M-1-13c~g + M-1-14~16)
-**當前 slice:** M-1-13b ProductPage 路由骨架 + Breadcrumb 8-source + Vehicle Pill + CSS sec 1+2 ✅(Q5=C 拍板 404 走 Next.js 預設、backlog #154 開條目;ADR-0006 對齊 'use client';不撞 #130/#81/#82)
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a/b/c ✅、餘 M-1-13d~g + M-1-14~16)
+**當前 slice:** M-1-13c Gallery + Lightbox + 拆 ProductGallery 子元件 + CSS sec 3+12 ✅(合一版 366 行超鐵則 6 警戒、即時拆 ProductGallery 220 行 + ProductPage 187 行;PCM 首處 useRef + 5-ref swipe + useEffect cleanup pattern;不撞 #130/#81/#82/#154/#156/#157;開 #155 swipe + img pool 抽共用 trigger)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-20 — Claude Code [M-1-13b 完成]
+2026-05-20 — Claude Code [M-1-13c 完成]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `7653f1a` | feat(storefront): ProductPage gallery + lightbox 拆 ProductGallery + CSS sec 3+12 [M-1-13c]+ Sean 肉眼驗 Q-2/Q-3 修 | 2026-05-20 |
 | `71474c1` | feat(storefront): ProductPage 路由骨架 + Breadcrumb + Vehicle Pill + CSS sec 1+2 [M-1-13b] | 2026-05-20 |
 | `603aa0f` | feat(storefront): mock-products slug 欄 + ProductCard href 打底 [M-1-13a] | 2026-05-20 |
-| `add56e0` | docs(backlog): 新增 #153 3 篩選元件 300 行警戒追蹤 | 2026-05-20 |
 
 ## 下一步
-M-1-13c Gallery + Lightbox + lightbox state hooks(swipe useRef + keyboard nav useEffect)+ CSS sec 3+12;後續 M-1-13d Info+Options / 13e Buy row+Services+Mobile bar(tier helper #130 第 3 處撞 trigger)/ 13f Tabs / 13g Related+Toast+Responsive(Codex Review Packet);接著 M-1-14 Customer schema / M-1-15 LoginPage·RegisterPage / M-1-16 200 SKU 種子;M-1 收尾跑 premortem 應對 step-2
+M-1-13d Info+Options(brand row + sku + title + fits-banner + size/color/qty state、CSS sec 4+5;可考量入 ProductInfo 子元件、視範圍判斷);後續 M-1-13e Buy row+Services+Mobile bar(tier helper #130 第 3 處撞 trigger)/ 13f Tabs / 13g Related+Toast+Responsive(Codex Review Packet);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請流程 PRD)/ M-1-15 LoginPage·RegisterPage(順帶 #156)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD);M-1 收尾跑 premortem 應對 step-2
 
 ## Sean 待決策
-#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成)
+#1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成;Q-1=B / Q-2=B 已 2026-05-20 拍板「不急、判斷時機追加」、memory project_phase-1-scope-expansion-2026-05-20 已記、M-1-14/15/16 audit 階段 raise)
 
 ## Blocker
 無
