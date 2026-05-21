@@ -4334,6 +4334,34 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #162. ⏳ brand 表 country 欄位(副標「原裝進口」原產國)— Phase 2 接 Supabase
+
+- **狀態:** ⏳ 待 trigger
+- **分流:** P2-later(Phase 1 hardcoded 對沖、Phase 2 啟動商品 schema 上 Supabase 時順手)
+- **優先級:** 🟡 低(顯示層美觀問題、不影響業務流程;但長期 drift 累積影響品牌資訊正確性)
+- **問題:** M-1-13H-2 落地 ProductInfo `.pd-sub` 副標字面 `適用 {product.fits} · 義大利原裝進口`、brandCountry L2 hardcoded「義大利」對齊 design VariantCFull.jsx L83 字面;MOCK_PRODUCTS 20 件約 60% 義大利品牌(Lightech / CNC Racing / Brembo / Rizoma / Termignoni)、其餘 4 個品牌非義大利:
+    - `AKRAPOVIČ` — 斯洛維尼亞
+    - `ÖHLINS` — 瑞典
+    - `GB RACING` — 英國
+    - 其他可能新增品牌
+- **觸發事件(任一觸發即啟動實作):**
+  - Phase 2 商品 schema 上 Supabase(M-1-16 或之後、brand 表加 country 欄位)
+  - Sean 拍板要求商品頁副標真區分原產國(改業務優先級)
+- **預期解法:**
+  - Supabase brand 表加 `country: text` 欄位(或 enum:義大利 / 斯洛維尼亞 / 瑞典 / 英國 / 日本 / 德國 / 美國 / ...)
+  - ProductInfo `.pd-sub` 副標字面改 `適用 {product.fits} · {product.brand.country}原裝進口`(`MockProduct` type 也對應加 `brandCountry?: string` 過渡欄、Phase 1 不接表階段可選 hardcoded fallback「義大利」)
+  - design 字面也需 Claude Design 補對齊(L83 字面從 hardcoded「義大利」改變數)、本條目觸發時連動推 Sean 動 Claude Design
+- **不修會痛在:**
+  - 擴充性:Phase 2 接 Supabase 真做時若才發現「副標 hardcoded」、要回頭追 ProductInfo 副標字面、開發成本上升
+  - 可維護性:hardcoded「義大利」對非義大利品牌(Akrapovič 等)字面誤導、新 Code session 讀 storefront 可能誤判品牌
+  - bug 可追蹤性:本條為錨點、未來 grep `義大利原裝進口` 或 `.pd-sub` 即可找回偏離歷史
+- **估時:** brand 表 country 欄位 migration 5-10 min + ProductInfo 副標字面改 5 min + Claude Design 補對齊 30-45 min(Sean 端、視時間)
+- **依賴:** Phase 2 商品 schema 上 Supabase / M-1-16 商品 fetcher + toUIProduct(p, tier) helper
+- **發現於:** 2026-05-22 / M-1-13H-2 ProductInfo 副標落地(PRD docs/specs/M-1-13H-product-page-overhaul-plan.md §4 slice-2 字面拍板 Phase 1 hardcoded + backlog Phase 2)
+- **相關:** apps/storefront/src/components/ProductInfo.tsx `.pd-sub`;apps/storefront/src/data/mock-products.ts MockProduct type;design-reference/components/explorations/VariantCFull.jsx L83 hardcoded「義大利」;Phase 2 Supabase brand 表 schema
+
+---
+
 ## 紀錄模板
 
 ```markdown

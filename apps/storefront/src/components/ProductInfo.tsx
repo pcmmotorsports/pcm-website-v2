@@ -87,49 +87,20 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
 
   return (
     <aside className="pd-info">
-      <div className="pd-brand-row">
-        <a
-          href="#"
-          className="pd-brand-link"
-          onClick={(e) => e.preventDefault()}
-        >
-          {product.brand}
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            aria-hidden="true"
-          >
-            <path d="M7 17L17 7M7 7h10v10" />
-          </svg>
-        </a>
-        <div className="pd-sku">SKU · PCM-{String(product.id).padStart(5, '0')}</div>
-      </div>
+      {/* M-1-13H-2:SKU line 字面從 design VariantCFull.jsx L81 直接搬、取代 13d brand-row 段
+          (對應 HANDOFF #4 + PRD §4 slice-2)
+          原 brand-row(brand-link + 外連 svg + 獨立 sku)→ 單一 mono 行「{brand} · PCM-{id}」 */}
+      <div className="pd-sku">{product.brand} · PCM-{String(product.id).padStart(5, '0')}</div>
 
       <h1 className="pd-title">{product.name}</h1>
 
-      <div className="pd-fits-banner">
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          aria-hidden="true"
-        >
-          <path d="M5 17h14l-1.5-9h-11L5 17zM7 17v2a1 1 0 001 1h1a1 1 0 001-1v-2M14 17v2a1 1 0 001 1h1a1 1 0 001-1v-2" />
-          <circle cx="8" cy="14" r="1" fill="currentColor" />
-          <circle cx="16" cy="14" r="1" fill="currentColor" />
-        </svg>
-        <div>
-          <div className="pd-fits-label">適用車款</div>
-          <div className="pd-fits-value">{product.fits || '通用款'}</div>
-        </div>
-      </div>
+      {/* M-1-13H-2:副標字面從 design VariantCFull.jsx L83 直接搬(對應 HANDOFF #6)
+          字面 `${product.fits} · ${brandCountry}原裝進口`、brandCountry Phase 1 L2 hardcoded
+          「義大利」對齊 design;MOCK_PRODUCTS 約 60% 義大利品牌(Lightech / CNC Racing / Brembo /
+          Rizoma / Termignoni)、其餘 Akrapovič(斯洛維尼亞)/ Öhlins(瑞典)/ GB Racing(英國)
+          Phase 1 字面顯「義大利」屬 placeholder、Phase 2 接 brand 表 country 欄位真區分
+          (backlog #162);同時 #7 移除原 .pd-fits-banner 厚 banner、資訊併進此副標 */}
+      <div className="pd-sub">適用 {product.fits || '通用款'} · 義大利原裝進口</div>
 
       {/* M-1-13e-a:pd-price-block 字面從 design ProductPage.jsx L289-303 直接搬。
           Mock 路徑下 priceByTier 暫不接通(對齊 [slug]/page.tsx L37 註解 + STATUS L24

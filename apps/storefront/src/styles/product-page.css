@@ -224,53 +224,31 @@
    注意 .pd-price-block / .pd-price-* CSS 提前搬進、JSX 13d 不渲染、留 13e Buy Row 補渲染(對齊 #130 trigger) */
 .pd-info { padding-top: 4px; }
 
-.pd-brand-row {
-  display: flex; justify-content: space-between; align-items: center;
-  margin-bottom: 20px;
-}
-.pd-brand-link {
-  display: inline-flex; align-items: center; gap: 6px;
-  font: 500 13px/1 var(--font-mono);
-  letter-spacing: 0.12em;
-  color: var(--ink);
-  text-decoration: none;
-  border-bottom: 1px solid var(--ink);
-  padding-bottom: 3px;
-}
-.pd-brand-link:hover { color: var(--accent, #c41e3a); border-color: var(--accent, #c41e3a); }
+/* M-1-13H-2:SKU line(對應 HANDOFF #4、字面從 design explorations.css L750-754 直接搬)
+   取代 13d .pd-brand-row + .pd-brand-link + .pd-sku 三元素為單一 mono 行 */
 .pd-sku {
-  font: 400 11px/1 var(--font-mono);
-  color: var(--ink-tert);
-  letter-spacing: 0.05em;
+  font: 500 11px/1 var(--font-mono);
+  color: #86868b;
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
 }
 
+/* M-1-13H-2:title 改 28px Inter sans(對應 HANDOFF #5、字面從 design explorations.css L756-761 直接搬)
+   原 13d 38px Cormorant serif → 28px Inter sans-serif weight 600 letter-spacing -0.015em */
 .pd-title {
-  font-family: var(--font-serif);
-  font-weight: 500;
-  font-size: 38px; line-height: 1.15;
-  letter-spacing: -0.01em;
-  color: var(--ink);
-  margin: 0 0 28px;
+  font: 600 28px/1.2 var(--font-sans);
+  letter-spacing: -0.015em;
+  color: #1d1d1f;
+  margin: 0 0 8px;
   text-wrap: pretty;
 }
 
-.pd-fits-banner {
-  display: flex; gap: 14px; align-items: center;
-  padding: 14px 18px;
-  background: var(--paper-2);
-  border-left: 3px solid var(--ink);
-  margin-bottom: 32px;
-}
-.pd-fits-banner svg { flex-shrink: 0; color: var(--ink); }
-.pd-fits-label {
-  font: 500 10px/1 var(--font-mono);
-  text-transform: uppercase; letter-spacing: 0.12em;
-  color: var(--ink-tert);
-  margin-bottom: 4px;
-}
-.pd-fits-value {
-  font: 500 14px/1.3 var(--font-sans);
-  color: var(--ink);
+/* M-1-13H-2:副標(對應 HANDOFF #6、字面從 design explorations.css L762-766 直接搬)
+   新增、承接 13d .pd-fits-banner 厚 banner 移除後的「適用車款 · 原產國」資訊位 */
+.pd-sub {
+  font: 400 14px/1.4 var(--font-sans);
+  color: #86868b;
+  margin-bottom: 24px;
 }
 
 .pd-price-block {

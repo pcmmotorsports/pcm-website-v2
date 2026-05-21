@@ -24,11 +24,13 @@ afterEach(() => {
 });
 
 describe('ProductInfo', () => {
-  it('should render brand row with brand link + SKU padded to 5 digits', () => {
+  // M-1-13H-2:brand-row 拆成單一 SKU line(對應 HANDOFF #4)、字面 `{brand} · PCM-XXXXX`
+  it('should render SKU line as single mono row "{brand} · PCM-{id 5 digits}"', () => {
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductInfo product={product} tier="general" />);
-    expect(screen.getByText(product.brand)).toBeDefined();
-    expect(screen.getByText(`SKU · PCM-${String(product.id).padStart(5, '0')}`)).toBeDefined();
+    expect(
+      screen.getByText(`${product.brand} · PCM-${String(product.id).padStart(5, '0')}`)
+    ).toBeDefined();
   });
 
   it('should render product title as h1', () => {
@@ -38,17 +40,20 @@ describe('ProductInfo', () => {
     expect(h1.textContent).toBe(product.name);
   });
 
-  it('should render fits-banner with product.fits', () => {
+  // M-1-13H-2:fits-banner 厚 banner 移除、改副標 .pd-sub(對應 HANDOFF #6 + #7)
+  // 字面 `適用 {fits} · 義大利原裝進口`、brandCountry L2 hardcoded 對齊 design VariantCFull L83
+  it('should render .pd-sub subtitle combining product.fits + brandCountry hardcoded "義大利"', () => {
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductInfo product={product} tier="general" />);
-    expect(screen.getByText('適用車款')).toBeDefined();
-    expect(screen.getByText(product.fits)).toBeDefined();
+    expect(
+      screen.getByText(`適用 ${product.fits} · 義大利原裝進口`)
+    ).toBeDefined();
   });
 
-  it('should fallback to 通用款 when product.fits is empty', () => {
+  it('should fallback to 通用款 in .pd-sub when product.fits is empty', () => {
     const product = { ...MOCK_PRODUCTS[0]!, fits: '' };
     render(<ProductInfo product={product} tier="general" />);
-    expect(screen.getByText('通用款')).toBeDefined();
+    expect(screen.getByText('適用 通用款 · 義大利原裝進口')).toBeDefined();
   });
 
   it('should render 3 color swatches with active state on initial product.color', () => {
