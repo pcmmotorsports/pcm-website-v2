@@ -25,6 +25,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
+import { ProductServices } from './ProductServices';
 
 export type ProductInfoProps = { product: MockProduct; tier: MemberTier };
 
@@ -263,79 +264,8 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
         立即購買
       </button>
 
-      {/* M-1-13e-a:Services 字面從 design ProductPage.jsx L353-378 直接搬(4 卡 hardcode 內容分級 L1、Phase 2 才動服務系統)*/}
-      <div className="pd-services">
-        <div className="pd-service">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M3 8h14l4 4v5h-2a2 2 0 11-4 0H9a2 2 0 11-4 0H3V8z" />
-            <circle cx="7" cy="17" r="2" />
-            <circle cx="15" cy="17" r="2" />
-          </svg>
-          <div>
-            <div className="pd-service-label">滿額免運</div>
-            <div className="pd-service-desc">NT$ 5,000 以上</div>
-          </div>
-        </div>
-        <div className="pd-service">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
-          </svg>
-          <div>
-            <div className="pd-service-label">專業安裝</div>
-            <div className="pd-service-desc">全台合作店家</div>
-          </div>
-        </div>
-        <div className="pd-service">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M9 12l2 2 4-4M12 3a9 9 0 109 9" />
-          </svg>
-          <div>
-            <div className="pd-service-label">原廠保固</div>
-            <div className="pd-service-desc">原廠授權代理</div>
-          </div>
-        </div>
-        <div className="pd-service">
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
-          >
-            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
-          </svg>
-          <div>
-            <div className="pd-service-label">LINE 諮詢</div>
-            <div className="pd-service-desc">30 分鐘內回覆</div>
-          </div>
-        </div>
-      </div>
+      {/* M-1-13f-1:services 段拆出至 ProductServices.tsx(對齊鐵則 6 警戒 + Codex M-1-13e-b review 提醒) */}
+      <ProductServices />
     </aside>
   );
 }
