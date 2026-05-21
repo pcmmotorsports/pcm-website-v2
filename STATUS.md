@@ -3,19 +3,19 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a~d ✅ + M-1-13e-pre-1/2/3 ✅ + M-1-13e-a ✅ + M-1-13e-b ✅ + M-1-13e-b-2 ✅ + M-1-13f-1 ✅ + M-1-13f-2 ✅、餘 商品頁全面改版(M-1-13H plan ✅ + slice-1 ✅、實作 slice-2~6 待跑) + 13g(暫停) + M-1-14~16)
-**當前 slice:** M-1-13H 商品頁全面改版(Apple/Aritzia 現代派)實作中、PRD docs/specs/M-1-13H-product-page-overhaul-plan.md 拍板鎖、lessons §12-37 落地;slice-1 ✅ crumbs + Gallery 大改(HANDOFF #1 #2 #3、ProductPage crumbs 樣式邏輯保留 8-source / ProductGallery 1:1+radius 18+arrow 72px+thumb 移下方 / class prefix .vc-→.pd-);餘 slice-2 ~ slice-6(Info 上半 / Buy block+Services / Highlights+Spotlight 新子元件 / Tabs pill / Related+收尾 Codex Review Packet);保留清單持續守:breadcrumb 8-source / vehiclePill / Lightbox / hero swipe / addToCart toast / getPriceForTier / mobile buybar 紅色(Q3 業務拍板);Phase 2 supabase ≥5 表先 LOG 不動;13g 殘餘(Toast+Responsive)slice-6 評估
+**當前 slice:** M-1-13H 商品頁全面改版(Apple/Aritzia 現代派)實作中、PRD docs/specs/M-1-13H-product-page-overhaul-plan.md 拍板鎖、lessons §12-37 落地;slice-1 ✅;chore-protocol: commit docs/specs/M-1-13H-automode-protocol.md(Sean 拍 Q1=A automode + Q2=try-skip browser MCP、Code 自治連跑 slice-2~5 + sub-agent 自驗 + 自修 ≤2 輪、Codex Review Packet 在 slice-5/6 間打斷、slice-6 收尾後 Sean 肉眼驗 + push);餘 slice-2 ~ slice-6 等新 Code session 啟動 automode
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-21 — Claude Code [M-1-13H-1 Gallery + crumbs Apple/Aritzia 改版]
+2026-05-22 — Claude Code [M-1-13H chore-protocol automode master protocol]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `5f1bcfc` | feat(storefront): Gallery + crumbs Apple/Aritzia 改版 [M-1-13H-1] | 2026-05-21 |
+| `611b524` | docs(M-1-13H): automode master protocol (Sean Q1=A + Q2=try-skip 拍板) | 2026-05-22 |
+| `a8f5a01` | feat(storefront): Gallery + crumbs Apple/Aritzia 改版 [M-1-13H-1] | 2026-05-21 |
 | `4fde07c` | docs(M-1-13H): commit slice-0 偵察報告 (M-1-13H 真權威偵察 audit trail) | 2026-05-21 |
-| `271d22b` | docs(M-1-13H): plan PRD + lessons §12-37 (M-1-13H plan 階段完成) | 2026-05-21 |
 
 ## 下一步
 M-1-13H slice-2 Info column 上半(對應 HANDOFF #4+#5+#6+#7:SKU line 取代 brand-row / title 28px Inter sans / 副標 `${product.fits} · ${brandCountry}原裝進口` / 移除 .pd-fits-banner;動 ProductInfo.tsx + product-page.css `.pd-brand-row`/`.pd-sku`/`.pd-title`/`.pd-fits-banner` 段;估 25-35 分);接著 slice-3 Buy block + Services(色票圓 24px / 價格 22px 黑 / 圓 pill CTA 48px / services 移圖示;對應 HANDOFF #8+#9+#10+#11、35-45 分)→ slice-4 新增 ProductHighlights + ProductSpotlight 子元件(3 卡 hardcoded + 條件渲染 hasSpotlight 欄位、Q7 全拆;對應 HANDOFF #12+#13、35-45 分)→ slice-5 Tabs pill + 內容微調(對應 HANDOFF #14+#15、30-45 分)→ slice-6 Related 容器標題 + 收尾 + Codex Review Packet(對應 HANDOFF #16+#17、35-50 分);全改版完成後評估 13g 殘餘(Toast + Responsive 是否仍需、Sean 在 Claude Design 端動 explorations 檔刪除);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD + 接 Supabase findBySlug + toUIProduct(p, tier) 處理 backlog #161 經銷價真區分 + 處理 13f-2 tabs L3 內容問題:specs 8 hardcoded 欄位 / description 文案 / install steps / warranty 政策真實應後台 CRUD);M-1 收尾跑 premortem 應對 step-2
