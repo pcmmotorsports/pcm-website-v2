@@ -3,19 +3,19 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a~d ✅ + M-1-13e-pre-1/2/3 ✅ + M-1-13e-a ✅ + M-1-13e-b ✅ + M-1-13e-b-2 ✅ + M-1-13f-1 ✅ + M-1-13f-2 ✅、餘 商品頁全面改版(M-1-13H、新增) + 13g(暫停) + M-1-14~16)
-**當前 slice:** design-reference 同步至 637dafc(VariantCFull.jsx 13KB + explorations.css 32KB + design-handoff/PRODUCT-PAGE-HANDOFF.md 14KB + design-handoff/SUPABASE-PRODUCT-PAGE.md 10KB)✅;Sean 2026-05-21 拍板 Q2=A 暫停 13g、接續商品頁全面改版(Apple/Aritzia 現代派、VariantCFull = Phase 1 真權威字面;Phase 2 supabase product_spotlights 後台先 LOG 不動;HANDOFF.md 列保留清單 breadcrumb 路徑記憶 / vehiclePill / lightbox / hero swipe / addToCart toast / getPriceForTier / mobile buybar 不可拆);範圍預估 4-6 slice 跨多 session、需 plan + 鐵則 8 + 內容分級 L1/L2/L3 + 鐵則 12 觸發評估;13g(Related + Toast + Responsive)推延、卡片改完後 Related 自動繼承新設計、剩 Toast + Responsive 時機定
+**當前 slice:** design-reference 同步至 637dafc(VariantCFull.jsx 13KB + explorations.css 32KB + design-handoff/PRODUCT-PAGE-HANDOFF.md 14KB + design-handoff/SUPABASE-PRODUCT-PAGE.md 10KB)✅;Sean 2026-05-21 拍板 Q2=A 暫停 13g、接續商品頁全面改版(Apple/Aritzia 現代派、VariantCFull = Phase 1 真權威字面;Phase 2 supabase product_spotlights 後台先 LOG 不動;HANDOFF.md 列保留清單 breadcrumb 路徑記憶 / vehiclePill / lightbox / hero swipe / addToCart toast / getPriceForTier / mobile buybar 不可拆);範圍預估 4-6 slice 跨多 session、需 plan + 鐵則 8 + 內容分級 L1/L2/L3 + 鐵則 12 觸發評估;13g(Related + Toast + Responsive)推延、卡片改完後 Related 自動繼承新設計、剩 Toast + Responsive 時機定;chore: 工作樹整理(.gitignore 補 .claude/+spikes/、commit 6 份 untracked docs、checkout next-env.d.ts)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-21 — Claude Code [design-reference sync 至 637dafc + M-1-13g 暫停 + 商品頁全改版接續]
+2026-05-21 — Claude Code [chore-1 工作樹整理 + .gitignore 補 .claude/+spikes/]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `b0c6821` | chore: sync design-reference 至 637dafc + STATUS.md (商品頁全改版接續) | 2026-05-21 |
+| `004b4cf` | chore: 整理工作樹 untracked + 補 .gitignore | 2026-05-21 |
+| `f21581c` | chore: sync design-reference 至 637dafc + STATUS.md (商品頁全改版接續) | 2026-05-21 |
 | `88ca807` | feat(storefront): ProductTabs 4 分頁對齊 design 真權威 + ARIA + CSS [M-1-13f-2] | 2026-05-21 |
-| `c6c8b27` | refactor(storefront): ProductServices 從 ProductInfo 拆出 [M-1-13f-1] | 2026-05-21 |
 
 ## 下一步
 商品頁全面改版 plan 階段:Claude.ai 寫 plan(grep design-reference/components/explorations/VariantCFull.jsx + design-handoff/PRODUCT-PAGE-HANDOFF.md 真權威字面、slice 拆法 + 內容分級 L1/L2/L3 + 鐵則 8 重大改動判定 + 估時 + 鐵則 12 commit 前 Codex Review Packet 觸發評估)+ multi-select 拍板;接著按 plan 逐 slice 實作(估 4-6 slice、3-5 小時、跨多 session、新增 Highlights section + Engineering Spotlight section + pill tabs + 移除厚適用車款 banner 等;HANDOFF.md 列保留清單 breadcrumb 路徑記憶 / vehiclePill / lightbox / hero swipe / addToCart toast / getPriceForTier / mobile buybar 不可拆);全改版完成後評估 13g 殘餘(Toast + Responsive 是否仍需);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD + 接 Supabase findBySlug + toUIProduct(p, tier) 處理 backlog #161 經銷價真區分 + 處理 13f-2 tabs L3 內容問題:specs 4 hardcoded 欄位 / description 文案 / install steps / warranty 政策真實應後台 CRUD);M-1 收尾跑 premortem 應對 step-2

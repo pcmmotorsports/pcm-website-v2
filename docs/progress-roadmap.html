@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PCM 網站施工地圖</title>
+<!-- 本檔由 pcm-roadmap skill 自動產生，請勿手動編輯。 -->
+<!-- 改內容：編輯 ~/.claude/skills/pcm-roadmap/roadmap-data.json 後重跑 generate.js。 -->
+<style>
+  :root{
+    --bg:#0c0d10; --bg-2:#101218;
+    --surface:#15171d; --surface-2:#1b1e26;
+    --line:#2b2f3a; --line-soft:#23262f;
+    --ink:#eceef2; --ink-2:#a4abb8; --ink-3:#717886;
+    --red:#ef3e23; --red-soft:rgba(239,62,35,.13);
+    --green:#2fd07a; --green-soft:rgba(47,208,122,.12);
+    --amber:#f2a93b; --amber-soft:rgba(242,169,59,.12);
+    --grey:#5b6270; --grey-soft:rgba(91,98,112,.10);
+    --sans:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei","Segoe UI",sans-serif;
+    --mono:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    font-family:var(--sans); background:var(--bg); color:var(--ink);
+    line-height:1.7; -webkit-font-smoothing:antialiased;
+    background-image:
+      repeating-linear-gradient(135deg,rgba(255,255,255,.014) 0 2px,transparent 2px 26px);
+  }
+  .wrap{max-width:1000px;margin:0 auto;padding:0 22px}
+
+  .hero{padding:58px 0 30px;border-bottom:1px solid var(--line-soft)}
+  .hero .over{
+    font-size:12px;letter-spacing:.34em;color:var(--red);font-weight:700;
+    display:flex;align-items:center;gap:10px;
+  }
+  .hero .over::after{content:"";height:1px;flex:1;background:linear-gradient(90deg,var(--red),transparent)}
+  .hero h1{font-size:42px;line-height:1.18;margin:16px 0 14px;letter-spacing:-.5px}
+  .hero h1 .mark{color:var(--red)}
+  .hero .lead{font-size:17px;color:var(--ink-2);max-width:62ch}
+  .hero .stamp{
+    margin-top:18px;font-size:12.5px;color:var(--ink-3);
+    font-family:var(--mono);display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  }
+  .hero .stamp b{color:var(--ink-2);font-weight:600}
+  .dot-sep{width:3px;height:3px;border-radius:50%;background:var(--ink-3);display:inline-block}
+
+  section{padding:34px 0}
+  .sec-h{
+    font-size:13px;letter-spacing:.2em;color:var(--ink-3);font-weight:700;
+    text-transform:uppercase;margin-bottom:18px;display:flex;align-items:center;gap:9px;
+  }
+  .sec-h .bar{width:22px;height:2px;background:var(--red)}
+
+  .analogy-box{
+    background:linear-gradient(180deg,var(--surface),var(--bg-2));
+    border:1px solid var(--line);border-left:3px solid var(--red);
+    border-radius:12px;padding:22px 24px;
+  }
+  .analogy-box h2{font-size:19px;margin-bottom:8px}
+  .analogy-box p{color:var(--ink-2);font-size:15px}
+  .analogy-box p + p{margin-top:8px}
+  .analogy-box .em{color:var(--ink);font-weight:600}
+
+  .phase-row{
+    display:grid;grid-template-columns:90px 1fr 150px;gap:16px;align-items:center;
+    padding:14px 0;border-bottom:1px solid var(--line-soft);
+  }
+  .phase-row:last-child{border-bottom:none}
+  .phase-row .pname{font-weight:700;font-size:15px}
+  .phase-row .pname small{display:block;font-weight:400;color:var(--ink-3);font-size:11px;font-family:var(--mono)}
+  .track{height:14px;background:var(--surface-2);border-radius:7px;overflow:hidden;border:1px solid var(--line-soft)}
+  .fill{height:100%;border-radius:6px 0 0 6px}
+  .fill--p1{background:linear-gradient(90deg,#ff6a4d,var(--red))}
+  .track--vision{
+    background-image:repeating-linear-gradient(45deg,var(--grey-soft) 0 6px,transparent 6px 12px);
+  }
+  .phase-row .ptag{font-size:12.5px;text-align:right;font-weight:600}
+  .ptag--live{color:var(--red)}
+  .ptag--vision{color:var(--ink-3)}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:22px}
+  .stat{
+    background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:15px 16px;
+  }
+  .stat .k{font-size:11.5px;color:var(--ink-3);letter-spacing:.04em;margin-bottom:7px}
+  .stat .v{font-size:23px;font-weight:800;letter-spacing:-.4px}
+  .stat .sub{font-size:12px;color:var(--ink-2);margin-top:3px}
+  .stat .v .u{font-size:13px;font-weight:600;color:var(--ink-2)}
+
+  .eight{display:flex;gap:5px;margin-top:8px}
+  .eight i{height:7px;flex:1;border-radius:2px;background:var(--grey)}
+  .eight i.d{background:var(--green)}
+  .eight i.a{background:var(--amber)}
+
+  .here{
+    background:radial-gradient(120% 160% at 12% 0%,var(--red-soft),transparent 60%),var(--surface);
+    border:1px solid var(--red);border-radius:14px;padding:22px 24px;
+    display:flex;gap:18px;align-items:center;flex-wrap:wrap;
+  }
+  .here .pin{font-size:34px;line-height:1}
+  .here .ht{flex:1;min-width:240px}
+  .here .ht .l1{font-size:12px;letter-spacing:.22em;color:var(--red);font-weight:700}
+  .here .ht .l2{font-size:21px;font-weight:800;margin:4px 0 3px}
+  .here .ht .l3{font-size:14px;color:var(--ink-2)}
+  .here .ht .l3 code{
+    font-family:var(--mono);background:var(--red-soft);color:#ff8a72;
+    padding:1px 7px;border-radius:5px;font-size:13px;
+  }
+
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--ink-2)}
+  .legend span{display:flex;align-items:center;gap:6px}
+  .guide{font-size:14px;color:var(--ink-2);margin-bottom:14px}
+
+  .msnav{
+    position:sticky;top:0;z-index:20;background:rgba(12,13,16,.93);
+    backdrop-filter:blur(9px);border-bottom:1px solid var(--line);
+    padding:9px 0;margin:0 -22px;
+  }
+  .msnav .inner{display:flex;gap:6px;overflow-x:auto;padding:0 22px;scrollbar-width:none}
+  .msnav .inner::-webkit-scrollbar{display:none}
+  .msnav a{
+    flex:0 0 auto;text-decoration:none;color:var(--ink-2);font-size:12.5px;
+    padding:6px 11px;border-radius:7px;border:1px solid var(--line);
+    background:var(--surface);display:flex;align-items:center;gap:6px;white-space:nowrap;
+  }
+  .msnav a:hover{border-color:var(--ink-3);color:var(--ink)}
+  .msnav a .nd{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+  .nd.d{background:var(--green)} .nd.a{background:var(--amber)} .nd.t{background:var(--grey)}
+  .msnav a b{font-weight:700;color:var(--ink-3);font-family:var(--mono);font-size:11px}
+
+  .ms{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;margin-bottom:18px;overflow:hidden;
+    scroll-margin-top:64px;
+  }
+  .ms__edge{height:3px}
+  .ms--done .ms__edge{background:var(--green)}
+  .ms--active .ms__edge{background:var(--red)}
+  .ms--todo .ms__edge{background:var(--grey)}
+  .ms--active{border-color:var(--red);box-shadow:0 0 0 1px var(--red-soft),0 14px 40px -22px var(--red)}
+
+  .ms__head{display:flex;gap:16px;align-items:flex-start;padding:20px 22px 12px}
+  .ms__num{
+    width:46px;height:46px;flex:0 0 auto;border-radius:11px;
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px;font-weight:800;font-family:var(--mono);
+  }
+  .ms--done .ms__num{background:var(--green-soft);color:var(--green)}
+  .ms--active .ms__num{background:var(--red-soft);color:#ff7a60}
+  .ms--todo .ms__num{background:var(--grey-soft);color:var(--ink-2)}
+  .ms__titles{flex:1;min-width:0}
+  .ms__name{font-size:21px;font-weight:800;letter-spacing:-.3px;display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+  .ms__name .emoji{font-size:18px}
+  .ms__code{
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);font-weight:600;
+    border:1px solid var(--line);padding:2px 7px;border-radius:5px;
+  }
+  .ms__meta{font-size:12.5px;color:var(--ink-3);margin-top:5px;font-family:var(--mono)}
+  .badge{
+    flex:0 0 auto;font-size:12px;font-weight:700;padding:6px 11px;border-radius:8px;
+    display:flex;align-items:center;gap:5px;white-space:nowrap;
+  }
+  .badge--done{background:var(--green-soft);color:var(--green)}
+  .badge--active{background:var(--red-soft);color:#ff7a60}
+  .badge--todo{background:var(--grey-soft);color:var(--ink-2)}
+
+  .ms__body{padding:4px 22px 20px}
+  .gline{font-size:14.5px;color:var(--ink-2);margin:10px 0;padding-left:14px;position:relative}
+  .gline b{color:var(--ink)}
+  .gline.goal::before{content:"";position:absolute;left:0;top:9px;bottom:5px;width:3px;border-radius:2px;background:var(--red)}
+  .gline.analogy::before{content:"";position:absolute;left:0;top:9px;bottom:5px;width:3px;border-radius:2px;background:var(--ink-3)}
+
+  .slices{list-style:none;margin-top:14px;border-top:1px solid var(--line-soft)}
+  .slice{
+    display:flex;align-items:flex-start;gap:11px;padding:9px 4px;
+    border-bottom:1px solid var(--line-soft);font-size:14px;
+  }
+  .slice:last-child{border-bottom:none}
+  .slice__ic{flex:0 0 auto;font-size:14px;width:18px;text-align:center;margin-top:1px}
+  .slice__id{
+    flex:0 0 auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);
+    background:var(--surface-2);border:1px solid var(--line-soft);
+    padding:2px 6px;border-radius:5px;margin-top:1px;
+  }
+  .slice__name{flex:1;min-width:0;color:var(--ink)}
+  .slice--todo .slice__name{color:var(--ink-2)}
+  .slice__est{flex:0 0 auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:1px}
+  .slice--active{background:var(--red-soft);border-radius:7px;margin:1px 0}
+  .slice--active .slice__name{font-weight:700}
+  .tag{
+    font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;
+    margin-left:7px;display:inline-block;vertical-align:1px;white-space:nowrap;
+  }
+  .tag--here{background:var(--red);color:#fff}
+  .tag--wait{background:var(--amber-soft);color:var(--amber);border:1px solid rgba(242,169,59,.3)}
+  .tag--ask{background:rgba(120,160,255,.13);color:#8fb0ff;border:1px solid rgba(120,160,255,.3)}
+
+  .note{
+    margin-top:14px;background:var(--surface-2);border:1px dashed var(--line);
+    border-radius:9px;padding:12px 14px;font-size:13px;color:var(--ink-2);
+  }
+  .note b{color:var(--amber)}
+
+  .vision{
+    border:1px dashed var(--line);border-radius:14px;padding:24px;
+    background:repeating-linear-gradient(45deg,rgba(255,255,255,.012) 0 8px,transparent 8px 16px),var(--bg-2);
+  }
+  .vision .vhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .vision h2{font-size:24px;letter-spacing:-.3px}
+  .vision .vtag{font-size:11.5px;font-weight:700;color:var(--ink-3);border:1px solid var(--line);padding:3px 9px;border-radius:6px}
+  .vision .vlead{color:var(--ink-2);font-size:15px;max-width:66ch;margin-bottom:8px}
+  .vgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-top:16px}
+  .vcard{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .vcard .vn{font-size:11px;font-family:var(--mono);color:var(--red);font-weight:700}
+  .vcard .vt{font-size:14.5px;font-weight:700;margin:5px 0 4px}
+  .vcard .vd{font-size:12.5px;color:var(--ink-2);line-height:1.6}
+  .flywheel{
+    margin-top:16px;background:var(--surface);border:1px solid var(--line);
+    border-radius:10px;padding:14px 16px;font-size:13.5px;color:var(--ink-2);
+  }
+  .flywheel b{color:var(--ink)}
+  .flywheel .chain{font-family:var(--mono);font-size:12.5px;color:var(--amber);margin-top:6px;line-height:1.8}
+
+  .footwrap{border-top:1px solid var(--line);margin-top:10px;padding:34px 0 70px}
+  .youcols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .youcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .youcard h3{font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+  .youcard .hint{font-size:12px;color:var(--ink-3);margin-bottom:12px}
+  .youcard ul{list-style:none}
+  .youcard li{
+    font-size:13.5px;color:var(--ink-2);padding:8px 0;border-top:1px solid var(--line-soft);
+    display:flex;gap:9px;
+  }
+  .youcard li:first-of-type{border-top:none}
+  .youcard li .yi{flex:0 0 auto}
+  .youcard li b{color:var(--ink);font-weight:700}
+  .youcard li .blk{color:var(--ink-3);font-size:12px;display:block;margin-top:1px}
+  .endbox{
+    margin-top:16px;background:var(--green-soft);border:1px solid rgba(47,208,122,.28);
+    border-radius:11px;padding:15px 18px;font-size:13.5px;color:var(--ink-2);
+  }
+  .endbox b{color:var(--green)}
+  .src{margin-top:20px;font-size:11.5px;color:var(--ink-3);font-family:var(--mono);text-align:center}
+
+  @media(max-width:780px){
+    .hero h1{font-size:32px}
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .vgrid{grid-template-columns:1fr 1fr}
+    .youcols{grid-template-columns:1fr}
+    .phase-row{grid-template-columns:74px 1fr;grid-auto-rows:auto}
+    .phase-row .ptag{grid-column:2;text-align:left}
+  }
+  @media(max-width:520px){
+    .vgrid{grid-template-columns:1fr}
+    .slice{flex-wrap:wrap}
+    .slice__name{flex:1 1 100%;order:3;padding-left:29px}
+    .slice__est{margin-left:auto}
+  }
+  @media print{
+    .msnav{position:static;background:none}
+    .ms,.vision,.youcard{break-inside:avoid}
+    body{background:#fff;color:#111}
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="over">PCM MOTORSPORTS · 網站重做專案</div>
+    <h1>網站<span class="mark">施工地圖</span></h1>
+    <p class="lead">PCM 的網站正在「整個重做」。這份地圖把整個工程攤開給你看：<b style="color:var(--ink)">現在進度到哪、接下來每一段要蓋什麼、總共還有多少步</b>。不用懂程式 —— 我們用「開一間店」來比喻。</p>
+    <div class="stamp">
+      <span>更新日期 <b>2026-05-21</b></span><span class="dot-sep"></span>
+      <span>資料來源 <b>STATUS.md</b> + <b>PHASE-1-MILESTONES.md</b></span><span class="dot-sep"></span>
+      <span>共 <b>3 大階段 · 8 個施工段 · 79 個小步驟</b></span>
+    </div>
+  </div>
+</header>
+
+<nav class="msnav">
+  <div class="wrap">
+    <div class="inner">
+      <a href="#m0"><span class="nd d"></span><b>1</b>打地基</a>
+      <a href="#m1"><span class="nd a"></span><b>2</b>商品上架</a>
+      <a href="#m2"><span class="nd t"></span><b>3</b>會員系統</a>
+      <a href="#m3"><span class="nd t"></span><b>4</b>結帳收銀</a>
+      <a href="#m4a"><span class="nd t"></span><b>5</b>員工後台</a>
+      <a href="#m5"><span class="nd t"></span><b>6</b>自動補貨</a>
+      <a href="#m4b"><span class="nd t"></span><b>7</b>後台進階</a>
+      <a href="#m6"><span class="nd t"></span><b>8</b>開門上線</a>
+      <a href="#phase2"><span class="nd t"></span>Phase 2</a>
+      <a href="#phase3"><span class="nd t"></span>Phase 3</a>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <section>
+    <div class="analogy-box">
+      <h2>🏪 先講一個比喻</h2>
+      <p>把整個專案想成 <span class="em">「開一間高階機車零件店」</span>。賣的是 Brembo、Öhlins、RIZOMA 這類歐洲高階改裝零件，同時服務一般車主（零售）跟機車行 / 經銷商（批發）。</p>
+      <p>開這間店分成 <span class="em">3 大階段（Phase）</span>：<b style="color:var(--ink)">Phase 1</b> 是「把店從無到有蓋好、開門營業」—— 這是現在正在做的；<b style="color:var(--ink)">Phase 2</b> 是「把店升級成車輛服務平台」；<b style="color:var(--ink)">Phase 3</b> 是「把平台延伸到更大的市場」。</p>
+      <p>Phase 1 底下再切成 <span class="em">8 個施工段</span>，每段又有好幾個 <span class="em">小步驟</span>（工程上一步一步切著做，總共 79 步）。這份地圖把 8 段 + 全部 79 步都展開。</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-h"><span class="bar"></span>三大階段 · 總進度</div>
+
+    <div class="phase-row">
+      <div class="pname">Phase 1<small>蓋店開門</small></div>
+      <div class="track"><div class="fill fill--p1" style="width:28%"></div></div>
+      <div class="ptag ptag--live">● 進行中 · 約 28%</div>
+    </div>
+    <div class="phase-row">
+      <div class="pname">Phase 2<small>升級平台</small></div>
+      <div class="track track--vision"></div>
+      <div class="ptag ptag--vision">願景 · 未排程</div>
+    </div>
+    <div class="phase-row">
+      <div class="pname">Phase 3<small>延伸市場</small></div>
+      <div class="track track--vision"></div>
+      <div class="ptag ptag--vision">願景 · 未排程</div>
+    </div>
+
+    <div class="stats">
+      <div class="stat">
+        <div class="k">8 個施工段</div>
+        <div class="v">1 <span class="u">完成</span></div>
+        <div class="sub">進行中 1 · 還沒開始 6</div>
+        <div class="eight"><i class="d"></i><i class="a"></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i><i class=""></i></div>
+      </div>
+      <div class="stat">
+        <div class="k">79 個小步驟</div>
+        <div class="v">22 <span class="u">完成</span></div>
+        <div class="sub">進行中 1 · 還沒開始 56</div>
+      </div>
+      <div class="stat">
+        <div class="k">Phase 1 預估工期</div>
+        <div class="v">9–12 <span class="u">週</span></div>
+        <div class="sub">純開發工時約 70 小時</div>
+      </div>
+      <div class="stat">
+        <div class="k">目前位置</div>
+        <div class="v" style="font-size:18px">第 2 段</div>
+        <div class="sub">商品上架 · 步驟 M-1-13</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="here">
+      <div class="pin">📍</div>
+      <div class="ht">
+        <div class="l1">你在這裡</div>
+        <div class="l2">Phase 1 ▸ 第 2 施工段「商品上架」</div>
+        <div class="l3">已完成 1 個施工段 ✅。現在正在第 2 段「商品上架」的步驟 <code>M-1-13</code> —— 搬入「商品詳情頁」（全站最大的一頁）。</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <p class="guide">
+      下面是 Phase 1 的 8 個施工段，由上往下就是施工順序。每段都展開了底下所有小步驟，
+      左邊的小圖示代表那一步的狀態：
+    </p>
+    <div class="legend">
+      <span>✅ <b style="color:var(--green)">完成</b></span>
+      <span>🔄 <b style="color:var(--amber)">進行中</b></span>
+      <span>⬜ <b style="color:var(--ink-2)">還沒開始</b></span>
+      <span><span class="tag tag--wait">⚑ 等設計圖</span> 要等 Claude Design 補畫面</span>
+      <span><span class="tag tag--ask">⚑ 等你拍板</span> 開工前需要你做決定</span>
+    </div>
+  </section>
+
+  <section style="padding-top:8px">
+    <article class="ms ms--done" id="m0">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">1</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🏗️</span>打地基 <span class="ms__code">M-0 · 骨架就位</span></div>
+          <div class="ms__meta">10 個小步驟 · 估時 7–9 小時 · 約 1.5 週</div>
+        </div>
+        <div class="badge badge--done">✅ 完成</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　動工蓋店面前，先把整個專案的「地基」跟「鋼骨」立好：程式碼資料夾怎麼分、前台後台怎麼接、商品 / 訂單的資料格式長怎樣，全部先定案。</p>
+        <p class="gline analogy"><b>比喻</b>　蓋房子前打地基、立鋼骨。客人完全看不到，但整棟樓靠它撐。地基沒打好，後面每一層都會歪。</p>
+        <ul class="slices">
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-01</span><span class="slice__name">建立程式碼的 4 個共用模組空殼（先把櫃子格子做好）</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-02</span><span class="slice__name">建立 2 個應用程式空殼（員工後台、自動同步程式）</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-03</span><span class="slice__name">設定「程式碼防呆規則」，防止不同模組亂接線</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-04</span><span class="slice__name">定義前台跟後台之間的「接口規格」（像統一插座規格）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-05</span><span class="slice__name">設計商品 / 品牌 / 分類的資料表格式（第 1 部分）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-06</span><span class="slice__name">設計訂單流程的資料表格式（第 2 部分）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-07</span><span class="slice__name">寫下「程式怎麼命名」的決策文件 + 工作規則</span><span class="slice__est">90–120分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-08</span><span class="slice__name">寫下「資安檢查時間表」文件</span><span class="slice__est">60–90分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-09</span><span class="slice__name">升級收工檢查工具（沒做完不准收工）</span><span class="slice__est">45–60分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-0-10</span><span class="slice__name">把幾份重要架構決策正式定案</span><span class="slice__est">2.5–3.5時</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="ms ms--active" id="m1">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">2</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🏪</span>商品上架 <span class="ms__code">M-1 · Catalog + 基本會員</span></div>
+          <div class="ms__meta">16 個小步驟 · 估時 12–14 小時 · 約 1.5–2 週 · 完成 12 / 進行中 1</div>
+        </div>
+        <div class="badge badge--active">🔄 進行中</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　把設計師畫好的店面一塊塊真的蓋出來：首頁、商品列表、商品詳情、登入註冊，再放進約 200 個熱門商品。做完客人就能進來逛、看商品、辦會員（但還不能結帳）。</p>
+        <p class="gline analogy"><b>比喻</b>　店面裝潢 + 擺好貨架 + 把商品擺上去。客人能走進來、能逛、能看標價、能辦張會員卡 —— 但收銀台還沒裝。</p>
+        <ul class="slices">
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-01</span><span class="slice__name">修好「自動把網站上傳到網路」的部署設定</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-02</span><span class="slice__name">寫好「商品」的資料邏輯，並通過測試</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-03</span><span class="slice__name">把商品邏輯接上真正的雲端資料庫</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-04</span><span class="slice__name">搬入網站的設計樣式底色 + 首頁各區塊</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-05</span><span class="slice__name">搬入網站頁首導覽列（Header）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-06</span><span class="slice__name">搬入「商品卡片」元件</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-07</span><span class="slice__name">搬入「首頁」整頁</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-08</span><span class="slice__name">抽出三種篩選器的共用邏輯（避免重複寫）</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-09</span><span class="slice__name">搬入「側邊篩選器」</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-10</span><span class="slice__name">搬入「上方篩選器」</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-11</span><span class="slice__name">搬入「抽屜篩選器」（手機用）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--done"><span class="slice__ic">✅</span><span class="slice__id">M-1-12</span><span class="slice__name">組合「商品列表頁」，整合 4 種篩選方式</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--active"><span class="slice__ic">🔄</span><span class="slice__id">M-1-13</span><span class="slice__name">搬入「商品詳情頁」（全站最大的一頁）<span class="tag tag--here">你在這</span></span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-1-14</span><span class="slice__name">寫好「會員」登入 / 註冊的資料邏輯</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-1-15</span><span class="slice__name">搬入「登入頁 + 註冊頁」</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-1-16</span><span class="slice__name">匯入 200 個熱門商品的資料</span><span class="slice__est">45分</span></li>
+        </ul>
+        <div class="note"><b>誠實附註：</b>M-1 官方進度一律以 STATUS.md 為準、目前計「16 步完成 12 步、第 13 步進行中」。首頁、商品列表、商品詳情骨架 + 圖片牆 + 全螢幕放大都已搬入、畫面上看得到也能操作;商品詳情的「文字介紹 / 規格 / 買按鈕」等細節留 M-1-13 後續子步驟補(d~g)。此刻官方數字與畫面成果一致、沒有落差。</div>
+      </div>
+    </article>
+
+    <article class="ms ms--todo" id="m2">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">3</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🪪</span>會員系統 <span class="ms__code">M-2 · 三級會員 + 雙價格</span></div>
+          <div class="ms__meta">9 個小步驟 · 估時 7–9 小時 · 約 1–1.5 週</div>
+        </div>
+        <div class="badge badge--todo">⬜ 還沒開始</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　做出三級會員 —— 一般客人、機車行 / 經銷商、高級店家。重點：不同等級看到不同價格（一般人看零售價、店家看批發價），而且價格判斷一定在主機端做，不能讓人用瀏覽器作弊偷看批發價。</p>
+        <p class="gline analogy"><b>比喻</b>　發會員卡、分等級。一般卡、銀卡店家、金卡店家，刷不同卡看不同價。批發 VIP 價絕不能被一般客人看到。</p>
+        <ul class="slices">
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-01</span><span class="slice__name">建立三級會員等級（一般 / 店家 / 高級店家）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-02</span><span class="slice__name">在主機端驗證會員等級（防作弊、防批發價外洩）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-03</span><span class="slice__name">搬入「會員中心」前 3 個分頁（總覽 / 訂單 / 收藏）</span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-04</span><span class="slice__name">搬入「會員中心」後 3 個分頁（車輛 / 地址 / 個人資料）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-05</span><span class="slice__name">預留「車輛」資料欄位（給 Phase 2 車輛履歷用）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-06</span><span class="slice__name">建立「經銷商申請」流程的後台</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-07</span><span class="slice__name">搬入「經銷商申請頁」<span class="tag tag--wait">⚑ 等設計圖</span></span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-08</span><span class="slice__name">設定零售價 / 批發價雙價格</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-2-09</span><span class="slice__name">讓網站依會員等級顯示對應價格</span><span class="slice__est">45分</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="ms ms--todo" id="m3">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">4</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🧾</span>結帳收銀 <span class="ms__code">M-3 · 訂單 + 付款</span></div>
+          <div class="ms__meta">11 個小步驟 · 估時 10–12 小時 · 約 2 週</div>
+        </div>
+        <div class="badge badge--todo">⬜ 還沒開始</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　裝上收銀台。客人能把商品加進購物車、填地址、選運送、刷卡付錢、下訂單，並在會員中心查自己的訂單。訂單有 8 種狀態（待付款、已付款、叫貨中、到貨、出貨…）。</p>
+        <p class="gline analogy"><b>比喻</b>　裝收銀台、刷卡機、開發票流程。客人逛完能真的把錢付掉、把貨買回家。</p>
+        <ul class="slices">
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-01</span><span class="slice__name">修好後台的部署設定</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-02</span><span class="slice__name">建立「訂單」的 8 種狀態邏輯</span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-03</span><span class="slice__name">寫訂單狀態流轉的操作（叫貨 / 到貨 / 出貨）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-04</span><span class="slice__name">把訂單接上資料庫</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-05</span><span class="slice__name">寫運費計算（滿 4000 免運 / 偏遠加價 / 寄店家固定價）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-06</span><span class="slice__name">搬入「購物車頁」並接上資料</span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-07</span><span class="slice__name">搬入「結帳後半段」（運送 / 付款 / 確認）<span class="tag tag--wait">⚑ 等設計圖</span></span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-08</span><span class="slice__name">串接 TapPay 刷卡（測試環境）<span class="tag tag--ask">⚑ 等你拍板</span></span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-09</span><span class="slice__name">搬入「訂單詳情頁」<span class="tag tag--wait">⚑ 等設計圖</span></span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-10</span><span class="slice__name">讓會員中心訂單頁顯示真實訂單</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-3-11</span><span class="slice__name">高級店家自動升級邏輯（累積消費滿 10 萬自動升級）</span><span class="slice__est">45分</span></li>
+        </ul>
+        <div class="note"><b>這段開工前需要你拍板：</b>① 要不要做發票自動化（綠界 / 藍新 / 國稅局）② TapPay 刷卡測試環境，沿用舊的還是重新申請。</div>
+      </div>
+    </article>
+
+    <article class="ms ms--todo" id="m4a">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">5</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🗄️</span>員工後台 <span class="ms__code">M-4a · 商品 + 訂單管理</span></div>
+          <div class="ms__meta">13 個小步驟 · 估時 12–14 小時 · 約 1.5–2 週</div>
+        </div>
+        <div class="badge badge--todo">⬜ 還沒開始</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　做出員工用的後台系統。你跟員工登入後，能看到三合一主畫面（紅綠燈儀表板 / 收件匣 / 今日數據）、管理商品、處理訂單、回客服。做完你上線時就能真的處理客人訂單。</p>
+        <p class="gline analogy"><b>比喻</b>　店長辦公室。員工在這裡管訂單、補商品、回客人問題。客人看不到這間辦公室。</p>
+        <ul class="slices">
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-01</span><span class="slice__name">建立員工後台應用程式骨架</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-02</span><span class="slice__name">後台版面（側邊欄 + 上方列 + 三分頁主畫面）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-03</span><span class="slice__name">後台「儀表板」紅綠燈分頁（待審核 / 待出貨 / 機器跑中）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-04</span><span class="slice__name">後台「收件匣」分頁（活動時間流）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-05</span><span class="slice__name">後台「數據」分頁（今日銷售 / 待出貨 / 缺貨）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-06</span><span class="slice__name">後台商品列表 + 編輯（內文 / 圖片 / 售價 / 經銷價）</span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-07</span><span class="slice__name">後台商品待審核 + 通過 / 退回</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-08</span><span class="slice__name">後台訂單列表 + 8 種狀態篩選</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-09</span><span class="slice__name">後台訂單詳情 + 狀態流轉 + 物流單號</span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-10</span><span class="slice__name">後台會員列表 + 改會員等級</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-11</span><span class="slice__name">後台經銷商申請審核</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-12</span><span class="slice__name">後台客服收件匣（LINE / Email / 電話紀錄）</span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4a-13</span><span class="slice__name">「改金額紅線」—— 員工不能改金額，要通知你</span><span class="slice__est">45分</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="ms ms--todo" id="m5">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">6</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🤖</span>自動補貨 <span class="ms__code">M-5 · sync-engine + 試算表</span></div>
+          <div class="ms__meta">9 個小步驟 · 估時 7–8 小時 · 約 1–1.5 週</div>
+        </div>
+        <div class="badge badge--todo">⬜ 還沒開始</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　做一個 24 小時自動跑的背景程式。它每小時自動讀廠商的 Google 報價單，自動把新商品丟進「待審核」清單、報價有變就告警、庫存自動更新。員工只要「審核 + 微調」，不用一筆筆手打。每天早上 9 點還會寄摘要 email 給你。</p>
+        <p class="gline analogy"><b>比喻</b>　請一個不用睡覺的補貨機器人。它每小時去看廠商報價單，自動更新價格跟庫存，有狀況就敲你。</p>
+        <ul class="slices">
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-01</span><span class="slice__name">建立自動同步程式骨架（24 小時跑的背景程式）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-02</span><span class="slice__name">接上 Google 試算表（讀廠商報價單）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-03</span><span class="slice__name">自動產生「商品候選」進待審核清單</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-04</span><span class="slice__name">偵測報價變動 → 發出告警</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-05</span><span class="slice__name">庫存數量自動更新（不用人工審核）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-06</span><span class="slice__name">機器人的控制介面（立即同步 / 暫停 / 看紀錄）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-07</span><span class="slice__name">後台「機器狀態看板」</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-08</span><span class="slice__name">報價變動告警畫面</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-5-09</span><span class="slice__name">每天早上 9 點寄一封摘要 email 給你</span><span class="slice__est">45分</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="ms ms--todo" id="m4b">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">7</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🔐</span>後台進階 <span class="ms__code">M-4b · 權限 + 機器深化</span></div>
+          <div class="ms__meta">3 個小步驟 · 估時 2–3 小時 · 約 0.5 週</div>
+        </div>
+        <div class="badge badge--todo">⬜ 還沒開始</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　把員工後台的權限「真的鎖死」。第 5 段的「改金額紅線」只是把按鈕變灰，這段是在主機端真正擋住 —— 就算員工繞過畫面也改不了。再加上機器看板深化、改金額審核流程（員工提案 → 你批准 → 才能改）。</p>
+        <p class="gline analogy"><b>比喻</b>　員工辦公室的權限鎖。哪個抽屜誰能開、誰不能開，裝上真的鎖，不是只貼「請勿開啟」貼紙。</p>
+        <ul class="slices">
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4b-01</span><span class="slice__name">員工權限細節（後端真的鎖住改金額）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4b-02</span><span class="slice__name">機器狀態看板深化（錯誤日誌 / 重啟按鈕）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-4b-03</span><span class="slice__name">改金額審核流程（員工提案 → 你批准 → 才改）</span><span class="slice__est">45分</span></li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="ms ms--todo" id="m6">
+      <div class="ms__edge"></div>
+      <div class="ms__head">
+        <div class="ms__num">8</div>
+        <div class="ms__titles">
+          <div class="ms__name"><span class="emoji">🏁</span>開門上線 <span class="ms__code">M-6 · SEO + 測試 + 部署</span></div>
+          <div class="ms__meta">8 個小步驟 · 估時 7–9 小時 · 約 1.5–2 週</div>
+        </div>
+        <div class="badge badge--todo">⬜ 還沒開始</div>
+      </div>
+      <div class="ms__body">
+        <p class="gline goal"><b>目標</b>　正式對外開門前的最後一段。幫每一頁掛上「招牌」（讓 Google 跟 AI 找得到、正確顯示），跑一次完整流程測試（逛 → 加購 → 結帳 → 後台出貨），把網站正式部署到正式環境，走完上線前總體檢清單。</p>
+        <p class="gline analogy"><b>比喻</b>　掛招牌、發傳單、做開幕前最後一次全店體檢，然後正式開門做生意。</p>
+        <ul class="slices">
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-01</span><span class="slice__name">各頁加 SEO 標籤（讓 Google 看懂每一頁）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-02</span><span class="slice__name">結構化資料（讓 Google / AI 正確顯示商品資訊）</span><span class="slice__est">45分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-03</span><span class="slice__name">自動產生網站地圖（sitemap）</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-04</span><span class="slice__name">robots.txt + 社群分享預覽圖</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-05</span><span class="slice__name">全流程整合測試（逛 → 加購 → 結帳 → 後台出貨）<span class="tag tag--ask">⚑ 等你拍板</span></span><span class="slice__est">60分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-06</span><span class="slice__name">Vercel 正式環境上線設定<span class="tag tag--ask">⚑ 等你拍板</span></span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-07</span><span class="slice__name">後台正式環境上線設定</span><span class="slice__est">30分</span></li>
+          <li class="slice slice--todo"><span class="slice__ic">⬜</span><span class="slice__id">M-6-08</span><span class="slice__name">上線前總體檢（連續一週三項檢查全綠）</span><span class="slice__est">90分</span></li>
+        </ul>
+        <div class="note"><b>這段開工前需要你拍板：</b>① 測試覆蓋範圍要做到多廣 ② Vercel 正式環境要新建還是沿用舊的。</div>
+      </div>
+    </article>
+  </section>
+
+  <section id="phase2">
+    <div class="sec-h"><span class="bar"></span>之後的願景</div>
+    <div class="vision">
+      <div class="vhead">
+        <h2>Phase 2 ｜ 車輛服務生態系</h2>
+        <span class="vtag">願景 · 估 12–14 個月</span>
+      </div>
+      <p class="vlead">Phase 1 蓋完是「一間賣零件的網路商店」。Phase 2 要把它升級成「車輛服務平台」—— 不只賣零件，還串起車主跟全台機車行 / 改裝店。以下是九大藍圖：</p>
+      <div class="vgrid">
+        <div class="vcard"><div class="vn">藍圖 1</div><div class="vt">大量上架 + 自動同步</div><div class="vd">廠商爬蟲 / API 自動把商品灌進後台，員工只審核。</div></div>
+        <div class="vcard"><div class="vn">藍圖 2</div><div class="vt">圖片 / PDF 用連結</div><div class="vd">大檔案存外部，網站只放連結，省成本又快。</div></div>
+        <div class="vcard"><div class="vn">藍圖 3</div><div class="vt">客戶 ↔ 店家預約</div><div class="vd">買完零件直接在站上找店家安裝，全程 LINE 通知。</div></div>
+        <div class="vcard"><div class="vn">藍圖 4</div><div class="vt">到貨再決定收件方式</div><div class="vd">下單後再選寄家裡、超商、還是寄合作店家安裝。</div></div>
+        <div class="vcard"><div class="vn">藍圖 5</div><div class="vt">車輛履歷</div><div class="vd">每台車一份改裝 / 保養紀錄，車賣掉履歷跟著車走。</div></div>
+        <div class="vcard"><div class="vn">藍圖 6</div><div class="vt">店家價格分級</div><div class="vd">經銷價、廠牌折扣、個人化 VIP，三層折扣疊加。</div></div>
+        <div class="vcard"><div class="vn">藍圖 7</div><div class="vt">員工後台 Excel 化</div><div class="vd">訂單批次操作、商品批次上架，貼近 Excel 直覺。</div></div>
+        <div class="vcard"><div class="vn">藍圖 8</div><div class="vt">到店 QR + 保養歷程</div><div class="vd">QR / 驗證碼到店、店家行事曆、保養到期自動提醒。</div></div>
+        <div class="vcard"><div class="vn">藍圖 9</div><div class="vt">SEO + AI 友善</div><div class="vd">這項提早在 Phase 1 就做了，讓搜尋與 AI 找得到。</div></div>
+      </div>
+      <div class="flywheel">
+        <b>🔁 飛輪效應 ——</b> 這就是 Phase 2 要轉起來的循環：
+        <div class="chain">客人多 → 店家看到機會加入 → 商品頁有真實安裝案例 → 客人更願意買零件 → 商品更豐富 → 又吸引更多客人</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="phase3" style="padding-top:6px">
+    <div class="vision">
+      <div class="vhead">
+        <h2>Phase 3+ ｜ 平台延伸</h2>
+        <span class="vtag">願景 · 尚未拍板</span>
+      </div>
+      <p class="vlead">更遠的想像 —— 把蓋店過程中累積的資產，變成別人也願意付費使用的平台。方向還沒定案，目前只是腦中的草圖：</p>
+      <div class="vgrid">
+        <div class="vcard"><div class="vn">方向 A</div><div class="vt">車型資料庫對外</div><div class="vd">把車型對應表開放給其他業者用（B2B SaaS 延伸）。</div></div>
+        <div class="vcard"><div class="vn">方向 B</div><div class="vt">原廠保養週期庫</div><div class="vd">各車型的原廠建議保養週期資料庫。</div></div>
+        <div class="vcard"><div class="vn">方向 C</div><div class="vt">拓展海外市場</div><div class="vd">香港 / 東南亞改裝市場。</div></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<footer class="footwrap">
+  <div class="wrap">
+    <div class="sec-h"><span class="bar"></span>目前需要你出手的事</div>
+    <div class="youcols">
+      <div class="youcard">
+        <h3><span class="tag tag--ask">⚑ 等你拍板</span></h3>
+        <div class="hint">這 4 件事不用現在決定，但對應的施工段開工前要先定。</div>
+        <ul>
+          <li><span class="yi">①</span><span><b>發票自動化</b>要不要做（綠界 / 藍新 / 國稅局）<span class="blk">卡 第 4 段 結帳收銀</span></span></li>
+          <li><span class="yi">②</span><span><b>TapPay 刷卡</b>測試環境沿用舊的還是重申請<span class="blk">卡 第 4 段 結帳收銀</span></span></li>
+          <li><span class="yi">③</span><span><b>測試覆蓋範圍</b>要做到多廣<span class="blk">卡 第 8 段 開門上線</span></span></li>
+          <li><span class="yi">④</span><span><b>Vercel 正式環境</b>新建還是沿用<span class="blk">卡 第 8 段 開門上線</span></span></li>
+        </ul>
+      </div>
+      <div class="youcard">
+        <h3><span class="tag tag--wait">⚑ 等設計圖</span></h3>
+        <div class="hint">這幾頁要在 Claude Design 補畫面，補完對應步驟才能收尾。</div>
+        <ul>
+          <li><span class="yi">①</span><span><b>結帳後半段頁</b><span class="blk">對應步驟 M-3-07</span></span></li>
+          <li><span class="yi">②</span><span><b>訂單詳情頁</b><span class="blk">對應步驟 M-3-09</span></span></li>
+          <li><span class="yi">③</span><span><b>經銷商申請頁</b><span class="blk">對應步驟 M-2-07</span></span></li>
+          <li><span class="yi">④</span><span><b>首頁「我的車」按鈕</b>微調<span class="blk">影響步驟 M-1-07</span></span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="endbox">
+      <b>🏁 Phase 1 什麼時候算「完成」？</b>　當網站能對外開放公測、員工正式切換到新版後台工作，Phase 1 就收尾。關鍵驗收：手機 / 電腦上「逛 → 加購 → 結帳 → 會員中心」全部跑得完、員工後台關鍵操作跑得通、刷卡測試至少成功一次、連續一週系統檢查全綠。
+    </div>
+    <div class="src">資料來源：STATUS.md（2026-05-21）· docs/PHASE-1-MILESTONES.md · docs/PHASE-2-VISION.md</div>
+  </div>
+</footer>
+
+</body>
+</html>

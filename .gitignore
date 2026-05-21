@@ -30,6 +30,7 @@ build/
 .idea/
 *.swp
 *.swo
+.claude/
 
 # Turborepo
 .turbo/
@@ -56,3 +57,6 @@ apps/medusa/uploads/
 
 # Supabase CLI cache(對齊 M-1-03-main-a2-1 Q2-temp=A1 拍板)
 supabase/.temp/
+
+# Spikes(腳本字面自稱「丟棄式 spike script、不 commit、不入 git、留檔給未來人類重跑」、規矩固化、未來 spike 統一不入 git)
+packages/adapters/scripts/spikes/
