@@ -158,7 +158,7 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         <nav className="pd-crumbs" aria-label="navigation path">
           {crumbs.map((c, i) => (
             <Fragment key={i}>
-              {i > 0 && <span className="pd-crumbs-sep">/</span>}
+              {i > 0 && <span className="pd-crumbs-sep">›</span>}
               {c.current ? (
                 <span className="pd-crumbs-current" title={c.label}>
                   {c.label}

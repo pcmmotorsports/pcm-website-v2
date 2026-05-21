@@ -124,8 +124,10 @@ export function ProductGallery({ product }: ProductGalleryProps) {
             }
           }}
           onClick={(e) => {
+            // M-1-13H-1: .pd-thumb-overlay 已搬出 hero-img(對齊 HANDOFF #3 thumb 移下方)、不再 closest 檢測;
+            // .pd-hero-dot 無對應 CSS、一併清理
             const target = e.target as Element;
-            if (target.closest('.pd-hero-arrow, .pd-hero-dot, .pd-thumb-overlay, .pd-hero-counter')) return;
+            if (target.closest('.pd-hero-arrow, .pd-hero-counter')) return;
             if (heroDidSwipeRef.current) { heroDidSwipeRef.current = false; return; }
             setLightbox(true);
           }}
@@ -156,20 +158,22 @@ export function ProductGallery({ product }: ProductGalleryProps) {
           <div className="pd-hero-counter">
             {String(activeImg + 1).padStart(2, '0')} / {String(gallery.length).padStart(2, '0')}
           </div>
-          <div className="pd-thumb-overlay">
-            {gallery.map((id, i) => (
-              <button
-                key={i}
-                className={`pd-thumb-ov ${activeImg === i ? 'is-active' : ''}`}
-                onClick={(e) => { e.stopPropagation(); setActiveImg(i); }}
-                aria-label={`圖片 ${i + 1}`}
-              >
-                <img src={`https://images.unsplash.com/${id}?w=160&q=70&auto=format&fit=crop`} alt="" loading="lazy" />
-              </button>
-            ))}
-          </div>
           {product.isSale && <div className="pd-hero-badge">−{discountPct}%</div>}
           {product.isNew && !product.isSale && <div className="pd-hero-badge pd-hero-badge-new">NEW</div>}
+        </div>
+        {/* M-1-13H-1: thumb 從 hero-img overlay 搬出、改放主圖下方(對齊 HANDOFF #3 + design .vc-thumbs 字面);
+            className .pd-thumb-overlay → .pd-thumbs、.pd-thumb-ov → .pd-thumb-btn */}
+        <div className="pd-thumbs">
+          {gallery.map((id, i) => (
+            <button
+              key={i}
+              className={`pd-thumb-btn ${activeImg === i ? 'is-active' : ''}`}
+              onClick={() => setActiveImg(i)}
+              aria-label={`圖片 ${i + 1}`}
+            >
+              <img src={`https://images.unsplash.com/${id}?w=200&q=75&auto=format&fit=crop`} alt="" loading="lazy" />
+            </button>
+          ))}
         </div>
       </div>
 
