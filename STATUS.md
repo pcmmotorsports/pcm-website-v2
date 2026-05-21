@@ -2,23 +2,23 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a~d ✅ + M-1-13e-pre-1/2/3 ✅ + M-1-13e-a ✅ + M-1-13e-b ✅ + M-1-13e-b-2 ✅ + M-1-13f-1 ✅ + M-1-13f-2 ✅、餘 商品頁全面改版(M-1-13H plan ✅ + slice-1 ✅ + slice-2 ✅、實作 slice-3~6 待跑) + 13g(暫停) + M-1-14~16)
-**當前 slice:** M-1-13H 商品頁全面改版(Apple/Aritzia 現代派)automode 連跑中、PRD docs/specs/M-1-13H-product-page-overhaul-plan.md 拍板鎖、lessons §12-37 落地;slice-1 ✅(Gallery + crumbs)+ slice-2 ✅(ProductInfo 上半 SKU line / title 28px Inter / 副標 14px / 移除 .pd-fits-banner、backlog #162 brand.country 立);接著 slice-3 Buy block + Services + 免運 NT$ 5,000(對應 HANDOFF #8+#9+#10+#11)→ slice-4 Highlights + Spotlight 新子元件 → slice-5 Tabs pill → [Codex Review Packet 介入] → slice-6 Related + 收尾(Sean 肉眼驗 + push);Browser MCP 跟 Q2 try-skip:本 5 slice 都跳過、slice-6 / Sean 肉眼驗統一驗
+**Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a~d ✅ + M-1-13e-pre-1/2/3 ✅ + M-1-13e-a ✅ + M-1-13e-b ✅ + M-1-13e-b-2 ✅ + M-1-13f-1 ✅ + M-1-13f-2 ✅、餘 商品頁全面改版(M-1-13H plan ✅ + slice-1 ✅ + slice-2 ✅ + slice-3 ✅、實作 slice-4~6 待跑) + 13g(暫停) + M-1-14~16)
+**當前 slice:** M-1-13H 商品頁全面改版(Apple/Aritzia 現代派)automode 連跑中、PRD docs/specs/M-1-13H-product-page-overhaul-plan.md 拍板鎖、lessons §12-37 落地;slice-1 ✅(Gallery + crumbs)+ slice-2 ✅(ProductInfo 上半 SKU/title/副標)+ slice-3 ✅(Buy block + Services + 免運 5,000、price 22 黑 / swatch 24 圓 / pill CTA 48 / services 純文字 / backlog #161 反轉 4 處偏離);接著 slice-4 Highlights + Spotlight 新子元件 → slice-5 Tabs pill → [Codex Review Packet 介入] → slice-6 Related + 收尾(Sean 肉眼驗 + push);Browser MCP 跟 Q2 try-skip:本 5 slice 都跳過、slice-6 / Sean 肉眼驗統一驗
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-22 — Claude Code [M-1-13H-2 ProductInfo 上半 SKU/title/副標 落地 + backlog #162]
+2026-05-22 — Claude Code [M-1-13H-3 Buy block + Services + 免運 5,000 + backlog #161 反轉]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `5648424` | feat(storefront): ProductInfo 上半 SKU/title/副標 Apple/Aritzia 改版 [M-1-13H-2] | 2026-05-22 |
+| `2e79ae0` | feat(storefront): buy block + services Apple/Aritzia 改版 + 免運門檻業務拍板 [M-1-13H-3] | 2026-05-22 |
+| `79f89bc` | feat(storefront): ProductInfo 上半 SKU/title/副標 Apple/Aritzia 改版 [M-1-13H-2] | 2026-05-22 |
 | `e4895be` | docs(M-1-13H): automode master protocol (Sean Q1=A + Q2=try-skip 拍板) | 2026-05-22 |
-| `a8f5a01` | feat(storefront): Gallery + crumbs Apple/Aritzia 改版 [M-1-13H-1] | 2026-05-21 |
 
 ## 下一步
-M-1-13H slice-3 Buy block + Services(色票圓 24px / 價格 22px 黑 / 圓 pill CTA 48px / services 移圖示 + 免運 NT$ 5,000 業務拍板對齊;對應 HANDOFF #8+#9+#10+#11、35-45 分);接著 slice-4 新增 ProductHighlights + ProductSpotlight 子元件(3 卡 hardcoded + 條件渲染 hasSpotlight 欄位、Q7 全拆;對應 HANDOFF #12+#13、35-45 分)→ slice-5 Tabs pill + 內容微調(對應 HANDOFF #14+#15、30-45 分)→ [Codex Review Packet 介入點:Sean 貼 Codex 唯讀審查、findings 回來再跑 slice-6 含 fix]→ slice-6 Related 容器標題 + 收尾(對應 HANDOFF #16+#17、35-50 分);全改版完成後評估 13g 殘餘(Toast + Responsive 是否仍需、Sean 在 Claude Design 端動 explorations 檔刪除);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD + 接 Supabase findBySlug + toUIProduct(p, tier) 處理 backlog #161 經銷價真區分 + #162 brand.country 真區分 + 處理 13f-2 tabs L3 內容問題:specs 8 hardcoded 欄位 / description 文案 / install steps / warranty 政策真實應後台 CRUD);M-1 收尾跑 premortem 應對 step-2
+M-1-13H slice-4 新增 ProductHighlights + ProductSpotlight 子元件(3 卡 hardcoded + 條件渲染 hasSpotlight 欄位、Q7 全拆;對應 HANDOFF #12+#13、35-45 分;Code raise multi-select 給 Sean 拍哪 3 件商品 hardcoded `hasSpotlight: true`、需 grep MockProduct schema 位置);接著 slice-5 Tabs pill + 內容微調(對應 HANDOFF #14+#15、30-45 分)→ [Codex Review Packet 介入點:Sean 貼 Codex 唯讀審查、findings 回來再跑 slice-6 含 fix]→ slice-6 Related 容器標題 + 收尾(對應 HANDOFF #16+#17、35-50 分);全改版完成後評估 13g 殘餘(Toast + Responsive 是否仍需、Sean 在 Claude Design 端動 explorations 檔刪除);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD + 接 Supabase findBySlug + toUIProduct(p, tier) 處理 backlog #161 經銷價真區分 + #162 brand.country 真區分 + 處理 13f-2 tabs L3 內容問題:specs 8 hardcoded 欄位 / description 文案 / install steps / warranty 政策真實應後台 CRUD);M-1 收尾跑 premortem 應對 step-2
 
 ## Sean 待決策
 #1 發票自動化 / #3 TapPay sandbox / #4 部署(Vercel+Railway)（premortem 應對 step-2 將為這 3 項設「最晚拍板日」;#2 測試覆蓋率已由 WO-1~3 順手補 smoke test 落地、coverage% 數字仍留 G2/M-6;#149 pcm-line-bot 共用 DB 已 2026-05-19 處置完成;Q-1=B / Q-2=B 已 2026-05-20 拍板「不急、判斷時機追加」、memory project_phase-1-scope-expansion-2026-05-20 已記、M-1-14/15/16 audit 階段 raise;#81 variants schema 已 2026-05-20 M-1-13d Q1=A 推延至 M-5-03 sync engine 前真撞才 spike + Sean 親口講 1-20 種規格業務細節;#130 tier helper 2026-05-20 M-1-13e-pre-1 Sean Q1=B 業務拍板立即抽完成 ✅、13e-a tier prop 傳遞鏈接通 ProductPage / ProductInfo;#82 availability mapper 2026-05-20 M-1-13e-pre-2 Sean Q2=A 拍板執行完成 ✅;#160 ProductInfo 擴張清單(說明書 / 適用車款列表 / 影片 / 圖片)13f Tabs / Phase 2 啟動前 audit;#161 storefront 偏離 design 字面 2026-05-21 M-1-13e-pre-3 起 + M-1-13e-a / 13e-b 延伸(不顯庫存 4 處 disabled / 補貨中字面 / 免運門檻 design L302 NT$ 4,000 + L358 NT$ 3,000 storefront 統一 NT$ 5,000 — **Q1 已 2026-05-21 M-1-13H plan 拍板 NT$5,000 永久(業務拍板、屬鐵則 1 例外、方向反轉 storefront 為準)** / Mobile sticky bar tier 13e-b 已補完整字面對齊 design L527-532、但 mock 路徑 product.price 仍 retail、tier='store'/'premiumStore' 顯「· 經銷」字面 tag 對齊 design 但價格未真經銷化、M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分)、餘項待 Sean 在 Claude Design 補對齊後 storefront submodule update 同步)

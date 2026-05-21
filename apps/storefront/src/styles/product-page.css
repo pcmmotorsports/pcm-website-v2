@@ -261,28 +261,31 @@
   display: flex; align-items: baseline; gap: 12px;
   flex-wrap: wrap;
 }
+/* M-1-13H-3:price 改 22px Inter sans 600 黑(對應 HANDOFF #8、字面從 design explorations.css
+   L767-772 直接搬);原 36px Cormorant serif → 22px Inter sans;showRedPrice 切換邏輯
+   .pd-price.is-red 保留(預設黑、tweaks 開才紅、對應 HANDOFF L150-153) */
 .pd-price {
-  font-family: var(--font-serif);
-  font-weight: 500;
-  font-size: 36px; line-height: 1;
+  font: 600 22px/1 var(--font-sans);
   letter-spacing: -0.01em;
-  color: var(--ink);
+  color: #1d1d1f;
+  margin-bottom: 4px;
 }
 .pd-price.is-red { color: #c41e3a; }
 .pd-price-orig {
-  font: 400 16px/1 var(--font-sans);
-  color: var(--ink-tert);
+  font: 400 14px/1 var(--font-sans);
+  color: #86868b;
   text-decoration: line-through;
 }
+/* M-1-13H-3:折扣 tag 從紅底白字 NTD 金額 → mono 灰字百分比(對應 HANDOFF L150 字面) */
 .pd-price-save {
   font: 500 11px/1 var(--font-mono);
-  background: #c41e3a; color: white;
-  padding: 5px 8px;
-  letter-spacing: 0.05em;
+  color: #86868b;
+  letter-spacing: 0.04em;
 }
-.pd-price-meta {
+/* M-1-13H-3:.pd-price-meta → .pd-price-sub(對齊 design `.vc-price-sub` L773-777 字面 + 命名遷入) */
+.pd-price-sub {
   font: 400 12px/1 var(--font-sans);
-  color: var(--ink-tert);
+  color: #86868b;
   margin-top: 8px;
 }
 
@@ -310,22 +313,20 @@
 }
 .pd-opt-guide:hover { color: var(--ink); }
 
-.pd-swatches { display: flex; gap: 10px; }
+/* M-1-13H-3:swatch 從 40 方 + .pd-swatch-dot 巢 span → 24 圓 + outline active
+   (對應 HANDOFF #9、字面從 design explorations.css L789-797 直接搬);
+   background 改設在 button 本身、.pd-swatch-dot 規則整段移除 */
+.pd-swatches { display: flex; gap: 8px; }
 .pd-swatch {
-  width: 40px; height: 40px;
-  padding: 3px;
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: border-color 150ms;
-}
-.pd-swatch.is-active { border-color: var(--ink); }
-.pd-swatch:hover { border-color: var(--ink-tert); }
-.pd-swatch-dot {
-  display: block; width: 100%; height: 100%;
+  width: 24px; height: 24px;
   border-radius: 50%;
-  border: 1px solid rgba(0,0,0,0.08);
+  border: 1px solid #d4d4d4;
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: outline-color 150ms;
 }
+.pd-swatch.is-active { outline: 1.5px solid #1d1d1f; outline-offset: 2px; }
 
 .pd-size-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
 .pd-size-btn {
@@ -344,98 +345,105 @@
 }
 
 /* ========= Buy row ========= */
-/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 357-426 直接搬(sec 6 Buy row 70 行) */
+/* M-1-13H-3:CTA 從 56 高直角 uppercase → 48 高 pill(border-radius 100px、no uppercase);
+   字面從 design explorations.css L798-817 直接搬(對應 HANDOFF #10);
+   qty 結構保留 storefront 既有(qty + add-btn + like 同行)、不移到 swatches 同行
+   (PRD §4 slice-3 字面保留 qty 計數器、design VariantCFull 無對應 qty 樣板、size opt 並存複雜度;
+   commit body 揭示偏離);qty 從 56 高 → 48 高 + border-radius 100px 對齊 pill 風格 */
 .pd-buy-row {
   display: flex; gap: 10px;
   margin-bottom: 10px;
 }
 .pd-qty {
   display: flex; align-items: center;
-  border: 1px solid var(--c-border);
-  height: 56px;
+  border: 1px solid #d4d4d4;
+  border-radius: 100px;
+  height: 48px;
 }
 .pd-qty button {
-  width: 44px; height: 100%;
+  width: 40px; height: 100%;
   background: transparent; border: 0;
-  font: 400 20px/1 var(--f-sans);
-  color: var(--c-text);
+  font: 400 18px/1 var(--font-sans);
+  color: #1d1d1f;
   cursor: pointer;
 }
-.pd-qty button:hover { background: var(--c-surface-2); }
+.pd-qty button:hover { color: #86868b; }
 .pd-qty span {
-  width: 44px; text-align: center;
-  font: 600 15px/1 var(--f-mono);
-  color: var(--c-text);
+  width: 32px; text-align: center;
+  font: 600 14px/1 var(--font-mono);
+  color: #1d1d1f;
 }
 
 .pd-add-btn {
   flex: 1;
-  height: 56px;
-  background: var(--c-text);
-  color: var(--c-text-inverse);
-  border: 2px solid var(--c-text);
-  font: 600 14px/1 var(--f-sans);
-  letter-spacing: 0.06em;
+  height: 48px;
+  background: #1d1d1f;
+  color: #fff;
+  border: 0;
+  border-radius: 100px;
+  font: 500 14px/1 var(--font-sans);
+  letter-spacing: 0.01em;
   cursor: pointer;
-  transition: background 150ms, transform 0.1s;
-  text-transform: uppercase;
+  transition: background 150ms;
 }
-.pd-add-btn:hover:not(.is-disabled) { background: #222; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+.pd-add-btn:hover:not(.is-disabled) { background: #000; }
 .pd-add-btn.is-disabled {
-  background: var(--c-text-3); border-color: var(--c-text-3); color: #fff; opacity: 0.7;
+  background: #d4d4d4; color: #fff; opacity: 0.7;
   cursor: not-allowed;
 }
 
 .pd-like {
-  width: 56px; height: 56px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  color: var(--c-text);
+  width: 48px; height: 48px;
+  background: #fff;
+  border: 1px solid #d4d4d4;
+  border-radius: 50%;
+  color: #1d1d1f;
   cursor: pointer;
   transition: all 150ms;
   display: flex; align-items: center; justify-content: center;
 }
-.pd-like:hover { border-color: var(--c-text); }
+.pd-like:hover { border-color: #1d1d1f; }
 .pd-like.is-liked { color: #c41e3a; border-color: #c41e3a; }
 
 .pd-buynow-btn {
   width: 100%;
-  height: 52px;
-  background: transparent;
-  color: var(--c-text);
-  border: 1.5px solid var(--c-border-strong);
-  font: 500 14px/1 var(--f-sans);
-  letter-spacing: 0.05em;
+  height: 48px;
+  background: #fff;
+  color: #1d1d1f;
+  border: 1px solid #d4d4d4;
+  border-radius: 100px;
+  font: 500 14px/1 var(--font-sans);
   cursor: pointer;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
   transition: all 150ms;
 }
-.pd-buynow-btn:hover:not(:disabled) { background: var(--c-surface-2); border-color: var(--c-text); }
-.pd-buynow-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.pd-buynow-btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.pd-buynow-btn:hover:not(:disabled) { background: #f5f5f7; border-color: #1d1d1f; }
 .pd-buynow-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ========= Services strip ========= */
-/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 428-448 直接搬(sec 7 Services 21 行) */
+/* M-1-13H-3:services 從 flex row(svg + content) → block(label + desc stacked)、移除圖示後純文字
+   (對應 HANDOFF #11、字面從 design explorations.css L819-830 直接搬);
+   .pd-service svg 規則整段移除、.pd-service 從 flex 改 block */
 .pd-services {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 18px 20px;
-  padding: 22px 0;
-  border-top: 1px solid var(--line);
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding-top: 20px;
+  border-top: 1px solid #ededef;
 }
 .pd-service {
-  display: flex; gap: 12px; align-items: flex-start;
+  display: block;
 }
-.pd-service svg { flex-shrink: 0; color: var(--ink); margin-top: 2px; }
 .pd-service-label {
-  font: 500 13px/1.2 var(--font-sans);
-  color: var(--ink);
+  font: 500 13px/1.3 var(--font-sans);
+  color: #1d1d1f;
+  display: block;
 }
 .pd-service-desc {
   font: 400 11px/1.3 var(--font-sans);
-  color: var(--ink-tert);
-  margin-top: 3px;
+  color: #86868b;
+  display: block;
+  margin-top: 2px;
 }
 
 /* ========= Tabs section ========= */

@@ -4300,12 +4300,12 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #161. ⏳ storefront 偏離 design 字面(不顯庫存)— 待 Claude Design 補對齊
+### #161. ⏳ storefront 偏離 design 字面 — 待 Claude Design 補對齊(方向反轉:design 跟 storefront 業務拍板)
 
 - **狀態:** ⏳ 待 trigger
 - **分流:** P1-now(影響 13e + 後續金額頁面 + 全站 UX 一致性)
 - **優先級:** 🟠 中(防 design ↔ storefront 雙軌長期 drift、新 Claude Code session 進入 repo 讀 design 真權威時困惑)
-- **問題:** Sean 2026-05-21 業務拍板「不顯示有無庫存、商品永遠可加購」、storefront 短期偏離 design 字面 3 處:
+- **問題:** Sean 業務拍板使 storefront 暫時為準、design 字面待補對齊、共 **4 處** 偏離:
     1. **ProductCard 沒貨徽章**(M-1-13e-pre-3 落地):
        - design `ProductCard.jsx` L101-103 仍含 `{!p.inStock && <div className="pcard-oos"><span>補貨中</span></div>}`
        - storefront `ProductCard.tsx` L141-145 已移除 JSX + `product-card.css` L58-75 已刪 `.pcard-oos` CSS
@@ -4317,11 +4317,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     3. **現貨 filter UI 入口**(M-1-13e-pre-3 落地):
        - design `ProductsPage.jsx` / `FilterTop.jsx` / `FilterSide.jsx` / `FilterDrawer.jsx` 含「現貨」chip / checkbox
        - storefront 用 `SHOW_IN_STOCK_FILTER = false` feature flag 隱藏 UI、邏輯 / state / 過濾函式刻意保留(對齊鐵則 9 業務試水溫精神、未來 revisit 0 成本)
+    4. **免運門檻 NT$ 5,000**(M-1-13H-3 落地、新增):
+       - design `ProductPage.jsx` L302 字面「滿 NT$ 4,000 免運」
+       - design `ProductPage.jsx` L358 / VariantCFull.jsx L85+L97 字面「NT$ 3,000」+「NT$ 4,000 免運」(同 design 檔內已不一致)
+       - design VariantCFull L85 字面「含稅 · 滿 NT$ 4,000 免運」+ L97 字面「滿額免運 NT$ 3,000 以上」
+       - storefront `.pd-price-sub` + `ProductServices` 統一 NT$ 5,000(M-1-13H-2 + M-1-13H-3 落地、對應 Sean 2026-05-21 M-1-13H plan Q1 業務拍板永久化)
+       - **方向反轉(對齊 PRD §4 slice-3 字面):** storefront 為準、design 待 Sean 在 Claude Design 補對齊 NT$ 5,000(屬鐵則 1 例外、業務邏輯 = 價格、走 docs/decisions/ 仲裁)
 - **觸發事件(任一觸發即啟動實作):**
   - 2026-05-21 / M-1-13e-pre-3 Sean 業務拍板「不顯庫存」+ Q=A「storefront 短期偏離 design」+ 補述「隱藏 filter」(實質 3 處偏離正式落地)
-  - Sean 在 Claude Design 補 design 字面對齊(刪沒貨徽章 / 改 buy btn 字面無 conditional / 刪現貨 filter UI)、推 pcm-website-design GitHub 後、storefront 走 `git submodule update --remote design-reference/` 同步、grep 驗對齊
+  - 2026-05-22 / M-1-13H-3 落地免運門檻 NT$ 5,000(第 4 處偏離正式立)
+  - Sean 在 Claude Design 補 design 字面對齊(刪沒貨徽章 / 改 buy btn 字面無 conditional / 刪現貨 filter UI / 改免運門檻 5,000)、推 pcm-website-design GitHub 後、storefront 走 `git submodule update --remote design-reference/` 同步、grep 驗對齊
 - **預期解法:**
-  - Sean 在 Claude Design 修改 ProductCard.jsx / ProductPage.jsx / ProductsPage.jsx / FilterTop.jsx / FilterSide.jsx / FilterDrawer.jsx 對應字面、刪不顯庫存相關 UI / state branch
+  - Sean 在 Claude Design 修改 ProductCard.jsx / ProductPage.jsx / ProductsPage.jsx / FilterTop.jsx / FilterSide.jsx / FilterDrawer.jsx / VariantCFull.jsx(免運字面 4,000/3,000 → 5,000)對應字面、刪不顯庫存相關 UI / state branch
   - 推完後 storefront `git submodule update --remote design-reference/` + grep 驗對齊 + 刪 `SHOW_IN_STOCK_FILTER` flag(若 design 確定對齊、邏輯 / state 也可順手清:`extras.inStock` 欄、`products-filter-logic.ts` L52、ActiveChips 條件、ProductsPage / FilterDrawer 計數)
 - **不修會痛在:**
   - 擴充性:design ↔ storefront 字面長期 drift、未來新功能對齊真權威時要先判斷「design 字面是 stale 還新」、開發成本上升

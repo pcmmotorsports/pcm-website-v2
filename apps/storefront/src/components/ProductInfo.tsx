@@ -102,12 +102,13 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
           (backlog #162);同時 #7 移除原 .pd-fits-banner 厚 banner、資訊併進此副標 */}
       <div className="pd-sub">適用 {product.fits || '通用款'} · 義大利原裝進口</div>
 
-      {/* M-1-13e-a:pd-price-block 字面從 design ProductPage.jsx L289-303 直接搬。
-          Mock 路徑下 priceByTier 暫不接通(對齊 [slug]/page.tsx L37 註解 + STATUS L24
-          backlog #130 已抽 helper、mock 一律 general retail);M-1-16 真接 Supabase
-          fetcher findBySlug + toUIProduct(p, tier) 才真區分會員價;短期 store /
-          premiumStore tier 顯「經銷價」tag 但 product.price 仍是 retail、字面 vs 事實
-          偏離、commit body 揭示。 */}
+      {/* M-1-13H-3:price block 改 22px Inter sans 黑(對應 HANDOFF #8、字面從 design
+          explorations.css L767-776 直接搬);原 13d 36px Cormorant serif → 22px Inter sans;
+          .pd-price-meta → .pd-price-sub class rename 對齊 design `.vc-price-sub`;
+          .pd-price-save 從「省 NT$ X」紅 tag 改 mono 灰字「-{折扣百分比}%」(HANDOFF L150);
+          tier 經銷邏輯 + showRedPrice .pd-price.is-red 保留(M-1-13e-a/b 既有);
+          mock 路徑 product.price 仍 retail、tier='store'/'premiumStore' 顯 tag 但價格未真經銷化、
+          M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分(backlog #161)。 */}
       <div className="pd-price-block">
         <div className="pd-price-row">
           <span className="pd-price">NT$ {product.price.toLocaleString()}</span>
@@ -124,14 +125,17 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
                 NT$ {product.origPrice.toLocaleString()}
               </span>
               <span className="pd-price-save">
-                省 NT$ {(product.origPrice - product.price).toLocaleString()}
+                −{Math.round(((product.origPrice - product.price) / product.origPrice) * 100)}%
               </span>
             </>
           ) : null}
         </div>
-        <div className="pd-price-meta">含稅 · 滿 NT$ 5,000 免運</div>
+        <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>
       </div>
 
+      {/* M-1-13H-3:swatch 結構從 40 方 + .pd-swatch-dot 巢 span → 24 圓 + outline active
+          (對應 HANDOFF #9 + design VariantCFull L88-91);background style 直接設在 button、
+          移除內含 .pd-swatch-dot 巢狀 span(無 child 元素、純圓 button) */}
       <div className="pd-opt">
         <div className="pd-opt-head">
           <span className="pd-opt-label">顏色</span>
@@ -147,12 +151,8 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
               title={COLOR_MAP[c]?.label || c}
               aria-label={`選擇顏色 ${COLOR_MAP[c]?.label || c}`}
               aria-pressed={color === c}
-            >
-              <span
-                className="pd-swatch-dot"
-                style={{ background: COLOR_MAP[c]?.swatch || c }}
-              />
-            </button>
+              style={{ background: COLOR_MAP[c]?.swatch || c }}
+            />
           ))}
         </div>
       </div>
