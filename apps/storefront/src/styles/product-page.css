@@ -566,123 +566,162 @@
 }
 
 /* ========= Tabs section ========= */
-/* M-1-13f-2 amend:字面從 design-reference/styles/product-page.css L451-564 直接搬(114 行);
-   原 commit 漏 CSS、ProductTabs 視覺退化成 inline text、本次 amend 補對應 styles 對齊
-   commit body「對齊 design 字面 1:1」宣稱。 */
+/* M-1-13H-5:tabs 從底線 2px → pill 群組(對應 HANDOFF #14、字面從 design explorations.css
+   L1200-1245 直接搬);4 panel 內容對齊 design L1247-1317、specs table → grid / install meta 淺灰卡 +
+   steps 4 卡 / warranty em 600 加粗(HANDOFF #15);
+   description lead font 採 design .vcf-body 15px(NORTHSTAR §2.4「.jsx + .css > HANDOFF docs」
+   仲裁、PRD/HANDOFF 字面 19px 屬 cowork 解讀、不採) */
 .pd-tabs-section { margin-bottom: 80px; }
 .pd-tabs {
   display: flex;
-  border-bottom: 1px solid var(--line);
+  gap: 4px;
   margin-bottom: 32px;
-  gap: 0;
-  overflow-x: auto;
+  background: #f5f5f7;
+  border-radius: 100px;
+  padding: 6px;
+  width: fit-content;
 }
 .pd-tab {
-  padding: 16px 0;
-  margin-right: 40px;
-  background: transparent; border: 0;
-  font: 500 14px/1 var(--font-sans);
-  color: var(--ink-tert);
+  padding: 10px 22px;
+  background: transparent;
+  border: 0;
+  border-radius: 100px;
+  font: 500 13px/1 var(--font-sans);
+  color: #515154;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
+  transition: background 180ms, color 180ms;
   white-space: nowrap;
-  transition: all 150ms;
 }
-.pd-tab:hover { color: var(--ink); }
+.pd-tab:hover { color: #1d1d1f; }
 .pd-tab.is-active {
-  color: var(--ink);
-  border-bottom-color: var(--ink);
+  background: #ffffff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
 }
 
-.pd-tab-body { max-width: 760px; }
+.pd-tab-body { padding-left: 4px; max-width: 920px; }
 .pd-tab-pane {
-  font: 400 15px/1.75 var(--font-sans);
-  color: var(--ink);
-}
-.pd-tab-pane p { margin: 0 0 14px; }
-.pd-tab-pane h4 {
-  font: 500 14px/1 var(--font-sans);
-  letter-spacing: 0.02em;
-  margin: 24px 0 10px;
-  color: var(--ink);
+  font: 400 15px/1.7 var(--font-sans);
+  color: #1d1d1f;
 }
 
-.pd-desc-lead {
-  font-family: var(--font-serif);
-  font-size: 22px; line-height: 1.5;
-  color: var(--ink);
-  margin-bottom: 20px;
-  text-wrap: pretty;
-  font-style: normal;
+/* Description pane — 1 lead paragraph + 5 items list(對齊 design .vcf-body L165 + .vcf-list L167-173) */
+.pd-list {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
 }
-.pd-desc-lead em { font-style: italic; color: var(--ink); }
-.pd-desc-features {
-  list-style: none; padding: 0; margin: 20px 0 0;
-}
-.pd-desc-features li {
-  padding: 10px 0 10px 20px;
-  border-bottom: 1px solid var(--line);
-  position: relative;
-  font-size: 14px;
-}
-.pd-desc-features li::before {
-  content: '—';
-  position: absolute; left: 0; top: 10px;
-  color: var(--ink-tert);
-}
-
-.pd-specs-table { width: 100%; border-collapse: collapse; }
-.pd-specs-table tr { border-bottom: 1px solid var(--line); }
-.pd-specs-table th {
-  text-align: left;
-  width: 140px;
-  padding: 14px 16px 14px 0;
-  font: 500 11px/1.4 var(--font-mono);
-  text-transform: uppercase; letter-spacing: 0.1em;
-  color: var(--ink-tert);
-  vertical-align: top;
-}
-.pd-specs-table td {
-  padding: 14px 0;
+.pd-list li {
+  padding: 14px 0 14px 26px;
   font: 400 14px/1.5 var(--font-sans);
-  color: var(--ink);
+  color: #1d1d1f;
+  border-bottom: 1px solid #ededef;
+  position: relative;
+}
+.pd-list li::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 23px;
+  width: 14px; height: 1px;
+  background: #1d1d1f;
 }
 
-.pd-install-steps {
-  display: grid; gap: 0;
-  margin: 20px 0;
-}
-.pd-install-step {
+/* Specs pane — 2 欄 grid(對齊 design .vcf-specs L1247-1270、移 border + key mono 灰) */
+.pd-specs {
   display: grid;
-  grid-template-columns: 60px 1fr;
-  align-items: baseline;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--line);
+  grid-template-columns: 1fr 1fr;
+  gap: 0 48px;
+  max-width: 920px;
 }
-.pd-install-step span {
-  font: 500 14px/1 var(--font-mono);
-  color: var(--ink-tert);
+.pd-spec-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  padding: 16px 0;
+  border-bottom: 1px solid #ededef;
+  gap: 16px;
+}
+.pd-spec-k {
+  font: 500 11px/1.5 var(--font-mono);
   letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #86868b;
 }
-.pd-install-step p { margin: 0; }
+.pd-spec-v {
+  font: 500 14px/1.5 var(--font-sans);
+  color: #1d1d1f;
+}
 
+/* Install pane — meta 3 欄淺灰卡 + 4 步驟卡片(對齊 design .vcf-install-meta L1273 + .vcf-steps L1295) */
+.pd-install-meta {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+  padding: 24px;
+  background: #f5f5f7;
+  border-radius: 16px;
+}
+.pd-install-meta > div {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.pd-install-meta span {
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #86868b;
+}
+.pd-install-meta strong {
+  font: 500 14px/1.4 var(--font-sans);
+  color: #1d1d1f;
+}
+.pd-steps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.pd-step {
+  background: #fff;
+  border: 1px solid #ededef;
+  border-radius: 14px;
+  padding: 24px 22px;
+  min-height: 160px;
+}
+.pd-step-n {
+  font: 600 28px/1 var(--font-sans);
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+  margin-bottom: 16px;
+}
+.pd-step p {
+  font: 400 13px/1.55 var(--font-sans);
+  color: #515154;
+  margin: 0;
+}
+
+/* Install CTA — HANDOFF #10/#14 對應「預約安裝 CTA 改黑底白字圓角卡」字面(HANDOFF L295);
+   storefront install-cta 保留(13f-2 既有功能、design L186-202 無對應字面、屬 storefront 延伸)、
+   視覺對齊新 Apple/Aritzia 黑底圓角卡風格 */
 .pd-install-cta {
   display: flex; justify-content: space-between; align-items: center; gap: 20px;
-  padding: 20px 24px;
-  background: var(--paper-2);
+  padding: 24px 28px;
+  background: #1d1d1f;
+  color: #fff;
+  border-radius: 16px;
   margin-top: 24px;
   flex-wrap: wrap;
 }
-.pd-install-cta-title { font: 500 15px/1.3 var(--font-sans); color: var(--ink); }
-.pd-install-cta-desc { font: 400 13px/1.3 var(--font-sans); color: var(--ink-tert); margin-top: 4px; }
+.pd-install-cta-title { font: 500 15px/1.3 var(--font-sans); color: #fff; }
+.pd-install-cta-desc { font: 400 13px/1.3 var(--font-sans); color: rgba(255,255,255,0.7); margin-top: 4px; }
 .pd-install-btn {
   padding: 12px 20px;
-  background: var(--ink); color: var(--paper);
+  background: #fff; color: #1d1d1f;
   border: 0;
+  border-radius: 100px;
   font: 500 13px/1 var(--font-sans);
   cursor: pointer;
+  transition: background 150ms;
 }
+.pd-install-btn:hover { background: #f5f5f7; }
 
 /* ========= Lightbox ========= */
 .pd-lightbox {

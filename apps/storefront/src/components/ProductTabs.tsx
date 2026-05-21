@@ -67,6 +67,10 @@ export function ProductTabs({ product }: ProductTabsProps) {
       </div>
 
       <div className="pd-tab-body">
+        {/* M-1-13H-5:description pane 改 design 結構(1 lead .pd-body + 5 items .pd-list、
+            對應 design VariantCFull L165-173 + HANDOFF #15);移除 13f-2 既有 22px serif .pd-desc-lead +
+            2 段 paragraph 結構、簡化成 single lead + features list;字面保留 brand+name+fits 動態 +
+            5 items list 既有 hardcoded(對齊鐵則 9 L3 對沖、Phase 2 接 supabase product_highlights) */}
         <div
           role="tabpanel"
           id="pd-panel-description"
@@ -74,19 +78,11 @@ export function ProductTabs({ product }: ProductTabsProps) {
           hidden={tab !== 'description'}
           className="pd-tab-pane"
         >
-          <div className="pd-desc-lead">
-            {product.brand} 的 <em>{product.name}</em>,為{' '}
-            <strong>{product.fits || '通用車款'}</strong> 專屬開發。
-          </div>
-          <p>
-            採用航太級鋁合金 CNC 一體成型,表面經陽極處理後手工拋光,對應原廠螺絲孔位,
-            無需修改車身結構即可完成安裝。重量相較原廠減輕約 38%,在激烈操駕時提供更精準的路感回饋與更卓越的防護性能。
+          <p className="pd-body">
+            {product.brand} {product.name} 為 {product.fits || '通用車款'}{' '}
+            專屬開發,提供更精準的腳感回饋、更佳的路感傳遞,以及更卓越的耐用性。
           </p>
-          <p>
-            每一件出廠前皆經過 3 道品管檢測,包含尺寸精度、表面處理附著力、以及螺紋扭力測試,
-            確保長時間使用下仍能保持最佳狀態。
-          </p>
-          <ul className="pd-desc-features">
+          <ul className="pd-list">
             <li>航太級 7075-T6 鋁合金 CNC 精密加工</li>
             <li>Hard Anodized 硬陽極處理,耐腐蝕耐磨</li>
             <li>對應原廠螺絲孔位,Plug &amp; Play</li>
@@ -95,6 +91,10 @@ export function ProductTabs({ product }: ProductTabsProps) {
           </ul>
         </div>
 
+        {/* M-1-13H-5:specs pane 從 table 結構 → 2 欄 grid div(對應 design .vcf-specs L177-184 +
+            HANDOFF #15);8 欄 hardcoded 保留(13f-2 既有、屬鐵則 9 L3 對沖、Phase 2 接 supabase
+            product_specs 表);字面 brand/id/category 動態 + 4 hardcoded(材質/表面處理/重量/產地)
+            對齊 design L178 字面、套用到其他品牌字面誤導屬 L3 對沖 */}
         <div
           role="tabpanel"
           id="pd-panel-specs"
@@ -102,20 +102,45 @@ export function ProductTabs({ product }: ProductTabsProps) {
           hidden={tab !== 'specs'}
           className="pd-tab-pane"
         >
-          <table className="pd-specs-table">
-            <tbody>
-              <tr><th>品牌</th><td>{product.brand}</td></tr>
-              <tr><th>產品型號</th><td>PCM-{String(product.id).padStart(5, '0')}</td></tr>
-              <tr><th>商品分類</th><td>{product.category}</td></tr>
-              <tr><th>材質</th><td>航太級鋁合金 7075-T6 / CNC 加工</td></tr>
-              <tr><th>表面處理</th><td>Hard Anodized 硬陽極</td></tr>
-              <tr><th>重量</th><td>約 320g (單件)</td></tr>
-              <tr><th>產地</th><td>義大利</td></tr>
-              <tr><th>適用車款</th><td>{product.fits || '通用款'}</td></tr>
-            </tbody>
-          </table>
+          <div className="pd-specs">
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">品牌</div>
+              <div className="pd-spec-v">{product.brand}</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">產品型號</div>
+              <div className="pd-spec-v">PCM-{String(product.id).padStart(5, '0')}</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">商品分類</div>
+              <div className="pd-spec-v">{product.category}</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">材質</div>
+              <div className="pd-spec-v">7075-T6 鋁合金 / CNC</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">表面處理</div>
+              <div className="pd-spec-v">Hard Anodized 硬陽極</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">重量</div>
+              <div className="pd-spec-v">約 320g (單件)</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">產地</div>
+              <div className="pd-spec-v">義大利</div>
+            </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">適用車款</div>
+              <div className="pd-spec-v">{product.fits || '通用款'}</div>
+            </div>
+          </div>
         </div>
 
+        {/* M-1-13H-5:install pane 改 meta 3 欄淺灰卡 + 4 步驟卡片(對應 design L186-202 + HANDOFF #15);
+            原 3 段 paragraph + 4 row grid → meta div + steps grid 4 cols;install-cta 保留 13f-2 既有
+            (design 無對應字面、storefront 延伸)、CSS 改黑底白字圓角卡(HANDOFF L295) */}
         <div
           role="tabpanel"
           id="pd-panel-install"
@@ -123,14 +148,37 @@ export function ProductTabs({ product }: ProductTabsProps) {
           hidden={tab !== 'install'}
           className="pd-tab-pane"
         >
-          <p><strong>安裝難度:</strong>★★☆☆☆(建議專業技師)</p>
-          <p><strong>預估工時:</strong>30 – 45 分鐘</p>
-          <p><strong>所需工具:</strong>T25 星型扳手、4mm/5mm 內六角扳手、扭力扳手</p>
-          <div className="pd-install-steps">
-            <div className="pd-install-step"><span>01</span><p>將車輛停放於水平地面,使用車邊架固定。</p></div>
-            <div className="pd-install-step"><span>02</span><p>拆除原廠零件,保留原廠螺絲以備後用。</p></div>
-            <div className="pd-install-step"><span>03</span><p>將新品對齊孔位裝上,螺絲依序分段鎖緊。</p></div>
-            <div className="pd-install-step"><span>04</span><p>使用扭力扳手以 22 N·m 扭力完成最終鎖付。</p></div>
+          <div className="pd-install-meta">
+            <div>
+              <span>難度</span>
+              <strong>★★☆☆☆ 建議專業技師</strong>
+            </div>
+            <div>
+              <span>工時</span>
+              <strong>30 – 45 分鐘</strong>
+            </div>
+            <div>
+              <span>工具</span>
+              <strong>T25、4mm/5mm 內六角、扭力扳手</strong>
+            </div>
+          </div>
+          <div className="pd-steps">
+            <div className="pd-step">
+              <div className="pd-step-n">01</div>
+              <p>將車輛停放於水平地面,使用車邊架固定。</p>
+            </div>
+            <div className="pd-step">
+              <div className="pd-step-n">02</div>
+              <p>拆除原廠零件,保留原廠螺絲以備後用。</p>
+            </div>
+            <div className="pd-step">
+              <div className="pd-step-n">03</div>
+              <p>將新品對齊孔位裝上,螺絲依序分段鎖緊。</p>
+            </div>
+            <div className="pd-step">
+              <div className="pd-step-n">04</div>
+              <p>使用扭力扳手以 22 N·m 完成最終鎖付。</p>
+            </div>
           </div>
           <div className="pd-install-cta">
             <div>
@@ -147,6 +195,9 @@ export function ProductTabs({ product }: ProductTabsProps) {
           </div>
         </div>
 
+        {/* M-1-13H-5:warranty pane 改 3 段 .pd-body 結構(對應 design L203-209、HANDOFF #15);
+            原 h4 + p 雙層結構 → 純 3 paragraph、em 改 strong 600 加粗(對齊 design `.vcf-body strong`);
+            字面 brand 動態 + 政策內容對齊 13f-2 既有、L3 hardcoded 對沖 Phase 2 接 supabase 政策表 */}
         <div
           role="tabpanel"
           id="pd-panel-warranty"
@@ -154,18 +205,18 @@ export function ProductTabs({ product }: ProductTabsProps) {
           hidden={tab !== 'warranty'}
           className="pd-tab-pane"
         >
-          <h4>原廠保固</h4>
-          <p>
-            本商品由 {product.brand} 原廠授權代理,提供 <strong>24 個月</strong> 保固服務。
-            保固範圍涵蓋材料與製造瑕疵,不含人為損壞、摔車、碰撞所造成之損傷。
+          <p className="pd-body">
+            本商品由 {product.brand} 原廠授權代理,提供 <strong>24 個月</strong>{' '}
+            保固服務,涵蓋材料與製造瑕疵;不含人為損壞、摔車、碰撞之損傷。
           </p>
-          <h4>退換貨政策</h4>
-          <p>
-            收到商品後 <strong>7 日內</strong>,商品保持全新狀態且包裝完整,可辦理退貨退款。
-            若為商品瑕疵,PCM 將負擔來回運費;若為個人因素退貨,退貨運費由買方負擔。
+          <p className="pd-body">
+            收到商品後 <strong>7 日內</strong>{' '}
+            保持全新狀態與包裝完整,可辦理退換貨。瑕疵品由 PCM 負擔來回運費;
+            若為個人因素退貨,退貨運費由買方負擔。
           </p>
-          <h4>聯絡我們</h4>
-          <p>LINE ID:<strong>@pcm-motorsports</strong> · 客服時間:週一–週六 10:00–20:00</p>
+          <p className="pd-body">
+            LINE 客服:<strong>@pcm-motorsports</strong> · 週一–週六 10:00–20:00
+          </p>
         </div>
       </div>
     </section>
