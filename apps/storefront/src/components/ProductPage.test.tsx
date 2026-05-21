@@ -5,8 +5,9 @@
 // Header useRouter / useSearchParams / usePathname 走 vi.mock、matchMedia 走 beforeAll stub。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
+import type { ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 
 const mockReplace = vi.fn();
 let mockSearchParams = new URLSearchParams();
@@ -19,6 +20,10 @@ vi.mock('next/navigation', () => ({
 
 import { ProductPage } from './ProductPage';
 import { MOCK_PRODUCTS } from '../data/mock-products';
+import { CartProvider } from '../contexts/CartContext';
+
+// M-1-13e-b:render shadow + CartProvider wrapper(useCart 必須在 Provider 內)
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 beforeAll(() => {
   // jsdom 不實作 matchMedia、Header useEffect 會呼叫 → 補最小 stub
@@ -38,6 +43,8 @@ afterEach(() => {
   cleanup();
   mockReplace.mockReset();
   mockSearchParams = new URLSearchParams();
+  // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
+  if (typeof window !== 'undefined') window.localStorage.clear();
 });
 
 describe('ProductPage', () => {

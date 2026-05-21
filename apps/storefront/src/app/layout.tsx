@@ -12,6 +12,7 @@
 // 走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)
 
 import type { ReactNode } from 'react';
+import { CartProvider } from '@/contexts/CartContext';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/product-card.css';
@@ -38,7 +39,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:ital,wght@0,400;0,500;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap"
         />
       </head>
-      <body>{children}</body>
+      <body>
+        <CartProvider>{children}</CartProvider>
+      </body>
     </html>
   );
 }

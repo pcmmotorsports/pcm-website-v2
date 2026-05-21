@@ -40,6 +40,7 @@ import { Fragment, useMemo } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
+import { useCart } from '@/contexts/CartContext';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
@@ -55,11 +56,18 @@ export function ProductPage({ product, tier }: ProductPageProps) {
   const router = useRouter();
   const pathname = usePathname();
 
-  // M-1-13e-a:addToCart stub(對齊 design ProductPage.jsx L127-130)— Mobile sticky bar 用、
-  // ProductInfo 內 Buy row + buynow 另有自己的 stub(獨立、不抽共用、13e-b 改 useCart 時統一)
+  // M-1-13e-b:接 CartContext;Mobile sticky bar 用(對齊 design L127-130 addToCart 行為)
+  // (Phase 1 mock:localStorage 暫存、無後端;M-3 swap 真結帳時介面不變)
+  // Mobile sticky 無 qty / color / size 選擇 UI、預設 qty=1 + product 預設色(對齊 design Mobile 簡化邏輯)
+  const { addItem } = useCart();
   const addToCart = () => {
-    console.log('[stub] addToCart (mobile-sticky)', { id: product.id });
+    // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
+    // (Codex M-1-13e-b review P1:不用 mock-only product.id:number)
+    addItem({ productId: product.slug, qty: 1, color: product.color, size: null });
   };
+
+  // M-1-13e-b:hasDiscount derived(對齊 design L140 字面)— Mobile sticky bar mbb-orig 三元判斷用
+  const hasDiscount = product.origPrice != null && product.origPrice > product.price;
 
   const from = searchParams.get('from') || 'catalog';
   const sourceId = searchParams.get('sourceId');
@@ -199,11 +207,13 @@ export function ProductPage({ product, tier }: ProductPageProps) {
       {/* M-1-13e-a:Mobile sticky bar — 字面從 design ProductPage.jsx L501-545 直接搬。
           Sean 2026-05-21 業務拍板 + Q-13e-a-scope=C 簡化:
           (1) 全部 disabled={!product.inStock} 移除(對應 backlog #161、按鈕永遠可點);
-          (2) mbb-price-col 簡化為純 NT$ {product.price.toLocaleString()}、不顯 mbb-orig、
-              不分 tier conditional(短期偏離 design L527-532 字面、commit body 揭示、
-              13e-b 補 CartContext 同時補完整 tier 顯示);
           (3) mbb-back navigation 用 router.back() 替代 design 8-source onNav 邏輯
-              (字面偏離、行為對等、commit body 揭示)。 */}
+              (字面偏離、行為對等、commit body 揭示)。
+
+          M-1-13e-b:mbb-price-col tier conditional 字面補完(對齊 design L527-532)。
+          Mock 路徑 product.price 仍 retail、tier='store' / 'premiumStore' 顯「· 經銷」字面
+          tag 對齊 design、但價格未真經銷化(對齊 ProductInfo pd-price-block 同樣偏離、
+          backlog #161 追、M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分)。 */}
       <div className="pd-mobile-buybar" role="region" aria-label="購買列">
         <button
           type="button"
@@ -217,6 +227,13 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         </button>
         <div className="pd-mbb-price-col">
           <div className="pd-mbb-price">NT$ {product.price.toLocaleString()}</div>
+          {tier === 'store' || tier === 'premiumStore' ? (
+            <div className="pd-mbb-orig">
+              原價 NT$ {(hasDiscount ? product.origPrice! : product.price).toLocaleString()} · 經銷
+            </div>
+          ) : hasDiscount ? (
+            <div className="pd-mbb-orig">NT$ {product.origPrice!.toLocaleString()}</div>
+          ) : null}
         </div>
         <button
           type="button"

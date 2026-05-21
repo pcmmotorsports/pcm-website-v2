@@ -24,6 +24,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct } from '@/data/mock-products';
+import { useCart } from '@/contexts/CartContext';
 
 export type ProductInfoProps = { product: MockProduct; tier: MemberTier };
 
@@ -65,6 +66,10 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
   const [qty, setQty] = useState<number>(1);
   const [liked, setLiked] = useState<boolean>(false);
 
+  // M-1-13e-b:接 CartContext;對齊 design L127-130 addToCart 行為
+  // (Phase 1 mock:localStorage 暫存、無後端;M-3 swap 真結帳時介面不變)
+  const { addItem } = useCart();
+
   // Reset on product change(對齊 design L120-125;deps 比 design 多加 product.color + sizeOptions
   // 防 React 19 react-hooks/exhaustive-deps stale closure)
   useEffect(() => {
@@ -73,9 +78,10 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
     setQty(1);
   }, [product.id, product.color, sizeOptions]);
 
-  // M-1-13e-a:addToCart stub(對齊 design L127-130)— CartContext + 真實作留 13e-b
   const addToCart = () => {
-    console.log('[stub] addToCart', { id: product.id, qty });
+    // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
+    // (Codex M-1-13e-b review P1:不用 mock-only product.id:number 當 cart 契約、避免 hash collision + M-3 反查失敗)
+    addItem({ productId: product.slug, qty, color, size });
   };
 
   return (

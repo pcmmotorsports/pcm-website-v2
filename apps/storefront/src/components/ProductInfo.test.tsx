@@ -5,14 +5,22 @@
 // 不 mock next/navigation(ProductInfo 不用)
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)
 
+import type { ReactElement } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 
 import { ProductInfo } from './ProductInfo';
 import { MOCK_PRODUCTS } from '../data/mock-products';
+import { CartProvider } from '../contexts/CartContext';
+
+// M-1-13e-b:render shadow + CartProvider wrapper(useCart 必須在 Provider 內)。
+// rerender(...) 沿用同 wrapper、call site 不需動。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 afterEach(() => {
   cleanup();
+  // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
+  if (typeof window !== 'undefined') window.localStorage.clear();
 });
 
 describe('ProductInfo', () => {
