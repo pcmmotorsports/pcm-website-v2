@@ -457,6 +457,125 @@
   margin-top: 3px;
 }
 
+/* ========= Tabs section ========= */
+/* M-1-13f-2 amend:字面從 design-reference/styles/product-page.css L451-564 直接搬(114 行);
+   原 commit 漏 CSS、ProductTabs 視覺退化成 inline text、本次 amend 補對應 styles 對齊
+   commit body「對齊 design 字面 1:1」宣稱。 */
+.pd-tabs-section { margin-bottom: 80px; }
+.pd-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 32px;
+  gap: 0;
+  overflow-x: auto;
+}
+.pd-tab {
+  padding: 16px 0;
+  margin-right: 40px;
+  background: transparent; border: 0;
+  font: 500 14px/1 var(--font-sans);
+  color: var(--ink-tert);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  transition: all 150ms;
+}
+.pd-tab:hover { color: var(--ink); }
+.pd-tab.is-active {
+  color: var(--ink);
+  border-bottom-color: var(--ink);
+}
+
+.pd-tab-body { max-width: 760px; }
+.pd-tab-pane {
+  font: 400 15px/1.75 var(--font-sans);
+  color: var(--ink);
+}
+.pd-tab-pane p { margin: 0 0 14px; }
+.pd-tab-pane h4 {
+  font: 500 14px/1 var(--font-sans);
+  letter-spacing: 0.02em;
+  margin: 24px 0 10px;
+  color: var(--ink);
+}
+
+.pd-desc-lead {
+  font-family: var(--font-serif);
+  font-size: 22px; line-height: 1.5;
+  color: var(--ink);
+  margin-bottom: 20px;
+  text-wrap: pretty;
+  font-style: normal;
+}
+.pd-desc-lead em { font-style: italic; color: var(--ink); }
+.pd-desc-features {
+  list-style: none; padding: 0; margin: 20px 0 0;
+}
+.pd-desc-features li {
+  padding: 10px 0 10px 20px;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+  font-size: 14px;
+}
+.pd-desc-features li::before {
+  content: '—';
+  position: absolute; left: 0; top: 10px;
+  color: var(--ink-tert);
+}
+
+.pd-specs-table { width: 100%; border-collapse: collapse; }
+.pd-specs-table tr { border-bottom: 1px solid var(--line); }
+.pd-specs-table th {
+  text-align: left;
+  width: 140px;
+  padding: 14px 16px 14px 0;
+  font: 500 11px/1.4 var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--ink-tert);
+  vertical-align: top;
+}
+.pd-specs-table td {
+  padding: 14px 0;
+  font: 400 14px/1.5 var(--font-sans);
+  color: var(--ink);
+}
+
+.pd-install-steps {
+  display: grid; gap: 0;
+  margin: 20px 0;
+}
+.pd-install-step {
+  display: grid;
+  grid-template-columns: 60px 1fr;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.pd-install-step span {
+  font: 500 14px/1 var(--font-mono);
+  color: var(--ink-tert);
+  letter-spacing: 0.08em;
+}
+.pd-install-step p { margin: 0; }
+
+.pd-install-cta {
+  display: flex; justify-content: space-between; align-items: center; gap: 20px;
+  padding: 20px 24px;
+  background: var(--paper-2);
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.pd-install-cta-title { font: 500 15px/1.3 var(--font-sans); color: var(--ink); }
+.pd-install-cta-desc { font: 400 13px/1.3 var(--font-sans); color: var(--ink-tert); margin-top: 4px; }
+.pd-install-btn {
+  padding: 12px 20px;
+  background: var(--ink); color: var(--paper);
+  border: 0;
+  font: 500 13px/1 var(--font-sans);
+  cursor: pointer;
+}
+
 /* ========= Lightbox ========= */
 .pd-lightbox {
   position: fixed;
@@ -611,6 +730,8 @@
     position: static;
   }
   .pd-services { grid-template-columns: 1fr 1fr; }
+  /* M-1-13f-2 amend:對齊 design L663 mobile install CTA 改直向 */
+  .pd-install-cta { flex-direction: column; align-items: flex-start; }
   .pd-buy-row,
   .pd-buynow-btn { display: none !important; }
   .pd-mobile-buybar { display: flex; }

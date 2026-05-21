@@ -45,6 +45,7 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
+import { ProductTabs } from './ProductTabs';
 import '@/styles/product-page.css';
 
 export type ProductPageProps = { product: MockProduct; tier: MemberTier };
@@ -194,12 +195,14 @@ export function ProductPage({ product, tier }: ProductPageProps) {
 
         {/* M-1-13e-a:pd-price-block + pd-buy-row + pd-buynow-btn + pd-services 已搬入 ProductInfo;
             Mobile sticky bar 在 main / HomeFooter 之後(對齊 design ProductPage.jsx L501-545 位置)*/}
-        {/* TODO M-1-13f: pd-tabs-section(spec / desc / faq / review) */}
         {/* TODO M-1-13g: pd-related + pd-toast(responsive media queries 13e-a 已搬 design L662-667 sec 6+7+13 切換規則) */}
         <section className="pd-main">
           <ProductGallery product={product} />
           <ProductInfo product={product} tier={tier} />
         </section>
+        {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
+            (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}
+        <ProductTabs product={product} />
       </main>
 
       <HomeFooter />

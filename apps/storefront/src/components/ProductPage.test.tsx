@@ -113,7 +113,10 @@ describe('ProductPage', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductPage product={product} tier="general" />);
-    expect(screen.getByText(product.brand)).toBeDefined();
+    // M-1-13f-2:ProductTabs description / warranty pane 也渲染 brand 字面、改 within ProductInfo 範圍限定
+    const productInfo = document.querySelector('.pd-info');
+    expect(productInfo).not.toBeNull();
+    expect(within(productInfo as HTMLElement).getByText(product.brand)).toBeDefined();
     expect(
       screen.getByText(`SKU · PCM-${String(product.id).padStart(5, '0')}`),
     ).toBeDefined();
