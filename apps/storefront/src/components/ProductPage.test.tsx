@@ -109,16 +109,19 @@ describe('ProductPage', () => {
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 
-  it('should integrate ProductInfo (render brand row + SKU)', () => {
+  it('should integrate ProductInfo (render SKU line + brand)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductPage product={product} tier="general" />);
-    // M-1-13f-2:ProductTabs description / warranty pane 也渲染 brand 字面、改 within ProductInfo 範圍限定
+    // M-1-13H-4:對齊 slice-2 SKU line 改造(brand-row 拆 → 單一 .pd-sku `{brand} · PCM-XXXXX`、
+    // 對應 HANDOFF #4);舊字面 `SKU · PCM-...` + 獨立 brand link 已不存在、改驗組合字面;
+    // slice-2 commit body 字面「vitest 全綠」屬本 cross-effect 漏跑、本 slice 順手修(對應鐵則 11)
     const productInfo = document.querySelector('.pd-info');
     expect(productInfo).not.toBeNull();
-    expect(within(productInfo as HTMLElement).getByText(product.brand)).toBeDefined();
     expect(
-      screen.getByText(`SKU · PCM-${String(product.id).padStart(5, '0')}`),
+      within(productInfo as HTMLElement).getByText(
+        `${product.brand} · PCM-${String(product.id).padStart(5, '0')}`,
+      ),
     ).toBeDefined();
   });
 });

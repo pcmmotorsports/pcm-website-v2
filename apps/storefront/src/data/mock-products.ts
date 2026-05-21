@@ -40,16 +40,20 @@ export type MockProduct = {
   originalPrice?: number | null;
   /** 會員身份標籤(對齊 design-reference/components/Pricing.jsx L62 + L103 真權威字面);general tier 為 null */
   tierLabel?: 'P價' | '店價' | null;
+  /** M-1-13H-4:旗艦商品才渲染 Engineering Spotlight 區塊(對應 HANDOFF #13 + PRD §4 slice-4 Q2=B 拍板);
+   *  Phase 1 業務指定 3 件(lightech-1 / akrapovic-6 / brembo-7)hardcoded true、其餘 undefined falsy;
+   *  Phase 2 接 Supabase product_spotlights 表(M-1-16 後)、欄位名一致對應(對齊 PRD Q2 字面) */
+  hasSpotlight?: boolean;
 };
 
 export const MOCK_PRODUCTS: MockProduct[] = [
-  { id: 1, slug: 'lightech-1', brand: 'LIGHTECH', name: 'Lightech 鋁合金腳踏組', fits: 'CBR600RR', price: 12800, origPrice: null, isNew: true, isSale: false, inStock: true, category: '操控部品 · 腳踏後移', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+  { id: 1, slug: 'lightech-1', brand: 'LIGHTECH', name: 'Lightech 鋁合金腳踏組', fits: 'CBR600RR', price: 12800, origPrice: null, isNew: true, isSale: false, inStock: true, category: '操控部品 · 腳踏後移', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null, hasSpotlight: true },
   { id: 2, slug: 'lightech-2', brand: 'LIGHTECH', name: 'Lightech 可調式拉桿組', fits: 'YAMAHA R6', price: 5800, origPrice: 7200, isNew: false, isSale: true, inStock: true, category: '操控部品 · 拉桿', color: 'red', imgTone: 'red', originalPrice: null, tierLabel: null },
   { id: 3, slug: 'cnc-racing-3', brand: 'CNC RACING', name: 'CNC Racing 油箱蓋', fits: 'Ducati Panigale V4', price: 6500, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 油箱蓋', color: 'silver', imgTone: 'neutral', originalPrice: null, tierLabel: null },
   { id: 4, slug: 'gb-racing-4', brand: 'GB RACING', name: 'GB Racing 引擎護蓋套組', fits: 'BMW S1000RR', price: 8900, origPrice: null, isNew: false, isSale: false, inStock: true, category: '車身套件 · 引擎護蓋', color: 'black', imgTone: 'dark', originalPrice: null, tierLabel: null },
   { id: 5, slug: 'rizoma-5', brand: 'RIZOMA', name: 'RIZOMA CIRCUIT 959 後視鏡', fits: '通用款', price: 4200, origPrice: null, isNew: true, isSale: false, inStock: true, category: '精品配件 · 後視鏡', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
-  { id: 6, slug: 'akrapovic-6', brand: 'AKRAPOVIČ', name: 'Akrapovič 鈦合金全段排氣', fits: 'Panigale V4', price: 98000, origPrice: 112000, isNew: false, isSale: true, inStock: false, category: '引擎部品 · 排氣管', color: 'titanium', imgTone: 'warm', originalPrice: null, tierLabel: null },
-  { id: 7, slug: 'brembo-7', brand: 'BREMBO', name: 'Brembo GP4-RX 輻射卡鉗', fits: 'BMW S1000RR', price: 52000, origPrice: null, isNew: true, isSale: false, inStock: true, category: '煞車系統 · 卡鉗', color: 'gold', imgTone: 'warm', originalPrice: null, tierLabel: null },
+  { id: 6, slug: 'akrapovic-6', brand: 'AKRAPOVIČ', name: 'Akrapovič 鈦合金全段排氣', fits: 'Panigale V4', price: 98000, origPrice: 112000, isNew: false, isSale: true, inStock: false, category: '引擎部品 · 排氣管', color: 'titanium', imgTone: 'warm', originalPrice: null, tierLabel: null, hasSpotlight: true },
+  { id: 7, slug: 'brembo-7', brand: 'BREMBO', name: 'Brembo GP4-RX 輻射卡鉗', fits: 'BMW S1000RR', price: 52000, origPrice: null, isNew: true, isSale: false, inStock: true, category: '煞車系統 · 卡鉗', color: 'gold', imgTone: 'warm', originalPrice: null, tierLabel: null, hasSpotlight: true },
   { id: 8, slug: 'ohlins-8', brand: 'ÖHLINS', name: 'Öhlins TTX GP 後避震', fits: 'ZX-10R', price: 68000, origPrice: null, isNew: false, isSale: false, inStock: true, category: '避震 · 後避震', color: 'yellow', imgTone: 'gold', originalPrice: null, tierLabel: null },
   { id: 9, slug: 'rizoma-9', brand: 'RIZOMA', name: 'RIZOMA 鋁合金油箱蓋', fits: 'MT-09', price: 3800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '精品配件 · 油箱蓋', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
   { id: 10, slug: 'cnc-racing-10', brand: 'CNC RACING', name: 'CNC 可折式拉桿組', fits: 'Panigale V2', price: 7200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品 · 拉桿', color: 'red', imgTone: 'red', originalPrice: null, tierLabel: null },

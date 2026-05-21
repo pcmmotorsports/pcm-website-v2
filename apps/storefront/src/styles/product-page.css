@@ -446,6 +446,125 @@
   margin-top: 2px;
 }
 
+/* ========= Highlights + Spotlight sections ========= */
+/* M-1-13H-4:字面從 design-reference/styles/explorations.css L1078-1197 直接搬(對應 HANDOFF #12 #13);
+   class prefix .vcf-* → .pd-*(storefront 命名空間慣例);spot-media 不渲染 img、用純色 placeholder
+   (避免 PRODUCT_IMG_POOL 第 3 處撞觸發 backlog #155、Phase 2 接 product_spotlights.image_url 欄) */
+.pd-section { margin-bottom: 96px; }
+.pd-section-head {
+  margin-bottom: 40px;
+  max-width: 720px;
+}
+.pd-eyebrow {
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #86868b;
+  margin-bottom: 14px;
+}
+.pd-h2 {
+  font: 600 36px/1.15 var(--font-sans);
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+  margin: 0 0 14px;
+  text-wrap: pretty;
+}
+.pd-lead {
+  font: 400 17px/1.55 var(--font-sans);
+  color: #515154;
+  margin: 0;
+  max-width: 580px;
+}
+.pd-body {
+  font: 400 15px/1.7 var(--font-sans);
+  color: #1d1d1f;
+  margin: 0 0 14px;
+  max-width: 640px;
+}
+.pd-body strong { font-weight: 600; }
+
+/* Highlights — 3 feature cards(對應 design `.vcf-feature-*` L1113-1143) */
+.pd-feature-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.pd-feature-card {
+  background: #f5f5f7;
+  border-radius: 22px;
+  padding: 36px 32px;
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+}
+.pd-feature-num {
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  color: #86868b;
+  margin-bottom: 60px;
+}
+.pd-feature-title {
+  font: 600 22px/1.25 var(--font-sans);
+  letter-spacing: -0.015em;
+  color: #1d1d1f;
+  margin-bottom: 10px;
+}
+.pd-feature-desc {
+  font: 400 14px/1.55 var(--font-sans);
+  color: #515154;
+  margin: 0;
+}
+
+/* Engineering Spotlight — image left + text right(對應 design `.vcf-spotlight` L1146-1197);
+   spot-media 用純 CSS gradient placeholder 取代 design <img>、Phase 2 接 product_spotlights.image_url */
+.pd-spotlight {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  background: #f5f5f7;
+  border-radius: 22px;
+  overflow: hidden;
+  margin-bottom: 96px;
+}
+.pd-spot-media {
+  aspect-ratio: 1 / 1;
+  background: linear-gradient(135deg, #ededef 0%, #d4d4d4 100%);
+}
+.pd-spot-text {
+  padding: 56px 56px 56px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.pd-spot-text .pd-h2 {
+  font-size: 32px;
+  margin-bottom: 20px;
+}
+.pd-spot-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+.pd-spot-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pd-spot-stats strong {
+  font: 600 22px/1 var(--font-sans);
+  letter-spacing: -0.02em;
+  color: #1d1d1f;
+  font-variant-numeric: tabular-nums;
+}
+.pd-spot-stats span {
+  font: 400 11px/1.3 var(--font-sans);
+  color: #86868b;
+  letter-spacing: 0.02em;
+}
+
 /* ========= Tabs section ========= */
 /* M-1-13f-2 amend:字面從 design-reference/styles/product-page.css L451-564 直接搬(114 行);
    原 commit 漏 CSS、ProductTabs 視覺退化成 inline text、本次 amend 補對應 styles 對齊

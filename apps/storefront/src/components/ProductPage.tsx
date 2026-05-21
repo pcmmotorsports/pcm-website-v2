@@ -45,6 +45,8 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
+import { ProductHighlights } from './ProductHighlights';
+import { ProductSpotlight } from './ProductSpotlight';
 import { ProductTabs } from './ProductTabs';
 import '@/styles/product-page.css';
 
@@ -200,6 +202,10 @@ export function ProductPage({ product, tier }: ProductPageProps) {
           <ProductGallery product={product} />
           <ProductInfo product={product} tier={tier} />
         </section>
+        {/* M-1-13H-4:Highlights + Spotlight 兩新子元件串接(對應 PRD §4 slice-4 + HANDOFF #12 #13);
+            ProductSpotlight 內部條件渲染 product.hasSpotlight、falsy 返 null(caller 無需 if-guard) */}
+        <ProductHighlights product={product} />
+        <ProductSpotlight product={product} />
         {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
             (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}
         <ProductTabs product={product} />
