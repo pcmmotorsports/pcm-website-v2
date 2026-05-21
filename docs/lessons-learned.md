@@ -1186,6 +1186,32 @@ M-1-06 a11y polish slice(2026-05-17、commit `61d7fc0` amend 補入)累積 4 處
 
 ---
 
+### 12-37. Cowork 引偵察報告字面寫拍板題前必交叉檢查 design-reference 既有實作 + storefront 既有實作雙端字面
+
+**事故脈絡:**
+M-1-13H 商品頁全面改版 plan 階段(2026-05-21、本 PRD `docs/specs/M-1-13H-product-page-overhaul-plan.md` commit slice-doc chore TBD 落地後)、Cowork 寫 Q4 拍板題給 Sean 拍板「Related grid 與 ProductCard」、Q4 raise 字面建立在 Code 偵察報告(`docs/recon/M-1-13H-product-page-recon-2026-05-21.md`)§9.4 風險點 #6「`<ProductCard>` 保留可能視覺斷層」+ HANDOFF #16 字面「保留 ProductCard 不要改它」、假設「ProductCard 是舊版、跟新版商品頁不協調」、給 Sean 4 個選項(其中 B「分階段:Sean 之後在 Claude Design 端產出新版 ProductCard」)。Sean 質疑「我印象有把 design 新檔案跟 handoff 不是交給你了、這次整個流程就是去把商品卡部分對應上去而已、為何有這麼多疑問?」、Cowork 立即 bash grep design-reference 實況查證、5 處字面確認 Sean 對:(1) `design-reference/components/ProductCard.jsx` 6397 bytes 存在、L1「editorial · hover-swap images」、是 design 已產出的新版設計;(2) `design-reference/styles/product-card.css` 存在 213 行;(3) `apps/storefront/src/components/ProductCard.tsx` L4 註解「字面從 design-reference/components/ProductCard.jsx @ 25d3a2a 直接搬」(M-1-04 mini-slice 已搬完成);(4) design-reference 內 HomePage.jsx / ProductPage.jsx / Pages.jsx / ProductsPage.jsx 4 處 import ProductCard、是跨頁正式元件;(5) VariantCFull L219-230 `.vcf-related-card` hardcoded = demo 平面 jsx 寫法(demo 自包含不 import 真元件)、不取代正式 ProductCard 元件;根因:Cowork 引偵察報告字面寫拍板題前、未交叉檢查 design ProductCard.jsx + storefront ProductCard.tsx 雙端字面;NORTHSTAR §2.4「.jsx + .css 字面 > HANDOFF docs」優先級在 demo 變體場景反向應用、Cowork 應辨識「demo 平面 jsx 是 demo 寫法、不是真權威」;累計第三次同族違反(對齊 §12-30 + §12-33)、依 working-style §6.3「3+ 次同族即立法」enforce 觸發語規範。
+
+**規則:**
+- Cowork 引用 Code 偵察報告字面寫拍板題前必交叉檢查雙端字面:
+  - design-reference 既有元件字面:`grep -rn "{ComponentName}" design-reference/` 確認元件 .jsx + .css 是否已存在
+  - storefront 既有實作字面:`grep -rn "{ComponentName}" apps/storefront/src/` 確認是否已搬、commit body 註解「字面從 design @ {hash} 直接搬」歷史
+- 不假設「現狀不協調」、不基於偵察報告風險點推「需 Sean 補新版設計」、必先 grep design-reference 既有元件實況
+- 辨識 demo 變體字面(VariantCFull 等 explorations)vs design 正式元件字面(ProductCard.jsx / ProductPage.jsx 等):
+  - demo 變體內的 hardcoded 寫法 = demo 平面 jsx 自包含、**不取代正式元件 import**
+  - 正式元件 .jsx + .css 字面 = 真權威、用 import 引用、不複製 hardcoded
+- NORTHSTAR §2.4「.jsx + .css 字面 > HANDOFF docs」優先級補丁:demo 變體場景下、demo .jsx 字面非真權威、HANDOFF docs 字面反為「保留正式元件」實質指引
+- **enforce:** Cowork 寫拍板題 raise 字面涉及「需 Sean 補設計」/「現狀不協調」前自檢「design-reference 對應元件實況已 grep?」+「storefront 對應實作實況已 grep?」、雙端未 grep → 改寫為「Cowork 待 grep 後確認」、不拋給 Sean 不必要拍板;違反 = Sean 質疑、Cowork 立即實況查證 + 認錯 + 寫 lessons
+
+**規範定位:** 對齊 lessons §12-13(規劃稿字面 vs 既有 code 實況交叉檢查)+ §12-14(跨層設計意圖串接檢查)同族延伸 + §12-30(Claude.ai 不可把 Code 在 commit body 揭示的歷史快照重新詮釋成「對方失準」、必先 view commit body 字面)+ §12-33(Claude.ai 寫指令字面前必先 grep callsite 真權威)雙錨點 + NORTHSTAR §2.4「.jsx + .css 字面 > HANDOFF docs」優先級在 demo 變體場景反向應用紀律補丁(本條新立 demo 變體辨識規矩)+ working-style §6.3 對應條(待新增、本立法時補)
+
+**教訓來源:** 2026-05-21 M-1-13H plan 階段、Cowork 寫 Q4 拍板題給 Sean、Q4 raise 建立在偵察報告風險點 #6 + HANDOFF #16 字面、假設 ProductCard 是舊版;Sean 質疑「印象交付 design 新檔 + handoff、流程就是把商品卡對應上去」;Cowork 立即 bash grep 實況查證、5 處字面確認:(1) design ProductCard.jsx 存在新版設計、(2) css 存在、(3) storefront 已搬完(M-1-04 commit body 註解)、(4) 4 處 import 確認跨頁正式元件、(5) VariantCFull `.vcf-related-card` 是 demo 寫法;本條 §12-37 自身誕生過程符合本條規則(實況查證 + 認錯 + 寫 lessons)
+
+**跨專案適用:** 適用所有「Cowork(規劃層)+ Code(偵察層)+ design-reference(視覺真權威)三層協作」的專案;Phase 2 vehicle-service-ecosystem 啟動時、相同模式 grep design-reference 既有 + storefront 既有雙端字面;適用所有「demo 變體 vs 正式元件」辨識場景(不限 VariantCFull、Phase 2 可能還有 VariantD/E/F 等 demo 變體)
+
+**首例:** 2026-05-21 M-1-13H plan 階段對話、Sean 質疑 Q4 raise 錯誤;Cowork bash grep design-reference + apps/storefront/src 5 處字面實況查證、確認 Sean 對、自我糾正;本條 §12-37 自身落地驗證 = Cowork 實況查證 + Sean 確認 + 寫 PRD `docs/specs/M-1-13H-product-page-overhaul-plan.md` + 寫 lessons §12-37;commit slice-doc chore TBD 落地後即首例 anchor
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
