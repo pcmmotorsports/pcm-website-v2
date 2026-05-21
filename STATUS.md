@@ -3,19 +3,19 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** M-1(M-0 ✅ + M-1-01~12 ✅ + M-1-13a~d ✅ + M-1-13e-pre-1/2/3 ✅ + M-1-13e-a ✅ + M-1-13e-b ✅ + M-1-13e-b-2 ✅ + M-1-13f-1 ✅ + M-1-13f-2 ✅、餘 商品頁全面改版(M-1-13H plan ✅、實作 slice-1~6 待跑) + 13g(暫停) + M-1-14~16)
-**當前 slice:** design-reference 同步至 637dafc(VariantCFull.jsx 13KB + explorations.css 32KB + design-handoff/PRODUCT-PAGE-HANDOFF.md 14KB + design-handoff/SUPABASE-PRODUCT-PAGE.md 10KB)✅;Sean 2026-05-21 拍板 Q2=A 暫停 13g、接續商品頁全面改版(Apple/Aritzia 現代派、VariantCFull = Phase 1 真權威字面;Phase 2 supabase product_spotlights 後台先 LOG 不動;HANDOFF.md 列保留清單 breadcrumb 路徑記憶 / vehiclePill / lightbox / hero swipe / addToCart toast / getPriceForTier / mobile buybar 不可拆);範圍預估 4-6 slice 跨多 session、需 plan + 鐵則 8 + 內容分級 L1/L2/L3 + 鐵則 12 觸發評估;13g(Related + Toast + Responsive)推延、卡片改完後 Related 自動繼承新設計、剩 Toast + Responsive 時機定;chore: 工作樹整理(.gitignore 補 .claude/+spikes/、commit 6 份 untracked docs、checkout next-env.d.ts);M-1-13H plan 階段完成(Sean Q1-Q7 拍板:Q1=NT$5,000 永久業務 / Q2=B hasSpotlight 欄位 / Q3=B mobile bar 紅色保留 / Q4=既有 ProductCard + 容器標題改、糾正 self / Q5=A 6 slice / Q6=A 結束後 Sean Claude Design 端動 / Q7=A 全拆、PRD docs/specs/M-1-13H-product-page-overhaul-plan.md + lessons §12-37 落地、Code 等待 slice-1 crumbs+Gallery 指令)
+**當前 slice:** design-reference 同步至 637dafc(VariantCFull.jsx 13KB + explorations.css 32KB + design-handoff/PRODUCT-PAGE-HANDOFF.md 14KB + design-handoff/SUPABASE-PRODUCT-PAGE.md 10KB)✅;Sean 2026-05-21 拍板 Q2=A 暫停 13g、接續商品頁全面改版(Apple/Aritzia 現代派、VariantCFull = Phase 1 真權威字面;Phase 2 supabase product_spotlights 後台先 LOG 不動;HANDOFF.md 列保留清單 breadcrumb 路徑記憶 / vehiclePill / lightbox / hero swipe / addToCart toast / getPriceForTier / mobile buybar 不可拆);範圍預估 4-6 slice 跨多 session、需 plan + 鐵則 8 + 內容分級 L1/L2/L3 + 鐵則 12 觸發評估;13g(Related + Toast + Responsive)推延、卡片改完後 Related 自動繼承新設計、剩 Toast + Responsive 時機定;chore: 工作樹整理(.gitignore 補 .claude/+spikes/、commit 6 份 untracked docs、checkout next-env.d.ts);M-1-13H plan 階段完成(Sean Q1-Q7 拍板:Q1=NT$5,000 永久業務 / Q2=B hasSpotlight 欄位 / Q3=B mobile bar 紅色保留 / Q4=既有 ProductCard + 容器標題改、糾正 self / Q5=A 6 slice / Q6=A 結束後 Sean Claude Design 端動 / Q7=A 全拆、PRD docs/specs/M-1-13H-product-page-overhaul-plan.md + lessons §12-37 落地、Code 等待 slice-1 crumbs+Gallery 指令);docs-recon: commit slice-0 偵察報告 docs/recon/M-1-13H-product-page-recon-2026-05-21.md(475 行、audit trail、對齊偵察報告 commit 慣例)
 
 **Branch:** dev
 
 ## 最後更新
-2026-05-21 — Claude Code [M-1-13H slice-doc PRD + lessons §12-37]
+2026-05-21 — Claude Code [M-1-13H docs-recon commit slice-0 偵察報告]
 
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `68ab056` | docs(M-1-13H): plan PRD + lessons §12-37 (M-1-13H plan 階段完成) | 2026-05-21 |
+| `455f969` | docs(M-1-13H): commit slice-0 偵察報告 (M-1-13H 真權威偵察 audit trail) | 2026-05-21 |
+| `271d22b` | docs(M-1-13H): plan PRD + lessons §12-37 (M-1-13H plan 階段完成) | 2026-05-21 |
 | `0cf711c` | chore: 整理工作樹 untracked + 補 .gitignore | 2026-05-21 |
-| `f21581c` | chore: sync design-reference 至 637dafc + STATUS.md (商品頁全改版接續) | 2026-05-21 |
 
 ## 下一步
 M-1-13H slice-1 crumbs 樣式對齊 design + Gallery 1:1 / 18px radius / arrow 72px / counter / thumb 移下方(估 30-40 分;對應 HANDOFF #1+#2+#3;動 ProductGallery + product-page.css crumbs/hero/thumb 段;PRD docs/specs/M-1-13H-product-page-overhaul-plan.md 已落地、Cowork 依 PRD 字面骨架寫 slice 指令);接著 slice-2 Info 上半(SKU line / title 28px Inter sans / 副標 / 移除 fits banner)→ slice-3 Buy block(色票圓 24px / 價格 22px 黑 / 圓 pill CTA 48px / services 移圖示)→ slice-4 新增 ProductHighlights 子元件(3 卡 hardcoded)→ slice-5 新增 ProductSpotlight 子元件(條件渲染 hasSpotlight 欄位)→ slice-6 Tabs pill + 內容微調 + Related 容器標題 + 收尾(估累計 3-5 小時、跨多 session);全改版完成後評估 13g 殘餘(Toast + Responsive 是否仍需、Sean 在 Claude Design 端動 explorations 檔刪除);接著 M-1-14 Customer schema(audit 階段主動 raise #156 店家申請 PRD + #158 MobileTabBar)/ M-1-15 LoginPage·RegisterPage(順帶 #156 + 強推 #158 同期落地)/ M-1-16 200 SKU 種子(audit 階段主動 raise #157 促銷系統 PRD + 接 Supabase findBySlug + toUIProduct(p, tier) 處理 backlog #161 經銷價真區分 + 處理 13f-2 tabs L3 內容問題:specs 8 hardcoded 欄位 / description 文案 / install steps / warranty 政策真實應後台 CRUD);M-1 收尾跑 premortem 應對 step-2
