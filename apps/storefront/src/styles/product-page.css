@@ -5,13 +5,14 @@
 /* product-page.css — editorial product detail */
 
 /* Bridge design-token aliases so this file uses the same var names as rest of site */
-.pd-page, .pd-page * {
+.pd-page, .pd-page *, .pd-mobile-buybar, .pd-mobile-buybar * {
   --ink: var(--c-text);
   --ink-tert: var(--c-text-2);
   --ink-mute: var(--c-text-3);
   --paper: var(--c-surface);
   --paper-2: var(--c-surface-2);
   --line: var(--c-border);
+  --border: var(--c-border);
   --font-sans: var(--f-sans);
   --font-serif: var(--f-serif);
   --font-mono: var(--f-mono);
@@ -361,6 +362,101 @@
   border-color: var(--ink);
 }
 
+/* ========= Buy row ========= */
+/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 357-426 直接搬(sec 6 Buy row 70 行) */
+.pd-buy-row {
+  display: flex; gap: 10px;
+  margin-bottom: 10px;
+}
+.pd-qty {
+  display: flex; align-items: center;
+  border: 1px solid var(--c-border);
+  height: 56px;
+}
+.pd-qty button {
+  width: 44px; height: 100%;
+  background: transparent; border: 0;
+  font: 400 20px/1 var(--f-sans);
+  color: var(--c-text);
+  cursor: pointer;
+}
+.pd-qty button:hover { background: var(--c-surface-2); }
+.pd-qty span {
+  width: 44px; text-align: center;
+  font: 600 15px/1 var(--f-mono);
+  color: var(--c-text);
+}
+
+.pd-add-btn {
+  flex: 1;
+  height: 56px;
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  border: 2px solid var(--c-text);
+  font: 600 14px/1 var(--f-sans);
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 150ms, transform 0.1s;
+  text-transform: uppercase;
+}
+.pd-add-btn:hover:not(.is-disabled) { background: #222; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+.pd-add-btn.is-disabled {
+  background: var(--c-text-3); border-color: var(--c-text-3); color: #fff; opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.pd-like {
+  width: 56px; height: 56px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  color: var(--c-text);
+  cursor: pointer;
+  transition: all 150ms;
+  display: flex; align-items: center; justify-content: center;
+}
+.pd-like:hover { border-color: var(--c-text); }
+.pd-like.is-liked { color: #c41e3a; border-color: #c41e3a; }
+
+.pd-buynow-btn {
+  width: 100%;
+  height: 52px;
+  background: transparent;
+  color: var(--c-text);
+  border: 1.5px solid var(--c-border-strong);
+  font: 500 14px/1 var(--f-sans);
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  margin-bottom: 28px;
+  transition: all 150ms;
+}
+.pd-buynow-btn:hover:not(:disabled) { background: var(--c-surface-2); border-color: var(--c-text); }
+.pd-buynow-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pd-buynow-btn:hover:not(:disabled) { background: var(--ink); color: var(--paper); }
+.pd-buynow-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ========= Services strip ========= */
+/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 428-448 直接搬(sec 7 Services 21 行) */
+.pd-services {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 18px 20px;
+  padding: 22px 0;
+  border-top: 1px solid var(--line);
+}
+.pd-service {
+  display: flex; gap: 12px; align-items: flex-start;
+}
+.pd-service svg { flex-shrink: 0; color: var(--ink); margin-top: 2px; }
+.pd-service-label {
+  font: 500 13px/1.2 var(--font-sans);
+  color: var(--ink);
+}
+.pd-service-desc {
+  font: 400 11px/1.3 var(--font-sans);
+  color: var(--ink-tert);
+  margin-top: 3px;
+}
+
 /* ========= Lightbox ========= */
 .pd-lightbox {
   position: fixed;
@@ -429,8 +525,83 @@
   .pd-lb-arrow-right { right: 8px; }
 }
 
+/* ========= Mobile sticky buy bar ========= */
+/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 738-805 直接搬(sec 13 Mobile sticky bar 68 行)
+   ⚠️ Cascade order 修正:design 原字面把此主規則(default display: none)放在 @media (display: flex)
+   之後、cascade order 讓主規則 override @media、mobile 永遠隱藏;storefront 修正:主規則放 @media 前、
+   對齊 CSS base → override 慣例。字面結構偏離 design、行為正確、進 backlog #161 同類追(待 Claude Design 補對齊) */
+.pd-mobile-buybar {
+  display: none;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 50;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(255,255,255,0.97);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  gap: 8px;
+  align-items: center;
+}
+.pd-mbb-price-col {
+  flex: 0 0 auto;
+  min-width: 72px;
+  padding-right: 4px;
+}
+.pd-mbb-price {
+  font: 600 16px/1.1 var(--font-sans);
+  color: #c41e3a;
+}
+.pd-mbb-orig {
+  font: 400 10px/1 var(--font-sans);
+  color: var(--ink-tert);
+  text-decoration: line-through;
+  margin-top: 2px;
+}
+.pd-mbb-cart,
+.pd-mbb-buynow {
+  flex: 1 1 0;
+  height: 46px;
+  font: 600 14px/1 var(--font-sans);
+  letter-spacing: 0.04em;
+  border: 1.5px solid var(--ink);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 10px;
+}
+.pd-mbb-cart {
+  background: #fff;
+  color: var(--ink);
+}
+.pd-mbb-cart:active:not(:disabled) { background: var(--paper-2); }
+.pd-mbb-buynow {
+  background: #c41e3a;
+  border-color: #c41e3a;
+  color: #fff;
+}
+.pd-mbb-buynow:active:not(:disabled) { background: #a01830; }
+.pd-mbb-cart:disabled,
+.pd-mbb-buynow:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.pd-mbb-back {
+  flex: 0 0 36px;
+  width: 36px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(0,0,0,0.12);
+  color: var(--ink);
+  cursor: pointer;
+  margin-right: 4px;
+}
+.pd-mbb-back:active { background: var(--paper-2); }
+
 /* M-1-13c minimum responsive fix(Q-3=A 拍板)— 手機 grid collapse 單欄、避免 .pd-main 1fr+480px 把左欄擠到負寬;
-   完整 responsive 字面留 M-1-13g 搬 design line 618-669 sec 11 一次性收口 */
+   完整 responsive 字面留 M-1-13g 搬 design line 618-669 sec 11 一次性收口
+   M-1-13e-a 補 design line 662-667 的 sec 6+7+13 切換規則(buy-row / buynow / services / mobile-buybar)
+   注意:此 @media 須位於 .pd-mobile-buybar 主規則之後、確保 display: flex 能 override default display: none */
 @media (max-width: 900px) {
   .pd-main {
     grid-template-columns: 1fr;
@@ -439,4 +610,8 @@
   .pd-gallery {
     position: static;
   }
+  .pd-services { grid-template-columns: 1fr 1fr; }
+  .pd-buy-row,
+  .pd-buynow-btn { display: none !important; }
+  .pd-mobile-buybar { display: flex; }
 }

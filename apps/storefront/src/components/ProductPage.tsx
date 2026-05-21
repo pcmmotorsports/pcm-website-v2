@@ -37,6 +37,7 @@
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Fragment, useMemo } from 'react';
+import type { MemberTier } from '@pcm/domain';
 import type { MockProduct } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { Header } from './Header';
@@ -45,14 +46,20 @@ import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
 import '@/styles/product-page.css';
 
-export type ProductPageProps = { product: MockProduct };
+export type ProductPageProps = { product: MockProduct; tier: MemberTier };
 
 type Crumb = { label: string; href?: string; current?: boolean };
 
-export function ProductPage({ product }: ProductPageProps) {
+export function ProductPage({ product, tier }: ProductPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+
+  // M-1-13e-a:addToCart stub(對齊 design ProductPage.jsx L127-130)— Mobile sticky bar 用、
+  // ProductInfo 內 Buy row + buynow 另有自己的 stub(獨立、不抽共用、13e-b 改 useCart 時統一)
+  const addToCart = () => {
+    console.log('[stub] addToCart (mobile-sticky)', { id: product.id });
+  };
 
   const from = searchParams.get('from') || 'catalog';
   const sourceId = searchParams.get('sourceId');
@@ -177,16 +184,57 @@ export function ProductPage({ product }: ProductPageProps) {
           )}
         </nav>
 
-        {/* TODO M-1-13e: pd-buy-row + pd-buynow-btn + pd-services + pd-mobile-buy-bar(tier #130 + #82 mapper trigger) */}
+        {/* M-1-13e-a:pd-price-block + pd-buy-row + pd-buynow-btn + pd-services 已搬入 ProductInfo;
+            Mobile sticky bar 在 main / HomeFooter 之後(對齊 design ProductPage.jsx L501-545 位置)*/}
         {/* TODO M-1-13f: pd-tabs-section(spec / desc / faq / review) */}
-        {/* TODO M-1-13g: pd-related + pd-toast + responsive media queries(product-page.css line 618-669) */}
+        {/* TODO M-1-13g: pd-related + pd-toast(responsive media queries 13e-a 已搬 design L662-667 sec 6+7+13 切換規則) */}
         <section className="pd-main">
           <ProductGallery product={product} />
-          <ProductInfo product={product} />
+          <ProductInfo product={product} tier={tier} />
         </section>
       </main>
 
       <HomeFooter />
+
+      {/* M-1-13e-a:Mobile sticky bar — 字面從 design ProductPage.jsx L501-545 直接搬。
+          Sean 2026-05-21 業務拍板 + Q-13e-a-scope=C 簡化:
+          (1) 全部 disabled={!product.inStock} 移除(對應 backlog #161、按鈕永遠可點);
+          (2) mbb-price-col 簡化為純 NT$ {product.price.toLocaleString()}、不顯 mbb-orig、
+              不分 tier conditional(短期偏離 design L527-532 字面、commit body 揭示、
+              13e-b 補 CartContext 同時補完整 tier 顯示);
+          (3) mbb-back navigation 用 router.back() 替代 design 8-source onNav 邏輯
+              (字面偏離、行為對等、commit body 揭示)。 */}
+      <div className="pd-mobile-buybar" role="region" aria-label="購買列">
+        <button
+          type="button"
+          className="pd-mbb-back"
+          onClick={() => router.back()}
+          aria-label="返回上一頁"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="m15 18-6-6 6-6" />
+          </svg>
+        </button>
+        <div className="pd-mbb-price-col">
+          <div className="pd-mbb-price">NT$ {product.price.toLocaleString()}</div>
+        </div>
+        <button
+          type="button"
+          className="pd-mbb-cart"
+          onClick={addToCart}
+          aria-label="加入購物車"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />
+            <path d="M3 6h18" />
+            <path d="M16 10a4 4 0 0 1-8 0" />
+          </svg>
+          <span>加入購物車</span>
+        </button>
+        <button type="button" className="pd-mbb-buynow" onClick={addToCart}>
+          立即購買
+        </button>
+      </div>
     </div>
   );
 }

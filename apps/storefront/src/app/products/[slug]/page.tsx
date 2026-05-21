@@ -35,10 +35,11 @@ export default async function ProductSlugRoute({ params }: Props) {
   // tier 解析(M-1-13e-pre-1、Sean Q1=B 業務拍板:金額頁面必須區分會員)。
   // 短期(Q5=A 拍板):mock-products 只含 general retail、商品頁顯一般零售價;
   // M-1-16 改 Supabase fetcher findBySlug + toUIProduct(p, tier) 後真區分會員價。
-  // TODO M-1-13e:tier prop 傳 ProductPage、ProductInfo Buy Row 顯示 tier-aware price。
+  // M-1-13e-a:tier prop 傳 ProductPage、ProductInfo pd-price-block 顯示 tier-aware price
+  // (短期 store / premiumStore 顯「經銷價」tag 但 product.price 仍 retail、字面 vs 事實
+  // 偏離、commit body 揭示;Mobile sticky bar Q-13e-a-scope=C 簡化、不分 tier)。
   const cookieStore = await cookies();
   const tier = await resolveTierFromRequest({}, cookieStore);
-  void tier;
 
-  return <ProductPage product={product} />;
+  return <ProductPage product={product} tier={tier} />;
 }

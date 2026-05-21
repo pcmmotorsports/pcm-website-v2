@@ -18,34 +18,34 @@ afterEach(() => {
 describe('ProductInfo', () => {
   it('should render brand row with brand link + SKU padded to 5 digits', () => {
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductInfo product={product} />);
+    render(<ProductInfo product={product} tier="general" />);
     expect(screen.getByText(product.brand)).toBeDefined();
     expect(screen.getByText(`SKU · PCM-${String(product.id).padStart(5, '0')}`)).toBeDefined();
   });
 
   it('should render product title as h1', () => {
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductInfo product={product} />);
+    render(<ProductInfo product={product} tier="general" />);
     const h1 = screen.getByRole('heading', { level: 1 });
     expect(h1.textContent).toBe(product.name);
   });
 
   it('should render fits-banner with product.fits', () => {
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductInfo product={product} />);
+    render(<ProductInfo product={product} tier="general" />);
     expect(screen.getByText('適用車款')).toBeDefined();
     expect(screen.getByText(product.fits)).toBeDefined();
   });
 
   it('should fallback to 通用款 when product.fits is empty', () => {
     const product = { ...MOCK_PRODUCTS[0]!, fits: '' };
-    render(<ProductInfo product={product} />);
+    render(<ProductInfo product={product} tier="general" />);
     expect(screen.getByText('通用款')).toBeDefined();
   });
 
   it('should render 3 color swatches with active state on initial product.color', () => {
     const product = MOCK_PRODUCTS[0]!; // color: 'silver'
-    render(<ProductInfo product={product} />);
+    render(<ProductInfo product={product} tier="general" />);
     const swatches = screen.getAllByRole('button', { name: /選擇顏色/ });
     expect(swatches.length).toBe(3);
     // 初始 active = product.color(對齊 design L113 字面 useState(product.color))
@@ -55,7 +55,7 @@ describe('ProductInfo', () => {
 
   it('should render size options 街道版 / 賽道版 when category includes 卡鉗', () => {
     const brembo = MOCK_PRODUCTS.find((p) => p.slug === 'brembo-7')!;
-    render(<ProductInfo product={brembo} />);
+    render(<ProductInfo product={brembo} tier="general" />);
     expect(screen.getByRole('button', { name: '街道版' })).toBeDefined();
     expect(screen.getByRole('button', { name: '賽道版' })).toBeDefined();
   });
@@ -63,13 +63,13 @@ describe('ProductInfo', () => {
   it('should not render size options section when category does not match 4 branches', () => {
     // rizoma-5 category 「精品配件 · 後視鏡」不命中 排氣/碳纖/避震/卡鉗
     const rizoma = MOCK_PRODUCTS.find((p) => p.slug === 'rizoma-5')!;
-    render(<ProductInfo product={rizoma} />);
+    render(<ProductInfo product={rizoma} tier="general" />);
     expect(screen.queryByText('規格')).toBeNull();
   });
 
   it('should change color when different swatch clicked', () => {
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductInfo product={product} />);
+    render(<ProductInfo product={product} tier="general" />);
     const swatches = screen.getAllByRole('button', { name: /選擇顏色/ });
     const nonActive = swatches.find((s) => s.getAttribute('aria-pressed') === 'false')!;
     fireEvent.click(nonActive);
@@ -78,7 +78,7 @@ describe('ProductInfo', () => {
 
   it('should change size when different size button clicked', () => {
     const brembo = MOCK_PRODUCTS.find((p) => p.slug === 'brembo-7')!;
-    render(<ProductInfo product={brembo} />);
+    render(<ProductInfo product={brembo} tier="general" />);
     const street = screen.getByRole('button', { name: '街道版' });
     const track = screen.getByRole('button', { name: '賽道版' });
     expect(street.getAttribute('aria-pressed')).toBe('true');
@@ -91,9 +91,9 @@ describe('ProductInfo', () => {
   it('should reset color when product prop changes', () => {
     const productA = MOCK_PRODUCTS[0]!; // silver
     const productB = MOCK_PRODUCTS.find((p) => p.color === 'red')!; // red
-    const { rerender } = render(<ProductInfo product={productA} />);
+    const { rerender } = render(<ProductInfo product={productA} tier="general" />);
     expect(screen.getByRole('button', { name: /銀色/ }).getAttribute('aria-pressed')).toBe('true');
-    rerender(<ProductInfo product={productB} />);
+    rerender(<ProductInfo product={productB} tier="general" />);
     expect(screen.getByRole('button', { name: /賽道紅/ }).getAttribute('aria-pressed')).toBe('true');
   });
 });

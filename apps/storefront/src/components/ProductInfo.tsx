@@ -22,9 +22,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { MemberTier } from '@pcm/domain';
 import type { MockProduct } from '@/data/mock-products';
 
-export type ProductInfoProps = { product: MockProduct };
+export type ProductInfoProps = { product: MockProduct; tier: MemberTier };
 
 // COLOR_MAP — 6 色字面對齊 design ProductPage.jsx L144-151;yellow / blue 2 色補齊
 // 對應 MOCK_PRODUCTS 真實數據(ohlins-8 'yellow' 等)、避免 fallback 顯示英文 id。
@@ -39,7 +40,7 @@ const COLOR_MAP: Record<string, { label: string; swatch: string }> = {
   blue: { label: '深海藍', swatch: '#1e3a8a' },
 };
 
-export function ProductInfo({ product }: ProductInfoProps) {
+export function ProductInfo({ product, tier }: ProductInfoProps) {
   // Size options based on category(對齊 design L96-104 字面、4 個 includes 分支)
   const sizeOptions = useMemo<string[] | null>(() => {
     const c = product.category || '';
@@ -60,13 +61,22 @@ export function ProductInfo({ product }: ProductInfoProps) {
   // Options state(對齊 design L113-115)
   const [color, setColor] = useState<string>(product.color);
   const [size, setSize] = useState<string | null>(sizeOptions?.[0] ?? null);
+  // M-1-13e-a:qty / liked state(對齊 design L115 + L117)
+  const [qty, setQty] = useState<number>(1);
+  const [liked, setLiked] = useState<boolean>(false);
 
   // Reset on product change(對齊 design L120-125;deps 比 design 多加 product.color + sizeOptions
   // 防 React 19 react-hooks/exhaustive-deps stale closure)
   useEffect(() => {
     setColor(product.color);
     setSize(sizeOptions?.[0] ?? null);
+    setQty(1);
   }, [product.id, product.color, sizeOptions]);
+
+  // M-1-13e-a:addToCart stub(對齊 design L127-130)— CartContext + 真實作留 13e-b
+  const addToCart = () => {
+    console.log('[stub] addToCart', { id: product.id, qty });
+  };
 
   return (
     <aside className="pd-info">
@@ -114,7 +124,35 @@ export function ProductInfo({ product }: ProductInfoProps) {
         </div>
       </div>
 
-      {/* TODO M-1-13e: pd-price-block(含 tier resolution helper #130 第 3 處撞) */}
+      {/* M-1-13e-a:pd-price-block 字面從 design ProductPage.jsx L289-303 直接搬。
+          Mock 路徑下 priceByTier 暫不接通(對齊 [slug]/page.tsx L37 註解 + STATUS L24
+          backlog #130 已抽 helper、mock 一律 general retail);M-1-16 真接 Supabase
+          fetcher findBySlug + toUIProduct(p, tier) 才真區分會員價;短期 store /
+          premiumStore tier 顯「經銷價」tag 但 product.price 仍是 retail、字面 vs 事實
+          偏離、commit body 揭示。 */}
+      <div className="pd-price-block">
+        <div className="pd-price-row">
+          <span className="pd-price">NT$ {product.price.toLocaleString()}</span>
+          {tier === 'store' || tier === 'premiumStore' ? (
+            <>
+              <span className="pd-price-orig">
+                NT$ {(product.origPrice ?? product.price).toLocaleString()}
+              </span>
+              <span className="pd-price-tag-dealer">經銷價</span>
+            </>
+          ) : product.origPrice && product.origPrice > product.price ? (
+            <>
+              <span className="pd-price-orig">
+                NT$ {product.origPrice.toLocaleString()}
+              </span>
+              <span className="pd-price-save">
+                省 NT$ {(product.origPrice - product.price).toLocaleString()}
+              </span>
+            </>
+          ) : null}
+        </div>
+        <div className="pd-price-meta">含稅 · 滿 NT$ 5,000 免運</div>
+      </div>
 
       <div className="pd-opt">
         <div className="pd-opt-head">
@@ -168,6 +206,130 @@ export function ProductInfo({ product }: ProductInfoProps) {
           </div>
         </div>
       )}
+
+      {/* M-1-13e-a:Buy row 字面從 design ProductPage.jsx L334-349 直接搬。
+          Sean 2026-05-21 業務拍板(對應 backlog #161):全部 disabled={!product.inStock}
+          + 三元字面替換「補貨中 · 通知我」移除、按鈕固定文字「加入購物車」、永遠可點。 */}
+      <div className="pd-buy-row">
+        <div className="pd-qty">
+          <button
+            type="button"
+            onClick={() => setQty(Math.max(1, qty - 1))}
+            aria-label="減少數量"
+          >
+            −
+          </button>
+          <span>{qty}</span>
+          <button
+            type="button"
+            onClick={() => setQty(qty + 1)}
+            aria-label="增加數量"
+          >
+            +
+          </button>
+        </div>
+        <button type="button" className="pd-add-btn" onClick={addToCart}>
+          加入購物車
+        </button>
+        <button
+          type="button"
+          className={`pd-like ${liked ? 'is-liked' : ''}`}
+          onClick={() => setLiked(!liked)}
+          aria-label="收藏"
+          aria-pressed={liked}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill={liked ? 'currentColor' : 'none'}
+            stroke="currentColor"
+            strokeWidth="1.6"
+            aria-hidden="true"
+          >
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
+          </svg>
+        </button>
+      </div>
+
+      {/* M-1-13e-a:buynow 字面從 design ProductPage.jsx L351 直接搬;移除 disabled、文字「立即購買」固定 */}
+      <button type="button" className="pd-buynow-btn" onClick={addToCart}>
+        立即購買
+      </button>
+
+      {/* M-1-13e-a:Services 字面從 design ProductPage.jsx L353-378 直接搬(4 卡 hardcode 內容分級 L1、Phase 2 才動服務系統)*/}
+      <div className="pd-services">
+        <div className="pd-service">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path d="M3 8h14l4 4v5h-2a2 2 0 11-4 0H9a2 2 0 11-4 0H3V8z" />
+            <circle cx="7" cy="17" r="2" />
+            <circle cx="15" cy="17" r="2" />
+          </svg>
+          <div>
+            <div className="pd-service-label">滿額免運</div>
+            <div className="pd-service-desc">NT$ 5,000 以上</div>
+          </div>
+        </div>
+        <div className="pd-service">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
+          </svg>
+          <div>
+            <div className="pd-service-label">專業安裝</div>
+            <div className="pd-service-desc">全台合作店家</div>
+          </div>
+        </div>
+        <div className="pd-service">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path d="M9 12l2 2 4-4M12 3a9 9 0 109 9" />
+          </svg>
+          <div>
+            <div className="pd-service-label">原廠保固</div>
+            <div className="pd-service-desc">原廠授權代理</div>
+          </div>
+        </div>
+        <div className="pd-service">
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+          </svg>
+          <div>
+            <div className="pd-service-label">LINE 諮詢</div>
+            <div className="pd-service-desc">30 分鐘內回覆</div>
+          </div>
+        </div>
+      </div>
     </aside>
   );
 }

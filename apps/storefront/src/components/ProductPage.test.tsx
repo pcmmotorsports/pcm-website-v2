@@ -43,7 +43,7 @@ afterEach(() => {
 describe('ProductPage', () => {
   it('should render baseline from=catalog + category breadcrumb', () => {
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     // 用 within(nav) 限定 breadcrumb 範圍、避免與 Footer 內同字面衝突
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('首頁')).toBeDefined();
@@ -55,7 +55,7 @@ describe('ProductPage', () => {
   it('should render from=brand branch with sourceLabel', () => {
     mockSearchParams = new URLSearchParams('from=brand&sourceId=akrapovic&sourceLabel=AKRAPOVIČ');
     const akrapovic = MOCK_PRODUCTS.find((p) => p.slug === 'akrapovic-6')!;
-    render(<ProductPage product={akrapovic} />);
+    render(<ProductPage product={akrapovic} tier="general" />);
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('品牌')).toBeDefined();
     expect(within(breadcrumbNav).getByText('AKRAPOVIČ')).toBeDefined();
@@ -64,14 +64,14 @@ describe('ProductPage', () => {
 
   it('should render from=sale branch with default sourceLabel', () => {
     mockSearchParams = new URLSearchParams('from=sale');
-    render(<ProductPage product={MOCK_PRODUCTS[1]!} />);
+    render(<ProductPage product={MOCK_PRODUCTS[1]!} tier="general" />);
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('特價精選')).toBeDefined();
   });
 
   it('should render vehicle pill when vehicle searchParam set', () => {
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     // vehiclePill label = 'YAMAHA · YZF-R6 · 2024'
     const pill = screen.getByLabelText(/清除車輛篩選/);
     expect(pill).toBeDefined();
@@ -82,7 +82,7 @@ describe('ProductPage', () => {
 
   it('should call router.replace without vehicle when pill × clicked', () => {
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     const pill = screen.getByLabelText(/清除車輛篩選/);
     fireEvent.click(pill);
     expect(mockReplace).toHaveBeenCalledOnce();
@@ -98,14 +98,14 @@ describe('ProductPage', () => {
 
   it('should integrate ProductGallery (render counter 01 / 03)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 
   it('should integrate ProductInfo (render brand row + SKU)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductPage product={product} />);
+    render(<ProductPage product={product} tier="general" />);
     expect(screen.getByText(product.brand)).toBeDefined();
     expect(
       screen.getByText(`SKU · PCM-${String(product.id).padStart(5, '0')}`),
