@@ -4,9 +4,12 @@
 // 驗「商品列表頁 render 不報錯 + 標題 / 商品數 / 商品卡 / 篩選器顯示」。
 // Header useRouter 走 vi.mock、matchMedia 走 beforeAll stub(同 Header.test.tsx)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
+//
+// M-1-13e-b-2:Header 改讀 useCart().totalQty、render 必須 wrap <CartProvider>、否則 throw
 
+import type { ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render as rtlRender, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -14,6 +17,9 @@ vi.mock('next/navigation', () => ({
 
 import { ProductsPage } from './ProductsPage';
 import { MOCK_PRODUCTS } from '../data/mock-products';
+import { CartProvider } from '../contexts/CartContext';
+
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 beforeAll(() => {
   // jsdom 不實作 matchMedia、Header useEffect 會呼叫 → 補最小 stub
@@ -29,7 +35,11 @@ beforeAll(() => {
   } as MediaQueryList));
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
+  if (typeof window !== 'undefined') window.localStorage.clear();
+});
 
 describe('ProductsPage', () => {
   it('should render the products listing without crashing', () => {

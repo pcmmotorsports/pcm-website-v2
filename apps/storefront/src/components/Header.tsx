@@ -10,6 +10,10 @@
 // 9 a 標籤(2 logo + 7 navItems)改 <Link href>(對齊刀 1 全範圍 + Q-Header A3 拍板);
 // M-1-04 刀 3-b:3 nav button(mobile cart / desktop cart / desktop account)舊 useCallback stub 整段移除 → handleNav 改寫 router.push(NAV_ROUTE_MAP)+ props.onNav fallback;
 // mobile search(dispatchEvent)/ desktop search div / input(非 nav)字面不動;handleNav wrapper + MouseEvent type 保留(props.onNav fallback 維持)
+//
+// M-1-13e-b-2:cartCount prop 整段移除(Sean Q-13e-b-2-prop=A 拍板「單一資料源、不留 manual override」);
+// Header badge 改讀 useCart().totalQty、totalQty=0 走既有 `cartCount > 0` 守門自動隱(SSR / hydrate 前
+// totalQty=0、不顯 dot、hydrate 後 useEffect 從 localStorage 載入才浮出真實數字、無 mismatch)
 
 'use client';
 
@@ -17,6 +21,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import type { MouseEvent } from 'react';
+import { useCart } from '@/contexts/CartContext';
 
 const NAV_ROUTE_MAP: Record<string, string> = {
   cart: '/cart',
@@ -24,7 +29,6 @@ const NAV_ROUTE_MAP: Record<string, string> = {
 };
 
 export type HeaderProps = {
-  cartCount?: number;
   onMenuClick?: () => void;
   isMobile?: boolean;
   currentPage?: string;
@@ -32,12 +36,12 @@ export type HeaderProps = {
 };
 
 export function Header({
-  cartCount = 4,
   isMobile: isMobileProp,
   currentPage = 'products',
   onNav,
 }: HeaderProps) {
   const router = useRouter();
+  const { totalQty } = useCart();
   const [searchQuery] = useState('');
 
   const openSearch = (q: string = '') => {
@@ -95,7 +99,7 @@ export function Header({
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
                 </svg>
-                {cartCount > 0 && <span className="pcm-cart-dot">{cartCount}</span>}
+                {totalQty > 0 && <span className="pcm-cart-dot">{totalQty}</span>}
               </button>
             </div>
           </>
@@ -138,7 +142,7 @@ export function Header({
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
                 </svg>
-                {cartCount > 0 && <span className="pcm-cart-dot">{cartCount}</span>}
+                {totalQty > 0 && <span className="pcm-cart-dot">{totalQty}</span>}
               </button>
             </div>
           </>

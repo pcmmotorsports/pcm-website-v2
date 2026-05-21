@@ -51,7 +51,7 @@ export default async function HomePage({
 
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
-      <Header cartCount={4} currentPage="home" />
+      <Header currentPage="home" />
       <HomeHero />
       <VehicleFinder />
       <FeatureEditorial />
