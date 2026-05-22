@@ -4369,6 +4369,37 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #163. ⏳ dev tier override 機制 — env 路徑被 turbo strict env 過濾、dev 驗用 cookie 繞過
+
+- **狀態:** ⏳ 待 trigger(dev 工具缺陷、不影響 production)
+- **分流:** P2-later(dev 體驗、不影響上線;但未來開發者驗會員價會再踩同坑)
+- **優先級:** 🟡 低(production tier 來自真實登入 cookie、不受影響;純 dev 驗證便利性)
+- **問題:** M-1-13H-7 收尾肉眼驗 tier-aware 經銷價時、Sean 用 `PCM_DEV_TIER_OVERRIDE=1 pnpm dev` + URL `?tier=store` 永遠看不到「經銷價」tag、來回 debug 半小時;根因:
+    1. **turbo 2.x strict env mode 過濾**:`pnpm dev` → `turbo run dev` → `next dev`;turbo 2.9.7 預設 strict envMode、只傳 `turbo.json` 宣告過的 env 給子 task;`PCM_DEV_TIER_OVERRIDE` 未宣告 → 命令行帶的 env 被 turbo 攔下、`next dev` 的 `process.env.PCM_DEV_TIER_OVERRIDE` 是 undefined → `resolveTierFromRequest`(lib/tier.ts L38-41)的 URL `?tier=` override 路徑從頭沒開
+    2. **`.env.local` 補寫亦未確實生效**(Sean 端 echo + 重啟仍無效、未深究是 dotenv 順序 / 路徑 / cwd)
+    3. **tier 字面格式陷阱**:`designTierToSchema`(packages/domain/src/shared/utils.ts L43-56)只認 design snake_case `general` / `store` / `premium_store`;URL / cookie 傳 camelCase `premiumStore` → throw → catch fallback `general`(初期驗收 URL 誤寫 camelCase 加劇混亂)
+- **dev 驗證正解(已驗證可用、繞過所有 env 問題):**
+  - DevTools Console 設 cookie:`document.cookie = "pcm-tier=store; path=/"; location.reload()`
+  - `resolveTierFromRequest` 的 cookie `pcm-tier` 路徑**不受** `PCM_DEV_TIER_OVERRIDE` flag 限制(flag 只 gate URL `?tier=`)、設 cookie 即觸發、不用 env / 不改 URL / 不重啟 dev
+  - premium 版:`pcm-tier=premium_store`(snake_case);還原:設空 + expires 過去
+- **觸發事件(任一觸發即啟動實作):**
+  - 未來開發者 / Sean 再次需 dev 驗會員價 tier-aware 顯示
+  - turbo / Next.js 版本升級重評 env 傳遞機制時
+- **預期解法(二選一或併):**
+  - A(讓 URL `?tier=` 路徑可用):`turbo.json` dev task 加 `"passThroughEnv": ["PCM_DEV_TIER_OVERRIDE"]`、讓 `PCM_DEV_TIER_OVERRIDE=1 pnpm dev` 命令行 env 傳得進 `next dev`;入版控、正規 turbo 解法
+  - B(文件化 cookie 驗法):docs / README 記 dev 驗 tier 用 cookie `pcm-tier`、不依賴 env override(零 code 改動、最低成本)
+  - 推薦:B 先文件化(立即可用)、A 視未來頻率評估(動 turbo.json config 屬鐵則 8、需 mini-slice)
+- **不修會痛在:**
+  - 擴充性:M-1-16 接 Supabase 真實會員登入後 tier 來自真 cookie、env override 路徑漸無用;但 dev 階段(M-1-14/15/16 前)驗 tier-aware UI 仍需便捷 override
+  - 可維護性:env override 路徑「看似存在實則失效」、新開發者讀 lib/tier.ts 以為 `?tier=` 能用、實際被 turbo 過濾、誤判 code bug
+  - bug 可追蹤性:本條為錨點、未來 grep `PCM_DEV_TIER_OVERRIDE` / `passThroughEnv` / `pcm-tier` 即可找回機制與正解
+- **估時:** A turbo.json 加 passThroughEnv 5 min + 驗 10 min;B 文件化 10 min
+- **依賴:** 無(獨立 dev 工具修正)
+- **發現於:** 2026-05-22 / M-1-13H-7 收尾 Sean 肉眼驗 tier-aware 經銷價時 debug(Cowork bash grep tier.ts + turbo.json 確認 strict env 過濾 + designTierToSchema snake_case 格式)
+- **相關:** turbo.json(dev task envMode);apps/storefront/src/lib/tier.ts L34-49 resolveTierFromRequest;packages/domain/src/shared/utils.ts L43-56 designTierToSchema;apps/storefront/src/app/products/[slug]/page.tsx(M-1-13H-7 searchParams hydrate fix);apps/storefront/.env.local(本機、gitignore)
+
+---
+
 ## 紀錄模板
 
 ```markdown
