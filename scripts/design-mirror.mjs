@@ -36,6 +36,7 @@ const { values, positionals } = parseArgs({
   options: {
     target: { type: 'string' },
     'slice-id': { type: 'string' },
+    component: { type: 'string' },
     validate: { type: 'boolean' },
     'diff-against-storefront': { type: 'boolean' },
     'update-sync': { type: 'string' },
@@ -50,12 +51,13 @@ if (values.help) {
   console.log(`design-mirror.mjs - PCM 設計 ↔ 現場 對照工具
 
 Usage:
-  node scripts/design-mirror.mjs --target <storefront-file> [--slice-id <id>]
-    inspect 模式:列對應 design + 業務 override + 連動檔 + 同步狀態
+  node scripts/design-mirror.mjs --target <path> [--slice-id <id>] [--component <Name>]
+    inspect 模式:比對 storefront.component / storefront.css / related_storefront[]、列對應 design + 業務 override + 連動檔 + 同步狀態
     若 --slice-id 提供、寫 .claude/scratch/{slice-id}/inspect.json 供 hook 用
+    shared path(css / related)命中多個元件時列出全部(exit 0);用 --component <Name> 指定主元件
 
   node scripts/design-mirror.mjs --validate
-    驗 manifest 內 storefront / design 對應檔路徑都存在
+    驗 manifest 內所有 path-like 欄位(storefront/design 各檔 + related_storefront[])都存在
 
   node scripts/design-mirror.mjs --diff-against-storefront
     對齊 design submodule update 後跑、列「design 端有改但 storefront 沒跟」、寫進 manifest open_drifts
@@ -83,15 +85,29 @@ function saveManifest(manifest) {
 }
 
 // ---- 工具 ----
-function findComponentByStorefrontPath(manifest, storefrontPath) {
-  // 對齊 storefront 字面、不憑記憶
-  const norm = (p) => p.replace(/^\.\//, '').replace(/^\//, '');
+const normPath = (p) => (p || '').replace(/^\.\//, '').replace(/^\//, '');
+
+function findComponentsByPath(manifest, targetPath) {
+  // 對齊字面、不憑記憶;比對 storefront.component / storefront.css / related_storefront[] 三類 path-like 欄位
+  // shared CSS / shared related path 命中多個元件 → 全部回傳、不挑一(每個 match 標 matched_field)
+  const target = normPath(targetPath);
+  const matches = [];
+  if (!target) return matches;
   for (const [name, entry] of Object.entries(manifest.components || {})) {
-    if (norm(entry.storefront?.component || '') === norm(storefrontPath)) {
-      return { name, entry };
+    const sf = entry.storefront || {};
+    if (normPath(sf.component) === target) {
+      matches.push({ name, entry, matched_field: 'storefront.component' });
+      continue; // 一元件一 match、避免同元件重複
+    }
+    if (normPath(sf.css) === target) {
+      matches.push({ name, entry, matched_field: 'storefront.css' });
+      continue;
+    }
+    if ((entry.related_storefront || []).some((p) => normPath(p) === target)) {
+      matches.push({ name, entry, matched_field: 'related_storefront' });
     }
   }
-  return null;
+  return matches;
 }
 
 function checkFileExists(relPath) {
@@ -101,39 +117,71 @@ function checkFileExists(relPath) {
 // ---- --validate ----
 function cmdValidate() {
   const manifest = loadManifest();
+  const components = manifest.components || {};
+  // 佔位字面(以 "(" 開頭、例「(未建)」「(待 amend)」)視為未建、不驗
+  const isPlaceholder = (p) => !p || p.startsWith('(');
   let issues = 0;
-  for (const [name, entry] of Object.entries(manifest.components || {})) {
-    const storefrontComp = entry.storefront?.component;
-    const designComp = entry.design?.component;
-    // storefront 可能標未建
-    if (storefrontComp && !storefrontComp.startsWith('(') && !checkFileExists(storefrontComp)) {
-      console.error(`❌ [${name}] storefront file missing: ${storefrontComp}`);
-      issues++;
-    }
-    if (designComp && !designComp.startsWith('(') && !checkFileExists(designComp)) {
-      console.error(`❌ [${name}] design file missing: ${designComp}`);
-      issues++;
+  let pathsChecked = 0;
+  for (const [name, entry] of Object.entries(components)) {
+    const sf = entry.storefront || {};
+    const dz = entry.design || {};
+    const fields = [
+      ['storefront.component', sf.component],
+      ['storefront.css', sf.css],
+      ['design.component', dz.component],
+      ['design.css', dz.css],
+      ['design.reference', dz.reference],
+      ['design.explorations_css', dz.explorations_css],
+      ['design.data_mock', dz.data_mock],
+      ['design.handoff_doc', dz.handoff_doc],
+    ];
+    (entry.related_storefront || []).forEach((p, i) => fields.push([`related_storefront[${i}]`, p]));
+    for (const [field, val] of fields) {
+      if (isPlaceholder(val)) continue;
+      pathsChecked++;
+      if (!checkFileExists(val)) {
+        console.error(`❌ [${name}] ${field} missing: ${val}`);
+        issues++;
+      }
     }
   }
   if (issues === 0) {
-    console.log(`✅ Manifest validated, all ${Object.keys(manifest.components || {}).length} components OK`);
+    console.log(`✅ Manifest validated, ${Object.keys(components).length} components / ${pathsChecked} paths OK`);
     process.exit(0);
   } else {
-    console.error(`❌ Found ${issues} broken link(s)`);
+    console.error(`❌ Found ${issues} broken link(s) out of ${pathsChecked} paths checked`);
     process.exit(1);
   }
 }
 
 // ---- --target ----
-function cmdTarget(targetPath, sliceId) {
+function cmdTarget(targetPath, sliceId, componentFilter) {
   const manifest = loadManifest();
-  const found = findComponentByStorefrontPath(manifest, targetPath);
-  if (!found) {
+  let matches = findComponentsByPath(manifest, targetPath);
+  if (matches.length === 0) {
     console.error(`❌ No manifest entry for ${targetPath}`);
-    console.error(`提示:若此檔該入 manifest、請 Cowork amend; 若 Phase 2 範圍、加 --skip-manifest-check 略過(待實作)`);
+    console.error(`提示:若此檔該入 manifest、請 Cowork amend manifest;若屬 Phase 2 範圍或刻意不入 manifest、由 Sean 拍板跳過、勿憑印象。`);
     process.exit(1);
   }
-  const { name, entry } = found;
+  // shared path(css / related)命中多個元件 → 用 --component 指定、否則列出全部(非錯誤、exit 0)
+  if (matches.length > 1) {
+    if (componentFilter) {
+      const filtered = matches.filter((m) => m.name === componentFilter);
+      if (filtered.length === 0) {
+        console.error(`❌ --component ${componentFilter} 不在 ${targetPath} 命中清單(命中:${matches.map((m) => m.name).join(', ')})`);
+        process.exit(1);
+      }
+      matches = filtered;
+    } else {
+      console.log(`📋 ${targetPath} 命中 ${matches.length} 個元件(shared path、非錯誤):`);
+      matches.forEach((m) => {
+        console.log(`   - ${m.name}  [${m.matched_field}]  → ${m.entry.storefront?.component || '(未建)'}`);
+      });
+      console.error(`\n提示:shared path 命中多個元件、本 slice 主元件請用 --component <Name> 指定;若仍無法判定、Cowork/Code 自判 + Sean 拍板,勿憑印象。`);
+      process.exit(0);
+    }
+  }
+  const { name, entry } = matches[0];
   const lines = [];
   lines.push(`📋 動到的 storefront 元件: ${name}`);
   lines.push(`   檔案: ${entry.storefront.component}`);
@@ -260,7 +308,7 @@ if (values.validate) {
 } else if (values['update-global-sync']) {
   cmdUpdateGlobalSync();
 } else if (values.target) {
-  cmdTarget(values.target, values['slice-id']);
+  cmdTarget(values.target, values['slice-id'], values.component);
 } else {
   console.error(`❌ No mode specified. Use --help`);
   process.exit(1);

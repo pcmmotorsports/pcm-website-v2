@@ -61,7 +61,7 @@ components:
   VehicleFinder:
     storefront:
       component: "apps/storefront/src/components/VehicleFinder.tsx"
-      css: "apps/storefront/src/styles/vehicle-drawer.css"
+      css: "(未建、design 有 vehicle-drawer.css、storefront 尚未 ported)"
       last_modified_commit: "(未動於本輪 session)"
       last_modified_date: "(待 amend)"
     design:
@@ -76,6 +76,9 @@ components:
         note: "M-1-13I 待修 bug 1:VehicleFinder push ?brand=X&model=Y&year=Z(3 param) vs ProductsPage/ProductPage 用 ?vehicle=brand:model:year(1 param)"
         plan: "handoff §5 Q1 拍 URL 格式統一、推薦 A=1 param"
         backlog: "#151"
+      - field: "vehicleFinderCssNotPorted"
+        note: "[2026-05-22 Stage-3-codex-fix validate 抓到] design-reference/styles/vehicle-drawer.css 存在、storefront 尚未 ported;layout.tsx L8 一句註解規劃用非真 import;VehicleFinder.tsx 無 CSS import、樣式來源待確認(可能用其他 global css / tokens)。屬 design↔現場真實 drift"
+        plan: "M-1-13I 修 VehicleFinder 時 audit:或 port 該 CSS、或確認用 tokens / global css 達樣式無需 ported file"
 
   ProductPage:
     storefront:

@@ -9,7 +9,7 @@
 | 階段 | 誰跑 | fresh context agent | 抓什麼 |
 |---|---|---|---|
 | A. PRD 寫完 後 | Cowork session | PRD-reviewer(Cowork Agent tool spawn) | PRD 字面 vs 真權威 drift / 業務 override 漏記 / 影響面評估 / 鐵則違反 |
-| B. Slice 指令寫完 後 | Cowork session | slice-reviewer(Cowork Agent tool spawn) | 指令字面 vs PRD vs 真權威 / 禁止清單 / 五件套完整 / manifest impact 段 |
+| B. Slice 指令寫完 後 | Cowork session | slice-reviewer(Cowork Agent tool spawn) | 指令字面 vs PRD vs 真權威 / 禁止清單 / 六件套完整(對齊 CLAUDE.md slice 指令格式段六件套定義)/ manifest impact 段 |
 | C. Code 執行 後 | Code session | code-reviewer(.claude/agents/、Code Task tool spawn) | 鐵則 1-12 / 字面 vs 事實 / manifest 同步 / commit message |
 | D. Milestone 結束 | Sean 手動貼 | Codex(外部) | milestone 級 / 跨 slice 一致性 / 業務邏輯 |
 | E. 每 2-3 milestone | Sean | 肉眼開瀏覽器 | 商品 / 顯示 / 操作 / 業務流程 |
@@ -32,7 +32,7 @@ Cowork 用 Agent tool spawn general-purpose、prompt 範本:
 【任務】審 Cowork 剛寫的 slice 指令字面、抓:
 1. 字面 vs PRD(若有)vs 真權威 drift
 2. 禁止清單可執行不矛盾
-3. 五件套完整(對齊 working-style 第 27 條)
+3. 六件套完整(對齊 CLAUDE.md slice 指令格式段六件套定義)
 4. manifest impact 段填妥(對齊 outputs/stage-3-self-audit.md F-9)
 5. 鐵則 11(字面 vs 事實揭示)+ 鐵則 8(重大改動 plan)
 

@@ -143,9 +143,20 @@ M-1-16   ⏭   200 SKU 種子
 
 ### 7.1 Cowork(新對話)
 
+**Sean 開新 Cowork session 前必先完成 §10 順序 1-3**(貼 §J / 貼 Codex 審查 / Codex findings 無大議題後 push)。**若以下任一未完成、不要用本開場 prompt、新 Cowork session 會錯誤跳過 Codex 直接進 M-1-13I 拍板**(對齊 lessons §12-25 字面內嵌義務 + 5 階段對抗審查鏈階段 D)。
+
+前置確認(Sean 用本 prompt 前自查):
+- [ ] §J 已貼 Cowork app Projects instructions
+- [ ] Codex Review Packet 已貼 chatgpt.com/codex 且 findings 已回 + 處置完
+- [ ] origin/dev 已 push(ahead=0)
+
+三項全綠才用以下 prompt:
+
 ```
 請讀 docs/handoff/2026-05-22-stage-3-workflow-upgrade-cowork-session-end.md 對齊上下文、
 再讀 STATUS.md + docs/PHASE-1-NORTHSTAR.md + docs/patterns/cowork-review-chain.md(新工作流規範)。
+
+前置確認:Sean 已完成 handoff §10 順序 1-3(§J 貼 / Codex 審完 / push 完)。
 
 接續任務:M-1-13I 3 個車款狀態持續傳遞 bug(用 Stage 3 新工作流第一次實證)。
 
@@ -154,6 +165,20 @@ M-1-16   ⏭   200 SKU 種子
 2. Cowork 跑階段 B slice-reviewer(Agent tool spawn fresh)
 3. PASS 後給 Sean 貼 Code
 4. 順帶提議補 A2 延後的兩 hook 腳本(可併本 slice 或獨立 slice)
+```
+
+**若 Codex 仍在審或 findings 待處置、用以下「Codex 處置 prompt」取代:**
+
+```
+請讀 docs/handoff/2026-05-22-stage-3-workflow-upgrade-cowork-session-end.md。
+
+Sean 把 Codex Review Packet(docs/reviews/2026-05-22-stage-3-onboarding-packet.md)findings 貼進來、Cowork 評估:
+1. 哪些 findings 屬大議題、影響 push(列出 + 處置建議)
+2. 哪些 findings 屬小議題、可 push 後追補(列出 + 進 backlog 或下 milestone)
+3. 哪些 findings 是 Codex 誤判 / 重複既有規範(列出 + 反駁字面 source)
+4. 評估完出三方案:全修 / 部分修 / 全 push 後追、Sean 拍
+
+Codex 處置完才進 M-1-13I 開場 prompt(§7.1 主版本)。
 ```
 
 ### 7.2 Code(新 Claude Code session)
