@@ -4425,6 +4425,83 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #165. ⏳ ProductPage / ProductsPage 過 300 行警戒線、未來拆檔評估
+
+- **狀態:** ⏳ 待 trigger(未過 400 必拆線、暫不拆)
+- **優先級:** 🟡 低(功能正常、純檔案大小衛生)
+- **問題:**
+  - ProductPage.tsx 336 行 / ProductsPage.tsx 348 行、皆過鐵則 6「>300 行硬警戒」、未過「>400 行必拆」線
+  - commit `1d82425`(M-1-13I)body 已揭示警戒;本條目作穩定追蹤錨點、避免後 audit 從 commit log 翻找
+- **觸發事件(任一觸發即啟動實作):**
+  - ProductPage / ProductsPage 任一 sub-slice 預估加完 > 400 行
+  - 下次大改這兩檔時順手評估
+- **預期解法(拆檔候選):**
+  - ProductsPage:parseVehicleFromUrl helper 抽 utils(如 product-list-url.ts)
+  - ProductPage:withVehicle helper 抽 utils(如 product-page-utils.ts)
+  - 其他 inline 子元件 / helper 視情況外移
+- **不修會痛在:**
+  - 擴充性:helper 已是明確抽檔入口、預先規劃拆法、未來不在 hot path 臨時拆
+  - 可維護性:超過 400 行的元件難讀難改
+  - bug 可追蹤性:本條目讓未來 audit 看到警戒置頂、不必翻 commit log
+- **估時:** 拆檔 30-45 分(觸發時)
+- **依賴:** 無
+- **發現於:** 2026-05-22 / M-1-13I 階段 C code-reviewer
+- **相關:** apps/storefront/src/components/ProductPage.tsx;apps/storefront/src/components/ProductsPage.tsx;鐵則 6
+
+---
+
+### #166. ⏳ vehiclePill 巢狀互動元素 a11y 長遠重構
+
+- **狀態:** ⏳ 待 trigger(Phase 2 a11y review)
+- **優先級:** 🟡 低(行為與 a11y 正確、純 HTML 規範潔淨度)
+- **問題:**
+  - vehiclePill 結構 = 外層 `<button onClick=導航>` 內嵌 `<span role="button" tabIndex={0} onClick=清車 onKeyDown>`、屬巢狀互動元素(2 個 interactive)
+  - 行為與 a11y 正確(× 子節點可 Tab 聚焦、Enter/Space 觸發清車、stopPropagation 阻止外層導航)、但 HTML 規範上 button 不應含互動後代
+  - 背景:design ProductPage.jsx 原結構即 span 外層 + button 內層(button 嵌 button、亦違規);M-1-13I 改 storefront 為 button + span role=button、屬必要修正(commit `1d82425` body 揭示)
+- **觸發事件(任一觸發即啟動實作):**
+  - Phase 2 a11y audit
+  - 未來導入 jsx-a11y 嚴格 lint(若命中 no-nested-interactive 類規則)
+- **預期解法(候選):**
+  - (a) 拆 flex 兩獨立按鈕(膠囊本體 + ×、視覺並排看似連體)
+  - (b) 外層改非互動容器(div/span)+ 兩個內層 button
+  - (c) 不修、接受偏離(行為與螢幕閱讀器皆正常)
+- **不修會痛在:**
+  - 擴充性:結構候選已列、未來重構有方向
+  - 可維護性:本條目避免下 session 誤判已最佳解
+  - bug 可追蹤性:a11y audit 不會誤以為無待辦
+- **估時:** 重構 20-30 分(觸發時)
+- **依賴:** 無
+- **發現於:** 2026-05-22 / M-1-13I 階段 C code-reviewer
+- **相關:** apps/storefront/src/components/ProductPage.tsx(vehiclePill);commit `1d82425`
+
+---
+
+### #167. ⏳ react-hooks 字面誤導註解掃清 + CLAUDE.md 段對齊實況(repo 未裝 plugin)
+
+- **狀態:** ⏳ 待 trigger(與「是否裝 react-hooks plugin」決策連動)
+- **優先級:** 🟡 低(不影響運作、純註解 / 文件準確度)
+- **問題:**
+  - repo ESLint **未裝** eslint-plugin-react-hooks(eslint.config.js 僅 boundaries + no-restricted-imports);CLAUDE.md L418-424「### React 19 hooks 嚴格」段卻描述 react-hooks/purity + set-state-in-effect + 用 eslint-disable-line 追蹤、讀來像規則 active
+  - 源碼現況(已無 disable 指令殘留):ProductInfo.tsx L7 / L75 有 **prose 註解**提及「防 React 19 react-hooks/exhaustive-deps stale closure」(說明為何補 deps、非 disable 指令);ProductsPage.tsx L209 已是 M-1-13I 改寫的正確註解(明述 repo 未裝 plugin)
+  - M-1-13I 已修:原指令含 `// eslint-disable-next-line react-hooks/exhaustive-deps`、code-reviewer 抓出 repo 未註冊該規則(disable 不存在規則會 lint 報錯)、Code amend 移除(commit `1d82425`)
+- **觸發事件(任一觸發即啟動實作):**
+  - 決定裝 react-hooks plugin 時(先掃清舊誤導註解 + 升級 CLAUDE.md 段)
+  - 下次有人新加 react-hooks 相關註解、reviewer 重抓時
+- **預期解法:**
+  - `grep -rn "react-hooks" apps/*/src packages/*/src`(排除 .next / dist / node_modules)列出全部出現點
+  - ProductInfo.tsx 等 prose 註解改述事實(補 deps 是工程判斷、非 react-hooks 規則強制)、或保留但明示「repo 未裝 plugin」
+  - CLAUDE.md L418-424 段升級:標明「目前 repo 未裝 react-hooks plugin、若新增需評估」、或直接裝 plugin 名實相符(屬另一獨立 slice、Cowork 規劃中)
+- **不修會痛在:**
+  - 擴充性:本條目作為「裝 plugin 前先掃清」依據
+  - 可維護性:誤導註解讓讀者以為 plugin 在守、行為理解偏差
+  - bug 可追蹤性:有條目下 session 看到同類註解不會誤判
+- **估時:** 15-25 分(視 grep 出幾處;不含裝 plugin 本身)
+- **依賴:** 與 react-hooks plugin install slice(Cowork 規劃中)連動
+- **發現於:** 2026-05-22 / M-1-13I 階段 C code-reviewer
+- **相關:** memory project-eslint-no-react-hooks-plugin;CLAUDE.md L418-424;apps/storefront/src/components/ProductInfo.tsx;eslint.config.js
+
+---
+
 ## 紀錄模板
 
 ```markdown
