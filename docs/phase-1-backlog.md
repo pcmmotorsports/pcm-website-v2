@@ -4478,9 +4478,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #167. ⏳ react-hooks 字面誤導註解掃清 + CLAUDE.md 段對齊實況(repo 未裝 plugin)
 
-- **狀態:** ⏳ 待 trigger(與「是否裝 react-hooks plugin」決策連動)
+- **狀態:** ⏳ 部分觸發(M-1-13Z 已裝 plugin + 修 L54/L61 deps + 升級 CLAUDE.md 段;剩 L7/L75 prose 註解掃清待 follow-up slice)
 - **優先級:** 🟡 低(不影響運作、純註解 / 文件準確度)
-- **問題:**
+- **M-1-13Z 更新(2026-05-23):** install slice 已裝 eslint-plugin-react-hooks v7.1.1 + 開 rules-of-hooks / exhaustive-deps,下方「問題」所述「repo 未裝 plugin」「CLAUDE.md 描述 purity…」皆隨之解決;ProductInfo.tsx L54/L61 deps 多餘 product.id 已於本 slice 修。**下方問題段指針作廢提醒:** ProductsPage 原 M-1-13I「明述 repo 未裝 plugin」那段 mount-effect 註解(問題段所指 L209)已於本 slice 改寫為 `eslint-disable-next-line` + 冪等理由,該 L209 舊字面已不存在於 source、勿照舊行號 grep。**剩餘範圍縮為:** ProductInfo.tsx L7/L75 兩段 prose 註解措辭校準 + 全 repo `grep react-hooks` 殘留字面掃清,留 follow-up slice 獨立處理。
+- **問題(以下為 2026-05-22 發現時記錄、部分已由 M-1-13Z 解決、見上方更新):**
   - repo ESLint **未裝** eslint-plugin-react-hooks(eslint.config.js 僅 boundaries + no-restricted-imports);CLAUDE.md L418-424「### React 19 hooks 嚴格」段卻描述 react-hooks/purity + set-state-in-effect + 用 eslint-disable-line 追蹤、讀來像規則 active
   - 源碼現況(已無 disable 指令殘留):ProductInfo.tsx L7 / L75 有 **prose 註解**提及「防 React 19 react-hooks/exhaustive-deps stale closure」(說明為何補 deps、非 disable 指令);ProductsPage.tsx L209 已是 M-1-13I 改寫的正確註解(明述 repo 未裝 plugin)
   - M-1-13I 已修:原指令含 `// eslint-disable-next-line react-hooks/exhaustive-deps`、code-reviewer 抓出 repo 未註冊該規則(disable 不存在規則會 lint 報錯)、Code amend 移除(commit `1d82425`)
@@ -4499,6 +4500,70 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 與 react-hooks plugin install slice(Cowork 規劃中)連動
 - **發現於:** 2026-05-22 / M-1-13I 階段 C code-reviewer
 - **相關:** memory project-eslint-no-react-hooks-plugin;CLAUDE.md L418-424;apps/storefront/src/components/ProductInfo.tsx;eslint.config.js
+
+---
+
+### #168. ⏳ eslint-plugin-react-hooks v7 新規則開啟評估
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟡 低(plugin 已裝、現開 2 條規則已護欄 React 基線;新規則屬「升一級嚴格」、不修不影響運作)
+- **問題:**
+  - M-1-13Z install slice(2026-05-23)裝 eslint-plugin-react-hooks v7.1.1、只開 rules-of-hooks + exhaustive-deps 兩條 v5 老規則(Sean Q2=A 拍板保守設定)
+  - v7 內含未開的新規則(從 npm pack 抽 .d.ts):
+    - `react-hooks/purity` — 拒絕 render body 內 `Date.now()` / `Math.random()` 等不純呼叫
+    - `react-hooks/set-state-in-effect` — useEffect 內 setState 邏輯(對 `try/finally` vs `.catch()` AST 敏感)
+    - `react-hooks/no-deriving-state-in-effects` — 打 useState + useEffect 同步衍生 state 的 pattern
+    - `react-hooks/immutability` — props / state 不可變紀律
+    - (其他:`refs` / `static-components` / `use-memo` / `preserve-manual-memoization` / `component-hook-factories` / `error-boundaries` 等、完整清單從 npm pack 抽 `.d.ts`)
+  - 開啟時機未定、需 follow-up slice 評估
+- **觸發事件(任一觸發即啟動實作):**
+  - M-1-14 之前 / Sean 主動拍
+  - v7 升 0.x.y 出新規則時
+  - 新加 React code 撞到該擋的 pattern(case-by-case 視 review 結果決定)
+- **預期解法:**
+  - follow-up slice 評估每條新規則對 storefront 現有 code 的違規數
+  - 預估冒 10-30 條違規(purity 打 render body、set-state-in-effect 打 useEffect 內 setState、no-deriving-state 打 useState + useEffect 同步衍生)
+  - 違規逐條評估修法:useMemo / useRef / 重構 logic;case-by-case
+  - 規則開啟批次 vs 漸進(可一次全開或分階段、視違規數)
+- **不修會痛在:**
+  - 擴充性:Phase 2 多人協作時、新加 React code 可能踩 v7 新規則該擋的坑、回去修費時
+  - 可維護性:現開 2 條已能擋 stale closure / 漏 deps 大宗 bug、新規則屬「再嚴一級」、不開短期不痛、累積愈晚開愈痛
+  - bug 可追蹤性:不開 = 多潛在 React bug 入口(render body 不純呼叫 / setState 在 effect 內未防 / state 衍生 pattern 等)、開 = 違規清單明確
+- **估時:** 60-90 分鐘(install slice 多 4-6 倍時間、視違規數)
+- **依賴:** 無前置;可獨立啟動
+- **發現於:** 2026-05-23 / M-1-13Z install slice(Sean Q2=A 拍板路徑)
+- **相關:** #167(react-hooks 字面誤導註解掃清);CLAUDE.md L418-424;eslint.config.js React block
+
+---
+
+### #169. ⏳ next-env.d.ts 加 .gitignore 評估(Next 16 自動生成檔)
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟢 觀察(不影響運作、影響工作樹 cleanliness)
+- **問題:**
+  - apps/storefront/next-env.d.ts 是 Next.js 自動生成檔(檔頭明寫 `// NOTE: This file should not be edited`)
+  - 當前 repo 把它 tracked(歷史 commit 含)、Next 16 build 觸發自動更新會導致 dirty
+  - M-1-13Z install slice 跑 build 後本機 dirty、Sean Q1=A 拍納入該 slice commit 跟上狀態、但長遠每次 build 都 dirty 不是根治
+  - Next.js 官方 docs 建議 next-env.d.ts 加 .gitignore(讓每次 build 自動生成、不入版控)、PCM repo 沒對齊
+- **觸發事件(任一觸發即啟動實作):**
+  - 下次因 next-env.d.ts dirty 觸發 Sean / Code 處置時
+  - Next 16 patch 升級 + next-env.d.ts 字面變更時
+  - 工作流升級評估 working tree cleanliness 紀律時
+- **預期解法:**
+  - 加 `apps/storefront/next-env.d.ts` 進 .gitignore(或 root .gitignore + apps/storefront/.gitignore 視結構)
+  - `git rm --cached apps/storefront/next-env.d.ts` 從 tracking 移除(保檔在本機)
+  - commit 一刀「chore(infra): next-env.d.ts 加 gitignore、Next 16 自動生成不入版控」
+  - 跑 build 確認下次不再 dirty
+- **不修會痛在:**
+  - 擴充性:每次 Next 升級 / build 流程動就觸發 dirty、長遠累積誤判
+  - 可維護性:每 session 起手 5 綠檢查可能 fail 在這檔、要每次處置(納入 / restore)、浪費判斷時間
+  - bug 可追蹤性:dirty file 混進 commit 容易污染歷史、未來 audit 時找不到原因
+- **估時:** 10-15 分鐘(改 .gitignore + git rm --cached + 跑 build 驗 + commit)
+- **依賴:** 無前置
+- **發現於:** 2026-05-23 / M-1-13Z install slice(外部 reviewer M3 抓 dirty file + Sean Q1=A 拍納入時順手記)
+- **相關:** apps/storefront/next-env.d.ts;Next.js 官方 docs
 
 ---
 

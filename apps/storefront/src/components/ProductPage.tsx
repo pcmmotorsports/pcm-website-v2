@@ -36,7 +36,7 @@
 
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Fragment, useMemo } from 'react';
+import { Fragment, useCallback, useMemo } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { MOCK_PRODUCTS, type MockProduct } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
@@ -87,11 +87,16 @@ export function ProductPage({ product, tier }: ProductPageProps) {
   // M-1-13I Bug 2 修:把 vehicle URL param 附加進 href(若存在)
   // 對齊 design ProductPage.jsx L40-82(design 用 SPA globalVehicle 跨頁、
   // storefront 無此機制必須靠 URL 帶;屬合理 URL 轉譯、非反向遷就 design、不違鐵則 1)
-  const withVehicle = (href: string): string => {
-    if (!vehicle) return href;
-    const sep = href.includes('?') ? '&' : '?';
-    return `${href}${sep}vehicle=${encodeURIComponent(vehicle)}`;
-  };
+  // M-1-13Z external reviewer Q2 升級:用 useCallback 取代原 disable + 註解、
+  // 讓 lint rule 繼續守住未來閉包變更(對齊 Sean 2026-05-23 Q2 拍板)
+  const withVehicle = useCallback(
+    (href: string): string => {
+      if (!vehicle) return href;
+      const sep = href.includes('?') ? '&' : '?';
+      return `${href}${sep}vehicle=${encodeURIComponent(vehicle)}`;
+    },
+    [vehicle],
+  );
 
   // Breadcrumb 8-source 完整邏輯(對齊 design L40-82 字面、改用 Next.js Link href 取代 onNav callback)
   // Priority: from(URL) > 預設 'catalog' fallback
@@ -142,7 +147,9 @@ export function ProductPage({ product, tier }: ProductPageProps) {
 
     arr.push({ label: product.name, current: true });
     return arr;
-  }, [from, sourceId, sourceLabel, brand, category, categoryMain, categorySub, product.name, vehicle]);
+    // M-1-13Z:withVehicle 為 useCallback([vehicle])、已涵蓋 vehicle、故 deps 列 withVehicle 不另列 vehicle
+    // (exhaustive-deps 判 vehicle 為 unnecessary;withVehicle 變更即 vehicle 變更、連動正確)
+  }, [from, sourceId, sourceLabel, brand, category, categoryMain, categorySub, product.name, withVehicle]);
 
   // Vehicle pill — separate filter indicator(對齊 design L84-94)
   // URL format: vehicle=brandId:modelId:year(冒號分隔)

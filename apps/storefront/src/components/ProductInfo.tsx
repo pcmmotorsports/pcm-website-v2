@@ -51,14 +51,16 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
     if (c.includes('避震') || c.includes('前叉')) return ['Road', 'Track'];
     if (c.includes('卡鉗') || c.includes('碟盤')) return ['街道版', '賽道版'];
     return null;
-  }, [product.id, product.category]);
+    // M-1-13Z: 刪多餘 product.id dep(body 未用、純語意正確化、Sean 2026-05-23 Q=A 拍板解禁)
+  }, [product.category]);
 
   // Color options — 主色 + 2 個 extras(對齊 design L107-111 字面、pool 8 色)
   const colorOptions = useMemo<string[]>(() => {
     const pool = ['black', 'carbon', 'red', 'gold', 'titanium', 'silver', 'yellow', 'blue'];
     const extras = pool.filter((c) => c !== product.color).slice(0, 2);
     return [product.color, ...extras];
-  }, [product.id, product.color]);
+    // M-1-13Z: 刪多餘 product.id dep(body 未用、純語意正確化、Sean 2026-05-23 Q=A 拍板解禁)
+  }, [product.color]);
 
   // Options state(對齊 design L113-115)
   const [color, setColor] = useState<string>(product.color);

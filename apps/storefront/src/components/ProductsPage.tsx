@@ -206,10 +206,10 @@ export function ProductsPage() {
     dispatch(selectVehicleBrand(v.brand));
     if (v.model) dispatch(selectVehicleModel(v.model));
     if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
-    // 本 repo ESLint 未註冊 react-hooks plugin(eslint.config.js 僅 boundaries +
-    // no-restricted-imports、無 exhaustive-deps 規則)、mount-only [] 不需 disable 註解
-    // (對齊 CartContext / Header 既有 [] effect 慣例)
-  }, []); // 僅 mount 讀一次(跨頁進站讀 URL);同頁 vehicle 變更靠 cascade state、不靠此 effect
+    // 僅 mount 時讀一次、避免 dispatch 改 URL 觸發 loop
+    // strict mode dev 跑兩次、cascadeFilterReducer 對同 brand 連選冪等可吸收
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = filterProducts(MOCK_PRODUCTS, cascade, extras, data.brands);
   const sorted = sortProducts(filtered, sort);

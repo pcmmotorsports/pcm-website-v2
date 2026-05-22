@@ -20,6 +20,7 @@
 
 const boundaries = require('eslint-plugin-boundaries');
 const tsParser = require('@typescript-eslint/parser');
+const reactHooks = require('eslint-plugin-react-hooks');
 
 const MONOREPO_ROOT = __dirname;
 
@@ -121,6 +122,27 @@ module.exports = [
           ],
         },
       ],
+    },
+  },
+  // ===== React Hooks 紀律(對齊 docs/patterns/slice-checkpoint.md §2「Three-Green 定義」+ Sean 2026-05-22 Q1/Q2 + 2026-05-23 重拍)=====
+  // 裝 eslint-plugin-react-hooks v7.1.1 stable:只開 rules-of-hooks(防 hooks 跳出 React 函式 / 條件呼叫)+
+  // exhaustive-deps(防 useEffect / useMemo / useCallback deps 漏列)兩條 v5 老規則。
+  // v7 內其他新規則(purity / set-state-in-effect / no-deriving-state-in-effects / immutability 等)不開、
+  // 未來 follow-up slice 評估開啟(對齊 backlog #168 + CLAUDE.md「v7 內未開的新規則演進路徑」)。
+  //
+  // files glob 限縮 .tsx(.ts 無 React hooks):
+  // - apps/storefront/**/*.tsx(Phase 1 唯一 React app)
+  // - packages/ui/**/*.tsx(共用 React UI 元件)
+  // 其他 packages(domain / ports / use-cases / adapters / schemas)+ apps/api / admin / sync-engine
+  // 屬 server / pure logic、不需 React hooks 規則。
+  {
+    files: ['apps/storefront/**/*.tsx', 'packages/ui/**/*.tsx'],
+    plugins: {
+      'react-hooks': reactHooks,
+    },
+    rules: {
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'error',
     },
   },
 ];

@@ -319,7 +319,7 @@ busboy 失敗 → 停下回報、不自行 retry。
 
 拉 Next 16 / React 19 / Tailwind v4 / Supabase 等版本對應官方文件、補訓練資料落差。
 
-- 何時用:不確定當前版本 API 細節時、特別是 React 19 hooks(purity / set-state-in-effect)、Next 16 app router、Tailwind v4 CSS 變數 config、Supabase SDK
+- 何時用:不確定當前版本 API 細節時、特別是 React 19 hooks(rules-of-hooks / exhaustive-deps;v7 未開新規則演進路徑見 L418-424 段)、Next 16 app router、Tailwind v4 CSS 變數 config、Supabase SDK
 - 用法:prompt 加「use context7」或呼叫 `mcp__context7` tool
 
 ---
@@ -415,11 +415,31 @@ zsh 在 glob 無匹配時 exit 1、含 glob 加 `|| true` 或用 `find`。
 
 ## React / Next.js 規則
 
-### React 19 hooks 嚴格
+### React 19 hooks 紀律
 
-- `react-hooks/purity` 拒絕 render body 內 `Date.now()`
-- `react-hooks/set-state-in-effect` 對 `try/finally` vs `.catch()` AST 敏感
-- `try/finally` 必須完整包 `await + setState`
+裝了 eslint-plugin-react-hooks v7.1.1 stable(2026-05-23 install slice M-1-13Z、Sean Q1=A/Q2=A 拍板):**只開兩條 v5 老規則**:
+- `react-hooks/rules-of-hooks`(error)— 防 hooks 在條件 / loop / nested function 內呼叫、防跳出 React 函式
+- `react-hooks/exhaustive-deps`(error)— 防 useEffect / useMemo / useCallback deps 漏列或多列(stale closure 真 bug 防線)
+
+套用範圍(eslint.config.js React-only block):`apps/storefront/**/*.tsx` + `packages/ui/**/*.tsx`。
+
+mount-only useEffect(`[]` deps + closure 變數)合法寫法:
+```ts
+useEffect(() => {
+  // mount-only 邏輯
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
+```
+配內聯註解述意圖(為何 mount-only)、不直接刪 disable。deps 多餘(如 unnecessary dependency)則直接刪、屬語意正確化、不加 disable。
+
+**v7 內未開的新規則演進路徑**:v7.1.1 另含一批 React Compiler 相關規則、本 slice **未開**、留 follow-up slice 評估(對齊 backlog #168):
+- `react-hooks/purity` — 拒絕 render body 內 `Date.now()` / `Math.random()` 等不純呼叫
+- `react-hooks/set-state-in-effect` — useEffect 內 setState 邏輯(對 `try/finally` vs `.catch()` AST 敏感)
+- `react-hooks/no-deriving-state-in-effects` — 打 useState + useEffect 同步衍生 state 的 pattern
+- `react-hooks/immutability` — props / state 不可變紀律
+- (其他:`refs` / `static-components` / `use-memo` / `preserve-manual-memoization` / `component-hook-factories` / `error-boundaries` 等、完整清單從 npm pack 抽 `.d.ts`)
+
+開啟時機:M-1-14 之前 / Sean 主動拍 / v7 出新規則時;預估一次冒 10-30 條違規、需 case-by-case 修法(useMemo / useRef / 重構 logic)、屬獨立 slice。
 
 規則修法超出 slice 範圍時、用 `eslint-disable-line` + 註解 + backlog 追蹤、不擴張 slice。
 
