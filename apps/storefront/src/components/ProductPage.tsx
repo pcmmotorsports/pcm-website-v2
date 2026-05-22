@@ -84,54 +84,65 @@ export function ProductPage({ product, tier }: ProductPageProps) {
   const categoryMain = (product.category || '').split('·')[0]?.trim() || '商品';
   const categorySub = (product.category || '').split('·')[1]?.trim() || '';
 
+  // M-1-13I Bug 2 修:把 vehicle URL param 附加進 href(若存在)
+  // 對齊 design ProductPage.jsx L40-82(design 用 SPA globalVehicle 跨頁、
+  // storefront 無此機制必須靠 URL 帶;屬合理 URL 轉譯、非反向遷就 design、不違鐵則 1)
+  const withVehicle = (href: string): string => {
+    if (!vehicle) return href;
+    const sep = href.includes('?') ? '&' : '?';
+    return `${href}${sep}vehicle=${encodeURIComponent(vehicle)}`;
+  };
+
   // Breadcrumb 8-source 完整邏輯(對齊 design L40-82 字面、改用 Next.js Link href 取代 onNav callback)
   // Priority: from(URL) > 預設 'catalog' fallback
+  // M-1-13I Bug 2:所有導覽 href 包 withVehicle(12 處 = 7 source-based + 5 legacy fallback);
+  // 首頁 '/' 與商品名 current 條不帶 vehicle(回首頁不保留車種、current 無 href)。
   const crumbs = useMemo<Crumb[]>(() => {
     const arr: Crumb[] = [{ label: '首頁', href: '/' }];
 
     if (from === 'brand' && sourceId) {
-      arr.push({ label: '品牌', href: '/brands' });
+      arr.push({ label: '品牌', href: withVehicle('/brands') });
       arr.push({
         label: sourceLabel || sourceId.toUpperCase(),
-        href: `/brands/${sourceId}`,
+        href: withVehicle(`/brands/${sourceId}`),
       });
     } else if (from === 'new') {
-      arr.push({ label: sourceLabel || '新品上架', href: '/products?filter=new' });
+      arr.push({ label: sourceLabel || '新品上架', href: withVehicle('/products?filter=new') });
     } else if (from === 'sale') {
-      arr.push({ label: sourceLabel || '特價精選', href: '/products?filter=sale' });
+      arr.push({ label: sourceLabel || '特價精選', href: withVehicle('/products?filter=sale') });
     } else if (from === 'home') {
       // From homepage — no extra crumb, just 首頁 → product
     } else if (from === 'search') {
-      arr.push({ label: sourceLabel || '搜尋結果', href: '/search' });
+      arr.push({ label: sourceLabel || '搜尋結果', href: withVehicle('/search') });
     } else if (from === 'catalog') {
-      arr.push({ label: '商品目錄', href: '/products' });
+      arr.push({ label: '商品目錄', href: withVehicle('/products') });
       // 簡化:直接顯示 searchParam category 字面 OR product.categoryMain
       // 不查 MOCK_CATEGORIES.id→name 映射(raw 字面一致、不留屎)
       const categoryLabel = category || categoryMain;
       if (categoryLabel) {
         arr.push({
           label: categoryLabel,
-          href: `/products?category=${encodeURIComponent(categoryLabel)}`,
+          href: withVehicle(`/products?category=${encodeURIComponent(categoryLabel)}`),
         });
       }
     } else {
       // Fallback:legacy productFilter 路徑(對齊 design L66-78)
-      arr.push({ label: '商品目錄', href: '/products' });
+      arr.push({ label: '商品目錄', href: withVehicle('/products') });
       if (brand) {
-        arr.push({ label: brand.toUpperCase(), href: `/products?brand=${brand}` });
+        arr.push({ label: brand.toUpperCase(), href: withVehicle(`/products?brand=${brand}`) });
       } else if (category) {
-        arr.push({ label: category, href: `/products?category=${encodeURIComponent(category)}` });
+        arr.push({ label: category, href: withVehicle(`/products?category=${encodeURIComponent(category)}`) });
       } else if (categoryMain) {
-        arr.push({ label: categoryMain, href: '/products' });
+        arr.push({ label: categoryMain, href: withVehicle('/products') });
       }
       if (categorySub && !brand) {
-        arr.push({ label: categorySub, href: '/products' });
+        arr.push({ label: categorySub, href: withVehicle('/products') });
       }
     }
 
     arr.push({ label: product.name, current: true });
     return arr;
-  }, [from, sourceId, sourceLabel, brand, category, categoryMain, categorySub, product.name]);
+  }, [from, sourceId, sourceLabel, brand, category, categoryMain, categorySub, product.name, vehicle]);
 
   // Vehicle pill — separate filter indicator(對齊 design L84-94)
   // URL format: vehicle=brandId:modelId:year(冒號分隔)
@@ -151,6 +162,13 @@ export function ProductPage({ product, tier }: ProductPageProps) {
     params.delete('vehicle');
     const q = params.toString();
     router.replace(q ? `${pathname}?${q}` : pathname);
+  };
+
+  // M-1-13I Bug 3 修:pill 本體點擊 → 跳 /products 帶 vehicle(對齊 design L171-180、
+  // SPA onNav('products', { vehicle }) 轉譯成 URL push;屬合理 URL 轉譯、行為對等)
+  const handleVehicleNavigate = () => {
+    if (!vehicle) return;
+    router.push(`/products?vehicle=${encodeURIComponent(vehicle)}`);
   };
 
   // M-1-13H-6:Related 同分類商品(對應 HANDOFF #16);用 categoryMain(「操控部品」等大類、
@@ -187,9 +205,10 @@ export function ProductPage({ product, tier }: ProductPageProps) {
           ))}
           {vehiclePill && (
             <button
+              type="button"
               className="pd-vehicle-pill"
-              onClick={handleClearVehicle}
-              aria-label={`清除車輛篩選 ${vehiclePill.label}`}
+              onClick={handleVehicleNavigate}
+              aria-label={`回到商品列表 ${vehiclePill.label}`}
             >
               <svg
                 width="14"
@@ -197,13 +216,30 @@ export function ProductPage({ product, tier }: ProductPageProps) {
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="1.8"
-                aria-hidden="true"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
               >
                 <path d="M5 17h14M7 17V7a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v10" />
               </svg>
               <span>{vehiclePill.label}</span>
-              <span className="pd-vehicle-pill-x" aria-hidden="true">
+              <span
+                className="pd-vehicle-pill-x"
+                role="button"
+                tabIndex={0}
+                aria-label={`清除車輛篩選 ${vehiclePill.label}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClearVehicle();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleClearVehicle();
+                  }
+                }}
+              >
                 ×
               </span>
             </button>

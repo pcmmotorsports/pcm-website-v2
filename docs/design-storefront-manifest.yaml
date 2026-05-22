@@ -52,33 +52,22 @@ components:
         decision_source: "STATUS L24 (#161 M-1-13e-pre-3 起延伸)"
         backlog: "#161"
         reason: "Sean 業務拍板、Phase 1 不顯庫存"
-    open_drifts:
-      - field: "vehicleStatePersistenceCrossPage"
-        note: "M-1-13I 待修 bug 1:ProductsPage 不讀 URL ?vehicle=、車種跨頁丟失"
-        plan: "handoff/2026-05-22-end-of-session.md §5 Q1+Q2 待 Sean 拍板"
-        backlog: "#151 + #152"
+    open_drifts: []
 
   VehicleFinder:
     storefront:
       component: "apps/storefront/src/components/VehicleFinder.tsx"
-      css: "(未建、design 有 vehicle-drawer.css、storefront 尚未 ported)"
+      css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-finder* 21 處
       last_modified_commit: "(未動於本輪 session)"
       last_modified_date: "(待 amend)"
     design:
       component: "design-reference/components/HomePage.jsx"  # VehicleFinder 在 design 是 HomePage 內元素
-      css: "design-reference/styles/vehicle-drawer.css"
+      css: "design-reference/styles/home.css"  # .ed-finder* 21 處(對齊 home.css 字面、非 vehicle-drawer.css)
     related_storefront:
       - "apps/storefront/src/components/ProductsPage.tsx"
       - "apps/storefront/src/components/ProductPage.tsx"
     business_overrides: []
-    open_drifts:
-      - field: "urlFormatInconsistency"
-        note: "M-1-13I 待修 bug 1:VehicleFinder push ?brand=X&model=Y&year=Z(3 param) vs ProductsPage/ProductPage 用 ?vehicle=brand:model:year(1 param)"
-        plan: "handoff §5 Q1 拍 URL 格式統一、推薦 A=1 param"
-        backlog: "#151"
-      - field: "vehicleFinderCssNotPorted"
-        note: "[2026-05-22 Stage-3-codex-fix validate 抓到] design-reference/styles/vehicle-drawer.css 存在、storefront 尚未 ported;layout.tsx L8 一句註解規劃用非真 import;VehicleFinder.tsx 無 CSS import、樣式來源待確認(可能用其他 global css / tokens)。屬 design↔現場真實 drift"
-        plan: "M-1-13I 修 VehicleFinder 時 audit:或 port 該 CSS、或確認用 tokens / global css 達樣式無需 ported file"
+    open_drifts: []
 
   ProductPage:
     storefront:
@@ -134,13 +123,7 @@ components:
         decided_at: "2026-05-21"
         decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q2"
         reason: "Phase 1 業務指定、Phase 2 接 Supabase product_spotlights 欄位名一致對應"
-    open_drifts:
-      - field: "vehiclePillButton"
-        note: "M-1-13I 待修 bug 3:vehiclePill 整個 button onClick={handleClearVehicle}、應拆 pill 本體導航 + × 清除兩層"
-        plan: "handoff §5"
-      - field: "crumbsHrefMissingVehicle"
-        note: "M-1-13I 待修 bug 2:商品頁麵包屑點回商品目錄、href 不帶 vehicle 參數、車種清空"
-        plan: "handoff §5"
+    open_drifts: []
 
   ProductHighlights:
     storefront:

@@ -3,6 +3,11 @@
 //
 // design 用 window.PCM_DATA.motoBrands → 改 import { MOCK_MOTO_BRANDS }
 // React.useState → import { useState }
+//
+// M-1-13I Q1=C 雙格式註標:本元件 push 長版 ?brand=<id>&model=<id>&year=<str>(3 param、ID-based);
+// ProductCard href 用短版 ?vehicle=<brandId>:<modelId>:<year>(1 param)。ProductsPage.parseVehicleFromUrl
+// 兩種都讀(短版優先、長版 fallback)。Q1=C 拍板維持 push 端 3 param 不動;未來 milestone 若統一改短版、
+// 同步刪 ProductsPage parseVehicleFromUrl 的 else 分支。
 
 'use client';
 

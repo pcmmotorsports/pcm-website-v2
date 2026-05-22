@@ -23,8 +23,16 @@
 'use client';
 
 import { useEffect, useReducer, useState } from 'react';
+import { useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { cascadeFilterReducer, makeInitialCascadeState, type CascadeFilterState } from '@pcm/ui';
+import {
+  cascadeFilterReducer,
+  makeInitialCascadeState,
+  selectVehicleBrand,
+  selectVehicleModel,
+  selectVehicleYear,
+  type CascadeFilterState,
+} from '@pcm/ui';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { CascadeFilterTop } from './CascadeFilterTop';
@@ -46,6 +54,42 @@ const data: FilterTopData = {
   categories: MOCK_CATEGORIES,
   brands: MOCK_BRANDS,
 };
+
+// 解析 URL vehicle 參數 → VehicleSelection(name-based、對齊 reducer 介面)
+// Q1=C 雙格式:短版 ?vehicle=brandId:modelId:year 優先、長版 ?brand=&model=&year= fallback
+// 短版優先因 ProductCard href 用短版(內部生成主路徑);
+// 長版 fallback 吸收 VehicleFinder 目前仍 push 3 param 的歷史相容(未解決偏離)、
+// 未來 milestone 統一 VehicleFinder 改短版時刪 else 分支即可。
+function parseVehicleFromUrl(
+  searchParams: URLSearchParams | ReadonlyURLSearchParams,
+): { brand: string; model?: string; year?: number } | null {
+  const v = searchParams.get('vehicle');
+  let brandId: string | null = null;
+  let modelId: string | null = null;
+  let yearStr: string | null = null;
+  if (v) {
+    const parts = v.split(':');
+    brandId = parts[0] || null;
+    modelId = parts[1] || null;
+    yearStr = parts[2] || null;
+  } else {
+    brandId = searchParams.get('brand');
+    modelId = searchParams.get('model');
+    yearStr = searchParams.get('year');
+  }
+  if (!brandId) return null;
+  const brandObj = MOCK_MOTO_BRANDS.find((b) => b.id === brandId);
+  if (!brandObj) return null;
+  const modelObj = modelId
+    ? brandObj.models?.find((m) => m.id === modelId)
+    : null;
+  const year = yearStr ? Number.parseInt(yearStr, 10) : undefined;
+  return {
+    brand: brandObj.name,
+    model: modelObj?.name,
+    year: year != null && Number.isFinite(year) ? year : undefined,
+  };
+}
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
 function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
@@ -150,6 +194,22 @@ export function ProductsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(25);
+  const searchParams = useSearchParams();
+
+  // M-1-13I Bug 1 修:mount 時讀 URL vehicle 參數 → dispatch reducer(Q1=C 雙格式)
+  // strict mode dev 環境 useEffect mount 跑兩次、會 dispatch 兩次;
+  // cascadeFilterReducer 對同 brand 連選冪等(第二次重設同樣狀態)、實務上無 bug、
+  // dev console 看 state 日誌會多一輪、屬正常。
+  useEffect(() => {
+    const v = parseVehicleFromUrl(searchParams);
+    if (!v) return;
+    dispatch(selectVehicleBrand(v.brand));
+    if (v.model) dispatch(selectVehicleModel(v.model));
+    if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
+    // 本 repo ESLint 未註冊 react-hooks plugin(eslint.config.js 僅 boundaries +
+    // no-restricted-imports、無 exhaustive-deps 規則)、mount-only [] 不需 disable 註解
+    // (對齊 CartContext / Header 既有 [] effect 慣例)
+  }, []); // 僅 mount 讀一次(跨頁進站讀 URL);同頁 vehicle 變更靠 cascade state、不靠此 effect
 
   const filtered = filterProducts(MOCK_PRODUCTS, cascade, extras, data.brands);
   const sorted = sortProducts(filtered, sort);

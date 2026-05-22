@@ -10,11 +10,12 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 
 const mockReplace = vi.fn();
+const mockPush = vi.fn();
 let mockSearchParams = new URLSearchParams();
 
 vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
-  useRouter: () => ({ push: vi.fn(), replace: mockReplace }),
+  useRouter: () => ({ push: mockPush, replace: mockReplace }),
   usePathname: () => '/products/lightech-1',
 }));
 
@@ -42,6 +43,7 @@ beforeAll(() => {
 afterEach(() => {
   cleanup();
   mockReplace.mockReset();
+  mockPush.mockReset();
   mockSearchParams = new URLSearchParams();
   // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
   if (typeof window !== 'undefined') window.localStorage.clear();
@@ -79,12 +81,26 @@ describe('ProductPage', () => {
   it('should render vehicle pill when vehicle searchParam set', () => {
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
     render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
-    // vehiclePill label = 'YAMAHA · YZF-R6 · 2024'
-    const pill = screen.getByLabelText(/清除車輛篩選/);
+    // M-1-13I Bug 3:pill 拆兩層、外層 button(本體導航)aria-label「回到商品列表 ...」、
+    // 內層 span.×(清除)aria-label「清除車輛篩選 ...」;render 驗外層 button 含 label 字面
+    // (vehiclePill label = 'YAMAHA · YZF-R6 · 2024')
+    const pill = screen.getByLabelText(/回到商品列表/);
     expect(pill).toBeDefined();
     expect(pill.textContent).toContain('YAMAHA');
     expect(pill.textContent).toContain('YZF-R6');
     expect(pill.textContent).toContain('2024');
+  });
+
+  it('should call router.push to /products with vehicle when pill body clicked', () => {
+    // M-1-13I Bug 3:點 pill 本體(外層 button、非 ×)→ router.push 商品列表帶 vehicle
+    mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    const pill = screen.getByLabelText(/回到商品列表/);
+    fireEvent.click(pill);
+    expect(mockPush).toHaveBeenCalledOnce();
+    const calledWith = mockPush.mock.calls[0]![0] as string;
+    expect(calledWith).toContain('/products?vehicle=');
+    expect(calledWith).toContain('yamaha'); // encodeURIComponent('yamaha:r6:2024')
   });
 
   it('should call router.replace without vehicle when pill × clicked', () => {

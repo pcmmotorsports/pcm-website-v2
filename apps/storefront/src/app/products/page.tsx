@@ -6,6 +6,10 @@
 import type { Metadata } from 'next';
 import { ProductsPage } from '@/components/ProductsPage';
 
+// useSearchParams 在 client component 需 route 端標 dynamic、否則 production build 報
+// Static Generation 錯;對齊首頁 page.tsx L31-34 既有慣例(Phase 1 dev 真資料動態)
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   title: '商品目錄 — PCM Motorsports',
   description: '高端機車零件選品 · 依車款 / 分類 / 品牌篩選',

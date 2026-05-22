@@ -13,6 +13,9 @@ import { cleanup, render as rtlRender, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
+  // M-1-13I Bug 1:ProductsPage 新增 useSearchParams 讀 URL vehicle、mock 回空參數
+  // (本 smoke test 不帶 vehicle、parseVehicleFromUrl 回 null、不 dispatch、render 預設「全部商品」)
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 import { ProductsPage } from './ProductsPage';

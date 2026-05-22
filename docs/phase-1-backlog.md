@@ -4400,6 +4400,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #164. ⏳ design vehicle-drawer.css 抽屜選車器 storefront 未建
+
+- **狀態:** ⏳ 待 trigger(design 有、storefront 未對應建)
+- **分流:** P2-later(視 design 全站對 vehicle-drawer 使用頻率;低頻 Phase 2 可接受、高頻評估搬 Phase 1)
+- **優先級:** 🟡 低(VehicleFinder 桌機 inline 三 select bar 已建並運作、抽屜為另一入口形式、不阻塞 Phase 1)
+- **問題:**
+  - 真權威字面:design-reference/styles/vehicle-drawer.css(.vf-overlay 抽屜式右側滑入選車器、37 處 .vf-* 樣式)
+  - storefront 現況:VehicleFinder 元件已建(.ed-finder 樣式、桌機 inline 三 select bar、真權威 = home.css 的 .ed-finder* 21 處)、但 design 另有抽屜式選車器(.vf-overlay)未對應建
+  - 影響:視 design 全站對 vehicle-drawer 的使用頻率而定;若僅特定流程觸發、屬 Phase 2 範圍可接受;若高頻則需評估搬到 Phase 1
+- **觸發事件(任一觸發即啟動實作):**
+  - Phase 2 啟動車種跨頁全站同步、需統一選車器入口
+  - design 全站 vehicle-drawer 使用頻率經確認為高頻
+- **預期解法:**
+  - port design vehicle-drawer.css(.vf-overlay)+ 對應抽屜元件(右側滑入)、作為全站車種選擇統一入口、收斂目前 VehicleFinder(首頁)+ cascade(FilterTop / FilterDrawer)雙來源
+- **不修會痛在:**
+  - 擴充性:抽屜式選車器設計獨立、未來可作為「全站車種選擇」統一入口、收斂目前 VehicleFinder 桌機 + cascade 雙重來源
+  - 可維護性:目前 VehicleFinder 只在首頁、抽屜在全站可重用;不建則維持雙來源
+  - bug 可追蹤性:不建 = 全站車種選擇行為不一致(首頁 ed-finder vs cascade FilterTop vs FilterDrawer)
+- **估時:** 待評估(取決於抽屜元件互動複雜度 + 全站接入點數量)
+- **依賴:** 無(獨立元件、可隨時補)
+- **發現於:** 2026-05-22 / M-1-13I V1 manifest audit
+- **相關:** design-reference/styles/vehicle-drawer.css;apps/storefront/src/components/VehicleFinder.tsx;apps/storefront/src/styles/home.css(.ed-finder* 21 處);#151(URL 格式雙格式並存)
+
+---
+
 ## 紀錄模板
 
 ```markdown
