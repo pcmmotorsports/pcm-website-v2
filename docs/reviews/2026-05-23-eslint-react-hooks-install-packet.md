@@ -6,6 +6,12 @@
 
 ---
 
+## 第二輪 review timing 說明(2026-05-23 補)
+
+本 packet 第一輪 external review 發生在 commit 前(M-1-13Z 修完未 push)、屬「push 前 gate」位置;第二輪 external review 發生在 push 後(commit `0d9b0a4` 已進 origin/dev),屬事後審查、不阻塞 push、不削弱 code 本身正確性。本段補註對齊鐵則 11 字面 vs 事實守則。
+
+---
+
 ```
 Codex Review Packet
 
