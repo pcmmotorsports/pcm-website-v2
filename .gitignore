@@ -30,7 +30,11 @@ build/
 .idea/
 *.swp
 *.swo
-.claude/
+# .claude/ 採 white-list pattern:預設忽略、explicit 放行兩個共享檔(Stage 3 v4 工作流升級)
+.claude/*
+!.claude/agents/
+!.claude/settings.json
+.claude/scratch/
 
 # Turborepo
 .turbo/

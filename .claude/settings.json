@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "comment_for_humans": "PCM 工作流 repo 共享設定。settings.local.json 是個人設定不入 repo, 本檔入 git。Stage 3 v4 落地採 Sean 2026-05-22 拍板 A2:.env 保護改用 permissions.deny 路徑規則(現行正確語法、hard-block、不需腳本); design-mirror pre-commit 與 code-reviewer SubagentStop 兩個需腳本的 hook 延後(見下方 _deferred_hooks_note)。",
+
+  "permissions": {
+    "deny": [
+      "Bash(cat .env*)",
+      "Bash(cat ~/.env*)",
+      "Bash(*>.env*)",
+      "Bash(*>>.env*)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Edit(.env)",
+      "Edit(.env.*)"
+    ]
+  },
+
+  "_a2_decision_note": [
+    "Sean 2026-05-22 拍板 A2(對齊 docs/proposals/stage-3-bundle-code-deliverables.md §F):",
+    "原 §F 用 PreToolUse hook 擋 .env 寫/改, 但其讀檔方法 process.env.CLAUDE_TOOL_INPUT_FILE_PATH 在現行 (2026-05) Claude Code 不存在 — 經 claude-code-guide 查證: 工具輸入走 stdin JSON, 取檔路徑須讀 .tool_input.file_path, block 須 exit 2(非 exit 1)。",
+    "A2 改用 permissions.deny 路徑規則達成同目的: deny 規則由 Claude Code 強制執行、hard-block、無 escaping 風險、不需外部腳本。.env / .env.* 的 Write 與 Edit 一律擋, Bash 的 cat/重導向也擋。",
+    "deny 路徑語法 (gitignore 語意, 任意深度): .env = 精確檔名任意深度; .env.* = .env.local/.env.production 等。經 claude-code-guide 查證為 2026-05 官方語法。"
+  ],
+
+  "_deferred_hooks_note": [
+    "以下兩個 hook 屬 §F 原設計、但需先建 scripts/hooks/ 腳本、本 onboarding slice (Stage-3) 不擴 scope、延後到第一個真用到的 slice 用專門 slice 把腳本做對:",
+    "1. PreToolUse(Bash) commit pre-check: 動 storefront 必先跑 design-mirror.mjs(.claude/scratch/{slice-id}/inspect.json 存在 + 時間戳新鮮)。需 scripts/hooks/pre-commit-check.sh, 腳本須以現行語法讀 stdin JSON、找不到 inspect 時 exit 2 攔 git commit。本 onboarding slice 不跑任何 storefront 變更、故暫不需。",
+    "2. SubagentStop code-reviewer 強制: implementer subagent 跑了但 code-reviewer 未跑時攔後續 commit。需 scripts/hooks/subagent-stop-check.mjs。code-reviewer subagent 本 slice 才建出、首次真用在 M-1-13I 起、屆時補腳本。",
+    "建腳本時務必對齊 claude-code-guide 查證結論: hook 輸入走 stdin JSON(無 CLAUDE_TOOL_INPUT_FILE_PATH env var); block 用 exit 2; 腳本不存在時工具照常放行(非阻擋錯), 故腳本內須自帶 existence guard 避免每次跑跳錯。"
+  ]
+}

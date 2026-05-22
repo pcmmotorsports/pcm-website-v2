@@ -193,10 +193,43 @@ busboy-end.js pre-flight 三綠檢查:
 
 ---
 
+## L1 + Stage 3 v4 新加:Manifest sync 驗證(對齊 outputs/stage-3-self-audit.md F-8)
+
+> **加入時點:** Stage 3 v4 落地(2026-05-22)、對齊新工作流「設計 ↔ 現場 對照表」機制
+> **規範層:** L1(規則層、本檔)+ L2(/slice-checkpoint skill 工具層、自動跑)+ L3(.husky/pre-commit lint-staged 設施層)
+
+### 規範
+
+每個動 storefront 元件的 slice、commit 前必跑 manifest sync 驗證:
+
+1. **必跑時機:** /slice-checkpoint 三綠後、commit 前(對齊鐵則 11 不動 disable / skip)
+2. **驗證內容:**
+   - `git diff --staged --name-only` 列動到的檔
+   - 任一在 `apps/storefront/src/components/` 或 `apps/storefront/src/styles/`、必有對應 manifest 元件條目 `last_modified_commit` 欄位被 amend(用 `PENDING_HASH` placeholder、commit 後 amend 真 hash)
+   - 動到 design-reference submodule(submodule update)、必有 manifest `last_global_sync` 段同步 amend
+3. **失敗處置:** Code raise multi-select、Sean 拍處置(補 amend / 開新 slice / 業務 override 紀錄)、不擅自 PASS
+
+### 為什麼需要
+
+對齊 outputs/stage-3-self-audit.md 漏缺 F-8 + 鐵則 1 + 鐵則 3:
+- manifest 是「動一處不爆炸」的核心防線
+- 動 storefront 但 manifest 未同步 = 設計現場對照表失效、後續 slice 找不到偏離源頭
+- 對齊 lessons §12-25 字面內嵌義務、不允許「下次順手」amend
+
+### 跟既有「字面 vs 事實守則」關係
+
+manifest sync 驗證是「字面 vs 事實守則」的具體實作:
+- 字面 = manifest 內紀錄
+- 事實 = 本 slice 真實 commit + storefront 真實字面
+- 兩者不一致 = drift、必修
+
+---
+
 ## 7. 變更紀錄
 
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-05-01 | 初始化 slice-checkpoint 規範(C5 拍板 L1+L2、L1 落地) | Claude.ai + Sean / 由 Claude Code(M-0-07)落地 |
+| 2026-05-22 | Stage 3 v4 新增「Manifest sync 驗證」段(對齊 self-audit F-8) | Cowork 寫字面 / 由 Claude Code(Stage-3-onboarding)落地 |
 
 — 規範結束 —

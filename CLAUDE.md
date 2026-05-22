@@ -135,15 +135,16 @@ Codex Review 與鐵則 8 plan 互補不重複:plan 在「動手前」、Codex Re
 
 ## Slice 指令格式(你寫給 Sean / 自己執行的)
 
-每份 slice 指令必含四件套、外層包 markdown code block:
+> **Stage 3 v4(2026-05-22)升六件套:** 原四件套(任務目標 / 前置檢查 / 執行步驟 / 驗收條件 / 禁止清單)加「執行模式 + Subagent 模式」+「Manifest Impact + Review 觸發」兩段(對齊 `docs/patterns/cowork-review-chain.md` + Cowork Projects instructions §4)。新六件套為當前生效規範、原四件套已退役。
+
+每份 slice 指令必含六件套、外層包 markdown code block:
 
 ```
 [Slice ID] 任務名稱
 
 ═══════════════════════════════════════════
-任務目標
+任務目標(1-2 句)
 ═══════════════════════════════════════════
-（1-2 句話講清楚要做什麼）
 
 ═══════════════════════════════════════════
 前置檢查(全綠才繼續)
@@ -154,24 +155,50 @@ git status
 git log --oneline -5
 
 ═══════════════════════════════════════════
-執行步驟
+執行模式 + Subagent 模式
 ═══════════════════════════════════════════
-（步驟 1 / 2 / 3 ...、可執行命令）
+mode: A | B(預設 B、A mode 需 Cowork 主動提議 + Sean 拍)
+conductor: main session
+subagent_chain: code-reviewer(commit 前必跑)
+fix_attempt_max: 2
+/slice-checkpoint: 跑(條件:純 docs slice 跳)
+/codex-review: 不觸發 | 觸發(理由)
 
 ═══════════════════════════════════════════
-驗收條件
+Manifest Impact + Review 觸發
 ═══════════════════════════════════════════
-（明確 yes/no 條件、不模糊）
+動到的 storefront 元件: [從 design-mirror.mjs --target 抽]
+對應 design 源: [...]
+業務 override 不算誤翻譯: [...]
+未解決偏離: [...]
+最近設計同步: [last_global_sync]
+review_triggers:
+  prd_review: false  # B mode 跳
+  slice_review: true  # Cowork 用 Agent tool spawn
+  code_review: true  # Code 用 Task tool spawn
+  security_review_required: false
+  codex_review_required: false
+
+═══════════════════════════════════════════
+執行步驟
+═══════════════════════════════════════════
+1. ...
+2. ...
+
+═══════════════════════════════════════════
+驗收條件(明確 yes/no)
+═══════════════════════════════════════════
 
 ═══════════════════════════════════════════
 禁止清單
 ═══════════════════════════════════════════
 - 不可修改本次 scope 外檔案
 - 不可變更 env / deployment 設定
-- 不可修改 schema / infra(除非本次任務明確要求)
-- 不可使用 git add . 或 git add -A、必須精準 add 檔
-- 不可自動 push(Sean 手動推當 review checkpoint)
-（依 slice 加額外禁止項)
+- 不可修改 schema / infra(除非任務明確要求)
+- 不可使用 git add . 或 git add -A、必須精準 add
+- 不可自動 push
+- 不可動 .env*(permissions.deny 硬攔、見 .claude/settings.json)
+- 不可繞 design-mirror.mjs(動 storefront 必先跑 inspect;commit hook 強制延後、現為規則自律、見 settings.json _deferred_hooks_note)
 
 — 禁止清單結束 —
 ```
@@ -449,16 +476,17 @@ A: 選項 X
 
 ---
 
-## 四方分工
+## 五方分工(2026-05-22 Stage 3 v4 升級:Cowork 取代 Claude.ai 規劃層 + Codex 補為第四方)
 
 | 角色 | 做什麼 | 不做什麼 |
 |---|---|---|
-| Claude.ai | 規劃 / 架構 / 寫 slice 指令 / 驗收 / 寫 .md / multi-select 決策題 | 寫實作 code / 操作 dashboard / 拍板 / 視覺設計 |
-| Sean | 拍板 / 操作 dashboard / push commit / 在 Terminal 跑命令 / 在 Claude Design 改設計 / 肉眼驗收 | 寫 code / debug / git diff 細節 |
-| Claude Code(你) | 跑命令 / 實作 code / git commit / 跑測試 / 偵察 design / 寫 inventory | push / deploy production / 替 Sean 拍板 / 視覺設計 |
-| Claude Design | 視覺與前台設計、輸出 .jsx/.css(交給 Sean 取出後本地 push;Claude Design 對 GitHub 唯讀、不 commit / 不 push;對齊 lessons §12-21) | 寫 storefront 程式 / 後台設計 / push GitHub |
+| Sean | 拍板 / push commit / 操作 dashboard / 在 Terminal 跑命令 / 在 Claude Design 改設計 / 肉眼驗收 / 貼 Codex Review Packet | 寫 code / debug / git diff 細節 |
+| Cowork | 規劃 / 寫 Code slice 指令 / 寫 .md / 寫 handoff / multi-select 決策題 / Agent tool spawn PRD/slice reviewer(階段 A/B) | 寫實作 code / 操作 dashboard / 拍板 / 視覺設計 / commit / push |
+| Claude Code(你) | 跑命令 / 實作 code / git commit / 跑測試 / 偵察 design / Task tool spawn code-reviewer(階段 C) / 跑 skill | push / deploy / 替 Sean 拍板 / 視覺設計 |
+| Codex | 收 Codex Review Packet 唯讀審查(階段 D) / 回 findings / 風險 / 是否可繼續 | 改 code / commit / push / 替代 code-reviewer subagent(階段 C) |
+| Claude Design | 視覺與前台設計、輸出 .jsx/.css(Sean 從 Claude Design 取出後本地 commit + push;Claude Design 對 GitHub 唯讀、對齊 lessons §12-21) | 寫 storefront 程式 / 後台設計 / push GitHub |
 
-四方分工清楚、不越界。
+五方分工清楚、不越界。code-reviewer 是 Code session 內角色、不獨立為第六方。
 
 ---
 

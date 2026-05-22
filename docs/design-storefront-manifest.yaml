@@ -1,0 +1,316 @@
+# PCM 設計 ↔ 現場 對照清單 v1.0
+#
+# 用途:Cowork / Code 動 storefront 元件前 Read 此檔、知道對應 design 字面源 + 業務拍板偏離 + 同步狀態
+# 維護:Cowork 寫第一版、後續 slice 結束 amend 對應元件 last_modified_commit / date 段
+#       新元件 / 新業務 override 在對應 slice 寫前 amend
+#       重大改動跑 PRD-reviewer 級 audit(對齊 docs/patterns/cowork-review-chain.md §1)
+#
+# 排除規則:
+#   - design-reference/components/explorations/ 整個目錄 exclude(設計探索用、storefront 不對齊)
+#   - design-reference/styles/*.v1.css 標 deprecated_in_design: true(舊版本、storefront 不需對齊)
+#
+# 衝突仲裁:本 manifest > storefront 既有 code、但 business_overrides 段內偏離合法、不誤判
+#
+# 字面 vs 事實:
+#   - last_modified_commit 寫 PENDING_HASH 用於 slice 內 amend 占位、commit 後 git commit --amend 補真 hash
+#   - design_value 段引用 design-reference 字面、不憑記憶(對齊 working-style 第 11 條)
+
+version: "1.0"
+
+last_global_sync:
+  design_submodule_commit: "637dafc"
+  design_submodule_date: "2026-05-21"
+  audited_at: "2026-05-22"
+  audited_by: "Cowork(M-1-13H session 結束時對齊)"
+
+components:
+  # ---- 商品系列(M-1-13H 改版完成、M-1-13I 修 3 bug 範圍) ----
+
+  ProductsPage:
+    storefront:
+      component: "apps/storefront/src/components/ProductsPage.tsx"
+      css: "apps/storefront/src/styles/products-page.css"
+      last_modified_commit: "1b61a9d"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/ProductsPage.jsx"
+      css: "design-reference/styles/products-page.css"
+      data_mock: "design-reference/data/products.js"
+    related_storefront:
+      - "apps/storefront/src/components/VehicleFinder.tsx"
+      - "apps/storefront/src/components/ProductCard.tsx"
+      - "apps/storefront/src/components/CascadeFilterTop.tsx"
+      - "apps/storefront/src/components/FilterSide.tsx"
+      - "apps/storefront/src/components/FilterDrawer.tsx"
+      - "apps/storefront/src/components/Pagination.tsx"
+      - "apps/storefront/src/components/ActiveChips.tsx"
+    business_overrides:
+      - field: "outOfStockUI"
+        design_value: "顯示庫存數字"
+        storefront_value: "4 處 disabled + 補貨中字面、不顯庫存數字"
+        decided_at: "2026-05-21"
+        decision_source: "STATUS L24 (#161 M-1-13e-pre-3 起延伸)"
+        backlog: "#161"
+        reason: "Sean 業務拍板、Phase 1 不顯庫存"
+    open_drifts:
+      - field: "vehicleStatePersistenceCrossPage"
+        note: "M-1-13I 待修 bug 1:ProductsPage 不讀 URL ?vehicle=、車種跨頁丟失"
+        plan: "handoff/2026-05-22-end-of-session.md §5 Q1+Q2 待 Sean 拍板"
+        backlog: "#151 + #152"
+
+  VehicleFinder:
+    storefront:
+      component: "apps/storefront/src/components/VehicleFinder.tsx"
+      css: "apps/storefront/src/styles/vehicle-drawer.css"
+      last_modified_commit: "(未動於本輪 session)"
+      last_modified_date: "(待 amend)"
+    design:
+      component: "design-reference/components/HomePage.jsx"  # VehicleFinder 在 design 是 HomePage 內元素
+      css: "design-reference/styles/vehicle-drawer.css"
+    related_storefront:
+      - "apps/storefront/src/components/ProductsPage.tsx"
+      - "apps/storefront/src/components/ProductPage.tsx"
+    business_overrides: []
+    open_drifts:
+      - field: "urlFormatInconsistency"
+        note: "M-1-13I 待修 bug 1:VehicleFinder push ?brand=X&model=Y&year=Z(3 param) vs ProductsPage/ProductPage 用 ?vehicle=brand:model:year(1 param)"
+        plan: "handoff §5 Q1 拍 URL 格式統一、推薦 A=1 param"
+        backlog: "#151"
+
+  ProductPage:
+    storefront:
+      component: "apps/storefront/src/components/ProductPage.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "1b61a9d"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/ProductPage.jsx"
+      reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
+      css: "design-reference/styles/product-page.css"
+      explorations_css: "design-reference/styles/explorations.css"  # 同上
+      handoff_doc: "design-reference/design-handoff/PRODUCT-PAGE-HANDOFF.md"
+    related_storefront:
+      - "apps/storefront/src/components/ProductGallery.tsx"
+      - "apps/storefront/src/components/ProductInfo.tsx"
+      - "apps/storefront/src/components/ProductServices.tsx"
+      - "apps/storefront/src/components/ProductHighlights.tsx"
+      - "apps/storefront/src/components/ProductSpotlight.tsx"
+      - "apps/storefront/src/components/ProductTabs.tsx"
+      - "apps/storefront/src/components/ProductCard.tsx"  # Related grid 用既有元件
+      - "apps/storefront/src/components/Price.tsx"
+    business_overrides:
+      - field: "freeShippingThreshold"
+        design_value: "NT$4,000 (VariantCFull L85) / NT$3,000 (L97) — 同檔內已不一致"
+        storefront_value: "NT$5,000"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q1"
+        backlog: "#161"
+        reason: "Sean 業務拍板永久化、屬鐵則 1 例外(價格 = 業務邏輯)"
+      - field: "mobileBarColor"
+        design_value: "黑/灰系(對齊新版商品頁全 mono)"
+        storefront_value: "紅色加入購物車保留"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q3"
+        reason: "Sean Q3=B 業務拍板、轉換率考量、HANDOFF #17『保留不動』解讀 = 行為 + 色系全保留"
+      - field: "relatedGridComponent"
+        design_value: ".vcf-related-card hardcoded(demo 用)"
+        storefront_value: "用既有 <ProductCard> 元件"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q4"
+        reason: "對齊 lessons §12-37、不複製 demo hardcoded"
+      - field: "dealerPriceTag"
+        design_value: "L527-532 字面(13e-b 已對齊)"
+        storefront_value: "tag 字面對齊但 mock product.price 仍 retail、tier='store'/'premiumStore' 顯 tag 但未真經銷化"
+        decided_at: "2026-05-20"
+        decision_source: "STATUS L24 + ADR-0006"
+        backlog: "#161 + 待 M-1-16"
+        reason: "M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分、Phase 1 hardcoded 對沖"
+      - field: "hasSpotlightField"
+        design_value: "design 無此欄位"
+        storefront_value: "MockProduct schema 加 hasSpotlight: boolean、3 件 hardcoded true"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q2"
+        reason: "Phase 1 業務指定、Phase 2 接 Supabase product_spotlights 欄位名一致對應"
+    open_drifts:
+      - field: "vehiclePillButton"
+        note: "M-1-13I 待修 bug 3:vehiclePill 整個 button onClick={handleClearVehicle}、應拆 pill 本體導航 + × 清除兩層"
+        plan: "handoff §5"
+      - field: "crumbsHrefMissingVehicle"
+        note: "M-1-13I 待修 bug 2:商品頁麵包屑點回商品目錄、href 不帶 vehicle 參數、車種清空"
+        plan: "handoff §5"
+
+  ProductHighlights:
+    storefront:
+      component: "apps/storefront/src/components/ProductHighlights.tsx"
+      css: "apps/storefront/src/styles/product-page.css"  # 共用、無獨立 css
+      last_modified_commit: "56ccb5c"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 才新加、design 端尚無對應正式檔
+    business_overrides:
+      - field: "highlightsContent3Cards"
+        design_value: "explorations 3 卡 demo 內容"
+        storefront_value: "Phase 1 hardcoded 3 卡通用"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-4"
+        reason: "L3 對沖(業務拍板 Phase 2 supabase product_highlights 表)、Phase 1 hardcoded"
+        phase_2_supabase_table: "product_highlights"
+
+  ProductSpotlight:
+    storefront:
+      component: "apps/storefront/src/components/ProductSpotlight.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "56ccb5c"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/explorations/VariantCFull.jsx"
+    business_overrides:
+      - field: "spotlightContent4Sections3Stats"
+        design_value: "explorations 4 段 + 3 stats demo"
+        storefront_value: "Phase 1 hardcoded、3 件商品標 hasSpotlight true"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-4"
+        reason: "L3 對沖、Phase 2 supabase product_spotlights 接"
+        phase_2_supabase_table: "product_spotlights"
+
+  ProductTabs:
+    storefront:
+      component: "apps/storefront/src/components/ProductTabs.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "1d4b4e8"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/explorations/VariantCFull.jsx"
+    business_overrides:
+      - field: "tabsContent4Panels"
+        design_value: "explorations 4 panel demo"
+        storefront_value: "Phase 1 hardcoded(specs/install/warranty/description)"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-5"
+        reason: "L3 對沖、Phase 2 supabase product_specs / product_installs / site_policies 表接"
+        phase_2_supabase_tables: ["product_specs", "product_installs", "site_policies"]
+
+  ProductServices:
+    storefront:
+      component: "apps/storefront/src/components/ProductServices.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "eb1e90f"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/explorations/VariantCFull.jsx"
+    business_overrides:
+      - field: "servicesContent4Conditions"
+        design_value: "explorations 4 條服務承諾 demo"
+        storefront_value: "Phase 1 hardcoded、免運門檻 NT$5,000(對齊 ProductPage freeShippingThreshold)"
+        decided_at: "2026-05-21"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-3"
+        reason: "Phase 2 supabase site_services 表接"
+        phase_2_supabase_table: "site_services"
+
+  ProductCard:
+    storefront:
+      component: "apps/storefront/src/components/ProductCard.tsx"
+      css: "apps/storefront/src/styles/product-card.css"
+      last_modified_commit: "(M-1-13H 期間未獨立改、引用上游動)"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/ProductCard.jsx"
+      css: "design-reference/styles/product-card.css"
+    related_storefront:
+      - "apps/storefront/src/components/ProductsPage.tsx"
+      - "apps/storefront/src/components/ProductPage.tsx"  # Related grid
+    business_overrides: []
+
+  ProductGallery:
+    storefront:
+      component: "apps/storefront/src/components/ProductGallery.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "a8f5a01"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/explorations/VariantCFull.jsx"
+      reference: "design-reference/components/ProductPage.jsx"
+    business_overrides: []
+
+  ProductInfo:
+    storefront:
+      component: "apps/storefront/src/components/ProductInfo.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "79f89bc"
+      last_modified_date: "2026-05-22"
+    design:
+      component: "design-reference/components/explorations/VariantCFull.jsx"
+    business_overrides:
+      - field: "tierPropPassthrough"
+        design_value: "design 無明示 tier 三 tier 渲染邏輯"
+        storefront_value: "tier prop 傳遞鏈 ProductPage → ProductInfo、tier='general'/'store'/'premiumStore' 條件渲染經銷 tag"
+        decided_at: "2026-05-20"
+        decision_source: "STATUS L24 (#130 + M-1-13e-pre-1 Q1=B + M-1-13e-a)"
+        reason: "業務拍板抽 tier helper、Phase 1 mock"
+
+  # ---- 共用 / 首頁系列 ----
+
+  Header:
+    storefront:
+      component: "apps/storefront/src/components/Header.tsx"
+      css: "apps/storefront/src/styles/header.css"
+      last_modified_commit: "7f99033"
+      last_modified_date: "(M-1-04 期間)"
+    design:
+      component: "design-reference/components/Header.jsx"
+      css: "design-reference/styles/header.css"
+    business_overrides:
+      - field: "handleNavFallback"
+        design_value: "design 無 fallback"
+        storefront_value: "保留 onNav fallback 對齊 HeaderProps 合約(對齊 lessons §12-28)"
+        decided_at: "2026-05-11"
+        decision_source: "lessons §12-28"
+        reason: "鐵則 11 事實 > 字面允許範圍、commit body 已揭示"
+
+  HomeHero:
+    storefront:
+      component: "apps/storefront/src/components/HomeHero.tsx"
+      css: "apps/storefront/src/styles/home.css"
+      last_modified_commit: "(早於 M-1-13H)"
+      last_modified_date: "(待 amend)"
+    design:
+      component: "design-reference/components/HomePage.jsx"
+      css: "design-reference/styles/home.css"
+    business_overrides: []
+
+  # ---- 會員系列(M-1-14 / M-1-15 待動範圍) ----
+
+  AccountPages:
+    storefront:
+      component: "(M-1-15 待新建、拆 LoginPage + RegisterPage)"
+      css: "(待新建)"
+      last_modified_commit: "(未建)"
+      last_modified_date: "(待 M-1-15)"
+    design:
+      component: "design-reference/components/AccountPages.jsx"
+      css: "design-reference/styles/account.css"
+    business_overrides: []
+    open_drifts:
+      - field: "loginRegisterPageSplit"
+        note: "M-1-15 待新建、design AccountPages.jsx 內含 Login + Register、storefront 拆成兩頁(對齊 Next.js App Router 慣例)"
+        plan: "M-1-15 milestone PRD(Cowork 待寫)"
+
+  CheckoutPage:
+    storefront:
+      component: "(未新建、Phase 1 後期動)"
+      last_modified_commit: "(未建)"
+    design:
+      component: "design-reference/components/CheckoutPage.jsx"
+      css: "design-reference/styles/checkout.css"
+    business_overrides: []
+
+  # ---- 其他元件(規範段) ----
+
+  # 規範:其他 ~20 個元件條目在後續 slice 觸到才填、避免第一版過大難維護
+  # 觸到時必先 grep STATUS / backlog / specs / handoff、不憑記憶(對齊 docs/patterns/cowork-review-chain.md §6)
+  # 候選列表(供 Cowork 後續查):
+  #   - BrandIndex / CategoryGrid / FeatureEditorial / HomeFooter / HomeSelect / HomeStatement
+  #   - FilterDrawer / FilterSide / FilterTop / CascadeFilterTop / ActiveChips / Pagination
+  #   - Price(共用)
+  #   - SearchOverlay / StorePickerModal / TierComponents / WalletTab(Phase 2 範圍)
+  #   - LegalPage / ErrorPage / OrderCompletePage / Pages / Pricing(Phase 1 後期)
