@@ -276,6 +276,27 @@ busboy 失敗 → 停下回報、不自行 retry。
 
 ---
 
+## Claude Code 工具索引
+
+### `/slice-checkpoint` skill — 鐵則 11 三綠跑手
+
+跑 typecheck + lint + 條件 build、輸出可貼 commit body 的 ✅/❌ 摘要。
+每個 slice 結束 commit 前**強制**觸發、任一紅停下修紅再 commit、不繞道、不 disable / skip / ignore。
+
+- 觸發語:「跑三綠」「checkpoint」「slice 收工」「鐵則 11」
+- 對應規範:`docs/patterns/slice-checkpoint.md`
+- Skill 檔:`~/.claude/skills/slice-checkpoint/SKILL.md`
+- 純文件 slice(只動 .md / .json)build 跳過、typecheck + lint 仍跑
+
+### context7 MCP — 活文件查詢
+
+拉 Next 16 / React 19 / Tailwind v4 / Supabase 等版本對應官方文件、補訓練資料落差。
+
+- 何時用:不確定當前版本 API 細節時、特別是 React 19 hooks(purity / set-state-in-effect)、Next 16 app router、Tailwind v4 CSS 變數 config、Supabase SDK
+- 用法:prompt 加「use context7」或呼叫 `mcp__context7` tool
+
+---
+
 ## STATUS.md 維護
 
 每個 slice 結束、**同一個 commit**(slice commit 本身、不另開)更新 STATUS.md 7 欄位:
