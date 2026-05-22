@@ -6,8 +6,10 @@
 // - lead:`義大利賽道工藝 28 年沉澱、每件配件都為極限操駕而生。`(L3 hardcoded 對沖)
 // - 3 卡:01 航太級材質 / 02 CNC 一體成型 / 03 原廠保固(各自含 num + title + desc、L3 hardcoded 對沖)
 //
-// M-1-13H-4(對應 HANDOFF #12 + PRD §4 slice-4 + Q7 全拆):新增子元件、純 presentational server component、
-// 無 hooks、單一 props `{ product: MockProduct }`(只用 product.brand)。
+// M-1-13H-4(對應 HANDOFF #12 + PRD §4 slice-4 + Q7 全拆):新增子元件、純 presentational component、
+// 無 hooks、單一 props `{ product: MockProduct }`(只用 product.brand);由 client parent ProductPage
+// 渲染、進 client bundle(M-1-13H-6 Codex Fix 4 註解校正:原寫「server component」誤導、
+// ProductPage 是 'use client'、本元件無 'use client' 但被 client 端 import、實際進 client bundle)。
 //
 // 鐵則 9 內容分級對沖揭示(對齊 PRD §7):
 // - lead「義大利賽道工藝 28 年沉澱」對非義大利品牌(Akrapovič / Öhlins / GB Racing)字面誤導、

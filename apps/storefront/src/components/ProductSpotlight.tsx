@@ -11,8 +11,10 @@
 //   supabase product_spotlights.image_url 欄)
 //
 // M-1-13H-4(對應 HANDOFF #13 + PRD §4 slice-4 Q2=B + Q7 全拆):新增子元件、純 presentational
-// server component、無 hooks、單一 props `{ product: MockProduct }`(只用 product.hasSpotlight);
-// 不渲染條件返回 null、ProductPage caller 無需 if-guard。
+// component、無 hooks、單一 props `{ product: MockProduct }`(只用 product.hasSpotlight);
+// 不渲染條件返回 null、ProductPage caller 無需 if-guard;由 client parent ProductPage 渲染、
+// 進 client bundle(M-1-13H-6 Codex Fix 4 註解校正:原寫「server component」誤導、
+// 本元件無 'use client' 但被 client 端 import、實際進 client bundle)。
 //
 // 鐵則 9 內容分級對沖揭示(對齊 PRD §7):
 // - body 字面「7075-T6 鋁合金 / 5 軸 CNC / Hard Anodized」對齊 Lightech 故事(design 字面源)、

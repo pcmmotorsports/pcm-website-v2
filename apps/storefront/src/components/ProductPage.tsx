@@ -38,7 +38,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Fragment, useMemo } from 'react';
 import type { MemberTier } from '@pcm/domain';
-import type { MockProduct } from '@/data/mock-products';
+import { MOCK_PRODUCTS, type MockProduct } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { useCart } from '@/contexts/CartContext';
 import { Header } from './Header';
@@ -48,6 +48,7 @@ import { ProductInfo } from './ProductInfo';
 import { ProductHighlights } from './ProductHighlights';
 import { ProductSpotlight } from './ProductSpotlight';
 import { ProductTabs } from './ProductTabs';
+import { ProductCard } from './ProductCard';
 import '@/styles/product-page.css';
 
 export type ProductPageProps = { product: MockProduct; tier: MemberTier };
@@ -152,6 +153,20 @@ export function ProductPage({ product, tier }: ProductPageProps) {
     router.replace(q ? `${pathname}?${q}` : pathname);
   };
 
+  // M-1-13H-6:Related 同分類商品(對應 HANDOFF #16);用 categoryMain(「操控部品」等大類、
+  // split('·')[0])比對、排除當前商品、取 4 個;不足 4 顯示找到的;Phase 2 接 Supabase
+  // 同分類 query(M-1-16 後)。對應 Q4 + lessons §12-37:Related grid 用既有 <ProductCard> 元件、
+  // 不複製 demo .vcf-related-card hardcoded。
+  const relatedProducts = useMemo(
+    () =>
+      MOCK_PRODUCTS.filter(
+        (p) =>
+          p.slug !== product.slug &&
+          (p.category || '').split('·')[0]?.trim() === categoryMain,
+      ).slice(0, 4),
+    [product.slug, categoryMain],
+  );
+
   return (
     <div className="pcm-root" data-screen-label="Product Detail">
       <Header currentPage="catalog" />
@@ -209,6 +224,25 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
             (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}
         <ProductTabs product={product} />
+
+        {/* M-1-13H-6:Related section(對應 HANDOFF #16 + Q4 + lessons §12-37);
+            用既有 <ProductCard> 元件 map、不複製 design VariantCFull L219-230 demo
+            .vcf-related-card hardcoded(demo 自包含寫法、不取代正式元件、對齊 lessons §12-37
+            「demo 變體字面不取代正式元件」);容器標題對齊 design L214-218 字面;
+            relatedProducts < 4 時不顯示空卡(條件渲染整個 section) */}
+        {relatedProducts.length > 0 && (
+          <section className="pd-section pd-related">
+            <div className="pd-section-head">
+              <div className="pd-eyebrow">N°03 — You may also like</div>
+              <h2 className="pd-h2">相同分類</h2>
+            </div>
+            <div className="pd-related-grid">
+              {relatedProducts.map((p) => (
+                <ProductCard key={p.slug} p={p} href={`/products/${p.slug}`} />
+              ))}
+            </div>
+          </section>
+        )}
       </main>
 
       <HomeFooter />

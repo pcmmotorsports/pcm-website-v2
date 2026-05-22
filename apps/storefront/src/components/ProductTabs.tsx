@@ -27,7 +27,8 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MockProduct } from '@/data/mock-products';
 
@@ -46,12 +47,36 @@ export function ProductTabs({ product }: ProductTabsProps) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>('description');
 
+  // M-1-13H-6 Codex Fix 1:roving tabIndex + 鍵盤導覽(對齊 W3C WAI-ARIA Authoring Practices Tabs)。
+  // 原 13f-2 只有 roving tabIndex 無 onKeyDown、鍵盤使用者 Tab 只能進 active tab、其他 3 個無法切換
+  // (Codex Review must-fix、Sean 2026-05-22 Q1=B 完整版拍板)。
+  // tabRefs 對應 4 個 tab button(按 TAB_DEFS 順序)、handler 切 state + 移 focus。
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const handleTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    const count = TAB_DEFS.length;
+    let newIdx: number | null = null;
+    if (e.key === 'ArrowRight') newIdx = (idx + 1) % count;
+    else if (e.key === 'ArrowLeft') newIdx = (idx - 1 + count) % count;
+    else if (e.key === 'Home') newIdx = 0;
+    else if (e.key === 'End') newIdx = count - 1;
+    if (newIdx === null) return;
+    e.preventDefault();
+    const next = TAB_DEFS[newIdx];
+    if (!next) return;
+    setTab(next[0]);
+    tabRefs.current[newIdx]?.focus();
+  };
+
   return (
     <section className="pd-tabs-section">
       <div className="pd-tabs" role="tablist" aria-label="商品詳細資訊">
-        {TAB_DEFS.map(([k, l]) => (
+        {TAB_DEFS.map(([k, l], i) => (
           <button
             key={k}
+            ref={(el) => {
+              tabRefs.current[i] = el;
+            }}
             type="button"
             role="tab"
             id={`pd-tab-${k}`}
@@ -60,6 +85,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
             tabIndex={tab === k ? 0 : -1}
             className={`pd-tab ${tab === k ? 'is-active' : ''}`}
             onClick={() => setTab(k)}
+            onKeyDown={(e) => handleTabKeyDown(e, i)}
           >
             {l}
           </button>

@@ -84,9 +84,14 @@
 .pd-vehicle-pill-x:hover { background: rgba(0,0,0,0.08); color: #1d1d1f; }
 
 /* ========= Main grid ========= */
+/* M-1-13H-6:桌機 grid 從 1fr 480px(固定資訊欄)→ 1.2fr 1fr 比例(對齊 HANDOFF L362-369
+   responsive 規格表 ≥1100 「圖 1.2fr : 資訊 1fr」+ design 真權威);
+   blast radius:slice-1~5 在舊 1fr:480px 比例下落地驗過、本次改比例後 gallery+info 欄寬度重新分配
+   (info 欄變寬、gallery 變窄)、Sean 肉眼驗務必確認 swatch / CTA / Spotlight 排版;
+   900-1100 中間斷點 1fr:1fr + padding 32、<900 既有 @media collapse 單欄(L871 段不動、Q3 禁區) */
 .pd-main {
   display: grid;
-  grid-template-columns: 1fr 480px;
+  grid-template-columns: 1.2fr 1fr;
   gap: 64px;
   margin-bottom: 80px;
 }
@@ -287,6 +292,18 @@
   font: 400 12px/1 var(--font-sans);
   color: #86868b;
   margin-top: 8px;
+}
+/* M-1-13H-6 Codex Fix 2:.pd-price-tag-dealer 補 CSS rule(13e-a/b callsite ProductInfo L120 既有 span
+   但無對應 rule、屬樣式破口、Codex Review consider 風險 α);對齊新版 mono 標籤群風格
+   (font 同 .pd-sku 11px mono / #f5f5f7 淡灰底 / #1d1d1f 深灰字、Cowork default 深灰、
+   經銷 highlight 色由 Sean 業務拍板可後調);tier='store'/'premiumStore' 顯「經銷價」tag 視覺對齊 */
+.pd-price-tag-dealer {
+  font: 500 11px/1 var(--font-mono);
+  letter-spacing: 0.04em;
+  color: #1d1d1f;
+  background: #f5f5f7;
+  padding: 4px 8px;
+  border-radius: 6px;
 }
 
 /* ========= Options ========= */
@@ -563,6 +580,17 @@
   font: 400 11px/1.3 var(--font-sans);
   color: #86868b;
   letter-spacing: 0.02em;
+}
+
+/* ========= Related grid ========= */
+/* M-1-13H-6:Related grid(對應 HANDOFF #16、字面從 design explorations.css L1320-1324 直接搬);
+   用既有 <ProductCard>(.pcard 樣式在 product-card.css、Q4 不動)、本段只提供 grid container;
+   不複製 design demo .vcf-related-card / .vcf-related-img / .vcf-related-brand 等 hardcoded 卡片樣式
+   (對應 Q4 + lessons §12-37、demo 自包含寫法不取代正式元件) */
+.pd-related-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
 }
 
 /* ========= Tabs section ========= */
@@ -882,4 +910,30 @@
   .pd-buy-row,
   .pd-buynow-btn { display: none !important; }
   .pd-mobile-buybar { display: flex; }
+}
+
+/* ========= M-1-13H-6:新元件 responsive(slice-4/5/6)+ 900-1100 中間斷點 ========= */
+/* 補 slice-4/5/6 新元件 grid collapse + 中間斷點(對齊 HANDOFF L362-369 responsive 規格表);
+   既有 @media (max-width: 900px) L899-913(.pd-main collapse 單欄 + mobile buybar 禁區)不動(Q3);
+   本段獨立新增、同條件 @media 合法、cascade 後段 override 同屬性、不衝突;
+   13g Toast 推延(對齊 STATUS 字面、卡片改完 Related 自動繼承後評估、本 slice 不動 Toast) */
+@media (max-width: 1099px) and (min-width: 901px) {
+  /* 900-1100 中間斷點:圖 1fr : 資訊 1fr + padding 縮 32(HANDOFF「900-1100px 圖 1fr : 資訊 1fr、padding 32」) */
+  .pd-main { grid-template-columns: 1fr 1fr; }
+  .pd-page { padding: 24px 32px 80px; }
+}
+@media (max-width: 900px) {
+  /* slice-4/5/6 新元件窄螢幕 collapse(避免 3/4 cols grid 爆版)*/
+  .pd-feature-grid { grid-template-columns: 1fr; }
+  .pd-spotlight { grid-template-columns: 1fr; }
+  .pd-spot-text { padding: 32px; }
+  .pd-steps { grid-template-columns: repeat(2, 1fr); }
+  .pd-specs { grid-template-columns: 1fr; }
+  .pd-install-meta { grid-template-columns: 1fr; }
+  .pd-related-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 560px) {
+  /* 極窄螢幕(手機直立):steps + related 再降單欄 */
+  .pd-steps { grid-template-columns: 1fr; }
+  .pd-related-grid { grid-template-columns: 1fr; }
 }

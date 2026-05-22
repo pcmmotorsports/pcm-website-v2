@@ -87,11 +87,46 @@ describe('ProductTabs', () => {
     expect(descPane?.textContent).toContain(product.name);
   });
 
-  it('renders product id padded to 5 in specs table', () => {
+  it('renders product id padded to 5 in specs', () => {
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductTabs product={product} />);
     const expected = `PCM-${String(product.id).padStart(5, '0')}`;
     fireEvent.click(screen.getByRole('tab', { name: '規格與相容性' }));
     expect(screen.getByText(expected)).toBeDefined();
+  });
+
+  // M-1-13H-6 Codex Fix 1:鍵盤導覽 regression(W3C WAI-ARIA Tabs、Sean Q1=B 完整版)
+  it('ArrowRight moves to next tab + selects it (description → specs)', () => {
+    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+    const descTab = screen.getByRole('tab', { name: '商品介紹' });
+    fireEvent.keyDown(descTab, { key: 'ArrowRight' });
+    expect(
+      screen.getByRole('tab', { name: '規格與相容性' }).getAttribute('aria-selected'),
+    ).toBe('true');
+    expect(descTab.getAttribute('aria-selected')).toBe('false');
+  });
+
+  it('ArrowLeft from first tab wraps to last tab (循環)', () => {
+    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+    const descTab = screen.getByRole('tab', { name: '商品介紹' });
+    fireEvent.keyDown(descTab, { key: 'ArrowLeft' });
+    expect(
+      screen.getByRole('tab', { name: '保固與退換' }).getAttribute('aria-selected'),
+    ).toBe('true');
+  });
+
+  it('Home selects first tab, End selects last tab', () => {
+    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+    // 先切到 specs、再按 Home 回第一個
+    fireEvent.click(screen.getByRole('tab', { name: '規格與相容性' }));
+    fireEvent.keyDown(screen.getByRole('tab', { name: '規格與相容性' }), { key: 'Home' });
+    expect(
+      screen.getByRole('tab', { name: '商品介紹' }).getAttribute('aria-selected'),
+    ).toBe('true');
+    // 按 End 切最後一個
+    fireEvent.keyDown(screen.getByRole('tab', { name: '商品介紹' }), { key: 'End' });
+    expect(
+      screen.getByRole('tab', { name: '保固與退換' }).getAttribute('aria-selected'),
+    ).toBe('true');
   });
 });
