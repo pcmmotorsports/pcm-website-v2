@@ -4565,6 +4565,50 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-13Z install slice(外部 reviewer M3 抓 dirty file + Sean Q1=A 拍納入時順手記)
 - **相關:** apps/storefront/next-env.d.ts;Next.js 官方 docs
 
+### #170. ⏳ M-1-14f2 LINE OAuth email 缺失 / collision 處理(Codex C1)
+
+- **狀態:** ⏳ 待執行(M-1-14f2 啟動前處理)
+- **分流:** P1-before-launch
+- **優先級:** 🟠 中(M-1-14f2 阻塞)
+- **問題:**
+  - handle_new_auth_user trigger 把 NEW.email 寫入 customers.email NOT NULL UNIQUE
+  - LINE OAuth 用戶若拒 email scope → NEW.email = NULL → trigger 寫 NOT NULL fail → auth.users insert rollback
+  - email collision(已有同 email 用戶用 email/password 註冊、後用 LINE 拿同 email)→ UNIQUE 違反 → rollback
+- **觸發事件:** M-1-14f2 LINE OAuth API routes 落地前
+- **預期解法:**
+  - 選項 A:M-1-14f2 強制 LINE OAuth email scope 必有(沒拿到 email 註冊 fail、UI 提示「需授權 email」)
+  - 選項 B:trigger 對 NULL email 加 fallback `${user_id}@line.local`、collision 加 suffix `${email}+line${rand4}`
+  - 選項 C:雙路 — LINE 沒給 email → fallback,collision → 拒
+- **不修會痛在:**
+  - 擴充性:Phase 2 加 Apple Sign In / 其他 OAuth 同樣 email 缺失問題,共用 trigger pattern
+  - 可維護性:trigger 失敗 silently rollback,debug 困難
+  - bug 可追蹤性:LINE 用戶註冊 fail 看不到原因,客服處理難
+- **估時:** 30-45 min(M-1-14f2 內處理)
+- **依賴:** M-1-14f2 LINE OAuth、handle_new_auth_user trigger(M-1-14a)
+- **發現於:** 2026-05-23 / M-1-14a-patch / Codex Review C1
+- **相關:** M-1-14f2 LINE OAuth、handle_new_auth_user trigger
+
+### #171. ⏳ RLS policy 性能優化:auth.uid() 包 (select auth.uid())(Codex C3)
+
+- **狀態:** ⏳ 待執行(性能優化、非阻塞)
+- **分流:** P1-before-launch
+- **優先級:** 🟢 低(Phase 1 規模不卡、Phase 2 量大才痛)
+- **問題:**
+  - M-1-14a migration RLS policies(customers / addresses / vehicles / wallet_ledger)直接用 auth.uid()
+  - Supabase 建議改 (select auth.uid()) 避免 per-row function call、單次查詢計算 1 次
+  - 4 表 × 4-5 policy = 16+ 處需改
+- **觸發事件:** M-1-14 完整收尾後 / 或量大撞性能時
+- **預期解法:**
+  - 新 migration 全改 `(select auth.uid()) = ...`
+- **不修會痛在:**
+  - 擴充性:Phase 2 規模上來、large-set query 每 row 跑 auth.uid() 慢
+  - 可維護性:後續 RLS 沿用此 pattern、不修一次到位後改更累
+  - bug 可追蹤性:性能問題、不易在 dev 發現
+- **估時:** 30 min(新 migration 全改)
+- **依賴:** M-1-14a RLS policies(已落地)
+- **發現於:** 2026-05-23 / M-1-14a-patch / Codex Review C3
+- **相關:** docs/architecture/supabase-schema-design.md §9 RLS、Phase 2 規模觸發
+
 ---
 
 ## 紀錄模板

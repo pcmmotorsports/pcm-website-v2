@@ -5,6 +5,10 @@
 > 階段 C code-reviewer 已先審:**PASS、0 must-fix**(2 consider:精準 git add + 本 packet)
 > 路徑說明:Sean Q2=A(2026-05-23)拍板放 `docs/reviews/` 對齊既有 packet 慣例(原 slice 指令明文 `docs/codex-packets/`、已移至本路徑 `docs/reviews/2026-05-23-m-1-14a-customer-schema-packet.md`)。
 
+**Scope:** 本 packet 僅覆蓋 M-1-14a Supabase migration(commit `9faf35a`)。後續 M-1-14b 擴 packages/domain + packages/ports(commit `5b33662`、同 Block A)+ packet 移檔(commit `78d0fc6`)未在本 packet 審查範圍。若需審後續 commit、另開 packet。
+
+**Codex Review 結果:** FAIL(2026-05-23)→ M-1-14a-patch 處置(本 patch commit):M1 invoice 三欄 SET NOT NULL / M2 本 Scope 註 / M3 PRD 入 repo / C2 ledger COMMENT 對齊 Q1=B(四件必修+順手已解)、C1 → backlog #170(LINE email)/ C3 → backlog #171(RLS auth.uid 包覆)follow-up。
+
 ---
 
 ```
