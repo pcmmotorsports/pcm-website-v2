@@ -188,6 +188,13 @@ importers:
         version: 5.9.3
 
   packages/use-cases:
+    dependencies:
+      '@pcm/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@pcm/ports':
+        specifier: workspace:*
+        version: link:../ports
     devDependencies:
       typescript:
         specifier: 'catalog:'

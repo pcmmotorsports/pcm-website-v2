@@ -6,7 +6,9 @@
  *
  * 邊界:
  * - 與 @pcm/schemas 表單 schema 區分:RegisterInput / LoginInput 是「表單輸入形狀」(client + server 驗證);
- *   本檔 AuthSignUpParams / AuthCredentials 是「port 方法輸入契約」(use-case 把表單 input 映射成此形狀)。
+ *   本檔 AuthSignUpParams / AuthCredentials 是「port 方法輸入契約」。delivery 層(storefront server action)
+ *   負責用 @pcm/schemas 驗證表單後映射成此形狀傳入 use-case;驗證 / parse 在 delivery 層、不在 use-case
+ *   (對齊 boundaries ADR-0002 §4.2:use-cases ⊥ schemas)。
  * - AuthError 型別定義在 domain(domain 命名 code union)、由 adapter 把 Supabase 原始 error 映射成此型別 throw;
  *   wire 細節(Supabase error code 字串)不上洩 use-case / UI(ADR-0003 §3.3)。
  *

@@ -1,5 +1,14 @@
-// @pcm/use-cases — business logic 編排、跨 domain context 流程, 殼、M-1 期間隨 entity 演進、第一個 use-case 落地時填
+// @pcm/use-cases — business logic 編排、跨 domain context 流程
 //
 // 對應 ADR-0002 §4.1(monorepo 結構)/ §5.3(bug 可追蹤性 — 業務邏輯錯找 use case)。
+//
+// M-1-14e-1b:會員 use-cases(register / login / logout / update-profile)。
+// 守 boundaries(ADR-0002 §4.2、use-cases ⊥ schemas):use-case 只收已驗證的 domain 型別;
+// 表單 @pcm/schemas parse / strip 未知欄 / 取 session userId 在 delivery 層(f1 storefront
+// server action、server 端、不信 client)。auth 走 IAuthService(e-1a)、profile 走
+// ICustomerRepository(M-1-14d);concrete adapter 由 f 段 wire-up 注入。
 
-export {};
+export { registerCustomer } from './register-customer';
+export { loginCustomer } from './login-customer';
+export { logoutCustomer } from './logout-customer';
+export { updateProfile } from './update-profile';
