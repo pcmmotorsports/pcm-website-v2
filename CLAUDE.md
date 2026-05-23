@@ -508,6 +508,8 @@ A: 選項 X
 
 五方分工清楚、不越界。code-reviewer 是 Code session 內角色、不獨立為第六方。
 
+**Codex 自動審查補充(2026-05-23 Sean 拍板)**:Cowork **退出某 slice 的 loop** 時(Claude Code 自己規劃 + 實作、Sean 親口指定),原 Cowork 階段 A/B(動手前審 plan)+ 階段 D 手動貼 packet,由 Claude Code 從 main session 直接跑 `codex` CLI 對抗審查補回(skill `codex-adversary`、見 `docs/patterns/cowork-review-chain.md` §8):關卡1 `codex exec -s read-only` 審 plan、關卡2 `codex exec -s read-only`(PCM 自訂、主)+ 可選 `codex review --uncommitted`(通用)審 diff。只 main session 跑(subagent 被 classifier 擋)、只唯讀(deny 擋 codex fix/apply/a + skill 強制 -s read-only + 跑前後 git status --porcelain 比對)。Codex 仍是「不同模型第二意見」、與 PCM 鐵則 / Sean 拍板衝突以後者為準。手動貼 web Codex(`/codex-review` packet)並存於 milestone 級。
+
 ---
 
 ## 快速自檢清單(slice 開工)

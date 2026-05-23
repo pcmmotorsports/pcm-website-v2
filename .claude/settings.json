@@ -11,9 +11,23 @@
       "Write(.env)",
       "Write(.env.*)",
       "Edit(.env)",
-      "Edit(.env.*)"
+      "Edit(.env.*)",
+      "Bash(codex fix *)",
+      "Bash(codex fix)",
+      "Bash(codex apply *)",
+      "Bash(codex apply)",
+      "Bash(codex a *)",
+      "Bash(codex a)"
     ]
   },
+
+  "_codex_adversary_note": [
+    "2026-05-23 Sean 拍板 A:用 Codex(不同模型)當對抗審查器(skill: codex-adversary)。",
+    "防線分層(誠實、非全靠 deny):(1) deny 擋明確會改檔的子命令 codex fix / apply / a(含無參數與帶參數形式);(2) codex exec 一律由 skill 紀律強制帶 -s read-only —— deny 無法精準『只擋非唯讀 exec、放行唯讀 exec』(pattern 重疊),故不在 deny 層處理;(3) 每次跑 codex 前後比對 git status --porcelain 一致(審 staged 時 status 本就非空、看的是有無新增變動)當實質改檔防線。",
+    "不加 allow:codex review/exec 每次跑仍 prompt、讓 Sean 對『送 diff 到 OpenAI + 計費』有感(成本/資料意識),非阻擋。",
+    "未被 deny 覆蓋的殘留風險:codex exec 不帶 -s read-only(workspace-write)+ --dangerously-bypass-approvals-and-sandbox —— 靠 skill 紀律明文禁用 + baseline 比對抓。",
+    "codex 需網路 egress、只能 main session 跑(subagent 的 dangerouslyDisableSandbox 被 classifier 擋、2026-05-23 實測)。"
+  ],
 
   "_a2_decision_note": [
     "Sean 2026-05-22 拍板 A2(對齊 docs/proposals/stage-3-bundle-code-deliverables.md §F):",

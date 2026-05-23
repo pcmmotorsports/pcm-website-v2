@@ -119,4 +119,22 @@ Manifest exclude 規則:
 
 A mode 用既有 `docs/specs/M-1-13H-automode-protocol.md` 模板、Cowork 為新 milestone 寫對應 protocol(避免重複框架)。
 
+## §8 Codex 雙關卡對抗審查(Cowork 退出 loop 時的 A/B/D 替代)
+
+> **狀態:** 新建 / 2026-05-23(Sean 拍板:規劃移回 Claude Code、嫌 Cowork 拖速度;為保留「不同模型對抗審查」防線,用本機 `codex` CLI 當審查器)。
+> **Skill:** `.claude/skills/codex-adversary/SKILL.md`(完整命令 + prompt + 紀律)。
+
+當 Cowork **不在 loop**(Claude Code 自己規劃 + 實作該 slice)時,§1 的階段 A/B(Cowork spawn 的 PRD/slice-reviewer)+ 階段 D(Sean 手動貼 packet)由 **Codex(OpenAI gpt-5.5、不同模型)兩關卡**補回:
+
+| 替代 | 關卡 | 命令(main session 跑、`dangerouslyDisableSandbox`) | 取代原 |
+|---|---|---|---|
+| 動手前審 plan | 關卡1 | `codex exec -s read-only "<審 plan vs PRD/design...>"` | 階段 A/B |
+| 動手後審 diff | 關卡2 | `codex exec -s read-only "<PCM 鐵則...先跑 git diff>"`(主)+ 可選 `codex review --uncommitted`(通用) | 階段 D(+ 補 C) |
+
+- **寫審分離:** Claude Code 寫 plan + code;Codex 審。不同模型 = 無共同盲點、比 Claude 審 Claude 對抗。
+- **Claude `code-reviewer`(階段 C)保留** 作 diff 的快速 PCM 鐵則第一道(免費先篩)、Codex 關卡2 再深審。
+- **執行紀律(硬性):** 只 main session 跑(subagent 的 `dangerouslyDisableSandbox` 被 classifier 擋、2026-05-23 實測)/ 只唯讀(skill 強制 `-s read-only` + settings.json deny `codex fix·apply·a`〔含無參數形式〕+ 跑前後 `git status --porcelain` 比對一致、審 staged 時看「有無新增變動」非「空」)/ findings 自修 ≤2 輪再 raise Sean。deny 無法精準只擋非唯讀 exec → 唯讀靠紀律 + baseline 比對、非全 hard deny。
+- **觸發範圍(控成本、約 28k token/次):** 關卡1 = 重大改動 plan(鐵則 8);關卡2 = 鐵則 12 條件 + milestone。低風險 slice 跳。
+- **`/codex-review` skill(產 packet 給人手動貼 web Codex)並存**:milestone 級完整審 / 想用 web ChatGPT Codex 時用。CLI 即時審(本 §8)= slice/commit 級。
+
 — END —
