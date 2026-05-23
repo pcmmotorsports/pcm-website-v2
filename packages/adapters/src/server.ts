@@ -25,3 +25,7 @@ export { createSupabaseServiceClient } from './supabase/client';
 // 寫 ledger、金流敏感、絕不入 client bundle;listEntries / getBalance 用 authenticated readClient)。
 // 對齊本檔 service_role 隔離紀律 + codex 關卡2 must-fix(不從 root public @pcm/adapters export)。
 export { SupabaseWalletAdapter } from './supabase/SupabaseWalletAdapter';
+
+// M-1-14e-1:SupabaseAuthAdapter 走 server-only subpath(register / login 走 server action、
+// 對齊「會員驗證在 server」鐵則 + wallet adapter 前例;失敗映射 domain AuthError、不上洩 Supabase error)。
+export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';

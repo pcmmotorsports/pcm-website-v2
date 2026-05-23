@@ -4632,6 +4632,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-14a / advisor 掃描時發現既有 infra、Sean Q1=A 拍板納管
 - **相關:** #171(同屬 RLS migration 範疇、可合併)、M-1-14a handle_new_auth_user / sync_wallet REVOKE EXECUTE 處置
 
+### #173. ⏳ Phase 1「Confirm email OFF」上線交易前須補回 email 驗證(M-1-14e Q1=A)
+
+- **狀態:** ⏳ 待執行(上線含 email 交易前必處理)
+- **分流:** P1-before-launch
+- **優先級:** 🟠 中(Phase 1 開發 / demo 不卡;一旦寄交易信 / 開放真實註冊就成風險)
+- **問題:**
+  - M-1-14e Q1=A 拍板「註冊後直接登入」(對齊 design AccountPages.jsx L263-266 `loggedIn:true → onNav('account')`、PRD §8.1 L739 只 signUp 未強制驗證、鐵則 1 真權威)。
+  - 落地需 Sean 在 Supabase Auth 後台關閉「Confirm email」→ signUp 後 session 立即可用、不寄驗證信。
+  - 代價(Confirm email OFF 後遺症):
+    1. **無效 / 拼錯 email 也能註冊** → 後續訂單通知信 / 交易信寄不到。
+    2. **email 找不回帳號** → 無驗證 = 不確定 email 真屬該用戶,密碼重設 / 帳號救援不可靠。
+    3. **他人 email 冒名註冊** → 可用別人 email 開帳號(無 ownership 證明)。
+- **觸發事件:** 上線開放真實註冊 / 開始寄 email 交易通知前(M-1 收尾 premortem step-2 排「最晚拍板日」候選)。
+- **預期解法:**
+  - 上線前 Supabase 後台重開「Confirm email」+ storefront 補「請收信驗證」UI 流程(register 後不直接登入、改顯示驗證提示)。
+  - AuthResult 已預留 `needsEmailConfirmation` 欄位(M-1-14e-1),開驗證後 UI 直接分支、不需改 port 契約。
+- **不修會痛在:**
+  - 擴充性:Phase 2 履歷 / 訂單 / 儲值都靠可信 email 通知,未驗證 email 整條通知鏈不可信。
+  - 可維護性:愈晚補、累積的未驗證帳號愈多,回填驗證 / 清假帳號成本愈高。
+  - bug 可追蹤性:寄不到信的客訴難定位(是 email 錯還是寄信系統錯,無驗證無從區分)。
+- **估時:** 30-45 min(後台開關 + register 後「請收信」UI 分支)
+- **依賴:** M-1-14e-1 register use-case(AuthResult.needsEmailConfirmation 已預留)、Supabase Auth 後台設定(Sean)
+- **發現於:** 2026-05-23 / M-1-14e-1 codex 關卡1 must-fix #3 + 陪審 second opinion(Q1=A 代價)
+- **相關:** M-1-14e-1 AuthResult DTO、M-1-14f1 RegisterPage UI、M-1 premortem step-2 最晚拍板日
+
 ---
 
 ## 紀錄模板

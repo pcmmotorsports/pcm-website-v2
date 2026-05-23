@@ -8,6 +8,12 @@ export type * from './identity/types';
 export type * from './identity/address';
 export type * from './identity/vehicle';
 export type * from './identity/wallet';
+export type {
+  AuthCredentials,
+  AuthSignUpParams,
+  AuthResult,
+  AuthErrorCode,
+} from './identity/auth';
 export type * from './order/types';
 export type * from './sync/types';
 export type * from './payment/types';
@@ -17,3 +23,4 @@ export { toMoneyAmount } from './shared/types';
 export { resolveEnd } from './catalog/year-range';
 export { computeEffectivePrice } from './catalog/pricing';
 export { designTierToSchema, schemaTierToDesign } from './shared/utils';
+export { AuthError } from './identity/auth';
