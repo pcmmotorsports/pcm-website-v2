@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `b446bfe` | feat(adapters): M-1-14e-1a IAuthService port + SupabaseAuthAdapter + error mapper [M-1-14e-1a] | 2026-05-24 |
+| `fc45926` | feat(adapters): M-1-14e-1a IAuthService port + SupabaseAuthAdapter + error mapper [M-1-14e-1a] | 2026-05-24 |
 | `0c27321` | feat(adapters): M-1-14d-2 SupabaseWalletAdapter 雙 client + wallet mapper [M-1-14d-2] | 2026-05-23 |
 | `870821d` | feat(adapters): M-1-14d customer/address/vehicle adapter + mapper [M-1-14d] | 2026-05-23 |
 
