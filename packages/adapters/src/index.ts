@@ -13,6 +13,11 @@
 // 未來 Sheets / TapPay adapter 落地時順手擴(對齊 ADR-0002 §4.1 + backlog #48 trigger)。
 
 export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
+// M-1-14d:會員系統 3 個 Supabase adapter(單一 authenticated client、RLS 守自己 row)。
+// wallet adapter(混合 auth:讀 authenticated / 寫 service_role)拆下一段 M-1-14d-2。
+export { SupabaseCustomerAdapter } from './supabase/SupabaseCustomerAdapter';
+export { SupabaseAddressAdapter } from './supabase/SupabaseAddressAdapter';
+export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
 export { createSupabaseAnonClient } from './supabase/client';
 export {
   availabilityToBool,
