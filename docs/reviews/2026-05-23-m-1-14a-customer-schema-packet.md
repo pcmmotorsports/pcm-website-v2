@@ -363,4 +363,69 @@ REVOKE EXECUTE ON FUNCTION public.sync_wallet_balance_on_ledger_insert() FROM PU
 
 > 註:上方 SQL 為精簡呈現(省去 COMMENT 與部分 inline 註解);完整含 COMMENT 版本見 repo migration 檔。語意與 live DB 一致。
 
+---
+
+# Round 2 — M-1-14a-patch 處置驗證(供 Codex 複審 FAIL → PASS)
+
+> 本段於 2026-05-23 追加。上一輪 Codex 對 M-1-14a migration(commit `9faf35a`)回 **FAIL**(3 必修 M1/M2/M3 + 3 consider C1/C2/C3)。
+> M-1-14a-patch(commit `26378fd`)處置完畢、PCM code-reviewer 已複驗 **PASS / 0 must-fix**。
+> 請 Codex 複審以下逐 finding 處置是否充分、可否從 FAIL 轉 PASS。
+
+```
+Mode: 唯讀複審。確認上一輪 FAIL 的 M1/M2/M3 + C2 是否解清、C1/C3 入 backlog 是否合理。只回 findings / 是否可轉 PASS。
+patch commit: 26378fd / 不 push / ahead origin/dev = 5
+```
+
+## 逐 finding 處置對照
+
+| Finding | 上輪 Codex 意見 | M-1-14a-patch 處置 | 落地證據 |
+|---|---|---|---|
+| **M1**(必修) | invoice 三欄無 NOT NULL,Postgres CHECK 對 NULL 放行(invoice_type='company' 但 title/tax_id NULL 繞 validation) | 新 migration `20260523052537` 對 invoice_title / invoice_tax_id / invoice_donate_code `SET NOT NULL` | live `information_schema.columns` 三欄 `is_nullable=NO`、DEFAULT '' 保留;invoice_carrier 不在 CHECK、維持 nullable |
+| **M2**(必修) | packet 未註明 scope | 本 packet 頂端加 **Scope** 段(僅覆蓋 M-1-14a migration `9faf35a`)+ FAIL→patch 結果註 | packet header blockquote |
+| **M3**(必修) | PRD 未入 repo | `git add docs/specs/m-1-14-customer-schema.md`(998 行 tracked) | commit `26378fd` 含 PRD new file |
+| **C2**(順手) | ledger COMMENT 與 Q1=B 矛盾(寫 view 算) | 同新 migration 更新 customer_wallet_ledger COMMENT 對齊 Q1=B(存 customers + trigger、view 為對帳工具) | migration `20260523052537` COMMENT + PRD §3.5 同步 |
+| **C1** | LINE OAuth email 缺失/collision 未處理 | 入 backlog **#170**(M-1-14f2 啟動前處理、含選項 A/B/C) | docs/phase-1-backlog.md #170 |
+| **C3** | RLS auth.uid() per-row 性能 | 入 backlog **#171**(改 (select auth.uid())、Phase 2 規模觸發) | docs/phase-1-backlog.md #171 |
+
+## 額外修正(PCM code-reviewer Round-1 抓到、Codex 未列但相關)
+
+M3 把 PRD 入 repo 時,code-reviewer 發現 PRD **前段設計章節**仍寫舊口徑(wallet_balance 走 view 算 / 不存欄位),與 §10 Q1=B 拍板 + §3.2/§3.5/§3.8 矛盾、會誤導後續 M-1-14b/c 實作者。已連同字面同步:
+
+- **§1.2 bug 可追蹤性**:`wallet_balance 用 view 即時 SUM` → `存 customers 表 + ledger trigger 同步(Q1=B)、view 為對帳工具`
+- **§2.1 架構圖**:`public.customer_wallet_balance(view、SUM 算)` → `public.customer_wallet_balance_check(對帳 view)`(view 名亦校正)
+- **§2.2 設計原則 #2**:`wallet_balance 用 view 算、不存欄位` → `存 customers 表、ledger trigger 同步(Q1=B)、view 為對帳工具`
+- **§2.3 pattern 清單**:`本 milestone 用 wallet_balance view` → `建 customer_wallet_balance_check 對帳 view、非 balance 來源`
+- **§3.3**:invoice 三欄 `text DEFAULT ''` → `text NOT NULL DEFAULT ''`(對齊 M1 migration)
+- **§3.5**:ledger COMMENT 對齊 Q1=B(對齊新 migration COMMENT)
+
+## 新 migration 完整字面(`20260523052537_customer_addresses_invoice_not_null_and_ledger_comment.sql`)
+
+```sql
+-- M-1-14a-patch: Codex M1 + C2(forward-only、不改既有 9faf35a)
+
+-- M1: invoice 三欄 SET NOT NULL(堵 CHECK 對 NULL 放行;三欄有 DEFAULT ''、0 rows、安全)
+ALTER TABLE customer_addresses
+  ALTER COLUMN invoice_title SET NOT NULL,
+  ALTER COLUMN invoice_tax_id SET NOT NULL,
+  ALTER COLUMN invoice_donate_code SET NOT NULL;
+
+-- C2: customer_wallet_ledger COMMENT 對齊 Q1=B(存 customers + trigger sync、非 view 算)
+COMMENT ON TABLE customer_wallet_ledger IS
+  'M-1-14 Q1=B 拍板:wallet_balance / total_deposit 存 customers 表欄位、ledger AFTER INSERT trigger 自動同步(非 view 即時算)。customer_wallet_balance_check view 留作 admin 對帳工具、非 storefront hot path。amount signed integer / deposit + / use - / refund +、CHECK constraint 守門。Phase 1 deposit 為 mock(TapPay 整合留 M-3);use 由 M-3 結帳折抵時寫入。';
+```
+
+## advisor + 三綠 + code-reviewer(Round 2)
+
+- advisor security:本 patch **無新 lint**(僅剩既有 `rls_auto_enable` 2 WARN、out of scope、已記 Sean 待決策)。
+- 三綠:typecheck ✅ / lint ✅ / build N/A(純 SQL+docs)。
+- PCM code-reviewer:首審 FAIL(2 件:PRD 內部矛盾 Critical + commit subject >72 Important)→ 修 → **複驗 PASS / 0 must-fix**。
+
+## 請 Codex 複審確認
+
+1. M1 `SET NOT NULL` 是否真封死 CHECK NULL 放行?(三欄含 donate_code、carrier 維持 nullable 是否同意?)
+2. C2 COMMENT 對齊 Q1=B 字面是否正確、PRD §3.5 與 migration 是否一致?
+3. PRD 前段(§1.2/§2.1/§2.2/§2.3)矛盾修正是否徹底、有無殘留誤導字面?
+4. C1(#170)/ C3(#171)入 backlog 而非本 patch 處理,是否同意?
+5. 整體可否從 FAIL 轉 **PASS**?
+
 — END —
