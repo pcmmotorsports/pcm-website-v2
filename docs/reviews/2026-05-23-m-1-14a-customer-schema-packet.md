@@ -3,7 +3,7 @@
 > 產出時間:2026-05-23 / commit 前 / 不 push
 > 對應規範:`docs/patterns/codex-review-packet.md` + 鐵則 12(動 schema / RLS / GRANT / migration / SECURITY DEFINER + pricing-adjacent wallet)
 > 階段 C code-reviewer 已先審:**PASS、0 must-fix**(2 consider:精準 git add + 本 packet)
-> 路徑說明:slice 指令明文指定 `docs/codex-packets/`;既有 packet 慣例在 `docs/reviews/`。本 packet 依指令明文落於 `docs/codex-packets/`,留 Sean 決定是否與 `docs/reviews/` 合併。
+> 路徑說明:Sean Q2=A(2026-05-23)拍板放 `docs/reviews/` 對齊既有 packet 慣例(原 slice 指令明文 `docs/codex-packets/`、已移至本路徑 `docs/reviews/2026-05-23-m-1-14a-customer-schema-packet.md`)。
 
 ---
 
