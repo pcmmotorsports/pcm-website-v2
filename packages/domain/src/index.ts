@@ -5,6 +5,9 @@
 export type * from './shared/types';
 export type * from './catalog/types';
 export type * from './identity/types';
+export type * from './identity/address';
+export type * from './identity/vehicle';
+export type * from './identity/wallet';
 export type * from './order/types';
 export type * from './sync/types';
 export type * from './payment/types';
