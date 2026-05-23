@@ -4657,6 +4657,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-14e-1 codex 關卡1 must-fix #3 + 陪審 second opinion(Q1=A 代價)
 - **相關:** M-1-14e-1 AuthResult DTO、M-1-14f1 RegisterPage UI、M-1 premortem step-2 最晚拍板日
 
+### #174. ⏳ busboy-end STATUS 頂端 hash orphan 根因修(寫 pre-amend hash → 改 post-amend / 不可變引用)
+
+- **狀態:** ⏳ 待執行(tooling、Sean 處理 pcm-tools 時)
+- **分流:** P1-before-launch
+- **優先級:** 🟢 低(cosmetic;但每 slice 手抓累 + Codex push-readiness 可能誤判 orphan = FAIL)
+- **問題:**
+  - busboy-end(及現行手動 STATUS 流程)把「pre-amend hash」寫進 STATUS「最近 3 commit」頂列;slice commit amend 後該 hash 變 dangling orphan(≠ HEAD、`git merge-base --is-ancestor` 判 not-ancestor)。
+  - 每 slice 都要手動補校正(獨立 commit 指向可達 parent hash),否則 Codex push-readiness 審判 orphan = FAIL(見 memory project_status-top-hash-off-by-one-normal)。
+  - 根因:STATUS 是 commit 內容,無法含自身最終 hash;amend 必令先前寫入的 hash orphan。
+- **觸發事件:** Sean 改 pcm-tools 時 / orphan 手工校正成本累積到痛。
+- **預期解法(擇一):**
+  - busboy-end 改寫:頂列固定寫 **parent commit hash**(可達、會 stick、不需再 amend);或
+  - 頂列改用 **slice-id / milestone 引用** 而非 commit hash(避免 self-reference);或
+  - 接受 orphan 為慣例、但在 SOP 明確「push 前跑一個獨立 STATUS 校正 commit 指向可達 parent」(本 slice 手動採此 workaround、M-1-14e-1b)。
+- **不修會痛在:**
+  - 擴充性:每新 slice 複製手工校正步驟、SOP 膨脹。
+  - 可維護性:pre-amend hash 邏輯散在 busboy + 手動流程、無單一真相。
+  - bug 可追蹤性:STATUS 頂 hash 與 HEAD 不一致誤導讀者 + Codex push-readiness 誤判 orphan = FAIL、降信噪比。
+- **估時:** 30-60 min(改 busboy-end.js + 驗 3 slice)
+- **依賴:** pcm-tools repo(外部、Sean)
+- **發現於:** 2026-05-24 / M-1-14e-1a~1b 每 slice 手動校正 orphan、陪審 raise 根因
+- **相關:** memory project_status-top-hash-off-by-one-normal、CLAUDE.md「Busboy 流程」、#142(hash drift)
+
 ---
 
 ## 紀錄模板
