@@ -4609,6 +4609,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-14a-patch / Codex Review C3
 - **相關:** docs/architecture/supabase-schema-design.md §9 RLS、Phase 2 規模觸發
 
+### #172. ⏳ rls_auto_enable / ensure_rls event trigger 納管 + EXECUTE 收斂(Sean Q1=A)
+
+- **狀態:** ⏳ 待執行(Sean 2026-05-23 拍 Q1=A「該做」、專門 slice 處理、不急)
+- **分流:** P1-before-launch
+- **優先級:** 🟠 中(安全網本身有用、但「未進版控的隱形 infra」是技術債 + 2 個 advisor WARN)
+- **問題:**
+  - DB 有一個 event trigger `ensure_rls` + function `public.rls_auto_enable()`(owner postgres、SECURITY DEFINER、`SET search_path='pg_catalog'`):監聽 `CREATE TABLE` / `CREATE TABLE AS` / `SELECT INTO`,自動對 public schema 新表跑 `ALTER TABLE ... ENABLE ROW LEVEL SECURITY`(安全網、防漏鎖)。
+  - **不在任何 migration 檔內** = DB 物件未進版控的 drift(`supabase db reset` 重播會遺失、誰建的查不到)。
+  - advisor security 2 個 WARN:`anon`/`authenticated_security_definer_function_executable`(0028/0029)— public SECURITY DEFINER function 被 PostgREST 暴露成 `/rest/v1/rpc/rls_auto_enable` 可呼叫(實際風險低:event trigger function 單獨呼叫等於空轉、`pg_event_trigger_ddl_commands()` 在非 DDL context 無資料,但 best practice 仍應收斂)。
+- **觸發事件:** Sean Q1=A 拍板「該做」、專門 slice(不擋 M-1-14c~h 進度)
+- **預期解法:**
+  - 新 migration 補上 `ensure_rls` event trigger + `rls_auto_enable()` function 完整定義(正式納管、可重播)
+  - 同 migration `REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated`(收斂 0028/0029、對齊 M-1-14a 對 handle_new_auth_user / sync_wallet 的處置)
+  - 跑 get_advisors security 確認 2 WARN 清除
+- **不修會痛在:**
+  - 擴充性:未進版控的 infra、新環境 / db reset 無法重建這層安全網、新表可能漏鎖
+  - 可維護性:誰建的、為何建查不到;後續想改安全網行為(如擴 schema 範圍)無檔可改
+  - bug 可追蹤性:advisor 長期掛 2 WARN、淹沒未來真正的新 WARN、降低 advisor 信噪比
+- **估時:** 20-30 min(新 migration 抽現有定義 + REVOKE + advisor 驗)
+- **依賴:** 無前置(獨立 migration);可與 #171 RLS 性能優化合併一個 migration
+- **發現於:** 2026-05-23 / M-1-14a / advisor 掃描時發現既有 infra、Sean Q1=A 拍板納管
+- **相關:** #171(同屬 RLS migration 範疇、可合併)、M-1-14a handle_new_auth_user / sync_wallet REVOKE EXECUTE 處置
+
 ---
 
 ## 紀錄模板
