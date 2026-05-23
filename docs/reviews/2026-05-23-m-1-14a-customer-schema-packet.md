@@ -428,4 +428,13 @@ COMMENT ON TABLE customer_wallet_ledger IS
 4. C1(#170)/ C3(#171)入 backlog 而非本 patch 處理,是否同意?
 5. 整體可否從 FAIL 轉 **PASS**?
 
+## Round 2 Codex findings 處置(commit `34cf138`)
+
+Codex round-2 複審回 FAIL:技術判定 M1/M2/M3 + C2 已解清、C1→#170/C3→#171 同意,但 push readiness 因 STATUS commit drift FAIL。1 must-fix + 3 consider 已處置:
+
+- **must-fix(STATUS:16 orphan)**:STATUS 最近 3 commit top 原寫 `e1338a6`,`git merge-base --is-ancestor` 驗證為 orphan(不可達 HEAD、busboy 雙 amend off-by-one + 後續 commit 複合)。改為可達的 `26378fd`(實際 patch commit、已 git 驗證可達),且改用直接寫可達 hash、不再用 `<<HEAD>>` 雙 amend(orphan 來源)。
+- **consider**:packet ahead 數改 robust 表述;PRD §5 狀態「待拍」→「已拍板/已執行」;PRD §0 TL;DR 社群登入「不做(留 §10 拍)」→「Q4=Y 已拍 Google+LINE Phase 1 做、實作留 f1/f2」。
+
+請 Codex 終審:STATUS orphan 修復(`26378fd` 可達)+ 3 consider 字面校正後,push readiness 是否解除、整體可否轉 **PASS**。
+
 — END —
