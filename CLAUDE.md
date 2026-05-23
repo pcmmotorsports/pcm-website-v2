@@ -512,6 +512,26 @@ A: 選項 X
 
 ---
 
+## Claude Code 自驅 slice SOP(Cowork 退出時、2026-05-23 起)
+
+> Sean 嫌 Cowork 規劃層拖速度、指定某些 slice 由 Claude Code **自己規劃 + 實作**(不等 Cowork 寫六件套指令);對抗審查改用 Codex(`codex-adversary` skill)+ Claude `code-reviewer` 補回。**Cowork 模式仍保留**(複雜 milestone 級 PRD / Sean 指定時用)、本 SOP 是「Cowork 不在 loop」時的替代流程。
+
+端到端步驟(每步對應原五階段鏈的哪一格,見 `docs/patterns/cowork-review-chain.md` §1+§8):
+
+1. **起手** — 讀 STATUS「下一步」+ PRD/handoff + design 真權威(鐵則 1 grep、不憑記憶)。
+2. **規劃** — Claude Code 自己寫 slice plan(取代 Cowork 規劃)。標內容分級 L1/L2/L3、判鐵則 8 重大改動。
+3. **關卡1(動手前審 plan)** — 重大改動 plan 跑 `codex-adversary`(`codex exec -s read-only` 審 plan vs PRD/design)→ 自修 ≤2 輪 → 決策岔路**一次性批次**問 Sean(prose multi-select、不零碎打斷)。小 slice 跳。
+4. **實作** — 前後台同步(鐵則 3)、檔案大小(鐵則 6)、CSS+TSX 同 slice(鐵則 5)。
+5. **三綠** — `/slice-checkpoint`(typecheck + lint + 條件 build)。
+6. **code-reviewer(必跑、對應原階段 C)** — Claude `code-reviewer` subagent(快速 PCM 鐵則 + 字面 vs 事實 + manifest)。
+7. **關卡2(動手後審 diff)** — 命中鐵則 12(security/RLS/migration/pricing/order)或重大改動 → 跑 `codex-adversary`(`codex exec -s read-only` 審 diff)→ 自修 ≤2 輪。低風險 slice 跳。
+8. **commit** — 精準 git add、commit 訊息字面 vs 事實一致、**STATUS.md 7 欄 Claude Code 自更**(不經 Cowork)+ busboy-end。
+9. **不 push** — 等 Sean 手動推(review checkpoint)。STATUS「最近 3 commit」用**可達 hash**(`git merge-base --is-ancestor` 驗、避免 busboy off-by-one orphan、見對應 memory)。
+
+決策仍一律 Sean 拍(prose multi-select、白話)。Claude Code 不替 Sean 拍板、不自動 push。
+
+---
+
 ## 快速自檢清單(slice 開工)
 
 每個 slice 動手前跑(M-1-09 驗證過的開工順序、固化):
