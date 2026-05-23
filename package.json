@@ -36,6 +36,6 @@
     "vitest": "catalog:",
     "xlsx": "^0.18.5",
     "yaml": "^2.6.0",
-    "zod": "^4.4.3"
+    "zod": "catalog:"
   }
 }

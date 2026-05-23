@@ -27,6 +27,9 @@ catalogs:
     vitest:
       specifier: ^4.1.5
       version: 4.1.5
+    zod:
+      specifier: ^4.4.3
+      version: 4.4.3
 
 importers:
 
@@ -78,7 +81,7 @@ importers:
         specifier: ^2.6.0
         version: 2.9.0
       zod:
-        specifier: ^4.4.3
+        specifier: 'catalog:'
         version: 4.4.3
 
   apps/admin: {}
@@ -169,6 +172,10 @@ importers:
         version: 5.9.3
 
   packages/schemas:
+    dependencies:
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
     devDependencies:
       typescript:
         specifier: 'catalog:'
