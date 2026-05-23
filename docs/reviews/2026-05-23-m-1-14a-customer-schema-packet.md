@@ -373,7 +373,7 @@ REVOKE EXECUTE ON FUNCTION public.sync_wallet_balance_on_ledger_insert() FROM PU
 
 ```
 Mode: 唯讀複審。確認上一輪 FAIL 的 M1/M2/M3 + C2 是否解清、C1/C3 入 backlog 是否合理。只回 findings / 是否可轉 PASS。
-patch commit: 26378fd / 不 push / ahead origin/dev = 5
+patch commit: 26378fd / 不 push(ahead origin/dev:patch commit 時 = 5、Round-2 packet append 後 = 6、Codex round-2 校正後續再累加、實際以 git log 為準)
 ```
 
 ## 逐 finding 處置對照

@@ -2,7 +2,7 @@
 
 - **日期:** 2026-05-23
 - **作者:** Cowork(M-1-14 plan、A mode commit-ready 草稿)
-- **狀態:** ⏳ 待 Sean 拍 §10 五題 + 整體 review
+- **狀態:** ✅ 已拍板(§10 五題 Q1=B / Q2=A / Q3=A / Q4=Y / Q5=A)、Block A(M-1-14a migration + M-1-14b domain/ports)+ M-1-14a-patch 已執行、後續 sub-slice c~h 待跑
 - **拍板回顧(2 輪):**
   - 第 1 輪:Q1=A(tier 後台手動)/ Q2=C(一次建全 4 表)/ Q3=A mode + 混合段間推進
   - 第 2 輪(5 題 PRD 內設計題):
@@ -22,7 +22,7 @@
 
 M-1-14 一次建立 PCM 會員系統地基:Supabase 4 表(customers / addresses / vehicles / wallet_ledger)+ RLS + adapter + zod + register/login + AccountPages 7 tab + MobileTabBar 補搬,落地後 storefront 從「dev cookie 假裝 tier」升級為「真實註冊登入 + RLS 守住經銷 tier」。
 
-不做:Phase 2 9 大藍圖 / Excel 大量匯入 / Admin UI 客製 / TapPay 真實環境 / 社群登入(Google / LINE,留 §10 拍)/ 經銷申請流程(走 #156 後續 PRD)。
+不做:Phase 2 9 大藍圖 / Excel 大量匯入 / Admin UI 客製 / TapPay 真實環境 / 經銷申請流程(走 #156 後續 PRD)。社群登入 Google + LINE:Q4=Y 已拍 Phase 1 做(Google 走 Supabase 內建、LINE 自寫 OAuth、實作留 M-1-14f1/f2)。
 
 ---
 

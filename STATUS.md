@@ -13,7 +13,7 @@
 ## 最近 3 commit
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `e1338a6` | fix(api,docs): M-1-14a Codex 必修 3 件 + backlog [M-1-14a-patch] | 2026-05-23 |
+| `26378fd` | fix(api,docs): M-1-14a Codex 必修 3 件 + backlog [M-1-14a-patch] | 2026-05-23 |
 | `5b33662` | feat(domain,ports): M-1-14b 擴 Customer + 3 子 entity + 3 子 port [M-1-14b] | 2026-05-23 |
 | `9faf35a` | feat(api): M-1-14a customers schema 4 表 + RLS + 5 trigger [M-1-14a] | 2026-05-23 |
 
