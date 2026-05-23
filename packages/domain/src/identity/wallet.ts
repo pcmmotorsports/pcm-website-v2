@@ -36,7 +36,9 @@ export type WalletLedgerEntry = {
  * WalletBalance: 儲值金餘額快照(M-1-14)。
  *
  * 對齊 PRD §4.2;Q1=B 拍板下 balance / totalDeposit 來源為 customers.wallet_balance /
- * total_deposit 欄(DB trigger 同步)、lastEntryAt 對齊對帳 view customer_wallet_balance_check。
+ * total_deposit 欄(DB trigger 同步);lastEntryAt 語意 = ledger MAX(created_at)(值等同對帳 view
+ * customer_wallet_balance_check 的 last_entry_at;但該 view 不對 authenticated GRANT、僅 admin
+ * service_role 對帳用,故 authenticated 端 adapter 直查 ledger MAX、不查 view、M-1-14d-2 拍板)。
  * balance / totalDeposit 用 number(整數性由 DB integer 欄守、理由同 [[customer]] walletBalance)。
  */
 export type WalletBalance = {

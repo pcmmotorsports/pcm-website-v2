@@ -20,3 +20,8 @@
 import 'server-only';
 
 export { createSupabaseServiceClient } from './supabase/client';
+
+// M-1-14d-2:SupabaseWalletAdapter 走 server-only subpath(addEntry 需 service_role writeClient
+// 寫 ledger、金流敏感、絕不入 client bundle;listEntries / getBalance 用 authenticated readClient)。
+// 對齊本檔 service_role 隔離紀律 + codex 關卡2 must-fix(不從 root public @pcm/adapters export)。
+export { SupabaseWalletAdapter } from './supabase/SupabaseWalletAdapter';

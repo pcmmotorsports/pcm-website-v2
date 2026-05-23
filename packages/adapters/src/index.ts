@@ -14,10 +14,11 @@
 
 export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
 // M-1-14d:會員系統 3 個 Supabase adapter(單一 authenticated client、RLS 守自己 row)。
-// wallet adapter(混合 auth:讀 authenticated / 寫 service_role)拆下一段 M-1-14d-2。
 export { SupabaseCustomerAdapter } from './supabase/SupabaseCustomerAdapter';
 export { SupabaseAddressAdapter } from './supabase/SupabaseAddressAdapter';
 export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
+// M-1-14d-2:SupabaseWalletAdapter 因 addEntry 需 service_role writeClient(金流敏感、server-only
+// 邊界)、不在 root public API export、改從 @pcm/adapters/server export(見 server.ts)。
 export { createSupabaseAnonClient } from './supabase/client';
 export {
   availabilityToBool,
