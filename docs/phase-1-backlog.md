@@ -4701,6 +4701,43 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-24 / graphify 採用 slice、Codex 關卡1 round-2 future-watch
 - **相關:** 鐵則 2(design mock 合約)、Server 端鐵則(經銷價不外洩)、`docs/patterns/slice-checkpoint.md` §3.4、`.graphifyignore`
 
+### #176. 🟡 會員 use-case ownership 違規統一 typed error(目前丟 plain Error)
+
+- **狀態:** ⏳ 待執行(f 段或重構時)
+- **優先級:** 🟡 低(陪審 e-2a nit、不擋)
+- **問題:**
+  - M-1-14e-2a/2b address/vehicle use-cases 的 ownership 違規(`verifyOwnedThenUnsetOthers` / `verifyOwnedThenUnsetOtherPrimary` / delete 驗 ownership)目前丟 `new Error('... 不屬於目前 customer')` plain Error。
+  - delivery 層(f1)難用 instanceof / code 精準分辨「越權/不存在」與其他 DB error → HTTP 狀態碼/UI 訊息不好對應。
+- **觸發事件:** f1 wiring use-case 需精準錯誤分流時 / 重構 domain error。
+- **預期解法:** 定義 domain typed error(如 `NotOwnedError` / 沿用 e-1a AuthError 模式)、use-case 拋它、delivery instanceof 分流。
+- **不修會痛在:**
+  - 擴充性:錯誤分流靠字串比對、脆。
+  - 可維護性:訊息字串改一次到處改。
+  - bug 可追蹤性:plain Error 跟 DB error 混在一起難定位。
+- **估時:** 20-30 min(定 error 型別 + 改 use-case + delivery instanceof)
+- **依賴:** 無(可獨立)
+- **發現於:** 2026-05-24 / M-1-14e-2a 陪審 nit
+- **相關:** e-1a AuthError 模式、`packages/use-cases/src/_address-default.ts` / `_vehicle-primary.ts`
+
+### #177. 🟠 vehicle service 空值 '' → null 正規化(f1 wiring 前必修)
+
+- **狀態:** ⏳ 待執行(f1 wiring vehicle create/update 前必修)
+- **優先級:** 🟠 中(會 runtime 炸:空保養日期 '' 進 DB date 欄)
+- **問題:**
+  - DB `customer_vehicles.service` 是 nullable `date`;`VehicleInput` zod(`packages/schemas/src/index.ts:79` `z.string().default('')`)空值輸出 `''`;adapter `mapVehicleToInsertRow`/`mapVehiclePatchToRow` 把 `service` 直送、不轉 null。
+  - M-1-14e-2b use-case 守 boundary A 只收已驗證 domain 型別(`service: string | null`、null 合法)、pass-through、**不負責正規化**。
+  - 結果:若 f1 用 VehicleInput 產生 `service: ''` 送 use-case → mapper → DB date 欄 → runtime error。
+- **觸發事件:** f1(storefront)wiring vehicle add/update 表單時。
+- **預期解法(擇一):** VehicleInput schema `.transform(s => s === '' ? null : s)`(delivery 層、首選);或 adapter `mapVehicleToInsertRow`/`mapVehiclePatchToRow` 對 service '' → null(DB 轉譯層)。
+- **不修會痛在:**
+  - 擴充性:每個碰 vehicle service 的入口都要記得轉。
+  - 可維護性:domain 型別 string|null 與 DB date 的 '' 落差無單一守門。
+  - bug 可追蹤性:空保養日才炸、edge case 難測到。
+- **估時:** 15 min(schema transform + 測試)
+- **依賴:** 無(可獨立、但 f1 vehicle wiring 前須完成)
+- **發現於:** 2026-05-24 / M-1-14e-2b codex 關卡1 must-fix
+- **相關:** `packages/schemas/src/index.ts` VehicleInput、`packages/adapters/src/supabase/mappers/vehicle.ts`、M-1-14e-2b use-cases
+
 ---
 
 ## 紀錄模板
