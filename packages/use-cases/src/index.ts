@@ -5,6 +5,7 @@
 // M-1-14e-1b:會員 use-cases(register / login / logout / update-profile)。
 // M-1-14e-2a:地址 CRUD use-cases(add / update / delete / set-default address)。
 // M-1-14e-2b:車輛 CRUD use-cases(add / update / delete / set-primary vehicle;鏡像 e-2a、isPrimary)。
+// M-1-14e-3:錢包儲值 use-case(depositWallet、mock 記帳、真金流 M-3;單筆 immutable ledger insert、餘額 trigger 同步)。
 // 守 boundaries(ADR-0002 §4.2、use-cases ⊥ schemas):use-case 只收已驗證的 domain 型別;
 // 表單 @pcm/schemas parse / strip 未知欄 / 取 session userId 在 delivery 層(f1 storefront
 // server action、server 端、不信 client)。auth 走 IAuthService(e-1a)、profile 走
@@ -24,3 +25,5 @@ export { addVehicle, type VehicleCreateInput } from './add-vehicle';
 export { updateVehicle, type VehiclePatch } from './update-vehicle';
 export { deleteVehicle } from './delete-vehicle';
 export { setPrimaryVehicle } from './set-primary-vehicle';
+
+export { depositWallet } from './deposit-wallet';
