@@ -105,6 +105,15 @@ L1 規則層(本檔)+ L2 工具層(busboy-end pre-flight)+ L3 設施層(GitHub A
 - 若 commit 含「部分完成 / 邊界情況 / 工具鏈異常」、commit body 註明字面 vs 事實偏離
 - 若 git diff 數字(commit 數 / 檔數 / 行數)跟 Claude.ai 寫的指令字面數字不符、Code 以 git rev-list / wc -l 等實際數字為準寫進 commit body、不盲從指令字面
 
+### 3.4 收工後(動程式碼才跑):graphify 知識地圖增量重建
+
+commit 後、若本 slice 動到程式碼,順手跑 `/graphify --update` 增量重建 `graphify-out/` 知識地圖(只重算改動檔、便宜)。目的:讓「結構地圖」隨專案保持新鮮——**舊圖比沒圖危險**(會給過期連結誤導後續 session)。
+
+- 自律執行(非 hook;對齊 settings.json `_deferred_hooks_note`)。
+- 純文件 slice(只動 .md / .json)可跳(graphify code 走 AST、文件改動才需語意重抽,視情況)。
+- 安全屏障由 repo 根 `.graphifyignore` 把關(track 在 git;擋 `.env*` / `.claude/` / `supabase/.temp/` / 憑證)。產物 `graphify-out/` 本機重建、不入 git。
+- **設計截圖目前不收**(`.graphifyignore` 排除圖檔;第一次建圖 Sean 拍板省 vision 成本)。要加回:刪 `.graphifyignore` 圖檔段 + 重建。
+
 ---
 
 ## 4. 不能 disable / skip / ignore 的清單

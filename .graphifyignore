@@ -1,0 +1,53 @@
+# 建置產物 / 套件
+node_modules/
+**/node_modules/
+.next/
+dist/
+build/
+*.tsbuildinfo
+graphify-out/
+pnpm-lock.yaml
+.pnpm-store/
+.turbo/
+
+# git 內部 + 另一個 worktree(避免掃進別份 repo)
+**/.git
+**/.git/**
+.claude/**
+
+# Supabase / 本地 cache
+supabase/.temp/**
+
+# 密鑰 / 憑證 / 本地設定(縱深防禦,不只靠 .env*)
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+**/*.local
+**/*.local.*
+**/.npmrc
+**/.netrc
+**/.pypirc
+**/*service-account*.json
+**/*.pem
+**/*.key
+**/*.p8
+**/*.p12
+**/*.crt
+**/*.cer
+
+# 檔名含 secret/credential 的設定檔(與內建 _is_sensitive 一致;
+# 註:刻意不加 *auth* / *token*,否則會誤殺 auth.ts 等核心源碼、砸完整度)
+**/*secret*
+**/*credential*
+
+# Sean 拍板:第一次建圖跳過所有設計截圖/圖檔(vision 成本高、多為 debug 圖)
+# 要加回:刪本段 + /graphify --update
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.avif
+*.svg

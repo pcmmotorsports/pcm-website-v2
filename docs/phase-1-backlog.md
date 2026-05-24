@@ -4680,6 +4680,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-24 / M-1-14e-1a~1b 每 slice 手動校正 orphan、陪審 raise 根因
 - **相關:** memory project_status-top-hash-off-by-one-normal、CLAUDE.md「Busboy 流程」、#142(hash drift)
 
+### #175. 🟢 graphify 知識地圖:M-1-16 真價/真 SKU 進 repo 後重審 .graphifyignore
+
+- **狀態:** ⏳ 待執行(條件觸發:M-1-16 真實商品/經銷價落地 repo 時)
+- **分流:** P1-before-launch
+- **優先級:** 🟢 觀察(現安全;條件成立才升級)
+- **問題:**
+  - graphify 採用時(2026-05-24)拍板 `.graphifyignore` **納入** `design-reference/data/products.js`(`priceByTier.store` 經銷價),理由:該檔依鐵則 2 是 **design mock 假價、非真經銷價**,真價在後端、且 graphify code 走本機 AST 不外送(Codex 關卡1 兩輪確認此判斷成立)。
+  - 但 graph.json 會含 pricing 結構/概念節點(MemberTier / Money / computeEffectivePrice / priceByTier)。
+- **觸發事件:** M-1-16(真實 SKU/真經銷價 seed 進 repo,如 Supabase seed row 或前台可達真價檔)落地時。
+- **預期解法:**
+  - 重審 `.graphifyignore`:真價來源檔(seed / 真 products 資料)是否該排除,避免真經銷價進 graph.json。
+  - 重建圖前先跑 detect dry-run 安全驗(真值未進 graph),如本次採用流程。
+- **不修會痛在:**
+  - 擴充性:真價落地後沿用「假價安全」假設 → 真經銷價可能被抽進本機 graph.json。
+  - 可維護性:採用當下的安全前提(mock=假)無人複查 → 前提靜默失效。
+  - bug 可追蹤性:graph.json 雖本機不入 git,但若未來改成共享/committed,真價洩漏難回溯。
+- **估時:** 20-30 min(重審 ignore + detect dry-run + 重建)
+- **依賴:** M-1-16 真實商品資料落地
+- **發現於:** 2026-05-24 / graphify 採用 slice、Codex 關卡1 round-2 future-watch
+- **相關:** 鐵則 2(design mock 合約)、Server 端鐵則(經銷價不外洩)、`docs/patterns/slice-checkpoint.md` §3.4、`.graphifyignore`
+
 ---
 
 ## 紀錄模板

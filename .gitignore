@@ -65,3 +65,6 @@ supabase/.temp/
 
 # Spikes(腳本字面自稱「丟棄式 spike script、不 commit、不入 git、留檔給未來人類重跑」、規矩固化、未來 spike 統一不入 git)
 packages/adapters/scripts/spikes/
+
+# graphify 知識地圖工具產物(.graphifyignore 本身 track、見 repo 根;產物本機重建、不入 git)
+graphify-out/

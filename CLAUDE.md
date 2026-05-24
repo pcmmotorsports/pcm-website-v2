@@ -322,6 +322,16 @@ busboy 失敗 → 停下回報、不自行 retry。
 - 何時用:不確定當前版本 API 細節時、特別是 React 19 hooks(rules-of-hooks / exhaustive-deps;v7 未開新規則演進路徑見 L418-424 段)、Next 16 app router、Tailwind v4 CSS 變數 config、Supabase SDK
 - 用法:prompt 加「use context7」或呼叫 `mcp__context7` tool
 
+### graphify skill — 專案知識「結構地圖」
+
+把整個 repo(程式碼 + 文件)掃成可查的知識圖譜(誰連誰、design↔code、god node);**結構地圖、非進度地圖**(進度看 STATUS / progress-roadmap、兩者互補)。產物在 `graphify-out/`(本機、不入 git)。
+
+- 何時用:理解 codebase、找東西、查「X 牽涉哪些檔 / 跟誰相連」。查詢用**英文**(節點名來自程式碼識別字)。
+- 指令:`/graphify .`(全建)、`/graphify --update`(收工增量重建、便宜)、`/graphify query "..."`、`/graphify explain "Node"`、`/graphify path "A" "B"`。
+- 計費:`/graphify` skill 用當前 session 額度、不讀 API key、無獨立帳單(別設 `GEMINI_API_KEY`/`GOOGLE_API_KEY`、別跑 headless `graphify extract`)。
+- 安全:repo 根 `.graphifyignore`(track)擋 `.env*`/`.claude/`/`supabase/.temp/`/憑證 + 排除設計截圖(省 vision 成本);新增掃描路徑前先確認屏障覆蓋。
+- 收工增量重建:見 `docs/patterns/slice-checkpoint.md` §3.4(動程式碼才跑、自律非 hook)。
+
 ---
 
 ## STATUS.md 維護
@@ -573,6 +583,7 @@ A: 選項 X
 - [ ] STATUS.md 7 欄位更新(同 slice commit、不另開)?
 - [ ] 跑 busboy-end?
 - [ ] 跑 `/pcm-roadmap` 更新進度地圖(docs/progress-roadmap.html)?
+- [ ] commit 後、動到程式碼 → 順手 `/graphify --update` 增量重建知識地圖(保持「活地圖」新鮮、見 `docs/patterns/slice-checkpoint.md` §3.4;純文件 slice 可跳)?
 - [ ] 不 push(等 Sean 手動推)?
 
 ---
