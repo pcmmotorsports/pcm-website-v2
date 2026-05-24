@@ -4738,6 +4738,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-24 / M-1-14e-2b codex 關卡1 must-fix
 - **相關:** `packages/schemas/src/index.ts` VehicleInput、`packages/adapters/src/supabase/mappers/vehicle.ts`、M-1-14e-2b use-cases
 
+### #178. 🟢 會員 UI(f1 登入註冊 / g 會員中心)藍圖歸屬待決(f1 開工時定)
+
+- **狀態:** ⏳ 待執行(f1 開工時拍)
+- **優先級:** 🟢 觀察(純地圖/藍圖歸屬、不影響實作)
+- **問題:**
+  - STATUS「下一步」把 M-1-14e 後續排成 f1(登入註冊頁)/ f2(LINE)/ g(會員中心 7 tab)/ h(MobileTabBar)。
+  - 但藍圖 `PHASE-1-MILESTONES.md` 把這些放別處:登入註冊頁 = **M-1-15**、會員中心分頁 = **M-2-03 / M-2-04**(在 M-2 段)。
+  - 2026-05-24 刷新進度地圖時 Sean 拍 **Option A**:只展開 M-1-14 後端資料邏輯(a~e-3),f1/g **暫留藍圖原位**(M-1-15 / M-2-03/04)、避免雙重計算;**未決**:要不要把 f1/g 正式併進 M-1-14 大區(Option B、需改 roadmap-data.json 跨段 + 更新 PHASE-1-MILESTONES.md)。
+- **觸發事件:** f1(登入註冊頁)開工時。
+- **預期解法:** f1 開工前拍:(A) 維持現狀(f1=M-1-15、g=M-2-03/04、地圖跨段引用)或 (B) 把會員 UI 整區併進 M-1-14、同步更新藍圖文件。
+- **不修會痛在:**
+  - 擴充性:會員區工作散在 M-1-14 / M-1-15 / M-2,新人對不上「會員大區」的真實邊界。
+  - 可維護性:STATUS(M-1-14e 含 f1/g)與藍圖(M-1-15/M-2)命名不一致、易誤讀。
+  - bug 可追蹤性:地圖進度與實際工作分段不對齊。
+- **估時:** 10 min 拍板 +(若 B)30 min 改 json + 藍圖
+- **依賴:** 無
+- **發現於:** 2026-05-24 / 進度地圖刷新 Option A
+- **相關:** `~/.claude/skills/pcm-roadmap/roadmap-data.json`、`docs/PHASE-1-MILESTONES.md` M-1-14/15 + M-2-03/04、STATUS「下一步」
+
 ---
 
 ## 紀錄模板
