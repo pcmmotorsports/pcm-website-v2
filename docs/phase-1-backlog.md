@@ -4757,6 +4757,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-24 / 進度地圖刷新 Option A
 - **相關:** `~/.claude/skills/pcm-roadmap/roadmap-data.json`、`docs/PHASE-1-MILESTONES.md` M-1-14/15 + M-2-03/04、STATUS「下一步」
 
+### #179. 🟡 f1 登入註冊衍生的 stage g follow-up(4 項、g 開工前必處置)
+
+- **狀態:** ⏳ 待執行(stage g〔AccountPage 7 tab〕開工時處置)
+- **優先級:** 🟡 中(各自不修會痛、但都屬 g-scope、f1 不碰)
+- **來源:** M-1-14e-f1 plan v4(codex 關卡1 4 輪 + 陪審腦 verdict flags [B]/[H]/final-2 + code-reviewer consider);plan 全文 `docs/handoff/2026-05-24-m-1-14e-f1-plan.md`
+- **4 項:**
+  1. **Header 登入態條件式 account 路由**(flag [B]):f1-a D-f=A 把 Header 會員圖示 NAV_ROUTE_MAP.account 改 →`/login` 是 stopgap(不分登入態)。stage g 須補「已登入→/account、未登入→/login」會員態判斷。不修會痛:登入後點會員圖示仍去 /login(體驗錯)。
+  2. **ap-page / ap-mono shared base CSS 抽取**(flag [H]、鐵則 10):f1 把 `account.css L5-16`(.ap-page/.ap-mono)放進 `auth.css`;stage g 的 Cart/Account 頁也用同 base。須規劃共用 base 落點避免重複定義。不修會痛:多檔重複定義、改一處漏其他。
+  3. **OAuth 會員補 phone 流程**(final-2):Google/LINE OAuth 會員 `phone=''`(DB DEFAULT ''、可空;D-g「手機必填」只約束 email 表單)。stage g profile tab 須提供補 phone(或下單前強制補)。不修會痛:無手機會員下單/配送缺資料。
+  4. **storefront requireEnv 去重**(code-reviewer consider):`lib/supabase/server.ts` + `browser.ts` 各一份 requireEnv(+ adapters/client.ts 第三份)。f1 收尾或 g 若再多一處 env 讀取、抽 storefront 共用 env helper(鐵則 10)。
+- **估時:** 1+2+4 各 ~15-20 min;3 視 profile 完成流程設計(g-scope PRD)
+- **依賴:** stage g(AccountPage)
+- **發現於:** 2026-05-24 / M-1-14e-f1 plan codex 關卡1 + 陪審 + code-reviewer
+- **相關:** `apps/storefront/src/components/Header.tsx`、`apps/storefront/src/styles/auth.css`(f1-a 後)、`apps/storefront/src/lib/supabase/*`、design AccountPages.jsx 會員中心、`docs/handoff/2026-05-24-m-1-14e-f1-plan.md`
+
 ---
 
 ## 紀錄模板
