@@ -30,7 +30,7 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "1b61a9d"
+      last_modified_commit: "ee509fa"
       last_modified_date: "2026-05-22"
     design:
       component: "design-reference/components/ProductsPage.jsx"
@@ -73,7 +73,7 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "1b61a9d"
+      last_modified_commit: "ee509fa"
       last_modified_date: "2026-05-22"
     design:
       component: "design-reference/components/ProductPage.jsx"
@@ -240,7 +240,7 @@ components:
     storefront:
       component: "apps/storefront/src/components/Header.tsx"
       css: "apps/storefront/src/styles/header.css"
-      last_modified_commit: "38001e8"
+      last_modified_commit: "7ea5f26"
       last_modified_date: "2026-05-24 (M-1-14e-f1-a D-f=A)"
     design:
       component: "design-reference/components/Header.jsx"
@@ -274,10 +274,10 @@ components:
 
   AccountPages:
     storefront:
-      component: "apps/storefront/src/components/LoginPage.tsx (M-1-14e-f1-a 建);RegisterPage f1-b、AccountPage 7 tab stage g"
+      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx (M-1-14e-f1-a/f1-b 建);AccountPage 7 tab stage g"
       css: "apps/storefront/src/styles/auth.css (M-1-14e-f1-a 建、搬 account.css L5-16+L326-476+L877-879)"
-      last_modified_commit: "38001e8"
-      last_modified_date: "2026-05-24 (M-1-14e-f1-a LoginPage)"
+      last_modified_commit: "7ea5f26"
+      last_modified_date: "2026-05-24 (M-1-14e-f1-b RegisterPage;hash 記 f1-a 可達祖先 7ea5f26、f1-b 用記可達祖先法避 orphan、見 backlog #180)"
     design:
       component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308)"
       css: "design-reference/styles/account.css"
@@ -300,10 +300,16 @@ components:
         decided_at: "2026-05-24"
         decision_source: "plan v4 finding-9(c)"
         reason: "技術必要 net-new(design 無對應字面)、非偏離;權威驗證在 server LoginInput.parse"
+      - field: "registerPhoneRequired"
+        design_value: "design L257/L261 form.phone 初始空 + presence 檢查只含 name/email/password(放行空手機)"
+        storefront_value: "手機必填:label「手機（必填）」顯式 affordance + client presence 含 phone + server RegisterInput.parse phone required regex(不改 schema)"
+        decided_at: "2026-05-24"
+        decision_source: "STATUS D-g=A + plan v4 [E]"
+        reason: "業務必填(PCM 接單/配送需手機);鐵則 1 design override、Sean 拍板;OAuth 會員 phone 可空(D-g 只約束 email 表單、補 phone 留 backlog #179)"
     open_drifts:
       - field: "loginRegisterPageSplit"
-        note: "LoginPage f1-a 已建;RegisterPage 留 f1-b;AccountPage 7 tab 留 stage g(design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router)"
-        plan: "f1-b(RegisterPage)/ stage g(AccountPage);plan docs/handoff/2026-05-24-m-1-14e-f1-plan.md"
+        note: "LoginPage f1-a + RegisterPage f1-b 已建;AccountPage 7 tab 留 stage g(design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router)"
+        plan: "stage g(AccountPage);plan docs/handoff/2026-05-24-m-1-14e-f1-plan.md"
       - field: "googleOAuthWiring"
         note: "f1-a Google 鈕惰性;f1-c 接 signInWithOAuth + /auth/callback;OAuth 會員 phone 可空(D-g 手機必填只約束 email 表單、補 phone 留 g)"
         plan: "f1-c + backlog #179"

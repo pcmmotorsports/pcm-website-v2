@@ -4774,6 +4774,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #180. 🟡 manifest last_modified_commit off-by-one 復發模式(已 2 例、SOP 固化)
+
+- **狀態:** ⏳ 待執行(SOP 固化、最遲 M-1-16 上線前)
+- **優先級:** 🟡 中(單例可容忍、但已復發 2 次 + orphan 有 GC 死引用風險)
+- **問題:**
+  - design-mirror SOP 現行作法:manifest 元件 `last_modified_commit` 寫 `PENDING_HASH`、commit 後 `git commit --amend` 補真 hash。但 amend 寫入「自身 commit 的 hash」git 數學上不可能(commit hash 依內容〔含 manifest〕計算)→ 補進去的永遠是 pre-amend hash = amend 後變 orphan/dangling。
+  - 已 2 例:`1b61a9d`(M-1-13H-7、ProductsPage/ProductPage、可達雙生 `ee509fa`)、`38001e8`(M-1-14e-f1-a、Header/AccountPages、可達雙生 `7ea5f26`)。兩例皆於 f1-b 順手改回可達 hash(MUST-DO #1/#2)。
+- **觸發事件(任一觸發即啟動實作):**
+  - 下一個「manifest 元件 amend 進 slice commit」的 slice;或 M-1-16 上線前統一處置(避免 orphan 累積 + 90 天 GC)。
+- **預期解法(擇一固化進 design-mirror SOP + slice-checkpoint manifest-sync 檢查):**
+  - 案 A「記可達祖先」:`last_modified_commit` 記「前一個已落地可達 commit」(f1-b 已試行:Header/AccountPages 記父 commit `7ea5f26`)。語意略 understate〔該 slice 本身的 commit 未被記〕但永遠可達、無 orphan、無需 amend。
+  - 案 B「commit 後非 amend 校正」:下個 slice 開頭把上個 slice 的 PENDING/orphan hash 改成「已落地可達 hash」(f1-b 已對兩例做)。語意精確但每個 slice 殘留一個待修 orphan 直到下次。
+  - 評估後擇一寫死進 SOP;同步更新 `slice-checkpoint` manifest-sync 段的驗證(現只檢「有沒有改 last_modified_commit」、未檢可達性)+ 加 `git merge-base --is-ancestor` 可達性 gate。
+- **不修會痛在:**
+  - 擴充性:新元件持續 amend → orphan 線性累積、manifest hash 半數變死引用。
+  - 可維護性:每個動 storefront 的 slice 都要記得「順手修上一個 orphan」、靠人腦自律易漏(本次靠陪審 MUST-DO 才修)。
+  - bug 可追蹤性:orphan 90 天後 `git gc` 清掉 → `git show <hash>` 找不到「最後改此元件的 commit」、design↔code 稽核斷鏈、回溯偏離無從查起。
+- **估時:** 評估兩案 + SOP / skill 固化 ~30-45 min
+- **依賴:** 無(可獨立做);最遲 M-1-16 上線前
+- **發現於:** 2026-05-25 / M-1-14e-f1-a + f1-b(陪審 MUST-DO #3)
+- **相關:** `docs/design-storefront-manifest.yaml`、`docs/patterns/`(design-mirror SOP)、`~/.claude/skills/slice-checkpoint/`(manifest-sync 段)、memory `project_status-top-hash-off-by-one-normal`
+
+---
+
 ## 紀錄模板
 
 ```markdown
