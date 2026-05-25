@@ -4800,7 +4800,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #181. 🟠 註冊頁 + 登入頁表單 UX 強化(全欄必填標 + 逐欄 inline error、business override)
 
-- **狀態:** ⏳ 待執行(獨立 slice、排 f1-c〔Google OAuth〕收尾後;Sean 2026-05-25 Q2=B)
+- **狀態:** ✅ 完成(2026-05-25 #181 slice、PCM 自驅;Sean Q1=B「必填」字面 + Q2=B 前端逐欄 + 後端也逐欄)
 - **優先級:** 🟠 中(business 拍板要做、非阻擋 f1-c;f1-b 已先落地單欄「手機（必填）」過渡)
 - **問題:**
   - design AccountPages.jsx L256-308(註冊)/ L181-253(登入)= 單一頂部錯誤 `.auth-err` + 欄位無必填標記。客人填錯/漏填時只看到一條頂部訊息、不知是哪一欄。
@@ -4820,7 +4820,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** ~30-45 min(CSS + 雙頁 client error state 改造;spec 決策 2 處〔必填標字面 vs 紅星、client-only vs server 逐欄〕一次性問 Sean)
 - **依賴:** f1-c 收尾後;不動 schema(RegisterInput/LoginInput 不改、只改 server action 回傳形狀若採 server 逐欄)
 - **發現於:** 2026-05-25 / M-1-14e-f1-b 收尾(Sean Q1=B/Q2=B 拍板表單 UX override)
-- **相關:** `apps/storefront/src/components/RegisterPage.tsx`、`apps/storefront/src/components/LoginPage.tsx`、`apps/storefront/src/styles/auth.css`、`apps/storefront/src/app/{register,login}/actions.ts`、design AccountPages.jsx L181-308、`docs/design-storefront-manifest.yaml`(AccountPages override)
+- **相關:** `apps/storefront/src/components/RegisterPage.tsx`、`apps/storefront/src/components/LoginPage.tsx`、`apps/storefront/src/styles/auth.css`、`apps/storefront/src/app/{register,login}/actions.ts`、`apps/storefront/src/lib/auth/field-validation.ts`(新建共用驗證)、design AccountPages.jsx L181-308、`docs/design-storefront-manifest.yaml`(AccountPages override:requiredFieldLabels + inlineFieldErrors)
+- **完成摘要(2026-05-25):**
+  - **Q1=B 全欄必填標**:RegisterPage 姓名/Email/手機/密碼 + LoginPage Email/密碼,label 一律加全形「（必填）」(沿用 f1-b 手機既有格式、6 欄統一)。
+  - **Q2=B 前後端逐欄**:新建共用純函式 `lib/auth/field-validation.ts`(`validateRegister`/`validateLogin`,client 即時 + server 重驗同一份);server action 回傳形狀由 `{ error }` 改 `{ fieldErrors?, formError? }`。逐欄錯 `.auth-field-err` 顯示在各欄 input 下方。
+  - **釘死 1 空欄專屬訊息**:空欄顯示「請填寫姓名/Email/手機/密碼」(presence 優先、不沿用 zod「格式不正確」);非空但格式錯才沿用 zod 訊息(「Email 格式不正確」「手機格式不正確」「密碼至少 8 碼」)。
+  - **釘死 2 雙通道並存**:頂部 `.auth-err` 保留給帳號層級錯(此 Email 已註冊 / Email 或密碼錯誤 / OAuth 失敗 = formError),逐欄 `.auth-field-err` 給欄位驗證錯(fieldErrors);兩通道互不取代、可同時顯示。
+  - **釘死 3**:必填標記 6 欄統一全形「（必填）」(RegisterPage 4 欄 + LoginPage 2 欄)、沿用現行手機格式。
+  - **釘死 4**:Q2=B 動 server 回傳形狀 → commit 前跑 codex 關卡2 對抗審查。
+  - **驗證真相一致**:client/server 共用同一 validateXxx,空欄專屬 + 非空走 @pcm/schemas zod 訊息;safeParse data 仍 strip 未知欄(tier/wallet 信任邊界沿用)。boundary 綠(apps→schemas 允許)。
+  - **測試**:4 檔更新(LoginPage/RegisterPage smoke + login/register actions),補逐欄 + 雙通道 + 空欄專屬 + 信任邊界 strip 斷言。manifest 加 requiredFieldLabels + inlineFieldErrors override。
+  - **codex 關卡2 round1 FAIL→修(2 must-fix + 1 consider)**:① 密碼 presence 改拒全空白(`!trim()`、防 8 空白過 zod min(8) 註冊純空白密碼;傳 use-case 值仍不 trim、允許密碼含空白)② STATUS 7 欄同 commit 更新(SSoT 一致)③ zod issue → fieldErrors 走 allowlist(防 LoginInput.remember 等「schema 內非顯示欄」型別錯塞契約外 key)+ ok invariant 改依賴 parsed.success + server action 對「ok=false 但無逐欄錯」回 formError fallback 防無聲失敗;補全空白密碼 + remember 非 boolean 測試。三綠 + 測試重跑;codex round2 確認 3 項程式修補已修妥、另抓 2 文件字面偏差(manifest authErrorCopyNetNew 舊 presence 描述 + 釘死 3 欄數 4→6)→ 修齊自驗對齊(達 SOP ≤2 輪自修、文件字面低風險未再 round3)。
+  - **🔧 肉眼驗修補(同 #181 commit、Sean dev 實機抓)**:Sean 報「只見『請同意服務條款』紅字」、其餘逐欄錯誤看似沒出現。根因=CSS specificity:欄位內錯誤 `.auth-field-err` 是 `.auth-field` label 內的 `<span>`、同時 match `.auth-field > span`(label 文字樣式:灰色 mono uppercase、specificity 0,1,1 > `.auth-field-err` 0,1,0)→ 錯誤紅字被灰色蓋成像 label(訊息其實有出、只是灰色不顯眼);agree 錯誤在 label 外故未被蓋、正常紅色。修=加提權 `.auth-field > .auth-field-err`(0,2,0)覆寫 color/font-family/letter-spacing/text-transform/margin-bottom。playwright 取 computed style 驗 5 欄錯誤全 `rgb(220,38,38)` 紅色 + Inter 正常字體 + 無 uppercase;三綠重跑綠。(教訓:逐欄錯誤 span 嵌在既有 label 樣式作用域內、單元測試〔jsdom 不算 CSS specificity〕抓不到、靠瀏覽器肉眼驗、同 #182 類「build/test 綠只瀏覽器炸」模式。)
 
 ---
 

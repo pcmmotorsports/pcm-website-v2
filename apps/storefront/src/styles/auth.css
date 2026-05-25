@@ -86,6 +86,26 @@
 }
 .auth-field input:focus { border-color: var(--c-text); }
 
+/* 逐欄 inline error(#181 Q2=B、business override):顯示在該欄 input 下方;
+ * 與頂部 .auth-err(帳號層級錯)雙通道並存、互不取代(Sean 釘死 2)。 */
+.auth-field-err {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--c-red);
+}
+/* 欄位內的錯誤 span 同時 match `.auth-field > span`(label 文字樣式:灰色 mono uppercase、
+ * specificity 0,1,1 > 0,1,0)→ 紅色會被灰色蓋過(#181 肉眼驗 bug、Sean 報「只見請同意服務條款」)。
+ * 提權 `.auth-field > .auth-field-err`(0,2,0)覆寫該污染,確保逐欄錯誤紅字正常顯示。 */
+.auth-field > .auth-field-err {
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--c-red);
+  margin-bottom: 0;
+}
+
 .auth-row {
   display: flex;
   justify-content: space-between;

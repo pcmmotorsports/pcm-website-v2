@@ -1,4 +1,4 @@
-// LoginPage.tsx — 登入頁(M-1-14e-f1-a)
+// LoginPage.tsx — 登入頁(M-1-14e-f1-a、f1-c Google OAuth、#181 表單 UX 強化)
 //
 // 字面從 design-reference/components/AccountPages.jsx LoginPage(L181-253)直接搬(鐵則 1、不翻譯):
 // - React.useState → useState;controlled inputs 維持 design 形狀(email/password/remember)
@@ -6,15 +6,20 @@
 //   · <Header currentPage="login" onNav> → <Header currentPage="login" />(storefront Header 內走 next/link)
 //   · <Footer onNav> → <HomeFooter />
 //   · onNav('register')「建立帳號」→ <Link href="/register">
-//   · submit localStorage mock → loginAction server action(LoginInput.parse + loginCustomer、信任邊界在 server)
+//   · submit localStorage mock → loginAction server action(逐欄驗證 + loginCustomer、信任邊界在 server)
 // - Google / LINE 社交鈕 markup 直接搬(含 svg + 字面);視覺嚴守 .auth-social / .auth-social-line:
 //   · Google(f1-c 接線):onClick signInWithOAuth(client-initiated、redirectTo /auth/callback、繞 IAuthService port、PRD §8.4)。
 //   · LINE 留 f2:維持惰性 type="button" 無 onClick。
 // - oauthError prop(f1-c):/auth/callback 失敗導 /login?error=oauth → login/page.tsx(server)讀 searchParams 傳入
-//   → 初始顯示「Google 登入失敗，請重試」auth-err。(plan §5 final-3 原寫 useSearchParams;改用 server searchParams
-//   prop:Next 16 useSearchParams 於靜態 client 頁需 Suspense boundary、server prop 免 Suspense、同 UX、鐵則 1 例外類別 2 技術實作。)
+//   → 初始顯示「Google 登入失敗，請重試」(走 formError 頂部通道)。
 // - 忘記密碼?維持 design <a href="#">(該流程不在 f1 scope)。
-// - 客端 presence 檢查用 design 字面「請輸入 Email 與密碼」(L186);server 端 zod / AuthError 字面由 loginAction 回。
+//
+// #181 business override(鐵則 1 設計為基底、Sean 2026-05-25 Q1=B/Q2=B 拍板):
+// - 全欄必填標(Q1=B):Email/密碼 label 加全形「（必填）」(與註冊頁 4 欄統一)。
+// - 逐欄 inline error(Q2=B):fieldErrors.{欄} 顯示在該欄 input 下方;空欄專屬「請填寫…」、非空格式錯沿用 zod
+//   (共用 validateLogin、client/server 同一份;取代 design 單一頂部 .auth-err 之「驗證」用途)。
+// - 雙通道並存(釘死 2):頂部 .auth-err 保留給「帳號層級錯」(Email 或密碼錯誤 / OAuth 失敗 = formError),
+//   逐欄 .auth-field-err 給「欄位驗證錯」(fieldErrors);兩通道互不取代、可同時顯示。
 
 'use client';
 
@@ -25,27 +30,36 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { loginAction } from '@/app/login/actions';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
+import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
 
 const OAUTH_ERROR_COPY = 'Google 登入失敗，請重試';
 
 export function LoginPage({ oauthError }: { oauthError?: string }) {
   const [form, setForm] = useState({ email: '', password: '', remember: true });
-  // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面(f1-c)。
-  const [err, setErr] = useState<string | null>(oauthError ? OAUTH_ERROR_COPY : null);
+  // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
+  // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面於 formError(f1-c)。
+  const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
+  const [formError, setFormError] = useState<string | null>(oauthError ? OAUTH_ERROR_COPY : null);
   const [pending, setPending] = useState(false);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!form.email || !form.password) {
-      setErr('請輸入 Email 與密碼');
+    // client 逐欄驗證(主防線、與 server 同一份 validateLogin)
+    const v = validateLogin(form);
+    if (!v.ok) {
+      setFieldErrors(v.fieldErrors);
+      setFormError(null);
       return;
     }
-    setErr(null);
+    setFieldErrors({});
+    setFormError(null);
     setPending(true);
-    // 成功時 loginAction 內 redirect(導 '/'、client 自動導航);失敗回 { error } 顯示 auth-err。
+    // 成功時 loginAction 內 redirect(導 '/'、client 自動導航);
+    // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
     const result = await loginAction(form);
-    if (result?.error) {
-      setErr(result.error);
+    if (result?.fieldErrors || result?.formError) {
+      if (result.fieldErrors) setFieldErrors(result.fieldErrors);
+      if (result.formError) setFormError(result.formError);
       setPending(false);
     }
   };
@@ -57,9 +71,9 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
-    // 成功時瀏覽器即刻重導 Google(本元件卸載);僅發起失敗(如網路)時顯示錯誤。
+    // 成功時瀏覽器即刻重導 Google(本元件卸載);僅發起失敗(如網路)時顯示錯誤(帳號層級、走 formError)。
     if (error) {
-      setErr(OAUTH_ERROR_COPY);
+      setFormError(OAUTH_ERROR_COPY);
     }
   };
 
@@ -73,9 +87,10 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
           <p className="auth-sub">登入你的 PCM 帳號，查看訂單與收藏。</p>
 
           <form onSubmit={submit}>
-            {err && <div className="auth-err">{err}</div>}
+            {/* 頂部:帳號層級錯(Email 或密碼錯誤 / OAuth 失敗);逐欄驗證錯顯示在各欄下方(釘死 2 雙通道) */}
+            {formError && <div className="auth-err">{formError}</div>}
             <label className="auth-field">
-              <span>Email</span>
+              <span>Email（必填）</span>
               <input
                 type="email"
                 value={form.email}
@@ -83,15 +98,17 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
                 placeholder="your@email.com"
               />
+              {fieldErrors.email && <span className="auth-field-err">{fieldErrors.email}</span>}
             </label>
             <label className="auth-field">
-              <span>密碼</span>
+              <span>密碼（必填）</span>
               <input
                 type="password"
                 value={form.password}
                 onChange={(e) => setForm({ ...form, password: e.target.value })}
                 placeholder="至少 8 碼"
               />
+              {fieldErrors.password && <span className="auth-field-err">{fieldErrors.password}</span>}
             </label>
             <div className="auth-row">
               <label className="auth-check">
