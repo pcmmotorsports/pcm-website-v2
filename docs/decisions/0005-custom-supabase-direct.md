@@ -257,6 +257,20 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 - **M-1-03 估時:** 75-90 min → 6-8 hr(跨多 slice、自寫 Product CRUD + spike 驗 + storefront 連通)
 - **Phase 1 整體:** 估時不變(自寫 cart / order / payment 1-2 週對應 ADR-0002 §6.3 rollback 1 週估、跟原 Medusa 學習曲線 + 撞坑時間相當)
 
+### 8.4 storefront service_role 受控小門例外(M-1-14e-f2、Sean 2026-05-25 Q1=A)
+
+**通則仍成立:** storefront(`apps/storefront/**`)公開讀走 RLS anon、**不持 service_role**(eslint.config.js `no-restricted-imports` 擋 `@pcm/adapters/server`、對齊 service_role key 紀律)。本例外**只開一個極窄小門、不鬆動通則**。
+
+**例外:** LINE 自寫 OAuth(Q4=Y)的 callback 需 Supabase Admin API(`createUser` / `generateLink`)建立 / 登入 LINE 用戶 + 發 session。Admin API **無 anon 替代**,且 callback 須與 storefront **同源**才寫得到 session cookie(搬 `apps/api/` 跨源不可行)。故 `apps/storefront/src/lib/auth/line-admin.ts` 成為 storefront 首個、也是目前唯一的 service_role 引用點。
+
+**護欄(缺一不可):**
+- `import 'server-only'`:編譯期擋 client component 引入(transitive)。
+- 僅 `/api/auth/line/callback` route handler(server-only、`runtime='nodejs'`)引用 line-admin.ts;service_role 鎖死本檔、不外擴。
+- `eslint-disable-next-line no-restricted-imports` + 具名理由註解(指向本 §8.4)。
+- commit 前 grep build 後 client chunk、確認 0 命中 `SUPABASE_SERVICE_ROLE_KEY`(codex 關卡2 驗)。
+
+**與既有例外的區別:** `composition.ts` 的受控例外只注入**不持 service_role 的 anon adapter**(`SupabaseAuthAdapter` 收 anon-ssr client)、其註解「永不 import createSupabaseServiceClient」僅約束該檔;本 §8.4 是經 Sean 拍板 + ADR 記錄的**新例外**、範圍限 LINE OAuth。日後若有第二個 storefront service_role 需求、須重新評估是否該抽 `apps/api/`(決策1 選項 B)、不可逕援本例外擴張。
+
 ---
 
 ## 9. 變更紀錄
@@ -264,5 +278,6 @@ ADR-0006 才寫具體 rollback 路徑、本 ADR 只列訊號。
 | 日期 | 變更 | 變更者 |
 |---|---|---|
 | 2026-05-04 | 初版落地、Sean 拍板 Q1=A1 廢 ADR-0002 §1.2 Pivot 2「Medusa-as-API」、改 Custom + Supabase 直寫(9 contexts 統一架構)、5 候選方案 + 三視角 + Rollback 訊號 + 影響清單 + 後續 milestone 字面變更 | Sean 拍板 / Claude Code(M-1-03-pre0b)落地 |
+| 2026-05-25 | §8.4 新增:storefront service_role 受控小門例外(M-1-14e-f2 LINE OAuth、Sean Q1=A);通則「storefront 不持 service_role」不變、僅 line-admin.ts 經護欄極窄例外 | Sean 拍板 / Claude Code(M-1-14e-f2-a2)落地 |
 
 — END —

@@ -4565,9 +4565,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-13Z install slice(外部 reviewer M3 抓 dirty file + Sean Q1=A 拍納入時順手記)
 - **相關:** apps/storefront/next-env.d.ts;Next.js 官方 docs
 
-### #170. 🔧 M-1-14f2 LINE OAuth email 缺失 / collision 處理(Codex C1 → f2 內解決)
+### #170. ✅ M-1-14f2 LINE OAuth email 缺失 / collision 處理(Codex C1 → f2 內解決)
 
-- **狀態:** 🔧 解法已定(Sean 2026-05-25 Q2=A/Q3=A 拍板 + codex 關卡1 finding-2 補強)、collision 守衛實作於 f2-a2 line-admin.ts;待 f2-a2 落地翻 ✅
+- **狀態:** ✅ 於 M-1-14e-f2-a2 解決(Sean 2026-05-25 Q2=A/Q3=A 拍板 + codex 關卡1 finding-2 補強;collision 守衛已落地 line-admin.ts authenticateLineUser + 註冊端 denylist field-validation.ts)
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中(原 M-1-14f2 阻塞、已隨 f2 一併處理)
 - **問題(原):**

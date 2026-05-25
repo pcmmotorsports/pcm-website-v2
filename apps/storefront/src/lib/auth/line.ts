@@ -94,3 +94,69 @@ export function buildAuthorizeUrl({ state, nonce }: { state: string; nonce: stri
   });
   return `${LINE_AUTHORIZE_ENDPOINT}?${params.toString()}`;
 }
+
+// LINE 用戶身分(verifyIdToken 抽出):sub = LINE userId(唯一鍵);email 僅 scope 核准 + 用戶同意時有、否則 null。
+export type LineIdentity = {
+  sub: string;
+  name: string;
+  email: string | null;
+};
+
+/**
+ * 用 authorization code 換 LINE token(含 OIDC id_token)。POST x-www-form-urlencoded、帶 channel_secret。
+ *
+ * @throws 若 LINE 回非 2xx 或缺 id_token
+ */
+export async function exchangeCodeForToken(code: string): Promise<{ idToken: string }> {
+  const { channelId, channelSecret, redirectUri } = getLineConfig();
+  const res = await fetch(LINE_TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: channelId,
+      client_secret: channelSecret,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`LINE token exchange failed: ${res.status}`);
+  }
+  const data: unknown = await res.json();
+  const idToken = (data as { id_token?: unknown }).id_token;
+  if (typeof idToken !== 'string' || !idToken) {
+    throw new Error('LINE token response missing id_token');
+  }
+  return { idToken };
+}
+
+/**
+ * 驗 LINE id_token:走 LINE verify 端點(LINE 端驗簽名 / aud / exp / nonce)。
+ * 額外防禦性核對 sub 存在 + aud === channelId。nonce 傳入 → LINE 端比對 id_token 內 nonce(replay 防護)。
+ *
+ * @throws 若 LINE 回非 2xx(含 nonce 不符)、缺 sub、或 aud 不符
+ */
+export async function verifyIdToken(idToken: string, nonce: string): Promise<LineIdentity> {
+  const { channelId } = getLineConfig();
+  const res = await fetch(LINE_VERIFY_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ id_token: idToken, client_id: channelId, nonce }),
+  });
+  if (!res.ok) {
+    throw new Error(`LINE id_token verify failed: ${res.status}`);
+  }
+  const payload = (await res.json()) as { sub?: unknown; aud?: unknown; name?: unknown; email?: unknown };
+  if (typeof payload.sub !== 'string' || !payload.sub) {
+    throw new Error('LINE id_token missing sub');
+  }
+  if (payload.aud !== channelId) {
+    throw new Error('LINE id_token aud mismatch');
+  }
+  return {
+    sub: payload.sub,
+    name: typeof payload.name === 'string' ? payload.name : '',
+    email: typeof payload.email === 'string' ? payload.email : null,
+  };
+}

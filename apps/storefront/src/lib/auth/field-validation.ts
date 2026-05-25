@@ -47,6 +47,11 @@ const LOGIN_PRESENCE: Record<'email', string> = {
   email: '請填寫 Email',
 };
 
+// 合成 email 網域 denylist(M-1-14e-f2-a2、codex 關卡1 finding-2 防冒登入第二道防線):
+// LINE OAuth 用合成 email line_{sub}@此域、不可被一般 email/password 註冊佔用(否則有人能先佔合成 email 冒登入 LINE 用戶)。
+// ⚠️ 必與 lib/auth/line.ts 的 LINE_SYNTHETIC_EMAIL_DOMAIN 同步(此處不 import line.ts:該檔 server-only、不可進 client 驗證)。
+const LINE_SYNTHETIC_EMAIL_DOMAIN = 'line.pcmmotorsports.local';
+
 /**
  * 把 zod issues 映射到 fieldErrors:只接受 allowlist 內的可顯示欄位(path[0]);presence 已佔的欄不覆蓋。
  * 非顯示欄(如 login.remember)的 issue 被忽略、不塞契約外 key —— ok invariant 另靠 parsed.success 兜。
@@ -86,6 +91,11 @@ export function validateRegister(input: unknown): {
   if (!str(o.email).trim()) fe.email = REGISTER_PRESENCE.email;
   if (!str(o.phone).trim()) fe.phone = REGISTER_PRESENCE.phone;
   if (!str(o.password).trim()) fe.password = '請填寫密碼';
+
+  // 合成 email 網域 denylist(防冒登入第二道防線、見上常數註解):非空且屬合成網域 → 拒(presence 已佔則不覆蓋)。
+  if (!fe.email && str(o.email).trim().toLowerCase().endsWith(`@${LINE_SYNTHETIC_EMAIL_DOMAIN}`)) {
+    fe.email = '此 Email 網域不可用於註冊';
+  }
 
   // 非空欄的格式錯 / agree 未勾 → 沿用 zod 訊息(allowlist 過濾、presence 已佔的欄不覆蓋)
   const parsed = RegisterInput.safeParse(input);

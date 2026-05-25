@@ -818,9 +818,10 @@ GET /api/auth/line/callback
          (M-1-14e-f2 校正:LINE v2/profile endpoint 不含 email;email 必經 id_token、且僅當 email scope 已核准 → 改採 id_token verify)
     ↓ 4. 用 Supabase Admin API(service_role)以 line_user_id(sub)為唯一身分鍵:
          - 合成 email = line_{sub}@line.pcmmotorsports.local(命名空間隔離、不 by-email 併帳;LINE 無 email_verified)
-         - createUser({ email: 合成, email_confirm: true, user_metadata: { name, provider: 'line', line_user_id: sub, line_email } })
-                → handle_new_auth_user trigger 自動建 customers row(phone='' DEFAULT)
-         - 撞 already-registered → 查既有 user、須 provider==='line' 且 line_user_id===sub 才視為回頭用戶、否則拒(防冒登入)
+         - createUser({ email: 合成, email_confirm: true, app_metadata: { pcm_provider:'line', pcm_line_user_id: sub }, user_metadata: { name, line_email } })
+                → handle_new_auth_user trigger 自動建 customers row(phone='' DEFAULT、取 user_metadata.name)
+         - 身分鍵存 **app_metadata(service_role-only、公開 signUp 無法偽造)**、非 user_metadata(codex 關卡2 must-fix:user_metadata 可被 anon signUp options.data 偽造)
+         - 撞 already-registered → 驗既有 user.app_metadata.pcm_provider==='line' 且 pcm_line_user_id===sub 才視為回頭用戶、否則拒(防冒登入、偽造者/孤兒無 app_metadata 必拒)
     ↓ 5. generateLink({ type:'magiclink', email: 合成 }) → hashed_token;anon cookie client verifyOtp({ token_hash, type:'email' }) 發 session
     ↓ 6. redirect 到 /account
 ```

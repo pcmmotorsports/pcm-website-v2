@@ -9,12 +9,14 @@ vi.mock('server-only', () => ({}));
 
 import {
   buildAuthorizeUrl,
+  exchangeCodeForToken,
   generateNonce,
   generateState,
   getLineConfig,
   isValidLineUserId,
   LINE_SYNTHETIC_EMAIL_DOMAIN,
   lineSyntheticEmail,
+  verifyIdToken,
 } from './line';
 
 const ENV_KEYS = ['LINE_CHANNEL_ID', 'LINE_CHANNEL_SECRET', 'LINE_REDIRECT_URI'] as const;
@@ -94,5 +96,67 @@ describe('buildAuthorizeUrl', () => {
     expect(url.searchParams.get('state')).toBe('st8');
     expect(url.searchParams.get('nonce')).toBe('nc9');
     expect(url.searchParams.get('scope')).toBe('openid profile');
+  });
+});
+
+function mockFetchOnce(ok: boolean, body: unknown, status = ok ? 200 : 400) {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => Promise.resolve({ ok, status, json: () => Promise.resolve(body) })),
+  );
+}
+
+describe('exchangeCodeForToken', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('2xx + 有 id_token → 回 idToken', async () => {
+    mockFetchOnce(true, { id_token: 'idtok-123', access_token: 'a' });
+    await expect(exchangeCodeForToken('code-abc')).resolves.toEqual({ idToken: 'idtok-123' });
+  });
+
+  it('LINE 回非 2xx → throw', async () => {
+    mockFetchOnce(false, { error: 'invalid_grant' }, 400);
+    await expect(exchangeCodeForToken('bad')).rejects.toThrow('LINE token exchange failed: 400');
+  });
+
+  it('缺 id_token → throw', async () => {
+    mockFetchOnce(true, { access_token: 'a' });
+    await expect(exchangeCodeForToken('code')).rejects.toThrow('missing id_token');
+  });
+});
+
+describe('verifyIdToken', () => {
+  const validSub = 'U' + 'b'.repeat(32);
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('aud 相符 + 有 sub → 回 identity(email 帶入)', async () => {
+    mockFetchOnce(true, { sub: validSub, aud: '1234567890', name: 'Foo', email: 'a@b.c' });
+    await expect(verifyIdToken('idtok', 'nonce1')).resolves.toEqual({
+      sub: validSub,
+      name: 'Foo',
+      email: 'a@b.c',
+    });
+  });
+
+  it('email 缺 → email = null', async () => {
+    mockFetchOnce(true, { sub: validSub, aud: '1234567890', name: 'Foo' });
+    await expect(verifyIdToken('idtok', 'nonce1')).resolves.toMatchObject({ email: null });
+  });
+
+  it('aud 不符(channel 混用)→ throw', async () => {
+    mockFetchOnce(true, { sub: validSub, aud: 'OTHER_CHANNEL', name: 'Foo' });
+    await expect(verifyIdToken('idtok', 'nonce1')).rejects.toThrow('aud mismatch');
+  });
+
+  it('缺 sub → throw', async () => {
+    mockFetchOnce(true, { aud: '1234567890', name: 'Foo' });
+    await expect(verifyIdToken('idtok', 'nonce1')).rejects.toThrow('missing sub');
+  });
+
+  it('LINE verify 回非 2xx(含 nonce 不符)→ throw', async () => {
+    mockFetchOnce(false, { error_description: 'nonce mismatch' }, 400);
+    await expect(verifyIdToken('idtok', 'wrong-nonce')).rejects.toThrow(
+      'LINE id_token verify failed: 400',
+    );
   });
 });
