@@ -4565,28 +4565,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-13Z install slice(外部 reviewer M3 抓 dirty file + Sean Q1=A 拍納入時順手記)
 - **相關:** apps/storefront/next-env.d.ts;Next.js 官方 docs
 
-### #170. ⏳ M-1-14f2 LINE OAuth email 缺失 / collision 處理(Codex C1)
+### #170. 🔧 M-1-14f2 LINE OAuth email 缺失 / collision 處理(Codex C1 → f2 內解決)
 
-- **狀態:** ⏳ 待執行(M-1-14f2 啟動前處理)
+- **狀態:** 🔧 解法已定(Sean 2026-05-25 Q2=A/Q3=A 拍板 + codex 關卡1 finding-2 補強)、collision 守衛實作於 f2-a2 line-admin.ts;待 f2-a2 落地翻 ✅
 - **分流:** P1-before-launch
-- **優先級:** 🟠 中(M-1-14f2 阻塞)
-- **問題:**
+- **優先級:** 🟠 中(原 M-1-14f2 阻塞、已隨 f2 一併處理)
+- **問題(原):**
   - handle_new_auth_user trigger 把 NEW.email 寫入 customers.email NOT NULL UNIQUE
   - LINE OAuth 用戶若拒 email scope → NEW.email = NULL → trigger 寫 NOT NULL fail → auth.users insert rollback
   - email collision(已有同 email 用戶用 email/password 註冊、後用 LINE 拿同 email)→ UNIQUE 違反 → rollback
-- **觸發事件:** M-1-14f2 LINE OAuth API routes 落地前
-- **預期解法:**
-  - 選項 A:M-1-14f2 強制 LINE OAuth email scope 必有(沒拿到 email 註冊 fail、UI 提示「需授權 email」)
-  - 選項 B:trigger 對 NULL email 加 fallback `${user_id}@line.local`、collision 加 suffix `${email}+line${rand4}`
-  - 選項 C:雙路 — LINE 沒給 email → fallback,collision → 拒
-- **不修會痛在:**
-  - 擴充性:Phase 2 加 Apple Sign In / 其他 OAuth 同樣 email 缺失問題,共用 trigger pattern
-  - 可維護性:trigger 失敗 silently rollback,debug 困難
-  - bug 可追蹤性:LINE 用戶註冊 fail 看不到原因,客服處理難
-- **估時:** 30-45 min(M-1-14f2 內處理)
+- **實際解法(採「選項 B 變體」、不改 trigger):**
+  - **合成 email 以 line_user_id(OIDC sub)為鍵**:`line_{sub}@line.pcmmotorsports.local`(固定常數網域、非 env)。
+  - **永不為 NULL** → 解掉 NOT NULL rollback;**命名空間隔離** → 與真實 email/password/Google 帳號永不撞號 → 解掉 cross-provider UNIQUE rollback。
+  - 真實 LINE email(若 scope 核准)只存 `user_metadata.line_email`、**永不用於對應**(LINE 無 email_verified、不可 by-email 併帳)。
+  - **防冒登入守衛(codex 關卡1 finding-2)**:合成 email 撞 already-registered 時、須查既有 user 確認 `provider==='line'` 且 `line_user_id===sub` 才放行;另註冊端封鎖合成網域(雙重防線)。
+  - 不改 trigger / schema / 不產 migration(既有 DB 已支援)。
+- **遺留 follow-up:** LINE 會員 `customers.email` 為合成值、AccountPage 顯示策略 + OAuth 會員補真實 email/phone → 併入 [[#179]] item 3(OAuth 補 phone 流程)同一 stage g 處理。
 - **依賴:** M-1-14f2 LINE OAuth、handle_new_auth_user trigger(M-1-14a)
-- **發現於:** 2026-05-23 / M-1-14a-patch / Codex Review C1
-- **相關:** M-1-14f2 LINE OAuth、handle_new_auth_user trigger
+- **發現於:** 2026-05-23 / M-1-14a-patch / Codex Review C1 · **解決於:** 2026-05-25 / M-1-14e-f2
+- **相關:** M-1-14f2 LINE OAuth、handle_new_auth_user trigger、#179 item 3
 
 ### #171. ⏳ RLS policy 性能優化:auth.uid() 包 (select auth.uid())(Codex C3)
 
