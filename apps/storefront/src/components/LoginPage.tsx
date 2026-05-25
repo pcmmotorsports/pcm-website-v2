@@ -7,8 +7,12 @@
 //   · <Footer onNav> → <HomeFooter />
 //   · onNav('register')「建立帳號」→ <Link href="/register">
 //   · submit localStorage mock → loginAction server action(LoginInput.parse + loginCustomer、信任邊界在 server)
-// - Google / LINE 社交鈕 markup 直接搬(含 svg + 字面);f1-a 惰性 type="button"(finding-8):
-//   Google 接線留 f1-c(signInWithOAuth)、LINE 留 f2;視覺嚴守 .auth-social / .auth-social-line。
+// - Google / LINE 社交鈕 markup 直接搬(含 svg + 字面);視覺嚴守 .auth-social / .auth-social-line:
+//   · Google(f1-c 接線):onClick signInWithOAuth(client-initiated、redirectTo /auth/callback、繞 IAuthService port、PRD §8.4)。
+//   · LINE 留 f2:維持惰性 type="button" 無 onClick。
+// - oauthError prop(f1-c):/auth/callback 失敗導 /login?error=oauth → login/page.tsx(server)讀 searchParams 傳入
+//   → 初始顯示「Google 登入失敗，請重試」auth-err。(plan §5 final-3 原寫 useSearchParams;改用 server searchParams
+//   prop:Next 16 useSearchParams 於靜態 client 頁需 Suspense boundary、server prop 免 Suspense、同 UX、鐵則 1 例外類別 2 技術實作。)
 // - 忘記密碼?維持 design <a href="#">(該流程不在 f1 scope)。
 // - 客端 presence 檢查用 design 字面「請輸入 Email 與密碼」(L186);server 端 zod / AuthError 字面由 loginAction 回。
 
@@ -20,10 +24,14 @@ import Link from 'next/link';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { loginAction } from '@/app/login/actions';
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 
-export function LoginPage() {
+const OAUTH_ERROR_COPY = 'Google 登入失敗，請重試';
+
+export function LoginPage({ oauthError }: { oauthError?: string }) {
   const [form, setForm] = useState({ email: '', password: '', remember: true });
-  const [err, setErr] = useState<string | null>(null);
+  // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面(f1-c)。
+  const [err, setErr] = useState<string | null>(oauthError ? OAUTH_ERROR_COPY : null);
   const [pending, setPending] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -39,6 +47,19 @@ export function LoginPage() {
     if (result?.error) {
       setErr(result.error);
       setPending(false);
+    }
+  };
+
+  // Google 一鍵登入(f1-c):client-initiated signInWithOAuth → 重導 Google → 回 /auth/callback 換 session。
+  const signInGoogle = async () => {
+    const supabase = createBrowserSupabaseClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
+    });
+    // 成功時瀏覽器即刻重導 Google(本元件卸載);僅發起失敗(如網路)時顯示錯誤。
+    if (error) {
+      setErr(OAUTH_ERROR_COPY);
     }
   };
 
@@ -88,7 +109,7 @@ export function LoginPage() {
 
           <div className="auth-divider"><span>或</span></div>
 
-          <button type="button" className="auth-social">
+          <button type="button" className="auth-social" onClick={signInGoogle}>
             <svg width="18" height="18" viewBox="0 0 18 18">
               <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.17-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.79 2.72v2.26h2.9c1.7-1.56 2.69-3.87 2.69-6.62z"/>
               <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.83.86-3.06.86a5.39 5.39 0 0 1-5.07-3.73H.96v2.33A9 9 0 0 0 9 18z"/>

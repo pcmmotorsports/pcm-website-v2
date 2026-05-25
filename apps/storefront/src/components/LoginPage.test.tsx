@@ -1,19 +1,26 @@
 // @vitest-environment jsdom
 //
 // LoginPage smoke test(M-1-14e-f1-a)— 前台 regression 安全網。
-// 驗 design 字面 render 不報錯 + Google/LINE 社交鈕在場(惰性 type="button")+ 建立帳號連 /register。
-// mock '@/app/login/actions':避免載 server action(transitively import server-only / @pcm/adapters/server)。
+// 驗 design 字面 render 不報錯 + Google/LINE 社交鈕在場 + Google onClick signInWithOAuth(f1-c)+ oauthError 顯示 + 建立帳號連 /register。
+// mock '@/app/login/actions'(避免載 server action)+ '@/lib/supabase/browser'(Google OAuth 發起、避免真連 Supabase)。
 // mock next/navigation:Header useRouter;wrap CartProvider:Header useCart;matchMedia polyfill:Header useEffect。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke 慣例)。
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+const { signInOAuthSpy } = vi.hoisted(() => ({ signInOAuthSpy: vi.fn() }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 vi.mock('@/app/login/actions', () => ({
   loginAction: vi.fn(),
+}));
+vi.mock('@/lib/supabase/browser', () => ({
+  createBrowserSupabaseClient: () => ({
+    auth: { signInWithOAuth: signInOAuthSpy },
+  }),
 }));
 
 import { LoginPage } from './LoginPage';
@@ -55,5 +62,21 @@ describe('LoginPage', () => {
     render(<CartProvider><LoginPage /></CartProvider>);
     const link = screen.getByText('建立帳號').closest('a');
     expect(link?.getAttribute('href')).toBe('/register');
+  });
+
+  it('oauthError prop(/auth/callback 失敗導回)→ 顯示「Google 登入失敗，請重試」(f1-c)', () => {
+    render(<CartProvider><LoginPage oauthError="oauth" /></CartProvider>);
+    expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();
+  });
+
+  it('點 Google 鈕 → signInWithOAuth(provider=google、redirectTo /auth/callback)(f1-c)', () => {
+    signInOAuthSpy.mockReset();
+    signInOAuthSpy.mockResolvedValue({ error: null });
+    render(<CartProvider><LoginPage /></CartProvider>);
+    fireEvent.click(screen.getByText('使用 Google 登入').closest('button')!);
+    expect(signInOAuthSpy).toHaveBeenCalledWith({
+      provider: 'google',
+      options: { redirectTo: expect.stringContaining('/auth/callback') },
+    });
   });
 });
