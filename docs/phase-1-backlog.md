@@ -4824,6 +4824,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #182. 🟠 eslint 禁動態 process.env 存取(防 client bundle env inlining bug 復發)
+
+- **狀態:** ⏳ 待執行(M-1-16 上線前 / 新增 client 端 env 讀取時 / 順手做)
+- **優先級:** 🟠 中(已踩過一次 runtime bug、有 lint 防線才不復發;但已即時修、非阻擋)
+- **問題:**
+  - Next.js 只把**靜態字面** `process.env.NEXT_PUBLIC_*` inline 進 client bundle;**動態存取** `process.env[name]`(name 為變數,如 helper `requireEnv(name)`)不會被 inline → client 端取到 `undefined` → 執行期 throw。
+  - M-1-14e-f1-c 已踩:`lib/supabase/browser.ts` 的 `requireEnv(name)` 動態存取令 client bundle 取不到 Supabase URL(.next 前端 chunks 出現 0 次)、點 Google 登入即 throw「NEXT_PUBLIC_SUPABASE_URL not set」。已修為靜態存取(browser.ts + server.ts 一併改靜態)。
+  - **但無 lint 防線**:未來任何 client 檔再寫 `process.env[變數]` 讀 NEXT_PUBLIC_* 會重蹈覆轍,且 **build 綠 + 單元測試綠(Node env 動態查有值)、只在瀏覽器炸** → 極難追。
+- **觸發事件(任一觸發即啟動):**
+  - 新增 client 端 env 讀取的 slice;或 M-1-16 上線前統一加防線;或順手做。
+- **預期解法(評估擇一):**
+  - eslint `no-restricted-syntax` 禁 client 檔內 computed `process.env[...]`(`MemberExpression[computed=true][object.object.name='process'][object.property.name='env']`),配 message 指向本條與靜態存取要求。
+  - 或更寬:全 repo 禁 computed process.env(server 端動態雖無害、但統一靜態更安全 + 防 client/edge runtime 誤用)。
+  - 範圍:`eslint.config.js`(storefront client block 或全域);順帶評估 `packages/adapters/src/supabase/client.ts` 第三份 `requireEnv` 動態存取(server-side、現無害、對齊 #179 item 4 dedup 一併處置)。
+- **不修會痛在:**
+  - bug 可追蹤性:此類「build 綠 + test 綠 + 只瀏覽器炸」無防線時靠人肉眼驗才抓、回歸風險高。
+  - 可維護性:靜態存取要求只存在註解 / 人腦,無機械守門。
+  - 擴充性:新 client env(如未來第三方 SDK public key)讀取無防線、易再踩。
+- **估時:** 評估 + 規則 + 驗 ~20-30 min
+- **依賴:** 無
+- **發現於:** 2026-05-25 / M-1-14e-f1-c 肉眼驗(Sean + 陪審實機抓 client env inlining bug)
+- **相關:** `apps/storefront/src/lib/supabase/browser.ts`、`server.ts`、`packages/adapters/src/supabase/client.ts`、`eslint.config.js`、backlog #179 item 4(requireEnv dedup)
+
+---
+
 ## 紀錄模板
 
 ```markdown
