@@ -240,8 +240,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/Header.tsx"
       css: "apps/storefront/src/styles/header.css"
-      last_modified_commit: "7f99033"
-      last_modified_date: "(M-1-04 期間)"
+      last_modified_commit: "38001e8"
+      last_modified_date: "2026-05-24 (M-1-14e-f1-a D-f=A)"
     design:
       component: "design-reference/components/Header.jsx"
       css: "design-reference/styles/header.css"
@@ -252,6 +252,12 @@ components:
         decided_at: "2026-05-11"
         decision_source: "lessons §12-28"
         reason: "鐵則 11 事實 > 字面允許範圍、commit body 已揭示"
+      - field: "accountIconRoute"
+        design_value: "design SPA onNav('account') → AccountPage"
+        storefront_value: "NAV_ROUTE_MAP.account = '/login'(stopgap、不分登入態)"
+        decided_at: "2026-05-24"
+        decision_source: "STATUS Sean 待決策 D-f=A + plan v4 [A][B]"
+        reason: "/account 整頁 stage g 才建、現導 /login 避免孤兒頁;stage g 補登入態條件路由(backlog #179)"
 
   HomeHero:
     storefront:
@@ -268,18 +274,39 @@ components:
 
   AccountPages:
     storefront:
-      component: "(M-1-15 待新建、拆 LoginPage + RegisterPage)"
-      css: "(待新建)"
-      last_modified_commit: "(未建)"
-      last_modified_date: "(待 M-1-15)"
+      component: "apps/storefront/src/components/LoginPage.tsx (M-1-14e-f1-a 建);RegisterPage f1-b、AccountPage 7 tab stage g"
+      css: "apps/storefront/src/styles/auth.css (M-1-14e-f1-a 建、搬 account.css L5-16+L326-476+L877-879)"
+      last_modified_commit: "38001e8"
+      last_modified_date: "2026-05-24 (M-1-14e-f1-a LoginPage)"
     design:
-      component: "design-reference/components/AccountPages.jsx"
+      component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308)"
       css: "design-reference/styles/account.css"
-    business_overrides: []
+    business_overrides:
+      - field: "navRoutingAdaptation"
+        design_value: "SPA onNav('register'/'account') + <Header onNav> + <Footer onNav>"
+        storefront_value: "<Link href='/register'> + <Header currentPage='login' /> + <HomeFooter />;成功導 POST_AUTH_REDIRECT='/'"
+        decided_at: "2026-05-24"
+        decision_source: "ProductPage.tsx 既有慣例 + plan v4 finding-11/[D]"
+        reason: "Next.js App Router routing(鐵則 1 例外類別 2 技術實作)、非視覺偏離"
+      - field: "socialButtonsInert"
+        design_value: "Google + LINE 鈕(LoginPage 有、RegisterPage 無)"
+        storefront_value: "f1-a 搬 markup 設 type='button' 惰性;Google 接線 f1-c、LINE 接線 f2、視覺守 .auth-social"
+        decided_at: "2026-05-24"
+        decision_source: "plan v4 FIDELITY-3 / finding-8"
+        reason: "鐵則 1 搬字面含未接線鈕;各自 wiring slice 前惰性、不偏離視覺"
+      - field: "authErrorCopyNetNew"
+        design_value: "design mock 無真實 auth 失敗路徑(localStorage)"
+        storefront_value: "AuthError → 最小用戶字面(Email 或密碼錯誤 等);客端 presence 用 design 字面「請輸入 Email 與密碼」"
+        decided_at: "2026-05-24"
+        decision_source: "plan v4 finding-9(c)"
+        reason: "技術必要 net-new(design 無對應字面)、非偏離;權威驗證在 server LoginInput.parse"
     open_drifts:
       - field: "loginRegisterPageSplit"
-        note: "M-1-15 待新建、design AccountPages.jsx 內含 Login + Register、storefront 拆成兩頁(對齊 Next.js App Router 慣例)"
-        plan: "M-1-15 milestone PRD(Cowork 待寫)"
+        note: "LoginPage f1-a 已建;RegisterPage 留 f1-b;AccountPage 7 tab 留 stage g(design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router)"
+        plan: "f1-b(RegisterPage)/ stage g(AccountPage);plan docs/handoff/2026-05-24-m-1-14e-f1-plan.md"
+      - field: "googleOAuthWiring"
+        note: "f1-a Google 鈕惰性;f1-c 接 signInWithOAuth + /auth/callback;OAuth 會員 phone 可空(D-g 手機必填只約束 email 表單、補 phone 留 g)"
+        plan: "f1-c + backlog #179"
 
   CheckoutPage:
     storefront:

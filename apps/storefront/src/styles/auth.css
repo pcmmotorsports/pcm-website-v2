@@ -1,0 +1,181 @@
+/* auth.css — 登入 / 註冊頁樣式(M-1-14e-f1-a)
+ *
+ * 字面從 design-reference/styles/account.css 直接搬(鐵則 1、不翻譯):
+ * - L5-16:.ap-page / .ap-mono(LoginPage/RegisterPage 用的共用 base class)
+ * - L326-476:.auth-*(auth-main / auth-card / auth-field / auth-submit / auth-divider / auth-social / auth-foot 等)
+ * - L877-879:[data-mobile] mobile 覆寫
+ * 共用 base(ap-page/ap-mono)stage g 的 Cart/Account 也用 → 屆時抽 shared base 避免重複(backlog #179)。
+ * 依賴 tokens.css(--c-bg/--c-surface/--c-border/--c-text/--c-text-2/--c-text-3/--c-red/--c-surface-2)、已全域 import。
+ */
+
+/* ===== base(account.css L5-16)===== */
+.ap-page {
+  min-height: 100vh;
+  background: var(--c-bg);
+}
+
+.ap-mono {
+  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+
+/* ===== auth(account.css L326-476)===== */
+.auth-main {
+  min-height: calc(100vh - 68px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 64px 24px 80px;
+  background: var(--c-bg);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--c-surface);
+  padding: 40px 36px;
+  border: 1px solid var(--c-border);
+}
+
+.auth-card h1 {
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 8px 0 8px;
+}
+
+.auth-sub {
+  font-size: 13.5px;
+  color: var(--c-text-2);
+  margin: 0 0 28px;
+}
+
+.auth-err {
+  padding: 10px 14px;
+  background: #fef2f2;
+  border-left: 2px solid var(--c-red);
+  color: var(--c-red);
+  font-size: 12.5px;
+  margin-bottom: 16px;
+}
+
+.auth-field {
+  display: block;
+  margin-bottom: 14px;
+}
+.auth-field > span {
+  display: block;
+  font-size: 11px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+  margin-bottom: 6px;
+}
+.auth-field input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.auth-field input:focus { border-color: var(--c-text); }
+
+.auth-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 14px 0 24px;
+}
+
+.auth-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--c-text-2);
+  cursor: pointer;
+}
+.auth-check input { accent-color: var(--c-text); }
+
+.auth-check-full {
+  margin: 16px 0 20px;
+}
+
+.auth-forgot {
+  font-size: 12.5px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.auth-forgot:hover { color: var(--c-text); }
+
+.auth-submit {
+  width: 100%;
+  padding: 14px;
+  background: var(--c-text);
+  color: #fff;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transition: background 0.2s;
+}
+.auth-submit:hover { background: #000; }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  margin: 24px 0;
+  color: var(--c-text-3);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--c-border);
+}
+.auth-divider span { padding: 0 12px; }
+
+.auth-social {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  transition: background 0.15s;
+}
+.auth-social:hover { background: var(--c-surface-2); }
+.auth-social-line { color: #06C755; }
+.auth-social-line:hover { background: #06C75510; }
+
+.auth-foot {
+  text-align: center;
+  font-size: 13px;
+  color: var(--c-text-2);
+  margin-top: 24px;
+}
+.auth-foot a {
+  color: var(--c-text);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* ===== mobile 覆寫(account.css L877-879)===== */
+[data-mobile="true"] .auth-main { padding: 32px 16px 40px; }
+[data-mobile="true"] .auth-card { padding: 28px 22px; }
+[data-mobile="true"] .auth-card h1 { font-size: 26px; }

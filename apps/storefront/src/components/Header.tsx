@@ -25,7 +25,9 @@ import { useCart } from '@/contexts/CartContext';
 
 const NAV_ROUTE_MAP: Record<string, string> = {
   cart: '/cart',
-  account: '/account',
+  // M-1-14e-f1-a(D-f=A):會員圖示 →/login(/account 整頁 stage g 才建、現導 /login 避免孤兒頁)。
+  // stopgap、不分登入態;stage g 補「已登入→/account、未登入→/login」會員態判斷(backlog #179)。
+  account: '/login',
 };
 
 export type HeaderProps = {

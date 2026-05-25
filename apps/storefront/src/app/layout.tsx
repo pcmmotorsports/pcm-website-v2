@@ -7,6 +7,7 @@
 //    products-page.css 由 M-1-12b 加入)
 // 其他 CSS(product-page / pages / vehicle-drawer / account / search-overlay / tweaks)
 // 後續 slice trigger 才加(首頁不需要)
+// auth.css 由 M-1-14e-f1-a 加入(/login + /register 頁、含 .ap-page/.ap-mono base + auth-*)
 //
 // fonts 對齊 design index.html(Inter / Noto Sans TC / Noto Serif TC / Cormorant Garamond / JetBrains Mono)
 // 走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)
@@ -22,6 +23,7 @@ import '../styles/filter-side.css';
 import '../styles/filter-drawer.css';
 import '../styles/products-page.css';
 import '../styles/home.css';
+import '../styles/auth.css';
 
 export const metadata = {
   title: 'PCM Motorsports — Made for those who ride differently.',

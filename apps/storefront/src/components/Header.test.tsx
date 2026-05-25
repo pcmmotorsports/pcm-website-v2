@@ -8,11 +8,13 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { ReactElement } from 'react';
 
+// hoisted stable push spy:供 nav 路由斷言(M-1-14e-f1-a D-f=A 會員圖示→/login)。
+const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
 }));
 
 import { Header } from './Header';
@@ -36,6 +38,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   window.localStorage.clear();
+  pushMock.mockClear();
 });
 
 afterEach(cleanup);
@@ -55,6 +58,14 @@ describe('Header', () => {
     renderWithCart(<Header isMobile />);
     expect(screen.getByText('PCM')).toBeDefined();
     expect(screen.getByLabelText('cart')).toBeDefined();
+  });
+
+  describe('nav 路由 (M-1-14e-f1-a D-f=A)', () => {
+    it('desktop 會員圖示點擊 → router.push(/login)(非 /account、防孤兒頁)', () => {
+      renderWithCart(<Header isMobile={false} />);
+      fireEvent.click(screen.getByLabelText('account'));
+      expect(pushMock).toHaveBeenCalledWith('/login');
+    });
   });
 
   describe('cart badge (M-1-13e-b-2)', () => {

@@ -1,0 +1,113 @@
+// LoginPage.tsx — 登入頁(M-1-14e-f1-a)
+//
+// 字面從 design-reference/components/AccountPages.jsx LoginPage(L181-253)直接搬(鐵則 1、不翻譯):
+// - React.useState → useState;controlled inputs 維持 design 形狀(email/password/remember)
+// - 路由 adaptation(ProductPage.tsx 既有慣例、鐵則 1 例外類別 2 技術實作):
+//   · <Header currentPage="login" onNav> → <Header currentPage="login" />(storefront Header 內走 next/link)
+//   · <Footer onNav> → <HomeFooter />
+//   · onNav('register')「建立帳號」→ <Link href="/register">
+//   · submit localStorage mock → loginAction server action(LoginInput.parse + loginCustomer、信任邊界在 server)
+// - Google / LINE 社交鈕 markup 直接搬(含 svg + 字面);f1-a 惰性 type="button"(finding-8):
+//   Google 接線留 f1-c(signInWithOAuth)、LINE 留 f2;視覺嚴守 .auth-social / .auth-social-line。
+// - 忘記密碼?維持 design <a href="#">(該流程不在 f1 scope)。
+// - 客端 presence 檢查用 design 字面「請輸入 Email 與密碼」(L186);server 端 zod / AuthError 字面由 loginAction 回。
+
+'use client';
+
+import { useState } from 'react';
+import type { FormEvent } from 'react';
+import Link from 'next/link';
+import { Header } from '@/components/Header';
+import { HomeFooter } from '@/components/HomeFooter';
+import { loginAction } from '@/app/login/actions';
+
+export function LoginPage() {
+  const [form, setForm] = useState({ email: '', password: '', remember: true });
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!form.email || !form.password) {
+      setErr('請輸入 Email 與密碼');
+      return;
+    }
+    setErr(null);
+    setPending(true);
+    // 成功時 loginAction 內 redirect(導 '/'、client 自動導航);失敗回 { error } 顯示 auth-err。
+    const result = await loginAction(form);
+    if (result?.error) {
+      setErr(result.error);
+      setPending(false);
+    }
+  };
+
+  return (
+    <div className="ap-page">
+      <Header currentPage="login" />
+      <main className="auth-main">
+        <div className="auth-card">
+          <div className="ap-mono">N°01 · Sign in</div>
+          <h1>歡迎回來</h1>
+          <p className="auth-sub">登入你的 PCM 帳號，查看訂單與收藏。</p>
+
+          <form onSubmit={submit}>
+            {err && <div className="auth-err">{err}</div>}
+            <label className="auth-field">
+              <span>Email</span>
+              <input
+                type="email"
+                value={form.email}
+                autoFocus
+                onChange={(e) => setForm({ ...form, email: e.target.value })}
+                placeholder="your@email.com"
+              />
+            </label>
+            <label className="auth-field">
+              <span>密碼</span>
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="至少 8 碼"
+              />
+            </label>
+            <div className="auth-row">
+              <label className="auth-check">
+                <input
+                  type="checkbox"
+                  checked={form.remember}
+                  onChange={(e) => setForm({ ...form, remember: e.target.checked })}
+                />
+                <span>記住我</span>
+              </label>
+              <a href="#" className="auth-forgot">忘記密碼？</a>
+            </div>
+            <button type="submit" className="auth-submit" disabled={pending}>登入</button>
+          </form>
+
+          <div className="auth-divider"><span>或</span></div>
+
+          <button type="button" className="auth-social">
+            <svg width="18" height="18" viewBox="0 0 18 18">
+              <path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.17-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.79 2.72v2.26h2.9c1.7-1.56 2.69-3.87 2.69-6.62z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.83.86-3.06.86a5.39 5.39 0 0 1-5.07-3.73H.96v2.33A9 9 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.93 10.69A5.4 5.4 0 0 1 3.65 9c0-.59.1-1.16.28-1.69V4.98H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.02l2.97-2.33z"/>
+              <path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.98L3.93 7.3A5.39 5.39 0 0 1 9 3.58z"/>
+            </svg>
+            <span>使用 Google 登入</span>
+          </button>
+          <button type="button" className="auth-social auth-social-line">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.67 2 10.16c0 3.96 3.57 7.27 8.37 7.9.33.07.77.22.88.5.1.26.07.67.03.93l-.14.86c-.04.26-.2 1.01.88.55 1.08-.46 5.83-3.44 7.96-5.88 1.47-1.61 2.02-3.24 2.02-4.86C22 5.67 17.52 2 12 2z"/></svg>
+            <span>使用 LINE 登入</span>
+          </button>
+
+          <div className="auth-foot">
+            第一次來？<Link href="/register">建立帳號</Link>
+          </div>
+        </div>
+      </main>
+      <HomeFooter />
+    </div>
+  );
+}
