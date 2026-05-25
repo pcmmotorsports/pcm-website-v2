@@ -4798,6 +4798,32 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #181. 🟠 註冊頁 + 登入頁表單 UX 強化(全欄必填標 + 逐欄 inline error、business override)
+
+- **狀態:** ⏳ 待執行(獨立 slice、排 f1-c〔Google OAuth〕收尾後;Sean 2026-05-25 Q2=B)
+- **優先級:** 🟠 中(business 拍板要做、非阻擋 f1-c;f1-b 已先落地單欄「手機（必填）」過渡)
+- **問題:**
+  - design AccountPages.jsx L256-308(註冊)/ L181-253(登入)= 單一頂部錯誤 `.auth-err` + 欄位無必填標記。客人填錯/漏填時只看到一條頂部訊息、不知是哪一欄。
+  - f1-b 已就 D-g 手機加「手機（必填）」label(registerPhoneRequired override),但其餘必填欄(姓名/Email/密碼)仍無標記、且錯誤仍頂部單一。
+- **觸發事件:**
+  - f1-c(Google OAuth 完整閉環)commit 收尾後,即啟動本 slice。
+- **預期解法(spec 時定案細節):**
+  - **全欄必填標:** 每個必填欄 label 標「必填」(Sean 指定字面);**spec 時提「紅星 `*`」替代給 Sean 二選**(若「必填」字面視覺太吵)。涵蓋 RegisterPage 姓名/Email/手機/密碼 + LoginPage Email/密碼。
+  - **逐欄 inline error:** 改 per-field inline error(顯示在該欄位下/上),取代目前頂部單一 `.auth-err`;client 改逐欄 error state(取代現行 first-error-wins 單條)。
+  - **server 對應:** RegisterInput/LoginInput 的 ZodError 目前 server action 只回 `issues[0]`;**spec 時定「client 為主逐欄 vs server 也逐欄回對應」**(client 為主較簡、server 逐欄需改 action 回傳形狀)。
+  - **範圍(鐵則 5 CSS+TSX 同 slice):** `RegisterPage.tsx` + `LoginPage.tsx` + `auth.css`(field-level error 樣式新增)。
+  - **偏離記錄:** 偏離 design L256-308 / L181-253(單一頂部錯誤、欄位無必填標)→ 記 manifest override(同 D-g `registerPhoneRequired` 模式)+ 本 backlog 註明 = **business 拍板(Q1=B)、非誤翻譯、鐵則 1 設計仍為基底**。
+- **不修會痛在:**
+  - 擴充性:未來新增表單欄位時,逐欄 error 機制已備、不必再重構頂部單一錯誤。
+  - 可維護性:頂部單一錯誤 + first-error-wins 難擴充多欄提示、改一處易顧此失彼。
+  - bug 可追蹤性:客人回報「填不過去」時,逐欄 error 能定位是哪一欄驗證擋下、頂部單一訊息無法。
+- **估時:** ~30-45 min(CSS + 雙頁 client error state 改造;spec 決策 2 處〔必填標字面 vs 紅星、client-only vs server 逐欄〕一次性問 Sean)
+- **依賴:** f1-c 收尾後;不動 schema(RegisterInput/LoginInput 不改、只改 server action 回傳形狀若採 server 逐欄)
+- **發現於:** 2026-05-25 / M-1-14e-f1-b 收尾(Sean Q1=B/Q2=B 拍板表單 UX override)
+- **相關:** `apps/storefront/src/components/RegisterPage.tsx`、`apps/storefront/src/components/LoginPage.tsx`、`apps/storefront/src/styles/auth.css`、`apps/storefront/src/app/{register,login}/actions.ts`、design AccountPages.jsx L181-308、`docs/design-storefront-manifest.yaml`(AccountPages override)
+
+---
+
 ## 紀錄模板
 
 ```markdown
