@@ -70,7 +70,7 @@ describe('LoginPage', () => {
     expect(screen.getByRole('button', { name: '登入' })).toBeDefined();
   });
 
-  it('renders Google + LINE 社交鈕(惰性 type=button、LINE wiring 留 f2)', () => {
+  it('renders Google + LINE 社交鈕(type=button、皆已接線)', () => {
     renderPage();
     const google = screen.getByText('使用 Google 登入').closest('button');
     const line = screen.getByText('使用 LINE 登入').closest('button');
@@ -103,6 +103,27 @@ describe('LoginPage', () => {
       provider: 'google',
       options: { redirectTo: expect.stringContaining('/auth/callback') },
     });
+  });
+
+  it('點 LINE 鈕 → 導向 /api/auth/line/start(f2-b、純導航)', () => {
+    const original = window.location;
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      writable: true,
+      value: { href: '', pathname: '/login', origin: 'http://localhost:3000', assign: vi.fn() },
+    });
+    try {
+      renderPage();
+      fireEvent.click(screen.getByText('使用 LINE 登入').closest('button')!);
+      expect(window.location.href).toBe('/api/auth/line/start');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, writable: true, value: original });
+    }
+  });
+
+  it('oauthError=line → 頂部顯示「LINE 登入失敗，請重試」(f2-b、依 error code 分流)', () => {
+    renderPage('line');
+    expect(screen.getByText('LINE 登入失敗，請重試')).toBeDefined();
   });
 
   it('client 空送出 → 逐欄專屬「請填寫…」、不呼叫 loginAction(Q2=B)', () => {

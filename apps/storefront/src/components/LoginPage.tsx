@@ -9,9 +9,9 @@
 //   · submit localStorage mock → loginAction server action(逐欄驗證 + loginCustomer、信任邊界在 server)
 // - Google / LINE 社交鈕 markup 直接搬(含 svg + 字面);視覺嚴守 .auth-social / .auth-social-line:
 //   · Google(f1-c 接線):onClick signInWithOAuth(client-initiated、redirectTo /auth/callback、繞 IAuthService port、PRD §8.4)。
-//   · LINE 留 f2:維持惰性 type="button" 無 onClick。
-// - oauthError prop(f1-c):/auth/callback 失敗導 /login?error=oauth → login/page.tsx(server)讀 searchParams 傳入
-//   → 初始顯示「Google 登入失敗，請重試」(走 formError 頂部通道)。
+//   · LINE(f2-b 接線):onClick 純導航 window.location.href='/api/auth/line/start'(自寫 OAuth、Supabase 不內建 LINE)。
+// - oauthError prop(f1-c/f2-b):/auth/callback 失敗導 ?error=oauth、/api/auth/line/callback 失敗導 ?error=line →
+//   login/page.tsx(server)讀 searchParams 傳入 → oauthErrorCopy 依 code 分流(Google / LINE / 通用)顯示於 formError 頂部通道。
 // - 忘記密碼?維持 design <a href="#">(該流程不在 f1 scope)。
 //
 // #181 business override(鐵則 1 設計為基底、Sean 2026-05-25 Q1=B/Q2=B 拍板):
@@ -32,14 +32,24 @@ import { loginAction } from '@/app/login/actions';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
 
-const OAUTH_ERROR_COPY = 'Google 登入失敗，請重試';
+// OAuth 失敗字面:依 /auth/callback(?error=oauth)或 /api/auth/line/callback(?error=line)導回的 error code 分流。
+const GOOGLE_ERROR_COPY = 'Google 登入失敗，請重試';
+const LINE_ERROR_COPY = 'LINE 登入失敗，請重試';
+const GENERIC_OAUTH_ERROR_COPY = '社群登入失敗，請重試';
+
+function oauthErrorCopy(code?: string): string | null {
+  if (!code) return null;
+  if (code === 'oauth') return GOOGLE_ERROR_COPY;
+  if (code === 'line') return LINE_ERROR_COPY;
+  return GENERIC_OAUTH_ERROR_COPY;
+}
 
 export function LoginPage({ oauthError }: { oauthError?: string }) {
   const [form, setForm] = useState({ email: '', password: '', remember: true });
   // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
   // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面於 formError(f1-c)。
   const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
-  const [formError, setFormError] = useState<string | null>(oauthError ? OAUTH_ERROR_COPY : null);
+  const [formError, setFormError] = useState<string | null>(oauthErrorCopy(oauthError));
   const [pending, setPending] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -73,8 +83,13 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
     });
     // 成功時瀏覽器即刻重導 Google(本元件卸載);僅發起失敗(如網路)時顯示錯誤(帳號層級、走 formError)。
     if (error) {
-      setFormError(OAUTH_ERROR_COPY);
+      setFormError(GOOGLE_ERROR_COPY);
     }
+  };
+
+  // LINE 一鍵登入(f2-b):導向自寫 OAuth start route(Supabase 不內建 LINE);純導航、不需 supabase client。
+  const signInLine = () => {
+    window.location.href = '/api/auth/line/start';
   };
 
   return (
@@ -135,7 +150,7 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
             </svg>
             <span>使用 Google 登入</span>
           </button>
-          <button type="button" className="auth-social auth-social-line">
+          <button type="button" className="auth-social auth-social-line" onClick={signInLine}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 5.67 2 10.16c0 3.96 3.57 7.27 8.37 7.9.33.07.77.22.88.5.1.26.07.67.03.93l-.14.86c-.04.26-.2 1.01.88.55 1.08-.46 5.83-3.44 7.96-5.88 1.47-1.61 2.02-3.24 2.02-4.86C22 5.67 17.52 2 12 2z"/></svg>
             <span>使用 LINE 登入</span>
           </button>
