@@ -297,6 +297,42 @@ Phase 1 是「上架真權威前台 + 對應後台」、不直接做這 9 點功
 
 ---
 
+## 補充段:搜尋智能 + 行為分析(Search & Behavioral Intelligence)
+
+> **這是補充段、不是第 10 條藍圖。** 上方 §1 九大藍圖框架不動、不重編號。
+> **來源:** 2026-05-26 ChatGPT「Vehicle-First 平台藍圖」對照 PCM 現況評估後,補上既有 9 點較少著墨的「搜尋 / 資料智能」側。
+> **與 §1 的關係:** 既有 9 點偏「車輛履歷 + 店家生態系」;本段補「搜尋 / 行為資料如何沉澱與運用」、與 9 大互補、不擴增藍圖編號。
+
+**與藍圖 #9 的分工(互補、不重複):**
+
+| | 藍圖 #9 SEO + AI 友善 | 本補充段 搜尋智能 + 行為分析 |
+|---|---|---|
+| 方向 | 對外(outbound) | 站內(on-site) |
+| 目的 | 讓 Google / AI 在站外「找到我們」 | 客人進站後「搜得到、被理解、行為被沉澱」 |
+| 例 | metadata / JSON-LD / sitemap / llms.txt | 搜尋日誌 / keyword 正規化 / 行為事件 / 推薦 |
+
+兩者是兩件事:#9 是把流量帶進來,本段是流量進來後的搜尋體驗與資料價值。
+
+**本段收編的能力缺口(均已歸檔 backlog、此處只記輪廓):**
+
+1. **搜尋日誌 search query log** — 記錄「客人搜什麼 / 搜什麼搜不到(缺貨商機)」。
+2. **行為事件埋設(GA4)** — view / search / cart / checkout / purchase + PCM 特有 select_vehicle / fitment_fail。
+3. **keyword 正規化別名表** — 中文重機改裝俗稱(後移 / 牛角 / 卡夢 / 蠍子管 …)→ 標準詞。
+4. **他站搜尋語意爬蟲** — 借 Webike / 蝦皮 autocomplete 補搜尋詞庫冷啟動(抓搜尋詞、非抓商品)。
+5. **BigQuery 行為分析 + 推薦引擎 + AI semantic search** — cross-sell / trends / lost sales + 向量語意搜尋。
+6. **vehicle schema 深層正規化** — 代別 / 變體 / 別名分層(R9 / YZF R9 / YZFR9 → 同一車),支撐精準 fitment。
+
+**現行技術現況(本段只記能力缺口、不在此重做技術選型):**
+
+- 後端為 **Supabase**(ADR-0005 已廢 Medusa);上方 §2 各點仍寫 Medusa 屬舊敘述、以 ADR-0005 為準。
+- 站內搜尋走 **PG `tsvector` + `pg_jieba` 先行**(backlog #35;藍圖建議的 Meilisearch 為有意識延後、非現行選型)。
+
+**時間敏感提醒(資料不可回填):**
+
+第 1 項「搜尋日誌」(backlog **#183**)與第 2 項「GA4 行為事件」(backlog **#184**)屬**時間敏感**:不從上線(M-6)起記錄 / 埋設,歷史資料永遠無法回補,連帶卡住第 3–5 項(backlog #185–#187)的語料與數據起步。詳見 `docs/phase-1-backlog.md` #183–#188。
+
+---
+
 ## 5. 重要參考
 
 - **完整 PRD(Phase 2 範圍):** `docs/features/vehicle-service-ecosystem.md` v0.2(793 行、車輛履歷 + 店家端 + 預約 + 儲值金回饋全寫)
