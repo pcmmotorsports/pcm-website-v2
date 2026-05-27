@@ -5039,6 +5039,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-27 / g-1 規劃(Sean Q1=A)+ codex 關卡2(FavoritesTab #189 誤引修正)
 - **相關:** g-3(favorites tab 空狀態)、#187(行為分析 / 推薦)、design AccountPages.jsx L561-578
 
+### #192. ⏳ data-mobile 全站 RWD 啟動機制疑點(真實頁無人設 data-mobile=true)
+
+- **狀態:** ⏳ 待執行(**獨立調查 slice、不折進 g**;g-1a 偵察發現、Sean 拍優先級拉高)
+- **優先級:** 🟠 中(上線前必確認 / 必修;影響全站手機 RWD、「完整手機 RWD」為專案價值)
+- **問題:**
+  - storefront 多支 CSS(filter-top.css / account.css 等)用 `[data-mobile="true"]` 屬性選擇器套手機版樣式(忠實搬自 design),但 grep 全 repo 發現**真實頁面(home / products / account)無任何處設 `data-mobile="true"`**(只 dev-preview/filter-drawer 手動設;Header autoMobile 僅「讀」data-mobile 或 `innerWidth < 1080` 自判)。→ design 的 `[data-mobile]` 手機 CSS 在真實頁可能根本不啟動、真實頁手機版恐渲染桌機 layout。
+- **觸發事件:**
+  - 2026-05-27 / g-1a 偵察(account.css mobile 樣式搬入時發現)/ Sean 拍「開 backlog、優先級拉高、獨立 slice、不折進 g」。
+- **預期解法:**
+  - ① 先確認現況:窄視窗實測 home/products/account 手機版是否真壞(或有我沒找到的全域 data-mobile 設定機制)。② 若真壞、擇一全站方案 Sean 拍:(a) 全域在 layout/body 依視窗寬設 `data-mobile`(JS、對齊 design 既有屬性選擇器、改動最小)或 (b) 把 `[data-mobile="true"]` 改真 `@media` query(較標準、但跨多 CSS 檔)。
+- **不修會痛在:**
+  - 擴充性:全站每頁手機版都靠此機制;不修則 g 之後每個新頁(admin/checkout)手機都壞。
+  - 可維護性:選定單一全站機制(data-mobile setter vs @media)、避免每頁各自 hack。
+  - bug 可追蹤性:「手機版沒生效」可回溯單一啟動點、非散落各 CSS。
+- **估時:** 調查 30 min + 修(視方案)30-60 min
+- **依賴:** 無(獨立、跨頁;建議 g 收尾或上線前處理)
+- **發現於:** 2026-05-27 / g-1a(Sean 拍獨立 slice)
+- **相關:** Header autoMobile(innerWidth<1080 自判)、filter-top.css / account.css 等 [data-mobile] 樣式、「完整手機 RWD」專案價值
+
 ---
 
 ## 紀錄模板
