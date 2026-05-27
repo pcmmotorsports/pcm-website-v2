@@ -4981,6 +4981,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-26 / ChatGPT 平台藍圖對照評估
 - **相關:** #81(Product variants = 產品規格變體、已推延 M-5-03;本條 = 車輛 schema 正規化、**兩者不同**)、PHASE-2-VISION 藍圖 #5(車輛履歷跨代別查詢)
 
+### #189. ⏳ Webwright agentic 探索式 QA 評估(微軟 web agent、未來測試層)
+
+- **狀態:** ⏳ Phase 1 後 / 測試基建穩定後評估
+- **優先級:** 🟢 觀察(探索性附加層、非 CI 把關閘門)
+- **問題:**
+  - 測試基建 T-1 已建 Playwright 確定性 E2E(CI 把關閘門、驗「寫過的 case 沒壞」)。若未來想再要「AI 像真人自己逛網站、找出沒預期到的 bug」這種探索式 QA、Webwright(微軟 2026-05 開源 terminal-native web agent)是候選——但它是非確定性 LLM agent、每跑燒 token、Python、發布僅數天。
+- **觸發事件:**
+  - 2026-05-27 / 測試基建 T-1 工具選型 / Sean 問「是否改用或也用 Webwright」、評估後拍 A(T-1 先用 Playwright、Webwright 歸檔待評估)。
+- **預期解法:**
+  - 待 Playwright E2E 地基穩固 + Webwright 成熟度提升後、評估納為「探索式 / agentic QA」附加層(AI 自主操作網站找 bug),與 Playwright 確定性回歸閘門**互補、非取代**。Webwright 底層本就用 Playwright、故 T-1 裝 Playwright 對未來路線不浪費。
+- **不修會痛在:**
+  - 擴充性:補「AI 自主探索找未預期 bug」能力——確定性 E2E 只驗寫過的 case、補不到沒想到的操作路徑。
+  - 可維護性:須明確定位為探索層、非 CI 紅綠燈(非確定性不可當 pass/fail gate);與 Playwright 職責分清、別混用。
+  - bug 可追蹤性:Webwright 每個 task 產可重跑 Python script、發現問題可回溯;但 LLM 步驟非確定、結果需人判讀。
+- **估時:** Phase 1 後評估(視 Playwright 地基 + Webwright 成熟度)
+- **依賴:** Playwright E2E 地基(測試基建 T-1 已起)、Webwright 成熟度
+- **發現於:** 2026-05-27 / 測試基建 T-1(Sean Q=A)
+- **相關:** microsoft/Webwright(底層用 Playwright)、測試基建 T-1(Playwright 確定性閘門)、#169(next-env gitignore 評估、同屬測試/工具雜務)
+
 ---
 
 ## 紀錄模板

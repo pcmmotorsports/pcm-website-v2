@@ -40,6 +40,10 @@ export default defineConfig({
       '**/.turbo/**',
       '**/.next/**',
       'design-reference/**',
+      // Playwright E2E specs 用 @playwright/test runner、非 vitest;vitest include 的 .spec
+      // glob 會誤抓 apps/storefront/e2e/*.spec.ts、故排除整個 e2e/(見 apps/storefront/
+      // playwright.config.ts、測試基建 T-1)。
+      '**/e2e/**',
     ],
     environment: 'node',
   },

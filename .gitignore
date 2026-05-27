@@ -47,6 +47,10 @@ logs/
 # Test coverage
 coverage/
 
+# Playwright E2E 產物(test report / trace / 截圖、本機 + CI 重生、不入 git;測試基建 T-1)
+**/test-results/
+**/playwright-report/
+
 # Storybook
 storybook-static/
 
