@@ -22,12 +22,12 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import type { MouseEvent } from 'react';
 import { useCart } from '@/contexts/CartContext';
+import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 
 const NAV_ROUTE_MAP: Record<string, string> = {
   cart: '/cart',
-  // M-1-14e-f1-a(D-f=A):會員圖示 →/login(/account 整頁 stage g 才建、現導 /login 避免孤兒頁)。
-  // stopgap、不分登入態;stage g 補「已登入→/account、未登入→/login」會員態判斷(backlog #179)。
-  account: '/login',
+  // 'account' 刻意不入此表:g-1b 起改「條件路由」(見 handleNav)— 已登入→/account、未登入→/login
+  // (取代 f1-a 的 /login stopgap;#179 D-f 收尾)。真守門在 /account server 端 getUser()(g-1a)。
 };
 
 export type HeaderProps = {
@@ -66,6 +66,29 @@ export function Header({
   }, []);
   const isMobile = isMobileProp !== undefined ? isMobileProp : autoMobile;
 
+  // Header 會員態(g-1b、純 cosmetic):決定會員圖示去向(已登入→/account、未登入→/login)。
+  // 真守門在 /account server 端 getUser();此處查不到 / 出錯一律退化未登入(安全方向、server 擋)。
+  // isAuthed 不進任何 render 輸出(僅 click 時 handleNav 讀)→ initial false 無 SSR hydration mismatch。
+  const [isAuthed, setIsAuthed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let subscription: { unsubscribe: () => void } | undefined;
+    try {
+      const supabase = createBrowserSupabaseClient();
+      // onAuthStateChange 訂閱後即 emit INITIAL_SESSION(讀本地 session、不打網路)= 初始 auth-state,
+      // 之後登入 / 登出即時更新;cleanup 必 unsubscribe(active 旗標防 unmount 後 setState)。
+      subscription = supabase.auth.onAuthStateChange((_event, session) => {
+        if (active) setIsAuthed(!!session?.user);
+      }).data.subscription;
+    } catch {
+      // env / browser client 不可用(如測試環境)→ 維持未登入預設、不阻斷 Header render。
+    }
+    return () => {
+      active = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
   const navItems = [
     { id: 'catalog', label: '商品目錄', href: '/products' },
     { id: 'vehicle', label: '依車輛搜尋', href: '/#vehicle-finder' },
@@ -79,6 +102,12 @@ export function Header({
     e.preventDefault();
     if (onNav) {
       onNav(id);
+      return;
+    }
+    // 會員圖示條件路由(g-1b、#179 D-f 收尾):已登入→/account、未登入→/login。
+    // 純 cosmetic;真守門在 /account server 端 getUser()(g-1a)、此處指錯 server 也擋得住。
+    if (id === 'account') {
+      router.push(isAuthed ? '/account' : '/login');
       return;
     }
     router.push(NAV_ROUTE_MAP[id] ?? `/${id}`);

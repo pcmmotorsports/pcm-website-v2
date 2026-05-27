@@ -12,9 +12,24 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { ReactElement } from 'react';
 
 // hoisted stable push spy:供 nav 路由斷言(M-1-14e-f1-a D-f=A 會員圖示→/login)。
-const { pushMock } = vi.hoisted(() => ({ pushMock: vi.fn() }));
+const { pushMock, authState } = vi.hoisted(() => ({
+  pushMock: vi.fn(),
+  authState: { session: null as { user: { id: string } } | null },
+}));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
+}));
+// Header g-1b auth-state:mock browser supabase client。onAuthStateChange 同步 emit INITIAL_SESSION
+// (可控 authState.session、預設未登入)→ 測試以 authState.session 切換登入態驗條件路由。
+vi.mock('@/lib/supabase/browser', () => ({
+  createBrowserSupabaseClient: () => ({
+    auth: {
+      onAuthStateChange: (cb: (event: string, session: unknown) => void) => {
+        cb('INITIAL_SESSION', authState.session);
+        return { data: { subscription: { unsubscribe: () => {} } } };
+      },
+    },
+  }),
 }));
 
 import { Header } from './Header';
@@ -39,6 +54,7 @@ beforeAll(() => {
 beforeEach(() => {
   window.localStorage.clear();
   pushMock.mockClear();
+  authState.session = null; // 預設未登入(各測試自設登入態)
 });
 
 afterEach(cleanup);
@@ -60,11 +76,19 @@ describe('Header', () => {
     expect(screen.getByLabelText('cart')).toBeDefined();
   });
 
-  describe('nav 路由 (M-1-14e-f1-a D-f=A)', () => {
-    it('desktop 會員圖示點擊 → router.push(/login)(非 /account、防孤兒頁)', () => {
+  describe('會員圖示條件路由 (g-1b、#179 D-f 收尾)', () => {
+    it('desktop 未登入 → 會員圖示點擊 → router.push(/login)', () => {
       renderWithCart(<Header isMobile={false} />);
       fireEvent.click(screen.getByLabelText('account'));
       expect(pushMock).toHaveBeenCalledWith('/login');
+    });
+
+    it('desktop 已登入 → 會員圖示點擊 → router.push(/account)', () => {
+      authState.session = { user: { id: 'u1' } };
+      renderWithCart(<Header isMobile={false} />);
+      // onAuthStateChange 同步 emit INITIAL_SESSION(已登入)→ isAuthed=true(render act 內 flush)
+      fireEvent.click(screen.getByLabelText('account'));
+      expect(pushMock).toHaveBeenCalledWith('/account');
     });
   });
 
