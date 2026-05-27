@@ -1,0 +1,147 @@
+/* account.css — 會員中心(/account)殼樣式
+ *
+ * 直接搬 design-reference/styles/account.css @ 25d3a2a:
+ * - 殼:.acc-main / .acc-head / .acc-avatar / .acc-email / .acc-logout / .acc-layout
+ *   / .acc-nav / .acc-nav-icon / .acc-body(L478-566 字面不動)
+ * - mobile:[data-mobile="true"] 的 acc-* 殼規則(L881-908 字面不動;全站 data-mobile
+ *   啟動機制為既有跨頁現象、非本 slice scope)
+ * - tab 專屬樣式(acc-stats / acc-section / acc-orders / acc-fav / acc-bike / acc-addr
+ *   / acc-profile / acc-inline-form)隨各自 tab slice(g-2~g-7)加入、本檔不含。
+ * - .acc-stub 為 g-1a 暫時 placeholder chrome(非 design 內容、各 tab 接真內容後移除)。
+ *
+ * 設計 token(--c-*)由 tokens.css 提供(layout.tsx 已載)。
+ */
+
+/* ============ ACCOUNT 殼 ============ */
+.acc-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 32px 80px;
+}
+
+.acc-head {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 20px;
+  align-items: center;
+  padding-bottom: 32px;
+  margin-bottom: 32px;
+  border-bottom: 1px solid var(--c-border);
+}
+.acc-avatar {
+  width: 72px; height: 72px;
+  background: var(--c-text);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 600;
+}
+.acc-head h1 {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 4px 0;
+}
+.acc-email {
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+.acc-logout {
+  padding: 10px 18px;
+  border: 1px solid var(--c-border);
+  font-size: 12.5px;
+  color: var(--c-text-2);
+  background: var(--c-surface);
+  transition: all 0.15s;
+}
+.acc-logout:hover {
+  border-color: var(--c-text);
+  color: var(--c-text);
+}
+
+.acc-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.acc-nav {
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 100px;
+  border: 1px solid var(--c-border);
+}
+.acc-nav button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  text-align: left;
+  background: transparent;
+  color: var(--c-text-2);
+  font-size: 13.5px;
+  border-bottom: 1px solid var(--c-border);
+  transition: all 0.15s;
+}
+.acc-nav button:last-child { border-bottom: 0; }
+.acc-nav button:hover { color: var(--c-text); background: var(--c-surface-2); }
+.acc-nav button.is-active {
+  color: var(--c-text);
+  background: var(--c-text);
+  color: #fff;
+}
+.acc-nav-icon {
+  font-size: 13px;
+  width: 14px;
+  text-align: center;
+}
+
+.acc-body { min-width: 0; }
+
+/* g-1a 暫時 stub placeholder(各 tab 接真內容後由 g-2~g-7 移除) */
+.acc-stub {
+  padding: 48px 24px;
+  border: 1px dashed var(--c-border);
+  color: var(--c-text-3);
+  text-align: center;
+}
+.acc-stub h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--c-text-2);
+  margin: 0 0 8px;
+}
+
+/* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */
+[data-mobile="true"] .acc-main { padding: 24px 16px 40px; }
+[data-mobile="true"] .acc-head { grid-template-columns: 56px 1fr; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
+[data-mobile="true"] .acc-avatar { width: 52px; height: 52px; font-size: 20px; }
+[data-mobile="true"] .acc-head h1 { font-size: 22px; }
+[data-mobile="true"] .acc-head-actions { grid-column: 1 / -1; }
+[data-mobile="true"] .acc-layout { grid-template-columns: 1fr; gap: 20px; }
+[data-mobile="true"] .acc-nav {
+  position: static;
+  flex-direction: row;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border: 0;
+  border-bottom: 1px solid var(--c-border);
+}
+[data-mobile="true"] .acc-nav::-webkit-scrollbar { display: none; }
+[data-mobile="true"] .acc-nav button {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  border-bottom: 0;
+  border-right: 0;
+  white-space: nowrap;
+  font-size: 12.5px;
+}
+[data-mobile="true"] .acc-nav button.is-active {
+  background: transparent;
+  color: var(--c-text);
+  border-bottom: 2px solid var(--c-text);
+}

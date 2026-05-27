@@ -5000,6 +5000,45 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-27 / 測試基建 T-1(Sean Q=A)
 - **相關:** microsoft/Webwright(底層用 Playwright)、測試基建 T-1(Playwright 確定性閘門)、#169(next-env gitignore 評估、同屬測試/工具雜務)
 
+### #190. ⏳ 登入後導回原頁(post-login next-param redirect、same-origin 白名單)
+
+- **狀態:** ⏳ 待執行(g-1 決策 1=A 的 deferred B、未來體驗優化)
+- **優先級:** 🟡 低(體驗優化、非阻擋)
+- **問題:**
+  - g-1 決策 1=A:未登入點會員中心 → 導 `/login` → 登入成功一律回首頁(`POST_AUTH_REDIRECT='/'`)。體驗上「我本來要去會員中心、卻被丟回首頁」略不順。
+- **觸發事件:**
+  - 2026-05-27 / g-1 codex 關卡1 finding #8 / Sean 決策 1=A、B 列本條 backlog。
+- **預期解法:**
+  - 受保護頁 redirect 帶 next(`/login?next=/account`)、登入 / OAuth 成功後優先回 next。
+  - **【硬要求】next 參數必做 same-origin 白名單驗證**(只允許站內相對路徑、拒絕絕對 URL / 跨站),別重開 M-1-14e-f1-c(Google OAuth)+ f2(LINE callback)修過的 open-redirect 傷口(兩處 codex 關卡2 must-fix 已治)。
+- **不修會痛在:**
+  - 擴充性:g 之後多個受保護頁(admin / checkout)都需「登入後回原處」、統一 next 機制比每頁各自硬導好。
+  - 可維護性:next 白名單驗證集中單點、避免每個 redirect 點各自寫驗證、各自留漏洞。
+  - bug 可追蹤性:open-redirect 攻擊面集中審(白名單單點)、出事好定位。
+- **估時:** 30-45 min(含白名單驗證 + 測試)
+- **依賴:** 登入流程(`login/actions.ts` + `POST_AUTH_REDIRECT`)、OAuth callback
+- **發現於:** 2026-05-27 / g-1 codex 關卡1(Sean 決策 1=A、B 此條)
+- **相關:** M-1-14e-f1-c(Google OAuth open-redirect 修)、f2(LINE callback redirect 紀律)、`POST_AUTH_REDIRECT`
+
+### #191. ⏳ 收藏清單(favorites)後端待建
+
+- **狀態:** ⏳ 待執行(g-1 Sean Q1=A:g-3 先空狀態、後端待建)
+- **優先級:** 🟡 低(會員黏著、非核心交易;Phase 1 後 / M-3+ 評估)
+- **問題:**
+  - 會員中心「收藏清單」tab(design AccountPages.jsx L561-578)無對應後端 —— domain / ports / use-cases / schema 皆無 favorites entity。g-3 先搬空狀態 markup、真資料無源。
+- **觸發事件:**
+  - 2026-05-27 / g-1 規劃 Sean Q1=A(favorites 先空狀態 + 開 backlog 記後端待建);codex 關卡2 揪 FavoritesTab 註解誤引 #189(Webwright)→ 本條補正。
+- **預期解法:**
+  - favorites entity(customer_id × product_id + 加入 / 移除 / 列表)+ RLS auth.uid()=customer_user_id 自讀自寫 + use-case + storefront 接 g-3 tab + 商品頁 / 卡片「加入收藏」鈕。
+- **不修會痛在:**
+  - 擴充性:收藏是會員黏著基礎(再行銷、推薦冷啟動參考);與 #187 行為分析互補。
+  - 可維護性:favorites 與 cart(localStorage mock)語義不同、應各自 entity、別混。
+  - bug 可追蹤性:收藏增刪走 use-case + RLS、出錯可回溯 ownership。
+- **估時:** Phase 1 後 / M-3+ 評估(entity + RLS + use-case + UI 接線)
+- **依賴:** customers schema(已備)、products 真資料(M-1-16 種子後較有意義)
+- **發現於:** 2026-05-27 / g-1 規劃(Sean Q1=A)+ codex 關卡2(FavoritesTab #189 誤引修正)
+- **相關:** g-3(favorites tab 空狀態)、#187(行為分析 / 推薦)、design AccountPages.jsx L561-578
+
 ---
 
 ## 紀錄模板

@@ -24,6 +24,7 @@ import '../styles/filter-drawer.css';
 import '../styles/products-page.css';
 import '../styles/home.css';
 import '../styles/auth.css';
+import '../styles/account.css';
 
 export const metadata = {
   title: 'PCM Motorsports — Made for those who ride differently.',
