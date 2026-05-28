@@ -5023,12 +5023,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #191. ⏳ 收藏清單(favorites)後端待建
 
-- **狀態:** ⏳ 待執行(g-1 Sean Q1=A:g-3 先空狀態、後端待建)
+- **狀態:** ⏳ 後端待建(g-3 已落地空狀態 UI、本條追蹤後端 entity / RLS / use-case / UI 接線)
 - **優先級:** 🟡 低(會員黏著、非核心交易;Phase 1 後 / M-3+ 評估)
 - **問題:**
   - 會員中心「收藏清單」tab(design AccountPages.jsx L561-578)無對應後端 —— domain / ports / use-cases / schema 皆無 favorites entity。g-3 先搬空狀態 markup、真資料無源。
 - **觸發事件:**
   - 2026-05-27 / g-1 規劃 Sean Q1=A(favorites 先空狀態 + 開 backlog 記後端待建);codex 關卡2 揪 FavoritesTab 註解誤引 #189(Webwright)→ 本條補正。
+  - 2026-05-28 / g-3 落地空狀態 UI(FavoritesTab.tsx + FavoritesTab.test.tsx;沿用 OrdersTab pattern + acc-empty 既有 CSS、不新增 CSS、不搬 design mock 6 件商品字面);本條後端工作不變、僅 UI 殼到位。
 - **預期解法:**
   - favorites entity(customer_id × product_id + 加入 / 移除 / 列表)+ RLS auth.uid()=customer_user_id 自讀自寫 + use-case + storefront 接 g-3 tab + 商品頁 / 卡片「加入收藏」鈕。
 - **不修會痛在:**

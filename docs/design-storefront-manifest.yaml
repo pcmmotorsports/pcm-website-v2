@@ -289,13 +289,13 @@ components:
 
   AccountPages:
     storefront:
-      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx + apps/storefront/src/app/account/page.tsx + apps/storefront/src/components/account/AccountView.tsx + tabs/{OverviewTab,OrdersTab,WalletTab,FavoritesTab,VehiclesTab,AddressTab,ProfileTab}.tsx + apps/storefront/src/components/TierBadge.tsx (g-1a 殼+守門+登出 / g-1b Header 條件路由 / g-2 OverviewTab+OrdersTab 真資料+TierBadge+Issue1 LINE email 過濾+為你推薦走 fetchFeaturedProducts;f1-a~f2 見上)"
-      css: "apps/storefront/src/styles/auth.css + apps/storefront/src/styles/account.css + apps/storefront/src/styles/tier.css (g-1a 搬 acc-* 殼 + g-2 搬 acc-stats/acc-section/acc-orders/acc-rec/acc-empty + acc-rec-img wrapper + acc-link-btn business override + tier.css 搬 design tier.css L1-33 TierBadge 部分)"
-      last_modified_commit: "8e98077"
-      last_modified_date: "2026-05-28 (M-1-14e-g-2 OverviewTab + OrdersTab 真資料 + TierBadge + Issue 1 LINE email 過濾;hash 記可達祖先 8e98077=g-1b commit〔本 slice commit 不可自指、避 orphan〕、見 backlog #180)"
+      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx + apps/storefront/src/app/account/page.tsx + apps/storefront/src/components/account/AccountView.tsx + tabs/{OverviewTab,OrdersTab,WalletTab,FavoritesTab,VehiclesTab,AddressTab,ProfileTab}.tsx + apps/storefront/src/components/TierBadge.tsx (g-1a 殼+守門+登出 / g-1b Header 條件路由 / g-2 OverviewTab+OrdersTab 真資料+TierBadge+Issue1 LINE email 過濾+為你推薦走 fetchFeaturedProducts / g-3 FavoritesTab 空狀態 business override;f1-a~f2 見上)"
+      css: "apps/storefront/src/styles/auth.css + apps/storefront/src/styles/account.css + apps/storefront/src/styles/tier.css (g-1a 搬 acc-* 殼 + g-2 搬 acc-stats/acc-section/acc-orders/acc-rec/acc-empty + acc-rec-img wrapper + acc-link-btn business override + tier.css 搬 design tier.css L1-33 TierBadge 部分;g-3 FavoritesTab 沿用既有 acc-section/acc-empty/acc-empty-sub、不新增 CSS)"
+      last_modified_commit: "4da63c6"
+      last_modified_date: "2026-05-28 (M-1-14e-g-3 FavoritesTab 空狀態 + 不搬 design favorites mock 商品字面;hash 記可達祖先 4da63c6=#192 commit〔本 slice commit 不可自指、避 orphan〕、見 backlog #180)"
     design:
-      component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308 / AccountPage L310-681 含 overview L467-535 + orders L538-557) + design-reference/components/TierComponents.jsx (TierBadge L29-35)"
-      css: "design-reference/styles/account.css (殼 L478-566 / overview-orders L568-695 / acc-empty L994-1000 / mobile L881-911) + design-reference/styles/tier.css (TierBadge L1-33)"
+      component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308 / AccountPage L310-681 含 overview L467-535 + orders L538-557 + favorites L561-578) + design-reference/components/TierComponents.jsx (TierBadge L29-35)"
+      css: "design-reference/styles/account.css (殼 L478-566 / overview-orders L568-695 / acc-fav 7 條 L697/L704/L710/L716/L722/L729/L733 + L912 mobile 1 條 / acc-empty L994-1000 / mobile L881-911) + design-reference/styles/tier.css (TierBadge L1-33)"
     business_overrides:
       - field: "navRoutingAdaptation"
         design_value: "SPA onNav('register'/'account') + <Header onNav> + <Footer onNav>"
@@ -357,10 +357,16 @@ components:
         decided_at: "2026-05-28"
         decision_source: "g-2 plan v2 決策 7 / Sean 交接訊息「真用戶 0 筆訂單 = 空狀態必做、絕不假裝 mock」"
         reason: "PCM「不假裝 mock」紀律 + design 訂單真資料路徑 = M-3、g-2 階段無真訂單即空狀態"
+      - field: "favoritesEmptyState"
+        design_value: "design AccountPages.jsx L561-578 favorites tab 用 data.products.slice(0, 6) mock 渲染 6 件「假收藏」(LIGHTECH 鋁合金腳踏組 / RIZOMA 後視鏡 / Akrapovič 排氣 等);.acc-fav-grid 4 卡格(mobile 1fr 1fr);每張卡 img + acc-fav-brand + acc-fav-name + acc-fav-price"
+        storefront_value: "PCM 後端 Phase 1 無 favorites entity / port / use-case / adapter(backlog #191)、商品頁亦無「加入收藏」按鈕、無從產生真收藏 → FavoritesTab 走 .acc-empty 空狀態(沿用 ordersEmptyState pattern);文案「目前尚無收藏商品」+ sub「您的收藏會顯示在此」;**絕不**搬 design mock 6 件商品字面、避免假裝有收藏功能;殼仍對齊 design .acc-section[data-tab='favorites'] + .acc-section-head h2「收藏清單」、M-3 接後端時殼不破"
+        decided_at: "2026-05-28"
+        decision_source: "g-3 plan v1 Q1=A 沿用 g-1 拍板 / backlog #191 L5031 / Sean g-3 交接訊息「不要再走一輪三選一」"
+        reason: "PCM「不假裝 mock」紀律 + design favorites 真資料路徑 = M-3 接 #191 後端、g-3 階段無真收藏即空狀態;鐵則 1 例外類別 4(design mock 字面不可搬、改用 business override 空狀態 markup)"
     open_drifts:
       - field: "loginRegisterPageSplit"
-        note: "LoginPage f1-a + RegisterPage f1-b + AccountPage 7 tab(g-1a 殼 + g-1b Header 條件路由 + g-2 OverviewTab/OrdersTab 真資料)已建;餘 5 tab(wallet/favorites/vehicles/address/profile)仍 stub、待 g-3~g-7"
-        plan: "g-3~g-7 各自接真資料;design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router"
+        note: "LoginPage f1-a + RegisterPage f1-b + AccountPage 7 tab(g-1a 殼 + g-1b Header 條件路由 + g-2 OverviewTab/OrdersTab 真資料 + g-3 FavoritesTab 空狀態)已建;餘 4 tab(wallet/vehicles/address/profile)仍 stub、待 g-4~g-7"
+        plan: "g-4~g-7 各自接真資料;design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router"
       - field: "googleOAuthWiring"
         note: "f1-c 已接 Google signInWithOAuth + /auth/callback exchangeCodeForSession 閉環(肉眼驗卡 §13.1 Google + Supabase redirect URLs);LINE OAuth 留 f2;OAuth 會員 phone 可空(D-g 只約束 email 表單、補 phone 留 g/backlog #179)"
         plan: "f2(LINE)+ backlog #179(OAuth 會員補 phone)"
