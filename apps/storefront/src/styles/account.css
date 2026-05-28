@@ -291,10 +291,49 @@
 }
 
 /* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */
+/* [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr)
+ * + .acc-head h1 加 word-break: break-word(g-2 肉眼驗發現「Sean-PCM重機零件販售」斷行醜、本 slice 順手修)
+ */
+@media (max-width: 1079px) {
+  .acc-main { padding: 24px 16px 40px; }
+  .acc-head { grid-template-columns: 56px 1fr; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
+  .acc-avatar { width: 52px; height: 52px; font-size: 20px; }
+  .acc-head h1 { font-size: 22px; word-break: break-word; }
+  .acc-head-actions { grid-column: 1 / -1; }
+  .acc-layout { grid-template-columns: 1fr; gap: 20px; }
+  .acc-nav {
+    position: static;
+    flex-direction: row;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border: 0;
+    border-bottom: 1px solid var(--c-border);
+  }
+  .acc-nav::-webkit-scrollbar { display: none; }
+  .acc-nav button {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+    border-bottom: 0;
+    border-right: 0;
+    white-space: nowrap;
+    font-size: 12.5px;
+  }
+  .acc-nav button.is-active {
+    background: transparent;
+    color: var(--c-text);
+    border-bottom: 2px solid var(--c-text);
+  }
+  /* overview / orders tab mobile(對齊 design L909-911)*/
+  .acc-stats { grid-template-columns: 1fr; }
+  .acc-stat-v { font-size: 26px; }
+  .acc-rec { grid-template-columns: 1fr 1fr; }
+}
+
+/* [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint) */
 [data-mobile="true"] .acc-main { padding: 24px 16px 40px; }
 [data-mobile="true"] .acc-head { grid-template-columns: 56px 1fr; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
 [data-mobile="true"] .acc-avatar { width: 52px; height: 52px; font-size: 20px; }
-[data-mobile="true"] .acc-head h1 { font-size: 22px; }
+[data-mobile="true"] .acc-head h1 { font-size: 22px; word-break: break-word; }
 [data-mobile="true"] .acc-head-actions { grid-column: 1 / -1; }
 [data-mobile="true"] .acc-layout { grid-template-columns: 1fr; gap: 20px; }
 [data-mobile="true"] .acc-nav {

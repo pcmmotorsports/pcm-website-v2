@@ -1,0 +1,108 @@
+/* mobile-tabbar.css — 全站底部主導航(僅 mobile 顯示)
+ *
+ * 字面從 design-reference/styles/tweaks.css L376-417 直接搬:
+ * - .mobile-tabbar / .mobile-tabbar-btn / .mobile-tabbar-dot / .is-hidden / .is-active
+ *
+ * 業務 override(鐵則 1 例外類別 2 = 技術實作差異、非視覺偏離):
+ * - design 用 position: absolute; bottom: 40px(因 design 包在 .mobile-bezel mock-phone 內、相對定位)
+ *   storefront 改 position: fixed; bottom: 0(真實視窗底)+ env(safe-area-inset-bottom)(iOS 安全區)
+ * - 只在 @media (max-width: 1079px) 或 html[data-mobile="true"] 顯示、桌面 display: none
+ *
+ * body padding-bottom 防最後內容被遮(tweaks.css L424, L426 同義改造):
+ * - @media (max-width: 1079px) { body { padding-bottom } }
+ * - html[data-mobile="true"] body { padding-bottom }(codex k1 FIX-1:不能寫 [data-mobile] body、
+ *   因 body 不是 [data-mobile] 屬性 selector 的 descendant、必須加 html prefix 才命中)
+ */
+
+/* 預設桌面隱藏(disabled tab 也不需要桌面 hover state)*/
+.mobile-tabbar { display: none; }
+
+/* === 手機 viewport @media(主、SSR-safe、無需 JS / attr)=== */
+@media (max-width: 1079px) {
+  .mobile-tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 64px;
+    padding-bottom: env(safe-area-inset-bottom);
+    background: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(14px) saturate(1.4);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    border-top: 1px solid rgba(0, 0, 0, 0.08);
+    display: flex;
+    z-index: 40;
+  }
+  body {
+    padding-bottom: calc(70px + env(safe-area-inset-bottom));
+  }
+}
+
+/* === html[data-mobile="true"] 兜底(SSR UA hint、選擇器需 html prefix 才命中 body)=== */
+html[data-mobile="true"] .mobile-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 64px;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  display: flex;
+  z-index: 40;
+}
+html[data-mobile="true"] body {
+  padding-bottom: calc(70px + env(safe-area-inset-bottom));
+}
+
+/* tab 按鈕共用樣式(無 mobile-only 限制、display: none 由 .mobile-tabbar 父層守門)*/
+.mobile-tabbar-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--c-text-3);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  transition: color 0.15s;
+  position: relative;
+  text-decoration: none;
+}
+.mobile-tabbar-btn.is-active {
+  color: var(--c-text);
+}
+.mobile-tabbar-btn.is-active .mobile-tabbar-dot {
+  opacity: 1;
+}
+.mobile-tabbar-btn[aria-disabled='true'] {
+  opacity: 0.4;
+  pointer-events: none;
+  cursor: default;
+}
+
+.mobile-tabbar-dot {
+  position: absolute;
+  top: 4px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--c-text);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.mobile-tabbar-btn svg {
+  display: block;
+}
+.mobile-tabbar-btn span.lbl {
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* product 詳情頁讓位 sticky buy bar */
+.mobile-tabbar.is-hidden {
+  display: none;
+}

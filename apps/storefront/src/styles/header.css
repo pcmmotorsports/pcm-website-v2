@@ -16,6 +16,15 @@
   max-width: 1440px;
   margin: 0 auto;
 }
+/* [#192 A1] 手機 viewport @media + 既有 compound selector 兜底
+ * compound `.pcm-header-inner[data-mobile="true"]` 命中需:同元素同時有 class + attr
+ * (storefront 真實 markup 0 處設此 attr 在 .pcm-header-inner 上、僅 dev-preview / 未來祖先元素 attr 不會 inherit、故此 compound 視同 dead code 但保留不刪、向後相容 design)
+ */
+@media (max-width: 1079px) {
+  .pcm-header-inner {
+    padding: 12px 16px;
+  }
+}
 .pcm-header-inner[data-mobile="true"] {
   padding: 12px 16px;
 }

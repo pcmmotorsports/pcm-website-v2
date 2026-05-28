@@ -23,6 +23,21 @@ last_global_sync:
   audited_at: "2026-05-22"
   audited_by: "Cowork(M-1-13H session 結束時對齊)"
 
+# Cross-cutting business overrides(全站機制、不屬單一元件)
+cross_cutting_overrides:
+  globalRwdMechanism:
+    design_value: "純 [data-mobile=\"true\"] attribute selector(design SPA 由 MobileWrapper 包 <div data-mobile=\"true\">)"
+    storefront_value: |
+      雙保險:
+      1. @media (max-width: 1079px) — viewport-based、SSR-safe、無需 JS
+      2. <html data-mobile> 由 layout.tsx headers() UA regex 設(SSR hint、向後相容既有 [data-mobile] selector)
+      5 個既有 css 檔(account / auth / filter-drawer / filter-top / header)全部 [data-mobile] 規則加 @media 鏡像並存、不刪既有規則
+    decided_at: "2026-05-28"
+    decision_source: "#192 plan v2(codex k1 FIX-1 修 selector + FIX-4 鐵則 4 三段不可拆豁免)"
+    reason: |
+      storefront 真實 markup 無人設 [data-mobile=\"true\"](g-2 肉眼驗實證 /account 手機爆版),
+      純 attribute selector 不啟動;@media + UA hint 雙保險 SSR-safe + dev-preview 仍可強制 attr 模式
+
 components:
   # ---- 商品系列(M-1-13H 改版完成、M-1-13I 修 3 bug 範圍) ----
 
@@ -361,6 +376,58 @@ components:
       component: "design-reference/components/CheckoutPage.jsx"
       css: "design-reference/styles/checkout.css"
     business_overrides: []
+
+  # ---- 全站 RWD 系列(#192) ----
+
+  MobileTabBar:
+    storefront:
+      component: "apps/storefront/src/components/MobileTabBar.tsx"
+      css: "apps/storefront/src/styles/mobile-tabbar.css"
+      last_modified_commit: "08387a0"  # 可達祖先 (g-2);本 slice commit 後此條目 hash 視為當代、避 orphan(對齊 memory project_status-top-hash-off-by-one-normal)
+      last_modified_date: "2026-05-28 (#192 全站 RWD 啟動 + tabbar 搬)"
+    design:
+      component: "design-reference/components/App.jsx (L166-190 MobileTabBar)"
+      css: "design-reference/styles/tweaks.css (L376-417 .mobile-tabbar / .mobile-tabbar-btn / .mobile-tabbar-dot / .is-hidden)"
+    related_storefront:
+      - "apps/storefront/src/app/layout.tsx"  # 全站渲染 + headers() UA hint
+    business_overrides:
+      - field: "routingAdaptation"
+        design_value: "currentPage prop + onNav(t.id) callback(in-app SPA state machine)"
+        storefront_value: "usePathname() + <Link href>;active 判定走 pathname.startsWith / 等值"
+        decided_at: "2026-05-28"
+        decision_source: "#192 plan v2 / 對齊 Header pattern(NAV_ROUTE_MAP)"
+        reason: "Next.js App Router routing(鐵則 1 例外類別 2 技術實作)、非視覺偏離"
+      - field: "positioning"
+        design_value: "position: absolute; bottom: 40px(design 包在 .mobile-bezel mock-phone 內)"
+        storefront_value: "position: fixed; bottom: 0; padding-bottom: env(safe-area-inset-bottom)(真實視窗底 + iOS 安全區)"
+        decided_at: "2026-05-28"
+        decision_source: "#192 plan v2 / codex k1 點 6 確認屬技術 override"
+        reason: "design 用 absolute 因 mock-phone bezel 上下文;storefront 真實視窗、必須 fixed + safe-area;鐵則 1 例外類別 2"
+      - field: "vehicleSearchTabDisabled"
+        design_value: "找車 tab onNav('vehicle-search')、design SPA route 已建"
+        storefront_value: "href='#' + <span aria-disabled='true'> + aria-label='找車(尚未開放)';click no-op"
+        decided_at: "2026-05-28"
+        decision_source: "#192 fold backlog #195(/vehicle-search 路由未建、新建 backlog)"
+        reason: "/vehicle-search 路由未建、tab 暫 disabled、待 #195 完成解除"
+      - field: "cartTabDisabled"
+        design_value: "購物車 tab onNav('cart')、design SPA route 已建"
+        storefront_value: "href='#' + <span aria-disabled='true'> + aria-label='購物車(尚未開放)';click no-op"
+        decided_at: "2026-05-28"
+        decision_source: "#192 codex k1 FIX-2(grep 驗 apps/storefront/src/app/cart 0 處)"
+        reason: "/cart 路由未建、tab 暫 disabled、待 backlog #194(原 plan 寫 #193、改 #194 避撞 g-2 既有 crossProviderIdentityLinking #193)"
+      - field: "productPageTabbarHidden"
+        design_value: "currentPage === 'product' → hidden=true(讓位 sticky buy bar)"
+        storefront_value: "pathname.startsWith('/products/') 且 segments.length >= 2 → .is-hidden(同 design 效果、不同實作)"
+        decided_at: "2026-05-28"
+        decision_source: "#192 plan v2 / codex k1 點 4 確認"
+        reason: "Next routing 路徑判而非 SPA state、鐵則 1 例外類別 2"
+    open_drifts:
+      - field: "vehicleSearchRoute"
+        note: "找車 tab disabled 暫頂、/vehicle-search 路由未建、新 backlog #195"
+        plan: "#195 完成後解除 disabled、tab 走 <Link href='/vehicle-search'>"
+      - field: "cartRoute"
+        note: "購物車 tab disabled 暫頂、/cart 路由未建、新 backlog #194"
+        plan: "#194 完成後解除 disabled、tab 走 <Link href='/cart'>"
 
   # ---- 其他元件(規範段) ----
 

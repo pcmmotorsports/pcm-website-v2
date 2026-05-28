@@ -4211,9 +4211,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #158. ⏳ 手機底部 5 tab bar(MobileTabBar)漏元件補搬(M-1-14 / M-1-15 啟動前順手做)
+### #158. ✅ 手機底部 5 tab bar(MobileTabBar)漏元件補搬(2026-05-28 / #192 順手完成)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-05-28、#192 slice 合搬;commit body 記錄)
+- **實作摘要:** MobileTabBar.tsx + mobile-tabbar.css 字面從 design App.jsx L166-190 + tweaks.css L376-417 搬;routing 改 usePathname + <Link>;找車 + 購物車 tab 路由未建、暫 disabled(fold #195 / #194);product 詳情頁 .is-hidden 走 pathname.startsWith('/products/') && segments.length >= 2
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中(M-1-14 / M-1-15 啟動前處理、不阻 13d~g 主線)
 - **問題:**
@@ -5039,9 +5040,15 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-27 / g-1 規劃(Sean Q1=A)+ codex 關卡2(FavoritesTab #189 誤引修正)
 - **相關:** g-3(favorites tab 空狀態)、#187(行為分析 / 推薦)、design AccountPages.jsx L561-578
 
-### #192. ⏳ data-mobile 全站 RWD 啟動機制疑點(真實頁無人設 data-mobile=true)
+### #192. ✅ data-mobile 全站 RWD 啟動機制疑點(2026-05-28 完成、修法 d 雙保險)
 
-- **狀態:** ⏳ 待執行(**獨立調查 slice、不折進 g**;g-1a 偵察發現、Sean 拍優先級拉高)
+- **狀態:** ✅ 完成(2026-05-28、Claude Code 自驅 slice、Cowork 不在 loop)
+- **實作摘要:** 修法 d 雙保險(Sean 拍 + codex k1 確認):
+  - **A1** 5 個 CSS 檔加 `@media (max-width: 1079px)` 鏡像 block 並存既有 `[data-mobile]` 規則(account.css 14 + auth.css 3 + filter-drawer.css 1 + filter-top.css 34 + header.css 1 = 53 條)、不刪既有(向後相容 dev-preview)
+  - **A2** layout.tsx 改 async + Next 16 `headers()` 讀 user-agent、SSR 在 `<html data-mobile={...}>` 設值(向後相容 Header.tsx L57 querySelector);非完整 UA parser、iPad「請求桌面」由 @media 兜底
+  - **B** 順手搬 MobileTabBar(fold #158)+ mobile-tabbar.css(business override:position fixed + safe-area-inset-bottom);找車 / 購物車 tab disabled(fold #195 / #194)
+  - 順手修 .acc-head h1 加 `word-break: break-word` 修 g-2 肉眼驗發現的「Sean-PCM重機零件販售」斷行
+- **對抗審查紀錄:** codex k1 r1 找 4 must-fix(selector 不命中 / /cart 不實 / 鐵則 12 觸發 / 鐵則 4 豁免依據)、plan v2 全採納;code-reviewer + codex k2 紀錄見 commit body
 - **優先級:** 🟠 中(上線前必確認 / 必修;影響全站手機 RWD、「完整手機 RWD」為專案價值)
 - **問題:**
   - storefront 多支 CSS(filter-top.css / account.css 等)用 `[data-mobile="true"]` 屬性選擇器套手機版樣式(忠實搬自 design),但 grep 全 repo 發現**真實頁面(home / products / account)無任何處設 `data-mobile="true"`**(只 dev-preview/filter-drawer 手動設;Header autoMobile 僅「讀」data-mobile 或 `innerWidth < 1080` 自判)。→ design 的 `[data-mobile]` 手機 CSS 在真實頁可能根本不啟動、真實頁手機版恐渲染桌機 layout。
@@ -5100,6 +5107,51 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** Email + Google 已 wired(f1-b / f1-c ✅);LINE 已硬擋(f2 ✅)、本案不再動 LINE;auth admin lookup 路徑必須先拍(見上方架構決策依賴)
 - **發現於:** 2026-05-28 / g-1 肉眼驗 / Sean 拍 C 中庸引導
 - **相關:** #179(會員中心補綁 email 子題)、line-admin.ts L81(LINE 現有硬擋)、f1-b / f1-c(Email/Google 註冊路徑)、g-5 / g-6(資料分裂顯現時點)、ADR-0005 §8.4(受控小門 service_role 護欄)
+
+### #194. ⏳ /cart 路由建立(MobileTabBar 購物車 tab disabled 解除)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(M-3 訂單流程一併處理、Phase 1 階段無真結帳流程)
+- **問題:**
+  - storefront `apps/storefront/src/app/cart/` 路由 0 處(grep 驗、2026-05-28),但 Header.tsx L27-31 NAV_ROUTE_MAP.cart = '/cart' 字面已寫、點下去會 404
+  - #192 搬 MobileTabBar 時暴露此漏:購物車 tab 需 disabled(`<span aria-disabled="true">`)、待 #194 完成後改 `<Link href="/cart">`
+- **觸發事件:**
+  - 2026-05-28 / #192 codex k1 FIX-2(grep 驗 app/cart 0 處、plan 字面不實)
+- **預期解法:**
+  - 新建 `apps/storefront/src/app/cart/page.tsx`(對齊 design CartPage.jsx 字面)
+  - 字面從 `design-reference/components/CartPage.jsx` 搬
+  - 移除 MobileTabBar.tsx 購物車 tab 的 `disabled: true`(改 href: '/cart' + matches 函式)
+  - 移除 Header NAV_ROUTE_MAP 註解(目前 cart 已在 map 內、無需改)
+- **不修會痛在:**
+  - 擴充性:Phase 1 結帳流程一定要 cart 入口、不修等於核心電商流程缺一角
+  - 可維護性:Header / MobileTabBar 兩處 cart 入口都假裝 disabled、容易忘
+  - bug 可追蹤性:Sean 點購物車 = 404 / disabled 點不到、不知道是 bug 還是設計
+- **估時:** 30-60 min(取決於 design CartPage 複雜度)
+- **依賴:** M-3 真訂單流程啟動;或先做純前端 mock(從 CartContext 讀)、結帳留 M-3
+- **發現於:** 2026-05-28 / #192 codex k1 FIX-2
+- **相關:** Header.tsx L27-31 NAV_ROUTE_MAP / MobileTabBar.tsx cart tab disabled / design CartPage.jsx
+
+### #195. ⏳ /vehicle-search 路由建立(MobileTabBar 找車 tab disabled 解除)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(M-1-15 或 Phase 2 處理)
+- **問題:**
+  - storefront `/vehicle-search` 路由未建,#192 搬 MobileTabBar 時找車 tab 必 disabled
+  - design App.jsx L170 MobileTabBar 第 3 tab 是 `vehicle-search`
+- **觸發事件:**
+  - 2026-05-28 / #192 plan v2(原註解寫 fold #189、後修正為 #195、避撞 #189 = Webwright)
+- **預期解法:**
+  - 新建 `apps/storefront/src/app/vehicle-search/page.tsx`(對齊 design 字面、若 design 有對應頁)
+  - 或:沿用 VehicleFinder 元件(/ 內 hash anchor #vehicle-finder、Header 用此 pattern)、tab 改 `<Link href="/#vehicle-finder">`
+  - 移除 MobileTabBar.tsx 找車 tab 的 `disabled: true`
+- **不修會痛在:**
+  - 擴充性:design 真權威 5 tab 缺一、UX 漂移
+  - 可維護性:Header.tsx L94 既有 navItem `vehicle` 已用 `/#vehicle-finder` pattern、兩處不對齊
+  - bug 可追蹤性:Sean 點找車 = disabled 不能點、不知道是 bug 還是設計
+- **估時:** 15-30 min(若用 hash anchor pattern)或 60 min(若新建獨立頁)
+- **依賴:** Sean 拍板「找車」是 hash anchor 還是獨立路由
+- **發現於:** 2026-05-28 / #192 codex k1 FIX-2 衍生
+- **相關:** Header.tsx L94(`vehicle` navItem 已用 `/#vehicle-finder`)、MobileTabBar.tsx 找車 tab disabled / VehicleFinder.tsx
 
 ---
 

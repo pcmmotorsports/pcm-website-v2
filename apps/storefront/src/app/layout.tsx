@@ -11,9 +11,20 @@
 //
 // fonts 對齊 design index.html(Inter / Noto Sans TC / Noto Serif TC / Cormorant Garamond / JetBrains Mono)
 // 走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)
+//
+// [#192 A2] 全站 RWD 啟動 + 底部 MobileTabBar(2026-05-28):
+// - import headers + RootLayout 改 async(Next 16 dynamic API、必 async + await)
+// - SSR 讀 user-agent 簡單 regex 判 mobile、設 <html data-mobile={...}>(非完整 UA parser、iPad
+//   等請求桌面 UA 由 CSS @media 兜底)
+// - 帶來 RootLayout 進 dynamic rendering path、無 ISR / static cache;對齊既有 server component
+//   route(/account / api/auth 等本就 dynamic)、首頁實際走 server fetch、無回歸
+// - <html data-mobile="true"> 同步 Header.tsx L57-58 既有 querySelector 邏輯(向後相容)
+// - <MobileTabBar /> 在 CartProvider 內、children 後、</body> 前;CSS via mobile-tabbar.css
 
 import type { ReactNode } from 'react';
+import { headers } from 'next/headers';
 import { CartProvider } from '@/contexts/CartContext';
+import { MobileTabBar } from '@/components/MobileTabBar';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/product-card.css';
@@ -26,15 +37,22 @@ import '../styles/home.css';
 import '../styles/auth.css';
 import '../styles/account.css';
 import '../styles/tier.css';
+import '../styles/mobile-tabbar.css';
 
 export const metadata = {
   title: 'PCM Motorsports — Made for those who ride differently.',
   description: '高端機車零件編輯選品 · 原廠授權 · 合作店家安裝',
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const hdrs = await headers();
+  const ua = hdrs.get('user-agent') || '';
+  // 簡單 regex(非完整 UA parser):iPhone / Android / Mobile 涵蓋主流手機 UA;
+  // iPad「請求桌面網站」、iPod、舊 IEMobile / Opera Mini 等邊緣 case 由 CSS @media 兜底。
+  const isMobile = /iPhone|Android|Mobile/i.test(ua);
+
   return (
-    <html lang="zh-Hant">
+    <html lang="zh-Hant" data-mobile={isMobile ? 'true' : 'false'}>
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -44,7 +62,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         />
       </head>
       <body>
-        <CartProvider>{children}</CartProvider>
+        <CartProvider>
+          {children}
+          <MobileTabBar />
+        </CartProvider>
       </body>
     </html>
   );

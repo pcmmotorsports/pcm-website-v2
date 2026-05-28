@@ -467,6 +467,47 @@
 @media (max-width: 1023px) {
   .pp-mobile-fab { display: flex; }
 }
+/* === [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr)=== */
+@media (max-width: 1079px) {
+  /* Also show cascade bar properly in mobile wrapper */
+  .cft-inner { padding: 8px 14px; gap: 8px; }
+  .cft-label { display: none; }
+  .cft-cascade { gap: 6px; flex-wrap: nowrap; }
+  .cft-select { font-size: 12px; padding: 6px 22px 6px 8px; min-width: 0; flex: 1; }
+  .cft-right { display: none; }
+  .cft-mobile-bar { display: none; }
+  /* Hide sidebar in mobile wrapper */
+  .fs-side { display: none; }
+  .pp-layout.has-side { grid-template-columns: 1fr; }
+  .pp-main { padding: 16px 14px 60px; }
+  .pp-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+  /* Brand/page grids in mobile wrapper */
+  .brand-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .brand-grid-wrap { padding: 20px 14px 60px; }
+  .brand-tile { overflow: hidden; }
+  .brand-tile-logo { aspect-ratio: 4 / 5; padding: 10px 12px; }
+  .brand-tile-logo-img { max-width: 82%; max-height: 56px; }
+  .brand-tile-logo-text { font-size: 13px; }
+  .brand-tile-num { font-size: 9px; }
+  .brand-tile-name-en,
+  .brand-tile-tagline { font-size: 11px; line-height: 14px; }
+  .brand-tile-name-row { height: 14px; }
+  .brand-tile-since-row { font-size: 8px; }
+  .page-product-grid,
+  .brand-detail-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+  .page-hero-inner { padding: 0 14px; }
+  .page-hero-title { font-size: 24px; }
+  .brand-hero-logo { font-size: 40px; }
+  .brand-hero-logo-img { max-width: 240px; max-height: 80px; }
+  .brand-hero-inner { padding: 0 14px; }
+  .brand-detail-body { padding: 20px 14px 60px; }
+  .brands-filter { gap: 6px; }
+  .brands-filter-chip { padding: 5px 10px; font-size: 11px; }
+  .cat-grid { grid-template-columns: 1fr; }
+  .cat-grid-wrap { padding: 20px 14px 60px; }
+}
+
+/* === [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint)=== */
 /* Also show cascade bar properly in mobile wrapper */
 [data-mobile="true"] .cft-inner { padding: 8px 14px; gap: 8px; }
 [data-mobile="true"] .cft-label { display: none; }

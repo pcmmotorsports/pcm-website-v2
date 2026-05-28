@@ -196,6 +196,13 @@
 }
 
 /* ===== mobile 覆寫(account.css L877-879)===== */
+/* [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr) */
+@media (max-width: 1079px) {
+  .auth-main { padding: 32px 16px 40px; }
+  .auth-card { padding: 28px 22px; }
+  .auth-card h1 { font-size: 26px; }
+}
+/* [既有] [data-mobile="true"] 兜底 */
 [data-mobile="true"] .auth-main { padding: 32px 16px 40px; }
 [data-mobile="true"] .auth-card { padding: 28px 22px; }
 [data-mobile="true"] .auth-card h1 { font-size: 26px; }
