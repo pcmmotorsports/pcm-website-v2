@@ -1,6 +1,6 @@
 'use client';
 
-// AccountView.tsx — 會員中心 client 殼(g-1a)
+// AccountView.tsx — 會員中心 client 殼(g-1a 建、g-2 接 overview/orders 真資料)
 //
 // 直接搬 design-reference/components/AccountPages.jsx AccountPage 殼(acc-head L432-442 + acc-nav 7-tab
 // L445-464)。薄 router(codex 關卡1 finding-6):依 tab state 渲染對應 tab component(g-1a = stub、
@@ -8,8 +8,17 @@
 //
 // - tab 切換純 client setState(對齊 design setTab、Sean 決策2=A;deep-link ?tab= 留 M-3+)。
 // - 登出走 app/account/actions.ts logoutAction server action(非 client 直接 signOut;finding-4)。
-// - user 由 server page(getUser 守門後)傳入;name=user_metadata.name、空則退化顯示。
+// - user.displayEmail 由 server page.tsx 過濾 LINE 合成 email 後傳入(line.ts 為 server-only、
+//   不可在 client 端 import,故過濾在 server 完成、本檔只渲染 displayEmail;codex k1 round2 M-r2-1)。
+//   - displayName / avatar fallback 也用 displayEmail、不用 raw email(codex round2 M-r2-2:防 name 空時洩 raw)。
+//   - displayEmail 空字串 → acc-email 整段不 render(LINE 用戶常見)、UI 不留空白行。
 // - route adaptation:Header / HomeFooter(對齊 storefront 慣例、非 design 的 onNav prop)。
+//
+// g-2(plan v2):
+// - 新 stats prop:tier / walletBalance / orderCount(server 傳入、forward 給 OverviewTab)
+// - 新 featured prop:fetchFeaturedProducts(tier) 結果(server 傳入、forward 給 OverviewTab)
+// - OrdersTab 暫不接 prop(真用戶 0 筆訂單 = 空狀態、純 view、M-3 真接訂單時再加 prop)
+// - g-3~g-7 各 tab 仍 stub(本 slice 不動其他 5 tab、.acc-stub class 保留)
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
@@ -22,8 +31,11 @@ import { FavoritesTab } from '@/components/account/tabs/FavoritesTab';
 import { VehiclesTab } from '@/components/account/tabs/VehiclesTab';
 import { AddressTab } from '@/components/account/tabs/AddressTab';
 import { ProfileTab } from '@/components/account/tabs/ProfileTab';
+import type { MemberTier } from '@pcm/domain';
+import type { FeaturedResult } from '@/lib/products';
 
-export type AccountUser = { name: string; email: string };
+export type AccountUser = { name: string; displayEmail: string };
+export type AccountStats = { tier: MemberTier; walletBalance: number; orderCount: number };
 
 // 7 tab 字面對齊 design AccountPages.jsx L447-453(id / label / icon)。
 const NAV = [
@@ -38,11 +50,22 @@ const NAV = [
 
 type TabId = (typeof NAV)[number]['id'];
 
-export function AccountView({ user }: { user: AccountUser }) {
+export type AccountViewProps = {
+  user: AccountUser;
+  stats: AccountStats;
+  featured: FeaturedResult;
+};
+
+export function AccountView({ user, stats, featured }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
-  const displayName = user.name || user.email || 'PCM 會員';
-  const avatarChar = (user.name || user.email || 'P').charAt(0).toUpperCase();
+  // displayName / avatar 一律走 displayEmail、不用 raw user.email(防 LINE 合成 email 洩漏 H1 / avatar)
+  const displayName = user.name || user.displayEmail || 'PCM 會員';
+  const avatarChar = (user.name || user.displayEmail || 'P').charAt(0).toUpperCase();
+
+  // overview 內「最近訂單」「儲值金」CTA 跳 tab(對齊 design L488/L501 setTab 行為)
+  const jumpToOrders = () => setTab('orders');
+  const jumpToWallet = () => setTab('wallet');
 
   return (
     <div data-screen-label="Account" className="ap-page">
@@ -53,7 +76,7 @@ export function AccountView({ user }: { user: AccountUser }) {
           <div>
             <div className="ap-mono">會員中心</div>
             <h1>Hi, {displayName}</h1>
-            <div className="acc-email">{user.email}</div>
+            {user.displayEmail && <div className="acc-email">{user.displayEmail}</div>}
           </div>
           <div className="acc-head-actions">
             <form action={logoutAction}>
@@ -77,7 +100,14 @@ export function AccountView({ user }: { user: AccountUser }) {
           </aside>
 
           <div className="acc-body">
-            {tab === 'overview' && <OverviewTab />}
+            {tab === 'overview' && (
+              <OverviewTab
+                stats={stats}
+                featured={featured}
+                onJumpToOrders={jumpToOrders}
+                onJumpToWallet={jumpToWallet}
+              />
+            )}
             {tab === 'orders' && <OrdersTab />}
             {tab === 'wallet' && <WalletTab />}
             {tab === 'favorites' && <FavoritesTab />}

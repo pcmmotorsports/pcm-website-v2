@@ -5,9 +5,18 @@
  *   / .acc-nav / .acc-nav-icon / .acc-body(L478-566 字面不動)
  * - mobile:[data-mobile="true"] 的 acc-* 殼規則(L881-908 字面不動;全站 data-mobile
  *   啟動機制為既有跨頁現象、非本 slice scope)
- * - tab 專屬樣式(acc-stats / acc-section / acc-orders / acc-fav / acc-bike / acc-addr
- *   / acc-profile / acc-inline-form)隨各自 tab slice(g-2~g-7)加入、本檔不含。
- * - .acc-stub 為 g-1a 暫時 placeholder chrome(非 design 內容、各 tab 接真內容後移除)。
+ * - overview/orders tab(g-2 加入):.acc-stats / .acc-stat / .acc-stat-v / .acc-stat-sub
+ *   / .acc-stat-tier / .acc-section / .acc-section-head / .acc-orders / .acc-order /
+ *   .acc-order-l / .acc-order-r / .acc-order-id / .acc-order-meta / .acc-order-total /
+ *   .acc-order-status / .acc-order-detail / .acc-order-full / .acc-rec / .acc-rec-item
+ *   / .acc-rec-name / .acc-rec-price / .acc-empty(對齊 design L568-695 + L994-1000)
+ *   + mobile L909-911
+ * - g-2 業務 override:.acc-rec-img wrapper(design `.acc-rec-item img` 直接吃 design 的
+ *   靜態 img;PCM 走既有 <ProductImage>(absolute 內 img + parent 需 height/aspect-ratio)
+ *   故包 .acc-rec-img wrapper 給 aspect-ratio 1 + margin-bottom)
+ * - 其餘 tab 專屬樣式(.acc-fav / .acc-bike / .acc-addr / .acc-profile / .acc-inline-form)
+ *   隨各自 tab slice(g-3~g-7)加入、本檔不含。
+ * - .acc-stub 為 g-1a 暫時 placeholder chrome、g-2 保留(其他 5 tab 仍用、g-3~g-7 各自移除)。
  *
  * 設計 token(--c-*)由 tokens.css 提供(layout.tsx 已載)。
  */
@@ -116,6 +125,171 @@
   margin: 0 0 8px;
 }
 
+/* ============ overview / orders tab(g-2、對齊 design account.css L568-695 + L994-1000)============ */
+.acc-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--c-border);
+  border: 1px solid var(--c-border);
+  margin-bottom: 40px;
+}
+.acc-stat {
+  background: var(--c-surface);
+  padding: 24px;
+}
+.acc-stat-v {
+  font-size: 36px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 6px 0 4px;
+}
+.acc-stat-sub {
+  font-size: 11.5px;
+  color: var(--c-text-3);
+}
+
+.acc-section { margin-bottom: 48px; }
+.acc-section:last-child { margin-bottom: 0; }
+
+.acc-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--c-border);
+}
+.acc-section-head h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.acc-section-head a,
+.acc-add {
+  font-size: 12.5px;
+  color: var(--c-text-2);
+  background: transparent;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.acc-section-head a:hover, .acc-add:hover { color: var(--c-text); }
+
+/* g-2 業務 override:design 用 <a href="#"> + onClick setTab、storefront 改 <button>
+ * (next.js / SPA 紀律、避免假連結 + accessibility)、style 沿用 .acc-section-head a 字面對齊。
+ * 用於 acc-stats sub「查看明細 →」+ acc-section-head「查看全部 →」。 */
+.acc-link-btn {
+  font-size: inherit;
+  color: var(--c-text-2);
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.acc-link-btn:hover { color: var(--c-text); }
+
+.acc-orders {
+  display: flex;
+  flex-direction: column;
+}
+.acc-order {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+.acc-order:last-child { border-bottom: 0; }
+.acc-order-id {
+  font-size: 12px;
+  color: var(--c-text);
+}
+.acc-order-meta {
+  font-size: 12px;
+  color: var(--c-text-3);
+  margin-top: 4px;
+}
+.acc-order-r {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.acc-order-total {
+  font-size: 15px;
+  font-weight: 600;
+}
+.acc-order-status {
+  font-size: 11px;
+  padding: 2px 8px;
+  background: var(--c-surface-2);
+  color: var(--c-text-2);
+  margin-top: 4px;
+}
+.acc-order-detail {
+  font-size: 12px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  margin-top: 6px;
+  background: transparent;
+}
+.acc-order-full {
+  padding: 20px 0;
+}
+
+.acc-rec {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.acc-rec-item {
+  display: flex;
+  flex-direction: column;
+  color: var(--c-text);
+}
+/* g-2 業務 override:design `.acc-rec-item img` 預期 design 端的直接 img,storefront 走
+ * 既有 <ProductImage>(absolute 內 img、parent 需給 height)。故包 .acc-rec-img wrapper、
+ * 對 ProductImage 渲染的 .pcard-gallery 撐高;visual 等價 design 字面。 */
+.acc-rec-img {
+  width: 100%;
+  aspect-ratio: 1;
+  background: var(--c-surface-2);
+  margin-bottom: 8px;
+  position: relative;
+  overflow: hidden;
+}
+.acc-rec-img .pcard-gallery { height: 100%; }
+.acc-rec-name {
+  font-size: 12.5px;
+  line-height: 1.4;
+  min-height: 34px;
+}
+.acc-rec-price {
+  font-size: 12px;
+  color: var(--c-text-2);
+  margin-top: 4px;
+}
+
+/* acc-empty:對齊 design L994-1000,用於 g-2 訂單 / 推薦空狀態(g-3~g-7 後續 tab 共用) */
+.acc-empty {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--c-text-3);
+  font-size: 13px;
+  border: 1px dashed var(--c-border);
+}
+/* .acc-empty 內輔助說明(OrdersTab 用、g-2 加;design 無對應字面、屬 business override) */
+.acc-empty-sub {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
 /* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */
 [data-mobile="true"] .acc-main { padding: 24px 16px 40px; }
 [data-mobile="true"] .acc-head { grid-template-columns: 56px 1fr; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
@@ -145,3 +319,7 @@
   color: var(--c-text);
   border-bottom: 2px solid var(--c-text);
 }
+/* overview / orders tab mobile(對齊 design L909-911)*/
+[data-mobile="true"] .acc-stats { grid-template-columns: 1fr; }
+[data-mobile="true"] .acc-stat-v { font-size: 26px; }
+[data-mobile="true"] .acc-rec { grid-template-columns: 1fr 1fr; }

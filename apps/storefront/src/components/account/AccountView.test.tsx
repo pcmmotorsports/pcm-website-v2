@@ -1,12 +1,18 @@
 // @vitest-environment jsdom
 //
-// AccountView smoke test(g-1a)— 會員中心殼 regression 安全網。
-// 驗:design 字面 render 不報錯 + acc-head(avatar 首字 / Hi name / email)+ 7-tab nav 在場
-//   + 預設 overview stub + tab 切換純 client setState(點訂單記錄 → orders stub、overview 退場)
-//   + 登出 button 在 form 內(server action 觸發)。
-// mock '@/app/account/actions'(避免載 server action)+ next/navigation(Header useRouter);
-// wrap CartProvider(Header useCart);matchMedia polyfill(Header autoMobile useEffect)。
-// 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke 慣例)。
+// AccountView smoke test(g-1a 建、g-2 擴):會員中心殼 regression 安全網 + g-2 新增
+// stats / featured prop forward + LINE 合成 email 過濾(server-side 完成、本檔驗收 client 渲染)。
+//
+// 驗:
+// - design 字面 render 不報錯
+// - acc-head:avatar 首字 / Hi name / displayEmail(空時 acc-email 不 render)
+// - 7-tab nav 在場
+// - 預設 overview render(g-1a stub 退場、g-2 真 OverviewTab + 三 stats / 訂單空 / 推薦空)
+// - tab 切換純 client setState
+// - 登出 button 在 form 內
+// - g-2:LINE 合成 email 用戶(displayEmail = '')→ acc-email 整段不顯、displayName/avatar 不洩 raw
+//
+// mock '@/app/account/actions'(server action)+ next/navigation(useRouter)+ matchMedia polyfill。
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -18,11 +24,11 @@ vi.mock('@/app/account/actions', () => ({
   logoutAction: vi.fn(),
 }));
 
-import { AccountView } from './AccountView';
+import { AccountView, type AccountViewProps } from './AccountView';
 import { CartProvider } from '@/contexts/CartContext';
+import type { FeaturedResult } from '@/lib/products';
 
 beforeAll(() => {
-  // Header autoMobile useEffect 用 matchMedia;jsdom 無、補 polyfill。
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches: false,
     media: query,
@@ -37,18 +43,26 @@ beforeAll(() => {
 
 afterEach(cleanup);
 
-function renderView(user = { name: '王小明', email: 'wang@example.com' }) {
+const EMPTY_FEATURED: FeaturedResult = { products: [], error: false };
+
+function renderView(overrides: Partial<AccountViewProps> = {}) {
+  const props: AccountViewProps = {
+    user: { name: '王小明', displayEmail: 'wang@example.com' },
+    stats: { tier: 'general', walletBalance: 0, orderCount: 0 },
+    featured: EMPTY_FEATURED,
+    ...overrides,
+  };
   return render(
     <CartProvider>
-      <AccountView user={user} />
+      <AccountView {...props} />
     </CartProvider>,
   );
 }
 
-describe('AccountView(會員中心殼 g-1a)', () => {
-  it('render acc-head:avatar 首字 + Hi name + email', () => {
+describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
+  it('render acc-head:avatar 首字 + Hi name + displayEmail', () => {
     renderView();
-    expect(screen.getByText('王')).toBeTruthy(); // avatar 首字大寫
+    expect(screen.getByText('王')).toBeTruthy();
     expect(screen.getByText('Hi, 王小明')).toBeTruthy();
     expect(screen.getByText('wang@example.com')).toBeTruthy();
   });
@@ -60,29 +74,68 @@ describe('AccountView(會員中心殼 g-1a)', () => {
     }
   });
 
-  it('預設顯示 overview stub', () => {
+  it('預設顯示 overview(g-2 真 OverviewTab 退場 g-1a stub、見 acc-stats Member tier)', () => {
     const { container } = renderView();
-    expect(container.querySelector('.acc-stub[data-tab="overview"]')).toBeTruthy();
-    expect(container.querySelector('.acc-stub[data-tab="orders"]')).toBeNull();
-  });
-
-  it('點「訂單記錄」→ 切到 orders stub、overview 退場(純 client setState)', () => {
-    const { container } = renderView();
-    fireEvent.click(screen.getByRole('button', { name: /訂單記錄/ }));
-    expect(container.querySelector('.acc-stub[data-tab="orders"]')).toBeTruthy();
+    // g-2:overview 渲染 acc-stats 三卡(Member tier / Stored value / Total orders)
+    expect(container.querySelector('[data-tab="overview"]')).toBeTruthy();
+    expect(container.querySelector('.acc-stats')).toBeTruthy();
+    expect(screen.getByText('Member tier')).toBeTruthy();
+    // 確認 g-1a stub 字面退場
     expect(container.querySelector('.acc-stub[data-tab="overview"]')).toBeNull();
   });
 
-  it('登出 button 在 form 內(server action 觸發、非 client signOut)', () => {
+  it('點「訂單記錄」→ 切到 orders tab、overview 退場(純 client setState)', () => {
     const { container } = renderView();
+    fireEvent.click(screen.getByRole('button', { name: /訂單記錄/ }));
+    expect(container.querySelector('[data-tab="orders"]')).toBeTruthy();
+    expect(container.querySelector('[data-tab="overview"]')).toBeNull();
+    expect(screen.getByText('目前尚無訂單紀錄')).toBeTruthy();
+  });
+
+  it('登出 button 在 form 內(server action 觸發、非 client signOut)', () => {
+    renderView();
     const logoutBtn = screen.getByRole('button', { name: '登出' });
     expect(logoutBtn).toBeTruthy();
     expect(logoutBtn.closest('form')).toBeTruthy();
   });
 
-  it('name 空時退化 avatar P + Hi 退化(OAuth 空 metadata)', () => {
-    renderView({ name: '', email: '' });
+  it('name 空時退化:avatar 走 displayEmail 首字、Hi 顯 email、acc-email 仍 render', () => {
+    renderView({ user: { name: '', displayEmail: 'wang@example.com' } });
+    expect(screen.getByText('W')).toBeTruthy();
+    expect(screen.getByText('Hi, wang@example.com')).toBeTruthy();
+    expect(screen.getByText('wang@example.com')).toBeTruthy();
+  });
+
+  it('name + displayEmail 皆空 → avatar=P / Hi=PCM 會員 / acc-email 不 render', () => {
+    const { container } = renderView({ user: { name: '', displayEmail: '' } });
     expect(screen.getByText('P')).toBeTruthy();
     expect(screen.getByText('Hi, PCM 會員')).toBeTruthy();
+    expect(container.querySelector('.acc-email')).toBeNull();
+  });
+
+  it('LINE 合成 email 用戶(displayEmail=空、name 有):displayName 用 name、acc-email 不顯', () => {
+    // 真實情境:LINE 用戶 page.tsx 過濾後 displayEmail='',name = LINE 顯示名
+    const { container } = renderView({ user: { name: 'LINE 太郎', displayEmail: '' } });
+    expect(screen.getByText('L')).toBeTruthy();
+    expect(screen.getByText('Hi, LINE 太郎')).toBeTruthy();
+    expect(container.querySelector('.acc-email')).toBeNull();
+    // 確認 raw LINE 合成 email 不出現在任何地方(防 codex round2 M-r2-2:name 空時 raw email 洩)
+    expect(container.textContent).not.toContain('line.pcmmotorsports.local');
+  });
+
+  it('stats forward to OverviewTab:tier=premiumStore 顯 PREMIUM STORE badge + 餘額', () => {
+    renderView({ stats: { tier: 'premiumStore', walletBalance: 12500, orderCount: 0 } });
+    expect(screen.getByText('PREMIUM STORE')).toBeTruthy();
+    expect(screen.getByText('NT$ 12,500')).toBeTruthy();
+  });
+
+  it('featured forward to OverviewTab:0 商品 → 推薦空狀態「即將上架」', () => {
+    renderView({ featured: { products: [], error: false } });
+    expect(screen.getByText('推薦商品即將上架')).toBeTruthy();
+  });
+
+  it('featured error → 推薦載入失敗字面', () => {
+    renderView({ featured: { products: [], error: true } });
+    expect(screen.getByText('推薦商品載入失敗、請稍後再試')).toBeTruthy();
   });
 });

@@ -1,0 +1,40 @@
+/* tier.css — 三級會員徽章樣式(M-1-14e-g-2)
+ *
+ * 直接搬 design-reference/styles/tier.css L1-33(TierBadge 部分);
+ * design L36-end 的 TierUpgradePath 留未來(會員中心暫不顯升級時間軸、
+ * 對齊 design account.css 字面 + Sean 拍 g-2 scope)。
+ *
+ * 設計 token(--c-*、--f-*)由 tokens.css 提供(layout.tsx 已載)。
+ */
+
+/* ==== TierBadge ==== */
+.tier-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--f-sans);
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.tier-badge-sm { height: 20px; padding: 0 8px; font-size: 11px; letter-spacing: 0.04em; }
+.tier-badge-md { height: 28px; padding: 0 12px; font-size: 12px; letter-spacing: 0.04em; }
+.tier-badge-lg { height: 40px; padding: 0 16px; font-size: 14px; letter-spacing: 0.06em; }
+
+.tier-badge-general {
+  background: var(--c-surface-2);
+  color: var(--c-text);
+  border-color: var(--c-border);
+}
+.tier-badge-store {
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+}
+.tier-badge-premium {
+  background: var(--c-red);
+  color: #ffffff;
+  font-family: var(--f-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+}

@@ -274,13 +274,13 @@ components:
 
   AccountPages:
     storefront:
-      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx (M-1-14e-f1-a/f1-b 建、f1-c LoginPage Google OAuth 接線 + app/auth/callback/route.ts、#181 逐欄錯誤強化 + lib/auth/field-validation.ts 共用驗證 + register/login actions.ts 雙通道回傳、f2 LINE 自寫 OAuth〔LoginPage LINE 鈕接線 + lib/auth/line.ts + lib/auth/line-admin.ts + app/api/auth/line/{start,callback}/route.ts〕);AccountPage 7 tab stage g"
-      css: "apps/storefront/src/styles/auth.css (M-1-14e-f1-a 建、搬 account.css L5-16+L326-476+L877-879、#181 加 .auth-field-err 逐欄錯誤樣式)"
-      last_modified_commit: "6fdbf8f"
-      last_modified_date: "2026-05-25 (M-1-14e-f2 LINE 自寫 OAuth:LoginPage LINE 鈕接線 /api/auth/line/start + OAuth 錯誤文案依 code 分流 Google/LINE/通用;hash 記可達祖先 6fdbf8f=f2-a2 commit〔本 slice commit 不可自指、避 orphan〕、見 backlog #180)"
+      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx + apps/storefront/src/app/account/page.tsx + apps/storefront/src/components/account/AccountView.tsx + tabs/{OverviewTab,OrdersTab,WalletTab,FavoritesTab,VehiclesTab,AddressTab,ProfileTab}.tsx + apps/storefront/src/components/TierBadge.tsx (g-1a 殼+守門+登出 / g-1b Header 條件路由 / g-2 OverviewTab+OrdersTab 真資料+TierBadge+Issue1 LINE email 過濾+為你推薦走 fetchFeaturedProducts;f1-a~f2 見上)"
+      css: "apps/storefront/src/styles/auth.css + apps/storefront/src/styles/account.css + apps/storefront/src/styles/tier.css (g-1a 搬 acc-* 殼 + g-2 搬 acc-stats/acc-section/acc-orders/acc-rec/acc-empty + acc-rec-img wrapper + acc-link-btn business override + tier.css 搬 design tier.css L1-33 TierBadge 部分)"
+      last_modified_commit: "8e98077"
+      last_modified_date: "2026-05-28 (M-1-14e-g-2 OverviewTab + OrdersTab 真資料 + TierBadge + Issue 1 LINE email 過濾;hash 記可達祖先 8e98077=g-1b commit〔本 slice commit 不可自指、避 orphan〕、見 backlog #180)"
     design:
-      component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308)"
-      css: "design-reference/styles/account.css"
+      component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308 / AccountPage L310-681 含 overview L467-535 + orders L538-557) + design-reference/components/TierComponents.jsx (TierBadge L29-35)"
+      css: "design-reference/styles/account.css (殼 L478-566 / overview-orders L568-695 / acc-empty L994-1000 / mobile L881-911) + design-reference/styles/tier.css (TierBadge L1-33)"
     business_overrides:
       - field: "navRoutingAdaptation"
         design_value: "SPA onNav('register'/'account') + <Header onNav> + <Footer onNav>"
@@ -324,13 +324,34 @@ components:
         decided_at: "2026-05-25"
         decision_source: "backlog #181 Sean Q2=B(前端逐欄 + 後端也逐欄)+ 4 點釘死(空欄專屬訊息 / 雙通道並存)"
         reason: "業務拍板:客人易定位哪欄出錯;鐵則 1 design override、非誤翻譯;Q2=B 動 server 回傳形狀 → commit 前跑 codex 關卡2"
+      - field: "accountHeadSyntheticEmailHiding"
+        design_value: "design AccountPages.jsx L437 acc-head 直接顯 {user.email}(SPA 內 user 物件由 localStorage 還原、無合成 email 概念)"
+        storefront_value: "LINE 自寫 OAuth 為 LINE 用戶建合成 email line_{sub}@line.pcmmotorsports.local(line.ts LINE_SYNTHETIC_EMAIL_DOMAIN、line-admin.ts 註冊);server page.tsx 過濾後傳 displayEmail=''、AccountView acc-email 整段不 render;displayName / avatar fallback 也用 displayEmail(防 raw email 經 name 空時洩 H1 / avatar)。LINE 用戶 displayName 走 user_metadata.name(LINE 顯示名、line-admin.ts L71 寫入)、不退化「PCM 會員」"
+        decided_at: "2026-05-28"
+        decision_source: "g-1 肉眼驗 / codex k1 round2 M-r2-1+M-r2-2 / Sean Issue 1 拍順手修進 g-2"
+        reason: "PCM 後端身分鍵(合成 email)不可洩 UI、避免用戶看到「line_xxxx@line.pcmmotorsports.local」誤判為真 email;line.ts 為 server-only、過濾必在 server page 完成、不可在 client AccountView import line.ts(破 client/server 邊界)"
+      - field: "featuredProductsViaSupabase"
+        design_value: "design AccountPages.jsx L519-534 acc-rec 用 mock data.products.slice(0,4) + p.image static URL + onNav('product', {productId})"
+        storefront_value: "走 fetchFeaturedProducts(server-only、SupabaseProductAdapter listByCategory「操控部品」.slice(0,4));MockProduct 無 image 欄位、改用既有 <ProductImage tone seed label> 元件(ProductCard.tsx export);包 .acc-rec-img wrapper(aspect-ratio:1 + .pcard-gallery 撐高、business override CSS)以匹配 design .acc-rec-item img 視覺;Link 用 next/link /products/{slug}。3 分支:有商品列 4 卡 / 空陣列顯「推薦商品即將上架」/ error 顯「載入失敗、請稍後再試」。**g-2 階段 tier-aware pricing 暫不接**(codex k2 round1 must-fix#1):products_public projection 把 store/premiumStore 設 dummy 0(經銷敏感不入 public view、見 packages/adapters/src/supabase/mappers/product.ts L139/L143)→ 若傳真 tier 給 toUIProduct 會對 store/premiumStore 顯「NT$ 0」;**g-2 固定 fetchFeaturedProducts('general') 顯一般公開價**、不顯 0、不洩經銷、視覺對齊 design;tier-aware 待 M-1-16 接 server-side tier-aware price endpoint 後改回 tier 真值"
+        decided_at: "2026-05-28"
+        decision_source: "g-2 plan v2 決策 3 / codex k1 round2 M-r2-3 / codex k2 round1 must-fix#1"
+        reason: "Supabase 真資料(非 mock)+ ProductImage 結構不同需 wrapper 撐高;對齊「不假裝 mock」紀律 + 鐵則 1 例外類別 2 技術實作;**g-2 推薦固定 general 公開價**為 tier-aware pricing 路徑未就緒前的安全 fallback(三級會員價格鐵則:不顯錯誤金額 + 不洩經銷)"
+      - field: "ordersEmptyState"
+        design_value: "design AccountPages.jsx L326-330 + L504/L542 用 mock orders(PCM-2026-0042 / NT$ 18,600 / 已出貨 等);overview 顯示 .acc-orders slice(0,2)、orders tab 顯示 .acc-orders.acc-order-full + .acc-order-detail"
+        storefront_value: "真用戶 Phase 1 階段 0 筆訂單(M-3 才接真訂單流程)→ overview 最近訂單 + orders tab 均走 .acc-empty 空狀態;OrdersTab 文案「目前尚無訂單紀錄」+ sub「您的購買紀錄會顯示在此」(codex k1 C4:避免「上線後」誤導未來真接時要再改);**絕不**搬 design mock 訂單字面"
+        decided_at: "2026-05-28"
+        decision_source: "g-2 plan v2 決策 7 / Sean 交接訊息「真用戶 0 筆訂單 = 空狀態必做、絕不假裝 mock」"
+        reason: "PCM「不假裝 mock」紀律 + design 訂單真資料路徑 = M-3、g-2 階段無真訂單即空狀態"
     open_drifts:
       - field: "loginRegisterPageSplit"
-        note: "LoginPage f1-a + RegisterPage f1-b 已建;AccountPage 7 tab 留 stage g(design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router)"
-        plan: "stage g(AccountPage);plan docs/handoff/2026-05-24-m-1-14e-f1-plan.md"
+        note: "LoginPage f1-a + RegisterPage f1-b + AccountPage 7 tab(g-1a 殼 + g-1b Header 條件路由 + g-2 OverviewTab/OrdersTab 真資料)已建;餘 5 tab(wallet/favorites/vehicles/address/profile)仍 stub、待 g-3~g-7"
+        plan: "g-3~g-7 各自接真資料;design AccountPages.jsx 內含三者、storefront 拆多頁對齊 App Router"
       - field: "googleOAuthWiring"
         note: "f1-c 已接 Google signInWithOAuth + /auth/callback exchangeCodeForSession 閉環(肉眼驗卡 §13.1 Google + Supabase redirect URLs);LINE OAuth 留 f2;OAuth 會員 phone 可空(D-g 只約束 email 表單、補 phone 留 g/backlog #179)"
         plan: "f2(LINE)+ backlog #179(OAuth 會員補 phone)"
+      - field: "crossProviderIdentityLinking"
+        note: "g-1 肉眼驗發現:Email/Google/LINE 三方撞同人 = 3 個獨立 customers row、資料分裂;LINE 端已硬擋(line-admin.ts L81)、Email+Google 互撞無處置。Sean 拍 C 中庸引導(LoginPage 引導文案 + Email 註冊跨 provider 擋 + Google callback 撞處置;不做 auto-link)"
+        plan: "backlog #193、最晚 g-5(地址)/g-6(愛車)前必修;架構決策(auth admin lookup 路徑 a/b/c)需先拍"
 
   CheckoutPage:
     storefront:

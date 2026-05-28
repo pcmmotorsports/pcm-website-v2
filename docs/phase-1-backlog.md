@@ -5060,6 +5060,49 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #193. ⏳ 跨 provider identity linking 政策(Email / Google / LINE 三方撞同人)
+
+- **狀態:** ⏳ 待實作(**最晚 g-5(地址)/ g-6(愛車)前必修**、Sean 已拍 C 中庸引導;g-2 / g-3 / g-4 不擋)
+- **優先級:** 🟠 中(影響真資料接入後的 UX 完整性、上線前必修)
+- **問題:**
+  - 同一個人用 Email / Google / LINE 三種方式登入,目前**會建 3 個各自獨立的 auth.users + customers row**,業務資料(地址 / 愛車 / 儲值金)各自為政、不互通。g-1 肉眼驗確認此 UX 災難雛形(Sean 戳到「3 方法 = 3 帳號、資料會不會錯亂?」)。
+  - LINE 端已有「拒絕跨 provider 併帳」的硬擋(`apps/storefront/src/lib/auth/line-admin.ts` L81:撞 email_exists 只驗 LINE 身分鍵才放行、Q2=A 拍板)。
+  - Email + Google 互撞**完全沒寫處置**(`apps/storefront/src/app/auth/callback/route.ts` 只 exchangeCodeForSession 後 redirect、零 email 撞檢測)、靠 Supabase 預設行為、結果不可預測(同 email 走 Google 註冊可能 silently merge 也可能 fail)。
+- **觸發事件:**
+  - 2026-05-28 / Sean g-1 肉眼驗時戳到「3 方法 = 3 帳號?資料會不會錯亂?」/ 陪審腦查證後揪出 Email+Google 撞處置缺漏 + Sean 拍 C 中庸引導。
+- **拍板:** **C 中庸引導**(2026-05-28 Sean):
+  - LoginPage 加引導文案「之前用過 X 嗎?請繼續用 X」(三方法都看得到)
+  - 註冊 server-side 擋同 email 跨 provider 撞(Email/Google 互撞時拋具體錯誤訊息)
+  - **不做 Supabase auto-link**(避免動到 f1-b「Confirm email OFF 直登」拍板)
+- **預期解法:**
+  - ① LoginPage 加引導文案(純前端、單頁改動)
+  - ② Email 註冊 server action 加跨 provider 撞檢測(查 auth.users 既有 user 的 `app_metadata.pcm_provider`、不是 `'email'` 就拋「請改用 X 登入」)
+  - ③ Google OAuth `/auth/callback` route 撞既有 email 處置(若既有 user 是 `'email'` / `'line'` provider、拋錯回 `/login?error=oauth-conflict`)
+  - ④ LINE 端**現狀已足夠**(`line-admin.ts` 已硬擋)、本案不動 LINE 代碼
+- **LINE 的非對稱限制(必須在 #193 + Sean 心智模型釘清楚):**
+  - LINE OAuth scope 不取 email(Q4=A、不等 LINE email 權限審核)、系統拿不到 LINE 用戶真 email
+  - 因此**無法自動偵測「LINE 帳號 vs 既有 email / Google 帳號是否同人」**
+  - LoginPage 引導文案 LINE 用戶看得到(共享頁面);但「撞 email 自動擋」對 LINE 不適用、撞不到
+  - LINE 帳號想連通既有 email 帳號 → 走另一軌「會員中心補綁 email」(擴 backlog #179)
+- **架構決策依賴(必須先決才能實作、對應 codex k1 round2 #193 consider):**
+  - 解法 ② / ③ 都要「查 auth.users 既有 user 的 `app_metadata.pcm_provider`」。auth.users 預設不對 anon / authenticated 開查詢、必須走 Supabase admin API(`supabase.auth.admin.listUsers` / `getUserByEmail`)、需要 **service_role key**。
+  - 三條路擇一(實作前 Sean 拍):
+    - (a) **storefront 開第二個受控小門** 注入 service_role 給 Email/Google 註冊路徑(對齊 f2 `line-admin.ts` ADR-0005 §8.4 同款護欄四條:server-only + runtime=nodejs + 受控 eslint-disable + commit 前 grep client bundle)
+    - (b) **改放 apps/api 服務端**(目前 PCM 還無 apps/api;Phase 1 不該為此開新 app)
+    - (c) **DB 端 unique constraint + helper view**(view 對 anon 受控 SELECT 只 expose email + provider 兩欄;不需要 service_role、但要寫 migration + RLS)
+  - (a) 是最低成本、與 f2 對齊;(c) 是最對齊 Supabase pattern。需 Sean 拍。
+  - 任一選擇都觸發鐵則 8(重大改動)+ 鐵則 12(動 security)→ 必走 plan + codex 雙關卡。
+- **不修會痛在:**
+  - 擴充性:g-5 / g-6 接真資料後、Sean 跨方法登入會看到資料分裂、UX 災難明顯;新增 provider(Apple / Facebook)時撞處置策略 = 反覆寫一次
+  - 可維護性:三方法的撞處置政策必須統一寫死、否則散落各 provider 邏輯(register action / OAuth callback / 各 adapter)都要記得處置
+  - bug 可追蹤性:「為什麼我的愛車不見了」回溯困難、除非政策明文化
+- **估時:** 架構決策拍板 30 min + LoginPage 引導文案 30 min + Email/Google 撞處置(視解法 a/b/c)60-120 min + 測試 30 min;合計 ~2.5-3.5 hr
+- **依賴:** Email + Google 已 wired(f1-b / f1-c ✅);LINE 已硬擋(f2 ✅)、本案不再動 LINE;auth admin lookup 路徑必須先拍(見上方架構決策依賴)
+- **發現於:** 2026-05-28 / g-1 肉眼驗 / Sean 拍 C 中庸引導
+- **相關:** #179(會員中心補綁 email 子題)、line-admin.ts L81(LINE 現有硬擋)、f1-b / f1-c(Email/Google 註冊路徑)、g-5 / g-6(資料分裂顯現時點)、ADR-0005 §8.4(受控小門 service_role 護欄)
+
+---
+
 ## 紀錄模板
 
 ```markdown
