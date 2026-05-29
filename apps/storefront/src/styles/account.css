@@ -290,6 +290,49 @@
   font-size: 12px;
 }
 
+/* ---- profile tab(g-4b、對齊 design account.css 主 6 條 L826/L832/L837/L844/L851/L852)---- */
+.acc-profile {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+  max-width: 600px;
+}
+.acc-profile label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.acc-profile span {
+  font-size: 11px;
+  font-family: "IBM Plex Mono", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.acc-profile input {
+  padding: 12px 14px;
+  border: 1px solid var(--c-border);
+  background: var(--c-bg);
+  font-size: 14px;
+  outline: none;
+}
+.acc-profile input:disabled { background: var(--c-surface-2); color: var(--c-text-2); }
+.acc-profile .auth-submit {
+  grid-column: span 2;
+  max-width: 200px;
+  margin-top: 8px;
+}
+/* #181 雙通道逐欄錯(g-4b net-new override、design profile 無欄位錯):.auth-field-err 同時 match
+ * 上面 `.acc-profile span`(灰 mono uppercase、specificity 0,1,1 > .auth-field-err 0,1,0)會被蓋成灰;
+ * 提權 `.acc-profile .auth-field-err`(0,2,0)覆寫回紅字(同 auth.css L100 .auth-field > .auth-field-err 修法) */
+.acc-profile .auth-field-err {
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--c-red);
+}
+
 /* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */
 /* [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr)
  * + .acc-head h1 加 word-break: break-word(g-2 肉眼驗發現「Sean-PCM重機零件販售」斷行醜、本 slice 順手修)
@@ -327,6 +370,9 @@
   .acc-stats { grid-template-columns: 1fr; }
   .acc-stat-v { font-size: 26px; }
   .acc-rec { grid-template-columns: 1fr 1fr; }
+  /* profile tab mobile(g-4b、對齊 design L915-916)*/
+  .acc-profile { grid-template-columns: 1fr; }
+  .acc-profile .auth-submit { grid-column: 1; }
 }
 
 /* [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint) */
@@ -362,3 +408,6 @@
 [data-mobile="true"] .acc-stats { grid-template-columns: 1fr; }
 [data-mobile="true"] .acc-stat-v { font-size: 26px; }
 [data-mobile="true"] .acc-rec { grid-template-columns: 1fr 1fr; }
+/* profile tab mobile(g-4b、對齊 design L915-916)*/
+[data-mobile="true"] .acc-profile { grid-template-columns: 1fr; }
+[data-mobile="true"] .acc-profile .auth-submit { grid-column: 1; }

@@ -5156,6 +5156,52 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #196. ⏳ ProfileTab saveProfile setTimeout 無 unmount cleanup(Nit、codex 關卡2)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(極低優先)
+- **問題:**
+  - `ProfileTab.tsx` submit 成功後 `setTimeout(() => setSaved(false), 1800)`(對齊 design saveProfile L419-420)復原「✓ 已儲存」按鈕態、無 timer cleanup
+  - 切 tab 離開 profile 頁(AccountView 條件 render 卸載 ProfileTab)時、pending timer 仍會在 1800ms 後對已卸載元件 setState
+- **觸發事件:**
+  - 2026-05-29 / M-1-14e-g-4b codex 關卡2 finding(Nit、非阻擋、Sean 拍 A 延後)
+- **預期解法:**
+  - `useRef` 存 timer id + submit 前清舊 timer + 元件 unmount(或 effect cleanup)清 timer
+- **不修會痛在:**
+  - 擴充性:React 18+ 下 setState-after-unmount 目前是 no-op 無害;未來改 state 管理(如搬 reducer / Suspense transition)或 React 行為變動時,殘留 timer 可能 console warn / 記憶體殘留
+  - 可維護性:後人看到「無 cleanup 的 setTimeout + setState」會懷疑是漏寫、需翻 git 才知是刻意對齊 design 行為
+  - bug 可追蹤性:若未來真冒 warn、「為何切 tab 後 1800ms 報 setState on unmounted」難一眼定位到此 timer
+- **估時:** 10-15 min
+- **依賴:** 無
+- **發現於:** 2026-05-29 / M-1-14e-g-4b codex 關卡2
+- **相關:** ProfileTab.tsx(saveProfile saved 態切換、Q3=A)
+
+---
+
+### #197. ⏳ ProfileInput phone/birthday 無格式驗證(Consider、codex 關卡2)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `packages/schemas/src/index.ts:86` ProfileInput 的 phone / birthday 僅 `z.string().default('')`、無格式 refine
+  - 用戶填錯格式(如生日非 `YYYY-MM-DD`)→ DB date 欄解析錯 → updateProfileAction generic catch 吞成帳號層級「儲存失敗,請稍後再試」、而非該欄逐欄紅字
+- **觸發事件:**
+  - 2026-05-29 / M-1-14e-g-4b codex 關卡2 finding(Consider)+ 審查 session 同步觀察(Sean 拍 A 延後)
+- **預期解法:**
+  - `ProfileInput.birthday` 加 `YYYY-MM-DD` regex/refine(允許空字串)、`phone` 加長度/字元限制
+  - 讓格式錯走 #181 fieldErrors 逐欄通道(client/server 同一份)、不被 generic catch 吞成帳號層級錯
+- **不修會痛在:**
+  - 擴充性:profile 之後接更多欄(地址 / 統編)時、無欄位格式驗證 pattern 可循
+  - 可維護性:「儲存失敗」帳號層級錯掩蓋真因(哪欄格式錯)、客服難複現
+  - bug 可追蹤性:DB date 解析錯被 generic catch 吞、log 只見「儲存失敗」、定位需翻 server 端 raw error
+  - (非安全問題:格式驗證缺失改不到越權欄、五層信任邊界仍守住)
+- **估時:** 20-30 min(動 @pcm/schemas 契約 + 補 schema/action 測試、獨立小 slice)
+- **依賴:** 無(可獨立做、不擋 g-5~g-7)
+- **發現於:** 2026-05-29 / M-1-14e-g-4b codex 關卡2
+- **相關:** packages/schemas/src/index.ts:86 ProfileInput / app/account/profile/actions.ts updateProfileAction / #181 雙通道
+
+---
+
 ## 紀錄模板
 
 ```markdown

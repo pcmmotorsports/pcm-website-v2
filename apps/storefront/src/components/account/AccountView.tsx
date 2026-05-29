@@ -25,6 +25,10 @@
 // - displayName / avatarChar 改用 profile.name 為主(原 user.name)、表達 Q4=A SoT 意圖
 //   (page.tsx 已把 user.name 與 profile.name 設成同值;改用 profile.name 是語義清楚、非行為變更)
 // - profile prop forward 給 ProfileTab(g-4a stub 接 prop 但暫不渲染、g-4b form 真用)
+//
+// g-4b(Sean Q2-1=b、2026-05-28):
+// - ProfileTab 換真 form(接 updateProfileAction)、額外 forward user.displayEmail 給 ProfileTab Email 欄
+//   (LINE 用戶 displayEmail='' → ProfileTab 顯替代字面「LINE 帳號登入,無 Email」、不可編輯)
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
@@ -123,7 +127,7 @@ export function AccountView({ user, stats, featured, profile }: AccountViewProps
             {tab === 'favorites' && <FavoritesTab />}
             {tab === 'vehicles' && <VehiclesTab />}
             {tab === 'address' && <AddressTab />}
-            {tab === 'profile' && <ProfileTab profile={profile} />}
+            {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
           </div>
         </div>
       </main>

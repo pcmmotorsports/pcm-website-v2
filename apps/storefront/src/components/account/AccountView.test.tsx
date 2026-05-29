@@ -23,6 +23,12 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/app/account/actions', () => ({
   logoutAction: vi.fn(),
 }));
+// g-4b:ProfileTab(AccountView 子元件)改 import updateProfileAction server action、
+// transitively 拉 server-only(supabase/server)在 jsdom 會爆;mock 掉避免載真 server action
+// (同 RegisterPage.test 處置;AccountView 預設 render overview、profile tab 不觸發、mock 不影響斷言)。
+vi.mock('@/app/account/profile/actions', () => ({
+  updateProfileAction: vi.fn(),
+}));
 
 import { AccountView, type AccountViewProps } from './AccountView';
 import { CartProvider } from '@/contexts/CartContext';

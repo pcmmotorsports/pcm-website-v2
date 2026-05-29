@@ -17,7 +17,7 @@
 //   ctor、storefront 不允許注入 service_role)。
 // - featured 走既有 fetchFeaturedProducts(tier)(server-only、SupabaseProductAdapter listByCategory
 //   「操控部品」.slice(0,4))。
-// - row missing(PGRST116、極罕、trigger handle_new_user 應已建)或 RLS 失敗 → 退化
+// - row missing(PGRST116、極罕、trigger handle_new_auth_user 應已建)或 RLS 失敗 → 退化
 //   tier='general' + walletBalance=0、console.error 警示、頁面不 500。
 //
 // g-2 Issue 1(LINE 合成 email 過濾、codex k1 round2 M-r2-1):
@@ -28,7 +28,7 @@
 // g-4a profile SoT(Sean 拍 Q4=A、2026-05-28):
 // - select 改 5 欄 `name, phone, birthday, tier, wallet_balance`(原 2 欄擴 3 欄)
 // - name 來源優先 customers.name(SoT)→ user_metadata.name 退化 fallback(新用戶 trigger
-//   handle_new_user 已寫 customers.name from user_metadata、極罕 row missing 才走 fallback)
+//   handle_new_auth_user 已寫 customers.name from user_metadata、極罕 row missing 才走 fallback)
 // - profile prop forward AccountView:{ name, phone, birthday }、用於 g-4b ProfileTab form 初值
 // - phone/birthday null → '' 還原成 form-friendly 字串(domain 為 string|null、form 用 string)
 
@@ -69,7 +69,7 @@ export default async function AccountPage() {
   let phone = '';
   let birthday = '';
   if (customerError) {
-    // PGRST116(row missing、trigger handle_new_user 應已建、極罕)或 RLS/session 異常 → 退化、不 500
+    // PGRST116(row missing、trigger handle_new_auth_user 應已建、極罕)或 RLS/session 異常 → 退化、不 500
     console.error('[account/page] customers row 讀取失敗、退化 general/0/metadata-name:', customerError);
   } else if (customerRow) {
     // DB enum member_tier ('general'|'store'|'premiumStore') 與 MemberTier TS type 字面一致(migration L8 + L32-33)
