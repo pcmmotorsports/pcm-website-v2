@@ -1,6 +1,6 @@
 'use client';
 
-// ProfileTab.tsx — 會員中心「個人資料」分頁(g-1a stub → g-4a 接 prop → g-4b 真 form session-write)
+// ProfileTab.tsx — 會員中心「個人資料」分頁(g-1a stub → g-4a 接 prop → g-4b 真 form session-write → g-4c router.refresh)
 //
 // 字面從 design-reference/components/AccountPages.jsx profile tab(L662-671)直接搬(鐵則 1、不翻譯):
 // - .acc-section + .acc-section-head h2「個人資料」殼(沿用 OrdersTab/FavoritesTab pattern + design L663-664)
@@ -20,10 +20,16 @@
 // - email prop = page.tsx 已過濾 LINE 合成 email 後的 displayEmail('' = LINE 用戶);LINE 用戶 Email 欄
 //   value 空 + placeholder「LINE 帳號登入,無 Email」、disabled 不可編輯(design 無此分支、net-new)
 //
-// 對應 backlog:無新條(g-4b 接 g-4a server action、完成 profile session-write 閉環)。
+// g-4c(g-4b 肉眼驗 UX 修、Sean 拍 A):存檔成功後 router.refresh() 重跑 page.tsx server component
+// 重讀 customers SoT → 解「存檔後切 tab 回來 / 頂部 Hi 名字 + 頭像仍舊值、需手動重新整理」staleness
+// (根因:useState(profile.name) 只在 mount 取一次 prop、page.tsx 只在整頁載入讀 DB、存檔沒通知頁面重讀)。
+//
+// 對應 backlog:無新條;#196(setTimeout 無 unmount cleanup、Nit)本 slice 保留不 fold(honor 別硬擴 scope、
+// router.refresh 不卸載當前 tab、與 #196 正交、#196 仍 🟢 觀察 極低優先)。
 
 import { useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
+import { useRouter } from 'next/navigation';
 import { updateProfileAction, type ProfileFieldErrors } from '@/app/account/profile/actions';
 import type { AccountProfile } from '@/components/account/AccountView';
 
@@ -34,6 +40,7 @@ export type ProfileTabProps = {
 };
 
 export function ProfileTab({ profile, email }: ProfileTabProps) {
+  const router = useRouter();
   // 本地 form state(初值來自 profile prop、page.tsx 從 customers SoT 算好;phone/birthday null 已 → '')
   const [name, setName] = useState(profile.name);
   const [phone, setPhone] = useState(profile.phone);
@@ -66,6 +73,11 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
         setFormError(null);
         setSaved(true);
         setTimeout(() => setSaved(false), 1800);
+        // g-4c:重跑 page.tsx server component 重讀 customers SoT。新 profile prop 流到 AccountView
+        // → 頂部「Hi, 名字」/ 頭像即時更新;下次切回 profile tab 時 ProfileTab 重 mount 讀到新 prop
+        // (解 g-4b 肉眼驗發現的「存檔後切 tab 回來/頂部仍舊值、需手動重新整理」staleness、根因同一頁載入快照)。
+        // router.refresh() 保留 client state(Next 官方保證)、「✓ 已儲存」態不閃。
+        router.refresh();
       }
     });
   };

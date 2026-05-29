@@ -20,6 +20,12 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 vi.mock('@/app/account/profile/actions', () => ({
   updateProfileAction: vi.fn(),
 }));
+// g-4c:ProfileTab 改 useRouter().refresh()(存檔後重讀 server component);jsdom 無 next router →
+// mock 掉避免 useRouter undefined。vi.hoisted 讓 mockRefresh 在 vi.mock 工廠(被提升至檔頂)可用、且可捕捉呼叫。
+const { mockRefresh } = vi.hoisted(() => ({ mockRefresh: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh }),
+}));
 
 import { ProfileTab } from './ProfileTab';
 import { updateProfileAction } from '@/app/account/profile/actions';
@@ -29,7 +35,10 @@ const mockUpdate = vi.mocked(updateProfileAction);
 
 const PROFILE: AccountProfile = { name: '王小明', phone: '0912345678', birthday: '1990-05-20' };
 
-beforeEach(() => mockUpdate.mockReset());
+beforeEach(() => {
+  mockUpdate.mockReset();
+  mockRefresh.mockReset();
+});
 afterEach(cleanup);
 
 function renderTab(profile: AccountProfile = PROFILE, email = 'wang@example.com') {
@@ -76,6 +85,22 @@ describe('ProfileTab(g-4b 真 form)', () => {
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
     await screen.findByText('✓ 已儲存');
     expect(mockUpdate).toHaveBeenCalledWith({ name: '陳大文', phone: '0912345678', birthday: '1990-05-20' });
+  });
+
+  it('g-4c:ok=true → router.refresh() 被呼叫(重讀 server component 解 staleness)', async () => {
+    mockUpdate.mockResolvedValue({ ok: true });
+    renderTab();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await screen.findByText('✓ 已儲存');
+    expect(mockRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('g-4c:server 回 fieldErrors / formError 時不呼叫 router.refresh(只成功才刷新)', async () => {
+    mockUpdate.mockResolvedValue({ formError: '儲存失敗,請稍後再試' });
+    renderTab();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    await screen.findByText('儲存失敗,請稍後再試');
+    expect(mockRefresh).not.toHaveBeenCalled();
   });
 
   it('#181 server 回 fieldErrors.name → 姓名欄 .auth-field-err 逐欄紅字', async () => {
