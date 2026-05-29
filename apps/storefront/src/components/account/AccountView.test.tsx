@@ -58,6 +58,8 @@ function renderView(overrides: Partial<AccountViewProps> = {}) {
     featured: EMPTY_FEATURED,
     // g-4a:profile prop 必填、預設與 user.name 同值(對齊 page.tsx Q4=A SoT、customers.name 為主)
     profile: { name: '王小明', phone: '', birthday: '' },
+    // g-5a:addresses prop 必填、預設空陣列(AddressTab 唯讀列表;切到 address tab 才渲染)
+    addresses: [],
     ...overrides,
   };
   return render(

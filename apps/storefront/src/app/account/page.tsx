@@ -1,9 +1,11 @@
-// app/account/page.tsx — 會員中心(server 守門 + 取 user/stats/featured/profile → client AccountView)
+// app/account/page.tsx — 會員中心(server 守門 + 取 user/stats/featured/profile/addresses → client AccountView)
 //
 // 對齊 design-reference/components/AccountPages.jsx AccountPage(L310-681)。
 // g-1a 殼 + 7-tab nav;g-2 接 overview/orders tab 真資料(stats + featured)+ Issue 1
 // LINE 合成 email 過濾(server-side、line.ts 為 server-only 不可洩到 client);
 // g-4a 擴 select 5 欄(+ name/phone/birthday)+ profile prop 傳 AccountView(Q4=A SoT)。
+// g-5a 讀收件地址清單(getAddressRepo→listByCustomer、RLS 守自己 row)+ addresses prop 傳 AccountView
+// (AddressTab 唯讀列表;寫入新增/編輯/刪除/設預設留 g-5b/g-5c)。
 //
 // server 守門(codex 關卡1 finding-2/5):用 getUser()(向 auth server 驗 JWT、非可偽造的
 // getSession)→ 無 user 就 redirect('/login')。直打網址也擋;Header 條件路由(g-1b)僅 cosmetic。
@@ -34,10 +36,11 @@
 
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getAddressRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
 import { fetchFeaturedProducts } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
-import type { MemberTier } from '@pcm/domain';
+import type { MemberTier, CustomerAddress } from '@pcm/domain';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,12 +96,23 @@ export default async function AccountPage() {
   //   manifest 已揭示 business override「推薦固定 general、tier-aware 待 M-1-16」。
   const featured = await fetchFeaturedProducts('general');
 
+  // g-5a:讀自己的收件地址清單(getAddressRepo→listByCustomer、RLS addresses_*_own 守自己 row)。
+  // 鏡像 customers 讀的退化 pattern:adapter error(RLS/連線異常)→ 退化空陣列 + console.error、頁面不 500
+  // (AddressTab 走空狀態)。寫入(新增/編輯/刪除/設預設)留 g-5b/g-5c。
+  let addresses: CustomerAddress[] = [];
+  try {
+    addresses = await (await getAddressRepo()).listByCustomer(user.id);
+  } catch (addressError) {
+    console.error('[account/page] addresses 讀取失敗、退化空陣列:', addressError);
+  }
+
   return (
     <AccountView
       user={{ name, displayEmail }}
       stats={{ tier, walletBalance, orderCount: 0 }}
       featured={featured}
       profile={{ name, phone, birthday }}
+      addresses={addresses}
     />
   );
 }

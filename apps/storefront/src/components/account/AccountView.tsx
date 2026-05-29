@@ -29,6 +29,10 @@
 // g-4b(Sean Q2-1=b、2026-05-28):
 // - ProfileTab 換真 form(接 updateProfileAction)、額外 forward user.displayEmail 給 ProfileTab Email 欄
 //   (LINE 用戶 displayEmail='' → ProfileTab 顯替代字面「LINE 帳號登入,無 Email」、不可編輯)
+//
+// g-5a(2026-05-29):
+// - 新 addresses prop:CustomerAddress[](page.tsx getAddressRepo→listByCustomer 算好傳入)
+// - forward 給 AddressTab 唯讀渲染地址清單;寫入(新增/編輯/刪除/設預設)留 g-5b/g-5c
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
@@ -41,7 +45,7 @@ import { FavoritesTab } from '@/components/account/tabs/FavoritesTab';
 import { VehiclesTab } from '@/components/account/tabs/VehiclesTab';
 import { AddressTab } from '@/components/account/tabs/AddressTab';
 import { ProfileTab } from '@/components/account/tabs/ProfileTab';
-import type { MemberTier } from '@pcm/domain';
+import type { MemberTier, CustomerAddress } from '@pcm/domain';
 import type { FeaturedResult } from '@/lib/products';
 
 export type AccountUser = { name: string; displayEmail: string };
@@ -67,9 +71,11 @@ export type AccountViewProps = {
   stats: AccountStats;
   featured: FeaturedResult;
   profile: AccountProfile;
+  // g-5a:收件地址清單(page.tsx getAddressRepo→listByCustomer 算好傳入;forward 給 AddressTab 唯讀渲染)
+  addresses: CustomerAddress[];
 };
 
-export function AccountView({ user, stats, featured, profile }: AccountViewProps) {
+export function AccountView({ user, stats, featured, profile, addresses }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
@@ -126,7 +132,7 @@ export function AccountView({ user, stats, featured, profile }: AccountViewProps
             {tab === 'wallet' && <WalletTab />}
             {tab === 'favorites' && <FavoritesTab />}
             {tab === 'vehicles' && <VehiclesTab />}
-            {tab === 'address' && <AddressTab />}
+            {tab === 'address' && <AddressTab addresses={addresses} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
           </div>
         </div>

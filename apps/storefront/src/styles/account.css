@@ -333,6 +333,41 @@
   color: var(--c-red);
 }
 
+/* ---- address tab 唯讀列表卡(g-5a、對齊 design account.css L784-813)----
+ * 搬讀清單卡 5 條(.acc-addr / -tag / -name / -phone / -line);
+ * .acc-addr-actions(L814-824 編輯/刪除鈕)+ .acc-inline-form(L1008+ 表單)留 g-5b/c;
+ * .acc-address 容器 design 無規則(plain div block flow)、不發明。 */
+.acc-addr {
+  padding: 20px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  position: relative;
+}
+.acc-addr-tag {
+  position: absolute;
+  top: 16px; right: 16px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  padding: 2px 8px;
+  background: var(--c-text);
+  color: #fff;
+}
+.acc-addr-name {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.acc-addr-phone {
+  font-size: 13px;
+  color: var(--c-text-2);
+  margin-bottom: 6px;
+}
+.acc-addr-line {
+  font-size: 13px;
+  color: var(--c-text);
+  margin-bottom: 16px;
+}
+
 /* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */
 /* [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr)
  * + .acc-head h1 加 word-break: break-word(g-2 肉眼驗發現「Sean-PCM重機零件販售」斷行醜、本 slice 順手修)
