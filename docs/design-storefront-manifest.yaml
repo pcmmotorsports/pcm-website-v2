@@ -289,10 +289,10 @@ components:
 
   AccountPages:
     storefront:
-      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx + apps/storefront/src/app/account/page.tsx + apps/storefront/src/components/account/AccountView.tsx + tabs/{OverviewTab,OrdersTab,WalletTab,FavoritesTab,VehiclesTab,AddressTab,ProfileTab}.tsx + apps/storefront/src/components/TierBadge.tsx (g-1a 殼+守門+登出 / g-1b Header 條件路由 / g-2 OverviewTab+OrdersTab 真資料+TierBadge+Issue1 LINE email 過濾+為你推薦走 fetchFeaturedProducts / g-3 FavoritesTab 空狀態 business override;f1-a~f2 見上)"
-      css: "apps/storefront/src/styles/auth.css + apps/storefront/src/styles/account.css + apps/storefront/src/styles/tier.css (g-1a 搬 acc-* 殼 + g-2 搬 acc-stats/acc-section/acc-orders/acc-rec/acc-empty + acc-rec-img wrapper + acc-link-btn business override + tier.css 搬 design tier.css L1-33 TierBadge 部分;g-3 FavoritesTab 沿用既有 acc-section/acc-empty/acc-empty-sub、不新增 CSS)"
-      last_modified_commit: "4da63c6"
-      last_modified_date: "2026-05-28 (M-1-14e-g-3 FavoritesTab 空狀態 + 不搬 design favorites mock 商品字面;hash 記可達祖先 4da63c6=#192 commit〔本 slice commit 不可自指、避 orphan〕、見 backlog #180)"
+      component: "apps/storefront/src/components/LoginPage.tsx + RegisterPage.tsx + apps/storefront/src/app/account/page.tsx + apps/storefront/src/components/account/AccountView.tsx + tabs/{OverviewTab,OrdersTab,WalletTab,FavoritesTab,VehiclesTab,AddressTab,ProfileTab}.tsx + apps/storefront/src/components/TierBadge.tsx + apps/storefront/src/lib/auth/composition.ts + apps/storefront/src/app/account/profile/actions.ts (g-1a 殼+守門+登出 / g-1b Header 條件路由 / g-2 OverviewTab+OrdersTab 真資料+TierBadge+Issue1 LINE email 過濾+為你推薦走 fetchFeaturedProducts / g-3 FavoritesTab 空狀態 business override / g-4a profile server action + composition getCustomerRepo + page select 擴 5 欄 + AccountView profile prop;f1-a~f2 見上)"
+      css: "apps/storefront/src/styles/auth.css + apps/storefront/src/styles/account.css + apps/storefront/src/styles/tier.css (g-1a 搬 acc-* 殼 + g-2 搬 acc-stats/acc-section/acc-orders/acc-rec/acc-empty + acc-rec-img wrapper + acc-link-btn business override + tier.css 搬 design tier.css L1-33 TierBadge 部分;g-3 FavoritesTab 沿用既有 acc-section/acc-empty/acc-empty-sub、不新增 CSS;g-4a 不動 CSS、g-4b 搬 8 條 .acc-profile)"
+      last_modified_commit: "f636f31"
+      last_modified_date: "2026-05-28 (M-1-14e-g-4a profile server action + composition + page select 擴 5 欄 + AccountView profile prop;hash 記可達祖先 f636f31=g-3 commit〔本 slice commit 不可自指、避 orphan〕、見 backlog #180)"
     design:
       component: "design-reference/components/AccountPages.jsx (LoginPage L181-253 / RegisterPage L256-308 / AccountPage L310-681 含 overview L467-535 + orders L538-557 + favorites L561-578) + design-reference/components/TierComponents.jsx (TierBadge L29-35)"
       css: "design-reference/styles/account.css (殼 L478-566 / overview-orders L568-695 / acc-fav 7 條 L697/L704/L710/L716/L722/L729/L733 + L912 mobile 1 條 / acc-empty L994-1000 / mobile L881-911) + design-reference/styles/tier.css (TierBadge L1-33)"
@@ -363,6 +363,18 @@ components:
         decided_at: "2026-05-28"
         decision_source: "g-3 plan v1 Q1=A 沿用 g-1 拍板 / backlog #191 L5031 / Sean g-3 交接訊息「不要再走一輪三選一」"
         reason: "PCM「不假裝 mock」紀律 + design favorites 真資料路徑 = M-3 接 #191 後端、g-3 階段無真收藏即空狀態;鐵則 1 例外類別 4(design mock 字面不可搬、改用 business override 空狀態 markup)"
+      - field: "profileNameSoT"
+        design_value: "design AccountPages.jsx L409-415 用 React.useState({...user, ...profile}) 本地 mock state、無 SoT 概念(SPA localStorage 還原)"
+        storefront_value: "Q4=A:page.tsx select 5 欄 customers (name, phone, birthday, tier, wallet_balance)、name 來源優先 customers.name(SoT)、空字串退化 user_metadata.name(極罕、trigger handle_new_user 已從 user_metadata.name 同步寫入 customers.name、見 migration L281);profile prop { name, phone, birthday } 從 page.tsx 算好傳 AccountView → ProfileTab(g-4a stub 接 prop、g-4b form 真用);AccountView displayName / avatarChar 改用 profile.name 為主(原 user.name)、表達 SoT 意圖(page.tsx 已把 user.name 與 profile.name 設同值、行為不變)"
+        decided_at: "2026-05-28"
+        decision_source: "g-4 plan v2 Q4=A Sean 拍 / codex k1 round1 已確認 LINE name 走 user_metadata→trigger→customers.name 不破壞 g-2 行為"
+        reason: "防 g-4 動 updateProfile 寫 customers.name 後 reload 看舊名字 UX 破洞(陪審腦 g-4 plan v1→v2 升級時 ❶ 重大缺漏修法);customers 為會員資料 SoT、user_metadata 為 trigger 起源;極罕 row missing(新用戶 trigger 未跑)走 user_metadata 退化 fallback、不 500"
+      - field: "profileServerActionTrustBoundary5Layers"
+        design_value: "design L670 onClick={saveProfile} 純 local setState、無信任邊界概念"
+        storefront_value: "g-4a updateProfileAction 五層信任邊界:① server session getUser 取 user.id(不從表單 body)/ ② ProfileInput zod safeParse strip 未知欄(name min(1)、phone/birthday default '')/ ③ use-case Pick<Customer,'name'|'phone'|'birthday'> 型別白名單 / ④ RLS customers_update_own auth.uid()=user_id 守 own row(跨 user row 寫入 DB 擋)/ ⑤ column GRANT (name, phone, birthday, updated_at) 三欄(tier/wallet_balance 不在 GRANT、攻擊者偽造也寫不進);birthday '' → null normalize(DB date 欄拒 '');不洩 Supabase 原始 error、formError 包用戶字面「儲存失敗,請稍後再試」"
+        decided_at: "2026-05-28"
+        decision_source: "g-4a plan + codex k1 round1 Critical 1(birthday)+ Important 3(信任邊界 5 層、補 RLS row 層)"
+        reason: "對齊 register/login server action #181 雙通道 pattern + Sean 明示動 session profile = 中等敏感跑 codex 關卡2;5 層守確保 client 偽造攻擊面被攔(欄位/Row/User session 三維度)"
     open_drifts:
       - field: "loginRegisterPageSplit"
         note: "LoginPage f1-a + RegisterPage f1-b + AccountPage 7 tab(g-1a 殼 + g-1b Header 條件路由 + g-2 OverviewTab/OrdersTab 真資料 + g-3 FavoritesTab 空狀態)已建;餘 4 tab(wallet/vehicles/address/profile)仍 stub、待 g-4~g-7"

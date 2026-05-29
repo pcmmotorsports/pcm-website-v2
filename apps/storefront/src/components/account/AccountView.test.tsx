@@ -50,6 +50,8 @@ function renderView(overrides: Partial<AccountViewProps> = {}) {
     user: { name: '王小明', displayEmail: 'wang@example.com' },
     stats: { tier: 'general', walletBalance: 0, orderCount: 0 },
     featured: EMPTY_FEATURED,
+    // g-4a:profile prop 必填、預設與 user.name 同值(對齊 page.tsx Q4=A SoT、customers.name 為主)
+    profile: { name: '王小明', phone: '', birthday: '' },
     ...overrides,
   };
   return render(
@@ -99,23 +101,33 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
     expect(logoutBtn.closest('form')).toBeTruthy();
   });
 
-  it('name 空時退化:avatar 走 displayEmail 首字、Hi 顯 email、acc-email 仍 render', () => {
-    renderView({ user: { name: '', displayEmail: 'wang@example.com' } });
+  it('profile.name 空時退化:avatar 走 displayEmail 首字、Hi 顯 email、acc-email 仍 render(g-4a Q4=A:displayName 用 profile.name 為主)', () => {
+    renderView({
+      user: { name: '', displayEmail: 'wang@example.com' },
+      profile: { name: '', phone: '', birthday: '' },
+    });
     expect(screen.getByText('W')).toBeTruthy();
     expect(screen.getByText('Hi, wang@example.com')).toBeTruthy();
     expect(screen.getByText('wang@example.com')).toBeTruthy();
   });
 
-  it('name + displayEmail 皆空 → avatar=P / Hi=PCM 會員 / acc-email 不 render', () => {
-    const { container } = renderView({ user: { name: '', displayEmail: '' } });
+  it('profile.name + displayEmail 皆空 → avatar=P / Hi=PCM 會員 / acc-email 不 render', () => {
+    const { container } = renderView({
+      user: { name: '', displayEmail: '' },
+      profile: { name: '', phone: '', birthday: '' },
+    });
     expect(screen.getByText('P')).toBeTruthy();
     expect(screen.getByText('Hi, PCM 會員')).toBeTruthy();
     expect(container.querySelector('.acc-email')).toBeNull();
   });
 
-  it('LINE 合成 email 用戶(displayEmail=空、name 有):displayName 用 name、acc-email 不顯', () => {
-    // 真實情境:LINE 用戶 page.tsx 過濾後 displayEmail='',name = LINE 顯示名
-    const { container } = renderView({ user: { name: 'LINE 太郎', displayEmail: '' } });
+  it('LINE 合成 email 用戶(displayEmail=空、profile.name 有):displayName 用 profile.name、acc-email 不顯', () => {
+    // 真實情境:LINE 用戶 page.tsx 過濾後 displayEmail=''、profile.name = customers.name(trigger 已從
+    // user_metadata.name 同步寫入 LINE 顯示名;g-4a Q4=A SoT)
+    const { container } = renderView({
+      user: { name: 'LINE 太郎', displayEmail: '' },
+      profile: { name: 'LINE 太郎', phone: '', birthday: '' },
+    });
     expect(screen.getByText('L')).toBeTruthy();
     expect(screen.getByText('Hi, LINE 太郎')).toBeTruthy();
     expect(container.querySelector('.acc-email')).toBeNull();
