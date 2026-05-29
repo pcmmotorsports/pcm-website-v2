@@ -32,7 +32,7 @@
 //
 // g-5a(2026-05-29):
 // - 新 addresses prop:CustomerAddress[](page.tsx getAddressRepo→listByCustomer 算好傳入)
-// - forward 給 AddressTab 唯讀渲染地址清單;寫入(新增/編輯/刪除/設預設)留 g-5b/g-5c
+// - forward 給 AddressTab 渲染地址清單 + g-5b defaultName 預填(g-5b 接新增表單;編輯/刪除/設預設留 g-5c)
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
@@ -132,7 +132,7 @@ export function AccountView({ user, stats, featured, profile, addresses }: Accou
             {tab === 'wallet' && <WalletTab />}
             {tab === 'favorites' && <FavoritesTab />}
             {tab === 'vehicles' && <VehiclesTab />}
-            {tab === 'address' && <AddressTab addresses={addresses} />}
+            {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
           </div>
         </div>

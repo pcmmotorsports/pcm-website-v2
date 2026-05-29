@@ -5,7 +5,7 @@
 // LINE 合成 email 過濾(server-side、line.ts 為 server-only 不可洩到 client);
 // g-4a 擴 select 5 欄(+ name/phone/birthday)+ profile prop 傳 AccountView(Q4=A SoT)。
 // g-5a 讀收件地址清單(getAddressRepo→listByCustomer、RLS 守自己 row)+ addresses prop 傳 AccountView
-// (AddressTab 唯讀列表;寫入新增/編輯/刪除/設預設留 g-5b/g-5c)。
+// (AddressTab 列表;g-5b 接新增表單 addAddressAction;編輯/刪除/設預設留 g-5c)。
 //
 // server 守門(codex 關卡1 finding-2/5):用 getUser()(向 auth server 驗 JWT、非可偽造的
 // getSession)→ 無 user 就 redirect('/login')。直打網址也擋;Header 條件路由(g-1b)僅 cosmetic。
@@ -98,7 +98,7 @@ export default async function AccountPage() {
 
   // g-5a:讀自己的收件地址清單(getAddressRepo→listByCustomer、RLS addresses_*_own 守自己 row)。
   // 鏡像 customers 讀的退化 pattern:adapter error(RLS/連線異常)→ 退化空陣列 + console.error、頁面不 500
-  // (AddressTab 走空狀態)。寫入(新增/編輯/刪除/設預設)留 g-5b/g-5c。
+  // (AddressTab 走空狀態)。新增表單(addAddress)g-5b 已接;編輯/刪除/設預設留 g-5c。
   let addresses: CustomerAddress[] = [];
   try {
     addresses = await (await getAddressRepo()).listByCustomer(user.id);

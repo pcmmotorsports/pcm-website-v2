@@ -5202,6 +5202,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #198. ⏳ customer_addresses 統編 DB CHECK(invoice_tax_id ^\d{8}$、company 模式)(Consider、codex 關卡2)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - company 發票模式統編 8 碼格式目前只在 server zod(AddressInput superRefine `/^\d{8}$/`)守、DB 層無 CHECK
+  - 直打 Supabase REST/RPC API(繞 storefront server action)可寫入 malformed 統編(如 7 碼 / 含字母);現有 DB CHECK 只有 `addresses_invoice_company_has_data`(title/taxId 非空)、不驗 8 碼格式
+- **觸發事件:**
+  - 2026-05-29 / M-1-14e-g-5b codex 關卡2 round1 finding(Consider、非阻擋、不擋 g-5b)
+- **預期解法:**
+  - migration 加 `ALTER TABLE customer_addresses ADD CONSTRAINT addresses_invoice_taxid_format CHECK (invoice_type <> 'company' OR invoice_tax_id ~ '^\d{8}$')`(forward + rollback + advisor check)
+  - 與 server zod superRefine 對齊(雙層守:server 主驗、DB 不變式最後防線)
+- **不修會痛在:**
+  - 擴充性:之後接電子發票 API(財政部)時、malformed 統編會在開票端撞錯、難回溯來源
+  - 可維護性:資料層無不變式、「為何有 7 碼統編」需翻 server 驗證史
+  - bug 可追蹤性:報表 / 開發票時撞 malformed 統編、根因(繞 server 寫入)難定位
+  - (非跨 user 越權問題:RLS 仍守自己 row;格式缺失影響資料品質非安全)
+- **估時:** 20-30 min(動 migration + advisor check;鐵則 12 觸發 = 獨立 slice)
+- **依賴:** 無(可獨立做、不擋 g-5c~g-7)
+- **發現於:** 2026-05-29 / M-1-14e-g-5b codex 關卡2 round1
+- **相關:** packages/schemas/src/index.ts AddressInput superRefine / customer_addresses 表(M-1-14a migration)/ 鐵則 12(動 migration / schema)
+
+---
+
 ## 紀錄模板
 
 ```markdown

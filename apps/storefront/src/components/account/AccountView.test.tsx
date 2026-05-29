@@ -18,7 +18,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 vi.mock('@/app/account/actions', () => ({
   logoutAction: vi.fn(),
@@ -26,6 +26,10 @@ vi.mock('@/app/account/actions', () => ({
 // g-4b:ProfileTab(AccountView 子元件)改 import updateProfileAction server action、
 // transitively 拉 server-only(supabase/server)在 jsdom 會爆;mock 掉避免載真 server action
 // (同 RegisterPage.test 處置;AccountView 預設 render overview、profile tab 不觸發、mock 不影響斷言)。
+// g-5b:AddressTab 同理改 import addAddressAction server action(transitively server-only)→ mock 掉。
+vi.mock('@/app/account/address/actions', () => ({
+  addAddressAction: vi.fn(),
+}));
 vi.mock('@/app/account/profile/actions', () => ({
   updateProfileAction: vi.fn(),
 }));

@@ -46,7 +46,7 @@ export async function getCustomerRepo(): Promise<ICustomerRepository> {
 
 /**
  * 建本次 request 的 IAddressRepository(SupabaseAddressAdapter + cookie-aware authenticated server client)。
- * g-5a:用於 server component 讀自己的收件地址清單(listByCustomer);寫入(create/update/delete)留 g-5b/c。
+ * g-5a 讀清單(listByCustomer);g-5b 接 addAddress 新增(create);編輯(update)/刪除(delete)/設預設留 g-5c。
  *
  * **鏡像 getCustomerRepo**:SupabaseAddressAdapter 在 @pcm/adapters root export(非 /server subpath、
  * eslint 放行無 -disable)、來源 client.ts 頂層 `import 'server-only'`、整條 chain 受 server-only 約束(本檔已 import)。
