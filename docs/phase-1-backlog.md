@@ -5226,6 +5226,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #199. ⏳ updateAddress 純編輯(非 isDefault)patch 加 app 層 ownership 檢查(Consider、codex 關卡2 g-5c)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - g-5c updateAddressAction 純編輯(patch 非 isDefault)路徑目前只靠 RLS `addresses_update_own`(USING + WITH CHECK)守 ownership;use-case `updateAddress` 僅在 `patch.isDefault` 時才跑 `verifyOwnedThenUnsetOthers`(app 層 listByCustomer 驗本人)
+  - delete / isDefault 兩路徑另有 use-case app 層防線(listByCustomer / verifyOwnedThenUnsetOthers);唯獨 plain-update 無 app 層 backstop
+- **觸發事件:**
+  - 2026-05-31 / M-1-14e-g-5c codex 關卡2 finding(Consider、非阻擋);Sean 拍 Q2=A 接受 RLS(authenticated client、非 service_role)為 server 端 ownership 邊界、暫不在 g-5c 補 app 層
+- **預期解法:**
+  - 與 e-2a `updateAddress` use-case 同 slice 評估:plain-update 也先 `listByCustomer` 驗本人、非本人 patch → 拋
+  - 改動需補「非本人 plain-patch → 拋」測試、並移除現有「非 isDefault 不查清單(省 round-trip)」斷言
+- **不修會痛在:**
+  - 擴充性:之後若新增非 authenticated 寫入路徑(service_role job / admin),plain-update 失去 app 層守、跨會員編輯防線單點
+  - 可維護性:三條寫入路徑(delete / isDefault / plain-update)ownership 驗證不一致、後人易誤判「都有 app 層守」
+  - bug 可追蹤性:RLS 若被誤改 / 停用,plain-update 跨會員編輯不會在 app 層擋、難在 use-case 測試捕捉
+  - (非當前安全漏洞:RLS USING+WITH CHECK 現守 own row;此為 defense-in-depth backstop)
+- **估時:** 20-30 min(動 packages/use-cases/src/update-address.ts + 測試;非本 g-5c-fix1 範圍)
+- **依賴:** 無(可獨立做、不擋 g-6~g-7)
+- **發現於:** 2026-05-31 / M-1-14e-g-5c codex 關卡2
+- **相關:** packages/use-cases/src/update-address.ts `updateAddress` / `_address-default.ts` verifyOwnedThenUnsetOthers / RLS addresses_update_own(M-1-14a)/ #198(同 codex address review 系列)
+
+---
+
 ## 紀錄模板
 
 ```markdown

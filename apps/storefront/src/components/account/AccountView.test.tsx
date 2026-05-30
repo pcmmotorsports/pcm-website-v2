@@ -27,8 +27,11 @@ vi.mock('@/app/account/actions', () => ({
 // transitively 拉 server-only(supabase/server)在 jsdom 會爆;mock 掉避免載真 server action
 // (同 RegisterPage.test 處置;AccountView 預設 render overview、profile tab 不觸發、mock 不影響斷言)。
 // g-5b:AddressTab 同理改 import addAddressAction server action(transitively server-only)→ mock 掉。
+// g-5c:AddressTab 增 import update/deleteAddressAction(同 server-only)→ 一併 mock。
 vi.mock('@/app/account/address/actions', () => ({
   addAddressAction: vi.fn(),
+  updateAddressAction: vi.fn(),
+  deleteAddressAction: vi.fn(),
 }));
 vi.mock('@/app/account/profile/actions', () => ({
   updateProfileAction: vi.fn(),

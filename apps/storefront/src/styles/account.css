@@ -335,7 +335,7 @@
 
 /* ---- address tab 唯讀列表卡(g-5a、對齊 design account.css L784-813)----
  * 搬讀清單卡 5 條(.acc-addr / -tag / -name / -phone / -line);
- * .acc-inline-form(L1008+ 表單)g-5b 已搬(見下方 g-5b 段);.acc-addr-actions(L814-824 編輯/刪除鈕)留 g-5c;
+ * .acc-inline-form(L1008+ 表單)g-5b 已搬(見下方 g-5b 段);.acc-addr-actions(L814-824 編輯/刪除鈕)g-5c 已搬(見 .acc-addr-line 下方);
  * .acc-address 容器 design 無規則(plain div block flow)、不發明。 */
 .acc-addr {
   padding: 20px;
@@ -367,10 +367,22 @@
   color: var(--c-text);
   margin-bottom: 16px;
 }
+/* 卡片動作鈕「編輯 / 刪除」(g-5c、對齊 design account.css L814-824):flex gap + 底線文字鈕 */
+.acc-addr-actions {
+  display: flex;
+  gap: 14px;
+}
+.acc-addr-actions button {
+  font-size: 12px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+}
 
 /* ---- address 新增/編輯表單 InlineAddressForm(g-5b、對齊 design account.css)----
- * base .acc-btn-ghost(取消鈕、design L977-985)+ inline-form block(design L1008-1134);
- * 卡片 .acc-addr-actions 編輯/刪除鈕 CSS(design L814-824)留 g-5c。 */
+ * base .acc-btn-ghost(取消鈕、design L977-985)+ inline-form block(design L1008-1134)。
+ * 卡片 .acc-addr-actions 編輯/刪除鈕 CSS(design L814-824)g-5c 已搬於上方 .acc-addr-line 下。 */
 .acc-btn-ghost {
   background: transparent;
   border: 1px solid var(--c-border, #dcdcdc);
