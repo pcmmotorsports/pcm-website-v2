@@ -530,11 +530,11 @@ A: 選項 X
 
 1. **起手** — 讀 STATUS「下一步」+ PRD/handoff + design 真權威(鐵則 1 grep、不憑記憶)。
 2. **規劃** — Claude Code 自己寫 slice plan(取代 Cowork 規劃)。標內容分級 L1/L2/L3、判鐵則 8 重大改動。
-3. **關卡1(動手前審 plan)** — 重大改動 plan 跑 `codex-adversary`(`codex exec -s read-only` 審 plan vs PRD/design)→ 自修 ≤2 輪 → 決策岔路**一次性批次**問 Sean(prose multi-select、不零碎打斷)。小 slice 跳。
+3. **關卡1(動手前審 plan)** — **預設跳 codex**;僅重大改動(鐵則 8)plan 才跑 `codex-adversary`(`codex exec -s read-only` 審 plan vs PRD/design)→ 自修 → 決策岔路**一次性批次**問 Sean(prose multi-select、不零碎打斷)。小 slice / 例行前台 slice 跳。
 4. **實作** — 前後台同步(鐵則 3)、檔案大小(鐵則 6)、CSS+TSX 同 slice(鐵則 5)。
 5. **三綠** — `/slice-checkpoint`(typecheck + lint + 條件 build)。
 6. **code-reviewer(必跑、對應原階段 C)** — Claude `code-reviewer` subagent(快速 PCM 鐵則 + 字面 vs 事實 + manifest)。
-7. **關卡2(動手後審 diff)** — 命中鐵則 12(security/RLS/migration/pricing/order)或重大改動 → 跑 `codex-adversary`(`codex exec -s read-only` 審 diff)→ 自修 ≤2 輪。低風險 slice 跳。
+7. **關卡2(動手後審 diff)** — **預設跳 codex、只走 code-reviewer**;僅命中鐵則 12(security/RLS/migration/pricing/order/payment/會員 tier/經銷價)或鐵則 8 重大改動才跑 `codex-adversary`(`codex exec -s read-only` 審 diff)。**codex 每 slice 全程硬上限 2 輪(初審 + 1 複審),round2 仍 FAIL 停下 raise Sean、不再加輪。** 例行前台 slice(form/tab/CSS/型別)不跑 codex(2026-05-29 Sean 拍 E+B、控 OpenAI 成本)。
 8. **commit** — 精準 git add、commit 訊息字面 vs 事實一致、**STATUS.md 7 欄 Claude Code 自更**(不經 Cowork)+ busboy-end。
 9. **不 push** — 等 Sean 手動推(review checkpoint)。STATUS「最近 3 commit」用**可達 hash**(`git merge-base --is-ancestor` 驗、避免 busboy off-by-one orphan、見對應 memory)。
 

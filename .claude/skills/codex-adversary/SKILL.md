@@ -24,14 +24,16 @@ Codex 是**不同模型(OpenAI gpt-5.5)**,比 Claude 審 Claude 更對抗(無共
    - **絕不**用 `codex fix` / `codex apply` / `codex exec`(**不帶** `-s read-only`)/ `--dangerously-bypass-approvals-and-sandbox`(會改檔)。
    - **防線分層(誠實)**:settings.json deny 擋 `codex fix` / `apply` / `a`(明確會改檔的子命令);但 deny **無法**精準「只擋非唯讀 exec、放行唯讀 exec」(pattern 重疊)→ `codex exec` 的唯讀紀律靠**本 skill 強制每次帶 `-s read-only`** + 下方第 4 點 baseline 比對當實質防線,**非全靠 hard deny**。
 4. **跑 codex 前後各取 `git status --porcelain` 比對一致**(確認 codex 沒新增 / 改任何檔)。⚠️ 審 staged 變更時 status 本就非空(會列已 staged 檔)→ 看的是「**有無新增變動**」、不是「空」。跑後比跑前多出東西 → 停下回報 Sean(Codex 異常動手)。
-5. **成本意識:** 每次 ~28k+ token + 計費 → 照下方「觸發範圍」控量、非每 commit。
+5. **成本意識(2026-05-29 校正):** codex exec 是 **agent 翻 repo**(會 git diff / grep / 開檔、每輪 re-send 全 context)、**不是讀一份包** → 實測累計 **~0.5M–1.4M input token/次**(非舊註的 28k)、gpt-5.5 API key 計費約 **$0.8–2/次**。故嚴格照下方「觸發範圍」控量、且每 slice 限輪數(見關卡2)、非每 commit。
 
 ## 觸發範圍(客觀判定、自己決定、不問 Sean)
 
+> **預設:不跑 codex。** 例行 slice(storefront 前台 form / tab / 空狀態 / CSS / 純型別 / docs)一律只走 Claude `code-reviewer`、**不跑 codex**(2026-05-29 Sean 拍 E:重大才給 codex 才有意義、控 OpenAI API 成本)。只有下表命中才跑:
+
 | 關卡 | 何時跑 |
 |---|---|
-| **關卡1(plan)** | 我自己規劃 slice 且屬重大改動(鐵則 8:跨 3+ 檔 / 動 schema·API·共用元件·config / 影響部署)。小 slice 跳。 |
-| **關卡2(diff)** | 命中鐵則 12(security / RLS / migration / schema / pricing / order / 重大改動)+ milestone 收尾。純低風險型別 slice(如 M-1-14c)跳、走 code-reviewer 即可。 |
+| **關卡1(plan)** | 我自己規劃 slice 且屬重大改動(鐵則 8:跨 3+ 檔 / 動 schema·API·共用元件·config / 影響部署)。小 slice / 例行前台 slice 跳。 |
+| **關卡2(diff)** | 命中鐵則 12(security / RLS / migration / schema / pricing / order / payment / 會員 tier / 經銷價)或鐵則 8 重大改動 + milestone 收尾。純前台 form/tab/CSS/型別 slice(如 g-5b 收件地址表單、M-1-14c)一律跳、走 code-reviewer 即可。 |
 
 (Sean 若說「每個 slice 都跑」→ 全開。)
 
@@ -55,7 +57,7 @@ $(cat <plan 檔路徑>)
 ```
 (長 prompt 建議寫 `/tmp/codex-prompt.txt` 再 `"$(cat /tmp/codex-prompt.txt)"`,避免 quoting 地獄。)
 
-findings 回來 → 我自修 ≤2 輪 → **真正的決策岔路一次性上游批次問 Sean**(不零碎打斷)。
+findings 回來 → 我自修 → **codex 複審每 slice 全程硬上限 2 輪(初審 + 1 複審),round2 仍 FAIL 停下 raise Sean、不再加輪**(見關卡2 輪數上限)→ **真正的決策岔路一次性上游批次問 Sean**(不零碎打斷)。
 
 ## 關卡2 — 動手後審 diff
 
@@ -75,7 +77,7 @@ codex review --uncommitted          # slice 級:staged+unstaged+untracked
 codex review --base origin/dev      # milestone 級:對 origin/dev 整批
 ```
 
-findings 回來 → 我自修 ≤2 輪 → 仍 FAIL 第 3 輪 raise Sean。PASS → commit。
+findings 回來 → 我自修 → **codex 複審每 slice 全程硬上限 2 輪(round1 初審 + round2 修後複審)。round2 仍 FAIL → 停、raise Sean 拍處置,不准再跑 round3/4**(2026-05-29 Sean 拍 B;反例:g-5b 跑到 round4 = 單 slice ~$4.28)。PASS → commit。
 
 ## 輸出處理
 
