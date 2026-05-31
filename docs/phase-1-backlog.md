@@ -5300,6 +5300,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #202. ⏸ 儲值金 deposit 功能 hold(台灣儲值法規未定)+ g-7 wallet 頁推延
+
+- **狀態:** ⏸ HOLD(Sean 2026-05-31 拍:儲值法規+商業模式未定、不做 deposit、g-7 推延)
+- **優先級:** ⏸ 暫不排程(Sean 主動解 hold 才動)
+- **問題 / 背景:**
+  - 台灣「儲值」踩法規邊緣 —— 多用途儲值金可能落入《電子支付機構管理條例》、需金管會核准/牌照。Sean 還沒想清楚商業+法規模式。
+  - 在定案前不該先把儲值功能(連 mock 寫 ledger)做出來、避免架構/UI 先承諾未定模式。
+  - 連帶:g-7「儲值金」wallet 頁推延、不在 g-6 批次內;WalletTab 維持 stub。
+- **現況地基(已備、不接 UI):**
+  - e-3 depositWallet(packages/use-cases/src/deposit-wallet.ts、mock、走 service_role writeClient)、customer_wallet_ledger 表 + RLS、IWalletRepository.addEntry/getBalance/listEntries、SupabaseWalletAdapter(雙 client)。
+  - 純顯示:OverviewTab 已顯 wallet_balance(直查 customers.wallet_balance)、nav 有「儲值金」tab —— 既有 balance 欄位顯示、無 deposit 動作、暫留(要下架另拍)。
+  - g-7 recon(2026-05-31)確認:讀餘額+ledger 明細在 storefront 可行(authenticated 直查 customers+customer_wallet_ledger、g-2 pattern);deposit 寫入卡 service_role(storefront 不持)。
+- **解 hold 後的兩條路(待 Sean 定案):**
+  - (純讀)g-7 只顯示餘額卡+會員等級卡+ledger 明細(authenticated 直查、零架構改動);「立即儲值」鈕降級/不渲染。
+  - (含 deposit)另開 service_role 受控小門(ADR-0005 §8.4 護欄)+ deposit server action 接 e-3 —— 鐵則 8+12、需 plan + codex 雙關卡;且真扣款仍要等 TapPay(#3)+ 法規定案。
+- **不修的影響(可接受):** 會員中心少一個 wallet tab 內容、但 balance 已在 overview 顯;愛車 CRUD(g-6)不受影響、批次照常。
+- **依賴:** 台灣儲值法規/商業模式定案(Sean) + TapPay sandbox(#3) + 真扣款合規。
+- **發現於:** 2026-05-31 / g-7 規劃 / Sean 主動提台灣儲值法規邊緣
+- **相關:** memory project_wallet-deposit-taiwan-legal-hold / e-3 depositWallet / #3 TapPay sandbox / docs/PHASE-1-NORTHSTAR.md(儲值金 mock 定位)/ STATUS 待決策
+
+---
+
 ## 紀錄模板
 
 ```markdown

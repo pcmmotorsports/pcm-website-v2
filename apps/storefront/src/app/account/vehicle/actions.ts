@@ -1,6 +1,6 @@
 'use server';
 
-// app/account/vehicle/actions.ts — 我的愛車 新增 server action(M-1-14e-g-6b;編輯/刪除/設主車 g-6c 接)
+// app/account/vehicle/actions.ts — 我的愛車 新增 / 更新 / 刪除 server action(M-1-14e-g-6b 新增、g-6c 更新+刪除)
 //
 // 鏡像 g-5b addAddressAction 信任邊界 pattern(已過 codex 雙關卡):
 // - ① server session getUser 取 user.id(不從表單 body 取 customerUserId)
@@ -14,7 +14,7 @@
 // - fieldErrors 逐欄(僅 name;VehicleInput 只 name.min(1)、無巢狀)。
 // - formError 帳號層級(請重新登入 / 儲存失敗);不洩 Supabase 原始 error。
 
-import { addVehicle } from '@pcm/use-cases';
+import { addVehicle, updateVehicle, deleteVehicle } from '@pcm/use-cases';
 import { VehicleInput } from '@pcm/schemas';
 import { getVehicleRepo } from '@/lib/auth/composition';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -27,6 +27,15 @@ export type VehicleFieldErrors = {
 // #181 雙通道 + ok 標(同 addAddressAction 形狀;client 收 ok=true 後 router.refresh + 收合表單)。
 export type AddVehicleActionResult = {
   fieldErrors?: VehicleFieldErrors;
+  formError?: string;
+  ok?: true;
+};
+
+// g-6c 更新結果同新增形狀(InlineVehicleForm onSubmit 共用此型別、編輯重用同表單)。
+export type UpdateVehicleActionResult = AddVehicleActionResult;
+
+// g-6c 刪除結果:無表單驗證(ownership 靠 use-case + RLS)、只回 formError / ok。
+export type DeleteVehicleActionResult = {
   formError?: string;
   ok?: true;
 };
@@ -66,6 +75,78 @@ export async function addVehicleAction(input: unknown): Promise<AddVehicleAction
     await addVehicle(await getVehicleRepo(), user.id, parsed.data);
   } catch {
     return { formError: '儲存失敗,請稍後再試' };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * 更新愛車(g-6c、編輯重用 InlineVehicleForm)。成功 → { ok: true };驗證失敗(車型空)→ { fieldErrors };
+ * 未登入 / DB 寫入失敗 → { formError }。`vehicleId` 由 caller(VehiclesTab parent closure)綁;
+ * ownership 不從 input 信任,由 updateVehicle use-case(isPrimary 時 verifyOwnedThenUnsetOtherPrimary)+ RLS vehicles_update_own 守。
+ *
+ * 信任邊界鏡像 addVehicleAction(① getUser ② VehicleInput safeParse 僅 name ③ updateVehicle 用 user.id + patch 白名單
+ * ④ RLS ⑤ partial unique);plain-update(非 isPrimary)僅 RLS 守 ownership、app 層 backstop 同 address #199(defense-in-depth)。
+ */
+export async function updateVehicleAction(
+  vehicleId: string,
+  input: unknown,
+): Promise<UpdateVehicleActionResult> {
+  // 信任邊界 ①:server session getUser 驗 JWT、user.id 守 ownership(絕不從 input 取 customerUserId)。
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { formError: '請重新登入' };
+  }
+
+  // 信任邊界 ②:VehicleInput safeParse(strip 未知欄;僅 name 必填、無巢狀)。
+  const parsed = VehicleInput.safeParse(input);
+  if (!parsed.success) {
+    const fieldErrors: VehicleFieldErrors = {};
+    for (const issue of parsed.error.issues) {
+      if (issue.path[0] === 'name') {
+        fieldErrors.name = issue.message;
+      }
+    }
+    if (Object.keys(fieldErrors).length > 0) {
+      return { fieldErrors };
+    }
+    return { formError: '請填寫必要欄位' };
+  }
+
+  // 信任邊界 ③/④/⑤:updateVehicle 用 user.id 驗 ownership、patch 白名單(parsed.data 已 strip id/customerUserId/時間欄)、
+  // RLS / partial unique 守;跨會員越權 / 不存在 id 由 use-case verify(isPrimary)+ RLS 擋。
+  try {
+    await updateVehicle(await getVehicleRepo(), user.id, vehicleId, parsed.data);
+  } catch {
+    return { formError: '儲存失敗,請稍後再試' };
+  }
+
+  return { ok: true };
+}
+
+/**
+ * 刪除愛車(g-6c)。成功 → { ok: true };未登入 / 刪除失敗(含 ownership 不符 use-case 拋)→ { formError }。
+ * 無表單驗證;`vehicleId` 由 caller 綁,ownership 由 deleteVehicle use-case(listByCustomer 驗 + 刪後遞補首台主車)
+ * + RLS vehicles_delete_own 守。catch 不上洩原始 error。
+ */
+export async function deleteVehicleAction(vehicleId: string): Promise<DeleteVehicleActionResult> {
+  // 信任邊界 ①:server session getUser、user.id 守 ownership(deleteVehicle 內 listByCustomer 驗本人才刪)。
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { formError: '請重新登入' };
+  }
+
+  try {
+    await deleteVehicle(await getVehicleRepo(), user.id, vehicleId);
+  } catch {
+    // ownership 不符(use-case 拋)/ RLS / 連線異常;不上洩原始 error、formError 包用戶字面。
+    return { formError: '刪除失敗,請稍後再試' };
   }
 
   return { ok: true };

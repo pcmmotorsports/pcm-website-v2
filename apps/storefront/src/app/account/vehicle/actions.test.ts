@@ -13,12 +13,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockAddVehicle = vi.fn();
+const mockUpdateVehicle = vi.fn();
+const mockDeleteVehicle = vi.fn();
 const mockGetVehicleRepo = vi.fn();
 const mockGetUser = vi.fn();
 const mockCreateServerSupabaseClient = vi.fn();
 
 vi.mock('@pcm/use-cases', () => ({
   addVehicle: (...args: unknown[]) => mockAddVehicle(...args),
+  updateVehicle: (...args: unknown[]) => mockUpdateVehicle(...args),
+  deleteVehicle: (...args: unknown[]) => mockDeleteVehicle(...args),
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getVehicleRepo: () => mockGetVehicleRepo(),
@@ -29,7 +33,11 @@ vi.mock('@/lib/supabase/server', () => ({
 
 async function getActions() {
   const m = await import('./actions');
-  return { addVehicleAction: m.addVehicleAction };
+  return {
+    addVehicleAction: m.addVehicleAction,
+    updateVehicleAction: m.updateVehicleAction,
+    deleteVehicleAction: m.deleteVehicleAction,
+  };
 }
 
 // 合法 VehicleInput payload(僅 name 必填;其餘 string 欄由 schema default 補 '')。
@@ -107,5 +115,82 @@ describe('addVehicleAction(g-6b server action)', () => {
     const { addVehicleAction } = await getActions();
     const result = await addVehicleAction(validInput());
     expect(result).toEqual({ ok: true });
+  });
+});
+
+describe('updateVehicleAction(g-6c server action)', () => {
+  it('未登入 → formError「請重新登入」+ 不呼叫 updateVehicle', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const { updateVehicleAction } = await getActions();
+    const result = await updateVehicleAction('v-1', validInput());
+    expect(result).toEqual({ formError: '請重新登入' });
+    expect(mockUpdateVehicle).not.toHaveBeenCalled();
+  });
+
+  it('車型 name 空 → fieldErrors.name + 不呼叫 updateVehicle', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    const { updateVehicleAction } = await getActions();
+    const result = await updateVehicleAction('v-1', validInput({ name: '' }));
+    expect(result.fieldErrors?.name).toBeTruthy();
+    expect(mockUpdateVehicle).not.toHaveBeenCalled();
+  });
+
+  it('ownership / 白名單:updateVehicle 收 (repo, session user.id, 參數 vehicleId, strip 後 patch)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-session' } } });
+    mockUpdateVehicle.mockResolvedValue({ id: 'v-1' });
+    const { updateVehicleAction } = await getActions();
+    await updateVehicleAction('v-1', validInput({ id: 'evil', customerUserId: 'u-attacker', isPrimary: true }));
+    expect(mockUpdateVehicle).toHaveBeenCalledTimes(1);
+    const [repoArg, userIdArg, vehicleIdArg, patch] = mockUpdateVehicle.mock.calls[0]!;
+    expect(repoArg).toBe(fakeRepo);
+    expect(userIdArg).toBe('u-session'); // server session、非 input 偽造的 customerUserId
+    expect(vehicleIdArg).toBe('v-1'); // 來自 action 參數(parent closure)
+    expect(patch).not.toHaveProperty('id');
+    expect(patch).not.toHaveProperty('customerUserId');
+    expect(patch.name).toBe('YAMAHA YZF-R6');
+    expect(patch.isPrimary).toBe(true);
+  });
+
+  it('updateVehicle 拋 DB error → formError「儲存失敗,請稍後再試」+ 不洩原始 error', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    mockUpdateVehicle.mockRejectedValue(new Error('supabase raw error'));
+    const { updateVehicleAction } = await getActions();
+    const result = await updateVehicleAction('v-1', validInput());
+    expect(result).toEqual({ formError: '儲存失敗,請稍後再試' });
+  });
+
+  it('成功 → { ok: true }', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    mockUpdateVehicle.mockResolvedValue({ id: 'v-1' });
+    const { updateVehicleAction } = await getActions();
+    const result = await updateVehicleAction('v-1', validInput());
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe('deleteVehicleAction(g-6c server action)', () => {
+  it('未登入 → formError「請重新登入」+ 不呼叫 deleteVehicle', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const { deleteVehicleAction } = await getActions();
+    const result = await deleteVehicleAction('v-1');
+    expect(result).toEqual({ formError: '請重新登入' });
+    expect(mockDeleteVehicle).not.toHaveBeenCalled();
+  });
+
+  it('ownership 不符(use-case 拋)→ formError「刪除失敗,請稍後再試」+ 不洩原始 error', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    mockDeleteVehicle.mockRejectedValue(new Error('vehicle 不屬於目前 customer'));
+    const { deleteVehicleAction } = await getActions();
+    const result = await deleteVehicleAction('v-1');
+    expect(result).toEqual({ formError: '刪除失敗,請稍後再試' });
+  });
+
+  it('成功 → { ok: true } + deleteVehicle 收 (repo, session user.id, 參數 vehicleId)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u-session' } } });
+    mockDeleteVehicle.mockResolvedValue(undefined);
+    const { deleteVehicleAction } = await getActions();
+    const result = await deleteVehicleAction('v-1');
+    expect(result).toEqual({ ok: true });
+    expect(mockDeleteVehicle).toHaveBeenCalledWith(fakeRepo, 'u-session', 'v-1');
   });
 });
