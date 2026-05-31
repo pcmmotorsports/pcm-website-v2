@@ -114,13 +114,50 @@ export type ProductAvailability = 'in-stock' | 'out-of-stock';
 export type PriceByTier = Record<MemberTier, Money>;
 
 /**
+ * ProductVariant: 商品變體(entity sub-object、M-1-16a 落地 backlog #81 A 真變體)。
+ *
+ * 對齊:
+ * - #81 真變體拍板(RPM 一商品 ~24 變體:紋路 weave × 表面 finish × special、
+ *   各自料號 sku / 價 / 庫存 / 圖)。
+ * - DB product_variants 表(supabase/migrations/20260531142533_init_product_variants.sql)。
+ *
+ * 取價(Q5=A、鏡像 Product):DB 只存 price_general + price_store 兩整數欄、不存 price_by_tier;
+ *   adapter mapper(16c mapVariantRow、backlog #203)從兩欄重組 priceByTier(general 從
+ *   price_general、store dummy、premiumStore placeholder、與 mapSupabaseProductToDomain 同法)。
+ *   domain 層統一用 priceByTier(與 Product 一致)。
+ *
+ * spec:自由 key-value(可擴 N 層);RPM = {weave, finish, special}(審查證來源
+ *   non_string spec values = 0、故 Record<string, string>)。
+ *
+ * @see packages/adapters/src/supabase/mappers/product.ts(16c mapVariantRow)
+ * @see docs/phase-1-backlog.md #81(variants 落地)/ #203(adapter 接線待 16c)
+ */
+export type ProductVariant = {
+  id: string;
+  /** 變體料號(原始 sku、join key、全表 UNIQUE) */
+  sku: string;
+  /** 規格自由 key-value(例:{ weave: '3K', finish: 'Glossy', special: '12K' }) */
+  spec: Record<string, string>;
+  /** 三級會員多 tier 價(domain 統一 priceByTier;DB 兩整數欄 mapper 重組) */
+  priceByTier: PriceByTier;
+  /** 變體 availability(對齊 ProductAvailability、與 Product 同 union) */
+  availability: ProductAvailability;
+  /** 變體圖 URL 陣列;無圖時 16c fallback 商品群代表圖(Q3=C) */
+  images: string[];
+  /** 排序權重(DB sort_order、預設 0) */
+  sortOrder: number;
+};
+
+/**
  * Product: 商品 entity(M-1-02 擴 7 欄位、對齊 ADR-0004 Q1=A2 拍板)。
  *
  * 對齊 ADR-0003 §3.1 命名規則(camelCase + 業務語意);
  * 對齊 ADR-0004 Q1=A2(本 slice 擴 description / images / availability / handle / subtitle / createdAt / updatedAt 7 欄位)、Q4=A1(availability 'in-stock' | 'out-of-stock'、不顯示數字、訂貨型業務)、Q2=A2(images URL string、上傳走 Supabase Storage 由 M-1-13 / M-1-16 落地)。
  *
+ * 本 slice(M-1-16a)落地:
+ * - variants:ProductVariant[](backlog #81 A 真變體);read 路徑接 product_variants_public 留 16c(#203)
+ *
  * 推延欄位(本 slice 不補):
- * - variants:M-1-02 Q1=A2 推延、見 backlog #81 spike trigger M-1-13 啟動前
  * - inventoryQuantity:M-1-02 Q4=A1 拍板不做(訂貨型業務不需數字)、見 backlog #33 Supersede 註
  * - SEO metadata(M-1-09 補)
  *
@@ -154,6 +191,13 @@ export type Product = {
   handle: string;
   /** 商品副標、例:'適用 Panigale V4 / 2018-2024 / 輕量化 35%'(M-1-13 ProductPage 顯示) */
   subtitle: string;
+  /**
+   * 商品變體(M-1-16a 落地 #81 A 真變體;無變體商品為空陣列 [])。
+   *
+   * read 路徑接 product_variants_public view 留 16c(adapter mapVariantRow、backlog #203);
+   * 16a 各 Product 建構點(mapper / test factory)先填 [](型別接通、真讀變體 16c)。
+   */
+  variants: ProductVariant[];
   /** entity 建立時間(adapter 邊界從 wire mapper 填) */
   createdAt: Date;
   /** entity 最後更新時間(adapter 邊界從 wire mapper 填、對齊 IProductRepository.save 樂觀鎖 trigger M-1-03) */

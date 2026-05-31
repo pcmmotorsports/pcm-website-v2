@@ -154,6 +154,9 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     availability: row.availability,
     handle: row.handle,
     subtitle: row.subtitle ?? '',
+    // M-1-16a:variants 必填、read 路徑暫填空陣列;真讀變體 16c 接 product_variants_public
+    //   (mapVariantRow embed、backlog #203)。products_public detail 投射本片不含 variants。
+    variants: [],
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };

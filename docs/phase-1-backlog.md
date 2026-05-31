@@ -4607,9 +4607,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-23 / M-1-14a-patch / Codex Review C3
 - **相關:** docs/architecture/supabase-schema-design.md §9 RLS、Phase 2 規模觸發
 
-### #172. ⏳ rls_auto_enable / ensure_rls event trigger 納管 + EXECUTE 收斂(Sean Q1=A)
+### #172. 🟡 rls_auto_enable / ensure_rls event trigger 納管 + EXECUTE 收斂(Sean Q1=A)
 
-- **狀態:** ⏳ 待執行(Sean 2026-05-23 拍 Q1=A「該做」、專門 slice 處理、不急)
+- **狀態:** 🟡 部分完成(M-1-16a 2026-05-31:function 定義 `CREATE OR REPLACE` 納管 + `REVOKE EXECUTE FROM PUBLIC,anon,authenticated` ✅、advisor 0028/0029 已清 ✅;**剩 `ensure_rls` event trigger 可重播納管未做**〔D2=A 輕量版、event trigger 已在線上運作 owner=postgres、重建有權限 + 安全網瞬斷風險〕)
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中(安全網本身有用、但「未進版控的隱形 infra」是技術債 + 2 個 advisor WARN)
 - **問題:**
@@ -4618,9 +4618,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - advisor security 2 個 WARN:`anon`/`authenticated_security_definer_function_executable`(0028/0029)— public SECURITY DEFINER function 被 PostgREST 暴露成 `/rest/v1/rpc/rls_auto_enable` 可呼叫(實際風險低:event trigger function 單獨呼叫等於空轉、`pg_event_trigger_ddl_commands()` 在非 DDL context 無資料,但 best practice 仍應收斂)。
 - **觸發事件:** Sean Q1=A 拍板「該做」、專門 slice(不擋 M-1-14c~h 進度)
 - **預期解法:**
-  - 新 migration 補上 `ensure_rls` event trigger + `rls_auto_enable()` function 完整定義(正式納管、可重播)
-  - 同 migration `REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated`(收斂 0028/0029、對齊 M-1-14a 對 handle_new_auth_user / sync_wallet 的處置)
-  - 跑 get_advisors security 確認 2 WARN 清除
+  - ✅(M-1-16a `20260531142534_govern_rls_auto_enable.sql`)`rls_auto_enable()` function 定義 `CREATE OR REPLACE` 納管(逐字抄線上 pg_get_functiondef、同義重建)
+  - ✅(M-1-16a)同 migration `REVOKE EXECUTE ON FUNCTION public.rls_auto_enable() FROM PUBLIC, anon, authenticated`(收斂 0028/0029、對齊 M-1-14a 對 handle_new_auth_user / sync_wallet 的處置)
+  - ✅(M-1-16a)get_advisors security 確認 0028/0029 兩 WARN 清除
+  - ⏳ 剩:`ensure_rls` event trigger 可重播納管(`CREATE EVENT TRIGGER` 無 OR REPLACE、需 idempotent DO block 先 DROP;owner=postgres 權限 + DROP 瞬間安全網消失風險)— D2=A 輕量版暫不做、留此子項
 - **不修會痛在:**
   - 擴充性:未進版控的 infra、新環境 / db reset 無法重建這層安全網、新表可能漏鎖
   - 可維護性:誰建的、為何建查不到;後續想改安全網行為(如擴 schema 範圍)無檔可改
@@ -5319,6 +5320,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 台灣儲值法規/商業模式定案(Sean) + TapPay sandbox(#3) + 真扣款合規。
 - **發現於:** 2026-05-31 / g-7 規劃 / Sean 主動提台灣儲值法規邊緣
 - **相關:** memory project_wallet-deposit-taiwan-legal-hold / e-3 depositWallet / #3 TapPay sandbox / docs/PHASE-1-NORTHSTAR.md(儲值金 mock 定位)/ STATUS 待決策
+
+### #203. ⏳ product_variants_public adapter 接線 + contract test(M-1-16a view 立、待 16c 切)
+
+- **狀態:** ⏳ 待執行(M-1-16c、同 M-1-16 milestone 緊接、不跨 milestone)
+- **優先級:** 🟠 中(view 立但 adapter 未切 = working-style 第 35 條反模式、不允許跨 milestone 遺留)
+- **問題:**
+  - M-1-16a 建 `product_variants` 表 + `product_variants_public` view(security_invoker、排除 price_store/metadata),但 Sean D1=A 拍板把「adapter 讀變體接線」移到 16c。
+  - 現況:view 已立、base 表防護三層已上,但 application 層尚未讀 view(adapter 5 read method / PRODUCT_SELECT_DETAIL 投射本片不動)。詳情頁尚無法顯變體。
+- **觸發事件:** M-1-16c 前台接真變體(詳情頁規格選擇器吃真 variants)— view 立必跟 adapter 切換、最遲同 milestone(working-style 第 35 條 L445/L448)。
+- **預期解法:**
+  - `SupabaseProductAdapter`:detail 查詢(findById + 新增 findByHandle)投射 embed `product_variants_public(...)`(不含 price_store);list 路徑維持不帶變體(避免 N+1 jsonb 膨脹)。
+  - mapper 加 `mapVariantRow`:從兩整數欄重組 priceByTier(general 從 price_general、store dummy、premiumStore placeholder、鏡像 mapSupabaseProductToDomain);Product.variants 填真值。
+  - **images shape 正規化**(codex 關卡2 consider 2):DB `product_variants.images` jsonb 對齊 domain `ProductVariant.images: string[]`(URL 字串陣列、**非 `[{url}]`**);16b 從來源 `[{url}]` 抽 url 寫成 string[]、16c `mapVariantRow` 直送 string[](防 16b/16c 兩種 shape 不一致;migration A inline 註解 `[{url}]` 為來源 shape、商城存 string[] 為準)。
+  - `save` 變體獨立 upsert(onConflict sku、service_role 雙寫 general+store);`updated_at` app 端帶。
+  - **contract test 驗 view 不回敏感欄**(working-style 第 35 條 L446):直接測 `product_variants_public` DDL 投射清單不含 price_store / metadata、+ adapter mapVariantRow 不洩經銷價。
+- **不修會痛在:**
+  - 擴充性:view 立 adapter 未切跨 milestone 遺留 → application strip 為主、view 為輔的反向倒置(第 35 條明禁)。
+  - 可維護性:16c 不接則詳情頁變體永遠空陣列、16b 灌的 7277 變體無消費端、形同死資料。
+  - bug 可追蹤性:無 contract test 驗 view,未來改投射欄位若誤加 price_store 無自動防線、經銷價洩漏不會被 CI 擋。
+- **估時:** 60-90 min(adapter embed + mapVariantRow + findByHandle + save 變體 + contract test;list/detail 投射拆分)
+- **依賴:** M-1-16a schema 落地(✅ 本片)
+- **發現於:** 2026-05-31 / M-1-16a / codex 關卡1 consider 2(working-style 第 35 條 view-adapter 時序)
+- **相關:** #81(variants 落地)/ working-style 第 35 條 / M-1-16 handoff §4 16c / docs/design-storefront-manifest.yaml
 
 ---
 
