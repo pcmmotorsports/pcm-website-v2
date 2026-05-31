@@ -33,6 +33,9 @@ vi.mock('@/app/account/address/actions', () => ({
   updateAddressAction: vi.fn(),
   deleteAddressAction: vi.fn(),
 }));
+vi.mock('@/app/account/vehicle/actions', () => ({
+  addVehicleAction: vi.fn(),
+}));
 vi.mock('@/app/account/profile/actions', () => ({
   updateProfileAction: vi.fn(),
 }));

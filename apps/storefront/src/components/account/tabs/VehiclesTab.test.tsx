@@ -1,19 +1,29 @@
 // @vitest-environment jsdom
 //
-// VehiclesTab smoke(g-6a 唯讀列表)— 前台 regression 安全網。
+// VehiclesTab smoke(g-6a 唯讀列表 + g-6b 新增表單)— 前台 regression 安全網。
 //
 // 驗:
-// - 標題「我的愛車」+ acc-section 殼(data-tab="vehicles")
+// - 標題「我的愛車」+ acc-section 殼(data-tab="vehicles")+「＋ 新增車輛」鈕(g-6b)
 // - 有車 → 渲染 .acc-bike 卡(h3 車型 + .acc-bike-meta 年份·引擎號);isPrimary → .acc-bike-primary class +
 //   .ap-mono「Primary」、非主車「Secondary」
-// - .acc-bike-stats 條件渲染:km/mods/service 任一有值 → 渲染(各自有值才顯);全空 → 不渲染 stats 區
+// - .acc-bike-stats 條件渲染:km/mods/service 任一有值 → 渲染;全空 → 不渲染 stats 區
 // - 多筆全渲染 / 空清單 → design 空狀態字面「尚未新增愛車 — 新增後可記錄改裝履歷。」
+// - g-6b:點「＋ 新增車輛」→ 開 InlineVehicleForm(heading「新增車輛」、車型欄)
 // - 純 prop 驅動:空 prop 無任何卡(不洩 design localStorage mock 愛車)
 //
-// g-6a 唯讀(無 action / 無 useRouter / 無 server action import)→ 不需 mock(對比 AddressTab g-5b/c)。
+// mock '@/app/account/vehicle/actions'(VehiclesTab import server action、transitively 拉 server-only 在 jsdom 爆、
+// 同 AddressTab.test 處置)+ next/navigation(InlineVehicleForm useRouter)。
 
-import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+
+vi.mock('@/app/account/vehicle/actions', () => ({
+  addVehicleAction: vi.fn(),
+}));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
 import { VehiclesTab } from './VehiclesTab';
 import type { CustomerVehicle } from '@pcm/domain';
 
@@ -36,17 +46,17 @@ function makeVeh(over: Partial<CustomerVehicle> = {}): CustomerVehicle {
   };
 }
 
-describe('VehiclesTab(g-6a 唯讀列表)', () => {
-  it('標題「我的愛車」+ acc-section 殼(data-tab="vehicles")', () => {
+describe('VehiclesTab(g-6a 唯讀列表 + g-6b 新增表單)', () => {
+  it('標題「我的愛車」+ acc-section 殼 +「＋ 新增車輛」鈕', () => {
     const { container } = render(<VehiclesTab vehicles={[]} />);
     expect(screen.getByText('我的愛車')).toBeTruthy();
     expect(container.querySelector('.acc-section[data-tab="vehicles"]')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '＋ 新增車輛' })).toBeTruthy();
   });
 
   it('有車 → .acc-bike 卡(車型 + 年份·引擎號 meta)', () => {
     const { container } = render(<VehiclesTab vehicles={[makeVeh()]} />);
     expect(screen.getByText('YAMAHA YZF-R6')).toBeTruthy();
-    // meta = year + ' · 引擎號 ' + engine(同卡片內、用 textContent 比對避免被斷成多 text node)
     expect(container.querySelector('.acc-bike-meta')?.textContent).toBe('2022 · 引擎號 RJ27-xxxxx');
   });
 
@@ -67,7 +77,6 @@ describe('VehiclesTab(g-6a 唯讀列表)', () => {
       <VehiclesTab vehicles={[makeVeh({ km: '', mods: '', service: null })]} />,
     );
     expect(container.querySelector('.acc-bike-stats')).toBeNull();
-    // 但車型 + meta 仍在
     expect(screen.getByText('YAMAHA YZF-R6')).toBeTruthy();
   });
 
@@ -82,6 +91,15 @@ describe('VehiclesTab(g-6a 唯讀列表)', () => {
   it('空清單 → 空狀態字面(design L613)', () => {
     render(<VehiclesTab vehicles={[]} />);
     expect(screen.getByText('尚未新增愛車 — 新增後可記錄改裝履歷。')).toBeTruthy();
+  });
+
+  it('g-6b:點「＋ 新增車輛」→ 開 InlineVehicleForm(heading「新增車輛」+ 車型欄)', () => {
+    const { container } = render(<VehiclesTab vehicles={[]} />);
+    expect(container.querySelector('.acc-inline-form')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    expect(container.querySelector('.acc-inline-form')).toBeTruthy();
+    expect(screen.getByText('新增車輛')).toBeTruthy();
+    expect(screen.getByPlaceholderText('YAMAHA YZF-R6')).toBeTruthy();
   });
 
   it('純 prop 驅動:空 prop 無任何 .acc-bike 卡(不洩 design mock 愛車)', () => {

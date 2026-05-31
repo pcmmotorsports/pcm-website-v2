@@ -5278,6 +5278,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #201. ⏳ 表單必填欄純空白字串驗證(name trim、跨 address/vehicle schema 一致)(Consider、codex 關卡2 g-6b)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(邊角 UX、非安全)
+- **問題:**
+  - design InlineAddressForm L703 / InlineVehicleForm L777 submit 用 `!form.name.trim()` 擋純空白;
+  - 但 server schema `AddressInput.name` / `VehicleInput.name` 用 `z.string().min(1)`(packages/schemas/src/index.ts L43/L74)、**只擋空字串不擋純空白**(「   」min(1) 通過)。
+  - 跨表單一致(address + vehicle 同樣 min(1) 非 trim)、同源差異。
+- **觸發事件:**
+  - 2026-05-31 / M-1-14e-g-6b codex 關卡2 finding(Consider、非阻擋);g-5b/g-5c address 同議題未爆、此次 vehicle 一併記。
+- **預期解法:**
+  - schema name 改 `z.string().trim().min(1)`(zod v4 trim transform);address + vehicle 同步、補純空白 → fieldErrors 測試。
+- **不修會痛在:**
+  - 可維護性:client design trim 與 server min(1) 行為不一致、後人易誤判「server 已擋空白」;
+  - bug 可追蹤性:純空白車型/收件人入庫、清單顯空白卡、難回溯是輸入問題。
+- **估時:** 15-20 min(動 packages/schemas/src/index.ts 2 處 + 測試)
+- **依賴:** 無
+- **發現於:** 2026-05-31 / M-1-14e-g-6b codex 關卡2
+- **相關:** packages/schemas/src/index.ts AddressInput/VehicleInput name / InlineAddressForm L703 / InlineVehicleForm L777
+
+---
+
 ## 紀錄模板
 
 ```markdown
