@@ -33,6 +33,10 @@
 // g-5a(2026-05-29):
 // - 新 addresses prop:CustomerAddress[](page.tsx getAddressRepo→listByCustomer 算好傳入)
 // - forward 給 AddressTab 渲染地址清單 + g-5b defaultName 預填(g-5b 接新增表單;編輯/刪除/設預設留 g-5c)
+//
+// g-6a(2026-05-31):
+// - 新 vehicles prop:CustomerVehicle[](page.tsx getVehicleRepo→listByCustomer 算好傳入)
+// - forward 給 VehiclesTab 唯讀渲染愛車清單(g-6b 接新增表單;編輯/刪除/設主車留 g-6c)
 
 import { useState } from 'react';
 import { Header } from '@/components/Header';
@@ -45,7 +49,7 @@ import { FavoritesTab } from '@/components/account/tabs/FavoritesTab';
 import { VehiclesTab } from '@/components/account/tabs/VehiclesTab';
 import { AddressTab } from '@/components/account/tabs/AddressTab';
 import { ProfileTab } from '@/components/account/tabs/ProfileTab';
-import type { MemberTier, CustomerAddress } from '@pcm/domain';
+import type { MemberTier, CustomerAddress, CustomerVehicle } from '@pcm/domain';
 import type { FeaturedResult } from '@/lib/products';
 
 export type AccountUser = { name: string; displayEmail: string };
@@ -73,9 +77,11 @@ export type AccountViewProps = {
   profile: AccountProfile;
   // g-5a:收件地址清單(page.tsx getAddressRepo→listByCustomer 算好傳入;forward 給 AddressTab 唯讀渲染)
   addresses: CustomerAddress[];
+  // g-6a:愛車清單(page.tsx getVehicleRepo→listByCustomer 算好傳入;forward 給 VehiclesTab 唯讀渲染)
+  vehicles: CustomerVehicle[];
 };
 
-export function AccountView({ user, stats, featured, profile, addresses }: AccountViewProps) {
+export function AccountView({ user, stats, featured, profile, addresses, vehicles }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
@@ -131,7 +137,7 @@ export function AccountView({ user, stats, featured, profile, addresses }: Accou
             {tab === 'orders' && <OrdersTab />}
             {tab === 'wallet' && <WalletTab />}
             {tab === 'favorites' && <FavoritesTab />}
-            {tab === 'vehicles' && <VehiclesTab />}
+            {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
           </div>

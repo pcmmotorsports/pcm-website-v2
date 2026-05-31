@@ -17,10 +17,10 @@
 // customers_update_own(auth.uid()=user_id 限自己改自己),寫入 ownership 靠 RLS row 守、欄位靠 GRANT 守。
 
 import 'server-only';
-import type { IAuthService, ICustomerRepository, IAddressRepository } from '@pcm/ports';
+import type { IAuthService, ICustomerRepository, IAddressRepository, IVehicleRepository } from '@pcm/ports';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入 IAuthService;SupabaseAuthAdapter 不持 service_role(收注入的 anon-ssr client)、本檔永不 import createSupabaseServiceClient / SupabaseWalletAdapter
 import { SupabaseAuthAdapter } from '@pcm/adapters/server';
-import { SupabaseCustomerAdapter, SupabaseAddressAdapter } from '@pcm/adapters';
+import { SupabaseCustomerAdapter, SupabaseAddressAdapter, SupabaseVehicleAdapter } from '@pcm/adapters';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
@@ -56,4 +56,18 @@ export async function getCustomerRepo(): Promise<ICustomerRepository> {
 export async function getAddressRepo(): Promise<IAddressRepository> {
   const supabase = await createServerSupabaseClient();
   return new SupabaseAddressAdapter(supabase);
+}
+
+/**
+ * 建本次 request 的 IVehicleRepository(SupabaseVehicleAdapter + cookie-aware authenticated server client)。
+ * g-6a 讀清單(listByCustomer);新增(create)g-6b、編輯(update)/刪除(delete)/設主車留 g-6c。
+ *
+ * **鏡像 getAddressRepo**:SupabaseVehicleAdapter 在 @pcm/adapters root export(非 /server subpath、
+ * eslint 放行無 -disable)、來源 client.ts 頂層 `import 'server-only'`、整條 chain 受 server-only 約束(本檔已 import)。
+ * **不持 service_role**:authenticated client 走 RLS vehicles_*_own(auth.uid()=customer_user_id 限自己 row、
+ * GRANT 守欄)、ownership 靠 RLS row 守。
+ */
+export async function getVehicleRepo(): Promise<IVehicleRepository> {
+  const supabase = await createServerSupabaseClient();
+  return new SupabaseVehicleAdapter(supabase);
 }

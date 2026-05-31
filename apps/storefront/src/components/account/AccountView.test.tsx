@@ -67,6 +67,8 @@ function renderView(overrides: Partial<AccountViewProps> = {}) {
     profile: { name: '王小明', phone: '', birthday: '' },
     // g-5a:addresses prop 必填、預設空陣列(AddressTab 唯讀列表;切到 address tab 才渲染)
     addresses: [],
+    // g-6a:vehicles prop 必填、預設空陣列(VehiclesTab 唯讀列表;切到 vehicles tab 才渲染)
+    vehicles: [],
     ...overrides,
   };
   return render(

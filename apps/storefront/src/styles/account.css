@@ -333,6 +333,55 @@
   color: var(--c-red);
 }
 
+/* ---- vehicles tab 唯讀列表卡(g-6a、對齊 design account.css L739-781)----
+ * 搬讀清單卡 11 條(.acc-bikes grid / .acc-bike / -primary / -primary .ap-mono / h3 / -meta /
+ * -stats / -stats > div / -stats span / -stats b);.acc-addr-actions 編輯/刪除鈕(g-5c 已搬、vehicles 共用)留 g-6c 接線;
+ * InlineVehicleForm 表單 CSS 留 g-6b。 */
+.acc-bikes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.acc-bike {
+  padding: 24px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+}
+.acc-bike-primary {
+  background: var(--c-text);
+  color: #fff;
+}
+.acc-bike-primary .ap-mono { color: rgba(255,255,255,0.6); }
+.acc-bike h3 {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 8px 0 6px;
+}
+.acc-bike-meta {
+  font-size: 12.5px;
+  opacity: 0.6;
+}
+.acc-bike-stats {
+  margin-top: 20px;
+  display: flex;
+  gap: 24px;
+}
+.acc-bike-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.acc-bike-stats span {
+  font-size: 11px;
+  opacity: 0.55;
+  letter-spacing: 0.04em;
+}
+.acc-bike-stats b {
+  font-size: 15px;
+  font-weight: 600;
+}
+
 /* ---- address tab 唯讀列表卡(g-5a、對齊 design account.css L784-813)----
  * 搬讀清單卡 5 條(.acc-addr / -tag / -name / -phone / -line);
  * .acc-inline-form(L1008+ 表單)g-5b 已搬(見下方 g-5b 段);.acc-addr-actions(L814-824 編輯/刪除鈕)g-5c 已搬(見 .acc-addr-line 下方);
@@ -569,6 +618,9 @@
   .acc-stats { grid-template-columns: 1fr; }
   .acc-stat-v { font-size: 26px; }
   .acc-rec { grid-template-columns: 1fr 1fr; }
+  /* vehicles tab mobile(g-6a、對齊 design L913-914)*/
+  .acc-bikes { grid-template-columns: 1fr; }
+  .acc-bike h3 { font-size: 18px; }
   /* profile tab mobile(g-4b、對齊 design L915-916)*/
   .acc-profile { grid-template-columns: 1fr; }
   .acc-profile .auth-submit { grid-column: 1; }
@@ -607,6 +659,9 @@
 [data-mobile="true"] .acc-stats { grid-template-columns: 1fr; }
 [data-mobile="true"] .acc-stat-v { font-size: 26px; }
 [data-mobile="true"] .acc-rec { grid-template-columns: 1fr 1fr; }
+/* vehicles tab mobile(g-6a、對齊 design L913-914)*/
+[data-mobile="true"] .acc-bikes { grid-template-columns: 1fr; }
+[data-mobile="true"] .acc-bike h3 { font-size: 18px; }
 /* profile tab mobile(g-4b、對齊 design L915-916)*/
 [data-mobile="true"] .acc-profile { grid-template-columns: 1fr; }
 [data-mobile="true"] .acc-profile .auth-submit { grid-column: 1; }

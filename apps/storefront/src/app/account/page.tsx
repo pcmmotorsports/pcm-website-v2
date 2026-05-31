@@ -36,11 +36,11 @@
 
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getAddressRepo } from '@/lib/auth/composition';
+import { getAddressRepo, getVehicleRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
 import { fetchFeaturedProducts } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
-import type { MemberTier, CustomerAddress } from '@pcm/domain';
+import type { MemberTier, CustomerAddress, CustomerVehicle } from '@pcm/domain';
 
 export const dynamic = 'force-dynamic';
 
@@ -106,6 +106,16 @@ export default async function AccountPage() {
     console.error('[account/page] addresses 讀取失敗、退化空陣列:', addressError);
   }
 
+  // g-6a:讀自己的愛車清單(getVehicleRepo→listByCustomer、RLS vehicles_*_own 守自己 row)。
+  // 鏡像 g-5a addresses 退化 pattern:adapter error(RLS/連線異常)→ 退化空陣列 + console.error、頁面不 500
+  // (VehiclesTab 走空狀態)。新增表單(addVehicle)g-6b 接;編輯/刪除/設主車留 g-6c。
+  let vehicles: CustomerVehicle[] = [];
+  try {
+    vehicles = await (await getVehicleRepo()).listByCustomer(user.id);
+  } catch (vehicleError) {
+    console.error('[account/page] vehicles 讀取失敗、退化空陣列:', vehicleError);
+  }
+
   return (
     <AccountView
       user={{ name, displayEmail }}
@@ -113,6 +123,7 @@ export default async function AccountPage() {
       featured={featured}
       profile={{ name, phone, birthday }}
       addresses={addresses}
+      vehicles={vehicles}
     />
   );
 }

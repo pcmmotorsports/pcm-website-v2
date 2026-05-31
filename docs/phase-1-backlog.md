@@ -5250,6 +5250,34 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #200. ⏳ 「我的愛車」車款 → products filter 快速帶入(跨 bounded context 連動、綁 Phase 2 結構化 vehicles)
+
+- **狀態:** ⏳ 待實作(Sean 2026-05-31 g-6 規劃時提:在 filter 附近加功能、讓 filter 快速帶入我的愛車車款;拍 ③.5=A 連動綁 Phase 2、g-6 先照 design 自由文字)
+- **優先級:** 🟠 中(真會員資料接入後的 UX 完整性;Phase 1 不擋 g-6、屬 Phase 1.5 / Phase 2 範圍)
+- **問題:**
+  - 會員中心「我的愛車」(`customer_vehicles.name`)是**自由文字**(例「YAMAHA YZF-R6」、design InlineVehicleForm L760 text input);
+  - products filter / 商品適用車款是**結構化**(`vehicleFilter:{brand,model,year}`、design HANDOFF-OVERVIEW L133;`FitmentSpec{motoBrand,modelCode,yearStart,yearEnd}`、catalog/types.ts L75);
+  - graphify 結構驗證(2026-05-31、graph@76c40bc):`CustomerVehicle`(Identity context、community 28)與 `FitmentSpec`(Catalog context、community 19)**零邊相連** → 連動需跨 bounded context 架橋、非小改;
+  - 自由文字 → 結構化對映不可靠(backlog 既記「R9 / YZF R9 / YZFR9 → 同一車」別名分層難題、見 #177 周邊);硬接會「YZF-R6 vs R6 對不上 = 空」。
+- **觸發事件:**
+  - 2026-05-31 / M-1-14e-g-6 規劃 / Sean 提「filter 附近快速帶入愛車車款」+ 拍 ③.5=A(graph + 紀錄佐證連動天生 Phase 2)
+- **預期解法(Phase 2、跟結構化 vehicles 一起):**
+  - ① customer_vehicles → Phase 2 獨立結構化 Vehicle entity(brand / model / year 分離、對齊 docs/features/vehicle-service-ecosystem.md §5.1 + bounded-contexts.md L29);
+  - ② products filter 真按車款過濾啟用(依賴 #152、現照搬 design 不過濾);
+  - ③ 會員中心 / products 頁加「用我的愛車找配件」鈕 → 寫 design 既有 `pcm-vehicle-filter` localStorage SoT + dispatch `pcm-vehicle-filter-change`(HANDOFF-OVERVIEW L141)→ 跨頁帶入;
+  - ④ 車款名稱正規化(品牌 / 型號別名分層、#177 周邊)確保 filter ↔ fitment ↔ 愛車三方對齊。
+  - (Phase 1.5 替代:若 Sean 要早看到、可先做「盡力版」free-text→filter best-effort prefill、但對映不保證準、且依賴 #152 先啟用;成本/效果權衡待 Sean 拍)
+- **不修會痛在:**
+  - 擴充性:愛車與商品搜尋永遠隔離、會員「用我的車找配件」這條轉化路徑斷掉;
+  - 可維護性:若 Phase 1 硬塞結構化欄位、Phase 2 重構 vehicles 時變兩套 schema 對映;
+  - bug 可追蹤性:自由文字硬接 filter、對不上時 silently 回空、難回溯是資料問題還是邏輯問題。
+- **估時:** Phase 2 範圍(結構化 vehicles + filter 過濾 + 帶入鈕 + 正規化合計數天);Phase 1.5 盡力版約 2-3 hr(依賴 #152)。
+- **依賴:** Phase 2 結構化 vehicles entity;#152(filter 真過濾);#177(vehicle service 正規化周邊);#195(/vehicle-search 找車路由)。
+- **發現於:** 2026-05-31 / g-6 規劃 / graphify 結構驗證(Identity↔Catalog 零邊)
+- **相關:** packages/domain/src/identity/vehicle.ts(CustomerVehicle 自由文字)/ packages/domain/src/catalog/types.ts FitmentSpec / apps/storefront/src/components/FilterSide.tsx + filter-state.ts / design-reference/design-reference/HANDOFF-OVERVIEW.md L133/L141(vehicleFilter SoT)/ docs/features/vehicle-service-ecosystem.md(Phase 2 PRD)/ #152 / #177 / #195
+
+---
+
 ## 紀錄模板
 
 ```markdown
