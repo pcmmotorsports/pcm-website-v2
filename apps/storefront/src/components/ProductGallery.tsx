@@ -55,12 +55,36 @@ function productGallery(seed: number): string[] {
   ];
 }
 
+// M-1-16c-3:圖片 src 解析。真圖(usingReal)= 完整 URL(shopify CDN、已含尺寸/版本參數)直送;
+//   fallback(無真圖)= 既有 unsplash seed-id template(帶尺寸參數)。
+function resolveSrc(item: string, usingReal: boolean, w: number, q: number, fit: string): string {
+  if (usingReal) return item;
+  return `https://images.unsplash.com/${item}?w=${w}&q=${q}&auto=format&fit=${fit}`;
+}
+
 export type ProductGalleryProps = { product: MockProduct };
 
 export function ProductGallery({ product }: ProductGalleryProps) {
-  const gallery = useMemo(() => productGallery(product.id), [product.id]);
+  // M-1-16c-3:詳情頁吃真 product.images(群代表圖);無圖 fallback seed placeholder gallery。
+  //   變體換圖(currentVariant.images)留 16c-4(需 selectedVariant 狀態提升 ProductPage)。
+  const { gallery, usingReal } = useMemo(() => {
+    const real = product.images?.length
+      ? product.images
+      : product.image
+        ? [product.image]
+        : [];
+    return real.length > 0
+      ? { gallery: real, usingReal: true }
+      : { gallery: productGallery(product.id), usingReal: false };
+  }, [product.images, product.image, product.id]);
   const [activeImg, setActiveImg] = useState(0);
   const [lightbox, setLightbox] = useState(false);
+
+  // M-1-16c-3:gallery 來源變更(換商品 / 16c-4 變體換圖)時 reset activeImg 到 0、
+  //   防 gallery[activeImg] 越界空圖(codex 關卡2 consider;route 重掛載已 0、此為 in-place 換源防線)。
+  useEffect(() => {
+    setActiveImg(0);
+  }, [gallery]);
 
   const heroSwipeXRef = useRef(0);
   const heroSwipeYRef = useRef(0);
@@ -135,7 +159,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
           <div className="pd-hero-track" style={{ transform: `translateX(-${activeImg * 100}%)` }}>
             {gallery.map((id, i) => (
               <div key={i} className="pd-hero-slide">
-                <img src={`https://images.unsplash.com/${id}?w=1200&q=85&auto=format&fit=crop`} alt={product.name} />
+                <img src={resolveSrc(id, usingReal, 1200, 85, 'crop')} alt={product.name} />
               </div>
             ))}
           </div>
@@ -171,7 +195,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
               onClick={() => setActiveImg(i)}
               aria-label={`圖片 ${i + 1}`}
             >
-              <img src={`https://images.unsplash.com/${id}?w=200&q=75&auto=format&fit=crop`} alt="" loading="lazy" />
+              <img src={resolveSrc(id, usingReal, 200, 75, 'crop')} alt="" loading="lazy" />
             </button>
           ))}
         </div>
@@ -198,7 +222,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
             }}
           >
             <img
-              src={`https://images.unsplash.com/${gallery[activeImg]}?w=2000&q=90&auto=format&fit=contain`}
+              src={resolveSrc(gallery[activeImg]!, usingReal, 2000, 90, 'contain')}
               alt={product.name}
               onClick={() => setLightbox(false)}
               style={{ cursor: 'zoom-out' }}

@@ -67,7 +67,16 @@ export function ProductPage({ product, tier }: ProductPageProps) {
   const addToCart = () => {
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
     // (Codex M-1-13e-b review P1:不用 mock-only product.id:number)
-    addItem({ productId: product.slug, qty: 1, color: product.color, size: null });
+    // M-1-16c-3:變體商品的 mobile sticky buybar 加購用**預設(第一個)變體 sku** 當 discriminator
+    //   (codex 關卡2 consider:原 product.color='silver' 非 SKU);本片 ProductInfo selectedVariant
+    //   為 local state、buybar 讀不到使用者選的變體 → 加**預設**變體、非選中變體(記錄限制、16c-4
+    //   狀態提升 ProductPage 後 buybar 同步使用者選擇)。無變體 → 退回 product.color(mock 既有)。
+    addItem({
+      productId: product.slug,
+      qty: 1,
+      color: product.variants?.[0]?.sku ?? product.color,
+      size: null,
+    });
   };
 
   // M-1-13e-b:hasDiscount derived(對齊 design L140 字面)— Mobile sticky bar mbb-orig 三元判斷用

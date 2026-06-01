@@ -109,6 +109,17 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     //   無圖 → null、ProductImage fallback seed placeholder。修首頁/卡片「通用機車生活照」根因
     //   (原只設 imgTone:'neutral'、ProductImage 用 seed 生成 unsplash 通用照)。
     image: product.images[0] ?? null,
+    // M-1-16c-3:商品圖全陣列(ProductGallery 詳情頁用;image 為其第一張)。
+    images: product.images,
+    // M-1-16c-3:變體 server-side strip → UIVariant(只帶 price:number = general、**不帶 priceByTier**;
+    //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
+    //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。
+    variants: product.variants.map((v) => ({
+      sku: v.sku,
+      spec: v.spec,
+      price: v.priceByTier.general.amount,
+      images: v.images,
+    })),
     originalPrice,
     tierLabel,
   };
@@ -161,4 +172,25 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
     console.error('[fetchFeaturedProducts] adapter.listByCategory failed:', err);
     return { products: [], error: true };
   }
+}
+
+/**
+ * 依 handle(SEO slug)撈單筆商品 + 真變體(M-1-16c-3:詳情頁接真)。
+ *
+ * 走 SupabaseProductAdapter.findByHandle(embed product_variants_public、含變體);
+ * 找不到 → null(caller page.tsx 走 notFound());adapter 其他 error 往上拋(Next error boundary、非 404)。
+ *
+ * 🔴 **釘 general**:詳情頁 Phase-1 顯 general 公開價(不收 tier 參數、固定 'general')。
+ *   理由:public view 排除 price_store、store/premiumStore 走 dummy 0;若傳真 tier 給 toUIProduct
+ *   會對 store/premiumStore 顯「NT$ 0」(codex 16c-3 k1 must-fix 2)。變體 UI 價亦取 general。
+ *   tier-aware 詳情價待 M-2-08 server-side pricing endpoint(同 featured g-2 'general' 釘法)。
+ */
+export async function fetchProductByHandle(handle: string): Promise<MockProduct | null> {
+  const client = createSupabaseAnonClient();
+  const adapter = new SupabaseProductAdapter(client);
+  const product = await adapter.findByHandle(handle);
+  if (!product) {
+    return null;
+  }
+  return toUIProduct(product, 'general');
 }

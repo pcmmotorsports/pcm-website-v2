@@ -21,6 +21,25 @@ export function brandToSlug(brand: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/**
+ * UI 變體(M-1-16c-3:詳情頁規格選擇器吃的真變體 shape)。
+ *
+ * 🔴 經銷價防護:**只帶單一 `price: number`(= priceByTier.general、唯一真值)**、
+ *   **不帶 priceByTier**(經銷結構不進 client bundle);toUIProduct server-side strip。
+ *   變體無真經銷價(public view 排除 price_store)、tier-aware 變體價延 M-2-08。
+ * availability 不帶(Q4=A 沿用 #161 不顯庫存)。
+ */
+export type UIVariant = {
+  /** 變體料號(全表 UNIQUE、cart line discriminator) */
+  sku: string;
+  /** 規格自由 key-value(weave/finish/special;選擇器資料驅動渲染) */
+  spec: Record<string, string>;
+  /** 對外顯示價(= priceByTier.general.amount、整數元位) */
+  price: number;
+  /** 變體圖 URL 陣列(16c-4 換圖用;空 → fallback 商品圖) */
+  images: string[];
+};
+
 export type MockProduct = {
   id: number;
   /** URL-safe ASCII slug,格式 `${brandToSlug(brand)}-${id}`、unique(brand+id 天然 unique);M-1-13a 落地、M-1-16 真資料種子時必填 */
@@ -42,6 +61,16 @@ export type MockProduct = {
    * 既有 seed placeholder gallery。mock 資料省略此欄(走 fallback、不破舊測試)。
    */
   image?: string | null;
+  /**
+   * 商品圖片陣列(M-1-16c-3:toUIProduct ← domain `product.images`、群代表圖全陣列;
+   * ProductGallery 詳情頁用)。`image` 為其第一張、卡片用。mock 省略 → ProductGallery fallback。
+   */
+  images?: string[];
+  /**
+   * 商品變體(M-1-16c-3:詳情頁規格選擇器吃的真變體;toUIProduct server-side strip 自 domain
+   * ProductVariant、只帶 price:number〔general〕不帶 priceByTier)。mock 省略 → 不渲染選擇器、向後相容。
+   */
+  variants?: UIVariant[];
   /** 劃線價:store / premiumStore 顯示時的 general 原價、general tier 為 null;sub 4b toUIProduct 內 server-side dispatch 填值 */
   originalPrice?: number | null;
   /** 會員身份標籤(對齊 design-reference/components/Pricing.jsx L62 + L103 真權威字面);general tier 為 null */

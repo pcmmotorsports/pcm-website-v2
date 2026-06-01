@@ -1,133 +1,178 @@
-// ProductInfo.tsx — 商品詳細頁右欄 pd-info column 子元件(M-1-13d、對齊 13c ProductGallery 拆檔模式)
+// ProductInfo.tsx — 商品詳細頁右欄 pd-info column 子元件
 //
-// 字面從 design-reference/components/ProductPage.jsx @ 25d3a2a 直接搬:
-// - L96-104 sizeOptions useMemo(4 個 category includes 分支)
-// - L107-111 colorOptions useMemo(pool 8 色 filter slice、主色 + 2 extras)
-// - L113-115 color/size useState(qty useState 延 13e Buy Row 真用時加、避免 unused state lint)
-// - L120-125 reset useEffect(deps 比 design 多加 product.color + sizeOptions、防 React 19 react-hooks/exhaustive-deps stale closure)
-// - L144-151 colorMap → COLOR_MAP 常數(補 yellow / blue 對應 MOCK_PRODUCTS 真實數據)
-// - L266-332 pd-info column 上半 JSX(brand row + sku + title + fits-banner + color/size options)
+// M-1-16c-3:由 mock hardcode(COLOR_MAP/sizeOptions/colorOptions 顏色×規格)改吃**真變體**。
+// Sean Q1-4=A 拍板:
+//   - Q1=A 規格選擇器全用文字按鈕(沿用 design .pd-size-grid/.pd-size-btn 樣式;紋路/表面無真實單色)
+//   - Q2=A 規格顯中文(SPEC_VALUE_LABEL;未對照則 fallback 原值)
+//   - Q3=A 資料驅動:每個 distinct 值 >1 的 spec key 各渲染一排(weave/finish/special 通吃、含未來擴充);
+//          special 僅部分變體有 → 加「標準」(NONE)選項代表無特殊材質
+//   - Q4=A 沿用 #161 不顯庫存(變體 availability 不顯、按鈕永遠可點、訂貨型業務)
 //
-// 'use client' 必要:useEffect / useMemo / useState + 互動 onClick(swatch / size button)
-// 對齊 ADR-0006 §1 白名單「Hooks → 'use client'」。
+// 選了變體 → currentVariant(snap 最近、稀疏矩陣保證有效)→ 換價(displayPrice = selectedVariant.price)。
+// 變體 UI 價 = priceByTier.general(toUIProduct 已 strip、不帶 priceByTier;詳情頁釘 general、無 NT$0)。
 //
-// 本 sub-slice 不渲染:
-// - product.price / origPrice / discountPct / tierLabel(留 13e、#130 tier resolution helper 第 3 處撞)
-// - product.inStock / availability(留 13e、Q2=A 2026-05-20 拍板 + #82 mapper trigger)
-// - qty spinner / add-to-cart / like / 立即購買 / services(留 13e)
+// 字面 vs 事實:design ProductPage.jsx 原是顏色 swatch + 規格 size grid(mock 色/尺寸);RPM 真變體是
+//   紋路×表面(×特殊)、無「顏色」概念 → Q1=A 業務 override(鐵則 1 例外、Webike 式變體)。沿用 .pd-opt
+//   /.pd-size-grid/.pd-size-btn 選擇器 chrome、只換資料源 + 標籤。
 //
-// 鐵則 9 L3 標記:COLOR_MAP 8 色 + sizeOptions 4 分支 hardcode 屬 L3(員工後台會新增規格);
-// Q1=A 2026-05-20 拍板:先搬 design hardcoded、M-5-03 sync engine 前真撞才 spike #81(PRD 級條目)。
+// 本片 selectedVariant 為 **local state**(16c-4 才提升 ProductPage 給 mobile buybar / gallery 共用);
+//   mobile buybar(ProductPage)本片加購用 product 預設變體 = 記錄限制、16c-4 同步(codex 16c-3 k1 consider 2)。
+//
+// 向後相容:product.variants 空/undefined → 不渲染選擇器、價顯 product.price(mock / related 商品不破)。
+//
+// 'use client' 必要:useState / useMemo / useEffect + 互動 onClick。對齊 ADR-0006 §1 白名單「Hooks → 'use client'」。
 
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
-import type { MockProduct } from '@/data/mock-products';
+import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
 import { ProductServices } from './ProductServices';
 
 export type ProductInfoProps = { product: MockProduct; tier: MemberTier };
 
-// COLOR_MAP — 6 色字面對齊 design ProductPage.jsx L144-151;yellow / blue 2 色補齊
-// 對應 MOCK_PRODUCTS 真實數據(ohlins-8 'yellow' 等)、避免 fallback 顯示英文 id。
-const COLOR_MAP: Record<string, { label: string; swatch: string }> = {
-  black: { label: '黑色', swatch: '#1a1a1a' },
-  carbon: { label: '消光碳纖', swatch: 'linear-gradient(135deg, #2a2a2a 25%, #4a4a4a 50%, #2a2a2a 75%)' },
-  red: { label: '賽道紅', swatch: '#c41e3a' },
-  gold: { label: '陽極金', swatch: 'linear-gradient(135deg, #d4a853, #b8892c)' },
-  titanium: { label: '鈦灰', swatch: 'linear-gradient(135deg, #8a8278, #6b635a)' },
-  silver: { label: '銀色', swatch: 'linear-gradient(135deg, #d4d4d4, #a3a3a3)' },
-  yellow: { label: '螢光黃', swatch: '#f5d800' },
-  blue: { label: '深海藍', swatch: '#1e3a8a' },
+// 規格 key 顯示順序(已知者優先、其餘按字母附後)+ 中文名(Q2=A;未列 key fallback 原值)
+const SPEC_KEY_ORDER = ['weave', 'finish', 'special'] as const;
+const SPEC_KEY_LABEL: Record<string, string> = {
+  weave: '紋路',
+  finish: '表面',
+  special: '特殊材質',
+};
+const SPEC_VALUE_LABEL: Record<string, Record<string, string>> = {
+  weave: { Forged: '鍛造紋', Honeycomb: '蜂巢紋', Plain: '平紋', Twill: '斜紋' },
+  finish: { Glossy: '亮面', Matt: '消光' },
+  special: { '12K': '12K碳纖', Kevlar: 'Kevlar芳綸' },
 };
 
+// 「無此規格」sentinel(special 僅部分變體有、缺此 key 的變體歸此值、選項顯「標準」、Q3=A)
+const SPEC_NONE = '__PCM_SPEC_NONE__';
+const SPEC_NONE_LABEL = '標準';
+
+function specKeyLabel(key: string): string {
+  return SPEC_KEY_LABEL[key] ?? key;
+}
+function specValueDisplay(key: string, value: string): string {
+  if (value === SPEC_NONE) return SPEC_NONE_LABEL;
+  return SPEC_VALUE_LABEL[key]?.[value] ?? value;
+}
+/** 變體在某 spec key 的值(缺則為 NONE sentinel、統一比對) */
+function variantValue(v: UIVariant, key: string): string {
+  return v.spec[key] ?? SPEC_NONE;
+}
+
+type SpecGroup = { key: string; values: string[] };
+
 export function ProductInfo({ product, tier }: ProductInfoProps) {
-  // Size options based on category(對齊 design L96-104 字面、4 個 includes 分支)
-  const sizeOptions = useMemo<string[] | null>(() => {
-    const c = product.category || '';
-    if (c.includes('排氣')) return ['Standard', 'Race-Only'];
-    if (c.includes('碳纖') || c.includes('飾板')) return ['Matte', 'Gloss'];
-    if (c.includes('避震') || c.includes('前叉')) return ['Road', 'Track'];
-    if (c.includes('卡鉗') || c.includes('碟盤')) return ['街道版', '賽道版'];
-    return null;
-    // M-1-13Z: 刪多餘 product.id dep(body 未用、純語意正確化、Sean 2026-05-23 Q=A 拍板解禁)
-  }, [product.category]);
+  const variants = product.variants ?? [];
+  const hasVariants = variants.length > 0;
 
-  // Color options — 主色 + 2 個 extras(對齊 design L107-111 字面、pool 8 色)
-  const colorOptions = useMemo<string[]>(() => {
-    const pool = ['black', 'carbon', 'red', 'gold', 'titanium', 'silver', 'yellow', 'blue'];
-    const extras = pool.filter((c) => c !== product.color).slice(0, 2);
-    return [product.color, ...extras];
-    // M-1-13Z: 刪多餘 product.id dep(body 未用、純語意正確化、Sean 2026-05-23 Q=A 拍板解禁)
-  }, [product.color]);
+  // 派生選擇器:每個 spec key 的 distinct 值;只渲染 distinct >1 的 key(Q3=A 資料驅動)。
+  // key 排序 SPEC_KEY_ORDER 已知優先、其餘字母序;special 等部分變體缺的 key 加 NONE「標準」。
+  const specGroups = useMemo<SpecGroup[]>(() => {
+    const vs = product.variants ?? [];
+    const keys = new Set<string>();
+    for (const v of vs) for (const k of Object.keys(v.spec)) keys.add(k);
+    const known = SPEC_KEY_ORDER.filter((k) => keys.has(k));
+    const rest = [...keys]
+      .filter((k) => !(SPEC_KEY_ORDER as readonly string[]).includes(k))
+      .sort();
+    return [...known, ...rest]
+      .map((key) => {
+        const values: string[] = [];
+        let hasAbsent = false;
+        for (const v of vs) {
+          const val = v.spec[key];
+          if (val === undefined) hasAbsent = true;
+          else if (!values.includes(val)) values.push(val);
+        }
+        return { key, values: hasAbsent ? [SPEC_NONE, ...values] : values };
+      })
+      .filter((g) => g.values.length > 1);
+  }, [product.variants]);
 
-  // Options state(對齊 design L113-115)
-  const [color, setColor] = useState<string>(product.color);
-  const [size, setSize] = useState<string | null>(sizeOptions?.[0] ?? null);
-  // M-1-13e-a:qty / liked state(對齊 design L115 + L117)
+  // selectedVariant local state(預設第一個變體、已 sortOrder+sku 排序;16c-4 提升 ProductPage)
+  const [selectedVariant, setSelectedVariant] = useState<UIVariant | null>(
+    variants[0] ?? null,
+  );
   const [qty, setQty] = useState<number>(1);
   const [liked, setLiked] = useState<boolean>(false);
-
-  // M-1-13e-b:接 CartContext;對齊 design L127-130 addToCart 行為
-  // (Phase 1 mock:localStorage 暫存、無後端;M-3 swap 真結帳時介面不變)
   const { addItem } = useCart();
 
-  // Reset on product change(對齊 design L120-125;deps 比 design 多加 product.color + sizeOptions
-  // 防 React 19 react-hooks/exhaustive-deps stale closure)
+  // product 變更 → reset selectedVariant + qty(對齊原 reset 行為;test rerender / 換商品)
   useEffect(() => {
-    setColor(product.color);
-    setSize(sizeOptions?.[0] ?? null);
+    setSelectedVariant(product.variants?.[0] ?? null);
     setQty(1);
-  }, [product.id, product.color, sizeOptions]);
+  }, [product.variants]);
+
+  // 選某 spec key 的值:候選 = 該 key=value 的變體;snap「與當前其他維度相符最多」者
+  // (稀疏矩陣保證選到有效變體、不卡死;候選保留 variants 排序、首個 max-score 穩定 tie-break)。
+  const selectSpec = (key: string, value: string) => {
+    const candidates = variants.filter((v) => variantValue(v, key) === value);
+    if (candidates.length === 0) return;
+    const cur = selectedVariant;
+    let best = candidates[0]!;
+    let bestScore = -1;
+    for (const v of candidates) {
+      let score = 0;
+      if (cur) {
+        for (const g of specGroups) {
+          if (g.key === key) continue;
+          if (variantValue(v, g.key) === variantValue(cur, g.key)) score += 1;
+        }
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        best = v;
+      }
+    }
+    setSelectedVariant(best);
+  };
+
+  // 顯示價:選到變體用變體價(general)、否則 product.price(無變體 mock fallback)
+  const displayPrice = selectedVariant?.price ?? product.price;
 
   const addToCart = () => {
-    // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
-    // (Codex M-1-13e-b review P1:不用 mock-only product.id:number 當 cart 契約、避免 hash collision + M-3 反查失敗)
-    addItem({ productId: product.slug, qty, color, size });
+    // M-1-16c-3:變體 sku 當 cart line discriminator(全表 UNIQUE + 穩定、無碰撞/翻譯失效;
+    //   codex 關卡1 consider 1)。CartLineKey {productId,color,size} 不改契約、sku 走 color 欄。
+    //   無變體 → color undefined(同 mock 既有)。proper variantSku cart key 留 backlog。
+    addItem({
+      productId: product.slug,
+      qty,
+      color: selectedVariant?.sku,
+      size: null,
+    });
   };
 
   return (
     <aside className="pd-info">
-      {/* M-1-13H-2:SKU line 字面從 design VariantCFull.jsx L81 直接搬、取代 13d brand-row 段
-          (對應 HANDOFF #4 + PRD §4 slice-2)
-          原 brand-row(brand-link + 外連 svg + 獨立 sku)→ 單一 mono 行「{brand} · PCM-{id}」 */}
+      {/* M-1-13H-2:SKU line「{brand} · PCM-{id}」(design VariantCFull.jsx L81) */}
       <div className="pd-sku">{product.brand} · PCM-{String(product.id).padStart(5, '0')}</div>
 
       <h1 className="pd-title">{product.name}</h1>
 
-      {/* M-1-13H-2:副標字面從 design VariantCFull.jsx L83 直接搬(對應 HANDOFF #6)
-          字面 `${product.fits} · ${brandCountry}原裝進口`、brandCountry Phase 1 L2 hardcoded
-          「義大利」對齊 design;MOCK_PRODUCTS 約 60% 義大利品牌(Lightech / CNC Racing / Brembo /
-          Rizoma / Termignoni)、其餘 Akrapovič(斯洛維尼亞)/ Öhlins(瑞典)/ GB Racing(英國)
-          Phase 1 字面顯「義大利」屬 placeholder、Phase 2 接 brand 表 country 欄位真區分
-          (backlog #162);同時 #7 移除原 .pd-fits-banner 厚 banner、資訊併進此副標 */}
+      {/* M-1-13H-2:副標(design VariantCFull.jsx L83);brandCountry Phase 1 L2 hardcoded「義大利」(backlog #162) */}
       <div className="pd-sub">適用 {product.fits || '通用款'} · 義大利原裝進口</div>
 
-      {/* M-1-13H-3:price block 改 22px Inter sans 黑(對應 HANDOFF #8、字面從 design
-          explorations.css L767-776 直接搬);原 13d 36px Cormorant serif → 22px Inter sans;
-          .pd-price-meta → .pd-price-sub class rename 對齊 design `.vc-price-sub`;
-          .pd-price-save 從「省 NT$ X」紅 tag 改 mono 灰字「-{折扣百分比}%」(HANDOFF L150);
-          tier 經銷邏輯 + showRedPrice .pd-price.is-red 保留(M-1-13e-a/b 既有);
-          mock 路徑 product.price 仍 retail、tier='store'/'premiumStore' 顯 tag 但價格未真經銷化、
-          M-1-16 接 Supabase findBySlug + toUIProduct(p, tier) 才真區分(backlog #161)。 */}
+      {/* M-1-16c-3:價改 displayPrice(選變體換價);詳情頁釘 general、tier 經銷分支 general 不觸發
+          (變體無真經銷價、tier-aware 變體價延 M-2-08);非變體 mock 走 product.price + 原 tier/orig 條件 */}
       <div className="pd-price-block">
         <div className="pd-price-row">
-          <span className="pd-price">NT$ {product.price.toLocaleString()}</span>
+          <span className="pd-price">NT$ {displayPrice.toLocaleString()}</span>
           {tier === 'store' || tier === 'premiumStore' ? (
             <>
               <span className="pd-price-orig">
-                NT$ {(product.origPrice ?? product.price).toLocaleString()}
+                NT$ {(product.origPrice ?? displayPrice).toLocaleString()}
               </span>
               <span className="pd-price-tag-dealer">經銷價</span>
             </>
-          ) : product.origPrice && product.origPrice > product.price ? (
+          ) : product.origPrice && product.origPrice > displayPrice ? (
             <>
               <span className="pd-price-orig">
                 NT$ {product.origPrice.toLocaleString()}
               </span>
               <span className="pd-price-save">
-                −{Math.round(((product.origPrice - product.price) / product.origPrice) * 100)}%
+                −{Math.round(((product.origPrice - displayPrice) / product.origPrice) * 100)}%
               </span>
             </>
           ) : null}
@@ -135,61 +180,38 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
         <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>
       </div>
 
-      {/* M-1-13H-3:swatch 結構從 40 方 + .pd-swatch-dot 巢 span → 24 圓 + outline active
-          (對應 HANDOFF #9 + design VariantCFull L88-91);background style 直接設在 button、
-          移除內含 .pd-swatch-dot 巢狀 span(無 child 元素、純圓 button) */}
-      <div className="pd-opt">
-        <div className="pd-opt-head">
-          <span className="pd-opt-label">顏色</span>
-          <span className="pd-opt-value">{COLOR_MAP[color]?.label || color}</span>
-        </div>
-        <div className="pd-swatches">
-          {colorOptions.map((c) => (
-            <button
-              key={c}
-              type="button"
-              className={`pd-swatch ${color === c ? 'is-active' : ''}`}
-              onClick={() => setColor(c)}
-              title={COLOR_MAP[c]?.label || c}
-              aria-label={`選擇顏色 ${COLOR_MAP[c]?.label || c}`}
-              aria-pressed={color === c}
-              style={{ background: COLOR_MAP[c]?.swatch || c }}
-            />
-          ))}
-        </div>
-      </div>
+      {/* M-1-16c-3:資料驅動變體選擇器(Q1=A 文字鈕 .pd-size-grid/.pd-size-btn、Q2=A 中文、
+          Q3=A 每 distinct>1 spec key 一排、special 加「標準」、Q4=A 不顯庫存不 disable)。
+          取代原 COLOR_MAP swatch + sizeOptions hardcode(mock 階段、RPM 無顏色概念)。 */}
+      {hasVariants &&
+        specGroups.map((g) => {
+          const curVal = selectedVariant ? variantValue(selectedVariant, g.key) : undefined;
+          return (
+            <div className="pd-opt" key={g.key}>
+              <div className="pd-opt-head">
+                <span className="pd-opt-label">{specKeyLabel(g.key)}</span>
+                <span className="pd-opt-value">
+                  {curVal !== undefined ? specValueDisplay(g.key, curVal) : ''}
+                </span>
+              </div>
+              <div className="pd-size-grid">
+                {g.values.map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    className={`pd-size-btn ${curVal === val ? 'is-active' : ''}`}
+                    onClick={() => selectSpec(g.key, val)}
+                    aria-pressed={curVal === val}
+                  >
+                    {specValueDisplay(g.key, val)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
 
-      {sizeOptions && (
-        <div className="pd-opt">
-          <div className="pd-opt-head">
-            <span className="pd-opt-label">規格</span>
-            <a
-              href="#"
-              className="pd-opt-guide"
-              onClick={(e) => e.preventDefault()}
-            >
-              規格說明 →
-            </a>
-          </div>
-          <div className="pd-size-grid">
-            {sizeOptions.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className={`pd-size-btn ${size === s ? 'is-active' : ''}`}
-                onClick={() => setSize(s)}
-                aria-pressed={size === s}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* M-1-13e-a:Buy row 字面從 design ProductPage.jsx L334-349 直接搬。
-          Sean 2026-05-21 業務拍板(對應 backlog #161):全部 disabled={!product.inStock}
-          + 三元字面替換「補貨中 · 通知我」移除、按鈕固定文字「加入購物車」、永遠可點。 */}
+      {/* M-1-13e-a:Buy row(design ProductPage.jsx L334-349);#161 業務拍板:永遠可點、無 disabled */}
       <div className="pd-buy-row">
         <div className="pd-qty">
           <button
@@ -232,12 +254,12 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
         </button>
       </div>
 
-      {/* M-1-13e-a:buynow 字面從 design ProductPage.jsx L351 直接搬;移除 disabled、文字「立即購買」固定 */}
+      {/* M-1-13e-a:buynow(design ProductPage.jsx L351);#161 永遠可點 */}
       <button type="button" className="pd-buynow-btn" onClick={addToCart}>
         立即購買
       </button>
 
-      {/* M-1-13f-1:services 段拆出至 ProductServices.tsx(對齊鐵則 6 警戒 + Codex M-1-13e-b review 提醒) */}
+      {/* M-1-13f-1:services 段(ProductServices.tsx) */}
       <ProductServices />
     </aside>
   );

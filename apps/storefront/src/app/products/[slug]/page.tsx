@@ -1,28 +1,29 @@
-// app/products/[slug]/page.tsx — 商品詳細頁 route(M-1-13b)
+// app/products/[slug]/page.tsx — 商品詳細頁 route(M-1-13b;M-1-16c-3 由 mock 換真資料)
 //
-// /products/[slug] 對齊 Q1=B 拍板:SEO 友善 slug 路由(非數字 id);
-// findProductBySlug 取 mock product、不存在走 notFound() 預設 404 頁(Q5=C 拍板)。
-// 實際版面由 client 元件 ProductPage 負責(useSearchParams hook 必標 'use client'、ADR-0006 白名單情境)。
+// /products/[slug] 對齊 Q1=B 拍板:SEO 友善 slug 路由(slug = handle);
+// M-1-16c-3:findProductBySlug(mock)→ fetchProductByHandle(slug)(SupabaseProductAdapter
+// findByHandle + embed 真變體);不存在 → notFound() 預設 404 頁(Q5=C 拍板)。
 //
-// M-1-13H-7:Props 加 searchParams Promise、await 後傳 resolveTierFromRequest、修 M-1-13e-a 歷史 bug
-// (原 L42 傳空物件 {}、URL ?tier= override 永遠失效、tier 永遠 fallback cookie / 'general');
-// Codex fix Q2 .pd-price-tag-dealer 配套(Sean 2026-05-22 肉眼驗時發現 URL ?tier=store 看不到經銷 tag)。
+// 🔴 tier 釘 general(M-1-16c-3、codex 關卡1 must-fix 2):詳情頁 Phase-1 顯 general 公開價。
+// public view 排除 price_store、store/premiumStore 走 dummy 0;若傳真 tier 會顯「NT$ 0」。
+// 變體 UI 價亦取 general(見 lib/products toUIProduct strip)。tier-aware 詳情價待 M-2-08
+// server-side pricing endpoint(同 featured g-2 'general' 釘法);故移除 M-1-13H-7 的
+// resolveTierFromRequest tier-override 對詳情價的用途(tier override 對詳情價失效、屬刻意 Phase-1)。
+//
+// 實際版面由 client 元件 ProductPage 負責(breadcrumb / vehicle pill 等用 useSearchParams、client 端讀)。
 
 import type { Metadata } from 'next';
-import { cookies } from 'next/headers';
 import { notFound } from 'next/navigation';
-import { findProductBySlug } from '@/data/mock-products';
+import { fetchProductByHandle } from '@/lib/products';
 import { ProductPage } from '@/components/ProductPage';
-import { resolveTierFromRequest } from '@/lib/tier';
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const product = findProductBySlug(slug);
+  const product = await fetchProductByHandle(slug);
   if (!product) {
     return { title: '商品不存在 — PCM Motorsports' };
   }
@@ -32,24 +33,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ProductSlugRoute({ params, searchParams }: Props) {
+export default async function ProductSlugRoute({ params }: Props) {
   const { slug } = await params;
-  const product = findProductBySlug(slug);
+  const product = await fetchProductByHandle(slug);
   if (!product) {
     notFound();
   }
 
-  // tier 解析(M-1-13e-pre-1、Sean Q1=B 業務拍板:金額頁面必須區分會員)。
-  // 短期(Q5=A 拍板):mock-products 只含 general retail、商品頁顯一般零售價;
-  // M-1-16 改 Supabase fetcher findBySlug + toUIProduct(p, tier) 後真區分會員價。
-  // M-1-13e-a:tier prop 傳 ProductPage、ProductInfo pd-price-block 顯示 tier-aware price
-  // (短期 store / premiumStore 顯「經銷價」tag 但 product.price 仍 retail、字面 vs 事實
-  // 偏離、commit body 揭示;Mobile sticky bar Q-13e-a-scope=C 簡化、不分 tier)。
-  // M-1-13H-7:await searchParams 傳給 resolveTierFromRequest(原傳空物件 {}、URL ?tier= override
-  // 永遠失效);PCM_DEV_TIER_OVERRIDE=1 + ?tier=store/premiumStore 才生效(tier.ts L38-41)。
-  const cookieStore = await cookies();
-  const sp = await searchParams;
-  const tier = await resolveTierFromRequest(sp, cookieStore);
-
-  return <ProductPage product={product} tier={tier} />;
+  // M-1-16c-3:tier 釘 'general'(詳情頁 Phase-1 公開價、見檔頭 🔴 註解)。
+  return <ProductPage product={product} tier="general" />;
 }

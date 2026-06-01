@@ -227,8 +227,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductGallery.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "a8f5a01"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "59d4143"  # 記可達祖先=16c-3 父 commit(避 amend orphan、見 memory project_status-top-hash-off-by-one-normal);本 slice 真改 commit 見 git log [M-1-16c-3]
+      last_modified_date: "2026-06-01 (M-1-16c-3 吃真 product.images〔群代表圖〕取代 seed unsplash placeholder;resolveSrc 真圖完整 URL vs fallback seed template;變體換圖 currentVariant.images 留 16c-4)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
       reference: "design-reference/components/ProductPage.jsx"
@@ -238,17 +238,23 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "79f89bc"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "59d4143"  # 記可達祖先=16c-3 父 commit(避 amend orphan、見 memory project_status-top-hash-off-by-one-normal);本 slice 真改 commit 見 git log [M-1-16c-3]
+      last_modified_date: "2026-06-01 (M-1-16c-3 去 COLOR_MAP/sizeOptions hardcode、改吃真變體資料驅動選擇器〔weave/finish/special 文字鈕、selectSpec snap、displayPrice 選變體換價〕;變體 sku 走 cart color discriminator)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
       - field: "tierPropPassthrough"
         design_value: "design 無明示 tier 三 tier 渲染邏輯"
-        storefront_value: "tier prop 傳遞鏈 ProductPage → ProductInfo、tier='general'/'store'/'premiumStore' 條件渲染經銷 tag"
+        storefront_value: "tier prop 傳遞鏈 ProductPage → ProductInfo、tier='general'/'store'/'premiumStore' 條件渲染經銷 tag;M-1-16c-3 詳情頁釘 general、經銷分支不觸發(變體無真經銷價、tier-aware 變體價延 M-2-08)"
         decided_at: "2026-05-20"
         decision_source: "STATUS L24 (#130 + M-1-13e-pre-1 Q1=B + M-1-13e-a)"
         reason: "業務拍板抽 tier helper、Phase 1 mock"
+      - field: "variantSelectorTextButtons"
+        design_value: "design ProductPage/VariantCFull 為顏色 swatch(.pd-swatch 色塊)+ 規格 size grid(mock 色/尺寸)"
+        storefront_value: "M-1-16c-3 改資料驅動變體選擇器:全文字鈕(.pd-size-grid/.pd-size-btn)、紋路 weave × 表面 finish × 特殊 special(中文標籤)、每 distinct>1 spec key 一排、special 加「標準」NONE 選項;無「顏色」概念(RPM 碳纖維 Webike 式真變體)"
+        decided_at: "2026-06-01"
+        decision_source: "M-1-16c plan Sean Q1=A 文字鈕 / Q2=A 中文 / Q3=A 資料驅動第三排 / Q4=A 不顯庫存"
+        reason: "RPM 真變體無顏色維度(紋路/表面/特殊)、design mock 色/尺寸不適用;鐵則 1 例外類別(業務真資料 override mock 字面)、沿用 design 選擇器 chrome 只換資料源"
 
   # ---- 共用 / 首頁系列 ----
 
