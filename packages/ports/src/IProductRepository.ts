@@ -16,6 +16,19 @@ import type {
 export interface IProductRepository {
   findById(id: ProductId): Promise<Product | null>;
   /**
+   * 依 handle(SEO URL slug)查單筆 product entity。
+   *
+   * Contract:
+   * - handle UNIQUE、回對應 entity;不存在 → null(同 findById)
+   * - detail 查詢:回完整 Product 含 variants(adapter embed product_variants_public、
+   *   list 路徑不帶變體避 N+1;對齊 backlog #203 讀路徑接線)
+   *
+   * 用途:storefront 詳情頁路由 /products/[slug](slug = handle)、M-1-16c 接真資料。
+   *
+   * @see backlog #203(product_variants_public adapter 接線)
+   */
+  findByHandle(handle: string): Promise<Product | null>;
+  /**
    * 依 category 列出 product。
    *
    * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)

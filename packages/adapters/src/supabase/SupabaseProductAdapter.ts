@@ -35,6 +35,20 @@ import { matchFitmentYear } from './helpers/fitment';
 const PRODUCT_SELECT_DETAIL =
   'id, external_id, title, subtitle, description, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
+/**
+ * Detail-with-variants projection(M-1-16c-2、backlog #203):PRODUCT_SELECT_DETAIL +
+ * embed `product_variants_public(...)` 7 欄(view DDL 10 欄、adapter 只投射 domain 變體所需 7 欄:
+ * id / sku / spec / price_general / availability / images / sort_order)。
+ *
+ * 只給單筆 detail 查詢(findById / findByHandle)用;list 路徑(listByCategory / listByBrand /
+ * listByFitment / searchByKeyword)維持 PRODUCT_SELECT_DETAIL（不帶變體、避 N+1 jsonb 膨脹）。
+ *
+ * 🔴 經銷價防護:embed 走 product_variants_public view、view 物理排除 price_store / metadata、
+ *   透過 embed 亦無法 select(實測 PostgreSQL 42703「column does not exist」)→ 經銷價在 DB 層硬擋、
+ *   不僅靠 application 投射選擇。PostgREST view↔view 關係已實測偵測成功(不需 product_id fallback)。
+ */
+const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
+
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 const PGRST_NOT_FOUND = 'PGRST116';
 
@@ -95,8 +109,27 @@ export class SupabaseProductAdapter implements IProductRepository {
     const row = await this.findSingle<SupabaseProductRow>(
       this.supabase
         .from('products_public')
-        .select(PRODUCT_SELECT_DETAIL)
+        .select(PRODUCT_SELECT_DETAIL_WITH_VARIANTS)
         .eq('id', id)
+        .single(),
+    );
+    return row ? mapSupabaseProductToDomain(row) : null;
+  }
+
+  /**
+   * 依 handle(SEO URL slug)查單筆 product。對齊 IProductRepository.findByHandle contract +
+   * backlog #203。仿 findById、走 products_public view、embed product_variants_public 帶變體。
+   *
+   * 找不到 → null(findSingle 統一處理 PGRST_NOT_FOUND);其他 error → throw。
+   *
+   * 用途:storefront 詳情頁 /products/[slug](slug = handle)、M-1-16c-3 接真資料。
+   */
+  async findByHandle(handle: string): Promise<Product | null> {
+    const row = await this.findSingle<SupabaseProductRow>(
+      this.supabase
+        .from('products_public')
+        .select(PRODUCT_SELECT_DETAIL_WITH_VARIANTS)
+        .eq('handle', handle)
         .single(),
     );
     return row ? mapSupabaseProductToDomain(row) : null;

@@ -34,6 +34,18 @@ export class InMemoryProductRepository implements IProductRepository {
     return this.products.get(id) ?? null;
   }
 
+  /**
+   * 依 handle 查單筆 product(M-1-16c-2、對齊 IProductRepository.findByHandle contract)。
+   *
+   * in-memory 存整 Product 物件、variants 天生帶(save 時 structuredClone 含 variants[]);
+   * 找不到 → null(同 findById)。
+   */
+  async findByHandle(handle: string): Promise<Product | null> {
+    return (
+      Array.from(this.products.values()).find((p) => p.handle === handle) ?? null
+    );
+  }
+
   async save(product: Product): Promise<Product> {
     // M-1-02-audit C1 defensive copy:caller 後續 mutate 不影響 stored entity、
     // structuredClone 涵蓋 nested objects(brand / category / fitments[] / priceByTier / images[])

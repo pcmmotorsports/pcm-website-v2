@@ -57,6 +57,43 @@ describe('InMemoryProductRepository', () => {
     expect(foundAgain?.name).not.toBe('mutated');
   });
 
+  // M-1-16c-2:findByHandle(各 impl 自備 fixture、非走 shared contract;codex 關卡1 must-fix 1)。
+  // InMemory 存整 Product、variants 天生帶(save 時 structuredClone 含 variants[])。
+  it('should return null when findByHandle handle not exists', async () => {
+    const repo = new InMemoryProductRepository();
+    const result = await repo.findByHandle('non-existent-handle');
+    expect(result).toBeNull();
+  });
+
+  it('should find product by handle including its variants', async () => {
+    const withVariants = createFakeProduct({
+      id: 'p-variant',
+      handle: 'rpm-bms1k2kr03',
+      variants: [
+        {
+          id: 'v-1',
+          sku: 'BMS1K2KR03-G-F',
+          spec: { weave: 'Forged', finish: 'Glossy' },
+          priceByTier: {
+            general: { amount: toMoneyAmount(8400), currency: 'TWD' },
+            store: { amount: toMoneyAmount(0), currency: 'TWD' },
+            premiumStore: { amount: toMoneyAmount(0), currency: 'TWD' },
+          },
+          availability: 'in-stock',
+          images: ['https://cdn.shopify.com/a.jpg'],
+          sortOrder: 0,
+        },
+      ],
+    });
+    const repo = new InMemoryProductRepository([withVariants]);
+
+    const found = await repo.findByHandle('rpm-bms1k2kr03');
+    expect(found?.id).toBe('p-variant');
+    expect(found?.variants).toHaveLength(1);
+    expect(found?.variants[0]?.sku).toBe('BMS1K2KR03-G-F');
+    expect(found?.variants[0]?.spec).toEqual({ weave: 'Forged', finish: 'Glossy' });
+  });
+
   it('should list products by category raw match', async () => {
     const exhaust = createFakeProduct({ id: 'p-1', category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] } });
     const brake = createFakeProduct({ id: 'p-2', category: { raw: '制動 · 卡鉗', segments: ['制動', '卡鉗'] } });

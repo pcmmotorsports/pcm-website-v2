@@ -50,6 +50,15 @@ export function runProductRepositoryContract(
       it.todo('main-b SupabaseProductAdapter 落地時實作:依 ProductId 回對應 entity、不存在回 null');
     });
 
+    describe('findByHandle', () => {
+      // M-1-16c-2:findByHandle 進 port。contract 維持 it.todo(此 framework 全 it.todo、
+      // main-b 從未落地真斷言)、記錄契約字面;真測在各 impl 自備 fixture
+      // (InMemoryProductRepository.test.ts findByHandle 讀測 + mappers/product.test.ts
+      // mapVariantRow 單測)、避免「save 帶 variants→findByHandle 回變體」對兩實作不對稱
+      // (Supabase save-variant 16c-2 不做、留 backlog;codex 關卡1 must-fix 1 採納)。
+      it.todo('SupabaseProductAdapter 接 contract 時實作:依 handle 回對應 entity(含 variants)、不存在回 null');
+    });
+
     describe('listByCategory', () => {
       it.todo('main-b SupabaseProductAdapter 落地時實作:依 CategoryPath.raw 字面 match 回對應 entity 陣列');
     });

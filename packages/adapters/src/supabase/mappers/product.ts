@@ -7,6 +7,7 @@ import {
   type Money,
   type Product,
   type ProductAvailability,
+  type ProductVariant,
 } from '@pcm/domain';
 
 /**
@@ -81,6 +82,39 @@ export type SupabaseProductRow = {
   updated_at: string;
   brands: SupabaseBrandRow | null;
   categories: SupabaseCategoryRow | null;
+  /**
+   * 變體 embed(M-1-16c-2、backlog #203):detail 投射(findById / findByHandle)走
+   * `product_variants_public(...)` embed、回 7 欄(view DDL 10 欄、adapter 只投射 domain 所需 7 欄);
+   * list 路徑(listByCategory/Brand/Fitment/searchByKeyword)不帶變體(避 N+1 jsonb 膨脹)→ 此 key
+   * 在 list 路徑 row 為 undefined。
+   *
+   * 🔴 經銷價防護:view 物理排除 price_store / metadata、透過 embed 亦無法 select(實測 PG 42703)、
+   *   故此 wire 型別本就無敏感欄。
+   */
+  product_variants_public?: SupabaseVariantRow[];
+};
+
+/**
+ * Supabase product_variants_public view embed row(M-1-16c-2、backlog #203)。
+ *
+ * 對齊 adapter detail 投射 7 欄(view DDL 10 欄、adapter 只 select domain 變體所需):
+ *   id / sku / spec / price_general / availability / images / sort_order
+ *   (view 另 3 欄 product_id / created_at / updated_at 變體 domain 不需、不投射)。
+ *
+ * 🔴 永遠無 price_store / metadata(view 物理排除、經銷敏感 + 內部欄)。
+ *
+ * wire 型別 spec / images 用寬鬆型(jsonb 來源 shape 不保證)、mapVariantRow runtime guard
+ * 收斂為 domain Record<string,string> / string[](codex 關卡1 consider 3:防 import 錯 shape
+ * 悄悄進 client)。
+ */
+export type SupabaseVariantRow = {
+  id: string;
+  sku: string;
+  spec: Record<string, unknown>;
+  price_general: number | null;
+  availability: ProductAvailability;
+  images: unknown[];
+  sort_order: number;
 };
 
 /**
@@ -154,11 +188,77 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     availability: row.availability,
     handle: row.handle,
     subtitle: row.subtitle ?? '',
-    // M-1-16a:variants 必填、read 路徑暫填空陣列;真讀變體 16c 接 product_variants_public
-    //   (mapVariantRow embed、backlog #203)。products_public detail 投射本片不含 variants。
-    variants: [],
+    // M-1-16c-2:detail 投射 embed product_variants_public → mapVariantRow(backlog #203);
+    //   list 路徑無 embed key → undefined → []。依 sortOrder 排序(embed 無 ORDER BY、
+    //   codex 關卡1 consider 2);sku tie-breaker 保確定性(sort_order DB DEFAULT 0 可並列、
+    //   PostgREST embed 原始順序不保證、codex 關卡2 consider 1;sku 全表 UNIQUE)。
+    variants: (row.product_variants_public ?? [])
+      .map(mapVariantRow)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.sku.localeCompare(b.sku)),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
+  };
+}
+
+/**
+ * wire variant row → domain ProductVariant(M-1-16c-2、backlog #203)。
+ *
+ * 取價(鏡像 mapSupabaseProductToDomain、同源註解):
+ *   - general:從 price_general(view 唯一公開取價欄、過 toMoneyAmount guard);null → throw
+ *   - store:dummy { 0, TWD }(view 排除 price_store、經銷敏感)
+ *   - premiumStore:placeholder { 0, TWD }(真經銷價待 M-2-08 server-side pricing endpoint)
+ *
+ * 🔴 變體無真經銷價可顯 → caller(16c-3 strip)變體 UI 價一律取 priceByTier.general、
+ *   不可對 store / premiumStore 顯 dummy 0(防 NT$ 0、codex 關卡1 must-fix 2)。
+ *
+ * runtime guard(codex 關卡1 consider 3):spec 值全 string + images 元素全 string、否則 throw
+ *   (fail loud、防未來 import 錯 shape 悄悄進 client;migration CHECK 只保證 spec=object / images=array、
+ *   不保證值型別)。
+ *
+ * @throws price_general 為 null / spec 含非 string 值 / images 含非 string 元素
+ */
+export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
+  if (row.price_general === null) {
+    throw new Error(
+      `Variant ${row.sku} missing price_general(16b 應已定價、缺欄表示 import 漏遷移)`,
+    );
+  }
+
+  // spec guard:值全 string(domain ProductVariant.spec: Record<string, string>)
+  const spec: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row.spec)) {
+    if (typeof v !== 'string') {
+      throw new Error(
+        `Variant ${row.sku} spec.${k} 非 string(實際 ${typeof v});domain ProductVariant.spec 須 Record<string,string>`,
+      );
+    }
+    spec[k] = v;
+  }
+
+  // images guard:元素全 string URL(domain ProductVariant.images: string[];空 [] 合法、16c fallback 商品圖)
+  const images = row.images.map((img, i) => {
+    if (typeof img !== 'string') {
+      throw new Error(
+        `Variant ${row.sku} images[${i}] 非 string(實際 ${typeof img});domain ProductVariant.images 須 string[]`,
+      );
+    }
+    return img;
+  });
+
+  const general: Money = toMoney({ amount: row.price_general, currency: 'TWD' });
+  // store / premiumStore dummy(view 排除 price_store、鏡像 mapSupabaseProductToDomain L139/L143);
+  // 真經銷價待 M-2-08、本片變體無真經銷價、caller 顯示前取 general。
+  const store: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
+  const premiumStore: Money = { amount: toMoneyAmount(0), currency: 'TWD' };
+
+  return {
+    id: row.id,
+    sku: row.sku,
+    spec,
+    priceByTier: { general, store, premiumStore },
+    availability: row.availability,
+    images,
+    sortOrder: row.sort_order,
   };
 }
 
