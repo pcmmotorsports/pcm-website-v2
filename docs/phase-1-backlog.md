@@ -5388,6 +5388,61 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #206. 🗺️ 詳情頁 ISR / 靜態快取 vs JSON-LD/OG 即時價一致性
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - M-1-16c-4c 詳情頁維持 dynamic(每請求查 + JSON-LD/OG 即時 general 價)、不設 revalidate。
+  - 未來若為效能引入 ISR / 靜態快取,JSON-LD `offers.price` / OG 會被快取成舊價;後台改價後快取未刷新 → Google Merchant 商品結果顯舊價(政策風險)。
+- **觸發事件:** 詳情頁要上 ISR / `revalidate` / 靜態化時。
+- **預期解法:** 引入時評估 on-demand revalidate(改價 webhook 刷頁)或維持 dynamic;並重跑經銷洩漏驗證(快取 HTML 也要 grep)。
+- **不修會痛在:**
+  - 擴充性:盲目加 ISR 會讓結構化資料價格與後台脫鉤
+  - 可維護性:價格不一致 bug 難從前台察覺(JSON-LD 是隱藏標籤)
+  - bug 可追蹤性:Google Merchant 退件時才發現舊價、回溯成本高
+- **估時:** 0.5-1 hr(評估 + on-demand revalidate 接線或維持 dynamic 決策)
+- **依賴:** 詳情頁效能需求 / ISR 導入
+- **發現於:** 2026-06-01 / M-1-16c-4c SEO 審查 CONSIDER 6
+- **相關:** apps/storefront/src/app/products/[slug]/page.tsx / lib/product-jsonld.ts
+
+### #207. 🔬 詳情頁 JSON-LD 經銷洩漏 rendered-HTML 自動化驗證(Playwright e2e + preview/prod 持續)
+
+- **狀態:** 🟢 觀察(M-1-16c-4c 本 session 已**手動驗證 PASS**:`next start` :3100 + curl 真 handle `rpm-dcc01` → 經銷字串〔price_store/price_by_tier/priceByTier/premiumStore/cost/shopee/dealer/經銷〕全 0、JSON-LD offers=general 11800-14600 === 頁面顯示 general 價;留條目轉為「自動化 + preview/prod 持續驗證」)
+- **優先級:** 🟡 低(手動已驗、降級)
+- **問題:**
+  - M-1-16c-4c JSON-LD 是 server-render 進 HTML(非 client static chunk)、`.next/static` grep 涵蓋不到;本 session 已手動 curl 驗證,但無**自動化迴歸**(未來改 JSON-LD/toUIProduct 可能再引入)。
+  - preview/production 環境(真實網域 + canonical 啟用)尚未驗證。
+- **觸發事件:** preview / production 部署時 / 改 JSON-LD builder 或 toUIProduct strip 邏輯時。
+- **預期解法:** Playwright e2e 斷言 rendered HTML 無經銷字串 + JSON-LD offer 價 === 頁面 general 價;或 preview 部署後 curl 真 handle grep。
+- **不修會痛在:**
+  - 擴充性:未驗 rendered HTML = 經銷洩漏最終防線缺口
+  - 可維護性:未來改 JSON-LD 無 rendered 層迴歸測
+  - bug 可追蹤性:洩漏只在 SSR 出現時,單測 + static grep 抓不到
+- **估時:** 0.5 hr(curl grep)/ 1-2 hr(Playwright e2e)
+- **依賴:** preview 部署(#4)/ 或本機 live Supabase server
+- **發現於:** 2026-06-01 / M-1-16c-4c SEO 審查 CONSIDER 5 + codex k1 MUST-FIX 4
+- **相關:** apps/storefront/src/lib/product-jsonld.ts / page.tsx / 鐵則 12
+
+### #208. 🧩 JSON-LD 型別化(schema-dts)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察
+- **問題:**
+  - `buildProductJsonLd` 現回 `Record<string, unknown>`(白名單靠程式 + 單測守);引入 `schema-dts` 可在型別層防欄位漂移。
+- **觸發事件:** JSON-LD 擴充(aggregateRating / gtin / 多 @type)時。
+- **預期解法:** 加 `schema-dts` dep、builder 回 `Product`(schema-dts)型別。
+- **不修會痛在:**
+  - 擴充性:欄位多了靠人工白名單易漏
+  - 可維護性:無型別約束、改錯欄名 runtime 才知
+  - bug 可追蹤性:同上
+- **估時:** 0.5 hr
+- **依賴:** 無
+- **發現於:** 2026-06-01 / M-1-16c-4c codex k1 NIT
+- **相關:** apps/storefront/src/lib/product-jsonld.ts
+
+---
+
 ## 紀錄模板
 
 ```markdown
