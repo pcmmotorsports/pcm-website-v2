@@ -46,4 +46,20 @@ describe('ProductCard', () => {
     expect(screen.getByText(product.name).closest('a')).toBeNull();
     expect(screen.getByText(product.name).closest('article')).not.toBeNull();
   });
+
+  // M-1-16c-1:真圖渲染 + 無圖 fallback
+  it('should render the real product image when p.image is provided', () => {
+    const realUrl = 'https://cdn.shopify.com/s/files/test-carbon.jpg';
+    render(<ProductCard p={{ ...product, image: realUrl }} />);
+    const imgs = screen.getAllByAltText(product.brand);
+    expect(imgs.some((el) => el.getAttribute('src') === realUrl)).toBe(true);
+    // 真圖分支只渲染單張、不走 unsplash placeholder
+    expect(imgs.some((el) => el.getAttribute('src')?.includes('images.unsplash.com'))).toBe(false);
+  });
+
+  it('should fall back to placeholder gallery when p.image is absent', () => {
+    render(<ProductCard p={product} />);
+    const imgs = screen.getAllByAltText(product.brand);
+    expect(imgs.some((el) => el.getAttribute('src')?.includes('images.unsplash.com'))).toBe(true);
+  });
 });

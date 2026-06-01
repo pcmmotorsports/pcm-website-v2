@@ -36,6 +36,12 @@ export type MockProduct = {
   category: string;
   color: string;
   imgTone: string;
+  /**
+   * 商品代表圖 URL(M-1-16c-1:toUIProduct 從 domain `product.images[0]` 填、修首頁/卡片
+   * 「通用機車生活照」根因)。有真圖 → ProductImage 渲染真圖;`null` / 缺 → fallback
+   * 既有 seed placeholder gallery。mock 資料省略此欄(走 fallback、不破舊測試)。
+   */
+  image?: string | null;
   /** 劃線價:store / premiumStore 顯示時的 general 原價、general tier 為 null;sub 4b toUIProduct 內 server-side dispatch 填值 */
   originalPrice?: number | null;
   /** 會員身份標籤(對齊 design-reference/components/Pricing.jsx L62 + L103 真權威字面);general tier 為 null */

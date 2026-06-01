@@ -60,36 +60,62 @@ type ProductImageProps = {
   label?: string;
   seed?: number;
   hover?: boolean;
+  /**
+   * M-1-16c-1:商品真圖 URL(toUIProduct ← domain product.images[0])。
+   * 有值 → 渲染真圖(hover 微縮放、無 cross-fade);`null` / 缺 → fallback seed placeholder gallery。
+   */
+  image?: string | null;
 };
 
-export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, hover = false }: ProductImageProps) {
+export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, hover = false, image = null }: ProductImageProps) {
+  // hooks 一律置頂、不可條件呼叫(react-hooks/rules-of-hooks error);real-image 分支與 fallback
+  // 共用同一組 hook、僅 render 內 branch(imgs/failedIdx 在 real 分支不用、開銷可忽略)。
   const imgs = useMemo(() => productGallery(seed), [seed]);
   const [failedIdx, setFailedIdx] = useState<Record<number, boolean>>({});
+  const [realFailed, setRealFailed] = useState(false);
   const [c1, c2] = PALETTES[tone as Tone] ?? PALETTES.neutral;
+  const showReal = !!image && !realFailed;
   return (
     <div className="pcard-gallery" style={{
       width: '100%', height: '100%', position: 'relative',
       background: `linear-gradient(145deg, ${c1} 0%, ${c2} 100%)`,
       overflow: 'hidden',
     }}>
-      {imgs.map((id, i) => failedIdx[i] ? null : (
+      {showReal ? (
+        // M-1-16c-1:真圖單張、object-fit cover + hover 微縮放;load 失敗 → setRealFailed 退回 placeholder
         <img
-          key={i}
-          src={`https://images.unsplash.com/${id}?w=600&q=80&auto=format&fit=crop`}
+          src={image!}
           alt={label}
           loading="lazy"
-          onError={() => setFailedIdx(prev => ({ ...prev, [i]: true }))}
+          onError={() => setRealFailed(true)}
           className="pcard-gallery-img"
           style={{
             position: 'absolute', inset: 0,
             width: '100%', height: '100%', objectFit: 'cover',
-            mixBlendMode: tone === 'dark' ? 'normal' : 'multiply',
-            opacity: (hover ? (i === 1 ? 1 : 0) : (i === 0 ? 0.92 : 0)),
-            transform: hover && i === 1 ? 'scale(1.04)' : 'scale(1)',
-            transition: 'opacity 0.55s ease, transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
+            transform: hover ? 'scale(1.04)' : 'scale(1)',
+            transition: 'transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
           } as CSSProperties}
         />
-      ))}
+      ) : (
+        imgs.map((id, i) => failedIdx[i] ? null : (
+          <img
+            key={i}
+            src={`https://images.unsplash.com/${id}?w=600&q=80&auto=format&fit=crop`}
+            alt={label}
+            loading="lazy"
+            onError={() => setFailedIdx(prev => ({ ...prev, [i]: true }))}
+            className="pcard-gallery-img"
+            style={{
+              position: 'absolute', inset: 0,
+              width: '100%', height: '100%', objectFit: 'cover',
+              mixBlendMode: tone === 'dark' ? 'normal' : 'multiply',
+              opacity: (hover ? (i === 1 ? 1 : 0) : (i === 0 ? 0.92 : 0)),
+              transform: hover && i === 1 ? 'scale(1.04)' : 'scale(1)',
+              transition: 'opacity 0.55s ease, transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
+            } as CSSProperties}
+          />
+        ))
+      )}
     </div>
   );
 }
@@ -136,7 +162,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       style={{ cursor: 'pointer' }}
     >
       <div className="pcard-img-wrap">
-        <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} hover={hover} />
+        <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} hover={hover} image={p.image} />
         {badge && <div className="pcard-badge">{badge}</div>}
         {/* 沒貨徽章移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
             storefront 偏離 design 字面 L101-103、backlog #161 追蹤 Claude Design 補對齊) */}

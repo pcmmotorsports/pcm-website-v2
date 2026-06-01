@@ -100,7 +100,7 @@ export function OverviewTab({
             {featured.products.map((p) => (
               <Link key={p.id} href={`/products/${p.slug}`} className="acc-rec-item">
                 <div className="acc-rec-img">
-                  <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} />
+                  <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} image={p.image} />
                 </div>
                 <div className="acc-rec-name">{p.name}</div>
                 <div className="acc-rec-price">NT$ {p.price.toLocaleString()}</div>

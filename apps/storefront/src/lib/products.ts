@@ -53,6 +53,8 @@ import type { MockProduct } from '@/data/mock-products';
  *   - origPrice / isNew / isSale:無對應、hardcode null / false / false(promo 概念 Phase 1 未做)
  *   - color / imgTone:hardcode 'silver' / 'neutral'(視覺裝飾 d1 用 imgTone 區分、
  *     未來 ProductPage / variant slice 真實對應)
+ *   - image:M-1-16c-1 起 ← product.images[0](群代表圖、真圖);無圖 null、ProductImage
+ *     fallback seed placeholder(imgTone 僅 fallback 漸層底色用、不再決定主圖內容)
  *   - id:domain string ProductId → UI number(MockProduct.id 字面 number)、
  *     d2 用 `as unknown as number` cast 對齊 Sean 指令 Step 6 字面;React key 不依賴
  *     number 行為、ProductImage `seed: number` 算術運算(seed * 7 / seed % n)會
@@ -103,6 +105,10 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     category: product.category.raw,
     color: 'silver',
     imgTone: 'neutral',
+    // M-1-16c-1:商品代表圖 ← domain product.images[0](群代表圖、單張);
+    //   無圖 → null、ProductImage fallback seed placeholder。修首頁/卡片「通用機車生活照」根因
+    //   (原只設 imgTone:'neutral'、ProductImage 用 seed 生成 unsplash 通用照)。
+    image: product.images[0] ?? null,
     originalPrice,
     tierLabel,
   };
