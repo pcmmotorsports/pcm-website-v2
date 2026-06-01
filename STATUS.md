@@ -11,15 +11,15 @@
 2026-06-01 — Claude Code [M-1-16c-4b external_id→productCode 接線 + 產品型號 + 產地泰國(domain Product 加 productCode 必填 ← DB external_id 真主碼;mapper read/write round-trip + 2 createFakeProduct ripple + toUIProduct/MockProduct 接;ProductTabs 產品型號顯真主碼〔取代 PCM-{id hash}〕+ 產地義大利→泰國〔#162、hardcode 非 DB、Phase-1 RPM-only〕;D2=C L116 義大利保固留〔殘差揭示〕、D1=A 換圖排 16c-4d;命名 productCode〔codex k1〕;鐵則 8 → plan + codex 關卡1 PASS-after-fix〔不跑 k2 非經銷敏感〕、code-reviewer PASS、完整 pnpm test 480 + 三綠全綠;未 push;前序 16c-1/2 已 push、16c-3/4a/4b 未 push)]
 
 ## 最近 3 commit
-> 下表列近期 3 個有意義的可達 commit(挑有意義的、非機械 git log -3;本 16c-4b slice commit〔HEAD〕記可達祖先 2b7d270〔16c-4a〕為表頂、本 commit 自身 hash 不入表〔避 busboy 雙 amend orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
+> 下表列近期 3 個有意義的可達 commit(挑有意義的、非機械 git log -3;本片為 16c-4c 交接 docs commit〔HEAD〕、記可達祖先 fe5b059〔16c-4b〕為表頂、本 commit 自身 hash 不入表〔避 busboy 雙 amend orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `fe5b059` | feat(storefront): 規格表產品型號接真主碼 productCode + 產地泰國 [M-1-16c-4b] | 2026-06-01 |
 | `2b7d270` | fix(storefront): pd-sku 顯變體真 sku、pd-sub 接 DB subtitle 去義大利 [M-1-16c-4a] | 2026-06-01 |
 | `81b5480` | feat(storefront): 詳情頁接真變體 + 選變體換價 [M-1-16c-3] | 2026-06-01 |
-| `59d4143` | feat(adapters): 變體資料層接線 findByHandle + mapVariantRow [M-1-16c-2] | 2026-06-01 |
 
 ## 下一步
-**M-1-16c-4b ✅(external_id→productCode、未 push)→ Sean 肉眼驗 + 16c-4c**:16c-1/2/3/4a/4b 完成、16c-1/2 已 push、16c-3/4a/4b 未 push(等 Sean 手動推 + 審查 session)。**Sean 肉眼驗 16c-3/4a/4b**:RPM 詳情頁 → 標題/價/描述/圖真、料號 sku 連動、副標真車款、選規格換價;**規格分頁(規格與相容性 tab)→ 產品型號顯 `RPM-DCC01` 真主碼、產地顯「泰國」**。**16c-4c = 詳情頁 SEO/AI 友善**〔page.tsx 加 schema.org/Product JSON-LD〔name/image/description/sku←productCode/brand「RPM CARBON」/category/offers〕;🔴 offers.price 只 general 公開價〔UIVariant 本就只 general、編譯期擋〕、絕不放 price_store/priceByTier/dealer、多變體用 AggregateOffer lowPrice/highPrice;generateMetadata 強化 OG/canonical/desc←subtitle;先查 M-1-09 SEO 既有慣例;🔴 碰 price 進結構化資料 = 鐵則 12 → codex k1+k2 + commit 前 grep .next/static〕。**16c-4d**(原 16c-4b、D1=A 往後排)= 選變體換圖 + 狀態提升 ProductPage + mobile buybar 同步。**16d 每週重抓**留。proper variantSku cart key / save-variant(#203) / featured #205 / brandCountry+保固殘差 #162 留 backlog。g-7 wallet HOLD #202 不變。
+**M-1-16c-4b ✅(external_id→productCode、未 push)→ 新 session 接 16c-4c**:16c-1/2/3/4a/4b 完成、16c-1/2 已 push、16c-3/4a/4b 未 push(等 Sean 手動推 + 審查 session)。**🔖 16c-4c/4d 交接新 session:`docs/handoff/2026-06-01-16c-4c-kickoff.md`**(5 片進度 + commit 序 + 16c-4c SEO scope + 16c-4d 換圖 + Sean 全拍板 + 🔴 經銷防護 red-line + 關鍵檔接線 + 踩坑 SOP)。**Sean 肉眼驗 16c-3/4a/4b**:RPM 詳情頁 → 標題/價/描述/圖真、料號 sku 連動、副標真車款、選規格換價;**規格分頁(規格與相容性 tab)→ 產品型號顯 `RPM-DCC01` 真主碼、產地顯「泰國」**。**16c-4c = 詳情頁 SEO/AI 友善**〔page.tsx 加 schema.org/Product JSON-LD〔name/image/description/sku←productCode/brand「RPM CARBON」/category/offers〕;🔴 offers.price 只 general 公開價〔UIVariant 本就只 general、編譯期擋〕、絕不放 price_store/priceByTier/dealer、多變體用 AggregateOffer lowPrice/highPrice;generateMetadata 強化 OG/canonical/desc←subtitle;先查 M-1-09 SEO 既有慣例;🔴 碰 price 進結構化資料 = 鐵則 12 → codex k1+k2 + commit 前 grep .next/static〕。**16c-4d**(原 16c-4b、D1=A 往後排)= 選變體換圖 + 狀態提升 ProductPage + mobile buybar 同步。**16d 每週重抓**留。proper variantSku cart key / save-variant(#203) / featured #205 / brandCountry+保固殘差 #162 留 backlog。g-7 wallet HOLD #202 不變。
 
 ## Sean 待決策
 **⏸ g-7 儲值金 wallet 頁 HOLD**(2026-05-31 Sean 拍:台灣「儲值」踩電子支付/儲值法規邊緣、商業模式未定、**deposit 不做**〔連 mock 不做〕、g-7 推延;WalletTab 維持 stub、別主動排儲值進度、Sean 解 hold 才動;讀路徑技術可行〔g-2 pattern authenticated 直查〕但不接;backlog #202 + memory project_wallet-deposit-taiwan-legal-hold)。**前序:**
