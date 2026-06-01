@@ -2,7 +2,8 @@
 // (N°04 · The Selection · 編輯精選、4 ProductCard、main-d 真資料接入點)
 //
 // d1 階段:用 MOCK_PRODUCTS.slice(0, 4) 對齊 design 字面 window.PCM_DATA.products.slice(0, 4)
-// d2 階段:props.featured 真資料(server-side fetch from SupabaseProductAdapter.listByCategory('操控部品'))
+// d2 階段:props.featured 真資料(server-side fetch from SupabaseProductAdapter.listByCategory('碳纖維部品'))
+//          (category M-1-16b 後 Sean 2026-06-01 拍 A 覆蓋 d2 '操控部品'、RPM 真資料在'碳纖維部品')
 //          MOCK_PRODUCTS import 移除、empty / error UI 字面 Sean 2026-05-09 拍板新增
 //
 // 'use client' 因 ProductCard 是 client component + 傳 onClick callback、server-client boundary 需 client

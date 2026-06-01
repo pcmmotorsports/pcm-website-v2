@@ -5366,6 +5366,26 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-01 / M-1-16b-2 / Sean 拍 import 用新式 SECRET_KEY、storefront 遷移留 backlog
 - **相關:** scripts/rpm-import.ts(已用新式)/ packages/adapters/src/supabase/client.ts / apps/storefront line-admin.ts
 
+### #205. ⏳ featured 首頁推薦改用適當機制(featured 旗標 / 跨分類查全站)(M-1-16b 肉眼驗 Sean 拍 A、B 正解留)
+
+- **狀態:** ⏳ 待執行(未來多分類 / 後台要控精選時)
+- **優先級:** 🟡 低(Phase 1 只「碳纖維部品」一類、現 hardcode 查該分類夠用)
+- **問題:**
+  - `fetchFeaturedProducts`(lib/products.ts)hardcode 查單一 category(原 mock「操控部品」placeholder → 2026-06-01 Sean 拍 A 改「碳纖維部品」讓 RPM 顯示)。
+  - 隨上架更多分類,「首頁編輯精選」應改用更通用機制、非綁死單一分類:
+    (a) products 加 `featured` boolean 旗標(後台標精選)、featured 查旗標
+    (b) 跨分類查全站前 N(adapter 加 listFeatured / listAll method)— 即肉眼驗時 B 選項
+- **觸發事件:** 上架第二個分類 / 後台要控精選內容時。
+- **預期解法:** A=featured 旗標(後台 CRUD 控、最貼「編輯精選」語意)或 B=adapter listFeatured 跨分類查全站;2026-06-01 當下用 hardcode「碳纖維部品」(最小、讓 Sean 肉眼驗)、通用機制留此。
+- **不修會痛在:**
+  - 擴充性:多分類時首頁只顯一類、精選不可控
+  - 可維護性:category 字面 hardcode 在 code、改精選內容要改 code 重部署
+  - bug 可追蹤性:featured 空白難判(查的 category 無商品 vs 真無精選)— 本次肉眼驗踩過此坑
+- **估時:** 1-2 hr(featured 旗標 migration + 後台標記 + adapter method + featured 改查 + 三綠)
+- **依賴:** 多分類上架 / 後台精選控制需求
+- **發現於:** 2026-06-01 / M-1-16b 肉眼驗 featured 空白(featured 查不存在的「操控部品」)/ Sean 拍 A 暫改 category、B 正解留 backlog
+- **相關:** apps/storefront/src/lib/products.ts `fetchFeaturedProducts` / HomeSelect N°04 編輯精選 / SupabaseProductAdapter
+
 ---
 
 ## 紀錄模板

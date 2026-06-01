@@ -12,12 +12,13 @@
 // 字面源(對齊 Sean 2026-05-09 d2 拍板):
 //   - Q-empty=b:渲染 section + 「目前沒有商品」(UI 字面在 HomeSelect)
 //   - Q-error=b:渲染 section + 「載入失敗、請稍後再試」+ console.error
-//   - Q-category=a:{raw:'操控部品', segments:['操控部品']}
+//   - featured category(M-1-16b 後 Sean 2026-06-01 拍 A、覆蓋 d2 Q-category=a「操控部品」):
+//     {raw:'碳纖維部品', segments:['碳纖維部品']}(RPM 上架後真資料在此分類、逐字對齊 DB raw_path)
 //
 // 真實狀態揭示(commit body 同步):
-//   - d2 驗收時 Supabase products 表 **0 row**(main-c spike cleanup 後、M-1-16 種子前)
-//   - listByCategory('操控部品') 必回 []、必走 Q-empty=b 分支
-//   - 真資料 happy path 待 M-1-16 驗、d2 不算缺陷
+//   - M-1-16b 全量灌後 Supabase products 表 933 row(全在「碳纖維部品」)、
+//     listByCategory('碳纖維部品') 回真 RPM 商品、首頁 happy path 通
+//   - d2 舊狀態(0 row / listByCategory('操控部品') 必回 [])已過時(M-1-16b 前的描述)
 //
 // server-only 紀律:
 //   - 本檔含 createSupabaseAnonClient + adapter 構造、絕不該進 client bundle
@@ -126,7 +127,7 @@ export type FeaturedResult = {
  * 撈 featured 4 件商品(對齊 HomeSelect N°04 編輯精選)。
  *
  * 行為:
- *   - listByCategory({raw:'操控部品', segments:['操控部品']})、取前 4 筆 map 為 UI shape
+ *   - listByCategory({raw:'碳纖維部品', segments:['碳纖維部品']})、取前 4 筆 map 為 UI shape
  *   - 找不到 category(adapter 回 [])→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → console.error + 回 `{ products: [], error: true }`、UI 走 error 分支
  *
@@ -136,10 +137,12 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
   const client = createSupabaseAnonClient();
   const adapter = new SupabaseProductAdapter(client);
 
-  // Q-category=a 拍板:對齊 d1 STATUS 字面建議「操控部品」、頂層大類
+  // featured category:M-1-16b 後 Sean 2026-06-01 拍 A、覆蓋 d2 Q-category=a「操控部品」
+  //   (mock 時代 placeholder → RPM 上架後真資料在「碳纖維部品」);逐字對齊 DB categories.raw_path。
+  //   未來多分類時改用 featured 旗標 / 跨分類查全站(backlog #205、原 B 正解留此)。
   const category: CategoryPath = {
-    raw: '操控部品',
-    segments: ['操控部品'],
+    raw: '碳纖維部品',
+    segments: ['碳纖維部品'],
   };
 
   try {
