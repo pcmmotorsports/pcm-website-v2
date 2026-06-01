@@ -146,13 +146,16 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
 
   return (
     <aside className="pd-info">
-      {/* M-1-13H-2:SKU line「{brand} · PCM-{id}」(design VariantCFull.jsx L81) */}
-      <div className="pd-sku">{product.brand} · PCM-{String(product.id).padStart(5, '0')}</div>
+      {/* M-1-16c-4a:料號顯選中變體真 sku(隨 selectSpec 連動;Sean Q1=A、取代原 PCM-{id hash} 亂碼數)。
+          無變體 mock fallback 用 slug(sane、非 hash;design VariantCFull.jsx L81 原 PCM-XXXXX 格式退場)。 */}
+      <div className="pd-sku">{product.brand} · {selectedVariant?.sku ?? product.slug}</div>
 
       <h1 className="pd-title">{product.name}</h1>
 
-      {/* M-1-13H-2:副標(design VariantCFull.jsx L83);brandCountry Phase 1 L2 hardcoded「義大利」(backlog #162) */}
-      <div className="pd-sub">適用 {product.fits || '通用款'} · 義大利原裝進口</div>
+      {/* M-1-16c-4a:副標顯 DB 真 subtitle(Webike 式如「Ducati Panigale · 碳纖維」;Sean Q2=A);
+          拿掉寫死「義大利原裝進口」(RPM 非義大利、backlog #162 placeholder 退場);無 subtitle fallback「適用 {fits}」。
+          確切排版/字面 Sean 後續用網頁設計 skill 調(對齊 feedback_sean-owns-visual-design)。 */}
+      <div className="pd-sub">{product.subtitle || `適用 ${product.fits || '通用款'}`}</div>
 
       {/* M-1-16c-3:價改 displayPrice(選變體換價);詳情頁釘 general、tier 經銷分支 general 不觸發
           (變體無真經銷價、tier-aware 變體價延 M-2-08);非變體 mock 走 product.price + 原 tier/orig 條件 */}

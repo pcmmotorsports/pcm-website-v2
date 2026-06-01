@@ -44,12 +44,16 @@ const specialProduct: MockProduct = {
 };
 
 describe('ProductInfo', () => {
-  it('should render SKU line as single mono row "{brand} · PCM-{id 5 digits}"', () => {
+  // M-1-16c-4a:料號顯真 sku(有變體)/ slug(無變體 fallback)、不再顯 PCM-{hash}
+  it('should render SKU line with selected variant sku when product has variants', () => {
+    render(<ProductInfo product={variantProduct} tier="general" />);
+    expect(screen.getByText(`${variantProduct.brand} · A-G-F`)).toBeDefined();
+  });
+
+  it('should fallback SKU line to slug when product has no variants', () => {
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductInfo product={product} tier="general" />);
-    expect(
-      screen.getByText(`${product.brand} · PCM-${String(product.id).padStart(5, '0')}`),
-    ).toBeDefined();
+    expect(screen.getByText(`${product.brand} · ${product.slug}`)).toBeDefined();
   });
 
   it('should render product title as h1', () => {
@@ -59,10 +63,19 @@ describe('ProductInfo', () => {
     expect(h1.textContent).toBe(product.name);
   });
 
-  it('should render .pd-sub subtitle combining product.fits + brandCountry hardcoded "義大利"', () => {
-    const product = MOCK_PRODUCTS[0]!;
+  // M-1-16c-4a:副標顯 DB 真 subtitle、拿掉寫死「義大利原裝進口」
+  it('should render .pd-sub with product.subtitle when present (no hardcoded 義大利)', () => {
+    const product = { ...MOCK_PRODUCTS[0]!, subtitle: 'Ducati Panigale · 碳纖維' };
     render(<ProductInfo product={product} tier="general" />);
-    expect(screen.getByText(`適用 ${product.fits} · 義大利原裝進口`)).toBeDefined();
+    expect(screen.getByText('Ducati Panigale · 碳纖維')).toBeDefined();
+    expect(screen.queryByText(/義大利原裝進口/)).toBeNull();
+  });
+
+  it('should fallback .pd-sub to 適用 {fits} when no subtitle (no hardcoded 義大利)', () => {
+    const product = { ...MOCK_PRODUCTS[0]!, subtitle: undefined };
+    render(<ProductInfo product={product} tier="general" />);
+    expect(screen.getByText(`適用 ${product.fits}`)).toBeDefined();
+    expect(screen.queryByText(/義大利原裝進口/)).toBeNull();
   });
 
   // ── M-1-16c-3 變體選擇器 ──

@@ -129,14 +129,16 @@ describe('ProductPage', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductPage product={product} tier="general" />);
-    // M-1-13H-4:對齊 slice-2 SKU line 改造(brand-row 拆 → 單一 .pd-sku `{brand} · PCM-XXXXX`、
-    // 對應 HANDOFF #4);舊字面 `SKU · PCM-...` + 獨立 brand link 已不存在、改驗組合字面;
-    // slice-2 commit body 字面「vitest 全綠」屬本 cross-effect 漏跑、本 slice 順手修(對應鐵則 11)
+    // M-1-16c-4a:pd-sku 由舊「{brand} · PCM-{id hash}」改「{brand} · {selectedVariant?.sku ?? slug}」
+    //   (Sean Q1=A、顯選中變體真 sku、無變體 fallback slug)。MOCK_PRODUCTS[0]=LIGHTECH 無 variants
+    //   → 走 slug fallback → 「LIGHTECH · lightech-1」。
+    //   字面 vs 事實(鐵則 11):16c-4a 只跑 vitest 子集(ProductInfo)、漏跑完整套件、此整合測試 cross-effect
+    //   紅未被抓、commit body 測試狀態與完整 vitest 不符;16c-4a v2 修此斷言 + 重跑完整 pnpm test 全綠。
     const productInfo = document.querySelector('.pd-info');
     expect(productInfo).not.toBeNull();
     expect(
       within(productInfo as HTMLElement).getByText(
-        `${product.brand} · PCM-${String(product.id).padStart(5, '0')}`,
+        `${product.brand} · ${product.slug}`,
       ),
     ).toBeDefined();
   });

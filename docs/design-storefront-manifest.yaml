@@ -238,8 +238,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "59d4143"  # 記可達祖先=16c-3 父 commit(避 amend orphan、見 memory project_status-top-hash-off-by-one-normal);本 slice 真改 commit 見 git log [M-1-16c-3]
-      last_modified_date: "2026-06-01 (M-1-16c-3 去 COLOR_MAP/sizeOptions hardcode、改吃真變體資料驅動選擇器〔weave/finish/special 文字鈕、selectSpec snap、displayPrice 選變體換價〕;變體 sku 走 cart color discriminator)"
+      last_modified_commit: "81b5480"  # 記可達祖先=16c-4a 父 commit(避 amend orphan);本 slice 真改見 git log [M-1-16c-4a]
+      last_modified_date: "2026-06-01 (M-1-16c-3 去 hardcode 改資料驅動變體選擇器 + selectSpec snap + displayPrice 換價 + sku cart;M-1-16c-4a pd-sku 顯選中變體真 sku 連動〔取代 PCM-{id hash}、fallback slug〕+ pd-sub 顯 DB 真 subtitle〔拿掉寫死「義大利原裝進口」placeholder、backlog #162 退場、無則 fallback 適用fits〕)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:

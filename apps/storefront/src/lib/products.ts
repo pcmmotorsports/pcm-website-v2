@@ -111,6 +111,10 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     image: product.images[0] ?? null,
     // M-1-16c-3:商品圖全陣列(ProductGallery 詳情頁用;image 為其第一張)。
     images: product.images,
+    // M-1-16c-4a:副標 ← domain product.subtitle(Webike 式真副標、如「Ducati Panigale · 碳纖維」);
+    //   domain 已有此欄(mapSupabaseProductToDomain subtitle: row.subtitle ?? '')、本片 plumb 到 UI。
+    //   ProductInfo pd-sub 顯此真值、拿掉寫死「義大利原裝進口」(backlog #162 placeholder 退場)。
+    subtitle: product.subtitle,
     // M-1-16c-3:變體 server-side strip → UIVariant(只帶 price:number = general、**不帶 priceByTier**;
     //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
     //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。

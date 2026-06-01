@@ -67,6 +67,11 @@ export type MockProduct = {
    */
   images?: string[];
   /**
+   * 商品副標(M-1-16c-4a:toUIProduct ← domain `product.subtitle`、Webike 式副標如
+   * 「Ducati Panigale · 碳纖維」)。ProductInfo pd-sub 顯此真值;mock 省略 → fallback「適用 {fits}」。
+   */
+  subtitle?: string;
+  /**
    * 商品變體(M-1-16c-3:詳情頁規格選擇器吃的真變體;toUIProduct server-side strip 自 domain
    * ProductVariant、只帶 price:number〔general〕不帶 priceByTier)。mock 省略 → 不渲染選擇器、向後相容。
    */
