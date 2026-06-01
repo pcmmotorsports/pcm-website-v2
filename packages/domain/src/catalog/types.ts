@@ -81,6 +81,13 @@ export type FitmentSpec = {
   yearStart?: number;
   /** 適用年份迄;`null` = 開放式範圍("2025+");同 yearStart = 單年 */
   yearEnd?: number | null;
+  /**
+   * 來源自動展開、未經人工確認的適配(M-1-16b RPM 匯入落地、Sean Q-C=A 保留+標記)。
+   *
+   * optional、不破壞現有 fitment(現有皆 undefined = 視為已確認);前台(16c)可決定是否顯示
+   * 「未確認」標籤。對齊 RPM fitment「終局 re-parse 未做、本次為快照」、re-parse 後 16d 同步刷新。
+   */
+  unconfirmed?: boolean;
 };
 
 /**

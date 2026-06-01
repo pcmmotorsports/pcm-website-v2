@@ -145,4 +145,19 @@ module.exports = [
       'react-hooks/exhaustive-deps': 'error',
     },
   },
+  // ===== M-1-16b Q-D=A:scripts/ root 層一次性 ETL / 維護腳本納 lint(鐵則 11 真守)=====
+  // scripts/*.ts(root 層、不含 scripts/spikes/ 子目錄):node 環境、非 boundaries element
+  // (boundaries/include 只含 packages/apps、不檢查 scripts);只給 parser 讓 eslint 認得 +
+  // 跑核心規則(語法 / 明顯錯)。root package.json lint 串 `eslint scripts/*.ts --max-warnings 0`
+  // (turbo per-package 掃不到 scripts/);typecheck 由 tsconfig.scripts.json + tsc 守(主把關)。
+  {
+    files: ['scripts/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: 'module',
+      },
+    },
+  },
 ];

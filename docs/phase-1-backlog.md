@@ -5344,6 +5344,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-31 / M-1-16a / codex 關卡1 consider 2(working-style 第 35 條 view-adapter 時序)
 - **相關:** #81(variants 落地)/ working-style 第 35 條 / M-1-16 handoff §4 16c / docs/design-storefront-manifest.yaml
 
+### #204. ⏳ storefront service_role key legacy JWT → 新式 Secret key 全站遷移(M-1-16b-2 Sean 拍)
+
+- **狀態:** ⏳ 待執行(Sean 2026-06-01 拍:16b import 用新式 SECRET_KEY、storefront 既有 SERVICE_ROLE_KEY 留全站遷移)
+- **優先級:** 🟡 低(legacy JWT 仍有效、Supabase 未停用;新式 Secret key 是建議走向)
+- **問題:**
+  - Supabase 推新式 API key(`sb_secret_…` / publishable)取代 legacy service_role JWT。
+  - 16b-2 import 腳本已用新式 `SUPABASE_SECRET_KEY` / `SOURCE_SUPABASE_SECRET_KEY`;但 storefront 既有 `createSupabaseServiceClient`(packages/adapters/src/supabase/client.ts)+ line-admin.ts 仍讀 legacy `SUPABASE_SERVICE_ROLE_KEY`。
+  - 兩套 key 並存(import 新式、storefront legacy)= 過渡態、最終應全站統一。
+- **觸發事件:** Supabase 宣布停用 legacy JWT / 全站 key 統一整理時(不急、legacy 仍有效)。
+- **預期解法:**
+  - storefront `createSupabaseServiceClient` + line-admin + `.env.example` 改讀新式 Secret key
+  - 確認新式 Secret key 對 RLS bypass / service_role 權限等效
+  - 各環境(local/preview/prod).env 同步換 key、legacy JWT 退場
+- **不修會痛在:**
+  - 擴充性:兩套 key 並存、新人不知哪個該用哪個
+  - 可維護性:legacy JWT 若被 Supabase 停用、storefront service 路徑斷
+  - bug 可追蹤性:key 類型混用、權限問題排查多一層
+- **估時:** 30-60 min(改 client.ts + line-admin + .env.example + 各環境 key)
+- **依賴:** 無前置(legacy 仍有效、不急)
+- **發現於:** 2026-06-01 / M-1-16b-2 / Sean 拍 import 用新式 SECRET_KEY、storefront 遷移留 backlog
+- **相關:** scripts/rpm-import.ts(已用新式)/ packages/adapters/src/supabase/client.ts / apps/storefront line-admin.ts
+
 ---
 
 ## 紀錄模板

@@ -1,0 +1,13 @@
+{
+  "//": "M-1-16b Q-D=A 三綠覆蓋:把 repo 根 scripts/*.ts(一次性 ETL / 維護腳本)納入 typecheck。",
+  "//2": "只 include scripts/ root 層(不遞迴 scripts/spikes/、避免既有 spike 型別問題);node 環境(@types/node)。",
+  "//3": "root package.json typecheck 串 `tsc -p tsconfig.scripts.json --noEmit`(turbo per-package 掃不到 scripts/)。",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["scripts/*.ts"]
+}

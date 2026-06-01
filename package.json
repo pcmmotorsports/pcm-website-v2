@@ -11,8 +11,8 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "lint": "turbo run lint",
-    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint && eslint scripts/*.ts --max-warnings 0",
+    "typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit",
     "test": "vitest run",
     "clean": "turbo run clean",
     "prepare": "husky"
@@ -21,6 +21,9 @@
     "*.{ts,tsx}": "eslint --max-warnings 0 --no-error-on-unmatched-pattern --no-warn-ignored"
   },
   "devDependencies": {
+    "@pcm/domain": "workspace:^",
+    "@supabase/supabase-js": "^2.105.3",
+    "@types/node": "^22",
     "@types/papaparse": "^5.5.2",
     "@typescript-eslint/parser": "catalog:",
     "@vitejs/plugin-react": "^5.0.0",
