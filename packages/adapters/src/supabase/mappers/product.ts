@@ -178,6 +178,9 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
 
   return {
     id: row.id,
+    // M-1-16c-4b:商品主碼 ← wire external_id(vendor 料號如 RPM-DCC01、UNIQUE NOT NULL);
+    //   domain 業務語意命名 productCode、不 leak wire externalId 字面(ADR-0003 §3.1)。
+    productCode: row.external_id,
     name: row.title,
     brand,
     category,
@@ -272,7 +275,8 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
  * upsert(Postgres atomic)、無「寫一邊漏一邊」中間態。
  *
  * 注(本 mapper 偏離 spec、本 sub-slice commit body 揭示):
- * - `external_id` Phase 1 用 domain `id` 作同步(Phase 2 vendor crawler 落地時改寫)
+ * - `external_id` ← `domain.productCode`(M-1-16c-4b 起、vendor 主碼 round-trip;原 Phase 1
+ *   placeholder「用 domain id 作同步」已退場 — domain 現有 productCode 真主碼欄)
  * - `metadata` Phase 1 寫 `{}`(Phase 2 vendor crawler / sync-engine 用)
  * - 不寫 `brands` / `categories` JOIN object(upsert 後 SELECT 重 JOIN 還原)
  */
@@ -282,7 +286,8 @@ export function mapDomainProductToSupabase(
 ): Omit<SupabaseProductRow, 'brands' | 'categories'> {
   return {
     id: domain.id,
-    external_id: domain.id,
+    // M-1-16c-4b:external_id ← domain.productCode(vendor 主碼 round-trip、取代原 domain.id placeholder)
+    external_id: domain.productCode,
     title: domain.name,
     subtitle: emptyToNull(domain.subtitle),
     description: emptyToNull(domain.description),

@@ -178,8 +178,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "1d4b4e8"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "2b7d270"  # 記可達祖先=16c-4b 父 commit(避 amend orphan);本 slice 真改見 git log [M-1-16c-4b]
+      last_modified_date: "2026-06-01 (M-1-16c-4b 規格表產品型號 PCM-{id hash} → 真主碼 productCode〔← domain/DB external_id〕+ 產地 義大利 → 泰國;L116 義大利原廠保固 D2=C 留)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
@@ -190,6 +190,26 @@ components:
         decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-5"
         reason: "L3 對沖、Phase 2 supabase product_specs / product_installs / site_policies 表接"
         phase_2_supabase_tables: ["product_specs", "product_installs", "site_policies"]
+      - field: "specOriginThailand"
+        design_value: "VariantCFull.jsx 產地硬寫「義大利」"
+        storefront_value: "M-1-16c-4b 改「泰國」(RPM 來自泰國、Sean 蝦皮內文證)。⚠️ 仍 hardcode 非 DB 欄、Phase-1 RPM-only 臨時覆蓋、套到非 RPM 商品會錯、product_specs 接線前非通用真值"
+        decided_at: "2026-06-01"
+        decision_source: "M-1-16c-4b/4c brief(Sean 產地=甲 去義大利)"
+        backlog: "#162"
+        reason: "backlog #162 原產國欄位債;Phase 2 brand.country / product_specs 真接前以泰國臨時覆蓋"
+      - field: "specProductCode"
+        design_value: "VariantCFull.jsx 產品型號硬寫「PCM-00001」式 demo"
+        storefront_value: "M-1-16c-4b 顯真主碼 product.productCode(← DB external_id 如 RPM-DCC01)、無則 fallback slug;非 design 翻譯、屬資料接線改善(取代 PCM-{id hash})"
+        decided_at: "2026-06-01"
+        decision_source: "M-1-16c-4b/4c brief(Sean 產品型號=A 接 external_id)"
+        reason: "PCM-{id hash} 為無意義 UI 數、改顯 vendor 真主碼供客服/對帳"
+      - field: "warrantyOriginItalyResidual"
+        design_value: "VariantCFull.jsx L172 / ProductPage.jsx L402「義大利原廠保固」"
+        storefront_value: "M-1-16c-4b D2=C 留著不動(Sean 拍);⚠️ 與本片改的產地「泰國」同屏殘差矛盾、刻意留待後續 ProductTabs 內容片清"
+        decided_at: "2026-06-01"
+        decision_source: "M-1-16c-4b D2=C"
+        backlog: "#162"
+        reason: "本片只動規格表產地、description tab 保固文案留內容片;殘差已程式註解 + commit body 揭示"
 
   ProductServices:
     storefront:

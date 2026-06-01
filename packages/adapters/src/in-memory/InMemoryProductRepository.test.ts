@@ -12,6 +12,7 @@ import { InMemoryProductRepository } from './InMemoryProductRepository';
 function createFakeProduct(overrides: Partial<Product> = {}): Product {
   return {
     id: 'p-001',
+    productCode: 'AKRA-EX-01', // M-1-16c-4b:Product.productCode 必填
     name: 'Akrapovič 鈦合金全段排氣管',
     brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic', premium_extra_pct: 0 },
     category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] },

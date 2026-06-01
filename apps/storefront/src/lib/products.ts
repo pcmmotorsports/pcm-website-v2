@@ -94,6 +94,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   return {
     id: hashIdToNumber(product.id),
     slug: product.handle,
+    // M-1-16c-4b:商品主碼 ← domain product.productCode(真主碼如 RPM-DCC01;ProductTabs 產品型號顯)。
+    productCode: product.productCode,
     brand: product.brand.name,
     name: product.name,
     fits,

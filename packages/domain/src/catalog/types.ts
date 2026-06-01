@@ -182,6 +182,18 @@ export type Product = {
   fitments: FitmentSpec[];
   priceByTier: PriceByTier;
 
+  /**
+   * 商品主碼 / 產品型號(M-1-16c-4b 落地)。vendor 來源料號(如 RPM 的 `RPM-DCC01`)、
+   * 全表 UNIQUE NOT NULL ← wire `products.external_id`(adapter mapper 邊界對應)。
+   *
+   * 用途:詳情頁規格表「產品型號」顯示(取代無意義 UI hash)、客服/對帳對料號、
+   *   Phase 2 vendor sync 同步鍵、SEO sku(16c-4c)。
+   * 與 `ProductVariant.sku`(各變體個別料號如 DCC01-G-F)語意分離:productCode 為商品主碼。
+   * 命名(Sean 委派、codex 關卡1 採納):business 語意 camelCase `productCode`、不用 wire 字面
+   *   externalId(對齊 ADR-0003 §3.1 domain 不 leak wire 命名)。
+   */
+  productCode: string;
+
   // 本 slice Q1=A2 擴 7 欄位:
   /** 商品描述、純文字 / Markdown 後續決定 */
   description: string;

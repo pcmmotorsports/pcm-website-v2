@@ -113,6 +113,9 @@ export function ProductTabs({ product }: ProductTabsProps) {
             <li>Hard Anodized 硬陽極處理,耐腐蝕耐磨</li>
             <li>對應原廠螺絲孔位,Plug &amp; Play</li>
             <li>包含安裝螺絲與扭力建議值說明書</li>
+            {/* ⚠️ M-1-16c-4b D2=C:Sean 拍「留著不動」。此「義大利原廠保固」與本片改的產地「泰國」
+                同屏殘差矛盾(RPM 非義大利)、刻意留待後續 ProductTabs 內容片清(backlog #162);
+                屬 hardcoded 文案 L3 對沖、Phase 2 product_specs / site_policies 接線。 */}
             <li>義大利原廠保固 24 個月</li>
           </ul>
         </div>
@@ -135,7 +138,9 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">產品型號</div>
-              <div className="pd-spec-v">PCM-{String(product.id).padStart(5, '0')}</div>
+              {/* M-1-16c-4b:顯真主碼 productCode(如 RPM-DCC01、← DB external_id、Sean Q1=A),
+                  取代原 PCM-{id hash} 無意義數;無主碼 fallback slug */}
+              <div className="pd-spec-v">{product.productCode ?? product.slug}</div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">商品分類</div>
@@ -155,7 +160,10 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">產地</div>
-              <div className="pd-spec-v">義大利</div>
+              {/* M-1-16c-4b:義大利 → 泰國(Sean 拍、RPM 來自泰國、蝦皮內文證;backlog #162)。
+                  ⚠️ 仍 hardcode、非 DB 欄:此為 Phase-1 RPM-only 臨時覆蓋、套到非 RPM 商品會錯,
+                  真產地欄留 M-1-16 product_specs 表接線、接線前不可當通用真值。 */}
+              <div className="pd-spec-v">泰國</div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">適用車款</div>

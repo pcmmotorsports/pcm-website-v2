@@ -87,12 +87,27 @@ describe('ProductTabs', () => {
     expect(descPane?.textContent).toContain(product.name);
   });
 
-  it('renders product id padded to 5 in specs', () => {
-    const product = MOCK_PRODUCTS[0]!;
+  // M-1-16c-4b:產品型號顯真主碼 productCode(取代 PCM-{id hash});無 productCode fallback slug
+  it('renders productCode in specs when present', () => {
+    const product = { ...MOCK_PRODUCTS[0]!, productCode: 'RPM-DCC01' };
     render(<ProductTabs product={product} />);
-    const expected = `PCM-${String(product.id).padStart(5, '0')}`;
     fireEvent.click(screen.getByRole('tab', { name: '規格與相容性' }));
-    expect(screen.getByText(expected)).toBeDefined();
+    expect(screen.getByText('RPM-DCC01')).toBeDefined();
+  });
+
+  it('falls back to slug in specs when productCode absent (no PCM-{id} hash)', () => {
+    const product = MOCK_PRODUCTS[0]!; // 無 productCode
+    render(<ProductTabs product={product} />);
+    fireEvent.click(screen.getByRole('tab', { name: '規格與相容性' }));
+    expect(screen.getByText(product.slug)).toBeDefined();
+    expect(screen.queryByText(`PCM-${String(product.id).padStart(5, '0')}`)).toBeNull();
+  });
+
+  // M-1-16c-4b:產地泰國(Sean 拍、去義大利)
+  it('renders 產地 泰國 (not 義大利) in specs', () => {
+    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+    fireEvent.click(screen.getByRole('tab', { name: '規格與相容性' }));
+    expect(screen.getByText('泰國')).toBeDefined();
   });
 
   // M-1-13H-6 Codex Fix 1:鍵盤導覽 regression(W3C WAI-ARIA Tabs、Sean Q1=B 完整版)

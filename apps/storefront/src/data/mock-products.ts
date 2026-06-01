@@ -72,6 +72,11 @@ export type MockProduct = {
    */
   subtitle?: string;
   /**
+   * 商品主碼 / 產品型號(M-1-16c-4b:toUIProduct ← domain `product.productCode`、vendor 真主碼如
+   * 「RPM-DCC01」)。ProductTabs 規格表「產品型號」顯此真值;mock 省略 → fallback slug。
+   */
+  productCode?: string;
+  /**
    * 商品變體(M-1-16c-3:詳情頁規格選擇器吃的真變體;toUIProduct server-side strip 自 domain
    * ProductVariant、只帶 price:number〔general〕不帶 priceByTier)。mock 省略 → 不渲染選擇器、向後相容。
    */

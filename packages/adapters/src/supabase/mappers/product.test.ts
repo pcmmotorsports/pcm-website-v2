@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mapDomainProductToSupabase,
   mapSupabaseProductToDomain,
   mapVariantRow,
   type SupabaseProductRow,
@@ -143,6 +144,20 @@ describe('mapSupabaseProductToDomain 變體整合', () => {
   it('list 路徑(無 embed key)→ variants 空陣列(避 N+1)', () => {
     const p = mapSupabaseProductToDomain(baseProductRow);
     expect(p.variants).toEqual([]);
+  });
+
+  // M-1-16c-4b:productCode read/write round-trip(codex 關卡1 must-fix 2 + consider 5)
+  it('read:productCode ← wire external_id(非 UUID id)', () => {
+    const p = mapSupabaseProductToDomain({ ...baseProductRow, external_id: 'RPM-DCC01' });
+    expect(p.productCode).toBe('RPM-DCC01');
+    expect(p.productCode).not.toBe(p.id);
+  });
+
+  it('write:external_id ← domain.productCode(round-trip、非 domain.id placeholder)', () => {
+    const domain = mapSupabaseProductToDomain({ ...baseProductRow, external_id: 'RPM-DCC01' });
+    const wire = mapDomainProductToSupabase(domain, { brandId: 'b-1', categoryId: 'c-1' });
+    expect(wire.external_id).toBe('RPM-DCC01');
+    expect(wire.external_id).not.toBe(domain.id);
   });
 
   it('sortOrder 並列(DB DEFAULT 0)→ sku tie-breaker 保確定性排序(codex 關卡2 consider 1)', () => {
