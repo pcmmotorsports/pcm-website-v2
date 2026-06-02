@@ -46,6 +46,7 @@ od_redesign:
     - "OD-4a:selectedVariant 狀態提升 + Hero 變體換圖(行為改、Sean 附帶要求)— selectedVariant 由 ProductInfo local state 提升至 ProductPage(受控源頭);ProductInfo 改受控(收 selectedVariant + onSelectVariant props、移除 local useState + reset effect、selectSpec 改呼 onSelectVariant、只持 qty/liked);ProductGallery 收 optional selectedVariant、有變體圖則顯變體圖(RPM 每變體 ~5 張、選紋路→看該變體照片)、無則 fallback product.images→seed;ProductPage 持 state + product 變更 reset + displayPrice + mobile buybar 改用真選中變體 sku/price(修 16c-3 buybar 只能用預設變體限制);ProductInfo.test 加 stateful harness(受控後點擊換價可驗)、ProductGallery.test +變體換圖測;三綠 + 完整 pnpm test 507(+1)全綠。檔案 ProductPage~365/ProductInfo~265/ProductGallery~264 皆 <400"
     - "OD-4b:Picker 外觀(CSS-only、ProductInfo.tsx 不動)— product-page.css options 段字面從 OD §5 直接搬:.pd-opt-label mono 大寫 12px、.pd-size-btn 直角細框 active 黑底、+:disabled/.is-disabled 灰階虛線刪除線視覺、.pd-size-grid auto-fill grid→flex-wrap;清 dead 規則(.pd-opt-guide 未渲染、.pd-swatches/.pd-swatch 色票 16c-3 起全文字鈕無色票)。**inline 預覽卡重排到 OD-7 後**(OD 用途=顯紋理樣品、來源 N°02 紋路牆、且 OD-4a Hero 換圖已覆蓋核心 UX)"
     - "OD-4c:Picker 12K 處置(資料驅動行為改、ProductInfo.tsx)— 動手前 Supabase 唯讀撈真變體 spec **發現 12K 有消光(DB 24 變體:Twill+Matt 13/Plain+Matt 11)**、與 Sean Q2「12K 沒消光」假設衝突 → raise Sean,**Q-OD4c-1=A / Q-OD4c-2=A(照真資料、D3=A)**。ProductInfo spec 邏輯 3 維(weave/finish/special)→ **2 維**:紋路 pattern = weave+special 合併(patternKey「special|weave」、顯「12K斜紋」「12K平織」「Kevlar斜紋」)、表面 finish;移除「特殊」獨立欄 + NONE「標準」sentinel;**消光不寫死鎖**(不照搬 OD enforceSurface/GLOSSY_ONLY、12K 有消光就讓選、避免少賣 24 變體);selectSpec/specGroups/render 全改維度版、WEAVE/FINISH/SPECIAL_LABEL + sortDimValues(標準 weave 在前、12K→Kevlar 合併款在後、亮光在前);ProductInfo.test 標籤對齊(鍛造紋→鍛造/亮面→亮光)+ 改寫特殊測為 12K 折入紋路測 + 加 Kevlar 折入測;三綠 + 完整 pnpm test 508(+1)全綠"
+    - "OD-5:服務橫條外移(ProductServices/ProductInfo/ProductPage + product-page.css)— OD 模板 §12 服務保障橫條是 hero 下方**全寬獨立 section**、非右欄內元素;故 ① ProductServices 元件改吐完整 `<section.pd-services-strip aria-label=服務保障>`(外殼由元件擁有)② 從 ProductInfo 右欄(pd-info)內移出、改由 ProductPage 在 pd-main 之後當獨立 section 渲染(OD 順序 pd-main→pd-services-strip→適用車款〔Phase B〕→N°01;Phase A 無車款表故直接接 N°01)③ CSS 字面從 OD 模板直接搬:.pd-services-strip 上下細線全寬 + .pd-services 4 欄 gap0 內分隔線 + .pd-service flex 直欄 + 720→2×2 + 540 縮字(取代舊嵌 pd-info 的 2 欄純文字版、移除 900px 孤兒 2 欄規則)④ 4 卡字面直接搬 OD(鐵則 1):滿額免運/NT$5,000 以上免運費、專業安裝/全台合作店家、**泰國原廠/RPM Carbon 授權代理**(取代舊原廠保固/原廠授權代理)、LINE 諮詢/下單前先聊聊確認貨況(取代舊 30 分鐘內回覆);ProductServices.test 字面對齊 + 加 .pd-services-strip section 斷言;三綠全綠(typecheck turbo+scripts tsc / lint turbo+scripts eslint / 完整 pnpm test 508 / build storefront)。CSS-only 響應式微調、無新後台(L2 hardcoded、Phase 2 site_services)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -112,8 +113,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "13623c9"  # 記可達祖先=OD-4c 父 commit(避 amend orphan);本 slice 真改見 git log [OD-4c]:ProductInfo picker 3 維→2 維(12K/Kevlar 折進紋路、移除特殊欄、消光不寫死鎖)。OD-1~OD-4b 見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-4c:ProductInfo picker 折成紋路/表面 2 維、12K/Kevlar 折進紋路、D3=A 真資料消光不鎖;前序 OD-4a 狀態提升等見 od_redesign 段)"
+      last_modified_commit: "2a34f73"  # 記可達祖先=OD-5 父 commit(=OD-4c、避 amend orphan);本 slice 真改見 git log [OD-5]:import + 渲染 `<ProductServices/>` 當 pd-main 之後獨立 section。OD-1~OD-4c 見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-5:服務橫條外移 — 新增 import ProductServices + 在 pd-main 之後渲染獨立全寬 section〔OD 模板 §12 hero 下方〕;前序 OD-4c picker 2 維等見 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
@@ -239,17 +240,19 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductServices.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "eb1e90f"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "2a34f73"  # 記可達祖先=OD-5 父 commit(=OD-4c、避 amend orphan);本 slice 真改見 git log [OD-5]
+      last_modified_date: "2026-06-03 (OD-5:服務橫條外移 — 元件改吐完整 section.pd-services-strip 全寬橫條、從 ProductInfo 右欄內移出至 ProductPage 當 hero 下方獨立 section;CSS 換 OD strip 字面〔4 欄內分隔線 + 720→2×2 + 540 縮字〕;4 卡字面直接搬 OD 模板)"
     design:
-      component: "design-reference/components/explorations/VariantCFull.jsx"
+      # OD-5 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §服務保障橫條(.pd-services-strip)"
+      legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
       - field: "servicesContent4Conditions"
-        design_value: "explorations 4 條服務承諾 demo"
-        storefront_value: "Phase 1 hardcoded、免運門檻 NT$5,000(對齊 ProductPage freeShippingThreshold)"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-3"
-        reason: "Phase 2 supabase site_services 表接"
+        design_value: "OD 模板 4 卡:滿額免運〔NT$5,000 以上免運費〕/ 專業安裝〔全台合作店家〕/ 泰國原廠〔RPM Carbon 授權代理〕/ LINE 諮詢〔下單前先聊聊確認貨況〕"
+        storefront_value: "字面直接搬 OD 模板(免運 5,000 同 Sean 2026-05-21 永久拍板;「泰國原廠/RPM Carbon 授權代理」取代舊「原廠保固/原廠授權代理」、產地泰國對齊 16c-4b、Phase 1 catalog RPM-only)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-5(視覺真權威 OD 模板、鐵則 1 直接搬)"
+        reason: "OD=商品頁視覺真權威;Phase 2 supabase site_services 表接(L2 內容)"
         phase_2_supabase_table: "site_services"
 
   ProductCard:
@@ -282,8 +285,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "81b5480"  # 記可達祖先=16c-4a 父 commit(避 amend orphan);本 slice 真改見 git log [M-1-16c-4a]
-      last_modified_date: "2026-06-01 (M-1-16c-3 去 hardcode 改資料驅動變體選擇器 + selectSpec snap + displayPrice 換價 + sku cart;M-1-16c-4a pd-sku 顯選中變體真 sku 連動〔取代 PCM-{id hash}、fallback slug〕+ pd-sub 顯 DB 真 subtitle〔拿掉寫死「義大利原裝進口」placeholder、backlog #162 退場、無則 fallback 適用fits〕)"
+      last_modified_commit: "2a34f73"  # 記可達祖先=OD-5 父 commit(避 amend orphan);本 slice 真改見 git log [OD-5](OD-1~4c 見 od_redesign 段)
+      last_modified_date: "2026-06-03 (OD-5:移除右欄內 `<ProductServices/>` 渲染 + import — 服務橫條外移至 ProductPage 當 hero 下方獨立全寬 section〔OD 模板 §12〕;前序 OD-4a 受控狀態提升 / OD-4c picker 2 維 / M-1-16c-3 資料驅動選擇器 / 16c-4a pd-sku 真 sku + pd-sub 真 subtitle 見 od_redesign 段 + git log)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:

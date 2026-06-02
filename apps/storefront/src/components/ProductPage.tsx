@@ -45,6 +45,7 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
+import { ProductServices } from './ProductServices';
 import { ProductHighlights } from './ProductHighlights';
 import { ProductSpotlight } from './ProductSpotlight';
 import { ProductTabs } from './ProductTabs';
@@ -288,6 +289,11 @@ export function ProductPage({ product, tier }: ProductPageProps) {
             onSelectVariant={setSelectedVariant}
           />
         </section>
+        {/* OD-5:服務保障橫條(ProductServices)— OD 模板 §12 hero 下方獨立全寬 section,
+            從 ProductInfo 右欄內移出(self-contained section.pd-services-strip)。
+            OD 模板順序為 pd-main → pd-services-strip → 適用車款(Phase B)→ N°01;
+            Phase A 尚無適用車款表 → 服務橫條直接接 N°01 Highlights。 */}
+        <ProductServices />
         {/* M-1-13H-4:Highlights + Spotlight 兩新子元件串接(對應 PRD §4 slice-4 + HANDOFF #12 #13);
             ProductSpotlight 內部條件渲染 product.hasSpotlight、falsy 返 null(caller 無需 if-guard) */}
         <ProductHighlights product={product} />

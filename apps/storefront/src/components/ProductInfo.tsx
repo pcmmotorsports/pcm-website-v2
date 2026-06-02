@@ -35,7 +35,6 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
-import { ProductServices } from './ProductServices';
 
 // OD-4a:selectedVariant 狀態提升至 ProductPage(本元件受控)— picker 改它、ProductGallery 隨它換圖、
 //   mobile buybar 用它(修 16c-3 buybar 只能用預設變體的限制)。
@@ -292,9 +291,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       <button type="button" className="pd-buynow-btn" onClick={addToCart}>
         立即購買
       </button>
-
-      {/* M-1-13f-1:services 段(ProductServices.tsx) */}
-      <ProductServices />
+      {/* OD-5:服務橫條(ProductServices)已外移至 ProductPage、改為 hero 下方獨立全寬 section(OD 模板 §12)*/}
     </aside>
   );
 }
