@@ -24,7 +24,11 @@
  */
 
 import { loadEnvFile } from 'node:process';
-loadEnvFile('.env.local');
+import { existsSync } from 'node:fs';
+// 本機從 .env.local 載連線 env;排程 runner(GitHub Actions / Vercel / pg_cron)無此檔(gitignored)、
+// 走平台注入的 process.env。loadEnvFile 對缺檔硬 throw ENOENT、會在 main() 前炸 → 存在才載
+// (S5 無人值守前提;否則 cron 每天 100% 失敗。fallback 對抗審查 B1)。
+if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 import { createClient } from '@supabase/supabase-js';
 import { fetchAllRpmProducts, type SourceProductRow } from './rpm-fetch';
