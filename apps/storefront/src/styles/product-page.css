@@ -647,6 +647,168 @@
   letter-spacing: 0.02em;
 }
 
+/* ========= Swatch showcase grid (OD §N°02 紋路 × 表面) ========= */
+/* OD-7b:字面從 OD product-detail-rpm-template.html §8 swatch showcase 直接搬
+   (.swatch-note 提醒框 + .swatch-section 亮光/消光兩組 + .swatch-grid cols-6/cols-4
+   + .swatch-card 圖+資訊卡 + is-rare 金徽 + 響應式 1279→4 / 1079→6改4 / 919→3 / 540→2)。
+   圖片 = shared @/data/rpm-swatches(Shopee 圖床)。cursor:zoom-in 保留(lightbox 互動留 OD-7c)。 */
+.swatch-note {
+  margin-top: 14px;
+  padding: 14px 18px;
+  background: var(--c-surface-2);
+  border-left: 3px solid var(--c-text);
+  font-size: 15px;
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+.swatch-note strong { color: var(--c-text); font-weight: 600; }
+
+.swatch-section { margin-bottom: 28px; }
+.swatch-section:last-of-type { margin-bottom: 0; }
+/* 極淡的碳纖編織底紋,只在卡片間隙能瞥見 */
+.swatch-section .swatch-grid {
+  padding: 18px;
+  background:
+    repeating-linear-gradient(45deg, rgba(10, 10, 10, 0.025) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(-45deg, rgba(10, 10, 10, 0.025) 0 6px, transparent 6px 12px),
+    var(--c-bg);
+  border: 1px solid var(--c-border);
+}
+.swatch-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+.swatch-section-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+.swatch-section-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0;
+  color: var(--c-text);
+}
+.swatch-section-count {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  color: var(--c-text-2);
+  margin-left: auto;
+  letter-spacing: 0.05em;
+}
+.swatch-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(5, 1fr);
+}
+.swatch-grid.cols-6 { grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.swatch-grid.cols-4 { grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.swatch-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.swatch-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--c-text);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.18);
+}
+.swatch-card-img {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--c-surface-2);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.swatch-card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.35s ease;
+}
+.swatch-card-img:hover img { transform: scale(1.04); }
+.swatch-card-img:focus-visible { outline: 2px solid var(--c-text); outline-offset: 2px; }
+.swatch-card-tag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  padding: 4px 9px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.swatch-card.is-rare .swatch-card-tag { background: var(--c-gold); color: #000; }
+.swatch-card-info {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.swatch-card-name {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--c-text);
+}
+.swatch-card-meta {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+}
+.swatch-card.is-rare .swatch-card-meta { color: var(--c-gold); }
+@media (max-width: 1279px) {
+  .swatch-grid { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .swatch-grid.cols-6 { grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .swatch-grid.cols-4 { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .swatch-card-info { padding: 10px 12px 12px; }
+  .swatch-card-name { font-size: 14.5px; }
+  .swatch-card-meta { font-size: 11px; }
+}
+/* 平板 / 大手機(920-1079)— 亮光 6 欄改 4 欄,避免六張擠在一起 */
+@media (max-width: 1079px) {
+  .swatch-grid.cols-6 { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+}
+@media (max-width: 919px) {
+  .swatch-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .swatch-grid.cols-6 { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .swatch-grid.cols-4 { grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .swatch-card-info { padding: 10px 12px 12px; }
+  .swatch-card-name { font-size: 15px; }
+  .swatch-card-meta { font-size: 11px; }
+}
+@media (max-width: 540px) {
+  .swatch-grid, .swatch-grid.cols-6, .swatch-grid.cols-4 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .swatch-section { margin-bottom: 32px; }
+  .swatch-section-head { flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .swatch-section-count { margin-left: 0; width: 100%; }
+  .swatch-card-img { aspect-ratio: 1 / 1; }
+  .swatch-card-tag { font-size: 9.5px; padding: 3px 7px; }
+}
+
 /* ========= Related grid ========= */
 /* M-1-13H-6:Related grid(對應 HANDOFF #16、字面從 design explorations.css L1320-1324 直接搬);
    用既有 <ProductCard>(.pcard 樣式在 product-card.css、Q4 不動)、本段只提供 grid container;

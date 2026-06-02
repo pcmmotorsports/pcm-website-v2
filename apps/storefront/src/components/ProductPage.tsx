@@ -47,6 +47,7 @@ import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
 import { ProductServices } from './ProductServices';
 import { ProductHighlights } from './ProductHighlights';
+import { ProductSwatchWall } from './ProductSwatchWall';
 import { ProductSpotlight } from './ProductSpotlight';
 import { ProductTabs } from './ProductTabs';
 import { ProductCard } from './ProductCard';
@@ -294,11 +295,13 @@ export function ProductPage({ product, tier }: ProductPageProps) {
             OD 模板順序為 pd-main → pd-services-strip → 適用車款(Phase B)→ N°01;
             Phase A 尚無適用車款表 → 服務橫條直接接 N°01 Highlights。 */}
         <ProductServices />
-        {/* OD-6:N°01「為什麼選 RPM Carbon」— ProductHighlights 改 RPM 固定內容(OD 模板 RPM 共用區塊)、
-            prop-less(不再吃 product;Phase 2 接 product_highlights 再恢復參數)。
-            ProductSpotlight 內部條件渲染 product.hasSpotlight、falsy 返 null(caller 無需 if-guard);
-            OD 模板無 Engineering Spotlight 區、ProductSpotlight 去留待 OD-7 處置(暫保留)。 */}
+        {/* OD-6:N°01「為什麼選 RPM Carbon」— ProductHighlights(RPM 固定內容、prop-less)。
+            OD-7b:N°02「紋路 × 表面」紋路樣式牆 ProductSwatchWall(緊接 N°01、OD 模板順序;
+              prop-less RPM 品牌通用展示、10 張樣品圖 from @/data/rpm-swatches)。
+            OD-7a:ProductSpotlight(舊 N°02 Engineering)碳纖維化 + 去 N°02 編號、Sean Q1 拍保留;
+              OD 模板無此區、條件渲染 hasSpotlight(真 RPM 頁不顯);真內文交資料線接 DB。 */}
         <ProductHighlights />
+        <ProductSwatchWall />
         <ProductSpotlight product={product} />
         {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
             (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}
