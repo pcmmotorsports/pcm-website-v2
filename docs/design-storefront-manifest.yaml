@@ -51,6 +51,7 @@ od_redesign:
     - "OD-7a:ProductSpotlight 碳纖維化 + 去 N°02 編號(ProductSpotlight.tsx + test)— Sean 2026-06-03 Q1 拍板〔不移除、先換碳纖維格式 + 備註交資料線〕。OD 模板無 Engineering Spotlight 區、Sean 拍保留。① 內文舊**鋁件**文案(7075-T6 鋁合金 / 5 軸 CNC / Hard Anodized / −38%/±0.02mm/24m stats)換**碳纖維通用 placeholder**(h2 真碳纖維為原廠車身而生 / 2 body 碳纖材質+原廠開模直上 / 3 stats 輕量·隔熱·直上 質性、無捏造數字);② eyebrow 去「N°02 — Engineering」改不帶編號 flat「碳纖維工藝」(N°02 讓給紋路樣式牆 OD-7b);③ 🔴 真正 per-廠牌固定內文交**資料線 workstream** 接 supabase product_spotlights DB(每品牌不同 story)、元件頂 + manifest + commit body 顯著備註給審查/資料線;④ ⚠️ 低風險:hasSpotlight 為 mock-only 欄、真 RPM 頁(toUIProduct 不設)不渲染、placeholder 只現於 3 legacy mock 頁(lightech/akrapovic/brembo、且皆非碳纖)。ProductSpotlight.test 對齊新內容(條件渲染測不動)。三綠全綠(typecheck / lint / 完整 pnpm test 507 / build)。⚠️ 本片後頁面暫無 N°02(N°01→Spotlight→Tabs→N°03)、N°02 紋路牆 OD-7b 補"
     - "OD-7b:N°02「紋路 × 表面」紋路樣式牆(新增 ProductSwatchWall.tsx + ProductSwatchWall.test + 新 data/rpm-swatches.ts + product-page.css swatch 段 + ProductPage 接線)— 結構/字面/圖片 URL 直接搬 OD 模板 §N°02(鐵則 1)。① 新 data 模組 `rpm-swatches.ts`:10 張碳纖維紋路樣品(亮光 6 + 消光 4)、圖為 **Shopee 圖床遠端 URL 直接搬**(非本地資產、plain img 無 next/image domain 需求)、weave/special/surface 欄供 OD-7c picker 對應用;② 新元件 `ProductSwatchWall`(prop-less RPM 品牌通用展示、HANDOFF §2 共用區塊):eyebrow〔義體 02 + 金線 + N° 紋路 × 表面〕+ h2/lead + 亮光 swatch-grid cols-6 + 消光 cols-4 + 挑選小提醒 swatch-note、is-rare 金徽(2 款 12K + 1 消光蜂巢特別訂製);③ CSS 直接搬 OD §8 swatch showcase(.swatch-note/.swatch-section/.swatch-grid cols-6·cols-4/.swatch-card/is-rare + 1279→4·1079→6改4·919→3·540→2 響應式);④ ProductPage 在 N°01 之後、Spotlight 之前插入 `<ProductSwatchWall/>`(OD 順序 N°01→N°02→…);⑤ ⚠️ swatch 圖點擊放大 lightbox **暫靜態**(cursor:zoom-in CSS 直接搬提示未來可點、無 click handler)、lightbox 互動 + picker 預覽卡一起 OD-7c 補(對齊 OD-2 不移植 vanilla lightbox)。ProductSwatchWall.test 5 測(eyebrow/h2/兩組/10 卡真 CDN URL/3 is-rare/note)。三綠全綠(typecheck / lint / 完整 pnpm test 512〔+5〕/ build)。⚠️ Shopee 圖床若失效屬 Phase 2 自架資產(backlog);N°02 swatch 為品牌固定展示、與右欄 picker(真變體可選項)互補"
     - "OD-7d:圖庫聚合改法 — 選中變體圖排前 + 其餘全部補後可一路滑(ProductGallery.tsx + test)。Sean 2026-06-03 Q2 更正〔變體圖非全錯、前幾張該紋路正確、剩餘補後讓客人滑完整套〕。動手前真 DB 唯讀驗證〔execute_sql、aprilia-01:product.images 僅 1 張代表圖、8 變體共 23 張 distinct 無跨變體重複、代表圖已是某變體圖 rep_in_variants=1〕。① gallery useMemo 改:Set 去重保序聚合 = 選中變體圖排最前 + 各變體圖(變體順序)+ 群代表圖 + product.image fallback;取代 OD-4a「變體有圖則只顯該變體那幾張」;無真圖 fallback seed gallery 不變;activeImg reset effect 沿用(切變體歸 0 顯該紋路第一張);② deps 補 product.variants;③ ProductGallery.test:OD-4a 測改名「product has no other images」特例〔MOCK[0] 無 variants/images → 退化變體 only〕+ 新增 OD-7d 聚合測(選中變體圖排前 + 其餘 + 代表圖去重、驗 counter 01/03 + thumb1=選中變體圖 + thumb2=其餘)。三綠全綠(typecheck / lint / 完整 pnpm test 513〔+1〕/ build)。⚠️ 預覽卡 OD-7c 另做"
+    - "OD-7c:picker 上方紋路樣品預覽卡 + 樣品 lightbox(新增 ProductSwatchPreview.tsx + test + rpm-swatches.findSwatch + ProductInfo 接線 + product-page.css .pd-pattern-preview/.pd-lb-caption)。Sean 2026-06-03 Q2「預覽卡保留」、視覺真權威 OD 模板 §8 .pd-pattern-preview 直接搬。① rpm-swatches 加 `findSwatch(spec)`:變體 spec(weave/finish/special)→ 對應 10 張樣品之一、fallback 鏈〔精準→12K 消光退 12K 亮光→Kevlar/其他退基礎 weave+surface→weave 任意→第一張亮光〕;② 新元件 `ProductSwatchPreview`(props selectedVariant + valueText):72px 樣品圖 + 當前樣式文字 + ⤢、is-rare 金字;點圖開 lightbox 瀏覽全 10 張(以當前為起點、←/→ + ESC + 點空白關 + 手機滑、沿用 .pd-lightbox/.pd-lb-* chrome + 新 .pd-lb-caption);③ ProductInfo 在 picker 上方渲染(hasVariants gate)、valueText 由 ProductInfo 算反映實際選擇〔含 12K/Kevlar 合併款、空維過濾;非從 fallback 樣品名推〕;④ CSS .pd-pattern-preview* 直接搬 OD §8 + .pd-lb-caption(絕對定位 counter 上方)。**預覽=乾淨紋路參考樣品、與 Hero 圖庫(OD-7d 真變體實拍)互補**。⚠️ Kevlar 無專屬樣品 → 顯同 weave 一般碳纖(紋理對、材質色差、已備註);swatch 牆卡片本身 lightbox 仍靜態(預覽卡有 lightbox、牆卡點擊延後、非阻)。ProductSwatchPreview.test 9 測(findSwatch 5 + 元件 4)。三綠全綠(typecheck / lint / 完整 pnpm test 522〔+9〕/ build)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -232,10 +233,27 @@ components:
         reason: "N°02 是 RPM 品牌級固定紋路展示(HANDOFF §2 共用區塊);Shopee 圖床若失效屬 Phase 2 自架資產議題"
       - field: "swatchLightboxDeferred"
         design_value: "OD 模板 swatch 圖點擊開 lightbox(data-lightbox-group glossy/matte)"
-        storefront_value: "OD-7b 暫靜態(cursor:zoom-in CSS 直接搬、無 click handler);lightbox 互動 + picker 預覽卡一起 OD-7c 補(對齊 OD-2 不移植 vanilla lightbox、用 React)"
+        storefront_value: "OD-7b 暫靜態(cursor:zoom-in CSS 直接搬、無 click handler);picker 預覽卡 lightbox 已於 OD-7c 做(瀏覽全 10 張);swatch 牆卡片本身的點擊放大延後(非阻、Sean 批次驗後評估)"
         decided_at: "2026-06-03"
-        decision_source: "OD-7b(lightbox 互動延 OD-7c)"
-        reason: "swatch lightbox 與 picker 預覽卡共用 React lightbox、一起 OD-7c 做較內聚"
+        decision_source: "OD-7b/OD-7c"
+        reason: "預覽卡 lightbox 已覆蓋瀏覽全 10 張樣品的需求;牆卡片點擊另接同 lightbox 屬增益"
+
+  ProductSwatchPreview:
+    storefront:
+      component: "apps/storefront/src/components/ProductSwatchPreview.tsx"
+      data: "apps/storefront/src/data/rpm-swatches.ts"  # findSwatch(spec) 對應 + 10 張樣品
+      css: "apps/storefront/src/styles/product-page.css"  # .pd-pattern-preview* + .pd-lb-caption(lightbox 沿用 .pd-lightbox)
+      last_modified_commit: "e06ff6f"  # 記可達祖先=OD-7c 父 commit(=OD-7d、避 amend orphan);本 slice 新建見 git log [OD-7c]
+      last_modified_date: "2026-06-03 (OD-7c 新建:picker 上方紋路樣品預覽卡 + 樣品 lightbox、直接搬 OD 模板 §8 .pd-pattern-preview)"
+    design:
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §8 .pd-pattern-preview(picker 上方即時預覽 + lightbox)"
+    business_overrides:
+      - field: "previewSwatchSampleNotVariantPhoto"
+        design_value: "OD 模板預覽卡顯紋路樣品圖(picker 上方、點開 lightbox 全 10 張)"
+        storefront_value: "Sean 2026-06-03 Q2:預覽卡保留、吃**乾淨紋路樣品圖**(findSwatch fallback、非變體實拍);與 Hero 圖庫(OD-7d 真變體實拍)互補。valueText 由 ProductInfo 算反映實際選擇〔含 12K/Kevlar 合併款〕。⚠️ Kevlar 無專屬樣品 → 顯同 weave 一般碳纖(紋理對、材質色差)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7c(Sean Q2:預覽卡保留、紋路卡片沿用)"
+        reason: "變體實拍圖大多不可靠;紋路樣品圖固定正確、作選擇參考最穩"
 
   ProductTabs:
     storefront:
@@ -329,8 +347,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "2a34f73"  # 記可達祖先=OD-5 父 commit(避 amend orphan);本 slice 真改見 git log [OD-5](OD-1~4c 見 od_redesign 段)
-      last_modified_date: "2026-06-03 (OD-5:移除右欄內 `<ProductServices/>` 渲染 + import — 服務橫條外移至 ProductPage 當 hero 下方獨立全寬 section〔OD 模板 §12〕;前序 OD-4a 受控狀態提升 / OD-4c picker 2 維 / M-1-16c-3 資料驅動選擇器 / 16c-4a pd-sku 真 sku + pd-sub 真 subtitle 見 od_redesign 段 + git log)"
+      last_modified_commit: "e06ff6f"  # 記可達祖先=OD-7c 父 commit(=OD-7d、避 amend orphan);本 slice 真改見 git log [OD-7c]:picker 上方接 `<ProductSwatchPreview/>` + valueText。OD-5/OD-4* 見 od_redesign 段
+      last_modified_date: "2026-06-03 (OD-7c:picker 上方渲染紋路樣品預覽卡 ProductSwatchPreview〔hasVariants gate〕+ 算 previewValueText;前序 OD-5 服務橫條外移 / OD-4c picker 2 維 / 16c-3 資料驅動選擇器見 od_redesign 段)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:

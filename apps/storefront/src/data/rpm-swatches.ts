@@ -48,3 +48,23 @@ export const RPM_SWATCHES: RpmSwatch[] = [
 
 export const RPM_SWATCHES_GLOSSY: RpmSwatch[] = RPM_SWATCHES.filter((s) => s.surface === 'glossy');
 export const RPM_SWATCHES_MATTE: RpmSwatch[] = RPM_SWATCHES.filter((s) => s.surface === 'matte');
+
+// OD-7c:由變體 spec(weave/finish/special)對應到一張紋路樣品(含 fallback)— picker 預覽卡用。
+// 變體 spec 來自真資料(weave Twill/Plain/Forged/Honeycomb、finish Glossy/Matt、special 12K/Kevlar);
+// 樣品只有 10 張(12K 僅亮光、無 Kevlar 專屬樣品)→ fallback 鏈對齊 HANDOFF §8 + OD-4c 真資料:
+//   ① 精準 weave+surface+(是否 12K) ② 12K 消光無樣品 → 退 12K 亮光同 weave
+//   ③ 其他 special(如 Kevlar)或仍無 → 退基礎 weave+surface(無 special、顯該 weave 紋理)
+//   ④ weave 任意 surface ⑤ 最終退第一張亮光。⚠️ Kevlar 無專屬樣品 → 顯同 weave 一般碳纖(紋理對、材質色差)。
+export function findSwatch(spec: Record<string, string>): RpmSwatch {
+  const weave = spec.weave as SwatchWeave | undefined;
+  const surface: SwatchSurface = spec.finish === 'Matt' ? 'matte' : 'glossy';
+  const is12K = spec.special === '12K';
+  const has = (pred: (s: RpmSwatch) => boolean): RpmSwatch | undefined => RPM_SWATCHES.find(pred);
+  return (
+    has((s) => s.weave === weave && s.surface === surface && (is12K ? s.special === '12K' : !s.special)) ??
+    (is12K ? has((s) => s.weave === weave && s.special === '12K') : undefined) ??
+    has((s) => s.weave === weave && s.surface === surface && !s.special) ??
+    has((s) => s.weave === weave && !s.special) ??
+    RPM_SWATCHES_GLOSSY[0]!
+  );
+}
