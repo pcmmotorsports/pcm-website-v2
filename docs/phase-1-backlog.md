@@ -5443,6 +5443,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #209. 🌐 商品中文描述 pipeline workstream(baoyu-translate → 台灣校對)
+
+- **狀態:** ⏳ 待執行(pilot 測中)
+- **優先級:** 🟠 中
+- **問題:**
+  - 報價單乾淨 view `storefront_catalog_v` 的 `description` 欄對 RPM **全空**(親驗 8878 列 0 描述);現有網站 933 商品描述是 16b 從 raw `description_origin` 灌的**英文 HTML 全文**(掛中文站本就不理想)。
+  - S3b 決定 description **移出同步 scope**(不抓不寫、現有原地保留、新品 NULL);商品描述需獨立中文化來源。
+- **觸發事件(任一觸發即啟動實作):**
+  - S3b 上線後新 ~190 商品無描述、需補;或 Sean 要中文化既有英文 HTML 描述;或 pilot 驗證 baoyu-translate→台灣校對品質可接受。
+- **預期解法:**
+  - 獨立 workstream:英文來源 → `baoyu-translate`(精翻模式)→ 台灣繁中校對(taiwan-traditional-chinese)→ 寫回網站 `products.description`(非經 view 同步路徑、避免被每日 batch 覆寫;或設 description 為「sync 不覆寫」鎖值欄)。
+  - pilot 先測少量、確認語氣/術語/規格正確再放量。
+- **不修會痛在:**
+  - 擴充性:其他 5 供應商上架同樣需描述中文化、無 pipeline 會逐家手工。
+  - 可維護性:描述散落英文 HTML、無統一中文化流程 → 品質不一。
+  - bug 可追蹤性:若描述誤入每日 sync 覆寫路徑、中文描述會被 view 空值洗掉(S3b 已用「不同步 description」隔離、但 pipeline 寫回點需明確標記不被覆寫)。
+- **估時:** pilot 2-3 hr;放量視量。
+- **依賴:** S3b(description 已隔離出同步路徑);baoyu-translate / taiwan-traditional-chinese skill。
+- **發現於:** 2026-06-02 / S3b-1 dry-run(view.description 全空)+ Sean Q-desc 定案。
+- **相關:** #205 / scripts/rpm-transform.ts(description 移出 scope)/ docs/specs/2026-06-02-S3b-sync-rewrite-plan.md §2.2
+
+---
+
 ## 紀錄模板
 
 ```markdown
