@@ -3,10 +3,17 @@
 // M-1-16c-3:由 mock hardcode(COLOR_MAP/sizeOptions/colorOptions 顏色×規格)改吃**真變體**。
 // Sean Q1-4=A 拍板:
 //   - Q1=A 規格選擇器全用文字按鈕(沿用 design .pd-size-grid/.pd-size-btn 樣式;紋路/表面無真實單色)
-//   - Q2=A 規格顯中文(SPEC_VALUE_LABEL;未對照則 fallback 原值)
+//   - Q2=A 規格顯中文(OD-4c 後標籤改 WEAVE_LABEL/FINISH_LABEL/SPECIAL_LABEL;未對照則 fallback 原值)
 //   - Q3=A 資料驅動:每個 distinct 值 >1 的 spec key 各渲染一排(weave/finish/special 通吃、含未來擴充);
 //          special 僅部分變體有 → 加「標準」(NONE)選項代表無特殊材質
 //   - Q4=A 沿用 #161 不顯庫存(變體 availability 不顯、按鈕永遠可點、訂貨型業務)
+//
+// OD-4a/OD-4c 更新(supersede 上方 16c-3 Q3 的 3 排 weave/finish/special + 「標準」NONE 描述):
+//   - OD-4a:selectedVariant 提升至 ProductPage(本元件受控、收 selectedVariant+onSelectVariant props),
+//            ProductGallery 隨選變體換圖、mobile buybar 用真選中變體(上方「local state / 預設變體」描述已過時)。
+//   - OD-4c:picker 折成 **2 維**(紋路 pattern = weave+special 合併、表面 finish),12K/Kevlar 折進紋路
+//            (顯「12K斜紋」「Kevlar斜紋」)、移除「特殊」獨立欄 + NONE「標準」sentinel(Sean Q-OD4c-1/2=A);
+//            消光不寫死鎖 —— 真資料 12K 亦有消光(D3=A 真資料為準、選項由 snap 決定)。
 //
 // 選了變體 → currentVariant(snap 最近、稀疏矩陣保證有效)→ 換價(displayPrice = selectedVariant.price)。
 // 變體 UI 價 = priceByTier.general(toUIProduct 已 strip、不帶 priceByTier;詳情頁釘 general、無 NT$0)。
@@ -39,61 +46,81 @@ export type ProductInfoProps = {
   onSelectVariant: (variant: UIVariant | null) => void;
 };
 
-// 規格 key 顯示順序(已知者優先、其餘按字母附後)+ 中文名(Q2=A;未列 key fallback 原值)
-const SPEC_KEY_ORDER = ['weave', 'finish', 'special'] as const;
-const SPEC_KEY_LABEL: Record<string, string> = {
-  weave: '紋路',
-  finish: '表面',
-  special: '特殊材質',
-};
-const SPEC_VALUE_LABEL: Record<string, Record<string, string>> = {
-  weave: { Forged: '鍛造紋', Honeycomb: '蜂巢紋', Plain: '平紋', Twill: '斜紋' },
-  finish: { Glossy: '亮面', Matt: '消光' },
-  special: { '12K': '12K碳纖', Kevlar: 'Kevlar芳綸' },
-};
+// OD-4c:把真變體 spec {weave, finish, special?} 折成 picker 2 維(Sean Q-OD4c-1/2=A、D3=A 真資料為準):
+//   紋路(pattern)= weave + special 合併顯示 —— 12K/Kevlar 折進紋路(顯「12K斜紋」「Kevlar斜紋」),
+//     移除原獨立「特殊」欄(Sean「特殊沒這選項」);
+//   表面(finish)= 亮光/消光。**消光不寫死鎖** —— 真資料 12K 亦有消光(DB 24 變體),選項全由真變體
+//     snap 決定(不照搬 OD enforceSurface/GLOSSY_ONLY 寫死;Sean Q-OD4c-1=A,避免少賣 24 變體)。
+type Dim = 'pattern' | 'finish';
+const DIM_LABEL: Record<Dim, string> = { pattern: '紋路', finish: '表面' };
+const WEAVE_LABEL: Record<string, string> = { Twill: '斜紋', Plain: '平織', Forged: '鍛造', Honeycomb: '蜂巢' };
+const FINISH_LABEL: Record<string, string> = { Glossy: '亮光', Matt: '消光' };
+const SPECIAL_LABEL: Record<string, string> = { '12K': '12K', Kevlar: 'Kevlar' };
+const WEAVE_ORDER = ['Twill', 'Plain', 'Forged', 'Honeycomb'];
+const FINISH_ORDER = ['Glossy', 'Matt'];
 
-// 「無此規格」sentinel(special 僅部分變體有、缺此 key 的變體歸此值、選項顯「標準」、Q3=A)
-const SPEC_NONE = '__PCM_SPEC_NONE__';
-const SPEC_NONE_LABEL = '標準';
+/** 紋路維 key:有 special 則「special|weave」合併、否則純 weave(空 weave → '') */
+function patternKey(v: UIVariant): string {
+  const weave = v.spec.weave ?? '';
+  const special = v.spec.special;
+  return special ? `${special}|${weave}` : weave;
+}
+function patternLabel(key: string): string {
+  const sep = key.indexOf('|');
+  if (sep >= 0) {
+    const special = key.slice(0, sep);
+    const weave = key.slice(sep + 1);
+    return `${SPECIAL_LABEL[special] ?? special}${WEAVE_LABEL[weave] ?? weave}`;
+  }
+  return WEAVE_LABEL[key] ?? key;
+}
+/** 變體在某維(pattern/finish)的值 */
+function variantDimValue(v: UIVariant, dim: Dim): string {
+  return dim === 'pattern' ? patternKey(v) : (v.spec.finish ?? '');
+}
+function dimValueLabel(dim: Dim, value: string): string {
+  return dim === 'pattern' ? patternLabel(value) : (FINISH_LABEL[value] ?? value);
+}
+/** 排序:紋路標準 weave(WEAVE_ORDER)在前、special 合併款(12K→Kevlar)在後;表面亮光在前 */
+function sortDimValues(dim: Dim, values: string[]): string[] {
+  if (dim === 'finish') {
+    const rank = (k: string) => { const i = FINISH_ORDER.indexOf(k); return i < 0 ? 99 : i; };
+    return [...values].sort((a, b) => rank(a) - rank(b));
+  }
+  const rank = (key: string): number => {
+    const sep = key.indexOf('|');
+    if (sep < 0) {
+      const i = WEAVE_ORDER.indexOf(key);
+      return i < 0 ? 50 : i; // 純 weave 0-3
+    }
+    const special = key.slice(0, sep);
+    const weave = key.slice(sep + 1);
+    const wi = WEAVE_ORDER.indexOf(weave);
+    const si = special === '12K' ? 0 : special === 'Kevlar' ? 1 : 2;
+    return 100 + si * 10 + (wi < 0 ? 9 : wi); // special 合併款排後
+  };
+  return [...values].sort((a, b) => rank(a) - rank(b));
+}
 
-function specKeyLabel(key: string): string {
-  return SPEC_KEY_LABEL[key] ?? key;
-}
-function specValueDisplay(key: string, value: string): string {
-  if (value === SPEC_NONE) return SPEC_NONE_LABEL;
-  return SPEC_VALUE_LABEL[key]?.[value] ?? value;
-}
-/** 變體在某 spec key 的值(缺則為 NONE sentinel、統一比對) */
-function variantValue(v: UIVariant, key: string): string {
-  return v.spec[key] ?? SPEC_NONE;
-}
-
-type SpecGroup = { key: string; values: string[] };
+type SpecGroup = { dim: Dim; values: string[] };
 
 export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }: ProductInfoProps) {
   const variants = product.variants ?? [];
   const hasVariants = variants.length > 0;
 
-  // 派生選擇器:每個 spec key 的 distinct 值;只渲染 distinct >1 的 key(Q3=A 資料驅動)。
-  // key 排序 SPEC_KEY_ORDER 已知優先、其餘字母序;special 等部分變體缺的 key 加 NONE「標準」。
+  // OD-4c:派生 2 維(pattern / finish)選擇器;只渲染 distinct >1 的維(資料驅動)。
+  //   pattern 已把 special 折入(見 patternKey);無「特殊」獨立維、無 NONE「標準」sentinel。
   const specGroups = useMemo<SpecGroup[]>(() => {
     const vs = product.variants ?? [];
-    const keys = new Set<string>();
-    for (const v of vs) for (const k of Object.keys(v.spec)) keys.add(k);
-    const known = SPEC_KEY_ORDER.filter((k) => keys.has(k));
-    const rest = [...keys]
-      .filter((k) => !(SPEC_KEY_ORDER as readonly string[]).includes(k))
-      .sort();
-    return [...known, ...rest]
-      .map((key) => {
+    const dims: Dim[] = ['pattern', 'finish'];
+    return dims
+      .map((dim) => {
         const values: string[] = [];
-        let hasAbsent = false;
         for (const v of vs) {
-          const val = v.spec[key];
-          if (val === undefined) hasAbsent = true;
-          else if (!values.includes(val)) values.push(val);
+          const val = variantDimValue(v, dim);
+          if (!values.includes(val)) values.push(val);
         }
-        return { key, values: hasAbsent ? [SPEC_NONE, ...values] : values };
+        return { dim, values: sortDimValues(dim, values) };
       })
       .filter((g) => g.values.length > 1);
   }, [product.variants]);
@@ -109,10 +136,10 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
     setQty(1);
   }, [product.variants]);
 
-  // 選某 spec key 的值:候選 = 該 key=value 的變體;snap「與當前其他維度相符最多」者
+  // OD-4c:選某維(pattern/finish)的值;候選 = 該維=value 的變體;snap「另一維與當前相符最多」者
   // (稀疏矩陣保證選到有效變體、不卡死;候選保留 variants 排序、首個 max-score 穩定 tie-break)。
-  const selectSpec = (key: string, value: string) => {
-    const candidates = variants.filter((v) => variantValue(v, key) === value);
+  const selectSpec = (dim: Dim, value: string) => {
+    const candidates = variants.filter((v) => variantDimValue(v, dim) === value);
     if (candidates.length === 0) return;
     const cur = selectedVariant;
     let best = candidates[0]!;
@@ -121,8 +148,8 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       let score = 0;
       if (cur) {
         for (const g of specGroups) {
-          if (g.key === key) continue;
-          if (variantValue(v, g.key) === variantValue(cur, g.key)) score += 1;
+          if (g.dim === dim) continue;
+          if (variantDimValue(v, g.dim) === variantDimValue(cur, g.dim)) score += 1;
         }
       }
       if (score > bestScore) {
@@ -187,18 +214,18 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
         <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>
       </div>
 
-      {/* M-1-16c-3:資料驅動變體選擇器(Q1=A 文字鈕 .pd-size-grid/.pd-size-btn、Q2=A 中文、
-          Q3=A 每 distinct>1 spec key 一排、special 加「標準」、Q4=A 不顯庫存不 disable)。
-          取代原 COLOR_MAP swatch + sizeOptions hardcode(mock 階段、RPM 無顏色概念)。 */}
+      {/* OD-4c:資料驅動 2 維選擇器(紋路 = weave+special 合併、表面 = finish;Sean Q-OD4c-1/2=A、D3=A)。
+          12K/Kevlar 折進紋路(顯「12K斜紋」「Kevlar斜紋」)、無「特殊」獨立欄、消光不寫死鎖(真資料 snap)。
+          文字鈕沿用 .pd-size-grid/.pd-size-btn、Q4=A 不顯庫存不 disable。 */}
       {hasVariants &&
         specGroups.map((g) => {
-          const curVal = selectedVariant ? variantValue(selectedVariant, g.key) : undefined;
+          const curVal = selectedVariant ? variantDimValue(selectedVariant, g.dim) : undefined;
           return (
-            <div className="pd-opt" key={g.key}>
+            <div className="pd-opt" data-opt={g.dim} key={g.dim}>
               <div className="pd-opt-head">
-                <span className="pd-opt-label">{specKeyLabel(g.key)}</span>
+                <span className="pd-opt-label">{DIM_LABEL[g.dim]}</span>
                 <span className="pd-opt-value">
-                  {curVal !== undefined ? specValueDisplay(g.key, curVal) : ''}
+                  {curVal !== undefined ? dimValueLabel(g.dim, curVal) : ''}
                 </span>
               </div>
               <div className="pd-size-grid">
@@ -207,10 +234,10 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
                     key={val}
                     type="button"
                     className={`pd-size-btn ${curVal === val ? 'is-active' : ''}`}
-                    onClick={() => selectSpec(g.key, val)}
+                    onClick={() => selectSpec(g.dim, val)}
                     aria-pressed={curVal === val}
                   >
-                    {specValueDisplay(g.key, val)}
+                    {dimValueLabel(g.dim, val)}
                   </button>
                 ))}
               </div>

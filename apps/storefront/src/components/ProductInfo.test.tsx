@@ -97,17 +97,17 @@ describe('ProductInfo', () => {
     renderInfo(variantProduct);
     expect(screen.getByText('紋路')).toBeDefined();
     expect(screen.getByText('表面')).toBeDefined();
-    expect(screen.getByRole('button', { name: '鍛造紋' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '鍛造' })).toBeDefined();
     expect(screen.getByRole('button', { name: '斜紋' })).toBeDefined();
-    expect(screen.getByRole('button', { name: '亮面' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '亮光' })).toBeDefined();
     expect(screen.getByRole('button', { name: '消光' })).toBeDefined();
   });
 
   it('should default to first variant (Forged Glossy, NT$ 8,400) with active state', () => {
     renderInfo(variantProduct);
     expect(screen.getByText('NT$ 8,400')).toBeDefined();
-    expect(screen.getByRole('button', { name: '鍛造紋' }).getAttribute('aria-pressed')).toBe('true');
-    expect(screen.getByRole('button', { name: '亮面' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '鍛造' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '亮光' }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('should change price when a different weave is selected (snap to nearest variant)', () => {
@@ -117,19 +117,43 @@ describe('ProductInfo', () => {
     expect(screen.getByText('NT$ 6,800')).toBeDefined();
     expect(screen.getByRole('button', { name: '斜紋' }).getAttribute('aria-pressed')).toBe('true');
     // finish 維持 Glossy(snap 保留其他維度)
-    expect(screen.getByRole('button', { name: '亮面' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: '亮光' }).getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('should render 特殊材質 selector with 標準 + 12K when some variants have special', () => {
+  // OD-4c:12K 折進紋路(顯「12K平織」)、無「特殊」獨立欄、無「標準」NONE(Sean Q-OD4c-1=A)
+  it('should fold 12K into 紋路 (12K平織) with no separate 特殊 row, price changes', () => {
     renderInfo(specialProduct);
-    expect(screen.getByText('特殊材質')).toBeDefined();
-    expect(screen.getByRole('button', { name: '標準' })).toBeDefined();
-    expect(screen.getByRole('button', { name: '12K碳纖' })).toBeDefined();
-    // 點 12K → 換 8400(special 變體);點回標準 → 6800(SPEC_NONE sentinel 往返)
-    fireEvent.click(screen.getByRole('button', { name: '12K碳纖' }));
+    // 無「特殊材質」獨立欄 / 無「標準」NONE 選項
+    expect(screen.queryByText('特殊材質')).toBeNull();
+    expect(screen.queryByRole('button', { name: '標準' })).toBeNull();
+    // 紋路含 平織 + 12K平織(special 折入);表面只 亮光(1 值不渲染)
+    expect(screen.getByText('紋路')).toBeDefined();
+    expect(screen.queryByText('表面')).toBeNull();
+    expect(screen.getByRole('button', { name: '平織' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '12K平織' })).toBeDefined();
+    // 預設 平織 6800;點 12K平織 → 8400;點回 平織 → 6800
+    fireEvent.click(screen.getByRole('button', { name: '12K平織' }));
     expect(screen.getByText('NT$ 8,400')).toBeDefined();
-    fireEvent.click(screen.getByRole('button', { name: '標準' }));
+    fireEvent.click(screen.getByRole('button', { name: '平織' }));
     expect(screen.getByText('NT$ 6,800')).toBeDefined();
+  });
+
+  // OD-4c:Kevlar 也折進紋路(顯「Kevlar斜紋」、Sean Q-OD4c-2=A、同 12K 邏輯)
+  it('should fold Kevlar into 紋路 (Kevlar斜紋)', () => {
+    const kevlarProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      price: 6800,
+      variants: [
+        { sku: 'K-G-T', spec: { weave: 'Twill', finish: 'Glossy' }, price: 6800, images: [] },
+        { sku: 'K-G-KT', spec: { weave: 'Twill', finish: 'Glossy', special: 'Kevlar' }, price: 9200, images: [] },
+      ],
+    };
+    renderInfo(kevlarProduct);
+    expect(screen.queryByText('特殊材質')).toBeNull();
+    expect(screen.getByRole('button', { name: '斜紋' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Kevlar斜紋' })).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Kevlar斜紋' }));
+    expect(screen.getByText('NT$ 9,200')).toBeDefined();
   });
 
   it('should NOT render variant selectors and shows product.price when product has no variants', () => {
