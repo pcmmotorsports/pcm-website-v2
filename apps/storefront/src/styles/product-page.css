@@ -83,17 +83,17 @@
 }
 .pd-vehicle-pill-x:hover { background: rgba(0,0,0,0.08); color: #1d1d1f; }
 
-/* ========= Main grid ========= */
-/* M-1-13H-6:桌機 grid 從 1fr 480px(固定資訊欄)→ 1.2fr 1fr 比例(對齊 HANDOFF L362-369
-   responsive 規格表 ≥1100 「圖 1.2fr : 資訊 1fr」+ design 真權威);
-   blast radius:slice-1~5 在舊 1fr:480px 比例下落地驗過、本次改比例後 gallery+info 欄寬度重新分配
-   (info 欄變寬、gallery 變窄)、Sean 肉眼驗務必確認 swatch / CTA / Spotlight 排版;
-   900-1100 中間斷點 1fr:1fr + padding 32、<900 既有 @media collapse 單欄(L871 段不動、Q3 禁區) */
+/* ========= Main grid (Hero) ========= */
+/* OD-1:.pd-main 基礎 grid 字面從 OD product-detail-rpm-template.html §5 直接搬
+   (minmax(0,...) 防 grid blowout、gap 36、hero 底細線分隔;移除原 margin-bottom:80 改 padding+border)。
+   ⚠️ 桌機左右等高(≥1080 .pd-gallery flex 撐高)+ 斷點遷移(≤1079 collapse + buybar)與圖庫耦合、
+   留 OD-2 / OD-11;本片只立基礎欄寬 + gap + hero 底線。既有 @media(max-width:900 / 901-1099)斷點本片暫留。 */
 .pd-main {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 64px;
-  margin-bottom: 80px;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 36px;
+  padding-bottom: 36px;
+  border-bottom: 1px solid var(--c-border);
 }
 
 /* ========= Gallery ========= */
@@ -463,42 +463,77 @@
   margin-top: 2px;
 }
 
-/* ========= Highlights + Spotlight sections ========= */
-/* M-1-13H-4:字面從 design-reference/styles/explorations.css L1078-1197 直接搬(對應 HANDOFF #12 #13);
-   class prefix .vcf-* → .pd-*(storefront 命名空間慣例);spot-media 不渲染 img、用純色 placeholder
-   (避免 PRODUCT_IMG_POOL 第 3 處撞觸發 backlog #155、Phase 2 接 product_spotlights.image_url 欄) */
-.pd-section { margin-bottom: 96px; }
-.pd-section-head {
-  margin-bottom: 40px;
-  max-width: 720px;
-}
+/* ========= Generic section heading (OD §6) ========= */
+/* OD-1:通用章節標題系統字面從 OD product-detail-rpm-template.html §6 直接搬
+   (.pd-section / .pd-section-head / .pd-eyebrow + .pd-eb-* 義體章節數字 / .pd-h2 / .pd-lead / .pd-body)。
+   取代原 M-1-13H-4 design-reference Apple/Aritzia 版(mono eyebrow + 36px h2 + margin-bottom section)。
+   .pd-eyebrow 雙形態:新 .pd-eb-no 巢狀(義體數字 + 金線 + label/logo)走 flex;尚未改的元件用扁平文字
+   eyebrow(如 N°01—Highlights)走 :not(:has(.pd-eb-no)) fallback 維持 mono 單行、不破版。
+   下方 .pd-feature-* / .pd-spotlight 視覺留 OD-6 / OD-7 reskin。 */
+.pd-section { padding: 52px 0; border-bottom: 1px solid var(--c-border); }
+.pd-section:last-of-type { border-bottom: 0; }
+.pd-section-head { max-width: 760px; margin-bottom: 28px; }
 .pd-eyebrow {
-  font: 500 11px/1 var(--font-mono);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #86868b;
+  display: flex; align-items: baseline; gap: 14px;
+  margin-bottom: 18px; line-height: 1;
+}
+.pd-eyebrow .pd-eb-no {
+  font-family: var(--f-display);
+  font-style: italic; font-weight: 700;
+  font-size: clamp(38px, 5.2vw, 64px);
+  letter-spacing: -0.02em; color: var(--c-text);
+  line-height: 0.85;
+}
+.pd-eyebrow .pd-eb-sep {
+  display: inline-block; width: 36px; height: 2px;
+  background: var(--c-gold); flex-shrink: 0;
+  transform: translateY(-6px);
+}
+.pd-eyebrow .pd-eb-label {
+  font-family: var(--f-mono); font-size: 12.5px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--c-text-2);
+  font-weight: 600; padding-bottom: 4px;
+}
+.pd-eyebrow .pd-eb-logo {
+  display: inline-flex; align-items: center;
+  height: clamp(44px, 6vw, 73px);
+}
+.pd-eyebrow .pd-eb-logo img { height: 100%; width: auto; display: block; opacity: 0.92; }
+/* 舊扁平文字 eyebrow 相容(無 .pd-eb-no 子元素時) */
+.pd-eyebrow:not(:has(.pd-eb-no)) {
+  display: block;
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--c-text-2);
   margin-bottom: 14px;
 }
 .pd-h2 {
-  font: 600 36px/1.15 var(--font-sans);
-  letter-spacing: -0.02em;
-  color: #1d1d1f;
-  margin: 0 0 14px;
-  text-wrap: pretty;
+  margin: 0 0 16px;
+  font-size: clamp(26px, 3.1vw, 36px);
+  font-weight: 700; letter-spacing: -0.015em; line-height: 1.2;
+  text-wrap: balance;
 }
 .pd-lead {
-  font: 400 17px/1.55 var(--font-sans);
-  color: #515154;
-  margin: 0;
-  max-width: 580px;
+  font-size: clamp(16.5px, 1.7vw, 19px);
+  color: var(--c-text-2); line-height: 1.7; margin: 0;
+  text-wrap: pretty;
 }
 .pd-body {
-  font: 400 15px/1.7 var(--font-sans);
-  color: #1d1d1f;
-  margin: 0 0 14px;
-  max-width: 640px;
+  font-size: 15px; line-height: 1.75;
+  color: var(--c-text); margin: 0 0 16px;
+  text-wrap: pretty;
 }
-.pd-body strong { font-weight: 600; }
+.pd-body strong { color: var(--c-text); font-weight: 600; }
+@media (max-width: 720px) {
+  .pd-eyebrow { gap: 10px; margin-bottom: 14px; }
+  .pd-eyebrow .pd-eb-no { font-size: 42px; }
+  .pd-eyebrow .pd-eb-sep { width: 22px; transform: translateY(-4px); }
+  .pd-eyebrow .pd-eb-label { font-size: 11.5px; letter-spacing: 0.12em; }
+  .pd-eyebrow .pd-eb-logo { height: 50px; }
+}
+@media (max-width: 1079px) {
+  .pd-section { padding: 36px 0; }
+  .pd-section-head { margin-bottom: 22px; }
+}
 
 /* Highlights — 3 feature cards(對應 design `.vcf-feature-*` L1113-1143) */
 .pd-feature-grid {

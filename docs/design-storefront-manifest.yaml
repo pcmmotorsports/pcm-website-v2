@@ -23,6 +23,25 @@ last_global_sync:
   audited_at: "2026-05-22"
   audited_by: "Cowork(M-1-13H session 結束時對齊)"
 
+# OD 商品頁改造線(2026-06-02 起、Claude-Code 自驅 OD-* 線、寫審分離 ROLE=A)
+# 視覺真權威遷移:ProductPage 家族(ProductPage / ProductGallery / ProductInfo / ProductServices /
+#   ProductHighlights / ProductSpotlight / ProductTabs + 新增 swatch wall / FAQ / fitments table)
+#   由 design-reference/ 改基準到 OD 模板。下方各元件 design: 段(指向 design-reference)隨 OD-* 逐片
+#   reskin 被 supersede、未改的片暫保留舊 mapping;不誤判為 drift。
+od_redesign:
+  authority_project: "open-design: Website V2"
+  authority_template: "product-detail-rpm-template.html"   # active 視覺真權威(鐵則 1 直接搬)
+  authority_handoff: "HANDOFF-rpm-template.md"              # 十三節規格 + selector 對照
+  line: "OD-* (Claude-Code 自驅、寫審分離 ROLE=A、審查 session 哨兵盯 dev)"
+  decisions:
+    - "決定一=A:OD=商品頁視覺真權威、改造現有 Next.js 元件對齊 OD、商品資料自動 DB 帶、不手刻 per-product 靜態 HTML"
+    - "D1=A:適用車款表照 DB fitments 原樣、3 欄(車廠 / 車型 modelCode / 年式)無車系欄、全車種列進去不截斷"
+    - "D3=A:picker/規格走真變體、OD 只視覺皮;12K 收進紋路(無獨立特殊欄)、12K→亮光only 由真資料 disable(非照搬 enforceSurface/GLOSSY_ONLY 寫死)"
+    - "Q1 override(Sean 2026-06-02):N°03 留相關商品、FAQ 變 N°04 放下面(+ FAQPage JSON-LD 同格式)"
+  slices_done:
+    - "OD-0:偵察(無碼)"
+    - "OD-1:地基 — tokens.css +--c-gold(#a98a4a;模板字面 vs HANDOFF §5 #b48a47 取模板、NORTHSTAR .css>docs 仲裁)+--f-display;layout.tsx +Antonio 字體;product-page.css OD §6 通用標題系統(.pd-section/.pd-eyebrow+.pd-eb-*/.pd-h2/.pd-lead/.pd-body、含舊扁平 eyebrow fallback)+ .pd-main 基礎 grid(等高/斷點遷移留 OD-2/OD-11)"
+
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
   globalRwdMechanism:
@@ -88,8 +107,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "ee509fa"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "397c2cb"  # 記可達祖先=OD-1 父 commit(避 amend orphan、沿用 ProductTabs precedent);本 slice 真改見 git log [OD-1]:product-page.css OD §6 標題系統 + .pd-main 基礎 grid(共用地基、非 ProductPage.tsx 行為改)
+      last_modified_date: "2026-06-02 (OD-1 地基:OD §6 通用標題系統 + .pd-main grid 對齊 OD 模板;視覺權威見上方 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)

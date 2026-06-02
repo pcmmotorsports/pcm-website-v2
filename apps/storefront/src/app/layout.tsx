@@ -11,6 +11,8 @@
 //
 // fonts 對齊 design index.html(Inter / Noto Sans TC / Noto Serif TC / Cormorant Garamond / JetBrains Mono)
 // 走 <link> 預連 + stylesheet(對齊 design 字面、避免 next/font 隱式包裝偏離 design)
+// OD-1:加 Antonio(義體 display 字、ital 0/1 × wght 500/700)— RPM 商品頁 OD 模板 N° 章節數字 / 卡片序號用;
+//   字面從 OD product-detail-rpm-template.html <head> Google Fonts link 直接搬(--f-display token 對應)。
 //
 // [#192 A2] 全站 RWD 啟動 + 底部 MobileTabBar(2026-05-28):
 // - import headers + RootLayout 改 async(Next 16 dynamic API、必 async + await)
@@ -58,7 +60,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:ital,wght@0,400;0,500;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Antonio:ital,wght@0,500;0,700;1,500;1,700&family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:ital,wght@0,400;0,500;1,400&family=Cormorant+Garamond:ital,wght@0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap"
         />
       </head>
       <body>
