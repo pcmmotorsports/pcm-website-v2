@@ -53,8 +53,9 @@ describe('ProductGallery', () => {
     expect(screen.getByText('NEW')).toBeDefined();
   });
 
-  // OD-4a:選中變體有自己的圖 → 圖庫顯變體圖(取代 product.images / seed 路徑、Sean 附帶要求)
-  it('should show selected variant images when selectedVariant has its own images', () => {
+  // OD-4a/OD-7d:選中變體有自己的圖 → 圖庫顯變體圖。MOCK_PRODUCTS[0] 無 product.images/variants,
+  //   故池 = 變體 2 張(OD-7d 聚合無其他圖可補、退化為變體圖 only 的特例)。
+  it('should show selected variant images when product has no other images', () => {
     const variant: UIVariant = {
       sku: 'X-G-F',
       spec: { weave: 'Forged', finish: 'Glossy' },
@@ -70,6 +71,28 @@ describe('ProductGallery', () => {
     expect(screen.getByLabelText('圖片 1')).toBeDefined();
     expect(screen.getByLabelText('圖片 2')).toBeDefined();
     expect(screen.queryByLabelText('圖片 3')).toBeNull();
+  });
+
+  // OD-7d(Sean 2026-06-03 Q2):選中變體圖排最前 + 其餘所有變體圖 + 群代表圖補後、去重保序
+  it('should put selected variant images first then append all other images (dedup)', () => {
+    const variants: UIVariant[] = [
+      { sku: 'A', spec: { weave: 'Twill', finish: 'Glossy' }, price: 1, images: ['https://cdn.example.com/a1.jpg', 'https://cdn.example.com/a2.jpg'] },
+      { sku: 'B', spec: { weave: 'Plain', finish: 'Glossy' }, price: 1, images: ['https://cdn.example.com/b1.jpg'] },
+    ];
+    const product = {
+      ...MOCK_PRODUCTS[0]!,
+      images: ['https://cdn.example.com/b1.jpg'], // 代表圖 = B 的圖(模擬真 DB「代表圖已在某變體」、應去重)
+      variants,
+    };
+    // 選變體 B(圖 b1)→ 池 = b1(選中)+ a1,a2(其餘變體)+ 代表圖 b1(去重)→ 3 張
+    render(<ProductGallery product={product} selectedVariant={variants[1]!} />);
+    expect(screen.getByText('01 / 03')).toBeDefined();
+    // 第一張 = 選中變體 B 的圖 b1(排最前)
+    const thumb1 = screen.getByLabelText('圖片 1').querySelector('img');
+    expect(thumb1?.getAttribute('src')).toBe('https://cdn.example.com/b1.jpg');
+    // 其餘 a1 / a2 接在後(可一路滑)
+    const thumb2 = screen.getByLabelText('圖片 2').querySelector('img');
+    expect(thumb2?.getAttribute('src')).toBe('https://cdn.example.com/a1.jpg');
   });
 
   it('should clamp counter at 03 / 03 when right arrow reaches last image', () => {
