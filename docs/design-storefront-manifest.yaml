@@ -48,6 +48,7 @@ od_redesign:
     - "OD-4c:Picker 12K 處置(資料驅動行為改、ProductInfo.tsx)— 動手前 Supabase 唯讀撈真變體 spec **發現 12K 有消光(DB 24 變體:Twill+Matt 13/Plain+Matt 11)**、與 Sean Q2「12K 沒消光」假設衝突 → raise Sean,**Q-OD4c-1=A / Q-OD4c-2=A(照真資料、D3=A)**。ProductInfo spec 邏輯 3 維(weave/finish/special)→ **2 維**:紋路 pattern = weave+special 合併(patternKey「special|weave」、顯「12K斜紋」「12K平織」「Kevlar斜紋」)、表面 finish;移除「特殊」獨立欄 + NONE「標準」sentinel;**消光不寫死鎖**(不照搬 OD enforceSurface/GLOSSY_ONLY、12K 有消光就讓選、避免少賣 24 變體);selectSpec/specGroups/render 全改維度版、WEAVE/FINISH/SPECIAL_LABEL + sortDimValues(標準 weave 在前、12K→Kevlar 合併款在後、亮光在前);ProductInfo.test 標籤對齊(鍛造紋→鍛造/亮面→亮光)+ 改寫特殊測為 12K 折入紋路測 + 加 Kevlar 折入測;三綠 + 完整 pnpm test 508(+1)全綠"
     - "OD-5:服務橫條外移(ProductServices/ProductInfo/ProductPage + product-page.css)— OD 模板 §12 服務保障橫條是 hero 下方**全寬獨立 section**、非右欄內元素;故 ① ProductServices 元件改吐完整 `<section.pd-services-strip aria-label=服務保障>`(外殼由元件擁有)② 從 ProductInfo 右欄(pd-info)內移出、改由 ProductPage 在 pd-main 之後當獨立 section 渲染(OD 順序 pd-main→pd-services-strip→適用車款〔Phase B〕→N°01;Phase A 無車款表故直接接 N°01)③ CSS 字面從 OD 模板直接搬:.pd-services-strip 上下細線全寬 + .pd-services 4 欄 gap0 內分隔線 + .pd-service flex 直欄 + 720→2×2 + 540 縮字(取代舊嵌 pd-info 的 2 欄純文字版、移除 900px 孤兒 2 欄規則)④ 4 卡字面直接搬 OD(鐵則 1):滿額免運/NT$5,000 以上免運費、專業安裝/全台合作店家、**泰國原廠/RPM Carbon 授權代理**(取代舊原廠保固/原廠授權代理)、LINE 諮詢/下單前先聊聊確認貨況(取代舊 30 分鐘內回覆);ProductServices.test 字面對齊 + 加 .pd-services-strip section 斷言;三綠全綠(typecheck turbo+scripts tsc / lint turbo+scripts eslint / 完整 pnpm test 508 / build storefront)。CSS-only 響應式微調、無新後台(L2 hardcoded、Phase 2 site_services)"
     - "OD-6:N°01「為什麼選 RPM Carbon」(ProductHighlights/ProductPage + product-page.css)— 內容 + 卡片視覺直接搬 OD 模板 N°01(鐵則 1)。① TSX:eyebrow 改巢狀形式(.pd-eb-no 義體 01 + .pd-eb-sep 金線 + 品牌標記)、h2「為什麼選 RPM Carbon」(取代舊「為什麼是 {brand}」)、lead〔RPM 來自泰國…〕、3 卡換 OD 字面〔可直上原廠 / 紋路想怎麼搭都行 / 輕量化．隔熱防燙〕;② 卡片 CSS reskin:OD 平面 surface + 細框 + hover 上移 + 義體斜體章節數字 + 金線 ::after(取代 M-1-13H-4 圓角 #f5f5f7 大卡)+ 920px collapse 單欄含 padding/字級(移除 900px 孤兒 collapse 行);③ **內容由 product.brand 動態改 RPM 固定**、元件 prop-less(N°01=OD RPM 共用區塊、Phase 1 catalog RPM-only;Phase 2 product_highlights 恢復參數)、ProductPage 呼叫點改 `<ProductHighlights/>`;④ **eyebrow 品牌標記用文字 .pd-eb-label「RPM Carbon」代 OD logo img**(public/ 無 RPM avif、不擅造視覺資產、交 Sean 後補、對齊 feedback_sean-owns-visual-design;.pd-eb-logo CSS 已備未來換 img 不改 layout);⑤ ProductHighlights.test 改寫對齊新內容 + 移除 brand 注入測;`pd-highlights` vestigial class 移除。三綠全綠(typecheck / lint / 完整 pnpm test 507〔-1 移除 brand 測〕/ build);半形逗號隨產品頁家族慣例(Spotlight/Tabs 一致)、措辭直接搬 OD。ProductSpotlight(舊 N°02 Engineering)OD 模板無對應、去留待 OD-7 處置"
+    - "OD-7a:ProductSpotlight 碳纖維化 + 去 N°02 編號(ProductSpotlight.tsx + test)— Sean 2026-06-03 Q1 拍板〔不移除、先換碳纖維格式 + 備註交資料線〕。OD 模板無 Engineering Spotlight 區、Sean 拍保留。① 內文舊**鋁件**文案(7075-T6 鋁合金 / 5 軸 CNC / Hard Anodized / −38%/±0.02mm/24m stats)換**碳纖維通用 placeholder**(h2 真碳纖維為原廠車身而生 / 2 body 碳纖材質+原廠開模直上 / 3 stats 輕量·隔熱·直上 質性、無捏造數字);② eyebrow 去「N°02 — Engineering」改不帶編號 flat「碳纖維工藝」(N°02 讓給紋路樣式牆 OD-7b);③ 🔴 真正 per-廠牌固定內文交**資料線 workstream** 接 supabase product_spotlights DB(每品牌不同 story)、元件頂 + manifest + commit body 顯著備註給審查/資料線;④ ⚠️ 低風險:hasSpotlight 為 mock-only 欄、真 RPM 頁(toUIProduct 不設)不渲染、placeholder 只現於 3 legacy mock 頁(lightech/akrapovic/brembo、且皆非碳纖)。ProductSpotlight.test 對齊新內容(條件渲染測不動)。三綠全綠(typecheck / lint / 完整 pnpm test 507 / build)。⚠️ 本片後頁面暫無 N°02(N°01→Spotlight→Tabs→N°03)、N°02 紋路牆 OD-7b 補"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -195,18 +196,21 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductSpotlight.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "56ccb5c"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "ed73599"  # 記可達祖先=OD-7a 父 commit(=OD-6、避 amend orphan);本 slice 真改見 git log [OD-7a]
+      last_modified_date: "2026-06-03 (OD-7a:內文鋁件文案〔7075-T6/CNC/Hard Anodized〕換碳纖維通用 placeholder、eyebrow 去 N°02 編號〔N°02 讓給紋路樣式牆 OD-7b〕改 flat「碳纖維工藝」;真內文待資料線接 DB)"
     design:
-      component: "design-reference/components/explorations/VariantCFull.jsx"
+      # OD 模板無 Engineering Spotlight 區;Sean 2026-06-03 Q1 拍板保留 + 碳纖維化 + 交資料線(非 OD 模板對齊)
+      authority: "(OD 模板無此區;保留為條件區塊、內文待資料線 product_spotlights DB)"
+      legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
-      - field: "spotlightContent4Sections3Stats"
-        design_value: "explorations 4 段 + 3 stats demo"
-        storefront_value: "Phase 1 hardcoded、3 件商品標 hasSpotlight true"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-4"
-        reason: "L3 對沖、Phase 2 supabase product_spotlights 接"
+      - field: "spotlightCarbonPlaceholderPendingDataLine"
+        design_value: "OD 模板無 Engineering Spotlight 區"
+        storefront_value: "Sean Q1 拍板保留;內文舊鋁件文案(7075-T6/5 軸 CNC/Hard Anodized)換**碳纖維通用 placeholder**(非真 per-product);真正 per-廠牌固定內文交**資料線 workstream** 接 supabase product_spotlights DB。⚠️ hasSpotlight 為 mock-only 欄、真 RPM 頁不渲染、placeholder 只現於 3 legacy mock 頁"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7a(Sean 2026-06-03 Q1:不移除、先換碳纖維格式 + 備註交資料線)"
+        reason: "每品牌有自己固定 story、待資料線真區分;OD 視覺線只先碳纖維化避免鋁件錯字面"
         phase_2_supabase_table: "product_spotlights"
+        handoff: "資料線 workstream 收口此區內容 + hasSpotlight 觸發條件"
 
   ProductTabs:
     storefront:
