@@ -229,86 +229,84 @@
   .pd-info { align-self: stretch; }
 }
 
-/* ========= Info column ========= */
-/* M-1-13d:字面從 design-reference/styles/product-page.css line 214-300 直接搬(sec 4 Info column 87 行)
-   注意 .pd-price-block / .pd-price-* CSS 提前搬進、JSX 13d 不渲染、留 13e Buy Row 補渲染(對齊 #130 trigger) */
-.pd-info { padding-top: 4px; }
+/* ========= Info column (OD §5) ========= */
+/* OD-3:右欄資訊換皮、字面從 OD product-detail-rpm-template.html §5 直接搬。
+   .pd-info sticky top:96px(≥1080 align-self:stretch 由 OD-2 等高接管、≤1079 static);
+   .pd-sku mono 大寫 11px / .pd-title clamp 26-38px 700 / .pd-sub 14px var(--c-text-2)。
+   取代原 design-reference Apple/Aritzia 版(28px title / #86868b 等硬色)。 */
+.pd-info {
+  position: sticky;
+  top: 96px;
+  align-self: flex-start;
+}
+@media (max-width: 1079px) { .pd-info { position: static; } }
 
-/* M-1-13H-2:SKU line(對應 HANDOFF #4、字面從 design explorations.css L750-754 直接搬)
-   取代 13d .pd-brand-row + .pd-brand-link + .pd-sku 三元素為單一 mono 行 */
 .pd-sku {
-  font: 500 11px/1 var(--font-mono);
-  color: #86868b;
-  letter-spacing: 0.04em;
-  margin-bottom: 12px;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--c-text-2);
+  text-transform: uppercase;
+  margin-bottom: 10px;
 }
 
-/* M-1-13H-2:title 改 28px Inter sans(對應 HANDOFF #5、字面從 design explorations.css L756-761 直接搬)
-   原 13d 38px Cormorant serif → 28px Inter sans-serif weight 600 letter-spacing -0.015em */
 .pd-title {
-  font: 600 28px/1.2 var(--font-sans);
-  letter-spacing: -0.015em;
-  color: #1d1d1f;
   margin: 0 0 8px;
-  text-wrap: pretty;
+  font-size: clamp(26px, 3.4vw, 38px);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
-/* M-1-13H-2:副標(對應 HANDOFF #6、字面從 design explorations.css L762-766 直接搬)
-   新增、承接 13d .pd-fits-banner 厚 banner 移除後的「適用車款 · 原產國」資訊位 */
 .pd-sub {
-  font: 400 14px/1.4 var(--font-sans);
-  color: #86868b;
+  color: var(--c-text-2);
+  font-size: 14px;
   margin-bottom: 24px;
 }
 
+/* OD-3:價格區字面從 OD §5 直接搬 — block 上下細線 padding 20 / price 32px 700 tabular;
+   tier 經銷·折扣子樣式(orig/save/tag、RPM 詳情頁釘 general 不顯)token 化 + 直角、不留 Apple 硬色。 */
 .pd-price-block {
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
   padding: 20px 0;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 .pd-price-row {
   display: flex; align-items: baseline; gap: 12px;
   flex-wrap: wrap;
 }
-/* M-1-13H-3:price 改 22px Inter sans 600 黑(對應 HANDOFF #8、字面從 design explorations.css
-   L767-772 直接搬);原 36px Cormorant serif → 22px Inter sans;showRedPrice 切換邏輯
-   .pd-price.is-red 保留(預設黑、tweaks 開才紅、對應 HANDOFF L150-153) */
 .pd-price {
-  font: 600 22px/1 var(--font-sans);
+  font-size: 32px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
-  color: #1d1d1f;
-  margin-bottom: 4px;
+  color: var(--c-text);
 }
-.pd-price.is-red { color: #c41e3a; }
+.pd-price.is-red { color: var(--c-red); }
 .pd-price-orig {
-  font: 400 14px/1 var(--font-sans);
-  color: #86868b;
+  font: 400 14px/1 var(--f-sans);
+  color: var(--c-text-2);
   text-decoration: line-through;
 }
-/* M-1-13H-3:折扣 tag 從紅底白字 NTD 金額 → mono 灰字百分比(對應 HANDOFF L150 字面) */
 .pd-price-save {
-  font: 500 11px/1 var(--font-mono);
-  color: #86868b;
+  font: 500 11px/1 var(--f-mono);
+  color: var(--c-text-2);
   letter-spacing: 0.04em;
 }
-/* M-1-13H-3:.pd-price-meta → .pd-price-sub(對齊 design `.vc-price-sub` L773-777 字面 + 命名遷入) */
 .pd-price-sub {
-  font: 400 12px/1 var(--font-sans);
-  color: #86868b;
-  margin-top: 8px;
+  color: var(--c-text-2);
+  font-size: 12px;
+  margin-top: 6px;
 }
-/* M-1-13H-6 Codex Fix 2:.pd-price-tag-dealer 補 CSS rule(13e-a/b callsite ProductInfo L120 既有 span
-   但無對應 rule、屬樣式破口、Codex Review consider 風險 α);對齊新版 mono 標籤群風格
-   (font 同 .pd-sku 11px mono / #f5f5f7 淡灰底 / #1d1d1f 深灰字、Cowork default 深灰、
-   經銷 highlight 色由 Sean 業務拍板可後調);tier='store'/'premiumStore' 顯「經銷價」tag 視覺對齊 */
+/* tier='store'/'premiumStore' 經銷價 tag(RPM 詳情頁釘 general、實際不顯;保留樣式、直角化) */
 .pd-price-tag-dealer {
-  font: 500 11px/1 var(--font-mono);
+  font: 500 11px/1 var(--f-mono);
   letter-spacing: 0.04em;
-  color: #1d1d1f;
-  background: #f5f5f7;
+  color: var(--c-text);
+  background: var(--c-surface-2);
   padding: 4px 8px;
-  border-radius: 6px;
 }
 
 /* ========= Options ========= */
@@ -366,81 +364,59 @@
   border-color: var(--ink);
 }
 
-/* ========= Buy row ========= */
-/* M-1-13H-3:CTA 從 56 高直角 uppercase → 48 高 pill(border-radius 100px、no uppercase);
-   字面從 design explorations.css L798-817 直接搬(對應 HANDOFF #10);
-   qty 結構保留 storefront 既有(qty + add-btn + like 同行)、不移到 swatches 同行
-   (PRD §4 slice-3 字面保留 qty 計數器、design VariantCFull 無對應 qty 樣板、size opt 並存複雜度;
-   commit body 揭示偏離);qty 從 56 高 → 48 高 + border-radius 100px 對齊 pill 風格 */
+/* ========= Buy row (OD §5) ========= */
+/* OD-3:購買列換 OD §5 直角 — qty/add/buynow 去 pill radius(100→0)、like 圓→方;token 化;
+   加入購物車黑底實心、立即購買 1.5px 描邊、like hover 紅。#161 永遠可點(無 disabled 態、
+   原 .is-disabled / :disabled dead rule 移除)。≤1079 由既有 @media 隱藏(mobile buybar 取代)。 */
 .pd-buy-row {
-  display: flex; gap: 10px;
+  display: flex; gap: 10px; align-items: stretch;
   margin-bottom: 10px;
 }
 .pd-qty {
   display: flex; align-items: center;
-  border: 1px solid #d4d4d4;
-  border-radius: 100px;
-  height: 48px;
+  border: 1px solid var(--c-border-strong);
 }
 .pd-qty button {
-  width: 40px; height: 100%;
-  background: transparent; border: 0;
-  font: 400 18px/1 var(--font-sans);
-  color: #1d1d1f;
-  cursor: pointer;
+  width: 42px; height: 48px;
+  font-size: 18px; color: var(--c-text-2);
+  transition: background 0.12s, color 0.12s;
 }
-.pd-qty button:hover { color: #86868b; }
+.pd-qty button:hover { background: var(--c-surface-2); color: var(--c-text); }
 .pd-qty span {
-  width: 32px; text-align: center;
-  font: 600 14px/1 var(--font-mono);
-  color: #1d1d1f;
+  display: flex; align-items: center; justify-content: center;
+  min-width: 42px; padding: 0 10px;
+  font-variant-numeric: tabular-nums; font-weight: 500;
+  border-left: 1px solid var(--c-border); border-right: 1px solid var(--c-border);
 }
 
 .pd-add-btn {
   flex: 1;
-  height: 48px;
-  background: #1d1d1f;
-  color: #fff;
-  border: 0;
-  border-radius: 100px;
-  font: 500 14px/1 var(--font-sans);
-  letter-spacing: 0.01em;
-  cursor: pointer;
-  transition: background 150ms;
+  background: var(--c-text); color: var(--c-text-inverse);
+  font-size: 14px; font-weight: 600; letter-spacing: 0.04em;
+  padding: 14px 24px;
+  transition: background 0.15s;
 }
-.pd-add-btn:hover:not(.is-disabled) { background: #000; }
-.pd-add-btn.is-disabled {
-  background: #d4d4d4; color: #fff; opacity: 0.7;
-  cursor: not-allowed;
-}
+.pd-add-btn:hover { background: #000; }
 
 .pd-like {
   width: 48px; height: 48px;
-  background: #fff;
-  border: 1px solid #d4d4d4;
-  border-radius: 50%;
-  color: #1d1d1f;
-  cursor: pointer;
-  transition: all 150ms;
+  border: 1px solid var(--c-border-strong);
   display: flex; align-items: center; justify-content: center;
+  transition: border-color 0.15s, color 0.15s;
 }
-.pd-like:hover { border-color: #1d1d1f; }
-.pd-like.is-liked { color: #c41e3a; border-color: #c41e3a; }
+.pd-like:hover { border-color: var(--c-text); color: var(--c-red); }
+.pd-like.is-liked { color: var(--c-red); border-color: var(--c-red); }
 
 .pd-buynow-btn {
   width: 100%;
-  height: 48px;
-  background: #fff;
-  color: #1d1d1f;
-  border: 1px solid #d4d4d4;
-  border-radius: 100px;
-  font: 500 14px/1 var(--font-sans);
-  cursor: pointer;
+  padding: 14px 24px;
+  background: var(--c-surface); color: var(--c-text);
+  border: 1.5px solid var(--c-text);
+  font-size: 14px; font-weight: 600; letter-spacing: 0.04em;
   margin-bottom: 24px;
-  transition: all 150ms;
+  transition: background 0.15s, color 0.15s;
 }
-.pd-buynow-btn:hover:not(:disabled) { background: #f5f5f7; border-color: #1d1d1f; }
-.pd-buynow-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pd-buynow-btn:hover { background: var(--c-text); color: var(--c-text-inverse); }
 
 /* ========= Services strip ========= */
 /* M-1-13H-3:services 從 flex row(svg + content) → block(label + desc stacked)、移除圖示後純文字

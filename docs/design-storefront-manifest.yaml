@@ -42,6 +42,7 @@ od_redesign:
     - "OD-0:偵察(無碼)"
     - "OD-1:地基 — tokens.css +--c-gold(#a98a4a;模板字面 vs HANDOFF §5 #b48a47 取模板、NORTHSTAR .css>docs 仲裁)+--f-display;layout.tsx +Antonio 字體;product-page.css OD §6 通用標題系統(.pd-section/.pd-eyebrow+.pd-eb-*/.pd-h2/.pd-lead/.pd-body、含舊扁平 eyebrow fallback)+ .pd-main 基礎 grid(等高/斷點遷移留 OD-2/OD-11)"
     - "OD-2:Hero 圖庫換皮 + 桌機等高(CSS-only、ProductGallery.tsx 不動)— product-page.css 圖庫段字面從 OD §5 直接搬:.pd-hero-img 直角+灰底+細框(去 radius18/漸層)、.pd-thumbs flex→5格 grid、.pd-thumb-btn 直角細框圖不調暗、.pd-hero-counter 深底白字 mono;.pd-gallery 去 sticky + ≥1080 flex 左右等高(hero flex:1 撐右欄高、解 HANDOFF §4);箭頭/badge PCM 既有增強 radius→0 對齊直角(保留功能);保留 React swipe/lightbox 不移植 vanilla JS;901-1079 過渡帶 align-self:start 兜空隙(斷點遷移留 OD-11)"
+    - "OD-3:右欄資訊換皮(CSS-only、ProductInfo.tsx 不動)— product-page.css 資訊段字面從 OD §5 直接搬:.pd-info sticky top:96px(≤1079 static)、.pd-sku mono 大寫 11px、.pd-title clamp 26-38px 700、.pd-sub 14px、.pd-price-block 上下細線、.pd-price 32px 700 tabular、購買列(.pd-buy-row/.pd-qty/.pd-add-btn/.pd-like/.pd-buynow-btn)去 pill radius 100→0 直角化 + like 圓→方 + token 化;#161 永遠可點移除 dead .is-disabled/:disabled rule;tier 經銷/折扣子樣式 token+直角(RPM general 不顯)。**不含** picker(.pd-opt/.pd-size-btn → OD-4b)/ 服務區(.pd-services → OD-5)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
