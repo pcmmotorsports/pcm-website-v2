@@ -41,6 +41,7 @@ od_redesign:
   slices_done:
     - "OD-0:偵察(無碼)"
     - "OD-1:地基 — tokens.css +--c-gold(#a98a4a;模板字面 vs HANDOFF §5 #b48a47 取模板、NORTHSTAR .css>docs 仲裁)+--f-display;layout.tsx +Antonio 字體;product-page.css OD §6 通用標題系統(.pd-section/.pd-eyebrow+.pd-eb-*/.pd-h2/.pd-lead/.pd-body、含舊扁平 eyebrow fallback)+ .pd-main 基礎 grid(等高/斷點遷移留 OD-2/OD-11)"
+    - "OD-2:Hero 圖庫換皮 + 桌機等高(CSS-only、ProductGallery.tsx 不動)— product-page.css 圖庫段字面從 OD §5 直接搬:.pd-hero-img 直角+灰底+細框(去 radius18/漸層)、.pd-thumbs flex→5格 grid、.pd-thumb-btn 直角細框圖不調暗、.pd-hero-counter 深底白字 mono;.pd-gallery 去 sticky + ≥1080 flex 左右等高(hero flex:1 撐右欄高、解 HANDOFF §4);箭頭/badge PCM 既有增強 radius→0 對齊直角(保留功能);保留 React swipe/lightbox 不移植 vanilla JS;901-1079 過渡帶 align-self:start 兜空隙(斷點遷移留 OD-11)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:

@@ -96,20 +96,25 @@
   border-bottom: 1px solid var(--c-border);
 }
 
-/* ========= Gallery ========= */
+/* ========= Gallery (OD §5 — 換皮 + 桌機等高) ========= */
+/* OD-2:字面從 OD product-detail-rpm-template.html §5 直接搬。
+   .pd-gallery 去 sticky/top/align-self:start(OD base position:relative、grid 預設 stretch),
+   桌機等高在 .pd-thumbs 後 @media(min-width:1080)補;保留現有 React 互動(swipe track / 箭頭 /
+   lightbox)、OD 只換視覺皮、不移植 vanilla JS。 */
 .pd-gallery {
-  position: sticky;
-  top: 100px;
+  position: relative;
+  /* 過渡:現有 ≤900 才 collapse、901-1079 仍 2 欄;align-self:start 避免此帶 gallery 被拉伸留底部空隙
+     (OD ≤1079 即單欄、無此帶;斷點遷移留 OD-11)。≥1080 改 stretch 啟動等高(下方 @media)。 */
   align-self: start;
 }
 
-/* M-1-13H-1: Gallery 對齊 HANDOFF #2 + design .vc-img-card 字面 — 1:1 / radius 18 / 漸層底
-   既有 swipe track 結構保留(hero swipe 邏輯不拆、touch-action: pan-y 保留) */
+/* OD-2:hero 換 OD §5 視覺 — 直角(radius 18→0)、灰底 var(--c-surface-2)取代漸層、加細框;
+   保留 swipe 需要的 touch-action/user-select(既有 React swipe track 結構不動)。 */
 .pd-hero-img {
   position: relative;
   aspect-ratio: 1 / 1;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #f5f5f7 0%, #ededef 100%);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
   overflow: hidden;
   touch-action: pan-y;
   cursor: zoom-in;
@@ -136,13 +141,14 @@
   pointer-events: none;
 }
 
-/* M-1-13H-1: arrow 72×72 / radius 14 / 玻璃毛玻璃(對齊 HANDOFF #2 + design .vc-arrow 字面) */
+/* OD-2:arrow 為 PCM 既有增強(OD §5 hero 無箭頭、靠縮圖切圖)— 保留功能,radius 14→0 對齊 OD 直角;
+   玻璃毛玻璃外觀留(Sean 後續視覺 polish 可再調)。 */
 .pd-hero-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   width: 72px; height: 72px;
-  border-radius: 14px;
+  border-radius: 0;
   background: rgba(255,255,255,0.32);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
@@ -163,66 +169,65 @@
 .pd-hero-arrow-left { left: 18px; }
 .pd-hero-arrow-right { right: 18px; }
 
-/* M-1-13H-1: counter 對齊 design .vc-counter 字面 — 13px JetBrains Mono / radius 8 / 右下 16px */
+/* OD-2:counter 字面從 OD §5 直接搬 — 深底白字 mono 11px、右下 14px、直角、pointer-events:none。 */
 .pd-hero-counter {
   position: absolute;
-  right: 16px; bottom: 16px;
-  font: 500 13px/1 var(--font-mono);
-  letter-spacing: 0.18em;
-  color: #1d1d1f;
-  background: rgba(255,255,255,0.55);
-  backdrop-filter: blur(8px);
-  padding: 8px 12px;
-  border-radius: 8px;
+  right: 14px; bottom: 14px;
+  background: #0a0a0acc;
+  color: #fff;
+  padding: 4px 10px;
+  font: 400 11px/1 var(--f-mono);
+  letter-spacing: 0.08em;
   z-index: 3;
   pointer-events: none;
 }
-/* M-1-13H-1: badge 對齊 design .vc-badge 字面 — 玻璃毛玻璃 / radius 100px / Inter 10px */
+/* OD-2:badge 為 PCM 既有增強(sale/new、OD §5 hero 無)— 改 OD 直角深底白字、對齊新 sharp hero;
+   Sean 後續視覺 polish 可再調色。 */
 .pd-hero-badge {
   position: absolute;
-  top: 16px; left: 16px;
-  font: 600 10px/1 var(--font-sans);
+  top: 14px; left: 14px;
+  font: 600 10px/1 var(--f-sans);
   letter-spacing: 0.12em;
-  background: rgba(255,255,255,0.9);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  padding: 6px 10px;
-  border-radius: 100px;
-  color: #1d1d1f;
+  background: #0a0a0acc;
+  padding: 5px 10px;
+  color: #fff;
   z-index: 3;
   pointer-events: none;
 }
-.pd-hero-badge-new { background: rgba(255,255,255,0.9); color: #1d1d1f; }
+.pd-hero-badge-new { background: #0a0a0acc; color: #fff; }
 
-/* M-1-13H-1: thumb 從 hero-img overlay 搬到主圖下方(HANDOFF #3 + design .vc-thumbs 字面)
-   className 改 .pd-thumb-overlay → .pd-thumbs / .pd-thumb-ov → .pd-thumb-btn */
+/* OD-2:thumbs 字面從 OD §5 直接搬 — 5 格 grid(取代 flex 居中 64px)、直角、細框、圖不調暗。 */
 .pd-thumbs {
-  display: flex;
-  gap: 10px;
-  justify-content: center;
-  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-top: 6px;
 }
 .pd-thumb-btn {
-  flex: 0 0 64px;
-  width: 64px; height: 64px;
-  padding: 0;
-  border-radius: 10px;
-  border: 2px solid transparent;
-  background: #f5f5f7;
-  cursor: pointer;
+  aspect-ratio: 1 / 1;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
   overflow: hidden;
-  transition: border-color 180ms;
+  cursor: pointer;
+  padding: 0;
+  transition: border-color 0.15s;
 }
 .pd-thumb-btn img {
   width: 100%; height: 100%;
   object-fit: cover;
   display: block;
-  opacity: 0.75;
-  transition: opacity 180ms;
 }
-.pd-thumb-btn:hover img { opacity: 1; }
-.pd-thumb-btn.is-active { border-color: #1d1d1f; }
-.pd-thumb-btn.is-active img { opacity: 1; }
+.pd-thumb-btn:hover { border-color: var(--c-border-strong); }
+.pd-thumb-btn.is-active { border-color: var(--c-text); border-width: 1.5px; }
+
+/* OD-2:桌機(≥1080)左右等高 — 字面從 OD §5 直接搬。
+   .pd-gallery flex 直欄、hero-img flex:1 撐到右側 .pd-info 高(解 HANDOFF §4「左圖凸一截右欄短」);
+   .pd-info align-self:stretch 同步;<1080 維持 1:1 正方圖(既有 @media collapse 不動、斷點遷移留 OD-11)。 */
+@media (min-width: 1080px) {
+  .pd-gallery { display: flex; flex-direction: column; align-self: stretch; }
+  .pd-hero-img { aspect-ratio: auto; flex: 1 1 auto; min-height: 460px; }
+  .pd-info { align-self: stretch; }
+}
 
 /* ========= Info column ========= */
 /* M-1-13d:字面從 design-reference/styles/product-page.css line 214-300 直接搬(sec 4 Info column 87 行)
