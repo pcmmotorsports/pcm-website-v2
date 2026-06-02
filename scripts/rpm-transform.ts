@@ -101,6 +101,9 @@ export interface ProductRow {
   brand_id: string;
   category_id: string;
   metadata: Record<string, unknown>;
+  // 🔴 S4 復架方向:presence in source = active;upsert 帶 null 自動還原(商品回到 view → 復上架)。
+  //    下架方向(source 消失 → 設 now)由 rpm-reconcile 處理、不在 transform。
+  delisted_at: string | null;
   updated_at: string;
 }
 export interface VariantRow {
@@ -161,6 +164,7 @@ export function transformGroup(
     metadata: {
       name_en: basis.product_name, // 英文全名留參考(非敏感、S1 CHECK 不擋)
     }, // 🔴 停寫 shopee/cost/source_*(S1 CHECK 硬擋)+ source_corrected_count(view 無 manually_corrected)
+    delisted_at: null, // 🔴 S4 復架:出現在 source = 上架、upsert 還原任何先前下架時戳
     updated_at: now, // 顯式帶(無 trigger)
   };
 }

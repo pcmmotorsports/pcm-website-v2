@@ -7,19 +7,20 @@
  *   products + product_variants;brands/categories 已 16b-1 seed;唯一鍵=複合(S3a 已套用)。
  *
  * 跑法:
- *   pnpm dlx tsx scripts/rpm-import.ts --dry-run [--group=APRILIA-01] [--limit=3]
- *     → 跑 pv_spec preflight + 兩層價格 delta gate、印清單、不寫(S3b-2 看 delta、Sean 點頭依據)
- *   pnpm dlx tsx scripts/rpm-import.ts --confirm-write
- *     → 正式寫入;硬 gate:異常列(null/0/負/NaN)無條件 abort、任何寫入須帶 --confirm-write 才放行
+ *   pnpm dlx tsx scripts/rpm-import.ts --dry-run [--group=APRILIA-01] [--limit=3] [--delta-full]
+ *     → 跑 pv_spec preflight + 兩層價格 delta gate + S4 下架對賬報告(全量才跑)、印清單、不寫
+ *   pnpm dlx tsx scripts/rpm-import.ts --confirm-write [--allow-large-delist]
+ *     → 正式寫入 + S4 下架對賬(源頭消失→軟下架、只全量);硬 gate:異常列(null/0/負/NaN)無條件 abort、
+ *       任何寫入須帶 --confirm-write;下架安全 gate:source 空硬 abort、下架比例>10% abort 除非 --allow-large-delist
  *
  * env(repo 根 .env.local、不入 git):
  *   QUOTE_SUPABASE_URL / QUOTE_SUPABASE_PUBLISHABLE_KEY(來源報價單 view、anon 唯讀)
  *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SECRET_KEY(目標寫)
  *   註(S3b):來源改吃 QUOTE_*(取代 S2 退役的 SOURCE_SUPABASE_URL / SOURCE_SUPABASE_SECRET_KEY raw 讀)。
  *
- * 🔴 紅線(S3b):各段檔頭(rpm-fetch 讀乾淨 view 濾 supplier_slug='rpm';
- *   rpm-transform price_retail→price_general〔零售〕/ price_store 欄 NULL / 停寫敏感 metadata;
- *   rpm-delta 兩層價格硬 gate + pv_spec preflight)。
+ * 🔴 紅線(S3b/S4):各段檔頭(rpm-fetch 讀乾淨 view 濾 supplier_slug='rpm';
+ *   rpm-transform price_retail→price_general〔零售〕/ price_store 欄 NULL / 停寫敏感 metadata / delisted_at=null 復架;
+ *   rpm-delta 兩層價格硬 gate + pv_spec preflight;rpm-reconcile 下架對賬安全 gate + scope rpm 軟下架)。
  */
 
 import { loadEnvFile } from 'node:process';
@@ -42,6 +43,7 @@ import {
   hasAbnormal,
   preflightSpecUnique,
 } from './rpm-delta';
+import { computeDelist, applyDelist, printReconcileReport } from './rpm-reconcile';
 
 // ── constants ──
 const BRAND_SLUG = 'rpm-carbon';
@@ -57,6 +59,10 @@ const DELTA_FULL = process.argv.includes('--delta-full'); // delta 印全量(非
 const DELTA_JSON = process.argv.includes('--delta-json'); // delta 出 JSON 留證(S3b-2 sign-off)
 const GROUP_FILTER = argValue('--group'); // 篩單群(dry-run 驗 / D5 單群上線抽驗)
 const LIMIT = Number(argValue('--limit') ?? '0') || 0; // 篩前 N 群(dry-run)
+const ALLOW_LARGE_DELIST = process.argv.includes('--allow-large-delist'); // S4:放行大比例下架(防誤殺 bypass、需確認來源完整才帶)
+// 🔴 S4 下架對賬只在全量模式跑(篩選下 source 不完整、跑了會誤殺全站)。
+// ⚠️ FULL_MODE 是 CLI flag 推斷、非 source 完整性保證;真正防殘缺誤殺的最終防線是 reconcile 兩條 gate(source 空硬 abort + 比例>10% abort)。
+const FULL_MODE = !GROUP_FILTER && LIMIT === 0;
 
 function argValue(flag: string): string | undefined {
   const hit = process.argv.find((a) => a.startsWith(`${flag}=`));
@@ -119,6 +125,7 @@ async function main(): Promise<void> {
     );
   }
   const variantRows = [...variantsByExternalId.values()].flat();
+  const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
 
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
   const collisions = await preflightSpecUnique(target, variantsByExternalId);
@@ -139,8 +146,16 @@ async function main(): Promise<void> {
       console.log('\n-- 抽樣群(transform 驗) --');
       console.log(JSON.stringify({ product: sample, variant_count: vrs.length, sample_variants: vrs.slice(0, 3) }, null, 2));
     }
+    // S4 下架對賬(只全量;篩選下 source 不完整、跳過避免誤判)。
+    // dry-run 即使 gate 觸發也只印報告不 throw(故意:Sean 要看完整報告、不靠 dry-run exit code 當預檢;真跑才 exit 1)。
+    if (FULL_MODE) {
+      const recon = await computeDelist(target, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+      printReconcileReport(recon, { full: DELTA_FULL });
+    } else {
+      console.log('[rpm-import] 下架對賬跳過(--group/--limit 篩選、source 不完整、全量才對賬)');
+    }
     console.log(`\n[rpm-import] DRY-RUN:${productRows.length} 群 / ${variantRows.length} 變體(未寫入)`);
-    console.log('→ 看完 delta/離群、Sean 點頭後、跑正式並帶 --confirm-write');
+    console.log('→ 看完 delta/離群/下架對賬、Sean 點頭後、跑正式並帶 --confirm-write');
     return;
   }
 
@@ -167,6 +182,23 @@ async function main(): Promise<void> {
   );
   await upsertBatched(target, 'product_variants', variantRowsWithProduct, 'supplier_slug,sku');
   console.log(`[rpm-import] WRITE 完成:${productRows.length} 商品 / ${variantRowsWithProduct.length} 變體`);
+
+  // ── S4 下架對賬(源頭消失 → 軟下架;upsert 後跑、只全量、篩選模式跳過避免誤殺)──
+  if (FULL_MODE) {
+    const recon = await computeDelist(target, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+    printReconcileReport(recon, { full: DELTA_FULL });
+    if (recon.aborted) {
+      throw new Error(`下架對賬安全 gate 觸發、不下架:${recon.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
+    }
+    if (recon.toDelist.length) {
+      const n = await applyDelist(target, recon.toDelist, now);
+      console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope rpm、變體靠 RLS 連動隱藏)`);
+    } else {
+      console.log('[rpm-import] 下架對賬:無待下架、零孤兒');
+    }
+  } else {
+    console.log('[rpm-import] 下架對賬跳過(--group/--limit 篩選、非全量、避免誤殺全站)');
+  }
 }
 
 main().catch((e) => {
