@@ -533,36 +533,68 @@
   .pd-section-head { margin-bottom: 22px; }
 }
 
-/* Highlights — 3 feature cards(對應 design `.vcf-feature-*` L1113-1143) */
+/* Highlights — 3 feature cards(OD §N°01 為什麼選 RPM Carbon) */
+/* OD-6:卡片視覺從 OD product-detail-rpm-template.html N°01 直接搬 —
+   平面 surface + 細框 + hover 上移 + 義體斜體章節數字 + 金線 ::after,取代
+   M-1-13H-4 圓角 #f5f5f7 Apple 版(原 220px min-height 大卡 → OD 緊湊堆疊卡)。 */
 .pd-feature-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 24px;
 }
 .pd-feature-card {
-  background: #f5f5f7;
-  border-radius: 22px;
-  padding: 36px 32px;
-  min-height: 220px;
+  padding: 13px 16px 16px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  transition: border-color 0.15s, transform 0.25s;
 }
+.pd-feature-card:hover { border-color: var(--c-text-2); transform: translateY(-2px); }
 .pd-feature-num {
-  font: 500 12px/1 var(--font-mono);
-  letter-spacing: 0.12em;
-  color: #86868b;
-  margin-bottom: 60px;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+  color: var(--c-text);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.pd-feature-num::after {
+  content: "";
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  background: var(--c-gold);
+  vertical-align: middle;
+  margin-left: 8px;
+  transform: translateY(-4px);
 }
 .pd-feature-title {
-  font: 600 22px/1.25 var(--font-sans);
-  letter-spacing: -0.015em;
-  color: #1d1d1f;
-  margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
 }
 .pd-feature-desc {
-  font: 400 14px/1.55 var(--font-sans);
-  color: #515154;
+  font-size: 15.5px;
+  color: var(--c-text-2);
+  line-height: 1.7;
   margin: 0;
+  text-wrap: pretty;
+}
+/* OD-6:feature 卡響應式 920px collapse 單欄 + 縮 padding/字級(OD 模板字面;
+   原 900px 區塊內 .pd-feature-grid 單欄孤兒規則移除、改吃此處) */
+@media (max-width: 920px) {
+  .pd-feature-grid { grid-template-columns: 1fr; gap: 12px; }
+  .pd-feature-card { padding: 11px 13px 13px; gap: 5px; }
+  .pd-feature-num { font-size: 26px; margin-bottom: 3px; }
+  .pd-feature-num::after { width: 14px; margin-left: 6px; }
+  .pd-feature-title { font-size: 18px; }
+  .pd-feature-desc { font-size: 15px; line-height: 1.65; }
 }
 
 /* Engineering Spotlight — image left + text right(對應 design `.vcf-spotlight` L1146-1197);
@@ -957,7 +989,7 @@
 }
 @media (max-width: 900px) {
   /* slice-4/5/6 新元件窄螢幕 collapse(避免 3/4 cols grid 爆版)*/
-  .pd-feature-grid { grid-template-columns: 1fr; }
+  /* OD-6:.pd-feature-grid 單欄 collapse 移至 OD 920px 規則(含 padding/字級調整)*/
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }
   .pd-steps { grid-template-columns: repeat(2, 1fr); }
