@@ -39,8 +39,8 @@
 > 與報價單資料線(S3a/S3b)並行的另一條線。**主表 7 欄由報價單線擁有**、OD 線狀態記此附屬區 + manifest `od_redesign`(Sean 2026-06-02 拍 A)。寫審分離 ROLE=A(施工 session 實作、審查 session 哨兵盯 dev 自動 fresh-context 複驗)、**不跑 busboy-end**(避 clobber 報價單線)、Sean 手動推。
 
 - **視覺真權威:** OD 模板 `product-detail-rpm-template.html`(open-design "Website V2")+ `HANDOFF-rpm-template.md`。鎖定決策見 manifest `od_redesign.decisions`(決定一=A OD=視覺真權威 / D1=A 適用車款表全車種 3 欄無車系 / D3=A 12K 收進紋路無消光、由真資料 disable / Q1 override:N°03 留相關商品 + FAQ→N°04)。
-- **當前 slice:** OD-4a ✅(selectedVariant 狀態提升 ProductPage + Hero 變體換圖、Sean 附帶要求:選紋路→Hero 顯該變體 ~5 張圖;ProductInfo 受控、ProductGallery 收 selectedVariant、buybar 用真選中變體;3 元件 + 2 test 更新;三綠 + 完整 test 507 全綠、待哨兵審)。前序 OD-1 地基 / OD-2 Hero 換皮+等高 / OD-3 右欄資訊換皮 ✅。
-- **下一步:** OD-4b(Picker OD 外觀 + inline 預覽卡顯選中變體圖)。
+- **當前 slice:** OD-4b ✅(Picker 外觀、CSS-only:.pd-size-btn 直角細框 active 黑底 + disabled 視覺、label mono 大寫、grid→flex-wrap;清 dead 色票規則;三綠、待哨兵審)。前序 OD-1~OD-3 + OD-4a 狀態提升+變體換圖 ✅。
+- **下一步:** OD-4c(12K 收進紋路/移除特殊欄/亮光only、資料驅動、動手前 Supabase 唯讀撈真變體 spec)→ OD-5 服務橫條外移 → OD-6 N°01 → OD-7 N°02 紋路牆 →(預覽卡)→ OD-8 分頁 → OD-9 N°03 相關 → OD-10 N°04 FAQ → OD-11 buybar+響應式。
 - **Phase A 連續做(Sean 拍 B):** OD-3~OD-11 全速連續 commit、Sean Phase A 全完肉眼驗一次、哨兵每片自動審 FAIL 即通知。
 - **分片清單:** Phase A(現做、不等 S3)OD-1→OD-11(地基/Hero/右欄/Picker+預覽/服務橫條/N°01/N°02紋路牆/分頁/N°03相關/N°04 FAQ/buybar+響應式);Phase B(等 S3b)OD-F1 適用車款表(接 fitments[])/ OD-F2 真資料收口。完整 OD區塊↔元件對照 + 計畫見對話 OD-0 偵察報告(待 Sean 點頭存 docs/specs/)。
 - **⚠️ 跨線紀律:** OD 線不碰 `scripts/rpm-*.ts`(報價單線 WIP)、`docs/reviews/integration-phase1-review-log.md`(審查 session)、`docs/specs/*S3*`(報價單線)。

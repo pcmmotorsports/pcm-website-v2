@@ -309,60 +309,48 @@
   padding: 4px 8px;
 }
 
-/* ========= Options ========= */
-/* M-1-13d:字面從 design-reference/styles/product-page.css line 301-356 直接搬(sec 5 Options 56 行) */
-.pd-opt { margin-bottom: 24px; }
+/* ========= Options / Picker (OD §5) ========= */
+/* OD-4b:規格選擇器外觀字面從 OD §5 直接搬(picker 已資料驅動、本片只換視覺皮)。
+   .pd-size-btn 直角細框、active 黑底、含 :disabled/.is-disabled 灰階虛線刪除線視覺
+   (備 OD-4c 12K→亮光only 由真資料 disable 用);.pd-size-grid flex-wrap(取代 auto-fill grid)。
+   清掉 dead 規則:.pd-opt-guide(未渲染)、.pd-swatches/.pd-swatch 色票(16c-3 起全用文字鈕、無色票)。 */
+.pd-opt { margin-bottom: 22px; }
 .pd-opt-head {
   display: flex; justify-content: space-between; align-items: baseline;
   margin-bottom: 10px;
 }
 .pd-opt-label {
-  font: 500 11px/1 var(--font-mono);
-  text-transform: uppercase; letter-spacing: 0.12em;
-  color: var(--ink-tert);
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--c-text-2); font-family: var(--f-mono);
 }
 .pd-opt-value {
-  font: 500 13px/1 var(--font-sans);
-  color: var(--ink);
+  font-size: 13px; color: var(--c-text); font-weight: 500;
 }
-.pd-opt-guide {
-  font: 400 11px/1 var(--font-mono);
-  color: var(--ink-tert);
-  text-decoration: none;
-  letter-spacing: 0.05em;
-}
-.pd-opt-guide:hover { color: var(--ink); }
-
-/* M-1-13H-3:swatch 從 40 方 + .pd-swatch-dot 巢 span → 24 圓 + outline active
-   (對應 HANDOFF #9、字面從 design explorations.css L789-797 直接搬);
-   background 改設在 button 本身、.pd-swatch-dot 規則整段移除 */
-.pd-swatches { display: flex; gap: 8px; }
-.pd-swatch {
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  border: 1px solid #d4d4d4;
-  cursor: pointer;
-  padding: 0;
-  position: relative;
-  transition: outline-color 150ms;
-}
-.pd-swatch.is-active { outline: 1.5px solid #1d1d1f; outline-offset: 2px; }
-
-.pd-size-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 8px; }
+.pd-size-grid { display: flex; flex-wrap: wrap; gap: 8px; }
 .pd-size-btn {
-  padding: 12px 14px;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  font: 500 13px/1 var(--font-sans);
-  color: var(--ink);
-  cursor: pointer;
-  transition: all 150ms;
+  padding: 10px 16px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-surface);
+  font-size: 13px; font-weight: 500;
+  transition: border-color 0.15s, background 0.15s;
 }
-.pd-size-btn:hover { border-color: var(--ink); }
+.pd-size-btn:hover { border-color: var(--c-text); }
 .pd-size-btn.is-active {
-  background: var(--ink); color: var(--paper);
-  border-color: var(--ink);
+  background: var(--c-text); color: var(--c-text-inverse);
+  border-color: var(--c-text);
 }
+.pd-size-btn:disabled,
+.pd-size-btn.is-disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  border-style: dashed;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  background: var(--c-surface);
+}
+.pd-size-btn:disabled:hover,
+.pd-size-btn.is-disabled:hover { border-color: var(--c-border-strong); }
 
 /* ========= Buy row (OD §5) ========= */
 /* OD-3:購買列換 OD §5 直角 — qty/add/buynow 去 pill radius(100→0)、like 圓→方;token 化;
