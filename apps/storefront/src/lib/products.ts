@@ -126,6 +126,17 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
       price: v.priceByTier.general.amount,
       images: v.images,
     })),
+    // S6:完整適用車款 ← domain product.fitments(逐欄白名單、為 OD-F1〔Phase B〕適用車款表鋪路;
+    //   `fits` 單字串仍為卡片用衍生值、兩者並存。全公開車輛相容資訊、無敏感欄)。
+    //   yearEnd 條件帶忠實保留 domain 三態、不壓平:null=開放式("2025+")、number=明確迄年、
+    //   undefined(省略)=單年(OD-F1 渲染以 yearEnd===yearStart 或缺值判單年)。
+    fitments: product.fitments.map((f) => ({
+      motoBrand: f.motoBrand,
+      modelCode: f.modelCode,
+      ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
+      ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
+      ...(f.unconfirmed ? { unconfirmed: true } : {}),
+    })),
     originalPrice,
     tierLabel,
   };
