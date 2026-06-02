@@ -8,18 +8,18 @@
 **Branch:** dev
 
 ## 最後更新
-2026-06-03 — Claude Code [S4 ✅ 下架對賬 + S6 ✅ fitments 接線(資料線收尾、續 S3b-2):S4 新 rpm-reconcile.ts(computeDelist/applyDelist 軟下架、scope rpm、三條安全 gate:source 空硬 abort / 比例>10% abort 除非 --allow-large-delist / 只 FULL 模式)+ transform delisted_at:null 復架方向;交易模擬驗下架路徑(scope 精準 total_rpm_delisted=1、零留痕)、全量 dry-run 0 孤兒。S6 偵察發現 fitments 只 plumb 單字串 fits → 補 UIFitment 型別 + MockProduct.fitments? + toUIProduct 映射(yearEnd 保留 domain 三態)、為 OD-F1(Phase B)鋪路。兩片 code-reviewer PASS-with-WARN、字面 vs 事實 WARN 全修;鐵則 12 皆不碰 schema/RLS/migration/pricing → 不跑 codex。三綠全綠 + 完整 vitest 508。S5 排程=鐵則 8 infra、plan + codex 關卡1 後提 Sean 拍平台。本 commit 為 S4+S6 STATUS 併合 docs。未 push]
+2026-06-03 — Claude Code [S5 plan ✅ 入版 + B1 ✅ 修(資料線收尾、續 S3b-2/S4/S6):S5 排程 plan(docs/specs/2026-06-03-S5-scheduling-plan.md)三平台分析推薦 A GitHub Actions(重用既有腳本/充裕 time limit/不擴 service_role);codex 關卡1 撞 OpenAI usage limit(到 7/2)→ Claude fresh-context fallback 對抗審查代跑抓 1 BLOCKER(rpm-import 無條件 loadEnvFile runner ENOENT 每天爆 → 已修 99346da existsSync 守)+ 3 WARN(W1 部分頁殘缺<10%誤下架 / W2 並發 / W3 告警、折入 plan 留 S5 實作)。等 Sean 拍 S5 平台/secret/schedule/alerting → 拍後才實作 workflow。本 commit = S5-plan + B1-STATUS 併合 docs。未 push]
 
 ## 最近 3 commit
-> 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `7d4bdaa` 為本 STATUS docs commit 提交時 dev 可達祖先〔S6、整合線;OD 線已隔離自有 worktree〕、本 commit 自身 hash 不入表頂〔避 busboy off-by-one orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
+> 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `99346da` 為本 STATUS docs commit 提交時 dev 可達祖先〔S5-pre B1、整合線;OD 線已隔離自有 worktree〕、本 commit 自身 hash 不入表頂〔避 busboy off-by-one orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `99346da` | fix(scripts): rpm-import .env.local 存在才載防 cron 缺檔 ENOENT [quote-integ-S5-pre] | 2026-06-03 |
 | `7d4bdaa` | feat(storefront): S6 plumb domain fitments 到 UI 層為 OD-F1 鋪路 [quote-integ-S6] | 2026-06-03 |
 | `9de3966` | feat(scripts): S4 下架對賬源頭消失軟下架 + 安全 gate [quote-integ-S4] | 2026-06-03 |
-| `f936fe5` | docs(status): 標 S3b-2 全站同步上線完成、轉線 S4-S6 [quote-integ-S3b-2] | 2026-06-03 |
 
 ## 下一步
-**S4 ✅ + S6 ✅ 完成 → 剩 S5 排程上線(資料線最後一片)**。**S5**=鐵則 8 infra(每天自動跑全量同步 + 下架對賬):待 Sean 拍**排哪裡跑**(GitHub Actions / Supabase pg_cron / Vercel Cron 三選一)+ `QUOTE_SUPABASE_*` / `SUPABASE_SECRET_KEY` 金鑰走平台 secret 絕不進 git;先寫 S5 plan + 跑 codex 關卡1(plan vs infra/安全)→ 一次性 multi-select 提 Sean 拍平台 → 拍後才實作排程設定。**description 不在同步 scope**(中文化 workstream backlog #209)。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + 本 STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209 留 backlog;g-7 wallet HOLD #202 不變。
+**S4 ✅ + S6 ✅ + S5 plan ✅ → 等 Sean 拍 S5 排程平台(資料線最後一片)**。**S5 plan** 入版 `docs/specs/2026-06-03-S5-scheduling-plan.md`(三平台分析、推薦 A GitHub Actions〔重用既有腳本/充裕 time limit/不擴 service_role〕、B pg_cron 大改寫、C Vercel Cron timeout+surface 風險)。codex 關卡1 撞 OpenAI usage limit(到 7/2)→ Claude fresh-context fallback 對抗審查代跑:抓 **1 BLOCKER B1**(rpm-import 無條件 loadEnvFile 在 runner ENOENT 每天爆 → **已修 99346da** existsSync 守)+ 3 WARN(W1 部分頁殘缺<10%誤下架 / W2 並發互斥 / W3 告警弱+60天 auto-disable、折入 plan 留 S5 實作)。**待 Sean 拍**:Q-platform(A/B/C)+ Q-secret(平台 dashboard 設 4 env)+ Q-schedule(台灣 03:00)+ Q-alerting;拍後才實作 workflow yml + fetch retry。正式 codex k1/k2 留 quota 恢復補。**description 不在同步 scope**(中文化 workstream backlog #209)。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre(B1) + S5-plan + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209 留 backlog;g-7 wallet HOLD #202 不變。
 
 ## Sean 待決策
 **🆕 報價單↔網站整合**:🔴 **S5 排程平台待 Sean 拍**(GitHub Actions / Supabase pg_cron / Vercel Cron 三選一 + 連線金鑰走 secret 絕不進 git;S5 plan + codex 關卡1 完成後一次性提 multi-select)。~~S3b-2 全站降價 sign-off~~ ✅(Sean A、D5 單群驗 + 全量上線完成、審查 §8.5 PASS)。~~S3a db push / .env QUOTE_* / 連線 / 公開欄~~ ✅ 全已就緒。**前序:**
