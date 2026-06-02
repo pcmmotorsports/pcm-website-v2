@@ -15,6 +15,7 @@ import type { ProductRow, VariantRow } from './rpm-transform';
 
 const READ_BATCH = 300;
 const SUPPLIER = 'rpm';
+const ABSURD_PRICE = 500_000; // 單價離譜上限(碳纖維部品零售遠低於此、超過疑倉庫資料打錯、列離群給 Sean 瞄)
 
 /** spec 穩定序列化(key 排序、確定性比對) */
 function stableSpec(spec: Record<string, string>): string {
@@ -58,7 +59,8 @@ export interface DeltaReport {
   variantChanges: DeltaLine[];
   newProducts: number;
   newVariants: number;
-  abnormal: DeltaLine[]; // 新價 null/0/負(硬 abort、不可覆寫)
+  abnormal: DeltaLine[]; // 新價 null/0/負/NaN(硬 abort、不可覆寫)
+  outliers: DeltaLine[]; // 漲價/大跌>30%/單價離譜(防呆瞄、非硬擋)
 }
 
 function pct(oldP: number | null, newP: number | null): number | null {
@@ -66,7 +68,16 @@ function pct(oldP: number | null, newP: number | null): number | null {
   return Math.round(((newP - oldP) / oldP) * 1000) / 10;
 }
 function isAbnormal(newP: number | null): boolean {
-  return newP == null || newP <= 0;
+  return newP == null || !Number.isFinite(newP) || newP <= 0; // 🔴 NaN/Infinity 也算異常(codex k2 審查 must-fix 2)
+}
+/**
+ * 離群價(防呆給 Sean 瞄、非硬擋):降價政策下「漲價」可疑 / 跌幅 >30% / 單價離譜高。
+ * 異常列(null/0/負/NaN)已由 isAbnormal 硬擋、不重列此處。
+ */
+function isOutlier(line: DeltaLine): boolean {
+  if (line.newPrice != null && Number.isFinite(line.newPrice) && line.newPrice > ABSURD_PRICE) return true;
+  if (line.pct == null) return false;
+  return line.pct > 0 || line.pct < -30;
 }
 
 /** 兩層 delta:products(external_id)+ variants(sku),各比現存 vs 新 price_general */
@@ -101,26 +112,34 @@ export async function computeDelta(
     if (isAbnormal(v.price_general)) abnormal.push(line);
   }
 
-  return { productChanges, variantChanges, newProducts, newVariants, abnormal };
+  const outliers = [...productChanges, ...variantChanges].filter(isOutlier);
+  return { productChanges, variantChanges, newProducts, newVariants, abnormal, outliers };
 }
 
-export function printDeltaReport(r: DeltaReport): void {
+export function printDeltaReport(r: DeltaReport, opts: { full?: boolean; json?: boolean } = {}): void {
+  if (opts.json) {
+    console.log(JSON.stringify(r, null, 2)); // --delta-json:機器可讀全量證據
+    return;
+  }
+  const cap = opts.full ? Number.MAX_SAFE_INTEGER : 50;
   console.log('\n=== 價格 delta gate(兩層)===');
   console.log(`商品層變價: ${r.productChanges.length} / 變體層變價: ${r.variantChanges.length}`);
-  console.log(`新商品: ${r.newProducts} / 新變體: ${r.newVariants} / 🔴異常(null/0/負): ${r.abnormal.length}`);
-  const big = [...r.productChanges, ...r.variantChanges].filter((l) => l.pct != null && Math.abs(l.pct) > 30);
-  if (big.length) {
-    console.log(`⚠️ 單筆 ±>30% (${big.length}、前 50):`);
-    console.table(big.slice(0, 50));
+  console.log(`新商品: ${r.newProducts} / 新變體: ${r.newVariants} / 🔴異常(null/0/負/NaN): ${r.abnormal.length} / ⚠️離群: ${r.outliers.length}`);
+  // 🔴 離群價(防呆、Sean 瞄此即可、非全 8878 筆):降價政策下漲價可疑 / 跌幅>30% / 單價離譜
+  if (r.outliers.length) {
+    console.log(`⚠️ 離群價清單(${r.outliers.length}、Sean 瞄此即可、防倉庫資料打錯):`);
+    console.table(r.outliers.slice(0, cap));
+  } else {
+    console.log('✅ 無離群價(全在合理降價區間)');
   }
-  console.log('-- 商品層 delta 前 50 --');
-  console.table(r.productChanges.slice(0, 50));
-  console.log('-- 變體 delta 前 50 --');
-  console.table(r.variantChanges.slice(0, 50));
-  console.log(`(上方各列前 50;完整 ${r.productChanges.length} 商品 / ${r.variantChanges.length} 變體變價、S3b-2 點頭證據可 --dry-run > 檔 留全量)`);
+  console.log(`-- 商品層 delta ${opts.full ? '(全量)' : '前 50'} --`);
+  console.table(r.productChanges.slice(0, cap));
+  console.log(`-- 變體 delta ${opts.full ? '(全量)' : '前 50'} --`);
+  console.table(r.variantChanges.slice(0, cap));
+  console.log(`(完整 ${r.productChanges.length} 商品 / ${r.variantChanges.length} 變體變價;--delta-full 印全量、--delta-json 出 JSON 留證)`);
   if (r.abnormal.length) {
-    console.log('🔴 異常列(硬 abort、不可覆寫、前 50):');
-    console.table(r.abnormal.slice(0, 50));
+    console.log('🔴 異常列(硬 abort、不可覆寫):');
+    console.table(r.abnormal.slice(0, cap));
   }
 }
 

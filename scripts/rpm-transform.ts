@@ -24,10 +24,11 @@ const PLACEHOLDER_IMAGE = '/placeholder-product.png';
 const TWD = 'TWD' as const;
 
 // ── helpers ──
-/** numeric(string/number/null)→ 整數 TWD(Math.round、禁浮點);null→null */
+/** numeric(string/number/null)→ 整數 TWD(Math.round、禁浮點);null/非法數字→null */
 function roundTwd(v: string | number | null | undefined): number | null {
   if (v === null || v === undefined || v === '') return null;
-  return Math.round(Number(v));
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? n : null; // 🔴 NaN/Infinity(非法來源值)→ null(codex k2 審查 must-fix 2)
 }
 /** 來源 images [{url}] → string[](抽 .url;對齊 domain images: string[]、非 [{url}]) */
 function mapImages(images: { url: string }[] | null | undefined): string[] {

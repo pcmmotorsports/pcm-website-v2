@@ -47,10 +47,14 @@ import {
 const BRAND_SLUG = 'rpm-carbon';
 const CATEGORY_RAW_PATH = '碳纖維部品';
 const ALLOWED_TARGET_REF = 'bmpnplmnldofgaohnaok'; // prod-safety:只准寫這個 dev project
+const ALLOWED_TARGET_HOST = `${ALLOWED_TARGET_REF}.supabase.co`; // 精準 host 比對(非 .includes、codex k2 審查 consider)
 
 // ── CLI args ──
 const DRY_RUN = process.argv.includes('--dry-run');
-const CONFIRM_PRICE_DELTA = process.argv.includes('--confirm-price-delta'); // 正式寫入放行價格變動
+// 🔴 正式寫入授權旗標(codex k2 審查 must-fix 1):任何非 dry-run 寫入一律要、無價變也要、無旗標即 abort
+const CONFIRM_WRITE = process.argv.includes('--confirm-write') || process.argv.includes('--confirm-price-delta');
+const DELTA_FULL = process.argv.includes('--delta-full'); // delta 印全量(非前 50)
+const DELTA_JSON = process.argv.includes('--delta-json'); // delta 出 JSON 留證(S3b-2 sign-off)
 const GROUP_FILTER = argValue('--group'); // 篩單群(dry-run 驗 / D5 單群上線抽驗)
 const LIMIT = Number(argValue('--limit') ?? '0') || 0; // 篩前 N 群(dry-run)
 
@@ -73,8 +77,9 @@ async function main(): Promise<void> {
     requireEnv('QUOTE_SUPABASE_PUBLISHABLE_KEY'),
   );
   const targetUrl = requireEnv('NEXT_PUBLIC_SUPABASE_URL');
-  if (!targetUrl.includes(ALLOWED_TARGET_REF)) {
-    throw new Error(`prod-safety:目標 URL 非 ${ALLOWED_TARGET_REF}、拒寫(${targetUrl})`);
+  const targetHost = new URL(targetUrl).hostname;
+  if (targetHost !== ALLOWED_TARGET_HOST) {
+    throw new Error(`prod-safety:目標 host 非 ${ALLOWED_TARGET_HOST}、拒寫(${targetHost})`);
   }
   const target = createClient(targetUrl, requireEnv('SUPABASE_SECRET_KEY'));
 
@@ -125,7 +130,7 @@ async function main(): Promise<void> {
 
   // ── 價格 delta gate(兩層、唯讀比對)──
   const delta = await computeDelta(target, productRows, variantRows);
-  printDeltaReport(delta);
+  printDeltaReport(delta, { full: DELTA_FULL, json: DELTA_JSON });
 
   if (DRY_RUN) {
     const sample = productRows[0];
@@ -139,14 +144,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ── 硬 gate 2:正式寫入價格守門 ──
+  // ── 硬 gate 2:正式寫入守門(codex k2 審查 must-fix 1:任何寫入一律要旗標、不只價變時)──
+  if (!CONFIRM_WRITE) {
+    throw new Error('正式寫入須帶 --confirm-write(先看 dry-run delta/離群、Sean 點頭授權);無旗標一律 abort');
+  }
   if (hasAbnormal(delta)) {
-    throw new Error(`價格異常列 ${delta.abnormal.length}(null/0/負)、不可覆寫硬 abort、停止(查源頭)`);
+    throw new Error(`價格異常列 ${delta.abnormal.length}(null/0/負/NaN/Inf)、不可覆寫硬 abort、停止(查源頭)`);
   }
-  if (hasPriceChange(delta) && !CONFIRM_PRICE_DELTA) {
-    throw new Error('偵測到價格變動、須先看 dry-run delta + Sean 點頭、正式跑帶 --confirm-price-delta 才放行');
-  }
-  console.log(`[rpm-import] 價格 gate 放行(price_change=${hasPriceChange(delta)} confirm=${CONFIRM_PRICE_DELTA})`);
+  console.log(`[rpm-import] 寫入 gate 放行(confirm-write、price_change=${hasPriceChange(delta)}、離群=${delta.outliers.length})`);
   if (GROUP_FILTER || LIMIT > 0) {
     console.warn(`⚠️ WRITE 模式僅寫部分 ${productRows.length} 群(--group/--limit 篩選後)、非全量(D5 單群上線抽驗用;全量請去除篩選)`);
   }
