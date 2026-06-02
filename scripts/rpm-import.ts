@@ -9,8 +9,8 @@
  * 跑法:
  *   pnpm dlx tsx scripts/rpm-import.ts --dry-run [--group=APRILIA-01] [--limit=3]
  *     → 跑 pv_spec preflight + 兩層價格 delta gate、印清單、不寫(S3b-2 看 delta、Sean 點頭依據)
- *   pnpm dlx tsx scripts/rpm-import.ts --confirm-price-delta
- *     → 正式寫入;硬 gate:異常列(null/0/負)一律 abort、正常價格變動須帶 --confirm-price-delta 才放行
+ *   pnpm dlx tsx scripts/rpm-import.ts --confirm-write
+ *     → 正式寫入;硬 gate:異常列(null/0/負/NaN)無條件 abort、任何寫入須帶 --confirm-write 才放行
  *
  * env(repo 根 .env.local、不入 git):
  *   QUOTE_SUPABASE_URL / QUOTE_SUPABASE_PUBLISHABLE_KEY(來源報價單 view、anon 唯讀)
@@ -52,7 +52,7 @@ const ALLOWED_TARGET_HOST = `${ALLOWED_TARGET_REF}.supabase.co`; // 精準 host 
 // ── CLI args ──
 const DRY_RUN = process.argv.includes('--dry-run');
 // 🔴 正式寫入授權旗標(codex k2 審查 must-fix 1):任何非 dry-run 寫入一律要、無價變也要、無旗標即 abort
-const CONFIRM_WRITE = process.argv.includes('--confirm-write') || process.argv.includes('--confirm-price-delta');
+const CONFIRM_WRITE = process.argv.includes('--confirm-write'); // 唯一寫入授權旗標(審查 round2 nit:移除舊 alias)
 const DELTA_FULL = process.argv.includes('--delta-full'); // delta 印全量(非前 50)
 const DELTA_JSON = process.argv.includes('--delta-json'); // delta 出 JSON 留證(S3b-2 sign-off)
 const GROUP_FILTER = argValue('--group'); // 篩單群(dry-run 驗 / D5 單群上線抽驗)
@@ -140,16 +140,18 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ product: sample, variant_count: vrs.length, sample_variants: vrs.slice(0, 3) }, null, 2));
     }
     console.log(`\n[rpm-import] DRY-RUN:${productRows.length} 群 / ${variantRows.length} 變體(未寫入)`);
-    console.log('→ 看完 delta 清單、Sean 點頭後、跑正式並帶 --confirm-price-delta');
+    console.log('→ 看完 delta/離群、Sean 點頭後、跑正式並帶 --confirm-write');
     return;
   }
 
-  // ── 硬 gate 2:正式寫入守門(codex k2 審查 must-fix 1:任何寫入一律要旗標、不只價變時)──
-  if (!CONFIRM_WRITE) {
-    throw new Error('正式寫入須帶 --confirm-write(先看 dry-run delta/離群、Sean 點頭授權);無旗標一律 abort');
-  }
+  // ── 硬 gate 2:正式寫入守門(codex k2 審查 must-fix 1)──
+  // 異常列(null/0/負/NaN)= 不可覆寫硬 abort、無條件先擋(即使帶旗標也不放行)
   if (hasAbnormal(delta)) {
     throw new Error(`價格異常列 ${delta.abnormal.length}(null/0/負/NaN/Inf)、不可覆寫硬 abort、停止(查源頭)`);
+  }
+  // 任何正式寫入一律須 --confirm-write(無價變也要、無旗標一律 abort)
+  if (!CONFIRM_WRITE) {
+    throw new Error('正式寫入須帶 --confirm-write(先看 dry-run delta/離群、Sean 點頭授權);無旗標一律 abort');
   }
   console.log(`[rpm-import] 寫入 gate 放行(confirm-write、price_change=${hasPriceChange(delta)}、離群=${delta.outliers.length})`);
   if (GROUP_FILTER || LIMIT > 0) {

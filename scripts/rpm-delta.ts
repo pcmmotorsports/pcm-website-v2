@@ -3,7 +3,7 @@
  *
  * 鐵則 12 pricing:S3b 切換零售價來源(price_listing→price_retail)是全站改價、非 no-op。
  *   - 兩層 delta:products by external_id(前台列表/卡片吃商品層基準價)+ variants by sku、各比 price_general。
- *   - 硬 gate:異常列(新價 null/0/負)不可覆寫;正常價格變動須正式跑帶 --confirm-price-delta(見 rpm-import)。
+ *   - 硬 gate:異常列(新價 null/0/負/NaN)不可覆寫硬 abort;任何正式寫入須帶 --confirm-write(見 rpm-import)。
  * pv_spec_unique preflight:非首灌升級若同群 spec 重複/孤兒撞 → 批次 upsert 部分寫後才 23505;
  *   先 source 群內查 + target 模擬(新 product 用 external_id synthetic key)、有撞先 abort 不寫。
  *
