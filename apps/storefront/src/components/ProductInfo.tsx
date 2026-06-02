@@ -30,7 +30,14 @@ import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
 import { ProductServices } from './ProductServices';
 
-export type ProductInfoProps = { product: MockProduct; tier: MemberTier };
+// OD-4a:selectedVariant 狀態提升至 ProductPage(本元件受控)— picker 改它、ProductGallery 隨它換圖、
+//   mobile buybar 用它(修 16c-3 buybar 只能用預設變體的限制)。
+export type ProductInfoProps = {
+  product: MockProduct;
+  tier: MemberTier;
+  selectedVariant: UIVariant | null;
+  onSelectVariant: (variant: UIVariant | null) => void;
+};
 
 // 規格 key 顯示順序(已知者優先、其餘按字母附後)+ 中文名(Q2=A;未列 key fallback 原值)
 const SPEC_KEY_ORDER = ['weave', 'finish', 'special'] as const;
@@ -63,7 +70,7 @@ function variantValue(v: UIVariant, key: string): string {
 
 type SpecGroup = { key: string; values: string[] };
 
-export function ProductInfo({ product, tier }: ProductInfoProps) {
+export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }: ProductInfoProps) {
   const variants = product.variants ?? [];
   const hasVariants = variants.length > 0;
 
@@ -91,17 +98,14 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
       .filter((g) => g.values.length > 1);
   }, [product.variants]);
 
-  // selectedVariant local state(預設第一個變體、已 sortOrder+sku 排序;16c-4 提升 ProductPage)
-  const [selectedVariant, setSelectedVariant] = useState<UIVariant | null>(
-    variants[0] ?? null,
-  );
+  // OD-4a:selectedVariant 提升 ProductPage(props 受控)、本元件只持 qty / liked local。
+  //   product 變更時 selectedVariant reset 由 ProductPage 統一處理(gallery 同步換圖);本處只 reset qty。
   const [qty, setQty] = useState<number>(1);
   const [liked, setLiked] = useState<boolean>(false);
   const { addItem } = useCart();
 
-  // product 變更 → reset selectedVariant + qty(對齊原 reset 行為;test rerender / 換商品)
+  // product 變更 → reset qty(selectedVariant reset 在 ProductPage)
   useEffect(() => {
-    setSelectedVariant(product.variants?.[0] ?? null);
     setQty(1);
   }, [product.variants]);
 
@@ -126,7 +130,7 @@ export function ProductInfo({ product, tier }: ProductInfoProps) {
         best = v;
       }
     }
-    setSelectedVariant(best);
+    onSelectVariant(best);
   };
 
   // 顯示價:選到變體用變體價(general)、否則 product.price(無變體 mock fallback)

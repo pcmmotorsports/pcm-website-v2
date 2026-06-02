@@ -24,7 +24,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MockProduct } from '@/data/mock-products';
+import type { MockProduct, UIVariant } from '@/data/mock-products';
 
 // PRODUCT_IMG_POOL + productGallery 字面 inline 自 ProductCard.tsx 既有(M-1-04-mini-slice 搬入)、第 2 處撞;
 // 第 3 處撞抽共用、backlog #155 追蹤(對齊 #130 Defer 模式)
@@ -62,21 +62,25 @@ function resolveSrc(item: string, usingReal: boolean, w: number, q: number, fit:
   return `https://images.unsplash.com/${item}?w=${w}&q=${q}&auto=format&fit=${fit}`;
 }
 
-export type ProductGalleryProps = { product: MockProduct };
+export type ProductGalleryProps = { product: MockProduct; selectedVariant?: UIVariant | null };
 
-export function ProductGallery({ product }: ProductGalleryProps) {
-  // M-1-16c-3:詳情頁吃真 product.images(群代表圖);無圖 fallback seed placeholder gallery。
-  //   變體換圖(currentVariant.images)留 16c-4(需 selectedVariant 狀態提升 ProductPage)。
+export function ProductGallery({ product, selectedVariant }: ProductGalleryProps) {
+  // OD-4a:選中變體有自己的圖(RPM 每變體 ~5 張)→ 顯變體圖(選紋路→看該變體照片、Sean 附帶要求);
+  //   變體無圖 fallback product.images(群代表圖);皆無 fallback seed placeholder gallery。
+  //   gallery 來源變更時下方 activeImg reset effect 會歸 0(切變體回第一張)。
   const { gallery, usingReal } = useMemo(() => {
-    const real = product.images?.length
-      ? product.images
-      : product.image
-        ? [product.image]
-        : [];
+    const variantImgs = selectedVariant?.images ?? [];
+    const real = variantImgs.length
+      ? variantImgs
+      : product.images?.length
+        ? product.images
+        : product.image
+          ? [product.image]
+          : [];
     return real.length > 0
       ? { gallery: real, usingReal: true }
       : { gallery: productGallery(product.id), usingReal: false };
-  }, [product.images, product.image, product.id]);
+  }, [selectedVariant?.images, product.images, product.image, product.id]);
   const [activeImg, setActiveImg] = useState(0);
   const [lightbox, setLightbox] = useState(false);
 

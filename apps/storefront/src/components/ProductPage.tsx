@@ -36,9 +36,9 @@
 
 import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Fragment, useCallback, useMemo } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
-import { MOCK_PRODUCTS, type MockProduct } from '@/data/mock-products';
+import { MOCK_PRODUCTS, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { useCart } from '@/contexts/CartContext';
 import { Header } from './Header';
@@ -64,6 +64,19 @@ export function ProductPage({ product, tier }: ProductPageProps) {
   // (Phase 1 mock:localStorage 暫存、無後端;M-3 swap 真結帳時介面不變)
   // Mobile sticky 無 qty / color / size 選擇 UI、預設 qty=1 + product 預設色(對齊 design Mobile 簡化邏輯)
   const { addItem } = useCart();
+
+  // OD-4a:selectedVariant 狀態提升至此(受控源頭)— ProductInfo picker 改它、ProductGallery 隨它換圖、
+  //   mobile buybar 用它(修 16c-3 buybar 只能用預設變體的限制)。product 變更 reset 回第一個變體
+  //   (gallery 同步換圖;ProductInfo 不再自持此 state、只持 qty/liked)。
+  const [selectedVariant, setSelectedVariant] = useState<UIVariant | null>(
+    product.variants?.[0] ?? null,
+  );
+  useEffect(() => {
+    setSelectedVariant(product.variants?.[0] ?? null);
+  }, [product.variants]);
+  // 顯示價:選中變體價(general)優先、否則 product.price(無變體 mock fallback)
+  const displayPrice = selectedVariant?.price ?? product.price;
+
   const addToCart = () => {
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
     // (Codex M-1-13e-b review P1:不用 mock-only product.id:number)
@@ -74,7 +87,8 @@ export function ProductPage({ product, tier }: ProductPageProps) {
     addItem({
       productId: product.slug,
       qty: 1,
-      color: product.variants?.[0]?.sku ?? product.color,
+      // OD-4a:buybar 用真選中變體 sku(取代原預設第一個變體;selectedVariant 已提升至 ProductPage)
+      color: selectedVariant?.sku ?? product.color,
       size: null,
     });
   };
@@ -266,8 +280,13 @@ export function ProductPage({ product, tier }: ProductPageProps) {
             Mobile sticky bar 在 main / HomeFooter 之後(對齊 design ProductPage.jsx L501-545 位置)*/}
         {/* TODO M-1-13g: pd-related + pd-toast(responsive media queries 13e-a 已搬 design L662-667 sec 6+7+13 切換規則) */}
         <section className="pd-main">
-          <ProductGallery product={product} />
-          <ProductInfo product={product} tier={tier} />
+          <ProductGallery product={product} selectedVariant={selectedVariant} />
+          <ProductInfo
+            product={product}
+            tier={tier}
+            selectedVariant={selectedVariant}
+            onSelectVariant={setSelectedVariant}
+          />
         </section>
         {/* M-1-13H-4:Highlights + Spotlight 兩新子元件串接(對應 PRD §4 slice-4 + HANDOFF #12 #13);
             ProductSpotlight 內部條件渲染 product.hasSpotlight、falsy 返 null(caller 無需 if-guard) */}
@@ -321,7 +340,7 @@ export function ProductPage({ product, tier }: ProductPageProps) {
           </svg>
         </button>
         <div className="pd-mbb-price-col">
-          <div className="pd-mbb-price">NT$ {product.price.toLocaleString()}</div>
+          <div className="pd-mbb-price">NT$ {displayPrice.toLocaleString()}</div>
           {tier === 'store' || tier === 'premiumStore' ? (
             <div className="pd-mbb-orig">
               原價 NT$ {(hasDiscount ? product.origPrice! : product.price).toLocaleString()} · 經銷

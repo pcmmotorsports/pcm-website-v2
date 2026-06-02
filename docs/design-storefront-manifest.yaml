@@ -43,6 +43,7 @@ od_redesign:
     - "OD-1:地基 — tokens.css +--c-gold(#a98a4a;模板字面 vs HANDOFF §5 #b48a47 取模板、NORTHSTAR .css>docs 仲裁)+--f-display;layout.tsx +Antonio 字體;product-page.css OD §6 通用標題系統(.pd-section/.pd-eyebrow+.pd-eb-*/.pd-h2/.pd-lead/.pd-body、含舊扁平 eyebrow fallback)+ .pd-main 基礎 grid(等高/斷點遷移留 OD-2/OD-11)"
     - "OD-2:Hero 圖庫換皮 + 桌機等高(CSS-only、ProductGallery.tsx 不動)— product-page.css 圖庫段字面從 OD §5 直接搬:.pd-hero-img 直角+灰底+細框(去 radius18/漸層)、.pd-thumbs flex→5格 grid、.pd-thumb-btn 直角細框圖不調暗、.pd-hero-counter 深底白字 mono;.pd-gallery 去 sticky + ≥1080 flex 左右等高(hero flex:1 撐右欄高、解 HANDOFF §4);箭頭/badge PCM 既有增強 radius→0 對齊直角(保留功能);保留 React swipe/lightbox 不移植 vanilla JS;901-1079 過渡帶 align-self:start 兜空隙(斷點遷移留 OD-11)"
     - "OD-3:右欄資訊換皮(CSS-only、ProductInfo.tsx 不動)— product-page.css 資訊段字面從 OD §5 直接搬:.pd-info sticky top:96px(≤1079 static)、.pd-sku mono 大寫 11px、.pd-title clamp 26-38px 700、.pd-sub 14px、.pd-price-block 上下細線、.pd-price 32px 700 tabular、購買列(.pd-buy-row/.pd-qty/.pd-add-btn/.pd-like/.pd-buynow-btn)去 pill radius 100→0 直角化 + like 圓→方 + token 化;#161 永遠可點移除 dead .is-disabled/:disabled rule;tier 經銷/折扣子樣式 token+直角(RPM general 不顯)。**不含** picker(.pd-opt/.pd-size-btn → OD-4b)/ 服務區(.pd-services → OD-5)"
+    - "OD-4a:selectedVariant 狀態提升 + Hero 變體換圖(行為改、Sean 附帶要求)— selectedVariant 由 ProductInfo local state 提升至 ProductPage(受控源頭);ProductInfo 改受控(收 selectedVariant + onSelectVariant props、移除 local useState + reset effect、selectSpec 改呼 onSelectVariant、只持 qty/liked);ProductGallery 收 optional selectedVariant、有變體圖則顯變體圖(RPM 每變體 ~5 張、選紋路→看該變體照片)、無則 fallback product.images→seed;ProductPage 持 state + product 變更 reset + displayPrice + mobile buybar 改用真選中變體 sku/price(修 16c-3 buybar 只能用預設變體限制);ProductInfo.test 加 stateful harness(受控後點擊換價可驗)、ProductGallery.test +變體換圖測;三綠 + 完整 pnpm test 507(+1)全綠。檔案 ProductPage~365/ProductInfo~265/ProductGallery~264 皆 <400"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -109,8 +110,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "397c2cb"  # 記可達祖先=OD-1 父 commit(避 amend orphan、沿用 ProductTabs precedent);本 slice 真改見 git log [OD-1]:product-page.css OD §6 標題系統 + .pd-main 基礎 grid(共用地基、非 ProductPage.tsx 行為改)
-      last_modified_date: "2026-06-02 (OD-1 地基:OD §6 通用標題系統 + .pd-main grid 對齊 OD 模板;視覺權威見上方 od_redesign 段)"
+      last_modified_commit: "d01e50e"  # 記可達祖先=OD-4a 父 commit(避 amend orphan);本 slice 真改見 git log [OD-4a]:selectedVariant 狀態提升至 ProductPage(受控源頭)+ ProductGallery 變體換圖 + mobile buybar 用真選中變體。OD-1~OD-3 CSS/地基見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-4a:selectedVariant 提升 ProductPage、ProductInfo 受控、ProductGallery 隨變體換圖;前序 OD-1~OD-3 見 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)

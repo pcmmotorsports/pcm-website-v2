@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { ProductGallery } from './ProductGallery';
-import { MOCK_PRODUCTS } from '../data/mock-products';
+import { MOCK_PRODUCTS, type UIVariant } from '../data/mock-products';
 
 afterEach(() => {
   cleanup();
@@ -51,6 +51,25 @@ describe('ProductGallery', () => {
     const newSample = MOCK_PRODUCTS.find((p) => p.isNew && !p.isSale)!;
     render(<ProductGallery product={newSample} />);
     expect(screen.getByText('NEW')).toBeDefined();
+  });
+
+  // OD-4a:選中變體有自己的圖 → 圖庫顯變體圖(取代 product.images / seed 路徑、Sean 附帶要求)
+  it('should show selected variant images when selectedVariant has its own images', () => {
+    const variant: UIVariant = {
+      sku: 'X-G-F',
+      spec: { weave: 'Forged', finish: 'Glossy' },
+      price: 8400,
+      images: [
+        'https://cdn.example.com/v1.jpg',
+        'https://cdn.example.com/v2.jpg',
+      ],
+    };
+    render(<ProductGallery product={MOCK_PRODUCTS[0]!} selectedVariant={variant} />);
+    // 2 張變體圖 → counter 01 / 02(覆蓋 MOCK_PRODUCTS[0] 無圖時的 seed 3 張路徑)
+    expect(screen.getByText('01 / 02')).toBeDefined();
+    expect(screen.getByLabelText('圖片 1')).toBeDefined();
+    expect(screen.getByLabelText('圖片 2')).toBeDefined();
+    expect(screen.queryByLabelText('圖片 3')).toBeNull();
   });
 
   it('should clamp counter at 03 / 03 when right arrow reaches last image', () => {
