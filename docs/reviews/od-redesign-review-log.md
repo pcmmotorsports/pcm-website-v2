@@ -308,4 +308,135 @@ Sean :3001 手機驗 follow-up(右欄太鬆)。純 CSS、2 檔(product-page.css 
 >
 > **📋 OD-V* 真機驗 polish 串(Sean :3001 肉眼驗 follow-up、全 PASS + 各自再合併驗綠)**:OD-V(縮圖翻頁+SwatchLightbox 抽共用)/ OD-V2(手機大圖 ghost-click)/ OD-V3(手機右欄間距 ×0.7)/ **OD-V3b `fe3c074c`(再收緊 ×0.5、含 iPad 直版、純 CSS spacing、值精確對 ×0.5、≤1079 scope、桌機不動 — PASS;merge `e5925db7` parents 9860df1+fe3c074、零衝突、build+vitest 538 綠)**。皆純前端視覺修、合併後三綠每輪獨立驗綠。
 
-_(等待:OD-V3b 再合併 dev;或 Sean 下一輪真機驗 / 收尾 push;或 OD-12 適用車款表。哨兵盯 dev + od-redesign)_
+---
+
+## [`fe3c074` → `320f3a5`] od-redesign fast-forward 同步 dev — **非審查事件(良性分支同步)**
+
+新審查 session 重 arm 哨兵後首報 `NEW-OD 320f3a5`。查證 = **執行 session 開 OD-12 前把 od-redesign fast-forward 到 dev tip**(reflog:`320f3a5 od-redesign@{0}: merge dev: Fast-forward`),非新作程式碼。
+- **零差異**:`git log dev..od-redesign` 空 / `git diff --stat dev od-redesign` 空 / worktree list 兩樹都在 `320f3a5`。`fe3c074..od-redesign` 列出的全是已在 dev、已審過的 commit(091d104/154c95a/320f3a5 docs + 各 OD/S 線 merge)。
+- **判定:不審不推播**(無新內容)。OD-12 將以 `320f3a5` 為基底起手;**審查 baseline od-redesign 更新為 `320f3a5`**(= dev)。哨兵 last_od 已自動更新。
+
+---
+
+## [`750ffa7`] feat(storefront): OD-12 適用車款表接 S6 真資料 fitments [OD-12] — **PASS**(0 must-fix;鐵則 1 對 live OD §7.5 逐行保真 + 四綠獨立複驗 + 經銷零洩漏)
+
+OD Phase A 後第一片(post-S6-merge、適用車款表)。range `320f3a5..750ffa7` 單一 commit。fresh-context `git show 750ffa7` + **live OD 模板真權威核對(daemon 在線)** + **OD worktree 四綠獨立重跑**。worktree 隔離(od-redesign=750ffa7、clean)。codex K2 跳(純前台、無 pricing/security/migration、執行 session 判合理、審查同意)。
+
+- **scope(精準、零跨線污染)**:6 檔(ProductFitments.tsx 新 79 / .test 新 84 / ProductPage.tsx 374 / ProductTabs.tsx 266 / product-page.css 1328〔+95 純新增〕/ manifest +46);**檔大小全 <400**(`git show 750ffa7:<path>|wc -l`、鐵則 6 OK)。**零 package.json/pnpm-lock**(grep 證)→ body「未新增依賴、pnpm install --frozen-lockfile 僅補 node_modules」誠實。無 scripts/、無 lib/、無資料線檔。
+- **🔴 鐵則 1 保真(對 live OD 模板核、非憑記憶)**:
+  - **CSS §7.5 逐行完全吻合**(對 OD L621-680):`.pd-fitments-section`/`.pd-fit-head`/`.pd-fit-eyebrow`/`.pd-fit-title`/`.pd-fit-hint`/`.pd-fit-table*`/`.pd-fit-note` 每屬性·值·斷點(720/480 padding 9px 8px·8px 6px·font-size 10px letter-spacing .08em)逐字相同。唯二新增 `.pd-fit-unconfirmed`(business、OD 無)+ `.pd-spec-xref`(OD inline `color:var(--c-text-3);font-size:12.5px` → class、值吻合)。純新增零刪除(grep 證)、不碰既有規則。
+  - **HTML 結構忠實**(對 OD L1200-1245):eyebrow『FITMENTS · 適用車款』/ title『這款部品適用的車型與年式』(id=pd-h-fit + section aria-labelledby)/ hint『下單前請先聊聊確認您的年式 / 配備』**字面完全吻合**;OD canvas inline nudges(`margin-top:-2px` 等)正確丟棄(非 §7.5 CSS、canvas 定位 hack)。
+  - **🟢 D1=A 砍車系**:OD 4 欄(車廠/**車系**/車型/年式)→ 3 欄(車廠/車型/年式);DB/UIFitment 無 series 欄、不擅造。business override `fitments3ColNoSeries`、manifest 記。test `toEqual(['車廠','車型','年式'])` 鎖。
+  - **🟢 xref 字面 = OD 完全吻合**:ProductTabs 渲染『完整適用車款請見頁面上方「適用車款」對照表』= OD L1456 逐字(先前疑慮〔OD-8 縮寫註解〕解除:實作對齊 OD 真權威、縮寫只在舊註解)。摘要列走 `product.fits` 真資料衍生(非 OD demo 寫死)。
+  - **🟢 半形標點非鐵則 1 違反(查證)**:pd-fit-note 文字逐字忠實(『列表為主要適用車款…歡迎 LINE 諮詢』),僅 CJK 標點正規化半形「,」「;」——**驗 ProductFAQ.tsx L17 明文立此家族慣例 + 非註解行全形「，」計數 0**(OD-10 先例);遵循家族慣例使同頁元件一致、是 storefront 設計意圖。
+- **🟢 formatYears 三態正確 + test 五分支全覆蓋**:`yearStart==null→'—'` / `yearEnd===null→'YYYY+'`(開放式)/ `yearEnd===undefined||===yearStart→'YYYY'`(單年)/ else `'YYYY–YYYY'`(en-dash 對齊 OD)。對 UIFitment 型別語意(mock-products L50)+ toUIProduct 條件帶欄(products.ts L133-139:yearStart!=null / yearEnd!==undefined / unconfirmed)一致。test 鎖 `['2018–2025','2020','2021','2025+','—']` 覆蓋全分支。
+- **🟢 空狀態 + xref 條件一致(無 dangling)**:ProductFitments `!fitments||length===0→return null`;ProductTabs xref 條件 `fitments && length>0`——**互為補集**、xref 永不指向未渲染表;`product.fits` 摘要恆顯(fitments 空時='通用款')。沿用 N°03 條件渲染範式。business override `fitmentsEmptyStateNull`。
+- **🟢 token 存在性(OD-11 latent-bug 防線)**:CSS 用的 `--c-border-strong`(2 defs)/`--c-text-3`(3)/`--c-surface`(8)/`--c-border`/`--c-text-2`/`--c-text`/`--f-mono` 在 tokens.css **全有定義**→ 無 OD-11 式 removed-token 壞渲染。
+- **🟢 經銷防護**:ProductFitments **零 price/cost/shopee/dealer/prisma/store 引用**(grep 證、fitments = 公開車輛相容資訊);純 presentational、無 hooks、無 'use client'(由 client parent import、仍 SSR、無 RSC 邊界問題)。
+- **🔴 四綠獨立複驗(OD worktree @750ffa7、fresh 非快取替放)**:
+  - **vitest:81 檔 544 測全過**(`vitest run` 無 turbo 快取、live 跑、+6 對 538 baseline)——動共用元件 ProductPage/ProductTabs 故跑全套、零回歸。
+  - **typecheck:turbo 7/7**(storefront `cache miss, executing` → 對 OD-12 真碼 fresh tsc --noEmit 過)。
+  - **build:storefront 1/1**(fresh、0 cached、含 /products/[slug] 路由)。
+  - **lint:turbo 10/10**(storefront `--max-warnings 0` 過、含 React 19 rules-of-hooks/exhaustive-deps;ProductFitments 無 hooks、ProductPage/ProductTabs 僅加 JSX 條件無新 hook)。
+- **🟢 manifest 同步完整**:OD-12 slices_done + 新 ProductFitments 段(3 business_overrides:fitments3ColNoSeries / fitmentsUnconfirmedTag / fitmentsEmptyStateNull、open_drifts:[]) + ProductFitments 入 ProductPage children + specFitmentsXrefOmitted **resolved**(resolved_at + decision_source) + ProductPage/ProductTabs `last_modified_commit:320f3a5`(=OD-12 直接父 commit、必為可達祖先、避 amend orphan〔對齊 [[status-top-hash-off-by-one-normal]]〕)。
+- **🟢 字面 vs 事實**:body 每項宣稱對 diff/live 模板/實跑逐條核——檔數·行數·3欄·formatYears·空狀態·接線位置·xref 條件·CSS 純新增·test 6 測·四綠數字**全屬實**。
+- **判定:OD-12 PASS**(0 must-fix)。
+
+**審查判斷項(交 Sean / 執行 session)**:
+1. **🔴 「未確認」標 → Sean 2026-06-03 拍「不該」(推翻審查初判、需移除)**:審查初判「標屬此片」(自動列誤導風險);**Sean 拍板:不顯「未確認」標——下單前 LINE 本就會確認車款合用、標製造多餘焦慮**。Sean 拍板為準([[feedback_sean-owns-visual-design-going-forward]] 精神 + 不質疑改主意)。→ **執行 session 移除**(精準 4 點、零 S6 動):① ProductFitments.tsx 刪 `{f.unconfirmed && <span className="pd-fit-unconfirmed">未確認</span>}`(車型格回 `<td>{f.modelCode}</td>`)+ 清 header 註 unconfirmed 段 ② product-page.css 刪 `.pd-fit-unconfirmed` 規則 ③ ProductFitments.test.tsx 刪 unconfirmed 測(6→5 測、vitest 544→543)④ manifest 刪 `fitmentsUnconfirmedTag` override(ProductFitments overrides 3→2)+ OD-12 slices_done 文字去 unconfirmed 句。**保留**:lib/products.ts toUIProduct 的 `unconfirmed` 映射(S6 檔、harmless 公開資料、不擅動 S6 scope)。amend 750ffa7 或 follow-up commit、哨兵接到我再複審(三綠回 543)。
+2. **🟡 NIT(非阻、OD-12 範圍外、pre-existing)**:表上線後 S6 檔 3 處註解 stale——`mock-products.ts L47/L107`(「OD-F1(Phase B)…渲染適用車款表」/「OD-F1(Phase B)適用車款表的真資料源」)+ `lib/products.ts L129`(「為 OD-F1〔Phase B〕適用車款表**鋪路**」未來式)仍用舊名 OD-F1/Phase B + 未來式。OD-12 **正確未碰 S6 檔(守 scope)**、非 OD-12 引入。建議執行 session 小幅註解 hygiene(OD-F1/Phase B→OD-12、鋪路→已上線過去式)、可獨立 tiny commit 或併下個動 S6 的 slice;不阻 OD-12。
+3. **OD-V3b manifest「漏條目」= 非真 drift**(執行 session 問):OD-V3 slices_done 條目(L62)**已折入** ×0.5+iPad 內容(「先 ×0.7…改 ×0.5 原值一半」+ 全部最終值 + 「手機+iPad 等直版」)、od review-log 另有 OD-V3b commit 級 PASS;只缺「OD-V3b」label bullet(cosmetic)。內容誠實+可追溯齊全 → **不需回填**(折一條更乾淨、避 churn)。
+4. ~~「未確認」文案語氣~~ → moot(item 1 Sean 拍移除整個標)。
+- **⚠️ 視覺保真需 Sean 真機驗**(daemon 可核 HTML/CSS 字面、但渲染像素需眼睛):主樹 :3001 合併後、看真 RPM 商品頁(如 aprilia-01;mock 無 fitments→表不顯)+ 斷點 720/480 響應式 + 「未確認」標視覺。
+
+**`750ffa7` 未 push、在 od-redesign(待再合併 dev)**。OD-12 merge 進 dev 時審查另跑**合併後完整三綠**(OD×S6×整合線首次共存的綠、merge 審最高價值)。
+
+---
+
+## [`9abb5c3`] style(storefront): OD-12b 移除適用車款表「未確認」標 [OD-12b] — **PASS**(Sean 拍板 follow-up、移除與 spec 逐項吻合 + 三綠回 543)
+
+OD-12 follow-up:**Sean 2026-06-03 拍「未確認」標「不該」**(下單前 LINE 本就會確認車款合用、標製造多餘焦慮)→ 執行 session 移除(選 follow-up commit 非 amend、乾淨)。range `750ffa7..9abb5c3` 單一 commit。fresh-context `git show 9abb5c3` + 三綠獨立複驗。codex K2 跳(純前台移除)。
+- **scope(精準、零跨線污染)**:4 檔(ProductFitments.tsx / .test / product-page.css / manifest)、**零動 S6/scripts**(grep 證)。**未動共用元件 ProductPage/ProductTabs**(OD-12b 只碰 OD-12 自家檔)。
+- **🟢 移除與審查 spec 逐項吻合**:① ProductFitments.tsx 刪 `{f.unconfirmed && <span className="pd-fit-unconfirmed">未確認</span>}`、車型格回 `<td>{f.modelCode}</td>`(`f.unconfirmed` 在元件內**零殘留引用**、key tuple 不含它)② product-page.css 刪 `.pd-fit-unconfirmed` 整條規則 ③ test 刪 unconfirmed 測(6→5)④ manifest 刪 `fitmentsUnconfirmedTag` override(ProductFitments overrides **3→2**)+ OD-12 slices_done 去未確認 bullet + 新增 OD-12b 條目。
+- **🟢 保留(scope 紀律正確)**:`lib/products.ts` toUIProduct 的 `unconfirmed` 映射 + `mock-products.ts` UIFitment.unconfirmed 型別欄**保留未動**(S6 檔、harmless 公開資料、前台決定不顯)——照 spec、不擴 S6 scope。元件/CSS/test 註解誠實更新(說明型別欄保留但不顯 + Sean 決策)。
+- **🟢 manifest 同步**:ProductFitments `last_modified_commit:750ffa7`(=OD-12b 父 commit=OD-12、可達祖先、避 amend orphan);OD-12 條目標「final 交付狀態、變更歷程見下 OD-12b」、OD-12b 條目記移除 + 保留決策。
+- **🔴 三綠獨立複驗(OD worktree @9abb5c3)**:**vitest fresh 81 檔 543 測全過**(544−1=移除的 unconfirmed 測、無 turbo 快取)+ **storefront typecheck `--force` fresh `cache bypass` 7/7**(對真碼跑、非 replay 執行 session 快取)+ build/lint turbo 18/18(content-hash 9abb5c3 cached-valid、OD-12 已 fresh 驗過 build/lint、本片純移除碼)。
+- **🟢 字面 vs 事實**:body 每項(4 檔/移除點/保留 S6/543 測)對 diff+實跑核**全屬實**。`style(storefront)` type 對 UI 元素移除合宜。
+- **判定:OD-12b PASS**(0 must-fix)。**「未確認」標已完全移除**;OD-12 + OD-12b 合為適用車款表 final 狀態(3 欄、無未確認標)。`9abb5c3` 未 push。
+
+---
+
+## [`320f3a5..9abb5c3`] OD-12 + OD-12b 併入 dev(fast-forward)— **PASS**(合併後完整三綠 + 表 SSR 端到端確認)
+
+Sean 跑 `git merge od-redesign` → dev **fast-forward 到 9abb5c3**(線性、無 merge commit、無分岔:od-redesign 本就 = dev現況 + OD-12 + OD-12b)。合併後 dev 樹 = 已驗的 9abb5c3 byte-identical。
+- **🟢 合併乾淨**:dev 9abb5c3、log 線性(OD-12b→OD-12→320f3a5)、無意外 commit;審查 session 的 review-log working-tree 編輯保留未受擾(od-redesign 全程未碰本檔)。
+- **🔴 合併後完整三綠(主樹 dev=9abb5c3 權威複驗)**:**vitest 81 檔 543 測全過**(主樹環境、無 turbo 快取)+ **storefront typecheck `--force` fresh 7/7**(0 cached、對合併後 dev 真碼跑)。
+- **🟢 表 SSR 端到端功能確認(curl :3001 /products/rpm-aprilia-01)**:HTTP 200、`pd-fitments-section` / `FITMENTS · 適用車款` / `這款部品適用的車型與年式` / `pd-fit-table` 皆在 SSR HTML、**帶真車款資料**(RSV4 / Tuono V4 / 2021 / 2025 年式)。網站 DB 1123/1123 商品全有 fitments、aprilia-01 = 8 筆(直查 bmpnplmnldofgaohnaok)。**非視覺 sign-off**(畫面美觀 / 間距 / 響應式仍待 Sean 肉眼驗)。
+- **判定:OD-12 merge PASS**。dev 現 = 整合線 S0–S6 + OD Phase A + OD-12(含 12b)、全綠。**dev 9abb5c3 未 push**(origin/dev=320f3a5、Sean 手動推)。
+
+---
+
+## [`654e471`] style(storefront): OD-12c 桌機適用車款表年式欄收窄 [OD-12c] — **PASS**(純 CSS 桌機微調、Sean 真機驗 follow-up)
+
+Sean 桌機真機驗:年式欄過寬(原 `.pd-fit-table width:100%` 把 3 欄窄內容三等分撐滿、年式欄 ~700px 撐到頁右緣留大空白)→ 執行 session CSS 收窄。range `9abb5c3..654e471` 單一 commit。fresh-context `git show`。codex K2 跳(CSS-only)。
+- **scope**:2 檔(product-page.css +10 / manifest +5−2)、無動 TSX/test/S6。
+- **🟢 CSS 邏輯正確**:`@media (min-width:1080px)` → `.pd-fit-table width:auto`(欄貼內容、不再三等分)+ th/td `padding-right:64px`(欄間呼吸)+ `:last-child padding-right:16px`(年式欄回正常右距)。longhand padding-right 正確覆蓋 base `padding:13/15px 16px` 的右值。≤1079 沿用 100% 滿版(手機/平板 + 720/480 縮字不動)。
+- **🟢 三綠複驗(OD worktree @654e471)**:**build storefront 1/1 fresh**(--force、0 cached、CSS 編譯無語法錯=CSS 變更最相關綠)+ **vitest 81 檔 543 測不變**(CSS-only、jsdom 不測樣式)。
+- **🟢 字面 vs 事實**:CSS diff 對 body 逐項吻合;「product-page.css only」指無動 code/test(manifest 文檔另記、body 有述)。
+- **🟡 NIT(非阻、manifest 完整性)**:桌機 `width:auto` **偏離 OD §7.5 `width:100%`**——已記 slices_done(可追溯),但**未記成正式 `business_override`**(ProductFitments 段現只 fitments3ColNoSeries + fitmentsEmptyStateNull)。manifest 的價值是讓「偏離 OD 的所有點」可 grep → 建議補一條 `fitmentsDesktopWidthAuto`(OD §7.5 width:100% → 桌機 width:auto、reason:3 欄窄內容滿版撐太開);與 fitments3ColNoSeries 同層級。執行 session 之後順手折入即可。
+- **判定:OD-12c PASS**。視覺幅度(64px 欄間 / width:auto vs max-width cap)Sean 驅動、由 **Sean 桌機複驗**拍。`654e471` 在 od-redesign、未 merge dev、未 push。
+
+---
+
+**OD-12c merge dev ✅**(Sean ff `git merge od-redesign` → dev=`654e471`、線性無 merge commit;主樹 dev=654e471 合併後 vitest 81 檔 543 測全過;OD-12c CSS〔@media min-width:1080 width:auto〕已在 dev = :3001 桌機顯收窄)。**dev 本機 654e471、origin/dev 仍 320f3a5(Sean 拍 A 暫不 push/上線、[[project_deploy-topology-main-stale-dev-live]])**。
+
+---
+
+## [`9b21a8e`] style(storefront): OD-12d 適用車款表重設計分組+年式chips [OD-12d] — **PASS**(Sean 主導 UX 重設計、新分組邏輯正確 + 三綠 545 + manifest 典範)
+
+Sean 桌機真機驗:OD-12c `width:auto` 縮整表是錯方向(要「**欄位文字之間收窄**」非整表變窄)+「比例協調 / 資訊密集 / 不要滑很久」→ 指定 `/frontend-design` 重設計(本次明確委派、覆蓋平時 [[feedback_sean-owns-visual-design-going-forward]])。根因:OD §7.5 扁平 row-per-fitment 表對真資料(每品 ~8 fitments、同車廠/車型重複多列如 RSV4/Tuono V4 各 ×4 年式)= 稀疏+撐開+滑久。range `654e471..9b21a8e` 單一 commit。fresh-context `git show` + 邏輯逐行追 + 三綠獨立重跑。codex K2 跳(純前台 UI、無 pricing/security/migration)。
+- **scope**:4 檔(ProductFitments.tsx 115 行 <400 / .test / product-page.css / manifest)、**零動 S6/scripts**。
+- **🟢 groupFitments 邏輯正確(逐行追)**:車廠 first-seen 序(`order` 陣列 push)+ 車型 first-seen(Map 插入序)+ 年式車型內升序(`yearSortKey = yearStart ?? +Infinity`、`[...fits].sort` **複製不 mutate** 共用陣列、V8 stable)。edge:同車型跨車廠不撞(model 鍵在 brand 內);React key 同層唯一(brand=g.brand / model=m.model 在 brand 內唯一 / year chip 含 index)。formatYears 三態不變。
+- **🟢 test 7 測直接驗分組**(5→7):空狀態 ×2 / eyebrow+title / 單車廠分組(RSV4 消重複、2 chip 聚同列、models=['RSV4','Tuono V4'])/ 多車廠 first-seen 序(['Aprilia','Ducati'])/ 年式亂序輸入→升序 `['2009–2015','2016','2021–2024','2025+']` / 無 yearStart 排末 `['2020','—']`。
+- **🟢 CSS 連貫**:舊表格 CSS(.pd-fit-table/wrap/thead/tbody/.brand/.years + OD-12c width:auto + 720/480)**全刪乾淨**(`.pd-fit-table` 殘留 1 筆=純註解提及、非 dead rule → body「移除表格 CSS」字面vs事實 ✅);新 .pd-fit-groups 1.5px anchor / .pd-fit-group 細線分隔 / .pd-fit-brand mono uppercase / .pd-fit-row grid 132px+1fr / .pd-fit-year mono surface-2 sharp-corner chip;8 class 全有定義 + token(--c-surface-2 等)全存在(無 OD-11 latent bug);≤540 車型堆疊年式上方。維持 OD 美學(mono/sharp/薄線/surface)。
+- **🔴 三綠獨立(OD worktree @9b21a8e、fresh)**:**vitest 81 檔 545 測**(+2、無快取)/ **storefront typecheck `--force` fresh 7/7**(groupFitments/BrandGroup 型別)/ **build fresh 1/1**(CSS+邏輯編譯)。
+- **🟢 manifest 典範**:OD-12d slices_done + **design.authority 明標「OD-12d 起 Sean 主導 UX 重設計、扁平表保真 supersede」** + 新 `fitmentsGroupedLayout` business_override(design_value OD 扁平表 / storefront_value 分組+chips / decision_source 含「本次明確委派 /frontend-design」/ reason)+ fitments3ColNoSeries·EmptyStateNull 同步更新(表→清單/3 欄→3 維)+ last_modified 654e471(=OD-12d 父、可達祖先)。
+- **🟢 字面 vs 事實**:body 每項(groupFitments/CSS 整段換/545/+2/supersede)對 diff+實跑核全屬實。
+- **判定:OD-12d PASS**(0 must-fix)。
+
+**非阻觀察(交 Sean / 執行 session)**:
+1. **🟡 a11y 語意降級(較值得留意)**:重設計把原 OD-12 的 `<table><th scope="col">`(正確 tabular 語意)換成 `<div>` grid + **無語意角色**(車廠是 `<div>` 非 heading、無 list/table role)。對螢幕報讀器,車廠↔車型↔年式關係不如原表清楚。Sean 主導視覺、非阻;建議小幅 a11y follow-up(車廠標 `role="heading"`/真 heading、或 `.pd-fit-groups` role=list + group/row aria-label),視覺不變即可補語意。
+2. **🟡 NaN comparator 微 nit**:兩筆都無 yearStart 時 `yearSortKey(a)-yearSortKey(b)` = `Infinity-Infinity` = NaN(sort 視為相等、保留原序、不崩不錯)。無害;若潔癖可改 `(a,b)=> a===b?0 : a<b?-1:1` 式比較。
+- **⚠️ 視覺需 Sean 桌機 + 手機真機驗**(合併後 :3001、真 RPM 如 aprilia-01;幅度可調:品牌標/chip 樣式/車型欄 132px)。
+
+**`9b21a8e` 在 od-redesign、未 merge dev(dev=654e471 落後)、未 push**。
+
+---
+
+## [`bb99340`] fix(storefront): 修正 FAQ 詢問欄位內文(訂購/交期/保固拆段)[OD-13] — **PASS**(Sean 提供內文、法律字面逐字未動 + 共用單一真相 + 545 不破)
+
+新片(非 OD-12 系列):Sean 2026-06-03 提供 FAQ 修正內文。range `9b21a8e..bb99340` 單一 commit。**敏感:動共用 rpm-policies(保固含消保法 §19 鑑賞期法律主張、Sean 仍確認準確性)** → fresh-context 逐字驗 + 完整 vitest。codex K2 跳(內容改、非 schema/RLS/migration/pricing;法律字面**未改**只拆段)。
+- **scope**:3 檔(ProductFAQ.tsx +8 / rpm-policies.ts +7−2 / manifest);無動 test(既有斷言不破、見下)、無動 S6。
+- **🔴 法律字面驗證 PASS(本片最敏感)**:rpm-policies diff **只動舊第 2 段**、切點精確在「我們會負責換貨處理。|退換貨時商品需維持」(逐字不變、純拆兩段、3→4 段、doc 註同步);**第 1 段(接單後才向原廠訂製)+ 鑑賞期/消保法 §19 第 1 項段(L35-39「依《消費者保護法》第 19 條第 1 項…不適用 7 天鑑賞期」)不在 diff = 逐字未碰**(grep bb99340 確認該段完整)。body「法律段逐字不變、只拆段」屬實。
+- **🟢 共用單一真相維持**:保固改在 rpm-policies(canonical「那份」)→ ProductTabs 保固分頁 + ProductFAQ 自動同步 4 段、未 fork。
+- **🟢 FAQ order/leadtime(Sean 內容)**:order『下單』行改「確認商品是否適用後直接下單即可,如不確定歡迎直接 LINE…」(付款/運費 run 未動);leadtime 整段換「預購商品為〔下定後與原廠訂購〕,需等待 2–6 週不等…以詢問時回報之時間為準。」。對 body 逐字吻合。**order 新文與 OD-12d 移除「未確認」標的理由一致**(下單前 LINE 確認適用性)、連貫。
+- **🟢 測不破(無動 test 檔卻改內容、關鍵驗)**:測只斷言保固**第 1 段**含「接單後才向原廠訂製的客製商品」(OD-13 未動第 1 段)、**無段數斷言**、無斷言被改的 order/leadtime 字面 → 內容改不破測。**完整 vitest 81 檔 545 測全過**(rpm-policies 共用 FAQ+Tabs、跑全套、零回歸、對齊 [[feedback_run-full-vitest-after-shared-component-change]])。
+- **🟢 JSON-LD 同步(by construction)**:FAQPage JSON-LD 的 plainAnswer 與畫面同源衍生自 FAQ_ITEMS → order/leadtime 改自動入 JSON-LD;build fresh 過(無生成錯)。
+- **🟢 標點**:正規化對齊家族慣例(全形→半形逗號 / 2-6→2–6 + 空格 / LINE 前後空格)、保留 Sean 用詞。
+- **🔴 三綠獨立(OD worktree @bb99340、fresh)**:typecheck+build `--force` 8/8(0 cached)+ 完整 vitest 545。
+- **🟢 manifest**:OD-13 slices_done(含「法律段逐字不變」明記)+ ProductFAQ last_modified=9b21a8e(=OD-13 父=OD-12d、可達祖先);warrantyPolicySingleSource 機制不變(仍單一真相、只 4 段)無需改 override。
+- **判定:OD-13 PASS**(0 must-fix)。`bb99340` 在 od-redesign、未 merge dev、未 push。⚠️ 視覺需 Sean :3001 真機驗(展開 FAQ + 保固分頁看拆段)。
+
+**OD-12d + OD-13 merge dev ✅**(Sean ff `git merge od-redesign` → dev=`bb99340`、`654e471..bb99340` 一次帶 2 commit〔OD-12d 分組表 + OD-13 FAQ〕、線性無 merge commit;主樹 dev=bb99340 合併後 vitest 81 檔 545 測全過)。dev 本機 bb99340、origin/dev 仍 320f3a5(Sean 拍 A 暫不 push/上線)。
+
+---
+
+## [`f8d5045`] docs(backlog): #211 fitments 分組字串正規化 + 真資料實查驗證乾淨 — **PASS**(純 docs;審查獨立 DB 複查宣稱完全吻合)
+
+純 docs slice(backlog.md +24)。觸發:OD-12d 分組改精確字串歸堆後 Sean 問「DIV 分組撈 DB 一樣對嗎」→ 執行 session 唯讀實查 + 記 backlog #211(分組對髒字串敏感、匯入端無正規化守門)。
+- **🔴 審查獨立 DB 複查(非信執行 session、自跑 SQL 驗宣稱)**:對 `bmpnplmnldofgaohnaok` products.fitments unnest 查 → **total 2873 / distinct brands 10 / distinct models 96 / trim 異常 0 / brand case-fold 衝突 0 / (brand,model) case-fold 衝突 0** = **與 backlog 宣稱數字逐項完全吻合**。→ OD-12d groupFitments 在真資料上**正確、零拆堆**(精確字串分組安全)、字面vs事實(資料層)PASS。
+- **🟢 backlog #211 條目品質(鐵則 10)**:三視角齊(擴充性 髒批拆堆 / 可維護性 無守門需人工檢 / bug 可追蹤性 拆堆靜默非報錯)+ 不修會痛 + 估時 + 依賴 + 預期解法(根治=匯入端 trim+統一大小寫、保護 fitments UI + listByFitment `@>` 查詢;治標=前端 groupFitments key trim)+ 優先級 🟢 觀察(現資料乾淨、非阻、新來源大批匯入前再評估);無空泛「待 Sean 決定」。
+- **🟢 scope**:1 檔 backlog.md;純 docs(build 跳、typecheck/lint N/A on .md、body 誠實標)。
+- **判定:f8d5045 PASS**(0 must-fix;backlog 條目健全 + 資料宣稱審查獨立驗證屬實 + 確認 OD-12d 生產正確)。`f8d5045` 在 od-redesign、未 merge dev、未 push。
+
+_(等待:Sean :3001 真機驗(OD-12d 桌機+手機分組表 + OD-13 FAQ 展開/保固分頁拆段);或視覺再微調;或殘留 NIT hygiene〔S6 檔 OD-F1/Phase B 註解 / OD-12d a11y 語意 follow-up〕;或哪天規劃上線(鐵則 8)。Sean 拍暫不上線=本機驗。哨兵盯 dev=bb99340 / od-redesign=bb99340)_
