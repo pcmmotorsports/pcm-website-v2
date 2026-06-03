@@ -12,7 +12,7 @@
 /** 政策段落的最小單位:純文字 或 需加粗的文字({ b }) */
 export type PolicyRun = string | { b: string };
 
-/** 保固 / 退換 / 鑑賞期政策正文 —— 3 段(對齊 OD-8 ProductTabs 保固 pane 3 個 <p>) */
+/** 保固 / 退換 / 鑑賞期政策正文 —— 4 段(OD-13 Sean 拆「換貨處理」與「退換貨需維持」為兩段、提升可讀性) */
 export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
   [
     '多數商品是 ',
@@ -24,7 +24,10 @@ export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
     { b: '瑕疵' },
     '、或是我們出錯（寄錯、出錯件）,請在 ',
     { b: '收貨 7 天內' },
-    ' 用 LINE 告訴我們,我們會負責換貨處理。退換貨時商品需維持 ',
+    ' 用 LINE 告訴我們,我們會負責換貨處理。',
+  ],
+  [
+    '退換貨時商品需維持 ',
     { b: '全新未安裝、原始包裝完整' },
     '（含外盒、發票、配件）;一旦安裝過或有使用痕跡,就沒辦法退換了。',
   ],
