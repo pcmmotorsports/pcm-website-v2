@@ -452,6 +452,18 @@
   .pd-pattern-preview-value { font-size: 14px; }
 }
 
+/* Sean 2026-06-03 :3001 手機驗:右欄(ProductInfo)區塊上下間距窄 30%(只手機 ≤1079 單欄堆疊版;
+   桌機 ≥1080 右欄與大圖等高、間距填得剛好、不縮)。各主要垂直 margin/padding × 0.7。 */
+@media (max-width: 1079px) {
+  .pd-sku { margin-bottom: 7px; }       /* 10 → 7 */
+  .pd-title { margin-bottom: 6px; }     /* 8 → 6 */
+  .pd-sub { margin-bottom: 17px; }      /* 24 → 17 */
+  .pd-price-block { padding: 14px 0; margin-bottom: 20px; } /* 20→14 / 28→20 */
+  .pd-pattern-preview { margin-bottom: 14px; }  /* 20 → 14 */
+  .pd-opt { margin-bottom: 15px; }      /* 22 → 15 */
+  .pd-opt-head { margin-bottom: 7px; }  /* 10 → 7 */
+}
+
 /* ========= Buy row (OD §5) ========= */
 /* OD-3:購買列換 OD §5 直角 — qty/add/buynow 去 pill radius(100→0)、like 圓→方;token 化;
    加入購物車黑底實心、立即購買 1.5px 描邊、like hover 紅。#161 永遠可點(無 disabled 態、
