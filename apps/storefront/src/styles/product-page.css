@@ -87,7 +87,7 @@
 /* OD-1:.pd-main 基礎 grid 字面從 OD product-detail-rpm-template.html §5 直接搬
    (minmax(0,...) 防 grid blowout、gap 36、hero 底細線分隔;移除原 margin-bottom:80 改 padding+border)。
    ⚠️ 桌機左右等高(≥1080 .pd-gallery flex 撐高)+ 斷點遷移(≤1079 collapse + buybar)與圖庫耦合、
-   留 OD-2 / OD-11;本片只立基礎欄寬 + gap + hero 底線。既有 @media(max-width:900 / 901-1099)斷點本片暫留。 */
+   OD-2 已做桌機等高、OD-11 已做斷點遷移(≤1079 collapse + buybar、移除 901-1099 mid-band);本片只立基礎欄寬 + gap + hero 底線。 */
 .pd-main {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -104,7 +104,7 @@
 .pd-gallery {
   position: relative;
   /* 過渡:現有 ≤900 才 collapse、901-1079 仍 2 欄;align-self:start 避免此帶 gallery 被拉伸留底部空隙
-     (OD ≤1079 即單欄、無此帶;斷點遷移留 OD-11)。≥1080 改 stretch 啟動等高(下方 @media)。 */
+     (OD ≤1079 即單欄、無此帶;OD-11 已將斷點遷至 ≤1079)。≥1080 改 stretch 啟動等高(下方 @media)。 */
   align-self: start;
 }
 
@@ -222,7 +222,7 @@
 
 /* OD-2:桌機(≥1080)左右等高 — 字面從 OD §5 直接搬。
    .pd-gallery flex 直欄、hero-img flex:1 撐到右側 .pd-info 高(解 HANDOFF §4「左圖凸一截右欄短」);
-   .pd-info align-self:stretch 同步;<1080 維持 1:1 正方圖(既有 @media collapse 不動、斷點遷移留 OD-11)。 */
+   .pd-info align-self:stretch 同步;<1080 維持 1:1 正方圖(OD-11 已將 collapse 斷點遷至 ≤1079)。 */
 @media (min-width: 1080px) {
   .pd-gallery { display: flex; flex-direction: column; align-self: stretch; }
   .pd-hero-img { aspect-ratio: auto; flex: 1 1 auto; min-height: 460px; }
@@ -903,7 +903,7 @@
 /* OD-8(視覺真權威 OD 模板「Website V2」product-detail-rpm-template.html §9 tabs、鐵則 1 直接搬):
    tab chrome 由舊 Apple pill 群組改 OD 底線式(容器底框 + active 2px 下底線、可橫向捲動);
    pd-list 改 OD 標準項目符號;pd-specs 改 OD 單欄 key/value;install 捨棄 4 步驟卡(pd-steps 移除)。
-   tab 內部斷點(560/720/1079)採 OD §9 字面、全頁斷點統一收口留 OD-11。 */
+   tab 內部斷點(560/720/1079)採 OD §9 字面、全頁斷點 OD-11 已統一收口至 ≤1079(buybar/main 與各 section 同門檻)。 */
 .pd-tabs-section { padding: 32px 0 44px; border-bottom: 1px solid var(--c-border); }
 @media (max-width: 1079px) {
   .pd-tabs-section { padding: 24px 0 32px; }
@@ -1090,36 +1090,37 @@
   .pd-lb-arrow-right { right: 8px; }
 }
 
-/* ========= Mobile sticky buy bar ========= */
-/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 738-805 直接搬(sec 13 Mobile sticky bar 68 行)
-   ⚠️ Cascade order 修正:design 原字面把此主規則(default display: none)放在 @media (display: flex)
-   之後、cascade order 讓主規則 override @media、mobile 永遠隱藏;storefront 修正:主規則放 @media 前、
-   對齊 CSS base → override 慣例。字面結構偏離 design、行為正確、進 backlog #161 同類追(待 Claude Design 補對齊) */
+/* ========= Mobile sticky buy bar(OD §12、OD-11 reskin)=========
+   OD-11:舊 M-1-13e-a 版用已不存在的 --border/--ink/--paper-2 legacy token(mobile 渲染壞)、
+   改 OD §12 字面 + --c-* token + 單色(buynow 深底白字、非舊紅 #c41e3a);保留 storefront 既有
+   .pd-mbb-orig(原價刪除線)+ disabled 視覺;trigger 由 ≤900 改 OD ≤1079(與全頁 mobile 門檻一致、見下)。 */
 .pd-mobile-buybar {
   display: none;
   position: fixed;
   left: 0; right: 0; bottom: 0;
   z-index: 50;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-  background: rgba(255,255,255,0.97);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--border);
-  gap: 8px;
+  padding: 10px 12px;
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+  box-shadow: 0 -2px 12px #0000000a;
   align-items: center;
+  gap: 8px;
 }
-.pd-mbb-price-col {
-  flex: 0 0 auto;
-  min-width: 72px;
-  padding-right: 4px;
+.pd-mbb-back {
+  flex: 0 0 42px;
+  width: 42px; height: 46px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid var(--c-border-strong);
+  color: var(--c-text);
+  cursor: pointer;
 }
-.pd-mbb-price {
-  font: 600 16px/1.1 var(--font-sans);
-  color: #c41e3a;
-}
+.pd-mbb-back:active { background: var(--c-surface-2); }
+.pd-mbb-price-col { flex: 0 0 auto; min-width: 96px; padding-right: 4px; }
+.pd-mbb-price { font-size: 15.5px; font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
 .pd-mbb-orig {
-  font: 400 10px/1 var(--font-sans);
-  color: var(--ink-tert);
+  font-size: 10px; font-weight: 400;
+  color: var(--c-text-3);
   text-decoration: line-through;
   margin-top: 2px;
 }
@@ -1127,41 +1128,21 @@
 .pd-mbb-buynow {
   flex: 1 1 0;
   height: 46px;
-  font: 600 14px/1 var(--font-sans);
-  letter-spacing: 0.04em;
-  border: 1.5px solid var(--ink);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 0 10px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
 }
-.pd-mbb-cart {
-  background: #fff;
-  color: var(--ink);
-}
-.pd-mbb-cart:active:not(:disabled) { background: var(--paper-2); }
-.pd-mbb-buynow {
-  background: #c41e3a;
-  border-color: #c41e3a;
-  color: #fff;
-}
-.pd-mbb-buynow:active:not(:disabled) { background: #a01830; }
+.pd-mbb-cart { background: var(--c-surface); color: var(--c-text); border: 1.5px solid var(--c-text); }
+.pd-mbb-cart:active:not(:disabled) { background: var(--c-surface-2); }
+.pd-mbb-buynow { background: var(--c-text); color: var(--c-text-inverse); border: 1.5px solid var(--c-text); }
+.pd-mbb-buynow:active:not(:disabled) { opacity: 0.85; }
 .pd-mbb-cart:disabled,
 .pd-mbb-buynow:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.pd-mbb-back {
-  flex: 0 0 36px;
-  width: 36px; height: 44px;
-  display: flex; align-items: center; justify-content: center;
-  background: transparent;
-  border: 1px solid rgba(0,0,0,0.12);
-  color: var(--ink);
-  cursor: pointer;
-  margin-right: 4px;
+/* iOS Safari 底部安全區域 */
+@supports (padding: max(0px)) {
+  .pd-mobile-buybar { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 }
-.pd-mbb-back:active { background: var(--paper-2); }
 
 /* ===================================================================
    FAQ accordion(OD §10、N°04 ProductFAQ)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
@@ -1194,42 +1175,20 @@
 .faq-body strong { color: var(--c-text); }
 
 
-/* M-1-13c minimum responsive fix(Q-3=A 拍板)— 手機 grid collapse 單欄、避免 .pd-main 1fr+480px 把左欄擠到負寬;
-   完整 responsive 字面留 M-1-13g 搬 design line 618-669 sec 11 一次性收口
-   M-1-13e-a 補 design line 662-667 的 sec 6+7+13 切換規則(buy-row / buynow / services / mobile-buybar)
-   注意:此 @media 須位於 .pd-mobile-buybar 主規則之後、確保 display: flex 能 override default display: none */
-@media (max-width: 900px) {
-  .pd-main {
-    grid-template-columns: 1fr;
-    gap: 32px;
-  }
-  .pd-gallery {
-    position: static;
-  }
-  /* OD-5:.pd-services 2 欄 orphan 規則移除 — 服務橫條外移後改吃 OD strip 自帶 720/540 響應式 */
+/* OD-11:全頁 mobile 門檻統一 OD ≤1079(對齊 .pd-info static / 各 N° section / buybar);
+   原 M-1-13c ≤900 collapse + ≤900 buybar 改 ≤1079(否則 901-1079 出現 mobile section 卻 desktop 2 欄 + 無 buybar);
+   原 901-1099 mid-band(1:1 + padding)移除(≤1079 單欄、≥1080 base 1.2:1);相關卡 collapse 同步 1079、極窄 560→540。 */
+@media (max-width: 1079px) {
+  .pd-main { grid-template-columns: 1fr; gap: 32px; }
+  .pd-gallery { position: static; }
+  .pd-page { padding: 24px 16px 96px; }
   .pd-buy-row,
   .pd-buynow-btn { display: none !important; }
   .pd-mobile-buybar { display: flex; }
-}
-
-/* ========= M-1-13H-6:新元件 responsive(slice-4/5/6)+ 900-1100 中間斷點 ========= */
-/* 補 slice-4/5/6 新元件 grid collapse + 中間斷點(對齊 HANDOFF L362-369 responsive 規格表);
-   既有 @media (max-width: 900px) L899-913(.pd-main collapse 單欄 + mobile buybar 禁區)不動(Q3);
-   本段獨立新增、同條件 @media 合法、cascade 後段 override 同屬性、不衝突;
-   13g Toast 推延(對齊 STATUS 字面、卡片改完 Related 自動繼承後評估、本 slice 不動 Toast) */
-@media (max-width: 1099px) and (min-width: 901px) {
-  /* 900-1100 中間斷點:圖 1fr : 資訊 1fr + padding 縮 32(HANDOFF「900-1100px 圖 1fr : 資訊 1fr、padding 32」) */
-  .pd-main { grid-template-columns: 1fr 1fr; }
-  .pd-page { padding: 24px 32px 80px; }
-}
-@media (max-width: 900px) {
-  /* slice-4/5/6 新元件窄螢幕 collapse(避免 3/4 cols grid 爆版)*/
-  /* OD-6:.pd-feature-grid 單欄 collapse 移至 OD 920px 規則(含 padding/字級調整)*/
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }
   .pd-related-grid { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 560px) {
-  /* 極窄螢幕(手機直立):related 再降單欄 */
+@media (max-width: 540px) {
   .pd-related-grid { grid-template-columns: 1fr; }
 }
