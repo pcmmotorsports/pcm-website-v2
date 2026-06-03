@@ -439,4 +439,35 @@ Sean 桌機真機驗:OD-12c `width:auto` 縮整表是錯方向(要「**欄位文
 - **🟢 scope**:1 檔 backlog.md;純 docs(build 跳、typecheck/lint N/A on .md、body 誠實標)。
 - **判定:f8d5045 PASS**(0 must-fix;backlog 條目健全 + 資料宣稱審查獨立驗證屬實 + 確認 OD-12d 生產正確)。`f8d5045` 在 od-redesign、未 merge dev、未 push。
 
-_(等待:Sean :3001 真機驗(OD-12d 桌機+手機分組表 + OD-13 FAQ 展開/保固分頁拆段);或視覺再微調;或殘留 NIT hygiene〔S6 檔 OD-F1/Phase B 註解 / OD-12d a11y 語意 follow-up〕;或哪天規劃上線(鐵則 8)。Sean 拍暫不上線=本機驗。哨兵盯 dev=bb99340 / od-redesign=bb99340)_
+---
+
+## [`0eff2a41`] docs(storefront): OD-12 NIT 之一 — 適用車款表註解去 OD-F1/Phase B 過時 + 修 unconfirmed 偏離 [od-12-nit] — **PASS**(純註解 hygiene、字面對齊事實;1 🟡 NIT 數字少算)
+
+OD-12 NIT slice 第 1 commit(承我前審「殘留 NIT hygiene〔S6 檔 OD-F1/Phase B 註解〕」建議)。**在主樹 dev 直接做**(非 od worktree、純 docs NIT 不涉 OD 視覺)。range `266f5f2..0eff2a41` 單一 commit。fresh-context `git show` + `git grep` 對不可變快照驗(不碰執行 session 活工作樹)。codex K2 跳(純 .ts 註解、零 schema/RLS/migration/pricing)。
+- **scope**:2 檔(mock-products.ts +6−6 / lib/products.ts +2−2)、**純註解**(diff 只動 `/** */` + `//` 文字、零程式碼)。
+- **🔴 字面 vs 事實(本片重點)**:
+  - **宣稱1「OD-F1/Phase B 兩改檔零殘留」✅**(`git grep "OD-F1\|Phase B" 0eff2a41 -- mock-products.ts lib/products.ts` = 零命中)。OD-F1(Phase B)→ OD-12、改指真元件名 ProductFitments、去未來式「鋪路」→「供…渲染」逐處對齊。
+  - **宣稱2「未確認剩 3 處全正確不顯陳述」= 結論 ✅、數字 🟡**:`git grep "未確認" 0eff2a41 -- apps/storefront/src/` 實際 **4 處**(ProductFitments.tsx L15 / mock-products L48,L59 / **product-page.css L583**),commit body 漏算 css L583。但 4 處**全為「不顯/已移除」正確陳述、無一謊稱顯標** → commit 實質結論(無錯誤殘留)成立。純數字少算(對齊 [[feedback_plan-numbers-must-match-grep]]、fresh-context 抓原 session body 數字小偏);非阻、不影響 PASS。
+  - **unconfirmed 欄保留 ✅**:UIFitment.unconfirmed 欄(mock L60)+ toUIProduct 映射(products L138)未刪、註解誠實標「欄保留 harmless 公開資料、OD-12b 起前台不顯」對齊 OD-12b(`9abb5c3`)實況。
+- **🟢 三綠**:純 .ts 註解、零執行影響(註解不參與編譯/測試)→ 與 baseline 同綠,靜態確定(實跑見下 2d8ee9cd batch)。commit body 誠實揭露「三綠對完整改動(本 commit + 後續 a11y)一次跑、546 測含 a11y +1」= 非隱瞞、符鐵則 11 字面 vs 事實守則。
+- **判定:0eff2a41 PASS**(0 must-fix;1 🟡 NIT「未確認 3→4 處」數字少算、結論成立非阻)。
+
+---
+
+## [`2d8ee9cd`] fix(storefront): OD-12 NIT 之二 — 分組清單補巢狀 ARIA list 語意(視覺不變)[od-12-nit] — **PASS**(0 must-fix、a11y 結構合法 + 三綠 fresh 重跑全綠)
+
+OD-12 NIT slice 第 2 commit(承我前審「OD-12d a11y 語意降級〔分組用 div 無 role〕」建議)。range `0eff2a41..2d8ee9cd` 單一 commit。fresh-context `git show` + 三綠 fresh 重跑(工作樹乾淨=dev tip 2d8ee9c 純態、PRE/POST dev 不變 tree 乾淨 → 未被執行 session 干擾)。codex K2 跳(a11y 屬性、無 pricing/security/migration)。
+- **scope**:3 檔(ProductFitments.tsx +11−5 / .test.tsx +20−1 / manifest +2−2)、零動 S6/scripts。
+- **🟢 a11y 結構正確(逐層追)**:巢狀 ARIA list `groups(role=list) > group(listitem) > rows(list) > row(listitem) > years(list) > year(listitem)`;每個 `role=list` 直接子皆 `listitem`(中間 `.pd-fit-brand`/`.pd-fit-model` 為 listitem 內容、非 list 直接子 → 不破壞 list 語意);年式清單 `aria-label="{車型} 適用年式"` 建立年式↔車型關係(報讀器最易丟失)。WCAG 1.3.1 補強合理。
+- **🟢 「視覺不變」屬實**:diff 只加 `role`/`aria-label` 屬性、**零 CSS、零標籤替換**(div 仍 div、span 仍 span)→ 像素級不變。用 div+顯式 role(非改 ul/li)正確規避 **Safari+VoiceOver 對 `ul+list-style:none` 移除 list 語意的已知 WebKit 陷阱**、且最小改動。
+- **🟢 test 7→8 對齊實作**:+1 a11y 斷言(querySelector + getAttribute 驗 list/listitem role + `aria-label='RSV4 適用年式'`)守護不退化;斷言值與 render 輸出逐項吻合。
+- **🟢 manifest 同步**:`last_modified_commit:654e471→0eff2a4`(=本 a11y commit 直接父=同 NIT slice 註解 commit、可達祖先、避 amend orphan,對齊 [[status-top-hash-off-by-one-normal]])+ date 註記;a11y 非偏離 design 故**不加 business_override**(與既有 3 筆視覺/內容 override 性質不同)合理。
+- **🔴 三綠 fresh 獨立重跑(主樹 dev=2d8ee9c 純態、--force 非快取 replay)**:**typecheck 7/7 + lint 10/10**(turbo 17 task、0 cached)+ **build storefront 1/1**(0 cached、含 /products/[slug])+ **完整 vitest 81 檔 546 測全過**(動共用元件 ProductFitments → 跑完整非子集,對齊 [[feedback_run-full-vitest-after-shared-component-change]];ProductFitments.test 7→8)。全綠、零回歸、對齊 commit body 宣稱。
+- **🟢 字面 vs 事實**:body 每項(6 role 點 / 視覺不變 / Safari 陷阱 / 7→8 / 三綠數字 / manifest 可達祖先)對 diff + 實跑核屬實。
+- **判定:2d8ee9cd PASS**(0 must-fix)。OD-12 適用車款表 a11y 補強完成、視覺零變動。
+
+---
+
+**⚠️ 流程觀察(非 commit 缺陷)**:OD-12 NIT 兩 commit **在主樹 dev 直接做**(非 od worktree、純 NIT 不涉 OD 視覺)→ **dev 領先 od-redesign 2 commit**(dev=2d8ee9c / od-redesign 仍 266f5f2);審查 session 與執行 session 本輪共用主樹,我嚴守唯讀(git show/grep 不可變快照 + 三綠在乾淨 dev tip 純態跑、PRE/POST 驗未被干擾、零 git add/stash/checkout)。merge 注意:od-redesign 落後 dev 2 NIT、之後續做 OD 視覺再 merge 須帶上(同檔 ProductFitments、不同改動、預期可線性);或 Sean 之後 ff od-redesign 對齊 dev。
+
+_(等待:Sean :3001 真機驗(OD-12d 分組表 + OD-13 FAQ、桌機/手機);OD-12 NIT hygiene 兩 commit ✅ PASS(註解 + a11y、我前審兩建議皆已收);翻譯 #209 方向研究中(現況盤點完=中文名已上線/描述全空/spec袋薄、缺口=賣場描述+spec袋擴+品牌故事、等 Sean 挑下一步);或規劃上線(鐵則 8、Sean 暫不上線)。哨兵盯 dev=2d8ee9c / od-redesign=266f5f2、origin/dev=266f5f2 未推)_
