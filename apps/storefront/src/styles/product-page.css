@@ -580,7 +580,7 @@
    位於 pd-services-strip 與 N°01 之間(OD 渲染順序)。
    🔴 D1=A:OD 模板 4 欄(車廠/車系/車型/年式)→ 本站 3 欄(車廠/車型/年式)、DB 無車系欄;
    CSS 與欄數無關(table 自適應)、直接沿用 OD §7.5。
-   .pd-fit-unconfirmed:OD 模板無、unconfirmed 車款列小標(business override、誠實揭示資料信心)。 */
+   (OD-12b:unconfirmed「未確認」標已移除、Sean 拍「不該」、見 ProductFitments.tsx) */
 .pd-fitments-section {
   padding: 20px 0 28px;
   border-bottom: 1px solid var(--c-border);
@@ -640,18 +640,6 @@
   font-size: 13px;
   color: var(--c-text-2);
   white-space: nowrap;
-}
-.pd-fit-unconfirmed {
-  display: inline-block;
-  margin-left: 8px;
-  padding: 1px 7px;
-  font-family: var(--f-mono);
-  font-size: 10.5px;
-  letter-spacing: 0.04em;
-  color: var(--c-text-2);
-  border: 1px solid var(--c-border-strong);
-  border-radius: 2px;
-  vertical-align: middle;
 }
 .pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
 @media (max-width: 720px) {

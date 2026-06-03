@@ -8,9 +8,8 @@
 // - 🔴 D1=A 業務 override(Sean 2026-06-02 拍):OD 模板 4 欄(車廠 / 車系 / 車型 / 年式)→ 本站 **3 欄
 //   (車廠 / 車型 / 年式)**;DB 無「車系」欄(UIFitment 無 series 欄)、不擅造、砍車系欄。非誤翻譯、
 //   manifest business_overrides 記。
-// - 🔴 unconfirmed 標(UIFitment 文件註「來源自動展開、未經人工確認 → 顯『未確認』標」):來源自動展開
-//   的車款列加小標、與人工確認列區隔(誠實揭示資料信心、非 OD 模板原有、business override);
-//   pd-fit-note 已提示「下單前聊聊確認年式 / 配備」。
+// - unconfirmed:UIFitment 仍帶此欄(S6 toUIProduct 映射、harmless 公開資料),但前台**不顯**「未確認」標
+//   (Sean 2026-06-03 拍「不該」— 下單前 LINE 本就會確認車款合用、標製造多餘焦慮;OD-12b 移除)。
 // - 空狀態:product.fitments 缺 / 空陣列(mock 商品、通用款、無 fitments 的真品)→ 返 null 整段不渲染
 //   (沿用相關商品 N°03 條件渲染範式 ProductPage、避免空表;規格 tab 交叉引用同步條件顯)。
 //
@@ -63,10 +62,7 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
             {fitments.map((f, i) => (
               <tr key={`${f.motoBrand}-${f.modelCode}-${f.yearStart ?? ''}-${f.yearEnd ?? ''}-${i}`}>
                 <td className="brand">{f.motoBrand}</td>
-                <td>
-                  {f.modelCode}
-                  {f.unconfirmed && <span className="pd-fit-unconfirmed">未確認</span>}
-                </td>
+                <td>{f.modelCode}</td>
                 <td className="years">{formatYears(f)}</td>
               </tr>
             ))}

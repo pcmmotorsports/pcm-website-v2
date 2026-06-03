@@ -2,7 +2,7 @@
 //
 // ProductFitments smoke test — 適用車款表(OD-12、OD §7.5 直接搬、D1=A 3 欄)。
 // 驗:空狀態(無 fitments / 空陣列)返 null 兩路徑 + 表渲染(eyebrow / title / 3 欄表頭 / 列) +
-// 年式三態格式(開放式 + / 單年 / 區間 –)+ unconfirmed「未確認」標。
+// 年式三態格式(開放式 + / 單年 / 區間 –)。
 // 純 presentational server component、無 hooks / interactive(不需 CartProvider wrapper)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
@@ -69,16 +69,5 @@ describe('ProductFitments', () => {
     const { container } = render(<ProductFitments product={product} />);
     const years = Array.from(container.querySelectorAll('tbody .years')).map((td) => td.textContent);
     expect(years).toEqual(['2018–2025', '2020', '2021', '2025+', '—']);
-  });
-
-  it('marks unconfirmed fitments with a 「未確認」 tag', () => {
-    const product = withFitments([
-      { motoBrand: 'Ducati', modelCode: 'Confirmed', yearStart: 2020 },
-      { motoBrand: 'Ducati', modelCode: 'Auto', yearStart: 2021, unconfirmed: true },
-    ]);
-    const { container } = render(<ProductFitments product={product} />);
-    const tags = container.querySelectorAll('.pd-fit-unconfirmed');
-    expect(tags.length).toBe(1);
-    expect(tags[0]?.textContent).toBe('未確認');
   });
 });
