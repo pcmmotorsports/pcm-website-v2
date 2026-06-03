@@ -116,6 +116,17 @@ describe('ProductGallery', () => {
     expect(screen.queryByLabelText('下一批縮圖')).toBeNull();
   });
 
+  // Fix(Sean 2026-06-03 :3001 手機驗:大圖無法放大):手機 tap(touchend)開大圖 lightbox。
+  // ⚠️ jsdom 不合成 touch 後的 ghost click,本測只驗 tap-open 路徑;ghost-click-close 根因(已加 preventDefault)需真機驗。
+  it('opens lightbox on a mobile tap (touchstart + touchend at same point)', () => {
+    render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+    const hero = document.querySelector('.pd-hero-img') as HTMLElement;
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.touchStart(hero, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchEnd(hero, { changedTouches: [{ clientX: 100, clientY: 100 }] });
+    expect(screen.getByRole('dialog')).toBeDefined();
+  });
+
   it('should clamp counter at 03 / 03 when right arrow reaches last image', () => {
     // ProductGallery.tsx line 150-151:setActiveImg(Math.min(gallery.length - 1, ...)) + disabled
     // 不 wraparound、clamped at last index

@@ -150,6 +150,10 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
             const dy = e.changedTouches[0]!.clientY - heroSwipeYRef.current;
             const dt = Date.now() - heroSwipeTRef.current;
             if (Math.abs(dx) < 8 && Math.abs(dy) < 8 && dt < 280) {
+              // 手機 tap 開大圖 lightbox:必須 preventDefault 抑制隨後的 ghost click,
+              // 否則 ghost click 會落在剛渲染的 .pd-lightbox 上、其 onClick 立刻 setLightbox(false)
+              // 把 lightbox 關掉 → 手機上看起來「大圖無法點擊放大」(Sean 2026-06-03 :3001 手機驗根因)。
+              try { e.preventDefault(); } catch { /* noop */ }
               setLightbox(true);
               return;
             }
