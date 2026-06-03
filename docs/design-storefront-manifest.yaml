@@ -54,6 +54,7 @@ od_redesign:
     - "OD-7c:picker 上方紋路樣品預覽卡 + 樣品 lightbox(新增 ProductSwatchPreview.tsx + test + rpm-swatches.findSwatch + ProductInfo 接線 + product-page.css .pd-pattern-preview/.pd-lb-caption)。Sean 2026-06-03 Q2「預覽卡保留」、視覺真權威 OD 模板 §8 .pd-pattern-preview 直接搬。① rpm-swatches 加 `findSwatch(spec)`:變體 spec(weave/finish/special)→ 對應 10 張樣品之一、fallback 鏈〔精準→12K 消光退 12K 亮光→Kevlar/其他退基礎 weave+surface→weave 任意→第一張亮光〕;② 新元件 `ProductSwatchPreview`(props selectedVariant + valueText):72px 樣品圖 + 當前樣式文字 + ⤢、is-rare 金字;點圖開 lightbox 瀏覽全 10 張(以當前為起點、←/→ + ESC + 點空白關 + 手機滑、沿用 .pd-lightbox/.pd-lb-* chrome + 新 .pd-lb-caption);③ ProductInfo 在 picker 上方渲染(hasVariants gate)、valueText 由 ProductInfo 算反映實際選擇〔含 12K/Kevlar 合併款、空維過濾;非從 fallback 樣品名推〕;④ CSS .pd-pattern-preview* 直接搬 OD §8 + .pd-lb-caption(絕對定位 counter 上方)。**預覽=乾淨紋路參考樣品、與 Hero 圖庫(OD-7d 真變體實拍)互補**。⚠️ Kevlar 無專屬樣品 → 顯同 weave 一般碳纖(紋理對、材質色差、已備註);swatch 牆卡片本身 lightbox 仍靜態(預覽卡有 lightbox、牆卡點擊延後、非阻)。ProductSwatchPreview.test 9 測(findSwatch 5 + 元件 4)。三綠全綠(typecheck / lint / 完整 pnpm test 522〔+9〕/ build)"
     - "OD-8:分頁 tabs 碳纖維化 reskin(ProductTabs.tsx + test + product-page.css §9 tabs 段)— 結構/字面/視覺直接搬 OD 模板 §9 tabs(鐵則 1)、修正舊鋁合金殘留(7075-T6 / Hard Anodized / 重量 320g / 義大利保固)。① tab chrome:舊 Apple pill 群組 → OD 底線式(容器底框 + active 2px 下底線 + 可橫向捲動);規格 tab 字面「規格與相容性」→ OD「規格 / 相容性」。② 介紹 pane(商品專屬):brand/name/fits 動態 + 碳纖維通用框架;🔴 per-廠牌真實功能描述(如 DCC01 散熱導風)交資料線 workstream 接 product_description(Sean 2026-06-03 Q1、同 ProductSpotlight)。③ 規格 pane:8 欄 → 9 欄(材質 真碳纖維 / 紋路可選 / 表面可選 / 特殊樣式 取代舊 表面處理·重量;品牌·型號·分類·適用車款 動態、產地泰國 RPM-only);⚠️ OD 模板「適用車款」列「完整見頁面上方對照表」交叉引用已省略(storefront Phase A 無適用車款表、ProductPage L295、避免 dangling)。④ 安裝 pane(RPM 共用):捨棄舊 4 步驟卡 pd-steps、改 OD meta 3 欄(因品而異/交給專業技師/基本機車手工具)+ 1 段說明 + 3 點清單;預約安裝 CTA router.push(/install) 沿用。⑤ 保固 pane(RPM 共用):舊 義大利 24 個月 → OD 客製訂製退換政策 3 段 + 3 點清單(含消保法第 19 條鑑賞期);⚠️ 須與 N°04 FAQ 保固字面一致(OD-10 接續)、解除 warrantyOriginItalyResidual 殘差(#162)。⑥ CSS:pd-list 改 OD 標準項目符號 / pd-specs 改 OD 單欄 key·value / install-meta·install-cta 直角 token 化 / 移除 pd-steps·pd-step·pd-step-n + 底部 responsive 孤兒規則。⑦ test:tab 標籤對齊 + 4 新碳纖 regression 測;⚠️ mock 目錄舊鋁品名(name 含鋁合金為動態非 hardcoded)、碳纖文案以 RPM production 為目標。三綠全綠(typecheck / lint / 完整 pnpm test 526〔+4〕/ build)。半形逗號隨產品頁家族慣例(Spotlight/Highlights 一致)"
     - "OD-9:N°03 相關商品 section eyebrow 換 OD N° 巢狀形態(ProductPage.tsx + ProductPage.test;CSS 無新增、沿用 OD-6 既有 .pd-eb-* 巢狀 eyebrow)— Sean Q1 override〔N°03 留相關商品、FAQ 變 N°04〕。① pd-related section-head 由舊扁平 eyebrow「N°03 — You may also like」改 OD 巢狀(義體 03 + 金線 .pd-eb-sep + label「N°  相關商品」、對齊 N°01 Highlights / N°02 SwatchWall);h2「相同分類」保留;② 補 section aria-labelledby=pd-h-related + h2 id(對齊 OD a11y pattern);③ 相關商品來源不變(MOCK_PRODUCTS 同 categoryMain filter、既有 ProductCard map、條件渲染 length>0)。⚠️ OD 模板 N°03 原為 FAQ、相關商品為 storefront 既有區塊(Sean override)、故只搬 OD eyebrow 視覺、copy 為 storefront 業務字面(非 OD 翻譯)。ProductPage.test +1 OD-9 smoke(eb-no 03 / label 相關商品 / h2 相同分類)。三綠全綠(typecheck / lint / 完整 pnpm test 527〔+1〕/ build)"
+    - "OD-10a:保固政策共用單一真相(新增 data/rpm-policies.ts + 重構 ProductTabs 保固 pane)— Sean 2026-06-03 釘〔OD-10 FAQ 保固字面必須與 OD-8 ProductTabs 保固分頁一致、別寫分歧版;鑑賞期免除是法律主張、Sean 仍在確認準確性〕。① 新 data 模組 rpm-policies.ts:RPM_WARRANTY_PARAGRAPHS(3 段、byte-for-byte 取自 OD-8 ProductTabs 保固 pane)+ RPM_WARRANTY_NOTES(3 點 ul、tabs 專用)、PolicyRun 結構(string | {b})純資料無 React 依賴;② ProductTabs 保固 pane 由 inline JSX 改 map 共用常數(renderPolicyRuns helper)、視覺零變化、保固斷言不變全綠;③ 目的:OD-10b ProductFAQ 保固 item 共用同一份、改字面只動 rpm-policies、兩處永不漂移。三綠全綠(typecheck / lint / 完整 pnpm test 527 / build)。⚠️ 含《消保法》第 19 條鑑賞期、未來 site_policies 接線"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -261,8 +262,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "08c4610"  # 記可達祖先=OD-8 父 commit(=OD-7c、避 amend orphan);本 slice 真改見 git log [OD-8];前序 16c-4b 見 business_overrides
-      last_modified_date: "2026-06-03 (OD-8:分頁 tabs 碳纖維化 reskin — tab chrome 底線式 / 4 panes 換 OD §9 碳纖字面〔修舊 7075-T6·Hard Anodized·重量·義大利保固〕/ 捨棄 pd-steps / 介紹 prose 交資料線 / 保固改客製訂製政策)"
+      last_modified_commit: "6eb4889"  # 記可達祖先=OD-10a 父 commit(=OD-9、避 amend orphan);本 slice 真改見 git log [OD-10a]:保固 pane 改共用 rpm-policies。OD-8 碳纖化見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-10a:保固 pane 字面外移共用 @/data/rpm-policies〔與 N°04 FAQ 單一真相、不漂移〕、視覺零變化;OD-8 tabs 碳纖維化見 business_overrides + od_redesign 段)"
     design:
       # OD-8 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
       authority: "open-design: Website V2 / product-detail-rpm-template.html §9 tabs"
@@ -310,6 +311,13 @@ components:
         decision_source: "OD-8(D1=A 適用車款表 Phase B、ProductPage L295-296 證)"
         reason: "避免 UI 指向不存在的頁面區塊;適用車款表上線後加回引用"
 
+      - field: "warrantyPolicySingleSource"
+        design_value: "OD 模板保固政策分散於 tabs 保固 pane 與 N°FAQ「保固與退換貨」兩處"
+        storefront_value: "OD-10a 抽 @/data/rpm-policies(RPM_WARRANTY_PARAGRAPHS + RPM_WARRANTY_NOTES)單一真相;ProductTabs 保固 pane 與 ProductFAQ(OD-10b)共用、改字面只動 rpm-policies、不分歧"
+        decided_at: "2026-06-03"
+        decision_source: "Sean 2026-06-03(FAQ 保固必須與 tabs 一致、別寫分歧版;鑑賞期免除是法律主張、仍在確認準確性)"
+        reason: "法律主張(消保法 §19 鑑賞期免除)單點維護、Sean 確認後改一處即同步;未來 site_policies 後台接線"
+        phase_2_supabase_tables: ["site_policies"]
   ProductServices:
     storefront:
       component: "apps/storefront/src/components/ProductServices.tsx"

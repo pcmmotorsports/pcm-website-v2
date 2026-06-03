@@ -32,6 +32,18 @@ import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MockProduct } from '@/data/mock-products';
+import {
+  RPM_WARRANTY_PARAGRAPHS,
+  RPM_WARRANTY_NOTES,
+  type PolicyRun,
+} from '@/data/rpm-policies';
+
+// 政策 runs → JSX(string→文字、{ b }→<strong>);保固 pane 與 ProductFAQ 共用渲染模式。
+function renderPolicyRuns(runs: PolicyRun[]) {
+  return runs.map((run, i) =>
+    typeof run === 'string' ? <span key={i}>{run}</span> : <strong key={i}>{run.b}</strong>,
+  );
+}
 
 type TabKey = 'description' | 'specs' | 'install' | 'warranty';
 
@@ -218,8 +230,8 @@ export function ProductTabs({ product }: ProductTabsProps) {
         </div>
 
         {/* 保固與退換(RPM 共用):客製訂製退換政策 + 鑑賞期條款。
-            ⚠️ 內容須與 N°04 FAQ「保固與退換貨」一致(OD-10 接續、同一份政策字面)。
-            《消保法》第 19 條鑑賞期條款屬 L1 法律政策、hardcode 可接受、未來 site_policies 接線。 */}
+            ⚠️ 政策字面來自共用 @/data/rpm-policies(單一真相、與 N°04 FAQ ProductFAQ 共用、不分歧);
+            含《消保法》第 19 條鑑賞期(L1 法律政策、Sean 仍在確認準確性、改字面只動 rpm-policies)。 */}
         <div
           role="tabpanel"
           id="pd-panel-warranty"
@@ -227,21 +239,15 @@ export function ProductTabs({ product }: ProductTabsProps) {
           hidden={tab !== 'warranty'}
           className="pd-tab-pane"
         >
-          <p className="pd-body">
-            多數商品是 <strong>接單後才向原廠訂製的客製商品</strong>,訂單成立後沒辦法取消或改單,麻煩下單前先確認好車款與款式。
-          </p>
-          <p className="pd-body">
-            收到商品請先檢查,如果有 <strong>瑕疵</strong>、或是我們出錯（寄錯、出錯件）,請在 <strong>收貨 7 天內</strong> 用 LINE 告訴我們,我們會負責換貨處理。退換貨時商品需維持 <strong>全新未安裝、原始包裝完整</strong>（含外盒、發票、配件）;一旦安裝過或有使用痕跡,就沒辦法退換了。
-          </p>
-          <p className="pd-body">
-            關於鑑賞期:本賣場屬於 <strong>客製化委任代購</strong>,依《消費者保護法》第 19 條第 1 項,這類客製、代訂商品 <strong>不適用 7 天鑑賞期</strong>。鑑賞期是讓你確認商品符不符合需求,不是商品的試用期——這點先跟你說明,下單前確認好就沒問題。
-          </p>
+          {RPM_WARRANTY_PARAGRAPHS.map((para, i) => (
+            <p className="pd-body" key={i}>
+              {renderPolicyRuns(para)}
+            </p>
+          ))}
           <ul className="pd-list">
-            <li>瑕疵認定:紋路明顯錯位、表面破損、孔位偏差超過合理範圍</li>
-            <li>不在範圍:人為碰撞、摔車、不當安裝、自行加工</li>
-            <li>
-              有問題請走 LINE:<strong>@pcm-motorsports</strong> · 週一–週六 10:00–20:00
-            </li>
+            {RPM_WARRANTY_NOTES.map((note, i) => (
+              <li key={i}>{renderPolicyRuns(note)}</li>
+            ))}
           </ul>
         </div>
       </div>
