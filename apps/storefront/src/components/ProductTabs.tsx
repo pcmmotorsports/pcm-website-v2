@@ -11,8 +11,8 @@
 // - 規格 pane:品牌 / 型號 / 分類 / 適用車款 吃 product 動態;材質「真碳纖維」、紋路可選、
 //   表面可選、特殊樣式 為 RPM 碳纖固定字面;產地「泰國」RPM-only 覆蓋(非 DB 欄、套非 RPM
 //   商品會錯、真欄留 product_specs 接線、接線前不可當通用真值)。
-//   ⚠️ OD 模板「適用車款」列含「完整見頁面上方對照表」交叉引用、但 storefront Phase A 尚無
-//   適用車款表(見 ProductPage L295)、故省略該 dangling 引用、避免字面 vs 事實(OD-11 / Phase B 補表後再加)。
+//   OD-12:適用車款表(ProductFitments)上線 → 恢復 OD 模板「完整見頁面上方對照表」交叉引用,
+//   僅在 product.fitments 有資料(表會渲染)時顯、避免指向不存在區塊(dangling)。
 // - 安裝 pane(RPM 共用):OD §9 改 meta 3 欄(因品而異 / 交給專業技師 / 基本機車手工具)+ 1 段說明 +
 //   3 點清單(取代舊 4 步驟卡 pd-steps、OD 模板已捨棄分步卡);預約安裝 CTA 沿用 router.push('/install')
 //   行為(storefront 既有、OD 模板按鈕無 href)。
@@ -132,8 +132,8 @@ export function ProductTabs({ product }: ProductTabsProps) {
         </div>
 
         {/* 規格 / 相容性:品牌 / 型號 / 分類 / 適用車款 動態;材質·紋路·表面·特殊樣式 RPM 碳纖固定;
-            產地「泰國」RPM-only 覆蓋(非 DB 欄)。OD 模板「適用車款」列「完整見頁面上方對照表」交叉引用
-            已省略(storefront Phase A 無適用車款表、ProductPage L295)。 */}
+            產地「泰國」RPM-only 覆蓋(非 DB 欄)。OD-12:「適用車款」列恢復「完整見頁面上方對照表」
+            交叉引用(條件:有 fitments 表才顯)。 */}
         <div
           role="tabpanel"
           id="pd-panel-specs"
@@ -174,7 +174,17 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">適用車款</div>
-              <div className="pd-spec-v">{product.fits || '通用款'}</div>
+              {/* OD-12:適用車款表上線 → 恢復 OD 模板交叉引用(僅有表時顯、避免指向不存在區塊 dangling)。
+                  摘要列字串走 product.fits(第一筆衍生);完整表為 ProductFitments(product.fitments 條件渲染)。 */}
+              <div className="pd-spec-v">
+                {product.fits || '通用款'}
+                {product.fitments && product.fitments.length > 0 && (
+                  <>
+                    <br />
+                    <span className="pd-spec-xref">完整適用車款請見頁面上方「適用車款」對照表</span>
+                  </>
+                )}
+              </div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">特殊樣式</div>

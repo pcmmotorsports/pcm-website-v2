@@ -574,6 +574,99 @@
   .pd-service-desc { font-size: 12px; }
 }
 
+/* ========= Fitments table (OD §7.5 — 適用車款) ========= */
+/* OD-12:字面從 OD product-detail-rpm-template.html §7.5 fitments table 直接搬
+   (.pd-fitments-section 上下細線 + flat eyebrow + pd-fit-table 線框表 + 720/480 縮字響應式);
+   位於 pd-services-strip 與 N°01 之間(OD 渲染順序)。
+   🔴 D1=A:OD 模板 4 欄(車廠/車系/車型/年式)→ 本站 3 欄(車廠/車型/年式)、DB 無車系欄;
+   CSS 與欄數無關(table 自適應)、直接沿用 OD §7.5。
+   .pd-fit-unconfirmed:OD 模板無、unconfirmed 車款列小標(business override、誠實揭示資料信心)。 */
+.pd-fitments-section {
+  padding: 20px 0 28px;
+  border-bottom: 1px solid var(--c-border);
+}
+.pd-fit-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.pd-fit-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+.pd-fit-title {
+  margin: 8px 0 0;
+  font-size: clamp(22px, 2.3vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  line-height: 1.25;
+}
+.pd-fit-hint { font-size: 14px; color: var(--c-text-2); }
+.pd-fit-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.pd-fit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15.5px;
+  min-width: 0;
+}
+.pd-fit-table thead th {
+  text-align: left;
+  padding: 13px 16px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+  font-weight: 600;
+  border-bottom: 1.5px solid var(--c-text);
+  background: var(--c-surface);
+}
+.pd-fit-table tbody td {
+  padding: 15px 16px;
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text);
+}
+.pd-fit-table tbody tr:last-child td { border-bottom: 0; }
+.pd-fit-table .brand { font-weight: 600; }
+.pd-fit-table .years {
+  font-family: var(--f-mono);
+  font-size: 13px;
+  color: var(--c-text-2);
+  white-space: nowrap;
+}
+.pd-fit-unconfirmed {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--c-text-2);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 2px;
+  vertical-align: middle;
+}
+.pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
+@media (max-width: 720px) {
+  .pd-fit-table { font-size: 12.5px; }
+  .pd-fit-table thead th,
+  .pd-fit-table tbody td { padding: 9px 8px; }
+  .pd-fit-table .years { font-size: 11.5px; }
+}
+@media (max-width: 480px) {
+  .pd-fit-table { font-size: 12px; }
+  .pd-fit-table thead th { padding: 8px 6px; font-size: 10px; letter-spacing: 0.08em; }
+  .pd-fit-table tbody td { padding: 8px 6px; }
+  .pd-fit-table .years { font-size: 11px; }
+}
+
 /* ========= Generic section heading (OD §6) ========= */
 /* OD-1:通用章節標題系統字面從 OD product-detail-rpm-template.html §6 直接搬
    (.pd-section / .pd-section-head / .pd-eyebrow + .pd-eb-* 義體章節數字 / .pd-h2 / .pd-lead / .pd-body)。
@@ -1005,6 +1098,8 @@
 }
 .pd-spec-k { color: var(--c-text-2); font-weight: 500; }
 .pd-spec-v { color: var(--c-text); font-weight: 500; }
+/* OD-12:規格 tab「適用車款」摘要列下方的交叉引用字面(指向上方 ProductFitments 表)、字面從 OD §9 直接搬 */
+.pd-spec-xref { color: var(--c-text-3); font-size: 12.5px; font-weight: 400; }
 @media (max-width: 560px) {
   .pd-spec-row { grid-template-columns: 120px 1fr; gap: 14px; font-size: 13.5px; }
 }

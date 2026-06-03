@@ -27,6 +27,7 @@ import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
 import { ProductServices } from './ProductServices';
+import { ProductFitments } from './ProductFitments';
 import { ProductHighlights } from './ProductHighlights';
 import { ProductSwatchWall } from './ProductSwatchWall';
 import { ProductSpotlight } from './ProductSpotlight';
@@ -274,9 +275,11 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         </section>
         {/* OD-5:服務保障橫條(ProductServices)— OD 模板 §12 hero 下方獨立全寬 section,
             從 ProductInfo 右欄內移出(self-contained section.pd-services-strip)。
-            OD 模板順序為 pd-main → pd-services-strip → 適用車款(Phase B)→ N°01;
-            Phase A 尚無適用車款表 → 服務橫條直接接 N°01 Highlights。 */}
+            OD 模板順序為 pd-main → pd-services-strip → 適用車款 → N°01。 */}
         <ProductServices />
+        {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
+            D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
+        <ProductFitments product={product} />
         {/* OD-6:N°01「為什麼選 RPM Carbon」— ProductHighlights(RPM 固定內容、prop-less)。
             OD-7b:N°02「紋路 × 表面」紋路樣式牆 ProductSwatchWall(緊接 N°01、OD 模板順序;
               prop-less RPM 品牌通用展示、10 張樣品圖 from @/data/rpm-swatches)。

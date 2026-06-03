@@ -60,6 +60,7 @@ od_redesign:
     - "OD-V(Sean 2026-06-03 :3001 肉眼驗 follow-up、2 修):① 圖庫縮圖列維持 5 格視窗 + 左右翻頁(ProductGallery.tsx + .test + product-page.css .pd-thumbs)— 原 5 格 grid 對 >5 張整列換行全顯;改橫向 flex 捲動(每格 (100%-32px)/5 寬、scroll-snap、overflow-x swipe)+ >5 張才渲染 .pd-thumbs-nav 左右箭頭(scrollBy clientWidth 翻頁);主圖庫(.pd-hero-track)仍含全部圖、可一路滑(OD-7d 聚合不變)。② 頁內所有圖片可點擊放大(新 SwatchLightbox.tsx 共用 + ProductSwatchWall 接 + ProductSwatchPreview refactor + product-page.css .swatch-card-img button-reset)— 抽 OD-7c 預覽卡 lightbox 成共用 SwatchLightbox(controlled lbIdx/setLbIdx、←/→ + ESC + 點空白關 + 手機滑、沿用 .pd-lightbox/.pd-lb-* chrome);N°02 紋路牆 10 卡圖改 button、點擊開 lightbox 瀏覽全 10 張(解 OD-7b swatchLightboxDeferred);ProductSwatchWall 因 useState 改 use client。商品圖庫 + 預覽卡本就有 lightbox、related ProductCard 為導航不放大、ProductHighlights 無真圖。test:Gallery +1 / SwatchWall +1 / 新 SwatchLightbox.test 4。三綠全綠(typecheck / lint / build / 完整 pnpm test 537〔+6〕)。⚠️ 視覺/捲動需 Sean :3001 真機驗(jsdom 不實作 scrollBy)"
     - "OD-V2(Sean 2026-06-03 :3001 手機驗:商品大圖無法點擊放大):根因 = hero onTouchEnd 的 tap 分支 setLightbox(true) 後沒 preventDefault、瀏覽器隨後合成的 ghost click 落在剛渲染的 .pd-lightbox 上、其 onClick 立刻 setLightbox(false) 把 lightbox 關掉 → 手機看似「點了沒反應」。修:tap 分支加 try{ e.preventDefault() }(同 swipe 分支既有作法)抑制 ghost click。桌機走 onClick 不受影響。ProductGallery.test +1 tap-open(⚠️ jsdom 不合成 ghost click、只驗 tap-open 路徑、根因需真機驗)。三綠全綠(完整 pnpm test 538〔+1〕)"
     - "OD-V3(Sean 2026-06-03 :3001 手機驗):右欄 ProductInfo 區塊上下間距收緊、**手機 + iPad 等直版 ≤1079 單欄堆疊版**(桌機 ≥1080 右欄與大圖等高、間距填得剛好、不縮)。product-page.css 加 @media(max-width:1079)把各主要垂直 margin/padding 收緊(先 ×0.7、Sean「再窄一點」改 ×0.5 原值一半):pd-sku 10→5 / pd-title 8→4 / pd-sub 24→12 / pd-price-block padding 20→10·margin 28→14 / pd-pattern-preview 20→10 / pd-opt 22→11 / pd-opt-head 10→5。純 CSS、桌機/橫版不動;build 綠、需 Sean 手機+iPad直版驗、幅度/斷點可再調"
+    - "OD-12:適用車款表(新增 ProductFitments.tsx + ProductFitments.test + product-page.css fitments 段 + ProductPage 接線 + ProductTabs 交叉引用恢復)— 結構/字面/CSS 直接搬 OD 模板 §7.5 Fitments table(鐵則 1);post-S6-merge 接真資料(od-redesign 先 ff-merge dev 取 S6 plumb)。① 新元件 ProductFitments(prop product、純 presentational 無 hooks、無 'use client'):section.pd-fitments-section〔flat eyebrow『FITMENTS · 適用車款』+ title『這款部品適用的車型與年式』+ hint〕+ pd-fit-table-wrap > table.pd-fit-table + pd-fit-note『列表為主要適用車款;同系列其他年式 / 配備如需確認,歡迎 LINE 諮詢。』;接 S6 真資料 product.fitments(UIFitment[]、lib/products.ts toUIProduct ← domain product.fitments)。② 🔴 D1=A 3 欄(車廠 / 車型 modelCode / 年式)、砍 OD 模板第 2 欄『車系』(DB 無此欄、business override fitments3ColNoSeries)。③ 年式 formatYears 忠實 UIFitment yearEnd 三態:null=開放式『YYYY+』/ 省略·===起年=單年『YYYY』/ number=區間『YYYY–YYYY』(en-dash 對齊 OD)/ 無 yearStart=『—』。④ 🔴 unconfirmed 列加『未確認』小標(business override fitmentsUnconfirmedTag、OD 模板無、誠實揭示自動展開列)。⑤ 空狀態:無 fitments(mock / 通用款 / 無資料真品)→ 返 null 整段不渲染(沿用相關商品 N°03 條件渲染範式 fitmentsEmptyStateNull)。⑥ ProductPage 接線 <ProductFitments product={product}/> 於 pd-services-strip 後、N°01 前(OD 渲染順序)+ 更新 OD-5 服務橫條 stale 註解(Phase B→已上線)。⑦ ProductTabs 規格 tab『適用車款』列恢復 OD-8 暫省的交叉引用『完整適用車款請見頁面上方對照表』、條件 product.fitments 有資料才顯(解 specFitmentsXrefOmitted、避無表商品 dangling)+ 更 2 處 stale 註解。⑧ CSS:product-page.css 補 .pd-fitments-section / .pd-fit-*(OD §7.5 字面搬 + 720/480 響應式)+ .pd-fit-unconfirmed(business 小標)+ .pd-spec-xref(規格 tab 交叉引用);插於 services-strip 與 generic section 之間(OD 順序)。ProductFitments.test 6 測(空狀態 2 路徑 / 表渲染 3 欄表頭 / 列 / 年式三態格式 / unconfirmed 標)。三綠全綠(typecheck turbo 7/7 + scripts tsc 0〔worktree root .bin 缺 tsc symlink、走 store typescript@5.9.3 binary 跑、OD-12 零動 scripts/〕 / lint turbo 10/10 + root eslint scripts / build storefront 1/1 / 完整 pnpm test 81 檔 544 測〔+6〕)。半形逗號隨產品頁家族慣例(FAQ/Tabs 一致);⚠️ 視覺需 Sean 真機驗(主樹 :3001 合併後;mock 無 fitments→表不顯、需看真 RPM 商品頁、如 aprilia-01)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -126,8 +127,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "06d0fb2"  # 記可達祖先=OD-10b 父 commit(=OD-10a、避 amend orphan);本 slice 真改見 git log [OD-10b]:接線 <ProductFAQ/> + 頂部註解瘦身。OD-7b/OD-9 見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-10b:接線 N°04 <ProductFAQ/>〔相關商品 N°03 之後〕+ 頂部歷史註解 33→13 行瘦身〔鐵則 6、386→371〕;OD-9 N°03 eyebrow 等見 od_redesign 段)"
+      last_modified_commit: "320f3a5"  # 記可達祖先=OD-12 父 commit(=dev 合併點 / S6 plumb 到位、避 amend orphan);本 slice 真改見 git log [OD-12]:接線 <ProductFitments/>(ProductServices 後、N°01 前)。OD-10b/OD-9 見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-12:接線 適用車款表 <ProductFitments product={product}/>〔pd-services-strip 後、N°01 前〕+ 更新 OD-5 服務橫條 stale 註解〔Phase B→適用車款表已上線〕;OD-10b N°04 FAQ 接線等見 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
@@ -138,6 +139,7 @@ components:
       - "apps/storefront/src/components/ProductGallery.tsx"
       - "apps/storefront/src/components/ProductInfo.tsx"
       - "apps/storefront/src/components/ProductServices.tsx"
+      - "apps/storefront/src/components/ProductFitments.tsx"  # OD-12 適用車款表(pd-services-strip 後、N°01 前)
       - "apps/storefront/src/components/ProductHighlights.tsx"
       - "apps/storefront/src/components/ProductSpotlight.tsx"
       - "apps/storefront/src/components/ProductTabs.tsx"
@@ -286,8 +288,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "6eb4889"  # 記可達祖先=OD-10a 父 commit(=OD-9、避 amend orphan);本 slice 真改見 git log [OD-10a]:保固 pane 改共用 rpm-policies。OD-8 碳纖化見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-10a:保固 pane 字面外移共用 @/data/rpm-policies〔與 N°04 FAQ 單一真相、不漂移〕、視覺零變化;OD-8 tabs 碳纖維化見 business_overrides + od_redesign 段)"
+      last_modified_commit: "320f3a5"  # 記可達祖先=OD-12 父 commit(=dev 合併點、避 amend orphan);本 slice 真改見 git log [OD-12]:規格 tab「適用車款」列恢復「完整見上方對照表」交叉引用(條件:有 fitments 表才顯)。OD-10a 保固共用見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-12:規格 tab「適用車款」列恢復 OD 模板交叉引用「完整適用車款請見頁面上方對照表」、僅 product.fitments 有資料〔表渲染〕時顯、解 specFitmentsXrefOmitted;OD-10a 保固共用見 business_overrides + od_redesign 段)"
     design:
       # OD-8 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
       authority: "open-design: Website V2 / product-detail-rpm-template.html §9 tabs"
@@ -330,10 +332,11 @@ components:
         phase_2_supabase_tables: ["product_description"]
       - field: "specFitmentsXrefOmitted"
         design_value: "OD 模板規格『適用車款』列含『完整見頁面上方〔適用車款〕對照表』交叉引用"
-        storefront_value: "OD-8 省略該交叉引用 — storefront Phase A 尚無適用車款表(ProductPage L295)、保留會指向不存在區塊(dangling 字面 vs 事實);Phase B / OD-11 fitments 表上線後恢復"
+        storefront_value: "✅ OD-12 已恢復 — 適用車款表(ProductFitments)上線、規格 tab『適用車款』列加回 OD 模板交叉引用『完整適用車款請見頁面上方對照表』、條件 product.fitments 有資料(表渲染)才顯(避免 mock / 通用款無表時 dangling);OD-8 暫省解除"
         decided_at: "2026-06-03"
-        decision_source: "OD-8(D1=A 適用車款表 Phase B、ProductPage L295-296 證)"
-        reason: "避免 UI 指向不存在的頁面區塊;適用車款表上線後加回引用"
+        resolved_at: "2026-06-03 (OD-12)"
+        decision_source: "OD-8 暫省 → OD-12 補表後恢復(D1=A 適用車款表 post-S6-merge)"
+        reason: "OD-8 時無表故暫省避 dangling;OD-12 表上線後加回、仍條件渲染避無 fitments 商品 dangling"
 
       - field: "warrantyPolicySingleSource"
         design_value: "OD 模板保固政策分散於 tabs 保固 pane 與 N°FAQ「保固與退換貨」兩處"
@@ -369,6 +372,35 @@ components:
         decided_at: "2026-06-03"
         decision_source: "OD-10 plan(GEO/SEO JSON-LD、Sean Q1 同格式)"
         reason: "原生 details 省 client JS;JSON-LD 提升 FAQ rich result"
+    open_drifts: []
+
+  ProductFitments:
+    storefront:
+      component: "apps/storefront/src/components/ProductFitments.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "320f3a5"  # 記可達祖先=OD-12 父 commit(=dev 合併點 / S6 plumb 到位、避 amend orphan);本 slice 新建見 git log [OD-12]
+      last_modified_date: "2026-06-03 (OD-12:新建 適用車款表、接 S6 真資料 product.fitments〔UIFitment[]、lib/products.ts toUIProduct ← domain product.fitments〕、條件渲染)"
+    design:
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §7.5 Fitments table"
+    business_overrides:
+      - field: "fitments3ColNoSeries"
+        design_value: "OD 模板 §7.5 4 欄(車廠 / 車系 / 車型 / 年式)"
+        storefront_value: "OD-12 砍車系欄為 3 欄(車廠 / 車型 modelCode / 年式)— DB 無車系欄(UIFitment 無 series 欄)、不擅造;CSS 與欄數無關(table 自適應)、直接沿用 OD §7.5"
+        decided_at: "2026-06-02"
+        decision_source: "Sean 2026-06-02 拍 D1=A(od_redesign.decisions);Sean 2026-06-03 拍 A 延後至 post-S6-merge"
+        reason: "報價單 B 庫 fitments 無『車系』維度、DB 真資料即 3 欄;照 DB 原樣不杜撰第 4 欄"
+      - field: "fitmentsUnconfirmedTag"
+        design_value: "OD 模板 §7.5 無 unconfirmed 標(靜態 demo)"
+        storefront_value: "OD-12 unconfirmed 車款列加小標『未確認』— UIFitment.unconfirmed(來源自動展開、未經人工確認)誠實揭示資料信心、與人工確認列區隔;pd-fit-note 已提示『下單前聊聊確認年式 / 配備』"
+        decided_at: "2026-06-03"
+        decision_source: "UIFitment 型別文件註(mock-products.ts L48『前台決定是否顯示』)"
+        reason: "S6 fitments 含 mergeFitments 自動展開列(unconfirmed:true)、不標則與人工確認列混淆、誤導客人裝不上"
+      - field: "fitmentsEmptyStateNull"
+        design_value: "OD 模板 §7.5 恆渲染表(demo 固定 2 列)"
+        storefront_value: "OD-12 無 fitments(mock / 通用款 / 無資料真品)→ 元件返 null 整段不渲染(沿用相關商品 N°03 條件渲染範式);規格 tab 交叉引用同步條件顯(specFitmentsXrefOmitted resolved)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-12 kickoff(空狀態處理:部分 mock 無 fitments)"
+        reason: "渲染空表 / 表頭無列傷信任;通用款商品(fits 通用款)無單一車款表才正確"
     open_drifts: []
 
   ProductServices:
