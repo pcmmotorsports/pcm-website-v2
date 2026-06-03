@@ -8,7 +8,7 @@
 **Branch:** dev
 
 ## 最後更新
-2026-06-03 — Claude Code [升 GitHub Actions v4→v6(Node 24)+ S5 啟用確認:Sean 設對 SUPABASE_SECRET_KEY(原誤貼 anon 唯讀 key → 讀通但寫拒 permission denied for table products;改 service_role)→ rpm-sync workflow_dispatch 首跑綠上線(W1/delta/三閘全綠、delta 0 變動因資料已同步)。順手升 ci.yml + rpm-sync.yml 三 action(checkout/setup-node/pnpm-action-setup)v4→v6(皆驗 using:node24、解 Node 20 deprecation〔6/16 強制 24、9/16 移除〕)。資料線 S0–S6 全完 + 已自動運轉。YAML 驗效、無 v4 殘留。未 push]
+2026-06-03 — Claude Code [OD 商品頁改造 Phase A(OD-5~11)合併進 dev:merge cf630b2〔parents bd9ea68 dev + 3e3918e od-redesign〕、零檔案衝突〔OD 全程未碰 STATUS.md、審查預判的 STATUS 衝突實際未發生〕、合併後三綠 + 完整 pnpm test 531 全綠〔OD 元件 × S6 toUIProduct fitments 共存確認〕。整合線 S0–S6 + OD Phase A 皆完成。未 push、等 Sean 肉眼驗 :3001 後推。前序:升 Actions Node24 v6 + S5 啟用]
 
 ## 最近 3 commit
 > 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `6b0548d` 為本 action-bump commit 提交時 dev 可達祖先〔S5 實作、整合線;OD 線已隔離自有 worktree〕、本 commit 自身 hash 不入表頂〔避 busboy off-by-one orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
@@ -19,7 +19,7 @@
 | `99346da` | fix(scripts): rpm-import .env.local 存在才載防 cron 缺檔 ENOENT [quote-integ-S5-pre] | 2026-06-03 |
 
 ## 下一步
-**資料線 S0–S6 全完 + 已上線自動運轉 ✅(報價單↔網站整合 Phase 1 收尾)**。Sean 已設對 service_role secret + rpm-sync workflow_dispatch 首跑綠;每天台灣 03:00 自動同步運轉中;action 升 Node24 v6。**下一步**:**OD 商品頁改造線**(並行 workstream、附屬區)續做(OD-F1 可接 S6 plumb 的 fitments[])。正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 Sean 貼 web Codex 補(S5 本輪走 Claude fallback 對抗審查 2 輪 PASS + code-reviewer PASS)。**description 不在同步 scope**(中文化 backlog #209);<5% 靜默截斷持久基線 backlog #210。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre + S5-plan + S5 + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209/#210 留 backlog;g-7 wallet HOLD #202 不變。
+**OD 商品頁改造 Phase A(OD-5~11)已合併進 dev ✅**(merge cf630b2、與 S6 fitments 共存、合併後三綠 + 完整 pnpm test 531 全綠;整合線 S0–S6 + OD Phase A 皆完成;下一步 **OD-12 適用車款表**接 S6 plumb 的 fitments[]〔D1=A 真 3 欄、post-merge〕、Sean 肉眼驗 :3001 後推)。 **資料線 S0–S6 全完 + 已上線自動運轉 ✅(報價單↔網站整合 Phase 1 收尾)**。Sean 已設對 service_role secret + rpm-sync workflow_dispatch 首跑綠;每天台灣 03:00 自動同步運轉中;action 升 Node24 v6。**下一步**:**OD 商品頁改造線**(並行 workstream、附屬區)續做(OD-F1 可接 S6 plumb 的 fitments[])。正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 Sean 貼 web Codex 補(S5 本輪走 Claude fallback 對抗審查 2 輪 PASS + code-reviewer PASS)。**description 不在同步 scope**(中文化 backlog #209);<5% 靜默截斷持久基線 backlog #210。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre + S5-plan + S5 + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209/#210 留 backlog;g-7 wallet HOLD #202 不變。
 
 ## Sean 待決策
 **🆕 報價單↔網站整合**:✅ **S5 已上線、資料線無待決策**(Sean 設對 service_role secret + workflow_dispatch 首跑綠、每天 03:00 自動運轉;原誤貼 anon key 已修;action 升 Node24 v6)。~~S5 啟用 / 平台 / S3b-2 sign-off / S3a db push / QUOTE_*~~ ✅ 全已就緒。**前序:**
@@ -39,8 +39,8 @@
 > 與報價單資料線(S3a/S3b)並行的另一條線。**主表 7 欄由報價單線擁有**、OD 線狀態記此附屬區 + manifest `od_redesign`(Sean 2026-06-02 拍 A)。寫審分離 ROLE=A(施工 session 實作、審查 session 哨兵盯 dev 自動 fresh-context 複驗)、**不跑 busboy-end**(避 clobber 報價單線)、Sean 手動推。
 
 - **視覺真權威:** OD 模板 `product-detail-rpm-template.html`(open-design "Website V2")+ `HANDOFF-rpm-template.md`。鎖定決策見 manifest `od_redesign.decisions`(決定一=A OD=視覺真權威 / D1=A 適用車款表全車種 3 欄無車系 / D3=A 12K 收進紋路無消光、由真資料 disable / Q1 override:N°03 留相關商品 + FAQ→N°04)。
-- **當前 slice:** OD-4c ✅(Picker 12K 處置、資料驅動:撈真資料發現 **12K 有消光(24 變體)與 Sean Q2 假設衝突** → Sean Q-OD4c-1/2=A 照真資料;ProductInfo spec 3 維→2 維〔紋路=weave+special 合併「12K斜紋/Kevlar斜紋」、表面〕、移除特殊欄、消光不寫死鎖;三綠 + 完整 test 508、待哨兵審)。前序 OD-1~OD-4b ✅。
-- **下一步:** OD-5 服務橫條外移 → OD-6 N°01 → OD-7 N°02 紋路牆 →(預覽卡、OD-7 後)→ OD-8 分頁 → OD-9 N°03 相關 → OD-10 N°04 FAQ → OD-11 buybar+響應式。
+- **當前 slice:** **Phase A 完成 ✅ + 已合併進 dev(merge cf630b2)**。OD-5 服務橫條 / OD-6 N°01 / OD-7 N°02 紋路牆+預覽卡+圖庫聚合 / OD-8 分頁碳纖維化 / OD-9 N°03 相關商品 / OD-10 N°04 FAQ+JSON-LD(保固共用 rpm-policies 單一真相)/ OD-11 buybar OD §12+響應式≤1079,共 11 片(OD-5~11)+ 先前 OD-1~4 全完。合併後三綠 + 完整 pnpm test 531 全綠,OD 元件 × S6 fitments 共存確認。
+- **下一步:** **OD-12 適用車款表(post-merge、接 S6 plumb 的 fitments[])** —— 真 3 欄(車廠/車型/年式、D1=A、非 OD 模板 4 欄含車系);mock 只有單一 fits 字串、故等合併取 S6 真資料才做(Sean 2026-06-03 拍 A)。Sean 肉眼驗 :3001 後推 OD 線。
 - **Phase A 連續做(Sean 拍 B):** OD-3~OD-11 全速連續 commit、Sean Phase A 全完肉眼驗一次、哨兵每片自動審 FAIL 即通知。
 - **分片清單:** Phase A(現做、不等 S3)OD-1→OD-11(地基/Hero/右欄/Picker+預覽/服務橫條/N°01/N°02紋路牆/分頁/N°03相關/N°04 FAQ/buybar+響應式);Phase B(等 S3b)OD-F1 適用車款表(接 fitments[])/ OD-F2 真資料收口。完整 OD區塊↔元件對照 + 計畫見對話 OD-0 偵察報告(待 Sean 點頭存 docs/specs/)。
 - **⚠️ 跨線紀律:** OD 線不碰 `scripts/rpm-*.ts`(報價單線 WIP)、`docs/reviews/integration-phase1-review-log.md`(審查 session)、`docs/specs/*S3*`(報價單線)。
