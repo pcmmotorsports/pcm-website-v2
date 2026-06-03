@@ -1,29 +1,30 @@
-// ProductTabs.tsx — 商品詳細頁 4 分頁(商品介紹 / 規格與相容性 / 安裝須知 / 保固與退換)
+// ProductTabs.tsx — 商品詳細頁 4 分頁(商品介紹 / 規格 / 相容性 / 安裝須知 / 保固與退換)
 //
-// 字面從 design-reference/components/ProductPage.jsx @ 25d3a2a L382-453 直接搬:
-// - 4 tab keys: description / specs / install / warranty(對齊 design L384、非舊 STATUS 寫錯的
-//   spec/desc/faq/review)
-// - useState('description') 預設選 description
-// - 4 pane 內容字面 1:1(brand / name / fits / id / category 動態、其餘 hardcoded mock、
-//   對齊鐵則 1「直接搬」+ Q2=A Sean 2026-05-21 拍板)
-// - 安裝須知 CTA「預約安裝」走 useRouter().push('/install')、design 字面 onClick={() => onNav('install')}
-//   行為對等
+// OD-8(視覺真權威 OD 模板「Website V2」product-detail-rpm-template.html §9 tabs、鐵則 1 直接搬;
+//   碳纖維化、修正舊鋁合金殘留 7075-T6 / Hard Anodized / 重量 320g / 義大利保固):
+// - tab 字面對齊 OD:商品介紹 / 規格 / 相容性 / 安裝須知 / 保固與退換
+//   (規格 tab 由舊「規格與相容性」改 OD 字面「規格 / 相容性」)。
+// - 介紹 pane(商品專屬):brand / name / fits 動態 + 碳纖維通用框架。
+//   🔴 給審查 / 資料線 workstream:per-廠牌 / per-product 的真實功能描述(如 DCC01「散熱導風」)
+//   屬固定內文、待後台 product_description 接線後取代此通用框架(Sean 2026-06-03 Q1 拍板、
+//   同 ProductSpotlight 處置);現為碳纖維**通用 placeholder**、非真實 per-product 內容。
+// - 規格 pane:品牌 / 型號 / 分類 / 適用車款 吃 product 動態;材質「真碳纖維」、紋路可選、
+//   表面可選、特殊樣式 為 RPM 碳纖固定字面;產地「泰國」RPM-only 覆蓋(非 DB 欄、套非 RPM
+//   商品會錯、真欄留 product_specs 接線、接線前不可當通用真值)。
+//   ⚠️ OD 模板「適用車款」列含「完整見頁面上方對照表」交叉引用、但 storefront Phase A 尚無
+//   適用車款表(見 ProductPage L295)、故省略該 dangling 引用、避免字面 vs 事實(OD-11 / Phase B 補表後再加)。
+// - 安裝 pane(RPM 共用):OD §9 改 meta 3 欄(因品而異 / 交給專業技師 / 基本機車手工具)+ 1 段說明 +
+//   3 點清單(取代舊 4 步驟卡 pd-steps、OD 模板已捨棄分步卡);預約安裝 CTA 沿用 router.push('/install')
+//   行為(storefront 既有、OD 模板按鈕無 href)。
+// - 保固 pane(RPM 共用):OD §9 客製訂製退換政策 3 段 + 3 點清單。
+//   ⚠️ 內容須與 N°04 FAQ「保固與退換貨」一致(OD-10 接續、同一份政策字面)。
+//   含《消保法》第 19 條鑑賞期條款屬 L1 法律政策、hardcode 可接受、未來 site_policies 接線。
 //
-// 'use client' 必要:useState + onClick handler(對齊 ADR-0006 §1 白名單「Hooks → 'use client'」)
+// 'use client' 必要:useState + onClick handler(對齊 ADR-0006 §1「Hooks → 'use client'」)。
+// ARIA tablist / tab / tabpanel + roving tabIndex + 鍵盤導覽(↑M-1-13H-6 Codex Fix 1 沿用不動)。
 //
-// ARIA roles 主動處理(claude.ai 提醒、Q3=A 跳 Codex 但 a11y 自己上):
-// - <div role="tablist" aria-label="商品詳細資訊">
-// - <button role="tab" aria-selected aria-controls={panel-id} id={tab-id}>
-// - <div role="tabpanel" id={panel-id} aria-labelledby={tab-id} hidden>
-// - 鍵盤導覽走瀏覽器 default(button 自帶 tab order)、左右鍵切換留 13g 或之後 a11y 補強 slice
-//
-// 鐵則 9 L3 警示:
-// - description 文案 / specs 8 行(4 hardcoded:材質 / 表面處理 / 重量 / 產地)/ install 4 steps /
-//   warranty 3 段政策 — 真實業務各 SKU 不同 + 廠商會頻繁更新、嚴格屬 L3 應後台 CRUD
-// - Phase 1 既定路線:tab 結構先用 design 字面 mock 上架 → M-1-16 接 Supabase 種子 →
-//   之後補後台 PRD(NORTHSTAR、不在本 slice 立即停寫 PRD)
-// - 偏離真實業務的部分:specs 4 hardcoded 欄位(材質「7075-T6」/ 表面處理「Hard Anodized」/
-//   重量「320g」/ 產地「義大利」)非 product 動態、各 SKU 應該不同、M-1-16 schema 補
+// 標點:半形逗號「,」/ 冒號「:」/ 問號「?」對齊 storefront 商品頁元件家族慣例
+//   (ProductSpotlight / ProductHighlights、OD-6 / 7a 既定);頓號「、」句號「。」括號「（）」依 OD 模板。
 
 'use client';
 
@@ -36,7 +37,7 @@ type TabKey = 'description' | 'specs' | 'install' | 'warranty';
 
 const TAB_DEFS: Array<[TabKey, string]> = [
   ['description', '商品介紹'],
-  ['specs', '規格與相容性'],
+  ['specs', '規格 / 相容性'],
   ['install', '安裝須知'],
   ['warranty', '保固與退換'],
 ];
@@ -47,10 +48,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>('description');
 
-  // M-1-13H-6 Codex Fix 1:roving tabIndex + 鍵盤導覽(對齊 W3C WAI-ARIA Authoring Practices Tabs)。
-  // 原 13f-2 只有 roving tabIndex 無 onKeyDown、鍵盤使用者 Tab 只能進 active tab、其他 3 個無法切換
-  // (Codex Review must-fix、Sean 2026-05-22 Q1=B 完整版拍板)。
-  // tabRefs 對應 4 個 tab button(按 TAB_DEFS 順序)、handler 切 state + 移 focus。
+  // M-1-13H-6 Codex Fix 1:roving tabIndex + 鍵盤導覽(W3C WAI-ARIA Authoring Practices Tabs)。
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const handleTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, idx: number) => {
@@ -93,10 +91,9 @@ export function ProductTabs({ product }: ProductTabsProps) {
       </div>
 
       <div className="pd-tab-body">
-        {/* M-1-13H-5:description pane 改 design 結構(1 lead .pd-body + 5 items .pd-list、
-            對應 design VariantCFull L165-173 + HANDOFF #15);移除 13f-2 既有 22px serif .pd-desc-lead +
-            2 段 paragraph 結構、簡化成 single lead + features list;字面保留 brand+name+fits 動態 +
-            5 items list 既有 hardcoded(對齊鐵則 9 L3 對沖、Phase 2 接 supabase product_highlights) */}
+        {/* 商品介紹(商品專屬):brand / name / fits 動態 + 碳纖維通用框架。
+            🔴 資料線 workstream:per-廠牌 / per-product 真實功能描述(如散熱導風)屬固定內文、
+            待後台 product_description 接線後取代此通用框架(Sean 2026-06-03 Q1、同 ProductSpotlight)。 */}
         <div
           role="tabpanel"
           id="pd-panel-description"
@@ -105,25 +102,26 @@ export function ProductTabs({ product }: ProductTabsProps) {
           className="pd-tab-pane"
         >
           <p className="pd-body">
-            {product.brand} {product.name} 為 {product.fits || '通用車款'}{' '}
-            專屬開發,提供更精準的腳感回饋、更佳的路感傳遞,以及更卓越的耐用性。
+            <strong>
+              {product.brand} {product.name}
+            </strong>{' '}
+            採用真碳纖維材質,為 <strong>{product.fits || '原廠車款'}</strong>{' '}
+            開發;換上碳纖維後比原廠塑件更輕、更有質感,強度也更高。
+          </p>
+          <p className="pd-body">
+            對應原廠孔位、可直接安裝,<strong>不需要改線組</strong>。下單時請依愛車狀況選好紋路、表面與是否要加強化款 12K。
           </p>
           <ul className="pd-list">
-            <li>航太級 7075-T6 鋁合金 CNC 精密加工</li>
-            <li>Hard Anodized 硬陽極處理,耐腐蝕耐磨</li>
-            <li>對應原廠螺絲孔位,Plug &amp; Play</li>
-            <li>包含安裝螺絲與扭力建議值說明書</li>
-            {/* ⚠️ M-1-16c-4b D2=C:Sean 拍「留著不動」。此「義大利原廠保固」與本片改的產地「泰國」
-                同屏殘差矛盾(RPM 非義大利)、刻意留待後續 ProductTabs 內容片清(backlog #162);
-                屬 hardcoded 文案 L3 對沖、Phase 2 product_specs / site_policies 接線。 */}
-            <li>義大利原廠保固 24 個月</li>
+            <li>真碳纖維材質,非塑膠仿碳貼皮</li>
+            <li>對應原廠孔位,Plug &amp; Play</li>
+            <li>四款紋路 × 兩款表面,蜂巢另收特殊紋費</li>
+            <li>賣場數量不代表庫存,下單前建議先 LINE 聊聊確認</li>
           </ul>
         </div>
 
-        {/* M-1-13H-5:specs pane 從 table 結構 → 2 欄 grid div(對應 design .vcf-specs L177-184 +
-            HANDOFF #15);8 欄 hardcoded 保留(13f-2 既有、屬鐵則 9 L3 對沖、Phase 2 接 supabase
-            product_specs 表);字面 brand/id/category 動態 + 4 hardcoded(材質/表面處理/重量/產地)
-            對齊 design L178 字面、套用到其他品牌字面誤導屬 L3 對沖 */}
+        {/* 規格 / 相容性:品牌 / 型號 / 分類 / 適用車款 動態;材質·紋路·表面·特殊樣式 RPM 碳纖固定;
+            產地「泰國」RPM-only 覆蓋(非 DB 欄)。OD 模板「適用車款」列「完整見頁面上方對照表」交叉引用
+            已省略(storefront Phase A 無適用車款表、ProductPage L295)。 */}
         <div
           role="tabpanel"
           id="pd-panel-specs"
@@ -138,8 +136,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">產品型號</div>
-              {/* M-1-16c-4b:顯真主碼 productCode(如 RPM-DCC01、← DB external_id、Sean Q1=A),
-                  取代原 PCM-{id hash} 無意義數;無主碼 fallback slug */}
+              {/* M-1-16c-4b:顯真主碼 productCode(如 RPM-DCC01、← DB external_id);無主碼 fallback slug */}
               <div className="pd-spec-v">{product.productCode ?? product.slug}</div>
             </div>
             <div className="pd-spec-row">
@@ -148,33 +145,34 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">材質</div>
-              <div className="pd-spec-v">7075-T6 鋁合金 / CNC</div>
+              <div className="pd-spec-v">真碳纖維（Carbon Fiber）</div>
             </div>
             <div className="pd-spec-row">
-              <div className="pd-spec-k">表面處理</div>
-              <div className="pd-spec-v">Hard Anodized 硬陽極</div>
+              <div className="pd-spec-k">紋路可選</div>
+              <div className="pd-spec-v">斜紋 / 平織 / 鍛造 / 蜂巢 / 12K — 五款紋路（12K 為加強紋路樣式,部分品項提供）</div>
             </div>
             <div className="pd-spec-row">
-              <div className="pd-spec-k">重量</div>
-              <div className="pd-spec-v">約 320g (單件)</div>
+              <div className="pd-spec-k">表面可選</div>
+              <div className="pd-spec-v">亮光 / 消光（蜂巢只有亮光,消光蜂巢為特別訂製）</div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">產地</div>
-              {/* M-1-16c-4b:義大利 → 泰國(Sean 拍、RPM 來自泰國、蝦皮內文證;backlog #162)。
-                  ⚠️ 仍 hardcode、非 DB 欄:此為 Phase-1 RPM-only 臨時覆蓋、套到非 RPM 商品會錯,
-                  真產地欄留 M-1-16 product_specs 表接線、接線前不可當通用真值。 */}
+              {/* RPM-only 覆蓋:RPM 來自泰國(蝦皮內文證);非 DB 欄、套非 RPM 商品會錯、留 product_specs 接線 */}
               <div className="pd-spec-v">泰國</div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">適用車款</div>
               <div className="pd-spec-v">{product.fits || '通用款'}</div>
             </div>
+            <div className="pd-spec-row">
+              <div className="pd-spec-k">特殊樣式</div>
+              <div className="pd-spec-v">彩色碳纖、消光蜂巢等 — 訂購約 1–4 個月</div>
+            </div>
           </div>
         </div>
 
-        {/* M-1-13H-5:install pane 改 meta 3 欄淺灰卡 + 4 步驟卡片(對應 design L186-202 + HANDOFF #15);
-            原 3 段 paragraph + 4 row grid → meta div + steps grid 4 cols;install-cta 保留 13f-2 既有
-            (design 無對應字面、storefront 延伸)、CSS 改黑底白字圓角卡(HANDOFF L295) */}
+        {/* 安裝須知(RPM 共用):meta 3 欄 + 1 段說明 + 3 點清單(OD §9 捨棄 4 步驟卡 pd-steps);
+            預約安裝 CTA router.push('/install') 行為沿用(storefront 既有、OD 模板按鈕無 href)。 */}
         <div
           role="tabpanel"
           id="pd-panel-install"
@@ -185,39 +183,29 @@ export function ProductTabs({ product }: ProductTabsProps) {
           <div className="pd-install-meta">
             <div>
               <span>難度</span>
-              <strong>★★☆☆☆ 建議專業技師</strong>
+              <strong>因品而異</strong>
             </div>
             <div>
-              <span>工時</span>
-              <strong>30 – 45 分鐘</strong>
+              <span>建議</span>
+              <strong>交給專業技師</strong>
             </div>
             <div>
               <span>工具</span>
-              <strong>T25、4mm/5mm 內六角、扭力扳手</strong>
+              <strong>基本機車手工具</strong>
             </div>
           </div>
-          <div className="pd-steps">
-            <div className="pd-step">
-              <div className="pd-step-n">01</div>
-              <p>將車輛停放於水平地面,使用車邊架固定。</p>
-            </div>
-            <div className="pd-step">
-              <div className="pd-step-n">02</div>
-              <p>拆除原廠零件,保留原廠螺絲以備後用。</p>
-            </div>
-            <div className="pd-step">
-              <div className="pd-step-n">03</div>
-              <p>將新品對齊孔位裝上,螺絲依序分段鎖緊。</p>
-            </div>
-            <div className="pd-step">
-              <div className="pd-step-n">04</div>
-              <p>使用扭力扳手以 22 N·m 完成最終鎖付。</p>
-            </div>
-          </div>
+          <p className="pd-body">
+            每件碳纖部品的安裝方式略有不同,原則上都是 <strong>對應原廠孔位、直接鎖上</strong>,不需要改裝線組。建議由有經驗的技師安裝,鎖緊力道要適中,避免過度鎖付造成碳纖斷裂。如果不確定,可以預約 PCM 合作店家協助處理。
+          </p>
+          <ul className="pd-list">
+            <li>裝前先把原廠零件螺絲位置記清楚或拍照</li>
+            <li>鎖螺絲時對角分段鎖緊,避免單點受力</li>
+            <li>第一次騎乘後再檢查一次螺絲扭力</li>
+          </ul>
           <div className="pd-install-cta">
             <div>
-              <div className="pd-install-cta-title">需要專業安裝?</div>
-              <div className="pd-install-cta-desc">全台 9 家合作店家,可直接預約安裝</div>
+              <div className="pd-install-cta-title">不想自己裝?</div>
+              <div className="pd-install-cta-desc">全台合作店家可以幫你直接搞定</div>
             </div>
             <button
               type="button"
@@ -229,9 +217,9 @@ export function ProductTabs({ product }: ProductTabsProps) {
           </div>
         </div>
 
-        {/* M-1-13H-5:warranty pane 改 3 段 .pd-body 結構(對應 design L203-209、HANDOFF #15);
-            原 h4 + p 雙層結構 → 純 3 paragraph、em 改 strong 600 加粗(對齊 design `.vcf-body strong`);
-            字面 brand 動態 + 政策內容對齊 13f-2 既有、L3 hardcoded 對沖 Phase 2 接 supabase 政策表 */}
+        {/* 保固與退換(RPM 共用):客製訂製退換政策 + 鑑賞期條款。
+            ⚠️ 內容須與 N°04 FAQ「保固與退換貨」一致(OD-10 接續、同一份政策字面)。
+            《消保法》第 19 條鑑賞期條款屬 L1 法律政策、hardcode 可接受、未來 site_policies 接線。 */}
         <div
           role="tabpanel"
           id="pd-panel-warranty"
@@ -240,17 +228,21 @@ export function ProductTabs({ product }: ProductTabsProps) {
           className="pd-tab-pane"
         >
           <p className="pd-body">
-            本商品由 {product.brand} 原廠授權代理,提供 <strong>24 個月</strong>{' '}
-            保固服務,涵蓋材料與製造瑕疵;不含人為損壞、摔車、碰撞之損傷。
+            多數商品是 <strong>接單後才向原廠訂製的客製商品</strong>,訂單成立後沒辦法取消或改單,麻煩下單前先確認好車款與款式。
           </p>
           <p className="pd-body">
-            收到商品後 <strong>7 日內</strong>{' '}
-            保持全新狀態與包裝完整,可辦理退換貨。瑕疵品由 PCM 負擔來回運費;
-            若為個人因素退貨,退貨運費由買方負擔。
+            收到商品請先檢查,如果有 <strong>瑕疵</strong>、或是我們出錯（寄錯、出錯件）,請在 <strong>收貨 7 天內</strong> 用 LINE 告訴我們,我們會負責換貨處理。退換貨時商品需維持 <strong>全新未安裝、原始包裝完整</strong>（含外盒、發票、配件）;一旦安裝過或有使用痕跡,就沒辦法退換了。
           </p>
           <p className="pd-body">
-            LINE 客服:<strong>@pcm-motorsports</strong> · 週一–週六 10:00–20:00
+            關於鑑賞期:本賣場屬於 <strong>客製化委任代購</strong>,依《消費者保護法》第 19 條第 1 項,這類客製、代訂商品 <strong>不適用 7 天鑑賞期</strong>。鑑賞期是讓你確認商品符不符合需求,不是商品的試用期——這點先跟你說明,下單前確認好就沒問題。
           </p>
+          <ul className="pd-list">
+            <li>瑕疵認定:紋路明顯錯位、表面破損、孔位偏差超過合理範圍</li>
+            <li>不在範圍:人為碰撞、摔車、不當安裝、自行加工</li>
+            <li>
+              有問題請走 LINE:<strong>@pcm-motorsports</strong> · 週一–週六 10:00–20:00
+            </li>
+          </ul>
         </div>
       </div>
     </section>
