@@ -470,4 +470,33 @@ OD-12 NIT slice 第 2 commit(承我前審「OD-12d a11y 語意降級〔分組用
 
 **⚠️ 流程觀察(非 commit 缺陷)**:OD-12 NIT 兩 commit **在主樹 dev 直接做**(非 od worktree、純 NIT 不涉 OD 視覺)→ **dev 領先 od-redesign 2 commit**(dev=2d8ee9c / od-redesign 仍 266f5f2);審查 session 與執行 session 本輪共用主樹,我嚴守唯讀(git show/grep 不可變快照 + 三綠在乾淨 dev tip 純態跑、PRE/POST 驗未被干擾、零 git add/stash/checkout)。merge 注意:od-redesign 落後 dev 2 NIT、之後續做 OD 視覺再 merge 須帶上(同檔 ProductFitments、不同改動、預期可線性);或 Sean 之後 ff od-redesign 對齊 dev。
 
-_(等待:Sean :3001 真機驗(OD-12d 分組表 + OD-13 FAQ、桌機/手機);OD-12 NIT hygiene 兩 commit ✅ PASS(註解 + a11y、我前審兩建議皆已收);翻譯 #209 方向研究中(現況盤點完=中文名已上線/描述全空/spec袋薄、缺口=賣場描述+spec袋擴+品牌故事、等 Sean 挑下一步);或規劃上線(鐵則 8、Sean 暫不上線)。哨兵盯 dev=2d8ee9c / od-redesign=266f5f2、origin/dev=266f5f2 未推)_
+---
+
+## [`3ca6411d`] docs(specs): 賣場結構化內容模型設計 + #209 升級交報價單 [content-model] — **PASS**(翻譯線非 OD;Sean 本人 commit、純 docs、字面 vs 事實核對屬實)
+
+⚠️ **非 OD 線 commit**(翻譯/賣場內容模型線、#209),哨兵盯 dev 一併捕獲審。**author=Sean 本人**(把網站審查 session 研究草案升級+拍板+commit;Co-Authored Claude Opus 4.8)。range `2d8ee9cd..3ca6411d` 單一 commit。純 docs。
+- **scope**:2 檔(`docs/specs/2026-06-03-storefront-content-model-design.md` 新建 +159 / `docs/phase-1-backlog.md` #209 +8−1)、零 code。
+- **🟢 字面 vs 事實(核對本 session 研究第一手資料)**:doc/backlog 宣稱數字全屬實 — RPM `description_origin` 100%(均 760 字)/ 其他 5 家 0、`product_name_zh` ~100%、`description_zh` 6 家全 0、`spec` jsonb、`translation_locked` 機制、車種 bug(BMW 複製貼上/年份打架/名稱≠描述)— 皆我唯讀偵察 B 庫 + 報價單專案實得,逐項吻合。
+- **🟢「Sean 拍 A/B/B」= 當事人 commit 確認**:author=Sean 本人親寫拍板;對話中 Sean 以敘述表態(「依照你建議」+ 車種討論 + 範圍),commit 行動正式定案、非執行 session 替推斷。
+- **🟢 backlog #209 升級誠實**:狀態改「🔵 方向升級+設計完成、交報價單」、明標「上方 baoyu-translate 路線已取代」(未刪舊內容、標 superseded)、加升級段指向設計 doc + memory。
+- **🟢 連帶產出核對(執行 session 同波 19:51)**:memory `project_storefront-content-model-design`(已建+MEMORY.md 索引、內容與我研究數據逐項吻合)+ tw-marketplace 記憶過時點(「ProductTabs 寫死鋁合金」)**已更新**標 OD-8 改碳纖維 — 我原預警的 dangling/stale 皆已解、無殘留。
+- **🟢 三綠**:純 docs(.md);typecheck/lint N/A、build 跳。
+- **判定:3ca6411d PASS**(0 must-fix)。翻譯 #209 方向 doc+backlog+memory 三者一致、可交報價單 session 開 PRD。
+- **🟡 待 Sean 確認(非缺陷)**:doc 採「標題提主車型」(= 我推薦的車種露出 B);Sean 對話中該題仍在敲、由 commit 間接定 B → 已向 Sean 對齊。
+
+---
+
+## [`63651e84`] docs(handoff): 審查 session 換手 + 賣場內容自動化架構定案交接 [review-handoff] — **PASS**(純 docs 交接文、架構記錄詳實;2 🟡 狀態記帳矛盾待 Sean 釐清)
+
+⚠️ **翻譯/治理線交接 commit**,哨兵捕獲審。author=Sean、純 docs(交接文 99 行新檔 `docs/handoff/2026-06-04-review-session-handoff-content-arch.md`)。range `3ca6411d..63651e84`。
+- **scope**:1 檔(交接文新建 +99)、零 code。
+- **🟢 架構定案記錄詳實(兩次對抗審查 workflow 結論)**:範本工廠骨架(template-floor/AI-head)、工作單位=群非件(~4500 群、膨脹 3.6x)、範本鍵=major_category(衍生 SSOT、非 native category〔motogadget 97% 空〕、非 product_name_zh)、內容=程式拼裝打底全量 + AI 只補頭部 5-15%、加新供應商成本掛「品類數」非「供應商數」(撐 20+ 家)。與賣場內容方向 doc 一致、車種鐵律延續(範本/AI 無車種欄、fitment_parsed 直出)。
+- **🔴 上線前必修(交接文 §3 自記、重要技術發現)**:fetcher 每夜 `DELETE WHERE manually_corrected=false` 會砍人工校鎖內容 → 須加 `AND translation_locked=false` + `summary_zh`/`highlights_zh` 併入 `PROTECTED_TRANSLATION_FIELDS`。**= 報價單側實作前硬約束、新審查 session 待審重點**。
+- **🟢 優先序(三次審查一致、Sean Q1=A)**:P-1 LINE CTA(半天)→ P1 M-3 結帳(站內現無法成交)→ P2 範本工廠。誠實標「內容做再好站內成交=0」。
+- **🟡 矛盾1(狀態描述、待釐清)**:§6 稱「本 session 哨兵 byo0hnkyh 已 TaskStop」,但 **byo0hnkyh 仍活**(本 commit 即由它捕獲)。交接文前提(舊 session 已收尾停哨兵)與實況不符。
+- **🟡 矛盾2(session 記帳)**:§1 session 地圖記「本審查 session(commit 6cce4a3/3ca6411)+ 第二審查 session(review-log M)」,但 6cce4a3/3ca6411 author=Sean 本人、審查實由單一 session(arm byo0hnkyh)做;記帳與實況有出入(不影響交接內容實用性)。
+- **🟢 三綠**:純 docs;N/A。
+- **判定:63651e84 PASS**(0 must-fix;架構/技術內容詳實正確)。**2 個狀態記帳矛盾已標、待 Sean 釐清「審查 session 是否換手」**(見下)。
+
+_(⚠️ **換手待 Sean 拍**:交接文要 fresh 審查 session 接手 + 稱哨兵已停,但本審查 session 仍在跑、byo0hnkyh 仍活、context 仍足。審查紀錄(3ca6411+63651e84)已 commit 乾淨。**未自行停哨兵**(避免斷審)——等 Sean 定:① 本 session 續審 ② 真開 fresh session(則本 session 停哨兵交棒)。
+其他 ✅:OD-12 NIT 兩 commit + 翻譯 #209 設計線 + 63651e84 交接 皆審 PASS;待 Sean :3001 真機驗 OD-12d/OD-13 + 拍 pilot→skill/brand_story/其他5家爬原文 + 車種露出 A/B。哨兵盯 dev / od-redesign、origin/dev 未推。)_
