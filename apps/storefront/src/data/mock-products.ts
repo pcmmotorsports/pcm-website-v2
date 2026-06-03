@@ -41,11 +41,11 @@ export type UIVariant = {
 };
 
 /**
- * UI 適用車款(S6:OD-F1 適用車款表吃的真 fitment shape;toUIProduct ← domain Product.fitments plumb)。
+ * UI 適用車款(S6:OD-12 適用車款表吃的真 fitment shape;toUIProduct ← domain Product.fitments plumb)。
  *
  * 逐欄白名單對齊 domain FitmentSpec 公開欄、UI 自控形狀解耦 domain(同 UIVariant 慣例)。
- * 全為公開車輛相容資訊、無敏感欄;OD-F1(Phase B)用 motoBrand/modelCode/年份渲染適用車款表、
- * unconfirmed 顯「未確認」標(對齊 FitmentSpec 註:前台決定是否顯示)。
+ * 全為公開車輛相容資訊、無敏感欄;OD-12 適用車款表(ProductFitments)用 motoBrand/modelCode/年份渲染。
+ * unconfirmed 欄仍保留(harmless 公開資料),但前台 OD-12b 起不顯「未確認」標(下單前 LINE 本就會確認車款)。
  */
 export type UIFitment = {
   /** 車輛廠牌口語名(例:'Aprilia' / 'Ducati') */
@@ -56,7 +56,7 @@ export type UIFitment = {
   yearStart?: number;
   /** 適用年份迄;null = 開放式("2025+")、number 同 yearStart 或省略(undefined)= 單年 */
   yearEnd?: number | null;
-  /** 來源自動展開、未經人工確認(顯「未確認」標);已確認則省略 */
+  /** 來源自動展開、未經人工確認;OD-12b 起前台不顯「未確認」標(欄保留、harmless 公開資料);已確認則省略 */
   unconfirmed?: boolean;
 };
 
@@ -104,8 +104,8 @@ export type MockProduct = {
   /**
    * 完整適用車款陣列(S6:toUIProduct ← domain `product.fitments` 逐筆映射全車款;
    * 聯集去重已於匯入 mergeFitments 上游完成、本層不再去重)。
-   * `fits` 為其衍生單字串(卡片用、取第一筆 brand+model);本欄為 OD-F1(Phase B)適用車款表的真資料源。
-   * mock 省略 → OD-F1 不渲染表、向後相容。
+   * `fits` 為其衍生單字串(卡片用、取第一筆 brand+model);本欄為 OD-12 適用車款表(ProductFitments)的真資料源。
+   * mock 省略 → ProductFitments 不渲染表、向後相容。
    */
   fitments?: UIFitment[];
   /** 劃線價:store / premiumStore 顯示時的 general 原價、general tier 為 null;sub 4b toUIProduct 內 server-side dispatch 填值 */
