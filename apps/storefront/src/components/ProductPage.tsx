@@ -310,13 +310,17 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         {/* M-1-13H-6:Related section(對應 HANDOFF #16 + Q4 + lessons §12-37);
             用既有 <ProductCard> 元件 map、不複製 design VariantCFull L219-230 demo
             .vcf-related-card hardcoded(demo 自包含寫法、不取代正式元件、對齊 lessons §12-37
-            「demo 變體字面不取代正式元件」);容器標題對齊 design L214-218 字面;
+            「demo 變體字面不取代正式元件」);OD-9 標題 eyebrow 換 OD N° 巢狀形態(03 + 金線 + N° 相關商品、對齊 N°01/N°02);
             relatedProducts < 4 時不顯示空卡(條件渲染整個 section) */}
         {relatedProducts.length > 0 && (
-          <section className="pd-section pd-related">
+          <section className="pd-section pd-related" aria-labelledby="pd-h-related">
             <div className="pd-section-head">
-              <div className="pd-eyebrow">N°03 — You may also like</div>
-              <h2 className="pd-h2">相同分類</h2>
+              <div className="pd-eyebrow">
+                <span className="pd-eb-no">03</span>
+                <span className="pd-eb-sep" aria-hidden="true" />
+                <span className="pd-eb-label">{'N°  相關商品'}</span>
+              </div>
+              <h2 className="pd-h2" id="pd-h-related">相同分類</h2>
             </div>
             <div className="pd-related-grid">
               {relatedProducts.map((p) => (

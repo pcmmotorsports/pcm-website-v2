@@ -142,4 +142,16 @@ describe('ProductPage', () => {
       ),
     ).toBeDefined();
   });
+
+  // OD-9:N°03 相關商品 section 換 OD N° 巢狀 eyebrow(03 + 金線 + N° 相關商品、對齊 N°01/N°02)。
+  // MOCK_PRODUCTS[0] categoryMain=操控部品、同類有 id2/id10 → related section 會渲染。
+  it('should render N°03 related section with OD nested eyebrow', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    const related = document.querySelector('.pd-related');
+    expect(related).not.toBeNull();
+    expect(related!.querySelector('.pd-eb-no')?.textContent).toBe('03');
+    expect(related!.querySelector('.pd-eb-label')?.textContent).toContain('相關商品');
+    expect(within(related as HTMLElement).getByText('相同分類')).toBeDefined();
+  });
 });
