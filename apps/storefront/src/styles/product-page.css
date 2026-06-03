@@ -642,6 +642,16 @@
   white-space: nowrap;
 }
 .pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
+/* OD-12c(Sean 2026-06-03 桌機真機驗:年式欄過寬)— 桌機 ≥1080 表寬改 auto(欄貼內容、
+   不再 width:100% 三等分把窄內容撐滿)、欄間 64px 留呼吸感、末欄(年式)正常右距 → 年式欄收窄、
+   貼齊車型、表收在年式後。≤1079 沿用 100% 滿版(手機/平板不動)。 */
+@media (min-width: 1080px) {
+  .pd-fit-table { width: auto; }
+  .pd-fit-table thead th,
+  .pd-fit-table tbody td { padding-right: 64px; }
+  .pd-fit-table thead th:last-child,
+  .pd-fit-table tbody td:last-child { padding-right: 16px; }
+}
 @media (max-width: 720px) {
   .pd-fit-table { font-size: 12.5px; }
   .pd-fit-table thead th,
