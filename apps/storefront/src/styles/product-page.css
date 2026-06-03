@@ -574,13 +574,13 @@
   .pd-service-desc { font-size: 12px; }
 }
 
-/* ========= Fitments table (OD §7.5 — 適用車款) ========= */
-/* OD-12:字面從 OD product-detail-rpm-template.html §7.5 fitments table 直接搬
-   (.pd-fitments-section 上下細線 + flat eyebrow + pd-fit-table 線框表 + 720/480 縮字響應式);
-   位於 pd-services-strip 與 N°01 之間(OD 渲染順序)。
-   🔴 D1=A:OD 模板 4 欄(車廠/車系/車型/年式)→ 本站 3 欄(車廠/車型/年式)、DB 無車系欄;
-   CSS 與欄數無關(table 自適應)、直接沿用 OD §7.5。
-   (OD-12b:unconfirmed「未確認」標已移除、Sean 拍「不該」、見 ProductFitments.tsx) */
+/* ========= Fitments (適用車款) ========= */
+/* OD-12:接 S6 真資料 product.fitments;位於 pd-services-strip 與 N°01 之間(OD 渲染順序)。
+   OD-12d(Sean 2026-06-03 真機驗重設計、/frontend-design):原 OD §7.5 扁平 row-per-fitment 表
+   對真資料(每品 ~8 fitments、同車廠/車型重複多列)→ 稀疏 + 欄位文字撐開 + 滑很久;改 **依車廠→車型
+   分組 + 年式 inline chips**(消重複、變矮、欄間緊湊、比例協調)。維持 OD 美學(mono 品牌標 + 年式 chip
+   surface-2 底 + sharp corner + 薄線)。supersede OD §7.5 扁平表 + OD-12c 的 .pd-fit-table width:auto。
+   🔴 D1=A:車廠 / 車型 / 年式 3 維、無車系。OD-12b:未確認標已移除。 */
 .pd-fitments-section {
   padding: 20px 0 28px;
   border-bottom: 1px solid var(--c-border);
@@ -609,60 +609,53 @@
   line-height: 1.25;
 }
 .pd-fit-hint { font-size: 14px; color: var(--c-text-2); }
-.pd-fit-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-.pd-fit-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 15.5px;
-  min-width: 0;
+/* 分組清單:車廠標頭(mono)+ 車型列(車型名 + 年式 chips 橫排) */
+.pd-fit-groups { border-top: 1.5px solid var(--c-text); }
+.pd-fit-group {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--c-border);
 }
-.pd-fit-table thead th {
-  text-align: left;
-  padding: 13px 16px;
+.pd-fit-group:last-child { border-bottom: 0; }
+.pd-fit-brand {
   font-family: var(--f-mono);
-  font-size: 12px;
+  font-size: 11.5px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--c-text-2);
   font-weight: 600;
-  border-bottom: 1.5px solid var(--c-text);
-  background: var(--c-surface);
+  margin-bottom: 9px;
 }
-.pd-fit-table tbody td {
-  padding: 15px 16px;
-  border-bottom: 1px solid var(--c-border);
+.pd-fit-rows { display: flex; flex-direction: column; gap: 9px; }
+.pd-fit-row {
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 16px;
+  align-items: baseline;
+}
+.pd-fit-model {
+  font-size: 15px;
+  font-weight: 600;
   color: var(--c-text);
+  line-height: 1.3;
 }
-.pd-fit-table tbody tr:last-child td { border-bottom: 0; }
-.pd-fit-table .brand { font-weight: 600; }
-.pd-fit-table .years {
+.pd-fit-years {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pd-fit-year {
   font-family: var(--f-mono);
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--c-text-2);
+  background: var(--c-surface-2);
+  padding: 3px 9px;
   white-space: nowrap;
 }
 .pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
-/* OD-12c(Sean 2026-06-03 桌機真機驗:年式欄過寬)— 桌機 ≥1080 表寬改 auto(欄貼內容、
-   不再 width:100% 三等分把窄內容撐滿)、欄間 64px 留呼吸感、末欄(年式)正常右距 → 年式欄收窄、
-   貼齊車型、表收在年式後。≤1079 沿用 100% 滿版(手機/平板不動)。 */
-@media (min-width: 1080px) {
-  .pd-fit-table { width: auto; }
-  .pd-fit-table thead th,
-  .pd-fit-table tbody td { padding-right: 64px; }
-  .pd-fit-table thead th:last-child,
-  .pd-fit-table tbody td:last-child { padding-right: 16px; }
-}
-@media (max-width: 720px) {
-  .pd-fit-table { font-size: 12.5px; }
-  .pd-fit-table thead th,
-  .pd-fit-table tbody td { padding: 9px 8px; }
-  .pd-fit-table .years { font-size: 11.5px; }
-}
-@media (max-width: 480px) {
-  .pd-fit-table { font-size: 12px; }
-  .pd-fit-table thead th { padding: 8px 6px; font-size: 10px; letter-spacing: 0.08em; }
-  .pd-fit-table tbody td { padding: 8px 6px; }
-  .pd-fit-table .years { font-size: 11px; }
+@media (max-width: 540px) {
+  .pd-fit-row { grid-template-columns: 1fr; gap: 6px; }
+  .pd-fit-brand { font-size: 11px; }
+  .pd-fit-year { font-size: 11.5px; padding: 2px 8px; }
 }
 
 /* ========= Generic section heading (OD §6) ========= */
