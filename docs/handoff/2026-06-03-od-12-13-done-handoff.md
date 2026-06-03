@@ -7,7 +7,7 @@
 
 ## 1. 現況(全綠、已推 origin/dev)
 
-- **`origin/dev = 9cc5bbd`、local/origin 同步**;push 顯示「Bypassed rule violations…Required status check `check` is expected」= Sean admin bypass 的**正常訊息、push 成功**(見 `project_github-branch-rulesets`)。**CI 在 GitHub 跑 `check`**(程式碼三綠 + pre-push hook typecheck/lint 已綠、預期過;新 session 起手可 `gh run list` 確認)。
+- **origin/dev 已推、local = origin/dev = od-redesign 三者同步**(⚠️ 不硬編 tip SHA 避 off-by-one:本交接後又補了 審查紀錄 + 本交接 docs commit;新 session 起手 `git rev-parse --short dev` 取真 tip、**三者同步 + 樹乾淨即綠**)。本輪程式碼最終 commit = OD-13 `bb99340`(其後 `f8d5045` backlog / 審查紀錄 / 本交接皆 docs)。push 顯示「Bypassed rule violations…Required status check `check` is expected」= Sean admin bypass 的**正常訊息、push 成功**(見 `project_github-branch-rulesets`)。**CI 在 GitHub 跑 `check`**(程式碼三綠 + pre-push hook typecheck/lint 已綠、預期過;新 session 起手可 `gh run list` 確認)。
 - **main 未動**:Sean 2026-06-03 拍 **A「暫不上線」**(只本機 :3001 驗 + push dev、不碰 main、不上線);main 仍落後 dev 344 commit、Vercel production 疑對 main 舊版。詳 `project_deploy-topology-main-stale-dev-live`。正式上線是日後鐵則 8 大改、需先 plan + 風險清單。
 - **本輪完成(全 PASS、逐 commit 審 + 合併後三綠獨立驗)**:
   - **OD-12 `750ffa7`** 適用車款表(ProductFitments 新元件、接 S6 真資料 `product.fitments`、D1=A 3 欄 車廠/車型/年式、formatYears 三態、空狀態 null、ProductTabs 交叉引用恢復;對 OD §7.5 逐行保真)。
@@ -35,8 +35,8 @@
 
 ## 4. 流程 / 治理(新 session 必讀)
 
-- **寫審分離(ROLE=A)**:執行 session 在 **OD worktree `/Users/sean_1/pcm-website-v2-od`(od-redesign)** 做、審查 session 在主樹 `/Users/sean_1/pcm-website-v2`(dev)fresh-context 重驗、Sean 橋接(prose multi-select、白話)。od-redesign 與 dev 現都 = `9cc5bbd`(本輪結束對齊)。
-- **哨兵自動審 pipeline**(`reference_sentinel-auto-review-pipeline`):審查 session 用 Monitor 盯 dev + od-redesign、每 commit fresh-context `git show` 審不可變快照、findings 寫對應 review-log、只 FAIL 才 PushNotification。**⚠️ 哨兵隨 session 結束而死、新審查 session 須重 arm**(baseline 都 = `9cc5bbd`)。
+- **寫審分離(ROLE=A)**:執行 session 在 **OD worktree `/Users/sean_1/pcm-website-v2-od`(od-redesign)** 做、審查 session 在主樹 `/Users/sean_1/pcm-website-v2`(dev)fresh-context 重驗、Sean 橋接(prose multi-select、白話)。**od-redesign 本輪結束已 ff 對齊 dev tip**(兩線同 commit)。
+- **哨兵自動審 pipeline**(`reference_sentinel-auto-review-pipeline`):審查 session 用 Monitor 盯 dev + od-redesign、每 commit fresh-context `git show` 審不可變快照、findings 寫對應 review-log、只 FAIL 才 PushNotification。**⚠️ 哨兵隨 session 結束而死、新審查 session 須重 arm**(baseline = 起手 `git rev-parse --short dev`〔= od-redesign〕)。
 - **每片審查項**:字面vs事實 / 鐵則 1-12 / scope 乾淨(精準 add)/ manifest 同步 / 經銷防護 grep(動 pricing)/ 三綠(動 .ts/.tsx 重跑、動共用元件跑完整 vitest、merge 跑合併後完整三綠)/ codex K2(命中 schema·RLS·migration·pricing 才跑、現 quota 掛走 Claude fallback)。**動 DB 宣稱獨立 SQL 複查**(#211 用此手法)。
 - **檔案大小用 `git show <sha>:<path> | wc -l`**(OD 在 worktree)。
 - **OD 用 manifest 追蹤、不碰 STATUS**(merge 零衝突靠此);**STATUS.md 未更 OD-12~13**(OD 線一向 manifest,Sean 若要 STATUS 反映另議)。
@@ -46,8 +46,8 @@
 ## 5. 新 session 起手
 
 - 兩個新 session(審查 + 執行)各自第一則讀本檔 + 對應 review-log + 記憶。
-- **審查 session**:重 arm dev + od-redesign 兩哨兵(baseline `9cc5bbd`);讀 od review-log 尾 + 記憶。
-- **執行 session**:在 OD worktree(od-redesign=`9cc5bbd`、已對齊 dev);接下一個 Sean 指定方向(翻譯 schema 待 Sean 拍 + 報價單 session / NIT hygiene / 更多 polish)。
-- 起手檢查:`git branch --show-current && git status && git log --oneline -5`,預期 dev=`9cc5bbd`、樹乾淨、origin 同步。
+- **審查 session**:重 arm dev + od-redesign 兩哨兵(baseline = 起手 `git rev-parse --short dev`);讀 od review-log 尾 + 記憶。
+- **執行 session**:在 OD worktree(od-redesign 已 ff 對齊 dev tip);接下一個 Sean 指定方向(翻譯 schema 待 Sean 拍 + 報價單 session / NIT hygiene / 更多 polish)。
+- 起手檢查:`git branch --show-current && git status && git log --oneline -5`,**綠 = branch=dev / 樹乾淨 / local=origin/dev=od-redesign 三者同步**(不硬編 tip SHA、避 off-by-one;三者一致即綠)。
 
 — END —
