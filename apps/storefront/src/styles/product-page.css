@@ -87,7 +87,7 @@
 /* OD-1:.pd-main 基礎 grid 字面從 OD product-detail-rpm-template.html §5 直接搬
    (minmax(0,...) 防 grid blowout、gap 36、hero 底細線分隔;移除原 margin-bottom:80 改 padding+border)。
    ⚠️ 桌機左右等高(≥1080 .pd-gallery flex 撐高)+ 斷點遷移(≤1079 collapse + buybar)與圖庫耦合、
-   留 OD-2 / OD-11;本片只立基礎欄寬 + gap + hero 底線。既有 @media(max-width:900 / 901-1099)斷點本片暫留。 */
+   OD-2 已做桌機等高、OD-11 已做斷點遷移(≤1079 collapse + buybar、移除 901-1099 mid-band);本片只立基礎欄寬 + gap + hero 底線。 */
 .pd-main {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
@@ -104,7 +104,7 @@
 .pd-gallery {
   position: relative;
   /* 過渡:現有 ≤900 才 collapse、901-1079 仍 2 欄;align-self:start 避免此帶 gallery 被拉伸留底部空隙
-     (OD ≤1079 即單欄、無此帶;斷點遷移留 OD-11)。≥1080 改 stretch 啟動等高(下方 @media)。 */
+     (OD ≤1079 即單欄、無此帶;OD-11 已將斷點遷至 ≤1079)。≥1080 改 stretch 啟動等高(下方 @media)。 */
   align-self: start;
 }
 
@@ -222,7 +222,7 @@
 
 /* OD-2:桌機(≥1080)左右等高 — 字面從 OD §5 直接搬。
    .pd-gallery flex 直欄、hero-img flex:1 撐到右側 .pd-info 高(解 HANDOFF §4「左圖凸一截右欄短」);
-   .pd-info align-self:stretch 同步;<1080 維持 1:1 正方圖(既有 @media collapse 不動、斷點遷移留 OD-11)。 */
+   .pd-info align-self:stretch 同步;<1080 維持 1:1 正方圖(OD-11 已將 collapse 斷點遷至 ≤1079)。 */
 @media (min-width: 1080px) {
   .pd-gallery { display: flex; flex-direction: column; align-self: stretch; }
   .pd-hero-img { aspect-ratio: auto; flex: 1 1 auto; min-height: 460px; }
@@ -352,6 +352,85 @@
 .pd-size-btn:disabled:hover,
 .pd-size-btn.is-disabled:hover { border-color: var(--c-border-strong); }
 
+/* ========= Inline pattern preview (OD §8 — picker 上方即時預覽卡) ========= */
+/* OD-7c:字面從 OD product-detail-rpm-template.html .pd-pattern-preview 直接搬
+   (72px 樣品圖 + 當前樣式文字 + ⤢ zoom、is-rare 金字);圖點開樣品 lightbox(.pd-lightbox 共用)。 */
+.pd-pattern-preview {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  padding: 10px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  margin-bottom: 20px;
+}
+.pd-pattern-preview-img {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex: 0 0 72px;
+  padding: 0;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+  overflow: hidden;
+  cursor: zoom-in;
+  transition: border-color 0.18s ease;
+}
+.pd-pattern-preview-img:hover { border-color: var(--c-text); }
+.pd-pattern-preview-img:focus-visible { outline: 2px solid var(--c-text); outline-offset: 2px; }
+.pd-pattern-preview-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity 0.22s ease, transform 0.35s ease;
+}
+.pd-pattern-preview-img:hover img { transform: scale(1.06); }
+.pd-pattern-preview-zoom {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+}
+.pd-pattern-preview-text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.pd-pattern-preview-label {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+.pd-pattern-preview-value {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--c-text);
+  line-height: 1.3;
+}
+.pd-pattern-preview-hint { font-size: 11px; color: var(--c-text-3); }
+.pd-pattern-preview.is-rare .pd-pattern-preview-value { color: var(--c-gold); }
+@media (max-width: 540px) {
+  .pd-pattern-preview-img { width: 62px; height: 62px; flex-basis: 62px; }
+  .pd-pattern-preview-value { font-size: 14px; }
+}
+
 /* ========= Buy row (OD §5) ========= */
 /* OD-3:購買列換 OD §5 直角 — qty/add/buynow 去 pill radius(100→0)、like 圓→方;token 化;
    加入購物車黑底實心、立即購買 1.5px 描邊、like hover 紅。#161 永遠可點(無 disabled 態、
@@ -406,30 +485,59 @@
 }
 .pd-buynow-btn:hover { background: var(--c-text); color: var(--c-text-inverse); }
 
-/* ========= Services strip ========= */
-/* M-1-13H-3:services 從 flex row(svg + content) → block(label + desc stacked)、移除圖示後純文字
-   (對應 HANDOFF #11、字面從 design explorations.css L819-830 直接搬);
-   .pd-service svg 規則整段移除、.pd-service 從 flex 改 block */
+/* ========= Services strip(OD §5 — 服務保障橫條) ========= */
+/* OD-5:服務橫條外移成獨立全寬 section + 字面從 OD product-detail-rpm-template.html 直接搬
+   (.pd-services-strip 上下細線全寬 + .pd-services 4 欄無間距內分隔線 + .pd-service flex 直欄);
+   取代 M-1-13H-3 嵌在 pd-info 內的 2 欄純文字版。響應式 4 欄→2×2(720)→縮字(540)隨 OD 模板。 */
+.pd-services-strip {
+  margin: 0 0 24px;
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+}
 .pd-services {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding-top: 20px;
-  border-top: 1px solid #ededef;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
 }
 .pd-service {
-  display: block;
+  padding: 20px clamp(16px, 2vw, 28px);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border-right: 1px solid var(--c-border);
 }
+.pd-service:last-child { border-right: 0; }
 .pd-service-label {
-  font: 500 13px/1.3 var(--font-sans);
-  color: #1d1d1f;
-  display: block;
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
 }
 .pd-service-desc {
-  font: 400 11px/1.3 var(--font-sans);
-  color: #86868b;
-  display: block;
-  margin-top: 2px;
+  font-size: 13px;
+  color: var(--c-text-2);
+  line-height: 1.45;
+}
+@media (max-width: 1079px) {
+  .pd-services-strip { margin: 0 0 20px; }
+  .pd-services { grid-template-columns: repeat(4, 1fr); }
+  .pd-service { padding: 14px 12px; gap: 3px; }
+  .pd-service-label { font-size: 13.5px; }
+  .pd-service-desc { font-size: 11.5px; }
+}
+/* 中間斷點 720-540 改 2×2 避免 4 欄擠在一起字過小(OD HANDOFF §4) */
+@media (max-width: 720px) {
+  .pd-services { grid-template-columns: repeat(2, 1fr); }
+  .pd-service { padding: 14px 16px; border-bottom: 1px solid var(--c-border); }
+  .pd-service:nth-child(odd) { border-right: 1px solid var(--c-border); }
+  .pd-service:nth-child(even) { border-right: 0; }
+  .pd-service:nth-last-child(-n + 2) { border-bottom: 0; }
+  .pd-service-label { font-size: 14.5px; }
+  .pd-service-desc { font-size: 12.5px; }
+}
+@media (max-width: 540px) {
+  .pd-service { padding: 12px 14px; }
+  .pd-service-label { font-size: 14px; }
+  .pd-service-desc { font-size: 12px; }
 }
 
 /* ========= Generic section heading (OD §6) ========= */
@@ -504,36 +612,68 @@
   .pd-section-head { margin-bottom: 22px; }
 }
 
-/* Highlights — 3 feature cards(對應 design `.vcf-feature-*` L1113-1143) */
+/* Highlights — 3 feature cards(OD §N°01 為什麼選 RPM Carbon) */
+/* OD-6:卡片視覺從 OD product-detail-rpm-template.html N°01 直接搬 —
+   平面 surface + 細框 + hover 上移 + 義體斜體章節數字 + 金線 ::after,取代
+   M-1-13H-4 圓角 #f5f5f7 Apple 版(原 220px min-height 大卡 → OD 緊湊堆疊卡)。 */
 .pd-feature-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
+  gap: 24px;
 }
 .pd-feature-card {
-  background: #f5f5f7;
-  border-radius: 22px;
-  padding: 36px 32px;
-  min-height: 220px;
+  padding: 13px 16px 16px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  transition: border-color 0.15s, transform 0.25s;
 }
+.pd-feature-card:hover { border-color: var(--c-text-2); transform: translateY(-2px); }
 .pd-feature-num {
-  font: 500 12px/1 var(--font-mono);
-  letter-spacing: 0.12em;
-  color: #86868b;
-  margin-bottom: 60px;
+  font-family: var(--f-display);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 34px;
+  letter-spacing: -0.02em;
+  color: var(--c-text);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.pd-feature-num::after {
+  content: "";
+  display: inline-block;
+  width: 18px;
+  height: 2px;
+  background: var(--c-gold);
+  vertical-align: middle;
+  margin-left: 8px;
+  transform: translateY(-4px);
 }
 .pd-feature-title {
-  font: 600 22px/1.25 var(--font-sans);
-  letter-spacing: -0.015em;
-  color: #1d1d1f;
-  margin-bottom: 10px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
 }
 .pd-feature-desc {
-  font: 400 14px/1.55 var(--font-sans);
-  color: #515154;
+  font-size: 15.5px;
+  color: var(--c-text-2);
+  line-height: 1.7;
   margin: 0;
+  text-wrap: pretty;
+}
+/* OD-6:feature 卡響應式 920px collapse 單欄 + 縮 padding/字級(OD 模板字面;
+   原 900px 區塊內 .pd-feature-grid 單欄孤兒規則移除、改吃此處) */
+@media (max-width: 920px) {
+  .pd-feature-grid { grid-template-columns: 1fr; gap: 12px; }
+  .pd-feature-card { padding: 11px 13px 13px; gap: 5px; }
+  .pd-feature-num { font-size: 26px; margin-bottom: 3px; }
+  .pd-feature-num::after { width: 14px; margin-left: 6px; }
+  .pd-feature-title { font-size: 18px; }
+  .pd-feature-desc { font-size: 15px; line-height: 1.65; }
 }
 
 /* Engineering Spotlight — image left + text right(對應 design `.vcf-spotlight` L1146-1197);
@@ -586,6 +726,168 @@
   letter-spacing: 0.02em;
 }
 
+/* ========= Swatch showcase grid (OD §N°02 紋路 × 表面) ========= */
+/* OD-7b:字面從 OD product-detail-rpm-template.html §8 swatch showcase 直接搬
+   (.swatch-note 提醒框 + .swatch-section 亮光/消光兩組 + .swatch-grid cols-6/cols-4
+   + .swatch-card 圖+資訊卡 + is-rare 金徽 + 響應式 1279→4 / 1079→6改4 / 919→3 / 540→2)。
+   圖片 = shared @/data/rpm-swatches(Shopee 圖床)。cursor:zoom-in 保留(lightbox 互動留 OD-7c)。 */
+.swatch-note {
+  margin-top: 14px;
+  padding: 14px 18px;
+  background: var(--c-surface-2);
+  border-left: 3px solid var(--c-text);
+  font-size: 15px;
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+.swatch-note strong { color: var(--c-text); font-weight: 600; }
+
+.swatch-section { margin-bottom: 28px; }
+.swatch-section:last-of-type { margin-bottom: 0; }
+/* 極淡的碳纖編織底紋,只在卡片間隙能瞥見 */
+.swatch-section .swatch-grid {
+  padding: 18px;
+  background:
+    repeating-linear-gradient(45deg, rgba(10, 10, 10, 0.025) 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(-45deg, rgba(10, 10, 10, 0.025) 0 6px, transparent 6px 12px),
+    var(--c-bg);
+  border: 1px solid var(--c-border);
+}
+.swatch-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+.swatch-section-eyebrow {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+  font-weight: 600;
+}
+.swatch-section-title {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0;
+  color: var(--c-text);
+}
+.swatch-section-count {
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  color: var(--c-text-2);
+  margin-left: auto;
+  letter-spacing: 0.05em;
+}
+.swatch-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(5, 1fr);
+}
+.swatch-grid.cols-6 { grid-template-columns: repeat(6, 1fr); gap: 12px; }
+.swatch-grid.cols-4 { grid-template-columns: repeat(4, 1fr); gap: 18px; }
+.swatch-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  overflow: hidden;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.swatch-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--c-text);
+  box-shadow: 0 8px 24px -12px rgba(0, 0, 0, 0.18);
+}
+.swatch-card-img {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: var(--c-surface-2);
+  overflow: hidden;
+  cursor: zoom-in;
+}
+.swatch-card-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.35s ease;
+}
+.swatch-card-img:hover img { transform: scale(1.04); }
+.swatch-card-img:focus-visible { outline: 2px solid var(--c-text); outline-offset: 2px; }
+.swatch-card-tag {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  padding: 4px 9px;
+  border-radius: 999px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.swatch-card.is-rare .swatch-card-tag { background: var(--c-gold); color: #000; }
+.swatch-card-info {
+  padding: 12px 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.swatch-card-name {
+  font-size: 15.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--c-text);
+}
+.swatch-card-meta {
+  font-family: var(--f-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-2);
+}
+.swatch-card.is-rare .swatch-card-meta { color: var(--c-gold); }
+@media (max-width: 1279px) {
+  .swatch-grid { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .swatch-grid.cols-6 { grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .swatch-grid.cols-4 { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .swatch-card-info { padding: 10px 12px 12px; }
+  .swatch-card-name { font-size: 14.5px; }
+  .swatch-card-meta { font-size: 11px; }
+}
+/* 平板 / 大手機(920-1079)— 亮光 6 欄改 4 欄,避免六張擠在一起 */
+@media (max-width: 1079px) {
+  .swatch-grid.cols-6 { grid-template-columns: repeat(4, 1fr); gap: 12px; }
+}
+@media (max-width: 919px) {
+  .swatch-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .swatch-grid.cols-6 { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .swatch-grid.cols-4 { grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .swatch-card-info { padding: 10px 12px 12px; }
+  .swatch-card-name { font-size: 15px; }
+  .swatch-card-meta { font-size: 11px; }
+}
+@media (max-width: 540px) {
+  .swatch-grid, .swatch-grid.cols-6, .swatch-grid.cols-4 {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  .swatch-section { margin-bottom: 32px; }
+  .swatch-section-head { flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+  .swatch-section-count { margin-left: 0; width: 100%; }
+  .swatch-card-img { aspect-ratio: 1 / 1; }
+  .swatch-card-tag { font-size: 9.5px; padding: 3px 7px; }
+}
+
 /* ========= Related grid ========= */
 /* M-1-13H-6:Related grid(對應 HANDOFF #16、字面從 design explorations.css L1320-1324 直接搬);
    用既有 <ProductCard>(.pcard 樣式在 product-card.css、Q4 不動)、本段只提供 grid container;
@@ -598,162 +900,117 @@
 }
 
 /* ========= Tabs section ========= */
-/* M-1-13H-5:tabs 從底線 2px → pill 群組(對應 HANDOFF #14、字面從 design explorations.css
-   L1200-1245 直接搬);4 panel 內容對齊 design L1247-1317、specs table → grid / install meta 淺灰卡 +
-   steps 4 卡 / warranty em 600 加粗(HANDOFF #15);
-   description lead font 採 design .vcf-body 15px(NORTHSTAR §2.4「.jsx + .css > HANDOFF docs」
-   仲裁、PRD/HANDOFF 字面 19px 屬 cowork 解讀、不採) */
-.pd-tabs-section { margin-bottom: 80px; }
+/* OD-8(視覺真權威 OD 模板「Website V2」product-detail-rpm-template.html §9 tabs、鐵則 1 直接搬):
+   tab chrome 由舊 Apple pill 群組改 OD 底線式(容器底框 + active 2px 下底線、可橫向捲動);
+   pd-list 改 OD 標準項目符號;pd-specs 改 OD 單欄 key/value;install 捨棄 4 步驟卡(pd-steps 移除)。
+   tab 內部斷點(560/720/1079)採 OD §9 字面、全頁斷點 OD-11 已統一收口至 ≤1079(buybar/main 與各 section 同門檻)。 */
+.pd-tabs-section { padding: 32px 0 44px; border-bottom: 1px solid var(--c-border); }
+@media (max-width: 1079px) {
+  .pd-tabs-section { padding: 24px 0 32px; }
+}
 .pd-tabs {
   display: flex;
-  gap: 4px;
+  gap: 0;
+  border-bottom: 1px solid var(--c-border);
   margin-bottom: 32px;
-  background: #f5f5f7;
-  border-radius: 100px;
-  padding: 6px;
-  width: fit-content;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.pd-tabs::-webkit-scrollbar { display: none; }
 .pd-tab {
-  padding: 10px 22px;
+  padding: 14px 24px 16px;
   background: transparent;
   border: 0;
-  border-radius: 100px;
-  font: 500 13px/1 var(--font-sans);
-  color: #515154;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font: 500 14px/1 var(--font-sans);
+  color: var(--c-text-2);
   cursor: pointer;
-  transition: background 180ms, color 180ms;
+  transition: color 150ms, border-color 150ms;
   white-space: nowrap;
+  flex-shrink: 0;
 }
-.pd-tab:hover { color: #1d1d1f; }
-.pd-tab.is-active {
-  background: #ffffff;
-  color: #1d1d1f;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-}
+.pd-tab:hover { color: var(--c-text); }
+.pd-tab.is-active { color: var(--c-text); border-color: var(--c-text); font-weight: 600; }
 
-.pd-tab-body { padding-left: 4px; max-width: 920px; }
 .pd-tab-pane {
-  font: 400 15px/1.7 var(--font-sans);
-  color: #1d1d1f;
+  max-width: 820px;
+  font: 400 15px/1.75 var(--font-sans);
+  color: var(--c-text);
 }
 
-/* Description pane — 1 lead paragraph + 5 items list(對齊 design .vcf-body L165 + .vcf-list L167-173) */
+/* Description / Install 共用清單 — OD §9 標準項目符號 */
 .pd-list {
-  list-style: none;
-  padding: 0;
-  margin: 16px 0 0;
+  margin: 14px 0;
+  padding-left: 22px;
+  font-size: 14.5px;
+  line-height: 1.85;
+  color: var(--c-text);
 }
-.pd-list li {
-  padding: 14px 0 14px 26px;
-  font: 400 14px/1.5 var(--font-sans);
-  color: #1d1d1f;
-  border-bottom: 1px solid #ededef;
-  position: relative;
-}
-.pd-list li::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 23px;
-  width: 14px; height: 1px;
-  background: #1d1d1f;
-}
+.pd-list li { margin-bottom: 4px; }
 
-/* Specs pane — 2 欄 grid(對齊 design .vcf-specs L1247-1270、移 border + key mono 灰) */
+/* Specs pane — OD §9 單欄 key/value(160px 標籤 + 值、列底框線)*/
 .pd-specs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0 48px;
-  max-width: 920px;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--c-border);
 }
 .pd-spec-row {
   display: grid;
-  grid-template-columns: 120px 1fr;
-  padding: 16px 0;
-  border-bottom: 1px solid #ededef;
-  gap: 16px;
+  grid-template-columns: 160px 1fr;
+  gap: 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 14px;
 }
-.pd-spec-k {
-  font: 500 11px/1.5 var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #86868b;
-}
-.pd-spec-v {
-  font: 500 14px/1.5 var(--font-sans);
-  color: #1d1d1f;
+.pd-spec-k { color: var(--c-text-2); font-weight: 500; }
+.pd-spec-v { color: var(--c-text); font-weight: 500; }
+@media (max-width: 560px) {
+  .pd-spec-row { grid-template-columns: 120px 1fr; gap: 14px; font-size: 13.5px; }
 }
 
-/* Install pane — meta 3 欄淺灰卡 + 4 步驟卡片(對齊 design .vcf-install-meta L1273 + .vcf-steps L1295) */
+/* Install pane — meta 3 欄淺灰條(OD §9、直角無圓角)*/
 .pd-install-meta {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  margin-bottom: 32px;
-  padding: 24px;
-  background: #f5f5f7;
-  border-radius: 16px;
+  padding: 20px 22px;
+  margin-bottom: 24px;
+  background: var(--c-surface-2);
 }
-.pd-install-meta > div {
-  display: flex; flex-direction: column; gap: 4px;
-}
+.pd-install-meta > div { display: flex; flex-direction: column; gap: 4px; }
 .pd-install-meta span {
-  font: 500 11px/1 var(--font-mono);
-  letter-spacing: 0.12em;
+  font: 500 11px/1 var(--f-mono);
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #86868b;
+  color: var(--c-text-2);
 }
-.pd-install-meta strong {
-  font: 500 14px/1.4 var(--font-sans);
-  color: #1d1d1f;
-}
-.pd-steps {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-.pd-step {
-  background: #fff;
-  border: 1px solid #ededef;
-  border-radius: 14px;
-  padding: 24px 22px;
-  min-height: 160px;
-}
-.pd-step-n {
-  font: 600 28px/1 var(--font-sans);
-  letter-spacing: -0.02em;
-  color: #1d1d1f;
-  margin-bottom: 16px;
-}
-.pd-step p {
-  font: 400 13px/1.55 var(--font-sans);
-  color: #515154;
-  margin: 0;
-}
+.pd-install-meta strong { font-size: 13.5px; font-weight: 600; color: var(--c-text); }
 
-/* Install CTA — HANDOFF #10/#14 對應「預約安裝 CTA 改黑底白字圓角卡」字面(HANDOFF L295);
-   storefront install-cta 保留(13f-2 既有功能、design L186-202 無對應字面、屬 storefront 延伸)、
-   視覺對齊新 Apple/Aritzia 黑底圓角卡風格 */
+/* Install CTA — OD §9 深色滿版條(直角、白字)、預約安裝鈕沿用 router.push('/install') */
 .pd-install-cta {
   display: flex; justify-content: space-between; align-items: center; gap: 20px;
-  padding: 24px 28px;
-  background: #1d1d1f;
-  color: #fff;
-  border-radius: 16px;
-  margin-top: 24px;
-  flex-wrap: wrap;
+  margin-top: 28px; padding: 22px 24px;
+  background: var(--c-text); color: var(--c-text-inverse);
 }
-.pd-install-cta-title { font: 500 15px/1.3 var(--font-sans); color: #fff; }
-.pd-install-cta-desc { font: 400 13px/1.3 var(--font-sans); color: rgba(255,255,255,0.7); margin-top: 4px; }
+.pd-install-cta-title { font-size: 15px; font-weight: 600; margin-bottom: 2px; color: var(--c-text-inverse); }
+.pd-install-cta-desc { font-size: 12.5px; color: #cfcfd5; }
 .pd-install-btn {
-  padding: 12px 20px;
-  background: #fff; color: #1d1d1f;
+  padding: 12px 22px;
+  background: var(--c-surface); color: var(--c-text);
   border: 0;
-  border-radius: 100px;
-  font: 500 13px/1 var(--font-sans);
+  font-size: 13.5px; font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   transition: background 150ms;
 }
-.pd-install-btn:hover { background: #f5f5f7; }
+.pd-install-btn:hover { background: #fff; }
+@media (max-width: 720px) {
+  .pd-tab { padding: 12px 14px; font-size: 13px; }
+  .pd-install-meta { grid-template-columns: 1fr; }
+  .pd-install-cta { flex-direction: column; align-items: stretch; text-align: center; }
+}
 
 /* ========= Lightbox ========= */
 .pd-lightbox {
@@ -816,6 +1073,16 @@
   letter-spacing: 0.12em;
   color: rgba(255,255,255,0.72);
 }
+/* OD-7c:樣品 lightbox 圖下方說明(紋路名 · 表面);絕對定位於 counter 上方、沿用 .pd-lightbox chrome */
+.pd-lb-caption {
+  position: absolute;
+  bottom: 48px; left: 50%;
+  transform: translateX(-50%);
+  text-align: center;
+  font-size: 13.5px;
+  letter-spacing: 0.02em;
+  color: rgba(255,255,255,0.82);
+}
 @media (max-width: 900px) {
   .pd-lb-stage { padding: 16px; }
   .pd-lb-arrow { width: 38px; height: 38px; }
@@ -823,36 +1090,37 @@
   .pd-lb-arrow-right { right: 8px; }
 }
 
-/* ========= Mobile sticky buy bar ========= */
-/* M-1-13e-a:字面從 design-reference/styles/product-page.css line 738-805 直接搬(sec 13 Mobile sticky bar 68 行)
-   ⚠️ Cascade order 修正:design 原字面把此主規則(default display: none)放在 @media (display: flex)
-   之後、cascade order 讓主規則 override @media、mobile 永遠隱藏;storefront 修正:主規則放 @media 前、
-   對齊 CSS base → override 慣例。字面結構偏離 design、行為正確、進 backlog #161 同類追(待 Claude Design 補對齊) */
+/* ========= Mobile sticky buy bar(OD §12、OD-11 reskin)=========
+   OD-11:舊 M-1-13e-a 版用已不存在的 --border/--ink/--paper-2 legacy token(mobile 渲染壞)、
+   改 OD §12 字面 + --c-* token + 單色(buynow 深底白字、非舊紅 #c41e3a);保留 storefront 既有
+   .pd-mbb-orig(原價刪除線)+ disabled 視覺;trigger 由 ≤900 改 OD ≤1079(與全頁 mobile 門檻一致、見下)。 */
 .pd-mobile-buybar {
   display: none;
   position: fixed;
   left: 0; right: 0; bottom: 0;
   z-index: 50;
-  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-  background: rgba(255,255,255,0.97);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-top: 1px solid var(--border);
-  gap: 8px;
+  padding: 10px 12px;
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+  box-shadow: 0 -2px 12px #0000000a;
   align-items: center;
+  gap: 8px;
 }
-.pd-mbb-price-col {
-  flex: 0 0 auto;
-  min-width: 72px;
-  padding-right: 4px;
+.pd-mbb-back {
+  flex: 0 0 42px;
+  width: 42px; height: 46px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+  border: 1px solid var(--c-border-strong);
+  color: var(--c-text);
+  cursor: pointer;
 }
-.pd-mbb-price {
-  font: 600 16px/1.1 var(--font-sans);
-  color: #c41e3a;
-}
+.pd-mbb-back:active { background: var(--c-surface-2); }
+.pd-mbb-price-col { flex: 0 0 auto; min-width: 96px; padding-right: 4px; }
+.pd-mbb-price { font-size: 15.5px; font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
 .pd-mbb-orig {
-  font: 400 10px/1 var(--font-sans);
-  color: var(--ink-tert);
+  font-size: 10px; font-weight: 400;
+  color: var(--c-text-3);
   text-decoration: line-through;
   margin-top: 2px;
 }
@@ -860,84 +1128,67 @@
 .pd-mbb-buynow {
   flex: 1 1 0;
   height: 46px;
-  font: 600 14px/1 var(--font-sans);
-  letter-spacing: 0.04em;
-  border: 1.5px solid var(--ink);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 0 10px;
+  font-size: 13px; font-weight: 600;
+  cursor: pointer;
 }
-.pd-mbb-cart {
-  background: #fff;
-  color: var(--ink);
-}
-.pd-mbb-cart:active:not(:disabled) { background: var(--paper-2); }
-.pd-mbb-buynow {
-  background: #c41e3a;
-  border-color: #c41e3a;
-  color: #fff;
-}
-.pd-mbb-buynow:active:not(:disabled) { background: #a01830; }
+.pd-mbb-cart { background: var(--c-surface); color: var(--c-text); border: 1.5px solid var(--c-text); }
+.pd-mbb-cart:active:not(:disabled) { background: var(--c-surface-2); }
+.pd-mbb-buynow { background: var(--c-text); color: var(--c-text-inverse); border: 1.5px solid var(--c-text); }
+.pd-mbb-buynow:active:not(:disabled) { opacity: 0.85; }
 .pd-mbb-cart:disabled,
 .pd-mbb-buynow:disabled { opacity: 0.4; cursor: not-allowed; }
-
-.pd-mbb-back {
-  flex: 0 0 36px;
-  width: 36px; height: 44px;
-  display: flex; align-items: center; justify-content: center;
-  background: transparent;
-  border: 1px solid rgba(0,0,0,0.12);
-  color: var(--ink);
-  cursor: pointer;
-  margin-right: 4px;
+/* iOS Safari 底部安全區域 */
+@supports (padding: max(0px)) {
+  .pd-mobile-buybar { padding-bottom: max(10px, env(safe-area-inset-bottom)); }
 }
-.pd-mbb-back:active { background: var(--paper-2); }
 
-/* M-1-13c minimum responsive fix(Q-3=A 拍板)— 手機 grid collapse 單欄、避免 .pd-main 1fr+480px 把左欄擠到負寬;
-   完整 responsive 字面留 M-1-13g 搬 design line 618-669 sec 11 一次性收口
-   M-1-13e-a 補 design line 662-667 的 sec 6+7+13 切換規則(buy-row / buynow / services / mobile-buybar)
-   注意:此 @media 須位於 .pd-mobile-buybar 主規則之後、確保 display: flex 能 override default display: none */
-@media (max-width: 900px) {
-  .pd-main {
-    grid-template-columns: 1fr;
-    gap: 32px;
-  }
-  .pd-gallery {
-    position: static;
-  }
-  .pd-services { grid-template-columns: 1fr 1fr; }
-  /* M-1-13f-2 amend:對齊 design L663 mobile install CTA 改直向 */
-  .pd-install-cta { flex-direction: column; align-items: flex-start; }
+/* ===================================================================
+   FAQ accordion(OD §10、N°04 ProductFAQ)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
+=================================================================== */
+.faq-list { display: flex; flex-direction: column; border-top: 1px solid var(--c-border); }
+.faq-item { border-bottom: 1px solid var(--c-border); }
+.faq-item summary {
+  list-style: none;
+  display: flex; justify-content: space-between; align-items: center; gap: 20px;
+  padding: 22px 4px; cursor: pointer;
+  font-size: 15.5px; font-weight: 600;
+  transition: color 0.15s;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary:hover { color: var(--c-text-2); }
+.faq-icon {
+  flex-shrink: 0; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-mono); font-size: 18px; font-weight: 400;
+  color: var(--c-text-2);
+  transition: transform 0.2s;
+}
+.faq-item[open] .faq-icon { transform: rotate(45deg); }
+.faq-body {
+  padding: 0 4px 22px;
+  font-size: 14.5px; line-height: 1.75; color: var(--c-text-2);
+  text-wrap: pretty;
+  max-width: 960px;
+}
+.faq-body strong { color: var(--c-text); }
+
+
+/* OD-11:全頁 mobile 門檻統一 OD ≤1079(對齊 .pd-info static / 各 N° section / buybar);
+   原 M-1-13c ≤900 collapse + ≤900 buybar 改 ≤1079(否則 901-1079 出現 mobile section 卻 desktop 2 欄 + 無 buybar);
+   原 901-1099 mid-band(1:1 + padding)移除(≤1079 單欄、≥1080 base 1.2:1);相關卡 collapse 同步 1079、極窄 560→540。 */
+@media (max-width: 1079px) {
+  .pd-main { grid-template-columns: 1fr; gap: 32px; }
+  .pd-gallery { position: static; }
+  .pd-page { padding: 24px 16px 96px; }
   .pd-buy-row,
   .pd-buynow-btn { display: none !important; }
   .pd-mobile-buybar { display: flex; }
-}
-
-/* ========= M-1-13H-6:新元件 responsive(slice-4/5/6)+ 900-1100 中間斷點 ========= */
-/* 補 slice-4/5/6 新元件 grid collapse + 中間斷點(對齊 HANDOFF L362-369 responsive 規格表);
-   既有 @media (max-width: 900px) L899-913(.pd-main collapse 單欄 + mobile buybar 禁區)不動(Q3);
-   本段獨立新增、同條件 @media 合法、cascade 後段 override 同屬性、不衝突;
-   13g Toast 推延(對齊 STATUS 字面、卡片改完 Related 自動繼承後評估、本 slice 不動 Toast) */
-@media (max-width: 1099px) and (min-width: 901px) {
-  /* 900-1100 中間斷點:圖 1fr : 資訊 1fr + padding 縮 32(HANDOFF「900-1100px 圖 1fr : 資訊 1fr、padding 32」) */
-  .pd-main { grid-template-columns: 1fr 1fr; }
-  .pd-page { padding: 24px 32px 80px; }
-}
-@media (max-width: 900px) {
-  /* slice-4/5/6 新元件窄螢幕 collapse(避免 3/4 cols grid 爆版)*/
-  .pd-feature-grid { grid-template-columns: 1fr; }
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }
-  .pd-steps { grid-template-columns: repeat(2, 1fr); }
-  .pd-specs { grid-template-columns: 1fr; }
-  .pd-install-meta { grid-template-columns: 1fr; }
   .pd-related-grid { grid-template-columns: repeat(2, 1fr); }
 }
-@media (max-width: 560px) {
-  /* 極窄螢幕(手機直立):steps + related 再降單欄 */
-  .pd-steps { grid-template-columns: 1fr; }
+@media (max-width: 540px) {
   .pd-related-grid { grid-template-columns: 1fr; }
 }

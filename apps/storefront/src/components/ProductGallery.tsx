@@ -65,22 +65,30 @@ function resolveSrc(item: string, usingReal: boolean, w: number, q: number, fit:
 export type ProductGalleryProps = { product: MockProduct; selectedVariant?: UIVariant | null };
 
 export function ProductGallery({ product, selectedVariant }: ProductGalleryProps) {
-  // OD-4a:選中變體有自己的圖(RPM 每變體 ~5 張)→ 顯變體圖(選紋路→看該變體照片、Sean 附帶要求);
-  //   變體無圖 fallback product.images(群代表圖);皆無 fallback seed placeholder gallery。
-  //   gallery 來源變更時下方 activeImg reset effect 會歸 0(切變體回第一張)。
+  // OD-7d(Sean 2026-06-03 Q2:選中變體圖排前 + 其餘全部補後、可一路滑):
+  //   gallery = 選中變體的圖排**最前**(正確的那幾張)+ 其餘所有變體圖(變體順序)+ 群代表圖,
+  //   Set 去重保序(RPM 各變體圖無跨變體重複;群代表圖通常已是某變體的圖、去重不重出)。
+  //   取代 OD-4a「只顯示該變體那幾張」— 現在點某紋路會看到該紋路照片在前、剩下的接著看(全 ~22 張)。
+  //   皆無真圖則 fallback seed placeholder gallery;gallery 來源變更時下方 activeImg reset effect 歸 0。
   const { gallery, usingReal } = useMemo(() => {
-    const variantImgs = selectedVariant?.images ?? [];
-    const real = variantImgs.length
-      ? variantImgs
-      : product.images?.length
-        ? product.images
-        : product.image
-          ? [product.image]
-          : [];
-    return real.length > 0
-      ? { gallery: real, usingReal: true }
+    const seen = new Set<string>();
+    const pool: string[] = [];
+    const push = (arr?: readonly string[]) => {
+      for (const u of arr ?? []) {
+        if (u && !seen.has(u)) {
+          seen.add(u);
+          pool.push(u);
+        }
+      }
+    };
+    push(selectedVariant?.images); // 選中變體圖排最前
+    for (const v of product.variants ?? []) push(v.images); // 其餘變體圖(變體順序)
+    push(product.images); // 群代表圖(通常已含於變體圖、去重)
+    if (product.image) push([product.image]);
+    return pool.length > 0
+      ? { gallery: pool, usingReal: true }
       : { gallery: productGallery(product.id), usingReal: false };
-  }, [selectedVariant?.images, product.images, product.image, product.id]);
+  }, [selectedVariant?.images, product.variants, product.images, product.image, product.id]);
   const [activeImg, setActiveImg] = useState(0);
   const [lightbox, setLightbox] = useState(false);
 

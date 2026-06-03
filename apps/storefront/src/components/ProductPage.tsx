@@ -1,36 +1,17 @@
-// ProductPage.tsx — 商品詳細頁主元件(M-1-13b 骨架 + breadcrumb + vehicle pill;13c gallery 拆 ProductGallery 子元件;13d-g 累積補)
+// ProductPage.tsx — 商品詳細頁主元件(client、'use client')。
 //
-// 字面從 design-reference/components/ProductPage.jsx @ 25d3a2a 直接搬(M-1-13b 範圍:line 1-12、29-94、153-189):
-// - jsx → tsx + props type 推斷
-// - window.PCM_DATA → props.product import(server route 從 findProductBySlug 取、傳 client)
-// - tweaks.productFilter / productSource / vehicleFilter → useSearchParams 讀(Q4=B URL state 拍板)
-// - <Header onNav={onNav} currentPage="product" /> → <Header currentPage="catalog" />
-//   (storefront Header 不接 onNav、navItems 無 'product' id、對齊 ProductsPage 既存慣例)
-// - <Footer onNav={onNav} /> → <HomeFooter />(對齊 M-1-12 ProductsPage 既存用法)
-//
-// M-1-13c 拆檔:gallery + lightbox + 5 swipe useRef + keyboard nav useEffect + body scroll lock
-// + PRODUCT_IMG_POOL + productGallery helper + hasDiscount/discountPct derived 全部移至
-// ./ProductGallery.tsx(對齊鐵則 6「>300 行硬警戒」、本檔 13c 加完累計 366 行立即拆);
-// 本檔 13c 範圍 = `<ProductGallery product={product} />` 一行 + section.pd-main 含 pd-info 空殼預埋。
-//
-// M-1-13d 拆檔:pd-info column 上半(brand row + sku + title + fits-banner + color/size options)
-// + COLOR_MAP + 13d hooks(sizeOptions/colorOptions useMemo + color/size useState + reset useEffect)
-// 全部移至 ./ProductInfo.tsx(對齊鐵則 6「>300 行硬警戒」、Q3=A 2026-05-20 拍板「邊寫邊看 ≥300 立即拆」、
-// 13d 合一版 328 行立即拆;對齊 13c 拆 ProductGallery 模式);本檔 13d 範圍 = `<ProductInfo product={product} />` 一行。
+// 組裝層:pd-main(ProductGallery + ProductInfo)+ breadcrumb + vehicle pill + 各 N° section
+//   (ProductServices / Highlights / SwatchWall / Spotlight / Tabs / 相關商品 N°03 / ProductFAQ N°04)
+//   + mobile buybar;各 section 拆獨立子元件(鐵則 6)、本檔只負責資料 / 狀態 / 組裝。
+// selectedVariant 狀態在此(受控源頭、OD-4a):ProductInfo picker 改它、ProductGallery 隨它換圖、
+//   mobile buybar 用它;product 變更 reset 回第一個變體。
 //
 // 'use client' 必要:useSearchParams / useRouter / useMemo + 互動 onClick(vehicle pill ×)
-// 對齊 ADR-0006 §1 白名單「Hooks → 'use client'」、不違 server-component-default。
+//   (ADR-0006 §1 白名單「Hooks → 'use client'」、不違 server-component-default)。
 //
-// 後續 sub-slice 預埋:
-// - 13d info column 上半 + size/color/qty state(本 sub-slice、ProductPage 內、≥300 行才拆 ProductInfo)
-// - 13e buy row + buy-now + services + mobile sticky buy bar(tier resolution helper #130 + #82 mapper trigger)
-// - 13f tabs(spec / desc / faq / review)
-// - 13g related + toast + responsive media queries(product-page.css line 618-669)
-//
-// 本檔截至 M-1-13d:不渲染 product.price / origPrice / discountPct / tierLabel(留 13e Buy Row、
-// #130 tier resolution helper 第 3 處撞才抽);不渲染 product.inStock / availability(留 13e Buy Row、
-// 對齊 Q2=A 2026-05-20 拍板 + #82 mapper trigger);不動 backlog #81 variants schema
-// (Q1=A 2026-05-20 拍板:hardcoded 落地、M-5-03 sync engine 前真撞才 spike + Sean 親口講 1-20 種規格業務細節)。
+// 沿革(13b 骨架 / 13c-d 拆 Gallery·Info / 13e-g buy·tabs·related / OD-5~ 視覺真權威遷 OD 模板)
+//   詳見 design-storefront-manifest.yaml ProductPage 段 + od_redesign.slices_done;
+//   字面真權威源 = OD「Website V2」product-detail-rpm-template.html(鐵則 1)。
 
 'use client';
 
@@ -45,9 +26,12 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
+import { ProductServices } from './ProductServices';
 import { ProductHighlights } from './ProductHighlights';
+import { ProductSwatchWall } from './ProductSwatchWall';
 import { ProductSpotlight } from './ProductSpotlight';
 import { ProductTabs } from './ProductTabs';
+import { ProductFAQ } from './ProductFAQ';
 import { ProductCard } from './ProductCard';
 import '@/styles/product-page.css';
 
@@ -288,9 +272,18 @@ export function ProductPage({ product, tier }: ProductPageProps) {
             onSelectVariant={setSelectedVariant}
           />
         </section>
-        {/* M-1-13H-4:Highlights + Spotlight 兩新子元件串接(對應 PRD §4 slice-4 + HANDOFF #12 #13);
-            ProductSpotlight 內部條件渲染 product.hasSpotlight、falsy 返 null(caller 無需 if-guard) */}
-        <ProductHighlights product={product} />
+        {/* OD-5:服務保障橫條(ProductServices)— OD 模板 §12 hero 下方獨立全寬 section,
+            從 ProductInfo 右欄內移出(self-contained section.pd-services-strip)。
+            OD 模板順序為 pd-main → pd-services-strip → 適用車款(Phase B)→ N°01;
+            Phase A 尚無適用車款表 → 服務橫條直接接 N°01 Highlights。 */}
+        <ProductServices />
+        {/* OD-6:N°01「為什麼選 RPM Carbon」— ProductHighlights(RPM 固定內容、prop-less)。
+            OD-7b:N°02「紋路 × 表面」紋路樣式牆 ProductSwatchWall(緊接 N°01、OD 模板順序;
+              prop-less RPM 品牌通用展示、10 張樣品圖 from @/data/rpm-swatches)。
+            OD-7a:ProductSpotlight(舊 N°02 Engineering)碳纖維化 + 去 N°02 編號、Sean Q1 拍保留;
+              OD 模板無此區、條件渲染 hasSpotlight(真 RPM 頁不顯);真內文交資料線接 DB。 */}
+        <ProductHighlights />
+        <ProductSwatchWall />
         <ProductSpotlight product={product} />
         {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
             (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}
@@ -299,13 +292,17 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         {/* M-1-13H-6:Related section(對應 HANDOFF #16 + Q4 + lessons §12-37);
             用既有 <ProductCard> 元件 map、不複製 design VariantCFull L219-230 demo
             .vcf-related-card hardcoded(demo 自包含寫法、不取代正式元件、對齊 lessons §12-37
-            「demo 變體字面不取代正式元件」);容器標題對齊 design L214-218 字面;
+            「demo 變體字面不取代正式元件」);OD-9 標題 eyebrow 換 OD N° 巢狀形態(03 + 金線 + N° 相關商品、對齊 N°01/N°02);
             relatedProducts < 4 時不顯示空卡(條件渲染整個 section) */}
         {relatedProducts.length > 0 && (
-          <section className="pd-section pd-related">
+          <section className="pd-section pd-related" aria-labelledby="pd-h-related">
             <div className="pd-section-head">
-              <div className="pd-eyebrow">N°03 — You may also like</div>
-              <h2 className="pd-h2">相同分類</h2>
+              <div className="pd-eyebrow">
+                <span className="pd-eb-no">03</span>
+                <span className="pd-eb-sep" aria-hidden="true" />
+                <span className="pd-eb-label">{'N°  相關商品'}</span>
+              </div>
+              <h2 className="pd-h2" id="pd-h-related">相同分類</h2>
             </div>
             <div className="pd-related-grid">
               {relatedProducts.map((p) => (
@@ -314,6 +311,9 @@ export function ProductPage({ product, tier }: ProductPageProps) {
             </div>
           </section>
         )}
+
+        {/* N°04 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10、Sean Q1 override 排 N°04) */}
+        <ProductFAQ />
       </main>
 
       <HomeFooter />

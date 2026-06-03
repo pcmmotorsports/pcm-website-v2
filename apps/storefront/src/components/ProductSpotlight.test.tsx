@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
-// ProductSpotlight smoke test — N°02 Engineering Spotlight 區塊(M-1-13H-4 新建)。
+// ProductSpotlight smoke test — 「碳纖維工藝」深度區塊(OD-7a carbon-ify)。
 // 驗條件渲染(hasSpotlight true/false 兩種路徑)+ eyebrow / h2 / 2 body / 3 stats 字面。
+// OD-7a:內容由舊鋁件文案(7075-T6/CNC)換碳纖維通用 placeholder、eyebrow 去 N°02 編號。
 // 純 presentational server component、無 hooks / interactive(不需 CartProvider wrapper)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
@@ -15,8 +16,6 @@ afterEach(cleanup);
 
 describe('ProductSpotlight', () => {
   it('renders nothing when product.hasSpotlight is falsy', () => {
-    // mock 順序前 5(lightech-1 / lightech-2 / cnc-racing-3 / gb-racing-4 / rizoma-5)中
-    // 只有 lightech-1 hasSpotlight: true(Sean 2026-05-22 A1 拍板)、其餘 falsy
     const lightech2 = MOCK_PRODUCTS.find((p) => p.slug === 'lightech-2')!;
     expect(lightech2.hasSpotlight).toBeFalsy();
     const { container } = render(<ProductSpotlight product={lightech2} />);
@@ -29,33 +28,33 @@ describe('ProductSpotlight', () => {
     expect(container.querySelector('.pd-spotlight')).toBeNull();
   });
 
-  it('renders full section when product.hasSpotlight is true', () => {
-    // Sean A1 拍板:lightech-1 / akrapovic-6 / brembo-7 hasSpotlight: true
+  it('renders full carbon section when product.hasSpotlight is true', () => {
     const lightech1 = MOCK_PRODUCTS.find((p) => p.slug === 'lightech-1')!;
     expect(lightech1.hasSpotlight).toBe(true);
     const { container } = render(<ProductSpotlight product={lightech1} />);
     expect(container.querySelector('.pd-spotlight')).not.toBeNull();
-    expect(screen.getByText('N°02 — Engineering')).toBeDefined();
-    // h2 結構:`為賽道設計、<br/>適合每日通勤。` — 含換行、用 partial match
+    // OD-7a:eyebrow 去 N°02 編號、改碳纖維工藝
+    expect(screen.getByText('碳纖維工藝')).toBeDefined();
+    // h2:含換行、用 partial match
     const h2 = screen.getByRole('heading', { level: 2 });
-    expect(h2.textContent).toContain('為賽道設計');
-    expect(h2.textContent).toContain('適合每日通勤');
-    // body × 2(字面片段)
-    expect(screen.getByText(/從 SBK 賽事工程衍生/)).toBeDefined();
-    expect(screen.getByText(/Plug & Play/)).toBeDefined();
+    expect(h2.textContent).toContain('真碳纖維');
+    expect(h2.textContent).toContain('為原廠車身而生');
+    // body × 2(碳纖維 placeholder 字面片段)
+    expect(screen.getByText(/採用真碳纖維材質/)).toBeDefined();
+    expect(screen.getByText(/可直接安裝在原廠車身上/)).toBeDefined();
   });
 
-  it('renders 3 stats with strong number + span label', () => {
+  it('renders 3 carbon stats with strong + span label', () => {
     const lightech1 = MOCK_PRODUCTS.find((p) => p.slug === 'lightech-1')!;
     render(<ProductSpotlight product={lightech1} />);
-    // 3 stats numbers
-    expect(screen.getByText('−38%')).toBeDefined();
-    expect(screen.getByText('±0.02mm')).toBeDefined();
-    expect(screen.getByText('24m')).toBeDefined();
+    // 3 stats(碳纖維質性、非舊鋁件數字)
+    expect(screen.getByText('輕量')).toBeDefined();
+    expect(screen.getByText('隔熱')).toBeDefined();
+    expect(screen.getByText('直上')).toBeDefined();
     // 3 stats labels
-    expect(screen.getByText('較原廠輕量化')).toBeDefined();
-    expect(screen.getByText('CNC 加工公差')).toBeDefined();
-    expect(screen.getByText('原廠保固期')).toBeDefined();
+    expect(screen.getByText('比原廠塑件輕')).toBeDefined();
+    expect(screen.getByText('真碳纖不導熱')).toBeDefined();
+    expect(screen.getByText('針對原廠開模')).toBeDefined();
   });
 
   it('renders for all 3 hardcoded products (lightech-1 / akrapovic-6 / brembo-7)', () => {

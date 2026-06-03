@@ -35,7 +35,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
-import { ProductServices } from './ProductServices';
+import { ProductSwatchPreview } from './ProductSwatchPreview';
 
 // OD-4a:selectedVariant 狀態提升至 ProductPage(本元件受控)— picker 改它、ProductGallery 隨它換圖、
 //   mobile buybar 用它(修 16c-3 buybar 只能用預設變體的限制)。
@@ -163,6 +163,16 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
   // 顯示價:選到變體用變體價(general)、否則 product.price(無變體 mock fallback)
   const displayPrice = selectedVariant?.price ?? product.price;
 
+  // OD-7c:預覽卡的「紋路 · 表面」文字 — 反映實際選擇(含 12K/Kevlar 合併款、空維過濾)。
+  const previewValueText = selectedVariant
+    ? [
+        dimValueLabel('pattern', variantDimValue(selectedVariant, 'pattern')),
+        dimValueLabel('finish', variantDimValue(selectedVariant, 'finish')),
+      ]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
+
   const addToCart = () => {
     // M-1-16c-3:變體 sku 當 cart line discriminator(全表 UNIQUE + 穩定、無碰撞/翻譯失效;
     //   codex 關卡1 consider 1)。CartLineKey {productId,color,size} 不改契約、sku 走 color 欄。
@@ -213,6 +223,12 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
         </div>
         <div className="pd-price-sub">含稅 · 滿 NT$ 5,000 免運</div>
       </div>
+
+      {/* OD-7c:picker 上方即時預覽卡 — 顯當前選中變體對應的紋路樣品圖(findSwatch + fallback);
+          點圖開 lightbox 瀏覽全 10 張樣品。與 Hero 圖庫(OD-7d 真變體實拍)互補(預覽=乾淨紋路參考)。 */}
+      {hasVariants && (
+        <ProductSwatchPreview selectedVariant={selectedVariant} valueText={previewValueText} />
+      )}
 
       {/* OD-4c:資料驅動 2 維選擇器(紋路 = weave+special 合併、表面 = finish;Sean Q-OD4c-1/2=A、D3=A)。
           12K/Kevlar 折進紋路(顯「12K斜紋」「Kevlar斜紋」)、無「特殊」獨立欄、消光不寫死鎖(真資料 snap)。
@@ -292,9 +308,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       <button type="button" className="pd-buynow-btn" onClick={addToCart}>
         立即購買
       </button>
-
-      {/* M-1-13f-1:services 段(ProductServices.tsx) */}
-      <ProductServices />
+      {/* OD-5:服務橫條(ProductServices)已外移至 ProductPage、改為 hero 下方獨立全寬 section(OD 模板 §12)*/}
     </aside>
   );
 }

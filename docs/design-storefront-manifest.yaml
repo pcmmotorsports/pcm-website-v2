@@ -46,6 +46,17 @@ od_redesign:
     - "OD-4a:selectedVariant 狀態提升 + Hero 變體換圖(行為改、Sean 附帶要求)— selectedVariant 由 ProductInfo local state 提升至 ProductPage(受控源頭);ProductInfo 改受控(收 selectedVariant + onSelectVariant props、移除 local useState + reset effect、selectSpec 改呼 onSelectVariant、只持 qty/liked);ProductGallery 收 optional selectedVariant、有變體圖則顯變體圖(RPM 每變體 ~5 張、選紋路→看該變體照片)、無則 fallback product.images→seed;ProductPage 持 state + product 變更 reset + displayPrice + mobile buybar 改用真選中變體 sku/price(修 16c-3 buybar 只能用預設變體限制);ProductInfo.test 加 stateful harness(受控後點擊換價可驗)、ProductGallery.test +變體換圖測;三綠 + 完整 pnpm test 507(+1)全綠。檔案 ProductPage~365/ProductInfo~265/ProductGallery~264 皆 <400"
     - "OD-4b:Picker 外觀(CSS-only、ProductInfo.tsx 不動)— product-page.css options 段字面從 OD §5 直接搬:.pd-opt-label mono 大寫 12px、.pd-size-btn 直角細框 active 黑底、+:disabled/.is-disabled 灰階虛線刪除線視覺、.pd-size-grid auto-fill grid→flex-wrap;清 dead 規則(.pd-opt-guide 未渲染、.pd-swatches/.pd-swatch 色票 16c-3 起全文字鈕無色票)。**inline 預覽卡重排到 OD-7 後**(OD 用途=顯紋理樣品、來源 N°02 紋路牆、且 OD-4a Hero 換圖已覆蓋核心 UX)"
     - "OD-4c:Picker 12K 處置(資料驅動行為改、ProductInfo.tsx)— 動手前 Supabase 唯讀撈真變體 spec **發現 12K 有消光(DB 24 變體:Twill+Matt 13/Plain+Matt 11)**、與 Sean Q2「12K 沒消光」假設衝突 → raise Sean,**Q-OD4c-1=A / Q-OD4c-2=A(照真資料、D3=A)**。ProductInfo spec 邏輯 3 維(weave/finish/special)→ **2 維**:紋路 pattern = weave+special 合併(patternKey「special|weave」、顯「12K斜紋」「12K平織」「Kevlar斜紋」)、表面 finish;移除「特殊」獨立欄 + NONE「標準」sentinel;**消光不寫死鎖**(不照搬 OD enforceSurface/GLOSSY_ONLY、12K 有消光就讓選、避免少賣 24 變體);selectSpec/specGroups/render 全改維度版、WEAVE/FINISH/SPECIAL_LABEL + sortDimValues(標準 weave 在前、12K→Kevlar 合併款在後、亮光在前);ProductInfo.test 標籤對齊(鍛造紋→鍛造/亮面→亮光)+ 改寫特殊測為 12K 折入紋路測 + 加 Kevlar 折入測;三綠 + 完整 pnpm test 508(+1)全綠"
+    - "OD-5:服務橫條外移(ProductServices/ProductInfo/ProductPage + product-page.css)— OD 模板 §12 服務保障橫條是 hero 下方**全寬獨立 section**、非右欄內元素;故 ① ProductServices 元件改吐完整 `<section.pd-services-strip aria-label=服務保障>`(外殼由元件擁有)② 從 ProductInfo 右欄(pd-info)內移出、改由 ProductPage 在 pd-main 之後當獨立 section 渲染(OD 順序 pd-main→pd-services-strip→適用車款〔Phase B〕→N°01;Phase A 無車款表故直接接 N°01)③ CSS 字面從 OD 模板直接搬:.pd-services-strip 上下細線全寬 + .pd-services 4 欄 gap0 內分隔線 + .pd-service flex 直欄 + 720→2×2 + 540 縮字(取代舊嵌 pd-info 的 2 欄純文字版、移除 900px 孤兒 2 欄規則)④ 4 卡字面直接搬 OD(鐵則 1):滿額免運/NT$5,000 以上免運費、專業安裝/全台合作店家、**泰國原廠/RPM Carbon 授權代理**(取代舊原廠保固/原廠授權代理)、LINE 諮詢/下單前先聊聊確認貨況(取代舊 30 分鐘內回覆);ProductServices.test 字面對齊 + 加 .pd-services-strip section 斷言;三綠全綠(typecheck turbo+scripts tsc / lint turbo+scripts eslint / 完整 pnpm test 508 / build storefront)。CSS-only 響應式微調、無新後台(L2 hardcoded、Phase 2 site_services)"
+    - "OD-6:N°01「為什麼選 RPM Carbon」(ProductHighlights/ProductPage + product-page.css)— 內容 + 卡片視覺直接搬 OD 模板 N°01(鐵則 1)。① TSX:eyebrow 改巢狀形式(.pd-eb-no 義體 01 + .pd-eb-sep 金線 + 品牌標記)、h2「為什麼選 RPM Carbon」(取代舊「為什麼是 {brand}」)、lead〔RPM 來自泰國…〕、3 卡換 OD 字面〔可直上原廠 / 紋路想怎麼搭都行 / 輕量化．隔熱防燙〕;② 卡片 CSS reskin:OD 平面 surface + 細框 + hover 上移 + 義體斜體章節數字 + 金線 ::after(取代 M-1-13H-4 圓角 #f5f5f7 大卡)+ 920px collapse 單欄含 padding/字級(移除 900px 孤兒 collapse 行);③ **內容由 product.brand 動態改 RPM 固定**、元件 prop-less(N°01=OD RPM 共用區塊、Phase 1 catalog RPM-only;Phase 2 product_highlights 恢復參數)、ProductPage 呼叫點改 `<ProductHighlights/>`;④ **eyebrow 品牌標記用文字 .pd-eb-label「RPM Carbon」代 OD logo img**(public/ 無 RPM avif、不擅造視覺資產、交 Sean 後補、對齊 feedback_sean-owns-visual-design;.pd-eb-logo CSS 已備未來換 img 不改 layout);⑤ ProductHighlights.test 改寫對齊新內容 + 移除 brand 注入測;`pd-highlights` vestigial class 移除。三綠全綠(typecheck / lint / 完整 pnpm test 507〔-1 移除 brand 測〕/ build);半形逗號隨產品頁家族慣例(Spotlight/Tabs 一致)、措辭直接搬 OD。ProductSpotlight(舊 N°02 Engineering)OD 模板無對應、去留待 OD-7 處置"
+    - "OD-7a:ProductSpotlight 碳纖維化 + 去 N°02 編號(ProductSpotlight.tsx + test)— Sean 2026-06-03 Q1 拍板〔不移除、先換碳纖維格式 + 備註交資料線〕。OD 模板無 Engineering Spotlight 區、Sean 拍保留。① 內文舊**鋁件**文案(7075-T6 鋁合金 / 5 軸 CNC / Hard Anodized / −38%/±0.02mm/24m stats)換**碳纖維通用 placeholder**(h2 真碳纖維為原廠車身而生 / 2 body 碳纖材質+原廠開模直上 / 3 stats 輕量·隔熱·直上 質性、無捏造數字);② eyebrow 去「N°02 — Engineering」改不帶編號 flat「碳纖維工藝」(N°02 讓給紋路樣式牆 OD-7b);③ 🔴 真正 per-廠牌固定內文交**資料線 workstream** 接 supabase product_spotlights DB(每品牌不同 story)、元件頂 + manifest + commit body 顯著備註給審查/資料線;④ ⚠️ 低風險:hasSpotlight 為 mock-only 欄、真 RPM 頁(toUIProduct 不設)不渲染、placeholder 只現於 3 legacy mock 頁(lightech/akrapovic/brembo、且皆非碳纖)。ProductSpotlight.test 對齊新內容(條件渲染測不動)。三綠全綠(typecheck / lint / 完整 pnpm test 507 / build)。⚠️ 本片後頁面暫無 N°02(N°01→Spotlight→Tabs→N°03)、N°02 紋路牆 OD-7b 補"
+    - "OD-7b:N°02「紋路 × 表面」紋路樣式牆(新增 ProductSwatchWall.tsx + ProductSwatchWall.test + 新 data/rpm-swatches.ts + product-page.css swatch 段 + ProductPage 接線)— 結構/字面/圖片 URL 直接搬 OD 模板 §N°02(鐵則 1)。① 新 data 模組 `rpm-swatches.ts`:10 張碳纖維紋路樣品(亮光 6 + 消光 4)、圖為 **Shopee 圖床遠端 URL 直接搬**(非本地資產、plain img 無 next/image domain 需求)、weave/special/surface 欄供 OD-7c picker 對應用;② 新元件 `ProductSwatchWall`(prop-less RPM 品牌通用展示、HANDOFF §2 共用區塊):eyebrow〔義體 02 + 金線 + N° 紋路 × 表面〕+ h2/lead + 亮光 swatch-grid cols-6 + 消光 cols-4 + 挑選小提醒 swatch-note、is-rare 金徽(2 款 12K + 1 消光蜂巢特別訂製);③ CSS 直接搬 OD §8 swatch showcase(.swatch-note/.swatch-section/.swatch-grid cols-6·cols-4/.swatch-card/is-rare + 1279→4·1079→6改4·919→3·540→2 響應式);④ ProductPage 在 N°01 之後、Spotlight 之前插入 `<ProductSwatchWall/>`(OD 順序 N°01→N°02→…);⑤ ⚠️ swatch 圖點擊放大 lightbox **暫靜態**(cursor:zoom-in CSS 直接搬提示未來可點、無 click handler)、lightbox 互動 + picker 預覽卡一起 OD-7c 補(對齊 OD-2 不移植 vanilla lightbox)。ProductSwatchWall.test 5 測(eyebrow/h2/兩組/10 卡真 CDN URL/3 is-rare/note)。三綠全綠(typecheck / lint / 完整 pnpm test 512〔+5〕/ build)。⚠️ Shopee 圖床若失效屬 Phase 2 自架資產(backlog);N°02 swatch 為品牌固定展示、與右欄 picker(真變體可選項)互補"
+    - "OD-7d:圖庫聚合改法 — 選中變體圖排前 + 其餘全部補後可一路滑(ProductGallery.tsx + test)。Sean 2026-06-03 Q2 更正〔變體圖非全錯、前幾張該紋路正確、剩餘補後讓客人滑完整套〕。動手前真 DB 唯讀驗證〔execute_sql、aprilia-01:product.images 僅 1 張代表圖、8 變體共 23 張 distinct 無跨變體重複、代表圖已是某變體圖 rep_in_variants=1〕。① gallery useMemo 改:Set 去重保序聚合 = 選中變體圖排最前 + 各變體圖(變體順序)+ 群代表圖 + product.image fallback;取代 OD-4a「變體有圖則只顯該變體那幾張」;無真圖 fallback seed gallery 不變;activeImg reset effect 沿用(切變體歸 0 顯該紋路第一張);② deps 補 product.variants;③ ProductGallery.test:OD-4a 測改名「product has no other images」特例〔MOCK[0] 無 variants/images → 退化變體 only〕+ 新增 OD-7d 聚合測(選中變體圖排前 + 其餘 + 代表圖去重、驗 counter 01/03 + thumb1=選中變體圖 + thumb2=其餘)。三綠全綠(typecheck / lint / 完整 pnpm test 513〔+1〕/ build)。⚠️ 預覽卡 OD-7c 另做"
+    - "OD-7c:picker 上方紋路樣品預覽卡 + 樣品 lightbox(新增 ProductSwatchPreview.tsx + test + rpm-swatches.findSwatch + ProductInfo 接線 + product-page.css .pd-pattern-preview/.pd-lb-caption)。Sean 2026-06-03 Q2「預覽卡保留」、視覺真權威 OD 模板 §8 .pd-pattern-preview 直接搬。① rpm-swatches 加 `findSwatch(spec)`:變體 spec(weave/finish/special)→ 對應 10 張樣品之一、fallback 鏈〔精準→12K 消光退 12K 亮光→Kevlar/其他退基礎 weave+surface→weave 任意→第一張亮光〕;② 新元件 `ProductSwatchPreview`(props selectedVariant + valueText):72px 樣品圖 + 當前樣式文字 + ⤢、is-rare 金字;點圖開 lightbox 瀏覽全 10 張(以當前為起點、←/→ + ESC + 點空白關 + 手機滑、沿用 .pd-lightbox/.pd-lb-* chrome + 新 .pd-lb-caption);③ ProductInfo 在 picker 上方渲染(hasVariants gate)、valueText 由 ProductInfo 算反映實際選擇〔含 12K/Kevlar 合併款、空維過濾;非從 fallback 樣品名推〕;④ CSS .pd-pattern-preview* 直接搬 OD §8 + .pd-lb-caption(絕對定位 counter 上方)。**預覽=乾淨紋路參考樣品、與 Hero 圖庫(OD-7d 真變體實拍)互補**。⚠️ Kevlar 無專屬樣品 → 顯同 weave 一般碳纖(紋理對、材質色差、已備註);swatch 牆卡片本身 lightbox 仍靜態(預覽卡有 lightbox、牆卡點擊延後、非阻)。ProductSwatchPreview.test 9 測(findSwatch 5 + 元件 4)。三綠全綠(typecheck / lint / 完整 pnpm test 522〔+9〕/ build)"
+    - "OD-8:分頁 tabs 碳纖維化 reskin(ProductTabs.tsx + test + product-page.css §9 tabs 段)— 結構/字面/視覺直接搬 OD 模板 §9 tabs(鐵則 1)、修正舊鋁合金殘留(7075-T6 / Hard Anodized / 重量 320g / 義大利保固)。① tab chrome:舊 Apple pill 群組 → OD 底線式(容器底框 + active 2px 下底線 + 可橫向捲動);規格 tab 字面「規格與相容性」→ OD「規格 / 相容性」。② 介紹 pane(商品專屬):brand/name/fits 動態 + 碳纖維通用框架;🔴 per-廠牌真實功能描述(如 DCC01 散熱導風)交資料線 workstream 接 product_description(Sean 2026-06-03 Q1、同 ProductSpotlight)。③ 規格 pane:8 欄 → 9 欄(材質 真碳纖維 / 紋路可選 / 表面可選 / 特殊樣式 取代舊 表面處理·重量;品牌·型號·分類·適用車款 動態、產地泰國 RPM-only);⚠️ OD 模板「適用車款」列「完整見頁面上方對照表」交叉引用已省略(storefront Phase A 無適用車款表、ProductPage L295、避免 dangling)。④ 安裝 pane(RPM 共用):捨棄舊 4 步驟卡 pd-steps、改 OD meta 3 欄(因品而異/交給專業技師/基本機車手工具)+ 1 段說明 + 3 點清單;預約安裝 CTA router.push(/install) 沿用。⑤ 保固 pane(RPM 共用):舊 義大利 24 個月 → OD 客製訂製退換政策 3 段 + 3 點清單(含消保法第 19 條鑑賞期);⚠️ 須與 N°04 FAQ 保固字面一致(OD-10 接續)、解除 warrantyOriginItalyResidual 殘差(#162)。⑥ CSS:pd-list 改 OD 標準項目符號 / pd-specs 改 OD 單欄 key·value / install-meta·install-cta 直角 token 化 / 移除 pd-steps·pd-step·pd-step-n + 底部 responsive 孤兒規則。⑦ test:tab 標籤對齊 + 4 新碳纖 regression 測;⚠️ mock 目錄舊鋁品名(name 含鋁合金為動態非 hardcoded)、碳纖文案以 RPM production 為目標。三綠全綠(typecheck / lint / 完整 pnpm test 526〔+4〕/ build)。半形逗號隨產品頁家族慣例(Spotlight/Highlights 一致)"
+    - "OD-9:N°03 相關商品 section eyebrow 換 OD N° 巢狀形態(ProductPage.tsx + ProductPage.test;CSS 無新增、沿用 OD-6 既有 .pd-eb-* 巢狀 eyebrow)— Sean Q1 override〔N°03 留相關商品、FAQ 變 N°04〕。① pd-related section-head 由舊扁平 eyebrow「N°03 — You may also like」改 OD 巢狀(義體 03 + 金線 .pd-eb-sep + label「N°  相關商品」、對齊 N°01 Highlights / N°02 SwatchWall);h2「相同分類」保留;② 補 section aria-labelledby=pd-h-related + h2 id(對齊 OD a11y pattern);③ 相關商品來源不變(MOCK_PRODUCTS 同 categoryMain filter、既有 ProductCard map、條件渲染 length>0)。⚠️ OD 模板 N°03 原為 FAQ、相關商品為 storefront 既有區塊(Sean override)、故只搬 OD eyebrow 視覺、copy 為 storefront 業務字面(非 OD 翻譯)。ProductPage.test +1 OD-9 smoke(eb-no 03 / label 相關商品 / h2 相同分類)。三綠全綠(typecheck / lint / 完整 pnpm test 527〔+1〕/ build)"
+    - "OD-10a:保固政策共用單一真相(新增 data/rpm-policies.ts + 重構 ProductTabs 保固 pane)— Sean 2026-06-03 釘〔OD-10 FAQ 保固字面必須與 OD-8 ProductTabs 保固分頁一致、別寫分歧版;鑑賞期免除是法律主張、Sean 仍在確認準確性〕。① 新 data 模組 rpm-policies.ts:RPM_WARRANTY_PARAGRAPHS(3 段、byte-for-byte 取自 OD-8 ProductTabs 保固 pane)+ RPM_WARRANTY_NOTES(3 點 ul、tabs 專用)、PolicyRun 結構(string | {b})純資料無 React 依賴;② ProductTabs 保固 pane 由 inline JSX 改 map 共用常數(renderPolicyRuns helper)、視覺零變化、保固斷言不變全綠;③ 目的:OD-10b ProductFAQ 保固 item 共用同一份、改字面只動 rpm-policies、兩處永不漂移。三綠全綠(typecheck / lint / 完整 pnpm test 527 / build)。⚠️ 含《消保法》第 19 條鑑賞期、未來 site_policies 接線"
+    - "OD-10b:N°04 常見問題 FAQ 手風琴 + FAQPage JSON-LD(新增 ProductFAQ.tsx + test + product-page.css faq 段 + ProductPage slim & 接線)— 結構/字面直接搬 OD 模板 §FAQ(鐵則 1)、Sean Q1 override N°04。① 新元件 ProductFAQ(prop-less、原生 <details>/<summary> 純 CSS 手風琴、+→× 旋轉、無 JS、SSR-friendly):eyebrow〔義體 04 + 金線 + N° 常見問題〕+ h2/lead + 5 題(如何訂購/交期/保固與退換貨/安裝/實體門市);② FAQPage JSON-LD:<script application/ld+json> 隨 section SSR 進初始 HTML、答案由同份 FAQ_ITEMS 衍生(plainAnswer、與畫面單一真相);③ 🔴 保固題吃共用 @/data/rpm-policies(OD-10a)、與 ProductTabs 保固 pane 同源不分歧(Sean 2026-06-03);④ CSS .faq-list/.faq-item/.faq-icon/.faq-body 直接搬 OD §10;⑤ ProductPage:接線 <ProductFAQ/> 於相關商品 N°03 之後(非條件、RPM 共用)+ 頂部 33 行歷史註解瘦身為 13 行(鐵則 6、386→371 行、為 OD section 接線預留空間、Sean 2026-06-03 點名)。ProductFAQ.test 4 測。三綠全綠(typecheck / lint / 完整 pnpm test 531〔+4〕/ build)"
+    - "OD-11:Mobile buybar 改皮(OD §12)+ 全頁響應式斷點收口(product-page.css only)— Phase A 收尾片。① buybar reskin:舊 M-1-13e-a 版用**已不存在的 legacy token**(--border/--ink/--paper-2/--ink-tert、tokens.css 無 → mobile 渲染壞)→ 改 OD §12 字面 + --c-* token + 單色(buynow 深底白字 var(--c-text)/var(--c-text-inverse)、cart 描邊、非舊紅 #c41e3a、與桌機 .pd-buynow-btn/.pd-add-btn 一致);保留 storefront 既有 .pd-mbb-orig(原價刪除線)+ disabled 視覺 + iOS safe-area @supports;② 斷點收口:全頁 mobile 門檻統一 OD ≤1079(原 .pd-main collapse + buy-row 隱藏 + buybar 顯示在 ≤900、與已是 1079 的 .pd-info static / 各 N° section 不一致 → 統一 ≤1079);移除冗餘 901-1099 mid-band;.pd-spotlight/.pd-related collapse 同步 1079、related 極窄 560→540;≤1079 .pd-page padding 改 24px 16px 96px(OD 窄側距 + fixed buybar 底部空間);③ NIT:清 4 條 OD-1/OD-2「斷點遷移留 OD-11」stale 註解(已兌現)。⚠️ 純 CSS 視覺/響應式、需 Sean 真機肉眼驗(桌機 ≥1080 2 欄 / 平板 ≤1079 單欄 + buybar / 手機 ≤540);殘留 @media 900(lightbox 箭頭 overlay-only 尺寸、非頁面 layout)+ 560(OD §9 spec-row、OD-faithful)刻意留。三綠全綠(typecheck / lint / build / 完整 pnpm test 531)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -112,8 +123,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "13623c9"  # 記可達祖先=OD-4c 父 commit(避 amend orphan);本 slice 真改見 git log [OD-4c]:ProductInfo picker 3 維→2 維(12K/Kevlar 折進紋路、移除特殊欄、消光不寫死鎖)。OD-1~OD-4b 見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-4c:ProductInfo picker 折成紋路/表面 2 維、12K/Kevlar 折進紋路、D3=A 真資料消光不鎖;前序 OD-4a 狀態提升等見 od_redesign 段)"
+      last_modified_commit: "06d0fb2"  # 記可達祖先=OD-10b 父 commit(=OD-10a、避 amend orphan);本 slice 真改見 git log [OD-10b]:接線 <ProductFAQ/> + 頂部註解瘦身。OD-7b/OD-9 見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-10b:接線 N°04 <ProductFAQ/>〔相關商品 N°03 之後〕+ 頂部歷史註解 33→13 行瘦身〔鐵則 6、386→371〕;OD-9 N°03 eyebrow 等見 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
@@ -168,52 +179,105 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductHighlights.tsx"
       css: "apps/storefront/src/styles/product-page.css"  # 共用、無獨立 css
-      last_modified_commit: "56ccb5c"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "c376d24"  # 記可達祖先=OD-6 父 commit(=OD-5、避 amend orphan);本 slice 真改見 git log [OD-6]
+      last_modified_date: "2026-06-03 (OD-6:N°01「為什麼選 RPM Carbon」內容 + 卡片視覺直接搬 OD 模板 — eyebrow 改巢狀〔義體 01 + 金線 + 品牌 label〕、h2/lead/3 卡換 RPM 字面、卡片 reskin〔平面 surface + 細框 + hover + 義體數字 + 金線 ::after〕;元件改 prop-less)"
     design:
-      component: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 才新加、design 端尚無對應正式檔
+      # OD-6 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §N°01(為什麼選 RPM Carbon、.pd-section + .pd-feature-*)"
+      legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
-      - field: "highlightsContent3Cards"
-        design_value: "explorations 3 卡 demo 內容"
-        storefront_value: "Phase 1 hardcoded 3 卡通用"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-4"
-        reason: "L3 對沖(業務拍板 Phase 2 supabase product_highlights 表)、Phase 1 hardcoded"
+      - field: "highlightsContentRpmFixed"
+        design_value: "OD 模板 N°01:h2「為什麼選 RPM Carbon」+ lead〔RPM 來自泰國…〕+ 3 卡〔可直上原廠 / 紋路想怎麼搭都行 / 輕量化．隔熱防燙〕"
+        storefront_value: "字面直接搬 OD 模板;**內容由 product.brand 動態改 RPM 固定**、元件 prop-less(N°01 = OD RPM 共用區塊、HANDOFF §2;Phase 1 catalog RPM-only)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-6(視覺真權威 OD 模板、鐵則 1 直接搬)"
+        reason: "OD N°01 是 RPM 品牌定位共用區塊;Phase 2 接 supabase product_highlights 表時恢復 product 參數真區分(STATUS M-1-13H Phase 2 LOG)"
         phase_2_supabase_table: "product_highlights"
+      - field: "n01EyebrowBrandMarkTextNotLogo"
+        design_value: "OD 模板 N°01 eyebrow 用 RPM Carbon logo <img>(精品-RPM-Carbon.avif)"
+        storefront_value: "改用文字 .pd-eb-label「RPM Carbon」(對齊 N°02/N°03 文字 label pattern);storefront public/ 無 RPM 品牌 avif 資產、不擅自造視覺資產、交 Sean 後補真 logo"
+        decided_at: "2026-06-03"
+        decision_source: "OD-6(對齊 feedback_sean-owns-visual-design;視覺資產交 Sean)"
+        reason: "施工 session 只做結構/接線、視覺資產(品牌 logo)交 Sean 在設計層補;結構已備 .pd-eb-logo CSS、未來換 img 不需改 layout"
 
   ProductSpotlight:
     storefront:
       component: "apps/storefront/src/components/ProductSpotlight.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "56ccb5c"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "ed73599"  # 記可達祖先=OD-7a 父 commit(=OD-6、避 amend orphan);本 slice 真改見 git log [OD-7a]
+      last_modified_date: "2026-06-03 (OD-7a:內文鋁件文案〔7075-T6/CNC/Hard Anodized〕換碳纖維通用 placeholder、eyebrow 去 N°02 編號〔N°02 讓給紋路樣式牆 OD-7b〕改 flat「碳纖維工藝」;真內文待資料線接 DB)"
     design:
-      component: "design-reference/components/explorations/VariantCFull.jsx"
+      # OD 模板無 Engineering Spotlight 區;Sean 2026-06-03 Q1 拍板保留 + 碳纖維化 + 交資料線(非 OD 模板對齊)
+      authority: "(OD 模板無此區;保留為條件區塊、內文待資料線 product_spotlights DB)"
+      legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
-      - field: "spotlightContent4Sections3Stats"
-        design_value: "explorations 4 段 + 3 stats demo"
-        storefront_value: "Phase 1 hardcoded、3 件商品標 hasSpotlight true"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-4"
-        reason: "L3 對沖、Phase 2 supabase product_spotlights 接"
+      - field: "spotlightCarbonPlaceholderPendingDataLine"
+        design_value: "OD 模板無 Engineering Spotlight 區"
+        storefront_value: "Sean Q1 拍板保留;內文舊鋁件文案(7075-T6/5 軸 CNC/Hard Anodized)換**碳纖維通用 placeholder**(非真 per-product);真正 per-廠牌固定內文交**資料線 workstream** 接 supabase product_spotlights DB。⚠️ hasSpotlight 為 mock-only 欄、真 RPM 頁不渲染、placeholder 只現於 3 legacy mock 頁"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7a(Sean 2026-06-03 Q1:不移除、先換碳纖維格式 + 備註交資料線)"
+        reason: "每品牌有自己固定 story、待資料線真區分;OD 視覺線只先碳纖維化避免鋁件錯字面"
         phase_2_supabase_table: "product_spotlights"
+        handoff: "資料線 workstream 收口此區內容 + hasSpotlight 觸發條件"
+
+  ProductSwatchWall:
+    storefront:
+      component: "apps/storefront/src/components/ProductSwatchWall.tsx"
+      data: "apps/storefront/src/data/rpm-swatches.ts"  # 10 張樣品資料(Shopee 圖床 URL)、OD-7c picker 預覽卡共用
+      css: "apps/storefront/src/styles/product-page.css"  # .swatch-* 段
+      last_modified_commit: "b9d2b06"  # 記可達祖先=OD-7b 父 commit(=OD-7a、避 amend orphan);本 slice 新建見 git log [OD-7b]
+      last_modified_date: "2026-06-03 (OD-7b 新建:N°02 紋路樣式牆、結構/字面/圖片 URL 直接搬 OD 模板 §N°02)"
+    design:
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §N°02 紋路 × 表面(.swatch-section/.swatch-grid/.swatch-card)"
+    business_overrides:
+      - field: "swatchWallBrandFixedShowcaseRemoteImages"
+        design_value: "OD 模板 N°02:亮光 6 + 消光 4 = 10 張碳纖維紋路樣品(Shopee 圖床 URL)"
+        storefront_value: "prop-less RPM 品牌通用展示(全商品同一份、非 per-product 變體實拍);10 張圖直接引用 OD 模板的 Shopee 圖床遠端 URL(無本地資產);與右欄 picker(真變體可選項、OD-4c)互補"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7b(視覺真權威 OD 模板、鐵則 1 直接搬;Sean Q2「紋路卡片保留沿用」)"
+        reason: "N°02 是 RPM 品牌級固定紋路展示(HANDOFF §2 共用區塊);Shopee 圖床若失效屬 Phase 2 自架資產議題"
+      - field: "swatchLightboxDeferred"
+        design_value: "OD 模板 swatch 圖點擊開 lightbox(data-lightbox-group glossy/matte)"
+        storefront_value: "OD-7b 暫靜態(cursor:zoom-in CSS 直接搬、無 click handler);picker 預覽卡 lightbox 已於 OD-7c 做(瀏覽全 10 張);swatch 牆卡片本身的點擊放大延後(非阻、Sean 批次驗後評估)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7b/OD-7c"
+        reason: "預覽卡 lightbox 已覆蓋瀏覽全 10 張樣品的需求;牆卡片點擊另接同 lightbox 屬增益"
+
+  ProductSwatchPreview:
+    storefront:
+      component: "apps/storefront/src/components/ProductSwatchPreview.tsx"
+      data: "apps/storefront/src/data/rpm-swatches.ts"  # findSwatch(spec) 對應 + 10 張樣品
+      css: "apps/storefront/src/styles/product-page.css"  # .pd-pattern-preview* + .pd-lb-caption(lightbox 沿用 .pd-lightbox)
+      last_modified_commit: "e06ff6f"  # 記可達祖先=OD-7c 父 commit(=OD-7d、避 amend orphan);本 slice 新建見 git log [OD-7c]
+      last_modified_date: "2026-06-03 (OD-7c 新建:picker 上方紋路樣品預覽卡 + 樣品 lightbox、直接搬 OD 模板 §8 .pd-pattern-preview)"
+    design:
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §8 .pd-pattern-preview(picker 上方即時預覽 + lightbox)"
+    business_overrides:
+      - field: "previewSwatchSampleNotVariantPhoto"
+        design_value: "OD 模板預覽卡顯紋路樣品圖(picker 上方、點開 lightbox 全 10 張)"
+        storefront_value: "Sean 2026-06-03 Q2:預覽卡保留、吃**乾淨紋路樣品圖**(findSwatch fallback、非變體實拍);與 Hero 圖庫(OD-7d 真變體實拍)互補。valueText 由 ProductInfo 算反映實際選擇〔含 12K/Kevlar 合併款〕。⚠️ Kevlar 無專屬樣品 → 顯同 weave 一般碳纖(紋理對、材質色差)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7c(Sean Q2:預覽卡保留、紋路卡片沿用)"
+        reason: "變體實拍圖大多不可靠;紋路樣品圖固定正確、作選擇參考最穩"
 
   ProductTabs:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "2b7d270"  # 記可達祖先=16c-4b 父 commit(避 amend orphan);本 slice 真改見 git log [M-1-16c-4b]
-      last_modified_date: "2026-06-01 (M-1-16c-4b 規格表產品型號 PCM-{id hash} → 真主碼 productCode〔← domain/DB external_id〕+ 產地 義大利 → 泰國;L116 義大利原廠保固 D2=C 留)"
+      last_modified_commit: "6eb4889"  # 記可達祖先=OD-10a 父 commit(=OD-9、避 amend orphan);本 slice 真改見 git log [OD-10a]:保固 pane 改共用 rpm-policies。OD-8 碳纖化見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (OD-10a:保固 pane 字面外移共用 @/data/rpm-policies〔與 N°04 FAQ 單一真相、不漂移〕、視覺零變化;OD-8 tabs 碳纖維化見 business_overrides + od_redesign 段)"
     design:
-      component: "design-reference/components/explorations/VariantCFull.jsx"
+      # OD-8 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §9 tabs"
+      legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
       - field: "tabsContent4Panels"
-        design_value: "explorations 4 panel demo"
-        storefront_value: "Phase 1 hardcoded(specs/install/warranty/description)"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-5"
-        reason: "L3 對沖、Phase 2 supabase product_specs / product_installs / site_policies 表接"
-        phase_2_supabase_tables: ["product_specs", "product_installs", "site_policies"]
+        design_value: "OD 模板 §9 4 panel(介紹商品專屬 / 規格 9 欄 / 安裝 RPM 共用 / 保固 RPM 共用)"
+        storefront_value: "OD-8 直接搬 OD §9 碳纖字面;品牌·型號·分類·適用車款·name·fits 動態、材質真碳纖/紋路/表面/特殊樣式/安裝/保固政策 RPM 碳纖固定 hardcoded(L2/L3 對沖)"
+        decided_at: "2026-05-21 (OD-8 2026-06-03 改 OD 模板碳纖內容)"
+        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-5 → od_redesign OD-8"
+        reason: "L3 對沖、Phase 2 supabase product_specs / product_installs / site_policies / product_description 表接"
+        phase_2_supabase_tables: ["product_specs", "product_installs", "site_policies", "product_description"]
       - field: "specOriginThailand"
         design_value: "VariantCFull.jsx 產地硬寫「義大利」"
         storefront_value: "M-1-16c-4b 改「泰國」(RPM 來自泰國、Sean 蝦皮內文證)。⚠️ 仍 hardcode 非 DB 欄、Phase-1 RPM-only 臨時覆蓋、套到非 RPM 商品會錯、product_specs 接線前非通用真值"
@@ -229,27 +293,79 @@ components:
         reason: "PCM-{id hash} 為無意義 UI 數、改顯 vendor 真主碼供客服/對帳"
       - field: "warrantyOriginItalyResidual"
         design_value: "VariantCFull.jsx L172 / ProductPage.jsx L402「義大利原廠保固」"
-        storefront_value: "M-1-16c-4b D2=C 留著不動(Sean 拍);⚠️ 與本片改的產地「泰國」同屏殘差矛盾、刻意留待後續 ProductTabs 內容片清"
+        storefront_value: "✅ OD-8 已清除 — 保固 pane 改 OD §9 客製訂製退換政策(無『義大利』、無『24 個月』);16c-4b 留下的同屏殘差矛盾解除"
         decided_at: "2026-06-01"
-        decision_source: "M-1-16c-4b D2=C"
+        resolved_at: "2026-06-03 (OD-8)"
+        decision_source: "M-1-16c-4b D2=C → OD-8 內容片清(原計畫『留待後續 ProductTabs 內容片清』兌現)"
         backlog: "#162"
-        reason: "本片只動規格表產地、description tab 保固文案留內容片;殘差已程式註解 + commit body 揭示"
+        reason: "OD-8 保固 pane 整段換 OD 碳纖客製訂製政策、義大利殘差自然移除"
+      - field: "descriptionPerProductDataLine"
+        design_value: "OD 模板介紹 pane = 單一 RPM 商品(DCC01)專屬功能描述(散熱導風)"
+        storefront_value: "OD-8 介紹 pane 用碳纖維通用框架 + brand/name/fits 動態;per-廠牌/per-product 真實功能描述屬固定內文、現為通用 placeholder(非真 per-product)、交資料線 workstream 接 product_description"
+        decided_at: "2026-06-03"
+        decision_source: "Sean 2026-06-03 Q1(不移除、先換碳纖維格式 + 備註交資料線、同 ProductSpotlight)"
+        reason: "每廠牌固定內文不同、待後台 product_description 真接;⚠️ mock 目錄沿用舊鋁品名(name 含『鋁合金』為動態非 hardcoded)、碳纖通用文案以 RPM production 為目標"
+        phase_2_supabase_tables: ["product_description"]
+      - field: "specFitmentsXrefOmitted"
+        design_value: "OD 模板規格『適用車款』列含『完整見頁面上方〔適用車款〕對照表』交叉引用"
+        storefront_value: "OD-8 省略該交叉引用 — storefront Phase A 尚無適用車款表(ProductPage L295)、保留會指向不存在區塊(dangling 字面 vs 事實);Phase B / OD-11 fitments 表上線後恢復"
+        decided_at: "2026-06-03"
+        decision_source: "OD-8(D1=A 適用車款表 Phase B、ProductPage L295-296 證)"
+        reason: "避免 UI 指向不存在的頁面區塊;適用車款表上線後加回引用"
+
+      - field: "warrantyPolicySingleSource"
+        design_value: "OD 模板保固政策分散於 tabs 保固 pane 與 N°FAQ「保固與退換貨」兩處"
+        storefront_value: "OD-10a 抽 @/data/rpm-policies(RPM_WARRANTY_PARAGRAPHS + RPM_WARRANTY_NOTES)單一真相;ProductTabs 保固 pane 與 ProductFAQ(OD-10b)共用、改字面只動 rpm-policies、不分歧"
+        decided_at: "2026-06-03"
+        decision_source: "Sean 2026-06-03(FAQ 保固必須與 tabs 一致、別寫分歧版;鑑賞期免除是法律主張、仍在確認準確性)"
+        reason: "法律主張(消保法 §19 鑑賞期免除)單點維護、Sean 確認後改一處即同步;未來 site_policies 後台接線"
+        phase_2_supabase_tables: ["site_policies"]
+  ProductFAQ:
+    storefront:
+      component: "apps/storefront/src/components/ProductFAQ.tsx"
+      css: "apps/storefront/src/styles/product-page.css"
+      last_modified_commit: "06d0fb2"  # 記可達祖先=OD-10b 父 commit(=OD-10a、避 amend orphan);本 slice 新建見 git log [OD-10b]
+      last_modified_date: "2026-06-03 (OD-10b:新建 N°04 常見問題 FAQ 手風琴 + FAQPage JSON-LD、原生 <details> 無 JS)"
+    design:
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §N°FAQ(RPM 共用區塊)"
+    business_overrides:
+      - field: "faqSectionNumber"
+        design_value: "OD 模板 FAQ 為 N°03"
+        storefront_value: "OD-10b 排 N°04(Sean Q1 override:N°03 留相關商品、FAQ 下移 N°04;2026-06-03 確認結構=A)"
+        decided_at: "2026-06-02"
+        decision_source: "Sean Q1 override(N°03=相關商品 / N°04=FAQ)"
+        reason: "storefront 既有相關商品 section 佔 N°03、FAQ 接其後"
+      - field: "faqWarrantySharedPolicy"
+        design_value: "OD 模板 FAQ「保固與退換貨」item 為獨立字面"
+        storefront_value: "OD-10b 保固 item 直接吃共用 @/data/rpm-policies RPM_WARRANTY_PARAGRAPHS、與 ProductTabs 保固 pane 同源不分歧;其餘 4 題為 FAQ 專屬 OD 字面"
+        decided_at: "2026-06-03"
+        decision_source: "Sean 2026-06-03(FAQ 保固必須與 tabs 一致、別寫分歧版)"
+        reason: "鑑賞期免除為法律主張、Sean 仍在確認準確性、單點維護;見 ProductTabs.warrantyPolicySingleSource"
+      - field: "faqAccordionNativeDetailsAndJsonLd"
+        design_value: "OD 模板 .faq-item 為原生 <details>/<summary> 純 CSS 手風琴"
+        storefront_value: "OD-10b 沿用原生 <details>(無 JS、prop-less)+ FAQPage JSON-LD(<script application/ld+json> SSR 進 HTML、答案與畫面同源 plainAnswer)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-10 plan(GEO/SEO JSON-LD、Sean Q1 同格式)"
+        reason: "原生 details 省 client JS;JSON-LD 提升 FAQ rich result"
+    open_drifts: []
 
   ProductServices:
     storefront:
       component: "apps/storefront/src/components/ProductServices.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "eb1e90f"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "2a34f73"  # 記可達祖先=OD-5 父 commit(=OD-4c、避 amend orphan);本 slice 真改見 git log [OD-5]
+      last_modified_date: "2026-06-03 (OD-5:服務橫條外移 — 元件改吐完整 section.pd-services-strip 全寬橫條、從 ProductInfo 右欄內移出至 ProductPage 當 hero 下方獨立 section;CSS 換 OD strip 字面〔4 欄內分隔線 + 720→2×2 + 540 縮字〕;4 卡字面直接搬 OD 模板)"
     design:
-      component: "design-reference/components/explorations/VariantCFull.jsx"
+      # OD-5 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
+      authority: "open-design: Website V2 / product-detail-rpm-template.html §服務保障橫條(.pd-services-strip)"
+      legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
       - field: "servicesContent4Conditions"
-        design_value: "explorations 4 條服務承諾 demo"
-        storefront_value: "Phase 1 hardcoded、免運門檻 NT$5,000(對齊 ProductPage freeShippingThreshold)"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-3"
-        reason: "Phase 2 supabase site_services 表接"
+        design_value: "OD 模板 4 卡:滿額免運〔NT$5,000 以上免運費〕/ 專業安裝〔全台合作店家〕/ 泰國原廠〔RPM Carbon 授權代理〕/ LINE 諮詢〔下單前先聊聊確認貨況〕"
+        storefront_value: "字面直接搬 OD 模板(免運 5,000 同 Sean 2026-05-21 永久拍板;「泰國原廠/RPM Carbon 授權代理」取代舊「原廠保固/原廠授權代理」、產地泰國對齊 16c-4b、Phase 1 catalog RPM-only)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-5(視覺真權威 OD 模板、鐵則 1 直接搬)"
+        reason: "OD=商品頁視覺真權威;Phase 2 supabase site_services 表接(L2 內容)"
         phase_2_supabase_table: "site_services"
 
   ProductCard:
@@ -271,19 +387,25 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductGallery.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "59d4143"  # 記可達祖先=16c-3 父 commit(避 amend orphan、見 memory project_status-top-hash-off-by-one-normal);本 slice 真改 commit 見 git log [M-1-16c-3]
-      last_modified_date: "2026-06-01 (M-1-16c-3 吃真 product.images〔群代表圖〕取代 seed unsplash placeholder;resolveSrc 真圖完整 URL vs fallback seed template;變體換圖 currentVariant.images 留 16c-4)"
+      last_modified_commit: "854e863"  # 記可達祖先=OD-7d 父 commit(=OD-7b、避 amend orphan);本 slice 真改見 git log [OD-7d];前序 OD-4a 變體換圖見 od_redesign 段
+      last_modified_date: "2026-06-03 (OD-7d:圖庫聚合改法 — 選中變體圖排最前 + 其餘所有變體圖〔變體順序〕+ 群代表圖補後、Set 去重保序;取代 OD-4a「只顯該變體那幾張」;前序 OD-4a 變體換圖 / 16c-3 真圖)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
       reference: "design-reference/components/ProductPage.jsx"
-    business_overrides: []
+    business_overrides:
+      - field: "galleryVariantFirstThenAllAppended"
+        design_value: "OD-4a:選中變體有圖則只顯該變體圖(~4-5 張)"
+        storefront_value: "OD-7d(Sean 2026-06-03 Q2):選中變體圖排**最前**(正確那幾張)+ 其餘所有變體圖 + 群代表圖補後、去重保序、全 ~22 張可一路滑;取代只顯變體那幾張(客人看得到該紋路照片在前、剩下接著看)"
+        decided_at: "2026-06-03"
+        decision_source: "OD-7d(Sean 2026-06-03 Q2 更正:變體圖非全錯、前幾張該紋路正確、剩餘補後)"
+        reason: "真 DB:product.images 僅 1 張代表圖、22~23 張分散 8 變體(distinct 無跨變體重複、代表圖已在某變體);聚合全部讓客人滑完整套、選中變體優先呈現"
 
   ProductInfo:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "81b5480"  # 記可達祖先=16c-4a 父 commit(避 amend orphan);本 slice 真改見 git log [M-1-16c-4a]
-      last_modified_date: "2026-06-01 (M-1-16c-3 去 hardcode 改資料驅動變體選擇器 + selectSpec snap + displayPrice 換價 + sku cart;M-1-16c-4a pd-sku 顯選中變體真 sku 連動〔取代 PCM-{id hash}、fallback slug〕+ pd-sub 顯 DB 真 subtitle〔拿掉寫死「義大利原裝進口」placeholder、backlog #162 退場、無則 fallback 適用fits〕)"
+      last_modified_commit: "e06ff6f"  # 記可達祖先=OD-7c 父 commit(=OD-7d、避 amend orphan);本 slice 真改見 git log [OD-7c]:picker 上方接 `<ProductSwatchPreview/>` + valueText。OD-5/OD-4* 見 od_redesign 段
+      last_modified_date: "2026-06-03 (OD-7c:picker 上方渲染紋路樣品預覽卡 ProductSwatchPreview〔hasVariants gate〕+ 算 previewValueText;前序 OD-5 服務橫條外移 / OD-4c picker 2 維 / 16c-3 資料驅動選擇器見 od_redesign 段)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:

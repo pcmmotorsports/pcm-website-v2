@@ -13,25 +13,28 @@ import { ProductServices } from './ProductServices';
 afterEach(cleanup);
 
 describe('ProductServices', () => {
-  it('renders 4 service labels (滿額免運 / 專業安裝 / 原廠保固 / LINE 諮詢)', () => {
+  it('renders 4 service labels (滿額免運 / 專業安裝 / 泰國原廠 / LINE 諮詢)', () => {
     render(<ProductServices />);
     expect(screen.getByText('滿額免運')).toBeDefined();
     expect(screen.getByText('專業安裝')).toBeDefined();
-    expect(screen.getByText('原廠保固')).toBeDefined();
+    expect(screen.getByText('泰國原廠')).toBeDefined();
     expect(screen.getByText('LINE 諮詢')).toBeDefined();
   });
 
-  it('renders 4 service descriptions matching design字面', () => {
+  it('renders 4 service descriptions matching OD 模板字面', () => {
     render(<ProductServices />);
-    // 免運門檻 NT$ 5,000(backlog #161、storefront 統一字面、design 寫 NT$ 3,000)
-    expect(screen.getByText('NT$ 5,000 以上')).toBeDefined();
+    // OD-5:字面直接搬 OD product-detail-rpm-template.html(免運門檻仍 5,000、對齊 Sean 永久拍板)
+    expect(screen.getByText('NT$ 5,000 以上免運費')).toBeDefined();
     expect(screen.getByText('全台合作店家')).toBeDefined();
-    expect(screen.getByText('原廠授權代理')).toBeDefined();
-    expect(screen.getByText('30 分鐘內回覆')).toBeDefined();
+    expect(screen.getByText('RPM Carbon 授權代理')).toBeDefined();
+    expect(screen.getByText('下單前先聊聊確認貨況')).toBeDefined();
   });
 
-  it('renders exactly 4 .pd-service cards', () => {
+  it('renders exactly 4 .pd-service cards inside a full-width .pd-services-strip section', () => {
     render(<ProductServices />);
+    // OD-5:元件改吐完整 section.pd-services-strip(全寬橫條外殼由本元件擁有)
+    const strip = document.querySelector('section.pd-services-strip');
+    expect(strip).not.toBeNull();
     const cards = document.querySelectorAll('.pd-service');
     expect(cards.length).toBe(4);
   });
