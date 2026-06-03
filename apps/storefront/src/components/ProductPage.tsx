@@ -34,6 +34,7 @@ import { ProductSpotlight } from './ProductSpotlight';
 import { ProductTabs } from './ProductTabs';
 import { ProductFAQ } from './ProductFAQ';
 import { ProductCard } from './ProductCard';
+import { LineCtaButton } from './LineCtaButton';
 import '@/styles/product-page.css';
 
 export type ProductPageProps = { product: MockProduct; tier: MemberTier };
@@ -369,6 +370,9 @@ export function ProductPage({ product, tier }: ProductPageProps) {
           立即購買
         </button>
       </div>
+
+      {/* LINE 詢價懸浮 CTA(接通現況唯一成交管道、每商品頁顯;手機 deep link 預填 / 桌機 QRCODE) */}
+      <LineCtaButton product={product} />
     </div>
   );
 }

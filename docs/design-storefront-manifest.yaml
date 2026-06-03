@@ -131,8 +131,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "320f3a5"  # 記可達祖先=OD-12 父 commit(=dev 合併點 / S6 plumb 到位、避 amend orphan);本 slice 真改見 git log [OD-12]:接線 <ProductFitments/>(ProductServices 後、N°01 前)。OD-10b/OD-9 見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-12:接線 適用車款表 <ProductFitments product={product}/>〔pd-services-strip 後、N°01 前〕+ 更新 OD-5 服務橫條 stale 註解〔Phase B→適用車款表已上線〕;OD-10b N°04 FAQ 接線等見 od_redesign 段)"
+      last_modified_commit: "6897324"  # 記可達祖先=LINE CTA slice 提交時 dev tip(避 amend orphan);本 slice 真改見 git log:buybar 後接線 <LineCtaButton product={product}/>。前序 OD-12 接線 <ProductFitments/>(見 git log [OD-12])、OD-10b/OD-9 見 od_redesign.slices_done
+      last_modified_date: "2026-06-04 (LINE CTA:buybar 後接線 LINE 詢價懸浮 <LineCtaButton product={product}/>;前序 OD-12 接線 適用車款表 <ProductFitments/>〔pd-services-strip 後、N°01 前〕、OD-10b N°04 FAQ 等見 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
@@ -149,6 +149,7 @@ components:
       - "apps/storefront/src/components/ProductTabs.tsx"
       - "apps/storefront/src/components/ProductCard.tsx"  # Related grid 用既有元件
       - "apps/storefront/src/components/Price.tsx"
+      - "apps/storefront/src/components/LineCtaButton.tsx"  # LINE 詢價懸浮 CTA(buybar 後、新功能無 design 源;條目見 components.LineCtaButton)
     business_overrides:
       - field: "freeShippingThreshold"
         design_value: "NT$4,000 (VariantCFull L85) / NT$3,000 (L97) — 同檔內已不一致"
@@ -405,6 +406,23 @@ components:
         decided_at: "2026-06-03"
         decision_source: "OD-12 kickoff(空狀態處理:部分 mock 無 fitments)"
         reason: "渲染空清單 / 空標頭傷信任;通用款商品(fits 通用款)無單一車款列表才正確"
+    open_drifts: []
+
+  LineCtaButton:
+    storefront:
+      component: "apps/storefront/src/components/LineCtaButton.tsx"
+      css: "apps/storefront/src/styles/line-cta.css"
+      last_modified_commit: "6897324"  # 記可達祖先=本 slice 提交時 dev tip(避 amend orphan);本 slice 真改見 git log:新建 LINE 詢價懸浮 CTA
+      last_modified_date: "2026-06-04 (LINE 詢價懸浮 CTA 新建:手機 deep link 預填 @pcmmoto / 桌機 QRCODE modal + 加好友 fallback;接通現況唯一成交管道)"
+    design:
+      authority: "無 design-reference 源 — Sean 規格新功能(懸浮 CTA + 手機 deep link 預填 + 桌機 QRCODE;概念對齊精選車輛展間 pcm-moto)"
+    business_overrides:
+      - field: "lineCtaDeepLinkPrefill"
+        design_value: "(無 design 源、純新功能)"
+        storefront_value: "手機 deep link 預填訊息遵守車種鐵律:不挑車、帶商品名 / 料號 / 頁面 URL、車型留空讓客人自填;桌機 oaMessage 無效 → QRCODE modal + lin.ee 加好友 fallback"
+        decided_at: "2026-06-04"
+        decision_source: "Sean LINE 詢價 slice 指令 + Q2=A(@pcmmoto 真值、與精選車輛展間同帳號)"
+        reason: "接通現況唯一真實成交管道(站內無 /checkout、現有 LINE 提及全純文字無連結);車種鐵律=原文車種常錯、AI 不挑車"
     open_drifts: []
 
   ProductServices:
