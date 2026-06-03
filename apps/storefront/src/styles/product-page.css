@@ -452,16 +452,17 @@
   .pd-pattern-preview-value { font-size: 14px; }
 }
 
-/* Sean 2026-06-03 :3001 手機驗:右欄(ProductInfo)區塊上下間距窄 30%(只手機 ≤1079 單欄堆疊版;
-   桌機 ≥1080 右欄與大圖等高、間距填得剛好、不縮)。各主要垂直 margin/padding × 0.7。 */
+/* Sean 2026-06-03 :3001 手機驗:右欄(ProductInfo)區塊上下間距收緊(「再窄一點」)。
+   範圍 = 手機 + iPad 等直版(≤1079 單欄堆疊版,iPad 直版寬 ≤1024 已含;桌機/平板橫版 ≥1080 右欄與大圖
+   等高、間距填得剛好、不縮)。各主要垂直 margin/padding × 0.5(原值的一半)。 */
 @media (max-width: 1079px) {
-  .pd-sku { margin-bottom: 7px; }       /* 10 → 7 */
-  .pd-title { margin-bottom: 6px; }     /* 8 → 6 */
-  .pd-sub { margin-bottom: 17px; }      /* 24 → 17 */
-  .pd-price-block { padding: 14px 0; margin-bottom: 20px; } /* 20→14 / 28→20 */
-  .pd-pattern-preview { margin-bottom: 14px; }  /* 20 → 14 */
-  .pd-opt { margin-bottom: 15px; }      /* 22 → 15 */
-  .pd-opt-head { margin-bottom: 7px; }  /* 10 → 7 */
+  .pd-sku { margin-bottom: 5px; }       /* 10 → 5 */
+  .pd-title { margin-bottom: 4px; }     /* 8 → 4 */
+  .pd-sub { margin-bottom: 12px; }      /* 24 → 12 */
+  .pd-price-block { padding: 10px 0; margin-bottom: 14px; } /* 20→10 / 28→14 */
+  .pd-pattern-preview { margin-bottom: 10px; }  /* 20 → 10 */
+  .pd-opt { margin-bottom: 11px; }      /* 22 → 11 */
+  .pd-opt-head { margin-bottom: 5px; }  /* 10 → 5 */
 }
 
 /* ========= Buy row (OD §5) ========= */
