@@ -10,7 +10,7 @@
 每天自動把網站商品對齊報價單源頭(無人值守):跑既有 `scripts/rpm-import.ts --confirm-write`(FULL 模式 → 含 S4 下架對賬),後台一改、最慢隔天自動上架/改價/下架。源頭掛掉網站照賣昨天資料(複製模式天然降級)。
 
 ## 2. 什麼跑 / 何時跑
-- **命令**:`pnpm dlx tsx scripts/rpm-import.ts --confirm-write`(全量、無 `--group`/`--limit` → FULL_MODE → 走 reconcile)。
+- **命令**:`pnpm exec tsx scripts/rpm-import.ts --confirm-write`(全量、無 `--group`/`--limit` → FULL_MODE → 走 reconcile;tsx 已釘 devDep、走 exec 不 dlx 避免抓 latest)。
 - **頻率**:一天一次(Q3=A 即時層延後、批次足夠)。
 - **時段(建議)**:每天一個點、台灣 03:00(= `cron: '0 19 * * *'`、UTC;台灣 UTC+8 全年無夏令時、UTC 19:00 恆為次日台灣 03:00)。理由:避報價單側白天作業中(source 資料較定)、網站低流量、給 ISR/CDN 隔天 revalidate 緩衝。⚠️ GitHub Actions cron 表達式**一律 UTC、勿填台灣時間**。
 
@@ -42,9 +42,9 @@
 - ✅ 失敗 → `process.exit(1)` → 平台 mark run 失敗 + 通知;隔天 run 自動補(複製模式降級、source 掛網站照賣昨天)。
 - ✅ env bootstrap(B1、已修 99346da):existsSync 守 loadEnvFile、runner 無 .env.local 不再 ENOENT crash(fallback 審查 BLOCKER、已修)。
 - ✅ target host gate(rpm-import:寫入前精準比對目標 host、非允許 dev project 拒寫):額外保險、fallback 審查確認屬實。
-- ⚠️ **S5 須補:anon view 57014 statement timeout**。現腳本 `rpm-fetch.ts` fetch 無 retry、cron 遇冷 timeout 會整 run 失敗(今日手動 3 次中 2 次首發冷撞、retry 即過)。S5 實作補 **fetch 層 retry**(指數退避、限 3 次)或請報價單側 view 加索引(跨 repo、Sean 協調)。屬 S5 實作項、平台無關。
-- ⚠️ **S5 須補(W1、fallback 審查):source 部分頁靜默殘缺 <10% → 誤下架真商品**。`rpm-fetch.ts` 逐頁累加 + `rows.length < PAGE_SIZE` 即 break;若某頁無 error 但回少量列(非預期截斷)→ fetch「成功」回殘缺集合、delta 看不出(只比價)、下架 10% gate 是唯一防線、殘缺剛好 <10% 會靜默軟下架在架商品(無人值守無 Sean 看 dry-run)。緩解(Sean 拍):fetch 後驗總筆數 vs 上次成功/期望基線、低於閾值 abort。S5 實作項。
-- ⚠️ **S5 須補(W2、fallback 審查):並發 run 互斥**。新 scheduled workflow 不繼承 ci.yml 的 concurrency;reconcile 的 read-active→compute→applyDelist 無交易包裹、兩 run 交錯可能算出不一致 toDelist。緩解:新 workflow 自設 `concurrency: { group: rpm-sync, cancel-in-progress: false }`(後到排隊、不互殺到一半)。A 案實作項。
+- ✅ **57014 retry(已實作 rpm-fetch.ts `fetchPageWithRetry`)**:每頁指數退避(1s→2s)、限 3 次、最後仍敗才拋;無人值守冷 timeout 自動恢復。
+- ✅ **W1 抓取完整性 gate(已實作 rpm-preflight.ts `checkFetchIntegrity`、Sean 拍 A;fallback W1-1/W1-2/W1-4 修正)**:**商品維度差集**(target active 商品 external_id − source main_sku、growth-immune 新品蓋不掉缺口;非變體維度、非淨筆數),缺現存上架商品 **>5% 硬 abort**(嚴於 S4 下架 10%、專抓 5–10% 靜默截斷帶)、首灌(active=0)不擋、`--allow-fetch-shrink` bypass、**pre-write**(寫入前 throw、dry-run 只報告)。⚠️ **殘留缺口(誠實標)**:<5% 靜默截斷單次快照無法與日常合法下架區分 → 根治需持久化上次成功基線、**留 backlog #210**;日常增量幅度遠 <5%、且 S4 >10% 兜底。
+- ✅ **W2 並發互斥(已實作 workflow `concurrency: {group: rpm-sync, cancel-in-progress: false}`)**:後到 run 排隊、不互殺(防 reconcile read→compute→apply 交錯)。
 
 ## 6. Rollback
 - 排程可停(disable workflow / 刪 cron)。
@@ -64,5 +64,23 @@
 
 ## 9. 流程(本片)
 S5 plan(本檔)→ ~~codex 關卡1~~(本輪撞 OpenAI usage limit、到 7/2 恢復)→ **Claude fresh-context fallback 對抗審查已跑**(findings 折入:B1 已修 + W1/W2/W3 + N1)→ Sean 拍平台 + 時段 → 才實作(A 案:寫 workflow yml〔含 concurrency + on:schedule 限縮〕+ fetch retry〔57014〕+ source 筆數 sanity check〔W1〕+ 文件化 secret 設定步驟、三綠、code-reviewer;**正式 codex k1/k2 留 quota 恢復或 Sean 貼 web Codex 補**;命中 infra 不命中 schema/RLS/migration/pricing → codex 關卡2 視改動判)。
+
+**實作 + 審查實況(2026-06-03)**:Sean 拍 A(GitHub Actions + 台灣 03:00)→ 實作完成(workflow `rpm-sync.yml` + 57014 retry + W1 + secret docs §10)→ 審查 round1:code-reviewer PASS、Claude fallback(codex 代替)PASS-with-WARN **抓 W1 真 BLOCKER**(W1 原量「變體」維度 + 淨筆數、與 S4「商品」維度誤下架錯配、且新品蓋缺口;tsx 未釘供應鏈)→ Sean 拍 A 修法:**W1 改商品維度差集 + 5% 門檻(嚴於 S4 10%)+ tsx 釘 devDep + 殘留 <5% 缺口 backlog #210** → 重審 round2 → commit。
+
+## 10. Secret 設定步驟(Sean dashboard 操作、Code 不碰金鑰值)
+平台選定 A GitHub Actions 後,在 repo 設 4 個 secret(workflow:`.github/workflows/rpm-sync.yml`):
+1. GitHub repo → **Settings → Secrets and variables → Actions → New repository secret**。
+2. 逐一新增(Name 完全照下、Value 貼對應金鑰):
+
+   | Secret Name | 值來源 | 說明 |
+   |---|---|---|
+   | `QUOTE_SUPABASE_URL` | 報價單 B庫 → Settings → API → Project URL(`https://dllwkkfanaebrsuyuedy.supabase.co`) | 來源 view |
+   | `QUOTE_SUPABASE_PUBLISHABLE_KEY` | 報價單 B庫 → API → anon / publishable key | 來源唯讀(讀不到成本/蝦皮/經銷) |
+   | `NEXT_PUBLIC_SUPABASE_URL` | 網站庫 → API → Project URL(`https://bmpnplmnldofgaohnaok.supabase.co`) | 目標 |
+   | `SUPABASE_SECRET_KEY` | 網站庫 → API → **service_role** key | 🔴 目標寫入、最高權限、只放此處 |
+
+3. 設好後到 **Actions 頁 → RPM Daily Sync → Run workflow**(workflow_dispatch)手動跑一次驗證(或等隔天台灣 03:00 自動)。
+4. 🔴 `SUPABASE_SECRET_KEY` 是「能改全站資料」的最高權限金鑰:**只設於此 secret、絕不貼對話 / 進 git / echo 到 log**。Code 端不碰金鑰值(本機 `.env.local` 已有同名、不外流)。
+5. ⚠️ scheduled workflow 60 天無 repo 活動會被 GitHub auto-disable;PCM 開發活躍期一般不會觸發,但長假/凍結期需留意到 Actions 頁確認仍啟用。
 
 — END —

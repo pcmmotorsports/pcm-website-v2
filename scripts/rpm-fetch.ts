@@ -52,18 +52,44 @@ const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, vehicle_label, ' +
   'fitment_parsed, spec, price_retail, image_url, images, stock_status';
 
-// ── source fetch(分頁、全程 supplier_slug='rpm';讀乾淨 view 取代 raw 兩查)──
-export async function fetchAllRpmProducts(src: SupabaseClient): Promise<SourceProductRow[]> {
-  const all: SourceProductRow[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
+// ── source fetch(分頁 + 重試、全程 supplier_slug='rpm';讀乾淨 view 取代 raw 兩查)──
+const MAX_RETRY = 3; // S5:每頁最多嘗試次數(初次 + 2 重試)
+const RETRY_BASE_MS = 1000; // 指數退避基數(1s → 2s)
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * 讀單頁(指數退避重試)。anon 讀大 view 偶撞 statement timeout(57014)等暫時性錯誤、
+ * 無人值守 cron 不能因一次冷撞整 run 失敗 → 退避重試(限 MAX_RETRY)、最後一次仍敗才拋(S5)。
+ */
+async function fetchPageWithRetry(src: SupabaseClient, from: number): Promise<SourceProductRow[]> {
+  let lastErr: { code?: string; message: string } | null = null;
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     const { data, error } = await src
       .from('storefront_catalog_v')
       .select(VIEW_COLS)
       .eq('supplier_slug', SUPPLIER) // 🔴 紅線(view 混 6 供應商)
       .order('sku')
       .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as unknown as SourceProductRow[];
+    if (!error) return (data ?? []) as unknown as SourceProductRow[];
+    lastErr = error;
+    if (attempt < MAX_RETRY) {
+      const backoff = RETRY_BASE_MS * 2 ** (attempt - 1);
+      console.warn(
+        `[rpm-fetch] page@${from} 第 ${attempt}/${MAX_RETRY} 次失敗(${error.code ?? ''} ${error.message})、${backoff}ms 後重試`,
+      );
+      await sleep(backoff);
+    }
+  }
+  throw new Error(`fetchPage@${from} 重試 ${MAX_RETRY} 次仍失敗:${lastErr?.code ?? ''} ${lastErr?.message ?? ''}`);
+}
+
+export async function fetchAllRpmProducts(src: SupabaseClient): Promise<SourceProductRow[]> {
+  const all: SourceProductRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const rows = await fetchPageWithRetry(src, from);
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
   }

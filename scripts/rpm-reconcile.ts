@@ -33,8 +33,8 @@ export interface ReconcileReport {
   largeDelistBypassed: boolean; // ratio 超限但 --allow-large-delist 顯式放行(loud log 提醒、留 audit trail)
 }
 
-/** 分批讀 target 現存「未下架」RPM 商品 external_id(只取 key、不取金額/敏感) */
-async function readActiveExternalIds(tgt: SupabaseClient): Promise<string[]> {
+/** 分批讀 target 現存「未下架」RPM 商品 external_id(只取 key、不取金額/敏感;S5 W1 共用) */
+export async function readActiveExternalIds(tgt: SupabaseClient): Promise<string[]> {
   const out: string[] = [];
   for (let from = 0; ; from += READ_BATCH) {
     const { data, error } = await tgt
