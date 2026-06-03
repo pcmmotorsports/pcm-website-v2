@@ -95,6 +95,27 @@ describe('ProductGallery', () => {
     expect(thumb2?.getAttribute('src')).toBe('https://cdn.example.com/a1.jpg');
   });
 
+  // Fix A(Sean 2026-06-03 :3001 驗):縮圖列 >5 張顯翻頁箭頭、≤5 張不顯;全部縮圖仍渲染(視窗化靠 CSS 捲動)
+  it('should render thumbnail paging arrows only when more than 5 images', () => {
+    const make = (n: number): UIVariant => ({
+      sku: 'M',
+      spec: { weave: 'Twill', finish: 'Glossy' },
+      price: 1,
+      images: Array.from({ length: n }, (_, i) => `https://cdn.example.com/m${i}.jpg`),
+    });
+    const { unmount } = render(
+      <ProductGallery product={MOCK_PRODUCTS[0]!} selectedVariant={make(6)} />,
+    );
+    expect(screen.getByLabelText('上一批縮圖')).toBeDefined();
+    expect(screen.getByLabelText('下一批縮圖')).toBeDefined();
+    expect(screen.getByText('01 / 06')).toBeDefined();
+    expect(screen.getByLabelText('圖片 6')).toBeDefined(); // 全 6 縮圖渲染(5 格視窗 + 捲動)
+    unmount();
+    render(<ProductGallery product={MOCK_PRODUCTS[0]!} selectedVariant={make(5)} />);
+    expect(screen.queryByLabelText('上一批縮圖')).toBeNull();
+    expect(screen.queryByLabelText('下一批縮圖')).toBeNull();
+  });
+
   it('should clamp counter at 03 / 03 when right arrow reaches last image', () => {
     // ProductGallery.tsx line 150-151:setActiveImg(Math.min(gallery.length - 1, ...)) + disabled
     // 不 wraparound、clamped at last index

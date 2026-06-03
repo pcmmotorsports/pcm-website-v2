@@ -103,6 +103,7 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
   const heroSwipeTRef = useRef(0);
   const heroDidSwipeRef = useRef(false);
   const lbSwipeXRef = useRef(0);
+  const thumbsRef = useRef<HTMLDivElement>(null); // 縮圖列捲動容器(箭頭翻頁用)
 
   // Sean Q-2=C 拍板偏離 design 字面:桌機 hero 不開 lightbox 也能 ←/→ 切圖
   // (原 design line 12-26 useEffect 條件 `if (!lightbox) return;`、lightbox-only;本實作改 always-on listener、
@@ -197,19 +198,41 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
           {product.isSale && <div className="pd-hero-badge">−{discountPct}%</div>}
           {product.isNew && !product.isSale && <div className="pd-hero-badge pd-hero-badge-new">NEW</div>}
         </div>
-        {/* M-1-13H-1: thumb 從 hero-img overlay 搬出、改放主圖下方(對齊 HANDOFF #3 + design .vc-thumbs 字面);
-            className .pd-thumb-overlay → .pd-thumbs、.pd-thumb-ov → .pd-thumb-btn */}
-        <div className="pd-thumbs">
-          {gallery.map((id, i) => (
+        {/* 縮圖列:5 格視窗 + 左右翻頁(Sean 2026-06-03 :3001 驗:>5 張不一次全列、橫向 swipe + 箭頭翻頁)。
+            主圖庫(.pd-hero-track)仍含全部圖、可一路滑;thumb 放主圖下方(HANDOFF #3)。 */}
+        <div className="pd-thumbs-wrap">
+          {gallery.length > 5 && (
             <button
-              key={i}
-              className={`pd-thumb-btn ${activeImg === i ? 'is-active' : ''}`}
-              onClick={() => setActiveImg(i)}
-              aria-label={`圖片 ${i + 1}`}
+              type="button"
+              className="pd-thumbs-nav pd-thumbs-nav-left"
+              onClick={() => { const el = thumbsRef.current; if (el) el.scrollBy({ left: -el.clientWidth, behavior: 'smooth' }); }}
+              aria-label="上一批縮圖"
             >
-              <img src={resolveSrc(id, usingReal, 200, 75, 'crop')} alt="" loading="lazy" />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m15 18-6-6 6-6"/></svg>
             </button>
-          ))}
+          )}
+          <div className="pd-thumbs" ref={thumbsRef}>
+            {gallery.map((id, i) => (
+              <button
+                key={i}
+                className={`pd-thumb-btn ${activeImg === i ? 'is-active' : ''}`}
+                onClick={() => setActiveImg(i)}
+                aria-label={`圖片 ${i + 1}`}
+              >
+                <img src={resolveSrc(id, usingReal, 200, 75, 'crop')} alt="" loading="lazy" />
+              </button>
+            ))}
+          </div>
+          {gallery.length > 5 && (
+            <button
+              type="button"
+              className="pd-thumbs-nav pd-thumbs-nav-right"
+              onClick={() => { const el = thumbsRef.current; if (el) el.scrollBy({ left: el.clientWidth, behavior: 'smooth' }); }}
+              aria-label="下一批縮圖"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="m9 18 6-6-6-6"/></svg>
+            </button>
+          )}
         </div>
       </div>
 

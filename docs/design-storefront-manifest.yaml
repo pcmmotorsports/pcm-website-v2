@@ -57,6 +57,7 @@ od_redesign:
     - "OD-10a:保固政策共用單一真相(新增 data/rpm-policies.ts + 重構 ProductTabs 保固 pane)— Sean 2026-06-03 釘〔OD-10 FAQ 保固字面必須與 OD-8 ProductTabs 保固分頁一致、別寫分歧版;鑑賞期免除是法律主張、Sean 仍在確認準確性〕。① 新 data 模組 rpm-policies.ts:RPM_WARRANTY_PARAGRAPHS(3 段、byte-for-byte 取自 OD-8 ProductTabs 保固 pane)+ RPM_WARRANTY_NOTES(3 點 ul、tabs 專用)、PolicyRun 結構(string | {b})純資料無 React 依賴;② ProductTabs 保固 pane 由 inline JSX 改 map 共用常數(renderPolicyRuns helper)、視覺零變化、保固斷言不變全綠;③ 目的:OD-10b ProductFAQ 保固 item 共用同一份、改字面只動 rpm-policies、兩處永不漂移。三綠全綠(typecheck / lint / 完整 pnpm test 527 / build)。⚠️ 含《消保法》第 19 條鑑賞期、未來 site_policies 接線"
     - "OD-10b:N°04 常見問題 FAQ 手風琴 + FAQPage JSON-LD(新增 ProductFAQ.tsx + test + product-page.css faq 段 + ProductPage slim & 接線)— 結構/字面直接搬 OD 模板 §FAQ(鐵則 1)、Sean Q1 override N°04。① 新元件 ProductFAQ(prop-less、原生 <details>/<summary> 純 CSS 手風琴、+→× 旋轉、無 JS、SSR-friendly):eyebrow〔義體 04 + 金線 + N° 常見問題〕+ h2/lead + 5 題(如何訂購/交期/保固與退換貨/安裝/實體門市);② FAQPage JSON-LD:<script application/ld+json> 隨 section SSR 進初始 HTML、答案由同份 FAQ_ITEMS 衍生(plainAnswer、與畫面單一真相);③ 🔴 保固題吃共用 @/data/rpm-policies(OD-10a)、與 ProductTabs 保固 pane 同源不分歧(Sean 2026-06-03);④ CSS .faq-list/.faq-item/.faq-icon/.faq-body 直接搬 OD §10;⑤ ProductPage:接線 <ProductFAQ/> 於相關商品 N°03 之後(非條件、RPM 共用)+ 頂部 33 行歷史註解瘦身為 13 行(鐵則 6、386→371 行、為 OD section 接線預留空間、Sean 2026-06-03 點名)。ProductFAQ.test 4 測。三綠全綠(typecheck / lint / 完整 pnpm test 531〔+4〕/ build)"
     - "OD-11:Mobile buybar 改皮(OD §12)+ 全頁響應式斷點收口(product-page.css only)— Phase A 收尾片。① buybar reskin:舊 M-1-13e-a 版用**已不存在的 legacy token**(--border/--ink/--paper-2/--ink-tert、tokens.css 無 → mobile 渲染壞)→ 改 OD §12 字面 + --c-* token + 單色(buynow 深底白字 var(--c-text)/var(--c-text-inverse)、cart 描邊、非舊紅 #c41e3a、與桌機 .pd-buynow-btn/.pd-add-btn 一致);保留 storefront 既有 .pd-mbb-orig(原價刪除線)+ disabled 視覺 + iOS safe-area @supports;② 斷點收口:全頁 mobile 門檻統一 OD ≤1079(原 .pd-main collapse + buy-row 隱藏 + buybar 顯示在 ≤900、與已是 1079 的 .pd-info static / 各 N° section 不一致 → 統一 ≤1079);移除冗餘 901-1099 mid-band;.pd-spotlight/.pd-related collapse 同步 1079、related 極窄 560→540;≤1079 .pd-page padding 改 24px 16px 96px(OD 窄側距 + fixed buybar 底部空間);③ NIT:清 4 條 OD-1/OD-2「斷點遷移留 OD-11」stale 註解(已兌現)。⚠️ 純 CSS 視覺/響應式、需 Sean 真機肉眼驗(桌機 ≥1080 2 欄 / 平板 ≤1079 單欄 + buybar / 手機 ≤540);殘留 @media 900(lightbox 箭頭 overlay-only 尺寸、非頁面 layout)+ 560(OD §9 spec-row、OD-faithful)刻意留。三綠全綠(typecheck / lint / build / 完整 pnpm test 531)"
+    - "OD-V(Sean 2026-06-03 :3001 肉眼驗 follow-up、2 修):① 圖庫縮圖列維持 5 格視窗 + 左右翻頁(ProductGallery.tsx + .test + product-page.css .pd-thumbs)— 原 5 格 grid 對 >5 張整列換行全顯;改橫向 flex 捲動(每格 (100%-32px)/5 寬、scroll-snap、overflow-x swipe)+ >5 張才渲染 .pd-thumbs-nav 左右箭頭(scrollBy clientWidth 翻頁);主圖庫(.pd-hero-track)仍含全部圖、可一路滑(OD-7d 聚合不變)。② 頁內所有圖片可點擊放大(新 SwatchLightbox.tsx 共用 + ProductSwatchWall 接 + ProductSwatchPreview refactor + product-page.css .swatch-card-img button-reset)— 抽 OD-7c 預覽卡 lightbox 成共用 SwatchLightbox(controlled lbIdx/setLbIdx、←/→ + ESC + 點空白關 + 手機滑、沿用 .pd-lightbox/.pd-lb-* chrome);N°02 紋路牆 10 卡圖改 button、點擊開 lightbox 瀏覽全 10 張(解 OD-7b swatchLightboxDeferred);ProductSwatchWall 因 useState 改 use client。商品圖庫 + 預覽卡本就有 lightbox、related ProductCard 為導航不放大、ProductHighlights 無真圖。test:Gallery +1 / SwatchWall +1 / 新 SwatchLightbox.test 4。三綠全綠(typecheck / lint / build / 完整 pnpm test 537〔+6〕)。⚠️ 視覺/捲動需 Sean :3001 真機驗(jsdom 不實作 scrollBy)"
 
 # Cross-cutting business overrides(全站機制、不屬單一元件)
 cross_cutting_overrides:
@@ -225,8 +226,8 @@ components:
       component: "apps/storefront/src/components/ProductSwatchWall.tsx"
       data: "apps/storefront/src/data/rpm-swatches.ts"  # 10 張樣品資料(Shopee 圖床 URL)、OD-7c picker 預覽卡共用
       css: "apps/storefront/src/styles/product-page.css"  # .swatch-* 段
-      last_modified_commit: "b9d2b06"  # 記可達祖先=OD-7b 父 commit(=OD-7a、避 amend orphan);本 slice 新建見 git log [OD-7b]
-      last_modified_date: "2026-06-03 (OD-7b 新建:N°02 紋路樣式牆、結構/字面/圖片 URL 直接搬 OD 模板 §N°02)"
+      last_modified_commit: "3e3918e"  # 記可達祖先=OD-V 父 commit(=OD-11、避 amend orphan);本 slice 真改見 git log [OD-V]:卡圖改 button 接共用 SwatchLightbox。OD-7b 新建見 od_redesign
+      last_modified_date: "2026-06-03 (OD-V Fix B:卡圖改 button、點擊開共用 SwatchLightbox 瀏覽全 10 張〔解 swatchLightboxDeferred〕、改 use client;OD-7b 新建見 business_overrides)"
     design:
       authority: "open-design: Website V2 / product-detail-rpm-template.html §N°02 紋路 × 表面(.swatch-section/.swatch-grid/.swatch-card)"
     business_overrides:
@@ -238,7 +239,8 @@ components:
         reason: "N°02 是 RPM 品牌級固定紋路展示(HANDOFF §2 共用區塊);Shopee 圖床若失效屬 Phase 2 自架資產議題"
       - field: "swatchLightboxDeferred"
         design_value: "OD 模板 swatch 圖點擊開 lightbox(data-lightbox-group glossy/matte)"
-        storefront_value: "OD-7b 暫靜態(cursor:zoom-in CSS 直接搬、無 click handler);picker 預覽卡 lightbox 已於 OD-7c 做(瀏覽全 10 張);swatch 牆卡片本身的點擊放大延後(非阻、Sean 批次驗後評估)"
+        storefront_value: "✅ OD-V 已接(Fix B):N°02 紋路牆 10 卡圖改 button、點擊開共用 ./SwatchLightbox 瀏覽全 10 張〔←/→ + ESC + 滑〕;OD-7b 暫靜態狀態解除"
+        resolved_at: "2026-06-03 (OD-V Fix B)"
         decided_at: "2026-06-03"
         decision_source: "OD-7b/OD-7c"
         reason: "預覽卡 lightbox 已覆蓋瀏覽全 10 張樣品的需求;牆卡片點擊另接同 lightbox 屬增益"
@@ -248,8 +250,8 @@ components:
       component: "apps/storefront/src/components/ProductSwatchPreview.tsx"
       data: "apps/storefront/src/data/rpm-swatches.ts"  # findSwatch(spec) 對應 + 10 張樣品
       css: "apps/storefront/src/styles/product-page.css"  # .pd-pattern-preview* + .pd-lb-caption(lightbox 沿用 .pd-lightbox)
-      last_modified_commit: "e06ff6f"  # 記可達祖先=OD-7c 父 commit(=OD-7d、避 amend orphan);本 slice 新建見 git log [OD-7c]
-      last_modified_date: "2026-06-03 (OD-7c 新建:picker 上方紋路樣品預覽卡 + 樣品 lightbox、直接搬 OD 模板 §8 .pd-pattern-preview)"
+      last_modified_commit: "3e3918e"  # 記可達祖先=OD-V 父 commit(=OD-11、避 amend orphan);本 slice 真改見 git log [OD-V]:lightbox 抽出共用 SwatchLightbox。OD-7c 新建見 od_redesign
+      last_modified_date: "2026-06-03 (OD-V Fix B refactor:inline lightbox 抽成共用 ./SwatchLightbox〔與 N°02 紋路牆共用〕、預覽卡本身不變;OD-7c 新建見 business_overrides)"
     design:
       authority: "open-design: Website V2 / product-detail-rpm-template.html §8 .pd-pattern-preview(picker 上方即時預覽 + lightbox)"
     business_overrides:
@@ -259,6 +261,24 @@ components:
         decided_at: "2026-06-03"
         decision_source: "OD-7c(Sean Q2:預覽卡保留、紋路卡片沿用)"
         reason: "變體實拍圖大多不可靠;紋路樣品圖固定正確、作選擇參考最穩"
+
+  SwatchLightbox:
+    storefront:
+      component: "apps/storefront/src/components/SwatchLightbox.tsx"
+      data: "apps/storefront/src/data/rpm-swatches.ts"
+      css: "apps/storefront/src/styles/product-page.css"  # 沿用 .pd-lightbox/.pd-lb-*/.pd-lb-caption(與商品圖庫共用 chrome)
+      last_modified_commit: "3e3918e"  # 記可達祖先=OD-V 父 commit(=OD-11、避 amend orphan);本 slice 新建見 git log [OD-V]
+      last_modified_date: "2026-06-03 (OD-V Fix B 新建:紋路樣品放大 lightbox 共用元件、抽自 OD-7c ProductSwatchPreview)"
+    design:
+      authority: "open-design: Website V2(swatch lightbox chrome 沿用 .pd-lightbox/.pd-lb-*)"
+    business_overrides:
+      - field: "sharedSwatchLightbox"
+        design_value: "OD 模板 swatch 點擊開 lightbox(data-lightbox-group glossy/matte)"
+        storefront_value: "Fix B 抽共用 controlled 元件(lbIdx/setLbIdx props):ProductSwatchPreview(picker 預覽卡)+ ProductSwatchWall(N°02 紋路牆)共用、改字面只動一處;沿用 .pd-lightbox chrome 不另寫 CSS"
+        decided_at: "2026-06-03"
+        decision_source: "Sean 2026-06-03 :3001 驗(頁內所有圖片可點擊放大)"
+        reason: "避免兩處各抄一份 lightbox;與商品圖庫 lightbox 視覺一致"
+    open_drifts: []
 
   ProductTabs:
     storefront:
@@ -387,8 +407,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductGallery.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "854e863"  # 記可達祖先=OD-7d 父 commit(=OD-7b、避 amend orphan);本 slice 真改見 git log [OD-7d];前序 OD-4a 變體換圖見 od_redesign 段
-      last_modified_date: "2026-06-03 (OD-7d:圖庫聚合改法 — 選中變體圖排最前 + 其餘所有變體圖〔變體順序〕+ 群代表圖補後、Set 去重保序;取代 OD-4a「只顯該變體那幾張」;前序 OD-4a 變體換圖 / 16c-3 真圖)"
+      last_modified_commit: "3e3918e"  # 記可達祖先=OD-V 父 commit(=OD-11、避 amend orphan);本 slice 真改見 git log [OD-V]:縮圖 5 格視窗 + 翻頁箭頭。OD-7d 聚合見 od_redesign
+      last_modified_date: "2026-06-03 (OD-V Fix A:縮圖列 5 格視窗 + 左右翻頁〔swipe + 箭頭、>5 張顯〕、主圖庫仍全圖;OD-7d 聚合見 od_redesign 段)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
       reference: "design-reference/components/ProductPage.jsx"
