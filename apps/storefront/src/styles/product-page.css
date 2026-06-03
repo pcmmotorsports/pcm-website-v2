@@ -196,14 +196,22 @@
 }
 .pd-hero-badge-new { background: #0a0a0acc; color: #fff; }
 
-/* OD-2:thumbs 字面從 OD §5 直接搬 — 5 格 grid(取代 flex 居中 64px)、直角、細框、圖不調暗。 */
+/* OD-2:thumbs 字面從 OD §5 直接搬 — 直角、細框、圖不調暗。
+   Sean 2026-06-03 :3001 驗:固定 5 格視窗 + 左右翻頁(原 5 格 grid 對 >5 張會整列換行全顯)→
+   改橫向 flex 捲動(每格 1/5 寬、swipe + 箭頭翻頁);主圖庫仍含全部圖、可一路滑。 */
+.pd-thumbs-wrap { position: relative; margin-top: 6px; }
 .pd-thumbs {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  display: flex;
   gap: 8px;
-  margin-top: 6px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
+.pd-thumbs::-webkit-scrollbar { display: none; }
 .pd-thumb-btn {
+  flex: 0 0 calc((100% - 32px) / 5); /* 5 格視窗:5 欄 + 4×8px gap */
+  scroll-snap-align: start;
   aspect-ratio: 1 / 1;
   background: var(--c-surface-2);
   border: 1px solid var(--c-border);
@@ -212,6 +220,19 @@
   padding: 0;
   transition: border-color 0.15s;
 }
+/* 翻頁箭頭(僅 >5 張時渲染)*/
+.pd-thumbs-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  z-index: 2;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-surface); color: var(--c-text);
+  border: 1px solid var(--c-border-strong);
+  cursor: pointer;
+  box-shadow: 0 1px 6px #00000014;
+}
+.pd-thumbs-nav-left { left: -6px; }
+.pd-thumbs-nav-right { right: -6px; }
 .pd-thumb-btn img {
   width: 100%; height: 100%;
   object-fit: cover;
@@ -810,6 +831,11 @@
   background: var(--c-surface-2);
   overflow: hidden;
   cursor: zoom-in;
+  /* Fix B:改 <button> 點擊放大(Sean 2026-06-03 :3001 驗)→ button reset */
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
 }
 .swatch-card-img img {
   width: 100%;

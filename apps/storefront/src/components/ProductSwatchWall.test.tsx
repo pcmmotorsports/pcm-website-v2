@@ -6,7 +6,7 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import { ProductSwatchWall } from './ProductSwatchWall';
 
@@ -54,5 +54,16 @@ describe('ProductSwatchWall', () => {
     render(<ProductSwatchWall />);
     expect(screen.getByText(/挑選小提醒/)).toBeDefined();
     expect(screen.getByText(/特殊樣式需等/)).toBeDefined();
+  });
+
+  // Fix B(Sean 2026-06-03 :3001 驗:頁內圖片可點擊放大):每卡圖為 button、點擊開共用 SwatchLightbox
+  it('每張紋路卡圖為 button、點擊開放大 lightbox(瀏覽全 10 張)', () => {
+    render(<ProductSwatchWall />);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    const zoomBtns = screen.getAllByLabelText(/^放大檢視 /);
+    expect(zoomBtns.length).toBe(10);
+    fireEvent.click(zoomBtns[0]!);
+    expect(screen.getByRole('dialog')).toBeDefined();
+    expect(screen.getByText(/\/ 10$/)).toBeDefined(); // counter NN / 10
   });
 });
