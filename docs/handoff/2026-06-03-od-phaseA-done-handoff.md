@@ -47,4 +47,11 @@
 - **審查 session**:重 arm dev + od-redesign 兩哨兵;讀兩 review-log 尾 + 記憶 session-end 段。
 - **執行 session**:在 OD worktree 接 OD-12;讀 od review-log + OD 模板真權威(open-design「Website V2」product-detail-rpm-template.html、daemon 若起得來)。
 
+## 6. 本交接後續更新(2026-06-03 晚)
+
+- **CLAUDE.md / AGENTS.md 精簡完成**(commit `154c95a`):621→174 / 544→149 行(字元 -38%);砍 SOFT 背景/列舉/重複→指標、標 Cowork-era vs 自驅 default、補「寫審分離 + worktree」實況。**鐵則 1-12 編號 + 六件套 + 「— 禁止清單結束 —」+ codex K1/K2 + 自驅 SOP 9 步結構依賴全保留**(6 個 fresh-context agent 對抗審查:結構依賴 PASS ALL、修 1 矛盾)。雙生檔同步(Codex 視角)。**新 session 自動吃精簡版;改共用規則須兩檔同步。**
+- **進度地圖更新**:`docs/progress-roadmap.html` M-1 商品上架→100% done(M-1-16 完成、整合+OD 疊其上)、meta.updated 2026-06-03。⚠️ **roadmap M-2「會員系統」vs STATUS「M-1-14 會員後端」編號/範圍漂移**(地圖 M-2 是會員*功能*片〔三級價格/經銷申請〕、STATUS M-1-14 是*後端*資料層)→ 依 pcm-roadmap skill 保守未灌水、**待 Sean 對齊哪些會員功能算 done**。roadmap-data.json 在 `~/.claude/skills/pcm-roadmap/`(不入 repo)。
+- **graphify 結構地圖**:本機 `graphify-out/` 停 5/31、未刷;**新執行 session 首個 code slice 跑 `/graphify --update`**。
+- **push 狀態**:Sean 2026-06-03 授權 push,docs commit(`091d104` 審查 log+交接 / `154c95a` CLAUDE 精簡 / 本交接更新)上 origin/dev。整合資料線 + OD Phase A 程式碼先前已在 origin/dev=e5925db。
+
 — END —
