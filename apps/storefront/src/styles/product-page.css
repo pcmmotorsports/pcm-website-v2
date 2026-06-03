@@ -1163,6 +1163,37 @@
 }
 .pd-mbb-back:active { background: var(--paper-2); }
 
+/* ===================================================================
+   FAQ accordion(OD §10、N°04 ProductFAQ)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
+=================================================================== */
+.faq-list { display: flex; flex-direction: column; border-top: 1px solid var(--c-border); }
+.faq-item { border-bottom: 1px solid var(--c-border); }
+.faq-item summary {
+  list-style: none;
+  display: flex; justify-content: space-between; align-items: center; gap: 20px;
+  padding: 22px 4px; cursor: pointer;
+  font-size: 15.5px; font-weight: 600;
+  transition: color 0.15s;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary:hover { color: var(--c-text-2); }
+.faq-icon {
+  flex-shrink: 0; width: 22px; height: 22px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--f-mono); font-size: 18px; font-weight: 400;
+  color: var(--c-text-2);
+  transition: transform 0.2s;
+}
+.faq-item[open] .faq-icon { transform: rotate(45deg); }
+.faq-body {
+  padding: 0 4px 22px;
+  font-size: 14.5px; line-height: 1.75; color: var(--c-text-2);
+  text-wrap: pretty;
+  max-width: 960px;
+}
+.faq-body strong { color: var(--c-text); }
+
+
 /* M-1-13c minimum responsive fix(Q-3=A 拍板)— 手機 grid collapse 單欄、避免 .pd-main 1fr+480px 把左欄擠到負寬;
    完整 responsive 字面留 M-1-13g 搬 design line 618-669 sec 11 一次性收口
    M-1-13e-a 補 design line 662-667 的 sec 6+7+13 切換規則(buy-row / buynow / services / mobile-buybar)
