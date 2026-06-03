@@ -5489,6 +5489,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #211. 🧩 fitments 分組對髒字串敏感 — 匯入端車廠/車型正規化防未來拆堆
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(當前資料 0 異常、非阻;新來源大批匯入前再評估)
+- **問題:**
+  - OD-12d 把適用車款表改成**依車廠+車型精準字串歸堆**(groupFitments)顯示。若匯入資料同一台車的 motoBrand/modelCode 字串不一致(尾空格 / 大小寫變體 / `RSV4` vs `RSV 4`),會被當成不同車、**拆成兩堆/兩列**(看起來重複、非報錯)。
+  - **2026-06-03 唯讀實查正式庫(`bmpnplmnldofgaohnaok`)驗證:fitments 共 2873 筆、10 車廠 / 96 車型、`trim` 空格異常 **0**、`lower(trim())` case-fold 衝突 **0**、1123 商品 **100%** 有 fitments → 當前資料乾淨、零拆堆風險、OD-12d 分組對真資料正確(SQL 端模擬 groupFitments = 前端輸出 = 截圖)。**
+  - 但**匯入端(S6 fitment 寫入 / rpm-import)無字串正規化守門** → 未來髒批可冒出拆堆。
+- **觸發事件:**
+  - OD-12d 重設計(扁平表→分組)後 Sean 問「DIV 分組撈 DB 一樣對嗎」→ 實查驗證資料乾淨,但發現分組比扁平表對字串一致性敏感、匯入端無 guard。
+- **預期解法:**
+  - 優先**匯入端**:rpm-import / S6 fitment 寫入時對 motoBrand/modelCode 做 `trim` + 統一大小寫(canonical case)正規化 — 根治、保護所有下游(不只 fitments UI、含 listByFitment `@>` 查詢、車款篩選)。
+  - 治標備案:前端 `groupFitments` key 做防禦性 `trim`(便宜、但不解 fitment 篩選/查詢層)。
+- **不修會痛在:**
+  - 擴充性:未來新增別品牌 / 別供應商批次、不保證每批字串乾淨 → 髒批一進、fitments UI 立刻冒「同車款拆兩堆」+ 車款篩選 `@>` 精準比對漏命中(查 `RSV4` 漏 `RSV4 `)。
+  - 可維護性:無正規化守門 → 每批匯入要人工肉眼檢查車款字串、無自動防線。
+  - bug 可追蹤性:拆堆 / 漏命中是「看起來重複 / 查不到」非報錯、靜默發生、需人發現才知哪批髒。
+- **估時:** 1-2 hr(匯入端 normalize + 測 + 既有資料一次性 backfill 驗)。
+- **依賴:** 無(現資料乾淨、非阻);未來引入新 fitment 來源前處理較佳。
+- **發現於:** 2026-06-03 / OD-12d 後 Sean 提問 + 唯讀實查驗證。
+- **相關:** OD-12d(ProductFitments.groupFitments)/ scripts/rpm-import.ts / S6 fitment plumb / SupabaseProductAdapter.listByFitment(`fitments @>` jsonb 精準比對)
+
+---
+
 ## 紀錄模板
 
 ```markdown
