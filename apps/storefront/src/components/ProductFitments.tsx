@@ -25,6 +25,10 @@
 //
 // 純 presentational、無 hooks、無 'use client'(由 client parent ProductPage import 進 client bundle、仍 SSR)。
 //
+// a11y:分組以巢狀 ARIA list(role=list / listitem)表達「品牌 → 車型 → 年式」層級;年式清單 aria-label
+//   帶車型名建立年式↔車型關係(報讀器最易丟失的關係)。div 顯式 role、零 CSS / 視覺不變(避開 Safari +
+//   VoiceOver 對 ul+list-style:none 移除 list 語意的已知陷阱)。
+//
 // 標點:半形逗號「,」對齊產品頁元件家族慣例(ProductFAQ / ProductTabs 一致);頓號「、」句號「。」依 OD。
 
 import type { MockProduct, UIFitment } from '@/data/mock-products';
@@ -85,18 +89,20 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
         </div>
         <div className="pd-fit-hint">下單前請先聊聊確認您的年式 / 配備</div>
       </div>
-      <div className="pd-fit-groups">
+      <div className="pd-fit-groups" role="list">
         {groups.map((g) => (
-          <div className="pd-fit-group" key={g.brand}>
+          <div className="pd-fit-group" role="listitem" key={g.brand}>
             <div className="pd-fit-brand">{g.brand}</div>
-            <div className="pd-fit-rows">
+            <div className="pd-fit-rows" role="list">
               {g.models.map((m) => (
-                <div className="pd-fit-row" key={m.model}>
+                <div className="pd-fit-row" role="listitem" key={m.model}>
                   <div className="pd-fit-model">{m.model}</div>
-                  <div className="pd-fit-years">
+                  {/* 年式清單以「{車型} 適用年式」具名、建立年式↔車型關係(報讀器最易丟失) */}
+                  <div className="pd-fit-years" role="list" aria-label={`${m.model} 適用年式`}>
                     {m.fits.map((f, i) => (
                       <span
                         className="pd-fit-year"
+                        role="listitem"
                         key={`${f.yearStart ?? ''}-${f.yearEnd ?? ''}-${i}`}
                       >
                         {formatYears(f)}

@@ -382,8 +382,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductFitments.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "654e471"  # 記可達祖先=OD-12d 父 commit(=OD-12c、避 amend orphan);本 slice 真改見 git log [OD-12d]:重設計分組+年式 chips。OD-12c 桌機收窄 / OD-12b 移除未確認標 / OD-12 新建見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-12d:扁平表→依車廠/車型分組+年式 chips 重設計〔Sean 真機驗 + /frontend-design、消重複變矮〕;OD-12c 桌機收窄 / OD-12b 移除未確認標 / OD-12 初建見 od_redesign 段)"
+      last_modified_commit: "0eff2a4"  # 記可達祖先=本 a11y commit 直接父(=同 NIT slice 的註解 hygiene commit、避 amend orphan);本 slice 真改見 git log:分組清單補巢狀 ARIA list/listitem 語意(視覺不變、零 CSS、非偏離 design 故無新 business_override)。OD-12d 重設計分組+chips / OD-12c 桌機收窄 / OD-12b 移除未確認標 / OD-12 新建見 od_redesign.slices_done
+      last_modified_date: "2026-06-03 (a11y NIT:分組清單補巢狀 ARIA list 語意〔role=list/listitem + 年式清單 aria-label 帶車型名建立年式↔車型關係〕、視覺不變零 CSS;前序 OD-12d 扁平表→分組+年式 chips 重設計 / OD-12c 桌機收窄 / OD-12b 移除未確認標 / OD-12 初建見 od_redesign 段)"
     design:
       authority: "open-design: Website V2 / product-detail-rpm-template.html §7.5 Fitments table(OD-12d 起 Sean 主導 UX 重設計、扁平表保真 supersede、見 business_overrides.fitmentsGroupedLayout)"
     business_overrides:

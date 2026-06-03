@@ -2,7 +2,8 @@
 //
 // ProductFitments smoke test — 適用車款分組清單(OD-12 + OD-12d 重設計、D1=A 車廠/車型/年式)。
 // 驗:空狀態(無 fitments / 空陣列)返 null 兩路徑 + 渲染(eyebrow / title)+ 依車廠→車型分組
-// (單/多車廠)+ 年式 chip 三態格式(開放式 + / 單年 / 區間 – / 無年份 —)+ 年式升序排序。
+// (單/多車廠)+ 年式 chip 三態格式(開放式 + / 單年 / 區間 – / 無年份 —)+ 年式升序排序
+// + a11y 巢狀 ARIA list 語意(品牌 / 車型 / 年式清單 role + 年式清單 aria-label 帶車型名)。
 // 純 presentational server component、無 hooks / interactive(不需 CartProvider wrapper)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
@@ -97,5 +98,23 @@ describe('ProductFitments', () => {
     const { container } = render(<ProductFitments product={product} />);
     // 無 yearStart 排末
     expect(yearChips(container)).toEqual(['2020', '—']);
+  });
+
+  it('exposes grouped fitments as nested ARIA lists with per-model year labels (a11y)', () => {
+    const product = withFitments([
+      { motoBrand: 'Aprilia', modelCode: 'RSV4', yearStart: 2016, yearEnd: 2019 },
+      { motoBrand: 'Aprilia', modelCode: 'RSV4', yearStart: 2021, yearEnd: 2024 },
+    ]);
+    const { container } = render(<ProductFitments product={product} />);
+    // 巢狀 list 語意:品牌清單 → 車型清單 → 年式清單(視覺不變、純 role 屬性)
+    expect(container.querySelector('.pd-fit-groups')?.getAttribute('role')).toBe('list');
+    expect(container.querySelector('.pd-fit-group')?.getAttribute('role')).toBe('listitem');
+    expect(container.querySelector('.pd-fit-rows')?.getAttribute('role')).toBe('list');
+    expect(container.querySelector('.pd-fit-row')?.getAttribute('role')).toBe('listitem');
+    // 年式清單以「{車型} 適用年式」具名(建立年式↔車型關係、報讀器最易丟失)
+    const years = container.querySelector('.pd-fit-years');
+    expect(years?.getAttribute('role')).toBe('list');
+    expect(years?.getAttribute('aria-label')).toBe('RSV4 適用年式');
+    expect(container.querySelector('.pd-fit-year')?.getAttribute('role')).toBe('listitem');
   });
 });
