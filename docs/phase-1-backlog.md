@@ -5445,7 +5445,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #209. 🌐 商品中文描述 pipeline workstream(baoyu-translate → 台灣校對)
 
-- **狀態:** ⏳ 待執行(pilot 測中)
+- **狀態:** 🔵 方向升級 + 設計完成、交報價單 session 開 PRD(2026-06-03、見末段「重大升級」;上方「預期解法」baoyu-translate 路線已被取代)
 - **優先級:** 🟠 中
 - **問題:**
   - 報價單乾淨 view `storefront_catalog_v` 的 `description` 欄對 RPM **全空**(親驗 8878 列 0 描述);現有網站 933 商品描述是 16b 從 raw `description_origin` 灌的**英文 HTML 全文**(掛中文站本就不理想)。
@@ -5463,6 +5463,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** S3b(description 已隔離出同步路徑);baoyu-translate / taiwan-traditional-chinese skill。
 - **發現於:** 2026-06-02 / S3b-1 dry-run(view.description 全空)+ Sean Q-desc 定案。
 - **相關:** #205 / scripts/rpm-transform.ts(description 移出 scope)/ docs/specs/2026-06-02-S3b-sync-rewrite-plan.md §2.2
+- **⬆️ 2026-06-03 重大升級(方向轉向、取代上方「預期解法」的 baoyu-translate 翻譯路線):**
+  - **路線改為「結構化賣場內容生成」、非 prose 翻譯**(Sean 拍):baoyu-translate 直翻不滿意,根因=賣場文案要消四怕硬資訊而非漂亮翻譯、原文有 bug、5 家無原文。
+  - **關鍵發現**:RPM `description_origin` 英文原文 **100% 在手**(均 760 字、爬蟲早抓、view 未投射);其他 5 家 **0 原文**(需爬官網補、第一版不做)。`translation_locked` 鎖定機制已存在(人工值爬蟲不覆蓋)。
+  - **🔴 車種正確性鐵律**:AI 文案**完全不碰車種**、車款/年式走校正 `fitment_parsed` 直出(原文車種常錯:BMW 複製貼上 / 年份打架 / 名稱≠描述);適用車款表絕對強制(無資料顯「LINE 詢問」)。
+  - **第一版範圍(Sean 拍 A/B/B)**:只 RPM、只商品級(brand_story 第一版不做)、其他家爬原文之後再排;做 **PCM 專屬 skill**(封裝賣場規則+RPM品牌通則+濾bug)批量跑。
+  - **完整設計 + 3 件 pilot 範例 + 報價單側/網站側影響面 → 設計 doc**:`docs/specs/2026-06-03-storefront-content-model-design.md`(自包含、已寫交接橋接文字交報價單 session 開 PRD)。
+  - 詳 memory `project_storefront-content-model-design`;報價單系統現況(dashboard /translations·/audit、spec jsonb、鎖定機制)見該 memory + 設計 doc §1。
 
 ---
 
