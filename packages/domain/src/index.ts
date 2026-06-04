@@ -24,3 +24,27 @@ export { resolveEnd } from './catalog/year-range';
 export { computeEffectivePrice } from './catalog/pricing';
 export { designTierToSchema, schemaTierToDesign } from './shared/utils';
 export { AuthError } from './identity/auth';
+
+// order entity runtime helper(M-3-S1)
+export type { OrderErrorCode } from './order/errors';
+export { OrderError } from './order/errors';
+export {
+  createOrder,
+  createOrderItem,
+  createProductSnapshot,
+  assertOrderInvariant,
+} from './order/order';
+export {
+  canPaymentTransition,
+  canFulfillmentTransition,
+  assertPaymentTransition,
+  assertFulfillmentTransition,
+  withPaymentStatus,
+  withFulfillmentStatus,
+} from './order/state-machine';
+export {
+  formatDisplayId,
+  isValidDisplayId,
+  assertDisplayId,
+  parseDisplayId,
+} from './order/display-id';
