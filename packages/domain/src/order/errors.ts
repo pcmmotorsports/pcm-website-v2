@@ -18,7 +18,9 @@
  * - `empty_items`:訂單無品項
  * - `subtotal_mismatch`:subtotal ≠ Σ lineTotal(或 lineTotal ≠ unitPrice × qty)
  * - `total_mismatch`:total ≠ subtotal + shippingFee − discountTotal
- * - `invalid_snapshot`:快照欄缺失 / 非字串(title / sku / spec / variantSku)
+ * - `invalid_snapshot`:快照欄缺失 / 非字串(title / sku / spec / variantSku / productId)
+ * - `invalid_field`:caller 字串 / enum 欄非「純字串」(如 `new String()` wrapper 帶隱藏 toJSON、
+ *   會在 `JSON.stringify(order)` 偷渡任意字串;id / customerId / tierAtCheckout / status 等)
  * - `invalid_display_id`:displayId 不符 `PCM-YYYY-NNNN`
  * - `illegal_payment_transition`:付款軸非法轉移(跳級 / 倒退 / 自我 / terminal 後)
  * - `illegal_fulfillment_transition`:出貨軸非法轉移(同上)
@@ -31,6 +33,7 @@ export type OrderErrorCode =
   | 'subtotal_mismatch'
   | 'total_mismatch'
   | 'invalid_snapshot'
+  | 'invalid_field'
   | 'invalid_display_id'
   | 'illegal_payment_transition'
   | 'illegal_fulfillment_transition';

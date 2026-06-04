@@ -30,8 +30,19 @@ import type {
 } from './types';
 import { OrderError } from './errors';
 import { assertDisplayId } from './display-id';
+import { createProductSnapshot, assertProductSnapshot } from './snapshot';
 
 // ── 內部守門 helper ──────────────────────────────────────────────────────
+
+/**
+ * 純字串守門:欄值必為 primitive string,封 `new String()` wrapper(帶隱藏 toJSON)在
+ * `JSON.stringify(order)` 偷渡任意字串(round3 收尾、序列化攻擊面)。
+ */
+function assertPlainString(value: string, label: string): void {
+  if (typeof value !== 'string') {
+    throw new OrderError('invalid_field', `${label} must be a primitive string`);
+  }
+}
 
 /** 金額整數 + 非負(防 `as MoneyAmount` 繞過 guard 的腐壞值)。 */
 function assertAmount(money: Money, label: string): void {
@@ -43,88 +54,30 @@ function assertAmount(money: Money, label: string): void {
   }
 }
 
-/** 跨 item / order 金額 currency 必一致。 */
+/**
+ * 跨 item / order 金額 currency 必一致 + **必為純字串**。
+ *
+ * typeof 守門封 `new String('TWD')` wrapper(帶隱藏 toJSON)類:即使全欄同一 wrapper 參照繞過
+ * `!==` 比對,object currency 仍 loud-reject、不流入 canonicalize 後的 Order(round3 收尾)。
+ */
 function assertCurrency(expected: Currency, money: Money, label: string): void {
-  if (money.currency !== expected) {
+  if (typeof money.currency !== 'string' || money.currency !== expected) {
     throw new OrderError(
       'currency_mismatch',
-      `${label} currency ${money.currency} ≠ order currency ${expected}`,
+      `${label} currency ${String(money.currency)} ≠ order currency ${expected}`,
     );
-  }
-}
-
-// ── 商品快照(逐欄白名單)──────────────────────────────────────────────────
-
-/** ProductSnapshot 合法欄白名單(🔴 鐵則 12:經銷價 / cost 不在其中)。 */
-const ALLOWED_SNAPSHOT_KEYS: readonly string[] = ['title', 'sku', 'spec'];
-
-/** 驗 ProductSnapshot 欄位值合法(title/sku 非空字串、spec 為字串 map);不檢查多餘欄。 */
-function assertSnapshotFields(snapshot: ProductSnapshot): void {
-  const { title, sku, spec } = snapshot;
-  if (typeof title !== 'string' || title.length === 0) {
-    throw new OrderError(
-      'invalid_snapshot',
-      'productSnapshot.title must be non-empty string',
-    );
-  }
-  if (typeof sku !== 'string' || sku.length === 0) {
-    throw new OrderError(
-      'invalid_snapshot',
-      'productSnapshot.sku must be non-empty string',
-    );
-  }
-  if (typeof spec !== 'object' || spec === null) {
-    throw new OrderError('invalid_snapshot', 'productSnapshot.spec must be an object');
-  }
-  for (const [key, value] of Object.entries(spec)) {
-    if (typeof value !== 'string') {
-      throw new OrderError(
-        'invalid_snapshot',
-        `productSnapshot.spec.${key} must be string, got ${typeof value}`,
-      );
-    }
   }
 }
 
 /**
- * createProductSnapshot:逐欄白名單**複製**商品快照(建構路徑:從可能更寬的來源萃取乾淨快照)。
+ * canonicalizeMoney:重抄成全新 Money plain literal(只 amount + currency 兩純值欄)。
  *
- * 🔴 鐵則 12(plan §5 紅線 4):**只**取 `title` / `sku` / `spec` 三欄、即使輸入物件帶
- * `price_by_tier` / `price_store` / `cost` 等敏感欄也**不複製**(執行期擋經銷價滲入 Order;
- * 配合 `ProductSnapshot` 型別編譯期擋)。建構路徑用「萃取乾淨副本」語意(strip);驗證路徑用
- * `assertProductSnapshot`(對已組好快照 fail-closed reject 多餘欄)。
- *
- * @throws OrderError code `invalid_snapshot` 若 title / sku 非非空字串、或 spec 值非字串
+ * 🔴 鐵則 12 canonicalize 收尾(round3):caller 傳入(hand-built)的 Money 可能藏
+ * `toJSON` / getter,`JSON.stringify(order)` 會經 `toJSON` 偷漏 price_store 等敏感值;
+ * 重抄成只含 amount / currency 的全新 literal 封掉。呼叫前須已過 assertAmount(amount 為純整數)。
  */
-export function createProductSnapshot(input: ProductSnapshot): ProductSnapshot {
-  assertSnapshotFields(input);
-  const spec: Record<string, string> = {};
-  for (const [key, value] of Object.entries(input.spec)) {
-    spec[key] = value;
-  }
-  // 只回 title / sku / spec 三欄 —— 輸入的任何額外欄(經銷價 / cost)在此被丟棄
-  return { title: input.title, sku: input.sku, spec };
-}
-
-/**
- * assertProductSnapshot:驗一個**已組好**的快照 — 欄位值合法 **且無白名單外欄**;違反 throw。
- *
- * 🔴 鐵則 12 fail-closed(MUST-FIX-2):用於驗證路徑(assertOrderItemInvariant),對 hand-built
- * 繞過 createOrderItem、帶 `price_store` / `price_by_tier` / `cost` 的快照在 createOrder 邊界
- * **reject(throw)而非靜默 strip** — 經銷價防線在 domain 地基不留繞道。
- *
- * @throws OrderError code `invalid_snapshot` 若有白名單外欄、或欄位值非法
- */
-export function assertProductSnapshot(snapshot: ProductSnapshot): void {
-  for (const key of Object.keys(snapshot)) {
-    if (!ALLOWED_SNAPSHOT_KEYS.includes(key)) {
-      throw new OrderError(
-        'invalid_snapshot',
-        `productSnapshot has disallowed key "${key}" (white-list: title/sku/spec;鐵則 12 經銷價 fail-closed)`,
-      );
-    }
-  }
-  assertSnapshotFields(snapshot);
+function canonicalizeMoney(money: Money): Money {
+  return { amount: money.amount, currency: money.currency };
 }
 
 // ── OrderItem factory(guard)──────────────────────────────────────────────
@@ -200,6 +153,11 @@ export function assertOrderItemInvariant(item: OrderItem, currency: Currency): v
   assertAmount(item.lineTotal, 'item.lineTotal');
   assertCurrency(currency, item.unitPrice, 'item.unitPrice');
   assertCurrency(currency, item.lineTotal, 'item.lineTotal');
+  // productId / variantSku 純值欄 typeof 守門:封 `new String()` wrapper(帶隱藏 toJSON)在
+  // JSON.stringify(order) 偷渡任意字串(round3 收尾、純值欄走 loud-reject 而非 canonicalize coerce)。
+  if (typeof item.productId !== 'string' || item.productId.length === 0) {
+    throw new OrderError('invalid_snapshot', 'item.productId must be non-empty string');
+  }
   if (typeof item.variantSku !== 'string' || item.variantSku.length === 0) {
     throw new OrderError('invalid_snapshot', 'item.variantSku must be non-empty string');
   }
@@ -212,6 +170,34 @@ export function assertOrderItemInvariant(item: OrderItem, currency: Currency): v
   assertProductSnapshot(item.productSnapshot);
 }
 
+/**
+ * canonicalizeOrderItem:把(可能 hand-built)OrderItem 重抄成全新 plain literal。
+ *
+ * 🔴 鐵則 12 序列化漏經銷價兩層防線(round2→round3):`assertProductSnapshot` 的 `Object.keys`
+ * reject 只看 own-enumerable string 鍵,看不到隱藏 / 繼承的 `toJSON` / getter / non-enum / Symbol /
+ * 原型鏈 / spec-array → `JSON.stringify(order)` 仍可能經 `toJSON` 偷漏 price_store / price_by_tier /
+ * cost。本函式針對**物件欄**(unitPrice / lineTotal / productSnapshot)重抄成全新 literal
+ * (Money 走 canonicalizeMoney、productSnapshot 走 createProductSnapshot 重建純 `{title,sku,spec}`):
+ * 全新 plain 物件無這些隱藏成員,序列化只吐純值。
+ *
+ * 防線分工(非單靠本函式「封整類」):
+ * - **物件欄**(snapshot / Money)隱藏 toJSON / getter 類 → 本函式重抄靜默封死(序列化零洩漏)。
+ * - **純值欄**(productId / variantSku / currency / amount / quantity)的 `new String()` / `new Number()`
+ *   wrapper 類 → 由 `assertOrderItemInvariant` / `assertCurrency` / `assertAmount` typeof loud-reject。
+ * - 常見 own-enumerable 夾帶欄 → `assertProductSnapshot` loud reject。
+ * 呼叫前須已過 assertOrderItemInvariant(欄位值皆已驗為純值)。
+ */
+function canonicalizeOrderItem(item: OrderItem): OrderItem {
+  return {
+    productId: item.productId,
+    quantity: item.quantity,
+    unitPrice: canonicalizeMoney(item.unitPrice),
+    lineTotal: canonicalizeMoney(item.lineTotal),
+    variantSku: item.variantSku,
+    productSnapshot: createProductSnapshot(item.productSnapshot),
+  };
+}
+
 // ── Order factory(build invariant)────────────────────────────────────────
 
 /**
@@ -220,6 +206,12 @@ export function assertOrderItemInvariant(item: OrderItem, currency: Currency): v
  * - **每 item 重經 `assertOrderItemInvariant` fail-closed**(MUST-FIX-1+2):不信任 caller 傳入的
  *   item、不論是否走 createOrderItem 建 — qty / 幣別 / lineTotal=unitPrice×qty / 快照白名單(經銷價)
  *   皆在此邊界重驗,hand-built 不一致 / 帶經銷價 snapshot 的 item 一律 throw。
+ * - **序列化攻擊面全封**(round3 收尾):對「`JSON.stringify(order)` 偷漏經銷價」雙路徑封死 —
+ *   ① **物件欄**(item / Money / 快照)走 `canonicalizeOrderItem` / `canonicalizeMoney` 重抄成純 plain
+ *   literal(不沿用 caller 參照、封隱藏 `toJSON` / getter / non-enum / Symbol / 原型鏈 / spec-array);
+ *   ② **純字串 / enum 欄**(id / customerId / tierAtCheckout / payment·fulfillmentStatus / displayId /
+ *   productId / variantSku / currency / amount / qty)走 typeof loud-reject 封 `new String()` /
+ *   `new Number()` wrapper 帶隱藏 toJSON。
  * - `subtotal` 由 items 的 lineTotal 加總算出(單一真相、caller 不傳、避免不一致)
  * - `total = subtotal + shippingFee − discountTotal`(過 `toMoneyAmount` 守門)
  * - items 非空、全金額同 currency、全非負整數;違反 throw
@@ -251,6 +243,13 @@ export function createOrder(params: {
     fulfillmentStatus = 'notOrdered',
   } = params;
 
+  // order 級字串 / enum 欄純字串守門(封 wrapper 隱藏 toJSON 序列化偷渡;item 級在
+  // assertOrderItemInvariant、currency 在 assertCurrency、displayId 在 assertDisplayId)
+  assertPlainString(id, 'id');
+  assertPlainString(customerId, 'customerId');
+  assertPlainString(tierAtCheckout, 'tierAtCheckout');
+  assertPlainString(paymentStatus, 'paymentStatus');
+  assertPlainString(fulfillmentStatus, 'fulfillmentStatus');
   assertDisplayId(displayId);
 
   const firstItem = items[0];
@@ -265,8 +264,10 @@ export function createOrder(params: {
   assertCurrency(currency, discountTotal, 'discountTotal');
 
   let subtotalAmount = 0;
+  const canonicalItems: OrderItem[] = [];
   for (const item of items) {
-    assertOrderItemInvariant(item, currency);
+    assertOrderItemInvariant(item, currency); // validate(loud reject 夾帶欄)
+    canonicalItems.push(canonicalizeOrderItem(item)); // canonicalize(store 純 literal)
     subtotalAmount += item.lineTotal.amount;
   }
   const subtotal: Money = { amount: toMoneyAmount(subtotalAmount), currency };
@@ -286,12 +287,12 @@ export function createOrder(params: {
     displayId,
     customerId,
     tierAtCheckout,
-    items,
+    items: canonicalItems,
     paymentStatus,
     fulfillmentStatus,
     subtotal,
-    shippingFee,
-    discountTotal,
+    shippingFee: canonicalizeMoney(shippingFee),
+    discountTotal: canonicalizeMoney(discountTotal),
     total,
   };
 }

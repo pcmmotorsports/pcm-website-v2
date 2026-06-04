@@ -31,11 +31,10 @@ export { OrderError } from './order/errors';
 export {
   createOrder,
   createOrderItem,
-  createProductSnapshot,
-  assertProductSnapshot,
   assertOrderItemInvariant,
   assertOrderInvariant,
 } from './order/order';
+export { createProductSnapshot, assertProductSnapshot } from './order/snapshot';
 export {
   canPaymentTransition,
   canFulfillmentTransition,

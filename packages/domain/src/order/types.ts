@@ -48,7 +48,7 @@ export type FulfillmentStatus = 'notOrdered' | 'ordered' | 'inStock' | 'shipped'
  *
  * 🔴 鐵則 12 經銷價零滲入(plan v6 §5 紅線 4):型別層**只**允許 title / sku / spec 三欄、
  * 編譯期擋 `price_by_tier` / `price_store` / `cost` 進入 domain Order。任何「把整個 Product
- * 塞進快照」的企圖由 `createProductSnapshot()`(order.ts)逐欄白名單複製於執行期攔截。
+ * 塞進快照」的企圖由 `createProductSnapshot()`(snapshot.ts)逐欄白名單複製於執行期攔截。
  *
  * - `title`:商品名稱(結帳當下、商品改名不影響歷史單)
  * - `sku`:商品主碼 productCode(對齊 catalog `Product.productCode`;與 `OrderItem.variantSku`

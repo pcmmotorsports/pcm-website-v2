@@ -55,10 +55,13 @@ export function isValidDisplayId(value: string): boolean {
 /**
  * assertDisplayId:驗證並回傳 DisplayId;非法 throw。
  *
+ * 先 typeof 守門:封 `new String('PCM-…')` wrapper —— `RegExp.test` 會把 wrapper 強制轉字串
+ * 而誤判合法,但 wrapper 帶隱藏 toJSON 可在 `JSON.stringify(order)` 偷渡序列化字串(round3 收尾)。
+ *
  * @throws OrderError code `invalid_display_id`
  */
 export function assertDisplayId(value: string): DisplayId {
-  if (!isValidDisplayId(value)) {
+  if (typeof value !== 'string' || !isValidDisplayId(value)) {
     throw new OrderError(
       'invalid_display_id',
       `displayId must match PCM-YYYY-NNNN, got ${JSON.stringify(value)}`,
