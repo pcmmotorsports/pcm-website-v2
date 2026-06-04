@@ -26,6 +26,7 @@
 import type { ReactNode } from 'react';
 import { headers } from 'next/headers';
 import { CartProvider } from '@/contexts/CartContext';
+import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
 import '../styles/tokens.css';
 import '../styles/header.css';
@@ -64,10 +65,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         />
       </head>
       <body>
-        <CartProvider>
-          {children}
-          <MobileTabBar />
-        </CartProvider>
+        <MobileProvider value={isMobile}>
+          <CartProvider>
+            {children}
+            <MobileTabBar />
+          </CartProvider>
+        </MobileProvider>
       </body>
     </html>
   );

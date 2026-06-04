@@ -504,8 +504,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/Header.tsx"
       css: "apps/storefront/src/styles/header.css"
-      last_modified_commit: "7ea5f26"
-      last_modified_date: "2026-05-24 (M-1-14e-f1-a D-f=A)"
+      last_modified_commit: "4988438"  # 記可達祖先(=LINE CTA 4988438、非直接父;直接父=提交當下 dev tip、避 amend orphan);本次真改見 git log:server UA 透過 MobileContext 下傳、修 iPhone 卡桌機 header
+      last_modified_date: "2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
     design:
       component: "design-reference/components/Header.jsx"
       css: "design-reference/styles/header.css"
@@ -522,6 +522,12 @@ components:
         decided_at: "2026-05-24"
         decision_source: "STATUS Sean 待決策 D-f=A + plan v4 [A][B]"
         reason: "/account 整頁 stage g 才建、現導 /login 避免孤兒頁;stage g 補登入態條件路由(backlog #179)"
+      - field: "headerServerUAContext"
+        design_value: "design Header.jsx 純前端 demo(無 SSR):autoMobile = data-mobile attr || innerWidth<1080、純 client 偵測;Header.jsx L3 已預留 isMobileProp 參數但 demo 不接 server 來源"
+        storefront_value: "Next SSR 適配:新增 MobileContext(layout server UA 經 MobileProvider 下傳)、Header isMobile=isMobileProp ?? (ctxMobile||autoMobile) — SSR 首屏即用 server UA 渲染正確手機/桌機 header、不靠不可靠的 client useEffect 切換;手機 header 視覺不變(精簡 search+PCM+cart 仍照 design L40-58)"
+        decided_at: "2026-06-04"
+        decision_source: "Sean 2026-06-04 真機驗 iPhone 卡桌機 header + 可水平平移 → 批准修 Header(plan A、不過 OD:Header 歸 design-reference 非 OD daemon、且不改視覺);本修補上 design 預留的 isMobileProp 的 layout→Header server UA 來源"
+        reason: "design demo 無 SSR 不暴露此問題;storefront Next SSR 首屏需正確 header、純 client 切換對 iPhone 不可靠(SSR 桌機→client 切換時序);全站 Header(首頁/列表/商品/帳號)受益"
 
   HomeHero:
     storefront:

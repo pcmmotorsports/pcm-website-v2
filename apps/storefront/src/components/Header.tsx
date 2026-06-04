@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import type { MouseEvent } from 'react';
 import { useCart } from '@/contexts/CartContext';
+import { useServerMobile } from '@/contexts/MobileContext';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 
 const NAV_ROUTE_MAP: Record<string, string> = {
@@ -64,7 +65,10 @@ export function Header({
     const id = setInterval(check, 500);
     return () => { mq.removeEventListener('change', check); clearInterval(id); };
   }, []);
-  const isMobile = isMobileProp !== undefined ? isMobileProp : autoMobile;
+  // isMobile 決議:明確 prop(單元測試 / dev-preview)優先 → 否則 layout SSR UA(首屏正確、無閃爍)
+  //   OR client viewport(桌機縮窗 <1080 響應)。修 iPhone 卡桌機 header:SSR 即用 server UA、不靠 client 切換。
+  const ctxMobile = useServerMobile();
+  const isMobile = isMobileProp ?? (ctxMobile || autoMobile);
 
   // Header 會員態(g-1b、純 cosmetic):決定會員圖示去向(已登入→/account、未登入→/login)。
   // 真守門在 /account server 端 getUser();此處查不到 / 出錯一律退化未登入(安全方向、server 擋)。
