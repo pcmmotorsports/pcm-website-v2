@@ -498,5 +498,21 @@ OD-12 NIT slice 第 2 commit(承我前審「OD-12d a11y 語意降級〔分組用
 - **🟢 三綠**:純 docs;N/A。
 - **判定:63651e84 PASS**(0 must-fix;架構/技術內容詳實正確)。**2 個狀態記帳矛盾已標、待 Sean 釐清「審查 session 是否換手」**(見下)。
 
-_(⚠️ **換手待 Sean 拍**:交接文要 fresh 審查 session 接手 + 稱哨兵已停,但本審查 session 仍在跑、byo0hnkyh 仍活、context 仍足。審查紀錄(3ca6411+63651e84)已 commit 乾淨。**未自行停哨兵**(避免斷審)——等 Sean 定:① 本 session 續審 ② 真開 fresh session(則本 session 停哨兵交棒)。
-其他 ✅:OD-12 NIT 兩 commit + 翻譯 #209 設計線 + 63651e84 交接 皆審 PASS;待 Sean :3001 真機驗 OD-12d/OD-13 + 拍 pilot→skill/brand_story/其他5家爬原文 + 車種露出 A/B。哨兵盯 dev / od-redesign、origin/dev 未推。)_
+---
+
+## [`ce36e50f`] feat(storefront): 商品頁 LINE 詢價懸浮 CTA(手機 deep link 預填 / 桌機 QRCODE)[line-cta] — **PASS**(0 must-fix、車種鐵律落實徹底 + 三綠 fresh 重跑全綠)
+
+交接文 §4 優先序 P-1(接通現況唯一真實成交管道)。author=Sean(執行 session worktree line-cta 分支隔離施工、ff-merge 回 dev=線性無 merge commit)。range `6897324..ce36e50f`。**feat=真 code**,fresh-context `git show` 全 diff + 三綠 fresh 重跑。
+- **scope**:6 檔(lib/line-cta.ts 新 / LineCtaButton.tsx 新 / line-cta.css 新 / LineCtaButton.test.tsx 新 / ProductPage.tsx +2 接線 / manifest)、零動 S6/scripts/schema/pricing。
+- **🔴 車種鐵律(本案最硬約束)逐行驗證 PASS**:`buildPrefillMessage`(line-cta.ts L31-43)**確不讀 `product.fits`**、只拼 `商品名 + 料號(productCode??slug) + pageUrl + 「我的車是(請告知年式/車型):」留空`;test 2 用 `MOCK_PRODUCTS[0]`(fits='CBR600RR' 有車款)當**對抗樣本守門**:`expect(msg).not.toContain(product.fits)` + `not.toContain('CBR')`。AI/訊息零車款捏造、車型由客人自填 PCM 再確認 → 完全符合鐵律。
+- **🟢 必含三欄 / 車型留空 / deep link 格式**:test 1(含商品名+料號+URL)+ test 3(結尾「我的車是…:」冒號後無車款)+ test 5(`buildOaDeepLink`=`line.me/R/oaMessage/@pcmmoto/?{urlencode}`)逐項對齊。
+- **🟢 不擋 buybar**:`.line-cta-fab z-index:45`<`buybar z-index:50`(product-page.css:1226 對照)、`mobile-tabbar:40`<45;手機 `@media≤1079 bottom:calc(74px+safe-area)` 避開 buybar;QR modal z-index:10000 蓋全部(合理)。
+- **🟢 桌機/手機分流 + 韌性(8 smoke test 覆蓋)**:桌機→QRCODE modal(dialog+QR 圖+lin.ee 加好友 fallback)、手機→`window.open` oaMessage、QR `onError`→破圖隱藏+「QR 圖準備中」+加好友連結兜底(LINE_QR_SRC 現 placeholder、待 Sean 補 public/line-qr.png 真圖、有 fallback 不炸)。
+- **🟢 安全/隱私**:lib 純函式不讀 window(pageUrl client 傳)、**零 price/cost/dealer/prisma 引用**(grep 證、只用 name/productCode/slug/url 公開欄);LINE_OA_ID='@pcmmoto'(Sean 確認真值、與 pcm-moto 同帳號)。
+- **🔴 三綠 fresh 獨立重跑(主樹 dev=ce36e50 純態、--force)**:**typecheck 7/7 + lint 10/10**(17 task 0 cached)+ **build storefront 1/1**(0 cached)+ **完整 vitest 82 檔 554 測**(546 base + 8 LineCtaButton、動共用元件 ProductPage 跑全套)。全綠、零回歸、對齊 commit body。⚠️ 跑期間並行 session 改 `docs/specs/content-model-design.md`(docs、與 code 無關、source(apps/packages)全程零 dirty → 驗證有效)。
+- **🟢 字面 vs 事實**:body 6 檔/車種鐵律/三欄/z-index/8 test/三綠數字 對 diff+實跑核屬實;manifest 加 LineCtaButton + business_override `lineCtaDeepLinkPrefill`(code-reviewer WARN-1 已修)。
+- **判定:ce36e50f PASS**(0 must-fix)。⚠️ 待 Sean :3001 肉眼驗 + 補 `public/line-qr.png` 真 QR 圖(現 placeholder、onError fallback 兜底不炸)+ 確認 LINE basic ID @pcmmoto。
+
+_(⚠️ **換手待 Sean 拍**:交接文要 fresh 審查 session + 稱哨兵已停,但本 session 仍在跑、byo0hnkyh 仍活、context 仍足、且持續正常審(本片 ce36e50f LINE CTA 即由本 session 審 PASS)。**未自行停哨兵**——等 Sean 定 ① 本 session 續審 ② 真開 fresh(則停哨兵交棒)。
+⚠️ **並行 session 熱點**:主樹多方並行(LINE CTA 已 merge / 另一 session 改 content-model doc /specs M / 審查),本 session 嚴守唯讀+精準 pathspec commit(只 review-log)、零碰他人 M。
+其他 ✅:OD-12 NIT×2 + 翻譯 #209 設計線 + 63651e84 交接 + ce36e50f LINE CTA 皆審 PASS;待 Sean :3001 真機驗(OD-12d/OD-13/LINE CTA)+ 補 QR 圖 + 拍 pilot→skill/brand_story/其他5家爬原文。哨兵盯 dev=ce36e50 / od-redesign=266f5f2、origin/dev 未推。)_
