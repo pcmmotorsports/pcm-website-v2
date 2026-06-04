@@ -5445,7 +5445,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #209. 🌐 商品中文描述 pipeline workstream(baoyu-translate → 台灣校對)
 
-- **狀態:** 🔵 方向升級 + 設計完成、交報價單 session 開 PRD(2026-06-03、見末段「重大升級」;上方「預期解法」baoyu-translate 路線已被取代)
+- **狀態:** 🔵 方向升級 + 設計完成、報價單側已開 PRD v2(2026-06-03 設計 doc → 2026-06-04 PRD v2、見末段兩次升級;上方「預期解法」baoyu-translate 路線已被取代;權威 = 報價單 repo PRD v2)
 - **優先級:** 🟠 中
 - **問題:**
   - 報價單乾淨 view `storefront_catalog_v` 的 `description` 欄對 RPM **全空**(親驗 8878 列 0 描述);現有網站 933 商品描述是 16b 從 raw `description_origin` 灌的**英文 HTML 全文**(掛中文站本就不理想)。
@@ -5470,6 +5470,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - **第一版範圍(Sean 拍 A/B/B)**:只 RPM、只商品級(brand_story 第一版不做)、其他家爬原文之後再排;做 **PCM 專屬 skill**(封裝賣場規則+RPM品牌通則+濾bug)批量跑。
   - **完整設計 + 3 件 pilot 範例 + 報價單側/網站側影響面 → 設計 doc**:`docs/specs/2026-06-03-storefront-content-model-design.md`(自包含、已寫交接橋接文字交報價單 session 開 PRD)。
   - 詳 memory `project_storefront-content-model-design`;報價單系統現況(dashboard /translations·/audit、spec jsonb、鎖定機制)見該 memory + 設計 doc §1。
+- **⬆️ 2026-06-04 再升維(權威轉移到報價單 PRD v2、網站審查 session workflow 驗證):**
+  - 報價單 session 已開立 **PRD v2**(`/Users/sean_1/API大量上架/PCM報價單-V2/docs/PRD-storefront-content-pipeline-v2-2026-06-04.md`),取代 2026-06-03 設計 doc 的「逐件 skill + 標題主車型」假設:主引擎改**程式範本工廠打底(zero AI 全量)+ AI 只補頭部 5–15%**、工作單位 = `main_sku` 群、範本鍵 = `major_category`、**標題車種 = 三叉 deterministic 規則**(Sean 2026-06-04 拍 A、取代「標題主車型」)、GEO 去重靠 DB 事實織入內文;上線前必修 fetcher DELETE 砍鎖 bug + 防殭屍下架(v2 §8/§11)。
+  - **權威 = 報價單 repo PRD v2**;網站設計 doc(`docs/specs/2026-06-03-storefront-content-model-design.md`)已標 superseded + 對齊三叉標題(2026-06-04 網站審查 session)。
+  - 網站側執行範圍(跨庫消費鏈 5 斷點 + 去 RPM 化前置 + contract-drift 測試)獨立記於 **#212**。
+  - 經網站審查 session 對抗 workflow 驗證(30 findings、0 blocker);審查記錄 `docs/reviews/2026-06-04-v2prd-website-review.md`。
 
 ---
 
@@ -5517,6 +5522,32 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 無(現資料乾淨、非阻);未來引入新 fitment 來源前處理較佳。
 - **發現於:** 2026-06-03 / OD-12d 後 Sean 提問 + 唯讀實查驗證。
 - **相關:** OD-12d(ProductFitments.groupFitments)/ scripts/rpm-import.ts / S6 fitment plumb / SupabaseProductAdapter.listByFitment(`fitments @>` jsonb 精準比對)
+
+---
+
+### #212. 🌉 賣場內容上網站:跨庫消費鏈網站側工作(PRD v2 §16 升格、報價單側改 view 必要非充分)
+
+- **狀態:** ⏳ 待執行(綁報價單 PRD v2 pipeline;報價單側 P1/P5 schema+view 落地後啟動)
+- **優先級:** 🟠 中(排 P2、LINE CTA + M-3 之後;但放量到非 RPM 家前「去 RPM 化」是硬前置)
+- **問題:**
+  - 網站**不直接讀**報價單 B 庫 `storefront_catalog_v`,中間隔每夜同步腳本(`scripts/rpm-import.ts` / `rpm-transform.ts`)從 B 庫撈 → 寫網站自有庫(`bmpnplmnldofgaohnaok`)products 表 → `products_public` view → adapter。報價單側把新欄投影進它的 view **不會自動讓網站看到**(2026-06-04 審查實證:`SupabaseProductAdapter.ts` 全走 `products_public`、零 `storefront_catalog_v`)。
+  - **5 個斷點**(新內容要上網站須逐一改):① `rpm-fetch.ts` VIEW_COLS(寫死白名單、非 SELECT *)加新欄 ② `rpm-transform.ts` 映射進 ProductRow ③ 網站 products 表 migration 加欄 + `products_public` view 投影 ④ adapter `PRODUCT_SELECT_DETAIL` + `mappers/product.ts` 還原 domain ⑤ UI(MockProduct 型別 + ProductTabs / ProductSpotlight 接真值)。
+  - **去 RPM 化**:`ProductInfo.tsx` 變體選擇器寫死 RPM key(weave/finish/special)、`ProductTabs.tsx` 規格表是**靜態 JSX 字面**(「真碳纖維/泰國/紋路」)。放量到非 RPM 家前必須先改 data-driven(schema-less key/value + 白名單 + 中文標籤 + 空兜底),否則 RPM 字面張冠李戴掛到非碳纖維商品。
+  - **description 刻意停同步**:`rpm-fetch.ts:50` + Sean Q-desc 舊拍板「描述走獨立 workstream」→ 上中文文案前須先確認推翻該拍板。
+  - **雙下架機制疊加**:網站庫已有自己的 `delisted_at` + RLS `USING(delisted_at IS NULL)` + `rpm-reconcile.ts` 對賬(S4 已上線、by-construction 安全);報價單側 v2 §11 若在 view WHERE 加 `delisted_at IS NULL`,等於提前移除缺席品 → 網站 reconcile 再判一次 → 雙重去抖延遲。需在合約 doc 釘死「缺席判定權威在哪側、N 天怎麼算」。
+- **觸發事件(任一觸發即啟動實作):** 報價單 PRD v2 pipeline P1(schema)+ P5(view 投影)落地、要把第一批範本內容上網站時;或放量到非 RPM 家前(去 RPM 化硬前置)。
+- **預期解法:**
+  - PRD v2 §16 升格成「網站側 5 斷點執行清單」,逐斷點開 slice。
+  - **contract-drift 測試**:網站端對 `storefront_catalog_v` select 新欄,view 缺欄就紅(防跨庫漏接靜默);合約 doc `STOREFRONT_CATALOG_CONTRACT.md` 加 version + changelog、P5 改版 bump。
+  - 去 RPM 化:重寫 ProductTabs 規格 pane data-driven + ProductInfo 選擇器不寫死 key。
+- **不修會痛在:**
+  - 擴充性:每加一家供應商、新內容欄都要手動同步 5 斷點;漏一斷點內容上不了網站。
+  - 可維護性:VIEW_COLS / transform / migration / adapter / UI 五處分散兩個 repo,無 contract 測試則跨庫交接靠人記。
+  - bug 可追蹤性:漏接是**靜默**的(不報錯、不 build 紅、前台空白),且 RPM description 本就空 → 沒人會發現新內容沒上;去 RPM 化漏做則非 RPM 商品顯示「真碳纖維/泰國」張冠李戴、誤導客人。
+- **估時:** 5 斷點接線 pilot 4-6 hr;去 RPM 化(ProductTabs/ProductInfo 重構)元件級半天-1 天;contract-drift 測試 1-2 hr。
+- **依賴:** 報價單 PRD v2 P1(schema)+ P5(view 投影 + 合約 doc);Sean 拍板推翻 description 停同步。
+- **發現於:** 2026-06-04 / 網站審查 session 對抗 workflow(PCM-1~4 + C-1、`docs/reviews/2026-06-04-v2prd-website-review.md`)。
+- **相關:** PRD v2 §10/§16(報價單 repo)/ scripts/rpm-fetch.ts / scripts/rpm-transform.ts / scripts/rpm-reconcile.ts / packages/adapters/src/supabase/SupabaseProductAdapter.ts / ProductTabs.tsx / ProductInfo.tsx / STOREFRONT_CATALOG_CONTRACT.md / #209
 
 ---
 
