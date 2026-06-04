@@ -5576,6 +5576,26 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-04 / M-3-S2-a codex k2 MUST-FIX 修復後 code-reviewer 複審。
 - **相關:** supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql / packages/domain/src/order/types.ts(ProductSnapshot.spec)/ S2-b1 create_order RPC / 鐵則 12
 
+### #214. 🛡️ create_order RPC 兩個 follow-up:availability 值域擴張回看 + 訂單 idempotency(階段② 付款前收斂)
+
+- **狀態:** 🟢 觀察(availability 二值現正確 fail-closed;idempotency 延階段②)
+- **優先級:** 🟢 觀察(idempotency 升 🟠 中、付款片〔階段②〕前必收斂)
+- **問題:**
+  - ① **availability 二值耦合**:`create_order` 用 `product/variant.availability <> 'in-stock'` fail-closed 擋缺貨。現 `availability` 為嚴格二值 enum('in-stock'/'out-of-stock'),`<> 'in-stock'` 正確。但若未來 domain/DB 加第三態(如預購 pre-order / 廠商調貨中),`<> 'in-stock'` 會把「可訂貨」狀態也擋掉(過嚴 fail-closed)。
+  - ② **訂單 idempotency 缺**:`create_order` 無 idempotency key / cart nonce → 同一 cart 併發或前端重送會建立多張 unpaid 訂單(codex k2 round1 consider)。Phase 1（未接金流）可接受;接 TapPay 付款(階段②)前必收斂、否則重複扣款風險。
+- **觸發事件:** 2026-06-04 S2-b1 create_order RPC、code-reviewer + codex 關卡2 round1 點名(① Minor 觀察 ② consider 延付款)。
+- **預期解法:**
+  - ① availability 值域若擴張:回看 create_order 缺貨判斷,改為「明確 out-of-stock 才擋」或正向列舉可訂狀態;同步 domain ProductAvailability 型別 + 前台顯示。
+  - ② idempotency:加 `p_idempotency_key`(client cart token)或 `orders(customer_user_id, idempotency_key)` partial unique;重送回同一張未付款單(或 RETURN 既有 order)。階段② TapPay charge 前落地。
+- **不修會痛在:**
+  - 擴充性:availability 加態時若忘了回看 RPC,新狀態商品「能加入購物車卻無法結帳」(靜默過嚴);idempotency 缺則重複訂單堆積。
+  - 可維護性:availability 判斷散在多處(RPC + 前台 + adapter),值域改動須全掃。
+  - bug 可追蹤性:重複下單在無金流時靜默(只是多筆 unpaid),接金流後變「重複扣款」客訴、難回溯源頭。
+- **估時:** ① 0.5 hr(值域擴張時);② idempotency 1-2 hr(階段② 付款片併做)。
+- **依賴:** ② 綁階段② TapPay 付款流程(confirm_order_payment / charge route)。
+- **發現於:** 2026-06-04 / M-3-S2-b1 create_order RPC codex 關卡2 round1 + code-reviewer。
+- **相關:** supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql / packages/domain/src/catalog/types.ts(ProductAvailability)/ 階段② 付款 / 鐵則 12
+
 ---
 
 ## 紀錄模板
