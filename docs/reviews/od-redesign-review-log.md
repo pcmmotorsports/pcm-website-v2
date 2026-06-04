@@ -528,5 +528,19 @@ ce36e50f follow-up:Sean :3001 真機驗抓三個「程式層過但真機 fail」
 - **判定:4988438b PASS**(0 must-fix)。
 - **📌 審查教訓(誠實)**:ce36e50f 三真機 bug 我程式審 + 8 smoke 全過卻漏抓(jsdom mock window.open 過 / 格式測含 @pcmmoto 過 / CSS bottom 判不擋)→ 全真機才現形、Sean 肉眼驗補。分工正確(我審 ce36e50f 已明標「待 Sean :3001 肉眼驗」)、印證 [[feedback_visual-verification-is-sean-only]] + build/test pass ≠ runtime pass。
 
-_(⚠️ **換手 + 分工待 Sean 拍**:fresh 審查 session 已確認上線(`da321b6` v2 PRD 35-agent workflow、獨立 review-log `2026-06-04-v2prd-website-review.md`、引用本 session `e069167`)→ 兩審查 session 並行盯 dev。本 session 守 OD/LINE CTA 線(本檔)、content-model 線(`7b51234`/`da321b6`/`bac3270`)= fresh 地盤本 session **不重審**。等 Sean 拍 ① 本 session 停哨兵交棒 ② 本 session 留常駐哨兵+OD/LINE 線、fresh 審 content-model(本 session 傾向、保住持續監看)。
-本 session 審 PASS:OD-12 NIT×2 + 翻譯 #209 設計線 + 63651e84 交接 + ce36e50f + 4988438b LINE CTA。待 Sean 真機驗 OD-12d/OD-13 + 拍 pilot→skill/brand_story/其他5家爬原文 + 車種露出 A/B(或已被架構三叉規則吸收)。哨兵盯 dev=4988438 / od-redesign=266f5f2、origin/dev 未推。)_
+---
+
+## [`7bdbdd47`] fix(storefront): Header SSR 用 server UA 修 iPhone 卡桌機 header [header-rwd] — **PASS**(鐵則 8 重大改動 plan 已批、hydration-safe 逐行驗 + 三綠 fresh 全綠)
+
+新線 header-rwd(網站側、Sean iPhone 真機驗抓:全站 Header 卡桌機版 + 可水平平移)。author=Sean(主樹 dev 施工)。**🔴 鐵則 8 重大改動**(動 layout + 共用 Header + 全站 + 新 Context)、commit 註明 **Sean 批 plan A**(動手前 plan 已過、符鐵則 8;本審查動手後審 diff)。range `79890bd..7bdbdd47`。
+- **scope**:4 檔(contexts/MobileContext.tsx 新 / layout.tsx / Header.tsx / manifest)、零動 S6/scripts/pricing/schema。
+- **🔴 hydration-safe 逐行驗證(SSR RWD 核心難點、本案最關鍵)**:`Header isMobile = isMobileProp ?? (ctxMobile || autoMobile)`。SSR:ctxMobile=server UA(layout 下傳)、autoMobile=false → isMobile=server UA;client 首次 render 取同一 RSC payload ctxMobile + autoMobile 初始 false → **與 SSR 一致、無 mismatch**;useEffect mount 後才翻 autoMobile=client viewport(re-render 非 hydration)。✅
+- **🟢 `??` vs `||` 正確**:`isMobileProp ??` 只 fallback undefined → prop=false(明確桌機、test/dev-preview)保留不破壞 Header.test;`ctxMobile || autoMobile` 讓 server UA 為主、client viewport(桌機縮窗<1080)fallback。等價舊 `!==undefined?prop:auto` + 補 server UA 來源。
+- **🟢 MobileContext 設計**:`createContext<boolean|undefined>(undefined)`、Provider 外退化 undefined(單元測試安全)、Provider client + useServerMobile 最小乾淨;layout `<MobileProvider value={isMobile}>` 包最外層、server 算的 isMobile(L54 UA)下傳 = RSC→client 標準 server-value 傳遞。
+- **🟢 design 鐵則 1 視覺不變**:Header.tsx diff **只改 isMobile 那 1 行 + 1 import**、不碰 header JSX/CSS;design Header.jsx L3 本預留 isMobileProp 參數(補預留口非偏離);Header 歸 design-reference 非 OD daemon(Sean 確認不過 OD)。manifest 加 business_override `headerServerUAContext`。
+- **🔴 三綠 fresh(主樹 dev=7bdbdd4 純態、source 零 dirty)**:turbo typecheck+lint+build storefront 9 task 0 cached + **完整 vitest 82 檔 553 測**(Header 全站共用元件→跑全套、Header.test 過=全站無破壞)。全綠。
+- **🟢 SSR 驗證(commit 已 curl)**:iPhone UA SSR pcm-nav=0(手機 header)/ 桌機 UA pcm-nav=9(修前 iPhone 也 9=bug);本審查審其邏輯依據(ctxMobile server UA→SSR 正確)確認成立;**iPhone 真機最終驗待 Sean**(對齊 [[feedback_visual-verification-is-sean-only]]:SSR/程式層過、真機肉眼驗 Sean only)。
+- **判定:7bdbdd47 PASS**(0 must-fix)。鐵則 8 plan 已批、hydration-safe、design 視覺不變、三綠全綠。待 Sean iPhone 真機驗。
+
+_(⚠️ **換手 + 分工待 Sean 拍**:fresh 審查 session 已上線(`da321b6` v2 PRD 35-agent workflow、獨立 review-log `2026-06-04-v2prd-website-review.md`)→ 並行盯 dev。本 session 守**網站側前台 code 線**(OD / LINE CTA / header-rwd,本檔)、content-model 線(`7b51234`/`bac3270`/`18bd8c6b`)= fresh 地盤**不重審**。等 Sean 拍 ① 本 session 停哨兵交棒 ② 本 session 留常駐哨兵+網站側線(傾向、保住持續監看;可調哨兵過濾 content-model 噪音)。
+本 session 審 PASS:OD-12 NIT×2 + 翻譯 #209 設計線 + 63651e84 交接 + ce36e50f + 4988438b LINE CTA + 7bdbdd47 header-rwd。待 Sean 真機驗(OD-12d/OD-13/LINE CTA/iPhone header)+ 拍 pilot→skill/brand_story/其他5家爬原文。哨兵盯 dev=7bdbdd4 / od-redesign=266f5f2、origin/dev 未推。)_
