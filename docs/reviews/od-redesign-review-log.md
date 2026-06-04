@@ -542,5 +542,18 @@ ce36e50f follow-up:Sean :3001 真機驗抓三個「程式層過但真機 fail」
 - **🟢 SSR 驗證(commit 已 curl)**:iPhone UA SSR pcm-nav=0(手機 header)/ 桌機 UA pcm-nav=9(修前 iPhone 也 9=bug);本審查審其邏輯依據(ctxMobile server UA→SSR 正確)確認成立;**iPhone 真機最終驗待 Sean**(對齊 [[feedback_visual-verification-is-sean-only]]:SSR/程式層過、真機肉眼驗 Sean only)。
 - **判定:7bdbdd47 PASS**(0 must-fix)。鐵則 8 plan 已批、hydration-safe、design 視覺不變、三綠全綠。待 Sean iPhone 真機驗。
 
-_(⚠️ **換手 + 分工待 Sean 拍**:fresh 審查 session 已上線(`da321b6` v2 PRD 35-agent workflow、獨立 review-log `2026-06-04-v2prd-website-review.md`)→ 並行盯 dev。本 session 守**網站側前台 code 線**(OD / LINE CTA / header-rwd,本檔)、content-model 線(`7b51234`/`bac3270`/`18bd8c6b`)= fresh 地盤**不重審**。等 Sean 拍 ① 本 session 停哨兵交棒 ② 本 session 留常駐哨兵+網站側線(傾向、保住持續監看;可調哨兵過濾 content-model 噪音)。
-本 session 審 PASS:OD-12 NIT×2 + 翻譯 #209 設計線 + 63651e84 交接 + ce36e50f + 4988438b LINE CTA + 7bdbdd47 header-rwd。待 Sean 真機驗(OD-12d/OD-13/LINE CTA/iPhone header)+ 拍 pilot→skill/brand_story/其他5家爬原文。哨兵盯 dev=7bdbdd4 / od-redesign=266f5f2、origin/dev 未推。)_
+---
+
+## 🏁 本審查 session 收尾(2026-06-04)
+
+**`94aa3ff6` STATUS+M-3 handoff 審 PASS**(fresh content-model session 收尾 commit、純 docs):STATUS 三欄更新準確(最近 3 commit `beee50d`/`7bdbdd4`/`4988438` 可達、表頂用可達祖先避 off-by-one、下一步 M-3);M-3 handoff 詳實(鐵則 8/12 審查重點 + 真機驗教訓 memory)。🟡 session 記帳:其 handoff 把 LINE CTA/Header 審記為 fresh session(實本 session 亦審、雙重、結論一致「concur `0801eb9`」)、§7 未列本檔 → 本收尾補正。
+
+**收斂決定**:M-3 已開 fresh 專責審查 session(工作樹見其 `docs/reviews/m-3-review-log.md` + handoff `2026-06-04-m3-execution-kickoff.md` setup;`bc171bc7`「補 MUST-FIX-1+2」證實它運作中、抓到 createOrder 邊界問題)→ 審查收斂、本 session(最早網站側審查 session、哨兵 `bn6l8qi9a`)**退場**,避免三審查 session 並行重複(對齊本檔多次記載並行撞車教訓 [[feedback_concurrent-session-git-index-contamination]])。
+
+**本 session 審過全 PASS(紀錄在本檔、字面 vs 事實逐片核)**:OD-12 NIT×2(`0eff2a41`/`2d8ee9cd`)+ 翻譯 #209 設計線(`3ca6411`)+ `63651e84` 換手交接 + LINE CTA(`ce36e50f`/`4988438b`)+ Header SSR UA(`7bdbdd47`)+ `94aa3ff6` STATUS/M-3 handoff。審查紀錄 commit:`6cce4a3`/`6897324`/`e069167`/`79890bd`/`0801eb9` + 本收尾。
+
+**M-3 不由本 session 審**(`d036a621`/`bc171bc7` 未審、交 fresh M-3 session 避撞)。
+
+**哨兵 `bn6l8qi9a` 已 TaskStop**;dev 後續由 M-3 fresh session 哨兵(handoff §5 全 heads 掃描)接管。Sean 若需本 session 重啟,重 arm 即可(baseline = 屆時 dev tip)。
+
+— 本審查 session 交棒完成 —
