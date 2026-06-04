@@ -5554,16 +5554,19 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-04 / 網站審查 session 對抗 workflow(PCM-1~4 + C-1、`docs/reviews/2026-06-04-v2prd-website-review.md`)。
 - **相關:** PRD v2 §10/§16(報價單 repo)/ scripts/rpm-fetch.ts / scripts/rpm-transform.ts / scripts/rpm-reconcile.ts / packages/adapters/src/supabase/SupabaseProductAdapter.ts / ProductTabs.tsx / ProductInfo.tsx / STOREFRONT_CATALOG_CONTRACT.md / #209
 
-### #213. 🛡️ order_items.product_snapshot.spec 鍵名層 DB 無法擋(字串值殘餘、RPC 鍵名控為主防線)
+### #213. 🛡️ order_items.product_snapshot.spec 鍵名層:DB blacklist 擋已知 3 欄名、改名鍵仍靠 RPC 主控(非全封、誠實揭示)
 
-- **狀態:** 🟢 觀察(可接受殘餘、已縱深 + 誠實標註)
+- **狀態:** 🟢 觀察(blacklist 已加〔擋已知 3 欄名〕+ RPC 主控〔擋改名鍵〕雙防、誠實標 blacklist 不完整)
 - **優先級:** 🟢 觀察
 - **問題:**
-  - S2-a `order_items_snapshot_whitelist` CHECK + helper `m3_jsonb_values_all_string` 已把 spec 的「值型別」鎖成 string scalar(拒 number/object/array/bool/null 藏經銷價);但 spec 是 domain `ProductSnapshot.spec: Record<string,string>`(自由鍵名規格欄)→ DB 層**無法區分**「鍵名 `price_store`/`cost` 配字串值如 `{"price_store":"999"}`」與「正當規格鍵如 `{"材質":"碳纖維"}`」。故字串值的經銷價鍵名能通過所有 DB CHECK。
-- **觸發事件:** 2026-06-04 S2-a 審查側 codex 關卡2 MUST-FIX 修復後、code-reviewer 複審點名為 Minor 殘餘。
+  - S2-a `order_items_snapshot_whitelist` CHECK + helper `m3_jsonb_values_all_string` 已把 spec 的「值型別」鎖成 string scalar(拒 number/object/array/bool/null 藏經銷價)。spec 是 domain `ProductSnapshot.spec: Record<string,string>`(自由鍵名規格欄)→ DB 層**無法用正向白名單列舉鍵名**。
+  - **S2-a round2 已加 blacklist**:`NOT ((spec) ?| array['price_store','price_by_tier','cost'])` 擋這 3 個**真實敏感欄名**(即使值為字串、補字串值殘餘)。
+  - **殘餘(非全封、誠實揭示)**:blacklist 只擋**已知 3 欄名**;若有人用**改名鍵**(如 `{"dealer_p":"999"}` / `{"成本":"500"}` 等非清單字串)塞字串值,DB CHECK 仍放行。改名鍵殘餘**靠 RPC 主控**(非 DB)。
+- **觸發事件:** 2026-06-04 S2-a 審查側 codex 關卡2 MUST-FIX 修復後、code-reviewer 複審點名字串值殘餘;Sean 拍 A 加 spec 鍵名 blacklist 補強。
 - **預期解法:**
-  - 主防線(已就緒方向):create_order RPC(S2-b1)為 product_snapshot 唯一寫入者,`jsonb_build_object('title',...,'sku',...,'spec',<僅取 catalog 規格欄>)` 控鍵名來源 = spec 只來自 catalog 規格欄、來源無任何價格欄,故 RPC 永不會塞出 price_store 鍵名。
-  - 可選強化(若日後放寬直接 INSERT 或 RPC 不再唯一寫入者):RPC 對 spec 鍵名做正向白名單(對齊 catalog variant option keys);或 DB 加禁用鍵名黑名單(與 `Record<string,string>` 自由欄型別合約張力 → 需先重議型別)。
+  - 主防線:create_order RPC(S2-b1)為 product_snapshot 唯一寫入者,`jsonb_build_object('title',...,'sku',...,'spec',<僅取 catalog 規格欄>)` 控鍵名來源 = spec 只來自 catalog 規格欄、來源無任何價格欄,故 RPC 永不會塞出任何經銷價鍵名(含改名)。
+  - DB 縱深(已就緒):blacklist 擋已知 3 欄名。
+  - 可選強化(若日後放寬直接 INSERT 或 RPC 不再唯一寫入者):RPC 對 spec 鍵名做正向白名單(對齊 catalog variant option keys);或 DB 改正向白名單(與 `Record<string,string>` 自由欄型別合約張力 → 需先重議型別)。
 - **不修會痛在:**
   - 擴充性:若未來新增「非 RPC 的訂單寫入路徑」(如後台補單、批次匯入),此路徑繞過 RPC 鍵名控制,spec 字串鍵殘餘即成真開口。
   - 可維護性:DB CHECK 字面看似「全鎖」,實際鍵名層交 RPC 控;接手者需讀 L149-150 註解才知分工,否則誤以為 DB 已全封。

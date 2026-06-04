@@ -27,17 +27,20 @@
 --
 -- 動手前真 DB 交易模擬(MCP execute_sql 交易內 BEGIN + 套本 migration + DO 區塊斷言 + ROLLBACK、project
 --   bmpnplmnldofgaohnaok pcm-website-v2 PG17、2026-06-04;SQL 字面不自證、以此唯讀查為憑):
---   PASS(round3、含審查側 codex k2 MUST-FIX-1+2 鎖值型別)= ① DDL 套用無誤(types/seq + m3_jsonb_values_all_string
---      helper + REVOKE/2 表/index/RLS/GRANT/2 policy 全建成);
---   ② **CHECK 拒非法列**(含 strict whitelist + 值型別守):line_total<>unit_price*qty / total<>subtotal+shipping-discount /
+--   PASS(round4、含審查側 codex k2 MUST-FIX-1+2 鎖值型別 + round2 spec 鍵名 blacklist + helper NULL fail-closed)= ① DDL 套用無誤
+--      (types/seq + m3_jsonb_values_all_string helper〔CASE 正向判 object、NULL/非 object 回 false〕 + REVOKE/2 表/index/RLS/GRANT/2 policy 全建成);
+--   ② **CHECK 拒非法列**(含 strict whitelist + 值型別守 + spec 鍵名 blacklist):line_total<>unit_price*qty / total<>subtotal+shipping-discount /
 --      quantity<=0 / display_id 格式非 PCM-YYYY-NNNN / 🔴 product_snapshot 非 exact{title,sku,spec}(帶 price_store 或任何額外鍵
---      或缺鍵或 spec 非 object 皆拒;**spec 內藏 price_store/cost 數值、title/sku 為物件亦拒**)/ invoice 非 exact 白名單
---      (type 非法或額外鍵或**白名單鍵值為巢狀物件**皆拒)/ shipping_address_snapshot 非 exact{name,phone,line}(**值為物件亦拒**);
+--      或缺鍵或 spec 非 object 皆拒;**spec 內藏 price_store/cost 數值、title/sku 為物件亦拒;spec 鍵名 price_store/price_by_tier/cost
+--      即使值為字串亦拒〔?| blacklist〕**)/ invoice 非 exact 白名單(type 非法或額外鍵或**白名單鍵值為巢狀物件**皆拒)/
+--      shipping_address_snapshot 非 exact{name,phone,line}(**值為物件亦拒**);helper:NULL→false、非 object→false、all-string object→true;
 --   ③ RLS:authenticated sub=userA → 見自己單 count=1;sub=userB → 見 userA 單 count=0(越權擋);
 --   ④ 🔴 authenticated `nextval(order_display_seq)` → insufficient_privilege(sequence REVOKE 生效);
 --   ⑤ anon(SET ROLE anon + REVOKE ALL)SELECT orders → insufficient_privilege;
 --   ⑥ ROLLBACK 後 information_schema/pg_type/pg_class 複查:orders/order_items/payment_status/
---      fulfillment_status/order_display_seq 全 false = 零留痕、正式庫零污染。
+--      fulfillment_status/order_display_seq/m3_jsonb_values_all_string 全 false = 零留痕、正式庫零污染。
+--   ⑦ 誠實揭示實證(round4 補):spec 改名鍵 `{"dealer_p":"999"}`(非 blacklist 3 欄名)→ **仍放行**(rows_inserted=2 含此 + 正常)
+--      = blacklist 非全封屬實、改名鍵靠 RPC 主控(backlog #213);blacklist 已知鍵 `{"price_store":"999"}` 同批 → 拒。
 --
 -- Rollback(Supabase forward-only、僅供參考):見檔尾。
 -- ============================================================
@@ -65,7 +68,8 @@ REVOKE ALL ON SEQUENCE order_display_seq FROM PUBLIC, anon, authenticated;
 -- 修:此 helper 驗 top-level jsonb object 的「每個 value 皆為 string scalar」(拒 number/object/array/bool/null);
 --   用於 invoice / shipping_address_snapshot(值皆純文字)+ product_snapshot.spec(domain Record<string,string>)。
 -- ⚠️ CHECK 不能含 subquery → 改呼叫 IMMUTABLE 函式;jsonb_each 對非 object 會丟錯且 Postgres AND 不保證短路 →
---    用 CASE 保證先判 typeof object 再 jsonb_each(fail-closed:非 object 直接回 false 不丟錯)。SET search_path='' + pg_catalog 限定(避 mutable search_path advisor)。
+--    用 CASE **正向判**:typeof='object' 才進 jsonb_each、否則 ELSE false(codex round2 NIT:NULL/非 object 明確 fail-closed
+--    回 false;現欄皆 NOT NULL 故 NULL 分支當前 moot、但利未來重用語意一致)。SET search_path='' + pg_catalog 限定(避 mutable search_path advisor)。
 CREATE OR REPLACE FUNCTION m3_jsonb_values_all_string(j jsonb)
 RETURNS boolean
 LANGUAGE sql
@@ -73,15 +77,15 @@ IMMUTABLE
 SET search_path = ''
 AS $$
   SELECT CASE
-    WHEN pg_catalog.jsonb_typeof(j) <> 'object' THEN false
-    ELSE NOT EXISTS (
+    WHEN pg_catalog.jsonb_typeof(j) = 'object' THEN NOT EXISTS (
       SELECT 1
       FROM pg_catalog.jsonb_each(j) AS kv(k, v)
       WHERE pg_catalog.jsonb_typeof(kv.v) <> 'string'
     )
+    ELSE false
   END;
 $$;
-COMMENT ON FUNCTION m3_jsonb_values_all_string(jsonb) IS '🔴 鐵則 12 縱深(codex k2 MUST-FIX):驗 jsonb object 每個 top-level value 皆為 string scalar(拒 number/object/array/bool/null);防經銷價/cost 藏進白名單鍵的巢狀值。CHECK 用(IMMUTABLE);非 object 回 false(fail-closed)。';
+COMMENT ON FUNCTION m3_jsonb_values_all_string(jsonb) IS '🔴 鐵則 12 縱深(codex k2 MUST-FIX):驗 jsonb object 每個 top-level value 皆為 string scalar(拒 number/object/array/bool/null);防經銷價/cost 藏進白名單鍵的巢狀值。CHECK 用(IMMUTABLE);NULL/非 object 明確回 false(fail-closed)。';
 
 
 -- ── 3. orders 主表 ──
@@ -143,11 +147,13 @@ CREATE TABLE order_items (
   unit_price       integer NOT NULL CHECK (unit_price >= 0),                        -- 結帳當下單價(S2 = price_general)
   line_total       integer NOT NULL CHECK (line_total >= 0),
   CONSTRAINT order_items_line_balances CHECK (line_total = unit_price * quantity),
-  -- 🔴 鐵則 12 縱深(codex k2 BLOCKER + k2r2 收嚴 strict whitelist + k2 MUST-FIX-1 鎖值型別、對齊 S1 metadata CHECK):
+  -- 🔴 鐵則 12 縱深(codex k2 BLOCKER + k2r2 收嚴 strict whitelist + k2 MUST-FIX-1 鎖值型別 + k2 round2 spec 鍵名 blacklist、對齊 S1 metadata CHECK):
   --    product_snapshot 必 object + 必備 title/sku/spec + **移除三鍵後須為 {}(exact key set、零額外鍵)**
-  --    + title/sku 須 string(拒物件藏值)+ spec 須 object 且 **spec 每值皆 string(m3_jsonb_values_all_string)**。
-  --    任何經銷價 / cost / 改名鍵 = 額外鍵 → 違 exact-key → 拒;藏進 spec 內的 price_store/cost 數值 → 違值型別 → 拒
-  --    (RPC jsonb_build_object 為主寫入者,本 CHECK 為縱深底線;spec 鍵名為 domain Record<string,string> 自由欄、由 RPC 控)。
+  --    + title/sku 須 string(拒物件藏值)+ spec 須 object 且 **spec 每值皆 string(m3_jsonb_values_all_string)**
+  --    + **spec 鍵名 blacklist**:?| 擋 price_store/price_by_tier/cost 這 3 個真實敏感欄名(即使值為字串、補 spec Record<string,string> 自由鍵的字串值殘餘)。
+  --    任何經銷價 / cost / 改名鍵 = 額外鍵 → 違 exact-key → 拒;藏進 spec 內的 price_store/cost 數值 → 違值型別 → 拒;
+  --    spec 鍵名為已知 3 敏感欄名(字串值)→ 違 blacklist → 拒。⚠️ blacklist 僅擋已知 3 欄名、**改名鍵仍靠 RPC 主控**
+  --    (jsonb_build_object 唯一寫入者、spec 僅取 catalog 規格欄、來源無價格欄;非全封、誠實揭示見 backlog #213)。
   CONSTRAINT order_items_snapshot_whitelist CHECK (
     jsonb_typeof(product_snapshot) = 'object'
     AND product_snapshot ?& array['title','sku','spec']
@@ -156,6 +162,7 @@ CREATE TABLE order_items (
     AND jsonb_typeof(product_snapshot->'sku')   = 'string'
     AND jsonb_typeof(product_snapshot->'spec')  = 'object'
     AND m3_jsonb_values_all_string(product_snapshot->'spec')
+    AND NOT ((product_snapshot->'spec') ?| array['price_store','price_by_tier','cost'])
   )
 );
 
