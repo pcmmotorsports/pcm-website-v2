@@ -27,10 +27,12 @@
 --
 -- 動手前真 DB 交易模擬(MCP execute_sql 交易內 BEGIN + 套本 migration + DO 區塊斷言 + ROLLBACK、project
 --   bmpnplmnldofgaohnaok pcm-website-v2 PG17、2026-06-04;SQL 字面不自證、以此唯讀查為憑):
---   PASS(round2、含 codex k2 補強)= ① DDL 套用無誤(types/seq + REVOKE/2 表/index/RLS/GRANT/2 policy 全建成);
---   ② **CHECK 拒非法列**(含 k2r2 收嚴 strict whitelist):line_total<>unit_price*qty / total<>subtotal+shipping-discount /
+--   PASS(round3、含審查側 codex k2 MUST-FIX-1+2 鎖值型別)= ① DDL 套用無誤(types/seq + m3_jsonb_values_all_string
+--      helper + REVOKE/2 表/index/RLS/GRANT/2 policy 全建成);
+--   ② **CHECK 拒非法列**(含 strict whitelist + 值型別守):line_total<>unit_price*qty / total<>subtotal+shipping-discount /
 --      quantity<=0 / display_id 格式非 PCM-YYYY-NNNN / 🔴 product_snapshot 非 exact{title,sku,spec}(帶 price_store 或任何額外鍵
---      或缺鍵或 spec 非 object 皆拒)/ invoice 非 exact 白名單(type 非法或額外鍵拒)/ shipping_address_snapshot 非 exact{name,phone,line};
+--      或缺鍵或 spec 非 object 皆拒;**spec 內藏 price_store/cost 數值、title/sku 為物件亦拒**)/ invoice 非 exact 白名單
+--      (type 非法或額外鍵或**白名單鍵值為巢狀物件**皆拒)/ shipping_address_snapshot 非 exact{name,phone,line}(**值為物件亦拒**);
 --   ③ RLS:authenticated sub=userA → 見自己單 count=1;sub=userB → 見 userA 單 count=0(越權擋);
 --   ④ 🔴 authenticated `nextval(order_display_seq)` → insufficient_privilege(sequence REVOKE 生效);
 --   ⑤ anon(SET ROLE anon + REVOKE ALL)SELECT orders → insufficient_privilege;
@@ -54,6 +56,32 @@ CREATE SEQUENCE order_display_seq;
 COMMENT ON SEQUENCE order_display_seq IS 'M-3 訂單人類可讀單號 PCM-YYYY-NNNN 的 NNNN 流水(全域、不跨年重置;create_order RPC nextval + lpad>=4)。';
 -- 🔴 codex k2 WARN-2:REVOKE sequence(防非預期角色取號 / 燒號);create_order SECURITY DEFINER RPC 由 owner nextval、無需 GRANT。
 REVOKE ALL ON SEQUENCE order_display_seq FROM PUBLIC, anon, authenticated;
+
+
+-- ── 2b. jsonb strict-whitelist 值型別守 IMMUTABLE helper(審查側 codex k2 MUST-FIX-1+2)──
+-- 背景:strict whitelist 只鎖「最外層 key」(jsonb - array[...] = {}),未鎖「value 的型別/巢狀」→ 經銷價/cost 可藏內層:
+--   product_snapshot.spec = {"weave":"3K","price_store":999}(數值藏 spec 內)/ invoice = {"type":"personal","carrier":{"price_store":999}}
+--   (物件藏白名單鍵值)/ shipping_address_snapshot = {"name":{"cost":1},...}(物件藏值)→ 舊 CHECK 全誤放行。
+-- 修:此 helper 驗 top-level jsonb object 的「每個 value 皆為 string scalar」(拒 number/object/array/bool/null);
+--   用於 invoice / shipping_address_snapshot(值皆純文字)+ product_snapshot.spec(domain Record<string,string>)。
+-- ⚠️ CHECK 不能含 subquery → 改呼叫 IMMUTABLE 函式;jsonb_each 對非 object 會丟錯且 Postgres AND 不保證短路 →
+--    用 CASE 保證先判 typeof object 再 jsonb_each(fail-closed:非 object 直接回 false 不丟錯)。SET search_path='' + pg_catalog 限定(避 mutable search_path advisor)。
+CREATE OR REPLACE FUNCTION m3_jsonb_values_all_string(j jsonb)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = ''
+AS $$
+  SELECT CASE
+    WHEN pg_catalog.jsonb_typeof(j) <> 'object' THEN false
+    ELSE NOT EXISTS (
+      SELECT 1
+      FROM pg_catalog.jsonb_each(j) AS kv(k, v)
+      WHERE pg_catalog.jsonb_typeof(kv.v) <> 'string'
+    )
+  END;
+$$;
+COMMENT ON FUNCTION m3_jsonb_values_all_string(jsonb) IS '🔴 鐵則 12 縱深(codex k2 MUST-FIX):驗 jsonb object 每個 top-level value 皆為 string scalar(拒 number/object/array/bool/null);防經銷價/cost 藏進白名單鍵的巢狀值。CHECK 用(IMMUTABLE);非 object 回 false(fail-closed)。';
 
 
 -- ── 3. orders 主表 ──
@@ -80,18 +108,21 @@ CREATE TABLE orders (
   CONSTRAINT orders_total_balances CHECK (total = subtotal + shipping_fee - discount_total),
   -- display_id 格式(codex k2r2 WARN;對齊 S1 DisplayId regex ^PCM-\d{4}-\d{4,}$)
   CONSTRAINT orders_display_id_format CHECK (display_id ~ '^PCM-[0-9]{4}-[0-9]{4,}$'),
-  -- 🔴 鐵則 12 縱深(codex k2 BLOCKER + k2r2 收嚴為 strict whitelist、對齊 S1 metadata CHECK):
-  --    jsonb_typeof=object + 必備鍵 ?& + **移除白名單鍵後須為 {} = exact key set**(不允許任何額外/改名鍵、非僅 blacklist)
+  -- 🔴 鐵則 12 縱深(codex k2 BLOCKER + k2r2 收嚴 strict whitelist + k2 MUST-FIX-2 鎖值型別、對齊 S1 metadata CHECK):
+  --    jsonb_typeof=object + 必備鍵 ?& + **移除白名單鍵後須為 {} = exact key set**(拒任何額外/改名鍵)
+  --    + **每個白名單鍵的值皆 string scalar(m3_jsonb_values_all_string)= 拒巢狀物件/陣列藏經銷價**。
   CONSTRAINT orders_invoice_whitelist CHECK (
     jsonb_typeof(invoice) = 'object'
     AND invoice ? 'type'
     AND (invoice->>'type') IN ('personal', 'company', 'donate')
     AND (invoice - array['type','carrier','title','taxId','donateCode']) = '{}'::jsonb
+    AND m3_jsonb_values_all_string(invoice)
   ),
   CONSTRAINT orders_ship_addr_whitelist CHECK (
     jsonb_typeof(shipping_address_snapshot) = 'object'
     AND shipping_address_snapshot ?& array['name','phone','line']
     AND (shipping_address_snapshot - array['name','phone','line']) = '{}'::jsonb
+    AND m3_jsonb_values_all_string(shipping_address_snapshot)
   )
 );
 
@@ -112,14 +143,19 @@ CREATE TABLE order_items (
   unit_price       integer NOT NULL CHECK (unit_price >= 0),                        -- 結帳當下單價(S2 = price_general)
   line_total       integer NOT NULL CHECK (line_total >= 0),
   CONSTRAINT order_items_line_balances CHECK (line_total = unit_price * quantity),
-  -- 🔴 鐵則 12 縱深(codex k2 BLOCKER + k2r2 收嚴為 strict whitelist、對齊 S1 metadata CHECK):
-  --    product_snapshot 必 object + 必備 title/sku/spec + **移除三鍵後須為 {}(exact key set、零額外鍵)** + spec 須 object。
-  --    任何經銷價 / cost / 改名鍵 = 額外鍵 → 違 exact-key → 拒(防後續 RPC 誤塞整包 product row;RPC jsonb_build_object 為主、本 CHECK 縱深底線)。
+  -- 🔴 鐵則 12 縱深(codex k2 BLOCKER + k2r2 收嚴 strict whitelist + k2 MUST-FIX-1 鎖值型別、對齊 S1 metadata CHECK):
+  --    product_snapshot 必 object + 必備 title/sku/spec + **移除三鍵後須為 {}(exact key set、零額外鍵)**
+  --    + title/sku 須 string(拒物件藏值)+ spec 須 object 且 **spec 每值皆 string(m3_jsonb_values_all_string)**。
+  --    任何經銷價 / cost / 改名鍵 = 額外鍵 → 違 exact-key → 拒;藏進 spec 內的 price_store/cost 數值 → 違值型別 → 拒
+  --    (RPC jsonb_build_object 為主寫入者,本 CHECK 為縱深底線;spec 鍵名為 domain Record<string,string> 自由欄、由 RPC 控)。
   CONSTRAINT order_items_snapshot_whitelist CHECK (
     jsonb_typeof(product_snapshot) = 'object'
     AND product_snapshot ?& array['title','sku','spec']
     AND (product_snapshot - array['title','sku','spec']) = '{}'::jsonb
-    AND jsonb_typeof(product_snapshot->'spec') = 'object'
+    AND jsonb_typeof(product_snapshot->'title') = 'string'
+    AND jsonb_typeof(product_snapshot->'sku')   = 'string'
+    AND jsonb_typeof(product_snapshot->'spec')  = 'object'
+    AND m3_jsonb_values_all_string(product_snapshot->'spec')
   )
 );
 
@@ -142,8 +178,8 @@ CREATE INDEX order_items_order_idx ON order_items(order_id);
 ALTER TABLE orders      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL PRIVILEGES ON TABLE orders      FROM anon, authenticated;
-REVOKE ALL PRIVILEGES ON TABLE order_items FROM anon, authenticated;
+REVOKE ALL PRIVILEGES ON TABLE orders      FROM PUBLIC, anon, authenticated;  -- NIT(codex k2):加 PUBLIC 與 sequence REVOKE 一致
+REVOKE ALL PRIVILEGES ON TABLE order_items FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE orders      TO authenticated;
 GRANT SELECT ON TABLE order_items TO authenticated;
 
@@ -168,6 +204,7 @@ CREATE POLICY order_items_select_own ON order_items
 --   DROP POLICY IF EXISTS orders_select_own ON orders;
 --   DROP TABLE IF EXISTS order_items;
 --   DROP TABLE IF EXISTS orders;
+--   DROP FUNCTION IF EXISTS m3_jsonb_values_all_string(jsonb);
 --   DROP SEQUENCE IF EXISTS order_display_seq;
 --   DROP TYPE IF EXISTS fulfillment_status;
 --   DROP TYPE IF EXISTS payment_status;

@@ -56,7 +56,7 @@
 
 ## 3A. DDL 草案(收斂 codex WARN-5)
 
-> ⚠️ **真權威 = 實際 migration 檔** `supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql`(已實作 + MCP 交易模擬 3 輪 PASS + 零留痕)。下方為 v2 草案,**實作版另含 codex 關卡2 收斂的 4 項**:`shipping_address_snapshot jsonb NOT NULL` 凍結快照 / 三 jsonb 欄 **strict whitelist CHECK**(jsonb_typeof object + exact key set `- array = '{}'` + spec object,非僅 blacklist)/ `display_id` 格式 CHECK / `REVOKE ALL ON SEQUENCE`。以 migration 檔為準。
+> ⚠️ **真權威 = 實際 migration 檔** `supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql`(已實作 + MCP 交易模擬多輪 PASS + 零留痕)。下方為 v2 草案,**實作版另含 codex 關卡2 收斂的 5 項**:`shipping_address_snapshot jsonb NOT NULL` 凍結快照 / 三 jsonb 欄 **strict whitelist CHECK**(jsonb_typeof object + exact key set `- array = '{}'` + spec object,非僅 blacklist)/ `display_id` 格式 CHECK / `REVOKE ALL ON SEQUENCE` / **S2-a-fix 值型別守**(審查側 codex k2 MUST-FIX-1+2:IMMUTABLE helper `m3_jsonb_values_all_string` 把三白名單欄值鎖 string scalar + order_items title/sku 須 string,封經銷價藏巢狀物件/數值;spec 字串鍵殘餘記 backlog #213)。以 migration 檔為準。
 
 ```sql
 -- ENUM(D1=A)
