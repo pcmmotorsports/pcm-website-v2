@@ -5535,6 +5535,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - **去 RPM 化**:`ProductInfo.tsx` 變體選擇器寫死 RPM key(weave/finish/special)、`ProductTabs.tsx` 規格表是**靜態 JSX 字面**(「真碳纖維/泰國/紋路」)。放量到非 RPM 家前必須先改 data-driven(schema-less key/value + 白名單 + 中文標籤 + 空兜底),否則 RPM 字面張冠李戴掛到非碳纖維商品。
   - **description 刻意停同步**:`rpm-fetch.ts:50` + Sean Q-desc 舊拍板「描述走獨立 workstream」→ 上中文文案前須先確認推翻該拍板。
   - **雙下架機制疊加**:網站庫已有自己的 `delisted_at` + RLS `USING(delisted_at IS NULL)` + `rpm-reconcile.ts` 對賬(S4 已上線、by-construction 安全);報價單側 v2 §11 若在 view WHERE 加 `delisted_at IS NULL`,等於提前移除缺席品 → 網站 reconcile 再判一次 → 雙重去抖延遲。需在合約 doc 釘死「缺席判定權威在哪側、N 天怎麼算」。
+- **跨側決議(Sean 2026-06-04 拍 A/A):**
+  - **description 同步**:停同步舊拍板「之後再推翻」—— 綁內容 pipeline 真接到網站那一步(P2 後)才改 `rpm-fetch.ts`;現在僅記意圖、不空接(避免搬一個還沒生出來的文案)。
+  - **下架權威**:來源側(報價單)單一裁判 —— 報價單跑 N=3 去抖 + `delisted_at` + 明星品 keep 卡;網站 `rpm-reconcile` 改「信任來源、不自己再判一輪」。最乾淨 = 報價單 view 投影 `delisted_at` 欄、網站直接鏡射(不從「缺席」自己重推),消雙重去抖延遲 + 避免網站獨留來源已下架品。
+  - **標題後門(③)**:已完成 —— 網站設計 doc 已對齊三叉標題(commit `7b51234`、本 backlog 上方 #209 已記)。
 - **觸發事件(任一觸發即啟動實作):** 報價單 PRD v2 pipeline P1(schema)+ P5(view 投影)落地、要把第一批範本內容上網站時;或放量到非 RPM 家前(去 RPM 化硬前置)。
 - **預期解法:**
   - PRD v2 §16 升格成「網站側 5 斷點執行清單」,逐斷點開 slice。
