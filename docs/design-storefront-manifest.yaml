@@ -412,14 +412,14 @@ components:
     storefront:
       component: "apps/storefront/src/components/LineCtaButton.tsx"
       css: "apps/storefront/src/styles/line-cta.css"
-      last_modified_commit: "6897324"  # 記可達祖先=本 slice 提交時 dev tip(避 amend orphan);本 slice 真改見 git log:新建 LINE 詢價懸浮 CTA
-      last_modified_date: "2026-06-04 (LINE 詢價懸浮 CTA 新建:手機 deep link 預填 @pcmmoto / 桌機 QRCODE modal + 加好友 fallback;接通現況唯一成交管道)"
+      last_modified_commit: "ce36e50"  # 記可達祖先=上一版(大膠囊+QR)提交 ce36e50(避 amend orphan);本次 RWD 重設計尚未 commit、改見 git log:RWD 重設計小圓鈕 + 原生 <a> 點擊直跳
+      last_modified_date: "2026-06-04 (RWD 重設計:大膠囊+QRCODE modal → 小圓鈕〔桌 56 / 手機 52px、bottom 抬 buybar 上方〕+ 原生 <a target=_blank> 點擊直跳〔手機 oaMessage 預填〔@→%40 encode〕/ 桌機 lin.ee 加好友〕;移除 QR modal;Sean 真機驗點擊喚起 LINE App 預填 OK。前序:新建大膠囊版見 git log ce36e50)"
     design:
-      authority: "無 design-reference 源 — Sean 規格新功能(懸浮 CTA + 手機 deep link 預填 + 桌機 QRCODE;概念對齊精選車輛展間 pcm-moto)"
+      authority: "無 design-reference 源 — Sean 規格新功能(懸浮小圓鈕 CTA + 原生 <a> 點擊直跳:手機 oaMessage 預填 / 桌機 lin.ee 加好友;概念對齊精選車輛展間 pcm-moto)"
     business_overrides:
       - field: "lineCtaDeepLinkPrefill"
         design_value: "(無 design 源、純新功能)"
-        storefront_value: "手機 deep link 預填訊息遵守車種鐵律:不挑車、帶商品名 / 料號 / 頁面 URL、車型留空讓客人自填;桌機 oaMessage 無效 → QRCODE modal + lin.ee 加好友 fallback"
+        storefront_value: "原生 <a target=_blank> 點擊直跳(非 window.open、避手機 popup blocker 擋致點無反應、對齊 pcm-moto);手機 href=oaMessage deep link〔basic ID @→%40 encode 真機才喚起、預填遵守車種鐵律:不挑車、帶商品名 / 料號 / 頁面 URL、車型留空〕、桌機 href=lin.ee 加好友〔oaMessage 桌機無效〕"
         decided_at: "2026-06-04"
         decision_source: "Sean LINE 詢價 slice 指令 + Q2=A(@pcmmoto 真值、與精選車輛展間同帳號)"
         reason: "接通現況唯一真實成交管道(站內無 /checkout、現有 LINE 提及全純文字無連結);車種鐵律=原文車種常錯、AI 不挑車"

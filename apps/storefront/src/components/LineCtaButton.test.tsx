@@ -2,20 +2,21 @@
 //
 // LineCtaButton + line-cta smoke test。
 // 驗:① 預填訊息含商品名 + 料號 + 頁面 URL ② 🔴 車種鐵律:預填零車款字串(不拼 product.fits / 車型)
-// ③ 車型欄留空(結尾「我的車是…:」、冒號後無車款) ④ deep link 格式(oaMessage @pcmmoto + urlencode)
-// ⑤ 桌機點 → QRCODE modal(dialog + QR 圖 + 加好友連結 fallback) ⑥ 手機點 → window.open deep link。
+// ③ 車型欄留空(結尾「我的車是…:」、冒號後無車款) ④ deep link 格式(oaMessage %40pcmmoto + urlencode)
+// ⑤ 桌機:原生 <a href> = lin.ee 加好友頁 ⑥ 手機:<a href> = oaMessage 預填 deep link(非 window.open、避 popup 被擋)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
 
 import { LineCtaButton } from './LineCtaButton';
 import { LINE_ADD_URL, LINE_OA_ID, buildOaDeepLink, buildPrefillMessage } from '../lib/line-cta';
 import { MOCK_PRODUCTS } from '../data/mock-products';
 
+const ORIG_UA = navigator.userAgent;
 afterEach(() => {
   cleanup();
-  vi.restoreAllMocks();
+  Object.defineProperty(navigator, 'userAgent', { value: ORIG_UA, configurable: true });
 });
 
 // lightech-1:name 'Lightech 鋁合金腳踏組'、fits 'CBR600RR'(有車款)、無 productCode。
@@ -51,42 +52,27 @@ describe('buildPrefillMessage(車種鐵律守門)', () => {
 });
 
 describe('buildOaDeepLink', () => {
-  it('組 oaMessage deep link(@pcmmoto + urlencode 訊息)', () => {
+  it('組 oaMessage deep link(@ encode 成 %40 + urlencode 訊息)', () => {
     const link = buildOaDeepLink('測試 訊息');
-    expect(link).toBe(`https://line.me/R/oaMessage/${LINE_OA_ID}/?${encodeURIComponent('測試 訊息')}`);
-    expect(link).toContain('@pcmmoto');
+    expect(link).toBe(`https://line.me/R/oaMessage/${encodeURIComponent(LINE_OA_ID)}/?${encodeURIComponent('測試 訊息')}`);
+    expect(link).toContain('%40pcmmoto'); // @ 必 encode、否則真機 line.me 解析失敗不喚起 App
   });
 });
 
-describe('LineCtaButton', () => {
-  it('桌機點 → 顯 QRCODE modal(dialog + QR 圖 + 加好友連結 fallback)', () => {
-    // jsdom userAgent 非手機 → 桌機路徑
+describe('LineCtaButton(原生 <a> 直跳、避手機 popup blocker)', () => {
+  it('桌機:連結 href = lin.ee 加好友頁、target=_blank', () => {
+    // jsdom userAgent 非手機 → 桌機路徑(useEffect 不改 href)
     render(<LineCtaButton product={product} />);
-    expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'LINE 詢價' }));
-    expect(screen.getByRole('dialog')).toBeDefined();
-    expect(screen.getByAltText('PCM LINE 官方帳號 QR Code')).toBeDefined();
-    const addLink = screen.getByRole('link', { name: /加 LINE 好友/ });
-    expect(addLink.getAttribute('href')).toBe(LINE_ADD_URL);
+    const link = screen.getByRole('link', { name: '用 LINE 詢價' });
+    expect(link.getAttribute('href')).toBe(LINE_ADD_URL);
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
   });
 
-  it('QR 圖載入失敗 → 顯 fallback 提示(破圖隱藏、加好友連結仍在)', () => {
-    render(<LineCtaButton product={product} />);
-    fireEvent.click(screen.getByRole('button', { name: 'LINE 詢價' }));
-    fireEvent.error(screen.getByAltText('PCM LINE 官方帳號 QR Code'));
-    expect(screen.queryByAltText('PCM LINE 官方帳號 QR Code')).toBeNull(); // 破圖隱藏
-    expect(screen.getByText(/QR 圖準備中/)).toBeDefined();
-    expect(screen.getByRole('link', { name: /加 LINE 好友/ }).getAttribute('href')).toBe(LINE_ADD_URL);
-  });
-
-  it('手機點 → window.open 開 oaMessage deep link(不開 modal)', () => {
+  it('手機:連結 href = oaMessage %40pcmmoto 預填 deep link', () => {
     Object.defineProperty(navigator, 'userAgent', { value: 'iPhone', configurable: true });
-    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     render(<LineCtaButton product={product} />);
-    fireEvent.click(screen.getByRole('button', { name: 'LINE 詢價' }));
-    expect(openSpy).toHaveBeenCalledOnce();
-    const url = openSpy.mock.calls[0]![0] as string;
-    expect(url).toContain('line.me/R/oaMessage/@pcmmoto');
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const link = screen.getByRole('link', { name: '用 LINE 詢價' });
+    expect(link.getAttribute('href')).toContain('line.me/R/oaMessage/%40pcmmoto');
   });
 });

@@ -1,119 +1,45 @@
-/* line-cta.css — 商品頁「LINE 詢價」懸浮 CTA + 桌機 QRCODE modal。
-   新功能(無 design-reference 源、Sean 規格);對齊產品頁元件家族視覺慣例(--c-* token、sharp 直角、半形)。
-   LINE 官方綠 #06C755(對齊 auth.css .auth-social-line)。
-   z-index 45:在 mobile-tabbar(40)之上、buybar(50)之下 → 永不擋立即購買 / 加入購物車。 */
+/* line-cta.css — 商品頁「LINE 詢價」懸浮 icon 圓鈕(點擊直跳、無 QRCODE modal)。
+   Sean 2026-06-04 重設計:小圓鈕(原大膠囊 + QR modal 已移除)、桌機亦點擊直跳 lin.ee 加好友頁。
+   LINE 官方綠 #06C755(對齊 auth.css .auth-social-line);position fixed 相對 viewport
+   (pcm-root 無 transform)。z-index 49 + 位置避開 buybar(z50、詳情頁底部) → 可見且不擋
+   立即購買 / 加入購物車。 */
 
 .line-cta-fab {
   position: fixed;
-  right: 20px;
+  right: 24px;
   bottom: 24px;
-  z-index: 45;
+  z-index: 49;
+  width: 56px;
+  height: 56px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 48px;
-  padding: 0 18px 0 14px;
+  justify-content: center;
+  padding: 0;
   background: #06C755;
   color: #fff;
   border: none;
-  border-radius: 999px;
-  box-shadow: 0 4px 16px #06c75540, 0 2px 6px #0000001a;
-  font-size: 14px;
-  font-weight: 600;
+  border-radius: 50%;
+  box-shadow: 0 4px 14px #06c75566, 0 2px 6px #00000026;
   cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  text-decoration: none; /* <a> 標籤去底線 */
+  -webkit-tap-highlight-color: transparent; /* 手機點按去藍框高亮 */
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease;
 }
-.line-cta-fab:hover { transform: translateY(-1px); box-shadow: 0 6px 20px #06c75555, 0 2px 8px #00000022; }
-.line-cta-fab:active { transform: translateY(0); }
-.line-cta-icon { flex: 0 0 auto; }
-.line-cta-label { white-space: nowrap; }
+.line-cta-fab:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 22px #06c75577, 0 3px 8px #00000033;
+}
+.line-cta-fab:active { transform: translateY(0) scale(0.97); }
+.line-cta-icon { width: 30px; height: 30px; }
 
-/* 手機 / 平板(≤1079、商品頁顯 buybar):懸浮按鈕上移避開底部購買列(z-50),不擋立即購買 / 加入購物車。 */
+/* 手機 / 平板(≤1079、詳情頁底部有 buybar〔高約 66px〕、MobileTabBar 隱藏):
+   圓鈕上移到 buybar 上方留 16px 間距(位置不重疊 → 永不擋立即購買 / 加入購物車);稍縮小。 */
 @media (max-width: 1079px) {
   .line-cta-fab {
-    right: 14px;
-    bottom: calc(74px + env(safe-area-inset-bottom));
-    height: 44px;
-    padding: 0 16px 0 12px;
-    font-size: 13px;
+    right: 16px;
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    width: 52px;
+    height: 52px;
   }
+  .line-cta-icon { width: 28px; height: 28px; }
 }
-
-/* QRCODE modal(桌機;沿用 SwatchLightbox .pd-lightbox 遮罩範式;z-index 10000 蓋過 buybar / drawer) */
-.line-cta-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #00000088;
-  padding: 24px;
-}
-.line-cta-modal-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  width: 100%;
-  max-width: 320px;
-  padding: 28px 24px 24px;
-  background: var(--c-surface);
-  border: 1px solid var(--c-border);
-  box-shadow: 0 12px 40px #00000033;
-}
-.line-cta-modal-x {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: transparent;
-  border: none;
-  color: var(--c-text-3);
-  cursor: pointer;
-}
-.line-cta-modal-x:hover { color: var(--c-text); }
-.line-cta-modal-title {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--c-text);
-}
-.line-cta-qr {
-  width: 180px;
-  height: 180px;
-  object-fit: contain;
-  background: #fff;
-  border: 1px solid var(--c-border);
-}
-/* QR 圖載入失敗(Sean 補圖前)的 fallback 提示框,取代破圖 icon */
-.line-cta-qr-fallback {
-  width: 180px;
-  min-height: 96px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 16px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--c-text-3);
-  background: var(--c-surface-2);
-  border: 1px dashed var(--c-border);
-}
-.line-cta-add-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 44px;
-  background: #06C755;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  text-decoration: none;
-}
-.line-cta-add-link:hover { opacity: 0.9; }
