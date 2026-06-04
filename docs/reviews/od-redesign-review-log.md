@@ -513,6 +513,20 @@ OD-12 NIT slice 第 2 commit(承我前審「OD-12d a11y 語意降級〔分組用
 - **🟢 字面 vs 事實**:body 6 檔/車種鐵律/三欄/z-index/8 test/三綠數字 對 diff+實跑核屬實;manifest 加 LineCtaButton + business_override `lineCtaDeepLinkPrefill`(code-reviewer WARN-1 已修)。
 - **判定:ce36e50f PASS**(0 must-fix)。⚠️ 待 Sean :3001 肉眼驗 + 補 `public/line-qr.png` 真 QR 圖(現 placeholder、onError fallback 兜底不炸)+ 確認 LINE basic ID @pcmmoto。
 
-_(⚠️ **換手待 Sean 拍**:交接文要 fresh 審查 session + 稱哨兵已停,但本 session 仍在跑、byo0hnkyh 仍活、context 仍足、且持續正常審(本片 ce36e50f LINE CTA 即由本 session 審 PASS)。**未自行停哨兵**——等 Sean 定 ① 本 session 續審 ② 真開 fresh(則停哨兵交棒)。
-⚠️ **並行 session 熱點**:主樹多方並行(LINE CTA 已 merge / 另一 session 改 content-model doc /specs M / 審查),本 session 嚴守唯讀+精準 pathspec commit(只 review-log)、零碰他人 M。
-其他 ✅:OD-12 NIT×2 + 翻譯 #209 設計線 + 63651e84 交接 + ce36e50f LINE CTA 皆審 PASS;待 Sean :3001 真機驗(OD-12d/OD-13/LINE CTA)+ 補 QR 圖 + 拍 pilot→skill/brand_story/其他5家爬原文。哨兵盯 dev=ce36e50 / od-redesign=266f5f2、origin/dev 未推。)_
+---
+
+## [`4988438b`] fix(storefront): LINE 詢價 CTA 改小圓鈕 + 原生 <a> 修真機點無反應 [line-cta] — **PASS**(修 ce36e50f 三真機 bug、車種鐵律不退化 + 三綠 fresh 全綠)
+
+ce36e50f follow-up:Sean :3001 真機驗抓三個「程式層過但真機 fail」bug。author=Sean(主樹 dev 施工、Sean 熱重載即時驗)。range `e069167..4988438b`(中間隔 content-model 線 commit、本片只動 line-cta 5 檔)。fresh-context `git show` + 三綠 fresh 重跑。
+- **scope**:5 檔(LineCtaButton.tsx / line-cta.css / line-cta.ts / test / manifest)、零動 S6/scripts/schema/pricing。
+- **🔴 車種鐵律不退化(關鍵複驗)**:`buildPrefillMessage` **diff 零改動**(只改其上方註解)→ 仍不讀 fits、仍商品名+料號+URL+車型留空;test 車種鐵律測(not.toContain CBR)+ 車型留空測**保留未動**。✅
+- **🔴 三真機 bug 修正(全 ce36e50f 程式層審不到、Sean 真機驗補)**:① `window.open` 手機被當 popup 擋→改原生 `<a target=_blank>`(瀏覽器原生開不被擋)② raw `@pcmmoto` 真機 line.me 解析 path 失敗→`buildOaDeepLink` 用 `encodeURIComponent(LINE_OA_ID)`=`%40pcmmoto` ③ 大膠囊 bottom:74px 被 buybar 蓋→小圓鈕(56/52px 圓)bottom 抬 82px(playwright 實測 iPad912+iPhone390 在 buybar 上方可見)。
+- **🟢 hydration-safe href 策略**:`useState(LINE_ADD_URL)` 初始(SSR/桌機 fallback 固定)+ `useEffect` mount 後手機換 oaMessage deep link → 無 SSR/client mismatch。
+- **🟢 移除乾淨**:QR modal + LINE_QR_SRC + window.open + showQr/qrFailed state 全移(commit grep 證零殘留);test 8→7(移 QR/onError、改 `<a>` href 測)。
+- **🔴 三綠 fresh(主樹 dev=4988438 純態、source 全程零 dirty)**:typecheck 7/7 + lint 10/10(17 task)+ build 1/1 + vitest 82 檔 553 測(554−1 移 QR)。全綠。
+- **🟢 字面 vs 事實**:body 三 bug/車種鐵律不退化/%40/hydration/8→7/三綠 對 diff+實跑屬實。Sean 真機驗(無痕重開:點小圓鈕→LINE App 開+預填 OK)= 真機 sign-off。
+- **判定:4988438b PASS**(0 must-fix)。
+- **📌 審查教訓(誠實)**:ce36e50f 三真機 bug 我程式審 + 8 smoke 全過卻漏抓(jsdom mock window.open 過 / 格式測含 @pcmmoto 過 / CSS bottom 判不擋)→ 全真機才現形、Sean 肉眼驗補。分工正確(我審 ce36e50f 已明標「待 Sean :3001 肉眼驗」)、印證 [[feedback_visual-verification-is-sean-only]] + build/test pass ≠ runtime pass。
+
+_(⚠️ **換手 + 分工待 Sean 拍**:fresh 審查 session 已確認上線(`da321b6` v2 PRD 35-agent workflow、獨立 review-log `2026-06-04-v2prd-website-review.md`、引用本 session `e069167`)→ 兩審查 session 並行盯 dev。本 session 守 OD/LINE CTA 線(本檔)、content-model 線(`7b51234`/`da321b6`/`bac3270`)= fresh 地盤本 session **不重審**。等 Sean 拍 ① 本 session 停哨兵交棒 ② 本 session 留常駐哨兵+OD/LINE 線、fresh 審 content-model(本 session 傾向、保住持續監看)。
+本 session 審 PASS:OD-12 NIT×2 + 翻譯 #209 設計線 + 63651e84 交接 + ce36e50f + 4988438b LINE CTA。待 Sean 真機驗 OD-12d/OD-13 + 拍 pilot→skill/brand_story/其他5家爬原文 + 車種露出 A/B(或已被架構三叉規則吸收)。哨兵盯 dev=4988438 / od-redesign=266f5f2、origin/dev 未推。)_
