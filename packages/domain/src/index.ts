@@ -32,6 +32,8 @@ export {
   createOrder,
   createOrderItem,
   createProductSnapshot,
+  assertProductSnapshot,
+  assertOrderItemInvariant,
   assertOrderInvariant,
 } from './order/order';
 export {

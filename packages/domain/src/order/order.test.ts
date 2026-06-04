@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { toMoneyAmount, type Money } from '../shared/types';
 import {
   createProductSnapshot,
+  assertProductSnapshot,
   createOrderItem,
+  assertOrderItemInvariant,
   createOrder,
   assertOrderInvariant,
 } from './order';
@@ -23,6 +25,37 @@ function makeItem(overrides: Partial<Parameters<typeof createOrderItem>[0]> = {}
     variantSku: 'DCC01-G-F',
     productSnapshot: snap(),
     ...overrides,
+  });
+}
+
+/**
+ * hand-built OrderItem：**繞過** createOrderItem 直接組 literal,用於驗 createOrder /
+ * assertOrderItemInvariant 對「不走 factory 的 caller」是否 fail-closed（審查 MUST-FIX-1+2）。
+ */
+function handBuiltItem(overrides: Partial<OrderItem> = {}): OrderItem {
+  return {
+    productId: 'p-1',
+    quantity: 2,
+    unitPrice: TWD(1000),
+    lineTotal: TWD(2000),
+    variantSku: 'DCC01-G-F',
+    productSnapshot: { title: '碳纖維護蓋', sku: 'DCC01', spec: {} },
+    ...overrides,
+  };
+}
+
+const USD = (n: number): Money =>
+  ({ amount: toMoneyAmount(n), currency: 'USD' }) as unknown as Money;
+
+function makeOrderWithItems(items: OrderItem[]): Order {
+  return createOrder({
+    id: 'ord-1',
+    displayId: 'PCM-2026-0001',
+    customerId: 'cust-1',
+    tierAtCheckout: 'general',
+    items,
+    shippingFee: TWD(0),
+    discountTotal: TWD(0),
   });
 }
 
@@ -282,5 +315,157 @@ describe('assertOrderInvariant(重建後 / 腐壞偵測)', () => {
     } catch (e) {
       expect((e as OrderError).code).toBe('currency_mismatch');
     }
+  });
+
+  // dim D 補洞:防腐壞分支直接覆蓋(原只走 createOrder/createOrderItem 間接路徑)
+  it('items 空 throw empty_items', () => {
+    const corrupt = { ...goodOrder(), items: [] } as Order;
+    expect(() => assertOrderInvariant(corrupt)).toThrow(OrderError);
+    try {
+      assertOrderInvariant(corrupt);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('empty_items');
+    }
+  });
+
+  it('item qty 腐壞(0)throw invalid_quantity', () => {
+    const corrupt = {
+      ...goodOrder(),
+      items: [handBuiltItem({ quantity: 0, lineTotal: TWD(0) })],
+    } as Order;
+    expect(() => assertOrderInvariant(corrupt)).toThrow(OrderError);
+    try {
+      assertOrderInvariant(corrupt);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('invalid_quantity');
+    }
+  });
+});
+
+describe('assertProductSnapshot(fail-closed reject 多餘欄、MUST-FIX-2)', () => {
+  it('乾淨快照通過', () => {
+    expect(() =>
+      assertProductSnapshot({ title: 'X', sku: 'Y', spec: { weave: '3K' } }),
+    ).not.toThrow();
+  });
+
+  it('🔴 帶經銷價 / cost 白名單外欄 → reject(非靜默 strip)throw invalid_snapshot', () => {
+    const dirty = {
+      title: 'X',
+      sku: 'Y',
+      spec: {},
+      price_store: 999,
+      price_by_tier: { store: 999 },
+      cost: 500,
+    } as unknown as ProductSnapshot;
+    expect(() => assertProductSnapshot(dirty)).toThrow(OrderError);
+    try {
+      assertProductSnapshot(dirty);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('invalid_snapshot');
+    }
+  });
+
+  it('title 空字串 throw invalid_snapshot', () => {
+    expect(() =>
+      assertProductSnapshot({ title: '', sku: 'Y', spec: {} }),
+    ).toThrow(OrderError);
+  });
+});
+
+describe('assertOrderItemInvariant(createOrder 與 assertOrderInvariant 共用單 item 驗)', () => {
+  it('createOrderItem 建出的乾淨 item 通過', () => {
+    expect(() => assertOrderItemInvariant(makeItem(), 'TWD')).not.toThrow();
+  });
+
+  it('lineTotal ≠ unitPrice × qty throw subtotal_mismatch', () => {
+    expect(() =>
+      assertOrderItemInvariant(handBuiltItem({ lineTotal: TWD(1) }), 'TWD'),
+    ).toThrow(OrderError);
+    try {
+      assertOrderItemInvariant(handBuiltItem({ lineTotal: TWD(1) }), 'TWD');
+    } catch (e) {
+      expect((e as OrderError).code).toBe('subtotal_mismatch');
+    }
+  });
+
+  it('qty 非整數 throw invalid_quantity', () => {
+    expect(() =>
+      assertOrderItemInvariant(
+        handBuiltItem({ quantity: 1.5, lineTotal: TWD(1500) }),
+        'TWD',
+      ),
+    ).toThrow(OrderError);
+  });
+
+  it('unitPrice 跨幣 throw currency_mismatch', () => {
+    expect(() =>
+      assertOrderItemInvariant(handBuiltItem({ unitPrice: USD(1000) }), 'TWD'),
+    ).toThrow(OrderError);
+  });
+
+  it('帶經銷價 snapshot 的 item throw invalid_snapshot', () => {
+    const dirty = handBuiltItem({
+      productSnapshot: {
+        title: 'X',
+        sku: 'Y',
+        spec: {},
+        price_store: 999,
+      } as unknown as ProductSnapshot,
+    });
+    expect(() => assertOrderItemInvariant(dirty, 'TWD')).toThrow(OrderError);
+  });
+});
+
+describe('createOrder fail-closed 對 hand-built item(MUST-FIX-1+2)', () => {
+  it('lineTotal 低報 → throw subtotal_mismatch(防低報結帳)', () => {
+    expect(() =>
+      makeOrderWithItems([handBuiltItem({ lineTotal: TWD(1) })]),
+    ).toThrow(OrderError);
+    try {
+      makeOrderWithItems([handBuiltItem({ lineTotal: TWD(1) })]);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('subtotal_mismatch');
+    }
+  });
+
+  it('qty=1.5 → throw invalid_quantity', () => {
+    expect(() =>
+      makeOrderWithItems([handBuiltItem({ quantity: 1.5, lineTotal: TWD(1500) })]),
+    ).toThrow(OrderError);
+  });
+
+  it('跨幣 unitPrice → throw currency_mismatch', () => {
+    expect(() =>
+      makeOrderWithItems([handBuiltItem({ unitPrice: USD(1000) })]),
+    ).toThrow(OrderError);
+  });
+
+  it('🔴 帶經銷價 snapshot 的 item → throw invalid_snapshot(fail-closed、非 strip)', () => {
+    const dirty = handBuiltItem({
+      productSnapshot: {
+        title: 'X',
+        sku: 'Y',
+        spec: {},
+        price_store: 999,
+        price_by_tier: { store: 999 },
+        cost: 500,
+      } as unknown as ProductSnapshot,
+    });
+    expect(() => makeOrderWithItems([dirty])).toThrow(OrderError);
+    try {
+      makeOrderWithItems([dirty]);
+    } catch (e) {
+      expect((e as OrderError).code).toBe('invalid_snapshot');
+    }
+  });
+
+  it('多品項第二項跨幣別 → throw currency_mismatch', () => {
+    // 第一項 makeItem TWD → 整單 currency=TWD;第二項 USD item lineTotal 觸發 mismatch
+    const usdItem = handBuiltItem({
+      unitPrice: USD(500),
+      lineTotal: USD(1000),
+    });
+    expect(() => makeOrderWithItems([makeItem(), usdItem])).toThrow(OrderError);
   });
 });
