@@ -8,18 +8,21 @@
 **Branch:** dev
 
 ## 最後更新
-2026-06-03 — Claude Code [OD 商品頁改造 Phase A(OD-5~11)合併進 dev:merge cf630b2〔parents bd9ea68 dev + 3e3918e od-redesign〕、零檔案衝突〔OD 全程未碰 STATUS.md、審查預判的 STATUS 衝突實際未發生〕、合併後三綠 + 完整 pnpm test 531 全綠〔OD 元件 × S6 toUIProduct fitments 共存確認〕。整合線 S0–S6 + OD Phase A 皆完成。未 push、等 Sean 肉眼驗 :3001 後推。前序:升 Actions Node24 v6 + S5 啟用]
+2026-06-04 — Claude Code 審查 session [賣場內容 pipeline v2 PRD 對抗審查結案(workflow、30 findings/0 blocker)+ 網站側設計 doc/backlog #209/#212 對齊 PRD v2(範本工廠/三叉標題/下架權威來源側、commit 7b51234/da321b6/bac3270/18bd8c6)+ LINE CTA 兩審 PASS(ce36e50 初版 + 4988438 真機 fix)+ Header SSR UA fix 審 PASS(7bdbdd4)+ 多品牌範本 doc 順掃 PASS(beee50d);全 fresh 三綠 82 檔 553 測。dev 領先 origin/dev、未推、等 Sean 手動推。下一步 M-3 結帳(handoff docs/handoff/2026-06-04-review-session-handoff-m3.md)]
+前序 2026-06-03 — Claude Code [OD 商品頁改造 Phase A(OD-5~11)合併進 dev:merge cf630b2〔parents bd9ea68 dev + 3e3918e od-redesign〕、零檔案衝突〔OD 全程未碰 STATUS.md、審查預判的 STATUS 衝突實際未發生〕、合併後三綠 + 完整 pnpm test 531 全綠〔OD 元件 × S6 toUIProduct fitments 共存確認〕。整合線 S0–S6 + OD Phase A 皆完成。未 push、等 Sean 肉眼驗 :3001 後推。前序:升 Actions Node24 v6 + S5 啟用]
 
 ## 最近 3 commit
-> 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `6b0548d` 為本 action-bump commit 提交時 dev 可達祖先〔S5 實作、整合線;OD 線已隔離自有 worktree〕、本 commit 自身 hash 不入表頂〔避 busboy off-by-one orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
+> 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `beee50d` 為本 STATUS commit 提交時 dev 可達祖先〔S5 實作、整合線;OD 線已隔離自有 worktree〕、本 commit 自身 hash 不入表頂〔避 busboy off-by-one orphan、見 memory project_status-top-hash-off-by-one-normal + backlog #180〕)
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `6b0548d` | feat(scripts): S5 排程上線 GitHub Actions cron + W1 抓取完整性閘 [quote-integ-S5] | 2026-06-03 |
-| `f7d528f` | docs(specs): S5 排程上線 plan 入版 + fallback 對抗審查折入 [quote-integ-S5-plan] | 2026-06-03 |
-| `99346da` | fix(scripts): rpm-import .env.local 存在才載防 cron 缺檔 ENOENT [quote-integ-S5-pre] | 2026-06-03 |
+| `beee50d` | docs(specs): 定多品牌商品頁範本方向 C + OD 品牌特色區刻製 brief [content-model] | 2026-06-04 |
+| `7bdbdd4` | fix(storefront): Header SSR 用 server UA 修 iPhone 卡桌機 header [header-rwd] | 2026-06-04 |
+| `4988438` | fix(storefront): LINE 詢價 CTA 改小圓鈕 + 原生 <a> 修真機點無反應 [line-cta] | 2026-06-04 |
 
 ## 下一步
-**OD 商品頁改造 Phase A(OD-5~11)已合併進 dev ✅**(merge cf630b2、與 S6 fitments 共存、合併後三綠 + 完整 pnpm test 531 全綠;整合線 S0–S6 + OD Phase A 皆完成;下一步 **OD-12 適用車款表**接 S6 plumb 的 fitments[]〔D1=A 真 3 欄、post-merge〕、Sean 肉眼驗 :3001 後推)。 **資料線 S0–S6 全完 + 已上線自動運轉 ✅(報價單↔網站整合 Phase 1 收尾)**。Sean 已設對 service_role secret + rpm-sync workflow_dispatch 首跑綠;每天台灣 03:00 自動同步運轉中;action 升 Node24 v6。**下一步**:**OD 商品頁改造線**(並行 workstream、附屬區)續做(OD-F1 可接 S6 plumb 的 fitments[])。正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 Sean 貼 web Codex 補(S5 本輪走 Claude fallback 對抗審查 2 輪 PASS + code-reviewer PASS)。**description 不在同步 scope**(中文化 backlog #209);<5% 靜默截斷持久基線 backlog #210。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre + S5-plan + S5 + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209/#210 留 backlog;g-7 wallet HOLD #202 不變。
+**🆕 下一個正式待審 = M-3 結帳 / 訂單 / 金流**(網站側大工程:現 M-3=0 進度、無 `/checkout`、購物車僅 localStorage、立即購買不導結帳 → 站內無法成交;觸發鐵則 8〔orders/order_items 表 + checkout route + API〕+ 鐵則 12〔order/payment/pricing、金額整數/Decimal、經銷價不傳瀏覽器、server 重驗 tier〕→ 動手前 plan + 重點審 + codex K2〔quota 恢復 7/2 或 web Codex、未回走 Claude fallback〕)。**本輪 2026-06-04 審查 session 已結案**:賣場內容 v2 PRD 對抗審查 + 設計 doc/backlog #209/#212 對齊 PRD v2 + LINE CTA(ce36e50+4988438)兩審 + Header SSR fix(7bdbdd4)審 + 多品牌範本 doc(beee50d),全 fresh 三綠 553、見 handoff `docs/handoff/2026-06-04-review-session-handoff-m3.md`。**賣場內容 pipeline 排報價單側 roadmap P2**(執行 session 之後動 P0 砍鎖+P7 下架先行,網站側工作 backlog #212)。
+
+**前序(整合線/OD,多已完成):** **OD 商品頁改造 Phase A(OD-5~11)已合併進 dev ✅**(merge cf630b2、與 S6 fitments 共存、合併後三綠 + 完整 pnpm test 531 全綠;整合線 S0–S6 + OD Phase A 皆完成;下一步 **OD-12 適用車款表**接 S6 plumb 的 fitments[]〔D1=A 真 3 欄、post-merge〕、Sean 肉眼驗 :3001 後推)。 **資料線 S0–S6 全完 + 已上線自動運轉 ✅(報價單↔網站整合 Phase 1 收尾)**。Sean 已設對 service_role secret + rpm-sync workflow_dispatch 首跑綠;每天台灣 03:00 自動同步運轉中;action 升 Node24 v6。**下一步**:**OD 商品頁改造線**(並行 workstream、附屬區)續做(OD-F1 可接 S6 plumb 的 fitments[])。正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 Sean 貼 web Codex 補(S5 本輪走 Claude fallback 對抗審查 2 輪 PASS + code-reviewer PASS)。**description 不在同步 scope**(中文化 backlog #209);<5% 靜默截斷持久基線 backlog #210。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre + S5-plan + S5 + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209/#210 留 backlog;g-7 wallet HOLD #202 不變。
 
 ## Sean 待決策
 **🆕 報價單↔網站整合**:✅ **S5 已上線、資料線無待決策**(Sean 設對 service_role secret + workflow_dispatch 首跑綠、每天 03:00 自動運轉;原誤貼 anon key 已修;action 升 Node24 v6)。~~S5 啟用 / 平台 / S3b-2 sign-off / S3a db push / QUOTE_*~~ ✅ 全已就緒。**前序:**
