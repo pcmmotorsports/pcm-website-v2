@@ -10,7 +10,8 @@
 // - design 用 currentPage prop + onNav callback(in-app state machine)→ storefront 用 Next routing
 //   (usePathname() + <Link href>)
 // - 「找車」tab href 暫指 '#' + aria-disabled(fold backlog #195、/vehicle-search 路由未建)
-// - 「購物車」tab href 暫指 '#' + aria-disabled(fold backlog #194、/cart 路由 0 處、codex k1 FIX-2)
+// - 「購物車」tab → <Link href='/cart'>(M-3-S2-b2-d 建 /cart route、#194 resolved;原 '#' + aria-disabled
+//   為 /cart 未建時的暫頂、本片解除)
 // - hidden 判定:pathname.startsWith('/products/') 且 segments.length >= 2(對應 /products/[slug]、
 //   '/products' 列表頁不藏、走 catalog tab 顯示)
 
@@ -86,9 +87,8 @@ const TABS: Tab[] = [
   {
     id: 'cart',
     label: '購物車',
-    href: '#',
-    matches: () => false,
-    disabled: true,
+    href: '/cart',
+    matches: (p) => p.startsWith('/cart'),
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
         <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" />

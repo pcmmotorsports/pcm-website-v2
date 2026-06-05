@@ -1,0 +1,333 @@
+/* ==========================================================
+   CART — 字面從 design-reference/styles/account.css @ HEAD 直接搬
+   (cart-* 區塊 L18-323 + mobile L859-875;鐵則 1「直接搬不翻譯」)
+   ==========================================================
+   .ap-page / .ap-mono base 已在 auth.css(共用、不重定義)。
+
+   業務 override / 偏離(commit body + manifest 揭示):
+   - 優惠券 .cart-coupon / -row / -ok 不搬(plan v6 §3.2「優惠券」不做、#202 wallet HOLD);
+     對應 .cart-row-discount 折扣列亦不搬(無 coupon = 無折扣)。
+   - 經銷劃線價(premium_store strikethrough)JSX 不渲染(階段① general-only、階段⓪ 硬 gate);
+     CSS .cart-item-price-unit 仍搬(qty>1 單價列共用)。
+   - 免運門檻 design 內部不一致(shipping 3000/120 + perks「4,000」+ hint 3000)→ storefront
+     統一 NT$5,000 / 未滿 flat 100(Sean 拍 B + memory iron-rule #161 永久;算法走 @pcm/domain
+     calculateShippingFee、文案/門檻在 CartView TSX、非 CSS)。
+   - .cart-loading = net-new(server 端 resolve 價格為非同步、首次解析前的載入態;design 無對應)。
+
+   mobile:design 僅 [data-mobile="true"](L859-875)→ storefront #192 A1 慣例雙寫
+   @media(max-width:1079px) 主(SSR-safe)+ [data-mobile="true"] 兜底(dev-preview / SSR UA hint)。 */
+
+/* ============ CART ============ */
+.cart-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 48px 32px 80px;
+}
+
+.cart-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.cart-head h1 {
+  font-size: 44px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 8px 0 0;
+}
+
+.cart-head-count {
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+
+.cart-layout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 48px;
+  align-items: start;
+}
+
+.cart-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.cart-item {
+  display: grid;
+  grid-template-columns: 120px 1fr auto;
+  gap: 20px;
+  padding: 24px 0;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.cart-item-img {
+  display: block;
+  aspect-ratio: 1;
+  background: var(--c-surface-2);
+  overflow: hidden;
+}
+.cart-item-img img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.4s; }
+.cart-item-img:hover img { transform: scale(1.05); }
+
+.cart-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cart-item-brand {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-3);
+}
+
+.cart-item-name {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--c-text);
+  line-height: 1.4;
+  margin-bottom: 2px;
+}
+.cart-item-name:hover { text-decoration: underline; }
+
+.cart-item-variant,
+.cart-item-vehicle {
+  font-size: 12.5px;
+  color: var(--c-text-2);
+}
+
+.cart-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-top: 12px;
+}
+
+.cart-qty {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--c-border);
+}
+.cart-qty button {
+  width: 32px; height: 32px;
+  color: var(--c-text);
+  background: transparent;
+  transition: background 0.15s;
+}
+.cart-qty button:hover:not(:disabled) { background: var(--c-surface-2); }
+.cart-qty button:disabled { color: var(--c-text-3); cursor: not-allowed; }
+.cart-qty span {
+  min-width: 32px;
+  text-align: center;
+  font-size: 14px;
+}
+
+.cart-item-remove {
+  font-size: 12.5px;
+  color: var(--c-text-3);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.cart-item-remove:hover { color: var(--c-text); }
+
+.cart-item-price {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cart-item-price-main {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+.cart-item-price-unit {
+  font-size: 11px;
+  color: var(--c-text-3);
+}
+
+/* Summary panel */
+.cart-summary {
+  position: sticky;
+  top: 100px;
+  padding: 28px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+}
+
+.cart-summary-head {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--c-border);
+}
+
+.cart-totals {
+  padding: 16px 0;
+  border-top: 1px solid var(--c-border);
+}
+.cart-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13.5px;
+}
+.cart-row-hint {
+  font-size: 11px;
+  color: var(--c-text-3);
+  padding: 4px 0;
+}
+
+.cart-grand {
+  display: flex;
+  justify-content: space-between;
+  padding: 18px 0;
+  border-top: 1px solid var(--c-border);
+  margin-bottom: 20px;
+}
+.cart-grand span:first-child {
+  font-size: 14px;
+  font-weight: 600;
+}
+.cart-grand span:last-child {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.cart-checkout {
+  width: 100%;
+  padding: 16px;
+  background: var(--c-text);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.2s;
+}
+.cart-checkout:hover { background: #000; }
+.cart-checkout span { transition: transform 0.25s; }
+.cart-checkout:hover span { transform: translateX(4px); }
+
+.cart-continue {
+  width: 100%;
+  padding: 12px;
+  font-size: 13px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+  margin-top: 8px;
+}
+.cart-continue:hover { color: var(--c-text); }
+
+.cart-perks {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--c-text-2);
+}
+.cart-perks span {
+  color: #0a7d2a;
+  margin-right: 6px;
+  font-weight: 700;
+}
+
+/* Loading(net-new:server 端非同步 resolve 價格的首次載入態) */
+.cart-loading {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 80px 32px;
+  text-align: center;
+  color: var(--c-text-2);
+  font-size: 14px;
+}
+
+/* Empty cart */
+.cart-empty {
+  max-width: 420px;
+  margin: 120px auto;
+  text-align: center;
+  padding: 0 24px;
+}
+.cart-empty-icon {
+  color: var(--c-text-3);
+  margin-bottom: 16px;
+}
+.cart-empty h2 {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+.cart-empty p {
+  color: var(--c-text-2);
+  margin: 0 0 24px;
+}
+.btn-primary {
+  padding: 14px 32px;
+  background: var(--c-text);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+}
+.btn-primary:hover { background: #000; }
+
+/* ============ MOBILE OVERRIDES ============ */
+/* [#192 A1] 手機 viewport @media(主、SSR-safe、無需 JS / attr) */
+@media (max-width: 1079px) {
+  .cart-main { padding: 24px 16px 40px; }
+  .cart-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .cart-head h1 { font-size: 28px; }
+  .cart-layout { grid-template-columns: 1fr; gap: 24px; }
+  .cart-item { grid-template-columns: 80px 1fr; gap: 12px; }
+  .cart-item-price {
+    grid-column: 2 / 3;
+    grid-row: 2;
+    text-align: left;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .cart-item-price-main { font-size: 15px; }
+  .cart-item-actions { gap: 14px; }
+  .cart-summary { position: static; padding: 20px; }
+}
+
+/* [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint) */
+[data-mobile="true"] .cart-main { padding: 24px 16px 40px; }
+[data-mobile="true"] .cart-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+[data-mobile="true"] .cart-head h1 { font-size: 28px; }
+[data-mobile="true"] .cart-layout { grid-template-columns: 1fr; gap: 24px; }
+[data-mobile="true"] .cart-item { grid-template-columns: 80px 1fr; gap: 12px; }
+[data-mobile="true"] .cart-item-price {
+  grid-column: 2 / 3;
+  grid-row: 2;
+  text-align: left;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  margin-top: 6px;
+}
+[data-mobile="true"] .cart-item-price-main { font-size: 15px; }
+[data-mobile="true"] .cart-item-actions { gap: 14px; }
+[data-mobile="true"] .cart-summary { position: static; padding: 20px; }

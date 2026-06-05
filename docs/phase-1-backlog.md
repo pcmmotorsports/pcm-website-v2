@@ -5110,9 +5110,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-28 / g-1 肉眼驗 / Sean 拍 C 中庸引導
 - **相關:** #179(會員中心補綁 email 子題)、line-admin.ts L81(LINE 現有硬擋)、f1-b / f1-c(Email/Google 註冊路徑)、g-5 / g-6(資料分裂顯現時點)、ADR-0005 §8.4(受控小門 service_role 護欄)
 
-### #194. ⏳ /cart 路由建立(MobileTabBar 購物車 tab disabled 解除)
+### #194. ✅ /cart 路由建立(MobileTabBar 購物車 tab disabled 解除)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-06-06 M-3-S2-b2-d:新 app/cart route〔page.tsx + CartView.tsx + actions.ts〕+ cart.css〔搬 design AccountPages.jsx CartPage L11-178、非 CartPage.jsx〕;MobileTabBar 購物車 tab 改 `<Link href="/cart">` + matches=startsWith('/cart')、解除 disabled;同步 MobileTabBar.test.tsx〔找車仍 disabled、購物車 enabled + /cart active〕。Header NAV_ROUTE_MAP.cart='/cart' 早已就位、無需改)
 - **優先級:** 🟡 低(M-3 訂單流程一併處理、Phase 1 階段無真結帳流程)
 - **問題:**
   - storefront `apps/storefront/src/app/cart/` 路由 0 處(grep 驗、2026-05-28),但 Header.tsx L27-31 NAV_ROUTE_MAP.cart = '/cart' 字面已寫、點下去會 404

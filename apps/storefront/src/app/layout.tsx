@@ -39,6 +39,7 @@ import '../styles/products-page.css';
 import '../styles/home.css';
 import '../styles/auth.css';
 import '../styles/account.css';
+import '../styles/cart.css';
 import '../styles/tier.css';
 import '../styles/mobile-tabbar.css';
 
