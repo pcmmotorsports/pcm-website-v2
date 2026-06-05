@@ -5660,6 +5660,20 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** stage ③ 訂單查詢(plan §7);若選 B 綁 S2-a migration 再版 + db push。
 - **相關:** packages/domain/src/order/types.ts(OrderItem.productId)/ supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql(order_items 無 product_id)/ packages/ports/src/IOrderRepository.ts(findById/listByCustomer 讀宣告)/ plan §7 階段③ / 鐵則 8(選 B 動 schema)+ 鐵則 10
 
+### #218. 📝 createSupabaseAnonClient「可進 client bundle」註解 stale — 與 client.ts `import 'server-only'` 矛盾(doc-drift)
+
+- **狀態:** ⏳ 待修(純註解、零行為;codex 關卡2 NIT、非 must-fix)
+- **優先級:** 🟢 觀察(無安全/行為風險、僅誤導讀者)
+- **問題:**
+  - `packages/adapters/src/index.ts:7` + `packages/adapters/src/supabase/client.ts:13` 兩處註解寫 `createSupabaseAnonClient`「可進 client bundle」,但 `client.ts:1` 頂層有 `import 'server-only'` → 整個 @pcm/adapters root barrel(含 anon factory)被 server-only 約束、**不可進 client bundle**(import 即 build error)。瀏覽器端公開讀實際走 storefront `lib/supabase/browser.ts`(@supabase/ssr),非此 anon factory。
+  - 推測前因:某 slice 給 client.ts 加 `import 'server-only'` 時未同步這兩處註解。
+- **觸發事件:** 2026-06-05 S2-b2-b2 SupabaseOrderAdapter codex 關卡2 NIT(掃 index.ts 時點名 L7;client.ts L13 為同源 sibling drift)。
+- **預期解法:** 兩處註解改為「server-only(client.ts 頂層 import 'server-only')、伺服器端 anon 讀取、RLS-protected;瀏覽器端公開讀走 storefront browser entry」;順手核對 README.md / 其他引用是否有同 stale 字面。
+- **不修會痛在:** 可維護性 —— 接手者讀「可進 client bundle」誤以為 anon factory client-safe,在 client component import @pcm/adapters 撞 server-only build error、或誤判邊界做錯架構決策。
+- **估時:** S(純註解、2 處 + sweep,~10 min)。
+- **依賴:** 無(可獨立做;非 S2-b2 scope,刻意不混進建單 security slice 避 scope creep)。
+- **相關:** packages/adapters/src/index.ts L7 / packages/adapters/src/supabase/client.ts L13 / 鐵則 11(字面 vs 事實)+ 鐵則 10
+
 ---
 
 ## 紀錄模板

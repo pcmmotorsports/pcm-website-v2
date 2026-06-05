@@ -17,10 +17,10 @@
 // customers_update_own(auth.uid()=user_id 限自己改自己),寫入 ownership 靠 RLS row 守、欄位靠 GRANT 守。
 
 import 'server-only';
-import type { IAuthService, ICustomerRepository, IAddressRepository, IVehicleRepository } from '@pcm/ports';
+import type { IAuthService, ICustomerRepository, IAddressRepository, IVehicleRepository, IOrderRepository } from '@pcm/ports';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入 IAuthService;SupabaseAuthAdapter 不持 service_role(收注入的 anon-ssr client)、本檔永不 import createSupabaseServiceClient / SupabaseWalletAdapter
 import { SupabaseAuthAdapter } from '@pcm/adapters/server';
-import { SupabaseCustomerAdapter, SupabaseAddressAdapter, SupabaseVehicleAdapter } from '@pcm/adapters';
+import { SupabaseCustomerAdapter, SupabaseAddressAdapter, SupabaseVehicleAdapter, SupabaseOrderAdapter } from '@pcm/adapters';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /**
@@ -70,4 +70,19 @@ export async function getAddressRepo(): Promise<IAddressRepository> {
 export async function getVehicleRepo(): Promise<IVehicleRepository> {
   const supabase = await createServerSupabaseClient();
   return new SupabaseVehicleAdapter(supabase);
+}
+
+/**
+ * 建本次 request 的 IOrderRepository(SupabaseOrderAdapter + cookie-aware authenticated server client)。
+ * M-3-S2-b2:建單 server action 用(placeOrder → create_order RPC)。
+ *
+ * **鏡像 getAddressRepo**:SupabaseOrderAdapter 在 @pcm/adapters root export(非 /server subpath、
+ * eslint 放行無 -disable)、來源 client.ts 頂層 `import 'server-only'`、整條 chain 受 server-only 約束(本檔已 import)。
+ * **不持 service_role**:authenticated client 呼 create_order SECURITY DEFINER RPC(REVOKE PUBLIC + GRANT
+ * authenticated、owner 承擔受控寫入)、價/運費/tier/歸屬全 RPC server 端 auth.uid() 重算、client 永不送價;
+ * orders/order_items 對 authenticated 僅 SELECT、建單只能走 RPC。本檔永不注入 service_role(對齊 wallet 紀律)。
+ */
+export async function getOrderRepo(): Promise<IOrderRepository> {
+  const supabase = await createServerSupabaseClient();
+  return new SupabaseOrderAdapter(supabase);
 }

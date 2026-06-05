@@ -17,6 +17,10 @@ export { SupabaseProductAdapter } from './supabase/SupabaseProductAdapter';
 export { SupabaseCustomerAdapter } from './supabase/SupabaseCustomerAdapter';
 export { SupabaseAddressAdapter } from './supabase/SupabaseAddressAdapter';
 export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
+// M-3-S2-b2:SupabaseOrderAdapter 建單走 create_order SECURITY DEFINER RPC、**零 service_role**
+// (authenticated client 對 orders/order_items 僅 SELECT、建單只能走 RPC)→ root public export、
+// 鏡像 Address/Customer/Vehicle(非 /server 受控小門〔那是 Wallet service_role 用〕)。
+export { SupabaseOrderAdapter } from './supabase/SupabaseOrderAdapter';
 // M-1-14d-2:SupabaseWalletAdapter 因 addEntry 需 service_role writeClient(金流敏感、server-only
 // 邊界)、不在 root public API export、改從 @pcm/adapters/server export(見 server.ts)。
 export { createSupabaseAnonClient } from './supabase/client';
