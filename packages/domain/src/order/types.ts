@@ -141,3 +141,61 @@ export type Order = {
   /** 訂單總額 = subtotal + shippingFee − discountTotal(Money 整數、非負) */
   total: Money;
 };
+
+/**
+ * PlaceOrderLine: 結帳送出的單一購物車品項(client → server 線契約)。
+ *
+ * 對齊 create_order RPC(20260604130000)p_lines:`variantId` XOR `(supplierSlug + sku)`、皆帶 qty。
+ * S3a 後 sku 非全域唯一 → 優先 variantId;無 variantId 時用 (supplierSlug, sku) 複合鍵防撞錯變體/錯價。
+ *
+ * 🔴 鐵則 12(plan v6 §5 紅線 3 server 價權威):**型別層無** price / unitPrice / tier / priceByTier /
+ * priceStore / cost 欄。client 只送「買什麼變體、買幾個」、**永不送價/tier**;單價 / 小計 / 運費 / total
+ * 全由 create_order RPC server 自算、client 送的任何金額一律忽略。
+ */
+export type PlaceOrderLine =
+  | { variantId: string; quantity: number }
+  | { supplierSlug: string; sku: string; quantity: number };
+
+/**
+ * OrderInvoice: 結帳發票資訊(對齊 create_order RPC p_invoice + design CheckoutPage)。
+ *
+ * type ∈ personal(手機載具選填)/ company(抬頭 + 8 碼統編)/ donate(愛心碼);
+ * 跨欄位必填驗證在 @pcm/schemas `CheckoutInput`(delivery 層)+ RPC 收乾淨白名單 jsonb。
+ */
+export type OrderInvoice = {
+  type: 'personal' | 'company' | 'donate';
+  carrier?: string;
+  title?: string;
+  taxId?: string;
+  donateCode?: string;
+};
+
+/**
+ * PlaceOrderInput: 建單 use-case / repo 寫入 input(client → server 線契約、value-object)。
+ *
+ * 對齊 create_order RPC 簽名(p_lines / p_address_id / p_shipping_method / p_invoice):
+ * - `lines`:購物車品項(1..200、每筆 qty 1..10000、上限 RPC 驗)
+ * - `addressId`:收件地址 id(RPC 以 auth.uid() 驗本人歸屬、防 IDOR)
+ * - `shippingMethod`:配送方式(運費 RPC §7 自算、見 shipping.ts)
+ * - `invoice`:發票
+ *
+ * 🔴 鐵則 12:**無** customerId / tier / 任何價欄 —— 身分由 RPC server 端 `auth.uid()` 重查(零信任)、
+ * 價 server 權威。client 永不送 userId / 價 / tier。
+ */
+export type PlaceOrderInput = {
+  lines: PlaceOrderLine[];
+  addressId: string;
+  shippingMethod: ShippingMethod;
+  invoice: OrderInvoice;
+};
+
+/**
+ * PlaceOrderResult: 建單回傳(對齊 create_order RPC return DTO `{order_id, display_id}`)。
+ *
+ * 🔴 鐵則 12(plan §5 紅線 4 + RPC L266-267「禁回原 row / 禁帶價結構」):建單**只**回訂單 id +
+ * 人類可讀單號、**不帶任何價 / tier / 明細結構**;需要明細另走只讀路徑(findById、stage ③ 訂單查詢)。
+ */
+export type PlaceOrderResult = {
+  orderId: OrderId;
+  displayId: DisplayId;
+};

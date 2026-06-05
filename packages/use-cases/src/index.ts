@@ -27,3 +27,7 @@ export { deleteVehicle } from './delete-vehicle';
 export { setPrimaryVehicle } from './set-primary-vehicle';
 
 export { depositWallet } from './deposit-wallet';
+
+// M-3-S2-b2:建單 use-case(placeOrder、薄編排、server 權威全在 create_order RPC;
+// input/result 型別在 @pcm/domain order/types.ts、本層不 re-export 型別、從 @pcm/domain 取)。
+export { placeOrder } from './place-order';

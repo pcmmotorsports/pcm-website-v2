@@ -5637,6 +5637,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 無(現可獨立做 CI 對比測試);若綁配送方式擴張則隨該 slice。
 - **相關:** packages/domain/src/order/shipping.ts / supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql §7 / plan §6(L2 運費門檻)+ §3.0f(CI grep 未涵蓋運費)/ 既有 #M-3-05 calculate-shipping 三 case 規劃 / 鐵則 10
 
+### #217. 🧩 order_items 無 product_id → domain OrderItem.productId 無法忠實重建(訂單讀路徑 stage ③ 前必解)
+
+- **狀態:** ⏳ 待決(寫路徑 S2-b2-b 不受影響;讀路徑〔findById/listByCustomer 重建 Order〕延 stage ③ 訂單查詢、開工前必拍解法)
+- **優先級:** 🟠 中(階段③ 訂單查詢〔plan §7〕硬前置;不阻階段①〔建單寫路徑〕)
+- **問題:**
+  - domain `OrderItem`(`packages/domain/src/order/types.ts`)`productId: ProductId` **必填**;但 `order_items` 表(migration 20260604120000)**只有 `variant_id`、無 `product_id`**(create_order RPC insert L253-263 親證只寫 variant_id/variant_sku/product_snapshot/qty/unit_price/line_total)。
+  - 且 `order_items.variant_id` 是 `ON DELETE SET NULL`(變體刪除後變 NULL)→ 即使想 join `product_variants` 回推 product_id 也不可靠。
+  - ∴ `SupabaseOrderAdapter` 的讀路徑(`findById`/`listByCustomer` → `mapSupabaseOrderToDomain` 重建 domain Order)**無法忠實填 `OrderItem.productId`**。
+  - 這是 S1(domain entity 含 productId)↔ S2-a(order_items schema 無 product_id)的設計 gap、S2-a sign-off 時未被點到(審查聚焦金額/RLS/jsonb backstop)。
+- **觸發事件:** 2026-06-05 S2-b2-b1(IOrderRepository reshape)偵察、UNDERSTAND workflow 親讀 schema 發現;讀路徑因此延 stage ③。
+- **預期解法(stage ③ 訂單查詢開工前批次拍):**
+  - A. **domain OrderItem.productId 改 optional / 移除**(歷史訂單看 title/sku/spec 快照即可、productId 非必要;最小、不動 DB)。
+  - B. **order_items 加 product_id 欄**(RPC insert 時一併寫;需改已簽核 S2-a migration + db push + RPC,動 schema)。
+  - C. **讀路徑 join product_variants 補 product_id**(variant_id NULL 時 fallback null;不可靠、且歷史訂單依賴現存變體,語意差)。
+  - **傾向 A**(歷史快照不該依賴可變外鍵、productId 對訂單查詢無實際用途、零 schema 動)。
+- **不修會痛在:**
+  - 擴充性:stage ③ 實作讀路徑時若沒先拍,會卡在「重建 Order 無 productId 可填」、或被迫硬塞假值(破 domain 契約)。
+  - 可維護性:domain 型別(有 productId)與 DB(無)長期不一致、接手者重建時誤判。
+  - bug 可追蹤性:若硬 join 補 productId,變體刪除後歷史訂單讀取會 NULL/錯指,難回溯。
+- **估時:** A 0.5 hr(改型別 + 重建路徑);B 1-2 hr(migration + RPC + db push、動已簽核 schema);決策 + 實作綁 stage ③ 訂單查詢首片。
+- **依賴:** stage ③ 訂單查詢(plan §7);若選 B 綁 S2-a migration 再版 + db push。
+- **相關:** packages/domain/src/order/types.ts(OrderItem.productId)/ supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql(order_items 無 product_id)/ packages/ports/src/IOrderRepository.ts(findById/listByCustomer 讀宣告)/ plan §7 階段③ / 鐵則 8(選 B 動 schema)+ 鐵則 10
+
 ---
 
 ## 紀錄模板
