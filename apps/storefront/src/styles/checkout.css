@@ -1,0 +1,390 @@
+/* ==========================================================
+   CHECKOUT — 字面從 design-reference/styles/checkout.css 直接搬(鐵則 1)
+   ==========================================================
+   .ap-page / .ap-mono base 已在 auth.css(共用、不重定義)。
+
+   本檔 e1 範圍(M-3-S2-b2-e1):結帳殼 + 3 步指示器 + Step1(地址/配送)+ 右側摘要 + mobile buybar。
+   依後續 sub-slice 增補(避免 dead CSS / 破 token 引用):
+   - e2 增:co-inv-*(發票、注意 design 的 --c-accent 在 storefront tokens 未定義、e2 須對映)
+     + co-pay-* / co-card-*(付款 / 信用卡欄);design checkout.css L149-151 為 orphan 宣告
+     (無 selector + 多餘 `}`、design 端 bug)、搬 co-inv 時跳過。
+   - e3 增:co-review-* / co-agree / co-btn-pay(確認訂單)。
+   不搬(plan v6 §3.2 不做):co-wallet-*(儲值金 #202)/ co-coupon(優惠券)。
+   Q1=A 只宅配:co-pickup-*(合作店家取貨地圖選店)不搬。 */
+
+.co-page { min-height: 100vh; background: var(--c-bg); }
+.co-main {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px 48px 96px;
+}
+
+.co-breadcrumb { margin-bottom: 16px; }
+
+.co-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--c-border);
+}
+.co-head h1 {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 6px 0 0;
+}
+.co-head-meta {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--c-text-2);
+}
+
+/* Step indicator */
+.co-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 32px;
+}
+.co-step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 24px;
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  text-align: left;
+  color: var(--c-text-3);
+  transition: color 0.15s;
+}
+.co-step:last-child { border-right: 0; }
+.co-step:disabled { cursor: not-allowed; }
+.co-step.is-active,
+.co-step.is-done { color: var(--c-text); }
+.co-step.is-done { cursor: pointer; }
+.co-step.is-done:hover .co-step-label { opacity: 0.7; }
+
+.co-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px; height: 28px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border-strong);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-3);
+}
+.co-step.is-active .co-step-num,
+.co-step.is-done .co-step-num {
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  border-color: var(--c-text);
+}
+.co-step-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.005em;
+}
+
+/* Two-column layout */
+.co-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 32px;
+  align-items: start;
+}
+.co-body { min-width: 0; }
+
+/* Sections */
+.co-section {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  padding: 24px 28px;
+  margin-bottom: 16px;
+}
+.co-section-head {
+  margin-bottom: 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.co-section-head .ap-mono {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--c-text-2);
+}
+.co-section-head h2 {
+  font-size: 18px;
+  font-weight: 700;
+}
+.co-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
+.co-section-head h2 { width: 100%; }
+
+/* Address list */
+.co-addr-list { display: flex; flex-direction: column; gap: 8px; }
+.co-addr {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 16px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.co-addr:hover { border-color: var(--c-text); }
+.co-addr.is-on { border-color: var(--c-text); background: var(--c-surface); }
+.co-addr input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+.co-addr-radio {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--c-border-strong);
+  border-radius: 50%;
+  position: relative;
+  margin-top: 3px;
+}
+.co-addr.is-on .co-addr-radio { border-color: var(--c-text); }
+.co-addr.is-on .co-addr-radio::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  background: var(--c-text);
+  border-radius: 50%;
+}
+.co-addr-body { min-width: 0; }
+.co-addr-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.co-addr-name { font-weight: 600; font-size: 14px; }
+.co-addr-phone { color: var(--c-text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+.co-addr-tag {
+  font-size: 9px;
+  letter-spacing: 0.15em;
+  padding: 2px 6px;
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+}
+.co-addr-line { font-size: 13px; color: var(--c-text-2); line-height: 1.5; }
+.co-addr-add {
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--c-text);
+  border: 1px dashed var(--c-border-strong);
+  background: transparent;
+  text-align: center;
+  transition: border-color 0.15s;
+}
+.co-addr-add:hover { border-color: var(--c-text); }
+
+/* Shipping methods */
+.co-ship-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.co-ship {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.co-ship:hover { border-color: var(--c-text); }
+.co-ship.is-on { border-color: var(--c-text); }
+.co-ship input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+.co-ship-radio {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--c-border-strong);
+  border-radius: 50%;
+  position: relative;
+  margin-top: 3px;
+}
+.co-ship.is-on .co-ship-radio { border-color: var(--c-text); }
+.co-ship.is-on .co-ship-radio::after {
+  content: '';
+  position: absolute; inset: 3px;
+  background: var(--c-text); border-radius: 50%;
+}
+.co-ship-head-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-bottom: 4px;
+}
+.co-ship-label { font-weight: 600; font-size: 14px; }
+.co-ship-meta { font-family: var(--f-mono); font-size: 12px; color: var(--c-text); font-variant-numeric: tabular-nums; }
+.co-ship-desc { font-size: 12px; color: var(--c-text-2); line-height: 1.5; }
+
+/* Actions */
+/* .btn-outline:storefront 首用(返回鈕),搬 design pages.css L65-78(.btn-primary 已在 cart.css)。 */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  background: var(--c-surface);
+  color: var(--c-text);
+  border: 1px solid var(--c-border-strong);
+  transition: border-color 0.15s;
+}
+.btn-outline:hover { border-color: var(--c-text); }
+.co-actions {
+  display: flex; justify-content: space-between; gap: 12px;
+  margin-top: 8px;
+}
+.co-btn-back, .co-btn-next { padding: 14px 24px; }
+
+/* ============ ASIDE / SUMMARY ============ */
+.co-aside { position: sticky; top: 96px; }
+.co-summary {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  padding: 24px 24px 20px;
+}
+.co-summary-head { margin-bottom: 16px; }
+.co-summary-head .ap-mono {
+  font-size: 10px; letter-spacing: 0.2em; color: var(--c-text-2);
+}
+
+.co-summary-items {
+  padding: 12px 0;
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.co-summary-item {
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.co-summary-item-qty { font-family: var(--f-mono); color: var(--c-text-2); }
+.co-summary-item-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--c-text);
+}
+.co-summary-item-price { font-family: var(--f-mono); font-variant-numeric: tabular-nums; color: var(--c-text); }
+
+.co-summary-lines { display: flex; flex-direction: column; gap: 8px; padding: 6px 0; }
+.co-line {
+  display: flex; justify-content: space-between;
+  font-size: 13px; color: var(--c-text);
+}
+.co-line span:last-child { font-variant-numeric: tabular-nums; }
+
+.co-grand {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 16px 0;
+  margin-top: 8px;
+  border-top: 1px solid var(--c-text);
+  border-bottom: 1px solid var(--c-border);
+}
+.co-grand > span:first-child { font-size: 13px; color: var(--c-text-2); letter-spacing: 0.04em; }
+.co-grand-val {
+  font-family: "Noto Serif TC", serif;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--c-red);
+  font-variant-numeric: tabular-nums;
+}
+
+.co-member-block { padding: 16px 0; border-bottom: 1px solid var(--c-border); }
+.co-member-label { font-size: 10px; letter-spacing: 0.2em; color: var(--c-text-2); margin-bottom: 8px; }
+.co-member-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px;
+}
+.co-member-name {
+  font-size: 13px; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.co-member-upgrade {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--c-text);
+  border-bottom: 1px solid var(--c-text);
+  transition: opacity 0.15s;
+}
+.co-member-upgrade:hover { opacity: 0.7; }
+
+.co-perks { padding-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.co-perks div { font-size: 11px; color: var(--c-text-2); display: flex; gap: 6px; }
+.co-perks span { color: var(--c-text); }
+
+/* Mobile buybar (hidden on desktop) */
+.co-mobile-buybar { display: none; }
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 1024px) {
+  .co-layout { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
+  .co-main { padding: 20px 32px 80px; }
+}
+
+@media (max-width: 900px) {
+  .co-layout { grid-template-columns: 1fr; }
+  .co-aside { position: static; }
+  .co-main { padding: 16px 20px 120px; }
+  .co-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .co-head h1 { font-size: 28px; }
+  .co-steps { grid-template-columns: 1fr 1fr 1fr; }
+  .co-step { padding: 14px 12px; gap: 8px; }
+  .co-step-label { font-size: 12px; }
+  .co-ship-grid { grid-template-columns: 1fr; }
+
+  .co-mobile-buybar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0; right: 0;
+    z-index: 100;
+    background: var(--c-surface);
+    border-top: 1px solid var(--c-text);
+    padding: 12px 16px;
+    align-items: center;
+    gap: 12px;
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.06);
+  }
+  .co-mobile-buybar-info { flex: 1; min-width: 0; }
+  .co-mobile-buybar-info .ap-mono { font-size: 10px; letter-spacing: 0.15em; color: var(--c-text-2); }
+  .co-mobile-buybar-price {
+    font-family: "Noto Serif TC", serif;
+    font-size: 22px; font-weight: 500;
+    color: var(--c-red);
+    font-variant-numeric: tabular-nums;
+    margin-top: 2px;
+  }
+  .co-mobile-buybar-btn {
+    padding: 14px 24px;
+    flex: 0 0 auto;
+    min-width: 140px;
+  }
+
+  /* Hide desktop bottom actions on mobile (replaced by buybar) */
+  .co-actions { display: none; }
+}
+
+@media (max-width: 600px) {
+  .co-step-label { display: none; }
+  .co-step { justify-content: center; padding: 14px 8px; }
+}

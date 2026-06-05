@@ -726,12 +726,70 @@ components:
 
   CheckoutPage:
     storefront:
-      component: "(未新建、Phase 1 後期動)"
-      last_modified_commit: "(未建)"
+      component: "apps/storefront/src/app/checkout/page.tsx + apps/storefront/src/components/CheckoutView.tsx + apps/storefront/src/hooks/useResolvedCart.tsx (M-3-S2-b2-e1:結帳殼 + 3 步指示器 + Step1〔收件地址選擇 + 配送方式〕+ 右側摘要 + mobile buybar;Step2 發票/付款 = e2、Step3 確認/建單 = e3 後續切片)"
+      css: "apps/storefront/src/styles/checkout.css"
+      last_modified_commit: "92ee3b6"  # 記可達祖先=M-3-S2-b2-e1 父 commit(=已 push 的 S2-b2-d、避 amend orphan);本 slice 真改見 git log [S2-b2-e1]
+      last_modified_date: "2026-06-06 (M-3-S2-b2-e1:結帳頁 e1 搬 design CheckoutPage L163-694 殼 + Step1 + checkout.css e1 區段;cart 摘要價走 useResolvedCart 共用 hook〔server-resolve、CartView 同步遷移〕;Step2/3 placeholder 待 e2/e3)"
     design:
-      component: "design-reference/components/CheckoutPage.jsx"
-      css: "design-reference/styles/checkout.css"
-    business_overrides: []
+      authority: "design-reference/components/CheckoutPage.jsx(L1-697)"
+      css: "design-reference/styles/checkout.css(co-* L1-551;e1 搬 shell/steps/addr/ship/summary/member/perks/buybar 區段)"
+    related_storefront:
+      - "apps/storefront/src/app/layout.tsx"  # import checkout.css
+      - "apps/storefront/src/contexts/CartContext.tsx"  # cart 線契約來源
+      - "apps/storefront/src/app/cart/actions.ts"  # resolveCartLines(useResolvedCart 經此 server-resolve)
+      - "apps/storefront/src/components/CartView.tsx"  # 同步遷移用 useResolvedCart 共用 hook
+      - "apps/storefront/src/lib/auth/composition.ts"  # getAddressRepo(收件地址)
+      - "apps/storefront/src/components/TierBadge.tsx"  # 右側 member tier badge
+    business_overrides:
+      - field: "checkoutAddressRealData"
+        design_value: "CheckoutPage 從 localStorage pcm-addresses mock 讀地址 + InlineAddressForm 即時新增"
+        storefront_value: "收件地址走真資料(getAddressRepo→listByCustomer、server page 傳入、RLS 守自己 row);新增地址 inline 表單延後 → 連 /account 管理(單一地址 CRUD 源、降 e1 體積)"
+        decided_at: "2026-06-06"
+        decision_source: "對齊 /account AddressTab 真地址源;新增延後降 e1 體積"
+        reason: "真 auth 會員地址在 customer_addresses;不複製 design localStorage mock;inline 新增留後續(避 refresh-state 複雜度)"
+      - field: "checkoutShippingHomeOnly"
+        design_value: "配送方式 2 種:貨運宅配 home + 合作店家取貨 store(地圖選店 StorePickerModal + stores 資料 + pickupStore 必選)"
+        storefront_value: "Q1=A 僅「貨運宅配」home(後端 create_order RPC / CheckoutInput 仍保留 store 白名單供未來);StorePickerModal / co-pickup-* 不搬"
+        decided_at: "2026-06-06"
+        decision_source: "Sean 拍 Q1=A + plan v6 §3.2「合作店家取貨」不做 + 無店家地圖/資料"
+        reason: "合作店家取貨地圖選店無資料源、§3.2 不做;後端 white-list 保留 store、UI 暫只宅配"
+      - field: "checkoutCouponWalletAtmOmitted"
+        design_value: "Step2 含優惠券 co-coupon + 儲值金折抵 co-wallet + ATM 付款選項"
+        storefront_value: "優惠券 / 儲值金 / ATM 皆不做(plan v6 §3.2 + #202 wallet HOLD);對應 co-wallet-*/co-coupon CSS 不搬"
+        decided_at: "2026-06-06"
+        decision_source: "plan v6 §3.2 不做 + 儲值法規 HOLD #202"
+        reason: "Phase 1 不做;dead CSS 不留(feedback_clean-nits-no-dangling-optional)"
+      - field: "checkoutSummaryServerResolve"
+        design_value: "右側摘要 window.PCM_DATA + getEffectivePrice(p, tier) client 端算價"
+        storefront_value: "摘要價走 useResolvedCart 共用 hook(resolveCartLines server action、釘 general、strip priceByTier、不存 client);審查側 e1 條件 1"
+        decided_at: "2026-06-06"
+        decision_source: "鐵則 12 + 審查側 e1 條件 1 + memory project_security-audit H-1"
+        reason: "價由 server 依 tier 取、client 永不存價;階段① general-only、tier-aware 待階段⓪"
+      - field: "checkoutFreeShipThreshold"
+        design_value: "運費 SHIPPING.homeThreshold=400/homeFee=150 + perks「滿 NT$ 4,000 宅配免運」(design 內部 400 vs 4000 不一致)"
+        storefront_value: "統一 @pcm/domain calculateShippingFee(home、subtotal>=5000?0:100)+ perks 用 FREE_SHIPPING_THRESHOLD=5000"
+        decided_at: "2026-06-06"
+        decision_source: "Sean 拍 B(plan v6 §3.1)+ memory iron-rule #161(免運門檻統一 5000 永久)"
+        reason: "design 門檻自相矛盾;storefront 統一 5000/未滿 100、算法走 domain 純函式(前台顯示鏡像)"
+      - field: "checkoutAuthGateServer"
+        design_value: "CheckoutPage useEffect 讀 localStorage pcm-user.loggedIn、未登入 onNav('login')"
+        storefront_value: "/checkout server 端 getUser() 守門(對齊 /account);無 user redirect('/login')"
+        decided_at: "2026-06-06"
+        decision_source: "對齊 app/account/page.tsx server 守門 pattern"
+        reason: "真 auth 為 server-side Supabase(httpOnly cookie、client 不可靠讀)"
+      - field: "checkoutStepsWipPlaceholder"
+        design_value: "Step2(發票/付款/儲值/優惠)+ Step3(確認/同意/建單)完整"
+        storefront_value: "e1 僅 Step1 完整;Step2/3 渲染 placeholder「此步驟即將上線」(e2 發票/付款、e3 確認/建單 走 codex 關卡2);Q2=A 建單延 e3"
+        decided_at: "2026-06-06"
+        decision_source: "拆多片(kickoff)+ Q2=A;e1 控體積"
+        reason: "697 行 design 拆 e1/e2/e3;e1 殼+Step1 為首個 cohesive 單元、Step2/3 後續"
+    open_drifts:
+      - field: "checkoutCssIncremental"
+        note: "checkout.css e1 只搬 shell/steps/addr/ship/summary/buybar 區段;co-inv-*/co-pay-*/co-card-*(e2)+ co-review-*/co-agree/co-btn-pay(e3)後續切片增補"
+        plan: "e2 搬發票/付款 CSS(注意 design --c-accent 未在 storefront tokens 定義、須對映 + design checkout.css L149-151 orphan bug 跳過);e3 搬確認 CSS"
+      - field: "checkoutInlineAddressDeferred"
+        note: "新增地址 inline 表單(design InlineAddressForm)延後、e1 連 /account 管理"
+        plan: "後續評估是否在 checkout 內接 InlineAddressForm + addAddressAction(需處理 router.refresh 後 step state + 新地址自動選中)"
 
   # ---- 全站 RWD 系列(#192) ----
 
