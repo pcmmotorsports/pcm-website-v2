@@ -49,3 +49,9 @@ export {
   assertDisplayId,
   parseDisplayId,
 } from './order/display-id';
+// order 運費規則(M-3-S2-b2、純函式;前台顯示鏡像、權威值由 create_order RPC §7 自算)
+export {
+  calculateShippingFee,
+  FREE_SHIPPING_THRESHOLD,
+  HOME_SHIPPING_FEE,
+} from './order/shipping';

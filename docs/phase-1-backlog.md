@@ -5617,6 +5617,26 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-05 / 安全稽核(Claude 多模型 access-control/dealer-price/test-gaps + codex 跨廠 RLS/IDOR + 經銷價 pass 五角度共識 H-1)。
 - **相關:** docs/reviews/2026-06-05-security-audit-report.md(H-1)/ apps/storefront/src/lib/tier.ts / apps/storefront/src/lib/products.ts(toUIProduct)/ packages/adapters/src/supabase/mappers/product.ts / M-2-08 / 鐵則 12 + 鐵則 8
 
+### #216. 🚚 運費門檻雙處 hardcode 同步無 CI gate — domain shipping.ts(TS)↔ create_order RPC §7(SQL)
+
+- **狀態:** ⏳ 觀察(L2 內容、現兩處逐分支一致、靠註解紀律維持)
+- **優先級:** 🟢 觀察(季度調整頻率低、改動時須兩處同步;升 🟠 中若加第三配送方式或門檻動態化)
+- **問題:**
+  - 運費規則 hardcode 在**兩個語言兩個檔**:① `packages/domain/src/order/shipping.ts`(`FREE_SHIPPING_THRESHOLD=5000` / `HOME_SHIPPING_FEE=100`、前台顯示鏡像)② `supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql` §7(`v_subtotal >= 5000 ? 0 : 100`、結帳權威值)。
+  - 兩處算法目前逐分支一致(store→0 / home subtotal>=5000?0:100),但**無編譯期 / CI 守門**保證同步。plan §3.0f 的 CI grep gate 只抓「真經銷價數字 + 敏感欄名」、**不涵蓋運費數字**。
+  - 改一處漏改另一處 → 前台顯示運費 ≠ 結帳實際成交運費(client 送的運費被 RPC 忽略、RPC §7 為權威)→ 客人看到 A 卻被收 B。
+- **觸發事件:** 2026-06-05 M-3-S2-b2-a 補 calculateShippingFee(domain)、code-reviewer WARN-2 點名(雙處同步無 CI gate、鐵則 10)。
+- **預期解法:**
+  - 短:改門檻 / 金額時同步兩處 + 跑 shipping.test.ts(已覆蓋 boundary 5000)+ MCP 對 RPC 實測;commit body 標兩處同步。
+  - 中:運費門檻 / 金額抽單一真相(如 config 表或共用常數注入 RPC),或加 CI 對比測試(讀 SQL §7 數字 vs domain 常數)守門;若門檻改「動態 / 分區 / 偏遠加價」(backlog 既有 #M-3-05 calculate-shipping 三 case 規劃)一併重構。
+- **不修會痛在:**
+  - 擴充性:加第三配送方式(超商取貨 Phase 2、plan §3.3)或偏遠加價時,兩處各改易漏、且無測試逼同步。
+  - 可維護性:運費邏輯散在 TS + SQL 兩語言、改規則須跨語言同步、無單一真相。
+  - bug 可追蹤性:漂移後是「顯示運費與帳單運費不符」客訴、無錯誤無 log、難回溯是哪次只改了一邊。
+- **估時:** 短(同步)即時;中(CI 對比測試 / 抽共用)1-2 hr。
+- **依賴:** 無(現可獨立做 CI 對比測試);若綁配送方式擴張則隨該 slice。
+- **相關:** packages/domain/src/order/shipping.ts / supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql §7 / plan §6(L2 運費門檻)+ §3.0f(CI grep 未涵蓋運費)/ 既有 #M-3-05 calculate-shipping 三 case 規劃 / 鐵則 10
+
 ---
 
 ## 紀錄模板

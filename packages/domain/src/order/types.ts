@@ -44,6 +44,18 @@ export type PaymentStatus = 'paid' | 'unpaid' | 'partiallyPaid' | 'refunded';
 export type FulfillmentStatus = 'notOrdered' | 'ordered' | 'inStock' | 'shipped';
 
 /**
+ * ShippingMethod: 配送方式(domain enum、結帳當下凍結於 orders.shipping_method)。
+ *
+ * 對齊 design CheckoutPage + create_order RPC(20260604130000)p_shipping_method 白名單:
+ * - `home`  宅配到府(運費依門檻、見 shipping.ts)
+ * - `store` 合作店家自取(免運)
+ *
+ * (舊 4 種 home/cvs/store/express 已於 S2-a 作廢、Sean 拍 A 對齊 design;plan v6 §3.1。
+ *  超商取貨 fulfillment_method 留 Phase 2、plan v6 §3.3。)
+ */
+export type ShippingMethod = 'home' | 'store';
+
+/**
  * ProductSnapshot: 訂單品項商品快照(結帳當下凍結、逐欄白名單)。
  *
  * 🔴 鐵則 12 經銷價零滲入(plan v6 §5 紅線 4):型別層**只**允許 title / sku / spec 三欄、

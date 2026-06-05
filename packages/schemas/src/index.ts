@@ -90,6 +90,44 @@ export const ProfileInput = z.object({
 });
 export type ProfileInput = z.infer<typeof ProfileInput>;
 
+// === Checkout form(design CheckoutPage.jsx、M-3-S2-b2)===
+// 結帳表單 input:選收件地址(addressId)+ 配送方式(home/store)+ 發票。
+// 對齊 create_order RPC(20260604130000)契約:p_address_id uuid / p_shipping_method ∈ {home,store} /
+// p_invoice {type, carrier?, title?, taxId?, donateCode?}。
+// 🔴 購物車品項(variant_id/sku + qty)不在本 schema:由 CartContext 提供、結帳時組 p_lines(S2-b2-b use-case);
+//    本 schema 只驗「結帳填寫表單」(地址選擇 + 配送 + 發票)。
+// invoice 跨欄位驗證鏡像 AddressInput(company 須抬頭 + 8 碼統編、donate 須愛心碼);
+// ⚠️ invoice 形狀與 AddressInput 重複未抽共用 —— 抽出 InvoiceInput 須重排 AddressInput superRefine
+//    的 path(['invoice','title']→['title'])會動既有地址表單錯誤顯示 + 測試,風險高於收益,留待
+//    後續統一重構(現以「兩處同步」紀律維持、改 invoice 規則須同步兩 schema)。
+export const CheckoutInput = z
+  .object({
+    addressId: z.uuid({ error: '請選擇收件地址' }),
+    shippingMethod: z.enum(['home', 'store'], { error: '請選擇配送方式' }),
+    invoice: z.object({
+      type: z.enum(['personal', 'company', 'donate']),
+      carrier: z.string().default(''),
+      title: z.string().default(''),
+      taxId: z.string().default(''),
+      donateCode: z.string().default(''),
+    }),
+  })
+  .superRefine((data, ctx) => {
+    const { invoice } = data;
+    if (invoice.type === 'company') {
+      if (!invoice.title) {
+        ctx.addIssue({ code: 'custom', message: '請填寫公司抬頭', path: ['invoice', 'title'] });
+      }
+      if (!/^\d{8}$/.test(invoice.taxId)) {
+        ctx.addIssue({ code: 'custom', message: '統編需 8 碼數字', path: ['invoice', 'taxId'] });
+      }
+    }
+    if (invoice.type === 'donate' && !invoice.donateCode) {
+      ctx.addIssue({ code: 'custom', message: '請填愛心碼', path: ['invoice', 'donateCode'] });
+    }
+  });
+export type CheckoutInput = z.infer<typeof CheckoutInput>;
+
 // === Wallet deposit(design WalletTab L150-224) ===
 // presets [3000,10000,30000,50000,100000] 為 UI 快捷鍵、非 schema 欄位。
 // amount 為整數(對齊 wallet ledger integer 欄 + 金額禁浮點);max 1M 為業務防呆 cap(非 design 字面)。
