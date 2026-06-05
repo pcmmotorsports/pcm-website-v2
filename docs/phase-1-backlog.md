@@ -5596,6 +5596,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-04 / M-3-S2-b1 create_order RPC codex 關卡2 round1 + code-reviewer。
 - **相關:** supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql / packages/domain/src/catalog/types.ts(ProductAvailability)/ 階段② 付款 / 鐵則 12
 
+### #215. 🔴 pcm-tier cookie 非身分權威 — M-2-08 接真經銷價前必改 server 端認證查 DB tier(經銷價洩漏地雷)
+
+- **狀態:** ⏳ 待執行(2026-06-05 已釘樁:tier.ts JSDoc + inline 註解、未改行為;真正認證化留 M-2-08)
+- **優先級:** 🔴 高(**M-2-08〔server-side tier-aware pricing〕開工前硬前置、blocker**)
+- **問題:**
+  - `apps/storefront/src/lib/tier.ts:resolveTierFromRequest` 的 tier 來源 = `?tier=`(僅 `PCM_DEV_TIER_OVERRIDE=1` 生效)> cookie `pcm-tier` > `'general'`,只驗字面合法性(general|store|premium_store)、**不向 DB `customers.tier` 查證身分**。全 repo grep 無任何 `cookieStore.set('pcm-tier')` / 從 session 派生 tier → **任何匿名訪客可 `document.cookie='pcm-tier=store'` 把自己當經銷會員**。違反 CLAUDE.md「會員等級驗證必在 server 端重新檢查、不信任 client」。
+  - **目前無洩漏(緩解 = 間接副作用、非刻意控制)**:read 路徑走 `products_public` view(物理排除 `price_store`)+ mapper 對 store/premiumStore 硬寫 dummy 0(`mappers/product.ts`)。偽造 tier 最多讓首頁卡片顯示「店價 NT$0」破圖、**看不到真經銷價**。詳情頁(`page.tsx`)+ 帳號頁(`account/page.tsx`)皆釘 general、不受影響。
+- **觸發事件(任一觸發即啟動實作):** ① M-2-08 接 server-side tier-aware pricing(讀真 `price_store`)前;② 任何讓 store/premiumStore 取到真價的路徑落地前。
+- **預期解法:**
+  - tier 解析改為 `await supabase.auth.getUser() → customerRepo.findById(user.id).tier`,**未登入恆 general**;移除/降級 cookie 路徑為純非金額顯示 hint(或 server 簽章且仍 DB 複驗)。
+  - pricing endpoint/RPC **不收 tier**(由 server 查),輸出到 client 僅「單一已算好的 effective price number」,**絕不序列化 `priceByTier` 結構**給 client。
+  - 同步補測試錨點(backlog 對應稽核 M-12):tier 偽造場景 + 「非 general tier 的價格輸出必經身分驗證」不變式測試。
+- **不修會痛在:**
+  - 擴充性:M-2-08 接真經銷價時若沿用 cookie 為唯一 tier 來源,一般會員偽造 cookie 即可取得真實經銷價 = **直接違反專案最高安全不變式(此 finding 由 HIGH 升 CRITICAL)**。
+  - 可維護性:現狀「不洩漏」靠下游 mapper dummy 0 的間接副作用、非靠 tier 被認證;接手者若只看 tier.ts 不知此脆弱依賴,M-2-08 改 mapper 取真價時會無聲打開洩漏口。
+  - bug 可追蹤性:洩漏一旦成立是「正常頁面正常顯示」、無錯誤無 log,只有比對「該訪客身分 vs 顯示的價格層級」才會發現,難回溯。
+- **估時:** 認證化改造 M(綁 M-2-08 pricing slice、鐵則 8+12 → plan + codex 雙關卡);本次釘樁 S(已完成)。
+- **依賴:** M-2-08 server-side tier-aware pricing endpoint / auth session(getUser)/ customers.tier RLS row。
+- **發現於:** 2026-06-05 / 安全稽核(Claude 多模型 access-control/dealer-price/test-gaps + codex 跨廠 RLS/IDOR + 經銷價 pass 五角度共識 H-1)。
+- **相關:** docs/reviews/2026-06-05-security-audit-report.md(H-1)/ apps/storefront/src/lib/tier.ts / apps/storefront/src/lib/products.ts(toUIProduct)/ packages/adapters/src/supabase/mappers/product.ts / M-2-08 / 鐵則 12 + 鐵則 8
+
 ---
 
 ## 紀錄模板

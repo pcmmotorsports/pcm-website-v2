@@ -19,6 +19,7 @@
 
 import type { MockProduct } from '@/data/mock-products';
 import { isAbsoluteHttpUrl } from '@/lib/site-url';
+import { safeJsonLd } from '@/lib/json-ld';
 
 const SCHEMA_ORG = 'https://schema.org';
 const PRICE_CURRENCY = 'TWD';
@@ -67,14 +68,14 @@ export function buildProductJsonLd(
 
 /**
  * 序列化為注入 <script> 的精確字串(production 用此、非在 page 重寫)。
- * .replace 把每個 < 換成跳脫序列 U+003C(原始碼第 2 引數寫雙反斜線 → runtime 6 bytes):
- *   JSON 解析回 <、但 HTML 不誤判 </script> breakout(Next 官方寫法)。
+ * 走共用 safeJsonLd(@/lib/json-ld):escape 每個 < 防 </script> breakout(Next 官方寫法)。
+ * (2026-06-05 安全稽核 M-2:原 inline .replace 抽成共用 helper,與 ProductFAQ 同源、不分歧。)
  */
 export function serializeProductJsonLd(
   product: MockProduct,
   opts?: { url?: string },
 ): string {
-  return JSON.stringify(buildProductJsonLd(product, opts)).replace(/</g, '\\u003c');
+  return safeJsonLd(buildProductJsonLd(product, opts));
 }
 
 /** subtitle trim 後非空才回、否則 undefined(讓 caller fallback)。 */

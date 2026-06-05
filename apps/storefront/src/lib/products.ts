@@ -26,12 +26,18 @@
 //     檔頭 `import 'server-only';`(audit B-1 `89a20a8` / 2026-05-10 推翻 d2 `1147fbe` /
 //     2026-05-09「不裝」原拍板、原因 = R1 #2 Critical service_role key 從 root export 暴露)
 //   - 次層保險(runtime guard、下方 `typeof window` block):server module load throw、捕第一層編譯期未涵蓋邊界
+//   - 2026-06-05 安全稽核 M-14:本檔補上**自身直接** `import 'server-only';`(下行),不再只靠
+//     createSupabaseAnonClient 的傳遞式依賴守門;未來 refactor import 路徑也不會靜默失去編譯期保護。
+
+import 'server-only';
 
 if (typeof window !== 'undefined') {
   throw new Error(
     '@/lib/products is server-only — must not be imported from client component bundle',
   );
 }
+
+import { cache } from 'react';
 
 import {
   SupabaseProductAdapter,
@@ -202,12 +208,18 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
  *   會對 store/premiumStore 顯「NT$ 0」(codex 16c-3 k1 must-fix 2)。變體 UI 價亦取 general。
  *   tier-aware 詳情價待 M-2-08 server-side pricing endpoint(同 featured g-2 'general' 釘法)。
  */
-export async function fetchProductByHandle(handle: string): Promise<MockProduct | null> {
-  const client = createSupabaseAnonClient();
-  const adapter = new SupabaseProductAdapter(client);
-  const product = await adapter.findByHandle(handle);
-  if (!product) {
-    return null;
-  }
-  return toUIProduct(product, 'general');
-}
+// 2026-06-05 安全稽核 M-9:包 react `cache()` 做「同一請求內」去重。
+//   詳情頁 generateMetadata + default export 各呼叫一次 fetchProductByHandle(同 slug)、
+//   原本一個請求打兩次 Supabase 查(含 variants embed);cache() 讓同請求第二次直接回快取、零額外往返。
+//   (React per-request memoization、跨請求不共享、不影響資料新鮮度。)
+export const fetchProductByHandle = cache(
+  async (handle: string): Promise<MockProduct | null> => {
+    const client = createSupabaseAnonClient();
+    const adapter = new SupabaseProductAdapter(client);
+    const product = await adapter.findByHandle(handle);
+    if (!product) {
+      return null;
+    }
+    return toUIProduct(product, 'general');
+  },
+);

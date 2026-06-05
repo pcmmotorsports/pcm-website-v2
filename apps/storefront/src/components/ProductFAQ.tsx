@@ -18,6 +18,7 @@
 
 import { Fragment } from 'react';
 import { RPM_WARRANTY_PARAGRAPHS, type PolicyRun } from '@/data/rpm-policies';
+import { safeJsonLd } from '@/lib/json-ld';
 
 type FaqItem = { id: string; q: string; a: PolicyRun[][] };
 
@@ -99,10 +100,11 @@ function renderRuns(runs: PolicyRun[]) {
 export function ProductFAQ() {
   return (
     <section className="pd-section" aria-labelledby="pd-h-faq">
-      {/* FAQPage JSON-LD — GEO/SEO、SSR 進初始 HTML、答案與畫面同源(plainAnswer) */}
+      {/* FAQPage JSON-LD — GEO/SEO、SSR 進初始 HTML、答案與畫面同源(plainAnswer)。
+          safeJsonLd escape `<` 防 </script> breakout(2026-06-05 安全稽核 M-2、與 product-jsonld 同源)。 */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_JSONLD) }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(FAQ_JSONLD) }}
       />
       <div className="pd-section-head">
         <div className="pd-eyebrow">

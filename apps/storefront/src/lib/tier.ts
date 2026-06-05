@@ -28,6 +28,15 @@ import type { cookies } from 'next/headers';
  *
  * corrupt cookie / 攻擊 URL → designTierToSchema throw → catch fallback 'general'。
  *
+ * 🔴🔴 安全前置(2026-06-05 安全稽核 H-1、M-2-08 開工前必修、backlog #215):
+ *   `pcm-tier` cookie 是 **client 可偽造**的(訪客自設 `document.cookie='pcm-tier=store'` 即被當經銷會員),
+ *   本函式只驗「字面合法性」(general|store|premium_store)、**不向 DB customers.tier 查證身分**。
+ *   → 目前**無洩漏**:read 路徑走 products_public view(物理排除 price_store)+ mapper store/premiumStore 恆 dummy 0,
+ *     偽造 tier 最多看到「店價 NT$0」破圖、看不到真經銷價。
+ *   → **但 M-2-08 接真 tier-aware pricing(讀真 price_store)前,tier 必改為 server 端 `getUser()` 後查 customers.tier、
+ *     未登入恆 general;若沿用此 cookie 為唯一 tier 來源,一般會員偽造 cookie 即可取得真經銷價 = 違反專案最高安全鐵則(升 CRITICAL)。**
+ *   → 本次稽核**只釘樁防遺忘、未改行為**(Sean 拍 Q3=A);真正的認證化留 M-2-08(鐵則 8+12 → plan + codex 雙關卡)。
+ *
  * @param searchParams 已 await 過的 URL searchParams 物件(server component 從 `await searchParams` 取得)
  * @param cookieStore  已 await 過的 next/headers cookies()(server component 從 `await cookies()` 取得)
  */
@@ -39,6 +48,8 @@ export async function resolveTierFromRequest(
     process.env.PCM_DEV_TIER_OVERRIDE === '1' && typeof searchParams.tier === 'string'
       ? searchParams.tier
       : undefined;
+  // 🔴 H-1(#215):cookie pcm-tier 為 client 可偽造、非身分權威。M-2-08 接真經銷價前須改為
+  //   server 端認證查 customers.tier(見上方 JSDoc 安全前置)。本行現狀未改、只釘樁。
   const rawTier = tierOverride ?? cookieStore.get('pcm-tier')?.value ?? 'general';
 
   try {
