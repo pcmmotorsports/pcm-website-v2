@@ -94,11 +94,14 @@ describe('toUIProduct — 經銷價 strip 最後一哩(M-11 安全回歸)', () =
     }
   });
 
-  it('變體只剩 {sku,spec,price,images}、price === priceByTier.general.amount(不帶 priceByTier)', () => {
+  it('變體只剩 {id,sku,spec,price,images}、price === priceByTier.general.amount(不帶 priceByTier)', () => {
     const ui = toUIProduct(fakeProduct(), 'general');
     expect(ui.variants).toHaveLength(1);
     const v = ui.variants![0]!;
-    expect(Object.keys(v).sort()).toEqual(['images', 'price', 'sku', 'spec']);
+    // 🔴 經銷價防護白名單:M-3-S2-b2-c 多帶 id(uuid join key、cart variant_id 來源、非敏感),
+    //   仍嚴格只此 5 欄、絕不含 priceByTier / store / premiumStore(白名單守門不被加 id 削弱)。
+    expect(Object.keys(v).sort()).toEqual(['id', 'images', 'price', 'sku', 'spec']);
+    expect(v.id).toBe('v-001'); // id ← domain ProductVariant.id plumb 到 UI(cart 線契約來源)
     expect(v.price).toBe(VARIANT_GENERAL);
     expect(v).not.toHaveProperty('priceByTier');
   });

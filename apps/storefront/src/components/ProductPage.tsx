@@ -66,16 +66,14 @@ export function ProductPage({ product, tier }: ProductPageProps) {
   const addToCart = () => {
     // productId 用 product.slug:string、stable、對齊 domain ProductId + Supabase 路由
     // (Codex M-1-13e-b review P1:不用 mock-only product.id:number)
-    // M-1-16c-3:變體商品的 mobile sticky buybar 加購用**預設(第一個)變體 sku** 當 discriminator
-    //   (codex 關卡2 consider:原 product.color='silver' 非 SKU);本片 ProductInfo selectedVariant
-    //   為 local state、buybar 讀不到使用者選的變體 → 加**預設**變體、非選中變體(記錄限制、16c-4
-    //   狀態提升 ProductPage 後 buybar 同步使用者選擇)。無變體 → 退回 product.color(mock 既有)。
+    // M-3-S2-b2-c:mobile sticky buybar 加購帶真選中變體 variant_id(變體 uuid = selectedVariant.id;
+    //   OD-4a selectedVariant 已提升至 ProductPage、buybar 同步使用者選擇)。取代 M-1-16c-3 把 sku 塞 color
+    //   的 hack + 原 product.color mock fallback(非 SKU、移除、留著反污染 line key)。無變體 → variantId
+    //   undefined、line key 退回 productId。🔴 不送價(server 依 tier 取價、鐵則 12)。
     addItem({
       productId: product.slug,
       qty: 1,
-      // OD-4a:buybar 用真選中變體 sku(取代原預設第一個變體;selectedVariant 已提升至 ProductPage)
-      color: selectedVariant?.sku ?? product.color,
-      size: null,
+      variantId: selectedVariant?.id,
     });
   };
 

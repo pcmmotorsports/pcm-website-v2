@@ -11,11 +11,17 @@
 // - 由 useEffect 在 client mount 後 hydrate from localStorage、避免 hydration mismatch
 // - isHydrated flag 標示「是否已從 localStorage 載入」、UI 可選擇是否在 hydrate 前顯示 0
 //
-// localStorage key:`pcm-cart-mock-v1`(v1 標示 schema version、未來 schema 改了 bump v2 + migration logic)
+// localStorage key:`pcm-cart-mock-v2`(M-3-S2-b2-c 線契約改 variant_id → bump v1→v2;
+//   舊 v1 sku-塞-color hack 資料隨 key-bump 自然失效〔v2 不讀 v1 key、production 等同丟棄〕;
+//   readStorage 另對殘留 color/size 欄寬容忽略〔不解析為 variantId、合法 productId 行收為無變體〕。
+//   不可靠反推〔color=sku 非 variant uuid〕+ Phase 1 localStorage mock cart〔無真結帳/金額/訂單、
+//   丟棄成本=用戶重加幾筆〕→ 不寫 v1→v2 migration)
 //
-// Identity / line key 設計(對齊 Codex M-1-13e-b review P1 + P2):
+// Identity / line key 設計(M-3-S2-b2-c 改 variant_id 線契約;取代 M-1-13e-b 的 color=sku 權宜 hack):
 // - productId 用 string(對齊 domain ProductId / Supabase uuid;mock 路徑傳 product.slug、stable + URL friendly)
-// - addItem / removeItem / updateQty 統一用 { productId, color, size } 作 line key(防 variant 誤殺)
+// - addItem / removeItem / updateQty 統一用 { productId, variantId } 作 line key:variantId=變體 uuid
+//   (= UIVariant.id、建單 RPC create_order 的 variant_id 來源);無變體商品 variantId undefined、退回 productId 當鍵
+//   (防同商品不同變體誤殺;🔴 線上只存 variant_id + qty、**不存價**、價由 server 依 tier 取〔鐵則 12〕)
 //
 // qty guard(Codex review 小風險):readStorage / addItem / updateQty 三入口統一過 Number.isInteger + clamp [1, MAX_QTY]
 //
@@ -36,13 +42,13 @@ import {
   type ReactNode,
 } from 'react';
 
-const STORAGE_KEY = 'pcm-cart-mock-v1';
+const STORAGE_KEY = 'pcm-cart-mock-v2';
 const MAX_QTY = 99;
 
 export type CartLineKey = {
   productId: string;
-  color?: string;
-  size?: string | null;
+  /** 變體 uuid(= UIVariant.id、建單 RPC create_order 的 variant_id 來源);無變體商品 undefined、退回 productId 當鍵 */
+  variantId?: string;
 };
 
 export type CartItem = CartLineKey & {
@@ -62,7 +68,8 @@ export type CartContextValue = {
 const CartContext = createContext<CartContextValue | null>(null);
 
 function sameLine(a: CartLineKey, b: CartLineKey): boolean {
-  return a.productId === b.productId && a.color === b.color && a.size === b.size;
+  // 變體 uuid 為主 discriminator;無變體商品(variantId undefined)退回 productId(undefined===undefined 同行)。
+  return a.productId === b.productId && a.variantId === b.variantId;
 }
 
 function clampQty(qty: unknown): number {
@@ -85,9 +92,10 @@ function readStorage(): CartItem[] {
       if (typeof x.productId !== 'string' || x.productId.length === 0) continue;
       const qty = clampQty(x.qty);
       if (qty < 1) continue;
-      const color = typeof x.color === 'string' ? x.color : undefined;
-      const size = typeof x.size === 'string' || x.size === null ? x.size : undefined;
-      out.push({ productId: x.productId, qty, color, size });
+      // v2:只認 variantId(string 非空 → 帶、否則無變體 undefined);舊 v1 的 color/size 不解析、自然丟棄。
+      const variantId =
+        typeof x.variantId === 'string' && x.variantId.length > 0 ? x.variantId : undefined;
+      out.push({ productId: x.productId, qty, variantId });
     }
     return out;
   } catch {

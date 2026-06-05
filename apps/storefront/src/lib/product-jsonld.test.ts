@@ -24,6 +24,7 @@ const base: MockProduct = {
 };
 
 const v = (price: number, sku = `SKU-${price}`): UIVariant => ({
+  id: `v-${sku}`,
   sku,
   spec: {},
   price,

@@ -57,6 +57,7 @@ describe('ProductGallery', () => {
   //   故池 = 變體 2 張(OD-7d 聚合無其他圖可補、退化為變體圖 only 的特例)。
   it('should show selected variant images when product has no other images', () => {
     const variant: UIVariant = {
+      id: 'v-X-G-F',
       sku: 'X-G-F',
       spec: { weave: 'Forged', finish: 'Glossy' },
       price: 8400,
@@ -76,8 +77,8 @@ describe('ProductGallery', () => {
   // OD-7d(Sean 2026-06-03 Q2):選中變體圖排最前 + 其餘所有變體圖 + 群代表圖補後、去重保序
   it('should put selected variant images first then append all other images (dedup)', () => {
     const variants: UIVariant[] = [
-      { sku: 'A', spec: { weave: 'Twill', finish: 'Glossy' }, price: 1, images: ['https://cdn.example.com/a1.jpg', 'https://cdn.example.com/a2.jpg'] },
-      { sku: 'B', spec: { weave: 'Plain', finish: 'Glossy' }, price: 1, images: ['https://cdn.example.com/b1.jpg'] },
+      { id: 'v-A', sku: 'A', spec: { weave: 'Twill', finish: 'Glossy' }, price: 1, images: ['https://cdn.example.com/a1.jpg', 'https://cdn.example.com/a2.jpg'] },
+      { id: 'v-B', sku: 'B', spec: { weave: 'Plain', finish: 'Glossy' }, price: 1, images: ['https://cdn.example.com/b1.jpg'] },
     ];
     const product = {
       ...MOCK_PRODUCTS[0]!,
@@ -98,6 +99,7 @@ describe('ProductGallery', () => {
   // Fix A(Sean 2026-06-03 :3001 驗):縮圖列 >5 張顯翻頁箭頭、≤5 張不顯;全部縮圖仍渲染(視窗化靠 CSS 捲動)
   it('should render thumbnail paging arrows only when more than 5 images', () => {
     const make = (n: number): UIVariant => ({
+      id: 'v-M',
       sku: 'M',
       spec: { weave: 'Twill', finish: 'Glossy' },
       price: 1,

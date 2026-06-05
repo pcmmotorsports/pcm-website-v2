@@ -131,8 +131,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "6897324"  # 記可達祖先=LINE CTA slice 提交時 dev tip(避 amend orphan);本 slice 真改見 git log:buybar 後接線 <LineCtaButton product={product}/>。前序 OD-12 接線 <ProductFitments/>(見 git log [OD-12])、OD-10b/OD-9 見 od_redesign.slices_done
-      last_modified_date: "2026-06-04 (LINE CTA:buybar 後接線 LINE 詢價懸浮 <LineCtaButton product={product}/>;前序 OD-12 接線 適用車款表 <ProductFitments/>〔pd-services-strip 後、N°01 前〕、OD-10b N°04 FAQ 等見 od_redesign 段)"
+      last_modified_commit: "ece0585"  # 記可達祖先=M-3-S2-b2-c 父 commit(避 amend orphan);本 slice 真改見 git log [S2-b2-c]:mobile buybar addToCart 改傳 variantId(cart 線契約、非視覺、design 不動)。前序 LINE CTA buybar 後接線 <LineCtaButton/>、OD-12 <ProductFitments/> 見 od_redesign.slices_done
+      last_modified_date: "2026-06-06 (M-3-S2-b2-c:mobile buybar addToCart 改帶 variant_id〔selectedVariant.id、cart 線契約 {productId,variantId}、非視覺〕;前序 LINE CTA buybar 後接線 <LineCtaButton/>、OD-12 適用車款表等見 od_redesign 段)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
@@ -480,8 +480,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "e06ff6f"  # 記可達祖先=OD-7c 父 commit(=OD-7d、避 amend orphan);本 slice 真改見 git log [OD-7c]:picker 上方接 `<ProductSwatchPreview/>` + valueText。OD-5/OD-4* 見 od_redesign 段
-      last_modified_date: "2026-06-03 (OD-7c:picker 上方渲染紋路樣品預覽卡 ProductSwatchPreview〔hasVariants gate〕+ 算 previewValueText;前序 OD-5 服務橫條外移 / OD-4c picker 2 維 / 16c-3 資料驅動選擇器見 od_redesign 段)"
+      last_modified_commit: "ece0585"  # 記可達祖先=M-3-S2-b2-c 父 commit(避 amend orphan);本 slice 真改見 git log [S2-b2-c]:addToCart 改傳 variantId(selectedVariant.id、cart 線契約、非視覺、design 不動)。前序 OD-7c picker 接 <ProductSwatchPreview/>、OD-5/OD-4* 見 od_redesign 段
+      last_modified_date: "2026-06-06 (M-3-S2-b2-c:addToCart 改帶 variant_id〔selectedVariant.id、cart 線契約 {productId,variantId}、非視覺〕;前序 OD-7c picker 上方紋路樣品預覽卡 ProductSwatchPreview、OD-5/OD-4c 見 od_redesign 段)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:

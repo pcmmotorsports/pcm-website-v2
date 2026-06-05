@@ -3,7 +3,8 @@
 // 注入式 mock SupabaseClient 攔 .rpc(fn, args):斷言 placeOrder 呼 create_order RPC、args 為對齊契約的
 // snake_case wire(quantity→qty / 複合鍵 / 發票)、回傳只 {orderId, displayId};RPC error 上拋不吞;
 // 回傳格式非預期防腐壞 throw;讀路徑 deferred-stub(延 stage ③ 訂單查詢、backlog #217)reject 未實作。
-// 真打 RPC(端到端建單)需先 supabase db push(S2-a + S2-b1)、留 db push 後 Sean 肉眼驗。
+// 線上 create_order RPC 已就緒(S2-a + S2-b1 migration 已 db push、authenticated EXECUTE/anon REVOKE 正確),
+// 真打 RPC(端到端建單)可成、留 Sean 階段①末肉眼驗;本片 mock client 單元測只驗 adapter 行為。
 
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';

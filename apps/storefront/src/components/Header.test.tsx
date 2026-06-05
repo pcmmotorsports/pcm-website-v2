@@ -35,7 +35,7 @@ vi.mock('@/lib/supabase/browser', () => ({
 import { Header } from './Header';
 import { CartProvider } from '@/contexts/CartContext';
 
-const STORAGE_KEY = 'pcm-cart-mock-v1';
+const STORAGE_KEY = 'pcm-cart-mock-v2';
 
 beforeAll(() => {
   // jsdom 不實作 matchMedia、Header useEffect 會呼叫 → 補最小 stub
@@ -103,8 +103,8 @@ describe('Header', () => {
       window.localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify([
-          { productId: 'p1', qty: 2, color: 'red' },
-          { productId: 'p2', qty: 3 },
+          { productId: 'p1', qty: 2, variantId: 'v-red' },
+          { productId: 'p2', qty: 3, variantId: 'v-blue' },
         ])
       );
       renderWithCart(<Header isMobile />);

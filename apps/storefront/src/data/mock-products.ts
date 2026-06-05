@@ -30,7 +30,9 @@ export function brandToSlug(brand: string): string {
  * availability 不帶(Q4=A 沿用 #161 不顯庫存)。
  */
 export type UIVariant = {
-  /** 變體料號(全表 UNIQUE、cart line discriminator) */
+  /** 變體 uuid(= domain ProductVariant.id;🔴 M-3-S2-b2-c cart 線契約 variant_id 來源 + 建單 RPC variant_id;非敏感 join key、非價) */
+  id: string;
+  /** 變體料號(全表 UNIQUE;顯示用 + 建單 RPC (supplier_slug,sku) 複合鍵備援) */
   sku: string;
   /** 規格自由 key-value(weave/finish/special;選擇器資料驅動渲染) */
   spec: Record<string, string>;

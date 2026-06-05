@@ -174,14 +174,13 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
     : '';
 
   const addToCart = () => {
-    // M-1-16c-3:變體 sku 當 cart line discriminator(全表 UNIQUE + 穩定、無碰撞/翻譯失效;
-    //   codex 關卡1 consider 1)。CartLineKey {productId,color,size} 不改契約、sku 走 color 欄。
-    //   無變體 → color undefined(同 mock 既有)。proper variantSku cart key 留 backlog。
+    // M-3-S2-b2-c:cart 線契約改帶 variant_id(變體 uuid = selectedVariant.id、建單 RPC create_order 的
+    //   variant_id 來源;取代 M-1-16c-3 把 sku 塞 color 的權宜 hack)。無變體 → variantId undefined、
+    //   line key 退回 productId。🔴 不送價(server 依 tier 取價、鐵則 12)。
     addItem({
       productId: product.slug,
       qty,
-      color: selectedVariant?.sku,
-      size: null,
+      variantId: selectedVariant?.id,
     });
   };
 

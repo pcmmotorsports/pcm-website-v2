@@ -127,6 +127,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
     //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。
     variants: product.variants.map((v) => ({
+      // 🔴 M-3-S2-b2-c:多帶 id(uuid join key、cart variant_id 來源)、仍只 price:number(general)、
+      //   絕不帶 priceByTier / store / premiumStore(plumb id 不開任何經銷洩漏面)。
+      id: v.id,
       sku: v.sku,
       spec: v.spec,
       price: v.priceByTier.general.amount,

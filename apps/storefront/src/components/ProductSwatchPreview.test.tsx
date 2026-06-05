@@ -14,6 +14,7 @@ import type { UIVariant } from '../data/mock-products';
 afterEach(cleanup);
 
 const variant = (spec: Record<string, string>): UIVariant => ({
+  id: `v-${Object.values(spec).join('-') || 'base'}`,
   sku: 'X',
   spec,
   price: 1,

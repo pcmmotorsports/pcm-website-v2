@@ -39,10 +39,10 @@ const variantProduct: MockProduct = {
   ...MOCK_PRODUCTS[0]!,
   price: 8400,
   variants: [
-    { sku: 'A-G-F', spec: { weave: 'Forged', finish: 'Glossy' }, price: 8400, images: [] },
-    { sku: 'A-M-F', spec: { weave: 'Forged', finish: 'Matt' }, price: 8400, images: [] },
-    { sku: 'A-G-T', spec: { weave: 'Twill', finish: 'Glossy' }, price: 6800, images: [] },
-    { sku: 'A-M-T', spec: { weave: 'Twill', finish: 'Matt' }, price: 6800, images: [] },
+    { id: 'v-A-G-F', sku: 'A-G-F', spec: { weave: 'Forged', finish: 'Glossy' }, price: 8400, images: [] },
+    { id: 'v-A-M-F', sku: 'A-M-F', spec: { weave: 'Forged', finish: 'Matt' }, price: 8400, images: [] },
+    { id: 'v-A-G-T', sku: 'A-G-T', spec: { weave: 'Twill', finish: 'Glossy' }, price: 6800, images: [] },
+    { id: 'v-A-M-T', sku: 'A-M-T', spec: { weave: 'Twill', finish: 'Matt' }, price: 6800, images: [] },
   ],
 };
 
@@ -51,8 +51,8 @@ const specialProduct: MockProduct = {
   ...MOCK_PRODUCTS[0]!,
   price: 6800,
   variants: [
-    { sku: 'B-G-P', spec: { weave: 'Plain', finish: 'Glossy' }, price: 6800, images: [] },
-    { sku: 'B-G-12P', spec: { weave: 'Plain', finish: 'Glossy', special: '12K' }, price: 8400, images: [] },
+    { id: 'v-B-G-P', sku: 'B-G-P', spec: { weave: 'Plain', finish: 'Glossy' }, price: 6800, images: [] },
+    { id: 'v-B-G-12P', sku: 'B-G-12P', spec: { weave: 'Plain', finish: 'Glossy', special: '12K' }, price: 8400, images: [] },
   ],
 };
 
@@ -144,8 +144,8 @@ describe('ProductInfo', () => {
       ...MOCK_PRODUCTS[0]!,
       price: 6800,
       variants: [
-        { sku: 'K-G-T', spec: { weave: 'Twill', finish: 'Glossy' }, price: 6800, images: [] },
-        { sku: 'K-G-KT', spec: { weave: 'Twill', finish: 'Glossy', special: 'Kevlar' }, price: 9200, images: [] },
+        { id: 'v-K-G-T', sku: 'K-G-T', spec: { weave: 'Twill', finish: 'Glossy' }, price: 6800, images: [] },
+        { id: 'v-K-G-KT', sku: 'K-G-KT', spec: { weave: 'Twill', finish: 'Glossy', special: 'Kevlar' }, price: 9200, images: [] },
       ],
     };
     renderInfo(kevlarProduct);
@@ -164,10 +164,10 @@ describe('ProductInfo', () => {
     expect(screen.getByText(`NT$ ${noVariant.price.toLocaleString()}`)).toBeDefined();
   });
 
-  it('should add to cart without crashing (variant sku discriminator)', () => {
+  it('should add to cart without crashing (variant_id discriminator)', () => {
     renderInfo(variantProduct);
     fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
-    // 不崩潰即可(cart 寫 localStorage);變體 sku 走 color 欄、非本 smoke 斷言範圍
+    // 不崩潰即可(cart 寫 localStorage);變體 variant_id(selectedVariant.id)走 cart 線契約、非本 smoke 斷言範圍
     expect(screen.getByRole('button', { name: '加入購物車' })).toBeDefined();
   });
 });
