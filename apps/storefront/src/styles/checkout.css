@@ -128,6 +128,36 @@
 .co-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; }
 .co-section-head h2 { width: 100%; }
 
+/* Invoice block (e2;搬 design L117-144。
+   design --c-accent 在 tokens 漏定義 → 對映 design 宣告 accent --c-red;
+   design L140 --font-mono 為 --f-mono typo → 用 --f-mono。) */
+.co-inv-hint { margin-left: auto; font-size: 10px; color: var(--c-red); }
+.co-inv-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+.co-inv-tab {
+  padding: 14px 12px;
+  border: 1px solid var(--c-border);
+  background: transparent;
+  color: var(--c-text);
+  font-family: inherit; font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+}
+.co-inv-tab:hover { border-color: var(--c-text); }
+.co-inv-tab.is-on { background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }
+.co-inv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.co-inv-full { grid-column: 1 / -1; }
+.co-inv-note { grid-column: 1 / -1; font-size: 12px; color: var(--c-text-2); }
+.co-inv-reset {
+  margin-top: 14px;
+  background: transparent;
+  border: none;
+  color: var(--c-red);
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.1em;
+  cursor: pointer;
+  padding: 0;
+}
+.co-inv-reset:hover { text-decoration: underline; }
+
 /* Address list */
 .co-addr-list { display: flex; flex-direction: column; gap: 8px; }
 .co-addr {
@@ -229,6 +259,46 @@
 .co-ship-label { font-weight: 600; font-size: 14px; }
 .co-ship-meta { font-family: var(--f-mono); font-size: 12px; color: var(--c-text); font-variant-numeric: tabular-nums; }
 .co-ship-desc { font-size: 12px; color: var(--c-text-2); line-height: 1.5; }
+
+/* Payment method + card form (e2;搬 design L266-299。
+   信用卡欄為純 UI 預覽(disabled)、co-card-note 為 storefront 新增說明、非 design。
+   .co-pay.is-disabled / :hover:not(.is-disabled) 為 design L277/L279 字面防禦規則、
+   單一 TapPay 選項暫未套用、多付款方式上線時啟用、不裁剪保 design 保真。) */
+.co-pay-list { display: flex; flex-direction: column; gap: 8px; }
+.co-pay {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 16px;
+  border: 1px solid var(--c-border);
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.co-pay:hover:not(.is-disabled) { border-color: var(--c-text); }
+.co-pay.is-on { border-color: var(--c-text); }
+.co-pay.is-disabled { opacity: 0.5; cursor: not-allowed; }
+.co-pay input[type="radio"] { position: absolute; opacity: 0; pointer-events: none; }
+.co-pay-radio {
+  display: inline-block;
+  width: 16px; height: 16px;
+  border: 1.5px solid var(--c-border-strong);
+  border-radius: 50%;
+  position: relative;
+  margin-top: 3px;
+}
+.co-pay.is-on .co-pay-radio { border-color: var(--c-text); }
+.co-pay.is-on .co-pay-radio::after {
+  content: '';
+  position: absolute; inset: 3px;
+  background: var(--c-text); border-radius: 50%;
+}
+.co-pay-label { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
+.co-pay-desc { font-size: 12px; color: var(--c-text-2); line-height: 1.5; }
+
+.co-card-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--c-border); display: flex; flex-direction: column; gap: 10px; }
+.co-card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.co-card-note { font-size: 11px; color: var(--c-text-2); line-height: 1.5; }
 
 /* Actions */
 /* .btn-outline:storefront 首用(返回鈕),搬 design pages.css L65-78(.btn-primary 已在 cart.css)。 */
@@ -351,6 +421,7 @@
   .co-step { padding: 14px 12px; gap: 8px; }
   .co-step-label { font-size: 12px; }
   .co-ship-grid { grid-template-columns: 1fr; }
+  .co-card-row { grid-template-columns: 1fr; }
 
   .co-mobile-buybar {
     display: flex;
@@ -382,6 +453,12 @@
 
   /* Hide desktop bottom actions on mobile (replaced by buybar) */
   .co-actions { display: none; }
+}
+
+@media (max-width: 720px) {
+  /* 發票 tab / 表格單欄(搬 design L145-147) */
+  .co-inv-tabs { grid-template-columns: 1fr; }
+  .co-inv-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 600px) {

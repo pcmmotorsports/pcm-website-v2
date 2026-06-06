@@ -21,7 +21,7 @@
 //   - 免運門檻 4,000 → 統一 5,000(memory iron-rule #161、用 FREE_SHIPPING_THRESHOLD)。
 //   - 登入守門在 /checkout server 端 getUser()(對齊 /account);不複製 design client localStorage 檢查。
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
@@ -29,6 +29,7 @@ import type { CustomerAddress, MemberTier } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { TierBadge } from '@/components/TierBadge';
+import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 
 const STEPS = [
@@ -36,6 +37,16 @@ const STEPS = [
   { n: 2, l: '付款方式' },
   { n: 3, l: '確認訂單' },
 ] as const;
+
+// 發票草稿預設(對齊 design defaultInvoice L69、CheckoutInput.invoice zod);
+// 模組層常數(穩定參照)避免進 effect deps。
+const DEFAULT_INVOICE: InvoiceDraft = {
+  type: 'personal',
+  carrier: '',
+  title: '',
+  taxId: '',
+  donateCode: '',
+};
 
 export type CheckoutViewProps = {
   /** 會員收件地址清單(server page getAddressRepo→listByCustomer、RLS 守自己 row) */
@@ -56,6 +67,16 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   );
   // 配送方式:Q1=A 僅 home(後端 white-list 仍含 store、UI 暫不開合作店家取貨);
   // useResolvedCart('home') 直接用字面、運費鏡像走 home。
+
+  // 發票(Step2):從選中地址自動帶入、使用者可手動覆寫(對齊 design L68-76)。
+  // state 提升至此(跨步驟存活、e3 送出時讀);Step2 UI 在 CheckoutStep2。
+  const [invoice, setInvoice] = useState<InvoiceDraft>(DEFAULT_INVOICE);
+  const [invoiceOverride, setInvoiceOverride] = useState(false);
+  useEffect(() => {
+    if (invoiceOverride) return;
+    const addr = addresses.find((a) => a.id === shippingAddrId);
+    if (addr?.invoice) setInvoice({ ...DEFAULT_INVOICE, ...addr.invoice });
+  }, [shippingAddrId, addresses, invoiceOverride]);
 
   const goNext = () => setStep((s) => Math.min(3, s + 1));
   const goBack = () => setStep((s) => Math.max(1, s - 1));
@@ -198,23 +219,36 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
               </>
             )}
 
-            {/* ===== STEP 2 / 3:e2 / e3 上線(本片 placeholder)===== */}
-            {step > 1 && (
+            {/* ===== STEP 2: 發票 + 付款方式(e2)===== */}
+            {step === 2 && (
+              <>
+                <CheckoutStep2
+                  invoice={invoice}
+                  setInvoice={setInvoice}
+                  invoiceOverride={invoiceOverride}
+                  setInvoiceOverride={setInvoiceOverride}
+                />
+                <div className="co-actions">
+                  <button className="btn-outline co-btn-back" onClick={goBack}>← 上一步</button>
+                  <button className="btn-primary co-btn-next" onClick={goNext}>
+                    下一步:確認訂單 <span>→</span>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* ===== STEP 3: 確認訂單 + 建單(e3 上線、本片 placeholder)===== */}
+            {step === 3 && (
               <>
                 <section className="co-section">
                   <div className="co-section-head">
-                    <div className="ap-mono">{step === 2 ? 'N°03 · PAYMENT' : 'N°05 · REVIEW'}</div>
-                    <h2>{step === 2 ? '付款方式' : '確認訂單'}</h2>
+                    <div className="ap-mono">N°05 · REVIEW</div>
+                    <h2>確認訂單</h2>
                   </div>
-                  <p className="co-ship-desc">此步驟即將上線(發票 / 付款 / 確認建單,後續切片)。</p>
+                  <p className="co-ship-desc">此步驟即將上線(確認訂單 / 同意條款 / 送出建單,後續切片)。</p>
                 </section>
                 <div className="co-actions">
                   <button className="btn-outline co-btn-back" onClick={goBack}>← 上一步</button>
-                  {step < 3 && (
-                    <button className="btn-primary co-btn-next" onClick={goNext}>
-                      下一步 <span>→</span>
-                    </button>
-                  )}
                 </div>
               </>
             )}
