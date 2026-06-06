@@ -186,4 +186,22 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     // 全跳 → 不回任何行(若退化成群價會回 3 行 unitPrice=14600〔群內最低〕= 錯價洩漏)。
     expect(res.length).toBe(0);
   });
+
+  it('🔴 round3:有變體商品 + line 無有效 variantId(省略/空/空白)→ found:false(不退化群價)', async () => {
+    fetchMock.mockResolvedValue(makeProduct()); // 有 v1/v2 變體、群價 product.price=14600
+    // ① 省略 variantId
+    expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).found).toBe(false);
+    // ② 空字串 / 空白 variantId
+    expect(first(await resolveCartLines([{ productId: 'rpm-1', variantId: '' }])).found).toBe(false);
+    expect(first(await resolveCartLines([{ productId: 'rpm-1', variantId: '   ' }])).found).toBe(false);
+    // 不退化群價:unitPrice=0(非群內最低 14600)
+    expect(first(await resolveCartLines([{ productId: 'rpm-1' }])).unitPrice).toBe(0);
+  });
+
+  it('round3 防回歸:genuine 無變體商品(variants 空)+ 無 variantId → 仍回群代表價', async () => {
+    fetchMock.mockResolvedValue(makeProduct({ variants: [] }));
+    const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
+    expect(line.found).toBe(true);
+    expect(line.unitPrice).toBe(14600);
+  });
 });

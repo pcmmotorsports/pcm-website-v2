@@ -144,8 +144,24 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
       // 🔴 變體單價取 UIVariant.price(= priceByTier.general、唯一真值;toUIProduct 已 strip)。
       unitPrice = variant.price;
       variantLabel = variantLabelFromSpec(variant.spec, variant.sku);
+    } else if ((product.variants?.length ?? 0) > 0) {
+      // 🔴 有變體商品卻未帶有效 variantId(省略 / 空字串 / 空白)→ fail-closed found:false。
+      //   不退化成群代表價(群價 = 群內最低、回該價 = 錯價;對齊 round1 / 非-string variantId 同類)。
+      out.push({
+        productId,
+        variantId,
+        found: false,
+        slug: product.slug,
+        brand: product.brand,
+        name: product.name,
+        image: product.image ?? null,
+        fits: product.fits,
+        variantLabel: null,
+        unitPrice: 0,
+      });
+      continue;
     } else {
-      // 無變體商品:取群代表價(= general、toUIProduct product.price)。
+      // genuine 無變體商品(variants 空)→ 取群代表價(= general、toUIProduct product.price);不變、無回歸。
       unitPrice = product.price;
     }
 
