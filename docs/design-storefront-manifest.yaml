@@ -726,13 +726,13 @@ components:
 
   CheckoutPage:
     storefront:
-      component: "apps/storefront/src/app/checkout/page.tsx + apps/storefront/src/components/CheckoutView.tsx + apps/storefront/src/components/CheckoutStep2.tsx + apps/storefront/src/hooks/useResolvedCart.tsx (M-3-S2-b2-e2:結帳殼 + 3 步指示器 + Step1〔收件地址 + 配送〕+ Step2〔發票三 tab + 付款方式〕+ 右側摘要 + mobile buybar;Step3 確認/建單 = e3 後續切片)"
+      component: "apps/storefront/src/app/checkout/page.tsx + apps/storefront/src/components/CheckoutView.tsx + apps/storefront/src/components/CheckoutStep2.tsx + apps/storefront/src/components/CheckoutStep3.tsx + apps/storefront/src/hooks/useResolvedCart.tsx (M-3-S2-b2-e3a:結帳殼 + 3 步指示器 + Step1〔收件地址 + 配送〕+ Step2〔發票三 tab + 付款方式〕+ Step3〔確認複查 4 區塊 + 同意條款〕+ 右側摘要 + mobile buybar;送出建單 server action = e3b 後續切片)"
       css: "apps/storefront/src/styles/checkout.css"
-      last_modified_commit: "b150367"  # 記可達祖先=M-3-S2-b2-e2 父 commit(=已 push 的 round3 fail-closed 修、避 amend orphan);本 slice 真改見 git log [S2-b2-e2]
-      last_modified_date: "2026-06-06 (M-3-S2-b2-e2:結帳 Step2 搬 design CheckoutPage L317-437〔發票三 tab personal/company/donate + 付款方式〕+ checkout.css co-inv/co-pay/co-card 區段;invoice state 提升 CheckoutView〔地址自動帶入 + override〕、CheckoutStep2 拆出元件〔鐵則 6〕;信用卡欄純 UI disabled;Step3 placeholder 待 e3)"
+      last_modified_commit: "b6fe005"  # 記可達祖先=M-3-S2-b2-e3a 父 commit(=M-3-S2-b2-e2、避 amend orphan);本 slice 真改見 git log [S2-b2-e3a]
+      last_modified_date: "2026-06-07 (M-3-S2-b2-e3a:結帳 Step3 確認複查搬 design CheckoutPage L506-594〔收件/付款/發票/商品 4 readonly 區塊 + 編輯鈕跳回 + 同意條款〕+ checkout.css co-review-*/co-agree/co-btn-pay 區段;CheckoutStep3 拆出元件〔鐵則 6、CheckoutView 354<400〕;agreed state 提升 CheckoutView、buybar step3 確認付款;送出按鈕在 co-actions〔e3b 接 placeOrderAction〕。順手清 NIT1〔TapPay desc 全形逗號還原 design L399 byte〕+ NIT3〔invoice effect 註解 L72-76 統一〕)"
     design:
       authority: "design-reference/components/CheckoutPage.jsx(L1-697)"
-      css: "design-reference/styles/checkout.css(co-* L1-551;e1 搬 shell/steps/addr/ship/summary/member/perks/buybar;e2 搬 co-inv-*/co-pay-*/co-card-* L117-299)"
+      css: "design-reference/styles/checkout.css(co-* L1-551;e1 搬 shell/steps/addr/ship/summary/member/perks/buybar;e2 搬 co-inv-*/co-pay-*/co-card-* L117-299;e3a 搬 co-review-*/co-agree/co-btn-pay L351-411)"
     related_storefront:
       - "apps/storefront/src/app/layout.tsx"  # import checkout.css + auth.css(co-inv input 用 .auth-field)
       - "apps/storefront/src/contexts/CartContext.tsx"  # cart 線契約來源
@@ -781,10 +781,16 @@ components:
         reason: "真 auth 為 server-side Supabase(httpOnly cookie、client 不可靠讀)"
       - field: "checkoutStepsWipPlaceholder"
         design_value: "Step2(發票/付款/儲值/優惠)+ Step3(確認/同意/建單)完整"
-        storefront_value: "e1+e2 完成 Step1〔地址/配送〕+ Step2〔發票/付款〕;Step3 渲染 placeholder「此步驟即將上線」(e3 確認/同意/建單 走 codex 關卡2);Q2=A 建單延 e3"
-        decided_at: "2026-06-06"
-        decision_source: "拆多片(kickoff)+ Q2=A;e1/e2 控體積"
-        reason: "697 行 design 拆 e1/e2/e3;e2 完成 Step2 發票+付款、Step3 後續"
+        storefront_value: "e1+e2+e3a 完成 Step1〔地址/配送〕+ Step2〔發票/付款〕+ Step3〔確認複查 + 同意條款 UI〕;送出建單 server action 延 e3b〔🔴 鐵則12 建單 path、codex 關卡2 必跑〕。e3a 送出按鈕已渲染〔co-actions + buybar〕但 handleSubmit 僅 design `if(!agreed) return` 守門、未接 placeOrderAction;Q2=A 建單在 e3b"
+        decided_at: "2026-06-07"
+        decision_source: "拆 e3a〔純前台 code-reviewer〕/ e3b〔建單 codex 關卡2〕+ Q2=A;隔離 codex 需求"
+        reason: "697 行 design 拆 e1/e2/e3a/e3b;e3a 完成 Step3 確認 UI、送出接線 e3b"
+      - field: "checkoutStep3ReviewAdaptations"
+        design_value: "付款複查顯卡末四碼「信用卡 · TapPay **** XXXX」;商品複查走 PCM_DATA + getEffectivePrice(p,tier);服務條款/隱私政策 onNav('terms'/'privacy');儲值/優惠複查行"
+        storefront_value: "付款複查只「信用卡 · TapPay」〔e2 信用卡欄純 UI、本就零卡資料、無末四碼〕;商品複查走 useResolvedCart server-resolved 行〔brand/name/variantLabel/lineTotal、釘 general、零經銷洩漏〕;服務條款/隱私政策連結 no-op placeholder〔legal pages 未建、Phase 1 不做〕;儲值/優惠複查行不做(§3.2 + #202)"
+        decided_at: "2026-06-07"
+        decision_source: "e2 信用卡零資料一致 + plan v6 §3.2 + 鐵則 12 經銷零洩漏 + legal pages 未建"
+        reason: "複查內容對齊既有 storefront 決策面;legal pages 待後續 backlog、連結暫 no-op 不做假導頁"
       - field: "checkoutCardUiOnlyNoTapPay"
         design_value: "信用卡欄 card{number,exp,cvv} 綁 React state + onChange 即時捕獲;ATM 為第二付款選項"
         storefront_value: "🔴 信用卡欄純 UI 預覽(disabled、零 value/onChange、aria-hidden、無 state 捕獲)+ co-card-note 說明「本頁不收集卡號」;真卡輸入留階段② TapPay SDK 前端 tokenize(原始 PAN/CVV 永不進 server/state/DB);ATM 不渲染(§3.2 隱藏)、TapPay 單一選項 checked readOnly"
@@ -799,8 +805,14 @@ components:
         reason: "審查側條件『--c-accent 須對映』;對映 design 自身宣告的 accent 色(--c-red)而非新增 token、不動 shared tokens.css;Sean 可後續視覺微調"
     open_drifts:
       - field: "checkoutCssIncremental"
-        note: "checkout.css e1+e2 已搬 shell/steps/addr/ship/summary/buybar + co-inv-*/co-pay-*/co-card-*;e3 增 co-review-*/co-agree/co-btn-pay"
-        plan: "e3 搬確認 CSS(co-review-block / co-agree / co-btn-pay);design checkout.css L149-151 orphan bug(無 selector + 多餘 })e1/e2 皆跳過不搬"
+        note: "checkout.css e1+e2+e3a 已搬 shell/steps/addr/ship/summary/buybar + co-inv-*/co-pay-*/co-card-* + co-review-*/co-agree/co-btn-pay;CSS 區段已完整,e3b 純 server action 不增 CSS"
+        plan: "design checkout.css L149-151 orphan bug(無 selector + 多餘 })e1/e2/e3a 皆跳過不搬"
+      - field: "checkoutSubmitWiringDeferred"
+        note: "e3a 送出按鈕(co-actions co-btn-pay + buybar)已渲染、handleSubmit 僅 `if(!agreed) return` 守門、未接 placeOrderAction"
+        plan: "e3b 接:app/checkout/actions.ts placeOrderAction〔server getUser 守門 + CheckoutInput.parse server 端 + 組 PlaceOrderInput〔cart variant_id+qty〕→ getOrderRepo→placeOrder→create_order RPC 建未付款單〕+ processing 態 + 建單後成功 UX(Q-e3=A 結帳頁內最小成功狀態)+ 清空購物車。🔴 鐵則 12 建單 path、codex 關卡2 必跑;真卡零接、prime token 留階段②"
+      - field: "checkoutLegalPagesDeferred"
+        note: "Step3 同意條款的「服務條款 / 隱私政策」連結為 no-op placeholder、legal pages(/terms /privacy)未建"
+        plan: "Phase 1 不做 legal pages;後續補 backlog(法務文案 + 路由),屆時接連結"
       - field: "checkoutInlineAddressDeferred"
         note: "新增地址 inline 表單(design InlineAddressForm)延後、e1 連 /account 管理"
         plan: "後續評估是否在 checkout 內接 InlineAddressForm + addAddressAction(需處理 router.refresh 後 step state + 新地址自動選中)"

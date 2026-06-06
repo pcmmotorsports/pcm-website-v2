@@ -30,6 +30,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { TierBadge } from '@/components/TierBadge';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
+import { CheckoutStep3 } from '@/components/CheckoutStep3';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 
 const STEPS = [
@@ -68,8 +69,8 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   // 配送方式:Q1=A 僅 home(後端 white-list 仍含 store、UI 暫不開合作店家取貨);
   // useResolvedCart('home') 直接用字面、運費鏡像走 home。
 
-  // 發票(Step2):從選中地址自動帶入、使用者可手動覆寫(對齊 design L68-76)。
-  // state 提升至此(跨步驟存活、e3 送出時讀);Step2 UI 在 CheckoutStep2。
+  // 發票:state 提升至此(跨步驟存活、e3 送出時讀);Step2 UI 在 CheckoutStep2、Step3 複查在 CheckoutStep3。
+  // 從選中地址自動帶入、使用者可手動覆寫的 effect 對齊 design L72-76。
   const [invoice, setInvoice] = useState<InvoiceDraft>(DEFAULT_INVOICE);
   const [invoiceOverride, setInvoiceOverride] = useState(false);
   useEffect(() => {
@@ -78,8 +79,19 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
     if (addr?.invoice) setInvoice({ ...DEFAULT_INVOICE, ...addr.invoice });
   }, [shippingAddrId, addresses, invoiceOverride]);
 
+  // 同意條款(Step3)。
+  const [agreed, setAgreed] = useState(false);
+
   const goNext = () => setStep((s) => Math.min(3, s + 1));
   const goBack = () => setStep((s) => Math.max(1, s - 1));
+
+  // 送出建單(對齊 design submitOrder L121-141 的 `if (!agreed) return` 守門)。
+  // 🔴 e3a 僅 Step3 UI 殼、送出尚未接線;e3b 補:placeOrderAction(server getUser 守門 +
+  //    CheckoutInput.parse server 端 + create_order RPC 建未付款單、Q2=A)+ processing 態 +
+  //    建單後成功 UX(Q-e3=A 結帳頁內最小成功狀態)。真卡零接、prime token 留階段②。
+  const handleSubmit = () => {
+    if (!agreed) return;
+  };
 
   if (cart.status === 'loading') {
     return (
@@ -237,18 +249,29 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
               </>
             )}
 
-            {/* ===== STEP 3: 確認訂單 + 建單(e3 上線、本片 placeholder)===== */}
+            {/* ===== STEP 3: 確認訂單(e3a UI;送出建單 e3b 接)===== */}
             {step === 3 && (
               <>
-                <section className="co-section">
-                  <div className="co-section-head">
-                    <div className="ap-mono">N°05 · REVIEW</div>
-                    <h2>確認訂單</h2>
-                  </div>
-                  <p className="co-ship-desc">此步驟即將上線(確認訂單 / 同意條款 / 送出建單,後續切片)。</p>
-                </section>
+                <CheckoutStep3
+                  currentAddr={addresses.find((a) => a.id === shippingAddrId)}
+                  shippingLabel="貨運宅配"
+                  invoice={invoice}
+                  lines={lines}
+                  agreed={agreed}
+                  onAgreedChange={setAgreed}
+                  onEditAddress={() => setStep(1)}
+                  onEditStep2={() => setStep(2)}
+                  onEditItems={() => router.push('/cart')}
+                />
                 <div className="co-actions">
                   <button className="btn-outline co-btn-back" onClick={goBack}>← 上一步</button>
+                  <button
+                    className="btn-primary co-btn-pay"
+                    disabled={!agreed}
+                    onClick={handleSubmit}
+                  >
+                    確認付款 NT$ {total.toLocaleString()} <span>→</span>
+                  </button>
                 </div>
               </>
             )}
@@ -307,12 +330,20 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
         {/* Mobile buybar */}
         <div className="co-mobile-buybar">
           <div className="co-mobile-buybar-info">
-            <div className="ap-mono">目前金額</div>
+            <div className="ap-mono">{step === 3 ? '應付總額' : '目前金額'}</div>
             <div className="co-mobile-buybar-price">NT$ {total.toLocaleString()}</div>
           </div>
-          {step < 3 && (
+          {step < 3 ? (
             <button className="btn-primary co-mobile-buybar-btn" onClick={goNext} disabled={nextDisabled}>
               下一步 <span>→</span>
+            </button>
+          ) : (
+            <button
+              className="btn-primary co-mobile-buybar-btn"
+              onClick={handleSubmit}
+              disabled={!agreed}
+            >
+              確認付款
             </button>
           )}
         </div>

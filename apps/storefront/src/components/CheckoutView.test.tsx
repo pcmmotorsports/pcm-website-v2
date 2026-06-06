@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼 + Step1;e2 接 Step2 後更新導航斷言)。
+// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼 + Step1;e2 接 Step2、e3a 接 Step3 後更新導航斷言)。
 //
 // 驗:① 載入態 ② 空車 → 導購物車提示 ③ ready:3 步指示器 + Step1 地址清單 + 配送(宅配)+ 右側摘要
-//     ④ 地址選擇(radio is-on)⑤ 導航:step1→step2(發票/付款)→step3(placeholder)/ 上一步 / 返回購物車→/cart
-//     ⑥ member block + TierBadge + 升級連結(general)⑦ 🔴 經銷零洩漏(general-only、無劃線價)
-//     ⑧ 無地址 → 下一步 disabled
-// (Step2 發票/付款細節在 CheckoutStep2.test.tsx;本檔只驗殼接線 + 步驟導航。)
+//     ④ 地址選擇(radio is-on)⑤ 導航:step1→step2(發票/付款)→step3(確認複查)/ 上一步 / 返回購物車→/cart
+//     ⑤b step3 勾同意 → 確認付款 enabled(送出 e3b 接)⑥ member block + TierBadge + 升級連結(general)
+//     ⑦ 🔴 經銷零洩漏(general-only、無劃線價)⑧ 無地址 → 下一步 disabled
+// (Step2 發票/付款細節在 CheckoutStep2.test.tsx、Step3 複查細節在 CheckoutStep3.test.tsx;本檔只驗殼接線 + 步驟導航。)
 // mock '@/contexts/CartContext'(useCart)+ '@/app/cart/actions'(resolveCartLines)+ next/navigation + matchMedia。
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -153,7 +153,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(container.querySelectorAll('.co-addr')[1]?.className).toContain('is-on');
   });
 
-  it('導航:step1→step2(發票/付款)→step3(placeholder)→上一步、返回購物車→/cart', async () => {
+  it('導航:step1→step2(發票/付款)→step3(確認複查)→上一步、返回購物車→/cart', async () => {
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     renderCheckout();
@@ -164,11 +164,14 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(screen.getByText('發票資訊')).toBeTruthy();
     expect(screen.getByText('信用卡(TapPay)')).toBeTruthy();
 
-    // → step3:確認訂單 placeholder(e3 後續切片)
+    // → step3:確認複查(e3a:同意條款 + 商品複查 + 確認付款鈕)
     fireEvent.click(screen.getByRole('button', { name: /下一步:確認訂單/ }));
-    expect(
-      screen.getByText('此步驟即將上線(確認訂單 / 同意條款 / 送出建單,後續切片)。'),
-    ).toBeTruthy();
+    expect(screen.getByText(/我已閱讀並同意/)).toBeTruthy();
+    expect(screen.getByText(/商品清單/)).toBeTruthy();
+    // 未勾同意 → 確認付款 disabled(co-actions + buybar 兩顆都 disabled)
+    const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
+    expect(payButtons.length).toBeGreaterThanOrEqual(1);
+    expect(payButtons.every((b) => b.disabled)).toBe(true);
 
     // 上一步 → 回 step2
     fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
@@ -180,6 +183,20 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /返回購物車/ }));
     expect(pushMock).toHaveBeenCalledWith('/cart');
+  });
+
+  it('step3 勾同意 → 確認付款 enabled(送出 e3b 接線、e3a 僅 UI gate)', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
+    const { container } = renderCheckout();
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步:確認訂單/ }));
+
+    const agree = container.querySelector('.co-agree input') as HTMLInputElement;
+    fireEvent.click(agree);
+    const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
+    expect(payButtons.every((b) => b.disabled)).toBe(false);
   });
 
   it('member block:名 + TierBadge + general 升級連結', async () => {

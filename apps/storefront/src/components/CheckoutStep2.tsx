@@ -147,7 +147,7 @@ export function CheckoutStep2({
             <span className="co-pay-radio" />
             <div className="co-pay-body">
               <div className="co-pay-label">信用卡(TapPay)</div>
-              <div className="co-pay-desc">VISA · Mastercard · JCB · AE,3D 驗證 · 後端串接 TapPay SDK</div>
+              <div className="co-pay-desc">VISA · Mastercard · JCB · AE，3D 驗證 · 後端串接 TapPay SDK</div>
 
               {/* 🔴 純 UI 預覽:disabled、零 state 捕獲。真卡輸入留階段② TapPay 安全欄位
                   (原始 PAN/CVV 永不進 server/state/DB)。 */}
