@@ -9,6 +9,7 @@
      + co-pay-* / co-card-*(付款 / 信用卡欄);design checkout.css L149-151 為 orphan 宣告
      (無 selector + 多餘 `}`、design 端 bug)、搬 co-inv 時跳過。
    - e3 增:co-review-* / co-agree / co-btn-pay(確認訂單)。
+   - e3b 增:co-success-*(建單成功後結帳頁內最小成功狀態 Q-e3=A;字面借 design OrderCompletePage)。
    不搬(plan v6 §3.2 不做):co-wallet-*(儲值金 #202)/ co-coupon(優惠券)。
    Q1=A 只宅配:co-pickup-*(合作店家取貨地圖選店)不搬。 */
 
@@ -355,6 +356,45 @@
 .co-agree a { color: var(--c-text); border-bottom: 1px solid var(--c-text); }
 .co-agree a:hover { opacity: 0.7; }
 
+/* Order success (e3b;建單成功後結帳頁內最小成功狀態 Q-e3=A;字面借 design OrderCompletePage) */
+.co-success { display: flex; justify-content: center; }
+.co-success-card {
+  max-width: 480px;
+  width: 100%;
+  margin: 48px auto 0;
+  padding: 48px 32px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  text-align: center;
+}
+.co-success-eyebrow {
+  font-size: 10px; letter-spacing: 0.2em; color: var(--c-text-2);
+  text-transform: uppercase;
+}
+.co-success-title {
+  font-size: 28px; font-weight: 700; letter-spacing: -0.01em;
+  margin: 12px 0 0;
+}
+.co-success-note { font-size: 14px; color: var(--c-text-2); margin: 10px 0 0; line-height: 1.7; }
+.co-success-order {
+  margin: 28px 0;
+  padding: 20px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface-2);
+}
+.co-success-order-label { font-size: 10px; letter-spacing: 0.18em; color: var(--c-text-2); }
+.co-success-order-no {
+  font-family: var(--f-mono);
+  font-size: 22px; font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 6px;
+}
+.co-success-cta {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 32px;
+}
+
 /* Actions */
 /* .btn-outline:storefront 首用(返回鈕),搬 design pages.css L65-78(.btn-primary 已在 cart.css)。 */
 .btn-outline {
@@ -377,6 +417,8 @@
 }
 .co-btn-back, .co-btn-next, .co-btn-pay { padding: 14px 24px; }
 .co-btn-pay { min-width: 220px; }
+/* 建單失敗訊息(e3b;design mock 無失敗路徑、storefront 真建單需要) */
+.co-submit-error { color: var(--c-red); font-size: 13px; margin: 0 0 12px; }
 
 /* ============ ASIDE / SUMMARY ============ */
 .co-aside { position: sticky; top: 96px; }

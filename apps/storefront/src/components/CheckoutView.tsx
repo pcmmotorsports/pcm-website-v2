@@ -31,7 +31,9 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { TierBadge } from '@/components/TierBadge';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStep3 } from '@/components/CheckoutStep3';
+import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
+import { usePlaceOrder } from '@/hooks/usePlaceOrder';
 
 const STEPS = [
   { n: 1, l: '收件資料' },
@@ -61,6 +63,7 @@ export type CheckoutViewProps = {
 export function CheckoutView({ addresses, memberName, memberTier }: CheckoutViewProps) {
   const router = useRouter();
   const cart = useResolvedCart('home');
+  const placeOrder = usePlaceOrder();
 
   const [step, setStep] = useState(1);
   const [shippingAddrId, setShippingAddrId] = useState<string | undefined>(
@@ -85,13 +88,20 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   const goNext = () => setStep((s) => Math.min(3, s + 1));
   const goBack = () => setStep((s) => Math.max(1, s - 1));
 
-  // 送出建單(對齊 design submitOrder L121-141 的 `if (!agreed) return` 守門)。
-  // 🔴 e3a 僅 Step3 UI 殼、送出尚未接線;e3b 補:placeOrderAction(server getUser 守門 +
-  //    CheckoutInput.parse server 端 + create_order RPC 建未付款單、Q2=A)+ processing 態 +
-  //    建單後成功 UX(Q-e3=A 結帳頁內最小成功狀態)。真卡零接、prime token 留階段②。
+  // 送出建單(e3b 接線;對齊 design submitOrder L121-141 的 `if (!agreed) return` 守門 + processing 態)。
+  // placeOrderAction:server getUser 守門 + CheckoutInput.parse + 購物車線獨立 zod → create_order RPC
+  //   建未付款單(Q2=A);成功 → 清車 + 結帳頁內最小成功狀態(Q-e3=A)。真卡零接、prime token 留階段②。
+  // shippingMethod 釘 'home'(Q1=A;後端白名單仍含 store);身分不從此送、由 RPC auth.uid() 零信任重查。
+  const submitting = placeOrder.state.status === 'submitting';
   const handleSubmit = () => {
-    if (!agreed) return;
+    if (!agreed || submitting) return;
+    void placeOrder.submit({ addressId: shippingAddrId, shippingMethod: 'home', invoice });
   };
+
+  // 建單成功 → 結帳頁內最小成功狀態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉成功)。
+  if (placeOrder.state.status === 'success') {
+    return <CheckoutSuccess displayId={placeOrder.state.displayId} />;
+  }
 
   if (cart.status === 'loading') {
     return (
@@ -263,14 +273,19 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
                   onEditStep2={() => setStep(2)}
                   onEditItems={() => router.push('/cart')}
                 />
+                {placeOrder.state.status === 'error' && (
+                  <p className="co-submit-error" role="alert">
+                    {placeOrder.state.message}
+                  </p>
+                )}
                 <div className="co-actions">
-                  <button className="btn-outline co-btn-back" onClick={goBack}>← 上一步</button>
+                  <button className="btn-outline co-btn-back" onClick={goBack} disabled={submitting}>← 上一步</button>
                   <button
                     className="btn-primary co-btn-pay"
-                    disabled={!agreed}
+                    disabled={!agreed || submitting}
                     onClick={handleSubmit}
                   >
-                    確認付款 NT$ {total.toLocaleString()} <span>→</span>
+                    {submitting ? '處理中…' : <>確認付款 NT$ {total.toLocaleString()} <span>→</span></>}
                   </button>
                 </div>
               </>
@@ -341,9 +356,9 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
             <button
               className="btn-primary co-mobile-buybar-btn"
               onClick={handleSubmit}
-              disabled={!agreed}
+              disabled={!agreed || submitting}
             >
-              確認付款
+              {submitting ? '處理中…' : '確認付款'}
             </button>
           )}
         </div>

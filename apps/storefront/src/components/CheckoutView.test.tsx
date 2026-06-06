@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 //
-// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼 + Step1;e2 接 Step2、e3a 接 Step3 後更新導航斷言)。
+// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼 + Step1;e2 接 Step2、e3a 接 Step3、e3b 接送出建單)。
 //
 // 驗:① 載入態 ② 空車 → 導購物車提示 ③ ready:3 步指示器 + Step1 地址清單 + 配送(宅配)+ 右側摘要
 //     ④ 地址選擇(radio is-on)⑤ 導航:step1→step2(發票/付款)→step3(確認複查)/ 上一步 / 返回購物車→/cart
-//     ⑤b step3 勾同意 → 確認付款 enabled(送出 e3b 接)⑥ member block + TierBadge + 升級連結(general)
+//     ⑤b step3 勾同意 → 確認付款 enabled ⑥ member block + TierBadge + 升級連結(general)
 //     ⑦ 🔴 經銷零洩漏(general-only、無劃線價)⑧ 無地址 → 下一步 disabled
+//     e3b:⑨ 確認付款 → placeOrderAction 收零價線 + 成功狀態 + 清車 ⑩ 建單失敗 → 通用錯誤 + 不清車
+//          ⑪ 🔴 線缺 variantId → client 拒整單、不呼叫 action(MUST2 寫入路徑)
 // (Step2 發票/付款細節在 CheckoutStep2.test.tsx、Step3 複查細節在 CheckoutStep3.test.tsx;本檔只驗殼接線 + 步驟導航。)
 // mock '@/contexts/CartContext'(useCart)+ '@/app/cart/actions'(resolveCartLines)+ next/navigation + matchMedia。
 
@@ -15,7 +17,7 @@ import type { CartItem } from '@/contexts/CartContext';
 import type { ResolvedCartLine } from '@/app/cart/actions';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 
-const { cartRef, resolveMock, pushMock } = vi.hoisted(() => ({
+const { cartRef, resolveMock, pushMock, placeOrderMock } = vi.hoisted(() => ({
   cartRef: {
     current: {
       items: [] as CartItem[],
@@ -29,6 +31,7 @@ const { cartRef, resolveMock, pushMock } = vi.hoisted(() => ({
   },
   resolveMock: vi.fn(),
   pushMock: vi.fn(),
+  placeOrderMock: vi.fn(),
 }));
 
 vi.mock('@/contexts/CartContext', () => ({
@@ -36,6 +39,10 @@ vi.mock('@/contexts/CartContext', () => ({
 }));
 vi.mock('@/app/cart/actions', () => ({
   resolveCartLines: resolveMock,
+}));
+// e3b:送出建單 server action(mock 避免 jsdom 載入 server 依賴;真實信任邊界在 actions.test.ts node env 驗)。
+vi.mock('@/app/checkout/actions', () => ({
+  placeOrderAction: placeOrderMock,
 }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
@@ -60,6 +67,7 @@ afterEach(() => {
   cleanup();
   resolveMock.mockReset();
   pushMock.mockReset();
+  placeOrderMock.mockReset();
 });
 
 function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
@@ -227,5 +235,65 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     await screen.findByText('貨運宅配');
     const next = screen.getByRole('button', { name: /下一步:付款方式/ }) as HTMLButtonElement;
     expect(next.disabled).toBe(true);
+  });
+
+  // ===== e3b:送出建單接線 =====
+  async function gotoStep3Agreed(container: HTMLElement) {
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步:確認訂單/ }));
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+  }
+
+  it('🔴 確認付款 → placeOrderAction 收零價線(variantId+quantity)+ 成功狀態 + 清車', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
+    placeOrderMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0007' });
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    // 成功狀態(優先於空車;clear() 後 cart 轉 empty 不蓋掉)
+    expect(await screen.findByText('訂單已成立')).toBeTruthy();
+    expect(screen.getByText('PCM-2026-0007')).toBeTruthy();
+    // placeOrderAction 收零價線 + home + 無 userId(身分由 RPC auth.uid() 重查)
+    expect(placeOrderMock).toHaveBeenCalledOnce();
+    const payload = placeOrderMock.mock.calls[0]![0] as {
+      lines: Array<Record<string, unknown>>;
+      addressId: string;
+      shippingMethod: string;
+    };
+    expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2 }]);
+    expect(payload.lines[0]).not.toHaveProperty('unitPrice');
+    expect(payload.shippingMethod).toBe('home');
+    expect(payload.addressId).toBe('addr-1');
+    expect(payload).not.toHaveProperty('userId');
+    // 成功才清車
+    expect(cartRef.current.clear).toHaveBeenCalledOnce();
+  });
+
+  it('建單失敗 → 顯示通用錯誤 + 不清車 + 不顯成功', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    placeOrderMock.mockResolvedValue({ formError: '下單失敗,請稍後再試或聯繫客服 LINE' });
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(await screen.findByText('下單失敗,請稍後再試或聯繫客服 LINE')).toBeTruthy();
+    expect(cartRef.current.clear).not.toHaveBeenCalled();
+    expect(screen.queryByText('訂單已成立')).toBeNull();
+  });
+
+  it('🔴 購物車線缺 variantId → client 擋下、不呼叫 placeOrderAction + 友善訊息(MUST2 寫入路徑拒整單)', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]); // 無 variantId(顯示路徑無變體 group 價 found、寫入路徑須拒)
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(await screen.findByText(/缺少規格資訊/)).toBeTruthy();
+    expect(placeOrderMock).not.toHaveBeenCalled();
+    expect(cartRef.current.clear).not.toHaveBeenCalled();
   });
 });

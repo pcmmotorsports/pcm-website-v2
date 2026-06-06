@@ -128,6 +128,25 @@ export const CheckoutInput = z
   });
 export type CheckoutInput = z.infer<typeof CheckoutInput>;
 
+// === Place-order cart lines(M-3-S2-b2-e3b、結帳送出建單的購物車品項驗證)===
+// 🔴 與 CheckoutInput 分離:購物車品項不在 CheckoutInput(品項在 client CartContext、送出時另組);
+//    本 schema 只驗「送出的購物車線」。client 只送 {variantId, quantity}、**永不送價/tier**
+//    (價由 create_order RPC server 權威算、tier 恆 general 階段①)。
+// 對齊 create_order RPC(20260604130000):variant_id 走 `::uuid` cast → 此處 z.uuid() 比 RPC 更早 fail-closed;
+//    quantity 對齊 CartContext MAX_QTY=99;陣列長度上限 200 對齊 RPC >200 reject + resolveCartLines MAX_LINES。
+// 🔴 fail-closed 語意(寫入路徑 vs 顯示路徑 resolveCartLines):顯示路徑有變體缺 variantId → found:false 略過該行;
+//    寫入路徑(placeOrderAction)同情境 safeParse 失敗 → **REJECT 整單**(回 formError)、不可略過壞行續建單。
+export const PlaceOrderLinesInput = z
+  .array(
+    z.object({
+      variantId: z.uuid({ error: '商品規格資訊有誤' }),
+      quantity: z.number().int().min(1).max(99),
+    }),
+  )
+  .min(1, { error: '購物車是空的' })
+  .max(200);
+export type PlaceOrderLinesInput = z.infer<typeof PlaceOrderLinesInput>;
+
 // === Wallet deposit(design WalletTab L150-224) ===
 // presets [3000,10000,30000,50000,100000] 為 UI 快捷鍵、非 schema 欄位。
 // amount 為整數(對齊 wallet ledger integer 欄 + 金額禁浮點);max 1M 為業務防呆 cap(非 design 字面)。
