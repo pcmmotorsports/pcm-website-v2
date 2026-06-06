@@ -174,4 +174,16 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     const res = await resolveCartLines(many);
     expect(res.length).toBe(200);
   });
+
+  it('🔴 非-string variantId(竄改:number/object/null)→ 整行 fail-closed 跳、不退化成群價(審查側 finding)', async () => {
+    // 有變體商品(群價 product.price=14600);三行 variantId 皆竄改成非-string。
+    fetchMock.mockResolvedValue(makeProduct());
+    const res = await resolveCartLines([
+      { productId: 'rpm-1', variantId: 123 }, // number
+      { productId: 'rpm-1', variantId: { id: 'v1' } }, // object
+      { productId: 'rpm-1', variantId: null }, // null
+    ]);
+    // 全跳 → 不回任何行(若退化成群價會回 3 行 unitPrice=14600〔群內最低〕= 錯價洩漏)。
+    expect(res.length).toBe(0);
+  });
 });

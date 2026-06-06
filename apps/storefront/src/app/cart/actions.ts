@@ -91,6 +91,10 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
     // 空 / 超長 productId → fail-closed 跳(防超長字串濫用)。
     if (productId.length === 0 || productId.length > MAX_PRODUCT_ID_LEN) continue;
     const variantIdRaw = (raw as { variantId?: unknown }).variantId;
+    // variantId 出現但非 string(竄改:number/object/null 等)→ 整行 fail-closed 跳。
+    // (不可退化成「無變體 → 群價」:該行原意為某變體、退化會回錯價〔群價=群內最低〕。
+    //  genuine 無變體商品的 variantId 欄為 undefined〔localStorage JSON 省略〕、走下方正常路徑。)
+    if (variantIdRaw !== undefined && typeof variantIdRaw !== 'string') continue;
     let variantId: string | undefined;
     if (typeof variantIdRaw === 'string') {
       const trimmed = variantIdRaw.trim();
