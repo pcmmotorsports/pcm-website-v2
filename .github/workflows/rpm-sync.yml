@@ -54,11 +54,9 @@ jobs:
 
       - name: Run RPM sync (full + S4 reconcile + S5 W1 gate)
         # secrets 注入 env;runner 無 .env.local、rpm-import existsSync 守會走此 process.env(S5-pre B1)。
-        # TEMP(3cde280 no-dash SKU migration):--allow-fetch-shrink --allow-large-delist 放行一次性
-        #   SKU 格式遷移(舊格式→新格式 267 筆下架屬正常);成功後移除這兩個旗標恢復嚴格 gate。
         env:
           QUOTE_SUPABASE_URL: ${{ secrets.QUOTE_SUPABASE_URL }}
           QUOTE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.QUOTE_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-        run: pnpm exec tsx scripts/rpm-import.ts --confirm-write --allow-fetch-shrink --allow-large-delist # TEMP: remove after first successful run
+        run: pnpm exec tsx scripts/rpm-import.ts --confirm-write # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
