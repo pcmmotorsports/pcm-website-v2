@@ -5676,6 +5676,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #219. 🔒 直打 create_order RPC 看原始 RAISE — RPC 層 threat-model harden(階段② 付款 RPC 前)
+
+- **狀態:** ⏳ 待修(非 e3b 本片;階段② 付款 RPC 前一併處理;Sean ratify 中)
+- **優先級:** 🟠 中(非經銷洩漏、非 IDOR;屬資訊揭露面、付款 RPC 會繼承)
+- **問題:**
+  - authenticated 使用者持 anon/authenticated key 可直接 `supabase.rpc('create_order', ...)` 繞過 app 層,看到 RPC `RAISE` 原文(下架/缺貨/錯價/重複變體 + variant_id 等內部細節)。
+  - e3b app path 的 `placeOrderAction` catch 已吞錯回通用字面、**不透傳**;但 RPC **層本身**的 RAISE 對直打者可見。e3b commit body「catch 吞 RPC RAISE 絕不透傳原文」字面**只對 app path 成立**,直打 RPC path 屬 RPC 層 threat-model。
+  - codex 關卡2 round1 報 → 審查側親讀逐行裁定:**非經銷洩漏**(零 price_store/price_by_tier/cost)、**IDOR-safe**(auth.uid() 重查歸屬)、且是 **b2-b1 已簽核 create_order RPC**(非 e3b diff)→ 降級 backlog。
+- **觸發事件:** 2026-06-07 M-3-S2-b2-e3b codex 關卡2 round1(降級 WARN→backlog、Sean ratify 中)。
+- **預期解法:**
+  - 階段② 付款 RPC(charge/confirm)前,評估 create_order RPC 的 RAISE 訊息泛化:對外回穩定錯誤碼 / 通用訊息、內部細節寫 server log 不入 RAISE;或限制 authenticated 直打面。一併檢視 confirm/charge RPC 同模式。
+- **不修會痛在:**
+  - bug 可追蹤性 / 安全:直打者可由 RAISE 推敲庫存 / 下架 / 變體結構等內部狀態(資訊揭露);階段② 付款 RPC 繼承同模式、風險更高(可探測金額/付款狀態邏輯)。
+  - 可維護性:app path 與 RPC path 的錯誤透傳邊界不一致,接手者易誤判整條鏈都不透傳。
+- **估時:** M(RPC RAISE 泛化 + threat-model 評估,階段② 同批)。
+- **依賴:** 階段② 付款 RPC(charge/confirm)設計;Sean ratify 本降級。
+- **發現於:** 2026-06-07 / M-3-S2-b2-e3b codex 關卡2 round1
+- **相關:** #214(create_order RPC)/ M-3-S2-b1 簽核 RPC / 鐵則 12 + 鐵則 11(字面 vs 事實:catch 不透傳只對 app path)
+
+---
+
 ## 紀錄模板
 
 ```markdown

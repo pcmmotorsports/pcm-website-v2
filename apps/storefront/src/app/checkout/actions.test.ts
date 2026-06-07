@@ -112,6 +112,26 @@ describe('placeOrderAction(M-3-S2-b2-e3b server action)', () => {
     expect(mockPlaceOrder).not.toHaveBeenCalled();
   });
 
+  // 🔴 table-driven fail-closed 邊界(PlaceOrderLinesInput zod;codex 關卡2 round1 WARN 補測試證據)。
+  // 任一非法 line → REJECT 整單回 formError、絕不呼叫 placeOrder(壞行不略過續建單)。
+  it.each([
+    ['非 string variantId(number)', [{ variantId: 123, quantity: 1 }]],
+    ['非 string variantId(object)', [{ variantId: {}, quantity: 1 }]],
+    ['非 uuid variantId 字串', [{ variantId: 'not-a-uuid', quantity: 1 }]],
+    ['空字串 variantId', [{ variantId: '', quantity: 1 }]],
+    ['qty 0', [{ variantId: VARIANT_ID, quantity: 0 }]],
+    ['qty 負', [{ variantId: VARIANT_ID, quantity: -1 }]],
+    ['qty 100(>99 MAX_QTY)', [{ variantId: VARIANT_ID, quantity: 100 }]],
+    ['qty 1.5(非整數)', [{ variantId: VARIANT_ID, quantity: 1.5 }]],
+    ['lines 201(>200 上限)', Array.from({ length: 201 }, () => ({ variantId: VARIANT_ID, quantity: 1 }))],
+  ])('🔴 fail-closed:%s → REJECT 整單 formError + 不呼叫 placeOrder', async (_label, lines) => {
+    const placeOrderAction = await getAction();
+    const res = await placeOrderAction(validInput({ lines }));
+    expect(res.formError).toBeTruthy();
+    expect(res.ok).toBeUndefined();
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
   it('malformed input(非 object)→ fieldErrors / formError fallback、不無聲失敗 + 不呼叫 placeOrder', async () => {
     const placeOrderAction = await getAction();
     const res = await placeOrderAction('not-an-object' as unknown);
