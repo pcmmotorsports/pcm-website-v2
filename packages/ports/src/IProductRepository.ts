@@ -35,6 +35,17 @@ export interface IProductRepository {
    */
   listByCategory(category: CategoryPath): Promise<Product[]>;
   /**
+   * 依 category 列出 product —— 全量版(#220、/products 列表頁)。
+   *
+   * 與 listByCategory 差異:adapter 實作以 .order + .range 分頁迴圈繞過 PostgREST/Supabase
+   * 「Max rows = 1000」硬上限、撈完整品類(非下架商品全量);listByCategory 留單次查
+   * (featured 等只取前 N、不退化效能)。
+   *
+   * 🔴 stopgap:全量撈進 client(client filter/分頁)。多品牌(#212)目錄長大後須改
+   * server-side 分頁/篩選(#51)、非長久解。
+   */
+  listAllByCategory(category: CategoryPath): Promise<Product[]>;
+  /**
    * 依 brand 列出 product。
    *
    * @TODO M-1-09/10 真實撞 5w SKU scale 時補 PaginationParams 簽名(對齊 backlog #20 + #51)

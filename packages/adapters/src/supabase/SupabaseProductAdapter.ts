@@ -162,6 +162,60 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
+   * 依 category 列出 product —— 全量分頁版(#220、/products 列表頁用)。
+   *
+   * listByCategory 走單次 `.select()`、會撞 PostgREST/Supabase「Max rows = 1000」硬上限
+   * (品類 >1000 件時靜默截斷、列表頁漏商品);本方法以 `.order('id')` + `.range()` 分頁迴圈
+   * 撈到底,確保 /products 顯示完整公開目錄(RLS 已濾下架、回非下架商品全量)。
+   *
+   * 🔴 **stopgap**:全量撈進 client(client filter/分頁)。多品牌(#212)目錄長大後須改
+   *   server-side 分頁/篩選(#51)、非長久解。
+   *
+   * 分頁正確性(審查點):
+   * - `.order('id')`(PK uuid 唯一、穩定排序)+ 連續非重疊 `.range` 視窗 → 無重複 / 無漏行。
+   * - 末頁 `batch.length < PAGE_SIZE` 即停(含「恰為 PAGE_SIZE 整數倍」時多撈一次空頁正常停)。
+   * - `MAX_PAGES` 防呆上限:命中則 `console.warn`(不靜默截斷)、回已撈部分。
+   * - fail-closed 同 listByCategory:找不到 categoryId → `[]`。
+   */
+  async listAllByCategory(category: CategoryPath): Promise<Product[]> {
+    const categoryId = await this.resolveCategoryId(category.raw);
+    if (categoryId === null) {
+      return [];
+    }
+
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES = 50; // 防呆:50 × 1000 = 5 萬件上限(遠超現況、防迴圈失控)
+    const rows: SupabaseProductRow[] = [];
+
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const from = page * PAGE_SIZE;
+      const { data, error } = await this.supabase
+        .from('products_public')
+        .select(PRODUCT_SELECT_DETAIL)
+        .eq('category_id', categoryId)
+        .order('id', { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+
+      if (error) {
+        throw error;
+      }
+
+      const batch = (data ?? []) as unknown as SupabaseProductRow[];
+      rows.push(...batch);
+
+      if (batch.length < PAGE_SIZE) {
+        return rows.map(mapSupabaseProductToDomain); // 末頁、撈完
+      }
+    }
+
+    // 命中 MAX_PAGES 仍未撈完(異常 scale)→ 不靜默截斷:警示後回已撈部分(no silent caps)。
+    console.warn(
+      `[SupabaseProductAdapter.listAllByCategory] category=${category.raw} 達 MAX_PAGES=${MAX_PAGES}(${MAX_PAGES * PAGE_SIZE} 件)上限、結果可能截斷;需改 server-side 分頁(#51)`,
+    );
+    return rows.map(mapSupabaseProductToDomain);
+  }
+
+  /**
    * 依 brand 列出 product。對齊 PRD §3.3 + supabase-schema-design.md §3.3。
    *
    * `brandId` 已是 UUID、不需 resolve(對齊 IProductRepository.listByBrand 簽名)。

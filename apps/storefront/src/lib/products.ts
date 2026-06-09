@@ -203,15 +203,17 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
 /**
  * 撈整個目錄(碳纖維部品全量)供 /products 列表頁(#220、列表頁遷真;對齊詳情頁 M-1-16c-3)。
  *
- * 行為 = fetchFeaturedProducts 去掉 .slice(0,4):
- *   - listByCategory({raw:'碳纖維部品', segments:['碳纖維部品']}) 全量 → map toUIProduct(p,'general')
+ * 行為:
+ *   - listAllByCategory({raw:'碳纖維部品', segments:['碳纖維部品']})〔.order('id') + .range 分頁迴圈、
+ *     繞過 PostgREST/Supabase「Max rows=1000」硬上限、撈非下架公開商品全量〕→ map toUIProduct(p,'general')
  *   - adapter 回 [](找不到 category)→ `{ products: [], error: false }`、UI 走 empty 分支「找不到符合條件的商品」
  *   - adapter throw error → console.error + `{ products: [], error: true }`、UI 走 error 分支「載入失敗、請稍後再試」
  *
  * 🔴 **釘 general**(同 fetchProductByHandle L218-227 理由):public view 排除 price_store、
  *   store/premiumStore 走 dummy 0;若傳真 tier 會對店家會員顯「NT$ 0」(codex 16c-3 k1 must-fix 2)。
  *   故不收 tier 參數、固定 'general';tier-aware 列表價待 M-2-08。經銷價零外洩。
- * 分頁:全量 server fetch + client filter/分頁(Phase-1 <5000 件可接受;server-side 分頁留 #51)。
+ * 🔴 stopgap:全量撈進 client(client filter/分頁、Phase-1 <5000 件可接受)。多品牌(#212)
+ *   目錄長大後須改 server-side 分頁/篩選(#51)、非長久解。
  */
 export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   const client = createSupabaseAnonClient();
@@ -223,13 +225,13 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   };
 
   try {
-    const products = await adapter.listByCategory(category);
+    const products = await adapter.listAllByCategory(category);
     return {
       products: products.map((p) => toUIProduct(p, 'general')),
       error: false,
     };
   } catch (err) {
-    console.error('[fetchCatalogProducts] adapter.listByCategory failed:', err);
+    console.error('[fetchCatalogProducts] adapter.listAllByCategory failed:', err);
     return { products: [], error: true };
   }
 }

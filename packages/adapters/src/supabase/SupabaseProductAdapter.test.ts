@@ -18,6 +18,7 @@ import { describe, it, expect } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProductId } from '@pcm/domain';
 import { SupabaseProductAdapter } from './SupabaseProductAdapter';
+import type { SupabaseProductRow } from './mappers/product';
 
 const DEALER_COLUMNS = ['price_store', 'price_by_tier', 'metadata', 'cost'];
 
@@ -79,5 +80,141 @@ describe('SupabaseProductAdapter — SELECT 投射經銷價防護(M-11 安全回
     for (const col of DEALER_COLUMNS) {
       expect(captured.select).not.toContain(col);
     }
+  });
+});
+
+// ── #220 listAllByCategory 分頁迴圈(繞 PostgREST/Supabase Max rows=1000)──
+//   審查點:迴圈終止(末頁 <1000 停)+ 合併無重複/漏行(.order('id') 穩定 + .range 連續非重疊視窗)。
+//   mapper-valid row(對齊 mappers/product.test baseProductRow)讓 mapSupabaseProductToDomain 不 throw。
+
+const baseRow: SupabaseProductRow = {
+  id: 'prod-0',
+  external_id: 'prod-0',
+  title: '碳纖維單座蓋',
+  subtitle: 'Aprilia RSV4 · 碳纖維',
+  description: '<p>d</p>',
+  handle: 'rpm-0',
+  price_general: 6800,
+  fitments: [],
+  images: ['https://cdn.example/g.jpg'],
+  availability: 'in-stock',
+  brand_id: 'brand-1',
+  category_id: 'cat-1',
+  metadata: {},
+  created_at: '2026-06-01T00:00:00Z',
+  updated_at: '2026-06-01T01:00:00Z',
+  brands: {
+    id: 'brand-1',
+    name: 'RPM CARBON',
+    slug: 'rpm-carbon',
+    description: null,
+    logo_url: null,
+    premium_extra_pct: 0,
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+  },
+  categories: {
+    id: 'cat-1',
+    parent_category_id: null,
+    name: '碳纖維部品',
+    raw_path: '碳纖維部品',
+    segments: ['碳纖維部品'],
+    sort_order: 0,
+    created_at: '2026-06-01T00:00:00Z',
+    updated_at: '2026-06-01T00:00:00Z',
+  },
+};
+function makeRow(i: number): SupabaseProductRow {
+  return { ...baseRow, id: `prod-${i}`, external_id: `prod-${i}`, handle: `rpm-${i}` };
+}
+
+// categories.single() 回 cat-1;products_public.range() 依呼叫序回各頁(每頁 row 數 = pageSizes[i],id 連續不重疊)
+function makePaginatedClient(pageSizes: number[]) {
+  const rangeCalls: Array<[number, number]> = [];
+  let idx = 0;
+  const products = {
+    select() { return products; },
+    eq() { return products; },
+    order() { return products; },
+    range(from: number, to: number) {
+      rangeCalls.push([from, to]);
+      const n = pageSizes[idx] ?? 0;
+      idx += 1;
+      return Promise.resolve({
+        data: Array.from({ length: n }, (_, j) => makeRow(from + j)),
+        error: null,
+      });
+    },
+  };
+  const categories = {
+    select() { return categories; },
+    eq() { return categories; },
+    single() { return Promise.resolve({ data: { id: 'cat-1' }, error: null }); },
+  };
+  const client = { from: (t: string) => (t === 'categories' ? categories : products) };
+  return { client: client as unknown as SupabaseClient, rangeCalls };
+}
+
+const CARBON = { raw: '碳纖維部品', segments: ['碳纖維部品'] };
+
+describe('SupabaseProductAdapter.listAllByCategory — 分頁迴圈(#220)', () => {
+  it('跨頁合併:1000 + 115 → 1115、range 連續非重疊、末頁<1000 即停、無重複 id', async () => {
+    const { client, rangeCalls } = makePaginatedClient([1000, 115]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllByCategory(CARBON);
+
+    expect(result).toHaveLength(1115);
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]); // 連續非重疊視窗
+    expect(new Set(result.map((p) => p.id)).size).toBe(1115); // 無重複/漏行
+  });
+
+  it('單頁(<1000)→ 一次 range 即停', async () => {
+    const { client, rangeCalls } = makePaginatedClient([500]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllByCategory(CARBON);
+
+    expect(result).toHaveLength(500);
+    expect(rangeCalls).toHaveLength(1);
+  });
+
+  it('恰為 PAGE_SIZE 整數倍:1000 + 0 → 1000、第二頁空頁正常停(無漏行、不無限迴圈)', async () => {
+    const { client, rangeCalls } = makePaginatedClient([1000, 0]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllByCategory(CARBON);
+
+    expect(result).toHaveLength(1000);
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+
+  it('category 不存在 → [](fail-closed、不查 products)', async () => {
+    const client = {
+      from: (t: string) => {
+        if (t === 'categories') {
+          const b = {
+            select() { return b; },
+            eq() { return b; },
+            single() {
+              return Promise.resolve({ data: null, error: { code: 'PGRST116', message: 'nf' } });
+            },
+          };
+          return b;
+        }
+        throw new Error('category 不存在時不該查 products_public');
+      },
+    };
+    const adapter = new SupabaseProductAdapter(client as unknown as SupabaseClient);
+
+    const result = await adapter.listAllByCategory(CARBON);
+
+    expect(result).toEqual([]);
   });
 });

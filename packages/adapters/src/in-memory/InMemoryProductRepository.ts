@@ -62,6 +62,16 @@ export class InMemoryProductRepository implements IProductRepository {
     );
   }
 
+  /**
+   * 依 category 列出全部 product（#220、全量版、對齊 IProductRepository.listAllByCategory contract）。
+   *
+   * in-memory 無 PostgREST「Max rows = 1000」上限 → 行為等同 listByCategory（全量回傳）；
+   * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞過上限。
+   */
+  async listAllByCategory(category: CategoryPath): Promise<Product[]> {
+    return this.listByCategory(category);
+  }
+
   async listByBrand(brandId: string): Promise<Product[]> {
     return Array.from(this.products.values()).filter(
       (p) => p.brand.id === brandId
