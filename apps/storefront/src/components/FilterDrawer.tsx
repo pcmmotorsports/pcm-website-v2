@@ -78,6 +78,10 @@ export function FilterDrawer({
   data,
   resultCount,
   initialTab,
+  hideCategory,
+  hideBrand,
+  hideColor,
+  hidePromoFlags,
   cascade,
   dispatch,
   extras,
@@ -88,6 +92,14 @@ export function FilterDrawer({
   data: FilterDrawerData;
   resultCount: number;
   initialTab?: DrawerTab;
+  /** #220-B1:真資料單一分類 → 隱藏「零件分類」tab(同 FilterSide hideCategory) */
+  hideCategory?: boolean;
+  /** #220-B1:真資料單一品牌 RPM CARBON → 隱藏「品牌」tab(#220c) */
+  hideBrand?: boolean;
+  /** #220-B1:toUIProduct color 全 silver → 隱藏「顏色」tab */
+  hideColor?: boolean;
+  /** #220-B1:toUIProduct isNew/isSale 全 false → 隱藏新品/特價(與 #161 關著的現貨皆空時整 tab 隱藏) */
+  hidePromoFlags?: boolean;
 } & CascadeControlledProps & ExtrasControlledProps) {
   const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'vehicle');
   const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
@@ -116,13 +128,17 @@ export function FilterDrawer({
     (extras.isSale ? 1 : 0) +
     extras.colors.length;
 
+  // #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏對應 tab(同 FilterSide;車種=#220b 留)。
+  // 其他 tab = 現貨(#161 SHOW_IN_STOCK_FILTER=false 關著)+ 新品/特價(hidePromoFlags 隱);兩者皆空時整 tab 隱藏避空殼。
   const tabs: { id: DrawerTab; label: string; count: number }[] = [
     { id: 'vehicle', label: '依車輛搜尋', count: cascade.vehicle ? 1 : 0 },
-    { id: 'category', label: '零件分類', count: cascade.category ? 1 : 0 },
-    { id: 'brand', label: '品牌', count: cascade.brands.length },
+    ...(hideCategory ? [] : [{ id: 'category' as DrawerTab, label: '零件分類', count: cascade.category ? 1 : 0 }]),
+    ...(hideBrand ? [] : [{ id: 'brand' as DrawerTab, label: '品牌', count: cascade.brands.length }]),
     { id: 'price', label: '價格', count: extras.price ? 1 : 0 },
-    { id: 'color', label: '顏色', count: extras.colors.length },
-    { id: 'other', label: '其他', count: (extras.inStock ? 1 : 0) + (extras.isNew ? 1 : 0) + (extras.isSale ? 1 : 0) },
+    ...(hideColor ? [] : [{ id: 'color' as DrawerTab, label: '顏色', count: extras.colors.length }]),
+    ...(SHOW_IN_STOCK_FILTER || !hidePromoFlags
+      ? [{ id: 'other' as DrawerTab, label: '其他', count: (extras.inStock ? 1 : 0) + (extras.isNew ? 1 : 0) + (extras.isSale ? 1 : 0) }]
+      : []),
   ];
 
   const toggleColor = (id: string) => {
@@ -327,16 +343,20 @@ export function FilterDrawer({
                     <span className="fd-cbx-name">僅顯示現貨</span>
                   </label>
                 )}
-                <label className={`fd-cbx ${extras.isNew ? 'is-checked' : ''}`}>
-                  <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
-                  <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
-                  <span className="fd-cbx-name">新品</span>
-                </label>
-                <label className={`fd-cbx ${extras.isSale ? 'is-checked' : ''}`}>
-                  <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
-                  <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
-                  <span className="fd-cbx-name">特價中</span>
-                </label>
+                {!hidePromoFlags && (
+                  <>
+                    <label className={`fd-cbx ${extras.isNew ? 'is-checked' : ''}`}>
+                      <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
+                      <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+                      <span className="fd-cbx-name">新品</span>
+                    </label>
+                    <label className={`fd-cbx ${extras.isSale ? 'is-checked' : ''}`}>
+                      <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
+                      <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+                      <span className="fd-cbx-name">特價中</span>
+                    </label>
+                  </>
+                )}
               </div>
             )}
           </div>

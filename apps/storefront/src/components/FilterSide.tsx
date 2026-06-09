@@ -237,6 +237,10 @@ function PriceRangeSlider({
 export function FilterSide({
   data,
   hideVehicle,
+  hideCategory,
+  hideBrand,
+  hideColor,
+  hidePromoFlags,
   cascade,
   dispatch,
   extras,
@@ -244,6 +248,15 @@ export function FilterSide({
 }: {
   data: FilterSideData;
   hideVehicle?: boolean;
+  /** #220-B1:真資料單一分類「碳纖維部品」、零件分類篩選無意義 → 結構性隱藏(視覺 Sean 後續 design skill 調) */
+  hideCategory?: boolean;
+  /** #220-B1:真資料單一品牌 RPM CARBON、選其他 chip 0 結果 → 隱藏品牌篩選(多品牌 #212 後再開、#220c) */
+  hideBrand?: boolean;
+  /** #220-B1:toUIProduct color 全 'silver'、顏色篩選 no-op → 隱藏 */
+  hideColor?: boolean;
+  /** #220-B1:toUIProduct isNew/isSale 全 false、新品/特價 toggle no-op → 隱藏。僅現貨另由 #161 /
+   *  SHOW_IN_STOCK_FILTER=false 關著(非本旗標控);新品/特價 + 僅現貨皆空時「其他」段整段隱藏避空殼。 */
+  hidePromoFlags?: boolean;
 } & CascadeControlledProps & ExtrasControlledProps) {
   const clearAllFilters = () => {
     dispatch(clearAll());
@@ -263,23 +276,27 @@ export function FilterSide({
         </Accordion>
       )}
 
-      <Accordion title="零件分類" defaultOpen={true}>
-        <CategoryTree categories={data.categories} category={cascade.category} dispatch={dispatch} />
-      </Accordion>
+      {!hideCategory && (
+        <Accordion title="零件分類" defaultOpen={true}>
+          <CategoryTree categories={data.categories} category={cascade.category} dispatch={dispatch} />
+        </Accordion>
+      )}
 
-      <Accordion title="品牌" defaultOpen={false} count={data.brands.length}>
-        <div className="fs-brand-search">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
-          </svg>
-          <input placeholder="搜尋品牌" />
-        </div>
-        <CheckboxList
-          items={data.brands}
-          selected={cascade.brands}
-          onToggle={(id) => dispatch(toggleBrand(id))}
-        />
-      </Accordion>
+      {!hideBrand && (
+        <Accordion title="品牌" defaultOpen={false} count={data.brands.length}>
+          <div className="fs-brand-search">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
+            </svg>
+            <input placeholder="搜尋品牌" />
+          </div>
+          <CheckboxList
+            items={data.brands}
+            selected={cascade.brands}
+            onToggle={(id) => dispatch(toggleBrand(id))}
+          />
+        </Accordion>
+      )}
 
       <Accordion title="價格範圍">
         <PriceRangeSlider
@@ -288,52 +305,62 @@ export function FilterSide({
         />
       </Accordion>
 
-      <Accordion title="顏色">
-        <div className="fs-colors">
-          {[
-            { id: 'black', name: '黑', hex: '#1a1a1a' },
-            { id: 'silver', name: '銀', hex: '#c4c4c4' },
-            { id: 'red', name: '紅', hex: '#dc2626' },
-            { id: 'gold', name: '金', hex: '#c9a552' },
-            { id: 'titanium', name: '鈦', hex: '#8a8578' },
-            { id: 'blue', name: '藍', hex: '#2563eb' },
-            { id: 'white', name: '白', hex: '#f4f4f5' },
-          ].map((c) => {
-            const on = extras.colors.includes(c.id);
-            return (
-              <button key={c.id} className={`fs-color ${on ? 'is-on' : ''}`}
-                onClick={() => setExtras((e) => ({
-                  ...e,
-                  colors: on ? e.colors.filter((x) => x !== c.id) : [...e.colors, c.id],
-                }))}
-                title={c.name}>
-                <span style={{ background: c.hex, border: c.id === 'white' ? '1px solid var(--c-border-strong)' : 'none' }} />
-                <span className="fs-color-name">{c.name}</span>
-              </button>
-            );
-          })}
-        </div>
-      </Accordion>
+      {!hideColor && (
+        <Accordion title="顏色">
+          <div className="fs-colors">
+            {[
+              { id: 'black', name: '黑', hex: '#1a1a1a' },
+              { id: 'silver', name: '銀', hex: '#c4c4c4' },
+              { id: 'red', name: '紅', hex: '#dc2626' },
+              { id: 'gold', name: '金', hex: '#c9a552' },
+              { id: 'titanium', name: '鈦', hex: '#8a8578' },
+              { id: 'blue', name: '藍', hex: '#2563eb' },
+              { id: 'white', name: '白', hex: '#f4f4f5' },
+            ].map((c) => {
+              const on = extras.colors.includes(c.id);
+              return (
+                <button key={c.id} className={`fs-color ${on ? 'is-on' : ''}`}
+                  onClick={() => setExtras((e) => ({
+                    ...e,
+                    colors: on ? e.colors.filter((x) => x !== c.id) : [...e.colors, c.id],
+                  }))}
+                  title={c.name}>
+                  <span style={{ background: c.hex, border: c.id === 'white' ? '1px solid var(--c-border-strong)' : 'none' }} />
+                  <span className="fs-color-name">{c.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </Accordion>
+      )}
 
-      <Accordion title="其他">
-        {SHOW_IN_STOCK_FILTER && (
-          <label className={`fs-cbx-row ${extras.inStock ? 'is-checked' : ''}`}>
-            <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
-            <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
-            <span className="fs-cbx-name">僅顯示現貨</span>
-          </label>
-        )}
-        <label className={`fs-cbx-row ${extras.isNew ? 'is-checked' : ''}`}>
-          <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
-          <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
-          <span className="fs-cbx-name">新品</span>
-        </label>
-        <label className={`fs-cbx-row ${extras.isSale ? 'is-checked' : ''}`}>
-          <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
-          <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
-          <span className="fs-cbx-name">特價中</span>
-        </label>
-      </Accordion>
+      {/* #220-B1:其他 = 僅現貨(#161 Phase1 不顯庫存、SHOW_IN_STOCK_FILTER=false 關著)+ 新品/特價
+          (toUIProduct 全 false、no-op);hidePromoFlags 隱藏新品/特價,兩者皆無內容時整段隱藏(避空殼)。 */}
+      {(SHOW_IN_STOCK_FILTER || !hidePromoFlags) && (
+        <Accordion title="其他">
+          {SHOW_IN_STOCK_FILTER && (
+            <label className={`fs-cbx-row ${extras.inStock ? 'is-checked' : ''}`}>
+              <input type="checkbox" checked={extras.inStock} onChange={() => setExtras((e) => ({ ...e, inStock: !e.inStock }))} />
+              <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+              <span className="fs-cbx-name">僅顯示現貨</span>
+            </label>
+          )}
+          {!hidePromoFlags && (
+            <>
+              <label className={`fs-cbx-row ${extras.isNew ? 'is-checked' : ''}`}>
+                <input type="checkbox" checked={extras.isNew} onChange={() => setExtras((e) => ({ ...e, isNew: !e.isNew }))} />
+                <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+                <span className="fs-cbx-name">新品</span>
+              </label>
+              <label className={`fs-cbx-row ${extras.isSale ? 'is-checked' : ''}`}>
+                <input type="checkbox" checked={extras.isSale} onChange={() => setExtras((e) => ({ ...e, isSale: !e.isSale }))} />
+                <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
+                <span className="fs-cbx-name">特價中</span>
+              </label>
+            </>
+          )}
+        </Accordion>
+      )}
     </aside>
   );
 }

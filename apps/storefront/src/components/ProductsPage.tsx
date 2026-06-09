@@ -271,9 +271,15 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
       />
 
       <div className="pp-layout has-side" data-filter-style="cascade">
+        {/* #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
+            車種=#220b、僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調) */}
         <FilterSide
           data={data}
           hideVehicle
+          hideCategory
+          hideBrand
+          hideColor
+          hidePromoFlags
           cascade={cascade}
           dispatch={dispatch}
           extras={extras}
@@ -358,6 +364,10 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
         data={data}
         resultCount={resultCount}
         initialTab="vehicle"
+        hideCategory
+        hideBrand
+        hideColor
+        hidePromoFlags
         cascade={cascade}
         dispatch={dispatch}
         extras={extras}

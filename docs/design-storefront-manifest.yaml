@@ -88,8 +88,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "a1cd343"  # 記可達祖先(=a1cd343、已 push origin/dev、避 rebase orphan);#220 + #220-A1 真改見 git log
-      last_modified_date: "2026-06-10 (#220 + #220-A1:/products 列表頁資料源 mock→真 Supabase 目錄。#220:app/products/page.tsx sync→async server fetch fetchCatalogProducts〔釘 'general' strip 經銷價〕→ ProductsPage {products,error} props〔刪 MOCK_PRODUCTS、filterProducts 吃真陣列、UI/篩選/排序/分頁零動、載入失敗態 Q2=A 鏡像 HomeSelect〕。#220-A1〔fix〕:fetchCatalogProducts 改呼 listAllByCategory〔.order('id')+.range 分頁迴圈繞 PostgREST Max rows=1000、撈非下架公開全量 1115〕,修原 listByCategory 單次查只回 1000 漏 115 件公開商品的 bug;stopgap 全量撈 client、多品牌 #212 須改 server 分頁 #51。篩選側欄 data 仍 mock〔VehicleFinder #220b、品牌側欄 #220c、B1 將結構性隱藏假篩選〕)"
+      last_modified_commit: "a1cd343"  # 記可達祖先(=a1cd343、已 push origin/dev、避 rebase orphan);#220 + #220-A1 + #220-B1 真改見 git log
+      last_modified_date: "2026-06-10 (#220 + #220-A1:/products 列表頁資料源 mock→真 Supabase 目錄。#220:app/products/page.tsx sync→async server fetch fetchCatalogProducts〔釘 'general' strip 經銷價〕→ ProductsPage {products,error} props〔刪 MOCK_PRODUCTS、filterProducts 吃真陣列、UI/篩選/排序/分頁零動、載入失敗態 Q2=A 鏡像 HomeSelect〕。#220-A1〔fix〕:fetchCatalogProducts 改呼 listAllByCategory〔.order('id')+.range 分頁迴圈繞 PostgREST Max rows=1000、撈非下架公開全量 1115〕,修原 listByCategory 單次查只回 1000 漏 115 件公開商品的 bug;stopgap 全量撈 client、多品牌 #212 須改 server 分頁 #51。#220-B1:FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標〔mirror hideVehicle、預設 false dev-preview 照舊〕、ProductsPage 傳 true → 結構性隱藏假篩選〔零件分類/品牌/顏色/新品特價、真資料 no-op:單一分類+單一品牌 RPM CARBON+全 silver+無促銷〕;保留價格範圍;車種=#220b、僅現貨=#161〔SHOW_IN_STOCK_FILTER=false〕不動;視覺細節 Sean 後續 design skill 調。品牌側欄真資料化留 #220c)"
     design:
       component: "design-reference/components/ProductsPage.jsx"
       css: "design-reference/styles/products-page.css"
@@ -119,6 +119,13 @@ components:
         decision_source: "#220 Sean Q1=A(側欄不動 + backlog #220c)/ Q2=A(載入失敗態);對齊 M-1-16c-3 詳情頁遷真 pattern"
         backlog: "#220c(品牌側欄真資料化)/ #220b(VehicleFinder 真資料化)/ #51(server-side 分頁)"
         reason: "M-1-16 真資料上架、列表頁脫離 mock;逛街→加購→結帳真實動線解鎖(M-3 階段① 肉眼驗發現)"
+      - field: "hiddenMockFilters"
+        design_value: "design ProductsPage 篩選側欄/抽屜含 零件分類(多層分類樹)+ 品牌(17 廠 checkbox)+ 顏色(7 色)+ 新品/特價 toggle"
+        storefront_value: "#220-B1 結構性隱藏上述假/no-op 篩選(FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標、ProductsPage 傳 true):真資料單一分類「碳纖維部品」(分類樹無意義 #152)+ 單一品牌 RPM CARBON(選其他 chip 0 結果 #220c)+ toUIProduct color 全 'silver'(顏色篩選 no-op)+ isNew/isSale 全 false(新品/特價 no-op)。保留「價格範圍」(真 price_general 可篩)。車種選單(頂部 CascadeFilterTop)=#220b 不動;「僅現貨」另由 #161(SHOW_IN_STOCK_FILTER=false、Phase1 不顯庫存)關著、B1 未動;旗標預設 false → dev-preview 預覽頁照舊全顯。視覺細節(如改不可點的「碳纖維部品」標籤)Sean 後續 design skill 調"
+        decided_at: "2026-06-10"
+        decision_source: "#220-B1 Sean 拍 B1a(我做結構性隱藏、視覺 Sean 後續調);#220 肉眼驗發現側欄假資料「這麼亂」"
+        backlog: "#220c(品牌側欄真資料化)/ #220b(VehicleFinder)/ #212(多品牌上架後品牌篩選才有意義)"
+        reason: "真資料單一分類/單一品牌/全 silver/無促銷 → 這些篩選列假數字或選了 0 結果、誤導;結構性隱藏、不留靜默壞篩選(鐵則 10 可追蹤)"
     open_drifts: []
 
   VehicleFinder:

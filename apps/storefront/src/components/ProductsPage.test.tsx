@@ -93,4 +93,17 @@ describe('ProductsPage', () => {
     expect(screen.getByText('載入失敗、請稍後再試')).toBeDefined();
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
   });
+
+  it('🔴 #220-B1:側欄隱藏假篩選(零件分類/品牌/顏色/其他)、保留價格範圍', () => {
+    render(<ProductsPage products={FIXTURE} error={false} />);
+    // 隱藏:真資料單一分類「碳纖維部品」/單一品牌 RPM CARBON/全 silver/無促銷 → 這些篩選無意義
+    expect(screen.queryByText('零件分類')).toBeNull();
+    expect(screen.queryByText('顏色')).toBeNull();
+    expect(screen.queryByText('其他')).toBeNull(); // 僅現貨(#161 關)+ 新品/特價(隱)皆空 → 整段隱藏
+    // 品牌篩選用 filter-specific anchor(避與 Header nav「品牌」撞):搜尋品牌 input 不應在
+    expect(screen.queryByPlaceholderText('搜尋品牌')).toBeNull();
+    // 保留:真價格可篩 + 側欄殼
+    expect(screen.getByText('價格範圍')).toBeDefined();
+    expect(screen.getByText('篩選條件')).toBeDefined();
+  });
 });
