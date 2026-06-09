@@ -5697,6 +5697,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #220. 🛒 /products 商品列表頁仍用 MOCK_PRODUCTS — 遷真 Supabase 目錄(對齊詳情頁)
+
+- **狀態:** ⏳ 待排(pre-existing M-1 gap、非 M-3 結帳範圍)
+- **優先級:** 🟠 中(阻礙真實逛街動線 + 肉眼驗需繞道;不影響結帳/建單正確性)
+- **問題:**
+  - `/products` 列表頁(components/ProductsPage.tsx)仍 import 渲染 MOCK_PRODUCTS(假資料)、未接真 Supabase 目錄(實證:ProductsPage.tsx:50 import + L214 `filterProducts(MOCK_PRODUCTS, …)`)。
+  - M-1-16c-3 只把詳情頁(/products/[slug])遷到 fetchProductByHandle(真 DB)、首頁 featured 亦真(fetchFeaturedProducts→listByCategory);**列表頁漏遷**。
+  - 後果:從列表頁點 mock 商品 → 詳情頁拿 mock slug 查真 DB → 查無 → notFound/404;無法從目錄正常逛到真商品加購(M-3 階段① 肉眼驗需繞首頁 featured / 直連真 handle URL)。
+  - 🔍 驗證補充(2026-06-09):非-test source 中 MOCK_PRODUCTS 另一引用 = `components/HomeSelect.tsx`(首頁車種/品牌選單)→ 遷真時一併評估;`*.test.tsx` 引用屬正常 fixture、不動。
+- **觸發事件:** 2026-06-09 M-3 階段① 結帳肉眼驗(Sean 發現目錄假資料、無法加購)。
+- **預期解法:**
+  - ProductsPage.tsx 改 server-side fetch 真目錄(SupabaseProductAdapter.listByCategory / 分頁 / 篩選)、對齊詳情頁 toUIProduct general-only strip;移除 MOCK_PRODUCTS 渲染(ProductPage 相關商品區 MOCK_PRODUCTS.filter + HomeSelect.tsx 一併評估)。
+  - 內容分級 L3(目錄高頻瀏覽面)→ 真 DB、補空/錯/分頁 UI 字面。
+- **不修會痛在:**
+  - 擴充性:目錄是賣場主動線、長期掛 mock = 無法上線真逛街、新商品不顯。
+  - bug 可追蹤性:列表(mock)vs 詳情(真)資料源不一致、mock slug 點擊 404 = 隱性壞連結。
+  - 維護性:MOCK_PRODUCTS 與真 schema 漂移易積腐。
+- **估時:** M~L(列表 server fetch + 分頁/篩選 + 空錯 UI + 測試)。
+- **依賴:** SupabaseProductAdapter.listByCategory(已存、首頁用)。
+- **發現於:** 2026-06-09 / M-3 階段① 肉眼驗
+- **相關:** M-1-16c-3(詳情頁遷真)/ lib/products.ts fetchFeaturedProducts / 鐵則 9 內容分級 L3
+
+---
+
 ## 紀錄模板
 
 ```markdown
