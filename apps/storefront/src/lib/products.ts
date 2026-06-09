@@ -16,8 +16,8 @@
 //     {raw:'碳纖維部品', segments:['碳纖維部品']}(RPM 上架後真資料在此分類、逐字對齊 DB raw_path)
 //
 // 真實狀態揭示(commit body 同步):
-//   - M-1-16b 全量灌後 Supabase products 表 933 row(全在「碳纖維部品」)、
-//     listByCategory('碳纖維部品') 回真 RPM 商品、首頁 happy path 通
+//   - M-1-16b 全量灌後 products_public 全在「碳纖維部品」(初灌 933、後續批次累積、2026-06 約 1406 列)、
+//     listByCategory('碳纖維部品') 回真 RPM 商品、首頁 featured + #220 列表頁 happy path 通
 //   - d2 舊狀態(0 row / listByCategory('操控部品') 必回 [])已過時(M-1-16b 前的描述)
 //
 // server-only 紀律:
@@ -196,6 +196,40 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
     };
   } catch (err) {
     console.error('[fetchFeaturedProducts] adapter.listByCategory failed:', err);
+    return { products: [], error: true };
+  }
+}
+
+/**
+ * 撈整個目錄(碳纖維部品全量)供 /products 列表頁(#220、列表頁遷真;對齊詳情頁 M-1-16c-3)。
+ *
+ * 行為 = fetchFeaturedProducts 去掉 .slice(0,4):
+ *   - listByCategory({raw:'碳纖維部品', segments:['碳纖維部品']}) 全量 → map toUIProduct(p,'general')
+ *   - adapter 回 [](找不到 category)→ `{ products: [], error: false }`、UI 走 empty 分支「找不到符合條件的商品」
+ *   - adapter throw error → console.error + `{ products: [], error: true }`、UI 走 error 分支「載入失敗、請稍後再試」
+ *
+ * 🔴 **釘 general**(同 fetchProductByHandle L218-227 理由):public view 排除 price_store、
+ *   store/premiumStore 走 dummy 0;若傳真 tier 會對店家會員顯「NT$ 0」(codex 16c-3 k1 must-fix 2)。
+ *   故不收 tier 參數、固定 'general';tier-aware 列表價待 M-2-08。經銷價零外洩。
+ * 分頁:全量 server fetch + client filter/分頁(Phase-1 <5000 件可接受;server-side 分頁留 #51)。
+ */
+export async function fetchCatalogProducts(): Promise<FeaturedResult> {
+  const client = createSupabaseAnonClient();
+  const adapter = new SupabaseProductAdapter(client);
+
+  const category: CategoryPath = {
+    raw: '碳纖維部品',
+    segments: ['碳纖維部品'],
+  };
+
+  try {
+    const products = await adapter.listByCategory(category);
+    return {
+      products: products.map((p) => toUIProduct(p, 'general')),
+      error: false,
+    };
+  } catch (err) {
+    console.error('[fetchCatalogProducts] adapter.listByCategory failed:', err);
     return { products: [], error: true };
   }
 }

@@ -9,12 +9,15 @@
 //
 // 字面 vs 事實揭示:
 // - design 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle 開關 /
-//   跨頁同步不搬(design harness、見 docs/recon/M-1-12-products-page-recon.md §4);
-//   data 改 storefront mock import。
+//   跨頁同步不搬(design harness、見 docs/recon/M-1-12-products-page-recon.md §4)。
+// - #220:商品列表改 server props 接真 Supabase 目錄(碳纖維部品、toUIProduct 'general' strip 零經銷價)、
+//   UI 版面零動;篩選側欄 data(車種/分類/品牌)仍 mock import(VehicleFinder 真資料化 #220b、
+//   品牌側欄真資料化 #220c;真資料單一品牌 RPM CARBON、選其他品牌 chip 會 0 結果、已記 #220c)。
 // - 篩選不依 cascade.vehicle / cascade.category(對齊 design filterProducts;
 //   mock 資料未對映)→ 已開 backlog #152、本檔不過濾。
-// - design 的 demo 資料 tiling 不搬;0 筆結果顯示空狀態文字 + 隱藏分頁
-//   (Codex finding 2)。M-1-16 真資料(200 SKU)後分頁自然有多頁。
+// - design 的 demo 資料 tiling 不搬;0 筆結果顯示空狀態文字 + 隱藏分頁(Codex finding 2)。
+//   #220 真資料(碳纖維部品 ~1406 件)分頁自然多頁;server fetch 失敗顯「載入失敗、請稍後再試」
+//   (Q2=A、鏡像 HomeSelect error 分支、與真 0 結果區分)。
 // - design PageHeader 麵包屑用 onNav harness 導覽;本實作首頁 / 商品目錄改 Next
 //   <Link>,大分類 / 細項為純 span。
 // - 篩選 state 提升至本元件(Sean 拍板方案 1):本元件持 cascadeFilterReducer +
@@ -22,7 +25,7 @@
 
 'use client';
 
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useReducer, useState, type CSSProperties } from 'react';
 import { useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -47,12 +50,27 @@ import type { FilterTopData } from './FilterTop';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '@/data/mock-categories';
 import { MOCK_BRANDS } from '@/data/mock-brands';
-import { MOCK_PRODUCTS } from '@/data/mock-products';
+import type { MockProduct } from '@/data/mock-products';
 
 const data: FilterTopData = {
   motoBrands: MOCK_MOTO_BRANDS,
   categories: MOCK_CATEGORIES,
   brands: MOCK_BRANDS,
+};
+
+// 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
+const MESSAGE_STATE_STYLE: CSSProperties = {
+  padding: '64px 0',
+  textAlign: 'center',
+  color: 'var(--c-text-3)',
+  font: '14px/1.6 system-ui, sans-serif',
+};
+
+export type ProductsPageProps = {
+  /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真) */
+  products: MockProduct[];
+  /** server fetch 失敗旗標(true → 顯「載入失敗、請稍後再試」、與真 0 結果區分;Q2=A 鏡像 HomeSelect) */
+  error: boolean;
 };
 
 // 解析 URL vehicle 參數 → VehicleSelection(name-based、對齊 reducer 介面)
@@ -186,7 +204,7 @@ function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () 
   );
 }
 
-export function ProductsPage() {
+export function ProductsPage({ products, error }: ProductsPageProps) {
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const [sort, setSort] = useState('recommend');
@@ -211,7 +229,7 @@ export function ProductsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filtered = filterProducts(MOCK_PRODUCTS, cascade, extras, data.brands);
+  const filtered = filterProducts(products, cascade, extras, data.brands);
   const sorted = sortProducts(filtered, sort);
   const resultCount = sorted.length;
 
@@ -277,7 +295,11 @@ export function ProductsPage() {
             sort={sort}
             setSort={setSort}
           />
-          {displayed.length > 0 ? (
+          {error ? (
+            <div style={MESSAGE_STATE_STYLE} role="alert">
+              載入失敗、請稍後再試
+            </div>
+          ) : displayed.length > 0 ? (
             <div className="pp-grid" style={{
               gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
               gap: gridCols <= 2 ? 20 : 14,
@@ -311,11 +333,11 @@ export function ProductsPage() {
               })}
             </div>
           ) : (
-            <div style={{ padding: '64px 0', textAlign: 'center', color: 'var(--c-text-3)', font: '14px/1.6 system-ui, sans-serif' }}>
+            <div style={MESSAGE_STATE_STYLE}>
               找不到符合條件的商品
             </div>
           )}
-          {resultCount > 0 && (
+          {!error && resultCount > 0 && (
             <Pagination
               page={currentPage}
               totalPages={totalPages}

@@ -88,13 +88,15 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "ee509fa"
-      last_modified_date: "2026-05-22"
+      last_modified_commit: "a1cd343"  # 記可達祖先=本 #220 commit 父 commit(=a1cd343、避 amend orphan);本 slice 真改見 git log [#220]
+      last_modified_date: "2026-06-09 (#220:/products 列表頁資料源 mock→真 Supabase 目錄〔碳纖維部品 ~1406 件〕。app/products/page.tsx sync→async server component 撈 fetchCatalogProducts〔釘 'general' strip 經銷價〕→ 傳 {products,error};ProductsPage 加 {products,error} props、刪 MOCK_PRODUCTS、filterProducts 吃真陣列;UI 版面/篩選/排序/分頁零動;載入失敗顯「載入失敗、請稍後再試」Q2=A 鏡像 HomeSelect。篩選側欄 data 仍 mock〔VehicleFinder #220b、品牌側欄 #220c〕)"
     design:
       component: "design-reference/components/ProductsPage.jsx"
       css: "design-reference/styles/products-page.css"
       data_mock: "design-reference/data/products.js"
     related_storefront:
+      - "apps/storefront/src/app/products/page.tsx"  # #220:async server route 撈真目錄傳 props
+      - "apps/storefront/src/lib/products.ts"  # #220:fetchCatalogProducts(listByCategory 碳纖維部品 + toUIProduct 'general' strip)
       - "apps/storefront/src/components/VehicleFinder.tsx"
       - "apps/storefront/src/components/ProductCard.tsx"
       - "apps/storefront/src/components/CascadeFilterTop.tsx"
@@ -110,6 +112,13 @@ components:
         decision_source: "STATUS L24 (#161 M-1-13e-pre-3 起延伸)"
         backlog: "#161"
         reason: "Sean 業務拍板、Phase 1 不顯庫存"
+      - field: "listDataSource"
+        design_value: "design ProductsPage 讀 design-reference/data/products.js mock 商品"
+        storefront_value: "/products 列表改 server fetch 真 Supabase 目錄(SupabaseProductAdapter.listByCategory('碳纖維部品') → toUIProduct(p,'general') → {products,error} props);UI 版面/篩選/排序/分頁邏輯零動、只換商品資料源。釘 'general'(經銷價零外洩、store/premium 不顯 NT$0、同詳情頁 M-1-16c-3)。🔴 真資料單一品牌 'RPM CARBON';MOCK_BRANDS 側欄 17 品牌 → 選其他 16 chip 會 0 結果(品牌側欄真資料化留 #220c、非靜默);VehicleFinder/分類篩選對真資料 no-op(#220b/#152、既有)"
+        decided_at: "2026-06-09"
+        decision_source: "#220 Sean Q1=A(側欄不動 + backlog #220c)/ Q2=A(載入失敗態);對齊 M-1-16c-3 詳情頁遷真 pattern"
+        backlog: "#220c(品牌側欄真資料化)/ #220b(VehicleFinder 真資料化)/ #51(server-side 分頁)"
+        reason: "M-1-16 真資料上架、列表頁脫離 mock;逛街→加購→結帳真實動線解鎖(M-3 階段① 肉眼驗發現)"
     open_drifts: []
 
   VehicleFinder:

@@ -5699,7 +5699,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #220. 🛒 /products 商品列表頁仍用 MOCK_PRODUCTS — 遷真 Supabase 目錄(對齊詳情頁)
 
-- **狀態:** ⏳ 待排(pre-existing M-1 gap、非 M-3 結帳範圍)
+- **狀態:** ✅ 完成(2026-06-09、本 slice 實作;品牌側欄真資料化分出 #220c、VehicleFinder 留 #220b)
 - **優先級:** 🟠 中(阻礙真實逛街動線 + 肉眼驗需繞道;不影響結帳/建單正確性)
 - **問題:**
   - `/products` 列表頁(components/ProductsPage.tsx)仍 import 渲染 MOCK_PRODUCTS(假資料)、未接真 Supabase 目錄(實證:ProductsPage.tsx:50 import + L214 `filterProducts(MOCK_PRODUCTS, …)`)。
@@ -5718,6 +5718,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** SupabaseProductAdapter.listByCategory(已存、首頁用)。
 - **發現於:** 2026-06-09 / M-3 階段① 肉眼驗
 - **相關:** M-1-16c-3(詳情頁遷真)/ lib/products.ts fetchFeaturedProducts / 鐵則 9 內容分級 L3
+
+---
+
+### #220c. 🏷️ /products 品牌篩選側欄仍用 MOCK_BRANDS — 真資料單一品牌、選其他 chip 0 結果
+
+- **狀態:** ⏳ 待排(#220 衍生、非靜默壞篩選〔本條即揭示〕;不阻結帳/逛街)
+- **優先級:** 🟡 低(真資料現只 RPM CARBON 單一品牌、品牌篩選實質無用、不阻 #220 逛街動線)
+- **問題:**
+  - #220 把 /products 商品列表遷真 Supabase 目錄,但品牌篩選側欄(FilterSide/CascadeFilterTop 的 data.brands)仍用 MOCK_BRANDS(17 個 design 品牌:LIGHTECH/RIZOMA/BREMBO…)。
+  - filterProducts 用品牌名比對(MOCK_BRANDS id→name→lowercase vs p.brand.toLowerCase());真資料 p.brand 恆為 'RPM CARBON'(目錄唯一品牌)→ 只勾「RPM CARBON」chip 有結果、選其他 16 個 chip silently 回 0 商品。
+  - 非 crash、非經銷洩漏;UX:側欄列了沒有商品的品牌 = 死篩選。
+- **觸發事件:** 2026-06-09 #220 列表遷真實作(Sean Q1=A:側欄本片不動、開本 backlog 明確記錄、不留靜默壞篩選)。
+- **預期解法:**
+  - 品牌側欄 data.brands 改由真目錄推導(只渲染有真商品的品牌 = RPM CARBON),或接真 brands 表;一併評估 MOCK_CATEGORIES 分類側欄(同類 mock/真不一致 #152)。
+  - 多品牌上架(#212 多品牌範本)後品牌篩選才有實質意義 → 可與 #212 合併評估。
+- **不修會痛在:**
+  - bug 可追蹤性 / UX:使用者點品牌 chip 得 0 結果、誤以為缺貨或壞站;隨多品牌上架若不接真會持續錯位。
+  - 維護性:MOCK_BRANDS 與真品牌漂移、積腐。
+- **估時:** S~M(側欄品牌源由真目錄推導 + 測試;接真 brands 表則 M)。
+- **依賴:** #220(列表遷真、已做)/ 多品牌上架 #212(品牌篩選實質意義)。
+- **發現於:** 2026-06-09 / #220
+- **相關:** #220 / #220b(VehicleFinder 真資料化)/ #212(多品牌)/ #152(分類/車種篩選 no-op)
 
 ---
 
