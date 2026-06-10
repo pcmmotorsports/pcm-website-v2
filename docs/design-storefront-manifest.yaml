@@ -81,6 +81,20 @@ cross_cutting_overrides:
     reason: |
       storefront 真實 markup 無人設 [data-mobile=\"true\"](g-2 肉眼驗實證 /account 手機爆版),
       純 attribute selector 不啟動;@media + UA hint 雙保險 SSR-safe + dev-preview 仍可強制 attr 模式
+  productPageFullwidthPunctuation:
+    design_value: "OD-6/7a 定『商品頁元件家族半形逗號慣例』:渲染文案半形逗號「,」/ 冒號「:」/ 問號「?」(頓號「、」句號「。」括號「（）」全形)"
+    storefront_value: |
+      [#223 Sean 2026-06-10 拍 Q2=B] 商品詳情頁散文家族**全改全形標點**、反轉上述 OD 半形慣例(業務 override、鐵則 1 例外):
+      逗號「，」/ 冒號「：」/ 問號「？」/ 分號「；」全形;時間「10:00」/ 數字範圍「2–6」/ 金額「$100」/ 英文 / 程式碼維持半形。
+      影響檔(渲染 prose):ProductTabs / ProductFAQ / ProductHighlights / ProductSpotlight / ProductSwatchWall / ProductFitments + data/rpm-policies.ts。
+      同片附帶 product-page.css 兩改:① .pd-tab-pane max-width 820→960 對齊 .faq-body(Q1=A 換行寬統一最寬)
+      ② 移除 .pd-body/.pd-lead/.pd-feature-desc/.faq-body 的 text-wrap:pretty(iOS WebKit 對 CJK 段落縮行致右側留白「靠左」、
+      與 .pd-list 不一致;greedy wrap 填滿 = 用最寬;標題 .pd-h2/.pd-title 的 text-wrap:balance 保留)。
+    decided_at: "2026-06-10"
+    decision_source: "#223 Sean Q1=A(寬 960)/ Q2=B(全頁散文全形)/ Q3 批准;手機段落靠左 Playwright webkit 量證(402px 右白 62→4px)+ Sean iPhone 真機確認"
+    reason: |
+      Sean 要文案標點不可半全形混用(全形)+ 各分頁/FAQ 換行寬度一致(用最寬)。全形屬 Sean 業務拍板、覆蓋 OD 字面;
+      6 元件無另立 last_modified 條目、改動為跨家族單一決策、故記此 cross_cutting 段(對齊 globalRwdMechanism 前例)。
 
 components:
   # ---- 商品系列(M-1-13H 改版完成、M-1-13I 修 3 bug 範圍) ----

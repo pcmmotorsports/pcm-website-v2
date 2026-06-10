@@ -23,8 +23,9 @@
 // 'use client' 必要:useState + onClick handler(對齊 ADR-0006 §1「Hooks → 'use client'」)。
 // ARIA tablist / tab / tabpanel + roving tabIndex + 鍵盤導覽(↑M-1-13H-6 Codex Fix 1 沿用不動)。
 //
-// 標點:半形逗號「,」/ 冒號「:」/ 問號「?」對齊 storefront 商品頁元件家族慣例
-//   (ProductSpotlight / ProductHighlights、OD-6 / 7a 既定);頓號「、」句號「。」括號「（）」依 OD 模板。
+// 標點:渲染文案用全形(逗號「，」/ 冒號「：」/ 問號「？」/ 分號「；」+ 頓號「、」句號「。」括號「（）」);
+//   時間「10:00」/ 數字範圍「2–6」/ 英文 / 程式碼維持半形。Sean 2026-06-10 Q2=B 拍板:商品詳情頁散文家族
+//   全改全形、反轉原 OD-6 / 7a「半形逗號家族慣例」(業務 override、鐵則 1 例外)。
 
 'use client';
 
@@ -117,17 +118,17 @@ export function ProductTabs({ product }: ProductTabsProps) {
             <strong>
               {product.brand} {product.name}
             </strong>{' '}
-            採用真碳纖維材質,為 <strong>{product.fits || '原廠車款'}</strong>{' '}
-            開發;換上碳纖維後比原廠塑件更輕、更有質感,強度也更高。
+            採用真碳纖維材質，為 <strong>{product.fits || '原廠車款'}</strong>{' '}
+            開發；換上碳纖維後比原廠塑件更輕、更有質感，強度也更高。
           </p>
           <p className="pd-body">
-            對應原廠孔位、可直接安裝,<strong>不需要改線組</strong>。下單時請依愛車狀況選好紋路、表面與是否要加強化款 12K。
+            對應原廠孔位、可直接安裝，<strong>不需要改線組</strong>。下單時請依愛車狀況選好紋路、表面與是否要加強化款 12K。
           </p>
           <ul className="pd-list">
-            <li>真碳纖維材質,非塑膠仿碳貼皮</li>
-            <li>對應原廠孔位,Plug &amp; Play</li>
-            <li>四款紋路 × 兩款表面,蜂巢另收特殊紋費</li>
-            <li>賣場數量不代表庫存,下單前建議先 LINE 聊聊確認</li>
+            <li>真碳纖維材質，非塑膠仿碳貼皮</li>
+            <li>對應原廠孔位，Plug &amp; Play</li>
+            <li>四款紋路 × 兩款表面，蜂巢另收特殊紋費</li>
+            <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
           </ul>
         </div>
 
@@ -161,11 +162,11 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">紋路可選</div>
-              <div className="pd-spec-v">斜紋 / 平織 / 鍛造 / 蜂巢 / 12K — 五款紋路（12K 為加強紋路樣式,部分品項提供）</div>
+              <div className="pd-spec-v">斜紋 / 平織 / 鍛造 / 蜂巢 / 12K — 五款紋路（12K 為加強紋路樣式，部分品項提供）</div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">表面可選</div>
-              <div className="pd-spec-v">亮光 / 消光（蜂巢只有亮光,消光蜂巢為特別訂製）</div>
+              <div className="pd-spec-v">亮光 / 消光（蜂巢只有亮光，消光蜂巢為特別訂製）</div>
             </div>
             <div className="pd-spec-row">
               <div className="pd-spec-k">產地</div>
@@ -217,16 +218,16 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
           </div>
           <p className="pd-body">
-            每件碳纖部品的安裝方式略有不同,原則上都是 <strong>對應原廠孔位、直接鎖上</strong>,不需要改裝線組。建議由有經驗的技師安裝,鎖緊力道要適中,避免過度鎖付造成碳纖斷裂。如果不確定,可以預約 PCM 合作店家協助處理。
+            每件碳纖部品的安裝方式略有不同，原則上都是 <strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成碳纖斷裂。如果不確定，可以預約 PCM 合作店家協助處理。
           </p>
           <ul className="pd-list">
             <li>裝前先把原廠零件螺絲位置記清楚或拍照</li>
-            <li>鎖螺絲時對角分段鎖緊,避免單點受力</li>
+            <li>鎖螺絲時對角分段鎖緊，避免單點受力</li>
             <li>第一次騎乘後再檢查一次螺絲扭力</li>
           </ul>
           <div className="pd-install-cta">
             <div>
-              <div className="pd-install-cta-title">不想自己裝?</div>
+              <div className="pd-install-cta-title">不想自己裝？</div>
               <div className="pd-install-cta-desc">全台合作店家可以幫你直接搞定</div>
             </div>
             <button

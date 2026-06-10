@@ -56,8 +56,8 @@ export function ProductSwatchWall() {
           <span className="pd-eb-sep" aria-hidden="true" />
           <span className="pd-eb-label">{'N°  紋路 × 表面'}</span>
         </div>
-        <h2 className="pd-h2" id="pd-h-swatch">五款紋路 × 兩種表面,想怎麼配自己決定</h2>
-        <p className="pd-lead">斜紋、平織、鍛造、蜂巢、12K 五款紋路 × 亮光、消光兩種表面,自由搭配。紋路依花色不同價格不一樣;表面處理不影響價格。</p>
+        <h2 className="pd-h2" id="pd-h-swatch">五款紋路 × 兩種表面，想怎麼配自己決定</h2>
+        <p className="pd-lead">斜紋、平織、鍛造、蜂巢、12K 五款紋路 × 亮光、消光兩種表面，自由搭配。紋路依花色不同價格不一樣；表面處理不影響價格。</p>
       </div>
 
       {/* 亮光款 — 6 種(4 標準紋路 + 2 款 12K 加強)*/}
@@ -89,10 +89,10 @@ export function ProductSwatchWall() {
       </div>
 
       <div className="swatch-note">
-        <strong>挑選小提醒:</strong>
-        亮光款共 6 種紋路、消光款共 4 種紋路,依車款不同可選擇的樣式略有差異。
-        <strong>蜂巢紋路主要為亮光款</strong>,消光蜂巢屬於特別訂製。
-        彩色碳纖、特殊樣式需等 <strong>1–4 個月</strong>,下單前請先聊聊確認貨況。
+        <strong>挑選小提醒：</strong>
+        亮光款共 6 種紋路、消光款共 4 種紋路，依車款不同可選擇的樣式略有差異。
+        <strong>蜂巢紋路主要為亮光款</strong>，消光蜂巢屬於特別訂製。
+        彩色碳纖、特殊樣式需等 <strong>1–4 個月</strong>，下單前請先聊聊確認貨況。
       </div>
 
       <SwatchLightbox swatches={RPM_SWATCHES} lbIdx={lbIdx} setLbIdx={setLbIdx} />

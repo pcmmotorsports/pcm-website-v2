@@ -24,7 +24,7 @@ export function ProductHighlights() {
         </div>
         <h2 className="pd-h2" id="pd-h-rpm">為什麼選 RPM Carbon</h2>
         <p className="pd-lead">
-          RPM Carbon 來自泰國,主要做碳纖維車身套件跟引擎護蓋。跟一般碳纖維廠不一樣的地方在於:大部分部品都針對原廠車身開模,可以保留原本的燈具與後照鏡,達成全面碳纖道路化。前後土除、尾殼、側蓋飾版、整流罩、腳踏翅膀、儀表殼通通有。
+          RPM Carbon 來自泰國，主要做碳纖維車身套件跟引擎護蓋。跟一般碳纖維廠不一樣的地方在於：大部分部品都針對原廠車身開模，可以保留原本的燈具與後照鏡，達成全面碳纖道路化。前後土除、尾殼、側蓋飾版、整流罩、腳踏翅膀、儀表殼通通有。
         </p>
       </div>
 
@@ -32,17 +32,17 @@ export function ProductHighlights() {
         <article className="pd-feature-card">
           <div className="pd-feature-num">01</div>
           <h3 className="pd-feature-title">可直上原廠</h3>
-          <p className="pd-feature-desc">大部分部品針對原廠車身開模,可以直接安裝在原廠車身上,保留原本的燈具與後照鏡,達成全面碳纖道路化。</p>
+          <p className="pd-feature-desc">大部分部品針對原廠車身開模，可以直接安裝在原廠車身上，保留原本的燈具與後照鏡，達成全面碳纖道路化。</p>
         </article>
         <article className="pd-feature-card">
           <div className="pd-feature-num">02</div>
           <h3 className="pd-feature-title">紋路想怎麼搭都行</h3>
-          <p className="pd-feature-desc">斜紋、平織、鍛造、蜂巢、12K 五款紋路 × 亮光、消光兩種表面,從低調實用到強悍個性自己組合。</p>
+          <p className="pd-feature-desc">斜紋、平織、鍛造、蜂巢、12K 五款紋路 × 亮光、消光兩種表面，從低調實用到強悍個性自己組合。</p>
         </article>
         <article className="pd-feature-card">
           <div className="pd-feature-num">03</div>
           <h3 className="pd-feature-title">輕量化．隔熱防燙</h3>
-          <p className="pd-feature-desc">真碳纖維比原廠塑件更輕,能減輕車重;同時不導熱,引擎護蓋、排氣護片這類靠近熱源的部位,騎完不再怕燙到。</p>
+          <p className="pd-feature-desc">真碳纖維比原廠塑件更輕，能減輕車重；同時不導熱，引擎護蓋、排氣護片這類靠近熱源的部位，騎完不再怕燙到。</p>
         </article>
       </div>
     </section>

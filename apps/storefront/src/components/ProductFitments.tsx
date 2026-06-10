@@ -29,7 +29,8 @@
 //   帶車型名建立年式↔車型關係(報讀器最易丟失的關係)。div 顯式 role、零 CSS / 視覺不變(避開 Safari +
 //   VoiceOver 對 ul+list-style:none 移除 list 語意的已知陷阱)。
 //
-// 標點:半形逗號「,」對齊產品頁元件家族慣例(ProductFAQ / ProductTabs 一致);頓號「、」句號「。」依 OD。
+// 標點:渲染文案用全形(逗號「，」/ 分號「；」+ 頓號「、」句號「。」);英文 / 程式碼維持半形。
+//   Sean 2026-06-10 Q2=B:商品詳情頁散文家族全改全形、反轉原「半形家族慣例」(業務 override、鐵則 1 例外)。
 
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
@@ -115,7 +116,7 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
           </div>
         ))}
       </div>
-      <p className="pd-fit-note">列表為主要適用車款;同系列其他年式 / 配備如需確認,歡迎 LINE 諮詢。</p>
+      <p className="pd-fit-note">列表為主要適用車款；同系列其他年式 / 配備如需確認，歡迎 LINE 諮詢。</p>
     </section>
   );
 }

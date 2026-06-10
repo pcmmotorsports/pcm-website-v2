@@ -34,13 +34,13 @@ export function ProductSpotlight({ product }: ProductSpotlightProps) {
       <div className="pd-spot-text">
         <div className="pd-eyebrow">碳纖維工藝</div>
         <h2 className="pd-h2">
-          真碳纖維,<br />為原廠車身而生。
+          真碳纖維，<br />為原廠車身而生。
         </h2>
         <p className="pd-body">
-          採用真碳纖維材質,比原廠塑件更輕、不導熱;引擎護蓋、排氣護片這類靠近熱源的部位,騎完不再怕燙到。
+          採用真碳纖維材質，比原廠塑件更輕、不導熱；引擎護蓋、排氣護片這類靠近熱源的部位，騎完不再怕燙到。
         </p>
         <p className="pd-body">
-          大部分部品針對原廠車身開模,鎖點對得起來、不用切割打孔,可直接安裝在原廠車身上,保留原本的燈具與後照鏡。
+          大部分部品針對原廠車身開模，鎖點對得起來、不用切割打孔，可直接安裝在原廠車身上，保留原本的燈具與後照鏡。
         </p>
         <div className="pd-spot-stats">
           <div>

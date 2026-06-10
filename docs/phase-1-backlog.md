@@ -5796,6 +5796,19 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-10 / #220 診斷
 - **相關:** #220 / rpm-sync SKU migration(471c099/f46d264)
 
+### #223. 🅰️ 商品詳情頁文案排版整理(標點全形 + 換行寬統一 + 手機段落靠左修)
+
+- **狀態:** ✅ 完成(2026-06-10、Sean 直接指定 + 拍板 Q1=A/Q2=B/Q3 批准)
+- **優先級:** 🟡 低(視覺/可讀性、無功能影響)
+- **做了什麼:**
+  - **標點全形化(Q2=B)**:商品詳情頁渲染散文家族半形 `, : ? ;` → 全形 `，：？；`;反轉 OD-6/7a「半形逗號家族慣例」(業務 override、鐵則 1 例外、3 元件註解 + manifest cross_cutting `productPageFullwidthPunctuation` 已標)。保留半形:時間 `10:00` / 數字範圍 `2–6` / 金額 `$100` / 英文 / 程式碼。影響:ProductTabs / ProductFAQ / ProductHighlights / ProductSpotlight / ProductSwatchWall / ProductFitments + rpm-policies.ts。
+  - **換行寬統一(Q1=A)**:product-page.css `.pd-tab-pane` max-width 820→960 對齊 `.faq-body`(4 分頁 + FAQ 同寬最寬)。
+  - **手機段落靠左修**:移除 `.pd-body/.pd-lead/.pd-feature-desc/.faq-body` 的 `text-wrap: pretty`(iOS WebKit 對 CJK 段落縮行致右側留白 62px、與清單不一致;greedy wrap 填滿 = 用最寬;標題 balance 保留)。
+- **驗證:** 三綠(typecheck 7/7 / lint 10/10 / build 1/1)+ 完整 pnpm test 744 + code-reviewer PASS(0 BLOCKER)+ Playwright webkit 402px 量證(段落右白 62→4px)+ Sean iPhone 真機確認。
+- **教訓(memory):** [[reference_ios-webkit-text-wrap-cjk-and-mobile-repro]](iOS WebKit CJK text-wrap 縮行 + 真機重現須用 webkit 引擎 + 量文字填充非元件寬)。
+- **發現於:** 2026-06-10 / Sean 商品頁文案肉眼驗
+- **相關:** OD-6/7a(原半形慣例)/ manifest cross_cutting productPageFullwidthPunctuation
+
 ---
 
 ## 紀錄模板

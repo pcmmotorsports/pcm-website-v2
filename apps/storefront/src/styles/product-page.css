@@ -707,15 +707,17 @@
   font-weight: 700; letter-spacing: -0.015em; line-height: 1.2;
   text-wrap: balance;
 }
+/* [#223] 文案換行寬度「用最寬」(Sean 拍板):body 文字移除 text-wrap:pretty。
+   pretty 在 iOS WebKit 對 CJK 段落會縮短/平衡每行 → 右側留白(段落看似靠左、.pd-list 清單卻填滿、寬度不一致;
+   桌機 Chromium 的 pretty 只微調末行故看不出)。改 greedy wrap 填滿、與清單一致最寬。標題 .pd-h2/.pd-title 的
+   text-wrap:balance 保留(短標題平衡合理、非 Sean 反映的段落)。同組:.pd-feature-desc / .faq-body。 */
 .pd-lead {
   font-size: clamp(16.5px, 1.7vw, 19px);
   color: var(--c-text-2); line-height: 1.7; margin: 0;
-  text-wrap: pretty;
 }
 .pd-body {
   font-size: 15px; line-height: 1.75;
   color: var(--c-text); margin: 0 0 16px;
-  text-wrap: pretty;
 }
 .pd-body strong { color: var(--c-text); font-weight: 600; }
 @media (max-width: 720px) {
@@ -781,7 +783,7 @@
   color: var(--c-text-2);
   line-height: 1.7;
   margin: 0;
-  text-wrap: pretty;
+  /* [#223] 同 .pd-body:移除 text-wrap:pretty、CJK 段落 greedy 填滿(iOS WebKit pretty 縮行致右側留白) */
 }
 /* OD-6:feature 卡響應式 920px collapse 單欄 + 縮 padding/字級(OD 模板字面;
    原 900px 區塊內 .pd-feature-grid 單欄孤兒規則移除、改吃此處) */
@@ -1058,7 +1060,8 @@
 .pd-tab.is-active { color: var(--c-text); border-color: var(--c-text); font-weight: 600; }
 
 .pd-tab-pane {
-  max-width: 820px;
+  /* [#223] Sean Q1=A:4 分頁換行寬統一成最寬 960px(對齊 .faq-body)、原 820px → 與 FAQ 同寬 */
+  max-width: 960px;
   font: 400 15px/1.75 var(--font-sans);
   color: var(--c-text);
 }
@@ -1294,7 +1297,7 @@
 .faq-body {
   padding: 0 4px 22px;
   font-size: 14.5px; line-height: 1.75; color: var(--c-text-2);
-  text-wrap: pretty;
+  /* [#223] 同 .pd-body:移除 text-wrap:pretty、FAQ 答案 CJK greedy 填滿、與清單寬度一致 */
   max-width: 960px;
 }
 .faq-body strong { color: var(--c-text); }
