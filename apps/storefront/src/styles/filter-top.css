@@ -481,6 +481,12 @@
   .pp-layout.has-side { grid-template-columns: 1fr; }
   .pp-main { padding: 16px 14px 60px; }
   .pp-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+  /* M-1-12 RWD fix(#220 手機肉眼驗發現、Sean 拍 A;與上一行 .pp-grid 鎖 2 欄同範圍 ≤1079px、非僅 ≤640):
+     手機/平板鎖 2 欄(repeat(2)!important)會蓋過 SortBar 欄數切換鈕的 inline gridTemplateColumns
+     → 點 toggle 高亮變但版面不動=失效。隱藏切換鈕 + 其前 divider(避懸空),SortBar 剩「商品數 + 推薦排序」;
+     桌機(>1079px)照舊。 */
+  .pp-grid-toggle { display: none; }
+  .pp-sortbar-right .ft-divider { display: none; }
   /* Brand/page grids in mobile wrapper */
   .brand-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
   .brand-grid-wrap { padding: 20px 14px 60px; }
@@ -520,6 +526,9 @@
 [data-mobile="true"] .pp-layout.has-side { grid-template-columns: 1fr; }
 [data-mobile="true"] .pp-main { padding: 16px 14px 60px; }
 [data-mobile="true"] .pp-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 12px !important; }
+/* M-1-12 RWD fix:data-mobile 同鎖 2 欄 → 同隱欄數切換鈕 + 其前 divider(對齊上行 .pp-grid 鎖) */
+[data-mobile="true"] .pp-grid-toggle { display: none; }
+[data-mobile="true"] .pp-sortbar-right .ft-divider { display: none; }
 /* FAB inside mobile bezel: portaled into .mobile-fab-slot */
 .mobile-fab-slot {
   position: absolute;
