@@ -88,7 +88,7 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "a1cd343"  # 記可達祖先(=a1cd343、已 push origin/dev、避 rebase orphan);#220 + #220-A1 + #220-B1 + M-1-12 RWD fix 真改見 git log
+      last_modified_commit: "a1cd343"  # 記可達祖先(=a1cd343、已 push origin/dev、避 rebase orphan);#220 + #220-A1 + #220-B1 + M-1-12 RWD fix(含 !important cascade 修)真改見 git log
       last_modified_date: "2026-06-10 (#220 + #220-A1:/products 列表頁資料源 mock→真 Supabase 目錄。#220:app/products/page.tsx sync→async server fetch fetchCatalogProducts〔釘 'general' strip 經銷價〕→ ProductsPage {products,error} props〔刪 MOCK_PRODUCTS、filterProducts 吃真陣列、UI/篩選/排序/分頁零動、載入失敗態 Q2=A 鏡像 HomeSelect〕。#220-A1〔fix〕:fetchCatalogProducts 改呼 listAllByCategory〔.order('id')+.range 分頁迴圈繞 PostgREST Max rows=1000、撈非下架公開全量 1115〕,修原 listByCategory 單次查只回 1000 漏 115 件公開商品的 bug;stopgap 全量撈 client、多品牌 #212 須改 server 分頁 #51。#220-B1:FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標〔mirror hideVehicle、預設 false dev-preview 照舊〕、ProductsPage 傳 true → 結構性隱藏假篩選〔零件分類/品牌/顏色/新品特價、真資料 no-op:單一分類+單一品牌 RPM CARBON+全 silver+無促銷〕;保留價格範圍;車種=#220b、僅現貨=#161〔SHOW_IN_STOCK_FILTER=false〕不動;視覺細節 Sean 後續 design skill 調。品牌側欄真資料化留 #220c。M-1-12 RWD fix〔#220 手機肉眼驗發現、Sean 拍 A〕:filter-top.css 於 .pp-grid 鎖 2 欄同範圍(≤1079px + [data-mobile])隱藏欄數切換鈕 + 其前 divider、修切換鈕在手機/平板失效〔inline gridTemplateColumns 被 repeat(2)!important 蓋過〕;桌機照舊;見 business_override mobileGridToggleHidden)"
     design:
       component: "design-reference/components/ProductsPage.jsx"
@@ -128,7 +128,7 @@ components:
         reason: "真資料單一分類/單一品牌/全 silver/無促銷 → 這些篩選列假數字或選了 0 結果、誤導;結構性隱藏、不留靜默壞篩選(鐵則 10 可追蹤)"
       - field: "mobileGridToggleHidden"
         design_value: "design ProductsPage SortBar 在手機/平板仍顯欄數切換鈕(3/4/5 欄),但 design 同斷點亦鎖 .pp-grid repeat(2)!important → design-as-shipped 自身 toggle 顯示卻對手機 2 欄無效(壞掉仍顯)"
-        storefront_value: "#220 手機肉眼驗發現切換鈕失效(根因:.pp-grid 在 ≤1079px〔filter-top.css〕+ ≤640px〔products-page.css〕+ [data-mobile] 鎖 repeat(2)!important、蓋過 toggle 的 inline gridTemplateColumns)。Sean 拍 A=結構性隱藏切換鈕:filter-top.css 於 .pp-grid 鎖 2 欄同範圍(≤1079px + [data-mobile])加 `.pp-grid-toggle{display:none}` + `.pp-sortbar-right .ft-divider{display:none}`,手機/平板 SortBar 剩「商品數 + 推薦排序」;桌機(>1079px)切換鈕照舊。視覺細節 Sean 後續 design skill 調"
+        storefront_value: "#220 手機肉眼驗發現切換鈕失效(根因:.pp-grid 在 ≤1079px〔filter-top.css〕+ ≤640px〔products-page.css〕+ [data-mobile] 鎖 repeat(2)!important、蓋過 toggle 的 inline gridTemplateColumns)。Sean 拍 A=結構性隱藏切換鈕:filter-top.css 於 .pp-grid 鎖 2 欄同範圍(≤1079px + [data-mobile])加 `.pp-grid-toggle{display:none !important}` + `.pp-sortbar-right .ft-divider{display:none !important}`〔🔴 !important 必要:products-page.css 於 layout.tsx 後載入(L38>filter-top L35)、其 `.pp-grid-toggle{display:flex}` 同 specificity 後者勝、無 !important 會蓋過隱藏 → Sean 回報「一樣不能切換」(切換鈕還顯);playwright 390/800/1280px 三尺寸實機驗過〕,手機/平板 SortBar 剩「商品數 + 推薦排序」;桌機(>1079px)切換鈕照舊。視覺細節 Sean 後續 design skill 調"
         decided_at: "2026-06-10"
         decision_source: "#220 手機肉眼驗 + 審查側 NIT(隱藏斷點對齊 .pp-grid 鎖 2 欄真實範圍 ≤1079px、非僅 ≤640);Sean 拍 A(隱藏切換鈕、非讓 toggle 在手機生效)"
         reason: "pre-existing M-1-12 RWD bug;手機鎖 2 欄合理(5 欄擠爆)、但壞掉的切換鈕不該顯;優於 design(design 同 bug 未修)、留此 override 避日後 re-sync 誤判"
