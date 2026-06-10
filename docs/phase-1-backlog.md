@@ -5741,6 +5741,59 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-09 / #220
 - **相關:** #220 / #220b(VehicleFinder 真資料化)/ #212(多品牌)/ #152(分類/車種篩選 no-op)
 
+### #220b. 🏍 首頁/列表頁車種選單(VehicleFinder)真資料化 — 延 Phase 2 車輛服務生態
+
+- **狀態:** ⏳ 待排(Sean 2026-06-09 拍延 Phase 2;現維持 MOCK_MOTO_BRANDS)
+- **優先級:** 🟡 低(逛街輔助、非主動線阻擋;#220 列表 product 已真)
+- **問題:**
+  - VehicleFinder.tsx import MOCK_MOTO_BRANDS(design data/products.js 虛構 8 廠牌~35 車型),首頁「01 輸入你的車輛」+ /products 頂部「確認適用車款」三層 select(品牌→車型→年份)全 mock。
+  - 真資料無 vehicle/moto_brands 表;真商品 fitments 廠牌集合 ≠ mock 8 廠牌;fitments yearStart-yearEnd 區間需展開單年(option 爆炸);直 query fitments 聚合可能列出無商品廠牌 → 空選單 UX 破。
+- **觸發事件:** 2026-06-09 #220 列表頁遷真 recon 挖出(車種選單與列表 product 是兩件、車種是硬問題)。
+- **預期解法:**
+  - 選項:(A)維持 mock 延 Phase 2 一起做【Sean 拍】(B)fitments 反向聚合(準但複雜+年份爆炸+空選單)(C)建 vehicles/moto_models 表(快但新 schema+維護)。Phase 2 車輛服務生態前置時設計車輛真資料源 + VehicleFinder 接真。
+- **不修會痛在:**
+  - 擴充性:車種選單長期 mock = 無法真實「依車搜部品」、與 fitments 真資料脫節。
+  - bug 可追蹤性:mock 廠牌導去 /products?brand=... 與真 fitments 對不上、篩選 no-op(#152)。
+- **估時:** L(車輛資料源決策 + 聚合/表 + VehicleFinder 接真 + #152 篩選接真)。
+- **依賴:** Phase 2 車輛服務生態 / fitments 真資料(S6 已 plumb)/ #152。
+- **發現於:** 2026-06-09 / #220 recon
+- **相關:** #220 / #220c(品牌側欄)/ #152(分類車種篩選 no-op)/ Phase 2 vehicle-service-ecosystem
+
+### #221. 🧹 filter-top.css 619 行 > 鐵則 6 400 上限 — 拆檔
+
+- **狀態:** ⏳ 待排(pre-existing M-1-12、非單一 slice 引入)
+- **優先級:** 🟡 低(維護性、無功能影響)
+- **問題:**
+  - apps/storefront/src/styles/filter-top.css 達 619 行、破鐵則 6「樣式/元件檔 >400 行必拆」。歷次 slice(#220-B1 / RWD toggle 修)各只 +少行、co-locate 在 grid-lock 旁合理,但檔本身已超限。
+- **觸發事件:** 2026-06-10 #220-B1 + RWD toggle 修審查發現(filter-top.css 619 行)。
+- **預期解法:**
+  - 拆出獨立檔(brand-grid / cat-grid / sortbar / mobile-rwd 區塊),各 <400;保留 grid-lock 與 toggle-hide co-location(同範圍同步)。
+- **不修會痛在:**
+  - 可維護性:大檔難改、cascade/RWD 規則散落難追(本次 toggle cascade override bug 就因規則分散兩檔 filter-top + products-page)。
+  - bug 可追蹤性:跨檔同 selector 規則(.pp-grid-toggle)易漏看 cascade。
+- **估時:** S(純 CSS 拆檔 + import + 三綠驗無回歸)。
+- **依賴:** 無。
+- **發現於:** 2026-06-10 / #220-B1 + RWD toggle 修審查
+- **相關:** 鐵則 6 / memory feedback_css-visibility-review-verify-cascade-not-just-rule-present
+
+### #222. 🔌 報價單/sync 側確認 291 件下架是否合理(267 集中 SKU migration 日)
+
+- **狀態:** ⏳ 待報價單側查(跨系統、非網站 bug)
+- **優先級:** 🟠 中(資料正確性、可能影響上架商品數/營收)
+- **問題:**
+  - 商城 products_public 1406 件中 291 件 delisted(RLS 對公開隱藏、anon 可見 1115)。下架日期:06-03=1 / 06-04=23 / **06-07=267**。267 件集中 06-07 單日 = sync 線 SKU migration 那天(471c099 `--allow-large-delist` + f46d264、該旗標正為放行此大下架)。
+  - 網站端 RLS 正確隱藏(非網站 bug);需確認 267 件是「真該下架」還是「SKU 改名誤把舊 SKU 孤兒化」。
+- **觸發事件:** 2026-06-10 #220 列表頁 1000-cap 診斷 + Sean 問下架率 ~21%。
+- **預期解法:**
+  - 報價單/sync 側查 06-07 SKU migration 那批 SKU 改名映射(舊→新),確認 267 件下架是預期(SKU 變更退場)還是誤孤兒(漏映射);誤孤兒則修 migration/映射、重新上架。
+- **不修會痛在:**
+  - 擴充性/營收:若 267 件是誤孤兒 = 本該上架卻被隱藏、少賣。
+  - bug 可追蹤性:單看「291 下架」看不出是單日 migration 造成、易誤判常態。
+- **估時:** S~M(報價單側查映射 + 抽驗;誤孤兒則修 migration)。
+- **依賴:** 報價單/sync 線(SKU migration 471c099/f46d264)。
+- **發現於:** 2026-06-10 / #220 診斷
+- **相關:** #220 / rpm-sync SKU migration(471c099/f46d264)
+
 ---
 
 ## 紀錄模板
