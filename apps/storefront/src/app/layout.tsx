@@ -1,10 +1,13 @@
 // app/layout.tsx — root layout(全域 CSS import)
 //
 // CSS load order 對齊 design-reference/index.html @ 25d3a2a:
-//   tokens → header → product-card → pricing → filter-top → filter-side → filter-drawer
-//   → products-page → home
+//   tokens → header → product-card → pricing → filter-top → filter-cascade → filter-responsive
+//   → filter-side → filter-drawer → products-page → home
 //   (filter-side.css 由 M-1-09、filter-top.css 由 M-1-10、filter-drawer.css 由 M-1-11、
 //    products-page.css 由 M-1-12b 加入)
+//   [#221] filter-top.css(621 行 > 鐵則 6 400)拆成 filter-top + filter-cascade + filter-responsive
+//    三檔(各 <400);三檔按此 import 順序串接 = 原 filter-top.css 逐 byte 等價(零 cascade 變化、
+//    concat-diff 證);故必接在 filter-top 後、filter-side 前、彼此維持此序。
 // 其他 CSS(product-page / pages / vehicle-drawer / account / search-overlay / tweaks)
 // 後續 slice trigger 才加(首頁不需要)
 // auth.css 由 M-1-14e-f1-a 加入(/login + /register 頁、含 .ap-page/.ap-mono base + auth-*)
@@ -33,6 +36,8 @@ import '../styles/header.css';
 import '../styles/product-card.css';
 import '../styles/pricing.css';
 import '../styles/filter-top.css';
+import '../styles/filter-cascade.css';
+import '../styles/filter-responsive.css';
 import '../styles/filter-side.css';
 import '../styles/filter-drawer.css';
 import '../styles/products-page.css';

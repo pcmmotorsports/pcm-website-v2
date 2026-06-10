@@ -1,0 +1,178 @@
+/* ============================================================
+   CascadeFilterTop — 車款 cascade selects
+   ============================================================ */
+.cft-bar {
+  position: sticky;
+  top: 69px;
+  z-index: 40;
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+}
+.cft-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 32px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+.cft-cascade {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.cft-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-2);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-family: var(--f-mono, monospace);
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.cft-select {
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  border-radius: 4px;
+  padding: 7px 28px 7px 12px;
+  color: var(--c-text);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  transition: border-color 0.15s;
+}
+.cft-select:hover:not(:disabled) { border-color: var(--c-border-strong); }
+.cft-select:focus { outline: none; border-color: var(--c-text); box-shadow: 0 0 0 1px var(--c-text); }
+.cft-select:disabled { opacity: 0.45; cursor: not-allowed; }
+.cft-right { display: flex; align-items: center; gap: 12px; }
+.cft-search-btn {
+  padding: 7px 16px;
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s;
+}
+.cft-search-btn:hover { opacity: 0.85; }
+.cft-clear {
+  font-size: 12px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.cft-clear:hover { color: var(--c-text); }
+
+/* 手機版精簡 chip */
+.cft-mobile-bar {
+  display: none;
+  padding: 8px 14px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  position: sticky;
+  top: 69px;
+  z-index: 40;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.cft-mobile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--c-text);
+  transition: border-color 0.15s, background 0.15s;
+}
+.cft-mobile-chip:hover { border-color: var(--c-text); background: var(--c-surface-2); }
+.cft-mobile-eyebrow {
+  font-size: 10px;
+  font-family: var(--f-mono, monospace);
+  color: var(--c-text-2);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cft-mobile-name { font-weight: 500; }
+
+@media (max-width: 1023px) {
+  /* cascade bar: 隱藏 label，selects 縮小排一行 */
+  .cft-bar {
+    display: block;
+    top: 64px; /* match mobile header height (12+40+12) — no gap */
+  }
+  .ft-bar { top: 64px; }
+  .cft-inner { padding: 8px 14px; gap: 6px; }
+  .cft-label { display: none; }
+  .cft-cascade { gap: 6px; flex-wrap: nowrap; }
+  .cft-select {
+    font-size: 12px;
+    padding: 6px 22px 6px 8px;
+    min-width: 0;
+    flex: 1;
+  }
+  .cft-right { display: none; }
+  .cft-mobile-bar { display: none; }
+}
+
+/* ============================================================
+   ActiveChips — 目前篩選條件 pill 列
+   ============================================================ */
+.ac-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.ac-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-text-2);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--c-text);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ac-chip:hover {
+  background: var(--c-text);
+  color: var(--c-text-inverse);
+  border-color: var(--c-text);
+}
+.ac-x { font-size: 14px; line-height: 1; opacity: 0.6; }
+.ac-chip:hover .ac-x { opacity: 1; }
+.ac-clear-all {
+  font-size: 12px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 4px 6px;
+}
+.ac-clear-all:hover { color: var(--c-text); }
+

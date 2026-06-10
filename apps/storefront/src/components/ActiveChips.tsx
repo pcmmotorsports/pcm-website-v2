@@ -1,7 +1,8 @@
 // ActiveChips.tsx — 已選篩選條件標籤列(對齊 design FilterTop.jsx L413-470)
 //
 // M-1-12 Codex review 修正:自 ProductsPage.tsx 拆出(AGENTS.md 鐵則 6:元件檔
-// >400 行必拆)。.ac-* CSS 隨 filter-top.css(M-1-10)落地。
+// >400 行必拆)。.ac-* CSS 原隨 filter-top.css(M-1-10)落地、[#221] 拆檔後移入
+// filter-cascade.css(與 CascadeFilterTop .cft-* 同檔、皆「目前篩選狀態」UI)。
 
 import { clearVehicle, clearCategory, toggleBrand, clearAll } from '@pcm/ui';
 import {

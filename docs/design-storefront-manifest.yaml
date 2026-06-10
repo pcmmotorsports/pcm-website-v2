@@ -75,6 +75,7 @@ cross_cutting_overrides:
       1. @media (max-width: 1079px) — viewport-based、SSR-safe、無需 JS
       2. <html data-mobile> 由 layout.tsx headers() UA regex 設(SSR hint、向後相容既有 [data-mobile] selector)
       5 個既有 css 檔(account / auth / filter-drawer / filter-top / header)全部 [data-mobile] 規則加 @media 鏡像並存、不刪既有規則
+      ([#221] filter-top.css 拆檔後、其 [data-mobile] + @media(1079) 響應式規則整段移入 filter-responsive.css;規則字面零變、僅檔界搬移、concat 等價)
     decided_at: "2026-05-28"
     decision_source: "#192 plan v2(codex k1 FIX-1 修 selector + FIX-4 鐵則 4 三段不可拆豁免)"
     reason: |
@@ -908,6 +909,12 @@ components:
   # 候選列表(供 Cowork 後續查):
   #   - BrandIndex / CategoryGrid / FeatureEditorial / HomeFooter / HomeSelect / HomeStatement
   #   - FilterDrawer / FilterSide / FilterTop / CascadeFilterTop / ActiveChips / Pagination
+  #     [#221 CSS 拆檔] 原單一 filter-top.css(621 行 > 鐵則 6 400)拆成 3 檔(各 <400、零重排、
+  #     按 import 序串接 = 原檔逐 byte 等價、concat-diff 證、零 cascade 變化):
+  #       · filter-top.css(238)     = .ft-*(篩選頂欄:bar/chips/dropdown/車種category 3 欄 drill/品牌 checkbox grid/價格)
+  #       · filter-cascade.css(178) = .cft-*(CascadeFilterTop 車款 selects)+ .ac-*(ActiveModule 已選條件 chips)
+  #       · filter-responsive.css(205) = .pp-mobile-fab/FAB + @media(1079)/[data-mobile] 響應式 + cascade 間距 + .ft-pills active pills
+  #     三檔於 layout.tsx 接在 filter-top→filter-side 之間、維持此序(順序變則 cascade 變);填上述元件條目時據此定位 css 來源
   #   - Price(共用)
   #   - SearchOverlay / StorePickerModal / TierComponents / WalletTab(Phase 2 範圍)
   #   - LegalPage / ErrorPage / OrderCompletePage / Pages / Pricing(Phase 1 後期)

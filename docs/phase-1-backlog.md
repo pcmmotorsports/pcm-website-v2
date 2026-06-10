@@ -5759,15 +5759,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-09 / #220 recon
 - **相關:** #220 / #220c(品牌側欄)/ #152(分類車種篩選 no-op)/ Phase 2 vehicle-service-ecosystem
 
-### #221. 🧹 filter-top.css 619 行 > 鐵則 6 400 上限 — 拆檔
+### #221. 🧹 filter-top.css 621 行 > 鐵則 6 400 上限 — 拆檔
 
-- **狀態:** ⏳ 待排(pre-existing M-1-12、非單一 slice 引入)
+- **狀態:** ✅ 完成(2026-06-10、本 slice #221、Claude Code 自驅執行側):filter-top.css(621 行)拆成 3 連續行段檔 filter-top.css(238、`.ft-*` 篩選頂欄核心)/ filter-cascade.css(178、`.cft-*` Cascade + `.ac-*` ActiveChips)/ filter-responsive.css(205、FAB + `@media(1079)`/`[data-mobile]` 響應式 + cascade 間距 + `.ft-pills`),各 <400;layout.tsx 接在 filter-top→filter-side 之間維持序。🔴 **concat-diff 逐 byte 證等價**(3 檔按 import 序串接 = 原檔 byte 全等 → cascade 數學上零變化)、三綠 + 完整 pnpm test 744 零回歸 + code-reviewer PASS（0 BLOCKER、獨立重跑 concat-diff 空、行數 619→621 NIT 已修齊）。非鐵則 12。manifest 兩處純文件對應註。未 push。
 - **優先級:** 🟡 低(維護性、無功能影響)
 - **問題:**
-  - apps/storefront/src/styles/filter-top.css 達 619 行、破鐵則 6「樣式/元件檔 >400 行必拆」。歷次 slice(#220-B1 / RWD toggle 修)各只 +少行、co-locate 在 grid-lock 旁合理,但檔本身已超限。
-- **觸發事件:** 2026-06-10 #220-B1 + RWD toggle 修審查發現(filter-top.css 619 行)。
-- **預期解法:**
+  - apps/storefront/src/styles/filter-top.css 達 621 行、破鐵則 6「樣式/元件檔 >400 行必拆」。歷次 slice(#220-B1 / RWD toggle 修)各只 +少行、co-locate 在 grid-lock 旁合理,但檔本身已超限。
+- **觸發事件:** 2026-06-10 #220-B1 + RWD toggle 修審查發現(filter-top.css 621 行)。
+- **預期解法(原構想):**
   - 拆出獨立檔(brand-grid / cat-grid / sortbar / mobile-rwd 區塊),各 <400;保留 grid-lock 與 toggle-hide co-location(同範圍同步)。
+- **實際解法(偏離原構想、理由=cascade 安全):**
+  - 改走「連續行段切割、零重排」(filter-top / filter-cascade / filter-responsive,各對應原檔連續區段),**非**按 brand-grid/cat-grid/sortbar 語意切。原因:brand-grid/cat-grid/page-grid 的規則散落在兩段手機 `@media` 區塊內、與 `.cft-*`/`.pp-grid`/`.fs-side` 等交錯;若按語意抽出會重排規則順序、有改變 cascade 風險(正是本 backlog 起因的同類陷阱)。連續行段切 + concat-diff 可**機械證明**零 cascade 變化(逐 byte 等價),比語意切 + 人工驗 cascade 安全。toggle-hide/grid-lock co-location 仍保留在 filter-responsive.css 內同範圍。
 - **不修會痛在:**
   - 可維護性:大檔難改、cascade/RWD 規則散落難追(本次 toggle cascade override bug 就因規則分散兩檔 filter-top + products-page)。
   - bug 可追蹤性:跨檔同 selector 規則(.pp-grid-toggle)易漏看 cascade。
