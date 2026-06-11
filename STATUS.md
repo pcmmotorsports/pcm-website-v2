@@ -2,31 +2,31 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** **M-3 結帳**(階段① ✅ 訂單地基 S1/S2-a/S2-b1 + 前台 cart/checkout 全鏈 + #220 列表頁 + #221/#223 polish;階段② TapPay 成交進行中)
-**當前 slice:** **M-3 階段②-① confirm_order_payment RPC + payment_confirmer 窄權角色 ✅**(migration 20260611120000_m3_s2c:翻訂單 unpaid→paid;PF-A~G〔SECURITY DEFINER+search_path=''/FOR UPDATE/row_count 守/冪等樹 rec+amount 三等/通用訊息 #219/5 欄零 fulfillment〕+ PF-F 窄權角色〔NOINHERIT LOGIN/零 table·column 權/雙向 membership 守/timeout·connlimit/fail-closed hygiene + 函式權限矩陣 assert〕+ §4 service_role table 層收斂〔REVOKE orders/order_items 直接寫權、令安全鑰匙=丙 table 層也成真;審查側 codex r1 抓缺口、Sean 拍 A 補〕。三綠 + code-reviewer + codex 關卡2 r1-r4 PASS;MCP 模擬全綠零留痕。**待 Sean db push + 設 payment_confirmer 密碼**、未 push)
+**Phase:** Phase 1 / **Milestone:** **M-3 結帳**(階段① ✅;階段②-① confirm RPC + payment_confirmer ✅ 上 prod;階段②-② TapPay adapter+use-case 開工)
+**當前 slice:** **M-3 階段②-② TapPayChargeAdapter + confirm-payment use-case(開工)** — pay-by-prime sandbox charge + 直連 payment_confirmer 呼 confirm_order_payment;前置 ✅ 就緒(TapPay sandbox 金鑰 + payment_confirmer 密碼/PAYMENT_CONFIRMER_DB_URL 已設 .env.local)。階段②-① ✅ 已 db push 上 prod。
 
 **Branch:** dev
 
 ## 最後更新
-2026-06-11 — Claude Code 執行 session(寫審分離 ROLE=A 執行側)[M-3 階段②-① confirm RPC + payment_confirmer 窄權角色 ✅ migration 20260611120000_m3_s2c;codex 關卡2 4 輪〔r1 service_role 函式 EXECUTE 漏洞;r2 Sean A 補 hygiene;r3 forward escalation + recursive reverse;r4 PASS〕;**審查側 round1 再抓 service_role table 層直接寫權缺口、Sean 拍 A → §4 REVOKE orders/order_items 寫權 + fail-closed assert 補成真**(MCP 證 service_role 寫權收掉、SELECT 保留、create_order/confirm SECURITY DEFINER 零回歸);本片同 commit amend 補 §4;PF-A literal SET ROLE 因 pooled MCP 限制延真連線]
+2026-06-11 — Claude Code 執行 session(寫審分離 ROLE=A 執行側)[階段②-① confirm RPC + payment_confirmer 窄權角色 ✅ **db push 上 production**(migration 20260611120000 入帳、§4 service_role 訂單表寫權收斂 prod 生效、審查側 round2 sign-off + 上線後實查全綠)+ **env 就緒**(payment_confirmer 密碼 + PAYMENT_CONFIRMER_DB_URL + TapPay sandbox 金鑰已設 apps/storefront/.env.local)→ 開工階段②-② TapPayChargeAdapter + confirm-payment use-case]
 前序 2026-06-10 — [#223 ✅ 商品詳情頁文案排版(標點全形 + 換行寬統一 960 + 手機段落靠左 iOS WebKit CJK 修)+ #221 filter-top.css 拆 3 檔降鐵則 6]
 
 ## 最近 3 commit
-> 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `b241a82` 為本 s2c slice commit 提交時 dev 可達祖先〔HEAD parent〕、本 commit 自身 hash 不入表頂〔避 off-by-one orphan〕)。
+> 下表列近期可達 commit(挑有意義的、非機械 git log -3;表頂 `2e071aa` 為本 docs commit 提交時 dev 可達祖先〔HEAD parent、階段②-① slice commit〕、本 docs commit 自身 hash 不入表頂〔避 off-by-one orphan〕)。
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `2e071aa` | feat(schemas): M-3 階段②-① confirm_order_payment RPC + payment_confirmer 窄權角色 [m-3] | 2026-06-11 |
 | `b241a82` | style(storefront): #223 商品詳情頁文案全形標點+換行寬統一+手機段落靠左 [#223] | 2026-06-10 |
 | `e5c3569` | refactor(storefront): filter-top.css 拆 3 檔降鐵則 6 上限 [#221] | 2026-06-10 |
-| `0f39210` | docs(status): 刷主表 + 補 backlog #220b/#221/#222 [m-1] | 2026-06-10 |
 
 ## 下一步
-**🆕 M-3 階段②-② TapPayChargeAdapter + confirm-payment use-case**(packages/adapters/src/tappay/ 實作 ITapPayAdapter.charge〔pay-by-prime sandbox、server-only Partner Key、wire→domain、PII mask #16〕+ use-case 編排 charge→confirm RPC〔走 payment_confirmer 連線〕;🔴 server-only;⚠️ 若引入新 pg 依賴 = 鐵則 8 先提 plan note;**需 Sean 先設 server-only TapPay 金鑰 + payment_confirmer 連線字串**)。續 ②-③ charge action / ②-④ 前端 TapPay Fields / ②-⑤ 完成頁。詳 docs/handoff/2026-06-11-m3-stage2-tappay-kickoff.md §7
+**🆕 M-3 階段②-② TapPayChargeAdapter + confirm-payment use-case 開工**(前置 ✅ 就緒):實作 ITapPayAdapter.charge〔pay-by-prime sandbox、server-only Partner Key、PII mask #16〕+ use-case 編排 charge→confirm RPC〔直連 payment_confirmer〕。🔴 引入新 pg 依賴 = 鐵則 8、先提 plan note 等 Sean 點頭。續 ②-③ charge action / ②-④ 前端 TapPay Fields / ②-⑤ 完成頁。詳 docs/handoff/2026-06-11-m3-stage2-tappay-kickoff.md §7
 
 **前序(整合線/OD,多已完成):** **OD 商品頁改造 Phase A(OD-5~11)已合併進 dev ✅**(merge cf630b2、與 S6 fitments 共存、合併後三綠 + 完整 pnpm test 531 全綠;整合線 S0–S6 + OD Phase A 皆完成;下一步 **OD-12 適用車款表**接 S6 plumb 的 fitments[]〔D1=A 真 3 欄、post-merge〕、Sean 肉眼驗 :3001 後推)。 **資料線 S0–S6 全完 + 已上線自動運轉 ✅(報價單↔網站整合 Phase 1 收尾)**。Sean 已設對 service_role secret + rpm-sync workflow_dispatch 首跑綠;每天台灣 03:00 自動同步運轉中;action 升 Node24 v6。**下一步**:**OD 商品頁改造線**(並行 workstream、附屬區)續做(OD-F1 可接 S6 plumb 的 fitments[])。正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 Sean 貼 web Codex 補(S5 本輪走 Claude fallback 對抗審查 2 輪 PASS + code-reviewer PASS)。**description 不在同步 scope**(中文化 backlog #209);<5% 靜默截斷持久基線 backlog #210。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre + S5-plan + S5 + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209/#210 留 backlog;g-7 wallet HOLD #202 不變。
 
 ## Sean 待決策
 **🆕 M-3 結帳（寫審分離進行中）**：拍板已記 plan §0（Q1=A 完整 M-3 / Q2=A TapPay sandbox / 安全鑰匙=丙 / 經銷價=A 直接搬報價單算好的兩價、premiumStore 暫=store）。**待 Sean 後續**：⓪ **M-3-S2-a migration `supabase db push`**（哨兵獨立 codex/MCP 複驗最終版 PASS 後、Sean 手動 push + db push）+ **S2-b1 運費片：自取 store 是否也收 100**（design 自取免運 vs flat 100 衝突、偏離則 override）；① 階段⓪ 報價單側依賴（我出規格、Sean 橋接另一 session）= bump `STOREFRONT_CATALOG_CONTRACT.md`（釘 price_listing→price_general、price_store→price_store）+ 最小權限唯讀 role/protected view 曝兩價（不含 cost/shopee/PII）+ secret 只給 rpm-sync GHA；三者就緒前階段⓪ 硬 gate 不解、先做階段①。② 階段② 前 TapPay sandbox 金鑰。③ 發票 A3 / premiumStore 再折時機 M-3 中途拍。**前序：**
-**🆕 M-3 階段②-① 待 Sean 操作**:① `supabase db push` 套 migration 20260611120000_m3_s2c(別 MCP 寫正式庫)② 設 payment_confirmer 角色密碼(`ALTER ROLE payment_confirmer WITH PASSWORD '…'` 或 dashboard;migration 不寫死)③ 階段②-② 前提供 server-only TapPay sandbox 金鑰 + payment_confirmer 連線字串。
+**🆕 M-3 階段②-① ✅ 完成上 prod**(db push 套 migration + payment_confirmer 密碼 + PAYMENT_CONFIRMER_DB_URL + TapPay 金鑰已設);**②-② 待 Sean 點頭**:鐵則 8 引入 pg 依賴 plan(confirm RPC 直連 payment_confirmer)。
 **報價單↔網站整合**:✅ **S5 已上線、資料線無待決策**(Sean 設對 service_role secret + workflow_dispatch 首跑綠、每天 03:00 自動運轉;原誤貼 anon key 已修;action 升 Node24 v6)。~~S5 啟用 / 平台 / S3b-2 sign-off / S3a db push / QUOTE_*~~ ✅ 全已就緒。**前序:**
 **⏸ g-7 儲值金 wallet 頁 HOLD**(2026-05-31 Sean 拍:台灣「儲值」踩電子支付/儲值法規邊緣、商業模式未定、**deposit 不做**〔連 mock 不做〕、g-7 推延;WalletTab 維持 stub、別主動排儲值進度、Sean 解 hold 才動;讀路徑技術可行〔g-2 pattern authenticated 直查〕但不接;backlog #202 + memory project_wallet-deposit-taiwan-legal-hold)。**前序:**
 **backlog #193 跨 provider identity linking 已拍 ✅**(2026-05-28 Sean g-1 肉眼驗時 + 戳到「3 方法=3 帳號」+ 拍 **C 中庸引導**:LoginPage 引導文案 + Email/Google 註冊 server-side 撞處置 + 不 auto-link);**架構決策依賴已拍 ✅**(2026-05-31 Sean g-6 規劃時拍 **路徑 c = DB unique constraint + helper view**〔view 對 anon 受控 SELECT 只 expose email+provider 兩欄、不需 service_role、最貼 Supabase pattern;需寫 migration + RLS〕;#193 實作為獨立 auth slice〔鐵則 8+12、走 plan + codex 雙關卡〕、技術上不擋 g-6〔愛車只讀寫自己資料、不碰跨 provider identity〕;原「最晚 g-5/g-6 前必修」死線已解);LINE 端非對稱(無 email 不可自動偵測)、補綁走 backlog #179。**另:新增 backlog #200**(我的愛車車款 → products filter 快速帶入、Sean ③.5=A 拍綁 Phase 2 結構化 vehicles、graphify 證 Identity↔Catalog 跨 bounded context 零邊)。**前序:**
@@ -34,7 +34,7 @@
 
 ## Blocker
 **M-3 階段⓪（經銷價同步 / 店家價 checkout）硬 gate 待報價單側三件就緒**（合約 bump v2 + protected dealer view + least-privilege 憑證；**非硬 blocker** — 階段①〔訂單地基〕先行、不卡 M-3-S2 migration）。**前序：**
-**M-3 階段②-② 待 Sean 前置**:TapPay sandbox 金鑰(Partner Key / Merchant / APP_ID / APP_KEY)+ payment_confirmer server-only 連線字串(**非硬 blocker** — 第①片〔confirm RPC〕已完成不卡)。
+**M-3 階段②-② 前置 ✅ 就緒**(TapPay sandbox 金鑰 Partner Key/Merchant/APP_ID/APP_KEY + payment_confirmer 密碼/PAYMENT_CONFIRMER_DB_URL 已設 .env.local;非 blocker)。
 **資料線 S0–S6 全完 ✅**(S3b-2 上線 §8.5 PASS + MCP 全綠;S4 下架對賬交易模擬驗 scope/零留痕;S6 fitments + vitest 508;S5 排程實作 W1 維度 BLOCKER 經 fallback 對抗審 2 輪修正 PASS + code-reviewer PASS、三綠 + W1 實測)。無硬 blocker。**S5 啟用待 Sean dashboard**(設 4 secret + workflow_dispatch 驗、非 Code 端、見 plan §10);正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 web Codex 補。
 ## 緊急 backlog
 無
