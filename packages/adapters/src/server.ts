@@ -29,3 +29,8 @@ export { SupabaseWalletAdapter } from './supabase/SupabaseWalletAdapter';
 // M-1-14e-1:SupabaseAuthAdapter 走 server-only subpath(register / login 走 server action、
 // 對齊「會員驗證在 server」鐵則 + wallet adapter 前例;失敗映射 domain AuthError、不上洩 Supabase error)。
 export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';
+
+// M-3 階段②-②a:TapPayChargeAdapter 走 server-only subpath(持 Partner Key、x-api-key server-only secret、
+// 絕不進 client bundle;pay-by-prime sandbox/prod by env)。composition root 唯一受控注入點(eslint no-restricted-imports
+// 擋全部 storefront import、只剩 composition root inline-disable = 結構守門)。
+export { TapPayChargeAdapter, type TapPayChargeConfig } from './tappay/TapPayChargeAdapter';
