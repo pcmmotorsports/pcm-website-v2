@@ -34,3 +34,8 @@ export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';
 // 絕不進 client bundle;pay-by-prime sandbox/prod by env)。composition root 唯一受控注入點(eslint no-restricted-imports
 // 擋全部 storefront import、只剩 composition root inline-disable = 結構守門)。
 export { TapPayChargeAdapter, type TapPayChargeConfig } from './tappay/TapPayChargeAdapter';
+
+// M-3 階段②-②b:PaymentConfirmerAdapter 走 server-only subpath(持 PAYMENT_CONFIRMER_DB_URL raw DB
+// credential、敏感度 ≥ service_role;pg 直連 5432 非 pooler)。pg 只在本 subpath import = 不污染 root barrel
+// tree-shaking;同 TapPay adapter 結構守門。
+export { PaymentConfirmerAdapter, type PgClientLike } from './payment/PaymentConfirmerAdapter';

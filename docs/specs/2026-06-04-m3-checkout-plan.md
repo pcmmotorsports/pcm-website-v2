@@ -73,7 +73,9 @@
 
 ### 3.2 不做 / 先留位
 
-premiumStore 再折(暫=store)/ 經銷商自動申請審核+管理 UI(手動設 tier、M-2-06/M-4a 延)/ 儲值金 / 優惠券 / 合作店家取貨 / 完成頁安裝 CTA / ATM(隱藏)/ 發票自動開立(只收存)/ TapPay webhook(同步 charge 權威、斷線→對帳 backlog)/ 免運門檻套 NT$5,000(L2)。偏離一律註解+commit body+manifest override 揭示。
+premiumStore 再折(暫=store)/ 經銷商自動申請審核+管理 UI(手動設 tier、M-2-06/M-4a 延)/ 儲值金 / 優惠券 / 合作店家取貨 / 完成頁安裝 CTA / ATM(隱藏)/ 發票自動開立(只收存)/ 免運門檻套 NT$5,000(L2)。偏離一律註解+commit body+manifest override 揭示。
+
+> 🆕 **2026-06-11 Sean override:TapPay webhook(notify)移出「不做」→ 改做**(理由=金流穩健優先、原排除僅 Phase-1 省事非硬擋)。處置 = C 主(TapPay 後端 notify webhook 自動補正孤兒單〔charge 成功但 confirm 未達〕)+ A 輔(charge-attempt 紀錄防 webhook 也失敗)。落 **階段②-⑥ webhook 片**(公開端點翻 paid = 鐵則 8+12 安全要害:驗來源防偽造 + 金額對 orders.total + 走冪等 confirm RPC;動手前獨立 mini-plan + codex 關卡1 + 關卡2;notify 機制 context7/官方文件確認;sandbox 測需 Vercel preview/通道非本機)。詳 docs/handoff/2026-06-11-m3-stage2-tappay-kickoff.md §3.7 PF-X1 + §7 ②-⑥。
 
 ### 3.3 Phase 2 預留:fulfillment_method 超商/店家;display_id 生 QR;premium 三層折扣;member_discount_overrides。
 

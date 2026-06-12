@@ -55,3 +55,7 @@ export {
   FREE_SHIPPING_THRESHOLD,
   HOME_SHIPPING_FEE,
 } from './order/shipping';
+
+// payment 確認 domain 錯誤(M-3 階段②-②b、confirm 失敗分類:unreachable=可重 confirm / rejected=孤兒)
+export type { PaymentConfirmErrorCode } from './payment/errors';
+export { PaymentConfirmError } from './payment/errors';

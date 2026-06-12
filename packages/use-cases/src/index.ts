@@ -31,3 +31,7 @@ export { depositWallet } from './deposit-wallet';
 // M-3-S2-b2:建單 use-case(placeOrder、薄編排、server 權威全在 create_order RPC;
 // input/result 型別在 @pcm/domain order/types.ts、本層不 re-export 型別、從 @pcm/domain 取)。
 export { placeOrder } from './place-order';
+
+// M-3 階段②-②b:成交編排 use-case(confirmPayment、charge → confirm、孤兒單契約 outcome;
+// 型別 ConfirmPaymentInput/Outcome 在 @pcm/domain payment/types.ts、從 @pcm/domain 取)。
+export { confirmPayment, type ConfirmPaymentDeps } from './confirm-payment';

@@ -23,10 +23,12 @@
     "@pcm/domain": "workspace:*",
     "@pcm/ports": "workspace:*",
     "@supabase/supabase-js": "^2.105.3",
+    "pg": "^8.21.0",
     "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0",
     "typescript": "catalog:"
   }
 }

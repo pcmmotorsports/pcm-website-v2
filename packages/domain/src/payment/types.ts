@@ -85,3 +85,66 @@ export type TapPayRefundResult = {
   /** 原始回應、audit 用 */
   rawResponse: unknown;
 };
+
+// ── M-3 階段②-②b:confirm(付款確認)型別 ────────────────────────────────────
+
+/**
+ * ConfirmOrderPaymentInput:payment_confirmer 窄權 confirm RPC 輸入(IPaymentConfirmer port)。
+ *
+ * 對齊 `confirm_order_payment(p_order_id uuid, p_amount integer, p_rec_trade_id text)`;
+ * adapter 取 `amount.amount`(整數元位)餵 p_amount integer、`orderId` 餵 p_order_id、`recTradeId` 餵 p_rec_trade_id。
+ */
+export type ConfirmOrderPaymentInput = {
+  orderId: OrderId;
+  /** server read-back orders.total(Money、整數元位、client 永不送價);adapter 取 amount.amount 餵 p_amount。 */
+  amount: Money;
+  /** TapPay rec_trade_id(charge 成功的 transactionId)。 */
+  recTradeId: string;
+};
+
+/**
+ * ConfirmOrderPaymentResult:confirm RPC 回 DTO(對齊 RPC `RETURNS jsonb {confirmed, idempotent}`)。
+ *
+ * 🔴 鐵則 12(PF-G):**不帶 total / 價結構**;只回成功與否 + 是否冪等重放。
+ */
+export type ConfirmOrderPaymentResult = {
+  confirmed: boolean;
+  /** true = 重放冪等 no-op(已 paid + 同 rec + 同 amount);false = 本次真翻 unpaid→paid。 */
+  idempotent: boolean;
+};
+
+/**
+ * ConfirmPaymentInput:confirm-payment use-case 輸入(編排 charge → confirm)。
+ *
+ * `amount` = server read-back orders.total(單一金額來源):同時餵 charge amount 與 confirm p_amount,
+ * client 永不送價(鐵則 12);PF-X3 = use-case 比對 charge 實扣 == 此 amount。
+ */
+export type ConfirmPaymentInput = {
+  prime: string;
+  orderId: OrderId;
+  amount: Money;
+  cardholder: Cardholder;
+};
+
+/**
+ * ConfirmPaymentOutcome:confirm-payment use-case 結果(🔴 孤兒單契約、MUST-FIX 2)。
+ *
+ * - `paid`:charge 成功 + 實扣金額符 + confirm 成功(`idempotent` 標重放 no-op)→ 完成頁。
+ * - `charge_failed`:charge 業務失敗(卡拒等、status≠0)、**未扣款** → 可安全重試。
+ * - `charge_unknown`:charge transport 失敗(網路/timeout)、扣款狀態未知、**無 rec_trade_id** → 勿重刷
+ *   (②-⑥ webhook 經 order_number 對帳自癒)。
+ * - `orphan`:charge 已扣款但無法確認(實扣≠total / confirm 連線層失敗 / confirm RPC 拒)→ ②-③ 回
+ *   「付款已收、處理中、勿重複付款」+ 寫 charge-attempt 紀錄(`transactionId`+`orderId`);
+ *   重試走「重呼 confirm 冪等」**非重 charge**;前端成功真相 = `paid`(非 charge.status)。
+ *   `reason` 供 ②-③/②-⑥ 對帳分類(連線層=可重 confirm、RPC 拒/金額不符=孤兒對帳)。
+ */
+export type ConfirmPaymentOutcome =
+  | { kind: 'paid'; idempotent: boolean }
+  | { kind: 'charge_failed' }
+  | { kind: 'charge_unknown'; orderId: OrderId }
+  | {
+      kind: 'orphan';
+      reason: 'amount_mismatch' | 'confirm_unreachable' | 'confirm_rejected';
+      transactionId: string;
+      orderId: OrderId;
+    };
