@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CheckoutInput } from './index';
+import { CheckoutInput, TapPayPrimeInput } from './index';
 
 // vitest root config glob `{packages,apps}/**/*.{test,spec}.{ts,tsx}` 收本檔。
 // M-1-14c 的 6 組 schema 靠消費端 actions.test.ts 間接驗;本片改為「schema 直接單元測」(更早抓 zod 漂移)。
@@ -58,5 +58,32 @@ describe('CheckoutInput', () => {
         invoice: { type: 'donate', donateCode: '520' },
       }).success,
     ).toBe(true);
+  });
+});
+
+// === TapPayPrimeInput(M-3 ②-③d)===
+describe('TapPayPrimeInput', () => {
+  it('合法 prime(trim 後非空、≤512)→ 通過且回 trim 後值', () => {
+    const res = TapPayPrimeInput.safeParse('  prime_abc123  ');
+    expect(res.success).toBe(true);
+    if (res.success) {
+      expect(res.data).toBe('prime_abc123');
+    }
+  });
+
+  it.each([
+    ['空字串', ''],
+    ['純空白', '   '],
+  ])('%s → 拒(不送空 prime 給 TapPay)', (_label, v) => {
+    expect(TapPayPrimeInput.safeParse(v).success).toBe(false);
+  });
+
+  it('超長(>512)→ 拒(防呆 cap)', () => {
+    expect(TapPayPrimeInput.safeParse('x'.repeat(513)).success).toBe(false);
+  });
+
+  it('非字串(數字/物件)→ 拒', () => {
+    expect(TapPayPrimeInput.safeParse(123).success).toBe(false);
+    expect(TapPayPrimeInput.safeParse({ prime: 'x' }).success).toBe(false);
   });
 });

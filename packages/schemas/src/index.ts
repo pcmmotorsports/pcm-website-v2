@@ -159,3 +159,14 @@ export const DepositInput = z.object({
   paymentMethod: z.enum(['tappay', 'atm']),
 });
 export type DepositInput = z.infer<typeof DepositInput>;
+
+// === TapPay prime(M-3 ②-③d、charge action 前端契約)===
+// 一次性 token(TapPay Fields SDK getPrime() 產;~90s 有效、單次使用)。本層只驗形狀
+// (trim 非空 + 長度上限 512 防呆);真偽由 TapPay pay-by-prime server 端驗。
+// 🔴 前端契約 = { checkout input, lines, prime } —— 零價、零 cardholder、零 orderId(鐵則 12)。
+export const TapPayPrimeInput = z
+  .string()
+  .trim()
+  .min(1, { error: '付款資訊缺失,請重新進行刷卡' })
+  .max(512, { error: '付款資訊異常,請重新進行刷卡' });
+export type TapPayPrimeInput = z.infer<typeof TapPayPrimeInput>;
