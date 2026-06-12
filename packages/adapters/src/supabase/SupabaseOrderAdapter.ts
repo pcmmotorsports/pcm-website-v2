@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
-import type { Order, PlaceOrderInput, PlaceOrderResult } from '@pcm/domain';
+import type { Money, Order, PlaceOrderInput, PlaceOrderResult } from '@pcm/domain';
+import { toMoneyAmount } from '@pcm/domain';
 import {
   mapPlaceOrderToCreateOrderArgs,
   type CreateOrderRpcResult,
@@ -54,6 +55,27 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       throw new Error('create_order RPC 回傳格式非預期(缺 order_id / display_id)');
     }
     return { orderId: result.order_id, displayId: result.display_id };
+  }
+
+  /**
+   * 付款編排窄讀(②-③c-1、plan v6 §4):`select total`(單欄、RLS own-only)→ Money。
+   * - 查無 / 非本人(RLS 濾掉)→ null(caller fail-closed 拒付款、不 throw)。
+   * - DB `total integer` 元位 → `toMoneyAmount` 中央守門(整數/非負;絕不 `as MoneyAmount`)。
+   * - 🔴 鐵則 12:此值為 charge 與 confirm p_amount 的單一金額來源(client 永不送價、零浮點)。
+   */
+  async findTotal(id: string): Promise<Money | null> {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .select('total')
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      throw error; // 裸 throw(對齊 placeOrder 慣例);caller(action)吞通用字面
+    }
+    if (!data || typeof (data as { total?: unknown }).total !== 'number') {
+      return null; // 查無/非本人(RLS)→ fail-closed
+    }
+    return { amount: toMoneyAmount((data as { total: number }).total), currency: 'TWD' };
   }
 
   // ── 讀路徑:延 stage ③ 訂單查詢(deferred-stub)──

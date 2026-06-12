@@ -1,4 +1,5 @@
 import type {
+  Money,
   Order,
   OrderId,
   OrderStatusFilter,
@@ -32,6 +33,15 @@ export interface IOrderRepository {
    *  依 RPC 契約定窄型別。)
    */
   placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult>;
+
+  /**
+   * 付款編排窄讀(M-3 ②-③c-1、plan v6 §4):回該單 `orders.total`(server read-back、
+   * 🔴 鐵則 12 單一金額來源 —— 同時餵 charge amount 與 confirm p_amount、client 永不送價)。
+   *
+   * RLS own-only:查無 / 非本人 → `null`(caller fail-closed 拒、不 throw);整數元位 → Money、
+   * 零浮點。**限付款編排用**(完整訂單讀路徑仍延 stage ③、#217 不受本方法影響)。
+   */
+  findTotal(id: OrderId): Promise<Money | null>;
 
   /** 查單筆(RLS own-only;查無回 null 不 throw)。 */
   findById(id: OrderId): Promise<Order | null>;

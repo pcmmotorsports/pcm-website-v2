@@ -74,3 +74,45 @@ describe('SupabaseOrderAdapter 讀路徑 deferred-stub(延 stage ③ 訂單查�
     await expect(adapter.listByStatus({})).rejects.toThrow('未實作');
   });
 });
+
+// ── findTotal:付款編排窄讀(②-③c-1、plan v6 §4)──
+// mock from('orders').select('total').eq('id', id).maybeSingle() 鏈;單欄、RLS own-only(mock 層不重現
+// RLS、以「查無 → null」涵蓋非本人被濾掉之 fail-closed 行為)。
+function makeQueryClient(result: { data: unknown; error: unknown }) {
+  const maybeSingle = vi.fn().mockResolvedValue(result);
+  const eq = vi.fn().mockReturnValue({ maybeSingle });
+  const select = vi.fn().mockReturnValue({ eq });
+  const from = vi.fn().mockReturnValue({ select });
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, maybeSingle };
+}
+
+describe('SupabaseOrderAdapter.findTotal', () => {
+  it('查得 → {amount: toMoneyAmount(total), currency: TWD};查詢鏈 = orders/select total/eq id', async () => {
+    const { client, from, select, eq } = makeQueryClient({ data: { total: 1100 }, error: null });
+    const res = await new SupabaseOrderAdapter(client).findTotal('o1');
+    expect(res).toEqual({ amount: 1100, currency: 'TWD' });
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith('total'); // 🔴 單欄窄讀(零價結構外、零經銷欄觸及)
+    expect(eq).toHaveBeenCalledWith('id', 'o1');
+  });
+
+  it('查無 / 非本人(RLS 濾掉、maybeSingle 回 null)→ null(fail-closed、不 throw)', async () => {
+    const { client } = makeQueryClient({ data: null, error: null });
+    await expect(new SupabaseOrderAdapter(client).findTotal('o-nope')).resolves.toBeNull();
+  });
+
+  it('total 形狀非 number(防 DB/wire 腐壞)→ null fail-closed', async () => {
+    const { client } = makeQueryClient({ data: { total: '1100' }, error: null });
+    await expect(new SupabaseOrderAdapter(client).findTotal('o1')).resolves.toBeNull();
+  });
+
+  it('查詢 error → 裸 throw(對齊 placeOrder 慣例;action 層吞通用字面)', async () => {
+    const { client } = makeQueryClient({ data: null, error: new Error('connection refused') });
+    await expect(new SupabaseOrderAdapter(client).findTotal('o1')).rejects.toThrow();
+  });
+
+  it('🔴 非整數 total(浮點腐壞)→ toMoneyAmount 中央守門 throw、不靜默放行', async () => {
+    const { client } = makeQueryClient({ data: { total: 1100.5 }, error: null });
+    await expect(new SupabaseOrderAdapter(client).findTotal('o1')).rejects.toThrow();
+  });
+});
