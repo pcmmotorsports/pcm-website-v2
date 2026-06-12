@@ -39,3 +39,12 @@ export { TapPayChargeAdapter, type TapPayChargeConfig } from './tappay/TapPayCha
 // credential、敏感度 ≥ service_role;pg 走 Supabase session pooler + 完整 CA 驗證)。pg 只在本 subpath
 // import = 不污染 root barrel tree-shaking;同 TapPay adapter 結構守門。
 export { PaymentConfirmerAdapter, type PgClientLike } from './payment/PaymentConfirmerAdapter';
+
+// M-3 ②-③b:charge 簿記/防雙扣鎖雙軌(主=pg 窄權直連、備=authenticated PostgREST+token;
+// 同 PaymentConfirmerAdapter 紀律:server-only subpath、pg 不進 root barrel)。
+export { PgChargeAttemptAdapter } from './payment/PgChargeAttemptAdapter';
+export {
+  SupabaseChargeAttemptFallbackAdapter,
+  type ChargeAttemptFallbackRail,
+} from './payment/SupabaseChargeAttemptFallbackAdapter';
+export { ChargeAttemptStoreWithFallback } from './payment/ChargeAttemptStoreWithFallback';

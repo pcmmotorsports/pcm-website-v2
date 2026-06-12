@@ -12,6 +12,7 @@ export type * from './IOrderRepository';
 export type * from './ISheetsAdapter';
 export type * from './ITapPayAdapter';
 export type * from './IPaymentConfirmer';
+export type * from './IChargeAttemptStore';
 
 // Contract test framework 不從 main entry re-export(M-1-03-prep-audit S1 修正):
 // - tree-shaking 樂觀假設不可信、main entry re-export 會把 vitest 拉進 production bundle

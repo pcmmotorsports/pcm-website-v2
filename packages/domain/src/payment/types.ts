@@ -147,4 +147,42 @@ export type ConfirmPaymentOutcome =
       reason: 'amount_mismatch' | 'confirm_unreachable' | 'confirm_rejected';
       transactionId: string;
       orderId: OrderId;
-    };
+    }
+  /**
+   * `locked`:佔 charge 鎖失敗、**零扣款**(②-③a begin RPC、PF-X2;plan v6 §2/§6):
+   * - `user_in_flight`:同會員另一筆未解決付款 10 分鐘內進行中(Q2=A 閘)→ ②-③e 映
+   *   in_flight 態(不帶 displayId、不得回「付款已收」語意 —— 此請求的新單沒刷過卡)。
+   * - `order_locked`:同單已有 active attempt(pending/charged)→ 映 processing(勿重複付款)。
+   * - `not_unpaid`:order 非 unpaid(已 paid 等;與撞鎖同層級、RPC 不洩具體狀態)→ 映 processing。
+   */
+  | { kind: 'locked'; reason: ChargeLockReason };
+
+/** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
+export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
+
+/**
+ * BeginChargeAttemptResult:佔 per-order charge 鎖結果(IChargeAttemptStore.begin、②-③a begin RPC DTO)。
+ *
+ * 🔴 `fallbackToken`:備軌一次性權杖(round4 MF2)— DB 只存 sha256 hash、此明文**只活在 server
+ * 記憶體**(use-case → 複合 adapter → 備軌 RPC 參數),絕不回 client、絕不入 log。
+ */
+export type BeginChargeAttemptResult =
+  | { acquired: true; attemptId: string; fallbackToken: string }
+  | { acquired: false; reason: ChargeLockReason };
+
+/**
+ * MarkChargeAttemptChargedInput:PF-X1 麵包屑寫入(charge 成功、confirm 前;雙鍵驗 attemptId+orderId
+ * 對齊 ②-③a RPC、round6)。`fallbackToken` 供備軌(主軌忽略;不入 log)。
+ */
+export type MarkChargeAttemptChargedInput = {
+  attemptId: string;
+  orderId: OrderId;
+  recTradeId: string;
+  fallbackToken: string;
+};
+
+/** MarkChargeAttemptFailedInput:卡拒(明確未扣款)釋鎖(雙鍵驗;僅主軌 — 備軌不可釋鎖)。 */
+export type MarkChargeAttemptFailedInput = {
+  attemptId: string;
+  orderId: OrderId;
+};
