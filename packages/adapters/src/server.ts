@@ -36,6 +36,6 @@ export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';
 export { TapPayChargeAdapter, type TapPayChargeConfig } from './tappay/TapPayChargeAdapter';
 
 // M-3 階段②-②b:PaymentConfirmerAdapter 走 server-only subpath(持 PAYMENT_CONFIRMER_DB_URL raw DB
-// credential、敏感度 ≥ service_role;pg 直連 5432 非 pooler)。pg 只在本 subpath import = 不污染 root barrel
-// tree-shaking;同 TapPay adapter 結構守門。
+// credential、敏感度 ≥ service_role;pg 走 Supabase session pooler + 完整 CA 驗證)。pg 只在本 subpath
+// import = 不污染 root barrel tree-shaking;同 TapPay adapter 結構守門。
 export { PaymentConfirmerAdapter, type PgClientLike } from './payment/PaymentConfirmerAdapter';

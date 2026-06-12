@@ -5,7 +5,8 @@ import type { ConfirmOrderPaymentInput, ConfirmOrderPaymentResult } from '@pcm/d
  *
  * 對齊 `confirm_order_payment(p_order_id, p_amount, p_rec_trade_id)` SECURITY DEFINER RPC
  * (migration 20260611120000)。實作 = `PaymentConfirmerAdapter`(payment_confirmer 窄權 DB 角色、
- * **pg 直連 5432**〔非 pooler、pooler 呼 SECDEF 必斷〕、非 Supabase JS client、非 service_role)。
+ * **pg 走 Supabase session pooler**〔直連 host IPv6-only、Vercel 連不到;以 payment_confirmer 直接登入
+ * 無 SET ROLE、實測 pooler 呼 SECDEF 不斷〕+ 完整 CA 驗證、非 Supabase JS client、非 service_role)。
  *
  * 與 IOrderRepository 分離:confirm 走 payment_confirmer 窄權(只 EXECUTE confirm RPC、無 table 權限)、
  * 非 authenticated/service_role;故獨立 port(對齊安全鑰匙=丙、付款確認與建單 trust boundary 不同)。
