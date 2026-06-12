@@ -5821,6 +5821,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 可維護性:卡單客訴只能人工 SQL 解鎖(對 production 下手、高風險)。
   - bug 可追蹤性:pending 殭屍累積令對帳簿雜訊增、Record API 掃描成本上升。
 - **發現於:** 2026-06-12 / ②-③ plan codex 關卡1(round1 F2 / round5 MF1 系列)
+- **拍板:** Sean 2026-06-12 拍 A —— begin 回應斷線變體(DB 佔鎖成功但 server 未收到回應 → 卡單 + 會員閘 ≤10 分鐘)同樣接受、靠本條 ②-⑥ 對帳解、不自動釋鎖(寧卡單勿雙扣)。
 - **相關:** plan docs/specs/2026-06-12-m3-stage2-3-charge-action-plan.md §9.2;migration 20260612150000
 
 ### #225. 🧟 卡拒重試產生 unpaid 殭屍單 — M-4a 前補清理/標記

@@ -188,7 +188,7 @@ export type ChargePaymentActionResult =
 ## 9. 威脅模型 / 殘餘風險(誠實記)
 
 1. **雙單雙扣**:Q2=A per-user 10 分鐘閘(含 charged-未-paid、round2 MF1)正面擋「重按/短窗重送」;殘餘 = 10 分鐘後 deliberate 重走 tokenize 再送(視為新交易)→ ②-⑥ **webhook 自癒(主)+ Record API 對帳(輔)** 退款處置。緩解疊加:prime 一次性 + ②-④ 鈕 disable + 文案。
-2. **stale pending**:per-order 永鎖(該單)、per-user 10 分鐘自動過期(會員不被永久卡結帳)。→ backlog:「per-order stale pending 須 ②-⑥(webhook 主 + Record API 輔)對帳解鎖;不修會痛 = 卡單客訴須人工 SQL 解鎖」。
+2. **stale pending**:per-order 永鎖(該單)、per-user 10 分鐘自動過期(會員不被永久卡結帳)。→ backlog #224。**含 begin 回應斷線變體(Sean 2026-06-12 拍 A)**:begin 在 DB 成功佔鎖但回應未達 server(連線斷)→ 該單 pending 卡鎖 + 會員閘 ≤10 分鐘;拍 A = 接受、靠 #224/②-⑥ 對帳解(否決自動釋鎖 — 同 stale pending 理由、寧卡單勿開雙扣門)。
 3. **卡拒重試產生 unpaid 殭屍單**(每次重送=新單):Phase 1 接受(無庫存佔用)→ backlog:「不修會痛 = admin 訂單列表雜訊 + 報表失真;M-4a 前補清理/標記」。
 4. **markCharged 麵包屑(已完整修、§3 雙軌;非「接受」項)**:不可約剩餘 = begin 成功後數秒內 pg pooler + PostgREST HTTPS **雙 transport 同時全死**(= Supabase 整體中斷);此情境下 confirm 亦必死(同 DB)→ 訂單停 unpaid + pending row 在 DB + orderId↔rec 連結在 TapPay 側 → ②-⑥ webhook 自癒(主)/ Record API 掃 pending 反查(輔)= **恢復確定性**。物理極限:無任何設計能寫入完全斷線的 DB;本修法已把「資料遺失」變為零(TapPay durable)、把「恢復」變為確定程序。
 5. **備軌偽造面(§2 RPC 4)— 已以 token 關死(round4 MF2)**:無 fallback_token(只存 server 記憶體、DB 只有 hash)→ 任何 authenticated 直呼全拒;round4 抓的「會員搶先假 charged → 真卡拒後 markFailed 失敗 → 誤鎖 + 誤導文案」路徑不存在。殘餘 = 零(authenticated 對 attempts 的有效寫入面 = 持有 token 的 server action 本身)。attempts.rec ≠ orders.rec 分歧偵測仍列 ②-⑥(防 bug 非防攻擊)。
