@@ -114,7 +114,7 @@ export type ConfirmOrderPaymentResult = {
 };
 
 /**
- * ConfirmPaymentInput:confirm-payment use-case 輸入(編排 charge → confirm)。
+ * ConfirmPaymentInput:confirm-payment use-case 輸入(編排 begin 佔鎖 → charge → markCharged 雙軌 → PF-X3 → confirm → 收斂補記;②-③c-2)。
  *
  * `amount` = server read-back orders.total(單一金額來源):同時餵 charge amount 與 confirm p_amount,
  * client 永不送價(鐵則 12);PF-X3 = use-case 比對 charge 實扣 == 此 amount。
@@ -130,7 +130,7 @@ export type ConfirmPaymentInput = {
  * ConfirmPaymentOutcome:confirm-payment use-case 結果(🔴 孤兒單契約、MUST-FIX 2)。
  *
  * - `paid`:charge 成功 + 實扣金額符 + confirm 成功(`idempotent` 標重放 no-op)→ 完成頁。
- * - `charge_failed`:charge 業務失敗(卡拒等、status≠0)、**未扣款** → 可安全重試。
+ * - `charge_failed`:charge 業務失敗(卡拒等、status≠0)、**未扣款**(recordPersisted:true 才可立即重試;false 見變體註解)。
  * - `charge_unknown`:charge transport 失敗(網路/timeout)、扣款狀態未知、**無 rec_trade_id** → 勿重刷
  *   (②-⑥ webhook 經 order_number 對帳自癒)。
  * - `orphan`:charge 已扣款但無法確認(實扣≠total / confirm 連線層失敗 / confirm RPC 拒)→ ②-③ 回
@@ -140,7 +140,12 @@ export type ConfirmPaymentInput = {
  */
 export type ConfirmPaymentOutcome =
   | { kind: 'paid'; idempotent: boolean }
-  | { kind: 'charge_failed' }
+  /**
+   * `recordPersisted`(round5 MF1):卡拒後「已知未扣款」是否 durable 落 DB(markFailed 釋鎖成功)。
+   * false = 主軌 ×3 全敗、pending 鎖殘留 → ②-③e 映 charge_failed_wait(誠實「未扣款 + 請稍候再試」、
+   * 不誘導立即重試;per-user 閘 10 分鐘自動過期、殭屍 pending 列 ②-⑥ 清);true = 可立即重試。
+   */
+  | { kind: 'charge_failed'; recordPersisted: boolean }
   | { kind: 'charge_unknown'; orderId: OrderId }
   | {
       kind: 'orphan';
