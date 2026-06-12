@@ -301,6 +301,13 @@
 .co-card-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .co-card-note { font-size: 11px; color: var(--c-text-2); line-height: 1.5; }
 
+/* ②-④a TapPay Fields iframe 容器(M-3;鏡像 .auth-field input 視覺、高度固定供 iframe 填滿;
+ * SDK 對 focus 容器注入 .tappay-field-focus、欄位 error 由 TapPayCardFields 加 .tpfield-error)。 */
+.tpfield { height: 44px; width: 100%; padding: 0 14px; border: 1px solid var(--c-border); background: var(--c-bg); transition: border-color 0.15s; }
+.tpfield.tappay-field-focus { border-color: var(--c-text); }
+.tpfield.tpfield-error { border-color: var(--c-red); }
+.co-card-error { font-size: 13px; color: var(--c-red); margin: 0; }
+
 /* Step 3 review + agree (e3a;搬 design L351-403) */
 .co-review-block {
   padding: 16px 0;

@@ -1,23 +1,23 @@
 // @vitest-environment jsdom
 //
-// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼 + Step1;e2 接 Step2、e3a 接 Step3、e3b 接送出建單)。
+// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼;②-④b 接 TapPay 刷卡流程)。
 //
-// 驗:① 載入態 ② 空車 → 導購物車提示 ③ ready:3 步指示器 + Step1 地址清單 + 配送(宅配)+ 右側摘要
-//     ④ 地址選擇(radio is-on)⑤ 導航:step1→step2(發票/付款)→step3(確認複查)/ 上一步 / 返回購物車→/cart
-//     ⑤b step3 勾同意 → 確認付款 enabled ⑥ member block + TierBadge + 升級連結(general)
-//     ⑦ 🔴 經銷零洩漏(general-only、無劃線價)⑧ 無地址 → 下一步 disabled
-//     e3b:⑨ 確認付款 → placeOrderAction 收零價線 + 成功狀態 + 清車 ⑩ 建單失敗 → 通用錯誤 + 不清車
-//          ⑪ 🔴 線缺 variantId → client 拒整單、不呼叫 action(MUST2 寫入路徑)
-// (Step2 發票/付款細節在 CheckoutStep2.test.tsx、Step3 複查細節在 CheckoutStep3.test.tsx;本檔只驗殼接線 + 步驟導航。)
-// mock '@/contexts/CartContext'(useCart)+ '@/app/cart/actions'(resolveCartLines)+ next/navigation + matchMedia。
+// 驗:① 載入態 ② 空車 ③ ready:3 步 + Step1 + 配送 + 右側摘要(②-④b 抽 CheckoutSummaryAside、字面不變)
+//     ④ 地址選擇 ⑤ 導航 ⑤b step3 勾同意 + canGetPrime → 確認付款 enabled;canGetPrime false → disabled
+//     ⑥ member block ⑦ 🔴 經銷零洩漏 ⑧ 無地址 disabled
+//     ②-④b 刷卡接線:⑨ 確認付款 → getPrime → chargePaymentAction 收零價線+prime + paid 終態 + 清車
+//     ⑩ 失敗(formError)→ 通用錯誤 + 不清車 ⑪ 🔴 線缺 variantId → client 拒、零 action 呼叫
+//     ⑫ getPrime null → 友善錯誤、零 action ⑬ processing → 終態+清車 ⑭ in_flight/wait → 留頁+不清車
+//     ⑮ Step3 渲染 TapPay 卡欄容器(tpfield、零 <input> 收卡資料)
+// mock CartContext + cart/actions + charge-actions + useTapPayCard(SDK 不進 jsdom)+ next/navigation。
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { CartItem } from '@/contexts/CartContext';
 import type { ResolvedCartLine } from '@/app/cart/actions';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 
-const { cartRef, resolveMock, pushMock, placeOrderMock } = vi.hoisted(() => ({
+const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, tapRef } = vi.hoisted(() => ({
   cartRef: {
     current: {
       items: [] as CartItem[],
@@ -31,7 +31,15 @@ const { cartRef, resolveMock, pushMock, placeOrderMock } = vi.hoisted(() => ({
   },
   resolveMock: vi.fn(),
   pushMock: vi.fn(),
-  placeOrderMock: vi.fn(),
+  chargeMock: vi.fn(),
+  getPrimeMock: vi.fn(),
+  tapRef: {
+    current: {
+      ready: 'ready' as const,
+      canGetPrime: true,
+      fieldStatus: { number: 0 as const, expiry: 0 as const, ccv: 0 as const },
+    },
+  },
 }));
 
 vi.mock('@/contexts/CartContext', () => ({
@@ -40,9 +48,18 @@ vi.mock('@/contexts/CartContext', () => ({
 vi.mock('@/app/cart/actions', () => ({
   resolveCartLines: resolveMock,
 }));
-// e3b:送出建單 server action(mock 避免 jsdom 載入 server 依賴;真實信任邊界在 actions.test.ts node env 驗)。
-vi.mock('@/app/checkout/actions', () => ({
-  placeOrderAction: placeOrderMock,
+// ②-④b:刷卡 server action(mock 避免 jsdom 載入 server 依賴;真實信任邊界在 charge-actions.test.ts node env 驗)。
+vi.mock('@/app/checkout/charge-actions', () => ({
+  chargePaymentAction: chargeMock,
+}));
+// TapPay SDK hook(mock:SDK script/iframe 不進 jsdom;真行為在 useTapPayCard.test.tsx 驗)。
+vi.mock('@/hooks/useTapPayCard', () => ({
+  TAPPAY_FIELD_IDS: {
+    number: 'tappay-card-number',
+    expirationDate: 'tappay-card-expiration-date',
+    ccv: 'tappay-card-ccv',
+  },
+  useTapPayCard: () => ({ ...tapRef.current, getPrime: getPrimeMock }),
 }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
@@ -67,7 +84,13 @@ afterEach(() => {
   cleanup();
   resolveMock.mockReset();
   pushMock.mockReset();
-  placeOrderMock.mockReset();
+  chargeMock.mockReset();
+  getPrimeMock.mockReset();
+  tapRef.current = {
+    ready: 'ready',
+    canGetPrime: true,
+    fieldStatus: { number: 0, expiry: 0, ccv: 0 },
+  };
 });
 
 function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
@@ -237,7 +260,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(next.disabled).toBe(true);
   });
 
-  // ===== e3b:送出建單接線 =====
+  // ===== ②-④b:刷卡接線(getPrime → chargePaymentAction → 六態)=====
   async function gotoStep3Agreed(container: HTMLElement) {
     await screen.findByText('貨運宅配');
     fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
@@ -245,55 +268,180 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
   }
 
-  it('🔴 確認付款 → placeOrderAction 收零價線(variantId+quantity)+ 成功狀態 + 清車', async () => {
+  it('⑮ Step3 渲染 TapPay 卡欄容器(tpfield 三欄、零 <input> 收卡資料)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    expect(container.querySelector('#tappay-card-number.tpfield')).toBeTruthy();
+    expect(container.querySelector('#tappay-card-expiration-date.tpfield')).toBeTruthy();
+    expect(container.querySelector('#tappay-card-ccv.tpfield')).toBeTruthy();
+    // 🔴 卡資料零進我方 input:tpfield 容器內無 input 元素(iframe 由 SDK 注入、jsdom mock 下為空)
+    expect(container.querySelectorAll('.tpfield input').length).toBe(0);
+    expect(screen.getByText(/TapPay 安全欄位加密處理/)).toBeTruthy();
+  });
+
+  it('⑤c canGetPrime=false → 勾同意後確認付款仍 disabled(雙鈕)', async () => {
+    tapRef.current = { ...tapRef.current, canGetPrime: false };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
+    expect(payButtons.every((b) => b.disabled)).toBe(true);
+  });
+
+  it('🔴 ⑨ 確認付款 → getPrime → chargePaymentAction 收零價線 + prime + paid 終態 + 清車', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
-    placeOrderMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0007' });
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0007' });
     const { container } = renderCheckout();
     await gotoStep3Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
-    // 成功狀態(優先於空車;clear() 後 cart 轉 empty 不蓋掉)
     expect(await screen.findByText('訂單已成立')).toBeTruthy();
     expect(screen.getByText('PCM-2026-0007')).toBeTruthy();
-    // placeOrderAction 收零價線 + home + 無 userId(身分由 RPC auth.uid() 重查)
-    expect(placeOrderMock).toHaveBeenCalledOnce();
-    const payload = placeOrderMock.mock.calls[0]![0] as {
+    expect(chargeMock).toHaveBeenCalledOnce();
+    const payload = chargeMock.mock.calls[0]![0] as {
       lines: Array<Record<string, unknown>>;
       addressId: string;
       shippingMethod: string;
+      prime: string;
     };
-    expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2 }]);
+    expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2 }]); // 零價
     expect(payload.lines[0]).not.toHaveProperty('unitPrice');
+    expect(payload.prime).toBe('prime_test');
     expect(payload.shippingMethod).toBe('home');
     expect(payload.addressId).toBe('addr-1');
     expect(payload).not.toHaveProperty('userId');
-    // 成功才清車
-    expect(cartRef.current.clear).toHaveBeenCalledOnce();
+    expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
+    expect(payload).not.toHaveProperty('amount'); // 🔴 client 零送價
+    expect(cartRef.current.clear).toHaveBeenCalledOnce(); // paid 才清車
   });
 
-  it('建單失敗 → 顯示通用錯誤 + 不清車 + 不顯成功', async () => {
+  it('🔴 ⑯ 同輪快速雙擊 → getPrime 只進一次(primeBusyRef 同步鎖;codex 關卡2 r1)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0008' });
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    const payBtn = screen.getAllByRole('button', { name: /確認付款/ })[0]!;
+    // 原生連點包同一 act(fireEvent 各自包 act 會先 flush primeBusy → 第二擊打在 disabled 鈕、
+    // 測不到 ref;單 act 內兩擊 = re-render 前、state 版擋不住、唯 primeBusyRef 同步擋)。
+    act(() => {
+      payBtn.click();
+      payBtn.click();
+    });
+    expect(await screen.findByText('訂單已成立')).toBeTruthy();
+    expect(getPrimeMock).toHaveBeenCalledTimes(1);
+    expect(chargeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('⑩ 付款失敗(formError)→ 通用錯誤 + 不清車 + 不顯終態', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
-    placeOrderMock.mockResolvedValue({ formError: '下單失敗,請稍後再試或聯繫客服 LINE' });
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試或聯繫客服 LINE' });
     const { container } = renderCheckout();
     await gotoStep3Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
-    expect(await screen.findByText('下單失敗,請稍後再試或聯繫客服 LINE')).toBeTruthy();
+    expect(await screen.findByText('付款失敗,請稍後再試或聯繫客服 LINE')).toBeTruthy();
     expect(cartRef.current.clear).not.toHaveBeenCalled();
     expect(screen.queryByText('訂單已成立')).toBeNull();
   });
 
-  it('🔴 購物車線缺 variantId → client 擋下、不呼叫 placeOrderAction + 友善訊息(MUST2 寫入路徑拒整單)', async () => {
-    setCart([{ productId: 'rpm-1', qty: 1 }]); // 無 variantId(顯示路徑無變體 group 價 found、寫入路徑須拒)
+  it('🔴 ⑪ 線缺 variantId → client 拒整單、零 getPrime 後 action 呼叫 + 不清車', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]); // 無 variantId
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
     const { container } = renderCheckout();
     await gotoStep3Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText(/缺少規格資訊/)).toBeTruthy();
-    expect(placeOrderMock).not.toHaveBeenCalled();
+    expect(chargeMock).not.toHaveBeenCalled();
+    expect(cartRef.current.clear).not.toHaveBeenCalled();
+  });
+
+  it('⑫ getPrime 失敗(null)→ 友善錯誤、零 action 呼叫、可重試', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue(null);
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(await screen.findByText(/卡片資訊驗證失敗/)).toBeTruthy();
+    expect(chargeMock).not.toHaveBeenCalled();
+  });
+
+  it('⑬ processing(orphan/unknown)→ 付款處理中終態 + 單號 + 清車(勿重複付款)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'processing',
+      displayId: 'PCM-2026-0008',
+      message: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認',
+    });
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(await screen.findByText('付款處理中')).toBeTruthy();
+    expect(screen.getByText('PCM-2026-0008')).toBeTruthy();
+    expect(screen.getByText(/請勿重複付款/)).toBeTruthy();
+    expect(cartRef.current.clear).toHaveBeenCalledOnce();
+  });
+
+  it('🔴 ⑰ action throw(回應遺失)→ unknown 終態畫面:勿重複付款 + 清車 + 無單號(審查側 BLOCKER)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockRejectedValue(new Error('network'));
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(await screen.findByText('付款狀態確認中')).toBeTruthy();
+    expect(screen.getByText('付款狀態未知,請勿重複付款,客服 LINE 將協助確認')).toBeTruthy();
+    expect(screen.queryByText('N°ORDER')).toBeNull(); // 無單號(回應遺失、client 不知 displayId)
+    expect(screen.queryByRole('button', { name: /確認付款/ })).toBeNull(); // 終態畫面取代表單
+    expect(cartRef.current.clear).toHaveBeenCalledTimes(1); // 清車防殘留誘導重刷
+  });
+
+  it('⑭ in_flight / charge_failed_wait → 留頁訊息 + 不清車、不顯終態', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'in_flight',
+      message: '您有一筆付款正在處理中,請稍候再試',
+    });
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(await screen.findByText(/正在處理中,請稍候再試/)).toBeTruthy();
+    expect(cartRef.current.clear).not.toHaveBeenCalled();
+    expect(screen.queryByText('付款處理中')).toBeNull(); // 留頁、非終態
+
+    cleanup();
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'charge_failed_wait',
+      displayId: 'PCM-2026-0009',
+      message: '付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試',
+    });
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    const { container: c2 } = renderCheckout();
+    await gotoStep3Agreed(c2);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(await screen.findByText(/未扣款;系統忙碌中/)).toBeTruthy();
     expect(cartRef.current.clear).not.toHaveBeenCalled();
   });
 });

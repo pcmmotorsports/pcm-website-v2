@@ -15,6 +15,7 @@
 //   - 配送只「貨運宅配」home(Q1=A);儲值金折抵 / 優惠券複查行不做(§3.2 + #202)。
 //   - 服務條款 / 隱私政策連結為 no-op placeholder(legal pages 未建、Phase 1 不做、待 backlog)。
 
+import type { ReactNode } from 'react';
 import type { CustomerAddress } from '@pcm/domain';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
@@ -36,6 +37,8 @@ export type CheckoutStep3Props = {
   onEditStep2: () => void;
   /** 編輯商品 → 回購物車。 */
   onEditItems: () => void;
+  /** ②-④b:TapPay 安全卡欄 slot(渲染於付款方式複查 body 內;undefined 維持 readonly 行為)。 */
+  paymentSlot?: ReactNode;
 };
 
 export function CheckoutStep3({
@@ -48,6 +51,7 @@ export function CheckoutStep3({
   onEditAddress,
   onEditStep2,
   onEditItems,
+  paymentSlot,
 }: CheckoutStep3Props) {
   return (
     <section className="co-section">
@@ -79,6 +83,7 @@ export function CheckoutStep3({
         </div>
         <div className="co-review-body">
           <div>信用卡 · TapPay</div>
+          {paymentSlot}
         </div>
       </div>
 
