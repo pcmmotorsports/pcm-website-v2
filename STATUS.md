@@ -2,24 +2,24 @@
 > PCM Phase 1 SSoT. 衝突仲裁: STATUS.md > NORTHSTAR > 其他 md > 對話歷史.
 
 ## 當前狀態
-**Phase:** Phase 1 / **Milestone:** **M-3 結帳**(階段① ✅;②-① ✅ 上 prod;②-② ✅ 已推;**②-③ 進行中:a/b/c/d 四片 ✅、剩 e charge action**)
-**當前 slice:** **M-3 階段②-③e**(charge action 六態映 UI + async getChargeAttemptStore + bundle grep)。**②-③c ✅**(findTotal 單一金額來源 + confirmPayment 七步織入)。**②-③d ✅**(TapPayPrimeInput 形狀驗;cardholder server 組裝 Q3=B 級聯〔email fail-closed/profile 查無拒/RLS 過濾地址/trim min1/PII 零 log〕;852 tests)。**②-③a ✅**(payment_charge_attempts 表+4 RPC+token helper;MCP Call A-D 全綠;待 Sean db push)。**②-③b ✅**(IChargeAttemptStore port + PgChargeAttemptAdapter 主軌〔複用 buildPgConfig 縱深〕+ SupabaseChargeAttemptFallbackAdapter 備軌 + ChargeAttemptStoreWithFallback 複合〔主×3 退避100/300→備×2 退避100、P0001 早停、errLabel 防洩、events trace 鎖順序〕;820 tests)。
+**Phase:** Phase 1 / **Milestone:** **M-3 結帳**(階段① ✅;②-① ✅ 上 prod;②-② ✅ 已推;**②-③ charge server action 全五片 ✅**;次站 ②-④ TapPay Fields)
+**當前 slice:** **②-③ 收官、次站 ②-④ 前端 TapPay Fields**(等 Sean go)。**②-③ 全五片 ✅**:a migration(鎖+簿記+token)/ b 雙軌 adapter / c findTotal+confirmPayment 七步織入 / d prime+cardholder(Q3=B)/ e chargePaymentAction(成交鏈+六態映 UI、object-level 防竄、bundle grep 零命中;876 tests)。**②-③a ✅**(payment_charge_attempts 表+4 RPC+token helper;MCP Call A-D 全綠;待 Sean db push)。**②-③b ✅**(IChargeAttemptStore port + PgChargeAttemptAdapter 主軌〔複用 buildPgConfig 縱深〕+ SupabaseChargeAttemptFallbackAdapter 備軌 + ChargeAttemptStoreWithFallback 複合〔主×3 退避100/300→備×2 退避100、P0001 早停、errLabel 防洩、events trace 鎖順序〕;820 tests)。
 
 **Branch:** dev
 
 ## 最後更新
-2026-06-12 — Claude Code 執行 session(寫審分離 ROLE=A 執行側)[**②-③ plan v6** 六輪 24 條全收斂(Q1=A/Q2=A/Q3=B;Sean 駁回殘餘風險接受、「完整修好」→ 雙軌寫入+token+誠實文案);**②-③a migration**:MCP Call A-D + 三綠 + code-reviewer(4 minor 修)+ codex 關卡2 r1 3 條修→r2 PASS(首輪審錯檔作廢);backlog #224/#225。**②-③b 雙軌 adapter**:port + 三 adapter + 28 tests;code-reviewer PASS(3 minor 修)+ codex 關卡2 r1 2 條修(errLabel 防洩/events trace)→r2 PASS。**②-③c findTotal+織入**:c-1 窄讀(toMoneyAmount 守門/null fail-closed);c-2 confirmPayment 七步織入(鎖→charge→雙軌簿記→PF-X3→confirm→收斂補記;charge_failed.recordPersisted round5 MF1;log 零 token/prime/PII 測試鎖死);836 tests + code-reviewer PASS + codex 關卡2 PASS(1 nit+2 consider 修)。前序:②-② ✅ 已推 origin/dev=6e484b5]
+2026-06-12 — Claude Code 執行 session(寫審分離 ROLE=A 執行側)[**②-③ plan v6** 六輪 24 條全收斂(Q1=A/Q2=A/Q3=B;Sean 駁回殘餘風險接受、「完整修好」→ 雙軌寫入+token+誠實文案);**②-③a migration**:MCP Call A-D + 三綠 + code-reviewer(4 minor 修)+ codex 關卡2 r1 3 條修→r2 PASS(首輪審錯檔作廢);backlog #224/#225。**②-③b 雙軌 adapter**:port + 三 adapter + 28 tests;code-reviewer PASS(3 minor 修)+ codex 關卡2 r1 2 條修(errLabel 防洩/events trace)→r2 PASS。**②-③c**:findTotal 窄讀 + confirmPayment 七步織入(log 零 token/prime/PII 鎖死)。**②-③d**:TapPayPrimeInput + cardholder Q3=B 級聯(email fail-closed/profile 查無拒/trim 含 U+3000)。**②-③e**:chargePaymentAction(三段 safeParse → cardholder 先於建單〔fail → placeOrder 零呼叫測〕→ placeOrder → findTotal read-back → confirmPayment → 六態映 UI〔in_flight 不帶 displayId/charge_failed_wait 誠實未扣款〕)+ async getChargeAttemptStore(round4 MF1)+ object-level 防竄測 + client bundle grep 零命中;每片 code-reviewer + codex 關卡2 全 PASS;876 tests。前序:②-② ✅ 已推 origin/dev=6e484b5]
 
 ## 最近 3 commit
-> 下表列近期可達 commit(挑有意義的;表頂 `d58a0fd`〔②-③c-1〕為本 ②-③c-2 slice commit 提交時 dev 可達父、本 slice commit 自身 hash 不入表〔避 off-by-one orphan〕)。
+> 下表列近期可達 commit(挑有意義的;表頂 `8fa7e5c`〔②-③d〕為本 ②-③e slice commit 提交時 dev 可達父、本 slice commit 自身 hash 不入表〔避 off-by-one orphan〕)。
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `d58a0fd` | feat(adapters): M-3 ②-③c-1 findTotal 付款編排窄讀(單一金額來源)[m-3] | 2026-06-12 |
-| `74ea85b` | feat(adapters): M-3 ②-③b 簿記 port + 雙軌 ChargeAttemptStore adapter [m-3] | 2026-06-12 |
+| `8fa7e5c` | feat(schemas): M-3 ②-③d TapPayPrimeInput + cardholder server 組裝 [m-3] | 2026-06-12 |
+| `1594bc4` | feat(use-cases): M-3 ②-③c-2 confirmPayment 織入鎖+雙軌簿記 [m-3] | 2026-06-12 |
 | `7a9244e` | feat(schemas): M-3 ②-③a charge_attempts 表+4 RPC 防雙扣鎖+雙軌簿記 [m-3] | 2026-06-12 |
 
 ## 下一步
-**🆕 M-3 ②-③e(②-③ 最後一片)**:chargePaymentAction(登入 gate → 雙 safeParse+prime → cardholder 組裝先於建單〔fail → placeOrder 零呼叫、驗收〕→ placeOrder → findTotal → confirmPayment → 六態映 UI〔ok/charge_failed/charge_failed_wait/processing/in_flight 不帶 displayId/fieldErrors〕)+ composition async getChargeAttemptStore(round4 MF1 cookie JWT 備軌)+ object-level 防竄測(client 塞 amount/cardholder/orderId 不進 use-case、k2d consider)+ client-bundle grep 零 Partner Key/pg/PAYMENT_CONFIRMER/經銷價 → ②-④ TapPay Fields / ②-⑤ 完成頁 / ②-⑥ webhook(#224)。🔴 ②-③b/c 真連線實測需 Sean 先 `supabase db push` ②-③a(片尾彙整補測、不卡 code)。詳 plan v6
+**🆕 M-3 ②-④ 前端 TapPay Fields**(CheckoutStep 接 SDK、卡欄 iframe、getPrime → chargePaymentAction;鐵則 1 grep CheckoutPage.jsx;usePlaceOrder/CheckoutView 切 charge 流程;卡資料零進 React state)→ ②-⑤ 完成頁(OrderCompletePage 字面)→ ②-⑥ webhook(#224 綁、mini-plan+關卡1)。🔴 前置:Sean `supabase db push` ②-③a(②-③b/c 真連線 round-trip + 備軌 HTTP 軌端到端補測卡此)。🔴 ②-③b/c 真連線實測需 Sean 先 `supabase db push` ②-③a(片尾彙整補測、不卡 code)。詳 plan v6
 
 **前序(整合線/OD,多已完成):** **OD 商品頁改造 Phase A(OD-5~11)已合併進 dev ✅**(merge cf630b2、與 S6 fitments 共存、合併後三綠 + 完整 pnpm test 531 全綠;整合線 S0–S6 + OD Phase A 皆完成;下一步 **OD-12 適用車款表**接 S6 plumb 的 fitments[]〔D1=A 真 3 欄、post-merge〕、Sean 肉眼驗 :3001 後推)。 **資料線 S0–S6 全完 + 已上線自動運轉 ✅(報價單↔網站整合 Phase 1 收尾)**。Sean 已設對 service_role secret + rpm-sync workflow_dispatch 首跑綠;每天台灣 03:00 自動同步運轉中;action 升 Node24 v6。**下一步**:**OD 商品頁改造線**(並行 workstream、附屬區)續做(OD-F1 可接 S6 plumb 的 fitments[])。正式 codex k1/k2 留 OpenAI quota 恢復(7/2)或 Sean 貼 web Codex 補(S5 本輪走 Claude fallback 對抗審查 2 輪 PASS + code-reviewer PASS)。**description 不在同步 scope**(中文化 backlog #209);<5% 靜默截斷持久基線 backlog #210。整合線 brief/S2/S1 + docs hygiene 已 push(origin/dev=00c1107);S3a/S3b-1/fix/nit + S3b-2-STATUS + S4 + S6 + S5-pre + S5-plan + S5 + STATUS + OD 線待推。proper variantSku cart key〔多供應商前〕/ supplier_slug DEFAULT 移除〔多供應商前〕/ #203/#205/#209/#210 留 backlog;g-7 wallet HOLD #202 不變。
 

@@ -1,0 +1,251 @@
+// @vitest-environment node
+//
+// chargePaymentAction server action test(M-3 ②-③e、🔴 鐵則 12 成交 path)。
+// 鏡像 actions.test.ts 信任邊界 + 付款層:
+// - 登入 gate / 三段 safeParse / cardholder 先於建單(fail → placeOrder 零呼叫、②-③d 移交驗收)
+// - 🔴 object-level 防竄(codex k2d consider):client 塞 amount/cardholder/orderId/unitPrice →
+//   confirmPayment 仍只收 server 值(orderId=placeOrder 回傳、amount=findTotal 回傳、cardholder=helper 回傳)
+// - findTotal null → 拒(零 charge);outcome 六態映射(含 in_flight 無 displayId、charge_failed_wait)
+// - throw 全吞通用字面。
+// 用真 @pcm/schemas(不 mock)驗 strip/uuid/prime 真實行為;mock use-cases/composition/cardholder。
+
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const mockPlaceOrder = vi.fn();
+const mockConfirmPayment = vi.fn();
+const mockFindTotal = vi.fn();
+const mockGetOrderRepo = vi.fn();
+const mockGetCustomerRepo = vi.fn();
+const mockGetAddressRepo = vi.fn();
+const mockGetTapPayAdapter = vi.fn();
+const mockGetPaymentConfirmer = vi.fn();
+const mockGetChargeAttemptStore = vi.fn();
+const mockBuildCardholder = vi.fn();
+const mockGetUser = vi.fn();
+
+vi.mock('@pcm/use-cases', () => ({
+  placeOrder: (...args: unknown[]) => mockPlaceOrder(...args),
+  confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
+}));
+vi.mock('@/lib/auth/composition', () => ({
+  getOrderRepo: () => mockGetOrderRepo(),
+  getCustomerRepo: () => mockGetCustomerRepo(),
+  getAddressRepo: () => mockGetAddressRepo(),
+}));
+vi.mock('@/lib/payment/composition', () => ({
+  getTapPayAdapter: () => mockGetTapPayAdapter(),
+  getPaymentConfirmer: () => mockGetPaymentConfirmer(),
+  getChargeAttemptStore: () => mockGetChargeAttemptStore(),
+}));
+vi.mock('@/lib/payment/cardholder', () => ({
+  buildCardholder: (...args: unknown[]) => mockBuildCardholder(...args),
+}));
+vi.mock('@/lib/supabase/server', () => ({
+  createServerSupabaseClient: async () => ({ auth: { getUser: () => mockGetUser() } }),
+}));
+
+async function getAction() {
+  const m = await import('./charge-actions');
+  return m.chargePaymentAction;
+}
+
+const ADDR = '00000000-0000-4000-8000-000000000001';
+const VARIANT = '00000000-0000-4000-8000-000000000002';
+const CARDHOLDER = { name: '王小明', email: 'a@b.com', phoneNumber: '0912345678' };
+const TOTAL = { amount: 1100, currency: 'TWD' };
+
+function validInput(over: Record<string, unknown> = {}) {
+  return {
+    addressId: ADDR,
+    shippingMethod: 'home',
+    invoice: { type: 'personal' },
+    lines: [{ variantId: VARIANT, quantity: 2 }],
+    prime: 'prime_abc',
+    ...over,
+  };
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1', email: 'a@b.com' } } });
+  mockGetOrderRepo.mockResolvedValue({ findTotal: mockFindTotal });
+  mockGetCustomerRepo.mockResolvedValue({});
+  mockGetAddressRepo.mockResolvedValue({});
+  mockGetTapPayAdapter.mockReturnValue({ tag: 'tappay' });
+  mockGetPaymentConfirmer.mockReturnValue({ tag: 'confirmer' });
+  mockGetChargeAttemptStore.mockResolvedValue({ tag: 'attempts' });
+  mockBuildCardholder.mockResolvedValue({ ok: true, cardholder: CARDHOLDER });
+  mockPlaceOrder.mockResolvedValue({ orderId: 'order-server-1', displayId: 'PCM-2026-0001' });
+  mockFindTotal.mockResolvedValue(TOTAL);
+  mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: false });
+});
+
+describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
+  it('未登入 → formError、零 cardholder/placeOrder/confirmPayment', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ formError: '請重新登入' });
+    expect(mockBuildCardholder).not.toHaveBeenCalled();
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('addressId 非 uuid → fieldErrors.addressId、零後續', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ addressId: 'not-uuid' }));
+    expect(res).toMatchObject({ fieldErrors: { addressId: expect.any(String) } });
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('lines 非法(缺 variantId)→ formError REJECT 整單', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ lines: [{ quantity: 2 }] }));
+    expect(res).toMatchObject({ formError: expect.stringContaining('購物車') });
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['缺 prime', undefined],
+    ['空 prime', '   '],
+    ['超長 prime', 'x'.repeat(513)],
+  ])('%s → formError、零 cardholder/placeOrder', async (_label, prime) => {
+    const action = await getAction();
+    const res = await action(validInput({ prime }));
+    expect(res).toMatchObject({ formError: expect.stringContaining('付款資訊') });
+    expect(mockBuildCardholder).not.toHaveBeenCalled();
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 cardholder fail → placeOrder 零呼叫(組裝先於建單、②-③d 移交驗收)+ 引導文案', async () => {
+    mockBuildCardholder.mockResolvedValue({ ok: false, reason: 'phone_missing' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ fieldErrors: { addressId: '收件地址缺少手機號碼,請補齊後再試' } });
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['address_not_found', { fieldErrors: { addressId: '請重新選擇收件地址' } }],
+    ['name_missing', { formError: '會員資料缺少姓名,請至會員中心補齊後再試' }],
+    ['email_missing', { formError: '會員資料異常,請重新登入後再試' }],
+    ['profile_not_found', { formError: '會員資料異常,請重新登入後再試' }],
+  ])('cardholder fail(%s)→ 對應文案', async (reason, expected) => {
+    mockBuildCardholder.mockResolvedValue({ ok: false, reason });
+    const action = await getAction();
+    expect(await action(validInput())).toEqual(expected);
+  });
+
+  it('findTotal null(查無/防腐)→ formError 通用、零 confirmPayment(零扣款)', async () => {
+    mockFindTotal.mockResolvedValue(null);
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toMatchObject({ formError: expect.stringContaining('付款失敗') });
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['placeOrder throw', () => mockPlaceOrder.mockRejectedValue(new Error('RPC RAISE 下架'))],
+    ['confirmPayment(begin)throw', () => mockConfirmPayment.mockRejectedValue(new Error('簿記主軌失敗'))],
+  ])('%s → formError 通用、零原文透傳', async (_label, arm) => {
+    arm();
+    const action = await getAction();
+    const res = (await action(validInput())) as { formError?: string };
+    expect(res.formError).toBe('付款失敗,請稍後再試或聯繫客服 LINE');
+    expect(JSON.stringify(res)).not.toContain('RAISE');
+  });
+});
+
+describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)', () => {
+  it('happy:confirmPayment 收 server 值(orderId=建單回傳、amount=findTotal、cardholder=helper、prime=zod 後)', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ prime: '  prime_abc  ' }));
+    expect(res).toEqual({ ok: true, displayId: 'PCM-2026-0001' });
+    expect(mockFindTotal).toHaveBeenCalledWith('order-server-1');
+    expect(mockConfirmPayment).toHaveBeenCalledWith(
+      { tappay: { tag: 'tappay' }, confirmer: { tag: 'confirmer' }, attempts: { tag: 'attempts' } },
+      { prime: 'prime_abc', orderId: 'order-server-1', amount: TOTAL, cardholder: CARDHOLDER },
+    );
+  });
+
+  it('🔴 object-level 防竄(k2d):client 塞 amount/cardholder/orderId/unitPrice → 全被忽略、server 值不變', async () => {
+    const action = await getAction();
+    await action(
+      validInput({
+        amount: { amount: 1, currency: 'TWD' }, // 竄改金額 → 不讀
+        cardholder: { name: '駭', email: 'x@x', phoneNumber: '000' }, // 竄改持卡人 → 不讀
+        orderId: 'order-fake-999', // 竄改單號 → 不讀
+        lines: [{ variantId: VARIANT, quantity: 2, unitPrice: 1, tier: 'store' }], // zod strip
+      }),
+    );
+    const [, useCaseInput] = mockConfirmPayment.mock.calls[0]!;
+    expect(useCaseInput).toEqual({
+      prime: 'prime_abc',
+      orderId: 'order-server-1', // = placeOrder 回傳、非 client
+      amount: TOTAL, // = findTotal、非 client
+      cardholder: CARDHOLDER, // = helper、非 client
+    });
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.lines).toEqual([{ variantId: VARIANT, quantity: 2 }]); // strip 竄改鍵
+  });
+});
+
+describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
+  it('charge_failed(recordPersisted:true)→ payment=charge_failed + 可重試文案 + displayId', async () => {
+    mockConfirmPayment.mockResolvedValue({ kind: 'charge_failed', recordPersisted: true });
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'charge_failed',
+      displayId: 'PCM-2026-0001',
+      message: '付款未成功,請確認卡片資訊後重試',
+    });
+  });
+
+  it('🔴 charge_failed(recordPersisted:false)→ charge_failed_wait(誠實未扣款、不誘導立即重試)', async () => {
+    mockConfirmPayment.mockResolvedValue({ kind: 'charge_failed', recordPersisted: false });
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'charge_failed_wait',
+      displayId: 'PCM-2026-0001',
+      message: '付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試',
+    });
+  });
+
+  it.each([
+    ['charge_unknown', { kind: 'charge_unknown', orderId: 'order-server-1' }],
+    ['orphan/amount_mismatch', { kind: 'orphan', reason: 'amount_mismatch', transactionId: 'D1', orderId: 'o' }],
+    ['orphan/confirm_unreachable', { kind: 'orphan', reason: 'confirm_unreachable', transactionId: 'D1', orderId: 'o' }],
+    ['locked/order_locked', { kind: 'locked', reason: 'order_locked' }],
+    ['locked/not_unpaid', { kind: 'locked', reason: 'not_unpaid' }],
+  ])('%s → processing(勿重複付款 + displayId)', async (_label, outcome) => {
+    mockConfirmPayment.mockResolvedValue(outcome);
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'processing',
+      displayId: 'PCM-2026-0001',
+      message: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認',
+    });
+  });
+
+  it('🔴 locked/user_in_flight → in_flight、**無 displayId 屬性**(round3 C:新單零扣款不給單號)', async () => {
+    mockConfirmPayment.mockResolvedValue({ kind: 'locked', reason: 'user_in_flight' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({
+      ok: false,
+      payment: 'in_flight',
+      message: '您有一筆付款正在處理中,請稍候再試',
+    });
+    expect(res).not.toHaveProperty('displayId');
+  });
+
+  it('paid(idempotent:true 重放)→ 同樣 ok:true(成功真相 = confirm 成功)', async () => {
+    mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: true });
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({ ok: true, displayId: 'PCM-2026-0001' });
+  });
+});

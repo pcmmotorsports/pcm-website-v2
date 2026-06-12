@@ -1,7 +1,7 @@
-// lib/payment/composition.ts — 付款 composition root(M-3 階段②-②b、鏡像 lib/auth/composition.ts)
+// lib/payment/composition.ts — 付款 composition root(M-3 ②-②b 建、②-③e 擴;鏡像 lib/auth/composition.ts)
 //
-// storefront 唯一注入金流 server-only adapter(TapPayChargeAdapter / PaymentConfirmerAdapter)的「受控單檔」:
-// - charge action(②-③)只 import 本檔的 getTapPayAdapter()/getPaymentConfirmer()、不直接碰 @pcm/adapters/server。
+// storefront 唯一注入金流 server-only adapter(TapPay charge / PaymentConfirmer / ChargeAttempt 雙軌複合)的
+// 「受控單檔」:charge action(②-③e)只 import 本檔三個 factory、不直接碰 @pcm/adapters/server。
 // - eslint.config.js L110-126 禁整個 apps/storefront/**/*.{ts,tsx} import @pcm/adapters/server;本檔以
 //   inline eslint-disable + 意圖註解開「受控小門」(比 files-override 更可審、code-reviewer 在 import 點即見例外)。
 // - 結構守門 = eslint 擋全部 storefront import、只剩本檔顯式 disable;pg 只在 @pcm/adapters/server subpath、
@@ -9,12 +9,20 @@
 //
 // 🔴 server-only(本檔 import 'server-only'):TapPayChargeAdapter 持 Partner Key、PaymentConfirmerAdapter 持
 //   PAYMENT_CONFIRMER_DB_URL raw DB credential、皆絕不進 client bundle;env 在 factory 內讀(per-request、
-//   不 module-top throw)。同步 factory(adapter 建構無需 request context、不像 getAuthService 需 await cookie client)。
+//   不 module-top throw)。TapPay/Confirmer 為同步 factory(建構無需 request context);getChargeAttemptStore
+//   為 async request-scoped(備軌需 await cookie client、round4 MF1、見該 factory JSDoc)。
 
 import 'server-only';
-import type { ITapPayAdapter, IPaymentConfirmer } from '@pcm/ports';
-// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmerAdapter 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
-import { TapPayChargeAdapter, PaymentConfirmerAdapter } from '@pcm/adapters/server';
+import type { ITapPayAdapter, IPaymentConfirmer, IChargeAttemptStore } from '@pcm/ports';
+// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
+import {
+  TapPayChargeAdapter,
+  PaymentConfirmerAdapter,
+  PgChargeAttemptAdapter,
+  SupabaseChargeAttemptFallbackAdapter,
+  ChargeAttemptStoreWithFallback,
+} from '@pcm/adapters/server';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 lib/auth/line.ts + supabase/server.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
@@ -61,4 +69,21 @@ export function getTapPayAdapter(): ITapPayAdapter {
  */
 export function getPaymentConfirmer(): IPaymentConfirmer {
   return new PaymentConfirmerAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
+}
+
+/**
+ * 建 IChargeAttemptStore(charge 簿記/防雙扣鎖、複合雙軌;M-3 ②-③e、plan v6 §6)。
+ *
+ * 🔴 **async request-scoped(codex 關卡1 round4 MF1)**:備軌(SupabaseChargeAttemptFallbackAdapter、
+ * PostgREST 第二 transport)需**使用者 cookie JWT** 的 authenticated client(fallback RPC 內
+ * auth.uid() 歸屬驗)— 模組級/同步建構拿不到 → 備軌 auth.uid()=null 永敗 = 靜默退化單軌。
+ * 故本 factory async、charge action 於登入 gate 後 await;主軌(PgChargeAttemptAdapter)同
+ * payment_confirmer 鑰匙(Q1=A、零新 env)、連線縱深同 getPaymentConfirmer(buildPgConfig)。
+ */
+export async function getChargeAttemptStore(): Promise<IChargeAttemptStore> {
+  const supabase = await createServerSupabaseClient();
+  return new ChargeAttemptStoreWithFallback(
+    new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL')),
+    new SupabaseChargeAttemptFallbackAdapter(supabase),
+  );
 }
