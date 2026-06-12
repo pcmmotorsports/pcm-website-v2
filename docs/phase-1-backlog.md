@@ -5809,6 +5809,34 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-10 / Sean 商品頁文案肉眼驗
 - **相關:** OD-6/7a(原半形慣例)/ manifest cross_cutting productPageFullwidthPunctuation
 
+### #224. 🔒 payment_charge_attempts stale pending 鎖須 ②-⑥ 對帳解鎖
+
+- **狀態:** ⏳ 待執行(綁 M-3 ②-⑥ webhook 片)
+- **優先級:** 🔴 高(真卡上線前必備)
+- **問題:**
+  - ②-③a 防雙扣鎖 fail-closed:charge 結果未知(transport 斷)時 attempt 永停 pending、該單 per-order 鎖不自動釋(寧卡單勿雙扣、plan v6 §2 拍定)。
+- **預期解法:**
+  - ②-⑥ webhook notify 自癒(主)+ TapPay Record API 掃 pending attempts 以 order_number 反查(輔、②-⑥ 驗收硬項)後標 failed/補 confirm。
+- **不修會痛在:**
+  - 可維護性:卡單客訴只能人工 SQL 解鎖(對 production 下手、高風險)。
+  - bug 可追蹤性:pending 殭屍累積令對帳簿雜訊增、Record API 掃描成本上升。
+- **發現於:** 2026-06-12 / ②-③ plan codex 關卡1(round1 F2 / round5 MF1 系列)
+- **相關:** plan docs/specs/2026-06-12-m3-stage2-3-charge-action-plan.md §9.2;migration 20260612150000
+
+### #225. 🧟 卡拒重試產生 unpaid 殭屍單 — M-4a 前補清理/標記
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - ②-③ charge action 每次重送 = 建新單;卡拒(charge_failed)後使用者重試會留下 unpaid 殭屍單(無庫存佔用、Phase 1 接受)。
+- **預期解法:**
+  - M-4a admin 訂單列表前:殭屍 unpaid 單清理 cron 或列表標記/過濾(例:unpaid 且無 attempt 或 attempt=failed 且 >7 天)。
+- **不修會痛在:**
+  - 可維護性:admin 訂單列表雜訊、客服查單誤判。
+  - 擴充性:報表失真(轉換率/客單價含殭屍單)。
+- **發現於:** 2026-06-12 / ②-③ plan codex 關卡1 round1 F3(Sean Q2=A 拍 per-user 閘後殘餘)
+- **相關:** plan §9.3;#220(M-4a admin 線)
+
 ---
 
 ## 紀錄模板
