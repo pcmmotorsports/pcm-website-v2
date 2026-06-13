@@ -29,7 +29,8 @@ function chargeResult(over: Partial<TapPayChargeResult> = {}): TapPayChargeResul
 }
 
 function makeTapPay(charge: () => Promise<TapPayChargeResult>): ITapPayAdapter {
-  return { charge: vi.fn(charge), refund: vi.fn() };
+  // recordQuery 為 3DS-1a 新增 port 方法;confirm-payment(同步成交鏈)不呼用、stub 滿足介面即可。
+  return { charge: vi.fn(charge), refund: vi.fn(), recordQuery: vi.fn() };
 }
 function makeConfirmer(
   confirm: () => Promise<{ confirmed: boolean; idempotent: boolean }>,

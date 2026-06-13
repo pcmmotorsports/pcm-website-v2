@@ -46,3 +46,99 @@ export function parseTapPayResponse(raw: unknown): TapPayPayByPrimeResponse {
     currency: typeof r.currency === 'string' ? r.currency : undefined,
   };
 }
+
+// ── M-3 3DS-1a:Record API(交易紀錄反查)wire 型別 + 防禦性解析 ──────────────────────────────
+//
+// wire 形狀(endpoint + 欄位名)以 TapPay 官方 Record API reference 核實(docs.tappaysdk.com、非憑記憶):
+//   POST `/tpc/transaction/query`,resp `{ status, msg, number_of_transactions, trade_records:[
+//     { rec_trade_id, order_number, bank_transaction_id, merchant_id, amount(int), currency,
+//       record_status(int -1~5,值見下方型別), is_captured(bool), refunded_amount(int), transaction_time_millis } ] }`。
+//   top `status`:0=查詢成功有紀錄 / 2=無更多(≠交易狀態)。
+//   🔴 record_status enum 7 值經審查側逐字複核釘死(reference.html #record_status anchor);小模型萃取曾幻覺、勿信。
+//
+// 🔴 #16 PII:trade_record 的 cardholder / card_info / pay_info(masked card)欄一律**不解析**進 domain、
+//    本層只取白名單對帳欄(adapter 亦不寫 log)。
+
+/** TapPay Record API `trade_records[]` 單筆 wire(白名單欄;snake→camel narrow)。 */
+export type TapPayRecordWire = {
+  recTradeId: string;
+  orderNumber: string;
+  bankTransactionId?: string;
+  merchantId: string;
+  /** 整數最小貨幣單位。 */
+  amount: number;
+  currency?: string;
+  /** -1=ERROR / 0=AUTH / 1=OK / 2=PARTIALREFUNDED / 3=REFUNDED / 4=PENDING / 5=CANCEL(官方 reference 逐字)。 */
+  recordStatus: number;
+  isCaptured: boolean;
+  refundedAmount?: number;
+  transactionTimeMillis?: number;
+};
+
+/** TapPay Record API 反查回應 wire(top status + 計數 + 解析後 records)。 */
+export type TapPayRecordResponseWire = {
+  /** top-level:0=查詢成功有紀錄 / 2=無更多(≠交易狀態)。 */
+  status: number;
+  msg: string;
+  numberOfTransactions: number;
+  records: TapPayRecordWire[];
+};
+
+/**
+ * 防禦性解析 TapPay Record API JSON 回應 → narrow `TapPayRecordResponseWire`。
+ *
+ * `status` 非 number(或非物件)→ throw(adapter 視為 transport/格式異常 → 1b 映 pending 保留、不誤判 failed)。
+ * `trade_records` 缺/非陣列 → 空陣列(status=2 無紀錄之合法態);單筆缺必要欄 → throw(格式異常 fail-closed)。
+ */
+export function parseTapPayRecordResponse(raw: unknown): TapPayRecordResponseWire {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('TapPay Record 回應格式異常(非物件)');
+  }
+  const r = raw as Record<string, unknown>;
+  if (typeof r.status !== 'number') {
+    throw new Error('TapPay Record 回應缺 status');
+  }
+  const rawRecords = Array.isArray(r.trade_records) ? r.trade_records : [];
+  const records = rawRecords.map(parseTapPayRecordWire);
+  return {
+    status: r.status,
+    msg: typeof r.msg === 'string' ? r.msg : '',
+    // number_of_transactions 缺則退回實得筆數(誠實計數、不虛報)。
+    numberOfTransactions:
+      typeof r.number_of_transactions === 'number' ? r.number_of_transactions : records.length,
+    records,
+  };
+}
+
+/** 解析單筆 trade_record;缺任一必要欄(rec/order/merchant/amount/record_status/is_captured)→ throw。 */
+function parseTapPayRecordWire(raw: unknown): TapPayRecordWire {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('TapPay Record trade_record 格式異常(非物件)');
+  }
+  const r = raw as Record<string, unknown>;
+  if (
+    typeof r.rec_trade_id !== 'string' ||
+    typeof r.order_number !== 'string' ||
+    typeof r.merchant_id !== 'string' ||
+    typeof r.amount !== 'number' ||
+    typeof r.record_status !== 'number' ||
+    typeof r.is_captured !== 'boolean'
+  ) {
+    throw new Error(
+      'TapPay Record trade_record 缺必要欄(rec_trade_id/order_number/merchant_id/amount/record_status/is_captured)',
+    );
+  }
+  return {
+    recTradeId: r.rec_trade_id,
+    orderNumber: r.order_number,
+    bankTransactionId: typeof r.bank_transaction_id === 'string' ? r.bank_transaction_id : undefined,
+    merchantId: r.merchant_id,
+    amount: r.amount,
+    currency: typeof r.currency === 'string' ? r.currency : undefined,
+    recordStatus: r.record_status,
+    isCaptured: r.is_captured,
+    refundedAmount: typeof r.refunded_amount === 'number' ? r.refunded_amount : undefined,
+    transactionTimeMillis:
+      typeof r.transaction_time_millis === 'number' ? r.transaction_time_millis : undefined,
+  };
+}

@@ -128,7 +128,7 @@ prod 4 merchant 全要 3DS → **flag 關時的舊同步 charge 在 prod 會被 
 - pending 是正常中間態(status=4);TapPay 自己 10-20 分反查(每筆×2)→ 部分 orphan 自動收斂。
 - notify **無簽章** → 一律 Record API 反查;**別套綠界 CheckMacValue 式驗章到 TapPay**。
 - Record API 有 rate limit(綠界類比打太快 403)→ sweeper 節流 + 隔日批次。
-- **Record API 回應(官方 reference 逐字核實)**:top `status`(0=查詢成功有紀錄 / 2=無更多)≠ 交易狀態;`trade_records[]` 每筆有 `record_status`(**0=AUTH 授權未請款 / 1=OK 交易完成=已付款 / 2=部分退款 / 3=全退**)+ `is_captured` + rec_trade_id/order_number/bank_transaction_id/merchant_id/amount/refunded_amount + `number_of_transactions`。**已付款 = record_status=1 且 is_captured=true**(record_status=0 僅授權 → pending)。filter 支援 rec_trade_id/order_number/bank_transaction_id/time/amount/merchant_id。
+- **Record API 回應(官方 reference.html #record_status anchor 逐字核實、審查側 3DS-1a 複核)**:top `status`(0=查詢成功有紀錄 / 2=無更多)≠ 交易狀態;`trade_records[]` 每筆有 `record_status`(**7 值:-1=ERROR 錯誤 / 0=AUTH 授權未請款 / 1=OK 交易完成 / 2=PARTIALREFUNDED 部分退款 / 3=REFUNDED 完全退款 / 4=PENDING 待付款 / 5=CANCEL 取消交易**)+ `is_captured` + rec_trade_id/order_number/bank_transaction_id/merchant_id/amount/refunded_amount + `number_of_transactions`。**已付款 = record_status=1 且 is_captured=true**(record_status=0 僅授權 → pending)。🔴 **Phase 1(無退款流程)settleCharge 映射:paid=1&&is_captured / pending 保留=0·4·查不到·Record 失敗 / 明確 failed 放行重刷=-1·5 / 2·3 退款=異常走退款片(S2=B backlog)**。filter 支援 rec_trade_id/order_number/bank_transaction_id/time/amount/merchant_id。⚠️ 教訓:錢欄位 enum/wire 的 WebFetch/firecrawl 小模型萃取會幻覺(1a 初版抽出「3=Cancelled」「1=處理中」皆錯)→ 必親讀渲染後 DOM 逐字。
 
 ---
 

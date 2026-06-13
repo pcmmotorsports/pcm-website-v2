@@ -6,7 +6,7 @@
  * 不單獨開 slice 改。
  */
 
-import type { Money } from '../shared/types';
+import type { Money, MoneyAmount } from '../shared/types';
 import type { OrderId } from '../order/types';
 
 /**
@@ -84,6 +84,66 @@ export type TapPayRefundResult = {
   refundId: string;
   /** 原始回應、audit 用 */
   rawResponse: unknown;
+};
+
+// ── M-3 3DS-1a:Record API 反查型別(對帳 settleCharge 用、adapter 解析、不下裁決) ──────────────
+
+/**
+ * TapPayRecordQuery:Record API 反查 filter(3DS 結算對帳、3DS-1b settleCharge 決定帶哪把鍵)。
+ *
+ * 🔴 三把交易識別鍵**至少帶一**(全空 → adapter fail-closed throw、絕不送無 filter 全表查 → 防誤命中他單)。
+ * `merchant_id` 由 adapter 從 config 注入(每查必帶、限本商戶;不在此型別)。
+ * 鍵的**優先序**(rec → bank_txn → order_number + 窄窗)與**比對裁決**是 3DS-1b 的事;1a 只忠實送查 + 解析回欄。
+ *
+ * @see docs/specs/2026-06-13-m3-3ds-webhook-master-plan.md §1 step 1-2 / §7
+ */
+export type TapPayRecordQuery = {
+  recTradeId?: string;
+  orderNumber?: string;
+  bankTransactionId?: string;
+};
+
+/**
+ * TapPayTradeRecord:Record API `trade_records[]` 單筆解析(白名單欄、零 PII)。
+ *
+ * 🔴 `recordStatus` 保留 wire 原值 int、1a **不映語意裁決**(官方 reference 逐字 7 值:
+ *   -1=ERROR / 0=AUTH(授權未請款) / 1=OK(交易完成,配 is_captured=true 才算已付款) /
+ *   2=PARTIALREFUNDED(部分退款) / 3=REFUNDED(完全退款) / 4=PENDING(待付款) / 5=CANCEL(取消交易));
+ *   各狀態由 `recordStatus` + `isCaptured` 兩欄供 3DS-1b 判,1a 不下「已付款」裁決(留 1b)。
+ *   🔴 Phase 1(無退款流程)1b 映射:paid=1&&is_captured / pending 保留=0·4·查不到·Record 失敗 /
+ *   明確 failed 放行重刷=-1·5 / 退款 2·3=異常走退款片(S2=B backlog)。
+ * 🔴 #16 PII:不解析 `cardholder` / `card_info` / `pay_info`(masked card)等 PII 欄、只取白名單對帳欄。
+ */
+export type TapPayTradeRecord = {
+  recTradeId: string;
+  orderNumber: string;
+  bankTransactionId?: string;
+  merchantId: string;
+  /** wire `amount`:整數最小貨幣單位(MoneyAmount 守門;3DS-1b 比對 orders.total)。 */
+  amount: MoneyAmount;
+  /** wire `currency`(原值;1b 比對時嚴格斷言 'TWD',1a 不斷言以免擋掉歷史紀錄)。 */
+  currency?: string;
+  /** wire `record_status` 原值 int:-1=ERROR / 0=AUTH / 1=OK / 2=PARTIALREFUNDED / 3=REFUNDED / 4=PENDING / 5=CANCEL。 */
+  recordStatus: number;
+  /** wire `is_captured`:true=已請款(配 record_status=1 才算 paid;record_status=0 僅授權 → pending)。 */
+  isCaptured: boolean;
+  /** wire `refunded_amount`:整數最小貨幣單位(部分/全退時非 0)。 */
+  refundedAmount?: MoneyAmount;
+  /** wire `transaction_time_millis`:交易時間(epoch ms;3DS-1b order_number fallback 窄窗用)。 */
+  transactionTimeMillis?: number;
+};
+
+/**
+ * TapPayRecordResult:`recordQuery` 解析結果(top status + 計數 + 白名單 records、**不下裁決**)。
+ *
+ * 🔴 `queryStatus` = top-level `status`(§7:0=查詢成功有紀錄 / 2=無更多;**≠ 交易狀態**)。
+ * 3DS-1b 以 `queryStatus===0` + `numberOfTransactions===1` + 鍵全對本機 + `record_status=1 && is_captured`
+ * + amount/currency 嚴格 才判 paid(全條件在 1b、非此處)。
+ */
+export type TapPayRecordResult = {
+  queryStatus: number;
+  numberOfTransactions: number;
+  records: TapPayTradeRecord[];
 };
 
 // ── M-3 階段②-②b:confirm(付款確認)型別 ────────────────────────────────────

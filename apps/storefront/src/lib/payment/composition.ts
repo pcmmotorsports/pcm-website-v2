@@ -39,6 +39,12 @@ const PAY_BY_PRIME_URL = {
   production: 'https://prod.tappaysdk.com/tpc/payment/pay-by-prime',
 } as const;
 
+/** TapPay Record API(交易紀錄反查)endpoint(by TAPPAY_ENV;官方 WebFetch docs.tappaysdk.com 核實;3DS-1a)。 */
+const RECORD_QUERY_URL = {
+  sandbox: 'https://sandbox.tappaysdk.com/tpc/transaction/query',
+  production: 'https://prod.tappaysdk.com/tpc/transaction/query',
+} as const;
+
 /**
  * 建 ITapPayAdapter(TapPayChargeAdapter + server-only Partner Key)。
  * `TAPPAY_ENV` fail-closed 只接 'sandbox'|'production'(防誤打誤中 prod);Partner Key/Merchant ID server-only。
@@ -52,6 +58,7 @@ export function getTapPayAdapter(): ITapPayAdapter {
     partnerKey: requireEnv('TAPPAY_PARTNER_KEY'),
     merchantId: requireEnv('TAPPAY_MERCHANT_ID'),
     payByPrimeUrl: PAY_BY_PRIME_URL[env],
+    recordQueryUrl: RECORD_QUERY_URL[env],
   });
 }
 

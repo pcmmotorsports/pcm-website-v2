@@ -12,6 +12,8 @@
  *     供 use-case PF-X3 比對 server total(adapter 不做金額比對、那是 use-case 業務層)。
  *   - 業務失敗(status≠0、卡拒等):status='failed'(未扣款、use-case 可安全重試)。
  *   - transport/HTTP/格式異常:throw(use-case 映 charge_unknown、扣款狀態未知不重刷)。
+ * - `recordQuery`(M-3 3DS-1a):組 Record API filter → `fetch` → 解析 trade_records 白名單欄;
+ *   **不下裁決**(判 paid 是 3DS-1b settleCharge 的事)、HTTP/格式異常 → throw(1b 映 pending 保留)。
  * - 🔴 #16 PII:logging 只記非 PII(orderId/status/recTradeId);cardholder + rawResponse 絕不入 log。
  *
  * @see docs/specs/2026-06-12-m3-stage2-2-tappay-adapter-plan.md §2/§5/§7
@@ -28,9 +30,12 @@ import type {
   TapPayChargeResult,
   TapPayRefundPayload,
   TapPayRefundResult,
+  TapPayRecordQuery,
+  TapPayRecordResult,
+  TapPayTradeRecord,
 } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
-import { parseTapPayResponse } from './wire';
+import { parseTapPayResponse, parseTapPayRecordResponse, type TapPayRecordWire } from './wire';
 
 /**
  * TapPayChargeConfig:adapter 連線設定(env 由 composition root 讀、DI 注入、可測)。
@@ -40,7 +45,25 @@ export type TapPayChargeConfig = {
   partnerKey: string;
   merchantId: string;
   payByPrimeUrl: string;
+  /** Record API(交易紀錄反查)endpoint;由 env(TAPPAY_ENV)決定 sandbox vs prod、adapter 不寫死。 */
+  recordQueryUrl: string;
 };
+
+/** wire→domain:Record API 單筆 trade_record(金額走 toMoneyAmount 守門整數;currency 原值留 1b 斷言)。 */
+function toTradeRecord(w: TapPayRecordWire): TapPayTradeRecord {
+  return {
+    recTradeId: w.recTradeId,
+    orderNumber: w.orderNumber,
+    bankTransactionId: w.bankTransactionId,
+    merchantId: w.merchantId,
+    amount: toMoneyAmount(w.amount),
+    currency: w.currency,
+    recordStatus: w.recordStatus,
+    isCaptured: w.isCaptured,
+    refundedAmount: w.refundedAmount !== undefined ? toMoneyAmount(w.refundedAmount) : undefined,
+    transactionTimeMillis: w.transactionTimeMillis,
+  };
+}
 
 /** 幣別斷言:TapPay 回應非 TWD → throw(視為金額/設定異常 → use-case charge_unknown)。 */
 function assertTwdCurrency(currency: string | undefined): Currency {
@@ -119,12 +142,68 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
     throw new Error('TapPay refund 未實作(Phase 2)');
   }
 
+  /**
+   * Record API 反查(3DS-1a):依交易識別鍵查 TapPay 交易紀錄 → 解析白名單欄回給 3DS-1b。
+   *
+   * 🔴 **不下裁決**:忠實送查 + 解析 top status / trade_records;judging「已付款」(record_status=1 &&
+   * is_captured && amount/key 全對)是 settleCharge(1b)的事。HTTP 非 2xx / 格式異常 → throw(1b 映 pending)。
+   * fail-closed:三把識別鍵全空 → 拒(絕不送無 filter 全表查 → 防誤命中他單)。`merchant_id` 每查必帶(限本商戶)。
+   */
+  async recordQuery(query: TapPayRecordQuery): Promise<TapPayRecordResult> {
+    if (!query.recTradeId && !query.orderNumber && !query.bankTransactionId) {
+      throw new Error('recordQuery 需至少一把交易識別鍵(recTradeId/orderNumber/bankTransactionId)');
+    }
+    // filters:只帶 caller 給的識別鍵 + 恆帶 merchant_id(Array;限本商戶、防跨商戶誤命中)。
+    const filters: Record<string, unknown> = { merchant_id: [this.config.merchantId] };
+    if (query.recTradeId) filters.rec_trade_id = query.recTradeId;
+    if (query.orderNumber) filters.order_number = query.orderNumber;
+    if (query.bankTransactionId) filters.bank_transaction_id = query.bankTransactionId;
+
+    const response = await fetch(this.config.recordQueryUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.config.partnerKey,
+      },
+      body: JSON.stringify({
+        partner_key: this.config.partnerKey,
+        filters,
+        records_per_page: 50,
+        page: 0,
+      }),
+    });
+    if (!response.ok) {
+      // HTTP 層失敗 = 查不到真狀態 → throw(1b 映 pending 保留、不誤判 failed)。
+      throw new Error(`TapPay Record API HTTP ${response.status}`);
+    }
+
+    const raw: unknown = await response.json();
+    const wire = parseTapPayRecordResponse(raw);
+    this.logRecordQuery(query, wire.status, wire.numberOfTransactions);
+    return {
+      queryStatus: wire.status,
+      numberOfTransactions: wire.numberOfTransactions,
+      records: wire.records.map(toTradeRecord),
+    };
+  }
+
   /** 🔴 #16:只記非 PII(orderId/status/recTradeId);cardholder + rawResponse 絕不入 log。 */
   private logOutcome(orderId: OrderId, status: ChargeStatus, recTradeId: string | undefined): void {
     console.info('[TapPayChargeAdapter] charge', {
       orderId,
       status,
       recTradeId: recTradeId ?? null,
+    });
+  }
+
+  /** 🔴 #16:只記非 PII 對帳識別鍵 + 查詢結果計數;trade_records / card_info 絕不入 log。 */
+  private logRecordQuery(query: TapPayRecordQuery, status: number, count: number): void {
+    console.info('[TapPayChargeAdapter] recordQuery', {
+      recTradeId: query.recTradeId ?? null,
+      orderNumber: query.orderNumber ?? null,
+      bankTransactionId: query.bankTransactionId ?? null,
+      status,
+      numberOfTransactions: count,
     });
   }
 }
