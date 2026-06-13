@@ -72,3 +72,7 @@ packages/adapters/scripts/spikes/
 
 # graphify 知識地圖工具產物(.graphifyignore 本身 track、見 repo 根;產物本機重建、不入 git)
 graphify-out/
+
+# graphify 本機 git hook(graphify hook install 產;每人自裝、不強加團隊;.husky/pre-* 才是共用)
+.husky/post-commit
+.husky/post-checkout
