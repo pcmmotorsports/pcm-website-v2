@@ -5840,6 +5840,82 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #226. 💚 LINE Pay 結帳(TapPay 加值里程碑 1/4、最輕)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(post-M-3、Sean 拍「M-3 單筆 3DS 先收尾再開」)
+- **問題:**
+  - PCM 客群重度集中 LINE,結帳僅信用卡 3DS(M-3);無 LINE Pay → LINE 客群少一個最順手的付款選項。
+- **觸發事件(各 PRD 啟動時實作):**
+  - 2026-06-14 Sean 拍板「TapPay 加值功能做 LINE Pay」+ 處置 A(先落 backlog/roadmap、M-3 收尾後開獨立 PRD)。
+- **預期解法:**
+  - TapPay LINE Pay 介接(電子支付類、**卡號不過商戶**、PCI 面最小);**商務開通由 Sean 辦**(TapPay 客服 02-2366-0080)。
+  - 🔴 結算對帳**全複用 M-3 webhook inbox(b50bd62)+ settleCharge、非重做**;wallet 子頁/介接細節 PRD 啟動時逐行細讀 TapPay SDK(SPA 需點分頁渲染或問客服)、「需再核實」不憑記憶斷言。
+  - 命中鐵則 8+12 → 獨立 PRD + plan + Codex Packet。
+- **不修會痛在:**
+  - 擴充性:LINE 導購流量到結帳斷點(無慣用付款)→ 轉換流失,且越晚做 settleCharge 對帳分支越難回頭塞。
+  - 可維護性:多付款方式若不在同一對帳脊椎(settleCharge)收斂 → 各自對帳邏輯散落、難維護。
+  - bug 可追蹤性:無統一 webhook inbox 落地 → LINE Pay 斷線卡單無 durable 記錄可追。
+- **估時:** PRD + 實作(PRD 啟動時估;最輕的一個)。
+- **依賴:** M-3 單筆刷卡 3DS 收尾(地基)+ Sean 商務開通(可現在平行辦)+ 獨立 PRD 經 Sean 批。
+- **發現於:** 2026-06-14 / Sean 拍板 TapPay 加值功能。
+- **相關:** #228(錢包)/ #229(卡片記憶);M-3 webhook inbox b50bd62 + settleCharge(3DS-1b)。
+- **分流標籤:** `P2-later`
+
+---
+
+### #228. 🍎 Apple Pay / Google Pay 結帳(TapPay 加值里程碑 2-3/4、錢包)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(post-M-3)
+- **問題:**
+  - 行動端結帳無錢包快速付款(Apple Pay / Google Pay);手機客群須手動輸卡號 → 摩擦高、棄單率高。
+- **觸發事件(各 PRD 啟動時實作):**
+  - 2026-06-14 Sean 拍板「做 Apple Pay / Google Pay」+ 處置 A。
+- **預期解法:**
+  - 🔴 **2 個里程碑(Apple Pay、Google Pay)、共用 TapPay Pay-by-Prime 後端**(DPAN、**真卡號不過商戶**);PRD 可合一(錢包共用)或各別,啟動時 Sean 定。
+  - 開通由 Sean 辦:Apple = Apple Developer + 網域驗證 + 付款憑證;Google = Google 商家註冊 + 正式環境審查。
+  - 結算對帳**複用 M-3 webhook inbox + settleCharge**;SDK/wallet 介接細節 PRD 啟動時細讀官方(SPA 渲染)、需再核實。
+  - 命中鐵則 8+12 → 獨立 PRD + plan + Codex Packet。
+- **不修會痛在:**
+  - 擴充性:手機結帳無錢包 → 行動轉換率受限(錢包是行動結帳主流)。
+  - 可維護性:Apple/Google 共用 Pay-by-Prime,若不與 LINE Pay/卡片記憶同脊椎收斂 → 多 prime 來源對帳分裂。
+  - bug 可追蹤性:錢包付款失敗無統一 inbox 記錄 → 難追手機端斷線卡單。
+- **估時:** PRD + 實作(共用後端、比卡片記憶輕)。
+- **依賴:** 🔴 **平台開通 gated on「M-3 3DS 收尾 + 新賣場結帳頁部署上線」**(Sean 2026-06-14 後續拍板):Apple/Google 網域驗證需 **live HTTPS 站 serve 驗證檔** + 平台審查**實際結帳流**(可 test/sandbox + flag 關真刷卡、Apple/Google 看得到即可 = 非開放真實收款)→ **不能在部署前平行辦**(比 #226/#229 多一道部署門檻)。+ Sean 平台開通(Apple Developer / Google 商家)+ 獨立 PRD。
+- **發現於:** 2026-06-14 / Sean 拍板(依賴於 2026-06-14 後續拍板補正)。
+- **相關:** #226(LINE Pay)/ #229(卡片記憶);共用 Pay-by-Prime;M-3 settleCharge。
+- **分流標籤:** `P2-later`
+
+---
+
+### #229. 🔐 卡片記憶(Pay by Card Token)+ Remove Card(TapPay 加值里程碑 4/4、最重)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(post-M-3、最重、法規前置多)
+- **問題:**
+  - 回頭客每次重輸卡號;無「記住卡片」一鍵重扣。但這是**唯一讓商戶自存可重扣憑證**的功能 → 碰 PCI + 台灣 card-on-file 法規。
+- **觸發事件(各 PRD 啟動時實作):**
+  - 2026-06-14 Sean 拍板「做卡片記憶(Pay by Card Token)」+ 處置 A;**排除定期定額/自動週期扣款**(Sean 拍不做)。
+- **預期解法:**
+  - TapPay Pay by Card Token:`remember=true` → 取得 `card_key`/`card_token` → 後續重扣;Remove Card 刪卡。
+  - 🔴 **正式做前置(Sean+法務)**:① 書面問 TapPay(自存 token 的 PCI / 合約義務)② 同意流程 + 刪卡流程設計。
+  - 🔴 **鐵則 12 要害(存可重扣憑證)**:`card_key`/`card_token` **server-only + 加密 at rest + 零進 client bundle/log/git**;重扣前**驗 token 歸屬登入會員(防 IDOR)**;結算複用 M-3 webhook inbox + settleCharge。
+  - 命中鐵則 8+12 → 獨立 PRD + plan + **commit 前產 Codex Packet**(碰 PCI/憑證儲存,審查最用力)。
+- **不修會痛在:**
+  - 擴充性:無記憶卡 → 回頭客結帳摩擦,且日後做時 token 儲存 schema/加密/IDOR 防護要從頭設計。
+  - 可維護性:card-on-file 法規/PCI 義務若未先書面釐清 → 上線後被要求改儲存/同意流程 = 大改。
+  - bug 可追蹤性:token 歸屬若無 server 端會員驗證 → IDOR 漏洞難事後追(他人重扣你的卡)。
+- **估時:** PRD + 法規前置 + 實作(最重;法規前置可能拉長)。
+- **依賴:** M-3 3DS 收尾 + Sean+法務(問 TapPay PCI/合約 + 同意/刪卡流程)+ 獨立 PRD + Codex Packet。
+- **發現於:** 2026-06-14 / Sean 拍板。
+- **相關:** #226 / #228;M-3 settleCharge;**排除**定期定額。
+- **分流標籤:** `P2-later`
+
+> **共通(#226/#228/#229)**:皆 TapPay 加值、鐵則 8+12、各走獨立 PRD(建議序輕→重:LINE Pay → 錢包 → 卡片記憶);結算對帳**全複用 M-3 webhook inbox(b50bd62)+ settleCharge、非重做**;**不做** 延遲請款 / 自動週期扣款(Sean 2026-06-14 拍除外)。業務開通:**可現在平行辦** = #226 LINE Pay(客服帳號申請、sandbox 可開發)+ #229 卡片記憶(書面問 TapPay PCI/合約)〔皆不需 live 站〕;🔴 **等部署** = #228 Apple/Google Pay(網域驗證/平台審查需 **live 結帳頁** serve 驗證檔 + 看得到實際結帳流 → gated on「新賣場結帳頁部署上線」、**不能部署前辦**)。**實作皆須等 M-3 單筆 3DS 收尾**。逐行 SDK 細讀於各 PRD 啟動時做(TapPay docs SPA、需點分頁或問客服),wallet 介接「需再核實」勿憑記憶。(#227 保留給 cross-tab D3 BroadcastChannel、見 cross-tab plan §7。)
+
+---
+
 ## 紀錄模板
 
 ```markdown

@@ -333,6 +333,26 @@ Phase 1 是「上架真權威前台 + 對應後台」、不直接做這 9 點功
 
 ---
 
+## 補充段:TapPay 加值支付里程碑(Payment Value-Adds)
+
+> **這是補充段、不是第 10 條藍圖。** §1 九大藍圖框架不動、不重編號。
+> **來源:** 2026-06-14 Sean 拍板「TapPay 加值功能」+ 處置 A(先落 backlog/roadmap、**M-3 單筆刷卡 3DS 先收尾(地基)**、之後各開獨立 PRD)。
+> **與 M-3 關係:** M-3 = 信用卡單筆 3DS 結帳(脊椎 = webhook inbox `b50bd62` + settleCharge);本段 4 個里程碑都**複用該對帳脊椎、非重做**,在其上加付款方式。
+
+**4 個里程碑(皆鐵則 8+12、各走獨立 PRD、建議序輕→重;細節見 `docs/phase-1-backlog.md`):**
+
+| # | 里程碑 | 輕重 | 卡號過商戶? | 業務開通(Sean 辦) | backlog |
+|---|---|---|---|---|---|
+| 1 | **LINE Pay** | 最輕 | 否(電子支付) | TapPay 客服 02-2366-0080 | #226 |
+| 2-3 | **Apple Pay / Google Pay** | 中(共用 Pay-by-Prime) | 否(DPAN) | Apple Developer+網域驗證+付款憑證 / Google 商家+正式審查 🔴**需 live 結帳頁(gated on 部署上線)** | #228 |
+| 4 | **卡片記憶(Pay by Card Token)+ Remove Card** | 最重(PCI+card-on-file 法規) | 🔴 是(商戶自存可重扣憑證) | 書面問 TapPay PCI/合約 + 同意/刪卡流程(Sean+法務) | #229 |
+
+**除外(Sean 2026-06-14 拍不做):** 延遲請款 / 自動週期扣款(定期定額)。
+
+**共通紀律:** ① 結算對帳全複用 M-3 webhook inbox + settleCharge;② 涉儲存 `card_key`/token(#229)= 鐵則 12 要害:server-only + 加密 at rest + 零進 client bundle/log/git + 驗 token 歸屬登入會員(防 IDOR)、正式做前提 plan + commit 前 Codex Packet;③ 逐行 SDK 細讀於各 PRD 啟動時做(TapPay docs 為 SPA、需點分頁渲染或問客服),wallet 介接「需再核實」勿憑記憶;④ 業務開通:**可現在辦**(不需 live 站)= #226 LINE Pay(客服 02-2366-0080 帳號申請、sandbox 可先開發)+ #229 卡片記憶(書面問 TapPay PCI/合約);🔴 **等部署** = #228 Apple/Google Pay(網域驗證/平台審查需 **live 結帳頁** serve 驗證檔 + 看得到實際結帳流 → gated on「新賣場結帳頁部署上線」、**不能部署前辦**)。實作皆須等 M-3 3DS 收尾。
+
+---
+
 ## 5. 重要參考
 
 - **完整 PRD(Phase 2 範圍):** `docs/features/vehicle-service-ecosystem.md` v0.2(793 行、車輛履歷 + 店家端 + 預約 + 儲值金回饋全寫)
