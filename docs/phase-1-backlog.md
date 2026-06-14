@@ -5916,6 +5916,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #230. 🔒 bank_transaction_id 被 settleCharge 當免時間窗 strong key,但 0c 欄 nullable 無 UNIQUE/格式 CHECK — 3DS-5b 寫入前必補
+
+- **狀態:** ⏳ 待執行(3DS-5b 前置)
+- **優先級:** 🟠 中(現況 benign:0c bank_transaction_id 恆 null、3DS-1b 不受影響;3DS-5b 真寫入時升為要害)
+- **問題:**
+  - settleCharge `recordMatchesOrder` 把「本機有 rec_trade_id 或 bank_transaction_id」視為 strong key → **免弱識別時間窗**(前提:rec/bank 唯一識別本 attempt 自身交易、CANCEL/ERROR 即本交易失敗、釋鎖安全)。
+  - 但 3DS-0c migration 只把 `attempt.bank_transaction_id` 加成 **nullable、無 UNIQUE constraint、無格式 CHECK**(前向欄、現恆 null)。
+  - 3DS-5b 真把 bank_transaction_id 寫入後,若該欄非唯一/格式不受控 → 「bank 單獨作為 strong key 唯一識別本 attempt 交易」前提不成立 → 失敗釋鎖路徑可能誤採信非本 attempt 的同 bank 值記錄 → 退回 3DS-1b must-fix 同類釋鎖向量(走 bank 而非 order_number)。
+- **預期解法:**
+  - 3DS-5b 實作 bank_transaction_id 寫入前,DB 加 **UNIQUE(bank_transaction_id) WHERE not null** + **格式 CHECK**(TapPay bank_transaction_id 格式);否則 `recordMatchesOrder` 不可單獨把 bank 視為 strong key(須降級為弱識別、套時間窗 + forFinalFail 失敗下界硬化)。
+- **不修會痛在:**
+  - bug 可追蹤性 / 鐵則 12:bank strong-key 免窗前提失效 → 失敗終態誤釋當前 attempt 鎖 → 重刷雙扣(與 3DS-1b must-fix 同類向量)。
+  - 可維護性 / 擴充性:5b 寫入端與 1b 讀裁決端對 bank 強度假設不一致、越晚補 constraint 越難(既有資料可能已有重複/髒格式)。
+- **發現於:** 2026-06-14 / 3DS-1b must-fix 審查側 codex 關卡2 #3(future consider)。
+- **相關:** 3DS-1b settleCharge(`recordMatchesOrder`/`forFinalFail`)/ 3DS-0c migration(bank_transaction_id 欄)/ master plan v5;3DS-5b plan 啟動時併入。
+- **分流標籤:** `P2-later`
+
+---
+
 ## 紀錄模板
 
 ```markdown
