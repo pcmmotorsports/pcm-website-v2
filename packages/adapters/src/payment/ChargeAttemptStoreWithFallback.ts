@@ -18,6 +18,7 @@ import 'server-only';
 
 import type { IChargeAttemptStore } from '@pcm/ports';
 import type {
+  ActiveChargeAttempt,
   BeginChargeAttemptResult,
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
@@ -43,6 +44,11 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
   /** 佔鎖不重試:失敗 = 零 charge(fail-closed 安全),由 action 吞通用字面。 */
   begin(orderId: OrderId): Promise<BeginChargeAttemptResult> {
     return this.primary.begin(orderId);
+  }
+
+  /** 對帳讀(3DS-1b)主軌-only:讀失敗 → settleCharge 回 pending、sweeper 重來;備軌需 JWT、webhook/sweeper 無。 */
+  findActiveByOrderId(orderId: OrderId): Promise<ActiveChargeAttempt | null> {
+    return this.primary.findActiveByOrderId(orderId);
   }
 
   async markCharged(input: MarkChargeAttemptChargedInput): Promise<void> {

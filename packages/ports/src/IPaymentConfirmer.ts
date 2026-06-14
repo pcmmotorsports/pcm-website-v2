@@ -1,4 +1,4 @@
-import type { ConfirmOrderPaymentInput, ConfirmOrderPaymentResult } from '@pcm/domain';
+import type { ConfirmOrderPaymentInput, ConfirmOrderPaymentResult, OrderId } from '@pcm/domain';
 
 /**
  * IPaymentConfirmer:付款確認 port(M-3 階段②-②b)。
@@ -26,4 +26,12 @@ export interface IPaymentConfirmer {
    * 失敗 → throw `PaymentConfirmError`(分類見上;**不轉傳 pg 原始 message**、PF-E 通用)。
    */
   confirm(input: ConfirmOrderPaymentInput): Promise<ConfirmOrderPaymentResult>;
+  /**
+   * 呼 record_pending_invoice RPC 在成交(paid)點冪等記「該單待開票」(M-3 3DS-1b、S1=B、master plan §5)。
+   *
+   * 回 `true`=首記 / `false`=重入 no-op(ON CONFLICT DO NOTHING、order_id 冪等鍵);0c RPC 內 fail-closed
+   * 驗 orders.payment_status='paid'(非 paid → throw)。settleCharge **best-effort** 呼(throw 只 log、不翻 paid);
+   * 同 payment_confirmer 窄權連線(0c 已 GRANT)。
+   */
+  recordPendingInvoice(orderId: OrderId): Promise<boolean>;
 }

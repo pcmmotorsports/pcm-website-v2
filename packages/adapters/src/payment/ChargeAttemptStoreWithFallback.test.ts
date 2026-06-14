@@ -46,6 +46,8 @@ function makeStore(opts: {
     begin,
     markCharged: primaryMarkCharged,
     markFailed: primaryMarkFailed,
+    // findActiveByOrderId 為 3DS-1b 新增 port 方法;本複合 markCharged/雙軌測不涉、stub 滿足介面。
+    findActiveByOrderId: vi.fn(async () => null),
   };
   const fallback: ChargeAttemptFallbackRail = { markCharged: fallbackMarkCharged };
   // 顯式 call signature:令 sleep.mock.calls 為 [ms] tuple(可讀退避序列、非空 tuple)。

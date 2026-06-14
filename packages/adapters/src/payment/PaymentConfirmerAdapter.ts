@@ -35,7 +35,7 @@ import 'server-only';
 import { isIP } from 'node:net';
 import { Client } from 'pg';
 import type { IPaymentConfirmer } from '@pcm/ports';
-import type { ConfirmOrderPaymentInput, ConfirmOrderPaymentResult } from '@pcm/domain';
+import type { ConfirmOrderPaymentInput, ConfirmOrderPaymentResult, OrderId } from '@pcm/domain';
 import { PaymentConfirmError } from '@pcm/domain';
 import { SUPABASE_ROOT_CA_2021 } from './supabase-ca';
 
@@ -143,6 +143,35 @@ export class PaymentConfirmerAdapter implements IPaymentConfirmer {
       }
     }
   }
+
+  /**
+   * M-3 3DS-1b:成交(paid)點冪等記「該單待開票」(record_pending_invoice RPC、S1=B、master plan §5)。
+   *
+   * 回 `true`=首記 / `false`=重入 no-op;失敗 → throw `PaymentConfirmError`(settleCharge best-effort 接、不翻 paid)。
+   * 同 confirm 的連線縱深(buildPgConfig CA 驗證 + per-request end);PF-E:不轉傳 pg 原文。
+   */
+  async recordPendingInvoice(orderId: OrderId): Promise<boolean> {
+    let client: PgClientLike | undefined;
+    try {
+      client = this.clientFactory(this.connectionString);
+      await client.connect();
+      const res = await client.query(
+        'SELECT public.record_pending_invoice($1::uuid) AS result',
+        [orderId],
+      );
+      return parsePendingInvoiceResult(res.rows);
+    } catch (err) {
+      throw classifyPgError(err);
+    } finally {
+      if (client) {
+        try {
+          await client.end();
+        } catch {
+          /* swallow: 連線已斷時 end 可能 throw、不蓋過真實結果/錯誤 */
+        }
+      }
+    }
+  }
 }
 
 /** 解析 confirm RPC 回的 jsonb `{confirmed, idempotent}`;形狀不符 → unreachable(可重 confirm 不重 charge)。 */
@@ -154,6 +183,15 @@ function parseConfirmResult(
     throw new PaymentConfirmError('unreachable', 'confirm RPC 回應格式異常');
   }
   return { confirmed: result.confirmed, idempotent: result.idempotent };
+}
+
+/** 解析 record_pending_invoice RPC 回的 boolean(inserted);形狀不符 → unreachable。 */
+function parsePendingInvoiceResult(rows: Array<Record<string, unknown>>): boolean {
+  const result = rows[0]?.result;
+  if (typeof result !== 'boolean') {
+    throw new PaymentConfirmError('unreachable', 'record_pending_invoice 回應格式異常');
+  }
+  return result;
 }
 
 /**

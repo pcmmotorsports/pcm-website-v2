@@ -179,6 +179,13 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
 
     const raw: unknown = await response.json();
     const wire = parseTapPayRecordResponse(raw);
+    // 🔴 wire 完整性(非業務裁決;codex 關卡2):filter 已帶 merchant_id → 回應每筆 merchant_id 必為本商戶,
+    //   否則視為 wire 異常 throw(1b 映 pending 保留、不誤採他商戶紀錄)。
+    for (const rec of wire.records) {
+      if (rec.merchantId !== this.config.merchantId) {
+        throw new Error('TapPay Record 回應含非本商戶紀錄(merchant_id 不符 filter)');
+      }
+    }
     this.logRecordQuery(query, wire.status, wire.numberOfTransactions);
     return {
       queryStatus: wire.status,

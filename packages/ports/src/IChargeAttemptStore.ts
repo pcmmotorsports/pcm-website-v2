@@ -1,4 +1,5 @@
 import type {
+  ActiveChargeAttempt,
   BeginChargeAttemptResult,
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
@@ -24,4 +25,12 @@ export interface IChargeAttemptStore {
   markCharged(input: MarkChargeAttemptChargedInput): Promise<void>;
   /** 卡拒(明確未扣款)釋鎖(pending→failed;failed 冪等 no-op;charged→failed 永拒)。 */
   markFailed(input: MarkChargeAttemptFailedInput): Promise<void>;
+  /**
+   * 依 orderId 反查 active(pending|charged)attempt 對帳鍵 + order 對帳欄(M-3 3DS-1b settleCharge)。
+   *
+   * 🔴 **主軌-only**(`get_active_charge_attempt` RPC、payment_confirmer 窄權):對帳讀不需雙軌韌性
+   * (讀失敗 → settleCharge 回 pending、sweeper 重來,無漏寫風險);且備軌需 user JWT、webhook/sweeper 無。
+   * 無單 / 無 active attempt → `null`(1b 映 no_attempt)。
+   */
+  findActiveByOrderId(orderId: OrderId): Promise<ActiveChargeAttempt | null>;
 }

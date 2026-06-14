@@ -22,10 +22,12 @@ import 'server-only';
 import { Client } from 'pg';
 import type { IChargeAttemptStore } from '@pcm/ports';
 import type {
+  ActiveChargeAttempt,
   BeginChargeAttemptResult,
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
   OrderId,
+  PaymentStatus,
 } from '@pcm/domain';
 import { buildPgConfig, type PgClientLike } from './PaymentConfirmerAdapter';
 
@@ -79,6 +81,17 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
     );
   }
 
+  /** M-3 3DS-1b:依 orderId 反查 active attempt + order 對帳欄(主軌-only;RPC RETURN NULL → null)。 */
+  async findActiveByOrderId(orderId: OrderId): Promise<ActiveChargeAttempt | null> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.get_active_charge_attempt($1::uuid) AS result',
+        [orderId],
+      );
+      return parseActiveAttempt(res.rows);
+    });
+  }
+
   /** per-request 連線生命週期(connect → op → finally end;end throw 吞掉不蓋主錯誤)。 */
   private async run<T>(op: (client: PgClientLike) => Promise<T>): Promise<T> {
     let client: PgClientLike | undefined;
@@ -118,6 +131,39 @@ function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAtte
     throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
   }
   return { acquired: false, reason: r.reason };
+}
+
+/** 合法 PaymentStatus 值(對齊 orders.payment_status enum;fail-closed 驗證用)。 */
+const PAYMENT_STATUSES: readonly PaymentStatus[] = ['unpaid', 'paid', 'partiallyPaid', 'refunded'];
+
+/** 解析 get_active_charge_attempt RPC jsonb;RPC RETURN NULL → null;形狀不符 → throw(通用)。 */
+function parseActiveAttempt(rows: Array<Record<string, unknown>>): ActiveChargeAttempt | null {
+  const r = rows[0]?.result;
+  if (r === null || r === undefined) {
+    return null; // RPC 回 NULL = 無單 / 無 active attempt
+  }
+  const o = r as Record<string, unknown>;
+  if (
+    typeof o.attempt_id !== 'string' ||
+    (o.status !== 'pending' && o.status !== 'charged') ||
+    typeof o.attempt_created_at !== 'string' ||
+    typeof o.order_total !== 'number' ||
+    typeof o.order_payment_status !== 'string' ||
+    !PAYMENT_STATUSES.includes(o.order_payment_status as PaymentStatus) ||
+    typeof o.order_display_id !== 'string'
+  ) {
+    throw new ChargeAttemptParseError('get_active_charge_attempt 回應格式異常');
+  }
+  return {
+    attemptId: o.attempt_id,
+    status: o.status,
+    recTradeId: typeof o.rec_trade_id === 'string' ? o.rec_trade_id : null,
+    bankTransactionId: typeof o.bank_transaction_id === 'string' ? o.bank_transaction_id : null,
+    attemptCreatedAt: o.attempt_created_at,
+    orderTotal: o.order_total,
+    orderPaymentStatus: o.order_payment_status as PaymentStatus,
+    orderDisplayId: o.order_display_id,
+  };
 }
 
 /** 通用訊息 + 安全 SQLSTATE(零 pg 原文/PII/token;本層 parse 錯誤憑 branded 類別放行 —— pg 也會丟

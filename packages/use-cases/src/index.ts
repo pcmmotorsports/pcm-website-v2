@@ -35,3 +35,7 @@ export { placeOrder } from './place-order';
 // M-3 階段②-②b:成交編排 use-case(confirmPayment、charge → confirm、孤兒單契約 outcome;
 // 型別 ConfirmPaymentInput/Outcome 在 @pcm/domain payment/types.ts、從 @pcm/domain 取)。
 export { confirmPayment, type ConfirmPaymentDeps } from './confirm-payment';
+
+// M-3 3DS-1b:對帳脊椎 use-case(settleCharge、三路 callback/webhook/sweeper + retry 共呼冪等、
+// Record API 唯一權威;master plan v5 §1)。
+export { settleCharge, type SettleChargeDeps } from './settle-charge';

@@ -273,6 +273,16 @@ describe('TapPayChargeAdapter.recordQuery — fail-closed + 異常路徑', () =>
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(bad)));
     await expect(new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY)).rejects.toThrow(/缺必要欄/);
   });
+
+  it('回應含非本商戶紀錄(merchant_id≠filter)→ throw(wire 完整性、防誤採他商戶;codex 關卡2)', async () => {
+    const foreign = {
+      status: 0,
+      number_of_transactions: 1,
+      trade_records: [{ ...RECORD_CAPTURED_WIRE.trade_records[0], merchant_id: 'M_other' }],
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(foreign)));
+    await expect(new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY)).rejects.toThrow(/非本商戶/);
+  });
 });
 
 describe('TapPayChargeAdapter.recordQuery — #16 PII 零落地', () => {

@@ -35,7 +35,8 @@ function makeTapPay(charge: () => Promise<TapPayChargeResult>): ITapPayAdapter {
 function makeConfirmer(
   confirm: () => Promise<{ confirmed: boolean; idempotent: boolean }>,
 ): IPaymentConfirmer {
-  return { confirm: vi.fn(confirm) };
+  // recordPendingInvoice 為 3DS-1b 新增 port 方法;confirm-payment(同步成交鏈)不呼用、stub 滿足介面。
+  return { confirm: vi.fn(confirm), recordPendingInvoice: vi.fn() };
 }
 function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptStore {
   return {
@@ -46,6 +47,8 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     })),
     markCharged: vi.fn(async () => {}),
     markFailed: vi.fn(async () => {}),
+    // findActiveByOrderId 為 3DS-1b 新增 port 方法;confirm-payment 不呼用、stub 滿足介面。
+    findActiveByOrderId: vi.fn(async () => null),
     ...over,
   };
 }

@@ -7,7 +7,7 @@
  */
 
 import type { Money, MoneyAmount } from '../shared/types';
-import type { OrderId } from '../order/types';
+import type { OrderId, PaymentStatus } from '../order/types';
 
 /**
  * ChargeStatus: 金流交易結果狀態(domain enum)。
@@ -251,3 +251,56 @@ export type MarkChargeAttemptFailedInput = {
   attemptId: string;
   orderId: OrderId;
 };
+
+// ── M-3 3DS-1b:settleCharge 對帳脊椎型別 ─────────────────────────────────────────────────────
+
+/**
+ * ActiveChargeAttempt:`get_active_charge_attempt` RPC 回 DTO(3DS-1b settleCharge 依 orderId 反查)。
+ *
+ * 🔴 只非 PII 對帳欄(零 token/卡資料/經銷價)。`orderTotal` 走窄權 RPC —— `IOrderRepository.findTotal`
+ * 是 RLS own-only(user-scoped),webhook/sweeper **無 user JWT** → findTotal 回 null,故對帳金額讀必走
+ * payment_confirmer server-side。`orderPaymentStatus` 供 1b 缺陷C 短路(已 paid 不打 Record);
+ * `orderDisplayId` 供 retry duplicate 回既有單號。
+ *
+ * @see supabase/migrations/20260614120000_m3_3ds_1b_get_active_charge_attempt.sql
+ */
+export type ActiveChargeAttempt = {
+  attemptId: string;
+  status: 'pending' | 'charged';
+  recTradeId: string | null;
+  bankTransactionId: string | null;
+  /** attempt 建立時間(ISO 8601);弱識別(hint/order_number fallback)時間窗防誤命中用(master plan §1 step 2)。 */
+  attemptCreatedAt: string;
+  /** orders.total 整數元位(對帳比對;orders 無 currency 欄、Phase 1 TWD → 1b 以 'TWD' 常數斷言 currency)。 */
+  orderTotal: number;
+  orderPaymentStatus: PaymentStatus;
+  orderDisplayId: string;
+};
+
+/**
+ * SettleChargeInput:settleCharge use-case 輸入(master plan §1;三路 callback/webhook/sweeper + retry 共用)。
+ *
+ * `orderId` = 反查鍵(唯一輸入權威);`recTradeIdHint` = **僅 hint**(Record 驗、非本機權威鍵;master plan
+ * §1 step 1 第 3 順位 rec→bank→hint→order_number)。
+ */
+export type SettleChargeInput = {
+  orderId: OrderId;
+  recTradeIdHint?: string;
+};
+
+/**
+ * SettleChargeOutcome:settleCharge 結果(action 層〔3DS-5b〕映 duplicate/重刷/hold;settleCharge **不碰** UI/cart)。
+ *
+ * - `paid`:Record 證實 + markCharged→confirm→recordPendingInvoice 成(`idempotent`=重入 no-op;`displayId` 供 duplicate 回號)。
+ * - `failed`:Record 明確未成功(record_status -1=ERROR / 5=CANCEL)→ markFailed 已釋鎖、caller 可放行重刷。
+ * - `pending`:保留、不釋鎖 → sweeper/retry 再來。`reason`:
+ *   - `auth_or_pending`:record_status 0=AUTH / 4=PENDING / 1&&!is_captured(未到終態)。
+ *   - `record_unverified`:金額不符 / 鍵不符 / number_of_transactions≠1 / 2·3 退款異常(不自動放行、S2=B)。
+ *   - `record_unreachable`:recordQuery throw / confirm throw(已扣款不棄、retry)。
+ * - `no_attempt`:orderId 無 active(pending|charged)attempt(webhook 對不上本機 → route 丟棄)。
+ */
+export type SettleChargeOutcome =
+  | { kind: 'paid'; idempotent: boolean; displayId: string }
+  | { kind: 'failed' }
+  | { kind: 'pending'; reason: 'auth_or_pending' | 'record_unverified' | 'record_unreachable' }
+  | { kind: 'no_attempt' };

@@ -14,6 +14,7 @@
 
 import 'server-only';
 import type { ITapPayAdapter, IPaymentConfirmer, IChargeAttemptStore } from '@pcm/ports';
+import type { SettleChargeDeps } from '@pcm/use-cases';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
 import {
   TapPayChargeAdapter,
@@ -93,4 +94,21 @@ export async function getChargeAttemptStore(): Promise<IChargeAttemptStore> {
     new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL')),
     new SupabaseChargeAttemptFallbackAdapter(supabase),
   );
+}
+
+/**
+ * 建 SettleChargeDeps(M-3 3DS-1b 對帳脊椎;三路 route〔3DS-2/3〕+ sweeper cron〔3DS-4〕注入 settleCharge)。
+ *
+ * 🔴 **sync cookieless(缺陷B)**:settleCharge 在 webhook/sweeper **無 cookie/JWT** → 不可走會 `await cookies()`
+ * 的 `getChargeAttemptStore()`(cron throw)。故 `attempts` = **主軌-only** `PgChargeAttemptAdapter`(payment_confirmer
+ * 窄權直連、buildPgConfig CA 縱深、無 cookie 依賴)、**不**經 `ChargeAttemptStoreWithFallback`(備軌需 user JWT);
+ * 對帳讀失敗 → settleCharge 回 pending、sweeper 重來。markCharged 主軌刻意不用 fallbackToken(settleCharge 傳 '' 佔位)。
+ * `confirmer` 同鑰(confirm + 0c record_pending_invoice);`tappay` recordQuery 反查。
+ */
+export function getSettleChargeDeps(): SettleChargeDeps {
+  return {
+    tappay: getTapPayAdapter(),
+    attempts: new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL')),
+    confirmer: getPaymentConfirmer(),
+  };
 }
