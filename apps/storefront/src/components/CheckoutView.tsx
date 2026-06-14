@@ -134,8 +134,8 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   const stayMessage =
     primeError ??
     (charge.state.status === 'error' ||
-    charge.state.status === 'wait' ||
-    charge.state.status === 'in_flight'
+      charge.state.status === 'wait' ||
+      charge.state.status === 'in_flight'
       ? charge.state.message
       : null);
 
