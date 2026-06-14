@@ -123,3 +123,15 @@ export function getSettleChargeDeps(): SettleChargeDeps {
 export function getWebhookInbox(): IWebhookInbox {
   return new PgWebhookInboxAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
 }
+
+/**
+ * 建 IChargeAttemptStore reader(M-3 3DS-2b;webhook 存在性閘 DB-only、解耦 TapPay env;codex 關卡2 consider)。
+ *
+ * 🔴 只建主軌 `PgChargeAttemptAdapter`(payment_confirmer 同鑰、**零 TapPay env**)→ webhook route 在 durable
+ * insert「前」的本機 active attempt 存在性閘 + durable 捕獲不依賴 TapPay 設定;TapPay env 漂移時 webhook 仍能
+ * durable 落 inbox(快路徑 settleCharge 在 route `after()` 內才建 full `getSettleChargeDeps`、降級不影響捕獲)。
+ * cookieless(webhook 無 cookie/JWT;對帳讀失敗 → 上層 503/sweeper 重來)。
+ */
+export function getChargeAttemptReader(): IChargeAttemptStore {
+  return new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
+}

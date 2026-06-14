@@ -97,11 +97,17 @@
 
 - **durable-first fail-closed**:`findActiveByOrderId` throw / `recordEvent` throw → route **回 5xx(非 200)** 令 TapPay 重送(at-least-once)→ 絕不「沒落 DB 卻回 200」丟失 notify。唯有 durable insert 成功(或明確 drop:secret 不符 404 / 缺鍵·非 UUID·無本機單 200)才回非-5xx。
 - **best-effort 邊界誠實**:`after(settleCharge)` 非 durable queue → 3DS-2 不宣稱最終結算保證;最終保證 = 3DS-4 sweeper(硬 gate §1/§6)。
+- **🔴 durable 捕獲解耦 TapPay env(codex 關卡2 consider)**:存在性閘 + durable insert 只用 **DB-only deps**(`getChargeAttemptReader` + `getWebhookInbox`、payment_confirmer 同鑰、零 TapPay env);`after()` 內才建 full `getSettleChargeDeps`(含 TapPay)跑 settleCharge → **TapPay env 漂移時 webhook 仍能 durable 落 inbox**(只快路徑降級、不在 durable 捕獲「前」503)。
 - **不採信 notify 任何欄位做成交判斷**:route 只取白名單欄落 inbox(稽核)+ 觸發 settleCharge;成交權威 100% 在 settleCharge 內 Record API(record_status=1 && is_captured)。
-- **PII 零落地**:route 算 raw body sha256 落 `raw_hash`(**hash-before-parse**)、**不存原文**(避 masked_credit_card_number / card_identifier);白名單欄僅 rec_trade_id/order_number/status/amount/bank_transaction_id/time;**body size cap**(超過 413、不解析);**log 零 raw/parsed payload**(只 orderId/rec/error label)。
+- **PII 零落地**:route 算 raw body sha256 落 `raw_hash`(**hash-before-parse**)、**不存原文**(避 masked_credit_card_number / card_identifier);白名單欄僅 rec_trade_id/order_number/status/amount/bank_transaction_id/time;**body size cap**(route 16KB 僅擋誠實小 body;🔴 **chunked / 無 content-length 的真實上限 = Vercel 平台 function body limit ~4.5MB、屬隱性外部依賴**;超過 413、不解析);**log 零 raw/parsed payload**(只 orderId/rec/error label)。
+- **🔴 defensive parse 收界(codex 關卡2 M1/M2)**:畸形選填數值(浮點 / 超 int4 / 超 safe-int)→ `asInt4`/`asInt` 省略該欄(NULL 落地、**非 503**、整筆仍 200 落 inbox);`asStr` trim 後判空(對齊 0a `btrim()=''` RAISE、規範化 dedup 鍵)→ 純空白必填(rec)→ 200 drop。避免畸形值 → PG cast/CHECK RAISE → 503 loop。
 - **卡資料 / 經銷價 / 密鑰**:route 零碰卡資料、零經銷價、TAPPAY/DB 鑰 server-only(runtime nodejs + composition 受控門 + 不進 client bundle)。
 - **背景錯誤吞並 log**:`after(settleCharge)` 內 throw 全 catch + log(orderId 級、零 PII)、不影響已回的 200;sweeper(3DS-4)為保證。
 - **冪等**:重送同 rec_trade_id → 0a ON CONFLICT DO NOTHING(inserted=false)→ 不重複 settleCharge 快路徑(只首見觸發);settleCharge 自身亦冪等(雙保險)。
+
+**🔴 殘餘風險(codex 關卡2;Sean 2026-06-15 拍 A 接受 + 文件化)**:
+- **timing oracle**:secret 外洩後,持密者可藉「no-attempt(200 / 1 次 DB 讀)」vs「成交(200 / DB 寫 + after)」延遲差,列舉某 orderId 是否有 active attempt(**僅洩「存在與否」、不洩金額/PII;無 secret 者零資訊**)。**Sean 拍 A 接受**;緩解 = Vercel WAF 限流壓制探測 + secret 維運級保密/輪替 + 3DS-4 前零真流量。
+- **出站放大係數(供 WAF 閾值依據)**:每首見 notify → 1 次 `after(settleCharge)` → 最多 **~4 次 DB connect + 1 次 TapPay 出站 HTTP**(Record API)。去重鍵 = rec_trade_id(**非 order**)→ 存在性閘擋不住「同單海量不同 rec」灌入 → inbox 膨脹 + 出站放大的**唯一 app 前防線 = WAF**(§14 BLOCKER)。
 
 ## ⑨ 測試計畫
 
@@ -112,6 +118,7 @@
   - happy:⑥ 合法首見 + 本機單存在 → recordEvent 呼、200、after(settleCharge) 排程 ⑦ 重送(inserted=false)→ 200、**不**排 settleCharge。
   - fail-closed:⑧ findActiveByOrderId throw → **503** ⑨ recordEvent throw → **503**(令 TapPay 重送)。
   - PII / parse(codex consider 3):⑩ raw_hash = body sha256(**parse 前**算)⑪ content-type matrix(JSON / form-urlencoded / malformed body → 安全 ACK 策略)⑫ oversized body → 413、不解析、不落地 ⑬ log assertion:無 raw/parsed payload ⑭ settleCharge throw(after 內)→ 已回 200 不受影響。
+  - defensive 收界(codex 關卡2 M1/M2):⑮ amount/status 超 int4 → 省略(NULL、非 503)⑯ amount 浮點 → 省略 ⑰ transaction_time_millis 超 safe-int → 省略 ⑱ rec_trade_id 純空白 → 200 drop(對齊 0a btrim)⑲ rec 前後空白 → trim 落地 ⑳ content-type 謊報但 body JSON → 嗅探解析。
 - 動共用 port/adapter → 跑**完整 pnpm test**(非子集、memory `run-full-vitest-after-shared-component-change`)。
 
 ## ⑩ 執行步驟(Sean 批 + codex 關卡1 r2 PASS + 起手檢查回綠 後)
@@ -162,7 +169,7 @@
 
 「啟用任何 TapPay backend_notify_url / 開放 prod 結帳」前,以下**全部**到位(散見 §1/§6/§7/§12 之集中清單):
 - [ ] **3DS-4 sweeper 已實作**(最終結算保證;3DS-2 單片只 durable 捕獲 + best-effort)。
-- [ ] **Vercel Firewall/WAF** 對 `/api/checkout/tappay-notify/*` 已設(端點 hard 限流;≠ PAY-06 velocity)。
+- [ ] 🔴 **BLOCKER — Vercel Firewall/WAF** 對 `/api/checkout/tappay-notify/*` 限流已設:= inbox 膨脹(去重鍵 rec_trade_id 非 order、存在性閘擋不住同單海量不同 rec)+ settleCharge/Record API 出站放大 的**唯一 app 前防線**;**未設 → 不得設 backend_notify_url / 不得開 `TAPPAY_3DS_ENABLED` / 不得開放 prod 結帳**(≠ PAY-06 velocity)。
 - [ ] `TAPPAY_NOTIFY_PATH_SECRET` 已設(≥32 URL-safe、route `requireNotifySecret()` enforce)。
 - [ ] **此前不設 notify URL、不開 `TAPPAY_3DS_ENABLED`、不開放 prod 結帳**(master §2 中間態誠實)。
 - [ ] PAY-06 請款 velocity rate-limit(防 card testing)= 另一防線、Phase II 接 charge 時做(master §9)。
