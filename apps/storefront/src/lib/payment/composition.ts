@@ -13,15 +13,16 @@
 //   為 async request-scoped(備軌需 await cookie client、round4 MF1、見該 factory JSDoc)。
 
 import 'server-only';
-import type { ITapPayAdapter, IPaymentConfirmer, IChargeAttemptStore } from '@pcm/ports';
+import type { ITapPayAdapter, IPaymentConfirmer, IChargeAttemptStore, IWebhookInbox } from '@pcm/ports';
 import type { SettleChargeDeps } from '@pcm/use-cases';
-// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
+// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
 import {
   TapPayChargeAdapter,
   PaymentConfirmerAdapter,
   PgChargeAttemptAdapter,
   SupabaseChargeAttemptFallbackAdapter,
   ChargeAttemptStoreWithFallback,
+  PgWebhookInboxAdapter,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
@@ -111,4 +112,14 @@ export function getSettleChargeDeps(): SettleChargeDeps {
     attempts: new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL')),
     confirmer: getPaymentConfirmer(),
   };
+}
+
+/**
+ * 建 IWebhookInbox(M-3 3DS-2a;②-⑥ webhook route〔3DS-2b〕durable 落 inbox 去重)。
+ *
+ * 🔴 同 getPaymentConfirmer / getSettleChargeDeps 的 payment_confirmer 窄權鑰(`PAYMENT_CONFIRMER_DB_URL`、
+ * 零新密鑰)+ buildPgConfig 連線縱深;cookieless(webhook 無 cookie/JWT)。呼 3DS-0a record_webhook_event RPC。
+ */
+export function getWebhookInbox(): IWebhookInbox {
+  return new PgWebhookInboxAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
 }

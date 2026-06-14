@@ -48,3 +48,7 @@ export {
   type ChargeAttemptFallbackRail,
 } from './payment/SupabaseChargeAttemptFallbackAdapter';
 export { ChargeAttemptStoreWithFallback } from './payment/ChargeAttemptStoreWithFallback';
+
+// M-3 3DS-2a:PgWebhookInboxAdapter 走 server-only subpath(②-⑥ webhook durable inbox 主軌、payment_confirmer
+// 同鑰、複用 buildPgConfig 連線縱深、呼 3DS-0a record_webhook_event RPC;同 PaymentConfirmer 紀律 pg 不進 root barrel)。
+export { PgWebhookInboxAdapter, type WebhookInboxError } from './payment/PgWebhookInboxAdapter';

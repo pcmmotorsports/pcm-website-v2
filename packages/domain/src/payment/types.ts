@@ -304,3 +304,25 @@ export type SettleChargeOutcome =
   | { kind: 'failed' }
   | { kind: 'pending'; reason: 'auth_or_pending' | 'record_unverified' | 'record_unreachable' }
   | { kind: 'no_attempt' };
+
+// ── M-3 3DS-2:②-⑥ webhook durable inbox 入口 ─────────────────────────────────────────────────
+
+/**
+ * WebhookEventInput:`record_webhook_event` RPC(3DS-0a)落地入參(IWebhookInbox.recordEvent)。
+ *
+ * 🔴 對齊 0a 白名單欄(`supabase/migrations/20260613120000_m3_3ds_0a_webhook_events.sql`):**只**這些欄、
+ * 零 raw 原文(PII 由 webhook route 先算 `rawHash`=raw body 的 sha256 hex〔hash-before-parse〕、不存
+ * masked_credit_card_number / card_identifier);`reportedStatus` 不可信(僅稽核、成交權威走 settleCharge
+ * Record API)。必填 = `recTradeId`(去重主鍵)/ `orderNumber`(= 我方 orderId、settleCharge 對單)/ `rawHash`;
+ * 其餘選填(notify 可能缺)。
+ */
+export type WebhookEventInput = {
+  recTradeId: string;
+  orderNumber: string;
+  /** raw body 的 sha256 hex(64 字 `^[0-9a-f]{64}$`;鑑識用、非 PII、0a CHECK 把關)。 */
+  rawHash: string;
+  reportedStatus?: number;
+  amount?: number;
+  bankTransactionId?: string;
+  transactionTimeMillis?: number;
+};
