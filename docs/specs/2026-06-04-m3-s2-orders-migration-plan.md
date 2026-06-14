@@ -127,7 +127,7 @@ CREATE POLICY order_items_select_own ON order_items FOR SELECT TO authenticated
   4. `p_lines` 非陣列 / 空 / 任一 element 缺 variant_id 或 qty → raise。
   5. `qty`:非整數 / `<= 0` / 超大(> 上限如 9999)→ raise。
   6. 重複 variant_id → raise(或合併、本片 raise 防意外)。
-  7. variant join `product_variants` 找不到 → raise;parent `products.delisted_at IS NOT NULL` → raise;`availability != 'in-stock'` → raise(訂購政策)。
+  7. variant join `product_variants` 找不到 → raise;parent `products.delisted_at IS NOT NULL` → raise;🔴 #214a(2026-06-14):availability 不再 raise(訂貨型移閘、海外調貨缺貨可賣)、改寫 order_items.availability_at_checkout 快照。
   8. 取價:`v_price := price_general`(D3=B);`v_price IS NULL OR v_price <= 0` → raise。
   9. `p_shipping_method` 不在白名單 `{'home','store'}`(Sean 拍 A、對齊 design)→ raise。
 - **金額 server 權威(BLOCKER-3)**:`line_total := v_price * qty`;`subtotal := Σ`;`shipping_fee := f(subtotal, method)`(免運門檻 D4、RPC inline 常數最終權威);`total := subtotal + shipping_fee - discount_total`。client 永不送金額。

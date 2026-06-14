@@ -851,7 +851,7 @@ components:
         reason: "讀路徑階段③未做、不導 OrderCompletePage;最小成功狀態借 design 字面、零價零洩漏(displayId 來自零價 PlaceOrderResult)。**②-④ 補 processing 變體(net-new、design 無此狀態)**:orphan/charge_unknown/locked → eyebrow『N°ORDER · PROCESSING』+ 主標『付款處理中』+ message(action 文案常數單一真相『付款已收或處理中,請勿重複付款…』)+ 單號;cart 已清(防殘留誘導重刷、②-⑥ webhook 收斂)。**②-④ fix 補 unknown 變體(net-new、審查側鐵則 12 BLOCKER)**:action throw/回應遺失 → eyebrow『N°ORDER · UNKNOWN』+ 主標『付款狀態確認中』+ 文案『付款狀態未知,請勿重複付款,客服 LINE 將協助確認』、**無單號**(回應遺失、client 不知 displayId)、cart 已清、終態勿重複付款(可能已扣款、靠 ②-⑥ 對帳)。卡欄載入中/錯誤態/『卡片資訊由 TapPay 安全欄位加密處理…』三段 net-new 工程文案見 TapPayCardFields"
       - field: "checkoutPlaceOrderZeroPriceLines"
         design_value: "submitOrder 為純前端 mock、不打後端、無建單型別契約"
-        storefront_value: "🔴 client→server 只送 {variantId, quantity}(PlaceOrderLinesInput zod + PlaceOrderLine 型別層零價零 tier);價/tier/身分全 server 權威(create_order RPC auth.uid() + price_general + tier_at_checkout 恆 general);catch 吞 RPC RAISE(下架/缺貨/錯價/IDOR)回單一通用字面、絕不透傳原文;成功才 clear()、失敗保留 cart"
+        storefront_value: "🔴 client→server 只送 {variantId, quantity}(PlaceOrderLinesInput zod + PlaceOrderLine 型別層零價零 tier);價/tier/身分全 server 權威(create_order RPC auth.uid() + price_general + tier_at_checkout 恆 general);catch 吞 RPC RAISE(下架/錯價/IDOR;🔴 #214a 缺貨改快照不擋)回單一通用字面、絕不透傳原文;成功才 clear()、失敗保留 cart"
         decided_at: "2026-06-07"
         decision_source: "鐵則 12 + 審查側 pre-flight MUST/SHOULD(getUser 純 gate 不傳 user.id、catch 不洩 RPC RAISE)+ memory security-audit H-1(tier server 端)"
         reason: "建單最敏感面:client 永不送價/tier/身分;經銷價零外洩(client bundle grep price_store/price_by_tier 零命中)"

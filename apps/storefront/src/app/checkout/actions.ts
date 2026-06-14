@@ -14,9 +14,9 @@
 // - ③ 組 domain PlaceOrderInput(lines/addressId/shippingMethod/invoice):**零 userId / tier / price**
 //      (型別層即無此欄;client 永不送價,價由 RPC server 權威算)。
 // - ④ create_order SECURITY DEFINER RPC 內 auth.uid() 重查身分 + orders RLS own-only(跨 user 建單被擋)。
-// - ⑤ create_order RPC server 權威算價(恆 price_general、tier_at_checkout 恆 general)+ 快照白名單 + 下架/缺貨/防撞。
+// - ⑤ create_order RPC server 權威算價(恆 price_general、tier_at_checkout 恆 general)+ 快照白名單 + 下架/防撞(🔴 #214a:缺貨改 availability_at_checkout 快照不擋、訂貨型)。
 //
-// 🔴 error 不洩:SupabaseOrderAdapter.placeOrder 刻意裸 throw RPC RAISE(下架/缺貨/錯價/IDOR 地址歸屬訊息),
+// 🔴 error 不洩:SupabaseOrderAdapter.placeOrder 刻意裸 throw RPC RAISE(下架/錯價/IDOR 地址歸屬訊息),
 //    catch{} 必吞回單一通用字面(Q2=A)、**絕不透傳 RPC RAISE 原文**。
 //
 // #181 雙通道 + ok 標 + displayId(client 收 ok 後清車 + 顯示結帳頁內最小成功狀態 Q-e3=A):

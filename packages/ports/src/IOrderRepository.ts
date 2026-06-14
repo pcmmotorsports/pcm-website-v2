@@ -25,7 +25,7 @@ export interface IOrderRepository {
    * 建單(寫路徑):走 `create_order` SECURITY DEFINER RPC、server 權威。
    *
    * client 只送 lines(variant + qty)+ addressId + shippingMethod + invoice、**永不送價 / tier / userId**;
-   * 單價 / 小計 / 運費 / total / 快照 / 防撞 / 下架·缺貨檢查全在 RPC server 端算;回 `{orderId, displayId}`
+   * 單價 / 小計 / 運費 / total / 快照 / 防撞 / 下架檢查全在 RPC server 端算(🔴 #214a:缺貨改快照不擋);回 `{orderId, displayId}`
    * (🔴 鐵則 12:零價結構回傳)。
    *
    * (取代舊 `save(order: Order)`:save 收完整 Order 含 client 可塞的自算金額 = 違反 server 價權威;

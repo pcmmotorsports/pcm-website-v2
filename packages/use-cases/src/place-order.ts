@@ -6,7 +6,7 @@ import type { PlaceOrderInput, PlaceOrderResult } from '@pcm/domain';
  *
  * 薄編排(server 權威全在 RPC):收已驗證的 domain `PlaceOrderInput` → 走 `orderRepo.placeOrder`
  * (內部呼 `create_order` SECURITY DEFINER RPC)→ 回 `{orderId, displayId}`。
- * 單價 / 小計 / 運費 / total / 快照 / 防撞 / 下架·缺貨檢查全在 RPC server 端權威算(plan §5 紅線 3),
+ * 單價 / 小計 / 運費 / total / 快照 / 防撞 / 下架檢查全在 RPC server 端權威算(🔴 #214a:缺貨改 availability_at_checkout 快照不擋;plan §5 紅線 3),
  * use-case **不算價、不算運費**(`calculateShippingFee` 純函式只供前台預估顯示鏡像、非結帳權威)。
  *
  * 信任邊界(守 boundary A、不 import @pcm/schemas):
@@ -23,7 +23,7 @@ export async function placeOrder(
   input: PlaceOrderInput,
 ): Promise<PlaceOrderResult> {
   // 最小 domain guard(縱深防禦、對齊 deposit-wallet:即使 delivery 漏驗也擋空車、不打 DB)。
-  // 品項上限 200 / qty 1-10000 / 變體存在·下架·缺貨 / 金額 全在 create_order RPC server 權威驗(plan §5 紅線 3)。
+  // 品項上限 200 / qty 1-10000 / 變體存在·下架 / 金額 全在 create_order RPC server 權威驗(🔴 #214a:缺貨改快照不擋;plan §5 紅線 3)。
   if (input.lines.length === 0) {
     throw new Error('placeOrder: 購物車為空、無法建單');
   }

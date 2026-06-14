@@ -64,7 +64,7 @@
 - **建單 RPC(零 service_role、tier-aware、防撞、修 BLOCKER3/4)**:`create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb)` `SECURITY DEFINER`:
   - `v_uid:=auth.uid()`;驗地址歸屬(`customer_addresses.id=p_address_id AND customer_user_id=v_uid` 否則 raise);
   - **line 收 `variant_id`(或 `(supplier_slug,sku)` 複合鍵)+ qty**(S3a 後 sku 非全域唯一、防撞錯變體/錯價);有變體商品必帶 variant、否則 fail-closed;**不收價**;
-  - 依 `customers.tier`(v_uid 查)取價:general→price_general、store/premiumStore→price_store;**有變體商品一律 join `product_variants` 取該 variant 自己的價(群層價=群內最低、只給無變體商品、不可當變體價)**;**驗 parent `products.delisted_at IS NULL` + availability 訂購政策(防舊 cart 送已下架/缺貨)**;**fail-closed:價 NULL/0 / 已下架 / 找不到對應 variant → raise**;補測試(高價變體不被群最低價結帳、delisted stale-cart 建單失敗);
+  - 依 `customers.tier`(v_uid 查)取價:general→price_general、store/premiumStore→price_store;**有變體商品一律 join `product_variants` 取該 variant 自己的價(群層價=群內最低、只給無變體商品、不可當變體價)**;**驗 parent `products.delisted_at IS NULL`(🔴 #214a 2026-06-14:availability 不再 raise、改寫 order_items.availability_at_checkout 快照、訂貨型海外調貨缺貨可賣)**;**fail-closed:價 NULL/0 / 已下架 / 找不到對應 variant → raise**;補測試(高價變體不被群最低價結帳、delisted stale-cart 建單失敗);
   - 寫 order(unpaid/notOrdered)+items+快照(§5.4 含 tier_at_checkout);
   - `SET search_path=''`、禁動態 SQL(`= ANY($1)`)、**`REVOKE EXECUTE FROM PUBLIC, anon`**、只 `GRANT EXECUTE TO authenticated`;交易模擬(含驗 anon/未登入不能呼叫)。
 - **付款確認窄權(修 BLOCKER4)**:`payment_confirmer`(NOINHERIT LOGIN、無 table 權限);`confirm_order_payment(p_order_id,p_amount,p_rec_trade_id)` `SECURITY DEFINER`、`search_path=''`、**`REVOKE EXECUTE FROM PUBLIC, anon, authenticated`** 後只 `GRANT EXECUTE TO payment_confirmer`:驗 unpaid+`p_amount=orders.total`+rec_trade_id 唯一→paid;重放 idempotent;不符拒;交易模擬驗 anon/authenticated 不能呼叫。

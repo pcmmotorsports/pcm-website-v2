@@ -5576,25 +5576,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-04 / M-3-S2-a codex k2 MUST-FIX 修復後 code-reviewer 複審。
 - **相關:** supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql / packages/domain/src/order/types.ts(ProductSnapshot.spec)/ S2-b1 create_order RPC / 鐵則 12
 
-### #214. 🛡️ create_order RPC 兩個 follow-up:availability 值域擴張回看 + 訂單 idempotency(階段② 付款前收斂)
+### #214. 🛡️ create_order RPC 兩個 follow-up:① availability 缺貨閘(✅ 2026-06-14 #214a 移閘解)+ ② 訂單 idempotency(階段② 付款前收斂)
 
-- **狀態:** 🟢 觀察(availability 二值現正確 fail-closed;idempotency 延階段②)
+- **狀態:** ① ✅ 移閘已解(2026-06-14 #214a、migration 20260614130000);② 🟠 idempotency 仍延階段②
 - **優先級:** 🟢 觀察(idempotency 升 🟠 中、付款片〔階段②〕前必收斂)
 - **問題:**
-  - ① **availability 二值耦合**:`create_order` 用 `product/variant.availability <> 'in-stock'` fail-closed 擋缺貨。現 `availability` 為嚴格二值 enum('in-stock'/'out-of-stock'),`<> 'in-stock'` 正確。但若未來 domain/DB 加第三態(如預購 pre-order / 廠商調貨中),`<> 'in-stock'` 會把「可訂貨」狀態也擋掉(過嚴 fail-closed)。
+  - ① ✅ **availability 二值耦合 — 2026-06-14 #214a 移閘已解**:`create_order` 不再對 availability RAISE(對齊前端 #161 訂貨型、海外調貨缺貨可賣);改於 `order_items.availability_at_checkout` 單欄派生快照(群層+變體層任一非 in-stock 即 out-of-stock)供後台識別調貨單(migration 20260614130000、CREATE OR REPLACE 0b 版移 2 條 availability RAISE、保留 delisted)。原「未來加第三態會過嚴 fail-closed」疑慮隨閘移除而 moot(走移除非擴值域)。
   - ② **訂單 idempotency 缺**:`create_order` 無 idempotency key / cart nonce → 同一 cart 併發或前端重送會建立多張 unpaid 訂單(codex k2 round1 consider)。Phase 1（未接金流）可接受;接 TapPay 付款(階段②)前必收斂、否則重複扣款風險。
 - **觸發事件:** 2026-06-04 S2-b1 create_order RPC、code-reviewer + codex 關卡2 round1 點名(① Minor 觀察 ② consider 延付款)。
 - **預期解法:**
-  - ① availability 值域若擴張:回看 create_order 缺貨判斷,改為「明確 out-of-stock 才擋」或正向列舉可訂狀態;同步 domain ProductAvailability 型別 + 前台顯示。
+  - ① ~~availability 值域擴張回看~~ **作廢**(2026-06-14 #214a 走移除缺貨閘、非擴值域;真停產品項靠 quote 同步 delisted 兜底)。
   - ② idempotency:加 `p_idempotency_key`(client cart token)或 `orders(customer_user_id, idempotency_key)` partial unique;重送回同一張未付款單(或 RETURN 既有 order)。階段② TapPay charge 前落地。
 - **不修會痛在:**
-  - 擴充性:availability 加態時若忘了回看 RPC,新狀態商品「能加入購物車卻無法結帳」(靜默過嚴);idempotency 缺則重複訂單堆積。
-  - 可維護性:availability 判斷散在多處(RPC + 前台 + adapter),值域改動須全掃。
+  - 擴充性:①(已解)殘餘風險反向 —— 移閘後真停產品項仍可下單,靠 quote 同步正確 delisted 兜底(products 無第三停產訊號、見 migration 20260614130000 §設計);idempotency 缺則重複訂單堆積。
+  - 可維護性:availability 顯示判斷散在多處(前台 + adapter);RPC 端缺貨判斷已移除(#214a)。
   - bug 可追蹤性:重複下單在無金流時靜默(只是多筆 unpaid),接金流後變「重複扣款」客訴、難回溯源頭。
 - **估時:** ① 0.5 hr(值域擴張時);② idempotency 1-2 hr(階段② 付款片併做)。
 - **依賴:** ② 綁階段② TapPay 付款流程(confirm_order_payment / charge route)。
 - **發現於:** 2026-06-04 / M-3-S2-b1 create_order RPC codex 關卡2 round1 + code-reviewer。
-- **相關:** supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql / packages/domain/src/catalog/types.ts(ProductAvailability)/ 階段② 付款 / 鐵則 12
+- **相關:** supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql / supabase/migrations/20260614130000_m3_create_order_stock_snapshot.sql(#214a 移閘+快照) / packages/domain/src/catalog/types.ts(ProductAvailability)/ 階段② 付款 / 鐵則 12
 
 ### #215. 🔴 pcm-tier cookie 非身分權威 — M-2-08 接真經銷價前必改 server 端認證查 DB tier(經銷價洩漏地雷)
 
@@ -5681,14 +5681,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** ⏳ 待修(非 e3b 本片;階段② 付款 RPC 前一併處理;Sean ratify 中)
 - **優先級:** 🟠 中(非經銷洩漏、非 IDOR;屬資訊揭露面、付款 RPC 會繼承)
 - **問題:**
-  - authenticated 使用者持 anon/authenticated key 可直接 `supabase.rpc('create_order', ...)` 繞過 app 層,看到 RPC `RAISE` 原文(下架/缺貨/錯價/重複變體 + variant_id 等內部細節)。
+  - authenticated 使用者持 anon/authenticated key 可直接 `supabase.rpc('create_order', ...)` 繞過 app 層,看到 RPC `RAISE` 原文(下架/錯價/重複變體 + variant_id 等內部細節;🔴 #214a 後缺貨 RAISE 已移除)。
   - e3b app path 的 `placeOrderAction` catch 已吞錯回通用字面、**不透傳**;但 RPC **層本身**的 RAISE 對直打者可見。e3b commit body「catch 吞 RPC RAISE 絕不透傳原文」字面**只對 app path 成立**,直打 RPC path 屬 RPC 層 threat-model。
   - codex 關卡2 round1 報 → 審查側親讀逐行裁定:**非經銷洩漏**(零 price_store/price_by_tier/cost)、**IDOR-safe**(auth.uid() 重查歸屬)、且是 **b2-b1 已簽核 create_order RPC**(非 e3b diff)→ 降級 backlog。
 - **觸發事件:** 2026-06-07 M-3-S2-b2-e3b codex 關卡2 round1(降級 WARN→backlog、Sean ratify 中)。
 - **預期解法:**
   - 階段② 付款 RPC(charge/confirm)前,評估 create_order RPC 的 RAISE 訊息泛化:對外回穩定錯誤碼 / 通用訊息、內部細節寫 server log 不入 RAISE;或限制 authenticated 直打面。一併檢視 confirm/charge RPC 同模式。
 - **不修會痛在:**
-  - bug 可追蹤性 / 安全:直打者可由 RAISE 推敲庫存 / 下架 / 變體結構等內部狀態(資訊揭露);階段② 付款 RPC 繼承同模式、風險更高(可探測金額/付款狀態邏輯)。
+  - bug 可追蹤性 / 安全:直打者可由 RAISE 推敲下架 / 變體結構等內部狀態(資訊揭露;🔴 #214a 後缺貨/庫存 RAISE 已移除);階段② 付款 RPC 繼承同模式、風險更高(可探測金額/付款狀態邏輯)。
   - 可維護性:app path 與 RPC path 的錯誤透傳邊界不一致,接手者易誤判整條鏈都不透傳。
 - **估時:** M(RPC RAISE 泛化 + threat-model 評估,階段② 同批)。
 - **依賴:** 階段② 付款 RPC(charge/confirm)設計;Sean ratify 本降級。

@@ -95,12 +95,12 @@ export type FitmentSpec = {
  *
  * 對齊 ADR-0003 §3.2 enum 業務語意精神 + ADR-0004 Q4=A1 拍板訂貨型業務:
  * - `'in-stock'`:可訂(現貨 / 廠商 3-6 週訂貨範圍內)
- * - `'out-of-stock'`:訂不到(廠商停產 / 報價無 / 客服自行協調)
+ * - `'out-of-stock'`:無現貨;🔴 #214a 移閘後訂貨型仍可下單(海外調貨 / 可能停產、下單後客服 LINE 確認)
  *
  * 跨 layer 共用:catalog Product.availability(domain)、admin UI tier badge(M-4a)、
  * sync-engine 上架 pipeline 寫入(M-5-03)、storefront ProductCard / ProductPage 顯示
- * (M-1-06 / M-1-13)、Order 不直接引用(訂單下單時才 snapshot 價 + 庫存決定、
- * 不存 availability 字面)。
+ * (M-1-06 / M-1-13)、Order 於結帳當下 snapshot 到 order_items.availability_at_checkout
+ * (🔴 #214a 調貨單識別;type union 本身不入訂單 schema、僅 text 快照)。
  *
  * 對齊 ADR-0003 §3.2 規範「entity 內 string literal union ≥ 2 個 consumer 必抽 type alias」
  * (M-1-02-audit Q3 規範類落地)。
