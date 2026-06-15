@@ -11,6 +11,8 @@
 //   cart 已清(useChargePayment 政策、防殘留 cart 誘導重刷)。
 // unknown(②-④ fix、審查側 BLOCKER):action 呼叫 throw = 回應遺失層,付款狀態未知、可能已扣款
 //   → 終態勿重複付款;client 無單號(訂單可能已建但回應沒回來)→ 不渲染 N°ORDER 區塊。
+// failed(3DS-3 新增、design 無此狀態):3DS callback settleCharge 裁決明確未成功(markFailed 已釋鎖)——
+//   CTA 改「返回購物車」`/cart`(失敗不清車、車保留可立即重結帳;Sean D4);單號仍顯供客服。
 // displayId 為真單號(create_order RPC 產;非 design 的 random mock)。
 
 import Link from 'next/link';
@@ -20,9 +22,9 @@ import { HomeFooter } from '@/components/HomeFooter';
 export type CheckoutSuccessProps = {
   /** 建單回傳的人類可讀單號(PCM-YYYY-NNNN;零價結構,終態頁不讀回明細);unknown 無單號不傳。 */
   displayId?: string;
-  /** paid(預設)= 付款完成;processing = 已收或處理中;unknown = 狀態未知(回應遺失、勿重複付款)。 */
-  variant?: 'paid' | 'processing' | 'unknown';
-  /** processing / unknown 顯示文案(常數單一真相);paid 不用。 */
+  /** paid(預設)= 付款完成;processing = 已收或處理中;unknown = 狀態未知(回應遺失);failed = 明確未成功(3DS-3)。 */
+  variant?: 'paid' | 'processing' | 'unknown' | 'failed';
+  /** processing / unknown / failed 顯示文案(常數單一真相);paid 不用。 */
   message?: string;
 };
 
@@ -30,6 +32,7 @@ const COPY = {
   paid: { eyebrow: 'N°ORDER · CONFIRMED', title: '訂單已成立' },
   processing: { eyebrow: 'N°ORDER · PROCESSING', title: '付款處理中' },
   unknown: { eyebrow: 'N°ORDER · UNKNOWN', title: '付款狀態確認中' },
+  failed: { eyebrow: 'N°ORDER · FAILED', title: '付款未完成' },
 } as const;
 
 export function CheckoutSuccess({ displayId, variant = 'paid', message }: CheckoutSuccessProps) {
@@ -48,9 +51,15 @@ export function CheckoutSuccess({ displayId, variant = 'paid', message }: Checko
               <div className="co-success-order-no">{displayId}</div>
             </div>
           )}
-          <Link href="/products" className="btn-primary co-success-cta">
-            繼續購物 <span>→</span>
-          </Link>
+          {variant === 'failed' ? (
+            <Link href="/cart" className="btn-primary co-success-cta">
+              返回購物車 <span>→</span>
+            </Link>
+          ) : (
+            <Link href="/products" className="btn-primary co-success-cta">
+              繼續購物 <span>→</span>
+            </Link>
+          )}
         </div>
       </main>
       <HomeFooter />
