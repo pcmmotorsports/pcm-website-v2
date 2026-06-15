@@ -144,9 +144,15 @@ prod 4 merchant 全要 3DS → **flag 關時的舊同步 charge 在 prod 會被 
 
 ---
 
-## 9. Prod 上線前硬前置(codex #9)
+## 9. Prod 上線前硬前置(codex #9 + 3DS-4 三模型審查群6)
 
 Phase I 全到位 + 以下:notify 全失敗(×5)告警接入 / Record API 批次對帳節流 / **PAY-06 請款 velocity rate-limit**(防 card testing)/ S1 待開票紀錄+告警 / sandbox 3DS 實刷過 / Sean 肉眼驗。
+
+🔴 **3DS-4 sweeper 相關(2026-06-15 三模型審查群6 新增、`TAPPAY_3DS_ENABLED` flag-on 前必 land、backlog #231)**:
+- **① Q4-B 跨路徑 recently-settled skip**:`payment_charge_attempts.last_settle_attempt_at` 欄 + callback/webhook/sweeper **三路** settle 前查窗 skip(回改已上線 3DS-2/3);Phase I 的「僅 in-memory 單 run 去重」(3DS-4 Q4=A)為暫時降級、**flag-on 前升為 B**(零真流量時撞三路機率≈0、故 Phase I 可降級)。
+- **② 告警 channel 接入**:notify×5 全失敗 / sweeper `needs_manual_review` 達標 / Record final-failed → 真 alert channel(LINE/email、非僅 console.error)。
+- **③ heartbeat / dead-man's-snitch**:cron 靜默死偵測(sweeper 長時間沒跑 = 對帳停擺 → 告警)。
+- **④ 轉人工 durable escalation**:`needs_manual_review` 旗標(3DS-4a durable)後台/SQL 可查 + 人工結案流程(非僅 log);Phase I 落地 durable 旗標、Phase II 接後台 UI。
 
 ---
 

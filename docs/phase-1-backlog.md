@@ -5935,6 +5935,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #231. 🧹 3DS-4 sweeper prod 上線前硬前置(Q4-B 跨路徑 skip / 告警 channel / heartbeat / 轉人工流程)
+
+- **狀態:** ⏳ 待執行(`TAPPAY_3DS_ENABLED` flag-on 前必 land、master plan §9 已 amend)
+- **優先級:** 🟠 中(Phase I 零真流量 benign;Phase II 開 prod 真刷卡前升為硬前置)
+- **問題:**
+  - 3DS-4 sweeper Phase I 落地降級版:① recently-settled skip 僅 in-memory 單 run 去重(Q4=A)、**不**覆蓋 callback/webhook/sweeper 跨路徑 Record 放大;② 告警僅 `console.error` + durable `needs_manual_review` 旗標、**無真 alert channel**;③ 無 cron 靜默死偵測(heartbeat);④ 轉人工僅 durable 旗標、無人工結案流程/後台 UI。
+  - Phase I 零真刷卡 → 撞三路機率≈0、無告警對象 → 降級可接受;但 Phase II 開 prod 真流量後,缺這些 = 對帳放大打爆 Record 額度 / 失敗單靜默卡死無人知 / sweeper 死了沒人發現。
+- **預期解法:**
+  - ① Q4-B:`payment_charge_attempts.last_settle_attempt_at` 欄 + callback/webhook/sweeper 三路 settle 前查窗 skip(回改已上線 3DS-2/3)。
+  - ② 告警 channel:notify×5 全失敗 / `needs_manual_review` 達標 / Record final-failed → LINE/email alert。
+  - ③ heartbeat / dead-man's-snitch:sweeper 長時間沒跑 → 告警。
+  - ④ 轉人工:durable 旗標接後台/SQL 查 + 人工結案流程。
+- **不修會痛在:**
+  - bug 可追蹤性 / 鐵則 12:失敗單靜默卡死、sweeper 死無人知 → 客人已扣款訂單未成立、客訴才發現。
+  - 擴充性:Q4-B 越晚補越痛(回改已上線 callback/webhook、且真流量下已發生放大)。
+  - 可維護性:Phase I 降級若無「flag-on 前必補」硬 gate → 容易隨 Phase II 上線被遺忘。
+- **估時:** 中(② 告警 channel 接入 + ① Q4-B 回改三路 各自獨立 slice)
+- **依賴:** 3DS-4 sweeper 落地;`TAPPAY_3DS_ENABLED` flag-on(Phase II);master plan §9
+- **發現於:** 2026-06-15 / 3DS-4 sweeper cron plan 三模型審查(Opus+Codex+Gemini)群6
+- **相關:** 3DS-4 plan(`docs/specs/2026-06-15-m3-3ds-4-sweeper-cron-plan.md` Q4)/ master plan §9 / 3DS-2/3(Q4-B 回改點)
+- **分流標籤:** `P2-later`
+
+---
+
 ## 紀錄模板
 
 ```markdown
