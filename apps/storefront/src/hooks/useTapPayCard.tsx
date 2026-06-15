@@ -145,6 +145,11 @@ export function useTapPayCard(active: boolean): UseTapPayCard {
           expirationDate: { element: `#${TAPPAY_FIELD_IDS.expirationDate}`, placeholder: 'MM / YY' },
           ccv: { element: `#${TAPPAY_FIELD_IDS.ccv}`, placeholder: '•••' },
         },
+        // 🔴 iOS 卡欄字級 ≥16px:iframe input 走 TapPay 預設常 <16px → iOS Safari 點卡欄自動放大、年長者迷失;
+        //    釘 16px 杜絕自動放大(Gemini 廣度 + 審查側 review-log §3 #1 驗證屬實)。
+        styles: {
+          input: { 'font-size': '16px' },
+        },
         isMaskCreditCardNumber: true,
         maskCreditCardNumberRange: { beginIndex: 6, endIndex: 11 },
       });

@@ -88,6 +88,7 @@ describe('useTapPayCard', () => {
     expect(tp.setupSDK).toHaveBeenCalledWith(11327, 'app_test_key', 'sandbox'); // ENV 空 → fallback sandbox
     const setupArg = tp.setup.mock.calls[0]![0] as {
       fields: Record<string, { element: string; placeholder: string }>;
+      styles?: Record<string, Record<string, string>>;
     };
     expect(setupArg.fields.number).toEqual({
       element: `#${TAPPAY_FIELD_IDS.number}`,
@@ -95,6 +96,8 @@ describe('useTapPayCard', () => {
     });
     expect(setupArg.fields.expirationDate!.placeholder).toBe('MM / YY');
     expect(setupArg.fields.ccv!.placeholder).toBe('•••');
+    // 🔴 iOS 卡欄字級 ≥16px 防 Safari 自動放大(review-log §3 #1;regression guard)
+    expect(setupArg.styles!.input!['font-size']).toBe('16px');
 
     await act(async () => {
       tp.fireUpdate({ canGetPrime: true, status: { number: 0, expiry: 0, ccv: 2 } });
