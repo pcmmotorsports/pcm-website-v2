@@ -5947,6 +5947,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - ② 告警 channel:notify×5 全失敗 / `needs_manual_review` 達標 / Record final-failed → LINE/email alert。
   - ③ heartbeat / dead-man's-snitch:sweeper 長時間沒跑 → 告警。
   - ④ 轉人工:durable 旗標接後台/SQL 查 + 人工結案流程。
+  - ⑤ 🆕 4a-2 殘餘窄 TOCTOU 清理(**Sean 2026-06-15 拍 A=留現狀、Phase II 後台 UI 順手清、非 4b**):expirer/mark 語句快照讀到 unpaid 後、並發 callback/confirm 才 commit order→paid → 可留 `paid + needs_manual_review=true` cosmetic 假告警(無雙扣/無金錢/無安全影響、人工複查即清)。歸入本條 ④ 後台轉人工流程一併處理(成交路徑或後台批次清同單 active attempt 的 needs_manual_review);4a-2 migration 檔頭已誠實揭示、不阻 bundle。
+  - ⑥ 🆕 (對抗複驗 wbpvvr5b7 nit、benign 前瞻防禦)4a-1/4a-2 的 ALTER ADD COLUMN 後**未重 assert 表層 SELECT ACL**(s2d L124-146 有完整 table-ACL fail-closed assert、4a-1/4a-2 僅 assert RPC EXECUTE 矩陣 + payment_confirmer 全域 grants=0)。現況零實害:新欄皆 sweeper 簿記 / `last_settle_error` allowlist 錯誤碼集(零 PII)、service_role 本就唯讀;4a-2 與已簽核 4a-1 對稱(同省此 assert)。可選統一 polish=4a-1/4a-2 ALTER 後補 `has_table_privilege` anon/authenticated SELECT=false + service_role 唯 SELECT assert(對齊 s2d 防漂風格);非阻擋、非缺陷、forward-only migration 不會再編輯故價值邊際。
 - **不修會痛在:**
   - bug 可追蹤性 / 鐵則 12:失敗單靜默卡死、sweeper 死無人知 → 客人已扣款訂單未成立、客訴才發現。
   - 擴充性:Q4-B 越晚補越痛(回改已上線 callback/webhook、且真流量下已發生放大)。
