@@ -193,11 +193,12 @@ describe('/checkout/callback page', () => {
     expect(r.hasClear).toBe(true);
   });
 
-  it('⑦ no_attempt → processing + ClearCartOnSuccess(N2)', async () => {
+  it('⑦ no_attempt → processing + 🔴 不清車(必然未扣款、codex K2 r1 must-fix、Sean A)', async () => {
     settleChargeMock.mockResolvedValueOnce({ kind: 'no_attempt' });
     const r = inspect(await run(ORDER_ID, { user: { id: 'u1' }, orderRow: { display_id: DISPLAY_ID } }));
     expect(r.variant).toBe('processing');
-    expect(r.hasClear).toBe(true);
+    expect(r.displayId).toBe(DISPLAY_ID);
+    expect(r.hasClear).toBe(false); // no_attempt ⟺ failed/never → 必然未扣款 → 保留車(對齊 A4 真意=防雙扣)
   });
 
   it('⑧ failed → CheckoutSuccess(failed, displayId) 無 ClearCartOnSuccess(D4 不清車)', async () => {

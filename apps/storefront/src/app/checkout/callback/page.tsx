@@ -14,9 +14,10 @@
 //   4. 歸屬通過 → settleCharge(getSettleChargeDeps() cookieless 主軌、Record 權威);throw 全 catch → pending
 //      (fail-closed、不 500、不偽 paid)。
 //   5. outcome → 變體(displayId 一律取自步驟3 歸屬讀、不依賴 settleCharge):
-//        paid              → 訂單已成立 + 清品項(A4)
-//        pending|no_attempt→ 處理中     + 清品項(A4;N2:真導回應有 attempt、no_attempt 屬異常態、清車=安全優先非 bug)
-//        failed            → 付款未完成  + 不清車(Sean D4、車保留可立即重結帳;CTA 返回購物車)
+//        paid       → 訂單已成立 + 清品項(A4)
+//        pending    → 處理中     + 清品項(A4;可能已扣款、鎖仍持 → 清車防雙扣)
+//        no_attempt → 處理中     + 🔴 不清車(必然未扣款〔failed/never〕、清車無收益且摧毀失敗付款的車;codex K2 r1 must-fix、Sean A)
+//        failed     → 付款未完成  + 不清車(Sean D4、車保留可立即重結帳;CTA 返回購物車)
 //
 // 🔴 Record 重打放大:settleCharge step2「order 已 paid → 不打 Record」短路 → paid 後刷新廉價;pending 重刷仍重打,
 //    跨路徑 per-order recently-settled skip 由 3DS-4 統一補(本片不寫限流、誠實邊界、同 webhook)。
@@ -127,12 +128,18 @@ export default async function CheckoutCallbackRoute({
       </>
     );
   }
-  // pending | no_attempt → 處理中 + 清品項(A4)。
-  // N2:真 3DS 導回應有 active attempt;no_attempt 屬異常態(attempt 已被先前路徑 markFailed / 從未建立)→
-  //     此處併入清車為「安全優先」(可能已扣款、防殘車重複扣款),非 bug。
-  // ⚠️ A4 已知邊界(codex 關卡2 consider):若前次 callback 已 failed(markFailed 釋鎖),刷新同 URL → attempt
-  //    不再 active → 轉 no_attempt → 清車,弱化「failed 保留購物車」體感。屬 A4 字面(no_attempt 清車)、且良性
-  //    (失敗未扣款、品項可重加、無雙扣);失敗刷新保留車需 failed-state reader(留 3DS-4/讀路徑、本片不做)。
+  // 🔴 no_attempt → 處理中、**不清車**(codex 關卡2 r1 must-fix、Sean 拍 A)。
+  // settleCharge 契約(settle-charge.ts L54-71):findActiveByOrderId 找 active=pending|charged;**無 active 才**
+  //   回 no_attempt;「order 已 paid → paid」短路(L68-71)在 findActive「之後」、且 charged 仍屬 active → 已付款單
+  //   回 paid、不會落 no_attempt。故 no_attempt ⟺ attempt 已 markFailed(僅 TapPay 確認 final-failed -1/5)或從未
+  //   建立 → **必然未扣款**。A4「可能已扣款 → 清車防雙扣」前提對 no_attempt 不成立 → 清車零安全收益、卻會在失敗
+  //   付款(常見 webhook vs redirect 競態打首屏)摧毀購物車 → 故保留車(= A4 真意=防雙扣、非機械式清)。
+  // ⚠️ 已知文案瑕疵:no_attempt 顯「處理中」而非「付款未完成」(顯真 failed 需 failed-state reader、留讀路徑/3DS-4)。
+  if (outcome.kind === 'no_attempt') {
+    return <CheckoutSuccess variant="processing" displayId={displayId} message={PROCESSING_MSG} />;
+  }
+  // pending → 處理中 + 清品項。pending(record_unreachable/auth_or_pending/unverified)= **可能已扣款**、鎖仍持
+  //   → 清車防殘車誘導重複扣款(對齊既有 useChargePayment processing 清車政策)。
   return (
     <>
       <CheckoutSuccess variant="processing" displayId={displayId} message={PROCESSING_MSG} />
