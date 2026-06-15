@@ -5959,6 +5959,102 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #232. 📱 LINE in-app browser × 3DS redirect 銜接(掉單)
+
+- **狀態:** ⏳ 待執行(Phase II、3DS 啟動後)
+- **優先級:** 🟠 中(台灣買家大量從 LINE 內建瀏覽器進店;3DS 啟動前 benign)
+- **問題:**
+  - 台灣買家常在 LINE in-app webview 開店;3DS `frontend_redirect_url` 跳外部銀行驗證頁後,webview 可能無法正確導回(或導回開新分頁→SPA state 斷)→ 付款卡住、買家以為失敗重新下單→重複扣款風險。
+- **預期解法:**
+  - 偵測 LINE webview(UA / `Line` 標記)→ 引導「以外部瀏覽器開啟結帳」或確保 callback 導回 webview;sandbox 實測 LINE webview × 3DS 端到端銜接。
+- **不修會痛在:**
+  - bug 可追蹤性:webview 導回失敗在桌機測不出、上線才爆掉單;可維護性:redirect 流程已上線後回改成本高。
+- **發現於:** 2026-06-15 / Gemini 結帳流程廣度檢視(審查側 review-log §3 #2);Sean 拍「進行(backlog、Phase II prod 前)」。
+- **相關:** 3DS-3 callback page / 3DS-6 client redirect(Phase II)/ `installment-not-doing` 無關
+- **分流標籤:** `P2-later`
+
+---
+
+### #233. 🎧 客服 by email+時間 反查 orphan/unknown/manual 單工具
+
+- **狀態:** ⏳ 待執行(Phase II;與 #231 ④ 轉人工流程合流)
+- **優先級:** 🟠 中
+- **問題:**
+  - settleCharge pending/unknown 單 + sweeper `needs_manual_review` 單需人工結案;客服第一線只有客人 email + 大概時間,無工具反查對應訂單/付款狀態。
+- **預期解法:**
+  - 後台/SQL 查詢(by email + 時間範圍 + payment_status / needs_manual_review)撈待處理單;接 #231 ④ 人工結案流程。
+- **不修會痛在:**
+  - 可維護性 / bug 可追蹤性:客訴來了查不到單、人工對帳靠硬翻 DB。
+- **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #3)。
+- **相關:** #231(轉人工流程)/ sweeper needs_manual_review / settleCharge unknown
+- **分流標籤:** `P2-later`
+
+---
+
+### #234. 📡 前端付款錯誤遙測(ready=error/unknown → 上報、零 PII)
+
+- **狀態:** ⏳ 待執行(Phase II)
+- **優先級:** 🟠 中
+- **問題:**
+  - useChargePayment `ready=error` / `unknown` 終態目前只進 client state、無遙測 → 線上付款失敗/回應遺失看不到分布、無法主動發現掉單。
+- **預期解法:**
+  - error/unknown 終態上報遙測 channel:user id + 錯誤碼/階段(零 PII、零卡資料、零金額);對齊既有 server-only log 紀律。
+- **不修會痛在:**
+  - bug 可追蹤性:付款掉單無觀測訊號、只能等客訴;擴充性:Phase II 真流量後無遙測=盲飛。
+- **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #4)。
+- **相關:** useChargePayment 六態 / 3DS callback unknown / #233 客服撈單
+- **分流標籤:** `P2-later`
+
+---
+
+### #235. 🔁 Step3 / 完成頁 退換貨連結 + 客服 LINE 入口
+
+- **狀態:** ⏳ 待執行(Phase II;依賴退換貨/政策頁建立)
+- **優先級:** 🟡 低
+- **問題:**
+  - 結帳 Step3 / CheckoutSuccess 缺退換貨政策連結 + 客服 LINE 入口 → 買家付款後遇問題找不到求助管道。
+- **預期解法:**
+  - Step3 / 完成頁加退換貨政策連結(共用 rpm-policies 單一真相)+ 客服 LINE deep link。
+- **不修會痛在:**
+  - 可維護性 / UX:客人卡住只能自己亂找、客服負擔增;擴充性:政策頁建立後順手接。
+- **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #5)。
+- **相關:** rpm-policies / legal pages 待建 backlog / CheckoutSuccess
+- **分流標籤:** `P2-later`
+
+---
+
+### #236. 🏬 合作店家取貨 Store Picker(O2O、商業)
+
+- **狀態:** ⏳ 待執行(Phase II / 商業;需店家資料源)
+- **優先級:** 🟢 觀察(商業決策 + 無資料源)
+- **問題:**
+  - design 有合作店家取貨(地圖選店 StorePickerModal);storefront 現 override 為僅宅配(manifest `checkoutShippingHomeOnly`、後端 create_order 白名單已保留 `store` 供未來)、因無店家地圖/資料源。
+- **預期解法:**
+  - 有合作店家資料源後接 StorePickerModal + store 配送(co-pickup-* CSS 補搬);後端白名單已就緒。
+- **不修會痛在:**
+  - 擴充性:O2O 取貨是商業機會、資料源備齊後可快速接(後端已留口)。
+- **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #7)。
+- **相關:** manifest `checkoutShippingHomeOnly` override / create_order store 白名單 / design StorePickerModal
+- **分流標籤:** `P2-later`
+
+---
+
+### #237. ⚡ TapPay SDK 預載(Step1/2 idle prefetch)
+
+- **狀態:** ⏳ 待執行(Phase II / nice-to-have、效能)
+- **優先級:** 🟡 低
+- **問題:**
+  - useTapPayCard 只在 step3 active 才動態載 TapPay SDK script → 進 step3 才下載、首次卡欄 iframe 出現有延遲。
+- **預期解法:**
+  - Step1/2 idle 時 prefetch TapPay SDK script(`<link rel=preload>` 或 idle 注入)、step3 即時 setup;不改 active gating 邏輯(仍 step3 才 setup)。
+- **不修會痛在:**
+  - 可維護性 / UX:首次卡欄延遲小雷;擴充性:純前端 prefetch、低風險可後補。
+- **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #8)。
+- **相關:** useTapPayCard(SDK 動態載入)/ #232 iOS 16px(同 hook)
+- **分流標籤:** `P2-later`
+
+---
+
 ## 紀錄模板
 
 ```markdown
