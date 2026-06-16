@@ -25,6 +25,11 @@
 
 import { timingSafeEqual } from 'node:crypto';
 import { sweepSettlements, type SweepSettlementsDeps } from '@pcm/use-cases';
+// 🔴 不變式(N2、審查側 4c sign-off):getSettleChargeDeps / getWebhookInbox factory **必須維持 lazy**——
+//    建構子只存連線字串、零 module-top env 讀取 / 零連線池建立(連線延遲到首次呼叫)。下方 GET 的 disabled
+//    路徑(CRON_SWEEPER_ENABLED gate 在「建 deps 前」return)之「零 DB env 依賴」保證仰賴此跨包不變式;
+//    若未來把 env 讀取 / pool 建立搬到 module-top(import 時求值),僅 import 本 route 即需 DB env →
+//    disabled 200 no-op 靜默回歸要 DB env。改 @/lib/payment/composition 前必守此 lazy 契約。
 import { getSettleChargeDeps, getWebhookInbox } from '@/lib/payment/composition';
 
 export const runtime = 'nodejs';
@@ -42,7 +47,9 @@ const BEARER_PREFIX = 'Bearer ';
 
 /**
  * 🔴 批次/節流/並發 = route 端常數(不採信外部輸入;plan Q2/Q3=A、§5.2 群7)。
- * - inbox/stuck 各每輪上限 50(Record 節流、超出留下輪;預算 50×~500ms=25s < maxDuration 60s)。
+ * - inbox/stuck 各每輪上限 50(Record 節流、超出留下輪)。🔴 預算(N3、審查側字面精化):concurrency=1
+ *   順序處理 → 單輪最壞 = (inbox 50 + stuck 50) × ~500ms ≈ 50s < maxDuration 60s(真餘量 ~10s)。per-source
+ *   各 50×~500ms=25s 為半段(對齊 plan §5.1b L60 framing);total 100 筆 ≈ 50s 對齊 plan §5.2 L93。
  * - stuckAgeSeconds=600(10 分;避 racing 即時 callback/webhook、對齊 s2d user_in_flight 10 分閘)。
  * - concurrency=1(嚴格順序;群7 連線預算、避 N×per-request pg Client 撞 session pooler ceiling)。常數即「有限
  *   正整數」(不接受外部輸入 = 最強形式的驗證;use-case 端另有 Number.isFinite guard 縱深、4b-2 N4)。

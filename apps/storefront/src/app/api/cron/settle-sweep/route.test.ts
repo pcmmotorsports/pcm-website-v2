@@ -6,7 +6,8 @@
 // 驗:① GET-only 契約 + runtime/maxDuration/dynamic 段設定 ② 認證(CRON_SECRET 未設/弱→500、Bearer 缺/錯→401、
 //     正確 Bearer→過)③ CRON_SWEEPER_ENABLED gate(預設/false→200 no-op 不建 deps、'true'→跑)④ enabled+errors=0
 //     →200 計數、errors>0→503 不偽 200、deps/factory throw→503 ⑤ options/deps 注入(50/50/600/1 + inbox 併入)
-//     ⑥ 零 PII(log counts only、無 client 參數路徑)。
+//     ⑥ 零 PII(log counts only、無 client 參數路徑)。gate 涵蓋 預設/false/TRUE/whitespace/alias→200 no-op、
+//     嚴格只認字面 'true'→跑(N1 參數化鎖契約)。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -151,6 +152,19 @@ describe('GET settle-sweep — CRON_SWEEPER_ENABLED sequencing gate', () => {
     expect(res.status).toBe(200);
     expect(sweepSpy).toHaveBeenCalledTimes(1);
   });
+
+  // N1(審查側 4c sign-off):鎖嚴格 `!== 'true'` 契約——whitespace/alias/截斷值一律 disabled,
+  // 防未來誤加 .trim() / .toLowerCase() / 寬鬆 parse 把 ' true' / '1' / 'yes' 當啟用而靜默開啟 sweeper。
+  it.each([' true', 'true ', ' true ', '1', 'yes', 'True', 'enabled', 'on'])(
+    "=%j → 200 no-op(非字面 'true' 一律 disabled、不 trim/不 lowercase/不寬鬆 parse)",
+    async (val) => {
+      process.env.CRON_SWEEPER_ENABLED = val;
+      const res = await GET(makeReq(bearer()));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ enabled: false });
+      expect(sweepSpy).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('GET settle-sweep — enabled 執行 + 結果映射', () => {
