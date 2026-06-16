@@ -136,3 +136,105 @@ describe('PgChargeAttemptAdapter.markCharged / markFailed(主軌、雙鍵驗參�
     ).rejects.toMatchObject({ code: PG_BUSINESS_REJECT, message: expect.stringContaining('主軌失敗') });
   });
 });
+
+// ── M-3 3DS-4 sweeper(主軌-only;claim_stuck / mark_attempt_settle_retry / flag_non_unpaid_active)──
+
+const STUCK_ROW = { attempt_id: ATTEMPT, order_id: ORDER, settle_attempt_count: 2 };
+
+describe('PgChargeAttemptAdapter.expireStuckAtCeiling(ceiling-expirer、3DS-4a-2)', () => {
+  it('回轉換筆數;SQL 呼 expire_stuck_attempts_at_ceiling()、無參數', async () => {
+    const { client, query } = makeClient({ query: async () => ({ rows: [{ result: 1 }] }) });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).expireStuckAtCeiling();
+    expect(res).toBe(1);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/expire_stuck_attempts_at_ceiling\(\)/);
+    expect(values).toEqual([]);
+  });
+
+  it('回應非整數 → throw 通用(fail-closed)', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [{ result: 1.5 }] }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).expireStuckAtCeiling(),
+    ).rejects.toThrow('回應格式異常');
+  });
+});
+
+describe('PgChargeAttemptAdapter.claimStuckUnsettled(原子 lease claim、3DS-4a-2)', () => {
+  it('SETOF → 映 StuckChargeAttempt[];SQL 鎖 claim_stuck_unsettled_attempts($1::integer, $2::integer)、參數=[ageSeconds, limit]', async () => {
+    const { client, query, connect, end } = makeClient({
+      query: async () => ({ rows: [STUCK_ROW, { ...STUCK_ROW, settle_attempt_count: 5 }] }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50);
+    expect(res).toEqual([
+      { attemptId: ATTEMPT, orderId: ORDER, settleCount: 2 },
+      { attemptId: ATTEMPT, orderId: ORDER, settleCount: 5 },
+    ]);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/claim_stuck_unsettled_attempts\(\$1::integer, \$2::integer\)/); // 🔴 鎖 cast
+    expect(values).toEqual([600, 50]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('空 rows(本輪無 due)→ []', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [] }) });
+    expect(
+      await new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ['attempt_id 非字串', { ...STUCK_ROW, attempt_id: 1 }],
+    ['order_id 缺', { attempt_id: ATTEMPT, settle_attempt_count: 2 }],
+    ['settle_attempt_count 非數字', { ...STUCK_ROW, settle_attempt_count: '2' }],
+    ['settle_attempt_count 非整數(1.5)', { ...STUCK_ROW, settle_attempt_count: 1.5 }], // 🔴 claim token 必整數(codex K2 must-fix)
+    ['settle_attempt_count NaN', { ...STUCK_ROW, settle_attempt_count: Number.NaN }],
+  ])('SETOF 列形狀不符(%s)→ throw 通用(fail-closed)', async (_l, row) => {
+    const { client } = makeClient({ query: async () => ({ rows: [row] }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50),
+    ).rejects.toThrow('回應格式異常');
+  });
+});
+
+describe('PgChargeAttemptAdapter.markSettleRetry / flagNonUnpaidActive(回 affected)', () => {
+  it('markSettleRetry:回 affected;SQL 呼 mark_attempt_settle_retry、參數=[attemptId, count, reason]', async () => {
+    const { client, query } = makeClient({ query: async () => ({ rows: [{ result: 1 }] }) });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).markSettleRetry(
+      ATTEMPT,
+      2,
+      'record_unreachable',
+    );
+    expect(res).toBe(1);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/mark_attempt_settle_retry\(\$1::uuid, \$2::integer, \$3::text\)/); // 🔴 鎖 cast
+    expect(values).toEqual([ATTEMPT, 2, 'record_unreachable']);
+  });
+
+  it('markSettleRetry:stale/manual/平行已付款 → affected=0(no-op)', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [{ result: 0 }] }) });
+    expect(
+      await new PgChargeAttemptAdapter('conn', () => client).markSettleRetry(ATTEMPT, 99, 'x'),
+    ).toBe(0);
+  });
+
+  it('flagNonUnpaidActive:回標記筆數;SQL 呼 flag_non_unpaid_active_attempts、參數=[limit]', async () => {
+    const { client, query } = makeClient({ query: async () => ({ rows: [{ result: 3 }] }) });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).flagNonUnpaidActive(50);
+    expect(res).toBe(3);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/flag_non_unpaid_active_attempts\(\$1::integer\)/); // 🔴 鎖 cast
+    expect(values).toEqual([50]);
+  });
+
+  it.each([
+    ['result 非數字', { rows: [{ result: '1' }] }],
+    ['result 非整數', { rows: [{ result: 1.5 }] }],
+    ['空 rows', { rows: [] as Array<Record<string, unknown>> }],
+  ])('affected 形狀不符(%s)→ throw 通用(fail-closed)', async (_l, rows) => {
+    const { client } = makeClient({ query: async () => rows });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).flagNonUnpaidActive(50),
+    ).rejects.toThrow('回應格式異常');
+  });
+});

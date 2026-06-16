@@ -42,12 +42,23 @@ function makeStore(opts: {
     events.push('F');
     await (opts.fallbackMarkCharged ?? (async () => {}))();
   });
+  // 3DS-4 sweeper 主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
+  const primaryExpireStuck = vi.fn(async () => 0);
+  const primaryClaimStuck = vi.fn(async () => [
+    { attemptId: 'attempt-uuid-1', orderId: ORDER, settleCount: 2 },
+  ]);
+  const primaryMarkSettleRetry = vi.fn(async () => 1);
+  const primaryFlagNonUnpaid = vi.fn(async () => 3);
   const primary: IChargeAttemptStore = {
     begin,
     markCharged: primaryMarkCharged,
     markFailed: primaryMarkFailed,
     // findActiveByOrderId 為 3DS-1b 新增 port 方法;本複合 markCharged/雙軌測不涉、stub 滿足介面。
     findActiveByOrderId: vi.fn(async () => null),
+    expireStuckAtCeiling: primaryExpireStuck,
+    claimStuckUnsettled: primaryClaimStuck,
+    markSettleRetry: primaryMarkSettleRetry,
+    flagNonUnpaidActive: primaryFlagNonUnpaid,
   };
   const fallback: ChargeAttemptFallbackRail = { markCharged: fallbackMarkCharged };
   // 顯式 call signature:令 sleep.mock.calls 為 [ms] tuple(可讀退避序列、非空 tuple)。
@@ -61,6 +72,10 @@ function makeStore(opts: {
     primaryMarkCharged,
     primaryMarkFailed,
     fallbackMarkCharged,
+    primaryExpireStuck,
+    primaryClaimStuck,
+    primaryMarkSettleRetry,
+    primaryFlagNonUnpaid,
     sleep,
     events,
   };
@@ -239,5 +254,38 @@ describe('SupabaseChargeAttemptFallbackAdapter(備軌 RPC 參數/錯誤)', () =>
     };
     expect(err.code).toBe('P0001');
     expect(String(err)).not.toContain(MARK_INPUT.fallbackToken);
+  });
+});
+
+describe('3DS-4 sweeper 方法 — 主軌-only 直通(無 fallback、對齊 findActiveByOrderId)', () => {
+  it('expireStuckAtCeiling 直通 primary + 回轉換筆數、零 sleep', async () => {
+    const { store, primaryExpireStuck, sleep } = makeStore({});
+    const res = await store.expireStuckAtCeiling();
+    expect(primaryExpireStuck).toHaveBeenCalledTimes(1);
+    expect(res).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('claimStuckUnsettled 直通 primary(原參數)+ 回傳 passthrough、零 sleep', async () => {
+    const { store, primaryClaimStuck, sleep } = makeStore({});
+    const res = await store.claimStuckUnsettled(600, 50);
+    expect(primaryClaimStuck).toHaveBeenCalledTimes(1);
+    expect(primaryClaimStuck).toHaveBeenCalledWith(600, 50);
+    expect(res).toEqual([{ attemptId: 'attempt-uuid-1', orderId: ORDER, settleCount: 2 }]);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('markSettleRetry 直通 primary(原參數)+ 回 affected', async () => {
+    const { store, primaryMarkSettleRetry } = makeStore({});
+    const res = await store.markSettleRetry('attempt-uuid-1', 2, 'record_unreachable');
+    expect(primaryMarkSettleRetry).toHaveBeenCalledWith('attempt-uuid-1', 2, 'record_unreachable');
+    expect(res).toBe(1);
+  });
+
+  it('flagNonUnpaidActive 直通 primary(原參數)+ 回標記筆數', async () => {
+    const { store, primaryFlagNonUnpaid } = makeStore({});
+    const res = await store.flagNonUnpaidActive(50);
+    expect(primaryFlagNonUnpaid).toHaveBeenCalledWith(50);
+    expect(res).toBe(3);
   });
 });

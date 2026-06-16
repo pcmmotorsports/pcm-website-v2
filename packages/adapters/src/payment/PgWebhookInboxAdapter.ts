@@ -21,7 +21,7 @@ import 'server-only';
 
 import { Client } from 'pg';
 import type { IWebhookInbox } from '@pcm/ports';
-import type { WebhookEventInput } from '@pcm/domain';
+import type { DueWebhookEvent, WebhookEventInput } from '@pcm/domain';
 import { buildPgConfig, type PgClientLike } from './PaymentConfirmerAdapter';
 
 /** 帶安全 SQLSTATE 的 inbox 錯誤(message 通用、code 供辨識;零 pg 原文/PII)。 */
@@ -65,6 +65,52 @@ export class PgWebhookInboxAdapter implements IWebhookInbox {
     });
   }
 
+  // ── M-3 3DS-4 sweeper(expire_webhook_events_at_ceiling / claim_due_webhook_events / mark_webhook_*、3DS-4a-1)──
+
+  /** 🔴 ceiling-expirer(claim 前置、防孤兒);回轉換筆數(>0 sweeper 告警)。 */
+  async expireEventsAtCeiling(): Promise<number> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.expire_webhook_events_at_ceiling() AS result',
+        [],
+      );
+      return parseAffectedCount(res.rows);
+    });
+  }
+
+  /** 🔴 原子 lease claim 未處理 inbox(SETOF 三欄、claim token=attempt_count);空陣列=本輪無 due。 */
+  async claimDueEvents(limit: number): Promise<DueWebhookEvent[]> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT rec_trade_id, order_number, attempt_count FROM public.claim_due_webhook_events($1::integer)',
+        [limit],
+      );
+      return res.rows.map(parseDueEvent);
+    });
+  }
+
+  /** settle 達 terminal 後標 processed(token guard);回 affected(1=已標 / 0=stale/manual no-op)。 */
+  async markProcessed(recTradeId: string, claimedCount: number): Promise<number> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.mark_webhook_processed($1::text, $2::integer) AS result',
+        [recTradeId, claimedCount],
+      );
+      return parseAffectedCount(res.rows);
+    });
+  }
+
+  /** pending → 退避 retry(token guard + last_error allowlist 零 PII);回 affected(1/0 no-op)。 */
+  async markRetry(recTradeId: string, claimedCount: number, reasonCode: string): Promise<number> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.mark_webhook_retry($1::text, $2::integer, $3::text) AS result',
+        [recTradeId, claimedCount, reasonCode],
+      );
+      return parseAffectedCount(res.rows);
+    });
+  }
+
   /** per-request 連線生命週期(connect → op → finally end;end throw 吞掉不蓋主錯誤)。 */
   private async run<T>(op: (client: PgClientLike) => Promise<T>): Promise<T> {
     let client: PgClientLike | undefined;
@@ -91,6 +137,32 @@ function parseInsertedResult(rows: Array<Record<string, unknown>>): boolean {
   const result = rows[0]?.result;
   if (typeof result !== 'boolean') {
     throw new WebhookInboxParseError('record_webhook_event 回應格式異常');
+  }
+  return result;
+}
+
+/** 解析 claim_due_webhook_events SETOF 一列(rec_trade_id/order_number/attempt_count);形狀不符 → throw(通用)。 */
+function parseDueEvent(row: Record<string, unknown>): DueWebhookEvent {
+  if (
+    typeof row.rec_trade_id !== 'string' ||
+    typeof row.order_number !== 'string' ||
+    typeof row.attempt_count !== 'number' ||
+    !Number.isInteger(row.attempt_count) // claim token 必整數(int4);1.5/NaN fail-closed(對齊 parseAffectedCount)
+  ) {
+    throw new WebhookInboxParseError('claim_due_webhook_events 回應格式異常');
+  }
+  return {
+    recTradeId: row.rec_trade_id,
+    orderNumber: row.order_number,
+    attemptCount: row.attempt_count,
+  };
+}
+
+/** 解析 mark_webhook_processed/retry RPC 回的 affected integer;形狀不符 → throw(通用)。 */
+function parseAffectedCount(rows: Array<Record<string, unknown>>): number {
+  const result = rows[0]?.result;
+  if (typeof result !== 'number' || !Number.isInteger(result)) {
+    throw new WebhookInboxParseError('mark_webhook_* 回應格式異常');
   }
   return result;
 }

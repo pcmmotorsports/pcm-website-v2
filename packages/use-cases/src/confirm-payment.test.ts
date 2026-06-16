@@ -49,6 +49,11 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     markFailed: vi.fn(async () => {}),
     // findActiveByOrderId 為 3DS-1b 新增 port 方法;confirm-payment 不呼用、stub 滿足介面。
     findActiveByOrderId: vi.fn(async () => null),
+    // 3DS-4 sweeper port 方法;confirm-payment 不呼用、stub 滿足介面。
+    expireStuckAtCeiling: vi.fn(async () => 0),
+    claimStuckUnsettled: vi.fn(async () => []),
+    markSettleRetry: vi.fn(async () => 1),
+    flagNonUnpaidActive: vi.fn(async () => 0),
     ...over,
   };
 }

@@ -326,3 +326,30 @@ export type WebhookEventInput = {
   bankTransactionId?: string;
   transactionTimeMillis?: number;
 };
+
+// ── M-3 3DS-4:sweeper 原子 lease claim 回傳(claim token = 計數欄、mark RPC 帶回做 token guard)──────
+
+/**
+ * DueWebhookEvent:`claim_due_webhook_events` RPC(3DS-4a-1)原子 lease claim 回傳一筆。
+ *
+ * `attemptCount` = claim 遞增後值(**claim token**);sweeper 呼 settleCharge 後以 `markProcessed`/`markRetry`
+ * 帶回 `attemptCount` 做 token guard(事件被另一 cron run 重領 → count 變 → stale mark no-op、回 affected=0)。
+ * `orderNumber` = 我方 orderId(settleCharge 對單);`recTradeId` = settleCharge `recTradeIdHint`(master §1 rec 優先序)。
+ */
+export type DueWebhookEvent = {
+  recTradeId: string;
+  orderNumber: string;
+  attemptCount: number;
+};
+
+/**
+ * StuckChargeAttempt:`claim_stuck_unsettled_attempts` RPC(3DS-4a-2)原子 lease claim 回傳一筆。
+ *
+ * `settleCount` = claim 遞增後值(**claim token**);sweeper 呼 settleCharge 後以 `markSettleRetry` 帶回做 token guard。
+ * `orderId` = settleCharge 對單(含 charged-unpaid 群1:markCharged 成功但 confirm throw → attempt=charged/order unpaid)。
+ */
+export type StuckChargeAttempt = {
+  attemptId: string;
+  orderId: string;
+  settleCount: number;
+};

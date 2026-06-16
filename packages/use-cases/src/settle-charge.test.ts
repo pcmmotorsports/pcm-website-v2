@@ -57,6 +57,11 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     markCharged: vi.fn(async () => {}),
     markFailed: vi.fn(async () => {}),
     findActiveByOrderId: vi.fn(async () => ACTIVE_PENDING),
+    // 3DS-4 sweeper port 方法;settleCharge 本身不呼用(sweeper use-case〔3DS-4b-2〕才呼)、stub 滿足介面。
+    expireStuckAtCeiling: vi.fn(async () => 0),
+    claimStuckUnsettled: vi.fn(async () => []),
+    markSettleRetry: vi.fn(async () => 1),
+    flagNonUnpaidActive: vi.fn(async () => 0),
     ...over,
   };
 }

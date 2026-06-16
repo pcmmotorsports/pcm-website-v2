@@ -28,6 +28,7 @@ import type {
   MarkChargeAttemptFailedInput,
   OrderId,
   PaymentStatus,
+  StuckChargeAttempt,
 } from '@pcm/domain';
 import { buildPgConfig, type PgClientLike } from './PaymentConfirmerAdapter';
 
@@ -89,6 +90,56 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
         [orderId],
       );
       return parseActiveAttempt(res.rows);
+    });
+  }
+
+  // ── M-3 3DS-4 sweeper(expire_stuck_attempts_at_ceiling / claim_stuck_unsettled_attempts / mark_attempt_settle_retry / flag_non_unpaid_active_attempts、3DS-4a-2)──
+
+  /** 🔴 ceiling-expirer(claim 前置、防孤兒);回轉換筆數(>0 sweeper 告警)。 */
+  async expireStuckAtCeiling(): Promise<number> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.expire_stuck_attempts_at_ceiling() AS result',
+        [],
+      );
+      return parseAttemptAffectedCount(res.rows);
+    });
+  }
+
+  /** 🔴 原子 lease claim stuck unsettled attempt(SETOF 三欄、claim token=settle_attempt_count);空陣列=本輪無 due。 */
+  async claimStuckUnsettled(ageSeconds: number, limit: number): Promise<StuckChargeAttempt[]> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT attempt_id, order_id, settle_attempt_count FROM public.claim_stuck_unsettled_attempts($1::integer, $2::integer)',
+        [ageSeconds, limit],
+      );
+      return res.rows.map(parseStuckAttempt);
+    });
+  }
+
+  /** pending → 退避 retry(token guard + last_settle_error allowlist 零 PII);回 affected(1/0 no-op)。 */
+  async markSettleRetry(
+    attemptId: string,
+    claimedCount: number,
+    reasonCode: string,
+  ): Promise<number> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.mark_attempt_settle_retry($1::uuid, $2::integer, $3::text) AS result',
+        [attemptId, claimedCount, reasonCode],
+      );
+      return parseAttemptAffectedCount(res.rows);
+    });
+  }
+
+  /** 標 refunded/partiallyPaid 殘留 active attempt → needs_manual_review(唯一回收路徑);回標記筆數。 */
+  async flagNonUnpaidActive(limit: number): Promise<number> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.flag_non_unpaid_active_attempts($1::integer) AS result',
+        [limit],
+      );
+      return parseAttemptAffectedCount(res.rows);
     });
   }
 
@@ -164,6 +215,32 @@ function parseActiveAttempt(rows: Array<Record<string, unknown>>): ActiveChargeA
     orderPaymentStatus: o.order_payment_status as PaymentStatus,
     orderDisplayId: o.order_display_id,
   };
+}
+
+/** 解析 claim_stuck_unsettled_attempts SETOF 一列(attempt_id/order_id/settle_attempt_count);形狀不符 → throw(通用)。 */
+function parseStuckAttempt(row: Record<string, unknown>): StuckChargeAttempt {
+  if (
+    typeof row.attempt_id !== 'string' ||
+    typeof row.order_id !== 'string' ||
+    typeof row.settle_attempt_count !== 'number' ||
+    !Number.isInteger(row.settle_attempt_count) // claim token 必整數(int4);1.5/NaN fail-closed
+  ) {
+    throw new ChargeAttemptParseError('claim_stuck_unsettled_attempts 回應格式異常');
+  }
+  return {
+    attemptId: row.attempt_id,
+    orderId: row.order_id,
+    settleCount: row.settle_attempt_count,
+  };
+}
+
+/** 解析 mark_attempt_settle_retry/flag_non_unpaid_active_attempts RPC 回的 affected integer;形狀不符 → throw(通用)。 */
+function parseAttemptAffectedCount(rows: Array<Record<string, unknown>>): number {
+  const result = rows[0]?.result;
+  if (typeof result !== 'number' || !Number.isInteger(result)) {
+    throw new ChargeAttemptParseError('attempt sweeper RPC 回應格式異常');
+  }
+  return result;
 }
 
 /** 通用訊息 + 安全 SQLSTATE(零 pg 原文/PII/token;本層 parse 錯誤憑 branded 類別放行 —— pg 也會丟

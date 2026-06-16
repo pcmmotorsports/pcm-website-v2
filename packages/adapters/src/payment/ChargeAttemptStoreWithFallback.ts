@@ -23,6 +23,7 @@ import type {
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
   OrderId,
+  StuckChargeAttempt,
 } from '@pcm/domain';
 import { PG_BUSINESS_REJECT } from './PgChargeAttemptAdapter';
 import type { ChargeAttemptFallbackRail } from './SupabaseChargeAttemptFallbackAdapter';
@@ -49,6 +50,25 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
   /** 對帳讀(3DS-1b)主軌-only:讀失敗 → settleCharge 回 pending、sweeper 重來;備軌需 JWT、webhook/sweeper 無。 */
   findActiveByOrderId(orderId: OrderId): Promise<ActiveChargeAttempt | null> {
     return this.primary.findActiveByOrderId(orderId);
+  }
+
+  // 🔴 3DS-4 sweeper 全主軌-only(同 findActiveByOrderId):對帳路徑無 user JWT〔備軌需 auth.uid()〕、
+  //    且失敗→sweeper 下輪靠 lease/退避重來無漏寫風險,不需雙軌韌性。
+
+  expireStuckAtCeiling(): Promise<number> {
+    return this.primary.expireStuckAtCeiling();
+  }
+
+  claimStuckUnsettled(ageSeconds: number, limit: number): Promise<StuckChargeAttempt[]> {
+    return this.primary.claimStuckUnsettled(ageSeconds, limit);
+  }
+
+  markSettleRetry(attemptId: string, claimedCount: number, reasonCode: string): Promise<number> {
+    return this.primary.markSettleRetry(attemptId, claimedCount, reasonCode);
+  }
+
+  flagNonUnpaidActive(limit: number): Promise<number> {
+    return this.primary.flagNonUnpaidActive(limit);
   }
 
   async markCharged(input: MarkChargeAttemptChargedInput): Promise<void> {

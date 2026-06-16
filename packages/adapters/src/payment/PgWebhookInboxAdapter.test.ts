@@ -127,3 +127,101 @@ describe('PgWebhookInboxAdapter.recordEvent', () => {
     expect(String(err)).not.toContain('internal-detail');
   });
 });
+
+// ── M-3 3DS-4 sweeper ───────────────────────────────────────────────────────────────────────
+
+const DUE_ROW = { rec_trade_id: REC, order_number: ORDER, attempt_count: 3 };
+
+describe('PgWebhookInboxAdapter.expireEventsAtCeiling(ceiling-expirer、3DS-4a-1)', () => {
+  it('回轉換筆數;SQL 呼 expire_webhook_events_at_ceiling()、無參數', async () => {
+    const { client, query } = makeClient({ query: async () => resultRows(2) });
+    const res = await new PgWebhookInboxAdapter('conn', () => client).expireEventsAtCeiling();
+    expect(res).toBe(2);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/expire_webhook_events_at_ceiling\(\)/);
+    expect(values).toEqual([]);
+  });
+
+  it('回應非整數 → throw 通用(fail-closed)', async () => {
+    const { client } = makeClient({ query: async () => resultRows(1.5) });
+    await expect(
+      new PgWebhookInboxAdapter('conn', () => client).expireEventsAtCeiling(),
+    ).rejects.toThrow('回應格式異常');
+  });
+});
+
+describe('PgWebhookInboxAdapter.claimDueEvents(原子 lease claim、3DS-4a-1)', () => {
+  it('SETOF → 映 DueWebhookEvent[];SQL 鎖 claim_due_webhook_events($1::integer)、參數=[limit]', async () => {
+    const { client, query, connect, end } = makeClient({
+      query: async () => ({ rows: [DUE_ROW, { ...DUE_ROW, attempt_count: 1 }] }),
+    });
+    const res = await new PgWebhookInboxAdapter('conn', () => client).claimDueEvents(50);
+    expect(res).toEqual([
+      { recTradeId: REC, orderNumber: ORDER, attemptCount: 3 },
+      { recTradeId: REC, orderNumber: ORDER, attemptCount: 1 },
+    ]);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/claim_due_webhook_events\(\$1::integer\)/); // 🔴 鎖 cast(codex K2 consider)
+    expect(values).toEqual([50]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('空 rows(本輪無 due)→ []', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [] }) });
+    expect(await new PgWebhookInboxAdapter('conn', () => client).claimDueEvents(50)).toEqual([]);
+  });
+
+  it.each([
+    ['rec_trade_id 非字串', { ...DUE_ROW, rec_trade_id: 1 }],
+    ['order_number 缺', { rec_trade_id: REC, attempt_count: 3 }],
+    ['attempt_count 非數字', { ...DUE_ROW, attempt_count: '3' }],
+    ['attempt_count 非整數(1.5)', { ...DUE_ROW, attempt_count: 1.5 }], // 🔴 claim token 必整數(codex K2 must-fix)
+    ['attempt_count NaN', { ...DUE_ROW, attempt_count: Number.NaN }],
+  ])('SETOF 列形狀不符(%s)→ throw 通用(fail-closed)', async (_l, row) => {
+    const { client } = makeClient({ query: async () => ({ rows: [row] }) });
+    await expect(
+      new PgWebhookInboxAdapter('conn', () => client).claimDueEvents(50),
+    ).rejects.toThrow('回應格式異常');
+  });
+});
+
+describe('PgWebhookInboxAdapter.markProcessed / markRetry(token guard、回 affected)', () => {
+  it('markProcessed:回 affected(1=已標);SQL 呼 mark_webhook_processed、參數=[rec, count]', async () => {
+    const { client, query } = makeClient({ query: async () => resultRows(1) });
+    const res = await new PgWebhookInboxAdapter('conn', () => client).markProcessed(REC, 3);
+    expect(res).toBe(1);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/mark_webhook_processed\(\$1::text, \$2::integer\)/); // 🔴 鎖 cast
+    expect(values).toEqual([REC, 3]);
+  });
+
+  it('markProcessed:stale/manual → affected=0(no-op、不覆寫)', async () => {
+    const { client } = makeClient({ query: async () => resultRows(0) });
+    expect(await new PgWebhookInboxAdapter('conn', () => client).markProcessed(REC, 99)).toBe(0);
+  });
+
+  it('markRetry:回 affected;SQL 呼 mark_webhook_retry、參數=[rec, count, reason]', async () => {
+    const { client, query } = makeClient({ query: async () => resultRows(1) });
+    const res = await new PgWebhookInboxAdapter('conn', () => client).markRetry(
+      REC,
+      3,
+      'record_unreachable',
+    );
+    expect(res).toBe(1);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/mark_webhook_retry\(\$1::text, \$2::integer, \$3::text\)/); // 🔴 鎖 cast
+    expect(values).toEqual([REC, 3, 'record_unreachable']);
+  });
+
+  it.each([
+    ['result 非數字', resultRows('1')],
+    ['result 非整數', resultRows(1.5)],
+    ['空 rows', { rows: [] as Array<Record<string, unknown>> }],
+  ])('affected 形狀不符(%s)→ throw 通用(fail-closed)', async (_l, rows) => {
+    const { client } = makeClient({ query: async () => rows });
+    await expect(
+      new PgWebhookInboxAdapter('conn', () => client).markProcessed(REC, 3),
+    ).rejects.toThrow('回應格式異常');
+  });
+});

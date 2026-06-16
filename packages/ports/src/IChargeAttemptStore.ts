@@ -4,6 +4,7 @@ import type {
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
   OrderId,
+  StuckChargeAttempt,
 } from '@pcm/domain';
 
 /**
@@ -33,4 +34,36 @@ export interface IChargeAttemptStore {
    * 無單 / 無 active attempt → `null`(1b 映 no_attempt)。
    */
   findActiveByOrderId(orderId: OrderId): Promise<ActiveChargeAttempt | null>;
+
+  // ── M-3 3DS-4 sweeper(expire_stuck_attempts_at_ceiling / claim_stuck_unsettled_attempts / mark_attempt_settle_retry / flag_non_unpaid_active_attempts、3DS-4a-2)──
+  // 🔴 全主軌-only(同 findActiveByOrderId):對帳路徑無 user JWT〔備軌需 auth.uid()〕、且讀/標失敗→sweeper 下輪重來無漏寫風險。
+
+  /**
+   * 🔴 ceiling-expirer(claim **前置**、防孤兒;3DS-4a-2)。達 ceiling 且 lease 到期、仍 active 且 order unpaid →
+   * 轉 needs_manual_review。回轉換筆數(>0 sweeper 告警)。**sweepSettlements 每輪 claim 前必呼**(plan §5.2③)。
+   */
+  expireStuckAtCeiling(): Promise<number>;
+
+  /**
+   * 🔴 原子 lease claim stuck unsettled attempt(FOR UPDATE OF a SKIP LOCKED + LIMIT;3DS-4a-2)。
+   *
+   * 濾 status IN(pending,charged) AND order unpaid(含 charged-unpaid 群1)AND 非 manual AND settle_attempt_count<ceiling
+   * AND lease 到期 AND created_at < now()-ageSeconds(`ageSeconds`<0 → 整批空、fail-closed)。settle_attempt_count++(claim token)
+   * + 5min lease。回 `StuckChargeAttempt[]`(空=本輪無 due)。
+   */
+  claimStuckUnsettled(ageSeconds: number, limit: number): Promise<StuckChargeAttempt[]>;
+
+  /**
+   * pending outcome 退避 retry;🔴 token guard(`settle_attempt_count=claimedCount AND 非 manual AND order unpaid`)。
+   *
+   * 退避 next_settle_at + 達 ceiling→needs_manual_review;`reasonCode` 寫 last_settle_error(RPC 端 allowlist、零 PII)。
+   * 回 affected(`1`=已退避 / `0`=stale/late mark/平行已付款單 = no-op)。不 ++(遞增唯一在 claim)。
+   */
+  markSettleRetry(attemptId: string, claimedCount: number, reasonCode: string): Promise<number>;
+
+  /**
+   * 標 active(pending|charged)但 order payment_status NOT IN(unpaid,paid)(refunded/partiallyPaid 殘留、confirm 永不收斂)
+   * → needs_manual_review。**唯一回收路徑**(claim/expirer/mark 皆濾 unpaid);回標記筆數(>0 sweeper 告警)。
+   */
+  flagNonUnpaidActive(limit: number): Promise<number>;
 }
