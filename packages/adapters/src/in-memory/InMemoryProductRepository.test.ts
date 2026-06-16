@@ -258,6 +258,88 @@ describe('InMemoryProductRepository', () => {
       });
       expect(result).toHaveLength(0);
     });
+
+    // #93:8 個 matchFitment 邊界 case(對齊 resolveEnd 單年/開放/inclusive 重疊語意)
+    it('單年 actual(yearEnd undefined → resolveEnd=yearStart)、spec 同年 → match', async () => {
+      const single = createFakeProduct({
+        id: 'p-single-2020',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020 }],
+      });
+      const repo = new InMemoryProductRepository([single]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2020 });
+      expect(result).toHaveLength(1);
+    });
+
+    it('相鄰年不 match:單年 actual 2020 vs spec 2021 → 無重疊', async () => {
+      const single = createFakeProduct({
+        id: 'p-single-2020b',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020 }],
+      });
+      const repo = new InMemoryProductRepository([single]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2021, yearEnd: 2021 });
+      expect(result).toHaveLength(0);
+    });
+
+    it('inclusive 下邊界:actual 2018-2020 vs spec 2020-2025 → 端點相接 match(≤ 非 <)', async () => {
+      const lower = createFakeProduct({
+        id: 'p-2018-2020',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2018, yearEnd: 2020 }],
+      });
+      const repo = new InMemoryProductRepository([lower]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2025 });
+      expect(result).toHaveLength(1);
+    });
+
+    it('inclusive 上邊界:actual 2020-2024 vs spec 2015-2020 → 端點相接 match', async () => {
+      const upper = createFakeProduct({
+        id: 'p-2020-2024',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2024 }],
+      });
+      const repo = new InMemoryProductRepository([upper]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2015, yearEnd: 2020 });
+      expect(result).toHaveLength(1);
+    });
+
+    it('空 fitments[] → 任何 spec 都不 match(some 對空陣列為 false)', async () => {
+      const empty = createFakeProduct({ id: 'p-no-fitment', fitments: [] });
+      const repo = new InMemoryProductRepository([empty]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2020, yearEnd: 2020 });
+      expect(result).toHaveLength(0);
+    });
+
+    it('多 fitment OR(positive):spec 命中第二條 fitment → match', async () => {
+      const multi = createFakeProduct({
+        id: 'p-multi-or',
+        fitments: [
+          { motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2018, yearEnd: 2024 },
+          { motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2010, yearEnd: 2012 },
+        ],
+      });
+      const repo = new InMemoryProductRepository([multi]);
+      const result = await repo.listByFitment({ motoBrand: 'Honda', modelCode: 'CBR600RR', yearStart: 2011, yearEnd: 2011 });
+      expect(result).toHaveLength(1);
+      expect(result[0]?.id).toBe('p-multi-or');
+    });
+
+    it('open-ended actual 下界:actual 2020+ vs spec 完全早於(2015)→ 不 match', async () => {
+      const open = createFakeProduct({
+        id: 'p-2020-open',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2020, yearEnd: null }],
+      });
+      const repo = new InMemoryProductRepository([open]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2015, yearEnd: 2015 });
+      expect(result).toHaveLength(0);
+    });
+
+    it('actual 無年份(yearStart undefined)→ match 任意 spec 年份(鏡像 spec 無年份)', async () => {
+      const noYear = createFakeProduct({
+        id: 'p-no-year',
+        fitments: [{ motoBrand: 'Yamaha', modelCode: 'R1' }],
+      });
+      const repo = new InMemoryProductRepository([noYear]);
+      const result = await repo.listByFitment({ motoBrand: 'Yamaha', modelCode: 'R1', yearStart: 2099, yearEnd: 2099 });
+      expect(result).toHaveLength(1);
+    });
   });
 
   // 跨車型 false positive 防護(M-1-03-main-c sub-slice 2.5 落地、Sean 業務拍板):
