@@ -21,6 +21,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  */
 
 function requireEnv(name: string): string {
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:本檔 server-only(L1 import 'server-only')、動態 requireEnv 不進 client bundle、無 env inlining 風險(backlog #182 規則 + #179 item 4 requireEnv dedup 追蹤)
   const value = process.env[name];
   if (!value) {
     throw new Error(`${name} not set`);

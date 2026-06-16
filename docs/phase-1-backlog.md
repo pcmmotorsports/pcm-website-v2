@@ -4834,9 +4834,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #182. 🟠 eslint 禁動態 process.env 存取(防 client bundle env inlining bug 復發)
+### #182. ✅ eslint 禁動態 process.env 存取(防 client bundle env inlining bug 復發)
 
-- **狀態:** ⏳ 待執行(M-1-16 上線前 / 新增 client 端 env 讀取時 / 順手做)
+- **狀態:** ✅ 完成(2026-06-17 A 方向 config slice;eslint.config.js 加 `no-restricted-syntax` 規則〔selector 抓 `process.env[computed]`、放行 `process.env.STATIC`〕scope=packages/** + apps/**;2 處 server-only 動態 requireEnv〔adapters/supabase/client.ts L24、storefront lib/payment/composition.ts L31〕加受控 eslint-disable + 意圖註解放行〔server 不進 client bundle、無 inlining 風險、#179 item 4 dedup 追蹤〕;test/spec 已全域 ignores 豁免;**變異測試證規則有效**〔臨時 computed `process.env['X']` 被抓、同檔 static `process.env.NEXT_PUBLIC_OK` 不報〕;三綠 typecheck/lint/build 全綠;code-reviewer PASS。**已知限界**:規則只抓直接 `process.env[x]` 字面、間接別名〔`const e=process.env; e[x]`〕不抓〔常見 footgun=requireEnv 直接式已覆蓋〕)
 - **優先級:** 🟠 中(已踩過一次 runtime bug、有 lint 防線才不復發;但已即時修、非阻擋)
 - **問題:**
   - Next.js 只把**靜態字面** `process.env.NEXT_PUBLIC_*` inline 進 client bundle;**動態存取** `process.env[name]`(name 為變數,如 helper `requireEnv(name)`)不會被 inline → client 端取到 `undefined` → 執行期 throw。

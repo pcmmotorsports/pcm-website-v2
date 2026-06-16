@@ -28,6 +28,7 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 lib/auth/line.ts + supabase/server.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
+  // eslint-disable-next-line no-restricted-syntax -- 受控例外:本檔 server-only(L15 import 'server-only')、動態 requireEnv 不進 client bundle、無 env inlining 風險(backlog #182 規則 + #179 item 4 requireEnv dedup 追蹤)
   const value = process.env[name];
   if (!value) {
     throw new Error(`缺少必要環境變數:${name}`);

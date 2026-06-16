@@ -101,6 +101,29 @@ module.exports = [
       ],
     },
   },
+  // ===== #182:禁動態 computed process.env 存取(防 client bundle env inlining bug 復發)=====
+  // Next.js 只 inline 靜態字面 process.env.NEXT_PUBLIC_*;動態 process.env[name](name 為變數)
+  // 不會被 inline → client 端取到 undefined → 執行期 throw(M-1-14e-f1-c 已踩、browser.ts/server.ts 已改靜態)。
+  // 危險點:build 綠 + 單元測試綠(Node env 動態查有值)、只在瀏覽器炸 → 極難追、故加機械守門。
+  // - selector 抓 process.env[...](computed bracket)、放行 process.env.STATIC(非 computed member access)。
+  // - server-only 檔確需動態 requireEnv(adapters/supabase/client.ts、storefront lib/payment/composition.ts)
+  //   以受控 inline eslint-disable + 意圖註解放行(server 不進 client bundle、無 inlining 風險;
+  //   #179 item 4 requireEnv dedup 追蹤)。
+  // - test / spec 已在全域 ignores(L41-44)豁免(測試需動態存取 env 做 setup/teardown)。
+  {
+    files: ['packages/**/*.ts', 'packages/**/*.tsx', 'apps/**/*.ts', 'apps/**/*.tsx'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "MemberExpression[computed=true][object.type='MemberExpression'][object.object.name='process'][object.property.name='env']",
+          message:
+            '禁動態 process.env[變數] 存取:Next.js 不 inline → client bundle 取 undefined → runtime throw。改靜態 process.env.NEXT_PUBLIC_X;server-only 檔確需動態查 env 才用受控 eslint-disable + 意圖註解(backlog #182)。',
+        },
+      ],
+    },
+  },
   // ===== sub-slice B-3:storefront server-only API import 紀律(對齊 backlog #120 議題 2)=====
   // ESLint 9 flat config 無 directive-aware files filter('use client' 字面只在檔頭、parser 不暴露 directive 給 ESLint rules)、
   // 用 storefront-wide files glob 替代精準篩 'use client' 檔。覆蓋面更廣、保護更嚴:
