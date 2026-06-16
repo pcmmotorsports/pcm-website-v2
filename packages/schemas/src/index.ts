@@ -26,6 +26,7 @@ export type LoginInput = z.infer<typeof LoginInput>;
 
 // RegisterInput — design AccountPages L256-299(欄位順序對齊 design:name→email→phone→password→agree)
 export const RegisterInput = z.object({
+  // #201 刻意不 trim:design RegisterPage L261 `!form.name` 無 .trim()、storefront 不比 design 嚴(鐵則 1);要擴須 backlog 另立。
   name: z.string().min(1, { error: '請填寫姓名' }),
   email: z.email({ error: 'Email 格式不正確' }),
   phone: z.string().regex(/^[\d\s-]{8,}$/, { error: '手機格式不正確' }),
@@ -40,9 +41,11 @@ export type RegisterInput = z.infer<typeof RegisterInput>;
 export const AddressInput = z
   .object({
     isDefault: z.boolean().default(false),
-    name: z.string().min(1, { error: '請填寫收件人' }),
+    // #201:name/line trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveAddress L705
+    //   `if (!form.name.trim() || !form.line.trim()) return;`(client 已擋純空白、server 補上同防線)。
+    name: z.string().trim().min(1, { error: '請填寫收件人' }),
     phone: z.string().default(''),
-    line: z.string().min(1, { error: '請填寫地址' }),
+    line: z.string().trim().min(1, { error: '請填寫地址' }),
     invoice: z.object({
       type: z.enum(['personal', 'company', 'donate']),
       carrier: z.string().default(''),
@@ -74,7 +77,9 @@ export type AddressInput = z.infer<typeof AddressInput>;
 //    domain CustomerVehicle.service 本就 string | null,正規化後型別/runtime 一致)。
 export const VehicleInput = z.object({
   isPrimary: z.boolean().default(false),
-  name: z.string().min(1, { error: '請填寫車型' }),
+  // #201:name trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveVehicle L774
+  //   `if (!form.name.trim()) return;`(client 已擋純空白、server 補上同防線)。
+  name: z.string().trim().min(1, { error: '請填寫車型' }),
   year: z.string().default(''),
   engine: z.string().default(''),
   km: z.string().default(''),
@@ -90,6 +95,7 @@ export type VehicleInput = z.infer<typeof VehicleInput>;
 // email 在 design 為 disabled(不可改)→ 不含 email;對齊 ICustomerRepository.update patch 限定
 // name/phone/birthday + DB column GRANT 只開這 3 欄 UPDATE。
 export const ProfileInput = z.object({
+  // #201 刻意不 trim:design saveProfile L416-420 無驗證/無 .trim()、storefront 不比 design 嚴(鐵則 1);要擴須 backlog 另立。
   name: z.string().min(1, { error: '請填寫姓名' }),
   // #197:phone/birthday 選填(空字串合法;birthday 空→null 在 action 層 normalize〔codex k1 Critical 1〕)。
   // 填了則 server 端驗格式,早於 DB 給精準欄位錯——否則格式錯(如 birthday 'abc'/'2026/1/1')穿到 DB

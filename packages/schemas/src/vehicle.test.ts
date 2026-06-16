@@ -30,3 +30,14 @@ describe('VehicleInput.service 空值正規化(#177)', () => {
     expect(VehicleInput.safeParse({ name: '' }).success).toBe(false);
   });
 });
+
+describe('VehicleInput.name 純空白 trim(#201、對齊 design saveVehicle L774)', () => {
+  it('純空白 name → reject(trim 後為空)', () => {
+    expect(VehicleInput.safeParse({ name: '   ' }).success).toBe(false);
+  });
+
+  it('頭尾空白 name → 通過且入庫值去空白', () => {
+    const parsed = VehicleInput.parse({ name: '  YAMAHA YZF-R6  ' });
+    expect(parsed.name).toBe('YAMAHA YZF-R6');
+  });
+});
