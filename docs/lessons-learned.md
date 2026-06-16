@@ -1216,6 +1216,32 @@ M-1-13H 商品頁全面改版 plan 階段(2026-05-21、本 PRD `docs/specs/M-1-1
 
 ---
 
+## §13 偵察 slice 方法論(2026-04-30 立、#99 歸位)
+
+> 本段原懸於附錄 B 之後、無 § 編號(2026-04-30 立);#99 歸位為 §13、與 §10-§12 同層方法論、後續引用有錨點。內容逐字保留。
+
+### 13.1 教訓:不能只看檔名 / grep 推測 routes
+
+**事故脈絡:**
+- 2026-04-30 design-reference v1 偵察報告判定「結帳 / 訂單詳情 / 我的車輛 CRUD 未覆蓋」
+- Sean 親自進 design-reference 驗證、發現大部分頁面實際存在
+- 根因:Claude Code v1 偵察用「.jsx 檔名 + grep 推測」、沒打開 hub-style 元件(`AccountPages`)看內部 page state
+
+**教訓:**
+- 偵察 slice 必含「page state 實際枚舉」步驟
+- 對 hub-style 元件(`AccountPages` / `Pages` / `Layout` 等)、必 grep `useState` / `case` 找 state、列出對應渲染元件
+- 不能只說「看到 X.jsx 一個檔」就推「相關功能只有一頁」
+- 偵察報告若標「未覆蓋」、必附證據(具體哪個 state / 哪個 case 沒處理)、不可只憑檔名缺失推
+
+### 13.2 Claude Design 同步機制(順帶教訓)
+
+- handoff URL 每次點選會生成新 ID、URL ID 不同 ≠ 內容不同
+- handoff URL 內容 = Claude Design 環境設計成品(包含 working files 如 `chats/` / `screenshots/` / `uploads/`)
+- submodule(d5ea3aa)= handoff 設計成品(working files 不在內)
+- d5ea3aa 與 handoff 設計成品 100% 一致、不需 sync 機制
+
+---
+
 ## 附錄 A:第一輪事件年表(精簡)
 
 | 日期 | 事件 |
@@ -1246,28 +1272,5 @@ M-1-13H 商品頁全面改版 plan 階段(2026-05-21、本 PRD `docs/specs/M-1-1
 12. `docs/phase-1-backlog.md` — 未決事項
 13. `design-reference/` — 視覺真權威字面(submodule)
 14. `PROGRESS.md` — 歷史紀錄
-
----
-
-## 偵察 slice 方法論(2026-04-30 立)
-
-### 教訓:不能只看檔名 / grep 推測 routes
-
-**事故脈絡:**
-- 2026-04-30 design-reference v1 偵察報告判定「結帳 / 訂單詳情 / 我的車輛 CRUD 未覆蓋」
-- Sean 親自進 design-reference 驗證、發現大部分頁面實際存在
-- 根因:Claude Code v1 偵察用「.jsx 檔名 + grep 推測」、沒打開 hub-style 元件(`AccountPages`)看內部 page state
-
-**教訓:**
-- 偵察 slice 必含「page state 實際枚舉」步驟
-- 對 hub-style 元件(`AccountPages` / `Pages` / `Layout` 等)、必 grep `useState` / `case` 找 state、列出對應渲染元件
-- 不能只說「看到 X.jsx 一個檔」就推「相關功能只有一頁」
-- 偵察報告若標「未覆蓋」、必附證據(具體哪個 state / 哪個 case 沒處理)、不可只憑檔名缺失推
-
-**Claude Design 同步機制(順帶教訓):**
-- handoff URL 每次點選會生成新 ID、URL ID 不同 ≠ 內容不同
-- handoff URL 內容 = Claude Design 環境設計成品(包含 working files 如 `chats/` / `screenshots/` / `uploads/`)
-- submodule(d5ea3aa)= handoff 設計成品(working files 不在內)
-- d5ea3aa 與 handoff 設計成品 100% 一致、不需 sync 機制
 
 — END —

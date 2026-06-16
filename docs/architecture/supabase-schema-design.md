@@ -525,7 +525,12 @@ CREATE INDEX idx_order_items_product_id ON order_items(product_id);
 
 -- customers
 CREATE INDEX idx_customers_tier ON customers(tier);
+
+-- categories(樹查詢:parent → children;a2-1 migration 20260505130758 已實作)
+CREATE INDEX idx_categories_parent_category_id ON categories(parent_category_id);
 ```
+
+> **備註(brands / categories 顯式索引):** `brands` 表靠 `name` + `slug` 的 `UNIQUE` 約束自動產生 unique index、`categories.raw_path` 的 `UNIQUE` 也自動產生 unique index,皆不重列顯式 `CREATE INDEX`。上方僅列需手動建立的索引;此段對齊 a2-1 migration(`20260505130758_init_brands_categories.sql`)實作(Sean Q4=D2「加 idx 不擴張改 schema」、backlog #100)。
 
 ### 10.2 Phase 1 階段 2(上線後 1k-5k SKU、對齊 backlog #30)
 

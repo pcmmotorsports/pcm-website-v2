@@ -2529,9 +2529,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #99. ⏳ lessons-learned.md 結構整理(「偵察 slice 方法論」段歸位)
+### #99. ✅ lessons-learned.md 結構整理(「偵察 slice 方法論」段歸位)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-06-17 A 方向 docs slice;原懸於附錄 B 後無編號的「偵察 slice 方法論」段〔2026-04-30 立〕歸位為 §13〔放 §12-37 後、附錄前、編號區段連續〕,內容逐字保留 + 加 §13.1/§13.2 錨點;他處僅以字面引用、無 § 錨點需同步;純文件)
 - **分流:** P1-before-launch
 - **優先級:** 🟢 觀察
 - **問題:**
@@ -2555,9 +2555,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #100. ⏳ 全 catalog 表 §10.1 vs .sql drift(brands / categories / products / 未來 variants)
+### #100. ✅ 全 catalog 表 §10.1 vs .sql drift(brands / categories / products / 未來 variants)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-06-17 A 方向 docs slice;§10.1 補 `idx_categories_parent_category_id`〔對齊 a2-1 migration 20260505130758 line 121〕+ brands/categories auto-unique-index 備註〔name+slug / raw_path UNIQUE 不重列〕;純文件記錄既有 migration 事實、非改 DB、零 schema 變更)
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低(doc 補洞、不阻擋實作、有 a2-1 .sql 為事實依據)
 - **問題:**
