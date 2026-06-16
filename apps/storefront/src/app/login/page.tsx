@@ -16,8 +16,9 @@ export const metadata: Metadata = {
 export default async function LoginRoute({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; next?: string }>;
 }) {
-  const { error } = await searchParams;
-  return <LoginPage oauthError={error} />;
+  // #190:next 原樣傳給 client(同源白名單在 sink 端〔login action / OAuth callback〕套用、非此處)。
+  const { error, next } = await searchParams;
+  return <LoginPage oauthError={error} next={next} />;
 }

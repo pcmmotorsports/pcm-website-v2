@@ -49,7 +49,8 @@ export default async function AccountPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) redirect('/login');
+  // #190:未登入 → /login 帶 next=/account,登入成功後導回會員中心(非一律首頁)。
+  if (!user) redirect(`/login?next=${encodeURIComponent('/account')}`);
 
   const rawEmail = user.email ?? '';
 

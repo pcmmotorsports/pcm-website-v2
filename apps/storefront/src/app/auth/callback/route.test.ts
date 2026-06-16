@@ -35,11 +35,25 @@ beforeEach(() => {
 afterEach(() => vi.clearAllMocks());
 
 describe('/auth/callback GET', () => {
-  it('有 code + 交換成功 → redirect POST_AUTH_REDIRECT(/)', async () => {
+  it('有 code + 交換成功(無 next)→ redirect POST_AUTH_REDIRECT(/)', async () => {
     await expect(
       GET(new Request('http://localhost:3000/auth/callback?code=abc123')),
     ).rejects.toThrow('NEXT_REDIRECT:/');
     expect(exchangeSpy).toHaveBeenCalledWith('abc123');
+    expect(redirectSpy).toHaveBeenCalledWith('/');
+  });
+
+  it('#190:有 code + 合法 next → 交換成功導回 next(/account)', async () => {
+    await expect(
+      GET(new Request('http://localhost:3000/auth/callback?code=abc123&next=%2Faccount')),
+    ).rejects.toThrow('NEXT_REDIRECT:/account');
+    expect(redirectSpy).toHaveBeenCalledWith('/account');
+  });
+
+  it('#190:有 code + 惡意 next(protocol-relative)→ 白名單擋成 /', async () => {
+    await expect(
+      GET(new Request('http://localhost:3000/auth/callback?code=abc123&next=%2F%2Fevil.com')),
+    ).rejects.toThrow('NEXT_REDIRECT:/');
     expect(redirectSpy).toHaveBeenCalledWith('/');
   });
 

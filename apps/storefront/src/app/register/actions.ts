@@ -17,8 +17,8 @@ import { redirect } from 'next/navigation';
 import { AuthError, type AuthSignUpParams } from '@pcm/domain';
 import { registerCustomer } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
-import { POST_AUTH_REDIRECT } from '@/lib/auth/constants';
 import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-validation';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 export type RegisterActionResult = {
@@ -41,8 +41,9 @@ function authErrorCopy(code: AuthError['code']): string {
  * 驗證失敗 → 回 { fieldErrors };帳號層級失敗 → 回 { formError }。
  *
  * @param input client 端傳入的結構化物件(name/email/phone/password/agree);server 端 validateRegister 重驗 + strip。
+ * @param next  #190 註冊直登後導回路徑;server 端 sanitizeNextParam 同源白名單(獨立參數、不安全→ '/')。
  */
-export async function registerAction(input: unknown): Promise<RegisterActionResult> {
+export async function registerAction(input: unknown, next?: string | null): Promise<RegisterActionResult> {
   const v = validateRegister(input);
   if (!v.ok || !v.data) {
     // 有逐欄錯 → fieldErrors;否則(罕見:非顯示欄 schema error)→ formError fallback、不無聲失敗。
@@ -73,5 +74,6 @@ export async function registerAction(input: unknown): Promise<RegisterActionResu
     // Confirm email 重開後(backlog #173)走此分支;f1-b dashboard 前置為 OFF、預期不命中。
     return { formError: '註冊成功，請至信箱完成 Email 驗證後再登入。' };
   }
-  redirect(POST_AUTH_REDIRECT);
+  // #190:直登成功後導回 sanitize 過的 next(同源白名單、不安全→ '/')。
+  redirect(sanitizeNextParam(next));
 }

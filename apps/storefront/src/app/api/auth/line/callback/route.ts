@@ -14,15 +14,16 @@ import { timingSafeEqual } from 'node:crypto';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { POST_AUTH_REDIRECT } from '@/lib/auth/constants';
 import { authenticateLineUser } from '@/lib/auth/line-admin';
 import {
   exchangeCodeForToken,
+  LINE_NEXT_COOKIE,
   LINE_NONCE_COOKIE,
   LINE_OAUTH_COOKIE_PATH,
   LINE_STATE_COOKIE,
   verifyIdToken,
 } from '@/lib/auth/line';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 export const runtime = 'nodejs';
 
@@ -41,10 +42,11 @@ type CallbackInput = {
   state: string | null;
   storedState: string | undefined;
   nonce: string | undefined;
+  next: string | undefined; // #190:start 存的(已 sanitize)next cookie 值
 };
 
 /** 回 redirect 目的地(相對路徑);所有失敗都回 LINE_ERROR_REDIRECT、不上洩。redirect() 由 GET 末尾單點呼叫。 */
-async function resolveDestination({ code, state, storedState, nonce }: CallbackInput): Promise<string> {
+async function resolveDestination({ code, state, storedState, nonce, next }: CallbackInput): Promise<string> {
   // CSRF:code + state + 兩 cookie 齊全且 state 比對相符(含 LINE 取消授權無 code 的情形)。
   if (!code || !state || !storedState || !nonce || !safeEqual(state, storedState)) {
     return LINE_ERROR_REDIRECT;
@@ -64,7 +66,8 @@ async function resolveDestination({ code, state, storedState, nonce }: CallbackI
     if (error) {
       return LINE_ERROR_REDIRECT;
     }
-    return POST_AUTH_REDIRECT;
+    // #190:成功 → 導回 sanitize 過的 next(cookie 值 start 已 sanitize、此處 sink 再驗一次縱深;不安全→ '/')。
+    return sanitizeNextParam(next);
   } catch {
     // LINE / Supabase 任一失敗 → 不上洩原始 error、導回登入頁。
     return LINE_ERROR_REDIRECT;
@@ -79,11 +82,13 @@ export async function GET(request: Request) {
     state: searchParams.get('state'),
     storedState: cookieStore.get(LINE_STATE_COOKIE)?.value,
     nonce: cookieStore.get(LINE_NONCE_COOKIE)?.value,
+    next: cookieStore.get(LINE_NEXT_COOKIE)?.value, // #190:start 存的已 sanitize next
   };
 
-  // 用後即刪(所有路徑):state / nonce cookie 單次有效。
+  // 用後即刪(所有路徑):state / nonce / next cookie 單次有效。
   cookieStore.delete({ name: LINE_STATE_COOKIE, path: LINE_OAUTH_COOKIE_PATH });
   cookieStore.delete({ name: LINE_NONCE_COOKIE, path: LINE_OAUTH_COOKIE_PATH });
+  cookieStore.delete({ name: LINE_NEXT_COOKIE, path: LINE_OAUTH_COOKIE_PATH });
 
   const destination = await resolveDestination(input);
   redirect(destination); // 唯一 redirect 點、相對路徑、try 外。

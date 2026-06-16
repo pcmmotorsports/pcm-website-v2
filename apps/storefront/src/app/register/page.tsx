@@ -11,6 +11,12 @@ export const metadata: Metadata = {
   description: '建立帳號，享會員價與專屬優惠。',
 };
 
-export default function RegisterRoute() {
-  return <RegisterPage />;
+export default async function RegisterRoute({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string }>;
+}) {
+  // #190:next 原樣傳給 client(同源白名單在 sink 端〔register action〕套用、非此處)。
+  const { next } = await searchParams;
+  return <RegisterPage next={next} />;
 }

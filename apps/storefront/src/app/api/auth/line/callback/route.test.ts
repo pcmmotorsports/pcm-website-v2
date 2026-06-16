@@ -46,10 +46,11 @@ import { GET } from './route';
 const STATE = 'state-value-1234';
 const NONCE = 'nonce-value-5678';
 
-function cookieStore(stateVal?: string, nonceVal?: string) {
+function cookieStore(stateVal?: string, nonceVal?: string, nextVal?: string) {
   getSpy.mockImplementation((name: string) => {
     if (name === 'line_oauth_state' && stateVal !== undefined) return { value: stateVal };
     if (name === 'line_oauth_nonce' && nonceVal !== undefined) return { value: nonceVal };
+    if (name === 'line_oauth_next' && nextVal !== undefined) return { value: nextVal };
     return undefined;
   });
 }
@@ -76,8 +77,8 @@ describe('/api/auth/line/callback GET', () => {
     expect(exchangeSpy).toHaveBeenCalledWith('abc');
     expect(verifyIdSpy).toHaveBeenCalledWith('idtok', NONCE);
     expect(verifyOtpSpy).toHaveBeenCalledWith({ token_hash: 'htok', type: 'email' });
-    // 用後即刪兩 cookie
-    expect(deleteSpy).toHaveBeenCalledTimes(2);
+    // 用後即刪三 cookie:state + nonce + next(#190)
+    expect(deleteSpy).toHaveBeenCalledTimes(3);
   });
 
   it('state 不符 → error redirect、不換 token', async () => {
@@ -86,7 +87,17 @@ describe('/api/auth/line/callback GET', () => {
       'NEXT_REDIRECT:/login?error=line',
     );
     expect(exchangeSpy).not.toHaveBeenCalled();
-    expect(deleteSpy).toHaveBeenCalledTimes(2); // 仍清 cookie
+    expect(deleteSpy).toHaveBeenCalledTimes(3); // 仍清三 cookie(含 next)
+  });
+
+  it('#190:happy path 帶合法 next cookie → 導回 next(/account)', async () => {
+    cookieStore(STATE, NONCE, '/account');
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/account');
+  });
+
+  it('#190:next cookie 為惡意值 → sink 白名單擋成 /(縱深)', async () => {
+    cookieStore(STATE, NONCE, '//evil.com');
+    await expect(GET(req(`?code=abc&state=${STATE}`))).rejects.toThrow('NEXT_REDIRECT:/');
   });
 
   it('缺 code(LINE 取消授權)→ error redirect', async () => {

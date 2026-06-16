@@ -115,7 +115,8 @@ describe('LoginPage', () => {
     try {
       renderPage();
       fireEvent.click(screen.getByText('使用 LINE 登入').closest('button')!);
-      expect(window.location.href).toBe('/api/auth/line/start');
+      // #190:LINE start URL 帶 next(無 next prop → safeNext='/' → ?next=%2F)。
+      expect(window.location.href).toBe('/api/auth/line/start?next=%2F');
     } finally {
       Object.defineProperty(window, 'location', { configurable: true, writable: true, value: original });
     }

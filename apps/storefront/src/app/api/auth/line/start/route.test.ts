@@ -22,6 +22,12 @@ vi.mock('next/headers', () => ({
 
 import { GET } from './route';
 
+// #190:GET 改讀 request.url 的 next；helper 建帶/不帶 next 的 Request。
+const makeReq = (next?: string) =>
+  new Request(
+    `http://localhost:3000/api/auth/line/start${next === undefined ? '' : `?next=${encodeURIComponent(next)}`}`,
+  );
+
 const ENV_KEYS = ['LINE_CHANNEL_ID', 'LINE_CHANNEL_SECRET', 'LINE_REDIRECT_URI'] as const;
 const saved: Record<string, string | undefined> = {};
 
@@ -43,14 +49,18 @@ afterEach(() => {
 });
 
 describe('/api/auth/line/start GET', () => {
-  it('寫 state + nonce cookie 後 redirect LINE authorize', async () => {
-    await expect(GET()).rejects.toThrow(/NEXT_REDIRECT:https:\/\/access\.line\.me\/oauth2\/v2\.1\/authorize/);
+  it('寫 state + nonce + next cookie 後 redirect LINE authorize', async () => {
+    await expect(GET(makeReq())).rejects.toThrow(/NEXT_REDIRECT:https:\/\/access\.line\.me\/oauth2\/v2\.1\/authorize/);
 
-    // 兩個 cookie 都寫:state + nonce
-    expect(setSpy).toHaveBeenCalledTimes(2);
+    // 三個 cookie 都寫:state + nonce + next(#190)
+    expect(setSpy).toHaveBeenCalledTimes(3);
     const names = setSpy.mock.calls.map((c) => c[0]);
     expect(names).toContain('line_oauth_state');
     expect(names).toContain('line_oauth_nonce');
+    expect(names).toContain('line_oauth_next');
+    // 無 next param → next cookie sanitize 成 '/'
+    const nextCall = setSpy.mock.calls.find((c) => c[0] === 'line_oauth_next');
+    expect(nextCall?.[1]).toBe('/');
 
     // cookie 選項:httpOnly + sameSite=lax + path 限縮 + maxAge
     for (const call of setSpy.mock.calls) {
@@ -75,8 +85,20 @@ describe('/api/auth/line/start GET', () => {
 
   it('缺 LINE env → throw(fail fast、不 redirect)', async () => {
     delete process.env.LINE_CHANNEL_ID;
-    await expect(GET()).rejects.toThrow('LINE_CHANNEL_ID not set');
+    await expect(GET(makeReq())).rejects.toThrow('LINE_CHANNEL_ID not set');
     expect(redirectSpy).not.toHaveBeenCalled();
     expect(setSpy).not.toHaveBeenCalled();
+  });
+
+  it('#190:合法 next 存進 cookie(同源白名單放行)', async () => {
+    await expect(GET(makeReq('/account'))).rejects.toThrow(/NEXT_REDIRECT/);
+    const nextCall = setSpy.mock.calls.find((c) => c[0] === 'line_oauth_next');
+    expect(nextCall?.[1]).toBe('/account');
+  });
+
+  it('#190:惡意 next(protocol-relative)被白名單擋成 /', async () => {
+    await expect(GET(makeReq('//evil.com'))).rejects.toThrow(/NEXT_REDIRECT/);
+    const nextCall = setSpy.mock.calls.find((c) => c[0] === 'line_oauth_next');
+    expect(nextCall?.[1]).toBe('/');
   });
 });

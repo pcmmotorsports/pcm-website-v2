@@ -48,9 +48,19 @@ describe('loginAction(信任邊界 + #181 雙通道)', () => {
     expect(signInSpy).toHaveBeenCalledWith({ email: VALID.email, password: VALID.password });
   });
 
-  it('合法輸入 → 登入成功 redirect(POST_AUTH_REDIRECT=/)', async () => {
+  it('合法輸入(無 next)→ 登入成功 redirect(POST_AUTH_REDIRECT=/)', async () => {
     await loginAction(VALID);
     expect(signInSpy).toHaveBeenCalledTimes(1);
+    expect(redirectSpy).toHaveBeenCalledWith('/');
+  });
+
+  it('#190:合法 next → 登入成功導回 next(/account、同源白名單放行)', async () => {
+    await loginAction(VALID, '/account');
+    expect(redirectSpy).toHaveBeenCalledWith('/account');
+  });
+
+  it('#190:惡意 next(絕對 URL)→ 白名單擋成 /(open-redirect 防護)', async () => {
+    await loginAction(VALID, 'https://evil.com');
     expect(redirectSpy).toHaveBeenCalledWith('/');
   });
 

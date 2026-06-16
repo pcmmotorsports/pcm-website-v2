@@ -17,17 +17,21 @@ import {
   buildAuthorizeUrl,
   generateNonce,
   generateState,
+  LINE_NEXT_COOKIE,
   LINE_NONCE_COOKIE,
   LINE_OAUTH_COOKIE_MAX_AGE,
   LINE_OAUTH_COOKIE_PATH,
   LINE_STATE_COOKIE,
 } from '@/lib/auth/line';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 export const runtime = 'nodejs';
 
-export async function GET() {
+export async function GET(request: Request) {
   const state = generateState();
   const nonce = generateNonce();
+  // #190:next 來自 LoginPage start URL query;🔴 sanitizeNextParam 同源白名單後才存 cookie(縱深、callback 再驗)。
+  const safeNext = sanitizeNextParam(new URL(request.url).searchParams.get('next'));
   // 先組 URL(getLineConfig 缺 env 則 throw、fail fast)、再寫 cookie → redirect。
   const authorizeUrl = buildAuthorizeUrl({ state, nonce });
 
@@ -41,6 +45,7 @@ export async function GET() {
   };
   cookieStore.set(LINE_STATE_COOKIE, state, cookieOptions);
   cookieStore.set(LINE_NONCE_COOKIE, nonce, cookieOptions);
+  cookieStore.set(LINE_NEXT_COOKIE, safeNext, cookieOptions); // #190:已 sanitize 的 next 暫存、callback 導回
 
   redirect(authorizeUrl); // 外部絕對 URL(LINE)、由 env + 本次 state/nonce 組、非請求輸入。
 }

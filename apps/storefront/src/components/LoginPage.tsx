@@ -31,6 +31,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { loginAction } from '@/app/login/actions';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 // OAuth 失敗字面:依 /auth/callback(?error=oauth)或 /api/auth/line/callback(?error=line)導回的 error code 分流。
 const GOOGLE_ERROR_COPY = 'Google 登入失敗，請重試';
@@ -44,7 +45,9 @@ function oauthErrorCopy(code?: string): string | null {
   return GENERIC_OAUTH_ERROR_COPY;
 }
 
-export function LoginPage({ oauthError }: { oauthError?: string }) {
+export function LoginPage({ oauthError, next }: { oauthError?: string; next?: string }) {
+  // #190:client 端先 sanitize 一次(縱深、不送 garbage 給 Google/LINE);server action / OAuth callback 為權威白名單。
+  const safeNext = sanitizeNextParam(next);
   const [form, setForm] = useState({ email: '', password: '', remember: true });
   // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
   // oauthError(/auth/callback 失敗導回 ?error)→ 初始顯示 OAuth 失敗字面於 formError(f1-c)。
@@ -64,9 +67,9 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
     setFieldErrors({});
     setFormError(null);
     setPending(true);
-    // 成功時 loginAction 內 redirect(導 '/'、client 自動導航);
+    // 成功時 loginAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
-    const result = await loginAction(form);
+    const result = await loginAction(form, next);
     if (result?.fieldErrors || result?.formError) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.formError) setFormError(result.formError);
@@ -79,7 +82,10 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
     const supabase = createBrowserSupabaseClient();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      // #190:redirectTo 帶 next(callback 端 sanitize 後導回);safeNext 已過白名單。
+      options: {
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(safeNext)}`,
+      },
     });
     // 成功時瀏覽器即刻重導 Google(本元件卸載);僅發起失敗(如網路)時顯示錯誤(帳號層級、走 formError)。
     if (error) {
@@ -89,7 +95,8 @@ export function LoginPage({ oauthError }: { oauthError?: string }) {
 
   // LINE 一鍵登入(f2-b):導向自寫 OAuth start route(Supabase 不內建 LINE);純導航、不需 supabase client。
   const signInLine = () => {
-    window.location.href = '/api/auth/line/start';
+    // #190:next 帶進 start route(存 cookie、callback 端 sanitize 後導回);safeNext 已過白名單。
+    window.location.href = `/api/auth/line/start?next=${encodeURIComponent(safeNext)}`;
   };
 
   return (

@@ -27,6 +27,8 @@ const LINE_SCOPE = 'openid profile';
 // state / nonce cookie(httpOnly + Secure〔prod〕+ SameSite=Lax + path 限縮 /api/auth/line;codex 關卡1 finding-7)
 export const LINE_STATE_COOKIE = 'line_oauth_state';
 export const LINE_NONCE_COOKIE = 'line_oauth_nonce';
+// #190:登入後導回 next path 暫存 cookie(start 寫、callback 讀、sanitize 後導回);同 state/nonce 短效 + 用後即刪。
+export const LINE_NEXT_COOKIE = 'line_oauth_next';
 export const LINE_OAUTH_COOKIE_PATH = '/api/auth/line';
 export const LINE_OAUTH_COOKIE_MAX_AGE = 600; // 10 分鐘、夠走完一趟授權
 

@@ -16,8 +16,8 @@ import { redirect } from 'next/navigation';
 import { AuthError } from '@pcm/domain';
 import { loginCustomer } from '@pcm/use-cases';
 import { getAuthService } from '@/lib/auth/composition';
-import { POST_AUTH_REDIRECT } from '@/lib/auth/constants';
 import { validateLogin, type LoginFieldErrors } from '@/lib/auth/field-validation';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 // #181 Q2=B:雙通道回傳 — fieldErrors(逐欄驗證)/ formError(帳號層級、頂部)。成功 redirect 不回傳。
 export type LoginActionResult = {
@@ -38,12 +38,14 @@ function authErrorCopy(code: AuthError['code']): string {
 }
 
 /**
- * 登入。成功 → redirect(POST_AUTH_REDIRECT)(不回傳);
+ * 登入。成功 → redirect(sanitizeNextParam(next))(不回傳);
  * 驗證失敗 → 回 { fieldErrors };帳號層級失敗 → 回 { formError }。
  *
  * @param input client 端傳入的結構化物件(email/password/remember);server 端 validateLogin 重驗 + strip。
+ * @param next  #190 登入後導回路徑(/login?next= 帶入);**server 端 sanitizeNextParam 同源白名單**
+ *   (validateLogin 會 strip 未知欄、故 next 走獨立參數;不安全 / 缺值 → fallback '/')。
  */
-export async function loginAction(input: unknown): Promise<LoginActionResult> {
+export async function loginAction(input: unknown, next?: string | null): Promise<LoginActionResult> {
   const v = validateLogin(input);
   if (!v.ok || !v.data) {
     // 有逐欄錯 → fieldErrors;否則(罕見:非顯示欄 schema error 如 remember 型別)→ formError fallback、不無聲失敗。
@@ -65,5 +67,6 @@ export async function loginAction(input: unknown): Promise<LoginActionResult> {
     throw e;
   }
 
-  redirect(POST_AUTH_REDIRECT);
+  // #190:成功後導回 sanitize 過的 next(同源白名單、不安全→ '/')。
+  redirect(sanitizeNextParam(next));
 }

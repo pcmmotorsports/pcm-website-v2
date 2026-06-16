@@ -17,16 +17,20 @@
 
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { POST_AUTH_REDIRECT } from '@/lib/auth/constants';
+import { sanitizeNextParam } from '@/lib/auth/safe-redirect';
 
 export async function GET(request: Request) {
-  const code = new URL(request.url).searchParams.get('code');
+  const url = new URL(request.url);
+  const code = url.searchParams.get('code');
+  // #190:next 來自 redirectTo query(LoginPage 帶);🔴 sanitizeNextParam 同源白名單(此 sink 為權威)。
+  const next = url.searchParams.get('next');
 
   if (code) {
     const supabase = await createServerSupabaseClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      redirect(POST_AUTH_REDIRECT); // 相對路徑;session cookie 已由 exchangeCodeForSession 經 cookies() 寫入。
+      // 相對路徑;session cookie 已由 exchangeCodeForSession 經 cookies() 寫入。next 白名單後導回(不安全→ '/')。
+      redirect(sanitizeNextParam(next));
     }
   }
   // 無 code 或交換失敗 → 回登入頁顯示錯誤(net-new 技術字面、不上洩 Supabase 原始 error)。

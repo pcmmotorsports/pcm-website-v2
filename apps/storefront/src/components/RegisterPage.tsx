@@ -28,7 +28,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { registerAction } from '@/app/register/actions';
 import { validateRegister, type RegisterFieldErrors } from '@/lib/auth/field-validation';
 
-export function RegisterPage() {
+export function RegisterPage({ next }: { next?: string } = {}) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', agree: false });
   // 雙通道(#181 釘死 2):fieldErrors=逐欄驗證錯、formError=帳號層級錯(頂部);互不取代。
   const [fieldErrors, setFieldErrors] = useState<RegisterFieldErrors>({});
@@ -47,9 +47,9 @@ export function RegisterPage() {
     setFieldErrors({});
     setFormError(null);
     setPending(true);
-    // 成功(直登)時 registerAction 內 redirect(導 '/'、client 自動導航);
+    // 成功(直登)時 registerAction 內 redirect(#190 導回 sanitize 過的 next、client 自動導航);
     // 失敗回 { fieldErrors }(server 重驗逐欄)或 { formError }(帳號層級)。
-    const result = await registerAction(form);
+    const result = await registerAction(form, next);
     if (result?.fieldErrors || result?.formError) {
       if (result.fieldErrors) setFieldErrors(result.fieldErrors);
       if (result.formError) setFormError(result.formError);
