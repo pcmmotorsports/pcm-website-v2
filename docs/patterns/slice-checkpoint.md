@@ -214,9 +214,27 @@ busboy-end.js pre-flight 三綠檢查:
 1. **必跑時機:** /slice-checkpoint 三綠後、commit 前(對齊鐵則 11 不動 disable / skip)
 2. **驗證內容:**
    - `git diff --staged --name-only` 列動到的檔
-   - 任一在 `apps/storefront/src/components/` 或 `apps/storefront/src/styles/`、必有對應 manifest 元件條目 `last_modified_commit` 欄位被 amend(用 `PENDING_HASH` placeholder、commit 後 amend 真 hash)
-   - 動到 design-reference submodule(submodule update)、必有 manifest `last_global_sync` 段同步 amend
-3. **失敗處置:** Code raise multi-select、Sean 拍處置(補 amend / 開新 slice / 業務 override 紀錄)、不擅自 PASS
+   - 任一在 `apps/storefront/src/components/` 或 `apps/storefront/src/styles/`、必有對應 manifest 元件條目 `last_modified_commit` 欄位更新為**案 A「記可達祖先」**(見下「last_modified_commit 寫法」段)
+   - 動到 design-reference submodule(submodule update)、必有 manifest `last_global_sync` 段同步更新
+3. **失敗處置:** Code raise multi-select、Sean 拍處置(補正可達 hash / 開新 slice / 業務 override 紀錄)、不擅自 PASS
+
+### last_modified_commit 寫法:案 A「記可達祖先」固化(backlog #180)
+
+> **拍板(2026-06-17、#180):** 二案擇一固化為**案 A**;案 B(commit 後非 amend 校正)與 `PENDING_HASH` + amend 寫法皆廢。
+
+**案 A「記可達祖先」(唯一許可寫法):**
+- `last_modified_commit` 寫「**前一個已落地、HEAD 可達的 commit**」(通常 = 本 slice commit 的父 commit、即 amend 前 HEAD),**不寫 `PENDING_HASH`、不 commit 後 amend**。
+- 語意略 understate(該 slice 本身的 commit 未被記),但永遠可達、無 orphan、零 amend。
+- 已於 OD 線(OD-6 起)實踐驗證、效果佳。
+
+**為何廢 `PENDING_HASH` + amend / 案 B:**
+- 把「自身 commit 的 hash」amend 進 manifest 在 git 數學上不可能(commit hash 依內容〔含 manifest〕計算)→ 補進去的永遠是 pre-amend hash = amend 後變 orphan/dangling、90 天 `git gc` 清掉 → `git show <hash>` 找不到「最後改此元件的 commit」、design↔code 稽核斷鏈。
+- 已復發 2 例(`1b61a9d` ProductsPage/ProductPage、`38001e8` Header/AccountPages),靠人腦順手修易漏(memory `project_status-top-hash-off-by-one-normal`)。
+
+**機械 gate(可達性檢查、design-mirror --validate):**
+- `node scripts/design-mirror.mjs --validate` 已加可達性檢查:每個元件 `last_modified_commit`(非佔位字面)必為 HEAD 可達祖先(`git merge-base --is-ancestor <hash> HEAD`);orphan / dangling / 非法 hash 格式 → validate 失敗(exit 1)。
+- 佔位字面(以 `(` 開頭、如「(未建)」「(未動於本輪 session)」)跳過、不驗。
+- 跑時機:slice 動 storefront 元件、commit 後(案 A 記父 commit、commit 後父已可達)順手跑 `--validate` 確認零 orphan。
 
 ### 為什麼需要
 
@@ -240,5 +258,6 @@ manifest sync 驗證是「字面 vs 事實守則」的具體實作:
 |---|---|---|
 | 2026-05-01 | 初始化 slice-checkpoint 規範(C5 拍板 L1+L2、L1 落地) | Claude.ai + Sean / 由 Claude Code(M-0-07)落地 |
 | 2026-05-22 | Stage 3 v4 新增「Manifest sync 驗證」段(對齊 self-audit F-8) | Cowork 寫字面 / 由 Claude Code(Stage-3-onboarding)落地 |
+| 2026-06-17 | #180 固化 last_modified_commit 案 A「記可達祖先」(廢 PENDING_HASH+amend)+ design-mirror --validate 加可達性 gate | Claude Code 自驅 |
 
 — 規範結束 —

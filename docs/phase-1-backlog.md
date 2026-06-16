@@ -4773,9 +4773,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #180. 🟡 manifest last_modified_commit off-by-one 復發模式(已 2 例、SOP 固化)
+### #180. ✅ manifest last_modified_commit off-by-one 復發模式(已 2 例、SOP 固化)
 
-- **狀態:** ⏳ 待執行(SOP 固化、最遲 M-1-16 上線前)
+- **狀態:** ✅ 完成(2026-06-17 A 方向 SOP slice;固化**案 A「記可達祖先」**〔廢 PENDING_HASH + amend、廢案 B〕+ 加機械可達性 gate)。落地:① `docs/patterns/slice-checkpoint.md` 新「last_modified_commit 寫法:案 A 固化」段〔拍板 + 為何廢 amend + 機械 gate 說明〕+ 變更紀錄 row;② `scripts/design-mirror.mjs --validate` 加可達性檢查〔每個非佔位 last_modified_commit 必 `git merge-base --is-ancestor <hash> HEAD`、orphan/非法 hash → exit 1;HASH_RE 格式驗防 shell 注入〕+ --help/header 同步;③ `docs/design-storefront-manifest.yaml` header 註解去舊 PENDING_HASH/amend 字面改案 A;④ 本地 `~/.claude/skills/slice-checkpoint/SKILL.md` manifest-sync 段加案 A + 可達性步驟〔repo 外、不入 commit〕。**變異測試證 gate 有效**:bogus hash `deadbee` → validate 報 unreachable exit 1、現有 20 個 last_modified_commit 全可達〔0 unreachable〕。**附帶揭示**:--validate 對多檔「+」串接欄位有 pre-existing path-check false-positive〔10 broken link、與本 #180 可達性無關、我未碰 path-check 邏輯〕→ 開 [[#238]] 追蹤,不擴本 slice scope。
 - **優先級:** 🟡 中(單例可容忍、但已復發 2 次 + orphan 有 GC 死引用風險)
 - **問題:**
   - design-mirror SOP 現行作法:manifest 元件 `last_modified_commit` 寫 `PENDING_HASH`、commit 後 `git commit --amend` 補真 hash。但 amend 寫入「自身 commit 的 hash」git 數學上不可能(commit hash 依內容〔含 manifest〕計算)→ 補進去的永遠是 pre-amend hash = amend 後變 orphan/dangling。
@@ -6054,6 +6054,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #8)。
 - **相關:** useTapPayCard(SDK 動態載入)/ #232 iOS 16px(同 hook)
 - **分流標籤:** `P2-later`
+
+---
+
+### #238. ⏳ design-mirror --validate / --target 多檔「+」串接欄位 path-check 失準
+
+- **狀態:** ⏳ 待執行(pre-existing 工具限界、#180 可達性 gate 落地時揭示)
+- **優先級:** 🟡 低(不阻擋實作;只令 `--validate` 對多檔元件 exit 1、可達性判讀靠輸出行區分)
+- **問題:**
+  - `docs/design-storefront-manifest.yaml` 部分元件(AccountPages / CartPage / CheckoutPage / MobileTabBar 等)的 `storefront.component` / `storefront.css` / `design.component` / `design.css` 欄存「A.tsx + B.tsx + ...(長描述)」這種「+」串接 + 括號描述的人讀字串、非單一可解析路徑。
+  - `scripts/design-mirror.mjs` 的 `checkFileExists(val)`(--validate)與 `normPath(sf.component) === target` 精確比對(--target)對這類欄位本來就失準:--validate 報 broken link(2026-06-17 實測 10 條)、--target 對這些多檔元件用單檔路徑查不到對應條目。
+  - 屬 pre-existing manifest 資料模型 ↔ 工具設計落差、非 #180 引入(#180 只加 last_modified_commit 可達性 gate、未碰 path-check 邏輯)。
+- **觸發事件:**
+  - 2026-06-17 / #180 案 A 可達性 gate 落地跑 `--validate`、揭示 path-check 對多檔欄位的 pre-existing false-positive。
+- **預期解法(評估擇一):**
+  - 案 A:`checkFileExists`/`findComponentsByPath` 改抽欄位內 path token(regex 抓 `(?:apps|packages|design-reference)/…\.\w+`)逐一驗存在 / 比對,跳純描述片段。
+  - 案 B:manifest 資料模型分「主路徑欄(單一、機器讀)」vs「描述欄(人讀)」,工具只驗主路徑欄。
+  - 案 C:多檔元件改用陣列欄位(`components: [a.tsx, b.tsx]`)、工具迭代驗。
+- **不修會痛在:**
+  - 擴充性:多檔元件越多、--validate 噪音越大、broken link 計數失真。
+  - 可維護性:--validate / --target 對多檔元件不可靠、人得靠肉眼分辨真假 broken。
+  - bug 可追蹤性:真有路徑斷掉時、淹沒在多檔欄位的 false-positive 裡難察。
+- **估時:** 評估 + 改工具 + 驗 ~45-60 min
+- **依賴:** 無(獨立、可隨時做)
+- **發現於:** 2026-06-17 / #180 案 A 可達性 gate 落地
+- **相關:** `scripts/design-mirror.mjs`(cmdValidate / findComponentsByPath)、`docs/design-storefront-manifest.yaml`、[[#180]]
 
 ---
 

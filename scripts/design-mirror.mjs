@@ -58,12 +58,14 @@ Usage:
 
   node scripts/design-mirror.mjs --validate
     驗 manifest 內所有 path-like 欄位(storefront/design 各檔 + related_storefront[])都存在
+    + 案 A 可達性 gate(backlog #180):每個 last_modified_commit(非佔位)須 HEAD 可達祖先、非 orphan
 
   node scripts/design-mirror.mjs --diff-against-storefront
     對齊 design submodule update 後跑、列「design 端有改但 storefront 沒跟」、寫進 manifest open_drifts
 
   node scripts/design-mirror.mjs --update-sync <ComponentName> --commit-hash <hash>
-    slice 結束後跑、amend 對應 component 的 last_modified_commit + date
+    slice 寫前跑、寫對應 component 的 last_modified_commit + date(案 A 記可達祖先=
+    前一個已落地可達 commit、通常本 slice 父 commit;不 amend 自身、見 #180)
 
   node scripts/design-mirror.mjs --update-global-sync
     design submodule update 後跑、更 last_global_sync 段
@@ -114,6 +116,17 @@ function checkFileExists(relPath) {
   return existsSync(resolve(REPO_ROOT, relPath));
 }
 
+// 案 A 可達性檢查(backlog #180):last_modified_commit 須為 HEAD 可達祖先(非 orphan/dangling)。
+// 回 true = 可達;false = 不可達 / 非 commit / git 不可用。hash 已先過 HASH_RE 格式驗、避 shell 注入。
+function isReachableCommit(hash) {
+  try {
+    execSync(`git merge-base --is-ancestor ${hash} HEAD`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ---- --validate ----
 function cmdValidate() {
   const manifest = loadManifest();
@@ -145,11 +158,35 @@ function cmdValidate() {
       }
     }
   }
-  if (issues === 0) {
-    console.log(`✅ Manifest validated, ${Object.keys(components).length} components / ${pathsChecked} paths OK`);
+  // ---- 案 A 可達性 gate(backlog #180):last_modified_commit 須 HEAD 可達祖先、非 orphan/dangling ----
+  const HASH_RE = /^[0-9a-f]{7,40}$/i;
+  let orphanIssues = 0;
+  let commitsChecked = 0;
+  for (const [name, entry] of Object.entries(components)) {
+    const lmc = entry.storefront?.last_modified_commit;
+    if (isPlaceholder(lmc)) continue; // 佔位字面(如「(未動於本輪 session)」)跳過
+    commitsChecked++;
+    if (!HASH_RE.test(lmc)) {
+      console.error(`❌ [${name}] last_modified_commit 非合法 hash 格式: ${lmc}`);
+      orphanIssues++;
+      continue;
+    }
+    if (!isReachableCommit(lmc)) {
+      console.error(`❌ [${name}] last_modified_commit ${lmc} 非 HEAD 可達祖先(orphan/dangling?案 A 須記可達祖先、見 backlog #180 + docs/patterns/slice-checkpoint.md)`);
+      orphanIssues++;
+    }
+  }
+
+  const total = issues + orphanIssues;
+  if (total === 0) {
+    console.log(
+      `✅ Manifest validated, ${Object.keys(components).length} components / ${pathsChecked} paths OK / ${commitsChecked} last_modified_commit 可達 OK`,
+    );
     process.exit(0);
   } else {
-    console.error(`❌ Found ${issues} broken link(s) out of ${pathsChecked} paths checked`);
+    console.error(
+      `❌ Found ${issues} broken link(s) out of ${pathsChecked} paths + ${orphanIssues} unreachable/malformed commit(s) out of ${commitsChecked} checked`,
+    );
     process.exit(1);
   }
 }

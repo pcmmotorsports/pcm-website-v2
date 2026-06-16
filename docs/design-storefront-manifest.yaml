@@ -1,8 +1,8 @@
 # PCM 設計 ↔ 現場 對照清單 v1.0
 #
 # 用途:Cowork / Code 動 storefront 元件前 Read 此檔、知道對應 design 字面源 + 業務拍板偏離 + 同步狀態
-# 維護:Cowork 寫第一版、後續 slice 結束 amend 對應元件 last_modified_commit / date 段
-#       新元件 / 新業務 override 在對應 slice 寫前 amend
+# 維護:Cowork 寫第一版、後續 slice 結束更新對應元件 last_modified_commit / date 段
+#       新元件 / 新業務 override 在對應 slice 寫前更新
 #       重大改動跑 PRD-reviewer 級 audit(對齊 docs/patterns/cowork-review-chain.md §1)
 #
 # 排除規則:
@@ -12,7 +12,10 @@
 # 衝突仲裁:本 manifest > storefront 既有 code、但 business_overrides 段內偏離合法、不誤判
 #
 # 字面 vs 事實:
-#   - last_modified_commit 寫 PENDING_HASH 用於 slice 內 amend 占位、commit 後 git commit --amend 補真 hash
+#   - last_modified_commit 寫【案 A 記可達祖先】= 前一個已落地 HEAD 可達 commit(通常 = 本 slice 父 commit)、
+#     不寫 PENDING_HASH、不 commit 後 amend(amend 自身 hash 數學不可能 → orphan;固化見 #180 +
+#     docs/patterns/slice-checkpoint.md「last_modified_commit 寫法」段)。可達性由
+#     `node scripts/design-mirror.mjs --validate` 機械 gate(git merge-base --is-ancestor)。
 #   - design_value 段引用 design-reference 字面、不憑記憶(對齊 working-style 第 11 條)
 
 version: "1.0"
