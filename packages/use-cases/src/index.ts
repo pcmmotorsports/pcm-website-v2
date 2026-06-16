@@ -39,3 +39,12 @@ export { confirmPayment, type ConfirmPaymentDeps } from './confirm-payment';
 // M-3 3DS-1b:對帳脊椎 use-case(settleCharge、三路 callback/webhook/sweeper + retry 共呼冪等、
 // Record API 唯一權威;master plan v5 §1)。
 export { settleCharge, type SettleChargeDeps } from './settle-charge';
+
+// M-3 3DS-4b-2:sweeper 兜底 use-case(sweepSettlements、週期 cron〔3DS-4c〕掃 inbox+stuck 兩來源 →
+// settleCharge 共呼、每輪前置守衛 expire×2+flag、per-order 去重、有界並發、單筆 fail-closed;plan §5.2)。
+export {
+  sweepSettlements,
+  type SweepSettlementsDeps,
+  type SweepSettlementsOptions,
+  type SweepSettlementsResult,
+} from './sweep-settlements';
