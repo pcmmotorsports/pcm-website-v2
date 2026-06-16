@@ -2362,9 +2362,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #93. ⏳ matchFitment 補 8 個 boundary case test
+### #93. ✅ matchFitment 補 8 個 boundary case test
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit 5fb914e:InMemoryProductRepository.test 補 8 邊界 case〔單年/相鄰年/inclusive 上下界/空 fitments/多 fitment OR/open-ended 下界/actual 無年份〕、code-reviewer mutation-test 逐一驗對)
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中
 - **問題:**
@@ -3487,9 +3487,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #132. ⏳ TierLabel union type alias 抽出
+### #132. ✅ TierLabel union type alias 抽出
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit 50d35d7:`export type TierLabel = 'P價'|'店價'|null` 放 mock-products.ts、Price.tsx/lib/products.ts 共用;純型別零洩漏〔UI badge 字串非經銷價〕;manifest 不 bump〔純型別 list-item〕)
 - **分流:** P1-before-launch
 - **優先級:** 🟠 中(達 ADR-0003 §3.2 規範類門檻、可立即執行)
 - **問題:**
@@ -3889,9 +3889,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #146. ⏳ cascadeFilterReducer useReducer bail-out 最佳化
+### #146. ✅ cascadeFilterReducer useReducer bail-out 最佳化
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit 10f1c79:7 處「真 no-op → return state 原參考」bail-out〔重選同值且下層已空/clear 已空/clear-all 已空〕、React 跳重渲染;🔴 不誤殺 cascade reset〔model/year/sub 有值時重選上層仍清〕、3 回歸測 + code-reviewer 對抗推演零誤 bail)
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
@@ -5617,9 +5617,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-05 / 安全稽核(Claude 多模型 access-control/dealer-price/test-gaps + codex 跨廠 RLS/IDOR + 經銷價 pass 五角度共識 H-1)。
 - **相關:** docs/reviews/2026-06-05-security-audit-report.md(H-1)/ apps/storefront/src/lib/tier.ts / apps/storefront/src/lib/products.ts(toUIProduct)/ packages/adapters/src/supabase/mappers/product.ts / M-2-08 / 鐵則 12 + 鐵則 8
 
-### #216. 🚚 運費門檻雙處 hardcode 同步無 CI gate — domain shipping.ts(TS)↔ create_order RPC §7(SQL)
+### #216. ✅ 運費門檻雙處 hardcode 同步無 CI gate — domain shipping.ts(TS)↔ create_order RPC §7(SQL)
 
-- **狀態:** ⏳ 觀察(L2 內容、現兩處逐分支一致、靠註解紀律維持)
+- **狀態:** ✅ 完成 2026-06-16(commit 3f70032:新 shipping-rpc-drift.test 讀最新 create_order migration §7、regex 抽門檻/運費 assert == TS 常數;code-reviewer 雙向 mutation-test 證真能抓 drift;現三 migration 含 CASE〔0604/0613-0b/0614〕值均 5000/100、gate 取最新)
 - **優先級:** 🟢 觀察(季度調整頻率低、改動時須兩處同步;升 🟠 中若加第三配送方式或門檻動態化)
 - **問題:**
   - 運費規則 hardcode 在**兩個語言兩個檔**:① `packages/domain/src/order/shipping.ts`(`FREE_SHIPPING_THRESHOLD=5000` / `HOME_SHIPPING_FEE=100`、前台顯示鏡像)② `supabase/migrations/20260604130000_m3_s2b1_create_order_rpc.sql` §7(`v_subtotal >= 5000 ? 0 : 100`、結帳權威值)。
