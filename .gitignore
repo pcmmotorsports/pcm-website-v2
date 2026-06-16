@@ -13,6 +13,8 @@ npm-debug.log*
 # Next.js
 .next/
 out/
+# Next 自動生成、檔頭明寫「should not be edited」、每次 build 重生 → 不入版控(backlog #169)
+apps/storefront/next-env.d.ts
 
 # Build outputs
 dist/

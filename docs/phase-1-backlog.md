@@ -4538,9 +4538,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #169. ⏳ next-env.d.ts 加 .gitignore 評估(Next 16 自動生成檔)
+### #169. ✅ next-env.d.ts 加 .gitignore 評估(Next 16 自動生成檔)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-06-17 A 方向 config slice;root .gitignore Next.js 段加 `apps/storefront/next-env.d.ts` + `git rm --cached` 從 tracking 移除〔本機檔保留〕;實證 pnpm build 後 next-env.d.ts 重生但被 gitignore、工作樹零 tracked dirty;三綠 typecheck/lint/build 全綠)
 - **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(不影響運作、影響工作樹 cleanliness)
 - **問題:**
