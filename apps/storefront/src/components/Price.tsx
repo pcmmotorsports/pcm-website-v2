@@ -12,11 +12,12 @@
 // sub 6 範圍:本 sub 僅新建元件、無 caller 消費點(留 sub 7 ProductCard 接)
 
 import type { ReactNode } from 'react';
+import type { TierLabel } from '@/data/mock-products';
 
 export type PriceProps = {
   price: number;
   originalPrice?: number | null;
-  tierLabel?: 'P價' | '店價' | null;
+  tierLabel?: TierLabel;
   showSavedTag?: boolean;
   size?: 'sm' | 'md' | 'lg' | 'xl';
   layout?: 'inline' | 'stack';

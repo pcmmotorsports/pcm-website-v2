@@ -46,7 +46,7 @@ import {
 } from '@pcm/adapters';
 import { computeEffectivePrice } from '@pcm/domain';
 import type { CategoryPath, MemberTier, Product } from '@pcm/domain';
-import type { MockProduct } from '@/data/mock-products';
+import type { MockProduct, TierLabel } from '@/data/mock-products';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -94,7 +94,7 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     tier === 'general'
       ? null
       : computeEffectivePrice(product, 'general').amount;
-  const tierLabel: 'P價' | '店價' | null =
+  const tierLabel: TierLabel =
     tier === 'premiumStore' ? 'P價' : tier === 'store' ? '店價' : null;
 
   return {

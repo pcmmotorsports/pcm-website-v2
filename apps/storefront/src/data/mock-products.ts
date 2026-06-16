@@ -62,6 +62,11 @@ export type UIFitment = {
   unconfirmed?: boolean;
 };
 
+/** 會員身份價格標籤(對齊 design-reference/components/Pricing.jsx L63/L102 memberLabel 真權威字面);general tier 為 null。
+ *  #132:抽出共用 alias,MockProduct.tierLabel / Price.tsx PriceProps / lib/products.ts toUIProduct 三處共用。
+ *  ⚠️ 純 UI badge 字串('P價'/'店價')、非經銷價值(真價走 effectivePrice.amount),抽 type 為純型別層零洩漏路徑。 */
+export type TierLabel = 'P價' | '店價' | null;
+
 export type MockProduct = {
   id: number;
   /** URL-safe ASCII slug,格式 `${brandToSlug(brand)}-${id}`、unique(brand+id 天然 unique);M-1-13a 落地、M-1-16 真資料種子時必填 */
@@ -112,8 +117,8 @@ export type MockProduct = {
   fitments?: UIFitment[];
   /** 劃線價:store / premiumStore 顯示時的 general 原價、general tier 為 null;sub 4b toUIProduct 內 server-side dispatch 填值 */
   originalPrice?: number | null;
-  /** 會員身份標籤(對齊 design-reference/components/Pricing.jsx L62 + L103 真權威字面);general tier 為 null */
-  tierLabel?: 'P價' | '店價' | null;
+  /** 會員身份標籤(型別見上方 TierLabel alias、#132);general tier 為 null */
+  tierLabel?: TierLabel;
   /** M-1-13H-4:旗艦商品才渲染 Engineering Spotlight 區塊(對應 HANDOFF #13 + PRD §4 slice-4 Q2=B 拍板);
    *  Phase 1 業務指定 3 件(lightech-1 / akrapovic-6 / brembo-7)hardcoded true、其餘 undefined falsy;
    *  Phase 2 接 Supabase product_spotlights 表(M-1-16 後)、欄位名一致對應(對齊 PRD Q2 字面) */
