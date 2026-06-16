@@ -21,22 +21,33 @@ function veh(over: Partial<CustomerVehicle> = {}): CustomerVehicle {
 }
 
 describe('updateVehicle', () => {
-  it('非主車 patch:直接 update(id, patch)、不查清單/不 unset', async () => {
-    const listByCustomer = vi.fn();
+  it('非主車 patch(#199):先驗本人(listByCustomer ownership backstop)→ update(id, patch)', async () => {
+    const listByCustomer = vi.fn().mockResolvedValue([veh({ id: 'v1' })]);
     const update = vi.fn().mockResolvedValue(veh({ name: '改' }));
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IVehicleRepository;
 
     const res = await updateVehicle(repo, 'session-uid', 'v1', { name: '改' });
 
+    expect(listByCustomer).toHaveBeenCalledWith('session-uid'); // #199 app 層 defense-in-depth(非只靠 RLS)
     expect(update).toHaveBeenCalledWith('v1', { name: '改' });
-    expect(listByCustomer).not.toHaveBeenCalled();
     expect(res).toEqual(veh({ name: '改' }));
   });
 
-  it('清空保養日 patch { service: null }:原樣直送(pass-through)', async () => {
+  it('非主車 patch 但 vehicleId 非本人(#199 backstop):先驗 → 拋、完全不 update', async () => {
+    const listByCustomer = vi.fn().mockResolvedValue([veh({ id: 'v1' })]);
+    const update = vi.fn();
+    const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IVehicleRepository;
+
+    await expect(updateVehicle(repo, 'session-uid', 'not-mine', { name: '改' })).rejects.toThrow(
+      '不屬於目前 customer',
+    );
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('清空保養日 patch { service: null }:原樣直送(pass-through;#199 先驗本人)', async () => {
     const update = vi.fn().mockResolvedValue(veh({ service: null }));
     const repo = {
-      listByCustomer: vi.fn(),
+      listByCustomer: vi.fn().mockResolvedValue([veh({ id: 'v1' })]),
       create: vi.fn(),
       update,
       delete: vi.fn(),
@@ -74,7 +85,7 @@ describe('updateVehicle', () => {
   it('update 失敗向上拋', async () => {
     const update = vi.fn().mockRejectedValue(new Error('db'));
     const repo = {
-      listByCustomer: vi.fn(),
+      listByCustomer: vi.fn().mockResolvedValue([veh({ id: 'v1' })]), // #199:plain-update 先查清單驗本人
       create: vi.fn(),
       update,
       delete: vi.fn(),

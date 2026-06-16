@@ -1,6 +1,6 @@
 import type { IVehicleRepository } from '@pcm/ports';
 import type { CustomerVehicle, VehicleId, CustomerId } from '@pcm/domain';
-import { verifyOwnedThenUnsetOtherPrimary } from './_vehicle-primary';
+import { verifyOwnedThenUnsetOtherPrimary, verifyVehicleOwned } from './_vehicle-primary';
 
 /**
  * VehiclePatch:更新車輛的白名單欄(信任邊界 — 不含 id / customerUserId / 時間欄)。鏡像 AddressPatch。
@@ -17,7 +17,8 @@ export type VehiclePatch = Partial<
  * 行為對齊 design saveVehicle update 路徑(L388):
  * - `patch.isPrimary=true` → 先驗 vehicleId 屬本 customer + unset 其他主車(except 本筆)→ 再 update
  *   (codex 關卡2 must-fix:先驗 ownership 才 unset,避免越權 id 留「零主車」)。
- * - 非主車 patch:直接 update,跨會員越權由 RLS 擋(無前置 unset、無零主車風險,不重複查清單)。
+ * - 非主車 patch(#199、鏡像 updateAddress):先驗 vehicleId 屬本 customer(verifyVehicleOwned)→ 再 update。
+ *   RLS 仍是 ownership 邊界(Sean Q2=A),本 app 層檢查為其上 defense-in-depth、與 isPrimary 分支一致。
  */
 export async function updateVehicle(
   vehicleRepo: IVehicleRepository,
@@ -27,6 +28,8 @@ export async function updateVehicle(
 ): Promise<CustomerVehicle> {
   if (patch.isPrimary) {
     await verifyOwnedThenUnsetOtherPrimary(vehicleRepo, currentUserId, vehicleId);
+  } else {
+    await verifyVehicleOwned(vehicleRepo, currentUserId, vehicleId);
   }
   return vehicleRepo.update(vehicleId, patch);
 }

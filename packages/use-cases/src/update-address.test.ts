@@ -19,16 +19,27 @@ function addr(over: Partial<CustomerAddress> = {}): CustomerAddress {
 }
 
 describe('updateAddress', () => {
-  it('非預設 patch:直接 update(id, patch)、不查清單/不 unset', async () => {
-    const listByCustomer = vi.fn();
+  it('非預設 patch(#199):先驗本人(listByCustomer ownership backstop)→ update(id, patch)', async () => {
+    const listByCustomer = vi.fn().mockResolvedValue([addr({ id: 'a1' })]);
     const update = vi.fn().mockResolvedValue(addr({ name: '改' }));
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IAddressRepository;
 
     const res = await updateAddress(repo, 'session-uid', 'a1', { name: '改' });
 
+    expect(listByCustomer).toHaveBeenCalledWith('session-uid'); // #199 app 層 defense-in-depth(非只靠 RLS)
     expect(update).toHaveBeenCalledWith('a1', { name: '改' });
-    expect(listByCustomer).not.toHaveBeenCalled();
     expect(res).toEqual(addr({ name: '改' }));
+  });
+
+  it('非預設 patch 但 addressId 非本人(#199 backstop):先驗 → 拋、完全不 update', async () => {
+    const listByCustomer = vi.fn().mockResolvedValue([addr({ id: 'a1' })]);
+    const update = vi.fn();
+    const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IAddressRepository;
+
+    await expect(updateAddress(repo, 'session-uid', 'not-mine', { name: '改' })).rejects.toThrow(
+      '不屬於目前 customer',
+    );
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('patch.isDefault=true:先 unset 其他預設(except 本筆)→ 再 update(順序固定)', async () => {
@@ -70,7 +81,7 @@ describe('updateAddress', () => {
   it('update 失敗向上拋', async () => {
     const update = vi.fn().mockRejectedValue(new Error('db'));
     const repo = {
-      listByCustomer: vi.fn(),
+      listByCustomer: vi.fn().mockResolvedValue([addr({ id: 'a1' })]), // #199:plain-update 先查清單驗本人
       create: vi.fn(),
       update,
       delete: vi.fn(),
