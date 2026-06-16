@@ -4700,9 +4700,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-24 / graphify 採用 slice、Codex 關卡1 round-2 future-watch
 - **相關:** 鐵則 2(design mock 合約)、Server 端鐵則(經銷價不外洩)、`docs/patterns/slice-checkpoint.md` §3.4、`.graphifyignore`
 
-### #176. 🟡 會員 use-case ownership 違規統一 typed error(目前丟 plain Error)
+### #176. ✅ 會員 use-case ownership 違規統一 typed error(目前丟 plain Error)
 
-- **狀態:** ⏳ 待執行(f 段或重構時)
+- **狀態:** ✅ 完成 2026-06-16(commit 874b526:新 NotOwnedError domain typed error〔resource 判別欄、鏡像 OrderError〕取代 4 處 plain throw〔verifyAddressOwned/verifyVehicleOwned/deleteAddress/deleteVehicle〕、6 use-case 測試斷言改 instanceof+resource;延後 codex〔quota 6/18、純型別重構〕)
 - **優先級:** 🟡 低(陪審 e-2a nit、不擋)
 - **問題:**
   - M-1-14e-2a/2b address/vehicle use-cases 的 ownership 違規(`verifyOwnedThenUnsetOthers` / `verifyOwnedThenUnsetOtherPrimary` / delete 驗 ownership)目前丟 `new Error('... 不屬於目前 customer')` plain Error。
@@ -4718,9 +4718,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-24 / M-1-14e-2a 陪審 nit
 - **相關:** e-1a AuthError 模式、`packages/use-cases/src/_address-default.ts` / `_vehicle-primary.ts`
 
-### #177. 🟠 vehicle service 空值 '' → null 正規化(f1 wiring 前必修)
+### #177. ✅ vehicle service 空值 '' → null 正規化(f1 wiring 前必修)
 
-- **狀態:** ⏳ 待執行(f1 wiring vehicle create/update 前必修)
+- **狀態:** ✅ 完成 2026-06-16(commit 5a80574:VehicleInput.service 加 .transform 把 '' → null、schema 層;對齊 design `<input type="date">` 空字串、防 DB date 欄 invalid input syntax;add/update 共用同一 safeParse 兩路徑全涵蓋)
 - **優先級:** 🟠 中(會 runtime 炸:空保養日期 '' 進 DB date 欄)
 - **問題:**
   - DB `customer_vehicles.service` 是 nullable `date`;`VehicleInput` zod(`packages/schemas/src/index.ts:79` `z.string().default('')`)空值輸出 `''`;adapter `mapVehicleToInsertRow`/`mapVehiclePatchToRow` 把 `service` 直送、不轉 null。
@@ -5157,9 +5157,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #196. ⏳ ProfileTab saveProfile setTimeout 無 unmount cleanup(Nit、codex 關卡2)
+### #196. ✅ ProfileTab saveProfile setTimeout 無 unmount cleanup(Nit、codex 關卡2)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit d884f55:saved-timer 改 effect-driven useEffect([saved])、cleanup 於 unmount/saved-變更 clearTimeout、消 setState-after-unmount;零 eslint-disable)
 - **優先級:** 🟢 觀察(極低優先)
 - **問題:**
   - `ProfileTab.tsx` submit 成功後 `setTimeout(() => setSaved(false), 1800)`(對齊 design saveProfile L419-420)復原「✓ 已儲存」按鈕態、無 timer cleanup
@@ -5179,9 +5179,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #197. ⏳ ProfileInput phone/birthday 無格式驗證(Consider、codex 關卡2)
+### #197. ✅ ProfileInput phone/birthday 無格式驗證(Consider、codex 關卡2)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit cf8ee65:ProfileInput phone/birthday 加選填格式 refine〔空字串放行、phone 沿用 RegisterInput pattern、birthday YYYY-MM-DD〕、透過既有 #181 雙通道給精準欄位錯)。殘:birthday regex 不驗真實日期〔2026-13-45 過 regex、native input 保證、繞過被 DB 擋成通用錯〕屬可接受 backstop 取捨
 - **優先級:** 🟡 低
 - **問題:**
   - `packages/schemas/src/index.ts:86` ProfileInput 的 phone / birthday 僅 `z.string().default('')`、無格式 refine
@@ -5227,9 +5227,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #199. ⏳ updateAddress 純編輯(非 isDefault)patch 加 app 層 ownership 檢查(Consider、codex 關卡2 g-5c)
+### #199. ✅ updateAddress 純編輯(非 isDefault)patch 加 app 層 ownership 檢查(Consider、codex 關卡2 g-5c)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit c178459:抽 verifyAddressOwned/verifyVehicleOwned helper、updateAddress/updateVehicle plain-update 分支加 app 層 ownership backstop〔defense-in-depth on RLS、Sean Q2=A 接受 RLS 為邊界之上〕;updateVehicle 鏡像同修〔g-6c 同病〕;延後 codex〔quota 6/18、只增不減的 ownership gate〕)
 - **優先級:** 🟡 低
 - **問題:**
   - g-5c updateAddressAction 純編輯(patch 非 isDefault)路徑目前只靠 RLS `addresses_update_own`(USING + WITH CHECK)守 ownership;use-case `updateAddress` 僅在 `patch.isDefault` 時才跑 `verifyOwnedThenUnsetOthers`(app 層 listByCustomer 驗本人)
@@ -5279,9 +5279,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #201. ⏳ 表單必填欄純空白字串驗證(name trim、跨 address/vehicle schema 一致)(Consider、codex 關卡2 g-6b)
+### #201. ✅ 表單必填欄純空白字串驗證(name trim、跨 address/vehicle schema 一致)(Consider、codex 關卡2 g-6b)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(commit bb31d97:AddressInput name+line、VehicleInput name 改 .trim().min(1)〔純空白 reject、入庫去頭尾空白〕、對齊 design L705/L774;RegisterInput/ProfileInput name design 無 trim〔L261/saveProfile〕刻意不擴〔鐵則 1 不比 design 嚴〕、已補刻意省略註解)
 - **優先級:** 🟡 低(邊角 UX、非安全)
 - **問題:**
   - design InlineAddressForm L703 / InlineVehicleForm L777 submit 用 `!form.name.trim()` 擋純空白;
