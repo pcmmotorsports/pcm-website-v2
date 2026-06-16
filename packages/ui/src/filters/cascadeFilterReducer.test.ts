@@ -179,6 +179,79 @@ describe('cascadeFilterReducer — clear-all', () => {
   });
 });
 
+describe('cascadeFilterReducer — bail-out 最佳化(#146、重選同值回原參考)', () => {
+  it('重選同品牌(model/year 已空)→ 回原 state 參考(no-op)', () => {
+    const s = cascadeFilterReducer(makeInitialCascadeState(), selectVehicleBrand('Yamaha'));
+    const next = cascadeFilterReducer(s, selectVehicleBrand('Yamaha'));
+    expect(next).toBe(s);
+  });
+
+  it('🔴 回歸:重選同品牌但 model/year 仍有值 → 仍清下層(不誤 bail、回新 state)', () => {
+    let s = cascadeFilterReducer(makeInitialCascadeState(), selectVehicleBrand('Yamaha'));
+    s = cascadeFilterReducer(s, selectVehicleModel('R15'));
+    s = cascadeFilterReducer(s, selectVehicleYear(2023));
+    const next = cascadeFilterReducer(s, selectVehicleBrand('Yamaha'));
+    expect(next).not.toBe(s);
+    expect(next.vehicle).toEqual({ brand: 'Yamaha' }); // cascade reset 仍生效
+  });
+
+  it('重選同車型(year 已空)→ 回原 state 參考(no-op)', () => {
+    let s = cascadeFilterReducer(makeInitialCascadeState(), selectVehicleBrand('Yamaha'));
+    s = cascadeFilterReducer(s, selectVehicleModel('R15'));
+    const next = cascadeFilterReducer(s, selectVehicleModel('R15'));
+    expect(next).toBe(s);
+  });
+
+  it('🔴 回歸:重選同車型但 year 仍有值 → 仍清年份(不誤 bail)', () => {
+    let s = cascadeFilterReducer(makeInitialCascadeState(), selectVehicleBrand('Yamaha'));
+    s = cascadeFilterReducer(s, selectVehicleModel('R15'));
+    s = cascadeFilterReducer(s, selectVehicleYear(2023));
+    const next = cascadeFilterReducer(s, selectVehicleModel('R15'));
+    expect(next).not.toBe(s);
+    expect(next.vehicle).toEqual({ brand: 'Yamaha', model: 'R15' });
+  });
+
+  it('重選同年份 → 回原 state 參考(no-op)', () => {
+    let s = cascadeFilterReducer(makeInitialCascadeState(), selectVehicleBrand('Yamaha'));
+    s = cascadeFilterReducer(s, selectVehicleModel('R15'));
+    s = cascadeFilterReducer(s, selectVehicleYear(2023));
+    const next = cascadeFilterReducer(s, selectVehicleYear(2023));
+    expect(next).toBe(s);
+  });
+
+  it('clear-vehicle 已無車輛 → 回原 state 參考(no-op)', () => {
+    const init = makeInitialCascadeState();
+    const next = cascadeFilterReducer(init, clearVehicle());
+    expect(next).toBe(init);
+  });
+
+  it('重選同大分類(sub 已空)→ 回原 state 參考(no-op)', () => {
+    const s = cascadeFilterReducer(makeInitialCascadeState(), selectCategoryMain('c-engine', '引擎部品'));
+    const next = cascadeFilterReducer(s, selectCategoryMain('c-engine', '引擎部品'));
+    expect(next).toBe(s);
+  });
+
+  it('🔴 回歸:重選同大分類但 sub 仍有值 → 仍清細項(不誤 bail)', () => {
+    let s = cascadeFilterReducer(makeInitialCascadeState(), selectCategoryMain('c-engine', '引擎部品'));
+    s = cascadeFilterReducer(s, selectCategorySub('s-exhaust', '排氣管'));
+    const next = cascadeFilterReducer(s, selectCategoryMain('c-engine', '引擎部品'));
+    expect(next).not.toBe(s);
+    expect(next.category).toEqual({ mainId: 'c-engine', main: '引擎部品' });
+  });
+
+  it('clear-category 已無分類 → 回原 state 參考(no-op)', () => {
+    const init = makeInitialCascadeState();
+    const next = cascadeFilterReducer(init, clearCategory());
+    expect(next).toBe(init);
+  });
+
+  it('clear-all 已全空 → 回原 state 參考(no-op)', () => {
+    const init = makeInitialCascadeState();
+    const next = cascadeFilterReducer(init, clearAll());
+    expect(next).toBe(init);
+  });
+});
+
 describe('cascadeFilterReducer — 純度 immutability', () => {
   it('reducer 不 mutate 傳入的 state', () => {
     const init = makeInitialCascadeState();

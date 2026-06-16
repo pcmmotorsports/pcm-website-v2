@@ -175,14 +175,17 @@ function assertNever(action: never): never {
 /**
  * cascadeFilterReducer — pure reducer、套用 cascade 階層規則。
  *
- * 純函式:不 mutate 傳入的 `state`。防禦式守門(上層未選時的 `select-model` /
- * `select-year` / `select-sub`)回傳原 `state` 參考;其餘分支一律回傳新物件 ——
- * 即使 input 邏輯上未改變狀態(例:重選已選的同一品牌、對空狀態 `clear-all`)亦
- * 配新物件,不做 `useReducer` bail-out 最佳化(見 `docs/phase-1-backlog.md` #146)。
+ * 純函式:不 mutate 傳入的 `state`。回傳原 `state` 參考(`useReducer` bail-out 最佳化、#146、
+ * React 跳過重渲染)的情況有二:
+ * (a) 防禦式守門:上層未選時的 `select-model` / `select-year` / `select-sub`;
+ * (b) action 不改變狀態:重選同值且 cascade 下層已空(同品牌/車型/年份/大分類)、
+ *     `vehicle/clear`·`category/clear` 對應切片已空、`clear-all` 已全空。
+ * 其餘改變狀態的分支一律回傳新物件(不 mutate)。
+ * ⚠️ bail-out 僅在「真無變化」觸發:model/year/sub 仍有值時重選上層仍須清下層(cascade reset)、不誤 bail。
  *
  * @param state 當前 cascade 篩選狀態
  * @param action CascadeFilterAction 聯集之一
- * @returns 新狀態;僅防禦式守門分支回傳原 `state` 參考
+ * @returns 新狀態;無變化(守門 / 重選同值 / clear 已空)時回傳原 `state` 參考
  */
 export function cascadeFilterReducer(
   state: CascadeFilterState,
@@ -190,12 +193,24 @@ export function cascadeFilterReducer(
 ): CascadeFilterState {
   switch (action.type) {
     case 'vehicle/select-brand':
+      // 重選同品牌且 model/year 已空 → 無變化、回原 state(#146 bail-out)。
+      // ⚠️ model/year 仍有值時重選同品牌須清下層(cascade reset)、不可誤 bail。
+      if (
+        state.vehicle &&
+        state.vehicle.brand === action.brand &&
+        state.vehicle.model === undefined &&
+        state.vehicle.year === undefined
+      ) {
+        return state;
+      }
       // 選品牌 → 重建 vehicle、清車型+年份(cascade reset)
       return { ...state, vehicle: { brand: action.brand } };
 
     case 'vehicle/select-model': {
       // 未先選品牌 → no-op(cascade 不允許跳級)
       if (!state.vehicle) return state;
+      // 重選同車型且 year 已空 → 無變化、回原 state(#146 bail-out;year 仍有值時須清、不誤 bail)
+      if (state.vehicle.model === action.model && state.vehicle.year === undefined) return state;
       // 選車型 → 保留品牌、清年份(cascade reset)
       return {
         ...state,
@@ -206,6 +221,8 @@ export function cascadeFilterReducer(
     case 'vehicle/select-year': {
       // 未先選品牌或車型 → no-op
       if (!state.vehicle || state.vehicle.model === undefined) return state;
+      // 重選同年份 → 無變化、回原 state(#146 bail-out;year 為 leaf、無 cascade 下層)
+      if (state.vehicle.year === action.year) return state;
       return {
         ...state,
         vehicle: { ...state.vehicle, year: action.year },
@@ -213,9 +230,19 @@ export function cascadeFilterReducer(
     }
 
     case 'vehicle/clear':
+      // 已無車輛 → 無變化、回原 state(#146 bail-out)
+      if (!state.vehicle) return state;
       return { ...state, vehicle: null };
 
     case 'category/select-main':
+      // 重選同大分類且 sub 已空 → 無變化、回原 state(#146 bail-out;sub 仍有值時須清、不誤 bail)
+      if (
+        state.category &&
+        state.category.mainId === action.mainId &&
+        state.category.subId === undefined
+      ) {
+        return state;
+      }
       // 選大分類(= 全部大分類)→ 清細項(cascade reset)
       return {
         ...state,
@@ -237,6 +264,8 @@ export function cascadeFilterReducer(
     }
 
     case 'category/clear':
+      // 已無分類 → 無變化、回原 state(#146 bail-out)
+      if (!state.category) return state;
       return { ...state, category: null };
 
     case 'brands/toggle': {
@@ -250,6 +279,8 @@ export function cascadeFilterReducer(
     }
 
     case 'clear-all':
+      // 已全空 → 無變化、回原 state(#146 bail-out)
+      if (!state.vehicle && !state.category && state.brands.length === 0) return state;
       return makeInitialCascadeState();
 
     default:
