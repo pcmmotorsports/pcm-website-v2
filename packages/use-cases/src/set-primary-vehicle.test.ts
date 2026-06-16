@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { IVehicleRepository } from '@pcm/ports';
 import type { CustomerVehicle } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 import { setPrimaryVehicle } from './set-primary-vehicle';
 
 function veh(over: Partial<CustomerVehicle> = {}): CustomerVehicle {
@@ -43,7 +44,7 @@ describe('setPrimaryVehicle', () => {
     const update = vi.fn();
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IVehicleRepository;
 
-    await expect(setPrimaryVehicle(repo, 'session-uid', 'not-mine')).rejects.toThrow('不屬於目前 customer');
+    await expect(setPrimaryVehicle(repo, 'session-uid', 'not-mine')).rejects.toThrow(NotOwnedError);
     expect(update).not.toHaveBeenCalled();
   });
 

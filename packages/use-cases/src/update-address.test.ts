@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { IAddressRepository } from '@pcm/ports';
 import type { CustomerAddress } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 import { updateAddress } from './update-address';
 
 function addr(over: Partial<CustomerAddress> = {}): CustomerAddress {
@@ -37,7 +38,7 @@ describe('updateAddress', () => {
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IAddressRepository;
 
     await expect(updateAddress(repo, 'session-uid', 'not-mine', { name: '改' })).rejects.toThrow(
-      '不屬於目前 customer',
+      NotOwnedError,
     );
     expect(update).not.toHaveBeenCalled();
   });
@@ -73,7 +74,7 @@ describe('updateAddress', () => {
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IAddressRepository;
 
     await expect(updateAddress(repo, 'session-uid', 'not-mine', { isDefault: true })).rejects.toThrow(
-      '不屬於目前 customer',
+      NotOwnedError,
     );
     expect(update).not.toHaveBeenCalled();
   });

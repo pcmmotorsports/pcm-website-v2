@@ -1,5 +1,6 @@
 import type { IAddressRepository } from '@pcm/ports';
 import type { CustomerAddress, AddressId, CustomerId } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 
 /**
  * unsetCurrentDefaultExcept:把該 customer「目前的預設地址」清成非預設(至多一筆、DB partial unique
@@ -34,7 +35,7 @@ export async function verifyAddressOwned(
 ): Promise<CustomerAddress[]> {
   const list = await addressRepo.listByCustomer(currentUserId);
   if (!list.some((a) => a.id === addressId)) {
-    throw new Error(`address ${addressId} 不屬於目前 customer`);
+    throw new NotOwnedError('address', `address ${addressId} 不屬於目前 customer`);
   }
   return list;
 }

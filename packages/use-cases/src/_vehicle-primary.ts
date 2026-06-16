@@ -1,5 +1,6 @@
 import type { IVehicleRepository } from '@pcm/ports';
 import type { CustomerVehicle, VehicleId, CustomerId } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 
 /**
  * unsetCurrentPrimaryExcept:把該 customer「目前的主要車輛」清成非主車(至多一筆、DB partial unique
@@ -34,7 +35,7 @@ export async function verifyVehicleOwned(
 ): Promise<CustomerVehicle[]> {
   const list = await vehicleRepo.listByCustomer(currentUserId);
   if (!list.some((v) => v.id === vehicleId)) {
-    throw new Error(`vehicle ${vehicleId} 不屬於目前 customer`);
+    throw new NotOwnedError('vehicle', `vehicle ${vehicleId} 不屬於目前 customer`);
   }
   return list;
 }

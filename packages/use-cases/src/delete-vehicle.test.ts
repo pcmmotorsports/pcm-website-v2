@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { IVehicleRepository } from '@pcm/ports';
 import type { CustomerVehicle } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 import { deleteVehicle } from './delete-vehicle';
 
 function veh(over: Partial<CustomerVehicle> = {}): CustomerVehicle {
@@ -66,13 +67,15 @@ describe('deleteVehicle', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  it('vehicleId 非本人:先驗 ownership → 拋、且不 delete / 不遞補', async () => {
+  it('vehicleId 非本人:先驗 ownership → 拋 NotOwnedError(resource:vehicle)、不 delete / 不遞補', async () => {
     const del = vi.fn();
     const listByCustomer = vi.fn().mockResolvedValue([veh({ id: 'v1', isPrimary: true })]);
     const update = vi.fn();
     const repo = { listByCustomer, create: vi.fn(), update, delete: del } as unknown as IVehicleRepository;
 
-    await expect(deleteVehicle(repo, 'session-uid', 'not-mine')).rejects.toThrow('不屬於目前 customer');
+    const err = await deleteVehicle(repo, 'session-uid', 'not-mine').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NotOwnedError); // #176 typed error(取代 plain Error、斷言型別非 message 字面)
+    expect((err as NotOwnedError).resource).toBe('vehicle');
     expect(del).not.toHaveBeenCalled();
     expect(update).not.toHaveBeenCalled();
   });

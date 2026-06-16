@@ -1,5 +1,6 @@
 import type { IAddressRepository } from '@pcm/ports';
 import type { AddressId, CustomerId } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 
 /**
  * deleteAddress:刪除收件地址 use-case(M-1-14e-2a)。
@@ -19,7 +20,7 @@ export async function deleteAddress(
 ): Promise<void> {
   const list = await addressRepo.listByCustomer(currentUserId);
   if (!list.some((a) => a.id === addressId)) {
-    throw new Error(`deleteAddress: address ${addressId} 不屬於目前 customer`);
+    throw new NotOwnedError('address', `deleteAddress: address ${addressId} 不屬於目前 customer`);
   }
   await addressRepo.delete(addressId);
   const remaining = list.filter((a) => a.id !== addressId);

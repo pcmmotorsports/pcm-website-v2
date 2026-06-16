@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { IVehicleRepository } from '@pcm/ports';
 import type { CustomerVehicle } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 import { updateVehicle } from './update-vehicle';
 
 function veh(over: Partial<CustomerVehicle> = {}): CustomerVehicle {
@@ -39,7 +40,7 @@ describe('updateVehicle', () => {
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IVehicleRepository;
 
     await expect(updateVehicle(repo, 'session-uid', 'not-mine', { name: '改' })).rejects.toThrow(
-      '不屬於目前 customer',
+      NotOwnedError,
     );
     expect(update).not.toHaveBeenCalled();
   });
@@ -77,7 +78,7 @@ describe('updateVehicle', () => {
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IVehicleRepository;
 
     await expect(updateVehicle(repo, 'session-uid', 'not-mine', { isPrimary: true })).rejects.toThrow(
-      '不屬於目前 customer',
+      NotOwnedError,
     );
     expect(update).not.toHaveBeenCalled();
   });

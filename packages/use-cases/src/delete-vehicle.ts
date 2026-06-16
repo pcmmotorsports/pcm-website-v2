@@ -1,5 +1,6 @@
 import type { IVehicleRepository } from '@pcm/ports';
 import type { VehicleId, CustomerId } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 
 /**
  * deleteVehicle:刪除會員愛車 use-case(M-1-14e-2b、鏡像 deleteAddress)。
@@ -18,7 +19,7 @@ export async function deleteVehicle(
 ): Promise<void> {
   const list = await vehicleRepo.listByCustomer(currentUserId);
   if (!list.some((v) => v.id === vehicleId)) {
-    throw new Error(`deleteVehicle: vehicle ${vehicleId} 不屬於目前 customer`);
+    throw new NotOwnedError('vehicle', `deleteVehicle: vehicle ${vehicleId} 不屬於目前 customer`);
   }
   await vehicleRepo.delete(vehicleId);
   const remaining = list.filter((v) => v.id !== vehicleId);

@@ -24,6 +24,9 @@ export { resolveEnd } from './catalog/year-range';
 export { computeEffectivePrice } from './catalog/pricing';
 export { designTierToSchema, schemaTierToDesign } from './shared/utils';
 export { AuthError } from './identity/auth';
+// 會員子資源歸屬錯誤(M-1-14e、#176:統一 ownership use-case typed error、取代 plain Error)
+export type { NotOwnedResource } from './identity/ownership';
+export { NotOwnedError } from './identity/ownership';
 
 // order entity runtime helper(M-3-S1)
 export type { OrderErrorCode } from './order/errors';

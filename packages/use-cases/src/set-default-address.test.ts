@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { IAddressRepository } from '@pcm/ports';
 import type { CustomerAddress } from '@pcm/domain';
+import { NotOwnedError } from '@pcm/domain';
 import { setDefaultAddress } from './set-default-address';
 
 function addr(over: Partial<CustomerAddress> = {}): CustomerAddress {
@@ -41,7 +42,7 @@ describe('setDefaultAddress', () => {
     const update = vi.fn();
     const repo = { listByCustomer, create: vi.fn(), update, delete: vi.fn() } as unknown as IAddressRepository;
 
-    await expect(setDefaultAddress(repo, 'session-uid', 'not-mine')).rejects.toThrow('不屬於目前 customer');
+    await expect(setDefaultAddress(repo, 'session-uid', 'not-mine')).rejects.toThrow(NotOwnedError);
     expect(update).not.toHaveBeenCalled();
   });
 
