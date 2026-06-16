@@ -10,7 +10,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  * - packages/adapters/src/supabase/README.md env 字面
  *
  * 兩 factory 分流(對齊 PRD §7.1 三 env vars):
- * - {@link createSupabaseAnonClient}:讀 anon key、可進 client bundle、RLS-protected
+ * - {@link createSupabaseAnonClient}:讀 anon key、**server-only**(本檔頂層 import 'server-only')、RLS-protected、伺服器端公開 SELECT
  * - {@link createSupabaseServiceClient}:讀 service_role key、server-only、繞 RLS、寫操作用
  *
  * **Singleton 紀律:** 兩 factory 每次呼叫都 `createClient()` 新 instance。supabase-js
@@ -29,10 +29,13 @@ function requireEnv(name: string): string {
 }
 
 /**
- * 建 anon client(可進 client bundle、RLS-protected)。
+ * 建 anon client(**server-only**〔本檔頂層 import 'server-only'〕、RLS-protected)。
  *
  * 讀 `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_ANON_KEY`、走 RLS、anon role、
- * 適用 storefront client / server-side render 公開 SELECT。
+ * 適用伺服器端公開 SELECT(storefront SSR / server component 讀目錄)。瀏覽器端公開讀走 storefront
+ * lib/supabase/browser.ts(@supabase/ssr、非本 factory)。⚠️ env KEY 本身是公開值(NEXT_PUBLIC_*、可入
+ * client bundle),但本 factory 受 server-only 約束、client component import 即 build error(#218 修正
+ * 「可進 client bundle」stale 字面:audit 89a20a8 加 import 'server-only' 後註解未同步)。
  *
  * @throws 若 env vars 未 set
  */

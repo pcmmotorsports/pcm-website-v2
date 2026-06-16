@@ -93,7 +93,11 @@ design .jsx → cp 到 storefront → 改副檔名 + import path + TS 型別 →
 
 **你應該做:** 新 project 起手就裝 CI gate、不延後。
 
-### 2-5. React 19 hooks 規則嚴格
+### 2-5. React 19 hooks 規則嚴格(⚠️ 以下 v7 規則目前**未開**、見 backlog #168)
+
+> 現行只開 `rules-of-hooks` + `exhaustive-deps` 兩條(M-1-13Z 拍板保守設定;以 CLAUDE.md / AGENTS.md
+> react-hooks 段為準)。以下 v7 React Compiler 相關規則(purity / set-state-in-effect / immutability 等)
+> **尚未啟用**,屬未來開啟評估(#168)的前瞻教訓、非現役守門(#167 校正:原文把未開規則述成現役嚴格規則):
 
 - `react-hooks/purity` 拒絕 render body 內 `Date.now()`
 - `react-hooks/set-state-in-effect` 對 `try/finally` vs `.catch()` AST 結構敏感

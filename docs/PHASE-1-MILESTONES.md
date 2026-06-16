@@ -212,7 +212,7 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 
 **做:**
 - packages/ui design tokens 直接搬 tokens.css
-- packages/ui useCascadeFilter hook(三 Filter 共用、避免複製貼上、對齊 Q2 拍板)
+- packages/ui cascadeFilterReducer 純函式(三 Filter 共用、避免複製貼上、對齊 Q2 拍板;實作為 framework-free reducer 非 React hook、#145)
 - domain/catalog entities + ports + InMemoryProductRepository(test) + MedusaProductAdapter(real)
 - domain/identity Customer + ports + MedusaCustomerAdapter(login / register)
 - storefront 8 元件直接搬 + 對應 css
@@ -246,7 +246,7 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 | M-1-05 | storefront: Header.tsx 直接搬 + header.css | 45 min | 無 | M-1-04 |
 | M-1-06 | storefront: ProductCard.tsx 直接搬 + product-card.css | 45 min | 無 | M-1-04 |
 | M-1-07 | storefront: HomePage.tsx 直接搬 + home.css | 45 min | Vehicle Finder 「我的車」按鈕(部分、不阻 commit) | M-1-05 / 06 |
-| M-1-08 | packages/ui useCascadeFilter hook 抽出(三 Filter 共用邏輯) | 30 min | 無 | M-1-04 |
+| M-1-08 | packages/ui cascadeFilterReducer 純函式抽出(三 Filter 共用邏輯) | 30 min | 無 | M-1-04 |
 | M-1-09 | storefront: FilterSide.tsx 直接搬 + filter-side.css | 45 min | 無 | M-1-08 |
 | M-1-10 | storefront: FilterTop.tsx 直接搬(含 CascadeFilterTop)+ filter-top.css | 45 min | 無 | M-1-08 |
 | M-1-11 | storefront: FilterDrawer.tsx 直接搬 + filter-drawer.css | 45 min | 無 | M-1-08 |
@@ -268,12 +268,12 @@ M-0 實際執行採跳號順序、不照 slice ID 數字排:
 ### 4.7 風險與緩解
 
 - **風險 1:** ProductsPage 連同 4 篩選共 ~1,600 行 TSX、單檔過大。
-- **緩解:** Q2 已拍板拆 4 slice + cascade hook 抽 packages/ui、每檔 < 400 行對齊鐵則 6。
+- **緩解:** Q2 已拍板拆 4 slice + cascadeFilterReducer 純函式抽 packages/ui、每檔 < 400 行對齊鐵則 6。
 - **風險 2:** design 9 條衝突(brand 字串 vs ID / category 巢狀 vs 字串 / fits 自由字串 vs vehicleIds 等、recon §7)。
 - **緩解:** medusa-schema-design.md 已先決定處置(M-0-05/06)、M-1 直接套用。
 - **風險 3:** 種子資料 200 SKU 手動精選費時(Sean 在外)。
 - **緩解:** import 腳本先寫好、Sean 在 Sheets 排好之後一鍵 import。
-- **三視角帶到:** 擴充性 — useCascadeFilter hook 之後 admin filter 也可用 / 可維護性 — Filter 三檔獨立 < 400 行 / bug 可追蹤性 — domain test 用 InMemory adapter、不需 Medusa 啟動。
+- **三視角帶到:** 擴充性 — cascadeFilterReducer 純函式之後 admin filter 也可用 / 可維護性 — Filter 三檔獨立 < 400 行 / bug 可追蹤性 — domain test 用 InMemory adapter、不需 Medusa 啟動。
 
 ---
 

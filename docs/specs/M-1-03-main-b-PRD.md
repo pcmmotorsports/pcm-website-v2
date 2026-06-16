@@ -225,7 +225,7 @@ adapter-specific TODO 寫進 SupabaseProductAdapter class JSDoc(不寫 IProductR
 - @TODO 樂觀鎖(updated_at 比對):save 時驗 wire updated_at(M-1-03 main-b sub-slice 4 後、M-1-13 落地完整)
 - @TODO idempotency:save 重複呼叫同 entity 應冪等(對齊 backlog #86 contract test、M-1-13 落地)
 - @TODO audit trail:寫操作記錄 customer_id + timestamp 進 audit log(M-3-04 落地)
-- @TODO brand / category resolve cache:LRU cache 名稱→ID(本 main-b sub-slice 4 落地)
+- @TODO brand / category resolve cache:LRU cache 名稱→ID(原規劃 sub-slice 4 落地;**實際未在 sub-slice 4 落地、改依 lessons #84/#85 Defer 模式、待第 3 處撞才抽**〔Phase 1 dev 200 SKU round-trip 開銷可接受〕,見 SupabaseProductAdapter class JSDoc L97、#112)
 
 對齊 ADR-0003 §3.3「ports JSDoc contract vs adapter implementation TODO」規則(M-1-02-audit Q6 落地)。
 

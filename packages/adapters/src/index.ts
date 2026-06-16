@@ -4,7 +4,8 @@
 //
 // Public API(對齊 sub-slice B-2 subpath exports 拆法):
 // - SupabaseProductAdapter:domain Product 真實 adapter 實作(ADR-0005 後 main wire-up)
-// - createSupabaseAnonClient:anon factory(可進 client bundle、RLS-protected、storefront 公開讀用)
+// - createSupabaseAnonClient:anon factory(**server-only**〔client.ts 頂層 import 'server-only'〕、anon key + RLS-protected、
+//   伺服器端公開 SELECT〔storefront SSR/server component 讀目錄〕;瀏覽器端公開讀走 storefront lib/supabase/browser.ts、非本 factory、#218)
 //
 // Server-only API(從 @pcm/adapters/server import、不在本檔):
 // - createSupabaseServiceClient:service_role factory(繞 RLS、apps/api 寫操作用、絕不入 client bundle)

@@ -768,9 +768,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-02 / M-0-03 audit
 - **相關:** `docs/architecture/dependency-rules.md` §5.1、#22(字串 leak、可同 slice 順手做)
 
-### #24. ⏳ dependency-rules.md §6.2 補 apps→apps 預設禁的維運說明
+### #24. ✅ dependency-rules.md §6.2 補 apps→apps 預設禁的維運說明
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(§6.2 加步驟 4 ⚠️ apps→apps default disallow 維運註、對稱 §6.1;同批 doc-drift 清掃)
 - **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(doc 維運盲點、不阻塞但維運者可能踩雷)
 - **問題:**
@@ -791,9 +791,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-02 / M-0-03 audit
 - **相關:** `docs/architecture/dependency-rules.md` §6.2、§1
 
-### #25. ⏳ dependency-rules.md §5.3 字面前後一致統一
+### #25. ✅ dependency-rules.md §5.3 字面前後一致統一
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(§5.3 L189 改轉態語氣:storefront 已有 .tsx〔100+ 個〕、flag 從必要降保險;同批 doc-drift)
 - **分流:** P1-before-launch
 - **優先級:** 🟢 觀察(doc 字面 polish)
 - **問題:**
@@ -1898,9 +1898,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-02 / 全專案 audit
 - **相關:** STATUS Sean 待決策 #4(部分 overlap)、`docs/audits/2026-05-02-full-audit.md` Audit-F36
 
-### #75. ⏳ 4 空殼 packages JSDoc 格式對稱化
+### #75. ✅ 4 空殼 packages JSDoc 格式對稱化
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(packages/ui/src/index.ts header 加「對應 ADR-0002 §4.1」對齊 use-cases/adapters/schemas;同批 doc-drift)
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
@@ -2919,9 +2919,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #112. ⏳ PRD M-1-03-main-b §8 第 4 條 @TODO 字面 vs sub-slice 5 Code 字面偏離 PRD 同步
+### #112. ✅ PRD M-1-03-main-b §8 第 4 條 @TODO 字面 vs sub-slice 5 Code 字面偏離 PRD 同步
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(PRD §8 L228 LRU TODO 改「未在 sub-slice 4 落地、改依 #84/#85 Defer、見 adapter JSDoc L97」對齊落地;同批 doc-drift)
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低(commit body 已揭示偏離、PRD 字面同步留 trigger)
 - **問題:**
@@ -3863,9 +3863,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #145. ⏳ PHASE-1-MILESTONES §4.5 M-1-08 字面校準(useCascadeFilter → cascadeFilterReducer)
+### #145. ✅ PHASE-1-MILESTONES §4.5 M-1-08 字面校準(useCascadeFilter → cascadeFilterReducer)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成 2026-06-16(PHASE-1-MILESTONES L215/249/271/276「useCascadeFilter/cascade hook」→「cascadeFilterReducer 純函式」;同批 doc-drift)
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**
@@ -4477,9 +4477,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #167. ⏳ react-hooks 字面誤導註解掃清 + CLAUDE.md 段對齊實況(repo 未裝 plugin)
+### #167. ✅ react-hooks 字面誤導註解掃清 + CLAUDE.md 段對齊實況(repo 未裝 plugin)
 
-- **狀態:** ⏳ 部分觸發(M-1-13Z 已裝 plugin + 修 L54/L61 deps + 升級 CLAUDE.md 段;剩 L7/L75 prose 註解掃清待 follow-up slice)
+- **狀態:** ✅ 完成 2026-06-16(source prose 誤導註解已隨檔重寫消失〔ProductInfo/ProductsPage grep 零殘留〕、CLAUDE/AGENTS 已對齊;本批補修 docs/lessons-learned.md §2-5 把未開 v7 規則〔purity/set-state-in-effect〕加「未開、見 #168」限定 → 全收;同批 doc-drift)
 - **優先級:** 🟡 低(不影響運作、純註解 / 文件準確度)
 - **M-1-13Z 更新(2026-05-23):** install slice 已裝 eslint-plugin-react-hooks v7.1.1 + 開 rules-of-hooks / exhaustive-deps,下方「問題」所述「repo 未裝 plugin」「CLAUDE.md 描述 purity…」皆隨之解決;ProductInfo.tsx L54/L61 deps 多餘 product.id 已於本 slice 修。**下方問題段指針作廢提醒:** ProductsPage 原 M-1-13I「明述 repo 未裝 plugin」那段 mount-effect 註解(問題段所指 L209)已於本 slice 改寫為 `eslint-disable-next-line` + 冪等理由,該 L209 舊字面已不存在於 source、勿照舊行號 grep。**剩餘範圍縮為:** ProductInfo.tsx L7/L75 兩段 prose 註解措辭校準 + 全 repo `grep react-hooks` 殘留字面掃清,留 follow-up slice 獨立處理。
 - **問題(以下為 2026-05-22 發現時記錄、部分已由 M-1-13Z 解決、見上方更新):**
@@ -5660,9 +5660,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** stage ③ 訂單查詢(plan §7);若選 B 綁 S2-a migration 再版 + db push。
 - **相關:** packages/domain/src/order/types.ts(OrderItem.productId)/ supabase/migrations/20260604120000_m3_s2a_orders_order_items.sql(order_items 無 product_id)/ packages/ports/src/IOrderRepository.ts(findById/listByCustomer 讀宣告)/ plan §7 階段③ / 鐵則 8(選 B 動 schema)+ 鐵則 10
 
-### #218. 📝 createSupabaseAnonClient「可進 client bundle」註解 stale — 與 client.ts `import 'server-only'` 矛盾(doc-drift)
+### #218. ✅ createSupabaseAnonClient「可進 client bundle」註解 stale — 與 client.ts `import 'server-only'` 矛盾(doc-drift)
 
-- **狀態:** ⏳ 待修(純註解、零行為;codex 關卡2 NIT、非 must-fix)
+- **狀態:** ✅ 完成 2026-06-16(adapters/index.ts + client.ts 3 處「可進 client bundle/storefront client」改「server-only〔頂層 import 'server-only'〕、伺服器端公開 SELECT、瀏覽器公開讀走 lib/supabase/browser.ts」;釐清 env KEY 公開值 vs factory server-only;同批 doc-drift)
 - **優先級:** 🟢 觀察(無安全/行為風險、僅誤導讀者)
 - **問題:**
   - `packages/adapters/src/index.ts:7` + `packages/adapters/src/supabase/client.ts:13` 兩處註解寫 `createSupabaseAnonClient`「可進 client bundle」,但 `client.ts:1` 頂層有 `import 'server-only'` → 整個 @pcm/adapters root barrel(含 anon factory)被 server-only 約束、**不可進 client bundle**(import 即 build error)。瀏覽器端公開讀實際走 storefront `lib/supabase/browser.ts`(@supabase/ssr),非此 anon factory。
