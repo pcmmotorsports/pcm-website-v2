@@ -15,7 +15,7 @@
 // AccountProfile 為 import type(編譯期擦除、runtime 不載 AccountView / Header)、無需 CartProvider / matchMedia。
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 vi.mock('@/app/account/profile/actions', () => ({
   updateProfileAction: vi.fn(),
@@ -85,6 +85,27 @@ describe('ProfileTab(g-4b 真 form)', () => {
     fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
     await screen.findByText('✓ 已儲存');
     expect(mockUpdate).toHaveBeenCalledWith({ name: '陳大文', phone: '0912345678', birthday: '1990-05-20' });
+  });
+
+  it('#196 unmount 清未觸發的 saved-timer(防切 tab 卸載後 setState-after-unmount 洩漏)', async () => {
+    mockUpdate.mockResolvedValue({ ok: true });
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+    const { unmount } = renderTab();
+    fireEvent.click(screen.getByRole('button', { name: '儲存變更' }));
+    // 成功分支 → saved=true → useEffect([saved]) 排 1800ms 復原 timer
+    await screen.findByText('✓ 已儲存');
+    // passive effect 在 commit 後跑、可能晚於 findByText → waitFor 等 1800ms timer 真排定再斷言(消時序 race)
+    await waitFor(() => {
+      expect(setTimeoutSpy.mock.calls.some((c) => c[1] === 1800)).toBe(true);
+    });
+    const idx = setTimeoutSpy.mock.calls.findIndex((c) => c[1] === 1800);
+    const savedTimerId = setTimeoutSpy.mock.results[idx]!.value;
+    // 卸載(模擬切 tab)→ effect cleanup 應 clearTimeout 該 timer、計時器永不在卸載後觸發 setSaved
+    unmount();
+    expect(clearTimeoutSpy).toHaveBeenCalledWith(savedTimerId);
+    setTimeoutSpy.mockRestore();
+    clearTimeoutSpy.mockRestore();
   });
 
   it('g-4c:ok=true → router.refresh() 被呼叫(重讀 server component 解 staleness)', async () => {

@@ -24,10 +24,10 @@
 // 重讀 customers SoT → 解「存檔後切 tab 回來 / 頂部 Hi 名字 + 頭像仍舊值、需手動重新整理」staleness
 // (根因:useState(profile.name) 只在 mount 取一次 prop、page.tsx 只在整頁載入讀 DB、存檔沒通知頁面重讀)。
 //
-// 對應 backlog:無新條;#196(setTimeout 無 unmount cleanup、Nit)本 slice 保留不 fold(honor 別硬擴 scope、
-// router.refresh 不卸載當前 tab、與 #196 正交、#196 仍 🟢 觀察 極低優先)。
+// 對應 backlog:#196(saved-timer 無 unmount cleanup)本 slice 收 —— 改 effect-driven setTimeout、
+// cleanup 於 unmount(切 tab 卸載)/ saved 變更時 clearTimeout,消「setState-after-unmount」洩漏。
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateProfileAction, type ProfileFieldErrors } from '@/app/account/profile/actions';
@@ -52,6 +52,15 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
   const [saved, setSaved] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  // #196:saved=true 後 1800ms 自動復原「✓ 已儲存」。改 effect-driven(取代 submit 內裸 setTimeout):
+  // cleanup 於 unmount(切 tab 卸載 ProfileTab)/ saved 變更時 clearTimeout、避免計時器在卸載後觸發
+  // setSaved → setState-after-unmount 洩漏;id 為 effect 內 local const(非 ref)→ 過 exhaustive-deps 無 disable。
+  useEffect(() => {
+    if (!saved) return;
+    const id = setTimeout(() => setSaved(false), 1800);
+    return () => clearTimeout(id);
+  }, [saved]);
+
   // LINE 用戶(displayEmail 空)Email 欄走替代字面 + 不可編輯(Q2-1=b business override)。
   const isLineUser = email === '';
 
@@ -72,7 +81,7 @@ export function ProfileTab({ profile, email }: ProfileTabProps) {
         setFieldErrors({});
         setFormError(null);
         setSaved(true);
-        setTimeout(() => setSaved(false), 1800);
+        // 1800ms 復原由上方 useEffect([saved]) 處理(含 unmount cleanup、#196)。
         // g-4c:重跑 page.tsx server component 重讀 customers SoT。新 profile prop 流到 AccountView
         // → 頂部「Hi, 名字」/ 頭像即時更新;下次切回 profile tab 時 ProfileTab 重 mount 讀到新 prop
         // (解 g-4b 肉眼驗發現的「存檔後切 tab 回來/頂部仍舊值、需手動重新整理」staleness、根因同一頁載入快照)。
