@@ -1,30 +1,17 @@
-import type { Customer, MemberTier } from '@pcm/domain';
+import type { Customer } from '@pcm/domain';
+import type { Database } from '../database.types';
 
 /**
- * Supabase customers row schema(對齊 supabase/migrations/20260523034911_init_customers_and_subtables.sql
- * customers 表 + 20260523052537 patch)。
+ * Supabase customers row schema —— **derive 自生成 Database 型別**(backlog #106、消雙 cast escape hatch)。
  *
- * 對齊 ADR-0003 §3.4 wire 字串紀律:本 type 是 wire 字面、只在 mapper 邊界出現、
- * 不 leak 至 domain / ports / use-case。
+ * 由 `supabase gen types`(database.types.ts)生成的 customers 表 Row 直接取用:schema 改欄位 / 改型 →
+ * 重新 gen 後此型別自動跟著變 → mapper 讀 `row.xxx` 即 compile-time 抓 drift(取代手寫易 stale)。
  *
- * Nullable 紀律(對齊 DB 實際欄位、codex 關卡1 must-fix #2):
- * - `phone` migration L18 僅 `DEFAULT ''`、無 `NOT NULL` → `string | null`、read 端 `?? ''` 還原 domain string。
- * - `birthday` migration L19 `date`(無 NOT NULL)→ `string | null`(domain birthday 本就 string | null、直送)。
- * - `name` migration L17 `NOT NULL DEFAULT ''` → 永不 null、`string`。
- * - `tier` member_tier enum、值 general / store / premiumStore 與 MemberTier 字面一致(migration COMMENT L32-33)、直送。
+ * 對齊 ADR-0003 §3.4 wire 字串紀律:本 type 是 wire 字面、只在 mapper 邊界出現、不 leak 至 domain / ports / use-case。
+ * Nullable / enum 由生成型別保證對齊 DB(phone / birthday nullable、tier member_tier enum =
+ * general/store/premiumStore == domain MemberTier)。
  */
-export type SupabaseCustomerRow = {
-  user_id: string;
-  email: string;
-  name: string;
-  phone: string | null;
-  birthday: string | null;
-  tier: MemberTier;
-  wallet_balance: number;
-  total_deposit: number;
-  created_at: string;
-  updated_at: string;
-};
+export type SupabaseCustomerRow = Database['public']['Tables']['customers']['Row'];
 
 /**
  * 本 patch 只寫 name / phone / birthday(對齊 ICustomerRepository.update Pick 簽名)。

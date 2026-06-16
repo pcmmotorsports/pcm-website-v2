@@ -2749,9 +2749,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #106. ⏳ Supabase typed Database schema(supabase gen-types)— 解 adapter 雙 cast escape hatch
+### #106. ✅ Supabase typed Database schema(supabase gen-types)— 解 adapter 雙 cast escape hatch
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 完成(2026-06-17 A 方向中型 code slice)。落地:① 生成 `packages/adapters/src/supabase/database.types.ts`〔`supabase gen types typescript --project-id bmpnplmnldofgaohnaok`、991 行 + 檔頭註記;⚠️ 反映 LIVE prod schema、db push bundle 未套用→不含 cart_session_id/webhook_events/4a-2 欄/5-param create_order,db push 後須重 gen〕② `client.ts` 兩 factory 注入 `SupabaseClient<Database>` generic ③ 6 個 supabase-js adapter client 欄位型別化 `SupabaseClient<Database>`〔.from/.select/.eq/.rpc 欄名/查詢/RPC 入參 compile 期檢〕④ customer/address/vehicle/wallet 4 mapper Row **derive 自 `Database['public']['Tables'][...]['Row']`**〔schema 改→重 gen→mapper 讀 row.xxx 即 compile 期抓 drift〕。**cast 消除實況**:19 雙 cast 中**消除 13**〔customer 3 / address 3 / vehicle 3 / wallet 4,4 adapter 完全 cast-free、含 wallet getBalance 2 inline cast〕;**保留 6**〔product 5 read + order 1 RPC〕為 rich-Json / RPC-Json 投射的**正當**邊界 cast〔products_public view 投射把 jsonb fitments→FitmentSpec[]/images→string[]/segments→string[] narrow 成 domain 形、create_order RPC `Returns: Json`→DTO,生成型別僅給 `Json`、無法 derive,皆 documented 非 type-safety 漏洞〕;另 product save 新增 1 documented `as products Insert` cast〔read products_public view nullable brand_id ↔ write base products NOT NULL 落差收斂〕。**意外揭示**:型別化 client 抓出手寫 `SupabaseProductRow.brand_id: string|null` 比 base 表 NOT NULL 鬆〔正是 #106 該抓的型別精度〕。三綠 typecheck/lint/build + 完整 vitest 1128〔零 runtime 變更、純型別+消 cast〕+ code-reviewer PASS。codex N/A〔非鐵則12:純型別、無金流/RLS/schema 行為變更〕。**follow-up**:db push 後重 gen database.types.ts、新表/欄才入型別。
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低-中(不阻擋 main-b 落地、影響 type safety + 未來跨 adapter)
 - **問題:**

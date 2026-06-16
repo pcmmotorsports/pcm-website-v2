@@ -1,11 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ICustomerRepository } from '@pcm/ports';
 import type { Customer, CustomerId } from '@pcm/domain';
-import {
-  mapCustomerPatchToRow,
-  mapSupabaseCustomerToDomain,
-  type SupabaseCustomerRow,
-} from './mappers/customer';
+import type { Database } from './database.types';
+import { mapCustomerPatchToRow, mapSupabaseCustomerToDomain } from './mappers/customer';
 
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 const PGRST_NOT_FOUND = 'PGRST116';
@@ -32,11 +29,11 @@ const CUSTOMER_SELECT =
  * - tier / wallet_balance / total_deposit 不在 GRANT、不經本 adapter(走 service_role / ledger trigger;
  *   tier admin 寫走 M-4a IAdminCustomerRepository)。
  *
- * 型別 cast `data as unknown as SupabaseCustomerRow`:對齊 SupabaseProductAdapter、
- * 待 backlog #106 typed Database schema 落地後改 generic 消除。
+ * #106:client 注入 `SupabaseClient<Database>` generic、`.from('customers').select().single()` 回 typed row、
+ * 消除舊 `data as unknown as SupabaseCustomerRow` 雙 cast(SupabaseCustomerRow 已 derive 自生成型別)。
  */
 export class SupabaseCustomerAdapter implements ICustomerRepository {
-  constructor(private readonly supabase: SupabaseClient) {}
+  constructor(private readonly supabase: SupabaseClient<Database>) {}
 
   /** 依 id(= auth.users.id)查單筆會員。找不到 → null;其他 error → throw。 */
   async findById(id: CustomerId): Promise<Customer | null> {
@@ -51,7 +48,7 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
       }
       throw error;
     }
-    return mapSupabaseCustomerToDomain(data as unknown as SupabaseCustomerRow);
+    return mapSupabaseCustomerToDomain(data);
   }
 
   /** 依 email 查單筆會員(customers_email_idx + UNIQUE)。找不到 → null;其他 error → throw。 */
@@ -67,7 +64,7 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
       }
       throw error;
     }
-    return mapSupabaseCustomerToDomain(data as unknown as SupabaseCustomerRow);
+    return mapSupabaseCustomerToDomain(data);
   }
 
   /**
@@ -88,6 +85,6 @@ export class SupabaseCustomerAdapter implements ICustomerRepository {
     if (error) {
       throw error;
     }
-    return mapSupabaseCustomerToDomain(data as unknown as SupabaseCustomerRow);
+    return mapSupabaseCustomerToDomain(data);
   }
 }

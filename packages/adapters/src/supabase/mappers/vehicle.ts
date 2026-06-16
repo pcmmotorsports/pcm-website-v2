@@ -1,26 +1,14 @@
 import type { CustomerVehicle } from '@pcm/domain';
+import type { Database } from '../database.types';
 
 /**
- * Supabase customer_vehicles row schema(對齊 migration 20260523034911 customer_vehicles 表)。
+ * Supabase customer_vehicles row schema —— **derive 自生成 Database 型別**(backlog #106)。
  *
- * Nullable 紀律(codex 關卡1 must-fix #2):
- * - `year` / `engine` / `km` / `mods` migration L77-80 僅 `DEFAULT ''`、無 NOT NULL → `string | null`、`?? ''` 還原。
- * - `service` L81 `date`(無 NOT NULL)→ `string | null`(domain service 本就 string | null、直送)。
- * - `name` L76 NOT NULL → `string`。
+ * 由 database.types.ts 生成的 customer_vehicles 表 Row 取用;schema 改 → 重新 gen → 此型別自動跟著變。
+ * Nullable 由生成型別保證對齊 DB(year / engine / km / mods nullable、`?? ''` 還原;service date nullable 直送;
+ * name NOT NULL)。
  */
-export type SupabaseVehicleRow = {
-  id: string;
-  customer_user_id: string;
-  is_primary: boolean;
-  name: string;
-  year: string | null;
-  engine: string | null;
-  km: string | null;
-  mods: string | null;
-  service: string | null;
-  created_at: string;
-  updated_at: string;
-};
+export type SupabaseVehicleRow = Database['public']['Tables']['customer_vehicles']['Row'];
 
 /** INSERT row(id / created_at / updated_at 走 DB default、不送)。 */
 export type SupabaseVehicleInsertRow = Omit<

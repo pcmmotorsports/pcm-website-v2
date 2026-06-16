@@ -1,11 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IWalletRepository } from '@pcm/ports';
 import type { CustomerId, WalletBalance, WalletLedgerEntry } from '@pcm/domain';
-import {
-  mapSupabaseWalletEntryToDomain,
-  mapWalletEntryToInsertRow,
-  type SupabaseWalletLedgerRow,
-} from './mappers/wallet';
+import type { Database } from './database.types';
+import { mapSupabaseWalletEntryToDomain, mapWalletEntryToInsertRow } from './mappers/wallet';
 
 /** PostgREST not-found error code(`.single()` 找不到 row)。 */
 const PGRST_NOT_FOUND = 'PGRST116';
@@ -20,7 +17,7 @@ const LEDGER_SELECT =
  * 對齊:
  * - `packages/ports/src/IWalletRepository.ts`(listEntries / addEntry / getBalance 合約)
  * - `docs/specs/m-1-14-customer-schema.md` §7 + `docs/handoff/2026-05-23-m-1-14d-2-wallet-handoff.md` §3
- * - `SupabaseCustomerAdapter` pattern(constructor DI、PGRST_NOT_FOUND、`as unknown as Row` cast + backlog #106)
+ * - `SupabaseCustomerAdapter` pattern(constructor DI、PGRST_NOT_FOUND;#106:client `SupabaseClient<Database>` generic、typed row、無 cast)
  *
  * **⚠️ 雙 client DI(混合 auth、與單 client 的 customer/address/vehicle adapter 不同)**:
  * - `readClient`:**必須帶當前 user session(access token)的 Supabase client(authenticated role)**。
@@ -41,8 +38,8 @@ const LEDGER_SELECT =
  */
 export class SupabaseWalletAdapter implements IWalletRepository {
   constructor(
-    private readonly readClient: SupabaseClient,
-    private readonly writeClient: SupabaseClient,
+    private readonly readClient: SupabaseClient<Database>,
+    private readonly writeClient: SupabaseClient<Database>,
   ) {}
 
   /**
@@ -59,7 +56,7 @@ export class SupabaseWalletAdapter implements IWalletRepository {
     if (error) {
       throw error;
     }
-    return (data as unknown as SupabaseWalletLedgerRow[]).map(mapSupabaseWalletEntryToDomain);
+    return data.map(mapSupabaseWalletEntryToDomain);
   }
 
   /**
@@ -77,7 +74,7 @@ export class SupabaseWalletAdapter implements IWalletRepository {
     if (error) {
       throw error;
     }
-    return mapSupabaseWalletEntryToDomain(data as unknown as SupabaseWalletLedgerRow);
+    return mapSupabaseWalletEntryToDomain(data);
   }
 
   /**
@@ -116,17 +113,12 @@ export class SupabaseWalletAdapter implements IWalletRepository {
       throw lastError;
     }
 
-    const balance = customerRow as unknown as {
-      wallet_balance: number;
-      total_deposit: number;
-    };
-    const last = lastRow as unknown as { created_at: string } | null;
-
+    // #106:typed client → customerRow / lastRow 已 typed,消除舊 inline `as unknown as {...}` cast。
     return {
       customerUserId: customerId,
-      balance: balance.wallet_balance,
-      totalDeposit: balance.total_deposit,
-      lastEntryAt: last?.created_at ?? null,
+      balance: customerRow.wallet_balance,
+      totalDeposit: customerRow.total_deposit,
+      lastEntryAt: lastRow?.created_at ?? null,
     };
   }
 }

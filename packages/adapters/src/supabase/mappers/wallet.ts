@@ -1,25 +1,14 @@
-import type { WalletEntryType, WalletLedgerEntry } from '@pcm/domain';
+import type { WalletLedgerEntry } from '@pcm/domain';
+import type { Database } from '../database.types';
 
 /**
- * Supabase customer_wallet_ledger row schema(對齊 migration 20260523034911 customer_wallet_ledger 表 L99-113)。
+ * Supabase customer_wallet_ledger row schema —— **derive 自生成 Database 型別**(backlog #106)。
  *
- * Nullable 紀律(逐欄對照 migration、對齊 codex 審查):
- * - `note` L105 `NOT NULL DEFAULT ''` → `string`(**不** nullable、**不** coalesce)。
- * - `related_order_id` L106 `uuid`(無 NOT NULL)→ `string | null`、**直送 domain string | null**(domain relatedOrderId 本就 string | null、不 coalesce)。
- * - `entry_date` L102 / `entry_type` L103 / `amount` L104 / `created_at` L107 皆 NOT NULL。
- * - `amount` L104 integer NOT NULL、signed(deposit + / use - / refund +、CHECK wallet_amount_sign L108-112 守);
- *   mapper **純傳遞、不變號、不浮點、不做算術**。
+ * 由 database.types.ts 生成的 customer_wallet_ledger 表 Row 取用;schema 改 → 重新 gen → 此型別自動跟著變。
+ * 金流紀律(生成型別保證對齊 DB):amount signed integer(CHECK wallet_amount_sign 守、mapper 純傳遞不變號)、
+ * note NOT NULL string、related_order_id nullable 直送、entry_type wallet_entry_type enum == domain WalletEntryType。
  */
-export type SupabaseWalletLedgerRow = {
-  id: string;
-  customer_user_id: string;
-  entry_date: string;
-  entry_type: WalletEntryType;
-  amount: number;
-  note: string;
-  related_order_id: string | null;
-  created_at: string;
-};
+export type SupabaseWalletLedgerRow = Database['public']['Tables']['customer_wallet_ledger']['Row'];
 
 /** INSERT row(id / created_at 走 DB default、不送)。 */
 export type SupabaseWalletLedgerInsertRow = Omit<

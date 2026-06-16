@@ -1,11 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IAddressRepository } from '@pcm/ports';
 import type { AddressId, CustomerAddress, CustomerId } from '@pcm/domain';
+import type { Database } from './database.types';
 import {
   mapAddressPatchToRow,
   mapAddressToInsertRow,
   mapSupabaseAddressToDomain,
-  type SupabaseAddressRow,
 } from './mappers/address';
 
 /** customer_addresses 表投射(對齊 migration 13 欄、invoice 攤平 5 欄)。 */
@@ -26,10 +26,11 @@ const ADDRESS_SELECT =
  * customer_addresses_one_default_per_customer partial unique index → DB 丟 violation、本 adapter 直接
  * throw 不吞。「先 unset 舊 default 再設新」的 transaction 邏輯歸 M-1-14e use-case、不在本 adapter。
  *
- * 型別 cast `as unknown as SupabaseAddressRow`:對齊 SupabaseProductAdapter、待 backlog #106 typed schema 消除。
+ * #106:client 注入 `SupabaseClient<Database>` generic、select 回 typed row、消除舊
+ * `data as unknown as SupabaseAddressRow` 雙 cast(SupabaseAddressRow 已 derive 自生成型別)。
  */
 export class SupabaseAddressAdapter implements IAddressRepository {
-  constructor(private readonly supabase: SupabaseClient) {}
+  constructor(private readonly supabase: SupabaseClient<Database>) {}
 
   /** 列出某會員所有地址(created_at asc 穩定排序)。error → throw。 */
   async listByCustomer(customerId: CustomerId): Promise<CustomerAddress[]> {
@@ -41,7 +42,7 @@ export class SupabaseAddressAdapter implements IAddressRepository {
     if (error) {
       throw error;
     }
-    return (data as unknown as SupabaseAddressRow[]).map(mapSupabaseAddressToDomain);
+    return data.map(mapSupabaseAddressToDomain);
   }
 
   /** 新增地址(invoice 攤平)。回 DB 還原的完整 entity。error → throw。 */
@@ -56,7 +57,7 @@ export class SupabaseAddressAdapter implements IAddressRepository {
     if (error) {
       throw error;
     }
-    return mapSupabaseAddressToDomain(data as unknown as SupabaseAddressRow);
+    return mapSupabaseAddressToDomain(data);
   }
 
   /** 更新地址(只改 present 欄;invoice present 攤平全 5 欄)。查無 row 或其他 error → throw。 */
@@ -70,7 +71,7 @@ export class SupabaseAddressAdapter implements IAddressRepository {
     if (error) {
       throw error;
     }
-    return mapSupabaseAddressToDomain(data as unknown as SupabaseAddressRow);
+    return mapSupabaseAddressToDomain(data);
   }
 
   /** 刪除地址。error → throw。 */

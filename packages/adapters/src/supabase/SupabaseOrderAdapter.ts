@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
 import type { Money, Order, PlaceOrderInput, PlaceOrderResult } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
+import type { Database } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
   type CreateOrderRpcResult,
@@ -27,11 +28,13 @@ import {
  * 無法忠實重建(backlog #217、傾向改 productId optional);故本片讀方法明確 deferred-stub、延 stage ③
  * 訂單查詢(plan §7)。
  *
- * 型別 cast `as unknown as CreateOrderRpcResult`:對齊 SupabaseProductAdapter/Address 慣例、無 generated
- * Functions 型別(待 backlog #106 消除);RPC `RETURNS jsonb` scalar → data 即該物件、不需 `.single()`。
+ * #106:client 注入 `SupabaseClient<Database>` generic、`.rpc('create_order', args)` 入參形狀 + findTotal
+ * 欄位皆 compile 期檢;`data as unknown as CreateOrderRpcResult` **保留**(create_order RPC generated
+ * `Returns: Json`、wire 為 narrowed `{order_id, display_id}` DTO、Json→DTO 須 cast;非 type-safety 漏洞、
+ * 是 RPC jsonb scalar 邊界的正當投射)。RPC `RETURNS jsonb` scalar → data 即該物件、不需 `.single()`。
  */
 export class SupabaseOrderAdapter implements IOrderRepository {
-  constructor(private readonly supabase: SupabaseClient) {}
+  constructor(private readonly supabase: SupabaseClient<Database>) {}
 
   /**
    * 建單:呼 create_order RPC(server 權威)。
@@ -72,10 +75,12 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (error) {
       throw error; // 裸 throw(對齊 placeOrder 慣例);caller(action)吞通用字面
     }
-    if (!data || typeof (data as { total?: unknown }).total !== 'number') {
+    // #106:typed client → data 為 `{ total: number } | null`,消除舊 `(data as {...}).total` inline cast;
+    // typeof number 檢保留(runtime fail-closed 縱深、防 RLS/邊界回非預期)。
+    if (!data || typeof data.total !== 'number') {
       return null; // 查無/非本人(RLS)→ fail-closed
     }
-    return { amount: toMoneyAmount((data as { total: number }).total), currency: 'TWD' };
+    return { amount: toMoneyAmount(data.total), currency: 'TWD' };
   }
 
   // ── 讀路徑:延 stage ③ 訂單查詢(deferred-stub)──

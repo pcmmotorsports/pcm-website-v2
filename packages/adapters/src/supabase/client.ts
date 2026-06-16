@@ -1,5 +1,6 @@
 import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from './database.types';
 
 /**
  * Supabase client factories(M-1-03 main-b sub-slice 1)。
@@ -40,8 +41,8 @@ function requireEnv(name: string): string {
  *
  * @throws 若 env vars 未 set
  */
-export function createSupabaseAnonClient(): SupabaseClient {
-  return createClient(
+export function createSupabaseAnonClient(): SupabaseClient<Database> {
+  return createClient<Database>(
     requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
     requireEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
   );
@@ -56,8 +57,8 @@ export function createSupabaseAnonClient(): SupabaseClient {
  *
  * @throws 若 env vars 未 set
  */
-export function createSupabaseServiceClient(): SupabaseClient {
-  return createClient(
+export function createSupabaseServiceClient(): SupabaseClient<Database> {
+  return createClient<Database>(
     requireEnv('NEXT_PUBLIC_SUPABASE_URL'),
     requireEnv('SUPABASE_SERVICE_ROLE_KEY'),
   );

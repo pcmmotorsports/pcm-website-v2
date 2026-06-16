@@ -1,32 +1,15 @@
-import type { CustomerAddress, InvoiceType } from '@pcm/domain';
+import type { CustomerAddress } from '@pcm/domain';
+import type { Database } from '../database.types';
 
 /**
- * Supabase customer_addresses row schema(對齊 migration 20260523034911 customer_addresses 表
- * + 20260523052537 patch:invoice_title / invoice_tax_id / invoice_donate_code 加 NOT NULL)。
+ * Supabase customer_addresses row schema —— **derive 自生成 Database 型別**(backlog #106)。
  *
+ * 由 database.types.ts 生成的 customer_addresses 表 Row 取用;schema 改 → 重新 gen → 此型別自動跟著變。
  * domain `invoice` 巢狀物件 ↔ DB 攤平 5 欄(invoice_type / invoice_carrier / invoice_title /
- * invoice_tax_id / invoice_donate_code)、由本 mapper 巢狀化 / 攤平。
- *
- * Nullable 紀律(codex 關卡1 must-fix #2):
- * - `phone` migration L45 / `invoice_carrier` L48 僅 `DEFAULT ''`、無 NOT NULL → `string | null`、`?? ''` 還原。
- * - `name` L44 / `line` L46 NOT NULL → `string`。
- * - `invoice_title` / `invoice_tax_id` / `invoice_donate_code` patch 後 NOT NULL → `string`。
+ * invoice_tax_id / invoice_donate_code)、由本 mapper 巢狀化 / 攤平。Nullable / enum 由生成型別保證對齊 DB
+ * (phone / invoice_carrier nullable `?? ''` 還原;invoice_type invoice_type enum == domain InvoiceType)。
  */
-export type SupabaseAddressRow = {
-  id: string;
-  customer_user_id: string;
-  is_default: boolean;
-  name: string;
-  phone: string | null;
-  line: string;
-  invoice_type: InvoiceType;
-  invoice_carrier: string | null;
-  invoice_title: string;
-  invoice_tax_id: string;
-  invoice_donate_code: string;
-  created_at: string;
-  updated_at: string;
-};
+export type SupabaseAddressRow = Database['public']['Tables']['customer_addresses']['Row'];
 
 /** INSERT row(id / created_at / updated_at 走 DB default、不送)。 */
 export type SupabaseAddressInsertRow = Omit<

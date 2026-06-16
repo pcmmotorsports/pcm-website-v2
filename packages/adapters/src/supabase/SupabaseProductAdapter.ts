@@ -8,6 +8,7 @@ import type {
   Product,
   ProductId,
 } from '@pcm/domain';
+import type { Database } from './database.types';
 import {
   mapDomainProductToSupabase,
   mapSupabaseProductToDomain,
@@ -98,7 +99,7 @@ function buildIlikeOrFilter(columns: readonly string[], q: string): string {
  *   Phase 1 dev 200 SKU 規模 round-trip 開銷可接受
  */
 export class SupabaseProductAdapter implements IProductRepository {
-  constructor(private readonly supabase: SupabaseClient) {}
+  constructor(private readonly supabase: SupabaseClient<Database>) {}
 
   /**
    * 依 id 查單筆 product。對齊 PRD §3.1 + supabase-schema-design.md §2.3。
@@ -356,10 +357,15 @@ export class SupabaseProductAdapter implements IProductRepository {
       categoryId,
     });
 
+    // #106:upsert 寫 base products 表、payload 型須對齊生成 products Insert。row 由 domain 建構
+    // (brand_id=product.brand.id / category_id=resolved、runtime 保證非空),但 wire SupabaseProductRow
+    // 將 brand_id/category_id 型為 nullable(沿用 products_public view-read 的寬鬆 shape)→ 對 base 表
+    // 寫入須 1 個 documented cast 收斂為 Insert 型(typed client 已驗欄名;此 cast 僅補 read↔write 表/view
+    // nullable 落差、非 type-safety 漏洞)。
     const saved = await this.findSingle<SupabaseProductRow>(
       this.supabase
         .from('products')
-        .upsert(row, { onConflict: 'id' })
+        .upsert(row as Database['public']['Tables']['products']['Insert'], { onConflict: 'id' })
         .select(PRODUCT_SELECT_DETAIL)
         .single(),
     );
@@ -394,8 +400,11 @@ export class SupabaseProductAdapter implements IProductRepository {
    * data null fallthrough → null)。對齊 sub-slice 4 audit 第 3 處撞 Defer trigger
    * (findById + resolveCategoryId + save、雙 audit R1/R2/Q6 共識)。
    *
-   * 雙 cast escape hatch 集中於本 helper、未來 backlog #106 typed Database schema
-   * 落地時改 generic 即可消除 cast。
+   * #106:client 已 `SupabaseClient<Database>` generic(.from/.select/.eq 欄名查詢 compile 期檢)。
+   * 本 helper 的 `as T` + read 路徑 `as unknown as SupabaseProductRow[]` **保留**:products_public view
+   * + embeds 投射的 wire shape 把 jsonb 欄(fitments→FitmentSpec[] / images→string[] / segments→string[])
+   * narrow 成 domain 形,生成型別僅給 `Json`、無法 derive → 此 cast 為 rich-Json 投射的正當邊界
+   * (非 type-safety 漏洞;對比簡單 adapter〔customer/address/vehicle/wallet〕已全消 cast)。
    */
   private async findSingle<T>(
     promise: PromiseLike<{
