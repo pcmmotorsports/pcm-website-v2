@@ -49,7 +49,7 @@ describe('updateProfileAction(g-4a server action)', () => {
   it('未登入 → formError「請重新登入」+ 不呼叫 updateProfile', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const action = await getSUT();
-    const res = await action({ name: '王', phone: '0911', birthday: '1990-01-01' });
+    const res = await action({ name: '王', phone: '0912345678', birthday: '1990-01-01' });
     expect(res).toEqual({ formError: '請重新登入' });
     expect(mockUpdateProfile).not.toHaveBeenCalled();
   });
@@ -84,7 +84,7 @@ describe('updateProfileAction(g-4a server action)', () => {
     const action = await getSUT();
     await action({
       name: '王',
-      phone: '0911',
+      phone: '0912345678',
       birthday: '1990-01-01',
       // 攻擊面:client 偽造這些欄、ProfileInput zod 必 strip
       tier: 'premiumStore',
@@ -108,7 +108,7 @@ describe('updateProfileAction(g-4a server action)', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     mockUpdateProfile.mockResolvedValue({});
     const action = await getSUT();
-    await action({ name: '王', phone: '0911', birthday: '' });
+    await action({ name: '王', phone: '0912345678', birthday: '' });
     expect(mockUpdateProfile).toHaveBeenCalledOnce();
     const [, , patch] = mockUpdateProfile.mock.calls[0]!;
     expect(patch.birthday).toBeNull();
@@ -118,16 +118,32 @@ describe('updateProfileAction(g-4a server action)', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     mockUpdateProfile.mockResolvedValue({});
     const action = await getSUT();
-    await action({ name: '王', phone: '0911', birthday: '1990-12-31' });
+    await action({ name: '王', phone: '0912345678', birthday: '1990-12-31' });
     const [, , patch] = mockUpdateProfile.mock.calls[0]!;
     expect(patch.birthday).toBe('1990-12-31');
+  });
+
+  it('#197 phone 格式錯(非空、太短)→ fieldErrors.phone「手機格式不正確」+ 不呼叫 updateProfile', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const action = await getSUT();
+    const res = await action({ name: '王', phone: '0911', birthday: '' });
+    expect(res.fieldErrors?.phone).toBe('手機格式不正確');
+    expect(mockUpdateProfile).not.toHaveBeenCalled();
+  });
+
+  it('#197 birthday 格式錯(非空、非 YYYY-MM-DD)→ fieldErrors.birthday「生日格式不正確」+ 不呼叫 updateProfile', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const action = await getSUT();
+    const res = await action({ name: '王', phone: '', birthday: '1990/12/31' });
+    expect(res.fieldErrors?.birthday).toBe('生日格式不正確');
+    expect(mockUpdateProfile).not.toHaveBeenCalled();
   });
 
   it('updateProfile 拋 DB error → formError「儲存失敗,請稍後再試」+ 不洩 Supabase 原始 error', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     mockUpdateProfile.mockRejectedValue(new Error('PostgresError: RLS policy violated'));
     const action = await getSUT();
-    const res = await action({ name: '王', phone: '0911', birthday: '1990-01-01' });
+    const res = await action({ name: '王', phone: '0912345678', birthday: '1990-01-01' });
     expect(res.formError).toBe('儲存失敗,請稍後再試');
     expect(res.formError).not.toContain('RLS');
     expect(res.formError).not.toContain('Postgres');
@@ -137,7 +153,7 @@ describe('updateProfileAction(g-4a server action)', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     mockUpdateProfile.mockResolvedValue({ id: 'user-1', name: '王' });
     const action = await getSUT();
-    const res = await action({ name: '王', phone: '0911', birthday: '1990-01-01' });
+    const res = await action({ name: '王', phone: '0912345678', birthday: '1990-01-01' });
     expect(res).toEqual({ ok: true });
   });
 

@@ -13,7 +13,7 @@
 // - controlled form + useState + useTransition(React 19、isPending disable 按鈕防重複送)
 //
 // #181 雙通道(沿用 register/login pattern、Sean Q2=B 釘死):
-// - fieldErrors 逐欄(.auth-field-err 顯各 input 下方;ProfileInput 僅 name min(1) 會回 fieldErrors.name)
+// - fieldErrors 逐欄(.auth-field-err 顯各 input 下方;ProfileInput name min(1) / phone·birthday 格式錯〔#197〕均回對應 fieldErrors)
 // - formError 帳號層級(.auth-err 表單頂部;請重新登入 / 儲存失敗);兩通道並存、互不取代
 //
 // LINE Email 替代字面(Q2-1=b net-new business override):

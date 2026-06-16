@@ -91,8 +91,19 @@ export type VehicleInput = z.infer<typeof VehicleInput>;
 // name/phone/birthday + DB column GRANT 只開這 3 欄 UPDATE。
 export const ProfileInput = z.object({
   name: z.string().min(1, { error: '請填寫姓名' }),
-  phone: z.string().default(''),
-  birthday: z.string().default(''),
+  // #197:phone/birthday 選填(空字串合法;birthday 空→null 在 action 層 normalize〔codex k1 Critical 1〕)。
+  // 填了則 server 端驗格式,早於 DB 給精準欄位錯——否則格式錯(如 birthday 'abc'/'2026/1/1')穿到 DB
+  // date 欄才炸、被 action try/catch 吞成通用「儲存失敗」、使用者看不出是哪欄錯。
+  // phone 沿用 RegisterInput.phone /^[\d\s-]{8,}$/(數字/空白/連字號、≥8);birthday 對齊 design
+  //   <input type="date"> 的 YYYY-MM-DD(原生 input 保證真實日期、regex 為 server 端格式 backstop)。
+  phone: z
+    .string()
+    .default('')
+    .refine((v) => v === '' || /^[\d\s-]{8,}$/.test(v), { error: '手機格式不正確' }),
+  birthday: z
+    .string()
+    .default('')
+    .refine((v) => v === '' || /^\d{4}-\d{2}-\d{2}$/.test(v), { error: '生日格式不正確' }),
 });
 export type ProfileInput = z.infer<typeof ProfileInput>;
 
