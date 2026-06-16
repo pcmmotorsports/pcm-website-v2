@@ -68,7 +68,10 @@ export const AddressInput = z
 export type AddressInput = z.infer<typeof AddressInput>;
 
 // === Vehicle form(design InlineVehicleForm L760-798、僅 name 必填) ===
-// year/km/mods 全 string(design 為 text input、km 含千分位+單位);service 為 ISO date 字串 or ''。
+// year/km/mods 全 string(design 為 text input、km 含千分位+單位)。
+// service:design 為 <input type="date">(空 → ''、填 → ISO date 字串)→ transform 把 '' 正規化為 null
+//   (#177:DB customer_vehicles.service 是 nullable date 欄,塞空字串會觸發 invalid input syntax for type date;
+//    domain CustomerVehicle.service 本就 string | null,正規化後型別/runtime 一致)。
 export const VehicleInput = z.object({
   isPrimary: z.boolean().default(false),
   name: z.string().min(1, { error: '請填寫車型' }),
@@ -76,7 +79,10 @@ export const VehicleInput = z.object({
   engine: z.string().default(''),
   km: z.string().default(''),
   mods: z.string().default(''),
-  service: z.string().default(''),
+  service: z
+    .string()
+    .default('')
+    .transform((s) => (s === '' ? null : s)),
 });
 export type VehicleInput = z.infer<typeof VehicleInput>;
 

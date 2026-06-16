@@ -101,6 +101,25 @@ describe('addVehicleAction(g-6b server action)', () => {
     expect(inputArg.isPrimary).toBe(true);
   });
 
+  it('#177 空 service → use-case 收到 service: null(防 DB date 欄塞空字串 invalid input syntax)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    mockAddVehicle.mockResolvedValue({ id: 'v-new' });
+    const { addVehicleAction } = await getActions();
+    // 未填最近保養 → VehicleInput.service default '' → transform 正規化為 null
+    await addVehicleAction(validInput());
+    const [, , inputArg] = mockAddVehicle.mock.calls[0]!;
+    expect(inputArg.service).toBeNull();
+  });
+
+  it('#177 有填 service(ISO date)→ 原值傳遞給 use-case', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    mockAddVehicle.mockResolvedValue({ id: 'v-new' });
+    const { addVehicleAction } = await getActions();
+    await addVehicleAction(validInput({ service: '2026-04-01' }));
+    const [, , inputArg] = mockAddVehicle.mock.calls[0]!;
+    expect(inputArg.service).toBe('2026-04-01');
+  });
+
   it('addVehicle 拋 DB error → formError「儲存失敗,請稍後再試」+ 不洩原始 error', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
     mockAddVehicle.mockRejectedValue(new Error('supabase raw error 23505'));
@@ -149,6 +168,15 @@ describe('updateVehicleAction(g-6c server action)', () => {
     expect(patch).not.toHaveProperty('customerUserId');
     expect(patch.name).toBe('YAMAHA YZF-R6');
     expect(patch.isPrimary).toBe(true);
+  });
+
+  it('#177 空 service → patch.service: null(update 路徑共用同一 VehicleInput.transform、對稱 add)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+    mockUpdateVehicle.mockResolvedValue({ id: 'v-1' });
+    const { updateVehicleAction } = await getActions();
+    await updateVehicleAction('v-1', validInput());
+    const [, , , patch] = mockUpdateVehicle.mock.calls[0]!;
+    expect(patch.service).toBeNull();
   });
 
   it('updateVehicle 拋 DB error → formError「儲存失敗,請稍後再試」+ 不洩原始 error', async () => {

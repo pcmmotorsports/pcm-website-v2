@@ -6,7 +6,7 @@ import { unsetCurrentPrimaryExcept } from './_vehicle-primary';
  * VehicleCreateInput:新增車輛的輸入(信任邊界 — 收窄型別,不讓 id / customerUserId / 時間欄進公開簽名;
  * customerUserId 由 use-case 用 currentUserId 填)。鏡像 AddressCreateInput。
  *
- * 註:`service`(string | null)空值 '' → null 的正規化屬 delivery/schema 層(backlog #177),use-case 直接 pass-through。
+ * 註:`service`(string | null)空值 '' → null 的正規化在 schema 層 VehicleInput.transform 完成(#177、對齊 DB date 欄不接受空字串),use-case 直接 pass-through。
  */
 export type VehicleCreateInput = Omit<CustomerVehicle, 'id' | 'customerUserId' | 'createdAt' | 'updatedAt'>;
 

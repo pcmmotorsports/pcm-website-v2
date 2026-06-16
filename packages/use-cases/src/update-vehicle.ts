@@ -4,7 +4,7 @@ import { verifyOwnedThenUnsetOtherPrimary } from './_vehicle-primary';
 
 /**
  * VehiclePatch:更新車輛的白名單欄(信任邊界 — 不含 id / customerUserId / 時間欄)。鏡像 AddressPatch。
- * 註:`service` 空值 '' → null 正規化屬 delivery/schema 層(backlog #177),use-case pass-through。
+ * 註:`service` 空值 '' → null 正規化在 schema 層 VehicleInput.transform 完成(#177、對齊 DB date 欄不接受空字串),use-case pass-through。
  */
 export type VehiclePatch = Partial<
   Pick<CustomerVehicle, 'isPrimary' | 'name' | 'year' | 'engine' | 'km' | 'mods' | 'service'>
