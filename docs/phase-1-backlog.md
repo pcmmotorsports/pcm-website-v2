@@ -6057,9 +6057,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #238. ⏳ design-mirror --validate / --target 多檔「+」串接欄位 path-check 失準
+### #238. ✅ design-mirror --validate / --target 多檔「+」串接欄位 path-check 失準
 
-- **狀態:** ⏳ 待執行(pre-existing 工具限界、#180 可達性 gate 落地時揭示)
+- **狀態:** ✅ 完成(2026-06-17、案 A root-anchored token 抽取)。落地:新 `extractPathTokens(val)`〔regex 抽「以 repo 根 apps/packages/design-reference/supabase(+docs 備用)開頭、副檔名結尾」的 token、root-anchored 故跳純描述片段如 `RegisterPage.tsx`/`tabs/{…}.tsx`/`L166-190`/退役提及的 `app/…`·`hooks/…` 簡寫〕;`cmdValidate` 改逐 token 驗存在 + 「0-token 欄位逐一列出」安全網〔鐵則 10:漏列 root 不再靜默〕、`findComponentsByPath`(--target)改「target 在欄位 token 集合內」比對。**驗證**:`--validate` exit 0〔133 path tokens OK + 0 跳過、0 broken,消除 #180 揭示的 10 條 pre-existing 假陽性〕+ mutation test ×2〔apps 根 + supabase 根各注入 bogus token→exit 1 精準抓、manifest 還原零留痕〕+ 三綠〔typecheck 7/lint 10;build 跳=無 .ts/.tsx〕+ code-reviewer **r1 FAIL→r2 PASS**〔r1 逮真 false-negative:root allow-list 原漏 `supabase`、CheckoutPage related_storefront[10] 真 migration 路徑會被靜默漏驗 → 補 supabase + 加 0-token 安全網 → r2 PASS〕。⚠️ design-mirror.mjs 為 .mjs、不在 typecheck(tsc)/lint(`scripts/*.ts`)glob,真驗證靠 --validate+mutation〔對齊 #180 commit-body 誠實先例〕。未 push。
+- **原狀態:** ⏳ 待執行(pre-existing 工具限界、#180 可達性 gate 落地時揭示)
 - **優先級:** 🟡 低(不阻擋實作;只令 `--validate` 對多檔元件 exit 1、可達性判讀靠輸出行區分)
 - **問題:**
   - `docs/design-storefront-manifest.yaml` 部分元件(AccountPages / CartPage / CheckoutPage / MobileTabBar 等)的 `storefront.component` / `storefront.css` / `design.component` / `design.css` 欄存「A.tsx + B.tsx + ...(長描述)」這種「+」串接 + 括號描述的人讀字串、非單一可解析路徑。

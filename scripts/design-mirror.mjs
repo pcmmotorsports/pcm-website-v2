@@ -58,6 +58,7 @@ Usage:
 
   node scripts/design-mirror.mjs --validate
     驗 manifest 內所有 path-like 欄位(storefront/design 各檔 + related_storefront[])都存在
+    多檔/帶描述欄位抽 repo-rooted path token 逐一驗、跳純描述片段(backlog #238)
     + 案 A 可達性 gate(backlog #180):每個 last_modified_commit(非佔位)須 HEAD 可達祖先、非 orphan
 
   node scripts/design-mirror.mjs --diff-against-storefront
@@ -89,23 +90,39 @@ function saveManifest(manifest) {
 // ---- 工具 ----
 const normPath = (p) => (p || '').replace(/^\.\//, '').replace(/^\//, '');
 
+// 抽欄位內 repo-rooted 路徑 token(backlog #238)。
+// manifest 部分多檔元件欄位(AccountPages / CartPage / CheckoutPage / MobileTabBar 等)存
+// 「A.tsx + B.tsx + …(長描述)」這種人讀串、非單一可解析路徑;直接拿整串去 existsSync /
+// === 比對必失準(--validate 報假 broken link、--target 用單檔路徑查不到多檔元件)。
+// 改抽出「以 repo 根開頭、副檔名結尾」的 token 逐一處理,跳純描述片段
+// (L166-190 / cart-* / co-* / 無前綴的 RegisterPage.tsx / tabs/{…}.tsx 等)。
+// root-anchored 是刻意的:無前綴片段本就不可解析、若抽出來反成新的 false-positive。
+// ⚠️ root allow-list 必涵蓋 manifest 實際出現的全部 repo 根(apps/packages/design-reference/supabase
+//    + docs 備用):漏列任一根 → 該根下真實路徑被當「無 token」靜默跳過 = false-negative(比
+//    false-positive 更糟,曾漏 supabase 被 code-reviewer 逮)。cmdValidate 另把「0 token 的欄位」
+//    逐一列出、不讓未來漏列靜默(鐵則 10 bug 可追蹤性)。
+const PATH_TOKEN_RE = /(?<![A-Za-z0-9._/-])(?:apps|packages|design-reference|docs|supabase)\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+/g;
+const extractPathTokens = (val) => (val ? val.match(PATH_TOKEN_RE) || [] : []);
+
 function findComponentsByPath(manifest, targetPath) {
   // 對齊字面、不憑記憶;比對 storefront.component / storefront.css / related_storefront[] 三類 path-like 欄位
   // shared CSS / shared related path 命中多個元件 → 全部回傳、不挑一(每個 match 標 matched_field)
   const target = normPath(targetPath);
   const matches = [];
   if (!target) return matches;
+  // 欄位值可能多檔「+」串接 + 描述(backlog #238)→ 抽 path token 後比對、非整串 ===
+  const fieldHasTarget = (val) => extractPathTokens(val).some((tok) => normPath(tok) === target);
   for (const [name, entry] of Object.entries(manifest.components || {})) {
     const sf = entry.storefront || {};
-    if (normPath(sf.component) === target) {
+    if (fieldHasTarget(sf.component)) {
       matches.push({ name, entry, matched_field: 'storefront.component' });
       continue; // 一元件一 match、避免同元件重複
     }
-    if (normPath(sf.css) === target) {
+    if (fieldHasTarget(sf.css)) {
       matches.push({ name, entry, matched_field: 'storefront.css' });
       continue;
     }
-    if ((entry.related_storefront || []).some((p) => normPath(p) === target)) {
+    if ((entry.related_storefront || []).some((p) => fieldHasTarget(p))) {
       matches.push({ name, entry, matched_field: 'related_storefront' });
     }
   }
@@ -135,6 +152,7 @@ function cmdValidate() {
   const isPlaceholder = (p) => !p || p.startsWith('(');
   let issues = 0;
   let pathsChecked = 0;
+  const skippedFields = []; // backlog #238:無 path token 可驗的欄位(純描述 / root 漏列)、逐一列出不靜默(鐵則 10)
   for (const [name, entry] of Object.entries(components)) {
     const sf = entry.storefront || {};
     const dz = entry.design || {};
@@ -151,10 +169,20 @@ function cmdValidate() {
     (entry.related_storefront || []).forEach((p, i) => fields.push([`related_storefront[${i}]`, p]));
     for (const [field, val] of fields) {
       if (isPlaceholder(val)) continue;
-      pathsChecked++;
-      if (!checkFileExists(val)) {
-        console.error(`❌ [${name}] ${field} missing: ${val}`);
-        issues++;
+      // backlog #238:多檔/帶描述欄位抽 repo-rooted path token 逐一驗、跳純描述片段;
+      // 無 token(純描述或非 repo 根路徑)記為 skipped、不誤報 broken link(消 pre-existing false-positive)。
+      const tokens = extractPathTokens(val);
+      if (tokens.length === 0) {
+        skippedFields.push(`${name}.${field}`);
+        continue;
+      }
+      for (const tok of tokens) {
+        pathsChecked++;
+        if (!checkFileExists(tok)) {
+          const ctx = val.length > 80 ? `${val.slice(0, 80)}…` : val;
+          console.error(`❌ [${name}] ${field} missing path token: ${tok}  (欄位值: ${ctx})`);
+          issues++;
+        }
       }
     }
   }
@@ -177,15 +205,19 @@ function cmdValidate() {
     }
   }
 
+  // backlog #238:把「無 token 跳過的欄位」逐一列出,讓漏列 root 造成的靜默 false-negative 浮現(鐵則 10)
+  if (skippedFields.length > 0) {
+    console.warn(`⚠️ ${skippedFields.length} 欄無 path token、未驗存在(純描述?或 root allow-list 漏列?請核): ${skippedFields.join(', ')}`);
+  }
   const total = issues + orphanIssues;
   if (total === 0) {
     console.log(
-      `✅ Manifest validated, ${Object.keys(components).length} components / ${pathsChecked} paths OK / ${commitsChecked} last_modified_commit 可達 OK`,
+      `✅ Manifest validated, ${Object.keys(components).length} components / ${pathsChecked} path tokens OK / ${skippedFields.length} 無-token 欄跳過 / ${commitsChecked} last_modified_commit 可達 OK`,
     );
     process.exit(0);
   } else {
     console.error(
-      `❌ Found ${issues} broken link(s) out of ${pathsChecked} paths + ${orphanIssues} unreachable/malformed commit(s) out of ${commitsChecked} checked`,
+      `❌ Found ${issues} broken link(s) out of ${pathsChecked} path tokens + ${orphanIssues} unreachable/malformed commit(s) out of ${commitsChecked} checked (${skippedFields.length} 無-token 欄跳過)`,
     );
     process.exit(1);
   }
