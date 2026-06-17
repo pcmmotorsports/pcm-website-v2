@@ -8,6 +8,7 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     addressId: 'addr-1',
     shippingMethod: 'home',
     invoice: { type: 'personal' },
+    cartSessionId: '11111111-1111-1111-1111-111111111111',
     ...over,
   };
 }
@@ -18,6 +19,18 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     expect(args.p_lines).toEqual([{ variant_id: 'v1', qty: 2 }]);
     expect(args.p_address_id).toBe('addr-1');
     expect(args.p_shipping_method).toBe('home');
+  });
+
+  it('3DS-0b:cartSessionId → p_cart_session_id(camelCase→snake_case;cart-instance key)', () => {
+    const args = mapPlaceOrderToCreateOrderArgs(input({ cartSessionId: 'cs-abc' }));
+    expect(args.p_cart_session_id).toBe('cs-abc');
+  });
+
+  it('🔴 wire 鍵集合鎖定恰 5 鍵(db push 前守門:typecheck 對多加鍵盲、改測試鎖鍵集合 + db push 後重 gen 抓少鍵)', () => {
+    const args = mapPlaceOrderToCreateOrderArgs(input());
+    expect(Object.keys(args).sort()).toEqual(
+      ['p_address_id', 'p_cart_session_id', 'p_invoice', 'p_lines', 'p_shipping_method'].sort(),
+    );
   });
 
   it('複合鍵 line → {supplier_slug, sku, qty}(S3a 後 sku 非全域唯一防撞)', () => {

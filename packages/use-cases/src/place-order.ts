@@ -27,5 +27,10 @@ export async function placeOrder(
   if (input.lines.length === 0) {
     throw new Error('placeOrder: 購物車為空、無法建單');
   }
+  // 3DS-0b 縱深:cart_session_id 為 create_order 5-param 必填(RPC 入口 null fail-closed RAISE);
+  // delivery 漏填即擋、不打 DB(對齊空車 guard;option A 由 server action randomUUID 產)。
+  if (!input.cartSessionId) {
+    throw new Error('placeOrder: 缺 cart_session_id、無法建單');
+  }
   return orderRepo.placeOrder(input);
 }

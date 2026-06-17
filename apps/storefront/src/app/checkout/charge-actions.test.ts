@@ -43,6 +43,11 @@ vi.mock('@/lib/payment/cardholder', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: async () => ({ auth: { getUser: () => mockGetUser() } }),
 }));
+// 3DS-0b:固定 randomUUID 以斷言 cart_session_id 由 server 產(非 client 偽造);保留其餘 crypto 匯出。
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:crypto')>()),
+  randomUUID: () => 'aaaaaaaa-0000-4000-8000-00000000cafe',
+}));
 
 async function getAction() {
   const m = await import('./charge-actions');
@@ -176,6 +181,7 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
         amount: { amount: 1, currency: 'TWD' }, // 竄改金額 → 不讀
         cardholder: { name: '駭', email: 'x@x', phoneNumber: '000' }, // 竄改持卡人 → 不讀
         orderId: 'order-fake-999', // 竄改單號 → 不讀
+        cartSessionId: 'CLIENT-FORGED-cart-uuid', // 竄改 cart key → server 覆蓋、不讀
         lines: [{ variantId: VARIANT, quantity: 2, unitPrice: 1, tier: 'store' }], // zod strip
       }),
     );
@@ -188,6 +194,9 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     });
     const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
     expect(placeOrderInput.lines).toEqual([{ variantId: VARIANT, quantity: 2 }]); // strip 竄改鍵
+    // 🔴 3DS-0b:cart_session_id 由 server 產(randomUUID mock 值)、client 偽造不採用。
+    expect(placeOrderInput.cartSessionId).toBe('aaaaaaaa-0000-4000-8000-00000000cafe');
+    expect(placeOrderInput.cartSessionId).not.toBe('CLIENT-FORGED-cart-uuid');
   });
 });
 

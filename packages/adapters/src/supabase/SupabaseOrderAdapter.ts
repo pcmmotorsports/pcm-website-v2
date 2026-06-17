@@ -28,8 +28,9 @@ import {
  * 無法忠實重建(backlog #217、傾向改 productId optional);故本片讀方法明確 deferred-stub、延 stage ③
  * 訂單查詢(plan §7)。
  *
- * #106:client 注入 `SupabaseClient<Database>` generic、`.rpc('create_order', args)` 入參形狀 + findTotal
- * 欄位皆 compile 期檢;`data as unknown as CreateOrderRpcResult` **保留**(create_order RPC generated
+ * #106:client 注入 `SupabaseClient<Database>` generic、findTotal 欄位 compile 期檢;⚠️ 3DS-0b 期間
+ * `.rpc('create_order', args)` 入參暫走 db-push-pending 窄 cast(mapper 已 5-param、generated 仍 4-param、
+ * 見 placeOrder 撤除條件);`data as unknown as CreateOrderRpcResult` **保留**(create_order RPC generated
  * `Returns: Json`、wire 為 narrowed `{order_id, display_id}` DTO、Json→DTO 須 cast;非 type-safety 漏洞、
  * 是 RPC jsonb scalar 邊界的正當投射)。RPC `RETURNS jsonb` scalar → data 即該物件、不需 `.single()`。
  */
@@ -42,9 +43,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * RPC 錯誤(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw 慣例);回 `{orderId, displayId}`。
    */
   async placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
+    // 3DS-0b db-push-pending(#106 documented cast):mapper 已輸出 5-param(含 p_cart_session_id)對齊 0b
+    // create_order 簽名,但 database.types.ts 仍反映 LIVE 4-param prod schema(未 db push)→ 窄 cast 撐過。
+    // 🔴 撤除條件:Sean db push 整 bundle 後 `supabase gen types` 重 gen database.types.ts(Args 變 5-param)
+    //   → 移除本 cast,恢復「少必填鍵」正向 drift 偵測。本片守門靠 mapper test 鎖輸出恰 5 鍵(非 typecheck)。
     const { data, error } = await this.supabase.rpc(
       'create_order',
-      mapPlaceOrderToCreateOrderArgs(input),
+      mapPlaceOrderToCreateOrderArgs(input) as unknown as Database['public']['Functions']['create_order']['Args'],
     );
     if (error) {
       throw error;

@@ -21,6 +21,7 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     addressId: '00000000-0000-4000-8000-000000000000',
     shippingMethod: 'home',
     invoice: { type: 'personal' },
+    cartSessionId: '11111111-1111-1111-1111-111111111111',
     ...over,
   };
 }
@@ -54,6 +55,14 @@ describe('placeOrder', () => {
     const repo = makeRepo({ placeOrder: place });
 
     await expect(placeOrder(repo, input({ lines: [] }))).rejects.toThrow('購物車為空');
+    expect(place).not.toHaveBeenCalled();
+  });
+
+  it('3DS-0b fail-closed:缺 cartSessionId throw、不打 repo(create_order 5-param 必填縱深)', async () => {
+    const place = vi.fn();
+    const repo = makeRepo({ placeOrder: place });
+
+    await expect(placeOrder(repo, input({ cartSessionId: '' }))).rejects.toThrow('cart_session_id');
     expect(place).not.toHaveBeenCalled();
   });
 

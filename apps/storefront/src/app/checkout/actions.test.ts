@@ -32,6 +32,11 @@ vi.mock('@/lib/auth/composition', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: () => mockCreateServerSupabaseClient(),
 }));
+// 3DS-0b:固定 randomUUID 以斷言 cart_session_id 由 server 產(非 client 偽造);保留其餘 crypto 匯出。
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:crypto')>()),
+  randomUUID: () => 'aaaaaaaa-0000-4000-8000-00000000cafe',
+}));
 
 async function getAction() {
   const m = await import('./actions');
@@ -150,9 +155,10 @@ describe('placeOrderAction(M-3-S2-b2-e3b server action)', () => {
     const placeOrderAction = await getAction();
     await placeOrderAction(
       validInput({
-        // 攻擊面:client 偽造 userId/tier + 線塞 price/tier → 必被收窄 / strip。
+        // 攻擊面:client 偽造 userId/tier/cartSessionId + 線塞 price/tier → 必被收窄 / strip / server 覆蓋。
         userId: 'attacker-uid',
         tier: 'store',
+        cartSessionId: 'CLIENT-FORGED-cart-uuid',
         lines: [{ variantId: VARIANT_ID, quantity: 2, unitPrice: 1, tier: 'store' }],
       }),
     );
@@ -163,11 +169,15 @@ describe('placeOrderAction(M-3-S2-b2-e3b server action)', () => {
       lines: Array<Record<string, unknown>>;
       addressId: string;
       shippingMethod: string;
+      cartSessionId: string;
     };
     expect(input).not.toHaveProperty('userId');
     expect(input).not.toHaveProperty('tier');
     expect(input.addressId).toBe(ADDRESS_ID);
     expect(input.shippingMethod).toBe('home');
+    // 🔴 3DS-0b:cart_session_id 由 server 產(randomUUID mock 值)、client 偽造不採用(CheckoutInput strip + server 覆蓋)。
+    expect(input.cartSessionId).toBe('aaaaaaaa-0000-4000-8000-00000000cafe');
+    expect(input.cartSessionId).not.toBe('CLIENT-FORGED-cart-uuid');
     // 線只剩 {variantId, quantity} —— 竄改的 unitPrice/tier 被 PlaceOrderLinesInput zod strip。
     expect(input.lines).toEqual([{ variantId: VARIANT_ID, quantity: 2 }]);
     expect(input.lines[0]).not.toHaveProperty('unitPrice');

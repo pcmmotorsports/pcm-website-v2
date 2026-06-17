@@ -11,7 +11,7 @@
 // - ② CheckoutInput.safeParse(只驗 addressId/shippingMethod/invoice、strip 未知欄 + invoice superRefine)
 //      + PlaceOrderLinesInput.safeParse(購物車線獨立 zod、不在 CheckoutInput)。
 //      🔴 線缺/非法 variantId → REJECT 整單(回 formError)、不略過壞行續建單(寫入路徑 vs 顯示路徑 resolveCartLines)。
-// - ③ 組 domain PlaceOrderInput(lines/addressId/shippingMethod/invoice):**零 userId / tier / price**
+// - ③ 組 domain PlaceOrderInput(lines/addressId/shippingMethod/invoice/cartSessionId〔server randomUUID 產〕):**零 userId / tier / price**
 //      (型別層即無此欄;client 永不送價,價由 RPC server 權威算)。
 // - ④ create_order SECURITY DEFINER RPC 內 auth.uid() 重查身分 + orders RLS own-only(跨 user 建單被擋)。
 // - ⑤ create_order RPC server 權威算價(恆 price_general、tier_at_checkout 恆 general)+ 快照白名單 + 下架/防撞(🔴 #214a:缺貨改 availability_at_checkout 快照不擋、訂貨型)。
@@ -23,6 +23,7 @@
 // - fieldErrors 逐欄(含巢狀 invoice,對齊 CheckoutInput superRefine path);formError 帳號/建單層級。
 // - displayId 為建單回傳的人類可讀單號(PlaceOrderResult、零價結構);成功頁只用此、不讀回訂單明細(讀路徑 stage③)。
 
+import { randomUUID } from 'node:crypto';
 import { placeOrder } from '@pcm/use-cases';
 import { CheckoutInput, PlaceOrderLinesInput } from '@pcm/schemas';
 import type { PlaceOrderInput, PlaceOrderLine } from '@pcm/domain';
@@ -107,6 +108,9 @@ export async function placeOrderAction(input: unknown): Promise<PlaceOrderAction
     addressId: parsedCheckout.data.addressId,
     shippingMethod: parsedCheckout.data.shippingMethod,
     invoice: parsedCheckout.data.invoice,
+    // 3DS-0b option A(過渡):cart_session_id 由 server 產(per-call uuid)滿足 create_order 5-param
+    //   null fail-closed;不信任 client 送值(型別層亦無此欄)。Phase II 3DS-7 改 client CartContext 產。
+    cartSessionId: randomUUID(),
   };
 
   // 信任邊界 ④/⑤:placeOrder → getOrderRepo(authenticated client、非 service_role)→ create_order RPC

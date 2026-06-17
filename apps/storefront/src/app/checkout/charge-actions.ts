@@ -26,6 +26,7 @@
 // - in_flight → locked(user_in_flight):🔴 不帶 displayId(此請求的新單零扣款、不得以
 //   「付款單號/已收」呈現;codex 關卡1 round3 C)。
 
+import { randomUUID } from 'node:crypto';
 import { placeOrder, confirmPayment } from '@pcm/use-cases';
 import { CheckoutInput, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
 import type { ConfirmPaymentOutcome, PlaceOrderInput, PlaceOrderLine } from '@pcm/domain';
@@ -128,6 +129,9 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       addressId: parsedCheckout.data.addressId,
       shippingMethod: parsedCheckout.data.shippingMethod,
       invoice: parsedCheckout.data.invoice,
+      // 3DS-0b option A(過渡):cart_session_id 由 server 產(per-call uuid)滿足 create_order 5-param
+      //   null fail-closed;不信任 client 送值。Phase II 3DS-7 改 client CartContext 產。
+      cartSessionId: randomUUID(),
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);
