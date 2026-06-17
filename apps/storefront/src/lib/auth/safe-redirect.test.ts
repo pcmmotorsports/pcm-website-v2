@@ -57,3 +57,17 @@ describe('sanitizeNextParam — open-redirect 攻擊向量全擋', () => {
     expect(sanitizeNextParam(input)).toBe(POST_AUTH_REDIRECT);
   });
 });
+
+describe('sanitizeNextParam — encoded / Unicode 空白:不解碼、同源字面放行(codex 關卡2 regression)', () => {
+  // 🔴 本函式刻意「不解碼」:%2f / %E2%80%83 等被當字面 path 字元、結果仍是單一 '/' 開頭的同源路徑(瀏覽器
+  //    對當前 origin 解析、%2f 不當路徑分隔、不跨站;codex 關卡2 以 new URL 實證皆 same-origin)。
+  //    query 來源的 next 由 URLSearchParams 先解碼一次 → '%2f%2f' 解碼成 '//' 後落入上面 protocol-relative 攔截。
+  //    故 encoded payload 在「query→解碼→sanitize」全鏈安全;此處鎖定「raw 字面同源、不被誤判可放行外站」契約。
+  it.each([
+    ['/%2f%2fevil.com', '/%2f%2fevil.com'], // %2f 未解碼、同源字面
+    ['/%252f%252fevil.com', '/%252f%252fevil.com'], // double-encode、同源字面
+    ['/\u2003//evil.com', '/\u2003//evil.com'], // U+2003 em-space 非控制字元(>0x20)、'/' 後接非 '/' → 同源
+  ])('raw encoded %j 視為同源字面、原樣放行', (input, expected) => {
+    expect(sanitizeNextParam(input)).toBe(expected);
+  });
+});

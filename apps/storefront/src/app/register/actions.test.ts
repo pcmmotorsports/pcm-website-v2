@@ -66,6 +66,16 @@ describe('registerAction(信任邊界 + #181 雙通道)', () => {
     expect(redirectSpy).toHaveBeenCalledWith('/');
   });
 
+  it('#190:合法 next → 直登導回 next(/account、同源白名單放行;codex 關卡2 regression)', async () => {
+    await registerAction(VALID, '/account');
+    expect(redirectSpy).toHaveBeenCalledWith('/account');
+  });
+
+  it('#190:惡意 next(絕對 URL)→ server 白名單擋成 /(open-redirect 防護;codex 關卡2 regression)', async () => {
+    await registerAction(VALID, 'https://evil.com');
+    expect(redirectSpy).toHaveBeenCalledWith('/');
+  });
+
   it('agree≠true → zod literal(true) 擋 → fieldErrors.agree、不呼叫 use-case、不 redirect', async () => {
     const result = await registerAction({ ...VALID, agree: false });
     expect(result?.fieldErrors?.agree).toBeDefined();
