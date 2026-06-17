@@ -14,6 +14,7 @@ import { PaymentConfirmError } from '@pcm/domain';
  *
  * ```
  * 1. attempts.begin(佔 per-order 鎖 + per-user 閘)— throw 上拋(零 charge 安全);!acquired → locked
+ *    | settlement_required(3DS-0b cart dedup duplicate/needs_settle)
  * 2. tappay.charge — throw → charge_unknown(不標記、pending 續持鎖 fail-closed)
  * 3. status='failed' → markFailed(複合主軌 ×3 釋鎖);全敗 → charge_failed(recordPersisted:false)
  * 4. charge 成功 → 🔴 markCharged(複合雙軌 主×3→備×2)、先於 PF-X3/confirm(PF-X1 麵包屑);
@@ -46,6 +47,13 @@ export async function confirmPayment(
   // 1. 🔴 先佔鎖再 charge(PF-X2;指令字面)。begin throw(infra)→ 上拋:零 charge、action 吞通用字面。
   const lock = await attempts.begin(orderId);
   if (!lock.acquired) {
+    // 🔴 codex K1 must-fix 2:duplicate/needs_settle(3DS-0b cart-instance dedup)≠ 撞鎖,不得 alias 成
+    //    locked(silent drift)→ 獨立 outcome settlement_required(非 locked 非 paid;②-③ 映「狀態確認中」)。
+    //    TODO(3DS-1b settleCharge):option A per-call cart_session_id(每次新 UUID)下 begin dedup 恆 0
+    //    sibling → 此分支 dormant/unreachable;#3DS-7 client cart key 整合後由 settleCharge 完整消費 D2/D4。
+    if (lock.reason === 'duplicate' || lock.reason === 'needs_settle') {
+      return { kind: 'settlement_required' };
+    }
     return { kind: 'locked', reason: lock.reason };
   }
 

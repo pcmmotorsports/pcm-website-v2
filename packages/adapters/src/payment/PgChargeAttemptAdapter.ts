@@ -164,10 +164,24 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
   }
 }
 
-/** 解析 begin RPC jsonb `{acquired, attempt_id?, fallback_token?, reason?}`;形狀不符 → throw(action 通用字面)。 */
+/**
+ * 解析 begin RPC jsonb `{acquired, attempt_id?, fallback_token?, reason?, existing_*?}`;形狀不符 → throw
+ * (action 通用字面)。reason 域:acquired:false 的 user_in_flight/order_locked/not_unpaid(ChargeLockReason)
+ * + 3DS-0b cart dedup 的 duplicate/needs_settle(各帶 existing_* 欄);未知 reason 仍 throw。
+ */
 function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAttemptResult {
   const r = rows[0]?.result as
-    | { acquired?: unknown; attempt_id?: unknown; fallback_token?: unknown; reason?: unknown }
+    | {
+        acquired?: unknown;
+        attempt_id?: unknown;
+        fallback_token?: unknown;
+        reason?: unknown;
+        existing_display_id?: unknown;
+        existing_paid?: unknown;
+        existing_order_id?: unknown;
+        existing_rec_trade_id?: unknown;
+        existing_bank_transaction_id?: unknown;
+      }
     | undefined;
   if (!r || typeof r.acquired !== 'boolean') {
     throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
@@ -177,6 +191,45 @@ function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAtte
       throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
     }
     return { acquired: true, attemptId: r.attempt_id, fallbackToken: r.fallback_token };
+  }
+  // 🔴 3DS-0b cart-instance dedup outcome(在既有 3-reason 前加 2 分支;形狀不符 → throw)。
+  if (r.reason === 'duplicate') {
+    // D2:sibling 已 paid。existing_display_id 必字串;existing_paid 必 true(此 reason 的定義)。
+    if (typeof r.existing_display_id !== 'string' || r.existing_paid !== true) {
+      throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
+    }
+    return {
+      acquired: false,
+      reason: 'duplicate',
+      existingDisplayId: r.existing_display_id,
+      existingPaid: true,
+    };
+  }
+  if (r.reason === 'needs_settle') {
+    // D4:sibling 扣款跡象未確認。order_id/display_id 必字串。
+    if (typeof r.existing_order_id !== 'string' || typeof r.existing_display_id !== 'string') {
+      throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
+    }
+    // rec_trade_id/bank_transaction_id nullable 慣例:容忍 JSON null(pending orphan 無 rec)+ 缺欄
+    //   (bank_transaction_id 欄 0c 才加 → 0b-only 階段 undefined);🔴 但 number/object/false 等錯型別 =
+    //   RPC 契約違反、不靜默轉 null → fail-closed throw(codex 關卡2 must-fix;比同檔 parseActiveAttempt
+    //   寬鬆 coercion 更嚴、強化 payment 路徑 bug 可追蹤性)。
+    const rec = r.existing_rec_trade_id;
+    const bank = r.existing_bank_transaction_id;
+    if (
+      (rec !== null && rec !== undefined && typeof rec !== 'string') ||
+      (bank !== null && bank !== undefined && typeof bank !== 'string')
+    ) {
+      throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');
+    }
+    return {
+      acquired: false,
+      reason: 'needs_settle',
+      existingOrderId: r.existing_order_id,
+      existingDisplayId: r.existing_display_id,
+      existingRecTradeId: typeof rec === 'string' ? rec : null,
+      existingBankTransactionId: typeof bank === 'string' ? bank : null,
+    };
   }
   if (r.reason !== 'user_in_flight' && r.reason !== 'order_locked' && r.reason !== 'not_unpaid') {
     throw new ChargeAttemptParseError('begin_charge_attempt 回應格式異常');

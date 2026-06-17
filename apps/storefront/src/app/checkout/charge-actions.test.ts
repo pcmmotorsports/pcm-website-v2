@@ -240,6 +240,17 @@ describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
     });
   });
 
+  it('🔴 settlement_required(3DS-0b dedup duplicate/needs_settle)→ processing UI + 獨立「狀態確認中」文案(非「付款失敗」)+ displayId', async () => {
+    mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required' });
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'processing',
+      displayId: 'PCM-2026-0001',
+      message: '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認',
+    });
+  });
+
   it('🔴 locked/user_in_flight → in_flight、**無 displayId 屬性**(round3 C:新單零扣款不給單號)', async () => {
     mockConfirmPayment.mockResolvedValue({ kind: 'locked', reason: 'user_in_flight' });
     const action = await getAction();

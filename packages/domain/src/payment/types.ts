@@ -220,7 +220,19 @@ export type ConfirmPaymentOutcome =
    * - `order_locked`:同單已有 active attempt(pending/charged)→ 映 processing(勿重複付款)。
    * - `not_unpaid`:order 非 unpaid(已 paid 等;與撞鎖同層級、RPC 不洩具體狀態)→ 映 processing。
    */
-  | { kind: 'locked'; reason: ChargeLockReason };
+  | { kind: 'locked'; reason: ChargeLockReason }
+  /**
+   * `settlement_required`:begin 偵測同 cart_session_id 異單已扣款/扣款中(3DS-0b dedup duplicate/needs_settle)、
+   * **零本次扣款**(begin !acquired、charge 未跑)→ ②-③ 映「狀態確認中、請勿重複付款」(非「付款失敗」、非 paid、非 locked)。
+   *
+   * 🔴 codex 關卡1 must-fix 2:**不得 alias 成 `{kind:'locked',reason:'order_locked'}`**(duplicate/needs_settle
+   * 語意 ≠ 撞鎖、silent drift)。
+   * TODO(3DS-1b settleCharge):option A per-call cart_session_id(每次新 UUID)下 begin dedup 恆 0 sibling →
+   * 此 outcome dormant/unreachable;client cart key 整合(#3DS-7)後由 settleCharge 完整消費 D2(duplicate→顯既有單)
+   * / D4(needs_settle→Record 即時裁決:paid→duplicate / 明確失敗→放行重刷 / 模糊→短 hold)。
+   * 不擴帶 existing_* 結構(留 3DS-1b);此 outcome 僅標「需結算確認」。
+   */
+  | { kind: 'settlement_required' };
 
 /** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
 export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
@@ -233,7 +245,28 @@ export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
  */
 export type BeginChargeAttemptResult =
   | { acquired: true; attemptId: string; fallbackToken: string }
-  | { acquired: false; reason: ChargeLockReason };
+  | { acquired: false; reason: ChargeLockReason }
+  /**
+   * 🔴 3DS-0b cart-instance dedup(D2):同 user 同 cart_session_id 異單、sibling 已 paid → DB 確定既有單
+   * 已完成付款(begin RPC `reason:'duplicate'`、帶 `existingDisplayId`;`existingPaid` 恆 `true` = 此 reason 的
+   * 定義)。本 commit use-case 僅收斂成 settlement_required(不污染 ChargeLockReason)、**尚未上帶 existingDisplayId
+   * 顯既有單號**;「照實顯既有單號」(D2)留 3DS-1b settleCharge 接手。
+   */
+  | { acquired: false; reason: 'duplicate'; existingDisplayId: string; existingPaid: true }
+  /**
+   * 🔴 3DS-0b cart-instance dedup(D4):同 user 同 cart_session_id 異單、sibling 有扣款跡象但 DB 無法確定
+   * 錢扣了沒(charged-未-paid / pending-未-paid orphan)→ 交 3DS-1b settleCharge Record 即時裁決(begin RPC
+   * `reason:'needs_settle'`)。`existingRecTradeId`/`existingBankTransactionId` 可為 null(pending orphan 無
+   * rec=JSON null;bank_transaction_id 欄 0c 才加 → 0b-only 階段缺欄、adapter nullable 慣例容忍)。
+   */
+  | {
+      acquired: false;
+      reason: 'needs_settle';
+      existingOrderId: string;
+      existingDisplayId: string;
+      existingRecTradeId: string | null;
+      existingBankTransactionId: string | null;
+    };
 
 /**
  * MarkChargeAttemptChargedInput:PF-X1 麵包屑寫入(charge 成功、confirm 前;雙鍵驗 attemptId+orderId

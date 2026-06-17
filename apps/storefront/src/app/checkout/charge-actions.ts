@@ -21,7 +21,8 @@
 // - charge_failed(recordPersisted:true)→ 卡拒未扣款、可立即重試。
 // - charge_failed_wait(recordPersisted:false、round5 MF1)→ 誠實「未扣款」+ 請稍候(鎖殘留、
 //   per-user 閘 10 分鐘自動過期;不誘導立即重試、不謊稱「已收」)。
-// - processing → charge_unknown / orphan(全 reason)/ locked(order_locked|not_unpaid):
+// - processing → charge_unknown / orphan(全 reason)/ locked(order_locked|not_unpaid)/
+//   settlement_required(3DS-0b dedup duplicate/needs_settle、本次零扣款、獨立「狀態確認中」文案):
 //   勿重複付款(成功真相 = confirm 成功;重試走 ②-⑥ 冪等 confirm 非重 charge)。
 // - in_flight → locked(user_in_flight):🔴 不帶 displayId(此請求的新單零扣款、不得以
 //   「付款單號/已收」呈現;codex 關卡1 round3 C)。
@@ -46,6 +47,7 @@ const MSG = {
   chargeFailed: '付款未成功,請確認卡片資訊後重試',
   chargeFailedWait: '付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試',
   processing: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認',
+  settlementRequired: '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認',
   inFlight: '您有一筆付款正在處理中,請稍候再試',
 } as const;
 
@@ -192,6 +194,12 @@ function mapOutcome(outcome: ConfirmPaymentOutcome, displayId: string): ChargePa
     case 'charge_unknown':
     case 'orphan':
       return { ok: false, payment: 'processing', displayId, message: MSG.processing };
+    case 'settlement_required':
+      // 🔴 3DS-0b dedup(duplicate/needs_settle):同 cart 異單已扣款/扣款中、**本次零扣款** →
+      //    沿用 processing UI 終態(清車 + 勿重複付款 + 客服 LINE),但獨立「狀態確認中」文案(非「付款失敗」、
+      //    不走 generic catch);domain 層保持獨立 settlement_required kind(不 alias locked),此處僅 presentation
+      //    映射故無需新增 client UI 態。option A 下 dormant;#3DS-7 client cart key + 3DS-1b settleCharge 後完整消費 D2/D4。
+      return { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
     case 'locked':
       return outcome.reason === 'user_in_flight'
         ? { ok: false, payment: 'in_flight', message: MSG.inFlight } // 🔴 無 displayId(round3 C)

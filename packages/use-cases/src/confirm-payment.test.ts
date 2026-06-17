@@ -87,6 +87,42 @@ describe('confirmPayment — 鎖(PF-X2、②-③c-2 織入)', () => {
     },
   );
 
+  it('🔴 begin !acquired duplicate(3DS-0b D2)→ settlement_required(非 locked/paid)、零 charge 零 confirm', async () => {
+    const d = deps({
+      attempts: makeAttempts({
+        begin: vi.fn(async () => ({
+          acquired: false as const,
+          reason: 'duplicate' as const,
+          existingDisplayId: 'PCM-2026-0009',
+          existingPaid: true as const,
+        })),
+      }),
+    });
+    const out = await confirmPayment(d, INPUT);
+    expect(out).toEqual({ kind: 'settlement_required' });
+    expect(d.tappay.charge).not.toHaveBeenCalled();
+    expect(d.confirmer.confirm).not.toHaveBeenCalled();
+  });
+
+  it('🔴 begin !acquired needs_settle(3DS-0b D4)→ settlement_required(非 locked/paid)、零 charge 零 confirm', async () => {
+    const d = deps({
+      attempts: makeAttempts({
+        begin: vi.fn(async () => ({
+          acquired: false as const,
+          reason: 'needs_settle' as const,
+          existingOrderId: 'order-uuid-2',
+          existingDisplayId: 'PCM-2026-0010',
+          existingRecTradeId: null,
+          existingBankTransactionId: null,
+        })),
+      }),
+    });
+    const out = await confirmPayment(d, INPUT);
+    expect(out).toEqual({ kind: 'settlement_required' });
+    expect(d.tappay.charge).not.toHaveBeenCalled();
+    expect(d.confirmer.confirm).not.toHaveBeenCalled();
+  });
+
   it('begin throw(infra)→ 原樣上拋(零 charge 安全、action 吞通用字面)', async () => {
     const d = deps({
       attempts: makeAttempts({

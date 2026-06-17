@@ -74,6 +74,88 @@ describe('PgChargeAttemptAdapter.begin', () => {
     );
   });
 
+  // ── 3DS-0b cart-instance dedup outcome(duplicate / needs_settle;在既有 3-reason 前分支)──
+
+  it('reason=duplicate(D2 sibling 已 paid)→ 映 {existingDisplayId, existingPaid:true}(snake→camel)', async () => {
+    const { client } = makeClient({
+      query: async () =>
+        beginRows({
+          acquired: false,
+          reason: 'duplicate',
+          existing_display_id: 'PCM-2026-0009',
+          existing_paid: true,
+        }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
+    expect(res).toEqual({
+      acquired: false,
+      reason: 'duplicate',
+      existingDisplayId: 'PCM-2026-0009',
+      existingPaid: true,
+    });
+  });
+
+  it('reason=needs_settle(D4 charged-未-paid)happy 全欄 → snake→camel(rec/bank 皆非 null)', async () => {
+    const { client } = makeClient({
+      query: async () =>
+        beginRows({
+          acquired: false,
+          reason: 'needs_settle',
+          existing_order_id: 'order-uuid-2',
+          existing_display_id: 'PCM-2026-0010',
+          existing_rec_trade_id: 'REC-A2',
+          existing_bank_transaction_id: 'BANK-1',
+        }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
+    expect(res).toEqual({
+      acquired: false,
+      reason: 'needs_settle',
+      existingOrderId: 'order-uuid-2',
+      existingDisplayId: 'PCM-2026-0010',
+      existingRecTradeId: 'REC-A2',
+      existingBankTransactionId: 'BANK-1',
+    });
+  });
+
+  it('🔴 needs_settle nullable 慣例:缺 bank_transaction_id 欄(0b-only)+ rec 為 JSON null(pending orphan)→ 皆 null', async () => {
+    const { client } = makeClient({
+      query: async () =>
+        beginRows({
+          acquired: false,
+          reason: 'needs_settle',
+          existing_order_id: 'order-uuid-3',
+          existing_display_id: 'PCM-2026-0011',
+          existing_rec_trade_id: null, // pending orphan 無 rec
+          // existing_bank_transaction_id 缺欄(0c 才加)
+        }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).begin(ORDER);
+    expect(res).toEqual({
+      acquired: false,
+      reason: 'needs_settle',
+      existingOrderId: 'order-uuid-3',
+      existingDisplayId: 'PCM-2026-0011',
+      existingRecTradeId: null,
+      existingBankTransactionId: null,
+    });
+  });
+
+  it.each([
+    ['duplicate 缺 existing_display_id', beginRows({ acquired: false, reason: 'duplicate', existing_paid: true })],
+    ['duplicate existing_paid 非 true', beginRows({ acquired: false, reason: 'duplicate', existing_display_id: 'PCM-1', existing_paid: false })],
+    ['needs_settle 缺 existing_order_id', beginRows({ acquired: false, reason: 'needs_settle', existing_display_id: 'PCM-1' })],
+    ['needs_settle 缺 existing_display_id', beginRows({ acquired: false, reason: 'needs_settle', existing_order_id: 'o2' })],
+    // 🔴 nullable 欄錯型別(非 string/null/undefined)= RPC 契約違反、不靜默轉 null → throw(codex 關卡2 must-fix)
+    ['needs_settle existing_rec_trade_id 為 number', beginRows({ acquired: false, reason: 'needs_settle', existing_order_id: 'o2', existing_display_id: 'PCM-1', existing_rec_trade_id: 123 })],
+    ['needs_settle existing_bank_transaction_id 為 object', beginRows({ acquired: false, reason: 'needs_settle', existing_order_id: 'o2', existing_display_id: 'PCM-1', existing_bank_transaction_id: { x: 1 } })],
+  ])('dedup outcome 形狀不符(%s)→ throw 通用(fail-closed)', async (_label, rows) => {
+    const { client } = makeClient({ query: async () => rows });
+    await expect(new PgChargeAttemptAdapter('conn', () => client).begin(ORDER)).rejects.toThrow(
+      '回應格式異常',
+    );
+  });
+
   it('connect 失敗 → throw 通用訊息 + code 屬性、不含 pg 原文;end 仍被呼', async () => {
     const { client, end } = makeClient({
       connect: async () => {
