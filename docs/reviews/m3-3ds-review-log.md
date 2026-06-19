@@ -450,3 +450,28 @@ route.ts 可執行碼對 b53fea5 byte-identical(兩 hunk 純註解)+ N1 gate 契
 **🔴 4d codex-K2 hard-gate 快照更新**:前棒 4c sign-off 列「放行 prod 部署 config 前必先 codex K2 PASS 對 b53fea5〔或 nit-fold 後 hash〕」→ 現 nit-fold 已落地 = **快照目標 `b53fea5 → d2381f7`**;因 route.ts 可執行碼 byte-identical,d2381f7 codex K2 與 b53fea5 行為等價(僅多註解)。quota 6/18 18:06 重置後對 **d2381f7** 補跑。
 
 **下一步 = 3DS-4d**(vercel.json crons、鐵則8 deploy config、gated;三前置〔CRON_SECRET prod 高熵 / CRON_SWEEPER_ENABLED 決策 / 4a 進 prod〕+ codex K2 對 d2381f7 補跑 PASS 並列硬前置)或 Sean 指派。哨兵 `bt010dz8d` 持續待命。
+
+---
+
+# 3DS-5a charge adapter 3DS 啟動 — 審查側 sign-off(寫審分離、哨兵 bjae1c42y)
+
+**commit:** `969eb0c`(初)→ **FAIL** → amend `96a2e79`(修)→ **PASS**。base dev `26a9da7`、branch `m3-3ds-5` worktree `/Users/sean_1/pcm-3ds-5`(線性 ancestor 驗過)。
+**範圍:** TapPay adapter 加 `initiateThreeDSCharge`(回 payment_url+rec、不請款)+ domain `TapPayInitiationPayload/Result`(只 pending_3ds、非成功一律 throw、無 failed)+ `generateBankTransactionId()` + wire 加 payment_url/bank_transaction_id 白名單 + ITapPayAdapter 方法 + 測。零 migration、零 .env、不動同步 charge/confirm-payment/charge-actions/useChargePayment 實作。
+
+## round1(`969eb0c`)= FAIL(1 must-fix + 1 consider;codex K2 獨立 + fresh Claude 雙審)
+- ① 解析不過寬釋鎖:**PASS** — 唯 status=0+payment_url+rec→pending_3ds、其餘(含 421/timeout/HTTP/格式)一律 throw、無 failed 態、回 caller payload bankTransactionId(非 wire)。
+- ② PII:**PASS** — logInitiation 只記 orderId/status/recTradeId/bankTransactionId;payment_url(token)/cardholder/rawResponse 零入 log(測實證)。
+- ③ body:**PASS** — three_domain_secure:true/result_url/bank_transaction_id、不送 delay_capture_in_days。
+- ④ 產生器數學:**PASS** — 19字 ^[A-Z0-9]{19}$、`byte&31` 零 modulo bias(256%32=0)、Crockford 無 ILOU、~2^90 熵。
+- ⑤ **client-bundle 邊界:FAIL(must-fix)** — generateBankTransactionId import node:crypto 經 @pcm/domain root barrel 匯出,而 useResolvedCart/CartView/CheckoutView('use client')**value-import** 該 barrel(實證:FREE_SHIPPING_THRESHOLD/calculateShippingFee/toMoneyAmount)+ package.json **無 sideEffects:false**(tree-shake 不可靠)+ base domain src **零 node: import**(本片首引入=回歸點)→ build 綠靠 tree-shake 僥倖、payment 邊界不該賭。執行側兩審查器原評 consider/follow-up watch、**審查側獨立 codex K2 + 三事實實證升 must-fix**。
+- consider:測試 wire bank_transaction_id 與 payload 同值,無法防未來誤改取 wire 值。
+- 重驗:turbo typecheck 7/7 + scripts typecheck **主repo 補驗綠**(5a 零動 scripts/、worktree .bin tsc symlink gap=環境非型別、memory od-worktree-typecheck-gotcha)+ lint + next build + full vitest **1205** 全綠;codex K2 零留痕。
+
+## round2(`96a2e79` amend)= PASS
+- **must-fix 解**:bank-transaction-id.ts 移除 node:crypto import、改 `globalThis.crypto.getRandomValues(new Uint8Array(18))` = Web Crypto 通用 CSPRNG、**零 node: import** → barrel isomorphic 安全、不依賴 tree-shake;保留 byte&31/P前綴/19字格式。
+- **consider 解**:加測試 wire 異值('WIRE_DIFFERENT_VAL')/缺欄 → 仍回 payload bankTransactionId(鎖死「回 caller 自產鍵非 wire」)。
+- **重驗(fresh 重跑)**:node:crypto 從 5a 全消(`git show 96a2e79:...bank-transaction-id.ts` 親驗、僅註解提及 + getRandomValues 碼)+ turbo typecheck 7/7 + lint 10/10 + next build storefront 編譯成功(node:crypto 移除無破壞)+ full vitest 125檔/**1206**測(+1 consider 測);scope 未擴(同 12 檔)。
+- **codex K2 round2 = 刻意跳(審查側 concur)**:must-fix 修法正是 codex round1 自薦的 globalThis.crypto、delta = 1 行 crypto API swap + 1 測 = 機械性 strictly-safer、零新邏輯/邊界/money/SQL → 不燒 codex 輪次(對齊 4c nit-fold 成本紀律先例);Claude fresh diff-trace + 全綠重驗 + node:crypto 全消已 proportionate。
+
+## ✅ 3DS-5a 審查側最終 sign-off = PASS(HEAD `96a2e79`、未 push)
+0 must-fix、0 殘留 nit。執行 session 可開 **5b**。整合(STATUS 7欄/busboy-end/pcm-roadmap/graphify/merge dev)deferred 至 m3-3ds-5 線收尾。哨兵 `bjae1c42y` 續盯 5b。
