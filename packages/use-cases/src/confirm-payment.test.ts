@@ -54,6 +54,9 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     claimStuckUnsettled: vi.fn(async () => []),
     markSettleRetry: vi.fn(async () => 1),
     flagNonUnpaidActive: vi.fn(async () => 0),
+    // 3DS-5b initiate 寫入 port 方法;confirm-payment(同步成交鏈)不呼用、stub 滿足介面。
+    recordInitiationBankTxn: vi.fn(async () => {}),
+    recordInitiationRec: vi.fn(async () => {}),
     ...over,
   };
 }

@@ -41,6 +41,13 @@ export type ChargeAttemptError = Error & { code?: string };
 /** 本層 RPC 回應解析錯誤(branded:sanitizeError 憑類別放行、不靠「無 code」啟發式)。 */
 class ChargeAttemptParseError extends Error {}
 
+/**
+ * 3DS-5b initiate 寫入 RPC 回 false = **未 durable**(branded、非「格式異常」):
+ * 異值不覆寫 / 非 pending / 查無 attempt。bank_txn 軌 → use-case 映 init_failed(零 TapPay);
+ * rec 軌 → use-case catch→log(best-effort)。sanitizeError 憑類別原樣放行(已通用、無 pg 原文)。
+ */
+class ChargeAttemptNotDurableError extends Error {}
+
 function defaultClientFactory(connectionString: string): PgClientLike {
   return new Client(buildPgConfig(connectionString)) as unknown as PgClientLike;
 }
@@ -90,6 +97,35 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
         [orderId],
       );
       return parseActiveAttempt(res.rows);
+    });
+  }
+
+  // ── M-3 3DS-5b initiate(record_charge_bank_txn / record_charge_pending_rec;主軌-only、RETURNS boolean persisted)──
+
+  /** 🔴 charge 前寫 bank_txn(雙鍵驗);RPC 回 false(未 durable)→ throw(use-case 映 init_failed、零 TapPay)。 */
+  async recordInitiationBankTxn(attemptId: string, orderId: OrderId, bankTxn: string): Promise<void> {
+    await this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.record_charge_bank_txn($1::uuid, $2::uuid, $3::text) AS result',
+        [attemptId, orderId, bankTxn],
+      );
+      if (!parseBooleanResult(res.rows, 'record_charge_bank_txn')) {
+        // false = 未 durable(異值不覆寫 / 非 pending / 查無)→ throw(codex 關卡1 #3:bank_txn 未落地不可送 TapPay)
+        throw new ChargeAttemptNotDurableError('record_charge_bank_txn 未 durable');
+      }
+    });
+  }
+
+  /** charge 後寫 rec、維持 pending;RPC 回 false(未 durable)→ throw(use-case best-effort catch→log、仍 redirect)。 */
+  async recordInitiationRec(attemptId: string, orderId: OrderId, recTradeId: string): Promise<void> {
+    await this.run(async (client) => {
+      const res = await client.query(
+        'SELECT public.record_charge_pending_rec($1::uuid, $2::uuid, $3::text) AS result',
+        [attemptId, orderId, recTradeId],
+      );
+      if (!parseBooleanResult(res.rows, 'record_charge_pending_rec')) {
+        throw new ChargeAttemptNotDurableError('record_charge_pending_rec 未 durable');
+      }
     });
   }
 
@@ -287,6 +323,15 @@ function parseStuckAttempt(row: Record<string, unknown>): StuckChargeAttempt {
   };
 }
 
+/** 解析 record_charge_bank_txn/record_charge_pending_rec RPC 回的 boolean persisted;非 boolean → throw(通用)。 */
+function parseBooleanResult(rows: Array<Record<string, unknown>>, fnLabel: string): boolean {
+  const result = rows[0]?.result;
+  if (typeof result !== 'boolean') {
+    throw new ChargeAttemptParseError(`${fnLabel} 回應格式異常`);
+  }
+  return result;
+}
+
 /** 解析 mark_attempt_settle_retry/flag_non_unpaid_active_attempts RPC 回的 affected integer;形狀不符 → throw(通用)。 */
 function parseAttemptAffectedCount(rows: Array<Record<string, unknown>>): number {
   const result = rows[0]?.result;
@@ -299,8 +344,8 @@ function parseAttemptAffectedCount(rows: Array<Record<string, unknown>>): number
 /** 通用訊息 + 安全 SQLSTATE(零 pg 原文/PII/token;本層 parse 錯誤憑 branded 類別放行 —— pg 也會丟
  *  無 code 的 plain Error〔Connection terminated 等〕、不可用「無 code」啟發式、code-reviewer minor 修)。 */
 function sanitizeError(err: unknown): ChargeAttemptError {
-  if (err instanceof ChargeAttemptParseError) {
-    return err; // 本層 throw(已通用、無 pg 原文)
+  if (err instanceof ChargeAttemptParseError || err instanceof ChargeAttemptNotDurableError) {
+    return err; // 本層 throw(已通用、無 pg 原文/token)
   }
   const code = (err as { code?: unknown } | null)?.code;
   const e: ChargeAttemptError = new Error(
