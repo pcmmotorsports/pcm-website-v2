@@ -589,3 +589,41 @@ route.ts 可執行碼對 b53fea5 byte-identical(兩 hunk 純註解)+ N1 gate 契
 
 ## ✅ 3DS-6a 審查側最終 sign-off = PASS(HEAD `6d076a5`、未 push)
 N1 命門兩 predicate 分開〔isHttpsUrl 允許 query、test 釘死對比〕+ flag 分岔正確〔off 同步不動/on initiatePayment〕+ preflight 零垃圾單 + 鐵則 12 server 權威〔orderId/amount/prime 同步同源〕+ 無 fake-paid + 壞 payment_url→processing 防雙扣 + Q1=A byte 等價抽出〔route 行為零變〕+ 零 log/零 client bundle 洩 + 三綠〔6a 乾淨 146 + full 1295〕+ codex K2 cross-model PASS zero-trace + 字面vs事實全對。**0 must-fix、3 forward nit(N-a host allowlist Phase II / N-b plan §2.4 spec / N-c N2 backlog,皆非 blocker)**。**未 push、未 db push**(零 migration)。**下一步 = 3DS-6b**(useChargePayment redirect 態 + CheckoutView early-return + CheckoutRedirecting;已見工作樹 WIP、落 commit 後單獨審)。哨兵 `b845nq6ad` 續盯。
+
+## 2026-06-19 — 3DS-6b commit `db3afbb` 關卡2(審查側、鐵則 12 client redirect、binding、fresh-context)
+
+`feat(payment): 3DS-6b client redirect 跳轉 TapPay + CheckoutRedirecting`。哨兵 `b845nq6ad` 抓到 → fresh pin `db3afbb`(parent=6d076a5 線性、**工作樹現乾淨**〔6a 審時的 6b WIP 已 commit、汙染解除〕、三綠前後 HEAD 皆 db3afbb)。diff = 6 client/test + manifest + backlog;**零 server/charge-actions/three-ds-urls/notify-secret/migration/env**(純 client 接線)。
+
+**驗證矩陣(逐項實證):**
+
+| 項 | 結果 | 實證 |
+|---|---|---|
+| redirect 態接線 | ✅ | useChargePayment 在 `'ok' in res` **前**攔截 `'redirect' in res && res.redirect`(redirect shape 無 ok/payment 鍵、避 fall-through 驗證層);其餘 6 態逐字不動 |
+| 🔴 redirect 不清車 | ✅ | redirect 分支**不呼 clear()**(留車、callback 成功頁才清、abandon 可回頭);test 雙釘 `cart.clear).not.toHaveBeenCalled()`(hook + View) |
+| 🔴 非終態 + UI 鎖 | ✅ | submit 回 `true`(primeBusyRef 不釋放、防導向前重送);state=redirect 非 paid;codex 確認「不顯示為 paid」 |
+| 🔴 payment_url 零 log + 零 DOM | ✅ | CheckoutRedirecting JSX **只渲染靜態文案、零顯示 redirectUrl**;redirectUrl 只進 `useEffect → window.location.assign`(零 console);test 斷言 `container.textContent.not.toContain(PAY_URL)` + `.not.toContain('token=...')` |
+| render 期零副作用 | ✅ | window.location.assign 封裝於 CheckoutRedirecting 的 `useEffect`(deps [redirectUrl]、無 disable);CheckoutView 只 early-return 渲染、零副作用 |
+| 鐵則 6(400 行) | ✅ | CheckoutView 394<400(抽 CheckoutRedirecting 子元件避超限);diff +6 行(388→394) |
+| 🔴 無 client 可控 redirect 源 | ✅ | redirectUrl 唯一來源 = chargePaymentAction 回傳(6a 已 isHttpsUrl 驗);codex 獨立確認無替代未信任源 |
+| 鐵則 1 design 保真 + 零新 CSS | ✅ | 沿用 CheckoutSuccess co-page/co-main/co-success-card/co-success-eyebrow/co-success-title/co-success-note(checkout.css L16/17/368/377/381/385 全存在);interstitial 文案 PCM 自撰(design 無 3DS redirect 態、同 failed/processing PCM 變體既例);scope 零 .css 檔變動 |
+| 三綠(乾淨 db3afbb) | ✅ | turbo typecheck/lint/build exit 0;full vitest **130 檔/1299/0 fail**(與 commit「1299(+4)」精確一致;工作樹乾淨=純快照、無 6a 審時的汙染) |
+| manifest 同步 | ✅ | CheckoutPage 加 CheckoutRedirecting.tsx + last_modified_commit=`6d076a5`(db3afbb 父、可達祖先、避 amend orphan #180 案 A)+ 完整 3DS-6 描述 |
+| backlog #239 | ✅ | N2(redirect 無 fallback 連結)完整條目〔問題/觸發/解法/不修會痛三視角/估時/依賴〕、🟡 低優先 sandbox-only、flag 對外開前補 → 解審查側 N-c forward nit |
+| 經銷價 client bundle | ✅ | .next/static ZERO price_store/priceByTier/price_by_tier |
+| 中間態誠實 | ✅ | flag off=同步現況、prod 結帳仍不可開;真實刷卡待 sandbox 3DS E2E + Sean 驗收 |
+| 字面 vs 事實 | ✅ | 1299/394 行/typecheck 7/7/不清車/payment_url 零顯示 逐條相符;manifest 可達性 gate「path-token ❌=worktree submodule 未 populated 環境 artifact〔#238 主樹已修〕」屬實揭示、非真斷鏈 |
+| 🔴 codex 關卡2 cross-model | ✅ PASS | `codex exec -s read-only -c service_tier=fast`、exit 0、**zero-trace OK**(PORCELAIN/HEAD UNCHANGED)。VERDICT=**PASS、0 must-fix**;4 點獨立確認(攔截順序/不清車/非終態/不顯 paid / useEffect 導向零 log / 無替代 redirect 源) |
+
+**🟡 殘留 nit(全非 blocker、forward):**
+- **🔴 N-d(codex 關卡2 抓、好觀察、forward 給 #239 實作)**:backlog #239 提的未來解法寫 `<a href={redirectUrl}>` → 會把 token URL 落進 **DOM href 屬性**(雖非 textContent、但頁面源碼/DevTools/analytics 可見)→ **違反 payment_url 零入 DOM 鐵則**。現行 CheckoutRedirecting 碼**無**此問題(純 assign);此為 #239 條目「解法」文字的潛在地雷。**修法**:#239 實作時改 **button + onClick→`window.location.assign(redirectUrl)`**(token 完全不落 DOM),非 `<a href>`。建議整線收尾時順手修 #239 解法文字。
+- **N-a/N-b carry(6a)**:N-a isHttpsUrl host allowlist(Phase II 加固);N-b plan §2.4 spec 文字未列 isHttpsUrl 測案(test 碼已有、純 doc-staleness)。
+
+## ✅ 3DS-6b 審查側最終 sign-off = PASS(HEAD `db3afbb`、未 push)
+redirect 攔截順序正確〔ok 前、避 fall-through〕+ 不清車〔留車 abandon 可回頭〕+ 非終態 UI 鎖〔submit 回 true〕+ payment_url 零 log 零 DOM〔test 斷言〕+ render 期零副作用〔useEffect 封裝〕+ 鐵則 6 394<400 + 無 client 可控 redirect 源 + 鐵則 1 零新 CSS 沿用 co-success + 三綠乾淨 1299 + manifest/backlog 同步 + codex K2 cross-model PASS zero-trace。**0 must-fix、3 forward nit(N-d #239 button-not-href〔codex〕/ N-a host allowlist / N-b plan §2.4 spec,皆非 blocker)**。**未 push、未 db push**(零 migration)。
+
+## ✅✅ 3DS-5a+5b+6 整線審查完成 — 全部 PASS,整合收尾待啟
+- **5a**(`96a2e79`)/ **5b**(`f476b1d`/`af391e4`/`ed08945`)/ **6a**(`6d076a5`)/ **6b**(`db3afbb`)= 全 PASS、0 殘留 must-fix。
+- **5b migration `20260619120000` 已在 prod**(list_migrations 實證、Sean 已 db push);6a/6b 零 migration → **db push 已了結、無待推 migration**。
+- **整合收尾(整線、待執行側 + Sean)**:① m3-3ds-5 worktree(5a→6b、tip db3afbb)merge → dev ② STATUS 7 欄 ③ busboy-end ④ /pcm-roadmap ⑤ /graphify --update ⑥ 可選順手修 backlog #239 解法文字(N-d button-not-href)。
+- **🔴 prod checkout 仍一律不可開**(中間態誠實):真實刷卡 = Phase I + 5a/5b + 6 全到位〔已〕+ `TAPPAY_3DS_ENABLED='true'`〔Sean sandbox 設〕+ `NEXT_PUBLIC_SITE_URL` 公開 https + `TAPPAY_NOTIFY_PATH_SECRET` ≥32 + sandbox 3DS E2E 過 + Sean 肉眼驗(同一決策點、Sean 拍)。
+- **未 push**(全線等 Sean 手動推);哨兵 `b845nq6ad` 可收(6 已完;若執行側續動再 arm)。
