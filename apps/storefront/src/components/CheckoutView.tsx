@@ -38,6 +38,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStep3 } from '@/components/CheckoutStep3';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
+import { CheckoutRedirecting } from '@/components/CheckoutRedirecting';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
@@ -156,6 +157,11 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   // 付款(無單號;hook 已清車 + 持鎖、不可重送)。
   if (charge.state.status === 'unknown') {
     return <CheckoutSuccess variant="unknown" message={charge.state.message} />;
+  }
+  // 🔴 3DS-6b(flag on 3DS 啟動成功):整頁導向 TapPay payment_url(導向副作用封裝於 CheckoutRedirecting
+  //   的 useEffect、render 期不副作用;付款狀態非終態、不清車)。
+  if (charge.state.status === 'redirect') {
+    return <CheckoutRedirecting redirectUrl={charge.state.redirectUrl} />;
   }
 
   if (cart.status === 'loading') {
