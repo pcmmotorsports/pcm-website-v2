@@ -555,3 +555,37 @@ route.ts 可執行碼對 b53fea5 byte-identical(兩 hunk 純註解)+ N1 gate 契
 **🟡 NIT(forward 到 6a、非 blocker)— fold 自身字面 vs 事實 gap**:§11 L285 宣稱「6a 測釘『帶 token query→redirect / 壞值→processing』兩案(§2.2/**§2.4**)」,但 **§2.4 測試列舉未實際更新**:① charge-actions.test 仍泛寫「`redirect`(合法 https payment_url)」、**未明確釘「payment_url 帶 `?token=` query → 仍 redirect」**;② three-ds-urls.test 只測 base/secret/buildResultUrls、**未為新 export 的 `isHttpsUrl` 加專屬測案**(尤缺「`isHttpsUrl('https://host?token=x')`→true、允許 query」)。需求已捕捉於 §2.2 + §11 文字,但未落進 §2.4 列舉 → 照 §2.4 寫無 query 的「合法 https」測,即使誤用 origin-only 驗證測也會綠、N1 bug 漏網。**disposition**:5cc5baa 未 push、可選 fold 進 6a(6a 本就動 §2.4 測);無論 plan §2.4 字面如何,**6a 關卡2 我親驗測試碼真含 token-query 案 + isHttpsUrl 允許-query 案**(binding hard-check、列入上方關卡2 ③)。
 
 **判定 = PASS**(docs-only、N1/Q1/N2 實質折入、N1 需求已捕捉於 §2.2/§11)。1 forward nit(§2.4 測案列舉)交 6a。哨兵續盯。
+
+## 2026-06-19 — 3DS-6a commit `6d076a5` 關卡2(審查側、鐵則 12 金流 delivery、binding、fresh-context)
+
+`feat(payment): 3DS-6a charge-actions flag 分岔回 redirect + 抽 notify-secret`。哨兵 `b845nq6ad` 抓到 → fresh pin `6d076a5`(parent=5cc5baa 線性、三綠跑前後 HEAD 皆 6d076a5)。diff = 7 code/test + plan ±4;**零 migration/env/sql/vercel/STATUS**(整合留整線、不碰 db push bundle)。
+
+**⚠️ 工作樹汙染揭示(誠實記帳)**:審查時 worktree 有**未 commit 的 6b WIP**(CheckoutView.tsx/.test + useChargePayment.tsx/.test 4 檔 M)—— 執行側未待 6a sign-off 即起 6b。故 full-vitest 跑在 `6d076a5 + 6b WIP` 上(非純快照)。緩解:① 6a 4 測試檔與 6b WIP **disjoint**(6a 動 charge-actions/three-ds-urls/notify-secret/route、6b 動 CheckoutView/useChargePayment)→ **單獨 filter 跑 6a-related 8 檔/146 pass/0 fail 乾淨**;② 全域 typecheck 綠**且 6b 已消費 6a 的 redirect variant** = 對 6a 型別反更強證據。code 審全程對不可變 `git show 6d076a5` 快照(非工作樹)。
+
+**驗證矩陣(逐項實證、非信 commit 字面):**
+
+| 項 | 結果 | 實證 |
+|---|---|---|
+| 🔴 N1 命門(isHttpsUrl vs base 兩 predicate) | ✅ | `three-ds-urls.ts`:`isHttpsUrl`(L64 **exported**、僅驗 protocol/hostname/無 credential、**不碰 search/hash/path**)vs `resolvePaymentBaseUrl`(L35 **不 export**、額外驗 search/hash/pathOk = origin-only);`isHttpsUrl` test 釘 `https://...tappaysdk.com/...?token=abc123→true`(帶 query)+ `https://host:8443/p?a=1#frag→true`,base test 釘 `https://host?x=1→throw`(query 對比);charge-actions 整合測 redirect payment_url 帶 `?token=abc`→`{redirect:true}` 非 processing。**誤用 origin-only 驗 payment_url 必被 test 紅** |
+| flag 分岔正確 | ✅ | flag off→threeDSConfig=null→`confirmPayment`(else 逐字不動);flag on→`initiatePayment`→`mapInitiateOutcome`;test:flag off→initiatePayment/resolveThreeDSConfig 零呼叫(回歸)、flag on→confirmPayment 零呼叫 |
+| 🔴 preflight 零垃圾單(codex k1 #3) | ✅ | `const threeDSConfig = isThreeDSEnabled() ? resolveThreeDSConfig() : null` 在 buildCardholder 後、**placeOrder 前**;resolveThreeDSConfig throw→既有 catch→MSG.generic;test 釘 throw→generic + **placeOrder 零呼叫** + initiatePayment 零呼叫(零扣款零垃圾單) |
+| 🔴 鐵則 12 server 權威 | ✅ | initiatePayment 收 `orderId=placed.orderId`(placeOrder 回)/`amount=total`(findTotal read-back、Money 整數)/`prime=parsedPrime.data`(L176,與同步 confirmPayment L195 **同源**)/cardholder=built;deps={tappay,attempts} **無 confirmer**(不 markCharged/confirm);test 斷言 client 塞值不採信 |
+| mapInitiateOutcome 映射 + 窮盡 | ✅ | redirect(isHttpsUrl 合法→redirect、壞值→processing settlementRequired **非 generic**、防誤導重刷雙扣)/charge_unknown·settlement_required→processing/locked{user_in_flight}→in_flight 無 displayId/{order_locked·not_unpaid}→processing/init_failed→charge_failed_wait;5 kind 窮盡(typecheck 強制 return 覆蓋、無 ok:true 分支);test 全列 |
+| 🔴 無 fake-paid | ✅ | mapInitiateOutcome 永不回 `ok:true`(啟動半段不回扣款結果);paid 只在同步 mapOutcome;codex 獨立確認 |
+| Q1=A byte 等價抽出 | ✅ | `notify-secret.ts`:MIN_SECRET_LEN=32 + URL_SAFE_RE `/^[A-Za-z0-9_-]+$/` + 同 throw 訊息,與 route 原版字字相同;route.ts diff = +import、移除本地 MIN_SECRET_LEN/URL_SAFE_RE/requireNotifySecret 副本(typecheck 綠證無 dangling ref);route.test 在 8/146 綠(完整跑、行為零變 caveat 滿足) |
+| 🔴 零洩(log + client bundle) | ✅ | charge-actions/three-ds-urls/notify-secret **完全無 console.***(redirectUrl/payment_url/prime/cardholder/secret 零入 log);**.next/static ZERO** TAPPAY_NOTIFY_PATH_SECRET/requireNotifySecret/resolveThreeDSConfig/isThreeDSEnabled/TAPPAY_3DS_ENABLED + ZERO price_store/priceByTier/price_by_tier(server-only 結構零洩) |
+| 三綠 | ✅ | turbo typecheck/lint/build exit 0;**6a-related 8 檔/146 pass/0 fail(乾淨 filter)**;full vitest 129 檔/1295/0 fail(含 6b WIP,1295 與 commit 字面一致) |
+| 對齊 3DS-2/3DS-3 | ✅ | buildResultUrls frontend `<base>/checkout/callback?order=<orderId>`(對齊 3DS-3 callback 讀 sp.order UUID)、backend `<base>/api/checkout/tappay-notify/<secret>`(對齊 3DS-2 webhook secret 段);test 釘 shape |
+| 中間態誠實 | ✅ | flag off=現況同步、flag on=sandbox-only;本片不開 prod 結帳、不設 env;6a 未消費 redirect(client 跳轉=6b)→ flag 必續關到 6b 落地(codex 同認) |
+| manifest | ✅ N/A | 6a 動 server action/lib/API route、**無 design-mirror storefront UI 元件**(那是 6b)→ manifest 不需動;commit 無 STATUS(整合留整線、正確) |
+| 字面 vs 事實 | ✅ | commit body「1295/typecheck 7/7/lint 10/10/Q1=A byte 等價/N1 折入/payment_url 零 log/中間態誠實」逐條實證相符;plan ±4 = code-reviewer 3 nit 修(§2.1 import 名 + §2.4 framing) |
+| 🔴 codex 關卡2 cross-model | ✅ PASS | `codex exec -s read-only -c service_tier=fast`(config `default` 無效、override 繞;此版只收 fast/flex)、exit 0、**zero-trace OK**(PORCELAIN_UNCHANGED + HEAD_UNCHANGED)。VERDICT=**PASS、0 must-fix**;codex 獨立查證「無 fake-paid / preflight 先於 placeOrder / server orderId·amount·cardholder / 壞 payment_url→processing / notify-secret 抽出行為保留」→ 與審查側手動審收斂 |
+
+**🟡 殘留 nit(全非 blocker、forward):**
+- **N-a(codex nit + 審查側同源)**:`isHttpsUrl` 未鎖 TapPay 網域 allowlist。**現無 open-redirect**(redirectUrl 來自 TapPay adapter server-to-server 回應、非 client 輸入;isHttpsUrl 擋非 https/credential)→ codex 與審查側皆判非洞;Phase II 加固可考慮 TapPay host allowlist 縮 blast radius(backlog 級)。
+- **N-b(doc-staleness)**:plan §2.4 spec 文字仍未列舉 `isHttpsUrl` token-query 測案(§11 fold-note 宣稱有)→ 但**測試碼已完整有**(three-ds-urls.test L82-103);純 spec 落後 test、零功能影響。
+- **N-c(整合 forward)**:commit body「N2 記 backlog」實為 plan §3.3 標註、**backlog 檔條目未加**(STATUS/backlog 留整線收尾)→ 整線收尾時確認 N2 落 backlog。
+- **過程觀察**:執行側未待 6a sign-off 即起 6b WIP(寫審分離節奏重疊)。非 6a 缺陷;提醒理想節奏=每片 commit 後暫停待 sign-off,或至少保持工作樹乾淨利審查方跑純快照三綠。
+
+## ✅ 3DS-6a 審查側最終 sign-off = PASS(HEAD `6d076a5`、未 push)
+N1 命門兩 predicate 分開〔isHttpsUrl 允許 query、test 釘死對比〕+ flag 分岔正確〔off 同步不動/on initiatePayment〕+ preflight 零垃圾單 + 鐵則 12 server 權威〔orderId/amount/prime 同步同源〕+ 無 fake-paid + 壞 payment_url→processing 防雙扣 + Q1=A byte 等價抽出〔route 行為零變〕+ 零 log/零 client bundle 洩 + 三綠〔6a 乾淨 146 + full 1295〕+ codex K2 cross-model PASS zero-trace + 字面vs事實全對。**0 must-fix、3 forward nit(N-a host allowlist Phase II / N-b plan §2.4 spec / N-c N2 backlog,皆非 blocker)**。**未 push、未 db push**(零 migration)。**下一步 = 3DS-6b**(useChargePayment redirect 態 + CheckoutView early-return + CheckoutRedirecting;已見工作樹 WIP、落 commit 後單獨審)。哨兵 `b845nq6ad` 續盯。
