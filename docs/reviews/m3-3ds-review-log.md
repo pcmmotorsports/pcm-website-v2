@@ -475,3 +475,34 @@ route.ts 可執行碼對 b53fea5 byte-identical(兩 hunk 純註解)+ N1 gate 契
 
 ## ✅ 3DS-5a 審查側最終 sign-off = PASS(HEAD `96a2e79`、未 push)
 0 must-fix、0 殘留 nit。執行 session 可開 **5b**。整合(STATUS 7欄/busboy-end/pcm-roadmap/graphify/merge dev)deferred 至 m3-3ds-5 線收尾。哨兵 `bjae1c42y` 續盯 5b。
+
+---
+
+# 3DS-5b initiate use-case + migration — 審查側 sign-off(寫審分離、哨兵 bjae1c42y)
+
+**commits:** `f476b1d`(migration)+ `af391e4`(port/adapter)+ `ed08945`(use-case/flag)= 5b 全套(tip `ed08945`、base 5a `96a2e79`、線性)。執行側拆 3 子 commit、各自三綠。
+**範圍:** 寫 bank_txn/rec 進「仍 pending」attempt 的 2 窄權 RPC + IChargeAttemptStore 2 主軌-only 方法 + PgChargeAttemptAdapter/複合委派 + initiatePayment use-case + InitiatePaymentInput/Outcome + TAPPAY_3DS_ENABLED flag helper。**帶 migration → 待 Sean db push**(本片不 db push)。
+
+## migration(`f476b1d`)= PASS
+- **plan §3.1 全保真**:2 SECDEF RPC(payment_confirmer only、search_path=''、schema-qualified、RETURNS boolean persisted)、FOR UPDATE + 雙鍵 + status='pending' guard + 冪等(NULL/同值→true、異值→false 防竄改、非 pending/查無→false)+ 輸入 guard(btrim / bank_txn `^[A-Z0-9]{1,19}$` / rec ≤64〔鏡像 s2d mark_charged L256/L369〕)+ unique_violation→通用 RAISE;UNIQUE 部分索引;REVOKE service_role + GRANT payment_confirmer + has_function_privilege 矩陣 + role-hygiene assert。
+- **format CHECK 偏離裁決 = 接受**:plan §3.1 字面只列 UNIQUE 索引、CHECK 為加法 → 執行側誠實揭示 + flag 審查核;**實證履行 0c migration(20260613140000)L15/L67 前向承諾「生成方式 3DS-5b 定義時再加 length CHECK」**(親讀 0c 確認)+ 對齊 fallback_token_hash CHECK 慣例 + additive/易回退 → 比 plan 字面更正確(plan 漏列);codex 關卡2 獨立同此裁決。
+- 🔴 **審查側獨立 MCP 交易模擬全 PASS 零留痕**(project bmpnplmnldofgaohnaok、BEGIN+真套 migration+synthetic+SET session_replication_role=replica〔關 FK、CHECK 仍生效〕+DO 斷言+ROLLBACK;不 SET ROLE 避 pooled-MCP 斷線、ACL 走 has_function_privilege 等價):
+  - **B(bank_txn)B1-B8**:pending+NULL→true+寫入 / 同值→true 冪等 / 異值→false 不覆寫 / 格式錯(小寫·底線·>19·空)→通用 RAISE / charged→false / failed→false / 雙鍵不配對→false / 跨單同 bank_txn 撞 UNIQUE 部分索引→通用 RAISE。
+  - **C(rec)C1-C7**:pending+NULL→true **+ status 仍 pending(關鍵:≠ markCharged)** / 同值→true / 異值→false / 空·>64→通用 RAISE / charged·failed→false / 雙鍵不配對→false / 跨單同 rec 撞 rec_unique_idx→通用 RAISE。
+  - migration 自帶 ACL 矩陣 + role-hygiene assert 套真版通過;ROLLBACK 後唯讀複查:函式/索引/CHECK/synthetic 全 0、prod 回 8 列原樣。
+  - ⚠️ pooled-MCP SET ROLE payment_confirmer 斷線限制(memory)→ 真連線 round-trip 交 3DS-6 charge action 對 session pooler 補。
+
+## port/adapter(`af391e4`)= PASS
+- IChargeAttemptStore +recordInitiationBankTxn/+recordInitiationRec **主軌-only**(對齊 findActiveByOrderId;對帳路徑無 user JWT);PgChargeAttemptAdapter 實作(三 cast SQL、parseBooleanResult 非 boolean→throw、**RPC false→branded ChargeAttemptNotDurableError throw**〔codex #3:bank_txn 未落地不送 TapPay〕、sanitizeError 憑類別放行零 pg 原文);複合直通委派不走 fallback。測:happy/false→throw/形狀/P0001 + 直通 + 主軌 throw 不切備軌。
+
+## use-case + flag(`ed08945`)= PASS
+- initiate-payment.ts 全保真 plan §3.3:begin→!acquired(duplicate/needs_settle→settlement_required / else locked)→bankTxn=generateBankTransactionId()→**recordInitiationBankTxn catch→init_failed 零 TapPay**(硬失敗)→initiateThreeDSCharge **catch→charge_unknown 不 markFailed**(bank_txn 已 durable)→**recordInitiationRec catch→console.error 仍 redirect**(軟失敗)→redirect。**無 markFailed/markCharged/confirmer**(deps 只 {tappay,attempts});命名 override 註明(=master confirmPayment.initiate、6 只 consume)。
+- InitiatePaymentOutcome 無 paid/orphan/charge_failed;flag isThreeDSEnabled 嚴格只認 'true'、server-only、靜態 process.env(不觸 #182)、**僅引入不被 live 消費(中間態誠實)**。
+- PII:rec 失敗 log 只 orderId/attemptId/code、initiation log 只 orderId/status/recTradeId/bankTransactionId;**payment_url(token)/prime/cardholder/raw 零入 log**(測實證)。
+
+## 重驗 + codex 關卡2
+- 三綠 fresh(worktree):turbo typecheck 7/7 + lint 10/10 + next build 1/1;**full vitest 127 檔/1243 測**(與執行側宣稱完全一致、字面vs事實成立)。
+- 🔴 **審查側獨立 codex 關卡2 = PASS、0 must-fix/consider/nit**(8 點全 PASS:RPC/ACL/CHECK/port/use-case/PII/flag/字面vs事實;codex 確認「bank_txn TapPay 前 durable、RPC false 不誤判成功、charge unknown 不釋鎖、不 markCharged/confirm、PII 零 log」);porcelain 零留痕。執行側自跑 codex 關卡2 round1 PASS,跨模型雙路徑收斂。
+
+## ✅ 3DS-5b 審查側最終 sign-off = PASS(HEAD `ed08945`、未 push、未 db push)
+0 must-fix、0 殘留。🔴 **migration 待 Sean db push**(本片不 db push;審查側 MCP 模擬於 rolled-back 交易、真連線 round-trip 交 6;db push 時機 = m3-3ds-5 整線收尾 / Sean 拍)。**下一步 = 3DS-6**(delivery:charge-actions flag 分岔回 redirect + useChargePayment redirect 態 + CheckoutView 跳轉 → 接 live action;鐵則 8、需先寫 6 plan + codex 關卡1 + Sean 批准才實作)。哨兵 `bjae1c42y` 續盯。
