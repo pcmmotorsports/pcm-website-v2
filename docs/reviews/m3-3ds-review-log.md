@@ -506,3 +506,38 @@ route.ts 可執行碼對 b53fea5 byte-identical(兩 hunk 純註解)+ N1 gate 契
 
 ## ✅ 3DS-5b 審查側最終 sign-off = PASS(HEAD `ed08945`、未 push、未 db push)
 0 must-fix、0 殘留。🔴 **migration 待 Sean db push**(本片不 db push;審查側 MCP 模擬於 rolled-back 交易、真連線 round-trip 交 6;db push 時機 = m3-3ds-5 整線收尾 / Sean 拍)。**下一步 = 3DS-6**(delivery:charge-actions flag 分岔回 redirect + useChargePayment redirect 態 + CheckoutView 跳轉 → 接 live action;鐵則 8、需先寫 6 plan + codex 關卡1 + Sean 批准才實作)。哨兵 `bjae1c42y` 續盯。
+
+---
+
+# 3DS-6 charge-actions flag 分岔 + client redirect — 審查側(寫審分離 ROLE=A、新審查 session)
+
+> **接手新審查 session**(2026-06-19、前棒哨兵已死)。重 arm 哨兵 = Monitor **`b845nq6ad`**(persistent、poll `refs/heads/m3-3ds-5`、base=`ed08945`〔5b tip〕、每新 commit 出 `NEW-COMMIT`)。base 確認:m3-3ds-5 tip=ed08945、worktree 僅 untracked plan。
+
+## 2026-06-19 — 3DS-6 plan 關卡1 review-side 第二意見(code 前、非 binding;binding = commit 落地關卡2)
+
+審 `docs/specs/2026-06-19-m3-3ds-6-charge-actions-redirect-plan.md`(worktree m3-3ds-5、uncommitted;fresh-context、不信 plan 字面、grep 真權威核「5a/5b 已交付介面」)。**verdict = PASS-with-notes(可 greenlight 執行側開 6a)**。
+
+**🔴 接線命脈 8 錨點全 grep 實證(plan 對交付介面非憑記憶、鐵則 1):**
+| 錨點 | 結果 | 實證 |
+|---|---|---|
+| `InitiatePaymentInput` 含 `frontendRedirectUrl`/`backendNotifyUrl` | ✅ | `packages/domain/.../types.ts`:兩欄存在 + docstring 明載「delivery 層(3DS-6)組 URL、use-case 收參數不自組、5b 簽章預留入參」→ 6a 傳這兩值有合法落點 |
+| `InitiatePaymentOutcome` 五態 | ✅ | `redirect{redirectUrl}` / `charge_unknown{orderId}` / `settlement_required` / `locked{reason}` / `init_failed`,逐字對 plan §0 line7 |
+| `ChargeLockReason` 三子態 | ✅ | `'user_in_flight'\|'order_locked'\|'not_unpaid'` → §2.3 的 `locked{user_in_flight}` vs `locked{order_locked\|not_unpaid}` 雙列**有真 discriminant**(非杜撰) |
+| `initiate-payment.ts` 實產 outcome | ✅ | L109 `return {kind:'redirect', redirectUrl: initiation.paymentUrl}`(redirectUrl 即 payment_url)+ settlement_required/locked(reason)/init_failed/charge_unknown 全產;**無 paid 分支**(啟動半段不回扣款) |
+| `isThreeDSEnabled` | ✅ | server-only、嚴格 `=== 'true'`、靜態 process.env(不觸 #182) |
+| charge-actions 現行結構 | ✅ | 208 行;`getTapPayAdapter`(L36)/`getChargeAttemptStore`(L38)已 import(復用、無新 factory);`randomUUID` cartSessionId L136;`buildCardholder`(L118)**先於** placeOrder(L139)→ preflight 插兩者間零垃圾單成立;MSG.{generic,chargeFailedWait,processing,settlementRequired,inFlight} 皆存;ChargePaymentActionResult union 已含 `payment:'processing'`/`'charge_failed_wait'`/`'in_flight'`(redirect variant 為新增) |
+| CheckoutView 行數 + 早返群 | ✅ | 388 行(+3 早返=391 **<400** 鐵則 6 OK);早返群 paid L143/processing L146/unknown L157 → cart loading L161,redirect 早返插 L159↔L161 正確 |
+| 3DS-2 `requireNotifySecret` + 3DS-3 callback | ✅ | route `MIN_SECRET_LEN=32` + `URL_SAFE_RE` + timingSafeEqual(plan Q1「≥32 URL-safe」逐字相符);callback 讀 `sp.order`+UUID_RE → frontendRedirectUrl `?order=<UUID>` 對齊 |
+
+**📌 db-push 狀態更新(更正本檔 §3 5b sign-off 的 stale 字面)**:`list_migrations`(project bmpnplmnldofgaohnaok)實證 **`20260619120000_m3_3ds_5b_record_charge_initiation` 已在 prod**(連同 0a→4a-2 全 bundle)。plan §0 line4「5b migration 已 db push 落 prod」**屬實**;§3 5b sign-off 寫的「未 db push」為**寫時狀態、now stale**(Sean 已於 sign-off 後 db push)→ db push bundle 阻擋已完全解除。
+
+**設計健全性(對抗審視、非橡皮圖章):**
+- §2.3 outcome→result 映射逐態**對齊既有同步 mapOutcome 政策 + master plan §1**:redirect(合法 https)=不清車/UI 鎖/非終態(導向 OTP、abandon 可回頭)、charge_unknown/settlement_required=processing 清車(bank_txn durable、settleCharge 收斂)、locked{user_in_flight}=in_flight 留車無單號、locked{order_locked\|not_unpaid}=processing 清車(同同步)、init_failed=charge_failed_wait 留車(零 TapPay 零扣款、可重試)。內部一致、安全面無雷。
+- codex k1 #2「壞 payment_url → processing 非 generic」防誤導重刷雙扣 = 正解;k1 #3 preflight 移建單前零垃圾單 = 正解(buildCardholder 先於 placeOrder 已實證、插點成立)。
+
+**🟡 notes 交執行側(非 blocker、不改 Sean 決策):**
+- **🔴 N1(實作風險、6a 關卡2 緊盯)**:§2.3 mapInitiateOutcome 對 redirect 的 payment_url 驗證**必須是與 base-URL 不同的較鬆 predicate**。`resolvePaymentBaseUrl()` 驗 base = **origin-only**(拒 query/hash/path);但 **payment_url 是 `https://...?token=...`、本質帶 query**(TapPay token query)→ 若誤把 origin-only 檢查套到 payment_url,**會拒掉所有合法 redirectUrl → 每筆 3DS 都掉到 processing**(happy-path 全壞、code-review 表面看不出)。plan §2.3 line106 文字有意識到(「isHttpsUrl 驗 protocol/hostname、不限定 TapPay 網域」),但 §2.2 code sketch **未顯式定義/export `isHttpsUrl()`**。→ 執行側須在 three-ds-urls.ts **明確 export 一個 protocol+hostname+no-credential(允許 query)的 `isHttpsUrl()`**,與 origin-only 的 base 驗 **分開**;6a 測必含「payment_url 帶 token query → 仍判合法 → redirect」案,釘死此區分。
+- **N2(6b nit、非 blocker)**:CheckoutRedirecting 的 `window.location.assign` 在 useEffect 無 fallback link/timeout;若導向被瀏覽器擋(罕見),使用者卡在 interstitial。Phase II 可加「N 秒後顯示手動『點此繼續』」;Phase I 可接受。
+- **Q1 審查側 concur = A**(抽 `notify-secret.ts` 單一真相):secret 規則是安全邊界、應單一真相防漂移、route 行為零變且 route.test.ts 守回歸;規則已驗 byte 一致(≥32 + URL_SAFE_RE + MIN_SECRET_LEN=32)。**caveat**:抽出後動到的是**已上 prod 的 webhook route** → 執行側須跑**完整 route.test.ts**(非子集)+ 確認抽出函式行為 byte 等價(memory `run-full-vitest-after-shared-component-change`)。
+
+**關卡2(binding)待 commit 落地逐條核**:① flag off 走 confirmPayment 零行為差(initiatePayment/resolveThreeDSConfig 零呼叫回歸)② flag on charge-actions 分岔正確(initiatePayment 收 server 值、client 竄改不採信)③ **N1 isHttpsUrl 區分**(payment_url 帶 query 仍合法、base origin-only)④ payment_url/prime/卡資料零入 log(server+client、.next/static grep)⑤ result_url 組裝對齊 3DS-2 secret 段 / 3DS-3 `?order=` callback ⑥ 中間態誠實(prod checkout 不可開、flag 僅 sandbox)⑦ 三綠 forced-fresh + full vitest + 經銷價雙 grep ⑧ codex 關卡2 cross-model(鐵則 12、main session、read-only、porcelain 零留痕;quota 6/18 已過、應可跑)。哨兵 `b845nq6ad` 待命接 6a。
