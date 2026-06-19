@@ -49,7 +49,8 @@ function recordResult(
 }
 
 function makeTapPay(recordQuery: (q: TapPayRecordQuery) => Promise<TapPayRecordResult>): ITapPayAdapter {
-  return { charge: vi.fn(), refund: vi.fn(), recordQuery: vi.fn(recordQuery) };
+  // initiateThreeDSCharge(3DS-5a)為新增 port 方法;settleCharge(結算半段)不呼用、stub 滿足介面。
+  return { charge: vi.fn(), refund: vi.fn(), recordQuery: vi.fn(recordQuery), initiateThreeDSCharge: vi.fn() };
 }
 function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptStore {
   return {

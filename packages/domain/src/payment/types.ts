@@ -66,6 +66,48 @@ export type TapPayChargeResult = {
   rawResponse: unknown;
 };
 
+// ── M-3 3DS-5a:3DS charge 啟動型別(回 payment_url 跳轉、不請款;與同步 charge 語意不同 → 獨立型別)──
+
+/**
+ * TapPayInitiationPayload:3DS charge 啟動輸入(`ITapPayAdapter.initiateThreeDSCharge`)。
+ *
+ * 與同步 `TapPayChargePayload` 的差異:多帶 caller 自產的唯一 `bankTransactionId`(charge 前 durable 存、
+ * master plan §1 對帳鍵)+ 3DS 跳轉回程 URL(`frontendRedirectUrl` https / `backendNotifyUrl`)。
+ * 🔴 `bankTransactionId` 由 5b use-case 以 `generateBankTransactionId()` 產(≤19 字大寫英數)、adapter 忠實透傳不自產。
+ * URL 字串由 delivery 層(6)組、本型別只收參數(use-case 不自組 URL)。
+ */
+export type TapPayInitiationPayload = {
+  /** TapPay client SDK 產的 prime token */
+  prime: string;
+  amount: Money;
+  orderId: OrderId;
+  cardholder: Cardholder;
+  /** caller 自產唯一訂單編號(charge 前 durable 存;`^[A-Z0-9]{1,19}$`);adapter 原樣送 TapPay。 */
+  bankTransactionId: string;
+  /** 3DS 銀行 OTP 後前端跳轉網址(TapPay `result_url.frontend_redirect_url`;須 https)。 */
+  frontendRedirectUrl: string;
+  /** 3DS 結算 server 通知網址(TapPay `result_url.backend_notify_url`;webhook 祕密路徑段)。 */
+  backendNotifyUrl: string;
+};
+
+/**
+ * TapPayInitiationResult:3DS charge 啟動結果(**只有成功一態**;非成功一律 throw、見 adapter §2.1)。
+ *
+ * 🔴 codex 關卡1 #2:3DS 啟動回「payment_url 跳轉 + rec_trade_id」、**尚未請款無實扣金額**(語意 ≠ 同步
+ * `TapPayChargeResult` 已扣款)。adapter **不自判 failed**(timeout 等模糊態未必明確未扣款)→ 唯
+ * `status===0 && payment_url && rec_trade_id` 回 `pending_3ds`、其餘 throw(use-case 映 charge_unknown、
+ * 不釋鎖;最終由 settleCharge / Record API 唯一權威裁決)。
+ */
+export type TapPayInitiationResult = {
+  status: 'pending_3ds';
+  /** TapPay `payment_url`:3DS 付款頁跳轉網址(🔴 含 token query、絕不入 log)。 */
+  paymentUrl: string;
+  /** TapPay `rec_trade_id`:結算對帳主鍵(settleCharge rec 優先序第一順位)。 */
+  recTradeId: string;
+  /** 回送 caller 自產的 `bankTransactionId`(charge 前已 durable;對帳次順位鍵)。 */
+  bankTransactionId: string;
+};
+
 /**
  * TapPayRefundPayload: refund use-case 輸入。
  *

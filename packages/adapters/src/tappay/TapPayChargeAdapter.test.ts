@@ -1,6 +1,11 @@
 // node env;mock 'server-only'(TapPayChargeAdapter 檔頭 import 'server-only'、node 環境直接 import 會 throw)。
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { toMoneyAmount, type TapPayChargePayload, type TapPayRecordQuery } from '@pcm/domain';
+import {
+  toMoneyAmount,
+  type TapPayChargePayload,
+  type TapPayInitiationPayload,
+  type TapPayRecordQuery,
+} from '@pcm/domain';
 
 vi.mock('server-only', () => ({}));
 
@@ -303,5 +308,156 @@ describe('TapPayChargeAdapter.recordQuery — #16 PII 零落地', () => {
     expect(logged).not.toContain('buyer@example.com');
     expect(logged).not.toContain('4242');
     expect(logged).toContain('D20260612001234567');
+  });
+});
+
+// ── M-3 3DS-5a:initiateThreeDSCharge(3DS 啟動、回 payment_url 跳轉、不請款)──────────────────────
+
+const INIT_PAYLOAD: TapPayInitiationPayload = {
+  prime: 'prime_token_xyz',
+  amount: { amount: toMoneyAmount(1050), currency: 'TWD' },
+  orderId: 'order-uuid-1',
+  cardholder: { name: '王小明', email: 'buyer@example.com', phoneNumber: '0912345678' },
+  bankTransactionId: 'PABCDEFGHJKMNPQRSTV', // 19 字大寫英數(5b use-case 自產;adapter 透傳)
+  frontendRedirectUrl: 'https://shop.pcm.example/checkout/callback?order=order-uuid-1',
+  backendNotifyUrl: 'https://shop.pcm.example/api/checkout/tappay-notify/secret-seg',
+};
+
+/** TapPay 3DS 啟動成功回應:status=0 + payment_url(跳轉、含 token)+ rec_trade_id;無實扣 amount。 */
+const INIT_SUCCESS_WIRE = {
+  status: 0,
+  msg: '',
+  rec_trade_id: 'D20260619-3ds-001',
+  bank_transaction_id: 'PABCDEFGHJKMNPQRSTV',
+  payment_url: 'https://sandbox.tappaysdk.com/3ds/redirect?token=top-secret-token',
+  // 🔴 含 PII / 敏感欄、驗不入 log:
+  card_info: { bin_code: '424242', last_four: '4242' },
+};
+
+describe('TapPayChargeAdapter.initiateThreeDSCharge — 3DS 啟動 happy path', () => {
+  it('status=0 + payment_url + rec_trade_id → pending_3ds(paymentUrl/recTradeId/回送 bankTransactionId)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(INIT_SUCCESS_WIRE)));
+    const res = await new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD);
+    expect(res).toEqual({
+      status: 'pending_3ds',
+      paymentUrl: 'https://sandbox.tappaysdk.com/3ds/redirect?token=top-secret-token',
+      recTradeId: 'D20260619-3ds-001',
+      bankTransactionId: 'PABCDEFGHJKMNPQRSTV', // 回送 caller 自產鍵(已 durable)
+    });
+  });
+
+  it('送出 body:共同欄 + three_domain_secure:true + result_url + bank_transaction_id;🔴 不送 delay_capture_in_days', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse(INIT_SUCCESS_WIRE));
+    vi.stubGlobal('fetch', fetchFn);
+    await new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD);
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(url).toBe(CONFIG.payByPrimeUrl);
+    expect((init as RequestInit).method).toBe('POST');
+    expect((init as RequestInit).headers).toMatchObject({ 'x-api-key': 'partner_test_key' });
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body).toMatchObject({
+      partner_key: 'partner_test_key',
+      prime: 'prime_token_xyz',
+      amount: 1050, // 整數、server 算的 total
+      merchant_id: 'M_test',
+      order_number: 'order-uuid-1',
+      cardholder: { name: '王小明', email: 'buyer@example.com', phone_number: '0912345678' },
+      three_domain_secure: true,
+      result_url: {
+        frontend_redirect_url: 'https://shop.pcm.example/checkout/callback?order=order-uuid-1',
+        backend_notify_url: 'https://shop.pcm.example/api/checkout/tappay-notify/secret-seg',
+      },
+      bank_transaction_id: 'PABCDEFGHJKMNPQRSTV',
+    });
+    // 🔴 不送 delay_capture_in_days(省略=預設 0 當天請款、避免停 AUTH)
+    expect(body).not.toHaveProperty('delay_capture_in_days');
+  });
+
+  it('🔴 回 caller 自產 bankTransactionId(非 wire 回值):wire 異值 / 缺欄皆鎖死回 payload 值', async () => {
+    // wire 回不同的 bank_transaction_id(模擬 TapPay 回異值)→ 仍回 caller 自產鍵、非 wire 值。
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse({ ...INIT_SUCCESS_WIRE, bank_transaction_id: 'WIRE_DIFFERENT_VAL' }),
+      ),
+    );
+    const res = await new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD);
+    expect(res.bankTransactionId).toBe('PABCDEFGHJKMNPQRSTV'); // payload 值,非 wire 'WIRE_DIFFERENT_VAL'
+
+    // wire 完全缺 bank_transaction_id → 一樣回 payload 值(對帳鍵權威 = 本機已 durable 值,不依賴 TapPay 回欄)。
+    const { bank_transaction_id, ...noBankTxn } = INIT_SUCCESS_WIRE;
+    void bank_transaction_id;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(noBankTxn)));
+    const res2 = await new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD);
+    expect(res2.bankTransactionId).toBe('PABCDEFGHJKMNPQRSTV');
+  });
+});
+
+describe('TapPayChargeAdapter.initiateThreeDSCharge — 非成功一律 throw(無 failed 態、不過寬釋鎖)', () => {
+  it('status≠0(含模糊態)→ throw(adapter 不自判 failed;use-case 映 charge_unknown 不釋鎖)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(jsonResponse({ status: 421, msg: 'Operation timeout' })),
+    );
+    await expect(
+      new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD),
+    ).rejects.toThrow(/啟動未成功|status 421/);
+  });
+
+  it('status=0 但缺 payment_url → throw(格式異常、不可釋鎖)', async () => {
+    const { payment_url, ...noUrl } = INIT_SUCCESS_WIRE;
+    void payment_url;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(noUrl)));
+    await expect(
+      new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD),
+    ).rejects.toThrow(/payment_url\/rec_trade_id/);
+  });
+
+  it('status=0 但缺 rec_trade_id → throw', async () => {
+    const { rec_trade_id, ...noRec } = INIT_SUCCESS_WIRE;
+    void rec_trade_id;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(noRec)));
+    await expect(
+      new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD),
+    ).rejects.toThrow(/payment_url\/rec_trade_id/);
+  });
+
+  it('HTTP 非 2xx → throw(啟動狀態未知)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({}, false, 500)));
+    await expect(
+      new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD),
+    ).rejects.toThrow(/HTTP 500/);
+  });
+
+  it('fetch transport reject → 傳遞 throw', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ETIMEDOUT')));
+    await expect(
+      new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD),
+    ).rejects.toThrow();
+  });
+
+  it('回應非物件 → throw(parseTapPayResponse 守)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse('not-json')));
+    await expect(
+      new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD),
+    ).rejects.toThrow();
+  });
+});
+
+describe('TapPayChargeAdapter.initiateThreeDSCharge — #16 PII：payment_url / cardholder 零落地 log', () => {
+  it('log 不含 cardholder PII、不含 payment_url(token)、不含 card_info;含 orderId/recTradeId/bankTransactionId', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(INIT_SUCCESS_WIRE)));
+    await new TapPayChargeAdapter(CONFIG).initiateThreeDSCharge(INIT_PAYLOAD);
+    const logged = JSON.stringify(infoSpy.mock.calls);
+    expect(logged).not.toContain('buyer@example.com'); // email
+    expect(logged).not.toContain('王小明'); // name
+    expect(logged).not.toContain('0912345678'); // phone
+    expect(logged).not.toContain('top-secret-token'); // 🔴 payment_url token 不入 log
+    expect(logged).not.toContain('4242'); // card_info(rawResponse 不入 log)
+    // 非 PII 對帳欄應有
+    expect(logged).toContain('order-uuid-1');
+    expect(logged).toContain('D20260619-3ds-001');
+    expect(logged).toContain('PABCDEFGHJKMNPQRSTV'); // bank_transaction_id(非 PII)
   });
 });
