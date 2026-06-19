@@ -6090,7 +6090,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **觸發事件(任一觸發即啟動實作):**
   - `TAPPAY_3DS_ENABLED` 要在 sandbox/staging 以外開啟前;或 sandbox 3DS E2E 實測發現導向被擋。
 - **預期解法:**
-  - interstitial 加「N 秒後仍未跳轉?點此手動前往」連結(`<a href={redirectUrl}>`、可配 meta refresh fallback);🔴 redirectUrl 仍只進 href、不以文字顯示原值(payment_url 含 token)。
+  - interstitial 加「N 秒後仍未跳轉?點此手動前往」**按鈕**:🔴 用 `<button onClick={() => window.location.assign(redirectUrl)}>`、**非** `<a href={redirectUrl}>` —— href 會把 payment_url token 落進 DOM 屬性(頁面源碼 / DevTools / analytics 可見)、違反「payment_url 零入 DOM」鐵則(codex 關卡2 N-d)。redirectUrl 全程不落 DOM(不入文字、不入 href)、不 log;若要 `<meta refresh>` 亦不可帶 token URL。
 - **不修會痛在:**
   - 擴充性:未來多金流 redirect 共用此 interstitial、無 fallback 模式會重複缺。
   - 可維護性:導向失敗無自助出路 → 全導客服 LINE、人力成本。
