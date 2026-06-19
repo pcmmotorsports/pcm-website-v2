@@ -22,6 +22,16 @@ export type TapPayPayByPrimeResponse = {
   amount?: number;
   /** 成功才有;預期 'TWD'。 */
   currency?: string;
+  /**
+   * 🔴 3DS 啟動才有(`three_domain_secure:true`):付款頁跳轉網址。同步 charge 回應無此欄。
+   * 含 token query → adapter 絕不寫 log。
+   */
+  paymentUrl?: string;
+  /**
+   * TapPay 交易訂單編號(同步成功 + 3DS 啟動回應皆可能回;caller 自帶時 TapPay 原樣回)。
+   * 非 PII;3DS-5a 對帳次順位鍵。
+   */
+  bankTransactionId?: string;
 };
 
 /**
@@ -29,6 +39,7 @@ export type TapPayPayByPrimeResponse = {
  *
  * `status` 非 number(或非物件)→ throw(adapter 視為 transport/格式異常 → use-case 映 charge_unknown,
  * 不誤判成 charge_failed)。其餘欄缺則 undefined(由 adapter 依 status 決定是否為異常)。
+ * 🔴 3DS-5a:新增白名單解析 `payment_url` / `bank_transaction_id`(選填;簽章不變、同步 charge 用法零影響、向後相容)。
  */
 export function parseTapPayResponse(raw: unknown): TapPayPayByPrimeResponse {
   if (typeof raw !== 'object' || raw === null) {
@@ -44,6 +55,8 @@ export function parseTapPayResponse(raw: unknown): TapPayPayByPrimeResponse {
     recTradeId: typeof r.rec_trade_id === 'string' ? r.rec_trade_id : undefined,
     amount: typeof r.amount === 'number' ? r.amount : undefined,
     currency: typeof r.currency === 'string' ? r.currency : undefined,
+    paymentUrl: typeof r.payment_url === 'string' ? r.payment_url : undefined,
+    bankTransactionId: typeof r.bank_transaction_id === 'string' ? r.bank_transaction_id : undefined,
   };
 }
 

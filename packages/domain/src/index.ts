@@ -62,3 +62,6 @@ export {
 // payment 確認 domain 錯誤(M-3 階段②-②b、confirm 失敗分類:unreachable=可重 confirm / rejected=孤兒)
 export type { PaymentConfirmErrorCode } from './payment/errors';
 export { PaymentConfirmError } from './payment/errors';
+
+// payment 3DS-5a bank_transaction_id 產生器(純函式;5b initiate use-case charge 前產唯一對帳鍵)
+export { generateBankTransactionId } from './payment/bank-transaction-id';

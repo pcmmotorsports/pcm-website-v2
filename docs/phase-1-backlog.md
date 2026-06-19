@@ -6081,6 +6081,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-06-17 / #180 案 A 可達性 gate 落地
 - **相關:** `scripts/design-mirror.mjs`(cmdValidate / findComponentsByPath)、`docs/design-storefront-manifest.yaml`、[[#180]]
 
+### #239. 🔁 3DS redirect interstitial 無 fallback「手動繼續」連結
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(Phase I sandbox-only、0 真流量;`TAPPAY_3DS_ENABLED` flag 對外開啟前補)
+- **問題:**
+  - `CheckoutRedirecting`(3DS-6b)mount 即 `window.location.assign(payment_url)` 整頁導向 TapPay;若瀏覽器擋導向(彈窗攔截 / JS disabled / assign 失敗),使用者停在「正在前往安全付款頁面」interstitial、無手動出路。
+- **觸發事件(任一觸發即啟動實作):**
+  - `TAPPAY_3DS_ENABLED` 要在 sandbox/staging 以外開啟前;或 sandbox 3DS E2E 實測發現導向被擋。
+- **預期解法:**
+  - interstitial 加「N 秒後仍未跳轉?點此手動前往」連結(`<a href={redirectUrl}>`、可配 meta refresh fallback);🔴 redirectUrl 仍只進 href、不以文字顯示原值(payment_url 含 token)。
+- **不修會痛在:**
+  - 擴充性:未來多金流 redirect 共用此 interstitial、無 fallback 模式會重複缺。
+  - 可維護性:導向失敗無自助出路 → 全導客服 LINE、人力成本。
+  - bug 可追蹤性:使用者「卡住」無明確訊號、難分辨導向失敗 vs 正常網路延遲。
+- **估時:** ~20-30 min(加連結 + 測 + 肉眼驗)
+- **依賴:** 3DS-6b(CheckoutRedirecting、已落地)
+- **發現於:** 2026-06-19 / 3DS-6b(審查側 N2 + codex 關卡2 nit)
+- **相關:** `apps/storefront/src/components/CheckoutRedirecting.tsx`、[[#231]](flag-on 前置群)
+
 ---
 
 ## 紀錄模板

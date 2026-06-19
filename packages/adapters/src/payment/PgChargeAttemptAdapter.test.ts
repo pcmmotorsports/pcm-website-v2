@@ -320,3 +320,81 @@ describe('PgChargeAttemptAdapter.markSettleRetry / flagNonUnpaidActive(回 affec
     ).rejects.toThrow('回應格式異常');
   });
 });
+
+// ── M-3 3DS-5b initiate 寫入(record_charge_bank_txn / record_charge_pending_rec、RETURNS boolean persisted)──
+
+const BANK_TXN = 'P01234567890ABCDEF'; // 19 字 `^[A-Z0-9]{1,19}$`
+const REC = 'D20260619001234567';
+
+function boolRows(result: unknown): QueryRows {
+  return { rows: [{ result }] };
+}
+
+describe('PgChargeAttemptAdapter.recordInitiationBankTxn(charge 前寫 bank_txn)', () => {
+  it('RPC true → resolve;params=[attemptId, orderId, bankTxn]、SQL 呼 record_charge_bank_txn(三 cast)', async () => {
+    const { client, query, connect, end } = makeClient({ query: async () => boolRows(true) });
+    await new PgChargeAttemptAdapter('conn', () => client).recordInitiationBankTxn(ATTEMPT, ORDER, BANK_TXN);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/record_charge_bank_txn\(\$1::uuid, \$2::uuid, \$3::text\)/);
+    expect(values).toEqual([ATTEMPT, ORDER, BANK_TXN]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1); // finally 永遠釋放
+  });
+
+  it('🔴 RPC false(未 durable)→ throw 未 durable(use-case 映 init_failed、零 TapPay)', async () => {
+    const { client } = makeClient({ query: async () => boolRows(false) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordInitiationBankTxn(ATTEMPT, ORDER, BANK_TXN),
+    ).rejects.toThrow('未 durable');
+  });
+
+  it.each([
+    ['result 非 boolean(字串)', boolRows('true')],
+    ['result 非 boolean(數字)', boolRows(1)],
+    ['空 rows', { rows: [] as Array<Record<string, unknown>> }],
+  ])('回應形狀不符(%s)→ throw 通用訊息(連線/parse 失敗 throw)', async (_l, rows) => {
+    const { client } = makeClient({ query: async () => rows });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordInitiationBankTxn(ATTEMPT, ORDER, BANK_TXN),
+    ).rejects.toThrow('回應格式異常');
+  });
+
+  it('RPC RAISE(P0001、撞 UNIQUE / guard 拒)→ throw 帶 code=P0001、通用訊息不含 pg 原文', async () => {
+    const { client } = makeClient({
+      query: async () => {
+        throw Object.assign(new Error('record_charge_bank_txn: 付款處理失敗'), { code: 'P0001' });
+      },
+    });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordInitiationBankTxn(ATTEMPT, ORDER, BANK_TXN),
+    ).rejects.toMatchObject({ code: PG_BUSINESS_REJECT, message: expect.stringContaining('主軌失敗') });
+  });
+});
+
+describe('PgChargeAttemptAdapter.recordInitiationRec(charge 後寫 rec、維持 pending)', () => {
+  it('RPC true → resolve;params=[attemptId, orderId, recTradeId]、SQL 呼 record_charge_pending_rec(三 cast)', async () => {
+    const { client, query, end } = makeClient({ query: async () => boolRows(true) });
+    await new PgChargeAttemptAdapter('conn', () => client).recordInitiationRec(ATTEMPT, ORDER, REC);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/record_charge_pending_rec\(\$1::uuid, \$2::uuid, \$3::text\)/);
+    expect(values).toEqual([ATTEMPT, ORDER, REC]);
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 RPC false(未 durable)→ throw 未 durable(use-case best-effort catch→log)', async () => {
+    const { client } = makeClient({ query: async () => boolRows(false) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordInitiationRec(ATTEMPT, ORDER, REC),
+    ).rejects.toThrow('未 durable');
+  });
+
+  it.each([
+    ['result 非 boolean(字串)', boolRows('false')],
+    ['空 rows', { rows: [] as Array<Record<string, unknown>> }],
+  ])('回應形狀不符(%s)→ throw 通用訊息', async (_l, rows) => {
+    const { client } = makeClient({ query: async () => rows });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordInitiationRec(ATTEMPT, ORDER, REC),
+    ).rejects.toThrow('回應格式異常');
+  });
+});

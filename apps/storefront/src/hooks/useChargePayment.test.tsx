@@ -189,4 +189,26 @@ describe('useChargePayment', () => {
     expect(chargeMock).toHaveBeenCalledTimes(1);
     expect(result.current.state.status).toBe('unknown');
   });
+
+  it('🔴 3DS-6b redirect(3DS 啟動成功)→ state=redirect + redirectUrl;不清車;submit 回 true(UI 鎖維持)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    const PAY = 'https://sandbox.tappaysdk.com/tpc/3ds/pay?token=abc123';
+    chargeMock.mockResolvedValue({ redirect: true, redirectUrl: PAY });
+    const { result } = renderHook(() => useChargePayment());
+    let terminal: boolean | undefined;
+    await act(async () => {
+      terminal = await result.current.submit(ARGS);
+    });
+    expect(terminal).toBe(true); // 即將整頁導向 → 呼叫端不釋放 UI 鎖
+    expect(result.current.state).toEqual({ status: 'redirect', redirectUrl: PAY });
+    expect(cartRef.current.clear).not.toHaveBeenCalled(); // 🔴 redirect 不清車(callback 成功頁才清、abandon 可回頭)
+
+    // UI 鎖維持(導向中):再 submit 不重呼 action。
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0005' });
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(chargeMock).toHaveBeenCalledTimes(1);
+    expect(result.current.state.status).toBe('redirect');
+  });
 });

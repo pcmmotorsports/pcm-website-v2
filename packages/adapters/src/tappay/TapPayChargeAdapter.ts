@@ -28,6 +28,8 @@ import type {
   OrderId,
   TapPayChargePayload,
   TapPayChargeResult,
+  TapPayInitiationPayload,
+  TapPayInitiationResult,
   TapPayRefundPayload,
   TapPayRefundResult,
   TapPayRecordQuery,
@@ -137,6 +139,75 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
     return result;
   }
 
+  /**
+   * 3DS charge 啟動(3DS-5a):組 3DS body → `fetch` → 回 `payment_url` 跳轉網址 + `rec_trade_id`,**不請款**。
+   *
+   * 🔴 與同步 `charge` 獨立(語意不同、既有 `charge` 與測試零改);body 加 `three_domain_secure:true` +
+   * `result_url{frontend_redirect_url, backend_notify_url}` + caller 帶入唯一 `bank_transaction_id`;
+   * 🔴 **不送 `delay_capture_in_days`**(省略=預設 0 當天請款、避免停 AUTH;master plan §7 + r3)。
+   *
+   * 🔴 解析(codex 關卡1 #2、不可過寬釋鎖):**唯** `status===0` **且**有 `payment_url`+`rec_trade_id` →
+   * `pending_3ds`。其餘一律 throw:`status!==0`(含 421 操作逾時/網關 timeout 等模糊態、卡拒、缺 payment_url)、
+   * HTTP 非 2xx、JSON 格式異常。理由 = 3DS 啟動非成功未必「明確未扣款」(timeout 可能 OTP 後已成交)→ adapter
+   * 不自判 failed、不給 use-case 釋鎖依據;最終由 settleCharge / Record API 唯一權威裁決。
+   * 🔴 #16 PII:只記 orderId/status/recTradeId/bankTransactionId;cardholder / rawResponse / **payment_url**(含 token)不入 log。
+   */
+  async initiateThreeDSCharge(payload: TapPayInitiationPayload): Promise<TapPayInitiationResult> {
+    // 🔴 卡資料(PAN/CVV)永不進 server:只收 prime + cardholder PII;amount=server 算的整數;bank_transaction_id=caller 自產唯一鍵。
+    const body = {
+      partner_key: this.config.partnerKey,
+      prime: payload.prime,
+      amount: payload.amount.amount, // MoneyAmount(整數、最小貨幣單位);client 永不送價、此為 server 權威 total
+      merchant_id: this.config.merchantId,
+      order_number: payload.orderId, // TapPay 訂單識別欄(孤兒對帳回連 PCM order;同步 charge 同慣例)
+      details: `PCM Order ${payload.orderId}`,
+      cardholder: {
+        name: payload.cardholder.name,
+        email: payload.cardholder.email,
+        phone_number: payload.cardholder.phoneNumber, // domain 必填、不送空字串
+      },
+      // 🔴 3DS 啟動專屬欄(同步 charge body 無):
+      three_domain_secure: true,
+      result_url: {
+        frontend_redirect_url: payload.frontendRedirectUrl, // 銀行 OTP 後前端跳轉(https)
+        backend_notify_url: payload.backendNotifyUrl, // 結算 server 通知(webhook 祕密路徑段)
+      },
+      bank_transaction_id: payload.bankTransactionId, // caller 自產唯一鍵(charge 前已 durable;adapter 不自產)
+      // 🔴 不送 delay_capture_in_days(省略=預設 0 當天請款、避免停 AUTH;master plan §7 + r3)。
+    };
+
+    const response = await fetch(this.config.payByPrimeUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.config.partnerKey,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      // HTTP 層失敗 = 啟動狀態未知(timeout 後可能已成交)→ throw(use-case charge_unknown、不釋鎖)。
+      throw new Error(`TapPay pay-by-prime(3DS)HTTP ${response.status}`);
+    }
+
+    const raw: unknown = await response.json();
+    const wire = parseTapPayResponse(raw);
+    this.logInitiation(payload.orderId, wire.status, wire.recTradeId, payload.bankTransactionId);
+
+    // 🔴 唯 status===0 且有 payment_url + rec_trade_id → pending_3ds;其餘一律 throw(過寬釋鎖風險、codex 關卡1 #2)。
+    if (wire.status !== 0 || !wire.paymentUrl || !wire.recTradeId) {
+      throw new Error(
+        `TapPay 3DS 啟動未成功或缺 payment_url/rec_trade_id(status ${wire.status})`,
+      );
+    }
+
+    return {
+      status: 'pending_3ds',
+      paymentUrl: wire.paymentUrl,
+      recTradeId: wire.recTradeId,
+      bankTransactionId: payload.bankTransactionId, // 回送 caller 自產鍵(已 durable;非依賴 TapPay 回欄)
+    };
+  }
+
   async refund(_payload: TapPayRefundPayload): Promise<TapPayRefundResult> {
     // Phase 1 不接退款(refund 留 Phase 2、kickoff §7);interface 要求方法存在 → 誠實 throw、不假裝實作。
     throw new Error('TapPay refund 未實作(Phase 2)');
@@ -200,6 +271,24 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
       orderId,
       status,
       recTradeId: recTradeId ?? null,
+    });
+  }
+
+  /**
+   * 🔴 #16:3DS 啟動 log 只記非 PII 對帳識別鍵 + wire status;
+   * cardholder / rawResponse / **payment_url**(含 token query)絕不入 log。
+   */
+  private logInitiation(
+    orderId: OrderId,
+    status: number,
+    recTradeId: string | undefined,
+    bankTransactionId: string,
+  ): void {
+    console.info('[TapPayChargeAdapter] initiateThreeDSCharge', {
+      orderId,
+      status,
+      recTradeId: recTradeId ?? null,
+      bankTransactionId,
     });
   }
 

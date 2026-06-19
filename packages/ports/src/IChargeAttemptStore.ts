@@ -35,6 +35,26 @@ export interface IChargeAttemptStore {
    */
   findActiveByOrderId(orderId: OrderId): Promise<ActiveChargeAttempt | null>;
 
+  // ── M-3 3DS-5b initiate:把 bank_txn / rec_trade_id 寫進仍 pending 的 attempt(record_charge_bank_txn / record_charge_pending_rec RPC)──
+  // 🔴 全主軌-only(對齊 findActiveByOrderId):3DS 對帳路徑無 user JWT〔備軌需 auth.uid()〕;寫失敗語意見各方法。
+
+  /**
+   * 🔴 3DS charge **前**把 caller 自產 `bankTxn`(`^[A-Z0-9]{1,19}$`)durable 寫進仍 pending 的 attempt
+   * (master plan §1:回應遺失本機仍有可查鍵)。
+   *
+   * 🔴 **RPC 回 false(未 durable:異值不覆寫 / 非 pending / 查無)即 throw**(codex 關卡1 #3:不可在 bank_txn
+   * 未落地時讓 use-case 送 TapPay → init_failed、零 charge);連線/parse 失敗亦 throw。同值冪等回 true(no-op、不 throw)。
+   */
+  recordInitiationBankTxn(attemptId: string, orderId: OrderId, bankTxn: string): Promise<void>;
+
+  /**
+   * 🔴 3DS charge **後**把回傳 `recTradeId` durable 寫進仍 pending 的 attempt(維持 pending、≠ markCharged)。
+   *
+   * best-effort 語意(charge 後、bank_txn 已可對帳):RPC 回 false(未 durable)亦 throw、連線/parse 失敗亦 throw
+   * → use-case catch→log 後仍 redirect(bank_txn 已是對帳鍵、rec 缺失不阻跳轉)。同值冪等回 true(不 throw)。
+   */
+  recordInitiationRec(attemptId: string, orderId: OrderId, recTradeId: string): Promise<void>;
+
   // ── M-3 3DS-4 sweeper(expire_stuck_attempts_at_ceiling / claim_stuck_unsettled_attempts / mark_attempt_settle_retry / flag_non_unpaid_active_attempts、3DS-4a-2)──
   // 🔴 全主軌-only(同 findActiveByOrderId):對帳路徑無 user JWT〔備軌需 auth.uid()〕、且讀/標失敗→sweeper 下輪重來無漏寫風險。
 

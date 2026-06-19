@@ -21,6 +21,9 @@
 //   predicate 排除 payment_status='paid')→ 若釋鎖重試 = 新單第二次扣款(真雙扣)。
 //   寧卡單勿雙扣:狀態未知一律當已扣款處理(勿重複付款文案、②-⑥ 對帳收斂;
 //   極少數真零扣款者走客服 LINE 確認)。
+// - 🔴 redirect(3DS-6b、flag on 3DS 啟動成功)→ **不 clear**:即將整頁跳轉 TapPay payment_url、
+//   清車交 3DS-3 callback 成功頁(ClearCartOnSuccess);abandon 回頭時車仍在、可立即重結帳。
+//   UI 鎖定維持(導向中、防重送);付款狀態非終態(待 OTP→callback 裁決)。
 // - in_flight / error / wait → 保留 cart(server 明確回覆零扣款/未扣款、可修正後重試)。
 
 import { useRef, useState } from 'react';
@@ -49,6 +52,8 @@ export type ChargeState =
   | { status: 'processing'; displayId: string; message: string }
   /** 🔴 action 呼叫 throw(回應遺失層):付款狀態未知、可能已扣款 → 終態、勿重複付款、無單號。 */
   | { status: 'unknown'; message: string }
+  /** 🔴 3DS-6b:3DS 啟動成功 → 即將整頁跳轉 TapPay payment_url(付款狀態非終態、UI 鎖定導向中、不清車)。 */
+  | { status: 'redirect'; redirectUrl: string }
   | { status: 'paid'; displayId: string };
 
 export type UseChargePayment = {
@@ -107,6 +112,12 @@ export function useChargePayment(): UseChargePayment {
     }
 
     // 六態映射(②-③e ChargePaymentActionResult → client state;文案由 action 常數單一真相)。
+    // 🔴 3DS-6b:redirect(flag on 3DS 啟動成功)→ 即將整頁跳轉 TapPay。不清車(callback 成功頁才清、
+    //   abandon 可回頭重結帳);UI 鎖定維持(導向中、防重送)、付款狀態非終態。redirectUrl 不 log。
+    if ('redirect' in res && res.redirect) {
+      setState({ status: 'redirect', redirectUrl: res.redirectUrl });
+      return true; // 維持 UI 鎖:呼叫端(View primeBusyRef)不釋放(即將導向)
+    }
     if ('ok' in res && res.ok) {
       clear(); // paid:清車(僅成功後)
       setState({ status: 'paid', displayId: res.displayId }); // 終態保持上鎖

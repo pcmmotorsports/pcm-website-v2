@@ -36,6 +36,11 @@ export { placeOrder } from './place-order';
 // 型別 ConfirmPaymentInput/Outcome 在 @pcm/domain payment/types.ts、從 @pcm/domain 取)。
 export { confirmPayment, type ConfirmPaymentDeps } from './confirm-payment';
 
+// M-3 3DS-5b:3DS charge 啟動半段 use-case(initiatePayment = master plan「confirmPayment.initiate」落地名;
+// charge 帶 3DS → 回 redirect payment_url、結算交 settleCharge;3DS-6 才 consume;型別 InitiatePaymentInput/Outcome
+// 在 @pcm/domain payment/types.ts、從 @pcm/domain 取)。
+export { initiatePayment, type InitiatePaymentDeps } from './initiate-payment';
+
 // M-3 3DS-1b:對帳脊椎 use-case(settleCharge、三路 callback/webhook/sweeper + retry 共呼冪等、
 // Record API 唯一權威;master plan v5 §1)。
 export { settleCharge, type SettleChargeDeps } from './settle-charge';

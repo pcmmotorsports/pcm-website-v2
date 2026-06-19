@@ -52,6 +52,17 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
     return this.primary.findActiveByOrderId(orderId);
   }
 
+  // 🔴 3DS-5b initiate 寫入主軌-only(對齊 findActiveByOrderId):3DS 對帳路徑無 user JWT〔備軌需 auth.uid()〕;
+  //    bank_txn 軌回 false → primary throw → use-case 映 init_failed;rec 軌 best-effort 由 use-case catch→log。
+
+  recordInitiationBankTxn(attemptId: string, orderId: OrderId, bankTxn: string): Promise<void> {
+    return this.primary.recordInitiationBankTxn(attemptId, orderId, bankTxn);
+  }
+
+  recordInitiationRec(attemptId: string, orderId: OrderId, recTradeId: string): Promise<void> {
+    return this.primary.recordInitiationRec(attemptId, orderId, recTradeId);
+  }
+
   // 🔴 3DS-4 sweeper 全主軌-only(同 findActiveByOrderId):對帳路徑無 user JWT〔備軌需 auth.uid()〕、
   //    且失敗→sweeper 下輪靠 lease/退避重來無漏寫風險,不需雙軌韌性。
 

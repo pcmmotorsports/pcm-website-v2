@@ -69,7 +69,8 @@ function makeTapPay(
   recordQuery: (q: TapPayRecordQuery) => Promise<TapPayRecordResult> = async (q) =>
     paidResultFor(resolveOrderId(q)),
 ): ITapPayAdapter {
-  return { charge: vi.fn(), refund: vi.fn(), recordQuery: vi.fn(recordQuery) };
+  // initiateThreeDSCharge(3DS-5a)為新增 port 方法;sweeper(結算半段)不呼用、stub 滿足介面。
+  return { charge: vi.fn(), refund: vi.fn(), recordQuery: vi.fn(recordQuery), initiateThreeDSCharge: vi.fn() };
 }
 
 function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptStore {
@@ -82,6 +83,9 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     claimStuckUnsettled: vi.fn(async () => []),
     markSettleRetry: vi.fn(async () => 1),
     flagNonUnpaidActive: vi.fn(async () => 0),
+    // 3DS-5b initiate 寫入 port 方法;sweepSettlements 不呼用、stub 滿足介面。
+    recordInitiationBankTxn: vi.fn(async () => {}),
+    recordInitiationRec: vi.fn(async () => {}),
     ...over,
   };
 }
@@ -171,7 +175,7 @@ describe('sweepSettlements — ② inbox 來源', () => {
 
   it('🔴 群3 inbox 帶 recTradeIdHint:弱 attempt 無 rec/bank → settleCharge 用 inbox rec 查 Record', async () => {
     const recordQuery = vi.fn(async () => paidResultFor(ORDER_X));
-    const tappay: ITapPayAdapter = { charge: vi.fn(), refund: vi.fn(), recordQuery };
+    const tappay: ITapPayAdapter = { charge: vi.fn(), refund: vi.fn(), recordQuery, initiateThreeDSCharge: vi.fn() };
     const inbox = makeInbox({
       claimDueEvents: vi.fn(async () => [{ recTradeId: 'D-inbox-hint', orderNumber: ORDER_X, attemptCount: 1 }]),
     });

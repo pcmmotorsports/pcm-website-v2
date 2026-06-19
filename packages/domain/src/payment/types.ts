@@ -66,6 +66,48 @@ export type TapPayChargeResult = {
   rawResponse: unknown;
 };
 
+// ── M-3 3DS-5a:3DS charge 啟動型別(回 payment_url 跳轉、不請款;與同步 charge 語意不同 → 獨立型別)──
+
+/**
+ * TapPayInitiationPayload:3DS charge 啟動輸入(`ITapPayAdapter.initiateThreeDSCharge`)。
+ *
+ * 與同步 `TapPayChargePayload` 的差異:多帶 caller 自產的唯一 `bankTransactionId`(charge 前 durable 存、
+ * master plan §1 對帳鍵)+ 3DS 跳轉回程 URL(`frontendRedirectUrl` https / `backendNotifyUrl`)。
+ * 🔴 `bankTransactionId` 由 5b use-case 以 `generateBankTransactionId()` 產(≤19 字大寫英數)、adapter 忠實透傳不自產。
+ * URL 字串由 delivery 層(6)組、本型別只收參數(use-case 不自組 URL)。
+ */
+export type TapPayInitiationPayload = {
+  /** TapPay client SDK 產的 prime token */
+  prime: string;
+  amount: Money;
+  orderId: OrderId;
+  cardholder: Cardholder;
+  /** caller 自產唯一訂單編號(charge 前 durable 存;`^[A-Z0-9]{1,19}$`);adapter 原樣送 TapPay。 */
+  bankTransactionId: string;
+  /** 3DS 銀行 OTP 後前端跳轉網址(TapPay `result_url.frontend_redirect_url`;須 https)。 */
+  frontendRedirectUrl: string;
+  /** 3DS 結算 server 通知網址(TapPay `result_url.backend_notify_url`;webhook 祕密路徑段)。 */
+  backendNotifyUrl: string;
+};
+
+/**
+ * TapPayInitiationResult:3DS charge 啟動結果(**只有成功一態**;非成功一律 throw、見 adapter §2.1)。
+ *
+ * 🔴 codex 關卡1 #2:3DS 啟動回「payment_url 跳轉 + rec_trade_id」、**尚未請款無實扣金額**(語意 ≠ 同步
+ * `TapPayChargeResult` 已扣款)。adapter **不自判 failed**(timeout 等模糊態未必明確未扣款)→ 唯
+ * `status===0 && payment_url && rec_trade_id` 回 `pending_3ds`、其餘 throw(use-case 映 charge_unknown、
+ * 不釋鎖;最終由 settleCharge / Record API 唯一權威裁決)。
+ */
+export type TapPayInitiationResult = {
+  status: 'pending_3ds';
+  /** TapPay `payment_url`:3DS 付款頁跳轉網址(🔴 含 token query、絕不入 log)。 */
+  paymentUrl: string;
+  /** TapPay `rec_trade_id`:結算對帳主鍵(settleCharge rec 優先序第一順位)。 */
+  recTradeId: string;
+  /** 回送 caller 自產的 `bankTransactionId`(charge 前已 durable;對帳次順位鍵)。 */
+  bankTransactionId: string;
+};
+
 /**
  * TapPayRefundPayload: refund use-case 輸入。
  *
@@ -236,6 +278,51 @@ export type ConfirmPaymentOutcome =
 
 /** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
 export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
+
+/**
+ * InitiatePaymentInput:3DS charge 啟動半段 use-case(initiatePayment、M-3 3DS-5b)輸入。
+ *
+ * 對齊 `ConfirmPaymentInput`(prime/orderId/amount/cardholder;amount=server read-back orders.total、
+ * client 永不送價、鐵則 12)+ 多 3DS 跳轉回程 URL。🔴 `frontendRedirectUrl`/`backendNotifyUrl` 由
+ * delivery 層(3DS-6)組 `${base}/checkout/callback?order=${orderId}`(對齊 3DS-3 callback)+
+ * `${base}/api/checkout/tappay-notify/${secret}`(對齊 3DS-2 webhook secret path);use-case **收參數不自組 URL**
+ * (URL 組裝 = 6 的 delivery 職責、plan §3.3;5b 簽章預留入參)。
+ */
+export type InitiatePaymentInput = {
+  prime: string;
+  orderId: OrderId;
+  amount: Money;
+  cardholder: Cardholder;
+  /** 3DS 銀行 OTP 後前端跳轉網址(TapPay `result_url.frontend_redirect_url`;須 https;delivery 層組)。 */
+  frontendRedirectUrl: string;
+  /** 3DS 結算 server 通知網址(TapPay `result_url.backend_notify_url`;webhook 祕密路徑段;delivery 層組)。 */
+  backendNotifyUrl: string;
+};
+
+/**
+ * InitiatePaymentOutcome:3DS charge 啟動半段 use-case(initiatePayment、M-3 3DS-5b)結果。
+ *
+ * 🔴 與同步 `ConfirmPaymentOutcome` 的本質差異(plan §3.3):啟動半段 **charge 不回扣款結果、回 payment_url
+ * 跳轉**(銀行 OTP → settleCharge 對帳脊椎裁決),故 **無 `paid` / `orphan` / `charge_failed` 態**;
+ * initiate 全程不釋鎖(charge 非成功一律 `charge_unknown`、不 markFailed)、失敗-釋鎖唯一權威是 settleCharge
+ * 經 Record API(record_status -1/5)。
+ *
+ * - `redirect`:bank_txn durable + initiateThreeDSCharge 回 `pending_3ds` → 3DS-6 delivery 層 `window.location`
+ *   跳轉 `redirectUrl`(= TapPay payment_url、含 token query);rec 寫入 best-effort(失敗只 log、不阻跳轉)。
+ * - `charge_unknown`:initiateThreeDSCharge throw(status≠0 / 421 timeout / HTTP / 格式)→ 扣款狀態未知、
+ *   bank_txn **已 durable** → settleCharge 經 bank_txn 對帳;**不 markFailed**、pending 續持鎖、勿重刷。
+ * - `settlement_required`:begin 偵測同 cart_session_id 異單已扣款/扣款中(0b dedup duplicate/needs_settle)、
+ *   **零本次扣款** → ②-③ 映「狀態確認中、請勿重複付款」(對齊 ConfirmPaymentOutcome 同名態)。
+ * - `locked`:佔 charge 鎖失敗(user_in_flight/order_locked/not_unpaid)、**零扣款**(begin !acquired)。
+ * - `init_failed`:bank_txn 寫入未 durable(RPC false / throw)→ **零 TapPay 呼叫**、零 charge(安全);
+ *   pending 鎖殘留交 expirer/sweeper 清(charge 前失敗、無扣款風險)。
+ */
+export type InitiatePaymentOutcome =
+  | { kind: 'redirect'; redirectUrl: string }
+  | { kind: 'charge_unknown'; orderId: OrderId }
+  | { kind: 'settlement_required' }
+  | { kind: 'locked'; reason: ChargeLockReason }
+  | { kind: 'init_failed' };
 
 /**
  * BeginChargeAttemptResult:佔 per-order charge 鎖結果(IChargeAttemptStore.begin、②-③a begin RPC DTO)。

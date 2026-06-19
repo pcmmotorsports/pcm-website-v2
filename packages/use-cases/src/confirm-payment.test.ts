@@ -29,8 +29,8 @@ function chargeResult(over: Partial<TapPayChargeResult> = {}): TapPayChargeResul
 }
 
 function makeTapPay(charge: () => Promise<TapPayChargeResult>): ITapPayAdapter {
-  // recordQuery 為 3DS-1a 新增 port 方法;confirm-payment(同步成交鏈)不呼用、stub 滿足介面即可。
-  return { charge: vi.fn(charge), refund: vi.fn(), recordQuery: vi.fn() };
+  // recordQuery(3DS-1a)/ initiateThreeDSCharge(3DS-5a)為新增 port 方法;confirm-payment(同步成交鏈)不呼用、stub 滿足介面即可。
+  return { charge: vi.fn(charge), refund: vi.fn(), recordQuery: vi.fn(), initiateThreeDSCharge: vi.fn() };
 }
 function makeConfirmer(
   confirm: () => Promise<{ confirmed: boolean; idempotent: boolean }>,
@@ -54,6 +54,9 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     claimStuckUnsettled: vi.fn(async () => []),
     markSettleRetry: vi.fn(async () => 1),
     flagNonUnpaidActive: vi.fn(async () => 0),
+    // 3DS-5b initiate 寫入 port 方法;confirm-payment(同步成交鏈)不呼用、stub 滿足介面。
+    recordInitiationBankTxn: vi.fn(async () => {}),
+    recordInitiationRec: vi.fn(async () => {}),
     ...over,
   };
 }

@@ -64,6 +64,15 @@ vi.mock('@/hooks/useTapPayCard', () => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
+// 3DS-6b:CheckoutRedirecting 內含 window.location.assign 整頁導向副作用(jsdom 不可導航)→ stub;
+//   真導向行為在 CheckoutRedirecting.test.tsx 驗。此處只驗 CheckoutView redirect 態 → 渲染它且帶對 redirectUrl。
+vi.mock('@/components/CheckoutRedirecting', () => ({
+  CheckoutRedirecting: ({ redirectUrl }: { redirectUrl: string }) => (
+    <div data-testid="checkout-redirecting" data-url={redirectUrl}>
+      正在前往安全付款頁面
+    </div>
+  ),
+}));
 
 import { CheckoutView } from './CheckoutView';
 
@@ -396,6 +405,22 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(screen.getByText('PCM-2026-0008')).toBeTruthy();
     expect(screen.getByText(/請勿重複付款/)).toBeTruthy();
     expect(cartRef.current.clear).toHaveBeenCalledOnce();
+  });
+
+  it('🔴 3DS-6b redirect(flag on 3DS 啟動成功)→ 渲染 CheckoutRedirecting(帶 redirectUrl)、無 step UI、不清車', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    const PAY = 'https://sandbox.tappaysdk.com/tpc/3ds/pay?token=abc123';
+    chargeMock.mockResolvedValue({ redirect: true, redirectUrl: PAY });
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    const node = await screen.findByTestId('checkout-redirecting');
+    expect(node.getAttribute('data-url')).toBe(PAY); // CheckoutView 把 redirectUrl 原樣交付
+    expect(screen.queryByRole('button', { name: /確認付款/ })).toBeNull(); // 導向中畫面取代表單
+    expect(cartRef.current.clear).not.toHaveBeenCalled(); // 🔴 redirect 不清車(callback 成功頁才清)
   });
 
   it('🔴 ⑰ action throw(回應遺失)→ unknown 終態畫面:勿重複付款 + 清車 + 無單號(審查側 BLOCKER)', async () => {

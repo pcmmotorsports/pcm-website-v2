@@ -49,6 +49,9 @@ function makeStore(opts: {
   ]);
   const primaryMarkSettleRetry = vi.fn(async () => 1);
   const primaryFlagNonUnpaid = vi.fn(async () => 3);
+  // 3DS-5b initiate 寫入主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
+  const primaryRecordBankTxn = vi.fn(async () => {});
+  const primaryRecordRec = vi.fn(async () => {});
   const primary: IChargeAttemptStore = {
     begin,
     markCharged: primaryMarkCharged,
@@ -59,6 +62,8 @@ function makeStore(opts: {
     claimStuckUnsettled: primaryClaimStuck,
     markSettleRetry: primaryMarkSettleRetry,
     flagNonUnpaidActive: primaryFlagNonUnpaid,
+    recordInitiationBankTxn: primaryRecordBankTxn,
+    recordInitiationRec: primaryRecordRec,
   };
   const fallback: ChargeAttemptFallbackRail = { markCharged: fallbackMarkCharged };
   // 顯式 call signature:令 sleep.mock.calls 為 [ms] tuple(可讀退避序列、非空 tuple)。
@@ -76,6 +81,8 @@ function makeStore(opts: {
     primaryClaimStuck,
     primaryMarkSettleRetry,
     primaryFlagNonUnpaid,
+    primaryRecordBankTxn,
+    primaryRecordRec,
     sleep,
     events,
   };
@@ -287,5 +294,32 @@ describe('3DS-4 sweeper 方法 — 主軌-only 直通(無 fallback、對齊 find
     const res = await store.flagNonUnpaidActive(50);
     expect(primaryFlagNonUnpaid).toHaveBeenCalledWith(50);
     expect(res).toBe(3);
+  });
+});
+
+describe('3DS-5b initiate 寫入方法 — 主軌-only 直通(無 fallback、對齊 findActiveByOrderId)', () => {
+  it('recordInitiationBankTxn 直通 primary(原參數)、零 sleep 零備軌', async () => {
+    const { store, primaryRecordBankTxn, fallbackMarkCharged, sleep } = makeStore({});
+    await store.recordInitiationBankTxn('attempt-uuid-1', ORDER, 'P01234567890ABCDEF');
+    expect(primaryRecordBankTxn).toHaveBeenCalledWith('attempt-uuid-1', ORDER, 'P01234567890ABCDEF');
+    expect(fallbackMarkCharged).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it('🔴 recordInitiationBankTxn 主軌 throw(未 durable)→ 原樣上拋、不切備軌(use-case 映 init_failed)', async () => {
+    const { store, primaryRecordBankTxn, fallbackMarkCharged } = makeStore({});
+    primaryRecordBankTxn.mockRejectedValueOnce(new Error('record_charge_bank_txn 未 durable'));
+    await expect(
+      store.recordInitiationBankTxn('attempt-uuid-1', ORDER, 'P01234567890ABCDEF'),
+    ).rejects.toThrow('未 durable');
+    expect(fallbackMarkCharged).not.toHaveBeenCalled();
+  });
+
+  it('recordInitiationRec 直通 primary(原參數)、零 sleep 零備軌', async () => {
+    const { store, primaryRecordRec, fallbackMarkCharged, sleep } = makeStore({});
+    await store.recordInitiationRec('attempt-uuid-1', ORDER, 'D20260619001234567');
+    expect(primaryRecordRec).toHaveBeenCalledWith('attempt-uuid-1', ORDER, 'D20260619001234567');
+    expect(fallbackMarkCharged).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
   });
 });
