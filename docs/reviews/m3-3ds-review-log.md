@@ -541,3 +541,17 @@ route.ts 可執行碼對 b53fea5 byte-identical(兩 hunk 純註解)+ N1 gate 契
 - **Q1 審查側 concur = A**(抽 `notify-secret.ts` 單一真相):secret 規則是安全邊界、應單一真相防漂移、route 行為零變且 route.test.ts 守回歸;規則已驗 byte 一致(≥32 + URL_SAFE_RE + MIN_SECRET_LEN=32)。**caveat**:抽出後動到的是**已上 prod 的 webhook route** → 執行側須跑**完整 route.test.ts**(非子集)+ 確認抽出函式行為 byte 等價(memory `run-full-vitest-after-shared-component-change`)。
 
 **關卡2(binding)待 commit 落地逐條核**:① flag off 走 confirmPayment 零行為差(initiatePayment/resolveThreeDSConfig 零呼叫回歸)② flag on charge-actions 分岔正確(initiatePayment 收 server 值、client 竄改不採信)③ **N1 isHttpsUrl 區分**(payment_url 帶 query 仍合法、base origin-only)④ payment_url/prime/卡資料零入 log(server+client、.next/static grep)⑤ result_url 組裝對齊 3DS-2 secret 段 / 3DS-3 `?order=` callback ⑥ 中間態誠實(prod checkout 不可開、flag 僅 sandbox)⑦ 三綠 forced-fresh + full vitest + 經銷價雙 grep ⑧ codex 關卡2 cross-model(鐵則 12、main session、read-only、porcelain 零留痕;quota 6/18 已過、應可跑)。哨兵 `b845nq6ad` 待命接 6a。
+
+## 2026-06-19 — plan commit `5cc5baa` light review(docs-only、N1/Q1=A/N2 折入驗收)= PASS-with-1-nit
+
+`docs(payment): M-3 3DS-6 charge-actions redirect plan(codex 關卡1 PASS + 審查側 sign-off、N1/Q1=A 折入)`。哨兵 `b845nq6ad` 抓到 → fresh pin `5cc5baa`(parent=ed08945 線性)。**docs-only**(單檔 plan +294、零 code/STATUS/migration → 整合留整線、正確)。
+
+**折入驗收(字面 vs 事實逐條 grep):**
+- ✅ **N1 折入**:§2.2 L90-92 顯式區分 `resolvePaymentBaseUrl`(origin-only、**不 export**、拒 query/hash/path)vs `isHttpsUrl`(**顯式 export**、允許 query/path、只驗 protocol/hostname/無 credential);L97 明述「絕不可誤用 origin-only 驗 payment_url」;L98 要求 `mapInitiateOutcome` import `isHttpsUrl`(不另寫一份)。
+- ✅ **Q1=A 折入**:L76/L80 `import { requireNotifySecret } from './notify-secret'`(用真實 route 函式名);L99 byte 等價抽出(同 MIN_SECRET_LEN=32/URL_SAFE_RE/throw)+ route 改 import 行為零變 + **改完跑完整 route.test.ts + 完整 vitest**(我的 caveat 逐字);§5 L202-203 影響面列 notify-secret.ts 新檔 + route import 改。
+- ✅ **N2 折入**:§3.3 L174 nit、本片不做、記 backlog、Phase II 補手動繼續連結。
+- ✅ §11 L284-287 補「審查側關卡1 PASS-with-notes、Sean 批 Q0=A/Q1=A、5b migration 已在 prod」。
+
+**🟡 NIT(forward 到 6a、非 blocker)— fold 自身字面 vs 事實 gap**:§11 L285 宣稱「6a 測釘『帶 token query→redirect / 壞值→processing』兩案(§2.2/**§2.4**)」,但 **§2.4 測試列舉未實際更新**:① charge-actions.test 仍泛寫「`redirect`(合法 https payment_url)」、**未明確釘「payment_url 帶 `?token=` query → 仍 redirect」**;② three-ds-urls.test 只測 base/secret/buildResultUrls、**未為新 export 的 `isHttpsUrl` 加專屬測案**(尤缺「`isHttpsUrl('https://host?token=x')`→true、允許 query」)。需求已捕捉於 §2.2 + §11 文字,但未落進 §2.4 列舉 → 照 §2.4 寫無 query 的「合法 https」測,即使誤用 origin-only 驗證測也會綠、N1 bug 漏網。**disposition**:5cc5baa 未 push、可選 fold 進 6a(6a 本就動 §2.4 測);無論 plan §2.4 字面如何,**6a 關卡2 我親驗測試碼真含 token-query 案 + isHttpsUrl 允許-query 案**(binding hard-check、列入上方關卡2 ③)。
+
+**判定 = PASS**(docs-only、N1/Q1/N2 實質折入、N1 需求已捕捉於 §2.2/§11)。1 forward nit(§2.4 測案列舉)交 6a。哨兵續盯。
