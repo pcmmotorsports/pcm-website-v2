@@ -53,6 +53,9 @@ coverage/
 **/test-results/
 **/playwright-report/
 
+# Playwright MCP 暫存產出(本機真機/瀏覽器驗證截圖、不入 git)
+.playwright-mcp/
+
 # Storybook
 storybook-static/
 
