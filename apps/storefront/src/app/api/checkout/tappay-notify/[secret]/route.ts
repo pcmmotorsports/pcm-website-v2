@@ -24,6 +24,7 @@
 import { timingSafeEqual, createHash } from 'node:crypto';
 import { after } from 'next/server';
 import { getWebhookInbox, getSettleChargeDeps, getChargeAttemptReader } from '@/lib/payment/composition';
+import { requireNotifySecret } from '@/lib/payment/notify-secret';
 import { settleCharge } from '@pcm/use-cases';
 import type { WebhookEventInput } from '@pcm/domain';
 
@@ -31,10 +32,6 @@ export const runtime = 'nodejs';
 
 /** notify payload 上限(notify 小、防 oversized body 灌儲存/記憶體;codex 關卡1 consider 3)。 */
 const MAX_BODY_BYTES = 16 * 1024;
-/** 祕密路徑段最小長度(code enforce、防 env 誤設短字串;codex 關卡1 consider 2)。 */
-const MIN_SECRET_LEN = 32;
-/** URL-safe 字元集(base64url:不含 `/`、不破壞路徑)。 */
-const URL_SAFE_RE = /^[A-Za-z0-9_-]+$/;
 /** orderId = orders.id uuid → 形狀過濾(擋非 UUID order_number、避免後續 $1::uuid cast throw → 503 loop)。 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** 0a 欄長度界(rec_trade_id/bank_transaction_id BETWEEN 1 AND 128;route 先擋避免 RPC RAISE → 503 loop)。 */
@@ -49,15 +46,6 @@ function safeEqual(a: string, b: string): boolean {
   const bb = Buffer.from(b);
   if (ba.length !== bb.length) return false;
   return timingSafeEqual(ba, bb);
-}
-
-/** 讀 + 強度驗祕密路徑段;未設 / <32 / 非 URL-safe → throw(route 接 → 500 fail-closed、不放行)。 */
-function requireNotifySecret(): string {
-  const s = process.env.TAPPAY_NOTIFY_PATH_SECRET;
-  if (!s || s.length < MIN_SECRET_LEN || !URL_SAFE_RE.test(s)) {
-    throw new Error('TAPPAY_NOTIFY_PATH_SECRET 未設或強度不足(需 ≥32 URL-safe)');
-  }
-  return s;
 }
 
 type ParsedNotify = {

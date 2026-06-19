@@ -13,6 +13,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockPlaceOrder = vi.fn();
 const mockConfirmPayment = vi.fn();
+const mockInitiatePayment = vi.fn();
 const mockFindTotal = vi.fn();
 const mockGetOrderRepo = vi.fn();
 const mockGetCustomerRepo = vi.fn();
@@ -22,10 +23,16 @@ const mockGetPaymentConfirmer = vi.fn();
 const mockGetChargeAttemptStore = vi.fn();
 const mockBuildCardholder = vi.fn();
 const mockGetUser = vi.fn();
+// 3DS-6a:flag 分岔 + result_url 組裝(three-ds-flag / three-ds-urls 各有獨立單元測;此處 mock 驗分岔接線)。
+const mockIsThreeDSEnabled = vi.fn();
+const mockResolveThreeDSConfig = vi.fn();
+const mockBuildResultUrls = vi.fn();
+const mockIsHttpsUrl = vi.fn();
 
 vi.mock('@pcm/use-cases', () => ({
   placeOrder: (...args: unknown[]) => mockPlaceOrder(...args),
   confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
+  initiatePayment: (...args: unknown[]) => mockInitiatePayment(...args),
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getOrderRepo: () => mockGetOrderRepo(),
@@ -36,6 +43,14 @@ vi.mock('@/lib/payment/composition', () => ({
   getTapPayAdapter: () => mockGetTapPayAdapter(),
   getPaymentConfirmer: () => mockGetPaymentConfirmer(),
   getChargeAttemptStore: () => mockGetChargeAttemptStore(),
+}));
+vi.mock('@/lib/payment/three-ds-flag', () => ({
+  isThreeDSEnabled: () => mockIsThreeDSEnabled(),
+}));
+vi.mock('@/lib/payment/three-ds-urls', () => ({
+  resolveThreeDSConfig: () => mockResolveThreeDSConfig(),
+  buildResultUrls: (...args: unknown[]) => mockBuildResultUrls(...args),
+  isHttpsUrl: (...args: unknown[]) => mockIsHttpsUrl(...args),
 }));
 vi.mock('@/lib/payment/cardholder', () => ({
   buildCardholder: (...args: unknown[]) => mockBuildCardholder(...args),
@@ -83,6 +98,18 @@ beforeEach(() => {
   mockPlaceOrder.mockResolvedValue({ orderId: 'order-server-1', displayId: 'PCM-2026-0001' });
   mockFindTotal.mockResolvedValue(TOTAL);
   mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: false });
+  // 3DS-6a 預設 flag off(既有同步測沿用、3DS mock 不被呼);各 3DS 測顯式 mockReturnValue(true)。
+  mockIsThreeDSEnabled.mockReturnValue(false);
+  mockResolveThreeDSConfig.mockReturnValue({ base: 'https://pcm.example', secret: 's'.repeat(48) });
+  mockBuildResultUrls.mockReturnValue({
+    frontendRedirectUrl: 'https://pcm.example/checkout/callback?order=order-server-1',
+    backendNotifyUrl: `https://pcm.example/api/checkout/tappay-notify/${'s'.repeat(48)}`,
+  });
+  mockInitiatePayment.mockResolvedValue({
+    kind: 'redirect',
+    redirectUrl: 'https://sandbox.tappaysdk.com/pay?token=abc',
+  });
+  mockIsHttpsUrl.mockReturnValue(true);
 });
 
 describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
@@ -267,5 +294,110 @@ describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
     mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: true });
     const action = await getAction();
     expect(await action(validInput())).toEqual({ ok: true, displayId: 'PCM-2026-0001' });
+  });
+});
+
+describe('chargePaymentAction — 3DS-6a flag on(initiatePayment 分岔、plan §2.3)', () => {
+  const SECRET = 's'.repeat(48);
+  const FRONTEND = 'https://pcm.example/checkout/callback?order=order-server-1';
+  const BACKEND = `https://pcm.example/api/checkout/tappay-notify/${SECRET}`;
+  const MSG_SETTLE = '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認';
+  const MSG_PROCESSING = '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認';
+
+  it('flag off(預設)→ 走 confirmPayment、initiatePayment/resolveThreeDSConfig 零呼叫(回歸)', async () => {
+    const action = await getAction();
+    await action(validInput());
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockResolveThreeDSConfig).not.toHaveBeenCalled();
+  });
+
+  it('🔴 flag on + redirect(合法 https)→ { redirect:true, redirectUrl };initiatePayment 收 server 值、deps 無 confirmer、零 confirmPayment', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    const action = await getAction();
+    // client 竄改 orderId/amount → 不採;prime zod trim。
+    const res = await action(
+      validInput({ prime: '  prime_abc  ', orderId: 'order-fake-999', amount: { amount: 1, currency: 'TWD' } }),
+    );
+    expect(res).toEqual({ redirect: true, redirectUrl: 'https://sandbox.tappaysdk.com/pay?token=abc' });
+    // preflight 在建單前、URL 用 server orderId 組(非 client)。
+    expect(mockResolveThreeDSConfig).toHaveBeenCalledTimes(1);
+    expect(mockBuildResultUrls).toHaveBeenCalledWith({ base: 'https://pcm.example', secret: SECRET }, 'order-server-1');
+    expect(mockInitiatePayment).toHaveBeenCalledWith(
+      { tappay: { tag: 'tappay' }, attempts: { tag: 'attempts' } }, // 🔴 無 confirmer
+      {
+        prime: 'prime_abc',
+        orderId: 'order-server-1', // = placeOrder 回傳、非 client
+        amount: TOTAL, // = findTotal、非 client
+        cardholder: CARDHOLDER, // = helper、非 client
+        frontendRedirectUrl: FRONTEND,
+        backendNotifyUrl: BACKEND,
+      },
+    );
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('🔴 flag on + redirect 但 payment_url 非 https(壞值)→ processing 終態(非 generic、防誤導重刷;codex k1 #2)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockInitiatePayment.mockResolvedValue({ kind: 'redirect', redirectUrl: 'http://evil.example/pay' });
+    mockIsHttpsUrl.mockReturnValue(false);
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'processing',
+      displayId: 'PCM-2026-0001',
+      message: MSG_SETTLE,
+    });
+  });
+
+  it.each([
+    ['charge_unknown', { kind: 'charge_unknown', orderId: 'order-server-1' }, MSG_SETTLE],
+    ['settlement_required', { kind: 'settlement_required' }, MSG_SETTLE],
+    ['locked/order_locked', { kind: 'locked', reason: 'order_locked' }, MSG_PROCESSING],
+    ['locked/not_unpaid', { kind: 'locked', reason: 'not_unpaid' }, MSG_PROCESSING],
+  ])('flag on + %s → processing + displayId', async (_label, outcome, message) => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockInitiatePayment.mockResolvedValue(outcome);
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'processing',
+      displayId: 'PCM-2026-0001',
+      message,
+    });
+  });
+
+  it('🔴 flag on + init_failed(bank_txn 未 durable)→ charge_failed_wait(誠實未扣款、留車稍候)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockInitiatePayment.mockResolvedValue({ kind: 'init_failed' });
+    const action = await getAction();
+    expect(await action(validInput())).toEqual({
+      ok: false,
+      payment: 'charge_failed_wait',
+      displayId: 'PCM-2026-0001',
+      message: '付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試',
+    });
+  });
+
+  it('🔴 flag on + locked/user_in_flight → in_flight、無 displayId(此請求零扣款)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockInitiatePayment.mockResolvedValue({ kind: 'locked', reason: 'user_in_flight' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ ok: false, payment: 'in_flight', message: '您有一筆付款正在處理中,請稍候再試' });
+    expect(res).not.toHaveProperty('displayId');
+  });
+
+  it('🔴 flag on + resolveThreeDSConfig throw(base/secret 缺)→ generic + placeOrder/initiatePayment 零呼叫(零扣款 + 零垃圾單;codex k1 #3)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockResolveThreeDSConfig.mockImplementation(() => {
+      throw new Error('NEXT_PUBLIC_SITE_URL 未設或非合法 https origin');
+    });
+    const action = await getAction();
+    const res = (await action(validInput())) as { formError?: string };
+    expect(res.formError).toBe('付款失敗,請稍後再試或聯繫客服 LINE');
+    expect(mockPlaceOrder).not.toHaveBeenCalled(); // preflight 在建單前
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(JSON.stringify(res)).not.toContain('NEXT_PUBLIC_SITE_URL'); // 不洩 env 名
   });
 });

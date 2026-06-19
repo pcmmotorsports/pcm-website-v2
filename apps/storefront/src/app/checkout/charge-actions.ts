@@ -26,11 +26,22 @@
 //   勿重複付款(成功真相 = confirm 成功;重試走 ②-⑥ 冪等 confirm 非重 charge)。
 // - in_flight → locked(user_in_flight):🔴 不帶 displayId(此請求的新單零扣款、不得以
 //   「付款單號/已收」呈現;codex 關卡1 round3 C)。
+//
+// 🔴 3DS-6a(flag on=`isThreeDSEnabled()`、僅 sandbox/staging):⑥ 改走 initiatePayment(回 payment_url
+//   跳轉、不請款)→ mapInitiateOutcome 映 `{ redirect:true, redirectUrl }`(client 整頁跳 TapPay);非成功
+//   態(charge_unknown/settlement_required/locked/init_failed)沿用上方同名 UI 態(無 paid、結算交 settleCharge)。
+//   ①-⑤ 兩路徑共用;result_url base+secret 在 placeOrder「前」preflight(缺/壞 → 零扣款 + 零垃圾單)。
+//   flag off = 同步 confirmPayment(逐字不動、現況)。🔴 payment_url 含 token、零入 log。
 
 import { randomUUID } from 'node:crypto';
-import { placeOrder, confirmPayment } from '@pcm/use-cases';
+import { placeOrder, confirmPayment, initiatePayment } from '@pcm/use-cases';
 import { CheckoutInput, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
-import type { ConfirmPaymentOutcome, PlaceOrderInput, PlaceOrderLine } from '@pcm/domain';
+import type {
+  ConfirmPaymentOutcome,
+  InitiatePaymentOutcome,
+  PlaceOrderInput,
+  PlaceOrderLine,
+} from '@pcm/domain';
 import { getOrderRepo, getCustomerRepo, getAddressRepo } from '@/lib/auth/composition';
 import {
   getTapPayAdapter,
@@ -38,6 +49,8 @@ import {
   getChargeAttemptStore,
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
+import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
+import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { CheckoutFieldErrors } from './actions';
 
@@ -53,7 +66,8 @@ const MSG = {
 
 export type ChargePaymentActionResult =
   | { fieldErrors?: CheckoutFieldErrors; formError?: string } // 驗證/登入/建單失敗(零扣款)
-  | { ok: true; displayId: string } // paid(含冪等)→ ②-⑤ 完成頁
+  | { ok: true; displayId: string } // paid(含冪等)→ ②-⑤ 完成頁(僅同步 flag-off 路徑)
+  | { redirect: true; redirectUrl: string } // 🔴 3DS-6a:3DS 啟動成功 → client 整頁跳轉 TapPay(非 paid、付款狀態非終態)
   | { ok: false; payment: 'charge_failed'; displayId: string; message: string }
   | { ok: false; payment: 'charge_failed_wait'; displayId: string; message: string }
   | { ok: false; payment: 'processing'; displayId: string; message: string }
@@ -123,6 +137,10 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       return mapCardholderFail(built.reason);
     }
 
+    // 🔴 3DS-6a:flag 讀一次 + preflight(placeOrder「前」驗 result_url base+secret;不合 → 既有 catch
+    //   → MSG.generic、零扣款 + 零垃圾單;codex 關卡1 #3)。flag off → threeDSConfig=null → 走同步 ⑥。
+    const threeDSConfig = isThreeDSEnabled() ? resolveThreeDSConfig() : null;
+
     // ④ 建單(零 userId/tier/price;身分/算價全 create_order RPC server 權威)。
     const placeOrderInput: PlaceOrderInput = {
       lines: parsedLines.data.map(
@@ -144,7 +162,29 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       return { formError: MSG.generic };
     }
 
-    // ⑥ 編排:鎖 → charge → 雙軌簿記 → PF-X3 → confirm → 收斂補記(②-③c-2)。
+    // 🔴 3DS-6a flag on:3DS 啟動半段(initiatePayment → redirect / 對帳態);結算交 settleCharge 脊椎。
+    //   ①-⑤(getUser/parse/cardholder/placeOrder/findTotal)與同步路徑共用、只 ⑥ 分岔;deps 復用既有
+    //   getTapPayAdapter/getChargeAttemptStore(不呼 confirmer — initiate 不 markCharged/confirm)。
+    if (threeDSConfig) {
+      const { frontendRedirectUrl, backendNotifyUrl } = buildResultUrls(threeDSConfig, placed.orderId);
+      const initiated = await initiatePayment(
+        {
+          tappay: getTapPayAdapter(),
+          attempts: await getChargeAttemptStore(),
+        },
+        {
+          prime: parsedPrime.data,
+          orderId: placed.orderId,
+          amount: total,
+          cardholder: built.cardholder,
+          frontendRedirectUrl,
+          backendNotifyUrl,
+        },
+      );
+      return mapInitiateOutcome(initiated, placed.displayId);
+    }
+
+    // ⑥ 編排(flag off 同步路徑、逐字不動):鎖 → charge → 雙軌簿記 → PF-X3 → confirm → 收斂補記(②-③c-2)。
     const outcome = await confirmPayment(
       {
         tappay: getTapPayAdapter(),
@@ -204,5 +244,39 @@ function mapOutcome(outcome: ConfirmPaymentOutcome, displayId: string): ChargePa
       return outcome.reason === 'user_in_flight'
         ? { ok: false, payment: 'in_flight', message: MSG.inFlight } // 🔴 無 displayId(round3 C)
         : { ok: false, payment: 'processing', displayId, message: MSG.processing };
+  }
+}
+
+/**
+ * InitiatePaymentOutcome → UI 態(3DS-6a flag on;plan §2.3 映射表)。
+ *
+ * 🔴 與同步 `mapOutcome` 本質差異:3DS 啟動半段不回 paid(無 `ok:true`);成功 = `redirect`(client 整頁跳轉
+ * TapPay payment_url、付款狀態非終態)。結算/失敗-釋鎖全交 settleCharge 脊椎(Record API 唯一權威)。
+ */
+function mapInitiateOutcome(
+  outcome: InitiatePaymentOutcome,
+  displayId: string,
+): ChargePaymentActionResult {
+  switch (outcome.kind) {
+    case 'redirect':
+      // 🔴 N1 / codex 關卡1 #2:client 整頁 window.location 跳轉「前」,delivery 層驗 payment_url 是合法 https URL
+      //   (isHttpsUrl 較鬆、允許 ?token= query)。合法 → redirect;壞值(TapPay 已 status=0、可能 OTP 後成交)→
+      //   processing 終態(**非** generic 可重試 → 防誤導重刷雙扣);bank_txn 已 durable、settleCharge 經 bank_txn 收斂。
+      return isHttpsUrl(outcome.redirectUrl)
+        ? { redirect: true, redirectUrl: outcome.redirectUrl }
+        : { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
+    case 'charge_unknown':
+      // initiate 非成功、bank_txn 已 durable、可能已登記交易 → 狀態確認中、勿重複付款(settleCharge 經 bank_txn 收斂)。
+      return { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
+    case 'settlement_required':
+      // 同步路徑同名態同映射(option A per-call cart_session_id 下 dormant)。
+      return { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
+    case 'locked':
+      return outcome.reason === 'user_in_flight'
+        ? { ok: false, payment: 'in_flight', message: MSG.inFlight } // 🔴 無 displayId(此請求零扣款、無單號)
+        : { ok: false, payment: 'processing', displayId, message: MSG.processing };
+    case 'init_failed':
+      // bank_txn 未 durable → 零 TapPay 呼叫、零扣款(誠實未扣款 + 系統忙碌請稍候;鎖殘留 expirer/sweeper 清)。
+      return { ok: false, payment: 'charge_failed_wait', displayId, message: MSG.chargeFailedWait };
   }
 }

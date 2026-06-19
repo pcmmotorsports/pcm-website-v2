@@ -62,7 +62,7 @@ if (threeDS) {
 ```
 
 - 🔴 **catch 安全不變**:`initiatePayment` 只在 `attempts.begin` infra throw 時上拋(零 charge,與 confirmPayment 同),charge 後的失敗已由 use-case 收斂為 outcome、不 throw(5b 已驗);`resolveThreeDSConfig` throw 在 placeOrder「前」→ 零扣款 + **零垃圾單**(codex k1 #3);`buildResultUrls` 純 interpolate(已驗 cfg、不 throw)。故既有檔頭「走到 catch 全屬零扣款路徑」對 3DS 分岔仍成立(commit body 補註)。
-- **新 import**:`isThreeDSEnabled`(`@/lib/payment/three-ds-flag`)、`initiatePayment`(`@pcm/use-cases`)、`buildThreeDSResultUrls`(`@/lib/payment/three-ds-urls`)。`getTapPayAdapter`/`getChargeAttemptStore` 已 import(現給 confirmPayment 的 `tappay`/`attempts`)→ 復用,無新 composition factory。
+- **新 import**:`isThreeDSEnabled`(`@/lib/payment/three-ds-flag`)、`initiatePayment`(`@pcm/use-cases`)、`resolveThreeDSConfig` + `buildResultUrls` + `isHttpsUrl`(`@/lib/payment/three-ds-urls`)。`getTapPayAdapter`/`getChargeAttemptStore` 已 import(現給 confirmPayment 的 `tappay`/`attempts`)→ 復用,無新 composition factory。
 - **新回傳 variant**(`ChargePaymentActionResult` union 加一支):`{ redirect: true; redirectUrl: string }`。**非 `ok:true`**(付款未完成、是「導向 TapPay」的 navigation,語意 ≠ paid)。
 - 🔴 **payment_url 不入 log**(redirectUrl = TapPay payment_url、含 token query):action 不 `console.log` redirectUrl;它**必須**回給 client(client 唯一能跳轉的依據)→ 「回給 client」≠「log」,網路回應帶它是 3DS redirect 的本質、非外洩。
 - **不動**:`MSG` 既有常數(redirect 無文案、client 跳轉);`mapOutcome`(同步路徑映射)逐字不動;`mapCardholderFail` 不動。
@@ -122,7 +122,7 @@ export function isHttpsUrl(url: string): boolean { /* https + hostname + 無 cre
   - 🔴 flag on:`redirect` 但 payment_url 非 https(壞值)→ `processing`(settlementRequired 文案、帶 displayId、**非** generic;codex k1 #2)。
   - flag on 各 outcome → 對應 result(§2.3 全列:charge_unknown / settlement_required / locked×2 / init_failed)。
   - 🔴 flag on + `resolveThreeDSConfig` throw(base/secret 缺)→ MSG.generic + **`placeOrder` 零呼叫 + `initiatePayment` 零呼叫**(零扣款 + 零垃圾單、preflight 在建單前;codex k1 #3)。
-- **three-ds-urls.test.ts**(@vitest-environment node、`vi.stubEnv`):
+- **three-ds-urls.test.ts**(@vitest-environment node、`process.env` set + afterEach restore):
   - base:`https://host` / `https://host/`(origin)通過;`http://…` / `https://user@host`(含 credential)/ `https://host/path` / `https://host?x=1` / `https://host#h` / 相對 / 空白 / 未設 → throw(`new URL()` 驗、codex k1 #1)。
   - secret:≥32 URL-safe 通過;<32 / 含非 URL-safe(`/`,`.`,空白)/ 未設 → throw。
   - `buildResultUrls(cfg, orderId)` shape:frontend `<base>/checkout/callback?order=<orderId>`、backend `<base>/api/checkout/tappay-notify/<secret>`(純函式、不讀 env)。
