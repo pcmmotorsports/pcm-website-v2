@@ -143,6 +143,31 @@ export type Order = {
 };
 
 /**
+ * OrderListItem: 會員訂單摘要投影(member order summary、泛用 read-model)。
+ *
+ * 用途:account OrdersTab 列表 / Overview「最近訂單」preview / 未來月結等只讀清單。
+ * 刻意**不含** `items[]`:order_items 表無 `product_id`(backlog #217)、無法忠實重建
+ * `OrderItem.productId`;列表只需摘要,故繞過 #217(明細頁未來 slice 才需完整 Order + 解 #217)。
+ *
+ * 🔴 鐵則 12:型別層**無** price_by_tier / price_store / cost(經銷價零滲入);`total` 為會員
+ * 自己訂單的總額(RLS own-only、非經銷價)。`itemCount` = Σquantity(總數量、非 distinct 列數;
+ * M-3 Sean 拍 Q4=B)、由 adapter 端彙總。`createdAt` 為 ISO 原樣(UI 端格式化、domain 不綁格式)。
+ */
+export type OrderListItem = {
+  id: OrderId;
+  /** 人類可讀單號 `PCM-YYYY-NNNN` */
+  displayId: DisplayId;
+  /** 下單時間 ISO 字串(orders.created_at 原樣;UI formatOrderDate 格式化為 YYYY-MM-DD) */
+  createdAt: string;
+  paymentStatus: PaymentStatus;
+  fulfillmentStatus: FulfillmentStatus;
+  /** 訂單總額(Money 整數、TWD;會員自己的單、非經銷價) */
+  total: Money;
+  /** 商品總數量 Σquantity(Q4=B、非 distinct 品項列數) */
+  itemCount: number;
+};
+
+/**
  * PlaceOrderLine: 結帳送出的單一購物車品項(client → server 線契約)。
  *
  * 對齊 create_order RPC(20260604130000)p_lines:`variantId` XOR `(supplierSlug + sku)`、皆帶 qty。

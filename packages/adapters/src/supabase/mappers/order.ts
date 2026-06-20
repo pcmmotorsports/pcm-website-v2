@@ -1,7 +1,10 @@
-import type { PlaceOrderInput, PlaceOrderLine, OrderInvoice } from '@pcm/domain';
+import type { OrderListItem, PlaceOrderInput, PlaceOrderLine, OrderInvoice } from '@pcm/domain';
+import { toMoneyAmount } from '@pcm/domain';
+import type { Database } from '../database.types';
 
 /**
  * @module @pcm/adapters/supabase/mappers/order — domain PlaceOrderInput → create_order RPC 入參(wire)
+ *   + orders row(摘要投影)→ domain OrderListItem(讀路徑、M-3 OrdersTab)
  *
  * 🔴 鐵則 12(plan v6 §5 紅線 3 server 價權威):wire 邊界**逐欄顯式建構、只送白名單鍵**,即使 input
  * 帶意外欄也不洩到 RPC(型別層已無價/tier、此處 wire 縱深)。domain camelCase → RPC snake_case;
@@ -10,8 +13,9 @@ import type { PlaceOrderInput, PlaceOrderLine, OrderInvoice } from '@pcm/domain'
  * (ADR-0003 §3.4:wire 字面只在 mapper 邊界、不 leak domain/ports/use-case。)
  * 對齊 migration create_order **5-param**(3DS-0b `20260613130000` 加 p_cart_session_id)+ return DTO `{order_id, display_id}`。
  *
- * 讀路徑(orders/order_items row → domain Order 重建 `mapSupabaseOrderToDomain`)延 stage ③ 訂單查詢
- * (backlog #217:order_items 無 product_id → OrderItem.productId 無法忠實重建)、本檔僅寫路徑 args mapper。
+ * 讀路徑「摘要」(orders row + 內嵌 order_items(quantity) → `OrderListItem`)= M-3 OrdersTab,見
+ * `mapSupabaseOrderRowToListItem`(繞過 #217:摘要不含 items[])。完整 Order 重建
+ * (`mapSupabaseOrderToDomain`、含 OrderItem[])仍延 stage ③(backlog #217:order_items 無 product_id)。
  */
 
 /** create_order RPC line(wire):variant_id XOR (supplier_slug, sku),皆帶 qty。 */
@@ -76,5 +80,42 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
     p_shipping_method: input.shippingMethod,
     p_invoice: mapInvoice(input.invoice),
     p_cart_session_id: input.cartSessionId, // 3DS-0b 5-param;cart-instance key、非價/tier(白名單縱深)
+  };
+}
+
+// ── 讀路徑(摘要):orders row + 內嵌 order_items(quantity) → domain OrderListItem ──
+
+/**
+ * 摘要讀 row 型別 —— **derive 自生成 Database 型別**(對齊 #106 vehicle/address mapper 慣例)。
+ *
+ * 只取 `ORDER_LIST_SELECT`(SupabaseOrderAdapter)投影的欄 + 內嵌 `order_items(quantity)`(to-many array)。
+ * `payment_status` / `fulfillment_status` 生成 enum 型別字面與 domain `PaymentStatus`/`FulfillmentStatus`
+ * 完全一致(直送、無需轉換);`total` integer 元位 → Money 走 `toMoneyAmount`。
+ * 🔴 鐵則 12:**不含** unit_price / line_total / product_snapshot / 經銷價 / PII —— 投影白名單外的欄不在此型別。
+ */
+export type SupabaseOrderListRow = Pick<
+  Database['public']['Tables']['orders']['Row'],
+  'id' | 'display_id' | 'created_at' | 'payment_status' | 'fulfillment_status' | 'total'
+> & {
+  /** 內嵌 order_items(quantity)、to-many 非 null array(FK order_items_order_id_fkey、isOneToOne:false)。 */
+  order_items: { quantity: number }[];
+};
+
+/**
+ * wire orders 摘要 row → domain OrderListItem(snake_case → camelCase)。
+ *
+ * `itemCount = Σ order_items.quantity`(Q4=B 總數量、整數加總、非 distinct 列數;空 array → 0);
+ * `total` integer → Money 走 `toMoneyAmount` 中央守門(整數/非負、絕不 `as MoneyAmount`、零浮點);
+ * `paymentStatus`/`fulfillmentStatus`/`createdAt`/`displayId`/`id` 直送(生成 enum 字面 = domain 字面)。
+ */
+export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderListItem {
+  return {
+    id: row.id,
+    displayId: row.display_id,
+    createdAt: row.created_at,
+    paymentStatus: row.payment_status,
+    fulfillmentStatus: row.fulfillment_status,
+    total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    itemCount: row.order_items.reduce((sum, item) => sum + item.quantity, 0),
   };
 }

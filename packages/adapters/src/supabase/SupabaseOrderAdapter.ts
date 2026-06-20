@@ -1,12 +1,30 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
-import type { Money, Order, PlaceOrderInput, PlaceOrderResult } from '@pcm/domain';
+import type {
+  CustomerId,
+  Money,
+  Order,
+  OrderListItem,
+  PlaceOrderInput,
+  PlaceOrderResult,
+} from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
 import type { Database } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
+  mapSupabaseOrderRowToListItem,
   type CreateOrderRpcResult,
 } from './mappers/order';
+
+/**
+ * orders 摘要投影白名單(account OrdersTab / Overview 最近訂單)。
+ *
+ * 🔴 鐵則 12:**只**摘要欄 + 內嵌 `order_items(quantity)`(只算件數);**禁** unit_price / line_total /
+ * product_snapshot / 經銷價 / PII(shipping_address_snapshot / invoice / tappay_rec_trade_id / tier_at_checkout)。
+ * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + spy 守門(codex C1/N2)。
+ */
+export const ORDER_LIST_SELECT =
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -87,7 +105,29 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     return { amount: toMoneyAmount(data.total), currency: 'TWD' };
   }
 
-  // ── 讀路徑:延 stage ③ 訂單查詢(deferred-stub)──
+  /**
+   * 列出某會員訂單摘要(account OrdersTab / Overview 最近訂單;created_at desc 新到舊)。
+   *
+   * 🔴 鐵則 12 / IDOR 縱深:
+   * - RLS `orders_select_own`(auth.uid() = customer_user_id)資料層強制 own-only;
+   * - 顯式 `.eq('customer_user_id', customerId)` 應用層歸屬縱深(任一層失效另一層仍擋);
+   * - 走注入的 authenticated/RLS client(零 service_role);
+   * - 投影 `ORDER_LIST_SELECT` 白名單 + 內嵌 `order_items(quantity)`(只算件數、零價格/PII 欄)。
+   * 繞過 #217(摘要不含 items[])。error → throw(對齊 placeOrder/findTotal 慣例;caller try/catch 退空陣列、頁面不 500)。
+   */
+  async listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]> {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .select(ORDER_LIST_SELECT)
+      .eq('customer_user_id', customerId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      throw error;
+    }
+    return data.map(mapSupabaseOrderRowToListItem);
+  }
+
+  // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──
   // order_items 無 product_id → domain OrderItem.productId 無法忠實重建(backlog #217);
   // stage ③ 開工前拍 #217 解法(傾向 domain OrderItem.productId 改 optional)後再實作重建 mapper。
   findById(): Promise<Order | null> {

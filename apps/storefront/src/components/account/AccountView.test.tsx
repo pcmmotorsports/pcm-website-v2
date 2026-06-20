@@ -43,6 +43,20 @@ vi.mock('@/app/account/profile/actions', () => ({
 import { AccountView, type AccountViewProps } from './AccountView';
 import { CartProvider } from '@/contexts/CartContext';
 import type { FeaturedResult } from '@/lib/products';
+import { toMoneyAmount, type OrderListItem } from '@pcm/domain';
+
+// 測試用訂單(刻意非 design mock 字面 PCM-2026-0042;用 2099 年 + 中性值,避反洩 guard 混淆)
+const SAMPLE_ORDERS: OrderListItem[] = [
+  {
+    id: 'ord-1',
+    displayId: 'PCM-2099-0001',
+    createdAt: '2099-04-15T10:00:00Z',
+    paymentStatus: 'paid',
+    fulfillmentStatus: 'shipped',
+    total: { amount: toMoneyAmount(1234), currency: 'TWD' },
+    itemCount: 3,
+  },
+];
 
 beforeAll(() => {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
@@ -72,6 +86,8 @@ function renderView(overrides: Partial<AccountViewProps> = {}) {
     addresses: [],
     // g-6a:vehicles prop 必填、預設空陣列(VehiclesTab 唯讀列表;切到 vehicles tab 才渲染)
     vehicles: [],
+    // M-3:orders prop 必填、預設空陣列(OrdersTab 全列 + OverviewTab slice(0,2) 最近訂單)
+    orders: [],
     ...overrides,
   };
   return render(
@@ -169,5 +185,19 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
   it('featured error → 推薦載入失敗字面', () => {
     renderView({ featured: { products: [], error: true } });
     expect(screen.getByText('推薦商品載入失敗、請稍後再試')).toBeTruthy();
+  });
+
+  it('M-3:orders forward → 切 orders tab 顯真清單(displayId / 狀態中文 / 金額)', () => {
+    renderView({ orders: SAMPLE_ORDERS });
+    fireEvent.click(screen.getByRole('button', { name: /訂單記錄/ }));
+    expect(screen.getByText('PCM-2099-0001')).toBeTruthy();
+    expect(screen.getByText('已出貨')).toBeTruthy(); // paid + shipped
+    expect(screen.getByText('NT$ 1,234')).toBeTruthy();
+  });
+
+  it('M-3 Q5=A:orders forward → overview 最近訂單 preview 顯該單(與 orderCount 同源)', () => {
+    renderView({ orders: SAMPLE_ORDERS });
+    // 預設 overview:最近訂單段渲染 recentOrders(slice 0,2)而非空狀態
+    expect(screen.getByText('PCM-2099-0001')).toBeTruthy();
   });
 });

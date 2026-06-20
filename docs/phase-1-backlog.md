@@ -6102,6 +6102,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #240. 📄 會員訂單詳情頁(OrdersTab「查看詳情 →」接行為)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(M-3 訂單列表已落地、列表→詳情是會員自然下一步;非阻塞上線)
+- **問題:**
+  - M-3 OrdersTab(訂單列表)的「查看詳情 →」鈕(Q1=A)照 design 渲染但**無 onClick**(明細頁本 slice 範圍外);會員點了無反應。
+  - 訂單詳情需顯完整品項(`OrderItem[]`),但 domain `OrderItem.productId` 為 required、`order_items` 表**無 `product_id` 欄**(只有 `variant_id`)→ 無法忠實重建 `Order.items[]`(此即 #217)。M-3 列表用 `OrderListItem` 摘要投影繞過,詳情頁則**必須先解 #217**。
+- **觸發事件(任一觸發即啟動實作):**
+  - 會員回饋想看訂單明細 / 客服需引導會員自查單;或 M-4a admin 訂單功能連帶需單筆讀路徑。
+- **預期解法:**
+  - 先解 [[#217]](domain `OrderItem.productId` 改 optional 或詳情用獨立 read DTO);
+  - 啟用 `SupabaseOrderAdapter.findById`(目前 deferred-stub)+ 讀 mapper 重建單筆 + RLS own-only(`orders_select_own` / `order_items_select_own` 既有);
+  - 新增訂單詳情頁路由 + OrdersTab/Overview「查看詳情 →」接導頁(button onClick router.push 或 Link;沿 #239 N-d 紀律:不把敏感 token 落 DOM,但訂單 id 非敏感、可走正常路由);
+  - 經銷價/cost 零洩漏:詳情投影同樣只白名單(`product_snapshot` title/sku/spec、`unit_price`/`line_total` 為會員自己訂單金額可顯)。
+- **不修會痛在:**
+  - 擴充性:退換貨 / 重新購買 / 物流追蹤都掛在詳情頁,無詳情頁這些都無處落。
+  - 可維護性:會員查單一律導客服 LINE、人力成本;「查看詳情」死鈕長期掛著是 UX 債。
+  - bug 可追蹤性:客服無自助查單畫面、只能口頭對單號,易對錯單。
+- **估時:** ~60-90 min(含解 #217 + findById 實作 + 詳情頁 + 測;鐵則 8 需 plan + codex)
+- **依賴:** [[#217]](order_items 無 product_id)、M-3 訂單列表(已落地)
+- **發現於:** 2026-06-20 / M-3 OrdersTab 接真訂單(Q1=A 拍板:列表先渲染無行為鈕、詳情頁另開 slice)
+- **相關:** `apps/storefront/src/components/account/tabs/OrdersTab.tsx`(查看詳情鈕)、`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`(findById deferred-stub)、[[#217]]
+
+---
+
 ## 紀錄模板
 
 ```markdown

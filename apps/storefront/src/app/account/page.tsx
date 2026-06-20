@@ -36,11 +36,11 @@
 
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { getAddressRepo, getVehicleRepo } from '@/lib/auth/composition';
+import { getAddressRepo, getVehicleRepo, getOrderRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
 import { fetchFeaturedProducts } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
-import type { MemberTier, CustomerAddress, CustomerVehicle } from '@pcm/domain';
+import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem } from '@pcm/domain';
 
 export const dynamic = 'force-dynamic';
 
@@ -117,14 +117,25 @@ export default async function AccountPage() {
     console.error('[account/page] vehicles 讀取失敗、退化空陣列:', vehicleError);
   }
 
+  // M-3:讀自己的訂單摘要清單(getOrderRepo→listSummariesByCustomer、RLS orders_select_own 守自己 row)。
+  // 鏡像 g-5a/g-6a 退化 pattern:adapter error(RLS/連線異常)→ 退化空陣列 + console.error、頁面不 500
+  // (OrdersTab / Overview 最近訂單走空狀態)。orderCount 與 Overview 最近訂單同源此 orders、天然一致(Q5=A)。
+  let orders: OrderListItem[] = [];
+  try {
+    orders = await (await getOrderRepo()).listSummariesByCustomer(user.id);
+  } catch (orderError) {
+    console.error('[account/page] orders 讀取失敗、退化空陣列:', orderError);
+  }
+
   return (
     <AccountView
       user={{ name, displayEmail }}
-      stats={{ tier, walletBalance, orderCount: 0 }}
+      stats={{ tier, walletBalance, orderCount: orders.length }}
       featured={featured}
       profile={{ name, phone, birthday }}
       addresses={addresses}
       vehicles={vehicles}
+      orders={orders}
     />
   );
 }
