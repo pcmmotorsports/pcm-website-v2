@@ -6,11 +6,11 @@
 //   ② getUser throw → 泛用處理中(fail-closed)、不呼 settleCharge、不 redirect
 //   ③ order 缺 / 非 UUID → 泛用處理中、不呼 settleCharge
 //   ④ 🔴 N1 歸屬閘:非本人單(歸屬讀無 row / throw)→ 泛用處理中、**不呼 settleCharge**、**不洩 displayId**
-//   ⑤ 歸屬通過 × settleCharge paid → CheckoutSuccess(paid, displayId) + ClearCartOnSuccess
-//   ⑥ pending → CheckoutSuccess(processing, displayId) + ClearCartOnSuccess(A4 清品項)
-//   ⑦ no_attempt → 同 processing + ClearCartOnSuccess(N2)
-//   ⑧ failed → CheckoutSuccess(failed, displayId) **無** ClearCartOnSuccess(D4 不清車)
-//   ⑨ settleCharge throw → processing(fail-closed)+ ClearCartOnSuccess
+//   ⑤ 歸屬通過 × settleCharge paid → CheckoutSuccess(paid, displayId) + ClearCartOnSuccess(不輪詢)
+//   ⑥ owned pending → CheckoutSuccess(processing, OWNED_PENDING_MSG) + ClearCartOnSuccess(A4) + PollOrderStatus(S2 輪詢)
+//   ⑦ no_attempt → processing(中性 PROCESSING_MSG)、不清車、不輪詢(必然未扣款;S2 must-fix 文案拆分)
+//   ⑧ failed → CheckoutSuccess(failed, displayId) **無** ClearCartOnSuccess(D4 不清車)、不輪詢
+//   ⑨ settleCharge throw → owned processing(fail-closed)+ ClearCartOnSuccess + PollOrderStatus
 // mock supabase server client(auth.getUser + from/select/eq/single)、composition、settleCharge、next/navigation、
 //   CheckoutSuccess/ClearCartOnSuccess(stub、避免載入 Header 依賴與 server-only;比對元素 type 身分)。
 
@@ -48,9 +48,15 @@ vi.mock('@/components/ClearCartOnSuccess', () => ({
     return null;
   },
 }));
+vi.mock('@/components/PollOrderStatus', () => ({
+  PollOrderStatus: function PollOrderStatus() {
+    return null;
+  },
+}));
 
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { ClearCartOnSuccess } from '@/components/ClearCartOnSuccess';
+import { PollOrderStatus } from '@/components/PollOrderStatus';
 
 const ORDER_ID = '00000000-0000-4000-8000-000000000000';
 const DISPLAY_ID = 'PCM-2026-0007';
@@ -97,12 +103,13 @@ async function run(order: string | string[] | undefined, s: Supa): Promise<React
   })) as ReactElement;
 }
 
-/** 規範化回傳:抽出 CheckoutSuccess 的 props + 是否含 ClearCartOnSuccess。 */
+/** 規範化回傳:抽出 CheckoutSuccess 的 props + 是否含 ClearCartOnSuccess / PollOrderStatus。 */
 function inspect(el: ReactElement): {
   variant: unknown;
   displayId: unknown;
   message: unknown;
   hasClear: boolean;
+  hasPoll: boolean;
 } {
   if (el.type === Fragment) {
     const children = (el.props as { children: ReactElement[] }).children.filter(isValidElement);
@@ -113,12 +120,22 @@ function inspect(el: ReactElement): {
       displayId: props.displayId,
       message: props.message,
       hasClear: children.some((c) => c.type === ClearCartOnSuccess),
+      hasPoll: children.some((c) => c.type === PollOrderStatus),
     };
   }
   expect(el.type).toBe(CheckoutSuccess);
   const props = el.props as Record<string, unknown>;
-  return { variant: props.variant, displayId: props.displayId, message: props.message, hasClear: false };
+  return {
+    variant: props.variant,
+    displayId: props.displayId,
+    message: props.message,
+    hasClear: false,
+    hasPoll: false,
+  };
 }
+
+/** §5.5 owned-pending 斷言鍵字(must-fix 1:owned pending 才斷言「請勿重複付款」;泛用/no_attempt 不得含)。 */
+const DO_NOT_PAY_AGAIN = '請勿重複付款';
 
 afterEach(() => {
   vi.clearAllMocks();
@@ -137,6 +154,8 @@ describe('/checkout/callback page', () => {
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBeUndefined();
     expect(r.hasClear).toBe(false);
+    expect(r.hasPoll).toBe(false); // 泛用態未歸屬 → 不輪詢
+    expect(String(r.message)).not.toContain(DO_NOT_PAY_AGAIN); // 中性文案、不謊稱已收款(must-fix 1)
     expect(settleChargeMock).not.toHaveBeenCalled();
     expect(redirectMock).not.toHaveBeenCalled();
   });
@@ -145,6 +164,7 @@ describe('/checkout/callback page', () => {
     const r = inspect(await run(undefined, { user: { id: 'u1' } }));
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBeUndefined();
+    expect(r.hasPoll).toBe(false);
     expect(settleChargeMock).not.toHaveBeenCalled();
   });
 
@@ -152,6 +172,7 @@ describe('/checkout/callback page', () => {
     const r = inspect(await run('not-a-uuid', { user: { id: 'u1' } }));
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBeUndefined();
+    expect(r.hasPoll).toBe(false);
     expect(settleChargeMock).not.toHaveBeenCalled();
   });
 
@@ -162,6 +183,7 @@ describe('/checkout/callback page', () => {
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBeUndefined();
     expect(r.hasClear).toBe(false);
+    expect(r.hasPoll).toBe(false);
     expect(settleChargeMock).not.toHaveBeenCalled();
   });
 
@@ -169,6 +191,7 @@ describe('/checkout/callback page', () => {
     const r = inspect(await run(ORDER_ID, { user: { id: 'u1' }, selectThrows: true }));
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBeUndefined();
+    expect(r.hasPoll).toBe(false);
     expect(settleChargeMock).not.toHaveBeenCalled();
   });
 
@@ -178,6 +201,7 @@ describe('/checkout/callback page', () => {
     expect(r.variant).toBe('paid');
     expect(r.displayId).toBe(DISPLAY_ID); // displayId 取自歸屬讀、非 settleCharge 回值
     expect(r.hasClear).toBe(true);
+    expect(r.hasPoll).toBe(false); // paid 終態、不輪詢
     expect(settleChargeMock).toHaveBeenCalledWith({}, { orderId: ORDER_ID });
     // 🔴 應用層縱深(codex 關卡2):歸屬讀同時 filter id + customer_user_id(RLS 之上再釘本人)。
     const eqCalls = (supabaseRef.current as { __eqCalls: Array<[string, unknown]> }).__eqCalls;
@@ -185,35 +209,42 @@ describe('/checkout/callback page', () => {
     expect(eqCalls).toContainEqual(['customer_user_id', 'u1']);
   });
 
-  it('⑥ pending → processing + ClearCartOnSuccess(A4 清品項)', async () => {
+  it('⑥ owned pending → processing + ClearCartOnSuccess(A4)+ PollOrderStatus(S2)+ OWNED_PENDING_MSG 含「請勿重複付款」', async () => {
     settleChargeMock.mockResolvedValueOnce({ kind: 'pending', reason: 'auth_or_pending' });
     const r = inspect(await run(ORDER_ID, { user: { id: 'u1' }, orderRow: { display_id: DISPLAY_ID } }));
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBe(DISPLAY_ID);
     expect(r.hasClear).toBe(true);
+    expect(r.hasPoll).toBe(true); // owned pending 才掛輪詢(S2)
+    expect(String(r.message)).toContain(DO_NOT_PAY_AGAIN); // owned pending 用 OWNED_PENDING_MSG(§5.5)
   });
 
-  it('⑦ no_attempt → processing + 🔴 不清車(必然未扣款、codex K2 r1 must-fix、Sean A)', async () => {
+  it('⑦ no_attempt → processing + 🔴 不清車 + 不輪詢 + 中性文案(必然未扣款、不謊稱已收款 must-fix 1)', async () => {
     settleChargeMock.mockResolvedValueOnce({ kind: 'no_attempt' });
     const r = inspect(await run(ORDER_ID, { user: { id: 'u1' }, orderRow: { display_id: DISPLAY_ID } }));
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBe(DISPLAY_ID);
     expect(r.hasClear).toBe(false); // no_attempt ⟺ failed/never → 必然未扣款 → 保留車(對齊 A4 真意=防雙扣)
+    expect(r.hasPoll).toBe(false); // 必然未扣款 → 輪詢零收益、不掛
+    expect(String(r.message)).not.toContain(DO_NOT_PAY_AGAIN); // 中性 PROCESSING_MSG、不謊稱已收款
   });
 
-  it('⑧ failed → CheckoutSuccess(failed, displayId) 無 ClearCartOnSuccess(D4 不清車)', async () => {
+  it('⑧ failed → CheckoutSuccess(failed, displayId) 無 ClearCartOnSuccess(D4 不清車)、不輪詢', async () => {
     settleChargeMock.mockResolvedValueOnce({ kind: 'failed' });
     const r = inspect(await run(ORDER_ID, { user: { id: 'u1' }, orderRow: { display_id: DISPLAY_ID } }));
     expect(r.variant).toBe('failed');
     expect(r.displayId).toBe(DISPLAY_ID);
     expect(r.hasClear).toBe(false);
+    expect(r.hasPoll).toBe(false);
   });
 
-  it('⑨ settleCharge throw → processing(fail-closed)+ ClearCartOnSuccess', async () => {
+  it('⑨ settleCharge throw → owned processing(fail-closed)+ ClearCartOnSuccess + PollOrderStatus', async () => {
     settleChargeMock.mockRejectedValueOnce(new Error('settle boom'));
     const r = inspect(await run(ORDER_ID, { user: { id: 'u1' }, orderRow: { display_id: DISPLAY_ID } }));
     expect(r.variant).toBe('processing');
     expect(r.displayId).toBe(DISPLAY_ID);
     expect(r.hasClear).toBe(true);
+    expect(r.hasPoll).toBe(true); // record_unreachable pending = owned、可能已扣款 → 輪詢
+    expect(String(r.message)).toContain(DO_NOT_PAY_AGAIN);
   });
 });

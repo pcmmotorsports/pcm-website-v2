@@ -34,6 +34,7 @@ import { settleCharge } from '@pcm/use-cases';
 import type { SettleChargeOutcome } from '@pcm/domain';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { ClearCartOnSuccess } from '@/components/ClearCartOnSuccess';
+import { PollOrderStatus } from '@/components/PollOrderStatus';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,9 +47,19 @@ export const metadata: Metadata = {
 /** orderId = orders.id uuid → 零信任形狀過濾(非 UUID 不打 Record、不查歸屬)。 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 處理中文案(常數單一真相);不引用單號(泛用態無 displayId、歸屬態 displayId 由 CheckoutSuccess 區塊另顯)。 */
+/**
+ * 中性處理中文案(泛用態 / no_attempt 用);**不斷言已收款** —— no_attempt ⟺ failed/never 必然未扣款、泛用態未歸屬
+ * (S2 codex 關卡1 must-fix:原為單一共用常數,若改成「已收到付款」會讓此二態謊稱已收款=UX 偽付款確認)。
+ * 不引用單號(泛用態無 displayId、歸屬態 displayId 由 CheckoutSuccess 區塊另顯)。
+ */
 const PROCESSING_MSG =
   '我們正在確認你的付款結果,若已扣款將自動為你成立訂單,請稍候片刻或留意 email 通知。';
+/**
+ * owned pending 文案(S2、§5.5 三要點:已收到付款語意 + 銀行授權成功為正常 + 勿重複付款);**只給已歸屬 + pending 變體**
+ * (= 可能已扣款、鎖仍持),可斷言;搭配 PollOrderStatus 背景輪詢、成立自動跳成功頁。
+ */
+const OWNED_PENDING_MSG =
+  '你的付款正在確認中。若銀行已授權扣款(你可能已收到銀行簡訊),系統會自動為你成立訂單,請勿重複付款;可稍候片刻,或留意 email 通知。';
 /** 失敗文案(常數單一真相);失敗不清車、車保留可重結帳。 */
 const FAILED_MSG = '這筆付款未完成,購物車已為你保留,可重新結帳。若你已被扣款,請保留下方單號聯繫客服。';
 
@@ -138,12 +149,14 @@ export default async function CheckoutCallbackRoute({
   if (outcome.kind === 'no_attempt') {
     return <CheckoutSuccess variant="processing" displayId={displayId} message={PROCESSING_MSG} />;
   }
-  // pending → 處理中 + 清品項。pending(record_unreachable/auth_or_pending/unverified)= **可能已扣款**、鎖仍持
-  //   → 清車防殘車誘導重複扣款(對齊既有 useChargePayment processing 清車政策)。
+  // pending(owned)→ 處理中 + 清品項 + 背景輪詢。pending(record_unreachable/auth_or_pending/unverified)= **可能已扣款**、
+  //   鎖仍持 → 清車防殘車誘導重複扣款(對齊既有 useChargePayment processing 清車政策);文案用 OWNED_PENDING_MSG
+  //   (已歸屬可斷言、§5.5 三要點;S2 codex K1 must-fix 文案拆分)。PollOrderStatus 背景輪詢付款狀態、成立→自動跳成功頁(S2)。
   return (
     <>
-      <CheckoutSuccess variant="processing" displayId={displayId} message={PROCESSING_MSG} />
+      <CheckoutSuccess variant="processing" displayId={displayId} message={OWNED_PENDING_MSG} />
       <ClearCartOnSuccess />
+      <PollOrderStatus orderId={orderId} />
     </>
   );
 }
