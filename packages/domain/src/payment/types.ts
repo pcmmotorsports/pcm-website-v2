@@ -149,11 +149,11 @@ export type TapPayRecordQuery = {
  * TapPayTradeRecord:Record API `trade_records[]` 單筆解析(白名單欄、零 PII)。
  *
  * 🔴 `recordStatus` 保留 wire 原值 int、1a **不映語意裁決**(官方 reference 逐字 7 值:
- *   -1=ERROR / 0=AUTH(授權未請款) / 1=OK(交易完成,配 is_captured=true 才算已付款) /
+ *   -1=ERROR / 0=AUTH(授權未請款) / 1=OK(交易完成) /
  *   2=PARTIALREFUNDED(部分退款) / 3=REFUNDED(完全退款) / 4=PENDING(待付款) / 5=CANCEL(取消交易));
- *   各狀態由 `recordStatus` + `isCaptured` 兩欄供 3DS-1b 判,1a 不下「已付款」裁決(留 1b)。
- *   🔴 Phase 1(無退款流程)1b 映射:paid=1&&is_captured / pending 保留=0·4·查不到·Record 失敗 /
- *   明確 failed 放行重刷=-1·5 / 退款 2·3=異常走退款片(S2=B backlog)。
+ *   1a 保留原值、不下「已付款」裁決(留 1b)。
+ *   🔴 Phase 1 1b 映射(S1「授權即成立」、設計包 2026-06-20):paid=0(AUTH)·1(OK)〔不再要求 is_captured〕 /
+ *   pending 保留=4(待付款)·查不到·Record 失敗 / 明確 failed 放行重刷=-1·5 / 退款 2·3=異常走退款片(S2=B backlog)。
  * 🔴 #16 PII:不解析 `cardholder` / `card_info` / `pay_info`(masked card)等 PII 欄、只取白名單對帳欄。
  */
 export type TapPayTradeRecord = {
@@ -167,7 +167,8 @@ export type TapPayTradeRecord = {
   currency?: string;
   /** wire `record_status` 原值 int:-1=ERROR / 0=AUTH / 1=OK / 2=PARTIALREFUNDED / 3=REFUNDED / 4=PENDING / 5=CANCEL。 */
   recordStatus: number;
-  /** wire `is_captured`:true=已請款(配 record_status=1 才算 paid;record_status=0 僅授權 → pending)。 */
+  /** wire `is_captured`:true=已請款。🔴 S1「授權即成立」後 1b 裁決**不再讀**此欄(0/1 即成立);
+   *  保留 parse/型別供未來精準帳務 authorized/captured 兩段 + audit。 */
   isCaptured: boolean;
   /** wire `refunded_amount`:整數最小貨幣單位(部分/全退時非 0)。 */
   refundedAmount?: MoneyAmount;
@@ -179,8 +180,8 @@ export type TapPayTradeRecord = {
  * TapPayRecordResult:`recordQuery` 解析結果(top status + 計數 + 白名單 records、**不下裁決**)。
  *
  * 🔴 `queryStatus` = top-level `status`(§7:0=查詢成功有紀錄 / 2=無更多;**≠ 交易狀態**)。
- * 3DS-1b 以 `queryStatus===0` + `numberOfTransactions===1` + 鍵全對本機 + `record_status=1 && is_captured`
- * + amount/currency 嚴格 才判 paid(全條件在 1b、非此處)。
+ * 3DS-1b 以 `queryStatus===0` + `numberOfTransactions===1` + 鍵全對本機 + `record_status ∈ {0 AUTH,1 OK}`
+ * + amount/currency 嚴格 才判 paid(S1「授權即成立」、不再要求 is_captured;全條件在 1b、非此處)。
  */
 export type TapPayRecordResult = {
   queryStatus: number;
@@ -414,7 +415,7 @@ export type SettleChargeInput = {
  * - `paid`:Record 證實 + markCharged→confirm→recordPendingInvoice 成(`idempotent`=重入 no-op;`displayId` 供 duplicate 回號)。
  * - `failed`:Record 明確未成功(record_status -1=ERROR / 5=CANCEL)→ markFailed 已釋鎖、caller 可放行重刷。
  * - `pending`:保留、不釋鎖 → sweeper/retry 再來。`reason`:
- *   - `auth_or_pending`:record_status 0=AUTH / 4=PENDING / 1&&!is_captured(未到終態)。
+ *   - `auth_or_pending`:record_status 4=PENDING 待付款(尚未授權;0 AUTH/1 OK 已 S1「授權即成立」→ paid)。
  *   - `record_unverified`:金額不符 / 鍵不符 / number_of_transactions≠1 / 2·3 退款異常(不自動放行、S2=B)。
  *   - `record_unreachable`:recordQuery throw / confirm throw(已扣款不棄、retry)。
  * - `no_attempt`:orderId 無 active(pending|charged)attempt(webhook 對不上本機 → route 丟棄)。

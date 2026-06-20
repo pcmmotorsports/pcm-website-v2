@@ -216,8 +216,9 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
   /**
    * Record API 反查(3DS-1a):依交易識別鍵查 TapPay 交易紀錄 → 解析白名單欄回給 3DS-1b。
    *
-   * 🔴 **不下裁決**:忠實送查 + 解析 top status / trade_records;judging「已付款」(record_status=1 &&
-   * is_captured && amount/key 全對)是 settleCharge(1b)的事。HTTP 非 2xx / 格式異常 → throw(1b 映 pending)。
+   * 🔴 **不下裁決**:忠實送查 + 解析 top status / trade_records;judging 成立(paid)= settleCharge(1b)以
+   * record_status ∈ {0 AUTH,1 OK} + 識別/金額/幣別閘判定(S1 授權即成立、不再要求 is_captured;is_captured
+   * 僅保留解析/audit)。HTTP 非 2xx / 格式異常 → throw(1b 映 pending)。
    * fail-closed:三把識別鍵全空 → 拒(絕不送無 filter 全表查 → 防誤命中他單)。`merchant_id` 每查必帶(限本商戶)。
    */
   async recordQuery(query: TapPayRecordQuery): Promise<TapPayRecordResult> {

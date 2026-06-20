@@ -1,7 +1,7 @@
 // app/api/checkout/tappay-notify/[secret]/route.ts — ②-⑥ TapPay backend notify webhook(M-3 3DS-2b)
 //
 // notify **不可信**(無簽章、WebFetch 官方核實)→ 本 route 只「安全收 + durable 去重落地 + 踢給 settleCharge」、
-// **不採信 notify 欄位做成交判斷**(成交權威 100% 在 settleCharge 內 Record API record_status=1 && is_captured)。
+// **不採信 notify 欄位做成交判斷**(成交權威 100% 在 settleCharge 內 Record API record_status ∈ {0 AUTH,1 OK}、S1 授權即成立)。
 //
 // 🔴 處理序(plan §4、codex 關卡1 r2 PASS):
 //   1. 祕密路徑段:requireNotifySecret() 強度 enforce(≥32 URL-safe)+ safeEqual timing-safe;不符 → 404(不揭存在)。

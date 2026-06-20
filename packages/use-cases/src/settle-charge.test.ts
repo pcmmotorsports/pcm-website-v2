@@ -89,7 +89,7 @@ afterEach(() => {
 });
 
 describe('settleCharge — paid 收斂(happy path)', () => {
-  it('record_status=1 && is_captured && 金額符 → markCharged(主軌 token=\'\')→ confirm → recordPendingInvoice → paid', async () => {
+  it('既有 OK captured happy path(record_status=1 + is_captured + 金額符)→ markCharged(主軌 token=\'\')→ confirm → recordPendingInvoice → paid', async () => {
     const d = deps();
     const res = await settleCharge(d, { orderId: ORDER_ID });
     expect(res).toEqual({ kind: 'paid', idempotent: false, displayId: DISPLAY_ID });
@@ -171,17 +171,21 @@ describe('settleCharge — Record 權威全條件不滿足 → pending:record_un
 });
 
 describe('settleCharge — record_status 官方 7 值映射(§5)', () => {
-  it('⑥ record_status=0(AUTH)→ pending:auth_or_pending', async () => {
+  it('🔴 S1 record_status=0(AUTH)強識別 → paid(授權即成立、不再要求 is_captured;走 settlePaid 全鏈)', async () => {
     const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false })) });
-    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'auth_or_pending' });
+    const res = await settleCharge(d, { orderId: ORDER_ID });
+    expect(res).toEqual({ kind: 'paid', idempotent: false, displayId: DISPLAY_ID });
+    expect(d.attempts.markCharged).toHaveBeenCalledWith({ attemptId: 'attempt-1', orderId: ORDER_ID, recTradeId: 'D-rec-1', fallbackToken: '' });
+    expect(d.confirmer.confirm).toHaveBeenCalledWith({ orderId: ORDER_ID, amount: { amount: 1050, currency: 'TWD' }, recTradeId: 'D-rec-1' });
+    expect(d.confirmer.recordPendingInvoice).toHaveBeenCalledWith(ORDER_ID);
   });
-  it('⑥ record_status=4(PENDING)→ pending:auth_or_pending', async () => {
+  it('🔴 S1 關鍵分界 record_status=4(PENDING 待付款、尚未授權)→ pending:auth_or_pending(0 反轉但 4 守住)', async () => {
     const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 4, isCaptured: false })) });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'auth_or_pending' });
   });
-  it('⑥ record_status=1 但 is_captured=false → pending:auth_or_pending', async () => {
+  it('🔴 S1 record_status=1 但 is_captured=false → paid(OK 即成立、不再要求 captured)', async () => {
     const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 1, isCaptured: false })) });
-    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'auth_or_pending' });
+    expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid');
   });
   it('⑤ record_status=-1(ERROR)→ markFailed → failed', async () => {
     const attempts = makeAttempts();
@@ -282,10 +286,10 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
     expect(attempts.markFailed).not.toHaveBeenCalled();
     expect(attempts.markCharged).not.toHaveBeenCalled();
   });
-  it('🔴 失敗終態下界硬化(codex r3、審查側逮):弱識別 + record_status=5(CANCEL)落 attempt「前」3min(在 -5min skew 帶內)→ pending:record_unverified、不呼 markFailed(防誤釋當前鎖→重刷雙扣)', async () => {
+  it('🔴 S1【審查④】explicit_failed 下界不回歸:弱識別 + record_status=5(CANCEL)落 attempt「前」3min → pending:record_unverified、不呼 markFailed/markCharged(收緊後 recordMatchesOrder L89 統一擋拒 pre-attempt、防誤釋鎖重刷雙扣)', async () => {
     const attempts = makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) });
     const d = deps({
-      // 交易時間落在 -5min skew 帶內(過 recordMatchesOrder 弱識別窗)但仍早於 attempt → 失敗釋鎖路徑零容忍 pre-attempt
+      // S1 收緊後下界=attempt:此交易早於 attempt → recordMatchesOrder 弱識別窗即擋成 record_unverified、到不了 explicit_failed
       tappay: makeTapPay(async () => recordResult({ recordStatus: 5, transactionTimeMillis: TXN_TIME_MS - 3 * 60 * 1000 })),
       attempts,
     });
@@ -293,9 +297,29 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
     expect(attempts.markFailed).not.toHaveBeenCalled();
     expect(attempts.markCharged).not.toHaveBeenCalled();
   });
-  it('下界非對稱:弱識別 + record_status=1 paid 落 attempt「前」3min(在 -5min skew 帶內)→ 仍 paid(skew 留給 paid 自癒、釋鎖路徑才零容忍)', async () => {
+  it('🔴 S1 收緊:弱識別 + record_status=1 paid 落 attempt「前」3min(原 -5min skew 帶內)→ pending:record_unverified(下界收成 attempt、移除 paid 自癒 skew、雙扣縫關閉)', async () => {
     const d = deps({
       tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: TXN_TIME_MS - 3 * 60 * 1000 })),
+      attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+  it('🔴 S1【審查①】弱識別 + record_status=0(AUTH)落 attempt「前」2min → pending:record_unverified、不呼 markCharged/confirm/markFailed(放寬到 AUTH 後 pre-attempt 仍被收緊窗擋、不走 settlePaid)', async () => {
+    const attempts = makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) });
+    const confirmer = makeConfirmer();
+    const d = deps({
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, transactionTimeMillis: TXN_TIME_MS - 2 * 60 * 1000 })),
+      attempts,
+      confirmer,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+    expect(confirmer.confirm).not.toHaveBeenCalled();
+    expect(attempts.markFailed).not.toHaveBeenCalled();
+  });
+  it('🔴 S1【審查②】弱識別 + record_status=0(AUTH)交易時間 = attempt(本 attempt 自己 charge)→ paid(走 settlePaid)', async () => {
+    const d = deps({
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, transactionTimeMillis: TXN_TIME_MS })),
       attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
     });
     expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid');
@@ -310,6 +334,43 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
   it('強識別(有 rec)不套時間窗:即使交易時間超窗仍正常(rec 已唯一識別)', async () => {
     const d = deps({ tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: TXN_TIME_MS + 99 * 24 * 60 * 60 * 1000 })) });
     expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid'); // ACTIVE_PENDING 有 rec → 強識別、不驗窗
+  });
+});
+
+describe('settleCharge — S1 授權即成立:放寬不弱化識別/金額閘(AUTH 四閘 + count guard)', () => {
+  it('🔴【把關】AUTH 強識別 + rec/bank/amount/currency 全符 → paid', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false })) });
+    expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid');
+  });
+  it('🔴【把關】AUTH + rec 不符 → pending:record_unverified(識別閘對 AUTH 仍擋、不走 settlePaid)', async () => {
+    const attempts = makeAttempts();
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, recTradeId: 'D-other' })), attempts });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+  it('🔴【把關】AUTH + bank 不符 → pending:record_unverified', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, bankTransactionId: 'bank-other' })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+  it('🔴【把關】AUTH + amount 不符 orders.total → pending:record_unverified(金額閘對 AUTH 仍擋)', async () => {
+    const attempts = makeAttempts();
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, amount: toMoneyAmount(999) })), attempts });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+  it('🔴【把關】AUTH + currency 非 TWD → pending:record_unverified', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, currency: 'USD' })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+  it('🔴 S1【審查③】count=2(records.length=2)→ pending:record_unverified、不呼 markCharged/markFailed(L85 短路、永不進 classifyRecordStatus)', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      tappay: makeTapPay(async () => recordResult({}, { numberOfTransactions: 2, records: [tradeRecord({ recordStatus: 0 }), tradeRecord({ recordStatus: 0 })] })),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+    expect(attempts.markFailed).not.toHaveBeenCalled();
   });
 });
 
