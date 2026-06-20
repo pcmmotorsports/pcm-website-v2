@@ -90,18 +90,14 @@ export async function settleCharge(
     return { kind: 'pending', reason: 'record_unverified' };
   }
 
-  // 4b. record_status 映射(官方 7 值;§5 表;識別/金額已在 §4 閘驗過)。paid 才走 step 5,其餘逐態回。
+  // 4b. record_status 映射(官方 7 值;§5 表;識別/金額/時間窗已在 §4 recordMatchesOrder 閘驗過)。
+  //     paid 才走 step 5,其餘逐態回。
   const verdict = classifyRecordStatus(tr);
   if (verdict.kind !== 'paid_candidate') {
     if (verdict.kind === 'explicit_failed') {
-      // 🔴 弱識別失敗終態下界硬化(codex 關卡2 r3、審查側逮):charge 必在 attempt「後」發生,弱識別失敗
-      //    **不可採信 attempt「前」的舊 Record**(即使落在 -5min skew 內)→ 否則同單舊 CANCEL/ERROR 會誤釋
-      //    當前 attempt 鎖、當前 3DS 若成交→重入 no_attempt→客人重刷=雙扣。pre-attempt 弱識別失敗 → 不釋鎖、
-      //    保留 pending(retry/sweeper)。-5min skew 僅留給 paid 自癒(settlePaid;自癒安全、不釋鎖)。
-      if (!hasStrongKey && !withinAttemptWindow(tr.transactionTimeMillis, attempt.attemptCreatedAt, true)) {
-        return { kind: 'pending', reason: 'record_unverified' };
-      }
-      // -1=ERROR / 5=CANCEL:明確未成功(且識別/金額已過閘)→ markFailed 釋鎖(caller 放行重刷)。
+      // -1=ERROR / 5=CANCEL:明確未成功(且識別/金額/時間窗已過 §4 閘)→ markFailed 釋鎖(caller 放行重刷)。
+      //    🔴 pre-attempt 防誤釋鎖縱深已前移到 §4 recordMatchesOrder 弱識別窗(下界=attempt、S1 收緊):弱識別
+      //    pre-attempt 舊 Record 在 §4 即被擋成 record_unverified、到不了此處;強識別由鍵唯一識別(不套窗)。
       //    🔴 fail-closed(codex 關卡2):markFailed throw → pending 保留(不誤回 failed、不 reject route),retry。
       try {
         await attempts.markFailed({ attemptId: attempt.attemptId, orderId });
@@ -119,11 +115,11 @@ export async function settleCharge(
       });
       return { kind: 'pending', reason: 'record_unverified' };
     }
-    // auth_or_pending(0/4/1&&!is_captured)或 unverified(金額不符)
+    // auth_or_pending(record_status=4 PENDING 待付款)或 unverified(未知碼)
     return { kind: 'pending', reason: verdict.reason };
   }
 
-  // 5. paid 收斂(Record 證實 record_status=1 && is_captured && 金額/幣別符)。rec 用 Record 權威值。
+  // 5. paid 收斂(Record 證實 record_status ∈ {0 AUTH, 1 OK} + 識別/金額/幣別符;授權即成立)。rec 用 Record 權威值。
   return settlePaid(deps, attempt, tr.recTradeId, orderId);
 }
 
@@ -149,23 +145,21 @@ function buildRecordQuery(
 }
 
 const SETTLE_WINDOW_FORWARD_MS = 24 * 60 * 60 * 1000; // attempt 建立「後」24h(charge 後續結算/延遲容忍)
-const SETTLE_CLOCK_SKEW_MS = 5 * 60 * 1000; // attempt 「前」僅容 5 分鐘時鐘偏移(防舊交易誤命中)
 
 /**
  * 弱識別(hint/order_number)時間窗:Record 交易時間須在 attempt 建立時間「後」的窗內;缺時間 → fail-closed。
  *
- * 🔴 **單向窗(codex 關卡2 r2)**:charge 必在 attempt 建立**後**發生 → record 交易時間須 `>= 下界` 且
- * `<= attempt + 24h`;**不可**落在 attempt 前太久(否則為同單舊交易、舊 hint 回來會誤命中 → 誤釋鎖放行重刷=雙扣)。
- *
- * 🔴 **下界非對稱(codex 關卡2 r3、審查側逮)**:
- * - 一般(paid 自癒)下界 = `attempt − 5min` 時鐘偏移:採信「略早於 attempt」的 Record 頂多收斂成 paid、自癒安全、不雙扣。
- * - `forFinalFail=true`(markFailed 釋鎖)下界 = `attempt`(零 pre-attempt 偏移):失敗終態若採信 attempt「前」舊 Record
- *   會誤釋當前鎖→當前 3DS 若成交→重刷=雙扣;故釋鎖路徑零容忍 pre-attempt 舊交易。
+ * 🔴 **單向窗、下界 = attempt(零 pre-attempt 偏移;S1 收緊、Q3、審查側雙扣 finding)**:
+ * charge 必在 attempt 建立**後**發生 → record 交易時間須 `>= attempt` 且 `<= attempt + 24h`。
+ * 下界零容忍 pre-attempt:**在 bank_txn 於 charge 前先 durable 的 invariant 下**,弱識別窗內本 attempt 的
+ * charge 尚未上 TapPay → Record 撈到的同單交易必是 pre-attempt 舊交易;採信會誤釋鎖/誤標 paid 放行重刷=雙扣。
+ * **paid/failed 同款硬化**:S1 前 paid 側曾用 `attempt − 5min` skew、被審查側逮為「授權即成立」後的雙扣縫(舊
+ * AUTH 落 -5min 帶內被誤採信標 paid 釋鎖→本 attempt 若成交→重刷),已移除(純安全增益、不誤擋合法自癒)。
+ * 🔴 鐵則 10:此論證綁定「bank_txn charge 前 durable」前提,未來改 initiate 順序須重核此窗。
  */
 function withinAttemptWindow(
   recordTimeMillis: number | undefined,
   attemptCreatedAt: string,
-  forFinalFail = false,
 ): boolean {
   if (recordTimeMillis === undefined) {
     return false; // 弱識別又無交易時間 → 無法驗窗、fail-closed
@@ -174,18 +168,16 @@ function withinAttemptWindow(
   if (Number.isNaN(attemptMs)) {
     return false;
   }
-  const lowerBound = forFinalFail ? attemptMs : attemptMs - SETTLE_CLOCK_SKEW_MS;
-  return (
-    recordTimeMillis >= lowerBound &&
-    recordTimeMillis <= attemptMs + SETTLE_WINDOW_FORWARD_MS
-  );
+  return recordTimeMillis >= attemptMs && recordTimeMillis <= attemptMs + SETTLE_WINDOW_FORWARD_MS;
 }
 
 /**
  * 🔴 共用「本機↔Record 識別 + 金額」閘(codex 關卡2):terminal outcome(paid/failed)前必過,防誤命中他單。
  * - `order_number` 恆對 orderId;本機有 rec/bank → 必等於 Record(防 filter 異常採他單);
  * - `amount===orderTotal`(整數)+ `currency==='TWD'`(R5;orders 無 currency 欄、常數比);
- * - 弱識別(無 rec/bank、走 hint/order_number)→ 加時間窗(master plan §1 step 2)。
+ * - 弱識別(無 rec/bank、走 hint/order_number)→ 加時間窗(下界=attempt、S1 收緊;master plan §1 step 2)。
+ *   🔴 S1「授權即成立」後,此弱識別窗是 paid + failed 雙 terminal 防 pre-attempt 誤採信的**統一縱深**(下界
+ *   零容忍 pre-attempt;原 explicit_failed 的二次窗 guard 已併入此處、不再分散)。
  * merchant 由 adapter recordQuery wire 完整性已 fail-closed(每筆 merchant_id 必本商戶、否則 throw)。
  */
 function recordMatchesOrder(
@@ -208,15 +200,20 @@ type RecordVerdict =
   | { kind: 'refund_anomaly' }
   | { kind: 'pending'; reason: 'auth_or_pending' | 'record_unverified' };
 
-/** record_status 官方 7 值 → 裁決(§5 表;1a amend 3286a30 釘正;識別/金額已在 recordMatchesOrder 閘驗過)。 */
+/**
+ * record_status 官方 7 值 → 裁決(§5 表;識別/金額已在 recordMatchesOrder 閘驗過)。
+ *
+ * 🔴 **授權即成立**(Sean 2026-06-20 拍、S1 重設計;設計包 docs/specs/2026-06-20-m3-3ds-auth-settlement-redesign.md §3-4):
+ * record_status ∈ {0 AUTH, 1 OK} 即成立 → paid_candidate,**不再要求 is_captured**(請款由收單行自動批次、
+ * 網站不做 capture)。`0 AUTH=授權成功未請款` ≠ `4 PENDING=待付款(尚未授權)`;故只放 0/1、4 維持 pending。
+ * is_captured 欄位仍 parse/型別保留(未來精準帳務 authorized/captured 兩段),裁決不再讀。
+ */
 function classifyRecordStatus(tr: TapPayTradeRecord): RecordVerdict {
   switch (tr.recordStatus) {
-    case 1: // OK 交易完成 → 須已 captured 才算 paid(未 captured = 罕見中間態 → pending)
-      return tr.isCaptured
-        ? { kind: 'paid_candidate' }
-        : { kind: 'pending', reason: 'auth_or_pending' };
-    case 0: // AUTH 授權未請款
-    case 4: // PENDING 待付款
+    case 0: // AUTH 授權成功未請款 → 授權即成立(不再要求 is_captured)
+    case 1: // OK 交易完成 → 成立
+      return { kind: 'paid_candidate' };
+    case 4: // PENDING 待付款(尚未授權)→ 維持 pending(≠ 0 AUTH)
       return { kind: 'pending', reason: 'auth_or_pending' };
     case -1: // ERROR
     case 5: // CANCEL 取消交易

@@ -136,7 +136,7 @@ describe('TapPayChargeAdapter — #16 PII mask', () => {
 
 // ── M-3 3DS-1a:Record API 反查(解析、不下裁決)─────────────────────────────────────────────
 
-/** Record API 已請款(paid 候選)回應;含 PII 欄 card_info/cardholder 用於驗白名單剝離。 */
+/** Record API OK+captured 回應 fixture(record_status=1 + is_captured;含 PII 欄 card_info/cardholder 用於驗白名單剝離)。 */
 const RECORD_CAPTURED_WIRE = {
   status: 0,
   msg: '',
@@ -152,7 +152,7 @@ const RECORD_CAPTURED_WIRE = {
       merchant_id: 'M_test',
       amount: 1050,
       currency: 'TWD',
-      record_status: 1, // 1=OK(交易完成;配 is_captured=true = 已付款)
+      record_status: 1, // 1=OK 交易完成(此 fixture is_captured=true;1a 不裁決、成立判定在 1b)
       is_captured: true,
       refunded_amount: 0,
       transaction_time_millis: 1700000000000,
