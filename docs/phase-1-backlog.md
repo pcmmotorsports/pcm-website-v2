@@ -6102,6 +6102,48 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #241. ⚠️ 結帳「同意服務條款」未勾選仍可付款、無提醒
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(上線前必補;合規/爭議面)
+- **問題:**
+  - 結帳頁「我已閱讀並同意 PCM Motorsports 的 服務條款 與 隱私政策」checkbox **未勾選也能按「確認付款」**、且無任何提醒或阻擋。2026-06-20 sandbox 3DS 實測:未勾選直接刷卡成功建單。
+- **觸發事件(任一觸發即啟動實作):**
+  - prod checkout 對外開啟前;或結算重設計(`docs/specs/2026-06-20-m3-3ds-auth-settlement-redesign.md`)動到 CheckoutView 時順手補。
+- **預期解法:**
+  - 確認付款前驗證 checkbox 已勾:未勾 → 付款鈕 disabled 或 inline 提示「請先閱讀並同意服務條款」。前端先擋 + 🔴 server action(charge-actions)亦驗(不信任 client、對齊 server 端鐵則)。可順帶記同意時間戳供日後舉證。
+- **不修會痛在:**
+  - 擴充性/合規:客人未同意條款即成交,日後消費/退貨爭議無「已同意」紀錄、法律站不住。
+  - 可維護性:同意機制無集中驗證點,未來條款改版難追溯誰同意了哪版。
+  - bug 可追蹤性:無同意時間戳,爭議時無法舉證客人確實看過/同意。
+- **估時:** ~20-30 min(前端驗證 + server 驗 + 測 + 肉眼驗)
+- **依賴:** `CheckoutView` / `charge-actions`
+- **發現於:** 2026-06-20 / sandbox 3DS E2E 實測(Sean 觀察)
+- **相關:** `apps/storefront/src/components/CheckoutView.tsx`、`apps/storefront/src/app/checkout/charge-actions.ts`
+
+---
+
+### #242. 🔁 Google/LINE 登入 OAuth redirect 指向舊 `localhost:3001`
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(上線前必補;社群登入是主要入口之一)
+- **問題:**
+  - Google OAuth 登入完成後導回 `http://localhost:3001/?code=...` → `ERR_CONNECTION_REFUSED`(網站實際跑在 3000 / tunnel / 正式網域),redirect URI 設定指向舊的 `localhost:3001`、與實際運行網域不符 → Google 登入失敗。LINE 登入疑同類。2026-06-20 sandbox 測試以一般會員(email/密碼)登入繞過。
+- **觸發事件(任一觸發即啟動實作):**
+  - 多環境(staging/tunnel/prod)需社群登入時;或 prod 上線前。
+- **預期解法:**
+  - OAuth redirect URI 改用動態 base(對應 `NEXT_PUBLIC_SITE_URL` / 執行環境),不寫死 port;在 Supabase Auth + Google/LINE console 的 Redirect URLs allowlist 補正確網域(含 tunnel 測試網域 + 正式網域)。與 [[#190]](safe-redirect next 同源白名單)同鏈、勿弱化開放重導防護。
+- **不修會痛在:**
+  - 擴充性:多環境 redirect 寫死,每換網域(staging/tunnel/prod)就壞一次。
+  - 可維護性:登入入口壞、客人無法用社群帳號登入 → 註冊/回訪流失。
+  - bug 可追蹤性:`localhost 拒絕連線` 對客人是無意義錯誤頁、無自助出路、全導客服。
+- **估時:** ~30-45 min(含 console 設定 + 各環境測)
+- **依賴:** `auth/callback` route、`api/auth/line`
+- **發現於:** 2026-06-20 / sandbox 3DS E2E 實測(Sean 觀察)
+- **相關:** `apps/storefront/src/app/auth/callback`、`apps/storefront/src/app/api/auth/line`、[[#190]]
+
+---
+
 ## 紀錄模板
 
 ```markdown
