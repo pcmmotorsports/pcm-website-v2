@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { PlaceOrderInput } from '@pcm/domain';
-import { mapPlaceOrderToCreateOrderArgs } from './order';
+import {
+  mapPlaceOrderToCreateOrderArgs,
+  mapSupabaseOrderRowToListItem,
+  type SupabaseOrderListRow,
+} from './order';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -79,5 +83,45 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
       input({ lines: [{ supplierSlug: 'rpm', sku: 'DCC01-G-F', quantity: 1 }] }),
     );
     expect(JSON.stringify(args)).not.toMatch(/price|tier|cost|user_?id/i);
+  });
+});
+
+function listRow(over: Partial<SupabaseOrderListRow> = {}): SupabaseOrderListRow {
+  return {
+    id: 'ord-1',
+    display_id: 'PCM-2099-0007',
+    created_at: '2099-04-15T10:00:00Z',
+    payment_status: 'paid',
+    fulfillment_status: 'shipped',
+    total: 12345,
+    order_items: [{ quantity: 1 }],
+    ...over,
+  };
+}
+
+describe('mapSupabaseOrderRowToListItem(讀路徑摘要投影)', () => {
+  it('欄位直送 + total integer → Money(整數 TWD)', () => {
+    const item = mapSupabaseOrderRowToListItem(listRow({ total: 12345 }));
+    expect(item.id).toBe('ord-1');
+    expect(item.displayId).toBe('PCM-2099-0007');
+    expect(item.createdAt).toBe('2099-04-15T10:00:00Z');
+    expect(item.paymentStatus).toBe('paid');
+    expect(item.fulfillmentStatus).toBe('shipped');
+    expect(item.total).toEqual({ amount: 12345, currency: 'TWD' });
+  });
+
+  it('codex C2:單一品項 quantity=3 → itemCount=3(Σqty、非 distinct 列數)', () => {
+    expect(mapSupabaseOrderRowToListItem(listRow({ order_items: [{ quantity: 3 }] })).itemCount).toBe(3);
+  });
+
+  it('多品項 [{2},{1}] → itemCount=3(Σquantity)', () => {
+    expect(
+      mapSupabaseOrderRowToListItem(listRow({ order_items: [{ quantity: 2 }, { quantity: 1 }] }))
+        .itemCount,
+    ).toBe(3);
+  });
+
+  it('0-item(空 array)→ itemCount=0(防禦 case)', () => {
+    expect(mapSupabaseOrderRowToListItem(listRow({ order_items: [] })).itemCount).toBe(0);
   });
 });

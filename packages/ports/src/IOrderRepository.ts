@@ -2,6 +2,7 @@ import type {
   Money,
   Order,
   OrderId,
+  OrderListItem,
   OrderStatusFilter,
   CustomerId,
   PlaceOrderInput,
@@ -45,7 +46,15 @@ export interface IOrderRepository {
 
   /** 查單筆(RLS own-only;查無回 null 不 throw)。 */
   findById(id: OrderId): Promise<Order | null>;
-  /** 列出某會員訂單。TODO M-4a-08: 補分頁 + 排序。 */
+  /**
+   * 列出某會員訂單「摘要」(account OrdersTab / Overview 最近訂單;RLS own-only、created_at desc)。
+   *
+   * 回 `OrderListItem[]`(摘要投影、不含 items[]):繞過 #217(order_items 無 product_id 無法重建
+   * 完整 `Order.items[]`)、列表只需單號 / 日期 / 件數 / 金額 / 狀態。M-3 Sean 拍 Q6=A:與完整
+   * `listByCustomer` 分離,後者維持 deferred(待 #217 + 明細頁 slice、本片不啟用)。
+   */
+  listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;
+  /** 列出某會員訂單(完整 Order)。⚠️ deferred:待 #217(order_items 無 product_id);M-3 不啟用、用 listSummariesByCustomer。TODO M-4a-08: 補分頁 + 排序。 */
   listByCustomer(customerId: CustomerId): Promise<Order[]>;
   /** admin 訂單列表(雙軸狀態篩選)。TODO M-4a-08: 補分頁 + 排序。 */
   listByStatus(filter: OrderStatusFilter): Promise<Order[]>;

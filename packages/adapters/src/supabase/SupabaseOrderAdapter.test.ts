@@ -11,7 +11,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
 import type { PlaceOrderInput } from '@pcm/domain';
-import { SupabaseOrderAdapter } from './SupabaseOrderAdapter';
+import { SupabaseOrderAdapter, ORDER_LIST_SELECT } from './SupabaseOrderAdapter';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -117,5 +117,72 @@ describe('SupabaseOrderAdapter.findTotal', () => {
   it('🔴 非整數 total(浮點腐壞)→ toMoneyAmount 中央守門 throw、不靜默放行', async () => {
     const { client } = makeQueryClient({ data: { total: 1100.5 }, error: null });
     await expect(new SupabaseOrderAdapter(client).findTotal('o1')).rejects.toThrow();
+  });
+});
+
+// ── listSummariesByCustomer:account 訂單列表讀(M-3、RLS own-only)──
+// mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).order('created_at', desc) 鏈;
+// .order() 為終端、await 回 {data, error}。
+function makeListClient(result: { data: unknown; error: unknown }) {
+  const order = vi.fn().mockResolvedValue(result);
+  const eq = vi.fn().mockReturnValue({ order });
+  const select = vi.fn().mockReturnValue({ eq });
+  const from = vi.fn().mockReturnValue({ select });
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, order };
+}
+
+describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守門', () => {
+  it('🔴 codex C1/N2:ORDER_LIST_SELECT byte-equal 白名單(零 unit_price/line_total/product_snapshot/經銷價/PII)', () => {
+    expect(ORDER_LIST_SELECT).toBe(
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)',
+    );
+  });
+
+  it('查詢鏈 orders / select(ORDER_LIST_SELECT) / eq(customer_user_id) / order(created_at desc);row → OrderListItem', async () => {
+    const { client, from, select, eq, order } = makeListClient({
+      data: [
+        {
+          id: 'o1',
+          display_id: 'PCM-2099-0007',
+          created_at: '2099-04-15T10:00:00Z',
+          payment_status: 'paid',
+          fulfillment_status: 'shipped',
+          total: 12345,
+          order_items: [{ quantity: 2 }, { quantity: 1 }],
+        },
+      ],
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).listSummariesByCustomer('c1');
+    expect(from).toHaveBeenCalledWith('orders');
+    // 🔴 N2:select 確實以 ORDER_LIST_SELECT(module const)被呼叫、非另傳 inline 字串
+    expect(select).toHaveBeenCalledWith(ORDER_LIST_SELECT);
+    expect(eq).toHaveBeenCalledWith('customer_user_id', 'c1'); // own-only 應用層縱深
+    expect(order).toHaveBeenCalledWith('created_at', { ascending: false }); // 新到舊(Q3)
+    expect(res).toEqual([
+      {
+        id: 'o1',
+        displayId: 'PCM-2099-0007',
+        createdAt: '2099-04-15T10:00:00Z',
+        paymentStatus: 'paid',
+        fulfillmentStatus: 'shipped',
+        total: { amount: 12345, currency: 'TWD' },
+        itemCount: 3, // Σquantity 2+1
+      },
+    ]);
+  });
+
+  it('空結果 → []', async () => {
+    const { client } = makeListClient({ data: [], error: null });
+    await expect(
+      new SupabaseOrderAdapter(client).listSummariesByCustomer('c1'),
+    ).resolves.toEqual([]);
+  });
+
+  it('查詢 error → 裸 throw(caller try/catch 退空陣列、頁面不 500)', async () => {
+    const { client } = makeListClient({ data: null, error: new Error('connection refused') });
+    await expect(
+      new SupabaseOrderAdapter(client).listSummariesByCustomer('c1'),
+    ).rejects.toThrow();
   });
 });
