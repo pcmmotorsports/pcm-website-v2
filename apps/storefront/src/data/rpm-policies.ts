@@ -44,5 +44,5 @@ export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
 export const RPM_WARRANTY_NOTES: PolicyRun[][] = [
   ['瑕疵認定：紋路明顯錯位、表面破損、孔位偏差超過合理範圍'],
   ['不在範圍：人為碰撞、摔車、不當安裝、自行加工'],
-  ['有問題請走 LINE：', { b: '@pcm-motorsports' }, ' · 週一–週六 10:00–20:00'],
+  ['有問題請走 LINE：', { b: '@pcmmoto' }, ' · 週一–週六 10:00–20:00'],
 ];
