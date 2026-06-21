@@ -101,7 +101,11 @@ describe('initiatePayment — begin 佔鎖(複用 PF-X2 + 0b/0c cart dedup)', ()
       }),
     });
     const out = await initiatePayment(d, INPUT);
-    expect(out).toEqual({ kind: 'settlement_required' });
+    // 🔴 3DS-7 7c-1:上帶 dedup(existing_*)。
+    expect(out).toEqual({
+      kind: 'settlement_required',
+      dedup: { reason: 'duplicate', existingDisplayId: 'PCM-2026-0009', existingPaid: true },
+    });
     expect(d.tappay.initiateThreeDSCharge).not.toHaveBeenCalled();
   });
 
@@ -119,7 +123,16 @@ describe('initiatePayment — begin 佔鎖(複用 PF-X2 + 0b/0c cart dedup)', ()
       }),
     });
     const out = await initiatePayment(d, INPUT);
-    expect(out).toEqual({ kind: 'settlement_required' });
+    // 🔴 3DS-7 7c-1:上帶 dedup(existing_*);needs_settle 不帶 existingBankTransactionId(settleCharge 重查自取)。
+    expect(out).toEqual({
+      kind: 'settlement_required',
+      dedup: {
+        reason: 'needs_settle',
+        existingOrderId: 'order-uuid-9',
+        existingDisplayId: 'PCM-2026-0009',
+        existingRecTradeId: null,
+      },
+    });
     expect(d.tappay.initiateThreeDSCharge).not.toHaveBeenCalled();
   });
 

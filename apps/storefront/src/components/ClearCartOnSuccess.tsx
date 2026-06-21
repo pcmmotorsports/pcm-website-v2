@@ -14,9 +14,11 @@
 //   「前」clear()、setItems([]) 會被 provider 隨後的 readStorage() 覆寫回舊車 = 成功未清。故等 isHydrated===true
 //   才清(此時 readStorage 已跑完、clear 的空陣列才會被寫回 localStorage 生效)。
 //
-// 🔴 TODO(3DS-7、master plan v5 §2 + B):本片只清「購物車品項」;cart_session_id 的 regenerate(換新 key、TTL 24h)
-//   留 3DS-7 —— 現 CartContext 無 cart_session_id 概念(Phase II 3DS-7 才引入)。3DS-7 接 cart_session_id 後,於此
-//   isHydrated gate 內 clear() 旁補 regenerateCartSession()。
+// 🔴 3DS-7(已落地、原 TODO 兌現):cart_session_id regenerate(換新 key)由 `regenerate` prop 控制。
+//   callback page 僅在 **paid 分支**傳 `regenerate`(DB 確定 paid → 換新 key、防下次重購撞已 paid sibling 被
+//   begin D2 誤擋);**pending 分支不傳**(模糊態、可能已扣未定 → 保留 key 讓 dedup 守住既有單、防雙扣;
+//   plan §3 7b「clear() 點 × regenerate」表)。regenerate 與 clear 同 isHydrated gate(見下)。
+//   (TTL 24h 為 7d、本片不做。)
 //
 // 不渲染任何視覺(return null);**只掛 callback page 的 paid / pending 渲染樹**(no_attempt 雖屬 processing 變體但不掛、
 //   failed 不掛)、不入 CheckoutSuccess 預設分支
@@ -25,11 +27,14 @@
 import { useEffect } from 'react';
 import { useCart } from '@/contexts/CartContext';
 
-export function ClearCartOnSuccess() {
-  const { clear, isHydrated } = useCart();
+export function ClearCartOnSuccess({ regenerate = false }: { regenerate?: boolean }) {
+  const { clear, isHydrated, regenerateCartSession } = useCart();
   useEffect(() => {
-    // isHydrated 完成才清(防 hydrate-race 覆寫;codex 關卡1 must-fix)。clear/isHydrated 入 deps、無 disable。
-    if (isHydrated) clear();
-  }, [isHydrated, clear]);
+    // isHydrated 完成才清/換 key(防 hydrate-race 覆寫;codex 關卡1 must-fix)。deps 全列、無 disable。
+    if (!isHydrated) return;
+    clear();
+    // 🔴 僅 paid 分支(regenerate=true)換新 key;模糊態(pending)保留 key=dedup 防雙扣把手(plan §3 7b 表)。
+    if (regenerate) regenerateCartSession();
+  }, [isHydrated, clear, regenerate, regenerateCartSession]);
   return null;
 }

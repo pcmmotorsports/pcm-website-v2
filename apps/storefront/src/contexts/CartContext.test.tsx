@@ -12,6 +12,8 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { CartProvider, useCart } from './CartContext';
 
 const STORAGE_KEY = 'pcm-cart-mock-v2';
+const SESSION_KEY = 'pcm-cart-session-v1';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <CartProvider>{children}</CartProvider>
@@ -197,5 +199,83 @@ describe('CartContext / useCart', () => {
     expect(result.current.items.map((i) => i.productId).sort()).toEqual(['good-1', 'good-2', 'legacy']);
     // 舊 v1 hack 欄不解析:legacy 行無 variantId(color 不被當 variantId)
     expect(result.current.items.find((i) => i.productId === 'legacy')!.variantId).toBeUndefined();
+  });
+});
+
+describe('CartContext / cartSessionId(3DS-7 7a)', () => {
+  it('空車(無品項)mount 後 cartSessionId 為 null', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.cartSessionId).toBeNull();
+  });
+
+  it('加第一件 → 生成合法 uuid cartSessionId', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 1, variantId: 'v1' });
+    });
+    expect(result.current.cartSessionId).toMatch(UUID_RE);
+  });
+
+  it('cartSessionId 跨多次 addItem / updateQty 穩定不變(同一購物車生命週期)', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 1, variantId: 'v1' });
+    });
+    const first = result.current.cartSessionId;
+    act(() => {
+      result.current.addItem({ productId: 'b', qty: 1, variantId: 'v2' });
+      result.current.updateQty({ productId: 'a', variantId: 'v1' }, 3);
+    });
+    expect(result.current.cartSessionId).toBe(first);
+  });
+
+  it('regenerateCartSession 換新 key(合法 uuid 且與舊不同)', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 1, variantId: 'v1' });
+    });
+    const first = result.current.cartSessionId;
+    act(() => {
+      result.current.regenerateCartSession();
+    });
+    expect(result.current.cartSessionId).toMatch(UUID_RE);
+    expect(result.current.cartSessionId).not.toBe(first);
+  });
+
+  it('持久化到 localStorage(SESSION_KEY)且 remount 還原同一 key', () => {
+    const first = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      first.result.current.addItem({ productId: 'a', qty: 1, variantId: 'v1' });
+    });
+    const key = first.result.current.cartSessionId;
+    expect(window.localStorage.getItem(SESSION_KEY)).toBe(key);
+
+    cleanup();
+    const second = renderHook(() => useCart(), { wrapper });
+    expect(second.result.current.cartSessionId).toBe(key);
+  });
+
+  it('還原舊車(有品項、無 session key)→ mount 補生一把 key(既有車納入去重)', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([{ productId: 'a', qty: 1, variantId: 'v1' }]),
+    );
+    expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.cartSessionId).toMatch(UUID_RE);
+  });
+
+  it('手動 clear() 保留 cartSessionId(Q4=A:手動清車/模糊態不換 key)', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 1, variantId: 'v1' });
+    });
+    const key = result.current.cartSessionId;
+    act(() => {
+      result.current.clear();
+    });
+    expect(result.current.items).toHaveLength(0);
+    expect(result.current.cartSessionId).toBe(key);
   });
 });

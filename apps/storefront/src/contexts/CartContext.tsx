@@ -25,9 +25,15 @@
 //
 // qty guard(Codex review 小風險):readStorage / addItem / updateQty 三入口統一過 Number.isInteger + clamp [1, MAX_QTY]
 //
+// cart_session_id(M-3 3DS-7 冪等治本、plan §3 7a):購物車生命週期穩定的 idempotency key(uuid)、獨立
+//   localStorage key `pcm-cart-session-v1`(與品項 key 分開、不動既有序列化契約);空車首件生、跨重結帳穩定、
+//   成交換新(regenerateCartSession)。非價/tier/身分純去重子(鐵則 12 正交);7a 只持有 key、不送 server。
+//   🔴 hydration:持久化 gate isHydrated、mount 讀用 `prev ?? stored`(不覆寫 pre-hydrate 已生成的 key、防
+//   hydrate-race 覆寫回舊 key;對齊 ClearCartOnSuccess codex must-fix)。7b 送 server + 僅「DB 確定 paid」換新。
+//
 // 鐵則對齊:
 // - 鐵則 9 L1 標記(API 結構穩定、M-3 swap 實作不動介面)
-// - 鐵則 6:本檔目標 <200 行
+// - 鐵則 6:本檔 <300 軟警戒內(7a 加 cartSessionId state + 持久化、~230 行)
 // - server 端鐵則「會員與價格」:本 Provider 不存價格(只存 productId + qty + color / size 規格)、價格永遠由 server 端 resolve
 
 'use client';
@@ -43,6 +49,7 @@ import {
 } from 'react';
 
 const STORAGE_KEY = 'pcm-cart-mock-v2';
+const SESSION_KEY = 'pcm-cart-session-v1'; // 3DS-7 cart-instance idempotency key(獨立、與品項 key 分開)
 const MAX_QTY = 99;
 
 export type CartLineKey = {
@@ -59,10 +66,14 @@ export type CartContextValue = {
   items: CartItem[];
   totalQty: number;
   isHydrated: boolean;
+  /** 3DS-7 cart-instance idempotency key(uuid);空車首件生、成交換新;hydrate 前 null。非價/tier/身分。 */
+  cartSessionId: string | null;
   addItem: (item: CartItem) => void;
   removeItem: (key: CartLineKey) => void;
   updateQty: (key: CartLineKey, qty: number) => void;
   clear: () => void;
+  /** 成交後換新 key(7b 僅在「DB 確定 paid」呼;模糊態保留 key=dedup 防雙扣把手)。 */
+  regenerateCartSession: () => void;
 };
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -112,12 +123,40 @@ function writeStorage(items: CartItem[]) {
   }
 }
 
+function readSessionId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_KEY);
+    return typeof raw === 'string' && raw.length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSessionId(id: string | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (id) window.localStorage.setItem(SESSION_KEY, id);
+    else window.localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // 同 writeStorage:localStorage 滿 / 隱私模式 → 靜默失敗
+  }
+}
+
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [cartSessionId, setCartSessionId] = useState<string | null>(null);
 
   useEffect(() => {
-    setItems(readStorage());
+    const restored = readStorage();
+    const storedSession = readSessionId();
+    setItems(restored);
+    // 🔴 prev ?? stored ?? 還原車補生:不覆寫 pre-hydrate 已 regenerate/addItem 的 key(hydrate-race 防線);
+    //   storedSession 無但有還原品項(7a 前的舊車)→ 補生一把,使既有車也納入去重。
+    setCartSessionId(
+      (prev) => prev ?? storedSession ?? (restored.length > 0 ? crypto.randomUUID() : null),
+    );
     setIsHydrated(true);
   }, []);
 
@@ -125,9 +164,14 @@ export function CartProvider({ children }: { children: ReactNode }) {
     if (isHydrated) writeStorage(items);
   }, [items, isHydrated]);
 
+  useEffect(() => {
+    if (isHydrated) writeSessionId(cartSessionId);
+  }, [cartSessionId, isHydrated]);
+
   const addItem = useCallback((item: CartItem) => {
     const safeQty = clampQty(item.qty);
     if (safeQty < 1) return;
+    setCartSessionId((prev) => prev ?? crypto.randomUUID()); // 空車首件 → 生 key
     setItems((prev) => {
       const idx = prev.findIndex((p) => sameLine(p, item));
       if (idx >= 0) {
@@ -153,14 +197,27 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setItems([]), []);
 
+  // 成交換新 key(7b 僅「DB 確定 paid」呼)。hydrate 前呼也安全:mount 讀用 prev ?? 不覆寫、持久化 gate isHydrated。
+  const regenerateCartSession = useCallback(() => setCartSessionId(crypto.randomUUID()), []);
+
   const totalQty = useMemo(
     () => items.reduce((sum, item) => sum + item.qty, 0),
     [items]
   );
 
   const value = useMemo<CartContextValue>(
-    () => ({ items, totalQty, isHydrated, addItem, removeItem, updateQty, clear }),
-    [items, totalQty, isHydrated, addItem, removeItem, updateQty, clear]
+    () => ({
+      items,
+      totalQty,
+      isHydrated,
+      cartSessionId,
+      addItem,
+      removeItem,
+      updateQty,
+      clear,
+      regenerateCartSession,
+    }),
+    [items, totalQty, isHydrated, cartSessionId, addItem, removeItem, updateQty, clear, regenerateCartSession]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

@@ -20,10 +20,12 @@ const { cartRef, chargeMock } = vi.hoisted(() => ({
       items: [] as CartItem[],
       totalQty: 0,
       isHydrated: true,
+      cartSessionId: 'cart-sess-default' as string | null,
       addItem: vi.fn(),
       removeItem: vi.fn(),
       updateQty: vi.fn(),
       clear: vi.fn(),
+      regenerateCartSession: vi.fn(),
     },
   },
   chargeMock: vi.fn(),
@@ -38,15 +40,17 @@ vi.mock('@/app/checkout/charge-actions', () => ({
 
 import { useChargePayment } from './useChargePayment';
 
-function setCart(items: CartItem[]) {
+function setCart(items: CartItem[], cartSessionId: string | null = 'cart-sess-default') {
   cartRef.current = {
     items,
     totalQty: items.reduce((s, i) => s + i.qty, 0),
     isHydrated: true,
+    cartSessionId,
     addItem: vi.fn(),
     removeItem: vi.fn(),
     updateQty: vi.fn(),
     clear: vi.fn(),
+    regenerateCartSession: vi.fn(),
   };
 }
 
@@ -210,5 +214,38 @@ describe('useChargePayment', () => {
     });
     expect(chargeMock).toHaveBeenCalledTimes(1);
     expect(result.current.state.status).toBe('redirect');
+  });
+
+  it('🔴 3DS-7:paid → regenerateCartSession 換新 key 一次;payload 帶 client cartSessionId', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }], 'cart-abc');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(cartRef.current.regenerateCartSession).toHaveBeenCalledTimes(1); // DB 確定 paid → 換新 key
+    expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ cartSessionId: 'cart-abc' }));
+  });
+
+  it('🔴 3DS-7:processing(模糊態)→ 清車但**不** regenerate(保留 key 防雙扣)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ ok: false, payment: 'processing', displayId: 'D', message: 'm' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(cartRef.current.clear).toHaveBeenCalledTimes(1);
+    expect(cartRef.current.regenerateCartSession).not.toHaveBeenCalled();
+  });
+
+  it('🔴 3DS-7:action throw(unknown=回應遺失)→ 清車但**不** regenerate(保留 key 防雙扣)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockRejectedValue(new Error('network'));
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(cartRef.current.clear).toHaveBeenCalledTimes(1);
+    expect(cartRef.current.regenerateCartSession).not.toHaveBeenCalled();
   });
 });

@@ -67,7 +67,7 @@ const GENERIC_FAIL = '付款失敗,請稍後再試或聯繫客服 LINE';
 const MSG_UNKNOWN = '付款狀態未知,請勿重複付款,客服 LINE 將協助確認';
 
 export function useChargePayment(): UseChargePayment {
-  const { items, clear } = useCart();
+  const { items, clear, cartSessionId, regenerateCartSession } = useCart();
   const [state, setState] = useState<ChargeState>({ status: 'idle' });
   // 🔴 同步原子鎖(鏡像 usePlaceOrder;快速雙擊在 re-render disabled 生效前被同步擋)。
   const inFlightRef = useRef(false);
@@ -100,6 +100,7 @@ export function useChargePayment(): UseChargePayment {
         invoice: args.invoice,
         lines,
         prime: args.prime,
+        cartSessionId, // 🔴 3DS-7:client CartContext 穩定 key(server 驗 uuid/非空;空車不可達此=items>0 已保證生成)
       });
     } catch {
       // 🔴 fail-closed(審查側 BLOCKER 修):action 內部 catch 全吞回 formError,走到這裡 =
@@ -107,6 +108,7 @@ export function useChargePayment(): UseChargePayment {
       // charge+confirm(已扣款),不可當零扣款釋鎖重試(見檔頭清車政策)。
       // 比照 processing 終態:清車 + 終態鎖(inFlightRef 不釋放)+ 勿重複付款文案。
       clear();
+      // 🔴 3DS-7:回應遺失=可能已扣未定 → **保留 cart_session_id、不 regenerate**(同 processing、防雙扣;勿加)。
       setState({ status: 'unknown', message: MSG_UNKNOWN });
       return true; // 終態:呼叫端(View primeBusyRef)同樣不得釋放
     }
@@ -120,6 +122,9 @@ export function useChargePayment(): UseChargePayment {
     }
     if ('ok' in res && res.ok) {
       clear(); // paid:清車(僅成功後)
+      // 🔴 3DS-7 Q4=A:**DB 確定 paid → 換新 key**(防下次合法重購撞已 paid sibling 被 begin D2 誤擋)。
+      //   模糊態(processing/unknown)刻意「不」regenerate=保留 key 讓 dedup 守住既有單、防雙扣(見下)。
+      regenerateCartSession();
       setState({ status: 'paid', displayId: res.displayId }); // 終態保持上鎖
       return true;
     }
@@ -127,6 +132,8 @@ export function useChargePayment(): UseChargePayment {
       switch (res.payment) {
         case 'processing':
           clear(); // 錢可能已扣、訂單已建 → 清車防重買重刷(②-⑥ 對帳收斂)
+          // 🔴 3DS-7:模糊態(可能已扣未定)**保留 cart_session_id、不 regenerate** —— 換 key 會讓 dedup 失去
+          //   既有單把手、既有單若已扣則重購雙扣;保留 key=防雙扣把手(plan §3 7b 表;切勿在此加 regenerate)。
           setState({ status: 'processing', displayId: res.displayId, message: res.message });
           return true; // 終態保持上鎖
         case 'in_flight':

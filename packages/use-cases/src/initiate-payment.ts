@@ -55,8 +55,27 @@ export async function initiatePayment(
   const lock = await attempts.begin(orderId);
   if (!lock.acquired) {
     // duplicate/needs_settle(0b cart dedup)≠ 撞鎖 → settlement_required(對齊 confirmPayment;交 settleCharge 裁決)。
-    if (lock.reason === 'duplicate' || lock.reason === 'needs_settle') {
-      return { kind: 'settlement_required' };
+    // 🔴 3DS-7 7c-1:把 begin 的 existing_*(D2/D4)上帶到 settlement_required.dedup(供 action 層即時裁決)。
+    if (lock.reason === 'duplicate') {
+      return {
+        kind: 'settlement_required',
+        dedup: {
+          reason: 'duplicate',
+          existingDisplayId: lock.existingDisplayId,
+          existingPaid: lock.existingPaid,
+        },
+      };
+    }
+    if (lock.reason === 'needs_settle') {
+      return {
+        kind: 'settlement_required',
+        dedup: {
+          reason: 'needs_settle',
+          existingOrderId: lock.existingOrderId,
+          existingDisplayId: lock.existingDisplayId,
+          existingRecTradeId: lock.existingRecTradeId,
+        },
+      };
     }
     return { kind: 'locked', reason: lock.reason };
   }

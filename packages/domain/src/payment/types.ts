@@ -232,6 +232,26 @@ export type ConfirmPaymentInput = {
 };
 
 /**
+ * SettlementRequiredContext:settlement_required outcome 攜帶的 cart-instance dedup 上下文(3DS-7 7c-1 surface)。
+ *
+ * 🔴 承 `BeginChargeAttemptResult` D2/D4 既有 existing_* 形狀,下移到 use-case outcome 供 action 層即時裁決
+ * (取代 7b「一律處理中」粗映射)。**不帶 existingBankTransactionId**:settleCharge 以 existingOrderId 重查
+ * attempt 自取 bank_txn(buildRecordQuery 優先序)、action 不需 → 最小化 surface(只帶 action 真消費的欄)。
+ *
+ * action 層〔3DS-7 7c-2 charge-actions〕消費:
+ * - `duplicate`(existingPaid:true)→ 既有單 DB 確定 paid → paid-equivalent 終態(顯 existingDisplayId、clear+regenerate)。
+ * - `needs_settle` → settleCharge({orderId:existingOrderId, recTradeIdHint:existingRecTradeId ?? undefined})即時裁決。
+ */
+export type SettlementRequiredContext =
+  | { reason: 'duplicate'; existingDisplayId: string; existingPaid: true }
+  | {
+      reason: 'needs_settle';
+      existingOrderId: string;
+      existingDisplayId: string;
+      existingRecTradeId: string | null;
+    };
+
+/**
  * ConfirmPaymentOutcome:confirm-payment use-case 結果(🔴 孤兒單契約、MUST-FIX 2)。
  *
  * - `paid`:charge 成功 + 實扣金額符 + confirm 成功(`idempotent` 標重放 no-op)→ 完成頁。
@@ -272,12 +292,12 @@ export type ConfirmPaymentOutcome =
    *
    * 🔴 codex 關卡1 must-fix 2:**不得 alias 成 `{kind:'locked',reason:'order_locked'}`**(duplicate/needs_settle
    * 語意 ≠ 撞鎖、silent drift)。
-   * TODO(3DS-1b settleCharge):option A per-call cart_session_id(每次新 UUID)下 begin dedup 恆 0 sibling →
-   * 此 outcome dormant/unreachable;client cart key 整合(#3DS-7)後由 settleCharge 完整消費 D2(duplicate→顯既有單)
-   * / D4(needs_settle→Record 即時裁決:paid→duplicate / 明確失敗→放行重刷 / 模糊→短 hold)。
-   * 不擴帶 existing_* 結構(留 3DS-1b);此 outcome 僅標「需結算確認」。
+   * 🔴 3DS-7 7b:client cart key 已 live(取代 option A per-call UUID)→ begin dedup 真正生效、此 outcome 不再 dormant。
+   * 🔴 3DS-7 7c-1:擴帶 `dedup`(existing_*)供 action 層即時裁決(取代 7b「一律處理中」);duplicate→既有單號
+   *    paid-equivalent、needs_settle→action 跑 settleCharge 裁決(paid/failed/pending)。begin 仍讀 DB row key、
+   *    永不接受 client 重送 key 當比對輸入(plan §4 不變量)。
    */
-  | { kind: 'settlement_required' };
+  | { kind: 'settlement_required'; dedup: SettlementRequiredContext };
 
 /** begin_charge_attempt 拒絕理由(②-③a RPC `{acquired:false, reason}` 對應、plan v6 §2)。 */
 export type ChargeLockReason = 'user_in_flight' | 'order_locked' | 'not_unpaid';
@@ -315,7 +335,7 @@ export type InitiatePaymentInput = {
  * - `charge_unknown`:initiateThreeDSCharge throw(status≠0 / 421 timeout / HTTP / 格式)→ 扣款狀態未知、
  *   bank_txn **已 durable** → settleCharge 經 bank_txn 對帳;**不 markFailed**、pending 續持鎖、勿重刷。
  * - `settlement_required`:begin 偵測同 cart_session_id 異單已扣款/扣款中(0b dedup duplicate/needs_settle)、
- *   **零本次扣款** → ②-③ 映「狀態確認中、請勿重複付款」(對齊 ConfirmPaymentOutcome 同名態)。
+ *   **零本次扣款** → 🔴 3DS-7 7c-1 擴帶 `dedup`(existing_*)供 action 即時裁決(對齊 ConfirmPaymentOutcome 同名態)。
  * - `locked`:佔 charge 鎖失敗(user_in_flight/order_locked/not_unpaid)、**零扣款**(begin !acquired)。
  * - `init_failed`:bank_txn 寫入未 durable(RPC false / throw)→ **零 TapPay 呼叫**、零 charge(安全);
  *   pending 鎖殘留交 expirer/sweeper 清(charge 前失敗、無扣款風險)。
@@ -323,7 +343,7 @@ export type InitiatePaymentInput = {
 export type InitiatePaymentOutcome =
   | { kind: 'redirect'; redirectUrl: string }
   | { kind: 'charge_unknown'; orderId: OrderId }
-  | { kind: 'settlement_required' }
+  | { kind: 'settlement_required'; dedup: SettlementRequiredContext }
   | { kind: 'locked'; reason: ChargeLockReason }
   | { kind: 'init_failed' };
 
@@ -339,8 +359,8 @@ export type BeginChargeAttemptResult =
   /**
    * 🔴 3DS-0b cart-instance dedup(D2):同 user 同 cart_session_id 異單、sibling 已 paid → DB 確定既有單
    * 已完成付款(begin RPC `reason:'duplicate'`、帶 `existingDisplayId`;`existingPaid` 恆 `true` = 此 reason 的
-   * 定義)。本 commit use-case 僅收斂成 settlement_required(不污染 ChargeLockReason)、**尚未上帶 existingDisplayId
-   * 顯既有單號**;「照實顯既有單號」(D2)留 3DS-1b settleCharge 接手。
+   * 定義)。🔴 3DS-7 7c-1:use-case 已把 existing_* 上帶到 settlement_required.dedup(不污染 ChargeLockReason)、
+   * 由 action 層〔7c-2〕映 paid-equivalent 顯既有單號(duplicate)。
    */
   | { acquired: false; reason: 'duplicate'; existingDisplayId: string; existingPaid: true }
   /**
