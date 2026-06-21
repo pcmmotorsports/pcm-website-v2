@@ -102,7 +102,11 @@ describe('confirmPayment — 鎖(PF-X2、②-③c-2 織入)', () => {
       }),
     });
     const out = await confirmPayment(d, INPUT);
-    expect(out).toEqual({ kind: 'settlement_required' });
+    // 🔴 3DS-7 7c-1:上帶 dedup(existing_*)、不再丟空殼。
+    expect(out).toEqual({
+      kind: 'settlement_required',
+      dedup: { reason: 'duplicate', existingDisplayId: 'PCM-2026-0009', existingPaid: true },
+    });
     expect(d.tappay.charge).not.toHaveBeenCalled();
     expect(d.confirmer.confirm).not.toHaveBeenCalled();
   });
@@ -121,7 +125,16 @@ describe('confirmPayment — 鎖(PF-X2、②-③c-2 織入)', () => {
       }),
     });
     const out = await confirmPayment(d, INPUT);
-    expect(out).toEqual({ kind: 'settlement_required' });
+    // 🔴 3DS-7 7c-1:上帶 dedup(existing_*);needs_settle 不帶 existingBankTransactionId(settleCharge 重查自取)。
+    expect(out).toEqual({
+      kind: 'settlement_required',
+      dedup: {
+        reason: 'needs_settle',
+        existingOrderId: 'order-uuid-2',
+        existingDisplayId: 'PCM-2026-0010',
+        existingRecTradeId: null,
+      },
+    });
     expect(d.tappay.charge).not.toHaveBeenCalled();
     expect(d.confirmer.confirm).not.toHaveBeenCalled();
   });

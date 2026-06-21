@@ -48,11 +48,29 @@ export async function confirmPayment(
   const lock = await attempts.begin(orderId);
   if (!lock.acquired) {
     // 🔴 codex K1 must-fix 2:duplicate/needs_settle(3DS-0b cart-instance dedup)≠ 撞鎖,不得 alias 成
-    //    locked(silent drift)→ 獨立 outcome settlement_required(非 locked 非 paid;②-③ 映「狀態確認中」)。
-    //    TODO(3DS-1b settleCharge):option A per-call cart_session_id(每次新 UUID)下 begin dedup 恆 0
-    //    sibling → 此分支 dormant/unreachable;#3DS-7 client cart key 整合後由 settleCharge 完整消費 D2/D4。
-    if (lock.reason === 'duplicate' || lock.reason === 'needs_settle') {
-      return { kind: 'settlement_required' };
+    //    locked(silent drift)→ 獨立 outcome settlement_required(非 locked 非 paid)。
+    //    🔴 3DS-7 7c-1:把 begin 的 existing_*(D2/D4)上帶到 settlement_required.dedup,供 action 層
+    //    即時裁決(duplicate→既有單 paid-equivalent / needs_settle→action 跑 settleCharge);取代 7b「丟掉 existing_*」。
+    if (lock.reason === 'duplicate') {
+      return {
+        kind: 'settlement_required',
+        dedup: {
+          reason: 'duplicate',
+          existingDisplayId: lock.existingDisplayId,
+          existingPaid: lock.existingPaid,
+        },
+      };
+    }
+    if (lock.reason === 'needs_settle') {
+      return {
+        kind: 'settlement_required',
+        dedup: {
+          reason: 'needs_settle',
+          existingOrderId: lock.existingOrderId,
+          existingDisplayId: lock.existingDisplayId,
+          existingRecTradeId: lock.existingRecTradeId,
+        },
+      };
     }
     return { kind: 'locked', reason: lock.reason };
   }
