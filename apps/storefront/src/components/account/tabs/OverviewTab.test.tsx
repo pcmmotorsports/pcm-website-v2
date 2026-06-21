@@ -101,7 +101,7 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     // preview 不含「查看詳情」鈕(design overview preview L498-517 無)
     expect(container.querySelector('.acc-order-detail')).toBeNull();
     expect(screen.getByText('PCM-2099-0007')).toBeTruthy();
-    expect(screen.getByText('已出貨')).toBeTruthy();
+    expect(screen.getByText('商品寄出')).toBeTruthy();
     expect(screen.getByText('NT$ 12,345')).toBeTruthy();
     // overview preview meta 用「件」非「件商品」(對齊 design L508)
     expect(screen.getByText('2099-04-15 · 3 件')).toBeTruthy();

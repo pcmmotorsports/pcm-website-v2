@@ -1,7 +1,7 @@
 // order-display.test.ts — 訂單顯示工具測試
 //
 // - orderStatusLabel:16 組 exhaustive(4 payment × 4 fulfillment 全列)逐一斷言中文(codex N1);
-//   明確鎖 partiallyPaid→「付款確認中」、refunded→「已退款」、paid+shipped→「已出貨」、絕不空字串。
+//   明確鎖 partiallyPaid→「付款確認中」、refunded→「已退款」、paid+shipped→「商品寄出」、絕不空字串。
 // - formatOrderDate:ISO → YYYY-MM-DD(Asia/Taipei、含跨日 UTC 邊界)。
 
 import { describe, it, expect } from 'vitest';
@@ -22,10 +22,10 @@ const STATUS_CASES: Array<[PaymentStatus, FulfillmentStatus, string]> = [
   ['partiallyPaid', 'ordered', '付款確認中'],
   ['partiallyPaid', 'inStock', '付款確認中'],
   ['partiallyPaid', 'shipped', '付款確認中'],
-  ['paid', 'notOrdered', '處理中'],
-  ['paid', 'ordered', '調貨中'],
+  ['paid', 'notOrdered', '已付款 訂單處理中'],
+  ['paid', 'ordered', '訂單處理中'],
   ['paid', 'inStock', '備貨完成‧待出貨'],
-  ['paid', 'shipped', '已出貨'],
+  ['paid', 'shipped', '商品寄出'],
 ];
 
 describe('orderStatusLabel(16 組 exhaustive 雙軸映射、Q2=A)', () => {
@@ -40,7 +40,7 @@ describe('orderStatusLabel(16 組 exhaustive 雙軸映射、Q2=A)', () => {
   it('關鍵狀態鎖定 + 絕不回空字串', () => {
     expect(orderStatusLabel('partiallyPaid', 'notOrdered')).toBe('付款確認中');
     expect(orderStatusLabel('refunded', 'shipped')).toBe('已退款');
-    expect(orderStatusLabel('paid', 'shipped')).toBe('已出貨');
+    expect(orderStatusLabel('paid', 'shipped')).toBe('商品寄出');
     for (const [payment, fulfillment] of STATUS_CASES) {
       expect(orderStatusLabel(payment, fulfillment)).not.toBe('');
     }

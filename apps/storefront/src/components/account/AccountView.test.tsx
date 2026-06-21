@@ -191,7 +191,7 @@ describe('AccountView(會員中心殼 g-1a + g-2 真資料)', () => {
     renderView({ orders: SAMPLE_ORDERS });
     fireEvent.click(screen.getByRole('button', { name: /訂單記錄/ }));
     expect(screen.getByText('PCM-2099-0001')).toBeTruthy();
-    expect(screen.getByText('已出貨')).toBeTruthy(); // paid + shipped
+    expect(screen.getByText('商品寄出')).toBeTruthy(); // paid + shipped
     expect(screen.getByText('NT$ 1,234')).toBeTruthy();
   });
 
