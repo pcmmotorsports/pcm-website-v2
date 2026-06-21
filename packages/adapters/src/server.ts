@@ -52,3 +52,7 @@ export { ChargeAttemptStoreWithFallback } from './payment/ChargeAttemptStoreWith
 // M-3 3DS-2a:PgWebhookInboxAdapter 走 server-only subpath(②-⑥ webhook durable inbox 主軌、payment_confirmer
 // 同鑰、複用 buildPgConfig 連線縱深、呼 3DS-0a record_webhook_event RPC;同 PaymentConfirmer 紀律 pg 不進 root barrel)。
 export { PgWebhookInboxAdapter, type WebhookInboxError } from './payment/PgWebhookInboxAdapter';
+
+// M-3 3DS-S2b:PgPollSettleThrottleAdapter 走 server-only subpath(輪詢端點主動 settleCharge 的 per-order Record
+// 限流、payment_confirmer 同鑰、複用 buildPgConfig、呼 3DS-S2b claim_order_poll_settle RPC;同紀律 pg 不進 root barrel)。
+export { PgPollSettleThrottleAdapter } from './payment/PgPollSettleThrottleAdapter';
