@@ -14,6 +14,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockPlaceOrder = vi.fn();
 const mockConfirmPayment = vi.fn();
 const mockInitiatePayment = vi.fn();
+const mockSettleCharge = vi.fn(); // 3DS-7 7c-2:settlement_required needs_settle 即時裁決
 const mockFindTotal = vi.fn();
 const mockGetOrderRepo = vi.fn();
 const mockGetCustomerRepo = vi.fn();
@@ -21,6 +22,7 @@ const mockGetAddressRepo = vi.fn();
 const mockGetTapPayAdapter = vi.fn();
 const mockGetPaymentConfirmer = vi.fn();
 const mockGetChargeAttemptStore = vi.fn();
+const mockGetSettleChargeDeps = vi.fn(); // 3DS-7 7c-2:cookieless settleCharge deps
 const mockBuildCardholder = vi.fn();
 const mockGetUser = vi.fn();
 // 3DS-6a:flag 分岔 + result_url 組裝(three-ds-flag / three-ds-urls 各有獨立單元測;此處 mock 驗分岔接線)。
@@ -33,6 +35,7 @@ vi.mock('@pcm/use-cases', () => ({
   placeOrder: (...args: unknown[]) => mockPlaceOrder(...args),
   confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
   initiatePayment: (...args: unknown[]) => mockInitiatePayment(...args),
+  settleCharge: (...args: unknown[]) => mockSettleCharge(...args),
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getOrderRepo: () => mockGetOrderRepo(),
@@ -43,6 +46,7 @@ vi.mock('@/lib/payment/composition', () => ({
   getTapPayAdapter: () => mockGetTapPayAdapter(),
   getPaymentConfirmer: () => mockGetPaymentConfirmer(),
   getChargeAttemptStore: () => mockGetChargeAttemptStore(),
+  getSettleChargeDeps: () => mockGetSettleChargeDeps(),
 }));
 vi.mock('@/lib/payment/three-ds-flag', () => ({
   isThreeDSEnabled: () => mockIsThreeDSEnabled(),
@@ -71,6 +75,18 @@ const VARIANT = '00000000-0000-4000-8000-000000000002';
 const CART_SESSION = '00000000-0000-4000-8000-0000000000c0'; // 3DS-7:預設合法 client cart key(7b 信任 + 驗 uuid)
 const CARDHOLDER = { name: '王小明', email: 'a@b.com', phoneNumber: '0912345678' };
 const TOTAL = { amount: 1100, currency: 'TWD' };
+// 🔴 3DS-7 7c-2:settlement_required.dedup(begin D2/D4 上帶;existing_* 全 server 權威)。
+const DEDUP_DUPLICATE = {
+  reason: 'duplicate',
+  existingDisplayId: 'PCM-2026-DUP',
+  existingPaid: true,
+} as const;
+const DEDUP_NEEDS_SETTLE = {
+  reason: 'needs_settle',
+  existingOrderId: 'order-existing-1',
+  existingDisplayId: 'PCM-2026-NS',
+  existingRecTradeId: 'D-REC-EXIST',
+} as const;
 
 function validInput(over: Record<string, unknown> = {}) {
   return {
@@ -93,6 +109,8 @@ beforeEach(() => {
   mockGetTapPayAdapter.mockReturnValue({ tag: 'tappay' });
   mockGetPaymentConfirmer.mockReturnValue({ tag: 'confirmer' });
   mockGetChargeAttemptStore.mockResolvedValue({ tag: 'attempts' });
+  mockGetSettleChargeDeps.mockReturnValue({ tag: 'settle-deps' });
+  mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
   mockBuildCardholder.mockResolvedValue({ ok: true, cardholder: CARDHOLDER });
   mockPlaceOrder.mockResolvedValue({ orderId: 'order-server-1', displayId: 'PCM-2026-0001' });
   mockFindTotal.mockResolvedValue(TOTAL);
@@ -282,17 +300,6 @@ describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
     });
   });
 
-  it('🔴 settlement_required(3DS-0b dedup duplicate/needs_settle)→ processing UI + 獨立「狀態確認中」文案(非「付款失敗」)+ displayId', async () => {
-    mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required' });
-    const action = await getAction();
-    expect(await action(validInput())).toEqual({
-      ok: false,
-      payment: 'processing',
-      displayId: 'PCM-2026-0001',
-      message: '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認',
-    });
-  });
-
   it('🔴 locked/user_in_flight → in_flight、**無 displayId 屬性**(round3 C:新單零扣款不給單號)', async () => {
     mockConfirmPayment.mockResolvedValue({ kind: 'locked', reason: 'user_in_flight' });
     const action = await getAction();
@@ -309,6 +316,133 @@ describe('chargePaymentAction — outcome 六態映射(plan v6 §7)', () => {
     mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: true });
     const action = await getAction();
     expect(await action(validInput())).toEqual({ ok: true, displayId: 'PCM-2026-0001' });
+  });
+});
+
+describe('chargePaymentAction — settlement_required 即時裁決(3DS-7 7c-2、🔴 鐵則 12)', () => {
+  const MSG_SETTLE = '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認';
+  const MSG_CHARGE_FAILED = '付款未成功,請確認卡片資訊後重試';
+
+  describe('同步路徑(flag off、confirmPayment → settlement_required)', () => {
+    it('🔴 duplicate(existingPaid)→ paid-equivalent { ok:true, displayId:既有單 }、零 settleCharge(hook clear+regenerate)', async () => {
+      mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_DUPLICATE });
+      const action = await getAction();
+      const res = await action(validInput());
+      // 既有單號(非本次新建的孤兒單 PCM-2026-0001)
+      expect(res).toEqual({ ok: true, displayId: 'PCM-2026-DUP' });
+      expect(mockSettleCharge).not.toHaveBeenCalled(); // duplicate=DB 已確定 paid、不打 settleCharge
+    });
+
+    it('🔴 needs_settle + settleCharge=paid → paid-equivalent { ok:true, displayId:settle 回既有單 };settleCharge 收 server 權威 existingOrderId + recTradeIdHint', async () => {
+      mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
+      mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      expect(await action(validInput())).toEqual({ ok: true, displayId: 'PCM-2026-NS' });
+      expect(mockGetSettleChargeDeps).toHaveBeenCalledTimes(1);
+      expect(mockSettleCharge).toHaveBeenCalledWith(
+        { tag: 'settle-deps' },
+        { orderId: 'order-existing-1', recTradeIdHint: 'D-REC-EXIST' }, // existingOrderId + rec hint(server 權威)
+      );
+    });
+
+    it('🔴 needs_settle(existingRecTradeId=null)→ settleCharge recTradeIdHint=undefined(?? 轉換、走 order_number 弱識別)', async () => {
+      mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
+      mockConfirmPayment.mockResolvedValue({
+        kind: 'settlement_required',
+        dedup: { ...DEDUP_NEEDS_SETTLE, existingRecTradeId: null },
+      });
+      const action = await getAction();
+      await action(validInput());
+      expect(mockSettleCharge).toHaveBeenCalledWith(
+        { tag: 'settle-deps' },
+        { orderId: 'order-existing-1', recTradeIdHint: undefined },
+      );
+    });
+
+    it.each([
+      ['failed', { kind: 'failed' }],
+      ['no_attempt', { kind: 'no_attempt' }],
+    ])('🔴 needs_settle + settleCharge=%s → 放行重刷(charge_failed、釋鎖、顯既有單號、保留 key)', async (_label, settled) => {
+      mockSettleCharge.mockResolvedValue(settled);
+      mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      expect(await action(validInput())).toEqual({
+        ok: false,
+        payment: 'charge_failed',
+        displayId: 'PCM-2026-NS',
+        message: MSG_CHARGE_FAILED,
+      });
+    });
+
+    it('🔴 needs_settle + settleCharge=pending → 短 hold(processing、保留 key、不放行、勿重複付款)', async () => {
+      mockSettleCharge.mockResolvedValue({ kind: 'pending', reason: 'auth_or_pending' });
+      mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      expect(await action(validInput())).toEqual({
+        ok: false,
+        payment: 'processing',
+        displayId: 'PCM-2026-NS',
+        message: MSG_SETTLE,
+      });
+    });
+
+    it('🔴 needs_settle + settleCharge throw → 局部 try/catch 映 processing(保留 key)、**非 generic formError**(不誤釋鎖=防雙扣)', async () => {
+      mockSettleCharge.mockRejectedValue(new Error('Record API 連線爆炸'));
+      mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      const res = await action(validInput());
+      expect(res).toEqual({
+        ok: false,
+        payment: 'processing',
+        displayId: 'PCM-2026-NS',
+        message: MSG_SETTLE,
+      });
+      expect(res).not.toHaveProperty('formError'); // 🔴 絕不落外層 generic catch
+      expect(JSON.stringify(res)).not.toContain('爆炸'); // 不洩原文
+    });
+
+    it('🔴 needs_settle + getSettleChargeDeps throw → 同樣局部 try/catch 映 processing(deps 建構也在 try 內)', async () => {
+      mockGetSettleChargeDeps.mockImplementation(() => {
+        throw new Error('PAYMENT_CONFIRMER_DB_URL 缺');
+      });
+      mockConfirmPayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      const res = await action(validInput());
+      expect(res).toMatchObject({ ok: false, payment: 'processing', message: MSG_SETTLE });
+      expect(res).not.toHaveProperty('formError');
+    });
+  });
+
+  describe('3DS 路徑(flag on、initiatePayment → settlement_required;同款 adjudicateSettlement)', () => {
+    it('🔴 duplicate → paid-equivalent { ok:true, displayId:既有單 }、零 settleCharge', async () => {
+      mockIsThreeDSEnabled.mockReturnValue(true);
+      mockInitiatePayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_DUPLICATE });
+      const action = await getAction();
+      expect(await action(validInput())).toEqual({ ok: true, displayId: 'PCM-2026-DUP' });
+      expect(mockSettleCharge).not.toHaveBeenCalled();
+    });
+
+    it('🔴 needs_settle + settleCharge=paid → paid-equivalent;settleCharge 收 existingOrderId + rec hint', async () => {
+      mockIsThreeDSEnabled.mockReturnValue(true);
+      mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
+      mockInitiatePayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      expect(await action(validInput())).toEqual({ ok: true, displayId: 'PCM-2026-NS' });
+      expect(mockSettleCharge).toHaveBeenCalledWith(
+        { tag: 'settle-deps' },
+        { orderId: 'order-existing-1', recTradeIdHint: 'D-REC-EXIST' },
+      );
+    });
+
+    it('🔴 needs_settle + settleCharge throw → processing(保留 key、非 generic formError;3DS 路徑同款防雙扣)', async () => {
+      mockIsThreeDSEnabled.mockReturnValue(true);
+      mockSettleCharge.mockRejectedValue(new Error('boom'));
+      mockInitiatePayment.mockResolvedValue({ kind: 'settlement_required', dedup: DEDUP_NEEDS_SETTLE });
+      const action = await getAction();
+      const res = await action(validInput());
+      expect(res).toMatchObject({ ok: false, payment: 'processing', message: MSG_SETTLE });
+      expect(res).not.toHaveProperty('formError');
+    });
   });
 });
 
@@ -367,7 +501,6 @@ describe('chargePaymentAction — 3DS-6a flag on(initiatePayment 分岔、plan �
 
   it.each([
     ['charge_unknown', { kind: 'charge_unknown', orderId: 'order-server-1' }, MSG_SETTLE],
-    ['settlement_required', { kind: 'settlement_required' }, MSG_SETTLE],
     ['locked/order_locked', { kind: 'locked', reason: 'order_locked' }, MSG_PROCESSING],
     ['locked/not_unpaid', { kind: 'locked', reason: 'not_unpaid' }, MSG_PROCESSING],
   ])('flag on + %s → processing + displayId', async (_label, outcome, message) => {

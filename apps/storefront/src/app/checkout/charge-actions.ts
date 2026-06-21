@@ -21,9 +21,14 @@
 // - charge_failed(recordPersisted:true)→ 卡拒未扣款、可立即重試。
 // - charge_failed_wait(recordPersisted:false、round5 MF1)→ 誠實「未扣款」+ 請稍候(鎖殘留、
 //   per-user 閘 10 分鐘自動過期;不誘導立即重試、不謊稱「已收」)。
-// - processing → charge_unknown / orphan(全 reason)/ locked(order_locked|not_unpaid)/
-//   settlement_required(3DS-0b dedup duplicate/needs_settle、本次零扣款、獨立「狀態確認中」文案):
+// - processing → charge_unknown / orphan(全 reason)/ locked(order_locked|not_unpaid):
 //   勿重複付款(成功真相 = confirm 成功;重試走 ②-⑥ 冪等 confirm 非重 charge)。
+// - 🔴 settlement_required(cart dedup duplicate/needs_settle、本次零扣款)→ 3DS-7 7c-2 即時裁決
+//   adjudicateSettlement(取代 7b「一律處理中」):
+//     duplicate / settleCharge=paid(既有單 DB 確定 paid)→ paid-equivalent({ ok:true, displayId:既有單 }、
+//       hook clear+regenerate;codex K1 must-fix:換 key 防下次重購撞已 paid sibling D2 誤擋)。
+//     settleCharge=failed/no_attempt → 放行重刷(charge_failed、釋鎖、保留 key)。
+//     settleCharge=pending / throw → 短 hold(processing、保留 key、不背景輪詢〔Q3=A〕)。
 // - in_flight → locked(user_in_flight):🔴 不帶 displayId(此請求的新單零扣款、不得以
 //   「付款單號/已收」呈現;codex 關卡1 round3 C)。
 //
@@ -33,19 +38,22 @@
 //   ①-⑤ 兩路徑共用;result_url base+secret 在 placeOrder「前」preflight(缺/壞 → 零扣款 + 零垃圾單)。
 //   flag off = 同步 confirmPayment(逐字不動、現況)。🔴 payment_url 含 token、零入 log。
 
-import { placeOrder, confirmPayment, initiatePayment } from '@pcm/use-cases';
+import { placeOrder, confirmPayment, initiatePayment, settleCharge } from '@pcm/use-cases';
 import { CheckoutInput, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
 import type {
   ConfirmPaymentOutcome,
   InitiatePaymentOutcome,
   PlaceOrderInput,
   PlaceOrderLine,
+  SettlementRequiredContext,
+  SettleChargeOutcome,
 } from '@pcm/domain';
 import { getOrderRepo, getCustomerRepo, getAddressRepo } from '@/lib/auth/composition';
 import {
   getTapPayAdapter,
   getPaymentConfirmer,
   getChargeAttemptStore,
+  getSettleChargeDeps,
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
@@ -192,7 +200,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
           backendNotifyUrl,
         },
       );
-      return mapInitiateOutcome(initiated, placed.displayId);
+      return await mapInitiateOutcome(initiated, placed.displayId);
     }
 
     // ⑥ 編排(flag off 同步路徑、逐字不動):鎖 → charge → 雙軌簿記 → PF-X3 → confirm → 收斂補記(②-③c-2)。
@@ -209,7 +217,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
         cardholder: built.cardholder,
       },
     );
-    return mapOutcome(outcome, placed.displayId);
+    return await mapOutcome(outcome, placed.displayId);
   } catch {
     // 🔴 Q2=A 通用字面、零原始 error 透傳。走到此處的 throw 全屬零扣款路徑
     // (cardholder repo / placeOrder RPC / findTotal / attempts.begin;charge 之後的失敗
@@ -233,8 +241,11 @@ function mapCardholderFail(reason: BuildCardholderFailReason): ChargePaymentActi
   }
 }
 
-/** ConfirmPaymentOutcome → UI 六態(plan v6 §7 映射表)。 */
-function mapOutcome(outcome: ConfirmPaymentOutcome, displayId: string): ChargePaymentActionResult {
+/** ConfirmPaymentOutcome → UI 態(plan v6 §7 映射表;settlement_required 走 7c-2 即時裁決、其餘純映)。 */
+async function mapOutcome(
+  outcome: ConfirmPaymentOutcome,
+  displayId: string,
+): Promise<ChargePaymentActionResult> {
   switch (outcome.kind) {
     case 'paid':
       return { ok: true, displayId };
@@ -246,11 +257,9 @@ function mapOutcome(outcome: ConfirmPaymentOutcome, displayId: string): ChargePa
     case 'orphan':
       return { ok: false, payment: 'processing', displayId, message: MSG.processing };
     case 'settlement_required':
-      // 🔴 3DS-0b dedup(duplicate/needs_settle):同 cart 異單已扣款/扣款中、**本次零扣款** →
-      //    沿用 processing UI 終態(清車 + 勿重複付款 + 客服 LINE),但獨立「狀態確認中」文案(非「付款失敗」、
-      //    不走 generic catch);domain 層保持獨立 settlement_required kind(不 alias locked),此處僅 presentation
-      //    映射故無需新增 client UI 態。option A 下 dormant;#3DS-7 client cart key + 3DS-1b settleCharge 後完整消費 D2/D4。
-      return { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
+      // 🔴 3DS-7 7c-2:cart dedup(duplicate/needs_settle)即時裁決(取代 7b「一律處理中」);
+      //    duplicate→既有單 paid-equivalent / needs_settle→鎖外跑 settleCharge(見 adjudicateSettlement)。
+      return adjudicateSettlement(outcome.dedup);
     case 'locked':
       return outcome.reason === 'user_in_flight'
         ? { ok: false, payment: 'in_flight', message: MSG.inFlight } // 🔴 無 displayId(round3 C)
@@ -264,10 +273,10 @@ function mapOutcome(outcome: ConfirmPaymentOutcome, displayId: string): ChargePa
  * 🔴 與同步 `mapOutcome` 本質差異:3DS 啟動半段不回 paid(無 `ok:true`);成功 = `redirect`(client 整頁跳轉
  * TapPay payment_url、付款狀態非終態)。結算/失敗-釋鎖全交 settleCharge 脊椎(Record API 唯一權威)。
  */
-function mapInitiateOutcome(
+async function mapInitiateOutcome(
   outcome: InitiatePaymentOutcome,
   displayId: string,
-): ChargePaymentActionResult {
+): Promise<ChargePaymentActionResult> {
   switch (outcome.kind) {
     case 'redirect':
       // 🔴 N1 / codex 關卡1 #2:client 整頁 window.location 跳轉「前」,delivery 層驗 payment_url 是合法 https URL
@@ -280,8 +289,8 @@ function mapInitiateOutcome(
       // initiate 非成功、bank_txn 已 durable、可能已登記交易 → 狀態確認中、勿重複付款(settleCharge 經 bank_txn 收斂)。
       return { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
     case 'settlement_required':
-      // 同步路徑同名態同映射(option A per-call cart_session_id 下 dormant)。
-      return { ok: false, payment: 'processing', displayId, message: MSG.settlementRequired };
+      // 🔴 3DS-7 7c-2:cart dedup 即時裁決(同步路徑同款 adjudicateSettlement;取代 7b「一律處理中」)。
+      return adjudicateSettlement(outcome.dedup);
     case 'locked':
       return outcome.reason === 'user_in_flight'
         ? { ok: false, payment: 'in_flight', message: MSG.inFlight } // 🔴 無 displayId(此請求零扣款、無單號)
@@ -289,5 +298,82 @@ function mapInitiateOutcome(
     case 'init_failed':
       // bank_txn 未 durable → 零 TapPay 呼叫、零扣款(誠實未扣款 + 系統忙碌請稍候;鎖殘留 expirer/sweeper 清)。
       return { ok: false, payment: 'charge_failed_wait', displayId, message: MSG.chargeFailedWait };
+  }
+}
+
+/**
+ * settlement_required(cart-instance dedup)即時裁決(🔴 3DS-7 7c-2、鐵則 12 核心;同步 + 3DS 兩路徑共用)。
+ *
+ * - `duplicate`(existingPaid:true)→ 既有單 DB 確定 paid → **paid-equivalent 終態**:回 { ok:true, displayId:既有單 }
+ *   → hook 當 paid 處理(clear + regenerateCartSession;🔴 codex K1 must-fix:換 key 防下次合法重購撞已 paid
+ *   sibling 被 begin D2 誤擋)。
+ * - `needs_settle` → 鎖外跑 settleCharge(既有單;begin needs_settle 未取鎖、settleCharge 自管冪等:Record API
+ *   權威 + markCharged/confirm `FOR UPDATE` + paid 短路 → 零雙扣/零雙 settle),依結果映:
+ *     `paid`             → paid-equivalent(同 duplicate;顯既有單號、hook clear+regenerate)。
+ *     `failed`/`no_attempt` → 放行重刷(charge_failed → hook error 態:釋鎖、保留 cart、保留 key);既有單已
+ *                            markFailed/無 active attempt → 退出 begin dedup + user_in_flight 雙閘 → 重結帳建新單。
+ *     `pending`          → 短 hold「狀態確認中」(processing、保留 key、不放行〔防雙扣〕、不背景輪詢〔Q3=A〕)。
+ *
+ * 🔴 settleCharge / getSettleChargeDeps **全包局部 try/catch**(codex K1 should):任何 throw → fail-closed hold
+ *   (processing / MSG.settlementRequired、保留 key)、**絕不落 chargePaymentAction 外層 generic catch**(否則回
+ *   formError → client 釋鎖允許重試 → 潛在雙扣)。duplicate 分支為純 return(零 throw)→ 本函式整體不 reject。
+ *
+ * displayId 一律取既有單(ctx.existingDisplayId / settleCharge paid 回的 displayId),不用本次新建的孤兒單號
+ * (孤兒未付、對客人無意義)。existingOrderId / existing_* 全鏈 server 權威(begin→adapter→outcome、client 零入口)→ 無 IDOR。
+ *
+ * 🔴 攻擊時序自審(鐵則 10):
+ *  ① failed 放行重刷 vs 客人稍後在舊 3D 頁完成 OTP —— `failed` 僅由 Record record_status ∈ {-1 ERROR, 5 CANCEL}
+ *     終態驅動(settle-charge classifyRecordStatus);TapPay 模型下同交易終態 -1/5 與「後續 OTP 成功」互斥 →
+ *     放行重刷後既有單不會再成交 → 無雙扣。(綁定 Record 終態語意、未來改 settleCharge 裁決須重核。)
+ *  ② callback settleCharge(callback/page.tsx)× 本 action settleCharge 對同 existingOrderId 並發 —— 兩條走同一
+ *     use-case、讀 Record 同一權威 rec、經 markCharged/confirm `FOR UPDATE` 序列化 → 一條 paid、一條 idempotent
+ *     no-op → 零雙扣 / 零雙 settle。
+ */
+async function adjudicateSettlement(
+  ctx: SettlementRequiredContext,
+): Promise<ChargePaymentActionResult> {
+  // duplicate:既有單 DB 確定 paid → paid-equivalent(純 return、零 throw;顯既有單號、hook clear+regenerate)。
+  if (ctx.reason === 'duplicate') {
+    return { ok: true, displayId: ctx.existingDisplayId };
+  }
+
+  // needs_settle:鎖外跑 settleCharge。🔴 全包局部 try/catch(含 getSettleChargeDeps):throw → fail-closed
+  //   hold(processing、保留 key)、不落外層 generic catch(防誤釋鎖重試=雙扣)。
+  let settled: SettleChargeOutcome;
+  try {
+    settled = await settleCharge(getSettleChargeDeps(), {
+      orderId: ctx.existingOrderId,
+      recTradeIdHint: ctx.existingRecTradeId ?? undefined,
+    });
+  } catch {
+    return {
+      ok: false,
+      payment: 'processing',
+      displayId: ctx.existingDisplayId,
+      message: MSG.settlementRequired,
+    };
+  }
+
+  switch (settled.kind) {
+    case 'paid':
+      // 既有單確定 paid → paid-equivalent 終態(顯既有單號、hook clear+regenerate;codex K1 must-fix)。
+      return { ok: true, displayId: settled.displayId };
+    case 'failed':
+    case 'no_attempt':
+      // 既有單已釋鎖(markFailed 退雙閘)或無 active attempt(必未扣款)→ 放行重刷(hook error 態、保留 key)。
+      return {
+        ok: false,
+        payment: 'charge_failed',
+        displayId: ctx.existingDisplayId,
+        message: MSG.chargeFailed,
+      };
+    case 'pending':
+      // 既有 3D 可能仍進行中 → 短 hold「狀態確認中」(保留 key、不放行、不背景輪詢;Q3=A)。
+      return {
+        ok: false,
+        payment: 'processing',
+        displayId: ctx.existingDisplayId,
+        message: MSG.settlementRequired,
+      };
   }
 }
