@@ -2,8 +2,10 @@
 
 // PollOrderStatus.tsx — 3DS callback「處理中」背景輪詢訂單付款狀態(M-3 3DS-S2)
 //
-// 為什麼:3DS callback 完成頁首次 settleCharge 常因 Record API 同步延遲(設計包 §5.1 實測 callback 當下 queryStatus=2
-//   查無)落 pending → 顯「處理中」。背景(webhook after / sweeper cron)把訂單推成立後,本元件輪詢讀到 paid →
+// 為什麼:3DS callback 完成頁首次 settleCharge 可能落 pending → 顯「處理中」。⚠️ 原註解歸因「Record API 同步延遲
+//   (queryStatus=2 查無)」已釐清:top status=2 是**查詢成功**(已無更多分頁)、非查無;落 pending 的真因是
+//   settle-charge.ts L85 把 status=2 誤殺(2026-06-21 querystatus-fix 已修)。本輪詢保留作 webhook/sweeper/**實際**延遲
+//   後備(同步延遲歸因待 fix plan §8 實證)。背景(webhook after / sweeper cron / 本端點 S2b)把訂單推成立後,本元件輪詢讀到 paid →
 //   router.refresh() 重跑 callback server component → settleCharge step2「order 已 paid → 短路 paid」(廉價、不重打
 //   Record)→ 渲染 paid 變體 + ClearCartOnSuccess。客人無感、不必手動刷新。
 //

@@ -242,7 +242,18 @@ describe('TapPayChargeAdapter.recordQuery — wire→domain 解析(不下裁決)
     expect(res.records[0]!.isCaptured).toBe(false);
   });
 
-  it('top status=2 無紀錄(trade_records 缺)→ queryStatus 2 + records 空 + count 退實得 0', async () => {
+  it('A1(querystatus-fix)raw status=2 有紀錄 → queryStatus=2 + records.length===1 + count===1(忠實解析、不丟 trade_records)', async () => {
+    // 2026-06-21 真實情境(PCM-2026-0018):3DS 授權成功單查詢回 top status=2(已無更多分頁)+ 1 筆 AUTH 交易;
+    //   adapter 須忠實解析、不因 status=2 丟掉 trade_records(status 值與有無紀錄正交)。
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ ...RECORD_CAPTURED_WIRE, status: 2 })));
+    const res = await new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY);
+    expect(res.queryStatus).toBe(2);
+    expect(res.numberOfTransactions).toBe(1);
+    expect(res.records).toHaveLength(1);
+    expect(res.records[0]!.recTradeId).toBe('D20260612001234567');
+  });
+
+  it('top status=2 + 本頁無 trade_records → queryStatus 2 + records 空 + count 退實得 0(status 值與有無紀錄正交、非 status=2≡無紀錄)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ status: 2, msg: 'no more' })));
     const res = await new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY);
     expect(res.queryStatus).toBe(2);

@@ -179,9 +179,11 @@ export type TapPayTradeRecord = {
 /**
  * TapPayRecordResult:`recordQuery` 解析結果(top status + 計數 + 白名單 records、**不下裁決**)。
  *
- * 🔴 `queryStatus` = top-level `status`(§7:0=查詢成功有紀錄 / 2=無更多;**≠ 交易狀態**)。
- * 3DS-1b 以 `queryStatus===0` + `numberOfTransactions===1` + 鍵全對本機 + `record_status ∈ {0 AUTH,1 OK}`
- * + amount/currency 嚴格 才判 paid(S1「授權即成立」、不再要求 is_captured;全條件在 1b、非此處)。
+ * 🔴 `queryStatus` = top-level `status`(§7:`0`=查詢成功有紀錄 / `2`=已無更多分頁;**兩者皆查詢成功、≠ 交易狀態**;
+ *    有無紀錄由 `numberOfTransactions`/`records` 判、與 status 值正交)。
+ * 3DS-1b 以 `queryStatus ∈ {0,2}`(成功白名單 fail-closed)+ `numberOfTransactions===1` + `records.length===1` + 鍵全對本機
+ * + `record_status ∈ {0 AUTH,1 OK}` + amount/currency 嚴格 才判 paid(S1「授權即成立」、不再要求 is_captured;全條件在 1b、
+ *    非此處;**status 只管查詢有沒有成功、record_status 才是成立權威**)。
  */
 export type TapPayRecordResult = {
   queryStatus: number;

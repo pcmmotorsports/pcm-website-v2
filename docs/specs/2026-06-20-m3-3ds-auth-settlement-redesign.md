@@ -68,7 +68,7 @@ preflight → 建單(create_order) → `initiateThreeDSCharge` status=0 + paymen
 
 ## 5. 收尾層必補清單（對應 5 現象）
 
-1. **callback 自動輪詢**：Record API 有同步延遲（實測 callback 當下 `queryStatus=2` 查無）→ 前端停「處理中」時背景 poll 訂單狀態，成立後自動跳成功頁（客人通常等幾秒、無感）。
+1. **callback 自動輪詢**：Record API 有同步延遲（實測 callback 當下 `queryStatus=2` 查無）→ 前端停「處理中」時背景 poll 訂單狀態，成立後自動跳成功頁（客人通常等幾秒、無感）。 🔴 **supersede（2026-06-21 querystatus-fix）**：此「`queryStatus=2` 查無」歸因經真刷實證（PCM-2026-0018）釐清為 settle-charge.ts L85 把查詢成功態 status=2 誤殺、**非純同步延遲**；真因與修法見 `docs/specs/2026-06-21-m3-3ds-settle-querystatus-fix-plan.md`。輪詢機制仍保留作 webhook/sweeper/實際延遲後備。
 2. **in-flight 鎖收斂/釋放**：成立後立即釋放鎖；檢視現「10 分鐘 user_in_flight 窗口 + stale pending 不自動釋鎖」對「授權即成立」是否仍恰當（成立變快後窗口應大幅縮短）。
 3. **訂單列表顯示付款狀態**：會員中心訂單能看到「付款確認中／已成立／失敗」，客人關頁也找得到（接續上一輪 OrdersTab 0c78bfb）。
 4. **webhook + sweeper 即時收斂**：生產須跑 sweeper cron（`CRON_SWEEPER_ENABLED`）；本機沒跑是測試假象，但生產的收斂時效要實測。
@@ -78,7 +78,7 @@ preflight → 建單(create_order) → `initiateThreeDSCharge` status=0 + paymen
 
 ## 6. 待釐清 / 待驗證（規劃前先解）
 
-- **Record API 同步延遲**：callback `queryStatus=2 → 0` 要多久？決定輪詢策略與「成立有多即時」。
+- **Record API 同步延遲**：callback `queryStatus=2 → 0` 要多久？決定輪詢策略與「成立有多即時」。 🔴 **supersede（2026-06-21 querystatus-fix）**：`queryStatus=2` 本身即查詢成功態（已無更多分頁、非「等它變 0」），原「2→0 要多久」前提不成立；卡 pending 真因=L85 誤殺已修。是否仍有殘餘真實同步延遲待 fix plan §8 實證。
 - **sandbox 停「已授權」是測試特性還是 merchant 設定**；生產是否真自動請款（Sean 經驗：自動，過幾天入帳）。
 - **webhook 能否比 callback 更快確認授權**（backend_notify 帶 status，但 PCM 設計 Record API 為唯一權威 → 仍需反查）。
 
