@@ -1,8 +1,8 @@
-# SESSION HANDOFF — 2026-06-21 M-3 3DS-7 cart_session_id 冪等治本 審查 + merge + push 完成
+# SESSION HANDOFF — 2026-06-21 M-3 3DS-7 cart_session_id 冪等治本 審查 + merge + push + 訂單文案修復
 
-> 一句話結果:3DS-7 雙扣治本 4 commit(7a/7b/7c-1/7c-2)fresh 對抗審 **PASS 0 must-fix** + Sean 授權代執行 **merge --no-ff `0a8bffb` + STATUS `ecd3fb2` + push origin/dev=`ecd3fb2`**。**全 push**(非 auto mode、Sean 明確「幫我處理」授權該次 merge+push)。
-> 環境:PCM 主 repo `/Users/sean_1/pcm-website-v2` · dev · engineering mode。HEAD=`ecd3fb2`、working tree clean、local=origin/dev。
-> 接手先讀:① STATUS.md「當前狀態 / 下一步」 ② `docs/specs/2026-06-21-m3-3ds-7-cart-idempotency-plan.md`(治本設計 + 決策 Q1-Q5) ③ memory `project_m3-3ds-7-execution-review-session` ④ 本檔開放項(§5)。
+> 一句話結果:3DS-7 雙扣治本 4 commit fresh 對抗審 **PASS 0 must-fix** + Sean 授權代執行 **merge --no-ff `0a8bffb` + STATUS `ecd3fb2` + push**;同 session 續做**訂單狀態文案消歧義修復 `92e8c1c`**(Sean 真刷時把 paid+notOrdered「處理中」誤讀成「付款處理中」→ 查證 PCM-2026-0019 真 paid 零雙扣後改文案)。**全 push、origin/dev=`92e8c1c`**。
+> 環境:PCM 主 repo `/Users/sean_1/pcm-website-v2` · dev · engineering mode。HEAD=`92e8c1c`、working tree clean(僅 1 個非本 session 的未追蹤檔 `docs/specs/2026-06-21-geo-health-check.md`)、local=origin/dev。
+> 接手先讀:① STATUS.md「當前狀態 / 下一步」 ② `docs/specs/2026-06-21-m3-3ds-7-cart-idempotency-plan.md`(治本設計 + 決策 Q1-Q5) ③ memory `project_m3-3ds-7-execution-review-session` ④ 本檔開放項(§5)+ §7 增量。
 
 ## 1. 做了什麼(按時序)
 
@@ -22,7 +22,9 @@
 
 | commit | 內容 | push |
 |---|---|---|
-| `ecd3fb2` | docs(docs): STATUS 7 欄更新 3DS-7 merge | ✅ origin/dev |
+| `92e8c1c` | fix(storefront): 訂單狀態文案消歧義(paid+notOrdered 處理中→已付款 訂單處理中) | ✅ origin/dev(HEAD) |
+| `f8f5554` | docs(docs): 本 handoff 檔 | ✅ |
+| `ecd3fb2` | docs(docs): STATUS 7 欄更新 3DS-7 merge | ✅ |
 | `0a8bffb` | Merge branch 'm3-3ds-7' into dev(帶入 7a-7c) | ✅ |
 | `ddb46d3` | docs(docs): backlog #245/#246 | ✅ |
 | `6682dbc` | 3DS-7 7c-2 settlement_required 即時裁決(雙扣治本完成) | ✅ |
@@ -30,7 +32,7 @@
 | `df04625` | 3DS-7 7b 端到端啟動 cart_session_id 冪等 + 成交 regenerate | ✅ |
 | `d77a6e2` | 3DS-7 7a CartContext 持有穩定 cartSessionId | ✅ |
 
-**全 push、origin/dev=`ecd3fb2`、無待推、tree clean。** 本次一併推上先前領先 origin 的 dev backlog(50aa20f..ecd3fb2 共 16 commit)。worktree `/Users/sean_1/pcm-3ds-7`(branch m3-3ds-7)已 merge、Sean 可自行 `git worktree remove` + `git branch -d m3-3ds-7`(本 session 未動)。
+**全 push、origin/dev=`92e8c1c`(HEAD)、無待推、tree clean。** worktree `/Users/sean_1/pcm-3ds-7`(branch m3-3ds-7)已 merge、Sean 可自行 `git worktree remove` + `git branch -d m3-3ds-7`(本 session 未動)。
 
 ## 3. DB / 部署 / 外部足跡(非 git)
 
@@ -55,12 +57,19 @@
 
 ## 6. push 狀態與收尾自檢(接手第一眼)
 
-**全 push、origin/dev=`ecd3fb2`、tree clean、0 待推。** 下個 session 進入點(1-3 步):
-1. 讀 STATUS「下一步」+ 本檔 §5。
+**全 push、origin/dev=`92e8c1c`(HEAD)、tree clean、0 待推。** 下個 session 進入點(1-3 步):
+1. 讀 STATUS「下一步」+ 本檔 §5 + §7。
 2. **Sean 先跑 sandbox 3DS E2E 肉眼驗 dedup**(gates 7d);未驗前不開 7d 實作。
 3. 不等 E2E 也可做的:backlog #245/#246 清理,或 #243/#244 prod-open 縱深(依 Sean 排序)。
 
 收尾自檢:secret 0 洩漏(diff/commit/handoff/graph.json 全淨)、無殘檔、graphify 0 敏感節點、三綠 + vitest 1418 留痕、merge 後 post-merge 三綠複驗綠。
+
+## 7. 增量(本 handoff 後同 session 續做)
+
+- **🐛 PCM-2026-0019「處理中」虛驚排除(MCP 唯讀查證):** Sean 真刷後見訂單列表顯「處理中」、疑 TapPay 已請款但訂單沒入帳。MCP 查 `bmpnplmnldofgaohnaok`:order `payment_status=paid`、paid_at 對上 TapPay 請款、扣款嘗試**唯一一筆 `status=charged`**(rec D20260621IYT2aK / bank P8SFW67R8KJ0DVWJB2X)、`needs_manual_review=false`、`last_settle_error=null` → **錢正確入帳、零雙扣、零 settlement gap**。「處理中」純為 `paid+notOrdered` 出貨階段標籤被誤讀。
+- **🔧 訂單狀態文案消歧義 `92e8c1c`(fix、已 push):** [order-display.ts](apps/storefront/src/lib/orders/order-display.ts) `orderStatusLabel` 雙軸映射 Sean 2026-06-21 微調 —— paid+notOrdered`處理中→已付款 訂單處理中`、paid+ordered`調貨中→訂單處理中`、paid+shipped`已出貨→商品寄出`(notOrdered/unpaid/partiallyPaid/refunded 不變)。連帶修 order-display.test 16 組 + AccountView/OrdersTab/OverviewTab 三測試 `已出貨→商品寄出` 斷言(動共用顯示工具→跑完整 vitest 非子集)。三綠 + vitest 1418。**純前台文案、零後端/schema/金流。**
+- **🌐 graphify:本增量地圖未動**(只改字串 literal、無新 symbol/邊;前序 §4 已刷 3148 nodes)。
+- **♻️ 重啟 Sean 本機 ngrok 測試 server:** 舊 `next start`(PID 66236、15:11 build)記憶體舊 code → kill + 重 build + 背景重啟 :3000(ngrok `confined-dislocate-showgirl.ngrok-free.dev` 隧道不變);新 label `已付款 訂單處理中` 已驗編進 `.next` chunk、Sean 刷新確認。⚠️ **該 server 掛在審查 session 背景跑、session 關閉可能停**;Sean 要獨立常駐用 `nohup pnpm start &`(見對話)。
 
 ## 相關 plan / 記憶 / 文件
 
