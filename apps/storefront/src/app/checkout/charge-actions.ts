@@ -33,7 +33,6 @@
 //   ①-⑤ 兩路徑共用;result_url base+secret 在 placeOrder「前」preflight(缺/壞 → 零扣款 + 零垃圾單)。
 //   flag off = 同步 confirmPayment(逐字不動、現況)。🔴 payment_url 含 token、零入 log。
 
-import { randomUUID } from 'node:crypto';
 import { placeOrder, confirmPayment, initiatePayment } from '@pcm/use-cases';
 import { CheckoutInput, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
 import type {
@@ -53,6 +52,10 @@ import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import type { CheckoutFieldErrors } from './actions';
+
+// 🔴 3DS-7:cart_session_id 局部 uuid 驗(不改共用 CheckoutInput〔placeOrderAction 退役不動〕;沿用
+//   callback/page.tsx 同層 UUID_RE 慣例 —— storefront 無 zod 直接依賴,不引 z.uuid 避脆弱 transitive import)。
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // 文案常數(單一真相;②-④ client 直接顯示、不另維護字面)。
 const MSG = {
@@ -127,6 +130,14 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     return { formError: '付款資訊缺失,請重新進行刷卡' };
   }
 
+  // ②d cart_session_id(3DS-7:信任 client CartContext 穩定 key + server 驗 uuid 格式/非空 fail-closed)。
+  //   非價/tier/身分純去重子(plan §4);偽造僅自我 DoS、無跨用戶面;begin/settleCharge 仍讀 DB row key、不信
+  //   client 重送(plan §4 不變量)。缺/非法 → 零垃圾單(對齊既有 placeOrder + create_order null fail-closed)。
+  const cartSessionId = raw.cartSessionId;
+  if (typeof cartSessionId !== 'string' || !UUID_RE.test(cartSessionId)) {
+    return { formError: '購物車工作階段資訊有誤,請重新整理頁面後再試' };
+  }
+
   try {
     // ③ 🔴 cardholder server 組裝(MUST-FIX 3、Q3=B 級聯)**先於建單**:fail → 引導文案、零垃圾單。
     const built = await buildCardholder(
@@ -149,9 +160,9 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       addressId: parsedCheckout.data.addressId,
       shippingMethod: parsedCheckout.data.shippingMethod,
       invoice: parsedCheckout.data.invoice,
-      // 3DS-0b option A(過渡):cart_session_id 由 server 產(per-call uuid)滿足 create_order 5-param
-      //   null fail-closed;不信任 client 送值。Phase II 3DS-7 改 client CartContext 產。
-      cartSessionId: randomUUID(),
+      // 🔴 3DS-7:cart_session_id = client CartContext 穩定 key(②d 已驗 uuid/非空)。信任此非價/tier/身分
+      //   去重子(plan §4)、取代 option A 的 server randomUUID → begin cart-instance dedup 由此叫醒生效(治本)。
+      cartSessionId,
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);

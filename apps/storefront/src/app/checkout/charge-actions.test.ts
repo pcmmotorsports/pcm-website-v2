@@ -58,11 +58,8 @@ vi.mock('@/lib/payment/cardholder', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: async () => ({ auth: { getUser: () => mockGetUser() } }),
 }));
-// 3DS-0b:固定 randomUUID 以斷言 cart_session_id 由 server 產(非 client 偽造);保留其餘 crypto 匯出。
-vi.mock('node:crypto', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('node:crypto')>()),
-  randomUUID: () => 'aaaaaaaa-0000-4000-8000-00000000cafe',
-}));
+// 🔴 3DS-7:cart_session_id 改由 client CartContext 穩定 key 送來(server 驗 uuid/非空、信任),不再 server
+//   randomUUID 產 → 移除舊 node:crypto randomUUID mock(charge-actions 已不 import randomUUID)。
 
 async function getAction() {
   const m = await import('./charge-actions');
@@ -71,6 +68,7 @@ async function getAction() {
 
 const ADDR = '00000000-0000-4000-8000-000000000001';
 const VARIANT = '00000000-0000-4000-8000-000000000002';
+const CART_SESSION = '00000000-0000-4000-8000-0000000000c0'; // 3DS-7:預設合法 client cart key(7b 信任 + 驗 uuid)
 const CARDHOLDER = { name: '王小明', email: 'a@b.com', phoneNumber: '0912345678' };
 const TOTAL = { amount: 1100, currency: 'TWD' };
 
@@ -81,6 +79,7 @@ function validInput(over: Record<string, unknown> = {}) {
     invoice: { type: 'personal' },
     lines: [{ variantId: VARIANT, quantity: 2 }],
     prime: 'prime_abc',
+    cartSessionId: CART_SESSION, // 3DS-7:client 送穩定 key(7b 後 server 必驗、缺/非法 fail-closed)
     ...over,
   };
 }
@@ -201,14 +200,15 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     );
   });
 
-  it('🔴 object-level 防竄(k2d):client 塞 amount/cardholder/orderId/unitPrice → 全被忽略、server 值不變', async () => {
+  it('🔴 object-level 防竄(k2d):amount/cardholder/orderId/unitPrice 全被忽略、server 值不變;cartSessionId(合法 uuid)被採用(3DS-7)', async () => {
+    const CLIENT_CART = '11111111-1111-4111-8111-111111111111'; // 合法 uuid 的 client cart key(≠ 預設、證採用)
     const action = await getAction();
     await action(
       validInput({
         amount: { amount: 1, currency: 'TWD' }, // 竄改金額 → 不讀
         cardholder: { name: '駭', email: 'x@x', phoneNumber: '000' }, // 竄改持卡人 → 不讀
         orderId: 'order-fake-999', // 竄改單號 → 不讀
-        cartSessionId: 'CLIENT-FORGED-cart-uuid', // 竄改 cart key → server 覆蓋、不讀
+        cartSessionId: CLIENT_CART, // 🔴 3DS-7:合法 client cart key → **採用**(信任、非價/tier/身分去重子)
         lines: [{ variantId: VARIANT, quantity: 2, unitPrice: 1, tier: 'store' }], // zod strip
       }),
     );
@@ -221,9 +221,24 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     });
     const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
     expect(placeOrderInput.lines).toEqual([{ variantId: VARIANT, quantity: 2 }]); // strip 竄改鍵
-    // 🔴 3DS-0b:cart_session_id 由 server 產(randomUUID mock 值)、client 偽造不採用。
-    expect(placeOrderInput.cartSessionId).toBe('aaaaaaaa-0000-4000-8000-00000000cafe');
-    expect(placeOrderInput.cartSessionId).not.toBe('CLIENT-FORGED-cart-uuid');
+    // 🔴 3DS-7(取代 3DS-0b option A server 產):合法 client cart_session_id 被**採用**(非 server 覆蓋)。
+    expect(placeOrderInput.cartSessionId).toBe(CLIENT_CART);
+  });
+
+  it('🔴 3DS-7:缺 cart_session_id → formError、零 placeOrder/charge(fail-closed)', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ cartSessionId: undefined }));
+    expect(res).toHaveProperty('formError');
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('🔴 3DS-7:非法 cart_session_id(非 uuid)→ formError、零 placeOrder/charge(fail-closed)', async () => {
+    const action = await getAction();
+    const res = await action(validInput({ cartSessionId: 'CLIENT-FORGED-cart-uuid' }));
+    expect(res).toHaveProperty('formError');
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
   });
 });
 

@@ -23,10 +23,12 @@ const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, tapRef } = vi.
       items: [] as CartItem[],
       totalQty: 0,
       isHydrated: true,
+      cartSessionId: 'cart-sess-default' as string | null,
       addItem: vi.fn(),
       removeItem: vi.fn(),
       updateQty: vi.fn(),
       clear: vi.fn(),
+      regenerateCartSession: vi.fn(),
     },
   },
   resolveMock: vi.fn(),
@@ -107,10 +109,12 @@ function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
     items,
     totalQty: items.reduce((s, i) => s + i.qty, 0),
     isHydrated: opts.isHydrated ?? true,
+    cartSessionId: 'cart-sess-default',
     addItem: vi.fn(),
     removeItem: vi.fn(),
     updateQty: vi.fn(),
     clear: vi.fn(),
+    regenerateCartSession: vi.fn(),
   };
 }
 

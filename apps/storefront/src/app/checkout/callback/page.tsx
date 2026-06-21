@@ -135,7 +135,8 @@ export default async function CheckoutCallbackRoute({
     return (
       <>
         <CheckoutSuccess variant="paid" displayId={displayId} />
-        <ClearCartOnSuccess />
+        {/* 🔴 3DS-7 Q4=A:DB 確定 paid → regenerate 換新 key(防下次重購撞已 paid sibling 被誤擋)。 */}
+        <ClearCartOnSuccess regenerate />
       </>
     );
   }
@@ -155,6 +156,7 @@ export default async function CheckoutCallbackRoute({
   return (
     <>
       <CheckoutSuccess variant="processing" displayId={displayId} message={OWNED_PENDING_MSG} />
+      {/* 🔴 3DS-7:pending=可能已扣未定 → 清品項但**不 regenerate**(保留 key 讓 dedup 守既有單、防雙扣;plan §3 7b 表)。 */}
       <ClearCartOnSuccess />
       <PollOrderStatus orderId={orderId} />
     </>
