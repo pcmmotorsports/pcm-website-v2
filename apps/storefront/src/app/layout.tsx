@@ -31,6 +31,7 @@ import { headers } from 'next/headers';
 import { CartProvider } from '@/contexts/CartContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
+import { serializeOrganizationJsonLd } from '@/lib/org-jsonld';
 import '../styles/tokens.css';
 import '../styles/header.css';
 import '../styles/product-card.css';
@@ -72,6 +73,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         />
       </head>
       <body>
+        {/* GEO P0:商家身分證 Organization(Store)JSON-LD、全站每頁帶,server-render 進初始 HTML。
+            序列化走 safeJsonLd(escape < 防 </script> breakout);prod 未設網域則省略 url/logo 欄。 */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: serializeOrganizationJsonLd() }}
+        />
         <MobileProvider value={isMobile}>
           <CartProvider>
             {children}

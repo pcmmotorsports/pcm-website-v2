@@ -6263,6 +6263,49 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #247. 🗺️ sitemap 商品來源治本(category-scoped 借用 → 全品類 public 列舉)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(現況零漏、多品牌上架前必補,否則 sitemap 靜默漏商品)
+- **問題:**
+  - GEO P0(`app/sitemap.ts`)目前借用 `fetchCatalogProducts()` → `SupabaseProductAdapter.listAllByCategory()`,它是 **category-scoped**(硬編 `碳纖維部品`)。
+  - 現階段涵蓋全站 100% **純屬巧合**:正式庫 1408 筆公開商品恰全在單一品類(`distinct_categories_in_public=1`)。多品牌 / 多品類上架(#212)後,其他品類商品**不會進 sitemap**,AI / Google 索引漏抓、被引用面縮水,且無報錯(靜默)。
+- **觸發事件(任一觸發即啟動實作):**
+  - #212 多品牌商品頁上架前;或新增任何非「碳纖維部品」品類商品時。
+- **預期解法:**
+  - 新增真正無品類限制的 public 列舉(例 `SupabaseProductAdapter.listAllHandlesPublic()`,走目前未接線的輕量 `products_list_public` view、只取 `id + handle`,免撈 detail 全欄);`app/sitemap.ts` 改吃它。
+  - 順帶評估 `<lastmod>`(`products_list_public` 無 `updated_at`,需走 `products_public` 或 view 補欄)。
+- **不修會痛在:**
+  - 擴充性:多品牌一上架,sitemap 立即漏掉新品類全部商品,卻不會報錯。
+  - bug 可追蹤性:「為何新品牌商品沒被 Google/AI 收錄」會難排查(sitemap 看起來正常產出,只是少了那些 URL)。
+- **估時:** ~30-45 min(新增 adapter 列舉方法 + port 對齊 sibling + 改 sitemap.ts + 測試;跨 ports/adapters 層觸鐵則 8)
+- **依賴:** #212 多品牌 schema / 上架時序
+- **發現於:** 2026-06-21 / GEO P0「大門+地圖」slice(借用 fetchCatalogProducts 的已知技術債)
+- **相關:** `apps/storefront/src/app/sitemap.ts`、`apps/storefront/src/lib/products.ts`、`packages/adapters/src/supabase/SupabaseProductAdapter.ts`、#212
+
+---
+
+### #248. 🟡 site-config 商家資料 L2 hardcode → 待後台來源(內容分級降級)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 低(現況正確;季度級異動、手改一處可接受)
+- **問題:**
+  - GEO P0「商家身分證」(`lib/site-config.ts` + `lib/org-jsonld.ts`)的商家資料(店名 / 登記名 / 統編 / 電話 / email / 地址 / 營業時間 / 社群 / logo)目前 **hardcode**(L2:hardcode + TODO + backlog)。
+  - 真值來源 = Sean 2026-06-21 親自提供,集中於 `site-config.ts` 單一真相(已消除站名散在 4 檔的問題)。
+- **觸發事件(任一觸發即啟動實作):**
+  - 商家資料需高頻異動、或有後台 CMS / settings 來源可接時。
+- **預期解法:**
+  - 若上後台:`site-config.ts` 改讀後台 / settings 來源,Organization JSON-LD builder 簽名不變。
+  - 可補的缺漏(本次未放,待 Sean 提供):精確 geo 座標(現用 design mock 近似值未放)、favicon / 預設 OG image(目前僅作 Organization logo)。(英文登記名 `PCM MOTOR PARTS LTD` 已於 2026-06-22 由 Sean 確認、落 `alternateName`。)
+  - **HomeFooter 佔位對齊**(code-reviewer 2026-06-21 nice-to-fix):`HomeFooter.tsx:54` 仍顯 `統編 · xxxxxxxx` 佔位、電話亦為 `02-2998-xxxx` 佔位,而 `site-config.ts` 已落真統編 `90003020` / 真電話。後續讓 footer 改讀 `site-config.ts`(對齊「商家事實單一真相、勿各元件重複硬寫」),消佔位。**屬 footer 視覺/內容(Sean 主場 + design-mirror),本 GEO slice 未動。**
+- **不修會痛在:**
+  - 可維護性:商家資料異動需改 code + 重新部署(非後台即時)。低頻故可接受,但高頻會痛。
+- **估時:** 視後台方案(~1-2h 起)
+- **發現於:** 2026-06-21 / GEO P0「門牌+商家身分證」slice
+- **相關:** `apps/storefront/src/lib/site-config.ts`、`apps/storefront/src/lib/org-jsonld.ts`
+
+---
+
 ## 紀錄模板
 
 ```markdown
