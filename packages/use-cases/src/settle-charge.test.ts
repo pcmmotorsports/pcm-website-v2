@@ -147,9 +147,53 @@ describe('settleCharge — ① no_attempt / ② 短路 / ⑪ recordQuery throw',
   });
 });
 
+describe('🔴 settleCharge — queryStatus=2 查詢成功放行(2026-06-21 querystatus-fix root cause、PCM-2026-0018)', () => {
+  // R1:root cause 正向 — top status=2「已無更多分頁」是查詢成功、count=1、record_status=0(AUTH)→ S1「授權即成立」真生效。
+  it('R1 queryStatus=2 + count=1 + record_status=0(AUTH)→ paid(status=2 不再被誤殺)', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0 }, { queryStatus: 2 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'paid', idempotent: false, displayId: DISPLAY_ID });
+  });
+  it('R2 queryStatus=2 + record_status=1(OK)→ paid(2 放行後 OK 也成立)', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 1 }, { queryStatus: 2 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'paid', idempotent: false, displayId: DISPLAY_ID });
+  });
+  // R3:放行 status=2 後 record_status 仍逐態裁決(未弱化)、未知碼仍 fail-closed。
+  it.each([
+    [-1, { kind: 'failed' }], //                                         ERROR → explicit_failed
+    [0, { kind: 'paid', idempotent: false, displayId: DISPLAY_ID }], //  AUTH  → paid(授權即成立)
+    [1, { kind: 'paid', idempotent: false, displayId: DISPLAY_ID }], //  OK    → paid
+    [2, { kind: 'pending', reason: 'record_unverified' }], //            PARTIALREFUNDED → refund_anomaly(告警、不放行)
+    [3, { kind: 'pending', reason: 'record_unverified' }], //            REFUNDED → refund_anomaly
+    [4, { kind: 'pending', reason: 'auth_or_pending' }], //              PENDING 待付款(尚未授權)
+    [5, { kind: 'failed' }], //                                         CANCEL → explicit_failed
+    [999, { kind: 'pending', reason: 'record_unverified' }], //          未知碼 → default fail-closed
+  ])('R3 queryStatus=2 × record_status=%i → 逐態裁決(放行 status 後不弱化)', async (rs, expected) => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // 退款態 console.error 告警(不影響裁決)
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: rs }, { queryStatus: 2 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual(expected);
+    errSpy.mockRestore();
+  });
+  // R5a/R5b:放行 status 後仍要求恰 1 筆(count 與 records 各自擋、縱深不動)。
+  it('R5a queryStatus=2 + count=0 → record_unverified(count 閘仍擋)', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({}, { queryStatus: 2, numberOfTransactions: 0 })) });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+  it('R5b queryStatus=2 + records.length≠1 → record_unverified(records 閘仍擋)', async () => {
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({}, { queryStatus: 2, numberOfTransactions: 1, records: [tradeRecord(), tradeRecord()] }),
+      ),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+});
+
 describe('settleCharge — Record 權威全條件不滿足 → pending:record_unverified', () => {
-  it('queryStatus≠0 → record_unverified', async () => {
-    const d = deps({ tappay: makeTapPay(async () => recordResult({}, { queryStatus: 2 })) });
+  // 🔴 R4(querystatus-fix):queryStatus 非成功白名單 {0,2}(如 99 未知/error code)→ record_unverified fail-closed。
+  //    原測斷言「queryStatus=2 → unverified」是 bug 行為固化(把查詢成功態當失敗),已移除;status=2 正向放行見
+  //    「queryStatus=2 查詢成功放行」describe(R1-R5b)。
+  it('queryStatus 非白名單 {0,2}(如 99 未知/error code)→ record_unverified(fail-closed、不誤放行錯誤碼)', async () => {
+    const d = deps({ tappay: makeTapPay(async () => recordResult({}, { queryStatus: 99 })) });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
   });
   it('numberOfTransactions≠1 → record_unverified', async () => {

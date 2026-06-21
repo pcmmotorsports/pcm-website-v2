@@ -82,7 +82,22 @@ export async function settleCharge(
 
   // 4. 命中恰一筆 + 🔴 共用「本機↔Record 識別 + 金額」閘(codex 關卡2):任何 terminal outcome(paid/failed)
   //    前必過,防誤命中他單而誤釋鎖放行重刷=雙扣。
-  if (record.queryStatus !== 0 || record.numberOfTransactions !== 1 || record.records.length !== 1) {
+  //    🔴 queryStatus 白名單 {0,2}(isQuerySucceeded):top `status=2`「已無更多分頁」是 TapPay **查詢成功**態
+  //    (≠交易狀態、≠「無紀錄」;官方逐字 querystatus-fix plan §2)。原 `!== 0` 把 status=2 誤殺成「查詢失敗」→
+  //    到不了 classifyRecordStatus → **所有 3DS 授權成功單卡 pending、S1「授權即成立」實際從未生效**
+  //    (2026-06-21 PCM-2026-0018 真刷實證;fix plan docs/specs/2026-06-21-m3-3ds-settle-querystatus-fix-plan.md)。
+  //    🔴 放行 ≠ 拿掉檢查:fail-closed 白名單(只放已逐字確認成功碼)+ count===1 + records.length===1 +
+  //    recordMatchesOrder(識別/金額/弱識別窗)三重縱深全保留;record_status 才是成立權威。
+  if (!isQuerySucceeded(record.queryStatus) || record.numberOfTransactions !== 1 || record.records.length !== 1) {
+    // observability(non-blocking、不改裁決):查詢碼非白名單卻帶紀錄 → 可能 TapPay error table 有未涵蓋成功碼,
+    //   記一行非 PII 警示供未來追(仍 fail-closed pending、絕不據此放行)。
+    if (!isQuerySucceeded(record.queryStatus) && record.records.length > 0) {
+      console.warn('[settleCharge] queryStatus 非白名單{0,2}卻帶紀錄(fail-closed pending、待查 TapPay error table)', {
+        orderId,
+        queryStatus: record.queryStatus,
+        count: record.numberOfTransactions,
+      });
+    }
     return { kind: 'pending', reason: 'record_unverified' };
   }
   const tr = record.records[0]!;
@@ -121,6 +136,16 @@ export async function settleCharge(
 
   // 5. paid 收斂(Record 證實 record_status ∈ {0 AUTH, 1 OK} + 識別/金額/幣別符;授權即成立)。rec 用 Record 權威值。
   return settlePaid(deps, attempt, tr.recTradeId, orderId);
+}
+
+/**
+ * TapPay 查詢 API top `status` 成功白名單(官方逐字 querystatus-fix plan §2):
+ * `0`=查詢成功有紀錄 / `2`=已無更多分頁(亦查詢成功、與「有無紀錄」正交、由 count/records 判)。
+ * 🔴 **fail-closed 白名單**(非「拿掉檢查」):TapPay error table 未內聯 → 只放行已逐字確認的成功碼,其餘一律照擋
+ * (即使存在未知成功碼也只保守多擋、**絕不誤放行錯誤碼**)。`record_status` 才是成立權威、`status` 只管查詢有沒有成功。
+ */
+function isQuerySucceeded(status: number): boolean {
+  return status === 0 || status === 2;
 }
 
 /** R4 優先序:rec_trade_id → bank_transaction_id → hint(僅 hint、Record 驗)→ order_number(=orderId)。 */

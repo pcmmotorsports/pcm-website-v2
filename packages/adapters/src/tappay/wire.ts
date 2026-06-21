@@ -66,7 +66,7 @@ export function parseTapPayResponse(raw: unknown): TapPayPayByPrimeResponse {
 //   POST `/tpc/transaction/query`,resp `{ status, msg, number_of_transactions, trade_records:[
 //     { rec_trade_id, order_number, bank_transaction_id, merchant_id, amount(int), currency,
 //       record_status(int -1~5,值見下方型別), is_captured(bool), refunded_amount(int), transaction_time_millis } ] }`。
-//   top `status`:0=查詢成功有紀錄 / 2=無更多(≠交易狀態)。
+//   top `status`:0=查詢成功有紀錄 / 2=查詢成功(已無更多分頁)(皆查詢成功、≠交易狀態;有無紀錄看 trade_records、與 status 正交)。
 //   🔴 record_status enum 7 值經審查側逐字複核釘死(reference.html #record_status anchor);小模型萃取曾幻覺、勿信。
 //
 // 🔴 #16 PII:trade_record 的 cardholder / card_info / pay_info(masked card)欄一律**不解析**進 domain、
@@ -90,7 +90,7 @@ export type TapPayRecordWire = {
 
 /** TapPay Record API 反查回應 wire(top status + 計數 + 解析後 records)。 */
 export type TapPayRecordResponseWire = {
-  /** top-level:0=查詢成功有紀錄 / 2=無更多(≠交易狀態)。 */
+  /** top-level:0=查詢成功有紀錄 / 2=查詢成功(已無更多分頁)(皆查詢成功、≠交易狀態;有無紀錄看 trade_records、與 status 正交)。 */
   status: number;
   msg: string;
   numberOfTransactions: number;
@@ -101,7 +101,7 @@ export type TapPayRecordResponseWire = {
  * 防禦性解析 TapPay Record API JSON 回應 → narrow `TapPayRecordResponseWire`。
  *
  * `status` 非 number(或非物件)→ throw(adapter 視為 transport/格式異常 → 1b 映 pending 保留、不誤判 failed)。
- * `trade_records` 缺/非陣列 → 空陣列(status=2 無紀錄之合法態);單筆缺必要欄 → throw(格式異常 fail-closed)。
+ * `trade_records` 缺/非陣列 → 空陣列(與 status 值正交:status=2 仍可帶紀錄〔已無更多分頁〕、亦可空〔本頁無紀錄〕);單筆缺必要欄 → throw(格式異常 fail-closed)。
  */
 export function parseTapPayRecordResponse(raw: unknown): TapPayRecordResponseWire {
   if (typeof raw !== 'object' || raw === null) {
