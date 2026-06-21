@@ -6170,6 +6170,54 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #243. 🔒 confirm_order_payment RPC 綁「扣款證據」(縱深防憑證外洩偽造 paid)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中高(prod 結帳開放前 top 3 之一;縱深防線、非無前提可利用)
+- **問題:**
+  - `confirm_order_payment`(`supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql` PF-D 樹 L149-184)只驗:① order 為 unpaid ② `p_amount = orders.total`(整數)③ `rec_trade_id` 非空且未跨單重用 —— **不要求「同 order/rec 存在一筆 status='charged' 的 payment_charge_attempt」當扣款證據**。
+  - 設計刻意把扣款證據驗證委派給 use-case 編排層(migration header L20-24 PF-X1/X2/X3 自承「純 DB RPC 無法獨力解」);正常運作下 confirm 被編排層保護。
+  - **縱深缺口:** 若 `payment_confirmer` 憑證(server-only env)外洩,攻擊者繞過 use-case 直連 DB 呼 confirm,只要給「正確 order_id + 正確 amount(可從 order 讀)+ 任一未用過的 rec_trade_id」即可把任意未付單翻 paid;同步路徑 markCharged 失敗後仍會續呼 confirm。
+- **觸發事件(任一觸發即啟動實作):**
+  - prod 結帳開放規劃啟動;或 payment_confirmer 信任邊界擴張(多 caller / 多環境)。
+- **預期解法:**
+  - confirm RPC 改收 `attempt_id`,臨界區內 `FOR UPDATE` 驗該 attempt 屬同 order + status='charged' + rec 相符,再翻 paid;
+  - **更佳:** 把 markCharged + confirm 併成單一原子 `settle_paid_attempt` RPC(一個臨界區驗扣款證據 + 翻 paid,消除兩步之間信任缺口);
+  - 維持 payment_confirmer 窄權四性(零 table 權限 / 雙向 never-GRANT-role / search_path='' / SECDEF)+ 函式權限矩陣 fail-closed assert。
+- **不修會痛在:**
+  - 擴充性:未來新增 settle caller(退款 / 人工補單 / admin)若都信任「order unpaid + 金額」就翻 paid,信任面只會擴大、無 DB 層自證扣款。
+  - 可維護性:confirm 的安全完全靠「呼叫者已驗 charge」這個外部約定,任何繞過 use-case 的呼叫(腳本 / 緊急修單)都是裸奔。
+  - bug 可追蹤性:偽造/誤標 paid 後,DB 內無「對應 charged attempt」可反查,對帳查不出是真扣款還是憑證濫用。
+- **估時:** ~90-120 min(改 RPC 簽章 + 編排層接線 + MCP 交易模擬 + 鐵則 8/12 plan + codex 雙關卡)
+- **依賴:** `payment_charge_attempts` 表(已存在)、settleCharge / confirmPayment use-case
+- **發現於:** 2026-06-21 / 金流流程四方安全審查(Codex 跨模型 code 對抗獨抓、Claude 親讀屬實;`docs/reviews/2026-06-21-payment-flow-multiparty-audit.md` §三 #2)
+- **相關:** `supabase/migrations/20260611120000_m3_s2c_confirm_payment_rpc.sql`、`packages/use-cases/src/{confirm-payment,settle-charge}.ts`、`docs/reviews/2026-06-21-payment-flow-multiparty-audit.md`
+
+---
+
+### #244. 🔁 四路 settleCharge 共用 per-order settle lease(防 Record API 查詢放大)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中高(prod 結帳開放前 top 3 之一;穩定性/配額、非資金安全)
+- **問題:**
+  - settleCharge 由四路共呼(callback / webhook / sweeper / 輪詢)。只有**輪詢**那路有 durable per-order throttle(`claim_order_poll_settle`,S2b migration `20260621120000`);callback / webhook / sweeper **無共用 lease**。
+  - OTP 成功瞬間四路幾乎同時觸發、各自打 TapPay Record API 反查 → Record API 查詢放大、配額消耗、卡單。⚠️ **非「雙重標 paid」**(那層已由 confirm PF-B `FOR UPDATE` + PF-C `WHERE unpaid` + PF-D 冪等樹防護,四方交叉驗證確認 ✅)—— 是「查詢放大」。
+- **觸發事件(任一觸發即啟動實作):**
+  - prod 結帳開放(真流量四路併發成常態);或 TapPay Record API 配額/rate-limit 告警。
+- **預期解法:**
+  - 抽共用 `claim_order_settle(order_id, caller, throttle)` 窄權 RPC,四路都先 claim 再 settle;
+  - 對齊 S2b 輪詢已有的 per-order throttle family(`claim_order_poll_settle` / 4a-2 sweeper RPC 同表閘),用獨立欄不重用既有欄(沿 memory `new-rpc-align-sibling-gates` 紀律餵 sibling 給 codex)。
+- **不修會痛在:**
+  - 擴充性:每新增一條 settle 觸發源(未來 retry / admin 補對帳)都各自打 Record API,放大係數隨來源數線性增長。
+  - 可維護性:Record API 配額耗盡/被 TapPay 限流時,四路無協調、難定位是哪路風暴。
+  - bug 可追蹤性:無共用 lease,同 order 的併發 settle 無單一序列化點,log 散在四路、對帳時序難重建。
+- **估時:** ~90-120 min(新 RPC + 窄 port/adapter + 四路接線 + MCP 模擬 + 鐵則 8/12 plan + codex)
+- **依賴:** S2b `claim_order_poll_settle`(同表 sibling 閘)、settleCharge 四路 caller
+- **發現於:** 2026-06-21 / 金流流程四方安全審查(Codex code 對抗 + Gemini 並發互補;`docs/reviews/2026-06-21-payment-flow-multiparty-audit.md` §三 #3)
+- **相關:** `supabase/migrations/20260621120000_m3_3ds_s2b_poll_settle_throttle.sql`、`packages/use-cases/src/settle-charge.ts`、[[#243]]、`docs/reviews/2026-06-21-payment-flow-multiparty-audit.md`
+
+---
+
 ## 紀錄模板
 
 ```markdown
