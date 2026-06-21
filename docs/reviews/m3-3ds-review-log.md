@@ -627,3 +627,219 @@ redirect 攔截順序正確〔ok 前、避 fall-through〕+ 不清車〔留車 a
 - **整合收尾(整線、待執行側 + Sean)**:① m3-3ds-5 worktree(5a→6b、tip db3afbb)merge → dev ② STATUS 7 欄 ③ busboy-end ④ /pcm-roadmap ⑤ /graphify --update ⑥ 可選順手修 backlog #239 解法文字(N-d button-not-href)。
 - **🔴 prod checkout 仍一律不可開**(中間態誠實):真實刷卡 = Phase I + 5a/5b + 6 全到位〔已〕+ `TAPPAY_3DS_ENABLED='true'`〔Sean sandbox 設〕+ `NEXT_PUBLIC_SITE_URL` 公開 https + `TAPPAY_NOTIFY_PATH_SECRET` ≥32 + sandbox 3DS E2E 過 + Sean 肉眼驗(同一決策點、Sean 拍)。
 - **未 push**(全線等 Sean 手動推);哨兵 `b845nq6ad` 可收(6 已完;若執行側續動再 arm)。
+
+---
+
+## 2026-06-21 — S2「callback 自動輪詢 + 處理中文案安撫」進場 baseline(審查 session、寫審分離 ROLE=A、hands-off 哨兵)
+
+> Sean 今晚睡覺、明早批次回。本 session = hands-off 自動審:哨兵盯 `m3-3ds-s2` 分支 HEAD,每新 commit fresh-context 審,findings 寫本檔,FAIL/安全紅線才 PushNotification。
+
+### Baseline(起手 2026-06-21)
+```
+主 repo branch  = dev / 樹乾淨 / HEAD = a1db8dc(= STATUS 預期、綠)
+m3-3ds-s2       = a1db8dc024fe55f50b4cb6e9f7d39a94799f3c07(完整 40 字、= dev tip、零 S2 commit)
+worktree        = /Users/sean_1/pcm-3ds-s2 尚未建立(執行 session 未開工)
+哨兵            = Monitor task `ba12tdkso`(persistent、20s 輪詢 refs/heads/m3-3ds-s2 全 40 字 hash 比對、
+                  baseline 已固定 a1db8dc…3c07 → 不會首輪誤報;讀主 repo 共享 object DB、不依賴 worktree 目錄存在)
+```
+S1 已 merge dev(`5693b9a` / merge `a1db8dc`);settle-charge.ts 現況 = case 0/1→paid_candidate、弱識別窗下界=attempt、§4 識別/金額閘完整 = **S2 不該動的結算脊椎**。
+
+### S2 範圍(設計包 `docs/specs/2026-06-20-m3-3ds-auth-settlement-redesign.md` §5.1 + §7)
+1. **callback 自動輪詢**:Record API 有同步延遲(實測 callback 當下 queryStatus=2 查無)→ 前端停「處理中」時背景 poll 訂單狀態,成立後自動跳成功頁。
+2. **處理中文案安撫**:「處理中」頁文案(已收到付款、銀行授權成功為正常、勿重複付款)。
+= 前端 + 讀路徑 slice;**非結算邏輯改動**。
+
+### S2 審查重點(每 commit 逐條核、預先框定)
+- 🔴 **R1 輪詢端點 IDOR 歸屬**:若新增輪詢 API route / server action,必複刻 callback page L91-108 歸屬閘(RLS `orders_select_own` + 應用層縱深 `.eq('customer_user_id', userId)`),**只回本人訂單**;歸屬失敗硬 early-return、不洩他人 display_id/狀態。零信任 order UUID 形狀過濾。
+- 🔴 **R2 經銷價零洩漏 / 最小回應面**:輪詢回應只回 `payment_status`(+ 本人已擁有的 display_id),**禁帶經銷價/PII/卡資料**;.next/static + server chunk 雙 grep `price_store/priceByTier/price_by_tier`。
+- 🔴 **R3 超時/查無 fail-closed**:輪詢逾時 / 查無 / 任一不確定態 → 維持「處理中」,**不偽 paid/failed**;輪詢有上限(不無限打)、不擴 Record 重打(對齊 callback page L22-23 誠實邊界、限流留 3DS-4)。
+- 🔴 **R4 未動 settleCharge 結算脊椎**:`packages/use-cases/src/settle-charge.ts` 不該被 S2 碰;輪詢只讀 `orders.payment_status`,結算仍由 callback/webhook/sweeper 三路共呼 settleCharge。若 diff 動到 settle-charge.ts/recordMatchesOrder/classifyRecordStatus → 立即 raise(scope 外)。
+- **R5 鐵則 1 design 保真**:處理中文案若搬 design 字面必 grep `OrderCompletePage.jsx` 真權威;PCM 自撰態(design 無 3DS 輪詢/安撫態)沿用既例合法、不憑記憶畫預覽。
+- **R6 字面 vs 事實 / 三綠 / manifest**:fresh-context `git show <sha>` 快照、不信 commit/STATUS 字面;動前端元件跑完整 vitest(在 worktree);掃描含 adapter docstring + STATUS SSoT(對齊 feedback `literal-vs-fact-scan-includes-adapter-docstring-ssot`);動 storefront UI → manifest 同步 + smoke test。
+- **codex 關卡2 觸發**:命中鐵則 12 payment 讀路徑 / IDOR → 必跑 `codex exec -s read-only -c service_tier=fast </dev/null`(cross-model、zero-trace 前後 porcelain/HEAD 比對)、每關卡上限 2 輪、round2 仍 FAIL 停下 raise Sean。例行純前端文案/CSS 不跑 codex。
+- **db push bundle**:S2 應為純 code(前端 + 讀路徑)、不應新增 migration;若新增 → 立即 raise(對齊 memory `3ds-db-push-bundle-blocked` 已了結、不該再開新 migration 賭注)。
+
+### 審查紀律
+不憑 `grep -o` 命中詞判 FAIL,先看語境(「已移除 X」是正確現況非殘留);不 merge、不 push、不替 Sean 拍板;決策題用 prose multi-select 整理進本檔給 Sean 明早。
+
+---
+
+## 2026-06-21 — S2 commit `e7ff4eb` 關卡2(審查側、鐵則 12 payment 讀路徑 + IDOR、binding、fresh-context)
+
+`feat(storefront): 3DS callback 自動輪詢付款狀態 + 處理中文案安撫 [m-3]`。哨兵 `ba12tdkso` 抓到 → fresh pin `e7ff4eb`(parent=`a1db8dc`= dev tip/baseline、**線性**;worktree `/Users/sean_1/pcm-3ds-s2` HEAD=e7ff4eb、porcelain **乾淨**=純快照)。diff = 10 檔(2 新端點+2 新元件+callback page+3 測試〔1 新 route.test/1 新 PollOrderStatus.test/1 改 page.test〕+manifest+STATUS+plan+handoff);**零 migration / 零 env / 零 vercel.json / 零 schema/sql**。
+
+### 驗證矩陣(逐項獨立實證、非信 commit/handoff 字面)
+
+| 項 | 結果 | 實證 |
+|---|---|---|
+| 🔴 R1 IDOR own-only(命門) | ✅ | route.ts:雙軸 `.eq('id',orderId).eq('customer_user_id',userId).maybeSingle()`(RLS `orders_select_own` + 應用層縱深)+ `getUser()` 驗 JWT(throw/null→401)+ UUID 形狀 gate→400;偽造他人 orderId → RLS+app filter 無 row → **404**(不洩狀態/存在性/單號);userId 來自驗過的 JWT 非 request 欄;與 callback page L91-108 同 pattern。route.test 釘 `.eq('customer_user_id',USER)` 確被呼叫 + 非UUID→400 不建 client/不查 DB + getUser throw→401 不查 DB |
+| 🔴 R2 經銷價/PII 零洩漏 | ✅ | `select('payment_status')` 單欄 + 回應只 `{status:'paid'\|'pending'}`(連 displayId 都不回、比 callback 更精簡);test `Object.keys(json)===['status']` 強斷言;**.next/static 經銷價 grep 全 0**(price_store/priceByTier/price_by_tier/dealerPrice/cost_price)+ 源碼層零價格欄(「命中」皆註解詞);400/401/404/500 **null body**(零 raw error.message;test `.not.toContain('secret-detail')`)+ no-store header |
+| 🔴 R3 fail-closed | ✅ | route:非 paid(unpaid/partiallyPaid/refunded)→`{pending}` 嚴格 `===\'paid\'` 不偽 paid;查無→404;DB error/maybeSingle throw/client factory throw→500、皆不偽 paid/failed。client(PollOrderStatus):只 `status===\'paid\'` 才 `router.refresh()`(stopped=true 先設、至多一次);401/404→停不 refresh;500/網路→有界續試;13 次退避≈51.5s 封頂(非無限);AbortController+stopped 每 await 後檢查→late callback/StrictMode double-mount 不誤動作。test 全列(超時13停/400·401·404 terminal/500·網路續試/unmount cleanup/AbortError 不續排/late paid 不誤 refresh) |
+| 🔴 R3b Record 放大 | ✅ | 端點 default A **只讀 `orders.payment_status`、不呼 settleCharge** → 輪詢期間零 TapPay Record 放大(成本=own-only 廉價 DB 讀);paid 後 `router.refresh()` 重跑 callback → settleCharge step2「order 已 paid → 短路」(settle-charge.ts L68-71、不打 Record)→ 全程 settleCharge 僅初次+refresh 各一次短路、零放大 |
+| 🔴 R4 不改 settleCharge | ✅ | settle-charge.ts **不在 diff 清單**;grep 全 diff 零命中 use-cases/domain/ports/schema;**turbo `@pcm/use-cases:typecheck` cache hit 命中 S1 worktree 同 hash `253681255d99…`** → use-cases 套件(含結算脊椎)與 S1 byte 相同、S2 零變更 |
+| PollOrderStatus 掛載分支 | ✅ | 只掛 **owned pending**(最終 return);no_attempt(必然未扣款→永不 paid、省 51.5s 空轉)/failed/paid(終態)/泛用態(未歸屬無 orderId)皆**不掛**=正確 |
+| 文案拆分(codex K1 must-fix) | ✅ | `OWNED_PENDING_MSG`(§5.5 三要點、可斷言)只給 owned pending;`PROCESSING_MSG`(中性)給泛用/no_attempt(必然未扣款/未歸屬、不謊稱「已收到付款」=防偽付款確認)。好 catch |
+| 三綠(獨立自跑 @ worktree) | ✅ | typecheck **7/7**(FULL TURBO)/ lint **10/10** / **full vitest 133 檔 1366 passed 0 fail**(精確=commit「1366(+25)」;1341→1366=+25 ✓)/ design-mirror `--validate` PASS(135 path token、20 last_modified 可達);S2 三測試檔單獨 filter 36 pass |
+| manifest 同步 + 可達 | ✅ | CheckoutPage component +PollOrderStatus.tsx+route.ts、新 override `checkoutCallbackPolling`(design_value/storefront_value/reason 完整)、`last_modified_commit:"a1db8dc"`=**e7ff4eb 父、可達祖先**(乾淨 `merge-base --is-ancestor` 驗、非 orphan;首次多行 grep 誤報已排除) |
+| 🔴 鐵則 1 design 保真 | ✅ | **親驗 design `CheckoutPage.jsx`**:submitOrder L121-141=`setProcessing(true)`+`setTimeout 1200ms` 假 TapPay 同步→`onNav('order-complete')`;L600/677=`{processing?'處理中…':...}` 送出鈕瞬時 loading;grep poll/setInterval/輪詢/payment-status **零命中** → callback 輪詢確 PCM 自撰(權威§5.5)。manifest design_value 宣稱**逐字屬實**;執行側誠實揭示 submodule 假陰性後校正(對齊 memory `design-fidelity-read-handler-not-callsite` 警示、此次無假陳述) |
+| 鐵則 6 檔大小 | ✅ | route.ts 95 / PollOrderStatus.tsx 100,皆 <400 |
+| STATUS 7 欄 + 字面 | ✅ | 當前 slice/最後更新/最近3commit(`a1db8dc`/`5693b9a`/`d5e1be4` 全可達、e7ff4eb 自身不入表避 orphan)/Sean待決策(Q1-Q5)/Blocker 準確;誠實標「S1 已 merge+push origin/dev=a1db8dc、S2 未 merge」;"codex 雙關卡 PASS"=執行側自跑(非冒充審查側、與 S1 記法一致) |
+| 字面 vs 事實 | ✅ | 1366/+25/7-7/10-10/design-mirror PASS/settleCharge 零變更/IDOR 雙軸/{status} 零金額 逐條獨立實證相符;Q1 default A「不承諾 Record 延遲下即時成立」誠實揭示(commit body+plan §⑦+handoff+manifest reason 一致)= 對齊 memory `literal-vs-fact` |
+| 🔴 codex 關卡2 cross-model | ⏳ **PENDING** | OpenAI quota 撞牆(`hit your usage limit、try again at 4:03 AM`)→ 失敗 run **zero-trace OK**(porcelain 前後一致、HEAD 仍 e7ff4eb);**已排背景自動補跑(quota 恢復後、zero-trace、完成喚醒審查 session finalize)**。依 review-log fallback 紀律=Claude fresh-context 對抗審已先行(下方) |
+
+### Claude 側獨立對抗審(codex fallback、fresh-context、逐破口 trace)= PASS、0 must-fix
+
+逐紅線對抗 trace(找真破口非風格):
+- **IDOR**:無 fall-through(每分支顯式 return fail 碼);userId 非 request 可控;`customer_user_id` NULL 單永不匹配非 null userId;404 對 not-found 與 not-owned **同路徑同時序**(`maybeSingle`→null)= 無 existence/timing oracle。
+- **偽 paid 不可達**:唯一 `{status:'paid'}` 出口 = owned order 的 `payment_status===\'paid\'` 嚴格比;任何其他值/錯誤→pending/4xx/5xx。client 唯一 `router.refresh()` 出口 = 明確 paid。
+- **放大/濫用**:端點零 settleCharge→零 Record 放大;會員 spam 僅 own-only 廉價 DB 讀(無限流=同 webhook route「WAF 為 prod gate」既有姿態、非 S2 blocker)。
+- **生命週期 race**:cleanup `stopped=true`→`abort()`→`clearTimeout` 順序正確;late paid callback(unmount 後 resolve)被 stopped 擋(test 釘);refresh 後若極端 transient 落 pending 的卡死=執行側誠實揭示之極罕見 forward-note(paid 終態、機率極低、fail-closed 顯安撫文案+email、加 safety retry 反引 refresh-loop 風險)= 同意不修。
+- **結算脊椎**:turbo cache hit 證 use-cases byte 相同 = R4 鐵證。
+
+**Claude 側 verdict = PASS、0 must-fix、0 安全破口**。實作品質高(IDOR 雙軸 + 回應面最小化 + fail-closed 嚴格 + 取消安全 + 文案誠實拆分);三綠/字面vs事實/design/manifest/STATUS 全獨立複核綠。**唯一未竟 = cross-model codex K2(quota、背景補跑中);過審即最終 sign-off,若 codex 逮到我與執行側雙漏的破口則轉 FAIL + raise Sean。**
+
+### 🟡 殘留 forward note(全非 blocker)
+- **N-S2-a(plan doc 微 stale)**:plan §⑥ 步驟2 偽碼 `POLL_DELAYS_MS` 列 **12** 元素但註「13 次」;**實際 code 13 元素≈51.5s**(commit body/comment/test 全一致 13)→ 純 plan 偽碼落後 1 元素、零功能影響(codex K2「退避數字校正 13」已修 code、plan 偽碼未回填)。下次觸碰順手或忽略。
+- **N-S2-b(端點無 code 限流)**:default A 端點 own-only 廉價讀、零 Record 放大 → 現無危害;Q1 若選 **B**(輪詢呼 settleCharge)則限流(per-order throttle/TTL/lease)成**前置硬需求**(handoff Q1-B 已標、會員可 spam 打爆 TapPay Record 預算)。
+
+### 🔵 Sean 明早批次決策題(S2 業務/口味、default 已落地、**非安全紅線**=不阻 merge;審查側 concur 全 default 安全)
+
+> 安全紅線(IDOR/零洩/fail-closed/不改 settleCharge)已 fail-closed 鎖死、與下列無關。下列純體驗/口味,default A 皆安全可上。回覆格式 copy-paste:
+> ```
+> Q1: A|B   Q2: A|B|C   Q3: A|B|C   Q4: A|B|C   Q5: A|B
+> ```
+
+- **Q1(最重要)— 輪詢「只讀狀態」(A、已落地) vs「主動呼 settleCharge」(B)?**
+  - A=端點只讀 payment_status、最保守、零 Record 放大。🔴 **誠實缺口(執行側已揭、審查側獨立確認屬實)**:實測 callback 當下 TapPay 同步延遲→首次 settleCharge 常 pending、webhook after 僅首見一次、sweeper 現為**每日**(S6 才升頻)→ default A 下「幾秒無感自動成立」**不保證**、本機/現況多半輪詢到超時(仍 fail-closed 顯安撫文案+email)。**A 只保證「輪詢機制+安全」本身正確、不保證即時成立。**
+  - B=端點在 own-only 閘後呼 settleCharge(第四路 caller、不改 settleCharge 內部)→ Record 同步後下一輪即成立=真「幾秒無感」。**代價=必加 per-order throttle/TTL/lease 防會員 spam 打爆 Record(N-S2-b),且端點責任變重需 codex 重審**(約多半天)。
+  - **審查側建議**:要「下單完幾秒內自動看到成立」的體驗 → **B**(排 throttle);可接受「靠 email + 之後刷新」先求穩 → **A**、即時性交 S6 sweeper 升頻。端點已預留 B 形狀、切換成本小。
+- **Q2 輪詢退避序列?** A(已落地)=`1/1.5/2/3/4/5×8`s、13 次≈51.5s。備選:固定 2s×N / 更長窗(配 B)。
+- **Q3 次數/總時長?** A(已落地)=13 次≈51.5s。備選:縮短(客人不久等)/ 拉長(生產收斂實測後定)。
+- **Q4 處理中文案措辭?** A(已落地、拆兩文案)= owned pending「你的付款正在確認中…請勿重複付款…」+ 泛用/no_attempt 中性「我們正在確認你的付款結果…」。備選:語氣調整 / Sean 自訂。
+- **Q5 no_attempt 變體是否也輪詢?** A(已落地)=不輪詢(必然未扣款、永不 paid、零收益)。備選:輪詢(與 settleCharge 契約矛盾、default 不採)。
+
+**審查側姿態**:Q1-Q5 default 全安全、不阻 merge;Q1 是唯一「功能達標 vs 求穩」的實質選擇(A 安全但不即時、B 即時但需 throttle+重審)。Sean 可先 merge A、Q1 選 B 再疊新 slice。
+
+### 對抗審計 workflow(`wwrbreys6`、7 代理、6 維攻擊 + 逐 finding 反駁)= **ALL_REFUTED、0 confirmed must-fix/high**
+
+第三獨立審查角度(codex quota 期間補強、Explore 攻擊代理 fresh-context git show 不可變快照):
+- **6 維攻擊**(IDOR 繞過 / 偽 paid 構造 / 生命週期·DoS·refresh-loop / 經銷價·PII 洩漏 / 脊椎·scope / completeness critic)→ **0 confirmed must-fix/high**。
+- **唯一 serious(refresh-loop)→ 對抗驗證 REFUTED**:迴圈前提「DB=paid 同時 settleCharge 持續拋例」**互斥不可達** —— DB=paid 時 settleCharge L68 短路、recordQuery/markCharged/confirm 全成死碼;若 DB 讀瞬失則端點 maybeSingle 同樣 500→PollOrderStatus 對 500「續試不 refresh」→ 無 paid→無 refresh→無迴圈。= 執行側已誠實揭示之極罕見邊角(paid 終態、fail-closed、加 safety retry 反引 loop 風險、不修正確)。4 條紅線均不受影響。**與審查側 + 執行側雙證收斂。**
+- **1 medium(端點無 code 限流)= 獨立佐證審查側 N-S2-b**:own-only 廉價讀、零 Record 放大(default A)、需登入態;與既有 webhook route「WAF 為 prod gate」姿態一致(plan §14 先例)、prod checkout 未開零真流量 → **非 S2 blocker、forward note**。Q1 選 B 時 throttle 仍為硬前置(已記 N-S2-b)。
+
+**三獨立審查角度收斂**:① Claude 手動關卡2 = PASS 0 must-fix ② 對抗 workflow 7 代理 = ALL_REFUTED 0 confirmed ③ codex K2 cross-model = 背景補跑中(quota)。前二一致 0 安全破口。
+
+### codex 關卡2 cross-model(`bfj67yia4` 背景補跑、05:0x quota 恢復、gpt-5.5 xhigh read-only)= **PASS、0 must-fix**
+
+quota 至 ~05:05 才恢復(非宣稱的 4:03)→ 背景補跑 attempt 6 成功;**session 019ee6d8、VERDICT = PASS、must-fix:無、zero-trace OK**(porcelain 空、HEAD 仍 e7ff4eb、codex read-only)。codex 逐行實證(與審查側獨立收斂):
+- **1 IDOR own-only PASS**:RLS `orders_select_own`(migration 20260604120000 L190-195)+ anon cookie client 非 service role + getUser 驗 JWT(route.ts L58-70)+ 雙 `.eq` + 查無→404 無 fall-through。
+- **2 零洩漏 PASS**:select 只 payment_status、body 只 {status}、錯誤統一 null Response、test 釘只含 status + 錯誤不含 raw message。
+- **3 fail-closed PASS**:DB error→500 不偽 paid / 非 paid→pending / client 只 `===paid` 才 refresh / 400·401·404 停不 refresh / 13 次封頂 / cleanup abort+clearTimeout。
+- **3b 零 Record 放大 PASS**:端點只 import Supabase、零 settleCharge/TapPay call;refresh 後 settleCharge 對已 paid 短路(settle-charge.ts L64-71)不打 Record。
+- **4 不改 settleCharge PASS**:codex 獨立跑 `git diff --exit-code HEAD^ HEAD -- packages/use-cases/src/settle-charge.ts` = **exit 0** + `git show --name-only` 未列該檔。
+
+> ⚠️ 背景腳本印「CODEX_K2_GAVEUP」= 審查側 grep 正則 `rate.?limit` **假警報**(命中 codex 引用 settle-charge.ts L64 註解「省 §7 rate-limit」源碼引文、非 quota 錯誤);實際 run 成功、usage-limit error 行數=0。記此假警報供日後 codex retry 腳本收窄正則(別用 `rate.?limit` 寬詞、改鎖 `You've hit your usage limit`)。
+
+## ✅ 3DS-S2 審查側最終 sign-off = PASS(HEAD `e7ff4eb`、未 merge、未 push)
+
+**三獨立審查角度全收斂 PASS、0 must-fix、0 安全破口:** ① Claude 手動關卡2(13 項矩陣)② 對抗 workflow 7 代理 ALL_REFUTED ③ codex K2 cross-model gpt-5.5。
+
+逐紅線:🔴 IDOR own-only 雙軸〔RLS + 應用層 `.eq customer_user_id` + getUser、偽造他人 orderId→404 不洩〕+ 🔴 經銷價/PII 零洩漏〔回應只 {status}、`.next/static` grep 全 0、錯誤 null body〕+ 🔴 fail-closed〔嚴格 ===paid、13 次有界、取消安全、不偽 paid/failed〕+ 🔴 不改 settleCharge〔diff/turbo-cache/codex git-diff 三證〕。三綠**獨立自跑**〔typecheck 7/7 + lint 10/10 + full vitest 1366-0fail + design-mirror PASS〕+ 鐵則 1 design **親驗**屬實〔submitOrder 假同步 + 無 poll、PCM 自撰權威§5.5〕+ manifest 可達祖先 + STATUS 7 欄字面準確 + 字面vs事實全對〔Q1 default A「不承諾即時成立」誠實揭示〕。
+
+**0 must-fix、2 forward nit(皆非 blocker):** N-S2-a〔plan §⑥ 偽碼 POLL_DELAYS_MS 列 12 元素但實 code 13、純 plan doc 落後 1〕/ N-S2-b〔端點無 code 限流、own-only 廉價讀零 Record 放大、同 webhook route「WAF 為 prod gate」姿態;Q1 選 B 時 throttle 為硬前置;workflow medium 獨立佐證〕。
+
+**🔵 待 Sean 明早(批次決策題、非安全紅線、不阻 merge)**:讀 `docs/handoff/2026-06-21-s2-handoff.md` 答 Q1-Q5(最重要 **Q1**=輪詢只讀〔A 已落地、穩、但「幾秒無感成立」不保證、依賴 S6 sweeper 升頻〕vs 呼 settleCharge〔B 即時、但需 per-order throttle + codex 重審〕);**Sean 手動 merge m3-3ds-s2 → dev + push**(S1 已 merge origin/dev=a1db8dc、S2 從其分出 FF 乾淨)。**prod checkout 仍一律不可開**(中間態誠實、同 S1/Phase II 決策點未變)。
+
+**未 merge、未 push**(等 Sean)。哨兵 `ba12tdkso` 續盯 m3-3ds-s2 後續 commit/amend(Sean 若 Q1 選 B 起新 slice、或 amend),Sean 明早處理完(merge)再 TaskStop。
+
+---
+
+### 2026-06-21 — Sean 批次決策回覆
+
+**Q1=B / Q2=A / Q3=A / Q4=A / Q5=A**。
+
+- **Q2-Q5=A**:已落地 default 全維持 → **e7ff4eb 無需任何 code 改動**(退避 13 次≈51.5s / 文案拆分 / no_attempt 不輪詢 皆定案)。
+- **Q1=B**:輪詢端點改「own-only 閘後**主動呼 settleCharge**」(= callback/webhook/sweeper 三路共呼模型的**第四路 caller**、不改 settleCharge 內部)→ 真達成設計包 §5.1「幾秒無感成立」。**這是新 slice(S2b)、鐵則 8+12**(改 payment 端點行為 + 新增 throttle),需 plan + codex K1 + Sean 批准才動 code;約多半天 + codex 重審。
+  - 🔴 **B 硬前置(N-S2-b / handoff Q1-B / workflow medium 三處共識)= per-order throttle/TTL/lease**:防會員多分頁/重整 spam 觸發 settleCharge → 打爆 TapPay Record 查詢預算。settleCharge step2 對已 paid 短路(不打 Record),但 **pending 單被反覆輪詢 → 反覆打 Record** → 必須 throttle。**可重用 4a-2 既有 `payment_charge_attempts.next_settle_at` / `settle_attempt_count` 欄位**(sweeper 已用、durable、避免 serverless in-memory 不可靠)。
+  - **S2b 範圍**:端點查到 pending 時多呼 `settleCharge(getSettleChargeDeps(), { orderId })`(cookieless、與 callback page L113 同呼法)+ durable per-order throttle 閘 + 端點責任變重 → codex 重點重審(會員可觸發 settleCharge 的入口)。
+- **A 已 PASS sign-off、安全且純加性**:B 是在 A 端點上「pending 時多呼一次 settleCharge + throttle」,A 的 own-only/零洩/fail-closed 全保留。→ **merge A 先(banks 安全 baseline)再疊 S2b** 為低風險路徑。
+
+**待 Sean 拍**:① 序(merge A 先 vs 等 B 一起)② S2b 由誰實作(維持寫審分離=另開執行 session / 本審查 session 代起草 plan)。見對話。
+
+### 2026-06-21 — S2(A、e7ff4eb)已 merge + push ✅;序決定 = merge A 先
+
+Sean `git checkout dev && git merge --ff-only m3-3ds-s2 && git push origin dev` → **dev = origin/dev = `e7ff4eb`**(FF、pre-push CI typecheck 7/7 + lint 10/10 綠、push 成功〔admin bypass `Required status check "check"` = 正常〕)。**序決定 = merge A 先(安全 PASS baseline 入袋)、B 疊 S2b**。worktree `m3-3ds-s2` 未刪(清理註解 `# …` 被 zsh 當命令、無害未執行)。
+
+**🔜 下一步 = S2b(Q1=B 落地、鐵則 8+12)**:輪詢端點 own-only 閘後 pending→多呼 settleCharge(第四路 caller、不改 settleCharge 內部)+ **durable per-order throttle**(重用 4a-2 `next_settle_at`/`settle_attempt_count`,防會員 spam 打爆 Record)。**需 plan + codex K1 + Sean 批准才動 code**(鐵則 8);實作後 codex K2 重點重審(會員可觸發 settleCharge 入口)。ownership/啟動待 Sean 拍(見對話)。哨兵 `ba12tdkso` 暫續盯 m3-3ds-s2(S2b 若重用此 worktree 即接審;若另開分支則重 arm)。
+
+### 2026-06-21 — S2b ownership 拍 A = 維持寫審分離
+
+Sean 拍 **A**:S2b 由**新執行 session 實作**(重用 worktree m3-3ds-s2),本審查 session 續當把關(codex K2 + 對抗 + sign-off)。審查側已交執行 session **kickoff brief**(對話 code block:B 範圍 + 🔴 throttle 重用 4a-2 須驗不撞 sweeper 退避語意 + 紅線 carry〔own-only 在 settleCharge 前 / 零洩 / fail-closed / settle-charge.ts 內部零變更〕+ 新紅線 throttle 防 Record 放大 + 鐵則 8+12 plan+codex K1+Sean 批前置 + 測試/驗收/禁止清單)。哨兵 `ba12tdkso` 續盯 m3-3ds-s2 接 S2b commit。**審查側姿態**:S2b 是鐵則 12 金流端點改動、獨立審查價值最高;特別盯=① own-only 歸屬閘必在 settleCharge 呼叫「前」② throttle durable + 真防 Record 放大(非 in-memory)③ settle-charge.ts 內部仍零變更 ④ throttle 若需新 migration=鐵則 8 另審 + db push 評估。
+
+
+---
+
+## 2026-06-21 S2b plan-raise 獨立驗證(審查側、Sean 橋接執行 session plan-raise 進來)
+
+**情境**:執行 session 讀完 kickoff,raise plan + 🔴 核心發現「throttle 不能重用 4a-2 sweeper 欄位、安全 throttle 必動一支 migration」+ Q1/Q2/Q3 給 Sean。審查側(本)獨立核實該發現,讓 Sean 在實證地基上拍板,不 rubber-stamp 執行側論證。
+
+**四根支柱、逐一核實 = 發現成立(CONFIRMED CORRECT)**:
+
+- **P0 throttle 必要**(地基)✅ — settle-charge.ts L68 step2 短路**只**在 `attempt.orderPaymentStatus === 'paid'`;pending 一律落 step3 L77 `tappay.recordQuery(...)` 真打 Record。L64 註解自證「已 paid → 不打 Record、省 §7 rate-limit」。→ pending 單每輪輪詢真放大 Record,throttle 真必要。
+- **P1 sweeper 欄位語意衝突**✅ — 20260615120001 4a-2:`settle_attempt_count` NOT NULL DEFAULT 0、唯一遞增點=claim(+1)、>=8 → `needs_manual_review`(durable 轉人工);`next_settle_at`=lease/退避到期(NULL=立即可掃)。輪詢端拿來寫 → 會員 spam 把計數器灌到 8 = 假人工告警(寫進 DB 的真傷害)+ 踩亂退避時點。
+- **P2 payment_confirmer 對該表零直接寫**✅ — 20260612150000 s2d:`REVOKE ALL ON TABLE payment_charge_attempts FROM PUBLIC, anon, authenticated`;末段 role-hygiene assert `role_table_grants=0 AND role_column_grants=0`(全域)。→ 只能經 SECURITY DEFINER RPC 動表,零直接 UPDATE 路徑。
+- **P3 既有 RPC 綁死 sweeper 語意、無可重用 throttle 路徑**✅ — `claim_stuck_unsettled_attempts`(必 +1 + 5min lease + age-gate)/ `mark_attempt_settle_retry`(token guard + 退避 + ceiling→manual)/ `begin_charge_attempt`(per-order 鎖)。皆非「per-order N 秒放行一次」throttle。→ 借任一欄都得新寫 RPC(P2)= 仍 migration。
+
+**結論**:B(幾秒無感)沒有「不動 migration」的安全做法。執行側提案(新獨立欄 `last_poll_settle_at` + 新窄權 RPC `claim_order_poll_settle`,原子 UPDATE…WHERE、SECDEF + search_path='' + schema-qualified、REVOKE all + GRANT payment_confirmer、has_function_privilege 矩陣 + role-hygiene assert)= 最小安全路、與 s2d/4a-2 既有模式一致。鐵則 8 升級正確。
+
+**審查側給 codex K2 的頭號盯點(預先記、待 S2b commit 落地驗)**:own-only 404 必在 `claimPollSettle` 被呼**之前**短路 — 因 claim 會寫 `last_poll_settle_at`,偽造他人 orderId 若先到 claim,即使最終不呼 settleCharge,也已對他人 attempt row 造成寫放大(write-amplification IDOR)。現行 S2 端點 own-only(`.eq('id').eq('customer_user_id').maybeSingle()`→404)在前,S2b 把 throttle+settle 疊在該 404 之後的 pending 分支 = 結構正確;K2 必逐字驗 order:getUser → own-only 404 → claimPollSettle → settleCharge,不得倒置。
+
+**紅線檢視(plan 層面)**:settle-charge.ts diff 仍空(只多 caller)✅;fail-closed(settleCharge throw / RPC throw → {status:'pending'} 不偽 paid)✅;回應仍只 {status} 零金額零 PII ✅;throttle durable(DB 非 in-memory)✅。plan 層面零紅線破口。
+
+**Q1/Q2/Q3 = Sean 業務決策**,審查側不代拍;技術前提已驗證為真,Sean 可在實證上拍板。
+
+---
+
+## 2026-06-21 S2b plan 對抗探針結果(審查側、5 視角 refute-by-default、Sean go 前保險)
+
+**Workflow** `wt59u0lwg`(5 agent 並行、唯讀、各擊破一條安全宣稱)→ **5/5 REFUTED、holes_found=0、blocking=0、overall=PLAN_SOUND_GREENLIGHT**。
+
+| 視角 | verdict | sev | 收斂要點 |
+|---|---|---|---|
+| B-breaking(幾秒無感被閘擋死?) | REFUTED | none | claim_order_poll_settle WHERE 逐行**無 created_at 年齡閘**(plan L99-108);四閘對全新 unpaid 單(count=0 DEFAULT / manual=false DEFAULT / 首 poll last_poll_settle_at IS NULL trivially true)全放行。年齡閘只在 sweeper claim_stuck(4a-2 L135),poll 零繼承。 |
+| Record 放大繞過 | REFUTED | low | 原子(row lock + EvalPlanQual 重評→窗邊界不雙放行)+ durable 欄 + Record 只在 claim=true 後可達 + per-user in-flight 閘擋跨單。誠實:charged-unpaid 卡態下 poll 每窗仍 1 次 Record 至客人停輪詢、poll 路徑無自身 ceiling(只惰性繼承 sweeper count<8)= 設計取捨、仍在「每窗 1 次、與分頁數無關」界內。 |
+| IDOR / 歸屬 | REFUTED | low | claimPollSettle+settleCharge 嚴格巢狀在 `s1==='unpaid'` 分支(plan L187-193);readOwnPaymentStatus 雙軸 own-only(.eq id+customer_user_id)查無→null→步驟4 404 短路,throttle/settle 未到達。RPC payment_confirmer-only(瀏覽器零 EXECUTE)。誠實:RPC 本身 user-agnostic、歸屬全靠端點閘(與 s2d 主軌信任模型一致)。 |
+| sweeper 干擾(4a-2 地盤) | REFUTED | none | poll RPC 唯一寫 last_poll_settle_at;對 count/next_settle_at/needs_manual_review 全唯讀閘。settleCharge 副作用(markCharged/markFailed/confirm)零觸 sweeper 四欄。poll unpaid 閘 ⟂ flag 的 NOT IN(unpaid,paid) 互斥→回收路徑完整。SKIP LOCKED 鎖競爭 benign + settleCharge 冪等。表無 trigger。 |
+| settle-charge 零變更+fail-closed+零 PII | REFUTED | none | 第四 caller 同簽名 settleCharge(deps,{orderId})、settle-charge.ts 零新分支;端點整包 try/catch 吞→skip,paid 只由 confirm 真寫(端點丟棄回值、重讀單欄 payment_status),不偽 paid/不偽 failed/不 500;回應永遠只 {status}、displayId/金額丟棄。誠實:正式無 RPC→fail-closed DB 噪音(已文件化、flag 鎖 + status75 無真流量)。 |
+
+**結論**:審查側三角度(inline schema 複核 + 4 支柱實證 + 5 視角對抗探針)全收斂 → **S2b plan 紮實、無擋 go 破口**。探針浮現的誠實 caveat(charged-unpaid 卡態 poll 噪音、poll 無自身 ceiling、正式 fail-closed 噪音)皆 plan 已揭示、severity low/none、非 blocking、列為 K2 落地後 forward 觀察點(非阻擋)。
+
+**K2 落地後盯點(承接)**:① own-only 404 嚴格在 claimPollSettle 之前(逐字驗 order)② throttle 原子性測證(並發/窗邊界不雙放行)③ settle-charge.ts git diff 空 ④ 回應零 PII 斷言不退化 ⑤ MCP 模擬 RPC 四閘 + grant 矩陣 + 零留痕。
+
+---
+
+## 2026-06-21 S2b e41aa00 關卡2 最終 sign-off = ✅ PASS(審查側、寫審分離 ROLE=A)
+
+**commit** `e41aa0058935c55dfeececfaa5f6a0ad4de84e6c`「feat(storefront): 3DS-S2b 輪詢端點主動 settleCharge + per-order throttle [m-3]」(Sean 2026-06-21 11:20、13 檔 +990 -66、未 push 未 merge)。
+
+**四個獨立角度全收斂 PASS、0 must-fix、0 安全破口**:
+
+1. **Claude 手動關卡2**:讀 route.ts/migration/adapter/port/兩測試;5 頭號盯點全過 —
+   - ① own-only 404 嚴格在 throttle 前:route.ts 步驟4 readOwnPaymentStatus first→notfound 404(L124-126)/paid 早返(L127-129);claimPollSettle 只在 `first.paymentStatus==='unpaid'`(L135-137);偽造他人單 L125 就 404 永不到 L137。**測試實證** route.test.ts L218-225(data null→404 且 throttle/settle 未呼)。
+   - ② throttle durable + 防放大:DB 欄 last_poll_settle_at(非 in-memory)+ 原子 UPDATE…RETURNING EXISTS;測試 L256-263(throttle false→settle 未呼)。
+   - ③ settle-charge.ts diff = **0 行**(紅線);PollOrderStatus.tsx + callback page 亦 0 行。
+   - ④ 零 PII:select 只 payment_status、回應只 {status};測試 L265-277 displayId 'PCM-LEAK-NO' 絕不入回應、`Object.keys===['status']`。
+   - settle 閘 raw `=== 'unpaid'`(L135;codex K1 must-fix#1)→ partiallyPaid/refunded 不觸發 settle。
+2. **獨立 MCP 交易模擬(hawk ⑤、此 RPC 未 db push 故唯一行為證據)**:BEGIN+套 S2b DDL+grant+role-hygiene assert+6 訂單 synthetic+ROLLBACK。**9/9 行為 PASS**:happy=true / 窗內第二次=false / paid=false / partiallyPaid=false / manual=false / ceiling(count=8)=false / 無 active attempt=false / 負秒 fail-closed=false / 窗外(11s>10s)=true。grant 矩陣(唯 payment_confirmer)+ role-hygiene(payment_confirmer 全域表/欄 grant=0、加欄未洩)assert 皆未 fire。**零留痕驗**:rpc/欄/synthetic residue=0、兩 whitelist 約束 ROLLBACK 還原=2。
+3. **codex K2 跨模型(gpt-5.5、read-only、零留痕)= VERDICT=PASS、0 finding**:7 點獨立核實(IDOR own-only / 零洩漏 / fail-closed / settle-charge.ts 零變更〔自跑 git diff〕/ durable throttle 無繼承 sweeper 年齡閘 / 權限矩陣+role-hygiene / 不污染 sweeper 只寫 last_poll_settle_at)。porcelain 前後零留痕。
+4. **(plan 階段)5 視角對抗探針 = 5/5 REFUTED**(B-breaking/Record 放大/IDOR/sweeper 干擾/settle-charge 零變更)。
+
+**獨立三綠**:typecheck 0 / lint 0 / **full vitest 1382 passed**(134 檔、實跑 9.95s;+14 = route S2b 7 + adapter 7)。
+**字面 vs 事實**:manifest CheckoutPage component + checkoutCallbackPolling override 皆改述 S2b 主動結算、S2 舊條目 inline 加註「S2b 起反轉」;route.ts 檔頭、adapter/port docstring 皆準確;repo-wide grep「不呼 settleCharge/只讀狀態」殘留命中全為 callback page IDOR 早返/paid 短路/throttle-false 等正確語境、無描述現行端點的 stale 宣稱。STATUS hash 全 ANCESTOR-OK(零 orphan)。manifest last_modified_commit=e7ff4eb=e41aa00 父=可達。
+**鐵則**:6(route.ts ~140<400)✅ / 8(migration:Sean 經 plan+codex K1 批)✅ / 11(三綠)✅ / 12(payment 讀路徑+會員可觸發 settleCharge 入口:四角度全驗)✅。
+
+**唯一非阻擋 cosmetic nit(不擋 sign-off)**:STATUS S2 子條目「不呼 settleCharge 只讀狀態」採 header 層 supersede(條目首「Sean Q1=B 已於 S2b 落地」)、未如 manifest 做 inline 加註;屬「凍結歷史快照+已加 supersede」符合紀律,理想可與 manifest 一致 inline 化但非必要。
+
+**forward 觀察(K2 後、非阻擋)**:① charged-unpaid 卡態下 poll 每窗仍 1 次 Record 至客人停輪詢、poll 路徑無自身 ceiling(只惰性繼承 sweeper count<8;輪詢窗內 count 恆=0)② 正式無 RPC→端點 fail-closed skip = 退回只讀,「幾秒無感」S6 db push 後才真生效(plan 已揭示)。
+
+**sign-off**:✅ PASS。審查側無保留。待 Sean:① 肉眼/語意確認 ② merge m3-3ds-s2→dev + push(Sean 手動)。migration db push 留 S6(Q2=A)。
