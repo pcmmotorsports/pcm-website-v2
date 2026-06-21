@@ -13,9 +13,15 @@
 //   為 async request-scoped(備軌需 await cookie client、round4 MF1、見該 factory JSDoc)。
 
 import 'server-only';
-import type { ITapPayAdapter, IPaymentConfirmer, IChargeAttemptStore, IWebhookInbox } from '@pcm/ports';
+import type {
+  ITapPayAdapter,
+  IPaymentConfirmer,
+  IChargeAttemptStore,
+  IWebhookInbox,
+  IPollSettleThrottle,
+} from '@pcm/ports';
 import type { SettleChargeDeps } from '@pcm/use-cases';
-// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
+// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
 import {
   TapPayChargeAdapter,
   PaymentConfirmerAdapter,
@@ -23,6 +29,7 @@ import {
   SupabaseChargeAttemptFallbackAdapter,
   ChargeAttemptStoreWithFallback,
   PgWebhookInboxAdapter,
+  PgPollSettleThrottleAdapter,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
@@ -135,4 +142,16 @@ export function getWebhookInbox(): IWebhookInbox {
  */
 export function getChargeAttemptReader(): IChargeAttemptStore {
   return new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
+}
+
+/**
+ * 建 IPollSettleThrottle(M-3 3DS-S2b;輪詢端點 payment-status route 主動 settleCharge 前的 per-order Record 限流)。
+ *
+ * 🔴 同 getSettleChargeDeps / getWebhookInbox 的 payment_confirmer 窄權鑰(`PAYMENT_CONFIRMER_DB_URL`、零新密鑰)
+ * + buildPgConfig 連線縱深;cookieless(輪詢端點 own-only 歸屬閘已用 user cookie 讀 orders、throttle 走窄權主軌)。
+ * 呼 3DS-S2b `claim_order_poll_settle` RPC(原子 throttle、閘對齊 4a-2 claim:unpaid + 非 manual + ceiling)。
+ * lazy(對齊既有 factory;N2 sweeper 不變式 — factory 必 lazy、env 在呼叫時才讀)。
+ */
+export function getPollSettleThrottle(): IPollSettleThrottle {
+  return new PgPollSettleThrottleAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
 }
