@@ -6218,6 +6218,51 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #245. 🛡️ client cart_session_id 讀取時補 UUID 格式驗證(防 localStorage 污染卡死結帳)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(自我 DoS / UX robustness;**非雙扣、非安全**——normal flow 永遠是 `crypto.randomUUID()` 合法值,server 對非法值已 fail-closed 拒)
+- **問題:**
+  - `CartContext.tsx` `readSessionId()`(L123-130)只驗 localStorage `pcm-cart-session-v1` **非空**、**未驗 UUID 格式**;mount 還原同款。
+  - 若該 key 被污染成「非空但非 UUID」(使用者刻意改 localStorage / 未來某 code 往 SESSION_KEY 寫進非 UUID),會被讀回當 `cartSessionId` 送 server。charge-actions ②d server 端 `UUID_RE` 驗 + 非空 fail-closed(L137-139)會安全拒絕(零扣款、零雙扣、零安全洞),但回 formError「請重新整理頁面後再試」。
+  - **重整不自癒:** 重新整理後 `readSessionId()` 又讀回**同一污染值** → 結帳恆 formError、卡死,直到手動清 localStorage 或清車。
+- **觸發事件(任一觸發即啟動實作):**
+  - 收到「結帳一直失敗、清快取/換瀏覽器才好」客訴;或未來新增任何往 `SESSION_KEY` 寫值的路徑(跨分頁同步 / 匯入 / migration)。
+- **預期解法:**
+  - `readSessionId()`(及 mount 還原)讀回值若不過 `UUID_RE` → 丟棄視同無 key(空車則 `null`、有品項則 `crypto.randomUUID()` 補生);沿用 charge-actions / callback 同層 `UUID_RE` 慣例(byte 一致)。
+- **不修會痛在:**
+  - 擴充性:未來任何往 `SESSION_KEY` 寫值的新路徑若寫進非 UUID,client 無自癒、直接卡結帳,且每條新寫入路徑都要各自記得守格式。
+  - 可維護性:client 與 server 對 key 合法性「標準不一致」(client 只非空 / server 要 UUID)= 沉默分歧,排查客訴要同時翻 client + server 兩層才看得出。
+  - bug 可追蹤性:卡死症狀(結帳恆 formError)不留 client log、不會自動跟「localStorage 污染」連起來,易誤判成 server / 金流 bug 往錯方向追。
+- **估時:** ~20-30 min(`readSessionId` + mount 還原加 UUID guard + smoke test;純 client、零後台、零 migration)
+- **依賴:** 無(CartContext 7a `d77a6e2` 已落地)
+- **發現於:** 2026-06-21 / 3DS-7 codex K2 審查(should;codex 自定性=自我 DoS / UX、非雙扣漏洞)
+- **相關:** `apps/storefront/src/contexts/CartContext.tsx`、`apps/storefront/src/app/checkout/charge-actions.ts`、`apps/storefront/src/app/checkout/callback/page.tsx`
+
+---
+
+### #246. 🧹 退役 usePlaceOrder / placeOrderAction 死碼清理(消「兩條 cart_session_id 來源語意並存」)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(死碼、生產零呼叫、非安全;清理 / 降誤用面)
+- **問題:**
+  - 唯一 live 結帳鏈 = `CheckoutView` → `useChargePayment` → `chargePaymentAction`(`CheckoutView.tsx:8` 註「usePlaceOrder 退役、本檔不再呼叫」)。
+  - `usePlaceOrder.tsx` + `placeOrderAction`(`app/checkout/actions.ts`)**生產零呼叫**(僅自身 + test 引用),其 `cart_session_id` 仍走 option A 的 server `randomUUID()`(`actions.ts:113`),且殘留舊註解「Phase II 3DS-7 改 client CartContext 產」(`actions.ts:111-113`)—— 3DS-7(7b `df04625`)後此字面已不成立(live 路徑早改 client key)。
+- **觸發事件(任一觸發即啟動實作):**
+  - ②-⑤ 結帳收尾評估;或有人誤改 / 誤接退役檔(兩條 cart_session_id 來源語意並存 = 易誤用)。
+- **預期解法:**
+  - grep 全 repo 確認 `usePlaceOrder` / `placeOrderAction` 無 live import(只剩自身 + test)後刪除該兩檔 + 對應 test;若有型別 / util 被 live 路徑共用則保留、其餘移除;一併消除 `actions.ts:111-113` 殘留舊註解。
+- **不修會痛在:**
+  - 擴充性:兩條建單路徑(live charge / 退役 place)語意分叉,未來改 cart_session_id / 建單契約要同步兩處,或只改一處留下不一致。
+  - 可維護性:退役檔殘留「3DS-7 將改 client」舊註解與事實相反,讀者會誤以為 server `randomUUID()` 是現行設計。
+  - bug 可追蹤性:`grep cartSessionId` 來源會同時命中 `randomUUID()`(退役)+ client key(live)兩處,排查雙扣 / 去重來源時是噪音、易追錯路徑。
+- **估時:** ~30-45 min(刪檔 + 清 test + 確認 live 無依賴 + 三綠)
+- **依賴:** 確認 `CheckoutView` 及全 repo 無 live import(grep 驗)
+- **發現於:** 2026-06-21 / 3DS-7 plan §6 範圍外(退役死碼候選)+ codex K2 nit(`actions.ts:111-113` 殘字)
+- **相關:** `apps/storefront/src/hooks/usePlaceOrder.tsx`、`apps/storefront/src/app/checkout/actions.ts`、`apps/storefront/src/components/CheckoutView.tsx`
+
+---
+
 ## 紀錄模板
 
 ```markdown
