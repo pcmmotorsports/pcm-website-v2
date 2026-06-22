@@ -204,8 +204,8 @@ export type OrderInvoice = {
  * - `shippingMethod`:配送方式(運費 RPC §7 自算、見 shipping.ts)
  * - `invoice`:發票
  * - `cartSessionId`:cart-instance idempotency key(uuid;3DS 跨分頁雙扣去重、對齊 0b p_cart_session_id
- *   null fail-closed)。**非價/非身分/非 tier**。option A(過渡、Sean 拍)= server placeOrderAction 內
- *   `randomUUID()` 產;Phase II 3DS-7 改 client CartContext 產(per-cart-instance 去重、backlog #3DS-7)。
+ *   null fail-closed)。**非價/非身分/非 tier**。現行(3DS-7、已上線)= client CartContext 持有的穩定 key
+ *   經 charge-actions chargePaymentAction 送 server(server 局部 UUID_RE 驗、非空 fail-closed;per-cart-instance 去重)。
  *
  * 🔴 鐵則 12:**無** customerId / tier / 任何價欄 —— 身分由 RPC server 端 `auth.uid()` 重查(零信任)、
  * 價 server 權威。client 永不送 userId / 價 / tier。

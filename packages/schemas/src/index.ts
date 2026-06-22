@@ -158,7 +158,7 @@ export type CheckoutInput = z.infer<typeof CheckoutInput>;
 // 對齊 create_order RPC(20260604130000):variant_id 走 `::uuid` cast → 此處 z.uuid() 比 RPC 更早 fail-closed;
 //    quantity 對齊 CartContext MAX_QTY=99;陣列長度上限 200 對齊 RPC >200 reject + resolveCartLines MAX_LINES。
 // 🔴 fail-closed 語意(寫入路徑 vs 顯示路徑 resolveCartLines):顯示路徑有變體缺 variantId → found:false 略過該行;
-//    寫入路徑(placeOrderAction)同情境 safeParse 失敗 → **REJECT 整單**(回 formError)、不可略過壞行續建單。
+//    寫入路徑(charge-actions chargePaymentAction 建單段)同情境 safeParse 失敗 → **REJECT 整單**(回 formError)、不可略過壞行續建單。
 export const PlaceOrderLinesInput = z
   .array(
     z.object({
