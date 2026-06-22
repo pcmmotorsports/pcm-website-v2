@@ -113,6 +113,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * - 顯式 `.eq('customer_user_id', customerId)` 應用層歸屬縱深(任一層失效另一層仍擋);
    * - 走注入的 authenticated/RLS client(零 service_role);
    * - 投影 `ORDER_LIST_SELECT` 白名單 + 內嵌 `order_items(quantity)`(只算件數、零價格/PII 欄)。
+   * - **隱藏 unpaid 孤兒單(#249 治標)**:`.neq('payment_status','unpaid')` 濾掉客人放棄付款後停留
+   *   unpaid 的孤兒單(對齊 Shopify 客人端:未付成不進訂單列表);orderCount(account/page 同源 `orders.length`)天然跟著對齊。
+   *   ⚠️ 前提=絕大多數 unpaid 皆「沒付成的孤兒」(PCM 現僅 TapPay 即時刷卡、無線下待付款單);未來加線下付款方式須重審。
+   *   ⚠️ 已知短暫窗:3DS 付成後到 settleCharge 翻 paid 之間,在途單短暫仍 unpaid 會被暫藏、對帳收斂(秒~分鐘)後自然顯示 —— 顯示層治標的可接受延遲、非孤兒、非本改引入的回歸。
+   *   治本(reuse / 學 Shopify 付成才建單)見 backlog #249。
    * 繞過 #217(摘要不含 items[])。error → throw(對齊 placeOrder/findTotal 慣例;caller try/catch 退空陣列、頁面不 500)。
    */
   async listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]> {
@@ -120,6 +125,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       .from('orders')
       .select(ORDER_LIST_SELECT)
       .eq('customer_user_id', customerId)
+      .neq('payment_status', 'unpaid') // #249 治標:藏放棄付款的 unpaid 孤兒單(前提=無線下待付款單)
       .order('created_at', { ascending: false });
     if (error) {
       throw error;

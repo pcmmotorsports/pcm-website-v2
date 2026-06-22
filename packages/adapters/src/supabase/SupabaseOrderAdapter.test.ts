@@ -121,14 +121,15 @@ describe('SupabaseOrderAdapter.findTotal', () => {
 });
 
 // ── listSummariesByCustomer:account 訂單列表讀(M-3、RLS own-only)──
-// mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).order('created_at', desc) 鏈;
+// mock from('orders').select(ORDER_LIST_SELECT).eq('customer_user_id', id).neq('payment_status','unpaid').order('created_at', desc) 鏈;
 // .order() 為終端、await 回 {data, error}。
 function makeListClient(result: { data: unknown; error: unknown }) {
   const order = vi.fn().mockResolvedValue(result);
-  const eq = vi.fn().mockReturnValue({ order });
+  const neq = vi.fn().mockReturnValue({ order });
+  const eq = vi.fn().mockReturnValue({ neq });
   const select = vi.fn().mockReturnValue({ eq });
   const from = vi.fn().mockReturnValue({ select });
-  return { client: { from } as unknown as SupabaseClient, from, select, eq, order };
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, neq, order };
 }
 
 describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守門', () => {
@@ -139,7 +140,7 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
   });
 
   it('查詢鏈 orders / select(ORDER_LIST_SELECT) / eq(customer_user_id) / order(created_at desc);row → OrderListItem', async () => {
-    const { client, from, select, eq, order } = makeListClient({
+    const { client, from, select, eq, neq, order } = makeListClient({
       data: [
         {
           id: 'o1',
@@ -158,6 +159,7 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
     // 🔴 N2:select 確實以 ORDER_LIST_SELECT(module const)被呼叫、非另傳 inline 字串
     expect(select).toHaveBeenCalledWith(ORDER_LIST_SELECT);
     expect(eq).toHaveBeenCalledWith('customer_user_id', 'c1'); // own-only 應用層縱深
+    expect(neq).toHaveBeenCalledWith('payment_status', 'unpaid'); // #249 治標:藏 unpaid 孤兒單
     expect(order).toHaveBeenCalledWith('created_at', { ascending: false }); // 新到舊(Q3)
     expect(res).toEqual([
       {

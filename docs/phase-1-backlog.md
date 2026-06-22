@@ -6306,6 +6306,32 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #249. 🏛️ 孤兒單治本架構議題(reuse 小補丁 vs 學 Shopify「付成才建單」大重構)
+
+- **狀態:** ⏳ 待評估(本次已做顯示層治標=會員列表藏 unpaid;治本兩方案待時機評估)
+- **優先級:** 🟠 中(prod 開放結帳前 / 流量起來前評估;現況顯示層已藏、客人端無感,非急)
+- **問題:**
+  - 現架構=客人按結帳當下、扣款**之前**就 INSERT 一筆正式 `orders`(`payment_status` DEFAULT `'unpaid'`;`charge-actions.ts:176` 先 placeOrder 後 charge)。客人放棄付款 → 該單**永久停 unpaid**(payment_status enum 僅 `unpaid/paid/partiallyPaid/refunded`、**無 cancelled/expired**、`20260604120000_...:50`),sweeper 只終結 attempt 不終結 order → DB 累積孤兒 unpaid 單。
+  - **本次已做(治標、顯示層)**:會員訂單列表 `listSummariesByCustomer` 加 `.neq('payment_status','unpaid')` 藏孤兒單(= Shopify 客人端體驗);但 DB 內孤兒單仍在(sweeper 標終態、不刪)。
+  - **安全前提**:藏 unpaid 僅在「絕大多數 unpaid 都是沒付成的孤兒」時正確 —— 現況 PCM 僅 TapPay 即時刷卡、無「下單後線下轉帳 / 貨到付款」之合法待付款單,前提成立;**未來若新增線下付款方式,此過濾須重審**(否則藏掉合法待付款單)。**已知短暫窗**:3DS 付成後到 `settleCharge` 翻 paid 之間在途單短暫仍 unpaid 會被暫藏、對帳收斂(秒~分鐘)後自然顯示 —— 顯示層治標的可接受延遲、非孤兒、非本次引入的回歸(`confirm_order_payment` 為 unpaid→paid 唯一寫路徑、`20260611120000`)。
+- **觸發事件(任一觸發即啟動評估):**
+  - prod 真實開放刷卡前;或真流量上來孤兒單堆積、sweeper / Record API 對帳成本顯著;或要重做付款系統(與 3DS「放棄交易重買」parked 線一起當「付款系統 v2」升級時)。
+- **預期解法(兩方案、傾向互斥擇一):**
+  - **方案 A(reuse 小補丁、在「先建單」架構內治本)**:`create_order` 對同 `(customer_user_id, cart_session_id)` + 同購物車內容 → 回既有 unpaid 單、不每次建新孤兒(3DS-7 cart_session_id 已建半套防重基礎)。少建,但「真放棄」殘留仍在;動 create_order RPC(鐵則 8/12)。
+  - **方案 B(學 Shopify、付成才建正式 order)**:付款成功才把訂單升級成正式 `orders`,未付款用一個不算正式訂單的中間態(pre-order / checkout 物件)承載(購物車內容 / 金額 / 地址快照 / cart dedup 記憶)。從根本消滅孤兒單 + 列表天然乾淨(= Shopify 官方模型:third-party gateway「orders are created as soon as Shopify receives payment confirmation」、未付款=abandoned checkout 不進客戶訂單歷史)。
+  - **B 影響面(2026-06-22 唯讀偵察實證、結構性深度依賴)**:整套 3DS 對帳脊椎建立在「order 付款前已存在」之上 → `order_id` 當 `order_number` 送 TapPay 為唯一對帳鍵(`TapPayChargeAdapter.ts:91/162`)、`payment_charge_attempts.order_id NOT NULL REFERENCES orders(id)` 硬 FK、callback / webhook / sweeper 三路全持 order_id 回查既有 order、`begin_charge_attempt` cart 防雙扣靠反查既有 order rows、`settleCharge` 靠 orderId 只更新不建單、`confirm_order_payment` PF-D「order 不存在→拒」。改 B=反轉建單與付款因果 + 重定對帳主鍵 + 拆 attempt↔orders FK,涉 `charge-actions.ts` + initiate / confirm / settle / sweep 四 use-case + callback / webhook / sweeper 三路 + ≥5 RPC + 2 表 ≈ 整個 3DS 子系統。最高等級重大改動(獨立 plan + codex 雙關卡 + Sean 批)。
+  - **⚠️ 澄清**:方案 B 消滅「孤兒單 / 列表雜訊」(資料模型乾淨度),**不消滅 TapPay 雙扣牆**(放棄的 3DS 授權之後能否被扣=TapPay 端授權生命週期、與建單時機無關)。別期待 B 解決雙扣。
+- **不修會痛在:**
+  - 擴充性:維持「先建單」+ reuse 補丁,每加一條付款功能(放行重買 / 多付款方式)都要在 unpaid 卡單併發症上打補丁;走 B 則這類問題從根本變簡單。
+  - 可維護性:孤兒 unpaid 與真訂單同表混居,報表(轉換率 / 客單價)、客服查單、後台列表(#225 admin 線)長期帶「過濾 unpaid」隱性負擔。
+  - bug 可追蹤性:「未付款」一直借正式 order 表達,卡 unpaid 的各種成因(放棄 / 對帳延遲 / 卡拒)混在同表同狀態,難一眼分辨。
+- **估時:** 方案 A ~2-4h(改 create_order RPC + reuse 裁決 + MCP 模擬 + 鐵則 8/12 plan + codex);方案 B = 大型重構(多 slice、付款系統 v2 等級、專屬 plan + 完整 codex + Sean 批)
+- **依賴:** 3DS 對帳脊椎現況(settleCharge / payment_charge_attempts / create_order)、cart_session_id 防重(3DS-7)、Sean 對「付款系統 v2」時機拍板
+- **發現於:** 2026-06-22 / 3DS「放棄交易重買」探索副產品 + Shopify(Evotech)PayPal 流程對照 + 唯讀架構偵察(建單時機 / 對帳依賴 / 中間態零件盤點)
+- **相關:** #225(admin 後台 unpaid 殭屍單清理、同源問題不同 surface)、`docs/specs/2026-06-22-m3-3ds-abandoned-reorder-refund-design.md` §3、`docs/handoff/2026-06-22-3ds-abandoned-reorder-tappay-blocked-handoff.md`、`packages/use-cases/src/settle-charge.ts`、`apps/storefront/src/app/checkout/charge-actions.ts`
+
+---
+
 ## 紀錄模板
 
 ```markdown
