@@ -5,7 +5,7 @@
 // 直接搬 design-reference/components/CheckoutPage.jsx(L163-694、鐵則 1 字面)。
 // e1 範圍:結帳殼 + 3 步指示器 + Step1(收件地址選擇 + 配送方式)+ mobile buybar;
 //   Step2(發票 / 付款)= e2、Step3(確認複查)= e3a;右側摘要 ②-④b 抽 CheckoutSummaryAside(鐵則 6)。
-// ②-④b 成交流程(取代 e3b 純建單;usePlaceOrder 退役、本檔不再呼叫):
+// ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
 //   Step3 付款方式複查 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
 //   只在 step===3 啟用 setup)→ 確認付款 = getPrime → useChargePayment.submit(chargePaymentAction:
 //   server cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)→ 結果映 UI:

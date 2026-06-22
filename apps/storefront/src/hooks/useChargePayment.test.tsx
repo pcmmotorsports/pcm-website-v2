@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// useChargePayment hook test(M-3 ②-④b;鏡像 usePlaceOrder.test 鎖回歸防線 + 六態映射/清車政策)。
+// useChargePayment hook test(M-3 ②-④b;鎖回歸防線 + 六態映射/清車政策)。
 // 驗:
 // ① 🔴 連點兩次只呼叫一次 chargePaymentAction(inFlightRef 同步原子鎖);paid 終態保持上鎖 + 清車一次。
 // ② processing → 清車 + 終態保持上鎖(勿重複付款)。

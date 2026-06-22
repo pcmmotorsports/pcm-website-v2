@@ -2,10 +2,10 @@
 
 // useChargePayment.tsx — 結帳刷卡 client hook(M-3 ②-④b;.tsx 取 react-hooks 規則守門)
 //
-// 取代 usePlaceOrder 接 chargePaymentAction(②-③e):getPrime(呼叫端先取)→ 送 charge 整鏈
+// 接 chargePaymentAction(②-③e):getPrime(呼叫端先取)→ 送 charge 整鏈
 // (server:cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)→ 六態映 client state。
 //
-// 鏡像 usePlaceOrder 紀律:
+// 送出紀律:
 // - 🔴 inFlightRef 同步原子鎖防重複送出(client 第一道;真防線 = server per-order 鎖 + per-user 閘)。
 // - client fail-closed:缺 variantId 整單拒;零價(lines 只 {variantId, quantity})。
 // - 終態鎖:paid / processing / unknown 保持上鎖(畫面取代表單);error / wait / in_flight 釋放
@@ -69,7 +69,7 @@ const MSG_UNKNOWN = '付款狀態未知,請勿重複付款,客服 LINE 將協助
 export function useChargePayment(): UseChargePayment {
   const { items, clear, cartSessionId, regenerateCartSession } = useCart();
   const [state, setState] = useState<ChargeState>({ status: 'idle' });
-  // 🔴 同步原子鎖(鏡像 usePlaceOrder;快速雙擊在 re-render disabled 生效前被同步擋)。
+  // 🔴 同步原子鎖(快速雙擊在 re-render disabled 生效前被同步擋)。
   const inFlightRef = useRef(false);
 
   async function submit(args: ChargeArgs): Promise<boolean> {

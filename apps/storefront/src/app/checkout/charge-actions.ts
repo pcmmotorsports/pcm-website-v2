@@ -6,7 +6,7 @@
 // 前端契約 = { addressId, shippingMethod, invoice, lines, prime } —— **零價、零 cardholder、零 orderId**
 // (client 多塞的鍵一律不讀;金額 = server read-back orders.total 單一來源;cardholder = server 組裝)。
 //
-// 信任邊界(鏡像 placeOrderAction 五層、新增付款層):
+// 信任邊界(五層 + 付款層;沿用 addAddressAction 既有五層信任邊界 pattern):
 // - ① server session getUser:純登入 gate(不把 user.id 傳進建單 use-case;身分由 create_order RPC
 //      auth.uid() 重查)。user.id/email 只餵 cardholder 組裝(本就 server session 權威值)。
 // - ② CheckoutInput + PlaceOrderLinesInput + TapPayPrimeInput 三段 safeParse(strip 未知欄)。
@@ -59,9 +59,9 @@ import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/c
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import type { CheckoutFieldErrors } from './actions';
+import type { CheckoutFieldErrors } from './checkout-form-types';
 
-// 🔴 3DS-7:cart_session_id 局部 uuid 驗(不改共用 CheckoutInput〔placeOrderAction 退役不動〕;沿用
+// 🔴 3DS-7:cart_session_id 局部 uuid 驗(不改共用 CheckoutInput;沿用
 //   callback/page.tsx 同層 UUID_RE 慣例 —— storefront 無 zod 直接依賴,不引 z.uuid 避脆弱 transitive import)。
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -100,7 +100,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
 
   const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 
-  // ②a CheckoutInput(鏡像 placeOrderAction;只驗 addressId/shippingMethod/invoice、strip 未知欄)。
+  // ②a CheckoutInput(只驗 addressId/shippingMethod/invoice、strip 未知欄)。
   const parsedCheckout = CheckoutInput.safeParse({
     addressId: raw.addressId,
     shippingMethod: raw.shippingMethod,

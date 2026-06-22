@@ -4,7 +4,7 @@
 //
 // 直接搬 design-reference/components/CheckoutPage.jsx Step3(L506-594、鐵則 1 字面)。
 // 由 CheckoutView 在 step === 3 時渲染;presentational 收 props,送出/建單(submitOrder)+
-// 送出按鈕在 CheckoutView 的 co-actions(e3b 接 placeOrderAction)。
+// 送出按鈕在 CheckoutView 的 co-actions(②-④b 接 chargePaymentAction 刷卡)。
 //
 // 四 readonly 複查區塊(收件 / 付款 / 發票 / 商品)+ 編輯鈕跳回對應步驟 + 同意條款。
 //
