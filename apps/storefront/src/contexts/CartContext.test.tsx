@@ -278,4 +278,27 @@ describe('CartContext / cartSessionId(3DS-7 7a)', () => {
     expect(result.current.items).toHaveLength(0);
     expect(result.current.cartSessionId).toBe(key);
   });
+
+  it('#245:SESSION_KEY 被污染成非 UUID + 有品項 → 丟棄污染值、mount 補生合法 uuid 並覆寫(自癒)', () => {
+    // 模擬使用者亂改 localStorage / 未來誤寫路徑寫進非 UUID 值
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([{ productId: 'a', qty: 1, variantId: 'v1' }]),
+    );
+    window.localStorage.setItem(SESSION_KEY, 'not-a-uuid-garbage');
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.items).toHaveLength(1);
+    // 污染值被丟棄、補生合法 uuid(非原污染字串)
+    expect(result.current.cartSessionId).toMatch(UUID_RE);
+    expect(result.current.cartSessionId).not.toBe('not-a-uuid-garbage');
+    // 自癒持久化:localStorage SESSION_KEY 已被合法 uuid 覆寫 → 重整不再讀回污染值、結帳不卡死
+    expect(window.localStorage.getItem(SESSION_KEY)).toMatch(UUID_RE);
+  });
+
+  it('#245:SESSION_KEY 被污染 + 空車 → cartSessionId 維持 null(不無中生有 key)', () => {
+    window.localStorage.setItem(SESSION_KEY, 'garbage');
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.items).toHaveLength(0);
+    expect(result.current.cartSessionId).toBeNull();
+  });
 });

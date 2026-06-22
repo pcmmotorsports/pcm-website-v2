@@ -50,6 +50,9 @@ import {
 
 const STORAGE_KEY = 'pcm-cart-mock-v2';
 const SESSION_KEY = 'pcm-cart-session-v1'; // 3DS-7 cart-instance idempotency key(獨立、與品項 key 分開)
+// #245:cart_session_id 讀回格式守門(inline 重複、對齊 charge-actions / callback 同層 UUID_RE 慣例;
+//   storefront 無 zod 直接依賴,不引 z.uuid 避脆弱 transitive import)。
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_QTY = 99;
 
 export type CartLineKey = {
@@ -127,7 +130,10 @@ function readSessionId(): string | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.localStorage.getItem(SESSION_KEY);
-    return typeof raw === 'string' && raw.length > 0 ? raw : null;
+    // 🔴 #245:只信任 UUID 格式(對齊 charge-actions / callback server 端 UUID_RE fail-closed)。
+    //   非 UUID 污染值(使用者亂改 localStorage / 未來誤寫 SESSION_KEY 的新路徑)→ 丟棄視同無 key,
+    //   交 mount `?? 補生` + writeSessionId 覆寫自癒;否則重整恆讀回污染值 → server 拒 → 結帳卡死不自癒。
+    return typeof raw === 'string' && UUID_RE.test(raw) ? raw : null;
   } catch {
     return null;
   }
