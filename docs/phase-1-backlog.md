@@ -6120,7 +6120,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** ~20-30 min(前端驗證 + server 驗 + 測 + 肉眼驗)
 - **依賴:** `CheckoutView` / `charge-actions`
 - **發現於:** 2026-06-20 / sandbox 3DS E2E 實測(Sean 觀察)
-- **相關:** `apps/storefront/src/components/CheckoutView.tsx`、`apps/storefront/src/app/checkout/charge-actions.ts`
+- **相關:** `apps/storefront/src/components/CheckoutView.tsx`、`apps/storefront/src/app/checkout/charge-actions.ts`、[[#250]](雙扣告警、同屬上線前 gate)、`docs/reviews/2026-06-24-gemini-payment-flow-third-eye-review.md`(Gemini 第三眼確認此為上線前必補)
 
 ---
 
@@ -6329,6 +6329,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 3DS 對帳脊椎現況(settleCharge / payment_charge_attempts / create_order)、cart_session_id 防重(3DS-7)、Sean 對「付款系統 v2」時機拍板
 - **發現於:** 2026-06-22 / 3DS「放棄交易重買」探索副產品 + Shopify(Evotech)PayPal 流程對照 + 唯讀架構偵察(建單時機 / 對帳依賴 / 中間態零件盤點)
 - **相關:** #225(admin 後台 unpaid 殭屍單清理、同源問題不同 surface)、`docs/specs/2026-06-22-m3-3ds-abandoned-reorder-refund-design.md` §3、`docs/handoff/2026-06-22-3ds-abandoned-reorder-tappay-blocked-handoff.md`、`packages/use-cases/src/settle-charge.ts`、`apps/storefront/src/app/checkout/charge-actions.ts`
+
+---
+
+### #250. 🔔 雙扣 anomaly / refunding 缺主動推播告警(pull→push、上線前營運就緒)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(上線前必補;prod 開放結帳前 gate)
+- **分流標籤:** `P1-before-launch`
+- **問題:**
+  - 3DS 乙路退款版(canonical plan v9)雙扣偵測 + 退款 lifecycle 資料齊全(`released→charged` 同交易建 open anomaly §4 R1b1c、W1 報表 §7 列 open + SLA/責任人欄),但整份 plan **grep 不到任何 email/Line/Slack 主動推播** = pull-based(「有空才查報表」)。§14 step45 監控指上線後 flag-rollback 運維、非雙扣客訴黃金期的營運推播 → 雙扣發生時 Sean 不會被通知、只能自己查。
+  - 同源殘餘(A1/A2):`refunding` 卡逾 SLA(人工退款未閉環)、`released_manual_review_at` / 連續 `record_unreachable` / 12h 孤兒等「死卡列」plan 只寫成欄位/旗標,**未指定誰用什麼介面看見**。
+- **觸發事件(任一觸發即啟動實作):**
+  - anomaly/refund 子系統(R1b1a-c + W1)實作時;或 prod 開放 `TAPPAY_3DS_ENABLED=true` 前(rollout gate);最遲 = anomaly/refund dedicated PRD(§14 step11-12)建立時一併納入。
+- **預期解法:**
+  - 沿用既有 settle-sweep cron pattern(`app/api/cron/settle-sweep` + `CRON_SWEEPER_ENABLED` gate)加一條排程查詢:`open anomaly 數 > 0` 或 `refunding 逾 SLA 時數` 或死卡列 → 自動發 email/Line/Slack 給 Sean。**不動 anomaly 表 RPC 安全層**(anomaly 表 append-only + owner/postgres 受控,告警走 owner-run 查詢)。A1/A2 死卡固定查詢同 cron/SQL pattern 一起做。
+  - **Sean 決策題:** 報表 only vs 報表 + 主動推播(Gemini 強烈建議 +推播、防錯過客訴黃金期;傾向 +推播=輕量 cron 不動安全層)。
+  - **明確否決** Gemini 第二建議「把 auto-refund Refund API 提前」= 與 §0 Q1 拍板「過渡走手動 Dashboard、Refund API 上線前 backlog」衝突,為罕見路徑提前自動化是反決策過度投資。
+- **不修會痛在:**
+  - 擴充性:雙扣/卡死偵測有了但無觸達層,每加一種異常都要 Sean 記得手動巡查,無法規模化。
+  - 可維護性:罕見雙扣窗一旦發生、營運靠人工巡查易漏,客訴黃金期過了才發現 → 公關/退款糾紛。
+  - bug 可追蹤性:死卡(record_unreachable / 12h 孤兒 / refunding 卡住)只在 DB 欄位、無人主動看見 = 沉默故障,出事才回溯。
+- **估時:** ~30-45 min(cron 查詢 + 推播 webhook + 測;與 A1/A2 死卡查詢同 pattern 可合併)
+- **依賴:** anomaly/refund 子系統(R1b1a-c / W1)先實作;Sean 決策(報表 only vs +推播);通知管道(Line Notify / email / Slack webhook)選定
+- **發現於:** 2026-06-24 / Gemini 金流第三眼審查 + Claude 11-agent triage(canonical plan v9 過 Codex round11 後)
+- **相關:** canonical plan §7/W1 + §14 step11-12、[[#241]](同意條款 server 驗、同屬上線前 gate)、`docs/reviews/2026-06-24-gemini-payment-flow-third-eye-review.md`、`app/api/cron/settle-sweep`、`packages/use-cases/src/settle-charge.ts`
 
 ---
 
