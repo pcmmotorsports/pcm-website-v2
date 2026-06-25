@@ -56,3 +56,12 @@ export { PgWebhookInboxAdapter, type WebhookInboxError } from './payment/PgWebho
 // M-3 3DS-S2b:PgPollSettleThrottleAdapter 走 server-only subpath(輪詢端點主動 settleCharge 的 per-order Record
 // 限流、payment_confirmer 同鑰、複用 buildPgConfig、呼 3DS-S2b claim_order_poll_settle RPC;同紀律 pg 不進 root barrel)。
 export { PgPollSettleThrottleAdapter } from './payment/PgPollSettleThrottleAdapter';
+
+// M-3 3DS 乙路 R2b-1:立即重刷 preflight 兄弟單反查 + release CAS 兩 adapter(server-only subpath)。
+// SupabaseSiblingLookupAdapter = authenticated own-only(find_active_sibling_own、需 user JWT、同 fallback 紀律);
+// PgReleaseSiblingAdapter = payment_confirmer 窄權(mark_charge_attempt_released_for_user、複用 buildPgConfig、pg 不進 root barrel)。
+export {
+  SupabaseSiblingLookupAdapter,
+  SiblingLookupParseError,
+} from './payment/SupabaseSiblingLookupAdapter';
+export { PgReleaseSiblingAdapter, type ReleaseSiblingError } from './payment/PgReleaseSiblingAdapter';

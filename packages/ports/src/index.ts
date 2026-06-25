@@ -13,6 +13,8 @@ export type * from './ISheetsAdapter';
 export type * from './ITapPayAdapter';
 export type * from './IPaymentConfirmer';
 export type * from './IChargeAttemptStore';
+export type * from './ISiblingLookup';
+export type * from './IReleaseSibling';
 export type * from './IWebhookInbox';
 export type * from './IPollSettleThrottle';
 

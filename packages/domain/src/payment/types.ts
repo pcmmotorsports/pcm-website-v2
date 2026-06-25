@@ -465,7 +465,9 @@ export type SettleChargeOutcome =
  * authenticated own-only 反查「同 cart_session_id 是否已有兄弟單」,放在 placeOrder **之前**(否則新單先建=孤兒):
  * - `none`:無兄弟單 → proceed 建新單重刷。
  * - `paid`:兄弟單已付款 → 顯既有單(零雙扣、不建新單、不 release);不強迫帶 attempt_id。
- * - `active`:兄弟單有 active(pending|charged|released)attempt → settleCharge(existingOrderId)裁決後決定 release/hold。
+ * - `active`:兄弟單有 active(**pending|charged**)attempt → settleCharge(existingOrderId)裁決後決定 release/hold。
+ *   🔴 **不含 released**:`find_active_sibling_own` JOIN 只 pending|charged(§4 R1a2),鏡像 begin dedup/user_in_flight
+ *   排除 released(§2.2 表)—— released = 「退出去重鎖、不卡重刷」,由 sweeper/S2b 背景對帳、不經 preflight。
  *
  * 🔴 **資料最小化(round6 一)**:`active` 分支**不含** `recTradeId`/`bankTransactionId` —— 金流交易識別碼
  * 絕不下放 authenticated/browser;settleCharge(existingOrderId)本就由 payment_confirmer 的
