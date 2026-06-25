@@ -483,6 +483,46 @@ export type SiblingLookupResult =
   | { kind: 'paid'; existingOrderId: string; displayId: string }
   | { kind: 'active'; existingOrderId: string; attemptId: string; displayId: string };
 
+/**
+ * PreflightReleaseSiblingInput:立即重刷 preflight use-case 輸入(M-3 3DS 乙路 R2b-2、canonical §2.3)。
+ *
+ * `userId` = server 驗過的登入態(release CAS 四閘 `customer_user_id` 比對、**不信 client**);
+ * `cartSessionId` = 穩定 client cart key(siblingLookup own-only filter、release CAS 四閘 `cart_session_id` 比對)。
+ */
+export type PreflightReleaseSiblingInput = {
+  userId: string;
+  cartSessionId: string;
+};
+
+/**
+ * PreflightReleaseSiblingOutcome:立即重刷 preflight use-case 結果(M-3 3DS 乙路 R2b-2、canonical §2.3)。
+ * action 層〔R3 chargePaymentAction〕在 **placeOrder 之前**據此分岔(否則新單先建=孤兒)。
+ *
+ * - `proceed`:可安全建新單重刷 —— 無兄弟單(none)/ active 經 settle 確認 `auth_or_pending(4)` 且 release CAS
+ *   成功 / settle `failed`(已 markFailed 確定 -1/5 未成交、鎖已釋)/ settle `no_attempt`(無 active、必然未扣款)。
+ *   🔴 `failed`/`no_attempt`→proceed = Sean 2026-06-25 Q2=A 拍(確定未成交 → 放行安全)。
+ * - `existing_paid`:兄弟單已付款(siblingLookup `paid` / settle `paid`)→ 顯既有單、不建新單(零雙扣)。
+ * - `hold`:不確定 → 「確認中、稍候」(不建新單、不放行)。`reason`(遙測):
+ *   - `lookup_unreachable`:siblingLookup throw(查不到兄弟單 → fail-closed 不建新單避免孤兒/雙扣)。
+ *   - `settle_unreachable`:settle 非預期 throw(settleCharge 契約本應 fail-closed 回 pending、此為縱深)。
+ *   - `released_failure_observed` / `record_unreachable` / `record_unverified`:settle 回對應 pending reason(§2.5)。
+ *   - `release_unreachable`:releaseSibling throw(CAS 連線層失敗 → fail-closed)。
+ *   - `release_lost_race`:release CAS rowcount=0(被 markCharged 搶先/他 tab)後重 settle 仍非 paid(§2.3:不建新單)。
+ */
+export type PreflightHoldReason =
+  | 'lookup_unreachable'
+  | 'settle_unreachable'
+  | 'released_failure_observed'
+  | 'record_unreachable'
+  | 'record_unverified'
+  | 'release_unreachable'
+  | 'release_lost_race';
+
+export type PreflightReleaseSiblingOutcome =
+  | { kind: 'proceed' }
+  | { kind: 'existing_paid'; existingOrderId: string; displayId: string }
+  | { kind: 'hold'; reason: PreflightHoldReason };
+
 // ── M-3 3DS-2:②-⑥ webhook durable inbox 入口 ─────────────────────────────────────────────────
 
 /**

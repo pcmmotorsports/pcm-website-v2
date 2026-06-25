@@ -53,3 +53,11 @@ export {
   type SweepSettlementsOptions,
   type SweepSettlementsResult,
 } from './sweep-settlements';
+
+// M-3 3DS 乙路 R2b-2:立即重刷 preflight use-case(preflightReleaseSibling、§2.3 狀態機;
+// siblingLookup → settle → release/hold/proceed;R3 chargePaymentAction placeOrder 前呼。
+// Input/Outcome 型別在 @pcm/domain payment/types.ts、從 @pcm/domain 取)。
+export {
+  preflightReleaseSibling,
+  type PreflightReleaseSiblingDeps,
+} from './preflight-release-sibling';
