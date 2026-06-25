@@ -86,6 +86,8 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     // 3DS-5b initiate 寫入 port 方法;sweepSettlements 不呼用、stub 滿足介面。
     recordInitiationBankTxn: vi.fn(async () => {}),
     recordInitiationRec: vi.fn(async () => {}),
+    // R2a released failure observation port 方法;sweepSettlements 不直接呼(settleCharge released branch 在 R2b)、stub 滿足介面。
+    recordReleasedFailureObservation: vi.fn(async () => {}),
     ...over,
   };
 }

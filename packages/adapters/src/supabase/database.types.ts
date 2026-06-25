@@ -2,7 +2,7 @@
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
-// 反映 LIVE prod schema(2026-06-17 db push 整 3DS bundle〔0a→4a-2〕後重 gen = 5-param create_order + cart_session_id + 3DS 表/RPC)。
+// 反映 LIVE prod schema(2026-06-25 R1 migration bundle〔S2b + R1a1–R1c3〕db push 後重 gen = released 狀態/生命週期欄 + 雙扣 anomaly 兩表 + release/observation/anomaly/close RPC;M-3 3DS 乙路 R2a)。
 export type Json =
   | string
   | number
@@ -426,13 +426,21 @@ export type Database = {
           bank_transaction_id: string | null
           created_at: string
           customer_user_id: string
+          failure_observed_at: string | null
+          failure_observed_status: number | null
           fallback_token_hash: string
           id: string
+          last_poll_settle_at: string | null
           last_settle_error: string | null
           needs_manual_review: boolean
           next_settle_at: string | null
           order_id: string
           rec_trade_id: string | null
+          released_at: string | null
+          released_close_resolution: string | null
+          released_closed_at: string | null
+          released_closed_by: string | null
+          released_manual_review_at: string | null
           settle_attempt_count: number
           status: string
           updated_at: string
@@ -441,13 +449,21 @@ export type Database = {
           bank_transaction_id?: string | null
           created_at?: string
           customer_user_id: string
+          failure_observed_at?: string | null
+          failure_observed_status?: number | null
           fallback_token_hash: string
           id?: string
+          last_poll_settle_at?: string | null
           last_settle_error?: string | null
           needs_manual_review?: boolean
           next_settle_at?: string | null
           order_id: string
           rec_trade_id?: string | null
+          released_at?: string | null
+          released_close_resolution?: string | null
+          released_closed_at?: string | null
+          released_closed_by?: string | null
+          released_manual_review_at?: string | null
           settle_attempt_count?: number
           status?: string
           updated_at?: string
@@ -456,13 +472,21 @@ export type Database = {
           bank_transaction_id?: string | null
           created_at?: string
           customer_user_id?: string
+          failure_observed_at?: string | null
+          failure_observed_status?: number | null
           fallback_token_hash?: string
           id?: string
+          last_poll_settle_at?: string | null
           last_settle_error?: string | null
           needs_manual_review?: boolean
           next_settle_at?: string | null
           order_id?: string
           rec_trade_id?: string | null
+          released_at?: string | null
+          released_close_resolution?: string | null
+          released_closed_at?: string | null
+          released_closed_by?: string | null
+          released_manual_review_at?: string | null
           settle_attempt_count?: number
           status?: string
           updated_at?: string
@@ -473,6 +497,128 @@ export type Database = {
             columns: ["order_id"]
             isOneToOne: false
             referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_double_charge_anomalies: {
+        Row: {
+          amount: number
+          cart_session_id: string
+          charged_at: string
+          created_at: string
+          id: string
+          old_attempt_id: string
+          old_order_id: string
+          rec_trade_id: string
+          refund_claimed_at: string | null
+          refund_claimed_by: string | null
+          refund_provider_reference: string | null
+          refund_target_rec_trade_id: string
+          released_at: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          cart_session_id: string
+          charged_at: string
+          created_at?: string
+          id?: string
+          old_attempt_id: string
+          old_order_id: string
+          rec_trade_id: string
+          refund_claimed_at?: string | null
+          refund_claimed_by?: string | null
+          refund_provider_reference?: string | null
+          refund_target_rec_trade_id: string
+          released_at: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          cart_session_id?: string
+          charged_at?: string
+          created_at?: string
+          id?: string
+          old_attempt_id?: string
+          old_order_id?: string
+          rec_trade_id?: string
+          refund_claimed_at?: string | null
+          refund_claimed_by?: string | null
+          refund_provider_reference?: string | null
+          refund_target_rec_trade_id?: string
+          released_at?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_attempt_id_fkey"
+            columns: ["old_attempt_id"]
+            isOneToOne: true
+            referencedRelation: "payment_charge_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payment_double_charge_anomalies_old_order_id_fkey"
+            columns: ["old_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payment_double_charge_anomaly_events: {
+        Row: {
+          actor_session_role: string
+          anomaly_id: string
+          created_at: string
+          event_type: string
+          from_status: string | null
+          id: string
+          note: string
+          provider_reference: string | null
+          to_status: string | null
+        }
+        Insert: {
+          actor_session_role: string
+          anomaly_id: string
+          created_at?: string
+          event_type: string
+          from_status?: string | null
+          id?: string
+          note: string
+          provider_reference?: string | null
+          to_status?: string | null
+        }
+        Update: {
+          actor_session_role?: string
+          anomaly_id?: string
+          created_at?: string
+          event_type?: string
+          from_status?: string | null
+          id?: string
+          note?: string
+          provider_reference?: string | null
+          to_status?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_double_charge_anomaly_events_anomaly_id_fkey"
+            columns: ["anomaly_id"]
+            isOneToOne: false
+            referencedRelation: "payment_double_charge_anomalies"
             referencedColumns: ["id"]
           },
         ]
@@ -918,6 +1064,10 @@ export type Database = {
     Functions: {
       begin_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
       charge_attempt_token_hash: { Args: { p_token: string }; Returns: string }
+      claim_double_charge_anomaly_for_refund: {
+        Args: { p_anomaly_id: string }
+        Returns: Json
+      }
       claim_due_webhook_events: {
         Args: { p_limit: number }
         Returns: {
@@ -926,6 +1076,10 @@ export type Database = {
           rec_trade_id: string
         }[]
       }
+      claim_order_poll_settle: {
+        Args: { p_order_id: string; p_throttle_seconds: number }
+        Returns: boolean
+      }
       claim_stuck_unsettled_attempts: {
         Args: { p_age_seconds: number; p_limit: number }
         Returns: {
@@ -933,6 +1087,10 @@ export type Database = {
           order_id: string
           settle_attempt_count: number
         }[]
+      }
+      close_released_attempt: {
+        Args: { p_attempt_id: string; p_resolution: string }
+        Returns: Json
       }
       confirm_order_payment: {
         Args: { p_amount: number; p_order_id: string; p_rec_trade_id: string }
@@ -950,6 +1108,10 @@ export type Database = {
       }
       expire_stuck_attempts_at_ceiling: { Args: never; Returns: number }
       expire_webhook_events_at_ceiling: { Args: never; Returns: number }
+      find_active_sibling_own: {
+        Args: { p_cart_session_id: string }
+        Returns: Json
+      }
       flag_non_unpaid_active_attempts: {
         Args: { p_limit: number }
         Returns: number
@@ -985,6 +1147,14 @@ export type Database = {
         Args: { p_attempt_id: string; p_order_id: string }
         Returns: undefined
       }
+      mark_charge_attempt_released_for_user: {
+        Args: {
+          p_attempt_id: string
+          p_cart_session_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       mark_webhook_processed: {
         Args: { p_claimed_count: number; p_rec_trade_id: string }
         Returns: number
@@ -997,7 +1167,31 @@ export type Database = {
         }
         Returns: number
       }
+      record_charge_bank_txn: {
+        Args: {
+          p_attempt_id: string
+          p_bank_transaction_id: string
+          p_order_id: string
+        }
+        Returns: boolean
+      }
+      record_charge_pending_rec: {
+        Args: {
+          p_attempt_id: string
+          p_order_id: string
+          p_rec_trade_id: string
+        }
+        Returns: boolean
+      }
       record_pending_invoice: { Args: { p_order_id: string }; Returns: boolean }
+      record_released_failure_observation: {
+        Args: {
+          p_attempt_id: string
+          p_observed_status: number
+          p_order_id: string
+        }
+        Returns: undefined
+      }
       record_webhook_event: {
         Args: {
           p_amount?: number
@@ -1009,6 +1203,15 @@ export type Database = {
           p_transaction_time_millis?: number
         }
         Returns: boolean
+      }
+      resolve_double_charge_anomaly: {
+        Args: {
+          p_anomaly_id: string
+          p_note: string
+          p_provider_reference?: string
+          p_resolution: string
+        }
+        Returns: Json
       }
     }
     Enums: {

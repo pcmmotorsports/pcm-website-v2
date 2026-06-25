@@ -129,6 +129,27 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
     });
   }
 
+  // ── M-3 3DS 乙路 R2a:released failure observation(record_released_failure_observation RPC;主軌-only)──
+
+  /**
+   * 🔴 released attempt 讀 Record -1/5 → write-once 雙鍵標記 failure_observed_*(不改 status;§2.5)。
+   * RPC `RETURNS void`、fail-closed RAISE(observedStatus∉{-1,5} / 雙鍵不符 / 非 released / order 已付款)
+   * → sanitizeError 包成通用錯誤 throw 傳出(settleCharge R2b catch→record_unreachable;不靜默吞)。
+   * 重放冪等由 RPC 端 COALESCE 保證(不覆寫第一次觀察)。
+   */
+  async recordReleasedFailureObservation(
+    attemptId: string,
+    orderId: OrderId,
+    observedStatus: number,
+  ): Promise<void> {
+    await this.run((client) =>
+      client.query(
+        'SELECT public.record_released_failure_observation($1::uuid, $2::uuid, $3::integer)',
+        [attemptId, orderId, observedStatus],
+      ),
+    );
+  }
+
   // ── M-3 3DS-4 sweeper(expire_stuck_attempts_at_ceiling / claim_stuck_unsettled_attempts / mark_attempt_settle_retry / flag_non_unpaid_active_attempts、3DS-4a-2)──
 
   /** 🔴 ceiling-expirer(claim 前置、防孤兒);回轉換筆數(>0 sweeper 告警)。 */
@@ -285,7 +306,8 @@ function parseActiveAttempt(rows: Array<Record<string, unknown>>): ActiveChargeA
   const o = r as Record<string, unknown>;
   if (
     typeof o.attempt_id !== 'string' ||
-    (o.status !== 'pending' && o.status !== 'charged') ||
+    // 🔴 M-3 3DS 乙路 R2a:active 集擴 released(R1b3 get_active 已回 released;原僅 pending/charged 會 throw)。
+    (o.status !== 'pending' && o.status !== 'charged' && o.status !== 'released') ||
     typeof o.attempt_created_at !== 'string' ||
     typeof o.order_total !== 'number' ||
     typeof o.order_payment_status !== 'string' ||

@@ -6357,6 +6357,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #251. 🔧 DB reason allowlist 補 `released_failure_observed`(TS↔DB allowlist 對齊、flag-on 前)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(Phase 1 producer-gating 零觸發;flag-on 前對齊即可)
+- **分流標籤:** `P1-before-launch`
+- **問題:**
+  - canonical plan §5 規定 R2a 同時改「normalizeReason **與** DB allowlist 加 `released_failure_observed`」,但 §9 標 R2a「無 migration(✗)」、且 R1 migration bundle 已 db push 落 prod(守線禁動 live migration)= 計畫書 §5/§9 內部矛盾。R2a(Q1=A)只改了 TS 側(`packages/use-cases/src/sweep-settlements.ts` `SWEEP_REASON_CODES`),**DB 側未補**。
+  - live DB 的 `mark_attempt_settle_retry`(migration `20260624120008` R1c1)+ webhook `mark_*_retry`(`20260615120000` R1c1 前身)reason allowlist 仍只認 `('record_unreachable','record_unverified','auth_or_pending')` → released attempt 讀 -1/5 走 `markSettleRetry('released_failure_observed')` 時,DB `WHEN p_reason_code IN (...)` 落 ELSE → 診斷欄 `last_settle_error` 存成 `'unknown'`(而非 `released_failure_observed`)。
+  - **非正確性 bug**:`last_settle_error` 純診斷遙測欄(零 PII),不影響重試是否發生(token-guard UPDATE)、不影響結算/雙扣裁決;僅 ops 觀測時看不出「這筆是 released 失敗觀察」。
+- **觸發事件(任一觸發即啟動實作):**
+  - prod 開放 `TAPPAY_3DS_ENABLED=true` 前(rollout gate);或下一次有金流 RPC migration 要動時順手帶;最遲 = §14 步30 B1a 第二次 db push 窗(可獨立小 migration 一起 push)。
+- **預期解法:**
+  - 獨立小 migration:`CREATE OR REPLACE` 兩支 retry RPC,allowlist `IN (...)` 加 `'released_failure_observed'`(其餘逐字不改、零漂移);DDL MCP 模擬驗 released reason 不再被正規化成 unknown + ACL 沿用基線;補後 TS↔DB allowlist 對齊。
+  - 不單獨開 slice、不急(producer-gating 零觸發);搭既有 db push 窗或金流 migration 順帶。
+- **不修會痛在:**
+  - 可維護性:flag-on 後若真出 released 失敗觀察,ops 在 `last_settle_error` 看到 `'unknown'` 無法直接區分是「released 失敗觀察」還是「真未知碼」,排查多一層。
+  - bug 可追蹤性:TS 與 DB allowlist 不對齊是隱性漂移,後人 grep TS 以為 DB 也認得 → 誤判遙測完整性。
+- **估時:** ~20 min(小 migration + DDL MCP 模擬 + 三綠)
+- **依賴:** 下一次金流 migration db push 窗(B1a 第二次 push 或獨立);R2a TS 側已先行(`released_failure_observed` 入 SWEEP_REASON_CODES)
+- **發現於:** 2026-06-25 / R2a(§14 步23)關卡1 plan 自審(canonical §5「R2a 改 DB allowlist」vs §9「R2a 無 migration」內部矛盾)
+- **相關:** canonical plan §5/§2.5、Q1=A(2026-06-25 Sean 拍)、`packages/use-cases/src/sweep-settlements.ts`(`SWEEP_REASON_CODES`)、`supabase/migrations/20260624120008_m3_3ds_r1c1_sweeper_released_policy.sql`、`supabase/migrations/20260615120000_m3_3ds_4a1_webhook_sweeper_rpc.sql`
+
+---
+
 ## 紀錄模板
 
 ```markdown

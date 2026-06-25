@@ -52,6 +52,8 @@ function makeStore(opts: {
   // 3DS-5b initiate 寫入主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
   const primaryRecordBankTxn = vi.fn(async () => {});
   const primaryRecordRec = vi.fn(async () => {});
+  // R2a released failure observation 主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
+  const primaryRecordReleasedObs = vi.fn(async () => {});
   const primary: IChargeAttemptStore = {
     begin,
     markCharged: primaryMarkCharged,
@@ -64,6 +66,7 @@ function makeStore(opts: {
     flagNonUnpaidActive: primaryFlagNonUnpaid,
     recordInitiationBankTxn: primaryRecordBankTxn,
     recordInitiationRec: primaryRecordRec,
+    recordReleasedFailureObservation: primaryRecordReleasedObs,
   };
   const fallback: ChargeAttemptFallbackRail = { markCharged: fallbackMarkCharged };
   // 顯式 call signature:令 sleep.mock.calls 為 [ms] tuple(可讀退避序列、非空 tuple)。

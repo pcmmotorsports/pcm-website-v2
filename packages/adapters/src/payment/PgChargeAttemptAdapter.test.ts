@@ -398,3 +398,77 @@ describe('PgChargeAttemptAdapter.recordInitiationRec(charge 後寫 rec、維持 
     ).rejects.toThrow('回應格式異常');
   });
 });
+
+// ── M-3 3DS 乙路 R2a:get_active 反查 parser 對 released + released failure observation RPC ──────────
+
+/** get_active_charge_attempt RPC jsonb 完整對帳欄(parseActiveAttempt 必填鍵齊全)。 */
+const ACTIVE_BASE = {
+  attempt_id: ATTEMPT,
+  attempt_created_at: '2026-06-25T00:00:00.000Z',
+  rec_trade_id: REC,
+  bank_transaction_id: BANK_TXN,
+  order_total: 1500,
+  order_payment_status: 'unpaid',
+  order_display_id: 'PCM-2026-0099',
+};
+
+describe('PgChargeAttemptAdapter.findActiveByOrderId(parseActiveAttempt;R2a active 集含 released)', () => {
+  it.each(['pending', 'charged', 'released'] as const)(
+    '🔴 status=%s → 解析成功(released = R2a 新放行、原僅 pending/charged 會 throw)',
+    async (status) => {
+      const { client, query } = makeClient({
+        query: async () => beginRows({ ...ACTIVE_BASE, status }),
+      });
+      const res = await new PgChargeAttemptAdapter('conn', () => client).findActiveByOrderId(ORDER);
+      expect(res).toEqual({
+        attemptId: ATTEMPT,
+        status,
+        recTradeId: REC,
+        bankTransactionId: BANK_TXN,
+        attemptCreatedAt: '2026-06-25T00:00:00.000Z',
+        orderTotal: 1500,
+        orderPaymentStatus: 'unpaid',
+        orderDisplayId: 'PCM-2026-0099',
+      });
+      const [sql, values] = query.mock.calls[0]!;
+      expect(sql).toContain('get_active_charge_attempt');
+      expect(values).toEqual([ORDER]);
+    },
+  );
+
+  it('RPC NULL → null(無單 / 無 active attempt)', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [{ result: null }] }) });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).findActiveByOrderId(ORDER);
+    expect(res).toBeNull();
+  });
+
+  it('🔴 未知 status(非 pending/charged/released)→ throw 通用訊息(fail-closed、不靜默放行)', async () => {
+    const { client } = makeClient({ query: async () => beginRows({ ...ACTIVE_BASE, status: 'weird' }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).findActiveByOrderId(ORDER),
+    ).rejects.toThrow('回應格式異常');
+  });
+});
+
+describe('PgChargeAttemptAdapter.recordReleasedFailureObservation(R2a、三參數雙鍵、RETURNS void)', () => {
+  it('resolve;params=[attemptId, orderId, observedStatus]、SQL 呼 record_released_failure_observation(uuid,uuid,integer)', async () => {
+    const { client, query, connect, end } = makeClient({ query: async () => ({ rows: [] }) });
+    await new PgChargeAttemptAdapter('conn', () => client).recordReleasedFailureObservation(ATTEMPT, ORDER, 5);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/record_released_failure_observation\(\$1::uuid, \$2::uuid, \$3::integer\)/);
+    expect(values).toEqual([ATTEMPT, ORDER, 5]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1); // finally 永遠釋放
+  });
+
+  it('🔴 RPC RAISE(P0001、fail-closed:非 -1/5 / 雙鍵不符 / 非 released / 已付款)→ throw code=P0001、通用訊息不含 pg 原文', async () => {
+    const { client } = makeClient({
+      query: async () => {
+        throw Object.assign(new Error('record_released_failure_observation: 付款處理失敗'), { code: 'P0001' });
+      },
+    });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).recordReleasedFailureObservation(ATTEMPT, ORDER, -1),
+    ).rejects.toMatchObject({ code: PG_BUSINESS_REJECT, message: expect.stringContaining('主軌失敗') });
+  });
+});

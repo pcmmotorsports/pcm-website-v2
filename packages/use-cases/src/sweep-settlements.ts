@@ -76,11 +76,21 @@ export type SweepSettlementsResult = {
   errors: number;
 };
 
-/** 固定 reason 碼集(零 PII;非碼集 → 'unknown';RPC 端 allowlist 亦把關,此處 use-case 邊界縱深)。 */
+/**
+ * 固定 reason 碼集(零 PII;非碼集 → 'unknown';RPC 端 allowlist 亦把關,此處 use-case 邊界縱深)。
+ *
+ * 🔴 M-3 3DS 乙路 R2a(canonical §5、Q1=A):加 `released_failure_observed`(released attempt 讀 -1/5)。
+ * ⚠️ **TS↔DB allowlist 暫不對齊**:live DB 的 `mark_attempt_settle_retry`/`mark_*_retry` RPC allowlist
+ * 仍只認 (record_unreachable/record_unverified/auth_or_pending),released_failure_observed 傳到 DB 會被
+ * 正規化成 'unknown' 存進診斷欄 last_settle_error(零 PII、不影響重試與結算正確性)。R1 bundle 已 live、
+ * 守線禁動 live migration → DB allowlist 補在 flag-on 前的獨立小 migration(backlog #251)。
+ * Phase 1 producer-gating(零 released row)下此路徑零觸發。
+ */
 const SWEEP_REASON_CODES: ReadonlySet<string> = new Set([
   'record_unreachable',
   'record_unverified',
   'auth_or_pending',
+  'released_failure_observed',
 ]);
 
 function normalizeReason(reason: string): string {

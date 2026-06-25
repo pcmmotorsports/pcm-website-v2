@@ -141,7 +141,7 @@ export default async function CheckoutCallbackRoute({
     );
   }
   // 🔴 no_attempt → 處理中、**不清車**(codex 關卡2 r1 must-fix、Sean 拍 A)。
-  // settleCharge 契約(settle-charge.ts L54-71):findActiveByOrderId 找 active=pending|charged;**無 active 才**
+  // settleCharge 契約(settle-charge.ts L54-71):findActiveByOrderId 找 active=pending|charged|released(R1b3/R2a);**無 active 才**
   //   回 no_attempt;「order 已 paid → paid」短路(L68-71)在 findActive「之後」、且 charged 仍屬 active → 已付款單
   //   回 paid、不會落 no_attempt。故 no_attempt ⟺ attempt 已 markFailed(僅 TapPay 確認 final-failed -1/5)或從未
   //   建立 → **必然未扣款**。A4「可能已扣款 → 清車防雙扣」前提對 no_attempt 不成立 → 清車零安全收益、卻會在失敗

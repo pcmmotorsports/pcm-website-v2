@@ -406,10 +406,13 @@ export type MarkChargeAttemptFailedInput = {
  * `orderDisplayId` 供 retry duplicate 回既有單號。
  *
  * @see supabase/migrations/20260614120000_m3_3ds_1b_get_active_charge_attempt.sql
+ * @see supabase/migrations/20260624120007_m3_3ds_r1b3_record_released_failure_observation.sql (get_active 擴 released)
  */
 export type ActiveChargeAttempt = {
   attemptId: string;
-  status: 'pending' | 'charged';
+  // 🔴 M-3 3DS 乙路 R1b3/R2a:active 集擴 released(release CAS 釋鎖後續低頻對帳直到 terminal、§2.5/§2.6);
+  //    PgChargeAttemptAdapter.parseActiveAttempt 同 slice 放行(原僅 pending/charged 會 throw)。
+  status: 'pending' | 'charged' | 'released';
   recTradeId: string | null;
   bankTransactionId: string | null;
   /** attempt 建立時間(ISO 8601);弱識別(hint/order_number fallback)時間窗防誤命中用(master plan §1 step 2)。 */
@@ -440,13 +443,43 @@ export type SettleChargeInput = {
  *   - `auth_or_pending`:record_status 4=PENDING 待付款(尚未授權;0 AUTH/1 OK 已 S1「授權即成立」→ paid)。
  *   - `record_unverified`:金額不符 / 鍵不符 / number_of_transactions≠1 / 2·3 退款異常(不自動放行、S2=B)。
  *   - `record_unreachable`:recordQuery throw / confirm throw(已扣款不棄、retry)。
- * - `no_attempt`:orderId 無 active(pending|charged)attempt(webhook 對不上本機 → route 丟棄)。
+ *   - 🔴 `released_failure_observed`(M-3 3DS 乙路 R2a、canonical §5/§2.5):**released** attempt 讀 Record
+ *     -1/5(明確失敗觀察)→ 經 `recordReleasedFailureObservation` 寫雙鍵 write-once、**不轉 failed**
+ *     (released 續低頻對帳直到 terminal、§2.5);RPC throw / 回應不合法 → 退回 `record_unreachable`。
+ *     🔴 兩者(released_failure_observed / record_unreachable)皆 pending、sweeper/inbox 一律 markRetry、
+ *     markProcessed 不得被呼(§2.5/§5;released branch 行為在 R2b、本 R2a 只定義型別)。
+ * - `no_attempt`:orderId 無 active(pending|charged|released)attempt(webhook 對不上本機 → route 丟棄)。
  */
 export type SettleChargeOutcome =
   | { kind: 'paid'; idempotent: boolean; displayId: string }
   | { kind: 'failed' }
-  | { kind: 'pending'; reason: 'auth_or_pending' | 'record_unverified' | 'record_unreachable' }
+  | {
+      kind: 'pending';
+      reason: 'auth_or_pending' | 'record_unverified' | 'record_unreachable' | 'released_failure_observed';
+    }
   | { kind: 'no_attempt' };
+
+/**
+ * SiblingLookupResult:`find_active_sibling_own` RPC 回 DTO(M-3 3DS 乙路 立即重刷 preflight;canonical §2.3/§3/§4 R1a2)。
+ *
+ * authenticated own-only 反查「同 cart_session_id 是否已有兄弟單」,放在 placeOrder **之前**(否則新單先建=孤兒):
+ * - `none`:無兄弟單 → proceed 建新單重刷。
+ * - `paid`:兄弟單已付款 → 顯既有單(零雙扣、不建新單、不 release);不強迫帶 attempt_id。
+ * - `active`:兄弟單有 active(pending|charged|released)attempt → settleCharge(existingOrderId)裁決後決定 release/hold。
+ *
+ * 🔴 **資料最小化(round6 一)**:`active` 分支**不含** `recTradeId`/`bankTransactionId` —— 金流交易識別碼
+ * 絕不下放 authenticated/browser;settleCharge(existingOrderId)本就由 payment_confirmer 的
+ * `get_active_charge_attempt` server-side 內部取 rec/bank(§3)。
+ *
+ * 🔴 本 R2a 只**定義型別**(地基層);消費端 `ISiblingLookup` port + `SupabaseSiblingLookupAdapter` +
+ * `preflightReleaseSibling` use-case = R2b(§9/§14 步24)。
+ *
+ * @see supabase/migrations/20260624120001_m3_3ds_r1a2_find_active_sibling_own.sql
+ */
+export type SiblingLookupResult =
+  | { kind: 'none' }
+  | { kind: 'paid'; existingOrderId: string; displayId: string }
+  | { kind: 'active'; existingOrderId: string; attemptId: string; displayId: string };
 
 // ── M-3 3DS-2:②-⑥ webhook durable inbox 入口 ─────────────────────────────────────────────────
 

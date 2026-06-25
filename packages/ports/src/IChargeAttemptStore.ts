@@ -55,6 +55,24 @@ export interface IChargeAttemptStore {
    */
   recordInitiationRec(attemptId: string, orderId: OrderId, recTradeId: string): Promise<void>;
 
+  // ── M-3 3DS 乙路 R2a:released failure observation(canonical §3/§5 + §4 R1b3;三參數雙鍵)──
+  // 🔴 主軌-only(對齊 findActiveByOrderId / 5b initiate):對帳路徑無 user JWT〔備軌需 auth.uid()〕。
+
+  /**
+   * 🔴 **released** attempt 讀 Record -1/5(明確失敗觀察)→ 呼窄權 RPC `record_released_failure_observation`
+   * (payment_confirmer only)write-once 雙鍵標記 `failure_observed_at`/`failure_observed_status`、**不改 status**
+   * (released 續低頻對帳直到 terminal、§2.5/§2.6)。三參數 = 雙鍵(attemptId+orderId)+ observedStatus。
+   *
+   * 🔴 **fail-closed**:RPC 對 observedStatus∉{-1,5} / 雙鍵不符 / 非 released / order 已付款 一律 RAISE
+   * (R1b3 §4)→ adapter throw 傳出;settleCharge released branch(R2b)catch→回 `record_unreachable`
+   * (不靜默吞、不誤標 failed)。重放冪等(COALESCE write-once、不覆寫第一次觀察)。
+   */
+  recordReleasedFailureObservation(
+    attemptId: string,
+    orderId: OrderId,
+    observedStatus: number,
+  ): Promise<void>;
+
   // ── M-3 3DS-4 sweeper(expire_stuck_attempts_at_ceiling / claim_stuck_unsettled_attempts / mark_attempt_settle_retry / flag_non_unpaid_active_attempts、3DS-4a-2)──
   // 🔴 全主軌-only(同 findActiveByOrderId):對帳路徑無 user JWT〔備軌需 auth.uid()〕、且讀/標失敗→sweeper 下輪重來無漏寫風險。
 

@@ -49,7 +49,7 @@ export async function settleCharge(
   const { tappay, attempts, confirmer } = deps;
   const { orderId } = input;
 
-  // 1. 依 orderId 反查 active(pending|charged)attempt + order 對帳欄(主軌-only)。
+  // 1. 依 orderId 反查 active(pending|charged|released;released = R1b3/R2a 擴入)attempt + order 對帳欄(主軌-only)。
   //    🔴 fail-closed(codex 關卡2):讀失敗(連線/parse)→ pending 保留、**不 reject**(否則 route 500),sweeper 重來。
   let attempt: ActiveChargeAttempt | null;
   try {

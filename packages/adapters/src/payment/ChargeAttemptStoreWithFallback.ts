@@ -63,6 +63,15 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
     return this.primary.recordInitiationRec(attemptId, orderId, recTradeId);
   }
 
+  // 🔴 M-3 3DS 乙路 R2a:released failure observation 主軌-only(對齊上方對帳路徑;備軌需 JWT、無法呼)。
+  recordReleasedFailureObservation(
+    attemptId: string,
+    orderId: OrderId,
+    observedStatus: number,
+  ): Promise<void> {
+    return this.primary.recordReleasedFailureObservation(attemptId, orderId, observedStatus);
+  }
+
   // 🔴 3DS-4 sweeper 全主軌-only(同 findActiveByOrderId):對帳路徑無 user JWT〔備軌需 auth.uid()〕、
   //    且失敗→sweeper 下輪靠 lease/退避重來無漏寫風險,不需雙軌韌性。
 
