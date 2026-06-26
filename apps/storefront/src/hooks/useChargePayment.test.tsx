@@ -104,6 +104,26 @@ describe('useChargePayment', () => {
     expect(chargeMock).toHaveBeenCalledTimes(1); // 上鎖
   });
 
+  it('🔴 R3 preflight hold(processing **無 displayId**)→ **不清車** + 終態鎖(§2.3 保留 cart、Q2=B 防連按)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({
+      ok: false,
+      payment: 'processing', // 無 displayId = hold
+      message: '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認',
+    });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(result.current.state.status).toBe('processing');
+    expect(cartRef.current.clear).not.toHaveBeenCalled(); // 🔴 無單號 → 保留 cart(sibling 確定 failed 後可再結帳)
+    expect(cartRef.current.regenerateCartSession).not.toHaveBeenCalled();
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(chargeMock).toHaveBeenCalledTimes(1); // 🔴 終態鎖:按鈕鎖死、第二次 submit 不再呼 action(防焦慮連按再打 Record)
+  });
+
   it.each([
     ['in_flight', { ok: false, payment: 'in_flight', message: 'm1' }, 'in_flight'],
     ['charge_failed_wait', { ok: false, payment: 'charge_failed_wait', displayId: 'D', message: 'm2' }, 'wait'],

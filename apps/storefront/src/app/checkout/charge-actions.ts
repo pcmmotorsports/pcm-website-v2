@@ -38,7 +38,13 @@
 //   ①-⑤ 兩路徑共用;result_url base+secret 在 placeOrder「前」preflight(缺/壞 → 零扣款 + 零垃圾單)。
 //   flag off = 同步 confirmPayment(逐字不動、現況)。🔴 payment_url 含 token、零入 log。
 
-import { placeOrder, confirmPayment, initiatePayment, settleCharge } from '@pcm/use-cases';
+import {
+  placeOrder,
+  confirmPayment,
+  initiatePayment,
+  settleCharge,
+  preflightReleaseSibling,
+} from '@pcm/use-cases';
 import { CheckoutInput, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
 import type {
   ConfirmPaymentOutcome,
@@ -54,6 +60,7 @@ import {
   getPaymentConfirmer,
   getChargeAttemptStore,
   getSettleChargeDeps,
+  getPreflightReleaseSiblingDeps,
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
@@ -81,7 +88,9 @@ export type ChargePaymentActionResult =
   | { redirect: true; redirectUrl: string } // 🔴 3DS-6a:3DS 啟動成功 → client 整頁跳轉 TapPay(非 paid、付款狀態非終態)
   | { ok: false; payment: 'charge_failed'; displayId: string; message: string }
   | { ok: false; payment: 'charge_failed_wait'; displayId: string; message: string }
-  | { ok: false; payment: 'processing'; displayId: string; message: string }
+  // 🔴 displayId-presence 是契約:**有單號**=既有 processing(orphan/charge_unknown/locked,已建單、hook 清車);
+  //   **無單號**=R3 preflight hold(新單未建、§2.3 保留 cart、hook 不清車)。非 hold 的 processing producer 一律必帶 displayId。
+  | { ok: false; payment: 'processing'; displayId?: string; message: string }
   | { ok: false; payment: 'in_flight'; message: string }; // 🔴 無 displayId
 
 /**
@@ -159,6 +168,29 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     // 🔴 3DS-6a:flag 讀一次 + preflight(placeOrder「前」驗 result_url base+secret;不合 → 既有 catch
     //   → MSG.generic、零扣款 + 零垃圾單;codex 關卡1 #3)。flag off → threeDSConfig=null → 走同步 ⑥。
     const threeDSConfig = isThreeDSEnabled() ? resolveThreeDSConfig() : null;
+
+    // 🔴 R3:立即重刷 preflight(canonical §2.3、**placeOrder「前」**=否則新單先建成孤兒)。
+    //   Q1=A gating:**只在 3DS 路徑跑**(threeDSConfig 非 null)。flag off → 同步路徑逐字不動、零回歸;
+    //   prod flag=false → preflight 不啟用、prod 零影響。released 重刷機制本就只在 3DS async redirect 才需要。
+    //   接線注意:① 在 placeOrder 前(此處);② release 三參數順序由 use-case 內固定(R2b S1、R3 不直接呼);
+    //   ④ userId 餵 server 驗過登入態 user.id(L92-96 getUser、**不信 client**)。
+    if (threeDSConfig) {
+      const preflight = await preflightReleaseSibling(await getPreflightReleaseSiblingDeps(), {
+        userId: user.id,
+        cartSessionId,
+      });
+      if (preflight.kind === 'existing_paid') {
+        // 兄弟單已付款 → 顯既有單(paid-equivalent;hook 當 paid 處理:clear + regenerateCartSession,
+        //   防下次合法重購撞已 paid sibling 被 begin D2 誤擋;同 adjudicateSettlement duplicate 分支)。
+        return { ok: true, displayId: preflight.displayId };
+      }
+      if (preflight.kind === 'hold') {
+        // 確認中、稍候(§2.3:不建新單、保留 cart)。🔴 Q2=B:回 processing **無 displayId** →
+        //   hook 鎖死按鈕(終態鎖、防焦慮連按再打 Record)+ 不清車(displayId 缺=hold、保留 cart)。
+        return { ok: false, payment: 'processing', message: MSG.settlementRequired };
+      }
+      // proceed → 續往下建單 + charge(none / 已 release / failed / no_attempt;§2.3 確定未成交)。
+    }
 
     // ④ 建單(零 userId/tier/price;身分/算價全 create_order RPC server 權威)。
     const placeOrderInput: PlaceOrderInput = {

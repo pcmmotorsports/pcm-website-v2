@@ -15,6 +15,7 @@ const mockPlaceOrder = vi.fn();
 const mockConfirmPayment = vi.fn();
 const mockInitiatePayment = vi.fn();
 const mockSettleCharge = vi.fn(); // 3DS-7 7c-2:settlement_required needs_settle 即時裁決
+const mockPreflightReleaseSibling = vi.fn(); // 🔴 R3:立即重刷 preflight(§2.3、placeOrder 前)
 const mockFindTotal = vi.fn();
 const mockGetOrderRepo = vi.fn();
 const mockGetCustomerRepo = vi.fn();
@@ -23,6 +24,7 @@ const mockGetTapPayAdapter = vi.fn();
 const mockGetPaymentConfirmer = vi.fn();
 const mockGetChargeAttemptStore = vi.fn();
 const mockGetSettleChargeDeps = vi.fn(); // 3DS-7 7c-2:cookieless settleCharge deps
+const mockGetPreflightReleaseSiblingDeps = vi.fn(); // 🔴 R3:preflight deps 工廠
 const mockBuildCardholder = vi.fn();
 const mockGetUser = vi.fn();
 // 3DS-6a:flag 分岔 + result_url 組裝(three-ds-flag / three-ds-urls 各有獨立單元測;此處 mock 驗分岔接線)。
@@ -36,6 +38,7 @@ vi.mock('@pcm/use-cases', () => ({
   confirmPayment: (...args: unknown[]) => mockConfirmPayment(...args),
   initiatePayment: (...args: unknown[]) => mockInitiatePayment(...args),
   settleCharge: (...args: unknown[]) => mockSettleCharge(...args),
+  preflightReleaseSibling: (...args: unknown[]) => mockPreflightReleaseSibling(...args),
 }));
 vi.mock('@/lib/auth/composition', () => ({
   getOrderRepo: () => mockGetOrderRepo(),
@@ -47,6 +50,7 @@ vi.mock('@/lib/payment/composition', () => ({
   getPaymentConfirmer: () => mockGetPaymentConfirmer(),
   getChargeAttemptStore: () => mockGetChargeAttemptStore(),
   getSettleChargeDeps: () => mockGetSettleChargeDeps(),
+  getPreflightReleaseSiblingDeps: () => mockGetPreflightReleaseSiblingDeps(),
 }));
 vi.mock('@/lib/payment/three-ds-flag', () => ({
   isThreeDSEnabled: () => mockIsThreeDSEnabled(),
@@ -110,6 +114,9 @@ beforeEach(() => {
   mockGetPaymentConfirmer.mockReturnValue({ tag: 'confirmer' });
   mockGetChargeAttemptStore.mockResolvedValue({ tag: 'attempts' });
   mockGetSettleChargeDeps.mockReturnValue({ tag: 'settle-deps' });
+  mockGetPreflightReleaseSiblingDeps.mockResolvedValue({ tag: 'preflight-deps' });
+  // 🔴 R3 預設 proceed(既有 3DS flag-on 測沿用 → fall-through 到 placeOrder + initiatePayment)。
+  mockPreflightReleaseSibling.mockResolvedValue({ kind: 'proceed' });
   mockSettleCharge.mockResolvedValue({ kind: 'paid', idempotent: false, displayId: 'PCM-2026-NS' });
   mockBuildCardholder.mockResolvedValue({ ok: true, cardholder: CARDHOLDER });
   mockPlaceOrder.mockResolvedValue({ orderId: 'order-server-1', displayId: 'PCM-2026-0001' });
@@ -547,5 +554,80 @@ describe('chargePaymentAction — 3DS-6a flag on(initiatePayment 分岔、plan �
     expect(mockPlaceOrder).not.toHaveBeenCalled(); // preflight 在建單前
     expect(mockInitiatePayment).not.toHaveBeenCalled();
     expect(JSON.stringify(res)).not.toContain('NEXT_PUBLIC_SITE_URL'); // 不洩 env 名
+  });
+});
+
+describe('chargePaymentAction — 🔴 R3 立即重刷 preflight(canonical §2.3、placeOrder 前)', () => {
+  const MSG_SETTLE = '訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認';
+
+  it('🔴 Q1=A gating:flag off(同步路徑)→ preflight 零呼叫、走 confirmPayment(零回歸)', async () => {
+    // 預設 flag off。preflight 只在 3DS 路徑跑;同步路徑逐字不動。
+    const action = await getAction();
+    await action(validInput());
+    expect(mockPreflightReleaseSibling).not.toHaveBeenCalled();
+    expect(mockGetPreflightReleaseSiblingDeps).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).toHaveBeenCalledTimes(1);
+  });
+
+  it('flag on + proceed → 續建單 + charge(placeOrder/initiatePayment 被呼)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockPreflightReleaseSibling.mockResolvedValue({ kind: 'proceed' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(mockPreflightReleaseSibling).toHaveBeenCalledTimes(1);
+    expect(mockPlaceOrder).toHaveBeenCalledTimes(1); // proceed → 建新單
+    expect(mockInitiatePayment).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ redirect: true, redirectUrl: 'https://sandbox.tappaysdk.com/pay?token=abc' });
+  });
+
+  it('🔴 flag on + existing_paid → { ok:true, displayId 既有單 }、placeOrder 零呼叫(不建新單、零雙扣)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockPreflightReleaseSibling.mockResolvedValue({
+      kind: 'existing_paid',
+      existingOrderId: 'order-existing-9',
+      displayId: 'PCM-2026-EXIST',
+    });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ ok: true, displayId: 'PCM-2026-EXIST' }); // hook 當 paid:clear + regenerate
+    expect(mockPlaceOrder).not.toHaveBeenCalled(); // 🔴 preflight 在 placeOrder 前短路
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('🔴 flag on + hold → processing 無 displayId(§2.3 保留 cart、Q2=B 鎖按鈕)、placeOrder 零呼叫', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockPreflightReleaseSibling.mockResolvedValue({ kind: 'hold', reason: 'lookup_unreachable' });
+    const action = await getAction();
+    const res = await action(validInput());
+    expect(res).toEqual({ ok: false, payment: 'processing', message: MSG_SETTLE });
+    expect(res).not.toHaveProperty('displayId'); // 🔴 無單號 → hook 不清車 + 按鈕鎖死
+    expect(mockPlaceOrder).not.toHaveBeenCalled(); // 不建新單
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+  });
+
+  it('🔴 userId 餵 server 驗過登入態 user.id(不信 client 竄改)+ deps 工廠值', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    const action = await getAction();
+    // client 竄改 userId/cartSessionId(cartSessionId 仍須過 uuid 驗 → 用合法值;userId client 塞假值)。
+    await action(validInput({ userId: 'attacker-999' }));
+    expect(mockPreflightReleaseSibling).toHaveBeenCalledWith(
+      { tag: 'preflight-deps' }, // = await getPreflightReleaseSiblingDeps()
+      { userId: 'user-1', cartSessionId: CART_SESSION }, // 🔴 userId = getUser().user.id、非 client 'attacker-999'
+    );
+  });
+
+  it('🔴 preflight 在 placeOrder「前」:existing_paid 短路時 placeOrder/findTotal 全零呼叫(無孤兒單)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true);
+    mockPreflightReleaseSibling.mockResolvedValue({
+      kind: 'existing_paid',
+      existingOrderId: 'order-existing-9',
+      displayId: 'PCM-2026-EXIST',
+    });
+    const action = await getAction();
+    await action(validInput());
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockFindTotal).not.toHaveBeenCalled();
   });
 });

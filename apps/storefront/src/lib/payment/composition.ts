@@ -19,8 +19,10 @@ import type {
   IChargeAttemptStore,
   IWebhookInbox,
   IPollSettleThrottle,
+  ISiblingLookup,
+  IReleaseSibling,
 } from '@pcm/ports';
-import type { SettleChargeDeps } from '@pcm/use-cases';
+import { settleCharge, type SettleChargeDeps, type PreflightReleaseSiblingDeps } from '@pcm/use-cases';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
 import {
   TapPayChargeAdapter,
@@ -30,6 +32,8 @@ import {
   ChargeAttemptStoreWithFallback,
   PgWebhookInboxAdapter,
   PgPollSettleThrottleAdapter,
+  SupabaseSiblingLookupAdapter,
+  PgReleaseSiblingAdapter,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
@@ -119,6 +123,44 @@ export function getSettleChargeDeps(): SettleChargeDeps {
     tappay: getTapPayAdapter(),
     attempts: new PgChargeAttemptAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL')),
     confirmer: getPaymentConfirmer(),
+  };
+}
+
+/**
+ * 建 ISiblingLookup(M-3 3DS 乙路 R2b/R3;立即重刷 preflight own-only 反查兄弟單)。
+ *
+ * 🔴 **async request-scoped + authenticated own-only**(鏡像 getChargeAttemptStore 備軌紀律):
+ * SupabaseSiblingLookupAdapter 呼 `find_active_sibling_own`、RPC 內 `auth.uid()` 歸屬反查同會員兄弟單 →
+ * 需**使用者 cookie JWT** 的 authenticated client(模組級/同步建構拿不到 → own-only 永遠查不到自己)。
+ * 故本 factory async、charge action 於登入 gate 後 await。active 分支不含 rec/bank(資料最小化、§4 R1a2)。
+ */
+export async function getSiblingLookup(): Promise<ISiblingLookup> {
+  const supabase = await createServerSupabaseClient();
+  return new SupabaseSiblingLookupAdapter(supabase);
+}
+
+/**
+ * 建 IReleaseSibling(M-3 3DS 乙路 R2b/R3;立即重刷 release CAS)。
+ *
+ * 🔴 同 getPaymentConfirmer 的 payment_confirmer 窄權鑰(`PAYMENT_CONFIRMER_DB_URL`、零新密鑰)+ buildPgConfig
+ * 連線縱深;server-only(pg 不進 client bundle)。呼 §4 R1a3 `mark_charge_attempt_released_for_user` 四閘 CAS。
+ */
+export function getReleaseSibling(): IReleaseSibling {
+  return new PgReleaseSiblingAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
+}
+
+/**
+ * 建 PreflightReleaseSiblingDeps(M-3 3DS 乙路 R3;chargePaymentAction 於 placeOrder「前」呼 preflightReleaseSibling)。
+ *
+ * 🔴 `settle` = **注入函式**(非直接 import settleCharge):包 settleCharge〔getSettleChargeDeps 窄權主軌、cookieless〕,
+ * 解耦 preflight 與 settleCharge 的 tappay/attempts/confirmer deps(use-case 設計的注入點、§2.3 狀態機可單元測)。
+ * siblingLookup = authenticated own-only(await、需 user JWT);releaseSibling = server-only payment_confirmer。
+ */
+export async function getPreflightReleaseSiblingDeps(): Promise<PreflightReleaseSiblingDeps> {
+  return {
+    siblingLookup: await getSiblingLookup(),
+    releaseSibling: getReleaseSibling(),
+    settle: (input) => settleCharge(getSettleChargeDeps(), input),
   };
 }
 

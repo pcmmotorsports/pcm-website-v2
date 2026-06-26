@@ -41,6 +41,13 @@ describe('CheckoutSuccess', () => {
     expect(screen.queryByText(/^PCM-/)).toBeNull();
   });
 
+  it('🔴 R3 preflight hold:processing **無 displayId** → message + 不渲染單號區塊(§2.3 新單未建、CheckoutView 傳 undefined)', () => {
+    render(<CheckoutSuccess variant="processing" message="訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認" />);
+    expect(screen.getByText('付款處理中')).toBeTruthy();
+    expect(screen.getByText('訂單付款狀態確認中,請勿重複付款,客服 LINE 將協助確認')).toBeTruthy();
+    expect(screen.queryByText(/^PCM-/)).toBeNull(); // 🔴 hold 無單號 → 不崩、不顯單號區塊
+  });
+
   it('🔴 failed(3DS-3):付款未完成 + FAILED + message + 單號 + CTA 返回購物車 /cart', () => {
     render(<CheckoutSuccess variant="failed" displayId="PCM-2026-0003" message="這筆付款未完成說明" />);
     expect(screen.getByText('付款未完成')).toBeTruthy();

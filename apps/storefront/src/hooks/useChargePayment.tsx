@@ -13,8 +13,10 @@
 //
 // 清車政策(plan ②-④ §2、commit body 揭示):
 // - paid → clear(既有慣例)。
-// - processing(orphan/charge_unknown/order_locked/not_unpaid)→ **clear**:錢可能已扣、訂單已建,
+// - processing(orphan/charge_unknown/order_locked/not_unpaid、**帶單號**)→ **clear**:錢可能已扣、訂單已建,
 //   殘留 cart 誘導重買重刷;②-⑥ webhook 對帳收斂。
+// - 🔴 R3 preflight hold(processing **無單號**)→ **不 clear**:§2.3 新單未建、保留 cart 供 sibling 確定
+//   failed 後再結帳;按鈕仍鎖死(終態鎖、Q2=B 防焦慮連按再打 Record)。
 // - 🔴 unknown(action 呼叫 throw = 回應遺失層)→ **clear + 終態鎖**(審查側 BLOCKER 修):
 //   client 無法分辨「請求沒送到(零扣款)」vs「送到了、server 已完成 charge+confirm、回應在
 //   回程遺失(已扣款)」;後者 order 已 paid → per-user 閘不再攔同人新請求(migration 閘
@@ -48,8 +50,9 @@ export type ChargeState =
   | { status: 'wait'; message: string }
   /** 同會員另筆付款進行中(user_in_flight):零扣款、無單號、稍候再試。 */
   | { status: 'in_flight'; message: string }
-  /** 付款已收或處理中(orphan/unknown/locked):勿重複付款、帶單號供客服查。 */
-  | { status: 'processing'; displayId: string; message: string }
+  /** 付款已收或處理中(orphan/unknown/locked):勿重複付款、帶單號供客服查。
+   *  🔴 R3 preflight hold(§2.3 新單未建、保留 cart):displayId 缺 = hold、不清車、按鈕仍鎖死。 */
+  | { status: 'processing'; displayId?: string; message: string }
   /** 🔴 action 呼叫 throw(回應遺失層):付款狀態未知、可能已扣款 → 終態、勿重複付款、無單號。 */
   | { status: 'unknown'; message: string }
   /** 🔴 3DS-6b:3DS 啟動成功 → 即將整頁跳轉 TapPay payment_url(付款狀態非終態、UI 鎖定導向中、不清車)。 */
@@ -131,7 +134,11 @@ export function useChargePayment(): UseChargePayment {
     if ('payment' in res) {
       switch (res.payment) {
         case 'processing':
-          clear(); // 錢可能已扣、訂單已建 → 清車防重買重刷(②-⑥ 對帳收斂)
+          // 🔴 既有 processing(**帶單號**:orphan/charge_unknown/locked)→ 清車:錢可能已扣、訂單已建,
+          //   殘留 cart 誘導重買重刷(②-⑥ 對帳收斂)。
+          // 🔴 R3 preflight hold(**無單號**:§2.3 新單未建)→ 不清車:保留 cart 供 sibling 確定 failed
+          //   後再結帳(displayId 缺即 hold)。兩者皆終態鎖(按鈕鎖死、Q2=B 防焦慮連按再打 Record)。
+          if (res.displayId) clear();
           // 🔴 3DS-7:模糊態(可能已扣未定)**保留 cart_session_id、不 regenerate** —— 換 key 會讓 dedup 失去
           //   既有單把手、既有單若已扣則重購雙扣;保留 key=防雙扣把手(plan §3 7b 表;切勿在此加 regenerate)。
           setState({ status: 'processing', displayId: res.displayId, message: res.message });

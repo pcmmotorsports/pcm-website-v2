@@ -6381,6 +6381,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #252. 🔔 3DS flag 緊急關閉中間態:pending 3DS 兄弟單靠舊版 begin cart-dedup 兜底(開 prod flag 前驗)
+
+- **狀態:** ⏳ 待執行(開 prod flag 前必驗)
+- **優先級:** 🟠 中(prod flag=false 期間不可達;flag-on 前必驗)
+- **問題:**
+  - Q1=A:preflight 只在 3DS flag on 跑。若未來 prod 開了 3DS、客人有 pending 3DS 兄弟單時被緊急關閉 flag(§14 步45 rollback 第一動作),客人走同步路徑重付 → **跳過 preflight**。
+  - 此中間態靠舊版 `begin_charge_attempt` cart-dedup(同 cart_session_id 的 pending/charged 兄弟單 → duplicate/needs_settle → adjudicateSettlement)兜底,**非** preflight。
+  - 殘餘缺口:① released 兄弟單(begin dedup 排除 released)② 換裝置/清 cookie 致 cart_session_id 不同 → begin dedup 皆漏接 → 潛在雙扣,由 anomaly/W1 下游偵測+退款兜底(非 preflight 預防)。
+- **觸發事件(開 prod flag 前必啟動):**
+  - 開 prod `TAPPAY_3DS_ENABLED=true` 前(§14 步44);Gemini 廣度第三眼 + adversarial-reviewer R3 關卡2 已點(2026-06-26)。
+- **預期解法:**
+  - 開 flag 前以 begin-dedup MCP 模擬驗:proceed 路徑下 released/pending 兄弟單於 preflight↔begin 窗內 settle → begin 回 duplicate/needs_settle(非 acquired:true 新刷)。
+  - 評估是否需 Q1=C(同步路徑也輕量 lookup、只查到 active 才介入)補堵;或 rollback runbook 加「關 flag 前先跑 sweeper 收斂 in-flight 3DS attempt」。
+- **不修會痛在:**
+  - 擴充性:未來真開 3DS 後若需緊急 rollback,關 flag 瞬間 in-flight 客人重付可能雙扣(W1 可退、但增退款工單)。
+  - 可維護性:gating 依賴「begin dedup 兜底」是隱性契約,後人改 begin predicate 可能無意打破。
+  - bug 可追蹤性:中間態雙扣混在 anomaly 報表、難與一般雙扣區分根因。
+- **估時:** ~15 min(MCP 模擬驗證)+ 是否 Q1=C 決策
+- **依賴:** 開 prod flag 前(§14 步44);R3 已落(§14 步25)
+- **發現於:** 2026-06-26 / R3(§14 步25)關卡2 adversarial-reviewer F-T2 + Gemini 廣度第三眼 vector 6
+- **相關:** canonical §2.3 / §14 步44-45、Q1=A(2026-06-25 Sean 拍)、`begin_charge_attempt`、`adjudicateSettlement`、#251
+
+---
+
 ## 紀錄模板
 
 ```markdown
