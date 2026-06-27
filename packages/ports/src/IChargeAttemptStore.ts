@@ -1,6 +1,7 @@
 import type {
   ActiveChargeAttempt,
   BeginChargeAttemptResult,
+  ExpiredOrphanAttempt,
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
   OrderId,
@@ -104,4 +105,18 @@ export interface IChargeAttemptStore {
    * → needs_manual_review。**唯一回收路徑**(claim/expirer/mark 皆濾 unpaid);回標記筆數(>0 sweeper 告警)。
    */
   flagNonUnpaidActive(limit: number): Promise<number>;
+
+  // ── M-3 3DS 乙路 B1a/B1b:12h 孤兒「專用人工列再確認路徑」(claim_expired_pending_attempts、繞 sweeper ceiling/manual)──
+  // 🔴 主軌-only(同 claim_stuck):對帳路徑無 user JWT;claim 失敗→下輪重來(throttle 未蓋=可重領)無漏寫風險。
+
+  /**
+   * 🔴 原子 claim 12h pending 孤兒(放棄未重刷)再確認(FOR UPDATE OF a SKIP LOCKED + LIMIT;B1a)。
+   *
+   * 濾 status='pending'(隱含排除 released/charged/failed)AND order unpaid AND created_at<now()-12h AND B1 throttle
+   * (last_expired_settle_at NULL 或 <now()-6h);**不濾 needs_manual_review(manual=T/F 都進)、不濾 settle_attempt_count
+   * (繞 sweeper ceiling)** = sweeper 重試 8x 轉 manual 退出一般掃描後的專用再確認路徑。只蓋 last_expired_settle_at=now()
+   * (不清 manual、與 sweeper next_settle_at 分軌)。回 `ExpiredOrphanAttempt[]`(空=本輪無 due)。再確認(Record→收斂)
+   * = B1b `reconfirmExpiredOrphans` 複用 settleCharge(本 RPC 只 claim)。
+   */
+  claimExpiredPendingAttempts(limit: number): Promise<ExpiredOrphanAttempt[]>;
 }

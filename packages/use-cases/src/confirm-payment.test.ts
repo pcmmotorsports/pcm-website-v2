@@ -59,6 +59,7 @@ function makeAttempts(over: Partial<IChargeAttemptStore> = {}): IChargeAttemptSt
     recordInitiationRec: vi.fn(async () => {}),
     // R2a released failure observation port 方法;confirm-payment 不呼用、stub 滿足介面。
     recordReleasedFailureObservation: vi.fn(async () => {}),
+    claimExpiredPendingAttempts: vi.fn(async () => []),
     ...over,
   };
 }

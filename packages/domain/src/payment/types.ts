@@ -571,3 +571,16 @@ export type StuckChargeAttempt = {
   orderId: string;
   settleCount: number;
 };
+
+/**
+ * ExpiredOrphanAttempt:`claim_expired_pending_attempts` RPC(M-3 3DS 乙路 B1a)原子 claim 回傳一筆 12h pending 孤兒。
+ *
+ * 客人放棄付款、沒重刷的 pending 未付款孤兒(現行 sweeper 重試 8x 後轉 needs_manual_review=true 退出一般掃描);
+ * B1 是專用再確認路徑(繞 ceiling/manual、自有 6h throttle)。`orderId` = settleCharge 對單(order_number=UUID)。
+ * `needsManualReview` = claim 當下值(僅 telemetry/觀察;B1 **不清此 flag**、B1b 複用 settleCharge 再確認、不依此分支)。
+ */
+export type ExpiredOrphanAttempt = {
+  attemptId: string;
+  orderId: string;
+  needsManualReview: boolean;
+};

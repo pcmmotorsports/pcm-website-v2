@@ -20,6 +20,7 @@ import type { IChargeAttemptStore } from '@pcm/ports';
 import type {
   ActiveChargeAttempt,
   BeginChargeAttemptResult,
+  ExpiredOrphanAttempt,
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
   OrderId,
@@ -89,6 +90,10 @@ export class ChargeAttemptStoreWithFallback implements IChargeAttemptStore {
 
   flagNonUnpaidActive(limit: number): Promise<number> {
     return this.primary.flagNonUnpaidActive(limit);
+  }
+
+  claimExpiredPendingAttempts(limit: number): Promise<ExpiredOrphanAttempt[]> {
+    return this.primary.claimExpiredPendingAttempts(limit);
   }
 
   async markCharged(input: MarkChargeAttemptChargedInput): Promise<void> {

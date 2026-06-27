@@ -222,6 +222,7 @@ describe('PgChargeAttemptAdapter.markCharged / markFailed(主軌、雙鍵驗參�
 // ── M-3 3DS-4 sweeper(主軌-only;claim_stuck / mark_attempt_settle_retry / flag_non_unpaid_active)──
 
 const STUCK_ROW = { attempt_id: ATTEMPT, order_id: ORDER, settle_attempt_count: 2 };
+const EXPIRED_ROW = { attempt_id: ATTEMPT, order_id: ORDER, needs_manual_review: true };
 
 describe('PgChargeAttemptAdapter.expireStuckAtCeiling(ceiling-expirer、3DS-4a-2)', () => {
   it('回轉換筆數;SQL 呼 expire_stuck_attempts_at_ceiling()、無參數', async () => {
@@ -275,6 +276,43 @@ describe('PgChargeAttemptAdapter.claimStuckUnsettled(原子 lease claim、3DS-4a
     const { client } = makeClient({ query: async () => ({ rows: [row] }) });
     await expect(
       new PgChargeAttemptAdapter('conn', () => client).claimStuckUnsettled(600, 50),
+    ).rejects.toThrow('回應格式異常');
+  });
+});
+
+describe('PgChargeAttemptAdapter.claimExpiredPendingAttempts(12h 孤兒原子 claim、B1a)', () => {
+  it('SETOF → 映 ExpiredOrphanAttempt[];SQL 鎖 claim_expired_pending_attempts($1::integer)、參數=[limit]', async () => {
+    const { client, query, connect, end } = makeClient({
+      query: async () => ({ rows: [EXPIRED_ROW, { ...EXPIRED_ROW, needs_manual_review: false }] }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).claimExpiredPendingAttempts(50);
+    expect(res).toEqual([
+      { attemptId: ATTEMPT, orderId: ORDER, needsManualReview: true },
+      { attemptId: ATTEMPT, orderId: ORDER, needsManualReview: false },
+    ]);
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toMatch(/claim_expired_pending_attempts\(\$1::integer\)/); // 🔴 鎖 cast
+    expect(sql).toMatch(/needs_manual_review/); // 🔴 回 needs_manual_review(B1 不清、僅觀察)
+    expect(values).toEqual([50]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('空 rows(本輪無 due)→ []', async () => {
+    const { client } = makeClient({ query: async () => ({ rows: [] }) });
+    expect(
+      await new PgChargeAttemptAdapter('conn', () => client).claimExpiredPendingAttempts(50),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ['attempt_id 非字串', { ...EXPIRED_ROW, attempt_id: 1 }],
+    ['order_id 缺', { attempt_id: ATTEMPT, needs_manual_review: true }],
+    ['needs_manual_review 非 boolean', { ...EXPIRED_ROW, needs_manual_review: 'true' }],
+  ])('SETOF 列形狀不符(%s)→ throw 通用(fail-closed)', async (_l, row) => {
+    const { client } = makeClient({ query: async () => ({ rows: [row] }) });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).claimExpiredPendingAttempts(50),
     ).rejects.toThrow('回應格式異常');
   });
 });

@@ -24,6 +24,7 @@ import type { IChargeAttemptStore } from '@pcm/ports';
 import type {
   ActiveChargeAttempt,
   BeginChargeAttemptResult,
+  ExpiredOrphanAttempt,
   MarkChargeAttemptChargedInput,
   MarkChargeAttemptFailedInput,
   OrderId,
@@ -200,6 +201,17 @@ export class PgChargeAttemptAdapter implements IChargeAttemptStore {
     });
   }
 
+  /** B1a:原子 claim 12h pending 孤兒(繞 sweeper ceiling/manual、自有 throttle);回 ExpiredOrphanAttempt[]。 */
+  async claimExpiredPendingAttempts(limit: number): Promise<ExpiredOrphanAttempt[]> {
+    return this.run(async (client) => {
+      const res = await client.query(
+        'SELECT attempt_id, order_id, needs_manual_review FROM public.claim_expired_pending_attempts($1::integer)',
+        [limit],
+      );
+      return res.rows.map(parseExpiredOrphan);
+    });
+  }
+
   /** per-request 連線生命週期(connect → op → finally end;end throw 吞掉不蓋主錯誤)。 */
   private async run<T>(op: (client: PgClientLike) => Promise<T>): Promise<T> {
     let client: PgClientLike | undefined;
@@ -342,6 +354,22 @@ function parseStuckAttempt(row: Record<string, unknown>): StuckChargeAttempt {
     attemptId: row.attempt_id,
     orderId: row.order_id,
     settleCount: row.settle_attempt_count,
+  };
+}
+
+/** 解析 claim_expired_pending_attempts(B1a)回的一筆 12h 孤兒;形狀不符 → throw(通用、fail-closed)。 */
+function parseExpiredOrphan(row: Record<string, unknown>): ExpiredOrphanAttempt {
+  if (
+    typeof row.attempt_id !== 'string' ||
+    typeof row.order_id !== 'string' ||
+    typeof row.needs_manual_review !== 'boolean'
+  ) {
+    throw new ChargeAttemptParseError('claim_expired_pending_attempts 回應格式異常');
+  }
+  return {
+    attemptId: row.attempt_id,
+    orderId: row.order_id,
+    needsManualReview: row.needs_manual_review,
   };
 }
 

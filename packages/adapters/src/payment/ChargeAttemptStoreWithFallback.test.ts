@@ -49,6 +49,10 @@ function makeStore(opts: {
   ]);
   const primaryMarkSettleRetry = vi.fn(async () => 1);
   const primaryFlagNonUnpaid = vi.fn(async () => 3);
+  // B1a 12h 孤兒 claim 主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
+  const primaryClaimExpired = vi.fn(async () => [
+    { attemptId: 'attempt-uuid-1', orderId: ORDER, needsManualReview: true },
+  ]);
   // 3DS-5b initiate 寫入主軌-only port 方法(複合直通 primary、不走 fallback);具名 mock 供委派測。
   const primaryRecordBankTxn = vi.fn(async () => {});
   const primaryRecordRec = vi.fn(async () => {});
@@ -67,6 +71,7 @@ function makeStore(opts: {
     recordInitiationBankTxn: primaryRecordBankTxn,
     recordInitiationRec: primaryRecordRec,
     recordReleasedFailureObservation: primaryRecordReleasedObs,
+    claimExpiredPendingAttempts: primaryClaimExpired,
   };
   const fallback: ChargeAttemptFallbackRail = { markCharged: fallbackMarkCharged };
   // 顯式 call signature:令 sleep.mock.calls 為 [ms] tuple(可讀退避序列、非空 tuple)。
@@ -84,6 +89,7 @@ function makeStore(opts: {
     primaryClaimStuck,
     primaryMarkSettleRetry,
     primaryFlagNonUnpaid,
+    primaryClaimExpired,
     primaryRecordBankTxn,
     primaryRecordRec,
     sleep,
@@ -297,6 +303,15 @@ describe('3DS-4 sweeper 方法 — 主軌-only 直通(無 fallback、對齊 find
     const res = await store.flagNonUnpaidActive(50);
     expect(primaryFlagNonUnpaid).toHaveBeenCalledWith(50);
     expect(res).toBe(3);
+  });
+
+  it('claimExpiredPendingAttempts 直通 primary(原參數)+ 回傳 passthrough、零 sleep(B1a)', async () => {
+    const { store, primaryClaimExpired, sleep } = makeStore({});
+    const res = await store.claimExpiredPendingAttempts(50);
+    expect(primaryClaimExpired).toHaveBeenCalledTimes(1);
+    expect(primaryClaimExpired).toHaveBeenCalledWith(50);
+    expect(res).toEqual([{ attemptId: 'attempt-uuid-1', orderId: ORDER, needsManualReview: true }]);
+    expect(sleep).not.toHaveBeenCalled();
   });
 });
 

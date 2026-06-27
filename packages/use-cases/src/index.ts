@@ -61,3 +61,12 @@ export {
   preflightReleaseSibling,
   type PreflightReleaseSiblingDeps,
 } from './preflight-release-sibling';
+
+// M-3 3DS 乙路 B1b:12h 孤兒專用再確認 use-case(reconfirmExpiredOrphans、claim_expired_pending_attempts〔B1a〕
+// → 複用 settleCharge 收斂;繞 sweeper ceiling/manual、自有 throttle 分軌、不呼 markSettleRetry;canonical §8)。
+export {
+  reconfirmExpiredOrphans,
+  type ReconfirmExpiredOrphansDeps,
+  type ReconfirmExpiredOrphansOptions,
+  type ReconfirmExpiredOrphansResult,
+} from './reconfirm-expired-orphans';
