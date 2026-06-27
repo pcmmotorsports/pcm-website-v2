@@ -6405,6 +6405,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #253. 🟡 B1 manual=false 12h 孤兒再確認後仍 pending 未升級 needs_manual_review(canonical §8 case ④ defer)
+
+- **狀態:** ⏳ 待執行(Sean 2026-06-27 拍 defer = 本輪 B;canonical §8 defer 契約要求明示編號、不可默默略過)
+- **優先級:** 🟡 低-中(實務由既有 sweeper ceiling 兜底、非永久遺失;開 prod flag 前評估補)
+- **問題:**
+  - canonical §8 行280 case ④「manual=F + Record 4 → 維持 pending **並進 manual**」要求 B1 把「manual=false 的 12h+ 孤兒、再確認仍 pending」升級 `needs_manual_review=true`(進人工 queue)。
+  - B1b `reconfirmExpiredOrphans` pending 分支只 tally、**未寫 manual**(B1a claim RPC 只蓋 throttle 戳、明訂「不動 manual」)。
+  - 🔴 canonical 用詞**自相矛盾**:行278「原本 false **可**標 true」(permissive)vs 行280 case ④「**並進** manual」(mandatory)→ B 線 §14 步35 整體複審 adversarial-reviewer F-INT1 抓到(slice 級雙審未見)。
+- **實務影響(LOW):**
+  - 既有 sweeper `claim_stuck_unsettled_attempts` 本就處理 manual=false 孤兒、約 8 個掃描週期達 ceiling → `mark_attempt_settle_retry` 標 manual=true → manual=false 孤兒**仍會被升級、只是由 sweeper 非 B1**。B1 主目標(sweeper 放棄的 manual=TRUE 孤兒)已覆蓋。
+- **預期解法(若補做):**
+  - 新窄權 SECDEF RPC(payment_confirmer-only、`search_path=''`)`flag_expired_orphan_manual(p_attempt_id,p_order_id)`:`WHERE status='pending' AND order unpaid AND id+order 雙鍵符 → needs_manual_review=true`(冪等、不動其他欄)+ has_function_privilege 矩陣 + role-hygiene assert + DDL MCP 模擬。
+  - B1b pending 分支:該 orphan `needsManualReview=false` 時呼 flag RPC 升級(記 escalated 計數)+ 測試。
+  - 或評估直接併進 sweeper(避免 B1/sweeper 兩路重複升級)。
+- **不修會痛在:**
+  - 擴充性:manual=false 孤兒升級依賴 sweeper ~8 週期慢兜;若未來停用/改 sweeper ceiling,B1 不補則升級無備援。
+  - 可維護性:canonical §8 與實作有已知偏離(本條 defer 落檔),後人讀 case ④ 會誤以為已做。
+  - bug 可追蹤性:manual=false 孤兒升級時機由 sweeper(8 週期)非 B1(12h)決定,對帳時間軸混兩來源。
+- **估時:** ~30-45 min(新 RPC migration + DDL 模擬 + B1b 接線 + 測 + 雙審)
+- **依賴:** B1a/B1b 已落(`8197fca`/`4866817`);開 prod flag 前評估
+- **發現於:** 2026-06-27 / B 線 §14 步35 整體複審 adversarial-reviewer F-INT1
+- **相關:** canonical §8 行278/280 case ④、Sean 2026-06-27 拍 defer(本輪 B)、`reconfirm-expired-orphans.ts`、`claim_expired_pending_attempts`、既有 sweeper `mark_attempt_settle_retry` ceiling 升級
+
+---
+
 ## 紀錄模板
 
 ```markdown
