@@ -17,7 +17,8 @@ import type { CartItem } from '@/contexts/CartContext';
 import type { ResolvedCartLine } from '@/app/cart/actions';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 
-const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, tapRef } = vi.hoisted(() => ({
+const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, confirmInflightMock, setInflightMock, tapRef } =
+  vi.hoisted(() => ({
   cartRef: {
     current: {
       items: [] as CartItem[],
@@ -35,6 +36,8 @@ const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, tapRef } = vi.
   pushMock: vi.fn(),
   chargeMock: vi.fn(),
   getPrimeMock: vi.fn(),
+  confirmInflightMock: vi.fn(() => true),
+  setInflightMock: vi.fn(),
   tapRef: {
     current: {
       ready: 'ready' as const,
@@ -76,6 +79,12 @@ vi.mock('@/components/CheckoutRedirecting', () => ({
   ),
 }));
 
+// P3:in-flight 記號邏輯由 inflight-marker.test.ts 專測;此處中性化(confirm 預設不擋、set no-op)避免干擾既有 smoke。
+vi.mock('@/lib/payment/inflight-marker', () => ({
+  setPaymentInflight: setInflightMock,
+  confirmProceedIfInflight: confirmInflightMock,
+}));
+
 import { CheckoutView } from './CheckoutView';
 
 beforeAll(() => {
@@ -97,6 +106,9 @@ afterEach(() => {
   pushMock.mockReset();
   chargeMock.mockReset();
   getPrimeMock.mockReset();
+  confirmInflightMock.mockReset();
+  confirmInflightMock.mockReturnValue(true); // 預設不擋(P3 軟提醒由 inflight-marker.test.ts 專測)
+  setInflightMock.mockReset();
   tapRef.current = {
     ready: 'ready',
     canGetPrime: true,
@@ -331,6 +343,19 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
     expect(payload).not.toHaveProperty('amount'); // 🔴 client 零送價
     expect(cartRef.current.clear).toHaveBeenCalledOnce(); // paid 才清車
+  });
+
+  it('🔴 P3 in-flight 軟提醒取消(confirm false)→ 連 getPrime 都不進、零 chargePaymentAction(不送出)', async () => {
+    confirmInflightMock.mockReturnValue(false); // 客人在「你有一筆付款進行中」確認框點取消
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    const { container } = renderCheckout();
+    await gotoStep3Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(confirmInflightMock).toHaveBeenCalled();
+    expect(getPrimeMock).not.toHaveBeenCalled(); // handleSubmit 軟提醒在 getPrime 前 return
+    expect(chargeMock).not.toHaveBeenCalled();
   });
 
   it('🔴 ⑯ 同輪快速雙擊 → getPrime 只進一次(primeBusyRef 同步鎖;codex 關卡2 r1)', async () => {

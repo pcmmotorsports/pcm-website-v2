@@ -44,6 +44,7 @@ import { TapPayCardFields } from '@/components/TapPayCardFields';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { useChargePayment } from '@/hooks/useChargePayment';
 import { useTapPayCard } from '@/hooks/useTapPayCard';
+import { confirmProceedIfInflight } from '@/lib/payment/inflight-marker';
 
 const STEPS = [
   { n: 1, l: '收件資料' },
@@ -113,6 +114,7 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   const payDisabled = !agreed || submitting || !tappay.canGetPrime;
   const handleSubmit = async () => {
     if (payDisabled || primeBusyRef.current) return;
+    if (!confirmProceedIfInflight()) return; // 🔴 P3:另開分頁防呆軟提醒(取消則不送出;後端 preflight 才是雙扣真防線)
     primeBusyRef.current = true;
     setPrimeBusy(true);
     setPrimeError(null);

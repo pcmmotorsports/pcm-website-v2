@@ -35,6 +35,7 @@ import type { SettleChargeOutcome } from '@pcm/domain';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { ClearCartOnSuccess } from '@/components/ClearCartOnSuccess';
 import { PollOrderStatus } from '@/components/PollOrderStatus';
+import { ClearPaymentInflight } from '@/components/ClearPaymentInflight';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -129,7 +130,13 @@ export default async function CheckoutCallbackRoute({
   // 5. outcome → 變體(displayId 取自步驟3 歸屬讀)。
   if (outcome.kind === 'failed') {
     // 明確未成功(settleCharge markFailed 已釋鎖)→ 失敗、不清車、CTA 返回購物車(Sean D4)。
-    return <CheckoutSuccess variant="failed" displayId={displayId} message={FAILED_MSG} />;
+    return (
+      <>
+        <CheckoutSuccess variant="failed" displayId={displayId} message={FAILED_MSG} />
+        {/* 🔴 P3:付款明確失敗、不再進行中 → 清 in-flight 記號(避免重結帳被誤提醒)。 */}
+        <ClearPaymentInflight />
+      </>
+    );
   }
   if (outcome.kind === 'paid') {
     return (
@@ -137,6 +144,8 @@ export default async function CheckoutCallbackRoute({
         <CheckoutSuccess variant="paid" displayId={displayId} />
         {/* 🔴 3DS-7 Q4=A:DB 確定 paid → regenerate 換新 key(防下次重購撞已 paid sibling 被誤擋)。 */}
         <ClearCartOnSuccess regenerate />
+        {/* 🔴 P3:付款成交、不再進行中 → 清 in-flight 記號。 */}
+        <ClearPaymentInflight />
       </>
     );
   }
@@ -148,7 +157,13 @@ export default async function CheckoutCallbackRoute({
   //   付款(常見 webhook vs redirect 競態打首屏)摧毀購物車 → 故保留車(= A4 真意=防雙扣、非機械式清)。
   // ⚠️ 已知文案瑕疵:no_attempt 顯「處理中」而非「付款未完成」(顯真 failed 需 failed-state reader、留讀路徑/3DS-4)。
   if (outcome.kind === 'no_attempt') {
-    return <CheckoutSuccess variant="processing" displayId={displayId} message={PROCESSING_MSG} />;
+    return (
+      <>
+        <CheckoutSuccess variant="processing" displayId={displayId} message={PROCESSING_MSG} />
+        {/* 🔴 P3:no_attempt ⟺ 必然未扣款、不再進行中 → 清 in-flight 記號。 */}
+        <ClearPaymentInflight />
+      </>
+    );
   }
   // pending(owned)→ 處理中 + 清品項 + 背景輪詢。pending(record_unreachable/auth_or_pending/unverified)= **可能已扣款**、
   //   鎖仍持 → 清車防殘車誘導重複扣款(對齊既有 useChargePayment processing 清車政策);文案用 OWNED_PENDING_MSG

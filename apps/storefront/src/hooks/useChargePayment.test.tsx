@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import type { CartItem } from '@/contexts/CartContext';
 
-const { cartRef, chargeMock } = vi.hoisted(() => ({
+const { cartRef, chargeMock, setInflightMock } = vi.hoisted(() => ({
   cartRef: {
     current: {
       items: [] as CartItem[],
@@ -29,6 +29,7 @@ const { cartRef, chargeMock } = vi.hoisted(() => ({
     },
   },
   chargeMock: vi.fn(),
+  setInflightMock: vi.fn(),
 }));
 
 vi.mock('@/contexts/CartContext', () => ({
@@ -36,6 +37,9 @@ vi.mock('@/contexts/CartContext', () => ({
 }));
 vi.mock('@/app/checkout/charge-actions', () => ({
   chargePaymentAction: chargeMock,
+}));
+vi.mock('@/lib/payment/inflight-marker', () => ({
+  setPaymentInflight: setInflightMock,
 }));
 
 import { useChargePayment } from './useChargePayment';
@@ -64,6 +68,7 @@ const ARGS = {
 afterEach(() => {
   cleanup();
   chargeMock.mockReset();
+  setInflightMock.mockReset();
 });
 
 describe('useChargePayment', () => {
@@ -234,6 +239,16 @@ describe('useChargePayment', () => {
     });
     expect(chargeMock).toHaveBeenCalledTimes(1);
     expect(result.current.state.status).toBe('redirect');
+  });
+
+  it('🔴 P3:redirect → setPaymentInflight(cartSessionId) 設記號一次(另開分頁防呆)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }], 'cart-xyz');
+    chargeMock.mockResolvedValue({ redirect: true, redirectUrl: 'https://x/pay?token=t' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(setInflightMock).toHaveBeenCalledWith('cart-xyz');
   });
 
   it('🔴 3DS-7:paid → regenerateCartSession 換新 key 一次;payload 帶 client cartSessionId', async () => {

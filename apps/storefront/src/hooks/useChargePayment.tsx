@@ -33,6 +33,7 @@ import type { ShippingMethod } from '@pcm/domain';
 import { useCart } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
+import { setPaymentInflight } from '@/lib/payment/inflight-marker';
 
 export type ChargeArgs = {
   addressId: string | undefined;
@@ -120,6 +121,10 @@ export function useChargePayment(): UseChargePayment {
     // 🔴 3DS-6b:redirect(flag on 3DS 啟動成功)→ 即將整頁跳轉 TapPay。不清車(callback 成功頁才清、
     //   abandon 可回頭重結帳);UI 鎖定維持(導向中、防重送)、付款狀態非終態。redirectUrl 不 log。
     if ('redirect' in res && res.redirect) {
+      // 🔴 P3:即將整頁跳轉 TapPay → 寫 in-flight 記號(6 分 TTL)。另開分頁再結帳時 handleSubmit 軟提醒;
+      //   付款有結論(callback paid/failed/no_attempt 掛 ClearPaymentInflight)或逾時 → 清/失效。
+      //   fail-safe:localStorage 不可用不影響導向(後端 preflight 才是雙扣真防線)。
+      setPaymentInflight(cartSessionId);
       setState({ status: 'redirect', redirectUrl: res.redirectUrl });
       return true; // 維持 UI 鎖:呼叫端(View primeBusyRef)不釋放(即將導向)
     }
