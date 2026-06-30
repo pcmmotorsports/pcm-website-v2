@@ -1,0 +1,22 @@
+{
+  // PCM 網站 repo 的 VSCode 外掛建議清單。
+  // 打開這個 repo 時 VSCode 會跳「建議安裝」。由 Claude Code 於 2026-06-26 建立。
+
+  "recommendations": [
+    // --- 必裝:專案品質關卡 ---
+    "dbaeumer.vscode-eslint",        // CI 守門員(鐵則 11 lint / react-hooks / boundaries),編輯器內當場標紅
+    "usernamehw.errorlens",          // 把 TS/ESLint 錯誤直接印在那一行旁邊
+
+    // --- 推薦:對應實際工具 ---
+    "vitest.explorer",               // 官方 Vitest(smoke test *.test.tsx + jsdom)側欄跑/debug
+    "DavidAnson.vscode-markdownlint", // repo 大量 .md(STATUS/docs/handoff)格式檢查
+    "eamodio.gitlens"                // 行級 git blame / 歷史(配合 busboy + hash 追蹤紀律)
+  ],
+
+  "unwantedRecommendations": [
+    // 這些對「實際」技術棧無用或會幫倒忙,主動標記不推薦:
+    "esbenp.prettier-vscode",        // 專案無 Prettier 設定、只用 ESLint;裝了 format-on-save 會製造 noise diff
+    "bradlc.vscode-tailwindcss",     // 實際是 plain CSS(src/styles/*.css),沒在用 Tailwind
+    "Prisma.prisma"                  // 實際 DB 是 Supabase,無 schema.prisma
+  ]
+}
