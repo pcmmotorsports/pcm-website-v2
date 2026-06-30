@@ -32,5 +32,10 @@ export async function placeOrder(
   if (!input.cartSessionId) {
     throw new Error('placeOrder: 缺 cart_session_id、無法建單');
   }
+  // #241 縱深:同意條款版本必填(server 注入;create_order 路徑「無 consent 不生 order」、
+  // delivery 漏填即擋、不打 DB;對齊 cartSessionId guard。RPC p_terms_version NULL/空亦 fail-closed)。
+  if (!input.termsVersion) {
+    throw new Error('placeOrder: 缺同意條款版本(consent)、無法建單');
+  }
   return orderRepo.placeOrder(input);
 }

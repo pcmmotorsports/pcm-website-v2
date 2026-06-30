@@ -1100,9 +1100,12 @@ export type Database = {
         Args: {
           p_address_id: string
           p_cart_session_id: string
+          p_client_ip: string | null
+          p_client_ua: string | null
           p_invoice: Json
           p_lines: Json
           p_shipping_method: string
+          p_terms_version: string
         }
         Returns: Json
       }

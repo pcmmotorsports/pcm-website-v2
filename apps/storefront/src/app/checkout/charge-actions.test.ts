@@ -10,8 +10,10 @@
 // 用真 @pcm/schemas(不 mock)驗 strip/uuid/prime 真實行為;mock use-cases/composition/cardholder。
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { CURRENT_TERMS_VERSION } from '@/lib/legal/terms-version';
 
 const mockPlaceOrder = vi.fn();
+const mockHeadersGet = vi.fn(); // 🔴 #241:next/headers headers().get(name) mock(IP/UA 抓)
 const mockConfirmPayment = vi.fn();
 const mockInitiatePayment = vi.fn();
 const mockSettleCharge = vi.fn(); // 3DS-7 7c-2:settlement_required needs_settle 即時裁決
@@ -66,6 +68,10 @@ vi.mock('@/lib/payment/cardholder', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: async () => ({ auth: { getUser: () => mockGetUser() } }),
 }));
+// 🔴 #241:headers() 取 best-effort IP/UA(Next 16 async);預設 get→null(無 IP/UA),正向測顯式 override。
+vi.mock('next/headers', () => ({
+  headers: async () => ({ get: (n: string) => mockHeadersGet(n) }),
+}));
 // 🔴 3DS-7:cart_session_id 改由 client CartContext 穩定 key 送來(server 驗 uuid/非空、信任),不再 server
 //   randomUUID 產 → 移除舊 node:crypto randomUUID mock(charge-actions 已不 import randomUUID)。
 
@@ -100,6 +106,7 @@ function validInput(over: Record<string, unknown> = {}) {
     lines: [{ variantId: VARIANT, quantity: 2 }],
     prime: 'prime_abc',
     cartSessionId: CART_SESSION, // 3DS-7:client 送穩定 key(7b 後 server 必驗、缺/非法 fail-closed)
+    agreed: true, // 🔴 #241:同意條款(②e server 驗、缺/false → formError 零副作用);負測顯式 override
     ...over,
   };
 }
@@ -134,6 +141,7 @@ beforeEach(() => {
     redirectUrl: 'https://sandbox.tappaysdk.com/pay?token=abc',
   });
   mockIsHttpsUrl.mockReturnValue(true);
+  mockHeadersGet.mockReturnValue(null); // 🔴 #241 預設無 IP/UA(best-effort);正向測顯式 override
 });
 
 describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
@@ -629,5 +637,68 @@ describe('chargePaymentAction — 🔴 R3 立即重刷 preflight(canonical §2.3
     await action(validInput());
     expect(mockPlaceOrder).not.toHaveBeenCalled();
     expect(mockFindTotal).not.toHaveBeenCalled();
+  });
+});
+
+describe('chargePaymentAction — #241 同意條款 server 驗(codex 關卡1 B3:守門在付款/建單/settle 副作用前)', () => {
+  // 🔴 agreed 缺/false/非布林 → formError「請先閱讀並同意」+ **任何副作用函式全未被呼**(防未來把守門移到 preflight 後)。
+  it.each([
+    ['agreed=undefined(缺、未送)', { agreed: undefined } as Record<string, unknown>],
+    ['agreed=false', { agreed: false }],
+    ['agreed=字串 "true"(非布林、不放行)', { agreed: 'true' }],
+    ['agreed=1(非布林、不放行)', { agreed: 1 }],
+  ])('%s → formError + 零任何副作用(flag-off 同步路徑)', async (_label, over) => {
+    mockIsThreeDSEnabled.mockReturnValue(false);
+    const action = await getAction();
+    const res = await action(validInput(over));
+    expect(res).toEqual({ formError: '請先閱讀並同意服務條款與隱私政策' });
+    expect(mockBuildCardholder).not.toHaveBeenCalled();
+    expect(mockPreflightReleaseSibling).not.toHaveBeenCalled();
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockFindTotal).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+  });
+
+  it('🔴 缺 agreed → flag-on(3DS)路徑亦零副作用(守門在 preflightReleaseSibling 前、不動 sibling/settle)', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(true); // 3DS 路徑(preflight 啟用)
+    const action = await getAction();
+    const res = await action(validInput({ agreed: false }));
+    expect(res).toEqual({ formError: '請先閱讀並同意服務條款與隱私政策' });
+    expect(mockBuildCardholder).not.toHaveBeenCalled();
+    expect(mockPreflightReleaseSibling).not.toHaveBeenCalled();
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockSettleCharge).not.toHaveBeenCalled();
+  });
+
+  it('🔴 agreed=true → 注入 termsVersion(常數)+ best-effort IP/UA(首段 trim、截斷)進 placeOrderInput', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(false);
+    mockHeadersGet.mockImplementation((n: string) =>
+      n === 'x-vercel-forwarded-for'
+        ? '203.0.113.7, 10.0.0.1'
+        : n === 'user-agent'
+          ? 'Mozilla/Test'
+          : null,
+    );
+    const action = await getAction();
+    await action(validInput());
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.termsVersion).toBe(CURRENT_TERMS_VERSION);
+    expect(placeOrderInput.clientIp).toBe('203.0.113.7'); // x-vercel-forwarded-for 首段 trim
+    expect(placeOrderInput.clientUserAgent).toBe('Mozilla/Test');
+  });
+
+  it('🔴 IP header 優先序 x-vercel-forwarded-for > x-forwarded-for > x-real-ip;UA 缺 → null', async () => {
+    mockIsThreeDSEnabled.mockReturnValue(false);
+    mockHeadersGet.mockImplementation((n: string) =>
+      n === 'x-forwarded-for' ? '198.51.100.9' : n === 'x-real-ip' ? '192.0.2.1' : null,
+    );
+    const action = await getAction();
+    await action(validInput());
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.clientIp).toBe('198.51.100.9'); // vercel 無 → 取 x-forwarded-for(優先於 x-real-ip)
+    expect(placeOrderInput.clientUserAgent).toBeNull(); // user-agent 缺 → null
   });
 });

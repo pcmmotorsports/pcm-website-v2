@@ -198,7 +198,8 @@ export type OrderInvoice = {
 /**
  * PlaceOrderInput: 建單 use-case / repo 寫入 input(client → server 線契約、value-object)。
  *
- * 對齊 create_order RPC 簽名(p_lines / p_address_id / p_shipping_method / p_invoice / p_cart_session_id、3DS-0b 5-param):
+ * 對齊 create_order RPC 簽名(p_lines / p_address_id / p_shipping_method / p_invoice / p_cart_session_id
+ * / p_terms_version / p_client_ip / p_client_ua、#241 8-param):
  * - `lines`:購物車品項(1..200、每筆 qty 1..10000、上限 RPC 驗)
  * - `addressId`:收件地址 id(RPC 以 auth.uid() 驗本人歸屬、防 IDOR)
  * - `shippingMethod`:配送方式(運費 RPC §7 自算、見 shipping.ts)
@@ -206,6 +207,7 @@ export type OrderInvoice = {
  * - `cartSessionId`:cart-instance idempotency key(uuid;3DS 跨分頁雙扣去重、對齊 0b p_cart_session_id
  *   null fail-closed)。**非價/非身分/非 tier**。現行(3DS-7、已上線)= client CartContext 持有的穩定 key
  *   經 charge-actions chargePaymentAction 送 server(server 局部 UUID_RE 驗、非空 fail-closed;per-cart-instance 去重)。
+ * - `termsVersion` / `clientIp` / `clientUserAgent`:🔴 #241 同意紀錄(**server 注入、非 client→server 線契約**;見各欄)。
  *
  * 🔴 鐵則 12:**無** customerId / tier / 任何價欄 —— 身分由 RPC server 端 `auth.uid()` 重查(零信任)、
  * 價 server 權威。client 永不送 userId / 價 / tier。
@@ -216,6 +218,16 @@ export type PlaceOrderInput = {
   shippingMethod: ShippingMethod;
   invoice: OrderInvoice;
   cartSessionId: string;
+  /**
+   * 🔴 #241 同意條款版本(server 注入 `CURRENT_TERMS_VERSION`、**非 client 送**;對齊 create_order
+   * 8-param `p_terms_version`)。create_order 路徑必填(NULL/空 → RPC RAISE「無 consent 不生 order」、
+   * 同 transaction 原子寫 order_legal_consents)。
+   */
+  termsVersion: string;
+  /** 🔴 #241 best-effort 同意來源 IP(server 由 request headers 抓、可 null;爭議舉證、**非強身分證據**)。 */
+  clientIp?: string | null;
+  /** 🔴 #241 best-effort 同意來源 User-Agent(server 抓、可 null)。 */
+  clientUserAgent?: string | null;
 };
 
 /**

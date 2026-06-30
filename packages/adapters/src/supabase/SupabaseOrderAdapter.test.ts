@@ -4,7 +4,7 @@
 // snake_case wire(quantity→qty / 複合鍵 / 發票)、回傳只 {orderId, displayId};RPC error 上拋不吞;
 // 回傳格式非預期防腐壞 throw;讀路徑 deferred-stub(延 stage ③ 訂單查詢、backlog #217)reject 未實作。
 // 線上 create_order RPC 已就緒(S2-a + S2-b1 migration 已 db push、authenticated EXECUTE/anon REVOKE 正確);
-// ⚠️ 3DS-0b 5-param(加 p_cart_session_id)尚待 db push、本檔以 mock 驗 TS wire 對齊 0b 簽名(args 含 p_cart_session_id)。
+// ⚠️ #241 8-param(0b 5-param + p_terms_version/p_client_ip/p_client_ua)尚待 db push、本檔以 mock 驗 TS wire 對齊 8-param 簽名。
 // 真打 RPC(端到端建單)可成、留 Sean 階段①末肉眼驗;本片 mock client 單元測只驗 adapter 行為。
 
 import { describe, it, expect, vi } from 'vitest';
@@ -20,6 +20,7 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
+    termsVersion: '2026-06-30', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -44,13 +45,16 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       }),
     );
 
-    // 🔴 鐵則 12:傳給 RPC 的 args 即 mapper 輸出(snake_case、零 price/tier/userId)
+    // 🔴 鐵則 12:傳給 RPC 的 args 即 mapper 輸出(snake_case、零 price/tier/userId;#241 8-param)
     expect(rpc).toHaveBeenCalledWith('create_order', {
       p_lines: [{ supplier_slug: 'rpm', sku: 'DCC01-G-F', qty: 3 }],
       p_address_id: 'addr-1',
       p_shipping_method: 'home',
       p_invoice: { type: 'company', carrier: undefined, title: 'PCM', taxId: '12345678', donateCode: undefined },
       p_cart_session_id: '11111111-1111-1111-1111-111111111111',
+      p_terms_version: '2026-06-30', // #241 server 注入
+      p_client_ip: null, // #241 best-effort(input fixture 未帶 → null)
+      p_client_ua: null,
     });
     expect(res).toEqual({ orderId: 'o1', displayId: 'PCM-2026-0001' });
   });

@@ -6105,7 +6105,12 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #241. ⚠️ 結帳「同意服務條款」未勾選仍可付款、無提醒
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 已實作(2026-07-01、worktree=dev、待 Sean db push;真權威 `docs/specs/2026-06-30-m3-241-checkout-consent-plan.md`)
+  - 實作:charge-actions ②e `raw.agreed !== true` server 驗(不信任 client、置於所有付款/建單/settle 副作用前)+ best-effort IP/UA(headers、截 128/1024)→ create_order 5→8 param 同 transaction 原子寫 `order_legal_consents`(新 1:1 表、RLS 零 policy + REVOKE ALL = IP/UA PII 隔離)+ `legal_terms_versions` 版本登錄表(content_hash provenance、FK)+ `terms-version.ts` 常數。前端鈕已 payDisabled=!agreed(對齊 design、不加 inline 提示)。
+  - 審查:Gemini scope/設計 + codex 關卡1(FAIL→9 finding 全修)+ 關卡2(zero-regression 乾淨)+ code-reviewer + adversarial-reviewer(皆 PASS-WITH-NITS)+ L1 安全輕掃 0 finding + migration MCP 零留痕 + 三綠 + vitest 1507。
+  - 🔴 **誠實邊界**:本片 = 同意訊號 + 內容雜湊 provenance,**非完整法律效力** —— 完整效力需 **#235**(結帳條款連結 `href="#"` → 接可讀條款/隱私頁,前端/內容片、耦合相依)。
+  - 🔴 **db push sequencing**:code 期待 8-param、live 仍 5-param 未推 → **Sean db push 在先、才驗 checkout**(prod 未部署=零影響);db push 後 `generate_typescript_types` 重生兩表 Row 型別。
+  - 殘留 NIT(可接受):terms version + content_hash 雙處(terms-version.ts + migration seed)手動同步 bump(已雙處 callout 緩解、無自動斷言);條款改版時注意。
 - **優先級:** 🟠 中(上線前必補;合規/爭議面)
 - **問題:**
   - 結帳頁「我已閱讀並同意 PCM Motorsports 的 服務條款 與 隱私政策」checkbox **未勾選也能按「確認付款」**、且無任何提醒或阻擋。2026-06-20 sandbox 3DS 實測:未勾選直接刷卡成功建單。

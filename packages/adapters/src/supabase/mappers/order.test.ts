@@ -13,6 +13,7 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
+    termsVersion: '2026-06-30', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -30,11 +31,33 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     expect(args.p_cart_session_id).toBe('cs-abc');
   });
 
-  it('🔴 wire 鍵集合鎖定恰 5 鍵(db push 前守門:typecheck 對多加鍵盲、改測試鎖鍵集合 + db push 後重 gen 抓少鍵)', () => {
+  it('🔴 wire 鍵集合鎖定恰 8 鍵(#241;db push 前守門:typecheck 對多加鍵盲、改測試鎖鍵集合 + db push 後重 gen 抓少鍵)', () => {
     const args = mapPlaceOrderToCreateOrderArgs(input());
     expect(Object.keys(args).sort()).toEqual(
-      ['p_address_id', 'p_cart_session_id', 'p_invoice', 'p_lines', 'p_shipping_method'].sort(),
+      [
+        'p_address_id',
+        'p_cart_session_id',
+        'p_client_ip',
+        'p_client_ua',
+        'p_invoice',
+        'p_lines',
+        'p_shipping_method',
+        'p_terms_version',
+      ].sort(),
     );
+  });
+
+  it('🔴 #241:termsVersion → p_terms_version;clientIp/UA → p_client_ip/ua(缺 → null)', () => {
+    const withConsent = mapPlaceOrderToCreateOrderArgs(
+      input({ termsVersion: '2026-06-30', clientIp: '1.2.3.4', clientUserAgent: 'UA/1.0' }),
+    );
+    expect(withConsent.p_terms_version).toBe('2026-06-30');
+    expect(withConsent.p_client_ip).toBe('1.2.3.4');
+    expect(withConsent.p_client_ua).toBe('UA/1.0');
+    // 缺 IP/UA → null(best-effort 容忍)
+    const noIp = mapPlaceOrderToCreateOrderArgs(input());
+    expect(noIp.p_client_ip).toBeNull();
+    expect(noIp.p_client_ua).toBeNull();
   });
 
   it('複合鍵 line → {supplier_slug, sku, qty}(S3a 後 sku 非全域唯一防撞)', () => {

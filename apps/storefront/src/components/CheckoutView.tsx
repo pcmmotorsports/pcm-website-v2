@@ -125,7 +125,7 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
         setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
         return;
       }
-      terminal = await charge.submit({ addressId: shippingAddrId, shippingMethod: 'home', invoice, prime });
+      terminal = await charge.submit({ addressId: shippingAddrId, shippingMethod: 'home', invoice, prime, agreed });
     } finally {
       if (!terminal) {
         primeBusyRef.current = false;

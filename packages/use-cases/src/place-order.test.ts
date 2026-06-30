@@ -22,6 +22,7 @@ function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
     shippingMethod: 'home',
     invoice: { type: 'personal' },
     cartSessionId: '11111111-1111-1111-1111-111111111111',
+    termsVersion: '2026-06-30', // #241 server 注入(必填)
     ...over,
   };
 }
@@ -58,11 +59,19 @@ describe('placeOrder', () => {
     expect(place).not.toHaveBeenCalled();
   });
 
-  it('3DS-0b fail-closed:缺 cartSessionId throw、不打 repo(create_order 5-param 必填縱深)', async () => {
+  it('3DS-0b fail-closed:缺 cartSessionId throw、不打 repo(create_order 8-param 必填縱深)', async () => {
     const place = vi.fn();
     const repo = makeRepo({ placeOrder: place });
 
     await expect(placeOrder(repo, input({ cartSessionId: '' }))).rejects.toThrow('cart_session_id');
+    expect(place).not.toHaveBeenCalled();
+  });
+
+  it('🔴 #241 fail-closed:缺 termsVersion throw、不打 repo(create_order 路徑無 consent 不生 order 縱深)', async () => {
+    const place = vi.fn();
+    const repo = makeRepo({ placeOrder: place });
+
+    await expect(placeOrder(repo, input({ termsVersion: '' }))).rejects.toThrow('同意條款版本');
     expect(place).not.toHaveBeenCalled();
   });
 

@@ -66,6 +66,8 @@ import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/c
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { headers } from 'next/headers';
+import { CURRENT_TERMS_VERSION } from '@/lib/legal/terms-version';
 import type { CheckoutFieldErrors } from './checkout-form-types';
 
 // 🔴 3DS-7:cart_session_id 局部 uuid 驗(不改共用 CheckoutInput;沿用
@@ -155,6 +157,15 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     return { formError: '購物車工作階段資訊有誤,請重新整理頁面後再試' };
   }
 
+  // ②e 🔴 #241 同意條款 server 驗(不信任 client;前端鈕已 payDisabled=!agreed,此為繞 UI 直打 action 的縱深)。
+  //   🔴 守門放 try{ 之前(buildCardholder/preflightReleaseSibling/placeOrder/charge/settle **全部之前**;codex 關卡1 B3;
+  //   登入 gate + schema parse 之後=純讀/驗證、非付款副作用):agreed !== true → 任何**付款/建單/settle 副作用**前 return,
+  //   零扣款零建單、不動 sibling/settle;涵蓋 flag-on(3DS)+ flag-off(同步)兩路徑。
+  //   非單純 defense-in-depth:繞 UI 者須主動建構 {agreed:true} = 明確同意訊號,舉證責任推回發起端(non-repudiation;plan §3)。
+  if (raw.agreed !== true) {
+    return { formError: '請先閱讀並同意服務條款與隱私政策' };
+  }
+
   try {
     // ③ 🔴 cardholder server 組裝(MUST-FIX 3、Q3=B 級聯)**先於建單**:fail → 引導文案、零垃圾單。
     const built = await buildCardholder(
@@ -192,6 +203,19 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       // proceed → 續往下建單 + charge(none / 已 release / failed / no_attempt;§2.3 確定未成交)。
     }
 
+    // 🔴 #241 best-effort 同意來源 IP/UA(於 try 內抓 → 萬一 headers 異常落 generic catch、零扣款;
+    //   Vercel header 順序 x-vercel-forwarded-for > x-forwarded-for > x-real-ip、取首段、截斷 128/1024;
+    //   best-effort 爭議舉證、**非強身分證據**;codex 關卡1 M7/M8)。
+    const reqHeaders = await headers();
+    const clientIp =
+      (reqHeaders.get('x-vercel-forwarded-for') ??
+        reqHeaders.get('x-forwarded-for') ??
+        reqHeaders.get('x-real-ip'))
+        ?.split(',')[0]
+        ?.trim()
+        ?.slice(0, 128) ?? null;
+    const clientUserAgent = reqHeaders.get('user-agent')?.slice(0, 1024) ?? null;
+
     // ④ 建單(零 userId/tier/price;身分/算價全 create_order RPC server 權威)。
     const placeOrderInput: PlaceOrderInput = {
       lines: parsedLines.data.map(
@@ -203,6 +227,10 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       // 🔴 3DS-7:cart_session_id = client CartContext 穩定 key(②d 已驗 uuid/非空)。信任此非價/tier/身分
       //   去重子(plan §4)、取代 option A 的 server randomUUID → begin cart-instance dedup 由此叫醒生效(治本)。
       cartSessionId,
+      // 🔴 #241 同意紀錄(server 注入、非 client):version 常數 + best-effort IP/UA → create_order 同 transaction 原子寫 order_legal_consents。
+      termsVersion: CURRENT_TERMS_VERSION,
+      clientIp,
+      clientUserAgent,
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);

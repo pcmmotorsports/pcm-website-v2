@@ -63,6 +63,7 @@ const ARGS = {
   shippingMethod: 'home' as const,
   invoice: { type: 'personal' as const, carrier: '', title: '', taxId: '', donateCode: '' },
   prime: 'prime_test',
+  agreed: true, // 🔴 #241:同意條款(送 server action 重驗)
 };
 
 afterEach(() => {
@@ -72,6 +73,16 @@ afterEach(() => {
 });
 
 describe('useChargePayment', () => {
+  it('🔴 #241:submit payload 帶 agreed → chargePaymentAction(server 重驗同意)', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ agreed: true }));
+  });
+
   it('🔴 連點兩次只呼一次 action;paid → 清車一次 + 終態保持上鎖(第三次也不呼)', async () => {
     setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });

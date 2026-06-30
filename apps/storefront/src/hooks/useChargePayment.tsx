@@ -40,6 +40,8 @@ export type ChargeArgs = {
   shippingMethod: ShippingMethod;
   invoice: InvoiceDraft;
   prime: string;
+  /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client;前端鈕已 payDisabled=!agreed)。 */
+  agreed: boolean;
 };
 
 export type ChargeState =
@@ -105,6 +107,7 @@ export function useChargePayment(): UseChargePayment {
         lines,
         prime: args.prime,
         cartSessionId, // 🔴 3DS-7:client CartContext 穩定 key(server 驗 uuid/非空;空車不可達此=items>0 已保證生成)
+        agreed: args.agreed, // 🔴 #241:同意條款 → server action 重驗(不信任 client)
       });
     } catch {
       // 🔴 fail-closed(審查側 BLOCKER 修):action 內部 catch 全吞回 formError,走到這裡 =
