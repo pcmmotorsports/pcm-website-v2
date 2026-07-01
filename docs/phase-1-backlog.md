@@ -6392,25 +6392,26 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #252. 🔔 3DS flag 緊急關閉中間態:pending 3DS 兄弟單靠舊版 begin cart-dedup 兜底(開 prod flag 前驗)
 
-- **狀態:** ⏳ 待執行(開 prod flag 前必驗)
-- **優先級:** 🟠 中(prod flag=false 期間不可達;flag-on 前必驗)
+- **狀態:** 🟡 已驗證 **PASS-WITH-CAVEAT**(2026-07-01、唯讀 MCP + DDL MCP 六場景零留痕模擬 + adversarial-reviewer + codex 跨模型二度確認、報告 `docs/reviews/2026-07-01-m3-252-begin-dedup-fallback-verification.md`);**🔴 GAP2 偵測盲區待 Sean 決策**(見下)。仍 flag-on 前 gate。
+- **優先級:** 🟠 中(prod flag=false 期間不可達;flag-on 前必決 GAP2)
 - **問題:**
   - Q1=A:preflight 只在 3DS flag on 跑。若未來 prod 開了 3DS、客人有 pending 3DS 兄弟單時被緊急關閉 flag(§14 步45 rollback 第一動作),客人走同步路徑重付 → **跳過 preflight**。
-  - 此中間態靠舊版 `begin_charge_attempt` cart-dedup(同 cart_session_id 的 pending/charged 兄弟單 → duplicate/needs_settle → adjudicateSettlement)兜底,**非** preflight。
-  - 殘餘缺口:① released 兄弟單(begin dedup 排除 released)② 換裝置/清 cookie 致 cart_session_id 不同 → begin dedup 皆漏接 → 潛在雙扣,由 anomaly/W1 下游偵測+退款兜底(非 preflight 預防)。
+  - 此中間態靠舊版 `begin_charge_attempt` cart-dedup(同 cart_session_id 的 pending/charged 兄弟單 → duplicate/needs_settle → adjudicateSettlement)兜底,**非** preflight。**驗證證實**:同 cart 走 needs_settle/duplicate、異 cart 且 <10min 走 **user_in_flight 安全網(cart-agnostic)**攔截 → #252 主場景(立即重付)守住。
+  - 殘餘缺口(二度確認修正):① **GAP1 released 兄弟單**(begin dedup + user_in_flight 皆排除 released)→ rollback 場景**可達**(flag-on 已產生的 released row),但其 `released→charged` late-success **觸發 anomaly genesis** → #250 `open` 偵測 + W1 **可退**。② 🔴 **GAP2 純 pending 兄弟單 + 異 cart + >10min**(user_in_flight 窗過期 + dedup 異 cart 漏)→ 取新鎖雙扣,且兄弟 late-success 走 `pending→charged`(**非** released→charged)→ **不觸發 genesis → 零 anomaly → #250/W1 完全看不見 = 靜默雙扣偵測盲區**。〔初稿與本 backlog 舊版皆誤稱「②由 anomaly/W1 下游覆蓋」,經 2026-07-01 二度確認 triage(全 repo anomaly 主表唯一 INSERT gate `status='released'`)修正。〕
 - **觸發事件(開 prod flag 前必啟動):**
   - 開 prod `TAPPAY_3DS_ENABLED=true` 前(§14 步44);Gemini 廣度第三眼 + adversarial-reviewer R3 關卡2 已點(2026-06-26)。
 - **預期解法:**
-  - 開 flag 前以 begin-dedup MCP 模擬驗:proceed 路徑下 released/pending 兄弟單於 preflight↔begin 窗內 settle → begin 回 duplicate/needs_settle(非 acquired:true 新刷)。
-  - 評估是否需 Q1=C(同步路徑也輕量 lookup、只查到 active 才介入)補堵;或 rollback runbook 加「關 flag 前先跑 sweeper 收斂 in-flight 3DS attempt」。
+  - ✅ begin-dedup 六場景 MCP 模擬已驗(2026-07-01、零留痕、殘留 0/0/0):同 cart pending/charged→needs_settle、paid→duplicate、異 cart <10min→user_in_flight;GAP1(released)/GAP2(異 cart >10min)→ acquired=true(印證缺口)。
+  - **不採 Q1=C**(二度確認雙方 HOLDS:own-only lookup 仍綁 cart_session_id + active-only,救不了 released/異 cart/>10min,對主場景又冗餘)。
+  - 🔴 **GAP2 盲區處置(待 Sean 決策 fork)**:① rollback runbook 升「關 flag 前先跑 settle-sweep 收斂 in-flight pending→終態」為**硬前置**(壓縮盲窗、非零窗)② 補「pending-based 雙扣偵測」進 #250/#255(同 user 短窗多筆 paid 掃描)= 唯一治本關盲區 ③ informed-accept 落檔。
 - **不修會痛在:**
-  - 擴充性:未來真開 3DS 後若需緊急 rollback,關 flag 瞬間 in-flight 客人重付可能雙扣(W1 可退、但增退款工單)。
-  - 可維護性:gating 依賴「begin dedup 兜底」是隱性契約,後人改 begin predicate 可能無意打破。
-  - bug 可追蹤性:中間態雙扣混在 anomaly 報表、難與一般雙扣區分根因。
-- **估時:** ~15 min(MCP 模擬驗證)+ 是否 Q1=C 決策
-- **依賴:** 開 prod flag 前(§14 步44);R3 已落(§14 步25)
-- **發現於:** 2026-06-26 / R3(§14 步25)關卡2 adversarial-reviewer F-T2 + Gemini 廣度第三眼 vector 6
-- **相關:** canonical §2.3 / §14 步44-45、Q1=A(2026-06-25 Sean 拍)、`begin_charge_attempt`、`adjudicateSettlement`、#251
+  - 擴充性:未來真開 3DS 後若需緊急 rollback,GAP1 in-flight 客人重付可能雙扣(可偵測+退、增退款工單);**🔴 GAP2 純 pending 雙扣則靜默(無告警無工單)**。
+  - 可維護性:gating 依賴「begin dedup + user_in_flight 兜底」是隱性契約,後人改 begin/user_in_flight predicate 可能無意打破;anomaly genesis 只認 released→charged 亦為隱性偵測邊界。
+  - bug 可追蹤性:GAP2 盲區雙扣不進 anomaly 報表,對帳時憑「同 user 兩筆 paid」人工發現,難溯根因。
+- **估時:** ✅ 驗證已完成(~實花較久:MCP 模擬 + 雙審 + triage);剩 GAP2 決策落定 + 對應落檔(runbook/偵測/accept)。
+- **依賴:** 開 prod flag 前(§14 步44);R3 已落(§14 步25);驗證已完成(2026-07-01)
+- **發現於:** 2026-06-26 / R3(§14 步25)關卡2 adversarial-reviewer F-T2 + Gemini 廣度第三眼 vector 6;**GAP2 盲區發現於 2026-07-01 驗證二度確認(adversarial-reviewer F1 HIGH + codex must-fix)**
+- **相關:** canonical §2.3 / §14 步44-45、Q1=A(2026-06-25 Sean 拍)、`begin_charge_attempt`、`adjudicateSettlement`、anomaly genesis `20260624120005`、#250 summary `20260701120000`、[[#255]](盲區偵測可併)、#251、驗證報告 `docs/reviews/2026-07-01-m3-252-begin-dedup-fallback-verification.md`
 
 ---
 
