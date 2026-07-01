@@ -6,6 +6,10 @@
     {
       "path": "/api/cron/settle-sweep",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/anomaly-alert",
+      "schedule": "0 1 * * *"
     }
   ]
 }

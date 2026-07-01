@@ -6339,7 +6339,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #250. 🔔 雙扣 anomaly / refunding 缺主動推播告警(pull→push、上線前營運就緒)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ 已實作(2026-07-01、worktree=dev、未 push、未 db push、`ANOMALY_ALERT_ENABLED` 預設 false 休眠;真權威 `docs/specs/2026-07-01-m3-250-anomaly-alert-plan.md`)
+  - 實作:新 owner-defined SECDEF 聚合 RPC `get_payment_anomaly_alert_summary(p_refunding_stuck_seconds)`(payment_confirmer cron 對 anomaly 兩表零表權 → 經此受控窗讀**零 PII 計數**:open/refunding/refunding_stuck/oldest_open_age/attempt_manual_review〔needs_manual_review+pending+unpaid〕/released_stuck〔released_manual_review_at,Phase1 producer-gated 0〕)+ cron route `app/api/cron/anomaly-alert`(鏡像 settle-sweep:CRON_SECRET Bearer + `ANOMALY_ALERT_ENABLED` gate 預設 false=200 no-op + errors>0→503 不偽 200)+ use-case `checkAnomalyAlerts`(門檻踩 → 對所有已設定管道推播、Promise.allSettled 一管道掛不阻另一、reader/notifier throw→503 fail-closed)+ 兩 notifier adapter(LINE Messaging API push〔Q1=A〕/ Email Resend〔Q1=C〕、原生 fetch 零新依賴、密鑰不入 log/訊息)+ `getAnomalyAlertDeps`(依 env 存在性組管道、enabled 但零管道 throw)+ vercel.json 加 cron(`0 1 * * *` UTC=台灣 09:00、晚 settle-sweep 1h 讓對帳先收斂)。
+  - 審查鏈:關卡1 Gemini + codex K1 + adversarial-reviewer(6 findings 全折入:死卡列拆兩計數 / 文案不宣稱已確認雙扣 / Vercel tier 現實 / ACL 5 角色 REVOKE / CRON_SECRET sequencing / 揭示可調營運參數非 SLA)+ 關卡2 codex K2 跨模型 PASS〔2 MED+1 NIT 折入:use-case 零管道 guard / effective-privilege assert / oldest age plumb〕+ code-reviewer PASS + adversarial-reviewer PASS-with-comments + pcm-security-audit L1〔0 CRITICAL/0 HIGH/1 LOW→#254〕。DDL MCP BEGIN..ROLLBACK 零留痕模擬〔ACL 矩陣 + role-hygiene + effective-privilege + 行為 delta open2→3/refunding0→1/stuck@24h=1/stuck@30d=0 + residue=0〕+ 三綠 + vitest 145 檔 1568。
+  - 🔴 **誠實邊界**:告警門檻(refunding_stuck 秒數)= route 常數營運參數、**揭示可調、非 PRD SLA**(W1 runbook line150 不杜撰 SLA);open = 雙扣**候選、待查證**(runbook line51、非已確認雙扣);released_stuck Phase1 恆 0(前瞻接線);**無 per-anomaly 去重**→ 未解決前每輪持續提醒(刻意)→ 去重狀態表列 **#255** follow-up。頻率 daily=最壞 24h 延遲 vs 黃金期為盡力非保證、真黃金期需 Vercel Pro 改 hourly(launch 時 Sean 決)。
+  - 🔴 **db push sequencing**:migration `20260701120000` code 已期待、live 未套用 → **Sean db push 在「驗 cron / 部署」之前**(prod 未部署 + gate false=零影響);db push 後 Claude 唯讀 MCP 驗函式簽名/SECDEF/ACL/role-hygiene。
 - **優先級:** 🟠 中(上線前必補;prod 開放結帳前 gate)
 - **分流標籤:** `P1-before-launch`
 - **問題:**
@@ -6432,6 +6436,45 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** B1a/B1b 已落(`8197fca`/`4866817`);開 prod flag 前評估
 - **發現於:** 2026-06-27 / B 線 §14 步35 整體複審 adversarial-reviewer F-INT1
 - **相關:** canonical §8 行278/280 case ④、Sean 2026-06-27 拍 defer(本輪 B)、`reconfirm-expired-orphans.ts`、`claim_expired_pending_attempts`、既有 sweeper `mark_attempt_settle_retry` ceiling 升級
+
+---
+
+### #254. 🔧 告警 cron 加簡易限流 + 評估獨立 secret(#250 縱深 hardening)
+
+- **狀態:** ⏳ 待執行(上線前評估;非阻擋)
+- **優先級:** 🟢 低(LOW hardening、非可即利用破口)
+- **分流標籤:** `P1-before-launch`
+- **問題:**
+  - #250 告警 cron(`app/api/cron/anomaly-alert`)認證硬驗正確(CRON_SECRET Bearer + timingSafeEqual、無 secret 不可觸發),但**無應用層 per-window 限流**,且 `CRON_SECRET` 與 settle-sweep 共用(Vercel cron 單一 env、平台設計)。
+  - 若 `CRON_SECRET` 洩漏 → 攻擊者可高頻觸發真告警 → 消耗 LINE/Resend quota + 告警轟炸 Sean(economic/abuse,**非資料外洩**)。**鏡像既有 settle-sweep 範式、非 #250 新增弱點**;Vercel cron 平台側有排程頻率保護。
+- **預期解法:**
+  - 評估 route 端簡易 per-window 節流(記憶體/DB throttle);或評估獨立 secret(需自訂 header 驗、因 Vercel cron 只帶單一 CRON_SECRET)。
+- **不修會痛在:**
+  - 可維護性:secret 洩漏面隨 cron 數增長;無限流時單點洩漏放大成告警 DoS。
+- **估時:** ~20-30 min(限流 middleware + 測)
+- **依賴:** #250 已落
+- **發現於:** 2026-07-01 / #250 關卡2 adversarial-reviewer F2 + pcm-security-audit L1 LOW-1
+- **相關:** `app/api/cron/anomaly-alert/route.ts`、`app/api/cron/settle-sweep/route.ts`、[[#250]]
+
+---
+
+### #255. 🔧 雙扣告警 per-anomaly 去重(避每輪重推;#250 follow-up)
+
+- **狀態:** ⏳ 待執行(觀察;#250 刻意無去重)
+- **優先級:** 🟢 低(daily 頻率下重複推播壓力低)
+- **分流標籤:** `P1-before-launch`
+- **問題:**
+  - #250 `checkAnomalyAlerts` **刻意無 per-anomaly 去重**:未解決前每輪 cron 只要門檻仍踩就再推一次 = 持續提醒(雙扣不可被遺忘的設計取捨)。代價 = 同一筆 open anomaly 每天重複推播到 Sean 處理掉為止。
+  - daily 頻率下噪音低可接受;若日後升 hourly(Vercel Pro)或 anomaly 累積,重複推播壓力上升。
+- **預期解法:**
+  - 去重狀態表(記「已告警的 anomaly id + 首告警時戳」)或 last-alerted 水位,只推「新出現」或「跨 escalation 門檻」的;或每日一則彙總取代逐輪重推。**注意**:去重不得讓「持續未處理」靜默(需保留週期性 re-nag、只是降頻)。
+  - 可與 Sean 日後「系統檢測監控面板」(Q2 拍板 heartbeat/平安符歸此)一併設計。
+- **不修會痛在:**
+  - 可維護性:升頻後重複告警使 Sean 對告警麻痺(狼來了)→ 真新雙扣被淹沒。
+- **估時:** ~30-45 min(去重表 migration + use-case 接線 + 測;或併入監控面板)
+- **依賴:** #250 已落;Sean 監控面板規劃(Q2 heartbeat 歸此)
+- **發現於:** 2026-07-01 / #250 關卡1 adversarial-reviewer F5 + Sean Q2 拍板(heartbeat 歸未來監控面板)
+- **相關:** `check-anomaly-alerts.ts`、[[#250]]、Sean 系統檢測監控面板(未來)
 
 ---
 

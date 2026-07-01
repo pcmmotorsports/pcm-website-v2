@@ -65,3 +65,6 @@ export { PaymentConfirmError } from './payment/errors';
 
 // payment 3DS-5a bank_transaction_id 產生器(純函式;5b initiate use-case charge 前產唯一對帳鍵)
 export { generateBankTransactionId } from './payment/bank-transaction-id';
+
+// M-3 #250 雙扣 anomaly 主動告警 domain 型別(零 PII 計數摘要 + 固定格式告警訊息)
+export type { AnomalyAlertSummary, AnomalyAlertMessage } from './payment/anomaly-alert';

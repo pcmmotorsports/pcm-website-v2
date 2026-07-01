@@ -21,8 +21,14 @@ import type {
   IPollSettleThrottle,
   ISiblingLookup,
   IReleaseSibling,
+  IAlertNotifier,
 } from '@pcm/ports';
-import { settleCharge, type SettleChargeDeps, type PreflightReleaseSiblingDeps } from '@pcm/use-cases';
+import {
+  settleCharge,
+  type SettleChargeDeps,
+  type PreflightReleaseSiblingDeps,
+  type CheckAnomalyAlertsDeps,
+} from '@pcm/use-cases';
 // eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
 import {
   TapPayChargeAdapter,
@@ -34,6 +40,9 @@ import {
   PgPollSettleThrottleAdapter,
   SupabaseSiblingLookupAdapter,
   PgReleaseSiblingAdapter,
+  PgAnomalyAlertReaderAdapter,
+  LineAlertNotifierAdapter,
+  EmailAlertNotifierAdapter,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
@@ -196,4 +205,48 @@ export function getChargeAttemptReader(): IChargeAttemptStore {
  */
 export function getPollSettleThrottle(): IPollSettleThrottle {
   return new PgPollSettleThrottleAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
+}
+
+/**
+ * 建 CheckAnomalyAlertsDeps(M-3 #250 雙扣 anomaly 主動告警 cron 的 reader + 推播管道)。
+ *
+ * 🔴 lazy(對齊既有 factory + N2 sweeper 不變式 — env 在呼叫時才讀、零 module-top、零連線建立;cron route 的
+ * ANOMALY_ALERT_ENABLED disabled 路徑「零 DB env 依賴」仰賴此:gate 在建 deps 前 return,不觸發本 factory)。
+ *
+ * - reader = PgAnomalyAlertReaderAdapter(payment_confirmer 窄權鑰 `PAYMENT_CONFIRMER_DB_URL`、零新密鑰;
+ *   呼 SECDEF 聚合 RPC 受控窗讀零 PII 計數)。
+ * - notifiers = 依「主密鑰存在性」逐管道組(Q1=A+C LINE+Email;primary 密鑰在 → requireEnv 其餘部件、
+ *   **部分設定 = fail-fast throw** 防漏設);🔴 enabled 但零管道 → throw(沉默告警 = 最糟、fail-closed)。
+ */
+export function getAnomalyAlertDeps(): CheckAnomalyAlertsDeps {
+  const reader = new PgAnomalyAlertReaderAdapter(requireEnv('PAYMENT_CONFIRMER_DB_URL'));
+  const notifiers: IAlertNotifier[] = [];
+
+  // LINE(Q1=A):primary = LINE_CHANNEL_ACCESS_TOKEN;存在即視為「要 LINE」→ requireEnv 對象 id(漏設 fail-fast)。
+  if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+    notifiers.push(
+      new LineAlertNotifierAdapter({
+        accessToken: requireEnv('LINE_CHANNEL_ACCESS_TOKEN'),
+        to: requireEnv('LINE_ALERT_TO'),
+      }),
+    );
+  }
+
+  // Email(Q1=C):primary = RESEND_API_KEY;存在即視為「要 Email」→ requireEnv 寄件/收件(漏設 fail-fast)。
+  if (process.env.RESEND_API_KEY) {
+    notifiers.push(
+      new EmailAlertNotifierAdapter({
+        apiKey: requireEnv('RESEND_API_KEY'),
+        from: requireEnv('ALERT_EMAIL_FROM'),
+        to: requireEnv('ALERT_EMAIL_TO'),
+      }),
+    );
+  }
+
+  if (notifiers.length === 0) {
+    // enabled 但一個管道都沒設 = 誤設(告警永遠送不出去)→ fail-closed(route 503、可見),不靜默。
+    throw new Error('ANOMALY_ALERT_ENABLED=true 但未設定任何告警管道(LINE/Email)');
+  }
+
+  return { reader, notifiers };
 }

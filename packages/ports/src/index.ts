@@ -17,6 +17,9 @@ export type * from './ISiblingLookup';
 export type * from './IReleaseSibling';
 export type * from './IWebhookInbox';
 export type * from './IPollSettleThrottle';
+// M-3 #250 雙扣 anomaly 主動告警:聚合讀 + 推播 port
+export type * from './IAnomalyAlertReader';
+export type * from './IAlertNotifier';
 
 // Contract test framework 不從 main entry re-export(M-1-03-prep-audit S1 修正):
 // - tree-shaking 樂觀假設不可信、main entry re-export 會把 vitest 拉進 production bundle

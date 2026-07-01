@@ -65,3 +65,19 @@ export {
   SiblingLookupParseError,
 } from './payment/SupabaseSiblingLookupAdapter';
 export { PgReleaseSiblingAdapter, type ReleaseSiblingError } from './payment/PgReleaseSiblingAdapter';
+
+// M-3 #250 雙扣 anomaly 主動告警:聚合讀 adapter(payment_confirmer 窄權、SECDEF 受控窗)+ 兩推播管道
+// (LINE Messaging API / Email Resend、皆 server-only 持管道密鑰、原生 fetch 零新依賴)。
+export {
+  PgAnomalyAlertReaderAdapter,
+  type AnomalyAlertReaderError,
+} from './payment/PgAnomalyAlertReaderAdapter';
+export {
+  LineAlertNotifierAdapter,
+  type LineAlertNotifierConfig,
+  type FetchLike,
+} from './payment/LineAlertNotifierAdapter';
+export {
+  EmailAlertNotifierAdapter,
+  type EmailAlertNotifierConfig,
+} from './payment/EmailAlertNotifierAdapter';

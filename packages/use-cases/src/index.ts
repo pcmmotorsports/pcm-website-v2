@@ -70,3 +70,13 @@ export {
   type ReconfirmExpiredOrphansOptions,
   type ReconfirmExpiredOrphansResult,
 } from './reconfirm-expired-orphans';
+
+// M-3 #250 雙扣 anomaly 主動告警 use-case(checkAnomalyAlerts、週期 cron〔anomaly-alert〕讀零 PII 計數 →
+// 任一門檻踩 → 對所有已設定管道〔LINE/Email〕推播固定格式告警;pull→push、fail-closed、無去重持續提醒)。
+export {
+  checkAnomalyAlerts,
+  buildAnomalyAlertMessage,
+  type CheckAnomalyAlertsDeps,
+  type CheckAnomalyAlertsOptions,
+  type CheckAnomalyAlertsResult,
+} from './check-anomaly-alerts';
