@@ -1,6 +1,6 @@
 # #252 驗證報告 — 3DS flag 緊急關閉中間態 begin-dedup 兜底(開 prod flag 前 gate)
 
-> 一句話結論:**begin_charge_attempt 的「cart-dedup + user_in_flight」雙層兜底,對 #252 主場景(pending in-flight 3DS 兄弟單、客人立即重付)守得住(實證 needs_settle/duplicate/user_in_flight,零雙扣)。但二度確認(adversarial-reviewer + codex 跨模型)擊破了本報告初稿的「殘餘缺口皆下游覆蓋」樂觀敘述,修正如下:GAP1(released 兄弟單)在 rollback 場景可達、但其雙扣會被 #250 anomaly 偵測+W1 可退;🔴 GAP2(純 pending 兄弟單、異 cart、>10 分鐘)是「靜默雙扣偵測盲區」——late-success 走 `pending→charged` 不觸發 anomaly genesis,#250/W1 看不見。故本 gate 判定 = PASS-WITH-CAVEAT,GAP2 盲區需 Sean 決策處置(見 §6)。**
+> 一句話結論:**begin_charge_attempt 的「cart-dedup + user_in_flight」雙層兜底,對 #252 主場景(pending in-flight 3DS 兄弟單、客人立即重付)守得住(實證 needs_settle/duplicate/user_in_flight,零雙扣)。但二度確認(adversarial-reviewer + codex 跨模型)擊破了本報告初稿的「殘餘缺口皆下游覆蓋」樂觀敘述,修正如下:GAP1(released 兄弟單)在 rollback 場景可達、但其雙扣會被 #250 anomaly 偵測+W1 可退;🔴 GAP2(純 pending 兄弟單、異 cart、>10 分鐘)是「靜默雙扣偵測盲區」——late-success 走 `pending→charged` 不觸發 anomaly genesis,#250/W1 看不見。故本 gate 判定 = PASS-WITH-CAVEAT;GAP2 盲區處置 Sean 2026-07-01 拍 **B+A**(B 縱深已落 canonical §14 步45、A 治本排 #256、見 §6)。**
 >
 > 驗證方式:唯讀 MCP 確認 live 定義 + DDL MCP `BEGIN..ROLLBACK` 六場景零留痕合成模擬(全場景 `RAISE EXCEPTION` 強制回滾、殘留檢查 3/3 = 0)。**全程 flag=false、prod 未部署、零寫入**。二度確認見 §7。
 >
@@ -83,13 +83,14 @@
 
 ---
 
-## 6. 後續動作 / Sean 決策 fork
+## 6. 後續動作 / Sean 決策(已拍 = B+A、2026-07-01)
 
-**🔴 決策(GAP2 盲區處置)** — 見 §7 給 Sean 的白話 fork。落定後:
-- ☐ 若採縱深 runbook(選項①)→ 於 canonical §14 步45 或 `docs/runbooks/` 補「關 flag 前先跑 settle-sweep」硬前置條目。
-- ☐ 若採治本偵測(選項②)→ 開/併 backlog(#255 去重表可順帶掛「同 user 短窗多筆 paid」盲區偵測)。
-- ☐ 若 informed-accept(選項③)→ backlog #252 明列 GAP2 盲區 + Sean accept 落檔。
-- ☐ backlog #252 標記「已驗證 PASS-WITH-CAVEAT + GAP2 盲區(初稿覆蓋假設經二度確認修正)+ Q1=C 不採」。
+**✅ GAP2 盲區處置 = B+A(Sean 2026-07-01 拍「依建議」)**:
+- ✅ **B(縱深、已落)**:canonical §14 步45 加「關 flag 縱深防護」條目 —— 計畫性關 flag 先跑 `settle-sweep` 收斂 in-flight pending→終態再關(paid→begin duplicate 攔、failed→無兄弟單);緊急關 flag 後立即跑 + 人工比對「同 user 短窗多筆 paid」。壓縮盲窗、非零窗。
+- ✅ **A(治本、排程)**:[[#256]] pending-based 雙扣偵測(同 user 短窗多筆 paid → anomaly + 告警,關閉盲區),flag-on 前補;上線後 B 降次要防線。
+- ✅ **不採單純 C**(informed-accept):靜默雙扣對客人最傷。
+- ✅ backlog #252 標記「PASS-WITH-CAVEAT + GAP2 處置已拍 B+A」;#256 已建。
+- ☐ 剩 A=#256 實作(flag-on 前 gate、需 Sean db push)。
 
 ---
 

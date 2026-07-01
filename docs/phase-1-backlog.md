@@ -6392,7 +6392,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #252. 🔔 3DS flag 緊急關閉中間態:pending 3DS 兄弟單靠舊版 begin cart-dedup 兜底(開 prod flag 前驗)
 
-- **狀態:** 🟡 已驗證 **PASS-WITH-CAVEAT**(2026-07-01、唯讀 MCP + DDL MCP 六場景零留痕模擬 + adversarial-reviewer + codex 跨模型二度確認、報告 `docs/reviews/2026-07-01-m3-252-begin-dedup-fallback-verification.md`);**🔴 GAP2 偵測盲區待 Sean 決策**(見下)。仍 flag-on 前 gate。
+- **狀態:** 🟢 已驗證 **PASS-WITH-CAVEAT + GAP2 處置已拍(Sean 2026-07-01 = B+A)**(唯讀 MCP + DDL MCP 六場景零留痕模擬 + adversarial-reviewer + codex 跨模型二度確認、報告 `docs/reviews/2026-07-01-m3-252-begin-dedup-fallback-verification.md`);**B(縱深)已落 canonical §14 步45**、**A(治本)排 [[#256]]**。#252 驗證本體收尾;剩 A=#256 flag-on 前補。
 - **優先級:** 🟠 中(prod flag=false 期間不可達;flag-on 前必決 GAP2)
 - **問題:**
   - Q1=A:preflight 只在 3DS flag on 跑。若未來 prod 開了 3DS、客人有 pending 3DS 兄弟單時被緊急關閉 flag(§14 步45 rollback 第一動作),客人走同步路徑重付 → **跳過 preflight**。
@@ -6403,7 +6403,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **預期解法:**
   - ✅ begin-dedup 六場景 MCP 模擬已驗(2026-07-01、零留痕、殘留 0/0/0):同 cart pending/charged→needs_settle、paid→duplicate、異 cart <10min→user_in_flight;GAP1(released)/GAP2(異 cart >10min)→ acquired=true(印證缺口)。
   - **不採 Q1=C**(二度確認雙方 HOLDS:own-only lookup 仍綁 cart_session_id + active-only,救不了 released/異 cart/>10min,對主場景又冗餘)。
-  - 🔴 **GAP2 盲區處置(待 Sean 決策 fork)**:① rollback runbook 升「關 flag 前先跑 settle-sweep 收斂 in-flight pending→終態」為**硬前置**(壓縮盲窗、非零窗)② 補「pending-based 雙扣偵測」進 #250/#255(同 user 短窗多筆 paid 掃描)= 唯一治本關盲區 ③ informed-accept 落檔。
+  - ✅ **GAP2 盲區處置已拍(Sean 2026-07-01 = B+A)**:**B(縱深、已落)**= canonical §14 步45 加「關 flag 縱深」條目(計畫性關 flag 先跑 settle-sweep 收斂 in-flight pending→終態;緊急關 flag 後立即跑 + 人工比對同 user 多筆 paid,壓縮盲窗、非零窗)。**A(治本、排程)**= [[#256]] pending-based 雙扣偵測(同 user 短窗多筆 paid → anomaly + 告警,關閉盲區)。**不採單純 C(informed-accept)**〔靜默雙扣對客人最傷〕。
 - **不修會痛在:**
   - 擴充性:未來真開 3DS 後若需緊急 rollback,GAP1 in-flight 客人重付可能雙扣(可偵測+退、增退款工單);**🔴 GAP2 純 pending 雙扣則靜默(無告警無工單)**。
   - 可維護性:gating 依賴「begin dedup + user_in_flight 兜底」是隱性契約,後人改 begin/user_in_flight predicate 可能無意打破;anomaly genesis 只認 released→charged 亦為隱性偵測邊界。
@@ -6476,6 +6476,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** #250 已落;Sean 監控面板規劃(Q2 heartbeat 歸此)
 - **發現於:** 2026-07-01 / #250 關卡1 adversarial-reviewer F5 + Sean Q2 拍板(heartbeat 歸未來監控面板)
 - **相關:** `check-anomaly-alerts.ts`、[[#250]]、Sean 系統檢測監控面板(未來)
+
+---
+
+### #256. 🔴 pending-based 雙扣偵測(GAP2 靜默雙扣盲區治本;#252 二度確認發現)
+
+- **狀態:** ⏳ 待執行(Sean 2026-07-01 拍 B+A:B rollback 縱深已落 canonical §14 步45、**A 本條治本排程**;開 prod flag 前補)
+- **優先級:** 🟠 中(現行 anomaly 偵測的**唯一結構盲區**、對客人最傷〔靜默多扣〕;flag=false 期間不可達但上線前必補)
+- **問題:**
+  - #250 anomaly 偵測(open/W1)的**唯一 genesis** = `mark_charge_attempt_charged` 於 `status='released'` 寫主表(`20260624120005:118/128`,全 repo 唯一 `payment_double_charge_anomalies` INSERT)。
+  - GAP2(begin-dedup + user_in_flight 兜底漏接:異 cart + >10min + 純 pending 兄弟單)的雙扣,兄弟 late-success 走 `pending→charged`(主軌 `mark_charge_attempt_charged` 或備軌 `..._fallback`,後者護欄 `WHERE status='pending'`)**皆不觸發 genesis** → 零 anomaly → **#250 六計數逐一驗無一抓得到 = 靜默雙扣**(客人被多扣、系統無告警無退款工單)。
+  - 二度確認(adversarial-reviewer F1 HIGH + codex + round2)證實,並修正 backlog #252/報告初稿「GAP2 由 anomaly/W1 下游覆蓋」的過度承諾。
+- **預期解法(A 治本):**
+  - 新增 **pending-based 雙扣偵測**:偵測「同 `customer_user_id` 短窗(如 ≤N 分鐘)內 ≥2 筆 `paid` order」→ 視為雙扣候選、寫 anomaly 主表(或獨立候選表)→ 併入 #250 summary 計數 + 告警。
+  - 設計要點:① 與既有 released→charged genesis **互補不重複**(released 路徑已覆蓋、本條補 pending 路徑)② 避免正常「同客人隔日兩筆真實訂單」誤報(窗 + 金額/品項相似度 hint、對齊 W1 sibling 判準)③ SECDEF/RLS/ACL 對齊既有 anomaly 兩表 zero-policy + REVOKE 5 角色 ④ 可與 W1 報表銜接(候選 → 人工查證 → 退款)。
+  - 落地後:canonical §14 步45 的「關 flag 縱深(B settle-sweep)」條目降為次要防線(治本上線後盲區關閉)。
+- **不修會痛在:**
+  - 擴充性:未來 3DS 上線後 GAP2 雙扣**靜默**發生、客人被多扣卻無告警無退款,信任受損 + 客訴。
+  - 可維護性:偵測邊界「只認 released→charged」是隱性契約,後人以為 anomaly 全覆蓋雙扣、實則有 pending 盲區。
+  - bug 可追蹤性:GAP2 雙扣不進 anomaly 報表,只能靠對帳人工撈「同 user 兩筆 paid」,難溯根因與時間軸。
+- **估時:** ~45-60 min(偵測 RPC/掃描 migration + #250 summary 接線 + 測 + 雙審 + DDL MCP 模擬)+ 需 Sean db push
+- **依賴:** #250 已落;#252 驗證已完成(2026-07-01);開 prod flag 前(canonical §14 步44)
+- **發現於:** 2026-07-01 / #252 begin-dedup 兜底驗證二度確認(adversarial-reviewer F1 HIGH + codex must-fix)
+- **相關:** [[#252]]、[[#250]]、[[#255]](去重可一併設計)、canonical §14 步45(B 縱深)、anomaly genesis `20260624120005`、W1 runbook `docs/runbooks/2026-06-26-m3-3ds-double-charge-refund-runbook.md`、驗證報告 `docs/reviews/2026-07-01-m3-252-begin-dedup-fallback-verification.md`
 
 ---
 
