@@ -6481,7 +6481,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #256. 🔴 pending-based 雙扣偵測(GAP2 靜默雙扣盲區治本;#252 二度確認發現)
 
-- **狀態:** ⏳ 待執行(Sean 2026-07-01 拍 B+A:B rollback 縱深已落 canonical §14 步45、**A 本條治本排程**;開 prod flag 前補)
+- **狀態:** 🟢 **已實作(2026-07-01、dev、未 push、未 db push〔migration 20260701130000〕、flag 全 false)**:擴 #250 聚合 RPC 加第 7 計數 `pending_double_charge_candidate_count`(卡住指紋 + 同額 + 12h 窗)+ TS 全鏈 + runbook Report C。真權威 plan `docs/specs/2026-07-01-m3-256-pending-double-charge-detection-plan.md`(codex K1 r1 FAIL→r2 PASS-WITH-CONCERNS)。審查鏈:DDL MCP 零留痕 6 模擬〔S1 卡700s同額=1 / S2 秒扣30s同額=0〔Sean 顧慮解〕/ S3 異額 / S4 超窗 / S5 單筆 =0、殘留0〕+ 三參 overload ACL/effective-priv(含 orders)全 PASS + 三綠 typecheck7/lint10/build1 + vitest 145 檔 1569 + **codex K2 跨模型 PASS-WITH-NITS + adversarial-reviewer PASS / 可 commit + code-reviewer PASS-WITH-NITS**(NIT 全折入:stale 註解三參化 + runbook 多 charged attempt 判讀註)。**下一動 = Sean db push `20260701130000` + 推 dev**。誠實:候選待查證非確認、卡住指紋降誤報非零、退款目標人工查證(GAP2 無 released 錨點)。
 - **優先級:** 🟠 中(現行 anomaly 偵測的**唯一結構盲區**、對客人最傷〔靜默多扣〕;flag=false 期間不可達但上線前必補)
 - **問題:**
   - #250 anomaly 偵測(open/W1)的**唯一 genesis** = `mark_charge_attempt_charged` 於 `status='released'` 寫主表(`20260624120005:118/128`,全 repo 唯一 `payment_double_charge_anomalies` INSERT)。

@@ -34,6 +34,7 @@ const CLEAN_RESULT = {
   refundingStuckCount: 0,
   attemptManualReviewCount: 0,
   releasedStuckCount: 0,
+  pendingDoubleChargeCandidateCount: 0,
   oldestOpenAgeSeconds: null,
   notifiersTotal: 0,
   notifiersFailed: 0,
@@ -197,9 +198,13 @@ describe('GET anomaly-alert — enabled 執行 + 結果映射', () => {
 });
 
 describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
-  it('checkAnomalyAlerts 收 route 端常數 refundingStuckSeconds=86400', async () => {
+  it('checkAnomalyAlerts 收 route 端常數 refundingStuckSeconds=86400 + pending 雙扣窗 12h/卡住 10min', async () => {
     await GET(makeReq(bearer()));
-    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), { refundingStuckSeconds: 86400 });
+    expect(checkSpy).toHaveBeenCalledWith(expect.anything(), {
+      refundingStuckSeconds: 86400,
+      pendingDoubleChargeWindowSeconds: 43200,
+      pendingDoubleChargeStuckSeconds: 600,
+    });
   });
 
   it('deps = getAnomalyAlertDeps() 注入', async () => {

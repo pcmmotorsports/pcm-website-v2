@@ -50,6 +50,15 @@ const BEARER_PREFIX = 'Bearer ';
  */
 const ALERT_REFUNDING_STUCK_SECONDS = 86400;
 
+/**
+ * 🔴 #256 pending-based 雙扣候選偵測參數 = route 端常數(不採信外部輸入;營運參數、揭示可調、非 SLA)。
+ * - WINDOW 43200=12h:同 user 同額兩 paid 單 paid_at 差窗(對齊 W1 sibling 12h 判準;codex K1 改自 5min 避結構性漏)。
+ * - STUCK 600=10min:charged attempt「卡住指紋」門檻(結帳到扣款拖逾此才算卡住;正常秒扣 <2min 不觸發、
+ *   避免誤報正常「同額買兩個」;對齊 begin user_in_flight 10min 放棄窗)。
+ */
+const ALERT_PENDING_DC_WINDOW_SECONDS = 43200;
+const ALERT_PENDING_DC_STUCK_SECONDS = 600;
+
 /** 等長 constant-time 比對;長度不等先回 false(timingSafeEqual 要求等長 Buffer;沿 settle-sweep safeEqual)。 */
 function safeEqual(a: string, b: string): boolean {
   const ba = Buffer.from(a);
@@ -96,6 +105,8 @@ export async function GET(request: Request): Promise<Response> {
     const deps: CheckAnomalyAlertsDeps = getAnomalyAlertDeps();
     const result = await checkAnomalyAlerts(deps, {
       refundingStuckSeconds: ALERT_REFUNDING_STUCK_SECONDS,
+      pendingDoubleChargeWindowSeconds: ALERT_PENDING_DC_WINDOW_SECONDS,
+      pendingDoubleChargeStuckSeconds: ALERT_PENDING_DC_STUCK_SECONDS,
     });
 
     // 4. 🔴 本輪有推播失敗 → 503 + 結構化 counts log,**不偽 200**(壞掉的告警管道必須可見)。

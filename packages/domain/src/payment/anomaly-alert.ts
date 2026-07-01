@@ -20,6 +20,9 @@
  * - `oldestOpenAgeSeconds`:最舊 open anomaly 的年齡秒數(無 open → null)。
  * - `attemptManualReviewCount`:needs_manual_review pending unpaid 死卡(sweeper 放棄人工 queue)。
  * - `releasedStuckCount`:released_manual_review_at released unpaid 死卡(Phase1 producer-gated 0、前瞻)。
+ * - `pendingDoubleChargeCandidateCount`:#256 GAP2 治本 — pending-based 雙扣候選「組」數
+ *   (同 user + 同 total + 窗內兩 paid + 其一 charged attempt「卡住指紋」〔結帳到扣款拖 > 門檻〕;
+ *   候選待查證非已確認、卡住指紋降誤報〔正常「乾脆買兩個」秒扣不觸發〕)。
  */
 export type AnomalyAlertSummary = {
   openCount: number;
@@ -28,6 +31,7 @@ export type AnomalyAlertSummary = {
   oldestOpenAgeSeconds: number | null;
   attemptManualReviewCount: number;
   releasedStuckCount: number;
+  pendingDoubleChargeCandidateCount: number;
 };
 
 /**

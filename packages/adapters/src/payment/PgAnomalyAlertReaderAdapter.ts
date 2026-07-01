@@ -5,10 +5,12 @@
  * pg 不污染 root barrel;連線安全完全複用 `buildPgConfig`〔session pooler + 完整 CA 驗證 + host 釘死 +
  * 顯式 servername〕;per-request `new Client()` + `finally end()`)。
  *
- * 呼 #250 owner-defined SECDEF 聚合 RPC `get_payment_anomaly_alert_summary(p_refunding_stuck_seconds)`
+ * 呼 owner-defined SECDEF 聚合 RPC `get_payment_anomaly_alert_summary(p_refunding_stuck_seconds,
+ * p_pending_dc_window_seconds, p_pending_dc_stuck_seconds)`(#250 六計數 + #256 第 7 計數)
  * → 回 jsonb `{open_count,refunding_count,refunding_stuck_count,oldest_open_age_seconds,
- * attempt_manual_review_count,released_stuck_count}`(**零 PII 計數**;payment_confirmer 對 anomaly 兩表
- * 零表權、只能經此 SECDEF 受控窗讀)。本層把 DB snake_case 映射成 domain camelCase。
+ * attempt_manual_review_count,released_stuck_count,pending_double_charge_candidate_count}`
+ * (**零 PII 計數**;payment_confirmer 對 anomaly 兩表 / attempts / orders 零表權、只能經此 SECDEF 受控窗讀)。
+ * 本層把 DB snake_case 映射成 domain camelCase。
  *
  * 錯誤紀律(對齊 PgReleaseSiblingAdapter):不轉傳 pg 原始 message;throw 通用訊息 + 安全 SQLSTATE `code`
  * 屬性(零 PII/token)。本 RPC 唯讀不 RAISE 業務拒絕;throw 僅 transport/parse。
@@ -41,11 +43,15 @@ export class PgAnomalyAlertReaderAdapter implements IAnomalyAlertReader {
     ) => PgClientLike = defaultClientFactory,
   ) {}
 
-  async getAlertSummary(refundingStuckSeconds: number): Promise<AnomalyAlertSummary> {
+  async getAlertSummary(
+    refundingStuckSeconds: number,
+    pendingDcWindowSeconds: number,
+    pendingDcStuckSeconds: number,
+  ): Promise<AnomalyAlertSummary> {
     return this.run(async (client) => {
       const res = await client.query(
-        'SELECT public.get_payment_anomaly_alert_summary($1::integer) AS result',
-        [refundingStuckSeconds],
+        'SELECT public.get_payment_anomaly_alert_summary($1::integer, $2::integer, $3::integer) AS result',
+        [refundingStuckSeconds, pendingDcWindowSeconds, pendingDcStuckSeconds],
       );
       return parseAlertSummary(res.rows);
     });
@@ -106,6 +112,10 @@ function parseAlertSummary(rows: Array<Record<string, unknown>>): AnomalyAlertSu
     oldestOpenAgeSeconds,
     attemptManualReviewCount: parseCount(r.attempt_manual_review_count, 'attempt_manual_review_count'),
     releasedStuckCount: parseCount(r.released_stuck_count, 'released_stuck_count'),
+    pendingDoubleChargeCandidateCount: parseCount(
+      r.pending_double_charge_candidate_count,
+      'pending_double_charge_candidate_count',
+    ),
   };
 }
 

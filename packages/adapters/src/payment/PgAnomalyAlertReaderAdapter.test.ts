@@ -32,12 +32,13 @@ const FULL = {
   oldest_open_age_seconds: 7200,
   attempt_manual_review_count: 4,
   released_stuck_count: 0,
+  pending_double_charge_candidate_count: 0,
 };
 
 describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_summary、payment_confirmer 受控窗)', () => {
   it('回聚合 jsonb → 映射 snake→camel;SQL integer cast + params=[refundingStuckSeconds]', async () => {
     const { client, query, connect, end } = makeClient({ query: async () => resultRows(FULL) });
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     expect(res).toEqual({
       openCount: 2,
       refundingCount: 3,
@@ -45,17 +46,18 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       oldestOpenAgeSeconds: 7200,
       attemptManualReviewCount: 4,
       releasedStuckCount: 0,
+      pendingDoubleChargeCandidateCount: 0,
     });
     const [sql, values] = query.mock.calls[0]!;
-    expect(sql).toMatch(/get_payment_anomaly_alert_summary\(\$1::integer\)/);
-    expect(values).toEqual([86400]);
+    expect(sql).toMatch(/get_payment_anomaly_alert_summary\(\$1::integer, \$2::integer, \$3::integer\)/);
+    expect(values).toEqual([86400, 43200, 600]);
     expect(connect).toHaveBeenCalledTimes(1);
     expect(end).toHaveBeenCalledTimes(1); // finally 永遠釋放
   });
 
   it('oldest_open_age_seconds=null(無 open)→ null', async () => {
     const { client } = makeClient({ query: async () => resultRows({ ...FULL, oldest_open_age_seconds: null }) });
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     expect(res.oldestOpenAgeSeconds).toBeNull();
   });
 
@@ -63,7 +65,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     const { client } = makeClient({
       query: async () => resultRows({ ...FULL, open_count: '5', oldest_open_age_seconds: '3600' }),
     });
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     expect(res.openCount).toBe(5);
     expect(res.oldestOpenAgeSeconds).toBe(3600);
   });
@@ -78,7 +80,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
   ])('形狀不符(%s)→ throw fail-closed', async (_label, rows) => {
     const { client } = makeClient({ query: async () => rows });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600),
     ).rejects.toThrow();
   });
 
@@ -92,11 +94,11 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
       },
     });
     await expect(
-      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400),
+      new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600),
     ).rejects.toMatchObject({ code: '28P01' });
     // 訊息不含 pg 原文(password/連線字串)
     try {
-      await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400);
+      await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     } catch (e) {
       expect((e as Error).message).not.toContain('password');
       expect((e as Error).message).not.toContain('db.xxx');
@@ -107,7 +109,7 @@ describe('PgAnomalyAlertReaderAdapter.getAlertSummary(get_payment_anomaly_alert_
     const { client } = makeClient({ query: async () => resultRows(FULL) });
     (client.end as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('end failed'));
     // 主 op 成功 → 即使 end throw 也回正常結果
-    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400);
+    const res = await new PgAnomalyAlertReaderAdapter('conn', () => client).getAlertSummary(86400, 43200, 600);
     expect(res.openCount).toBe(2);
   });
 });

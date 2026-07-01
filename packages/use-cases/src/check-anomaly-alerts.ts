@@ -33,6 +33,10 @@ export type CheckAnomalyAlertsDeps = {
 export type CheckAnomalyAlertsOptions = {
   /** refunding 卡住門檻秒數(route 常數注入、營運參數非 SLA)。 */
   refundingStuckSeconds: number;
+  /** #256 pending 雙扣候選:兩 paid 單 paid_at 差窗秒數(route 常數、預設 12h)。 */
+  pendingDoubleChargeWindowSeconds: number;
+  /** #256 卡住指紋門檻秒數(charged attempt updated_at-created_at 逾此才算卡住;route 常數、預設 10min)。 */
+  pendingDoubleChargeStuckSeconds: number;
 };
 
 /** CheckAnomalyAlertsResult:結構化摘要(零 PII counts only;route log/回應用)。 */
@@ -44,6 +48,8 @@ export type CheckAnomalyAlertsResult = {
   refundingStuckCount: number;
   attemptManualReviewCount: number;
   releasedStuckCount: number;
+  /** #256 pending-based 雙扣候選「組」數(卡住指紋 + 同額 + 窗;候選待查證)。 */
+  pendingDoubleChargeCandidateCount: number;
   /** 最舊 open anomaly 年齡秒數(排序訊號、非 PII;無 open → null)。 */
   oldestOpenAgeSeconds: number | null;
   /** 本輪嘗試推播的管道數(shouldAlert=false 時為 0)。 */
@@ -91,10 +97,16 @@ export function buildAnomalyAlertMessage(
   if (summary.releasedStuckCount > 0) {
     lines.push(`• released 死卡 ${summary.releasedStuckCount} 筆`);
   }
+  if (summary.pendingDoubleChargeCandidateCount > 0) {
+    // #256 GAP2:同客戶同額、其一付款卡住 → 疑似重複扣款;🔴 需人工查證哪一筆為重複再退(GAP2 無 released 錨點)。
+    lines.push(
+      `• 疑似重複扣款(同客戶同額、其一付款卡住)${summary.pendingDoubleChargeCandidateCount} 組 — 請查 Report C 對帳,確認哪一筆為重複再退`,
+    );
+  }
   const text = [
     lines.join('\n'),
     '',
-    '請登入後台/MCP 查 W1 退款候選報表對帳後,再決定 refund / dismissed(open 為候選、待查證,勿直接退款)。',
+    '請登入後台/MCP 查 W1 退款候選報表(open)+ Report C(pending 雙扣候選)對帳後,再決定 refund / dismissed(皆為候選、待查證,勿直接退款)。',
     '(本訊息零個資、僅計數)',
   ].join('\n');
   return { subject: '⚠️ PCM 付款異常告警', text };
@@ -105,13 +117,18 @@ export async function checkAnomalyAlerts(
   opts: CheckAnomalyAlertsOptions,
 ): Promise<CheckAnomalyAlertsResult> {
   // reader throw → 上拋(route catch → 503);無法讀狀態時不推播(不知狀態、fail-closed)。
-  const summary = await deps.reader.getAlertSummary(opts.refundingStuckSeconds);
+  const summary = await deps.reader.getAlertSummary(
+    opts.refundingStuckSeconds,
+    opts.pendingDoubleChargeWindowSeconds,
+    opts.pendingDoubleChargeStuckSeconds,
+  );
 
   const shouldAlert =
     summary.openCount > 0 ||
     summary.refundingStuckCount > 0 ||
     summary.attemptManualReviewCount > 0 ||
-    summary.releasedStuckCount > 0;
+    summary.releasedStuckCount > 0 ||
+    summary.pendingDoubleChargeCandidateCount > 0;
 
   let notifiersTotal = 0;
   let notifiersFailed = 0;
@@ -137,6 +154,7 @@ export async function checkAnomalyAlerts(
     refundingStuckCount: summary.refundingStuckCount,
     attemptManualReviewCount: summary.attemptManualReviewCount,
     releasedStuckCount: summary.releasedStuckCount,
+    pendingDoubleChargeCandidateCount: summary.pendingDoubleChargeCandidateCount,
     oldestOpenAgeSeconds: summary.oldestOpenAgeSeconds,
     notifiersTotal,
     notifiersFailed,

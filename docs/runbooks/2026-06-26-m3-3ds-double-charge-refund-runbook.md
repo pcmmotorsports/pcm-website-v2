@@ -199,6 +199,51 @@ ORDER BY e.created_at;
 
 ---
 
+### 1E. Report C — pending-based 雙扣候選(#256 GAP2 治本、**卡住指紋**、owner 跑)
+
+> 🔴 **這是與 1A 不同的偵測**:1A 抓 `released→charged` 那種雙扣(anomaly 主表);本表抓 **GAP2 純 pending 雙扣**——同客戶同金額、短窗兩筆 paid、且其一付款「卡住」(結帳到扣款拖久 = 客人放棄才重付、原 3DS 卻 late-success)。#250 每日告警若報「疑似重複扣款 N 組」,來這裡查是哪幾筆。
+>
+> 🔴 **這是候選、待查證,不是已確認雙扣**;卡住指紋降誤報(正常「乾脆買兩個」兩筆秒扣不會列),但仍可能有極少數正常客人付款也拖久 → **必到 TapPay Dashboard 逐筆查證**。
+>
+> 🔴 **退款目標必人工查證(GAP2 無 released 錨點、不可自動退較晚那筆)**:兩筆都是真實成交,要退的是「重複的那筆」(通常 = 卡住那筆的意外成交,或客人重付那筆)。**逐對到 TapPay Dashboard 對帳,確認哪一筆是客人本來就不想要的重複,退它的 rec_trade_id;絕不退客人真正想保留的那筆。**
+
+```sql
+-- Report C:pending-based 雙扣候選(owner / postgres 身分)。窗 12h、卡住門檻 10min(對齊 route 常數,可調)。
+-- 列出實際訂單對 + 各自 attempt 卡住時長 + rec_trade_id,供人工到 Dashboard 查證退款目標。
+SELECT
+  o1.customer_user_id,
+  o1.display_id            AS order_1,
+  o2.display_id            AS order_2,
+  o1.total                 AS amount,
+  round(abs(extract(epoch FROM (o1.paid_at - o2.paid_at))))  AS paid_at_gap_sec,
+  a1.rec_trade_id          AS order_1_rec,
+  a2.rec_trade_id          AS order_2_rec,
+  round(extract(epoch FROM (a1.updated_at - a1.created_at)))  AS order_1_charge_delay_sec,
+  round(extract(epoch FROM (a2.updated_at - a2.created_at)))  AS order_2_charge_delay_sec
+FROM public.orders o1
+JOIN public.orders o2
+  ON o1.customer_user_id = o2.customer_user_id
+ AND o1.total            = o2.total
+ AND o1.id              <  o2.id
+ AND o1.payment_status = 'paid' AND o2.payment_status = 'paid'
+ AND o1.paid_at IS NOT NULL AND o2.paid_at IS NOT NULL
+ AND abs(extract(epoch FROM (o1.paid_at - o2.paid_at))) < 43200          -- 12h 窗(可調)
+LEFT JOIN public.payment_charge_attempts a1 ON a1.order_id = o1.id AND a1.status = 'charged'
+LEFT JOIN public.payment_charge_attempts a2 ON a2.order_id = o2.id AND a2.status = 'charged'
+WHERE EXISTS (   -- 卡住指紋:其一 charged attempt 拖 > 10min(600s、可調)
+  SELECT 1 FROM public.payment_charge_attempts a
+   WHERE a.order_id IN (o1.id, o2.id) AND a.status = 'charged'
+     AND extract(epoch FROM (a.updated_at - a.created_at)) > 600
+)
+ORDER BY o1.paid_at DESC;
+```
+
+- **判讀**:`*_charge_delay_sec` 大的那筆 = 卡住的(客人放棄的原單 late-success);查 Dashboard 兩筆 rec 對帳,確認客人真意 → 退重複那筆 rec。查證流程沿用 §1.5 + §2(7 步退款、只是退款目標由本表 rec 決定、非 anomaly 主表)。
+- **同單多 charged attempt(罕見)**:實務每單至多一筆 charged(begin `ON CONFLICT` 佔鎖 + 成交轉 paid 後不再開新 attempt),故通常一對一列;若某單真有多筆 charged 致同對展開多列,以 **`*_charge_delay_sec` 最大者** 為卡住判準、rec 逐筆到 Dashboard 對(本表為人工偵察查詢、非自動退款,誤差在人工查證環節吸收)。
+- **誠實限制**:本表為 SELECT-only 偵測,**不寫 anomaly 主表 / 無 claim/resolve 生命週期**(#256 Q2=A 輕量;若日後要 W1 式追蹤 → 另開持久候選表)。退完在對帳本自行記錄,避免重複處理。
+
+---
+
 ## 1.5 怎麼去 TapPay 對帳(決定「該不該退」)
 
 > 報表的 sibling 只是提示。**退款前(尤其 sibling=0 時)一定要到 TapPay 後台親自確認**:舊那筆到底扣款成立沒、是不是真的有第二筆重複扣款。這一步**靠人不靠報表**。

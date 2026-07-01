@@ -14,6 +14,7 @@ const ZERO: AnomalyAlertSummary = {
   oldestOpenAgeSeconds: null,
   attemptManualReviewCount: 0,
   releasedStuckCount: 0,
+  pendingDoubleChargeCandidateCount: 0,
 };
 
 function reader(summary: AnomalyAlertSummary): IAnomalyAlertReader {
@@ -28,7 +29,11 @@ function failNotifier(): IAlertNotifier & { notify: ReturnType<typeof vi.fn> } {
   return { notify: vi.fn().mockRejectedValue(new Error('channel down')) };
 }
 
-const OPTS = { refundingStuckSeconds: 86400 };
+const OPTS = {
+  refundingStuckSeconds: 86400,
+  pendingDoubleChargeWindowSeconds: 43200,
+  pendingDoubleChargeStuckSeconds: 600,
+};
 
 describe('checkAnomalyAlerts — 門檻矩陣', () => {
   it('全零 → 不告警、不呼任何 notifier、errors=0', async () => {
@@ -46,6 +51,7 @@ describe('checkAnomalyAlerts — 門檻矩陣', () => {
     ['refundingStuckCount', { ...ZERO, refundingStuckCount: 1 }],
     ['attemptManualReviewCount', { ...ZERO, attemptManualReviewCount: 1 }],
     ['releasedStuckCount', { ...ZERO, releasedStuckCount: 1 }],
+    ['pendingDoubleChargeCandidateCount', { ...ZERO, pendingDoubleChargeCandidateCount: 1 }],
   ] as const)('%s>0 → 告警 + 呼 notifier', async (_label, summary) => {
     const n = okNotifier();
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [n] }, OPTS);
@@ -146,7 +152,7 @@ describe('buildAnomalyAlertMessage — 固定格式零 PII', () => {
 
   it('🔴 零 PII:訊息不含金額/單號/user id 樣式(只含計數與固定字串)', () => {
     const msg = buildAnomalyAlertMessage(
-      { openCount: 1, refundingCount: 0, refundingStuckCount: 1, oldestOpenAgeSeconds: 999, attemptManualReviewCount: 2, releasedStuckCount: 0 },
+      { openCount: 1, refundingCount: 0, refundingStuckCount: 1, oldestOpenAgeSeconds: 999, attemptManualReviewCount: 2, releasedStuckCount: 0, pendingDoubleChargeCandidateCount: 1 },
       86400,
     );
     const blob = `${msg.subject}\n${msg.text}`;
@@ -165,6 +171,7 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
       oldestOpenAgeSeconds: 3600,
       attemptManualReviewCount: 4,
       releasedStuckCount: 0,
+      pendingDoubleChargeCandidateCount: 3,
     };
     const res = await checkAnomalyAlerts({ reader: reader(summary), notifiers: [okNotifier()] }, OPTS);
     expect(res).toMatchObject({
@@ -174,14 +181,18 @@ describe('checkAnomalyAlerts — 計數透傳(telemetry 零 PII)', () => {
       refundingStuckCount: 1,
       attemptManualReviewCount: 4,
       releasedStuckCount: 0,
+      pendingDoubleChargeCandidateCount: 3,
       oldestOpenAgeSeconds: 3600,
     });
   });
 
-  it('reader 收到 route 注入的 refundingStuckSeconds', async () => {
+  it('reader 收到 route 注入的 refundingStuckSeconds + pending 雙扣窗/卡住門檻', async () => {
     const r = reader(ZERO);
-    await checkAnomalyAlerts({ reader: r, notifiers: [okNotifier()] }, { refundingStuckSeconds: 43200 });
-    expect(r.getAlertSummary).toHaveBeenCalledWith(43200);
+    await checkAnomalyAlerts(
+      { reader: r, notifiers: [okNotifier()] },
+      { refundingStuckSeconds: 43200, pendingDoubleChargeWindowSeconds: 3600, pendingDoubleChargeStuckSeconds: 900 },
+    );
+    expect(r.getAlertSummary).toHaveBeenCalledWith(43200, 3600, 900);
   });
 });
 
