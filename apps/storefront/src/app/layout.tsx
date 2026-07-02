@@ -26,8 +26,10 @@
 // - <html data-mobile="true"> 同步 Header.tsx L57-58 既有 querySelector 邏輯(向後相容)
 // - <MobileTabBar /> 在 CartProvider 內、children 後、</body> 前;CSS via mobile-tabbar.css
 
+import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { headers } from 'next/headers';
+import { resolveSiteUrl } from '@/lib/site-url';
 import { CartProvider } from '@/contexts/CartContext';
 import { MobileProvider } from '@/contexts/MobileContext';
 import { MobileTabBar } from '@/components/MobileTabBar';
@@ -50,9 +52,24 @@ import '../styles/checkout.css';
 import '../styles/tier.css';
 import '../styles/mobile-tabbar.css';
 
-export const metadata = {
+// A6(2026-07-03):補 SEO 基本件 —— metadataBase(OG/canonical 絕對網址解析基底、
+// resolveSiteUrl prod-safe:NEXT_PUBLIC_SITE_URL 未設時 prod 省略、不吐 localhost)
+// + openGraph 站台級預設。🔴 只留 siteName/locale/type、不放 title/description:
+// Next metadata 對 openGraph 是 shallow merge(頁級自帶 openGraph 會整組取代),站台級
+// 若寫死首頁 title 會讓「有自己 title 但無 openGraph 的頁」og:title 錯顯首頁字面
+// (code-reviewer Minor 折入);og:title/og:description 由各頁 metadata.title 語意自然對應。
+// favicon 走 app/icon.png + apple-icon.png 檔案約定(Next 自動生成 <link>、毋需 icons 欄)。
+const siteUrl = resolveSiteUrl();
+
+export const metadata: Metadata = {
+  ...(siteUrl ? { metadataBase: new URL(siteUrl) } : {}),
   title: 'PCM Motorsports — Made for those who ride differently.',
   description: '高端機車零件編輯選品 · 原廠授權 · 合作店家安裝',
+  openGraph: {
+    siteName: 'PCM Motorsports',
+    locale: 'zh_TW',
+    type: 'website',
+  },
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

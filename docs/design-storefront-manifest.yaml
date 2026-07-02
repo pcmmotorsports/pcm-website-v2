@@ -185,6 +185,27 @@ components:
         reason: "不做則 4 成車型首頁搜尋鈕死鎖按不下去;graceful degradation 非視覺重設計"
     open_drifts: []
 
+  HomeFooter:
+    storefront:
+      component: "apps/storefront/src/components/HomeFooter.tsx"
+      css: "apps/storefront/src/styles/home.css"  # .ed-footer* 家族、全域 import via layout.tsx
+      last_modified_commit: "1b434e0"  # 記可達祖先(=1b434e0);A4 真改見 git log
+      last_modified_date: "2026-07-03 (A4 站台資訊完整化:門市電話「02-2998-xxxx」→ site-config CONTACT_PHONE_DISPLAY〔0930-531-867〕、統編「xxxxxxxx」→ TAX_ID〔90003020〕;版面/markup/class 零動、純資料更正;HomeFooter.test 加真值+防回歸佔位斷言)"
+    design:
+      component: "design-reference/components/HomePage.jsx"  # SiteFooter 在 design 是 HomePage 內元素(L327/L333 佔位)
+      css: "design-reference/styles/home.css"
+    related_storefront:
+      - "apps/storefront/src/lib/site-config.ts"  # 聯絡/登記資料 SSoT(Sean 2026-06-21 親自提供;A4 加 CONTACT_PHONE_DISPLAY)
+    business_overrides:
+      - field: "contactInfoRealValues"
+        design_value: "design HomePage.jsx footer 門市電話 L327「02-2998-xxxx」/ 統編 L333「統編 · xxxxxxxx」= design 自身佔位假值(非真資料)"
+        storefront_value: "接 lib/site-config SSoT 真值:CONTACT_PHONE_DISPLAY '0930-531-867'(= CONTACT_PHONE E.164 同號)+ TAX_ID '90003020';皆公開資訊(統編公開登記、客服電話;org-jsonld 早已輸出同值到公開 JSON-LD、零新增暴露面)。版面字面不動、僅資料更正"
+        decided_at: "2026-07-03"
+        decision_source: "真值 = Sean 2026-06-21 親自提供(site-config 檔頭記載);實作 = Sean 2026-07-02 夜間自主完整化授權(「尚缺部分不用問先做」、STATUS 下一步①)"
+        backlog: "#248(site-config hardcode 待後台、既有 L2)"
+        reason: "上線站 footer 掛佔位假電話/假統編 = 對客人顯錯誤資訊 + 法遵觀感;真值已存 SSoT、零商業決策"
+    open_drifts: []
+
   ProductPage:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"

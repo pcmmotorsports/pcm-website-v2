@@ -7,8 +7,13 @@
 //   'install' → /install / 'stores' → /stores / 'shipping' → /info/shipping
 // social / 聯絡客服 4 條 placeholder:不在 onNav 範圍、M-1-06 #136 改 <button disabled aria-label> 宣告未上線
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
+//
+// 字面 vs 事實(2026-07-03 A4):design 門市電話「02-2998-xxxx」/ 統編「xxxxxxxx」為佔位假值
+// (design 自身即佔位、非真資料)→ 改接 lib/site-config 真值(Sean 2026-06-21 親自提供的
+// SSoT:CONTACT_PHONE_DISPLAY / TAX_ID);版面字面不動、僅資料更正。
 
 import Link from 'next/link';
+import { CONTACT_PHONE_DISPLAY, TAX_ID } from '@/lib/site-config';
 
 export function HomeFooter() {
   return (
@@ -45,13 +50,13 @@ export function HomeFooter() {
             <div className="ed-mono ed-footer-h">門市</div>
             <p>新北市新莊區化成路<br/>736 巷 18 號一樓</p>
             <p>週一-週六 10:00-20:00</p>
-            <p>02-2998-xxxx</p>
+            <p>{CONTACT_PHONE_DISPLAY}</p>
           </div>
         </div>
       </div>
       <div className="ed-footer-base">
         <span className="ed-mono">© MMXXVI · PCM MOTOR PARTS LTD.</span>
-        <span className="ed-mono">統編 · xxxxxxxx</span>
+        <span className="ed-mono">統編 · {TAX_ID}</span>
       </div>
     </footer>
   );
