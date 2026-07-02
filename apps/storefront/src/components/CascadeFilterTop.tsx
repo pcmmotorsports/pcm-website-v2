@@ -104,9 +104,15 @@ export function CascadeFilterTop({
     dispatch(clearVehicle());
   };
 
-  // 手機版 chip 顯示文字
+  // 手機版 chip 顯示文字(S1:停在品牌/車型層〔未選年〕成為常態 → year 缺時不顯 '{yy};
+  //   修原 `String(undefined).slice(-2)` 顯示 "'ed" 的 latent bug;model 缺退品牌名)
   const vehShort = cascade.vehicle
-    ? `${cascade.vehicle.model} '${String(cascade.vehicle.year).slice(-2)}`
+    ? [
+        cascade.vehicle.model ?? cascade.vehicle.brand,
+        cascade.vehicle.year != null ? `'${String(cascade.vehicle.year).slice(-2)}` : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
     : null;
 
   return (

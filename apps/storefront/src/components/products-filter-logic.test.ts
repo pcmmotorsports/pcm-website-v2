@@ -7,8 +7,17 @@ import { describe, expect, it } from 'vitest';
 import type { CascadeFilterState } from '@pcm/ui';
 import { filterProducts, sortProducts } from './products-filter-logic';
 import { makeInitialExtraFilters } from './filter-state';
-import { MOCK_PRODUCTS } from '../data/mock-products';
+import { MOCK_PRODUCTS, type MockProduct } from '../data/mock-products';
 import { MOCK_BRANDS } from '../data/mock-brands';
+
+type Fitments = NonNullable<MockProduct['fitments']>;
+function vp(id: number, brand: string, fitments: Fitments): MockProduct {
+  return {
+    id, slug: `p-${id}`, brand, name: `P${id}`, fits: 'x', price: 1000, origPrice: null,
+    isNew: false, isSale: false, inStock: true, category: '碳纖維部品',
+    color: 'silver', imgTone: 'neutral', fitments,
+  };
+}
 
 const emptyCascade: CascadeFilterState = { vehicle: null, category: null, brands: [] };
 
@@ -51,6 +60,54 @@ describe('filterProducts', () => {
       MOCK_BRANDS,
     );
     expect(result.every((p) => p.price >= 0 && p.price <= 3000)).toBe(true);
+  });
+});
+
+describe('filterProducts — vehicle (fitment 過濾、#152 修復)', () => {
+  const products: MockProduct[] = [
+    vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2020, yearEnd: 2022 }]),
+    vp(2, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Monster', yearStart: 2021, yearEnd: null }]),
+    vp(3, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR', yearStart: 2019, yearEnd: 2024 }]),
+    vp(4, 'RPM CARBON', [{ motoBrand: 'Honda', modelCode: 'CBR', yearStart: 2024 }]),
+  ];
+  const extras = makeInitialExtraFilters();
+  const ids = (r: MockProduct[]) => r.map((p) => p.id).sort((a, b) => a - b);
+
+  it('brand only → 該品牌全部命中', () => {
+    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Ducati' } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([1, 2]);
+  });
+
+  it('brand + model → 收窄到單一車型', () => {
+    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Monster' } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([2]);
+  });
+
+  it('brand + model + year(範圍內)命中', () => {
+    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'BMW', model: 'S1000RR', year: 2021 } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([3]);
+  });
+
+  it('brand + model + year(範圍外)不命中', () => {
+    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'BMW', model: 'S1000RR', year: 2018 } }, extras, MOCK_BRANDS);
+    expect(r).toHaveLength(0);
+  });
+
+  it('開放式年份(2021+)命中上界之後的年', () => {
+    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Monster', year: 2099 } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([2]);
+  });
+
+  it('單年 fitment 只命中該年、不命中鄰年', () => {
+    const hit = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Honda', model: 'CBR', year: 2024 } }, extras, MOCK_BRANDS);
+    expect(ids(hit)).toEqual([4]);
+    const miss = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Honda', model: 'CBR', year: 2023 } }, extras, MOCK_BRANDS);
+    expect(miss).toHaveLength(0);
+  });
+
+  it('未選車輛 → 不因 vehicle 過濾(全數保留)', () => {
+    const r = filterProducts(products, emptyCascade, extras, MOCK_BRANDS);
+    expect(r).toHaveLength(4);
   });
 });
 

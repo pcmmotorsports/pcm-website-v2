@@ -91,6 +91,23 @@ describe('ProductPage', () => {
     expect(pill.textContent).toContain('2024');
   });
 
+  it('should resolve pill label from product fitments for derived slug ids (S1 #152)', () => {
+    // S1 後 /products 端 vehicle id = fitment 衍生 slug(非靜態 mock id);
+    // pill 以商品自身 fitments + slugify 同源反查、還原原字串(非裸 slug)
+    mockSearchParams = new URLSearchParams(
+      'from=catalog&vehicle=harley-davidson:road-glide:2024',
+    );
+    const withFitment = {
+      ...MOCK_PRODUCTS[0]!,
+      fitments: [{ motoBrand: 'Harley-Davidson', modelCode: 'Road Glide', yearStart: 2020, yearEnd: null }],
+    };
+    render(<ProductPage product={withFitment} tier="general" />);
+    const pill = screen.getByLabelText(/回到商品列表/);
+    expect(pill.textContent).toContain('Harley-Davidson');
+    expect(pill.textContent).toContain('Road Glide');
+    expect(pill.textContent).toContain('2024');
+  });
+
   it('should call router.push to /products with vehicle when pill body clicked', () => {
     // M-1-13I Bug 3:點 pill 本體(外層 button、非 ×)→ router.push 商品列表帶 vehicle
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');

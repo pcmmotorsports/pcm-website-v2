@@ -4052,7 +4052,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #152. ⏳ ProductsPage 篩選未依車款 / 分類過濾商品
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🟡 vehicle 部分 ✅ 完成(2026-07-03、S1 車輛篩選 slice:`matchesVehicle` 依真 fitment 逐層過濾〔品牌/車型/年份三態〕、清單由 `buildVehicleTaxonomy` 動態衍生、FilterSide hideVehicle 解除;🔴 缺年 fitment「選了年份即排除」語意與 domain matchFitmentYear「缺年=全命中」相反、546/3484 fitment 缺年、37/94 車型全缺年 → 待 Sean 拍統一);**category 部分仍 ⏳**(單一分類「碳纖維部品」、分類樹無意義、多分類上架 #212 後再議)
 - **優先級:** 🟠 中
 - **問題:**
   - ProductsPage 的 `filterProducts` 只依 brands / 現貨 / 新品 / 特價 / 顏色 / 價格過濾,**不依 cascade.vehicle / cascade.category**;使用者選車款或分類後,頁首標題、麵包屑、ActiveChips 標籤會變,但商品數與商品列表不變
@@ -5743,7 +5743,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #220b. 🏍 首頁/列表頁車種選單(VehicleFinder)真資料化 — 延 Phase 2 車輛服務生態
 
-- **狀態:** ⏳ 待排(Sean 2026-06-09 拍延 Phase 2;現維持 MOCK_MOTO_BRANDS)
+- **狀態:** ✅ 完成(2026-07-03、S1+S2 車輛篩選 slice;Sean 2026-07-02 拍 Q1=A「fitment 動態直出、不用報價單主表」推翻原「延 Phase 2」:走原選項 B fitments 反向聚合 —— `lib/vehicle-taxonomy.ts buildVehicleTaxonomy` 從真 fitment 衍生 品牌→車型→年份〔只列有商品的車、無空選單;年份區間展開 + MAX_YEAR_SPAN 60 防爆炸 = 原顧慮兩點皆解〕;VehicleFinder 改 props 接 server `fetchVehicleTaxonomy`、push 短版 ?vehicle=、37/94 無年車型顯「不限年份」;/products 端同一衍生函式 + matchesVehicle 真過濾 = #152 vehicle 部分同步關閉。fitment 字串正規化仍看 #211)
 - **優先級:** 🟡 低(逛街輔助、非主動線阻擋;#220 列表 product 已真)
 - **問題:**
   - VehicleFinder.tsx import MOCK_MOTO_BRANDS(design data/products.js 虛構 8 廠牌~35 車型),首頁「01 輸入你的車輛」+ /products 頂部「確認適用車款」三層 select(品牌→車型→年份)全 mock。

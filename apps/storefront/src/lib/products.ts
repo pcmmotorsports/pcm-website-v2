@@ -47,6 +47,8 @@ import {
 import { computeEffectivePrice } from '@pcm/domain';
 import type { CategoryPath, MemberTier, Product } from '@pcm/domain';
 import type { MockProduct, TierLabel } from '@/data/mock-products';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -233,6 +235,48 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   } catch (err) {
     console.error('[fetchCatalogProducts] adapter.listAllByCategory failed:', err);
     return { products: [], error: true };
+  }
+}
+
+/**
+ * 撈全目錄車輛清單(S2/#220b:首頁 VehicleFinder 接真)。
+ *
+ * 輕量投影:只 select fitments 欄(不撈完整商品/變體)、.order('id') + .range 分頁迴圈
+ * 繞 PostgREST「Max rows=1000」硬上限(仿 adapter listAllByCategory 分頁模式、MAX_PAGES 防呆)
+ * → buildVehicleTaxonomy 衍生 品牌→車型→年份(與 /products 列表端同一衍生函式 = id 空間一致、
+ * 首頁選車深連結必命中列表過濾)。
+ *
+ * 失敗回 [](VehicleFinder 顯空品牌下拉、不 crash;console.error 留 log)。
+ * anon RLS 已擋 delisted(products_public view)、fitments 為公開車輛相容資訊、零敏感欄。
+ */
+export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
+  const client = createSupabaseAnonClient();
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
+  const rows: Array<{ fitments: unknown }> = [];
+
+  try {
+    for (let page = 0; page < MAX_PAGES; page += 1) {
+      const from = page * PAGE_SIZE;
+      const { data, error } = await client
+        .from('products_public')
+        .select('id, fitments')
+        .order('id')
+        .range(from, from + PAGE_SIZE - 1);
+      if (error) throw error;
+      rows.push(...(data ?? []));
+      if (!data || data.length < PAGE_SIZE) break;
+    }
+    return buildVehicleTaxonomy(
+      rows.map((r) => ({
+        fitments: Array.isArray(r.fitments)
+          ? (r.fitments as NonNullable<MockProduct['fitments']>)
+          : undefined,
+      })),
+    );
+  } catch (err) {
+    console.error('[fetchVehicleTaxonomy] products_public fitments fetch failed:', err);
+    return [];
   }
 }
 

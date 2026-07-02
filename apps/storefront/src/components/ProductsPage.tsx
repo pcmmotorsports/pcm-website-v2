@@ -2,7 +2,7 @@
 //
 // 字面對齊 design-reference/components/ProductsPage.jsx(M-1-12):
 // - Sean 拍板版面 filterStyle = cascade:頂部 CascadeFilterTop + 桌機左側
-//   FilterSide(hideVehicle)+ 手機 FilterDrawer。
+//   FilterSide(S1 起含車輛樹;hideVehicle 已解除)+ 手機 FilterDrawer。
 // - M-1-12 Codex review 修正:篩選 / 排序純函式拆 products-filter-logic.ts、
 //   ActiveChips / Pagination 拆同名檔(鐵則 6:元件檔 >400 行必拆);本檔保留
 //   主元件 + PageHeader / SortBar / MobileFab 三個小型版面子元件。
@@ -11,10 +11,11 @@
 // - design 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle 開關 /
 //   跨頁同步不搬(design harness、見 docs/recon/M-1-12-products-page-recon.md §4)。
 // - #220:商品列表改 server props 接真 Supabase 目錄(碳纖維部品、toUIProduct 'general' strip 零經銷價)、
-//   UI 版面零動;篩選側欄 data(車種/分類/品牌)仍 mock import(VehicleFinder 真資料化 #220b、
-//   品牌側欄真資料化 #220c;真資料單一品牌 RPM CARBON、選其他品牌 chip 會 0 結果、已記 #220c)。
-// - 篩選不依 cascade.vehicle / cascade.category(對齊 design filterProducts;
-//   mock 資料未對映)→ 已開 backlog #152、本檔不過濾。
+//   UI 版面零動。S1(2026-07-03):車輛篩選清單改 buildVehicleTaxonomy(products) 從真 fitment
+//   動態衍生(取代 MOCK_MOTO_BRANDS);分類/品牌側欄仍 mock(品牌側欄真資料化 #220c;
+//   真資料單一品牌 RPM CARBON、選其他品牌 chip 會 0 結果、已記 #220c)。
+// - S1:篩選依 cascade.vehicle 過真 fitment 過濾(#152 vehicle 部分關閉、見
+//   products-filter-logic matchesVehicle);cascade.category 仍不過濾(#152 剩餘、單一分類)。
 // - design 的 demo 資料 tiling 不搬;0 筆結果顯示空狀態文字 + 隱藏分頁(Codex finding 2)。
 //   #220 真資料(碳纖維部品 ~1406 件)分頁自然多頁;server fetch 失敗顯「載入失敗、請稍後再試」
 //   (Q2=A、鏡像 HomeSelect error 分支、與真 0 結果區分)。
@@ -25,7 +26,7 @@
 
 'use client';
 
-import { useEffect, useReducer, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useReducer, useState, type CSSProperties } from 'react';
 import { useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -47,16 +48,11 @@ import { Pagination } from './Pagination';
 import { filterProducts, sortProducts } from './products-filter-logic';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
 import type { FilterTopData } from './FilterTop';
-import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '@/data/mock-categories';
 import { MOCK_BRANDS } from '@/data/mock-brands';
 import type { MockProduct } from '@/data/mock-products';
-
-const data: FilterTopData = {
-  motoBrands: MOCK_MOTO_BRANDS,
-  categories: MOCK_CATEGORIES,
-  brands: MOCK_BRANDS,
-};
+import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
 const MESSAGE_STATE_STYLE: CSSProperties = {
@@ -74,12 +70,12 @@ export type ProductsPageProps = {
 };
 
 // 解析 URL vehicle 參數 → VehicleSelection(name-based、對齊 reducer 介面)
-// Q1=C 雙格式:短版 ?vehicle=brandId:modelId:year 優先、長版 ?brand=&model=&year= fallback
-// 短版優先因 ProductCard href 用短版(內部生成主路徑);
-// 長版 fallback 吸收 VehicleFinder 目前仍 push 3 param 的歷史相容(未解決偏離)、
-// 未來 milestone 統一 VehicleFinder 改短版時刪 else 分支即可。
+// Q1=C 雙格式:短版 ?vehicle=brandId:modelId[:year] 優先、長版 ?brand=&model=&year= fallback
+// S2(2026-07-03)起 VehicleFinder 亦改 push 短版(id 空間統一衍生清單)→ 站內兩個
+// producer(ProductCard href / VehicleFinder)皆短版;長版分支僅吸收書籤舊連結、可日後刪。
 function parseVehicleFromUrl(
   searchParams: URLSearchParams | ReadonlyURLSearchParams,
+  motoBrands: MockMotoBrand[],
 ): { brand: string; model?: string; year?: number } | null {
   const v = searchParams.get('vehicle');
   let brandId: string | null = null;
@@ -96,7 +92,7 @@ function parseVehicleFromUrl(
     yearStr = searchParams.get('year');
   }
   if (!brandId) return null;
-  const brandObj = MOCK_MOTO_BRANDS.find((b) => b.id === brandId);
+  const brandObj = motoBrands.find((b) => b.id === brandId);
   if (!brandObj) return null;
   const modelObj = modelId
     ? brandObj.models?.find((m) => m.id === modelId)
@@ -214,12 +210,20 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
   const [perPage, setPerPage] = useState(25);
   const searchParams = useSearchParams();
 
+  // 車輛篩選清單「動態衍生」自當下目錄商品 fitment(車種鐵律 fitment_parsed 直出、
+  // 商品匯入後自動更新、零手動維護);drop-in 取代舊 MOCK_MOTO_BRANDS。
+  const motoBrands = useMemo(() => buildVehicleTaxonomy(products), [products]);
+  const data: FilterTopData = useMemo(
+    () => ({ motoBrands, categories: MOCK_CATEGORIES, brands: MOCK_BRANDS }),
+    [motoBrands],
+  );
+
   // M-1-13I Bug 1 修:mount 時讀 URL vehicle 參數 → dispatch reducer(Q1=C 雙格式)
   // strict mode dev 環境 useEffect mount 跑兩次、會 dispatch 兩次;
   // cascadeFilterReducer 對同 brand 連選冪等(第二次重設同樣狀態)、實務上無 bug、
   // dev console 看 state 日誌會多一輪、屬正常。
   useEffect(() => {
-    const v = parseVehicleFromUrl(searchParams);
+    const v = parseVehicleFromUrl(searchParams, motoBrands);
     if (!v) return;
     dispatch(selectVehicleBrand(v.brand));
     if (v.model) dispatch(selectVehicleModel(v.model));
@@ -229,8 +233,13 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const filtered = filterProducts(products, cascade, extras, data.brands);
-  const sorted = sortProducts(filtered, sort);
+  // memo:1409 件 client 全量過濾/排序、S1 加逐商品 fitments.some 比對 → 避免無關 state
+  // (drawerOpen/gridCols/page)變動時整條重算
+  const filtered = useMemo(
+    () => filterProducts(products, cascade, extras, data.brands),
+    [products, cascade, extras, data.brands],
+  );
+  const sorted = useMemo(() => sortProducts(filtered, sort), [filtered, sort]);
   const resultCount = sorted.length;
 
   // 篩選 / 排序 / 每頁數變動 → 回到第 1 頁(對齊 design ProductsPage.jsx L226)
@@ -272,10 +281,10 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
 
       <div className="pp-layout has-side" data-filter-style="cascade">
         {/* #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
-            車種=#220b、僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調) */}
+            僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調)。
+            S1:車輛樹(hideVehicle)解除隱藏 —— 接真 fitment 衍生清單、真過濾。 */}
         <FilterSide
           data={data}
-          hideVehicle
           hideCategory
           hideBrand
           hideColor
@@ -313,13 +322,16 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
               {displayed.map((p) => {
                 const categoryMain = p.category.split('·')[0]?.trim() || '';
                 // M-1-13d-fix-1:構建商品連結 URL params + 補帶 vehicle param(13a 漏)
-                // cascade.vehicle 存 name(MOCK_MOTO_BRANDS .name 大寫)、ProductPage 解析端
-                // 期望 id 格式 `brandId:modelId:year`、此處反查 MOCK_MOTO_BRANDS 拿 id 後串接。
+                // cascade.vehicle 存 name(= fitment motoBrand/modelCode 原字串)、ProductPage 解析端
+                // 期望 id 格式 `brandId:modelId:year`、此處反查衍生 motoBrands 拿 slug id 後串接
+                // (與 parseVehicleFromUrl 同一份衍生清單、本頁 round-trip 一致)。
+                // 下游消費者:ProductPage vehiclePill 以商品自身 fitments + slugify 同源反查(S1 同步修);
+                // 首頁 VehicleFinder 長版靜態 id 由 S2(#220b)收斂、S1 時點仍為 open drift(manifest 記)。
                 const params = new URLSearchParams({ from: 'catalog' });
                 if (categoryMain) params.set('category', categoryMain);
                 if (cascade.vehicle) {
                   const v = cascade.vehicle;
-                  const brandObj = MOCK_MOTO_BRANDS.find((b) => b.name === v.brand);
+                  const brandObj = motoBrands.find((b) => b.name === v.brand);
                   if (brandObj) {
                     const parts: string[] = [brandObj.id];
                     if (v.model) {

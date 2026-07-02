@@ -21,6 +21,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { MOCK_PRODUCTS, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
+import { slugify } from '@/lib/vehicle-taxonomy';
 import { useCart } from '@/contexts/CartContext';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
@@ -160,16 +161,24 @@ export function ProductPage({ product, tier }: ProductPageProps) {
 
   // Vehicle pill — separate filter indicator(對齊 design L84-94)
   // URL format: vehicle=brandId:modelId:year(冒號分隔)
+  // S1(#152 修復)後 /products 端 id 為 fitment 衍生 slug(vehicle-taxonomy)→ pill 解析
+  // 首選「商品自身 fitments 同源反查」(被篩選點進來的商品必含該車款 fitment、slugify 同規則
+  // 對回原字串);次選舊靜態 MOCK_MOTO_BRANDS(吸收歷史 mock 連結);皆未命中 fallback 裸 slug。
   const vehiclePill = useMemo(() => {
     if (!vehicle) return null;
     const [brandId, modelId, yearStr] = vehicle.split(':');
+    const fit = (product.fitments ?? []).find(
+      (f) =>
+        slugify(f.motoBrand) === brandId &&
+        (!modelId || slugify(f.modelCode) === modelId),
+    );
     const brandObj = MOCK_MOTO_BRANDS.find((b) => b.id === brandId);
     const modelObj = brandObj?.models?.find((m) => m.id === modelId);
-    const label = [brandObj?.name || brandId, modelObj?.name || modelId, yearStr]
-      .filter(Boolean)
-      .join(' · ');
+    const brandLabel = fit?.motoBrand || brandObj?.name || brandId;
+    const modelLabel = modelId ? fit?.modelCode || modelObj?.name || modelId : undefined;
+    const label = [brandLabel, modelLabel, yearStr].filter(Boolean).join(' · ');
     return { label };
-  }, [vehicle]);
+  }, [vehicle, product.fitments]);
 
   const handleClearVehicle = () => {
     const params = new URLSearchParams(searchParams.toString());
