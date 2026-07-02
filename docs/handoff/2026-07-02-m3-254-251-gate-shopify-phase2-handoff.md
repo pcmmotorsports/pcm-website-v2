@@ -2,7 +2,7 @@
 
 > 一句話結果:**開 prod flag 前 gate 這一輪處理完:#254 cron 端點應用層限流 + #251 retry RPC reason allowlist 對齊 兩片實作完成(皆過 codex K2 + Fable 5 adversarial + code-reviewer 三模型審 0 must-fix),3 commit 已 push;#255/#253/B線 cron 經 Sean 拍板 defer;孤兒單治本方向定調 = Shopify「付款成功才建單」= Phase 2 目標架構**。**3 commit 全 push**(origin/dev=`632ead0`)。非全程 auto(Sean 逐關拍 Q1–Q4 + A+甲 方向)。
 > 環境:repo `pcm-website-v2` · Supabase `bmpnplmnldofgaohnaok`(live)· branch `dev` · engineering mode。HEAD=`632ead0`。`TAPPAY_3DS_ENABLED` + `ANOMALY_ALERT_ENABLED` + `CRON_SWEEPER_ENABLED` 全程 false(prod 未部署)。
-> 🔴 **接手第一件事**:**#251 migration `20260702120000` 尚未 db push**(Claude 被 `.env*` deny 擋、須 Sean 跑)→ 見 §5。
+> 🔵 **接手第一件事(2026-07-02 校正)**:~~#251 migration `20260702120000` 尚未 db push~~ → **查得已在 live 帳上(交接後已套用)+ Claude 唯讀 MCP 驗兩支 RPC allowlist=4 碼 + ACL PASS**;#251 完全收尾(已 push + db push live + 驗 PASS)。見 §5。
 > 接手先讀:STATUS.md(下一步/Blocker)+ backlog #251/#254/#249 + memory `project_shopify-payment-first-order-phase2-target` + `feedback_adversarial-reviewer-deep-review-layer`(Fable 5 真跨模型)+ 本 handoff。
 
 ## 1. 做了什麼(按時序)
@@ -26,9 +26,9 @@
 
 ## 3. DB / 部署 / 外部足跡(非 git,接手看不到 diff)
 
-- 🔴 **migration `20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql`:已進 repo + 已 push,但【未 db push】**(Claude `.env*` deny 擋)→ **Sean 待辦(見 §5)**。DDL MCP 已零留痕模擬過(BEGIN…RAISE rollback、殘留 0/0/0);另唯讀 MCP 驗過 live 兩支 RPC 仍 = 基線 3 碼版(attempt 含 R1c1 溢位 cap、ACL payment_confirmer=T/其餘=F)→ **live=repo 基線無漂移,Sean db push 安全**。db push 後 live 兩支 allowlist 會變 4 碼。
+- 🔵 **migration `20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql`:已進 repo + 已 push + 【db push ✅ live】(2026-07-02 校正:交接後已套用、migration 在帳)**。Claude 唯讀 MCP 復驗:兩支 RPC allowlist 已 = 4 碼〔含 released_failure_observed〕、函式體帶 #251 註解、ACL payment_confirmer=T·anon/authenticated/service_role=F → PASS。~~原記【未 db push】為交接當下快照~~。DDL MCP 已零留痕模擬過(BEGIN…RAISE rollback、殘留 0/0/0)。
 - **#254 無 DB 足跡**(純 TS in-memory 限流器);**無資料寫入**。
-- **live 已套用 migration 到 `20260701130000`**(#256);#251 是唯一未套用 → **db push 只會套這一個**。
+- **live 已套用 migration 到 `20260702120000`**(#251;2026-07-02 校正:交接當下記到 `20260701130000`、#251 交接後已套用)→ **repo migration 全數 = live,無待套用**。
 - **Vercel 部署 / env**:未動。cron 限流是 route 內縱深、prod 未部署 + gate false = 零即時風險。
 
 ## 4. graphify 地圖增量
@@ -37,8 +37,8 @@
 
 ## 5. 開放項(待辦)
 
-- 🔴🔴 **Sean db push #251**(接手第一件事):`cd /Users/sean_1/pcm-website-v2 && mv .env.local .env.local.bak && supabase db push && mv .env.local.bak .env.local`(只套 `20260702120000`、按 Y;失敗記得手動移回 .env.local)→ **完成後 Claude 唯讀 MCP 驗兩支 RPC allowlist 已變 4 碼 + ACL 矩陣**(STATUS #251 下一步驗證關卡)。prod 未部署 + flag false = 零影響,非急但屬 #251 收尾。
-- ⏳ **開 prod flag 前 gate — 已全數處置**:#254 ✅ / #251 ✅(待 db push)/ **#255 defer**(併監控面板)/ **#253 defer**(sweeper ceiling 兜底)/ **B 線 cron defer**(不升 Vercel Pro)。→ 這一輪 gate 清單處理完畢;剩「上線本身」。
+- ✅ **Sean db push #251 — 已完成(2026-07-02 校正)**:migration `20260702120000` 查得**已在 live 帳上**(交接後已套用),Claude 唯讀 MCP 驗兩支 RPC〔`mark_attempt_settle_retry` / `mark_webhook_retry`〕allowlist = **4 碼**〔record_unreachable / record_unverified / auth_or_pending / released_failure_observed〕+ ACL payment_confirmer=T·anon/authenticated/service_role=F → **PASS**。#251 完全收尾。~~原待辦:Sean 跑 supabase db push~~ 已不需要。
+- ✅ **開 prod flag 前 gate — 已全數處置 + 清空**:#254 ✅ / #251 ✅(db push live + 驗 PASS 2026-07-02)/ **#255 defer**(併監控面板)/ **#253 defer**(sweeper ceiling 兜底)/ **B 線 cron defer**(不升 Vercel Pro)。→ 這一輪 gate 清單處理完畢;剩「上線本身」。
 - ⏳ **正式上線(日後大步驟、鐵則 8、Sean 主導)**:merge dev→main(main 落後 origin/main=`9f609b0`)+ 修 Vercel Root Directory + design-reference submodule + 設 `NEXT_PUBLIC_SITE_URL` + Sean 拍板開 `TAPPAY_3DS_ENABLED`。
 - 🔴 **carry-over(Sean 手動)**:live 上 **0072/0073 兩筆真雙扣待退款**(舊 A1 popup、各 17,300;依 W1 runbook `docs/runbooks/2026-06-26-*` → claim → Dashboard 退舊 rec → resolve)。
 - 🏛️ **Phase 2(日後)**:Shopify「付款成功才建單」重構(backlog #249 方案 B、memory `project_shopify-payment-first-order-phase2-target`)—— 現在**不動 code、不寫 PRD**,Phase 2 啟動才走專屬 PRD。
@@ -46,7 +46,7 @@
 
 ## 6. push 狀態與收尾自檢(接手第一眼)
 
-**全 push**(origin/dev=`632ead0`)、工作樹 clean、無殘檔。下個 session 進入點:① **Sean db push #251**(§5)+ Claude 驗 allowlist ② 讀 STATUS 下一步 + 本 handoff §5 ③ gate 已清 → 接「上線規劃」或 Sean 指定 / Phase 2。
+**全 push**(origin/dev=`632ead0`、後續 session 續推至 `2e4fd31`)、工作樹 clean、無殘檔。下個 session 進入點:① ~~Sean db push #251~~ ✅ 已 live + Claude 驗 allowlist PASS(2026-07-02)② 讀 STATUS 下一步 + 本 handoff §5 ③ **gate 已清 → 接「上線規劃」(鐵則 8、plan 待批)** 或 Sean 指定 / Phase 2。
 
 收尾自檢:git status clean ✅ / 0 unpushed ✅(已 push)/ 無 .env*·data·大檔殘留(`.env.local` 未動、無 db push)✅ / Secret 0 洩漏(handoff/commit 全文無密鑰)✅ / DB 足跡見 §3 ✅ / graphify 未刷見 §4。
 
@@ -54,8 +54,8 @@
 
 ## 相關 plan / 記憶 / 文件
 
-- backlog:`docs/phase-1-backlog.md` #254(✅)/ #251(✅ 待 db push)/ #249(方向定調 Shopify Phase 2)/ #255·#253(defer)
-- migration:`supabase/migrations/20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql`(待 db push)
+- backlog:`docs/phase-1-backlog.md` #254(✅)/ #251(✅ db push live + 驗 PASS)/ #249(方向定調 Shopify Phase 2)/ #255·#253(defer)
+- migration:`supabase/migrations/20260702120000_m3_251_retry_reason_allowlist_released_failure_observed.sql`(✅ db push live)
 - 新檔:`apps/storefront/src/lib/cron/rate-limit.ts`(+ .test.ts)
 - 記憶:`project_shopify-payment-first-order-phase2-target`(Phase 2 方向)/ `feedback_adversarial-reviewer-deep-review-layer`(Fable 5 = 真跨模型、2026-07-02 升級)
 - 誠實邊界:#254 限流 = per-instance best-effort 非全域硬上限(升級路徑併 #255)、活躍 flood 期間合法 cron 同窗亦 429;#251 診斷欄純遙測、Phase 1 producer-gating 零觸發;Shopify 方案 B 不消滅 TapPay 雙扣牆。
