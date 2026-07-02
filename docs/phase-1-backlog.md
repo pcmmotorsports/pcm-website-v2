@@ -6313,8 +6313,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #249. 🏛️ 孤兒單治本架構議題(reuse 小補丁 vs 學 Shopify「付成才建單」大重構)
 
-- **狀態:** ⏳ 待評估(本次已做顯示層治標=會員列表藏 unpaid;治本兩方案待時機評估)
-- **優先級:** 🟠 中(prod 開放結帳前 / 流量起來前評估;現況顯示層已藏、客人端無感,非急)
+- **狀態:** 🟢 **方向已定(Sean 2026-07-02 拍 A+甲)**:治本走**方案 B = Shopify「付款成功才建正式訂單」、定調為 Phase 2 目標架構**;**Phase 1 維持現況「先建單(unpaid)+ 3DS 對帳脊椎」+ 本次顯示層藏孤兒、先上線**,不採方案 A(create_order reuse 補丁)、**不推翻 M-3 3DS 主線**。Phase 2 啟動才走專屬 PRD + codex 雙關卡 + Sean 批(方案 B 影響面 = 整個 3DS 子系統重構、見下)。🔴 孤兒/未付款單**絕不硬刪**(late-success 可能晚扣款 → 刪單=客人被扣款查無單=靜默多扣);Phase 1 處置固定=留紀錄 + 藏(顯示層已做)+ 對帳掃描器收斂到終態。
+- **原狀態(歷史):** ⏳ 待評估(本次已做顯示層治標=會員列表藏 unpaid;治本兩方案待時機評估)
+- **優先級:** 🟠 中(現定調 Phase 2;Phase 1 現況顯示層已藏、客人端無感,不急)
 - **問題:**
   - 現架構=客人按結帳當下、扣款**之前**就 INSERT 一筆正式 `orders`(`payment_status` DEFAULT `'unpaid'`;`charge-actions.ts:176` 先 placeOrder 後 charge)。客人放棄付款 → 該單**永久停 unpaid**(payment_status enum 僅 `unpaid/paid/partiallyPaid/refunded`、**無 cancelled/expired**、`20260604120000_...:50`),sweeper 只終結 attempt 不終結 order → DB 累積孤兒 unpaid 單。
   - **本次已做(治標、顯示層)**:會員訂單列表 `listSummariesByCustomer` 加 `.neq('payment_status','unpaid')` 藏孤兒單(= Shopify 客人端體驗);但 DB 內孤兒單仍在(sweeper 標終態、不刪)。
