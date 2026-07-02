@@ -6368,7 +6368,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #251. 🔧 DB reason allowlist 補 `released_failure_observed`(TS↔DB allowlist 對齊、flag-on 前)
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🟢 **已實作(2026-07-02、dev、已 commit 未 push、未 db push〔migration `20260702120000`〕、flag 全 false)**:CREATE OR REPLACE 兩支 SECDEF retry RPC(`mark_attempt_settle_retry` live 基線 20260624120008 / `mark_webhook_retry` live 基線 20260615120000),**唯一改動 = allowlist `IN(...)` 加第 4 碼 `released_failure_observed`**(可執行 SQL 除該行零行為漂移)。順帶更新 `sweep-settlements.ts` docstring 對齊(暫不對齊→#251 已補、db push 生效)。**DDL MCP 零留痕模擬 PASS**:T1 attempt released→存原值 / T2 未知碼→unknown / T3 既有碼零回歸 / T4 webhook released→原值 / T5 webhook 未知→unknown + ACL 矩陣 + role-hygiene,末端 RAISE 強制 rollback、函式 live 定義仍 3 碼版 + synthetic 殘留 0/0/0;另唯讀驗 live=repo 基線無漂移(attempt 有 R1c1 溢位 cap、兩支 3 碼、ACL pc=T/svc=F)。**三模型審查全過 0 must-fix**:codex K2 PASS-with-nits + code-reviewer PASS + adversarial-reviewer(Fable 5、9 次擊破全擋)PASS-WITH-NITS,nits 全折入(byte-identical→可執行 SQL 零漂移措辭 / producer 收斂〔實際 producer 待 R2b/flag-on〕/ 檔頭「零 release CAS caller」過時修正〔R3 preflight 已是 caller 受 flag gate〕/ docstring 對齊)。三綠 typecheck 7/7 + lint 10/10 + build 1/1。🔴 診斷欄純遙測、不影響重試/結算/雙扣裁決;Phase 1 producer-gating 零觸發。**下一動 = Sean db push `20260702120000` + 推 dev**。
+- **原狀態(歷史):** ⏳ 待執行
 - **優先級:** 🟡 低(Phase 1 producer-gating 零觸發;flag-on 前對齊即可)
 - **分流標籤:** `P1-before-launch`
 - **問題:**
