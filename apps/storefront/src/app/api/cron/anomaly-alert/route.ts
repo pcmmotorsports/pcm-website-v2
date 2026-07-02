@@ -32,6 +32,7 @@
 import { timingSafeEqual } from 'node:crypto';
 import { checkAnomalyAlerts, type CheckAnomalyAlertsDeps } from '@pcm/use-cases';
 import { getAnomalyAlertDeps } from '@/lib/payment/composition';
+import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -88,6 +89,14 @@ export async function GET(request: Request): Promise<Response> {
   const presented = auth.startsWith(BEARER_PREFIX) ? auth.slice(BEARER_PREFIX.length) : '';
   if (!safeEqual(presented, expected)) {
     return new Response(null, { status: 401 });
+  }
+
+  // 1b. 🔴 應用層限流(#254 縱深 hardening):認證通過「後」才計數 → 未持有效 secret 的 flood 不佔額度、不餓死合法
+  //     cron;真正威脅 = CRON_SECRET 洩漏後持有效 secret 高頻觸發消耗 LINE/Resend quota + 告警轟炸。超限 → 429,
+  //     在建 deps / 推播「前」擋掉。🔴 per-instance best-effort、非全域硬上限(見 lib/cron/rate-limit.ts 誠實邊界);
+  //     secret 洩漏的主對策仍是輪替 CRON_SECRET。不 log(避免每筆被擋請求放大成 log 量 = 二次濫用面)。
+  if (!checkCronRateLimit('anomaly-alert')) {
+    return new Response(null, { status: 429 });
   }
 
   // 2. 🔴 ANOMALY_ALERT_ENABLED sequencing gate:嚴格 opt-in、只認字面 'true';預設(未設/'false'/其他)→ 認證過後

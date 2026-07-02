@@ -6442,7 +6442,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #254. 🔧 告警 cron 加簡易限流 + 評估獨立 secret(#250 縱深 hardening)
 
-- **狀態:** ⏳ 待執行(上線前評估;非阻擋)
+- **狀態:** 🟢 **已實作(2026-07-02、dev、純 TS 無 migration、無需 db push、flag 全 false)**:新增共用 in-memory sliding-window 限流器 `apps/storefront/src/lib/cron/rate-limit.ts`(視窗 60s / 每窗 MAX 5、per-route key、被擋不佔額度不延長鎖定),兩個 cron route(anomaly-alert + settle-sweep)於**認證通過後、enabled gate 前**呼 `checkCronRateLimit` 超限回 **429**。**「評估獨立 secret」結論 = 不做**(Vercel cron 平台只帶單一 CRON_SECRET、要獨立 secret 須自訂 header 驗對 LOW hardening 過重)→ 走「限流 + 洩漏時輪替 secret」收口。**審查鏈全過 0 must-fix**:codex K2 跨模型 PASS-with-comments + code-reviewer PASS + adversarial-reviewer(Fable 5、真跨模型)PASS-WITH-NITS,findings 全折入(補 disabled+flood→429 排序釘死測 / 軟化過度承諾 + 誠實邊界#4 告警壓制窗 / 半開窗措辭 / `import 'server-only'` / Date.now 倒退跳自愈註)。三綠 typecheck 7/7 + lint 10/10 + build 1/1 + 完整 vitest 146 檔 1585。🔴 誠實邊界:per-instance best-effort、**非全域硬上限**(真硬上限需 DB-durable throttle→升級路徑併 [[#255]]);活躍 flood 期間合法 cron 同窗亦 429(同 secret 不可區分)、收口靠輪替 secret。
+- **原狀態(歷史):** ⏳ 待執行(上線前評估;非阻擋)
 - **優先級:** 🟢 低(LOW hardening、非可即利用破口)
 - **分流標籤:** `P1-before-launch`
 - **問題:**

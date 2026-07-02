@@ -21,6 +21,7 @@ vi.mock('@pcm/use-cases', () => ({ checkAnomalyAlerts: checkSpy }));
 vi.mock('@/lib/payment/composition', () => ({ getAnomalyAlertDeps: getDepsSpy }));
 
 import * as route from './route';
+import { CRON_RATE_MAX_HITS, resetCronRateLimit } from '@/lib/cron/rate-limit';
 
 const { GET } = route;
 
@@ -56,6 +57,7 @@ beforeEach(() => {
   process.env.ANOMALY_ALERT_ENABLED = 'true'; // 多數 run 測試預設 enabled;gate 測試顯式覆蓋
   checkSpy.mockReset().mockResolvedValue({ ...CLEAN_RESULT });
   getDepsSpy.mockReset().mockReturnValue({ ...DEPS });
+  resetCronRateLimit(); // #254 限流器 module scope 狀態跨測試存活 → 每測試前全清隔離
 });
 
 afterEach(() => {
@@ -211,5 +213,42 @@ describe('GET anomaly-alert — options 注入(不採信外部輸入)', () => {
     await GET(makeReq(bearer()));
     expect(getDepsSpy).toHaveBeenCalledTimes(1);
     expect(checkSpy.mock.calls[0]![0]).toMatchObject({ reader: expect.anything(), notifiers: expect.anything() });
+  });
+});
+
+describe('GET anomaly-alert — 應用層限流(#254 縱深 hardening)', () => {
+  it(`認證後前 ${CRON_RATE_MAX_HITS} 次放行、超限 → 429`, async () => {
+    for (let i = 0; i < CRON_RATE_MAX_HITS; i++) {
+      expect((await GET(makeReq(bearer()))).status).toBe(200);
+    }
+    expect((await GET(makeReq(bearer()))).status).toBe(429);
+  });
+
+  it('限流在認證「後」:錯 Bearer 的 flood(仍 401)不佔額度、真 secret 首打即放行', async () => {
+    for (let i = 0; i < CRON_RATE_MAX_HITS + 1; i++) {
+      expect((await GET(makeReq(bearer('b'.repeat(48))))).status).toBe(401);
+    }
+    expect((await GET(makeReq(bearer()))).status).toBe(200); // 401 flood 未消耗額度
+  });
+
+  it('429 在 enabled gate / deps 之前:不建 deps、不跑 checkAnomalyAlerts', async () => {
+    for (let i = 0; i < CRON_RATE_MAX_HITS; i++) await GET(makeReq(bearer()));
+    getDepsSpy.mockClear();
+    checkSpy.mockClear();
+    const limited = await GET(makeReq(bearer()));
+    expect(limited.status).toBe(429);
+    expect(getDepsSpy).not.toHaveBeenCalled();
+    expect(checkSpy).not.toHaveBeenCalled();
+  });
+
+  // 釘死排序「認證 → 限流 → enabled gate」:disabled 時仍先過限流。若限流被移到 gate 後,disabled 會在限流前
+  // 短路成 200 no-op、第 6 次不會是 429 → 本測試會紅(codex/adversarial should-fix、真鎖排序)。
+  it('429 在 enabled gate「前」:disabled(未設)時 flood 超限仍回 429', async () => {
+    delete process.env.ANOMALY_ALERT_ENABLED;
+    for (let i = 0; i < CRON_RATE_MAX_HITS; i++) {
+      expect((await GET(makeReq(bearer()))).status).toBe(200); // disabled no-op、但仍過限流消耗額度
+    }
+    expect((await GET(makeReq(bearer()))).status).toBe(429); // 限流在 gate 前 → 超限優先於 disabled no-op
+    expect(getDepsSpy).not.toHaveBeenCalled();
   });
 });

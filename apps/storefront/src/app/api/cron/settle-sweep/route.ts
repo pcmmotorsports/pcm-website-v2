@@ -31,6 +31,7 @@ import { sweepSettlements, type SweepSettlementsDeps } from '@pcm/use-cases';
 //    若未來把 env 讀取 / pool 建立搬到 module-top(import 時求值),僅 import 本 route 即需 DB env →
 //    disabled 200 no-op 靜默回歸要 DB env。改 @/lib/payment/composition 前必守此 lazy 契約。
 import { getSettleChargeDeps, getWebhookInbox } from '@/lib/payment/composition';
+import { checkCronRateLimit } from '@/lib/cron/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -88,6 +89,14 @@ export async function GET(request: Request): Promise<Response> {
   const presented = auth.startsWith(BEARER_PREFIX) ? auth.slice(BEARER_PREFIX.length) : '';
   if (!safeEqual(presented, expected)) {
     return new Response(null, { status: 401 });
+  }
+
+  // 1b. 🔴 應用層限流(#254 縱深 hardening):認證通過「後」才計數 → 未持有效 secret 的 flood 不佔額度、不餓死合法
+  //     cron;真正威脅 = CRON_SECRET 洩漏後持有效 secret 高頻觸發放大 Record API 查詢。超限 → 429,在建 deps /
+  //     掃描「前」擋掉。🔴 per-instance best-effort、非全域硬上限(見 lib/cron/rate-limit.ts 誠實邊界);secret 洩漏
+  //     的主對策仍是輪替 CRON_SECRET。不 log(避免每筆被擋請求放大成 log 量 = 二次濫用面)。
+  if (!checkCronRateLimit('settle-sweep')) {
+    return new Response(null, { status: 429 });
   }
 
   // 2. 🔴 CRON_SWEEPER_ENABLED sequencing gate(plan §5.3 must-fix #3):嚴格 opt-in、只認字面 'true';預設(未設/
