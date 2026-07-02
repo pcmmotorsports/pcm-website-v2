@@ -3,7 +3,35 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"]
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"],
+      "env": [
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "NEXT_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_TAPPAY_APP_ID",
+        "NEXT_PUBLIC_TAPPAY_APP_KEY",
+        "NEXT_PUBLIC_TAPPAY_ENV",
+        "SUPABASE_SERVICE_ROLE_KEY",
+        "LINE_CHANNEL_ID",
+        "LINE_CHANNEL_SECRET",
+        "LINE_CHANNEL_ACCESS_TOKEN",
+        "LINE_REDIRECT_URI",
+        "LINE_ALERT_TO",
+        "CRON_SECRET",
+        "CRON_SWEEPER_ENABLED",
+        "ANOMALY_ALERT_ENABLED",
+        "RESEND_API_KEY",
+        "ALERT_EMAIL_FROM",
+        "ALERT_EMAIL_TO",
+        "PAYMENT_CONFIRMER_DB_URL",
+        "TAPPAY_ENV",
+        "TAPPAY_PARTNER_KEY",
+        "TAPPAY_MERCHANT_ID",
+        "TAPPAY_FIELD_IDS",
+        "TAPPAY_NOTIFY_PATH_SECRET",
+        "TAPPAY_3DS_ENABLED",
+        "PCM_DEV_TIER_OVERRIDE"
+      ]
     },
     "dev": {
       "cache": false,
