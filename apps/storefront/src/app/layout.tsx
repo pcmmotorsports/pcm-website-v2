@@ -49,6 +49,8 @@ import '../styles/auth.css';
 import '../styles/account.css';
 import '../styles/cart.css';
 import '../styles/checkout.css';
+import '../styles/error.css'; // A3:404 頁 err-*(design 序 error.css 在 checkout 後;獨立 class 零 cascade 交互)
+import '../styles/pages-shipping.css'; // A2:/info/shipping(design pages.css 抽段;faq 家族帶 .shipping-content scope 防撞 product-page.css)
 import '../styles/tier.css';
 import '../styles/mobile-tabbar.css';
 

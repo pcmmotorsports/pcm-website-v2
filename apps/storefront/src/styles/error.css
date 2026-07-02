@@ -1,0 +1,111 @@
+/* ErrorPage — 404 / 500 */
+.err-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg);
+}
+.err-main {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 24px;
+  min-height: 60vh;
+}
+.err-inner {
+  text-align: center;
+  max-width: 640px;
+  width: 100%;
+}
+.err-num {
+  font-family: "Noto Serif TC", "Cormorant Garamond", serif;
+  font-size: 280px;
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 0.85;
+  color: var(--c-text);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 24px;
+}
+.err-eyebrow {
+  margin-bottom: 16px;
+  color: var(--c-text-2);
+}
+.err-title {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0 0 12px;
+  color: var(--c-text);
+}
+.err-desc {
+  font-size: 16px;
+  color: var(--c-text-2);
+  line-height: 1.6;
+  max-width: 480px;
+  margin: 0 auto 32px;
+}
+.err-cta {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+}
+.err-btn-primary,
+.err-btn-outline {
+  min-width: 160px;
+  justify-content: center;
+}
+/* design shared .btn-primary(pages.css L51-64)未全域搬(storefront 全域僅 cart.css 精簡版:
+   無 display/gap/border、padding 14px 32px、weight 繼承)→ 缺的屬性折入 err- scope、
+   對齊 design 404 CTA 渲染(code-reviewer F1;不動 cart.css 防購物車鈕 cascade 外溢)。 */
+.err-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--c-text);
+  transition: opacity 0.15s;
+}
+.err-btn-primary:hover { opacity: 0.85; background: var(--c-text); }
+.err-support {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--c-border);
+  font-size: 13px;
+  color: var(--c-text-2);
+}
+.err-support a {
+  color: var(--c-text);
+  border-bottom: 1px solid var(--c-text);
+  margin-left: 6px;
+  transition: opacity 0.15s;
+}
+.err-support a:hover { opacity: 0.7; }
+.err-support-sep {
+  margin: 0 12px;
+  color: var(--c-text-3);
+}
+
+@media (max-width: 720px) {
+  .err-num { font-size: 200px; }
+  .err-title { font-size: 26px; }
+  .err-desc { font-size: 15px; }
+  .err-cta {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .err-btn-primary,
+  .err-btn-outline {
+    width: 100%;
+    min-width: 0;
+  }
+}
+@media (max-width: 480px) {
+  .err-num { font-size: 160px; }
+}

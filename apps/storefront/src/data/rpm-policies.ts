@@ -1,9 +1,10 @@
 // rpm-policies.ts — RPM 共用政策文案「單一真相」(結構化 runs、純資料無 React 依賴)
 //
-// ⚠️ 保固 / 退換 / 鑑賞期政策由 ProductTabs(OD-8 保固分頁、Sean 指定為 canonical「那份」)與
-//    ProductFAQ(OD-10 N°04「保固與退換貨」)**共用同一份**、不得各自抄一份分歧版本
+// ⚠️ 保固 / 退換 / 鑑賞期政策由 ProductTabs(OD-8 保固分頁、Sean 指定為 canonical「那份」)、
+//    ProductFAQ(OD-10 N°04「保固與退換貨」)與 InfoShippingPage(A2 /info/shipping 退換貨 tab、
+//    2026-07-03 第三消費端)**共用同一份**、不得各自抄一份分歧版本
 //    (Sean 2026-06-03 釘:該鑑賞期免除是對客戶的法律主張、Sean 仍在確認準確性 →
-//     改字面只動本檔這一處、兩處同步渲染、永不漂移)。
+//     改字面只動本檔這一處、三處同步渲染、永不漂移)。
 // - 字面 byte-for-byte 取自 OD-8 ProductTabs 保固 pane(視覺真權威 OD 模板 §保固、鐵則 1)。
 // - 含《消費者保護法》第 19 條第 1 項鑑賞期免除條款(L1 法律政策、hardcode 可接受、
 //   未來 site_policies 後台接線;Sean 確認準確性後若需改字面 → 改本檔)。
@@ -40,7 +41,7 @@ export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
   ],
 ];
 
-/** 退換補充 3 點(ProductTabs 保固 pane 專用 ul;ProductFAQ 依 OD FAQ 模板省略、只放正文) */
+/** 退換補充 3 點(ProductTabs 保固 pane + InfoShippingPage 退換貨 tab 渲染 ul;ProductFAQ 依 OD FAQ 模板省略、只放正文) */
 export const RPM_WARRANTY_NOTES: PolicyRun[][] = [
   ['瑕疵認定：紋路明顯錯位、表面破損、孔位偏差超過合理範圍'],
   ['不在範圍：人為碰撞、摔車、不當安裝、自行加工'],

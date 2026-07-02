@@ -1,0 +1,185 @@
+/* pages-shipping.css — /info/shipping 配送&退貨頁(A2、2026-07-03)
+ *
+ * 字面從 design-reference/styles/pages.css 抽段直接搬:
+ *   - Shared page hero(L23-49 逐字)。RWD:filter-responsive.css 雖預埋 @media 版
+ *     .page-hero-inner/.page-hero-title(L90-91),但本檔後載、base 規則同 specificity 蓋掉它
+ *     → 那兩條 cascade-dead(僅 [data-mobile] 版存活);故本檔檔尾自帶 @media 900px 兩條
+ *     (值對齊站內預埋 14px/24px、非 design 的 16px/28px;code-reviewer F2)。
+ *   - Shipping 段(L921-1046):.shipping-* / .policy-block 逐字。
+ *   - 🔴 .faq-list / .faq-item 家族加 `.shipping-content` scope 前綴(刻意偏離逐字、cascade 安全):
+ *     product-page.css L1278-1296 已有同名 .faq-item(OD 商品頁 FAQ、+號 span.faq-icon 版)、
+ *     兩者樣式不同(此版 ::after 偽元素 +/−);不加 scope 會後載互蓋、污染商品頁 FAQ。
+ *   - RWD:design pages.css L1138/L1147(.shipping-grid 1fr / .shipping-body 手機 padding)。
+ * 其他 pages.css 段(brands / install / stores / catalog)未搬 —— 各自頁面 slice 建立時再抽。
+ */
+
+/* ==== Shared page hero(design pages.css L23-49)==== */
+.page-hero {
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  padding: 36px 0 32px;
+}
+.page-hero.is-accent {
+  background: var(--c-surface-2);
+}
+.page-hero-inner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0 48px;
+}
+.page-hero-title {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 8px 0 6px;
+  color: var(--c-text);
+}
+.page-hero-subtitle {
+  font-size: 15px;
+  color: var(--c-text-2);
+  margin: 0 0 16px;
+}
+
+/* ==== Shipping(design pages.css L921-1046)==== */
+.shipping-body {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 32px 48px 80px;
+}
+.shipping-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 32px;
+}
+.shipping-tabs button {
+  padding: 14px 22px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+.shipping-tabs button:hover { color: var(--c-text); }
+.shipping-tabs button.is-on {
+  color: var(--c-text);
+  border-bottom-color: var(--c-text);
+  font-weight: 600;
+}
+.shipping-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-bottom: 32px;
+}
+.shipping-card {
+  padding: 24px;
+  border: 1px solid var(--c-border);
+}
+.shipping-card-num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  color: var(--c-accent);
+  margin-bottom: 16px;
+}
+.shipping-card-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.shipping-card-desc {
+  font-size: 13px;
+  color: var(--c-text-2);
+  margin-bottom: 14px;
+  line-height: 1.6;
+}
+.shipping-card-meta {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--c-border);
+  font-size: 12px;
+  color: var(--c-text-3);
+  font-family: var(--f-mono);
+}
+.shipping-card-meta span:first-child { color: var(--c-text); font-weight: 600; }
+.shipping-note {
+  padding: 20px;
+  background: var(--c-surface-2);
+  border-left: 3px solid var(--c-text);
+}
+.shipping-note strong { display: block; margin-bottom: 6px; }
+.shipping-note p { margin: 0; font-size: 14px; color: var(--c-text-2); }
+
+.policy-block {
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--c-border);
+}
+.policy-block:last-child { border-bottom: 0; }
+.policy-block h3 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0 0 10px;
+}
+.policy-block p {
+  font-size: 14px;
+  color: var(--c-text-2);
+  line-height: 1.7;
+  margin: 0;
+}
+.policy-block ul, .policy-block ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 14px;
+  color: var(--c-text-2);
+  line-height: 1.9;
+}
+
+/* faq 家族 —— .shipping-content scope(見檔頭 🔴;design 原為裸 .faq-item)。
+   ⚠️ 另釘死 display/padding/hover 三屬性(design 字面未寫、原依瀏覽器預設):
+   自商品頁 SPA 導航過來時 product-page.css(route 級 import、載後留存)的裸
+   .faq-item summary { display:flex; padding:22px 4px; hover 變色 } 會洩入
+   scoped 規則未覆蓋的屬性 → 直載 vs SPA 兩種渲染;明確釘死保兩路徑一致
+   (code-reviewer F3)。 */
+.shipping-content .faq-item {
+  border-bottom: 1px solid var(--c-border);
+  padding: 16px 0;
+}
+.shipping-content .faq-item summary {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  padding: 0 24px 0 0;
+  position: relative;
+}
+.shipping-content .faq-item summary:hover { color: inherit; }
+.shipping-content .faq-item summary::-webkit-details-marker { display: none; }
+.shipping-content .faq-item summary::after {
+  content: '+';
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-size: 20px;
+  color: var(--c-text-3);
+  transition: transform 0.15s;
+}
+.shipping-content .faq-item[open] summary::after { content: '−'; }
+.shipping-content .faq-item p {
+  margin: 12px 0 0;
+  font-size: 14px;
+  color: var(--c-text-2);
+  line-height: 1.7;
+}
+
+/* ==== RWD(design pages.css L1138/L1147 + page-hero 兩條見檔頭 F2 註)==== */
+@media (max-width: 900px) {
+  .shipping-grid { grid-template-columns: 1fr; }
+  .shipping-body { padding: 24px 16px 60px; }
+  .page-hero-inner { padding: 0 14px; }
+  .page-hero-title { font-size: 24px; }
+}

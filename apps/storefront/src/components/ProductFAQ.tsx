@@ -21,10 +21,12 @@ import { Fragment } from 'react';
 import { RPM_WARRANTY_PARAGRAPHS, type PolicyRun } from '@/data/rpm-policies';
 import { safeJsonLd } from '@/lib/json-ld';
 
-type FaqItem = { id: string; q: string; a: PolicyRun[][] };
+// A2(2026-07-03):FaqItem / FAQ_ITEMS / renderRuns 改 export —— /info/shipping 頁 FAQ tab
+// 重用同一份全站政策 FAQ(單一真相、不抄分歧版本;渲染樣式各頁自帶)。行為零變。
+export type FaqItem = { id: string; q: string; a: PolicyRun[][] };
 
 // 單一真相:畫面(JSX)與 JSON-LD(plain text)同源衍生。
-const FAQ_ITEMS: FaqItem[] = [
+export const FAQ_ITEMS: FaqItem[] = [
   {
     id: 'order',
     q: '如何訂購？（下單・付款・配送）',
@@ -92,7 +94,7 @@ const FAQ_JSONLD = {
   })),
 };
 
-function renderRuns(runs: PolicyRun[]) {
+export function renderRuns(runs: PolicyRun[]) {
   return runs.map((run, i) =>
     typeof run === 'string' ? <span key={i}>{run}</span> : <strong key={i}>{run.b}</strong>,
   );

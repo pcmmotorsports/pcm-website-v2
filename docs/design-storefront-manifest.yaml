@@ -206,6 +206,43 @@ components:
         reason: "上線站 footer 掛佔位假電話/假統編 = 對客人顯錯誤資訊 + 法遵觀感;真值已存 SSoT、零商業決策"
     open_drifts: []
 
+  InfoShippingPage:
+    storefront:
+      component: "apps/storefront/src/components/InfoShippingPage.tsx"
+      css: "apps/storefront/src/styles/pages-shipping.css"
+      last_modified_commit: "a25aa5b"  # 記可達祖先(=a25aa5b);A2 新建見 git log
+      last_modified_date: "2026-07-03 (A2 新建 /info/shipping:版面字面搬 design Pages.jsx ShippingPage〔PageHero+三 tab+shipping-card/policy-block/faq-item〕;CSS 抽 design pages.css page-hero+shipping 段、faq 家族加 .shipping-content scope 防撞 product-page.css 同名 class;內容以 SSoT 為準見 business_overrides;修 Header/HomeFooter「配送 & 退貨」404 死連結)"
+    design:
+      component: "design-reference/components/Pages.jsx"  # ShippingPage L751-835
+      css: "design-reference/styles/pages.css"  # L23-49 page-hero + L921-1046 shipping 段
+    related_storefront:
+      - "apps/storefront/src/app/info/shipping/page.tsx"  # route + metadata
+      - "apps/storefront/src/data/rpm-policies.ts"  # 退換貨 tab 單一真相(第三消費端)
+      - "apps/storefront/src/components/ProductFAQ.tsx"  # FAQ_ITEMS/renderRuns 改 export、FAQ tab 重用
+    business_overrides:
+      - field: "shippingPolicyRealContent"
+        design_value: "design ShippingPage 示意文案:免運門檻 NT$4000 / 運費 NT$150 / 「合作店家取貨」卡 / returns tab「7 天鑑賞期內可申請退貨」/ FAQ 5 題(含三聯式發票、安裝預約線上報價)"
+        storefront_value: "內容全接既有 SSoT、design 示意衝突處不搬:① 免運 FREE_SHIPPING_THRESHOLD=5,000(#161 拍板永久)② 運費 HOME_SHIPPING_FEE=100(@pcm/domain、checkout 同源)③ 合作店家取貨卡不搬(checkout Q1=A 配送只宅配)④ 🔴 returns tab 渲染 rpm-policies RPM_WARRANTY_PARAGRAPHS+NOTES(客製代購依消保法 19 條不適用鑑賞期 = Sean 釘的法律主張、與 design「7 天可退」相反、絕不可上 design 版)⑤ FAQ tab 重用 ProductFAQ.FAQ_ITEMS 全站政策 FAQ(design 5 題含未實現承諾不上)⑥ 海外 note 軟化為「LINE 聯絡確認」(不承諾另行報價)"
+        decided_at: "2026-07-03"
+        decision_source: "#161(免運 5,000 永久)+ checkout Q1=A(只宅配)+ rpm-policies Sean 2026-06-03 釘(法律主張單一真相、不得分歧)+ 夜間自主完整化授權;內容零新發明、全為既有拍板值的渲染"
+        backlog: "#248 / site_policies LOG(政策文案後台化)"
+        reason: "配送/退換貨頁 = 對客人的法律與金錢承諾;design 示意稿數字與政策過時,照搬會顯示錯誤免運門檻+錯誤鑑賞期主張(法律風險)"
+    open_drifts: []
+
+  NotFoundPage:
+    storefront:
+      component: "apps/storefront/src/app/not-found.tsx"
+      css: "apps/storefront/src/styles/error.css"
+      last_modified_commit: "a25aa5b"  # 記可達祖先(=a25aa5b);A3 新建見 git log
+      last_modified_date: "2026-07-03 (A3 新建全站 404:字面搬 design ErrorPage.jsx 404 變體〔num/eyebrow/title/desc 逐字、showSupport=false〕;error.css 逐字搬;onNav→Link 慣例轉譯;500 變體/error.tsx 未搬留後續)"
+    design:
+      component: "design-reference/components/ErrorPage.jsx"
+      css: "design-reference/styles/error.css"
+    related_storefront: []
+    business_overrides: []
+    open_drifts:
+      - "design ErrorPage 有 500 變體(showSupport+客服 email);storefront 僅搬 404(not-found.tsx)、error.tsx/global-error.tsx(runtime error boundary)未建 —— 500 目前仍 Next 預設樣式。不修痛在:server error 時客人看到無品牌英文錯誤頁"
+
   ProductPage:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
