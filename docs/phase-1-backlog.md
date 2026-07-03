@@ -6604,6 +6604,20 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-03 / P0-A-3 對抗審查(Fable F5 nit)。
 - **相關:** Phase 0 plan §4 / #260 / #261。
 
+### #263. 🟡 非 RPM 商品頁服務橫條 3 卡在 4 欄 grid 留空欄(P0-C-a 去碳後版面、試點上架才可見、Sean 拍板)
+
+- **狀態:** 🟢 觀察(非阻塞;今日 catalog RPM-only、非 RPM 商品頁不可達,試點品牌上架日才可見)
+- **優先級:** 🟡 低(視覺品味題、Sean 掌舵)
+- **問題:** P0-C-a 去碳把 `ProductServices` 的「泰國原廠 / RPM Carbon 授權代理」卡改**卡級守門**(非 RPM 只剩滿額免運/專業安裝/LINE 諮詢 3 卡);但 CSS `.pd-services { grid-template-columns: repeat(4,1fr) }`(`apps/storefront/src/styles/product-page.css:530-532`)+ 720px 斷點 2×2(`:562`)未隨之調整 → 非 RPM 頁桌機右側留 1/4 空欄、720px 下 2+1 孤卡。OD 模板僅 RPM 4 卡版、3 卡態**無 design 真權威**。
+- **觸發事件:** 試點品牌(GB/Bonamici)寫入 prod + 前台目錄接線可見(Phase 1、#205/#220c 之後)。
+- **預期解法(Sean 拍板):** `repeat(3,1fr)` 變體 / `auto-fit minmax` / 接受留白 三擇一;屬視覺設計 = Sean 掌舵([[feedback_sean-owns-visual-design]])、Code 不自行 polish。
+- **不修會痛在:**
+  - UX:非 RPM 商品頁服務橫條版面不對稱(桌機空欄 / 手機孤卡),品牌上架首日客人即可見。
+- **估時:** 10-20 分鐘(CSS 單檔 + 720px 斷點調整 + Sean 肉眼驗)。
+- **依賴:** 試點寫入 + 前台目錄接線(Phase 1);建議併 P0-C-b 或試點上架前處理。
+- **發現於:** 2026-07-04 / P0-C-a adversarial-reviewer(Fable 跨模型 C1 consider)。
+- **相關:** Phase 0 plan §2.6/§4 P0-C / #212 / ProductServices manifest business_override(`servicesContent4Conditions`)。
+
 ---
 
 ## 紀錄模板

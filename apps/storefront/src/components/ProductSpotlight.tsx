@@ -21,12 +21,15 @@
 //
 // 純 presentational、無 hooks。由 client parent ProductPage import 進 client bundle。
 
-import type { MockProduct } from '@/data/mock-products';
+import { RPM_CARBON_BRAND_SLUG, type MockProduct } from '@/data/mock-products';
 
 export type ProductSpotlightProps = { product: MockProduct };
 
 export function ProductSpotlight({ product }: ProductSpotlightProps) {
-  if (!product.hasSpotlight) return null;
+  // 🔴 P0-C 去碳「第二道守門」(defense-in-depth):除 hasSpotlight 外,再要求 brandSlug 為 RPM。
+  //   本區內文為**碳纖維通用 placeholder**,若未來非 RPM 商品(GB/Bonamici)誤帶 hasSpotlight=true,
+  //   碳纖維文案不得外洩到非 RPM 頁(Q2=B);故守門用 brandSlug、不只靠 mock-only 的 hasSpotlight。
+  if (!product.hasSpotlight || product.brandSlug !== RPM_CARBON_BRAND_SLUG) return null;
 
   return (
     <section className="pd-spotlight">

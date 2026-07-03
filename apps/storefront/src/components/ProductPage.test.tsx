@@ -171,4 +171,34 @@ describe('ProductPage', () => {
     expect(related!.querySelector('.pd-eb-label')?.textContent).toContain('相關商品');
     expect(within(related as HTMLElement).getByText('相同分類')).toBeDefined();
   });
+
+  // 🔴 P0-C 去碳品牌切換骨架(F1 回歸網):RPM 頁渲染碳纖維專屬區、非 RPM 頁空白(Q2=B)。
+  //   守門用 brandSlug(≠ product.brand 顯示名);此測釘死「RPM 見、非 RPM 不見」防 F1 恆 false 回歸。
+  it('RPM 品牌(brandSlug=rpm-carbon)→ 渲染碳纖維專屬區(N°01 + N°02 + 服務橫條泰國原廠卡)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
+    render(<ProductPage product={rpm} tier="general" />);
+    // N°01「為什麼選 RPM Carbon」(ProductHighlights、整段守門 mount;字面為該區 h2 專屬)
+    expect(screen.getByText('為什麼選 RPM Carbon')).toBeDefined();
+    // N°02 紋路牆(ProductSwatchWall、整段守門 mount;'亮光款'/'消光款' 為 SwatchWall 專屬字面)
+    expect(screen.getByText('亮光款')).toBeDefined();
+    expect(screen.getByText('消光款')).toBeDefined();
+    // 服務橫條「泰國原廠」卡(卡級守門顯;此字面僅 ProductServices)
+    expect(screen.getByText('泰國原廠')).toBeDefined();
+  });
+
+  it('非 RPM 品牌(brandSlug=gb-racing)→ 碳纖維專屬區全空白、但通用服務卡照顯(Q2=B 去碳)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
+    render(<ProductPage product={nonRpm} tier="general" />);
+    // 碳纖維專屬整段(N°01/N°02)+ 泰國原廠卡皆不 mount(P0-C-a 守門;ProductTabs 去碳為 P0-C-b、故不驗其碳字)
+    expect(screen.queryByText('為什麼選 RPM Carbon')).toBeNull();
+    expect(screen.queryByText('亮光款')).toBeNull();
+    expect(screen.queryByText('消光款')).toBeNull();
+    expect(screen.queryByText('泰國原廠')).toBeNull();
+    // 但 3 張通用服務承諾卡仍全顯(不誤藏、非 RPM 商品也要看到 PCM 服務)
+    expect(screen.getByText('滿額免運')).toBeDefined();
+    expect(screen.getByText('專業安裝')).toBeDefined();
+    expect(screen.getByText('LINE 諮詢')).toBeDefined();
+  });
 });

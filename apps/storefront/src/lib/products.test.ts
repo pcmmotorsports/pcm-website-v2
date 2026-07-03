@@ -84,6 +84,8 @@ describe('toUIProduct — 經銷價 strip 最後一哩(M-11 安全回歸)', () =
     const json = JSON.stringify(ui);
 
     expect(ui.price).toBe(GENERAL);
+    // P0-C:brandSlug ← domain brand.slug plumb 到 UI(前台碳纖維段守門用、≠ brand 顯示名);F1 回歸守門。
+    expect(ui.brandSlug).toBe('akrapovic');
     // 商品 + 變體的所有非 general 經銷價數值皆不得出現
     for (const amt of [DEALER_STORE, DEALER_PREMIUM, VARIANT_STORE, VARIANT_PREMIUM]) {
       expect(json).not.toContain(String(amt));

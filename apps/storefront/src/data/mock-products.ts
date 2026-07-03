@@ -22,6 +22,15 @@ export function brandToSlug(brand: string): string {
 }
 
 /**
+ * RPM Carbon 品牌 slug — 前台碳纖維段品牌切換守門判準(P0-C 去碳)。
+ * 🔴 字面三來源律核實(2026-07-04):`scripts/supplier-config.ts:64` `brandSlug:'rpm-carbon'` +
+ *   `mock-brands.ts:34` `id:'rpm-carbon'` + adapter mapper 測試 fixtures 皆 'rpm-carbon';
+ *   = brands 表 seed 的 RPM slug、`toUIProduct` 填入 `MockProduct.brandSlug` 的值。
+ * 守門一律用此常數比對(避免 'rpm-carbon' 字面散落各元件、typo 漂移 → F1 恆 false 回歸)。
+ */
+export const RPM_CARBON_BRAND_SLUG = 'rpm-carbon';
+
+/**
  * UI 變體(M-1-16c-3:詳情頁規格選擇器吃的真變體 shape)。
  *
  * 🔴 經銷價防護:**只帶單一 `price: number`(= priceByTier.general、唯一真值)**、
@@ -72,6 +81,12 @@ export type MockProduct = {
   /** URL-safe ASCII slug,格式 `${brandToSlug(brand)}-${id}`、unique(brand+id 天然 unique);M-1-13a 落地、M-1-16 真資料種子時必填 */
   slug: string;
   brand: string;
+  /**
+   * 品牌 slug(P0-C 去碳品牌切換守門用;toUIProduct ← domain `product.brand.slug`、如 'rpm-carbon' / 'cnc-racing')。
+   * 🔴 前台碳纖維段守門一律用**此欄**(≠ `brand` 顯示名如 'RPM CARBON';F1 陷阱:守門若用 `brand`
+   *   會恆 false → RPM 碳纖維段全消失=回歸)。mock 省略 → undefined(當非 RPM)、碳纖維段不渲染。
+   */
+  brandSlug?: string;
   name: string;
   fits: string;
   price: number;

@@ -19,7 +19,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
-import { MOCK_PRODUCTS, type MockProduct, type UIVariant } from '@/data/mock-products';
+import { MOCK_PRODUCTS, RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { slugify } from '@/lib/vehicle-taxonomy';
 import { useCart } from '@/contexts/CartContext';
@@ -80,6 +80,11 @@ export function ProductPage({ product, tier }: ProductPageProps) {
 
   // M-1-13e-b:hasDiscount derived(對齊 design L140 字面)— Mobile sticky bar mbb-orig 三元判斷用
   const hasDiscount = product.origPrice != null && product.origPrice > product.price;
+
+  // 🔴 P0-C 去碳品牌切換守門:RPM Carbon 商品才渲染碳纖維專屬區塊(N°01 為什麼選 RPM Carbon /
+  //   N°02 紋路牆 / 服務橫條泰國原廠卡 / Spotlight 碳纖維工藝);非 RPM = 空白(Q2=B、不猜產地材質)。
+  //   🔴 F1:守門用 brandSlug(≠ product.brand 顯示名 'RPM CARBON');brand 恆 false → RPM 碳段全消失=回歸。
+  const isRpmCarbon = product.brandSlug === RPM_CARBON_BRAND_SLUG;
 
   const from = searchParams.get('from') || 'catalog';
   const sourceId = searchParams.get('sourceId');
@@ -283,8 +288,9 @@ export function ProductPage({ product, tier }: ProductPageProps) {
         </section>
         {/* OD-5:服務保障橫條(ProductServices)— OD 模板 §12 hero 下方獨立全寬 section,
             從 ProductInfo 右欄內移出(self-contained section.pd-services-strip)。
-            OD 模板順序為 pd-main → pd-services-strip → 適用車款 → N°01。 */}
-        <ProductServices />
+            OD 模板順序為 pd-main → pd-services-strip → 適用車款 → N°01。
+            🔴 P0-C 去碳:isRpmCarbon 傳入做卡級守門(泰國原廠卡 RPM-only、其餘 3 卡通用不動)。 */}
+        <ProductServices isRpmCarbon={isRpmCarbon} />
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
             D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
         <ProductFitments product={product} />
@@ -292,9 +298,11 @@ export function ProductPage({ product, tier }: ProductPageProps) {
             OD-7b:N°02「紋路 × 表面」紋路樣式牆 ProductSwatchWall(緊接 N°01、OD 模板順序;
               prop-less RPM 品牌通用展示、10 張樣品圖 from @/data/rpm-swatches)。
             OD-7a:ProductSpotlight(舊 N°02 Engineering)碳纖維化 + 去 N°02 編號、Sean Q1 拍保留;
-              OD 模板無此區、條件渲染 hasSpotlight(真 RPM 頁不顯);真內文交資料線接 DB。 */}
-        <ProductHighlights />
-        <ProductSwatchWall />
+              OD 模板無此區、條件渲染 hasSpotlight + brandSlug(真 RPM 頁 hasSpotlight 未設故不顯);真內文交資料線接 DB。
+            🔴 P0-C 去碳:N°01 / N°02 為整段 RPM 專屬 → isRpmCarbon 才 mount(非 RPM = 空白、Q2=B);
+              ProductSpotlight 由元件自帶 brandSlug 第二道守門(defense-in-depth、故此處不加外層條件)。 */}
+        {isRpmCarbon && <ProductHighlights />}
+        {isRpmCarbon && <ProductSwatchWall />}
         <ProductSpotlight product={product} />
         {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
             (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}

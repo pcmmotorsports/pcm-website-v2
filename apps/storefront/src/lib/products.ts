@@ -105,6 +105,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     // M-1-16c-4b:商品主碼 ← domain product.productCode(真主碼如 RPM-DCC01;ProductTabs 產品型號顯)。
     productCode: product.productCode,
     brand: product.brand.name,
+    // P0-C 去碳:brandSlug ← domain product.brand.slug(如 'rpm-carbon');前台品牌切換守門一律用此欄。
+    //   🔴 F1 陷阱:守門若用 brand(顯示名 'RPM CARBON')會恆 false → RPM 碳纖維段全消失=回歸;故 plumb slug。
+    brandSlug: product.brand.slug,
     name: product.name,
     fits,
     price: effectivePrice.amount,
