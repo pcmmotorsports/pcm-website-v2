@@ -59,6 +59,8 @@ import {
   readHandleOwners,
   preflightHandles,
   printHandlePreflightReport,
+  summarizeCategoryResolution,
+  printCategoryResolutionReport,
 } from './rpm-preflight';
 
 // ── constants ──
@@ -167,6 +169,7 @@ async function main(): Promise<void> {
   // 轉換
   const productRows: ProductRow[] = [];
   const variantsByExternalId = new Map<string, VariantRow[]>();
+  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // #261 乾跑彙整(per-group)
   for (const [mainSku, variants] of entries) {
     const vehicleLabel = variants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
     // 分類 + 副標詞逐群解析:fixed → 固定 id + rawPath 副標;per-group → 該群 major_category_zh
@@ -179,6 +182,7 @@ async function main(): Promise<void> {
       const majorCat = variants.find((v) => v.major_category_zh)?.major_category_zh ?? ''; // 群內第一個非空
       categoryId = await resolveGroupCategory(majorCat);
       subtitleTag = majorCat;
+      categoryResolutions.push({ majorCategoryZh: majorCat, categoryId }); // #261:記逐群解析(對上/未對上)
     }
     const ctx: GroupTransformContext = {
       brandId,
@@ -198,6 +202,11 @@ async function main(): Promise<void> {
   const variantRows = [...variantsByExternalId.values()].flat();
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
 
+  // ── #261 乾跑診斷:per-group 分類解析彙整(未對上 major_category_zh × 群數;fixed 策略 records 空、不印)──
+  if (categoryResolutions.length) {
+    printCategoryResolutionReport(summarizeCategoryResolution(categoryResolutions));
+  }
+
   // ── 硬 gate 0:handle preflight(F4、charset + 全域唯一;不變式 6)──
   //   dry-run 列報告不 throw(Sean 看完整報告);寫入模式撞鍵/髒字元 → abort 不進 upsert(避免中途撞 products_handle_key 部分寫髒)。
   const handleOwners = await readHandleOwners(target, productRows.map((p) => p.handle));
@@ -208,11 +217,14 @@ async function main(): Promise<void> {
   }
 
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
+  //   dry-run 列報告不 throw(Sean 看完整碰撞清單、Phase 1 處置 C3:bonamici 3 群真正區分軸是尺寸、不在 spec);
+  //   寫入模式撞鍵 → abort 不進 upsert(避免 23505 部分寫的髒中間態)。
   const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId);
   if (collisions.length) {
-    console.error(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、abort 不寫:`);
+    console.warn(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、寫入模式將 abort:`);
     console.table(collisions.slice(0, 50));
-    throw new Error('pv_spec_unique preflight 撞鍵、停止(避免部分寫的髒中間態)');
+    if (collisions.length > 50) console.log(`(另有 ${collisions.length - 50} 群未列)`);
+    if (!DRY_RUN) throw new Error('pv_spec_unique preflight 撞鍵、停止(避免部分寫的髒中間態)');
   }
 
   // ── 價格 delta gate(兩層、唯讀比對)──

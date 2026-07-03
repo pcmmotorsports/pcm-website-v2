@@ -9,6 +9,8 @@ import {
   assertBypassFlagsExclusive,
   preflightHandles,
   readHandleOwners,
+  checkFetchIntegrity,
+  summarizeCategoryResolution,
   type HandleIssue,
 } from './rpm-preflight';
 
@@ -98,5 +100,74 @@ describe('readHandleOwners(target 全域唯一資料源)', () => {
       }),
     } as unknown as SupabaseClient;
     await expect(readHandleOwners(mockTgt, ['x'])).rejects.toThrow(/readHandleOwners/);
+  });
+});
+
+// target 現存 active(readActiveExternalIds 鏈:from→select→eq→is→order→range)mock
+function mockTargetActive(externalIds: string[]): SupabaseClient {
+  const rows = externalIds.map((external_id) => ({ external_id }));
+  const chain = {
+    select: () => chain,
+    eq: () => chain,
+    is: () => chain,
+    order: () => chain,
+    range: () => Promise.resolve({ data: rows, error: null }),
+  };
+  return { from: () => chain } as unknown as SupabaseClient;
+}
+
+describe('負測:錯配 supplier scope → fetch 完整性 gate 攔(不變式 1、非靜默誤刪)', () => {
+  it('fetch=gbracing 的 main_sku 但 target active 傳 rpm scope → ~100% missing + aborted', async () => {
+    const target = mockTargetActive(['RPM-1', 'RPM-2', 'RPM-3', 'RPM-4']); // target 現存全 rpm
+    const gbracingSource = new Set(['GB-1', 'GB-2']); // 錯把 gbracing 的來源集合拿來對 rpm scope
+    const report = await checkFetchIntegrity(target, 'rpm', gbracingSource, 2, {});
+    expect(report.missingCount).toBe(4); // rpm 4 筆全不在 gbracing 來源
+    expect(report.shrinkRatio).toBe(1); // 100%
+    expect(report.aborted).toBe(true); // >5% → abort:錯 scope 被攔、不會靜默把 rpm 全下架
+  });
+
+  it('對照:正確 scope(source ⊇ active)→ 零 missing、不 abort', async () => {
+    const target = mockTargetActive(['RPM-1', 'RPM-2']);
+    const rpmSource = new Set(['RPM-1', 'RPM-2', 'RPM-3']); // 來源含全部現存 + 新品
+    const report = await checkFetchIntegrity(target, 'rpm', rpmSource, 3, {});
+    expect(report.missingCount).toBe(0);
+    expect(report.aborted).toBe(false);
+  });
+
+  it('錯 scope 但顯式 --allow-fetch-shrink → 不 abort(放行真實大縮編、留 audit)', async () => {
+    const target = mockTargetActive(['RPM-1', 'RPM-2', 'RPM-3', 'RPM-4']);
+    const report = await checkFetchIntegrity(target, 'rpm', new Set(['GB-1']), 1, { allowFetchShrink: true });
+    expect(report.shrinkRatio).toBe(1);
+    expect(report.aborted).toBe(false); // bypass 放行(F3 已擋「同時帶兩 --allow-*」的盲寫組合)
+  });
+});
+
+describe('#261 summarizeCategoryResolution(per-group 分類解析彙整)', () => {
+  it('聚合未對上 major_category_zh × 群數(群數降冪、同數 zh 升冪)', () => {
+    const records = [
+      { majorCategoryZh: '操控部品', categoryId: 'cat-ops' }, // 對上
+      { majorCategoryZh: '車殼外觀', categoryId: null }, // 未對上
+      { majorCategoryZh: '車殼外觀', categoryId: null },
+      { majorCategoryZh: '引擎部品', categoryId: null },
+      { majorCategoryZh: '操控部品', categoryId: 'cat-ops' }, // 對上
+    ];
+    const s = summarizeCategoryResolution(records);
+    expect(s.mappedGroupCount).toBe(2);
+    expect(s.unmappedGroupCount).toBe(3);
+    expect(s.unmapped).toEqual([
+      { majorCategoryZh: '車殼外觀', groupCount: 2 }, // 群數多的在前
+      { majorCategoryZh: '引擎部品', groupCount: 1 },
+    ]);
+  });
+
+  it('全對上 → unmapped 空', () => {
+    const s = summarizeCategoryResolution([{ majorCategoryZh: '操控部品', categoryId: 'x' }]);
+    expect(s.unmapped).toEqual([]);
+    expect(s.unmappedGroupCount).toBe(0);
+  });
+
+  it('空 major_category_zh 未對上 → 標「(空 major_category_zh)」', () => {
+    const s = summarizeCategoryResolution([{ majorCategoryZh: '', categoryId: null }]);
+    expect(s.unmapped).toEqual([{ majorCategoryZh: '(空 major_category_zh)', groupCount: 1 }]);
   });
 });

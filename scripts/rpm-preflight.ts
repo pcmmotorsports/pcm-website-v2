@@ -184,3 +184,52 @@ export function printHandlePreflightReport(issues: HandleIssue[], productCount: 
   console.table(issues.slice(0, 50));
   if (issues.length > 50) console.log(`(另有 ${issues.length - 50} 筆未列;修髒 handle 源頭 sku 後重跑)`);
 }
+
+// ── #261:per-group 分類解析彙整(乾跑診斷)──
+export interface CategoryResolutionSummary {
+  mappedGroupCount: number; // categoryId 對上的群數
+  unmappedGroupCount: number; // categoryId=null 的群數
+  unmapped: { majorCategoryZh: string; groupCount: number }[]; // 未對上 major_category_zh × 群數(群數降冪、同數 zh 升冪)
+}
+
+/**
+ * 彙整 per-group 分類解析結果(#261):把「未對上 categories.raw_path」的 major_category_zh 依群數聚合。
+ * fixed 策略(rpm)不呼叫此(records 空、無 per-group 解析)。
+ */
+export function summarizeCategoryResolution(
+  records: { majorCategoryZh: string; categoryId: string | null }[],
+): CategoryResolutionSummary {
+  const unmappedCounts = new Map<string, number>();
+  let mappedGroupCount = 0;
+  for (const r of records) {
+    if (r.categoryId === null) {
+      const key = r.majorCategoryZh || '(空 major_category_zh)';
+      unmappedCounts.set(key, (unmappedCounts.get(key) ?? 0) + 1);
+    } else {
+      mappedGroupCount++;
+    }
+  }
+  const unmapped = [...unmappedCounts.entries()]
+    .map(([majorCategoryZh, groupCount]) => ({ majorCategoryZh, groupCount }))
+    .sort((a, b) => b.groupCount - a.groupCount || (a.majorCategoryZh < b.majorCategoryZh ? -1 : 1));
+  const unmappedGroupCount = unmapped.reduce((s, u) => s + u.groupCount, 0);
+  return { mappedGroupCount, unmappedGroupCount, unmapped };
+}
+
+export function printCategoryResolutionReport(s: CategoryResolutionSummary): void {
+  console.log('\n=== per-group 分類解析彙整(#261 乾跑診斷)===');
+  console.log(
+    `已對上: ${s.mappedGroupCount} 群 / 未對上: ${s.unmappedGroupCount} 群(${s.unmapped.length} 種 major_category_zh)`,
+  );
+  if (s.unmapped.length) {
+    // console.warn(非 error):P0-B seed 前預期全未對上;真正寫入 abort 由 #261 null-category gate 發(尚未落地)。
+    console.warn(
+      '⚠️ 以下 major_category_zh 未對上 categories.raw_path(P0-B seed 前預期;seed 後仍未對上 = 該類漏 seed);' +
+        '🔴 寫入模式 null-category 會撞 products.category_id NOT NULL(#261 硬 gate 待補、Phase 1 試點寫入前):',
+    );
+    console.table(s.unmapped.slice(0, 30));
+    if (s.unmapped.length > 30) console.log(`(另有 ${s.unmapped.length - 30} 種未列)`);
+  } else {
+    console.log('✅ 全部 per-group 分類皆對上 categories.raw_path');
+  }
+}
