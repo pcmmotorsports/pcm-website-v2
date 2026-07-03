@@ -427,8 +427,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "320f3a5"  # 記可達祖先=OD-12 父 commit(=dev 合併點、避 amend orphan);本 slice 真改見 git log [OD-12]:規格 tab「適用車款」列恢復「完整見上方對照表」交叉引用(條件:有 fitments 表才顯)。OD-10a 保固共用見 od_redesign.slices_done
-      last_modified_date: "2026-06-03 (OD-12:規格 tab「適用車款」列恢復 OD 模板交叉引用「完整適用車款請見頁面上方對照表」、僅 product.fitments 有資料〔表渲染〕時顯、解 specFitmentsXrefOmitted;OD-10a 保固共用見 business_overrides + od_redesign 段)"
+      last_modified_commit: "f516bfb"  # 記可達祖先=P0-C-b2 父 commit;本 slice 真改見 git log [P0-C-b2]:分頁去碳(商品介紹/規格 isRpmCarbon 守門 + 非 RPM 資料驅動、安裝全品牌去碳)
+      last_modified_date: "2026-07-04 (P0-C-b2 去碳:商品介紹碳纖框架 isRpmCarbon 守門〔RPM 原文 byte 不變 / 非 RPM 最小事實〕;規格碳纖列〔材質/紋路/表面/產地/特殊樣式〕守門 + 非 RPM 資料驅動 buildSpecRows〔讀 variant spec key + SPEC_LABEL map、值去重、無值不渲染〕;安裝分頁全品牌通用去碳〔碳纖部品→部品、碳纖斷裂→部品受損、含 RPM、Sean Q2=A 授權〕。RPM 商品介紹/規格 byte 不變〔code-reviewer 逐字比對確認〕、安裝 RPM 文字亦去碳〔非 byte 不變、Sean 授權〕。前序 OD-12 交叉引用見下 od_redesign)"
     design:
       # OD-8 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
       authority: "open-design: Website V2 / product-detail-rpm-template.html §9 tabs"
@@ -436,7 +436,7 @@ components:
     business_overrides:
       - field: "tabsContent4Panels"
         design_value: "OD 模板 §9 4 panel(介紹商品專屬 / 規格 9 欄 / 安裝 RPM 共用 / 保固 RPM 共用)"
-        storefront_value: "OD-8 直接搬 OD §9 碳纖字面;品牌·型號·分類·適用車款·name·fits 動態、材質真碳纖/紋路/表面/特殊樣式/安裝/保固政策 RPM 碳纖固定 hardcoded(L2/L3 對沖)"
+        storefront_value: "OD-8 直接搬 OD §9 碳纖字面;品牌·型號·分類·適用車款·name·fits 動態。🔴 P0-C-b2 去碳(2026-07-04、plan §2.6/§4 P0-C):材質真碳纖/紋路/表面/產地/特殊樣式 + 商品介紹碳纖框架改 isRpmCarbon 守門(RPM 顯原文 byte 不變、非 RPM 空白;規格非 RPM 改資料驅動 buildSpecRows 讀 variant spec);安裝分頁全品牌通用去碳(碳纖部品→部品、碳纖斷裂→部品受損、含 RPM、Sean Q2=A 授權);保固政策 = 通用單一真相 rpm-policies(P0-C-b1、不守門)"
         decided_at: "2026-05-21 (OD-8 2026-06-03 改 OD 模板碳纖內容)"
         decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md slice-5 → od_redesign OD-8"
         reason: "L3 對沖、Phase 2 supabase product_specs / product_installs / site_policies / product_description 表接"

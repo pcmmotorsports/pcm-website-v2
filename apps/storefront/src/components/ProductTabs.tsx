@@ -32,12 +32,46 @@
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import type { MockProduct } from '@/data/mock-products';
+import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import {
   RPM_WARRANTY_PARAGRAPHS,
   RPM_WARRANTY_NOTES,
   type PolicyRun,
 } from '@/data/rpm-policies';
+
+// 🔴 P0-C-b2 去碳:非 RPM 品牌規格表改「資料驅動」—— 讀 variant spec 實際 key、配 label map 渲染、
+//   空值/純空白值該列不計入(bonamici {color,material} 顯真值、無值不渲染)。🔴 前提:v.spec 必為物件
+//   (型別 UIVariant.spec=Record<string,string>、adapter mapVariantRow 保證);匯入若寫 spec=NULL 會在
+//   adapter 層 throw → 商品頁 500(非本函式防線;Phase 1 試點寫入 gate 見 backlog #264,現行 DB null_spec=0)。
+//   RPM 維持原碳纖規格列(isRpmCarbon 守門、byte 不變);此路徑僅非 RPM 走。未知 key fallback 原 key 字面(不亂猜中文)。
+const SPEC_LABEL: Record<string, string> = {
+  color: '顏色',
+  material: '材質',
+  weave: '紋路',
+  finish: '表面',
+  special: '特殊樣式',
+  size: '尺寸',
+};
+
+/** 由變體 spec 建規格列:每個 distinct key 一列、值去重以 ' / ' 併;空值不計入(key 全空 → 不出列=無值不渲染)。 */
+function buildSpecRows(
+  variants: UIVariant[],
+): Array<{ key: string; label: string; values: string }> {
+  const byKey = new Map<string, string[]>();
+  const order: string[] = [];
+  for (const v of variants) {
+    for (const [k, val] of Object.entries(v.spec)) {
+      if (typeof val !== 'string' || !val.trim()) continue; // 非字串/空/純空白值不成列(防髒 jsonb、無值不渲染)
+      if (!byKey.has(k)) {
+        byKey.set(k, []);
+        order.push(k);
+      }
+      const arr = byKey.get(k)!;
+      if (!arr.includes(val)) arr.push(val);
+    }
+  }
+  return order.map((k) => ({ key: k, label: SPEC_LABEL[k] ?? k, values: byKey.get(k)!.join(' / ') }));
+}
 
 // 政策 runs → JSX(string→文字、{ b }→<strong>);保固 pane 與 ProductFAQ 共用渲染模式。
 function renderPolicyRuns(runs: PolicyRun[]) {
@@ -60,6 +94,11 @@ export type ProductTabsProps = { product: MockProduct };
 export function ProductTabs({ product }: ProductTabsProps) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>('description');
+
+  // 🔴 P0-C-b2 去碳:RPM 才顯碳纖介紹/規格列(byte 不變);非 RPM 介紹留最小事實、規格表資料驅動。
+  //   守門用 brandSlug(≠ product.brand 顯示名);F1 陷阱同 P0-C-a。安裝分頁為全品牌通用去碳(不守門、Sean Q2=A)。
+  const isRpmCarbon = product.brandSlug === RPM_CARBON_BRAND_SLUG;
+  const specRows = isRpmCarbon ? [] : buildSpecRows(product.variants ?? []);
 
   // M-1-13H-6 Codex Fix 1:roving tabIndex + 鍵盤導覽(W3C WAI-ARIA Authoring Practices Tabs)。
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -104,7 +143,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
       </div>
 
       <div className="pd-tab-body">
-        {/* 商品介紹(商品專屬):brand / name / fits 動態 + 碳纖維通用框架。
+        {/* 商品介紹:RPM 顯碳纖框架(byte 不變)、非 RPM 去碳留最小事實(P0-C-b2、isRpmCarbon 守門);真描述待 Phase 1 接 product.description。
             🔴 資料線 workstream:per-廠牌 / per-product 真實功能描述(如散熱導風)屬固定內文、
             待後台 product_description 接線後取代此通用框架(Sean 2026-06-03 Q1、同 ProductSpotlight)。 */}
         <div
@@ -114,25 +153,42 @@ export function ProductTabs({ product }: ProductTabsProps) {
           hidden={tab !== 'description'}
           className="pd-tab-pane"
         >
-          <p className="pd-body">
-            <strong>
-              {product.brand} {product.name}
-            </strong>{' '}
-            採用真碳纖維材質，為 <strong>{product.fits || '原廠車款'}</strong>{' '}
-            開發；換上碳纖維後比原廠塑件更輕、更有質感，強度也更高。
-          </p>
-          <p className="pd-body">
-            對應原廠孔位、可直接安裝，<strong>不需要改線組</strong>。下單時請依愛車狀況選好紋路、表面與是否要加強化款 12K。
-          </p>
-          <ul className="pd-list">
-            <li>真碳纖維材質，非塑膠仿碳貼皮</li>
-            <li>對應原廠孔位，Plug &amp; Play</li>
-            <li>四款紋路 × 兩款表面，蜂巢另收特殊紋費</li>
-            <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
-          </ul>
+          {isRpmCarbon ? (
+            <>
+              <p className="pd-body">
+                <strong>
+                  {product.brand} {product.name}
+                </strong>{' '}
+                採用真碳纖維材質，為 <strong>{product.fits || '原廠車款'}</strong>{' '}
+                開發；換上碳纖維後比原廠塑件更輕、更有質感，強度也更高。
+              </p>
+              <p className="pd-body">
+                對應原廠孔位、可直接安裝，<strong>不需要改線組</strong>。下單時請依愛車狀況選好紋路、表面與是否要加強化款 12K。
+              </p>
+              <ul className="pd-list">
+                <li>真碳纖維材質，非塑膠仿碳貼皮</li>
+                <li>對應原廠孔位，Plug &amp; Play</li>
+                <li>四款紋路 × 兩款表面，蜂巢另收特殊紋費</li>
+                <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
+              </ul>
+            </>
+          ) : (
+            // 非 RPM 去碳:留最小事實(品牌+品名+適用車款)+ 通用 LINE 提醒;真實描述待 Phase 1 接 product.description(§2.9)。
+            <>
+              <p className="pd-body">
+                <strong>
+                  {product.brand} {product.name}
+                </strong>
+                {product.fits && product.fits !== '通用款' ? ` · 適用 ${product.fits}` : ''}
+              </p>
+              <ul className="pd-list">
+                <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
+              </ul>
+            </>
+          )}
         </div>
 
-        {/* 規格 / 相容性:品牌 / 型號 / 分類 / 適用車款 動態;材質·紋路·表面·特殊樣式 RPM 碳纖固定;
+        {/* 規格 / 相容性:品牌 / 型號 / 分類 / 適用車款 動態(全品牌);材質·紋路·表面·產地·特殊樣式 = RPM 碳纖列 isRpmCarbon 守門(byte 不變)、非 RPM 改資料驅動 buildSpecRows(P0-C-b2);
             產地「泰國」RPM-only 覆蓋(非 DB 欄)。OD-12:「適用車款」列恢復「完整見頁面上方對照表」
             交叉引用(條件:有 fitments 表才顯)。 */}
         <div
@@ -156,23 +212,35 @@ export function ProductTabs({ product }: ProductTabsProps) {
               <div className="pd-spec-k">商品分類</div>
               <div className="pd-spec-v">{product.category}</div>
             </div>
-            <div className="pd-spec-row">
-              <div className="pd-spec-k">材質</div>
-              <div className="pd-spec-v">真碳纖維（Carbon Fiber）</div>
-            </div>
-            <div className="pd-spec-row">
-              <div className="pd-spec-k">紋路可選</div>
-              <div className="pd-spec-v">斜紋 / 平織 / 鍛造 / 蜂巢 / 12K — 五款紋路（12K 為加強紋路樣式，部分品項提供）</div>
-            </div>
-            <div className="pd-spec-row">
-              <div className="pd-spec-k">表面可選</div>
-              <div className="pd-spec-v">亮光 / 消光（蜂巢只有亮光，消光蜂巢為特別訂製）</div>
-            </div>
-            <div className="pd-spec-row">
-              <div className="pd-spec-k">產地</div>
-              {/* RPM-only 覆蓋:RPM 來自泰國(蝦皮內文證);非 DB 欄、套非 RPM 商品會錯、留 product_specs 接線 */}
-              <div className="pd-spec-v">泰國</div>
-            </div>
+            {isRpmCarbon && (
+              <>
+                <div className="pd-spec-row">
+                  <div className="pd-spec-k">材質</div>
+                  <div className="pd-spec-v">真碳纖維（Carbon Fiber）</div>
+                </div>
+                <div className="pd-spec-row">
+                  <div className="pd-spec-k">紋路可選</div>
+                  <div className="pd-spec-v">斜紋 / 平織 / 鍛造 / 蜂巢 / 12K — 五款紋路（12K 為加強紋路樣式，部分品項提供）</div>
+                </div>
+                <div className="pd-spec-row">
+                  <div className="pd-spec-k">表面可選</div>
+                  <div className="pd-spec-v">亮光 / 消光（蜂巢只有亮光，消光蜂巢為特別訂製）</div>
+                </div>
+                <div className="pd-spec-row">
+                  <div className="pd-spec-k">產地</div>
+                  {/* RPM-only 覆蓋:RPM 來自泰國(蝦皮內文證);非 DB 欄、套非 RPM 商品會錯、留 product_specs 接線 */}
+                  <div className="pd-spec-v">泰國</div>
+                </div>
+              </>
+            )}
+            {/* 🔴 P0-C-b2 去碳:非 RPM 品牌規格列資料驅動(讀 variant spec 實際 key + label map、無值不渲染) */}
+            {!isRpmCarbon &&
+              specRows.map((row) => (
+                <div className="pd-spec-row" key={row.key}>
+                  <div className="pd-spec-k">{row.label}</div>
+                  <div className="pd-spec-v">{row.values}</div>
+                </div>
+              ))}
             <div className="pd-spec-row">
               <div className="pd-spec-k">適用車款</div>
               {/* OD-12:適用車款表上線 → 恢復 OD 模板交叉引用(僅有表時顯、避免指向不存在區塊 dangling)。
@@ -187,14 +255,16 @@ export function ProductTabs({ product }: ProductTabsProps) {
                 )}
               </div>
             </div>
-            <div className="pd-spec-row">
-              <div className="pd-spec-k">特殊樣式</div>
-              <div className="pd-spec-v">彩色碳纖、消光蜂巢等 — 訂購約 1–4 個月</div>
-            </div>
+            {isRpmCarbon && (
+              <div className="pd-spec-row">
+                <div className="pd-spec-k">特殊樣式</div>
+                <div className="pd-spec-v">彩色碳纖、消光蜂巢等 — 訂購約 1–4 個月</div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* 安裝須知(RPM 共用):meta 3 欄 + 1 段說明 + 3 點清單(OD §9 捨棄 4 步驟卡 pd-steps);
+        {/* 安裝須知(全品牌通用、P0-C-b2 去碳:碳纖部品→部品 / 碳纖斷裂→部品受損、Sean Q2=A):meta 3 欄 + 1 段說明 + 3 點清單(OD §9 捨棄 4 步驟卡 pd-steps);
             預約安裝 CTA router.push('/install') 行為沿用(storefront 既有、OD 模板按鈕無 href)。 */}
         <div
           role="tabpanel"
@@ -218,7 +288,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
           </div>
           <p className="pd-body">
-            每件碳纖部品的安裝方式略有不同，原則上都是 <strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成碳纖斷裂。如果不確定，可以預約 PCM 合作店家協助處理。
+            每件部品的安裝方式略有不同，原則上都是 <strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成部品受損。如果不確定，可以預約 PCM 合作店家協助處理。
           </p>
           <ul className="pd-list">
             <li>裝前先把原廠零件螺絲位置記清楚或拍照</li>
@@ -240,7 +310,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
           </div>
         </div>
 
-        {/* 保固與退換(RPM 共用):客製訂製退換政策 + 鑑賞期條款。
+        {/* 保固與退換(全品牌通用單一真相 rpm-policies、P0-C-b1):客製訂製退換政策 + 鑑賞期條款。
             ⚠️ 政策字面來自共用 @/data/rpm-policies(單一真相、與 N°04 FAQ ProductFAQ 共用、不分歧);
             含《消保法》第 19 條鑑賞期(L1 法律政策、Sean 仍在確認準確性、改字面只動 rpm-policies)。 */}
         <div

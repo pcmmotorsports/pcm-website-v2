@@ -6618,6 +6618,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-04 / P0-C-a adversarial-reviewer(Fable 跨模型 C1 consider)。
 - **相關:** Phase 0 plan §2.6/§4 P0-C / #212 / ProductServices manifest business_override(`servicesContent4Conditions`)。
 
+### #264. 🟠 試點變體 spec=NULL → 商品頁 adapter 層整頁 500(P0-C-b2 資料驅動前提、試點寫入前 must-verify)
+
+- **狀態:** 🟢 觀察(現行 RPM DB `null_spec=0` 已唯讀驗證、無現存風險;Phase 1 試點寫入才可能觸發)
+- **優先級:** 🟠 中(觸發即整頁 500、客人看不到該商品、非明顯錯誤需查 adapter log)
+- **問題:** P0-C-b2 非 RPM 規格表資料驅動 `buildSpecRows` + 上游 adapter `mapVariantRow` 皆假設 `variant.spec` 為物件(型別 `UIVariant.spec = Record<string,string>`);但 view `product_variants_public.spec` 型別為 `Json | null`。若 gbracing/bonamici 匯入寫入 `spec=NULL` 的變體列,adapter `mapVariantRow`(`packages/adapters/src/supabase/mappers/product.ts` 約 :232)遇 null 會 throw → 該商品詳情頁**整頁 500**(非只該列 graceful 降級)。前台 `buildSpecRows` 已補 `typeof !== 'string'` 防線,但真正 gate 在 adapter/匯入端。
+- **驗證(2026-07-04 唯讀 MCP `bmpnplmnldofgaohnaok`):** `product_variants_public` 9283 變體、`null_spec=0`(RPM 全有 spec、無現存風險)、`empty_spec=1`(空物件 `{}` 安全、buildSpecRows 不吐列)。
+- **觸發事件:** gbracing/bonamici 試點 `--confirm-write` 寫入 prod 前。
+- **預期解法:** 匯入 transform 保證 `spec` 恆為物件(來源無 spec → 寫 `{}` 非 NULL);或 adapter `mapVariantRow` 對 null 降級為 `{}`(graceful 不 throw)。二擇一、建議匯入端寫 `{}`(對齊 #260/#261 寫入 gate 精神)。
+- **不修會痛在:**
+  - 上線品質 / bug 可追蹤性:試點某品牌若有 NULL spec 變體,該商品頁上線即 500、客人看不到、且錯誤不明顯(需查 adapter log 才知)。
+- **估時:** 10-20 分鐘(匯入 transform 補 `spec ?? {}` + 乾跑驗)、併試點寫入 gate 批次處理。
+- **依賴:** gbracing/bonamici 試點寫入(Phase 1);同 #260/#261 寫入前 gate。
+- **發現於:** 2026-07-04 / P0-C-b2 adversarial-reviewer(Fable 跨模型 C1 + WOULD-CHANGE-VERDICT)。
+- **相關:** #260 / #261 / Phase 0 plan §2.10 / ProductTabs `buildSpecRows` / adapter `mapVariantRow`。
+
 ---
 
 ## 紀錄模板

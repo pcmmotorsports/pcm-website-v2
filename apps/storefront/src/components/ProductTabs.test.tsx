@@ -103,9 +103,9 @@ describe('ProductTabs', () => {
     expect(screen.queryByText(`PCM-${String(product.id).padStart(5, '0')}`)).toBeNull();
   });
 
-  // M-1-16c-4b:產地泰國(Sean 拍、去義大利)
-  it('renders 產地 泰國 (not 義大利) in specs', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+  // M-1-16c-4b:產地泰國(Sean 拍、去義大利);P0-C-b2:產地為 RPM 專屬列 → 用 RPM fixture(brandSlug)
+  it('renders 產地 泰國 (not 義大利) in specs (RPM)', () => {
+    render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
     fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
     expect(screen.getByText('泰國')).toBeDefined();
   });
@@ -114,15 +114,26 @@ describe('ProductTabs', () => {
   // 換 OD 碳纖字面。注意:不可斷言 textContent 無「鋁合金」三字 —— mock 目錄沿用舊品名
   // (如 MOCK_PRODUCTS[0] = "Lightech 鋁合金腳踏組"),「鋁合金」來自動態 product.name、非 hardcoded 文案;
   // 碳纖通用文案以 RPM production 資料為目標(同 OD-6/7a)、mock 名稱不符屬本機 dev 殘留、非 production 問題。
-  it('description pane uses 真碳纖維 copy (no hardcoded 7075-T6 spec residue)', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+  it('description pane uses 真碳纖維 copy for RPM (no hardcoded 7075-T6 spec residue)', () => {
+    render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
     const pane = document.getElementById('pd-panel-description');
     expect(pane?.textContent).toContain('真碳纖維');
     expect(pane?.textContent).not.toContain('7075');
   });
 
-  it('specs pane shows 真碳纖維 材質 + 紋路可選 + 特殊樣式 rows (no 7075 / Hard Anodized)', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+  // 🔴 P0-C-b2 去碳:非 RPM 商品介紹分頁無碳纖框架文案、只留最小事實(品牌+品名);真描述待 Phase 1 接 product.description
+  it('description pane 去碳 for non-RPM (no 碳纖, keeps brand + name)', () => {
+    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
+    render(<ProductTabs product={nonRpm} />);
+    const pane = document.getElementById('pd-panel-description');
+    expect(pane?.textContent).not.toContain('真碳纖維');
+    expect(pane?.textContent).not.toContain('碳纖');
+    expect(pane?.textContent).toContain(nonRpm.brand);
+    expect(pane?.textContent).toContain(nonRpm.name);
+  });
+
+  it('specs pane shows 真碳纖維 材質 + 紋路可選 + 特殊樣式 rows for RPM (no 7075 / Hard Anodized)', () => {
+    render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
     fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
     const pane = document.getElementById('pd-panel-specs');
     expect(pane?.textContent).toContain('真碳纖維');
@@ -132,13 +143,55 @@ describe('ProductTabs', () => {
     expect(pane?.textContent).not.toContain('Hard Anodized');
   });
 
-  it('install pane uses RPM 共用 carbon copy + drops 4-step pd-step cards', () => {
+  // 🔴 P0-C-b2 去碳:非 RPM 規格表無碳纖列(材質真碳纖/紋路/表面/產地泰國/特殊樣式全守門),改資料驅動讀 variant spec
+  it('specs pane 去碳 + 資料驅動 for non-RPM (no 碳纖 rows, renders spec rows from variant spec)', () => {
+    const nonRpm = {
+      ...MOCK_PRODUCTS[0]!,
+      brandSlug: 'gb-racing',
+      variants: [
+        // note 值為純空白 → buildSpecRows「無值不渲染」該列不成(L1 harden 驗)
+        { id: 'v1', sku: 'GB-1', spec: { color: '黑', material: '鋁合金', note: '  ' }, price: 8900, images: [] },
+        { id: 'v2', sku: 'GB-2', spec: { color: '銀', material: '鋁合金', note: '' }, price: 8900, images: [] },
+      ],
+    };
+    render(<ProductTabs product={nonRpm} />);
+    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
+    const pane = document.getElementById('pd-panel-specs');
+    // RPM 專屬碳纖列全不顯
+    expect(pane?.textContent).not.toContain('真碳纖維');
+    expect(pane?.textContent).not.toContain('泰國');
+    expect(pane?.textContent).not.toContain('特殊樣式');
+    // 通用列仍在
+    expect(screen.getByText('品牌')).toBeDefined();
+    expect(screen.getByText('商品分類')).toBeDefined();
+    // 資料驅動列:label map(color→顏色 / material→材質)+ distinct 值去重併(黑/銀、鋁合金單一)
+    expect(screen.getByText('顏色')).toBeDefined();
+    expect(screen.getByText('黑 / 銀')).toBeDefined();
+    expect(screen.getByText('鋁合金')).toBeDefined();
+    // 無值不渲染:note key 全空/空白 → 不出列(未知 key fallback 原字面 'note' 亦不得出現)
+    expect(pane?.textContent).not.toContain('note');
+  });
+
+  // P0-C-b2:安裝分頁全品牌通用去碳(Sean Q2=A)——「碳纖部品→部品」「碳纖斷裂→部品受損」、RPM 亦適用
+  it('install pane 全品牌去碳 (no 碳纖部品/碳纖斷裂, keeps 因品而異 + drops pd-step cards)', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
     fireEvent.click(screen.getByRole('tab', { name: '安裝須知' }));
     const pane = document.getElementById('pd-panel-install');
     expect(pane?.textContent).toContain('因品而異');
+    expect(pane?.textContent).toContain('每件部品的安裝');
+    expect(pane?.textContent).not.toContain('碳纖部品');
+    expect(pane?.textContent).not.toContain('碳纖斷裂');
     expect(pane?.querySelector('.pd-steps')).toBeNull();
     expect(pane?.querySelector('.pd-step')).toBeNull();
+  });
+
+  // 安裝去碳對 RPM 也生效(全品牌通用、Sean Q2=A 授權 RPM 安裝文字一併去碳)
+  it('install pane 去碳 also applies to RPM (universal, no 碳纖 words)', () => {
+    render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
+    fireEvent.click(screen.getByRole('tab', { name: '安裝須知' }));
+    const pane = document.getElementById('pd-panel-install');
+    expect(pane?.textContent).not.toContain('碳纖部品');
+    expect(pane?.textContent).not.toContain('碳纖斷裂');
   });
 
   it('warranty pane uses 客製訂製 policy 鑑賞期 clause (no 義大利 24 個月 residue)', () => {
