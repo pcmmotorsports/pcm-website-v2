@@ -52,7 +52,7 @@ const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, vehicle_label, ' +
   'fitment_parsed, spec, price_retail, image_url, images, stock_status';
 
-// ── source fetch(分頁 + 重試、全程 supplier_slug='rpm';讀乾淨 view 取代 raw 兩查)──
+// ── source fetch(分頁 + 重試、全程 .eq('supplier_slug', supplierSlug);讀乾淨 view 取代 raw 兩查)──
 const MAX_RETRY = 3; // S5:每頁最多嘗試次數(初次 + 2 重試)
 const RETRY_BASE_MS = 1000; // 指數退避基數(1s → 2s)
 

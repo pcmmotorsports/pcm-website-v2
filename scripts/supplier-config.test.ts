@@ -11,7 +11,7 @@ describe('getSupplierConfig', () => {
   it('🔴 should keep RPM byte-safe (brand/handle/description/category anchors)', () => {
     const rpm = getSupplierConfig('rpm');
     expect(rpm.supplierSlug).toBe('rpm');
-    expect(rpm.brandSlug).toBe('rpm-carbon'); // = 現行 BRAND_SLUG(rpm-import.ts:55)
+    expect(rpm.brandSlug).toBe('rpm-carbon'); // = 現行 rpm-import.ts BRAND_SLUG 常數
     expect(rpm.handlePrefix).toBe('rpm'); // = 現行 handle `rpm-${sku}`(rpm-transform.ts:146)
     expect(rpm.syncDescription).toBe(false); // 現行刻意不寫 description(F2、rpm-transform.ts:93,149)
     expect(rpm.categoryStrategy).toEqual({ kind: 'fixed', rawPath: '碳纖維部品' }); // = CATEGORY_RAW_PATH
@@ -33,8 +33,12 @@ describe('getSupplierConfig', () => {
     expect(bo.categoryStrategy).toEqual({ kind: 'per-group' });
   });
 
-  it('should throw fail-closed on an unregistered supplier slug', () => {
+  it('should throw fail-closed on unregistered / prototype-chain keys', () => {
     expect(() => getSupplierConfig('unknown-supplier')).toThrow(/未知供應商/);
+    // 🔴 原型鏈 key(truthy 繼承成員)也須 throw、不得回繼承物件(F2、Fable 對抗審)
+    expect(() => getSupplierConfig('constructor')).toThrow(/未知供應商/);
+    expect(() => getSupplierConfig('toString')).toThrow(/未知供應商/);
+    expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
   it('should register exactly the Phase 0 pilot set (rpm + 2 pilots)', () => {

@@ -9,7 +9,7 @@
  * 🔴 RPM 零回歸(不變式 3):rpm 這組值必須讓管線輸出與現況 byte 等價——
  *   brandSlug='rpm-carbon'、handlePrefix='rpm'(現行 handle=`rpm-${mainSku}`,rpm-transform.ts:146)、
  *   syncDescription=false(現行刻意不寫 description,rpm-transform.ts:93,149)、
- *   categoryStrategy=fixed '碳纖維部品'(現行 rpm-import.ts:56 CATEGORY_RAW_PATH)。
+ *   categoryStrategy=fixed '碳纖維部品'(現行 rpm-import.ts CATEGORY_RAW_PATH 常數)。
  *   supplier-config.test.ts 逐值釘死,任何改動觸發 CI 紅燈。
  *
  * 範圍:Phase 0 只登記試點會用到的三家(rpm + gbracing + bonamici)。
@@ -87,13 +87,15 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
  * 取供應商設定;未登記 → throw(fail-closed:寧可整條 abort,不讓錯 slug 靜默套到別家 scope)。
  */
 export function getSupplierConfig(supplierSlug: string): SupplierConfig {
-  const cfg = SUPPLIER_CONFIGS[supplierSlug];
-  if (!cfg) {
+  // 🔴 fail-closed 用 Object.hasOwn(非 truthy 檢查):防 'constructor'/'toString' 等原型鏈 key
+  //    命中繼承成員 → truthy → 靜默略過 throw + cfg.supplierSlug=undefined(F2、Fable 對抗審)。
+  //    只認 own key,未登記一律 abort、不讓錯 slug 靜默套到別家 scope。
+  if (!Object.hasOwn(SUPPLIER_CONFIGS, supplierSlug)) {
     const known = Object.keys(SUPPLIER_CONFIGS).join(', ');
     throw new Error(
       `未知供應商 slug「${supplierSlug}」;請先在 scripts/supplier-config.ts SUPPLIER_CONFIGS 登記` +
         `(brandSlug / handlePrefix / syncDescription / categoryStrategy)。目前已登記:${known}`,
     );
   }
-  return cfg;
+  return SUPPLIER_CONFIGS[supplierSlug]!;
 }

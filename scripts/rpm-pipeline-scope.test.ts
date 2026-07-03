@@ -11,6 +11,8 @@ import { describe, it, expect } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { fetchAllSupplierProducts } from './rpm-fetch';
 import { computeDelist, applyDelist } from './rpm-reconcile';
+import { computeDelta, preflightSpecUnique } from './rpm-delta';
+import type { ProductRow } from './rpm-transform';
 
 /** 可鏈式 recording mock:任何 builder 方法回自身、await 時 resolve {data:[],error:null};
  *  記錄所有 .eq('supplier_slug', X) 呼叫供斷言。 */
@@ -63,5 +65,27 @@ describe('pipeline supplier scope isolation (P0-A-2)', () => {
     const rpm = makeRecordingClient();
     await applyDelist(rpm.client, 'rpm', ['EXT-1'], '2026-07-03T00:00:00Z');
     expect(rpm.supplierScopes).toEqual(['rpm']);
+  });
+
+  // F1(Fable 對抗審):delta/preflight 兩條 .eq scope 補測,防未來重構回退 hardcode 'rpm' 而 CI 仍綠。
+  const MINI_PRODUCT: ProductRow = {
+    supplier_slug: 'x', external_id: 'EXT-1', handle: 'x-ext-1', title: 't', subtitle: 's',
+    price_general: 100, price_store: null, price_by_tier: {}, fitments: [], images: [],
+    availability: 'in-stock', brand_id: 'b', category_id: 'c', metadata: {},
+    delisted_at: null, updated_at: '2026-07-03T00:00:00Z',
+  };
+
+  it('computeDelta scopes the existing-price read by the given supplierSlug', async () => {
+    const gb = makeRecordingClient();
+    await computeDelta(gb.client, 'gbracing', [MINI_PRODUCT], []);
+    expect(gb.supplierScopes).toContain('gbracing');
+    expect(gb.supplierScopes).not.toContain('rpm');
+  });
+
+  it('preflightSpecUnique scopes the products lookup by the given supplierSlug', async () => {
+    const gb = makeRecordingClient();
+    await preflightSpecUnique(gb.client, 'gbracing', new Map([['EXT-1', []]]));
+    expect(gb.supplierScopes).toContain('gbracing');
+    expect(gb.supplierScopes).not.toContain('rpm');
   });
 });

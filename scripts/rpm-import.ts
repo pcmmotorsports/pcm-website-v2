@@ -215,7 +215,7 @@ async function main(): Promise<void> {
     }
     if (recon.toDelist.length) {
       const n = await applyDelist(target, SUPPLIER_SLUG, recon.toDelist, now);
-      console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope rpm、變體靠 RLS 連動隱藏)`);
+      console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope ${SUPPLIER_SLUG}、變體靠 RLS 連動隱藏)`);
     } else {
       console.log('[rpm-import] 下架對賬:無待下架、零孤兒');
     }
