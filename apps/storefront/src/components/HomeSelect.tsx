@@ -6,11 +6,10 @@
 //          (category M-1-16b 後 Sean 2026-06-01 拍 A 覆蓋 d2 '操控部品'、RPM 真資料在'碳纖維部品')
 //          MOCK_PRODUCTS import 移除、empty / error UI 字面 Sean 2026-05-09 拍板新增
 //
-// 'use client' 因 ProductCard 是 client component + 傳 onClick callback、server-client boundary 需 client
+// 'use client':本元件用 ProductCard(client component);導航走 href(Next.js Link、SEO 真 anchor)
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import type { FeaturedResult } from '@/lib/products';
 import { ProductCard } from './ProductCard';
 
@@ -19,8 +18,6 @@ export type HomeSelectProps = {
 };
 
 export function HomeSelect({ featured }: HomeSelectProps) {
-  const router = useRouter();
-
   // d1 階段 tweaks default(對齊 design HomePage tweaks panel default)、d2 / 後續 slice tweaks panel 落地時 hoist
   const tweaks = { showRedPrice: false, badgeStyle: 'minimal' as const };
 
@@ -80,7 +77,10 @@ export function HomeSelect({ featured }: HomeSelectProps) {
               p={p}
               showRedPrice={tweaks.showRedPrice}
               badgeStyle={tweaks.badgeStyle}
-              onClick={() => router.push('/products/' + p.id)}
+              // #5b 修(2026-07-03):原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 slug
+              //   → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug}
+              //   對齊 ProductsPage:353 / ProductPage 相關商品的正確 slug 導航。
+              href={`/products/${p.slug}`}
             />
           ))}
         </div>

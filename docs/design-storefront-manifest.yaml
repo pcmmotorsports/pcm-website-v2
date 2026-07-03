@@ -1038,12 +1038,36 @@ components:
         plan: "#195 完成後解除 disabled、tab 走 <Link href='/vehicle-search'>"
       # cartRoute drift 已於 M-3-S2-b2-d resolved(/cart route 建、見 business_overrides.cartTabEnabled)
 
+  HomeSelect:
+    last_modified_commit: "e9ab418"  # 記可達祖先(=e9ab418);首建本條(此前僅候選列表)、#5b 修真改見 git log
+    last_modified_date: "2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
+    design:
+      component: "design-reference/components/HomePage.jsx (L197-212 ed-select / The Selection · 編輯精選 section)"
+      css: "design-reference/styles/home.css (L457-470 .ed-select / .ed-select-grid)"
+    related_storefront:
+      - "apps/storefront/src/components/HomeSelect.tsx"  # N°04 編輯精選、4 ProductCard、server-side featured 真資料接入
+      - "apps/storefront/src/components/HomeSelect.test.tsx"  # smoke test(三分支 + #5b slug href regression guard)
+    business_overrides:
+      - field: "productNavByHandle"
+        design_value: "onNav('product', { productId: p.id })(design SPA 原型導航、以 productId 進 in-app 狀態)"
+        storefront_value: "<ProductCard href={`/products/${p.slug}`}>(Next.js Link、真路由以 handle/slug 為 key、SEO anchor)"
+        decided_at: "2026-07-03"
+        decision_source: "#5b(Sean 回報首頁精選點擊 404)/ 對齊 ProductsPage:353 既有 slug 導航"
+        reason: "真 storefront 路由 key = products.handle(products_handle_key 全域唯一),非 design 原型 productId;hashIdToNumber 數字非合法 handle → 必 404。鐵則 1 例外類別 2(路由技術實作、非視覺偏離)"
+      - field: "featuredDataSource"
+        design_value: "window.PCM_DATA.products.slice(0,4)(design mock 靜態)"
+        storefront_value: "server-side fetchFeaturedProducts(tier) ← SupabaseProductAdapter.listByCategory('碳纖維部品')、取前 4;empty/error 三分支 UI"
+        decided_at: "2026-06-01"
+        decision_source: "M-1-16b d2 真資料接入 / Sean 2026-06-01 拍 A(featured category '碳纖維部品')"
+        reason: "design mock → 真 Supabase 目錄資料;featured 分類 placeholder→真值(多分類後改 featured 旗標 #205)"
+    open_drifts: []
+
   # ---- 其他元件(規範段) ----
 
   # 規範:其他 ~20 個元件條目在後續 slice 觸到才填、避免第一版過大難維護
   # 觸到時必先 grep STATUS / backlog / specs / handoff、不憑記憶(對齊 docs/patterns/cowork-review-chain.md §6)
   # 候選列表(供 Cowork 後續查):
-  #   - BrandIndex / CategoryGrid / FeatureEditorial / HomeFooter / HomeSelect / HomeStatement
+  #   - BrandIndex / CategoryGrid / FeatureEditorial / HomeFooter / HomeStatement
   #   - FilterDrawer / FilterSide / FilterTop / CascadeFilterTop / ActiveChips / Pagination
   #     [#221 CSS 拆檔] 原單一 filter-top.css(621 行 > 鐵則 6 400)拆成 3 檔(各 <400、零重排、
   #     按 import 序串接 = 原檔逐 byte 等價、concat-diff 證、零 cascade 變化):
