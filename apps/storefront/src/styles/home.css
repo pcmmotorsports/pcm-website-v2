@@ -645,8 +645,8 @@
   cursor: not-allowed;
   font: inherit;
 }
-.ed-footer-social a,
-.ed-footer-social button {
+/* Q2=A(2026-07-03)social 回 <a> 後刪 #136 殘留死選擇器「, .ed-footer-social button」、收斂回 design 原字面 */
+.ed-footer-social a {
   color: rgba(255,255,255,0.7);
   border-bottom: 1px solid transparent;
   padding-bottom: 2px;

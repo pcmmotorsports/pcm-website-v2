@@ -3600,7 +3600,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #136. ✅ HomeFooter 4 條 `<a href="#">` placeholder 處置(Facebook/Instagram/LINE/聯絡客服)
 
-- **狀態:** ✅ 已解 / 2026-05-17 / M-1-06
+- **狀態:** ✅ 已解 / 2026-05-17 / M-1-06;**🔵 2026-07-03 部分 supersede**:Sean 決策批次 Q2=A → 三條 social 改走本條目候選 B(site-config SOCIAL_URLS 真 href + target=_blank rel=noopener noreferrer、拍板前提〔真 destination〕已滿足);聯絡客服仍候選 A disabled。見 manifest HomeFooter `socialLinksLive` override
 - **優先級:** 🟡 中(a11y polish slice + PRD 決策同期)
 - **問題:**
   - HomeFooter.tsx L13-L15 三條 social links(Facebook / Instagram / LINE)+ L42 聯絡客服 = 4 條 `<a href="#">` 殘留 placeholder

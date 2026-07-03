@@ -5,7 +5,10 @@
 // onNav target 對映(本檔 7 條):
 //   'catalog' → /products / 'brands' → /brands / 'new' → /products?filter=new / 'sale' → /products?filter=sale
 //   'install' → /install / 'stores' → /stores / 'shipping' → /info/shipping
-// social / 聯絡客服 4 條 placeholder:不在 onNav 範圍、M-1-06 #136 改 <button disabled aria-label> 宣告未上線
+// social 3 條:M-1-06 #136 曾因無真連結改 <button disabled> 宣告未上線 → 2026-07-03 Sean 拍 Q2=A
+//   接 site-config SOCIAL_URLS 真連結、回到 design <a> 結構(design L303-305 href="#" 佔位 → 真 URL、
+//   外連加 target="_blank" rel="noopener noreferrer");#136 該段 supersede。
+// 聯絡客服 1 條:仍 disabled(不在 Q2=A 拍板範圍;接 LINE 與否待 Sean)。
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 //
 // 字面 vs 事實(2026-07-03 A4):design 門市電話「02-2998-xxxx」/ 統編「xxxxxxxx」為佔位假值
@@ -13,7 +16,7 @@
 // SSoT:CONTACT_PHONE_DISPLAY / TAX_ID);版面字面不動、僅資料更正。
 
 import Link from 'next/link';
-import { CONTACT_PHONE_DISPLAY, TAX_ID } from '@/lib/site-config';
+import { CONTACT_PHONE_DISPLAY, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
 
 export function HomeFooter() {
   return (
@@ -26,9 +29,9 @@ export function HomeFooter() {
             是風格與態度的延伸。
           </p>
           <div className="ed-footer-social">
-            <button type="button" disabled aria-label="Facebook(尚未上線)">Facebook</button>
-            <button type="button" disabled aria-label="Instagram(尚未上線)">Instagram</button>
-            <button type="button" disabled aria-label="LINE(尚未上線)">LINE</button>
+            <a href={SOCIAL_URLS.facebook} target="_blank" rel="noopener noreferrer">Facebook</a>
+            <a href={SOCIAL_URLS.instagram} target="_blank" rel="noopener noreferrer">Instagram</a>
+            <a href={SOCIAL_URLS.line} target="_blank" rel="noopener noreferrer">LINE</a>
           </div>
         </div>
         <div className="ed-footer-cols">

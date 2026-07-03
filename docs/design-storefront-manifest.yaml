@@ -189,8 +189,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/HomeFooter.tsx"
       css: "apps/storefront/src/styles/home.css"  # .ed-footer* 家族、全域 import via layout.tsx
-      last_modified_commit: "1b434e0"  # 記可達祖先(=1b434e0);A4 真改見 git log
-      last_modified_date: "2026-07-03 (A4 站台資訊完整化:門市電話「02-2998-xxxx」→ site-config CONTACT_PHONE_DISPLAY〔0930-531-867〕、統編「xxxxxxxx」→ TAX_ID〔90003020〕;版面/markup/class 零動、純資料更正;HomeFooter.test 加真值+防回歸佔位斷言)"
+      last_modified_commit: "7c5ed15"  # 記可達祖先(=7c5ed15);Q2=A social 接真 真改見 git log
+      last_modified_date: "2026-07-03 (Q2=A social 接真:三顆社群 button disabled〔#136〕→ 回 design <a> 結構 + SOCIAL_URLS 真連結 + _blank/noopener、聯絡客服仍 disabled;home.css 順刪 #136 殘留死選擇器「, .ed-footer-social button」。前次 A4:門市電話/統編佔位 → site-config 真值〔0930-531-867 / 90003020〕、HomeFooter.test 防回歸斷言)"
     design:
       component: "design-reference/components/HomePage.jsx"  # SiteFooter 在 design 是 HomePage 內元素(L327/L333 佔位)
       css: "design-reference/styles/home.css"
@@ -204,6 +204,13 @@ components:
         decision_source: "真值 = Sean 2026-06-21 親自提供(site-config 檔頭記載);實作 = Sean 2026-07-02 夜間自主完整化授權(「尚缺部分不用問先做」、STATUS 下一步①)"
         backlog: "#248(site-config hardcode 待後台、既有 L2)"
         reason: "上線站 footer 掛佔位假電話/假統編 = 對客人顯錯誤資訊 + 法遵觀感;真值已存 SSoT、零商業決策"
+      - field: "socialLinksLive"
+        design_value: "design HomePage.jsx L303-305 footer social 三條 <a href='#'> 佔位;M-1-06 #136 曾改 <button disabled aria-label='…(尚未上線)'> 宣告未上線"
+        storefront_value: "回到 design <a> 結構 + site-config SOCIAL_URLS 真連結(FB partscheaper / IG pcm_officialtw / LINE lin.ee)+ target=_blank rel=noopener noreferrer;home.css .ed-footer-social a 選擇器與 hover design 原生、僅刪 #136 殘留死選擇器「, .ed-footer-social button」(收斂回 design 原字面)。聯絡客服鈕仍 disabled(不在拍板範圍)。#136 social 段 supersede(backlog 條目已補註)"
+        decided_at: "2026-07-03"
+        decision_source: "Sean 2026-07-03 決策批次 Q2=A(三個都接真連結)"
+        backlog: "#248"
+        reason: "真連結已存 site-config(Sean 2026-06-21 提供)、disabled 佔位的前提(無真連結)已不成立"
     open_drifts: []
 
   InfoShippingPage:

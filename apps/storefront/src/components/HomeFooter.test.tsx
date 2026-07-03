@@ -25,4 +25,23 @@ describe('HomeFooter', () => {
     expect(screen.queryByText(/2998/)).toBeNull();
     expect(screen.queryByText(/xxxxxxxx/)).toBeNull();
   });
+
+  it('should render live social links from site-config (Q2=A、#136 supersede)', () => {
+    render(<HomeFooter />);
+    // 三顆社群 = 真連結 <a>(新分頁 + noopener 防 tabnabbing);三顆同構逐一驗
+    const expected: Array<[string, string | RegExp]> = [
+      ['Facebook', 'https://www.facebook.com/partscheaper'],
+      ['Instagram', 'https://www.instagram.com/pcm_officialtw/'],
+      ['LINE', /^https:\/\//], // LINE_ADD_URL 走 line-cta SSoT、驗協定不重複寫死短網址
+    ];
+    for (const [label, href] of expected) {
+      const a = screen.getByText(label).closest('a')!;
+      if (typeof href === 'string') expect(a.getAttribute('href')).toBe(href);
+      else expect(a.getAttribute('href')).toMatch(href);
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toContain('noopener');
+    }
+    // 聯絡客服仍 disabled(拍板範圍外)
+    expect(screen.getByLabelText('聯絡客服(尚未上線)')).toBeDefined();
+  });
 });
