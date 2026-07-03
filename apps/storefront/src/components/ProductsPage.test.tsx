@@ -11,13 +11,14 @@
 
 import type { ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, render as rtlRender, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 
+// #6:mock 改可變(vi.hoisted)——URL 還原測試需逐測換 searchParams;預設空參數(舊測試行為不變)。
+const hoisted = vi.hoisted(() => ({ search: new URLSearchParams() }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn() }),
-  // M-1-13I Bug 1:ProductsPage useSearchParams 讀 URL vehicle、mock 回空參數
-  // (本 smoke 不帶 vehicle、parseVehicleFromUrl 回 null、不 dispatch、render 預設「全部商品」)
-  useSearchParams: () => new URLSearchParams(),
+  // M-1-13I Bug 1:ProductsPage useSearchParams 讀 URL vehicle(+#6 page/sort/per lazy init)
+  useSearchParams: () => hoisted.search,
 }));
 
 import { ProductsPage } from './ProductsPage';
@@ -58,6 +59,9 @@ afterEach(() => {
   cleanup();
   // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
   if (typeof window !== 'undefined') window.localStorage.clear();
+  // #6:還原 searchParams mock + jsdom URL(URL 同步 effect 會 replaceState、避免測試互染)
+  hoisted.search = new URLSearchParams();
+  window.history.replaceState(null, '', '/');
 });
 
 describe('ProductsPage', () => {
@@ -105,5 +109,56 @@ describe('ProductsPage', () => {
     // 保留:真價格可篩 + 側欄殼
     expect(screen.getByText('價格範圍')).toBeDefined();
     expect(screen.getByText('篩選條件')).toBeDefined();
+  });
+});
+
+// #6:page/sort/perPage URL round-trip(back 回列表不重置;Sean 2026-07-03 實測回報)
+describe('ProductsPage #6 browse-state URL round-trip', () => {
+  // 30 件 fixture:預設每頁 25 → 2 頁,可觀察 page 還原/重置
+  const MANY: MockProduct[] = Array.from({ length: 30 }, (_, i) => ({
+    ...FIXTURE[0]!,
+    id: i + 1,
+    slug: `rpm-fixture-${i + 1}`,
+    name: `碳纖維部品${i + 1}號`,
+  }));
+
+  it('should restore page/sort/perPage from URL params on mount (back-nav 還原)', () => {
+    hoisted.search = new URLSearchParams('page=2&sort=price-asc&per=25');
+    render(<ProductsPage products={MANY} error={false} />);
+    // sort/perPage select 還原(displayValue = option 文字)
+    expect(screen.getByDisplayValue('價格低到高')).toBeDefined();
+    expect(screen.getByDisplayValue('25')).toBeDefined();
+    // page=2 還原:每頁 25、共 30 件 → 第 2 頁只顯 5 件;價格全同、sku ASC 穩定 →
+    // 第 2 頁應含 30 號(page=1 才有 1 號);mount 首輪不得被 setPage(1) effect 重置(mount-guard)。
+    // 🔴 正向斷言必用 getByText(absent 即 throw);queryByText(...).toBeDefined() 是空斷言(回 null 仍過)
+    expect(screen.getByText('碳纖維部品30號')).toBeDefined();
+    expect(screen.queryByText('碳纖維部品1號')).toBeNull();
+  });
+
+  it('should fall back to defaults on invalid params (fail-safe 白名單)', () => {
+    hoisted.search = new URLSearchParams('page=-3&sort=bogus&per=999');
+    render(<ProductsPage products={MANY} error={false} />);
+    expect(screen.getByDisplayValue('推薦排序')).toBeDefined(); // sort 白名單外 → recommend
+    expect(screen.getByDisplayValue('25')).toBeDefined(); // per 白名單外 → 25
+    expect(screen.getByText('碳纖維部品1號')).toBeDefined(); // page<1 → 第 1 頁(getByText:absent 即 throw)
+  });
+
+  it('should still reset to page 1 when user changes sort (mount-guard 不得吃掉真重置)', () => {
+    hoisted.search = new URLSearchParams('page=2');
+    render(<ProductsPage products={MANY} error={false} />);
+    expect(screen.getByText('碳纖維部品30號')).toBeDefined(); // 起點:第 2 頁(getByText:absent 即 throw)
+    // 使用者改排序 → 應回第 1 頁(對齊 design ProductsPage.jsx L226 原行為)
+    fireEvent.change(screen.getByDisplayValue('推薦排序'), { target: { value: 'new' } });
+    expect(screen.getByText('碳纖維部品1號')).toBeDefined();
+    expect(screen.queryByText('碳纖維部品30號')).toBeNull();
+  });
+
+  it('should sync non-default state back into the URL (replaceState 自癒/分享)', () => {
+    hoisted.search = new URLSearchParams('page=2&sort=price-asc');
+    render(<ProductsPage products={MANY} error={false} />);
+    // URL 同步 effect:非預設值寫回 jsdom URL(page=2、sort=price-asc;per=25 預設不寫)
+    expect(window.location.search).toContain('page=2');
+    expect(window.location.search).toContain('sort=price-asc');
+    expect(window.location.search).not.toContain('per=');
   });
 });

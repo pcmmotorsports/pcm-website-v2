@@ -24,11 +24,13 @@
 //   <Link>,大分類 / 細項為純 span。
 // - 篩選 state 提升至本元件(Sean 拍板方案 1):本元件持 cascadeFilterReducer +
 //   ProductExtraFilters + sort,傳入 4 個 controlled 篩選元件。
+// - #6(2026-07-03):page/sort/perPage 進 URL query(page/sort/per、非預設才寫)+ mount lazy init
+//   讀回 → 商品頁按上一頁回列表不再重置(Sean 實測回報);gridCols/其餘篩選不進 URL(範圍=回報三項)。
 
 'use client';
 
-import { useEffect, useMemo, useReducer, useState, type CSSProperties } from 'react';
-import { useSearchParams, type ReadonlyURLSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   cascadeFilterReducer,
@@ -48,8 +50,14 @@ import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
 import { filterProducts, sortProducts } from './products-filter-logic';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
+// #6:page/sort/perPage URL round-trip + vehicle URL 解析(拆檔=鐵則 6;詳 products-url-state.tsx 檔頭)
+import {
+  useBrowseUrlState,
+  usePageResetOnFilterChange,
+  useBrowseUrlSync,
+  parseVehicleFromUrl,
+} from './products-url-state';
 import type { FilterTopData } from './FilterTop';
-import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '@/data/mock-categories';
 import { MOCK_BRANDS } from '@/data/mock-brands';
 import type { MockProduct } from '@/data/mock-products';
@@ -69,42 +77,6 @@ export type ProductsPageProps = {
   /** server fetch 失敗旗標(true → 顯「載入失敗、請稍後再試」、與真 0 結果區分;Q2=A 鏡像 HomeSelect) */
   error: boolean;
 };
-
-// 解析 URL vehicle 參數 → VehicleSelection(name-based、對齊 reducer 介面)
-// Q1=C 雙格式:短版 ?vehicle=brandId:modelId[:year] 優先、長版 ?brand=&model=&year= fallback
-// S2(2026-07-03)起 VehicleFinder 亦改 push 短版(id 空間統一衍生清單)→ 站內兩個
-// producer(ProductCard href / VehicleFinder)皆短版;長版分支僅吸收書籤舊連結、可日後刪。
-function parseVehicleFromUrl(
-  searchParams: URLSearchParams | ReadonlyURLSearchParams,
-  motoBrands: MockMotoBrand[],
-): { brand: string; model?: string; year?: number } | null {
-  const v = searchParams.get('vehicle');
-  let brandId: string | null = null;
-  let modelId: string | null = null;
-  let yearStr: string | null = null;
-  if (v) {
-    const parts = v.split(':');
-    brandId = parts[0] || null;
-    modelId = parts[1] || null;
-    yearStr = parts[2] || null;
-  } else {
-    brandId = searchParams.get('brand');
-    modelId = searchParams.get('model');
-    yearStr = searchParams.get('year');
-  }
-  if (!brandId) return null;
-  const brandObj = motoBrands.find((b) => b.id === brandId);
-  if (!brandObj) return null;
-  const modelObj = modelId
-    ? brandObj.models?.find((m) => m.id === modelId)
-    : null;
-  const year = yearStr ? Number.parseInt(yearStr, 10) : undefined;
-  return {
-    brand: brandObj.name,
-    model: modelObj?.name,
-    year: year != null && Number.isFinite(year) ? year : undefined,
-  };
-}
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
 function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
@@ -202,14 +174,16 @@ function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () 
 }
 
 export function ProductsPage({ products, error }: ProductsPageProps) {
+  // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
+  const searchParams = useSearchParams();
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
-  const [sort, setSort] = useState('recommend');
-  const [gridCols, setGridCols] = useState(5);
+  const { sort, setSort, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
+  const [gridCols, setGridCols] = useState(5); // 顯示偏好、不進 URL(#6 範圍=Sean 回報三項)
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(25);
-  const searchParams = useSearchParams();
+  // #6:URL 還原 vehicle 的 mount dispatch 與「篩選變動重置頁碼」的協調旗標(見 vehicle effect 註解)
+  const urlVehicleInitRef = useRef(false);
+  const filterResetKeyRef = useRef<string | null>(null);
 
   // 車輛篩選清單「動態衍生」自當下目錄商品 fitment(車種鐵律 fitment_parsed 直出、
   // 商品匯入後自動更新、零手動維護);drop-in 取代舊 MOCK_MOTO_BRANDS。
@@ -226,6 +200,9 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
   useEffect(() => {
     const v = parseVehicleFromUrl(searchParams, motoBrands);
     if (!v) return;
+    // #6:標記「這波 cascade 變更源自 URL 還原、非使用者操作」→ 頁碼重置 effect 跳過一次,
+    //   否則 ?vehicle=…&page=3 back 回來會被 mount 後的 vehicle dispatch 誤重置回第 1 頁。
+    urlVehicleInitRef.current = true;
     dispatch(selectVehicleBrand(v.brand));
     if (v.model) dispatch(selectVehicleModel(v.model));
     if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
@@ -243,15 +220,22 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
   const sorted = useMemo(() => sortProducts(filtered, sort), [filtered, sort]);
   const resultCount = sorted.length;
 
-  // 篩選 / 排序 / 每頁數變動 → 回到第 1 頁(對齊 design ProductsPage.jsx L226)
-  useEffect(() => {
-    setPage(1);
-  }, [cascade, extras, sort, perPage]);
+  // #6:篩選/排序/每頁變動 → 回第 1 頁(對齊 design ProductsPage.jsx L226;值比較+mount-guard
+  // +vehicle 還原跳過一次,詳 products-url-state.tsx usePageResetOnFilterChange 檔內註解)
+  usePageResetOnFilterChange(
+    JSON.stringify([cascade, extras, sort, perPage]),
+    urlVehicleInitRef,
+    setPage,
+    filterResetKeyRef,
+  );
 
   const totalPages = Math.max(1, Math.ceil(resultCount / perPage));
   const currentPage = Math.min(page, totalPages);
   const startIdx = (currentPage - 1) * perPage;
   const displayed = sorted.slice(startIdx, startIdx + perPage);
+
+  // #6:page/sort/perPage 同步回 URL(原生 replaceState 零 server 往返;詳 products-url-state.tsx)
+  useBrowseUrlSync(currentPage, sort, perPage);
 
   const changePage = (n: number) => {
     setPage(Math.max(1, Math.min(totalPages, n)));

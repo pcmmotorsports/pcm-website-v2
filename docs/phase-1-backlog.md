@@ -6538,11 +6538,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-03 / #5 調查 candidate 2。
 - **相關:** #212 / #257 / Phase 0 plan §2.6。
 
-### #259. 🟡 prod products 表殘留 1 筆 `supplier_slug='test'` 測試商品
+### #259. 🔴 prod 殘留 `supplier_slug='test'` 測試商品 **正在 live 首頁精選第 1 格對客人展示**
 
 - **狀態:** ⏳ 待 Sean 點頭清除(prod DB 寫入、Claude 不自行動)
-- **優先級:** 🟡 低(單筆;是否公開可見取決於其 category/delisted 狀態,清除前再查)
-- **問題:** 2026-07-03 唯讀 MCP 盤點發現 prod `products` 有 1 筆 `supplier_slug='test'`(RPM 1,117 之外)。多供應商化後 per-supplier 對賬/統計會被雜訊干擾。
+- **優先級:** 🔴 高(2026-07-03 Playwright production build 實證升級:**不是躺在 DB,而是公開可見**)
+- **問題:** prod `products` 有 1 筆 `supplier_slug='test'`:「【測試】1元金流測試商品(測完即刪)」handle `test-1nt-payment`。它掛在「碳纖維部品」分類 → 被 `fetchFeaturedProducts`(取該分類前 4)撈中 → **live 首頁「編輯精選」第 1 格就是它**(Playwright 實證 `.ed-select-grid` 第一張卡)。商品名自標「測完即刪」= M-3 金流測試遺留。另:多供應商化後 per-supplier 對賬/統計被幽靈供應商干擾。
 - **預期解法:** Sean 點頭 → 單筆 DELETE(或 delisted_at 軟下架)+ 事後唯讀驗證;動作納 Phase 0/P0-D 順手清單。
 - **不修會痛在:** 可維護性:per-supplier 報表/reconcile 出現幽靈供應商;bug 可追蹤性:未來查「為什麼有 12 家」浪費一輪。
 - **估時:** 5 分鐘(含驗證)。
