@@ -18,12 +18,18 @@
  *   現況靠本 gate(5–10%)+ S4 reconcile(>10%)兩道、且日常增量同步幅度遠小於 5%。
  *
  * 與 S4 下架 gate 互補:本 gate 在 fetch 後、寫入前(pre-write、5%);S4 在 reconcile(post-upsert、10%)。
+ *
+ * P0-A-4a(多供應商去碳後補寫入前安全 gate、同屬 pre-write 家族):
+ *   - F3 `assertBypassFlagsExclusive`:禁同帶兩個 `--allow-*` bypass 旗標(不變式 5)。
+ *   - F4 `preflightHandles` + `readHandleOwners`:handle charset 白名單 + 批內重複 + target 全域唯一(不變式 6),
+ *     撞鍵/髒字元 → issue 清單(寫入模式 abort 不進 upsert、避免中途撞 products_handle_key 造成部分寫髒中間態)。
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { readActiveExternalIds } from './rpm-reconcile';
 
 const FETCH_SHRINK_ABORT = 0.05; // 商品消失率 >5% 疑截斷硬 abort(比 S4 下架 10% 嚴、專抓 5–10% 靜默截斷帶)
+const HANDLE_READ_BATCH = 300; // handle 全域唯一查詢分批(避免大 .in() 撞 GET URL 上限、對齊 rpm-delta READ_BATCH)
 
 export interface FetchIntegrityReport {
   sourceProductCount: number; // 來源不重複 main_sku 群數
@@ -82,4 +88,99 @@ export function printFetchIntegrityReport(r: FetchIntegrityReport): void {
   } else {
     console.log('✅ target 現存上架商品全在來源(零缺少)');
   }
+}
+
+// ── F3:bypass 旗標互斥護欄(不變式 5)──
+/**
+ * 禁同時帶 `--allow-fetch-shrink` + `--allow-large-delist`:兩道防誤殺 bypass 同開 = 盲寫,
+ * 且連續 abort 通常是 supplier scope bug(漏帶/傳錯 supplierSlug 令來源/現存對不上)、非真大改。
+ * 命中 → throw(fail-closed):先逐一確認來源完整、單獨帶其一,不硬推穿兩道 gate。
+ */
+export function assertBypassFlagsExclusive(allowFetchShrink: boolean, allowLargeDelist: boolean): void {
+  if (allowFetchShrink && allowLargeDelist) {
+    throw new Error(
+      'F3 護欄:禁同帶 --allow-fetch-shrink + --allow-large-delist(兩道防誤殺 bypass 同開 = 盲寫);' +
+        '連續 abort 先當 supplier scope bug 查(確認 supplierSlug 貫穿無誤),確認來源完整後單獨帶其一。',
+    );
+  }
+}
+
+// ── F4:handle preflight(charset 白名單 + 全域唯一;不變式 6)──
+// 小寫英數 + 單一 hyphen 分隔(handle = `${prefix}-${sku.toLowerCase()}`);禁前後/連續 hyphen、空白、slash 等 URL 危險字元。
+const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+export interface HandleIssue {
+  handle: string;
+  externalId: string;
+  reason: 'charset' | 'batch-duplicate' | 'target-collision';
+  detail: string;
+}
+
+/**
+ * 讀 target 現存 handle 的擁有者(supplier_slug, external_id)。products.handle 全域唯一 → 用於判斷本批 handle
+ * 是否已被「別的商品」佔用(同一商品 re-upsert 不算撞)。分批 .in()、唯讀非敏感欄。
+ */
+export async function readHandleOwners(
+  tgt: SupabaseClient,
+  handles: string[],
+): Promise<Map<string, { supplier_slug: string; external_id: string }>> {
+  const out = new Map<string, { supplier_slug: string; external_id: string }>();
+  for (let i = 0; i < handles.length; i += HANDLE_READ_BATCH) {
+    const batch = handles.slice(i, i + HANDLE_READ_BATCH);
+    const { data, error } = await tgt
+      .from('products')
+      .select('handle, supplier_slug, external_id')
+      .in('handle', batch);
+    if (error) throw new Error(`readHandleOwners@${i}: ${error.message}`);
+    for (const r of (data ?? []) as { handle: string; supplier_slug: string; external_id: string }[]) {
+      out.set(r.handle, { supplier_slug: r.supplier_slug, external_id: r.external_id });
+    }
+  }
+  return out;
+}
+
+/**
+ * handle preflight(對齊 pv_spec preflight 前例):
+ *   1. charset 白名單(HANDLE_RE)—— 髒字元(空白/slash/大寫/前後或連續 hyphen)→ URL 危險 / 破 SEO key;
+ *   2. 批內重複 —— 兩群產出同 handle(理論上 mainSku 唯一、防呆);
+ *   3. target 全域唯一 —— handle 已被「別的 (supplier_slug, external_id)」佔用(同商品 re-upsert 不算)。
+ * 回 issue 清單;呼叫端:寫入模式 abort 不進 upsert(避免中途撞 products_handle_key 部分寫髒)、dry-run 列報告。
+ */
+export function preflightHandles(
+  productRows: { handle: string; external_id: string; supplier_slug: string }[],
+  existingOwners: Map<string, { supplier_slug: string; external_id: string }>,
+): HandleIssue[] {
+  const issues: HandleIssue[] = [];
+  const seen = new Map<string, string>(); // handle → 首見的 external_id
+  for (const p of productRows) {
+    if (!HANDLE_RE.test(p.handle)) {
+      issues.push({ handle: p.handle, externalId: p.external_id, reason: 'charset', detail: '非 [a-z0-9] + 單一 hyphen(含空白/slash/大寫/前後或連續 hyphen)' });
+    }
+    const prev = seen.get(p.handle);
+    if (prev !== undefined) {
+      issues.push({ handle: p.handle, externalId: p.external_id, reason: 'batch-duplicate', detail: `與同批群 ${prev} 產出同 handle` });
+    } else {
+      seen.set(p.handle, p.external_id);
+    }
+    const owner = existingOwners.get(p.handle);
+    if (owner && !(owner.supplier_slug === p.supplier_slug && owner.external_id === p.external_id)) {
+      issues.push({ handle: p.handle, externalId: p.external_id, reason: 'target-collision', detail: `已被 ${owner.supplier_slug}/${owner.external_id} 佔用(products.handle 全域唯一)` });
+    }
+  }
+  return issues;
+}
+
+export function printHandlePreflightReport(issues: HandleIssue[], productCount: number): void {
+  console.log('\n=== handle preflight(F4、charset + 全域唯一)===');
+  if (!issues.length) {
+    console.log(`✅ ${productCount} 群 handle 全部合法且唯一(charset 白名單 + 批內 + target 零撞)`);
+    return;
+  }
+  const byReason = (r: HandleIssue['reason']): number => issues.filter((i) => i.reason === r).length;
+  // console.warn(非 error):本函式僅列報告、真正 abort 由 rpm-import 寫入模式 throw 發出(dry-run 不該顯紅字錯誤)。
+  console.warn(
+    `🔴 handle preflight 發現 ${issues.length} 筆問題(charset ${byReason('charset')} / 批內重複 ${byReason('batch-duplicate')} / target 撞 ${byReason('target-collision')})、寫入模式將 abort:`,
+  );
+  console.table(issues.slice(0, 50));
+  if (issues.length > 50) console.log(`(另有 ${issues.length - 50} 筆未列;修髒 handle 源頭 sku 後重跑)`);
 }

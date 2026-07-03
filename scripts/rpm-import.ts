@@ -52,7 +52,14 @@ import {
   preflightSpecUnique,
 } from './rpm-delta';
 import { computeDelist, applyDelist, printReconcileReport } from './rpm-reconcile';
-import { checkFetchIntegrity, printFetchIntegrityReport } from './rpm-preflight';
+import {
+  checkFetchIntegrity,
+  printFetchIntegrityReport,
+  assertBypassFlagsExclusive,
+  readHandleOwners,
+  preflightHandles,
+  printHandlePreflightReport,
+} from './rpm-preflight';
 
 // ── constants ──
 // P0-A-3:orchestrator 全量由 supplier-config 驅動(scope/brand/category/handle/subtitle/description)。
@@ -90,6 +97,7 @@ function requireEnv(name: string): string {
 // ── main ──
 async function main(): Promise<void> {
   const config = getSupplierConfig(SUPPLIER); // fail-closed:未登記 slug 直接 throw(→ main().catch exit 1)
+  assertBypassFlagsExclusive(ALLOW_FETCH_SHRINK, ALLOW_LARGE_DELIST); // F3:禁同帶兩 bypass 旗標(不變式 5)
   const now = new Date().toISOString();
   const source = createClient(
     requireEnv('QUOTE_SUPABASE_URL'),
@@ -189,6 +197,15 @@ async function main(): Promise<void> {
   }
   const variantRows = [...variantsByExternalId.values()].flat();
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
+
+  // ── 硬 gate 0:handle preflight(F4、charset + 全域唯一;不變式 6)──
+  //   dry-run 列報告不 throw(Sean 看完整報告);寫入模式撞鍵/髒字元 → abort 不進 upsert(避免中途撞 products_handle_key 部分寫髒)。
+  const handleOwners = await readHandleOwners(target, productRows.map((p) => p.handle));
+  const handleIssues = preflightHandles(productRows, handleOwners);
+  printHandlePreflightReport(handleIssues, productRows.length);
+  if (!DRY_RUN && handleIssues.length) {
+    throw new Error(`handle preflight 撞鍵/髒字元 ${handleIssues.length} 筆、abort 不寫(修源頭 sku 後重跑;dry-run 看清單)`);
+  }
 
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
   const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId);
