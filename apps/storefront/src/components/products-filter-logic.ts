@@ -47,11 +47,11 @@ const PRICE_RANGE_TABLE: Record<string, [number, number]> = {
  * 名稱 trim 後直接相等(清單端 vehicle-taxonomy 以 trim 後字串建節點、比對端同 trim = 兩端對稱;
  * 大小寫不做正規化、與清單同源故一致);年份三態同 vehicle-taxonomy 展開規則:
  *   yearEnd undefined=單年 / null=開放式(僅需 ≥yearStart) / number=明確範圍。
- * yearStart 缺(無年份資訊)時、選了年份即不命中(該 fitment 未貢獻任何可選年)。
- * 🔴 語意分歧揭示(待 Sean 拍板):domain matchFitmentYear(adapters/helpers/fitment.ts)對缺年
- * fitment 語意=「無年份限制、全命中」、與本處相反;本處採保守排除(選了年只信有年資料)。
- * 真資料 546/3484 fitment(15.7%)缺年、37/94 車型全缺年 → 影響非邊角、拍板後統一兩處。
- * 同理「無 fitments 商品」(通用款、現僅 1 件)選車後一律排除。
+ * yearStart 缺 = 「該車型全年份適用」、選了年份亦命中(Sean 2026-07-03 拍 Q1=A:資料查證
+ * 缺年 fitment 非通用件、是車型專用 body work、車型產期即範圍〔如 Panigale 1199 / 1098〕;
+ * 語意對齊 domain matchFitmentYear「無年份限制=全命中」、兩處統一、少漏商品、LINE 下單前
+ * 確認車款兜底)。真資料 546/3484 fitment(15.7%)缺年、37/94 車型全缺年。
+ * 「無 fitments 商品」(未標任何車款、現僅 1 件)選車後仍一律排除(無車型錨點、不可宣稱適用)。
  */
 function matchesVehicle(
   product: MockProduct,
@@ -62,7 +62,8 @@ function matchesVehicle(
     if (vehicle.model != null && f.modelCode?.trim() !== vehicle.model) return false;
     if (vehicle.year != null) {
       const ys = f.yearStart;
-      if (typeof ys !== 'number' || vehicle.year < ys) return false;
+      if (typeof ys !== 'number') return true; // 缺年=該車型全年份適用(Q1=A、對齊 domain)
+      if (vehicle.year < ys) return false;
       if (f.yearEnd === undefined) return vehicle.year === ys; // 單年
       if (f.yearEnd !== null && vehicle.year > f.yearEnd) return false; // 明確範圍上界(null=開放式不設上界)
     }

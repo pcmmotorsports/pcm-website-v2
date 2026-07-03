@@ -109,6 +109,37 @@ describe('filterProducts — vehicle (fitment 過濾、#152 修復)', () => {
     const r = filterProducts(products, emptyCascade, extras, MOCK_BRANDS);
     expect(r).toHaveLength(4);
   });
+
+  it('缺年 fitment = 該車型全年份適用、選了年份亦命中(Q1=A 2026-07-03)', () => {
+    // 真資料型態:車型專用 body work、報價單標車型未標年(如 Panigale 1199);對齊 domain matchFitmentYear
+    const noYear = [vp(9, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Panigale 1199' }])];
+    const withYear = filterProducts(
+      noYear,
+      { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Panigale 1199', year: 2013 } },
+      extras,
+      MOCK_BRANDS,
+    );
+    expect(ids(withYear)).toEqual([9]);
+    // 車型不符仍擋(缺年只放寬年份層、不放寬車型層)
+    const wrongModel = filterProducts(
+      noYear,
+      { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Monster', year: 2013 } },
+      extras,
+      MOCK_BRANDS,
+    );
+    expect(wrongModel).toHaveLength(0);
+  });
+
+  it('無 fitments 商品(未標任何車款)選車後仍排除(無車型錨點)', () => {
+    const noFitments = [vp(10, 'RPM CARBON', [])];
+    const r = filterProducts(
+      noFitments,
+      { ...emptyCascade, vehicle: { brand: 'Ducati' } },
+      extras,
+      MOCK_BRANDS,
+    );
+    expect(r).toHaveLength(0);
+  });
 });
 
 describe('sortProducts', () => {
