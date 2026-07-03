@@ -2,12 +2,13 @@
  * rpm-fetch — RPM Carbon 同步:來源唯讀讀取段(S3b 改讀報價單側乾淨 view)
  *
  * 來源(唯讀、絕不寫):報價單 B庫 `dllwkkfanaebrsuyuedy` 的乾淨公開 view `storefront_catalog_v`
- *   WHERE supplier_slug='rpm'(8878 變體);用 anon publishable key(只露公開目錄、讀不到成本/蝦皮/經銷)。
+ *   WHERE supplier_slug=<呼叫端指定>(P0-A-2 起參數化、多供應商共用;RPM=8878 變體);
+ *   用 anon publishable key(只露公開目錄、讀不到成本/蝦皮/經銷)。
  *
  * 🔴 紅線(S3b):
  *   - 只讀乾淨 view、零敏感欄(view 物理無 cost/shopee/source/price_store);
  *     價格只有 price_retail(=報價單零售真相、對接到網站 price_general)。
- *   - 每個讀取都 .eq('supplier_slug','rpm')(view 混 6 供應商、漏濾=灌別家)。
+ *   - 每個讀取都 .eq('supplier_slug', supplierSlug)(view 混多供應商、scope 由呼叫端一路傳入、漏濾=灌別家)。
  *
  * S3b(2026-06-02):取代 S2 版「直讀 raw products + product_groups_mv 兩查」。
  *   view grain=每列一變體、已含 main_sku / vehicle_label(廢掉 computeMainSku regex + fetchVehicleLabels 第二查)。
@@ -18,7 +19,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ── constants ──
-const SUPPLIER = 'rpm';
 const PAGE_SIZE = 1000;
 
 // ── source row types(view storefront_catalog_v、fetch→transform 共用)──
@@ -64,13 +64,13 @@ function sleep(ms: number): Promise<void> {
  * 讀單頁(指數退避重試)。anon 讀大 view 偶撞 statement timeout(57014)等暫時性錯誤、
  * 無人值守 cron 不能因一次冷撞整 run 失敗 → 退避重試(限 MAX_RETRY)、最後一次仍敗才拋(S5)。
  */
-async function fetchPageWithRetry(src: SupabaseClient, from: number): Promise<SourceProductRow[]> {
+async function fetchPageWithRetry(src: SupabaseClient, from: number, supplierSlug: string): Promise<SourceProductRow[]> {
   let lastErr: { code?: string; message: string } | null = null;
   for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
     const { data, error } = await src
       .from('storefront_catalog_v')
       .select(VIEW_COLS)
-      .eq('supplier_slug', SUPPLIER) // 🔴 紅線(view 混 6 供應商)
+      .eq('supplier_slug', supplierSlug) // 🔴 紅線(view 混多供應商、scope 由呼叫端傳入)
       .order('sku')
       .range(from, from + PAGE_SIZE - 1);
     if (!error) return (data ?? []) as unknown as SourceProductRow[];
@@ -86,10 +86,10 @@ async function fetchPageWithRetry(src: SupabaseClient, from: number): Promise<So
   throw new Error(`fetchPage@${from} 重試 ${MAX_RETRY} 次仍失敗:${lastErr?.code ?? ''} ${lastErr?.message ?? ''}`);
 }
 
-export async function fetchAllRpmProducts(src: SupabaseClient): Promise<SourceProductRow[]> {
+export async function fetchAllSupplierProducts(src: SupabaseClient, supplierSlug: string): Promise<SourceProductRow[]> {
   const all: SourceProductRow[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
-    const rows = await fetchPageWithRetry(src, from);
+    const rows = await fetchPageWithRetry(src, from, supplierSlug);
     all.push(...rows);
     if (rows.length < PAGE_SIZE) break;
   }

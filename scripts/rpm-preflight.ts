@@ -41,11 +41,12 @@ export interface FetchIntegrityReport {
  */
 export async function checkFetchIntegrity(
   tgt: SupabaseClient,
+  supplierSlug: string,
   sourceMainSkus: Set<string>,
   sourceVariantCount: number,
   opts: { allowFetchShrink?: boolean } = {},
 ): Promise<FetchIntegrityReport> {
-  const active = await readActiveExternalIds(tgt); // target 現存 active RPM 商品 external_id(= main_sku)
+  const active = await readActiveExternalIds(tgt, supplierSlug); // target 現存 active 該供應商商品 external_id(= main_sku)
   const missing = active.filter((id) => !sourceMainSkus.has(id)); // 差集:active 中 source 沒有的(新品蓋不掉)
   const targetActiveCount = active.length;
   const shrinkRatio = targetActiveCount > 0 ? missing.length / targetActiveCount : 0;

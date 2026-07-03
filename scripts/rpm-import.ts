@@ -32,7 +32,7 @@ import { existsSync } from 'node:fs';
 if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 import { createClient } from '@supabase/supabase-js';
-import { fetchAllRpmProducts, type SourceProductRow } from './rpm-fetch';
+import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
   transformGroup,
   transformVariant,
@@ -52,6 +52,10 @@ import { computeDelist, applyDelist, printReconcileReport } from './rpm-reconcil
 import { checkFetchIntegrity, printFetchIntegrityReport } from './rpm-preflight';
 
 // ── constants ──
+// P0-A-2:同步管線 4 支 helper(fetch/delta/reconcile/preflight)已 supplier 參數化、scope 由此值一路貫穿。
+// orchestrator 目前仍固定跑 rpm 一家(--supplier CLI + supplier-config 全量驅動 brand/category/handle = P0-A-3);
+// 改多家前此值維持 'rpm' → 管線輸出 byte 等價(不變式 3)。
+const SUPPLIER_SLUG = 'rpm';
 const BRAND_SLUG = 'rpm-carbon';
 const CATEGORY_RAW_PATH = '碳纖維部品';
 const ALLOWED_TARGET_REF = 'bmpnplmnldofgaohnaok'; // prod-safety:只准寫這個 dev project
@@ -98,7 +102,7 @@ async function main(): Promise<void> {
 
   console.log(`[rpm-import] ${DRY_RUN ? 'DRY-RUN' : 'WRITE'} 模式 / 讀報價單乾淨 view…`);
   const [products, brandId, categoryId] = await Promise.all([
-    fetchAllRpmProducts(source),
+    fetchAllSupplierProducts(source, SUPPLIER_SLUG),
     resolveId(target, 'brands', 'slug', BRAND_SLUG),
     resolveId(target, 'categories', 'raw_path', CATEGORY_RAW_PATH),
   ]);
@@ -108,7 +112,7 @@ async function main(): Promise<void> {
   //   fetch 永遠全量(--group/--limit 僅篩寫入、不篩 fetch)→ 此 gate 不分模式皆驗。dry-run 只報告不 abort。
   //   差集比 target active 商品(growth-immune、新品蓋不掉缺口);5% 嚴於 S4 下架 10%、抓 5–10% 靜默截斷帶。
   const sourceMainSkus = new Set(products.map((p) => p.main_sku));
-  const fetchIntegrity = await checkFetchIntegrity(target, sourceMainSkus, products.length, {
+  const fetchIntegrity = await checkFetchIntegrity(target, SUPPLIER_SLUG, sourceMainSkus, products.length, {
     allowFetchShrink: ALLOW_FETCH_SHRINK,
   });
   printFetchIntegrityReport(fetchIntegrity);
@@ -147,7 +151,7 @@ async function main(): Promise<void> {
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
 
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
-  const collisions = await preflightSpecUnique(target, variantsByExternalId);
+  const collisions = await preflightSpecUnique(target, SUPPLIER_SLUG, variantsByExternalId);
   if (collisions.length) {
     console.error(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、abort 不寫:`);
     console.table(collisions.slice(0, 50));
@@ -155,7 +159,7 @@ async function main(): Promise<void> {
   }
 
   // ── 價格 delta gate(兩層、唯讀比對)──
-  const delta = await computeDelta(target, productRows, variantRows);
+  const delta = await computeDelta(target, SUPPLIER_SLUG, productRows, variantRows);
   printDeltaReport(delta, { full: DELTA_FULL, json: DELTA_JSON });
 
   if (DRY_RUN) {
@@ -168,7 +172,7 @@ async function main(): Promise<void> {
     // S4 下架對賬(只全量;篩選下 source 不完整、跳過避免誤判)。
     // dry-run 即使 gate 觸發也只印報告不 throw(故意:Sean 要看完整報告、不靠 dry-run exit code 當預檢;真跑才 exit 1)。
     if (FULL_MODE) {
-      const recon = await computeDelist(target, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+      const recon = await computeDelist(target, SUPPLIER_SLUG, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
       printReconcileReport(recon, { full: DELTA_FULL });
     } else {
       console.log('[rpm-import] 下架對賬跳過(--group/--limit 篩選、source 不完整、全量才對賬)');
@@ -204,13 +208,13 @@ async function main(): Promise<void> {
 
   // ── S4 下架對賬(源頭消失 → 軟下架;upsert 後跑、只全量、篩選模式跳過避免誤殺)──
   if (FULL_MODE) {
-    const recon = await computeDelist(target, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+    const recon = await computeDelist(target, SUPPLIER_SLUG, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
     printReconcileReport(recon, { full: DELTA_FULL });
     if (recon.aborted) {
       throw new Error(`下架對賬安全 gate 觸發、不下架:${recon.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
     }
     if (recon.toDelist.length) {
-      const n = await applyDelist(target, recon.toDelist, now);
+      const n = await applyDelist(target, SUPPLIER_SLUG, recon.toDelist, now);
       console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope rpm、變體靠 RLS 連動隱藏)`);
     } else {
       console.log('[rpm-import] 下架對賬:無待下架、零孤兒');

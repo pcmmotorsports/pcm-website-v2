@@ -14,7 +14,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ProductRow, VariantRow } from './rpm-transform';
 
 const READ_BATCH = 300;
-const SUPPLIER = 'rpm';
 const ABSURD_PRICE = 500_000; // 單價離譜上限(碳纖維部品零售遠低於此、超過疑倉庫資料打錯、列離群給 Sean 瞄)
 
 /** spec 穩定序列化(key 排序、確定性比對) */
@@ -27,6 +26,7 @@ function stableSpec(spec: Record<string, string>): string {
 /** 分批讀 target 現存 price_general(by key 欄、避免大 .in() 撞 URL 上限) */
 async function readExistingPrices(
   tgt: SupabaseClient,
+  supplierSlug: string,
   table: string,
   keyCol: string,
   keys: string[],
@@ -37,7 +37,7 @@ async function readExistingPrices(
     const { data, error } = await tgt
       .from(table)
       .select(`${keyCol}, price_general`)
-      .eq('supplier_slug', SUPPLIER)
+      .eq('supplier_slug', supplierSlug)
       .in(keyCol, batch);
     if (error) throw new Error(`readExistingPrices ${table}@${i}: ${error.message}`);
     // supabase-js 動態 select(模板字串)回 ParserError 型、無法靜態推 → 雙 cast escape hatch(同 rpm-load)
@@ -83,11 +83,12 @@ function isOutlier(line: DeltaLine): boolean {
 /** 兩層 delta:products(external_id)+ variants(sku),各比現存 vs 新 price_general */
 export async function computeDelta(
   tgt: SupabaseClient,
+  supplierSlug: string,
   productRows: ProductRow[],
   variantRows: VariantRow[],
 ): Promise<DeltaReport> {
-  const existProd = await readExistingPrices(tgt, 'products', 'external_id', productRows.map((p) => p.external_id));
-  const existVar = await readExistingPrices(tgt, 'product_variants', 'sku', variantRows.map((v) => v.sku));
+  const existProd = await readExistingPrices(tgt, supplierSlug, 'products', 'external_id', productRows.map((p) => p.external_id));
+  const existVar = await readExistingPrices(tgt, supplierSlug, 'product_variants', 'sku', variantRows.map((v) => v.sku));
 
   const productChanges: DeltaLine[] = [];
   const abnormal: DeltaLine[] = [];
@@ -163,6 +164,7 @@ export interface SpecCollision {
  */
 export async function preflightSpecUnique(
   tgt: SupabaseClient,
+  supplierSlug: string,
   variantsByExternalId: Map<string, VariantRow[]>,
 ): Promise<SpecCollision[]> {
   const externalIds = [...variantsByExternalId.keys()];
@@ -174,7 +176,7 @@ export async function preflightSpecUnique(
     const { data, error } = await tgt
       .from('products')
       .select('id, external_id')
-      .eq('supplier_slug', SUPPLIER)
+      .eq('supplier_slug', supplierSlug)
       .in('external_id', batch);
     if (error) throw new Error(`preflight products@${i}: ${error.message}`);
     for (const r of (data ?? []) as { id: string; external_id: string }[]) idByExt.set(r.external_id, r.id);

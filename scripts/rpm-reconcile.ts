@@ -11,14 +11,13 @@
  *   - source 集合為空 → 硬 abort(疑 fetch 失敗、絕不下架全部、不可 bypass)。
  *   - 待下架比例 > DELIST_RATIO_ABORT(疑來源殘缺、批次部分抓)→ abort 除非顯式 --allow-large-delist。
  *   - 只在 FULL 模式跑(無 --group/--limit;篩選下 source 不完整、跑了會誤殺全站)→ 由 rpm-import 把關。
- *   - applyDelist 一律 scope supplier_slug='rpm'(rollback 反向也須此 scope)+ delisted_at IS NULL(冪等、不覆寫既有時戳)。
+ *   - applyDelist 一律 scope supplier_slug=<呼叫端 supplierSlug>(每家自成一輪、rollback 反向也須此 scope)+ delisted_at IS NULL(冪等、不覆寫既有時戳)。
  *
  * 全程唯讀比對 + 只在 confirm-write 才 UPDATE;唯讀 SELECT 只取 external_id(不取金額/敏感欄)。
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-const SUPPLIER = 'rpm';
 const READ_BATCH = 1000;
 const WRITE_BATCH = 500;
 const DELIST_RATIO_ABORT = 0.1; // 單次下架比例硬上限(>10% 疑來源殘缺、防誤殺;確認後 --allow-large-delist 放行)
@@ -34,13 +33,13 @@ export interface ReconcileReport {
 }
 
 /** 分批讀 target 現存「未下架」RPM 商品 external_id(只取 key、不取金額/敏感;S5 W1 共用) */
-export async function readActiveExternalIds(tgt: SupabaseClient): Promise<string[]> {
+export async function readActiveExternalIds(tgt: SupabaseClient, supplierSlug: string): Promise<string[]> {
   const out: string[] = [];
   for (let from = 0; ; from += READ_BATCH) {
     const { data, error } = await tgt
       .from('products')
       .select('external_id')
-      .eq('supplier_slug', SUPPLIER)
+      .eq('supplier_slug', supplierSlug)
       .is('delisted_at', null)
       .order('external_id')
       .range(from, from + READ_BATCH - 1);
@@ -58,10 +57,11 @@ export async function readActiveExternalIds(tgt: SupabaseClient): Promise<string
  */
 export async function computeDelist(
   tgt: SupabaseClient,
+  supplierSlug: string,
   sourceExternalIds: Set<string>,
   opts: { allowLargeDelist?: boolean } = {},
 ): Promise<ReconcileReport> {
-  const active = await readActiveExternalIds(tgt);
+  const active = await readActiveExternalIds(tgt, supplierSlug);
   const toDelist = active.filter((id) => !sourceExternalIds.has(id));
   const ratio = active.length > 0 ? toDelist.length / active.length : 0;
 
@@ -90,17 +90,17 @@ export async function computeDelist(
 }
 
 /**
- * 執行軟下架:UPDATE delisted_at=now WHERE supplier_slug='rpm' AND external_id IN batch AND delisted_at IS NULL。
+ * 執行軟下架:UPDATE delisted_at=now WHERE supplier_slug=supplierSlug AND external_id IN batch AND delisted_at IS NULL。
  * 回實際下架列數(.select 計);冪等(再跑不重複設、IS NULL 過濾)。
  */
-export async function applyDelist(tgt: SupabaseClient, externalIds: string[], now: string): Promise<number> {
+export async function applyDelist(tgt: SupabaseClient, supplierSlug: string, externalIds: string[], now: string): Promise<number> {
   let n = 0;
   for (let i = 0; i < externalIds.length; i += WRITE_BATCH) {
     const batch = externalIds.slice(i, i + WRITE_BATCH);
     const { data, error } = await tgt
       .from('products')
       .update({ delisted_at: now })
-      .eq('supplier_slug', SUPPLIER) // 🔴 scope rpm(rollback 反向也須此 scope)
+      .eq('supplier_slug', supplierSlug) // 🔴 scope 該供應商(rollback 反向也須此 scope)
       .is('delisted_at', null) // 冪等:只動現未下架、不覆寫既有下架時戳
       .in('external_id', batch)
       .select('external_id');
