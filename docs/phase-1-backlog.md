@@ -6503,6 +6503,53 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-01 / #252 begin-dedup 兜底驗證二度確認(adversarial-reviewer F1 HIGH + codex must-fix)
 - **相關:** [[#252]]、[[#250]]、[[#255]](去重可一併設計)、canonical §14 步45(B 縱深)、anomaly genesis `20260624120005`、W1 runbook `docs/runbooks/2026-06-26-m3-3ds-double-charge-refund-runbook.md`、驗證報告 `docs/reviews/2026-07-01-m3-252-begin-dedup-fallback-verification.md`
 
+### #257. 🟡 RPM 33 商品來源缺圖 → 前台顯 placeholder(資料缺口、非程式 bug)
+
+- **狀態:** ⏳ 待 Sean/RPM 補圖(Claude 端無可修)
+- **優先級:** 🟡 低(placeholder 已可看、商品資料本身正確)
+- **問題:**
+  - live 站 33 個 RPM 商品(如 `rpm-bmsx-03` 頭罩 / `rpm-dmuv201` 儀表板內飾蓋 / `rpm-dpv42536` 尾殼)卡片與商品頁顯 `/placeholder-product.png`。
+  - 2026-07-03 唯讀 MCP 雙庫查證:報價單來源 `storefront_catalog_v` 該 33 群 `image_url`/`images` **皆空**(1,117 群中 33 群 groups_no_image、與網站 33 筆完全對上)→ **來源缺圖、re-sync 救不了**。
+- **觸發事件:** 2026-07-03 Sean 開站實測回報「幾個商品是舊假圖」(#5 調查拆出 #5a)。
+- **預期解法:** Sean/RPM 補該 33 群真圖進報價單側 → 每日同步自動帶上;或 Sean 拍接受 placeholder。
+- **不修會痛在:**
+  - 擴充性:多品牌放量後「來源缺圖 → placeholder」是常態路徑,需要來源端補圖 SOP,否則每家都累積無圖商品。
+  - bug 可追蹤性:缺圖與「假圖 bug」易混(本次即混報),有此條可直接對照 33 清單。
+- **估時:** Claude 端 0(資料工作在報價單側);清單可隨時用 SQL 重產。
+- **依賴:** 報價單側補圖流程。
+- **發現於:** 2026-07-03 / #5 調查。
+- **相關:** #5b(HomeSelect 導航修、已修)/ #258。
+
+### #258. 🔴 ProductPage「相關商品」吃 MOCK_PRODUCTS 假資料(多品牌上線即爆的休眠地雷)
+
+- **狀態:** ⏳ 待執行(已納入 Phase 0/Phase 1 gate:`docs/specs/2026-07-03-phase0-multibrand-foundation-plan.md`)
+- **優先級:** 🔴 高(GB/Bonamici 上架「前」必修;現況休眠無症狀)
+- **問題:**
+  - `ProductPage.tsx:201-208` 相關商品區塊 = `MOCK_PRODUCTS.filter(同大類)`(20 筆手寫 demo、無 image 欄→必假 Unsplash 圖、slug 如 `lightech-1` 在真 DB 無 handle→點了 404)。
+  - 現況不觸發:真商品全在「碳纖維部品」、與 mock 大類(操控部品/精品配件/…)零交集 → `relatedProducts.length===0` 整段不渲染。
+  - 🔴 GB/Bonamici 一上架(分類=操控部品等 16 大類)即與 mock 大類**命中** → 所有新品牌商品頁冒出假圖+死連結卡。
+- **觸發事件:** 2026-07-03 #5 調查(candidate 2);同日 Phase 0 multibrand plan 獲批。
+- **預期解法:** 相關商品改真資料(同分類 Supabase query、排除自身、取 4)或先整段移除待真資料版;於 Phase 1 寫入 prod 前完成(P0-C 或 Phase 1 前置片)。
+- **不修會痛在:**
+  - 擴充性:多品牌上線被此地雷連坐,每個商品頁尾都是假卡。
+  - bug 可追蹤性:症狀(假圖+404)與 #5a/#5b 相似,不記此條會再次混報。
+- **估時:** 15-30 分鐘(移除)/ 30-45 分鐘(接真同分類 query)。
+- **依賴:** Phase 0 plan(已批);與 #205(featured 旗標)、#220c(品牌側欄)同屬前台目錄接線家族。
+- **發現於:** 2026-07-03 / #5 調查 candidate 2。
+- **相關:** #212 / #257 / Phase 0 plan §2.6。
+
+### #259. 🟡 prod products 表殘留 1 筆 `supplier_slug='test'` 測試商品
+
+- **狀態:** ⏳ 待 Sean 點頭清除(prod DB 寫入、Claude 不自行動)
+- **優先級:** 🟡 低(單筆;是否公開可見取決於其 category/delisted 狀態,清除前再查)
+- **問題:** 2026-07-03 唯讀 MCP 盤點發現 prod `products` 有 1 筆 `supplier_slug='test'`(RPM 1,117 之外)。多供應商化後 per-supplier 對賬/統計會被雜訊干擾。
+- **預期解法:** Sean 點頭 → 單筆 DELETE(或 delisted_at 軟下架)+ 事後唯讀驗證;動作納 Phase 0/P0-D 順手清單。
+- **不修會痛在:** 可維護性:per-supplier 報表/reconcile 出現幽靈供應商;bug 可追蹤性:未來查「為什麼有 12 家」浪費一輪。
+- **估時:** 5 分鐘(含驗證)。
+- **依賴:** Sean 授權(prod 寫入)。
+- **發現於:** 2026-07-03 / #5 調查 MCP 盤點。
+- **相關:** Phase 0 plan / #257。
+
 ---
 
 ## 紀錄模板
