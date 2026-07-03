@@ -456,4 +456,11 @@ docs/patterns/(若有)
 - 藍圖結構真的變動(新增 / 改組 slice)→ skill 會回報、需人工更新 json 結構。
 - 詳細規則見 skill 自己的 `SKILL.md`。
 
+---
+
+## 15. graphify / context7(2026-07-03 CLAUDE.md 瘦身時自本體原文搬入)
+
+- **context7 MCP** — 拉 Next 16/React 19/Tailwind v4/Supabase 版本對應官方文件、補訓練落差(prompt 加「use context7」)。
+- **`/graphify`**(結構地圖、非進度地圖)— repo 掃知識圖譜、產物 `graphify-out/`(本機不入 git)。`/graphify .` 全建 / `--update` 增量(動程式碼才跑)/ `query`·`explain`·`path`(查詢用英文)。用 session 額度、**別設 GEMINI/GOOGLE key、別跑 headless extract**;`.graphifyignore` 擋 .env*/.claude/憑證/設計截圖。
+
 — END —

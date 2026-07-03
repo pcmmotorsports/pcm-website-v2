@@ -4,10 +4,9 @@
 > Claude Code 版雙生檔 = `CLAUDE.md`(共用規則須兩檔同步;鐵則 1-11 + git/bash/server/CJK 共用,鐵則 12 + 角色框架為 Codex 視角)。
 > **衝突仲裁:`STATUS.md` > `docs/PHASE-1-NORTHSTAR.md` > 本檔 > 其他 md > 對話歷史。**
 
-**按需路由(2026-07-03 與 CLAUDE.md 同步瘦身:移除 @import 常載、原版備份 `docs/archive/2026-07-03-AGENTS-md-pre-slim.md`;命中情境才讀,不通讀)**:
-- Phase 1 範圍爭議 → `docs/PHASE-1-NORTHSTAR.md` §1;design 真權威與矛盾仲裁 → 同檔 §2;上線判斷 → 同檔 §5
-- 事故式教訓 37 條(rsync/env·secret/跨 repo/立法格式等) → `docs/lessons-learned.md` §12(掃標題、精準讀命中條);偵察方法論 → 同檔 §13;寫 slice 指令前自檢 → `docs/working-style.md` §6.3;Sean 報告/決策格式 → 同檔 §1/§2;Sean 環境與 dashboard → 同檔 §4
-- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`
+@import docs/lessons-learned.md
+@import docs/working-style.md
+@import docs/PHASE-1-NORTHSTAR.md
 
 ---
 
@@ -18,7 +17,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ```
 預期:branch=`dev` / 工作樹 clean+up-to-date / HEAD 對齊 STATUS.md。**任一不綠 → 停下回報 Sean、不自行修復狀態。**
 
-分級開工:**每 session 必讀** STATUS.md(「下一步」「Sean 待決策」「Blocker」)+ 本工作直接相關 handoff/PRD,讀完報 Sean「已就緒、可開工」;**新 milestone / 陌生領域才加讀** `docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。其餘按上方路由表按需讀,不為「保險」通讀大檔。
+依序讀:① STATUS.md ② PHASE-1-NORTHSTAR.md ③ lessons-learned.md ④ working-style.md ⑤ 本檔 ⑥ PROJECT-OVERVIEW.md ⑦ PHASE-2-VISION.md ⑧ features/vehicle-service-ecosystem.md ⑨ tools-and-skills.md。讀完報 Sean「我已讀完套件、可以開工」。
 
 ---
 
@@ -29,10 +28,10 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
-6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行注意。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
-7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;Claude Code 端「讀取/驗證/審查/機械批次套用(限主對話已驗證模式、diff 回核)」的委派授權見其 `~/.claude/rules/10-model-dispatch.md` §0-§1,你審到此類委派時知悉為合規、非鐵則 7 違反)。
+6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行注意。
+7. **Orchestrator 永久禁用** — 複雜工作改單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理)。
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema·API·共用元件 / 動 next.config·vercel.json·Medusa config·Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
-9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
+9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
 11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(詳 `docs/patterns/slice-checkpoint.md`)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**(背景見 slice-checkpoint.md §1)。
 12. **(Codex 視角)收到 Codex Review Packet 做唯讀審查** — 收 Sean 轉貼的「Codex Review Packet」時:**唯讀審查、不改任何檔、不跑寫入工具、不 commit、不 push**。只回 findings / 風險點 / 是否可繼續(可 commit / 需修正 / 需 Sean 拍板)。審查重點(任一漏掉就點出):① 安全/權限(RLS·GRANT·經銷價洩漏)② schema/migration 會否破壞現有行為 ③ 是否符合 STATUS·NORTHSTAR·本檔鐵則 ④ 該補的 backlog/文件。與鐵則 8 互補:plan 在動手前、Codex Review 在 commit 前。Packet 由 Claude Code 整理、Sean 轉貼、格式見 `docs/patterns/codex-review-packet.md`。(Claude Code 端對應規則 = 產出 Packet,見 CLAUDE.md 鐵則 12。)
