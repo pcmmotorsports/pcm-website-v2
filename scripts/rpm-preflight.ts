@@ -106,8 +106,10 @@ export function assertBypassFlagsExclusive(allowFetchShrink: boolean, allowLarge
 }
 
 // ── F4:handle preflight(charset 白名單 + 全域唯一;不變式 6)──
-// 小寫英數 + 單一 hyphen 分隔(handle = `${prefix}-${sku.toLowerCase()}`);禁前後/連續 hyphen、空白、slash 等 URL 危險字元。
-const HANDLE_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+// 小寫英數 + 單一 hyphen/底線分隔(handle = `${prefix}-${sku.toLowerCase()}`)。
+// 🔴 底線放行:底線為 URL 合法字元(RFC 3986 unreserved)、bonamici sku 用底線(PU_001),2026-07-03 Sean 拍 A;
+//   仍禁前後/連續分隔符、空白、slash、大寫等 URL 危險字元(底線僅作分隔符、非自由字元)。
+const HANDLE_RE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/;
 
 export interface HandleIssue {
   handle: string;
@@ -154,7 +156,7 @@ export function preflightHandles(
   const seen = new Map<string, string>(); // handle → 首見的 external_id
   for (const p of productRows) {
     if (!HANDLE_RE.test(p.handle)) {
-      issues.push({ handle: p.handle, externalId: p.external_id, reason: 'charset', detail: '非 [a-z0-9] + 單一 hyphen(含空白/slash/大寫/前後或連續 hyphen)' });
+      issues.push({ handle: p.handle, externalId: p.external_id, reason: 'charset', detail: '非 [a-z0-9] + 單一 hyphen/底線分隔(含空白/slash/大寫/前後或連續分隔符)' });
     }
     const prev = seen.get(p.handle);
     if (prev !== undefined) {

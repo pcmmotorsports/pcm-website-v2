@@ -29,17 +29,22 @@ describe('F4 preflightHandles(不變式 6)', () => {
   const row = (handle: string, external_id: string, supplier_slug = 'rpm') => ({ handle, external_id, supplier_slug });
   const NO_OWNERS = new Map<string, { supplier_slug: string; external_id: string }>();
 
-  it('合法 handle(小寫英數 + 單一 hyphen)全唯一 → 零 issue', () => {
-    const rows = [row('rpm-aprilia-01', 'APRILIA-01'), row('gbracing-gb-001', 'GB-001', 'gbracing'), row('bonamici-bon-1', 'BON-1', 'bonamici')];
+  it('合法 handle(小寫英數 + 單一 hyphen/底線分隔)全唯一 → 零 issue', () => {
+    const rows = [
+      row('rpm-aprilia-01', 'APRILIA-01'),
+      row('gbracing-gb-001', 'GB-001', 'gbracing'),
+      row('bonamici-pu_001', 'PU_001', 'bonamici'), // 🔴 底線合法(Sean 拍 A、bonamici sku PU_001 用底線)
+      row('bonamici-pu_001_bk', 'PU_001_BK', 'bonamici'),
+    ];
     expect(preflightHandles(rows, NO_OWNERS)).toEqual([]);
   });
 
-  it('charset 髒字元(大寫/空白/slash/底線/前後或連續 hyphen/空)全被抓', () => {
-    const dirty = ['RPM-APRILIA-01', 'rpm aprilia', 'rpm/aprilia', 'rpm_x', '-rpm-x', 'rpm-x-', 'rpm--x', ''];
+  it('charset 髒字元(大寫/空白/slash/前後或連續 hyphen/前後或連續底線/空)全被抓;底線僅作分隔符', () => {
+    const dirty = ['RPM-APRILIA-01', 'rpm aprilia', 'rpm/aprilia', '-rpm-x', 'rpm-x-', 'rpm--x', '_rpm', 'rpm_', 'rpm__x', ''];
     const rows = dirty.map((h, i) => row(h, `E${i}`));
     const issues = preflightHandles(rows, NO_OWNERS);
     const charset = issues.filter((i) => i.reason === 'charset');
-    expect(charset.map((i) => i.handle)).toEqual(dirty); // 逐一命中、無漏
+    expect(charset.map((i) => i.handle)).toEqual(dirty); // 逐一命中、無漏(前後/連續底線仍髒)
   });
 
   it('批內兩群產出同 handle → batch-duplicate(首見不報、後見報)', () => {
