@@ -33,7 +33,9 @@ export default defineConfig({
     // - 原 'packages/**/*.test.ts' 只抓 .ts、M-1-03+ storefront / ui React component test (.tsx) 會 silently skipped
     // - 補 .tsx 涵蓋 React component test、補 .spec 對齊 vitest 預設兩者都收慣例、補 apps/** 涵蓋 storefront server-side test
     // - 對齊 testing-strategy.md §1 字面同步擴
-    include: ['{packages,apps}/**/*.{test,spec}.{ts,tsx}'],
+    // - scripts/**(Phase 0 P0-A):同步管線腳本(tsx 直跑、非 build 產物)之同層 *.test.ts,
+    //   原 glob 掃不到 → scripts 測試 silently skipped;補 scripts/ 讓 supplier-config 等回歸鎖進 CI。
+    include: ['{packages,apps,scripts}/**/*.{test,spec}.{ts,tsx}'],
     exclude: [
       '**/node_modules/**',
       '**/dist/**',

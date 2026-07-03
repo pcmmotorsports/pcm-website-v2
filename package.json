@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "lint": "turbo run lint && eslint scripts/*.ts --max-warnings 0",
+    "lint": "turbo run lint && eslint 'scripts/*.ts' --max-warnings 0",
     "typecheck": "turbo run typecheck && tsc -p tsconfig.scripts.json --noEmit",
     "test": "vitest run",
     "clean": "turbo run clean",
