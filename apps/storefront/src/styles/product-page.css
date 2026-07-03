@@ -141,29 +141,28 @@
   pointer-events: none;
 }
 
-/* OD-2:arrow 為 PCM 既有增強(OD §5 hero 無箭頭、靠縮圖切圖)— 保留功能,radius 14→0 對齊 OD 直角;
-   玻璃毛玻璃外觀留(Sean 後續視覺 polish 可再調)。 */
+/* OD-2:arrow 為 PCM 既有增強(OD §5 hero 無箭頭、靠縮圖切圖)— 保留功能,radius→0 對齊 OD 直角;
+   Sean 2026-07-03:移除半透明毛玻璃方框(會蓋到商品圖)→ 只留 < > 符號、透明底,加 drop-shadow 保任意底圖可讀。 */
 .pd-hero-arrow {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
   width: 72px; height: 72px;
   border-radius: 0;
-  background: rgba(255,255,255,0.32);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.5);
+  background: transparent;
+  border: 0;
   color: #1d1d1f;
+  filter: drop-shadow(0 1px 2px rgba(255,255,255,0.85)) drop-shadow(0 0 1px rgba(0,0,0,0.3));
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 180ms, background 180ms, transform 180ms;
+  transition: opacity 180ms, transform 180ms;
   z-index: 3;
 }
 .pd-hero-img:hover .pd-hero-arrow { opacity: 1; }
-.pd-hero-arrow:hover:not(:disabled) { background: rgba(255,255,255,0.65); }
+.pd-hero-arrow:hover:not(:disabled) { transform: translateY(-50%) scale(1.12); }
 .pd-hero-arrow:active:not(:disabled) { transform: translateY(-50%) scale(0.96); }
 .pd-hero-arrow:disabled { opacity: 0 !important; cursor: not-allowed; }
 .pd-hero-arrow-left { left: 18px; }
