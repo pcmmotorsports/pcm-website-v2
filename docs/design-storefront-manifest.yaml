@@ -200,7 +200,7 @@ components:
     storefront:
       component: "apps/storefront/src/components/HomeFooter.tsx"
       css: "apps/storefront/src/styles/home.css"  # .ed-footer* 家族、全域 import via layout.tsx
-      last_modified_commit: "7c5ed15"  # 記可達祖先(=7c5ed15);Q2=A social 接真 真改見 git log
+      last_modified_commit: "5049254"  # 記可達祖先(=P0-C-b1 父 commit);本 slice 真改見 git log [P0-C-b1]:門市營業時間 20:00→19:00(Sean 全站同步、非視覺結構改)
       last_modified_date: "2026-07-03 (Q2=A social 接真:三顆社群 button disabled〔#136〕→ 回 design <a> 結構 + SOCIAL_URLS 真連結 + _blank/noopener、聯絡客服仍 disabled;home.css 順刪 #136 殘留死選擇器「, .ed-footer-social button」。前次 A4:門市電話/統編佔位 → site-config 真值〔0930-531-867 / 90003020〕、HomeFooter.test 防回歸斷言)"
     design:
       component: "design-reference/components/HomePage.jsx"  # SiteFooter 在 design 是 HomePage 內元素(L327/L333 佔位)

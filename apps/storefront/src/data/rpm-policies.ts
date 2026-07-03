@@ -30,7 +30,7 @@ export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
   [
     '退換貨時商品需維持 ',
     { b: '全新未安裝、原始包裝完整' },
-    '（含外盒、發票、配件）；一旦安裝過或有使用痕跡，就沒辦法退換了。',
+    '（含外盒、收據、配件）；一旦安裝過或有使用痕跡，就沒辦法退換了。',
   ],
   [
     '關於鑑賞期：本賣場屬於 ',
@@ -43,7 +43,7 @@ export const RPM_WARRANTY_PARAGRAPHS: PolicyRun[][] = [
 
 /** 退換補充 3 點(ProductTabs 保固 pane + InfoShippingPage 退換貨 tab 渲染 ul;ProductFAQ 依 OD FAQ 模板省略、只放正文) */
 export const RPM_WARRANTY_NOTES: PolicyRun[][] = [
-  ['瑕疵認定：紋路明顯錯位、表面破損、孔位偏差超過合理範圍'],
+  ['瑕疵認定：紋路明顯錯位、表面破損、孔位偏差、超過合理公差範圍'],
   ['不在範圍：人為碰撞、摔車、不當安裝、自行加工'],
-  ['有問題請走 LINE：', { b: '@pcmmoto' }, ' · 週一–週六 10:00–20:00'],
+  ['有問題請加 LINE：', { b: '@pcmmoto' }, ' · 週一–週六 10:00–19:00'],
 ];

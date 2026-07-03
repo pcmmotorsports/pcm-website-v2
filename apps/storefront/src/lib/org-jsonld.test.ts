@@ -59,13 +59,13 @@ describe('buildOrganizationJsonLd', () => {
     expect(addr.streetAddress).toBe('化成路736巷18號1樓');
   });
 
-  it('openingHoursSpecification 週一–六 10:00–20:00', () => {
+  it('openingHoursSpecification 週一–六 10:00–19:00', () => {
     mockResolve.mockReturnValue(BASE);
     const oh = buildOrganizationJsonLd().openingHoursSpecification as Record<string, unknown>;
     expect(oh['@type']).toBe('OpeningHoursSpecification');
     expect(oh.dayOfWeek).toHaveLength(6);
     expect(oh.opens).toBe('10:00');
-    expect(oh.closes).toBe('20:00');
+    expect(oh.closes).toBe('19:00');
   });
 
   it('sameAs 為 3 個可點 URL(FB / IG / LINE),不含 @pcmmoto basic id', () => {

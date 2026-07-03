@@ -32,11 +32,11 @@ export const STORE_ADDRESS = {
   street: '化成路736巷18號1樓',
 } as const;
 
-/** 營業時間(週一–六 10:00–20:00;對齊 footer / rpm-policies)。 */
+/** 營業時間(週一–六 10:00–19:00;對齊 footer / rpm-policies;Sean 2026-07-04 全站 20:00→19:00)。 */
 export const OPENING_HOURS = {
   days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
   opens: '10:00',
-  closes: '20:00',
+  closes: '19:00',
 } as const;
 
 /** 官方社群 / 通訊(sameAs 用;皆為可點 URL)。 */

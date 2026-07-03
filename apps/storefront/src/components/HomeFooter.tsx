@@ -52,7 +52,7 @@ export function HomeFooter() {
           <div>
             <div className="ed-mono ed-footer-h">門市</div>
             <p>新北市新莊區化成路<br/>736 巷 18 號一樓</p>
-            <p>週一-週六 10:00-20:00</p>
+            <p>週一-週六 10:00-19:00</p>
             <p>{CONTACT_PHONE_DISPLAY}</p>
           </div>
         </div>
