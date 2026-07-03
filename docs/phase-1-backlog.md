@@ -6550,6 +6550,60 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-03 / #5 調查 MCP 盤點。
 - **相關:** Phase 0 plan / #257。
 
+### #260. 🔴 試點 description 混批 upsert 會把「省欄」列寫成 NULL(試點寫入前 must-fix)
+
+- **狀態:** ⏳ 待執行(試點 `--confirm-write` 前必修;P0-A-3 乾跑零寫入、暫不觸發)
+- **優先級:** 🔴 高(資料完整性、對外可見描述被靜默抹除)
+- **問題:**
+  - `syncDescription=true` 的試點(gbracing/bonamici),`rpm-transform.ts` 對來源 null/空白描述「省 key」以求不覆寫。但 `rpm-load.ts` `upsertBatched` 走 postgrest-js `.upsert(陣列)`:`?columns` 取**全批 key 聯集** + `defaultToNull=true`(親驗 `PostgrestQueryBuilder.ts:1087-1090`、無 `Prefer: missing=default`)→ 同一批混「有 description」與「省 key」兩種列時,省 key 列被寫 **NULL**(ON CONFLICT DO UPDATE 覆寫),非保留現值。
+  - plan §2.9:88 述試點描述覆蓋 ~99.9%、各僅 1 缺 → 必然混批 → 該缺值商品(或日後人工補的描述)每夜同步被靜默抹 NULL。
+  - RPM **不受影響**(全批一致 `syncDescription=false` 省欄 → 聯集不含 description → 不觸碰;byte 等價成立)。
+- **觸發事件(任一觸發即啟動實作):** 任一試點供應商要跑 `--confirm-write` 正式寫入(Phase 1 試點上架)前。
+- **預期解法:**
+  - 擇一:① `upsertBatched` 按 key-signature 分批(有/無 description 各自成批);② description 欄改「統一帶 key」(syncDescription=true 時 null 亦顯式帶、語意=source 為權威);③ 傳 `{ defaultToNull: false }` 走 `Prefer: missing=default`(但 missing=default → DEFAULT=NULL,對本欄無效、需搭 DB DEFAULT 評估)。方案 ② 最簡且與「試點新品 source 即權威」一致,但須 Sean 拍板夜跑覆寫語意(保留 vs 鏡射)。
+- **不修會痛在:**
+  - 擴充性:每加一家 syncDescription=true 供應商都繼承此地雷。
+  - 可維護性:「省欄=保留」的直覺與 load 層實際行為相反,除錯者會被誤導。
+  - bug 可追蹤性:描述被抹 NULL 無告警(delta gate 只看價格)、要靠客訴或人工比對才發現。
+- **估時:** 1-2 小時(含 DDL MCP BEGIN→混批 upsert→驗→ROLLBACK 零留痕實證 + 分批單元測)。
+- **依賴:** 併 Phase 1 試點寫入片;方案 ② 需 Sean 拍夜跑覆寫語意。
+- **發現於:** 2026-07-03 / P0-A-3 對抗審查(Fable F1 must-fix、postgrest-js 原始碼親驗)。
+- **相關:** Phase 0 plan §2.9 / #261 / P0-A-4。
+
+### #261. 🟠 試點 category_id=null 寫入硬 gate + 逐群「未對上分類」dry-run 彙整報告
+
+- **狀態:** ⏳ 待執行(P0-A-4 dry-run 報告 + 試點寫入前 gate)
+- **優先級:** 🟠 中(fail-loud 無 corruption,但盲進寫入 = 整批 abort、除錯耗時)
+- **問題:**
+  - per-group 供應商經 `resolveIdOrNull` 解析分類:P0-B seed 前全 null、seed 後遇空/未登記 major_category_zh 亦 null。`products.category_id` 為 **NOT NULL**(migration `20260507222633:6`)→ null 進 upsert = 23502、該 500 列批全敗(gbracing 186 群單批全滅)。
+  - dry-run 目前僅印 `productRows[0]` 樣本(`rpm-import.ts` DRY_RUN 段),**無「未對上分類:N 群 × major_category_zh 值」聚合報告** → 操作者看不到有多少群解析失敗就盲進 `--confirm-write`。
+- **觸發事件(任一觸發即啟動實作):** P0-A-4 產試點 dry-run 報告時 / 任一試點 `--confirm-write` 前。
+- **預期解法:**
+  - dry-run 加印「未對上分類」聚合表(major_category_zh 值 × 群數 + 樣本 handle);
+  - 寫入前加 null-category 硬 gate(abort 列清單、或跳過該群並列報、不靜默寫)。
+- **不修會痛在:**
+  - 擴充性:16 大類外的子類/新值都會靜默落入 null。
+  - 可維護性:整批 23502 abort 的錯誤訊息不指向「哪些群沒對上」,除錯要自己撈。
+  - bug 可追蹤性:P0-B seed 漏一類 → 該類商品全部寫不進、無彙整線索。
+- **估時:** 1 小時(dry-run 報告 + gate + 單元測)。
+- **依賴:** P0-B(16 分類 seed)先落地;併 P0-A-4 / 試點寫入片。
+- **發現於:** 2026-07-03 / P0-A-3 對抗審查(Fable F2 consider)。
+- **相關:** Phase 0 plan §2.3/§2.7 / #260 / P0-A-4。
+
+### #262. 🟡 `rpm-*` 模組/檔名 → 多供應商中性命名(認知成本)
+
+- **狀態:** 🟢 觀察(非阻塞;命名 churn 大、擇低流量時機做)
+- **優先級:** 🟡 低
+- **問題:** 同步管線(`rpm-fetch/transform/import/load/delta/reconcile/preflight` + `rpm-sync.yml`)P0-A-3 起已由 `--supplier` + supplier-config 全量驅動、非 rpm-only,但檔名/模組名仍 `rpm-*`,新讀者會誤以為只跑 RPM。
+- **觸發事件:** 試點正式上架、管線確定長期多供應商後,擇一次低流量時機批次 rename。
+- **預期解法:** `rpm-*` → `catalog-sync-*`(或類似中性名)、同步更新 import 路徑 + `rpm-sync.yml` + tsconfig/eslint glob;純機械 rename、行為不變、一次 slice 收。
+- **不修會痛在:**
+  - 可維護性:檔名與職責不符,新 session 判斷「這是不是只跑 rpm」浪費一輪。
+- **估時:** 30-45 分鐘(機械 rename + 三綠)。
+- **依賴:** 無(但建議等試點寫入穩定後,避免 rename 與功能改動混 commit)。
+- **發現於:** 2026-07-03 / P0-A-3 對抗審查(Fable F5 nit)。
+- **相關:** Phase 0 plan §4 / #260 / #261。
+
 ---
 
 ## 紀錄模板

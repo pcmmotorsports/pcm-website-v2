@@ -6,11 +6,12 @@
  *   本檔把「逐家不同的那幾個決定」抽成一張表,呼叫端一律經 getSupplierConfig 取用、不再散落常數。
  *   真權威:docs/specs/2026-07-03-phase0-multibrand-foundation-plan.md §2.3 / §2.9 / §4 P0-A。
  *
- * 🔴 RPM 零回歸(不變式 3):rpm 這組值必須讓管線輸出與現況 byte 等價——
- *   brandSlug='rpm-carbon'、handlePrefix='rpm'(現行 handle=`rpm-${mainSku}`,rpm-transform.ts:146)、
- *   syncDescription=false(現行刻意不寫 description,rpm-transform.ts:93,149)、
- *   categoryStrategy=fixed '碳纖維部品'(現行 rpm-import.ts CATEGORY_RAW_PATH 常數)。
- *   supplier-config.test.ts 逐值釘死,任何改動觸發 CI 紅燈。
+ * 🔴 RPM 零回歸(不變式 3):rpm 這組值讓管線輸出與現況 byte 等價,**唯一授權偏離 = 副標「碳纖維」→「碳纖維部品」**
+ *   (2026-07-03 Sean 拍 A supersede、plan §6-3:副標隨分類名 rawPath;客人可見、下次 rpm --confirm-write 夜跑套用 ~1,117 頁)——
+ *   brandSlug='rpm-carbon'、handlePrefix='rpm'(handle=`rpm-${mainSku}`)、
+ *   syncDescription=false(rpm 刻意不寫 description、全批一致省欄 → byte-safe)、
+ *   categoryStrategy=fixed '碳纖維部品'(副標即由此 rawPath 衍生)。
+ *   supplier-config.test.ts + rpm-transform.test.ts byte 回歸鎖逐值釘死,任何改動觸發 CI 紅燈。
  *
  * 範圍:Phase 0 只登記試點會用到的三家(rpm + gbracing + bonamici)。
  *   其餘 8-9 家留 Phase 3 放量時登記(屆時各自 MCP 查證 brandSlug / syncDescription,
@@ -31,8 +32,8 @@ export interface SupplierConfig {
   supplierSlug: string;
   /**
    * 網站 brands.slug。🔴 ≠ supplierSlug(§2.3:來源 slug 與 brand slug 不一致,必對照;
-   * rpm→rpm-carbon / gbracing→gb-racing)。brands 表已 seed(§2.3 MCP 查證),此值於
-   * dry-run resolveId 時實證(對不上→brandId=null,報告當場顯示,無 live 風險)。
+   * rpm→rpm-carbon / gbracing→gb-racing)。brands 表已 seed 21 家(§2.3 MCP 查證、含試點兩家),
+   * 故 dry-run resolveId 應恆命中;真對不上 → resolveId **throw**(fail-closed、非靜默 null),無 live 風險。
    */
   brandSlug: string;
   /**

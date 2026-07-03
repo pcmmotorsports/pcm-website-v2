@@ -31,7 +31,7 @@
 | # | 檔案:行 | 寫死內容 | 處置 |
 |---|---|---|---|
 | 1-2 | `rpm-fetch.ts:21,73` | `SUPPLIER='rpm'` + `.eq('supplier_slug',…)` | 參數化 |
-| 3 | `rpm-transform.ts:56` | subtitle 硬加 `· 碳纖維` | 改由 category 衍生 |
+| 3 | `rpm-transform.ts:56` | subtitle 硬加 `· 碳纖維` | 改由 category 衍生(🔴 2026-07-03 Sean 拍 A supersede:rpm 副標隨分類名 rawPath →「碳纖維」變「碳纖維部品」,見 §6-3) |
 | 4 | `rpm-transform.ts:146` | handle 前綴 `rpm-` | 改 `${prefix}-`(見 2.3 註) |
 | 5 | `rpm-import.ts:55` | `BRAND_SLUG='rpm-carbon'` | 改 supplier→brand 對照 |
 | 6 | `rpm-import.ts:56` | `CATEGORY_RAW_PATH='碳纖維部品'`(整批固定) | **改逐群由 major_category_zh 解析**(`transformGroup` 已收 categoryId 參數,只需 caller 逐群解析) |
@@ -81,7 +81,7 @@
 ### 2.9 描述:接線 vs 治理(劃清界線,對齊 confirm1=A + F2)
 - **接線(Phase 0 做)**:把 view.description 這一欄「搬進」products.description(機械搬欄位)。
 - **內容治理(Phase 0 不做,歸報價單 repo PRD v2 / #209)**:翻譯品質、brand_story workstream 等「欄位內容怎麼寫」——parked。
-- 🔴 **F2 must-fix(RPM 保護縫)**:現行 `rpm-transform.ts:93,149` **刻意不寫 description**(upsert 省欄→現有 RPM 描述原地保留)。但註解「view 對 RPM 全空」**已過時**——MCP 查證 RPM 來源描述 **100% 有值且為繁中**(現況網站存的是英文 HTML)。若 P0-A 對所有供應商一律寫 description,**每夜 cron 會把 ~1,117 RPM 頁英文描述覆寫成繁中**(對外可見改動)。**正解**:`supplier-config` 逐家 `syncDescription` 旗標——**RPM=false(維持現況、byte-safe)**、試點=true(來源 null→省欄不寫 null);Phase 0 是否順便切 RPM 為繁中 = 決策 Q4。
+- 🔴 **F2 must-fix(RPM 保護縫)**:現行 `rpm-transform.ts:93,149` **刻意不寫 description**(upsert 省欄→現有 RPM 描述原地保留)。但註解「view 對 RPM 全空」**已過時**——MCP 查證 RPM 來源描述 **100% 有值且為繁中**(現況網站存的是英文 HTML)。若 P0-A 對所有供應商一律寫 description,**每夜 cron 會把 ~1,117 RPM 頁英文描述覆寫成繁中**(對外可見改動)。**正解**:`supplier-config` 逐家 `syncDescription` 旗標——**RPM=false(維持現況、byte-safe)**、試點=true(來源 null→省欄不寫 null);Phase 0 是否順便切 RPM 為繁中 = 決策 Q4。🔴 **load 層限制(P0-A-3 對抗審查發現、backlog #260)**:「省欄不寫」在 transform 層成立,但 postgrest-js upsert 混批(有值 + 省欄同批)的 `?columns` 取全批 key 聯集 + defaultToNull → 省欄列會被寫 **NULL**(非保留)。RPM 全批一致省欄不受影響(byte-safe);**試點 `--confirm-write` 前必依 #260 處置**(分批 by key-signature / `missing=default` / 統一帶 key)。P0-A-3 乾跑零寫入不觸發。
 
 ### 2.10 試點資料品質(first-hand 抽查)
 - gbracing 942 群=942 sku(單變體、無 spec);bonamici 1,252 群/1,710 sku(色彩變體)。
@@ -111,7 +111,7 @@
 - 🔴 **F3 護欄**:試點期 CLI **禁同時帶 `--allow-fetch-shrink` + `--allow-large-delist`**;abort 一律先當 scope bug 查。
 - **驗收(含回歸與負測)**:
   - `--supplier=gbracing|bonamici` dry-run 乾跑成功、報表 brand/category/handle/subtitle/description 正確;
-  - 🔴 `--supplier=rpm` dry-run 與現況 **byte 等價**(rpm 樣本 JSON **無 description 欄**、subtitle 仍碳纖維、brand=rpm-carbon)——F2/RPM 零回歸的字面驗收;
+  - 🔴 `--supplier=rpm` dry-run 與現況 **byte 等價**(rpm 樣本 JSON **無 description 欄**、brand=rpm-carbon;🔴 **唯一授權偏離**:副標由「碳纖維」→「碳纖維部品」,2026-07-03 Sean 拍 A、見 §6-3)——F2/RPM 零回歸的字面驗收;
   - 🔴 **負測**:故意錯配 supplier(fetch=gbracing 但 reconcile scope 傳 rpm)dry-run → 報告顯示 ~100% missing(證明錯 scope 被 gate 攔、非靜默誤刪);
   - handle preflight + spec 碰撞偵測(§2.10 C3)產出清單;三綠。
 
@@ -149,7 +149,7 @@ Phase 3 放量其餘 8-9 家 + 每日同步全開(#211 正規化在此評估)
 
 1. **軟下架隔離(最高風險)**:每家跑「自己完整一輪」、`supplierSlug` 一路一致貫穿 fetch→delta→reconcile→preflight;reconcile 絕不跨供應商合併。護欄:`rpm-reconcile.ts:103` scope + >10% 下架比 hard-abort。
 2. **淨新供應商首載天然免疫**:試點兩家網站現有 0 筆 → reconcile「現有−來源」=0 下架 → 首載不可能誤刪 RPM(關卡1 已獨立驗證邏輯成立)。
-3. **RPM 零回歸**:`--supplier=rpm` 輸出 byte 等價(含 description 不寫);前台 RPM 路徑 byte 不變(brandSlug 守門)。
+3. **RPM 零回歸**:`--supplier=rpm` 輸出 byte 等價(含 description 不寫),🔴 **唯一授權偏離 = 副標「碳纖維」→「碳纖維部品」**(2026-07-03 Sean 拍 A supersede §2.1#3:副標隨分類名 rawPath;客人可見、下次 rpm `--confirm-write` 夜跑套用 ~1,117 頁副標、鐵則 12 已知偏離、非靜默漂移);前台 RPM 路徑 byte 不變(brandSlug 守門)。
 4. **經銷價零外洩**:全走 public view;來源無經銷價欄;不觸 price_store 通道。
 5. 🔴 **(F3)試點期禁帶兩個 `--allow-*` bypass 旗標**;連續 abort 先當 scope bug 查、不硬推。
 6. 🔴 **(F4)handle 進 upsert 前必過 preflight**(charset 白名單 + 全域唯一),不得中途撞 `products_handle_key` 造成部分寫入髒中間態。

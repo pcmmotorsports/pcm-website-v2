@@ -25,6 +25,25 @@ export async function resolveId(
 }
 
 /**
+ * 同 resolveId、但查無回 null(不 throw)。
+ * 用於 per-group 分類解析:16 大類 P0-B 才 seed,seed 前解析不到 → 回 null 讓 dry-run 續跑、不整條 abort
+ *   (plan §2.3「對不上、無 live 風險」)。真查詢錯誤(非 0 列)仍 throw、不吞。
+ * 🔴 呼叫端須自行處置 null:P0-A-3 乾跑僅保證不 crash;逐群「未對上分類」彙整報告 + 試點寫入前的
+ *   null-category 硬 gate = P0-A-4 / 試點寫入片(backlog #261;products.category_id NOT NULL、null 進 upsert 整批 23502)。
+ * 用 maybeSingle():0 列回 {data:null,error:null}、不像 single() 把「查無」當錯誤;categories.raw_path UNIQUE 排除多列。
+ */
+export async function resolveIdOrNull(
+  tgt: SupabaseClient,
+  table: string,
+  col: string,
+  val: string,
+): Promise<string | null> {
+  const { data, error } = await tgt.from(table).select('id').eq(col, val).maybeSingle();
+  if (error) throw new Error(`${table}.${col}='${val}' 查詢失敗:${error.message}`);
+  return data ? (data as { id: string }).id : null;
+}
+
+/**
  * 分批 upsert(冪等 onConflict)。給 `select` 則每批 `.select(select)` 累積回傳 rows
  * (用於 products 收 id↔external_id 對照、免事後大 `.in(933 值)` 超 GET URL 上限)。
  */

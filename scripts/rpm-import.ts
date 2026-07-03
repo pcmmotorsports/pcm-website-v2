@@ -1,15 +1,16 @@
 /**
- * rpm-import — RPM Carbon 同步:entry / orchestration(S3b 改讀報價單乾淨 view)
+ * rpm-import — 多供應商上架同步:entry / orchestration(S3b 改讀報價單乾淨 view;P0-A-3 起 --supplier 參數化)
  *
  * 來源(唯讀、絕不寫):報價單 B庫 `dllwkkfanaebrsuyuedy` 乾淨 view `storefront_catalog_v`
- *   WHERE supplier_slug='rpm';用 anon publishable key(讀不到成本/蝦皮/經銷)。
+ *   WHERE supplier_slug=<--supplier、default 'rpm'>;用 anon publishable key(讀不到成本/蝦皮/經銷)。
  * 目標(寫):pcm-website-v2 `bmpnplmnldofgaohnaok`
  *   products + product_variants;brands/categories 已 16b-1 seed;唯一鍵=複合(S3a 已套用)。
+ *   scope/brand/category/handle/subtitle/description 全由 supplier-config(getSupplierConfig)逐家供給。
  *
  * 跑法(tsx 已釘為 devDep、走 pnpm exec;CI workflow 同):
- *   pnpm exec tsx scripts/rpm-import.ts --dry-run [--group=APRILIA-01] [--limit=3] [--delta-full]
+ *   pnpm exec tsx scripts/rpm-import.ts --dry-run [--supplier=rpm] [--group=APRILIA-01] [--limit=3] [--delta-full]
  *     → 跑 W1 抓取完整性 + pv_spec preflight + 兩層價格 delta gate + S4 下架對賬報告(全量才跑)、印清單、不寫
- *   pnpm exec tsx scripts/rpm-import.ts --confirm-write [--allow-large-delist] [--allow-fetch-shrink]
+ *   pnpm exec tsx scripts/rpm-import.ts --confirm-write [--supplier=rpm] [--allow-large-delist] [--allow-fetch-shrink]
  *     → 正式寫入 + S4 下架對賬(源頭消失→軟下架、只全量);硬 gate:異常列(null/0/負/NaN)無條件 abort、
  *       任何寫入須帶 --confirm-write;S5 W1 抓取完整性 gate(商品維度差集、來源缺現存上架商品>5% 疑截斷硬 abort 除非 --allow-fetch-shrink);
  *       下架安全 gate:source 空硬 abort、下架比例>10% abort 除非 --allow-large-delist
@@ -19,7 +20,7 @@
  *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SECRET_KEY(目標寫)
  *   註(S3b):來源改吃 QUOTE_*(取代 S2 退役的 SOURCE_SUPABASE_URL / SOURCE_SUPABASE_SECRET_KEY raw 讀)。
  *
- * 🔴 紅線(S3b/S4/S5):各段檔頭(rpm-fetch 讀乾淨 view 濾 supplier_slug='rpm' + 57014 退避重試;
+ * 🔴 紅線(S3b/S4/S5):各段檔頭(rpm-fetch 讀乾淨 view 濾 supplier_slug=<呼叫端傳入> + 57014 退避重試;
  *   rpm-transform price_retail→price_general〔零售〕/ price_store 欄 NULL / 停寫敏感 metadata / delisted_at=null 復架;
  *   rpm-delta 兩層價格硬 gate + pv_spec preflight;rpm-preflight 抓取完整性 gate〔W1〕;rpm-reconcile 下架對賬安全 gate + scope rpm 軟下架)。
  */
@@ -32,6 +33,7 @@ import { existsSync } from 'node:fs';
 if (existsSync('.env.local')) loadEnvFile('.env.local');
 
 import { createClient } from '@supabase/supabase-js';
+import { getSupplierConfig } from './supplier-config';
 import { fetchAllSupplierProducts, type SourceProductRow } from './rpm-fetch';
 import {
   transformGroup,
@@ -39,8 +41,9 @@ import {
   variantSortKey,
   type ProductRow,
   type VariantRow,
+  type GroupTransformContext,
 } from './rpm-transform';
-import { resolveId, upsertBatched } from './rpm-load';
+import { resolveId, resolveIdOrNull, upsertBatched } from './rpm-load';
 import {
   computeDelta,
   printDeltaReport,
@@ -52,16 +55,14 @@ import { computeDelist, applyDelist, printReconcileReport } from './rpm-reconcil
 import { checkFetchIntegrity, printFetchIntegrityReport } from './rpm-preflight';
 
 // ── constants ──
-// P0-A-2:同步管線 4 支 helper(fetch/delta/reconcile/preflight)已 supplier 參數化、scope 由此值一路貫穿。
-// orchestrator 目前仍固定跑 rpm 一家(--supplier CLI + supplier-config 全量驅動 brand/category/handle = P0-A-3);
-// 改多家前此值維持 'rpm' → 管線輸出 byte 等價(不變式 3)。
-const SUPPLIER_SLUG = 'rpm';
-const BRAND_SLUG = 'rpm-carbon';
-const CATEGORY_RAW_PATH = '碳纖維部品';
+// P0-A-3:orchestrator 全量由 supplier-config 驅動(scope/brand/category/handle/subtitle/description)。
+// 供應商由 --supplier CLI 指定、default 'rpm';getSupplierConfig 供給每家一組參數。
+// rpm 這組 = 現況鏡射 → 管線輸出 byte 等價(不變式 3;唯一 Sean 拍板差異 = 副標「碳纖維」→「碳纖維部品」)。
 const ALLOWED_TARGET_REF = 'bmpnplmnldofgaohnaok'; // prod-safety:只准寫這個 dev project
 const ALLOWED_TARGET_HOST = `${ALLOWED_TARGET_REF}.supabase.co`; // 精準 host 比對(非 .includes、codex k2 審查 consider)
 
 // ── CLI args ──
+const SUPPLIER = argValue('--supplier') ?? 'rpm'; // 供應商 slug(default rpm);getSupplierConfig 未登記→fail-closed throw
 const DRY_RUN = process.argv.includes('--dry-run');
 // 🔴 正式寫入授權旗標(codex k2 審查 must-fix 1):任何非 dry-run 寫入一律要、無價變也要、無旗標即 abort
 const CONFIRM_WRITE = process.argv.includes('--confirm-write'); // 唯一寫入授權旗標(審查 round2 nit:移除舊 alias)
@@ -88,6 +89,7 @@ function requireEnv(name: string): string {
 
 // ── main ──
 async function main(): Promise<void> {
+  const config = getSupplierConfig(SUPPLIER); // fail-closed:未登記 slug 直接 throw(→ main().catch exit 1)
   const now = new Date().toISOString();
   const source = createClient(
     requireEnv('QUOTE_SUPABASE_URL'),
@@ -100,19 +102,39 @@ async function main(): Promise<void> {
   }
   const target = createClient(targetUrl, requireEnv('SUPABASE_SECRET_KEY'));
 
-  console.log(`[rpm-import] ${DRY_RUN ? 'DRY-RUN' : 'WRITE'} 模式 / 讀報價單乾淨 view…`);
-  const [products, brandId, categoryId] = await Promise.all([
-    fetchAllSupplierProducts(source, SUPPLIER_SLUG),
-    resolveId(target, 'brands', 'slug', BRAND_SLUG),
-    resolveId(target, 'categories', 'raw_path', CATEGORY_RAW_PATH),
+  console.log(`[rpm-import] ${DRY_RUN ? 'DRY-RUN' : 'WRITE'} 模式 / supplier=${config.supplierSlug} / 讀報價單乾淨 view…`);
+  const [products, brandId] = await Promise.all([
+    fetchAllSupplierProducts(source, config.supplierSlug),
+    resolveId(target, 'brands', 'slug', config.brandSlug),
   ]);
-  console.log(`[rpm-import] 來源 view RPM 變體 ${products.length} 筆;brand_id=${brandId} category_id=${categoryId}`);
+
+  // ── 分類解析(逐家策略)──
+  //   fixed(rpm):整批固定一個分類(rawPath「碳纖維部品」、resolveId 一次;查無 throw、碳纖維部品 16b-1 已 seed)。
+  //   per-group(試點):逐群依 major_category_zh 解析 16 大類(P0-B 才 seed → seed 前 resolveIdOrNull 回 null、
+  //     報告顯示未對上、不 abort);同一 major_category_zh 只查一次(cache、含 null 結果亦快取)。
+  const fixedCategoryId: string | null =
+    config.categoryStrategy.kind === 'fixed'
+      ? await resolveId(target, 'categories', 'raw_path', config.categoryStrategy.rawPath)
+      : null;
+  const categoryIdCache = new Map<string, string | null>();
+  async function resolveGroupCategory(majorCategoryZh: string): Promise<string | null> {
+    if (!majorCategoryZh) return null;
+    if (categoryIdCache.has(majorCategoryZh)) return categoryIdCache.get(majorCategoryZh)!;
+    const id = await resolveIdOrNull(target, 'categories', 'raw_path', majorCategoryZh);
+    categoryIdCache.set(majorCategoryZh, id);
+    return id;
+  }
+
+  console.log(
+    `[rpm-import] 來源 view ${config.supplierSlug} 變體 ${products.length} 筆;brand_id=${brandId} ` +
+      `category=${config.categoryStrategy.kind === 'fixed' ? fixedCategoryId : 'per-group(逐群解析)'}`,
+  );
 
   // ── S5 W1:抓取完整性 gate(無人值守誤下架前置防線;商品維度差集、來源缺現存上架商品 >5% 疑截斷硬 abort)──
   //   fetch 永遠全量(--group/--limit 僅篩寫入、不篩 fetch)→ 此 gate 不分模式皆驗。dry-run 只報告不 abort。
   //   差集比 target active 商品(growth-immune、新品蓋不掉缺口);5% 嚴於 S4 下架 10%、抓 5–10% 靜默截斷帶。
   const sourceMainSkus = new Set(products.map((p) => p.main_sku));
-  const fetchIntegrity = await checkFetchIntegrity(target, SUPPLIER_SLUG, sourceMainSkus, products.length, {
+  const fetchIntegrity = await checkFetchIntegrity(target, config.supplierSlug, sourceMainSkus, products.length, {
     allowFetchShrink: ALLOW_FETCH_SHRINK,
   });
   printFetchIntegrityReport(fetchIntegrity);
@@ -139,7 +161,25 @@ async function main(): Promise<void> {
   const variantsByExternalId = new Map<string, VariantRow[]>();
   for (const [mainSku, variants] of entries) {
     const vehicleLabel = variants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
-    const pr = transformGroup(mainSku, variants, vehicleLabel, brandId, categoryId, now);
+    // 分類 + 副標詞逐群解析:fixed → 固定 id + rawPath 副標;per-group → 該群 major_category_zh
+    let categoryId: string | null;
+    let subtitleTag: string;
+    if (config.categoryStrategy.kind === 'fixed') {
+      categoryId = fixedCategoryId;
+      subtitleTag = config.categoryStrategy.rawPath;
+    } else {
+      const majorCat = variants.find((v) => v.major_category_zh)?.major_category_zh ?? ''; // 群內第一個非空
+      categoryId = await resolveGroupCategory(majorCat);
+      subtitleTag = majorCat;
+    }
+    const ctx: GroupTransformContext = {
+      brandId,
+      categoryId,
+      handlePrefix: config.handlePrefix,
+      subtitleTag,
+      syncDescription: config.syncDescription,
+    };
+    const pr = transformGroup(mainSku, variants, vehicleLabel, ctx, now);
     productRows.push(pr);
     const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
     variantsByExternalId.set(
@@ -151,7 +191,7 @@ async function main(): Promise<void> {
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
 
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
-  const collisions = await preflightSpecUnique(target, SUPPLIER_SLUG, variantsByExternalId);
+  const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId);
   if (collisions.length) {
     console.error(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、abort 不寫:`);
     console.table(collisions.slice(0, 50));
@@ -159,7 +199,7 @@ async function main(): Promise<void> {
   }
 
   // ── 價格 delta gate(兩層、唯讀比對)──
-  const delta = await computeDelta(target, SUPPLIER_SLUG, productRows, variantRows);
+  const delta = await computeDelta(target, config.supplierSlug, productRows, variantRows);
   printDeltaReport(delta, { full: DELTA_FULL, json: DELTA_JSON });
 
   if (DRY_RUN) {
@@ -172,7 +212,7 @@ async function main(): Promise<void> {
     // S4 下架對賬(只全量;篩選下 source 不完整、跳過避免誤判)。
     // dry-run 即使 gate 觸發也只印報告不 throw(故意:Sean 要看完整報告、不靠 dry-run exit code 當預檢;真跑才 exit 1)。
     if (FULL_MODE) {
-      const recon = await computeDelist(target, SUPPLIER_SLUG, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+      const recon = await computeDelist(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
       printReconcileReport(recon, { full: DELTA_FULL });
     } else {
       console.log('[rpm-import] 下架對賬跳過(--group/--limit 篩選、source 不完整、全量才對賬)');
@@ -208,14 +248,14 @@ async function main(): Promise<void> {
 
   // ── S4 下架對賬(源頭消失 → 軟下架;upsert 後跑、只全量、篩選模式跳過避免誤殺)──
   if (FULL_MODE) {
-    const recon = await computeDelist(target, SUPPLIER_SLUG, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
+    const recon = await computeDelist(target, config.supplierSlug, sourceExternalIds, { allowLargeDelist: ALLOW_LARGE_DELIST });
     printReconcileReport(recon, { full: DELTA_FULL });
     if (recon.aborted) {
       throw new Error(`下架對賬安全 gate 觸發、不下架:${recon.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
     }
     if (recon.toDelist.length) {
-      const n = await applyDelist(target, SUPPLIER_SLUG, recon.toDelist, now);
-      console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope ${SUPPLIER_SLUG}、變體靠 RLS 連動隱藏)`);
+      const n = await applyDelist(target, config.supplierSlug, recon.toDelist, now);
+      console.log(`[rpm-import] 下架對賬完成:軟下架 ${n} 商品(delisted_at=now、scope ${config.supplierSlug}、變體靠 RLS 連動隱藏)`);
     } else {
       console.log('[rpm-import] 下架對賬:無待下架、零孤兒');
     }

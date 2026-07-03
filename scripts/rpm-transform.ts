@@ -50,10 +50,17 @@ function ownVariantImages(v: SourceProductRow): string[] {
 function availabilityOf(stock: string): 'in-stock' | 'out-of-stock' {
   return stock === 'in_stock' || stock === 'low' ? 'in-stock' : 'out-of-stock';
 }
-/** subtitle = 適用車款(view.vehicle_label)+ 材質碳纖維(Q1 Webike 式);通用件 label 空→只「碳纖維」 */
-function buildSubtitle(vehicleLabel: string | null | undefined): string {
+/**
+ * subtitle = 適用車款(view.vehicle_label)· 分類詞(categoryTag);通用件 label 空 → 只分類詞。
+ * 去碳:材質詞外提為參數、不再硬寫「碳纖維」。categoryTag 由 caller 依 supplier-config 供給:
+ *   - rpm(fixed)= 分類 rawPath「碳纖維部品」(Sean 2026-07-03 拍 A:副標隨分類名、故現行「碳纖維」→「碳纖維部品」);
+ *   - 試點(per-group)= 該群 major_category_zh(如「操控部品」「車殼外觀」)。
+ * categoryTag 空 + 有車款 → 只車款;兩者皆空 → 空字串(通用件無分類、理論邊角)。
+ */
+function buildSubtitle(vehicleLabel: string | null | undefined, categoryTag: string): string {
   const v = (vehicleLabel ?? '').trim();
-  return v ? `${v} · 碳纖維` : '碳纖維';
+  const tag = categoryTag.trim();
+  return v && tag ? `${v} · ${tag}` : v || tag;
 }
 /**
  * fitments:全群所有變體 fitment_parsed 聯集去重(Q-B=A)。
@@ -90,8 +97,13 @@ export interface ProductRow {
   handle: string;
   title: string;
   subtitle: string;
-  // 🔴 不含 description:S3b 不同步描述欄(view 對 RPM 全空;upsert 不帶此欄 → 現有 933 描述原地保留、
-  //    新品 DB 預設 NULL;描述交獨立中文化 workstream。Sean Q-desc 定案 + backlog)。
+  // 🔴 description 為 optional:依 supplier-config.syncDescription 決定寫不寫(§2.9 F2)。
+  //    rpm=false → **全批一致省 key** → upsert `?columns` 聯集不含 description → 現有描述不覆寫、byte 等價(回歸鎖驗)。
+  //    試點=true → 帶來源繁中 description;來源 null/空白 → 省 key。
+  //    ⚠️ load 層限制(backlog #260):試點「有值/省 key」**混批**時,postgrest-js upsert 的 `?columns` 取全批 key 聯集 +
+  //       defaultToNull(親驗 PostgrestQueryBuilder.ts:1087-1090)→ 省 key 的列會被寫 **NULL**(非保留現值)。
+  //       P0-A-3 乾跑零寫入不觸發;試點 --confirm-write 前須依 #260 處置(分批 by key-signature / missing=default / 統一帶 key)。
+  description?: string;
   price_general: number | null;
   price_store: number | null;
   price_by_tier: Record<string, { amount: number; currency: string }>;
@@ -99,7 +111,7 @@ export interface ProductRow {
   images: string[];
   availability: string;
   brand_id: string;
-  category_id: string;
+  category_id: string | null; // fixed=整批固定 id(rpm 恆真實);per-group=逐群 major_category_zh 解析、seed 前對不上→null(dry-run 報告顯示、無 live 風險)
   metadata: Record<string, unknown>;
   // 🔴 S4 復架方向:presence in source = active;upsert 帶 null 自動還原(商品回到 view → 復上架)。
   //    下架方向(source 消失 → 設 now)由 rpm-reconcile 處理、不在 transform。
@@ -119,12 +131,24 @@ export interface VariantRow {
   updated_at: string;
 }
 
+/**
+ * 每群 transform 的「已解析情境」(由 rpm-import 依 supplier-config 逐群組裝供給)。
+ * 去碳新增的 handlePrefix / subtitleTag / syncDescription 收成具名物件、不擴正位參數
+ *   (避免正位參數暴增誤植 = Fable 前審「參數對調」風險)。
+ */
+export interface GroupTransformContext {
+  brandId: string; // 已由 config.brandSlug resolveId(rpm→rpm-carbon)
+  categoryId: string | null; // fixed=整批固定 id;per-group=該群 major_category_zh 解析(seed 前→null)
+  handlePrefix: string; // handle = `${handlePrefix}-${mainSku.toLowerCase()}`(rpm→'rpm')
+  subtitleTag: string; // 副標分類詞:rpm=分類 rawPath「碳纖維部品」、per-group=major_category_zh
+  syncDescription: boolean; // true 才把來源 description 寫進 products.description(rpm=false)
+}
+
 export function transformGroup(
   mainSku: string,
   variants: SourceProductRow[],
   vehicleLabel: string | null,
-  brandId: string,
-  categoryId: string,
+  ctx: GroupTransformContext,
   now: string,
 ): ProductRow {
   // 基準款 = 群內 min(price_retail)、tie-break sku ASC(零售真相、語意一致)
@@ -140,13 +164,17 @@ export function transformGroup(
     variants.find((v) => v.image_url)?.image_url ??
     variants.flatMap((v) => mapImages(v.images))[0] ??
     PLACEHOLDER_IMAGE;
+  // 描述:群內第一個非空來源描述(product-level、群內應一致;防呆取 first non-empty、含純空白視為空、F4)。
+  const description = variants.find((v) => (v.description ?? '').trim() !== '')?.description ?? null;
   return {
-    supplier_slug: basis.supplier_slug, // 'rpm'(view 過濾值、顯式帶)
-    external_id: mainSku, // 🔴 乾淨主料號、無 RPM- 前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
-    handle: `rpm-${mainSku.toLowerCase()}`, // SEO slug、供應商命名空間化(S3a 保留 handle key、不變)
+    supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
+    external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
+    handle: `${ctx.handlePrefix}-${mainSku.toLowerCase()}`, // SEO slug、供應商命名空間化(rpm→'rpm-')
     title: basis.product_name_zh || basis.product_name, // 中文部位詞優先、回退英文
-    subtitle: buildSubtitle(vehicleLabel),
-    // description 不寫(移出 S3b scope、upsert 省此欄 → 現有描述保留 / 新品 NULL)
+    subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag),
+    // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。
+    //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。試點混批 load 層 NULL 限制見 ProductRow 註 + backlog #260。
+    ...(ctx.syncDescription && description != null ? { description } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
     price_by_tier: {
@@ -159,8 +187,8 @@ export function transformGroup(
     availability: variants.some((v) => availabilityOf(v.stock_status) === 'in-stock')
       ? 'in-stock'
       : 'out-of-stock', // 群 bool_or(任一變體可買=in-stock)
-    brand_id: brandId, // 🔴 固定 RPM CARBON(view.brand=車輛品牌、不可當 brand_id)
-    category_id: categoryId, // 🔴 固定 碳纖維部品(view RPM major_category 單一 Body)
+    brand_id: ctx.brandId, // 🔴 供應商對照解析(view.brand=車輛品牌、絕不當 brand_id)
+    category_id: ctx.categoryId, // fixed=整批固定 / per-group=逐群 major_category_zh 解析(未 seed→null)
     metadata: {
       name_en: basis.product_name, // 英文全名留參考(非敏感、S1 CHECK 不擋)
     }, // 🔴 停寫 shopee/cost/source_*(S1 CHECK 硬擋)+ source_corrected_count(view 無 manually_corrected)
@@ -184,7 +212,12 @@ export function transformVariant(v: SourceProductRow, now: string, sortOrder: nu
   };
 }
 
-/** 變體排序:weave 字母 ASC → finish ASC → special 末 → sku ASC(確定性、不用 price) */
+/**
+ * 變體排序:weave 字母 ASC → finish ASC → special 末 → sku ASC(確定性、不用 price)。
+ * 🔴 shape-generic fallback(plan §2.1 #13):spec 缺 weave/finish(bonamici {color,material})或 spec=null
+ *   (gbracing 單變體)→ 前綴退化為空字串 → 純 sku ASC、不 crash。**故意保留 weave/finish/special 專鍵**:
+ *   改成「通用 spec 序列化」會重排 rpm 變體 sort_order = byte 回歸,rpm 順序不動是最高約束。
+ */
 export function variantSortKey(v: SourceProductRow): string {
   const s = v.spec ?? {};
   return `${s.weave ?? ''}|${s.finish ?? ''}|${s.special ? '1' : '0'}|${v.sku}`;

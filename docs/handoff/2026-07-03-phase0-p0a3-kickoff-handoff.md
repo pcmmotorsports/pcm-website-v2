@@ -36,7 +36,9 @@
 
 ## 🔴 最高約束(每步對照)
 
-- **RPM 零回歸(不變式 3,plan §6-3)**:`--supplier=rpm` 的 transform 輸出必須與現況**逐字相同**(brand `rpm-carbon` / handle `rpm-{sku}` / subtitle 含「碳纖維」/ **無 description 欄** / category 碳纖維部品)。**建議動 transform 前先建一支「rpm 樣本 transform 輸出快照」回歸測**,改完比對零 diff。
+> 🔴 **2026-07-03 執行時 Sean 拍 A supersede(副標)**:本節原寫「subtitle 含『碳纖維』逐字相同」。執行 session 就「rpm 副標『碳纖維』要不要跟分類名走」揭露線上 ~1,117 頁可見改動後問 Sean,Sean 拍 A =「就讓它變『碳纖維部品』」。故 P0-A-3 實際的 RPM 零回歸 = **除副標外逐字相同、副標由「碳纖維」→「碳纖維部品」**(plan §6-3 / §4 / §2.1#3 已同步 supersede)。下述「subtitle 含碳纖維」為原始 kickoff 字面、已被此拍板取代。
+
+- **RPM 零回歸(不變式 3,plan §6-3)**:`--supplier=rpm` 的 transform 輸出必須與現況**逐字相同**(brand `rpm-carbon` / handle `rpm-{sku}` / subtitle 含「碳纖維」〔↑已 supersede 為「碳纖維部品」〕/ **無 description 欄** / category 碳纖維部品)。**建議動 transform 前先建一支「rpm 樣本 transform 輸出快照」回歸測**,改完比對零 diff。
 - **不變式 1(軟下架隔離)**:P0-A-2 已鎖(`rpm-pipeline-scope.test.ts`),P0-A-3 別破壞。
 - 經銷價零外洩:全走 public view、`price_store` 恆 null;金額整數(禁 float,已 `roundTwd`)。
 

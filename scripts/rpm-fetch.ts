@@ -36,21 +36,24 @@ export interface SourceProductRow {
   sku: string; // 變體碼(乾淨、大小寫敏感、join key)
   product_name: string; // 英文部位名
   product_name_zh: string; // 中文部位名(title 優先)
+  description: string | null; // 來源繁中描述(P0-A-3 起攜帶;僅 supplier-config.syncDescription=true 才寫進 products.description、§2.9 F2)
   vehicle_label: string | null; // 適用車款(subtitle 用;通用件可能 null)
   fitment_parsed: SourceFitmentEntry[] | null;
-  spec: Record<string, string> | null; // {weave,finish}(+optional special)、值全 string
+  category_zh: string | null; // 97 子類(Phase 0 不 seed、先攜帶備用、transform 尚不消費)
+  major_category_zh: string | null; // 16 大類(per-group 分類 resolve 與副標詞來源)
+  spec: Record<string, string> | null; // {weave,finish}(+optional special)/ {color,material}/ null、值全 string
   price_retail: string | number | null; // 🔴 報價單零售真相 → 網站 price_general(numeric 序列化可能為 string)
   image_url: string | null; // 群代表圖
   images: { url: string }[] | null; // 圖池 [{url}](變體專屬圖靠 sku 前綴過濾)
   stock_status: string; // in_stock / out
 }
 
-// view 公開欄(零敏感;不取 brand/category/major_category/variant_count/last_synced_at — RPM transform 不需)
-// 🔴 不取 description:S3b 不同步描述(view 對 RPM 全空、現有 933 英文描述原地保留、新品留 NULL;
-//    描述改由獨立中文化 workstream〔baoyu-translate→台灣校對〕處理、不從 view 拿。Sean Q-desc 定案 + backlog)。
+// view 公開欄(零敏感;不取 brand/category/variant_count/last_synced_at — transform 不需)。
+// P0-A-3(多供應商去碳):補 description(依 syncDescription 決定寫不寫、§2.9 F2)+ major_category_zh(per-group 分類與副標來源)
+//   + category_zh(97 子類、Phase 0 不 seed、先攜帶備用)。description 仍受 supplier-config 旗標 gate:rpm=false 不寫、byte 等價。
 const VIEW_COLS =
-  'supplier_slug, main_sku, sku, product_name, product_name_zh, vehicle_label, ' +
-  'fitment_parsed, spec, price_retail, image_url, images, stock_status';
+  'supplier_slug, main_sku, sku, product_name, product_name_zh, description, ' +
+  'vehicle_label, fitment_parsed, category_zh, major_category_zh, spec, price_retail, image_url, images, stock_status';
 
 // ── source fetch(分頁 + 重試、全程 .eq('supplier_slug', supplierSlug);讀乾淨 view 取代 raw 兩查)──
 const MAX_RETRY = 3; // S5:每頁最多嘗試次數(初次 + 2 重試)
