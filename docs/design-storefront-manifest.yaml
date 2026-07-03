@@ -106,8 +106,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductsPage.tsx"
       css: "apps/storefront/src/styles/products-page.css"
-      last_modified_commit: "b05aca0"  # 記可達祖先(=b05aca0);Q1=A 缺年語意統一 真改見 git log
-      last_modified_date: "2026-07-03 (Q1=A 缺年語意統一:matchesVehicle 缺 yearStart fitment 改「該車型全年份適用、選了年份亦命中」、對齊 domain matchFitmentYear、年份三態→四態、+2 測。前次 S1 #152 vehicle 修復:車輛篩選接真 fitment —— 新增 lib/vehicle-taxonomy.ts buildVehicleTaxonomy(products) 從商品 fitments 動態衍生 品牌→車型→年份 清單〔MockMotoBrand[] 契約、brand/model slug id 皆去重、開放式年份 cap 資料上界〕取代 MOCK_MOTO_BRANDS;products-filter-logic.ts 加 matchesVehicle 依 fitment 逐層過濾〔品牌/車型/年份四態〕;ProductsPage 解除 FilterSide hideVehicle、parseVehicleFromUrl + ProductCard href 反查同一份衍生清單;ProductPage vehiclePill 同步改商品自身 fitments+slugify 同源反查〔靜態表 fallback〕。同 slice 併 S2/#220b:VehicleFinder 接真衍生清單+短版 push(見 VehicleFinder 段)。歷史:2026-06-10 #220 + #220-A1:/products 列表頁資料源 mock→真 Supabase 目錄。#220:app/products/page.tsx sync→async server fetch fetchCatalogProducts〔釘 'general' strip 經銷價〕→ ProductsPage {products,error} props〔刪 MOCK_PRODUCTS、filterProducts 吃真陣列、UI/篩選/排序/分頁零動、載入失敗態 Q2=A 鏡像 HomeSelect〕。#220-A1〔fix〕:fetchCatalogProducts 改呼 listAllByCategory〔.order('id')+.range 分頁迴圈繞 PostgREST Max rows=1000、撈非下架公開全量 1115〕,修原 listByCategory 單次查只回 1000 漏 115 件公開商品的 bug;stopgap 全量撈 client、多品牌 #212 須改 server 分頁 #51。#220-B1:FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標〔mirror hideVehicle、預設 false dev-preview 照舊〕、ProductsPage 傳 true → 結構性隱藏假篩選〔零件分類/品牌/顏色/新品特價、真資料 no-op:單一分類+單一品牌 RPM CARBON+全 silver+無促銷〕;保留價格範圍;車種=#220b、僅現貨=#161〔SHOW_IN_STOCK_FILTER=false〕不動;視覺細節 Sean 後續 design skill 調。品牌側欄真資料化留 #220c。M-1-12 RWD fix〔#220 手機肉眼驗發現、Sean 拍 A〕:filter-top.css 於 .pp-grid 鎖 2 欄同範圍(≤1079px + [data-mobile])隱藏欄數切換鈕 + 其前 divider、修切換鈕在手機/平板失效〔inline gridTemplateColumns 被 repeat(2)!important 蓋過〕;桌機照舊;見 business_override mobileGridToggleHidden)"
+      last_modified_commit: "076dd84"  # 記可達祖先(=076dd84);Sean 實測 feedback 兩修 真改見 git log
+      last_modified_date: "2026-07-03 (Sean 實測 feedback:① FilterSide 車輛樹恢復 hideVehicle〔車輛選擇集中頂部 cascade、回歸 M-1-12 版面〕② .cft-label 11px→13px 對齊左欄篩選字級〔design 原 11px、Sean 拍放大〕。前次 Q1=A 缺年語意統一:matchesVehicle 缺 yearStart fitment 改「該車型全年份適用、選了年份亦命中」、對齊 domain matchFitmentYear、年份三態→四態、+2 測。前次 S1 #152 vehicle 修復:車輛篩選接真 fitment —— 新增 lib/vehicle-taxonomy.ts buildVehicleTaxonomy(products) 從商品 fitments 動態衍生 品牌→車型→年份 清單〔MockMotoBrand[] 契約、brand/model slug id 皆去重、開放式年份 cap 資料上界〕取代 MOCK_MOTO_BRANDS;products-filter-logic.ts 加 matchesVehicle 依 fitment 逐層過濾〔品牌/車型/年份四態〕;ProductsPage 解除 FilterSide hideVehicle、parseVehicleFromUrl + ProductCard href 反查同一份衍生清單;ProductPage vehiclePill 同步改商品自身 fitments+slugify 同源反查〔靜態表 fallback〕。同 slice 併 S2/#220b:VehicleFinder 接真衍生清單+短版 push(見 VehicleFinder 段)。歷史:2026-06-10 #220 + #220-A1:/products 列表頁資料源 mock→真 Supabase 目錄。#220:app/products/page.tsx sync→async server fetch fetchCatalogProducts〔釘 'general' strip 經銷價〕→ ProductsPage {products,error} props〔刪 MOCK_PRODUCTS、filterProducts 吃真陣列、UI/篩選/排序/分頁零動、載入失敗態 Q2=A 鏡像 HomeSelect〕。#220-A1〔fix〕:fetchCatalogProducts 改呼 listAllByCategory〔.order('id')+.range 分頁迴圈繞 PostgREST Max rows=1000、撈非下架公開全量 1115〕,修原 listByCategory 單次查只回 1000 漏 115 件公開商品的 bug;stopgap 全量撈 client、多品牌 #212 須改 server 分頁 #51。#220-B1:FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標〔mirror hideVehicle、預設 false dev-preview 照舊〕、ProductsPage 傳 true → 結構性隱藏假篩選〔零件分類/品牌/顏色/新品特價、真資料 no-op:單一分類+單一品牌 RPM CARBON+全 silver+無促銷〕;保留價格範圍;車種=#220b、僅現貨=#161〔SHOW_IN_STOCK_FILTER=false〕不動;視覺細節 Sean 後續 design skill 調。品牌側欄真資料化留 #220c。M-1-12 RWD fix〔#220 手機肉眼驗發現、Sean 拍 A〕:filter-top.css 於 .pp-grid 鎖 2 欄同範圍(≤1079px + [data-mobile])隱藏欄數切換鈕 + 其前 divider、修切換鈕在手機/平板失效〔inline gridTemplateColumns 被 repeat(2)!important 蓋過〕;桌機照舊;見 business_override mobileGridToggleHidden)"
     design:
       component: "design-reference/components/ProductsPage.jsx"
       css: "design-reference/styles/products-page.css"
@@ -140,7 +140,7 @@ components:
         reason: "M-1-16 真資料上架、列表頁脫離 mock;逛街→加購→結帳真實動線解鎖(M-3 階段① 肉眼驗發現)"
       - field: "hiddenMockFilters"
         design_value: "design ProductsPage 篩選側欄/抽屜含 零件分類(多層分類樹)+ 品牌(17 廠 checkbox)+ 顏色(7 色)+ 新品/特價 toggle"
-        storefront_value: "#220-B1 結構性隱藏上述假/no-op 篩選(FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標、ProductsPage 傳 true):真資料單一分類「碳纖維部品」(分類樹無意義 #152)+ 單一品牌 RPM CARBON(選其他 chip 0 結果 #220c)+ toUIProduct color 全 'silver'(顏色篩選 no-op)+ isNew/isSale 全 false(新品/特價 no-op)。保留「價格範圍」(真 price_general 可篩)。〔S1 2026-07-03 supersede:車種選單(頂部 CascadeFilterTop + FilterSide 車輛樹〔hideVehicle 解除〕+ FilterDrawer)已接真 fitment 衍生清單且真過濾、不再 no-op〕;「僅現貨」另由 #161(SHOW_IN_STOCK_FILTER=false、Phase1 不顯庫存)關著、B1 未動;旗標預設 false → dev-preview 預覽頁照舊全顯。視覺細節(如改不可點的「碳纖維部品」標籤)Sean 後續 design skill 調"
+        storefront_value: "#220-B1 結構性隱藏上述假/no-op 篩選(FilterSide/FilterDrawer 加 hideCategory/hideBrand/hideColor/hidePromoFlags 旗標、ProductsPage 傳 true):真資料單一分類「碳纖維部品」(分類樹無意義 #152)+ 單一品牌 RPM CARBON(選其他 chip 0 結果 #220c)+ toUIProduct color 全 'silver'(顏色篩選 no-op)+ isNew/isSale 全 false(新品/特價 no-op)。保留「價格範圍」(真 price_general 可篩)。〔S1 2026-07-03 supersede:車種選單(頂部 CascadeFilterTop + FilterDrawer)已接真 fitment 衍生清單且真過濾、不再 no-op;FilterSide 車輛樹 hideVehicle S1 曾解除 → Sean 同日實測 feedback 恢復隱藏、車輛選擇集中頂部(回歸 M-1-12 cascade 版面)〕;「僅現貨」另由 #161(SHOW_IN_STOCK_FILTER=false、Phase1 不顯庫存)關著、B1 未動;旗標預設 false → dev-preview 預覽頁照舊全顯。視覺細節(如改不可點的「碳纖維部品」標籤)Sean 後續 design skill 調"
         decided_at: "2026-06-10"
         decision_source: "#220-B1 Sean 拍 B1a(我做結構性隱藏、視覺 Sean 後續調);#220 肉眼驗發現側欄假資料「這麼亂」"
         backlog: "#220c(品牌側欄真資料化)/ #220b(VehicleFinder)/ #212(多品牌上架後品牌篩選才有意義)"
@@ -153,11 +153,18 @@ components:
         reason: "pre-existing M-1-12 RWD bug;手機鎖 2 欄合理(5 欄擠爆)、但壞掉的切換鈕不該顯;優於 design(design 同 bug 未修)、留此 override 避日後 re-sync 誤判"
       - field: "vehicleFilterRealFitment"
         design_value: "design filterProducts(ProductsPage.jsx L85-116)不過濾 vehicle/category —— cascade 車種選單為 demo stub、選了只變標題不變結果(mock 資料未對映)"
-        storefront_value: "S1:車輛篩選接真 fitment 端到端生效 —— buildVehicleTaxonomy(products) 動態衍生 品牌→車型→年份 清單(只列有商品的車、無死選項、商品匯入後自動更新零手動維護)+ matchesVehicle 依 fitments 逐層過濾(年份四態:單年/開放式 cap 資料上界/明確範圍/缺年=該車型全年份適用亦命中〔Q1=A 2026-07-03、對齊 domain matchFitmentYear、缺年為車型專用 body work 非通用件〕);無 fitments 商品選車後仍排除(無車型錨點);ProductPage vehiclePill 以商品 fitments+slugify 同源反查。對 design stub 的刻意補全、非翻譯;車種鐵律 fitment_parsed 直出、AI 不碰車種"
+        storefront_value: "S1:車輛篩選接真 fitment 端到端生效 —— buildVehicleTaxonomy(products) 動態衍生 品牌→車型→年份 清單(只列有商品的車、無死選項、商品匯入後自動更新零手動維護)+ matchesVehicle 依 fitments 逐層過濾(年份四態:單年/開放式 cap 資料上界/明確範圍/缺年=該車型全年份適用亦命中〔Q1=A 2026-07-03、對齊 domain matchFitmentYear、缺年為車型專用 body work 非通用件〕);無 fitments 商品選車後仍排除(無車型錨點);ProductPage vehiclePill 以商品 fitments+slugify 同源反查;車輛選擇入口 = 頂部 CascadeFilterTop + 手機 FilterDrawer(FilterSide 車輛樹恢復 hideVehicle、Sean 2026-07-03 實測 feedback)。對 design stub 的刻意補全、非翻譯;車種鐵律 fitment_parsed 直出、AI 不碰車種"
         decided_at: "2026-07-03"
         decision_source: "Sean 2026-07-02「先完整商品與車輛篩選」+ Q1=A(fitment 動態直出、不用報價單主表 4004 筆);#152 vehicle 部分關閉"
         backlog: "#152(category 剩餘)/ #220b(VehicleFinder、S2)/ #211(fitment 字串正規化、髒字串會原樣成選項)"
         reason: "「依車找零件」核心體驗;真資料 10 品牌/94 車型/2008-2025、fitment 覆蓋 99.9%;design 出了選單但 stub、不補=線上隱性 bug(UI 變結果不變)"
+      - field: "cftLabelFontSize"
+        design_value: "design filter-top.css .cft-label font-size 11px(uppercase mono 小標)"
+        storefront_value: "13px(對齊左欄篩選 .fs-section-head 字級;其餘屬性不動)"
+        decided_at: "2026-07-03"
+        decision_source: "Sean 開站實測 feedback「確認適用車款的文字太小、大小要跟左邊篩選欄位一樣」(視覺 Sean 掌舵)"
+        backlog: ""
+        reason: "Sean 親自視覺拍板;.cft-select 原即 13px 與左欄同級、僅 label 落差"
     open_drifts: []  # S1 曾列 VehicleFinder 靜態 id drift;同 slice 併 S2(#220b)收斂 → 撤(Fable5 F1 must-fix)
 
   VehicleFinder:

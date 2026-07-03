@@ -2,7 +2,8 @@
 //
 // 字面對齊 design-reference/components/ProductsPage.jsx(M-1-12):
 // - Sean 拍板版面 filterStyle = cascade:頂部 CascadeFilterTop + 桌機左側
-//   FilterSide(S1 起含車輛樹;hideVehicle 已解除)+ 手機 FilterDrawer。
+//   FilterSide(hideVehicle:S1 曾解除、Sean 2026-07-03 實測恢復 —— 車輛選擇集中頂部)
+//   + 手機 FilterDrawer(vehicle tab 保留 = 手機選車入口)。
 // - M-1-12 Codex review 修正:篩選 / 排序純函式拆 products-filter-logic.ts、
 //   ActiveChips / Pagination 拆同名檔(鐵則 6:元件檔 >400 行必拆);本檔保留
 //   主元件 + PageHeader / SortBar / MobileFab 三個小型版面子元件。
@@ -282,9 +283,11 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
       <div className="pp-layout has-side" data-filter-style="cascade">
         {/* #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
             僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調)。
-            S1:車輛樹(hideVehicle)解除隱藏 —— 接真 fitment 衍生清單、真過濾。 */}
+            hideVehicle:S1 曾解除、Sean 2026-07-03 實測 feedback 恢復 —— 車輛選擇集中頂部
+            CascadeFilterTop(+ 手機 FilterDrawer)、左欄不重複放車輛樹(回歸 M-1-12 cascade 版面拍板)。 */}
         <FilterSide
           data={data}
+          hideVehicle
           hideCategory
           hideBrand
           hideColor

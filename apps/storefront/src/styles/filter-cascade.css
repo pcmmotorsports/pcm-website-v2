@@ -26,7 +26,8 @@
   flex-wrap: wrap;
 }
 .cft-label {
-  font-size: 11px;
+  /* Sean 2026-07-03 實測 feedback:11px 太小 → 13px 對齊左欄篩選字級(.fs-section-head 13px;design 原 11px) */
+  font-size: 13px;
   font-weight: 600;
   color: var(--c-text-2);
   letter-spacing: 0.06em;
