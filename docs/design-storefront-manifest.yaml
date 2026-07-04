@@ -614,8 +614,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductInfo.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "ece0585"  # 記可達祖先=M-3-S2-b2-c 父 commit(避 amend orphan);本 slice 真改見 git log [S2-b2-c]:addToCart 改傳 variantId(selectedVariant.id、cart 線契約、非視覺、design 不動)。前序 OD-7c picker 接 <ProductSwatchPreview/>、OD-5/OD-4* 見 od_redesign 段
-      last_modified_date: "2026-06-06 (M-3-S2-b2-c:addToCart 改帶 variant_id〔selectedVariant.id、cart 線契約 {productId,variantId}、非視覺〕;前序 OD-7c picker 上方紋路樣品預覽卡 ProductSwatchPreview、OD-5/OD-4c 見 od_redesign 段)"
+      last_modified_commit: "075b3ce"  # 記可達祖先=W2 父 commit(避 amend orphan);本 slice 真改見 git log [m-1] W2:選擇器泛化(非 RPM spec 形狀泛型維 + SwatchPreview 非 RPM 降級)。前序 M-3-S2-b2-c addToCart 帶 variant_id、OD-7c/OD-5/OD-4* 見 od_redesign 段
+      last_modified_date: "2026-07-04 (W2 #265/#267:變體選擇器泛化 — RPM 形狀走現行 pattern/finish 合成維 byte 不變、非 RPM 泛型維 spec key 資料驅動;ProductSwatchPreview 非 RPM 降級不渲染)"
     design:
       component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
@@ -631,6 +631,12 @@ components:
         decided_at: "2026-06-01"
         decision_source: "M-1-16c plan Sean Q1=A 文字鈕 / Q2=A 中文 / Q3=A 資料驅動第三排 / Q4=A 不顯庫存"
         reason: "RPM 真變體無顏色維度(紋路/表面/特殊)、design mock 色/尺寸不適用;鐵則 1 例外類別(業務真資料 override mock 字面)、沿用 design 選擇器 chrome 只換資料源"
+      - field: "genericSpecDimFallback"
+        design_value: "design 無泛型 spec key 維度概念(僅 mock 顏色 swatch/尺寸 grid)"
+        storefront_value: "W2(#265/#267):spec 含 weave/finish/special 任一 key = RPM 形狀、走現行 pattern/finish 合成維(輸出 byte 不變);否則泛型模式 — 維 = spec 實際 key(GENERIC_DIM_LABEL:color=顏色/material=材質/design=款式/tier=等級/version=版本、未列 key 顯原字)、值原字直出、值序 = 變體首見序;ProductSwatchPreview(RPM 紋路樣品卡)非 RPM 降級不渲染(防 findSwatch fallback 顯錯誤碳纖樣品;通用色塊 hex_color 為後續獨立工作)"
+        decided_at: "2026-07-04"
+        decision_source: "#267 變體模型統一 plan W2(Sean 批准)+ #265(P0-C-c 延 Phase 1、報價單源頭修復後真 spec 形狀就位)"
+        reason: "bonamici {color,material}/cncracing {color} 等非 RPM 真變體上架後、顧客須可選顏色/材質;泛型維沿用既有 .pd-opt/.pd-size-grid chrome 只換資料源、無新 CSS"
 
   # ---- 共用 / 首頁系列 ----
 

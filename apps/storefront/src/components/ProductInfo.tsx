@@ -51,8 +51,26 @@ export type ProductInfoProps = {
 //     移除原獨立「特殊」欄(Sean「特殊沒這選項」);
 //   表面(finish)= 亮光/消光。**消光不寫死鎖** —— 真資料 12K 亦有消光(DB 24 變體),選項全由真變體
 //     snap 決定(不照搬 OD enforceSurface/GLOSSY_ONLY 寫死;Sean Q-OD4c-1=A,避免少賣 24 變體)。
-type Dim = 'pattern' | 'finish';
-const DIM_LABEL: Record<Dim, string> = { pattern: '紋路', finish: '表面' };
+//
+// W2(#265/#267、2026-07-04):選擇器泛化支援非 RPM 規格形狀(bonamici {color,material}、
+//   cncracing {color}…)—— spec 含 weave/finish/special 任一 key = RPM 形狀、走現行 pattern/finish
+//   合成維路徑(🔴 輸出 byte 不變硬約束、12 現有測試為行為錨);否則泛型模式:維 = spec 實際 key
+//   (GENERIC_DIM_PRIORITY 排序、GENERIC_DIM_LABEL 顯中文、值原字直出、值序 = 變體首見序 =
+//   匯入端 sort_order 序)。ProductSwatchPreview 為 RPM 紋路樣品卡、非 RPM 降級不渲染
+//   (防 findSwatch fallback 顯錯誤碳纖樣品;通用色塊 hex_color 為後續獨立工作、見 #265)。
+type Dim = string; // RPM 模式 = 'pattern' | 'finish' 合成維;泛型模式 = spec 原始 key
+const DIM_LABEL: Record<string, string> = { pattern: '紋路', finish: '表面' };
+// 泛型維標籤(key 皆 2026-07-04 報價單 DB spec 實際命中:color=CNC/bonamici/eazigrip/lightech、
+//   material=bonamici/materya、design/tier=eazigrip、version=lightech);未列 key fallback 顯原字。
+const GENERIC_DIM_LABEL: Record<string, string> = {
+  color: '顏色',
+  material: '材質',
+  design: '款式',
+  tier: '等級',
+  version: '版本',
+};
+// 泛型維順序:主軸(顏色)最前;未列 key 排後、保持首見序(sort 穩定)。
+const GENERIC_DIM_PRIORITY = ['color', 'material', 'design', 'tier', 'version'];
 const WEAVE_LABEL: Record<string, string> = { Twill: '斜紋', Plain: '平織', Forged: '鍛造', Honeycomb: '蜂巢' };
 const FINISH_LABEL: Record<string, string> = { Glossy: '亮光', Matt: '消光' };
 const SPECIAL_LABEL: Record<string, string> = { '12K': '12K', Kevlar: 'Kevlar' };
@@ -74,15 +92,43 @@ function patternLabel(key: string): string {
   }
   return WEAVE_LABEL[key] ?? key;
 }
-/** 變體在某維(pattern/finish)的值 */
-function variantDimValue(v: UIVariant, dim: Dim): string {
+/** W2:RPM 形狀偵測 — 任一變體 spec 帶 weave/finish/special → 走現行 RPM 合成維路徑。
+ *  🔴 已知假設(對抗審 F2、2026-07-04):以 key 名嗅探 = 假設非 RPM 品牌不用 weave/finish/special
+ *  英文 key。守衛在源頭:報價單 NEW_SUPPLIER_ONBOARDING 已列此三 key 為 RPM 保留字、新品牌 fetcher
+ *  禁用(UI 端拿不到可靠品牌信號 — mock 商品無 brandSlug、不硬耦合 'rpm-carbon' 字面)。 */
+function isRpmSpecShape(variants: UIVariant[]): boolean {
+  return variants.some((v) => 'weave' in v.spec || 'finish' in v.spec || 'special' in v.spec);
+}
+/** W2:泛型維收集 — variants spec 全部 distinct key、PRIORITY 先、未列 key 保持首見序 */
+function collectGenericDims(variants: UIVariant[]): string[] {
+  const keys: string[] = [];
+  for (const v of variants) {
+    for (const k of Object.keys(v.spec)) {
+      if (!keys.includes(k)) keys.push(k);
+    }
+  }
+  const rank = (k: string) => {
+    const i = GENERIC_DIM_PRIORITY.indexOf(k);
+    return i < 0 ? 99 : i;
+  };
+  return keys.sort((a, b) => rank(a) - rank(b));
+}
+/** 變體在某維的值(RPM:pattern=合成 key、finish;泛型:spec 原始 key 直讀) */
+function variantDimValue(v: UIVariant, dim: Dim, rpm: boolean): string {
+  if (!rpm) return v.spec[dim] ?? '';
   return dim === 'pattern' ? patternKey(v) : (v.spec.finish ?? '');
 }
-function dimValueLabel(dim: Dim, value: string): string {
+function dimValueLabel(dim: Dim, value: string, rpm: boolean): string {
+  if (!rpm) return value; // 泛型值原字直出(來源已繁中;未譯值後續內容輪處理)
   return dim === 'pattern' ? patternLabel(value) : (FINISH_LABEL[value] ?? value);
 }
-/** 排序:紋路標準 weave(WEAVE_ORDER)在前、special 合併款(12K→Kevlar)在後;表面亮光在前 */
-function sortDimValues(dim: Dim, values: string[]): string[] {
+function dimLabel(dim: Dim, rpm: boolean): string {
+  return rpm ? (DIM_LABEL[dim] ?? dim) : (GENERIC_DIM_LABEL[dim] ?? dim);
+}
+/** 排序:紋路標準 weave(WEAVE_ORDER)在前、special 合併款(12K→Kevlar)在後;表面亮光在前;
+ *  泛型維不重排(維持變體首見序 = 匯入端 sort_order 序) */
+function sortDimValues(dim: Dim, values: string[], rpm: boolean): string[] {
+  if (!rpm) return values;
   if (dim === 'finish') {
     const rank = (k: string) => { const i = FINISH_ORDER.indexOf(k); return i < 0 ? 99 : i; };
     return [...values].sort((a, b) => rank(a) - rank(b));
@@ -108,22 +154,29 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
   const variants = product.variants ?? [];
   const hasVariants = variants.length > 0;
 
-  // OD-4c:派生 2 維(pattern / finish)選擇器;只渲染 distinct >1 的維(資料驅動)。
-  //   pattern 已把 special 折入(見 patternKey);無「特殊」獨立維、無 NONE「標準」sentinel。
+  // W2:RPM 形狀走現行合成 2 維;非 RPM 泛型模式(維 = spec 實際 key)。
+  const rpmShape = useMemo(() => isRpmSpecShape(product.variants ?? []), [product.variants]);
+
+  // OD-4c:派生選擇器維;只渲染 distinct >1 的維(資料驅動)。
+  //   RPM = pattern / finish(pattern 已把 special 折入,見 patternKey);泛型 = collectGenericDims。
   const specGroups = useMemo<SpecGroup[]>(() => {
     const vs = product.variants ?? [];
-    const dims: Dim[] = ['pattern', 'finish'];
+    const dims: Dim[] = rpmShape ? ['pattern', 'finish'] : collectGenericDims(vs);
     return dims
       .map((dim) => {
         const values: string[] = [];
         for (const v of vs) {
-          const val = variantDimValue(v, dim);
+          const val = variantDimValue(v, dim, rpmShape);
+          // 泛型模式濾空值(對抗審 F1):spec key 不齊(如 eazigrip 主列 {} + 變體列 {color})
+          //   會產生 '' 值 → 空白按鈕 + snap 污染;缺 key 變體仍可經其他維 + snap 選到。
+          //   RPM 模式不濾(patternKey 可為 '' 是現行行為、byte 不變)。
+          if (!rpmShape && val === '') continue;
           if (!values.includes(val)) values.push(val);
         }
-        return { dim, values: sortDimValues(dim, values) };
+        return { dim, values: sortDimValues(dim, values, rpmShape) };
       })
       .filter((g) => g.values.length > 1);
-  }, [product.variants]);
+  }, [product.variants, rpmShape]);
 
   // OD-4a:selectedVariant 提升 ProductPage(props 受控)、本元件只持 qty / liked local。
   //   product 變更時 selectedVariant reset 由 ProductPage 統一處理(gallery 同步換圖);本處只 reset qty。
@@ -139,7 +192,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
   // OD-4c:選某維(pattern/finish)的值;候選 = 該維=value 的變體;snap「另一維與當前相符最多」者
   // (稀疏矩陣保證選到有效變體、不卡死;候選保留 variants 排序、首個 max-score 穩定 tie-break)。
   const selectSpec = (dim: Dim, value: string) => {
-    const candidates = variants.filter((v) => variantDimValue(v, dim) === value);
+    const candidates = variants.filter((v) => variantDimValue(v, dim, rpmShape) === value);
     if (candidates.length === 0) return;
     const cur = selectedVariant;
     let best = candidates[0]!;
@@ -149,7 +202,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       if (cur) {
         for (const g of specGroups) {
           if (g.dim === dim) continue;
-          if (variantDimValue(v, g.dim) === variantDimValue(cur, g.dim)) score += 1;
+          if (variantDimValue(v, g.dim, rpmShape) === variantDimValue(cur, g.dim, rpmShape)) score += 1;
         }
       }
       if (score > bestScore) {
@@ -164,10 +217,11 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
   const displayPrice = selectedVariant?.price ?? product.price;
 
   // OD-7c:預覽卡的「紋路 · 表面」文字 — 反映實際選擇(含 12K/Kevlar 合併款、空維過濾)。
-  const previewValueText = selectedVariant
+  //   W2:預覽卡限 RPM 形狀(非 RPM 不渲染、文字不需算)。
+  const previewValueText = rpmShape && selectedVariant
     ? [
-        dimValueLabel('pattern', variantDimValue(selectedVariant, 'pattern')),
-        dimValueLabel('finish', variantDimValue(selectedVariant, 'finish')),
+        dimValueLabel('pattern', variantDimValue(selectedVariant, 'pattern', true), true),
+        dimValueLabel('finish', variantDimValue(selectedVariant, 'finish', true), true),
       ]
         .filter(Boolean)
         .join(' · ')
@@ -224,8 +278,10 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       </div>
 
       {/* OD-7c:picker 上方即時預覽卡 — 顯當前選中變體對應的紋路樣品圖(findSwatch + fallback);
-          點圖開 lightbox 瀏覽全 10 張樣品。與 Hero 圖庫(OD-7d 真變體實拍)互補(預覽=乾淨紋路參考)。 */}
-      {hasVariants && (
+          點圖開 lightbox 瀏覽全 10 張樣品。與 Hero 圖庫(OD-7d 真變體實拍)互補(預覽=乾淨紋路參考)。
+          W2:限 RPM 形狀 — 非 RPM(bonamici/cncracing 色彩變體)降級不渲染,防 findSwatch
+          fallback 顯示錯誤的 RPM 碳纖樣品圖(#265;通用色塊 hex_color 為後續獨立工作)。 */}
+      {hasVariants && rpmShape && (
         <ProductSwatchPreview selectedVariant={selectedVariant} valueText={previewValueText} />
       )}
 
@@ -234,13 +290,13 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
           文字鈕沿用 .pd-size-grid/.pd-size-btn、Q4=A 不顯庫存不 disable。 */}
       {hasVariants &&
         specGroups.map((g) => {
-          const curVal = selectedVariant ? variantDimValue(selectedVariant, g.dim) : undefined;
+          const curVal = selectedVariant ? variantDimValue(selectedVariant, g.dim, rpmShape) : undefined;
           return (
             <div className="pd-opt" data-opt={g.dim} key={g.dim}>
               <div className="pd-opt-head">
-                <span className="pd-opt-label">{DIM_LABEL[g.dim]}</span>
+                <span className="pd-opt-label">{dimLabel(g.dim, rpmShape)}</span>
                 <span className="pd-opt-value">
-                  {curVal !== undefined ? dimValueLabel(g.dim, curVal) : ''}
+                  {curVal !== undefined ? dimValueLabel(g.dim, curVal, rpmShape) : ''}
                 </span>
               </div>
               <div className="pd-size-grid">
@@ -252,7 +308,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
                     onClick={() => selectSpec(g.dim, val)}
                     aria-pressed={curVal === val}
                   >
-                    {dimValueLabel(g.dim, val)}
+                    {dimValueLabel(g.dim, val, rpmShape)}
                   </button>
                 ))}
               </div>

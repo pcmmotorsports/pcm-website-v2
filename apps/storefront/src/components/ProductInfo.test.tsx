@@ -170,4 +170,115 @@ describe('ProductInfo', () => {
     // 不崩潰即可(cart 寫 localStorage);變體 variant_id(selectedVariant.id)走 cart 線契約、非本 smoke 斷言範圍
     expect(screen.getByRole('button', { name: '加入購物車' })).toBeDefined();
   });
+
+  // ── W2(#265/#267)非 RPM 泛型規格形狀 ──
+  // fixture 對齊報價單真資料形狀(2026-07-04 乾跑/DB 親見):bonamici {color,material}、cncracing {color}
+
+  it('should render generic color/material selectors for bonamici-shaped spec (W2)', () => {
+    const bonamiciProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      price: 1900,
+      variants: [
+        { id: 'v-bo-br', sku: '0025_BR', spec: { color: '古銅色', material: '鋁合金' }, price: 1900, images: [] },
+        { id: 'v-bo-bk', sku: '0025_BK', spec: { color: '黑色', material: '鋁合金' }, price: 1900, images: [] },
+        { id: 'v-bo-bk-ti', sku: '0025_BKT', spec: { color: '黑色', material: '鈦合金' }, price: 2400, images: [] },
+      ],
+    };
+    renderInfo(bonamiciProduct);
+    // 泛型維標籤(GENERIC_DIM_LABEL)+ 值原字直出
+    expect(screen.getByText('顏色')).toBeDefined();
+    expect(screen.getByText('材質')).toBeDefined();
+    expect(screen.getByRole('button', { name: '古銅色' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '鋁合金' })).toBeDefined();
+    // RPM 維不出現
+    expect(screen.queryByText('紋路')).toBeNull();
+    expect(screen.queryByText('表面')).toBeNull();
+    // 選材質換價(snap:黑色+鈦合金 2400)
+    fireEvent.click(screen.getByRole('button', { name: '黑色' }));
+    fireEvent.click(screen.getByRole('button', { name: '鈦合金' }));
+    expect(screen.getByText('NT$ 2,400')).toBeDefined();
+  });
+
+  it('should render single 顏色 dim for cncracing-shaped spec and change price (W2)', () => {
+    const cncProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      price: 9500,
+      variants: [
+        { id: 'v-ca-b', sku: 'CA210B', spec: { color: '黑色' }, price: 9500, images: [] },
+        { id: 'v-ca-bpr', sku: 'CA210BPR', spec: { color: 'Pramac 黑色' }, price: 10800, images: [] },
+      ],
+    };
+    renderInfo(cncProduct);
+    expect(screen.getByText('顏色')).toBeDefined();
+    fireEvent.click(screen.getByRole('button', { name: 'Pramac 黑色' }));
+    expect(screen.getByText('NT$ 10,800')).toBeDefined();
+    // 料號隨選中變體連動
+    expect(screen.getByText(`${cncProduct.brand} · CA210BPR`)).toBeDefined();
+  });
+
+  it('should NOT render RPM swatch preview card for non-RPM spec shapes (W2 降級)', () => {
+    const cncProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      variants: [
+        { id: 'v-ca-b', sku: 'CA210B', spec: { color: '黑色' }, price: 9500, images: [] },
+        { id: 'v-ca-r', sku: 'CA210R', spec: { color: '紅色' }, price: 9500, images: [] },
+      ],
+    };
+    renderInfo(cncProduct);
+    // 預覽卡(「當前樣式」)不得出現 — 防 findSwatch fallback 顯錯誤 RPM 碳纖樣品
+    expect(screen.queryByText('當前樣式')).toBeNull();
+  });
+
+  it('should still render RPM swatch preview card for RPM spec shapes (W2 迴歸錨)', () => {
+    renderInfo(variantProduct);
+    expect(screen.getByText('當前樣式')).toBeDefined();
+  });
+
+  it('should filter empty values when generic spec keys are uneven (W2 對抗審 F1)', () => {
+    // eazigrip HOSE 群真形狀:主列 spec={} + 色彩變體列 {color}(2026-07-04 DB 親見)
+    const unevenProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      variants: [
+        { id: 'v-h-main', sku: 'HOSEBMW001', spec: {}, price: 2000, images: [] },
+        { id: 'v-h-blue', sku: 'HOSEBMW001BLUE', spec: { color: 'Blue' }, price: 2000, images: [] },
+        { id: 'v-h-red', sku: 'HOSEBMW001RED', spec: { color: 'Red' }, price: 2000, images: [] },
+      ],
+    };
+    renderInfo(unevenProduct);
+    // color 維渲染 Blue/Red 兩鈕、無空白按鈕(空值已濾)
+    expect(screen.getByRole('button', { name: 'Blue' })).toBeDefined();
+    expect(screen.getByRole('button', { name: 'Red' })).toBeDefined();
+    const optButtons = screen.getAllByRole('button').filter((b) => b.className.includes('pd-size-btn'));
+    expect(optButtons).toHaveLength(2);
+    expect(optButtons.every((b) => (b.textContent ?? '').trim() !== '')).toBe(true);
+  });
+
+  it('should treat mixed weave+color spec as RPM shape (W2 對抗審 F2 既定行為錨)', () => {
+    // 髒資料防禦性釘住:任一變體含 weave/finish/special → 整商品走 RPM 模式(color 軸不渲染)。
+    // 真實資料不應出現此形狀(報價單 onboarding 已列三 key 為 RPM 保留字)。
+    const mixedProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      variants: [
+        { id: 'v-m-1', sku: 'M-1', spec: { weave: 'Twill', finish: 'Glossy', color: '黑色' }, price: 100, images: [] },
+        { id: 'v-m-2', sku: 'M-2', spec: { weave: 'Plain', finish: 'Glossy', color: '紅色' }, price: 100, images: [] },
+      ],
+    };
+    renderInfo(mixedProduct);
+    expect(screen.getByText('紋路')).toBeDefined(); // RPM 模式
+    expect(screen.queryByText('顏色')).toBeNull(); // color 軸不渲染(既定取捨、源頭保留字防護)
+  });
+
+  it('should fallback unknown generic spec key to raw key label (W2)', () => {
+    const unknownKeyProduct: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      variants: [
+        { id: 'v-u-1', sku: 'U-1', spec: { size: 'S' }, price: 100, images: [] },
+        { id: 'v-u-2', sku: 'U-2', spec: { size: 'M' }, price: 100, images: [] },
+      ],
+    };
+    renderInfo(unknownKeyProduct);
+    // size 不在 GENERIC_DIM_LABEL → 顯 key 原字(fail-safe、不 crash)
+    expect(screen.getByText('size')).toBeDefined();
+    expect(screen.getByRole('button', { name: 'S' })).toBeDefined();
+  });
 });
