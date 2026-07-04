@@ -110,10 +110,12 @@ export type SupabaseProductRow = {
 export type SupabaseVariantRow = {
   id: string;
   sku: string;
-  spec: Record<string, unknown>;
+  // 🔴 jsonb 來源可吐 null(#264:試點來源 spec=NULL 未經 rpm-transform `?? {}` 轉換、或歷史列);
+  //   型別誠實標 nullable、mapVariantRow `?? {}`/`?? []` 防禦,否則 Object.entries(null)/null.map() 讓整頁 500。
+  spec: Record<string, unknown> | null;
   price_general: number | null;
   availability: ProductAvailability;
-  images: unknown[];
+  images: unknown[] | null;
   sort_order: number;
 };
 
@@ -228,8 +230,10 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
   }
 
   // spec guard:值全 string(domain ProductVariant.spec: Record<string, string>)
+  // #264:jsonb spec 可為 null(來源 spec=NULL、或 rpm-transform `?? {}` 未觸及的歷史列)→ 視為空 spec
+  //   不 throw(否則 Object.entries(null) 讓整個商品詳情頁 adapter 層 500、客人看到破頁)。
   const spec: Record<string, string> = {};
-  for (const [k, v] of Object.entries(row.spec)) {
+  for (const [k, v] of Object.entries(row.spec ?? {})) {
     if (typeof v !== 'string') {
       throw new Error(
         `Variant ${row.sku} spec.${k} 非 string(實際 ${typeof v});domain ProductVariant.spec 須 Record<string,string>`,
@@ -239,7 +243,8 @@ export function mapVariantRow(row: SupabaseVariantRow): ProductVariant {
   }
 
   // images guard:元素全 string URL(domain ProductVariant.images: string[];空 [] 合法、16c fallback 商品圖)
-  const images = row.images.map((img, i) => {
+  // #264:jsonb images 可為 null → 視為空陣列(靠 16c 商品代表圖 fallback)、不 throw。
+  const images = (row.images ?? []).map((img, i) => {
     if (typeof img !== 'string') {
       throw new Error(
         `Variant ${row.sku} images[${i}] 非 string(實際 ${typeof img});domain ProductVariant.images 須 string[]`,

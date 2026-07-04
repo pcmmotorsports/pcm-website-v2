@@ -125,6 +125,25 @@ describe('mapVariantRow', () => {
       }),
     ).toThrow(/images\[1\] 非 string/);
   });
+
+  // #264:jsonb 來源 spec/images 可為 null(試點 spec=NULL 未經 rpm-transform ?? {} 轉、或歷史列);
+  //   舊版 Object.entries(null)/null.map() 會 throw → 整個商品詳情頁 adapter 層 500。harden 後視為空、不 throw。
+  it('#264:spec=null → 空 spec、不 throw(防商品頁整頁 500)', () => {
+    const v = mapVariantRow({ ...baseVariantRow, spec: null });
+    expect(v.spec).toEqual({});
+    expect(v.sku).toBe(baseVariantRow.sku); // 其餘欄位正常映射
+  });
+
+  it('#264:images=null → 空陣列、不 throw(靠 16c 商品代表圖 fallback)', () => {
+    const v = mapVariantRow({ ...baseVariantRow, images: null });
+    expect(v.images).toEqual([]);
+  });
+
+  it('#264:spec 與 images 同時 null → 兩者空、不 throw', () => {
+    const v = mapVariantRow({ ...baseVariantRow, spec: null, images: null });
+    expect(v.spec).toEqual({});
+    expect(v.images).toEqual([]);
+  });
 });
 
 describe('mapSupabaseProductToDomain 變體整合', () => {
