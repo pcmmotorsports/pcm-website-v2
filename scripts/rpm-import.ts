@@ -43,7 +43,7 @@ import {
   type VariantRow,
   type GroupTransformContext,
 } from './rpm-transform';
-import { resolveId, resolveIdOrNull, upsertBatched } from './rpm-load';
+import { resolveId, resolveIdOrNull, upsertBatched, partitionByKeyPresence } from './rpm-load';
 import {
   computeDelta,
   printDeltaReport,
@@ -61,6 +61,7 @@ import {
   printHandlePreflightReport,
   summarizeCategoryResolution,
   printCategoryResolutionReport,
+  findNullCategoryProducts,
 } from './rpm-preflight';
 
 // ── constants ──
@@ -207,6 +208,25 @@ async function main(): Promise<void> {
     printCategoryResolutionReport(summarizeCategoryResolution(categoryResolutions));
   }
 
+  // ── 硬 gate:category_id=null(#261;products.category_id NOT NULL、null 進 upsert = 23502、該 500 列批全敗)──
+  //   dry-run 列清單不 throw(配合上方彙整報告、Sean 看全貌);寫入模式 abort 不進 upsert(避免整批 23502 髒中間態)。
+  //   fixed 策略(rpm)category_id 恆非 null(resolveId 查無早已 throw)→ 此 gate 空過、byte 不變。
+  const nullCategoryProducts = findNullCategoryProducts(productRows);
+  if (nullCategoryProducts.length) {
+    console.warn(
+      `[rpm-import] 🔴 category_id=null ${nullCategoryProducts.length} 群(未對上 categories.raw_path)、寫入模式將 abort:`,
+    );
+    console.table(
+      nullCategoryProducts.slice(0, 30).map((p) => ({ external_id: p.external_id, handle: p.handle, subtitle: p.subtitle })),
+    );
+    if (nullCategoryProducts.length > 30) console.log(`(另有 ${nullCategoryProducts.length - 30} 群未列)`);
+    if (!DRY_RUN) {
+      throw new Error(
+        `category_id=null ${nullCategoryProducts.length} 群、abort 不寫(products.category_id NOT NULL;看上方未對上分類彙整、補 categories seed 後重跑)`,
+      );
+    }
+  }
+
   // ── 硬 gate 0:handle preflight(F4、charset + 全域唯一;不變式 6)──
   //   dry-run 列報告不 throw(Sean 看完整報告);寫入模式撞鍵/髒字元 → abort 不進 upsert(避免中途撞 products_handle_key 部分寫髒)。
   const handleOwners = await readHandleOwners(target, productRows.map((p) => p.handle));
@@ -266,7 +286,20 @@ async function main(): Promise<void> {
   }
 
   // 寫入:products(每批 .select 累積 id↔external_id 對照)→ product_variants;onConflict 複合鍵(S3a)
-  const savedProducts = await upsertBatched(target, 'products', productRows, 'supplier_slug,external_id', 'id, external_id');
+  // 🔴 #260(保留現值 ①):按 description key 是否存在分兩 uniform 批 upsert,避免 postgrest `?columns` 全批聯集 +
+  //    defaultToNull 把「省 key」列寫成 NULL(rpm 全省 key → withKey 空 → 現行單批行為 byte 等價;
+  //    試點來源空描述列落 withoutKey 批、不覆寫現值)。source-權威鏡射 ② 若採用另議、見 backlog #260。
+  //    ⚠️ 僅治 description 這**唯一**條件寫欄(transformGroup 唯一條件 spread、rpm-transform.ts);
+  //       未來若新增其他「省 key」條件欄,需一併納入 partition 依據(否則同批混省 key 重現 NULL-clobber、Fable F2)。
+  const { withKey: prodWithDesc, withoutKey: prodWithoutDesc } = partitionByKeyPresence(productRows, 'description');
+  const savedProducts = [
+    ...(prodWithDesc.length
+      ? await upsertBatched(target, 'products', prodWithDesc, 'supplier_slug,external_id', 'id, external_id')
+      : []),
+    ...(prodWithoutDesc.length
+      ? await upsertBatched(target, 'products', prodWithoutDesc, 'supplier_slug,external_id', 'id, external_id')
+      : []),
+  ];
   const idByExtId = new Map(savedProducts.map((r) => [r.external_id as string, r.id as string]));
 
   const variantRowsWithProduct = productRows.flatMap((pr) =>

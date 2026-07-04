@@ -218,6 +218,15 @@ export function summarizeCategoryResolution(
   return { mappedGroupCount, unmappedGroupCount, unmapped };
 }
 
+/**
+ * #261 寫入前硬 gate 資料源:找出 category_id=null 的商品(products.category_id NOT NULL、
+ * null 進 upsert = 23502、該 500 列批全敗)。呼叫端:dry-run 列清單不 throw(配合 summarizeCategoryResolution
+ * 彙整報告);寫入模式 abort 不進 upsert。fixed 策略(rpm)category_id 恆非 null → 回 []、gate 空過。
+ */
+export function findNullCategoryProducts<T extends { category_id: string | null }>(productRows: T[]): T[] {
+  return productRows.filter((p) => p.category_id === null);
+}
+
 export function printCategoryResolutionReport(s: CategoryResolutionSummary): void {
   console.log('\n=== per-group 分類解析彙整(#261 乾跑診斷)===');
   console.log(

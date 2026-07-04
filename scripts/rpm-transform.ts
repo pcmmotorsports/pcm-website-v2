@@ -70,6 +70,24 @@ function buildSubtitle(vehicleLabel: string | null | undefined, categoryTag: str
   return v && tag ? `${v} · ${tag}` : v || tag;
 }
 /**
+ * handle 片段正規化(#266、Sean 拍 A「正規化」):把來源 mainSku 洗成 URL-safe handle 片段。
+ *   1. lowercase;
+ *   2. 非白名單字元(空白 / 小數點 / slash 等 URL 危險字元)runs → 單一 hyphen;
+ *   3. 連續分隔符(- 或 _ 或混合)收斂成單一 hyphen;
+ *   4. 去前後分隔符。
+ * 🔴 白名單保留底線(P0-A-4c、bonamici PU_001);對「已合法」片段(rpm APRILIA-01 / gbracing GB-001 等)
+ *    = **no-op** → RPM handle byte 不變(rpm-transform.test golden 錨驗)。external_id 仍存原始 mainSku(join key、
+ *    大寫),handle 僅 SEO key(backlog #266:handle 走正規化、SKU 保於 external_id)。
+ *    ⚠️ 正規化後可能兩個不同髒 SKU 收斂成同 handle → 交由 handle preflight batch-duplicate 攔(dry-run 顯清單)。
+ */
+export function normalizeHandleSegment(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-') // 非白名單(空白 / . / slash 等)runs → 單一 hyphen
+    .replace(/[-_]{2,}/g, '-') // 連續分隔符(含 -_ 混合)→ 單一 hyphen
+    .replace(/^[-_]+|[-_]+$/g, ''); // 去前後分隔符(避免 HANDLE_RE 前後分隔符違規)
+}
+/**
  * fitments:全群所有變體 fitment_parsed 聯集去重(Q-B=A)。
  * 取 5 key {motoBrand,modelCode,yearStart?,yearEnd,unconfirmed?}、丟其餘內部 key(menu_path / year_str 等)。
  * 通用件空 entry({} 或 brand+model 皆空)→ 跳過(防呆、避免吐 undefined fitment row)。
@@ -176,7 +194,7 @@ export function transformGroup(
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
-    handle: `${ctx.handlePrefix}-${mainSku.toLowerCase()}`, // SEO slug、供應商命名空間化(rpm→'rpm-')
+    handle: `${ctx.handlePrefix}-${normalizeHandleSegment(mainSku)}`, // SEO slug、供應商命名空間化(rpm→'rpm-');#266 正規化(髒字元→hyphen;rpm 合法 sku=no-op、byte 不變)
     title: basis.product_name_zh || basis.product_name, // 中文部位詞優先、回退英文
     subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag),
     // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。

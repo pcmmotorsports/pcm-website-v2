@@ -44,6 +44,25 @@ export async function resolveIdOrNull(
 }
 
 /**
+ * 按某 key「是否存在於物件」把 rows 分兩組(#260、Sean 拍 ①「保留現值」)。
+ * 背景:postgrest-js `.upsert(陣列)` 的 `?columns` 取**全批 key 聯集** + `defaultToNull=true` →
+ *   同批混「有此 key」與「省此 key」兩種列時,省 key 列會被寫 **NULL**(非保留現值)。
+ * 解:呼叫端把 productRows 依 description key 是否存在分兩組、各自成 uniform 批 upsert →
+ *   「省 key」列落在「該批 columns 不含此 key」的批 → ON CONFLICT DO UPDATE 不覆寫該欄 → 保留現值。
+ * 🔴 rpm(syncDescription=false)全批一致省 description → withKey 空 → 現行單批行為 byte 等價。
+ * Object.hasOwn:只認 own key(對齊 getSupplierConfig fail-closed 慣例、不吃原型鏈成員)。
+ */
+export function partitionByKeyPresence<T extends object>(
+  rows: T[],
+  key: string,
+): { withKey: T[]; withoutKey: T[] } {
+  const withKey: T[] = [];
+  const withoutKey: T[] = [];
+  for (const r of rows) (Object.hasOwn(r, key) ? withKey : withoutKey).push(r);
+  return { withKey, withoutKey };
+}
+
+/**
  * 分批 upsert(冪等 onConflict)。給 `select` 則每批 `.select(select)` 累積回傳 rows
  * (用於 products 收 id↔external_id 對照、免事後大 `.in(933 值)` 超 GET URL 上限)。
  */

@@ -11,6 +11,7 @@ import {
   readHandleOwners,
   checkFetchIntegrity,
   summarizeCategoryResolution,
+  findNullCategoryProducts,
   type HandleIssue,
 } from './rpm-preflight';
 
@@ -174,5 +175,23 @@ describe('#261 summarizeCategoryResolution(per-group 分類解析彙整)', () =>
   it('空 major_category_zh 未對上 → 標「(空 major_category_zh)」', () => {
     const s = summarizeCategoryResolution([{ majorCategoryZh: '', categoryId: null }]);
     expect(s.unmapped).toEqual([{ majorCategoryZh: '(空 major_category_zh)', groupCount: 1 }]);
+  });
+});
+
+describe('#261 findNullCategoryProducts(寫入前硬 gate 資料源)', () => {
+  const p = (external_id: string, category_id: string | null) => ({
+    external_id,
+    category_id,
+    handle: `x-${external_id}`,
+    subtitle: 's',
+  });
+
+  it('回傳 category_id=null 的商品(依原順序、保留欄位)', () => {
+    const rows = [p('A', 'cat-1'), p('B', null), p('C', null), p('D', 'cat-2')];
+    expect(findNullCategoryProducts(rows).map((r) => r.external_id)).toEqual(['B', 'C']);
+  });
+
+  it('全部對上(fixed/rpm 情境)→ 空、gate 空過', () => {
+    expect(findNullCategoryProducts([p('A', 'cat-1'), p('B', 'cat-2')])).toEqual([]);
   });
 });

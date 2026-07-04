@@ -11,6 +11,7 @@ import {
   transformGroup,
   transformVariant,
   variantSortKey,
+  normalizeHandleSegment,
   type GroupTransformContext,
 } from './rpm-transform';
 
@@ -299,5 +300,49 @@ describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前
     };
     const row = transformVariant(rpmV, NOW, 0, 'sku-prefix-pool');
     expect(row.images).toEqual(['https://cdn/aprilia-01-g-f-1.jpg']); // 只留自身前綴、不誤收 m-f
+  });
+});
+
+describe('#266 normalizeHandleSegment(handle 片段正規化、Sean 拍 A)', () => {
+  it('rpm/gbracing 合法 sku = no-op(byte 不變、保留連字號)', () => {
+    expect(normalizeHandleSegment('APRILIA-01')).toBe('aprilia-01'); // = RPM golden handle 片段
+    expect(normalizeHandleSegment('UNIV-CARBON')).toBe('univ-carbon');
+    expect(normalizeHandleSegment('GB-001')).toBe('gb-001');
+  });
+
+  it('保留底線(P0-A-4c、bonamici PU_001)', () => {
+    expect(normalizeHandleSegment('PU_001')).toBe('pu_001');
+    expect(normalizeHandleSegment('PU_001_BK')).toBe('pu_001_bk');
+  });
+
+  it('gbracing 25 髒 handle 三類 → URL-safe(小數點/空格/斜線 → hyphen)', () => {
+    expect(normalizeHandleSegment('M10X1.25')).toBe('m10x1-25'); // ① 小數點(牙距)
+    expect(normalizeHandleSegment('M12X1.25X40')).toBe('m12x1-25x40');
+    expect(normalizeHandleSegment('M6 HEX HEAD')).toBe('m6-hex-head'); // ② 空格
+    expect(normalizeHandleSegment('M6 SOCKET CAP HEAD')).toBe('m6-socket-cap-head');
+    expect(normalizeHandleSegment('FS-CBR600-2008-R/L')).toBe('fs-cbr600-2008-r-l'); // ③ 斜線(Frame Slider 主力)
+  });
+
+  it('連續/前後分隔符收斂 + 去邊(HANDLE_RE 合規)', () => {
+    expect(normalizeHandleSegment('a..b')).toBe('a-b'); // 連續無效 → 單 hyphen
+    expect(normalizeHandleSegment('a-.b')).toBe('a-b'); // - 後接無效 → 收斂單 hyphen
+    expect(normalizeHandleSegment('  x  ')).toBe('x'); // 前後空白 → 去邊
+    expect(normalizeHandleSegment('-a_')).toBe('a'); // 前後分隔符去除
+    expect(normalizeHandleSegment('a__b')).toBe('a-b'); // 連續底線收斂
+  });
+
+  it('全無效字元 → 空字串(交 handle preflight charset 攔、非靜默寫髒)', () => {
+    const HANDLE_RE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/; // 同 rpm-preflight.ts
+    expect(normalizeHandleSegment('...')).toBe('');
+    expect(normalizeHandleSegment('   ')).toBe('');
+    // 安全網:空段組成 `${prefix}-` 尾綴分隔符 → HANDLE_RE 拒絕 → preflight charset 攔(非靜默寫髒)
+    expect(HANDLE_RE.test(`gbracing-${normalizeHandleSegment('...')}`)).toBe(false);
+  });
+
+  it('正規化後 transform 端 handle 過 HANDLE_RE(與 preflight 同步)', () => {
+    const HANDLE_RE = /^[a-z0-9]+(?:[-_][a-z0-9]+)*$/; // 同 rpm-preflight.ts HANDLE_RE
+    for (const sku of ['M10X1.25', 'M6 HEX HEAD', 'FS-CBR600-2008-R/L', 'PU_001', 'APRILIA-01']) {
+      expect(HANDLE_RE.test(`gbracing-${normalizeHandleSegment(sku)}`)).toBe(true);
+    }
   });
 });
