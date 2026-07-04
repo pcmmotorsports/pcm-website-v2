@@ -71,11 +71,12 @@
 2026-06-21(續4)— Claude Code 審查 session(dev=0a8bffb)[**🟢 M-3 3DS-7 7a-7c 審查 PASS 0 must-fix → merge --no-ff dev=0a8bffb + push origin/dev;backlog #245/#246 commit `ddb46d3`;寫審分離 ROLE=A、Sean 授權代執行 merge+push〕]
 
 ## 最近 3 commit
-> dev。**本 commit = W3 變體圖策略 + #267 收工 docs/STATUS(parent=`305f15f`、hash 見 commit 後 git log、不 amend 寫回)**。**`141e6e8` 以前已 push origin/dev;`faf8d79`(P0-D)起至本 commit 未 push**(含 #267 過程 docs 數支 + W1 `075b3ce` + W2 `305f15f`)。下表列 dev 可達近期 commit(`merge-base --is-ancestor` 驗)。
+> dev。**C1 commit = `86bc286` 新增 listCategories 讀取層 + 拆 adapter query helpers**(parent=`2f6f9b5`、不 amend 寫回本節 hash)。**origin/dev..HEAD = 4 commit 未 push**(`4ae2c97` #264 harden + `fbcc599` 盤點/接線 plan + `2f6f9b5` #264 docs + `86bc286` C1),待 Sean 手動推。下表列 dev 可達近期 commit(`merge-base --is-ancestor` 驗)。
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `305f15f` | feat(storefront): W2 變體選擇器泛化+SwatchPreview 非 RPM 降級 | 2026-07-04 |
-| `075b3ce` | feat(config): W1 cncracing 登記僅乾跑+四家重乾跑全綠+#268 存量債 | 2026-07-04 |
+| `86bc286` | feat(adapters): 新增 listCategories 讀取層 + 拆 adapter query helpers | 2026-07-04 |
+| `2f6f9b5` | docs(storefront): ProductTabs 註解對齊 #264 治本(spec=NULL 不再 500) | 2026-07-04 |
+| `fbcc599` | docs(docs): 完整上架盤點+接線 plan+#264 治本記錄+Sean 決策批次 | 2026-07-04 |
 | `faf8d79` | docs(docs): P0-D gbracing/bonamici 乾跑驗證報告 + backlog #266 | 2026-07-04 |
 
 ## 下一步
