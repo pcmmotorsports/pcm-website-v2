@@ -1,6 +1,6 @@
 # 跨專案 Plan:報價單源頭變體模型統一修正(#267)
 
-> **狀態**:v1 待 Sean 批(鐵則 8;含 3 決策題)
+> **狀態**:✅ **v1 已批(2026-07-04 Sean:批准開工 + D1=A 治本合併〔quote 站變體數 30→10、CSV 列數變化接受〕+ D2=A 代表 SKU=COD_COLORE〔如 CA210B、唯一性預檢+撞則 fallback merge_code-COD_COLORE〕+ D3=A 存量遷移走 zz_backup+交易模擬報告→Sean 點頭→真跑)**;執行中(Q1 起)
 > **拍板依據**(2026-07-04 Sean):Q1=A 源頭統一修;CA210 型 = 一商品多變體(顏色/特仕版=變體、車型=fitments 聯集);報價單合併顯示保留;Fable 領頭多代理、本 session 跨兩專案執行。
 > **兩專案**:報價單 `PCM報價單-V2`(`/Users/sean_1/API大量上架/PCM報價單-V2`、branch main、Python fetcher + Next.js quote 站)+ 網站 `pcm-website-v2`(本 repo)。
 > **情報來源**:7 路唯讀偵察(2026-07-04、cnc-fetcher/pilot-fetchers/quote-consumers/site-variant-images/daily-sync/blindspot-critic/quote-rules)+ 主對話 MCP 唯讀 DB 驗證。原始輸出:session scratchpad `recon-*.md`。
