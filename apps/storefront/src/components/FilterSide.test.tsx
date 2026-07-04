@@ -58,9 +58,34 @@ describe('FilterSide', () => {
 
   it('should expand a category and reveal its sub-items on click', () => {
     render(<Harness />);
-    // 「零件分類」defaultOpen=true、大分類「代理配件」可見;點它展開細項
+    // 「零件分類」defaultOpen=true、大分類「代理配件」可見;有子類 → 點它展開細項(原行為不變)
     fireEvent.click(screen.getByText('代理配件'));
     expect(screen.getByText('BONAMICI RACING')).toBeDefined();
+  });
+
+  // Sean 拍 A(桌機大類可選性):childless 大類(無子類,如現況「碳纖維部品」+ 多品牌後 16 大類)
+  //   點擊 → 直接選取「全部 {大類}」(對齊手機 FilterDrawer),再點取消(toggle)。原碼只 setExpanded、
+  //   childless 點了展開空、選不了 → 本測鎖新行為(is-active 反映選取狀態)。
+  it('should directly select a childless top-level category on click (Sean 拍 A)', () => {
+    const childlessData: FilterSideData = {
+      motoBrands: MOCK_MOTO_BRANDS,
+      categories: [{ id: 'carbon', name: '碳纖維部品', count: 1117, children: [] }],
+      brands: MOCK_BRANDS,
+    };
+    function ChildlessHarness() {
+      const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+      const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
+      return (
+        <FilterSide data={childlessData} cascade={cascade} dispatch={dispatch} extras={extras} setExtras={setExtras} />
+      );
+    }
+    render(<ChildlessHarness />);
+    const row = screen.getByText('碳纖維部品').closest('button')!;
+    expect(row.className).not.toContain('is-active'); // 未選
+    fireEvent.click(row);
+    expect(row.className).toContain('is-active'); // 點一下 → 選「全部 碳纖維部品」(非只展開)
+    fireEvent.click(row);
+    expect(row.className).not.toContain('is-active'); // 再點同列 → 取消(toggle)
   });
 
   // M-1-13e-pre-3:Sean 2026-05-21 業務拍板「不顯示有無庫存」、SHOW_IN_STOCK_FILTER=false

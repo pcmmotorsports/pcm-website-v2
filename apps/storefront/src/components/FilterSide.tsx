@@ -138,37 +138,54 @@ function CategoryTree({
   const [expanded, setExpanded] = useState<string | null>(category?.mainId ?? null);
   return (
     <div className="fs-tree">
-      {categories.map((c) => (
-        <div key={c.id}>
-          <button className="fs-tree-row fs-tree-l1"
-            onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-              style={{ transform: expanded === c.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
-              <path d="m9 18 6-6-6-6" />
-            </svg>
-            <span>{c.name}</span>
-            <span className="fs-tree-count">{c.count}</span>
-          </button>
-          {expanded === c.id && c.children.map((s) => {
-            const isActive = category?.subId === s.id;
-            return (
-              <button key={s.id}
-                className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''}`}
-                onClick={() => {
-                  if (isActive) {
-                    dispatch(clearCategory());
-                  } else {
-                    dispatch(selectCategoryMain(c.id, c.name));
-                    dispatch(selectCategorySub(s.id, s.name));
-                  }
-                }}>
-                <span>{s.name}</span>
-                <span className="fs-tree-count">{s.count}</span>
-              </button>
-            );
-          })}
-        </div>
-      ))}
+      {categories.map((c) => {
+        // 有子類:點大類=展開挑子類(原行為)。無子類(childless、如現況「碳纖維部品」+ 多品牌後 16 大類):
+        //   點大類=直接選「全部 {大類}」(對齊手機 FilterDrawer「全部 {大類}」、Sean 拍 A);再點同一列 → 取消。
+        //   🔴 「有子類大類也要能選全部」的完整對手機留 #212(現況無 has-children 大類、無法驗、屆時再評)。
+        const hasChildren = c.children.length > 0;
+        const isMainActive = category?.mainId === c.id && !category?.subId;
+        return (
+          <div key={c.id}>
+            <button
+              className={`fs-tree-row fs-tree-l1 ${isMainActive ? 'is-active' : ''}`}
+              onClick={() => {
+                if (hasChildren) {
+                  setExpanded(expanded === c.id ? null : c.id);
+                } else if (isMainActive) {
+                  dispatch(clearCategory());
+                } else {
+                  dispatch(selectCategoryMain(c.id, c.name));
+                }
+              }}>
+              {/* chevron:僅 hasChildren 才有展開語意(旋轉);childless 固定右指作 affordance,視覺細節 Sean 調 */}
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
+                style={{ transform: hasChildren && expanded === c.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+              <span>{c.name}</span>
+              <span className="fs-tree-count">{c.count}</span>
+            </button>
+            {expanded === c.id && c.children.map((s) => {
+              const isActive = category?.subId === s.id;
+              return (
+                <button key={s.id}
+                  className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''}`}
+                  onClick={() => {
+                    if (isActive) {
+                      dispatch(clearCategory());
+                    } else {
+                      dispatch(selectCategoryMain(c.id, c.name));
+                      dispatch(selectCategorySub(s.id, s.name));
+                    }
+                  }}>
+                  <span>{s.name}</span>
+                  <span className="fs-tree-count">{s.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
