@@ -6666,6 +6666,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-04 / P0-D gbracing 全量乾跑驗證(前序 P0-A-4b 部分乾跑未觸及全量 handle;P0-A-4c 只處理 bonamici 底線)。
 - **相關:** #260 / #261 / #264 / Phase 0 plan §4 P0-D(§129)/ `rpm-import.ts` F4 preflightHandles / `scripts/rpm-preflight.ts`。
 
+### #267. 🔴 報價單源頭變體模型不完整 → 4 家 75 群 pv_spec 碰撞(放量 Phase 3 前 gate、跨專案報價單側修)
+
+- **狀態:** 🟢 方向已拍(2026-07-04 Sean:**Q1=A 源頭統一修**、本 session Fable 領頭多代理跨兩專案;盤點=唯讀 MCP 全 11 家掃描;非阻塞 Phase 1 試點〔僅 bonamici 3 群〕、阻塞 Phase 3 放量〔cncracing 63 群〕)
+- **🔴 Sean 拍板(2026-07-04、產品知識):** CA210 型 = 報價單**刻意合併**主料號(顯示方便、多顏色/特仕版+適用多車款)→ 網站呈現 = **一個商品、多種版本(變體)**:顏色/特仕版(Pramac、Troy Bayliss…)= 變體軸;**車型不拆商品、進 fitments 聯集**。修法必須保留報價單合併顯示、同時讓網站變體可區分。
+- **🔴 Sean 四個注意點(plan 驗收項):** ① 網站變體圖片依規格點擊連動(選色→圖跟著換)② 既有報價單 quote.pcmmotorsports.com 功能零影響 ③ 報價單側立規範/修 skill 或備註,防之後新增品牌重蹈(統一性)④ 每日同步撈到新產品能否順利自動上架完整。
+- **優先級:** 🔴 高(放量前必解;不解則 cncracing 等家整批寫入被 pv_spec_unique gate abort、或客人看到分不出的重複變體)
+- **問題(根因=報價單 DB `storefront_catalog_v.spec` 不完整、非網站/匯入端):** 全 11 家掃描,變體存法**不統一**(三型:full-spec / null-spec / empty `{}`)。多變體群中 `spec` 無法區分變體的碰撞群 **75 群集中 4 家**:cncracing 63 / materya 5 / eazigrip 4 / bonamici 3(rpm 1117 多變體群 / lightech 1184 / samco 709 **0 碰撞** = 源頭做得到正確存)。**真重複 SKU = 0**(全部是真不同商品、無去重案例)。兩類根因:
+  - **A. fitment-as-axis(cncracing 主導、56/63 群加 `vehicle_label` 即區分):** SKU 中段 `_01/_02/_03` = 不同車型(實例 CA210 黑色同價 9500,`_01`=Panigale V4 / `_02`=Streetfighter V4 / `_03`=Diavel V4),但 `spec` 只存 color、車型軸沒進 spec(車型其實已在 `vehicle_label`/`fitment_parsed`)→ grouping 把不同車型併一個 main_sku、pv_spec 看到重複顏色。
+  - **B. spec 值缺漏/壓縮(bonamici/eazigrip/materya + cncracing 其餘 7):** 真軸在 SKU 尾碼但 spec 沒存好——bonamici CHAD18 `{color:null}`(值沒填)/ PU_001 8 色 `{color:黑色}` 全同(值填錯)/ eazigrip CENTREPAD 8 design 壓成 `{design:"Various"}` / materya C-N 尾碼 `{}` 空。
+- **不修會痛在:**
+  - 上線進度(放量):cncracing 等家 `--confirm-write` 撞 pv_spec_unique 整批 abort。
+  - 客人體驗:若放寬約束強寫,客人在商品頁看到 3× 個「黑色」選項(實為不同車型/款式)分不出、選錯 → 退貨。
+  - 統一性(Sean 關切):每家源頭編碼不同(SKU 中段/尾碼/vehicle_label),無統一變體模型 → 每家匯入都要 bespoke 補丁 = 碎片化。
+- **預期解法(方向待 Sean 拍、跨專案 pcm-quote-v2 為主):**
+  - **A 源頭統一變體模型(推薦、根治):** 報價單 parser 定「spec 必完整區分每個變體」規範 + 修 4 家;fitment 型(cncracing)決定「拆成 per-車型商品」或「fitment 併入變體身分」;值缺漏型補真值。放量統一性最佳。
+  - **B 源頭僅補值(不定規範):** 只修這 75 群資料、不立規範,快但會復發。
+  - **C 下游匯入端吸收(不推薦):** 匯入把 SKU 尾碼合成進 spec 避碰撞,快但每家 heuristic 脆弱、客人看到醜變體標籤 = Sean 要避的碎片化。
+- **估時:** A 需報價單側 parser 專案(逐家、Sean + pcm-quote-v2 session);B 資料清理數小時;C 匯入端每家 heuristic。
+- **依賴:** Phase 3 放量前必解(Phase 1 試點 bonamici 3 群可先一次性處理、不卡)。跨專案:根因與修法在報價單 `pcm-quote-v2`(fetcher/parser),非本 repo。
+- **發現於:** 2026-07-04 / P0-D 延伸(Sean 要求盤點其他品牌變體存法、判斷源頭是否需修)。
+- **相關:** #264(spec=NULL→adapter 500 下游症狀)/ #265(選擇器泛化)/ Phase 0 plan §5 C3 / bonamici spec 碰撞 3 群 / P0-D 報告 §5-B。
+
 ---
 
 ## 紀錄模板
