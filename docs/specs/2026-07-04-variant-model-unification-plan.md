@@ -1,6 +1,9 @@
 # 跨專案 Plan:報價單源頭變體模型統一修正(#267)
 
-> **狀態**:✅ **v1 已批(2026-07-04 Sean:批准開工 + D1=A 治本合併〔quote 站變體數 30→10、CSV 列數變化接受〕+ D2=A 代表 SKU=COD_COLORE〔如 CA210B、唯一性預檢+撞則 fallback merge_code-COD_COLORE〕+ D3=A 存量遷移走 zz_backup+交易模擬報告→Sean 點頭→真跑)**;執行中(Q1 起)
+> **狀態**:🎯 **Q 線(報價單側)全部完成(2026-07-04)**。批准記錄:D1-D3 全 A + Q-go=A(遷移真跑)+ Q-fetcher=A(驗證跑)+ **最終通則兩輪確認:CNC 同 var_code=同一顆實體料、名稱差異=應用情境非不同商品 →「同碼一律併」**。
+> **Q 線成果(報價單 repo main、5 commit 未 push)**:Q1 合約引擎 `ed00561` / Q2 CNC 合併+名稱閘 `2ecc9b0` / Q3 三家補值 `63ae109` / 名稱閘降級(通則)`72e0527` / Q5 規範落地 `eeb34d8`。**DB 遷移兩輪落地**:R1=43 聚合(backup `zz_backup_variant_merge_20260704` 106 列)+ fetcher 生產自併 9 組(Sean 逐一確認同料、翻譯搬 9/9)+ R2=88 聚合+24 殘影(backup `zz_backup_variant_merge_r2_20260704` 207 列)→ **CNC 4549→4376 列、「同 group 同 spec 同價多列」歸零、139 聚合全收斂、與 fetcher 行為 100% 對齊、launchd 冪等安全**(CNC fetcher 生產實跑驗證過)。防復發:合約 R1-R3 pytest gate + onboarding ③段第4點 + CLAUDE.md 路由行。
+> **剩餘**:Sean 跑三家 fetcher 落地 Q3 spec 補值(bonamici/eazigrip/materya)+ CNC 收斂複驗 → W 線(W1 網站重乾跑 / W2 #265 選擇器泛化+hex_color 色塊 / W3 變體圖驗證)。
+> **原始批准記錄**:v1(2026-07-04 Sean:批准開工 + D1=A 治本合併 + D2=A 代表 SKU=COD_COLORE + D3=A zz_backup+模擬→點頭→真跑)
 > **拍板依據**(2026-07-04 Sean):Q1=A 源頭統一修;CA210 型 = 一商品多變體(顏色/特仕版=變體、車型=fitments 聯集);報價單合併顯示保留;Fable 領頭多代理、本 session 跨兩專案執行。
 > **兩專案**:報價單 `PCM報價單-V2`(`/Users/sean_1/API大量上架/PCM報價單-V2`、branch main、Python fetcher + Next.js quote 站)+ 網站 `pcm-website-v2`(本 repo)。
 > **情報來源**:7 路唯讀偵察(2026-07-04、cnc-fetcher/pilot-fetchers/quote-consumers/site-variant-images/daily-sync/blindspot-critic/quote-rules)+ 主對話 MCP 唯讀 DB 驗證。原始輸出:session scratchpad `recon-*.md`。
