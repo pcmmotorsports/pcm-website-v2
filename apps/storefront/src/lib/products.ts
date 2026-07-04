@@ -329,3 +329,45 @@ export const fetchProductByHandle = cache(
     return toUIProduct(product, 'general');
   },
 );
+
+/**
+ * 撈「相同分類」相關商品(C5/#258:商品詳情頁相關商品真資料化、拆舊 MOCK_PRODUCTS 假圖+死連結)。
+ *
+ * 行為:
+ *   - listByCategory({raw: categoryRaw})(同一分類單次查、≤1000 取前 N 足夠、不需全量分頁)→
+ *     排除當前商品(excludeHandle)→ 取前 limit(預設 4)→ toUIProduct(p,'general')
+ *   - 找不到分類 / 撈空 → []、adapter throw → console.error + [](相關商品區條件隱藏、不 crash)
+ *
+ * 🔴 現況全站單一分類「碳纖維部品」→ 相關商品 = 其他碳纖維商品;多品牌上架後 = 真同分類商品。
+ *   舊 ProductPage 版吃 MOCK_PRODUCTS(寫入當天冒假圖 + 死連結、#258 休眠地雷),本片改真資料消除。
+ * 🔴 **釘 general**(同 fetchProductByHandle 理由):public view 排除 price_store、經銷價零外洩。
+ * 🔴 **決定性**:listByCategory 未定序 → 以 handle 升冪排序後取前 N,同一商品跨請求 related 穩定不跳
+ *   (對齊 fetchFeaturedProducts .order('id') 決定性精神;舊 MOCK_PRODUCTS 版靜態陣列本即決定性、不回歸)。
+ * 🔴 **stopgap(#51)**:listByCategory 單次查回 ≤1000 筆 detail 全欄、僅取 4 = 浪費(單一分類 ~1117 更明顯);
+ *   詳情頁無 revalidate 快取、爬蟲會放大。治本 = 加 .limit / 專用輕量投影 / cache,併 server-side 分頁 #51。
+ * 註:CategoryPath.segments 不影響查詢(SupabaseProductAdapter.listByCategory 只用 `.raw` resolve),
+ *   此處以 raw 當單元素、免解析分隔符。
+ */
+export async function fetchRelatedProducts(
+  categoryRaw: string,
+  excludeHandle: string,
+  limit = 4,
+): Promise<MockProduct[]> {
+  const client = createSupabaseAnonClient();
+  const adapter = new SupabaseProductAdapter(client);
+
+  try {
+    const products = await adapter.listByCategory({
+      raw: categoryRaw,
+      segments: [categoryRaw],
+    });
+    return products
+      .filter((p) => p.handle !== excludeHandle)
+      .sort((a, b) => a.handle.localeCompare(b.handle, 'en')) // 決定性:同 4 件、跨請求不跳(見檔頭 🔴)
+      .slice(0, limit)
+      .map((p) => toUIProduct(p, 'general'));
+  } catch (err) {
+    console.error('[fetchRelatedProducts] adapter.listByCategory failed:', err);
+    return [];
+  }
+}

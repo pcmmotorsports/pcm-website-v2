@@ -52,7 +52,7 @@ afterEach(() => {
 describe('ProductPage', () => {
   it('should render baseline from=catalog + category breadcrumb', () => {
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
     // 用 within(nav) 限定 breadcrumb 範圍、避免與 Footer 內同字面衝突
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('首頁')).toBeDefined();
@@ -64,7 +64,7 @@ describe('ProductPage', () => {
   it('should render from=brand branch with sourceLabel', () => {
     mockSearchParams = new URLSearchParams('from=brand&sourceId=akrapovic&sourceLabel=AKRAPOVIČ');
     const akrapovic = MOCK_PRODUCTS.find((p) => p.slug === 'akrapovic-6')!;
-    render(<ProductPage product={akrapovic} tier="general" />);
+    render(<ProductPage product={akrapovic} tier="general" related={[]} />);
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('品牌')).toBeDefined();
     expect(within(breadcrumbNav).getByText('AKRAPOVIČ')).toBeDefined();
@@ -73,14 +73,14 @@ describe('ProductPage', () => {
 
   it('should render from=sale branch with default sourceLabel', () => {
     mockSearchParams = new URLSearchParams('from=sale');
-    render(<ProductPage product={MOCK_PRODUCTS[1]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[1]!} tier="general" related={[]} />);
     const breadcrumbNav = screen.getByLabelText('navigation path');
     expect(within(breadcrumbNav).getByText('特價精選')).toBeDefined();
   });
 
   it('should render vehicle pill when vehicle searchParam set', () => {
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
     // M-1-13I Bug 3:pill 拆兩層、外層 button(本體導航)aria-label「回到商品列表 ...」、
     // 內層 span.×(清除)aria-label「清除車輛篩選 ...」;render 驗外層 button 含 label 字面
     // (vehiclePill label = 'YAMAHA · YZF-R6 · 2024')
@@ -101,7 +101,7 @@ describe('ProductPage', () => {
       ...MOCK_PRODUCTS[0]!,
       fitments: [{ motoBrand: 'Harley-Davidson', modelCode: 'Road Glide', yearStart: 2020, yearEnd: null }],
     };
-    render(<ProductPage product={withFitment} tier="general" />);
+    render(<ProductPage product={withFitment} tier="general" related={[]} />);
     const pill = screen.getByLabelText(/回到商品列表/);
     expect(pill.textContent).toContain('Harley-Davidson');
     expect(pill.textContent).toContain('Road Glide');
@@ -111,7 +111,7 @@ describe('ProductPage', () => {
   it('should call router.push to /products with vehicle when pill body clicked', () => {
     // M-1-13I Bug 3:點 pill 本體(外層 button、非 ×)→ router.push 商品列表帶 vehicle
     mockSearchParams = new URLSearchParams('from=catalog&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
     const pill = screen.getByLabelText(/回到商品列表/);
     fireEvent.click(pill);
     expect(mockPush).toHaveBeenCalledOnce();
@@ -122,7 +122,7 @@ describe('ProductPage', () => {
 
   it('should call router.replace without vehicle when pill × clicked', () => {
     mockSearchParams = new URLSearchParams('from=catalog&category=操控部品&vehicle=yamaha:r6:2024');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
     const pill = screen.getByLabelText(/清除車輛篩選/);
     fireEvent.click(pill);
     expect(mockReplace).toHaveBeenCalledOnce();
@@ -138,14 +138,14 @@ describe('ProductPage', () => {
 
   it('should integrate ProductGallery (render counter 01 / 03)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
     expect(screen.getByText('01 / 03')).toBeDefined();
   });
 
   it('should integrate ProductInfo (render SKU line + brand)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const product = MOCK_PRODUCTS[0]!;
-    render(<ProductPage product={product} tier="general" />);
+    render(<ProductPage product={product} tier="general" related={[]} />);
     // M-1-16c-4a:pd-sku 由舊「{brand} · PCM-{id hash}」改「{brand} · {selectedVariant?.sku ?? slug}」
     //   (Sean Q1=A、顯選中變體真 sku、無變體 fallback slug)。MOCK_PRODUCTS[0]=LIGHTECH 無 variants
     //   → 走 slug fallback → 「LIGHTECH · lightech-1」。
@@ -161,10 +161,10 @@ describe('ProductPage', () => {
   });
 
   // OD-9:N°03 相關商品 section 換 OD N° 巢狀 eyebrow(03 + 金線 + N° 相關商品、對齊 N°01/N°02)。
-  // MOCK_PRODUCTS[0] categoryMain=操控部品、同類有 id2/id10 → related section 會渲染。
-  it('should render N°03 related section with OD nested eyebrow', () => {
+  // C5/#258:related 由 server prop 傳入(不再從 MOCK_PRODUCTS 衍生);傳非空 fixture → section 渲染。
+  it('should render N°03 related section with OD nested eyebrow (related prop 非空)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
-    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" />);
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
     const related = document.querySelector('.pd-related');
     expect(related).not.toBeNull();
     expect(related!.querySelector('.pd-eb-no')?.textContent).toBe('03');
@@ -172,12 +172,19 @@ describe('ProductPage', () => {
     expect(within(related as HTMLElement).getByText('相同分類')).toBeDefined();
   });
 
+  // C5/#258:related 為空(server 撈不到同分類 / 失敗)→ 相關商品 section 條件隱藏(不顯空卡、不 crash)。
+  it('should hide related section when related prop is empty', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    expect(document.querySelector('.pd-related')).toBeNull();
+  });
+
   // 🔴 P0-C 去碳品牌切換骨架(F1 回歸網):RPM 頁渲染碳纖維專屬區、非 RPM 頁空白(Q2=B)。
   //   守門用 brandSlug(≠ product.brand 顯示名);此測釘死「RPM 見、非 RPM 不見」防 F1 恆 false 回歸。
   it('RPM 品牌(brandSlug=rpm-carbon)→ 渲染碳纖維專屬區(N°01 + N°02 + 服務橫條泰國原廠卡)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
-    render(<ProductPage product={rpm} tier="general" />);
+    render(<ProductPage product={rpm} tier="general" related={[]} />);
     // N°01「為什麼選 RPM Carbon」(ProductHighlights、整段守門 mount;字面為該區 h2 專屬)
     expect(screen.getByText('為什麼選 RPM Carbon')).toBeDefined();
     // N°02 紋路牆(ProductSwatchWall、整段守門 mount;'亮光款'/'消光款' 為 SwatchWall 專屬字面)
@@ -190,7 +197,7 @@ describe('ProductPage', () => {
   it('非 RPM 品牌(brandSlug=gb-racing)→ 碳纖維專屬區全空白、但通用服務卡照顯(Q2=B 去碳)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
-    render(<ProductPage product={nonRpm} tier="general" />);
+    render(<ProductPage product={nonRpm} tier="general" related={[]} />);
     // 碳纖維專屬整段(N°01/N°02)+ 泰國原廠卡皆不 mount(P0-C-a 守門;ProductTabs 去碳為 P0-C-b、故不驗其碳字)
     expect(screen.queryByText('為什麼選 RPM Carbon')).toBeNull();
     expect(screen.queryByText('亮光款')).toBeNull();

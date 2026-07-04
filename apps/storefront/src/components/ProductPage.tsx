@@ -19,7 +19,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
-import { MOCK_PRODUCTS, RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
+import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { slugify } from '@/lib/vehicle-taxonomy';
 import { useCart } from '@/contexts/CartContext';
@@ -38,11 +38,16 @@ import { ProductCard } from './ProductCard';
 import { LineCtaButton } from './LineCtaButton';
 import '@/styles/product-page.css';
 
-export type ProductPageProps = { product: MockProduct; tier: MemberTier };
+export type ProductPageProps = {
+  product: MockProduct;
+  tier: MemberTier;
+  /** C5/#258:同分類相關商品(server 端 fetchRelatedProducts 已排除自身 + 取前 4、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
+  related: MockProduct[];
+};
 
 type Crumb = { label: string; href?: string; current?: boolean };
 
-export function ProductPage({ product, tier }: ProductPageProps) {
+export function ProductPage({ product, tier, related }: ProductPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -199,19 +204,11 @@ export function ProductPage({ product, tier }: ProductPageProps) {
     router.push(`/products?vehicle=${encodeURIComponent(vehicle)}`);
   };
 
-  // M-1-13H-6:Related 同分類商品(對應 HANDOFF #16);用 categoryMain(「操控部品」等大類、
-  // split('·')[0])比對、排除當前商品、取 4 個;不足 4 顯示找到的;Phase 2 接 Supabase
-  // 同分類 query(M-1-16 後)。對應 Q4 + lessons §12-37:Related grid 用既有 <ProductCard> 元件、
-  // 不複製 demo .vcf-related-card hardcoded。
-  const relatedProducts = useMemo(
-    () =>
-      MOCK_PRODUCTS.filter(
-        (p) =>
-          p.slug !== product.slug &&
-          (p.category || '').split('·')[0]?.trim() === categoryMain,
-      ).slice(0, 4),
-    [product.slug, categoryMain],
-  );
+  // C5/#258:Related 同分類商品改真資料(對應 HANDOFF #16;拆舊 MOCK_PRODUCTS 假圖+死連結休眠地雷)。
+  //   server 端 fetchRelatedProducts(product.category, product.slug) 已走 listByCategory 同分類查詢、
+  //   排除自身、取前 4、toUIProduct 'general' strip → 直接用 `related` prop 渲染(<4 或空 → section 隱藏)。
+  //   Related grid 用既有 <ProductCard> 元件、不複製 demo .vcf-related-card hardcoded(lessons §12-37)。
+  const relatedProducts = related;
 
   return (
     <div className="pcm-root" data-screen-label="Product Detail">

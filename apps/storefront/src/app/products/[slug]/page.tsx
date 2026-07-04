@@ -24,7 +24,7 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { fetchProductByHandle } from '@/lib/products';
+import { fetchProductByHandle, fetchRelatedProducts } from '@/lib/products';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
@@ -72,6 +72,10 @@ export default async function ProductSlugRoute({ params }: Props) {
     notFound();
   }
 
+  // C5/#258:相關商品真資料(同分類、排除自身、取 4;server 端撈、經銷價零外洩)→ ProductPage `related` prop。
+  //   在 product 取回後(need product.category)、與 JSON-LD 並列;失敗 → [](相關商品區隱藏、不 crash)。
+  const related = await fetchRelatedProducts(product.category, product.slug);
+
   // M-1-16c-4c:schema.org/Product JSON-LD。base 未解析出時(prod 未設環境變數)省略 url 欄。
   const base = resolveSiteUrl();
   const url = base ? `${base}/products/${slug}` : undefined;
@@ -85,7 +89,7 @@ export default async function ProductSlugRoute({ params }: Props) {
         // 對齊 Next 官方 json-ld guide:escape(< → 跳脫序列 U+003C)已在 serializeProductJsonLd、防 </script> breakout。
         dangerouslySetInnerHTML={{ __html: jsonLd }}
       />
-      <ProductPage product={product} tier="general" />
+      <ProductPage product={product} tier="general" related={related} />
     </>
   );
 }
