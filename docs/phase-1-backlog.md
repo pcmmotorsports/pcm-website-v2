@@ -6633,6 +6633,20 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-04 / P0-C-b2 adversarial-reviewer(Fable 跨模型 C1 + WOULD-CHANGE-VERDICT)。
 - **相關:** #260 / #261 / Phase 0 plan §2.10 / ProductTabs `buildSpecRows` / adapter `mapVariantRow`。
 
+### #265. 🟡 ProductInfo 變體選擇器 + ProductSwatchPreview 泛化(支援非 RPM 規格形狀、P0-C-c 延 Phase 1)
+
+- **狀態:** 🟢 觀察(非阻塞、非去碳;去碳已由 P0-C-a/b1/b2 完成、ProductInfo 無寫死碳纖字)。Sean 2026-07-04 拍 A 延 Phase 1。
+- **優先級:** 🟡 中(bonamici 上架前必做,否則其顏色變體顧客選不了)
+- **問題:** ProductInfo 變體選擇器目前寫死 RPM 形狀 —— `Dim='pattern'|'finish'`、pattern=weave+special 合併(`patternKey`)、WEAVE_LABEL/FINISH_LABEL/SPECIAL_LABEL + 固定排序(WEAVE_ORDER/FINISH_ORDER)。非 RPM 規格形狀(bonamici `{color,material}`)→ `variantDimValue` 讀不到 weave/finish → specGroups 全空 → **選擇器不渲染**(非 crash、但顧客選不了顏色)。ProductSwatchPreview(選擇器預覽卡)亦為 RPM 紋路樣品圖形狀,非 RPM 變體(無 weave)可能顯 fallback / RPM 碳纖樣品圖 → 潛在去碳-adjacent 洩漏(需 Phase 1 真資料時驗)。
+- **觸發事件:** bonamici(色彩變體)/ 其他多規格軸品牌試點上架(Phase 1)。
+- **預期解法(Phase 1、有真資料時做):** 選擇器泛化為資料驅動 —— 依 variant spec 實際 key 動態產生維度(🔴 **RPM 維持 pattern=weave+special 合併 + 排序 byte 不變**;非 RPM 讀 color/material… + label map);ProductSwatchPreview 對非 RPM 降級(無 weave → 不顯 RPM 碳纖樣品、或改通用色塊)。RPM byte 不變是硬約束。
+- **不修會痛在:**
+  - 功能 / 轉換率:bonamici 等多規格品牌上架後,顧客無法在頁面選顏色/材質(只能 LINE 問)。
+- **估時:** 60-90 分鐘(選擇器泛化 + ProductSwatchPreview 降級 + 測 + 雙審;RPM byte 不變高風險、需真資料肉眼驗)。
+- **依賴:** bonamici 試點寫入(Phase 1)—— 有真顏色變體才能建 + 驗(現在盲改 RPM 選擇器風險高、無法驗非 RPM,故 Sean 拍延)。
+- **發現於:** 2026-07-04 / P0-C 去碳收尾(ProductInfo 無碳字、picker 泛化非去碳、Sean 拍 A 延 Phase 1)。
+- **相關:** Phase 0 plan §2.5/§4 P0-C(§125)/ #212 / ProductInfo DIM_LABEL / ProductSwatchPreview / #264。
+
 ---
 
 ## 紀錄模板
