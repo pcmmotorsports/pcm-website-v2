@@ -158,7 +158,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
               <p className="pd-body">
                 <strong>
                   {product.brand} {product.name}
-                </strong>{' '}
+                </strong>
                 採用真碳纖維材質，為 <strong>{product.fits || '原廠車款'}</strong>{' '}
                 開發；換上碳纖維後比原廠塑件更輕、更有質感，強度也更高。
               </p>
@@ -288,7 +288,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
             </div>
           </div>
           <p className="pd-body">
-            每件部品的安裝方式略有不同，原則上都是 <strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成部品受損。如果不確定，可以預約 PCM 合作店家協助處理。
+            每件部品的安裝方式略有不同，原則上都是<strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成部品受損。如果不確定，可以預約 PCM 合作店家協助處理。
           </p>
           <ul className="pd-list">
             <li>裝前先把原廠零件螺絲位置記清楚或拍照</li>
