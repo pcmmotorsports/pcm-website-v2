@@ -6692,7 +6692,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #268. 🟠 eazigrip 137 筆 + lightech 39 筆變體合約存量債(#267 合約掃描 gate 首掃曝光、報價單側)
 
-- **狀態:** ⏳ 待執行(2026-07-04 #267 Q 線收工驗證時曝光;三型問題已定位、修法在報價單 repo)
+- **狀態:** ⏳ 待執行(2026-07-04 #267 Q 線收工驗證時曝光;三型問題已定位、修法在報價單 repo)。**Sean 拍板(2026-07-04 Q2=A):入 backlog、該兩家(eazigrip/lightech)上架前再修,不安排近期專輪。**
 - **優先級:** 🟠 中(兩家皆非網站近程上架線、不擋 Phase 1 試點;但掃描 gate 基線殘留 176 筆噪音會淹沒新品牌違規 = gate 信噪比劣化)
 - **問題(三型、全部 active 列非殘影、驗證=唯讀 SQL + 合約掃描 2026-07-04):**
   1. **eazigrip CENTREPAD 40 筆 mergeable_duplicate(8 撞號群):** 來源 feed 本身兩種 SKU 命名並存(舊式 `EVOCENTREPADABL` vs 新式 `EVOCENTREPADABLBLK`),兩列同 spec 同價、都在 feed 活著(last_synced 2026-07-04)。Q3 修好 design/color 解析後重複才被看見。修法=fetcher 端合併(類 CNC `merge_color_variant_rows`)或向 feed 端確認 canonical SKU。
