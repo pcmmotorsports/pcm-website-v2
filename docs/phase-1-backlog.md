@@ -6620,7 +6620,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #264. 🟠 試點變體 spec=NULL → 商品頁 adapter 層整頁 500(P0-C-b2 資料驅動前提、試點寫入前 must-verify)
 
-- **狀態:** 🟢 觀察(現行 RPM DB `null_spec=0` 已唯讀驗證、無現存風險;Phase 1 試點寫入才可能觸發)
+- **狀態:** ✅ **已治本(2026-07-04)**——adapter `mapVariantRow` harden:`SupabaseVariantRow.spec`/`images` 型別標 nullable + `Object.entries(row.spec ?? {})`/`(row.images ?? []).map()` 防禦,jsonb 來源 null 視為空、不再 throw 整頁 500;3 個新單元測試坐實(spec=null/images=null/兩者 null → 回空、不 throw)。commit(見 git log);完整 vitest 1674 全綠。**雙保險**:匯入端 rpm-transform 仍 `spec ?? {}`(寫入寫 `{}` 非 NULL)+ adapter 讀取端 harden(防歷史/手動 NULL 列)。**原記錄**保留於下,供追溯。
+- (原)狀態:🟢 觀察(現行 RPM DB `null_spec=0` 已唯讀驗證、無現存風險;Phase 1 試點寫入才可能觸發)
 - **優先級:** 🟠 中(觸發即整頁 500、客人看不到該商品、非明顯錯誤需查 adapter log)
 - **問題:** P0-C-b2 非 RPM 規格表資料驅動 `buildSpecRows` + 上游 adapter `mapVariantRow` 皆假設 `variant.spec` 為物件(型別 `UIVariant.spec = Record<string,string>`);但 view `product_variants_public.spec` 型別為 `Json | null`。若 gbracing/bonamici 匯入寫入 `spec=NULL` 的變體列,adapter `mapVariantRow`(`packages/adapters/src/supabase/mappers/product.ts` 約 :232)遇 null 會 throw → 該商品詳情頁**整頁 500**(非只該列 graceful 降級)。前台 `buildSpecRows` 已補 `typeof !== 'string'` 防線,但真正 gate 在 adapter/匯入端。
 - **驗證(2026-07-04 唯讀 MCP `bmpnplmnldofgaohnaok`):** `product_variants_public` 9283 變體、`null_spec=0`(RPM 全有 spec、無現存風險)、`empty_spec=1`(空物件 `{}` 安全、buildSpecRows 不吐列)。
