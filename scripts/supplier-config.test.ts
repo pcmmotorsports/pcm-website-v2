@@ -15,6 +15,7 @@ describe('getSupplierConfig', () => {
     expect(rpm.handlePrefix).toBe('rpm'); // = 現行 handle `rpm-${sku}`(rpm-transform.ts:146)
     expect(rpm.syncDescription).toBe(false); // 現行刻意不寫 description(F2、rpm-transform.ts:93,149)
     expect(rpm.categoryStrategy).toEqual({ kind: 'fixed', rawPath: '碳纖維部品' }); // = CATEGORY_RAW_PATH
+    expect(rpm.variantImages).toBe('sku-prefix-pool'); // 🔴 W3 byte 錨:群圖池+前綴過濾=現行行為
   });
 
   it('should map GB Racing source slug → gb-racing brand (§2.3 對照)', () => {
@@ -23,6 +24,7 @@ describe('getSupplierConfig', () => {
     expect(gb.handlePrefix).toBe('gbracing');
     expect(gb.syncDescription).toBe(true);
     expect(gb.categoryStrategy).toEqual({ kind: 'per-group' });
+    expect(gb.variantImages).toBe('per-variant'); // W3:view images=該列自己的圖
   });
 
   it('should map Bonamici with identity brand slug and per-group category', () => {
@@ -31,6 +33,7 @@ describe('getSupplierConfig', () => {
     expect(bo.handlePrefix).toBe('bonamici');
     expect(bo.syncDescription).toBe(true);
     expect(bo.categoryStrategy).toEqual({ kind: 'per-group' });
+    expect(bo.variantImages).toBe('per-variant'); // W3:每變體 1 張自身圖(1710/1710 非空)
   });
 
   it('should map CNC Racing source slug → cnc-racing brand (dry-run only until Phase 3)', () => {
@@ -39,6 +42,7 @@ describe('getSupplierConfig', () => {
     expect(cnc.handlePrefix).toBe('cncracing');
     expect(cnc.syncDescription).toBe(true); // view description=繁中 description_zh 全列非空
     expect(cnc.categoryStrategy).toEqual({ kind: 'per-group' });
+    expect(cnc.variantImages).toBe('per-variant'); // W3:首張 variante/ 變體圖(4376/4376 非空)
   });
 
   it('should throw fail-closed on unregistered / prototype-chain keys', () => {

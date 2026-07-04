@@ -2,7 +2,14 @@
 
 > **狀態**:🎯 **Q 線(報價單側)全部完成(2026-07-04)**。批准記錄:D1-D3 全 A + Q-go=A(遷移真跑)+ Q-fetcher=A(驗證跑)+ **最終通則兩輪確認:CNC 同 var_code=同一顆實體料、名稱差異=應用情境非不同商品 →「同碼一律併」**。
 > **Q 線成果(報價單 repo main、5 commit 未 push)**:Q1 合約引擎 `ed00561` / Q2 CNC 合併+名稱閘 `2ecc9b0` / Q3 三家補值 `63ae109` / 名稱閘降級(通則)`72e0527` / Q5 規範落地 `eeb34d8`。**DB 遷移兩輪落地**:R1=43 聚合(backup `zz_backup_variant_merge_20260704` 106 列)+ fetcher 生產自併 9 組(Sean 逐一確認同料、翻譯搬 9/9)+ R2=88 聚合+24 殘影(backup `zz_backup_variant_merge_r2_20260704` 207 列)→ **CNC 4549→4376 列、「同 group 同 spec 同價多列」歸零、139 聚合全收斂、與 fetcher 行為 100% 對齊、launchd 冪等安全**(CNC fetcher 生產實跑驗證過)。防復發:合約 R1-R3 pytest gate + onboarding ③段第4點 + CLAUDE.md 路由行。
-> **剩餘**:Sean 跑三家 fetcher 落地 Q3 spec 補值(bonamici/eazigrip/materya)+ CNC 收斂複驗 → W 線(W1 網站重乾跑 / W2 #265 選擇器泛化+hex_color 色塊 / W3 變體圖驗證)。
+> **fetcher 落地驗收(2026-07-04、Sean 終端機跑四家)**:bonamici/materya/cncracing 合約掃描 **0 違規**(目標 12 群歸零)、CNC 冪等(4376 列不變、CA210 10 色 sku=var_code 完好、4 delisted 均為 6 月既有且 stock 已標缺貨);eazigrip 目標 4 群已修、但掃描曝光存量債 137 筆 + lightech 39 筆(feed 重複 SKU/主列空 spec/color:null 三型、全 active 非殘影)→ **#268**(兩家非近程上架線、不擋試點;掃描 gate 信噪比是主要痛點)。
+> **W 線完成(2026-07-04、網站側)**:
+>
+> - **W1 ✅**(commit `075b3ce`):重乾跑 bonamici(pv_spec 碰撞 **3→0**、源頭補值生效)/gbracing(零回歸、handle 25 筆=#266 已知)/rpm(全零 delta、1117 群/8983 變體=P0-D 基線);cncracing 登記 supplier-config **僅乾跑**(brandSlug=cnc-racing MCP 查證)→ 首乾跑全 gate 綠(1978 群/4376 變體、11 分類全對上、0 碰撞)= #267 原始病灶(63 群碰撞 abort)確認歸零。
+> - **W2 ✅**:ProductInfo 選擇器泛化 — spec 含 weave/finish/special=RPM 形狀走現行合成維(**輸出 byte 不變、12 舊測一字未動全綠**);否則泛型維(spec key 資料驅動、GENERIC_DIM_LABEL、值原字、序=首見序);SwatchPreview 非 RPM 降級不渲染。雙審:code-reviewer(manifest 補 genericSpecDimFallback)+ adversarial opus(F1 泛型空值濾除已修/F2 magic-key 嗅探=源頭治理:報價單 onboarding 列 weave/finish/special 為 RPM 保留字)。**hex_color 真色塊不在 W2**(需 metadata 三層鏈路、獨立後續工作、見 #265)。
+> - **W3 ✅**:變體圖修復 — 根因=view images 欄**兩形狀並存**(rpm=[{url}] 群圖池物件陣列;bonamici/cncracing=**純字串陣列且 per-variant**)+ RPM sku 前綴過濾對非 RPM 檔名永遠 miss(sku 後跟 / . _ 非 '-')→ 變體圖全空=選色不換圖。修:supplier-config 加 `variantImages` 策略欄('sku-prefix-pool'=rpm byte 錨/'per-variant'=非 RPM 直用該列圖)+ mapImages 兼容兩形狀。驗:bonamici 乾跑 images:[] **歸零**、每變體帶自己的圖;rpm 乾跑全零 delta;資料面 bonamici 1710/1710、CNC 4376/4376 變體 images 非空(MCP 統計)。
+> - **W 線觀察項**:①CNC 圖池混鄰色情境照(首張 variante/ 乾淨、quote 站同樣呈現;要更純需 CNC-specific 過濾、#212 品牌客製再議)②delisted_at 與 is_listed 語意脫鉤(27 筆 delisted 仍 is_listed=true 流進 view;stock_status 全已標缺貨、網站顯示缺貨傷害有限;rpm 0 筆;Phase 3 寫入前決定 view 是否排除)③非 RPM 泛型值未譯(eazigrip 英文值)留內容輪。
+>
 > **原始批准記錄**:v1(2026-07-04 Sean:批准開工 + D1=A 治本合併 + D2=A 代表 SKU=COD_COLORE + D3=A zz_backup+模擬→點頭→真跑)
 > **拍板依據**(2026-07-04 Sean):Q1=A 源頭統一修;CA210 型 = 一商品多變體(顏色/特仕版=變體、車型=fitments 聯集);報價單合併顯示保留;Fable 領頭多代理、本 session 跨兩專案執行。
 > **兩專案**:報價單 `PCM報價單-V2`(`/Users/sean_1/API大量上架/PCM報價單-V2`、branch main、Python fetcher + Next.js quote 站)+ 網站 `pcm-website-v2`(本 repo)。

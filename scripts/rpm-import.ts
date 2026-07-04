@@ -196,7 +196,7 @@ async function main(): Promise<void> {
     const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
     variantsByExternalId.set(
       pr.external_id,
-      sorted.map((v, idx) => transformVariant(v, now, idx)),
+      sorted.map((v, idx) => transformVariant(v, now, idx, config.variantImages)),
     );
   }
   const variantRows = [...variantsByExternalId.values()].flat();

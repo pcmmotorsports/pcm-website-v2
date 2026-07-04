@@ -27,16 +27,18 @@ const VARIANT_KEYS = [
   'availability', 'images', 'sort_order', 'metadata', 'updated_at',
 ];
 
-/** 依 rpm-import 迴圈語意跑一群(transformGroup + 依 variantSortKey 排序後編 sort_order)。 */
+/** 依 rpm-import 迴圈語意跑一群(transformGroup + 依 variantSortKey 排序後編 sort_order)。
+ *  W3:helper 預設 'sku-prefix-pool' = RPM 現行行為(byte 錨測試全走此值);per-variant 測試顯式覆寫。 */
 function runGroup(
   mainSku: string,
   variants: SourceProductRow[],
   vehicleLabel: string | null,
   ctx: GroupTransformContext,
+  variantImages: 'sku-prefix-pool' | 'per-variant' = 'sku-prefix-pool',
 ) {
   const product = transformGroup(mainSku, variants, vehicleLabel, ctx, NOW);
   const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
-  const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx));
+  const variantRows = sorted.map((v, idx) => transformVariant(v, NOW, idx, variantImages));
   return { product, variantRows };
 }
 
@@ -246,5 +248,56 @@ describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
   it('gbracing spec=null(單變體)→ variantSortKey 不 crash', () => {
     expect(variantSortKey(gbBase)).toBe('||0|GB-001');
     expect(() => runGroup('GB-001', [gbBase], 'Yamaha R1', GB_CTX)).not.toThrow();
+  });
+});
+
+describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前綴過濾不變', () => {
+  // bonamici 真形狀(2026-07-04 view 實測):URL 含自身 sku 目錄、sku 後跟 / . 而非 '-'
+  const boVariant: SourceProductRow = {
+    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR',
+    product_name: 'Oil Cap', product_name_zh: '機油蓋',
+    description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
+    vehicle_label: null, fitment_parsed: null,
+    spec: { color: '古銅色', material: '鋁合金' }, price_retail: '1900',
+    image_url: 'https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg',
+    // 🔴 真形狀 = 純字串陣列(bonamici/cncracing fetcher 寫法、2026-07-04 view 實測;非 rpm 的 [{url}])
+    images: ['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg'],
+    stock_status: 'in_stock',
+  };
+
+  it("per-variant:直接全用該列 images(不做 sku 前綴過濾)", () => {
+    const row = transformVariant(boVariant, NOW, 0, 'per-variant');
+    expect(row.images).toEqual(['https://www.bonamiciracing.it/images/prodotti/0025_BR/0025_BR.jpg']);
+  });
+
+  it("sku-prefix-pool 對 bonamici 形狀檔名必 miss(sku 後跟 / . 非 '-')→ [](W3 修復前的病灶重現)", () => {
+    const row = transformVariant(boVariant, NOW, 0, 'sku-prefix-pool');
+    expect(row.images).toEqual([]); // 這就是「選色不換圖」根因;bonamici/cncracing 必須走 per-variant
+  });
+
+  it('per-variant 不過濾:cncracing 混情境照也全保留(view 該列 images 即該變體圖組)', () => {
+    const cnc: SourceProductRow = {
+      ...boVariant, supplier_slug: 'cncracing', main_sku: 'CA210', sku: 'CA210B',
+      spec: { color: '黑色' }, price_retail: '9500',
+      image_url: 'https://www.cncracing.com/images_web/variante/1200x/CA210B.jpg',
+      images: [
+        'https://www.cncracing.com/images_web/variante/1200x/CA210B.jpg',
+        'https://www.cncracing.com/images_web/prod/1200x/CA210B_CA210R.jpg',
+      ],
+    };
+    const row = transformVariant(cnc, NOW, 0, 'per-variant');
+    expect(row.images).toHaveLength(2);
+    expect(row.images[0]).toContain('variante/1200x/CA210B.jpg'); // 首張 = 乾淨變體圖
+  });
+
+  it('RPM byte 錨:sku-prefix-pool 前綴過濾行為與既有 golden 一致(APRILIA 圖池)', () => {
+    // 既有 byte 鎖測試走 runGroup default('sku-prefix-pool');此處顯式斷言過濾語意不變
+    const rpmV: SourceProductRow = {
+      ...boVariant, supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-G-F',
+      spec: { weave: 'G', finish: 'F' }, price_retail: '12000', image_url: null,
+      images: [{ url: 'https://cdn/aprilia-01-g-f-1.jpg' }, { url: 'https://cdn/aprilia-01-m-f-1.jpg' }],
+    };
+    const row = transformVariant(rpmV, NOW, 0, 'sku-prefix-pool');
+    expect(row.images).toEqual(['https://cdn/aprilia-01-g-f-1.jpg']); // 只留自身前綴、不誤收 m-f
   });
 });

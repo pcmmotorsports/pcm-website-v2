@@ -18,6 +18,7 @@
 
 import type { FitmentSpec } from '@pcm/domain';
 import type { SourceProductRow } from './rpm-fetch';
+import type { VariantImageStrategy } from './supplier-config';
 
 // ── constants ──
 const PLACEHOLDER_IMAGE = '/placeholder-product.png';
@@ -30,16 +31,22 @@ function roundTwd(v: string | number | null | undefined): number | null {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? n : null; // 🔴 NaN/Infinity(非法來源值)→ null(codex k2 審查 must-fix 2)
 }
-/** 來源 images [{url}] → string[](抽 .url;對齊 domain images: string[]、非 [{url}]) */
-function mapImages(images: { url: string }[] | null | undefined): string[] {
-  return (images ?? []).map((i) => i.url).filter(Boolean);
+/** 來源 images → string[](對齊 domain images: string[])。W3:兼容兩形狀 —
+ *  rpm=[{url}] 物件陣列(抽 .url、現行路徑 byte 不變)、bonamici/cncracing=純字串陣列(直用)。 */
+function mapImages(images: ({ url: string } | string)[] | null | undefined): string[] {
+  return (images ?? []).map((i) => (typeof i === 'string' ? i : i.url)).filter(Boolean);
 }
 /**
- * 變體專屬圖(Sean 拍):view.images 是「全群共用圖池」、過濾出檔名含該變體 sku 前綴的圖。
- * 檔名規則(已驗):變體 APRILIA-01-G-F 圖檔名含 'aprilia-01-g-f-XX';sku 小寫 + '-' 為精準前綴
- * (不誤匹配 g-h / m-f)。own 空(如 12K 特殊款可能無專屬檔)→ [](DB 瘦、16c fallback 商品代表圖)。
+ * 變體專屬圖 — 依 supplier-config.variantImages 策略分支(W3、#267):
+ * - 'sku-prefix-pool'(rpm、Sean 拍):view.images 是「全群共用圖池」、過濾出檔名含該變體 sku 前綴的圖。
+ *   檔名規則(已驗):變體 APRILIA-01-G-F 圖檔名含 'aprilia-01-g-f-XX';sku 小寫 + '-' 為精準前綴
+ *   (不誤匹配 g-h / m-f)。own 空(如 12K 特殊款可能無專屬檔)→ [](DB 瘦、16c fallback 商品代表圖)。
+ * - 'per-variant'(bonamici/cncracing/gbracing、2026-07-04 view 實測):view.images 已是該變體
+ *   自己的圖組、直接全用不過濾(RPM 前綴規則對這些家檔名永遠 miss —— sku 後跟 / . _ 而非 '-',
+ *   過濾會把全部變體圖丟成 [] = 選色不換圖)。
  */
-function ownVariantImages(v: SourceProductRow): string[] {
+function ownVariantImages(v: SourceProductRow, strategy: VariantImageStrategy): string[] {
+  if (strategy === 'per-variant') return mapImages(v.images);
   const prefix = v.sku.toLowerCase() + '-';
   return mapImages(v.images).filter((url) => url.toLowerCase().split('?')[0]!.includes(prefix));
 }
@@ -197,7 +204,13 @@ export function transformGroup(
   };
 }
 
-export function transformVariant(v: SourceProductRow, now: string, sortOrder: number): VariantRow {
+export function transformVariant(
+  v: SourceProductRow,
+  now: string,
+  sortOrder: number,
+  // W3:顯式帶策略(無 default、fail-closed 逼呼叫端從 supplier-config 決策;rpm='sku-prefix-pool' byte 錨)
+  variantImages: VariantImageStrategy,
+): VariantRow {
   return {
     supplier_slug: v.supplier_slug, // 'rpm'(顯式帶)
     sku: v.sku, // 🔴 原樣、不 UPPER(join key、讀當前值)
@@ -205,7 +218,7 @@ export function transformVariant(v: SourceProductRow, now: string, sortOrder: nu
     price_general: roundTwd(v.price_retail), // 🔴 view.price_retail → price_general(零售)
     price_store: null, // 🔴 Q2=A 經銷欄留 NULL(變體表無 price_by_tier、無 placeholder 需求)
     availability: availabilityOf(v.stock_status),
-    images: ownVariantImages(v), // 該變體專屬圖(檔名比對 sku 前綴);空→[] 靠 16c fallback
+    images: ownVariantImages(v, variantImages), // 該變體專屬圖(策略分支);空→[] 靠 16c fallback
     sort_order: sortOrder,
     metadata: {}, // 🔴 停寫全部(4 敏感 S1 CHECK 擋 + source_corrected view 無來源)
     updated_at: now,

@@ -6635,7 +6635,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #265. 🟡 ProductInfo 變體選擇器 + ProductSwatchPreview 泛化(支援非 RPM 規格形狀、P0-C-c 延 Phase 1)
 
-- **狀態:** 🟢 觀察(非阻塞、非去碳;去碳已由 P0-C-a/b1/b2 完成、ProductInfo 無寫死碳纖字)。Sean 2026-07-04 拍 A 延 Phase 1。
+- **狀態:** 🎯 **主體完成(2026-07-04、#267 W2)**——選擇器泛化(RPM 形狀走現行合成維 byte 不變、12 舊測全綠;非 RPM 泛型維 spec key 資料驅動)+ SwatchPreview 非 RPM 降級不渲染;雙審過(code-reviewer + adversarial opus,F1 空值濾除已修、F2 源頭保留字治理)。**剩**:①試點寫入後 Sean 開站肉眼驗(現無非 RPM 真資料頁可看)②hex_color 真色塊(CNC 官方色碼、需報價單 raw_jsonb→網站 metadata→UIVariant 三層鏈路、獨立 slice)。
+- (原始狀態)🟢 觀察(非阻塞、非去碳;去碳已由 P0-C-a/b1/b2 完成、ProductInfo 無寫死碳纖字)。Sean 2026-07-04 拍 A 延 Phase 1。
 - **優先級:** 🟡 中(bonamici 上架前必做,否則其顏色變體顧客選不了)
 - **問題:** ProductInfo 變體選擇器目前寫死 RPM 形狀 —— `Dim='pattern'|'finish'`、pattern=weave+special 合併(`patternKey`)、WEAVE_LABEL/FINISH_LABEL/SPECIAL_LABEL + 固定排序(WEAVE_ORDER/FINISH_ORDER)。非 RPM 規格形狀(bonamici `{color,material}`)→ `variantDimValue` 讀不到 weave/finish → specGroups 全空 → **選擇器不渲染**(非 crash、但顧客選不了顏色)。ProductSwatchPreview(選擇器預覽卡)亦為 RPM 紋路樣品圖形狀,非 RPM 變體(無 weave)可能顯 fallback / RPM 碳纖樣品圖 → 潛在去碳-adjacent 洩漏(需 Phase 1 真資料時驗)。
 - **觸發事件:** bonamici(色彩變體)/ 其他多規格軸品牌試點上架(Phase 1)。

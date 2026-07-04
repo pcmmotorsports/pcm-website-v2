@@ -28,6 +28,9 @@ export type CategoryStrategy =
   | { kind: 'fixed'; rawPath: string }
   | { kind: 'per-group' };
 
+/** 變體圖策略(W3;語意見 SupplierConfig.variantImages docstring)。 */
+export type VariantImageStrategy = 'sku-prefix-pool' | 'per-variant';
+
 export interface SupplierConfig {
   /** 來源 view supplier_slug 值:fetch/delta/reconcile/preflight 的 scope,一路貫穿(不變式 1 軟下架隔離)。 */
   supplierSlug: string;
@@ -52,6 +55,15 @@ export interface SupplierConfig {
   syncDescription: boolean;
   /** 分類策略(見 CategoryStrategy)。 */
   categoryStrategy: CategoryStrategy;
+  /**
+   * 變體圖策略(W3、#267;2026-07-04 報價單 view 實測):
+   * - 'sku-prefix-pool':view.images = 全群共用圖池,過濾檔名含 `${sku小寫}-` 前綴的圖。
+   *   🔴 rpm 必為此值(現行行為 byte 錨;12K 特殊款 own 空 → [] → 16c fallback 群代表圖)。
+   * - 'per-variant':view.images = 該變體自己的圖(bonamici 1 張 URL 含自身 sku 目錄、
+   *   cncracing 首張 variante/ 變體圖+群情境照混合、gbracing 單變體),直接全用不過濾。
+   *   RPM 前綴規則對這些家永遠 miss(檔名 sku 後跟 / . _ 而非 -)→ 不 per-variant 則選色不換圖。
+   */
+  variantImages: VariantImageStrategy;
 }
 
 /**
@@ -66,6 +78,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'rpm',
     syncDescription: false,
     categoryStrategy: { kind: 'fixed', rawPath: '碳纖維部品' },
+    variantImages: 'sku-prefix-pool', // 🔴 byte 錨:群共用圖池+sku 前綴過濾 = 現行行為
   },
   // 試點一:GB Racing。單變體、無 spec、~186 群通用件(無 fitment)。
   gbracing: {
@@ -74,6 +87,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'gbracing',
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant', // view images=該列自己的圖(單變體家、942 群全單變體)
   },
   // 試點二:Bonamici。色彩變體、spec {color,material}、~439 群通用件。
   bonamici: {
@@ -82,6 +96,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'bonamici',
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant', // 每變體 1 張自身圖(URL 含自身 sku 目錄、1710/1710 非空)
   },
   // 🔴 僅乾跑驗證用(#267 變體模型統一收尾、Phase 3 放量前不 --confirm-write):
   //   CNC Racing。多色變體(spec {color},源頭 2026-07-04 兩輪遷移收斂後 4,376 列/1,978 群)。
@@ -93,6 +108,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'cncracing',
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant', // 首張 variante/ 變體圖+群情境照(4376/4376 非空)
   },
 };
 

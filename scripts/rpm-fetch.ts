@@ -44,7 +44,10 @@ export interface SourceProductRow {
   spec: Record<string, string> | null; // {weave,finish}(+optional special)/ {color,material}/ null、值全 string
   price_retail: string | number | null; // 🔴 報價單零售真相 → 網站 price_general(numeric 序列化可能為 string)
   image_url: string | null; // 群代表圖
-  images: { url: string }[] | null; // 圖池 [{url}](變體專屬圖靠 sku 前綴過濾)
+  // 圖欄兩形狀並存(2026-07-04 view 實測):rpm=[{url}] 物件陣列(群共用圖池、變體專屬圖靠 sku
+  //   前綴過濾)、bonamici/cncracing=純字串陣列(per-variant、各家 fetcher 寫法不同);
+  //   mapImages(rpm-transform)兼容兩形狀、rpm 物件路徑不動(byte 錨)。
+  images: ({ url: string } | string)[] | null;
   stock_status: string; // in_stock / out
 }
 
