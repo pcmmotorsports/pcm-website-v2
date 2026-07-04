@@ -6268,17 +6268,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #247. 🗺️ sitemap 商品來源治本(category-scoped 借用 → 全品類 public 列舉)
+### #247. 🗺️ sitemap 商品來源治本(全品類覆蓋 ✅ C4 已解 / 效能輕量列舉待)
 
-- **狀態:** ⏳ 待執行
-- **優先級:** 🟠 中(現況零漏、多品牌上架前必補,否則 sitemap 靜默漏商品)
+- **狀態:** 🟡 **覆蓋缺口已解(C4 2026-07-04)、效能治本待執行**(降級:覆蓋層原「多品牌上架前必補」已由 C4 補上、不再是硬前置;剩效能優化)。
+- **優先級:** 🟢 低(覆蓋已全、無靜默漏頁風險;剩效能屬優化非正確性)。
 - **問題:**
-  - GEO P0(`app/sitemap.ts`)目前借用 `fetchCatalogProducts()` → `SupabaseProductAdapter.listAllByCategory()`,它是 **category-scoped**(硬編 `碳纖維部品`)。
-  - 現階段涵蓋全站 100% **純屬巧合**:正式庫 1408 筆公開商品恰全在單一品類(`distinct_categories_in_public=1`)。多品牌 / 多品類上架(#212)後,其他品類商品**不會進 sitemap**,AI / Google 索引漏抓、被引用面縮水,且無報錯(靜默)。
-- **觸發事件(任一觸發即啟動實作):**
-  - #212 多品牌商品頁上架前;或新增任何非「碳纖維部品」品類商品時。
-- **預期解法:**
-  - 新增真正無品類限制的 public 列舉(例 `SupabaseProductAdapter.listAllHandlesPublic()`,走目前未接線的輕量 `products_list_public` view、只取 `id + handle`,免撈 detail 全欄);`app/sitemap.ts` 改吃它。
+  - ~~GEO P0 借用 `fetchCatalogProducts()` → `listAllByCategory()` category-scoped 硬編碳纖維部品~~ → **C4/#205 已改 `fetchCatalogProducts()` → `SupabaseProductAdapter.listAllProducts()` 撈全目錄(不綁分類)**,sitemap 天然涵蓋所有品類、多品牌(#212)上架後不再靜默漏頁。**覆蓋缺口(本 #247 主痛點)已消除。**
+  - **仍未治本(降級後剩餘範圍)= 效能**:`listAllProducts()` 撈 `PRODUCT_SELECT_DETAIL` 全欄(sitemap 只需 `handle`),重量級查詢僅為取 slug;輕量 `listAllHandlesPublic()`(走 `products_list_public` 只取 id+handle、免撈 detail)+ `<lastmod>` 補欄仍為正解。屬 stopgap(對齊 #51),Phase-1 ~1117 件 + 每日 revalidate 快取可接受。
+- **觸發事件:** 目錄規模顯著長大 sitemap 撈 detail 成本痛時;或與 #51 server-side 分頁一併治。
+- **預期解法(剩餘效能層):**
+  - 新增輕量 public 列舉 `SupabaseProductAdapter.listAllHandlesPublic()`(走未接線的 `products_list_public` view、只取 `id + handle`、免撈 detail 全欄);`app/sitemap.ts` 改吃它。
   - 順帶評估 `<lastmod>`(`products_list_public` 無 `updated_at`,需走 `products_public` 或 view 補欄)。
 - **不修會痛在:**
   - 擴充性:多品牌一上架,sitemap 立即漏掉新品類全部商品,卻不會報錯。

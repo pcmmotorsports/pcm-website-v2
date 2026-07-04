@@ -104,14 +104,15 @@ describe('ProductsPage', () => {
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
   });
 
-  it('🔴 #220-B1:側欄隱藏假篩選(零件分類/品牌/顏色/其他)、保留價格範圍', () => {
+  it('C4a:零件分類樹現身(解除 hideCategory、吃真 C2 data.categories);品牌/顏色/其他仍隱藏、保留價格範圍', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
-    // 隱藏:真資料單一分類「碳纖維部品」/單一品牌 RPM CARBON/全 silver/無促銷 → 這些篩選無意義
-    expect(screen.queryByText('零件分類')).toBeNull();
+    // C4a:零件分類樹解除隱藏 → accordion 標題 + 真分類名(碳纖維部品)現身於側欄(ProductCard 不渲染 category、故唯一)
+    expect(screen.getByText('零件分類')).toBeDefined();
+    expect(screen.getAllByText('碳纖維部品').length).toBeGreaterThan(0);
+    // 仍隱藏(C3 才解除 hideBrand):單一品牌 RPM CARBON 搜尋 input / 全 silver 顏色 / 無促銷其他
+    expect(screen.queryByPlaceholderText('搜尋品牌')).toBeNull();
     expect(screen.queryByText('顏色')).toBeNull();
     expect(screen.queryByText('其他')).toBeNull(); // 僅現貨(#161 關)+ 新品/特價(隱)皆空 → 整段隱藏
-    // 品牌篩選用 filter-specific anchor(避與 Header nav「品牌」撞):搜尋品牌 input 不應在
-    expect(screen.queryByPlaceholderText('搜尋品牌')).toBeNull();
     // 保留:真價格可篩 + 側欄殼
     expect(screen.getByText('價格範圍')).toBeDefined();
     expect(screen.getByText('篩選條件')).toBeDefined();

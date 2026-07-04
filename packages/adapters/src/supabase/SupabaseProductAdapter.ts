@@ -19,6 +19,7 @@ import { matchFitmentYear } from './helpers/fitment';
 import {
   SEARCHABLE_COLUMNS,
   buildIlikeOrFilter,
+  fetchAllPaginated,
   findSingle,
 } from './helpers/product-query-support';
 import {
@@ -156,11 +157,8 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 🔴 **stopgap**:全量撈進 client(client filter/分頁)。多品牌(#212)目錄長大後須改
    *   server-side 分頁/篩選(#51)、非長久解。
    *
-   * 分頁正確性(審查點):
-   * - `.order('id')`(PK uuid 唯一、穩定排序)+ 連續非重疊 `.range` 視窗 → 無重複 / 無漏行。
-   * - 末頁 `batch.length < PAGE_SIZE` 即停(含「恰為 PAGE_SIZE 整數倍」時多撈一次空頁正常停)。
-   * - `MAX_PAGES` 防呆上限:命中則 `console.warn`(不靜默截斷)、回已撈部分。
-   * - fail-closed 同 listByCategory:找不到 categoryId → `[]`。
+   * 分頁正確性:`.order('id')`(PK uuid 穩定)+ 連續非重疊 `.range` 視窗、末頁 <PAGE_SIZE 即停、
+   * MAX_PAGES 防呆(細節見 `fetchAllPaginated`);fail-closed 同 listByCategory:找不到 categoryId → `[]`。
    */
   async listAllByCategory(category: CategoryPath): Promise<Product[]> {
     const categoryId = await resolveCategoryId(this.supabase, category.raw);
@@ -168,35 +166,41 @@ export class SupabaseProductAdapter implements IProductRepository {
       return [];
     }
 
-    const PAGE_SIZE = 1000;
-    const MAX_PAGES = 50; // 防呆:50 × 1000 = 5 萬件上限(遠超現況、防迴圈失控)
-    const rows: SupabaseProductRow[] = [];
+    const rows = (await fetchAllPaginated(
+      (from, to) =>
+        this.supabase
+          .from('products_public')
+          .select(PRODUCT_SELECT_DETAIL)
+          .eq('category_id', categoryId)
+          .order('id', { ascending: true })
+          .range(from, to),
+      `SupabaseProductAdapter.listAllByCategory(category=${category.raw})`,
+    )) as SupabaseProductRow[];
 
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const from = page * PAGE_SIZE;
-      const { data, error } = await this.supabase
-        .from('products_public')
-        .select(PRODUCT_SELECT_DETAIL)
-        .eq('category_id', categoryId)
-        .order('id', { ascending: true })
-        .range(from, from + PAGE_SIZE - 1);
+    return rows.map(mapSupabaseProductToDomain);
+  }
 
-      if (error) {
-        throw error;
-      }
+  /**
+   * 列出**全目錄**非下架 product —— 全量、跨分類(接線 plan C4、#205)。對齊
+   * IProductRepository.listAllProducts contract。
+   *
+   * 同 listAllByCategory 的分頁迴圈(繞 PostgREST 1000-row 上限、`fetchAllPaginated` 共用),
+   * 但**不疊 category_id 過濾** → 撈整個公開目錄(RLS 已濾下架、回非下架商品全量)。
+   * 解除 lib/products 舊「寫死單一分類『碳纖維部品』」;RPM 零回歸見 port contract。
+   *
+   * 🔴 **stopgap**:同 listAllByCategory,全量撈進 client;多品牌(#212)後改 server-side 分頁(#51)。
+   */
+  async listAllProducts(): Promise<Product[]> {
+    const rows = (await fetchAllPaginated(
+      (from, to) =>
+        this.supabase
+          .from('products_public')
+          .select(PRODUCT_SELECT_DETAIL)
+          .order('id', { ascending: true })
+          .range(from, to),
+      'SupabaseProductAdapter.listAllProducts',
+    )) as SupabaseProductRow[];
 
-      const batch = (data ?? []) as unknown as SupabaseProductRow[];
-      rows.push(...batch);
-
-      if (batch.length < PAGE_SIZE) {
-        return rows.map(mapSupabaseProductToDomain); // 末頁、撈完
-      }
-    }
-
-    // 命中 MAX_PAGES 仍未撈完(異常 scale)→ 不靜默截斷:警示後回已撈部分(no silent caps)。
-    console.warn(
-      `[SupabaseProductAdapter.listAllByCategory] category=${category.raw} 達 MAX_PAGES=${MAX_PAGES}(${MAX_PAGES * PAGE_SIZE} 件)上限、結果可能截斷;需改 server-side 分頁(#51)`,
-    );
     return rows.map(mapSupabaseProductToDomain);
   }
 

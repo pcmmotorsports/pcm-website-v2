@@ -45,7 +45,7 @@ import {
   availabilityToBool,
 } from '@pcm/adapters';
 import { computeEffectivePrice } from '@pcm/domain';
-import type { CategoryPath, MemberTier, Product } from '@pcm/domain';
+import type { MemberTier, Product } from '@pcm/domain';
 import type { MockProduct, TierLabel } from '@/data/mock-products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
@@ -176,10 +176,17 @@ export type FeaturedResult = {
 /**
  * 撈 featured 4 件商品(對齊 HomeSelect N°04 編輯精選)。
  *
- * 行為:
- *   - listByCategory({raw:'碳纖維部品', segments:['碳纖維部品']})、取前 4 筆 map 為 UI shape
- *   - 找不到 category(adapter 回 [])→ 回 `{ products: [], error: false }`、UI 走 empty 分支
+ * 行為(C4/#205 解除寫死單一分類「碳纖維部品」→ 撈全目錄前 4):
+ *   - listAllProducts()(全目錄非下架、.order('id') 分頁)、取前 4 筆 map 為 UI shape
+ *   - adapter 回 [](空目錄)→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → console.error + 回 `{ products: [], error: true }`、UI 走 error 分支
+ *
+ * 🔴 字面 vs 事實(commit body 同步):
+ *   - 舊 listByCategory({碳纖維部品}) 無 `.order` → 前 4 為 PostgREST 未定序;本片改 listAllProducts()
+ *     以 `.order('id')` 定序取前 4,現況仍全是碳纖維商品(品牌無變化),但**首頁精選具體 4 件可能與舊不同**
+ *     (由 arbitrary-order 變 id 升冪前 4);featured 本為 Phase-1 placeholder,「featured 旗標」才是正解(#205)。
+ *   - 效能 stopgap:撈全目錄僅取 4 件(Phase-1 ~1117 件、首頁 revalidate 快取可接受);#205 featured-flag /
+ *     #51 server-side 為正解。
  *
  * tier 由 caller 傳入(page.tsx 從 cookie / ?tier= override 取得、sub 4b 接通)。
  */
@@ -187,35 +194,29 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
   const client = createSupabaseAnonClient();
   const adapter = new SupabaseProductAdapter(client);
 
-  // featured category:M-1-16b 後 Sean 2026-06-01 拍 A、覆蓋 d2 Q-category=a「操控部品」
-  //   (mock 時代 placeholder → RPM 上架後真資料在「碳纖維部品」);逐字對齊 DB categories.raw_path。
-  //   未來多分類時改用 featured 旗標 / 跨分類查全站(backlog #205、原 B 正解留此)。
-  const category: CategoryPath = {
-    raw: '碳纖維部品',
-    segments: ['碳纖維部品'],
-  };
-
   try {
-    const products = await adapter.listByCategory(category);
+    const products = await adapter.listAllProducts();
     return {
       products: products.slice(0, 4).map((p) => toUIProduct(p, tier)),
       error: false,
     };
   } catch (err) {
-    console.error('[fetchFeaturedProducts] adapter.listByCategory failed:', err);
+    console.error('[fetchFeaturedProducts] adapter.listAllProducts failed:', err);
     return { products: [], error: true };
   }
 }
 
 /**
- * 撈整個目錄(碳纖維部品全量)供 /products 列表頁(#220、列表頁遷真;對齊詳情頁 M-1-16c-3)。
+ * 撈整個公開目錄全量供 /products 列表頁 + sitemap(#220 列表頁遷真、C4/#205 解除寫死單一分類)。
  *
  * 行為:
- *   - listAllByCategory({raw:'碳纖維部品', segments:['碳纖維部品']})〔.order('id') + .range 分頁迴圈、
- *     繞過 PostgREST/Supabase「Max rows=1000」硬上限、撈非下架公開商品全量〕→ map toUIProduct(p,'general')
- *   - adapter 回 [](找不到 category)→ `{ products: [], error: false }`、UI 走 empty 分支「找不到符合條件的商品」
+ *   - listAllProducts()〔.order('id') + .range 分頁迴圈、繞 PostgREST/Supabase「Max rows=1000」硬上限、
+ *     撈**全目錄**非下架公開商品(不綁分類)〕→ map toUIProduct(p,'general')
+ *   - adapter 回 [](空目錄)→ `{ products: [], error: false }`、UI 走 empty 分支「找不到符合條件的商品」
  *   - adapter throw error → console.error + `{ products: [], error: true }`、UI 走 error 分支「載入失敗、請稍後再試」
  *
+ * 🔴 RPM 零回歸:現況全站公開商品恰在單一分類「碳纖維部品」→ 撈全目錄 = 撈碳纖維部品 = 同 1117 筆、byte 等價;
+ *   多品牌(#212)寫入後才多出其他分類商品(客人屆時可跨分類瀏覽,對齊 C2 filterProducts category 分支)。
  * 🔴 **釘 general**(同 fetchProductByHandle L218-227 理由):public view 排除 price_store、
  *   store/premiumStore 走 dummy 0;若傳真 tier 會對店家會員顯「NT$ 0」(codex 16c-3 k1 must-fix 2)。
  *   故不收 tier 參數、固定 'general';tier-aware 列表價待 M-2-08。經銷價零外洩。
@@ -226,19 +227,14 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   const client = createSupabaseAnonClient();
   const adapter = new SupabaseProductAdapter(client);
 
-  const category: CategoryPath = {
-    raw: '碳纖維部品',
-    segments: ['碳纖維部品'],
-  };
-
   try {
-    const products = await adapter.listAllByCategory(category);
+    const products = await adapter.listAllProducts();
     return {
       products: products.map((p) => toUIProduct(p, 'general')),
       error: false,
     };
   } catch (err) {
-    console.error('[fetchCatalogProducts] adapter.listAllByCategory failed:', err);
+    console.error('[fetchCatalogProducts] adapter.listAllProducts failed:', err);
     return { products: [], error: true };
   }
 }

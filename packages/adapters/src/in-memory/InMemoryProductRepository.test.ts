@@ -105,6 +105,23 @@ describe('InMemoryProductRepository', () => {
     expect(result[0]?.id).toBe('p-1');
   });
 
+  // C4 接線:listAllProducts 回全目錄(跨分類、不綁 category)。
+  it('should list all products across categories (listAllProducts、C4 全目錄)', async () => {
+    const exhaust = createFakeProduct({ id: 'p-1', category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] } });
+    const brake = createFakeProduct({ id: 'p-2', category: { raw: '制動 · 卡鉗', segments: ['制動', '卡鉗'] } });
+    const repo = new InMemoryProductRepository([exhaust, brake]);
+
+    const result = await repo.listAllProducts();
+    // 不像 listByCategory 只回單一分類 → 跨分類全回
+    expect(result).toHaveLength(2);
+    expect(result.map((p) => p.id).sort()).toEqual(['p-1', 'p-2']);
+  });
+
+  it('should return [] for listAllProducts when repository empty', async () => {
+    const repo = new InMemoryProductRepository();
+    expect(await repo.listAllProducts()).toEqual([]);
+  });
+
   it('should list products by brand id match', async () => {
     const akra = createFakeProduct({ id: 'p-1', brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic', premium_extra_pct: 0 } });
     const brembo = createFakeProduct({ id: 'p-2', brand: { id: 'b-brembo', name: 'Brembo', slug: 'brembo', premium_extra_pct: 0 } });

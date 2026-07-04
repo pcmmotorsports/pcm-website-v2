@@ -74,6 +74,16 @@ export class InMemoryProductRepository implements IProductRepository {
   }
 
   /**
+   * 列出全目錄非下架 product —— 全量、跨分類(接線 plan C4、對齊 IProductRepository.listAllProducts contract)。
+   *
+   * in-memory 無 PostgREST「Max rows = 1000」上限、無下架概念(DB/RLS 概念)→ 回全部庫存 product;
+   * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞上限 + RLS 濾下架。
+   */
+  async listAllProducts(): Promise<Product[]> {
+    return Array.from(this.products.values());
+  }
+
+  /**
    * 列出分類 + 各分類商品數(對齊 IProductRepository.listCategories contract)。
    *
    * in-memory 不承載分類註冊表 → 由庫存 product 的 category 推導 distinct 分類 + 商品數;

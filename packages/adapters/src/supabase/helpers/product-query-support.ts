@@ -33,6 +33,55 @@ export function buildIlikeOrFilter(columns: readonly string[], q: string): strin
 }
 
 /**
+ * 全量分頁上限(繞 PostgREST/Supabase「Max rows = 1000」硬上限)。
+ * MAX_PAGES 防呆:50 × 1000 = 5 萬件上限(遠超現況、防迴圈失控)。
+ */
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 50;
+
+/**
+ * 全量分頁撈取:以連續 `.range(from,to)` 視窗撈到底、繞 PostgREST/Supabase「Max rows = 1000」硬上限。
+ * listAllByCategory / listAllProducts 共用(鐵則 6 抽出、兩處分頁迴圈不重複)。
+ *
+ * `runPage(from, to)` 由呼叫端提供:在 base query 疊自己的過濾與**穩定排序**(`.order('id')`,PK uuid)
+ * 後回 PostgREST 結果;listAllByCategory 疊 `.eq('category_id')`、listAllProducts 不疊。
+ *
+ * 分頁正確性(審查點):
+ * - 呼叫端 `.order('id')`(PK uuid 唯一、穩定)+ 連續非重疊 `.range` 視窗 → 無重複 / 無漏行。
+ * - 末頁 `batch.length < PAGE_SIZE` 即停(含「恰為 PAGE_SIZE 整數倍」時多撈一次空頁正常停)。
+ * - `MAX_PAGES` 防呆上限:命中則 `console.warn`(不靜默截斷、no silent caps)、回已撈部分。
+ * - error → throw(fail-closed、對齊各 read method)。
+ *
+ * 回傳 `unknown[]`:products_public view + embed 投射的 rich-Json wire shape 由呼叫端
+ * `as SupabaseProductRow[]` narrow(對齊 findSingle JSDoc 的 rich-Json 邊界說明)。
+ */
+export async function fetchAllPaginated(
+  runPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: unknown[] | null; error: { message: string } | null }>,
+  label: string,
+): Promise<unknown[]> {
+  const rows: unknown[] = [];
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const from = page * PAGE_SIZE;
+    const { data, error } = await runPage(from, from + PAGE_SIZE - 1);
+    if (error) {
+      throw error;
+    }
+    const batch = data ?? [];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) {
+      return rows; // 末頁、撈完
+    }
+  }
+  console.warn(
+    `[${label}] 達 MAX_PAGES=${MAX_PAGES}(${MAX_PAGES * PAGE_SIZE} 件)上限、結果可能截斷;需改 server-side 分頁(#51)`,
+  );
+  return rows;
+}
+
+/**
  * `.single()` 結果統一處理(PGRST_NOT_FOUND → null、其他 error → throw、
  * data null fallthrough → null)。對齊 sub-slice 4 audit 第 3 處撞 Defer trigger
  * (findById + resolveCategoryId + save、雙 audit R1/R2/Q6 共識)。

@@ -47,6 +47,22 @@ export interface IProductRepository {
    */
   listAllByCategory(category: CategoryPath): Promise<Product[]>;
   /**
+   * 列出**全目錄**非下架 product —— 全量、跨分類(接線 plan C4、#205)。
+   *
+   * 與 listAllByCategory 差異:不綁分類、撈整個公開目錄;adapter 實作以 .order('id') + .range
+   * 分頁迴圈繞過 PostgREST/Supabase「Max rows = 1000」硬上限。/products 列表頁 + 首頁精選 +
+   * sitemap 由此撈全站(解除舊「寫死單一分類『碳纖維部品』」、多品牌上架後客人可跨分類瀏覽)。
+   *
+   * RPM 零回歸:現況全站公開商品恰在單一分類「碳纖維部品」,故 listAllProducts()
+   * 與 listAllByCategory({碳纖維部品}) 回傳等價;多品牌寫入後才多出其他分類商品。
+   *
+   * 🔴 stopgap:全量撈進 client(client filter/分頁)。多品牌(#212)目錄長大後須改
+   * server-side 分頁/篩選(#51)、非長久解。
+   *
+   * @see docs/specs/2026-07-04-catalog-category-brand-frontend-wiring-plan.md C4
+   */
+  listAllProducts(): Promise<Product[]>;
+  /**
    * 列出全部分類 + 各分類上架商品數(接線 plan C1)。
    *
    * Contract:

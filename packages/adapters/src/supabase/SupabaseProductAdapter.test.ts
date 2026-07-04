@@ -219,6 +219,90 @@ describe('SupabaseProductAdapter.listAllByCategory — 分頁迴圈(#220)', () =
   });
 });
 
+// ── C4 接線:listAllProducts 全目錄分頁(繞 1000 上限、不綁 category)──
+//   審查點:同 listAllByCategory 分頁正確性(迴圈終止 + 無重複/漏行)+ 🔴 **不 resolve category、不 .eq category_id**
+//   (全目錄語意 = 撈整個公開目錄,非單一分類);故 from('categories') 若被觸碰即 throw(證未走分類 resolve)。
+
+// products_public.range() 依呼叫序回各頁;記錄 eq 是否被呼叫(listAllProducts 不該疊 category_id)。
+function makeAllProductsClient(pageSizes: number[]) {
+  const rangeCalls: Array<[number, number]> = [];
+  let eqCalled = false;
+  let idx = 0;
+  const products = {
+    select() { return products; },
+    eq() { eqCalled = true; return products; },
+    order() { return products; },
+    range(from: number, to: number) {
+      rangeCalls.push([from, to]);
+      const n = pageSizes[idx] ?? 0;
+      idx += 1;
+      return Promise.resolve({
+        data: Array.from({ length: n }, (_, j) => makeRow(from + j)),
+        error: null,
+      });
+    },
+  };
+  const client = {
+    from(t: string) {
+      if (t === 'categories') throw new Error('listAllProducts 不該 resolve category(全目錄、不綁分類)');
+      return products;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, rangeCalls, eqCalled: () => eqCalled };
+}
+
+describe('SupabaseProductAdapter.listAllProducts — 全目錄分頁(C4/#205)', () => {
+  it('跨頁合併全目錄:1000 + 117 → 1117、range 連續非重疊、末頁<1000 即停、無重複 id、且不綁分類(未 .eq category_id / 未查 categories)', async () => {
+    const { client, rangeCalls, eqCalled } = makeAllProductsClient([1000, 117]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts();
+
+    expect(result).toHaveLength(1117);
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]); // 連續非重疊視窗
+    expect(new Set(result.map((p) => p.id)).size).toBe(1117); // 無重複/漏行
+    expect(eqCalled()).toBe(false); // 🔴 全目錄:未疊 .eq(category_id)(from('categories') throw 亦已擋分類 resolve)
+  });
+
+  it('單頁(<1000)→ 一次 range 即停', async () => {
+    const { client, rangeCalls } = makeAllProductsClient([420]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts();
+
+    expect(result).toHaveLength(420);
+    expect(rangeCalls).toHaveLength(1);
+  });
+
+  it('恰為 PAGE_SIZE 整數倍:1000 + 0 → 1000、第二頁空頁正常停(無漏行、不無限迴圈)', async () => {
+    const { client, rangeCalls } = makeAllProductsClient([1000, 0]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts();
+
+    expect(result).toHaveLength(1000);
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+
+  it('products 查詢 error → throw(fail-closed、fetchAllPaginated 不吞錯)', async () => {
+    const products = {
+      select() { return products; },
+      order() { return products; },
+      range() { return Promise.resolve({ data: null, error: { code: 'XX000', message: 'boom' } }); },
+    };
+    const client = { from: () => products };
+    const adapter = new SupabaseProductAdapter(client as unknown as SupabaseClient);
+
+    await expect(adapter.listAllProducts()).rejects.toMatchObject({ message: 'boom' });
+  });
+});
+
 // ── C1 接線:listCategories(全部分類 + 各分類上架商品數)──
 //   mock 兩個查詢對象:
 //   - from('categories').select(cols).order()        → 回分類註冊表

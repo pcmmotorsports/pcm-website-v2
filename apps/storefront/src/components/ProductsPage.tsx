@@ -267,14 +267,16 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
       />
 
       <div className="pp-layout has-side" data-filter-style="cascade">
-        {/* #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
+        {/* #220-B1:真資料單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏假篩選(留價格;
             僅現貨=#161 不在此;視覺細節 Sean 後續 design skill 調)。
             hideVehicle:S1 曾解除、Sean 2026-07-03 實測 feedback 恢復 —— 車輛選擇集中頂部
-            CascadeFilterTop(+ 手機 FilterDrawer)、左欄不重複放車輛樹(回歸 M-1-12 cascade 版面拍板)。 */}
+            CascadeFilterTop(+ 手機 FilterDrawer)、左欄不重複放車輛樹(回歸 M-1-12 cascade 版面拍板)。
+            C4a(接線 plan):解除 hideCategory → 零件分類樹現身(吃 C2 已接的真 data.categories、選項 A);
+            🔴 現況真分類單層(碳纖維部品、無子類)→ 桌機 CategoryTree 大類列僅可展開、無子類可選(只點大類=展開空);
+            手機 FilterDrawer 可選「全部 {大類}」;多品牌 + 子類(#212)後桌機大類亦長出可選子類。hideBrand 仍關(C3 才解除)。 */}
         <FilterSide
           data={data}
           hideVehicle
-          hideCategory
           hideBrand
           hideColor
           hidePromoFlags
@@ -359,13 +361,13 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
 
       <MobileFab activeCount={activeCount} onClick={() => setDrawerOpen(true)} />
 
+      {/* C4a:解除 hideCategory → 手機抽屜「零件分類」tab 現身(drill 大類 → 可選「全部 {大類}」/ 子類)。hideBrand C3 才解除。 */}
       <FilterDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         data={data}
         resultCount={resultCount}
         initialTab="vehicle"
-        hideCategory
         hideBrand
         hideColor
         hidePromoFlags
