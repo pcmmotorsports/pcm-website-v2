@@ -51,7 +51,14 @@ import {
   hasAbnormal,
   preflightSpecUnique,
 } from './rpm-delta';
-import { computeDelist, applyDelist, printReconcileReport } from './rpm-reconcile';
+import {
+  computeDelist,
+  applyDelist,
+  printReconcileReport,
+  computeVariantOrphans,
+  applyVariantDelete,
+  printVariantOrphanReport,
+} from './rpm-reconcile';
 import {
   checkFetchIntegrity,
   printFetchIntegrityReport,
@@ -100,6 +107,13 @@ function requireEnv(name: string): string {
 // ── main ──
 async function main(): Promise<void> {
   const config = getSupplierConfig(SUPPLIER); // fail-closed:未登記 slug 直接 throw(→ main().catch exit 1)
+  // 🔴 writeAllowed 硬擋(V1、codex must-fix 4):「僅乾跑」不再只是註解——cncracing 等未授權家帶
+  //    --confirm-write 一律最早 abort(任何連線/寫入動作前);dry-run 不受限。
+  if (CONFIRM_WRITE && !config.writeAllowed) {
+    throw new Error(
+      `supplier「${config.supplierSlug}」writeAllowed=false(supplier-config.ts;Phase 3 放量拍板前僅乾跑)、--confirm-write 拒絕執行`,
+    );
+  }
   assertBypassFlagsExclusive(ALLOW_FETCH_SHRINK, ALLOW_LARGE_DELIST); // F3:禁同帶兩 bypass 旗標(不變式 5)
   const now = new Date().toISOString();
   const source = createClient(
@@ -202,6 +216,7 @@ async function main(): Promise<void> {
   }
   const variantRows = [...variantsByExternalId.values()].flat();
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
+  const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合
 
   // ── #261 乾跑診斷:per-group 分類解析彙整(未對上 major_category_zh × 群數;fixed 策略 records 空、不印)──
   if (categoryResolutions.length) {
@@ -236,10 +251,28 @@ async function main(): Promise<void> {
     throw new Error(`handle preflight 撞鍵/髒字元 ${handleIssues.length} 筆、abort 不寫(修源頭 sku 後重跑;dry-run 看清單)`);
   }
 
+  // ── V1 變體級對賬(2026-07-05 雙跨模型審查 must-fix F1-F3):群在、變體 sku 從來源消失=孤兒
+  //   (殘留前台選項可見+可下單凍結舊價)。差集 scope=本次要寫的群(其 source 變體集完整、全模式安全);
+  //   dry-run 列報告不刪(F2 觀測性);寫入模式 gate 觸發(源空/比例>10% 無 bypass)→ abort 不寫。
+  //   真正刪除在 products upsert 後、variants upsert 前(見寫入段;改名同 spec 先清舊列免 23505=F3)。
+  const variantOrphans = await computeVariantOrphans(
+    target,
+    config.supplierSlug,
+    sourceVariantSkus,
+    sourceExternalIds,
+    { allowLargeDelist: ALLOW_LARGE_DELIST },
+  );
+  printVariantOrphanReport(variantOrphans, { full: DELTA_FULL });
+  if (!DRY_RUN && variantOrphans.aborted) {
+    throw new Error(`變體級對賬 gate 觸發、不寫:${variantOrphans.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
+  }
+  const orphanSkusToDelete = new Set(variantOrphans.aborted ? [] : variantOrphans.orphans.map((o) => o.sku));
+
   // ── 硬 gate 1:pv_spec_unique preflight(source 群內 + target 模擬)──
   //   dry-run 列報告不 throw(Sean 看完整碰撞清單、Phase 1 處置 C3:bonamici 3 群真正區分軸是尺寸、不在 spec);
   //   寫入模式撞鍵 → abort 不進 upsert(避免 23505 部分寫的髒中間態)。
-  const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId);
+  //   V1:排除已排定刪除的孤兒 sku(upsert 前先刪、不參與模擬;變體改名同 spec 不再恆撞=F3)。
+  const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId, orphanSkusToDelete);
   if (collisions.length) {
     console.warn(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、寫入模式將 abort:`);
     console.table(collisions.slice(0, 50));
@@ -301,6 +334,14 @@ async function main(): Promise<void> {
       : []),
   ];
   const idByExtId = new Map(savedProducts.map((r) => [r.external_id as string, r.id as string]));
+
+  // ── V1 孤兒變體硬刪(variants upsert **前**:變體改名同 spec 先清舊列、免撞 pv_spec_unique 23505=F3)──
+  //   gate 已在寫入前驗過(aborted 早 throw);此處 orphanSkusToDelete 必為安全集合。
+  //   ⚠️ 無交易:刪除成功後若 variants upsert 失敗 → 該群短暫少列(下輪同步自癒、冪等);審查 should-fix 已知。
+  if (orphanSkusToDelete.size) {
+    const deleted = await applyVariantDelete(target, config.supplierSlug, [...orphanSkusToDelete]);
+    console.log(`[rpm-import] 孤兒變體硬刪:${deleted} 列(scope ${config.supplierSlug};order_items FK SET NULL、歷史不破)`);
+  }
 
   const variantRowsWithProduct = productRows.flatMap((pr) =>
     variantsByExternalId.get(pr.external_id)!.map((vr) => ({ ...vr, product_id: idByExtId.get(pr.external_id)! })),

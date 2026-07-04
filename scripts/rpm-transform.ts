@@ -125,9 +125,10 @@ export interface ProductRow {
   // 🔴 description 為 optional:依 supplier-config.syncDescription 決定寫不寫(§2.9 F2)。
   //    rpm=false → **全批一致省 key** → upsert `?columns` 聯集不含 description → 現有描述不覆寫、byte 等價(回歸鎖驗)。
   //    試點=true → 帶來源繁中 description;來源 null/空白 → 省 key。
-  //    ⚠️ load 層限制(backlog #260):試點「有值/省 key」**混批**時,postgrest-js upsert 的 `?columns` 取全批 key 聯集 +
-  //       defaultToNull(親驗 PostgrestQueryBuilder.ts:1087-1090)→ 省 key 的列會被寫 **NULL**(非保留現值)。
-  //       P0-A-3 乾跑零寫入不觸發;試點 --confirm-write 前須依 #260 處置(分批 by key-signature / missing=default / 統一帶 key)。
+  //    ✅ load 層混批 NULL-clobber 已修(#260、Sean 拍 ①保留現值):rpm-import 寫入段以 rpm-load
+  //       partitionByKeyPresence 按 description key 分兩 uniform 批 upsert → 省 key 列不再被
+  //       `?columns` 聯集 + defaultToNull(親驗 PostgrestQueryBuilder.ts:1087-1090)寫 NULL。
+  //       ⚠️ 未來新增其他「條件省 key」欄位須一併納入 partition 依據(否則混批 NULL-clobber 重現)。
   description?: string;
   price_general: number | null;
   price_store: number | null;
@@ -198,7 +199,7 @@ export function transformGroup(
     title: basis.product_name_zh || basis.product_name, // 中文部位詞優先、回退英文
     subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag),
     // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。
-    //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。試點混批 load 層 NULL 限制見 ProductRow 註 + backlog #260。
+    //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。混批 NULL-clobber 已由 load 層 partition 修(見 ProductRow 註、#260)。
     ...(ctx.syncDescription && description != null ? { description } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)

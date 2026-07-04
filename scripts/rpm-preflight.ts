@@ -233,10 +233,10 @@ export function printCategoryResolutionReport(s: CategoryResolutionSummary): voi
     `已對上: ${s.mappedGroupCount} 群 / 未對上: ${s.unmappedGroupCount} 群(${s.unmapped.length} 種 major_category_zh)`,
   );
   if (s.unmapped.length) {
-    // console.warn(非 error):P0-B seed 前預期全未對上;真正寫入 abort 由 #261 null-category gate 發(尚未落地)。
+    // console.warn(非 error):真正寫入 abort 由 rpm-import #261 null-category 硬 gate 發(已落地、findNullCategoryProducts)。
     console.warn(
-      '⚠️ 以下 major_category_zh 未對上 categories.raw_path(P0-B seed 前預期;seed 後仍未對上 = 該類漏 seed);' +
-        '🔴 寫入模式 null-category 會撞 products.category_id NOT NULL(#261 硬 gate 待補、Phase 1 試點寫入前):',
+      '⚠️ 以下 major_category_zh 未對上 categories.raw_path(新大類漏 seed 或來源改名);' +
+        '🔴 寫入模式由 #261 硬 gate abort 不進 upsert(products.category_id NOT NULL;dry-run 僅列報告):',
     );
     console.table(s.unmapped.slice(0, 30));
     if (s.unmapped.length > 30) console.log(`(另有 ${s.unmapped.length - 30} 種未列)`);

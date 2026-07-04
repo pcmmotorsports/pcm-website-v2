@@ -1,7 +1,10 @@
-# RPM 每日同步(報價單 B庫 → 網站庫)— S5 排程上線
+# 供應商每日同步(報價單 B庫 → 網站庫)— S5 排程上線;V1 多供應商 matrix(2026-07-05)
 #
-# 每天台灣 03:00(UTC 19:00)自動跑全量同步 + S4 下架對賬 + S5 W1 抓取完整性 gate。
+# 每天台灣 03:00(UTC 19:00)自動跑全量同步 + S4 下架對賬 + V1 變體級對賬 + S5 W1 抓取完整性 gate。
 # plan:docs/specs/2026-06-03-S5-scheduling-plan.md(Sean 拍 Q-S5-platform=A)。
+# V1 matrix(2026-07-05 雙跨模型審查 must-fix、Sean 拍 gbracing+bonamici 上架):每家一個獨立 job
+#   跑「自己完整一輪」(不變式 1 軟下架隔離);fail-fast:false = 一家 gate abort 不拖垮別家;
+#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。cncracing 不在 matrix(writeAllowed=false 雙保險)。
 #
 # ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable
 #   (無人值守需週期性 repo 活動或定期到 Actions 頁確認仍啟用)。
@@ -12,7 +15,7 @@
 #   permissions 收最小(contents: read、本 job 不寫 repo)。
 # secret 設定步驟見 docs/specs/2026-06-03-S5-scheduling-plan.md §10(Sean dashboard 操作、Code 不碰金鑰值)。
 
-name: RPM Daily Sync
+name: Supplier Daily Sync
 
 on:
   schedule:
@@ -32,6 +35,11 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false # 一家 gate abort(如 #261 新分類)不中斷其他家同步(審查 S1:防跨供應商耦合)
+      max-parallel: 1 # 序列跑:同一 target DB、避免併發寫入面(各家 scope 本已隔離、此為保守層)
+      matrix:
+        supplier: [rpm, gbracing, bonamici] # cncracing 僅乾跑(supplier-config writeAllowed=false 硬擋)
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -52,11 +60,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run RPM sync (full + S4 reconcile + S5 W1 gate)
+      - name: Run supplier sync (full + S4 reconcile + V1 variant reconcile + S5 W1 gate)
         # secrets 注入 env;runner 無 .env.local、rpm-import existsSync 守會走此 process.env(S5-pre B1)。
         env:
           QUOTE_SUPABASE_URL: ${{ secrets.QUOTE_SUPABASE_URL }}
           QUOTE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.QUOTE_SUPABASE_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-        run: pnpm exec tsx scripts/rpm-import.ts --confirm-write # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
+        run: pnpm exec tsx scripts/rpm-import.ts --confirm-write --supplier=${{ matrix.supplier }} # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)

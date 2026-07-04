@@ -158,14 +158,52 @@ export interface SpecCollision {
 }
 
 /**
+ * 純模擬(可測):source 群內 spec 重複 + target 既有變體併入。
+ * 🔴 V1(2026-07-05 審查 F3):`deletedSkus` = 變體級對賬已排定硬刪的孤兒 sku——變體 upsert 前會先刪,
+ * 故**不併入**模擬(否則「變體改名、spec 不變」→ 新 sku 恆撞已死孤兒 → 該供應商同步永久卡死、無工具可解)。
+ */
+export function simulateSpecCollisions(
+  variantsByExternalId: Map<string, { sku: string; spec: Record<string, string> }[]>,
+  idByExt: Map<string, string>,
+  existByProduct: Map<string, { sku: string; spec: Record<string, string> }[]>,
+  deletedSkus: Set<string>,
+): SpecCollision[] {
+  const collisions: SpecCollision[] = [];
+  for (const [externalId, srcVariants] of variantsByExternalId) {
+    const srcSkus = new Set(srcVariants.map((v) => v.sku));
+    const bySpec = new Map<string, string[]>();
+    const add = (sku: string, spec: Record<string, string>): void => {
+      const s = stableSpec(spec);
+      const arr = bySpec.get(s);
+      if (arr) arr.push(sku);
+      else bySpec.set(s, [sku]);
+    };
+    for (const v of srcVariants) add(v.sku, v.spec); // source 群內
+    const pid = idByExt.get(externalId);
+    if (pid) {
+      for (const ev of existByProduct.get(pid) ?? []) {
+        // target 既有變體:source 有(將被 upsert 覆寫)跳過;已排定刪除(V1 孤兒)跳過;其餘併入模擬
+        if (!srcSkus.has(ev.sku) && !deletedSkus.has(ev.sku)) add(ev.sku, ev.spec);
+      }
+    }
+    for (const [spec, skus] of bySpec) {
+      if (skus.length > 1) collisions.push({ externalId, spec, skus });
+    }
+  }
+  return collisions;
+}
+
+/**
  * pv_spec_unique(product_id, spec) preflight。
- * source 群內(external_id 分群)spec 重複 + target 模擬(既有變體孤兒〔target 有、source 無〕併入後是否撞)。
+ * source 群內(external_id 分群)spec 重複 + target 模擬(既有變體〔source 無、亦未排定刪除〕併入後是否撞)。
  * 新 product(target 查無 id)→ 只查 source 群內(external_id 即 synthetic key)。
+ * `deletedSkus`:V1 變體級對賬排定硬刪的孤兒(upsert 前已清、不參與模擬;預設空=舊行為)。
  */
 export async function preflightSpecUnique(
   tgt: SupabaseClient,
   supplierSlug: string,
   variantsByExternalId: Map<string, VariantRow[]>,
+  deletedSkus: Set<string> = new Set(),
 ): Promise<SpecCollision[]> {
   const externalIds = [...variantsByExternalId.keys()];
 
@@ -200,26 +238,5 @@ export async function preflightSpecUnique(
     }
   }
 
-  const collisions: SpecCollision[] = [];
-  for (const [externalId, srcVariants] of variantsByExternalId) {
-    const srcSkus = new Set(srcVariants.map((v) => v.sku));
-    const bySpec = new Map<string, string[]>();
-    const add = (sku: string, spec: Record<string, string>): void => {
-      const s = stableSpec(spec);
-      const arr = bySpec.get(s);
-      if (arr) arr.push(sku);
-      else bySpec.set(s, [sku]);
-    };
-    for (const v of srcVariants) add(v.sku, v.spec); // source 群內
-    const pid = idByExt.get(externalId);
-    if (pid) {
-      for (const ev of existByProduct.get(pid) ?? []) {
-        if (!srcSkus.has(ev.sku)) add(ev.sku, ev.spec); // target 孤兒(source 無、upsert 不刪)
-      }
-    }
-    for (const [spec, skus] of bySpec) {
-      if (skus.length > 1) collisions.push({ externalId, spec, skus });
-    }
-  }
-  return collisions;
+  return simulateSpecCollisions(variantsByExternalId, idByExt, existByProduct, deletedSkus);
 }

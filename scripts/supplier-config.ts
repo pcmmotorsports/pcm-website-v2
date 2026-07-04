@@ -56,6 +56,12 @@ export interface SupplierConfig {
   /** 分類策略(見 CategoryStrategy)。 */
   categoryStrategy: CategoryStrategy;
   /**
+   * 是否允許 `--confirm-write` 真寫 prod(2026-07-05 codex K2 must-fix 4:「僅乾跑」只有註解、
+   * 無 runtime 硬擋 → 誤帶 --confirm-write 會真寫)。false → rpm-import 在任何寫入動作前 throw(fail-closed);
+   * dry-run 不受限。cncracing=false(#267 收斂 2026-07-04、未經每日穩定期,Phase 3 放量拍板前不開)。
+   */
+  writeAllowed: boolean;
+  /**
    * 變體圖策略(W3、#267;2026-07-04 報價單 view 實測):
    * - 'sku-prefix-pool':view.images = 全群共用圖池,過濾檔名含 `${sku小寫}-` 前綴的圖。
    *   🔴 rpm 必為此值(現行行為 byte 錨;12K 特殊款 own 空 → [] → 16c fallback 群代表圖)。
@@ -79,6 +85,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncDescription: false,
     categoryStrategy: { kind: 'fixed', rawPath: '碳纖維部品' },
     variantImages: 'sku-prefix-pool', // 🔴 byte 錨:群共用圖池+sku 前綴過濾 = 現行行為
+    writeAllowed: true, // 現役每日同步(rpm-sync.yml)
   },
   // 試點一:GB Racing。單變體、無 spec、~186 群通用件(無 fitment)。
   gbracing: {
@@ -88,6 +95,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // view images=該列自己的圖(單變體家、942 群全單變體)
+    writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
   },
   // 試點二:Bonamici。色彩變體、spec {color,material}、~439 群通用件。
   bonamici: {
@@ -97,6 +105,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 每變體 1 張自身圖(URL 含自身 sku 目錄、1710/1710 非空)
+    writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
   },
   // 🔴 僅乾跑驗證用(#267 變體模型統一收尾、Phase 3 放量前不 --confirm-write):
   //   CNC Racing。多色變體(spec {color},源頭 2026-07-04 兩輪遷移收斂後 4,376 列/1,978 群)。
@@ -109,6 +118,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 首張 variante/ 變體圖+群情境照(4376/4376 非空)
+    writeAllowed: false, // 🔴 runtime 硬擋(codex must-fix 4):Phase 3 放量拍板前 --confirm-write 必 abort
   },
 };
 
