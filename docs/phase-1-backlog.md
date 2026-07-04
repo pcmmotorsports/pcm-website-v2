@@ -6668,7 +6668,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #267. 🔴 報價單源頭變體模型不完整 → 4 家 75 群 pv_spec 碰撞(放量 Phase 3 前 gate、跨專案報價單側修)
 
-- **狀態:** 🎯 **Q 線(報價單源頭)全部完成(2026-07-04)**——合約引擎+CNC 合併(同 var_code=同料通則、兩輪 DB 遷移 139 聚合全收斂、CNC 4549→4376)+三家 spec 補值 12 群全修+規範落地(報價單 repo 5 commit:ed00561/2ecc9b0/63ae109/72e0527/eeb34d8、未 push)。剩:Sean 跑三家 fetcher 落地補值 → W 線(網站側:W1 重乾跑/W2 #265/W3 變體圖)。真權威:`docs/specs/2026-07-04-variant-model-unification-plan.md`(含全部拍板與遷移記錄)。
+- **狀態:** 🎯 **Q 線(報價單源頭)全部完成(2026-07-04)**——合約引擎+CNC 合併(同 var_code=同料通則、兩輪 DB 遷移 139 聚合全收斂、CNC 4549→4376)+三家 spec 補值 12 群全修+規範落地(報價單 repo 5 commit:ed00561/2ecc9b0/63ae109/72e0527/eeb34d8、未 push)。**四家 fetcher 已落地驗證(2026-07-04)**:bonamici/materya/cncracing 合約掃描 0 違規(目標 12 群歸零)、CNC 冪等(4376 列不變、CA210 10 色 sku=var_code 完好);eazigrip 目標 4 群(CENTREPAD design)已修,但曝光存量債 137 筆 → **#268**。剩 W 線(網站側:W1 重乾跑/W2 #265/W3 變體圖)。真權威:`docs/specs/2026-07-04-variant-model-unification-plan.md`(含全部拍板與遷移記錄)。
 - (原記錄)方向已拍(2026-07-04 Sean:**Q1=A 源頭統一修**、本 session Fable 領頭多代理跨兩專案;盤點=唯讀 MCP 全 11 家掃描;非阻塞 Phase 1 試點〔僅 bonamici 3 群〕、阻塞 Phase 3 放量〔cncracing 63 群〕)
 - **🔴 Sean 拍板(2026-07-04、產品知識):** CA210 型 = 報價單**刻意合併**主料號(顯示方便、多顏色/特仕版+適用多車款)→ 網站呈現 = **一個商品、多種版本(變體)**:顏色/特仕版(Pramac、Troy Bayliss…)= 變體軸;**車型不拆商品、進 fitments 聯集**。修法必須保留報價單合併顯示、同時讓網站變體可區分。
 - **🔴 Sean 四個注意點(plan 驗收項):** ① 網站變體圖片依規格點擊連動(選色→圖跟著換)② 既有報價單 quote.pcmmotorsports.com 功能零影響 ③ 報價單側立規範/修 skill 或備註,防之後新增品牌重蹈(統一性)④ 每日同步撈到新產品能否順利自動上架完整。
@@ -6688,6 +6688,23 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** Phase 3 放量前必解(Phase 1 試點 bonamici 3 群可先一次性處理、不卡)。跨專案:根因與修法在報價單 `pcm-quote-v2`(fetcher/parser),非本 repo。
 - **發現於:** 2026-07-04 / P0-D 延伸(Sean 要求盤點其他品牌變體存法、判斷源頭是否需修)。
 - **相關:** #264(spec=NULL→adapter 500 下游症狀)/ #265(選擇器泛化)/ Phase 0 plan §5 C3 / bonamici spec 碰撞 3 群 / P0-D 報告 §5-B。
+
+### #268. 🟠 eazigrip 137 筆 + lightech 39 筆變體合約存量債(#267 合約掃描 gate 首掃曝光、報價單側)
+
+- **狀態:** ⏳ 待執行(2026-07-04 #267 Q 線收工驗證時曝光;三型問題已定位、修法在報價單 repo)
+- **優先級:** 🟠 中(兩家皆非網站近程上架線、不擋 Phase 1 試點;但掃描 gate 基線殘留 176 筆噪音會淹沒新品牌違規 = gate 信噪比劣化)
+- **問題(三型、全部 active 列非殘影、驗證=唯讀 SQL + 合約掃描 2026-07-04):**
+  1. **eazigrip CENTREPAD 40 筆 mergeable_duplicate(8 撞號群):** 來源 feed 本身兩種 SKU 命名並存(舊式 `EVOCENTREPADABL` vs 新式 `EVOCENTREPADABLBLK`),兩列同 spec 同價、都在 feed 活著(last_synced 2026-07-04)。Q3 修好 design/color 解析後重複才被看見。修法=fetcher 端合併(類 CNC `merge_color_variant_rows`)或向 feed 端確認 canonical SKU。
+  2. **eazigrip HOSE/WRAP 97 筆 incomplete_spec:** 主 SKU 列 spec=`{}` 空、色彩變體列正常(例 `HOSEBMW001`=`{}` vs `HOSEBMW001BLUE`=`{color:Blue}`)。主列語意需查 feed:是「標準色可買品」該補 spec、還是「父列」該踢出變體群,不可瞎補。
+  3. **lightech FTR* 39 群 incomplete_spec:** fetcher 寫出 `"color": null` 違反省 key 規範(`version` 軸有值:標準版/R 版/W 版可折式)。修=fetcher 省略 null key(一行)+ 下次排程自然收斂,最便宜。
+- **不修會痛在:**
+  - 上線進度:eazigrip/lightech 於 Phase 3 上架時撞 pv_spec gate 整批 abort(同 #267 原始症狀重演)。
+  - 可維護性:`variant_contract_scan.py` 是 NEW_SUPPLIER_ONBOARDING 上線 gate,基線 176 筆殘留 = 新品牌違規混在噪音裡看不見,gate 形同虛設。
+  - 客人體驗:eazigrip CENTREPAD 重複 SKU 若上架 = 同商品出現兩次。
+- **估時:** lightech 約 20 分鐘(一行+測試);eazigrip mergeable 需 merge 設計約 1-2 小時;HOSE/WRAP 主列語意查證後定案。
+- **依賴:** 修法全在報價單 repo(fetchers/eazigrip_codes.py、lightech fetcher);落地需跑該家 pipeline(Sean 或 launchd 排程)。
+- **發現於:** 2026-07-04 / #267 四家 fetcher 落地後首次全站合約掃描(bonamici/materya/cncracing/gbracing/rpm/samco/evotech/front3d/motogadget 全 0 違規)。
+- **相關:** #267(合約引擎與掃描器出處)/ 報價單 repo `scripts/variant_contract_scan.py`、`docs/NEW_SUPPLIER_ONBOARDING.md` ③段第4點。
 
 ---
 

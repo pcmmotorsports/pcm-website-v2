@@ -33,6 +33,14 @@ describe('getSupplierConfig', () => {
     expect(bo.categoryStrategy).toEqual({ kind: 'per-group' });
   });
 
+  it('should map CNC Racing source slug → cnc-racing brand (dry-run only until Phase 3)', () => {
+    const cnc = getSupplierConfig('cncracing');
+    expect(cnc.brandSlug).toBe('cnc-racing'); // 🔴 來源 slug ≠ brand slug(2026-07-04 MCP 查證)
+    expect(cnc.handlePrefix).toBe('cncracing');
+    expect(cnc.syncDescription).toBe(true); // view description=繁中 description_zh 全列非空
+    expect(cnc.categoryStrategy).toEqual({ kind: 'per-group' });
+  });
+
   it('should throw fail-closed on unregistered / prototype-chain keys', () => {
     expect(() => getSupplierConfig('unknown-supplier')).toThrow(/未知供應商/);
     // 🔴 原型鏈 key(truthy 繼承成員)也須 throw、不得回繼承物件(F2、Fable 對抗審)
@@ -41,8 +49,9 @@ describe('getSupplierConfig', () => {
     expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
-  it('should register exactly the Phase 0 pilot set (rpm + 2 pilots)', () => {
+  it('should register exactly the Phase 0 pilot set + cncracing dry-run entry', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
-    expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual(['bonamici', 'gbracing', 'rpm']);
+    // cncracing = #267 收尾登記(2026-07-04 MCP 查證、Phase 3 前僅乾跑)。
+    expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual(['bonamici', 'cncracing', 'gbracing', 'rpm']);
   });
 });

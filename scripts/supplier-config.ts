@@ -13,9 +13,10 @@
  *   categoryStrategy=fixed '碳纖維部品'(副標即由此 rawPath 衍生)。
  *   supplier-config.test.ts + rpm-transform.test.ts byte 回歸鎖逐值釘死,任何改動觸發 CI 紅燈。
  *
- * 範圍:Phase 0 只登記試點會用到的三家(rpm + gbracing + bonamici)。
- *   其餘 8-9 家留 Phase 3 放量時登記(屆時各自 MCP 查證 brandSlug / syncDescription,
- *   不預先臆測未查證的字面值)。未登記的 slug → getSupplierConfig 直接 throw(fail-closed)。
+ * 範圍:Phase 0 試點三家(rpm + gbracing + bonamici)+ cncracing(#267 收尾登記、僅乾跑驗證、
+ *   Phase 3 前不 --confirm-write)。其餘 7-8 家留 Phase 3 放量時登記(屆時各自 MCP 查證
+ *   brandSlug / syncDescription,不預先臆測未查證的字面值)。未登記的 slug → getSupplierConfig
+ *   直接 throw(fail-closed)。
  */
 
 /**
@@ -79,6 +80,17 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     supplierSlug: 'bonamici',
     brandSlug: 'bonamici', // identity(來源 slug = brand slug)
     handlePrefix: 'bonamici',
+    syncDescription: true,
+    categoryStrategy: { kind: 'per-group' },
+  },
+  // 🔴 僅乾跑驗證用(#267 變體模型統一收尾、Phase 3 放量前不 --confirm-write):
+  //   CNC Racing。多色變體(spec {color},源頭 2026-07-04 兩輪遷移收斂後 4,376 列/1,978 群)。
+  //   值皆 2026-07-04 MCP 查證:brands.slug='cnc-racing'(≠ 來源 slug)、
+  //   view description=繁中 description_zh 全 4,376 列非空、major_category_zh 11 類 → per-group。
+  cncracing: {
+    supplierSlug: 'cncracing',
+    brandSlug: 'cnc-racing', // 🔴 來源 slug ≠ brand slug(同 gbracing 型)
+    handlePrefix: 'cncracing',
     syncDescription: true,
     categoryStrategy: { kind: 'per-group' },
   },
