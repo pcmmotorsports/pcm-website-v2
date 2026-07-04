@@ -218,3 +218,163 @@ describe('SupabaseProductAdapter.listAllByCategory — 分頁迴圈(#220)', () =
     expect(result).toEqual([]);
   });
 });
+
+// ── C1 接線:listCategories(全部分類 + 各分類上架商品數)──
+//   mock 兩個查詢對象:
+//   - from('categories').select(cols).order()        → 回分類註冊表
+//   - from('products_public').select('id',{count,head}).eq('category_id',id) → 回 exact count
+//   守門:count 查安全 view products_public(非 base products)、select 不含經銷欄、逐分類 eq category_id。
+
+type CatRegistryRow = {
+  id: string;
+  name: string;
+  raw_path: string;
+  segments: unknown;
+  parent_category_id: string | null;
+  sort_order: number;
+};
+
+function makeCategoriesClient(
+  categories: CatRegistryRow[],
+  countByCatId: Record<string, number>,
+) {
+  const selectCalls: string[] = [];
+  const tables: string[] = [];
+  const countEqCols: string[] = [];
+  const orderArgs: Array<[string, unknown]> = [];
+  const countSelectOpts: unknown[] = [];
+
+  function categoriesBuilder() {
+    const b = {
+      select(cols: string) {
+        selectCalls.push(cols);
+        return b;
+      },
+      order(col: string, opts: unknown) {
+        orderArgs.push([col, opts]);
+        return Promise.resolve({ data: categories, error: null });
+      },
+    };
+    return b;
+  }
+  function productsPublicBuilder() {
+    const b = {
+      select(cols: string, opts?: unknown) {
+        selectCalls.push(cols);
+        if (opts !== undefined) countSelectOpts.push(opts);
+        return b;
+      },
+      eq(col: string, val: string) {
+        countEqCols.push(col);
+        return Promise.resolve({ count: countByCatId[val] ?? 0, error: null });
+      },
+    };
+    return b;
+  }
+  const client = {
+    from(table: string) {
+      tables.push(table);
+      if (table === 'categories') return categoriesBuilder();
+      if (table === 'products_public') return productsPublicBuilder();
+      throw new Error(`listCategories 不該查 ${table}(僅 categories + products_public)`);
+    },
+  };
+  return {
+    client: client as unknown as SupabaseClient,
+    selectCalls,
+    tables,
+    countEqCols,
+    orderArgs,
+    countSelectOpts,
+  };
+}
+
+const CATS: CatRegistryRow[] = [
+  { id: 'cat-carbon', name: '碳纖維部品', raw_path: '碳纖維部品', segments: ['碳纖維部品'], parent_category_id: null, sort_order: 0 },
+  { id: 'cat-handle', name: '操控部品', raw_path: '操控部品', segments: ['操控部品'], parent_category_id: null, sort_order: 1 },
+  { id: 'cat-empty', name: '排氣系統', raw_path: '排氣系統', segments: ['排氣系統'], parent_category_id: null, sort_order: 2 },
+];
+const COUNTS: Record<string, number> = { 'cat-carbon': 1117, 'cat-handle': 5, 'cat-empty': 0 };
+
+describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
+  it('回全部分類 + 各分類上架商品數、空分類 count=0、依 sortOrder 遞增映射正確', async () => {
+    const { client } = makeCategoriesClient(CATS, COUNTS);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listCategories();
+
+    expect(result).toHaveLength(3);
+    // 逐欄映射(id / name / path / parentId / sortOrder / productCount)
+    expect(result[0]).toEqual({
+      id: 'cat-carbon',
+      name: '碳纖維部品',
+      path: { raw: '碳纖維部品', segments: ['碳纖維部品'] },
+      parentId: null,
+      sortOrder: 0,
+      productCount: 1117,
+    });
+    // 空分類仍回、count=0(不過濾、消費端決定)
+    expect(result[2]).toMatchObject({ id: 'cat-empty', productCount: 0 });
+    // 順序沿 categories 查詢序(sortOrder 遞增)、Promise.all 不打亂
+    expect(result.map((c) => c.sortOrder)).toEqual([0, 1, 2]);
+    expect(result.map((c) => c.productCount)).toEqual([1117, 5, 0]);
+  });
+
+  it('經銷價防護:count 走 products_public 安全 view(非 base products)、select 不含經銷欄、逐分類 eq category_id、分類查詢請求 sort_order 遞增', async () => {
+    const { client, selectCalls, tables, countEqCols, orderArgs, countSelectOpts } =
+      makeCategoriesClient(CATS, COUNTS);
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listCategories();
+
+    // adapter 確實向 DB 請求 sort_order 遞增排序(真實排序由 DB 執行、非靠 mock 預排)
+    expect(orderArgs).toEqual([['sort_order', { ascending: true }]]);
+    // count 查詢確實傳 head:true + count:'exact'(head:true=零 row 傳輸、避 1000-row 截斷)
+    expect(countSelectOpts).toEqual(
+      CATS.map(() => ({ count: 'exact', head: true })),
+    );
+
+    // 從不查 base products 表(mock from() 對非白名單 table 會 throw、額外保險再斷言)
+    expect(tables).not.toContain('products');
+    // count 查詢命中安全 view、且數量 = 分類數(逐分類一次)
+    expect(tables.filter((t) => t === 'products_public')).toHaveLength(CATS.length);
+    // 每個 select 投射都不含經銷敏感欄
+    for (const cols of selectCalls) {
+      for (const dealer of DEALER_COLUMNS) {
+        expect(cols).not.toContain(dealer);
+      }
+    }
+    // count 過濾鍵恆為 category_id
+    expect(countEqCols).toEqual(['category_id', 'category_id', 'category_id']);
+  });
+
+  it('segments 髒 jsonb → 退化守契約:非陣列→[]、陣列含非 string→濾除、不 throw', async () => {
+    const dirty: CatRegistryRow[] = [
+      { id: 'c1', name: 'X', raw_path: 'X', segments: null, parent_category_id: null, sort_order: 0 },
+      { id: 'c2', name: 'Y', raw_path: 'Y', segments: [1, '排氣管', null, '管'], parent_category_id: null, sort_order: 1 },
+    ];
+    const { client } = makeCategoriesClient(dirty, { c1: 3, c2: 4 });
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listCategories();
+
+    // 非陣列 → []
+    expect(result[0]).toEqual({
+      id: 'c1',
+      name: 'X',
+      path: { raw: 'X', segments: [] },
+      parentId: null,
+      sortOrder: 0,
+      productCount: 3,
+    });
+    // 陣列含非 string → 只留 string 元素
+    expect(result[1]).toEqual({
+      id: 'c2',
+      name: 'Y',
+      path: { raw: 'Y', segments: ['排氣管', '管'] },
+      parentId: null,
+      sortOrder: 1,
+      productCount: 4,
+    });
+  });
+});

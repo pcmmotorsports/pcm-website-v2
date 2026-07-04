@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IProductRepository } from '@pcm/ports';
 import type {
   CategoryPath,
+  CategorySummary,
   FitmentSpec,
   Paginated,
   PaginationParams,
@@ -15,6 +16,15 @@ import {
   type SupabaseProductRow,
 } from './mappers/product';
 import { matchFitmentYear } from './helpers/fitment';
+import {
+  SEARCHABLE_COLUMNS,
+  buildIlikeOrFilter,
+  findSingle,
+} from './helpers/product-query-support';
+import {
+  listCategories as listCategoriesQuery,
+  resolveCategoryId,
+} from './helpers/category-queries';
 
 /**
  * Detail projection(M-1-05 刀 2 Sub-slice 2-3):products_public detail view 14 欄
@@ -50,32 +60,6 @@ const PRODUCT_SELECT_DETAIL =
  */
 const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
 
-/** PostgREST not-found error code(`.single()` 找不到 row)。 */
-const PGRST_NOT_FOUND = 'PGRST116';
-
-/** searchByKeyword ILIKE 三欄(對齊 PRD §3.5 + supabase-schema-design.md §2.5 dev 階段)。 */
-const SEARCHABLE_COLUMNS = ['title', 'subtitle', 'description'] as const;
-
-/**
- * 為 PostgREST `.or()` 跨欄 ILIKE filter 組裝 sanitized pattern + filter string。
- *
- * 兩階段 sanitize:
- * 1. 剝除 PostgREST `.or()` filter 語法保留字元(`,` `(` `)` `.` `"`)、避免 user
- *    輸入破壞 filter 解析(例 `Yamaha,price.gte.999` 會被當兩個 filter clause)。
- *    Phase 1 trade-off:這些字元在 ILIKE substring 失準、M-6 切 tsvector + textSearch
- *    時可用真 escape(對齊 backlog #110)。
- * 2. 轉義 ILIKE wildcards(`\` `%` `_`)、`\` 先(否則 `\%` 會被當已轉義)。
- *
- * regex / strip 字元集合為 Code 設計選擇、不歸 PRD 字面源(對齊 lessons §12-3 維度 A)。
- */
-function buildIlikeOrFilter(columns: readonly string[], q: string): string {
-  const sanitized = q
-    .replace(/[,()."]/g, ' ')
-    .replace(/[\\%_]/g, (c) => '\\' + c);
-  const pattern = `%${sanitized}%`;
-  return columns.map((col) => `${col}.ilike.${pattern}`).join(',');
-}
-
 /**
  * SupabaseProductAdapter:Supabase 真實 ProductRepository 實作。
  *
@@ -92,9 +76,9 @@ function buildIlikeOrFilter(columns: readonly string[], q: string): string {
  *   onConflict='id' 對齊 PG 行為(對齊 backlog #86 contract test、M-1-13 完整化)
  * @TODO audit trail:寫操作記錄 customer_id + timestamp 進 audit log(M-3-04 落地、
  *   對齊 security-timeline §C7;sub-slice 4 未實作)
- * @TODO brand / category resolve cache:`resolveCategoryId` 私有 method 已抽
- *   (sub-slice 2 / sub-slice 4、第 2 處用:listByCategory + save);brand 為
- *   value-object 已含 UUID(`Brand.id: string`)、不需 name→ID resolve;
+ * @TODO brand / category resolve cache:`resolveCategoryId` 已抽至
+ *   `helpers/category-queries.ts`(鐵則 6 拆檔;listByCategory / listAllByCategory / save 共 3 處用);
+ *   brand 為 value-object 已含 UUID(`Brand.id: string`)、不需 name→ID resolve;
  *   LRU cache 抽出待第 3 處撞才抽 trigger(對齊 lessons #84/#85 Defer 模式)、
  *   Phase 1 dev 200 SKU 規模 round-trip 開銷可接受
  */
@@ -107,7 +91,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 找不到 → null(`findSingle` 統一處理 PGRST_NOT_FOUND);其他 error → throw。
    */
   async findById(id: ProductId): Promise<Product | null> {
-    const row = await this.findSingle<SupabaseProductRow>(
+    const row = await findSingle<SupabaseProductRow>(
       this.supabase
         .from('products_public')
         .select(PRODUCT_SELECT_DETAIL_WITH_VARIANTS)
@@ -126,7 +110,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 用途:storefront 詳情頁 /products/[slug](slug = handle)、M-1-16c-3 接真資料。
    */
   async findByHandle(handle: string): Promise<Product | null> {
-    const row = await this.findSingle<SupabaseProductRow>(
+    const row = await findSingle<SupabaseProductRow>(
       this.supabase
         .from('products_public')
         .select(PRODUCT_SELECT_DETAIL_WITH_VARIANTS)
@@ -143,7 +127,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 找不到 categoryId → return [](不 throw、對齊 PRD §3.2)。
    */
   async listByCategory(category: CategoryPath): Promise<Product[]> {
-    const categoryId = await this.resolveCategoryId(category.raw);
+    const categoryId = await resolveCategoryId(this.supabase, category.raw);
     if (categoryId === null) {
       return [];
     }
@@ -179,7 +163,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    * - fail-closed 同 listByCategory:找不到 categoryId → `[]`。
    */
   async listAllByCategory(category: CategoryPath): Promise<Product[]> {
-    const categoryId = await this.resolveCategoryId(category.raw);
+    const categoryId = await resolveCategoryId(this.supabase, category.raw);
     if (categoryId === null) {
       return [];
     }
@@ -345,7 +329,7 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 樂觀鎖 / idempotency / audit trail:見 class JSDoc @TODO、本 sub-slice 不實作。
    */
   async save(product: Product): Promise<Product> {
-    const categoryId = await this.resolveCategoryId(product.category.raw);
+    const categoryId = await resolveCategoryId(this.supabase, product.category.raw);
     if (categoryId === null) {
       throw new Error(
         `Category '${product.category.raw}' not found. Ensure category exists before saving.`,
@@ -362,7 +346,7 @@ export class SupabaseProductAdapter implements IProductRepository {
     // 將 brand_id/category_id 型為 nullable(沿用 products_public view-read 的寬鬆 shape)→ 對 base 表
     // 寫入須 1 個 documented cast 收斂為 Insert 型(typed client 已驗欄名;此 cast 僅補 read↔write 表/view
     // nullable 落差、非 type-safety 漏洞)。
-    const saved = await this.findSingle<SupabaseProductRow>(
+    const saved = await findSingle<SupabaseProductRow>(
       this.supabase
         .from('products')
         .upsert(row as Database['public']['Tables']['products']['Insert'], { onConflict: 'id' })
@@ -378,47 +362,10 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
-   * 內部 helper:`categories.raw_path` UNIQUE query 取 leaf node id。
-   * 對齊 PRD §3.2 + supabase-schema-design.md §4.3。
-   *
-   * 注:只取 leaf node id;parent_id_chain 解析屬 save 路徑(對齊 PRD §5.1 末段)、
-   * 不在本 helper 範圍。
+   * 列出全部分類 + 各分類上架商品數(接線 plan C1)。
+   * 實作抽至 `helpers/category-queries.ts`(鐵則 6 拆檔);contract 見 IProductRepository.listCategories。
    */
-  private async resolveCategoryId(rawPath: string): Promise<string | null> {
-    const row = await this.findSingle<{ id: string }>(
-      this.supabase
-        .from('categories')
-        .select('id')
-        .eq('raw_path', rawPath)
-        .single(),
-    );
-    return row?.id ?? null;
-  }
-
-  /**
-   * 內部 helper:`.single()` 結果統一處理(PGRST_NOT_FOUND → null、其他 error → throw、
-   * data null fallthrough → null)。對齊 sub-slice 4 audit 第 3 處撞 Defer trigger
-   * (findById + resolveCategoryId + save、雙 audit R1/R2/Q6 共識)。
-   *
-   * #106:client 已 `SupabaseClient<Database>` generic(.from/.select/.eq 欄名查詢 compile 期檢)。
-   * 本 helper 的 `as T` + read 路徑 `as unknown as SupabaseProductRow[]` **保留**:products_public view
-   * + embeds 投射的 wire shape 把 jsonb 欄(fitments→FitmentSpec[] / images→string[] / segments→string[])
-   * narrow 成 domain 形,生成型別僅給 `Json`、無法 derive → 此 cast 為 rich-Json 投射的正當邊界
-   * (非 type-safety 漏洞;對比簡單 adapter〔customer/address/vehicle/wallet〕已全消 cast)。
-   */
-  private async findSingle<T>(
-    promise: PromiseLike<{
-      data: unknown;
-      error: { code: string; message: string } | null;
-    }>,
-  ): Promise<T | null> {
-    const { data, error } = await promise;
-    if (error) {
-      if (error.code === PGRST_NOT_FOUND) {
-        return null;
-      }
-      throw error;
-    }
-    return (data ?? null) as T | null;
+  async listCategories(): Promise<CategorySummary[]> {
+    return listCategoriesQuery(this.supabase);
   }
 }

@@ -377,3 +377,34 @@ describe('InMemoryProductRepository', () => {
     expect(positive[0]?.id).toBe('p-multi-fitment');
   });
 });
+
+describe('InMemoryProductRepository.listCategories — C1 接線(由庫存 product 推導)', () => {
+  it('推導 distinct 分類 + 商品數、degenerate DB 欄位(id=raw / parentId=null / sortOrder=0)', async () => {
+    const repo = new InMemoryProductRepository([
+      createFakeProduct({ id: 'a', category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] } }),
+      createFakeProduct({ id: 'b', category: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] } }),
+      createFakeProduct({ id: 'c', category: { raw: '車殼外觀', segments: ['車殼外觀'] } }),
+    ]);
+
+    const result = await repo.listCategories();
+
+    expect(result).toHaveLength(2);
+    const exhaust = result.find((c) => c.path.raw === '引擎部品 · 排氣管');
+    const body = result.find((c) => c.path.raw === '車殼外觀');
+    expect(exhaust).toEqual({
+      id: '引擎部品 · 排氣管',
+      name: '排氣管', // segments 末元素
+      path: { raw: '引擎部品 · 排氣管', segments: ['引擎部品', '排氣管'] },
+      parentId: null,
+      sortOrder: 0,
+      productCount: 2,
+    });
+    expect(body?.productCount).toBe(1);
+    expect(body?.name).toBe('車殼外觀'); // 單段 segments → name = 該段
+  });
+
+  it('空 repo → 回空陣列', async () => {
+    const repo = new InMemoryProductRepository();
+    expect(await repo.listCategories()).toEqual([]);
+  });
+});

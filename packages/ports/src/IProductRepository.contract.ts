@@ -63,6 +63,13 @@ export function runProductRepositoryContract(
       it.todo('main-b SupabaseProductAdapter 落地時實作:依 CategoryPath.raw 字面 match 回對應 entity 陣列');
     });
 
+    describe('listCategories', () => {
+      // 接線 plan C1:回全部分類 + 各分類上架商品數。真斷言在各 impl 自備 fixture
+      // (SupabaseProductAdapter.test.ts mock categories + products_public count /
+      //  InMemoryProductRepository.test.ts 由庫存 product 推導),此 framework 維持 it.todo。
+      it.todo('SupabaseProductAdapter 接 contract 時實作:回全部分類(含空分類 count=0)+ 各分類上架商品數、依 sortOrder 遞增');
+    });
+
     describe('listByBrand', () => {
       it.todo('main-b SupabaseProductAdapter 落地時實作:依 brandId 字面 match 回對應 entity 陣列');
     });

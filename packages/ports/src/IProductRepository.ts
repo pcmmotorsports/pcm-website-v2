@@ -2,6 +2,7 @@ import type {
   Product,
   ProductId,
   CategoryPath,
+  CategorySummary,
   FitmentSpec,
   PaginationParams,
   Paginated,
@@ -45,6 +46,26 @@ export interface IProductRepository {
    * server-side 分頁/篩選(#51)、非長久解。
    */
   listAllByCategory(category: CategoryPath): Promise<Product[]>;
+  /**
+   * 列出全部分類 + 各分類上架商品數(接線 plan C1)。
+   *
+   * Contract:
+   * - 回分類註冊表**全部**分類(含 productCount = 0 的空分類);消費端(CategoryGrid /
+   *   篩選側欄)自行決定是否過濾 count > 0(對齊品牌側 #220c「只渲染有真商品」由消費端做)
+   * - `productCount` = 該分類下上架(delisted_at IS NULL)商品數;真 adapter 走
+   *   products_public + RLS 天然只計上架品、絕不觸經銷價欄
+   * - 排序:依 sortOrder 遞增(SupabaseProductAdapter);InMemory 為 use-case test 用途、
+   *   由庫存 product 推導、DB-only 欄位為 degenerate 值(見 CategorySummary JSDoc)
+   *
+   * 用途:首頁真分類格 + /products 分類樹篩選(取代 data/mock-categories.ts);
+   *   多品牌上架後客人可跨分類瀏覽(#147 / #205 / #220c)。
+   *
+   * @TODO 目錄長大後(#212 多品牌)per-category count 應改 server-side 聚合(view/RPC),
+   *   非逐分類 count 查詢(對齊 backlog #51 / #247)。
+   *
+   * @see docs/specs/2026-07-04-catalog-category-brand-frontend-wiring-plan.md C1
+   */
+  listCategories(): Promise<CategorySummary[]>;
   /**
    * 依 brand 列出 product。
    *

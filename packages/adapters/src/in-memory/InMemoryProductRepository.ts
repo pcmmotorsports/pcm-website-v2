@@ -4,6 +4,7 @@ import {
   type Product,
   type ProductId,
   type CategoryPath,
+  type CategorySummary,
   type FitmentSpec,
   type PaginationParams,
   type Paginated,
@@ -70,6 +71,37 @@ export class InMemoryProductRepository implements IProductRepository {
    */
   async listAllByCategory(category: CategoryPath): Promise<Product[]> {
     return this.listByCategory(category);
+  }
+
+  /**
+   * 列出分類 + 各分類商品數(對齊 IProductRepository.listCategories contract)。
+   *
+   * in-memory 不承載分類註冊表 → 由庫存 product 的 category 推導 distinct 分類 + 商品數;
+   * DB-only 欄位為 degenerate(id = path.raw、parentId = null、sortOrder = 0)。此 double 僅供
+   * use-case test 滿足 port(use-case 不呼叫 listCategories);真分類清單(含空分類、真 uuid /
+   * 巢狀樹 / 排序、上架 delisted_at IS NULL 過濾)由 SupabaseProductAdapter 提供。
+   *
+   * 註:count 為庫存全部 product(test 自控 seed);「上架過濾」是 DB/RLS 概念、不在 in-memory 範圍。
+   */
+  async listCategories(): Promise<CategorySummary[]> {
+    const byRaw = new Map<string, CategorySummary>();
+    for (const p of this.products.values()) {
+      const raw = p.category.raw;
+      const existing = byRaw.get(raw);
+      if (existing) {
+        existing.productCount += 1;
+      } else {
+        byRaw.set(raw, {
+          id: raw,
+          name: p.category.segments[p.category.segments.length - 1] ?? raw,
+          path: { raw, segments: [...p.category.segments] },
+          parentId: null,
+          sortOrder: 0,
+          productCount: 1,
+        });
+      }
+    }
+    return Array.from(byRaw.values());
   }
 
   async listByBrand(brandId: string): Promise<Product[]> {

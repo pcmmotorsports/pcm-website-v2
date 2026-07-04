@@ -54,6 +54,39 @@ export type CategoryPath = {
 };
 
 /**
+ * CategorySummary: 分類清單讀模型(read-model、接線 plan C1)。
+ *
+ * `listCategories()` 回傳單元 = 一個分類 + 該分類「上架商品數」。
+ * 供 storefront 首頁 CategoryGrid 與 /products 篩選側欄共用資料源(取代 data/mock-categories.ts);
+ * 「上架商品數」= 該分類下 `delisted_at IS NULL` 的商品數
+ *  (SupabaseProductAdapter 走 products_public + RLS、天然只計上架品、絕不觸經銷價欄)。
+ *
+ * 對齊 ADR-0003 §3.1(camelCase + 業務語意):
+ * - `path` 用既有 CategoryPath value-object 表達路徑(raw + segments、供 filterProducts 比對)
+ * - `id` / `parentId` / `sortOrder` 為 DB 分類註冊表欄位(供 category_id 過濾、巢狀樹、顯示序)
+ *
+ * 註:InMemoryProductRepository 不承載分類註冊表、僅由庫存 product 推導 path + productCount
+ *   (DB-only 欄位 id/parentId/sortOrder 為 degenerate 值);真分類清單由 SupabaseProductAdapter 提供。
+ *
+ * @see IProductRepository.listCategories(合約字面)
+ * @see docs/specs/2026-07-04-catalog-category-brand-frontend-wiring-plan.md C1
+ */
+export type CategorySummary = {
+  /** DB 主鍵(categories.id、供 products.category_id 過濾) */
+  id: string;
+  /** 分類顯示名稱(categories.name、如 '操控部品') */
+  name: string;
+  /** 分類路徑 value-object(raw + segments、供 filterProducts / listByCategory 比對) */
+  path: CategoryPath;
+  /** 父分類 id、頂層為 null(categories.parent_category_id) */
+  parentId: string | null;
+  /** 顯示排序(categories.sort_order) */
+  sortOrder: number;
+  /** 該分類下上架(delisted_at IS NULL)商品數 */
+  productCount: number;
+};
+
+/**
  * FitmentSpec: 商品適配車型(value-object array element)。
  *
  * 對齊 ADR-0003 §4 #3 + ADR-0004 wrs Q1=A1:
