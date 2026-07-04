@@ -96,13 +96,16 @@ export function filterProducts(
   extras: ProductExtraFilters,
   brands: MockBrand[],
 ): MockProduct[] {
+  // 品牌比對兩端皆 trim 後 lowercase(對稱、對齊 matchesVehicle 的 trim 慣例):
+  // 選取名來自 buildBrandTaxonomy(已 trim)/ MOCK_BRANDS(乾淨),p.brand 亦 trim,
+  // 防未來髒資料(brand 帶頭尾空白)造成「側欄 count 說有、選了結果變少」的靜默不一致。
   const selectedBrandNames = cascade.brands.map(
-    (id) => brands.find((b) => b.id === id)?.name.toLowerCase() ?? '',
+    (id) => brands.find((b) => b.id === id)?.name.trim().toLowerCase() ?? '',
   );
   return products.filter((p) => {
     if (cascade.vehicle && !matchesVehicle(p, cascade.vehicle)) return false;
     if (cascade.category && !matchesCategory(p, cascade.category)) return false;
-    if (selectedBrandNames.length && !selectedBrandNames.includes(p.brand.toLowerCase())) {
+    if (selectedBrandNames.length && !selectedBrandNames.includes(p.brand.trim().toLowerCase())) {
       return false;
     }
     if (extras.inStock && !p.inStock) return false;

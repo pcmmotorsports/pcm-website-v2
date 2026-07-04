@@ -11,12 +11,15 @@
 // 字面 vs 事實揭示:
 // - design 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle 開關 /
 //   跨頁同步不搬(design harness、見 docs/recon/M-1-12-products-page-recon.md §4)。
-// - #220:商品列表改 server props 接真 Supabase 目錄(碳纖維部品、toUIProduct 'general' strip 零經銷價)、
-//   UI 版面零動。S1(2026-07-03):車輛篩選清單改 buildVehicleTaxonomy(products) 從真 fitment
-//   動態衍生(取代 MOCK_MOTO_BRANDS);分類/品牌側欄仍 mock(品牌側欄真資料化 #220c;
-//   真資料單一品牌 RPM CARBON、選其他品牌 chip 會 0 結果、已記 #220c)。
-// - S1:篩選依 cascade.vehicle 過真 fitment 過濾(#152 vehicle 部分關閉、見
-//   products-filter-logic matchesVehicle);cascade.category 仍不過濾(#152 剩餘、單一分類)。
+// - #220:商品列表改 server props 接真 Supabase 目錄(C4 起撈全目錄、toUIProduct 'general' strip 零經銷價)、
+//   UI 版面零動。三側欄清單皆「動態衍生自當下目錄」(接線 plan C1-C4、取代 mock):
+//   * 車輛(S1 2026-07-03):buildVehicleTaxonomy(products) ← 真 fitment(取代 MOCK_MOTO_BRANDS)。
+//   * 分類(C2/C4a):data.categories ← server fetchCategories(listCategories→buildCategoryTree、選項 A);
+//     C4a 解除 hideCategory → 分類樹現身(桌機 childless 大類僅可展開、手機可選「全部 {大類}」)。
+//   * 品牌(C3/#220c):buildBrandTaxonomy(products) ← 目錄(只列有真商品品牌、取代寫死 MOCK_BRANDS);
+//     C3 解除 hideBrand → 品牌側欄現身;現況真資料單一品牌 RPM CARBON、多品牌上架後自動長出。
+// - 篩選皆真過濾(cascade.vehicle/category/brand → products-filter-logic matchesVehicle/matchesCategory/
+//   品牌名比對;#152 vehicle+category 已關閉);顏色/新品/特價仍 no-op 隱藏(真資料 silver/無促銷)。
 // - design 的 demo 資料 tiling 不搬;0 筆結果顯示空狀態文字 + 隱藏分頁(Codex finding 2)。
 //   #220 真資料(碳纖維部品 ~1406 件)分頁自然多頁;server fetch 失敗顯「載入失敗、請稍後再試」
 //   (Q2=A、鏡像 HomeSelect error 分支、與真 0 結果區分)。
@@ -59,9 +62,9 @@ import {
 } from './products-url-state';
 import type { FilterTopData } from './FilterTop';
 import type { MockCategory } from '@/data/mock-categories';
-import { MOCK_BRANDS } from '@/data/mock-brands';
 import type { MockProduct } from '@/data/mock-products';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
+import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
 const MESSAGE_STATE_STYLE: CSSProperties = {
@@ -190,9 +193,12 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
   // 車輛篩選清單「動態衍生」自當下目錄商品 fitment(車種鐵律 fitment_parsed 直出、
   // 商品匯入後自動更新、零手動維護);drop-in 取代舊 MOCK_MOTO_BRANDS。
   const motoBrands = useMemo(() => buildVehicleTaxonomy(products), [products]);
+  // C3 #220c:品牌側欄「動態衍生」自當下目錄商品(只列有真商品的品牌、count 為真;
+  // 商品匯入後自動更新);drop-in 取代舊寫死 MOCK_BRANDS(選 RPM 以外 chip 0 結果病灶)。
+  const brands = useMemo(() => buildBrandTaxonomy(products), [products]);
   const data: FilterTopData = useMemo(
-    () => ({ motoBrands, categories, brands: MOCK_BRANDS }),
-    [motoBrands, categories],
+    () => ({ motoBrands, categories, brands }),
+    [motoBrands, categories, brands],
   );
 
   // M-1-13I Bug 1 修:mount 時讀 URL vehicle 參數 → dispatch reducer(Q1=C 雙格式)
@@ -273,11 +279,12 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
             CascadeFilterTop(+ 手機 FilterDrawer)、左欄不重複放車輛樹(回歸 M-1-12 cascade 版面拍板)。
             C4a(接線 plan):解除 hideCategory → 零件分類樹現身(吃 C2 已接的真 data.categories、選項 A);
             🔴 現況真分類單層(碳纖維部品、無子類)→ 桌機 CategoryTree 大類列僅可展開、無子類可選(只點大類=展開空);
-            手機 FilterDrawer 可選「全部 {大類}」;多品牌 + 子類(#212)後桌機大類亦長出可選子類。hideBrand 仍關(C3 才解除)。 */}
+            手機 FilterDrawer 可選「全部 {大類}」;多品牌 + 子類(#212)後桌機大類亦長出可選子類。
+            C3(接線 plan):解除 hideBrand → 品牌側欄現身(吃 buildBrandTaxonomy 動態衍生、只列有真商品品牌;
+            現況單一 RPM CARBON、多品牌上架後自動長出)。 */}
         <FilterSide
           data={data}
           hideVehicle
-          hideBrand
           hideColor
           hidePromoFlags
           cascade={cascade}
@@ -361,14 +368,14 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
 
       <MobileFab activeCount={activeCount} onClick={() => setDrawerOpen(true)} />
 
-      {/* C4a:解除 hideCategory → 手機抽屜「零件分類」tab 現身(drill 大類 → 可選「全部 {大類}」/ 子類)。hideBrand C3 才解除。 */}
+      {/* C4a:解除 hideCategory → 手機抽屜「零件分類」tab 現身(drill 大類 → 可選「全部 {大類}」/ 子類)。
+          C3:解除 hideBrand → 手機抽屜「品牌」tab 現身(吃 buildBrandTaxonomy 動態衍生)。 */}
       <FilterDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         data={data}
         resultCount={resultCount}
         initialTab="vehicle"
-        hideBrand
         hideColor
         hidePromoFlags
         cascade={cascade}

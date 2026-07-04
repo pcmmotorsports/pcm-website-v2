@@ -104,13 +104,17 @@ describe('ProductsPage', () => {
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
   });
 
-  it('C4a:零件分類樹現身(解除 hideCategory、吃真 C2 data.categories);品牌/顏色/其他仍隱藏、保留價格範圍', () => {
+  it('C4a+C3:零件分類 + 品牌側欄現身(解除 hideCategory/hideBrand);顏色/其他仍隱藏、保留價格範圍', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
     // C4a:零件分類樹解除隱藏 → accordion 標題 + 真分類名(碳纖維部品)現身於側欄(ProductCard 不渲染 category、故唯一)
     expect(screen.getByText('零件分類')).toBeDefined();
     expect(screen.getAllByText('碳纖維部品').length).toBeGreaterThan(0);
-    // 仍隱藏(C3 才解除 hideBrand):單一品牌 RPM CARBON 搜尋 input / 全 silver 顏色 / 無促銷其他
-    expect(screen.queryByPlaceholderText('搜尋品牌')).toBeNull();
+    // C3:品牌 accordion 現身(filter-specific selector `.fs-section-title`、避與 Header nav「品牌」撞);
+    //     展開後見搜尋品牌 input(buildBrandTaxonomy 動態衍生、現況單一 RPM CARBON)
+    const brandTitle = screen.getByText('品牌', { selector: '.fs-section-title' });
+    fireEvent.click(brandTitle);
+    expect(screen.getByPlaceholderText('搜尋品牌')).toBeDefined();
+    // 仍隱藏(真資料 no-op):全 silver 顏色 / 無促銷其他
     expect(screen.queryByText('顏色')).toBeNull();
     expect(screen.queryByText('其他')).toBeNull(); // 僅現貨(#161 關)+ 新品/特價(隱)皆空 → 整段隱藏
     // 保留:真價格可篩 + 側欄殼

@@ -41,6 +41,14 @@ describe('filterProducts', () => {
     expect(result.every((p) => p.brand === 'GB RACING')).toBe(true);
   });
 
+  it('brand 比對兩端 trim → 帶頭尾空白的 p.brand 仍命中(F2:防「側欄 count 說有、選了結果變少」靜默不一致)', () => {
+    // 商品 brand 帶頭尾空白(未來髒資料);選取名(MOCK_BRANDS 'RPM CARBON')已乾淨 → 未 trim p.brand 會漏此商品
+    const products = [vp(1, '  RPM CARBON  ', []), vp(2, 'GB RACING', [])];
+    const cascade: CascadeFilterState = { ...emptyCascade, brands: ['rpm-carbon'] };
+    const result = filterProducts(products, cascade, makeInitialExtraFilters(), MOCK_BRANDS);
+    expect(result.map((p) => p.id)).toEqual([1]); // trim 後 '  RPM CARBON  ' 仍命中 rpm-carbon
+  });
+
   it('should keep only in-stock products when inStock is set', () => {
     const result = filterProducts(
       MOCK_PRODUCTS,
