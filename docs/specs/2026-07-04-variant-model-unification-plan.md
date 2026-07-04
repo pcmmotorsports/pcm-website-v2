@@ -51,7 +51,9 @@
 - **安全程序**(報價單鐵則 11/12 + 本 repo 慣例):先建 `zz_backup_variant_merge_20260704` 備份表(repo 有 zz_backup 前例)→ BEGIN 交易模擬(逐群驗聯集完整、價格斷言、鎖列內容保留)→ ROLLBACK 報告交 Sean → Sean 點頭才真跑。
 - B 類 6 群不遷移,由 fetcher 補值後自然更新(upsert 護欄對鎖列的行為,實作片先讀 `base.py` fetch_protected_skus/backfill 確認,fail-closed:鎖列的 spec 補值若被護欄擋,列入遷移 SQL 一併處理)。
 
-**代表 SKU 命名(D2 決策)**:推薦 `COD_COLORE`(如 `CA210B`)——CNC 官方色碼、**quote 站 UI 的 SKU 欄本來就顯示它**(Sean 截圖)、乾淨對齊網站 handle。遷移前 SQL 預檢全廠唯一性(撞則該群 fallback `merge_code-COD_COLORE`)。
+**代表 SKU 命名(D2=A 已拍、預檢已過)**:合併列新 sku = `var_code`(=COD_COLORE,如 `CA210B`)。**2026-07-04 MCP 預檢全綠**:可合併 (group,spec) 聚合、每聚合恰 1 個 var_code(n_var>1=0)、新 sku 與 cncracing 全廠既有 sku 零撞、零跨群(118 個跨群 var_code 全在緊固件等不合併群、與合併範圍零交集)→ 無需 fallback,未合併列 sku 原樣不動。**Bonus**:raw_jsonb 有 `hex_color`(CNC 官方色碼 hex)→ W2 網站選色 UI 可做真色塊(SwatchPreview 非 RPM 降級素材)。
+
+**🔴 名稱等價閘(Q2 執行中新增、主對話 DB 人工分類實證)**:139 個同 spec 同價聚合中 **7 個聚合是「不同商品恰好同群同色同價」**——PEA01/04/05/08(騎士腳踏 vs 乘客腳踏、各 1 聚合)+ TF253(後煞車油壺蓋 vs 離合器油壺蓋、3 色=3 聚合)——合併前必過第三道閘:組內英文 product_name 剝除全組 fitment 車輛 token+連接詞後殘句全等才併(CA210 車型尾巴/DP009 XDiavel-Diavel/DP021 跨品牌=放行;PEA/TF253=擋下)。已實作進 Q2(commit 2ecc9b0、對抗審 F1-F4 折入、726 tests)。**Q4 遷移口徑同步修正:合併 132 聚合(非 139)、298 列→132 列(刪 166)、65 聚合含 manually_corrected(代表列 mc 優先)、var_code 歧義 0**。被擋 7 聚合 = spec 缺「部位」軸(driver/passenger、brake/clutch),記 CNC 補軸待辦(Phase 3 放量前、網站上架 CNC 前必處理)。**部署 gate:Q4 存量 re-key 遷移完成前不得跑 cncracing fetcher(launchd 週日 17:00);對抗審 F1 實錘:直接跑會使 312 鎖列被軟下架、人工校正靜默作廢。**
 
 ---
 
