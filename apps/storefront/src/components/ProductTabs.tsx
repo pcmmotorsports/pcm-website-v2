@@ -41,8 +41,8 @@ import {
 
 // 🔴 P0-C-b2 去碳:非 RPM 品牌規格表改「資料驅動」—— 讀 variant spec 實際 key、配 label map 渲染、
 //   空值/純空白值該列不計入(bonamici {color,material} 顯真值、無值不渲染)。🔴 前提:v.spec 必為物件
-//   (型別 UIVariant.spec=Record<string,string>、adapter mapVariantRow 保證);匯入若寫 spec=NULL 會在
-//   adapter 層 throw → 商品頁 500(非本函式防線;Phase 1 試點寫入 gate 見 backlog #264,現行 DB null_spec=0)。
+//   (型別 UIVariant.spec=Record<string,string>、adapter mapVariantRow 保證;#264 已治本 2026-07-04:
+//   來源 spec=NULL 由 adapter `?? {}` 降級為空物件、不再 throw 500,本函式收到的恆為物件)。
 //   RPM 維持原碳纖規格列(isRpmCarbon 守門、byte 不變);此路徑僅非 RPM 走。未知 key fallback 原 key 字面(不亂猜中文)。
 const SPEC_LABEL: Record<string, string> = {
   color: '顏色',
