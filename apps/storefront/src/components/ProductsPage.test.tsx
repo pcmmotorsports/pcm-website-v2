@@ -23,6 +23,7 @@ vi.mock('next/navigation', () => ({
 
 import { ProductsPage } from './ProductsPage';
 import type { MockProduct } from '../data/mock-products';
+import type { MockCategory } from '../data/mock-categories';
 import { CartProvider } from '../contexts/CartContext';
 
 const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
@@ -39,6 +40,11 @@ const FIXTURE: MockProduct[] = [
     fits: 'Ducati Panigale', price: 9800, origPrice: null, isNew: false, isSale: false,
     inStock: true, category: '碳纖維部品', color: 'silver', imgTone: 'neutral',
   },
+];
+
+// C2:分類樹 prop(選項 A 只留有商品分類;RPM 現況即碳纖維部品一項)。
+const CATEGORIES: MockCategory[] = [
+  { id: 'carbon', name: '碳纖維部品', count: 2, children: [] },
 ];
 
 beforeAll(() => {
@@ -66,40 +72,40 @@ afterEach(() => {
 
 describe('ProductsPage', () => {
   it('should render the products listing without crashing', () => {
-    render(<ProductsPage products={FIXTURE} error={false} />);
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
     // 預設標題「全部商品」(無篩選)+ 商品數 = fixture 長度(非 MOCK_PRODUCTS)
     expect(screen.getByText('全部商品')).toBeDefined();
     expect(screen.getByText(`${FIXTURE.length} 件商品`)).toBeDefined();
   });
 
   it('should mount the cascade bar and side filter', () => {
-    render(<ProductsPage products={FIXTURE} error={false} />);
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
     expect(screen.getByText('確認適用車款')).toBeDefined();
     expect(screen.getByText('篩選條件')).toBeDefined();
   });
 
   it('should render product cards from the products prop', () => {
-    render(<ProductsPage products={FIXTURE} error={false} />);
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
     // fixture 商品名 render 進卡片(證真資料 props 接線、非 MOCK_PRODUCTS)
     expect(screen.getByText('碳纖維車台護蓋')).toBeDefined();
     expect(screen.getByText('碳纖維前土除')).toBeDefined();
   });
 
   it('should render pagination and the mobile filter fab', () => {
-    render(<ProductsPage products={FIXTURE} error={false} />);
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
     expect(screen.getByLabelText('每頁')).toBeDefined();
     expect(screen.getByText('篩選')).toBeDefined();
   });
 
   it('should show the load-error state when error flag is set (#220 Q2=A)', () => {
-    render(<ProductsPage products={[]} error={true} />);
+    render(<ProductsPage products={[]} error={true} categories={CATEGORIES} />);
     // error → 「載入失敗、請稍後再試」(與真 0 結果「找不到符合條件的商品」區分)
     expect(screen.getByText('載入失敗、請稍後再試')).toBeDefined();
     expect(screen.queryByText('找不到符合條件的商品')).toBeNull();
   });
 
   it('🔴 #220-B1:側欄隱藏假篩選(零件分類/品牌/顏色/其他)、保留價格範圍', () => {
-    render(<ProductsPage products={FIXTURE} error={false} />);
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
     // 隱藏:真資料單一分類「碳纖維部品」/單一品牌 RPM CARBON/全 silver/無促銷 → 這些篩選無意義
     expect(screen.queryByText('零件分類')).toBeNull();
     expect(screen.queryByText('顏色')).toBeNull();
@@ -124,7 +130,7 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
 
   it('should restore page/sort/perPage from URL params on mount (back-nav 還原)', () => {
     hoisted.search = new URLSearchParams('page=2&sort=price-asc&per=25');
-    render(<ProductsPage products={MANY} error={false} />);
+    render(<ProductsPage products={MANY} error={false} categories={CATEGORIES} />);
     // sort/perPage select 還原(displayValue = option 文字)
     expect(screen.getByDisplayValue('價格低到高')).toBeDefined();
     expect(screen.getByDisplayValue('25')).toBeDefined();
@@ -137,7 +143,7 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
 
   it('should fall back to defaults on invalid params (fail-safe 白名單)', () => {
     hoisted.search = new URLSearchParams('page=-3&sort=bogus&per=999');
-    render(<ProductsPage products={MANY} error={false} />);
+    render(<ProductsPage products={MANY} error={false} categories={CATEGORIES} />);
     expect(screen.getByDisplayValue('推薦排序')).toBeDefined(); // sort 白名單外 → recommend
     expect(screen.getByDisplayValue('25')).toBeDefined(); // per 白名單外 → 25
     expect(screen.getByText('碳纖維部品1號')).toBeDefined(); // page<1 → 第 1 頁(getByText:absent 即 throw)
@@ -145,7 +151,7 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
 
   it('should still reset to page 1 when user changes sort (mount-guard 不得吃掉真重置)', () => {
     hoisted.search = new URLSearchParams('page=2');
-    render(<ProductsPage products={MANY} error={false} />);
+    render(<ProductsPage products={MANY} error={false} categories={CATEGORIES} />);
     expect(screen.getByText('碳纖維部品30號')).toBeDefined(); // 起點:第 2 頁(getByText:absent 即 throw)
     // 使用者改排序 → 應回第 1 頁(對齊 design ProductsPage.jsx L226 原行為)
     fireEvent.change(screen.getByDisplayValue('推薦排序'), { target: { value: 'new' } });
@@ -155,7 +161,7 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
 
   it('should sync non-default state back into the URL (replaceState 自癒/分享)', () => {
     hoisted.search = new URLSearchParams('page=2&sort=price-asc');
-    render(<ProductsPage products={MANY} error={false} />);
+    render(<ProductsPage products={MANY} error={false} categories={CATEGORIES} />);
     // URL 同步 effect:非預設值寫回 jsdom URL(page=2、sort=price-asc;per=25 預設不寫)
     expect(window.location.search).toContain('page=2');
     expect(window.location.search).toContain('sort=price-asc');

@@ -5,7 +5,7 @@
 
 import type { Metadata } from 'next';
 import { ProductsPage } from '@/components/ProductsPage';
-import { fetchCatalogProducts } from '@/lib/products';
+import { fetchCatalogProducts, fetchCategories } from '@/lib/products';
 
 // useSearchParams 在 client component 需 route 端標 dynamic、否則 production build 報
 // Static Generation 錯;對齊首頁 page.tsx L31-34 既有慣例(Phase 1 dev 真資料動態)。
@@ -19,6 +19,10 @@ export const metadata: Metadata = {
 
 export default async function ProductsRoute() {
   // 🔴 fetchCatalogProducts 內部釘 'general'(經銷價零外洩、store/premium 不顯 NT$0;見 lib/products)。
-  const { products, error } = await fetchCatalogProducts();
-  return <ProductsPage products={products} error={error} />;
+  // C2:分類樹 server 端撈真資料(取代 mock)、與商品並行 fetch;side/top/drawer 側欄共用。
+  const [{ products, error }, categories] = await Promise.all([
+    fetchCatalogProducts(),
+    fetchCategories(),
+  ]);
+  return <ProductsPage products={products} error={error} categories={categories} />;
 }

@@ -48,7 +48,9 @@ import { computeEffectivePrice } from '@pcm/domain';
 import type { CategoryPath, MemberTier, Product } from '@pcm/domain';
 import type { MockProduct, TierLabel } from '@/data/mock-products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { MockCategory } from '@/data/mock-categories';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
+import { buildCategoryTree } from '@/lib/category-taxonomy';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -238,6 +240,28 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   } catch (err) {
     console.error('[fetchCatalogProducts] adapter.listAllByCategory failed:', err);
     return { products: [], error: true };
+  }
+}
+
+/**
+ * 撈側欄分類樹(C2 接線;取代 data/mock-categories.ts 假資料)。
+ *
+ * `adapter.listCategories()`(products_public head:true exact count、經銷價零外洩)→
+ * `buildCategoryTree`(選項 A:只留有商品分類、#220c 一致)。/products server 端撈、當 prop 傳 client。
+ *
+ * 失敗回 `[]`(側欄分類區空、不 crash;**不** fallback MOCK_CATEGORIES —— 假分類配真過濾器
+ * 會產生「點了 0 結果」的死分類,比空更糟)。anon RLS 只計上架、零敏感欄。
+ */
+export async function fetchCategories(): Promise<MockCategory[]> {
+  const client = createSupabaseAnonClient();
+  const adapter = new SupabaseProductAdapter(client);
+
+  try {
+    const summaries = await adapter.listCategories();
+    return buildCategoryTree(summaries);
+  } catch (err) {
+    console.error('[fetchCategories] adapter.listCategories failed:', err);
+    return [];
   }
 }
 

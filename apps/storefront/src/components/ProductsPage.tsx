@@ -58,7 +58,7 @@ import {
   parseVehicleFromUrl,
 } from './products-url-state';
 import type { FilterTopData } from './FilterTop';
-import { MOCK_CATEGORIES } from '@/data/mock-categories';
+import type { MockCategory } from '@/data/mock-categories';
 import { MOCK_BRANDS } from '@/data/mock-brands';
 import type { MockProduct } from '@/data/mock-products';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
@@ -76,6 +76,8 @@ export type ProductsPageProps = {
   products: MockProduct[];
   /** server fetch 失敗旗標(true → 顯「載入失敗、請稍後再試」、與真 0 結果區分;Q2=A 鏡像 HomeSelect) */
   error: boolean;
+  /** server-resolved 真分類樹(C2 接線;buildCategoryTree 選項 A 只留有商品分類、取代 MOCK_CATEGORIES) */
+  categories: MockCategory[];
 };
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
@@ -173,7 +175,7 @@ function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () 
   );
 }
 
-export function ProductsPage({ products, error }: ProductsPageProps) {
+export function ProductsPage({ products, error, categories }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
@@ -189,8 +191,8 @@ export function ProductsPage({ products, error }: ProductsPageProps) {
   // 商品匯入後自動更新、零手動維護);drop-in 取代舊 MOCK_MOTO_BRANDS。
   const motoBrands = useMemo(() => buildVehicleTaxonomy(products), [products]);
   const data: FilterTopData = useMemo(
-    () => ({ motoBrands, categories: MOCK_CATEGORIES, brands: MOCK_BRANDS }),
-    [motoBrands],
+    () => ({ motoBrands, categories, brands: MOCK_BRANDS }),
+    [motoBrands, categories],
   );
 
   // M-1-13I Bug 1 修:mount 時讀 URL vehicle 參數 → dispatch reducer(Q1=C 雙格式)

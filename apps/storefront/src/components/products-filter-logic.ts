@@ -33,11 +33,12 @@ const PRICE_RANGE_TABLE: Record<string, [number, number]> = {
  * 本實作接真 fitment(每日同步自報價單、車種鐵律 fitment_parsed 直出)後補上此過濾、關閉 #152。
  * 車輛清單來源見 `@/lib/vehicle-taxonomy`(同源於 fitment、名稱精準吻合、無大小寫落差)。
  *
- * **不依 cascade.category 過濾**(對齊 design;全站單一分類「碳纖維部品」、分類樹無意義 → #152 剩餘、
- * 多分類上架後再議);design filterProducts 同樣不過濾 category。
+ * **分類過濾(cascade.category):** C2 接線補上(見 `matchesCategory`;關閉 #152 分類半 + #147/#205)。
+ * 比對鍵 = 選取分類名稱(`sub ?? main`),對齊 `product.category`(= `product.category.raw`);
+ * 真分類註冊表 name = raw_path(P0-B seed)、與 p.category 同源。未選分類(category=null)不過濾。
  *
  * @param products 商品來源清單
- * @param cascade  階層篩選狀態(本函式用 brands + vehicle;category 不參與)
+ * @param cascade  階層篩選狀態(brands + vehicle + category)
  * @param extras   價格 / 顏色 / 旗標篩選
  * @param brands   品牌對照表(id → name 解析用)
  */
@@ -71,6 +72,24 @@ function matchesVehicle(
   });
 }
 
+/**
+ * 分類比對:選了分類則商品分類須相符(C2 接線)。
+ * 比對鍵 = 選取分類名稱(`CategorySelection.sub ?? .main`),對齊 `MockProduct.category`
+ * (= `product.category.raw`);真分類註冊表 name = raw_path(P0-B seed)、與 p.category 同源。
+ * 未選細項(subId undefined)時比大分類名。
+ * 🔴 目前分類單層(16 大類 + 碳纖維部品、無子類);多層子類(#212)上架後須改階層涵蓋比對。
+ * 🔴 本 slice(C2)分類 UI 仍隱藏(FilterSide/FilterDrawer hideCategory、CascadeFilterTop 無分類 UI)
+ *    → cascade.category 生產 UI 恆 null、本比對為 dead path;邏輯先接(單元測已覆蓋)、待 C4 解除
+ *    hideCategory 才對使用者生效。
+ * 車款零回歸:此為獨立新分支、不觸 matchesVehicle;未選分類不過濾。
+ */
+function matchesCategory(
+  product: MockProduct,
+  category: NonNullable<CascadeFilterState['category']>,
+): boolean {
+  return product.category === (category.sub ?? category.main);
+}
+
 export function filterProducts(
   products: MockProduct[],
   cascade: CascadeFilterState,
@@ -82,6 +101,7 @@ export function filterProducts(
   );
   return products.filter((p) => {
     if (cascade.vehicle && !matchesVehicle(p, cascade.vehicle)) return false;
+    if (cascade.category && !matchesCategory(p, cascade.category)) return false;
     if (selectedBrandNames.length && !selectedBrandNames.includes(p.brand.toLowerCase())) {
       return false;
     }

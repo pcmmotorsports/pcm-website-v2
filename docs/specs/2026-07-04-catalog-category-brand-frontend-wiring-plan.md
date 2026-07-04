@@ -1,6 +1,6 @@
 # Plan:分類/品牌前台接線(目錄「DB 真、UI 假」收口)
 
-> **狀態**:✅ Sean 批准(2026-07-04、q1=A)。**C1 ✅ 完成**(listCategories port+adapter+InMemory+測試、鐵則6 拆 adapter query helpers、三綠+vitest 1679+code-reviewer×2 PASS、未 push)。**下一 C2**(filterProducts category 分支 + 側欄接 listCategories)。
+> **狀態**:✅ Sean 批准(2026-07-04、q1=A)。**C1 ✅ / C2 ✅ 完成**(C1=listCategories port+adapter+拆 helpers;C2=filterProducts category 分支 + 側欄分類資料源接真〔buildCategoryTree 選項 A〕+ server fetchCategories,🔴 對客人不可見待 C4 解除 hideCategory)。各片三綠+vitest 1689+code-reviewer×2 PASS、未 push。**下一 C4**(參數化 fetch 解除寫死碳纖維部品 + 解除 hideCategory 讓分類篩選現身、Sean 肉眼驗)→ C3 品牌 → C5 相關商品。
 > **真權威依據**:2026-07-04 多代理盤點(workflow `phase1-catalog-launch-recon`)+ 本檔。
 > **前提認知**:車款(fitment)篩選**已真資料上線可用**(`buildVehicleTaxonomy` + `products-filter-logic.ts` `matchesVehicle`,2026-07-03);商品瀏覽(列表/精選/詳情/cart/sitemap)已全接真 Supabase、經銷價 server 端 strip。本 plan 只收「分類/品牌篩選 UI 仍 mock/no-op」這一塊。
 

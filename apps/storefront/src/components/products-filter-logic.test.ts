@@ -142,6 +142,43 @@ describe('filterProducts — vehicle (fitment 過濾、#152 修復)', () => {
   });
 });
 
+describe('filterProducts — category(C2 接線、名稱比對)', () => {
+  const cp = (id: number, category: string): MockProduct => ({ ...vp(id, 'RPM CARBON', []), category });
+  const products = [cp(1, '碳纖維部品'), cp(2, '操控部品'), cp(3, '排氣系統'), cp(4, '操控部品')];
+  const extras = makeInitialExtraFilters();
+  const ids = (r: MockProduct[]) => r.map((p) => p.id).sort((a, b) => a - b);
+
+  it('選大分類 → 只留該分類商品(比對 main 名稱)', () => {
+    const r = filterProducts(products, { ...emptyCascade, category: { mainId: 'x', main: '操控部品' } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([2, 4]);
+  });
+
+  it('選細項 → 以 sub 名稱比對(sub 優先於 main)', () => {
+    const r = filterProducts(products, { ...emptyCascade, category: { mainId: 'x', main: '操控部品', subId: 's', sub: '排氣系統' } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([3]);
+  });
+
+  it('未選分類 → 不因 category 過濾(全數保留)', () => {
+    const r = filterProducts(products, emptyCascade, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('選「碳纖維部品」(RPM 現況全在此分類)= 等價全部(零回歸錨)', () => {
+    const rpmAll = [cp(1, '碳纖維部品'), cp(2, '碳纖維部品'), cp(3, '碳纖維部品')];
+    const r = filterProducts(rpmAll, { ...emptyCascade, category: { mainId: 'x', main: '碳纖維部品' } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([1, 2, 3]);
+  });
+
+  it('category + vehicle 兩軸並存(AND)', () => {
+    const mixed: MockProduct[] = [
+      { ...vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'V4' }]), category: '操控部品' },
+      { ...vp(2, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR' }]), category: '操控部品' },
+    ];
+    const r = filterProducts(mixed, { ...emptyCascade, category: { mainId: 'x', main: '操控部品' }, vehicle: { brand: 'Ducati' } }, extras, MOCK_BRANDS);
+    expect(ids(r)).toEqual([1]);
+  });
+});
+
 describe('sortProducts', () => {
   it('should sort by price ascending', () => {
     const result = sortProducts(MOCK_PRODUCTS, 'price-asc');
