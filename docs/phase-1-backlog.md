@@ -6647,6 +6647,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-04 / P0-C 去碳收尾(ProductInfo 無碳字、picker 泛化非去碳、Sean 拍 A 延 Phase 1)。
 - **相關:** Phase 0 plan §2.5/§4 P0-C(§125)/ #212 / ProductInfo DIM_LABEL / ProductSwatchPreview / #264。
 
+### #266. 🟠 gbracing 25 筆 handle charset(小數點/空格/斜線)→ 寫入模式 abort 整批(試點寫入前 must-fix)
+
+- **狀態:** 🟢 觀察(P0-D 全量乾跑首次揭露;dry-run 只列清單不阻,`--confirm-write` 才 abort 整批 gbracing)
+- **優先級:** 🟠 中(不處置則 gbracing 整批無法寫入 prod、試點卡關;非正確性/安全風險)
+- **問題:** gbracing 942 群中 25 個 SKU 產生的 handle 含 URL 危險字元,F4 handle preflight(`rpm-import.ts:215`)寫入模式會 throw abort 整批。三類:① **小數點**(~19 筆,螺牙規格件牙距,如 `M10X1.25`→`gbracing-m10x1.25`、`M12X1.25X40`)② **空格**(5 筆:`M6 HEX HEAD`/`M6 TORX`/`M6 COUNTER SINK`/`M6 SOCKET CAP HEAD`/`M12 ZINC CAP HEAD`)③ **斜線**(1 筆:`FS-CBR600-2008-R/L`,R/L=左右)。均為五金螺絲件(非主力商品線)。bonamici 全過(底線已由 P0-A-4c 放寬)。
+- **驗證(2026-07-04 P0-D 乾跑、唯讀):** gbracing dry-run handle preflight 報告「🔴 25 筆問題(charset 25 / 批內重複 0 / target 撞 0)」逐筆列出;報告存 `docs/reviews/2026-07-04-p0d-dryrun-validation-report.md` §5-A。
+- **觸發事件:** gbracing 試點 `--confirm-write` 寫入 prod 前。
+- **預期解法(Phase 1、Sean 擇一):**
+  - **A** handle 正規化:小數點/空格/斜線 → 移除或轉 hyphen(需重跑 preflight 驗正規化後無新碰撞;handle 偏離原 SKU、SEO key 較不直觀)。
+  - **B** 修來源 SKU:報價單 B 庫清這 25 筆 SKU(handle 對齊 SKU、根治;但動來源、須 Sean 協調報價單端)。
+  - **C** 排除試點:這 25 群排除、先上 917 群(最小風險、最快上線;25 群留後續處理)。
+- **不修會痛在:**
+  - 上線進度:不處置則 gbracing 無法 `--confirm-write`(F4 fail-closed abort 整批),試點卡在 gbracing。
+  - 資料一致性:handle 若走 A 正規化,須保留 SKU 於 external_id、handle 僅 SEO key(現行架構已如此、風險可控)。
+- **估時:** A/C 約 20-30 分鐘(改 handle 正規化或加排除清單 + 重跑乾跑驗);B 視報價單端清理工時。
+- **依賴:** gbracing 試點寫入(Phase 1);同 #260/#261/#264 寫入前 gate。
+- **發現於:** 2026-07-04 / P0-D gbracing 全量乾跑驗證(前序 P0-A-4b 部分乾跑未觸及全量 handle;P0-A-4c 只處理 bonamici 底線)。
+- **相關:** #260 / #261 / #264 / Phase 0 plan §4 P0-D(§129)/ `rpm-import.ts` F4 preflightHandles / `scripts/rpm-preflight.ts`。
+
 ---
 
 ## 紀錄模板
