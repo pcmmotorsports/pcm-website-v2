@@ -121,15 +121,39 @@ describe('ProductTabs', () => {
     expect(pane?.textContent).not.toContain('7075');
   });
 
-  // 🔴 P0-C-b2 去碳:非 RPM 商品介紹分頁無碳纖框架文案、只留最小事實(品牌+品名);真描述待 Phase 1 接 product.description
-  it('description pane 去碳 for non-RPM (no 碳纖, keeps brand + name)', () => {
-    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
+  // 🔴 P0-C-b2 去碳:非 RPM 商品介紹分頁無碳纖框架文案;無 description → 最小事實(品牌+品名)fallback
+  it('description pane 去碳 for non-RPM 無描述時 (no 碳纖, keeps brand + name)', () => {
+    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', description: undefined };
     render(<ProductTabs product={nonRpm} />);
     const pane = document.getElementById('pd-panel-description');
     expect(pane?.textContent).not.toContain('真碳纖維');
     expect(pane?.textContent).not.toContain('碳纖');
     expect(pane?.textContent).toContain(nonRpm.brand);
     expect(pane?.textContent).toContain(nonRpm.name);
+  });
+
+  // 2026-07-05:非 RPM 有 product.description → 渲染真內文(修「內文寫進 DB 但前台無出口」)
+  it('description pane 非 RPM 有描述時渲染真內文(逐段 + 保留 LINE 提醒)', () => {
+    const nonRpm = {
+      ...MOCK_PRODUCTS[0]!,
+      brandSlug: 'gb-racing',
+      description: '玻璃纖維尼龍複合材料製成的防倒球，可吸震滑行。\n\n適用車款與年式以本頁標示為準',
+    };
+    render(<ProductTabs product={nonRpm} />);
+    const pane = document.getElementById('pd-panel-description');
+    expect(pane?.textContent).toContain('玻璃纖維尼龍複合材料');
+    expect(pane?.textContent).toContain('適用車款與年式以本頁標示為準');
+    expect(pane?.textContent).toContain('LINE'); // 通用提醒仍在
+    expect(pane?.textContent).not.toContain('真碳纖維'); // 去碳
+  });
+
+  // 🔴 RPM byte 不變:RPM 有 product.description(舊英文 HTML)仍顯碳纖框架、絕不渲染 description
+  it('description pane RPM 有描述時仍顯碳纖框架、不渲染 product.description(byte 不變)', () => {
+    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', description: 'OLD-ENGLISH-HTML-DESC' };
+    render(<ProductTabs product={rpm} />);
+    const pane = document.getElementById('pd-panel-description');
+    expect(pane?.textContent).toContain('真碳纖維'); // 碳纖框架維持
+    expect(pane?.textContent).not.toContain('OLD-ENGLISH-HTML-DESC'); // RPM 分支不讀 description
   });
 
   it('specs pane shows 真碳纖維 材質 + 紋路可選 + 特殊樣式 rows for RPM (no 7075 / Hard Anodized)', () => {

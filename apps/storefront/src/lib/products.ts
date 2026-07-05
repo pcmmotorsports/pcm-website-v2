@@ -130,6 +130,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     //   domain 已有此欄(mapSupabaseProductToDomain subtitle: row.subtitle ?? '')、本片 plumb 到 UI。
     //   ProductInfo pd-sub 顯此真值、拿掉寫死「義大利原裝進口」(backlog #162 placeholder 退場)。
     subtitle: product.subtitle,
+    // 2026-07-05:商品內文 ← domain product.description(來源繁中內文;mapper row.description ?? '')。
+    //   ProductTabs 非 RPM 分支渲染真描述(修「內文寫進 DB 但前台無出口」);RPM 分支 byte 不變不讀此欄。
+    description: product.description,
     // M-1-16c-3:變體 server-side strip → UIVariant(只帶 price:number = general、**不帶 priceByTier**;
     //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
     //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。

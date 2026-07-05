@@ -143,9 +143,9 @@ export function ProductTabs({ product }: ProductTabsProps) {
       </div>
 
       <div className="pd-tab-body">
-        {/* 商品介紹:RPM 顯碳纖框架(byte 不變)、非 RPM 去碳留最小事實(P0-C-b2、isRpmCarbon 守門);真描述待 Phase 1 接 product.description。
-            🔴 資料線 workstream:per-廠牌 / per-product 真實功能描述(如散熱導風)屬固定內文、
-            待後台 product_description 接線後取代此通用框架(Sean 2026-06-03 Q1、同 ProductSpotlight)。 */}
+        {/* 商品介紹:RPM 顯碳纖框架(byte 不變、isRpmCarbon 守門、Sean Q1 拍板硬寫死);
+            非 RPM(2026-07-05 起)渲染 product.description 真內文(有值才顯示、空走通用框架)。
+            🔴 RPM 的 product.description 是舊英文 HTML、刻意不渲染(syncDescription=false、維持碳纖框架)。 */}
         <div
           role="tabpanel"
           id="pd-panel-description"
@@ -173,14 +173,29 @@ export function ProductTabs({ product }: ProductTabsProps) {
               </ul>
             </>
           ) : (
-            // 非 RPM 去碳:留最小事實(品牌+品名+適用車款)+ 通用 LINE 提醒;真實描述待 Phase 1 接 product.description(§2.9)。
+            // 非 RPM(gbracing/bonamici…):有真描述(product.description、來源繁中內文)→ 逐段渲染;
+            //   無描述 → 留最小事實框架(品牌+品名+適用車款)。皆附通用 LINE 提醒。
+            //   🔴 純文字渲染(React 預設 escape)、不用 dangerouslySetInnerHTML:來源為純文字內文、防 XSS。
             <>
-              <p className="pd-body">
-                <strong>
-                  {product.brand} {product.name}
-                </strong>
-                {product.fits && product.fits !== '通用款' ? ` · 適用 ${product.fits}` : ''}
-              </p>
+              {product.description?.trim() // 空白-only 視為無描述(走通用框架、不留空段)
+                ? product.description
+                    .replace(/\r\n/g, '\n') // CRLF 正規化、確保 \n\n 斷段穩定
+                    .split(/\n{2,}/)
+                    .map((para) => para.trim())
+                    .filter(Boolean)
+                    .map((para, i) => (
+                      <p key={i} className="pd-body">
+                        {para}
+                      </p>
+                    ))
+                : (
+                  <p className="pd-body">
+                    <strong>
+                      {product.brand} {product.name}
+                    </strong>
+                    {product.fits && product.fits !== '通用款' ? ` · 適用 ${product.fits}` : ''}
+                  </p>
+                )}
               <ul className="pd-list">
                 <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
               </ul>

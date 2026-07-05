@@ -12,8 +12,10 @@ import {
   transformVariant,
   variantSortKey,
   normalizeHandleSegment,
+  resolveFitmentYears,
   type GroupTransformContext,
 } from './rpm-transform';
+import type { SourceFitmentEntry } from './rpm-fetch';
 
 const NOW = '2026-07-03T00:00:00.000Z';
 
@@ -344,5 +346,45 @@ describe('#266 normalizeHandleSegment(handle 片段正規化、Sean 拍 A)', () 
     for (const sku of ['M10X1.25', 'M6 HEX HEAD', 'FS-CBR600-2008-R/L', 'PU_001', 'APRILIA-01']) {
       expect(HANDLE_RE.test(`gbracing-${normalizeHandleSegment(sku)}`)).toBe(true);
     }
+  });
+});
+
+// 2026-07-05:供應商 fitment 年份 schema 不一致 —— bonamici/rpm 數字欄、gbracing 字串欄 year_str。
+describe('resolveFitmentYears(year_str fallback、修 gbracing 年份掉落)', () => {
+  const e = (o: Partial<SourceFitmentEntry>): SourceFitmentEntry => ({ brand: 'X', model: 'Y', ...o });
+
+  it('🔴 數字欄 present(rpm/bonamici)→ 原樣用、不碰 year_str(byte 錨)', () => {
+    expect(resolveFitmentYears(e({ year_start: 2006, year_end: 2015 }))).toEqual({ start: 2006, end: 2015 });
+    // 數字欄 present 但 year_str 也在 → 數字欄優先(byte-safe、忽略字串)
+    expect(resolveFitmentYears(e({ year_start: 2006, year_end: 2015, year_str: '9999' }))).toEqual({ start: 2006, end: 2015 });
+    // 明確 null 數字欄(present=undefined 之外)→ null,不回退字串
+    expect(resolveFitmentYears(e({ year_start: null, year_end: null, year_str: '2006-2010' }))).toEqual({ start: null, end: null });
+    // 開放式(僅起年數字)
+    expect(resolveFitmentYears(e({ year_start: 2020, year_end: null }))).toEqual({ start: 2020, end: null });
+  });
+
+  it('🔴 gbracing 情境:無數字欄、year_str 區間 "2006-2010" → 解析出年份(修年份掉落)', () => {
+    expect(resolveFitmentYears(e({ year_str: '2006-2010' }))).toEqual({ start: 2006, end: 2010 });
+  });
+
+  it('year_str 各格式:單年 / 開放 / 空 / 空白 / en-dash / em-dash', () => {
+    expect(resolveFitmentYears(e({ year_str: '2024' }))).toEqual({ start: 2024, end: 2024 }); // 單年 start=end
+    expect(resolveFitmentYears(e({ year_str: '2019-' }))).toEqual({ start: 2019, end: null }); // 開放式
+    expect(resolveFitmentYears(e({ year_str: '2006 - 2010' }))).toEqual({ start: 2006, end: 2010 }); // 內部空白
+    expect(resolveFitmentYears(e({ year_str: '' }))).toEqual({ start: null, end: null }); // 空
+    expect(resolveFitmentYears(e({ year_str: '  ' }))).toEqual({ start: null, end: null }); // 空白
+    expect(resolveFitmentYears(e({ year_str: '2006–2010' }))).toEqual({ start: 2006, end: 2010 }); // en-dash
+    expect(resolveFitmentYears(e({ year_str: '2006—2010' }))).toEqual({ start: 2006, end: 2010 }); // em-dash
+    expect(resolveFitmentYears(e({}))).toEqual({ start: null, end: null }); // 三欄皆無
+  });
+
+  it('🔴 嚴格 whitelist(codex 對抗審 must-fix):髒 year_str 一律廢、不 parseInt 寬鬆吞', () => {
+    expect(resolveFitmentYears(e({ year_str: '2006abc' }))).toEqual({ start: null, end: null }); // 尾綴髒字 → 非 2006
+    expect(resolveFitmentYears(e({ year_str: '2006/2010' }))).toEqual({ start: null, end: null }); // 斜線非 dash → 廢(非塌 2006)
+    expect(resolveFitmentYears(e({ year_str: '2006-2010-2012' }))).toEqual({ start: null, end: null }); // 三段 → 廢(非忽略第三段)
+    expect(resolveFitmentYears(e({ year_str: '-2006' }))).toEqual({ start: null, end: null }); // 缺起年 → 廢
+    expect(resolveFitmentYears(e({ year_str: '20' }))).toEqual({ start: null, end: null }); // 兩位 → 廢
+    expect(resolveFitmentYears(e({ year_str: '1800-3000' }))).toEqual({ start: null, end: null }); // 超年界擋掉
+    expect(resolveFitmentYears(e({ year_str: '2006-abc' }))).toEqual({ start: 2006, end: null }); // 起年合法迄年髒 → 開放式(起年保留)
   });
 });

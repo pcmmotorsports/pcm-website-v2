@@ -451,8 +451,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "188ad76"  # 記可達祖先=本視覺易讀性 slice 父 commit(=進度地圖刷新 188ad76、避 amend orphan);本 slice 真改見 git log [visual-a11y]:中文多空格修正 + 字級放大收斂
-      last_modified_date: "2026-07-05 (視覺易讀性、Sean 肉眼驗收 approve:① 中文多空格 bug 修正〔安裝分頁「都是<strong>」+ 商品介紹首個 {' '} 皆 CJK-CJK 移除、保留 CJK-Latin/數字正常空格〕;② 字級放大收斂〔分頁內文 15→16px 行高 1.75→1.8、清單 14.5→15.5、規格 14→15、分頁標 14→15、安裝 meta/CTA/btn 各級 +1~1.5px,收斂原 6 種散亂字級成一致階梯〕。🔴 此頁設計真權威不在 repo〔OD 即時匯出未 commit〕→ 屬 Sean 覆蓋設計的新易讀性決定、非修回設計。前:2026-07-04 P0-C-b2 去碳〔商品介紹/規格 isRpmCarbon 守門 byte 不變、安裝全品牌去碳〕見 od_redesign)"
+      last_modified_commit: "04ded77"  # 記可達祖先=商品資料連動 slice 父 commit(=Q4 首頁死連結 04ded77);本 slice 真改見 git log [product-data-wiring]:商品介紹非 RPM 渲染 product.description
+      last_modified_date: "2026-07-05 [商品資料連動:內文渲染]:商品介紹分頁「非 RPM 分支」由寫死最小事實框架改渲染 product.description 真內文(有值逐段渲染、空走通用框架;純文字 escape 非 dangerouslySetInnerHTML)。🔴 RPM 分支 byte 不變(isRpmCarbon 守門、Sean Q1 拍板碳纖框架硬寫死、RPM 舊英文 HTML 描述刻意不渲染);同 slice toUIProduct 映 domain description→MockProduct.description。修「內文寫進 DB(gbracing 941/bonamici 1251)但前台無出口」。前:2026-07-05 (視覺易讀性、Sean 肉眼驗收 approve:① 中文多空格 bug 修正〔安裝分頁「都是<strong>」+ 商品介紹首個 {' '} 皆 CJK-CJK 移除、保留 CJK-Latin/數字正常空格〕;② 字級放大收斂〔分頁內文 15→16px 行高 1.75→1.8、清單 14.5→15.5、規格 14→15、分頁標 14→15、安裝 meta/CTA/btn 各級 +1~1.5px,收斂原 6 種散亂字級成一致階梯〕。🔴 此頁設計真權威不在 repo〔OD 即時匯出未 commit〕→ 屬 Sean 覆蓋設計的新易讀性決定、非修回設計。前:2026-07-04 P0-C-b2 去碳〔商品介紹/規格 isRpmCarbon 守門 byte 不變、安裝全品牌去碳〕見 od_redesign)"
     design:
       # OD-8 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
       authority: "open-design: Website V2 / product-detail-rpm-template.html §9 tabs"
@@ -493,6 +493,7 @@ components:
         decision_source: "Sean 2026-06-03 Q1(不移除、先換碳纖維格式 + 備註交資料線、同 ProductSpotlight)"
         reason: "每廠牌固定內文不同、待後台 product_description 真接;⚠️ mock 目錄沿用舊鋁品名(name 含『鋁合金』為動態非 hardcoded)、碳纖通用文案以 RPM production 為目標"
         phase_2_supabase_tables: ["product_description"]
+        partial_resolved_at: "2026-07-05 [商品資料連動]:**非 RPM 分支已接真 products.description**(gbracing/bonamici 上架後來源繁中內文渲染;toUIProduct 映 domain description → ProductTabs 非 RPM 有值逐段渲染、空走通用框架)。RPM 分支**仍保碳纖維通用框架 byte 不變**(isRpmCarbon 守門、RPM 舊英文 HTML 描述刻意不渲染)。即描述來源已由 products.description 欄直出(非 phase_2 專用 product_description 表);此 override 由『全通用 placeholder』縮為『僅 RPM 框架保留』的 partial-resolve"
       - field: "specFitmentsXrefOmitted"
         design_value: "OD 模板規格『適用車款』列含『完整見頁面上方〔適用車款〕對照表』交叉引用"
         storefront_value: "✅ OD-12 已恢復 — 適用車款表(ProductFitments)上線、規格 tab『適用車款』列加回 OD 模板交叉引用『完整適用車款請見頁面上方對照表』、條件 product.fitments 有資料(表渲染)才顯(避免 mock / 通用款無表時 dangling);OD-8 暫省解除"

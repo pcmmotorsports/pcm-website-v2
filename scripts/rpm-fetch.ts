@@ -25,10 +25,13 @@ const PAGE_SIZE = 1000;
 export interface SourceFitmentEntry {
   brand: string;
   model: string;
-  year_start: number | null;
-  year_end: number | null;
+  year_start?: number | null; // 數字欄(bonamici/rpm 等提供);缺 → 回退解析 year_str(2026-07-05)
+  year_end?: number | null;
+  // 🔴 部分供應商(gbracing 實測)fitment_parsed 只給 year_str 字串(如 "2006-2010")、無 year_start/year_end
+  //    數字欄 → transform mergeFitments 以 year_str fallback 解析(見 rpm-transform.parseYearStr)。
+  year_str?: string | null;
   unconfirmed?: boolean;
-  // 來源另有 year_str / menu_path / model_raw 等內部追蹤 key、transform 忽略
+  // 來源另有 menu_path / model_raw 等內部追蹤 key、transform 忽略
 }
 export interface SourceProductRow {
   supplier_slug: string;

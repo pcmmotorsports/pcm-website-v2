@@ -114,6 +114,12 @@ export type MockProduct = {
    */
   subtitle?: string;
   /**
+   * 商品內文描述(2026-07-05:toUIProduct ← domain `product.description`、來源繁中內文)。
+   * ProductTabs「商品介紹」**非 RPM 分支**渲染此真值(有值才顯示、空/省略走通用框架);
+   * 🔴 RPM 分支 byte 不變(Sean Q1 拍板碳纖維文案硬寫死、不讀此欄)。mock 省略 → undefined。
+   */
+  description?: string;
+  /**
    * 商品主碼 / 產品型號(M-1-16c-4b:toUIProduct ← domain `product.productCode`、vendor 真主碼如
    * 「RPM-DCC01」)。ProductTabs 規格表「產品型號」顯此真值;mock 省略 → fallback slug。
    */

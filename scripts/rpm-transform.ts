@@ -17,7 +17,7 @@
  */
 
 import type { FitmentSpec } from '@pcm/domain';
-import type { SourceProductRow } from './rpm-fetch';
+import type { SourceProductRow, SourceFitmentEntry } from './rpm-fetch';
 import type { VariantImageStrategy } from './supplier-config';
 
 // ── constants ──
@@ -88,10 +88,40 @@ export function normalizeHandleSegment(raw: string): string {
     .replace(/^[-_]+|[-_]+$/g, ''); // 去前後分隔符(避免 HANDLE_RE 前後分隔符違規)
 }
 /**
+ * fitment 年份解析(2026-07-05):供應商源頭 schema 不一致 —— bonamici/rpm 給數字欄 year_start/year_end、
+ * gbracing 給字串欄 year_str(如 "2006-2010" / 單年 "2024" / 開放 "2019-" / 空 "")。
+ * 數字欄優先(present 即用、維持 rpm/bonamici byte 不變);皆缺才解析 year_str。
+ * 回 {start,end}:單年 → start=end;開放式(只有起年)→ end=null;無效/空 → 皆 null。
+ */
+export function resolveFitmentYears(e: SourceFitmentEntry): { start: number | null; end: number | null } {
+  // 數字欄任一 present(非 undefined)→ 用數字欄(rpm/bonamici 現況、byte 錨)。null 視為明確「無」。
+  if (e.year_start !== undefined || e.year_end !== undefined) {
+    return { start: e.year_start ?? null, end: e.year_end ?? null };
+  }
+  const raw = (e.year_str ?? '').trim();
+  if (!raw) return { start: null, end: null };
+  // 🔴 嚴格 whitelist(codex 對抗審 must-fix):Number.parseInt 寬鬆會把 "2006abc"→2006、
+  //    "2006/2010"→2006 誤收 → 錯年份污染 dedup 鍵 → 同車款誤併/誤裂(車種鐵律)。
+  //    僅接受「恰 4 位數字」的段;三段以上 / 起年非法 → 整筆廢回 {null,null}(寧缺勿錯)。
+  const parts = raw.split(/[-–—]/).map((s) => s.trim()); // hyphen / en-dash / em-dash
+  if (parts.length > 2) return { start: null, end: null }; // 三段以上=髒字串
+  const strictYear = (s: string): number | null => {
+    if (!/^\d{4}$/.test(s)) return null; // 恰 4 位數字(擋 "2006abc" / "2006/2010" / "20" / 空)
+    const n = Number.parseInt(s, 10);
+    return n >= 1900 && n <= 2100 ? n : null; // 合理年界
+  };
+  const start = strictYear(parts[0]!);
+  if (start === null) return { start: null, end: null }; // 起年非法 → 整筆廢(不讓髒值污染 dedup 鍵)
+  if (parts.length === 1) return { start, end: start }; // 單年 → start=end
+  return { start, end: strictYear(parts[1]!) }; // 區間;"2006-" → parts[1]='' → end null(開放式)
+}
+
+/**
  * fitments:全群所有變體 fitment_parsed 聯集去重(Q-B=A)。
- * 取 5 key {motoBrand,modelCode,yearStart?,yearEnd,unconfirmed?}、丟其餘內部 key(menu_path / year_str 等)。
+ * 取 5 key {motoBrand,modelCode,yearStart?,yearEnd,unconfirmed?}、丟其餘內部 key(menu_path / model_raw 等)。
  * 通用件空 entry({} 或 brand+model 皆空)→ 跳過(防呆、避免吐 undefined fitment row)。
- * year_start null/缺 → 省略 yearStart(domain yearStart?: number、語意=無下限);year_end null → null。
+ * 年份走 resolveFitmentYears(數字欄優先、缺才解析 year_str 字串);start null/缺 → 省略 yearStart
+ *   (domain yearStart?: number、語意=無下限);end null → null。
  * 去重鍵 = 4 軸(motoBrand/modelCode/yearStart/yearEnd);同車款 confirmed 優先(覆寫 unconfirmed)。
  */
 function mergeFitments(variants: SourceProductRow[]): FitmentSpec[] {
@@ -99,11 +129,12 @@ function mergeFitments(variants: SourceProductRow[]): FitmentSpec[] {
   for (const v of variants) {
     for (const e of v.fitment_parsed ?? []) {
       if (!e.brand && !e.model) continue; // 通用件空 entry 防呆
+      const { start: yStart, end: yEnd } = resolveFitmentYears(e);
       const f: FitmentSpec = {
         motoBrand: e.brand,
         modelCode: e.model,
-        ...(e.year_start != null ? { yearStart: e.year_start } : {}),
-        yearEnd: e.year_end ?? null,
+        ...(yStart != null ? { yearStart: yStart } : {}),
+        yearEnd: yEnd,
         ...(e.unconfirmed === true ? { unconfirmed: true } : {}),
       };
       const key = `${f.motoBrand}|${f.modelCode}|${f.yearStart ?? ''}|${f.yearEnd ?? ''}`;
