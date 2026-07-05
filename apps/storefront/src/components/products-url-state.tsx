@@ -9,7 +9,15 @@
 // 修法:mount lazy init 讀 URL(page/sort/per)→ 變動時原生 history.replaceState 回寫。
 // 白名單對齊實際 UI 選項(SortBar options / Pagination per-page options),非法值回預設(fail-safe)。
 
-import { useEffect, useState, type MutableRefObject } from 'react';
+import { useEffect, useState, type Dispatch, type MutableRefObject } from 'react';
+import {
+  selectVehicleBrand,
+  selectVehicleModel,
+  selectVehicleYear,
+  selectCategoryMain,
+  toggleBrand,
+  type CascadeFilterAction,
+} from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
 export const SORT_VALUES = ['recommend', 'new', 'price-asc', 'price-desc', 'sale'] as const; // = SortBar <option>
@@ -55,6 +63,39 @@ export function parseVehicleFromUrl(
     model: modelObj?.name,
     year: year != null && Number.isFinite(year) ? year : undefined,
   };
+}
+
+// ── Q4-S5(2026-07-05):?category= / ?brand= 入站深連結(首頁分類卡 / 品牌牆殘廢修復)──
+// 背景:design 是 SPA in-memory nav(onNav('products',{category}))、Next port 產生了
+// `/products?category=` 連結但全站無人讀此 key(遷移缺口)→ 首頁分類卡點了無過濾。
+// 模式對齊 vehicle:mount 讀一次 → 對照真實清單驗證(查無=fail-safe 忽略、顯全部)→ dispatch。
+// 僅入站、不回寫 URL(與 vehicle 同 idiom:useBrowseUrlSync 只回寫 page/sort/per、保留外來參數)。
+
+/** ?category= 值:分類「名稱」(raw_path、人類可讀)為主;防禦性亦接受 DB id。單層 16 大類;子類深連結留 #212。 */
+export function parseCategoryFromUrl(
+  searchParams: SearchParamsLike,
+  categories: { id: string; name: string }[],
+): { mainId: string; main: string } | null {
+  const raw = searchParams.get('category');
+  if (!raw) return null;
+  const hit = categories.find((c) => c.name === raw || c.id === raw);
+  return hit ? { mainId: hit.id, main: hit.name } : null; // 查無 → null(fail-safe、不套用)
+}
+
+/**
+ * ?brand= 值:產品品牌 slug(= buildBrandTaxonomy 衍生 id,如 gb-racing/bonamici)。
+ * ⚠️ 與 vehicle 長版 fallback(?brand=Yamaha&model=…)共用 key:各自對照表驗證、查無即 null。
+ * 🔴 現況兩命名空間不相交(摩托車廠 id vs 產品品牌 slug),但**非結構保證**:日後多品牌若含
+ *    OEM 副廠件(Yamaha/Honda 亦賣部品)、slug 'yamaha' 可能同時命中兩者 → 同一 ?brand= 雙重過濾。
+ *    多品牌放量前需消歧(產品品牌深連結改獨立 key 如 ?pbrand=,或入站時 vehicle 優先互斥)。見 backlog #269。
+ */
+export function parseBrandFilterFromUrl(
+  searchParams: SearchParamsLike,
+  productBrands: { id: string }[],
+): string | null {
+  const raw = searchParams.get('brand');
+  if (!raw) return null;
+  return productBrands.some((b) => b.id === raw) ? raw : null;
 }
 
 export function parseSortParam(raw: string | null): string {
@@ -139,4 +180,43 @@ export function useBrowseUrlSync(currentPage: number, sort: string, perPage: num
       window.history.replaceState(window.history.state, '', next);
     }
   }, [currentPage, sort, perPage]);
+}
+
+/**
+ * mount 時把 URL 深連結(vehicle / category / brand)還原成 cascade 篩選(#6 + Q4-S5;自 ProductsPage
+ * 抽出=鐵則 6 檔案上限)。三來源各對照真實清單驗證、查無 fail-safe 忽略;只入站不回寫 URL。
+ * 🔴 skipPageResetOnce:標記「本波 cascade 變更源自 URL 還原、非使用者操作」→ usePageResetOnFilterChange
+ *    跳過一次(否則 ?vehicle=…&page=3 back 會被 mount dispatch 誤重置回第 1 頁)。
+ * 🔴 brandAppliedOnce:toggleBrand 非冪等(strict mode dev effect 雙跑會 toggle 掉)→ 守一次;
+ *    vehicle/category 為冪等 select、不需守(維持原行為)。
+ */
+export function useDeepLinkRestore(opts: {
+  searchParams: SearchParamsLike;
+  motoBrands: MockMotoBrand[];
+  categories: { id: string; name: string }[];
+  productBrands: { id: string }[];
+  dispatch: Dispatch<CascadeFilterAction>;
+  skipPageResetOnce: MutableRefObject<boolean>;
+  brandAppliedOnce: MutableRefObject<boolean>;
+}): void {
+  useEffect(() => {
+    const { searchParams, motoBrands, categories, productBrands, dispatch, skipPageResetOnce, brandAppliedOnce } = opts;
+    const v = parseVehicleFromUrl(searchParams, motoBrands);
+    const urlCategory = parseCategoryFromUrl(searchParams, categories);
+    const urlBrand = parseBrandFilterFromUrl(searchParams, productBrands);
+    if (!v && !urlCategory && !urlBrand) return;
+    skipPageResetOnce.current = true;
+    if (v) {
+      dispatch(selectVehicleBrand(v.brand));
+      if (v.model) dispatch(selectVehicleModel(v.model));
+      if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
+    }
+    if (urlCategory) dispatch(selectCategoryMain(urlCategory.mainId, urlCategory.main)); // 空狀態直選、冪等
+    if (urlBrand && !brandAppliedOnce.current) {
+      brandAppliedOnce.current = true;
+      dispatch(toggleBrand(urlBrand));
+    }
+    // 僅 mount 時讀一次;strict mode dev 雙跑由 brandAppliedOnce 守 toggle、select 類冪等可吸收
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }

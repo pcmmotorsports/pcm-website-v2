@@ -17,4 +17,13 @@ describe('BrandIndex', () => {
     expect(screen.getByText('Authorized brands · 授權代理')).toBeDefined();
     expect(screen.getByText(MOCK_BRANDS[0]!.name)).toBeDefined();
   });
+
+  it('Q4-S5:品牌連結導 /products?brand=<slug>(修 /brands 404;= parseBrandFilterFromUrl 比對鍵)', () => {
+    render(<BrandIndex />);
+    const first = MOCK_BRANDS[0]!;
+    const link = screen.getByText(first.name).closest('a');
+    expect(link?.getAttribute('href')).toBe(`/products?brand=${first.id}`);
+    // 「品牌專區」表頭連結不再指向不存在的 /brands
+    expect(screen.getByText('品牌專區').closest('a')?.getAttribute('href')).toBe('/products');
+  });
 });

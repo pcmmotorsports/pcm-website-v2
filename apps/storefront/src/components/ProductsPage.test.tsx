@@ -9,7 +9,7 @@
 // #220:ProductsPage 改吃 server 傳入的 { products, error } props(列表遷真 Supabase 目錄)。
 //   本 smoke 傳小 MockProduct[] fixture(非 MOCK_PRODUCTS)、不依真 DB;另驗 error 旗標 → 載入失敗態。
 
-import type { ReactElement } from 'react';
+import { StrictMode, type ReactElement } from 'react';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 
@@ -171,5 +171,78 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
     expect(window.location.search).toContain('page=2');
     expect(window.location.search).toContain('sort=price-asc');
     expect(window.location.search).not.toContain('per=');
+  });
+});
+
+// Q4-S5(2026-07-05):?category= / ?brand= 入站深連結(首頁分類卡點了無過濾 + 品牌牆 404 修復的
+// /products 端接線;producers = CategoryGrid / BrandIndex 連結、另片改)
+describe('ProductsPage Q4-S5 category/brand 深連結', () => {
+  // 雙分類雙品牌 fixture:證「過濾真的生效」而非只 render(GB 駐車架 + RPM 碳纖維部品)
+  const TWO_BRANDS: MockProduct[] = [
+    FIXTURE[0]!, // RPM CARBON / 碳纖維部品 / 碳纖維車台護蓋
+    {
+      ...FIXTURE[1]!,
+      id: 3, slug: 'gbracing-ba-675', brand: 'GB RACING', name: '前輪軸防倒球',
+      category: '駐車架',
+    },
+  ];
+  const TWO_CATEGORIES: MockCategory[] = [
+    { id: 'cat-carbon', name: '碳纖維部品', count: 1, children: [] },
+    { id: 'cat-stand', name: '駐車架', count: 1, children: [] },
+  ];
+
+  it('?category=<真分類名> → 套用分類篩選(名稱比對、對齊 matchesCategory 鍵)', () => {
+    hoisted.search = new URLSearchParams('category=駐車架');
+    render(<ProductsPage products={TWO_BRANDS} error={false} categories={TWO_CATEGORIES} />);
+    expect(screen.getByText('前輪軸防倒球')).toBeDefined();
+    expect(screen.queryByText('碳纖維車台護蓋')).toBeNull(); // 他分類商品被濾掉 = 真過濾
+  });
+
+  it('?category=查無值 → fail-safe 忽略、顯示全部(不套用不炸)', () => {
+    hoisted.search = new URLSearchParams('category=exhaust');
+    render(<ProductsPage products={TWO_BRANDS} error={false} categories={TWO_CATEGORIES} />);
+    expect(screen.getByText('前輪軸防倒球')).toBeDefined();
+    expect(screen.getByText('碳纖維車台護蓋')).toBeDefined();
+  });
+
+  it('?brand=<產品品牌 slug> → 套用品牌篩選(buildBrandTaxonomy 衍生 id 驗證)', () => {
+    hoisted.search = new URLSearchParams('brand=gb-racing'); // brandSlug 缺 → brandToSlug('GB RACING') 兜底
+    render(<ProductsPage products={TWO_BRANDS} error={false} categories={TWO_CATEGORIES} />);
+    expect(screen.getByText('前輪軸防倒球')).toBeDefined();
+    expect(screen.queryByText('碳纖維車台護蓋')).toBeNull();
+  });
+
+  it('?brand=非產品品牌(如車輛長版遺留值)→ 兩對照表皆查無、fail-safe 顯示全部', () => {
+    hoisted.search = new URLSearchParams('brand=Yamaha'); // vehicle 長版 fallback 命名空間、非產品品牌
+    render(<ProductsPage products={TWO_BRANDS} error={false} categories={TWO_CATEGORIES} />);
+    expect(screen.getByText('前輪軸防倒球')).toBeDefined();
+    expect(screen.getByText('碳纖維車台護蓋')).toBeDefined();
+  });
+
+  it('?brand= 在 StrictMode 雙跑下仍套用一次(urlBrandInitRef 守 toggleBrand 非冪等)', () => {
+    // StrictMode dev 雙 invoke mount effect;若無守衛,toggleBrand add→remove 抵銷 → 顯示全部。
+    // 守衛正確 → 品牌過濾維持(前輪軸防倒球在、他品牌不在)。
+    hoisted.search = new URLSearchParams('brand=gb-racing');
+    rtlRender(
+      <StrictMode>
+        <CartProvider>
+          <ProductsPage products={TWO_BRANDS} error={false} categories={TWO_CATEGORIES} />
+        </CartProvider>
+      </StrictMode>,
+    );
+    expect(screen.getByText('前輪軸防倒球')).toBeDefined();
+    expect(screen.queryByText('碳纖維車台護蓋')).toBeNull();
+  });
+
+  it('?category=…&page=2 → 分類還原不誤觸頁碼重置(skipOnce 旗標涵蓋 category)', () => {
+    const MANY_STAND: MockProduct[] = Array.from({ length: 30 }, (_, i) => ({
+      ...FIXTURE[0]!, id: i + 1, slug: `gb-fixture-${i + 1}`, brand: 'GB RACING',
+      name: `駐車架部品${i + 1}號`, category: '駐車架',
+    }));
+    hoisted.search = new URLSearchParams('category=駐車架&page=2');
+    render(<ProductsPage products={MANY_STAND} error={false} categories={TWO_CATEGORIES} />);
+    // 30 件同分類、每頁 25 → 第 2 頁只有 26-30 號;mount 的 category dispatch 不得把 page 打回 1
+    expect(screen.getByText('駐車架部品30號')).toBeDefined();
+    expect(screen.queryByText('駐車架部品1號')).toBeNull();
   });
 });

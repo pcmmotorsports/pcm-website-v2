@@ -32,15 +32,12 @@
 
 'use client';
 
-import { useEffect, useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   cascadeFilterReducer,
   makeInitialCascadeState,
-  selectVehicleBrand,
-  selectVehicleModel,
-  selectVehicleYear,
   type CascadeFilterState,
 } from '@pcm/ui';
 import { Header } from './Header';
@@ -58,7 +55,7 @@ import {
   useBrowseUrlState,
   usePageResetOnFilterChange,
   useBrowseUrlSync,
-  parseVehicleFromUrl,
+  useDeepLinkRestore,
 } from './products-url-state';
 import type { FilterTopData } from './FilterTop';
 import type { MockCategory } from '@/data/mock-categories';
@@ -189,6 +186,8 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
   // #6:URL 還原 vehicle 的 mount dispatch 與「篩選變動重置頁碼」的協調旗標(見 vehicle effect 註解)
   const urlVehicleInitRef = useRef(false);
   const filterResetKeyRef = useRef<string | null>(null);
+  // Q4-S5:?brand= 還原只 dispatch 一次(toggleBrand 非冪等、strict mode 雙跑會 toggle 掉)
+  const urlBrandInitRef = useRef(false);
 
   // 車輛篩選清單「動態衍生」自當下目錄商品 fitment(車種鐵律 fitment_parsed 直出、
   // 商品匯入後自動更新、零手動維護);drop-in 取代舊 MOCK_MOTO_BRANDS。
@@ -201,23 +200,17 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
     [motoBrands, categories, brands],
   );
 
-  // M-1-13I Bug 1 修:mount 時讀 URL vehicle 參數 → dispatch reducer(Q1=C 雙格式)
-  // strict mode dev 環境 useEffect mount 跑兩次、會 dispatch 兩次;
-  // cascadeFilterReducer 對同 brand 連選冪等(第二次重設同樣狀態)、實務上無 bug、
-  // dev console 看 state 日誌會多一輪、屬正常。
-  useEffect(() => {
-    const v = parseVehicleFromUrl(searchParams, motoBrands);
-    if (!v) return;
-    // #6:標記「這波 cascade 變更源自 URL 還原、非使用者操作」→ 頁碼重置 effect 跳過一次,
-    //   否則 ?vehicle=…&page=3 back 回來會被 mount 後的 vehicle dispatch 誤重置回第 1 頁。
-    urlVehicleInitRef.current = true;
-    dispatch(selectVehicleBrand(v.brand));
-    if (v.model) dispatch(selectVehicleModel(v.model));
-    if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
-    // 僅 mount 時讀一次、避免 dispatch 改 URL 觸發 loop
-    // strict mode dev 跑兩次、cascadeFilterReducer 對同 brand 連選冪等可吸收
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // mount 時 URL 深連結(vehicle / category / brand)還原成 cascade 篩選(#6 + Q4-S5);
+  // 邏輯抽入 products-url-state.useDeepLinkRestore(鐵則 6 檔案上限;含 skipOnce / brand 守一次註解)
+  useDeepLinkRestore({
+    searchParams,
+    motoBrands,
+    categories,
+    productBrands: brands,
+    dispatch,
+    skipPageResetOnce: urlVehicleInitRef,
+    brandAppliedOnce: urlBrandInitRef,
+  });
 
   // memo:1409 件 client 全量過濾/排序、S1 加逐商品 fitments.some 比對 → 避免無關 state
   // (drawerOpen/gridCols/page)變動時整條重算

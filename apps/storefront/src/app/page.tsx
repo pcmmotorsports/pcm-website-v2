@@ -23,7 +23,7 @@ import { HomeSelect } from '@/components/HomeSelect';
 import { HomeStatement } from '@/components/HomeStatement';
 import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
-import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
+import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
 import { resolveTierFromRequest } from '@/lib/tier';
 
 // d2 build 揭示:本頁 server-side fetch Supabase、build 階段預生成 SSG 會撞 env 未注入
@@ -51,6 +51,9 @@ export default async function HomePage({
   // S2/#220b:VehicleFinder 接真 fitment 衍生車輛清單(輕量 fitments-only 查詢、失敗回 []);
   // 與 /products 解析端同一衍生函式 = 首頁選車深連結 id 空間一致、必命中列表過濾
   const motoBrands = await fetchVehicleTaxonomy();
+  // Q4-S5:CategoryGrid 真分類化(修「首頁分類卡點了無過濾」死連結;同 /products 側欄的
+  // fetchCategories→buildCategoryTree,只列有商品分類、深連結 ?category=<真分類名> 必命中過濾)
+  const categories = await fetchCategories();
 
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
@@ -58,7 +61,7 @@ export default async function HomePage({
       <HomeHero />
       <VehicleFinder motoBrands={motoBrands} />
       <FeatureEditorial />
-      <CategoryGrid />
+      <CategoryGrid categories={categories} />
       <HomeSelect featured={featured} />
       <HomeStatement />
       <BrandIndex />

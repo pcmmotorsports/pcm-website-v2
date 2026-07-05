@@ -3,8 +3,9 @@
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 7 條):
-//   'catalog' → /products / 'brands' → /brands / 'new' → /products?filter=new / 'sale' → /products?filter=sale
-//   'install' → /install / 'stores' → /stores / 'shipping' → /info/shipping
+//   'catalog' → /products / 'brands' → /products(Q4-S5 修 404、品牌專區頁留 Phase 2)
+//   'new' → /products?filter=new / 'sale' → /products?filter=sale(🔴 ?filter= 全站未接、backlog)
+//   'install' → /install / 'stores' → /stores(🔴 路由不存在=404、backlog)/ 'shipping' → /info/shipping
 // social 3 條:M-1-06 #136 曾因無真連結改 <button disabled> 宣告未上線 → 2026-07-03 Sean 拍 Q2=A
 //   接 site-config SOCIAL_URLS 真連結、回到 design <a> 結構(design L303-305 href="#" 佔位 → 真 URL、
 //   外連加 target="_blank" rel="noopener noreferrer");#136 該段 supersede。
@@ -38,7 +39,7 @@ export function HomeFooter() {
           <div>
             <div className="ed-mono ed-footer-h">購物</div>
             <Link href="/products">商品目錄</Link>
-            <Link href="/brands">品牌專區</Link>
+            <Link href="/products">品牌專區</Link>
             <Link href="/products?filter=new">新品上架</Link>
             <Link href="/products?filter=sale">特價專區</Link>
           </div>

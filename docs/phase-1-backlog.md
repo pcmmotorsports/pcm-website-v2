@@ -6709,6 +6709,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #269. 🔗 首頁殘餘死連結:/install /stores + ?filter=new|sale
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - Q4-S5(2026-07-05)修首頁「分類卡無過濾 + 品牌牆 404」時順帶掃出**其餘死連結**(本輪 scope 外、未動):
+    - `/install`(HomeFooter 安裝預約)、`/stores`(HomeFooter 合作店家)→ 路由不存在 = 404。
+    - `?filter=new`(HomeHero/HomeSelect/HomeFooter 新品上架)、`?filter=sale`(特價專區)→ 全站無人讀 `?filter=`(products-url-state 只讀 sort)→ 點了無效果。
+- **觸發事件:** 上線前完整首頁點擊審(或 Sean 指定)。多品牌上線後瀏覽量增、踩到機率上升。
+- **預期解法:**
+  - `/install`、`/stores`:建對應資訊頁(仿 `/info/shipping`)或暫移除連結(需 Sean 定內容)。
+  - `?filter=new|sale`:products-url-state 加 `?filter=` 解析 → 對映 SortBar 'new'/'sale' 或 isNew/isSale extra filter(與 sort/vehicle/category/brand 入站 idiom 一致)。
+- **不修會痛在:**
+  - 擴充性:未接的 `?filter=` 是半成品 URL 契約,新頁面沿用會複製壞連結。
+  - 可維護性:死連結散落多元件,愈晚修愈難盤點(本條已列全)。
+  - bug 可追蹤性:客人回報「點了沒反應/404」時無單一出處對照。
+- **估時:** ?filter 接線 ~20min;/install /stores 視內容頁範圍(需 Sean 定)。
+- **發現於:** 2026-07-05 / Q4-S5 首頁死連結修復(recon §5)。
+- **相關:** #147(首頁真資料化族)/ #205(featured/目錄接線)。
+
+---
+
 ## 紀錄模板
 
 ```markdown

@@ -2,8 +2,9 @@
 // (N°02 · This month · RIZOMA · 工藝之鏡)
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
-// onNav target 對映(本檔 1 條):'brand-detail' + brandId='rizoma'(硬寫死) → /brands/rizoma
-// anchor:RIZOMA 已於本刀 1b2 補入 MOCK_BRANDS 位置 14(see mock-brands.ts:33)
+// onNav target 對映(本檔 1 條):'brand-detail' + brandId='rizoma'(硬寫死) → /products?brand=rizoma
+// 🔴 Q4-S5(2026-07-05):原 /brands/rizoma 路由不存在=404 → 改導 /products?brand=rizoma(RIZOMA 現無商品→
+//   fail-safe 顯全部、不 404;品牌專屬頁留 Phase 2)。anchor:RIZOMA 在 MOCK_BRANDS(mock-brands.ts:33)
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 
 import Link from 'next/link';
@@ -40,7 +41,7 @@ export function FeatureEditorial() {
               <div className="ed-feature-meta-v">CNC · Anodized</div>
             </div>
           </div>
-          <Link href="/brands/rizoma" className="ed-link ed-link-dark">
+          <Link href="/products?brand=rizoma" className="ed-link ed-link-dark">
             <span>探索 RIZOMA</span>
             <span className="ed-link-arrow" aria-hidden="true">→</span>
           </Link>
