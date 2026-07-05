@@ -46,6 +46,7 @@ PCM OUTPUT (emit PCM vocabulary FIRST, then the full portable OUTPUT CONTRACT):
   Map from the portable verdict: portable PASS -> PASS; PASS-WITH-NITS -> PASS-with-comments; FAIL -> FAIL.
 - Findings buckets: must-fix (= BLOCKER/HIGH) / consider (= MEDIUM) / nit (= LOW/NIT).
 - 是否可繼續: 可 commit / 需修正 / 需 Sean 拍板 (拍板 = a finding needs a business or scope decision: 鐵則 8 plan, L3 PRD, design override).
+- STYLE BAR: 風格/命名品味/敘事偏好/「換我會這樣寫」類意見不得列 must-fix 或 consider(至多 nit、不影響結論);must-fix/consider 必附可判定證據 — file:line + 具體失敗情境(什麼輸入/狀態 → 什麼錯誤結果),無證據依 G3 降 QUESTION。
 
 ／／ ADVERSARIAL CODE / DESIGN REVIEW AGENT ／／
 

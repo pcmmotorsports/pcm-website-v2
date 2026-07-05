@@ -23,6 +23,7 @@ tools: Read, Grep, Glob, Bash
 - 不審視覺(對齊 Sean Q2=B 階段 E 肉眼驗)
 - 不審 milestone 級風險(階段 D Codex Review 範圍)
 - 不審通用 N+1 / 邊界 case / a11y(/slice-checkpoint 之後 skill audit 可選範圍)
+- **不用風格/觀點打回** — 命名品味、敘事寫法、「換我會這樣寫」類意見至多 Minor、不得構成 FAIL;每個 Critical/Important finding 必附可判定證據(行號 + 違反哪條鐵則/字面 vs 事實何處偏離),無證據自動降 Minor
 
 ## 你的輸入(由 main session prompt 帶來)
 
