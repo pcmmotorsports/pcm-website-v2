@@ -6731,6 +6731,26 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #270. 🔗 RPM 商品內容連動報價單(目前兩層寫死、要接真同步)
+
+- **狀態:** ⏳ 待執行(gate:報價單翻譯優化完成後)
+- **優先級:** 🟠 中(Sean 2026-07-05 明確要 RPM 也連動)
+- **問題:** gbracing/bonamici 的內文已連動報價單(改翻譯→隔天同步→前台顯);**RPM 沒有,且是兩層凍結**:
+  1. **DB 同步層**:`scripts/supplier-config.ts` rpm `syncDescription=false` → 每夜 cron **不**把來源繁中描述寫進 `products.description`(現存英文 HTML 原地保留;F2/#260 保護縫)。**注意 RPM 品名 title 是無條件同步的(product_name_zh 會流)**,凍結的只有**描述**。
+  2. **前台顯示層**:`apps/storefront/src/components/ProductTabs.tsx` 商品介紹 `isRpmCarbon` 分支渲染**寫死碳纖維框架**(「採用真碳纖維材質…」),**完全不讀 `product.description`**(Sean Q1 拍板碳纖框架、與非 RPM 分支渲染真描述不同)。→ 即使 DB 有描述,RPM 頁也不顯。
+- **觸發事件:** Sean 2026-07-05 交接時要求「RPM 翻譯寫死但要連動」;報價單側正在優化 RPM 繁中翻譯(完成後啟動)。
+- **預期解法(兩步 + 一個 Sean 決策)**:
+  1. **DB 同步**:rpm `syncDescription=true`(執行既有 **Q4=B「RPM 描述切繁中」**拍板)。🔴 **鐵則 12 事件**:下次夜跑會把 ~1,117 RPM 頁英文描述覆寫成來源繁中(對外可見)、須產 Codex Packet + Sean 批 + 先確認報價單 RPM 繁中翻譯品質 OK。
+  2. **前台顯示(Sean 決策)**:RPM 商品介紹是否由「碳纖維框架」改渲染 `product.description`(對齊非 RPM)?—— 這會**移除**Sean Q1 拍板的碳纖 brand-story 框架;或折衷(框架 + 真描述並存)。**Sean 拍板才動**(視覺/品牌敘事、R6 品味題)。
+  3. 只做 (1) 不做 (2) = DB 有繁中描述但 RPM 頁仍顯碳纖框架(沒意義);兩步都做才真正「連動且顯示」。
+- **不修會痛在:** 擴充性—RPM 內容永遠與報價單源脫節、Sean 改翻譯 RPM 不動;可維護性—RPM/非 RPM 兩套描述路徑分歧;bug 可追蹤性—「改了報價單 RPM 沒變」會被當同步 bug 反覆查。
+- **估時:** DB 同步切換 ~15min(+ 鐵則 12 Packet + re-sync 驗);前台顯示視 Sean 決策(小改~30min / 折衷設計另議)。
+- **依賴:** 🔴 報價單側 RPM 繁中翻譯優化完成(Sean 進行中);跨 repo 協調見下方交接建議。
+- **發現於:** 2026-07-05 / 上架後交接(Sean 問 RPM 連動)。
+- **相關:** #260(描述 NULL 語意)/ Q4=B(RPM 描述切繁中拍板)/ 多品牌 plan §2.9 F2。
+
+---
+
 ## 紀錄模板
 
 ```markdown
