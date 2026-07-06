@@ -131,7 +131,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 **寫 slice 指令應有**:☐ 直接搬非翻譯 ☐ grep design 字面 ☐ CSS+TSX 同 slice ☐ 前後台同步 ☐ 標內容分級 ☐ 估時 15-45 分 ☐ 數字內部一致 ☐ 用詞精準(preview≠production / stash≠working tree / commit≠push) ☐ 禁止清單可執行不矛盾 ☐ 結尾「— 禁止清單結束 —」未截斷 ☐ 重大改動先提 plan。
 
-**slice 結束應有**:☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 本 session 拍板逐條 vs 已落檔、漏補寫) ☐ busboy-end ☐ `/pcm-roadmap` 更進度地圖 ☐ 不 push。
+**slice 結束應有**:☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body) ☐ busboy-end ☐ `/pcm-roadmap` 更進度地圖 ☐ 不 push。
 
 ---
 
