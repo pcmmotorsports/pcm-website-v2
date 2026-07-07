@@ -322,8 +322,9 @@ async function main(): Promise<void> {
   // 🔴 #260(保留現值 ①):按 description key 是否存在分兩 uniform 批 upsert,避免 postgrest `?columns` 全批聯集 +
   //    defaultToNull 把「省 key」列寫成 NULL(rpm 全省 key → withKey 空 → 現行單批行為 byte 等價;
   //    試點來源空描述列落 withoutKey 批、不覆寫現值)。source-權威鏡射 ② 若採用另議、見 backlog #260。
-  //    ⚠️ 僅治 description 這**唯一**條件寫欄(transformGroup 唯一條件 spread、rpm-transform.ts);
-  //       未來若新增其他「省 key」條件欄,需一併納入 partition 依據(否則同批混省 key 重現 NULL-clobber、Fable F2)。
+  //    ⚠️ 本 partition 只治「同一 run 內 row 間 presence 會變動」的條件寫欄(description 因來源可空而 per-row 變動)。
+  //       例外:highlights(A/#270)亦條件省 key,但屬「供應商級」(依 ctx.syncDescription、單一 run all-or-nothing、
+  //       非 per-row)→ 對本 partition 天然 uniform、不需納入。未來新增「per-row 變動」的省 key 欄才需一併納入 partition。
   const { withKey: prodWithDesc, withoutKey: prodWithoutDesc } = partitionByKeyPresence(productRows, 'description');
   const savedProducts = [
     ...(prodWithDesc.length

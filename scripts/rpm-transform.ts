@@ -161,6 +161,11 @@ export interface ProductRow {
   //       `?columns` 聯集 + defaultToNull(親驗 PostgrestQueryBuilder.ts:1087-1090)寫 NULL。
   //       ⚠️ 未來新增其他「條件省 key」欄位須一併納入 partition 依據(否則混批 NULL-clobber 重現)。
   description?: string;
+  // 🔴 highlights 為 optional(供應商級條件、依 supplier-config.syncDescription):true → 展開 string[]
+  //    (賣點條列、來源 highlights_zh 正規化);false(rpm)→ 省 key → 凍結現值不覆寫。
+  //    與 description(per-row 條件、視來源空否)不同:highlights 在單一 supplier run 內 all-or-nothing
+  //    (只看 syncDescription)→ 對 rpm-import description partition 天然 uniform、不需額外 partition(見該處註)。
+  highlights?: string[];
   price_general: number | null;
   price_store: number | null;
   price_by_tier: Record<string, { amount: number; currency: string }>;
@@ -201,6 +206,13 @@ export interface GroupTransformContext {
   syncDescription: boolean; // true 才把來源 description 寫進 products.description(rpm=false)
 }
 
+// 賣點條列正規化:來源 jsonb → 乾淨 string[](濾非字串與純空白;非陣列/null → [])。
+// 對齊 products.highlights NOT NULL DEFAULT '[]':值恆為陣列、never null;不改字面(鐵則 1 忠實搬)。
+function normalizeHighlights(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '');
+}
+
 export function transformGroup(
   mainSku: string,
   variants: SourceProductRow[],
@@ -223,6 +235,8 @@ export function transformGroup(
     PLACEHOLDER_IMAGE;
   // 描述:群內第一個非空來源描述(product-level、群內應一致;防呆取 first non-empty、含純空白視為空、F4)。
   const description = variants.find((v) => (v.description ?? '').trim() !== '')?.description ?? null;
+  // 賣點:群內第一個非空賣點陣列(product-level、群內應一致;防呆 first non-empty、正規化為 string[])。
+  const highlights = variants.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? [];
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
@@ -232,6 +246,9 @@ export function transformGroup(
     // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。
     //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。混批 NULL-clobber 已由 load 層 partition 修(見 ProductRow 註、#260)。
     ...(ctx.syncDescription && description != null ? { description } : {}),
+    // 🔴 highlights 供應商級條件寫入:syncDescription=true 才展開 key(rpm=false → 無 key → 凍結不碰);
+    //    all-or-nothing per run → rpm-import description partition 天然 uniform(見該處寫入段註)。
+    ...(ctx.syncDescription ? { highlights } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
     price_by_tier: {
