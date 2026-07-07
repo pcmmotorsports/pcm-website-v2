@@ -78,9 +78,25 @@ export class InMemoryProductRepository implements IProductRepository {
    *
    * in-memory 無 PostgREST「Max rows = 1000」上限、無下架概念(DB/RLS 概念)→ 回全部庫存 product;
    * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞上限 + RLS 濾下架。
+   *
+   * `options.limit`(perf/P2):給定時**先依 id 升冪排序再取前 limit 筆**——Map 迭代序是
+   * 插入序、與 Supabase `.order('id')` 語意分歧,不排序會讓 contract 在兩實作間漂移
+   * (K1 round2 抓點);非正整數 → throw(fail-closed、對齊 port contract)。
+   * 省略時維持既有行為(插入序全量、既有測試不動)。
    */
-  async listAllProducts(): Promise<Product[]> {
-    return Array.from(this.products.values());
+  async listAllProducts(options?: { limit?: number }): Promise<Product[]> {
+    const all = Array.from(this.products.values());
+    const limit = options?.limit;
+    if (limit === undefined) {
+      return all;
+    }
+    if (!Number.isInteger(limit) || limit <= 0) {
+      throw new Error(`InMemoryProductRepository.listAllProducts: limit 須為正整數、收到 ${limit}`);
+    }
+    return all
+      .slice()
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+      .slice(0, limit);
   }
 
   /**

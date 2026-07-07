@@ -59,9 +59,15 @@ export interface IProductRepository {
    * 🔴 stopgap:全量撈進 client(client filter/分頁)。多品牌(#212)目錄長大後須改
    * server-side 分頁/篩選(#51)、非長久解。
    *
+   * `options.limit`(perf/P2、2026-07-08 效能修復 plan):選用、正整數。給定時回
+   * **id 升冪前 limit 筆**(兩實作同語意;Supabase 端下推 DB `.limit()` 免撈全表——
+   * 首頁精選只要 4 筆、舊 stopgap 撈 3602 件 slice(0,4) 是首頁 TTFB 秒級主因之一);
+   * 省略時行為不變(全量)。非正整數 → throw(fail-closed、程式錯誤即早爆)。
+   *
    * @see docs/specs/2026-07-04-catalog-category-brand-frontend-wiring-plan.md C4
+   * @see docs/specs/2026-07-08-storefront-perf-fix-plan.md P2
    */
-  listAllProducts(): Promise<Product[]>;
+  listAllProducts(options?: { limit?: number }): Promise<Product[]>;
   /**
    * 列出全部分類 + 各分類上架商品數(接線 plan C1)。
    *

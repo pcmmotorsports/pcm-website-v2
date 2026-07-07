@@ -181,17 +181,14 @@ export type FeaturedResult = {
 /**
  * 撈 featured 4 件商品(對齊 HomeSelect N°04 編輯精選)。
  *
- * 行為(C4/#205 解除寫死單一分類「碳纖維部品」→ 撈全目錄前 4):
- *   - listAllProducts()(全目錄非下架、.order('id') 分頁)、取前 4 筆 map 為 UI shape
+ * 行為(C4/#205 解除寫死單一分類「碳纖維部品」→ 全目錄 id 升冪前 4):
+ *   - listAllProducts({ limit: 4 })(perf/P2:limit 下推 DB `.order('id').limit(4)`、
+ *     免撈全表——舊 stopgap 撈全目錄 3602 件 slice(0,4) 是首頁 TTFB 秒級主因之一,已解)
  *   - adapter 回 [](空目錄)→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → console.error + 回 `{ products: [], error: true }`、UI 走 error 分支
  *
- * 🔴 字面 vs 事實(commit body 同步):
- *   - 舊 listByCategory({碳纖維部品}) 無 `.order` → 前 4 為 PostgREST 未定序;本片改 listAllProducts()
- *     以 `.order('id')` 定序取前 4,現況仍全是碳纖維商品(品牌無變化),但**首頁精選具體 4 件可能與舊不同**
- *     (由 arbitrary-order 變 id 升冪前 4);featured 本為 Phase-1 placeholder,「featured 旗標」才是正解(#205)。
- *   - 效能 stopgap:撈全目錄僅取 4 件(Phase-1 ~1117 件、首頁 revalidate 快取可接受);#205 featured-flag /
- *     #51 server-side 為正解。
+ * 查詢語意等價(perf/P2 驗收):與舊「全量 .order('id') 後 slice(0,4)」同為全目錄 id 升冪前 4;
+ * featured 本為 Phase-1 placeholder,「featured 旗標」才是正解(#205)。
  *
  * tier 由 caller 傳入(page.tsx 從 cookie / ?tier= override 取得、sub 4b 接通)。
  */
@@ -200,9 +197,9 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
   const adapter = new SupabaseProductAdapter(client);
 
   try {
-    const products = await adapter.listAllProducts();
+    const products = await adapter.listAllProducts({ limit: 4 });
     return {
-      products: products.slice(0, 4).map((p) => toUIProduct(p, tier)),
+      products: products.map((p) => toUIProduct(p, tier)),
       error: false,
     };
   } catch (err) {

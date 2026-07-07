@@ -304,6 +304,79 @@ describe('SupabaseProductAdapter.listAllProducts — 全目錄分頁(C4/#205)', 
   });
 });
 
+// ── perf/P2:listAllProducts({ limit })——limit 下推 DB、免撈全表(2026-07-08 效能修復 plan P2)──
+//   審查點:limit ≤1000 走單次 .order('id').limit(n)、**不走 .range 分頁迴圈**;
+//   亂序資料由 DB `.order` 定序(mock 斷言呼叫參數、回 id 升冪 rows);非正整數 fail-closed throw。
+
+function makeLimitClient(rows: SupabaseProductRow[]) {
+  const calls: { order: Array<[string, { ascending: boolean }]>; limit: number[]; range: Array<[number, number]> } = {
+    order: [],
+    limit: [],
+    range: [],
+  };
+  const products = {
+    select() { return products; },
+    order(col: string, opts: { ascending: boolean }) { calls.order.push([col, opts]); return products; },
+    limit(n: number) {
+      calls.limit.push(n);
+      return Promise.resolve({ data: rows.slice(0, n), error: null });
+    },
+    range(from: number, to: number) {
+      calls.range.push([from, to]);
+      return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+    },
+  };
+  const client = { from: () => products };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+describe('SupabaseProductAdapter.listAllProducts({ limit }) — limit 下推(perf/P2)', () => {
+  it('limit=4 → 單次 .order(id 升冪).limit(4)、不走 .range 分頁、回前 4 筆', async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => makeRow(i));
+    const { client, calls } = makeLimitClient(rows);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts({ limit: 4 });
+
+    expect(result).toHaveLength(4);
+    expect(result.map((p) => p.id)).toEqual(['prod-0', 'prod-1', 'prod-2', 'prod-3']); // id 升冪前 4
+    expect(calls.order).toEqual([['id', { ascending: true }]]);
+    expect(calls.limit).toEqual([4]);
+    expect(calls.range).toHaveLength(0); // 免撈全表:未走分頁迴圈
+  });
+
+  it('limit 非正整數(0 / 1.5)→ throw fail-closed、不打 DB', async () => {
+    const { client, calls } = makeLimitClient([]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    await expect(adapter.listAllProducts({ limit: 0 })).rejects.toThrow(/limit 須為正整數/);
+    await expect(adapter.listAllProducts({ limit: 1.5 })).rejects.toThrow(/limit 須為正整數/);
+    expect(calls.limit).toHaveLength(0);
+    expect(calls.range).toHaveLength(0);
+  });
+
+  it('limit>1000(PostgREST 單查詢上限)→ 走分頁迴圈撈滿再裁切、不靜默截斷', async () => {
+    const rows = Array.from({ length: 1500 }, (_, i) => makeRow(i));
+    const { client, calls } = makeLimitClient(rows);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts({ limit: 1200 });
+
+    expect(result).toHaveLength(1200);
+    expect(calls.limit).toHaveLength(0); // 不走單次 .limit(會被 PostgREST 砍到 1000)
+    expect(calls.range).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    // 分頁路徑仍須逐頁 .order('id' 升冪)(K2 nit:防「移除 order」mutation 不紅)
+    expect(calls.order).toEqual([
+      ['id', { ascending: true }],
+      ['id', { ascending: true }],
+    ]);
+    expect(result.map((p) => p.id).slice(0, 3)).toEqual(['prod-0', 'prod-1', 'prod-2']);
+  });
+});
+
 // ── C1 接線:listCategories(全部分類 + 各分類上架商品數)──
 //   mock 兩個查詢對象:
 //   - from('categories').select(cols).order()        → 回分類註冊表

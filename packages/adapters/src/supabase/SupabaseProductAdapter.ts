@@ -189,8 +189,30 @@ export class SupabaseProductAdapter implements IProductRepository {
    * 解除 lib/products 舊「寫死單一分類『碳纖維部品』」;RPM 零回歸見 port contract。
    *
    * 🔴 **stopgap**:同 listAllByCategory,全量撈進 client;多品牌(#212)後改 server-side 分頁(#51)。
+   *
+   * `options.limit`(perf/P2):正整數且 ≤1000(PostgREST 單查詢 Max rows)→ 單次
+   * `.order('id').limit(n)` 下推 DB、不走分頁迴圈(首頁精選 4 筆免撈全表);
+   * >1000 → 分頁迴圈撈滿再裁切(避免 PostgREST 靜默截斷、no silent caps);
+   * 非正整數 → throw(fail-closed、對齊 port contract)。
    */
-  async listAllProducts(): Promise<Product[]> {
+  async listAllProducts(options?: { limit?: number }): Promise<Product[]> {
+    const limit = options?.limit;
+    if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
+      throw new Error(`SupabaseProductAdapter.listAllProducts: limit 須為正整數、收到 ${limit}`);
+    }
+
+    if (limit !== undefined && limit <= 1000) {
+      const { data, error } = await this.supabase
+        .from('products_public')
+        .select(PRODUCT_SELECT_DETAIL)
+        .order('id', { ascending: true })
+        .limit(limit);
+      if (error) {
+        throw error;
+      }
+      return ((data ?? []) as SupabaseProductRow[]).map(mapSupabaseProductToDomain);
+    }
+
     const rows = (await fetchAllPaginated(
       (from, to) =>
         this.supabase
@@ -201,7 +223,8 @@ export class SupabaseProductAdapter implements IProductRepository {
       'SupabaseProductAdapter.listAllProducts',
     )) as SupabaseProductRow[];
 
-    return rows.map(mapSupabaseProductToDomain);
+    const capped = limit !== undefined ? rows.slice(0, limit) : rows;
+    return capped.map(mapSupabaseProductToDomain);
   }
 
   /**

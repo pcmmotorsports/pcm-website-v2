@@ -123,6 +123,28 @@ describe('InMemoryProductRepository', () => {
     expect(await repo.listAllProducts()).toEqual([]);
   });
 
+  // perf/P2:listAllProducts({ limit })——亂序 seed 證「先 id 升冪再取 limit」
+  // (Map 插入序 ≠ id 序;不排序會與 SupabaseProductAdapter `.order('id')` 語意漂移、K1 round2 抓點)。
+  it('should return first N products by id ascending for listAllProducts({ limit })(perf/P2、亂序 seed)', async () => {
+    const p3 = createFakeProduct({ id: 'p-3' });
+    const p1 = createFakeProduct({ id: 'p-1' });
+    const p2 = createFakeProduct({ id: 'p-2' });
+    const repo = new InMemoryProductRepository([p3, p1, p2]); // 插入序刻意亂
+
+    const result = await repo.listAllProducts({ limit: 2 });
+    expect(result.map((p) => p.id)).toEqual(['p-1', 'p-2']); // id 升冪前 2、非插入序前 2
+
+    // 省略 limit → 既有行為不變(全量)
+    expect(await repo.listAllProducts()).toHaveLength(3);
+  });
+
+  it('should throw for non-positive-integer limit in listAllProducts(perf/P2、fail-closed)', async () => {
+    const repo = new InMemoryProductRepository([createFakeProduct()]);
+    await expect(repo.listAllProducts({ limit: 0 })).rejects.toThrow(/limit 須為正整數/);
+    await expect(repo.listAllProducts({ limit: -1 })).rejects.toThrow(/limit 須為正整數/);
+    await expect(repo.listAllProducts({ limit: 2.5 })).rejects.toThrow(/limit 須為正整數/);
+  });
+
   it('should list products by brand id match', async () => {
     const akra = createFakeProduct({ id: 'p-1', brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic', premium_extra_pct: 0 } });
     const brembo = createFakeProduct({ id: 'p-2', brand: { id: 'b-brembo', name: 'Brembo', slug: 'brembo', premium_extra_pct: 0 } });
