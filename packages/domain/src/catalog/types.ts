@@ -230,6 +230,8 @@ export type Product = {
   // 本 slice Q1=A2 擴 7 欄位:
   /** 商品描述、純文字 / Markdown 後續決定 */
   description: string;
+  /** 賣點條列(A/#270:來源 highlights_zh、前台 render bullet list;無賣點=空陣列、恆非 null) */
+  highlights: string[];
   /** 商品圖片 URL 陣列、來源含廠商 URL 與 Supabase Storage 上傳(對齊 ADR-0004 Q2=A2、上傳機制 M-1-13 / M-1-16 落地) */
   images: string[];
   /**

@@ -784,6 +784,7 @@ export type Database = {
           external_id: string
           fitments: Json
           handle: string
+          highlights: Json
           id: string
           images: Json
           metadata: Json
@@ -805,6 +806,7 @@ export type Database = {
           external_id: string
           fitments?: Json
           handle: string
+          highlights?: Json
           id?: string
           images?: Json
           metadata?: Json
@@ -826,6 +828,7 @@ export type Database = {
           external_id?: string
           fitments?: Json
           handle?: string
+          highlights?: Json
           id?: string
           images?: Json
           metadata?: Json
@@ -1001,6 +1004,7 @@ export type Database = {
           external_id: string | null
           fitments: Json | null
           handle: string | null
+          highlights: Json | null
           id: string | null
           images: Json | null
           price_general: number | null
@@ -1018,6 +1022,7 @@ export type Database = {
           external_id?: string | null
           fitments?: Json | null
           handle?: string | null
+          highlights?: Json | null
           id?: string | null
           images?: Json | null
           price_general?: number | null
@@ -1035,6 +1040,7 @@ export type Database = {
           external_id?: string | null
           fitments?: Json | null
           handle?: string | null
+          highlights?: Json | null
           id?: string | null
           images?: Json | null
           price_general?: number | null

@@ -147,6 +147,38 @@ describe('ProductTabs', () => {
     expect(pane?.textContent).not.toContain('真碳纖維'); // 去碳
   });
 
+  // A/#270:非 RPM 有 highlights → 渲染 pd-desc-features 破折號賣點清單(每條一 li)
+  it('description pane 非 RPM 有 highlights → 渲染 pd-desc-features 賣點清單', () => {
+    const nonRpm = {
+      ...MOCK_PRODUCTS[0]!,
+      brandSlug: 'gb-racing',
+      description: '玻璃纖維尼龍複合材料製成。',
+      highlights: ['6AL-4V G5 鈦合金，輕量且耐腐蝕', 'DLC 黑鈦塗層'],
+    };
+    render(<ProductTabs product={nonRpm} />);
+    const pane = document.getElementById('pd-panel-description');
+    expect(pane?.querySelectorAll('.pd-desc-features li').length).toBe(2);
+    expect(pane?.textContent).toContain('6AL-4V G5 鈦合金，輕量且耐腐蝕');
+    expect(pane?.textContent).toContain('DLC 黑鈦塗層');
+  });
+
+  // A/#270:非 RPM 無 highlights(空陣列)→ 不渲染 pd-desc-features(guard、不留空 ul)
+  it('description pane 非 RPM 無 highlights → 不渲染 pd-desc-features', () => {
+    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', description: '純描述。', highlights: [] };
+    render(<ProductTabs product={nonRpm} />);
+    const pane = document.getElementById('pd-panel-description');
+    expect(pane?.querySelectorAll('.pd-desc-features li').length).toBe(0);
+  });
+
+  // A/#270 RPM byte 不變:RPM 有 highlights 仍走碳纖框架、絕不渲染 pd-desc-features(isRpmCarbon 分支不讀 highlights)
+  it('description pane RPM 有 highlights 仍不渲染 pd-desc-features(byte 不變)', () => {
+    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', highlights: ['不該顯示的賣點'] };
+    render(<ProductTabs product={rpm} />);
+    const pane = document.getElementById('pd-panel-description');
+    expect(pane?.querySelectorAll('.pd-desc-features li').length).toBe(0);
+    expect(pane?.textContent).not.toContain('不該顯示的賣點');
+  });
+
   // 🔴 RPM byte 不變:RPM 有 product.description(舊英文 HTML)仍顯碳纖框架、絕不渲染 description
   it('description pane RPM 有描述時仍顯碳纖框架、不渲染 product.description(byte 不變)', () => {
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', description: 'OLD-ENGLISH-HTML-DESC' };

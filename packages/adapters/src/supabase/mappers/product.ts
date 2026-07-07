@@ -50,6 +50,8 @@ export type SupabaseProductRow = {
   title: string;
   subtitle: string | null;
   description: string | null;
+  // A/#270 賣點條列。jsonb 來源 shape 不保證(可能非陣列/含非字串)→ 型別標 unknown[](對齊 SupabaseVariantRow.images/spec 慣例)、mapper runtime guard 收斂為 string[]。
+  highlights: unknown[] | null;
   handle: string;
   /**
    * price_by_tier jsonb(雙寫過渡期 source of truth)。
@@ -189,6 +191,8 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     fitments: row.fitments,
     priceByTier: { general, store, premiumStore },
     description: row.description ?? '',
+    // A/#270 賣點條列:防禦性 guard(jsonb 來源 shape 不保證)→ 濾出 string、非陣列→[];恆 string[](never null、對齊 domain Product.highlights)。
+    highlights: Array.isArray(row.highlights) ? row.highlights.filter((h): h is string => typeof h === 'string') : [],
     images: row.images,
     availability: row.availability,
     handle: row.handle,
@@ -296,6 +300,8 @@ export function mapDomainProductToSupabase(
     title: domain.name,
     subtitle: emptyToNull(domain.subtitle),
     description: emptyToNull(domain.description),
+    // A/#270:存檔路徑亦持久化賣點條列(domain.highlights 恆 string[]、對齊 products.highlights NOT NULL)。
+    highlights: domain.highlights,
     handle: domain.handle,
     price_by_tier: {
       general: {

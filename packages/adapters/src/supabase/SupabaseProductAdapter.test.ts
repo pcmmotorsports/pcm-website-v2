@@ -93,6 +93,7 @@ const baseRow: SupabaseProductRow = {
   title: '碳纖維單座蓋',
   subtitle: 'Aprilia RSV4 · 碳纖維',
   description: '<p>d</p>',
+  highlights: [],
   handle: 'rpm-0',
   price_general: 6800,
   fitments: [],

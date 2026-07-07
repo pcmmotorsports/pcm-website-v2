@@ -196,6 +196,14 @@ export function ProductTabs({ product }: ProductTabsProps) {
                     {product.fits && product.fits !== '通用款' ? ` · 適用 ${product.fits}` : ''}
                   </p>
                 )}
+              {product.highlights && product.highlights.length > 0 && (
+                // A/#270 賣點條列(design pd-desc-features 破折號清單;來源 highlights_zh 已於 mapper guard 收斂為 string[])
+                <ul className="pd-desc-features">
+                  {product.highlights.map((h, i) => (
+                    <li key={i}>{h}</li>
+                  ))}
+                </ul>
+              )}
               <ul className="pd-list">
                 <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
               </ul>

@@ -28,7 +28,7 @@ import {
 } from './helpers/category-queries';
 
 /**
- * Detail projection(M-1-05 刀 2 Sub-slice 2-3):products_public detail view 14 欄
+ * Detail projection(M-1-05 刀 2 Sub-slice 2-3):products_public detail view 公開欄(含 A/#270 highlights 賣點欄)
  * + brands / categories embedded JOIN、單一 source of truth。
  *
  * 5 read method(findById / searchByKeyword / listByFitment / listByCategory /
@@ -45,7 +45,7 @@ import {
  * 對齊 docs/architecture/supabase-schema-design.md §3.3 + §4.3 JOIN strategy。
  */
 const PRODUCT_SELECT_DETAIL =
-  'id, external_id, title, subtitle, description, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
+  'id, external_id, title, subtitle, description, highlights, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
 /**
  * Detail-with-variants projection(M-1-16c-2、backlog #203):PRODUCT_SELECT_DETAIL +

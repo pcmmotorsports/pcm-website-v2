@@ -133,6 +133,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     // 2026-07-05:商品內文 ← domain product.description(來源繁中內文;mapper row.description ?? '')。
     //   ProductTabs 非 RPM 分支渲染真描述(修「內文寫進 DB 但前台無出口」);RPM 分支 byte 不變不讀此欄。
     description: product.description,
+    // A/#270:賣點條列 ← domain product.highlights(ProductTabs 非 RPM 分支 render pd-desc-features);空陣列不渲染。
+    highlights: product.highlights,
     // M-1-16c-3:變體 server-side strip → UIVariant(只帶 price:number = general、**不帶 priceByTier**;
     //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
     //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。

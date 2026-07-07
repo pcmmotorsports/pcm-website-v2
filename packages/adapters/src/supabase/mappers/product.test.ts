@@ -32,6 +32,7 @@ const baseProductRow: SupabaseProductRow = {
   title: '單座蓋',
   subtitle: 'Aprilia RSV4 · 碳纖維',
   description: '<p>desc</p>',
+  highlights: [],
   handle: 'rpm-bms1k2kr03',
   price_general: 6800,
   fitments: [],
@@ -189,5 +190,28 @@ describe('mapSupabaseProductToDomain 變體整合', () => {
       ],
     });
     expect(p.variants.map((v) => v.sku)).toEqual(['SKU-A', 'SKU-B', 'SKU-C']);
+  });
+
+  // A/#270:highlights guard — jsonb 來源 shape 不保證 → mapper 收斂為乾淨 string[](擋髒資料進 client)
+  it('read:highlights 正常字串陣列 → 原樣還原', () => {
+    const p = mapSupabaseProductToDomain({ ...baseProductRow, highlights: ['G5 鈦合金', 'DLC 塗層'] });
+    expect(p.highlights).toEqual(['G5 鈦合金', 'DLC 塗層']);
+  });
+
+  it('read:highlights = null / 非陣列 / 混非字串 → guard 收斂(恆 string[])', () => {
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, highlights: null }).highlights).toEqual([]);
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, highlights: { a: 1 } as unknown as unknown[] }).highlights,
+    ).toEqual([]); // 非陣列 jsonb(object)→ []
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, highlights: ['乾淨', 123, null, { x: 1 }] as unknown[] })
+        .highlights,
+    ).toEqual(['乾淨']); // 混入非字串 → 只留 string
+  });
+
+  it('write:highlights round-trip(save mapper 持久化 domain.highlights)', () => {
+    const domain = mapSupabaseProductToDomain({ ...baseProductRow, highlights: ['賣點一', '賣點二'] });
+    const wire = mapDomainProductToSupabase(domain, { brandId: 'b-1', categoryId: 'c-1' });
+    expect(wire.highlights).toEqual(['賣點一', '賣點二']);
   });
 });

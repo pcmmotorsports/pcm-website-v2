@@ -67,6 +67,7 @@ function fakeProduct(overrides: Partial<Product> = {}): Product {
       premiumStore: { amount: toMoneyAmount(DEALER_PREMIUM), currency: 'TWD' },
     },
     description: '全段鈦合金、輕量化 35%',
+    highlights: [],
     images: ['https://example.com/img1.jpg'],
     availability: 'in-stock',
     handle: 'akrapovic-titanium-full-exhaust',
