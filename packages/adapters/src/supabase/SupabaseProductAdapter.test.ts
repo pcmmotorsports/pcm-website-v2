@@ -350,6 +350,7 @@ describe('SupabaseProductAdapter.listAllProducts({ limit }) — limit 下推(per
     const adapter = new SupabaseProductAdapter(client);
 
     await expect(adapter.listAllProducts({ limit: 0 })).rejects.toThrow(/limit 須為正整數/);
+    await expect(adapter.listAllProducts({ limit: -1 })).rejects.toThrow(/limit 須為正整數/);
     await expect(adapter.listAllProducts({ limit: 1.5 })).rejects.toThrow(/limit 須為正整數/);
     expect(calls.limit).toHaveLength(0);
     expect(calls.range).toHaveLength(0);

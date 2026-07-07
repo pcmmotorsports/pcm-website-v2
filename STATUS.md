@@ -87,7 +87,7 @@
 2026-06-21(續4)— Claude Code 審查 session(dev=0a8bffb)[**🟢 M-3 3DS-7 7a-7c 審查 PASS 0 must-fix → merge --no-ff dev=0a8bffb + push origin/dev;backlog #245/#246 commit `ddb46d3`;寫審分離 ROLE=A、Sean 授權代執行 merge+push〕]
 
 ## 最近 3 commit
-> dev。**本 commit = Storefront 效能修復 P3(快取層 + 鐵則 12 Packet)、parent=`60996fb`(#270 pd-list fix、與本批 P1/P2 交錯)**。**🚀 origin/main = origin/dev = `85afbf9` 已正式上線 shop.pcmmotorsports.com**;本地 dev 未推(#270 S1+S2 + 本批 P1-P3)。下表列 dev 可達近期 commit(`merge-base --is-ancestor` 驗)。
+> dev。**本 commit = perf/P1-P3 codex Packet 終審 PASS 收尾(3 nit 清:Packet 補 af6d9f2 hash + Supabase limit 測試補 -1)、parent=`af6d9f2`(P3)**。Sean 2026-07-08 拍:codex 由 Claude 直跑 CLI(取代貼 web)+ 授權 push 上線。**🚀 origin/main = origin/dev = `85afbf9` 已正式上線 shop.pcmmotorsports.com**;本地 dev 未推(#270 S1+S2 + 本批 P1-P3)。下表列 dev 可達近期 commit(`merge-base --is-ancestor` 驗)。
 | Hash | 訊息 | 時間 |
 |---|---|---|
 | `60996fb` | fix(storefront): 賣點條列改 pd-list 圓點對齊 RPM(Sean 肉眼驗)[A/#270] | 2026-07-08 |

@@ -15,7 +15,7 @@
 |---|---|---|---|
 | 1 | `93492a9` | perf(config): Vercel function region 搬 sin1 貼齊新加坡 DB [perf/P1] | vercel.json 頂層 `"regions": ["sin1"]` 一行;function(原 iad1 美東)貼齊 Supabase ap-southeast-1;含 plan 檔入 repo |
 | 2 | `64616ee` | perf(storefront): 首頁 featured limit 4 下推 DB + 三段查詢並行 [perf/P2] | port `listAllProducts(options?.limit)` + 兩 adapter 實作與測試;featured `{limit:4}` 免撈全表;首頁三段 Promise.all |
-| 3 | (P3) | perf(storefront): 型錄資料層 unstable_cache 900s + featured 釘 general [perf/P3] | featured/categories/taxonomy 三函式快取;fetchCatalogProducts 因 2MB 上限豁免;fetchFeaturedProducts 去 tier 參數 |
+| 3 | `af6d9f2` | perf(storefront): 型錄資料層 unstable_cache 900s + featured 釘 general [perf/P3] | featured/categories/taxonomy 快取(catalog 因 2MB 上限豁免);fetchFeaturedProducts 去 tier 參數 |
 
 ## 3. 字面 vs 事實揭示
 
@@ -41,7 +41,7 @@
 
 ## 6. Rollback 方式
 
-- P3:`git revert <P3 hash>`(快取層純包裝、拆掉即回 P2 行為;featured 簽名 revert 連動兩呼叫點同 commit 內)。
+- P3:`git revert af6d9f2`(快取層純包裝、拆掉即回 P2 行為;featured 簽名 revert 連動兩呼叫點同 commit 內)。
 - P2:`git revert 64616ee`(port 選用參數、無 schema/資料變更)。
 - P1:刪 vercel.json `"regions"` 行再 deploy、回 iad1 預設。
 - 全批反序 revert 即回 `b080e79` 基線;零 DB 寫入、零 migration、金流 flag 全 false。
