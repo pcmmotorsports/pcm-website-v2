@@ -1075,25 +1075,6 @@
 }
 .pd-list li { margin-bottom: 4px; }
 
-/* A/#270 賣點條列(直搬 design-reference/styles/product-page.css .pd-desc-features、破折號項目符號;
-   --line / --ink-tert 已於本檔頂端 alias 為 --c-border / --c-text-2。font-size 依 design 14px、
-   略小於 Sean 放大後的 pd-list 15.5px = 刻意次要層級、Sean 肉眼驗可調) */
-.pd-desc-features {
-  list-style: none; padding: 0; margin: 20px 0 0;
-}
-.pd-desc-features li {
-  padding: 10px 0 10px 20px;
-  border-bottom: 1px solid var(--line);
-  position: relative;
-  font-size: 14px;
-  overflow-wrap: anywhere; /* 防超長無空白字串(料號/URL)手機橫向溢出;design 未含、對正常賣點文字不可見 */
-}
-.pd-desc-features li::before {
-  content: '—';
-  position: absolute; left: 0; top: 10px;
-  color: var(--ink-tert);
-}
-
 /* Specs pane — OD §9 單欄 key/value(160px 標籤 + 值、列底框線)*/
 .pd-specs {
   display: flex;

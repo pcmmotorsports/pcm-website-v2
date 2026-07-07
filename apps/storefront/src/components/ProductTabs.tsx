@@ -196,15 +196,11 @@ export function ProductTabs({ product }: ProductTabsProps) {
                     {product.fits && product.fits !== '通用款' ? ` · 適用 ${product.fits}` : ''}
                   </p>
                 )}
-              {product.highlights && product.highlights.length > 0 && (
-                // A/#270 賣點條列(design pd-desc-features 破折號清單;來源 highlights_zh 已於 mapper guard 收斂為 string[])
-                <ul className="pd-desc-features">
-                  {product.highlights.map((h, i) => (
-                    <li key={i}>{h}</li>
-                  ))}
-                </ul>
-              )}
+              {/* A/#270 賣點條列:Sean 2026-07-08 肉眼驗改用 pd-list 圓點(對齊 RPM 分支、免破折號賣點與末條 LINE 提醒圓點混排突兀);併入同一圓點清單、空 highlights 只顯 LINE 提醒 */}
               <ul className="pd-list">
+                {product.highlights?.map((h, i) => (
+                  <li key={i}>{h}</li>
+                ))}
                 <li>賣場數量不代表庫存，下單前建議先 LINE 聊聊確認</li>
               </ul>
             </>
