@@ -17,8 +17,8 @@
 // - tier + wallet_balance 走 createServerSupabaseClient 直查 customers(RLS customers_select_own
 //   涵蓋、authenticated role),不繞 SupabaseWalletAdapter(後者強制 service_role writeClient
 //   ctor、storefront 不允許注入 service_role)。
-// - featured 走既有 fetchFeaturedProducts(tier)(server-only、SupabaseProductAdapter listByCategory
-//   「操控部品」.slice(0,4))。
+// - featured 走既有 fetchFeaturedProducts()(server-only;perf/P3 起函式本身釘 general +
+//   unstable_cache 900s,內層 listAllProducts({limit:4}) 全目錄 id 升冪前 4)。
 // - row missing(PGRST116、極罕、trigger handle_new_auth_user 應已建)或 RLS 失敗 → 退化
 //   tier='general' + walletBalance=0、console.error 警示、頁面不 500。
 //
@@ -95,7 +95,9 @@ export default async function AccountPage() {
   //   M-1-16 接 server-side tier-aware price endpoint 後才能真按 tier 顯示。
   //   g-2 階段先固定走 'general' 公開價(視覺對齊 design + 不顯 NT$ 0 + 不洩經銷價),
   //   manifest 已揭示 business override「推薦固定 general、tier-aware 待 M-1-16」。
-  const featured = await fetchFeaturedProducts('general');
+  //   perf/P3 起 fetchFeaturedProducts 本身釘 'general'(unstable_cache 900s、不再收 tier 參數
+  //   ——本頁原本就固定 general、語意不變)。
+  const featured = await fetchFeaturedProducts();
 
   // g-5a:讀自己的收件地址清單(getAddressRepo→listByCustomer、RLS addresses_*_own 守自己 row)。
   // 鏡像 customers 讀的退化 pattern:adapter error(RLS/連線異常)→ 退化空陣列 + console.error、頁面不 500

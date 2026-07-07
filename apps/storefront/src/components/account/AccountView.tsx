@@ -16,7 +16,7 @@
 //
 // g-2(plan v2):
 // - 新 stats prop:tier / walletBalance / orderCount(server 傳入、forward 給 OverviewTab)
-// - 新 featured prop:fetchFeaturedProducts(tier) 結果(server 傳入、forward 給 OverviewTab)
+// - 新 featured prop:fetchFeaturedProducts() 結果(perf/P3 起函式釘 general 不收 tier;server 傳入、forward 給 OverviewTab)
 // - OrdersTab 暫不接 prop(真用戶 0 筆訂單 = 空狀態、純 view、M-3 真接訂單時再加 prop)
 // - g-3~g-7 各 tab 仍 stub(本 slice 不動其他 5 tab、.acc-stub class 保留)
 //

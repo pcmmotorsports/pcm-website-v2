@@ -48,14 +48,15 @@ export default async function HomePage({
   // 三段互不依賴 → Promise.all 並行(perf/P2:原逐一 await 串行、跨區延遲三段相加是首頁
   // TTFB 主因之一;三函式的 adapter 查詢錯誤各自 catch 回 fallback → Promise.all 收到的是
   // resolved fallback 非 rejection。client 建構(env 缺)在 try 外會 throw——舊串行版同炸、非本片新增語意)。
-  // - featured:tier 傳給 fetchFeaturedProducts、由 toUIProduct 走 computeEffectivePrice 算
-  //   price / originalPrice / tierLabel;tier 同時寫進 data-tier 供 dev DOM inspector debug
+  // - featured(perf/P3 釘 general、unstable_cache 900s):不再收 tier——public view 的
+  //   store/premiumStore 價是 dummy 0、傳真 tier 會顯 NT$0 錯價,且 tier 變體不得進共用快取
+  //   (plan §P3 明示語意變更;真 tier 定價待 #215)。tier 仍寫進 data-tier 供 dev DOM inspector debug。
   // - motoBrands(S2/#220b):VehicleFinder 接真 fitment 衍生車輛清單(輕量 fitments-only 查詢、
   //   失敗回 []);與 /products 解析端同一衍生函式 = 首頁選車深連結 id 空間一致、必命中列表過濾
   // - categories(Q4-S5):CategoryGrid 真分類化(修「首頁分類卡點了無過濾」死連結;同 /products
   //   側欄的 fetchCategories→buildCategoryTree,只列有商品分類、深連結 ?category=<真分類名> 必命中過濾)
   const [featured, motoBrands, categories] = await Promise.all([
-    fetchFeaturedProducts(tier),
+    fetchFeaturedProducts(),
     fetchVehicleTaxonomy(),
     fetchCategories(),
   ]);

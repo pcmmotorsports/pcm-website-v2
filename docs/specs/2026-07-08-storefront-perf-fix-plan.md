@@ -35,9 +35,10 @@
 
 ### P3(修法 B):資料層跨請求快取(unstable_cache)
 
-- **改什麼**:4 個資料函式加 `unstable_cache`(Next 16.2.6 查證:仍可用、不需 config flag、force-dynamic 頁面內照樣生效;**cached 函式紀律:只接純參數、內部不呼叫 cookies()/headers()、不閉包 tier/request 狀態**——四函式皆純 Supabase anon 查詢,合法;`'use cache'` 新模式需開 cacheComponents 翻渲染模型,留作日後 fallback、本批不採):
-  - `fetchCatalogProducts` / `fetchCategories` / `fetchVehicleTaxonomy`:輸出對所有訪客恆等(偵察驗證過),直接包。
-  - `fetchFeaturedProducts`:⚠️ 輸出隨 tier 變(price/originalPrice/tierLabel 走 computeEffectivePrice)。拆成 `getFeaturedRawProductsCached()`(進快取、tier 無關)+ 快取外 map;**顯示價釘死 general**(K1 round1 糾正:anon 路徑的 store/premiumStore 價本來就是 dummy 0——mappers/product.ts:172,179——把真 tier 傳進 toUIProduct 會顯示 NT$0 錯價;釘 general 與 fetchCatalogProducts 及 account/page.tsx:91,98「禁 tier-aware pricing」既有先例一致)。call sites 全列:app/page.tsx(首頁)、app/account/page.tsx(已固定 general)。
+- **改什麼**:資料函式加 `unstable_cache`(Next 16.2.6 查證:仍可用、不需 config flag、force-dynamic 頁面內照樣生效——**實作期雙重驗證**:①原始碼 force-dynamic 只設 workStore.forceDynamic、不動 workStore.fetchCache〔create-component-tree.js:150 / work-store.js:47 / unstable-cache.js:146〕②本地 production server 行為實證 3 條 catalog-tag 快取寫入+讀取、首頁重複請求 0.01s;K2 round1 對此的 must-fix 經雙重證據駁回。**cached 函式紀律:只接純參數、內部不呼叫 cookies()/headers()、不閉包 tier/request 狀態**——皆純 Supabase anon 查詢,合法;`'use cache'` 新模式需開 cacheComponents 翻渲染模型,留作日後 fallback、本批不採):
+  - `fetchCategories` / `fetchVehicleTaxonomy`:輸出對所有訪客恆等(偵察驗證過),直接包(實測條目 4KB/28KB)。
+  - ⚠️ `fetchCatalogProducts` **豁免不包**(實作期實測發現):全目錄投影 3,816,327 bytes 超過 Next data cache 單條 2MB 上限、寫入被拒(server log 逐字留證)——包了=永無命中還每請求多付 miss+必敗寫入+2 行錯誤 log。/products 快取治本併入 P4(server 分頁後單頁投影 <2MB 自然可快取)。
+  - `fetchFeaturedProducts`:⚠️ 輸出隨 tier 變(price/originalPrice/tierLabel 走 computeEffectivePrice)。拆成 `getFeaturedUIProductsCached()`(快取 general UI 投影、實測條目 <1KB、無任何 tier 變體進快取;K2 round2 對齊實作名)+ 外層 catch;**顯示價釘死 general**(K1 round1 糾正:anon 路徑的 store/premiumStore 價本來就是 dummy 0——mappers/product.ts:172,179——把真 tier 傳進 toUIProduct 會顯示 NT$0 錯價;釘 general 與 fetchCatalogProducts 及 account/page.tsx:91,98「禁 tier-aware pricing」既有先例一致)。call sites 全列:app/page.tsx(首頁)、app/account/page.tsx(已固定 general)。
   - revalidate 秒數 = Sean 拍板(見 §4 Q2);加 cache tags 供未來 on-demand 失效。
 - **為什麼**:商品資料每天只在台灣時間 03:00 由 GitHub Actions rpm-sync.yml 更新一次(vercel.json 的 2 條 cron 是金流用途、與商品無關),快取幾分鐘零業務風險;第二個訪客起 DB 成本歸零。
 - **影響面**:src/lib/products.ts 為主(+featured 重構牽動 page.tsx、account/page.tsx 呼叫點對齊)。**安全紅線已預先驗證**:四函式打 products_public view(view 級排除 price_store/price_by_tier/metadata)+ anon client(RLS),經銷價欄位雙重擋在快取之外;featured 顯示價釘 general 後,任何 tier 變體皆不進快取、也不再有 dummy 0 錯價路徑。**語意變更明示**:帶 tier cookie 的訪客首頁精選價將從「dummy 資料算出的 tier 價」變為 general 價(現行 tier 價在此路徑無正確資料源,屬修正非退化;真 tier 定價待 #215 server 端 tier 查證後另接)。
@@ -53,8 +54,8 @@
 
 | 路由 | 現況 | P1 後 | P1+P2+P3 後(快取命中) |
 |---|---|---|---|
-| 首頁 | 8.4-12.2s | ~1.5-3s | **<1s** |
-| /products | 5.4-7.2s | ~1.5-2.5s | **~1-1.5s**(payload 傳輸為主,P4 再解) |
+| 首頁 | 8.4-12.2s | ~1.5-3s | **<1s**(三段皆快取、本地實測重複請求 0.01s) |
+| /products | 5.4-7.2s | ~1.5-2.5s | 同 P1 後(**快取因 2MB 上限豁免**、serialize 3.8MB 為主,P4 治本) |
 | 詳情頁 | 2.1-2.4s | **<1s** | 同左(不快取、#206 不觸發) |
 
 數字為估值;每 slice 收工用 curl 三次量測留證。

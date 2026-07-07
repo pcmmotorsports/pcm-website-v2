@@ -38,6 +38,7 @@ if (typeof window !== 'undefined') {
 }
 
 import { cache } from 'react';
+import { unstable_cache } from 'next/cache';
 
 import {
   SupabaseProductAdapter,
@@ -86,6 +87,22 @@ function hashIdToNumber(s: string): number {
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
+
+/**
+ * 型錄資料跨請求快取秒數(perf/P3、Sean 2026-07-08 拍 Q2=15 分)。
+ *
+ * 商品資料每日僅台灣 03:00 由 GitHub Actions rpm-sync.yml 同步一次(vercel.json 兩條 cron
+ * 為金流用途、與商品無關)→ 15 分 staleness 零業務風險、保留人工改 DB 後合理生效窗。
+ *
+ * unstable_cache 紀律(Next 16.2 查證、plan §P3):
+ *   - cached 函式只接純參數、內部不呼叫 cookies()/headers()、不閉包 tier/request 狀態
+ *   - force-dynamic 頁面內照樣生效(force-dynamic 只管 fetch()/segment config、兩機制獨立)
+ *   - 回傳值走 JSON 序列化來回 → 只快取 JSON-safe 的 UI shape(MockProduct 等、無 Date)
+ *   - 失敗 throw 傳播、**不進快取**(在快取外 catch 回 fallback;否則一次瞬時 DB 錯誤會把
+ *     空目錄快取 15 分鐘)
+ *   - 同掛 'catalog' tag:日後同步完可 revalidateTag('catalog') 主動失效(本批未接)
+ */
+const CATALOG_REVALIDATE_SECONDS = 900;
 
 export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   const firstFitment = product.fitments[0];
@@ -182,28 +199,35 @@ export type FeaturedResult = {
  * 撈 featured 4 件商品(對齊 HomeSelect N°04 編輯精選)。
  *
  * 行為(C4/#205 解除寫死單一分類「碳纖維部品」→ 全目錄 id 升冪前 4):
- *   - listAllProducts({ limit: 4 })(perf/P2:limit 下推 DB `.order('id').limit(4)`、
- *     免撈全表——舊 stopgap 撈全目錄 3602 件 slice(0,4) 是首頁 TTFB 秒級主因之一,已解)
+ *   - getFeaturedUIProductsCached()(perf/P3:unstable_cache 900s;內層 listAllProducts({limit:4})
+ *     perf/P2 limit 下推 DB、免撈全表)
  *   - adapter 回 [](空目錄)→ 回 `{ products: [], error: false }`、UI 走 empty 分支
- *   - adapter throw error → console.error + 回 `{ products: [], error: true }`、UI 走 error 分支
+ *   - adapter throw error → **不進快取**、外層 console.error + 回 `{ products: [], error: true }`
  *
- * 查詢語意等價(perf/P2 驗收):與舊「全量 .order('id') 後 slice(0,4)」同為全目錄 id 升冪前 4;
+ * 🔴 **釘 general**(perf/P3、plan §P3 明示語意變更;同 fetchCatalogProducts / fetchProductByHandle /
+ *   account g-2 既有先例):public view 排除 price_store、store/premiumStore 走 dummy 0,傳真 tier
+ *   會顯「NT$ 0」錯價;且 tier 變體若進快取會把 A 訪客 tier 顯價端給 B 訪客。故不收 tier 參數、
+ *   固定 'general'、任何 tier 變體不進快取;真 tier 定價待 #215 server 端 tier 查證後另接。
+ *   (帶 tier cookie 的訪客首頁精選價由「dummy 資料算出的 tier 價」變 general 價=修正非退化。)
+ *
  * featured 本為 Phase-1 placeholder,「featured 旗標」才是正解(#205)。
- *
- * tier 由 caller 傳入(page.tsx 從 cookie / ?tier= override 取得、sub 4b 接通)。
  */
-export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedResult> {
-  const client = createSupabaseAnonClient();
-  const adapter = new SupabaseProductAdapter(client);
-
-  try {
+const getFeaturedUIProductsCached = unstable_cache(
+  async (): Promise<MockProduct[]> => {
+    const client = createSupabaseAnonClient();
+    const adapter = new SupabaseProductAdapter(client);
     const products = await adapter.listAllProducts({ limit: 4 });
-    return {
-      products: products.map((p) => toUIProduct(p, tier)),
-      error: false,
-    };
+    return products.map((p) => toUIProduct(p, 'general'));
+  },
+  ['featured-ui-products-v1'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+export async function fetchFeaturedProducts(): Promise<FeaturedResult> {
+  try {
+    return { products: await getFeaturedUIProductsCached(), error: false };
   } catch (err) {
-    console.error('[fetchFeaturedProducts] adapter.listAllProducts failed:', err);
+    console.error('[fetchFeaturedProducts] cached featured fetch failed:', err);
     return { products: [], error: true };
   }
 }
@@ -224,6 +248,14 @@ export async function fetchFeaturedProducts(tier: MemberTier): Promise<FeaturedR
  *   故不收 tier 參數、固定 'general';tier-aware 列表價待 M-2-08。經銷價零外洩。
  * 🔴 stopgap:全量撈進 client(client filter/分頁、Phase-1 <5000 件可接受)。多品牌(#212)
  *   目錄長大後須改 server-side 分頁/篩選(#51)、非長久解。
+ *
+ * 🔴 perf/P3 快取豁免(實測、2026-07-08 本地 production server):本函式**不包 unstable_cache**——
+ *   全目錄 general 投影 JSON 為 3,816,327 bytes,超過 Next data cache 單條 2MB 上限,寫入被拒
+ *   (server log 逐字:「Failed to set Next.js data cache for unstable_cache /products …
+ *   items over 2MB can not be cached (3816327 bytes)」)。包了=每請求白付 cache.get miss +
+ *   必敗寫入 + 2 行錯誤 log、永無命中。治本=P4 server 分頁 + 列表輕量投影(#51、Sean 已拍
+ *   Q3=P1-P3 上線實測後另提);屆時單頁投影自然低於 2MB 再快取。其餘三函式(featured/
+ *   categories/taxonomy)實測皆 <30KB、快取有效(見各函式)。
  */
 export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   const client = createSupabaseAnonClient();
@@ -249,16 +281,26 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
  *
  * 失敗回 `[]`(側欄分類區空、不 crash;**不** fallback MOCK_CATEGORIES —— 假分類配真過濾器
  * 會產生「點了 0 結果」的死分類,比空更糟)。anon RLS 只計上架、零敏感欄。
+ *
+ * perf/P3:包 unstable_cache 900s(全訪客恆等、JSON-safe 樹;順帶消 1+16 分類 count N+1 的
+ *   每請求成本;失敗 throw 不進快取、外層 catch 回 [])。
  */
-export async function fetchCategories(): Promise<MockCategory[]> {
-  const client = createSupabaseAnonClient();
-  const adapter = new SupabaseProductAdapter(client);
-
-  try {
+const getCategoryTreeCached = unstable_cache(
+  async (): Promise<MockCategory[]> => {
+    const client = createSupabaseAnonClient();
+    const adapter = new SupabaseProductAdapter(client);
     const summaries = await adapter.listCategories();
     return buildCategoryTree(summaries);
+  },
+  ['category-tree-v1'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+export async function fetchCategories(): Promise<MockCategory[]> {
+  try {
+    return await getCategoryTreeCached();
   } catch (err) {
-    console.error('[fetchCategories] adapter.listCategories failed:', err);
+    console.error('[fetchCategories] cached categories fetch failed:', err);
     return [];
   }
 }
@@ -273,14 +315,17 @@ export async function fetchCategories(): Promise<MockCategory[]> {
  *
  * 失敗回 [](VehicleFinder 顯空品牌下拉、不 crash;console.error 留 log)。
  * anon RLS 已擋 delisted(products_public view)、fitments 為公開車輛相容資訊、零敏感欄。
+ *
+ * perf/P3:包 unstable_cache 900s(全訪客恆等、JSON-safe;消首頁第二輪全表 fitments 掃描的
+ *   每請求成本;失敗 throw 不進快取、外層 catch 回 [])。
  */
-export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
-  const client = createSupabaseAnonClient();
-  const PAGE_SIZE = 1000;
-  const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
-  const rows: Array<{ fitments: unknown }> = [];
+const getVehicleTaxonomyCached = unstable_cache(
+  async (): Promise<MockMotoBrand[]> => {
+    const client = createSupabaseAnonClient();
+    const PAGE_SIZE = 1000;
+    const MAX_PAGES = 50; // 防呆:與 adapter listAllByCategory 同上限
+    const rows: Array<{ fitments: unknown }> = [];
 
-  try {
     for (let page = 0; page < MAX_PAGES; page += 1) {
       const from = page * PAGE_SIZE;
       const { data, error } = await client
@@ -299,8 +344,16 @@ export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
           : undefined,
       })),
     );
+  },
+  ['vehicle-taxonomy-v1'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+export async function fetchVehicleTaxonomy(): Promise<MockMotoBrand[]> {
+  try {
+    return await getVehicleTaxonomyCached();
   } catch (err) {
-    console.error('[fetchVehicleTaxonomy] products_public fitments fetch failed:', err);
+    console.error('[fetchVehicleTaxonomy] cached fitments fetch failed:', err);
     return [];
   }
 }
