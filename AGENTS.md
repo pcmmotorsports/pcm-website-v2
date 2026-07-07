@@ -6,8 +6,8 @@
 
 **按需路由(2026-07-03 與 CLAUDE.md 同步瘦身:移除 @import 常載、原版備份 `docs/archive/2026-07-03-AGENTS-md-pre-slim.md`;命中情境才讀,不通讀)**:
 - Phase 1 範圍爭議 → `docs/PHASE-1-NORTHSTAR.md` §1;design 真權威與矛盾仲裁 → 同檔 §2;上線判斷 → 同檔 §5
-- 事故式教訓 37 條(rsync/env·secret/跨 repo/立法格式等) → `docs/lessons-learned.md` §12(掃標題、精準讀命中條);偵察方法論 → 同檔 §13;寫 slice 指令前自檢 → `docs/working-style.md` §6.3;Sean 報告/決策格式 → 同檔 §1/§2;Sean 環境與 dashboard → 同檔 §4
-- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`
+- 事故式教訓 37 條(rsync/env·secret/跨 repo/立法格式等) → `docs/lessons-learned.md` §12(先 `grep -n '^### 12-' docs/lessons-learned.md` 列標題、精準讀命中條);偵察方法論(凡結論將寫「X 未實作/未覆蓋/查無」)→ 同檔 §13;寫 slice 指令前自檢 → `docs/working-style.md` §6.3;Sean 報告/決策格式 → 同檔 §1/§2;Sean 環境與 dashboard → 同檔 §4
+- 三綠與字面vs事實背景 → `docs/patterns/slice-checkpoint.md`;Packet 格式 → `docs/patterns/codex-review-packet.md`;審查鏈全貌 → `docs/patterns/cowork-review-chain.md`;React/hooks 規則 → `docs/patterns/react-nextjs-rules.md`;鐵則詳解與程式碼範例(規則字面以本檔為準)→ `docs/patterns/general.md` + `docs/patterns/pcm-specific.md`
 
 ---
 
@@ -29,7 +29,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
-6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行注意。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
+6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行 → 評估拆分、不拆須於 commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
 7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;Claude Code 端「讀取/驗證/審查/機械批次套用(限主對話已驗證模式、diff 回核)」的委派授權見其 `~/.claude/rules/10-model-dispatch.md` §0-§1,你審到此類委派時知悉為合規、非鐵則 7 違反)。
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema·API·共用元件 / 動 next.config·vercel.json·Medusa config·Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
@@ -80,7 +80,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
 - **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`。
-- **CJK / str_replace**:大塊中文(全形「」():;易誤打半形、byte 不 match)str_replace 易失敗 → 連敗 2 次切策略:① bash sed + anchor(起迄特徵文字非行號)② read→rewrite 整段→write ③ 拆短 anchor。str_replace 適用:程式碼/英文/短中文 anchor。
+- **CJK / str_replace**:大塊中文(全形「」():;易誤打半形、byte 不 match)str_replace 易失敗 → 連敗 2 次切策略:① bash sed + anchor(起迄特徵文字非行號)② read→rewrite 整段→write ③ 拆短 anchor;切策略後僅再試 1 次、同一處總嘗試上限 3 次、仍敗停下回報。str_replace 適用:程式碼/英文/短中文 anchor。
 
 ---
 
@@ -127,7 +127,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 快速自檢清單(你審 slice 是否合規的對照)
 
-**slice 開工前應有**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS) ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD) ☐ 判鐵則 8 重大改動(是則先提 plan 等批) ☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節) ☐ 估時 15-45 分鐘(超出拆)。
+**slice 開工前應有**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS) ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD) ☐ 判鐵則 8 重大改動(是則先提 plan 等批) ☐ 涉金流/RLS/GRANT/migration/schema/auth/.env 任一 → 逐字過鐵則 8+12 觸發清單(硬清單、不憑自評) ☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節) ☐ 估時 15-45 分鐘(超出拆)。
 
 **寫 slice 指令應有**:☐ 直接搬非翻譯 ☐ grep design 字面 ☐ CSS+TSX 同 slice ☐ 前後台同步 ☐ 標內容分級 ☐ 估時 15-45 分 ☐ 數字內部一致 ☐ 用詞精準(preview≠production / stash≠working tree / commit≠push) ☐ 禁止清單可執行不矛盾 ☐ 結尾「— 禁止清單結束 —」未截斷 ☐ 重大改動先提 plan。
 
@@ -137,7 +137,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 突發狀況
 
-**發現 Claude Code 在做這些 → 點出**:把 design「翻譯成 Tailwind 風格」/ 為「保留既有 storefront 結構」改 design 內容 / 憑記憶描述 design·畫預覽 HTML / 把 9 大藍圖 schema 加進 Phase 1 / 一個 slice 跨 5+ 檔 / 想用 Orchestrator(除非 Sean 明確要的有界 research·審查多代理、鐵則 7 例外)/ 即將自動 push。
+**發現 Claude Code 在做這些 → 點出**:把 design「翻譯成 Tailwind 風格」/ 為「保留既有 storefront 結構」改 design 內容 / 憑記憶描述 design·畫預覽 HTML / 把 9 大藍圖 schema 加進 Phase 1 / 一個 slice 跨 3+ 檔卻未提 plan(鐵則 8)/ 想用 Orchestrator(除非 Sean 明確要的有界 research·審查多代理、鐵則 7 例外)/ 即將自動 push。
 
 **Sean 訊息常見回應**:「OK 繼續」→ 直接執行下一步不再確認;「等等/停」→ 立刻停、不執行任何工具呼叫、等下一步;「看不懂/白話一點/畫個圖」→ 視覺化+比喻+multi-select;「[User dismissed…]」→ 不繼續、等 Sean 主動講;Sean 拋新方向(可能與舊拍板衝突)→ 確認是否推翻舊拍板、不假設、不直接照新方向衝。
 
