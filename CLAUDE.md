@@ -54,6 +54,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 決策題 / 報告格式細節 / Sean 說看不懂 | `docs/working-style.md` §1/§2 |
 | 需要 Sean 操作 dashboard / GUI / 查環境路徑 | `docs/working-style.md` §4 |
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
+| 跨專案關聯問題(老闆腦/報價單/上架鏈與本 repo 怎麼連) | 四 repo 合併圖 `/Users/sean_1/老闆腦/跨專案圖/`(cd 進去 `graphify query "問題"`;repo 內問題優先用本 repo `graphify-out/`,較新;合併圖由老闆腦維護、本 repo 不更新它) |
 | 三綠細節 / 字面vs事實背景 | `docs/patterns/slice-checkpoint.md` |
 | Codex Packet 格式 | `docs/patterns/codex-review-packet.md` |
 | 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md` |
