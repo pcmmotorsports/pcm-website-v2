@@ -663,6 +663,37 @@
   white-space: nowrap;
 }
 .pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
+/* 車款過多收合(Sean 2026-07-08:太多列縮起、客人點開)——收合時限高 + 底部漸隱遮罩 + 展開鈕。 */
+.pd-fit-groups.is-collapsed {
+  max-height: 360px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 74%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 74%, transparent 100%);
+}
+.pd-fit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 16px;
+  padding: 9px 18px;
+  font: 600 13px/1 var(--f-mono);
+  letter-spacing: 0.06em;
+  color: var(--c-text);
+  background: none;
+  border: 1px solid var(--c-border);
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.pd-fit-toggle:hover { border-color: var(--c-text); }
+.pd-fit-toggle-caret {
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 0.2s ease;
+}
+.pd-fit-toggle.is-expanded .pd-fit-toggle-caret { transform: rotate(-135deg) translateY(2px); }
 /* 相容車款列 RWD(2026-07-08 修 [A/#270]:原 540 斷點令 541–720px 橫拿手機/大 Android 仍套桌機
    兩欄、長車型名折行使年式 pill 忽同行忽下一行 → 對齊全站 720/1079 斷點)。
    721–1079:保留兩欄、改頂端對齊(避免長車型名折行時年式 pill 視覺掉行);≤720:單欄上下堆疊。 */
@@ -1077,6 +1108,59 @@
 }
 .pd-related-more-link:hover {
   border-color: var(--c-text);
+}
+/* 🔴 N°03 紅色左右導覽箭頭(Sean 2026-07-08:客人不知可左右滑 → 紅箭頭提示)——放標題右上、
+   可捲動才顯、next 初次微動提示、邊界該側 disabled。 */
+.pd-related .pd-section-head {
+  max-width: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+}
+.pd-related-nav {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pd-related-nav-btn {
+  width: 38px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-red);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.3);
+  transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
+}
+.pd-related-nav-btn:hover:not(:disabled) { background: var(--c-red-dark); }
+.pd-related-nav-btn:active:not(:disabled) { transform: scale(0.92); }
+.pd-related-nav-btn:disabled {
+  background: var(--c-surface-2);
+  color: var(--c-text-3);
+  box-shadow: none;
+  cursor: default;
+}
+/* next 可用時初次微動 3 次、暗示可右滑 */
+.pd-related-nav-btn-next:not(:disabled) { animation: pd-related-nudge 1.5s ease-in-out 3; }
+.pd-related-nav-chevron {
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+}
+.pd-related-nav-btn-prev .pd-related-nav-chevron { transform: rotate(-135deg) translate(1px, 1px); }
+.pd-related-nav-btn-next .pd-related-nav-chevron { transform: rotate(45deg) translate(-1px, -1px); }
+@keyframes pd-related-nudge {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(3px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd-related-nav-btn-next { animation: none; }
 }
 
 /* ========= Spec section(長頁全展開 + 跳轉列)========= */

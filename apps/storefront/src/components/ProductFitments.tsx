@@ -23,7 +23,8 @@
 // - yearStart + yearEnd 省略 / ===yearStart → 'YYYY'(單年)
 // - yearStart + yearEnd(明確迄年、≠起年）→ 'YYYY–YYYY'(en-dash「–」對齊 OD 模板「2018–2025」)
 //
-// 純 presentational、無 hooks、無 'use client'(由 client parent ProductPage import 進 client bundle、仍 SSR)。
+// 'use client'(2026-07-08 Sean:車款太多時預設收合、客人點「展開」再看全部——避免長清單占版面、滑很久)。
+//   收合以量測實際高度決定(scrollHeight > 上限才顯切換鈕);SSR 先依品牌數 heuristic 收合、client 精修。
 //
 // a11y:分組以巢狀 ARIA list(role=list / listitem)表達「品牌 → 車型 → 年式」層級;年式清單 aria-label
 //   帶車型名建立年式↔車型關係(報讀器最易丟失的關係)。div 顯式 role、零 CSS / 視覺不變(避開 Safari +
@@ -32,6 +33,9 @@
 // 標點:渲染文案用全形(逗號「，」/ 分號「；」+ 頓號「、」句號「。」);英文 / 程式碼維持半形。
 //   Sean 2026-06-10 Q2=B:商品詳情頁散文家族全改全形、反轉原「半形家族慣例」(業務 override、鐵則 1 例外)。
 
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
 export type ProductFitmentsProps = { product: MockProduct };
@@ -74,12 +78,29 @@ function groupFitments(fitments: UIFitment[]): BrandGroup[] {
   }));
 }
 
+/** 收合時車款區最大高度(px);超過才顯「展開」鈕(Sean:太多列縮起、客人點開)。 */
+const FIT_COLLAPSED_MAX_PX = 360;
+
 export function ProductFitments({ product }: ProductFitmentsProps) {
   const fitments = product.fitments;
+  const groups = fitments && fitments.length > 0 ? groupFitments(fitments) : [];
+
+  // hooks 無條件先呼叫(rules-of-hooks;早退在其後)。
+  const groupsRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  // SSR heuristic:品牌數 ≥4 先當作長清單收合(避免長表 flash);client mount 量實際高度精修。
+  const [needsCollapse, setNeedsCollapse] = useState(groups.length >= 4);
+  useEffect(() => {
+    const el = groupsRef.current;
+    if (!el) return;
+    setNeedsCollapse(el.scrollHeight > FIT_COLLAPSED_MAX_PX + 48);
+  }, [product]);
+
   // 空狀態:無 fitments(mock / 通用款 / 無資料真品)→ 整段不渲染(規格 tab 交叉引用同步條件顯)。
   if (!fitments || fitments.length === 0) return null;
 
-  const groups = groupFitments(fitments);
+  const collapsed = needsCollapse && !expanded;
+  const totalModels = groups.reduce((n, g) => n + g.models.length, 0);
 
   return (
     <section className="pd-fitments-section" aria-labelledby="pd-h-fit">
@@ -90,7 +111,11 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
         </div>
         <div className="pd-fit-hint">下單前請先聊聊確認您的年式 / 配備</div>
       </div>
-      <div className="pd-fit-groups" role="list">
+      <div
+        ref={groupsRef}
+        className={collapsed ? 'pd-fit-groups is-collapsed' : 'pd-fit-groups'}
+        role="list"
+      >
         {groups.map((g) => (
           <div className="pd-fit-group" role="listitem" key={g.brand}>
             <div className="pd-fit-brand">{g.brand}</div>
@@ -116,6 +141,17 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
           </div>
         ))}
       </div>
+      {needsCollapse && (
+        <button
+          type="button"
+          className={expanded ? 'pd-fit-toggle is-expanded' : 'pd-fit-toggle'}
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          <span>{expanded ? '收合車款' : `展開全部 ${totalModels} 款車型`}</span>
+          <span className="pd-fit-toggle-caret" aria-hidden="true" />
+        </button>
+      )}
       <p className="pd-fit-note">列表為主要適用車款；同系列其他年式 / 配備如需確認，歡迎 LINE 諮詢。</p>
     </section>
   );
