@@ -651,8 +651,16 @@
   white-space: nowrap;
 }
 .pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
-@media (max-width: 540px) {
+/* 相容車款列 RWD(2026-07-08 修 [A/#270]:原 540 斷點令 541–720px 橫拿手機/大 Android 仍套桌機
+   兩欄、長車型名折行使年式 pill 忽同行忽下一行 → 對齊全站 720/1079 斷點)。
+   721–1079:保留兩欄、改頂端對齊(避免長車型名折行時年式 pill 視覺掉行);≤720:單欄上下堆疊。 */
+@media (max-width: 1079px) and (min-width: 721px) {
+  .pd-fit-row { align-items: start; }
+}
+@media (max-width: 720px) {
   .pd-fit-row { grid-template-columns: 1fr; gap: 6px; }
+}
+@media (max-width: 540px) {
   .pd-fit-brand { font-size: 12px; }
   .pd-fit-year { font-size: 13px; padding: 2px 8px; }
 }
