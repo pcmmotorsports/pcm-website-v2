@@ -19,13 +19,20 @@ export type ProductRelatedProps = {
   hasMore: boolean;
   moreHref?: string;
   hasVehicle: boolean;
+  /**
+   * 選定車輛的 URL 短版 slug(brandId:modelId[:year]);有值時相關商品卡片連結帶 `?vehicle=`,
+   * 讓「這台車也適用」的車輛 context 在 PDP→相關商品→下一個 PDP 的點擊鏈中延續(Q2=A vehicle producer)。
+   */
+  vehicleParam?: string;
 };
 
-export function ProductRelated({ related, hasMore, moreHref, hasVehicle }: ProductRelatedProps) {
+export function ProductRelated({ related, hasMore, moreHref, hasVehicle, vehicleParam }: ProductRelatedProps) {
   if (related.length === 0) return null;
 
   const title = hasVehicle ? '這台車也適用' : '同款推薦';
   const moreLabel = hasVehicle ? '查看全部相容商品' : '查看全部同款商品';
+  const cardHref = (slug: string): string =>
+    vehicleParam ? `/products/${slug}?vehicle=${encodeURIComponent(vehicleParam)}` : `/products/${slug}`;
 
   return (
     <section className="pd-section pd-related" aria-labelledby="pd-h-related">
@@ -43,7 +50,7 @@ export function ProductRelated({ related, hasMore, moreHref, hasVehicle }: Produ
           .pd-related-grid class 由 grid 改 flex carousel、卡片沿用 <ProductCard>。 */}
       <div className="pd-related-grid">
         {related.map((p) => (
-          <ProductCard key={p.slug} p={p} href={`/products/${p.slug}`} />
+          <ProductCard key={p.slug} p={p} href={cardHref(p.slug)} />
         ))}
       </div>
       {hasMore && moreHref && (

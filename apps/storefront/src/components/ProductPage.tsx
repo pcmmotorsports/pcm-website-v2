@@ -47,6 +47,8 @@ export type ProductPageProps = {
   relatedMoreHref?: string;
   /** R3:情境化標題(L1、plan §5)——有選車=「這台車也適用」/ 無車=「同款推薦」。 */
   relatedHasVehicle?: boolean;
+  /** Q2=A:選定車輛 URL 短版 slug;有值時相關商品卡片連結帶 ?vehicle=、延續車輛 context。 */
+  relatedVehicleParam?: string;
 };
 
 type Crumb = { label: string; href?: string; current?: boolean };
@@ -58,6 +60,7 @@ export function ProductPage({
   relatedHasMore = false,
   relatedMoreHref,
   relatedHasVehicle = false,
+  relatedVehicleParam,
 }: ProductPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -320,6 +323,7 @@ export function ProductPage({
           hasMore={relatedHasMore}
           moreHref={relatedMoreHref}
           hasVehicle={relatedHasVehicle}
+          vehicleParam={relatedVehicleParam}
         />
 
         {/* N°04 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10、Sean Q1 override 排 N°04) */}

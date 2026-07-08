@@ -137,6 +137,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         relatedHasMore={relatedHasMore}
         relatedMoreHref={relatedMoreHref}
         relatedHasVehicle={vehicle != null}
+        relatedVehicleParam={vehicleParamForHref ?? undefined}
       />
     </>
   );

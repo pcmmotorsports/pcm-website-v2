@@ -232,6 +232,35 @@ describe('ProductPage', () => {
     expect(document.querySelector('.pd-related-more-link')).toBeNull();
   });
 
+  // Q2=A vehicle producer:relatedVehicleParam 設定 → 相關商品卡片連結帶 ?vehicle=(車輛 context
+  //   在 PDP→相關商品→下一個 PDP 點擊鏈中延續、「這台車也適用」不斷)。
+  it('should carry ?vehicle on related card links when relatedVehicleParam set', () => {
+    mockSearchParams = new URLSearchParams('vehicle=yamaha:mt09:2024');
+    render(
+      <ProductPage
+        product={MOCK_PRODUCTS[0]!}
+        tier="general"
+        related={MOCK_PRODUCTS.slice(1, 3)}
+        relatedHasVehicle
+        relatedVehicleParam="yamaha:mt09:2024"
+      />,
+    );
+    const grid = document.querySelector('.pd-related-grid')!;
+    const links = grid.querySelectorAll('a[href^="/products/"]');
+    expect(links.length).toBeGreaterThan(0);
+    links.forEach((a) => expect(a.getAttribute('href')).toContain('?vehicle=yamaha'));
+  });
+
+  // 無 relatedVehicleParam(Case B / 無車)→ 卡片連結為純 /products/{slug}、不帶 ?vehicle。
+  it('should NOT carry ?vehicle on related card links without relatedVehicleParam', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    const grid = document.querySelector('.pd-related-grid')!;
+    const links = grid.querySelectorAll('a[href^="/products/"]');
+    expect(links.length).toBeGreaterThan(0);
+    links.forEach((a) => expect(a.getAttribute('href')).not.toContain('vehicle='));
+  });
+
   // R3:related 為空(引擎撈不到 / 失敗降級)→ 相關商品 section 條件隱藏(不顯空卡、不 crash)。
   it('should hide related section when related prop is empty', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
