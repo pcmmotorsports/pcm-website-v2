@@ -19,51 +19,18 @@ import {
   type CascadeFilterAction,
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+// 🔴 R3:SearchParamsLike + parseVehicleFromUrl 抽到無 hooks 的 @/lib/vehicle-url(供詳情頁 Server
+//   Component 共用、本檔含 hooks 不可被 server import);本檔 re-export parseVehicleFromUrl 保 back-compat。
+import { parseVehicleFromUrl, type SearchParamsLike } from '@/lib/vehicle-url';
+export { parseVehicleFromUrl };
 
 export const SORT_VALUES = ['recommend', 'new', 'price-asc', 'price-desc', 'sale'] as const; // = SortBar <option>
 export const PER_PAGE_VALUES = [25, 50, 75, 100] as const; // = Pagination #pp-perpage <option>
 export const DEFAULT_SORT = 'recommend';
 export const DEFAULT_PER_PAGE = 25;
 
-/** 只認 name/value 讀取介面(相容 ReadonlyURLSearchParams 與測試 mock 的 URLSearchParams) */
-type SearchParamsLike = { get(name: string): string | null };
-
-// 解析 URL vehicle 參數 → VehicleSelection(name-based、對齊 reducer 介面;#6 拆檔時自
-// ProductsPage.tsx 原樣搬入、邏輯零動)
-// Q1=C 雙格式:短版 ?vehicle=brandId:modelId[:year] 優先、長版 ?brand=&model=&year= fallback
-// S2(2026-07-03)起 VehicleFinder 亦改 push 短版(id 空間統一衍生清單)→ 站內兩個
-// producer(ProductCard href / VehicleFinder)皆短版;長版分支僅吸收書籤舊連結、可日後刪。
-export function parseVehicleFromUrl(
-  searchParams: SearchParamsLike,
-  motoBrands: MockMotoBrand[],
-): { brand: string; model?: string; year?: number } | null {
-  const v = searchParams.get('vehicle');
-  let brandId: string | null = null;
-  let modelId: string | null = null;
-  let yearStr: string | null = null;
-  if (v) {
-    const parts = v.split(':');
-    brandId = parts[0] || null;
-    modelId = parts[1] || null;
-    yearStr = parts[2] || null;
-  } else {
-    brandId = searchParams.get('brand');
-    modelId = searchParams.get('model');
-    yearStr = searchParams.get('year');
-  }
-  if (!brandId) return null;
-  const brandObj = motoBrands.find((b) => b.id === brandId);
-  if (!brandObj) return null;
-  const modelObj = modelId
-    ? brandObj.models?.find((m) => m.id === modelId)
-    : null;
-  const year = yearStr ? Number.parseInt(yearStr, 10) : undefined;
-  return {
-    brand: brandObj.name,
-    model: modelObj?.name,
-    year: year != null && Number.isFinite(year) ? year : undefined,
-  };
-}
+// SearchParamsLike + parseVehicleFromUrl 已抽到 @/lib/vehicle-url(見檔頭 import;server 共用);
+// 本檔內部消費者(useBrowseUrlState 等)與外部(詳情頁 route)皆吃同一份、id 空間一致。
 
 // ── Q4-S5(2026-07-05):?category= / ?brand= 入站深連結(首頁分類卡 / 品牌牆殘廢修復)──
 // 背景:design 是 SPA in-memory nav(onNav('products',{category}))、Next port 產生了

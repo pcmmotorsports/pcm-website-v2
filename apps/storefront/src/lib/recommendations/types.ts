@@ -83,7 +83,11 @@ export type RecommendedProduct = {
 
 export type RecommendationResult = {
   items: RecommendedProduct[];
-  /** 🔴 去重/排自身後的候選數 > limit → true;前端據此顯「查看全部相容」 */
+  /**
+   * 🔴 主池(「查看全部」CTA 目標:Case A 車輛 filter / Case B 品牌 filter)去重排自身後 > limit → true。
+   *   **非全候選流**——items 可由 fallback/通用款灌到 limit,但 hasMore 只看主池;否則主池 ≤ limit 卻被
+   *   fallback 灌成 true、CTA 點進去只有 ≤limit 品=誤導(codex R3 F1、supersede plan §2 full-stream 定義)。
+   */
   hasMore: boolean;
 };
 

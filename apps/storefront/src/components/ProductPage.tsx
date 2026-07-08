@@ -32,20 +32,33 @@ import { ProductFitments } from './ProductFitments';
 import { BrandShowcase } from './BrandShowcase';
 import { ProductTabs } from './ProductTabs';
 import { ProductFAQ } from './ProductFAQ';
-import { ProductCard } from './ProductCard';
+import { ProductRelated } from './ProductRelated';
 import { LineCtaButton } from './LineCtaButton';
 import '@/styles/product-page.css';
 
 export type ProductPageProps = {
   product: MockProduct;
   tier: MemberTier;
-  /** C5/#258:同分類相關商品(server 端 fetchRelatedProducts 已排除自身 + 取前 4、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
+  /** R3/N°03:推薦引擎相關商品(server 端 RuleBasedRecommendationEngine 已排自身 + 排序 + 取前 limit、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
   related: MockProduct[];
+  /** R3:引擎回傳 hasMore(去重排自身後候選 > limit)→ true 才顯「查看全部相容」。 */
+  relatedHasMore?: boolean;
+  /** R3:「查看全部」連結(有車→ /products?vehicle= / 無車→ /products?brand=);relatedHasMore 為真才用。 */
+  relatedMoreHref?: string;
+  /** R3:情境化標題(L1、plan §5)——有選車=「這台車也適用」/ 無車=「同款推薦」。 */
+  relatedHasVehicle?: boolean;
 };
 
 type Crumb = { label: string; href?: string; current?: boolean };
 
-export function ProductPage({ product, tier, related }: ProductPageProps) {
+export function ProductPage({
+  product,
+  tier,
+  related,
+  relatedHasMore = false,
+  relatedMoreHref,
+  relatedHasVehicle = false,
+}: ProductPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -202,10 +215,9 @@ export function ProductPage({ product, tier, related }: ProductPageProps) {
     router.push(`/products?vehicle=${encodeURIComponent(vehicle)}`);
   };
 
-  // C5/#258:Related 同分類商品改真資料(對應 HANDOFF #16;拆舊 MOCK_PRODUCTS 假圖+死連結休眠地雷)。
-  //   server 端 fetchRelatedProducts(product.category, product.slug) 已走 listByCategory 同分類查詢、
-  //   排除自身、取前 4、toUIProduct 'general' strip → 直接用 `related` prop 渲染(<4 或空 → section 隱藏)。
-  //   Related grid 用既有 <ProductCard> 元件、不複製 demo .vcf-related-card hardcoded(lessons §12-37)。
+  // R3/N°03(取代 C5/#258 同分類版):Related 由 server 端推薦引擎(RuleBasedRecommendationEngine)供給——
+  //   Case A 反查選定車相容池 / Case B 同品牌,已排自身 + 排序 + 取前 limit(8)+ toUIProduct 'general' strip →
+  //   `related` prop 交 <ProductRelated>(鐵則 6 抽出子元件)渲染;hasMore/情境化標題由 route 傳 prop。
   const relatedProducts = related;
 
   return (
@@ -301,28 +313,14 @@ export function ProductPage({ product, tier, related }: ProductPageProps) {
             OD 模板原順序(Fitments→N°01→N°02→Tabs)於此 supersede:改 Fitments→Tabs→BrandShowcase。 */}
         <BrandShowcase product={product} />
 
-        {/* M-1-13H-6:Related section(對應 HANDOFF #16 + Q4 + lessons §12-37);
-            用既有 <ProductCard> 元件 map、不複製 design VariantCFull L219-230 demo
-            .vcf-related-card hardcoded(demo 自包含寫法、不取代正式元件、對齊 lessons §12-37
-            「demo 變體字面不取代正式元件」);OD-9 標題 eyebrow 換 OD N° 巢狀形態(03 + 金線 + N° 相關商品、對齊 N°01/N°02);
-            relatedProducts < 4 時不顯示空卡(條件渲染整個 section) */}
-        {relatedProducts.length > 0 && (
-          <section className="pd-section pd-related" aria-labelledby="pd-h-related">
-            <div className="pd-section-head">
-              <div className="pd-eyebrow">
-                <span className="pd-eb-no">03</span>
-                <span className="pd-eb-sep" aria-hidden="true" />
-                <span className="pd-eb-label">{'N°  相關商品'}</span>
-              </div>
-              <h2 className="pd-h2" id="pd-h-related">相同分類</h2>
-            </div>
-            <div className="pd-related-grid">
-              {relatedProducts.map((p) => (
-                <ProductCard key={p.slug} p={p} href={`/products/${p.slug}`} />
-              ))}
-            </div>
-          </section>
-        )}
+        {/* N°03 相關商品(R3、鐵則 6 抽 ProductRelated 子元件、對齊 S3 抽 BrandShowcase 精神);
+            內容由 server 推薦引擎供給、情境化標題 + carousel + hasMore CTA 皆在子元件。related 空 → 隱藏。 */}
+        <ProductRelated
+          related={relatedProducts}
+          hasMore={relatedHasMore}
+          moreHref={relatedMoreHref}
+          hasVehicle={relatedHasVehicle}
+        />
 
         {/* N°04 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10、Sean Q1 override 排 N°04) */}
         <ProductFAQ />

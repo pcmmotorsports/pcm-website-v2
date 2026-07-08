@@ -161,18 +161,78 @@ describe('ProductPage', () => {
   });
 
   // OD-9:N°03 相關商品 section 換 OD N° 巢狀 eyebrow(03 + 金線 + N° 相關商品、對齊 N°01/N°02)。
-  // C5/#258:related 由 server prop 傳入(不再從 MOCK_PRODUCTS 衍生);傳非空 fixture → section 渲染。
-  it('should render N°03 related section with OD nested eyebrow (related prop 非空)', () => {
+  // R3:related 由 server 推薦引擎 prop 傳入;傳非空 fixture → section 渲染。無車 → 標題「同款推薦」(L1)。
+  it('should render N°03 related section with OD nested eyebrow (related prop 非空、無車標題)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
     const related = document.querySelector('.pd-related');
     expect(related).not.toBeNull();
     expect(related!.querySelector('.pd-eb-no')?.textContent).toBe('03');
     expect(related!.querySelector('.pd-eb-label')?.textContent).toContain('相關商品');
-    expect(within(related as HTMLElement).getByText('相同分類')).toBeDefined();
+    expect(within(related as HTMLElement).getByText('同款推薦')).toBeDefined();
   });
 
-  // C5/#258:related 為空(server 撈不到同分類 / 失敗)→ 相關商品 section 條件隱藏(不顯空卡、不 crash)。
+  // R3 情境化標題(L1):有選車(relatedHasVehicle)→「這台車也適用」。
+  it('should show vehicle-context title when relatedHasVehicle', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(
+      <ProductPage
+        product={MOCK_PRODUCTS[0]!}
+        tier="general"
+        related={MOCK_PRODUCTS.slice(1, 3)}
+        relatedHasVehicle
+      />,
+    );
+    const related = document.querySelector('.pd-related');
+    expect(within(related as HTMLElement).getByText('這台車也適用')).toBeDefined();
+    expect(within(related as HTMLElement).queryByText('同款推薦')).toBeNull();
+  });
+
+  // R3:hasMore=true + href → 顯「查看全部」連結、href 正確。無車 → 文案「同款商品」(codex R3 F2)。
+  it('should show "查看全部同款商品" link with href when relatedHasMore (無車)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(
+      <ProductPage
+        product={MOCK_PRODUCTS[0]!}
+        tier="general"
+        related={MOCK_PRODUCTS.slice(1, 3)}
+        relatedHasMore
+        relatedMoreHref="/products?brand=rpm-carbon"
+      />,
+    );
+    const link = document.querySelector('.pd-related-more-link') as HTMLAnchorElement | null;
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toContain('查看全部同款商品'); // 無車分支
+    expect(link!.getAttribute('href')).toBe('/products?brand=rpm-carbon');
+  });
+
+  // R3 codex F2:有車 → CTA 文案「相容商品」(對齊 vehicle filter 目標)。
+  it('should show "查看全部相容商品" link when relatedHasMore + relatedHasVehicle (有車)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(
+      <ProductPage
+        product={MOCK_PRODUCTS[0]!}
+        tier="general"
+        related={MOCK_PRODUCTS.slice(1, 3)}
+        relatedHasMore
+        relatedHasVehicle
+        relatedMoreHref="/products?vehicle=yamaha%3Amt09%3A2024"
+      />,
+    );
+    const link = document.querySelector('.pd-related-more-link') as HTMLAnchorElement | null;
+    expect(link).not.toBeNull();
+    expect(link!.textContent).toContain('查看全部相容商品'); // 有車分支
+    expect(link!.getAttribute('href')).toBe('/products?vehicle=yamaha%3Amt09%3A2024');
+  });
+
+  // R3:hasMore=false(預設)→ 不顯「查看全部」連結。
+  it('should hide "查看全部" link when relatedHasMore is false', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    expect(document.querySelector('.pd-related-more-link')).toBeNull();
+  });
+
+  // R3:related 為空(引擎撈不到 / 失敗降級)→ 相關商品 section 條件隱藏(不顯空卡、不 crash)。
   it('should hide related section when related prop is empty', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);

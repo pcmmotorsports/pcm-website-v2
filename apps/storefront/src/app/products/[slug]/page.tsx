@@ -24,13 +24,17 @@
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
-import { fetchProductByHandle, fetchRelatedProducts } from '@/lib/products';
+import { fetchProductByHandle, fetchVehicleTaxonomy } from '@/lib/products';
+import { fetchRecommendedProducts } from '@/lib/recommendations/fetch-recommendations';
+import type { VehicleSelection } from '@/lib/recommendations';
+import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -65,16 +69,53 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function ProductSlugRoute({ params }: Props) {
+export default async function ProductSlugRoute({ params, searchParams }: Props) {
   const { slug } = await params;
   const product = await fetchProductByHandle(slug);
   if (!product) {
     notFound();
   }
 
-  // C5/#258:相關商品真資料(同分類、排除自身、取 4;server 端撈、經銷價零外洩)→ ProductPage `related` prop。
-  //   在 product 取回後(need product.category)、與 JSON-LD 並列;失敗 → [](相關商品區隱藏、不 crash)。
-  const related = await fetchRelatedProducts(product.category, product.slug);
+  // R3/N°03 推薦引擎接線(取代 C5 fetchRelatedProducts 同分類版、對齊 plan §5 資料流):
+  //   ① 讀 ?vehicle → 用 cached vehicle taxonomy 把 slug 解回原始車廠/車型名(codex #2 linchpin:
+  //      URL 存 taxonomy 去重後 slug id〔含碰撞序號〕、product_fitments 存原始名、禁裸 slugify 現算;
+  //      複用 /products 列表端同一 parseVehicleFromUrl + 同一 buildVehicleTaxonomy 衍生源=id 空間一致)。
+  //      taxonomy 由 fetchVehicleTaxonomy(unstable_cache 900s)供給 → 詳情頁免每請求重建(plan §5 決策點解)。
+  //   ② 有車且解出車型 → Case A 反查選定車相容池;否則 Case B 同品牌。引擎輸出經銷價已 strip、失敗降級空。
+  const sp = await searchParams;
+  const spGet = (name: string): string | null => {
+    const v = sp[name];
+    if (typeof v === 'string') return v;
+    if (Array.isArray(v)) return v[0] ?? null; // 對齊 URLSearchParams.get():重複參數取首值
+    return null;
+  };
+  // 一般 PDP(無車輛參數)不撈 taxonomy(免多餘查詢);短版 ?vehicle 或長版 ?brand=&model=(書籤舊連結、
+  //   parseVehicleFromUrl fallback 分支)才解析(codex R3 F3:勿只認短版而丟長版;?brand= 單獨=商品品牌
+  //   filter 語意、需 model 同在才當車輛長版、不誤觸)。
+  const hasVehicleParam =
+    spGet('vehicle') != null || (spGet('brand') != null && spGet('model') != null);
+  const taxonomy = hasVehicleParam ? await fetchVehicleTaxonomy() : [];
+  const parsedVehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, taxonomy) : null;
+  // Case A 反查需 motoBrand + modelCode 都有;只選了品牌沒選車型 → 當作沒車(Case B 同品牌)。
+  const vehicle: VehicleSelection | undefined =
+    parsedVehicle && parsedVehicle.model
+      ? { motoBrand: parsedVehicle.brand, modelCode: parsedVehicle.model, year: parsedVehicle.year }
+      : undefined;
+
+  const { items: related, hasMore: relatedHasMore } = await fetchRecommendedProducts(
+    product.slug,
+    vehicle,
+  );
+
+  // 「查看全部」連結(hasMore 才顯):🔴 Case A(有車)一律連車輛 filter——短版 ?vehicle 或由長版
+  //   ?brand=&model= 合成短版 slug(codex R3 r2:長版書籤 Case A 不可退成商品品牌 filter=文案「相容」
+  //   卻連品牌 filter 誤導);Case B(無車)連商品品牌 filter;皆無 → /products(fail-safe)。
+  const vehicleParamForHref = vehicle ? vehicleUrlParam({ get: spGet }) : null;
+  const relatedMoreHref = vehicleParamForHref
+    ? `/products?vehicle=${encodeURIComponent(vehicleParamForHref)}`
+    : !vehicle && product.brandSlug
+      ? `/products?brand=${encodeURIComponent(product.brandSlug)}`
+      : '/products';
 
   // M-1-16c-4c:schema.org/Product JSON-LD。base 未解析出時(prod 未設環境變數)省略 url 欄。
   const base = resolveSiteUrl();
@@ -89,7 +130,14 @@ export default async function ProductSlugRoute({ params }: Props) {
         // 對齊 Next 官方 json-ld guide:escape(< → 跳脫序列 U+003C)已在 serializeProductJsonLd、防 </script> breakout。
         dangerouslySetInnerHTML={{ __html: jsonLd }}
       />
-      <ProductPage product={product} tier="general" related={related} />
+      <ProductPage
+        product={product}
+        tier="general"
+        related={related}
+        relatedHasMore={relatedHasMore}
+        relatedMoreHref={relatedMoreHref}
+        relatedHasVehicle={vehicle != null}
+      />
     </>
   );
 }

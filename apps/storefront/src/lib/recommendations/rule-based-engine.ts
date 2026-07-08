@@ -27,9 +27,10 @@ import type {
  * 🔴 **決定性(禁 Math.random)**:seed = `placement|product.handle|vehicleKey`,亂數 tier 以
  *   seed+handle 雜湊排序 → SSR 兩次 render 一致、不同情境不同序(plan §4)。
  *
- * 🔴 **hasMore 正確實作(plan §2 codex #5)**:各 tier 候選**組成最終有序流 → 去重(by handle)→
- *   排自身/excludeHandles** 後才判斷;絕不 per-source 先 limit+1(會被 duplicate/self 裁掉誤判)。
- *   收集階段在 `limit+1` 即停(控成本 + hasMore 準確)。
+ * 🔴 **hasMore 主池語意(codex R3 F1、supersede plan §2 full-stream 定義)**:hasMore = 主池
+ *   (「查看全部」CTA 目標 filter:Case A 車輛池 / Case B 品牌池)去重排自身後 > limit;**非全候選流**。
+ *   items 仍由全候選流(tier + fallback + 通用款)去重排自身填到 limit(收集階段 `limit+1` 即停控成本),
+ *   但 hasMore 只看主池——否則主池 ≤ limit 卻被 fallback 灌滿時 hasMore=true、CTA 點進去只有 ≤limit 品=誤導。
  *
  * 🔴 **經銷價安全**:引擎回 product → 一律 `toUIProduct(p,'general')` strip(public view 物理
  *   排除 price_store、傳 general 免 NT$0 錯價);與 fetchRelatedProducts 同守則。
@@ -82,12 +83,20 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
 
     const enough = (): boolean => collected.length >= cap;
 
+    // 🔴 hasMore 主池語意(codex R3 F1、supersede plan §2 full-stream 定義):
+    //   「查看全部」CTA 連到主池對應 filter(Case A → /products?vehicle= / Case B → /products?brand=)。
+    //   若用全候選流(含 fallback 同分類/通用款)判 hasMore,主池 ≤ limit 卻被 fallback 灌滿時 hasMore=true、
+    //   CTA 點進去只有 ≤limit 相容品=誤導。故 hasMore = 主池(CTA 目標集合)去重排自身後 > limit。
+    //   items 仍由全候選流(含 fallback)填到 limit(carousel 儘量填滿),兩者分離。
+    let primaryPoolCount = 0;
+
     // 🔴 repo 查詢 throw(DB 斷線/RLS 錯)→ 降級回空、不讓推薦區 crash 整頁(對齊 sibling
     //   fetchRelatedProducts「adapter throw → console.error + []」慣例;推薦區非關鍵、可降級)。
     try {
       if (context.vehicle) {
         // ── Case A:反查「選定車輛」的相容池 ─────────────────────────────
         const vehiclePool = await this.repo.listByFitment(vehicleToSpec(context.vehicle));
+        primaryPoolCount = countDistinctEligible(vehiclePool, excludes); // CTA=/products?vehicle=
         const sameCat = vehiclePool.filter((p) => p.category.raw === sameCategoryRaw);
         const otherCat = vehiclePool.filter((p) => p.category.raw !== sameCategoryRaw);
         addTier(sameCat, 100, 'same-vehicle-same-category', false); // 同車×同分類:最相關、決定性排序
@@ -99,6 +108,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
       } else {
         // ── Case B:同品牌池(用 domain product.brand.id uuid) ──────────
         const brandPool = await this.repo.listByBrand(product.brand.id);
+        primaryPoolCount = countDistinctEligible(brandPool, excludes); // CTA=/products?brand=
         const sameCat = brandPool.filter((p) => p.category.raw === sameCategoryRaw);
         const otherCat = brandPool.filter((p) => p.category.raw !== sameCategoryRaw);
         addTier(sameCat, 100, 'same-brand', false); // 同品牌×同分類:決定性排序
@@ -119,7 +129,7 @@ export class RuleBasedRecommendationEngine implements IRecommendationEngine {
       return { items: [], hasMore: false };
     }
 
-    const hasMore = collected.length > limit;
+    const hasMore = primaryPoolCount > limit;
     const items = collected.slice(0, limit).map((c) => ({
       product: toUIProduct(c.product, 'general'), // 🔴 經銷價 strip、client 安全
       score: c.score,
@@ -140,6 +150,19 @@ function vehicleToSpec(vehicle: VehicleSelection): FitmentSpec {
     modelCode: vehicle.modelCode,
     ...(vehicle.year != null ? { yearStart: vehicle.year, yearEnd: vehicle.year } : {}),
   };
+}
+
+/**
+ * 主池去重(by handle)+ 排除 excludes(含自身)後的 distinct 數。
+ * hasMore 用之:主池(CTA 目標 filter)去重排自身 > limit 才顯「查看全部」(codex R3 F1)。
+ */
+function countDistinctEligible(pool: Product[], excludes: Set<string>): number {
+  const seen = new Set<string>();
+  for (const p of pool) {
+    if (excludes.has(p.handle) || seen.has(p.handle)) continue;
+    seen.add(p.handle);
+  }
+  return seen.size;
 }
 
 /** 決定性排序(同分類 tier 用):handle 升冪、穩定不跳(對齊 fetchRelatedProducts)。 */

@@ -323,6 +323,43 @@ describe('RuleBasedRecommendationEngine — 決定性 / hasMore / 經銷價 stri
     expect(res.hasMore).toBe(false);
   });
 
+  // 🔴 codex R3 F1:hasMore = 主池(CTA 目標 filter)> limit,非全候選流。車輛池 ≤ limit 但 fallback
+  //   灌滿 carousel 時 hasMore 仍 false(否則「查看全部相容」CTA 連到 /products?vehicle= 只有 ≤limit 品=誤導)。
+  it('hasMore 主池語意:Case A 車輛池 ≤ limit 但 fallback 灌滿 carousel → hasMore=false', async () => {
+    const current = makeProduct({
+      id: 'cur',
+      handle: 'cur',
+      category: CAT_A,
+      fitments: [{ motoBrand: 'Honda', modelCode: 'CBR', yearStart: 2020, yearEnd: 2020 }],
+    });
+    const va1 = makeProduct({ id: 'va1', handle: 'va1', category: CAT_A, fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09' }] });
+    const va2 = makeProduct({ id: 'va2', handle: 'va2', category: CAT_B, fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09' }] });
+    const fills = Array.from({ length: 5 }, (_, i) => makeProduct({ id: `f${i}`, handle: `f${i}`, category: CAT_A }));
+    const engine = engineFor([current, va1, va2, ...fills]);
+    const res = await engine.recommend({
+      placement: 'pdp-related',
+      context: { product: current, vehicle: { motoBrand: 'Yamaha', modelCode: 'MT-09' } },
+      limit: 3,
+    });
+    expect(res.items).toHaveLength(3); // carousel 被 fallback 灌滿
+    expect(res.hasMore).toBe(false); // 但車輛池只有 2(≤3)→ CTA 不誤導
+  });
+
+  it('hasMore 主池語意:Case A 車輛池 > limit → hasMore=true', async () => {
+    const current = makeProduct({ id: 'cur', handle: 'cur', category: CAT_A, fitments: [{ motoBrand: 'Honda', modelCode: 'CBR' }] });
+    const pool = Array.from({ length: 5 }, (_, i) =>
+      makeProduct({ id: `va${i}`, handle: `va${i}`, category: CAT_A, fitments: [{ motoBrand: 'Yamaha', modelCode: 'MT-09' }] }),
+    );
+    const engine = engineFor([current, ...pool]);
+    const res = await engine.recommend({
+      placement: 'pdp-related',
+      context: { product: current, vehicle: { motoBrand: 'Yamaha', modelCode: 'MT-09' } },
+      limit: 3,
+    });
+    expect(res.items).toHaveLength(3);
+    expect(res.hasMore).toBe(true); // 車輛池 5 > 3
+  });
+
   it('經銷價 strip:輸出 UIProduct 不含 priceByTier / 經銷金額', async () => {
     const current = makeProduct({ id: 'cur', handle: 'cur', brand: brand('b1'), category: CAT_A });
     const p1 = makeProduct({ id: 'p1', handle: 'p1', brand: brand('b1'), category: CAT_A });

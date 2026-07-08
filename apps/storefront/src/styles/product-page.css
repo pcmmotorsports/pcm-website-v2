@@ -1025,10 +1025,39 @@
    用既有 <ProductCard>(.pcard 樣式在 product-card.css、Q4 不動)、本段只提供 grid container;
    不複製 design demo .vcf-related-card / .vcf-related-img / .vcf-related-brand 等 hardcoded 卡片樣式
    (對應 Q4 + lessons §12-37、demo 自包含寫法不取代正式元件) */
+/* 🔴 R3 / N°03(plan §5、Baymard product-page-suggestions + NN-g mobile-carousels):
+   由 grid 改「橫向 scroll-snap carousel」——不自動輪播、半露邊緣暗示可滑、桌機露 ~4、平板/手機半露;
+   卡片沿用 <ProductCard>(.pcard、product-card.css 不動)。斷點沿用全頁 1079/540。 */
 .pd-related-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
   gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 6px; /* 捲動軸不壓卡片 */
+  scrollbar-width: thin;
+}
+.pd-related-grid > * {
+  flex: 0 0 calc((100% - 48px) / 4); /* 桌機露 4 張(3 個 gap×16px) */
+  min-width: 0;
+  scroll-snap-align: start;
+}
+/* 「查看全部相容商品」(hasMore 才顯) */
+.pd-related-more {
+  margin-top: 20px;
+  text-align: center;
+}
+.pd-related-more-link {
+  display: inline-block;
+  padding: 10px 24px;
+  font: 500 14px/1 var(--font-sans);
+  color: var(--c-text);
+  border: 1px solid var(--c-border);
+  text-decoration: none;
+  transition: border-color 0.15s ease;
+}
+.pd-related-more-link:hover {
+  border-color: var(--c-text);
 }
 
 /* ========= Spec section(長頁全展開 + 跳轉列)========= */
@@ -1337,8 +1366,8 @@
   .pd-mobile-buybar { display: flex; }
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }
-  .pd-related-grid { grid-template-columns: repeat(2, 1fr); }
+  .pd-related-grid > * { flex-basis: 40%; } /* 平板露 ~2.5 張(半露暗示可滑) */
 }
 @media (max-width: 540px) {
-  .pd-related-grid { grid-template-columns: 1fr; }
+  .pd-related-grid > * { flex-basis: 62%; } /* 手機露 ~1.5 張(半露下一張、卡片維持可讀;寬度 Sean 肉眼驗可調) */
 }
