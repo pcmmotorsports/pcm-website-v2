@@ -581,7 +581,7 @@
    surface-2 底 + sharp corner + 薄線)。supersede OD §7.5 扁平表 + OD-12c 的 .pd-fit-table width:auto。
    🔴 D1=A:車廠 / 車型 / 年式 3 維、無車系。OD-12b:未確認標已移除。 */
 .pd-fitments-section {
-  padding: 20px 0 28px;
+  padding: 18px 0 22px;
   border-bottom: 1px solid var(--c-border);
 }
 .pd-fit-head {
@@ -624,11 +624,23 @@
   font-weight: 600;
   margin-bottom: 9px;
 }
-.pd-fit-rows { display: flex; flex-direction: column; gap: 9px; }
+/* 🔴 桌機多欄(Sean 2026-07-08:車款單欄靠左、右側大片空白=浪費空間)——同品牌車型列流入 2-3 欄
+   填滿版面;≤720 單欄。每列仍為「車型名 + 年式 chips」。 */
+.pd-fit-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 44px;
+}
+@media (min-width: 1360px) {
+  .pd-fit-rows { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .pd-fit-rows { grid-template-columns: 1fr; gap: 6px; }
+}
 .pd-fit-row {
   display: grid;
-  grid-template-columns: 132px 1fr;
-  gap: 16px;
+  grid-template-columns: 120px 1fr;
+  gap: 14px;
   align-items: baseline;
 }
 .pd-fit-model {
@@ -672,9 +684,10 @@
    .pd-eyebrow 雙形態:新 .pd-eb-no 巢狀(義體數字 + 金線 + label/logo)走 flex;尚未改的元件用扁平文字
    eyebrow(如 N°01—Highlights)走 :not(:has(.pd-eb-no)) fallback 維持 mono 單行、不破版。
    下方 .pd-feature-* / .pd-spotlight 視覺留 OD-6 / OD-7 reskin。 */
-.pd-section { padding: 52px 0; border-bottom: 1px solid var(--c-border); }
+/* Sean 2026-07-08:整頁收緊、少空白(52→36 段距、head 28→18)。 */
+.pd-section { padding: 36px 0; border-bottom: 1px solid var(--c-border); }
 .pd-section:last-of-type { border-bottom: 0; }
-.pd-section-head { max-width: 760px; margin-bottom: 28px; }
+.pd-section-head { max-width: 760px; margin-bottom: 18px; }
 .pd-eyebrow {
   display: flex; align-items: baseline; gap: 14px;
   margin-bottom: 18px; line-height: 1;
@@ -1036,11 +1049,17 @@
   -webkit-overflow-scrolling: touch;
   padding-bottom: 6px; /* 捲動軸不壓卡片 */
   scrollbar-width: thin;
+  align-items: start; /* 卡片頂端對齊 */
 }
-.pd-related-grid > * {
+/* 🔴 真正的 flex item 是 .pcard(ProductCard 的 Link 用 display:contents、外層 <a> 不生成 box、
+   flex-basis 須落在 .pcard 上、否則卡片依內容寬=大小不一);等寬 + 標題保留 2 行高 → 卡片整齊。 */
+.pd-related-grid .pcard {
   flex: 0 0 calc((100% - 48px) / 4); /* 桌機露 4 張(3 個 gap×16px) */
   min-width: 0;
   scroll-snap-align: start;
+}
+.pd-related-grid .pcard-name {
+  min-height: 2.8em; /* 2 行(line-height 1.4)保留、1 行標題卡片不縮短 = 等高 */
 }
 /* 「查看全部相容商品」(hasMore 才顯) */
 .pd-related-more {
@@ -1065,9 +1084,9 @@
    四段(商品介紹/規格·相容性/安裝須知/保固與退換)全常駐可見、各為 h2 landmark(SEO/GEO + 快速看相容);
    跳轉列 .pd-jump = 錨點 TOC(Baymard:漏看 27%→7%)。pd-list/pd-specs/install 內容樣式沿用(僅外層 tab→section)。
    全頁斷點沿用 OD-11 ≤1079 收口(buybar/main 與各 section 同門檻)。 */
-.pd-spec-section { padding: 32px 0 44px; border-bottom: 1px solid var(--c-border); }
+.pd-spec-section { padding: 26px 0 32px; border-bottom: 1px solid var(--c-border); }
 @media (max-width: 1079px) {
-  .pd-spec-section { padding: 24px 0 32px; }
+  .pd-spec-section { padding: 22px 0 28px; }
 }
 /* 跳轉列:sticky 黏在全站 sticky Header(.pcm-header top:0 z-index:40 高 ~60px)之下、不被其蓋住;
    僅在本 section 於視窗內時黏著、滑過即釋放;錨點跳段。直角、無圓角(對齊全站)。 */
@@ -1366,8 +1385,8 @@
   .pd-mobile-buybar { display: flex; }
   .pd-spotlight { grid-template-columns: 1fr; }
   .pd-spot-text { padding: 32px; }
-  .pd-related-grid > * { flex-basis: 40%; } /* 平板露 ~2.5 張(半露暗示可滑) */
+  .pd-related-grid .pcard { flex-basis: 40%; } /* 平板露 ~2.5 張(半露暗示可滑) */
 }
 @media (max-width: 540px) {
-  .pd-related-grid > * { flex-basis: 62%; } /* 手機露 ~1.5 張(半露下一張、卡片維持可讀;寬度 Sean 肉眼驗可調) */
+  .pd-related-grid .pcard { flex-basis: 62%; } /* 手機露 ~1.5 張(半露下一張、卡片維持可讀;寬度 Sean 肉眼驗可調) */
 }
