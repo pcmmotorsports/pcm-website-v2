@@ -6,6 +6,23 @@
   position: relative;
   cursor: pointer;
 }
+/* 🔴 點綴方案 A「速度紅線」(Sean 2026-07-08 拍板整頁熱血點綴 A):hover 頂端紅線由左掃出,
+   為全站卡片加一點賽車速度感、平時安靜(直角極簡不變)。 */
+.pcard::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--c-red);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 2;
+  pointer-events: none;
+}
+.pcard:hover::before { transform: scaleX(1); }
 
 /* ── Image area ── */
 .pcard-img-wrap {
@@ -173,6 +190,9 @@
   border-top: 1px solid var(--c-border);
   margin-top: 8px;
 }
+/* 🔴 方案 A「速度紅線」:卡片價格轉品牌賽車紅(熱血點綴;現況無促銷、與 is-sale 紅不衝突,
+   未來促銷再以 badge/刪除線區隔)。scoped .pcard、不影響詳情頁 pd-price。 */
+.pcard .price-main { color: var(--c-red); }
 /* Font-size variants */
 [data-font-size="lg"] .pcard-name { font-size: 15px; }
 [data-font-size="lg"] .pcard-brand { font-size: 11px; }

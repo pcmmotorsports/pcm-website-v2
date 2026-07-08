@@ -625,8 +625,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductCard.tsx"
       css: "apps/storefront/src/styles/product-card.css"
-      last_modified_commit: "ecfc4dc"  # 記可達祖先=16c-1 父 commit(避 amend orphan、見 memory project_status-top-hash-off-by-one-normal);本 slice 真改 commit 見 git log [M-1-16c-1]
-      last_modified_date: "2026-06-01 (M-1-16c-1 ProductImage 加 image prop:有真圖渲染真圖、無則 fallback seed placeholder gallery;ProductCard 傳 image={p.image};修首頁/卡片「通用機車生活照」根因)"
+      last_modified_commit: "4347c09"  # 記可達祖先=互動 iteration 2 父(卡片 A 點綴 slice)
+      last_modified_date: "2026-07-08 [卡片點綴方案 A「速度紅線」(Sean 拍板整頁熱血點綴 A、業務 override)]:全站商品卡片 hover 頂端紅線由左掃出(.pcard::before scaleX)+ 卡片價格轉品牌賽車紅(.pcard .price-main color var(--c-red)),為冷淡黑白加賽車速度感;直角極簡/字級/結構不變。現況無促銷、與 is-sale 紅不衝突(未來促銷再以 badge/刪除線區隔)。品名 hover 紅底線略過(.pcard-name -webkit-line-clamp box、background 底線會被裁切、避 bug)。純 CSS、lint+build+完整 vitest 160 檔 1798 綠。前:2026-06-01 (M-1-16c-1 ProductImage 加 image prop:有真圖渲染真圖、無則 fallback seed placeholder gallery)"
     design:
       component: "design-reference/components/ProductCard.jsx"
       css: "design-reference/styles/product-card.css"
