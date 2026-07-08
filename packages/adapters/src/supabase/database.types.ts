@@ -773,6 +773,55 @@ export type Database = {
           },
         ]
       }
+      product_fitments: {
+        Row: {
+          id: number
+          model_code: string
+          moto_brand: string
+          product_id: string
+          year_end: number | null
+          year_start: number | null
+        }
+        Insert: {
+          id?: never
+          model_code: string
+          moto_brand: string
+          product_id: string
+          year_end?: number | null
+          year_start?: number | null
+        }
+        Update: {
+          id?: never
+          model_code?: string
+          moto_brand?: string
+          product_id?: string
+          year_end?: number | null
+          year_start?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_fitments_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_fitments_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products_list_public"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_fitments_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products_public"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           availability: string

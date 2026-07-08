@@ -101,6 +101,21 @@ export interface IProductRepository {
    */
   listByFitment(spec: FitmentSpec): Promise<Product[]>;
   /**
+   * 列出「通用款」product —— fitments 為空(設計上不綁任何車型、適用任何車)。
+   *
+   * 用途:推薦引擎最後補位 fallback(Case A/B 湊不滿上限時補通用零件、對齊
+   * docs/specs/2026-07-08-recommendation-engine-related-products-plan.md §4)。
+   *
+   * Contract:
+   * - 回 `fitments` 為空陣列(`[]`)的 product(真「通用」= 設計上不綁車型);
+   *   fitments 非空但元素全髒(無法正規化)者**不算**通用(其意圖為特定車、僅資料髒)。
+   * - 排自身 / 上限由呼叫端(推薦引擎)處理、非本方法;真 adapter 走 products_public
+   *   + RLS(只回上架、經銷價物理排除)。
+   *
+   * @see docs/specs/2026-07-08-recommendation-engine-related-products-plan.md §4
+   */
+  listGeneral(): Promise<Product[]>;
+  /**
    * 依關鍵字模糊搜尋 product entity、回分頁包。
    *
    * Contract:

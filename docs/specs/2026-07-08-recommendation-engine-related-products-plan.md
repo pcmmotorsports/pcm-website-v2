@@ -121,7 +121,7 @@ GRANT SELECT ON product_fitments TO anon, authenticated;   -- 只讀、且被上
   1. 同品牌 × 同分類 3-4
   2. 不同品牌 亂數(同分類優先)
   3. 不足 → 同分類 → 通用款
-- **🔴 通用款 fallback(codex #6:改查詢)**:新 repository 方法 `listGeneral(opts)` 查 `products_public p WHERE NOT EXISTS (SELECT 1 FROM product_fitments pf WHERE pf.product_id = p.id)`(=無任何 fitment 列的通用款、有界 limit、排自身);**不碰 jsonb**(避 dead predicate + 髒值 abort)。最後補位。
+- **🔴 通用款 fallback(codex #6 + Sean 2026-07-08 逐筆判斷)**:新 repository 方法 `listGeneral()` 查 `products_public WHERE fitments = '[]'`(真空 fitment = 設計上不綁車型的通用款);排自身/上限由引擎處理。⚠️ **R2a 落地改此語意**(取代原 `NOT EXISTS product_fitments`):兩者差 9 筆「fitments 非空但元素全髒(Honda 品牌/車型空白)」的 gbracing 商品,Sean 逐筆判斷實為 HONDA MOTO3 賽車專用 + 替換件、**非萬用**,故 `fitments='[]'` 排除更準;兩者皆滿足 codex #6 免 dead-predicate/abort(jsonb 等值非 array_length)。🔴 R3 整合實測 PostgREST jsonb 空陣列查法。最後補位。
 - 去重(union by handle)、排自身/excludeHandles、cap=limit(8);每筆附 `reason`(`same-vehicle-same-category`/`same-vehicle-other-brand`/`same-brand`/`fallback-category`/`general`,內部用)。
 - **🔴 決定性亂數(禁 Math.random)**:seed = `placement + product.handle + vehicleKey`(vehicleKey=`motoBrand:modelCode:year`,無車則空);tie-break handle 升冪 → SSR 兩次 render 一致、不同情境不同序。
 - **邊界(codex #5 相關)**:選定車輛無任何相容品 → 走 fallback tier;通用款也空 → 回 `{items:[],hasMore:false}`(不 throw、前端顯空或不顯區塊)。
@@ -145,7 +145,7 @@ GRANT SELECT ON product_fitments TO anon, authenticated;   -- 只讀、且被上
 
 - **R1a — DB migration(建表)**:一個 migration = CREATE TABLE(uuid FK)+ 3 索引 + ENABLE RLS + `product_fitments_select_public` policy(delisted gate)+ GRANT SELECT anon/authenticated + `sync_product_fitments()` function + INSERT/UPDATE 雙 trigger + 一次性 backfill。**DDL 交易模擬零留痕**(建表+trigger+backfill+改一商品驗同步+髒 jsonb 不 abort+反查筆數)。**鐵則 12 → Codex Packet(commit 前)→ codex 關卡2 → commit → 不 push、Sean db push。**
 - **R1b — db push 後驗證**:Sean db push 後,`generate_typescript_types`(database.types)+ `EXPLAIN ANALYZE` 反查走 index(nit⑨、退化改 partial/GiST)+ 唯讀 MCP 行為驗(anon 讀上架 fitment ✓ / 讀不到下架 fitment ✓ / 讀不到經銷價 ✓)。純驗證+types,無 schema 變更。
-- **R2a — repository 查詢方法**:ports `IProductRepository` 加 `listByVehicle` / `listGeneral`(+ 確認/補 `listByBrand(brandId)`)→ Supabase adapter 實作(join products_public、經銷價 strip)+ InMemory 實作 + contract 測(兩實作同語意)。
+- **R2a — repository 查詢方法 ✅**:ports `IProductRepository` 加 `listGeneral`;**repoint 既有 `listByFitment`**(取代原規劃新增 listByVehicle——repo 早有此方法且 prod 無 caller、走慢 jsonb;改接 product_fitments 正規化索引、複製 matchFitmentYear 語意、正規化天生消跨車型 false-positive),`listByBrand(brandId uuid)` 已存無需動 → Supabase adapter(查詢抽 `helpers/fitment-queries.ts`、經銷價 strip)+ InMemory + contract 測。R2b Case A 改呼叫 `listByFitment({motoBrand,modelCode,year})`。
 - **R2b — 推薦引擎**:`IRecommendationEngine`/`RecommendationResult`/`VehicleSelection` 介面 + `RuleBasedRecommendationEngine`(Case A/B 分層 + 通用款 fallback + 決定性 seed + hasMore 後組裝判斷)+ 單體測(各分層/fallback/去重/排自身/決定性/經銷價 strip/hasMore 正確/空 vehicle/空結果不 throw)。
 - **R3 — 前端 N°03 橫滑區**:route 讀 vehicle + **taxonomy 解 slug→原始名** + 接引擎 + `.pd-related`→carousel CSS + ProductCard compact + 「查看全部」(hasMore)+ 情境化標題(L1)+ ProductPage.test 更新(順序斷言沿用 S3、related 改吃引擎、hasMore 顯隱)。Sean 肉眼驗手機橫滑。
 

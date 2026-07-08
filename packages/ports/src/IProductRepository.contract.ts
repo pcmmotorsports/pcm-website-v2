@@ -104,6 +104,10 @@ export function runProductRepositoryContract(
       it.todo('SupabaseProductAdapter 接 contract 時實作:跨車型 false positive 防護 — fitments=[{Yamaha,R1,2018-2024},{Honda,CBR,2010-2012}] 對 spec=(Honda,CBR,2020) 應 not match(Honda CBR 2010-2012 不 cover 2020、Yamaha R1 brand+model 不對 spec 不算)');
     });
 
+    describe('listGeneral', () => {
+      it.todo('SupabaseProductAdapter 落地時實作:回 fitments 為空陣列(通用款)的 entity 陣列;fitments 非空(含元素全髒)不算通用');
+    });
+
     describe('searchByKeyword', () => {
       it.todo('main-b SupabaseProductAdapter 落地時實作:回 Paginated<Product> + empty query 回空 items + offset/limit 分頁');
     });

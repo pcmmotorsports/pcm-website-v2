@@ -155,6 +155,19 @@ describe('InMemoryProductRepository', () => {
     expect(result[0]?.id).toBe('p-1');
   });
 
+  it('should list general products (empty fitments) for listGeneral', async () => {
+    const universal = createFakeProduct({ id: 'p-uni', fitments: [] });
+    const specific = createFakeProduct({
+      id: 'p-spec',
+      fitments: [{ motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2020, yearEnd: 2024 }],
+    });
+    const repo = new InMemoryProductRepository([universal, specific]);
+
+    const result = await repo.listGeneral();
+    expect(result).toHaveLength(1);
+    expect(result[0]?.id).toBe('p-uni');
+  });
+
   it('should list products by fitment motoBrand + modelCode match', async () => {
     const ducati = createFakeProduct({
       id: 'p-1',

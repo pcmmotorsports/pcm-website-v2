@@ -537,3 +537,171 @@ describe('SupabaseProductAdapter.listCategories — C1 接線', () => {
     });
   });
 });
+
+// ── R2a 推薦引擎正規化反查:listByFitment(product_fitments)+ listGeneral ──
+//   審查點:① listByFitment 兩步(product_fitments 過濾 → products_public .in)、年份範圍重疊
+//   filter 字面正確、product_id 去重、空結果短路不查 products_public;② listGeneral fitments=[]
+//   通用款;③ 兩者走 products_public 安全 view、投射不含經銷欄。thenable builder mock 讓
+//   list 路徑 `await query` 解析 { data, error }(list method 直接 await、非 .single())。
+
+interface FitmentMockCaptured {
+  tables: string[];
+  pfEq: Record<string, unknown>;
+  pfOr?: string;
+  publicSelect?: string;
+  publicIn?: unknown[];
+  generalEq?: [string, unknown];
+}
+
+function makeFitmentMock(
+  pfRows: { product_id: string }[],
+  publicRows: SupabaseProductRow[],
+) {
+  const captured: FitmentMockCaptured = { tables: [], pfEq: {} };
+
+  const pfBuilder = {
+    select() {
+      return pfBuilder;
+    },
+    eq(col: string, val: unknown) {
+      captured.pfEq[col] = val;
+      return pfBuilder;
+    },
+    or(filter: string) {
+      captured.pfOr = filter;
+      return pfBuilder;
+    },
+    then(resolve: (v: { data: unknown; error: null }) => void) {
+      resolve({ data: pfRows, error: null });
+    },
+  };
+
+  const publicBuilder = {
+    select(cols: string) {
+      captured.publicSelect = cols;
+      return publicBuilder;
+    },
+    in(_col: string, vals: unknown[]) {
+      captured.publicIn = vals;
+      return publicBuilder;
+    },
+    eq(col: string, val: unknown) {
+      captured.generalEq = [col, val];
+      return publicBuilder;
+    },
+    then(resolve: (v: { data: unknown; error: null }) => void) {
+      resolve({ data: publicRows, error: null });
+    },
+  };
+
+  const client = {
+    from(table: string) {
+      captured.tables.push(table);
+      return table === 'product_fitments' ? pfBuilder : publicBuilder;
+    },
+  };
+  return { client: client as unknown as SupabaseClient, captured };
+}
+
+describe('SupabaseProductAdapter.listByFitment — R2a 正規化反查(product_fitments)', () => {
+  it('查 product_fitments(brand+model 等值 + 年份範圍重疊 or)→ product_id 去重 → products_public .in、安全投射', async () => {
+    const { client, captured } = makeFitmentMock(
+      [{ product_id: 'p1' }, { product_id: 'p1' }, { product_id: 'p2' }],
+      [
+        { ...baseRow, id: 'p1', handle: 'h1' },
+        { ...baseRow, id: 'p2', handle: 'h2' },
+      ],
+    );
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listByFitment({
+      motoBrand: 'Ducati',
+      modelCode: 'Streetfighter V4',
+      yearStart: 2021,
+      yearEnd: 2021,
+    });
+
+    // 步驟①:product_fitments 等值 + 年份範圍重疊(對齊 helpers/fitment matchFitmentYear)
+    expect(captured.tables[0]).toBe('product_fitments');
+    expect(captured.pfEq).toEqual({
+      moto_brand: 'Ducati',
+      model_code: 'Streetfighter V4',
+    });
+    expect(captured.pfOr).toBe(
+      'year_start.is.null,and(year_start.lte.2021,or(year_end.is.null,year_end.gte.2021))',
+    );
+    // 步驟②:product_id 去重(p1 兩筆 → 一筆)後 .in products_public
+    expect(captured.tables).toContain('products_public');
+    expect(captured.publicIn).toEqual(['p1', 'p2']);
+    // 安全:products_public 安全 view、投射不含經銷欄
+    for (const col of DEALER_COLUMNS) {
+      expect(captured.publicSelect).not.toContain(col);
+    }
+    expect(result).toHaveLength(2);
+  });
+
+  it('spec 無 yearStart → 不加年份 or filter(不限年份、對齊 matchFitmentYear 早退)', async () => {
+    const { client, captured } = makeFitmentMock(
+      [{ product_id: 'p1' }],
+      [{ ...baseRow, id: 'p1' }],
+    );
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listByFitment({ motoBrand: 'Ducati', modelCode: 'Panigale V4' });
+
+    expect(captured.pfOr).toBeUndefined();
+  });
+
+  it('開放式 spec(yearEnd null → specEnd Infinity)→ or filter 省 lte 段', async () => {
+    const { client, captured } = makeFitmentMock(
+      [{ product_id: 'p1' }],
+      [{ ...baseRow, id: 'p1' }],
+    );
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listByFitment({
+      motoBrand: 'BMW',
+      modelCode: 'S 1000 RR',
+      yearStart: 2020,
+      yearEnd: null,
+    });
+
+    expect(captured.pfOr).toBe(
+      'year_start.is.null,or(year_end.is.null,year_end.gte.2020)',
+    );
+  });
+
+  it('product_fitments 空 → 回 [] 且不查 products_public(短路)', async () => {
+    const { client, captured } = makeFitmentMock([], []);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listByFitment({
+      motoBrand: 'X',
+      modelCode: 'Y',
+      yearStart: 2020,
+    });
+
+    expect(result).toEqual([]);
+    expect(captured.tables).not.toContain('products_public');
+  });
+});
+
+describe('SupabaseProductAdapter.listGeneral — R2a 通用款(fitments 空陣列)', () => {
+  it('查 products_public fitments=[]、安全投射、回 mapped', async () => {
+    const { client, captured } = makeFitmentMock(
+      [],
+      [{ ...baseRow, id: 'g1', handle: 'gen-1' }],
+    );
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listGeneral();
+
+    expect(captured.tables).toContain('products_public');
+    expect(captured.generalEq).toEqual(['fitments', '[]']);
+    for (const col of DEALER_COLUMNS) {
+      expect(captured.publicSelect).not.toContain(col);
+    }
+    expect(result).toHaveLength(1);
+    expect(result[0]?.handle).toBe('gen-1');
+  });
+});

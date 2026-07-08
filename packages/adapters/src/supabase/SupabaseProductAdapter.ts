@@ -15,7 +15,10 @@ import {
   mapSupabaseProductToDomain,
   type SupabaseProductRow,
 } from './mappers/product';
-import { matchFitmentYear } from './helpers/fitment';
+import {
+  queryGeneralProducts,
+  queryProductsByFitment,
+} from './helpers/fitment-queries';
 import {
   SEARCHABLE_COLUMNS,
   buildIlikeOrFilter,
@@ -248,55 +251,34 @@ export class SupabaseProductAdapter implements IProductRepository {
   }
 
   /**
-   * 依 fitment spec 列出 product。對齊 PRD §3.4 + supabase-schema-design.md §2.3 第 6 行 + §2.4。
+   * 依 fitment spec 列出 product(motoBrand + modelCode + 年份範圍重疊)。
    *
-   * 兩階段過濾:
-   * - Server-side: `.contains('fitments', JSON.stringify([{motoBrand, modelCode}]))`(jsonb @> operator、規則 1+2)
-   * - Client-side: 三條 cross-check `f.motoBrand === spec.motoBrand && f.modelCode === spec.modelCode
-   *   && matchFitmentYear(f, spec)`(規則 1+2+3、對齊 InMemoryProductRepository.matchFitment 行為等價)
-   *
-   * 注:client-side 必須 cross-check brand+model,server-side prefilter 是 product 級別
-   * (product 含**至少一條** fitment 含 spec.motoBrand+modelCode 即通過)、product.fitments 可
-   * 含其他車型 fitment。若 client 只跑 matchFitmentYear(year-only)、會撞跨車型 false positive:
-   * fitments=[{Yamaha,R1,2018-2024},{Honda,CBR,2010-2012}] 對 spec=(Honda,CBR,2020) → server
-   * @> 通過 + client matchFitmentYear vs Yamaha R1 fitment year=2020 ∈ [2018,2024] some=true
-   * 但實際 Honda CBR 2010-2012 不 cover 2020 → false positive。
-   * (M-1-03 main-c sub-slice 2.5 修、Sean 業務拍板「跨車型常態、Phase 1 必修」)
-   *
-   * 注:第二參數須走 `JSON.stringify([...])` 字面;直傳 array of objects 會被 supabase-js
-   * 序列化成 PostgREST array literal `cs.{...}`(curly outer)、PG JSON parser 22P02 reject
-   * (M-1-03 main-c spike 揭示)。JSON 字串強制走 `cs.[...]` 格式對齊真實 SQL
-   * `fitments @> '[{...}]'::jsonb`(對齊 supabase-schema-design.md §10.2 字面 + PG MCP 真權威驗 hits=1)。
-   *
-   * Phase 1 階段 1 不建 GIN index(對齊 supabase-schema-design.md §10.2 backlog #30 階段 2 trigger)。
+   * R2a:由舊 jsonb `.contains` @> + client cross-check 改走**正規化 product_fitments 索引表**
+   * (推薦引擎「以車查商品」反查加速;正規化一列一相容、天生消掉舊版跨車型 false-positive)。
+   * 兩步查詢與年份範圍重疊邏輯抽至 `helpers/fitment-queries.ts`(鐵則 6);prod 無 caller、
+   * 行為以 contract + 兩實作測為準。
    */
   async listByFitment(spec: FitmentSpec): Promise<Product[]> {
-    const { data, error } = await this.supabase
-      .from('products_public')
-      .select(PRODUCT_SELECT_DETAIL)
-      .contains(
-        'fitments',
-        JSON.stringify([
-          { motoBrand: spec.motoBrand, modelCode: spec.modelCode },
-        ]),
-      );
-
-    if (error) {
-      throw error;
-    }
-
-    const products = (data as unknown as SupabaseProductRow[]).map(
-      mapSupabaseProductToDomain,
+    const rows = await queryProductsByFitment(
+      this.supabase,
+      spec,
+      PRODUCT_SELECT_DETAIL,
     );
+    return rows.map(mapSupabaseProductToDomain);
+  }
 
-    return products.filter((p) =>
-      p.fitments.some(
-        (f) =>
-          f.motoBrand === spec.motoBrand &&
-          f.modelCode === spec.modelCode &&
-          matchFitmentYear(f, spec),
-      ),
+  /**
+   * 列出通用款 product(fitments 空陣列、對齊 IProductRepository.listGeneral contract)。
+   *
+   * 查詢抽至 `helpers/fitment-queries.ts` queryGeneralProducts(products_public + RLS、
+   * `fitments = '[]'` jsonb 等值);「非空全髒不算通用」= Sean 2026-07-08 逐筆判斷(見 helper 註解)。
+   */
+  async listGeneral(): Promise<Product[]> {
+    const rows = await queryGeneralProducts(
+      this.supabase,
+      PRODUCT_SELECT_DETAIL,
     );
+    return rows.map(mapSupabaseProductToDomain);
   }
 
   /**

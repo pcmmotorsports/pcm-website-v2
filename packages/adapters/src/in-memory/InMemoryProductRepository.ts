@@ -136,6 +136,18 @@ export class InMemoryProductRepository implements IProductRepository {
     );
   }
 
+  /**
+   * 列出通用款 product(fitments 空陣列、對齊 IProductRepository.listGeneral contract)。
+   *
+   * in-memory 直接篩 `p.fitments.length === 0`;真 adapter(SupabaseProductAdapter)走
+   * products_public `fitments = '[]'` + RLS 濾下架。排自身/上限由推薦引擎處理、非此層。
+   */
+  async listGeneral(): Promise<Product[]> {
+    return Array.from(this.products.values()).filter(
+      (p) => p.fitments.length === 0
+    );
+  }
+
   async listByFitment(spec: FitmentSpec): Promise<Product[]> {
     // 字面對齊:單 spec 配對任一 product.fitments[i]
     // 多選 OR(specs[])M-1-03 / M-1-12 補(對齊 backlog #38)
