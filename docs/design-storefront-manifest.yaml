@@ -299,6 +299,7 @@ components:
       - "apps/storefront/src/components/ProductSwatchWall.tsx"  # N°02;#270 B S3 起由 BrandShowcase 掛載(規格之下)
       - "apps/storefront/src/components/ProductSpotlight.tsx"  # #270 B S3 起由 BrandShowcase 掛載(規格之下、自帶雙守門)
       - "apps/storefront/src/components/ProductTabs.tsx"
+      - "apps/storefront/src/components/InstallResources.tsx"  # #270:安裝須知內「安裝資源」(說明書 PDF + 影片 facade)、自 ProductTabs 抽出(鐵則 6);optional、無 manuals/videoUrl 不渲染
       - "apps/storefront/src/components/ProductRelated.tsx"  # rec-engine R3:N°03 相關商品區(自 ProductPage 抽出、鐵則 6);carousel + 情境化標題 + hasMore CTA
       - "apps/storefront/src/components/ProductCard.tsx"  # Related carousel 用既有元件(rec-engine R3 起由 ProductRelated 掛載)
       - "apps/storefront/src/lib/recommendations/rule-based-engine.ts"  # rec-engine R2b:通用推薦引擎(Case A 反查選定車 / Case B 同品牌 + fallback + 決定性 + hasMore 主池)
@@ -317,10 +318,16 @@ components:
         reason: "Sean 業務拍板永久化、屬鐵則 1 例外(價格 = 業務邏輯)"
       - field: "mobileBarColor"
         design_value: "黑/灰系(對齊新版商品頁全 mono)"
-        storefront_value: "紅色加入購物車保留"
-        decided_at: "2026-05-21"
-        decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q3"
-        reason: "Sean Q3=B 業務拍板、轉換率考量、HANDOFF #17『保留不動』解讀 = 行為 + 色系全保留"
+        storefront_value: "紅色加入購物車:手機購買列 .pd-mbb-cart 改品牌紅 var(--c-red) 實心白字、『立即購買』.pd-mbb-buynow 維持深底次要;桌機 .pd-add-btn 同步紅(見 addToCartButtonRed)。⚠️ 此 override 2026-05-21 立(紅保留),OD-11 曾暫改 mono 與桌機一致,2026-07-08 Sean 重新拍紅(桌機亦紅),OD-11 mono 中繼 supersede"
+        decided_at: "2026-07-08 (原 2026-05-21;OD-11 mono 中繼已 supersede)"
+        decision_source: "Sean 2026-07-08 整頁視覺 pass(卡片 A 速度紅線 + CTA 紅);原 docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q3"
+        reason: "Sean 業務拍板轉換率、主購買動作 = 品牌賽車紅(與卡片 A 熱血點綴一致);屬鐵則 1 例外(CTA 色業務決定)"
+      - field: "addToCartButtonRed"
+        design_value: "OD §5 / OD-3:桌機購買列『加入購物車』.pd-add-btn 黑底實心 var(--c-text)(全 mono)"
+        storefront_value: "2026-07-08 Sean 拍板改品牌賽車紅:.pd-add-btn background var(--c-red)/hover var(--c-red-dark)、白字;『立即購買』.pd-buynow-btn 維持描邊次要不變。與卡片 A『速度紅線』點綴 + 手機 mobileBarColor 紅一致(全站主購買動作統一紅)"
+        decided_at: "2026-07-08"
+        decision_source: "Sean 2026-07-08 整頁視覺 pass(繼卡片 A 後回報『加入購物車還是黑色的』→ 拍板改紅)"
+        reason: "主 CTA 熱血點綴、提升購買動作辨識度;屬鐵則 1 例外(CTA 色 = 業務/視覺決定、Sean 親自掌舵)、supersede OD-3 mono pd-add-btn"
       - field: "relatedGridComponent"
         design_value: ".vcf-related-card hardcoded(demo 用)"
         storefront_value: "用既有 <ProductCard> 元件"
@@ -463,13 +470,20 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductTabs.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "e406c90"  # 記可達祖先=#270 B S1 Fitments 修(=S2 父 commit e406c90);本 slice 真改見 git log:規格 tabs→長頁全展開 + sticky 跳轉列(含 RPM、Sean 2026-07-08 拍 A、supersede OD §9 tabs)
-      last_modified_date: "2026-07-08 [#270 B S2 規格長頁]:規格區由橫向 tabs + hidden pane 改**長頁全展開 + sticky 跳轉列(TOC)**——四段(商品介紹/規格·相容性/安裝須知/保固與退換)全常駐可見、各為 h2 landmark(section id pd-sec-*、aria-labelledby 指向真 heading id、取代舊 role=tab/tabpanel;移除 tab 鈕後舊 aria-labelledby=pd-tab-* 會 dangling 故改指向真 heading);跳轉列 .pd-jump = <nav> + 錨點 <a href=#pd-sec-*>(Baymard 橫向 tabs 漏看 27%→長頁+TOC 7%、SEO/GEO + 客人不點分頁即見規格/相容);移除 tab useState/useRef/鍵盤導覽,保留 'use client' + 安裝 CTA router.push('/install');內容產生邏輯(isRpmCarbon/buildSpecRows/renderPolicyRuns)byte 不變、🔴 RPM 內容一字不變只是不再被分頁藏(全品牌一致=Sean 拍 A)。CSS:.pd-tabs*/.pd-tab/.pd-tab-pane → .pd-spec-section/.pd-jump*/.pd-sec/.pd-sec-title;測試重寫(移除 tab 機制+鍵盤 7 測、加長頁 3 測、內容斷言保留去點 tab 前綴)。三綠 typecheck 7/lint 10/build 1 + 完整 vitest 158 檔 1754。前:2026-07-08 [A/#270 賣點條列 highlights]:商品介紹「非 RPM 分支」描述段後新增 highlights 賣點清單(Sean 2026-07-08 肉眼驗改用 pd-list 圓點、對齊 RPM 分支、併入末條 LINE 提醒同一圓點清單、免破折號賣點與圓點混排突兀;初版 design pd-desc-features 破折號已撤、對應 CSS 移除);資料 products_public.highlights ← 報價單 highlights_zh(Slice 1 管線 c127093);空/undefined 不渲染不留空 ul、🔴 RPM 分支 byte 不變(isRpmCarbon 不讀 highlights、碳纖框架維持);adapter PRODUCT_SELECT_DETAIL 加 highlights 公開欄(經銷零洩漏)、mapper Array.isArray+filter guard 收斂 string[]、save mapper 持久化、domain Product.highlights 必填 string[]。前:2026-07-05 [商品資料連動:內文渲染]:商品介紹分頁「非 RPM 分支」由寫死最小事實框架改渲染 product.description 真內文(有值逐段渲染、空走通用框架;純文字 escape 非 dangerouslySetInnerHTML)。🔴 RPM 分支 byte 不變(isRpmCarbon 守門、Sean Q1 拍板碳纖框架硬寫死、RPM 舊英文 HTML 描述刻意不渲染);同 slice toUIProduct 映 domain description→MockProduct.description。修「內文寫進 DB(gbracing 941/bonamici 1251)但前台無出口」。前:2026-07-05 (視覺易讀性、Sean 肉眼驗收 approve:① 中文多空格 bug 修正〔安裝分頁「都是<strong>」+ 商品介紹首個 {' '} 皆 CJK-CJK 移除、保留 CJK-Latin/數字正常空格〕;② 字級放大收斂〔分頁內文 15→16px 行高 1.75→1.8、清單 14.5→15.5、規格 14→15、分頁標 14→15、安裝 meta/CTA/btn 各級 +1~1.5px,收斂原 6 種散亂字級成一致階梯〕。🔴 此頁設計真權威不在 repo〔OD 即時匯出未 commit〕→ 屬 Sean 覆蓋設計的新易讀性決定、非修回設計。前:2026-07-04 P0-C-b2 去碳〔商品介紹/規格 isRpmCarbon 守門 byte 不變、安裝全品牌去碳〕見 od_redesign)"
+      last_modified_commit: "9d6f98c"  # 記可達祖先=本 slice(#270 安裝資源)父 commit=rec-engine R2a 9d6f98c;本 slice 真改見 git log:安裝須知加「安裝資源」(說明書 PDF + 影片 facade)、抽 InstallResources.tsx(鐵則 6)
+      last_modified_date: "2026-07-08 [#270 安裝資源(Sean Q1/Q2/Q3=A)]:安裝須知段內新增「安裝資源」——說明書 PDF 下載鈕(0-3 個)+ 安裝影片(YouTube facade:縮圖+紅播放鈕、點擊才載 iframe 省流量;桌機/手機 inline 換入);皆 optional 吃 product.manuals[]/videoUrl,兩者皆無→整區不渲染、只有其一→is-single 佔滿寬、皆有→桌機並排/手機堆疊。🔴 鐵則 6:併入後 ProductTabs>400 → 抽 InstallResources.tsx 子元件(ProductTabs 306 行/InstallResources 123 行);parseYoutubeId 限 YouTube host 白名單 + id 字元集 [\\w-]{6,}(防注入)、PDF href http(s) 白名單(防 javascript:)。🔴 資料來源(報價單建欄 vs 過渡 mapping)尚未拍板、adapter 未接線 → 正式站暫不顯示、待資料方案定(見 business_override installResourcesField)。三綠 typecheck/lint/build + 完整 vitest ProductTabs 26(+6 安裝資源)。前:2026-07-08 [#270 B S2 規格長頁]:規格區由橫向 tabs + hidden pane 改**長頁全展開 + sticky 跳轉列(TOC)**——四段(商品介紹/規格·相容性/安裝須知/保固與退換)全常駐可見、各為 h2 landmark(section id pd-sec-*、aria-labelledby 指向真 heading id、取代舊 role=tab/tabpanel;移除 tab 鈕後舊 aria-labelledby=pd-tab-* 會 dangling 故改指向真 heading);跳轉列 .pd-jump = <nav> + 錨點 <a href=#pd-sec-*>(Baymard 橫向 tabs 漏看 27%→長頁+TOC 7%、SEO/GEO + 客人不點分頁即見規格/相容);移除 tab useState/useRef/鍵盤導覽,保留 'use client' + 安裝 CTA router.push('/install');內容產生邏輯(isRpmCarbon/buildSpecRows/renderPolicyRuns)byte 不變、🔴 RPM 內容一字不變只是不再被分頁藏(全品牌一致=Sean 拍 A)。CSS:.pd-tabs*/.pd-tab/.pd-tab-pane → .pd-spec-section/.pd-jump*/.pd-sec/.pd-sec-title;測試重寫(移除 tab 機制+鍵盤 7 測、加長頁 3 測、內容斷言保留去點 tab 前綴)。三綠 typecheck 7/lint 10/build 1 + 完整 vitest 158 檔 1754。前:2026-07-08 [A/#270 賣點條列 highlights]:商品介紹「非 RPM 分支」描述段後新增 highlights 賣點清單(Sean 2026-07-08 肉眼驗改用 pd-list 圓點、對齊 RPM 分支、併入末條 LINE 提醒同一圓點清單、免破折號賣點與圓點混排突兀;初版 design pd-desc-features 破折號已撤、對應 CSS 移除);資料 products_public.highlights ← 報價單 highlights_zh(Slice 1 管線 c127093);空/undefined 不渲染不留空 ul、🔴 RPM 分支 byte 不變(isRpmCarbon 不讀 highlights、碳纖框架維持);adapter PRODUCT_SELECT_DETAIL 加 highlights 公開欄(經銷零洩漏)、mapper Array.isArray+filter guard 收斂 string[]、save mapper 持久化、domain Product.highlights 必填 string[]。前:2026-07-05 [商品資料連動:內文渲染]:商品介紹分頁「非 RPM 分支」由寫死最小事實框架改渲染 product.description 真內文(有值逐段渲染、空走通用框架;純文字 escape 非 dangerouslySetInnerHTML)。🔴 RPM 分支 byte 不變(isRpmCarbon 守門、Sean Q1 拍板碳纖框架硬寫死、RPM 舊英文 HTML 描述刻意不渲染);同 slice toUIProduct 映 domain description→MockProduct.description。修「內文寫進 DB(gbracing 941/bonamici 1251)但前台無出口」。前:2026-07-05 (視覺易讀性、Sean 肉眼驗收 approve:① 中文多空格 bug 修正〔安裝分頁「都是<strong>」+ 商品介紹首個 {' '} 皆 CJK-CJK 移除、保留 CJK-Latin/數字正常空格〕;② 字級放大收斂〔分頁內文 15→16px 行高 1.75→1.8、清單 14.5→15.5、規格 14→15、分頁標 14→15、安裝 meta/CTA/btn 各級 +1~1.5px,收斂原 6 種散亂字級成一致階梯〕。🔴 此頁設計真權威不在 repo〔OD 即時匯出未 commit〕→ 屬 Sean 覆蓋設計的新易讀性決定、非修回設計。前:2026-07-04 P0-C-b2 去碳〔商品介紹/規格 isRpmCarbon 守門 byte 不變、安裝全品牌去碳〕見 od_redesign)"
     design:
       # OD-8 起視覺真權威遷至 OD 模板(manifest od_redesign 決定一=A);舊 design-reference 段 supersede
       authority: "open-design: Website V2 / product-detail-rpm-template.html §9 tabs"
       legacy_component: "design-reference/components/explorations/VariantCFull.jsx"
     business_overrides:
+      - field: "installResourcesField"
+        design_value: "design / OD 模板無此欄位(安裝須知僅 meta 3 欄 + 說明 + 清單 + 預約 CTA)"
+        storefront_value: "#270:安裝須知內加「安裝資源」= 說明書 PDF 下載鈕(0-3)+ 安裝影片(YouTube facade 縮圖+紅播放鈕、點擊才載 iframe)。MockProduct 加 optional manuals?: ProductManual[]{label,url,sizeKB?} + videoUrl?: string;InstallResources 元件吃之、兩者皆無回 null 不渲染。🔴 UI-only:目前無 adapter 接線(toUIProduct 未填此兩欄)→ 正式站暫不顯示(對齊 hasSpotlightField『先立欄、資料後接』寫法)"
+        decided_at: "2026-07-08"
+        decision_source: "Sean 2026-07-08 Q1/Q2/Q3=A(版面照 install-resources mockup / 先做 UI 吃 optional props、資料另議 / 影片用 facade)"
+        reason: "說明書 + 施工影片是客人裝機關鍵資訊;先落 UI 使無資料零風險,資料來源(報價單建欄 vs 過渡 mapping)= 動 schema 鐵則 8、另寫 plan 等 Sean 拍板再接 adapter"
+        phase_2_supabase_tables: ["products(install_manuals jsonb / install_video_url)"]
       - field: "tabsContent4Panels"
         design_value: "OD 模板 §9 4 panel(介紹商品專屬 / 規格 9 欄 / 安裝 RPM 共用 / 保固 RPM 共用)"
         storefront_value: "OD-8 直接搬 OD §9 碳纖字面;品牌·型號·分類·適用車款·name·fits 動態。🔴 P0-C-b2 去碳(2026-07-04、plan §2.6/§4 P0-C):材質真碳纖/紋路/表面/產地/特殊樣式 + 商品介紹碳纖框架改 isRpmCarbon 守門(RPM 顯原文 byte 不變、非 RPM 空白;規格非 RPM 改資料驅動 buildSpecRows 讀 variant spec);安裝分頁全品牌通用去碳(碳纖部品→部品、碳纖斷裂→部品受損、含 RPM、Sean Q2=A 授權);保固政策 = 通用單一真相 rpm-policies(P0-C-b1、不守門)"

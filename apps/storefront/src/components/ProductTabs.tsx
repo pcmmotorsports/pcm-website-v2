@@ -31,6 +31,7 @@
 
 import { useRouter } from 'next/navigation';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
+import { InstallResources } from './InstallResources';
 import {
   RPM_WARRANTY_PARAGRAPHS,
   RPM_WARRANTY_NOTES,
@@ -266,6 +267,8 @@ export function ProductTabs({ product }: ProductTabsProps) {
             <li>鎖螺絲時對角分段鎖緊，避免單點受力</li>
             <li>第一次騎乘後再檢查一次螺絲扭力</li>
           </ul>
+          {/* 安裝資源:說明書 PDF + 安裝影片(#270、Sean 2026-07-08);optional、無資料整區不顯 */}
+          <InstallResources manuals={product.manuals} videoUrl={product.videoUrl} />
           <div className="pd-install-cta">
             <div>
               <div className="pd-install-cta-title">不想自己裝？</div>

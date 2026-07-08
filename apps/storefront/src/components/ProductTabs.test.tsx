@@ -240,4 +240,78 @@ describe('ProductTabs (長頁全展開)', () => {
     expect(sec?.textContent).toContain('客製');
     expect(sec?.textContent).not.toContain('義大利');
   });
+
+  // ── #270 安裝資源(說明書 PDF + 影片 facade、Sean 2026-07-08 Q1/Q2/Q3=A)── optional、無資料整區不顯 ──
+  describe('安裝資源 (InstallResources)', () => {
+    it('無 manuals / videoUrl → 整區不渲染(不是每個商品都有)', () => {
+      render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+      const sec = document.getElementById('pd-sec-install');
+      expect(sec?.querySelector('.pd-res')).toBeNull();
+      expect(sec?.textContent).not.toContain('安裝資源');
+    });
+
+    it('有 videoUrl → facade 播放鈕、點擊才載 iframe(省流量)', () => {
+      const p = { ...MOCK_PRODUCTS[0]!, videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' };
+      render(<ProductTabs product={p} />);
+      // 未點前:facade 按鈕在、無 iframe
+      const facade = screen.getByRole('button', { name: '播放安裝示範影片' });
+      expect(facade).toBeDefined();
+      expect(document.querySelector('iframe.pd-res-frame')).toBeNull();
+      // 點擊 → 載入 embed iframe(帶 videoId)
+      fireEvent.click(facade);
+      const frame = document.querySelector('iframe.pd-res-frame');
+      expect(frame).not.toBeNull();
+      expect(frame?.getAttribute('src')).toContain('/embed/dQw4w9WgXcQ');
+    });
+
+    it('videoUrl 非法(抽不到 id)→ 不渲染影片', () => {
+      const p = { ...MOCK_PRODUCTS[0]!, videoUrl: 'https://example.com/not-a-video' };
+      render(<ProductTabs product={p} />);
+      const sec = document.getElementById('pd-sec-install');
+      expect(sec?.querySelector('.pd-res-facade')).toBeNull();
+      expect(sec?.querySelector('.pd-res')).toBeNull(); // 無 docs 又無有效影片 → 整區不顯
+    });
+
+    it('有 manuals → 逐筆下載鈕 + size 格式化(MB/KB)', () => {
+      const p = {
+        ...MOCK_PRODUCTS[0]!,
+        manuals: [
+          { label: '安裝說明書', url: 'https://cdn.example.com/a.pdf', sizeKB: 1843 },
+          { label: '扭力規格表', url: 'https://cdn.example.com/b.pdf', sizeKB: 240 },
+          { label: '保養手冊', url: 'https://cdn.example.com/c.pdf' }, // 無 size → 不顯 size 標
+        ],
+      };
+      render(<ProductTabs product={p} />);
+      const sec = document.getElementById('pd-sec-install');
+      const docs = sec?.querySelectorAll('.pd-res-doc');
+      expect(docs?.length).toBe(3);
+      expect(screen.getByText('安裝說明書')).toBeDefined();
+      expect(screen.getByText('PDF · 1.8 MB')).toBeDefined(); // 1843KB → MB 一位小數
+      expect(screen.getByText('PDF · 240 KB')).toBeDefined();
+      // 無 sizeKB 的項不顯 size 標
+      const savBtn = screen.getByText('保養手冊').closest('a');
+      expect(savBtn?.querySelector('.pd-res-doc-s')).toBeNull();
+      // href 指向 PDF、新分頁開
+      expect(savBtn?.getAttribute('href')).toBe('https://cdn.example.com/c.pdf');
+      expect(savBtn?.getAttribute('target')).toBe('_blank');
+    });
+
+    it('只有 videoUrl(無 manuals)→ is-single 佔滿寬', () => {
+      const p = { ...MOCK_PRODUCTS[0]!, videoUrl: 'https://youtu.be/dQw4w9WgXcQ' };
+      render(<ProductTabs product={p} />);
+      const grid = document.querySelector('.pd-res-grid');
+      expect(grid?.classList.contains('is-single')).toBe(true);
+    });
+
+    it('影片 + PDF 同時有 → 並排(非 is-single)', () => {
+      const p = {
+        ...MOCK_PRODUCTS[0]!,
+        videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+        manuals: [{ label: '安裝說明書', url: 'https://cdn.example.com/a.pdf' }],
+      };
+      render(<ProductTabs product={p} />);
+      const grid = document.querySelector('.pd-res-grid');
+      expect(grid?.classList.contains('is-single')).toBe(false);
+    });
+  });
 });

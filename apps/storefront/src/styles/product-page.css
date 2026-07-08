@@ -489,14 +489,16 @@
   border-left: 1px solid var(--c-border); border-right: 1px solid var(--c-border);
 }
 
+/* 🔴 加入購物車改品牌賽車紅(Sean 2026-07-08 拍板整頁熱血點綴、override OD §5 黑底):主購買動作 = 紅、
+   立即購買維持描邊次要;#161 永遠可點(無 disabled 態不變)。scoped .pd-add-btn。 */
 .pd-add-btn {
   flex: 1;
-  background: var(--c-text); color: var(--c-text-inverse);
+  background: var(--c-red); color: #fff;
   font-size: 14px; font-weight: 600; letter-spacing: 0.04em;
   padding: 14px 24px;
   transition: background 0.15s;
 }
-.pd-add-btn:hover { background: #000; }
+.pd-add-btn:hover { background: var(--c-red-dark); }
 
 .pd-like {
   width: 48px; height: 48px;
@@ -1288,10 +1290,88 @@
   transition: background 150ms;
 }
 .pd-install-btn:hover { background: #fff; }
+
+/* ========= 安裝資源:說明書 PDF + 安裝影片(#270、Sean 2026-07-08 拍板) ========= */
+/* 影片 facade(縮圖+紅播放鈕、點擊才載 iframe 省流量)+ PDF 下載鈕;桌機左右並排、手機上下堆疊。
+   optional:只有其一 → is-single 佔滿寬;兩者皆無 → 元件回 null 不渲染(見 ProductTabs InstallResources)。 */
+.pd-res { margin-top: 30px; padding-top: 26px; border-top: 1.5px solid var(--c-text); }
+.pd-res-eyebrow {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 16px;
+  font-family: var(--f-mono); font-size: 11.5px; font-weight: 600;
+  letter-spacing: 0.14em; color: var(--c-text-2);
+}
+.pd-res-eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--c-gold); opacity: 0.7; }
+.pd-res-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.pd-res-grid.is-single { grid-template-columns: 1fr; }
+
+/* 影片 facade */
+.pd-res-video { position: relative; }
+.pd-res-facade {
+  display: block; width: 100%; padding: 0; border: 1px solid var(--c-border);
+  position: relative; aspect-ratio: 16 / 9; overflow: hidden; cursor: pointer;
+  background: radial-gradient(120% 120% at 30% 20%, #2a2b2f, #0f1012 70%);
+}
+.pd-res-thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.pd-res-play {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 62px; height: 62px; border-radius: 50%; background: var(--c-red);
+  display: flex; align-items: center; justify-content: center; z-index: 2;
+  box-shadow: 0 8px 26px rgba(220, 38, 38, 0.5); transition: transform 0.2s, background 0.2s;
+}
+.pd-res-facade:hover .pd-res-play { transform: translate(-50%, -50%) scale(1.08); background: var(--c-red-dark); }
+.pd-res-tri {
+  width: 0; height: 0; margin-left: 4px;
+  border-left: 17px solid #fff; border-top: 11px solid transparent; border-bottom: 11px solid transparent;
+}
+.pd-res-tag {
+  position: absolute; top: 12px; left: 12px; z-index: 2;
+  font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.1em; color: #fff;
+  background: rgba(0, 0, 0, 0.42); padding: 4px 8px;
+}
+.pd-res-vlabel {
+  position: absolute; left: 14px; bottom: 12px; z-index: 2;
+  font-size: 14px; font-weight: 700; color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+}
+.pd-res-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--c-border); }
+
+/* PDF 下載鈕 */
+.pd-res-docs { display: grid; gap: 10px; }
+.pd-res-docs-label { font-size: 13px; color: var(--c-text-2); }
+.pd-res-doc {
+  display: flex; align-items: center; gap: 13px; padding: 13px 15px;
+  border: 1px solid var(--c-border); background: var(--c-surface); color: var(--c-text);
+  text-decoration: none; transition: border-color 0.15s, background 0.15s;
+}
+.pd-res-doc:hover { border-color: var(--c-text); background: var(--c-surface-2); }
+.pd-res-doc-ic {
+  flex: none; width: 34px; height: 40px; position: relative;
+  background: var(--c-surface-2); border: 1px solid var(--c-border);
+}
+.pd-res-doc-ic::before {
+  content: "PDF"; position: absolute; bottom: 5px; left: 0; right: 0; text-align: center;
+  font-family: var(--f-mono); font-size: 8px; font-weight: 800; letter-spacing: 0.04em; color: var(--c-red);
+}
+.pd-res-doc-tx { flex: 1; min-width: 0; }
+.pd-res-doc-n { display: block; font-size: 14px; font-weight: 600; }
+.pd-res-doc-s { display: block; margin-top: 1px; font-family: var(--f-mono); font-size: 11.5px; color: var(--c-text-3); }
+.pd-res-doc-dl { flex: none; width: 22px; height: 22px; position: relative; color: var(--c-text-2); }
+.pd-res-doc-dl::before {
+  content: ""; position: absolute; left: 50%; top: 2px; width: 2px; height: 11px;
+  background: currentColor; transform: translateX(-50%);
+}
+.pd-res-doc-dl::after {
+  content: ""; position: absolute; left: 50%; top: 8px; width: 8px; height: 8px;
+  border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+  transform: translateX(-50%) rotate(45deg);
+}
+.pd-res-doc:hover .pd-res-doc-dl { color: var(--c-red); }
+
 @media (max-width: 720px) {
   .pd-jump-link { padding: 7px 12px; font-size: 13px; }
   .pd-install-meta { grid-template-columns: 1fr; }
   .pd-install-cta { flex-direction: column; align-items: stretch; text-align: center; }
+  .pd-res-grid { grid-template-columns: 1fr; gap: 18px; }
 }
 
 /* ========= Lightbox ========= */
@@ -1415,8 +1495,9 @@
   font-size: 13px; font-weight: 600;
   cursor: pointer;
 }
-.pd-mbb-cart { background: var(--c-surface); color: var(--c-text); border: 1.5px solid var(--c-text); }
-.pd-mbb-cart:active:not(:disabled) { background: var(--c-surface-2); }
+/* 🔴 手機購買列「加入購物車」同步改紅(對齊桌機 pd-add-btn、Sean 2026-07-08);立即購買維持黑底次要。 */
+.pd-mbb-cart { background: var(--c-red); color: #fff; border: 1.5px solid var(--c-red); }
+.pd-mbb-cart:active:not(:disabled) { background: var(--c-red-dark); }
 .pd-mbb-buynow { background: var(--c-text); color: var(--c-text-inverse); border: 1.5px solid var(--c-text); }
 .pd-mbb-buynow:active:not(:disabled) { opacity: 0.85; }
 .pd-mbb-cart:disabled,

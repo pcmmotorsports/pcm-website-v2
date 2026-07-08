@@ -76,6 +76,17 @@ export type UIFitment = {
  *  ⚠️ 純 UI badge 字串('P價'/'店價')、非經銷價值(真價走 effectivePrice.amount),抽 type 為純型別層零洩漏路徑。 */
 export type TierLabel = 'P價' | '店價' | null;
 
+/**
+ * 安裝說明書下載項(#270 安裝資源:每商品 0-3 個 PDF)。
+ * `url` = 可直接下載的 PDF 連結;`sizeKB` 顯示檔案大小(可省略、省略則不顯 size 標)。
+ * 🔴 資料來源(報價單建欄 vs 過渡 mapping)尚未拍板 → 目前 UI 吃 optional props、無資料不渲染(Sean 2026-07-08 Q2=A)。
+ */
+export type ProductManual = {
+  label: string;
+  url: string;
+  sizeKB?: number;
+};
+
 export type MockProduct = {
   id: number;
   /** URL-safe ASCII slug,格式 `${brandToSlug(brand)}-${id}`、unique(brand+id 天然 unique);M-1-13a 落地、M-1-16 真資料種子時必填 */
@@ -149,6 +160,18 @@ export type MockProduct = {
    *  Phase 1 業務指定 3 件(lightech-1 / akrapovic-6 / brembo-7)hardcoded true、其餘 undefined falsy;
    *  Phase 2 接 Supabase product_spotlights 表(M-1-16 後)、欄位名一致對應(對齊 PRD Q2 字面) */
   hasSpotlight?: boolean;
+  /**
+   * 安裝說明書下載清單(#270 安裝資源、Sean 2026-07-08 Q2=A:先做 UI、資料另議)。
+   * ProductTabs「安裝須知」→「安裝資源」渲染下載按鈕;空 / 省略 → 不渲染該欄。
+   * 🔴 目前無 adapter 接線(toUIProduct 尚未填此欄)→ 正式站暫不顯示、待資料來源拍板後接。
+   */
+  manuals?: ProductManual[];
+  /**
+   * 安裝示範影片連結(#270 安裝資源;YouTube watch/embed URL)。
+   * ProductTabs 用 facade 縮圖 + 播放鈕、點擊才載 iframe(省流量);空 / 省略 → 不渲染影片。
+   * 🔴 同 manuals:目前無 adapter 接線、待資料來源拍板。
+   */
+  videoUrl?: string;
 };
 
 export const MOCK_PRODUCTS: MockProduct[] = [
