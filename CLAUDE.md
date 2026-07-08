@@ -15,6 +15,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 - **每 session 必讀**:STATUS.md(重點「下一步」「Sean 待決策」「Blocker」)+ 本工作直接相關的 handoff/PRD。讀完回報 Sean「已就緒、可開工」。
 - **新 milestone / 接手陌生領域才加讀**:`docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。
+- **陌生領域開工加一步(盲點掃描)**:上列檔讀完、寫 plan 前,派 subagent 回答「這領域裡我和 Sean 可能都沒想到的坑/依賴/隱含決策是什麼」,把 unknown unknowns 變成問題清單附進 plan 再動手。
 - **禁止為「保險」通讀大檔**:用路由表,命中觸發條件才讀對應段落(讀不相關長檔 = 燒 token 也稀釋注意力)。
 
 ---
@@ -99,7 +100,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ## Sean 風格速查(完整見 `docs/working-style.md`)
 
 - **兩層報告**:上層白話(影響哪些檔/出錯怎樣/估多久/風險)+ 下層技術細節 + 指令(code block、一鍵複製)。
-- **決策一律 multi-select**:每題 2-4 選項、**禁開放式問題**;業務白話、技術細節留下層;用 prose code block(`Q:…/A: A|B|C`)、Sean copy-paste 回、**不走 AskUserQuestion UI**。
+- **決策一律 multi-select**:每題 2-4 選項、**禁開放式問題**;業務白話、技術細節留下層;用 prose code block(`Q:…/A: A|B|C`)、Sean copy-paste 回、**不走 AskUserQuestion UI**;**答案會改變架構或方向的題排最前面問**。
+- **品味題(視覺/文案調性)不用文字選項讓 Sean 想像**:給 3-4 個方向差異夠大的實體版本讓他直接看(互相打架、不是同款微調);視覺 demo 由 Claude Design 產出(分工不變),Claude Code 只把題目轉成 demo 需求、不自己做視覺。
 - **「看不懂/白話一點/畫個圖」** → 視覺化 + 比喻 + multi-select 三層白話模式。
 - **Sean 改變主意是常態** → 不質疑、重新對齊、不堅持舊版。
 
