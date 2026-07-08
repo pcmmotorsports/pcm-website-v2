@@ -301,8 +301,9 @@ export function ProductPage({ product, tier, related }: ProductPageProps) {
         {isRpmCarbon && <ProductHighlights />}
         {isRpmCarbon && <ProductSwatchWall />}
         <ProductSpotlight product={product} />
-        {/* M-1-13f-2:pd-tabs-section 對齊 design ProductPage.jsx L382-453 真權威字面
-            (4 tab keys = description / specs / install / warranty、非舊 STATUS 寫錯的 spec/desc/faq/review)*/}
+        {/* #270 B S2(Sean 2026-07-08 拍 A、supersede OD §9 分頁):規格區(ProductTabs)由橫向 tabs
+            改長頁全展開 + sticky 跳轉列;四段 description/specs/install/warranty 全常駐可見(h2 landmark、
+            section id pd-sec-*)。內容 byte 不變、僅呈現型態改;RPM 內容一字不變、只是不再被分頁藏。 */}
         <ProductTabs product={product} />
 
         {/* M-1-13H-6:Related section(對應 HANDOFF #16 + Q4 + lessons §12-37);

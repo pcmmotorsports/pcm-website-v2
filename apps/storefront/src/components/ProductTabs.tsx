@@ -1,36 +1,34 @@
-// ProductTabs.tsx — 商品詳細頁 4 分頁(商品介紹 / 規格 / 相容性 / 安裝須知 / 保固與退換)
+// ProductTabs.tsx — 商品詳細頁 4 段資訊(商品介紹 / 規格 · 相容性 / 安裝須知 / 保固與退換)
 //
-// OD-8(視覺真權威 OD 模板「Website V2」product-detail-rpm-template.html §9 tabs、鐵則 1 直接搬;
-//   碳纖維化、修正舊鋁合金殘留 7075-T6 / Hard Anodized / 重量 320g / 義大利保固):
-// - tab 字面對齊 OD:商品介紹 / 規格 / 相容性 / 安裝須知 / 保固與退換
-//   (規格 tab 由舊「規格與相容性」改 OD 字面「規格 / 相容性」)。
-// - 介紹 pane(商品專屬):brand / name / fits 動態 + 碳纖維通用框架。
-//   🔴 給審查 / 資料線 workstream:per-廠牌 / per-product 的真實功能描述(如 DCC01「散熱導風」)
-//   屬固定內文、待後台 product_description 接線後取代此通用框架(Sean 2026-06-03 Q1 拍板、
-//   同 ProductSpotlight 處置);現為碳纖維**通用 placeholder**、非真實 per-product 內容。
-// - 規格 pane:品牌 / 型號 / 分類 / 適用車款 吃 product 動態;材質「真碳纖維」、紋路可選、
-//   表面可選、特殊樣式 為 RPM 碳纖固定字面;產地「泰國」RPM-only 覆蓋(非 DB 欄、套非 RPM
-//   商品會錯、真欄留 product_specs 接線、接線前不可當通用真值)。
-//   OD-12:適用車款表(ProductFitments)上線 → 恢復 OD 模板「完整見頁面上方對照表」交叉引用,
-//   僅在 product.fitments 有資料(表會渲染)時顯、避免指向不存在區塊(dangling)。
-// - 安裝 pane(RPM 共用):OD §9 改 meta 3 欄(因品而異 / 交給專業技師 / 基本機車手工具)+ 1 段說明 +
-//   3 點清單(取代舊 4 步驟卡 pd-steps、OD 模板已捨棄分步卡);預約安裝 CTA 沿用 router.push('/install')
-//   行為(storefront 既有、OD 模板按鈕無 href)。
-// - 保固 pane(RPM 共用):OD §9 客製訂製退換政策 3 段 + 3 點清單。
-//   ⚠️ 內容須與 N°04 FAQ「保固與退換貨」一致(OD-10 接續、同一份政策字面)。
-//   含《消保法》第 19 條鑑賞期條款屬 L1 法律政策、hardcode 可接受、未來 site_policies 接線。
+// 🔴 S2 / #270 B(Sean 2026-07-08 拍 A、supersede OD §9 分頁):由「橫向 tabs + hidden pane」改
+//   **長頁全展開 + sticky 跳轉列(TOC)**——四段內容全常駐可見、不再靠 hidden 切換。
+//   動機:①SEO/GEO——四段內容原本就全在 DOM(hidden 非條件渲染),但分頁隱藏內容權重略低;長頁
+//     全展開讓規格/相容/安裝/保固都是可見 h2 landmark、搜尋更抓得到。②快速看相容——客人不必點分頁
+//     即見規格/相容摘要(完整車型表仍在頁面上方 ProductFitments)。③Baymard 實測:橫向 tabs 27% 漏看
+//     內容 → 改長頁 + 錨點 TOC(漏看 7%)。全品牌一致(含 RPM;RPM 內容 byte 不變、只是不再被分頁藏)。
+// - 跳轉列 = <nav> + 錨點 <a href="#pd-sec-*">;每段 = 語意 <section id="pd-sec-*"
+//   aria-labelledby="pd-sec-*-title"> + 可見 <h2 id="pd-sec-*-title">(取代舊 role=tab/tabpanel;
+//   移除 tab 鈕後舊 aria-labelledby="pd-tab-*" 會 dangling,故改指向真實 heading)。
 //
-// 'use client' 必要:useState + onClick handler(對齊 ADR-0006 §1「Hooks → 'use client'」)。
-// ARIA tablist / tab / tabpanel + roving tabIndex + 鍵盤導覽(↑M-1-13H-6 Codex Fix 1 沿用不動)。
+// 內容邏輯(以下全不變、只換外層容器):
+// OD-8(視覺真權威 OD 模板「Website V2」product-detail-rpm-template.html §9、鐵則 1 直接搬;碳纖維化):
+// - 介紹 pane(商品專屬):brand / name / fits 動態 + 碳纖維通用框架(RPM);非 RPM 渲染真 description。
+//   🔴 per-廠牌 / per-product 真實功能描述待後台 product_description 接線(Sean 2026-06-03 Q1)。
+// - 規格 pane:品牌 / 型號 / 分類 / 適用車款 吃 product 動態;材質·紋路·表面·產地·特殊樣式 = RPM 碳纖列
+//   isRpmCarbon 守門(byte 不變)、非 RPM 改資料驅動 buildSpecRows(P0-C-b2);產地「泰國」RPM-only 覆蓋。
+//   OD-12:「適用車款」列交叉引用上方 ProductFitments 表(僅有 fitments 時顯、避 dangling)。
+// - 安裝 pane(全品牌通用去碳、Sean Q2=A):meta 3 欄 + 1 段說明 + 3 點清單;預約安裝 CTA 沿用
+//   router.push('/install')(storefront 既有、OD 模板按鈕無 href)。
+// - 保固 pane(全品牌通用單一真相 rpm-policies、P0-C-b1):與 N°04 FAQ 共用政策字面、含《消保法》§19。
+//
+// 'use client' 必要:安裝 CTA onClick → router.push('/install')(對齊 ADR-0006 §1「Hooks/事件 → 'use client'」)。
+//   S2 已移除 tab useState/useRef/鍵盤導覽(長頁不需),client 邊界僅為 CTA 保留。
 //
 // 標點:渲染文案用全形(逗號「，」/ 冒號「：」/ 問號「？」/ 分號「；」+ 頓號「、」句號「。」括號「（）」);
-//   時間「10:00」/ 數字範圍「2–6」/ 英文 / 程式碼維持半形。Sean 2026-06-10 Q2=B 拍板:商品詳情頁散文家族
-//   全改全形、反轉原 OD-6 / 7a「半形逗號家族慣例」(業務 override、鐵則 1 例外)。
+//   時間「10:00」/ 數字範圍「2–6」/ 英文 / 程式碼維持半形。Sean 2026-06-10 Q2=B(業務 override、鐵則 1 例外)。
 
 'use client';
 
-import { useRef, useState } from 'react';
-import type { KeyboardEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import {
@@ -80,9 +78,10 @@ function renderPolicyRuns(runs: PolicyRun[]) {
   );
 }
 
-type TabKey = 'description' | 'specs' | 'install' | 'warranty';
+type SectionKey = 'description' | 'specs' | 'install' | 'warranty';
 
-const TAB_DEFS: Array<[TabKey, string]> = [
+// 四段字面對齊 OD §9(規格 tab 由舊「規格與相容性」改 OD 字面「規格 / 相容性」);跳轉列與 heading 共用。
+const SECTION_DEFS: Array<[SectionKey, string]> = [
   ['description', '商品介紹'],
   ['specs', '規格 / 相容性'],
   ['install', '安裝須知'],
@@ -93,66 +92,29 @@ export type ProductTabsProps = { product: MockProduct };
 
 export function ProductTabs({ product }: ProductTabsProps) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>('description');
 
   // 🔴 P0-C-b2 去碳:RPM 才顯碳纖介紹/規格列(byte 不變);非 RPM 介紹留最小事實、規格表資料驅動。
   //   守門用 brandSlug(≠ product.brand 顯示名);F1 陷阱同 P0-C-a。安裝分頁為全品牌通用去碳(不守門、Sean Q2=A)。
   const isRpmCarbon = product.brandSlug === RPM_CARBON_BRAND_SLUG;
   const specRows = isRpmCarbon ? [] : buildSpecRows(product.variants ?? []);
 
-  // M-1-13H-6 Codex Fix 1:roving tabIndex + 鍵盤導覽(W3C WAI-ARIA Authoring Practices Tabs)。
-  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
-
-  const handleTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, idx: number) => {
-    const count = TAB_DEFS.length;
-    let newIdx: number | null = null;
-    if (e.key === 'ArrowRight') newIdx = (idx + 1) % count;
-    else if (e.key === 'ArrowLeft') newIdx = (idx - 1 + count) % count;
-    else if (e.key === 'Home') newIdx = 0;
-    else if (e.key === 'End') newIdx = count - 1;
-    if (newIdx === null) return;
-    e.preventDefault();
-    const next = TAB_DEFS[newIdx];
-    if (!next) return;
-    setTab(next[0]);
-    tabRefs.current[newIdx]?.focus();
-  };
-
   return (
-    <section className="pd-tabs-section">
-      <div className="pd-tabs" role="tablist" aria-label="商品詳細資訊">
-        {TAB_DEFS.map(([k, l], i) => (
-          <button
-            key={k}
-            ref={(el) => {
-              tabRefs.current[i] = el;
-            }}
-            type="button"
-            role="tab"
-            id={`pd-tab-${k}`}
-            aria-selected={tab === k}
-            aria-controls={`pd-panel-${k}`}
-            tabIndex={tab === k ? 0 : -1}
-            className={`pd-tab ${tab === k ? 'is-active' : ''}`}
-            onClick={() => setTab(k)}
-            onKeyDown={(e) => handleTabKeyDown(e, i)}
-          >
+    <section className="pd-spec-section">
+      {/* 跳轉列(長頁 TOC、sticky):取代舊分頁鈕列;錨點 href 指向下方各 section id、便於長頁間快速跳。 */}
+      <nav className="pd-jump" aria-label="商品資訊快速跳轉">
+        {SECTION_DEFS.map(([k, l]) => (
+          <a key={k} className="pd-jump-link" href={`#pd-sec-${k}`}>
             {l}
-          </button>
+          </a>
         ))}
-      </div>
+      </nav>
 
-      <div className="pd-tab-body">
+      <div className="pd-spec-body">
         {/* 商品介紹:RPM 顯碳纖框架(byte 不變、isRpmCarbon 守門、Sean Q1 拍板硬寫死);
             非 RPM(2026-07-05 起)渲染 product.description 真內文(有值才顯示、空走通用框架)。
             🔴 RPM 的 product.description 是舊英文 HTML、刻意不渲染(syncDescription=false、維持碳纖框架)。 */}
-        <div
-          role="tabpanel"
-          id="pd-panel-description"
-          aria-labelledby="pd-tab-description"
-          hidden={tab !== 'description'}
-          className="pd-tab-pane"
-        >
+        <section id="pd-sec-description" className="pd-sec" aria-labelledby="pd-sec-description-title">
+          <h2 id="pd-sec-description-title" className="pd-sec-title">商品介紹</h2>
           {isRpmCarbon ? (
             <>
               <p className="pd-body">
@@ -205,18 +167,13 @@ export function ProductTabs({ product }: ProductTabsProps) {
               </ul>
             </>
           )}
-        </div>
+        </section>
 
         {/* 規格 / 相容性:品牌 / 型號 / 分類 / 適用車款 動態(全品牌);材質·紋路·表面·產地·特殊樣式 = RPM 碳纖列 isRpmCarbon 守門(byte 不變)、非 RPM 改資料驅動 buildSpecRows(P0-C-b2);
             產地「泰國」RPM-only 覆蓋(非 DB 欄)。OD-12:「適用車款」列恢復「完整見頁面上方對照表」
             交叉引用(條件:有 fitments 表才顯)。 */}
-        <div
-          role="tabpanel"
-          id="pd-panel-specs"
-          aria-labelledby="pd-tab-specs"
-          hidden={tab !== 'specs'}
-          className="pd-tab-pane"
-        >
+        <section id="pd-sec-specs" className="pd-sec" aria-labelledby="pd-sec-specs-title">
+          <h2 id="pd-sec-specs-title" className="pd-sec-title">規格 / 相容性</h2>
           <div className="pd-specs">
             <div className="pd-spec-row">
               <div className="pd-spec-k">品牌</div>
@@ -281,17 +238,12 @@ export function ProductTabs({ product }: ProductTabsProps) {
               </div>
             )}
           </div>
-        </div>
+        </section>
 
         {/* 安裝須知(全品牌通用、P0-C-b2 去碳:碳纖部品→部品 / 碳纖斷裂→部品受損、Sean Q2=A):meta 3 欄 + 1 段說明 + 3 點清單(OD §9 捨棄 4 步驟卡 pd-steps);
             預約安裝 CTA router.push('/install') 行為沿用(storefront 既有、OD 模板按鈕無 href)。 */}
-        <div
-          role="tabpanel"
-          id="pd-panel-install"
-          aria-labelledby="pd-tab-install"
-          hidden={tab !== 'install'}
-          className="pd-tab-pane"
-        >
+        <section id="pd-sec-install" className="pd-sec" aria-labelledby="pd-sec-install-title">
+          <h2 id="pd-sec-install-title" className="pd-sec-title">安裝須知</h2>
           <div className="pd-install-meta">
             <div>
               <span>難度</span>
@@ -327,18 +279,13 @@ export function ProductTabs({ product }: ProductTabsProps) {
               預約安裝 →
             </button>
           </div>
-        </div>
+        </section>
 
         {/* 保固與退換(全品牌通用單一真相 rpm-policies、P0-C-b1):客製訂製退換政策 + 鑑賞期條款。
             ⚠️ 政策字面來自共用 @/data/rpm-policies(單一真相、與 N°04 FAQ ProductFAQ 共用、不分歧);
             含《消保法》第 19 條鑑賞期(L1 法律政策、Sean 仍在確認準確性、改字面只動 rpm-policies)。 */}
-        <div
-          role="tabpanel"
-          id="pd-panel-warranty"
-          aria-labelledby="pd-tab-warranty"
-          hidden={tab !== 'warranty'}
-          className="pd-tab-pane"
-        >
+        <section id="pd-sec-warranty" className="pd-sec" aria-labelledby="pd-sec-warranty-title">
+          <h2 id="pd-sec-warranty-title" className="pd-sec-title">保固與退換</h2>
           {RPM_WARRANTY_PARAGRAPHS.map((para, i) => (
             <p className="pd-body" key={i}>
               {renderPolicyRuns(para)}
@@ -349,7 +296,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
               <li key={i}>{renderPolicyRuns(note)}</li>
             ))}
           </ul>
-        </div>
+        </section>
       </div>
     </section>
   );

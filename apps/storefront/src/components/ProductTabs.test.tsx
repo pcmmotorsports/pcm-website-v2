@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 //
 // ProductTabs smoke test — 前台 regression 安全網(M-1-13f-2)。
-// 驗「4 tab buttons + 預設 description active + 點切換 + ARIA roles + 預約安裝 router.push」。
+// 🔴 S2 / #270 B(Sean 2026-07-08 拍 A):由分頁改「長頁全展開 + 跳轉列」——驗四段內容全常駐可見
+//   (無 hidden、無 role=tab)、四個 h2 landmark、跳轉列錨點 href 指向存在的 section id、
+//   section aria-labelledby 指向存在 heading;內容邏輯斷言(碳纖/去碳/規格資料驅動/安裝去碳/保固/
+//   highlights/安裝 CTA router.push)全保留、僅移除舊「先點 tab 才見」前綴(現全可見)。
 // useRouter 走 vi.mock(同 Header.test.tsx / ProductPage.test.tsx 慣例)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
@@ -21,84 +24,69 @@ afterEach(() => {
   mockPush.mockReset();
 });
 
-describe('ProductTabs', () => {
-  it('renders 4 tab buttons with design 字面 labels', () => {
+const SECTION_IDS = ['description', 'specs', 'install', 'warranty'] as const;
+const SECTION_LABELS = ['商品介紹', '規格 / 相容性', '安裝須知', '保固與退換'] as const;
+
+describe('ProductTabs (長頁全展開)', () => {
+  it('renders 4 section headings (h2, design 字面) and no role=tab', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    expect(screen.getByRole('tab', { name: '商品介紹' })).toBeDefined();
-    expect(screen.getByRole('tab', { name: '規格 / 相容性' })).toBeDefined();
-    expect(screen.getByRole('tab', { name: '安裝須知' })).toBeDefined();
-    expect(screen.getByRole('tab', { name: '保固與退換' })).toBeDefined();
+    for (const label of SECTION_LABELS) {
+      expect(screen.getByRole('heading', { level: 2, name: label })).toBeDefined();
+    }
+    // 已無分頁鈕
+    expect(screen.queryAllByRole('tab').length).toBe(0);
   });
 
-  it('defaults to description tab with aria-selected=true', () => {
+  it('renders all 4 sections simultaneously (no hidden, long-page)', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    const descTab = screen.getByRole('tab', { name: '商品介紹' });
-    expect(descTab.getAttribute('aria-selected')).toBe('true');
-    // 其他三個 tab 應該 aria-selected="false"
-    expect(
-      screen.getByRole('tab', { name: '規格 / 相容性' }).getAttribute('aria-selected'),
-    ).toBe('false');
-  });
-
-  it('shows description pane by default, hides others', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    const descPane = document.getElementById('pd-panel-description');
-    const specsPane = document.getElementById('pd-panel-specs');
-    expect(descPane?.hasAttribute('hidden')).toBe(false);
-    expect(specsPane?.hasAttribute('hidden')).toBe(true);
-  });
-
-  it('switches to specs pane when specs tab clicked', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
-    expect(
-      screen.getByRole('tab', { name: '規格 / 相容性' }).getAttribute('aria-selected'),
-    ).toBe('true');
-    const descPane = document.getElementById('pd-panel-description');
-    const specsPane = document.getElementById('pd-panel-specs');
-    expect(descPane?.hasAttribute('hidden')).toBe(true);
-    expect(specsPane?.hasAttribute('hidden')).toBe(false);
-  });
-
-  it('wires tab aria-controls to matching panel id', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    const tabs = screen.getAllByRole('tab');
-    for (const t of tabs) {
-      const controls = t.getAttribute('aria-controls');
-      expect(controls).toBeTruthy();
-      const panel = document.getElementById(controls!);
-      expect(panel).not.toBeNull();
-      expect(panel?.getAttribute('aria-labelledby')).toBe(t.id);
+    for (const id of SECTION_IDS) {
+      const sec = document.getElementById(`pd-sec-${id}`);
+      expect(sec).not.toBeNull();
+      expect(sec?.hasAttribute('hidden')).toBe(false);
     }
   });
 
-  it('renders install CTA that pushes /install on click', () => {
+  it('renders jump nav with 4 links → existing section ids + valid aria-labelledby', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    fireEvent.click(screen.getByRole('tab', { name: '安裝須知' }));
+    const nav = screen.getByRole('navigation', { name: '商品資訊快速跳轉' });
+    const links = Array.from(nav.querySelectorAll('a'));
+    expect(links.length).toBe(4);
+    for (const a of links) {
+      const href = a.getAttribute('href') ?? '';
+      expect(href.startsWith('#pd-sec-')).toBe(true);
+      const target = document.getElementById(href.slice(1)); // 去掉 '#'
+      expect(target).not.toBeNull();
+      // 每段 aria-labelledby 指向存在的 heading(移除 tab 後不得 dangling)
+      const labelledby = target?.getAttribute('aria-labelledby');
+      expect(labelledby).toBeTruthy();
+      expect(document.getElementById(labelledby!)).not.toBeNull();
+    }
+  });
+
+  it('renders install CTA that pushes /install on click (no tab switch needed)', () => {
+    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
     fireEvent.click(screen.getByRole('button', { name: /預約安裝/ }));
     expect(mockPush).toHaveBeenCalledWith('/install');
   });
 
-  it('renders product brand / name / fits in description lead', () => {
+  it('renders product brand / name in description section', () => {
     const product = MOCK_PRODUCTS[0]!;
     render(<ProductTabs product={product} />);
-    const descPane = document.getElementById('pd-panel-description');
-    expect(descPane?.textContent).toContain(product.brand);
-    expect(descPane?.textContent).toContain(product.name);
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.textContent).toContain(product.brand);
+    expect(sec?.textContent).toContain(product.name);
   });
 
   // M-1-16c-4b:產品型號顯真主碼 productCode(取代 PCM-{id hash});無 productCode fallback slug
   it('renders productCode in specs when present', () => {
     const product = { ...MOCK_PRODUCTS[0]!, productCode: 'RPM-DCC01' };
     render(<ProductTabs product={product} />);
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
     expect(screen.getByText('RPM-DCC01')).toBeDefined();
   });
 
   it('falls back to slug in specs when productCode absent (no PCM-{id} hash)', () => {
     const product = MOCK_PRODUCTS[0]!; // 無 productCode
     render(<ProductTabs product={product} />);
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
     expect(screen.getByText(product.slug)).toBeDefined();
     expect(screen.queryByText(`PCM-${String(product.id).padStart(5, '0')}`)).toBeNull();
   });
@@ -106,49 +94,45 @@ describe('ProductTabs', () => {
   // M-1-16c-4b:產地泰國(Sean 拍、去義大利);P0-C-b2:產地為 RPM 專屬列 → 用 RPM fixture(brandSlug)
   it('renders 產地 泰國 (not 義大利) in specs (RPM)', () => {
     render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
     expect(screen.getByText('泰國')).toBeDefined();
   });
 
-  // OD-8 碳纖維化:確認舊 hardcoded 鋁合金規格殘留(7075-T6 / Hard Anodized / 義大利保固 / 重量)已清除、
-  // 換 OD 碳纖字面。注意:不可斷言 textContent 無「鋁合金」三字 —— mock 目錄沿用舊品名
-  // (如 MOCK_PRODUCTS[0] = "Lightech 鋁合金腳踏組"),「鋁合金」來自動態 product.name、非 hardcoded 文案;
-  // 碳纖通用文案以 RPM production 資料為目標(同 OD-6/7a)、mock 名稱不符屬本機 dev 殘留、非 production 問題。
-  it('description pane uses 真碳纖維 copy for RPM (no hardcoded 7075-T6 spec residue)', () => {
+  // OD-8 碳纖維化:確認舊 hardcoded 鋁合金規格殘留(7075-T6 等)已清除、換 OD 碳纖字面。
+  it('description section uses 真碳纖維 copy for RPM (no hardcoded 7075-T6 spec residue)', () => {
     render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.textContent).toContain('真碳纖維');
-    expect(pane?.textContent).not.toContain('7075');
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.textContent).toContain('真碳纖維');
+    expect(sec?.textContent).not.toContain('7075');
   });
 
-  // 🔴 P0-C-b2 去碳:非 RPM 商品介紹分頁無碳纖框架文案;無 description → 最小事實(品牌+品名)fallback
-  it('description pane 去碳 for non-RPM 無描述時 (no 碳纖, keeps brand + name)', () => {
+  // 🔴 P0-C-b2 去碳:非 RPM 商品介紹無碳纖框架文案;無 description → 最小事實(品牌+品名)fallback
+  it('description section 去碳 for non-RPM 無描述時 (no 碳纖, keeps brand + name)', () => {
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', description: undefined };
     render(<ProductTabs product={nonRpm} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.textContent).not.toContain('真碳纖維');
-    expect(pane?.textContent).not.toContain('碳纖');
-    expect(pane?.textContent).toContain(nonRpm.brand);
-    expect(pane?.textContent).toContain(nonRpm.name);
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.textContent).not.toContain('真碳纖維');
+    expect(sec?.textContent).not.toContain('碳纖');
+    expect(sec?.textContent).toContain(nonRpm.brand);
+    expect(sec?.textContent).toContain(nonRpm.name);
   });
 
   // 2026-07-05:非 RPM 有 product.description → 渲染真內文(修「內文寫進 DB 但前台無出口」)
-  it('description pane 非 RPM 有描述時渲染真內文(逐段 + 保留 LINE 提醒)', () => {
+  it('description section 非 RPM 有描述時渲染真內文(逐段 + 保留 LINE 提醒)', () => {
     const nonRpm = {
       ...MOCK_PRODUCTS[0]!,
       brandSlug: 'gb-racing',
       description: '玻璃纖維尼龍複合材料製成的防倒球，可吸震滑行。\n\n適用車款與年式以本頁標示為準',
     };
     render(<ProductTabs product={nonRpm} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.textContent).toContain('玻璃纖維尼龍複合材料');
-    expect(pane?.textContent).toContain('適用車款與年式以本頁標示為準');
-    expect(pane?.textContent).toContain('LINE'); // 通用提醒仍在
-    expect(pane?.textContent).not.toContain('真碳纖維'); // 去碳
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.textContent).toContain('玻璃纖維尼龍複合材料');
+    expect(sec?.textContent).toContain('適用車款與年式以本頁標示為準');
+    expect(sec?.textContent).toContain('LINE'); // 通用提醒仍在
+    expect(sec?.textContent).not.toContain('真碳纖維'); // 去碳
   });
 
   // A/#270(Sean 2026-07-08 肉眼驗改圓點):非 RPM 有 highlights → 併入 pd-list 圓點清單(賣點 + LINE 提醒同一清單)
-  it('description pane 非 RPM 有 highlights → 圓點清單含賣點 + LINE 提醒(pd-list)', () => {
+  it('description section 非 RPM 有 highlights → 圓點清單含賣點 + LINE 提醒(pd-list)', () => {
     const nonRpm = {
       ...MOCK_PRODUCTS[0]!,
       brandSlug: 'gb-racing',
@@ -156,54 +140,53 @@ describe('ProductTabs', () => {
       highlights: ['6AL-4V G5 鈦合金，輕量且耐腐蝕', 'DLC 黑鈦塗層'],
     };
     render(<ProductTabs product={nonRpm} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.querySelectorAll('.pd-desc-features li').length).toBe(0); // 不再用破折號清單
-    expect(pane?.querySelectorAll('.pd-list li').length).toBe(3); // 2 賣點 + 1 LINE 提醒、同一圓點清單
-    expect(pane?.textContent).toContain('6AL-4V G5 鈦合金，輕量且耐腐蝕');
-    expect(pane?.textContent).toContain('DLC 黑鈦塗層');
-    expect(pane?.textContent).toContain('LINE');
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.querySelectorAll('.pd-desc-features li').length).toBe(0); // 不再用破折號清單
+    expect(sec?.querySelectorAll('.pd-list li').length).toBe(3); // 2 賣點 + 1 LINE 提醒、同一圓點清單
+    expect(sec?.textContent).toContain('6AL-4V G5 鈦合金，輕量且耐腐蝕');
+    expect(sec?.textContent).toContain('DLC 黑鈦塗層');
+    expect(sec?.textContent).toContain('LINE');
   });
 
   // A/#270:非 RPM 無 highlights(空陣列)→ pd-list 只剩 LINE 提醒 1 條(不多空項)
-  it('description pane 非 RPM 無 highlights → pd-list 只顯 LINE 提醒 1 條', () => {
+  it('description section 非 RPM 無 highlights → pd-list 只顯 LINE 提醒 1 條', () => {
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', description: '純描述。', highlights: [] };
     render(<ProductTabs product={nonRpm} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.querySelectorAll('.pd-list li').length).toBe(1);
-    expect(pane?.textContent).toContain('LINE');
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.querySelectorAll('.pd-list li').length).toBe(1);
+    expect(sec?.textContent).toContain('LINE');
   });
 
   // A/#270 RPM byte 不變:RPM 有 highlights 仍走碳纖框架、不渲染 product.highlights(isRpmCarbon 分支不讀)
-  it('description pane RPM 有 highlights 仍不渲染 product.highlights(碳纖框架 byte 不變)', () => {
+  it('description section RPM 有 highlights 仍不渲染 product.highlights(碳纖框架 byte 不變)', () => {
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', highlights: ['不該顯示的賣點'] };
     render(<ProductTabs product={rpm} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.textContent).not.toContain('不該顯示的賣點');
-    expect(pane?.textContent).toContain('真碳纖維'); // RPM 碳纖框架維持
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.textContent).not.toContain('不該顯示的賣點');
+    expect(sec?.textContent).toContain('真碳纖維'); // RPM 碳纖框架維持
   });
 
   // 🔴 RPM byte 不變:RPM 有 product.description(舊英文 HTML)仍顯碳纖框架、絕不渲染 description
-  it('description pane RPM 有描述時仍顯碳纖框架、不渲染 product.description(byte 不變)', () => {
+  it('description section RPM 有描述時仍顯碳纖框架、不渲染 product.description(byte 不變)', () => {
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', description: 'OLD-ENGLISH-HTML-DESC' };
     render(<ProductTabs product={rpm} />);
-    const pane = document.getElementById('pd-panel-description');
-    expect(pane?.textContent).toContain('真碳纖維'); // 碳纖框架維持
-    expect(pane?.textContent).not.toContain('OLD-ENGLISH-HTML-DESC'); // RPM 分支不讀 description
+    const sec = document.getElementById('pd-sec-description');
+    expect(sec?.textContent).toContain('真碳纖維'); // 碳纖框架維持
+    expect(sec?.textContent).not.toContain('OLD-ENGLISH-HTML-DESC'); // RPM 分支不讀 description
   });
 
-  it('specs pane shows 真碳纖維 材質 + 紋路可選 + 特殊樣式 rows for RPM (no 7075 / Hard Anodized)', () => {
+  it('specs section shows 真碳纖維 材質 + 紋路可選 + 特殊樣式 rows for RPM (no 7075 / Hard Anodized)', () => {
     render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
-    const pane = document.getElementById('pd-panel-specs');
-    expect(pane?.textContent).toContain('真碳纖維');
-    expect(pane?.textContent).toContain('紋路可選');
-    expect(pane?.textContent).toContain('特殊樣式');
-    expect(pane?.textContent).not.toContain('7075');
-    expect(pane?.textContent).not.toContain('Hard Anodized');
+    const sec = document.getElementById('pd-sec-specs');
+    expect(sec?.textContent).toContain('真碳纖維');
+    expect(sec?.textContent).toContain('紋路可選');
+    expect(sec?.textContent).toContain('特殊樣式');
+    expect(sec?.textContent).not.toContain('7075');
+    expect(sec?.textContent).not.toContain('Hard Anodized');
   });
 
-  // 🔴 P0-C-b2 去碳:非 RPM 規格表無碳纖列(材質真碳纖/紋路/表面/產地泰國/特殊樣式全守門),改資料驅動讀 variant spec
-  it('specs pane 去碳 + 資料驅動 for non-RPM (no 碳纖 rows, renders spec rows from variant spec)', () => {
+  // 🔴 P0-C-b2 去碳:非 RPM 規格表無碳纖列,改資料驅動讀 variant spec
+  it('specs section 去碳 + 資料驅動 for non-RPM (no 碳纖 rows, renders spec rows from variant spec)', () => {
     const nonRpm = {
       ...MOCK_PRODUCTS[0]!,
       brandSlug: 'gb-racing',
@@ -214,12 +197,11 @@ describe('ProductTabs', () => {
       ],
     };
     render(<ProductTabs product={nonRpm} />);
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
-    const pane = document.getElementById('pd-panel-specs');
+    const sec = document.getElementById('pd-sec-specs');
     // RPM 專屬碳纖列全不顯
-    expect(pane?.textContent).not.toContain('真碳纖維');
-    expect(pane?.textContent).not.toContain('泰國');
-    expect(pane?.textContent).not.toContain('特殊樣式');
+    expect(sec?.textContent).not.toContain('真碳纖維');
+    expect(sec?.textContent).not.toContain('泰國');
+    expect(sec?.textContent).not.toContain('特殊樣式');
     // 通用列仍在
     expect(screen.getByText('品牌')).toBeDefined();
     expect(screen.getByText('商品分類')).toBeDefined();
@@ -228,72 +210,34 @@ describe('ProductTabs', () => {
     expect(screen.getByText('黑 / 銀')).toBeDefined();
     expect(screen.getByText('鋁合金')).toBeDefined();
     // 無值不渲染:note key 全空/空白 → 不出列(未知 key fallback 原字面 'note' 亦不得出現)
-    expect(pane?.textContent).not.toContain('note');
+    expect(sec?.textContent).not.toContain('note');
   });
 
   // P0-C-b2:安裝分頁全品牌通用去碳(Sean Q2=A)——「碳纖部品→部品」「碳纖斷裂→部品受損」、RPM 亦適用
-  it('install pane 全品牌去碳 (no 碳纖部品/碳纖斷裂, keeps 因品而異 + drops pd-step cards)', () => {
+  it('install section 全品牌去碳 (no 碳纖部品/碳纖斷裂, keeps 因品而異 + drops pd-step cards)', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    fireEvent.click(screen.getByRole('tab', { name: '安裝須知' }));
-    const pane = document.getElementById('pd-panel-install');
-    expect(pane?.textContent).toContain('因品而異');
-    expect(pane?.textContent).toContain('每件部品的安裝');
-    expect(pane?.textContent).not.toContain('碳纖部品');
-    expect(pane?.textContent).not.toContain('碳纖斷裂');
-    expect(pane?.querySelector('.pd-steps')).toBeNull();
-    expect(pane?.querySelector('.pd-step')).toBeNull();
+    const sec = document.getElementById('pd-sec-install');
+    expect(sec?.textContent).toContain('因品而異');
+    expect(sec?.textContent).toContain('每件部品的安裝');
+    expect(sec?.textContent).not.toContain('碳纖部品');
+    expect(sec?.textContent).not.toContain('碳纖斷裂');
+    expect(sec?.querySelector('.pd-steps')).toBeNull();
+    expect(sec?.querySelector('.pd-step')).toBeNull();
   });
 
-  // 安裝去碳對 RPM 也生效(全品牌通用、Sean Q2=A 授權 RPM 安裝文字一併去碳)
-  it('install pane 去碳 also applies to RPM (universal, no 碳纖 words)', () => {
+  // 安裝去碳對 RPM 也生效(全品牌通用、Sean Q2=A)
+  it('install section 去碳 also applies to RPM (universal, no 碳纖 words)', () => {
     render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
-    fireEvent.click(screen.getByRole('tab', { name: '安裝須知' }));
-    const pane = document.getElementById('pd-panel-install');
-    expect(pane?.textContent).not.toContain('碳纖部品');
-    expect(pane?.textContent).not.toContain('碳纖斷裂');
+    const sec = document.getElementById('pd-sec-install');
+    expect(sec?.textContent).not.toContain('碳纖部品');
+    expect(sec?.textContent).not.toContain('碳纖斷裂');
   });
 
-  it('warranty pane uses 客製訂製 policy 鑑賞期 clause (no 義大利 24 個月 residue)', () => {
+  it('warranty section uses 客製訂製 policy 鑑賞期 clause (no 義大利 24 個月 residue)', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    fireEvent.click(screen.getByRole('tab', { name: '保固與退換' }));
-    const pane = document.getElementById('pd-panel-warranty');
-    expect(pane?.textContent).toContain('不適用 7 天鑑賞期');
-    expect(pane?.textContent).toContain('客製');
-    expect(pane?.textContent).not.toContain('義大利');
-  });
-
-  // M-1-13H-6 Codex Fix 1:鍵盤導覽 regression(W3C WAI-ARIA Tabs、Sean Q1=B 完整版)
-  it('ArrowRight moves to next tab + selects it (description → specs)', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    const descTab = screen.getByRole('tab', { name: '商品介紹' });
-    fireEvent.keyDown(descTab, { key: 'ArrowRight' });
-    expect(
-      screen.getByRole('tab', { name: '規格 / 相容性' }).getAttribute('aria-selected'),
-    ).toBe('true');
-    expect(descTab.getAttribute('aria-selected')).toBe('false');
-  });
-
-  it('ArrowLeft from first tab wraps to last tab (循環)', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    const descTab = screen.getByRole('tab', { name: '商品介紹' });
-    fireEvent.keyDown(descTab, { key: 'ArrowLeft' });
-    expect(
-      screen.getByRole('tab', { name: '保固與退換' }).getAttribute('aria-selected'),
-    ).toBe('true');
-  });
-
-  it('Home selects first tab, End selects last tab', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    // 先切到 specs、再按 Home 回第一個
-    fireEvent.click(screen.getByRole('tab', { name: '規格 / 相容性' }));
-    fireEvent.keyDown(screen.getByRole('tab', { name: '規格 / 相容性' }), { key: 'Home' });
-    expect(
-      screen.getByRole('tab', { name: '商品介紹' }).getAttribute('aria-selected'),
-    ).toBe('true');
-    // 按 End 切最後一個
-    fireEvent.keyDown(screen.getByRole('tab', { name: '商品介紹' }), { key: 'End' });
-    expect(
-      screen.getByRole('tab', { name: '保固與退換' }).getAttribute('aria-selected'),
-    ).toBe('true');
+    const sec = document.getElementById('pd-sec-warranty');
+    expect(sec?.textContent).toContain('不適用 7 天鑑賞期');
+    expect(sec?.textContent).toContain('客製');
+    expect(sec?.textContent).not.toContain('義大利');
   });
 });
