@@ -29,9 +29,7 @@ import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
 import { ProductServices } from './ProductServices';
 import { ProductFitments } from './ProductFitments';
-import { ProductHighlights } from './ProductHighlights';
-import { ProductSwatchWall } from './ProductSwatchWall';
-import { ProductSpotlight } from './ProductSpotlight';
+import { BrandShowcase } from './BrandShowcase';
 import { ProductTabs } from './ProductTabs';
 import { ProductFAQ } from './ProductFAQ';
 import { ProductCard } from './ProductCard';
@@ -291,20 +289,17 @@ export function ProductPage({ product, tier, related }: ProductPageProps) {
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
             D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
         <ProductFitments product={product} />
-        {/* OD-6:N°01「為什麼選 RPM Carbon」— ProductHighlights(RPM 固定內容、prop-less)。
-            OD-7b:N°02「紋路 × 表面」紋路樣式牆 ProductSwatchWall(緊接 N°01、OD 模板順序;
-              prop-less RPM 品牌通用展示、10 張樣品圖 from @/data/rpm-swatches)。
-            OD-7a:ProductSpotlight(舊 N°02 Engineering)碳纖維化 + 去 N°02 編號、Sean Q1 拍保留;
-              OD 模板無此區、條件渲染 hasSpotlight + brandSlug(真 RPM 頁 hasSpotlight 未設故不顯);真內文交資料線接 DB。
-            🔴 P0-C 去碳:N°01 / N°02 為整段 RPM 專屬 → isRpmCarbon 才 mount(非 RPM = 空白、Q2=B);
-              ProductSpotlight 由元件自帶 brandSlug 第二道守門(defense-in-depth、故此處不加外層條件)。 */}
-        {isRpmCarbon && <ProductHighlights />}
-        {isRpmCarbon && <ProductSwatchWall />}
-        <ProductSpotlight product={product} />
         {/* #270 B S2(Sean 2026-07-08 拍 A、supersede OD §9 分頁):規格區(ProductTabs)由橫向 tabs
             改長頁全展開 + sticky 跳轉列;四段 description/specs/install/warranty 全常駐可見(h2 landmark、
             section id pd-sec-*)。內容 byte 不變、僅呈現型態改;RPM 內容一字不變、只是不再被分頁藏。 */}
         <ProductTabs product={product} />
+        {/* #270 B S3(Sean 2026-07-08 拍 B、一致性):品牌形象區統一搬到規格分頁「之下」(三家品牌
+            RPM/GB/Bonamici 頁面結構一致、讓客人先確認相容/規格再看品牌行銷)。BrandShowcase 依 brandSlug
+            分派:rpm-carbon → N°01 ProductHighlights + N°02 ProductSwatchWall + ProductSpotlight(自帶
+            hasSpotlight+brandSlug 雙守門);gb-racing/bonamici → 各自 Showcase(S4/S5 補);未知 → null。
+            🔴 RPM 內容 byte 不變、只是位置由規格之上搬到規格之下(RPM byte 鐵律此線解除但僅搬位置)。
+            OD 模板原順序(Fitments→N°01→N°02→Tabs)於此 supersede:改 Fitments→Tabs→BrandShowcase。 */}
+        <BrandShowcase product={product} />
 
         {/* M-1-13H-6:Related section(對應 HANDOFF #16 + Q4 + lessons §12-37);
             用既有 <ProductCard> 元件 map、不複製 design VariantCFull L219-230 demo

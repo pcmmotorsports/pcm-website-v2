@@ -208,4 +208,64 @@ describe('ProductPage', () => {
     expect(screen.getByText('專業安裝')).toBeDefined();
     expect(screen.getByText('LINE 諮詢')).toBeDefined();
   });
+
+  // 🔴 #270 B S3(Sean 拍 B 一致性 + codex 關卡1 must-fix 補 DOM 順序斷言):品牌形象區統一搬到規格
+  //   分頁「之下」。順序鎖:規格(.pd-spec-section)< 品牌形象 N°01(#pd-h-rpm)< 相關商品 N°03
+  //   (.pd-related)< FAQ N°04(#pd-h-faq)。防未來誤把形象區搬回規格上方 / 順序漂移。
+  // a 在 DOM 排在 b 之前(a.compareDocumentPosition(b) 含 FOLLOWING=4 → b 在 a 之後)
+  const expectBefore = (a: Element | null, b: Element | null, la: string, lb: string) => {
+    expect(a, `${la} 應存在`).not.toBeNull();
+    expect(b, `${lb} 應存在`).not.toBeNull();
+    expect(a!.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  };
+
+  it('RPM 頁 DOM 順序:規格區 < 品牌形象 N°01 < 相關商品 N°03 < FAQ N°04', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
+    render(<ProductPage product={rpm} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    const spec = document.querySelector('.pd-spec-section');
+    const showcase = document.getElementById('pd-h-rpm'); // N°01「為什麼選 RPM Carbon」heading
+    const related = document.querySelector('.pd-related');
+    const faq = document.getElementById('pd-h-faq'); // N°04 常見問題 heading
+    expectBefore(spec, showcase, '規格區', '品牌形象 N°01');
+    expectBefore(showcase, related, '品牌形象 N°01', '相關商品 N°03');
+    expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
+  });
+
+  it('RPM 頁 related 為空時:品牌形象 N°01 仍在規格之下、且在 FAQ 之前', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
+    render(<ProductPage product={rpm} tier="general" related={[]} />);
+    expect(document.querySelector('.pd-related')).toBeNull(); // related 空 → N°03 不渲染
+    const spec = document.querySelector('.pd-spec-section');
+    const showcase = document.getElementById('pd-h-rpm');
+    const faq = document.getElementById('pd-h-faq');
+    expectBefore(spec, showcase, '規格區', '品牌形象 N°01');
+    expectBefore(showcase, faq, '品牌形象 N°01', 'FAQ N°04');
+  });
+
+  it('RPM hasSpotlight=true → Spotlight 渲染且排在規格之下(reorder 後仍顯、雙守門通過)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', hasSpotlight: true };
+    render(<ProductPage product={rpm} tier="general" related={[]} />);
+    const spec = document.querySelector('.pd-spec-section');
+    const spotlight = document.querySelector('.pd-spotlight');
+    expectBefore(spec, spotlight, '規格區', 'Spotlight'); // 存在 + 在規格之下
+  });
+
+  it('非 RPM(gb-racing)hasSpotlight=true → Spotlight 仍不渲染(brandSlug 第二道守門)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', hasSpotlight: true };
+    render(<ProductPage product={nonRpm} tier="general" related={[]} />);
+    // BrandShowcase gb-racing → null(S4 前無形象區);Spotlight 雙守門(brandSlug≠rpm-carbon)不渲染
+    expect(document.querySelector('.pd-spotlight')).toBeNull();
+    expect(document.getElementById('pd-h-rpm')).toBeNull(); // N°01 亦不顯
+    // 規格區仍在、且在 FAQ 之前(頁面結構完整)
+    expectBefore(
+      document.querySelector('.pd-spec-section'),
+      document.getElementById('pd-h-faq'),
+      '規格區',
+      'FAQ N°04',
+    );
+  });
 });

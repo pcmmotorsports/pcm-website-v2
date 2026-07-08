@@ -281,8 +281,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductPage.tsx"
       css: "apps/storefront/src/styles/product-page.css"
-      last_modified_commit: "04a65c3"  # 記可達祖先=C5 父 commit(=C3、避 amend orphan);本 slice 真改見 git log [C5]:相關商品真資料化(拆 MOCK_PRODUCTS)。前序 P0-C-a brandSlug 去碳守門見 git log
-      last_modified_date: "2026-07-04 [C5 相關商品真資料化(#258)]:ProductPage relatedProducts 由 MOCK_PRODUCTS 同分類 filter 改吃 server `related` prop —— 新 lib/products.ts fetchRelatedProducts(listByCategory 同分類查詢 → 排除自身 excludeHandle → 取前 4 → toUIProduct 'general' strip 經銷價零外洩;失敗/空 → []);app/products/[slug]/page.tsx 撈 related 傳入 ProductPage;ProductPage 移除 MOCK_PRODUCTS import(保留 RPM_CARBON_BRAND_SLUG + 型別)、relatedProducts=related prop、related=[] → 相關商品區條件隱藏(不顯空卡)。消 #258 寫入當天假圖+死連結休眠地雷(多品牌上架前必完成)。related 以 handle 升冪排序取前 4 = 決定性(對齊 featured .order 精神);效能 stopgap(撈 ≤1000 取 4)留 #51。三綠 + 完整 vitest 155 檔 1703(+1:related 空隱藏新增;非空渲染由既有 N°03 test 改寫傳 fixture)。前:2026-07-04 (P0-C-a 去碳品牌切換骨架:isRpmCarbon=product.brandSlug==='rpm-carbon' 守門 → RPM 才 mount <ProductHighlights/>〔N°01〕/<ProductSwatchWall/>〔N°02〕+ 傳 isRpmCarbon 給 <ProductServices/> 做泰國原廠卡級守門;非 RPM=空白〔Q2=B〕;RPM 路徑 byte 不變〔F1:守門用 brandSlug≠brand 顯示名〕)"
+      last_modified_commit: "fe37790"  # 記可達祖先=#270 B S2 規格長頁(=S3 父 commit fe37790);本 slice 真改見 git log [#270 B S3]:品牌形象區搬規格下 + BrandShowcase dispatcher + DOM 順序斷言
+      last_modified_date: "2026-07-08 [#270 B S3 品牌形象搬規格下 + BrandShowcase dispatcher]:🔴 Sean 拍 B 一致性——品牌形象區(N°01 ProductHighlights + N°02 ProductSwatchWall + ProductSpotlight)由規格分頁「之上」(舊 Fitments 後、Tabs 前)整組搬到規格「之下」(ProductTabs 後),三家品牌 RPM/GB/Bonamici 頁面結構統一;🔴 RPM 內容 byte 不變、只是位置搬移(RPM byte 鐵律此線解除但僅搬位置、內容不改)。新 BrandShowcase dispatcher(收完整 product、codex 關卡1 must-fix:ProductSpotlight 需 hasSpotlight+brandSlug 雙守門 + 完整 product 才不壞)依 brandSlug 分派:rpm-carbon→三件、gb-racing/bonamici→各自 Showcase(S4/S5 補)、未知→null(registry 集中一處、避 ProductPage 內 O(n) 條件破 400 行)。ProductPage 移除 ProductHighlights/SwatchWall/Spotlight 3 import(改由 BrandShowcase import)+ 3 mount 行 → 改一行 <BrandShowcase product={product}/>;isRpmCarbon 仍留(ProductServices 卡級守門用)。ProductPage.test 補 4 DOM 順序斷言(規格<形象 N°01<相關 N°03<FAQ N°04 + related 空亦驗形象在 FAQ 前 + RPM hasSpotlight reorder 後仍渲染 + 非 RPM hasSpotlight 仍不渲染=brandSlug 第二道守門)。🔴 上方購買區(pd-main)零觸碰(Sean Q2)。三綠 + 完整 vitest。前:2026-07-04 [C5 相關商品真資料化(#258)]:ProductPage relatedProducts 由 MOCK_PRODUCTS 同分類 filter 改吃 server `related` prop —— 新 lib/products.ts fetchRelatedProducts(listByCategory 同分類查詢 → 排除自身 excludeHandle → 取前 4 → toUIProduct 'general' strip 經銷價零外洩;失敗/空 → []);app/products/[slug]/page.tsx 撈 related 傳入 ProductPage;ProductPage 移除 MOCK_PRODUCTS import(保留 RPM_CARBON_BRAND_SLUG + 型別)、relatedProducts=related prop、related=[] → 相關商品區條件隱藏(不顯空卡)。消 #258 寫入當天假圖+死連結休眠地雷(多品牌上架前必完成)。related 以 handle 升冪排序取前 4 = 決定性(對齊 featured .order 精神);效能 stopgap(撈 ≤1000 取 4)留 #51。三綠 + 完整 vitest 155 檔 1703(+1:related 空隱藏新增;非空渲染由既有 N°03 test 改寫傳 fixture)。前:2026-07-04 (P0-C-a 去碳品牌切換骨架:isRpmCarbon=product.brandSlug==='rpm-carbon' 守門 → RPM 才 mount <ProductHighlights/>〔N°01〕/<ProductSwatchWall/>〔N°02〕+ 傳 isRpmCarbon 給 <ProductServices/> 做泰國原廠卡級守門;非 RPM=空白〔Q2=B〕;RPM 路徑 byte 不變〔F1:守門用 brandSlug≠brand 顯示名〕)"
     design:
       component: "design-reference/components/ProductPage.jsx"
       reference: "design-reference/components/explorations/VariantCFull.jsx"  # M-1-13H 改版真權威字面源、explorations 屬例外(對齊 STATUS L24 Q6 待刪)
@@ -293,9 +293,11 @@ components:
       - "apps/storefront/src/components/ProductGallery.tsx"
       - "apps/storefront/src/components/ProductInfo.tsx"
       - "apps/storefront/src/components/ProductServices.tsx"
-      - "apps/storefront/src/components/ProductFitments.tsx"  # OD-12 適用車款表(pd-services-strip 後、N°01 前)
-      - "apps/storefront/src/components/ProductHighlights.tsx"
-      - "apps/storefront/src/components/ProductSpotlight.tsx"
+      - "apps/storefront/src/components/ProductFitments.tsx"  # OD-12 適用車款表(pd-services-strip 後;#270 B S2 起排在規格長頁之上)
+      - "apps/storefront/src/components/BrandShowcase.tsx"  # #270 B S3:品牌形象區 dispatcher(依 brandSlug 分派、掛在規格 ProductTabs 之下、Sean 拍 B 一致性)
+      - "apps/storefront/src/components/ProductHighlights.tsx"  # N°01;#270 B S3 起由 BrandShowcase 掛載(規格之下)
+      - "apps/storefront/src/components/ProductSwatchWall.tsx"  # N°02;#270 B S3 起由 BrandShowcase 掛載(規格之下)
+      - "apps/storefront/src/components/ProductSpotlight.tsx"  # #270 B S3 起由 BrandShowcase 掛載(規格之下、自帶雙守門)
       - "apps/storefront/src/components/ProductTabs.tsx"
       - "apps/storefront/src/components/ProductCard.tsx"  # Related grid 用既有元件
       - "apps/storefront/src/lib/products.ts"  # C5/#258:fetchRelatedProducts(server 同分類撈相關商品、拆 MOCK_PRODUCTS)+ fetchProductByHandle 詳情頁資料源;route app/products/[slug]/page.tsx 撈 product+related 傳入(見 relatedDataSource override)
@@ -341,6 +343,12 @@ components:
         decided_at: "2026-05-21"
         decision_source: "docs/specs/M-1-13H-product-page-overhaul-plan.md §2 Q2"
         reason: "Phase 1 業務指定、Phase 2 接 Supabase product_spotlights 欄位名一致對應"
+      - field: "brandShowcasePlacement"
+        design_value: "OD 模板順序 = pd-main → services-strip → Fitments → N°01 → N°02 → Spotlight → Tabs(規格)(品牌形象區在規格分頁之上)"
+        storefront_value: "#270 B S3:品牌形象區(N°01 ProductHighlights/N°02 ProductSwatchWall/Spotlight)整組搬到規格區(ProductTabs)之下 → 順序改 Fitments → Tabs → BrandShowcase(dispatcher);三家品牌 RPM/GB/Bonamici 頁面結構統一;RPM 內容 byte 不變、只搬位置。上方購買區 pd-main 零觸碰(Sean Q2)"
+        decided_at: "2026-07-08"
+        decision_source: "docs/specs/2026-07-08-brand-showcase-gb-bonamici-plan.md §3/§4 Slice3 + §8.3(Baymard DTC:完整品牌故事排在購買關鍵資訊之下)"
+        reason: "Sean 拍 B 一致性(三家品牌頁面結構統一)+ 讓客人先確認相容/規格再看品牌行銷;屬鐵則 1 例外(呈現順序業務決定、supersede OD 模板順序)、各品牌 showcase 內容仍搬各自 design 字面"
     open_drifts: []
 
   ProductHighlights:
