@@ -5,6 +5,8 @@
 // dev-preview/* 全部 route 屬開發臨時驗證頁、在 M-6 / 部署前移除(backlog #147)。
 
 import Link from 'next/link';
+// pd-page 容器樣式在 ProductPage.tsx 才 import(非全域)→ demo 頁自帶
+import '@/styles/product-page.css';
 import { BRAND_FIXTURES } from './fixtures';
 
 export const metadata = { title: '品牌放量 demo 索引 | dev-preview', robots: { index: false } };

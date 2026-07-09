@@ -8,6 +8,8 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+// pd-* 樣式在 ProductPage.tsx 才 import(非全域);demo 頁獨立渲染 showcase → 必須自帶,否則裸奔
+import '@/styles/product-page.css';
 import { InstallResources } from '@/components/InstallResources';
 import { EvotechShowcase } from '@/components/EvotechShowcase';
 import { LightechShowcase } from '@/components/LightechShowcase';
