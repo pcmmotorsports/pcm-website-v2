@@ -22,6 +22,9 @@ import { BonamiciShowcase } from './BonamiciShowcase';
 import { EvotechShowcase } from './EvotechShowcase';
 import { LightechShowcase } from './LightechShowcase';
 import { CncRacingShowcase } from './CncRacingShowcase';
+import { EaziGripShowcase } from './EaziGripShowcase';
+import { SamcoShowcase } from './SamcoShowcase';
+import { MotogadgetShowcase } from './MotogadgetShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -49,6 +52,12 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
       return <LightechShowcase />;
     case 'cnc-racing':
       return <CncRacingShowcase />;
+    case 'eazi-grip':
+      return <EaziGripShowcase />;
+    case 'samco':
+      return <SamcoShowcase />;
+    case 'motogadget':
+      return <MotogadgetShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
