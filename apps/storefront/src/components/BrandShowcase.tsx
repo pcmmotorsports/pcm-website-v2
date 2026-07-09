@@ -25,6 +25,9 @@ import { CncRacingShowcase } from './CncRacingShowcase';
 import { EaziGripShowcase } from './EaziGripShowcase';
 import { SamcoShowcase } from './SamcoShowcase';
 import { MotogadgetShowcase } from './MotogadgetShowcase';
+import { Front3dShowcase } from './Front3dShowcase';
+import { MateryaShowcase } from './MateryaShowcase';
+import { EbcShowcase } from './EbcShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -58,6 +61,13 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
       return <SamcoShowcase />;
     case 'motogadget':
       return <MotogadgetShowcase />;
+    // 精簡版三家(小品牌 N°01 + 短 N°02、kickoff §4「內容密度依品牌規模伸縮」)
+    case 'front3d':
+      return <Front3dShowcase />;
+    case 'materya':
+      return <MateryaShowcase />;
+    case 'ebc':
+      return <EbcShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
