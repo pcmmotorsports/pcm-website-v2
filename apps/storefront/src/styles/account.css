@@ -360,7 +360,7 @@
 }
 .acc-bike-meta {
   font-size: 12.5px;
-  opacity: 0.6;
+  opacity: 0.72; /* 2026-07-09 可讀性:白字@深卡 0.6→0.72(此卡深底白字、非 token 灰,調 opacity 而非改色) */
 }
 .acc-bike-stats {
   margin-top: 20px;
@@ -374,7 +374,7 @@
 }
 .acc-bike-stats span {
   font-size: 11px;
-  opacity: 0.55;
+  opacity: 0.7; /* 2026-07-09 可讀性:白字@深卡 0.55→0.7(11px 小字、拉高餘裕) */
   letter-spacing: 0.04em;
 }
 .acc-bike-stats b {
@@ -487,7 +487,7 @@
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--c-text-3, #a1a1aa);
+  color: var(--c-text-3, #71717a);
 }
 .acc-inline-form-inner input[type="text"],
 .acc-inline-form-inner input[type="date"],

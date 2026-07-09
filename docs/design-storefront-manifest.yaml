@@ -98,6 +98,23 @@ cross_cutting_overrides:
     reason: |
       Sean 要文案標點不可半全形混用(全形)+ 各分頁/FAQ 換行寬度一致(用最寬)。全形屬 Sean 業務拍板、覆蓋 OD 字面;
       8 元件(含 #270 B S4/S5 GbRacingShowcase/BonamiciShowcase)無另立 last_modified 條目、改動為跨家族單一決策、故記此 cross_cutting 段(對齊 globalRwdMechanism 前例)。
+  textContrastLegibility:
+    design_value: "OD/design-reference 次要文字灰階 --c-text-3=#a1a1aa(Zinc-400);design-reference 亦逐字使用此值(product-card/home/tweaks)"
+    storefront_value: |
+      [Sean 2026-07-09 拍 Q1=A、preview 肉眼驗過] 全站淺灰可讀性調深(業務 override、覆蓋 design 灰階、同 #223 精神):
+      tokens.css --c-text-3 亮色 #a1a1aa(對亮底 2.45:1、CJK 難辨識)→ #71717a(4.63:1、過 WCAG AA);深色模式 #71717a→#8b8b94(4.10→5.86:1)。
+      一次修好全站約 53 處吃此 token 的可讀內容(每張商品卡「適用車型」、原價、購物車品牌/單價/移除、篩選數量、表單標籤、麵包屑、頁尾等)。
+      Q2=A --c-text-2(#52525b、已 ~7:1)不動、大段內文維持灰階層次。
+      另 5 處硬寫/opacity 逐處修:product-page .pd-crumbs/.pd-vehicle-pill-x/.pd-spot-stats 的 #86868b→var(--c-text-3);
+      .pd-install-cta-desc #cfcfd5(深底條、深色模式 bg 翻亮會消失)→ var(--c-text-inverse)+opacity 隨主題翻轉;
+      account .acc-bike-meta/-stats span(白字@深卡)opacity 0.6/0.55→0.72/0.7;home .ed-footer-base rgba 白字 .45→.6。
+      維持淡(keep-light、刻意不調):.ph 佔位 / disabled 狀態 / 分隔符號 / svg 圖示 / 裝飾編號。
+    decided_at: "2026-07-09"
+    decision_source: "全站稽核 workflow(108 findings、主兇 --c-text-3 亮 2.45:1)→ Sean 拍 Q1=A 全站調深 + Q2=A text-2 不動;preview 肉眼驗 OK"
+    reason: |
+      Sean 反映「太多淺灰色的字體、真的很難辨識」、要求改設計權威此部分。#a1a1aa 對 CJK 內文對比不足;
+      調深一顆 token 即 DRY 修好全站、rollback = 改回 hex。動 tokens.css = 覆蓋 design 灰階(鐵則 8 已 Sean 批)。
+      未同步回 design-reference(兩邊值暫不一致、記此;未來可選同步)。
 
 components:
   # ---- 商品系列(M-1-13H 改版完成、M-1-13I 修 3 bug 範圍) ----

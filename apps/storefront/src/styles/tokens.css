@@ -9,7 +9,10 @@
   --c-border-strong: #d4d4d8;
   --c-text: #0a0a0a;
   --c-text-2: #52525b;
-  --c-text-3: #a1a1aa;
+  /* 🔴 Sean 2026-07-09 可讀性拍板:#a1a1aa(對亮底 2.45:1、CJK 難辨識)→ #71717a(4.63:1、過 WCAG AA)。
+     偏離 design(OD/design-reference 亦用 #a1a1aa)= Sean 授權覆蓋設計權威(同 #223 標點、業務 override)。
+     全站約 53 處吃此 token 一次改善;裝飾/disabled/佔位維持淡見 keep-light。 */
+  --c-text-3: #71717a;
   --c-text-inverse: #fafafa;
 
   /* Accent — RIZOMA red, reserved */
@@ -71,7 +74,7 @@
   --c-border-strong: #3f3f46;
   --c-text: #fafafa;
   --c-text-2: #a1a1aa;
-  --c-text-3: #71717a;
+  --c-text-3: #8b8b94; /* 2026-07-09 可讀性:深模式 #71717a→#8b8b94(4.10→5.86:1、過 AA);同亮色拍板 */
   --c-text-inverse: #0a0a0a;
 }
 
