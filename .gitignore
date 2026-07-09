@@ -82,3 +82,6 @@ graphify-out/
 # graphify 本機 git hook(graphify hook install 產;每人自裝、不強加團隊;.husky/pre-* 才是共用)
 .husky/post-commit
 .husky/post-checkout
+
+# impeccable design-hook 本機快取(session 工具產物、不入 git)
+.impeccable/

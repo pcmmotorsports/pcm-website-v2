@@ -25,6 +25,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
+import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
 
 // PRODUCT_IMG_POOL + productGallery 字面 inline 自 ProductCard.tsx 既有(M-1-04-mini-slice 搬入)、第 2 處撞;
 // 第 3 處撞抽共用、backlog #155 追蹤(對齊 #130 Defer 模式)
@@ -102,7 +103,6 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
   const heroSwipeYRef = useRef(0);
   const heroSwipeTRef = useRef(0);
   const heroDidSwipeRef = useRef(false);
-  const lbSwipeXRef = useRef(0);
   const thumbsRef = useRef<HTMLDivElement>(null); // 縮圖列捲動容器(箭頭翻頁用)
 
   // Sean Q-2=C 拍板偏離 design 字面:桌機 hero 不開 lightbox 也能 ←/→ 切圖
@@ -133,6 +133,17 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
 
   const hasDiscount = product.origPrice != null && product.origPrice > product.price;
   const discountPct = hasDiscount ? Math.round((1 - product.price / product.origPrice!) * 100) : 0;
+
+  // Lightbox 無限輪播(Sean 2026-07-09:滑到最後一張再往右 → 回第一張)。
+  const lbNext = () => setActiveImg((i) => (i + 1) % gallery.length);
+  const lbPrev = () => setActiveImg((i) => (i - 1 + gallery.length) % gallery.length);
+  // Lightbox 觸控手勢:上下滑關閉(手指跟隨 + 保守門檻)+ 左右滑輪播(共用 hook、SwatchLightbox 同款)。
+  const lbSwipe = useLightboxSwipe({
+    count: gallery.length,
+    goNext: lbNext,
+    goPrev: lbPrev,
+    onDismiss: () => setLightbox(false),
+  });
 
   return (
     <>
@@ -241,7 +252,7 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
       </div>
 
       {lightbox && (
-        <div className="pd-lightbox" onClick={() => setLightbox(false)} role="dialog" aria-label="放大檢視">
+        <div className="pd-lightbox" ref={lbSwipe.overlayRef} onClick={() => setLightbox(false)} role="dialog" aria-label="放大檢視">
           <button
             className="pd-lb-close"
             onClick={(e) => { e.stopPropagation(); setLightbox(false); }}
@@ -249,17 +260,8 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
-          <div
-            className="pd-lb-stage"
-            onTouchStart={(e) => { lbSwipeXRef.current = e.touches[0]!.clientX; }}
-            onTouchEnd={(e) => {
-              const dx = e.changedTouches[0]!.clientX - lbSwipeXRef.current;
-              if (Math.abs(dx) > 40) {
-                if (dx < 0 && activeImg < gallery.length - 1) setActiveImg(activeImg + 1);
-                else if (dx > 0 && activeImg > 0) setActiveImg(activeImg - 1);
-              }
-            }}
-          >
+          {/* 手勢:上下滑關閉(手指跟隨 + 保守門檻)+ 左右滑無限輪播(useLightboxSwipe、touch-action:none) */}
+          <div className="pd-lb-stage" ref={lbSwipe.stageRef} {...lbSwipe.stageProps}>
             <img
               src={resolveSrc(gallery[activeImg]!, usingReal, 2000, 90, 'contain')}
               alt={product.name}
@@ -271,16 +273,14 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
             <>
               <button
                 className="pd-lb-arrow pd-lb-arrow-left"
-                onClick={(e) => { e.stopPropagation(); setActiveImg(Math.max(0, activeImg - 1)); }}
-                disabled={activeImg === 0}
+                onClick={(e) => { e.stopPropagation(); lbPrev(); }}
                 aria-label="上一張"
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m15 18-6-6 6-6"/></svg>
               </button>
               <button
                 className="pd-lb-arrow pd-lb-arrow-right"
-                onClick={(e) => { e.stopPropagation(); setActiveImg(Math.min(gallery.length - 1, activeImg + 1)); }}
-                disabled={activeImg === gallery.length - 1}
+                onClick={(e) => { e.stopPropagation(); lbNext(); }}
                 aria-label="下一張"
               >
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 18 6-6-6-6"/></svg>

@@ -23,6 +23,14 @@
      依 NORTHSTAR §2.4「.html/.css > HANDOFF docs」仲裁,以模板 #a98a4a 為準。 */
   --c-gold: #a98a4a;
 
+  /* Brand accents — 品牌形象區專用(#270 B S4/S5)。僅進各自品牌特色區、絕不覆蓋 --c-gold(全站金線簽名)。
+     字面直搬 07-08 壓縮版 Artifact(9368fc24)草稿變數名(D6=A、沿用含 -deep 深色調、免改 CSS 引用)。 */
+  --gb-red: #e11021;
+  --gb-red-deep: #b90011;
+  --gb-navy: #004289;
+  --bona-bronze: #a3965f;
+  --bona-bronze-deep: #8c6239;
+
   /* Type */
   --f-sans: "Inter", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;

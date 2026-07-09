@@ -14,11 +14,11 @@ import { ProductHighlights } from './ProductHighlights';
 afterEach(cleanup);
 
 describe('ProductHighlights', () => {
-  it('renders nested eyebrow (01 + RPM Carbon label) + h2 + lead', () => {
+  it('renders nested eyebrow (01 + RPM Carbon logo) + h2 + lead', () => {
     render(<ProductHighlights />);
-    // eyebrow:義體數字 01 + 品牌 label「RPM Carbon」(OD-6 文字 label 代 logo img)
+    // eyebrow:義體數字 01 + 真 RPM Carbon logo 圖(#270 B、pd-eb-logo img、Sean 2026-07-09 提供)
     expect(document.querySelector('.pd-eb-no')?.textContent).toBe('01');
-    expect(screen.getByText('RPM Carbon')).toBeDefined();
+    expect(screen.getByAltText('RPM Carbon')).toBeDefined();
     // h2:RPM 固定(取代舊「為什麼是 {brand}」)
     const h2 = screen.getByRole('heading', { level: 2 });
     expect(h2.textContent).toBe('為什麼選 RPM Carbon');

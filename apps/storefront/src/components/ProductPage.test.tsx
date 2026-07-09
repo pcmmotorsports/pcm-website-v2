@@ -283,15 +283,18 @@ describe('ProductPage', () => {
     expect(screen.getByText('泰國原廠')).toBeDefined();
   });
 
-  it('非 RPM 品牌(brandSlug=gb-racing)→ 碳纖維專屬區全空白、但通用服務卡照顯(Q2=B 去碳)', () => {
+  it('非 RPM 品牌(brandSlug=gb-racing)→ RPM 碳纖專屬區不 mount、改渲染 GB 形象區、通用服務卡照顯', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
     render(<ProductPage product={nonRpm} tier="general" related={[]} />);
-    // 碳纖維專屬整段(N°01/N°02)+ 泰國原廠卡皆不 mount(P0-C-a 守門;ProductTabs 去碳為 P0-C-b、故不驗其碳字)
+    // RPM 碳纖專屬整段(N°01/N°02)+ 泰國原廠卡皆不 mount(P0-C-a 守門;ProductTabs 去碳為 P0-C-b、故不驗其碳字)
     expect(screen.queryByText('為什麼選 RPM Carbon')).toBeNull();
     expect(screen.queryByText('亮光款')).toBeNull();
     expect(screen.queryByText('消光款')).toBeNull();
     expect(screen.queryByText('泰國原廠')).toBeNull();
+    // #270 B S4:改渲染 GB Racing 專屬形象區(N°01 為什麼選 GB Racing + N°02 工程血統)
+    expect(screen.getByText('為什麼選 GB Racing')).toBeDefined();
+    expect(screen.getByText('FIM 唯一認證的引擎防護')).toBeDefined();
     // 但 3 張通用服務承諾卡仍全顯(不誤藏、非 RPM 商品也要看到 PCM 服務)
     expect(screen.getByText('滿額免運')).toBeDefined();
     expect(screen.getByText('專業安裝')).toBeDefined();
@@ -321,6 +324,32 @@ describe('ProductPage', () => {
     expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
   });
 
+  it('GB 頁 DOM 順序(#270 B S4):規格區 < 品牌形象 N°01(GB)< 相關商品 N°03 < FAQ N°04', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const gb = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
+    render(<ProductPage product={gb} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    const spec = document.querySelector('.pd-spec-section');
+    const showcase = document.getElementById('pd-h-gb01'); // N°01「為什麼選 GB Racing」heading
+    const related = document.querySelector('.pd-related');
+    const faq = document.getElementById('pd-h-faq');
+    expectBefore(spec, showcase, '規格區', 'GB 品牌形象 N°01');
+    expectBefore(showcase, related, 'GB 品牌形象 N°01', '相關商品 N°03');
+    expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
+  });
+
+  it('Bonamici 頁 DOM 順序(#270 B S5):規格區 < 品牌形象 N°01(Bonamici)< 相關商品 N°03 < FAQ N°04', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    const bona = { ...MOCK_PRODUCTS[0]!, brandSlug: 'bonamici' };
+    render(<ProductPage product={bona} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
+    const spec = document.querySelector('.pd-spec-section');
+    const showcase = document.getElementById('pd-h-bona01'); // N°01「為什麼選 Bonamici」heading
+    const related = document.querySelector('.pd-related');
+    const faq = document.getElementById('pd-h-faq');
+    expectBefore(spec, showcase, '規格區', 'Bonamici 品牌形象 N°01');
+    expectBefore(showcase, related, 'Bonamici 品牌形象 N°01', '相關商品 N°03');
+    expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
+  });
+
   it('RPM 頁 related 為空時:品牌形象 N°01 仍在規格之下、且在 FAQ 之前', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
@@ -346,9 +375,10 @@ describe('ProductPage', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', hasSpotlight: true };
     render(<ProductPage product={nonRpm} tier="general" related={[]} />);
-    // BrandShowcase gb-racing → null(S4 前無形象區);Spotlight 雙守門(brandSlug≠rpm-carbon)不渲染
+    // #270 B S4:BrandShowcase gb-racing → GbRacingShowcase(有 GB 形象區);但 RPM 的 ProductSpotlight
+    //   雙守門(brandSlug≠rpm-carbon)仍不渲染、RPM 的 N°01(pd-h-rpm 專屬 heading)亦不顯
     expect(document.querySelector('.pd-spotlight')).toBeNull();
-    expect(document.getElementById('pd-h-rpm')).toBeNull(); // N°01 亦不顯
+    expect(document.getElementById('pd-h-rpm')).toBeNull(); // RPM N°01 亦不顯(GB 用 pd-h-gb01)
     // 規格區仍在、且在 FAQ 之前(頁面結構完整)
     expectBefore(
       document.querySelector('.pd-spec-section'),

@@ -10,8 +10,9 @@
 
 'use client';
 
-import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import type { RpmSwatch } from '@/data/rpm-swatches';
+import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
 
 export type SwatchLightboxProps = {
   swatches: readonly RpmSwatch[];
@@ -20,8 +21,14 @@ export type SwatchLightboxProps = {
 };
 
 export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProps) {
-  const lbSwipeXRef = useRef(0);
   const open = lbIdx !== null;
+  const len = swatches.length;
+
+  // 無限輪播(Sean 2026-07-09):滑到最後一張再往右 → 回第一張;箭頭同款(不再 disabled 卡在頭尾)。
+  const lbNext = () => setLbIdx((i) => (i === null ? i : (i + 1) % len));
+  const lbPrev = () => setLbIdx((i) => (i === null ? i : (i - 1 + len) % len));
+  // 觸控手勢:上下滑關閉 + 左右滑輪播(共用 ProductGallery 同款 hook)。hook 需無條件呼叫、置於 early return 前。
+  const lbSwipe = useLightboxSwipe({ count: len, goNext: lbNext, goPrev: lbPrev, onDismiss: () => setLbIdx(null) });
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +51,7 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
   if (!sw) return null;
 
   return (
-    <div className="pd-lightbox" onClick={() => setLbIdx(null)} role="dialog" aria-label="紋路樣品放大檢視">
+    <div className="pd-lightbox" ref={lbSwipe.overlayRef} onClick={() => setLbIdx(null)} role="dialog" aria-label="紋路樣品放大檢視">
       <button
         className="pd-lb-close"
         onClick={(e) => { e.stopPropagation(); setLbIdx(null); }}
@@ -52,17 +59,8 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
       >
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M18 6 6 18M6 6l12 12" /></svg>
       </button>
-      <div
-        className="pd-lb-stage"
-        onTouchStart={(e) => { lbSwipeXRef.current = e.touches[0]!.clientX; }}
-        onTouchEnd={(e) => {
-          const dx = e.changedTouches[0]!.clientX - lbSwipeXRef.current;
-          if (Math.abs(dx) > 40) {
-            if (dx < 0) setLbIdx(Math.min(swatches.length - 1, lbIdx + 1));
-            else setLbIdx(Math.max(0, lbIdx - 1));
-          }
-        }}
-      >
+      {/* 手勢:上下滑關閉(手指跟隨 + 保守門檻)+ 左右滑無限輪播(useLightboxSwipe、touch-action:none) */}
+      <div className="pd-lb-stage" ref={lbSwipe.stageRef} {...lbSwipe.stageProps}>
         <img src={sw.img} alt={sw.alt} onClick={() => setLbIdx(null)} style={{ cursor: 'zoom-out' }} />
       </div>
       <div className="pd-lb-caption">
@@ -70,16 +68,14 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
       </div>
       <button
         className="pd-lb-arrow pd-lb-arrow-left"
-        onClick={(e) => { e.stopPropagation(); setLbIdx(Math.max(0, lbIdx - 1)); }}
-        disabled={lbIdx === 0}
+        onClick={(e) => { e.stopPropagation(); lbPrev(); }}
         aria-label="上一張"
       >
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m15 18-6-6 6-6" /></svg>
       </button>
       <button
         className="pd-lb-arrow pd-lb-arrow-right"
-        onClick={(e) => { e.stopPropagation(); setLbIdx(Math.min(swatches.length - 1, lbIdx + 1)); }}
-        disabled={lbIdx === swatches.length - 1}
+        onClick={(e) => { e.stopPropagation(); lbNext(); }}
         aria-label="下一張"
       >
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m9 18 6-6-6-6" /></svg>

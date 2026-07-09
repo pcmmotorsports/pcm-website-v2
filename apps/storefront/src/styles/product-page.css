@@ -702,8 +702,10 @@
 @media (max-width: 1079px) and (min-width: 721px) {
   .pd-fit-row { align-items: start; }
 }
+/* ≤720:車型名 + 年式 chips 同一行 inline(Sean 2026-07-09 肉眼驗:原本 model 上、年式下堆疊成兩行、
+   「斷行太快」不順眼)。model 欄依內容寬(minmax(0,max-content) 保短碼一行、超長可縮)、年式 1fr 內 flex-wrap。 */
 @media (max-width: 720px) {
-  .pd-fit-row { grid-template-columns: 1fr; gap: 6px; }
+  .pd-fit-row { grid-template-columns: minmax(0, max-content) 1fr; gap: 6px 12px; align-items: baseline; }
 }
 @media (max-width: 540px) {
   .pd-fit-brand { font-size: 12px; }
@@ -768,6 +770,10 @@
   font-size: clamp(16.5px, 1.7vw, 19px);
   color: var(--c-text-2); line-height: 1.7; margin: 0;
 }
+/* #270 B 品牌 showcase N°01 lead(Sean 2026-07-09 肉眼驗兩次拍板:先『加長』、隨即推翻為
+   『不要加長、大約兩行保持精簡』——以最終『精簡兩行』為準)。三家 N°01 lead 皆用標準
+   pd-section-head(760px 讀寬、精簡段落自然折行)。原為『加長』方向短暫加的
+   pd-showcase-head(桌機單句一行)/ pd-lead-break(手機斷點)已隨方向反轉一併移除、不再需要。 */
 .pd-body {
   font-size: 15px; line-height: 1.75;
   color: var(--c-text); margin: 0 0 16px;
@@ -847,6 +853,202 @@
   .pd-feature-num::after { width: 14px; margin-left: 6px; }
   .pd-feature-title { font-size: 18px; }
   .pd-feature-desc { font-size: 15px; line-height: 1.65; }
+}
+
+/* ============================================================
+   品牌形象區 N°02 — GB Racing 工程血統(#270 B S4、GbRacingShowcase)
+   視覺真權威 = 07-08 壓縮版 Artifact(9368fc24);pd-gb-* 命名空間避免撞名(既有僅 .badge 撞、此處全新)。
+   草稿 @container(在預覽 stage 內)→ 正式站 showcase 全寬於 .pd-page,改 @media viewport 斷點。
+   品牌色只在此區:信任狀數字 --gb-navy、產品線英文標 --gb-red-deep;S6 起圖片為真 <img>(public/brands/gb-racing/*.webp、object-fit:cover 防 CLS)。 */
+
+/* 冠軍認證橫幅(真圖 1300×520 寬幅 banner;S6 真圖、object-fit 防 CLS) */
+.pd-gb-hero {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1300 / 520;
+  object-fit: cover;
+  border: 1px solid var(--c-border);
+  margin-top: 4px;
+}
+
+/* 信任狀四格 */
+.pd-gb-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  margin-top: 16px;
+}
+.pd-gb-stat { padding: 15px 16px; border-right: 1px solid var(--c-border); }
+.pd-gb-stat:last-child { border-right: 0; }
+.pd-gb-stat-n {
+  font-family: var(--f-display);
+  font-style: italic; font-weight: 700;
+  font-size: 32px; line-height: 1;
+  color: var(--gb-navy);
+  font-variant-numeric: tabular-nums;
+}
+.pd-gb-stat-plus { font-size: 0.6em; }
+.pd-gb-stat-l {
+  font-family: var(--f-mono); font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--c-text-2); margin-top: 9px;
+}
+.pd-gb-stat-s { font-size: 12px; color: var(--c-text-3); margin-top: 3px; line-height: 1.4; }
+/* 信任狀 4→2 欄斷點對齊產品線 rail(640)、避免 521-640px(橫拿手機/小平板)4 格 + 4 欄同時擠
+   (adversarial N1;原稿 @container 520 相對預覽 stage、正式站 viewport 全寬需上調) */
+@media (max-width: 640px) {
+  .pd-gb-stats { grid-template-columns: 1fr 1fr; }
+  .pd-gb-stat:nth-child(2n) { border-right: 0; }
+  .pd-gb-stat:nth-child(-n+2) { border-bottom: 1px solid var(--c-border); }
+}
+
+/* 產品線矩陣(桌機四欄等寬 / 手機水平捲 + peek 露下一張) */
+.pd-gb-railwrap { margin-top: 16px; }
+.pd-gb-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 14px;
+}
+.pd-gb-mcard {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+}
+.pd-gb-mcard-img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; }
+.pd-gb-mcard-b { padding: 13px 14px 15px; }
+.pd-gb-mcard-en {
+  font-family: var(--f-mono); font-size: 10px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--gb-red-deep);
+}
+.pd-gb-mcard-t { font-size: 14.5px; font-weight: 700; margin: 5px 0 0; }
+.pd-gb-mcard-d { font-size: 12.5px; color: var(--c-text-2); line-height: 1.6; margin: 6px 0 0; }
+.pd-gb-railhint {
+  display: none;
+  font-family: var(--f-mono); font-size: 10.5px;
+  color: var(--c-text-3); margin-top: 8px;
+}
+.pd-gb-rail::-webkit-scrollbar { height: 6px; }
+.pd-gb-rail::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 3px; }
+@media (max-width: 640px) {
+  .pd-gb-rail {
+    grid-auto-columns: 74%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin: 0 -16px;
+    padding: 0 16px 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .pd-gb-rail > * { scroll-snap-align: start; }
+  .pd-gb-railhint { display: block; }
+}
+
+/* ============================================================
+   品牌形象區 N°02 — Bonamici 產線巡禮(#270 B S5、BonamiciShowcase)
+   視覺真權威 = 07-08 壓縮版 Artifact(9368fc24)Bonamici 區;pd-bona-* 命名空間(避 .badge 撞名、既有 .badge×7)。
+   草稿 @container → 正式站 @media viewport;品牌色只在此區:古銅 --bona-bronze / -deep;S6 起圖片/影片縮圖為真 <img>(public/brands/bonamici/*.webp、object-fit:cover)。 */
+
+/* 品牌形象影片 facade(縮圖 → 點擊才載 iframe、省流量;S6 真影片 JBWv0RvSWXY) */
+.pd-bona-video {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  margin-top: 6px;
+  border: 1px solid var(--c-border);
+  overflow: hidden;
+  background: #0c0c0d;
+}
+.pd-bona-video-facade {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  padding: 0; border: 0; background: #0c0c0d;
+  cursor: pointer; display: block;
+}
+.pd-bona-video-thumb {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: cover; opacity: 0.82;
+}
+.pd-bona-video-play {
+  position: absolute; inset: 0; margin: auto;
+  width: 66px; height: 66px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.18s ease;
+}
+.pd-bona-video-facade:hover .pd-bona-video-play { transform: scale(1.07); }
+.pd-bona-video-play::after {
+  content: ""; margin-left: 5px;
+  border-left: 20px solid var(--bona-bronze-deep);
+  border-top: 12px solid transparent; border-bottom: 12px solid transparent;
+}
+.pd-bona-video-label {
+  position: absolute; left: 14px; bottom: 12px; z-index: 2;
+  font-family: var(--f-mono); font-size: 11px;
+  color: rgba(255, 255, 255, 0.86); max-width: 80%; text-align: left;
+}
+.pd-bona-video-frame {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%; border: 0;
+}
+
+/* 研發/職人兩段(桌機左右並排、手機上下堆疊) */
+.pd-bona-brow {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+  align-items: center; margin-top: 20px;
+}
+.pd-bona-brow-flip .pd-bona-brow-media { order: 2; }  /* 桌機:職人段圖在右 */
+.pd-bona-media-img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+.pd-bona-step {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--bona-bronze-deep);
+}
+.pd-bona-h3 { font-size: 19px; font-weight: 700; margin: 8px 0 0; }
+.pd-bona-p { font-size: 14px; color: var(--c-text-2); line-height: 1.7; margin: 9px 0 0; }
+@media (max-width: 640px) {
+  .pd-bona-brow { grid-template-columns: 1fr; }
+  .pd-bona-brow-flip .pd-bona-brow-media { order: 0; }  /* 手機:圖一律在上 */
+}
+
+/* 陽極色牆(桌機 8 欄 / 手機 4 欄) */
+.pd-bona-anod { margin-top: 26px; }
+.pd-bona-anod-head { display: flex; align-items: baseline; gap: 11px; flex-wrap: wrap; }
+.pd-bona-anod-eb {
+  font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--bona-bronze-deep);
+}
+.pd-bona-anod-t { font-size: 15px; font-weight: 700; }
+.pd-bona-anod-c { font-family: var(--f-mono); font-size: 10.5px; color: var(--c-text-3); }
+.pd-bona-sw { display: grid; grid-template-columns: repeat(8, 1fr); gap: 10px; margin-top: 13px; }
+.pd-bona-sw-item { display: flex; flex-direction: column; gap: 7px; align-items: center; }
+.pd-bona-sw-c { display: block; aspect-ratio: 1; width: 100%; border-radius: 9px; border: 1px solid var(--c-border); object-fit: cover; }
+.pd-bona-sw-n { font-family: var(--f-mono); font-size: 10px; color: var(--c-text-2); }
+@media (max-width: 640px) {
+  .pd-bona-sw { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* 20 年徽章列(4 格;古銅左緣 = 逐字搬草稿、同 .pd-spotlight note 既有 border-left 手法) */
+.pd-bona-badges {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--c-border); border-left: 3px solid var(--bona-bronze);
+  background: var(--c-surface); margin-top: 26px;
+}
+.pd-bona-badge { padding: 16px; border-right: 1px solid var(--c-border); }
+.pd-bona-badge:last-child { border-right: 0; }
+.pd-bona-badge-t {
+  font-family: var(--f-display); font-style: italic; font-weight: 700;
+  font-size: 23px; color: var(--c-text); line-height: 1;
+}
+.pd-bona-badge-l {
+  font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--c-text-2); margin-top: 9px;
+}
+@media (max-width: 520px) {
+  .pd-bona-badges { grid-template-columns: 1fr 1fr; }
+  .pd-bona-badge:nth-child(2n) { border-right: 0; }
+  .pd-bona-badge:nth-child(-n+2) { border-bottom: 1px solid var(--c-border); }
 }
 
 /* Engineering Spotlight — image left + text right(對應 design `.vcf-spotlight` L1146-1197);
@@ -1390,7 +1592,10 @@
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
   padding: 48px;
-  touch-action: pan-y;
+  /* touch-action:none → JS 全權處理上下滑關閉(finger-follow)+ 左右滑輪播;
+     原 pan-y 會讓瀏覽器原生接管垂直、JS 拿不到手勢(見 useLightboxSwipe 註解、PhotoSwipe 同款做法)。 */
+  touch-action: none;
+  will-change: transform;
 }
 .pd-lb-stage img {
   max-width: 100%; max-height: 100%;
