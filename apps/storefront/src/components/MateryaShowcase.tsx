@@ -42,7 +42,7 @@ export function MateryaShowcase() {
           <article className="pd-feature-card">
             <div className="pd-feature-num">03</div>
             <h3 className="pd-feature-title">專車專用、小廠溫度</h3>
-            <p className="pd-feature-desc">每款對應特定車型年式、免鑽孔安裝；連官網評論都是創辦人本人回覆——義大利小廠的職人手感。</p>
+            <p className="pd-feature-desc">每款對應特定車型年式開發、不是通用件；連官網評論都是創辦人本人回覆——義大利小廠的職人手感。</p>
           </article>
         </div>
       </section>

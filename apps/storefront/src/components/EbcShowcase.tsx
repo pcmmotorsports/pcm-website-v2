@@ -3,7 +3,9 @@
 // 製作依據(2026-07-10 kickoff、Sean 預批):小品牌(68 群、單一煞車分類)走精簡版=N°01 三卡 + 短 N°02。
 // 信任狀事實官方 URL 佐證(sonnet subagent 親讀 ebcbrakes.com、彙整 scratchpad research;查無不寫):
 //   1980 年代初創立於英國(about-ebc-brakes「In the early 80s in Europe…」;⚠ 精確 1983 官網查無 → 不寫)/
-//   英美雙自有工廠、100% 來令片自製、員工 400+、60,000+ 品號、60 年配方研發、40,000+ 經銷商(同頁 + /motorcycle/)/
+//   英美雙自有工廠、100% 來令片自製、員工 400+、60,000+ 品號、60 年配方研發、40,000+ 經銷商(同頁 + /motorcycle/;
+//   「全球最大來令片/碟盤品項庫」= about 頁原文「largest range of brake pads and brake discs in the world,
+//   with over 60,000 part numbers」)/
 //   ECE R90 認證系列、碟盤 ABE(TÜV)KBA 編號(/products/motorcycle-brake-pads/、/products/abe-certificates-tuv/)。
 //   ⚠ ISO 9001 官網查無 → 不寫。
 // 商品圖 = 報價單 view 實際 image_url(PCM R2 圖床);logo = 官方 ebcbrakes.com logo.svg(Sean 授權網路抓、

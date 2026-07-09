@@ -33,7 +33,7 @@ export function Front3dShowcase() {
           <article className="pd-feature-card">
             <div className="pd-feature-num">01</div>
             <h3 className="pd-feature-title">3D 列印一體成形</h3>
-            <p className="pd-feature-desc">工業級 3D 列印直接成型，MotoGP 風格小翼與導風罩用親民價格入手；表面可再砂磨、噴漆，配色自己作主。</p>
+            <p className="pd-feature-desc">3D 列印直接成型，MotoGP 風格小翼與導風罩用親民價格入手；表面可再砂磨、噴漆，配色自己作主。</p>
           </article>
           <article className="pd-feature-card">
             <div className="pd-feature-num">02</div>
