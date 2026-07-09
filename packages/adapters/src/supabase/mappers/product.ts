@@ -53,7 +53,7 @@ export type SupabaseProductRow = {
   description: string | null;
   // A/#270 賣點條列。jsonb 來源 shape 不保證(可能非陣列/含非字串)→ 型別標 unknown[](對齊 SupabaseVariantRow.images/spec 慣例)、mapper runtime guard 收斂為 string[]。
   highlights: unknown[] | null;
-  // #270 安裝資源。manuals jsonb 來源 shape 不保證(元素可能缺 label/url)→ unknown[]、mapper guard 收斂 ProductManual[];video_url 單一 YouTube URL 或 null。
+  // #270 安裝資源。manuals jsonb 來源 shape 不保證(元素可能缺 label/url)→ unknown[]、mapper guard 收斂 ProductManual[];video_url 單支影片 URL(2026-07-10 起混格式 youtube/vimeo/mp4、UI 三分流)或 null。
   manuals: unknown[] | null;
   video_url: string | null;
   handle: string;
@@ -209,7 +209,7 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
           return acc;
         }, [])
       : [],
-    // #270 安裝影片:單一 YouTube URL;空字串/非字串→undefined(對齊 domain Product.videoUrl optional)。
+    // #270 安裝影片:單支影片 URL(2026-07-10 起混格式 youtube/vimeo/mp4);空字串/非字串→undefined(對齊 domain Product.videoUrl optional)。
     videoUrl: typeof row.video_url === 'string' && row.video_url.trim() !== '' ? row.video_url : undefined,
     images: row.images,
     availability: row.availability,

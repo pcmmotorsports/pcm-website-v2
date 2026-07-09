@@ -35,13 +35,16 @@ export const BRAND_FIXTURES: Record<string, BrandFixture> = {
     groups: 4566, variants: 8788,
     pdfGroups: 2019, videoGroups: 0,
     topCats: [{ cat: "操控部品", groups: 3872 }, { cat: "車殼外觀", groups: 411 }, { cat: "後視鏡", groups: 69 }, { cat: "駐車架", groups: 62 }, { cat: "燈具方向燈", groups: 46 }],
+    // ⚠ lightech 來源變體圖大宗為 http://lightechmarketplace.com(#275、https 連線 reset)→ demo 走 https tunnel
+    //   會 mixed content 破圖 → https 圖前置(demo 頁取前 4)、http 例留在後(adversarial F7;快照值未改、僅排序)
+    //   + 0011M 兩筆換上已驗 200 的 lightech.it https 同檔名鏡像(showcase R1 同法)。
     products: [
-      { mainSku: "0011M04", nameZh: "M4 自鎖螺帽", cat: "操控部品", img: "http://www.lightechmarketplace.com/Content/Foto/Prodotti/800x800_CROP/0011M-COB.JPG", vehicle: null, price: 200, pdfs: 0, video: null },
-      { mainSku: "0011M05", nameZh: "7075鋁合金M5自鎖螺帽", cat: "操控部品", img: "http://www.lightechmarketplace.com/Content/Foto/Prodotti/800x800_CROP/0011M-COB.JPG", vehicle: null, price: 200, pdfs: 0, video: null },
       { mainSku: "CAR001", nameZh: "碳纖維鏈條蓋", cat: "車殼外觀", img: "https://lightech.it/images_web/variante/1200x/CAR001.JPG", vehicle: null, price: 2700, pdfs: 0, video: null },
-      { mainSku: "CAR007", nameZh: "碳纖維卡鉗散熱導風罩", cat: "車殼外觀", img: "http://www.lightechmarketplace.com/Content/Foto/Prodotti/800x800_CROP/CAR007 COPIA.JPG", vehicle: null, price: 8700, pdfs: 0, video: null },
       { mainSku: "KPS011", nameZh: "端子後照鏡轉接座套組", cat: "後視鏡", img: "https://lightech.it/images_web/variante/1200x/KPS011.JPG", vehicle: "KTM 125 Duke", price: 200, pdfs: 0, video: null },
       { mainSku: "KPS033", nameZh: "端子後照鏡轉接座套組", cat: "後視鏡", img: "https://lightech.it/images_web/variante/1200x/KPS033.JPG", vehicle: "Yamaha T Max 560", price: 600, pdfs: 0, video: null },
+      { mainSku: "0011M04", nameZh: "M4 自鎖螺帽", cat: "操控部品", img: "https://lightech.it/images_web/variante/1200x/0011M-COB.JPG", vehicle: null, price: 200, pdfs: 0, video: null },
+      { mainSku: "0011M05", nameZh: "7075鋁合金M5自鎖螺帽", cat: "操控部品", img: "https://lightech.it/images_web/variante/1200x/0011M-COB.JPG", vehicle: null, price: 200, pdfs: 0, video: null },
+      { mainSku: "CAR007", nameZh: "碳纖維卡鉗散熱導風罩", cat: "車殼外觀", img: "http://www.lightechmarketplace.com/Content/Foto/Prodotti/800x800_CROP/CAR007 COPIA.JPG", vehicle: null, price: 8700, pdfs: 0, video: null },
     ],
     videoSamples: [],
   },

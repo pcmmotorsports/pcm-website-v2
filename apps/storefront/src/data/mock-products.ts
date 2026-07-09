@@ -167,9 +167,9 @@ export type MockProduct = {
    */
   manuals?: ProductManual[];
   /**
-   * 安裝示範影片連結(#270 安裝資源;YouTube watch/embed URL)。
-   * ProductTabs 用 facade 縮圖 + 播放鈕、點擊才載 iframe(省流量);空 / 省略 → 不渲染影片。
-   * 🟢 #270 S2 已接線:toUIProduct ← domain product.videoUrl(來源 products.video_url ← 報價單 video_urls 取首支 YouTube)。
+   * 安裝示範影片連結(#270 安裝資源;🟢 2026-07-10 品牌放量起混格式:youtube/vimeo watch·embed URL 或 .mp4 直檔)。
+   * InstallResources resolveVideo 三分流(youtube/vimeo=facade 點擊載 iframe、mp4=<video>);空 / 省略 / 不可解析 → 不渲染影片。
+   * 🟢 #270 S2 已接線:toUIProduct ← domain product.videoUrl(來源 products.video_url ← 報價單 video_urls 取首支可解析影片)。
    */
   videoUrl?: string;
 };

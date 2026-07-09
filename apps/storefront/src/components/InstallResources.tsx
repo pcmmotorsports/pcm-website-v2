@@ -31,11 +31,13 @@ type ResolvedVideo =
 /**
  * 從 YouTube watch / youtu.be / embed / shorts URL 抽 videoId。
  * 抽不到、或字元不合 YouTube id 規則(僅 [A-Za-z0-9_-])→ 回 null(不渲染影片、防 query/path 夾帶)。
+ * http(s) 守衛與管線 extractYoutubeId 逐行對齊(adversarial F6;id 只進固定 https 模板、守衛屬對齊性非漏洞)。
  */
 function parseYoutubeId(url: string): string | null {
   let id: string | null = null;
   try {
     const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     const host = u.hostname.replace(/^www\./, '');
     if (host === 'youtu.be') {
       id = u.pathname.split('/')[1] ?? null;

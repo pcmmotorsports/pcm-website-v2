@@ -42,9 +42,11 @@ export function generateStaticParams() {
 
 export default async function BrandDemoPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const render = SHOWCASES[slug];
-  const fixture = BRAND_FIXTURES[slug];
-  if (!render || !fixture) notFound();
+  // Object.hasOwn:擋 constructor/__proto__ 等原型鏈 key(命中繼承成員 → 下行取值 TypeError 500 而非 404;
+  // 對齊 supplier-config fail-closed 慣例、adversarial F5)
+  if (!Object.hasOwn(SHOWCASES, slug) || !Object.hasOwn(BRAND_FIXTURES, slug)) notFound();
+  const render = SHOWCASES[slug]!;
+  const fixture = BRAND_FIXTURES[slug]!;
 
   // 安裝資源 sample:該家來源真有影片才示範(cnc=Vimeo、ebc=YouTube;fixture snapshot 真 URL)
   const sampleVideo = fixture.videoSamples[0] ?? fixture.products.find((p) => p.video)?.video ?? undefined;

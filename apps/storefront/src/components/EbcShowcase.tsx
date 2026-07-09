@@ -8,8 +8,10 @@
 //   with over 60,000 part numbers」)/
 //   ECE R90 認證系列、碟盤 ABE(TÜV)KBA 編號(/products/motorcycle-brake-pads/、/products/abe-certificates-tuv/)。
 //   ⚠ ISO 9001 官網查無 → 不寫。
-// 商品圖 = 報價單 view 實際 image_url(PCM R2 圖床);logo = 官方 ebcbrakes.com logo.svg(Sean 授權網路抓、
-//   wp-content/uploads/2021/03/EBC-Brake-Logo.svg;官方色 #243588/#E5231D 進 tokens)。
+// 商品圖 = 報價單 view 實際 image_url(PCM R2 圖床);logo = 官方 ebcbrakes.com logo.svg
+//   (授權出處 = Sean 2026-07-10 過夜訊息字面「EBC的logo 你去網路上抓吧」;晨報決策題請 Sean 再確認一次
+//   〔adversarial F1:kickoff 硬規則 4 logo=授權 gate、此授權在 kickoff 之後口頭補充〕;
+//   檔源 wp-content/uploads/2021/03/EBC-Brake-Logo.svg;官方色 #243588/#E5231D 進 tokens)。
 // 純 presentational、無 props、無 hooks → 不需 'use client'。
 // 🔴 L2 內容(鐵則 9、backlog #271):信任狀數字 hardcode 無後台 CRUD。
 
