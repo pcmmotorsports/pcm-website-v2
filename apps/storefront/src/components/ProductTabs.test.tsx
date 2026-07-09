@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 //
 // ProductTabs smoke test — 前台 regression 安全網(M-1-13f-2)。
-// 🔴 S2 / #270 B(Sean 2026-07-08 拍 A):由分頁改「長頁全展開 + 跳轉列」——驗四段內容全常駐可見
-//   (無 hidden、無 role=tab)、四個 h2 landmark、跳轉列錨點 href 指向存在的 section id、
-//   section aria-labelledby 指向存在 heading;內容邏輯斷言(碳纖/去碳/規格資料驅動/安裝去碳/保固/
-//   highlights/安裝 CTA router.push)全保留、僅移除舊「先點 tab 才見」前綴(現全可見)。
+// 🔴 #270 中段 B 收合改良(Sean 2026-07-09):由「長頁全展開 + 跳轉列」改 **收合手風琴 <details>**——
+//   驗四段各為 <details>(商品介紹預設 open、其餘收合)、四個 h2 landmark(在 summary、常駐可見)、
+//   section id pd-sec-* 保留;重點清單移入紅色重點 callout .pd-hl-list(V1);安裝資源 PDF 改小 chip .pd-ir-doc-sm。
+//   內容邏輯斷言(碳纖/去碳/規格資料驅動/安裝去碳/保固/highlights/安裝 CTA/影片 facade)全保留。
+//   收合段內容用 getElementById().textContent(不受 open 影響)或 openAll() 後查。
 // useRouter 走 vi.mock(同 Header.test.tsx / ProductPage.test.tsx 慣例)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
@@ -27,44 +28,44 @@ afterEach(() => {
 const SECTION_IDS = ['description', 'specs', 'install', 'warranty'] as const;
 const SECTION_LABELS = ['商品介紹', '規格 / 相容性', '安裝須知', '保固與退換'] as const;
 
-describe('ProductTabs (長頁全展開)', () => {
+/** 展開所有收合段(收合段內容在 DOM 但視覺收合;查 getByText/getByRole 前先展開,對齊真使用者操作)。 */
+function openAll() {
+  document.querySelectorAll('details').forEach((d) => {
+    (d as HTMLDetailsElement).open = true;
+  });
+}
+
+describe('ProductTabs (收合手風琴 <details>)', () => {
   it('renders 4 section headings (h2, design 字面) and no role=tab', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
     for (const label of SECTION_LABELS) {
+      // h2 在 summary、無論收合與否都常駐可見(SEO/GEO landmark)
       expect(screen.getByRole('heading', { level: 2, name: label })).toBeDefined();
     }
     // 已無分頁鈕
     expect(screen.queryAllByRole('tab').length).toBe(0);
   });
 
-  it('renders all 4 sections simultaneously (no hidden, long-page)', () => {
+  it('renders 4 <details> sections; 商品介紹 open by default, others collapsed', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    for (const id of SECTION_IDS) {
-      const sec = document.getElementById(`pd-sec-${id}`);
+    const sections = SECTION_IDS.map((id) => document.getElementById(`pd-sec-${id}`));
+    for (const sec of sections) {
       expect(sec).not.toBeNull();
-      expect(sec?.hasAttribute('hidden')).toBe(false);
+      expect(sec?.tagName).toBe('DETAILS');
     }
+    // 商品介紹預設展開、其餘收合
+    expect((document.getElementById('pd-sec-description') as HTMLDetailsElement).open).toBe(true);
+    for (const id of ['specs', 'install', 'warranty'] as const) {
+      expect((document.getElementById(`pd-sec-${id}`) as HTMLDetailsElement).open).toBe(false);
+    }
+    // 收合段有 hint chip(告訴客人裡面有什麼)
+    const specsHint = document.getElementById('pd-sec-specs')?.querySelector('.pd-sec-hint');
+    expect(specsHint?.textContent).toContain('項規格');
   });
 
-  it('renders jump nav with 4 links → existing section ids + valid aria-labelledby', () => {
+  it('renders install CTA that pushes /install on click', () => {
     render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-    const nav = screen.getByRole('navigation', { name: '商品資訊快速跳轉' });
-    const links = Array.from(nav.querySelectorAll('a'));
-    expect(links.length).toBe(4);
-    for (const a of links) {
-      const href = a.getAttribute('href') ?? '';
-      expect(href.startsWith('#pd-sec-')).toBe(true);
-      const target = document.getElementById(href.slice(1)); // 去掉 '#'
-      expect(target).not.toBeNull();
-      // 每段 aria-labelledby 指向存在的 heading(移除 tab 後不得 dangling)
-      const labelledby = target?.getAttribute('aria-labelledby');
-      expect(labelledby).toBeTruthy();
-      expect(document.getElementById(labelledby!)).not.toBeNull();
-    }
-  });
-
-  it('renders install CTA that pushes /install on click (no tab switch needed)', () => {
-    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+    openAll();
     fireEvent.click(screen.getByRole('button', { name: /預約安裝/ }));
     expect(mockPush).toHaveBeenCalledWith('/install');
   });
@@ -81,12 +82,14 @@ describe('ProductTabs (長頁全展開)', () => {
   it('renders productCode in specs when present', () => {
     const product = { ...MOCK_PRODUCTS[0]!, productCode: 'RPM-DCC01' };
     render(<ProductTabs product={product} />);
+    openAll();
     expect(screen.getByText('RPM-DCC01')).toBeDefined();
   });
 
   it('falls back to slug in specs when productCode absent (no PCM-{id} hash)', () => {
     const product = MOCK_PRODUCTS[0]!; // 無 productCode
     render(<ProductTabs product={product} />);
+    openAll();
     expect(screen.getByText(product.slug)).toBeDefined();
     expect(screen.queryByText(`PCM-${String(product.id).padStart(5, '0')}`)).toBeNull();
   });
@@ -94,6 +97,7 @@ describe('ProductTabs (長頁全展開)', () => {
   // M-1-16c-4b:產地泰國(Sean 拍、去義大利);P0-C-b2:產地為 RPM 專屬列 → 用 RPM fixture(brandSlug)
   it('renders 產地 泰國 (not 義大利) in specs (RPM)', () => {
     render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
+    openAll();
     expect(screen.getByText('泰國')).toBeDefined();
   });
 
@@ -127,12 +131,12 @@ describe('ProductTabs (長頁全展開)', () => {
     const sec = document.getElementById('pd-sec-description');
     expect(sec?.textContent).toContain('玻璃纖維尼龍複合材料');
     expect(sec?.textContent).toContain('適用車款與年式以本頁標示為準');
-    expect(sec?.textContent).toContain('LINE'); // 通用提醒仍在
+    expect(sec?.textContent).toContain('LINE'); // 通用提醒仍在(移入重點 callout、仍於介紹段內)
     expect(sec?.textContent).not.toContain('真碳纖維'); // 去碳
   });
 
-  // A/#270(Sean 2026-07-08 肉眼驗改圓點):非 RPM 有 highlights → 併入 pd-list 圓點清單(賣點 + LINE 提醒同一清單)
-  it('description section 非 RPM 有 highlights → 圓點清單含賣點 + LINE 提醒(pd-list)', () => {
+  // 🔴 #270 中段 B + V1:重點清單移入紅色重點 callout .pd-hl-list(非 RPM = 賣點 + LINE 提醒同一清單)
+  it('description section 非 RPM 有 highlights → 紅色重點 callout 含賣點 + LINE 提醒(.pd-hl-list)', () => {
     const nonRpm = {
       ...MOCK_PRODUCTS[0]!,
       brandSlug: 'gb-racing',
@@ -141,29 +145,32 @@ describe('ProductTabs (長頁全展開)', () => {
     };
     render(<ProductTabs product={nonRpm} />);
     const sec = document.getElementById('pd-sec-description');
-    expect(sec?.querySelectorAll('.pd-desc-features li').length).toBe(0); // 不再用破折號清單
-    expect(sec?.querySelectorAll('.pd-list li').length).toBe(3); // 2 賣點 + 1 LINE 提醒、同一圓點清單
+    // 重點移入紅色左條 callout(不再用 description 內 pd-list)
+    expect(sec?.querySelectorAll('.pd-hl-list li').length).toBe(3); // 2 賣點 + 1 LINE 提醒
+    expect(sec?.querySelector('.pd-callout-hl')).not.toBeNull(); // 紅色左條 callout
     expect(sec?.textContent).toContain('6AL-4V G5 鈦合金，輕量且耐腐蝕');
     expect(sec?.textContent).toContain('DLC 黑鈦塗層');
     expect(sec?.textContent).toContain('LINE');
   });
 
-  // A/#270:非 RPM 無 highlights(空陣列)→ pd-list 只剩 LINE 提醒 1 條(不多空項)
-  it('description section 非 RPM 無 highlights → pd-list 只顯 LINE 提醒 1 條', () => {
+  // 🔴 #270 中段 B + V1:非 RPM 無 highlights(空陣列)→ 紅色重點 callout 只剩 LINE 提醒 1 條(不多空項)
+  it('description section 非 RPM 無 highlights → 紅色重點 callout 只顯 LINE 提醒 1 條', () => {
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', description: '純描述。', highlights: [] };
     render(<ProductTabs product={nonRpm} />);
     const sec = document.getElementById('pd-sec-description');
-    expect(sec?.querySelectorAll('.pd-list li').length).toBe(1);
+    expect(sec?.querySelectorAll('.pd-hl-list li').length).toBe(1);
     expect(sec?.textContent).toContain('LINE');
   });
 
-  // A/#270 RPM byte 不變:RPM 有 highlights 仍走碳纖框架、不渲染 product.highlights(isRpmCarbon 分支不讀)
+  // RPM byte 不變:RPM 有 highlights 仍走碳纖框架、不渲染 product.highlights(isRpmCarbon 分支不讀)
   it('description section RPM 有 highlights 仍不渲染 product.highlights(碳纖框架 byte 不變)', () => {
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', highlights: ['不該顯示的賣點'] };
     render(<ProductTabs product={rpm} />);
     const sec = document.getElementById('pd-sec-description');
     expect(sec?.textContent).not.toContain('不該顯示的賣點');
     expect(sec?.textContent).toContain('真碳纖維'); // RPM 碳纖框架維持
+    // RPM 重點 callout 為固定碳纖 4 點
+    expect(sec?.querySelectorAll('.pd-hl-list li').length).toBe(4);
   });
 
   // 🔴 RPM byte 不變:RPM 有 product.description(舊英文 HTML)仍顯碳纖框架、絕不渲染 description
@@ -197,6 +204,7 @@ describe('ProductTabs (長頁全展開)', () => {
       ],
     };
     render(<ProductTabs product={nonRpm} />);
+    openAll();
     const sec = document.getElementById('pd-sec-specs');
     // RPM 專屬碳纖列全不顯
     expect(sec?.textContent).not.toContain('真碳纖維');
@@ -239,9 +247,11 @@ describe('ProductTabs (長頁全展開)', () => {
     expect(sec?.textContent).toContain('不適用 7 天鑑賞期');
     expect(sec?.textContent).toContain('客製');
     expect(sec?.textContent).not.toContain('義大利');
+    // 退換要點移入中性金色 callout(仍於保固段內)
+    expect(sec?.querySelector('.pd-callout')).not.toBeNull();
   });
 
-  // ── #270 安裝資源(說明書 PDF + 影片 facade、Sean 2026-07-08 Q1/Q2/Q3=A)── optional、無資料整區不顯 ──
+  // ── #270 安裝資源(說明書 PDF 小 chip + 影片 facade、影片大 PDF 小)── optional、無資料整區不顯 ──
   describe('安裝資源 (InstallResources)', () => {
     it('無 manuals / videoUrl → 整區不渲染(不是每個商品都有)', () => {
       render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
@@ -253,6 +263,7 @@ describe('ProductTabs (長頁全展開)', () => {
     it('有 videoUrl → facade 播放鈕、點擊才載 iframe(省流量)', () => {
       const p = { ...MOCK_PRODUCTS[0]!, videoUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' };
       render(<ProductTabs product={p} />);
+      openAll();
       // 未點前:facade 按鈕在、無 iframe
       const facade = screen.getByRole('button', { name: '播放安裝示範影片' });
       expect(facade).toBeDefined();
@@ -272,7 +283,7 @@ describe('ProductTabs (長頁全展開)', () => {
       expect(sec?.querySelector('.pd-res')).toBeNull(); // 無 docs 又無有效影片 → 整區不顯
     });
 
-    it('有 manuals → 逐筆下載鈕 + size 格式化(MB/KB)', () => {
+    it('有 manuals → 逐筆小下載 chip + size 格式化(MB/KB)', () => {
       const p = {
         ...MOCK_PRODUCTS[0]!,
         manuals: [
@@ -282,36 +293,41 @@ describe('ProductTabs (長頁全展開)', () => {
         ],
       };
       render(<ProductTabs product={p} />);
+      openAll();
       const sec = document.getElementById('pd-sec-install');
-      const docs = sec?.querySelectorAll('.pd-res-doc');
+      const docs = sec?.querySelectorAll('.pd-ir-doc-sm');
       expect(docs?.length).toBe(3);
       expect(screen.getByText('安裝說明書')).toBeDefined();
       expect(screen.getByText('PDF · 1.8 MB')).toBeDefined(); // 1843KB → MB 一位小數
       expect(screen.getByText('PDF · 240 KB')).toBeDefined();
       // 無 sizeKB 的項不顯 size 標
       const savBtn = screen.getByText('保養手冊').closest('a');
-      expect(savBtn?.querySelector('.pd-res-doc-s')).toBeNull();
+      expect(savBtn?.querySelector('.pd-ir-doc-s')).toBeNull();
       // href 指向 PDF、新分頁開
       expect(savBtn?.getAttribute('href')).toBe('https://cdn.example.com/c.pdf');
       expect(savBtn?.getAttribute('target')).toBe('_blank');
     });
 
-    it('只有 videoUrl(無 manuals)→ is-single 佔滿寬', () => {
+    it('只有 videoUrl(無 manuals)→ 影片 facade 顯、無 PDF chip', () => {
       const p = { ...MOCK_PRODUCTS[0]!, videoUrl: 'https://youtu.be/dQw4w9WgXcQ' };
       render(<ProductTabs product={p} />);
-      const grid = document.querySelector('.pd-res-grid');
-      expect(grid?.classList.contains('is-single')).toBe(true);
+      openAll();
+      expect(document.querySelector('.pd-res-facade')).not.toBeNull();
+      expect(document.querySelector('.pd-ir-doc-sm')).toBeNull();
     });
 
-    it('影片 + PDF 同時有 → 並排(非 is-single)', () => {
+    it('影片 + PDF 同時有 → 影片 facade + PDF chip 皆渲染(影片大 PDF 小)', () => {
       const p = {
         ...MOCK_PRODUCTS[0]!,
         videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
         manuals: [{ label: '安裝說明書', url: 'https://cdn.example.com/a.pdf' }],
       };
       render(<ProductTabs product={p} />);
-      const grid = document.querySelector('.pd-res-grid');
-      expect(grid?.classList.contains('is-single')).toBe(false);
+      openAll();
+      expect(document.querySelector('.pd-res-facade')).not.toBeNull();
+      expect(document.querySelectorAll('.pd-ir-doc-sm').length).toBe(1);
+      // 安裝段排側欄(有資源)
+      expect(document.getElementById('pd-sec-install')?.querySelector('.pd-sec-split-media')).not.toBeNull();
     });
   });
 });

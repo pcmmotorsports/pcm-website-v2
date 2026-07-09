@@ -150,7 +150,7 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     // 2026-07-05:商品內文 ← domain product.description(來源繁中內文;mapper row.description ?? '')。
     //   ProductTabs 非 RPM 分支渲染真描述(修「內文寫進 DB 但前台無出口」);RPM 分支 byte 不變不讀此欄。
     description: product.description,
-    // A/#270:賣點條列 ← domain product.highlights(ProductTabs 非 RPM 分支 render pd-desc-features);空陣列不渲染。
+    // A/#270:賣點條列 ← domain product.highlights(ProductTabs 非 RPM 分支 render 重點 callout .pd-hl-list);空陣列不渲染。
     highlights: product.highlights,
     // #270 安裝資源:manuals/videoUrl 透傳 domain → MockProduct(InstallResources 消費、facade 影片 + PDF 下載鈕;無資料整區不渲染)。
     manuals: product.manuals,

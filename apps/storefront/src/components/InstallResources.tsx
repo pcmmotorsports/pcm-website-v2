@@ -1,14 +1,14 @@
-// InstallResources.tsx — 安裝須知內的「安裝資源」區(說明書 PDF 下載 + 安裝影片)。
+// InstallResources.tsx — 安裝須知側欄的「安裝資源」面板(安裝影片大 + 說明書 PDF 小 chip)。
 //
-// #270 / Sean 2026-07-08 Q1/Q2/Q3=A:
+// #270 / Sean 2026-07-08 Q1/Q2/Q3=A + 2026-07-09 中段 B 收合改良:
 // - 影片用 facade(縮圖 + 紅播放鈕、點擊才載 iframe → 省流量、不拖慢整頁)、桌機/手機同一 inline 換入。
-// - PDF 用下載鈕(0-3 個)。
-// - 皆 optional:兩者皆無 → 回 null 整區不渲染(不是每個商品都有影片 / 說明書)。
-//   只有其一 → is-single 佔滿寬;兩者皆有 → 桌機左右並排、手機上下堆疊(見 product-page.css .pd-res-grid)。
+// - 中段 B 版面(Sean 2026-07-09 拍板「影片欄位大、說明書等下載按鈕小」):影片置側欄頂、16:9 大尺寸;
+//   說明書 PDF 改「小型下載 chip」列(不再與影片左右並排)。整塊坐落於安裝段右側欄 .pd-panel。
+// - 皆 optional:兩者皆無 → 回 null 整區不渲染(hasInstallResources 同一判準、ProductTabs 據此決定
+//   安裝段是否排側欄:有資源→sec-split-media 兩欄;無資源→主文全寬)。
 // 🟢 #270 S2 已接線(2026-07-09):product.manuals / videoUrl 由 toUIProduct ← domain ← products.manuals/video_url
 //   (來源報價單 pdf_urls/video_urls、rpm 同步管線)。有來源商品即顯、無資料不渲染(optional)。
 //
-// 從 ProductTabs.tsx 抽出成獨立檔(鐵則 6:ProductTabs 併入本區後 >400 行必拆)。
 // 'use client' 必要:facade 播放 onClick → useState 換入 iframe。
 
 'use client';
@@ -46,79 +46,88 @@ function formatSize(kb: number): string {
   return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`;
 }
 
+/** http(s) 白名單:防未來 adapter 餵入 javascript: 等非法 scheme(React 不擋 href scheme)。 */
+function validDocs(manuals?: ProductManual[]): ProductManual[] {
+  return (manuals ?? []).filter((m) => /^https?:\/\//i.test(m.url));
+}
+
+/**
+ * 是否有可渲染的安裝資源(有效 YouTube 影片 或 ≥1 個 http(s) 說明書)。
+ * ProductTabs 用此決定安裝段版面:有→右側欄(sec-split-media);無→主文全寬。
+ * 與元件本體 return null 條件同源、不會漂移。
+ */
+export function hasInstallResources(manuals?: ProductManual[], videoUrl?: string): boolean {
+  const hasVideo = videoUrl ? parseYoutubeId(videoUrl) !== null : false;
+  return hasVideo || validDocs(manuals).length > 0;
+}
+
 export type InstallResourcesProps = { manuals?: ProductManual[]; videoUrl?: string };
 
 export function InstallResources({ manuals, videoUrl }: InstallResourcesProps) {
   const [videoOpen, setVideoOpen] = useState(false);
   const videoId = videoUrl ? parseYoutubeId(videoUrl) : null;
   const hasVideo = videoId !== null;
-  // http(s) 白名單:防未來 adapter 餵入 javascript: 等非法 scheme(React 不擋 href scheme)。
-  const docs = (manuals ?? []).filter((m) => /^https?:\/\//i.test(m.url));
+  const docs = validDocs(manuals);
   const hasDocs = docs.length > 0;
   if (!hasVideo && !hasDocs) return null;
 
   return (
-    <div className="pd-res">
-      <div className="pd-res-eyebrow">安裝資源</div>
-      <div className={`pd-res-grid${hasVideo && hasDocs ? '' : ' is-single'}`}>
-        {hasVideo && (
-          <div className="pd-res-video">
-            {videoOpen ? (
-              <iframe
-                className="pd-res-frame"
-                src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
-                title="安裝示範影片"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            ) : (
-              <button
-                type="button"
-                className="pd-res-facade"
-                onClick={() => setVideoOpen(true)}
-                aria-label="播放安裝示範影片"
-              >
-                {/* 外部 YouTube 縮圖(非站內資產)→ 用原生 img、不進 next/image 遠端白名單 */}
-                <img
-                  className="pd-res-thumb"
-                  src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
-                  alt=""
-                  loading="lazy"
-                />
-                <span className="pd-res-tag">影片</span>
-                <span className="pd-res-play">
-                  <span className="pd-res-tri" />
-                </span>
-                <span className="pd-res-vlabel">安裝示範影片</span>
-              </button>
-            )}
-          </div>
-        )}
-        {hasDocs && (
-          <div className="pd-res-docs">
-            <div className="pd-res-docs-label">說明書 / 規格</div>
-            {docs.map((m, i) => (
-              <a
-                key={i}
-                className="pd-res-doc"
-                href={m.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                download
-              >
-                <span className="pd-res-doc-ic" aria-hidden="true" />
-                <span className="pd-res-doc-tx">
-                  <span className="pd-res-doc-n">{m.label}</span>
-                  {typeof m.sizeKB === 'number' && (
-                    <span className="pd-res-doc-s">PDF · {formatSize(m.sizeKB)}</span>
-                  )}
-                </span>
-                <span className="pd-res-doc-dl" aria-hidden="true" />
-              </a>
-            ))}
-          </div>
-        )}
-      </div>
+    <div className="pd-panel pd-res">
+      <div className="pd-panel-label">安裝資源</div>
+
+      {/* 影片(大):側欄頂 16:9 facade;點擊才換入 iframe(省流量) */}
+      {hasVideo &&
+        (videoOpen ? (
+          <iframe
+            className="pd-res-frame"
+            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
+            title="安裝示範影片"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+          />
+        ) : (
+          <button
+            type="button"
+            className="pd-res-facade"
+            onClick={() => setVideoOpen(true)}
+            aria-label="播放安裝示範影片"
+          >
+            {/* 外部 YouTube 縮圖(非站內資產)→ 用原生 img、不進 next/image 遠端白名單 */}
+            <img
+              className="pd-res-thumb"
+              src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
+              alt=""
+              loading="lazy"
+            />
+            <span className="pd-res-tag">影片</span>
+            <span className="pd-res-play">
+              <span className="pd-res-tri" />
+            </span>
+            <span className="pd-res-vlabel">安裝示範影片</span>
+          </button>
+        ))}
+
+      {/* 說明書 PDF(小):影片下方小型下載 chip 列(Sean:下載按鈕小) */}
+      {hasDocs && (
+        <div className="pd-ir-docs-sm">
+          {docs.map((m, i) => (
+            <a
+              key={i}
+              className="pd-ir-doc-sm"
+              href={m.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              download
+            >
+              <span className="pd-ir-doc-n">{m.label}</span>
+              {typeof m.sizeKB === 'number' && (
+                <span className="pd-ir-doc-s">PDF · {formatSize(m.sizeKB)}</span>
+              )}
+              <span className="pd-ir-doc-dl" aria-hidden="true" />
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

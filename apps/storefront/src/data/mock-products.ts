@@ -132,7 +132,7 @@ export type MockProduct = {
   description?: string;
   /**
    * 賣點條列(A/#270:toUIProduct ← domain product.highlights;ProductTabs 非 RPM 分支 render
-   * pd-desc-features 破折號清單、空/省略不渲染)。
+   * 重點 callout .pd-hl-list、空/省略不渲染)。
    */
   highlights?: string[];
   /**
