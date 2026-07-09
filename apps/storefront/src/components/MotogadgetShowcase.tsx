@@ -32,7 +32,7 @@ export function MotogadgetShowcase() {
           <article className="pd-feature-card">
             <div className="pd-feature-num">01</div>
             <h3 className="pd-feature-title">德國工程、認證齊全</h3>
-            <p className="pd-feature-desc">柏林 1,800 平方米自有廠房，ISO 9001 品質管理、TÜV 檢測——買德國電裝精品,不用賭來路。</p>
+            <p className="pd-feature-desc">柏林 1,800 平方米自有廠房，ISO 9001 品質管理、TÜV 檢測——買德國電裝精品，不用賭來路。</p>
           </article>
           <article className="pd-feature-card">
             <div className="pd-feature-num">02</div>

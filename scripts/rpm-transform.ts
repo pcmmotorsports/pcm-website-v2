@@ -266,7 +266,9 @@ function extractYoutubeId(url: string): string | null {
 
 // Vimeo id 抽取:host 白名單(去 www.)vimeo.com / player.vimeo.com;id 必純數字路徑段
 //   (擋 /channels/staffpicks 等非影片路徑)。http(s) 守衛同 extractYoutubeId。
-//   🔴 與 UI InstallResources.tsx parseVimeoId 邏輯對齊(改一邊要同步另一邊)。
+//   unlisted 型 vimeo.com/<id>/<hash> 同樣命中(segs[0]=id);管線存原始 URL、privacy hash 隨 URL
+//   保留到 UI 端由 parseVimeo 抽出附 ?h=(embed 權限)。
+//   🔴 與 UI InstallResources.tsx parseVimeo 邏輯對齊(改一邊要同步另一邊)。
 function extractVimeoId(url: string): string | null {
   try {
     const u = new URL(url);

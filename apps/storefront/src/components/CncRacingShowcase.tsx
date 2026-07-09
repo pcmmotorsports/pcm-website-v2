@@ -4,7 +4,9 @@
 // 信任狀事實官方 URL 佐證(sonnet subagent 親讀 cncracing.com、彙整 scratchpad research;查無不寫):
 //   「Tradition Since 1995」(cncracing.com 首頁 OUR VALUES)/ 義大利 Arezzo(world/privacy 法人 SEFO S.r.l.)/
 //   billet 鋁 CNC 切削(首頁 + 產品頁「machined from solid billet aluminium」)/ MotoGP Prima Pramac Racing
-//   合作(en/news 官方戰報)/ Ducati 專用 1,787 品項(en/ducati.html「1787 Items found」、查證當下值)。
+//   合作(en/news 官方戰報)/ Ducati 專用 1,787 品項(en/ducati.html「1787 Items found」、查證當下值)/
+//   Pramac 聯名限定部品:報價單 view 實料命中——AF280 官方品名「…Pramac Racing Limited Edition」
+//   (storefront_catalog_v、scratchpad fixtures/cncracing.json)。
 // 商品圖 = 報價單 view 實際 image_url;logo = Sean 提供 PNG 裁切去黑底(public/brands/cnc-racing/logo.png)。
 // 純 presentational、無 props、無 hooks → 不需 'use client'。
 // 🔴 L2 內容(鐵則 9、backlog #271):信任狀數字(1,787 為抓取時點值、年度會變)hardcode 無後台 CRUD。

@@ -25,7 +25,7 @@ import type { ProductManual } from '@/data/mock-products';
 /** 影片解析結果:youtube/vimeo=iframe facade、file=<video> 直播(混格式指南 §4 三分流)。 */
 type ResolvedVideo =
   | { kind: 'youtube'; id: string }
-  | { kind: 'vimeo'; id: string }
+  | { kind: 'vimeo'; id: string; hash: string | null }
   | { kind: 'file'; src: string };
 
 /**
@@ -54,18 +54,28 @@ function parseYoutubeId(url: string): string | null {
 }
 
 /**
- * 從 Vimeo URL 抽數字 id:vimeo.com/<id>(後綴段容忍)| player.vimeo.com/video/<id>。
+ * 從 Vimeo URL 抽數字 id(+unlisted privacy hash):vimeo.com/<id>[/<hash>] | player.vimeo.com/video/<id>[?h=<hash>]。
  * host 白名單(去 www.)+ http(s) 守衛;id 必純數字(擋 /channels/staffpicks 等非影片路徑)。
+ * unlisted hash 一併帶出——embed 需附 ?h= 才有播放權限(code-reviewer R1:只取 id 會渲染 facade、點了報無權限)。
  */
-function parseVimeoId(url: string): string | null {
+function parseVimeo(url: string): { id: string; hash: string | null } | null {
   try {
     const u = new URL(url);
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
     const host = u.hostname.replace(/^www\./, '');
     if (host !== 'vimeo.com' && host !== 'player.vimeo.com') return null;
     const segs = u.pathname.split('/').filter(Boolean);
-    const id = host === 'player.vimeo.com' ? (segs[0] === 'video' ? (segs[1] ?? null) : null) : (segs[0] ?? null);
-    return id && /^\d+$/.test(id) ? id : null;
+    let id: string | null;
+    let hash: string | null;
+    if (host === 'player.vimeo.com') {
+      id = segs[0] === 'video' ? (segs[1] ?? null) : null;
+      hash = u.searchParams.get('h');
+    } else {
+      id = segs[0] ?? null;
+      hash = segs[1] ?? null;
+    }
+    if (!id || !/^\d+$/.test(id)) return null;
+    return { id, hash: hash && /^[a-z0-9]+$/i.test(hash) ? hash : null };
   } catch {
     return null;
   }
@@ -92,8 +102,8 @@ function parseVideoFileSrc(url: string): string | null {
 function resolveVideo(url: string): ResolvedVideo | null {
   const yt = parseYoutubeId(url);
   if (yt) return { kind: 'youtube', id: yt };
-  const vm = parseVimeoId(url);
-  if (vm) return { kind: 'vimeo', id: vm };
+  const vm = parseVimeo(url);
+  if (vm) return { kind: 'vimeo', ...vm };
   const file = parseVideoFileSrc(url);
   if (file) return { kind: 'file', src: file };
   return null;
@@ -145,7 +155,7 @@ export function InstallResources({ manuals, videoUrl }: InstallResourcesProps) {
             src={
               video.kind === 'youtube'
                 ? `https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0`
-                : `https://player.vimeo.com/video/${video.id}?autoplay=1`
+                : `https://player.vimeo.com/video/${video.id}?autoplay=1${video.hash ? `&h=${video.hash}` : ''}`
             }
             title="安裝示範影片"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

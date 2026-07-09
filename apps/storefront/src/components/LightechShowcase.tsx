@@ -2,7 +2,9 @@
 //
 // 製作依據(2026-07-10 kickoff、Sean 預批):骨架同 EvotechShowcase(pd-feature + pd-bs 共用骨架)。
 // 信任狀事實官方 URL 佐證(sonnet subagent 親讀 lightech.it、彙整 scratchpad research;查無不寫):
-//   1997 由前 SBK 車手 Fabrizio Furlan 創立(lightech.it/it/company/「Nel 1997, Fabrizio Furlan crea…」)/
+//   1997 由前 SBK 車手 Fabrizio Furlan 創立、帶入家族製造專長(lightech.it/it/company/ 原文
+//   「Nel 1997, Fabrizio Furlan crea Lightech per portare le competenze produttive della sua famiglia
+//   e della sua professione di pilota…」——家族生產專長+車手職業兩者皆官方原文)/
 //   WSBK·MotoGP·Moto2·125GP 車隊合作(同頁)/ 廠房 2,500㎡(1,400㎡ CNC 產線、Treviso,同頁)/
 //   2026 賽季贊助 Moto2 SYNC SPEEDRS TEAM(首頁 Eventi)。⚠ 網傳「7000+ 產品」官網查無 → 不用。
 // 商品圖 = 報價單 view 實際 image_url;logo = Sean 提供 EPS 內嵌 preview 去底(public/brands/lightech/logo.png)。
@@ -31,7 +33,7 @@ export function LightechShowcase() {
           <article className="pd-feature-card">
             <div className="pd-feature-num">01</div>
             <h3 className="pd-feature-title">車手創辦、賽場出身</h3>
-            <p className="pd-feature-desc">創辦人 Fabrizio Furlan 是前世界超級摩托車錦標賽車手，結合家族金屬加工背景——知道車手要什麼，也知道怎麼把它做出來。</p>
+            <p className="pd-feature-desc">創辦人 Fabrizio Furlan 是前世界超級摩托車錦標賽車手，把家族製造專長帶進賽車部品——知道車手要什麼，也知道怎麼把它做出來。</p>
           </article>
           <article className="pd-feature-card">
             <div className="pd-feature-num">02</div>
@@ -104,7 +106,8 @@ export function LightechShowcase() {
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="http://www.lightechmarketplace.com/Content/Foto/Prodotti/800x800_CROP/0011M-COB.JPG" alt="LighTech 鋁合金自鎖螺帽" loading="lazy" />
+              {/* 🔴 必用 https(code-reviewer R1 Critical:lightechmarketplace.com 僅 http、https 站 mixed content 破圖) */}
+              <img className="pd-bs-mcard-img" src="https://lightech.it/images_web/variante/1200x/0011M-COB.JPG" alt="LighTech 鋁合金自鎖螺帽" loading="lazy" />
               <div className="pd-bs-mcard-b">
                 <div className="pd-bs-mcard-en">Ergal Hardware</div>
                 <div className="pd-bs-mcard-t">鋁合金螺絲五金</div>

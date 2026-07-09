@@ -50,6 +50,13 @@ describe('InstallResources(三型渲染)', () => {
     expect(frame?.getAttribute('src')).toBe('https://player.vimeo.com/video/123456?autoplay=1');
   });
 
+  it('Vimeo unlisted(vimeo.com/<id>/<hash>):embed 附 &h=(否則播放器報無權限;code-reviewer R1)', () => {
+    render(<InstallResources videoUrl="https://vimeo.com/123456/abc9def012" />);
+    fireEvent.click(screen.getByRole('button', { name: '播放安裝示範影片' }));
+    const frame = document.querySelector('iframe.pd-res-frame');
+    expect(frame?.getAttribute('src')).toBe('https://player.vimeo.com/video/123456?autoplay=1&h=abc9def012');
+  });
+
   it('mp4 直檔:直接渲染 <video controls playsInline preload=metadata>、無 facade', () => {
     render(<InstallResources videoUrl={MP4} />);
     const video = document.querySelector('video.pd-res-video');
