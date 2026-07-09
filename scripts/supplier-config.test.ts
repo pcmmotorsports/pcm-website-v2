@@ -42,16 +42,35 @@ describe('getSupplierConfig', () => {
     expect(bo.syncInstallResources).toBe(true); // #270:有 PDF 來源且已同步
   });
 
-  it('should map CNC Racing source slug → cnc-racing brand (dry-run only until Phase 3)', () => {
+  it('should map CNC Racing source slug → cnc-racing brand (write gated until Sean approves)', () => {
     const cnc = getSupplierConfig('cncracing');
     expect(cnc.brandSlug).toBe('cnc-racing'); // 🔴 來源 slug ≠ brand slug(2026-07-04 MCP 查證)
     expect(cnc.handlePrefix).toBe('cncracing');
     expect(cnc.syncDescription).toBe(true); // view description=繁中 description_zh 全列非空
     expect(cnc.categoryStrategy).toEqual({ kind: 'per-group' });
     expect(cnc.variantImages).toBe('per-variant'); // W3:首張 variante/ 變體圖(4376/4376 非空)
-    // 🔴 V1 runtime 硬擋(codex must-fix 4):Phase 3 放量拍板前 --confirm-write 必 abort;改 true 前先過 Sean
+    // 🔴 V1 runtime 硬擋(codex must-fix 4):Sean 批 demo 前 --confirm-write 必 abort;改 true 前先過 Sean
     expect(cnc.writeAllowed).toBe(false);
-    expect(cnc.syncInstallResources).toBe(false); // #270:未 writeAllowed → 不寫安裝資源
+    // 2026-07-10 放量 kickoff §2:cnc Vimeo/PDF 於 confirm-write 時回填 → 翻 true(supersede 舊「未 writeAllowed 不寫」)
+    expect(cnc.syncInstallResources).toBe(true);
+  });
+
+  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 過夜硬擋全 false', () => {
+    // brandSlug=brands 表 MCP 實查(2026-07-10);唯一非 identity 對照 = eazigrip→eazi-grip。
+    expect(getSupplierConfig('eazigrip').brandSlug).toBe('eazi-grip');
+    for (const slug of ['evotech', 'lightech', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
+      expect(getSupplierConfig(slug).brandSlug).toBe(slug); // identity
+    }
+    for (const slug of ['evotech', 'lightech', 'eazigrip', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
+      const c = getSupplierConfig(slug);
+      expect(c.handlePrefix).toBe(slug); // handle 命名空間 = supplierSlug(gbracing 前例)
+      expect(c.syncDescription).toBe(true); // view 描述覆蓋 99-100%(scout 實查)
+      expect(c.syncInstallResources).toBe(true); // view 兩欄全家已曝、來源即真相
+      expect(c.categoryStrategy).toEqual({ kind: 'per-group' });
+      expect(c.variantImages).toBe('per-variant'); // 抽群實測(多變體家)/ 1:1(單變體家)
+      // 🔴 過夜零 prod 寫入(kickoff 硬規則 1):任何一家翻 true 前先過 Sean(改這行=面對這個問題)
+      expect(c.writeAllowed).toBe(false);
+    }
   });
 
   it('should throw fail-closed on unregistered / prototype-chain keys', () => {
@@ -62,9 +81,11 @@ describe('getSupplierConfig', () => {
     expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
-  it('should register exactly the Phase 0 pilot set + cncracing dry-run entry', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
-    // cncracing = #267 收尾登記(2026-07-04 MCP 查證、Phase 3 前僅乾跑)。
-    expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual(['bonamici', 'cncracing', 'gbracing', 'rpm']);
+    expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
+      'bonamici', 'cncracing', 'eazigrip', 'ebc', 'evotech', 'front3d',
+      'gbracing', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
+    ]);
   });
 });

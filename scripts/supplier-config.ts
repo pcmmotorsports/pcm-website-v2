@@ -13,9 +13,13 @@
  *   categoryStrategy=fixed '碳纖維部品'(副標即由此 rawPath 衍生)。
  *   supplier-config.test.ts + rpm-transform.test.ts byte 回歸鎖逐值釘死,任何改動觸發 CI 紅燈。
  *
- * 範圍:Phase 0 試點三家(rpm + gbracing + bonamici)+ cncracing(#267 收尾登記、僅乾跑驗證、
- *   Phase 3 前不 --confirm-write)。其餘 7-8 家留 Phase 3 放量時登記(屆時各自 MCP 查證
- *   brandSlug / syncDescription,不預先臆測未查證的字面值)。未登記的 slug → getSupplierConfig
+ * 範圍:現役三家(rpm + gbracing + bonamici)+ 品牌放量 8+1 家(2026-07-10 kickoff、Sean 預批;
+ *   evotech/lightech/cncracing/eazigrip/samco/motogadget/front3d/materya/ebc,全數 writeAllowed=false
+ *   =過夜零 prod 寫入硬擋,早上 Sean 批 demo 後逐家翻 true 才可 --confirm-write)。
+ *   新 8 家字面值查證(2026-07-10):brandSlug=網站庫 brands 表 MCP 實查(8 家已 seed、僅 ebc 缺列
+ *   =待 seed migration);syncDescription=true(view 描述覆蓋 99-100%、繁中,scout 實查);
+ *   variantImages='per-variant'(5 多變體家抽群實測 images 各異=每列自己的圖;ebc 群內全同一張、
+ *   per-variant 直用等價;單變體家 1:1 天然安全)。未登記的 slug → getSupplierConfig
  *   直接 throw(fail-closed)。
  */
 
@@ -119,8 +123,8 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant', // 每變體 1 張自身圖(URL 含自身 sku 目錄、1710/1710 非空)
     writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
   },
-  // 🔴 僅乾跑驗證用(#267 變體模型統一收尾、Phase 3 放量前不 --confirm-write):
-  //   CNC Racing。多色變體(spec {color},源頭 2026-07-04 兩輪遷移收斂後 4,376 列/1,978 群)。
+  // 品牌放量首家(#267 收尾登記、2026-07-10 放量入列):CNC Racing。
+  //   多色變體(spec {color},源頭 2026-07-04 兩輪遷移收斂後 4,376 列/1,978 群)。
   //   值皆 2026-07-04 MCP 查證:brands.slug='cnc-racing'(≠ 來源 slug)、
   //   view description=繁中 description_zh 全 4,376 列非空、major_category_zh 11 類 → per-group。
   cncracing: {
@@ -128,10 +132,97 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'cnc-racing', // 🔴 來源 slug ≠ brand slug(同 gbracing 型)
     handlePrefix: 'cncracing',
     syncDescription: true,
-    syncInstallResources: false, // #270:未 writeAllowed(Phase 3 前不寫);放量開通時再改 true
+    syncInstallResources: true, // #270+放量 kickoff §2:Vimeo 影片(55 群)+PDF(1,008 群)confirm-write 時回填
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 首張 variante/ 變體圖+群情境照(4376/4376 非空)
-    writeAllowed: false, // 🔴 runtime 硬擋(codex must-fix 4):Phase 3 放量拍板前 --confirm-write 必 abort
+    writeAllowed: false, // 🔴 runtime 硬擋:早上 Sean 批 demo 後才翻 true(過夜零 prod 寫入)
+  },
+
+  // ── 品牌放量 8 家(2026-07-10 kickoff;writeAllowed 一律 false=過夜硬擋、Sean 批後逐家開)──
+  // 值查證:brandSlug=brands 表 MCP 實查;附件覆蓋=scout 實查(2026-07-10 截面、群級):
+  //   evotech PDF/影片 0(嵌入指南稱將填、附件晚到不阻擋)/ lightech PDF 2,019/ eazigrip·samco·
+  //   motogadget·front3d·materya 皆 0 / ebc 影片 45(YouTube)。syncInstallResources 一律 true:
+  //   view 兩欄全家已曝、來源即真相(空來源寫 []/null 正確語意),附件晚到由每日同步自然補上。
+  evotech: {
+    supplierSlug: 'evotech',
+    brandSlug: 'evotech', // identity(MCP 實查 brands.slug 命中)
+    handlePrefix: 'evotech',
+    syncDescription: true, // 3,435/3,460 群有繁中描述
+    syncInstallResources: true,
+    categoryStrategy: { kind: 'per-group' }, // 12 大類
+    variantImages: 'per-variant', // 1:1 單變體家(3,460 群=3,460 變體)
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+  },
+  lightech: {
+    supplierSlug: 'lightech',
+    brandSlug: 'lightech', // identity
+    handlePrefix: 'lightech',
+    syncDescription: true, // 4,553/4,566
+    syncInstallResources: true, // PDF 2,019 群;影片截面 0(Vimeo 預期、晚到自然補)
+    categoryStrategy: { kind: 'per-group' }, // 10 大類
+    variantImages: 'per-variant', // 抽群實測:同群各色各自 1 張圖(0011M04COB/NER 各異)
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+  },
+  eazigrip: {
+    supplierSlug: 'eazigrip',
+    brandSlug: 'eazi-grip', // 🔴 來源 slug ≠ brand slug(MCP 實查)
+    handlePrefix: 'eazigrip',
+    syncDescription: true, // 1,740/1,740
+    syncInstallResources: true,
+    categoryStrategy: { kind: 'per-group' }, // 3 大類
+    variantImages: 'per-variant', // 抽群實測:BUNAPR001 四色各自 1 張圖
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+  },
+  samco: {
+    supplierSlug: 'samco',
+    brandSlug: 'samco', // identity
+    handlePrefix: 'samco',
+    syncDescription: true, // 1,403/1,403
+    syncInstallResources: true,
+    categoryStrategy: { kind: 'per-group' }, // 3 大類
+    variantImages: 'per-variant', // 抽群實測:AGU-1 19 色各自圖組(BK/RD 檔名各異)
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開(⚠ 變體王 14,165、乾跑先驗)
+  },
+  motogadget: {
+    supplierSlug: 'motogadget',
+    brandSlug: 'motogadget', // identity
+    handlePrefix: 'motogadget',
+    syncDescription: true, // 907/912
+    syncInstallResources: true,
+    categoryStrategy: { kind: 'per-group' }, // 5 大類
+    variantImages: 'per-variant', // 1:1 單變體家(912=912)
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+  },
+  front3d: {
+    supplierSlug: 'front3d',
+    brandSlug: 'front3d', // identity
+    handlePrefix: 'front3d',
+    syncDescription: true, // 108/108
+    syncInstallResources: true,
+    categoryStrategy: { kind: 'per-group' }, // 3 大類
+    variantImages: 'per-variant', // 1:1 單變體家(108=108)
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+  },
+  materya: {
+    supplierSlug: 'materya',
+    brandSlug: 'materya', // identity
+    handlePrefix: 'materya',
+    syncDescription: true, // 51/54
+    syncInstallResources: true,
+    categoryStrategy: { kind: 'per-group' }, // 3 大類
+    variantImages: 'per-variant', // 抽群實測:MTY001/MTY011 各色各自圖
+    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+  },
+  ebc: {
+    supplierSlug: 'ebc',
+    brandSlug: 'ebc', // 🔴 brands 表缺列(MCP 實查 2026-07-10)→ 乾跑 resolveId 會 throw、
+    //   屬預期 fail-closed;seed migration 20260710 已備(supabase/migrations)、待 Sean db push 後乾跑才會過
+    handlePrefix: 'ebc',
+    syncDescription: true, // 68/68
+    syncInstallResources: true, // 影片 45 群(YouTube watch 型、scout 實查)
+    categoryStrategy: { kind: 'per-group' }, // 1 大類(煞車系統)
+    variantImages: 'per-variant', // 抽群實測:群內各變體同一張圖(per-variant 直用等價)
+    writeAllowed: false, // 🔴 過夜零寫入;Sean db push seed + 批 demo 後開
   },
 };
 
