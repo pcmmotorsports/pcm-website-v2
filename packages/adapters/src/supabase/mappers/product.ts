@@ -7,6 +7,7 @@ import {
   type Money,
   type Product,
   type ProductAvailability,
+  type ProductManual,
   type ProductVariant,
 } from '@pcm/domain';
 
@@ -52,6 +53,9 @@ export type SupabaseProductRow = {
   description: string | null;
   // A/#270 賣點條列。jsonb 來源 shape 不保證(可能非陣列/含非字串)→ 型別標 unknown[](對齊 SupabaseVariantRow.images/spec 慣例)、mapper runtime guard 收斂為 string[]。
   highlights: unknown[] | null;
+  // #270 安裝資源。manuals jsonb 來源 shape 不保證(元素可能缺 label/url)→ unknown[]、mapper guard 收斂 ProductManual[];video_url 單一 YouTube URL 或 null。
+  manuals: unknown[] | null;
+  video_url: string | null;
   handle: string;
   /**
    * price_by_tier jsonb(雙寫過渡期 source of truth)。
@@ -193,6 +197,20 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     description: row.description ?? '',
     // A/#270 賣點條列:防禦性 guard(jsonb 來源 shape 不保證)→ 濾出 string、非陣列→[];恆 string[](never null、對齊 domain Product.highlights)。
     highlights: Array.isArray(row.highlights) ? row.highlights.filter((h): h is string => typeof h === 'string') : [],
+    // #270 安裝資源:防禦性 guard(jsonb 元素 shape 不保證)→ 濾出有 label+url 字串的項、收斂 ProductManual[](sizeKB 僅在為 number 時保留);恆陣列 never null。
+    manuals: Array.isArray(row.manuals)
+      ? row.manuals.reduce<ProductManual[]>((acc, m) => {
+          if (m && typeof m === 'object') {
+            const { label, url, sizeKB } = m as Record<string, unknown>;
+            if (typeof label === 'string' && typeof url === 'string') {
+              acc.push(typeof sizeKB === 'number' ? { label, url, sizeKB } : { label, url });
+            }
+          }
+          return acc;
+        }, [])
+      : [],
+    // #270 安裝影片:單一 YouTube URL;空字串/非字串→undefined(對齊 domain Product.videoUrl optional)。
+    videoUrl: typeof row.video_url === 'string' && row.video_url.trim() !== '' ? row.video_url : undefined,
     images: row.images,
     availability: row.availability,
     handle: row.handle,
@@ -302,6 +320,9 @@ export function mapDomainProductToSupabase(
     description: emptyToNull(domain.description),
     // A/#270:存檔路徑亦持久化賣點條列(domain.highlights 恆 string[]、對齊 products.highlights NOT NULL)。
     highlights: domain.highlights,
+    // #270:持久化安裝資源(domain.manuals 恆 ProductManual[]、對齊 products.manuals NOT NULL DEFAULT '[]';videoUrl optional→null)。
+    manuals: domain.manuals,
+    video_url: domain.videoUrl ?? null,
     handle: domain.handle,
     price_by_tier: {
       general: {

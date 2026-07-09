@@ -26,6 +26,7 @@ function createFakeProduct(overrides: Partial<Product> = {}): Product {
     },
     description: '全段鈦合金、輕量化 35%、原廠 ECU 相容',
     highlights: [], // A/#270:Product.highlights 必填(本 factory 不測賣點 → 空陣列)
+    manuals: [], // #270:Product.manuals 必填(本 factory 不測安裝資源 → 空陣列)
     images: ['https://example.com/img1.jpg'],
     availability: 'in-stock',
     handle: 'akrapovic-titanium-full-exhaust',

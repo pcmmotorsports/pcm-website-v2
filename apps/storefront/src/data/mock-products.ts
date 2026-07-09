@@ -79,7 +79,7 @@ export type TierLabel = 'P價' | '店價' | null;
 /**
  * 安裝說明書下載項(#270 安裝資源:每商品 0-3 個 PDF)。
  * `url` = 可直接下載的 PDF 連結;`sizeKB` 顯示檔案大小(可省略、省略則不顯 size 標)。
- * 🔴 資料來源(報價單建欄 vs 過渡 mapping)尚未拍板 → 目前 UI 吃 optional props、無資料不渲染(Sean 2026-07-08 Q2=A)。
+ * 🟢 UI 自控形狀、與 domain ProductManual 結構等價(刻意解耦、同 UIVariant/UIFitment/TierLabel 慣例)。
  */
 export type ProductManual = {
   label: string;
@@ -161,15 +161,15 @@ export type MockProduct = {
    *  Phase 2 接 Supabase product_spotlights 表(M-1-16 後)、欄位名一致對應(對齊 PRD Q2 字面) */
   hasSpotlight?: boolean;
   /**
-   * 安裝說明書下載清單(#270 安裝資源、Sean 2026-07-08 Q2=A:先做 UI、資料另議)。
+   * 安裝說明書下載清單(#270 安裝資源)。
    * ProductTabs「安裝須知」→「安裝資源」渲染下載按鈕;空 / 省略 → 不渲染該欄。
-   * 🔴 目前無 adapter 接線(toUIProduct 尚未填此欄)→ 正式站暫不顯示、待資料來源拍板後接。
+   * 🟢 #270 S2 已接線:toUIProduct ← domain product.manuals(來源 products.manuals ← 報價單 pdf_urls);有來源即顯。
    */
   manuals?: ProductManual[];
   /**
    * 安裝示範影片連結(#270 安裝資源;YouTube watch/embed URL)。
    * ProductTabs 用 facade 縮圖 + 播放鈕、點擊才載 iframe(省流量);空 / 省略 → 不渲染影片。
-   * 🔴 同 manuals:目前無 adapter 接線、待資料來源拍板。
+   * 🟢 #270 S2 已接線:toUIProduct ← domain product.videoUrl(來源 products.video_url ← 報價單 video_urls 取首支 YouTube)。
    */
   videoUrl?: string;
 };

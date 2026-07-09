@@ -68,6 +68,7 @@ function fakeProduct(overrides: Partial<Product> = {}): Product {
     },
     description: '全段鈦合金、輕量化 35%',
     highlights: [],
+    manuals: [],
     images: ['https://example.com/img1.jpg'],
     availability: 'in-stock',
     handle: 'akrapovic-titanium-full-exhaust',
@@ -139,5 +140,15 @@ describe('toUIProduct — 經銷價 strip 最後一哩(M-11 安全回歸)', () =
     expect(json).toContain('priceByTier');
     expect(json).toContain(String(DEALER_STORE));
     expect(json).toContain(String(DEALER_PREMIUM));
+  });
+
+  // #270 安裝資源:manuals / videoUrl 透傳 domain → UIProduct(InstallResources 消費)
+  it('#270:manuals / videoUrl 透傳至 UIProduct', () => {
+    const ui = toUIProduct(
+      fakeProduct({ manuals: [{ label: '安裝說明書', url: 'https://x/a.pdf' }], videoUrl: 'https://youtu.be/dQw4w9WgXcQ' }),
+      'general',
+    );
+    expect(ui.manuals).toEqual([{ label: '安裝說明書', url: 'https://x/a.pdf' }]);
+    expect(ui.videoUrl).toBe('https://youtu.be/dQw4w9WgXcQ');
   });
 });

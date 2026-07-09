@@ -152,6 +152,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     description: product.description,
     // A/#270:賣點條列 ← domain product.highlights(ProductTabs 非 RPM 分支 render pd-desc-features);空陣列不渲染。
     highlights: product.highlights,
+    // #270 安裝資源:manuals/videoUrl 透傳 domain → MockProduct(InstallResources 消費、facade 影片 + PDF 下載鈕;無資料整區不渲染)。
+    manuals: product.manuals,
+    videoUrl: product.videoUrl,
     // M-1-16c-3:變體 server-side strip → UIVariant(只帶 price:number = general、**不帶 priceByTier**;
     //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
     //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。

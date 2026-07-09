@@ -479,11 +479,11 @@ components:
     business_overrides:
       - field: "installResourcesField"
         design_value: "design / OD 模板無此欄位(安裝須知僅 meta 3 欄 + 說明 + 清單 + 預約 CTA)"
-        storefront_value: "#270:安裝須知內加「安裝資源」= 說明書 PDF 下載鈕(0-3)+ 安裝影片(YouTube facade 縮圖+紅播放鈕、點擊才載 iframe)。MockProduct 加 optional manuals?: ProductManual[]{label,url,sizeKB?} + videoUrl?: string;InstallResources 元件吃之、兩者皆無回 null 不渲染。🔴 UI-only:目前無 adapter 接線(toUIProduct 未填此兩欄)→ 正式站暫不顯示(對齊 hasSpotlightField『先立欄、資料後接』寫法)"
-        decided_at: "2026-07-08"
-        decision_source: "Sean 2026-07-08 Q1/Q2/Q3=A(版面照 install-resources mockup / 先做 UI 吃 optional props、資料另議 / 影片用 facade)"
-        reason: "說明書 + 施工影片是客人裝機關鍵資訊;先落 UI 使無資料零風險,資料來源(報價單建欄 vs 過渡 mapping)= 動 schema 鐵則 8、另寫 plan 等 Sean 拍板再接 adapter"
-        phase_2_supabase_tables: ["products(install_manuals jsonb / install_video_url)"]
+        storefront_value: "#270:安裝須知內加「安裝資源」= 說明書 PDF 下載鈕(0-3)+ 安裝影片(YouTube facade 縮圖+紅播放鈕、點擊才載 iframe)。domain Product + MockProduct manuals: ProductManual[]{label,url,sizeKB?} + videoUrl?: string;InstallResources 元件吃之、兩者皆無回 null 不渲染。🟢 #270 S1/S2 已接線(2026-07-09、Sean P1/P2=A、supersede 原『UI-only 未接線暫不顯』):報價單 products.pdf_urls/video_urls(text[]、fetcher 填)→ storefront_catalog_v → 網站 rpm-transform(normalizeManuals label『安裝說明書 N』+ 去重保序 / pickInstallVideo 取第一支能解析出 id 的 YouTube、群級彙整跨全變體)→ products.manuals(jsonb)/video_url(text)→ products_public → adapter PRODUCT_SELECT_DETAIL → mapper runtime guard → domain → toUIProduct 透傳。gate supplier-config.syncInstallResources(gbracing/bonamici=true、rpm/cnc=false、供應商級 all-or-nothing);有來源商品即顯、無來源優雅不渲染。各 slice 多層對抗審查全過(code-reviewer + codex 關卡2;S1 另加 ultra 五視角 opus 深證)"
+        decided_at: "2026-07-08(UI);2026-07-09(資料接線 Sean P1/P2=A)"
+        decision_source: "Sean 2026-07-08 Q1/Q2/Q3=A(UI mockup / optional props / facade);2026-07-09 P1=A 開工 + P2=A Claude 代寫報價單 migration(來源 B=報價單存→網站讀、顆粒度每商品)"
+        reason: "說明書 + 施工影片是客人裝機關鍵資訊;先落 UI 零風險,資料來源走報價單既有 pdf_urls/video_urls 欄(fetcher 已填)、真權威 plan docs/specs/2026-07-09-install-resources-source-chain-plan.md"
+        phase_1_landed: "🟢 Phase 1 #270 S1 落地(migration 20260709120000、欄名 products.manuals jsonb / video_url text;非原預測 Phase 2 install_manuals/install_video_url)"
       - field: "tabsContent4Panels"
         design_value: "OD 模板 §9 4 panel(介紹商品專屬 / 規格 9 欄 / 安裝 RPM 共用 / 保固 RPM 共用)"
         storefront_value: "OD-8 直接搬 OD §9 碳纖字面;品牌·型號·分類·適用車款·name·fits 動態。🔴 P0-C-b2 去碳(2026-07-04、plan §2.6/§4 P0-C):材質真碳纖/紋路/表面/產地/特殊樣式 + 商品介紹碳纖框架改 isRpmCarbon 守門(RPM 顯原文 byte 不變、非 RPM 空白;規格非 RPM 改資料驅動 buildSpecRows 讀 variant spec);安裝分頁全品牌通用去碳(碳纖部品→部品、碳纖斷裂→部品受損、含 RPM、Sean Q2=A 授權);保固政策 = 通用單一真相 rpm-policies(P0-C-b1、不守門)"

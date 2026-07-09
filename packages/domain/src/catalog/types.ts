@@ -206,6 +206,16 @@ export type ProductVariant = {
  * @see docs/decisions/0004-m1-pre-launch-decisions.md(本 slice Q1 / Q2 / Q4 拍板擴欄位)
  * @see docs/phase-1-backlog.md #33(Supersede 註不抽 IInventoryRepository)、#81(variants spike)
  */
+/**
+ * 安裝說明書項(#270:= UI ProductManual 等價定義;label 由同步管線 normalizeManuals 生成、
+ * sizeKB 來源通常無故省略;mapper 讀 products.manuals jsonb runtime guard 收斂為此型別)。
+ */
+export type ProductManual = {
+  label: string;
+  url: string;
+  sizeKB?: number;
+};
+
 export type Product = {
   // 既有 6 欄位(M-0-04 / M-0-10b 落地、本 slice 不動)
   id: ProductId;
@@ -232,6 +242,10 @@ export type Product = {
   description: string;
   /** 賣點條列(A/#270:來源 highlights_zh、前台 render bullet list;無賣點=空陣列、恆非 null) */
   highlights: string[];
+  /** 安裝說明書清單(#270:來源 products.manuals、前台 InstallResources 渲染下載鈕;無=空陣列、恆非 null) */
+  manuals: ProductManual[];
+  /** 安裝影片(#270:單一 YouTube URL、前台 facade;無影片=undefined) */
+  videoUrl?: string;
   /** 商品圖片 URL 陣列、來源含廠商 URL 與 Supabase Storage 上傳(對齊 ADR-0004 Q2=A2、上傳機制 M-1-13 / M-1-16 落地) */
   images: string[];
   /**

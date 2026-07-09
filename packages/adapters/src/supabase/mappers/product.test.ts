@@ -33,6 +33,8 @@ const baseProductRow: SupabaseProductRow = {
   subtitle: 'Aprilia RSV4 · 碳纖維',
   description: '<p>desc</p>',
   highlights: [],
+  manuals: [],
+  video_url: null,
   handle: 'rpm-bms1k2kr03',
   price_general: 6800,
   fitments: [],
@@ -213,5 +215,63 @@ describe('mapSupabaseProductToDomain 變體整合', () => {
     const domain = mapSupabaseProductToDomain({ ...baseProductRow, highlights: ['賣點一', '賣點二'] });
     const wire = mapDomainProductToSupabase(domain, { brandId: 'b-1', categoryId: 'c-1' });
     expect(wire.highlights).toEqual(['賣點一', '賣點二']);
+  });
+
+  // #270:manuals/video_url guard — jsonb 元素 shape 不保證 → 收斂為乾淨 ProductManual[] / optional string(擋髒資料進 client)
+  it('read:manuals 正常物件陣列 → 原樣還原(sizeKB 為 number 才留)', () => {
+    const p = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      manuals: [
+        { label: '安裝說明書', url: 'https://x/a.pdf' },
+        { label: '接線圖', url: 'https://x/b.pdf', sizeKB: 1200 },
+      ],
+    });
+    expect(p.manuals).toEqual([
+      { label: '安裝說明書', url: 'https://x/a.pdf' },
+      { label: '接線圖', url: 'https://x/b.pdf', sizeKB: 1200 },
+    ]);
+  });
+
+  it('read:manuals 髒項(缺 label/url、非物件、sizeKB 非 number)→ guard 濾除(恆 ProductManual[])', () => {
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, manuals: null }).manuals).toEqual([]);
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, manuals: { a: 1 } as unknown as unknown[] }).manuals,
+    ).toEqual([]); // 非陣列 jsonb(object)→ []
+    expect(
+      mapSupabaseProductToDomain({
+        ...baseProductRow,
+        manuals: [
+          { label: '有效', url: 'https://x/ok.pdf' },
+          { label: '缺 url' }, // 缺 url → 濾
+          { url: 'https://x/no-label.pdf' }, // 缺 label → 濾
+          'not-an-object', // 非物件 → 濾
+          { label: '壞大小', url: 'https://x/c.pdf', sizeKB: '1200' }, // sizeKB 非 number → 丟 sizeKB 保 label+url
+        ] as unknown[],
+      }).manuals,
+    ).toEqual([
+      { label: '有效', url: 'https://x/ok.pdf' },
+      { label: '壞大小', url: 'https://x/c.pdf' },
+    ]);
+  });
+
+  it('read:video_url 字串 → passthrough;null / 純空白 → undefined', () => {
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, video_url: 'https://youtu.be/dQw4w9WgXcQ' }).videoUrl,
+    ).toBe('https://youtu.be/dQw4w9WgXcQ');
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, video_url: null }).videoUrl).toBeUndefined();
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, video_url: '   ' }).videoUrl).toBeUndefined();
+  });
+
+  it('write:manuals/video_url round-trip(save mapper 持久化;videoUrl undefined→null)', () => {
+    const domain = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      manuals: [{ label: '安裝說明書', url: 'https://x/a.pdf' }],
+      video_url: 'https://youtu.be/dQw4w9WgXcQ',
+    });
+    const wire = mapDomainProductToSupabase(domain, { brandId: 'b-1', categoryId: 'c-1' });
+    expect(wire.manuals).toEqual([{ label: '安裝說明書', url: 'https://x/a.pdf' }]);
+    expect(wire.video_url).toBe('https://youtu.be/dQw4w9WgXcQ');
+    const noVideo = mapDomainProductToSupabase({ ...domain, videoUrl: undefined }, { brandId: 'b-1', categoryId: 'c-1' });
+    expect(noVideo.video_url).toBeNull(); // videoUrl undefined → null 持久化(對齊 products.video_url nullable)
   });
 });

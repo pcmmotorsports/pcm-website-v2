@@ -94,6 +94,8 @@ const baseRow: SupabaseProductRow = {
   subtitle: 'Aprilia RSV4 · 碳纖維',
   description: '<p>d</p>',
   highlights: [],
+  manuals: [],
+  video_url: null,
   handle: 'rpm-0',
   price_general: 6800,
   fitments: [],

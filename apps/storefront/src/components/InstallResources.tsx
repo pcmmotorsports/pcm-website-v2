@@ -5,7 +5,8 @@
 // - PDF 用下載鈕(0-3 個)。
 // - 皆 optional:兩者皆無 → 回 null 整區不渲染(不是每個商品都有影片 / 說明書)。
 //   只有其一 → is-single 佔滿寬;兩者皆有 → 桌機左右並排、手機上下堆疊(見 product-page.css .pd-res-grid)。
-// 🔴 目前 product.manuals / videoUrl 無 adapter 接線(資料來源:報價單建欄 vs 過渡 mapping 尚未拍板)→ 正式站暫不顯示。
+// 🟢 #270 S2 已接線(2026-07-09):product.manuals / videoUrl 由 toUIProduct ← domain ← products.manuals/video_url
+//   (來源報價單 pdf_urls/video_urls、rpm 同步管線)。有來源商品即顯、無資料不渲染(optional)。
 //
 // 從 ProductTabs.tsx 抽出成獨立檔(鐵則 6:ProductTabs 併入本區後 >400 行必拆)。
 // 'use client' 必要:facade 播放 onClick → useState 換入 iframe。
