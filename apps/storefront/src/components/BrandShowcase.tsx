@@ -19,6 +19,9 @@ import { ProductSwatchWall } from './ProductSwatchWall';
 import { ProductSpotlight } from './ProductSpotlight';
 import { GbRacingShowcase } from './GbRacingShowcase';
 import { BonamiciShowcase } from './BonamiciShowcase';
+import { EvotechShowcase } from './EvotechShowcase';
+import { LightechShowcase } from './LightechShowcase';
+import { CncRacingShowcase } from './CncRacingShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -39,6 +42,13 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
     case 'bonamici':
       // N°01「為什麼選 Bonamici」三卡 + N°02「產線巡禮」(品牌影片佔位 + 研發/職人兩段 + 8 色陽極 + 20 年徽章)
       return <BonamiciShowcase />;
+    // 品牌放量 8+1 家(#212 方向3、2026-07-10):N°01 三卡 + N°02 pd-bs 共用骨架(信任狀 + 產品線)
+    case 'evotech':
+      return <EvotechShowcase />;
+    case 'lightech':
+      return <LightechShowcase />;
+    case 'cnc-racing':
+      return <CncRacingShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;

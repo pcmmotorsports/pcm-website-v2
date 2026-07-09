@@ -1051,6 +1051,114 @@
   .pd-bona-badge:nth-child(-n+2) { border-bottom: 1px solid var(--c-border); }
 }
 
+/* ============================================================
+   品牌放量共用骨架 pd-bs-*(#212 方向3、2026-07-10 8+1 家品牌形象區)
+   結構同構 GB 工程血統(pd-gb-stats / pd-gb-rail),抽成通用 class + --bs-accent 品牌色變數:
+   9 家共用一份 CSS、不逐家複製(鐵則 10 可維護性、鐵則 6 檔案上限);既有 pd-gb 與 pd-bona 系列 byte 不動。
+   accent 僅用於 stat 數字與 rail 英文標(-deep 文字安全色、tokens.css 註明衍生來源);
+   無 logo 三家不設專色 → 預設 --c-text 中性。 */
+.pd-bs { --bs-accent: var(--c-text); }
+.pd-bs--evotech { --bs-accent: var(--evo-green-deep); }
+.pd-bs--lightech { --bs-accent: var(--lt-yellow-deep); }
+.pd-bs--cnc-racing { --bs-accent: var(--cnc-red-deep); }
+.pd-bs--samco { --bs-accent: var(--samco-blue); }
+.pd-bs--ebc { --bs-accent: var(--ebc-blue); }
+
+/* eyebrow 文字 lockup(無 logo 家 eazi-grip/motogadget/front3d 的品牌標記佔位;
+   直角框 + 義體字對齊全站直角美學;Sean 補 logo 後換 pd-eb-logo <img>、見晨報補圖清單) */
+.pd-eb-lockup {
+  display: inline-flex; align-items: center;
+  padding: 5px 11px; border: 1.5px solid var(--c-text);
+  font-family: var(--f-display); font-style: italic; font-weight: 700;
+  font-size: 17px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--c-text); line-height: 1;
+}
+
+/* 信任狀格(同構 pd-gb-stats;cols-3 供精簡版) */
+.pd-bs-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  margin-top: 16px;
+}
+.pd-bs-stats.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.pd-bs-stat { padding: 15px 16px; border-right: 1px solid var(--c-border); }
+.pd-bs-stat:last-child { border-right: 0; }
+.pd-bs-stat-n {
+  font-family: var(--f-display);
+  font-style: italic; font-weight: 700;
+  font-size: 32px; line-height: 1;
+  color: var(--bs-accent);
+  font-variant-numeric: tabular-nums;
+}
+.pd-bs-stat-plus { font-size: 0.6em; }
+.pd-bs-stat-l {
+  font-family: var(--f-mono); font-size: 10px;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--c-text-2); margin-top: 9px;
+}
+.pd-bs-stat-s { font-size: 12px; color: var(--c-text-3); margin-top: 3px; line-height: 1.4; }
+/* 4→2 欄斷點 640 對齊 rail(同 pd-gb-stats 的 adversarial N1 結論) */
+@media (max-width: 640px) {
+  .pd-bs-stats { grid-template-columns: 1fr 1fr; }
+  .pd-bs-stat:nth-child(2n) { border-right: 0; }
+  .pd-bs-stat:nth-child(-n+2) { border-bottom: 1px solid var(--c-border); }
+  /* cols-3 精簡版:手機 2+1(第三格跨兩欄、免右下空洞) */
+  .pd-bs-stats.cols-3 { grid-template-columns: 1fr 1fr; }
+  .pd-bs-stats.cols-3 .pd-bs-stat:last-child { grid-column: 1 / -1; border-top: 1px solid var(--c-border); }
+}
+
+/* 產品線矩陣(同構 pd-gb-rail:桌機等寬欄 / 手機水平捲 + peek;卡數 3-4 由 grid-auto-flow 自適) */
+.pd-bs-railwrap { margin-top: 16px; }
+.pd-bs-rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 14px;
+}
+.pd-bs-mcard {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  display: flex;
+  flex-direction: column;
+}
+.pd-bs-mcard-img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; background: #fff; }
+.pd-bs-mcard-b { padding: 13px 14px 15px; }
+.pd-bs-mcard-en {
+  font-family: var(--f-mono); font-size: 10px;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--bs-accent);
+}
+.pd-bs-mcard-t { font-size: 14.5px; font-weight: 700; margin: 5px 0 0; }
+.pd-bs-mcard-d { font-size: 12.5px; color: var(--c-text-2); line-height: 1.6; margin: 6px 0 0; }
+.pd-bs-railhint {
+  display: none;
+  font-family: var(--f-mono); font-size: 10.5px;
+  color: var(--c-text-3); margin-top: 8px;
+}
+.pd-bs-rail::-webkit-scrollbar { height: 6px; }
+.pd-bs-rail::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 3px; }
+@media (max-width: 640px) {
+  .pd-bs-rail {
+    grid-auto-columns: 74%;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    margin: 0 -16px;
+    padding: 0 16px 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .pd-bs-rail > * { scroll-snap-align: start; }
+  .pd-bs-railhint { display: block; }
+}
+
+/* 補充註記行(front3d 賽道用途免責等;mono 小字、不搶購買資訊) */
+.pd-bs-note {
+  font-family: var(--f-mono); font-size: 11px; line-height: 1.7;
+  color: var(--c-text-2); margin-top: 14px;
+  padding: 10px 12px; border: 1px solid var(--c-border); background: var(--c-surface);
+}
+
 /* Engineering Spotlight — image left + text right(對應 design `.vcf-spotlight` L1146-1197);
    spot-media 用純 CSS gradient placeholder 取代 design <img>、Phase 2 接 product_spotlights.image_url */
 .pd-spotlight {
