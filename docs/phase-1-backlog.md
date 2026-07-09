@@ -6795,6 +6795,63 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #273. 🎬 安裝資源多支影片 UI(現行單支 video_url)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(單支已覆蓋主場景;多支來源家上線後評估)
+- **問題:**
+  - `products.video_url` 為單支 text、`pickInstallVideo` 只取第一支可解析影片;來源 `video_urls` 為陣列,同商品多支安裝影片(不同車款各一支)時其餘被丟棄。
+- **觸發事件:**
+  - 2026-07-10 品牌放量 kickoff §2 明文「多支=follow-up 記 backlog」;cncracing 來源部分群有多支 Vimeo。
+- **預期解法:**
+  - `products.videos jsonb` 陣列欄(或沿用 manuals 形狀)+ InstallResources 多支列表(首支大、其餘 chip);遷移 video_url→videos[0] 相容期雙讀。
+- **不修會痛在:**
+  - 擴充性:多車款商品只顯第一支、客人找不到自己車款的安裝影片會退貨詢問。
+  - 可維護性:單/多支雙軌越晚收斂、資料遷移面越大。
+  - bug 可追蹤性:客服回報「官網影片跟我的車不符」難溯源到「被丟棄的第 2 支」。
+- **估時:** 0.5-1 天(schema+管線+UI+測試)。
+- **依賴:** 網站 migration(鐵則 8)。
+- **發現於:** 2026-07-10 / 品牌放量 Slice 1。
+- **相關:** #270 / scripts/rpm-transform.ts pickInstallVideo。
+
+---
+
+### #274. 🧩 eazigrip/materya 乾跑撞鍵 triage(handle 批內重複 1 + pv_spec 42 群)
+
+- **狀態:** ⏳ 待 Sean 拍板(晨報決策題;寫入模式會 abort、不影響其他家)
+- **優先級:** 🟠 中(eazigrip/materya confirm-write 前必解)
+- **問題:**
+  - eazigrip:①handle 批內重複 1 筆(`TANKBMW006` vs `TANKBMW006-`、尾 hyphen 正規化後同 handle)②pv_spec_unique 撞鍵 40 群(CENTREPAD 家族:同 spec 兩 SKU 尾碼 BL/BLBLK、CL/CLCLR=來源疑似重複列或子款差異不在 spec);materya:2 群(MTY059CG vs CG-1)。
+  - 乾跑報告完整清單:scratchpad dryruns/eazigrip.log、materya.log(2026-07-10 夜)。
+- **預期解法:**
+  - A=報價單側修源(重複列合併/尾 hyphen SKU 清理;同 #267 精神)/ B=網站管線排除清單(跳過撞鍵群、其餘先上)/ C=spec 補區分軸。
+- **不修會痛在:**
+  - 擴充性:兩家全量卡住(1,740+54 群不能寫);bug 可追蹤性:硬上會 23505 部分寫髒中間態(preflight 已擋)。
+- **估時:** 報價單側查根因 0.5 天。
+- **依賴:** Sean triage 方向。
+- **發現於:** 2026-07-10 / 品牌放量逐家乾跑。
+- **相關:** #266(handle charset 前例)/ C3(bonamici spec 碰撞前例、#267 源頭修復)。
+
+---
+
+### #275. 🖼 lightech 變體圖大宗 http://(mixed content、寫入後前台破圖風險)
+
+- **狀態:** ⏳ 待執行(lightech confirm-write 前評估)
+- **優先級:** 🟠 中
+- **問題:**
+  - lightech 來源變體圖大量為 `http://www.lightechmarketplace.com/...`(實測該 host https 連線 reset、僅 http 可用);寫入後 https 正式站 `<img>` 觸發 mixed content——Chrome 自動升級失敗破圖、Safari/Firefox 擋。
+  - 抽查同檔名在 `https://lightech.it/images_web/...` 多有可用鏡像(品牌版面已改用、code-reviewer R1 Critical 前例)。
+- **預期解法:**
+  - A=報價單 fetcher 抓圖時改寫 host 為 lightech.it 鏡像(驗 200 才收)/ B=網站 transform 層 URL 改寫 + 失敗 fallback 群代表圖。
+- **不修會痛在:**
+  - 擴充性:lightech 4,566 群上線即大面積破圖;bug 可追蹤性:破圖散在變體層、肉眼驗只看群代表圖會漏。
+- **估時:** 0.5 天(含抽樣驗證鏡像覆蓋率)。
+- **依賴:** Sean 拍 A(報價單側)或 B(網站側)。
+- **發現於:** 2026-07-10 / 品牌放量(code-reviewer R1 + 乾跑)。
+- **相關:** #270 / #212。
+
+---
+
 ## 紀錄模板
 
 ```markdown
