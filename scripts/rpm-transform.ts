@@ -166,6 +166,12 @@ export interface ProductRow {
   //    與 description(per-row 條件、視來源空否)不同:highlights 在單一 supplier run 內 all-or-nothing
   //    (只看 syncDescription)→ 對 rpm-import description partition 天然 uniform、不需額外 partition(見該處註)。
   highlights?: string[];
+  // 🔴 安裝資源(#270)為 optional(供應商級條件、依 supplier-config.syncInstallResources):true → 展開
+  //    manuals(恆陣列、可 [])+ video_url(恆值、可 null);false(rpm/cnc)→ 省 key → 凍結不碰。
+  //    來源即真相(空來源寫 []/null 是正確語意、非誤覆寫);單一 run all-or-nothing → 同 highlights、
+  //    對 rpm-import description partition 天然 uniform、不需額外 partition(見該處註、codex 關卡1 確認)。
+  manuals?: InstallManual[];
+  video_url?: string | null;
   price_general: number | null;
   price_store: number | null;
   price_by_tier: Record<string, { amount: number; currency: string }>;
@@ -204,6 +210,70 @@ export interface GroupTransformContext {
   handlePrefix: string; // handle = `${handlePrefix}-${mainSku.toLowerCase()}`(rpm→'rpm')
   subtitleTag: string; // 副標分類詞:rpm=分類 rawPath「碳纖維部品」、per-group=major_category_zh
   syncDescription: boolean; // true 才把來源 description 寫進 products.description(rpm=false)
+  syncInstallResources: boolean; // #270:true 才把 pdf_urls/video_urls 寫進 products.manuals/video_url(rpm/cnc=false)
+}
+
+/** 安裝說明書項(#270;= DB products.manuals jsonb 元素形狀;label 由 transform 生成、sizeKB 來源無故省)。 */
+export interface InstallManual {
+  label: string;
+  url: string;
+}
+
+// http(s) URL 驗證:new URL() 嚴驗(protocol http/https + hostname 非空)、比裸 regex 擋掉 'https://'(無 host)等髒值
+//   (codex/ultra 關卡2 nit;與 UI InstallResources 的 /^https?:\/\//i 為雙層,transform 為寫入前更嚴的第一層)。
+function isHttpUrl(u: string): boolean {
+  try {
+    const parsed = new URL(u.trim());
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '';
+  } catch {
+    return false;
+  }
+}
+
+// 安裝說明書正規化:跨變體裸 URL → 乾淨 InstallManual[]。
+// 🔴 群級彙整(codex 關卡1 must-fix):吃 variants.flatMap(pdf_urls)、非單一 basis 列(某變體有 PDF、basis 沒有 → 不可漏)。
+// 濾 http(s) → 去重保序(同群多變體常帶重複 URL)→ 依數量生 label(D1=A:1 份「安裝說明書」、多份「安裝說明書 N」)。
+export function normalizeManuals(rawUrls: (string | null | undefined)[]): InstallManual[] {
+  const clean = [...new Set(rawUrls.filter((u): u is string => typeof u === 'string' && isHttpUrl(u)).map((u) => u.trim()))];
+  if (clean.length === 1) return [{ label: '安裝說明書', url: clean[0]! }];
+  return clean.map((url, i) => ({ label: `安裝說明書 ${i + 1}`, url }));
+}
+
+// YouTube videoId 抽取:🔴 與 UI apps/storefront/src/components/InstallResources.tsx parseYoutubeId 邏輯對齊(改一邊要同步另一邊)。
+//   host 白名單(去 www.)youtu.be / youtube.com / m.youtube.com;抽 watch?v= / embed|shorts / youtu.be 路徑;id 需合 ^[\w-]{6,}$。
+//   transform 多一道 protocol http(s) 守衛(擋 javascript://youtu.be/... 偽裝、寫入前更嚴);抽不到(頻道/播放清單等)→ null。
+function extractYoutubeId(url: string): string | null {
+  let id: string | null = null;
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    const host = u.hostname.replace(/^www\./, '');
+    if (host === 'youtu.be') {
+      id = u.pathname.split('/')[1] ?? null;
+    } else if (host === 'youtube.com' || host === 'm.youtube.com') {
+      if (u.pathname === '/watch') {
+        id = u.searchParams.get('v');
+      } else {
+        const m = u.pathname.match(/^\/(?:embed|shorts)\/([^/?]+)/);
+        id = m ? (m[1] ?? null) : null;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return id && /^[\w-]{6,}$/.test(id) ? id : null;
+}
+
+// 安裝影片挑選:跨變體裸 URL → 第一支「能解析出 videoId」的 YouTube(D2=A、非只 host 符合)。
+// 🔴 ultra/codex 關卡2 must-fix:頻道/播放清單 URL(host 符合但無 id)不佔位、續試下一支,避免靜默吃掉後面真影片。
+// 🔴 群級彙整(同 normalizeManuals)。Vimeo / 多支 / 不可解析暫不支援。
+export function pickInstallVideo(rawUrls: (string | null | undefined)[]): string | null {
+  for (const raw of rawUrls) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (extractYoutubeId(trimmed) !== null) return trimmed;
+  }
+  return null;
 }
 
 // 賣點條列正規化:來源 jsonb → 乾淨 string[](濾非字串與純空白;非陣列/null → [])。
@@ -237,6 +307,9 @@ export function transformGroup(
   const description = variants.find((v) => (v.description ?? '').trim() !== '')?.description ?? null;
   // 賣點:群內第一個非空賣點陣列(product-level、群內應一致;防呆 first non-empty、正規化為 string[])。
   const highlights = variants.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? [];
+  // 安裝資源(#270):群級彙整跨全變體(codex 關卡1 must-fix、非單一 basis 列)→ UI 形狀。
+  const manuals = normalizeManuals(variants.flatMap((v) => v.pdf_urls ?? []));
+  const videoUrl = pickInstallVideo(variants.flatMap((v) => v.video_urls ?? []));
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
@@ -249,6 +322,9 @@ export function transformGroup(
     // 🔴 highlights 供應商級條件寫入:syncDescription=true 才展開 key(rpm=false → 無 key → 凍結不碰);
     //    all-or-nothing per run → rpm-import description partition 天然 uniform(見該處寫入段註)。
     ...(ctx.syncDescription ? { highlights } : {}),
+    // 🔴 安裝資源(#270)供應商級條件寫入:syncInstallResources=true 才展開 manuals+video_url 兩 key(rpm/cnc=false → 無 key → 凍結);
+    //    gate 下兩 key 恆出現(manuals 恆陣列、video_url 恆 null|string)→ 單一 run uniform → 免 partition(codex 關卡1 確認)。
+    ...(ctx.syncInstallResources ? { manuals, video_url: videoUrl } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
     price_by_tier: {

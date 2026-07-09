@@ -836,6 +836,7 @@ export type Database = {
           highlights: Json
           id: string
           images: Json
+          manuals: Json
           metadata: Json
           price_by_tier: Json
           price_general: number | null
@@ -844,6 +845,7 @@ export type Database = {
           supplier_slug: string
           title: string
           updated_at: string
+          video_url: string | null
         }
         Insert: {
           availability?: string
@@ -858,6 +860,7 @@ export type Database = {
           highlights?: Json
           id?: string
           images?: Json
+          manuals?: Json
           metadata?: Json
           price_by_tier: Json
           price_general?: number | null
@@ -866,6 +869,7 @@ export type Database = {
           supplier_slug?: string
           title: string
           updated_at?: string
+          video_url?: string | null
         }
         Update: {
           availability?: string
@@ -880,6 +884,7 @@ export type Database = {
           highlights?: Json
           id?: string
           images?: Json
+          manuals?: Json
           metadata?: Json
           price_by_tier?: Json
           price_general?: number | null
@@ -888,6 +893,7 @@ export type Database = {
           supplier_slug?: string
           title?: string
           updated_at?: string
+          video_url?: string | null
         }
         Relationships: [
           {
@@ -1056,11 +1062,13 @@ export type Database = {
           highlights: Json | null
           id: string | null
           images: Json | null
+          manuals: Json | null
           price_general: number | null
           subtitle: string | null
           supplier_slug: string | null
           title: string | null
           updated_at: string | null
+          video_url: string | null
         }
         Insert: {
           availability?: string | null
@@ -1074,11 +1082,13 @@ export type Database = {
           highlights?: Json | null
           id?: string | null
           images?: Json | null
+          manuals?: Json | null
           price_general?: number | null
           subtitle?: string | null
           supplier_slug?: string | null
           title?: string | null
           updated_at?: string | null
+          video_url?: string | null
         }
         Update: {
           availability?: string | null
@@ -1092,11 +1102,13 @@ export type Database = {
           highlights?: Json | null
           id?: string | null
           images?: Json | null
+          manuals?: Json | null
           price_general?: number | null
           subtitle?: string | null
           supplier_slug?: string | null
           title?: string | null
           updated_at?: string | null
+          video_url?: string | null
         }
         Relationships: [
           {

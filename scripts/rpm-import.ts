@@ -205,6 +205,7 @@ async function main(): Promise<void> {
       handlePrefix: config.handlePrefix,
       subtitleTag,
       syncDescription: config.syncDescription,
+      syncInstallResources: config.syncInstallResources, // #270:gbracing/bonamici=true 寫 manuals/video_url、rpm/cnc=false 凍結
     };
     const pr = transformGroup(mainSku, variants, vehicleLabel, ctx, now);
     productRows.push(pr);
@@ -323,8 +324,9 @@ async function main(): Promise<void> {
   //    defaultToNull 把「省 key」列寫成 NULL(rpm 全省 key → withKey 空 → 現行單批行為 byte 等價;
   //    試點來源空描述列落 withoutKey 批、不覆寫現值)。source-權威鏡射 ② 若採用另議、見 backlog #260。
   //    ⚠️ 本 partition 只治「同一 run 內 row 間 presence 會變動」的條件寫欄(description 因來源可空而 per-row 變動)。
-  //       例外:highlights(A/#270)亦條件省 key,但屬「供應商級」(依 ctx.syncDescription、單一 run all-or-nothing、
-  //       非 per-row)→ 對本 partition 天然 uniform、不需納入。未來新增「per-row 變動」的省 key 欄才需一併納入 partition。
+  //       例外:highlights(A/#270)與 manuals/video_url(#270 安裝資源)亦條件省 key,但均屬「供應商級」
+  //       (依 ctx.syncDescription / ctx.syncInstallResources、單一 run all-or-nothing、非 per-row)→ 對本 partition
+  //       天然 uniform、不需納入(codex 關卡1 確認)。未來新增「per-row 變動」的省 key 欄才需一併納入 partition。
   const { withKey: prodWithDesc, withoutKey: prodWithoutDesc } = partitionByKeyPresence(productRows, 'description');
   const savedProducts = [
     ...(prodWithDesc.length

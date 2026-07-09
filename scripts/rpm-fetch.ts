@@ -41,6 +41,8 @@ export interface SourceProductRow {
   product_name_zh: string; // 中文部位名(title 優先)
   description: string | null; // 來源繁中描述(P0-A-3 起攜帶;僅 supplier-config.syncDescription=true 才寫進 products.description、§2.9 F2)
   highlights_zh: string[] | null; // 來源賣點條列(jsonb 字串陣列;A/#270、與 description 同 syncDescription gate→products.highlights、rpm 不寫)
+  pdf_urls: string[] | null; // 說明書 PDF 連結(text[] 裸 URL;#270 安裝資源、syncInstallResources gate→products.manuals、rpm 不寫)
+  video_urls: string[] | null; // 安裝影片連結(text[] 多支可能含 Vimeo;#270、pickInstallVideo 取第一支 YouTube→products.video_url)
   vehicle_label: string | null; // 適用車款(subtitle 用;通用件可能 null)
   fitment_parsed: SourceFitmentEntry[] | null;
   category_zh: string | null; // 97 子類(Phase 0 不 seed、先攜帶備用、transform 尚不消費)
@@ -59,10 +61,11 @@ export interface SourceProductRow {
 // P0-A-3(多供應商去碳):補 description(依 syncDescription 決定寫不寫、§2.9 F2)+ major_category_zh(per-group 分類與副標來源)
 //   + category_zh(97 子類、Phase 0 不 seed、先攜帶備用)。description 仍受 supplier-config 旗標 gate:rpm=false 不寫、byte 等價。
 // A/#270:補 highlights_zh(賣點條列 jsonb 字串陣列)→ products.highlights;與 description 同 syncDescription gate(rpm 不寫)。
+// #270 安裝資源:補 pdf_urls / video_urls(text[])→ products.manuals / video_url;syncInstallResources gate(gbracing/bonamici 才寫)。
 const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, description, ' +
   'vehicle_label, fitment_parsed, category_zh, major_category_zh, spec, price_retail, image_url, images, stock_status, ' +
-  'highlights_zh';
+  'highlights_zh, pdf_urls, video_urls';
 
 // ── source fetch(分頁 + 重試、全程 .eq('supplier_slug', supplierSlug);讀乾淨 view 取代 raw 兩查)──
 const MAX_RETRY = 3; // S5:每頁最多嘗試次數(初次 + 2 重試)

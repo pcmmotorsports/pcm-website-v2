@@ -53,6 +53,15 @@ export interface SupplierConfig {
    *   試點=true(來源繁中描述搬進網站;來源 null→省欄不寫 null)。
    */
   syncDescription: boolean;
+  /**
+   * 是否把來源 pdf_urls/video_urls 同步進 products.manuals/video_url(#270 安裝資源)。
+   * 🔴 獨立於 syncDescription:安裝資源=實體資產是否存在,與「繁中翻譯是否備妥」正交
+   *   (某供應商描述已備但沒影片、或反之)。true → transform 展開 manuals+video_url 兩 key
+   *   (供應商級 all-or-nothing、單一 run uniform → 免 partition);false → 省 key → 凍結不碰。
+   *   rpm/cncracing=false(rpm 無來源+byte 凍結、cnc 未 writeAllowed);gbracing/bonamici=true(有 PDF 來源且已同步)。
+   *   前提:報價單 storefront_catalog_v 已曝露 pdf_urls/video_urls(20260709 報價單側 migration)。
+   */
+  syncInstallResources: boolean;
   /** 分類策略(見 CategoryStrategy)。 */
   categoryStrategy: CategoryStrategy;
   /**
@@ -83,6 +92,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'rpm-carbon',
     handlePrefix: 'rpm',
     syncDescription: false,
+    syncInstallResources: false, // 🔴 rpm 無安裝資源來源 + byte 凍結:不寫、products.manuals/video_url 維持 DEFAULT
     categoryStrategy: { kind: 'fixed', rawPath: '碳纖維部品' },
     variantImages: 'sku-prefix-pool', // 🔴 byte 錨:群共用圖池+sku 前綴過濾 = 現行行為
     writeAllowed: true, // 現役每日同步(rpm-sync.yml)
@@ -93,6 +103,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'gb-racing', // 🔴 §2.3 對照(來源 gbracing ≠ brand gb-racing)
     handlePrefix: 'gbracing',
     syncDescription: true,
+    syncInstallResources: true, // #270:有 PDF 來源(fetcher gbracing.eu)且已同步 → 寫 manuals/video_url
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // view images=該列自己的圖(單變體家、942 群全單變體)
     writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
@@ -103,6 +114,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'bonamici', // identity(來源 slug = brand slug)
     handlePrefix: 'bonamici',
     syncDescription: true,
+    syncInstallResources: true, // #270:有 PDF 來源(fetcher bonamiciracing.it)且已同步 → 寫 manuals/video_url
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 每變體 1 張自身圖(URL 含自身 sku 目錄、1710/1710 非空)
     writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
@@ -116,6 +128,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     brandSlug: 'cnc-racing', // 🔴 來源 slug ≠ brand slug(同 gbracing 型)
     handlePrefix: 'cncracing',
     syncDescription: true,
+    syncInstallResources: false, // #270:未 writeAllowed(Phase 3 前不寫);放量開通時再改 true
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 首張 variante/ 變體圖+群情境照(4376/4376 非空)
     writeAllowed: false, // 🔴 runtime 硬擋(codex must-fix 4):Phase 3 放量拍板前 --confirm-write 必 abort
