@@ -6773,6 +6773,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #272. 🔒 rpm-import 大改組情境 F3 雙旗標互斥 deadlock(下架 >10% 且縮編 >5% 時 CLI 走不完)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中(#267 W 線每家供應商收斂上線時都會再撞)
+- **問題:**
+  - 報價單大改組(如 #267 變體統一合併重複頁)會同時觸發兩道安全閘:抓取完整性(縮編 >5%、需 `--allow-fetch-shrink`)+ 下架對賬(>10%、需 `--allow-large-delist`);但 F3 護欄(rpm-preflight `assertBypassFlagsExclusive`)禁止同一次帶兩支旗標 → CLI 內任何組合都走不完(單帶 shrink=寫入成功但下架 abort;單帶 delist=preflight 先擋)。
+- **觸發事件:**
+  - 2026-07-10 bonamici #267 合併同步(1252→590 群、663 重複頁下架):乾跑/人工雙驗證合法後仍 deadlock,最終以一次性腳本(scratchpad、複用 computeDelist/applyDelist + 硬斷言 590/663)分步完成。
+- **預期解法:**
+  - 方案 A:新增 `--restructure` 模式=兩道閘各自要求「乾跑報告 hash 確認」後單次走完(保留 F3 對盲寫的防護、把「已看過乾跑」變成機器可驗的前置)。
+  - 方案 B:分步官方化——`--allow-fetch-shrink` 寫入後,提供 `--delist-only --allow-large-delist` 子模式(preflight 跳過、只跑對賬段)。
+- **不修會痛在:**
+  - 擴充性:#267 W 線 cnc/lightech/samco…每家收斂上線都要再手寫一次性腳本(易抄錯 scope=誤刪別家)。
+  - 可維護性:一次性腳本散在 scratchpad、不在 repo 審計軌內。
+  - bug 可追蹤性:cron 在來源收斂後會每日 preflight abort(非零退出)直到有人手動分步,告警噪音掩蓋真異常。
+- **估時:** 0.5-1 天(含測試兩情境:正常同步不受影響 / 大改組走新路)。
+- **依賴:** 無。
+- **發現於:** 2026-07-10 / bonamici #267 合併同步 ops session。
+- **相關:** #267(變體統一)/ P0-A-4a F3 護欄 / scripts/rpm-preflight.ts / scripts/rpm-reconcile.ts。
+
+---
+
 ## 紀錄模板
 
 ```markdown
