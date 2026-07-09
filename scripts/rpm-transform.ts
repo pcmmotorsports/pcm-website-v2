@@ -264,14 +264,50 @@ function extractYoutubeId(url: string): string | null {
   return id && /^[\w-]{6,}$/.test(id) ? id : null;
 }
 
-// 安裝影片挑選:跨變體裸 URL → 第一支「能解析出 videoId」的 YouTube(D2=A、非只 host 符合)。
-// 🔴 ultra/codex 關卡2 must-fix:頻道/播放清單 URL(host 符合但無 id)不佔位、續試下一支,避免靜默吃掉後面真影片。
-// 🔴 群級彙整(同 normalizeManuals)。Vimeo / 多支 / 不可解析暫不支援。
+// Vimeo id 抽取:host 白名單(去 www.)vimeo.com / player.vimeo.com;id 必純數字路徑段
+//   (擋 /channels/staffpicks 等非影片路徑)。http(s) 守衛同 extractYoutubeId。
+//   🔴 與 UI InstallResources.tsx parseVimeoId 邏輯對齊(改一邊要同步另一邊)。
+function extractVimeoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    const host = u.hostname.replace(/^www\./, '');
+    if (host !== 'vimeo.com' && host !== 'player.vimeo.com') return null;
+    const segs = u.pathname.split('/').filter(Boolean);
+    const id = host === 'player.vimeo.com' ? (segs[0] === 'video' ? (segs[1] ?? null) : null) : (segs[0] ?? null);
+    return id && /^\d+$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+// 影片直檔判定:http(s) + pathname 副檔名白名單(query 不干擾;Evotech cdn.shopify/S3 .mp4 在名單內)。
+//   🔴 刻意窄於嵌入指南 §4「其餘一律視為 file」——寫入管線 fail-closed、任意網頁 URL 不當影片寫入。
+//   🔴 與 UI InstallResources.tsx parseVideoFileSrc 對齊(改一邊要同步另一邊)。
+const VIDEO_FILE_EXTS = ['.mp4', '.webm', '.m4v', '.mov'];
+function isVideoFileUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const p = u.pathname.toLowerCase();
+    return VIDEO_FILE_EXTS.some((ext) => p.endsWith(ext));
+  } catch {
+    return false;
+  }
+}
+
+// 安裝影片挑選:跨變體裸 URL → 第一支「可解析」的影片(youtube videoId / vimeo 數字 id / 直檔副檔名)。
+// 🔴 2026-07-10 混格式放寬(品牌放量 kickoff §2、supersede D2=A「第一支 YouTube」):evotech mp4 /
+//    lightech·cncracing Vimeo 納入;UI InstallResources resolveVideo 同步三分流。多支=follow-up 記 backlog。
+// 🔴 ultra/codex 關卡2 must-fix 沿用:頻道/播放清單 URL(host 符合但無 id)不佔位、續試下一支,避免靜默吃掉後面真影片。
+// 🔴 群級彙整(同 normalizeManuals)。
 export function pickInstallVideo(rawUrls: (string | null | undefined)[]): string | null {
   for (const raw of rawUrls) {
     if (typeof raw !== 'string') continue;
     const trimmed = raw.trim();
-    if (extractYoutubeId(trimmed) !== null) return trimmed;
+    if (extractYoutubeId(trimmed) !== null || extractVimeoId(trimmed) !== null || isVideoFileUrl(trimmed)) {
+      return trimmed;
+    }
   }
   return null;
 }

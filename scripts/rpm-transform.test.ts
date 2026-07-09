@@ -466,7 +466,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
     });
   });
 
-  // ── pickInstallVideo(裸 URL → 第一支「能解析出 videoId」的 YouTube;D2=A、Vimeo 暫不支援)──
+  // ── pickInstallVideo(裸 URL → 第一支可解析的 youtube/vimeo/影片直檔;2026-07-10 混格式放寬、supersede D2=A YouTube-only)──
   describe('pickInstallVideo', () => {
     const YT = 'https://youtu.be/dQw4w9WgXcQ'; // 11 碼合法 id
     it('取能解析的 YouTube(youtube.com watch / youtu.be)', () => {
@@ -477,22 +477,36 @@ describe('#270 安裝資源 manuals/video_url', () => {
       expect(pickInstallVideo(['https://www.youtube.com/watch?v=dQw4w9WgXcQ'])).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
       expect(pickInstallVideo(['https://www.youtu.be/dQw4w9WgXcQ'])).toBe('https://www.youtu.be/dQw4w9WgXcQ');
     });
-    it('Vimeo / 非 YouTube 跳過', () => {
-      expect(pickInstallVideo(['https://vimeo.com/123456'])).toBeNull();
+    it('Vimeo 可解析(vimeo.com/<數字> / player.vimeo.com/video/<數字>;lightech·cncracing 來源型)', () => {
+      expect(pickInstallVideo(['https://vimeo.com/123456'])).toBe('https://vimeo.com/123456');
+      expect(pickInstallVideo(['https://player.vimeo.com/video/123456'])).toBe('https://player.vimeo.com/video/123456');
+      expect(pickInstallVideo(['https://www.vimeo.com/123456'])).toBe('https://www.vimeo.com/123456');
     });
-    it('多支混合 → 取第一支能解析的 YouTube(略過前面 Vimeo)', () => {
-      expect(pickInstallVideo(['https://vimeo.com/1', YT, 'https://youtube.com/watch?v=other111abc'])).toBe(YT);
+    it('影片直檔可解析(副檔名白名單;evotech cdn.shopify/S3 mp4 型)、白名單外網頁 URL 跳過', () => {
+      const MP4 = 'https://cdn.shopify.com/videos/c/o/v/abc123.mp4';
+      expect(pickInstallVideo([MP4])).toBe(MP4);
+      expect(pickInstallVideo(['https://x.s3.eu-west-2.amazonaws.com/v.MP4?sig=1'])).toBe(
+        'https://x.s3.eu-west-2.amazonaws.com/v.MP4?sig=1',
+      ); // 大小寫 + query 不干擾(pathname 判定)
+      expect(pickInstallVideo(['https://example.com/page.html', MP4])).toBe(MP4); // 任意網頁不當影片(fail-closed)
     });
-    it('🔴 host 符合但無 id(頻道/播放清單/短 id)→ 跳過續試下一支(ultra/codex 關卡2 must-fix)', () => {
+    it('多支混合 → 取第一支可解析(任意型、先到先得;vimeo 現可解析)', () => {
+      expect(pickInstallVideo(['https://vimeo.com/1', YT])).toBe('https://vimeo.com/1');
+      expect(pickInstallVideo(['https://example.com/', YT, 'https://vimeo.com/123456'])).toBe(YT);
+    });
+    it('🔴 host 符合但無 id(頻道/播放清單/短 id/非數字 vimeo 路徑)→ 跳過續試下一支(ultra/codex 關卡2 must-fix)', () => {
       // 頻道 URL host=youtube.com 但路徑非 watch/embed/shorts → 解不出 id → 不佔位、續試取後面真影片
       expect(pickInstallVideo(['https://youtube.com/channel/UC1234ABCD', YT])).toBe(YT);
       expect(pickInstallVideo(['https://www.youtube.com/@brandname'])).toBeNull();
       expect(pickInstallVideo(['https://youtu.be/ab12'])).toBeNull(); // id <6 碼不合法
+      expect(pickInstallVideo(['https://vimeo.com/channels/staffpicks'])).toBeNull(); // 非數字段=非影片
     });
     it('全空 / 壞 URL / 偽裝 scheme → null(不 throw)', () => {
       expect(pickInstallVideo([])).toBeNull();
       expect(pickInstallVideo([null, '', 'not a url'])).toBeNull();
       expect(pickInstallVideo(['javascript://youtu.be/dQw4w9WgXcQ'])).toBeNull(); // protocol 守衛擋偽裝
+      expect(pickInstallVideo(['javascript://vimeo.com/123456'])).toBeNull();
+      expect(pickInstallVideo(['file:///tmp/x.mp4'])).toBeNull(); // 直檔也守 http(s)
     });
   });
 

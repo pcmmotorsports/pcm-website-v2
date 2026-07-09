@@ -1570,6 +1570,8 @@
   font-size: 13px; font-weight: 700; color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
 }
 .pd-res-frame { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--c-border); }
+/* 影片直檔(.mp4 等、Evotech):原生 <video>;黑底 letterbox 吸收非 16:9 片源、鎖比例防 preload=metadata 佈局跳動 */
+.pd-res-video { display: block; width: 100%; aspect-ratio: 16 / 9; border: 1px solid var(--c-border); background: #000; }
 
 /* 說明書 PDF 小 chip 列(Sean:下載按鈕小) */
 .pd-ir-docs-sm { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }

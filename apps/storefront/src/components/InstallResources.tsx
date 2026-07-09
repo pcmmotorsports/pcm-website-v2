@@ -8,6 +8,12 @@
 //   安裝段是否排側欄:有資源→sec-split-media 兩欄;無資源→主文全寬)。
 // 🟢 #270 S2 已接線(2026-07-09):product.manuals / videoUrl 由 toUIProduct ← domain ← products.manuals/video_url
 //   (來源報價單 pdf_urls/video_urls、rpm 同步管線)。有來源商品即顯、無資料不渲染(optional)。
+// 🟢 2026-07-10 混格式放寬(品牌放量 kickoff §2、報價單 INSTALL_RESOURCES_EMBED_GUIDE §4):影片欄是混格式——
+//   youtube(Bonamici)/vimeo(Lightech·CNC)= iframe facade 點擊載入;.mp4 直檔(Evotech cdn.shopify/S3)
+//   = <video controls preload="metadata" playsInline>。resolveVideo 三分流;Vimeo facade 無外部縮圖
+//   (Vimeo 無免驗證縮圖端點、vumbnail 等第三方服務不引入)、用 facade 深色底 + 標籤。
+//   🔴 與管線 scripts/rpm-transform.ts pickInstallVideo 家族(extractYoutubeId/extractVimeoId/isVideoFileUrl)
+//   邏輯對齊,改一邊要同步另一邊。
 //
 // 'use client' 必要:facade 播放 onClick → useState 換入 iframe。
 
@@ -15,6 +21,12 @@
 
 import { useState } from 'react';
 import type { ProductManual } from '@/data/mock-products';
+
+/** 影片解析結果:youtube/vimeo=iframe facade、file=<video> 直播(混格式指南 §4 三分流)。 */
+type ResolvedVideo =
+  | { kind: 'youtube'; id: string }
+  | { kind: 'vimeo'; id: string }
+  | { kind: 'file'; src: string };
 
 /**
  * 從 YouTube watch / youtu.be / embed / shorts URL 抽 videoId。
@@ -41,6 +53,52 @@ function parseYoutubeId(url: string): string | null {
   return id && /^[\w-]{6,}$/.test(id) ? id : null;
 }
 
+/**
+ * 從 Vimeo URL 抽數字 id:vimeo.com/<id>(後綴段容忍)| player.vimeo.com/video/<id>。
+ * host 白名單(去 www.)+ http(s) 守衛;id 必純數字(擋 /channels/staffpicks 等非影片路徑)。
+ */
+function parseVimeoId(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    const host = u.hostname.replace(/^www\./, '');
+    if (host !== 'vimeo.com' && host !== 'player.vimeo.com') return null;
+    const segs = u.pathname.split('/').filter(Boolean);
+    const id = host === 'player.vimeo.com' ? (segs[0] === 'video' ? (segs[1] ?? null) : null) : (segs[0] ?? null);
+    return id && /^\d+$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 影片直檔判定:http(s) + pathname 副檔名白名單(query string 不干擾)。
+ * 🔴 刻意窄於嵌入指南 §4「其餘一律視為 file」——任意網頁 URL 不當影片渲染(fail-closed);
+ *    Evotech 實料為 cdn.shopify.com/videos/*.mp4 與 S3 .mp4、在名單內。
+ */
+const VIDEO_FILE_EXTS = ['.mp4', '.webm', '.m4v', '.mov'];
+function parseVideoFileSrc(url: string): string | null {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+    const p = u.pathname.toLowerCase();
+    return VIDEO_FILE_EXTS.some((ext) => p.endsWith(ext)) ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 混格式三分流(指南 §4):youtube → vimeo → 直檔;全不中 → null(不渲染)。 */
+function resolveVideo(url: string): ResolvedVideo | null {
+  const yt = parseYoutubeId(url);
+  if (yt) return { kind: 'youtube', id: yt };
+  const vm = parseVimeoId(url);
+  if (vm) return { kind: 'vimeo', id: vm };
+  const file = parseVideoFileSrc(url);
+  if (file) return { kind: 'file', src: file };
+  return null;
+}
+
 /** 檔案大小 KB → 顯示字串(≥1024 轉 MB 一位小數)。 */
 function formatSize(kb: number): string {
   return kb >= 1024 ? `${(kb / 1024).toFixed(1)} MB` : `${Math.round(kb)} KB`;
@@ -52,12 +110,12 @@ function validDocs(manuals?: ProductManual[]): ProductManual[] {
 }
 
 /**
- * 是否有可渲染的安裝資源(有效 YouTube 影片 或 ≥1 個 http(s) 說明書)。
+ * 是否有可渲染的安裝資源(可解析影片〔youtube/vimeo/直檔〕或 ≥1 個 http(s) 說明書)。
  * ProductTabs 用此決定安裝段版面:有→右側欄(sec-split-media);無→主文全寬。
  * 與元件本體 return null 條件同源、不會漂移。
  */
 export function hasInstallResources(manuals?: ProductManual[], videoUrl?: string): boolean {
-  const hasVideo = videoUrl ? parseYoutubeId(videoUrl) !== null : false;
+  const hasVideo = videoUrl ? resolveVideo(videoUrl) !== null : false;
   return hasVideo || validDocs(manuals).length > 0;
 }
 
@@ -65,22 +123,30 @@ export type InstallResourcesProps = { manuals?: ProductManual[]; videoUrl?: stri
 
 export function InstallResources({ manuals, videoUrl }: InstallResourcesProps) {
   const [videoOpen, setVideoOpen] = useState(false);
-  const videoId = videoUrl ? parseYoutubeId(videoUrl) : null;
-  const hasVideo = videoId !== null;
+  const video = videoUrl ? resolveVideo(videoUrl) : null;
   const docs = validDocs(manuals);
   const hasDocs = docs.length > 0;
-  if (!hasVideo && !hasDocs) return null;
+  if (!video && !hasDocs) return null;
 
   return (
     <div className="pd-panel pd-res">
       <div className="pd-panel-label">安裝資源</div>
 
-      {/* 影片(大):側欄頂 16:9 facade;點擊才換入 iframe(省流量) */}
-      {hasVideo &&
+      {/* 影片直檔(.mp4 等):原生 <video>、preload=metadata 輕量、無需 facade(指南 §4) */}
+      {video?.kind === 'file' && (
+        <video className="pd-res-video" src={video.src} controls preload="metadata" playsInline />
+      )}
+
+      {/* youtube / vimeo(大):側欄頂 16:9 facade;點擊才換入 iframe(省流量) */}
+      {(video?.kind === 'youtube' || video?.kind === 'vimeo') &&
         (videoOpen ? (
           <iframe
             className="pd-res-frame"
-            src={`https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0`}
+            src={
+              video.kind === 'youtube'
+                ? `https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0`
+                : `https://player.vimeo.com/video/${video.id}?autoplay=1`
+            }
             title="安裝示範影片"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
@@ -92,13 +158,16 @@ export function InstallResources({ manuals, videoUrl }: InstallResourcesProps) {
             onClick={() => setVideoOpen(true)}
             aria-label="播放安裝示範影片"
           >
-            {/* 外部 YouTube 縮圖(非站內資產)→ 用原生 img、不進 next/image 遠端白名單 */}
-            <img
-              className="pd-res-thumb"
-              src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
-              alt=""
-              loading="lazy"
-            />
+            {/* 外部 YouTube 縮圖(非站內資產)→ 用原生 img、不進 next/image 遠端白名單。
+                Vimeo 無免驗證縮圖端點 → 無縮圖、靠 facade 深色底(第三方 vumbnail 不引入)。 */}
+            {video.kind === 'youtube' && (
+              <img
+                className="pd-res-thumb"
+                src={`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`}
+                alt=""
+                loading="lazy"
+              />
+            )}
             <span className="pd-res-tag">影片</span>
             <span className="pd-res-play">
               <span className="pd-res-tri" />
