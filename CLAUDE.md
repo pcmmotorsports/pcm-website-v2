@@ -28,7 +28,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
 6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行 → 評估拆分、不拆須於 commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
-7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;讀取/驗證/審查/機械批次套用·docs/制度檔工程(限主對話已驗證模式、diff 回核;2026-07-06 拍板)類委派守則見 `~/.claude/rules/10-model-dispatch.md` §0-§1)。
+7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;讀取/驗證/審查/機械批次套用·docs/制度檔工程(限主對話已驗證模式、diff 回核;2026-07-06 拍板)類委派守則見 `~/.claude/rules/00-work-rules.md` §1)。
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema·API·共用元件 / 動 next.config·vercel.json·Medusa config·Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
@@ -60,10 +60,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | Codex Packet 格式 | `docs/patterns/codex-review-packet.md` |
 | 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md` |
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
-| 派 subagent(模型選擇 / 升降級 / 回報合約) | `~/.claude/rules/10-model-dispatch.md` |
-| 猶豫「完成了嗎 / 該問 Sean 嗎 / 該換路嗎」 | `~/.claude/rules/20-judgment-rubrics.md` |
-| 寫 subagent prompt | `~/.claude/rules/30-task-templates.md` |
-| 制度檔維護 / 踩雷教訓寫回哪 | `~/.claude/rules/40-maintenance.md` |
+| 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護;2026-07-10 六檔合併) |
 
 ---
 
@@ -108,13 +105,13 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ## 分工 + 自驅 SOP(現行預設;五方分工表與完整鏈見 `docs/patterns/cowork-review-chain.md` 與 `AGENTS.md`)
 
 - 分工要點:Sean 拍板/push/操作 dashboard/肉眼驗收;Claude Code(你)實作/commit/測試/自驅規劃、**不 push、不 deploy、不替 Sean 拍板、不做視覺設計**;Codex 收 Packet 唯讀審(不同模型第二意見);Claude Design 管視覺。
-- **9 步自驅 SOP**:①起手(讀 STATUS 下一步 + design 真權威 grep)②規劃前偵察 pass(派 haiku/sonnet 掃 backlog/STATUS/specs/memory/lessons 多關鍵字變體 + 查 graphify 連動面、套 T1 範本)→ 自寫 slice plan(標 L1/L2/L3、判鐵則 8、plan 附「相關既有紀錄與連動面」一節列命中項與連動檔)③關卡1:預設跳 codex、僅鐵則 8 重大改動跑 `codex-adversary` 審 plan → 決策岔路一次性批次問 Sean ④實作(鐵則 3/5/6)⑤三綠 `/slice-checkpoint` ⑥code-reviewer subagent 必跑 ⑦關卡2:預設只走 code-reviewer、僅命中鐵則 12 或鐵則 8 才跑 codex 審 diff(每 slice 硬上限 2 輪、round2 仍 FAIL 停下 raise Sean)⑧commit(精準 add、字面vs事實一致、STATUS 7 欄同 commit)+ 收尾對帳(本 session Sean 拍板逐條 vs 已落檔;漏的補寫進對應檔——拍板落 memory `project_*.md`、含決定/理由/連動面、一板一檔或更新既有、不只留 commit body)+ busboy-end ⑨**不 push** 等 Sean 手動推。
+- **9 步自驅 SOP**:①起手(讀 STATUS 下一步 + design 真權威 grep)②規劃前偵察 pass(派 haiku/sonnet 掃 backlog/STATUS/specs/memory/lessons 多關鍵字變體 + 查 graphify 連動面、套 T1 範本)→ 自寫 slice plan(標 L1/L2/L3、判鐵則 8、plan 附「相關既有紀錄與連動面」一節列命中項與連動檔)③關卡1:預設跳 codex、僅鐵則 8 重大改動跑 `codex-adversary` 審 plan(輪數上限 2、仍不收斂=整理決策題給 Sean;07-10 拍板)→ 決策岔路一次性批次問 Sean ④實作(鐵則 3/5/6)⑤三綠 `/slice-checkpoint` ⑥code-reviewer subagent 必跑(一輪制:R1 PASS 含 nit → 修完直接進 commit 不複審;R1 FAIL 才修完跑 R2 確認;07-10 拍板)⑦關卡2:預設只走 code-reviewer、僅命中鐵則 12 或鐵則 8 才跑 codex 審 diff(每 slice 硬上限 2 輪、round2 仍 FAIL 停下 raise Sean)⑧commit(精準 add、字面vs事實一致、STATUS 7 欄同 commit)+ 收尾對帳(本 session Sean 拍板逐條 vs 已落檔;漏的補寫進對應檔——拍板落 memory `project_*.md`、含決定/理由/連動面、一板一檔或更新既有、不只留 commit body)+ busboy-end ⑨**不 push** 等 Sean 手動推。
 - codex-adversary 紀律:只 main session 跑(subagent 被 classifier 擋)、只唯讀(`-s read-only`、settings.json deny 擋 fix/apply/a)、跑前後 `git status --porcelain` 比對零留痕;Codex 與 PCM 鐵則/Sean 拍板衝突以後者為準。
 
 ## 快速自檢清單
 
 **slice 開工前**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS)☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD)☐ 判鐵則 8 重大改動(是則先提 plan 等批)☐ 涉金流/RLS/GRANT/migration/schema/auth/.env 任一 → 逐字過鐵則 8+12 觸發清單(硬清單、不憑自評)☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節)☐ 估時 15-45 分鐘(超出拆)。
-**slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ 命中鐵則 12 → 產 Packet + 提醒 Sean、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body)☐ busboy-end ☐ `/pcm-roadmap` 更進度地圖 ☐ 動程式碼 → `/graphify --update` ☐ 不 push。
+**slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ 命中鐵則 12 → 產 Packet + 提醒 Sean、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body)☐ busboy-end ☐ 不 push。(`/pcm-roadmap` 與 `/graphify --update` 不隨每 slice:milestone 收尾或每日收工跑一次即可;07-10 拍板)
 
 ## 突發狀況
 

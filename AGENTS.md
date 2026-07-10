@@ -30,7 +30,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
 6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行 → 評估拆分、不拆須於 commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
-7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;Claude Code 端「讀取/驗證/審查/機械批次套用·docs/制度檔工程(限主對話已驗證模式、diff 回核;2026-07-06 拍板)」的委派授權見其 `~/.claude/rules/10-model-dispatch.md` §0-§1,你審到此類委派時知悉為合規、非鐵則 7 違反)。
+7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;Claude Code 端「讀取/驗證/審查/機械批次套用·docs/制度檔工程(限主對話已驗證模式、diff 回核;2026-07-06 拍板)」的委派授權見其 `~/.claude/rules/00-work-rules.md` §1,你審到此類委派時知悉為合規、非鐵則 7 違反)。
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema·API·共用元件 / 動 next.config·vercel.json·Medusa config·Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
@@ -132,7 +132,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 **寫 slice 指令應有**:☐ 直接搬非翻譯 ☐ grep design 字面 ☐ CSS+TSX 同 slice ☐ 前後台同步 ☐ 標內容分級 ☐ 估時 15-45 分 ☐ 數字內部一致 ☐ 用詞精準(preview≠production / stash≠working tree / commit≠push) ☐ 禁止清單可執行不矛盾 ☐ 結尾「— 禁止清單結束 —」未截斷 ☐ 重大改動先提 plan。
 
-**slice 結束應有**:☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body) ☐ busboy-end ☐ `/pcm-roadmap` 更進度地圖 ☐ 不 push。
+**slice 結束應有**:☐ 肉眼驗 ☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip) ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`、見 `docs/architecture/testing-strategy.md`) ☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit) ☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body) ☐ busboy-end ☐ 不 push(roadmap/graphify=milestone 收尾或每日一次、不隨每 slice;07-10 拍板)。
 
 ---
 

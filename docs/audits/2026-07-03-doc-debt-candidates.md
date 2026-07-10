@@ -16,4 +16,4 @@
 | 9 | `CLAUDE.md` 鐵則 8/12 觸發語 | 弱模型誤讀模擬(Sonnet 實測)指出兩處語意觸發易漏判:①鐵則 12「動 schema·API」字面寬、SOP 步⑦ 執行清單窄(security/RLS/migration/pricing/order/payment/tier/經銷價),已加分流澄清句但寬窄差異本身待 Sean 拍板統一;②鐵則 8「共用元件」與鐵則 12「進度單元收尾」靠語意判斷,建議外部訊號化(例:grep import 命中 ≥2 個頁面 = 共用元件) | 弱模型漏產 Packet 或漏提 plan,審查網出現系統性漏洞 |
 | 10 | `AGENTS.md` L44-54 六件套段 | 六件套全文現存兩份(AGENTS.md + `docs/patterns/slice-instruction-six-piece.md`),違反本檔「不維持雙份全文」原則;且 AGENTS.md 六件套段的依賴方註記仍列「CLAUDE.md」(本體已不含全文、只剩摘要+路由) | 兩份各自演化再度漂移;依賴註記誤導查證 |
 
-處理原則(承 `~/.claude/rules/40-maintenance.md` §2 第 6 條):修復時一處保全文、他處改單行指標,不再維持雙份全文。
+處理原則(承 `~/.claude/rules/00-work-rules.md` §4「同一教訓不寫兩處全文」;原 40-maintenance.md 已於 2026-07-10 併入該檔):修復時一處保全文、他處改單行指標,不再維持雙份全文。
