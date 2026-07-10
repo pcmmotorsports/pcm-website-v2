@@ -20,7 +20,9 @@ export function EaziGripShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-lockup">Eazi-Grip</span>
+            <span className="pd-eb-logo">
+              <img src="/brands/eazi-grip/logo.png" alt="Eazi-Grip" />
+            </span>
           </div>
           <h2 className="pd-h2" id="pd-h-eazi01">為什麼選 Eazi-Grip</h2>
           <p className="pd-lead">
@@ -52,7 +54,7 @@ export function EaziGripShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">止滑工程</span>
+            <span className="pd-eb-label">{'N°  止滑工程'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-eazi02">貼上去，過彎重煞都咬得住</h2>
           <p className="pd-lead">
@@ -61,6 +63,27 @@ export function EaziGripShowcase() {
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
+        {/* N°02 形象大圖(Eazi-Grip 世界賽事車隊 pit 情境,官方圖;Sean 2026-07-10 各家 N°02 加 HERO) */}
+        <img className="pd-hero-band" src="/brands/eazi-grip/hero.jpg" alt="Eazi-Grip 世界超級摩托車錦標賽車隊使用情境" loading="lazy" />
+
+        {/* 交錯段(Bonamici 風格;Sean 2026-07-11 提供 BSB 賽事圖 + 官方止滑面特寫;肉眼驗零汽車商品) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/eazi-grip/story-bsb.jpg" alt="Eazi-Grip 贊助的 BSB 超級摩托車賽事" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Racing · 賽事驗證</div>
+            <div className="pd-bona-h3">頂級賽事同款</div>
+            <p className="pd-bona-p">BSB、WSBK 到 MotoGP 車隊都在用——止滑貼是最便宜的操控升級，賽場先驗證過，再給你。</p>
+          </div>
+        </div>
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/eazi-grip/story-grip.jpg" alt="Eazi-Grip 半球顆粒止滑面特寫" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Design · 止滑面設計</div>
+            <div className="pd-bona-h3">車型專屬裁型</div>
+            <p className="pd-bona-p">每組按車型開版、半球顆粒排列針對煞車支撐——貼上就服貼油箱曲面，重煞時下半身穩定、不靠手腕硬撐。</p>
+          </div>
+        </div>
+
         <div className="pd-bs-stats">
           <div className="pd-bs-stat">
             <div className="pd-bs-stat-n">UK</div>
@@ -84,31 +107,31 @@ export function EaziGripShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖) */}
+        {/* 產品線矩陣(三種止滑材質 EVO／PRO／Silicone,圖 = eazi-grip.com 官方裝車圖、Sean 2026-07-10 校正:移除儀表貼/水管) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.eazi-grip.com/wp-content/uploads/BUNAPR001EB-2.jpg" alt="Eazi-Grip 油箱止滑套裝組合" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-01.jpg" alt="Eazi-Grip EVO 半球顆粒止滑貼" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Tank Grips</div>
-                <div className="pd-bs-mcard-t">油箱止滑貼</div>
-                <div className="pd-bs-mcard-d">主力產品，車型專屬開版。</div>
+                <div className="pd-bs-mcard-en">EVO</div>
+                <div className="pd-bs-mcard-t">半球顆粒止滑貼</div>
+                <div className="pd-bs-mcard-d">明顯顆粒紋理，重煞時皮衣清楚獲得支撐。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.eazi-grip.com/wp-content/uploads/DASHAPR001-2-3-4-5-10-11.jpg" alt="Eazi-Grip 儀表板保護貼" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-02.jpg" alt="Eazi-Grip PRO 低輪廓止滑貼" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Dash Protection</div>
-                <div className="pd-bs-mcard-t">儀表保護貼</div>
-                <div className="pd-bs-mcard-d">儀表不刮花，二手殘值多守一分。</div>
+                <div className="pd-bs-mcard-en">PRO</div>
+                <div className="pd-bs-mcard-t">低輪廓止滑貼</div>
+                <div className="pd-bs-mcard-d">兼顧抓附與左右換位，適合頻繁移動身體。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.eazi-grip.com/wp-content/uploads/HOSEBMW002-scaled.jpg" alt="Eazi-Grip 矽膠水管組" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-03.jpg" alt="Eazi-Grip Silicone 緩衝止滑貼" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Silicone Hoses</div>
-                <div className="pd-bs-mcard-t">矽膠水管組</div>
-                <div className="pd-bs-mcard-d">連水管周邊都有車型對應套件。</div>
+                <div className="pd-bs-mcard-en">Silicone</div>
+                <div className="pd-bs-mcard-t">緩衝止滑貼</div>
+                <div className="pd-bs-mcard-d">柔軟緩衝表面，適合旅行、通勤與長途舒適。</div>
               </div>
             </article>
           </div>

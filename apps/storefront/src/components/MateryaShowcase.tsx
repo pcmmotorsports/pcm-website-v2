@@ -53,9 +53,27 @@ export function MateryaShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">米蘭工作室</span>
+            <span className="pd-eb-label">{'N°  米蘭工作室'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-mty02">車頭細節的義式收尾</h2>
+        </div>
+
+        {/* 故事交錯段:創辦人封面介紹(Sean 2026-07-11「用封面的介紹」;materya.shop 官方創辦人黑白照+首頁介紹文轉譯)+ 碳纖工藝 */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img pd-bona-media-portrait" src="/brands/materya/founder.png" alt="Materya 創辦人 Mirco Sapio" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Studio · 米蘭工作室</div>
+            <div className="pd-bona-h3">用熱情設計，用精準製造</div>
+            <p className="pd-bona-p">源於多年的機車設計經驗，MATERYA 打造兼具風格、精準與性能的精品部品——從工業級 3D 列印、CNC 加工到碳纖工藝，交出貼合度與辨識度兼具的作品。</p>
+          </div>
+        </div>
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/materya/craft.jpg" alt="Materya 碳纖儀表遮罩實裝特寫" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Craft · 碳纖工藝</div>
+            <div className="pd-bona-h3">3D 列印 × CNC × 碳纖</div>
+            <p className="pd-bona-p">工業級 3D 列印做結構、CNC 精修細節、碳纖收尾——三種工藝並用，讓每件部品在車頭都對得上、也認得出。</p>
+          </div>
         </div>
 
         {/* 信任狀三格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
@@ -77,31 +95,31 @@ export function MateryaShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖) */}
+        {/* 產品線矩陣(碳纖高階部品,圖 = materya.shop 官方圖、Sean 2026-07-10 校正:移除風鏡螺絲/油杯套小物) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://materya.shop/wp-content/uploads/2020/03/1290R_3.0_5_SHOP_Materya.jpg.jpg" alt="Materya 儀表外蓋" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/materya/prod-01.jpg" alt="Materya 碳纖維定風翼組" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Dashboard Covers</div>
-                <div className="pd-bs-mcard-t">儀表外蓋</div>
-                <div className="pd-bs-mcard-d">修飾車頭線條、順手護儀表。</div>
+                <div className="pd-bs-mcard-en">Carbon Winglets</div>
+                <div className="pd-bs-mcard-t">碳纖維定風翼</div>
+                <div className="pd-bs-mcard-d">與 CNC Racing 合作，碳纖外蓋、專車鎖點。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://materya.shop/wp-content/uploads/2021/09/SHOP_Materya_screws_black.png" alt="Materya 風鏡螺絲" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/materya/prod-02.jpg" alt="Materya Track Days 車頭整流面板" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Screens &amp; Hardware</div>
-                <div className="pd-bs-mcard-t">風鏡．螺絲件</div>
-                <div className="pd-bs-mcard-d">風鏡周邊與精緻五金。</div>
+                <div className="pd-bs-mcard-en">Track Days Plate</div>
+                <div className="pd-bs-mcard-t">車頭整流面板</div>
+                <div className="pd-bs-mcard-d">賽道日替代頭燈，整合 ActionCam 固定點。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://materya.shop/wp-content/uploads/2024/12/Cuff2.png" alt="Materya 煞車油杯套" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/materya/prod-03.jpg" alt="Materya 碳纖維儀表外蓋" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Details</div>
-                <div className="pd-bs-mcard-t">細節小物</div>
-                <div className="pd-bs-mcard-d">油杯套等收尾配件。</div>
+                <div className="pd-bs-mcard-en">Carbon Dash</div>
+                <div className="pd-bs-mcard-t">碳纖維儀表外蓋</div>
+                <div className="pd-bs-mcard-d">碳纖編織、保留 USB，與原車視覺整合。</div>
               </div>
             </article>
           </div>

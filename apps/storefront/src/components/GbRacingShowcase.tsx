@@ -61,7 +61,7 @@ export function GbRacingShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">工程血統</span>
+            <span className="pd-eb-label">{'N°  工程血統'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-gb02">FIM 唯一認證的引擎防護</h2>
           <p className="pd-lead">

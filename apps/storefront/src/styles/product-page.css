@@ -722,7 +722,7 @@
 /* Sean 2026-07-08:整頁收緊、少空白(52→36 段距、head 28→18)。 */
 .pd-section { padding: 36px 0; border-bottom: 1px solid var(--c-border); }
 .pd-section:last-of-type { border-bottom: 0; }
-.pd-section-head { max-width: 760px; margin-bottom: 18px; }
+.pd-section-head { max-width: 900px; margin-bottom: 18px; }
 .pd-eyebrow {
   display: flex; align-items: baseline; gap: 14px;
   margin-bottom: 18px; line-height: 1;
@@ -746,9 +746,13 @@
 }
 .pd-eyebrow .pd-eb-logo {
   display: inline-flex; align-items: center;
-  height: clamp(44px, 6vw, 73px);
+  height: clamp(32px, 3.4vw, 44px); max-width: 208px;
 }
-.pd-eyebrow .pd-eb-logo img { height: 100%; width: auto; display: block; opacity: 0.92; }
+.pd-eyebrow .pd-eb-logo img { max-height: 100%; max-width: 100%; width: auto; height: auto; display: block; opacity: 0.92; }
+/* 白色/彩色 logo 轉純黑(保留透明;Front3D white / Motogadget white),配淺底站別 */
+.pd-eyebrow .pd-eb-logo--dark img { filter: brightness(0); }
+/* 近正方徽章型 logo(如 CNC Racing 盾牌)在等高下顯小 → 加大高度、比例修正 */
+.pd-eyebrow .pd-eb-logo--tall { height: clamp(48px, 5.5vw, 68px); max-width: 240px; }
 /* 舊扁平文字 eyebrow 相容(無 .pd-eb-no 子元素時) */
 .pd-eyebrow:not(:has(.pd-eb-no)) {
   display: block;
@@ -862,6 +866,8 @@
    品牌色只在此區:信任狀數字 --gb-navy、產品線英文標 --gb-red-deep;S6 起圖片為真 <img>(public/brands/gb-racing/*.webp、object-fit:cover 防 CLS)。 */
 
 /* 冠軍認證橫幅(真圖 1300×520 寬幅 banner;S6 真圖、object-fit 防 CLS) */
+/* 品牌 N°02 形象大圖(通用 HERO band,Sean 2026-07-10 要求各家 N°02 加視覺重量) */
+.pd-hero-band { display: block; width: 100%; aspect-ratio: 1300 / 520; object-fit: cover; object-position: center; border: 1px solid var(--c-border); margin: 4px 0 6px; }
 .pd-gb-hero {
   display: block;
   width: 100%;
@@ -993,7 +999,6 @@
   position: absolute; inset: 0;
   width: 100%; height: 100%; border: 0;
 }
-
 /* 研發/職人兩段(桌機左右並排、手機上下堆疊) */
 .pd-bona-brow {
   display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
@@ -1001,6 +1006,8 @@
 }
 .pd-bona-brow-flip .pd-bona-brow-media { order: 2; }  /* 桌機:職人段圖在右 */
 .pd-bona-media-img { display: block; width: 100%; aspect-ratio: 16 / 10; object-fit: cover; }
+/* 去背人像(如 Materya 創辦人封面照)——完整顯示不裁切、置底、淺灰底襯 */
+.pd-bona-media-portrait { object-fit: contain; object-position: bottom; background: #f2f2f4; }
 .pd-bona-step {
   font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.16em;
   text-transform: uppercase; color: var(--bona-bronze-deep);

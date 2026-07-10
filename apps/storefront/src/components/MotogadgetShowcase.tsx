@@ -9,10 +9,18 @@
 //   ⚠ Red Dot 官網查無 → 不寫)。
 // 商品圖 = 報價單 view 實際 image_url。
 // 🔴 eyebrow = 文字 lockup(Sean 的廠牌LOGO 2 無 motogadget 檔;晨報補圖清單、補檔後換 pd-eb-logo <img>)。
-// 純 presentational、無 props、無 hooks → 不需 'use client'。
+// 🔴 安裝說明影片 facade(Sean 2026-07-10 指定 youtu.be/oqdV8WObU1Y)→ useState 點擊才載 iframe → 需 'use client'(同 Bonamici)。
 // 🔴 L2 內容(鐵則 9、backlog #271):信任狀數字 hardcode 無後台 CRUD。
 
+'use client';
+
+import { useState } from 'react';
+
+// 安裝說明影片 YouTube ID(Sean 指定;facade 點擊才載 embed、省流量)。
+const MG_VIDEO_ID = 'oqdV8WObU1Y';
+
 export function MotogadgetShowcase() {
+  const [videoOpen, setVideoOpen] = useState(false);
   return (
     <>
       {/* N°01 — 為什麼選 Motogadget(三卡) */}
@@ -21,7 +29,9 @@ export function MotogadgetShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-lockup">motogadget</span>
+            <span className="pd-eb-logo pd-eb-logo--dark">
+              <img src="/brands/motogadget/logo.svg" alt="motogadget" />
+            </span>
           </div>
           <h2 className="pd-h2" id="pd-h-mg01">為什麼選 Motogadget</h2>
           <p className="pd-lead">
@@ -53,7 +63,7 @@ export function MotogadgetShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">柏林電裝</span>
+            <span className="pd-eb-label">{'N°  柏林電裝'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-mg02">把車頭改乾淨的德國答案</h2>
           <p className="pd-lead">
@@ -85,11 +95,54 @@ export function MotogadgetShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖) */}
+        {/* 交錯段:設計/製造圖文夾住安裝影片(Sean 2026-07-11 要求各家交錯;官方無框鏡工藝/柏林工廠圖、肉眼驗零汽車) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/motogadget/story-design.jpg" alt="Motogadget mo.view 無框鏡面 ULTRACUT 工藝" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Design · 無框工藝</div>
+            <div className="pd-bona-h3">鏡面即結構</div>
+            <p className="pd-bona-p">mo.view 以拋光金屬鏡面取代傳統玻璃與邊框，專利 ULTRACUT 工序切削成型——無框，是把結構做進鏡面本身。</p>
+          </div>
+        </div>
+
+        {/* 安裝說明影片(facade:縮圖 → 點擊才載入 YouTube iframe、省流量;Sean 2026-07-10 指定) */}
+        <div className="pd-bona-video">
+          {videoOpen ? (
+            <iframe
+              className="pd-bona-video-frame"
+              src={`https://www.youtube.com/embed/${MG_VIDEO_ID}?autoplay=1&rel=0`}
+              title="Motogadget 安裝說明影片"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <button
+              type="button"
+              className="pd-bona-video-facade"
+              onClick={() => setVideoOpen(true)}
+              aria-label="播放 Motogadget 安裝說明影片"
+            >
+              <img className="pd-bona-video-thumb" src={`https://img.youtube.com/vi/${MG_VIDEO_ID}/maxresdefault.jpg`} alt="" loading="lazy" />
+              <span className="pd-bona-video-play" aria-hidden="true" />
+              <span className="pd-bona-video-label">安裝說明影片 · Motogadget</span>
+            </button>
+          )}
+        </div>
+
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/motogadget/story-mfg.jpg" alt="Motogadget 柏林工廠拋光鏡片產線" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Manufacturing · 柏林製造</div>
+            <div className="pd-bona-h3">柏林自有工廠</div>
+            <p className="pd-bona-p">從切削、拋光到組裝都在柏林自有廠房完成，ISO 9001 品管、TÜV 檢測——德國製造，不只是一句標籤。</p>
+          </div>
+        </div>
+
+        {/* 產品線矩陣(五大類別:後視鏡／燈具／電控／儀表／把手開關;圖 = motogadget.com 官方商品圖、Sean 指定) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/0678/3221/7868/files/MotoGadget_mo.view.spy._082451_d46cd2b7-5240-496b-b5e1-d57db6d63fce_1024x.jpg?v=1741168744" alt="Motogadget mo.view 後視鏡" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/motogadget/prod-01.jpg" alt="Motogadget mo.view classic 60 無框後視鏡" loading="lazy" />
               <div className="pd-bs-mcard-b">
                 <div className="pd-bs-mcard-en">mo.view Mirrors</div>
                 <div className="pd-bs-mcard-t">無框後視鏡</div>
@@ -97,27 +150,35 @@ export function MotogadgetShowcase() {
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/0678/3221/7868/files/moswitch-mini-1_21ff8661-106a-4ca9-a2bf-306d0b17766e_1024x.png?v=1741167841" alt="Motogadget mo.switch mini 把手開關" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/motogadget/prod-02.jpg" alt="Motogadget mo.blaze disc 方向燈" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Switches</div>
-                <div className="pd-bs-mcard-t">精品開關</div>
-                <div className="pd-bs-mcard-d">鋁合金切削按鍵，握把區精緻化。</div>
+                <div className="pd-bs-mcard-en">Lights</div>
+                <div className="pd-bs-mcard-t">極簡方向燈</div>
+                <div className="pd-bs-mcard-d">圓盤造型 LED，車尾車側乾淨俐落。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/0678/3221/7868/files/Gewebeschlauch_neu_1024x.png?v=1753692592" alt="Motogadget 纖維編織套管" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/motogadget/prod-03.jpg" alt="Motogadget mo.unit basic 電控中樞" loading="lazy" />
               <div className="pd-bs-mcard-b">
                 <div className="pd-bs-mcard-en">Electrics</div>
-                <div className="pd-bs-mcard-t">電裝配線</div>
-                <div className="pd-bs-mcard-d">編織套管等配線細節一次到位。</div>
+                <div className="pd-bs-mcard-t">電控中樞</div>
+                <div className="pd-bs-mcard-d">整合保險絲與繼電器，線組化繁為簡。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/0678/3221/7868/files/mg-tuch_968618f3-26fe-4492-a119-5c726e4a9c64_1024x.png?v=1741168281" alt="Motogadget 騎士好物" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/motogadget/prod-04.png" alt="Motogadget motoscope pro 儀表" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Essentials</div>
-                <div className="pd-bs-mcard-t">騎士好物</div>
-                <div className="pd-bs-mcard-d">防霧布、螺絲膠等養車小物。</div>
+                <div className="pd-bs-mcard-en">Instruments</div>
+                <div className="pd-bs-mcard-t">數位儀表</div>
+                <div className="pd-bs-mcard-d">半圓 LED 儀表，資訊集中不佔空間。</div>
+              </div>
+            </article>
+            <article className="pd-bs-mcard">
+              <img className="pd-bs-mcard-img" src="/brands/motogadget/prod-05.png" alt="Motogadget mo.switch pro 把手開關" loading="lazy" />
+              <div className="pd-bs-mcard-b">
+                <div className="pd-bs-mcard-en">Switches</div>
+                <div className="pd-bs-mcard-t">把手開關</div>
+                <div className="pd-bs-mcard-d">鋁合金切削按鍵，握把區精緻化。</div>
               </div>
             </article>
           </div>

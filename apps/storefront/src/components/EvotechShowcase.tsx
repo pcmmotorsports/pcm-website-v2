@@ -56,12 +56,33 @@ export function EvotechShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">防護工程</span>
+            <span className="pd-eb-label">{'N°  防護工程'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-evo02">從賽道回到日常的防護配件</h2>
           <p className="pd-lead">
             Evotech 不做萬用件——每一組防摔球、水箱護網都對著特定車型開發，裝上去就像原廠多給的配備。
           </p>
+        </div>
+
+        {/* N°02 形象大圖(Evotech 英國自有工廠情境,官方 about 圖;Sean 2026-07-10 要求各家 N°02 加 HERO) */}
+        <img className="pd-hero-band" src="/brands/evotech/hero.jpg" alt="Evotech Performance 英國 Lincolnshire 自有工廠" loading="lazy" />
+
+        {/* 故事交錯段(Bonamici 風格,官方研發/製造情境圖;Sean 2026-07-10 樣本) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/evotech/story-rd.jpg" alt="Evotech 手持 3D 掃描器對零件掃描建模" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Development · 研發</div>
+            <div className="pd-bona-h3">專車量測與 3D 建模</div>
+            <p className="pd-bona-p">每件部品先掃描目標車型，建立曲面、間隙與固定點的數位模型，確保專車貼合、降低萬用件常見的干涉與不服貼。</p>
+          </div>
+        </div>
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/evotech/story-mfg.jpg" alt="Evotech 英國自有工廠 CNC 加工產線" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Manufacturing · 製造</div>
+            <div className="pd-bona-h3">英國自有製程</div>
+            <p className="pd-bona-p">航太級鋁合金 CNC 切削，再以粉體烤漆或陽極處理提升強度與耐候——量測、加工與安裝設計，都留在英國自有製程。</p>
+          </div>
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
@@ -88,39 +109,47 @@ export function EvotechShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖;桌機四欄 / 手機水平捲) */}
+        {/* 產品線矩陣(五大代表產品,圖 = evotech-performance.com 官方圖、Sean 認可版本;桌機水平捲) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/1502/8810/products/Evotech-Aprilia-Shiver-900-Rad-Guard-PRN006731-12-Image-Rotation-01_b86733c9-1030-447d-8954-c367f73d4b33.jpg?v=1594130859" alt="Evotech 水箱護網" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/evotech/prod-01.jpg" alt="Evotech RACE 水箱與頭段護網組" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Radiator Guards</div>
-                <div className="pd-bs-mcard-t">水箱護網</div>
-                <div className="pd-bs-mcard-d">擋石子擋異物，水箱不再中彈。</div>
+                <div className="pd-bs-mcard-en">Race Protection</div>
+                <div className="pd-bs-mcard-t">RACE 水箱／頭段護網組</div>
+                <div className="pd-bs-mcard-d">航太級鋁合金、粉體烤漆導流孔，賽道級護網。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/1502/8810/products/Evotech-Performance-EP-Folding-Clutch-Short-Brake-Lever-Set-CC_5694c9ac-a6df-46b0-b9f6-70dea6d43ab7.jpg?v=1707832479" alt="Evotech 可折疊拉桿組" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/evotech/prod-02.jpg" alt="Evotech 短牌架" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Levers</div>
-                <div className="pd-bs-mcard-t">可折疊拉桿</div>
-                <div className="pd-bs-mcard-d">摔車自動折疊，不斷桿騎得回家。</div>
+                <div className="pd-bs-mcard-en">Tail Tidy</div>
+                <div className="pd-bs-mcard-t">短牌架</div>
+                <div className="pd-bs-mcard-d">品牌起源產品，最具辨識度的核心系列。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/1502/8810/files/EVOTEC_2_14cac822-6762-43be-9f6a-70810386f1bd.jpg?v=1693897874" alt="Evotech 端子後照鏡與護弓組" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/evotech/prod-03.jpg" alt="Evotech 車身防倒球" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Mirrors &amp; Guards</div>
-                <div className="pd-bs-mcard-t">端子鏡．護弓</div>
-                <div className="pd-bs-mcard-d">視野與防護一次升級。</div>
+                <div className="pd-bs-mcard-en">Crash Protection</div>
+                <div className="pd-bs-mcard-t">車身防倒球</div>
+                <div className="pd-bs-mcard-d">無鑽孔、專車固定點，保護但不破壞原車。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://cdn.shopify.com/s/files/1/1502/8810/files/Evotech-BMW-Replacement-LED-Rear-Light-63218546523-63218551834-63217711000-Clear-Lens.jpg?v=1733751402" alt="Evotech 替換式尾燈" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/evotech/prod-04.jpg" alt="Evotech 前後輪軸防倒球組" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Tail &amp; Accessories</div>
-                <div className="pd-bs-mcard-t">尾燈．周邊配件</div>
-                <div className="pd-bs-mcard-d">車尾整理、細節配件補齊。</div>
+                <div className="pd-bs-mcard-en">Spindle Protection</div>
+                <div className="pd-bs-mcard-t">前後輪軸防倒球</div>
+                <div className="pd-bs-mcard-d">尼龍外層＋鋁合金核心＋不鏽鋼軸桿。</div>
+              </div>
+            </article>
+            <article className="pd-bs-mcard">
+              <img className="pd-bs-mcard-img" src="/brands/evotech/prod-05.jpg" alt="Evotech 端子鏡與護弓整合組" loading="lazy" />
+              <div className="pd-bs-mcard-b">
+                <div className="pd-bs-mcard-en">Mirror &amp; Guard</div>
+                <div className="pd-bs-mcard-t">端子鏡／護弓整合組</div>
+                <div className="pd-bs-mcard-d">視野、防護、CNC 模組化整合在一組。</div>
               </div>
             </article>
           </div>

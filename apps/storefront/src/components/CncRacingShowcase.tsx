@@ -20,7 +20,7 @@ export function CncRacingShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-logo">
+            <span className="pd-eb-logo pd-eb-logo--tall">
               <img src="/brands/cnc-racing/logo.png" alt="CNC Racing" />
             </span>
           </div>
@@ -54,7 +54,7 @@ export function CncRacingShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">切削工藝</span>
+            <span className="pd-eb-label">{'N°  切削工藝'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-cnc02">整塊鋁，切出來的義大利精品</h2>
           <p className="pd-lead">
@@ -63,6 +63,27 @@ export function CncRacingShowcase() {
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
+        {/* N°02 形象大圖(CNC Racing 職人精密加工特寫,官方圖;Sean 2026-07-10 各家 N°02 加 HERO) */}
+        <img className="pd-hero-band" src="/brands/cnc-racing/hero.jpg" alt="CNC Racing 職人手工組裝義大利製部品" loading="lazy" />
+
+        {/* 故事交錯段(Bonamici 風格,官方研發/製造情境圖;Sean 2026-07-11 品牌放量 rollout;圖逐張肉眼驗零汽車) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/cnc-racing/story-rd.jpg" alt="CNC Racing 碳纖導流板裝於 Brembo 卡鉗" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Development · 研發</div>
+            <div className="pd-bona-h3">賽道實測的義式精品</div>
+            <p className="pd-bona-p">源自義大利精密機械工坊，產品在 Superbike 與 MotoGP 賽道上反覆實測——曾與 Pramac 車隊並肩，也拿過 WSBK 冠軍。</p>
+          </div>
+        </div>
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/cnc-racing/story-mfg.jpg" alt="CNC Racing billet 削切引擎外殼特寫" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Manufacturing · 製造</div>
+            <div className="pd-bona-h3">billet 一體削切</div>
+            <p className="pd-bona-p">鋁合金、鈦合金與碳纖，從整塊 billet 削出，義大利自製，每件都刻上 CNC Racing 盾徽。</p>
+          </div>
+        </div>
+
         <div className="pd-bs-stats">
           <div className="pd-bs-stat">
             <div className="pd-bs-stat-n">1995</div>
@@ -86,39 +107,39 @@ export function CncRacingShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖) */}
+        {/* 產品線矩陣(Pramac Racing 限量旗艦,圖 = cncracing.com 官方圖、Sean 2026-07-10 校正:對齊 MotoGP/Pramac 血統) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.cncracing.com/images_web/prod/1200x/CEA01B.jpg" alt="CNC Racing 換檔連桿" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/cnc-racing/prod-01.jpg" alt="CNC Racing Pramac 限量腳踏後移" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Controls</div>
-                <div className="pd-bs-mcard-t">操控部品</div>
-                <div className="pd-bs-mcard-d">換檔連桿、腳踏與把手周邊。</div>
+                <div className="pd-bs-mcard-en">Pramac Limited</div>
+                <div className="pd-bs-mcard-t">Pramac 限量腳踏後移</div>
+                <div className="pd-bs-mcard-d">MotoGP 車隊官方聯名，紅銀限量配色。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.cncracing.com/images_web/variante/1200x/PL150KB.jpg" alt="CNC Racing 碳纖維煞車拉桿護弓" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/cnc-racing/prod-02.jpg" alt="CNC Racing 碳纖維油箱蓋" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Protection</div>
-                <div className="pd-bs-mcard-t">拉桿護弓．防護</div>
-                <div className="pd-bs-mcard-d">碳纖維護弓，賽道規格防誤觸。</div>
+                <div className="pd-bs-mcard-en">Carbon Fuel Cap</div>
+                <div className="pd-bs-mcard-t">碳纖維油箱蓋</div>
+                <div className="pd-bs-mcard-d">碳纖蓋體＋鋁合金法蘭，快拆設計、車頭質感升級。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.cncracing.com/images_web/variante/1200x/AP001B.jpg" alt="CNC Racing 後避震搖臂連桿套組" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/cnc-racing/prod-03.jpg" alt="CNC Racing Pramac 透明離合器外蓋" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Chassis</div>
-                <div className="pd-bs-mcard-t">車架．懸吊連桿</div>
-                <div className="pd-bs-mcard-d">Panigale 系避震連桿一體切削。</div>
+                <div className="pd-bs-mcard-en">Clutch Window</div>
+                <div className="pd-bs-mcard-t">透明離合器外蓋</div>
+                <div className="pd-bs-mcard-d">billet 鋁合金＋耐熱 Lexan，官方賽車塗裝。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://www.cncracing.com/images_web/prod/1200x/AF280BPR_AF280RPR_298.jpg" alt="CNC Racing 離合器分泵" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/cnc-racing/prod-04.jpg" alt="CNC Racing Pramac 賽車按鍵總成" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Engine</div>
-                <div className="pd-bs-mcard-t">引擎部品</div>
-                <div className="pd-bs-mcard-d">離合器分泵、油箱蓋等精品件。</div>
+                <div className="pd-bs-mcard-en">Race Switch</div>
+                <div className="pd-bs-mcard-t">賽車按鍵總成</div>
+                <div className="pd-bs-mcard-d">7075 鋁合金、IP67、按鍵循環測試。</div>
               </div>
             </article>
           </div>

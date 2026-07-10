@@ -14,8 +14,17 @@
 //   檔源 wp-content/uploads/2021/03/EBC-Brake-Logo.svg;官方色 #243588/#E5231D 進 tokens)。
 // 純 presentational、無 props、無 hooks → 不需 'use client'。
 // 🔴 L2 內容(鐵則 9、backlog #271):信任狀數字 hardcode 無後台 CRUD。
+// 🔴 品牌影片 facade(Sean 2026-07-11 指定 youtube xDidxn04Ess「Welcome to EBC Brakes」)→ useState 點擊才載 iframe → 需 'use client'(同 Motogadget/Bonamici)。
+
+'use client';
+
+import { useState } from 'react';
+
+// 品牌影片 YouTube ID(Sean 指定;facade 點擊才載 embed、省流量)。
+const EBC_VIDEO_ID = 'xDidxn04Ess';
 
 export function EbcShowcase() {
+  const [videoOpen, setVideoOpen] = useState(false);
   return (
     <>
       {/* N°01 — 為什麼選 EBC Brakes(三卡) */}
@@ -58,9 +67,12 @@ export function EbcShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">制動工程</span>
+            <span className="pd-eb-label">{'N°  制動工程'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-ebc02">六十年只研究一件事——停下來</h2>
+          <p className="pd-lead">
+            從市區通勤到賽道熱身，煞車的手感與抗衰退，EBC 用配方與認證一路顧到底。
+          </p>
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
@@ -87,23 +99,82 @@ export function EbcShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖;68 群單一煞車分類 → 雙卡精簡) */}
+        {/* 故事交錯段(Bonamici 風格,官方賽道/製造情境圖;Sean 2026-07-11 品牌放量 rollout;圖逐張肉眼驗零汽車) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/ebc/story-rd.jpg" alt="EBC 贊助車隊超級摩托車賽道實測" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Development · 研發</div>
+            <div className="pd-bona-h3">賽道與測功機雙驗證</div>
+            <p className="pd-bona-p">英國自有研發中心以動態測功機搭配賽道實測，煞車皮與碟盤都經反覆驗證才量產。</p>
+          </div>
+        </div>
+
+        {/* 品牌影片 facade(Welcome to EBC Brakes;Sean 2026-07-11 指定 xDidxn04Ess) */}
+        <div className="pd-bona-video">
+          {videoOpen ? (
+            <iframe
+              className="pd-bona-video-frame"
+              src={`https://www.youtube.com/embed/${EBC_VIDEO_ID}?autoplay=1&rel=0`}
+              title="EBC Brakes 品牌影片"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <button
+              type="button"
+              className="pd-bona-video-facade"
+              onClick={() => setVideoOpen(true)}
+              aria-label="播放 EBC Brakes 品牌影片"
+            >
+              <img className="pd-bona-video-thumb" src={`https://img.youtube.com/vi/${EBC_VIDEO_ID}/maxresdefault.jpg`} alt="" loading="lazy" />
+              <span className="pd-bona-video-play" aria-hidden="true" />
+              <span className="pd-bona-video-label">品牌影片 · EBC Brakes</span>
+            </button>
+          )}
+        </div>
+
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/ebc/story-mfg.jpg" alt="EBC 黑鉻花瓣浮動碟盤" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Manufacturing · 製造</div>
+            <div className="pd-bona-h3">花瓣浮動碟工藝</div>
+            <p className="pd-bona-p">浮動碟以鋁合金花鼓搭配不鏽鋼浪花外環，浮動鉚接、花瓣散熱——精密沖壓與 CNC 輪廓，質感與制動並重。</p>
+          </div>
+        </div>
+
+        {/* 產品線矩陣(碟盤／來令片／油管／離合器片,圖 = ebcbrakes.com 官方商品圖、Sean 2026-07-10/11 指定) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://pub-267d5f9578a344cc92267571caab1743.r2.dev/ebc/FA016.jpg" alt="EBC GPFAX 賽道用煞車皮" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/ebc/prod-01.png" alt="EBC 機車浮動碟盤 Contour 款" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Race Pads</div>
-                <div className="pd-bs-mcard-t">賽道來令片</div>
-                <div className="pd-bs-mcard-d">GPFAX 純賽道配方，制動力上限拉滿。</div>
+                <div className="pd-bs-mcard-en">Floating Rotor</div>
+                <div className="pd-bs-mcard-t">浮動碟盤</div>
+                <div className="pd-bs-mcard-d">金色碟座＋不鏽鋼碟面，散熱與制動兼顧。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://pub-267d5f9578a344cc92267571caab1743.r2.dev/ebc/FA018.jpg" alt="EBC 街車用煞車皮" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/ebc/prod-02.jpg" alt="EBC 機車來令片系列" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Street Pads</div>
-                <div className="pd-bs-mcard-t">街車來令片</div>
-                <div className="pd-bs-mcard-d">Double-H 燒結等街道系列，日常通勤可靠。</div>
+                <div className="pd-bs-mcard-en">Brake Pads</div>
+                <div className="pd-bs-mcard-t">來令片</div>
+                <div className="pd-bs-mcard-d">GPFAX 純賽道／EPFA 街道賽道／Double-H 街跑／有機街道，依騎法選配方。</div>
+              </div>
+            </article>
+            <article className="pd-bs-mcard">
+              <img className="pd-bs-mcard-img" src="/brands/ebc/prod-brakeline.jpg" alt="EBC 不鏽鋼編織煞車油管實裝於後卡鉗" loading="lazy" />
+              <div className="pd-bs-mcard-b">
+                <div className="pd-bs-mcard-en">Brake Lines</div>
+                <div className="pd-bs-mcard-t">煞車油管</div>
+                <div className="pd-bs-mcard-d">不鏽鋼編織油管，煞車力道直接、不隨里程軟化。</div>
+              </div>
+            </article>
+            <article className="pd-bs-mcard">
+              <img className="pd-bs-mcard-img" src="/brands/ebc/prod-04.png" alt="EBC SRK 機車離合器組" loading="lazy" />
+              <div className="pd-bs-mcard-b">
+                <div className="pd-bs-mcard-en">Clutch Kit</div>
+                <div className="pd-bs-mcard-t">離合器片</div>
+                <div className="pd-bs-mcard-d">SRK 賽事離合器組，摩擦片與彈簧整組更換。</div>
               </div>
             </article>
           </div>

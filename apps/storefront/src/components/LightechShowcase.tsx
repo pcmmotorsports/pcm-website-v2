@@ -54,7 +54,7 @@ export function LightechShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">賽場工藝</span>
+            <span className="pd-eb-label">{'N°  賽場工藝'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-lt02">從世界賽場做回街車的精品</h2>
           <p className="pd-lead">
@@ -63,6 +63,27 @@ export function LightechShowcase() {
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
+        {/* N°02 形象大圖(LighTech 贊助 Moto2 車隊情境,官方 Company 頁;Sean 2026-07-10 各家 N°02 加 HERO) */}
+        <img className="pd-hero-band" src="/brands/lightech/hero.jpg" alt="LighTech 贊助的 Moto2 賽車與車手" loading="lazy" />
+
+        {/* 故事交錯段(Bonamici 風格,官方研發/製造情境圖;Sean 2026-07-11 品牌放量 rollout;圖逐張肉眼驗零汽車) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/lightech/story-rd.jpg" alt="LighTech 塗裝的賽道車" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Development · 研發</div>
+            <div className="pd-bona-h3">賽場需求先行</div>
+            <p className="pd-bona-p">1997 年於義大利創立，長年為 WSBK、MotoGP、Moto2 車隊做技術支援——每一件街車部品，都從賽場的真實需求反推設計。</p>
+          </div>
+        </div>
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/lightech/story-mfg.jpg" alt="LighTech 紅色陽極 CNC 削切部品裝於後輪" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Manufacturing · 製造</div>
+            <div className="pd-bona-h3">義大利 CNC 自製</div>
+            <p className="pd-bona-p">自有工廠 CNC 產線量產數千款 Ergal 航太鋁合金與鈦合金件，多色陽極處理，削切、上色、組裝一貫化。</p>
+          </div>
+        </div>
+
         <div className="pd-bs-stats">
           <div className="pd-bs-stat">
             <div className="pd-bs-stat-n">1997</div>
@@ -86,40 +107,39 @@ export function LightechShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖) */}
+        {/* 產品線矩陣(旗艦高階部品,圖 = lightech.it 官方圖、Sean 2026-07-10 校正:移除彩色小螺絲/工作墊小物) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://lightech.it/images_web/variante/1200x/KPS011.JPG" alt="LighTech 端子後照鏡轉接座" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/lightech/prod-01.jpg" alt="LighTech 碳纖維後駐車架" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Mirror Adapters</div>
-                <div className="pd-bs-mcard-t">端子鏡轉接座</div>
-                <div className="pd-bs-mcard-d">按車型開發，鏡座直上。</div>
+                <div className="pd-bs-mcard-en">Carbon Paddock</div>
+                <div className="pd-bs-mcard-t">碳纖維後駐車架</div>
+                <div className="pd-bs-mcard-d">Autoclave 碳纖承重結構，僅 2.1kg。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://lightech.it/images_web/variante/1200x/CAR001.JPG" alt="LighTech 碳纖維鏈條蓋" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/lightech/prod-02.jpg" alt="LighTech R Version 腳踏後移" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Carbon Parts</div>
-                <div className="pd-bs-mcard-t">碳纖維部品</div>
-                <div className="pd-bs-mcard-d">鏈條蓋、導風罩等輕量外觀件。</div>
+                <div className="pd-bs-mcard-en">R Version</div>
+                <div className="pd-bs-mcard-t">R Version 腳踏後移</div>
+                <div className="pd-bs-mcard-d">整塊 7075-T6 切削，碳纖護跟、多段可調。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              {/* 🔴 必用 https(code-reviewer R1 Critical:lightechmarketplace.com 僅 http、https 站 mixed content 破圖) */}
-              <img className="pd-bs-mcard-img" src="https://lightech.it/images_web/variante/1200x/0011M-COB.JPG" alt="LighTech 鋁合金自鎖螺帽" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/lightech/prod-03.jpg" alt="LighTech 快拆油箱蓋" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Ergal Hardware</div>
-                <div className="pd-bs-mcard-t">鋁合金螺絲五金</div>
-                <div className="pd-bs-mcard-d">7075 鋁合金彩色螺帽、細節點綴。</div>
+                <div className="pd-bs-mcard-en">Quick Release</div>
+                <div className="pd-bs-mcard-t">快拆油箱蓋</div>
+                <div className="pd-bs-mcard-d">整塊切削、PUSH &amp; PULL，義大利製。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://lightech.it/images_web/variante/1200x/HBT007NER.JPG" alt="LighTech 油門保護器" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/lightech/prod-04.jpg" alt="LighTech 後照鏡孔蓋" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Accessories</div>
-                <div className="pd-bs-mcard-t">配件周邊</div>
-                <div className="pd-bs-mcard-d">油門保護器、工作墊等實用小物。</div>
+                <div className="pd-bs-mcard-en">Track Detail</div>
+                <div className="pd-bs-mcard-t">後照鏡孔蓋</div>
+                <div className="pd-bs-mcard-d">賽道拆鏡後的收尾，鋁合金切削。</div>
               </div>
             </article>
           </div>

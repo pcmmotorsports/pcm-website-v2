@@ -65,7 +65,7 @@ export function BonamiciShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">產線巡禮</span>
+            <span className="pd-eb-label">{'N°  產線巡禮'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-bona02">從一塊鋁，到一件賽車部品</h2>
           <p className="pd-lead">

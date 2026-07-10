@@ -53,12 +53,30 @@ export function SamcoShowcase() {
           <div className="pd-eyebrow">
             <span className="pd-eb-no">02</span>
             <span className="pd-eb-sep" aria-hidden="true" />
-            <span className="pd-eb-label">矽膠工藝</span>
+            <span className="pd-eb-label">{'N°  矽膠工藝'}</span>
           </div>
           <h2 className="pd-h2" id="pd-h-samco02">水冷系統的最後一次升級</h2>
           <p className="pd-lead">
             老車救星也是賽車標配——水管換過一次 Samco，之後只需要挑顏色。
           </p>
+        </div>
+
+        {/* 故事交錯段(Bonamici 風格,官方賽事/製造情境圖;Sean 2026-07-11 品牌放量 rollout;圖逐張肉眼驗零汽車) */}
+        <div className="pd-bona-brow">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/samco/story-rd.jpg" alt="Samco 贊助的 WorldSBK 超級摩托車賽事" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Development · 研發</div>
+            <div className="pd-bona-h3">車型專屬直上件</div>
+            <p className="pd-bona-p">每組水管都對照原廠管路開發，免裁免改直接替換——WSBK 等級賽事車隊，用的也是同一套規格。</p>
+          </div>
+        </div>
+        <div className="pd-bona-brow pd-bona-brow-flip">
+          <div className="pd-bona-brow-media"><img className="pd-bona-media-img" src="/brands/samco/story-mfg.jpg" alt="Samco 橘色矽膠水管組" loading="lazy" /></div>
+          <div>
+            <div className="pd-bona-step">Manufacturing · 製造</div>
+            <div className="pd-bona-h3">英國威爾斯手工製</div>
+            <p className="pd-bona-p">於英國威爾斯自有工廠，由熟練技師以歐洲高級矽膠一層一層手工疊出，耐高溫、耐老化。</p>
+          </div>
         </div>
 
         {/* 信任狀四格(🔴 L2 hardcode、backlog #271;佐證 URL 見檔頭) */}
@@ -85,31 +103,31 @@ export function SamcoShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(圖 = 報價單 view 實際商品圖) */}
+        {/* 產品線矩陣(圖 = samcosport.com 官方圖、Sean 2026-07-10 校正:移除第三方經銷商圖與 ATV/UTV) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://racebikebitzusa.com/image/cache/catalog/MV%20Agusta/AGU-1-BK-agusta-f4-1000-2001-2009-Samco-silicone-radiator-hose-kit-800x800.jpg" alt="Samco Sport 防爆水管套件" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/samco/prod-hose.jpg" alt="Samco Sport 全車矽膠水管套件" loading="lazy" />
               <div className="pd-bs-mcard-b">
                 <div className="pd-bs-mcard-en">Hose Kits</div>
-                <div className="pd-bs-mcard-t">防爆水管套件</div>
-                <div className="pd-bs-mcard-d">車型專用整組替換，多色可選。</div>
+                <div className="pd-bs-mcard-t">全車水管套件</div>
+                <div className="pd-bs-mcard-d">車型專用整組替換，多層補強、多色可選。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://racebikebitzusa.com/image/cache/catalog/Clip%20Kits/CK-Hose-Clamp-Main-Listing-Image-001-800x800.jpg" alt="Samco Sport 不鏽鋼束環套件" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/samco/prod-clamp.jpg" alt="Samco Sport Hi-Grip 不鏽鋼束環套件" loading="lazy" />
               <div className="pd-bs-mcard-b">
                 <div className="pd-bs-mcard-en">Clamp Kits</div>
                 <div className="pd-bs-mcard-t">不鏽鋼束環</div>
-                <div className="pd-bs-mcard-d">與水管成對的專用束環組。</div>
+                <div className="pd-bs-mcard-d">圓角無穿孔設計，與水管成對的專用束環組。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="https://racebikebitzusa.com/image/cache/catalog/Arctic/ARC-1-BU-arctic-fox-arctic-cat-400-2003-2007-Samco-silicone-radiator-hose-kit-800x800.JPG" alt="Samco Sport ATV/UTV 水管套件" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/samco/prod-race.jpg" alt="Samco Sport WorldSBK 賽事技術合作" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">ATV &amp; UTV</div>
-                <div className="pd-bs-mcard-t">四輪越野套件</div>
-                <div className="pd-bs-mcard-d">ATV／UTV 水冷系統同樣覆蓋。</div>
+                <div className="pd-bs-mcard-en">Race Development</div>
+                <div className="pd-bs-mcard-t">賽事技術合作</div>
+                <div className="pd-bs-mcard-d">與世界超級摩托車錦標賽車隊共同開發驗證。</div>
               </div>
             </article>
           </div>
