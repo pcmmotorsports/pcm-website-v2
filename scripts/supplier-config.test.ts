@@ -49,18 +49,22 @@ describe('getSupplierConfig', () => {
     expect(cnc.syncDescription).toBe(true); // view description=繁中 description_zh 全列非空
     expect(cnc.categoryStrategy).toEqual({ kind: 'per-group' });
     expect(cnc.variantImages).toBe('per-variant'); // W3:首張 variante/ 變體圖(4376/4376 非空)
-    // 🔴 V1 runtime 硬擋(codex must-fix 4):Sean 批 demo 前 --confirm-write 必 abort;改 true 前先過 Sean
-    expect(cnc.writeAllowed).toBe(false);
+    // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫(乾淨家、乾跑 1,978 群全綠)
+    expect(cnc.writeAllowed).toBe(true);
     // 2026-07-10 放量 kickoff §2:cnc Vimeo/PDF 於 confirm-write 時回填 → 翻 true(supersede 舊「未 writeAllowed 不寫」)
     expect(cnc.syncInstallResources).toBe(true);
   });
 
-  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 過夜硬擋全 false', () => {
+  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 逐家 gate(2026-07-11 Q1=A 開 4 家)', () => {
     // brandSlug=brands 表 MCP 實查(2026-07-10);唯一非 identity 對照 = eazigrip→eazi-grip。
     expect(getSupplierConfig('eazigrip').brandSlug).toBe('eazi-grip');
     for (const slug of ['evotech', 'lightech', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
       expect(getSupplierConfig(slug).brandSlug).toBe(slug); // identity
     }
+    // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A):乾淨家開寫、關卡家仍 fail-closed。
+    //   evotech/samco/motogadget/front3d=true(乾跑全綠);lightech(待 #275 https)/
+    //   eazigrip·materya(待 #274 撞鍵)/ebc(待 seed db push)=false。翻 true 前先過 Sean(改這行=面對這個問題)。
+    const writeOpened = new Set(['evotech', 'samco', 'motogadget', 'front3d']);
     for (const slug of ['evotech', 'lightech', 'eazigrip', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
       const c = getSupplierConfig(slug);
       expect(c.handlePrefix).toBe(slug); // handle 命名空間 = supplierSlug(gbracing 前例)
@@ -68,8 +72,7 @@ describe('getSupplierConfig', () => {
       expect(c.syncInstallResources).toBe(true); // view 兩欄全家已曝、來源即真相
       expect(c.categoryStrategy).toEqual({ kind: 'per-group' });
       expect(c.variantImages).toBe('per-variant'); // 抽群實測(多變體家)/ 1:1(單變體家)
-      // 🔴 過夜零 prod 寫入(kickoff 硬規則 1):任何一家翻 true 前先過 Sean(改這行=面對這個問題)
-      expect(c.writeAllowed).toBe(false);
+      expect(c.writeAllowed).toBe(writeOpened.has(slug));
     }
   });
 

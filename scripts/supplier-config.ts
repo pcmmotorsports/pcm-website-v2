@@ -14,8 +14,10 @@
  *   supplier-config.test.ts + rpm-transform.test.ts byte 回歸鎖逐值釘死,任何改動觸發 CI 紅燈。
  *
  * 範圍:現役三家(rpm + gbracing + bonamici)+ 品牌放量 8+1 家(2026-07-10 kickoff、Sean 預批;
- *   evotech/lightech/cncracing/eazigrip/samco/motogadget/front3d/materya/ebc,全數 writeAllowed=false
- *   =過夜零 prod 寫入硬擋,早上 Sean 批 demo 後逐家翻 true 才可 --confirm-write)。
+ *   evotech/lightech/cncracing/eazigrip/samco/motogadget/front3d/materya/ebc。
+ *   2026-07-11 Sean 批 demo(晨報 Q1=A)後逐家開寫:cncracing/evotech/samco/motogadget/front3d
+ *   =writeAllowed=true(乾淨 5 家);lightech(待 #275 https)/eazigrip·materya(待 #274 撞鍵)/
+ *   ebc(待 seed db push)仍 false=fail-closed,關卡解除後再逐家翻 true 才可 --confirm-write)。
  *   新 8 家字面值查證(2026-07-10):brandSlug=網站庫 brands 表 MCP 實查(8 家已 seed、僅 ebc 缺列
  *   =待 seed migration);syncDescription=true(view 描述覆蓋 99-100%、繁中,scout 實查);
  *   variantImages='per-variant'(5 多變體家抽群實測 images 各異=每列自己的圖;ebc 群內全同一張、
@@ -135,7 +137,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true, // #270+放量 kickoff §2:Vimeo 影片(55 群)+PDF(1,008 群)confirm-write 時回填
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 首張 variante/ 變體圖+群情境照(4376/4376 非空)
-    writeAllowed: false, // 🔴 runtime 硬擋:早上 Sean 批 demo 後才翻 true(過夜零 prod 寫入)
+    writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
   },
 
   // ── 品牌放量 8 家(2026-07-10 kickoff;writeAllowed 一律 false=過夜硬擋、Sean 批後逐家開)──
@@ -151,7 +153,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 12 大類
     variantImages: 'per-variant', // 1:1 單變體家(3,460 群=3,460 變體)
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+    writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
   },
   lightech: {
     supplierSlug: 'lightech',
@@ -181,7 +183,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:AGU-1 19 色各自圖組(BK/RD 檔名各異)
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開(⚠ 變體王 14,165、乾跑先驗)
+    writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫(⚠ 變體王 14,165、乾跑先驗)
   },
   motogadget: {
     supplierSlug: 'motogadget',
@@ -191,7 +193,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 5 大類
     variantImages: 'per-variant', // 1:1 單變體家(912=912)
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+    writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
   },
   front3d: {
     supplierSlug: 'front3d',
@@ -201,7 +203,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 1:1 單變體家(108=108)
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+    writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
   },
   materya: {
     supplierSlug: 'materya',
