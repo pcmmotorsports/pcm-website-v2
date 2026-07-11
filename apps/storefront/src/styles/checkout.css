@@ -15,7 +15,7 @@
 
 .co-page { min-height: 100vh; background: var(--c-bg); }
 .co-main {
-  max-width: 1440px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 24px 48px 96px;
 }

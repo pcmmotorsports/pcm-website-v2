@@ -5,6 +5,9 @@
      要調整全站版寬只改這兩個值。 */
   --shell-max: none;
   --shell-x: 40px;
+  /* 內容頁(商品詳情/結帳/物流)寬上限:滿版頁首頁尾下,內文/圖/表單給舒服可讀寬、
+     寬螢幕不撐爆(詳情大圖糊、表單欄位過寬)。與 --shell-* 分離=內容頁本就不該全撐滿。 */
+  --content-max: 1600px;
 
   /* Neutral scale (warm-cool neutral, slightly cool) */
   --c-bg: #fafafa;

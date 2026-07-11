@@ -23,7 +23,7 @@
   background: var(--c-surface-2);
 }
 .page-hero-inner {
-  max-width: 1440px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 0 48px;
 }
@@ -42,7 +42,7 @@
 
 /* ==== Shipping(design pages.css L921-1046)==== */
 .shipping-body {
-  max-width: 1440px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 32px 48px 80px;
 }

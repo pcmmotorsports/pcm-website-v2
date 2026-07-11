@@ -19,7 +19,7 @@
 }
 
 .pd-page {
-  max-width: 1440px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: 24px 48px 80px;
 }
