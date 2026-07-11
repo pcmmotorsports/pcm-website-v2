@@ -107,35 +107,60 @@ export function EaziGripShowcase() {
           </div>
         </div>
 
-        {/* 產品線矩陣(三種止滑材質 EVO／PRO／Silicone,圖 = eazi-grip.com 官方裝車圖、Sean 2026-07-10 校正:移除儀表貼/水管) */}
+        {/* 產品線矩陣(四款式:EVO／PRO／Silicone 三止滑材質 + Eazi-Guard PPF 犀牛皮保護膜,含止滑星級;
+            Sean 2026-07-12 E2 文案;圖 = 官方裝車圖,🔴 prod-04.jpg 待 Sean 補 PPF 官方圖) */}
         <div className="pd-bs-railwrap">
           <div className="pd-bs-rail">
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-01.jpg" alt="Eazi-Grip EVO 半球顆粒止滑貼" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-01.jpg" alt="Eazi-Grip EVO 大顆粒止滑貼" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">EVO</div>
+                <div className="pd-bs-mcard-en">EVO 大顆粒</div>
                 <div className="pd-bs-mcard-t">半球顆粒止滑貼</div>
-                <div className="pd-bs-mcard-d">明顯顆粒紋理，重煞時皮衣清楚獲得支撐。</div>
+                <div className="pd-bs-mcard-grip">
+                  <span className="pd-bs-grip-k">止滑力</span>
+                  <span className="pd-bs-grip-stars" role="img" aria-label="止滑力最高、三顆星"><span className="on">★</span><span className="on">★</span><span className="on">★</span></span>
+                </div>
+                <div className="pd-bs-mcard-d">半球型立體突點，源自 BSB 英國超級摩托車賽場車手回饋——最強膝夾抓力，彎道與激烈騎乘首選。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-02.jpg" alt="Eazi-Grip PRO 低輪廓止滑貼" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-02.jpg" alt="Eazi-Grip PRO 小顆粒止滑貼" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">PRO</div>
+                <div className="pd-bs-mcard-en">PRO 小顆粒</div>
                 <div className="pd-bs-mcard-t">低輪廓止滑貼</div>
-                <div className="pd-bs-mcard-d">兼顧抓附與左右換位，適合頻繁移動身體。</div>
+                <div className="pd-bs-mcard-grip">
+                  <span className="pd-bs-grip-k">止滑力</span>
+                  <span className="pd-bs-grip-stars" role="img" aria-label="止滑力中等、兩顆星"><span className="on">★</span><span className="on">★</span><span className="off">★</span></span>
+                </div>
+                <div className="pd-bs-mcard-d">圓形平面壓紋，貼合性佳、移動自如，急煞與激烈騎乘時提供穩定抓握——兼顧日常代步與長途旅行。</div>
               </div>
             </article>
             <article className="pd-bs-mcard">
-              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-03.jpg" alt="Eazi-Grip Silicone 緩衝止滑貼" loading="lazy" />
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-03.jpg" alt="Eazi-Grip Silicone 矽膠止滑貼" loading="lazy" />
               <div className="pd-bs-mcard-b">
-                <div className="pd-bs-mcard-en">Silicone</div>
+                <div className="pd-bs-mcard-en">Silicone 矽膠</div>
                 <div className="pd-bs-mcard-t">緩衝止滑貼</div>
-                <div className="pd-bs-mcard-d">柔軟緩衝表面，適合旅行、通勤與長途舒適。</div>
+                <div className="pd-bs-mcard-grip">
+                  <span className="pd-bs-grip-k">止滑力</span>
+                  <span className="pd-bs-grip-stars" role="img" aria-label="止滑力輔助、一顆星"><span className="on">★</span><span className="off">★</span><span className="off">★</span></span>
+                </div>
+                <div className="pd-bs-mcard-d">超薄矽膠材質，觸感柔軟有彈性，騎乘時腿部滑動流暢、視覺低調——適合通勤與長途旅行。</div>
+              </div>
+            </article>
+            <article className="pd-bs-mcard">
+              <img className="pd-bs-mcard-img" src="/brands/eazi-grip/prod-04.jpg" alt="Eazi-Grip Eazi-Guard PPF 犀牛皮保護膜" loading="lazy" />
+              <div className="pd-bs-mcard-b">
+                <div className="pd-bs-mcard-en">Eazi-Guard PPF</div>
+                <div className="pd-bs-mcard-t">犀牛皮保護膜</div>
+                <div className="pd-bs-mcard-grip">
+                  <span className="pd-bs-grip-k">用途</span>
+                  <span className="pd-bs-grip-use">油箱防刮保護</span>
+                </div>
+                <div className="pd-bs-mcard-d">透明保護膜，防刮、耐污，保護油箱免受膝蓋磨損與細小刮傷。</div>
               </div>
             </article>
           </div>
-          <div className="pd-bs-railhint">← 左右滑看產品線 →</div>
+          <div className="pd-bs-railhint">← 左右滑看四款式 →</div>
         </div>
       </section>
     </>

@@ -72,9 +72,11 @@ const GENERIC_DIM_LABEL: Record<string, string> = {
   design: '款式',
   tier: '等級',
   version: '版本',
+  finish: '表面', // 2026-07-12 E1:eazigrip GUARD/TANK 表面貼降級泛型後、表面軸標籤
+  pack: '入數', // 2026-07-12 E3(Sean):儀表貼「PACK」→「入數」(值 1/2→一組/兩組 由報價單源頭)
 };
-// 泛型維順序:主軸(顏色)最前;未列 key 排後、保持首見序(sort 穩定)。
-const GENERIC_DIM_PRIORITY = ['color', 'material', 'design', 'tier', 'version'];
+// 泛型維順序:主軸(顏色)最前、表面次之;未列 key 排後、保持首見序(sort 穩定)。
+const GENERIC_DIM_PRIORITY = ['color', 'finish', 'material', 'design', 'tier', 'version'];
 const WEAVE_LABEL: Record<string, string> = { Twill: '斜紋', Plain: '平織', Forged: '鍛造', Honeycomb: '蜂巢' };
 const FINISH_LABEL: Record<string, string> = { Glossy: '亮光', Matt: '消光' };
 const SPECIAL_LABEL: Record<string, string> = { '12K': '12K', Kevlar: 'Kevlar' };
@@ -96,12 +98,15 @@ function patternLabel(key: string): string {
   }
   return WEAVE_LABEL[key] ?? key;
 }
-/** W2:RPM 形狀偵測 — 任一變體 spec 帶 weave/finish/special → 走現行 RPM 合成維路徑。
- *  🔴 已知假設(對抗審 F2、2026-07-04):以 key 名嗅探 = 假設非 RPM 品牌不用 weave/finish/special
- *  英文 key。守衛在源頭:報價單 NEW_SUPPLIER_ONBOARDING 已列此三 key 為 RPM 保留字、新品牌 fetcher
- *  禁用(UI 端拿不到可靠品牌信號 — mock 商品無 brandSlug、不硬耦合 'rpm-carbon' 字面)。 */
+/** W2:RPM 形狀偵測 — 任一變體 spec 帶 weave/special(碳纖編織法/特殊材質)→ 走現行 RPM 合成維路徑。
+ *  🔴 finish 不再單獨觸發(2026-07-12 Sean E1):eazigrip GUARD/TANK 表面貼只有 finish、無 weave,
+ *  原以 finish 觸發會誤走 RPM 路徑(掛錯誤碳纖紋路預覽卡 ProductSwatchPreview + 排序退化)。
+ *  RPM 碳纖恆有 weave(斜紋/平織/鍛造/蜂巢)→ 去掉 finish 觸發不影響 RPM 偵測;eazigrip 改走
+ *  泛型模式(finish 當泛型維「表面」、值原字直出、無紋路卡)。
+ *  🔴 已知假設(對抗審 F2、2026-07-04):以 key 名嗅探 = 假設非 RPM 品牌不用 weave/special 英文
+ *  key。守衛在源頭:報價單 NEW_SUPPLIER_ONBOARDING 已列這些 key 為 RPM 保留字、新品牌 fetcher 禁用。 */
 function isRpmSpecShape(variants: UIVariant[]): boolean {
-  return variants.some((v) => 'weave' in v.spec || 'finish' in v.spec || 'special' in v.spec);
+  return variants.some((v) => 'weave' in v.spec || 'special' in v.spec);
 }
 /** W2:泛型維收集 — variants spec 全部 distinct key、PRIORITY 先、未列 key 保持首見序 */
 function collectGenericDims(variants: UIVariant[]): string[] {

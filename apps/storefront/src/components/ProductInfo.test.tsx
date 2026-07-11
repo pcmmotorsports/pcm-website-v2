@@ -237,6 +237,36 @@ describe('ProductInfo', () => {
     expect(screen.getByText('當前樣式')).toBeDefined();
   });
 
+  it('should treat eazigrip finish-only spec as generic (no swatch card, 表面 dim) — E1 2026-07-12', () => {
+    // GUARD/TANK 犀牛皮表面貼真形狀:只有 finish、無 weave → finish 不再單獨觸發 RPM
+    const eaziGuard: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      variants: [
+        { id: 'v-g-g', sku: 'GUARDDUC025', spec: { finish: '亮光面' }, price: 830, images: [] },
+        { id: 'v-g-m', sku: 'GUARDDUC025M', spec: { finish: '消光面' }, price: 830, images: [] },
+      ],
+    };
+    renderInfo(eaziGuard);
+    expect(screen.queryByText('當前樣式')).toBeNull(); // 不再誤掛碳纖紋路預覽卡
+    expect(screen.getByText('表面')).toBeDefined(); // 走泛型「表面」維
+    expect(screen.getByRole('button', { name: '消光面' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '亮光面' })).toBeDefined();
+  });
+
+  it('should label pack dim as 入數 for eazigrip dashboard protector (E3 2026-07-12)', () => {
+    const dash: MockProduct = {
+      ...MOCK_PRODUCTS[0]!,
+      variants: [
+        { id: 'v-d-1', sku: 'DASHMVA004', spec: { pack: '一組' }, price: 830, images: [] },
+        { id: 'v-d-2', sku: 'DASHMVA004-2', spec: { pack: '兩組' }, price: 830, images: [] },
+      ],
+    };
+    renderInfo(dash);
+    expect(screen.getByText('入數')).toBeDefined(); // PACK → 入數
+    expect(screen.getByRole('button', { name: '一組' })).toBeDefined();
+    expect(screen.getByRole('button', { name: '兩組' })).toBeDefined();
+  });
+
   it('should filter empty values when generic spec keys are uneven (W2 對抗審 F1)', () => {
     // eazigrip HOSE 群真形狀:主列 spec={} + 色彩變體列 {color}(2026-07-04 DB 親見)
     const unevenProduct: MockProduct = {

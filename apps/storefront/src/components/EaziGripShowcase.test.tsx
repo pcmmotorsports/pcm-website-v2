@@ -22,14 +22,16 @@ describe('EaziGripShowcase', () => {
     expect(document.querySelectorAll('.pd-feature-card').length).toBe(3);
   });
 
-  it('N°02:信任狀四格 + 產品線三卡(中性 accent、無品牌 modifier)', () => {
+  it('N°02:信任狀四格 + 產品線四卡(三止滑材質 + PPF 犀牛皮、含止滑星級)', () => {
     render(<EaziGripShowcase />);
     expect(screen.getByRole('heading', { level: 2, name: '貼上去，過彎重煞都咬得住' })).toBeDefined();
     expect(screen.getByText('2011')).toBeDefined();
     expect(screen.getByText('Evo 系列問世')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
-    expect(screen.getByText('EVO')).toBeDefined();
-    expect(screen.getByText('Silicone')).toBeDefined();
-    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(3);
+    expect(screen.getByText('EVO 大顆粒')).toBeDefined();
+    expect(screen.getByText('Silicone 矽膠')).toBeDefined();
+    expect(screen.getByText('Eazi-Guard PPF')).toBeDefined(); // 第四卡 PPF 犀牛皮保護膜
+    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(4);
+    expect(document.querySelectorAll('.pd-bs-mcard-grip').length).toBe(4); // 每卡止滑等級/用途行
   });
 });
