@@ -107,12 +107,12 @@
 2026-06-21(續4)— Claude Code 審查 session(dev=0a8bffb)[**🟢 M-3 3DS-7 7a-7c 審查 PASS 0 must-fix → merge --no-ff dev=0a8bffb + push origin/dev;backlog #245/#246 commit `ddb46d3`;寫審分離 ROLE=A、Sean 授權代執行 merge+push〕]
 
 ## 最近 3 commit
-> dev。**本 commit = #274 三家撞鍵治本收尾 docs(STATUS + 提案檔)**。🚀 origin/main = `e8a3c15` production。本地 dev 未推 = `40991d4`(#212 smoke)+ `81048c0`(#276 分類 v1.2)+ 本 docs commit,共 3 個(git 實查 origin/dev..HEAD)。#274 三家實作 commit 在報價單 repo(5fa0ad3/87fe84a 已推、3c2bd0d 本 session 已推)。下表本 commit 自身 hash 走 `ab67e56` placeholder、push 前對帳。
+> dev。**本 commit = #274 三家撞鍵治本收尾 docs(STATUS + 提案檔)**。🚀 origin/main = `e8a3c15` production。本地 dev 未推 = `40991d4`(#212 smoke)+ `81048c0`+`48a90bb`(#276 分類)+ 本 docs commit,共 4 個(git 實查 origin/dev..HEAD)。#274 三家實作 commit 在報價單 repo(5fa0ad3/87fe84a 已推、3c2bd0d 本 session 已推)。下表 #274 收尾 commit=`342dcf5`(=origin/dev、可達;本行所在 status 對帳 commit 另計、不入表)。
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `ab67e56` | docs(docs): #274 報價單源頭三家撞鍵治本收尾 — STATUS + 提案檔 [#274] | 2026-07-11 |
+| `342dcf5` | docs(docs): #274 報價單源頭三家撞鍵治本收尾 — STATUS + 提案檔 [#274] | 2026-07-11 |
+| `48a90bb` | docs(docs): 分類一致化 v1.2 交接+機器可讀樹 JSON [#276] | 2026-07-11 |
 | `81048c0` | docs(docs): 分類一致化 v1.2 定稿:14大類77子類、報價單當大腦、台灣口語用詞 [#276] | 2026-07-11 |
-| `40991d4` | test(storefront): 對齊 9 家品牌 showcase smoke test 至 live 元件、修 CI 紅 [#212] | 2026-07-11 |
 
 ## 下一步
 **🔌 品牌商品串接(2026-07-11、乾淨 5 家已匯入 prod + deploy live)**:①push dev+dev:main FF+Vercel deploy ✅(5 家 showcase live 驗證、marker 42-53 命中)②Sean 肉眼驗版面觀感(N°01/N°02 交錯、圖不破)③**🆕 排隊 4 家 = 報價單側變體建模一條線(Q2=A 拍板、開新 session、#267/#268/#274)**:根因=報價單源頭 `spec` 欄未填(rpm-transform:398 只 `spec: v.spec ?? {}` 直抄源頭、網站不推導;samco 有 `{color:...}` 能上、ebc/eazigrip/materya `spec:null` 撞 pv_spec_unique)→ 修法=**報價單源頭填 spec、跟 samco 顏色一樣做法、網站零改零加變數**(Sean 07-11 明示「跟其他家一樣、不加複雜度」)。ebc(seed 已 db push、35/68 群煞車片材質軸 null=材質變體待填)/ eazigrip(41 群 CENTREPAD+尾hyphen)/ materya(2 群);lightech 另走 #275 https 重抓。**✅ 三家源頭治本完成(2026-07-11)**:ebc 填 spec(5fa0ad3、112/112)/ materya 官方料號不動只修分群(87fe84a、90/90)/ eazigrip view 去重 migration(報價單 repo 3c2bd0d 已推、Sean apply prod、anon 驗 5273→5233 撞鍵0)。codex 最強兩輪 4 must-fix 全修。**下一步 = 接商品進網站**(跑 rpm 同步/cron 匯入 eazigrip+materya、源頭已乾淨不再撞 pv_spec_unique;lightech 仍 #275 https 重抓)。④收尾補跑 `/graphify --update` + `/pcm-roadmap`(晨報 §5 過夜未跑)。**前序:🌙 品牌放量過夜完工**:demo 已批(Q1=A);批准後執行=逐家翻 writeAllowed→`--confirm-write`→推 dev+main→deploy。**前序:**
