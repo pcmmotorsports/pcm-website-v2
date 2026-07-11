@@ -11,8 +11,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 48px;
-  max-width: 1440px;
+  padding: 10px var(--shell-x);
+  max-width: var(--shell-max);
   margin: 0 auto;
 }
 .ft-chips {

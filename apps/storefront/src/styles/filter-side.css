@@ -1,6 +1,6 @@
 /* Filter Side — Farfetch style */
 .fs-side {
-  width: 220px;
+  width: 250px;
   flex-shrink: 0;
   padding: 0 0 40px;
   border-right: 1px solid var(--c-border);
@@ -12,8 +12,8 @@
 }
 /* cascade 模式：偏移 header + cascade bar */
 .pp-layout[data-filter-style="cascade"] .fs-side {
-  top: 121px;
-  height: calc(100vh - 121px);
+  top: 132px;
+  height: calc(100vh - 132px);
 }
 .fs-side-head {
   display: flex;
@@ -21,12 +21,12 @@
   justify-content: space-between;
   padding: 20px 24px 16px;
   border-bottom: 1px solid var(--c-border);
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--c-text);
 }
 .fs-clear {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--c-text-2);
   text-decoration: underline;
@@ -42,7 +42,7 @@
   gap: 6px;
   width: 100%;
   padding: 14px 24px;
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--c-text);
@@ -50,7 +50,7 @@
 }
 .fs-section-title { letter-spacing: 0.04em; }
 .fs-section-count {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 400;
   color: var(--c-text-3);
   margin-left: 4px;
@@ -70,7 +70,7 @@
   gap: 8px;
   width: 100%;
   padding: 7px 24px;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--c-text);
   text-align: left;
   transition: background 0.12s;
@@ -79,8 +79,8 @@
 .fs-tree-row:hover { background: var(--c-surface-2); }
 .fs-tree-row svg { color: var(--c-text-3); flex-shrink: 0; }
 .fs-tree-l1 { font-weight: 500; }
-.fs-tree-l2 { padding-left: 42px; color: var(--c-text-2); font-size: 13px; }
-.fs-tree-l3 { padding-left: 60px; color: var(--c-text-2); font-size: 12px; }
+.fs-tree-l2 { padding-left: 42px; color: var(--c-text-2); font-size: 15px; }
+.fs-tree-l3 { padding-left: 60px; color: var(--c-text-2); font-size: 14px; }
 .fs-tree-row.is-active {
   background: var(--c-surface-2);
   color: var(--c-text);
@@ -95,7 +95,7 @@
   margin-right: 4px;
 }
 .fs-tree-count {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--c-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -114,7 +114,7 @@
   border: 0;
   background: transparent;
   outline: none;
-  font-size: 13px;
+  font-size: 15px;
   width: 100%;
 }
 
@@ -135,11 +135,11 @@
 .fs-cbx-row.is-checked .ft-cbx svg { opacity: 1; }
 .fs-cbx-name {
   flex: 1;
-  font-size: 13px;
+  font-size: 15px;
   color: var(--c-text);
 }
 .fs-cbx-count {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--c-text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -149,7 +149,7 @@
 .fs-price-readout {
   display: flex;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   color: var(--c-text);
   margin-bottom: 12px;
@@ -213,7 +213,7 @@
 }
 .fs-price-presets button {
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--c-text-2);
   border: 1px solid var(--c-border);
   background: var(--c-surface);

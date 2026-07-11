@@ -607,8 +607,9 @@
   color: #fff;
   padding: 96px 0 0;
   /* self-contained defaults so footer works outside .ed-page wrapper */
-  --ed-max: 1440px;
-  --ed-gutter: 48px;
+  /* 2026-07-11 撐滿改版:footer 跟 header/頂部列/商品頁一起撐滿對齊(吃全站共用 token) */
+  --ed-max: var(--shell-max);
+  --ed-gutter: var(--shell-x);
 }
 @media (max-width: 900px) { .ed-footer { --ed-gutter: 20px; } }
 .ed-footer-inner {

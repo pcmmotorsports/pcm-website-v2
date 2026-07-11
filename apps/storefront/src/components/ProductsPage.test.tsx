@@ -121,6 +121,19 @@ describe('ProductsPage', () => {
     expect(screen.getByText('價格範圍')).toBeDefined();
     expect(screen.getByText('篩選條件')).toBeDefined();
   });
+
+  it('欄數:預設自動欄數(auto-fill、卡片固定寬),點欄數鈕鎖定、再點同顆回自動(2026-07-11 撐滿改版)', () => {
+    const { container } = render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} />);
+    const gridCols = () => (container.querySelector('.pp-grid') as HTMLElement).style.gridTemplateColumns;
+    // 預設 = 自動欄數(寬螢幕自動加欄、卡片維持固定寬)
+    expect(gridCols()).toContain('auto-fill');
+    // 點「5 欄」鈕 → 鎖定固定 5 欄
+    fireEvent.click(screen.getByLabelText('5 columns'));
+    expect(gridCols()).toContain('repeat(5');
+    // 再點同一顆 → 回到自動(免加獨立「自動」鈕)
+    fireEvent.click(screen.getByLabelText('5 columns'));
+    expect(gridCols()).toContain('auto-fill');
+  });
 });
 
 // #6:page/sort/perPage URL round-trip(back 回列表不重置;Sean 2026-07-03 實測回報)

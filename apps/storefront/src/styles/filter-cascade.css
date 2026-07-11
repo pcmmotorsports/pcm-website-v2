@@ -15,8 +15,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 10px 32px;
-  max-width: 1440px;
+  padding: 10px var(--shell-x);
+  max-width: var(--shell-max);
   margin: 0 auto;
 }
 .cft-cascade {
@@ -26,8 +26,8 @@
   flex-wrap: wrap;
 }
 .cft-label {
-  /* Sean 2026-07-03 實測 feedback:11px 太小 → 13px 對齊左欄篩選字級(.fs-section-head 13px;design 原 11px) */
-  font-size: 13px;
+  /* Sean 2026-07-03:11px→13px 對齊左欄;2026-07-11 撐滿改版:全站放大(35-60歲友善)→16px 對齊 .fs-section-head 16px */
+  font-size: 16px;
   font-weight: 600;
   color: var(--c-text-2);
   letter-spacing: 0.06em;
@@ -37,12 +37,12 @@
   white-space: nowrap;
 }
 .cft-select {
-  font-size: 13px;
+  font-size: 16px;
   font-family: inherit;
   border: 1px solid var(--c-border);
   background: var(--c-surface);
   border-radius: 4px;
-  padding: 7px 28px 7px 12px;
+  padding: 10px 30px 10px 14px;
   color: var(--c-text);
   cursor: pointer;
   appearance: none;

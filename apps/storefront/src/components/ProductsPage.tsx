@@ -137,7 +137,7 @@ function SortBar({
           {[3, 4, 5].map((n) => (
             <button key={n}
               className={gridCols === n ? 'is-active' : ''}
-              onClick={() => setGridCols(n)}
+              onClick={() => setGridCols(gridCols === n ? 0 : n)}
               aria-label={`${n} columns`}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                 {[...Array(n).keys()].map((i) => (
@@ -181,7 +181,7 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const { sort, setSort, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
-  const [gridCols, setGridCols] = useState(5); // 顯示偏好、不進 URL(#6 範圍=Sean 回報三項)
+  const [gridCols, setGridCols] = useState(0); // 0=自動欄數(卡片固定寬、寬螢幕自動加欄);3/4/5=手動鎖定。顯示偏好、不進 URL(#6)
   const [drawerOpen, setDrawerOpen] = useState(false);
   // #6:URL 還原 vehicle 的 mount dispatch 與「篩選變動重置頁碼」的協調旗標(見 vehicle effect 註解)
   const urlVehicleInitRef = useRef(false);
@@ -307,8 +307,10 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
             </div>
           ) : displayed.length > 0 ? (
             <div className="pp-grid" style={{
-              gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
-              gap: gridCols <= 2 ? 20 : 14,
+              gridTemplateColumns: gridCols === 0
+                ? 'repeat(auto-fill, minmax(256px, 1fr))'
+                : `repeat(${gridCols}, 1fr)`,
+              gap: 14, // 欄數鈕僅 3/4/5 + 自動(0),原 <=2?20:14 的 20 支為死碼、簡化(手機 2 欄 gap 由 CSS !important 12 控)
             }}>
               {displayed.map((p) => {
                 const categoryMain = p.category.split('·')[0]?.trim() || '';

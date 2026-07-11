@@ -12,8 +12,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 14px 48px;
-  max-width: 1440px;
+  padding: 14px var(--shell-x);
+  max-width: var(--shell-max);
   margin: 0 auto;
 }
 /* [#192 A1] 手機 viewport @media + 既有 compound selector 兜底

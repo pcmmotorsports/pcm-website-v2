@@ -1,16 +1,18 @@
 /* Products Page layout */
 .pp-layout {
   display: block;
-  max-width: 1440px;
+  max-width: var(--shell-max);
   margin: 0 auto;
+  padding: 0 var(--shell-x);
 }
 .pp-layout.has-side {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 250px 1fr;
+  column-gap: 32px;
 }
 
 .pp-main {
-  padding: 0 32px 80px;
+  padding: 0 0 80px;
   min-width: 0;
 }
 
@@ -27,7 +29,7 @@
   top: 127px;
 }
 .pp-layout[data-filter-style="cascade"] .pp-head {
-  top: 121px;
+  top: 132px; /* 2026-07-11:車款列字放大+加高後 bar 由 52→63px、bottom=132(量測值) */
 }
 /* Title row: title left, breadcrumb right */
 .pp-head-row {
@@ -213,6 +215,7 @@
 }
 
 @media (max-width: 900px) {
+  .pp-layout { padding: 0; }
   .pp-layout.has-side { grid-template-columns: 1fr; }
   .fs-side { display: none; }
   .pp-main { padding: 20px 16px 60px; }

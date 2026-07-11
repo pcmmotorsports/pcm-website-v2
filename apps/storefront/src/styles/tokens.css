@@ -1,5 +1,11 @@
 /* PCM Motorsports — Design Tokens */
 :root {
+  /* 全站版寬(2026-07-11 撐滿改版):內容撐滿瀏覽器、左右共用邊距;
+     取代原散在 header/footer/頂部列/商品頁各檔的 max-width:1440px 硬寫值。
+     要調整全站版寬只改這兩個值。 */
+  --shell-max: none;
+  --shell-x: 40px;
+
   /* Neutral scale (warm-cool neutral, slightly cool) */
   --c-bg: #fafafa;
   --c-surface: #ffffff;
