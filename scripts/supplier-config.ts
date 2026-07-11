@@ -174,8 +174,8 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:BUNAPR001 四色各自 1 張圖
-    writeAllowed: false, // 🔴 pv_spec 已解(#274 view 去重、乾跑 0 撞),但 handle preflight 剩 1 筆批內重複
-    //   (TANKBMW006- 尾 hyphen 與 TANKBMW006 同 handle;#274 spec 驗收8 尾 hyphen 識別碼未清)→ 源頭清完才開
+    writeAllowed: true, // ✅ 2026-07-11 #274 全清:view 去重+尾 hyphen 源頭正規化(報價單 5a23541)
+    //   +殭屍三筆 Sean SQL 刪除後,乾跑全綠(1,667 群/5,233 變體、handle 全唯一、pv_spec 0)開寫
   },
   samco: {
     supplierSlug: 'samco',

@@ -274,6 +274,7 @@ async function main(): Promise<void> {
   //   寫入模式撞鍵 → abort 不進 upsert(避免 23505 部分寫的髒中間態)。
   //   V1:排除已排定刪除的孤兒 sku(upsert 前先刪、不參與模擬;變體改名同 spec 不再恆撞=F3)。
   const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId, orphanSkusToDelete);
+  if (!collisions.length) console.log('✅ pv_spec_unique preflight 撞鍵 0(留檔證據自明、免讀源碼反推)');
   if (collisions.length) {
     console.warn(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、寫入模式將 abort:`);
     console.table(collisions.slice(0, 50));
