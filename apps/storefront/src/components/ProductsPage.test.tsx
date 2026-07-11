@@ -128,10 +128,10 @@ describe('ProductsPage', () => {
     // 預設 = 自動欄數(寬螢幕自動加欄、卡片維持固定寬)
     expect(gridCols()).toContain('auto-fill');
     // 點「5 欄」鈕 → 鎖定固定 5 欄
-    fireEvent.click(screen.getByLabelText('5 columns'));
+    fireEvent.click(screen.getByLabelText('每排 5 欄'));
     expect(gridCols()).toContain('repeat(5');
     // 再點同一顆 → 回到自動(免加獨立「自動」鈕)
-    fireEvent.click(screen.getByLabelText('5 columns'));
+    fireEvent.click(screen.getByLabelText('每排 5 欄'));
     expect(gridCols()).toContain('auto-fill');
   });
 });

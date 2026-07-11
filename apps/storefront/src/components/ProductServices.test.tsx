@@ -40,18 +40,21 @@ describe('ProductServices', () => {
     expect(cards.length).toBe(4);
   });
 
-  // 🔴 P0-C 去碳卡級守門:非 RPM 隱藏「泰國原廠 / RPM Carbon 授權代理」卡,但 3 張通用服務卡不動。
-  it('非 RPM(!isRpmCarbon):去碳藏泰國原廠卡、其餘 3 張通用卡照渲染(Q2=B)', () => {
+  // 🔴 P0-C 去碳卡級守門 + 2026-07-11 Sean 拍 B:非 RPM 第 3 張換「正品保證 / 原廠正品進貨」(仍 4 卡、無產地/代理宣稱)。
+  it('非 RPM(!isRpmCarbon):泰國原廠卡換成正品保證卡、恆 4 卡(Q2=B / 07-11 拍 B)', () => {
     render(<ProductServices isRpmCarbon={false} />);
-    // 泰國原廠(RPM 專屬)整卡消失、無 RPM 字樣
+    // 泰國原廠(RPM 專屬)整卡消失、無 RPM 產地/代理字樣
     expect(screen.queryByText('泰國原廠')).toBeNull();
     expect(screen.queryByText('RPM Carbon 授權代理')).toBeNull();
-    // 3 張通用服務承諾仍全顯(不誤藏)
+    // 第 3 張換通用「正品保證」
+    expect(screen.getByText('正品保證')).toBeDefined();
+    expect(screen.getByText('原廠正品進貨')).toBeDefined();
+    // 其餘 3 張通用服務承諾仍全顯(不誤藏)
     expect(screen.getByText('滿額免運')).toBeDefined();
     expect(screen.getByText('專業安裝')).toBeDefined();
     expect(screen.getByText('LINE 諮詢')).toBeDefined();
     const strip = document.querySelector('section.pd-services-strip');
     expect(strip).not.toBeNull();
-    expect(document.querySelectorAll('.pd-service').length).toBe(3);
+    expect(document.querySelectorAll('.pd-service').length).toBe(4);
   });
 });

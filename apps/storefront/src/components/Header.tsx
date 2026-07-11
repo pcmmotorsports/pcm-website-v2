@@ -122,14 +122,14 @@ export function Header({
       <div className="pcm-header-inner">
         {isMobile ? (
           <>
-            <button className="pcm-icon-btn" aria-label="search" onClick={() => openSearch()}>
+            <button className="pcm-icon-btn" aria-label="搜尋商品" data-tip="搜尋" onClick={() => openSearch()}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
               </svg>
             </button>
             <Link href="/" className="pcm-logo">PCM</Link>
             <div className="pcm-header-right">
-              <button className="pcm-icon-btn pcm-cart" aria-label="cart" onClick={(e) => handleNav(e, 'cart')}>
+              <button className="pcm-icon-btn pcm-cart" aria-label="購物車" data-tip="購物車" onClick={(e) => handleNav(e, 'cart')}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
@@ -166,13 +166,13 @@ export function Header({
                   onClick={(e) => { e.stopPropagation(); openSearch(searchQuery); }}
                 />
               </div>
-              <button className="pcm-icon-btn" aria-label="account" onClick={(e) => handleNav(e, 'account')}>
+              <button className="pcm-icon-btn" aria-label="會員" data-tip="會員" onClick={(e) => handleNav(e, 'account')}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
                   <circle cx="12" cy="7" r="4"/>
                 </svg>
               </button>
-              <button className="pcm-icon-btn pcm-cart" aria-label="cart" onClick={(e) => handleNav(e, 'cart')}>
+              <button className="pcm-icon-btn pcm-cart" aria-label="購物車" data-tip="購物車" onClick={(e) => handleNav(e, 'cart')}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>

@@ -32,10 +32,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
 import { useCart } from '@/contexts/CartContext';
 import { ProductSwatchPreview } from './ProductSwatchPreview';
+import { ProductServices } from './ProductServices';
 
 // OD-4a:selectedVariant 狀態提升至 ProductPage(本元件受控)— picker 改它、ProductGallery 隨它換圖、
 //   mobile buybar 用它(修 16c-3 buybar 只能用預設變體的限制)。
@@ -44,6 +46,8 @@ export type ProductInfoProps = {
   tier: MemberTier;
   selectedVariant: UIVariant | null;
   onSelectVariant: (variant: UIVariant | null) => void;
+  /** RPM 才顯「泰國原廠」卡(卡級守門);由 ProductPage 依 brandSlug 傳入。預設 false。 */
+  isRpmCarbon?: boolean;
 };
 
 // OD-4c:把真變體 spec {weave, finish, special?} 折成 picker 2 維(Sean Q-OD4c-1/2=A、D3=A 真資料為準):
@@ -150,7 +154,7 @@ function sortDimValues(dim: Dim, values: string[], rpm: boolean): string[] {
 
 type SpecGroup = { dim: Dim; values: string[] };
 
-export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }: ProductInfoProps) {
+export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, isRpmCarbon = false }: ProductInfoProps) {
   const variants = product.variants ?? [];
   const hasVariants = variants.length > 0;
 
@@ -183,6 +187,7 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
   const [qty, setQty] = useState<number>(1);
   const [liked, setLiked] = useState<boolean>(false);
   const { addItem } = useCart();
+  const router = useRouter();
 
   // product 變更 → reset qty(selectedVariant reset 在 ProductPage)
   useEffect(() => {
@@ -236,6 +241,12 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       qty,
       variantId: selectedVariant?.id,
     });
+  };
+
+  // 立即購買(Sean 2026-07-11):加入購物車後直接前往購物車頁(非結帳);與「加入購物車」的差別=多一步導頁。
+  const buyNow = () => {
+    addToCart();
+    router.push('/cart');
   };
 
   return (
@@ -360,10 +371,13 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant }:
       </div>
 
       {/* M-1-13e-a:buynow(design ProductPage.jsx L351);#161 永遠可點 */}
-      <button type="button" className="pd-buynow-btn" onClick={addToCart}>
+      <button type="button" className="pd-buynow-btn" onClick={buyNow}>
         立即購買
       </button>
-      {/* OD-5:服務橫條(ProductServices)已外移至 ProductPage、改為 hero 下方獨立全寬 section(OD 模板 §12)*/}
+
+      {/* 服務保障(Sean 2026-07-11 拍板):原 OD-5 放 hero 下方全寬橫條 → 移進買價下方右欄空白,
+          省一條橫條、填滿右欄、零重複。全寬版樣式改窄欄直立(product-page.css .pd-services-*)。 */}
+      <ProductServices isRpmCarbon={isRpmCarbon} />
     </aside>
   );
 }

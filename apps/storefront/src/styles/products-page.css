@@ -42,7 +42,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 13px;
   color: var(--c-text-3);
   flex-wrap: wrap;
   flex-shrink: 1;

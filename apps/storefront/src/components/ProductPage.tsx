@@ -27,7 +27,6 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
-import { ProductServices } from './ProductServices';
 import { ProductFitments } from './ProductFitments';
 import { BrandShowcase } from './BrandShowcase';
 import { ProductTabs } from './ProductTabs';
@@ -294,13 +293,10 @@ export function ProductPage({
             tier={tier}
             selectedVariant={selectedVariant}
             onSelectVariant={setSelectedVariant}
+            isRpmCarbon={isRpmCarbon}
           />
         </section>
-        {/* OD-5:服務保障橫條(ProductServices)— OD 模板 §12 hero 下方獨立全寬 section,
-            從 ProductInfo 右欄內移出(self-contained section.pd-services-strip)。
-            OD 模板順序為 pd-main → pd-services-strip → 適用車款 → N°01。
-            🔴 P0-C 去碳:isRpmCarbon 傳入做卡級守門(泰國原廠卡 RPM-only、其餘 3 卡通用不動)。 */}
-        <ProductServices isRpmCarbon={isRpmCarbon} />
+        {/* 2026-07-11(Sean 拍板):服務保障橫條移入 ProductInfo 右欄(買價下方、窄欄直立);原 OD-5 hero 下方全寬版退場。 */}
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
             D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
         <ProductFitments product={product} />

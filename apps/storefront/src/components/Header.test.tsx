@@ -73,13 +73,13 @@ describe('Header', () => {
   it('should render the mobile header without crashing', () => {
     renderWithCart(<Header isMobile />);
     expect(screen.getByText('PCM')).toBeDefined();
-    expect(screen.getByLabelText('cart')).toBeDefined();
+    expect(screen.getByLabelText('購物車')).toBeDefined();
   });
 
   describe('會員圖示條件路由 (g-1b、#179 D-f 收尾)', () => {
     it('desktop 未登入 → 會員圖示點擊 → router.push(/login)', () => {
       renderWithCart(<Header isMobile={false} />);
-      fireEvent.click(screen.getByLabelText('account'));
+      fireEvent.click(screen.getByLabelText('會員'));
       expect(pushMock).toHaveBeenCalledWith('/login');
     });
 
@@ -87,7 +87,7 @@ describe('Header', () => {
       authState.session = { user: { id: 'u1' } };
       renderWithCart(<Header isMobile={false} />);
       // onAuthStateChange 同步 emit INITIAL_SESSION(已登入)→ isAuthed=true(render act 內 flush)
-      fireEvent.click(screen.getByLabelText('account'));
+      fireEvent.click(screen.getByLabelText('會員'));
       expect(pushMock).toHaveBeenCalledWith('/account');
     });
   });

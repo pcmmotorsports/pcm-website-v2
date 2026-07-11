@@ -14,10 +14,10 @@
 //
 // 純 presentational、無 hooks。
 //
-// 🔴 P0-C 去碳(brandSlug 守門):本橫條 4 卡中 3 卡(滿額免運 / 專業安裝 / LINE 諮詢)為**全品牌通用**的
-//   PCM 服務承諾、所有品牌都顯;唯「泰國原廠 / RPM Carbon 授權代理」卡是 RPM 專屬(產地泰國 + RPM 代理)。
-//   故本元件不整段隱藏(會誤藏通用服務),改**卡級守門**:`isRpmCarbon` 才渲染泰國原廠卡;非 RPM = 該卡空白
-//   (Q2=B 不猜產地/代理;其餘 3 卡不動)。RPM 傳 true → 4 卡順序與字面 byte 不變。
+// 🔴 P0-C 去碳(brandSlug 守門)+ 2026-07-11 Sean 拍 B:恆 4 卡;第 3 張依品牌切換 —
+//   RPM(isRpmCarbon)→「泰國原廠 / RPM Carbon 授權代理」(產地+代理、RPM 專屬、byte 不變);
+//   非 RPM →「正品保證 / 原廠正品進貨」(全品牌通用、Sean 確認屬實;非產地/代理宣稱、不違去碳 Q2=B)。
+//   其餘 3 卡(滿額免運 / 專業安裝 / LINE 諮詢)全品牌通用不動。
 //
 // 鐵則 9 內容分級:此 4 卡內容(免運門檻 / 服務範圍 / 代理品牌 / 諮詢說明)真實業務屬 L2
 // (每季調整 1-3 次)、Phase 2 才動服務系統、現階段 hardcoded 接受。
@@ -39,10 +39,15 @@ export function ProductServices({ isRpmCarbon }: ProductServicesProps) {
           <span className="pd-service-label">專業安裝</span>
           <span className="pd-service-desc">全台合作店家</span>
         </div>
-        {isRpmCarbon && (
+        {isRpmCarbon ? (
           <div className="pd-service">
             <span className="pd-service-label">泰國原廠</span>
             <span className="pd-service-desc">RPM Carbon 授權代理</span>
+          </div>
+        ) : (
+          <div className="pd-service">
+            <span className="pd-service-label">正品保證</span>
+            <span className="pd-service-desc">原廠正品進貨</span>
           </div>
         )}
         <div className="pd-service">

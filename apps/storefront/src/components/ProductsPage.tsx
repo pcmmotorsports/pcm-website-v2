@@ -138,7 +138,8 @@ function SortBar({
             <button key={n}
               className={gridCols === n ? 'is-active' : ''}
               onClick={() => setGridCols(gridCols === n ? 0 : n)}
-              aria-label={`${n} columns`}>
+              aria-label={`每排 ${n} 欄`}
+              data-tip={`每排 ${n} 欄`}>
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                 {[...Array(n).keys()].map((i) => (
                   <rect key={i} x={i * (16 / n) + 1} y="1" width={16 / n - 2} height="14" />

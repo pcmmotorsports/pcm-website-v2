@@ -121,19 +121,25 @@ export function CascadeFilterTop({
       <div className="cft-bar">
         <div className="cft-inner">
           <div className="cft-cascade">
+            <span className="cft-icon" aria-hidden="true">
+              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
+              </svg>
+            </span>
             <span className="cft-label">確認適用車款</span>
-            <select className="cft-select" value={tmpBrand} onChange={onBrandChange}>
+            <select className="cft-select" value={tmpBrand} onChange={onBrandChange} aria-label="選擇品牌">
               <option value="">品牌</option>
               {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
-            <select className="cft-select" value={tmpModel} onChange={onModelChange} disabled={!tmpBrand}>
+            <select className="cft-select" value={tmpModel} onChange={onModelChange} disabled={!tmpBrand} aria-label="選擇車型">
               <option value="">車型</option>
               {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
-            <select className="cft-select" value={tmpYear} onChange={onYearChange} disabled={!tmpModel}>
-              <option value="">—</option>
+            <select className="cft-select" value={tmpYear} onChange={onYearChange} disabled={!tmpModel} aria-label="選擇年份">
+              <option value="">年份</option>
               {years.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
+            <span className="cft-helper">先選車，只顯示裝得上的零件</span>
           </div>
           <div className="cft-right">
             {cascade.vehicle && (

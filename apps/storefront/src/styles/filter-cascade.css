@@ -26,14 +26,24 @@
   flex-wrap: wrap;
 }
 .cft-label {
-  /* Sean 2026-07-03:11px→13px 對齊左欄;2026-07-11 撐滿改版:全站放大(35-60歲友善)→16px 對齊 .fs-section-head 16px */
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-text-2);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-family: var(--f-mono, monospace);
+  /* 2026-07-11 #1-A(Sean 拍 A):車款選擇器改招呼式清楚標題 — 去 mono/uppercase、黑字粗體;
+     原 07-03(11→13)/撐滿改版(→16 mono)歷程見 git */
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text);
   margin-right: 8px;
+  white-space: nowrap;
+}
+.cft-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--c-text-2);
+  margin-right: 2px;
+}
+.cft-helper {
+  font-size: 13px;
+  color: var(--c-text-3);
+  margin-left: 14px;
   white-space: nowrap;
 }
 .cft-select {
@@ -124,10 +134,12 @@
   .ft-bar { top: 64px; }
   .cft-inner { padding: 8px 14px; gap: 6px; }
   .cft-label { display: none; }
+  .cft-icon, .cft-helper { display: none; }
   .cft-cascade { gap: 6px; flex-wrap: nowrap; }
   .cft-select {
-    font-size: 12px;
-    padding: 6px 22px 6px 8px;
+    font-size: 14px; /* #5 手機觸控:字略大好讀 */
+    padding: 6px 22px 6px 10px;
+    min-height: 42px; /* #5 觸控目標 ≥42px、35-60 歲好按(視覺仍是一般下拉、不醜) */
     min-width: 0;
     flex: 1;
   }
