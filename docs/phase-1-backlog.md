@@ -6818,7 +6818,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #274. 🧩 eazigrip/materya 乾跑撞鍵 triage(handle 批內重複 1 + pv_spec 42 群)
 
-- **狀態:** ⏳ 待 Sean 拍板(晨報決策題;寫入模式會 abort、不影響其他家)
+- **狀態:** 🟡 近完成(2026-07-11 源頭治本上 prod:ebc 填 spec/materya 分群分家/eazigrip view 去重、三家 pv_spec 乾跑 0 撞;**剩 eazigrip handle 批內重複 1 筆** `TANKBMW006-` 尾 hyphen=spec 驗收8 未清,eazigrip confirm-write 前必解;真權威 `docs/specs/2026-07-11-quote-source-spec-variant-modeling.md`)
 - **優先級:** 🟠 中(eazigrip/materya confirm-write 前必解)
 - **問題:**
   - eazigrip:①handle 批內重複 1 筆(`TANKBMW006` vs `TANKBMW006-`、尾 hyphen 正規化後同 handle)②pv_spec_unique 撞鍵 40 群(CENTREPAD 家族:同 spec 兩 SKU 尾碼 BL/BLBLK、CL/CLCLR=來源疑似重複列或子款差異不在 spec);materya:2 群(MTY059CG vs CG-1)。
@@ -6849,6 +6849,23 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** Sean 拍 A(報價單側)或 B(網站側)。
 - **發現於:** 2026-07-10 / 品牌放量(code-reviewer R1 + 乾跑)。
 - **相關:** #270 / #212。
+
+---
+
+### #276. 🗂 分類一致化 v1.2 實作(14 大類/77 子類、報價單當大腦)
+
+- **狀態:** ⏳ 分類體系已定稿(v1.2、07-11 Sean 拍板);實作 plan 已提報價單 repo `docs/PLAN-category-taxonomy-v12-2026-07-11.md`、**待 Sean 批(鐵則 8)**。
+- **優先級:** 🟠 中(客人視角分類=轉換率地基;不擋品牌放量)
+- **問題:**
+  - 兩庫分類漂移+現行 18 大櫃是倉管視角(「操控部品」12,037 筆等於沒分)。定稿=14 大類/77 子類、台灣口語、順序=側欄 sort_order;真權威 `docs/specs/2026-07-11-category-taxonomy-v1-draft.md` + assets JSON。
+- **預期解法:**
+  - 報價單側:對照表落 DB + categorizer v2(關鍵字補丁+兜底+日報)+ 平行寫入新欄 + view 增欄 + 篩選器切 14 類;網站側:砍手抄 seed、categories 兩層同步、resolveIdOrNull 吃新欄、RPM fixed 策略退役(見 plan §2F)。
+- **不修會痛在:**
+  - 擴充性:每接一家新供應商都往錯體系堆、日後遷移成本線性放大;可維護性:兩庫各自手抄永久漂移;bug 可追蹤性:分類錯只能人肉對帳。
+- **估時:** 報價單側 S1-S8 約 8 slice;網站側另提。
+- **依賴:** Sean 批 plan + Q1-Q3(對照落 DB/計算落點/切換節奏)。
+- **發現於:** 2026-07-11 / 側欄「零件分類」讀哪追查。
+- **相關:** #212(多品牌)/ #51/#247(category count N+1、兩層後查詢面翻倍)。
 
 ---
 

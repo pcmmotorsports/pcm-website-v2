@@ -174,7 +174,8 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:BUNAPR001 四色各自 1 張圖
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+    writeAllowed: false, // 🔴 pv_spec 已解(#274 view 去重、乾跑 0 撞),但 handle preflight 剩 1 筆批內重複
+    //   (TANKBMW006- 尾 hyphen 與 TANKBMW006 同 handle;#274 spec 驗收8 尾 hyphen 識別碼未清)→ 源頭清完才開
   },
   samco: {
     supplierSlug: 'samco',
@@ -214,7 +215,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true,
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:MTY001/MTY011 各色各自圖
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+    writeAllowed: true, // ✅ 2026-07-11 #274 源頭分群治本上 prod(87fe84a)+ 乾跑全綠(54 群/88 變體、handle 0)後開寫
   },
   ebc: {
     supplierSlug: 'ebc',
@@ -225,7 +226,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true, // 影片 45 群(YouTube watch 型、scout 實查)
     categoryStrategy: { kind: 'per-group' }, // 1 大類(煞車系統)
     variantImages: 'per-variant', // 抽群實測:群內各變體同一張圖(per-variant 直用等價)
-    writeAllowed: false, // 🔴 Q3=A seed 已 db push(brand 列在 prod),但乾跑揭露 35/68 群 pv_spec 撞鍵(EBC 煞車片同型號不同材質 HH/V/R/EP、空 spec {})=#274 同類、待變體建模,仍 false
+    writeAllowed: true, // ✅ 2026-07-11 #274 源頭填 spec(tier 材質軸、5fa0ad3)上 prod + 乾跑全綠(68 群/112 變體、pv_spec 撞鍵 0)後開寫
   },
 };
 
