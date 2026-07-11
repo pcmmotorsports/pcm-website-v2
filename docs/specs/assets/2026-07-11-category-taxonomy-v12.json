@@ -1,0 +1,3238 @@
+{
+ "tops": [
+  {
+   "name": "碳纖維部品",
+   "cnt": 9728,
+   "subs": [
+    {
+     "name": "碳纖維土除",
+     "cnt": 1000,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "油箱罩與側蓋",
+     "cnt": 2020,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "尾殼與單座蓋",
+     "cnt": 756,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "整流罩與下導流",
+     "cnt": 750,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "車頭罩與大燈罩",
+     "cnt": 590,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "儀表與風鏡外蓋",
+     "cnt": 527,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "定風翼與擾流",
+     "cnt": 525,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "鏈條蓋與齒盤護蓋",
+     "cnt": 653,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "引擎與排氣護蓋",
+     "cnt": 880,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "車台護蓋",
+     "cnt": 376,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "腳踏翅膀",
+     "cnt": 319,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "進氣與水箱導管",
+     "cnt": 440,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    },
+    {
+     "name": "其他碳纖維飾件",
+     "cnt": 892,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "rpm+lightech+cnc",
+       "raw": "品名關鍵字規則(29 組)",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 9728,
+       "example": "對三家碳纖商品全量套關鍵字;覆蓋 97.6%、漏網 216 筆入「其他」"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "腳踏後移與傳動",
+   "cnt": 1578,
+   "subs": [
+    {
+     "name": "腳踏後移組",
+     "cnt": 1059,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Rear Sets",
+       "raw_zh": "腳踏後移",
+       "old_major": "操控部品",
+       "cnt": 615,
+       "example": "Track System 腳踏後移組可調式腳踏座"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Rearsets",
+       "raw_zh": "腳踏後移組",
+       "old_major": "操控部品",
+       "cnt": 246,
+       "example": "孔蓋板暨綁帶固定座"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Rearsets",
+       "raw_zh": "腳踏後移組",
+       "old_major": "操控部品",
+       "cnt": 80,
+       "example": "鋁合金可調式腳踏後移組"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Carbon accessories for rearsets",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 48,
+       "example": "碳纖維腳踏翅膀（一對）"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Rearsets spare parts",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 40,
+       "example": "鋁合金煞車拉桿"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Rearsets accessories",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 22,
+       "example": "鋁合金前腳踏蓋套組"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "rearsets spare parts",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 8,
+       "example": "鐵螺絲組"
+      }
+     ]
+    },
+    {
+     "name": "齒盤與傳動",
+     "cnt": 256,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Transmission",
+       "raw_zh": "傳動齒盤組",
+       "old_major": "傳動齒比",
+       "cnt": 252,
+       "example": "Z43 齒盤（525 節距）"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Transmission",
+       "raw_zh": "傳動",
+       "old_major": "傳動齒比",
+       "cnt": 4,
+       "example": "後避震器內環座"
+      }
+     ]
+    },
+    {
+     "name": "鏈條調整器",
+     "cnt": 209,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Chain Adjusters",
+       "raw_zh": "鏈條調整器",
+       "old_major": "操控部品",
+       "cnt": 126,
+       "example": "鏈條調整器升降墊片組"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Chain Adjusters",
+       "raw_zh": "鏈條調整器",
+       "old_major": "操控部品",
+       "cnt": 83,
+       "example": "鋁合金鏈條調整器"
+      }
+     ]
+    },
+    {
+     "name": "腳踏配件",
+     "cnt": 43,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Footrest Blanking Plates",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 30,
+       "example": "後座腳踏拆除套組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Adventure Footpeg Set",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 9,
+       "example": "G5鈦合金越野腳踏組"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Toe Guards",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "碳纖維腳趾護蓋暨 GP 式駐車球底板組"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Heel Protector",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "腳踏翅膀 B款"
+      }
+     ]
+    },
+    {
+     "name": "鏈條護蓋",
+     "cnt": 11,
+     "sources": [
+      {
+       "supplier": "gbracing",
+       "raw": "CHAIN GUARDS",
+       "raw_zh": "鏈條護蓋",
+       "old_major": "操控部品",
+       "cnt": 8,
+       "example": "下鏈條護蓋"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Sproket Guard",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "齒盤護蓋"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Racing Sproket Guard",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "賽道齒盤護蓋"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "拉桿與把手",
+   "cnt": 2471,
+   "subs": [
+    {
+     "name": "煞車離合器拉桿",
+     "cnt": 1200,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Clutch-brake levers",
+       "raw_zh": "煞車與離合器拉桿",
+       "old_major": "操控部品",
+       "cnt": 401,
+       "example": "離合器拉桿"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Brake/Clutch Levers",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 351,
+       "example": "Evo 短版煞車離合器拉桿組"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Brake and Clutch Levers",
+       "raw_zh": "煞車/離合器拉桿",
+       "old_major": "操控部品",
+       "cnt": 253,
+       "example": "可收折煞車拉桿（H型）"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Brake And Clutch Levers",
+       "raw_zh": "煞車與離合器拉桿",
+       "old_major": "操控部品",
+       "cnt": 36,
+       "example": "鋁合金拉桿"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Clutch-brake levers",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 36,
+       "example": "離合器拉桿"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Brake Levers With Remote Adjuster",
+       "raw_zh": "煞車拉桿（含遠端調整）",
+       "old_major": "操控部品",
+       "cnt": 34,
+       "example": "鋁合金煞車拉桿（附有段位遠端調整按鈕）"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Brake Levers",
+       "raw_zh": "煞車拉桿",
+       "old_major": "操控部品",
+       "cnt": 25,
+       "example": "鋁合金拉桿"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Clutch Levers",
+       "raw_zh": "離合器拉桿",
+       "old_major": "操控部品",
+       "cnt": 21,
+       "example": "鋁合金拉桿"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Remote Adjuster",
+       "raw_zh": "遠端調整器",
+       "old_major": "操控部品",
+       "cnt": 13,
+       "example": "鋁合金煞車拉桿遠端調整旋鈕"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Complete Clutch Levers",
+       "raw_zh": "離合器拉桿總成",
+       "old_major": "操控部品",
+       "cnt": 10,
+       "example": "鋁合金離合器拉桿總成"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Lever",
+       "raw_zh": "拉桿",
+       "old_major": "操控部品",
+       "cnt": 6,
+       "example": "鎂鋁合金煞車離合器拉桿組"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Remote adjuster spare parts",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "鋁合金遠端調整器束環接頭組（標準版）"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Brake 品名含拉桿",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 12,
+       "example": "Diabolus 煞車離合器拉桿組、可調式煞車拉桿"
+      }
+     ],
+     "est": true
+    },
+    {
+     "name": "握把與平衡端子",
+     "cnt": 454,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Handlebar Balancers",
+       "raw_zh": "平衡端子",
+       "old_major": "操控部品",
+       "cnt": 289,
+       "example": "200系列平衡端子"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Bar End Weights",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 122,
+       "example": "平衡端子（賽道版）"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Handgrip",
+       "raw_zh": "握把套",
+       "old_major": "操控部品",
+       "cnt": 34,
+       "example": "復古握把"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "Handlebar Accessories",
+       "raw_zh": "",
+       "old_major": "騎士好物",
+       "cnt": 8,
+       "example": "防滑握把膠帶"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Brake 品名含握把",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 1,
+       "example": "Diabolus 菱格紋握把"
+      }
+     ],
+     "est": true
+    },
+    {
+     "name": "拉桿護弓",
+     "cnt": 349,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Brake / Clutch Protectors",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 132,
+       "example": "煞車離合器拉桿護弓組（賽道版）"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Lever Protections",
+       "raw_zh": "拉桿護弓",
+       "old_major": "操控部品",
+       "cnt": 111,
+       "example": "碳纖維離合器拉桿護弓"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "BRAKE & CLUTCH LEVER GUARDS",
+       "raw_zh": "拉桿護弓",
+       "old_major": "操控部品",
+       "cnt": 58,
+       "example": "煞車拉桿護弓 (18mm 把手端 13mm 襯套)"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Lever Protections",
+       "raw_zh": "拉桿護弓",
+       "old_major": "操控部品",
+       "cnt": 32,
+       "example": "鋁合金拉桿護弓"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Hand Guard Protectors",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 14,
+       "example": "把手護弓護蓋組"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Lever protections spare parts",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "鋁合金轉接座（碳纖維與EVO拉桿護弓專用）"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Carbon lever protection",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "真碳纖維拉桿護弓（右側）"
+      }
+     ]
+    },
+    {
+     "name": "把手與分離把",
+     "cnt": 285,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Handlebars",
+       "raw_zh": "把手與分離把",
+       "old_major": "操控部品",
+       "cnt": 160,
+       "example": "EVO 握把"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Handlebar",
+       "raw_zh": "把手",
+       "old_major": "操控部品",
+       "cnt": 44,
+       "example": "RZM Racing Fatbar低把手"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Handlebar Clip-ons",
+       "raw_zh": "分離把",
+       "old_major": "操控部品",
+       "cnt": 35,
+       "example": "把手座 offset 40mm Ø50"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Clip-ons",
+       "raw_zh": "分離式把手",
+       "old_major": "操控部品",
+       "cnt": 30,
+       "example": "50mm鋁合金分離把手（標準款）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Handle Bar Risers",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 11,
+       "example": "把手墊高座"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Clip-ons spare parts",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 4,
+       "example": "鋁合金左側加高支架 D.41"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Handlebars",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "EVO 握把"
+      }
+     ]
+    },
+    {
+     "name": "手把開關與週邊",
+     "cnt": 183,
+     "sources": [
+      {
+       "supplier": "motogadget",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 94,
+       "example": "熱縮套管"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Handlebar Switches",
+       "raw_zh": "手把開關",
+       "old_major": "電子系統",
+       "cnt": 38,
+       "example": "左手把開關（街道版）"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Handlebar Switches",
+       "raw_zh": "",
+       "old_major": "電子系統",
+       "cnt": 31,
+       "example": "左手把開關（街道版）"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Switch",
+       "raw_zh": "開關",
+       "old_major": "電子系統",
+       "cnt": 20,
+       "example": "義式風格開關"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "排氣系統",
+   "cnt": 730,
+   "subs": [
+    {
+     "name": "尾段排氣管(Slip-On)",
+     "cnt": 279,
+     "sources": [
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 256,
+       "example": "Slip-On Line 短尾段（碳纖維）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line Track Day",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 3,
+       "example": "鈦合金Track Day尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line GSX-R 600",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "碳纖維Slip-On尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line Integra",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "Slip-On Line 尾段（碳纖維）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line Gilera",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "不鏽鋼 Slip-On尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line GSX-R 600 11-",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "Slip-On Line 碳纖維排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line K 1200 R",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金Slip-On尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line WR 450 F",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Slip-On鈦合金尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line MT-03",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Slip-On尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line R 1200 GS",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Slip-On Line 尾段排氣管（鈦合金）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line CBR 1000 RR ABS",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "碳纖維Slip-On尾段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line MBK",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "不鏽鋼Slip-On尾段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line 06-08",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Slip-On Line 尾段排氣管（鈦合金）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line GT",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金Slip-On尾段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Track day Link pipe/Collector",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金Track Day中段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line 1098 / 1098S",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Slip-On Line 尾段（碳纖維）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line 700",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金Slip-On尾段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Slip-On Line RSV4",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "碳纖維Slip-On尾段"
+      }
+     ]
+    },
+    {
+     "name": "全段排氣管",
+     "cnt": 216,
+     "sources": [
+      {
+       "supplier": "akrapovic",
+       "raw": "Racing Line",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 87,
+       "example": "碳纖維Racing Line排氣管"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Exhaust",
+       "raw_zh": "排氣管",
+       "old_major": "排氣系統",
+       "cnt": 77,
+       "example": "Diabolus全段排氣管（黑尾段）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Evolution Line",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 43,
+       "example": "Evolution Line全鈦排氣管系統"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Racing Line - for Adventure Sports",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "鈦合金Racing Line全段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Racing Line MT-03",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "Racing Line 碳纖維全段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Evolution Line KIT",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金Evolution Line全段排氣管套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Evolution Header",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金Evolution頭段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Open Line Nightrod",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Open Line全段排氣管系統"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "EVO KIT Track day Link pipe",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金中段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Racing Line MT-07",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Racing Line鈦合金全段排氣管"
+      }
+     ]
+    },
+    {
+     "name": "頭段與中段",
+     "cnt": 96,
+     "sources": [
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Header",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 59,
+       "example": "不鏽鋼選配頭段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Link Pipe",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 10,
+       "example": "鈦合金選配中段管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Link Pipe",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 8,
+       "example": "鈦合金中段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Link Pipe/Collector",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 5,
+       "example": "鈦合金選配中段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional header",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 4,
+       "example": "選配頭段排氣管（鈦合金）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Track Day Link Pipe",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 3,
+       "example": "鈦合金中段（賽道用）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Header - for Adventure Sports",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "不鏽鋼選配頭段"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Track day Link pipe/Collector",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "賽道版不鏽鋼中段（消音）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Track Day Link Pipe/Collector",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "不銹鋼賽道中段排氣管"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Collector",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鈦合金選配集氣管"
+      }
+     ]
+    },
+    {
+     "name": "排氣管配件",
+     "cnt": 63,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Exhaust Hangers",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 28,
+       "example": "排氣管吊架暨後座腳踏拆除套組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Muffler bracket",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 12,
+       "example": "鋁合金尾段支架"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Muffler Bracket",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 5,
+       "example": "鋁合金尾段支架"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "氧感知器延長線組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Triumph Daytona 660",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Fitting Kit for mounting on Triumph Dayt…"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Yamaha Tracer 9 / GT / GT+ MY 2021-23",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "排氣管安裝套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Yamaha MT-09/FZ-09 MY 2024-2026",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "排氣管安裝套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Track Day Fitting  Kit",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Track Day排氣管安裝套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Triumph Trident 660",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Fitting Kit for mounting on Triumph Trid…"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Reassembly Set",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "不鏽鋼原廠復原套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Triumph Tiger Sport 660",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Fitting Kit for mounting on Triumph Tige…"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional muffler bracket for racing subframe",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "鋁合金排氣管固定座"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Saddle bag lift kit FLSTC",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "側箱增高套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Yamaha MT-09/FZ-09 MY 2021-2023",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "排氣管安裝套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Valve system",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "排氣管音量閥系統"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Fitting Kit for mounting on Yamaha Tracer 9 / GT / GT+ MY 2024",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "排氣管安裝套件"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Muffler bracket with Muffler clamp",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "碳纖維尾段吊架束環組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Shock absorber bracket",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "避震器支架"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Spark Arrester Set",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "防火花罩組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Passenger footrest fitting kit",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "後座腳踏安裝套件"
+      }
+     ]
+    },
+    {
+     "name": "隔熱罩與防燙蓋",
+     "cnt": 34,
+     "sources": [
+      {
+       "supplier": "akrapovic",
+       "raw": "Heat Shield",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 33,
+       "example": "碳纖維隔熱罩"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Heat Shield Set",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "碳纖維隔熱罩組"
+      }
+     ]
+    },
+    {
+     "name": "觸媒轉換器",
+     "cnt": 24,
+     "sources": [
+      {
+       "supplier": "akrapovic",
+       "raw": "Catalytic converter",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 19,
+       "example": "觸媒轉換器(配 Forza 2020 Racing Line S-H125R5-…"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Catalytic converter Set",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 3,
+       "example": "性能觸媒組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Catalytic converter S",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 2,
+       "example": "觸媒轉換器"
+      }
+     ]
+    },
+    {
+     "name": "消音塞",
+     "cnt": 18,
+     "sources": [
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Noise Damper",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 11,
+       "example": "選配消音塞"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional noise damper",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 4,
+       "example": "選配消音塞"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Noise damper",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "選配消音塞"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Optional Noise Damper Set",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "選配消音塞組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Noise damper",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "Noise damper"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "止滑貼與保護膜",
+   "cnt": 5142,
+   "subs": [
+    {
+     "name": "油箱止滑貼",
+     "cnt": 3011,
+     "sources": [
+      {
+       "supplier": "eazigrip",
+       "raw": "Tank Grips",
+       "raw_zh": "油箱止滑貼",
+       "old_major": "周邊配件",
+       "cnt": 2722,
+       "example": "油箱止滑貼"
+      },
+      {
+       "supplier": "eazigrip",
+       "raw": "Wrap Around Tank Grips",
+       "raw_zh": "環繞式油箱貼",
+       "old_major": "周邊配件",
+       "cnt": 201,
+       "example": "環繞式油箱貼"
+      },
+      {
+       "supplier": "eazigrip",
+       "raw": "Centre Tank Pads",
+       "raw_zh": "油箱中央墊",
+       "old_major": "周邊配件",
+       "cnt": 88,
+       "example": "油箱中央墊 款式G"
+      }
+     ]
+    },
+    {
+     "name": "儀表保護貼",
+     "cnt": 850,
+     "sources": [
+      {
+       "supplier": "eazigrip",
+       "raw": "Dashboard Protectors",
+       "raw_zh": "儀表板保護貼",
+       "old_major": "車殼外觀",
+       "cnt": 850,
+       "example": "儀表板保護貼"
+      }
+     ]
+    },
+    {
+     "name": "車身保護膜(犀牛皮)",
+     "cnt": 839,
+     "sources": [
+      {
+       "supplier": "eazigrip",
+       "raw": "Stone Chip Protection",
+       "raw_zh": "防石擊保護貼",
+       "old_major": "周邊配件",
+       "cnt": 553,
+       "example": "防石擊保護貼"
+      },
+      {
+       "supplier": "eazigrip",
+       "raw": "Scuff Guard",
+       "raw_zh": "防刮護板",
+       "old_major": "周邊配件",
+       "cnt": 142,
+       "example": "防刮護板"
+      },
+      {
+       "supplier": "eazigrip",
+       "raw": "Tank PPF",
+       "raw_zh": "油箱透明保護膜",
+       "old_major": "周邊配件",
+       "cnt": 116,
+       "example": "油箱透明保護膜"
+      },
+      {
+       "supplier": "eazigrip",
+       "raw": "Pannier Protection Kits",
+       "raw_zh": "邊箱保護貼組",
+       "old_major": "周邊配件",
+       "cnt": 28,
+       "example": "邊箱保護貼組"
+      }
+     ]
+    },
+    {
+     "name": "保護貼套裝組合",
+     "cnt": 442,
+     "sources": [
+      {
+       "supplier": "eazigrip",
+       "raw": "Bundles",
+       "raw_zh": "套裝組合",
+       "old_major": "周邊配件",
+       "cnt": 442,
+       "example": "套裝組合"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "引擎與冷卻",
+   "cnt": 14714,
+   "subs": [
+    {
+     "name": "防爆水管組",
+     "cnt": 13165,
+     "sources": [
+      {
+       "supplier": "samco",
+       "raw": "hose_kit",
+       "raw_zh": "水管組",
+       "old_major": "引擎部品",
+       "cnt": 13034,
+       "example": "防爆水管 3件組"
+      },
+      {
+       "supplier": "eazigrip",
+       "raw": "Silicone Hose Kits",
+       "raw_zh": "矽膠水管組",
+       "old_major": "引擎部品",
+       "cnt": 131,
+       "example": "矽膠水管組"
+      }
+     ]
+    },
+    {
+     "name": "水管束環",
+     "cnt": 671,
+     "sources": [
+      {
+       "supplier": "samco",
+       "raw": "clamp_kit",
+       "raw_zh": "束環套件",
+       "old_major": "周邊配件",
+       "cnt": 671,
+       "example": "束環套件"
+      }
+     ]
+    },
+    {
+     "name": "離合器機構與分泵",
+     "cnt": 278,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "cncracing+lightech",
+       "raw": "Clutch 其餘(壓板/彈簧/摩擦片/分泵/滑動套組)",
+       "raw_zh": "",
+       "old_major": "引擎部品",
+       "cnt": 275,
+       "example": "齒輪版離合器分泵 Ø30mm、鋁合金離合器壓板、MASTER TECH 滑動式離合器套組"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Brake 品名含Takegawa 離合器組件",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 3,
+       "example": "Takegawa Mini 離合器分泵、迷你拉索離合器組"
+      }
+     ]
+    },
+    {
+     "name": "離合器外蓋",
+     "cnt": 272,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "cncracing+lightech",
+       "raw": "Clutch 品名含外蓋/護蓋",
+       "raw_zh": "",
+       "old_major": "引擎部品",
+       "cnt": 272,
+       "example": "透明離合器外蓋(陽極雙色/濕式各版本)"
+      }
+     ]
+    },
+    {
+     "name": "機油孔蓋",
+     "cnt": 168,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Engine Oil Filler Caps",
+       "raw_zh": "機油孔蓋",
+       "old_major": "引擎部品",
+       "cnt": 98,
+       "example": "機油加注蓋"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Oil Caps",
+       "raw_zh": "機油孔蓋",
+       "old_major": "引擎部品",
+       "cnt": 70,
+       "example": "鋁合金機油加注蓋"
+      }
+     ]
+    },
+    {
+     "name": "引擎精品件",
+     "cnt": 160,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Engine",
+       "raw_zh": "引擎部品",
+       "old_major": "引擎部品",
+       "cnt": 160,
+       "example": "正時檢查孔護蓋 貼紙版"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "車身防護與防摔",
+   "cnt": 2353,
+   "subs": [
+    {
+     "name": "車身防倒球與滑塊",
+     "cnt": 1064,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Protections",
+       "raw_zh": "防護配備",
+       "old_major": "操控部品",
+       "cnt": 402,
+       "example": "間隔套"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Protectors",
+       "raw_zh": "車身防護",
+       "old_major": "操控部品",
+       "cnt": 350,
+       "example": "前煞車拉桿護弓（賽道版）"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "BULLET FRAME SLIDERS",
+       "raw_zh": "車身防倒球",
+       "old_major": "操控部品",
+       "cnt": 131,
+       "example": "替換用車身防倒球 (左) 街道版"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Crash Protection",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 102,
+       "example": "防倒球"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Protector",
+       "raw_zh": "防護配件",
+       "old_major": "操控部品",
+       "cnt": 45,
+       "example": "CNC後土除側蓋"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "XL BULLET FRAME SLIDERS",
+       "raw_zh": "車身防倒球",
+       "old_major": "操控部品",
+       "cnt": 17,
+       "example": "XL 車身防倒球組 街道版"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "CRASH MUSHROOM FRAME SLIDERS",
+       "raw_zh": "車身防倒球",
+       "old_major": "操控部品",
+       "cnt": 15,
+       "example": "防倒球 (左右兩側)"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Protectors",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "前煞車拉桿護弓（賽道版）"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Accessories And Spare Parts for Protections",
+       "raw_zh": "防護用品的配件和備件",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "防倒球右側替換滑塊（含螺絲）"
+      }
+     ]
+    },
+    {
+     "name": "引擎護蓋與護桿",
+     "cnt": 567,
+     "sources": [
+      {
+       "supplier": "gbracing",
+       "raw": "ENGINE PROTECTION",
+       "raw_zh": "引擎護蓋",
+       "old_major": "引擎部品",
+       "cnt": 455,
+       "example": "電盤外蓋護蓋"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Engine Protections",
+       "raw_zh": "引擎護蓋",
+       "old_major": "引擎部品",
+       "cnt": 77,
+       "example": "鋁合金引擎保護蓋套組"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Engine Guards",
+       "raw_zh": "",
+       "old_major": "引擎部品",
+       "cnt": 30,
+       "example": "引擎下護板"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Engine protections",
+       "raw_zh": "",
+       "old_major": "引擎部品",
+       "cnt": 2,
+       "example": "鋁合金引擎保護蓋（離合器側）"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Protection Bar Set",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "鈦合金引擎護桿組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Upper Protection Bar Set",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "鈦合金上護桿組"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Lower Protection Bar Set",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "鈦合金下護桿組"
+      }
+     ]
+    },
+    {
+     "name": "輪軸防倒球",
+     "cnt": 243,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Spindle Bobbins",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 187,
+       "example": "輪軸防倒球組"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "SPINDLE PROTECTORS",
+       "raw_zh": "輪軸防倒球",
+       "old_major": "操控部品",
+       "cnt": 56,
+       "example": "輪軸防倒球 後左"
+      }
+     ]
+    },
+    {
+     "name": "車架護蓋與孔塞",
+     "cnt": 231,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Frame caps",
+       "raw_zh": "車架孔塞",
+       "old_major": "車架",
+       "cnt": 227,
+       "example": "車架孔塞套組"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "FRAME PROTECTORS",
+       "raw_zh": "車台護蓋",
+       "old_major": "操控部品",
+       "cnt": 4,
+       "example": "M6 車架護蓋 左"
+      }
+     ]
+    },
+    {
+     "name": "水箱護網",
+     "cnt": 204,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Radiator Guards",
+       "raw_zh": "",
+       "old_major": "引擎部品",
+       "cnt": 183,
+       "example": "水箱護網"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Radiator Guards",
+       "raw_zh": "水箱護網",
+       "old_major": "操控部品",
+       "cnt": 21,
+       "example": "水箱護網"
+      }
+     ]
+    },
+    {
+     "name": "儀表護蓋",
+     "cnt": 44,
+     "sources": [
+      {
+       "supplier": "bonamici",
+       "raw": "Dashboard Protections",
+       "raw_zh": "儀表護蓋",
+       "old_major": "車殼外觀",
+       "cnt": 23,
+       "example": "鋁合金儀表護蓋"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Dashboard Cover",
+       "raw_zh": "儀表外蓋",
+       "old_major": "車殼外觀",
+       "cnt": 15,
+       "example": "儀表外蓋"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "DASH PROTECTORS",
+       "raw_zh": "儀表護蓋",
+       "old_major": "車殼外觀",
+       "cnt": 4,
+       "example": "ECUMASTER 儀表護蓋 (聚碳酸酯印刷蓋, Solo Dash 用)"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Dashboard protections spare parts",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 2,
+       "example": "PMMA玻璃替換用零件（2D）"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "精品螺絲與螺帽",
+   "cnt": 5340,
+   "subs": [
+    {
+     "name": "精品螺絲組",
+     "cnt": 5120,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Bolts",
+       "raw_zh": "螺絲",
+       "old_major": "操控部品",
+       "cnt": 4346,
+       "example": "墊片 M6"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Screw kit",
+       "raw_zh": "螺絲組",
+       "old_major": "操控部品",
+       "cnt": 574,
+       "example": "鑰匙護蓋螺絲組"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "BOLTS & WASHERS",
+       "raw_zh": "螺絲/墊片",
+       "old_major": "操控部品",
+       "cnt": 85,
+       "example": "M8 鈦合金法蘭頭螺絲 賽道規"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Bolt",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 76,
+       "example": "M10 x 80 x 1.5mm 內六角不鏽鋼螺絲"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Caliper Bolt",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 34,
+       "example": "前卡鉗螺絲組（賽道版）"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Screw kit",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 3,
+       "example": "鑰匙護蓋螺絲組"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Windshield screws",
+       "raw_zh": "風鏡螺絲",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "風鏡螺絲"
+      }
+     ]
+    },
+    {
+     "name": "精品螺帽",
+     "cnt": 220,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Nuts",
+       "raw_zh": "螺帽",
+       "old_major": "操控部品",
+       "cnt": 119,
+       "example": "後輪軸螺帽 M25x1.25"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Special Nuts",
+       "raw_zh": "特殊螺帽",
+       "old_major": "操控部品",
+       "cnt": 101,
+       "example": "特殊螺帽"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "煞車系統",
+   "cnt": 584,
+   "subs": [
+    {
+     "name": "油杯與油杯蓋",
+     "cnt": 379,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Fluid reservoirs",
+       "raw_zh": "油杯",
+       "old_major": "煞車系統",
+       "cnt": 210,
+       "example": "煞車及離合器油杯蓋"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Brake and Clutch Fluid Tank Caps",
+       "raw_zh": "油杯蓋",
+       "old_major": "煞車系統",
+       "cnt": 101,
+       "example": "7075 鋁合金（Ergal）煞車離合器油杯蓋"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Fluid Tank for Brake and Clutch",
+       "raw_zh": "油杯",
+       "old_major": "煞車系統",
+       "cnt": 22,
+       "example": "煞車/離合器油杯 30cc"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Fluid Reservoirs",
+       "raw_zh": "油杯",
+       "old_major": "煞車系統",
+       "cnt": 16,
+       "example": "鋁合金煞車油杯"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Fluid resevoirs",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 8,
+       "example": "鋁合金煞車油杯"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Fluid reservoirs",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 3,
+       "example": "煞車及離合器油杯蓋"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Brake fluid accessories",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 1,
+       "example": "鋁合金8ml油杯固定座"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Rear Fluid Reservoirs Accessories",
+       "raw_zh": "後油杯配件",
+       "old_major": "煞車系統",
+       "cnt": 1,
+       "example": "鋁合金油杯固定座"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Brake 品名含總泵護蓋/泵蓋/油杯蓋",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 17,
+       "example": "Diabolus 煞車總泵護蓋、CNC煞車總泵油杯蓋"
+      }
+     ],
+     "est": true
+    },
+    {
+     "name": "煞車皮(來令片)",
+     "cnt": 112,
+     "sources": [
+      {
+       "supplier": "ebc",
+       "raw": "brake_pads",
+       "raw_zh": "煞車皮",
+       "old_major": "煞車系統",
+       "cnt": 112,
+       "example": "EBC FA679HH 前輪煞車皮"
+      }
+     ]
+    },
+    {
+     "name": "卡鉗護蓋與散熱導風罩",
+     "cnt": 75,
+     "sources": [
+      {
+       "supplier": "front3d",
+       "raw": "Brake Cooler",
+       "raw_zh": "卡鉗散熱進氣風罩",
+       "old_major": "煞車系統",
+       "cnt": 26,
+       "example": "卡鉗散熱導風罩"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Caliper Guards",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 15,
+       "example": "前卡鉗護蓋"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "GP Brake Cooler",
+       "raw_zh": "GP卡鉗散熱進氣風罩",
+       "old_major": "煞車系統",
+       "cnt": 12,
+       "example": "GP卡鉗散熱導風罩"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Axial Brake Cooler",
+       "raw_zh": "卡鉗散熱進氣風罩",
+       "old_major": "煞車系統",
+       "cnt": 7,
+       "example": "側向卡鉗散熱導風罩 FATTY版, Motomaster 卡鉗 320mm 碟盤…"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Radial Brake Cooler",
+       "raw_zh": "卡鉗散熱進氣風罩",
+       "old_major": "煞車系統",
+       "cnt": 7,
+       "example": "輻射式卡鉗散熱導風罩 108mm卡鉗 10mm墊片"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Dual Brake Cooler",
+       "raw_zh": "雙卡鉗散熱進氣風罩",
+       "old_major": "煞車系統",
+       "cnt": 6,
+       "example": "雙卡鉗散熱導風罩"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Smooth Brake Coller",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 1,
+       "example": "平面卡鉗散熱導風罩"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Rear Brake Cooler",
+       "raw_zh": "卡鉗散熱進氣風罩",
+       "old_major": "煞車系統",
+       "cnt": 1,
+       "example": "後卡鉗散熱導風罩"
+      }
+     ]
+    },
+    {
+     "name": "煞車碟盤",
+     "cnt": 18,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Brake 品名含碟盤",
+       "raw_zh": "",
+       "old_major": "煞車系統",
+       "cnt": 18,
+       "example": "ARASHI 前/後煞車碟盤、Diabolus 花瓣紋碟盤組、黑金浮動碟盤"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "懸吊與車架",
+   "cnt": 359,
+   "subs": [
+    {
+     "name": "車架與前叉部品",
+     "cnt": 256,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Chassis",
+       "raw_zh": "車架前叉部品",
+       "old_major": "車架",
+       "cnt": 238,
+       "example": "方向柱鎖環"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Chassis",
+       "raw_zh": "",
+       "old_major": "車架",
+       "cnt": 18,
+       "example": "方向柱鎖環"
+      }
+     ]
+    },
+    {
+     "name": "三角台",
+     "cnt": 68,
+     "sources": [
+      {
+       "supplier": "bonamici",
+       "raw": "Triple Clamps",
+       "raw_zh": "三角台",
+       "old_major": "操控部品",
+       "cnt": 68,
+       "example": "鋁合金上三角台（賽道版）"
+      }
+     ]
+    },
+    {
+     "name": "避震器",
+     "cnt": 29,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Shock Absorber",
+       "raw_zh": "避震器",
+       "old_major": "避震系統",
+       "cnt": 29,
+       "example": "Diabolus可調式避震器"
+      }
+     ]
+    },
+    {
+     "name": "輪圈",
+     "cnt": 6,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Wheel",
+       "raw_zh": "輪圈",
+       "old_major": "操控部品",
+       "cnt": 6,
+       "example": "17吋輪圈組（36孔）"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "燈具與電子",
+   "cnt": 1044,
+   "subs": [
+    {
+     "name": "電裝與線材",
+     "cnt": 604,
+     "sources": [
+      {
+       "supplier": "motogadget",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "騎士好物",
+       "cnt": 495,
+       "example": "熱縮套管"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "電子系統",
+       "cnt": 169,
+       "example": "熱縮套管"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Rectifier",
+       "raw_zh": "",
+       "old_major": "電子系統",
+       "cnt": 11,
+       "example": "整流器護蓋"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Wire Connector",
+       "raw_zh": "",
+       "old_major": "電子系統",
+       "cnt": 9,
+       "example": "方向燈線組轉接套組"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Electronics",
+       "raw_zh": "電子部品",
+       "old_major": "操控部品",
+       "cnt": 3,
+       "example": "換檔連桿（170mm）"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Electronics",
+       "raw_zh": "",
+       "old_major": "電子系統",
+       "cnt": 3,
+       "example": "換檔連桿（170mm）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "USB Charger",
+       "raw_zh": "",
+       "old_major": "電子系統",
+       "cnt": 2,
+       "example": "USB C 充電器"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Electronics",
+       "raw_zh": "電子部品",
+       "old_major": "引擎部品",
+       "cnt": 1,
+       "example": "換檔連桿（170mm）"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Electronics",
+       "raw_zh": "電子部品",
+       "old_major": "電子系統",
+       "cnt": 1,
+       "example": "換檔連桿（170mm）"
+      }
+     ],
+     "est": true
+    },
+    {
+     "name": "方向燈",
+     "cnt": 246,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Turn signal",
+       "raw_zh": "方向燈",
+       "old_major": "燈具方向燈",
+       "cnt": 77,
+       "example": "鍍鉻方向燈"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Indicator",
+       "raw_zh": "",
+       "old_major": "燈具方向燈",
+       "cnt": 59,
+       "example": "方向燈組（前後四入）"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Led Turn Signals and Rear Lights",
+       "raw_zh": "LED方向燈和尾燈",
+       "old_major": "燈具方向燈",
+       "cnt": 47,
+       "example": "E8 認證方向燈組"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "燈具方向燈",
+       "cnt": 39,
+       "example": "熱縮套管"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Turn indicators",
+       "raw_zh": "方向燈",
+       "old_major": "燈具方向燈",
+       "cnt": 24,
+       "example": "方向燈安裝轉接板"
+      }
+     ]
+    },
+    {
+     "name": "儀表與控制器",
+     "cnt": 90,
+     "est": true,
+     "sources": [
+      {
+       "supplier": "motogadget",
+       "raw": "品名含 motoscope/儀表/控制盒/繼電器",
+       "raw_zh": "",
+       "old_major": "騎士好物/電子系統",
+       "cnt": 90,
+       "example": "motoscope chronoclassic 儀表、mo.can J1850 診斷模組"
+      }
+     ]
+    },
+    {
+     "name": "尾燈",
+     "cnt": 56,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Taillight",
+       "raw_zh": "尾燈",
+       "old_major": "燈具方向燈",
+       "cnt": 56,
+       "example": "橢圓形LED尾燈"
+      }
+     ]
+    },
+    {
+     "name": "大燈與護網",
+     "cnt": 48,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Headlight",
+       "raw_zh": "大燈",
+       "old_major": "燈具方向燈",
+       "cnt": 33,
+       "example": "美式恰霸大燈"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Headlight Guards",
+       "raw_zh": "",
+       "old_major": "燈具方向燈",
+       "cnt": 15,
+       "example": "大燈護網"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "外觀與後視鏡",
+   "cnt": 3201,
+   "subs": [
+    {
+     "name": "短牌架",
+     "cnt": 1653,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "License Plate Holders",
+       "raw_zh": "短牌架",
+       "old_major": "操控部品",
+       "cnt": 1453,
+       "example": "可調式牌照架"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Tail Tidies",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 167,
+       "example": "短牌架"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Plate holder",
+       "raw_zh": "牌照架",
+       "old_major": "操控部品",
+       "cnt": 29,
+       "example": "LED 牌照燈"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "License Plate Holder 2",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "後牌架 2 不含牌照燈"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Plate holder",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "LED 牌照燈"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "License Plate Holder",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 1,
+       "example": "後牌架"
+      }
+     ]
+    },
+    {
+     "name": "端子後照鏡",
+     "cnt": 604,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Mirrors and Mirror Block-Off Plates",
+       "raw_zh": "後照鏡/後照鏡蓋",
+       "old_major": "後視鏡",
+       "cnt": 130,
+       "example": "鋁合金後照鏡（右側）"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 91,
+       "example": "熱縮套管"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Mirror",
+       "raw_zh": "後照鏡",
+       "old_major": "後視鏡",
+       "cnt": 87,
+       "example": "CNC端子後照鏡（Super Mini）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Bar End Mirrors",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 80,
+       "example": "端子後照鏡（復古款）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Bar End Mirrors / Brake Protector",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 71,
+       "example": "端子後照鏡與煞車拉桿護弓套組（運動版）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Bar End Mirrors / Brake and Clutch Protector Kit",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 70,
+       "example": "端子後照鏡與煞車離合器拉桿護弓套組（運動版）"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Mirrors",
+       "raw_zh": "後照鏡",
+       "old_major": "後視鏡",
+       "cnt": 53,
+       "example": "鋁合金端子後照鏡轉接套件"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Mirrors",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 22,
+       "example": "鋁合金端子後照鏡轉接套件"
+      }
+     ]
+    },
+    {
+     "name": "油箱蓋",
+     "cnt": 335,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Fuel Tank Caps",
+       "raw_zh": "油箱蓋",
+       "old_major": "車殼外觀",
+       "cnt": 138,
+       "example": "鋁合金快拆油箱蓋"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Tank Cap",
+       "raw_zh": "油箱蓋",
+       "old_major": "車殼外觀",
+       "cnt": 136,
+       "example": "鋁合金油箱蓋"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Fuel tank caps",
+       "raw_zh": "油箱蓋",
+       "old_major": "車殼外觀",
+       "cnt": 61,
+       "example": "油箱蓋"
+      }
+     ]
+    },
+    {
+     "name": "土除與外觀飾蓋",
+     "cnt": 201,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Cover",
+       "raw_zh": "外觀件",
+       "old_major": "車殼外觀",
+       "cnt": 143,
+       "example": "Motive 三件式引擎護蓋組"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Fender",
+       "raw_zh": "土除",
+       "old_major": "車殼外觀",
+       "cnt": 29,
+       "example": "Diabolus 前後不鏽鋼土除組"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Track Days Plate",
+       "raw_zh": "賽道日大燈罩",
+       "old_major": "車殼外觀",
+       "cnt": 8,
+       "example": "賽道日大燈罩"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Tank Tabs",
+       "raw_zh": "油箱鎖點蓋板",
+       "old_major": "車殼外觀",
+       "cnt": 8,
+       "example": "油箱鎖點蓋板"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Pan Panel",
+       "raw_zh": "側蓋",
+       "old_major": "車殼外觀",
+       "cnt": 7,
+       "example": "Diabolus ABS塑料側蓋"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Headlight Cover",
+       "raw_zh": "大燈罩",
+       "old_major": "車殼外觀",
+       "cnt": 2,
+       "example": "大燈罩"
+      },
+      {
+       "supplier": "akrapovic",
+       "raw": "Mudguard",
+       "raw_zh": "",
+       "old_major": "排氣系統",
+       "cnt": 1,
+       "example": "擋泥板"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Tail Extension",
+       "raw_zh": "單座尾蓋",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "單座尾蓋"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Headlight Caps",
+       "raw_zh": "大燈孔蓋",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "大燈孔蓋"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Headlight cover",
+       "raw_zh": "大燈罩",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "大燈罩"
+      }
+     ]
+    },
+    {
+     "name": "風鏡與定風翼",
+     "cnt": 196,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Fly Screen",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 44,
+       "example": "風鏡"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Windscreens",
+       "raw_zh": "風鏡",
+       "old_major": "車殼外觀",
+       "cnt": 40,
+       "example": "風鏡"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Flyscreen",
+       "raw_zh": "小風鏡",
+       "old_major": "車殼外觀",
+       "cnt": 29,
+       "example": "小風鏡"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Windshield",
+       "raw_zh": "風鏡",
+       "old_major": "車殼外觀",
+       "cnt": 24,
+       "example": "煙燻風鏡"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Side Wings",
+       "raw_zh": "側定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 12,
+       "example": "側定風翼"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Front Spoiler",
+       "raw_zh": "前下擾流板",
+       "old_major": "車殼外觀",
+       "cnt": 6,
+       "example": "前下擾流板 待上漆"
+      },
+      {
+       "supplier": "materya",
+       "raw": "FlyScreen",
+       "raw_zh": "小風鏡",
+       "old_major": "車殼外觀",
+       "cnt": 6,
+       "example": "小風鏡"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Double Side Wings",
+       "raw_zh": "雙側定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 4,
+       "example": "雙側定風翼"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Universal Fork Winglets",
+       "raw_zh": "前叉定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 4,
+       "example": "通用前叉定風翼 一代 45-50mm"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Winglets",
+       "raw_zh": "定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 4,
+       "example": "定風翼"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Winglets",
+       "raw_zh": "定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 4,
+       "example": "定風翼"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Wings Blanking Caps",
+       "raw_zh": "定風翼移除飾蓋",
+       "old_major": "車殼外觀",
+       "cnt": 4,
+       "example": "定風翼移除飾蓋"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Tail Fins",
+       "raw_zh": "尾翼",
+       "old_major": "車殼外觀",
+       "cnt": 3,
+       "example": "尾翼"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Windscreen",
+       "raw_zh": "",
+       "old_major": "車殼外觀",
+       "cnt": 2,
+       "example": "風鏡"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Front Winglets",
+       "raw_zh": "前定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 2,
+       "example": "前定風翼"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Front Winglet",
+       "raw_zh": "前定風翼 下巴",
+       "old_major": "車殼外觀",
+       "cnt": 2,
+       "example": "前定風翼 下巴"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Front Spoiler 2",
+       "raw_zh": "前下擾流板",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "前下擾流板 二代"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Side Wings 2.0",
+       "raw_zh": "側定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "側定風翼 2.0"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "(NULL)",
+       "raw_zh": "尾翼",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "通用尾翼"
+      },
+      {
+       "supplier": "front3d",
+       "raw": "Fork Winglets V1",
+       "raw_zh": "前叉定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "前叉定風翼 V1"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Windshield",
+       "raw_zh": "風鏡",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "風鏡"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Side Winglets",
+       "raw_zh": "側定風翼",
+       "old_major": "車殼外觀",
+       "cnt": 1,
+       "example": "側定風翼"
+      }
+     ]
+    },
+    {
+     "name": "座椅與坐墊",
+     "cnt": 171,
+     "sources": [
+      {
+       "supplier": "kspeed",
+       "raw": "Seat",
+       "raw_zh": "座椅",
+       "old_major": "車殼外觀",
+       "cnt": 150,
+       "example": "Diabolus十字紋座椅"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Seat cover",
+       "raw_zh": "坐墊皮套",
+       "old_major": "車殼外觀",
+       "cnt": 17,
+       "example": "坐墊皮套"
+      },
+      {
+       "supplier": "materya",
+       "raw": "Seat Cover",
+       "raw_zh": "單座蓋",
+       "old_major": "車殼外觀",
+       "cnt": 3,
+       "example": "單座蓋"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Seat Cover",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 1,
+       "example": "後座蓋"
+      }
+     ]
+    },
+    {
+     "name": "後照鏡蓋與配件",
+     "cnt": 41,
+     "sources": [
+      {
+       "supplier": "bonamici",
+       "raw": "Block Mirrors",
+       "raw_zh": "後照鏡蓋",
+       "old_major": "後視鏡",
+       "cnt": 18,
+       "example": "鋁合金後照鏡孔蓋"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Mirror Blanking Plates",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 8,
+       "example": "後照鏡孔蓋"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Mirror Extensions",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 7,
+       "example": "後照鏡外移座"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Mirror Spare",
+       "raw_zh": "",
+       "old_major": "後視鏡",
+       "cnt": 5,
+       "example": "端子後照鏡左側替換鏡臂"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Mirror Caps",
+       "raw_zh": "後照鏡蓋",
+       "old_major": "後視鏡",
+       "cnt": 3,
+       "example": "後照鏡孔蓋"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "騎士用品與配件",
+   "cnt": 2139,
+   "subs": [
+    {
+     "name": "手機架與導航支架",
+     "cnt": 1229,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Sat Nav Handle Bar Version",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 573,
+       "example": "SP Connect 衛星導航手機架"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Sat Nav Mounts",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 510,
+       "example": "TomTom 衛星導航手機架"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Sat Nav Top Yoke Mount",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 98,
+       "example": "SP Connect 上三角台衛星導航手機架"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Quadlock",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 40,
+       "example": "Quad Lock MAG 替換色環（黑色）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Peak Design",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 8,
+       "example": "Peak Design GNAR iPhone 16 Pro 手機保護殼"
+      }
+     ]
+    },
+    {
+     "name": "駐車架與駐車球",
+     "cnt": 309,
+     "sources": [
+      {
+       "supplier": "cncracing",
+       "raw": "Garage",
+       "raw_zh": "保養工具與腳架",
+       "old_major": "駐車架",
+       "cnt": 89,
+       "example": "搖臂駐車球"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Swing Arm Spools",
+       "raw_zh": "駐車球",
+       "old_major": "操控部品",
+       "cnt": 82,
+       "example": "鋁合金駐車球"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Stands",
+       "raw_zh": "駐車架",
+       "old_major": "駐車架",
+       "cnt": 49,
+       "example": "後輪駐車架專用插銷"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Swingarm Spools",
+       "raw_zh": "駐車球",
+       "old_major": "操控部品",
+       "cnt": 32,
+       "example": "駐車球（M8）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Paddock Stand bobbins",
+       "raw_zh": "",
+       "old_major": "駐車架",
+       "cnt": 23,
+       "example": "駐車球"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "PADDOCK STAND BOBBINS",
+       "raw_zh": "駐車球",
+       "old_major": "駐車架",
+       "cnt": 14,
+       "example": "替換用前輪軸防倒球 (右)"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Paddock Equipment",
+       "raw_zh": "賽道裝備",
+       "old_major": "駐車架",
+       "cnt": 11,
+       "example": "油門保護器"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Side Stand Extension Plate",
+       "raw_zh": "",
+       "old_major": "駐車架",
+       "cnt": 7,
+       "example": "側柱加大底座"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Carbon Stands",
+       "raw_zh": "碳纖維駐車架",
+       "old_major": "駐車架",
+       "cnt": 2,
+       "example": "後駐車架"
+      }
+     ]
+    },
+    {
+     "name": "其他配件(待細分)",
+     "cnt": 234,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Accessories",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 147,
+       "example": "油箱保護貼"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Others",
+       "raw_zh": "其他",
+       "old_major": "周邊配件",
+       "cnt": 72,
+       "example": "Diabolus CNC大燈調整支架"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Accessories",
+       "raw_zh": "配件",
+       "old_major": "周邊配件",
+       "cnt": 14,
+       "example": "排氣管尾端飾蓋"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "ACCESSORIES",
+       "raw_zh": "配件",
+       "old_major": "周邊配件",
+       "cnt": 1,
+       "example": "GBRacing 機車地墊"
+      }
+     ]
+    },
+    {
+     "name": "攝影機支架",
+     "cnt": 151,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Action Camera Mount",
+       "raw_zh": "",
+       "old_major": "周邊配件",
+       "cnt": 150,
+       "example": "後向運動攝影機座"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "FIXED MOUNTS",
+       "raw_zh": "運動攝影機架",
+       "old_major": "周邊配件",
+       "cnt": 1,
+       "example": "GoPro 攝影機固定座"
+      }
+     ]
+    },
+    {
+     "name": "騎士服飾",
+     "cnt": 112,
+     "sources": [
+      {
+       "supplier": "gbracing",
+       "raw": "CLOTHING & ACCESSORIES",
+       "raw_zh": "衣物與週邊",
+       "old_major": "服飾配備",
+       "cnt": 55,
+       "example": "GBRacing 黑色雨傘"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "服飾配備",
+       "cnt": 23,
+       "example": "男款黑色軟殼外套 XS"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Knee Sliders",
+       "raw_zh": "膝蓋滑塊",
+       "old_major": "騎士好物",
+       "cnt": 17,
+       "example": "護膝滑塊（一對）"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Clothing",
+       "raw_zh": "",
+       "old_major": "服飾配備",
+       "cnt": 5,
+       "example": "Evotech Performance 帽T"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "T-Shirt",
+       "raw_zh": "",
+       "old_major": "服飾配備",
+       "cnt": 5,
+       "example": "短袖 T 恤（S 號）"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "FIRE SAFETY CLOTHING",
+       "raw_zh": "防火衣物",
+       "old_major": "服飾配備",
+       "cnt": 3,
+       "example": "OMP 雙層 Nomex 露面頭套 FIA 8856 SFI 3.3 認證"
+      },
+      {
+       "supplier": "evotech",
+       "raw": "Bobble hat",
+       "raw_zh": "",
+       "old_major": "服飾配備",
+       "cnt": 2,
+       "example": "純棉針織毛帽"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "(NULL)",
+       "raw_zh": "",
+       "old_major": "操控部品",
+       "cnt": 2,
+       "example": "男款黑色軟殼外套 XS"
+      }
+     ]
+    },
+    {
+     "name": "精品小物",
+     "cnt": 58,
+     "sources": [
+      {
+       "supplier": "lightech",
+       "raw": "Merchandising",
+       "raw_zh": "商品銷售",
+       "old_major": "騎士好物",
+       "cnt": 14,
+       "example": "LighTech 連帽上衣"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "STICKERS & VOUCHERS",
+       "raw_zh": "貼紙與宣傳物品",
+       "old_major": "騎士好物",
+       "cnt": 11,
+       "example": "4 吋白色貼紙"
+      },
+      {
+       "supplier": "lightech",
+       "raw": "Stickers",
+       "raw_zh": "貼紙",
+       "old_major": "周邊配件",
+       "cnt": 10,
+       "example": "貼紙組"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Merchandising",
+       "raw_zh": "周邊商品",
+       "old_major": "騎士好物",
+       "cnt": 8,
+       "example": "棉質煞車油杯保護套"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Gadget",
+       "raw_zh": "精品小物",
+       "old_major": "騎士好物",
+       "cnt": 8,
+       "example": "鋼製扣環把手馬克杯"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Marketing Material",
+       "raw_zh": "行銷素材",
+       "old_major": "騎士好物",
+       "cnt": 2,
+       "example": "鋁合金腳踏後移組支架"
+      },
+      {
+       "supplier": "bonamici",
+       "raw": "Customization",
+       "raw_zh": "",
+       "old_major": "騎士好物",
+       "cnt": 2,
+       "example": "雙件式雷射雕刻"
+      },
+      {
+       "supplier": "cncracing",
+       "raw": "Apparel",
+       "raw_zh": "服飾配件",
+       "old_major": "騎士好物",
+       "cnt": 1,
+       "example": "鑰匙圈"
+      },
+      {
+       "supplier": "gbracing",
+       "raw": "GBRACING UPGRADED PRODUCT LOGO",
+       "raw_zh": "引擎護蓋 Logo 貼",
+       "old_major": "騎士好物",
+       "cnt": 1,
+       "example": "GBRacing 升級版 Logo 貼塊 (3 入)"
+      },
+      {
+       "supplier": "materya",
+       "raw": "(NULL)",
+       "raw_zh": "煞車油杯套",
+       "old_major": "騎士好物",
+       "cnt": 1,
+       "example": "煞車油杯套"
+      }
+     ]
+    },
+    {
+     "name": "行李與包袋",
+     "cnt": 46,
+     "sources": [
+      {
+       "supplier": "evotech",
+       "raw": "Pannier/Topbox Mounting Brackets",
+       "raw_zh": "",
+       "old_major": "行李箱包",
+       "cnt": 26,
+       "example": "後行李箱壁掛固定架"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "tank straps",
+       "raw_zh": "",
+       "old_major": "騎士好物",
+       "cnt": 7,
+       "example": "油箱固定帶"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "Bags",
+       "raw_zh": "",
+       "old_major": "騎士好物",
+       "cnt": 7,
+       "example": "皮革工具包"
+      },
+      {
+       "supplier": "kspeed",
+       "raw": "Rear Luggage",
+       "raw_zh": "後貨架",
+       "old_major": "行李箱包",
+       "cnt": 4,
+       "example": "Diabolus 後貨架 V.3"
+      },
+      {
+       "supplier": "motogadget",
+       "raw": "Backpack",
+       "raw_zh": "",
+       "old_major": "騎士好物",
+       "cnt": 2,
+       "example": "軍用旅行袋"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "四輪 ATV/UTV",
+   "cnt": 460,
+   "subs": [
+    {
+     "name": "防爆水管組",
+     "cnt": 437,
+     "sources": [
+      {
+       "supplier": "samco",
+       "raw": "hose_kit",
+       "raw_zh": "水管組",
+       "old_major": "四輪 ATV/UTV",
+       "cnt": 437,
+       "example": "防爆水管 3件組"
+      }
+     ]
+    },
+    {
+     "name": "水管束環",
+     "cnt": 23,
+     "sources": [
+      {
+       "supplier": "samco",
+       "raw": "clamp_kit",
+       "raw_zh": "束環套件",
+       "old_major": "四輪 ATV/UTV",
+       "cnt": 23,
+       "example": "束環套件"
+      }
+     ]
+    }
+   ]
+  }
+ ],
+ "total": 49843,
+ "unmapped": 0,
+ "version": "v1.2"
+}
