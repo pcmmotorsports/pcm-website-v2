@@ -29,8 +29,8 @@ describe('LightechShowcase', () => {
     expect(screen.getByText('1997')).toBeDefined();
     expect(screen.getByText('2026')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
-    expect(screen.getByText('Mirror Adapters')).toBeDefined();
-    expect(screen.getByText('Carbon Parts')).toBeDefined();
+    expect(screen.getByText('Carbon Paddock')).toBeDefined();
+    expect(screen.getByText('Quick Release')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(4);
   });
 });

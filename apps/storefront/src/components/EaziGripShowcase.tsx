@@ -7,7 +7,7 @@
 //   Toprak Razgatlioglu(WSBK 冠軍)、Stefano Manzi 背書(首頁)/ Pro·Evo·Silicone 三系列材質(產品頁)。
 //   ⚠ 終身保固僅限矽膠油管登錄(30 天內)、非全品項 → 不寫全品項保固。
 // 商品圖 = 報價單 view 實際 image_url。
-// 🔴 eyebrow = 文字 lockup(Sean 的廠牌LOGO 2 無 eazi-grip 檔;晨報補圖清單、補檔後換 pd-eb-logo <img>)。
+// 🔴 eyebrow = 官方 logo(/brands/eazi-grip/logo.png、pd-eb-logo;2026-07-10 rollout 補檔換上,取代原文字 lockup)。
 // 純 presentational、無 props、無 hooks → 不需 'use client'。
 // 🔴 L2 內容(鐵則 9、backlog #271):信任狀 hardcode 無後台 CRUD。
 

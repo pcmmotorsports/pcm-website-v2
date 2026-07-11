@@ -29,8 +29,8 @@ describe('CncRacingShowcase', () => {
     expect(screen.getByText('1995')).toBeDefined();
     expect(screen.getByText('1,787')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
-    expect(screen.getByText('Controls')).toBeDefined();
-    expect(screen.getByText('Chassis')).toBeDefined();
+    expect(screen.getByText('Carbon Fuel Cap')).toBeDefined();
+    expect(screen.getByText('Race Switch')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(4);
   });
 });

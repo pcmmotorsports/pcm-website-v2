@@ -23,15 +23,15 @@ describe('EvotechShowcase', () => {
     expect(document.querySelectorAll('.pd-feature-card').length).toBe(3);
   });
 
-  it('N°02:信任狀四格 + 產品線四卡(pd-bs 共用骨架 + 品牌色 modifier)', () => {
+  it('N°02:信任狀四格 + 產品線五卡(pd-bs 共用骨架 + 品牌色 modifier)', () => {
     render(<EvotechShowcase />);
     expect(screen.getByRole('heading', { level: 2, name: '從賽道回到日常的防護配件' })).toBeDefined();
     expect(document.querySelector('.pd-bs.pd-bs--evotech')).not.toBeNull();
     expect(screen.getByText('2003')).toBeDefined();
     expect(screen.getByText('品牌創立')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
-    expect(screen.getByText('Radiator Guards')).toBeDefined();
-    expect(screen.getByText('Levers')).toBeDefined();
-    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(4);
+    expect(screen.getByText('Race Protection')).toBeDefined();
+    expect(screen.getByText('Spindle Protection')).toBeDefined();
+    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(5);
   });
 });

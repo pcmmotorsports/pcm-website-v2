@@ -28,7 +28,7 @@ describe('MateryaShowcase', () => {
     expect(document.querySelector('.pd-bs-stats.cols-3')).not.toBeNull();
     expect(screen.getByText('Milano')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(3);
-    expect(screen.getByText('Dashboard Covers')).toBeDefined();
+    expect(screen.getByText('Carbon Dash')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(3);
   });
 });

@@ -30,7 +30,7 @@ describe('GbRacingShowcase', () => {
 
   it('N°02:工程血統 h2 + 冠軍橫幅圖 + 信任狀四格 + 產品線四卡', () => {
     render(<GbRacingShowcase />);
-    expect(screen.getByText('工程血統')).toBeDefined();
+    expect(screen.getByText(/工程血統/)).toBeDefined(); // eyebrow label(rollout 加「N°」前綴、用子字串匹配)
     expect(screen.getByRole('heading', { level: 2, name: 'FIM 唯一認證的引擎防護' })).toBeDefined();
     expect(screen.getByAltText('GB Racing 冠軍認證橫幅')).toBeDefined(); // S6 真 hero 圖
     // 信任狀四格:數字(2007/2009 唯一)+ label

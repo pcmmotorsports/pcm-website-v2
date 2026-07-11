@@ -22,15 +22,15 @@ describe('EbcShowcase', () => {
     expect(document.querySelectorAll('.pd-feature-card').length).toBe(3);
   });
 
-  it('短 N°02:信任狀四格 + 產品線雙卡', () => {
+  it('短 N°02:信任狀四格 + 產品線四卡', () => {
     render(<EbcShowcase />);
     expect(screen.getByRole('heading', { level: 2, name: '六十年只研究一件事——停下來' })).toBeDefined();
     expect(document.querySelector('.pd-bs.pd-bs--ebc')).not.toBeNull();
     expect(screen.getByText('1980s')).toBeDefined();
     expect(screen.getByText('品號規模')).toBeDefined();
     expect(document.querySelectorAll('.pd-bs-stat').length).toBe(4);
-    expect(screen.getByText('Race Pads')).toBeDefined();
-    expect(screen.getByText('Street Pads')).toBeDefined();
-    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(2);
+    expect(screen.getByText('Floating Rotor')).toBeDefined();
+    expect(screen.getByText('Brake Lines')).toBeDefined();
+    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(4);
   });
 });

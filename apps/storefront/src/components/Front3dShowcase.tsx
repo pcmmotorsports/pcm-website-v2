@@ -9,7 +9,7 @@
 //   官網未載明總部 → 版面不寫產地。🔴 官方免責:僅供賽道/競技/特技/越野、非道路合法認證
 //   (pages/about)→ pd-bs-note 誠實揭露(台灣買家怕買錯,先講清楚)。
 // 商品圖 = 報價單 view 實際 image_url。
-// 🔴 eyebrow = 文字 lockup(無 logo 檔;晨報補圖清單)。無官方色票 → 中性 accent。
+// 🔴 eyebrow = 官方 logo(/brands/front3d/logo.png、pd-eb-logo--dark;2026-07-10 rollout 補檔換上,取代原文字 lockup)。無官方色票 → 中性 accent。
 // 純 presentational、無 props、無 hooks → 不需 'use client'。
 // 🔴 L2 內容(鐵則 9、backlog #271)。
 

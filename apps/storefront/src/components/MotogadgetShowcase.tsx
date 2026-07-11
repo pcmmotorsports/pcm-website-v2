@@ -8,7 +8,7 @@
 //   「TÜV-tested quality - Made in Germany」(首頁)/ iF Design Award + Good Design Award(about 標章;
 //   ⚠ Red Dot 官網查無 → 不寫)。
 // 商品圖 = 報價單 view 實際 image_url。
-// 🔴 eyebrow = 文字 lockup(Sean 的廠牌LOGO 2 無 motogadget 檔;晨報補圖清單、補檔後換 pd-eb-logo <img>)。
+// 🔴 eyebrow = 官方 logo(/brands/motogadget/logo.svg、pd-eb-logo--dark;2026-07-10 rollout 補檔換上,取代原文字 lockup)。
 // 🔴 安裝說明影片 facade(Sean 2026-07-10 指定 youtu.be/oqdV8WObU1Y)→ useState 點擊才載 iframe → 需 'use client'(同 Bonamici)。
 // 🔴 L2 內容(鐵則 9、backlog #271):信任狀數字 hardcode 無後台 CRUD。
 

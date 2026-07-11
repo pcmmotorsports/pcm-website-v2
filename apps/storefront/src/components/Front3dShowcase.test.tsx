@@ -10,11 +10,10 @@ import { Front3dShowcase } from './Front3dShowcase';
 afterEach(cleanup);
 
 describe('Front3dShowcase', () => {
-  it('N°01:eyebrow 文字 lockup + h2 + lead + 3 卡', () => {
+  it('N°01:eyebrow logo + h2 + lead + 3 卡', () => {
     render(<Front3dShowcase />);
     expect(document.querySelector('#pd-h-f3d01')).not.toBeNull();
-    const lockup = document.querySelector('.pd-eb-lockup');
-    expect(lockup?.textContent).toBe('Front3D'); // 無 logo 檔 → 文字 lockup(補圖清單)
+    expect(screen.getByAltText('Front3D')).toBeDefined(); // eyebrow 官方 logo img
     expect(screen.getByRole('heading', { level: 2, name: '為什麼選 Front3D' })).toBeDefined();
     expect(screen.getByText(/賽道日外觀一次到位/)).toBeDefined();
     expect(screen.getByText('3D 列印一體成形')).toBeDefined();
@@ -23,7 +22,7 @@ describe('Front3dShowcase', () => {
     expect(document.querySelectorAll('.pd-feature-card').length).toBe(3);
   });
 
-  it('短 N°02:信任狀三格(cols-3)+ 產品線三卡 + 官方用途免責 note', () => {
+  it('短 N°02:信任狀三格(cols-3)+ 產品線四卡 + 官方用途免責 note', () => {
     render(<Front3dShowcase />);
     expect(screen.getByRole('heading', { level: 2, name: '給街車的賽道空力語彙' })).toBeDefined();
     expect(document.querySelector('.pd-bs-stats.cols-3')).not.toBeNull();
@@ -31,7 +30,7 @@ describe('Front3dShowcase', () => {
     expect(screen.getByText('適配車廠')).toBeDefined();
     expect(screen.getByText('Side Wings')).toBeDefined();
     expect(screen.getByText('Brake Coolers')).toBeDefined();
-    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(3);
+    expect(document.querySelectorAll('.pd-bs-mcard').length).toBe(4);
     // 免責 note 必在(front3d.com/pages/about 官方聲明轉譯、誠實揭露)
     expect(screen.getByText(/未經道路使用認證/)).toBeDefined();
   });
