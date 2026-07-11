@@ -62,8 +62,9 @@ describe('getSupplierConfig', () => {
       expect(getSupplierConfig(slug).brandSlug).toBe(slug); // identity
     }
     // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A):乾淨家開寫、關卡家仍 fail-closed。
-    //   evotech/samco/motogadget/front3d=true(乾跑全綠);lightech(待 #275 https)/
-    //   eazigrip·materya(待 #274 撞鍵)/ebc(待 seed db push)=false。翻 true 前先過 Sean(改這行=面對這個問題)。
+    //   evotech/samco/motogadget/front3d=true(乾跑全綠、已匯入 prod);ebc seed 已 db push 但乾跑
+    //   揭露 35/68 群撞鍵(煞車片材質軸)=#274 同類仍 false;lightech(待 #275 https)/
+    //   eazigrip·materya(待 #274 撞鍵)=false。翻 true 前先過 Sean(改這行=面對這個問題)。
     const writeOpened = new Set(['evotech', 'samco', 'motogadget', 'front3d']);
     for (const slug of ['evotech', 'lightech', 'eazigrip', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
       const c = getSupplierConfig(slug);

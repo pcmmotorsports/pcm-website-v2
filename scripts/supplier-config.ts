@@ -16,8 +16,9 @@
  * 範圍:現役三家(rpm + gbracing + bonamici)+ 品牌放量 8+1 家(2026-07-10 kickoff、Sean 預批;
  *   evotech/lightech/cncracing/eazigrip/samco/motogadget/front3d/materya/ebc。
  *   2026-07-11 Sean 批 demo(晨報 Q1=A)後逐家開寫:cncracing/evotech/samco/motogadget/front3d
- *   =writeAllowed=true(乾淨 5 家);lightech(待 #275 https)/eazigrip·materya(待 #274 撞鍵)/
- *   ebc(待 seed db push)仍 false=fail-closed,關卡解除後再逐家翻 true 才可 --confirm-write)。
+ *   =writeAllowed=true(乾淨 5 家、已匯入 prod);ebc seed 已 db push(brand 列在 prod)但乾跑
+ *   揭露 35/68 群 pv_spec 撞鍵(煞車片材質軸未建模)=#274 同類仍 false;lightech(待 #275 https)/
+ *   eazigrip·materya(待 #274 撞鍵)亦 false=fail-closed,關卡解除後再翻 true 才可 --confirm-write)。
  *   新 8 家字面值查證(2026-07-10):brandSlug=網站庫 brands 表 MCP 實查(8 家已 seed、僅 ebc 缺列
  *   =待 seed migration);syncDescription=true(view 描述覆蓋 99-100%、繁中,scout 實查);
  *   variantImages='per-variant'(5 多變體家抽群實測 images 各異=每列自己的圖;ebc 群內全同一張、
@@ -224,7 +225,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true, // 影片 45 群(YouTube watch 型、scout 實查)
     categoryStrategy: { kind: 'per-group' }, // 1 大類(煞車系統)
     variantImages: 'per-variant', // 抽群實測:群內各變體同一張圖(per-variant 直用等價)
-    writeAllowed: false, // 🔴 過夜零寫入;Sean db push seed + 批 demo 後開
+    writeAllowed: false, // 🔴 Q3=A seed 已 db push(brand 列在 prod),但乾跑揭露 35/68 群 pv_spec 撞鍵(EBC 煞車片同型號不同材質 HH/V/R/EP、空 spec {})=#274 同類、待變體建模,仍 false
   },
 };
 
