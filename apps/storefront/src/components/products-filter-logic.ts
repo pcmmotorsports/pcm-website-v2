@@ -10,6 +10,13 @@ import type { MockProduct } from '@/data/mock-products';
 import type { MockBrand } from '@/data/mock-brands';
 import type { ProductExtraFilters } from './filter-state';
 
+/**
+ * 分類路徑分隔符:子類 raw_path = `大類{SEP}子類` 麵包屑。
+ * 🔴 必與(1)網站分類 seed / sync-categories 的 raw_path 組法(2)報價單 taxonomy 一致;
+ * 與 design mock category 既有格式 `'操控部品 · 腳踏後移'` 同。改此值須三處同步。
+ */
+export const CATEGORY_PATH_SEP = ' · ';
+
 // 價格區間字串標籤 → [低, 高](對齊 design ProductsPage.jsx L100-106)
 const PRICE_RANGE_TABLE: Record<string, [number, number]> = {
   'NT$ 0 – 3,000': [0, 3000],
@@ -73,21 +80,27 @@ function matchesVehicle(
 }
 
 /**
- * 分類比對:選了分類則商品分類須相符(C2 接線)。
- * 比對鍵 = 選取分類名稱(`CategorySelection.sub ?? .main`),對齊 `MockProduct.category`
- * (= `product.category.raw`);真分類註冊表 name = raw_path(P0-B seed)、與 p.category 同源。
- * 未選細項(subId undefined)時比大分類名。
- * 🔴 目前分類單層(16 大類 + 碳纖維部品、無子類);多層子類(#212)上架後須改階層涵蓋比對。
- * 🔴 本 slice(C2)分類 UI 仍隱藏(FilterSide/FilterDrawer hideCategory、CascadeFilterTop 無分類 UI)
- *    → cascade.category 生產 UI 恆 null、本比對為 dead path;邏輯先接(單元測已覆蓋)、待 C4 解除
- *    hideCategory 才對使用者生效。
- * 車款零回歸:此為獨立新分支、不觸 matchesVehicle;未選分類不過濾。
+ * 分類比對(兩層階層涵蓋、#212 子類上架):
+ * - 選子類(`sub` 有值):商品分類 === 「大類 · 子類」麵包屑(精確)。
+ * - 只選大類(`sub` undefined):商品分類 === 大類名(大類自身直掛、罕見)
+ *   或以「大類 · 」開頭 → **rollup 涵蓋該大類底下所有子類商品**。
+ * `product.category` = 該商品所屬分類 raw_path(adapter JOIN `categories.raw_path`);
+ * 子類 raw_path 存麵包屑「大類 · 子類」、大類 raw_path 存純大類名。選取名 `main`/`sub`
+ * 來自 buildCategoryTree 節點(大類 name=大類名、子類 name=葉名),故重組麵包屑 = 精確子類鍵。
+ * 🔴 分隔符 `CATEGORY_PATH_SEP` 須與網站分類 seed(sync-categories 組 raw_path)+ 報價單一致。
+ * 車款零回歸:獨立分支、不觸 matchesVehicle;未選分類不過濾。
  */
 function matchesCategory(
   product: MockProduct,
   category: NonNullable<CascadeFilterState['category']>,
 ): boolean {
-  return product.category === (category.sub ?? category.main);
+  if (category.sub != null) {
+    return product.category === `${category.main}${CATEGORY_PATH_SEP}${category.sub}`;
+  }
+  return (
+    product.category === category.main ||
+    product.category.startsWith(`${category.main}${CATEGORY_PATH_SEP}`)
+  );
 }
 
 export function filterProducts(

@@ -150,37 +150,44 @@ describe('filterProducts — vehicle (fitment 過濾、#152 修復)', () => {
   });
 });
 
-describe('filterProducts — category(C2 接線、名稱比對)', () => {
+describe('filterProducts — category(兩層階層 rollup、#212 子類)', () => {
   const cp = (id: number, category: string): MockProduct => ({ ...vp(id, 'RPM CARBON', []), category });
-  const products = [cp(1, '碳纖維部品'), cp(2, '操控部品'), cp(3, '排氣系統'), cp(4, '操控部品')];
+  // 1=別大類直掛;2=操控部品「大類直掛」(舊單層向後相容);3/4=操控部品底下子類(麵包屑);5=別大類子類
+  const products = [
+    cp(1, '碳纖維部品'),
+    cp(2, '操控部品'),
+    cp(3, '操控部品 · 腳踏後移'),
+    cp(4, '操控部品 · 拉桿'),
+    cp(5, '排氣系統 · 全段排氣'),
+  ];
   const extras = makeInitialExtraFilters();
   const ids = (r: MockProduct[]) => r.map((p) => p.id).sort((a, b) => a - b);
 
-  it('選大分類 → 只留該分類商品(比對 main 名稱)', () => {
+  it('選大類 → rollup 涵蓋自身直掛 + 底下所有子類(前綴比對)', () => {
     const r = filterProducts(products, { ...emptyCascade, category: { mainId: 'x', main: '操控部品' } }, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([2, 4]);
+    expect(ids(r)).toEqual([2, 3, 4]); // 2 直掛 + 3/4 子類;不含 5(別大類、不因「操控部品」子字串誤命中)
   });
 
-  it('選細項 → 以 sub 名稱比對(sub 優先於 main)', () => {
-    const r = filterProducts(products, { ...emptyCascade, category: { mainId: 'x', main: '操控部品', subId: 's', sub: '排氣系統' } }, extras, MOCK_BRANDS);
+  it('選子類 → 精確比對「大類 · 子類」麵包屑(不涵蓋同大類其他子類/直掛)', () => {
+    const r = filterProducts(products, { ...emptyCascade, category: { mainId: 'x', main: '操控部品', subId: 's', sub: '腳踏後移' } }, extras, MOCK_BRANDS);
     expect(ids(r)).toEqual([3]);
   });
 
   it('未選分類 → 不因 category 過濾(全數保留)', () => {
     const r = filterProducts(products, emptyCascade, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([1, 2, 3, 4]);
+    expect(ids(r)).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it('選「碳纖維部品」(RPM 現況全在此分類)= 等價全部(零回歸錨)', () => {
+  it('單層向後相容:選無子類大類「碳纖維部品」(商品直掛)= 精確比對', () => {
     const rpmAll = [cp(1, '碳纖維部品'), cp(2, '碳纖維部品'), cp(3, '碳纖維部品')];
     const r = filterProducts(rpmAll, { ...emptyCascade, category: { mainId: 'x', main: '碳纖維部品' } }, extras, MOCK_BRANDS);
     expect(ids(r)).toEqual([1, 2, 3]);
   });
 
-  it('category + vehicle 兩軸並存(AND)', () => {
+  it('category(大類 rollup)+ vehicle 兩軸並存(AND)', () => {
     const mixed: MockProduct[] = [
-      { ...vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'V4' }]), category: '操控部品' },
-      { ...vp(2, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR' }]), category: '操控部品' },
+      { ...vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'V4' }]), category: '操控部品 · 腳踏後移' },
+      { ...vp(2, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR' }]), category: '操控部品 · 拉桿' },
     ];
     const r = filterProducts(mixed, { ...emptyCascade, category: { mainId: 'x', main: '操控部品' }, vehicle: { brand: 'Ducati' } }, extras, MOCK_BRANDS);
     expect(ids(r)).toEqual([1]);

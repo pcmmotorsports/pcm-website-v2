@@ -88,6 +88,18 @@ describe('FilterSide', () => {
     expect(row.className).not.toContain('is-active'); // 再點同列 → 取消(toggle)
   });
 
+  // #212 子類上架:有子類大類展開後,第一列「全部 {大類}」可選整個大類(rollup、對齊手機 FilterDrawer)。
+  it('should select whole parent via 「全部 {大類}」 row after expanding (has-children、#212)', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByText('代理配件')); // 有子類 → 點大類=展開
+    const allRow = screen.getByText('全部 代理配件').closest('button')!;
+    expect(allRow.className).not.toContain('is-active');
+    fireEvent.click(allRow); // 選整個大類(rollup)
+    expect(allRow.className).toContain('is-active');
+    fireEvent.click(allRow); // 再點 → 取消(toggle)
+    expect(allRow.className).not.toContain('is-active');
+  });
+
   // M-1-13e-pre-3:Sean 2026-05-21 業務拍板「不顯示有無庫存」、SHOW_IN_STOCK_FILTER=false
   // 隱藏「僅顯示現貨」checkbox;原「勾選後 row 帶 is-checked class」測點失效、翻轉為
   // 「verify hidden」。未來業務 revisit 把 flag 改 true 時、本 test 會 alert(需改回測

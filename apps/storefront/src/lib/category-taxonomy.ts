@@ -34,15 +34,16 @@ export function buildCategoryTree(summaries: CategorySummary[]): MockCategory[] 
     .filter((c) => c.parentId === null)
     .slice()
     .sort((a, b) => a.sortOrder - b.sortOrder)
-    .map((top) => ({
-      id: top.id,
-      name: top.name,
-      count: top.productCount,
-      children: (subsByParent.get(top.id) ?? [])
+    .map((top) => {
+      const children = (subsByParent.get(top.id) ?? [])
         .slice()
         .sort((a, b) => a.sortOrder - b.sortOrder)
         .filter((s) => s.productCount > 0)
-        .map((s) => ({ id: s.id, name: s.name, count: s.productCount })),
-    }))
+        .map((s) => ({ id: s.id, name: s.name, count: s.productCount }));
+      // 大類顯示數 = 自身直掛商品(兩層下商品全掛子類、通常 0)+ 子類加總(rollup、
+      // 對齊 matchesCategory「點大類涵蓋所有子類」);單層(無子類)時退化為自身數。
+      const count = top.productCount + children.reduce((sum, c) => sum + c.count, 0);
+      return { id: top.id, name: top.name, count, children };
+    })
     .filter((top) => top.count > 0 || top.children.length > 0);
 }

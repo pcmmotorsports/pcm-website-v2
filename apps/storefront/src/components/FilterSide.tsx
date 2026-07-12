@@ -139,9 +139,9 @@ function CategoryTree({
   return (
     <div className="fs-tree">
       {categories.map((c) => {
-        // 有子類:點大類=展開挑子類(原行為)。無子類(childless、如現況「碳纖維部品」+ 多品牌後 16 大類):
-        //   點大類=直接選「全部 {大類}」(對齊手機 FilterDrawer「全部 {大類}」、Sean 拍 A);再點同一列 → 取消。
-        //   🔴 「有子類大類也要能選全部」的完整對手機留 #212(現況無 has-children 大類、無法驗、屆時再評)。
+        // 有子類:點大類=展開,展開後第一列「全部 {大類}」可選整個大類(rollup、對齊手機 FilterDrawer)。
+        //   無子類(childless):點大類=直接選「全部 {大類}」(Sean 拍 A);再點同一列 → 取消。
+        //   #212 子類上架後「全部 {大類}」列已補齊(見下方展開區塊)、桌機手機一致。
         const hasChildren = c.children.length > 0;
         const isMainActive = category?.mainId === c.id && !category?.subId;
         return (
@@ -165,24 +165,36 @@ function CategoryTree({
               <span>{c.name}</span>
               <span className="fs-tree-count">{c.count}</span>
             </button>
-            {expanded === c.id && c.children.map((s) => {
-              const isActive = category?.subId === s.id;
-              return (
-                <button key={s.id}
-                  className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''}`}
-                  onClick={() => {
-                    if (isActive) {
-                      dispatch(clearCategory());
-                    } else {
-                      dispatch(selectCategoryMain(c.id, c.name));
-                      dispatch(selectCategorySub(s.id, s.name));
-                    }
-                  }}>
-                  <span>{s.name}</span>
-                  <span className="fs-tree-count">{s.count}</span>
+            {expanded === c.id && (
+              <>
+                {/* 全部 {大類}:選整個大類(rollup 涵蓋所有子類、對齊手機 FilterDrawer + matchesCategory 前綴比對);
+                    #212 子類上架後補此列 → 有子類大類也能選全部,不再只能鑽子類 */}
+                <button
+                  className={`fs-tree-row fs-tree-l2 ${isMainActive ? 'is-active' : ''}`}
+                  onClick={() => (isMainActive ? dispatch(clearCategory()) : dispatch(selectCategoryMain(c.id, c.name)))}>
+                  <span>全部 {c.name}</span>
+                  <span className="fs-tree-count">{c.count}</span>
                 </button>
-              );
-            })}
+                {c.children.map((s) => {
+                  const isActive = category?.subId === s.id;
+                  return (
+                    <button key={s.id}
+                      className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''}`}
+                      onClick={() => {
+                        if (isActive) {
+                          dispatch(clearCategory());
+                        } else {
+                          dispatch(selectCategoryMain(c.id, c.name));
+                          dispatch(selectCategorySub(s.id, s.name));
+                        }
+                      }}>
+                      <span>{s.name}</span>
+                      <span className="fs-tree-count">{s.count}</span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
           </div>
         );
       })}

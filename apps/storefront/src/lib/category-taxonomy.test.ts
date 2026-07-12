@@ -43,7 +43,18 @@ describe('buildCategoryTree', () => {
     ]);
     expect(tree).toHaveLength(1);
     expect(tree[0]?.name).toBe('大類');
+    expect(tree[0]?.count).toBe(3); // 大類顯示數 = 自身 0 + 子類加總(子1=3;子2=0 被濾、不計)
     expect(tree[0]?.children.map((s) => s.name)).toEqual(['子1']);
+  });
+
+  it('大類顯示數 = 自身直掛 + 所有非空子類加總(rollup、對齊 matchesCategory 涵蓋)', () => {
+    const tree = buildCategoryTree([
+      cs({ id: 'm', name: '引擎與冷卻', productCount: 2, sortOrder: 0 }), // 自身直掛 2(罕見)
+      cs({ id: 's1', name: '排氣管', parentId: 'm', productCount: 10, sortOrder: 1 }),
+      cs({ id: 's2', name: '水箱', parentId: 'm', productCount: 5, sortOrder: 2 }),
+    ]);
+    expect(tree[0]?.count).toBe(17); // 2 + 10 + 5
+    expect(tree[0]?.children.map((s) => s.count)).toEqual([10, 5]);
   });
 
   it('全空 → 回空陣列(側欄分類區不顯死分類)', () => {
