@@ -86,3 +86,5 @@ GRANT EXECUTE ON FUNCTION public.search_catalog_by_vehicle(text, text, int, int,
 -- Forward-only rollback(手動事故處理):把上面 jsonb_build_object 內的 'fitments', fitments 一行移除、
 -- 重新 CREATE OR REPLACE FUNCTION 即還原成 20260712183000 的 11-key 輸出(簽章/GRANT 不變)。
 -- 前端多讀的 fitments 變 undefined、卡片自動降級只顯「適用 {fits}」無年份。
+-- ⚠️ rollback 精確步驟：移除 'fitments', fitments 該行時，須一併刪除其前一行 'category_raw', category_raw 的尾逗號
+--   （否則 jsonb_build_object 尾逗號會語法錯）；或更穩妥＝直接重跑 20260712183000 的 RPC 建立段。

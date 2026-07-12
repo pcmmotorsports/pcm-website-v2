@@ -1,4 +1,4 @@
-import type { MockProduct } from '@/data/mock-products';
+import type { MockProduct, UIFitment } from '@/data/mock-products';
 
 export type CatalogListRow = {
   id: string;
@@ -12,7 +12,31 @@ export type CatalogListRow = {
   brand_name: string | null;
   brand_slug: string | null;
   category_raw: string | null;
+  /** S4:RPC 投影的原始 fitments jsonb(公開車輛相容資料);shape 不保證 → 由 toCardFitments 白名單收。 */
+  fitments?: unknown;
 };
+
+/**
+ * S4:RPC fitments jsonb → 卡片用 UIFitment[](白名單四欄:motoBrand/modelCode/yearStart/yearEnd)。
+ * yearEnd 三態忠實保留(null=開放式 / 省略=單年 / number=明確迄年);車款名皆空的元素丟棄;非陣列/空 → undefined。
+ */
+export function toCardFitments(raw: unknown): UIFitment[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: UIFitment[] = [];
+  for (const el of raw) {
+    if (!el || typeof el !== 'object') continue;
+    const r = el as Record<string, unknown>;
+    const motoBrand = typeof r.motoBrand === 'string' ? r.motoBrand : '';
+    const modelCode = typeof r.modelCode === 'string' ? r.modelCode : '';
+    if (!motoBrand && !modelCode) continue;
+    const f: UIFitment = { motoBrand, modelCode };
+    if (typeof r.yearStart === 'number') f.yearStart = r.yearStart;
+    if (r.yearEnd === null) f.yearEnd = null;
+    else if (typeof r.yearEnd === 'number') f.yearEnd = r.yearEnd;
+    out.push(f);
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 function hashIdToNumber(id: string): number {
   let hash = 0;
@@ -32,6 +56,7 @@ export function catalogRowToUIProduct(row: CatalogListRow): MockProduct {
     name: row.title ?? '',
     subtitle: row.subtitle ?? undefined,
     fits: row.fits ?? '通用款',
+    fitments: toCardFitments(row.fitments),
     price: row.price_general ?? 0,
     origPrice: null,
     isNew: false,

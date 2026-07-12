@@ -351,7 +351,7 @@ const getCatalogPageCached = unstable_cache(
       } : null,
     );
   },
-  ['catalog-page-v1'],
+  ['catalog-page-v2'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 
