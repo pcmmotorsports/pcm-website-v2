@@ -133,26 +133,26 @@ async function main(): Promise<void> {
     resolveId(target, 'brands', 'slug', config.brandSlug),
   ]);
 
-  // ── 分類解析(逐家策略)──
-  //   fixed(rpm):整批固定一個分類(rawPath「碳纖維部品」、resolveId 一次;查無 throw、碳纖維部品 16b-1 已 seed)。
-  //   per-group(試點):逐群依 major_category_zh 解析 16 大類(P0-B 才 seed → seed 前 resolveIdOrNull 回 null、
-  //     報告顯示未對上、不 abort);同一 major_category_zh 只查一次(cache、含 null 結果亦快取)。
-  const fixedCategoryId: string | null =
-    config.categoryStrategy.kind === 'fixed'
-      ? await resolveId(target, 'categories', 'raw_path', config.categoryStrategy.rawPath)
-      : null;
+  // ── 分類解析(v1.2 兩層、#212;取代舊 fixed/per-group 單層 major 解析)──
+  //   每群依 major_category_v2_zh + sub_category_v2_zh 組麵包屑 raw_path「大類 · 子類」解析到「子類」id;
+  //   缺 v2(少數 major/sub 為 null)或子類未 seed → 未分類 fallback(避免 #261 null-category abort、
+  //   一筆髒資料不擋整家同步)。分類 seed = migration 20260712120000_seed_taxonomy_v2_categories
+  //   (全 14/77 + 未分類、冪等)。🔴 分隔符 ' · ' 須與 seed raw_path + storefront
+  //   products-filter-logic.ts CATEGORY_PATH_SEP 三處一致(matchesCategory 前綴/精確比對靠此)。
+  const CATEGORY_PATH_SEP = ' · ';
   const categoryIdCache = new Map<string, string | null>();
-  async function resolveGroupCategory(majorCategoryZh: string): Promise<string | null> {
-    if (!majorCategoryZh) return null;
-    if (categoryIdCache.has(majorCategoryZh)) return categoryIdCache.get(majorCategoryZh)!;
-    const id = await resolveIdOrNull(target, 'categories', 'raw_path', majorCategoryZh);
-    categoryIdCache.set(majorCategoryZh, id);
+  async function resolveCategoryByPath(rawPath: string): Promise<string | null> {
+    if (categoryIdCache.has(rawPath)) return categoryIdCache.get(rawPath)!;
+    const id = await resolveIdOrNull(target, 'categories', 'raw_path', rawPath);
+    categoryIdCache.set(rawPath, id);
     return id;
   }
+  // 未分類 fallback 必存在(seed 必先套用;查無 → resolveId fail-closed throw = 明確擋下「seed 前置未完成就重匯入」)
+  const uncategorizedId = await resolveId(target, 'categories', 'raw_path', '未分類');
 
   console.log(
     `[rpm-import] 來源 view ${config.supplierSlug} 變體 ${products.length} 筆;brand_id=${brandId} ` +
-      `category=${config.categoryStrategy.kind === 'fixed' ? fixedCategoryId : 'per-group(逐群解析)'}`,
+      `category=v2 兩層(major·sub 麵包屑 → 子類 id、缺則未分類 fallback)`,
   );
 
   // ── S5 W1:抓取完整性 gate(無人值守誤下架前置防線;商品維度差集、來源缺現存上架商品 >5% 疑截斷硬 abort)──
@@ -184,21 +184,21 @@ async function main(): Promise<void> {
   // 轉換
   const productRows: ProductRow[] = [];
   const variantsByExternalId = new Map<string, VariantRow[]>();
-  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // #261 乾跑彙整(per-group)
+  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // 乾跑彙整(逐群 v2 解析)
+  let nullV2Groups = 0; // major/sub 缺 → 未分類(少數髒資料、預期)
+  let unseededSubGroups = 0; // 有 v2 但子類未 seed → 未分類(需補 seed migration、異常)
   for (const [mainSku, variants] of entries) {
     const vehicleLabel = variants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
-    // 分類 + 副標詞逐群解析:fixed → 固定 id + rawPath 副標;per-group → 該群 major_category_zh
-    let categoryId: string | null;
-    let subtitleTag: string;
-    if (config.categoryStrategy.kind === 'fixed') {
-      categoryId = fixedCategoryId;
-      subtitleTag = config.categoryStrategy.rawPath;
-    } else {
-      const majorCat = variants.find((v) => v.major_category_zh)?.major_category_zh ?? ''; // 群內第一個非空
-      categoryId = await resolveGroupCategory(majorCat);
-      subtitleTag = majorCat;
-      categoryResolutions.push({ majorCategoryZh: majorCat, categoryId }); // #261:記逐群解析(對上/未對上)
-    }
+    // 分類 + 副標詞:v2 major·sub 麵包屑 → 子類 id;缺 v2 或子類未 seed → 未分類 fallback(#212 取代 fixed/per-group)
+    const majorV2 = variants.find((v) => v.major_category_v2_zh)?.major_category_v2_zh ?? ''; // 群內第一個非空
+    const subV2 = variants.find((v) => v.sub_category_v2_zh)?.sub_category_v2_zh ?? '';
+    const rawPath = majorV2 && subV2 ? `${majorV2}${CATEGORY_PATH_SEP}${subV2}` : '';
+    const resolved = rawPath ? await resolveCategoryByPath(rawPath) : null;
+    const categoryId: string | null = resolved ?? uncategorizedId;
+    if (!rawPath) nullV2Groups++;
+    else if (!resolved) unseededSubGroups++;
+    const subtitleTag: string = majorV2 || '精選部品';
+    categoryResolutions.push({ majorCategoryZh: rawPath || '未分類', categoryId });
     const ctx: GroupTransformContext = {
       brandId,
       categoryId,
@@ -219,14 +219,21 @@ async function main(): Promise<void> {
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
   const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合
 
-  // ── #261 乾跑診斷:per-group 分類解析彙整(未對上 major_category_zh × 群數;fixed 策略 records 空、不印)──
+  // ── 乾跑診斷:逐群 v2 分類解析彙整(#212)──
   if (categoryResolutions.length) {
     printCategoryResolutionReport(summarizeCategoryResolution(categoryResolutions));
+  }
+  if (nullV2Groups || unseededSubGroups) {
+    console.log(
+      `[rpm-import] 分類 fallback → 未分類:null-v2 ${nullV2Groups} 群(少數髒資料、預期)、` +
+        `子類未 seed ${unseededSubGroups} 群(異常、需補 seed migration 後重跑)`,
+    );
   }
 
   // ── 硬 gate:category_id=null(#261;products.category_id NOT NULL、null 進 upsert = 23502、該 500 列批全敗)──
   //   dry-run 列清單不 throw(配合上方彙整報告、Sean 看全貌);寫入模式 abort 不進 upsert(避免整批 23502 髒中間態)。
-  //   fixed 策略(rpm)category_id 恆非 null(resolveId 查無早已 throw)→ 此 gate 空過、byte 不變。
+  //   #212 後 categoryId 恆非 null(v2 解析 ?? 未分類 fallback、seed 未套用則 uncategorizedId resolveId 早已 throw)
+  //   → 此 gate 現為防禦性空過;保留防未來新增 code path 漏掛。
   const nullCategoryProducts = findNullCategoryProducts(productRows);
   if (nullCategoryProducts.length) {
     console.warn(

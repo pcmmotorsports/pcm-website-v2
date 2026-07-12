@@ -45,8 +45,12 @@ export interface SourceProductRow {
   video_urls: string[] | null; // 安裝影片連結(text[] 多支可能含 Vimeo;#270、pickInstallVideo 取第一支 YouTube→products.video_url)
   vehicle_label: string | null; // 適用車款(subtitle 用;通用件可能 null)
   fitment_parsed: SourceFitmentEntry[] | null;
-  category_zh: string | null; // 97 子類(Phase 0 不 seed、先攜帶備用、transform 尚不消費)
-  major_category_zh: string | null; // 16 大類(per-group 分類 resolve 與副標詞來源)
+  category_zh: string | null; // 舊 97 子類(保留備用、transform 不消費)
+  major_category_zh: string | null; // 舊 16 大類(保留備用、v2 上架後不再解分類)
+  // #212 新 taxonomy(分類 resolve 與副標詞來源);optional=view 恆 select(缺欄 fetch 即報錯、
+  // runtime 保證),免動既有 rpm-transform 測試 fixture;rpm-import find(...)?? '' 本就容 undefined。
+  major_category_v2_zh?: string | null; // 14 大類
+  sub_category_v2_zh?: string | null; // 77 子類(組麵包屑「大類 · 子類」)
   spec: Record<string, string> | null; // {weave,finish}(+optional special)/ {color,material}/ null、值全 string
   price_retail: string | number | null; // 🔴 報價單零售真相 → 網站 price_general(numeric 序列化可能為 string)
   image_url: string | null; // 群代表圖
@@ -64,7 +68,8 @@ export interface SourceProductRow {
 // #270 安裝資源:補 pdf_urls / video_urls(text[])→ products.manuals / video_url;syncInstallResources gate(gbracing/bonamici 才寫)。
 const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, description, ' +
-  'vehicle_label, fitment_parsed, category_zh, major_category_zh, spec, price_retail, image_url, images, stock_status, ' +
+  'vehicle_label, fitment_parsed, category_zh, major_category_zh, major_category_v2_zh, sub_category_v2_zh, ' +
+  'spec, price_retail, image_url, images, stock_status, ' +
   'highlights_zh, pdf_urls, video_urls';
 
 // ── source fetch(分頁 + 重試、全程 .eq('supplier_slug', supplierSlug);讀乾淨 view 取代 raw 兩查)──
