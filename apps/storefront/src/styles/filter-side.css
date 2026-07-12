@@ -55,13 +55,14 @@
   color: var(--c-text-3);
   margin-left: 4px;
 }
+/* #212 UX(Sean 授權偏離 design-reference):真資料 14 大類 + 可展開子類,
+   design 原本 max-height:320px + overflow-y:auto 會把每個展開區塊縮成內捲小框,
+   與外層 .fs-side(sticky + 整欄 overflow-y:auto)疊成雙層巢狀捲軸 —— 點開零件分類看不到整個分類、
+   最上項還被切一半。拿掉內層限制後:點開分類自然展開到完整高度、順勢把品牌/價格範圍往下推,
+   整個側欄由 .fs-side 單一捲軸負責。design-reference 為 Sean 授權偏離、暫不反向同步。 */
 .fs-section-body {
   padding: 4px 0 16px;
-  max-height: 320px;
-  overflow-y: auto;
 }
-.fs-section-body::-webkit-scrollbar { width: 4px; }
-.fs-section-body::-webkit-scrollbar-thumb { background: var(--c-border-strong); }
 
 /* Tree */
 .fs-tree-row {
