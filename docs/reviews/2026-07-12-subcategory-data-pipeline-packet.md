@@ -47,3 +47,13 @@
 5. 肉眼驗側欄兩層 + 篩選 rollup。
 
 **未含(defer 小 follow-up)**:子類網址深連結 `?category=`(現只大類深連結;側欄篩選不依賴)。
+
+---
+
+## R1 Codex 對抗審 findings 已修(2026-07-12、codex-cli 0.144.1)
+R1 判 FAIL、2 must-fix(皆 `scripts/rpm-import.ts` 分類解析、prod 資料安全):
+1. **靜默搬未分類 + 假綠**:缺值/子類未 seed 時 fallback 未分類卻繼續正式寫入、彙整報告收 fallback id 誤印全對上 → cron 綠燈把整批商品靜默搬走無告警。
+   **修**:WRITE 模式 `unseededSubGroups>0` 或 `conflictGroups>0` 或 `nullV2Ratio>5%` → abort;`categoryResolutions` 改傳 `resolved`(fallback=null、真實反映未對上)。
+2. **群內分類不一致無驗證**:major/sub 各一次 `.find()` 取第一筆 → 兩變體不同分類合成不存在麵包屑、或靜默採第一筆錯置。
+   **修**:群內收集去重完整 `(major·sub)` pair;恰一才用、0=null-v2、>1=conflictGroups(WRITE abort)。
+R1 其餘核對 PASS(分隔符三處一致、rollup 前綴無誤命中、buildCategoryTree 無重複計數、seed SQL 冪等、FilterSide toggle 正確)。修後三綠 + vitest 1868 綠。**R2 複審中**。

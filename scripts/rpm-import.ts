@@ -184,21 +184,34 @@ async function main(): Promise<void> {
   // 轉換
   const productRows: ProductRow[] = [];
   const variantsByExternalId = new Map<string, VariantRow[]>();
-  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // 乾跑彙整(逐群 v2 解析)
-  let nullV2Groups = 0; // major/sub 缺 → 未分類(少數髒資料、預期)
-  let unseededSubGroups = 0; // 有 v2 但子類未 seed → 未分類(需補 seed migration、異常)
+  const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // 乾跑彙整(fallback 傳 null=真實反映未對上、避免假綠 Codex must-fix 1)
+  let nullV2Groups = 0; // 整群無完整 (major,sub) pair(大面積 null)→ 未分類
+  let unseededSubGroups = 0; // 有完整 pair 卻 resolve 不到 seed 子類(seed 漂移、異常)
+  const conflictGroups: { mainSku: string; pairs: string[] }[] = []; // 群內多組不同 v2 pair(髒來源、Codex must-fix 2)
   for (const [mainSku, variants] of entries) {
     const vehicleLabel = variants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
-    // 分類 + 副標詞:v2 major·sub 麵包屑 → 子類 id;缺 v2 或子類未 seed → 未分類 fallback(#212 取代 fixed/per-group)
-    const majorV2 = variants.find((v) => v.major_category_v2_zh)?.major_category_v2_zh ?? ''; // 群內第一個非空
-    const subV2 = variants.find((v) => v.sub_category_v2_zh)?.sub_category_v2_zh ?? '';
-    const rawPath = majorV2 && subV2 ? `${majorV2}${CATEGORY_PATH_SEP}${subV2}` : '';
-    const resolved = rawPath ? await resolveCategoryByPath(rawPath) : null;
-    const categoryId: string | null = resolved ?? uncategorizedId;
-    if (!rawPath) nullV2Groups++;
-    else if (!resolved) unseededSubGroups++;
-    const subtitleTag: string = majorV2 || '精選部品';
-    categoryResolutions.push({ majorCategoryZh: rawPath || '未分類', categoryId });
+    // 分類:群內收集去重「大類 · 子類」完整 pair(Codex must-fix 2:防兩變體不同分類被 .find 靜默取第一筆、
+    //   或 (A,null)+(B,sub) 合成不存在麵包屑)。正常整群同商品=恰一 pair;0=大面積 null;>1=群內衝突。
+    const pairs = new Set<string>();
+    for (const v of variants) {
+      if (v.major_category_v2_zh && v.sub_category_v2_zh) {
+        pairs.add(`${v.major_category_v2_zh}${CATEGORY_PATH_SEP}${v.sub_category_v2_zh}`);
+      }
+    }
+    let rawPath = '';
+    let resolved: string | null = null;
+    if (pairs.size === 1) {
+      rawPath = [...pairs][0]!;
+      resolved = await resolveCategoryByPath(rawPath);
+      if (!resolved) unseededSubGroups++; // 有完整 pair 卻查無 seed 子類
+    } else if (pairs.size === 0) {
+      nullV2Groups++;
+    } else {
+      conflictGroups.push({ mainSku, pairs: [...pairs] });
+    }
+    const categoryId: string | null = resolved ?? uncategorizedId; // products.category_id NOT NULL:未對上一律未分類 fallback
+    const subtitleTag: string = (rawPath ? rawPath.split(CATEGORY_PATH_SEP)[0] : '') || '精選部品';
+    categoryResolutions.push({ majorCategoryZh: rawPath || '未分類', categoryId: resolved }); // 傳 resolved(fallback=null)
     const ctx: GroupTransformContext = {
       brandId,
       categoryId,
@@ -223,10 +236,23 @@ async function main(): Promise<void> {
   if (categoryResolutions.length) {
     printCategoryResolutionReport(summarizeCategoryResolution(categoryResolutions));
   }
-  if (nullV2Groups || unseededSubGroups) {
+  if (nullV2Groups || unseededSubGroups || conflictGroups.length) {
     console.log(
-      `[rpm-import] 分類 fallback → 未分類:null-v2 ${nullV2Groups} 群(少數髒資料、預期)、` +
-        `子類未 seed ${unseededSubGroups} 群(異常、需補 seed migration 後重跑)`,
+      `[rpm-import] v2 分類 fallback → 未分類:null-v2 ${nullV2Groups} 群 / 未 seed 子類 ${unseededSubGroups} 群 / 群內衝突 ${conflictGroups.length} 群`,
+    );
+    if (conflictGroups.length) {
+      console.table(conflictGroups.slice(0, 20).map((c) => ({ mainSku: c.mainSku, pairs: c.pairs.join(' | ') })));
+    }
+  }
+  // ── 硬 gate(#212、Codex must-fix 1/2):WRITE 模式分類異常必 abort、不靜默把整批搬「未分類」──
+  //   dry-run 只報告(Sean 看全貌);WRITE:未 seed 子類(seed 漂移)/ 群內衝突(髒來源)/ null-v2 大比例(來源崩)→ abort。
+  //   已知少數 null(50k 中 ~60 筆、0.1%)容忍;>5% 疑來源 v2 崩(對齊 fetch 完整性 5% 精神)。
+  const nullV2Ratio = entries.length ? nullV2Groups / entries.length : 0;
+  if (!DRY_RUN && (unseededSubGroups > 0 || conflictGroups.length > 0 || nullV2Ratio > 0.05)) {
+    throw new Error(
+      `分類異常、abort 不寫(避免整批誤掛未分類):未 seed 子類 ${unseededSubGroups} 群(補 seed migration)` +
+        ` / 群內衝突 ${conflictGroups.length} 群(修來源 v2)` +
+        ` / null-v2 ${nullV2Groups} 群(${(nullV2Ratio * 100).toFixed(1)}%、>5% 疑來源崩)。dry-run 看清單。`,
     );
   }
 
