@@ -23,6 +23,29 @@ describe('parseCatalogQuery', () => {
     });
   });
 
+  it('omits price bounds entirely when no price params are present (P4 回歸:缺 pmax 不可變成 priceMax=0)', () => {
+    // 根因:Number(null) === 0 且 0 >= 0,parseNonNegativeInteger(null) 誤回 0 → priceMax:0
+    //   → RPC 過濾 price_general<=0 → 整頁 0 筆。缺價格參數時 priceMin/priceMax 必須「不存在」。
+    const result = parseCatalogQuery(params('sort=price-asc'));
+    expect(result).toEqual({
+      page: 1,
+      perPage: 25,
+      sort: 'price-asc',
+      brandSlugs: [],
+    });
+    expect(result).not.toHaveProperty('priceMax');
+    expect(result).not.toHaveProperty('priceMin');
+  });
+
+  it('treats empty / whitespace price params as absent (Number(""|" "|"+")===0 footgun)', () => {
+    // ?pmin=&pmax= 與 ?pmax=%20(解碼為空白)皆不可變成 priceMax=0;+ 也解碼為空白。
+    for (const q of ['pmin=&pmax=', 'pmax=%20', 'pmax=+', 'pmax=%09']) {
+      const result = parseCatalogQuery(params(q));
+      expect(result, q).not.toHaveProperty('priceMax');
+      expect(result, q).not.toHaveProperty('priceMin');
+    }
+  });
+
   it('fails closed to defaults for malformed, unsupported, or unsafe query values', () => {
     expect(
       parseCatalogQuery(

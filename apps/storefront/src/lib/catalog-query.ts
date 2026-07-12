@@ -37,7 +37,13 @@ function parsePositiveInteger(raw: string | null, fallback: number): number {
 }
 
 function parseNonNegativeInteger(raw: string | null): number | undefined {
-  const value = Number(raw);
+  // 🔴 缺參數/空白必回 undefined:Number(null) / Number('') / Number(' '|'\t'|'+') 皆為 0,
+  //    且 0 通過 value>=0 檢查,會讓「無 pmax」誤傳 priceMax=0 → RPC 過濾 price_general<=0
+  //    → 整頁 0 筆(P4 回歸)。故先 trim、空字串即視為缺參數(涵蓋 ?pmax= 與 ?pmax=%20)。
+  if (raw === null) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === '') return undefined;
+  const value = Number(trimmed);
   return Number.isInteger(value) && value >= 0 ? value : undefined;
 }
 
