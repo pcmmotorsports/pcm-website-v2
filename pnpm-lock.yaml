@@ -101,6 +101,12 @@ importers:
       '@base-ui/react':
         specifier: ^1.6.0
         version: 1.6.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@pcm/adapters':
+        specifier: workspace:*
+        version: link:../../packages/adapters
+      '@pcm/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@tabler/icons-react':
         specifier: ^3.40.0
         version: 3.44.0(react@19.2.6)

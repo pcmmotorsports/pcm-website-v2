@@ -11,7 +11,11 @@ import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
 import type { PlaceOrderInput } from '@pcm/domain';
-import { SupabaseOrderAdapter, ORDER_LIST_SELECT } from './SupabaseOrderAdapter';
+import {
+  SupabaseOrderAdapter,
+  ORDER_LIST_SELECT,
+  ADMIN_ORDER_LIST_SELECT,
+} from './SupabaseOrderAdapter';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -189,6 +193,204 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
     const { client } = makeListClient({ data: null, error: new Error('connection refused') });
     await expect(
       new SupabaseOrderAdapter(client).listSummariesByCustomer('c1'),
+    ).rejects.toThrow();
+  });
+});
+
+// ── listOrderSummariesForAdmin:後台訂單列表(M-4a、service_role 全表、雙軸+次要篩選 + server 分頁 + count)──
+// mock from('orders').select(ADMIN_ORDER_LIST_SELECT,{count}).eq(...)*.order('created_at',desc).range(offset,offset+limit-1)。
+// eq 可鏈(回自身 builder);order 回 {range};range 為終端、await 回 {data, error, count}。
+function makeAdminListClient(result: { data: unknown; error: unknown; count: number | null }) {
+  const range = vi.fn().mockResolvedValue(result);
+  const order = vi.fn().mockReturnValue({ range });
+  const eq = vi.fn();
+  const builder = { eq, order };
+  eq.mockReturnValue(builder); // query = query.eq(...) 保持可鏈
+  const select = vi.fn().mockReturnValue(builder);
+  const from = vi.fn().mockReturnValue({ select });
+  return {
+    client: { from } as unknown as SupabaseClient,
+    from,
+    select,
+    eq,
+    order,
+    range,
+  };
+}
+
+describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(客人顯示 customers(name),零成本欄)', () => {
+    expect(ADMIN_ORDER_LIST_SELECT).toBe(
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)',
+    );
+  });
+
+  it('🔴 鐵則 12:投影不含任何成本 / 經銷 / 敏感欄名、且無 select("*")', () => {
+    const forbidden = [
+      '*',
+      'price_store',
+      'price_by_tier',
+      'priceByTier',
+      'cost',
+      'unit_price',
+      'line_total',
+      'product_snapshot',
+      'tappay_rec_trade_id',
+      'shipping_address_snapshot',
+      'invoice',
+      'tier_at_checkout',
+    ];
+    for (const token of forbidden) {
+      expect(ADMIN_ORDER_LIST_SELECT).not.toContain(token);
+    }
+  });
+
+  it('查詢鏈 orders / select(ADMIN_ORDER_LIST_SELECT,{count:exact}) / 四軸 eq 下推 / order(created_at desc) / range(offset,offset+limit-1);row → AdminOrderSummary', async () => {
+    const { client, from, select, eq, order, range } = makeAdminListClient({
+      data: [
+        {
+          id: 'o1',
+          display_id: 'PCM-2099-0001',
+          created_at: '2099-04-15T10:00:00Z',
+          payment_status: 'paid',
+          fulfillment_status: 'notOrdered',
+          total: 5200,
+          order_source: 'web',
+          payment_channel: 'tappay',
+          display_position: null,
+          cancelled_at: null,
+          customers: { name: '王小明' }, // forward FK many-to-one → 單物件
+        },
+      ],
+      error: null,
+      count: 37,
+    });
+
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      {
+        paymentStatus: 'paid',
+        fulfillmentStatus: 'notOrdered',
+        orderSource: 'web',
+        paymentChannel: 'tappay',
+      },
+      { limit: 20, offset: 40 },
+    );
+
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    // 四軸篩選各下推一次 DB where(非前端過濾)
+    expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
+    expect(eq).toHaveBeenCalledWith('fulfillment_status', 'notOrdered');
+    expect(eq).toHaveBeenCalledWith('order_source', 'web');
+    expect(eq).toHaveBeenCalledWith('payment_channel', 'tappay');
+    expect(eq).toHaveBeenCalledTimes(4);
+    expect(order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(range).toHaveBeenCalledWith(40, 59); // offset 40、limit 20 → [40, 59] 含端
+    expect(res).toEqual({
+      items: [
+        {
+          id: 'o1',
+          displayId: 'PCM-2099-0001',
+          createdAt: '2099-04-15T10:00:00Z',
+          customerName: '王小明',
+          paymentStatus: 'paid',
+          fulfillmentStatus: 'notOrdered',
+          orderSource: 'web',
+          paymentChannel: 'tappay',
+          total: { amount: 5200, currency: 'TWD' },
+          displayPosition: null,
+          cancelledAt: null,
+        },
+      ],
+      total: 37,
+    });
+  });
+
+  it('無篩選 → 完全不下推 eq(全表);offset 預設 0 → range(0, limit-1)', async () => {
+    const { client, eq, range } = makeAdminListClient({ data: [], error: null, count: 0 });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      {},
+      { limit: 20 },
+    );
+    expect(eq).not.toHaveBeenCalled();
+    expect(range).toHaveBeenCalledWith(0, 19);
+    expect(res).toEqual({ items: [], total: 0 });
+  });
+
+  it('取消單(cancelled_at 非 null)+ 客人 join 缺(customers null)→ cancelledAt 帶值、customerName null', async () => {
+    const { client } = makeAdminListClient({
+      data: [
+        {
+          id: 'o2',
+          display_id: 'PCM-2099-0002',
+          created_at: '2099-05-01T00:00:00Z',
+          payment_status: 'unpaid',
+          fulfillment_status: 'notOrdered',
+          total: 999,
+          order_source: 'manual_phone',
+          payment_channel: 'cash',
+          display_position: 3,
+          cancelled_at: '2099-05-02T00:00:00Z',
+          customers: null,
+        },
+      ],
+      error: null,
+      count: 1,
+    });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      {},
+      { limit: 20 },
+    );
+    expect(res.items[0]).toEqual({
+      id: 'o2',
+      displayId: 'PCM-2099-0002',
+      createdAt: '2099-05-01T00:00:00Z',
+      customerName: null, // join 缺 → null 防禦
+      paymentStatus: 'unpaid',
+      fulfillmentStatus: 'notOrdered',
+      orderSource: 'manual_phone',
+      paymentChannel: 'cash',
+      total: { amount: 999, currency: 'TWD' },
+      displayPosition: 3,
+      cancelledAt: '2099-05-02T00:00:00Z',
+    });
+  });
+
+  it('防禦:customers embed 若回陣列形狀(PostgREST cardinality 落差)→ 取首個 name(非 undefined)', async () => {
+    const { client } = makeAdminListClient({
+      data: [
+        {
+          id: 'o3',
+          display_id: 'PCM-2099-0003',
+          created_at: '2099-06-01T00:00:00Z',
+          payment_status: 'paid',
+          fulfillment_status: 'shipped',
+          total: 100,
+          order_source: 'web',
+          payment_channel: 'tappay',
+          display_position: null,
+          cancelled_at: null,
+          customers: [{ name: '李大同' }], // 陣列形狀
+        },
+      ],
+      error: null,
+      count: 1,
+    });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      {},
+      { limit: 20 },
+    );
+    expect(res.items[0]?.customerName).toBe('李大同');
+  });
+
+  it('查詢 error → 裸 throw(caller〔admin 頁〕try/catch 退錯誤態、頁面不 500)', async () => {
+    const { client } = makeAdminListClient({
+      data: null,
+      error: new Error('connection refused'),
+      count: null,
+    });
+    await expect(
+      new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 }),
     ).rejects.toThrow();
   });
 });

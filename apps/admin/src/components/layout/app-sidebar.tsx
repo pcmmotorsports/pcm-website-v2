@@ -1,6 +1,8 @@
 'use client';
 
-import { Icons } from '@/components/icons';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Icons, type Icon } from '@/components/icons';
 import {
   Sidebar,
   SidebarContent,
@@ -13,17 +15,26 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar';
 
-// 精簡自 Kiranism starter src/components/layout/app-sidebar.tsx(見 src/FORK-PROVENANCE.md):
-// 砍掉 Clerk(useUser/useOrganization/SignOutButton)、nav-config/use-nav 動態導覽、user dropdown。
-// M0-S1 骨架階段 = 靜態占位導覽、不接資料、不導頁(訂單/客戶線待後續 slice 才真的接 route)。
-// 之所以用 button(非 Link)= 這些頁面尚未存在,避免點了 404;真接頁面時各 slice 換成 <Link>。
-const NAV_ITEMS = [
-  { key: 'overview', label: '總覽', icon: Icons.dashboard, active: true },
-  { key: 'orders', label: '訂單', icon: Icons.billing, active: false },
-  { key: 'customers', label: '客戶', icon: Icons.user, active: false },
-] as const;
+// 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
+// M-4a 訂單線第一片:訂單頁已存在 → 換成真 <Link>(usePathname 判 active);總覽 → /;
+// 客戶頁尚未接(客戶線 slice),維持不可點 button 避免 404。
+type NavItem = { key: string; label: string; icon: Icon; href?: string };
+
+const NAV_ITEMS: readonly NavItem[] = [
+  { key: 'overview', label: '總覽', icon: Icons.dashboard, href: '/' },
+  { key: 'orders', label: '訂單', icon: Icons.billing, href: '/orders' },
+  { key: 'customers', label: '客戶', icon: Icons.user },
+];
+
+/** 目前路徑是否命中此 nav('/' 精確;其餘含子路徑)。 */
+function isNavActive(pathname: string, href: string): boolean {
+  if (href === '/') return pathname === '/';
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 export function AppSidebar() {
+  const pathname = usePathname();
+
   return (
     <Sidebar collapsible='icon'>
       <SidebarHeader>
@@ -40,14 +51,21 @@ export function AppSidebar() {
           <SidebarMenu>
             {NAV_ITEMS.map((item) => (
               <SidebarMenuItem key={item.key}>
-                <SidebarMenuButton
-                  isActive={item.active}
-                  tooltip={item.label}
-                  aria-disabled={!item.active}
-                >
-                  <item.icon />
-                  <span>{item.label}</span>
-                </SidebarMenuButton>
+                {item.href ? (
+                  <SidebarMenuButton
+                    isActive={isNavActive(pathname, item.href)}
+                    tooltip={item.label}
+                    render={<Link href={item.href} />}
+                  >
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                ) : (
+                  <SidebarMenuButton isActive={false} tooltip={item.label} aria-disabled>
+                    <item.icon />
+                    <span>{item.label}</span>
+                  </SidebarMenuButton>
+                )}
               </SidebarMenuItem>
             ))}
           </SidebarMenu>

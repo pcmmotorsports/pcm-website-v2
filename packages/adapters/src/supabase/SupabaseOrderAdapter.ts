@@ -7,13 +7,19 @@ import type {
   OrderListItem,
   PlaceOrderInput,
   PlaceOrderResult,
+  AdminOrderFilter,
+  AdminOrderSummary,
+  Paginated,
+  PaginationParams,
 } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
 import type { Database } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
+  mapSupabaseAdminOrderRowToSummary,
   type CreateOrderRpcResult,
+  type SupabaseAdminOrderRow,
 } from './mappers/order';
 
 /**
@@ -25,6 +31,17 @@ import {
  */
 export const ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)';
+
+/**
+ * admin orders 摘要投影白名單(M-4a 訂單線第一片、後台 /orders 列表;service_role 全表)。
+ *
+ * 🔴 鐵則 12:具名白名單 + 內嵌 `customers(name)`(客人顯示);**禁** `select('*')`、**零**成本欄
+ * (orders 表本身無 price_store / price_by_tier / cost、天生守;白名單守慣例縱深、防未來加欄靜默洩漏)、
+ * **不含** unit_price / line_total / product_snapshot / tappay_rec_trade_id / invoice / shipping_address_snapshot / tier_at_checkout。
+ * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + 無成本欄名 + 無 `*` + spy 守門。
+ */
+export const ADMIN_ORDER_LIST_SELECT =
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -131,6 +148,46 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       throw error;
     }
     return data.map(mapSupabaseOrderRowToListItem);
+  }
+
+  /**
+   * admin 訂單列表摘要(M-4a 訂單線第一片;後台營運找單 / 看狀態;service_role 全表、非 RLS own-only)。
+   *
+   * - 投影 `ADMIN_ORDER_LIST_SELECT` 具名白名單(禁 `select('*')`、零成本欄、內嵌 customers(name));
+   * - 雙軸 + 次要篩選走 **DB where 下推**(payment_status / fulfillment_status / order_source / payment_channel、
+   *   缺欄 = 不限;全在 FilterBuilder 階段套用、避免 order/range 後改鏈型別);
+   * - **server 端分頁** `.range(offset, offset+limit-1)`(offset 預設 0)+ 排序 `created_at` DESC(新到舊)+
+   *   `count: 'exact'` 取符合條件總筆數(供 UI「共 N 筆」+ 分頁控制);
+   * - error → 裸 throw(對齊 placeOrder / listSummariesByCustomer 慣例;caller〔admin 頁〕try/catch 退錯誤態、頁面不 500)。
+   *
+   * 🔴 鐵則 12:service_role 讀 orders 已於 20260611120000「admin 唯讀」保留 SELECT;orders 表無成本欄(天生守)+
+   * 白名單投影縱深。data 走 `as unknown as SupabaseAdminOrderRow[]`(customers forward FK = many-to-one 單物件、
+   * 生成型別對 embed 推斷不穩,以 runtime 真相 cast、同 SupabaseProductAdapter 慣例)。
+   */
+  async listOrderSummariesForAdmin(
+    filter: AdminOrderFilter,
+    pagination: PaginationParams,
+  ): Promise<Paginated<AdminOrderSummary>> {
+    const offset = pagination.offset ?? 0;
+
+    let query = this.supabase
+      .from('orders')
+      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
+    if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
+    if (filter.orderSource) query = query.eq('order_source', filter.orderSource);
+    if (filter.paymentChannel) query = query.eq('payment_channel', filter.paymentChannel);
+
+    const { data, error, count } = await query
+      .order('created_at', { ascending: false })
+      .range(offset, offset + pagination.limit - 1);
+    if (error) {
+      throw error;
+    }
+    const items = (data as unknown as SupabaseAdminOrderRow[]).map(
+      mapSupabaseAdminOrderRowToSummary,
+    );
+    return { items, total: count ?? 0 };
   }
 
   // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──

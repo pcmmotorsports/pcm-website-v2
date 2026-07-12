@@ -1,4 +1,12 @@
-import type { OrderListItem, PlaceOrderInput, PlaceOrderLine, OrderInvoice } from '@pcm/domain';
+import type {
+  OrderListItem,
+  PlaceOrderInput,
+  PlaceOrderLine,
+  OrderInvoice,
+  AdminOrderSummary,
+  OrderSource,
+  PaymentChannel,
+} from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
 import type { Database } from '../database.types';
 
@@ -123,5 +131,69 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
     fulfillmentStatus: row.fulfillment_status,
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     itemCount: row.order_items.reduce((sum, item) => sum + item.quantity, 0),
+  };
+}
+
+// ── 讀路徑(admin 摘要):orders row + 內嵌 customers(name) → domain AdminOrderSummary(M-4a 訂單線第一片)──
+
+/**
+ * admin 摘要讀 row 型別 —— **derive 自生成 Database Row**(對齊 SupabaseOrderListRow 慣例)。
+ *
+ * 只取 `ADMIN_ORDER_LIST_SELECT`(SupabaseOrderAdapter)投影的欄 + 內嵌 `customers(name)`。
+ * 🔴 鐵則 12:**不含** 任何成本欄(orders 表本身無 price_store / price_by_tier / cost);customers 只取
+ * `name`(客人顯示、非經銷價 / tier / PII-heavy 欄)。`payment_status` / `fulfillment_status` 生成 enum
+ * 字面 = domain enum(直送);`order_source` / `payment_channel` 生成為 text `string`(DB CHECK 約束、非 pg enum)
+ * → mapper 端 narrow 成 domain enum(見下)。`total` integer 元位 → Money。
+ */
+export type SupabaseAdminOrderRow = Pick<
+  Database['public']['Tables']['orders']['Row'],
+  | 'id'
+  | 'display_id'
+  | 'created_at'
+  | 'payment_status'
+  | 'fulfillment_status'
+  | 'total'
+  | 'order_source'
+  | 'payment_channel'
+  | 'display_position'
+  | 'cancelled_at'
+> & {
+  /**
+   * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
+   * many-to-one → PostgREST 回**單物件**(或 null);FK ON DELETE RESTRICT 保證客人存在,型別仍容 null 防禦。
+   * 🔴 型別容單物件 / 陣列兩形狀:embed cardinality 本片無法本機實測(需 service_role 打真 PostgREST);
+   *    PostgREST 語意 many-to-one = 單物件、但跨版本 / 生成器推斷有落差,mapper 端正規化吸收(見 customerNameFromEmbed)。
+   */
+  customers: { name: string } | { name: string }[] | null;
+};
+
+/** customers embed → 客人顯示名:容單物件 / 陣列兩形狀(防 PostgREST embed cardinality 落差)、缺 → null。 */
+function customerNameFromEmbed(embed: SupabaseAdminOrderRow['customers']): string | null {
+  if (embed == null) return null;
+  const record = Array.isArray(embed) ? embed[0] : embed;
+  return record?.name ?? null;
+}
+
+/**
+ * wire orders admin 摘要 row → domain AdminOrderSummary(snake_case → camelCase)。
+ *
+ * `customerName = customers?.name ?? null`(join 缺 → null 防禦);`total` integer → Money 走 `toMoneyAmount`
+ * 中央守門(整數 / 非負、絕不 `as MoneyAmount`);`orderSource` / `paymentChannel` 由 text narrow 成 domain enum
+ * (🔴 DB CHECK 約束已保證值域合法、非任意字串,此 cast 是 text-column↔domain-enum 邊界的正當投射,非繞型別);
+ * `paymentStatus` / `fulfillmentStatus` / `createdAt` / `displayPosition` / `cancelledAt` / `displayId` / `id` 直送。
+ */
+export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): AdminOrderSummary {
+  return {
+    id: row.id,
+    displayId: row.display_id,
+    createdAt: row.created_at,
+    customerName: customerNameFromEmbed(row.customers),
+    paymentStatus: row.payment_status,
+    fulfillmentStatus: row.fulfillment_status,
+    orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域
+    paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
+    total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    displayPosition: row.display_position,
+    cancelledAt: row.cancelled_at,
   };
 }

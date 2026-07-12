@@ -4,6 +4,10 @@ import type {
   OrderId,
   OrderListItem,
   OrderStatusFilter,
+  AdminOrderFilter,
+  AdminOrderSummary,
+  Paginated,
+  PaginationParams,
   CustomerId,
   PlaceOrderInput,
   PlaceOrderResult,
@@ -56,8 +60,24 @@ export interface IOrderRepository {
   listSummariesByCustomer(customerId: CustomerId): Promise<OrderListItem[]>;
   /** 列出某會員訂單(完整 Order)。⚠️ deferred:待 #217(order_items 無 product_id);M-3 不啟用、用 listSummariesByCustomer。TODO M-4a-08: 補分頁 + 排序。 */
   listByCustomer(customerId: CustomerId): Promise<Order[]>;
-  /** admin 訂單列表(雙軸狀態篩選)。TODO M-4a-08: 補分頁 + 排序。 */
+  /** admin 訂單列表(雙軸狀態篩選,完整 Order)。⚠️ deferred stub(撞 #217、同 listByCustomer);後台列表改走 `listOrderSummariesForAdmin` 摘要投影。 */
   listByStatus(filter: OrderStatusFilter): Promise<Order[]>;
+
+  /**
+   * admin 訂單列表「摘要」(M-4a 訂單線第一片;後台營運找單 / 看狀態)。
+   *
+   * 回 `Paginated<AdminOrderSummary>`(摘要投影、不含 items[]):繞過 #217、比照 `listByCustomer` vs
+   * `listSummariesByCustomer` 分離先例 —— **新增** admin 專用摘要方法、不動既有 `listByStatus` stub /
+   * `listByCustomer` / `listSummariesByCustomer`(會員側零影響)。
+   *
+   * - service_role 全表(非 RLS own-only);雙軸 + 次要篩選走 DB where 下推(payment/fulfillment/source/channel);
+   * - server 端分頁(`.range(offset, offset+limit-1)`)+ 排序 created_at DESC(新到舊)+ 總筆數 count;
+   * - 🔴 鐵則 12:投影具名白名單、零成本欄、禁 `select('*')`(orders 表本身無成本欄、天生守,白名單守慣例縱深)。
+   */
+  listOrderSummariesForAdmin(
+    filter: AdminOrderFilter,
+    pagination: PaginationParams,
+  ): Promise<Paginated<AdminOrderSummary>>;
 
   // TODO M-4a-XX: 補 listByDateRange — 月結統計用
 }

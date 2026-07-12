@@ -167,6 +167,74 @@ export type OrderListItem = {
   itemCount: number;
 };
 
+// ── M-4a 訂單線:後台管理讀模型(order_source / payment_channel / admin 篩選 + 摘要)──
+
+/**
+ * OrderSource: 訂單來源(M-4a、orders.order_source;來源與金流管道拆兩軸)。
+ *
+ * 對齊 orders.order_source CHECK(migration 20260712203000):
+ * - `web` 前台 create_order 建單(既有列預設回填)
+ * - `manual_phone` / `manual_line` / `manual_other` 後台手動建單(散客單、來源電話/LINE/其他;手動建單片才寫入)
+ *
+ * 本片(訂單線第一片)純顯示既有 web 單、不做手動建單;此 enum 供列表「來源」次要篩選 + 顯示標籤用。
+ */
+export type OrderSource = 'web' | 'manual_phone' | 'manual_line' | 'manual_other';
+
+/**
+ * PaymentChannel: 金流管道(M-4a、orders.payment_channel;錢實際走哪條)。
+ *
+ * 對齊 orders.payment_channel CHECK(migration 20260712203000):`tappay` / `bank_transfer` / `cash` / `none`。
+ *
+ * 🔴 語意分界(migration COMMENT 釘死):`payment_channel` 是「管理/預期軸」、**算實收金額禁用**;
+ * 對帳/實收一律走 `payment_method`(金流事實軸)+ `payment_status`。本片列表純顯示不算錢,標明防後續片誤用。
+ */
+export type PaymentChannel = 'tappay' | 'bank_transfer' | 'cash' | 'none';
+
+/**
+ * AdminOrderFilter: 後台訂單列表雙軸 + 次要篩選(value-object;全欄可選、缺 = 不限)。
+ *
+ * 主雙軸 = `paymentStatus` × `fulfillmentStatus`(營運最常查「已付未出」);
+ * 次要 = `orderSource` / `paymentChannel`。全部走 DB where 下推(server 端篩選、非前端過濾)。
+ * (對比會員側 `OrderStatusFilter` 只有雙軸;admin 多來源/管道兩軸、故另立型別、不擴會員側。)
+ */
+export type AdminOrderFilter = {
+  paymentStatus?: PaymentStatus;
+  fulfillmentStatus?: FulfillmentStatus;
+  orderSource?: OrderSource;
+  paymentChannel?: PaymentChannel;
+};
+
+/**
+ * AdminOrderSummary: 後台訂單列表摘要投影(admin read-model、server 分頁)。
+ *
+ * 用途:後台 /orders 列表(找單 / 看狀態)。刻意**不含** `items[]`(繞過 #217,同 OrderListItem);
+ * 比 `OrderListItem` 多攜:客人顯示名(join customers)、order_source、payment_channel、display_position、
+ * cancelled_at(取消軸,非 null = 已取消,本片純顯示、取消功能留取消片)。
+ *
+ * 🔴 鐵則 12:型別層**無** price_by_tier / price_store / cost(orders 表本身無成本欄、天生守;投影仍具名白名單)。
+ * `total` 為該單總額(整數元位 → Money);`customerName` 可為 null(防禦:FK ON DELETE RESTRICT 保證客人存在,
+ * 但 join 邊界仍容 null)。`createdAt` / `cancelledAt` ISO 原樣(UI 端格式化)。
+ */
+export type AdminOrderSummary = {
+  id: OrderId;
+  /** 人類可讀單號 `PCM-YYYY-NNNN` */
+  displayId: DisplayId;
+  /** 下單時間 ISO(orders.created_at 原樣;UI formatOrderDate 格式化) */
+  createdAt: string;
+  /** 客人顯示名(join customers.name;缺 → null) */
+  customerName: string | null;
+  paymentStatus: PaymentStatus;
+  fulfillmentStatus: FulfillmentStatus;
+  orderSource: OrderSource;
+  paymentChannel: PaymentChannel;
+  /** 訂單總額(Money 整數、TWD) */
+  total: Money;
+  /** 後台工作排序鍵(NULL = 未手動排過);本片顯示排序值、拖曳排序留訂單線-03 */
+  displayPosition: number | null;
+  /** 取消時間 ISO(非 null = 已取消;本片純顯示,取消功能留取消片) */
+  cancelledAt: string | null;
+};
+
 /**
  * PlaceOrderLine: 結帳送出的單一購物車品項(client → server 線契約)。
  *
