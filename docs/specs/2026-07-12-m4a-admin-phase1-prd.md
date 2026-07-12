@@ -13,11 +13,13 @@
 | Q2(07-12) | **C** | 第一期=訂單管理+客戶管理一起完成才交付 |
 | Q3(07-12) | **B** | 全 Claude:實作 Opus/Sonnet、Fable 只規劃+高風險審查;不開 Codex 寫入 |
 | Q4(07-12) | **A** | 先收尾 #274/#275/search-vehicle,後台=下一個 milestone |
+| 加項(07-12 晚) | **B+D** | email 通知(下單/出貨)+首頁推薦改最新商品=進第一期;A 商品網站側欄位、C 首頁輪播=第二期(Sean:「依照建議」) |
+| 時機(07-12 晚) | **開動** | Sean:搜尋線剩 codex 背書、不衝突;原 Q4 gate 解除、後台線即刻開工 |
 | 視覺基調(07-12 Sean 原話) | — | 後台=**明亮、乾淨**;不沿用前台深色 design(後台無 design-reference 約束,以好用為先) |
 
 已採納語意(Sean 未反對,開工前可推翻):訂單上下移動/插入**只影響後台顯示順序**,不改訂單編號/成立時間/客人視角。
 
-**待拍加項(§12 決策題,Sean 回覆後更新本表)**:商品管理(網站側欄位)/ 下單與出貨 email 通知 / 首頁輪播管理 / 首頁推薦改最新商品。
+加項已拍(07-12 晚):email 通知+首頁最新商品=第一期;商品網站側欄位、首頁輪播=第二期。
 
 ## 1. 目標(白話)
 
@@ -25,8 +27,8 @@ Sean 與員工用同一個登入進報價單後台+網站後台;第一期:①訂
 
 ## 2. 範圍
 
-**做(第一期)**:M0 入口與地基(admin 殼+部署+staff 身分+稽核 log+SSO)/ 訂單線 / 客戶線(細節 §4-§6)。
-**不做(明確排除)**:商品完整管理(源頭在報價單庫,網站側欄位編輯屬待拍加項)/ admin inbox 客服 / 員工多帳號完整權限(M-4b;第一期做「最小具名身分」§6.1)/ **已付款單取消與退款**(走 M-3 乙路後台退款線;第一期取消僅限 unpaid,不碰金流寫路徑)/ wallet(#202 HOLD)。
+**做(第一期)**:M0 入口與地基(admin 殼+部署+staff 身分+稽核 log+SSO)/ 訂單線(含 email 通知:下單成功+出貨,outbox+Resend)/ 客戶線 / 前菜=首頁推薦改最新商品(純前台、可先行)(細節 §4-§6)。
+**不做(明確排除)**:商品管理含網站側欄位編輯(第二期,07-12 晚拍)/ 首頁輪播管理(第二期)/ admin inbox 客服 / 員工多帳號完整權限(M-4b;第一期做「最小具名身分」§6.1)/ **已付款單取消與退款**(走 M-3 乙路後台退款線;第一期取消僅限 unpaid,不碰金流寫路徑)/ wallet(#202 HOLD)。
 
 ## 3. 架構決策
 
@@ -95,7 +97,7 @@ v1.1 依 Codex 批判修訂:
 3. **樂觀鎖**:orders/customers 帶 version 條件更新,衝突回 409 由 UI 重載。
 4. **狀態變更全走 RPC/repository 白名單**,UI 藏按鈕不構成保護。
 5. **時區**:DB 一律 timestamptz(UTC);後台顯示與日報邊界=Asia/Taipei 明訂。
-6. **Email outbox**(若 email 加項拍進來):事務信寫 outbox 表+背景送出+重試,不在訂單交易內直呼 Resend。
+6. **Email outbox**(email 已拍入第一期):事務信寫 outbox 表+背景送出+重試,不在訂單交易內直呼 Resend;第一期兩封=下單成功、出貨通知(業界最低標配五封先做兩封;取消/退款信併 M-3 退款線)。
 7. **correlation/request id** 貫穿 admin 寫入→audit→DB→外部服務 log。
 
 ## 7. 高風險件(Fable 審+對抗審必過;其餘走一般 code-reviewer)
@@ -108,19 +110,19 @@ v1.1 依 Codex 批判修訂:
 ## 8. Slice 骨架(開工時逐片出六件套)
 
 - **M0 入口與地基**(4):骨架 fork+整合 spike+部署 | staff 身分+audit log+correlation 基建 | SSO 收端 | 報價單側簽發(跨 repo 提案後)
-- **訂單線**(7):migration | 列表+雙軸篩選+pagination | 工作排序(spike 拖曳庫→拖曳/插入) | 手動建單 | 詳情抽屜(吃 #217) | 取消+對帳正向驗證 | smoke test
+- **前菜**(1、可先行):首頁推薦改最新商品(純前台、不依賴後台)
+- **訂單線**(8):migration | 列表+雙軸篩選+pagination | 工作排序(spike 拖曳庫→拖曳/插入) | 手動建單 | 詳情抽屜(吃 #217) | 取消+對帳正向驗證 | email 通知(outbox+Resend:下單/出貨) | smoke test
 - **客戶線**(5):列表 | 詳情 | tier+#215+step-up | 經銷審核 | 測試收尾
-- ≈16 slice、實作 5-7 個 Opus/Sonnet session;email/商品/輪播加項另計(拍板後補切片)。
+- ≈18 slice、實作 5-7 個 Opus/Sonnet session;商品側欄位/輪播=第二期另計。
 
 ## 9. 開工條件與分工
 
-Gate(Q4=A):#274/#275/search-vehicle 收尾;開工第一步=報價單側 SSO 跨 repo 提案。分工(Q3=B):實作 Opus(機械片 Sonnet)、Fable 審高風險件;Codex 維持唯讀審查(quota 恢復時背書)。Rollback:admin=新增面、獨立 app;migration 加欄不破壞(§4.1 nullable 策略);SSO 失敗回退=各自密碼登入。
+Gate 已解除(07-12 晚 Sean 拍:搜尋線剩 codex 背書、不衝突、後台開動);開工第一步=報價單側 SSO 跨 repo 提案(已備:`docs/proposals/2026-07-12-quote-sso-issuer-proposal.md`,等 Sean 過目)。分工(Q3=B):實作 Opus(機械片 Sonnet)、Fable 審高風險件;Codex 維持唯讀審查(quota 恢復時背書)。Rollback:admin=新增面、獨立 app;migration 加欄不破壞(§4.1 nullable 策略);SSO 失敗回退=各自密碼登入。
 
 ## 10. 未來留門(不在第一期,架構先不擋路)
 
 - **首頁輪播**:`homepage_banners` 表(image_url/link/sort/active/schedule)+後台 CRUD;前台元件視覺=Claude Design 分工。
 - **AI 自動產圖管線**(Sean 願景:AI 研究品牌新品→產資訊圖→自動上輪播):留門=圖片欄位區分原圖/去背圖、產圖任務用非同步狀態機(pending/processing/completed)、banner 表加結構化 metadata(brand/vibe/main_color)供未來 prompt builder;產圖工具屆時另研究(Gemini 初查:Flux/Ideogram/Photoroom/Bannerbear 一類,未驗證)。
-- 首頁推薦改「最新商品」:純前台小 slice,不依賴後台,可隨時先做。
 - B2B 審核補件清單+LINE 通知、手動單 fitment 適配警示:backlog 候選。
 
 ## 11. 連動索引
