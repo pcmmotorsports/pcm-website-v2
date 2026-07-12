@@ -72,11 +72,15 @@ module.exports = [
       // - boundaries plugin 透過 eslint-module-utils 解析 import target
       // - typescript resolver 認 .ts / .tsx + tsconfig path mapping + workspace alias
       // - project glob:packages/*/tsconfig.json + apps/storefront/tsconfig.json
-      //   (M-1-03-main-d-pre 補 storefront 進 glob、apps/api / apps/admin / apps/sync-engine
-      //   仍純殼、待 M-4a-01 / M-5-01 真寫 .ts 時各自補、對齊 backlog #54 Supersede 精神)
+      //   (M-1-03-main-d-pre 補 storefront 進 glob;M-4a M0-S1 補 apps/admin 進 glob〔骨架首次寫 .tsx〕;
+      //   apps/api / apps/sync-engine 仍純殼、待 M-5-01 真寫 .ts 時各自補、對齊 backlog #54 Supersede 精神)
       'import/resolver': {
         typescript: {
-          project: ['packages/*/tsconfig.json', 'apps/storefront/tsconfig.json'],
+          project: [
+            'packages/*/tsconfig.json',
+            'apps/storefront/tsconfig.json',
+            'apps/admin/tsconfig.json',
+          ],
         },
       },
     },
