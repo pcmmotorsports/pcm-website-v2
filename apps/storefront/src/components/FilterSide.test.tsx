@@ -88,16 +88,48 @@ describe('FilterSide', () => {
     expect(row.className).not.toContain('is-active'); // 再點同列 → 取消(toggle)
   });
 
-  // #212 子類上架:有子類大類展開後,第一列「全部 {大類}」可選整個大類(rollup、對齊手機 FilterDrawer)。
-  it('should select whole parent via 「全部 {大類}」 row after expanding (has-children、#212)', () => {
+  // Sean 2026-07-12 UX 調整:has-children 大類點一次=選「該大類全部」+ 展開子類(取消獨立「全部」列);
+  //   切換不同大類只需一次點擊;再點已選同一大類 → 取消 + 收合。
+  it('should select whole parent AND expand subs on a single click, with no separate 全部 row (has-children)', () => {
     render(<Harness />);
-    fireEvent.click(screen.getByText('代理配件')); // 有子類 → 點大類=展開
-    const allRow = screen.getByText('全部 代理配件').closest('button')!;
-    expect(allRow.className).not.toContain('is-active');
-    fireEvent.click(allRow); // 選整個大類(rollup)
-    expect(allRow.className).toContain('is-active');
-    fireEvent.click(allRow); // 再點 → 取消(toggle)
-    expect(allRow.className).not.toContain('is-active');
+    const parentRow = screen.getByText('代理配件').closest('button')!;
+    expect(parentRow.className).not.toContain('is-active');
+    fireEvent.click(parentRow); // 一次點:選「全部代理配件」+ 展開子類
+    expect(parentRow.className).toContain('is-active'); // 大類自身反映「已選全部」
+    expect(screen.getByText('BONAMICI RACING')).toBeDefined(); // 子類已展開
+    expect(screen.queryByText('全部 代理配件')).toBeNull(); // 不再有獨立「全部」列
+    fireEvent.click(parentRow); // 再點同一大類 → 取消 + 收合
+    expect(parentRow.className).not.toContain('is-active');
+    expect(screen.queryByText('BONAMICI RACING')).toBeNull();
+  });
+
+  // 切換不同大類只需一次點擊(舊行為需先展開再點「全部」=兩次)。
+  it('should switch between top-level categories in a single click', () => {
+    const twoParentData: FilterSideData = {
+      motoBrands: MOCK_MOTO_BRANDS,
+      categories: [
+        { id: 'a', name: '大類A', count: 10, children: [{ id: 'a1', name: '子A1', count: 4 }] },
+        { id: 'b', name: '大類B', count: 20, children: [{ id: 'b1', name: '子B1', count: 6 }] },
+      ],
+      brands: MOCK_BRANDS,
+    };
+    function TwoParentHarness() {
+      const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+      const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
+      return (
+        <FilterSide data={twoParentData} cascade={cascade} dispatch={dispatch} extras={extras} setExtras={setExtras} />
+      );
+    }
+    render(<TwoParentHarness />);
+    fireEvent.click(screen.getByText('大類A').closest('button')!);
+    expect(screen.getByText('大類A').closest('button')!.className).toContain('is-active');
+    expect(screen.getByText('子A1')).toBeDefined();
+    // 一次點大類B → B 選中 + 展開,A 收合
+    fireEvent.click(screen.getByText('大類B').closest('button')!);
+    expect(screen.getByText('大類B').closest('button')!.className).toContain('is-active');
+    expect(screen.getByText('子B1')).toBeDefined();
+    expect(screen.getByText('大類A').closest('button')!.className).not.toContain('is-active');
+    expect(screen.queryByText('子A1')).toBeNull(); // A 已收合
   });
 
   // M-1-13e-pre-3:Sean 2026-05-21 業務拍板「不顯示有無庫存」、SHOW_IN_STOCK_FILTER=false

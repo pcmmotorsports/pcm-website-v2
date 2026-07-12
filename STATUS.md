@@ -7,6 +7,8 @@
 
 **Branch:** dev
 
+**最新 slice(2026-07-13 之一):** 🎛️ 側欄分類互動調整（Sean 回饋、授權 override design/#212）— ①取消獨立「全部 {大類}」列:點大類=直接篩「該大類全部」+ 展開子類(切換不同大類只需一次點擊、再點已選同一大類=取消+收合)②點大類後把該分類區塊捲到側欄頂端(只捲 `.fs-side`、rAF+scrollBy、不動整頁),避免展開子類被底部切掉。改 `FilterSide.tsx` `CategoryTree`。三綠(typecheck/lint/build ✓ + 全 storefront **111 檔 1046 測**綠、FilterSide 測改寫+新增「一次點切換」測)+ 本地 dev playwright 實測:無「全部」列/一次點選取+展開+篩選/側欄捲動 0→150/切換 URL 正確。**未 push。** 前一 slice(之五)P4 `priceMax=0` 回歸已修已推 preview(Sean 確認「正常了」)。
+
 **最新 slice(2026-07-12 之五):** 🐛 P4 目錄整頁 0 筆回歸修復（`priceMax=0`）— preview 肉眼驗發現 `/products` 任何請求（含不篩選）皆「找不到符合條件的商品」。經真部署 curl + 本地 dev 復現 + 加 instrumentation 定位:`parseNonNegativeInteger(null)` 因 `Number(null)===0` 且 `0>=0` 誤回 `0` → `priceMax:0` → RPC 過濾 `price_general<=0` → 整頁 0 筆（P4 `dcebd92` 引入、雙審漏；prod `main` 走舊 code 不受影響）。修 `catalog-query.ts`（缺參/空白→`undefined`、含 trim 涵蓋 `?pmax=%20`|`+`）+ 回歸測 4 案。三綠（typecheck/lint/build ✓ + 全 storefront **111 檔 1045 測**綠）+ code-reviewer R1→R2（1 must-fix whitespace 已補）+ 本地 dev 實測不篩選 77 筆/子分類 26 筆/`+`編碼 URL 26 筆/價格篩選真生效（≤5000=7341）。**未 push、待 Sean 推 dev 生新 preview 複驗。** 前置=P4 RPC timeout 已 apply＋驗（`20260712213000` PL/pgSQL split、anon force_generic_plan **231.7ms**、真 PostgREST anon **0.38–0.88s**、12 公開 key 含 fitments）。
 
 ## 最後更新

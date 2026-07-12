@@ -17,7 +17,7 @@
 
 'use client';
 
-import { useState, type Dispatch, type ReactNode } from 'react';
+import { useRef, useState, type Dispatch, type ReactNode } from 'react';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -136,25 +136,49 @@ function CategoryTree({
   dispatch: Dispatch<CascadeFilterAction>;
 }) {
   const [expanded, setExpanded] = useState<string | null>(category?.mainId ?? null);
+  // Sean 2026-07-12 UX 調整②:點大類後把該分類區塊捲到側欄頂端,讓展開的子類有空間、
+  //   不再被側欄底部切掉(只捲 .fs-side 內部、不動整頁視窗;rAF 等展開 render 後再量位置)。
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollCategoryToTop = (id: string) => {
+    requestAnimationFrame(() => {
+      const el = rowRefs.current.get(id);
+      const container = el?.closest<HTMLElement>('.fs-side');
+      if (!el || !container || typeof container.scrollBy !== 'function') return;
+      const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      container.scrollBy({ top: delta, behavior: 'smooth' });
+    });
+  };
   return (
     <div className="fs-tree">
       {categories.map((c) => {
-        // 有子類:點大類=展開,展開後第一列「全部 {大類}」可選整個大類(rollup、對齊手機 FilterDrawer)。
-        //   無子類(childless):點大類=直接選「全部 {大類}」(Sean 拍 A);再點同一列 → 取消。
-        //   #212 子類上架後「全部 {大類}」列已補齊(見下方展開區塊)、桌機手機一致。
+        // Sean 2026-07-12 UX 調整①(授權 override design/#212 的獨立「全部」列):
+        //   點大類 = 直接篩「該大類全部」+ 展開子類(有的話);切到不同大類只需一次點擊。
+        //   要看子類再點子類;再點「已選且展開」的同一大類 → 取消 + 收合(toggle)。
         const hasChildren = c.children.length > 0;
         const isMainActive = category?.mainId === c.id && !category?.subId;
         return (
-          <div key={c.id}>
+          <div
+            key={c.id}
+            ref={(el) => {
+              if (el) rowRefs.current.set(c.id, el);
+              else rowRefs.current.delete(c.id);
+            }}>
             <button
               className={`fs-tree-row fs-tree-l1 ${isMainActive ? 'is-active' : ''}`}
               onClick={() => {
-                if (hasChildren) {
-                  setExpanded(expanded === c.id ? null : c.id);
-                } else if (isMainActive) {
+                if (isMainActive) {
+                  // 再點已選的同一大類(顯示全部中)→ 取消篩選 + 收合
                   dispatch(clearCategory());
+                  setExpanded(null);
                 } else {
+                  // 點大類 → 篩該大類全部;有子類則同步展開並把區塊捲進視野(切別類自動收合舊的)
                   dispatch(selectCategoryMain(c.id, c.name));
+                  if (hasChildren) {
+                    setExpanded(c.id);
+                    scrollCategoryToTop(c.id);
+                  } else {
+                    setExpanded(null);
+                  }
                 }
               }}>
               {/* chevron:僅 hasChildren 才有展開語意(旋轉);childless 固定右指作 affordance,視覺細節 Sean 調 */}
@@ -165,16 +189,8 @@ function CategoryTree({
               <span>{c.name}</span>
               <span className="fs-tree-count">{c.count}</span>
             </button>
-            {expanded === c.id && (
+            {expanded === c.id && hasChildren && (
               <>
-                {/* 全部 {大類}:選整個大類(rollup 涵蓋所有子類、對齊手機 FilterDrawer + matchesCategory 前綴比對);
-                    #212 子類上架後補此列 → 有子類大類也能選全部,不再只能鑽子類 */}
-                <button
-                  className={`fs-tree-row fs-tree-l2 ${isMainActive ? 'is-active' : ''}`}
-                  onClick={() => (isMainActive ? dispatch(clearCategory()) : dispatch(selectCategoryMain(c.id, c.name)))}>
-                  <span>全部 {c.name}</span>
-                  <span className="fs-tree-count">{c.count}</span>
-                </button>
                 {c.children.map((s) => {
                   const isActive = category?.subId === s.id;
                   return (
