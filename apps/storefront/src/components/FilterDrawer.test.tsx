@@ -69,6 +69,16 @@ describe('FilterDrawer', () => {
     expect(screen.getByText('BONAMICI RACING')).toBeDefined();
   });
 
+  // Sean 2026-07-13:點大類 = 直接篩「該大類全部」+ 進入細項視圖(取消進入後的「全部 {大類}」列)。
+  it('should drill into a category and drop the 全部 row on a single tap', () => {
+    render(<Harness open />);
+    fireEvent.click(screen.getByText('零件分類')); // 切到分類分頁
+    fireEvent.click(screen.getByText('代理配件')); // 點大類 → 篩全部 + 進入細項
+    expect(screen.getByText('選擇細項')).toBeDefined(); // 已進入細項視圖
+    expect(screen.queryByText('全部 代理配件')).toBeNull(); // 不再有獨立「全部」列
+    expect(screen.getByText('CNC RACING')).toBeDefined(); // 子類已顯示
+  });
+
   it('should call onClose when the apply button is clicked', () => {
     const onClose = vi.fn();
     render(<Harness open onClose={onClose} />);

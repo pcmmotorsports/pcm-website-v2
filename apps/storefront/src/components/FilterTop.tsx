@@ -314,15 +314,26 @@ function CategoryPanel({
       <div className="ft-veh-col">
         <div className="ft-col-head">大分類</div>
         <div className="ft-col-body">
-          {data.categories.map((c) => (
-            <button key={c.id}
-              className={`ft-col-row ${main?.id === c.id ? 'is-active' : ''}`}
-              onClick={() => setMain(c)}>
-              <span>{c.name}</span>
-              <span style={{ color: 'var(--c-text-3)', fontSize: 12, marginRight: 8 }}>{c.count}</span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
-            </button>
-          ))}
+          {data.categories.map((c) => {
+            // Sean 2026-07-13:點大類 = 直接篩「該大類全部」;有子類則右欄展開細項供細分(取消獨立「全部」列),
+            //   無子類則直接關閉面板。切不同大類一次點擊即切換。
+            const hasChildren = c.children.length > 0;
+            return (
+              <button key={c.id}
+                className={`ft-col-row ${main?.id === c.id ? 'is-active' : ''}`}
+                onClick={() => {
+                  dispatch(selectCategoryMain(c.id, c.name));
+                  if (hasChildren) setMain(c);
+                  else onDone();
+                }}>
+                <span>{c.name}</span>
+                <span style={{ color: 'var(--c-text-3)', fontSize: 12, marginRight: 8 }}>{c.count}</span>
+                {hasChildren && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
       <div className="ft-veh-col ft-veh-col-wide">
@@ -330,10 +341,7 @@ function CategoryPanel({
         <div className="ft-col-body">
           {main ? (
             <>
-              <button className="ft-col-row"
-                onClick={() => { dispatch(selectCategoryMain(main.id, main.name)); onDone(); }}>
-                <span>全部 {main.name} <span style={{ color: 'var(--c-text-3)' }}>({main.count})</span></span>
-              </button>
+              {/* 「全部 {大類}」列已移除:左欄點大類時即已篩全部(Sean 2026-07-13)。 */}
               {main.children.map((s) => (
                 <button key={s.id} className="ft-col-row"
                   onClick={() => {

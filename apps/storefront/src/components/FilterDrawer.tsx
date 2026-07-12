@@ -242,13 +242,25 @@ export function FilterDrawer({
                 {!catMain ? (
                   <>
                     <div className="fd-step-label">選擇大分類</div>
-                    {data.categories.map((c) => (
-                      <button key={c.id} className="fd-row" onClick={() => setCatMain(c)}>
-                        <span>{c.name}</span>
-                        <span className="fd-row-count">{c.count}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
-                      </button>
-                    ))}
+                    {data.categories.map((c) => {
+                      // Sean 2026-07-13:點大類 = 直接篩「該大類全部」(即時套用);有子類則進入細項視圖細分,
+                      //   取消原「進入後才有的『全部 {大類}』列」。切不同大類一次點擊即切換。
+                      const isMainActive = cascade.category?.mainId === c.id;
+                      const hasChildren = c.children.length > 0;
+                      return (
+                        <button key={c.id} className={`fd-row ${isMainActive ? 'is-active' : ''}`}
+                          onClick={() => {
+                            dispatch(selectCategoryMain(c.id, c.name));
+                            if (hasChildren) setCatMain(c);
+                          }}>
+                          <span>{c.name}</span>
+                          <span className="fd-row-count">{c.count}</span>
+                          {hasChildren && (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
+                          )}
+                        </button>
+                      );
+                    })}
                   </>
                 ) : (
                   <>
@@ -257,11 +269,7 @@ export function FilterDrawer({
                       {catMain.name}
                     </button>
                     <div className="fd-step-label">選擇細項</div>
-                    <button className="fd-row"
-                      onClick={() => dispatch(selectCategoryMain(catMain.id, catMain.name))}>
-                      <span>全部 {catMain.name}</span>
-                      <span className="fd-row-count">{catMain.count}</span>
-                    </button>
+                    {/* 「全部 {大類}」列已移除:進入本視圖前點大類時即已篩全部(Sean 2026-07-13)。 */}
                     {catMain.children.map((s) => {
                       const active = cascade.category?.subId === s.id;
                       return (
