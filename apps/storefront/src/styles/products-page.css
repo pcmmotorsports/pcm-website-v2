@@ -219,7 +219,9 @@
   .pp-layout.has-side { grid-template-columns: 1fr; }
   .fs-side { display: none; }
   .pp-main { padding: 20px 16px 60px; }
-  .pp-title { font-size: 24px; }
+  /* 長車名(如 Triumph Street Triple 765)手機不再強制一行:可換行+可縮,消除
+     .pp-head-row 橫向溢出造成的「右邊多一條空白」(nowrap+flex-shrink:0 base 覆蓋)。 */
+  .pp-title { font-size: 24px; white-space: normal; min-width: 0; flex-shrink: 1; }
   .pp-sortbar { padding: 10px 0; }
   .pp-pagination { gap: 12px; justify-content: center; }
   .pp-pagination-info { order: 2; width: 100%; text-align: center; }
