@@ -55,17 +55,17 @@ describe('getSupplierConfig', () => {
     expect(cnc.syncInstallResources).toBe(true);
   });
 
-  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 逐家 gate(2026-07-11 Q1=A 開 4 家)', () => {
+  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 逐家 gate(2026-07-12 全開 7 家、僅 lightech #275 未開)', () => {
     // brandSlug=brands 表 MCP 實查(2026-07-10);唯一非 identity 對照 = eazigrip→eazi-grip。
     expect(getSupplierConfig('eazigrip').brandSlug).toBe('eazi-grip');
     for (const slug of ['evotech', 'lightech', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
       expect(getSupplierConfig(slug).brandSlug).toBe(slug); // identity
     }
-    // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A):乾淨家開寫、關卡家仍 fail-closed。
-    //   evotech/samco/motogadget/front3d=true(乾跑全綠、已匯入 prod);ebc seed 已 db push 但乾跑
-    //   揭露 35/68 群撞鍵(煞車片材質軸)=#274 同類仍 false;lightech(待 #275 https)/
-    //   eazigrip·materya(待 #274 撞鍵)=false。翻 true 前先過 Sean(改這行=面對這個問題)。
-    const writeOpened = new Set(['evotech', 'samco', 'motogadget', 'front3d']);
+    // ✅ 2026-07-11~12 全開 7 家:evotech/samco/motogadget/front3d(晨報 Q1=A 乾淨家、已匯入 prod)
+    //   + eazigrip/materya/ebc(#274 源頭治本後上 prod、Sean --confirm-write:eazigrip view 去重、
+    //   materya 分群、ebc 填 spec);lightech(待 #275 https 重抓)仍 false。
+    //   翻 true 前先過 Sean(改這行=面對這個問題)。
+    const writeOpened = new Set(['evotech', 'samco', 'motogadget', 'front3d', 'eazigrip', 'materya', 'ebc']);
     for (const slug of ['evotech', 'lightech', 'eazigrip', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
       const c = getSupplierConfig(slug);
       expect(c.handlePrefix).toBe(slug); // handle 命名空間 = supplierSlug(gbracing 前例)
