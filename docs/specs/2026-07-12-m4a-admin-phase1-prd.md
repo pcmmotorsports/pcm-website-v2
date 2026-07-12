@@ -67,7 +67,7 @@ Sean 與員工用同一個登入進報價單後台+網站後台;第一期:①訂
 v1.1 依 Codex 批判修訂:
 
 - `display_position bigint NULL`(**nullable,非 v1.0 的 NOT NULL**——NOT NULL 會弄壞既有 create_order RPC,「加欄不破壞」才成立)。語意:NULL=未手動排過;列表 `ORDER BY display_position NULLS FIRST, created_at DESC, id`(id=穩定第三鍵);首次拖曳才賦值。**整數稀疏間隔**(相鄰差 1024)取代 numeric fractional index(單/雙人使用下更簡單穩健);插入=鄰居整數中點,server 端計算(client 只傳「移動誰、放在哪兩筆之間、讀取時 version」,不信 client position);無間隙→同交易 advisory lock 局部重編。
-- `order_source text NOT NULL DEFAULT 'web'` + CHECK(web/manual_phone/manual_line/manual_other)與 `payment_channel text NOT NULL DEFAULT 'tappay'` + CHECK(tappay/bank_transfer/cash/none)(**取代 v1.0 單一 is_manual**——「來源」與「金流管道」是兩件事:電話單也可能之後刷卡、網站單也可能改匯款)。
+- `order_source text NOT NULL DEFAULT 'web'` + CHECK(web/manual_phone/manual_line/manual_other)與 `payment_channel text NOT NULL DEFAULT 'tappay'` + CHECK(tappay/bank_transfer/cash/none)(**取代 v1.0 單一 is_manual**——「來源」與「金流管道」是兩件事:電話單也可能之後刷卡、網站單也可能改匯款)。⚠️ 與既有 `payment_method` 欄(20260604 初始表、nullable、confirm_payment 付款成功時寫 'tappay')的分界(07-12 Fable 審單 #1 定案):**payment_channel=管理/預期軸**(建單時定、admin 可改),**payment_method=金流事實軸**(只有金流 RPC 寫、付款成功才有值);報表「實收金額」一律按 method+payment_status,**禁用 channel 算錢**(unpaid web 單 channel 恆為預設 'tappay',是預期非事實);兩欄各加 COMMENT ON COLUMN 釘死語意。
 - `cancelled_at timestamptz NULL`+`cancelled_reason text NULL`(營運軸獨立,不動 payment_status)。
 - `version integer NOT NULL DEFAULT 1`(樂觀鎖:兩個分頁互改要能察覺;orders 與 customers 都加)。
 - 不變式(CHECK 或監控擇一,開工定):`payment_channel<>'tappay'` 的單不得有 `tappay_rec_trade_id`;歷史資料不允許 CHECK 就先用測試+監控守。
@@ -78,7 +78,7 @@ v1.1 依 Codex 批判修訂:
 - **列表**:一列=一單;欄=位置把手/單號/日期/客人/品項摘要/金額/付款/出貨/備註;「工作排序」與「時間排序」兩檢視;雙軸篩選(M-4a-08 規格)+已取消篩選;server-side pagination。
 - **移動/插入**:拖曳或 ↑↓;「在此列上/下插入」=開手動建單表單寫入指定 position。
 - **手動建單**:`order_source=manual_*`;客人=既有會員或散客(customer_user_id 放寬 NULL 需加條件約束:非手動單必有 customer;並掃既有查詢/RLS/報表的 NULL 處理);品項=商品庫挑選(寫 product_snapshot)或自由文字行——⚠️ 現 schema 對 variant_sku/product_snapshot/地址發票快照有 NOT NULL 與白名單約束,**手動單合法填法=開工時逐條讀 migration 定案,不到 UI 才塞假值**(Codex 指名);表單帶 idempotency key(重送/重試不重複建單)。
-- **取消**:限 unpaid 且未出貨;**原子條件更新**(同一 UPDATE 內驗 unpaid+未取消+未出貨,不先讀後寫——防與 late-success 扣款競速);寫 cancelled_at/reason;不硬刪(late-success 要查得到單);已付款單顯示「走退款(另案)」。
+- **取消**:限 unpaid 且未出貨;**原子條件更新**(同一 UPDATE 內驗 unpaid+未取消+未出貨,不先讀後寫——防與 late-success 扣款競速);寫 cancelled_at/reason;不硬刪(late-success 要查得到單);已付款單顯示「走退款(另案)」。⚠️ `cancelled_reason`=**可對客文案**(orders 對 authenticated 有表級 SELECT,會員看得到自己單此欄;07-12 Fable 審單 #1 定案)——內部原因寫 admin_audit_log.reason 不入 orders;未來內部備註欄走獨立表、勿直加 orders。
 - **對帳隔離(高風險件 #4,v1.1 方向修正)**:隔離原則=**正向納入**——對帳/雙扣/告警管線從 `payment_charge_attempts`+rec_trade_id 出發連回訂單,而非掃 orders 負向排除;開工時驗 #250/W1 現況是否已是正向,不是則改。告警測試至少涵蓋:手動未付款、手動現金已付、手動單誤帶 rec_trade_id、網站單無 attempt、late-success、重複 callback、同 transaction id 指向兩單。
 - **詳情**:split-view 抽屜;單頭+品項+付款紀錄(唯讀)+物流;連動 #217(order_items 無 product_id,詳情連結商品前必解)與 #240(會員端詳情共用讀取層)。
 
