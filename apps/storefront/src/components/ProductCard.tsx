@@ -13,6 +13,7 @@ import Link from 'next/link';
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import type { MockProduct } from '@/data/mock-products';
 import { Price } from './Price';
+import { formatCardFits } from './product-card-fits';
 
 const PRODUCT_IMG_POOL = [
   'photo-1558981285-6f0c94958bb6', // brake caliper
@@ -191,7 +192,9 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       <div className="pcard-info">
         <div className="pcard-brand">{p.brand}</div>
         <div className="pcard-name">{p.name}</div>
-        {!compact && <div className="pcard-fits">適用 {p.fits}</div>}
+        {/* S4:同名不同年商品在卡片可區分 —— 單款顯示年份 '18–'24、多款顯示「N 款車型」;
+            缺年份降級只顯車款。前綴「適用 」保留 design 字面。 */}
+        {!compact && <div className="pcard-fits">適用 {formatCardFits(p.fitments, p.fits)}</div>}
         <div className="pcard-price-row">
           <Price
             price={p.price}

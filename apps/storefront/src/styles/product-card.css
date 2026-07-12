@@ -180,6 +180,10 @@
   color: var(--c-text-3);
   letter-spacing: 0.01em;
   margin-bottom: 6px;
+  /* S4:加年份後字串變長,鎖單行 + 溢出省略號,保卡片等高不因換行破格(驗收:卡片等高)。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pcard-price-row {
   display: flex;
