@@ -128,6 +128,76 @@
   gap: 16px;
 }
 
+/* /products loading fallback(Sean 選 C):先顯示型錄外殼與商品卡骨架，資料回來再由 route page 取代。
+   design-reference 無等待態，故此為明確 UX override；僅用既有型錄色票與 grid 語彙。 */
+.pp-loading-progress {
+  height: 2px;
+  background: var(--c-border);
+  overflow: hidden;
+}
+.pp-loading-progress > span {
+  display: block;
+  width: 38%;
+  height: 100%;
+  background: var(--c-accent, var(--c-text));
+  animation: pp-loading-progress 1.4s ease-in-out infinite alternate;
+}
+.pp-loading-filterbar {
+  height: 63px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 var(--shell-x);
+  border-bottom: 1px solid var(--c-border);
+}
+.pp-loading {
+  padding-top: 0;
+}
+.pp-loading-side {
+  padding-top: 24px;
+}
+.pp-loading-line,
+.pp-loading-image {
+  display: block;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--c-surface-2), var(--c-border), var(--c-surface-2));
+  background-size: 220% 100%;
+  animation: pp-loading-shimmer 1.4s linear infinite;
+}
+.pp-loading-filterline {
+  width: 88px;
+  height: 12px;
+}
+.pp-loading-filterline-wide { width: 144px; }
+.pp-loading-side { display: grid; align-content: start; gap: 14px; }
+.pp-loading-side-title { width: 72px; height: 14px; margin-bottom: 8px; }
+.pp-loading-side .pp-loading-line:not(.pp-loading-side-title) { width: 100%; height: 11px; }
+.pp-loading-side-short { width: 64% !important; }
+.pp-loading-grid {
+  grid-template-columns: repeat(auto-fill, minmax(256px, 1fr));
+  gap: 14px;
+}
+.pp-loading-card { min-width: 0; }
+.pp-loading-image { aspect-ratio: 4 / 3; margin-bottom: 14px; }
+.pp-loading-brand { width: 30%; height: 10px; }
+.pp-loading-name { width: 82%; height: 15px; margin-top: 10px; }
+.pp-loading-fitment { width: 58%; height: 11px; margin-top: 9px; }
+.pp-loading-price { width: 42%; height: 13px; margin-top: 14px; }
+.pp-loading-count { width: 76px; height: 12px; }
+.pp-loading-sort { width: 98px; height: 30px; }
+
+@keyframes pp-loading-shimmer {
+  to { background-position: -220% 0; }
+}
+@keyframes pp-loading-progress {
+  to { transform: translateX(170%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pp-loading-progress > span,
+  .pp-loading-line,
+  .pp-loading-image { animation: none; }
+}
+
 .pp-pagination {
   display: flex;
   align-items: center;
