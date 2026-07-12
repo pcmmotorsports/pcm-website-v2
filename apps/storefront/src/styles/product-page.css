@@ -1117,11 +1117,11 @@
 .pd-bs-mcard-d { font-size: 12.5px; color: var(--c-text-2); line-height: 1.6; margin: 6px 0 0; }
 /* 止滑等級三格對比(2026-07-12 E2:Eazi-Grip 四款式;on=accent 實心、off=淡格) */
 .pd-bs-mcard-grip { display: flex; align-items: center; gap: 7px; margin: 8px 0 2px; }
-.pd-bs-grip-k { font-family: var(--f-mono); font-size: 9.5px; letter-spacing: 0.04em; color: var(--c-text-3); }
-.pd-bs-grip-stars { font-size: 12px; letter-spacing: 1.5px; line-height: 1; }
+.pd-bs-grip-k { font-family: var(--f-mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--c-text-2); }
+.pd-bs-grip-stars { font-size: 13px; letter-spacing: 1.5px; line-height: 1; }
 .pd-bs-grip-stars .on { color: var(--bs-accent); }
 .pd-bs-grip-stars .off { color: var(--c-border-strong); }
-.pd-bs-grip-use { font-size: 11px; font-weight: 600; color: var(--c-text-3); }
+.pd-bs-grip-use { font-size: 12px; font-weight: 600; color: var(--c-text-2); }
 .pd-bs-railhint {
   display: none;
   font-family: var(--f-mono); font-size: 10.5px;
