@@ -18,7 +18,8 @@
 //   涵蓋、authenticated role),不繞 SupabaseWalletAdapter(後者強制 service_role writeClient
 //   ctor、storefront 不允許注入 service_role)。
 // - featured 走既有 fetchFeaturedProducts()(server-only;perf/P3 起函式本身釘 general +
-//   unstable_cache 900s,內層 listAllProducts({limit:4}) 全目錄 id 升冪前 4)。
+//   unstable_cache 900s,內層 listAllProducts({limit:4, orderBy:'created_desc'}) 全目錄最新前 4)。
+//   前菜 D 起與首頁共用同一「最新商品」資料源(created_at 遞減)、非舊 id 升冪。
 // - row missing(PGRST116、極罕、trigger handle_new_auth_user 應已建)或 RLS 失敗 → 退化
 //   tier='general' + walletBalance=0、console.error 警示、頁面不 500。
 //

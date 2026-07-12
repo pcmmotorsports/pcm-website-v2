@@ -380,6 +380,41 @@ describe('SupabaseProductAdapter.listAllProducts({ limit }) — limit 下推(per
   });
 });
 
+// ── 前菜 D(M-4a):listAllProducts({ orderBy: 'created_desc' })——首頁「最新商品」──
+//   審查點:排序改由 DB `.order('created_at' 遞減).order('id' 遞減)` 下推(mock 不實排、斷言呼叫參數);
+//   id 遞減為 created_at 撞值 tie-break、保兩實作定序一致。省略 orderBy 時 byte 等價既有 id 升冪。
+describe("SupabaseProductAdapter.listAllProducts({ orderBy: 'created_desc' }) — 最新商品(前菜 D)", () => {
+  it('limit≤1000 → 單次 .order(created_at 遞減).order(id 遞減).limit(n)、不走 .range', async () => {
+    const rows = Array.from({ length: 10 }, (_, i) => makeRow(i));
+    const { client, calls } = makeLimitClient(rows);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts({ limit: 4, orderBy: 'created_desc' });
+
+    expect(result).toHaveLength(4);
+    expect(calls.order).toEqual([
+      ['created_at', { ascending: false }],
+      ['id', { ascending: false }],
+    ]);
+    expect(calls.limit).toEqual([4]);
+    expect(calls.range).toHaveLength(0);
+  });
+
+  it('無 limit + created_desc → 走分頁迴圈撈全目錄(guard:orderBy 分支不炸、full-set 回傳)', async () => {
+    // makePaginatedClient.order() 忽略參數、無法斷言排序欄位;此 case 守分頁分支帶 orderBy 仍正常撈滿。
+    const { client, rangeCalls } = makePaginatedClient([1000, 3]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    const result = await adapter.listAllProducts({ orderBy: 'created_desc' });
+
+    expect(result).toHaveLength(1003);
+    expect(rangeCalls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+  });
+});
+
 // ── C1 接線:listCategories(全部分類 + 各分類上架商品數)──
 //   mock 兩個查詢對象:
 //   - from('categories').select(cols).order()        → 回分類註冊表

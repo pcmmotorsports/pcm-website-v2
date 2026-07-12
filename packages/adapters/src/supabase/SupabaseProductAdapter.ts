@@ -200,18 +200,26 @@ export class SupabaseProductAdapter implements IProductRepository {
    * >1000 → 分頁迴圈撈滿再裁切(避免 PostgREST 靜默截斷、no silent caps);
    * 非正整數 → throw(fail-closed、對齊 port contract)。
    */
-  async listAllProducts(options?: { limit?: number }): Promise<Product[]> {
+  async listAllProducts(options?: {
+    limit?: number;
+    orderBy?: 'id_asc' | 'created_desc';
+  }): Promise<Product[]> {
     const limit = options?.limit;
     if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
       throw new Error(`SupabaseProductAdapter.listAllProducts: limit 須為正整數、收到 ${limit}`);
     }
 
+    // 排序(前菜 D):'id_asc'=既有全站預設(單次 .order('id' 升冪)、byte 等價舊行為);
+    //   'created_desc'=最新商品(created_at 遞減 + id 遞減 tie-break 保定序、防 created_at 撞值漂移)。
+    //   鏈式 .order 直接串接(型別自然推導、不套自參照泛型 helper — supabase select→order 回傳型別不同)。
+    const orderDesc = options?.orderBy === 'created_desc';
+
     if (limit !== undefined && limit <= 1000) {
-      const { data, error } = await this.supabase
-        .from('products_public')
-        .select(PRODUCT_SELECT_DETAIL)
-        .order('id', { ascending: true })
-        .limit(limit);
+      const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL);
+      const ordered = orderDesc
+        ? base.order('created_at', { ascending: false }).order('id', { ascending: false })
+        : base.order('id', { ascending: true });
+      const { data, error } = await ordered.limit(limit);
       if (error) {
         throw error;
       }
@@ -219,12 +227,13 @@ export class SupabaseProductAdapter implements IProductRepository {
     }
 
     const rows = (await fetchAllPaginated(
-      (from, to) =>
-        this.supabase
-          .from('products_public')
-          .select(PRODUCT_SELECT_DETAIL)
-          .order('id', { ascending: true })
-          .range(from, to),
+      (from, to) => {
+        const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL);
+        const ordered = orderDesc
+          ? base.order('created_at', { ascending: false }).order('id', { ascending: false })
+          : base.order('id', { ascending: true });
+        return ordered.range(from, to);
+      },
       'SupabaseProductAdapter.listAllProducts',
     )) as SupabaseProductRow[];
 

@@ -201,11 +201,12 @@ export type FeaturedResult = {
 };
 
 /**
- * 撈 featured 4 件商品(對齊 HomeSelect N°04 編輯精選)。
+ * 撈首頁「最新商品」4 件(對齊 HomeSelect N°04、CTA「查看所有新品」)。
  *
- * 行為(C4/#205 解除寫死單一分類「碳纖維部品」→ 全目錄 id 升冪前 4):
- *   - getFeaturedUIProductsCached()(perf/P3:unstable_cache 900s;內層 listAllProducts({limit:4})
- *     perf/P2 limit 下推 DB、免撈全表)
+ * 行為(M-4a 前菜 D:改「最新商品」——created_at 遞減前 4;取代舊「id 升冪前 4」placeholder):
+ *   - getFeaturedUIProductsCached()(perf/P3:unstable_cache 900s;內層
+ *     listAllProducts({limit:4, orderBy:'created_desc'})、perf/P2 limit + 排序皆下推 DB、免撈全表)
+ *   - 快取 key bump v1→v2:排序語意變更、避免舊「id 升冪」結果殘留 900s
  *   - adapter 回 [](空目錄)→ 回 `{ products: [], error: false }`、UI 走 empty 分支
  *   - adapter throw error → **不進快取**、外層 console.error + 回 `{ products: [], error: true }`
  *
@@ -215,16 +216,16 @@ export type FeaturedResult = {
  *   固定 'general'、任何 tier 變體不進快取;真 tier 定價待 #215 server 端 tier 查證後另接。
  *   (帶 tier cookie 的訪客首頁精選價由「dummy 資料算出的 tier 價」變 general 價=修正非退化。)
  *
- * featured 本為 Phase-1 placeholder,「featured 旗標」才是正解(#205)。
+ * 「最新商品」以 created_at 遞減取代舊 id 升冪 placeholder(前菜 D);真「featured 旗標」策展仍留 #205。
  */
 const getFeaturedUIProductsCached = unstable_cache(
   async (): Promise<MockProduct[]> => {
     const client = createSupabaseAnonClient();
     const adapter = new SupabaseProductAdapter(client);
-    const products = await adapter.listAllProducts({ limit: 4 });
+    const products = await adapter.listAllProducts({ limit: 4, orderBy: 'created_desc' });
     return products.map((p) => toUIProduct(p, 'general'));
   },
-  ['featured-ui-products-v1'],
+  ['featured-ui-products-v2'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 

@@ -79,24 +79,37 @@ export class InMemoryProductRepository implements IProductRepository {
    * in-memory 無 PostgREST「Max rows = 1000」上限、無下架概念(DB/RLS 概念)→ 回全部庫存 product;
    * 真 adapter(SupabaseProductAdapter)才需 .range 分頁迴圈繞上限 + RLS 濾下架。
    *
-   * `options.limit`(perf/P2):給定時**先依 id 升冪排序再取前 limit 筆**——Map 迭代序是
-   * 插入序、與 Supabase `.order('id')` 語意分歧,不排序會讓 contract 在兩實作間漂移
+   * `options.limit`(perf/P2):給定時**先依 orderBy 排序再取前 limit 筆**——Map 迭代序是
+   * 插入序、與 Supabase `.order()` 語意分歧,不排序會讓 contract 在兩實作間漂移
    * (K1 round2 抓點);非正整數 → throw(fail-closed、對齊 port contract)。
-   * 省略時維持既有行為(插入序全量、既有測試不動)。
+   *
+   * `options.orderBy`(前菜 D):預設 `'id_asc'`(id 升冪);`'created_desc'`=最新商品
+   * (createdAt 遞減 + id 遞減 tie-break、對齊 Supabase 端 created_at desc, id desc)。
+   * limit 與 orderBy 皆省略時維持既有行為(插入序全量、既有測試不動)。
    */
-  async listAllProducts(options?: { limit?: number }): Promise<Product[]> {
+  async listAllProducts(options?: {
+    limit?: number;
+    orderBy?: 'id_asc' | 'created_desc';
+  }): Promise<Product[]> {
     const all = Array.from(this.products.values());
     const limit = options?.limit;
-    if (limit === undefined) {
+    const orderBy = options?.orderBy;
+    if (limit === undefined && orderBy === undefined) {
       return all;
     }
-    if (!Number.isInteger(limit) || limit <= 0) {
+    if (limit !== undefined && (!Number.isInteger(limit) || limit <= 0)) {
       throw new Error(`InMemoryProductRepository.listAllProducts: limit 須為正整數、收到 ${limit}`);
     }
-    return all
-      .slice()
-      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-      .slice(0, limit);
+    const byIdAsc = (a: Product, b: Product) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const comparator =
+      orderBy === 'created_desc'
+        ? (a: Product, b: Product) => {
+            const delta = b.createdAt.getTime() - a.createdAt.getTime();
+            return delta !== 0 ? delta : -byIdAsc(a, b); // id 遞減 tie-break
+          }
+        : byIdAsc;
+    const sorted = all.slice().sort(comparator);
+    return limit === undefined ? sorted : sorted.slice(0, limit);
   }
 
   /**

@@ -60,14 +60,22 @@ export interface IProductRepository {
    * server-side 分頁/篩選(#51)、非長久解。
    *
    * `options.limit`(perf/P2、2026-07-08 效能修復 plan):選用、正整數。給定時回
-   * **id 升冪前 limit 筆**(兩實作同語意;Supabase 端下推 DB `.limit()` 免撈全表——
-   * 首頁精選只要 4 筆、舊 stopgap 撈 3602 件 slice(0,4) 是首頁 TTFB 秒級主因之一);
+   * **依 orderBy 排序後前 limit 筆**(兩實作同語意;Supabase 端下推 DB `.limit()` 免撈全表——
+   * 首頁最新只要 4 筆、舊 stopgap 撈 3602 件 slice(0,4) 是首頁 TTFB 秒級主因之一);
    * 省略時行為不變(全量)。非正整數 → throw(fail-closed、程式錯誤即早爆)。
+   *
+   * `options.orderBy`(M-4a 前菜 D):選用、預設 `'id_asc'`=既有全站語意(穩定主鍵升冪);
+   * `'created_desc'`=最新商品(created_at 遞減、id 遞減 tie-break 保定序),供首頁「最新商品」區用。
+   * 省略時 byte 等價舊行為(既有 /products 目錄、sitemap 路徑不受影響)。
    *
    * @see docs/specs/2026-07-04-catalog-category-brand-frontend-wiring-plan.md C4
    * @see docs/specs/2026-07-08-storefront-perf-fix-plan.md P2
+   * @see docs/specs/2026-07-12-m4a-admin-phase1-prd.md 前菜 D(首頁推薦改最新商品)
    */
-  listAllProducts(options?: { limit?: number }): Promise<Product[]>;
+  listAllProducts(options?: {
+    limit?: number;
+    orderBy?: 'id_asc' | 'created_desc';
+  }): Promise<Product[]>;
   /**
    * 列出全部分類 + 各分類上架商品數(接線 plan C1)。
    *

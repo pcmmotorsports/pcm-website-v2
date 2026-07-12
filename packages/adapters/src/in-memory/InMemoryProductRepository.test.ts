@@ -146,6 +146,32 @@ describe('InMemoryProductRepository', () => {
     await expect(repo.listAllProducts({ limit: 2.5 })).rejects.toThrow(/limit 須為正整數/);
   });
 
+  // 前菜 D:listAllProducts({ orderBy: 'created_desc' })——最新商品(createdAt 遞減 + id 遞減 tie-break)
+  it('should return newest-first by createdAt for orderBy created_desc(前菜 D、亂序 seed)', async () => {
+    const old = createFakeProduct({ id: 'p-old', createdAt: new Date('2026-01-01T00:00:00Z') });
+    const mid = createFakeProduct({ id: 'p-mid', createdAt: new Date('2026-03-01T00:00:00Z') });
+    const newest = createFakeProduct({ id: 'p-new', createdAt: new Date('2026-06-01T00:00:00Z') });
+    const repo = new InMemoryProductRepository([old, newest, mid]); // 插入序刻意亂
+
+    const result = await repo.listAllProducts({ orderBy: 'created_desc' });
+    expect(result.map((p) => p.id)).toEqual(['p-new', 'p-mid', 'p-old']); // createdAt 遞減、非插入序
+
+    // 疊 limit → 排序後取前 N
+    const top2 = await repo.listAllProducts({ orderBy: 'created_desc', limit: 2 });
+    expect(top2.map((p) => p.id)).toEqual(['p-new', 'p-mid']);
+  });
+
+  it('should tie-break by id descending when createdAt equal(created_desc、定序穩定)', async () => {
+    const ts = new Date('2026-05-01T00:00:00Z');
+    const a = createFakeProduct({ id: 'p-a', createdAt: ts });
+    const c = createFakeProduct({ id: 'p-c', createdAt: ts });
+    const b = createFakeProduct({ id: 'p-b', createdAt: ts });
+    const repo = new InMemoryProductRepository([a, c, b]);
+
+    const result = await repo.listAllProducts({ orderBy: 'created_desc' });
+    expect(result.map((p) => p.id)).toEqual(['p-c', 'p-b', 'p-a']); // createdAt 全同 → id 遞減
+  });
+
   it('should list products by brand id match', async () => {
     const akra = createFakeProduct({ id: 'p-1', brand: { id: 'b-akrapovic', name: 'Akrapovič', slug: 'akrapovic', premium_extra_pct: 0 } });
     const brembo = createFakeProduct({ id: 'p-2', brand: { id: 'b-brembo', name: 'Brembo', slug: 'brembo', premium_extra_pct: 0 } });
