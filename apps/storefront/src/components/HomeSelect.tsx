@@ -1,5 +1,5 @@
 // HomeSelect.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬(M-1-04-mini-slice 修:25d3a2a L210 加 ProductCard tier prop、storefront 走 server-side tier 預算 tierLabel conceptually equivalent)
-// (N°04 · The Selection · 編輯精選、4 ProductCard、main-d 真資料接入點)
+// (N°04 · New Arrivals · 最新商品〔M-4a 前菜 D 授權覆蓋 design「The Selection · 編輯精選」〕、4 ProductCard、main-d 真資料接入點)
 //
 // d1 階段:用 MOCK_PRODUCTS.slice(0, 4) 對齊 design 字面 window.PCM_DATA.products.slice(0, 4)
 // d2 階段:props.featured 真資料(server-side fetch from SupabaseProductAdapter.listByCategory('碳纖維部品'))
@@ -36,7 +36,10 @@ export function HomeSelect({ featured }: HomeSelectProps) {
       <div className="ed-section-head">
         <div className="ed-section-label">
           <span className="ed-mono">N°04</span>
-          <span>The Selection · 編輯精選</span>
+          {/* M-4a 前菜 D:授權覆蓋 design 文案「The Selection · 編輯精選」→「New Arrivals · 最新商品」
+              (Sean 2026-07-12 go;本區資料已改最新商品〔created_at 遞減〕、標籤對齊語意 + 既有「查看所有新品」CTA;
+              design-reference 未同步、此為業務 override、勿調回,同全站灰字調深(0de825e)override 精神) */}
+          <span>New Arrivals · 最新商品</span>
         </div>
         <Link href="/products?filter=new" className="ed-link ed-link-sm">
           <span>查看所有新品</span>

@@ -18,7 +18,7 @@ describe('HomeSelect', () => {
   it('should render the featured products grid without crashing', () => {
     const featured: FeaturedResult = { products: MOCK_PRODUCTS.slice(0, 4), error: false };
     render(<HomeSelect featured={featured} />);
-    expect(screen.getByText('The Selection · 編輯精選')).toBeDefined();
+    expect(screen.getByText('New Arrivals · 最新商品')).toBeDefined();
     expect(screen.getByText(MOCK_PRODUCTS[0]!.name)).toBeDefined();
     // #5b regression guard:精選卡導向真 slug(/products/<slug>),非 hashIdToNumber 雜湊數字。
     const links = screen.getAllByRole('link');
