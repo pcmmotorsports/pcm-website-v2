@@ -187,26 +187,33 @@ async function main(): Promise<void> {
   const categoryResolutions: { majorCategoryZh: string; categoryId: string | null }[] = []; // 乾跑彙整(fallback 傳 null=真實反映未對上、避免假綠 Codex must-fix 1)
   let nullV2Groups = 0; // 整群無完整 (major,sub) pair(大面積 null)→ 未分類
   let unseededSubGroups = 0; // 有完整 pair 卻 resolve 不到 seed 子類(seed 漂移、異常)
-  const conflictGroups: { mainSku: string; pairs: string[] }[] = []; // 群內多組不同 v2 pair(髒來源、Codex must-fix 2)
+  const conflictGroups: { mainSku: string; pairs: string[] }[] = []; // 群內「跨大類」衝突(Codex must-fix 2 的危險情境:錯置到別大類)
+  let subMildGroups = 0; // 同大類但子類分歧(輕微;取決定性子類、不 abort)
   for (const [mainSku, variants] of entries) {
     const vehicleLabel = variants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
-    // 分類:群內收集去重「大類 · 子類」完整 pair(Codex must-fix 2:防兩變體不同分類被 .find 靜默取第一筆、
-    //   或 (A,null)+(B,sub) 合成不存在麵包屑)。正常整群同商品=恰一 pair;0=大面積 null;>1=群內衝突。
+    // 分類:群內收集去重「大類 · 子類」完整 pair + 大類集合(Codex must-fix 2:防 .find 靜默取第一筆/合成不存在麵包屑)。
+    //   恰一 pair=正常;0=大面積 null;>1 且同大類=輕微子類分歧(取決定性子類);>1 且跨大類=危險衝突(abort)。
     const pairs = new Set<string>();
+    const majorsInGroup = new Set<string>();
     for (const v of variants) {
       if (v.major_category_v2_zh && v.sub_category_v2_zh) {
         pairs.add(`${v.major_category_v2_zh}${CATEGORY_PATH_SEP}${v.sub_category_v2_zh}`);
+        majorsInGroup.add(v.major_category_v2_zh);
       }
     }
     let rawPath = '';
     let resolved: string | null = null;
-    if (pairs.size === 1) {
-      rawPath = [...pairs][0]!;
+    if (pairs.size === 0) {
+      nullV2Groups++;
+    } else if (majorsInGroup.size <= 1) {
+      // 恰一 pair、或同大類子類分歧:取排序後第一個 pair(決定性、穩定)。同大類下選大類 rollup 涵蓋任一子類、
+      //   挑哪個子類不影響大類篩選;子類篩選頂多這一群略偏(牌照架類邊緣品、可接受)。
+      rawPath = [...pairs].sort()[0]!;
       resolved = await resolveCategoryByPath(rawPath);
       if (!resolved) unseededSubGroups++; // 有完整 pair 卻查無 seed 子類
-    } else if (pairs.size === 0) {
-      nullV2Groups++;
+      if (pairs.size > 1) subMildGroups++;
     } else {
+      // 跨大類衝突:Codex 的真正危險情境(錯置到別大類)→ 未分類 + WRITE abort。
       conflictGroups.push({ mainSku, pairs: [...pairs] });
     }
     const categoryId: string | null = resolved ?? uncategorizedId; // products.category_id NOT NULL:未對上一律未分類 fallback
@@ -236,9 +243,10 @@ async function main(): Promise<void> {
   if (categoryResolutions.length) {
     printCategoryResolutionReport(summarizeCategoryResolution(categoryResolutions));
   }
-  if (nullV2Groups || unseededSubGroups || conflictGroups.length) {
+  if (nullV2Groups || unseededSubGroups || conflictGroups.length || subMildGroups) {
     console.log(
-      `[rpm-import] v2 分類 fallback → 未分類:null-v2 ${nullV2Groups} 群 / 未 seed 子類 ${unseededSubGroups} 群 / 群內衝突 ${conflictGroups.length} 群`,
+      `[rpm-import] v2 分類:null-v2 ${nullV2Groups} 群→未分類 / 未 seed 子類 ${unseededSubGroups} 群 / ` +
+        `同大類子類分歧 ${subMildGroups} 群(取決定性子類、不擋) / 跨大類衝突 ${conflictGroups.length} 群`,
     );
     if (conflictGroups.length) {
       console.table(conflictGroups.slice(0, 20).map((c) => ({ mainSku: c.mainSku, pairs: c.pairs.join(' | ') })));
