@@ -93,7 +93,7 @@ v1.1 依 Codex 批判修訂:
 ## 6. 統一地基(v1.1 新增;全部第一期做,防後悔)
 
 1. **最小具名身分**:共用密碼登入後選人(Sean/員工名單)寫入 session=`actor`;沒有它稽核 log 全記成同一個 shared admin(M-4b 完整權限前的最小解;handler 預留 actor_id/required_amr,不寫死 isAdmin)。
-2. **統一稽核 log**:append-only `admin_audit_log`(actor/action/target/before/after/reason/request_id/source_app/at);tier、取消、排序外的所有寫入都記。
+2. **統一稽核 log**:append-only `admin_audit_log`(actor/action/target/before/after/reason/request_id/source_app/created_at);tier、取消、排序外的所有寫入都記。(時間欄 07-12 Fable 審定名 `created_at`:v1.1 速記「at」非釘死命名,正名對齊全 repo `*_at` 家族慣例、同 `20260624120003` events 表字面。)
 3. **樂觀鎖**:orders/customers 帶 version 條件更新,衝突回 409 由 UI 重載。
 4. **狀態變更全走 RPC/repository 白名單**,UI 藏按鈕不構成保護。
 5. **時區**:DB 一律 timestamptz(UTC);後台顯示與日報邊界=Asia/Taipei 明訂。
