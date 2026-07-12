@@ -1,11 +1,10 @@
-// order-list-view.test.ts — 後台訂單列表顯示層純函式單測(M-4a 訂單線第一片)。
-// 純函式、無 server-only / DB;涵蓋 searchParams 白名單守門、分頁數學、連結建構、標籤覆蓋、格式化。
+// order-list-view.test.ts — 訂單列表顯示層純函式單測(M-4a 訂單線第一片)。
+// 訂單專屬:searchParams 白名單守門 / buildOrderListHref / 標籤覆蓋 / 格式化。
+// 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
 import {
   parseOrderListSearchParams,
-  parsePage,
-  computePagination,
   buildOrderListHref,
   formatOrderDate,
   formatOrderAmount,
@@ -38,7 +37,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     expect(page).toBe(3);
   });
 
-  it('非法篩選值一律忽略(等同不篩選)', () => {
+  it('非法篩選值一律忽略(等同不篩選、注入不透傳)', () => {
     const { filter } = parseOrderListSearchParams({
       payment_status: 'HACK',
       fulfillment_status: '',
@@ -54,9 +53,7 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
   });
 
   it('string[] 值取首個', () => {
-    const { filter } = parseOrderListSearchParams({
-      payment_status: ['unpaid', 'paid'],
-    });
+    const { filter } = parseOrderListSearchParams({ payment_status: ['unpaid', 'paid'] });
     expect(filter.paymentStatus).toBe('unpaid');
   });
 
@@ -72,85 +69,13 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
   });
 });
 
-describe('parsePage — 頁碼下界 1', () => {
-  it.each([
-    [undefined, 1],
-    ['', 1],
-    ['0', 1],
-    ['-2', 1],
-    ['1.5', 1],
-    ['abc', 1],
-    ['5', 5],
-  ])('%s → %i', (raw, expected) => {
-    expect(parsePage(raw as string | undefined)).toBe(expected);
-  });
-});
-
-describe('computePagination — 分頁數學(range 由真實 shownCount 推導、永不謊報)', () => {
-  it('total 0 / shownCount 0 → totalPages 1、range 0、無上下頁', () => {
-    expect(computePagination(0, 1, 20, 0)).toEqual({
-      totalPages: 1,
-      currentPage: 1,
-      hasPrev: false,
-      hasNext: false,
-      rangeStart: 0,
-      rangeEnd: 0,
-    });
-  });
-
-  it('37 筆 / 每頁 20 / 第 1 頁(本頁 20 列)→ 1–20、有下頁無上頁', () => {
-    expect(computePagination(37, 1, 20, 20)).toEqual({
-      totalPages: 2,
-      currentPage: 1,
-      hasPrev: false,
-      hasNext: true,
-      rangeStart: 1,
-      rangeEnd: 20,
-    });
-  });
-
-  it('37 筆 / 每頁 20 / 第 2 頁(本頁 17 列)→ 21–37、有上頁無下頁', () => {
-    expect(computePagination(37, 2, 20, 17)).toEqual({
-      totalPages: 2,
-      currentPage: 2,
-      hasPrev: true,
-      hasNext: false,
-      rangeStart: 21,
-      rangeEnd: 37,
-    });
-  });
-
-  it('🔴 nit 修正:page 超界(第 99 頁、本頁 0 列)→ range 0(footer 不謊報有列)、currentPage clamp 2、可退回', () => {
-    expect(computePagination(37, 99, 20, 0)).toEqual({
-      totalPages: 2,
-      currentPage: 2,
-      hasPrev: true,
-      hasNext: false,
-      rangeStart: 0,
-      rangeEnd: 0,
-    });
-  });
-
-  it('整除邊界:40 筆 / 每頁 20 / 第 2 頁(本頁 20 列)→ 21–40、無下頁', () => {
-    expect(computePagination(40, 2, 20, 20)).toMatchObject({
-      totalPages: 2,
-      hasNext: false,
-      rangeStart: 21,
-      rangeEnd: 40,
-    });
-  });
-});
-
-describe('buildOrderListHref — 連結建構', () => {
+describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', () => {
   it('無篩選 + page 1 → /orders(乾淨)', () => {
     expect(buildOrderListHref({}, 1)).toBe('/orders');
   });
 
   it('帶篩選 + page>1 → 保留篩選 + page', () => {
-    const href = buildOrderListHref(
-      { paymentStatus: 'paid', orderSource: 'web' },
-      2,
-    );
+    const href = buildOrderListHref({ paymentStatus: 'paid', orderSource: 'web' }, 2);
     expect(href).toContain('/orders?');
     expect(href).toContain('payment_status=paid');
     expect(href).toContain('order_source=web');
@@ -164,7 +89,7 @@ describe('buildOrderListHref — 連結建構', () => {
   });
 });
 
-describe('標籤覆蓋 — 每個 enum 值皆有中文標籤(漏 key = 編譯期紅,執行期再核非空)', () => {
+describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
   it('付款狀態', () => {
     for (const v of PAYMENT_STATUS_VALUES) expect(PAYMENT_STATUS_LABEL[v]).toBeTruthy();
   });
@@ -181,7 +106,6 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤(漏 key = 編譯期
 
 describe('格式化', () => {
   it('formatOrderDate:UTC timestamptz → Asia/Taipei YYYY-MM-DD(避 off-by-one)', () => {
-    // 2099-04-15T16:30:00Z = 台灣 2099-04-16 00:30 → 應顯 04-16(非 04-15)
     expect(formatOrderDate('2099-04-15T16:30:00Z')).toBe('2099-04-16');
   });
 

@@ -1,9 +1,13 @@
 import type { AdminOrderSummary, Paginated } from '@pcm/domain';
 import { getAdminOrderRepository } from '@/lib/orders/order-repository';
-import { parseOrderListSearchParams, ORDERS_PAGE_SIZE } from '@/lib/orders/order-list-view';
+import {
+  parseOrderListSearchParams,
+  buildOrderListHref,
+  ORDERS_PAGE_SIZE,
+} from '@/lib/orders/order-list-view';
 import { OrderFilterBar } from '@/components/orders/order-filter-bar';
 import { OrdersTable } from '@/components/orders/orders-table';
-import { OrderPagination } from '@/components/orders/order-pagination';
+import { ListPagination } from '@/components/shared/list-pagination';
 
 // M-4a 訂單線第一片:後台訂單列表(server component、雙軸+次要篩選、server 端分頁)。
 // 讀 searchParams → 動態渲染;force-dynamic 確保不被靜態預渲染(避免 build 期執行 DB 查詢)。
@@ -53,12 +57,13 @@ export default async function OrdersPage({
       ) : (
         <>
           <OrdersTable orders={orders} />
-          <OrderPagination
-            filter={filter}
+          <ListPagination
             page={page}
             total={total}
             pageSize={ORDERS_PAGE_SIZE}
             shownCount={orders.length}
+            buildHref={(p) => buildOrderListHref(filter, p)}
+            unit='筆'
           />
         </>
       )}

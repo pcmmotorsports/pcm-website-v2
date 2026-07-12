@@ -31,3 +31,31 @@ export type Customer = {
   createdAt: string; // ISO datetime
   updatedAt: string;
 };
+
+// ── M-4a 客戶管理:後台客戶列表讀模型(admin read-model)──
+
+/**
+ * AdminCustomerFilter: 後台客戶列表篩選(value-object;全欄可選、缺 = 不限)。
+ *
+ * v1 只 `tier` 軸(依會員等級找經銷 / 一般客);free-text 姓名 / email 搜尋留 follow-up。
+ */
+export type AdminCustomerFilter = {
+  tier?: MemberTier;
+};
+
+/**
+ * AdminCustomerSummary: 後台客戶列表摘要投影(admin read-model、server 分頁)。
+ *
+ * 🔴 刻意**排除** `walletBalance` / `totalDeposit`(#202 儲值金台灣法規 HOLD、不進雛型)+ `birthday`(列表不需);
+ * 型別層無任何成本 / 經銷價欄(customers 表本身無)。`tier` = 會員等級標籤(admin 需知經銷身分、**非價格**);
+ * `phone` 可 null(DB 欄 nullable);`createdAt` ISO 原樣(UI 端格式化)。
+ */
+export type AdminCustomerSummary = {
+  id: CustomerId;
+  name: string;
+  email: string;
+  phone: string | null;
+  tier: MemberTier;
+  /** 註冊時間 ISO(customers.created_at 原樣) */
+  createdAt: string;
+};

@@ -1,4 +1,4 @@
-import type { Customer } from '@pcm/domain';
+import type { Customer, AdminCustomerSummary } from '@pcm/domain';
 import type { Database } from '../database.types';
 
 /**
@@ -40,6 +40,34 @@ export function mapSupabaseCustomerToDomain(row: SupabaseCustomerRow): Customer 
     totalDeposit: row.total_deposit,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+// ── 讀路徑(admin 摘要):customers row → domain AdminCustomerSummary(M-4a 客戶管理第一片)──
+
+/**
+ * admin 客戶摘要讀 row 型別 —— derive 自生成 Database Row(對齊 SupabaseCustomerRow 慣例)。
+ *
+ * 只取 `ADMIN_CUSTOMER_LIST_SELECT`(SupabaseCustomerAdapter)投影的欄。
+ * 🔴 **不含** wallet_balance / total_deposit(#202 儲值金 HOLD)、birthday(列表不需);customers 表本身無成本欄。
+ * `tier` 生成 member_tier enum 字面 = domain MemberTier(直送);`phone` nullable 直送(UI 顯 '—')。
+ */
+export type SupabaseAdminCustomerRow = Pick<
+  SupabaseCustomerRow,
+  'user_id' | 'name' | 'email' | 'phone' | 'tier' | 'created_at'
+>;
+
+/** wire customers 摘要 row → domain AdminCustomerSummary(user_id → id;其餘直送)。 */
+export function mapSupabaseAdminCustomerRowToSummary(
+  row: SupabaseAdminCustomerRow,
+): AdminCustomerSummary {
+  return {
+    id: row.user_id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone,
+    tier: row.tier,
+    createdAt: row.created_at,
   };
 }
 

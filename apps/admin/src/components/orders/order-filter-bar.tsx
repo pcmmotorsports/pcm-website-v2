@@ -1,6 +1,6 @@
 import type { AdminOrderFilter } from '@pcm/domain';
+import { SelectFilter } from '../shared/select-filter';
 import {
-  type FilterOption,
   PAYMENT_STATUS_OPTIONS,
   FULFILLMENT_STATUS_OPTIONS,
   ORDER_SOURCE_OPTIONS,
@@ -14,33 +14,6 @@ import {
 // M-4a 訂單線第一片:雙軸 + 次要下拉篩選(server-render、native form GET;無 client JS)。
 // 主雙軸 = 付款狀態 × 出貨狀態(營運最常查「已付未出」);次要 = 來源 / 管道。
 // 送出 → 瀏覽器組 query string 導回 /orders → server 重讀 searchParams 重查(page 天然回 1)。
-
-type SelectFilterProps = {
-  name: string;
-  label: string;
-  value: string | undefined;
-  options: FilterOption[];
-};
-
-function SelectFilter({ name, label, value, options }: SelectFilterProps) {
-  return (
-    <label className='flex flex-col gap-1 text-sm'>
-      <span className='text-muted-foreground text-xs font-medium'>{label}</span>
-      <select
-        name={name}
-        defaultValue={value ?? ''}
-        className='border-input bg-background h-9 min-w-36 rounded-md border px-3 text-sm'
-      >
-        <option value=''>全部</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
 
 export function OrderFilterBar({ filter }: { filter: AdminOrderFilter }) {
   return (

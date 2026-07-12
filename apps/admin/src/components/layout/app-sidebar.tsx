@@ -16,14 +16,14 @@ import {
 } from '@/components/ui/sidebar';
 
 // 精簡自 Kiranism starter(見 src/FORK-PROVENANCE.md):砍 Clerk / nav-config 動態導覽 / user dropdown。
-// M-4a 訂單線第一片:訂單頁已存在 → 換成真 <Link>(usePathname 判 active);總覽 → /;
-// 客戶頁尚未接(客戶線 slice),維持不可點 button 避免 404。
+// M-4a:總覽 → / ;訂單 → /orders(訂單線第一片)、客戶 → /customers(客戶管理第一片)皆已接真頁面 <Link>
+// (usePathname 判 active)。href 缺 = 尚未接頁面、渲染不可點 button 避免 404。
 type NavItem = { key: string; label: string; icon: Icon; href?: string };
 
 const NAV_ITEMS: readonly NavItem[] = [
   { key: 'overview', label: '總覽', icon: Icons.dashboard, href: '/' },
   { key: 'orders', label: '訂單', icon: Icons.billing, href: '/orders' },
-  { key: 'customers', label: '客戶', icon: Icons.user },
+  { key: 'customers', label: '客戶', icon: Icons.user, href: '/customers' },
 ];
 
 /** 目前路徑是否命中此 nav('/' 精確;其餘含子路徑)。 */

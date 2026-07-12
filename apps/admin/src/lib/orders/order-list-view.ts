@@ -1,8 +1,7 @@
 // order-list-view.ts — 後台訂單列表「顯示層」純工具(M-4a 訂單線第一片)。
 //
-// 純函式:searchParams 解析 / 篩選值域守門 / 分頁數學 / 中文標籤 / 日期格式化。
-// 無 server-only、無 @/、無 @pcm/adapters(型別 import 自 @pcm/domain 會被抹除)→ 可單測。
-// (root vitest.config 的 @ alias 指 storefront;admin 內部 import 一律相對路徑、跨 app 型別走 @pcm/domain。)
+// 訂單專屬:searchParams 白名單守門 / 篩選標籤 / 日期金額格式化。通用分頁數學 / param 解析 / 連結建構
+// 走 ../shared/list-params(訂單與客戶列表共用)。無 server-only、無 @/、型別 import 自 @pcm/domain(抹除)→ 可單測。
 
 import type {
   AdminOrderFilter,
@@ -11,6 +10,7 @@ import type {
   OrderSource,
   PaymentChannel,
 } from '@pcm/domain';
+import { pickEnum, parsePage, buildListHref, type FilterOption } from '../shared/list-params';
 
 /** 每頁筆數(server 端 .range 分頁)。 */
 export const ORDERS_PAGE_SIZE = 20;
@@ -20,7 +20,6 @@ export const PAYMENT_STATUS_PARAM = 'payment_status';
 export const FULFILLMENT_STATUS_PARAM = 'fulfillment_status';
 export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
-export const PAGE_PARAM = 'page';
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
@@ -81,9 +80,6 @@ export const PAYMENT_CHANNEL_LABEL: Record<PaymentChannel, string> = {
   none: '未指定',
 };
 
-/** 下拉選項(value + label);置頂「全部」= 不篩選(空 value)。 */
-export type FilterOption = { value: string; label: string };
-
 function toOptions<T extends string>(
   values: readonly T[],
   labels: Record<T, string>,
@@ -103,33 +99,9 @@ export const PAYMENT_CHANNEL_OPTIONS = toOptions(PAYMENT_CHANNEL_VALUES, PAYMENT
 
 type RawSearchParams = Record<string, string | string[] | undefined>;
 
-/** 取單一字串(searchParams 值可能是 string[];取首個)。 */
-function firstValue(raw: string | string[] | undefined): string | undefined {
-  if (Array.isArray(raw)) return raw[0];
-  return raw;
-}
-
-/** 若 value 在白名單內回該值(narrow 成 enum);否則 undefined(非法忽略、不篩選)。 */
-function pickEnum<T extends string>(
-  raw: string | string[] | undefined,
-  allowed: readonly T[],
-): T | undefined {
-  const v = firstValue(raw);
-  return v !== undefined && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
-}
-
-/** page 解析:正整數、預設 1、下界 1(非法 / 缺 → 1)。 */
-export function parsePage(raw: string | string[] | undefined): number {
-  const v = firstValue(raw);
-  if (v === undefined) return 1;
-  const n = Number(v);
-  if (!Number.isInteger(n) || n < 1) return 1;
-  return n;
-}
-
 /**
  * 解析 searchParams → { filter(白名單守門後的雙軸+次要), page }。
- * 非法篩選值一律忽略(等同不篩選);page 下界 1。
+ * 非法篩選值一律忽略(等同不篩選);page 下界 1(parsePage 共用)。
  */
 export function parseOrderListSearchParams(raw: RawSearchParams): {
   filter: AdminOrderFilter;
@@ -141,63 +113,21 @@ export function parseOrderListSearchParams(raw: RawSearchParams): {
     orderSource: pickEnum(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannel: pickEnum(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
   };
-  return { filter, page: parsePage(raw[PAGE_PARAM]) };
+  return { filter, page: parsePage(raw.page) };
 }
 
-// ── 分頁 ──
-
-export type PaginationView = {
-  totalPages: number;
-  /** 目前頁 clamp 到 [1, totalPages](顯示「第 X／Y 頁」用) */
-  currentPage: number;
-  hasPrev: boolean;
-  hasNext: boolean;
-  /** 本頁第一筆的 1-indexed 序(本頁無列 → 0) */
-  rangeStart: number;
-  /** 本頁最後一筆的 1-indexed 序(本頁無列 → 0) */
-  rangeEnd: number;
-};
-
-/**
- * 依 total / 目前頁 / 每頁筆數 / **本頁實際回傳筆數** 算分頁狀態(page 已下界 1)。
- *
- * 🔴 range 由「真實 offset + shownCount」推導(非 clamp 頁的理論範圍)→ footer 顯示永遠與表格一致:
- * URL 竄改成超界頁(如 page=999)時本頁 shownCount=0 → rangeStart/End=0(footer 不謊報「第 21–37 筆」);
- * hasPrev/hasNext 用未 clamp 的 page 判(超界頁 hasNext=false、hasPrev=true 可退回)。total 0 → totalPages 1、range 0。
- */
-export function computePagination(
-  total: number,
-  page: number,
-  pageSize: number = ORDERS_PAGE_SIZE,
-  shownCount: number = 0,
-): PaginationView {
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const offset = (page - 1) * pageSize;
-  const rangeStart = shownCount === 0 ? 0 : offset + 1;
-  const rangeEnd = shownCount === 0 ? 0 : offset + shownCount;
-  return {
-    totalPages,
-    currentPage: Math.min(page, totalPages),
-    hasPrev: page > 1,
-    hasNext: page < totalPages,
-    rangeStart,
-    rangeEnd,
-  };
-}
-
-/**
- * 建 `/orders?...` 連結(分頁 / 篩選保留);只帶有值的鍵、page=1 省略(乾淨 URL)。
- * 篩選值來自 filter(已白名單);page 由 caller 指定(prev/next)。
- */
+/** 建 `/orders?...` 連結(分頁 / 篩選保留;page=1 省略);走共用 buildListHref。 */
 export function buildOrderListHref(filter: AdminOrderFilter, page: number): string {
-  const params = new URLSearchParams();
-  if (filter.paymentStatus) params.set(PAYMENT_STATUS_PARAM, filter.paymentStatus);
-  if (filter.fulfillmentStatus) params.set(FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus);
-  if (filter.orderSource) params.set(ORDER_SOURCE_PARAM, filter.orderSource);
-  if (filter.paymentChannel) params.set(PAYMENT_CHANNEL_PARAM, filter.paymentChannel);
-  if (page > 1) params.set(PAGE_PARAM, String(page));
-  const qs = params.toString();
-  return qs ? `/orders?${qs}` : '/orders';
+  return buildListHref(
+    '/orders',
+    [
+      [PAYMENT_STATUS_PARAM, filter.paymentStatus],
+      [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
+      [ORDER_SOURCE_PARAM, filter.orderSource],
+      [PAYMENT_CHANNEL_PARAM, filter.paymentChannel],
+    ],
+    page,
+  );
 }
 
 /**

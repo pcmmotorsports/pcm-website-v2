@@ -1,4 +1,11 @@
-import type { Customer, CustomerId } from '@pcm/domain';
+import type {
+  Customer,
+  CustomerId,
+  AdminCustomerFilter,
+  AdminCustomerSummary,
+  Paginated,
+  PaginationParams,
+} from '@pcm/domain';
 
 /**
  * ICustomerRepository: 會員 profile 讀 + 有限欄位更新 port(M-1-14 改寫)。
@@ -21,6 +28,17 @@ export interface ICustomerRepository {
     patch: Partial<Pick<Customer, 'name' | 'phone' | 'birthday'>>,
   ): Promise<Customer>;
 
-  // TODO M-4a-10: 補 listByTier(tier: MemberTier) — admin 會員列表用
-  //   實作時 import type { MemberTier } from '@pcm/domain'(目前未 import、避免 unused)
+  /**
+   * admin 客戶列表「摘要」(M-4a 客戶管理第一片;後台營運找客 / 看等級)。
+   *
+   * 回 `Paginated<AdminCustomerSummary>`(摘要投影):**新增** admin 專用摘要方法、不動既有
+   * findById / findByEmail / update(會員側零影響);service_role 全表(非 RLS own-only);
+   * tier 篩選走 DB where 下推 + server 端分頁(`.range`)+ 排序 created_at DESC(新到舊)+ 總筆數 count。
+   *
+   * 🔴 投影具名白名單、**排除** wallet_balance / total_deposit(#202 儲值金 HOLD)、零成本欄(customers 表本身無)、禁 `select('*')`。
+   */
+  listCustomerSummariesForAdmin(
+    filter: AdminCustomerFilter,
+    pagination: PaginationParams,
+  ): Promise<Paginated<AdminCustomerSummary>>;
 }
