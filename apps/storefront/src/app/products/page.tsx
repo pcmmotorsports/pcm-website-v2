@@ -14,12 +14,13 @@
 import type { Metadata } from 'next';
 import { ProductsPage } from '@/components/ProductsPage';
 import {
-  fetchCatalogProducts,
+  fetchCatalogPage,
+  fetchCatalogBrandTaxonomy,
   fetchCategories,
-  fetchProductsByVehicle,
   fetchVehicleTaxonomy,
 } from '@/lib/products';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
+import { parseCatalogQuery } from '@/lib/catalog-query';
 
 // useSearchParams 在 client component 需 route 端標 dynamic、否則 production build 報
 // Static Generation 錯;對齊首頁 page.tsx L31-34 既有慣例(Phase 1 dev 真資料動態)。
@@ -44,28 +45,37 @@ export default async function ProductsRoute({ searchParams }: Props) {
     if (Array.isArray(v)) return v[0] ?? null;
     return null;
   };
+  const catalogQuery = parseCatalogQuery({
+    get: spGet,
+    getAll: (name) => {
+      const value = sp[name];
+      return typeof value === 'string' ? [value] : value ?? [];
+    },
+  });
   // 短版 ?vehicle= 或長版 ?brand=&model=(?brand= 單獨=商品品牌 filter 語意、不當車輛;
   // 對齊 PDP route hasVehicleParam 判準)。⚠️ 例外:品牌-only 車輛選擇由 client 同步寫短版
   // ?vehicle=brandId(單段),仍走短版分支、長版不支援品牌-only(歷史書籤語意不變)。
   const hasVehicleParam =
-    spGet('vehicle') != null || (spGet('brand') != null && spGet('model') != null);
+    catalogQuery.vehicle != null || (spGet('brand') != null && spGet('model') != null);
 
   // 車輛下拉清單:恆撈全目錄 taxonomy(unstable_cache 900s、輕量 fitments 投影),
   // 兼作 URL slug→原始名對照表(與 client deep-link restore 同一份、id 空間一致)。
-  const motoBrands = await fetchVehicleTaxonomy();
+  const [motoBrands, categories, brands] = await Promise.all([
+    fetchVehicleTaxonomy(),
+    fetchCategories(),
+    fetchCatalogBrandTaxonomy(),
+  ]);
   const vehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, motoBrands) : null;
 
-  // 🔴 fetchCatalogProducts / fetchProductsByVehicle 內部釘 'general'(經銷價零外洩;見 lib/products)。
-  // C2:分類樹 server 端撈真資料、與商品並行 fetch;side/top/drawer 側欄共用。
-  const [{ products, error }, categories] = await Promise.all([
-    vehicle ? fetchProductsByVehicle(vehicle) : fetchCatalogProducts(),
-    fetchCategories(),
-  ]);
+  // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
+  const { products, total, error } = await fetchCatalogPage(catalogQuery, vehicle);
   return (
     <ProductsPage
       products={products}
+      total={total}
       error={error}
       categories={categories}
+      brands={brands}
       motoBrands={motoBrands}
     />
   );

@@ -21,6 +21,7 @@ import {
   type CascadeFilterState,
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { ProductExtraFilters } from './filter-state';
 // 🔴 R3:SearchParamsLike + parseVehicleFromUrl 抽到無 hooks 的 @/lib/vehicle-url(供詳情頁 Server
 //   Component 共用、本檔含 hooks 不可被 server import);本檔 re-export parseVehicleFromUrl 保 back-compat。
 import { parseVehicleFromUrl, type SearchParamsLike } from '@/lib/vehicle-url';
@@ -58,13 +59,18 @@ export function parseCategoryFromUrl(
  *    OEM 副廠件(Yamaha/Honda 亦賣部品)、slug 'yamaha' 可能同時命中兩者 → 同一 ?brand= 雙重過濾。
  *    多品牌放量前需消歧(產品品牌深連結改獨立 key 如 ?pbrand=,或入站時 vehicle 優先互斥)。見 backlog #269。
  */
-export function parseBrandFilterFromUrl(
+export function parseBrandFiltersFromUrl(
   searchParams: SearchParamsLike,
   productBrands: { id: string }[],
-): string | null {
-  const raw = searchParams.get('brand');
-  if (!raw) return null;
-  return productBrands.some((b) => b.id === raw) ? raw : null;
+): string[] {
+  const getAll = (searchParams as SearchParamsLike & { getAll?: (name: string) => string[] }).getAll;
+  const requested = getAll ? getAll.call(searchParams, 'pbrand') : [];
+  // 相容 P4 前的單一 ?brand= 深連結；新網址一律輸出不會和車款衝突的 ?pbrand=。
+  if (requested.length === 0) {
+    const legacy = searchParams.get('brand');
+    if (legacy) requested.push(legacy);
+  }
+  return Array.from(new Set(requested)).filter((slug) => productBrands.some((b) => b.id === slug));
 }
 
 export function parseSortParam(raw: string | null): string {
@@ -133,6 +139,7 @@ export function usePageResetOnFilterChange(
  * replaceState 純改網址零往返,back/refresh/分享時由 useBrowseUrlState mount lazy init 讀回。
  */
 export function useBrowseUrlSync(currentPage: number, sort: string, perPage: number): void {
+  const router = useRouter();
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const setOrDelete = (k: string, v: string | null) => {
@@ -145,10 +152,48 @@ export function useBrowseUrlSync(currentPage: number, sort: string, perPage: num
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (next !== `${window.location.pathname}${window.location.search}`) {
-      // 保留 Next.js 內部 history state(比官方範例的 null 更保守、不干擾 scroll restoration)
-      window.history.replaceState(window.history.state, '', next);
+      // P4:改成 App Router 導覽，server 依 URL 只取當頁。不可再 replaceState 偽裝為已換頁。
+      router.replace(next, { scroll: false });
     }
-  }, [currentPage, sort, perPage]);
+  }, [currentPage, sort, perPage, router]);
+}
+
+/** P4:品牌／分類／價格 UI state 變動時，寫入 URL 並讓 route 重跑 server catalog query。 */
+export function useCatalogFilterUrlSync(
+  cascade: CascadeFilterState,
+  extras: ProductExtraFilters,
+): void {
+  const router = useRouter();
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!initialized.current) {
+      initialized.current = true;
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    params.delete('pbrand');
+    for (const brand of [...cascade.brands].sort()) params.append('pbrand', brand);
+    const category = cascade.category?.sub
+      ? `${cascade.category.main} · ${cascade.category.sub}`
+      : cascade.category?.main;
+    if (category) params.set('category', category);
+    else params.delete('category');
+    if (extras.price) params.set('price', extras.price);
+    else params.delete('price');
+    if (extras.priceRange) {
+      params.set('pmin', String(extras.priceRange[0]));
+      params.set('pmax', String(extras.priceRange[1]));
+    } else {
+      params.delete('pmin');
+      params.delete('pmax');
+    }
+    params.delete('page');
+    const qs = params.toString();
+    const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      router.replace(next, { scroll: false });
+    }
+  }, [cascade, extras, router]);
 }
 
 /**
@@ -237,8 +282,8 @@ export function useDeepLinkRestore(opts: {
     const { searchParams, motoBrands, categories, productBrands, dispatch, skipPageResetOnce, brandAppliedOnce } = opts;
     const v = parseVehicleFromUrl(searchParams, motoBrands);
     const urlCategory = parseCategoryFromUrl(searchParams, categories);
-    const urlBrand = parseBrandFilterFromUrl(searchParams, productBrands);
-    if (!v && !urlCategory && !urlBrand) return;
+    const urlBrands = parseBrandFiltersFromUrl(searchParams, productBrands);
+    if (!v && !urlCategory && urlBrands.length === 0) return;
     skipPageResetOnce.current = true;
     if (v) {
       dispatch(selectVehicleBrand(v.brand));
@@ -246,9 +291,9 @@ export function useDeepLinkRestore(opts: {
       if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
     }
     if (urlCategory) dispatch(selectCategoryMain(urlCategory.mainId, urlCategory.main)); // 空狀態直選、冪等
-    if (urlBrand && !brandAppliedOnce.current) {
+    if (urlBrands.length > 0 && !brandAppliedOnce.current) {
       brandAppliedOnce.current = true;
-      dispatch(toggleBrand(urlBrand));
+      for (const brand of urlBrands) dispatch(toggleBrand(brand));
     }
     // 僅 mount 時讀一次;strict mode dev 雙跑由 brandAppliedOnce 守 toggle、select 類冪等可吸收
     // eslint-disable-next-line react-hooks/exhaustive-deps

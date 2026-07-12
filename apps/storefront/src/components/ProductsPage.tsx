@@ -51,13 +51,13 @@ import { FilterDrawer } from './FilterDrawer';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
-import { filterProducts, sortProducts } from './products-filter-logic';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
 // #6:page/sort/perPage URL round-trip + vehicle URL 解析(拆檔=鐵則 6;詳 products-url-state.tsx 檔頭)
 import {
   useBrowseUrlState,
   usePageResetOnFilterChange,
   useBrowseUrlSync,
+  useCatalogFilterUrlSync,
   useDeepLinkRestore,
   useVehicleUrlSync,
 } from './products-url-state';
@@ -65,6 +65,7 @@ import type { FilterTopData } from './FilterTop';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockProduct } from '@/data/mock-products';
+import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
@@ -79,10 +80,14 @@ export type ProductsPageProps = {
   /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真;
    *  S1 起選了車=server 已按車過濾的子集、非恆全目錄) */
   products: MockProduct[];
+  /** P4 server query 的完整結果數；products 僅為當頁 card DTO。 */
+  total?: number;
   /** server fetch 失敗旗標(true → 顯「載入失敗、請稍後再試」、與真 0 結果區分;Q2=A 鏡像 HomeSelect) */
   error: boolean;
   /** server-resolved 真分類樹(C2 接線;buildCategoryTree 選項 A 只留有商品分類、取代 MOCK_CATEGORIES) */
   categories: MockCategory[];
+  /** P4 independent global brand counts; never derive from current page. */
+  brands?: MockBrand[];
   /** server-resolved 全目錄車輛清單(S1:products 可能是按車過濾子集、下拉不可再由它衍生;
    *  fetchVehicleTaxonomy 快取版、與 URL slug 解析同源=id 空間一致) */
   motoBrands: MockMotoBrand[];
@@ -184,7 +189,7 @@ function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () 
   );
 }
 
-export function ProductsPage({ products, error, categories, motoBrands }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
@@ -204,7 +209,7 @@ export function ProductsPage({ products, error, categories, motoBrands }: Produc
   // C3 #220c:品牌側欄「動態衍生」自當下目錄商品(只列有真商品的品牌、count 為真;
   // 商品匯入後自動更新);drop-in 取代舊寫死 MOCK_BRANDS(選 RPM 以外 chip 0 結果病灶)。
   // S1 註:選了車後 products=相容子集 → 品牌清單/計數隨之收斂(facet 語意、刻意)。
-  const brands = useMemo(() => buildBrandTaxonomy(products), [products]);
+  const brands = serverBrands ?? buildBrandTaxonomy(products);
   const data: FilterTopData = useMemo(
     () => ({ motoBrands, categories, brands }),
     [motoBrands, categories, brands],
@@ -225,15 +230,11 @@ export function ProductsPage({ products, error, categories, motoBrands }: Produc
   // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
   // 繼承件也命中);取代舊 client matchesVehicle。詳 products-url-state.useVehicleUrlSync。
   useVehicleUrlSync(cascade.vehicle, motoBrands);
+  useCatalogFilterUrlSync(cascade, extras);
 
-  // memo:client 過濾/排序(brand/category/price/color/sort;vehicle 已由 server 過濾、
-  // S1 拿掉 client matchesVehicle=F4)→ 避免無關 state(drawerOpen/gridCols/page)變動時整條重算
-  const filtered = useMemo(
-    () => filterProducts(products, cascade, extras, data.brands),
-    [products, cascade, extras, data.brands],
-  );
-  const sorted = useMemo(() => sortProducts(filtered, sort), [filtered, sort]);
-  const resultCount = sorted.length;
+  // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
+  // 否則會把 total/page 語意拆成兩套而造成漏項。
+  const resultCount = total ?? products.length;
 
   // #6:篩選/排序/每頁變動 → 回第 1 頁(對齊 design ProductsPage.jsx L226;值比較+mount-guard
   // +vehicle 還原跳過一次,詳 products-url-state.tsx usePageResetOnFilterChange 檔內註解)
@@ -246,8 +247,7 @@ export function ProductsPage({ products, error, categories, motoBrands }: Produc
 
   const totalPages = Math.max(1, Math.ceil(resultCount / perPage));
   const currentPage = Math.min(page, totalPages);
-  const startIdx = (currentPage - 1) * perPage;
-  const displayed = sorted.slice(startIdx, startIdx + perPage);
+  const displayed = products;
 
   // #6:page/sort/perPage 同步回 URL(原生 replaceState 零 server 往返;詳 products-url-state.tsx)
   useBrowseUrlSync(currentPage, sort, perPage);

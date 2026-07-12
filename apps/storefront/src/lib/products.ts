@@ -50,8 +50,11 @@ import type { MemberTier, Product } from '@pcm/domain';
 import type { MockProduct, TierLabel } from '@/data/mock-products';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
+import { MOCK_BRANDS, type MockBrand } from '@/data/mock-brands';
 import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 import { buildCategoryTree } from '@/lib/category-taxonomy';
+import type { CatalogQuery } from '@/lib/catalog-query';
+import { catalogRowToUIProduct, type CatalogListRow } from '@/lib/catalog-page';
 
 /**
  * domain Product + 指定 tier → UI shape(MockProduct)。
@@ -276,6 +279,134 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
   } catch (err) {
     console.error('[fetchCatalogProducts] adapter.listAllProducts failed:', err);
     return { products: [], error: true };
+  }
+}
+
+type CatalogRpcRow = { item: unknown; total: number | string | null };
+
+type CatalogRpcClient = {
+  rpc(
+    fn: 'search_catalog_by_vehicle',
+    args: {
+      p_brand: string | null;
+      p_model: string | null;
+      p_year: number | null;
+      p_offset: number;
+      p_limit: number;
+      p_sort: CatalogQuery['sort'];
+      p_category: string | null;
+      p_brand_slugs: string[] | null;
+      p_price_min: number | null;
+      p_price_max: number | null;
+    },
+  ): PromiseLike<{ data: CatalogRpcRow[] | null; error: { message: string } | null }>;
+};
+
+export type CatalogPageResult = {
+  products: MockProduct[];
+  total: number;
+  error: boolean;
+};
+
+async function queryCatalogPage(
+  query: CatalogQuery,
+  vehicle?: { brand: string; model?: string; year?: number } | null,
+): Promise<CatalogPageResult> {
+  const client = createSupabaseAnonClient() as unknown as CatalogRpcClient;
+  const { data, error } = await client.rpc('search_catalog_by_vehicle', {
+    p_brand: vehicle?.brand ?? null,
+    p_model: vehicle?.model ?? null,
+    p_year: vehicle?.year ?? null,
+    p_offset: (query.page - 1) * query.perPage,
+    p_limit: query.perPage,
+    p_sort: query.sort,
+    p_category: query.category ?? null,
+    p_brand_slugs: query.brandSlugs.length > 0 ? query.brandSlugs : null,
+    p_price_min: query.priceMin ?? null,
+    p_price_max: query.priceMax ?? null,
+  });
+  if (error) throw error;
+  const rows = data ?? [];
+  return {
+    products: rows.map((row) => catalogRowToUIProduct(row.item as CatalogListRow)),
+    total: rows.length > 0 ? Number(rows[0]?.total ?? 0) : 0,
+    error: false,
+  };
+}
+
+const getCatalogPageCached = unstable_cache(
+  async (
+    serializedQuery: string,
+    vehicleBrand: string | null,
+    vehicleModel: string | null,
+    vehicleYear: number | null,
+  ): Promise<CatalogPageResult> => {
+    const query = JSON.parse(serializedQuery) as CatalogQuery;
+    return queryCatalogPage(
+      query,
+      vehicleBrand ? {
+        brand: vehicleBrand,
+        ...(vehicleModel ? { model: vehicleModel } : {}),
+        ...(vehicleYear !== null ? { year: vehicleYear } : {}),
+      } : null,
+    );
+  },
+  ['catalog-page-v1'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
+/**
+ * P4:以安全 list DTO 取得單頁型錄。所有 URL input 均先由 parseCatalogQuery 白名單化；
+ * RPC 只讀 security_invoker 公開 view，回傳 item 白名單 JSON + total，絕不序列化 detail 或 tier price。
+ */
+export async function fetchCatalogPage(
+  query: CatalogQuery,
+  vehicle?: { brand: string; model?: string; year?: number } | null,
+): Promise<CatalogPageResult> {
+  try {
+    return await getCatalogPageCached(
+      JSON.stringify(query),
+      vehicle?.brand ?? null,
+      vehicle?.model ?? null,
+      vehicle?.year ?? null,
+    );
+  } catch (err) {
+    console.error('[fetchCatalogPage] search_catalog_by_vehicle failed:', err);
+    return { products: [], total: 0, error: true };
+  }
+}
+
+type CatalogBrandCountClient = {
+  rpc(fn: 'catalog_brand_counts'): PromiseLike<{
+    data: Array<{ slug: string; name: string; product_count: number | string }> | null;
+    error: { message: string } | null;
+  }>;
+};
+
+/** P4:品牌側欄獨立使用全站聚合，避免從當頁 25 筆商品誤算 count。 */
+export async function fetchCatalogBrandTaxonomy(): Promise<MockBrand[]> {
+  const client = createSupabaseAnonClient() as unknown as CatalogBrandCountClient;
+  try {
+    const { data, error } = await client.rpc('catalog_brand_counts');
+    if (error) throw error;
+    return (data ?? []).map((row) => {
+      const meta = MOCK_BRANDS.find((brand) => brand.id === row.slug);
+      return {
+        id: row.slug,
+        name: row.name,
+        count: Number(row.product_count),
+        country: meta?.country ?? '',
+        tagline: meta?.tagline ?? '',
+        since: meta?.since ?? 0,
+        hero: meta?.hero ?? '',
+        logo: meta?.logo ?? '',
+        logoBg: meta?.logoBg ?? 'transparent',
+        ...(meta?.heroText ? { heroText: meta.heroText } : {}),
+      };
+    });
+  } catch (err) {
+    console.error('[fetchCatalogBrandTaxonomy] catalog_brand_counts failed:', err);
+    return [];
   }
 }
 
