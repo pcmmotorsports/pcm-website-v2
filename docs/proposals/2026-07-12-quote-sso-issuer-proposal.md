@@ -41,4 +41,4 @@
 3. URL 歷史/伺服器 log 僅見已作廢 code,無任何 session token
 4. 報價單既有功能與登入流程零改變(回歸點按驗)
 
-— 等 Sean 批;批後排入報價單 repo session 動工,網站側對接同步排 M0。—
+— **Sean 已批准(2026-07-12「A」)**;報價單 repo session 動工中,網站側對接=M-4a M0-S3。—
