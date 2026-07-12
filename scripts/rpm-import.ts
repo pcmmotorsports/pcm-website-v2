@@ -247,12 +247,16 @@ async function main(): Promise<void> {
   // ── 硬 gate(#212、Codex must-fix 1/2):WRITE 模式分類異常必 abort、不靜默把整批搬「未分類」──
   //   dry-run 只報告(Sean 看全貌);WRITE:未 seed 子類(seed 漂移)/ 群內衝突(髒來源)/ null-v2 大比例(來源崩)→ abort。
   //   已知少數 null(50k 中 ~60 筆、0.1%)容忍;>5% 疑來源 v2 崩(對齊 fetch 完整性 5% 精神)。
+  // null-v2 比例 gate 只在 FULL_MODE 套用(Codex R2 must-fix:--group/--limit 部分寫入下 entries 被篩、
+  //   分母失真會把單一已知 null-v2 群誤判成 100% 而誤殺);unseeded/conflict 是正確性問題、任何 scope 都 abort。
   const nullV2Ratio = entries.length ? nullV2Groups / entries.length : 0;
-  if (!DRY_RUN && (unseededSubGroups > 0 || conflictGroups.length > 0 || nullV2Ratio > 0.05)) {
+  const nullV2Abort = FULL_MODE && nullV2Ratio > 0.05;
+  if (!DRY_RUN && (unseededSubGroups > 0 || conflictGroups.length > 0 || nullV2Abort)) {
     throw new Error(
       `分類異常、abort 不寫(避免整批誤掛未分類):未 seed 子類 ${unseededSubGroups} 群(補 seed migration)` +
         ` / 群內衝突 ${conflictGroups.length} 群(修來源 v2)` +
-        ` / null-v2 ${nullV2Groups} 群(${(nullV2Ratio * 100).toFixed(1)}%、>5% 疑來源崩)。dry-run 看清單。`,
+        (nullV2Abort ? ` / null-v2 ${nullV2Groups} 群(${(nullV2Ratio * 100).toFixed(1)}%、FULL_MODE >5% 疑來源崩)` : '') +
+        `。dry-run 看清單。`,
     );
   }
 
