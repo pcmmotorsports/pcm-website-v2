@@ -12,14 +12,17 @@
 // - design 的 tweaks / onNav / window.PCM_DATA / 4-variant filterStyle 開關 /
 //   跨頁同步不搬(design harness、見 docs/recon/M-1-12-products-page-recon.md §4)。
 // - #220:商品列表改 server props 接真 Supabase 目錄(C4 起撈全目錄、toUIProduct 'general' strip 零經銷價)、
-//   UI 版面零動。三側欄清單皆「動態衍生自當下目錄」(接線 plan C1-C4、取代 mock):
-//   * 車輛(S1 2026-07-03):buildVehicleTaxonomy(products) ← 真 fitment(取代 MOCK_MOTO_BRANDS)。
+//   UI 版面零動。三側欄清單來源(接線 plan C1-C4、取代 mock):
+//   * 車輛(S1 變體補足 2026-07-12):motoBrands ← server prop(fetchVehicleTaxonomy 全目錄快取版;
+//     不再 buildVehicleTaxonomy(products) —— 選車後 products 是過濾子集、由它衍生下拉會塌縮)。
 //   * 分類(C2/C4a):data.categories ← server fetchCategories(listCategories→buildCategoryTree、選項 A);
 //     C4a 解除 hideCategory → 分類樹現身(桌機 childless 大類僅可展開、手機可選「全部 {大類}」)。
 //   * 品牌(C3/#220c):buildBrandTaxonomy(products) ← 目錄(只列有真商品品牌、取代寫死 MOCK_BRANDS);
-//     C3 解除 hideBrand → 品牌側欄現身;現況真資料單一品牌 RPM CARBON、多品牌上架後自動長出。
-// - 篩選皆真過濾(cascade.vehicle/category/brand → products-filter-logic matchesVehicle/matchesCategory/
-//   品牌名比對;#152 vehicle+category 已關閉);顏色/新品/特價仍 no-op 隱藏(真資料 silver/無促銷)。
+//     選車後隨相容子集收斂(facet 語意、刻意)。
+// - 篩選:vehicle 下推 DB(S1:page.tsx 依 ?vehicle= 走 RPC、products prop 即相容子集;client
+//   matchesVehicle 已移除=F4、useVehicleUrlSync 負責 cascade.vehicle→URL→server 重查);
+//   category/brand/price 仍 client 過濾(products-filter-logic matchesCategory/品牌名比對);
+//   顏色/新品/特價仍 no-op 隱藏(真資料 silver/無促銷)。
 // - design 的 demo 資料 tiling 不搬;0 筆結果顯示空狀態文字 + 隱藏分頁(Codex finding 2)。
 //   #220 真資料(碳纖維部品 ~1406 件)分頁自然多頁;server fetch 失敗顯「載入失敗、請稍後再試」
 //   (Q2=A、鏡像 HomeSelect error 分支、與真 0 結果區分)。
@@ -56,11 +59,12 @@ import {
   usePageResetOnFilterChange,
   useBrowseUrlSync,
   useDeepLinkRestore,
+  useVehicleUrlSync,
 } from './products-url-state';
 import type { FilterTopData } from './FilterTop';
 import type { MockCategory } from '@/data/mock-categories';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockProduct } from '@/data/mock-products';
-import { buildVehicleTaxonomy } from '@/lib/vehicle-taxonomy';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
@@ -72,12 +76,16 @@ const MESSAGE_STATE_STYLE: CSSProperties = {
 };
 
 export type ProductsPageProps = {
-  /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真) */
+  /** server-resolved 真目錄商品(toUIProduct 'general' strip、零經銷價;#220 列表遷真;
+   *  S1 起選了車=server 已按車過濾的子集、非恆全目錄) */
   products: MockProduct[];
   /** server fetch 失敗旗標(true → 顯「載入失敗、請稍後再試」、與真 0 結果區分;Q2=A 鏡像 HomeSelect) */
   error: boolean;
   /** server-resolved 真分類樹(C2 接線;buildCategoryTree 選項 A 只留有商品分類、取代 MOCK_CATEGORIES) */
   categories: MockCategory[];
+  /** server-resolved 全目錄車輛清單(S1:products 可能是按車過濾子集、下拉不可再由它衍生;
+   *  fetchVehicleTaxonomy 快取版、與 URL slug 解析同源=id 空間一致) */
+  motoBrands: MockMotoBrand[];
 };
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
@@ -176,7 +184,7 @@ function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () 
   );
 }
 
-export function ProductsPage({ products, error, categories }: ProductsPageProps) {
+export function ProductsPage({ products, error, categories, motoBrands }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
@@ -190,11 +198,12 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
   // Q4-S5:?brand= 還原只 dispatch 一次(toggleBrand 非冪等、strict mode 雙跑會 toggle 掉)
   const urlBrandInitRef = useRef(false);
 
-  // 車輛篩選清單「動態衍生」自當下目錄商品 fitment(車種鐵律 fitment_parsed 直出、
-  // 商品匯入後自動更新、零手動維護);drop-in 取代舊 MOCK_MOTO_BRANDS。
-  const motoBrands = useMemo(() => buildVehicleTaxonomy(products), [products]);
+  // 車輛篩選清單:S1 起改 server prop(fetchVehicleTaxonomy 全目錄快取版;車種鐵律
+  // fitment_parsed 直出不變)。不再 buildVehicleTaxonomy(products):products 選了車後是
+  // 過濾子集、由它衍生會讓下拉塌縮成只剩已選車、無法換車。
   // C3 #220c:品牌側欄「動態衍生」自當下目錄商品(只列有真商品的品牌、count 為真;
   // 商品匯入後自動更新);drop-in 取代舊寫死 MOCK_BRANDS(選 RPM 以外 chip 0 結果病灶)。
+  // S1 註:選了車後 products=相容子集 → 品牌清單/計數隨之收斂(facet 語意、刻意)。
   const brands = useMemo(() => buildBrandTaxonomy(products), [products]);
   const data: FilterTopData = useMemo(
     () => ({ motoBrands, categories, brands }),
@@ -213,8 +222,12 @@ export function ProductsPage({ products, error, categories }: ProductsPageProps)
     brandAppliedOnce: urlBrandInitRef,
   });
 
-  // memo:1409 件 client 全量過濾/排序、S1 加逐商品 fitments.some 比對 → 避免無關 state
-  // (drawerOpen/gridCols/page)變動時整條重算
+  // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
+  // 繼承件也命中);取代舊 client matchesVehicle。詳 products-url-state.useVehicleUrlSync。
+  useVehicleUrlSync(cascade.vehicle, motoBrands);
+
+  // memo:client 過濾/排序(brand/category/price/color/sort;vehicle 已由 server 過濾、
+  // S1 拿掉 client matchesVehicle=F4)→ 避免無關 state(drawerOpen/gridCols/page)變動時整條重算
   const filtered = useMemo(
     () => filterProducts(products, cascade, extras, data.brands),
     [products, cascade, extras, data.brands],

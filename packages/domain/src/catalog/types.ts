@@ -121,6 +121,14 @@ export type FitmentSpec = {
    * 「未確認」標籤。對齊 RPM fitment「終局 re-parse 未做、本次為快照」、re-parse 後 16d 同步刷新。
    */
   unconfirmed?: boolean;
+  /**
+   * 適配來源(S1 變體補足、2026-07-12 Sean Q4=A 兩層顯示):
+   * - `'direct'` / undefined:供應商原廠明示(products.fitments 原始值;既有 fitment 皆無此欄=direct)
+   * - `'inherited'`:報價單母款家族樹推導(product_fitments_effective 表、每日同步;
+   *   例:掛母款 MT-09 的通用件推導適用子款 MT-09 SP)。
+   * provenance 鐵律:原始 fitments 不覆蓋;inherited 只由 adapter 讀 effective 表時標記。
+   */
+  matchSource?: 'direct' | 'inherited';
 };
 
 /**

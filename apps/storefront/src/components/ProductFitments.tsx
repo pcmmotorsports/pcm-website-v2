@@ -53,6 +53,11 @@ function yearSortKey(f: UIFitment): number {
   return f.yearStart ?? Number.POSITIVE_INFINITY;
 }
 
+// S1(2026-07-12、Sean Q4=A):適用車款分兩層 —— 「原廠適用」(direct、products.fitments 原始值)
+// / 「車系相容（推導）」(inherited、報價單母款家族樹展開、product_fitments_effective 每日同步)。
+// 顯示層講清 provenance(退貨/裝不上爭議要分得出原廠明示 vs 推導);無 inherited 時單層渲染、
+// 不顯層標 = 既有商品零回歸。
+
 type BrandGroup = { brand: string; models: { model: string; fits: UIFitment[] }[] };
 
 /** 依車廠→車型分組、保留首見順序;年式於車型內升序。 */
@@ -81,15 +86,51 @@ function groupFitments(fitments: UIFitment[]): BrandGroup[] {
 /** 收合時車款區最大高度(px);超過才顯「展開」鈕(Sean:太多列縮起、客人點開)。 */
 const FIT_COLLAPSED_MAX_PX = 360;
 
+/** 單層(tier)車款分組區塊 —— direct / inherited 共用同一 group/row/chip 版式。 */
+function FitmentTierGroups({ groups, tierKey }: { groups: BrandGroup[]; tierKey: string }) {
+  return (
+    <div role="list">
+      {groups.map((g) => (
+        <div className="pd-fit-group" role="listitem" key={`${tierKey}-${g.brand}`}>
+          <div className="pd-fit-brand">{g.brand}</div>
+          <div className="pd-fit-rows" role="list">
+            {g.models.map((m) => (
+              <div className="pd-fit-row" role="listitem" key={m.model}>
+                <div className="pd-fit-model">{m.model}</div>
+                {/* 年式清單以「{車型} 適用年式」具名、建立年式↔車型關係(報讀器最易丟失) */}
+                <div className="pd-fit-years" role="list" aria-label={`${m.model} 適用年式`}>
+                  {m.fits.map((f, i) => (
+                    <span
+                      className="pd-fit-year"
+                      role="listitem"
+                      key={`${f.yearStart ?? ''}-${f.yearEnd ?? ''}-${i}`}
+                    >
+                      {formatYears(f)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ProductFitments({ product }: ProductFitmentsProps) {
   const fitments = product.fitments;
-  const groups = fitments && fitments.length > 0 ? groupFitments(fitments) : [];
+  // S1 兩層:direct(matchSource 省略/'direct')與 inherited 分開分組;inherited 空 → 單層零回歸。
+  const directFits = (fitments ?? []).filter((f) => f.matchSource !== 'inherited');
+  const inheritedFits = (fitments ?? []).filter((f) => f.matchSource === 'inherited');
+  const groups = directFits.length > 0 ? groupFitments(directFits) : [];
+  const inheritedGroups = inheritedFits.length > 0 ? groupFitments(inheritedFits) : [];
 
   // hooks 無條件先呼叫(rules-of-hooks;早退在其後)。
   const groupsRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   // SSR heuristic:品牌數 ≥4 先當作長清單收合(避免長表 flash);client mount 量實際高度精修。
-  const [needsCollapse, setNeedsCollapse] = useState(groups.length >= 4);
+  const [needsCollapse, setNeedsCollapse] = useState(groups.length + inheritedGroups.length >= 4);
   useEffect(() => {
     const el = groupsRef.current;
     if (!el) return;
@@ -100,7 +141,10 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
   if (!fitments || fitments.length === 0) return null;
 
   const collapsed = needsCollapse && !expanded;
-  const totalModels = groups.reduce((n, g) => n + g.models.length, 0);
+  const totalModels =
+    groups.reduce((n, g) => n + g.models.length, 0) +
+    inheritedGroups.reduce((n, g) => n + g.models.length, 0);
+  const twoTier = inheritedGroups.length > 0;
 
   return (
     <section className="pd-fitments-section" aria-labelledby="pd-h-fit">
@@ -114,32 +158,21 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
       <div
         ref={groupsRef}
         className={collapsed ? 'pd-fit-groups is-collapsed' : 'pd-fit-groups'}
-        role="list"
       >
-        {groups.map((g) => (
-          <div className="pd-fit-group" role="listitem" key={g.brand}>
-            <div className="pd-fit-brand">{g.brand}</div>
-            <div className="pd-fit-rows" role="list">
-              {g.models.map((m) => (
-                <div className="pd-fit-row" role="listitem" key={m.model}>
-                  <div className="pd-fit-model">{m.model}</div>
-                  {/* 年式清單以「{車型} 適用年式」具名、建立年式↔車型關係(報讀器最易丟失) */}
-                  <div className="pd-fit-years" role="list" aria-label={`${m.model} 適用年式`}>
-                    {m.fits.map((f, i) => (
-                      <span
-                        className="pd-fit-year"
-                        role="listitem"
-                        key={`${f.yearStart ?? ''}-${f.yearEnd ?? ''}-${i}`}
-                      >
-                        {formatYears(f)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
+        {/* 單層(無 inherited)不顯層標;與舊版 a11y/CSS 等價(role=list 移入 tier 容器、多一層
+            wrapper;.pd-fit-group 樣式為 class-based、:last-child 於 tier 內仍解析到整體末組) */}
+        {groups.length > 0 && (
+          <>
+            {twoTier && <div className="pd-fit-tier">原廠適用</div>}
+            <FitmentTierGroups groups={groups} tierKey="direct" />
+          </>
+        )}
+        {inheritedGroups.length > 0 && (
+          <>
+            <div className="pd-fit-tier is-inherited">車系相容（推導）</div>
+            <FitmentTierGroups groups={inheritedGroups} tierKey="inherited" />
+          </>
+        )}
       </div>
       {needsCollapse && (
         <button
@@ -152,7 +185,11 @@ export function ProductFitments({ product }: ProductFitmentsProps) {
           <span className="pd-fit-toggle-caret" aria-hidden="true" />
         </button>
       )}
-      <p className="pd-fit-note">列表為主要適用車款；同系列其他年式 / 配備如需確認，歡迎 LINE 諮詢。</p>
+      <p className="pd-fit-note">
+        {twoTier
+          ? '「原廠適用」為供應商原廠明示；「車系相容（推導）」為同車系家族推導之相容參考。下單前如需確認年式 / 配備，歡迎 LINE 諮詢。'
+          : '列表為主要適用車款；同系列其他年式 / 配備如需確認，歡迎 LINE 諮詢。'}
+      </p>
     </section>
   );
 }

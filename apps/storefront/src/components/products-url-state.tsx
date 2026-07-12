@@ -9,7 +9,8 @@
 // 修法:mount lazy init 讀 URL(page/sort/per)→ 變動時原生 history.replaceState 回寫。
 // 白名單對齊實際 UI 選項(SortBar options / Pagination per-page options),非法值回預設(fail-safe)。
 
-import { useEffect, useState, type Dispatch, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type Dispatch, type MutableRefObject } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -17,6 +18,7 @@ import {
   selectCategoryMain,
   toggleBrand,
   type CascadeFilterAction,
+  type CascadeFilterState,
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 // 🔴 R3:SearchParamsLike + parseVehicleFromUrl 抽到無 hooks 的 @/lib/vehicle-url(供詳情頁 Server
@@ -147,6 +149,71 @@ export function useBrowseUrlSync(currentPage: number, sort: string, perPage: num
       window.history.replaceState(window.history.state, '', next);
     }
   }, [currentPage, sort, perPage]);
+}
+
+/**
+ * S1(2026-07-12):cascade.vehicle → URL `?vehicle=brandId:modelId[:year]`(短版)→ server 重查。
+ *
+ * 車款篩選下推 DB 的 client 半邊:vehicle 變動時 `router.replace`(非 replaceState —— 這裡
+ * **就是要** server 往返:/products force-dynamic、server 依 vehicle 走 RPC
+ * `search_products_by_vehicle`〔product_fitments ∪ effective 去重、繼承件也命中〕重撈 products
+ * prop;其餘瀏覽狀態 page/sort/per 仍走 useBrowseUrlSync 的零往返 replaceState、兩機制並存)。
+ *
+ * - 名稱→slug id:對照 motoBrands(= server fetchVehicleTaxonomy、與 parseVehicleFromUrl 同源;
+ *   查無〔資料缺/清單未含〕→ 不寫不清、保守 no-op)。
+ * - 品牌-only 選擇 → 單段 `?vehicle=brandId`(parseVehicleFromUrl parts[1] 空 → model null;
+ *   RPC p_model NULL = 整品牌相容商品)。
+ * - vehicle 清除 → 刪 `vehicle` key;長版遺留 key(?brand=&model=&year= 書籤)在兩方向皆一併清
+ *   (`brand` 僅在與 `model` 同在=車輛長版語意時清;?brand= 單獨=商品品牌 filter、不可誤刪)。
+ * - URL 無變化即 no-op(mount 還原波、StrictMode 雙跑安全);與現值比對後才 replace。
+ */
+export function useVehicleUrlSync(
+  vehicle: CascadeFilterState['vehicle'],
+  motoBrands: MockMotoBrand[],
+): void {
+  const router = useRouter();
+  // 🔴 還原窗口守衛:mount 時 useDeepLinkRestore 的 dispatch 尚未 flush、本 effect 首輪
+  // 閉包 vehicle 仍 null —— 若 URL 帶可解析的車輛參數,此時清 URL = 深連結被自己打掉。
+  // 規則:vehicle=null 且 URL 車輛參數可解析且還原未消化(pendingRestore≠false)→ skip;
+  // vehicle 首次非 null(還原 flush 或使用者自選)→ 標記消化,之後的 null 才是真清除。
+  const pendingRestoreRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (vehicle) {
+      pendingRestoreRef.current = false; // 還原已消化(或使用者自選)
+    } else if (pendingRestoreRef.current !== false) {
+      const restorable = parseVehicleFromUrl(
+        { get: (n) => params.get(n) },
+        motoBrands,
+      );
+      if (restorable) return; // 還原窗口:URL 車輛待 restore dispatch flush、勿清
+    }
+    let next: string | null = null;
+    if (vehicle) {
+      const brandObj = motoBrands.find((b) => b.name === vehicle.brand);
+      if (!brandObj) return; // taxonomy 查無(清單空/資料缺)→ 保守不動 URL
+      const modelObj =
+        vehicle.model != null ? brandObj.models?.find((m) => m.name === vehicle.model) : null;
+      if (vehicle.model != null && !modelObj) return;
+      const segs = [brandObj.id];
+      if (modelObj) {
+        segs.push(modelObj.id);
+        if (vehicle.year != null) segs.push(String(vehicle.year));
+      }
+      next = segs.join(':');
+    }
+    const hadLongVehicle = params.get('brand') != null && params.get('model') != null;
+    if (next !== null) params.set('vehicle', next);
+    else params.delete('vehicle');
+    if (hadLongVehicle) params.delete('brand');
+    params.delete('model');
+    params.delete('year');
+    const qs = params.toString();
+    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    if (url !== `${window.location.pathname}${window.location.search}`) {
+      router.replace(url, { scroll: false });
+    }
+  }, [vehicle, motoBrands, router]);
 }
 
 /**

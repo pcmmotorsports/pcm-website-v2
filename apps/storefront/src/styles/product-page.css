@@ -641,6 +641,21 @@
   white-space: nowrap;
 }
 .pd-fit-note { margin: 14px 0 0; font-size: 13.5px; color: var(--c-text-2); }
+/* S1 兩層適用車款(2026-07-12 Sean Q4=A):層標「原廠適用 / 車系相容(推導)」——
+   僅商品有推導層(inherited)時顯示;mono 小標對齊 .pd-fit-eyebrow 家族;
+   推導層以虛線分隔(provenance 視覺區分:原廠明示 vs 家族樹推導)。 */
+.pd-fit-tier {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--c-text-2);
+  font-weight: 600;
+  padding: 12px 0 8px;
+}
+.pd-fit-tier.is-inherited {
+  margin-top: 6px;
+  border-top: 1px dashed var(--c-border);
+}
 /* 車款過多收合(Sean 2026-07-08:太多列縮起、客人點開)——收合時限高 + 底部漸隱遮罩 + 展開鈕。 */
 .pd-fit-groups.is-collapsed {
   max-height: 360px;

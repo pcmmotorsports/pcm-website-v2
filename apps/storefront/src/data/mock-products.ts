@@ -69,6 +69,8 @@ export type UIFitment = {
   yearEnd?: number | null;
   /** 來源自動展開、未經人工確認;OD-12b 起前台不顯「未確認」標(欄保留、harmless 公開資料);已確認則省略 */
   unconfirmed?: boolean;
+  /** 適配來源(S1 兩層顯示、Sean Q4=A):'inherited'=報價單家族樹推導(車系相容);省略/'direct'=原廠明示 */
+  matchSource?: 'direct' | 'inherited';
 };
 
 /** 會員身份價格標籤(對齊 design-reference/components/Pricing.jsx L63/L102 memberLabel 真權威字面);general tier 為 null。

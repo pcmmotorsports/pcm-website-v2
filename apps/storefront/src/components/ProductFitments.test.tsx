@@ -107,7 +107,8 @@ describe('ProductFitments', () => {
     ]);
     const { container } = render(<ProductFitments product={product} />);
     // 巢狀 list 語意:品牌清單 → 車型清單 → 年式清單(視覺不變、純 role 屬性)
-    expect(container.querySelector('.pd-fit-groups')?.getAttribute('role')).toBe('list');
+    // S1 起品牌清單的 role=list 在 .pd-fit-groups 內層 tier 容器(兩層時各 tier 一個 list)
+    expect(container.querySelector('.pd-fit-groups > div[role="list"]')).not.toBeNull();
     expect(container.querySelector('.pd-fit-group')?.getAttribute('role')).toBe('listitem');
     expect(container.querySelector('.pd-fit-rows')?.getAttribute('role')).toBe('list');
     expect(container.querySelector('.pd-fit-row')?.getAttribute('role')).toBe('listitem');
@@ -116,5 +117,49 @@ describe('ProductFitments', () => {
     expect(years?.getAttribute('role')).toBe('list');
     expect(years?.getAttribute('aria-label')).toBe('RSV4 適用年式');
     expect(container.querySelector('.pd-fit-year')?.getAttribute('role')).toBe('listitem');
+  });
+
+  // S1 兩層(2026-07-12、Sean Q4=A):direct=原廠適用 / inherited=車系相容(推導)
+  describe('two-tier (matchSource, S1)', () => {
+    it('renders single tier without tier labels when no inherited fitments (零回歸)', () => {
+      const product = withFitments([
+        { motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: 2026 },
+      ]);
+      const { container } = render(<ProductFitments product={product} />);
+      expect(container.querySelector('.pd-fit-tier')).toBeNull();
+      expect(screen.getByText(/列表為主要適用車款/)).toBeDefined();
+    });
+
+    it('splits direct vs inherited into two labeled tiers with provenance note', () => {
+      const product = withFitments([
+        { motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: 2026 },
+        { motoBrand: 'Yamaha', modelCode: 'MT-09 SP', yearStart: 2021, yearEnd: 2026, matchSource: 'inherited' },
+        { motoBrand: 'Yamaha', modelCode: 'MT-09 Y-AMT', yearStart: 2024, yearEnd: 2026, matchSource: 'inherited' },
+      ]);
+      const { container } = render(<ProductFitments product={product} />);
+      // 兩個層標:原廠適用 + 車系相容(推導)
+      expect(screen.getByText('原廠適用')).toBeDefined();
+      expect(screen.getByText('車系相容（推導）')).toBeDefined();
+      // direct tier 只有 MT-09;inherited tier 有 SP / Y-AMT
+      const tiers = container.querySelectorAll('.pd-fit-groups > div[role="list"]');
+      expect(tiers.length).toBe(2);
+      const modelsOf = (el: Element) =>
+        Array.from(el.querySelectorAll('.pd-fit-model')).map((m) => m.textContent);
+      expect(modelsOf(tiers[0]!)).toEqual(['MT-09']);
+      expect(modelsOf(tiers[1]!)).toEqual(['MT-09 SP', 'MT-09 Y-AMT']);
+      // provenance 說明文案切換
+      expect(screen.getByText(/「原廠適用」為供應商原廠明示/)).toBeDefined();
+    });
+
+    it('renders inherited-only product without empty direct tier label', () => {
+      const product = withFitments([
+        { motoBrand: 'Yamaha', modelCode: 'MT-09 SP', yearStart: 2021, yearEnd: 2026, matchSource: 'inherited' },
+      ]);
+      const { container } = render(<ProductFitments product={product} />);
+      // 無 direct → 不顯「原廠適用」空層標;推導層標仍在
+      expect(screen.queryByText('原廠適用')).toBeNull();
+      expect(screen.getByText('車系相容（推導）')).toBeDefined();
+      expect(container.querySelectorAll('.pd-fit-groups > div[role="list"]').length).toBe(1);
+    });
   });
 });

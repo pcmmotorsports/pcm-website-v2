@@ -6869,6 +6869,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #277. 🚗 車輛下拉/taxonomy 只讀 direct fitment(純 inherited 子款選不到、S1-F11)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `buildVehicleTaxonomy` / `fetchVehicleTaxonomy` 只掃 `products_public.fitments`(direct 原始值);S1 後搜尋層已含 `product_fitments_effective` 展開(inherited),但**只存在展開層的子款**(某車系純推導、無商品 direct 標它)不會出現在車輛下拉 → 客人選不到、RPC 能力被入口閘住。年份同理(direct 2021-2024 + inherited 補 2025 → 2025 選不到)。
+- **觸發事件:**
+  - 2026-07-12 S1 變體補足盲點掃描 F11;MT-09 SP 因有 74 件 direct 仍在下拉、未擋 S1 驗收,通則缺口留此。
+- **預期解法:**
+  - 網站庫加輕量 view(`vehicle_options_v` = SELECT DISTINCT moto_brand, model_code, year_start, year_end FROM product_fitments ∪ product_fitments_effective、security_invoker、anon SELECT),`fetchVehicleTaxonomy` 改讀它 → 下拉與搜尋 RPC 同一資料面=「下拉有的、搜了一定有」不變式。
+- **不修會痛在:**
+  - 擴充性:報價單家族樹每新增純推導子款,搜尋層支援但下拉看不到,S1 展開價值被入口截半。
+  - 可維護性:下拉與搜尋兩層資料面不同源,「選項出現/命中與否」對稱性推理變難。
+  - bug 可追蹤性:客訴「找不到我的車」得先分辨是沒商品還是下拉源缺、多一層排查。
+- **估時:** 30-45 分(view DDL + fetchVehicleTaxonomy 改讀 + 測試)
+- **依賴:** S1 已落地(effective 表 + 每日同步)✅
+- **發現於:** 2026-07-12 / S1 變體補足第二段
+- **相關:** #212 / docs/specs/2026-07-12-search-vehicle-work-plan.md §2
+
+---
+
 ## 紀錄模板
 
 ```markdown

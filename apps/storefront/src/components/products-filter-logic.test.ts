@@ -71,82 +71,32 @@ describe('filterProducts', () => {
   });
 });
 
-describe('filterProducts — vehicle (fitment 過濾、#152 修復)', () => {
-  const products: MockProduct[] = [
-    vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2020, yearEnd: 2022 }]),
-    vp(2, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Monster', yearStart: 2021, yearEnd: null }]),
-    vp(3, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR', yearStart: 2019, yearEnd: 2024 }]),
-    vp(4, 'RPM CARBON', [{ motoBrand: 'Honda', modelCode: 'CBR', yearStart: 2024 }]),
-  ];
+describe('filterProducts — vehicle 不在 client 過濾(S1 下推 DB、F4)', () => {
+  // S1(2026-07-12):車款篩選走 server RPC(product_fitments ∪ effective 去重、繼承件也命中);
+  // products prop 已是相容子集。舊 matchesVehicle(只認 direct)已移除 —— 本測試鎖「選了車
+  // client 不再二次過濾」:若未來有人把 client vehicle 過濾加回來,繼承命中(fitments 沒有
+  // 該子款字面的商品)會被靜默濾掉 = 74→124 回歸,此測試即紅。
   const extras = makeInitialExtraFilters();
-  const ids = (r: MockProduct[]) => r.map((p) => p.id).sort((a, b) => a - b);
 
-  it('brand only → 該品牌全部命中', () => {
-    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Ducati' } }, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([1, 2]);
-  });
-
-  it('brand + model → 收窄到單一車型', () => {
-    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Monster' } }, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([2]);
-  });
-
-  it('brand + model + year(範圍內)命中', () => {
-    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'BMW', model: 'S1000RR', year: 2021 } }, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([3]);
-  });
-
-  it('brand + model + year(範圍外)不命中', () => {
-    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'BMW', model: 'S1000RR', year: 2018 } }, extras, MOCK_BRANDS);
-    expect(r).toHaveLength(0);
-  });
-
-  it('開放式年份(2021+)命中上界之後的年', () => {
-    const r = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Monster', year: 2099 } }, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([2]);
-  });
-
-  it('單年 fitment 只命中該年、不命中鄰年', () => {
-    const hit = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Honda', model: 'CBR', year: 2024 } }, extras, MOCK_BRANDS);
-    expect(ids(hit)).toEqual([4]);
-    const miss = filterProducts(products, { ...emptyCascade, vehicle: { brand: 'Honda', model: 'CBR', year: 2023 } }, extras, MOCK_BRANDS);
-    expect(miss).toHaveLength(0);
-  });
-
-  it('未選車輛 → 不因 vehicle 過濾(全數保留)', () => {
-    const r = filterProducts(products, emptyCascade, extras, MOCK_BRANDS);
-    expect(r).toHaveLength(4);
-  });
-
-  it('缺年 fitment = 該車型全年份適用、選了年份亦命中(Q1=A 2026-07-03)', () => {
-    // 真資料型態:車型專用 body work、報價單標車型未標年(如 Panigale 1199);對齊 domain matchFitmentYear
-    const noYear = [vp(9, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Panigale 1199' }])];
-    const withYear = filterProducts(
-      noYear,
-      { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Panigale 1199', year: 2013 } },
-      extras,
-      MOCK_BRANDS,
-    );
-    expect(ids(withYear)).toEqual([9]);
-    // 車型不符仍擋(缺年只放寬年份層、不放寬車型層)
-    const wrongModel = filterProducts(
-      noYear,
-      { ...emptyCascade, vehicle: { brand: 'Ducati', model: 'Monster', year: 2013 } },
-      extras,
-      MOCK_BRANDS,
-    );
-    expect(wrongModel).toHaveLength(0);
-  });
-
-  it('無 fitments 商品(未標任何車款)選車後仍排除(無車型錨點)', () => {
-    const noFitments = [vp(10, 'RPM CARBON', [])];
+  it('cascade.vehicle 有值 → 不過濾(server 已濾;繼承命中商品的 fitments 無該車字面仍保留)', () => {
+    // 模擬繼承命中:商品 fitments 只標母款 MT-09、使用者選的是子款 MT-09 SP(server RPC 命中)
+    const inheritedHit = [vp(1, 'BONAMICI', [{ motoBrand: 'Yamaha', modelCode: 'MT-09' }])];
     const r = filterProducts(
-      noFitments,
-      { ...emptyCascade, vehicle: { brand: 'Ducati' } },
+      inheritedHit,
+      { ...emptyCascade, vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2021 } },
       extras,
       MOCK_BRANDS,
     );
-    expect(r).toHaveLength(0);
+    expect(r).toHaveLength(1);
+  });
+
+  it('未選車輛 → 全數保留(既有行為不變)', () => {
+    const products = [
+      vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2020, yearEnd: 2022 }]),
+      vp(2, 'RPM CARBON', []),
+    ];
+    const r = filterProducts(products, emptyCascade, extras, MOCK_BRANDS);
+    expect(r).toHaveLength(2);
   });
 });
 
@@ -184,13 +134,13 @@ describe('filterProducts — category(兩層階層 rollup、#212 子類)', () =>
     expect(ids(r)).toEqual([1, 2, 3]);
   });
 
-  it('category(大類 rollup)+ vehicle 兩軸並存(AND)', () => {
+  it('category 過濾與 cascade.vehicle 並存時仍生效(vehicle 由 server 濾、category 留 client)', () => {
     const mixed: MockProduct[] = [
       { ...vp(1, 'RPM CARBON', [{ motoBrand: 'Ducati', modelCode: 'V4' }]), category: '操控部品 · 腳踏後移' },
-      { ...vp(2, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR' }]), category: '操控部品 · 拉桿' },
+      { ...vp(2, 'RPM CARBON', [{ motoBrand: 'BMW', modelCode: 'S1000RR' }]), category: '排氣系統 · 全段排氣' },
     ];
     const r = filterProducts(mixed, { ...emptyCascade, category: { mainId: 'x', main: '操控部品' }, vehicle: { brand: 'Ducati' } }, extras, MOCK_BRANDS);
-    expect(ids(r)).toEqual([1]);
+    expect(ids(r)).toEqual([1]); // category 濾掉 2;vehicle 不在 client 過濾(S1)
   });
 });
 

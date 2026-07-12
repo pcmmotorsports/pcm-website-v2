@@ -177,6 +177,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
       ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
       ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
       ...(f.unconfirmed ? { unconfirmed: true } : {}),
+      // S1:適配來源透傳(inherited=家族樹推導;products.fitments 原始值皆無此欄=direct)
+      ...(f.matchSource ? { matchSource: f.matchSource } : {}),
     })),
     originalPrice,
     tierLabel,
@@ -272,6 +274,38 @@ export async function fetchCatalogProducts(): Promise<FeaturedResult> {
     };
   } catch (err) {
     console.error('[fetchCatalogProducts] adapter.listAllProducts failed:', err);
+    return { products: [], error: true };
+  }
+}
+
+/**
+ * 依車輛(車廠/車型/年份)撈相容商品(S1 變體補足;/products 車款篩選下推 DB)。
+ *
+ * 走 adapter.listByVehicle → DB RPC(product_fitments ∪ product_fitments_effective 去重)→
+ * 繼承件(報價單母款家族樹展開)也命中(MT-09 SP 2021 實測 74→124)。取代舊「全量撈 +
+ * client matchesVehicle 過濾」路徑(F4:client 過濾只認 products.fitments direct、會把
+ * 繼承命中靜默濾掉,故 client 端 vehicle 過濾同步移除)。
+ *
+ * 🔴 **釘 general**(同 fetchCatalogProducts):RPC 只投影 products_public 公開欄、無經銷價。
+ * 🔴 不包 unstable_cache:結果隨 vehicle 參數變化(車型 × 年份組合數大、快取命中率低;
+ *   對齊 fetchCatalogProducts 不快取先例)。錯誤處理同 fetchCatalogProducts 三分支。
+ */
+export async function fetchProductsByVehicle(vehicle: {
+  brand: string;
+  model?: string;
+  year?: number;
+}): Promise<FeaturedResult> {
+  const client = createSupabaseAnonClient();
+  const adapter = new SupabaseProductAdapter(client);
+
+  try {
+    const products = await adapter.listByVehicle(vehicle.brand, vehicle.model, vehicle.year);
+    return {
+      products: products.map((p) => toUIProduct(p, 'general')),
+      error: false,
+    };
+  } catch (err) {
+    console.error('[fetchProductsByVehicle] adapter.listByVehicle failed:', err);
     return { products: [], error: true };
   }
 }
@@ -384,7 +418,35 @@ export const fetchProductByHandle = cache(
     if (!product) {
       return null;
     }
-    return toUIProduct(product, 'general');
+    const ui = toUIProduct(product, 'general');
+
+    // S1 兩層適用車款(Sean Q4=A):direct(products.fitments 原始值)之外,補讀 effective 表的
+    // inherited 列(報價單母款家族樹推導)、標 matchSource='inherited' 供 ProductFitments 分層。
+    // 去重:同(車廠|車型)已在 direct 出現者不重列(direct provenance 較強);trim 對齊
+    // matchesCategory/vehicle-taxonomy 慣例。fail-soft:inherited 查掛只少「推導層」、不 500 整頁。
+    try {
+      const inherited = await adapter.listInheritedFitments(product.id);
+      if (inherited.length > 0) {
+        const directKeys = new Set(
+          (ui.fitments ?? []).map((f) => `${f.motoBrand.trim()}|${f.modelCode.trim()}`),
+        );
+        const extra = inherited
+          .filter((f) => !directKeys.has(`${f.motoBrand.trim()}|${f.modelCode.trim()}`))
+          .map((f) => ({
+            motoBrand: f.motoBrand,
+            modelCode: f.modelCode,
+            ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
+            ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
+            matchSource: 'inherited' as const,
+          }));
+        if (extra.length > 0) {
+          ui.fitments = [...(ui.fitments ?? []), ...extra];
+        }
+      }
+    } catch (err) {
+      console.error('[fetchProductByHandle] listInheritedFitments failed(顯示層降級、僅列原廠適用):', err);
+    }
+    return ui;
   },
 );
 

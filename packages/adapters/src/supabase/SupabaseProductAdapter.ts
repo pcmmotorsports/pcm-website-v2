@@ -17,7 +17,9 @@ import {
 } from './mappers/product';
 import {
   queryGeneralProducts,
+  queryInheritedFitments,
   queryProductsByFitment,
+  queryProductsByVehicle,
 } from './helpers/fitment-queries';
 import {
   SEARCHABLE_COLUMNS,
@@ -265,6 +267,43 @@ export class SupabaseProductAdapter implements IProductRepository {
       PRODUCT_SELECT_DETAIL,
     );
     return rows.map(mapSupabaseProductToDomain);
+  }
+
+  /**
+   * 以車查商品(S1 變體補足、2026-07-12;/products 車款篩選下推 DB、取代 client 全量過濾)。
+   *
+   * 走 DB RPC `search_products_by_vehicle` = `product_fitments`(direct、即時)∪
+   * `product_fitments_effective`(報價單母款家族樹展開、每日同步)去重 → 繼承件也命中
+   * (MT-09 SP 2021 實測 74→124)。`.range()` 分頁繞 SETOF RPC 的 PostgREST Max Rows 1000
+   * (品牌-only 可破千、靜默截斷;codex#2)。細節見 helpers/fitment-queries.queryProductsByVehicle。
+   *
+   * 註:未收進 IProductRepository port —— 家族樹展開語意綁 DB RPC、InMemory 實作無法等價復刻
+   * (展開權威在報價單);單一 consumer(storefront /products server fetch)、port 收錄待
+   * contract test 一併補(對齊 listByFitment @TODO 分頁簽名同批)。
+   */
+  async listByVehicle(
+    motoBrand: string,
+    modelCode?: string,
+    year?: number,
+  ): Promise<Product[]> {
+    const rows = await queryProductsByVehicle(
+      this.supabase,
+      motoBrand,
+      modelCode,
+      year,
+    );
+    return rows.map(mapSupabaseProductToDomain);
+  }
+
+  /**
+   * 查單一商品的「車系相容(推導)」fitment(S1、PDP 兩層顯示、Sean Q4=A)。
+   *
+   * 讀 `product_fitments_effective` inherited 列(anon SELECT + RLS 濾下架)、回
+   * `FitmentSpec[]`(matchSource='inherited');direct 即 product.fitments 原始值、不經此查。
+   * 未收進 port:理由同 listByVehicle(effective 表為 DB 專屬衍生物)。
+   */
+  async listInheritedFitments(productId: ProductId): Promise<FitmentSpec[]> {
+    return queryInheritedFitments(this.supabase, productId);
   }
 
   /**

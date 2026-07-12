@@ -34,11 +34,11 @@ const PRICE_RANGE_TABLE: Record<string, [number, number]> = {
  * 比對,對含空格品牌名(如 `cnc-racing` → `cncr` vs "CNC RACING")會誤判無結果
  * → M-1-12 Codex finding 3 修正為正規 id→name 解析。
  *
- * **車輛過濾(cascade.vehicle):** 依 `product.fitments` 逐層比對(品牌→車型→年份),見
- * `matchesVehicle`。🔴 字面 vs 事實:design 的 filterProducts(ProductsPage.jsx L85-116)
- * **不**過濾 vehicle(design harness 用 mock 資料、cascade 選單只變標題不過濾 = 線上 #152 bug);
- * 本實作接真 fitment(每日同步自報價單、車種鐵律 fitment_parsed 直出)後補上此過濾、關閉 #152。
- * 車輛清單來源見 `@/lib/vehicle-taxonomy`(同源於 fitment、名稱精準吻合、無大小寫落差)。
+ * **車輛過濾:S1(2026-07-12)起不在本函式** —— 下推 DB(page.tsx 依 ?vehicle= 走 RPC
+ * `search_products_by_vehicle` = product_fitments ∪ product_fitments_effective〔報價單家族樹
+ * 展開〕去重,繼承件也命中);products prop 即相容子集。舊 `matchesVehicle`(client、只認
+ * direct)已移除(adversarial F4:留著會濾掉繼承命中)。#152 車輛半仍關閉(過濾真的生效、
+ * 只是換到 server)。cascade.vehicle 僅供 chips/標題/URL 同步。
  *
  * **分類過濾(cascade.category):** C2 接線補上(見 `matchesCategory`;關閉 #152 分類半 + #147/#205)。
  * 比對鍵 = 選取分類名稱(`sub ?? main`),對齊 `product.category`(= `product.category.raw`);
@@ -49,36 +49,6 @@ const PRICE_RANGE_TABLE: Record<string, [number, number]> = {
  * @param extras   價格 / 顏色 / 旗標篩選
  * @param brands   品牌對照表(id → name 解析用)
  */
-/**
- * 車輛比對:商品某條 fitment 命中所選「品牌(→車型→年份)」才算適用。
- * 逐層漸進:只選品牌→品牌相符;+車型→品牌+車型;+年份→該車型 fitment 年份範圍涵蓋所選年。
- * 名稱 trim 後直接相等(清單端 vehicle-taxonomy 以 trim 後字串建節點、比對端同 trim = 兩端對稱;
- * 大小寫不做正規化、與清單同源故一致);年份三態同 vehicle-taxonomy 展開規則:
- *   yearEnd undefined=單年 / null=開放式(僅需 ≥yearStart) / number=明確範圍。
- * yearStart 缺 = 「該車型全年份適用」、選了年份亦命中(Sean 2026-07-03 拍 Q1=A:資料查證
- * 缺年 fitment 非通用件、是車型專用 body work、車型產期即範圍〔如 Panigale 1199 / 1098〕;
- * 語意對齊 domain matchFitmentYear「無年份限制=全命中」、兩處統一、少漏商品、LINE 下單前
- * 確認車款兜底)。真資料 546/3484 fitment(15.7%)缺年、37/94 車型全缺年。
- * 「無 fitments 商品」(未標任何車款、現僅 1 件)選車後仍一律排除(無車型錨點、不可宣稱適用)。
- */
-function matchesVehicle(
-  product: MockProduct,
-  vehicle: NonNullable<CascadeFilterState['vehicle']>,
-): boolean {
-  return (product.fitments ?? []).some((f) => {
-    if (f.motoBrand?.trim() !== vehicle.brand) return false;
-    if (vehicle.model != null && f.modelCode?.trim() !== vehicle.model) return false;
-    if (vehicle.year != null) {
-      const ys = f.yearStart;
-      if (typeof ys !== 'number') return true; // 缺年=該車型全年份適用(Q1=A、對齊 domain)
-      if (vehicle.year < ys) return false;
-      if (f.yearEnd === undefined) return vehicle.year === ys; // 單年
-      if (f.yearEnd !== null && vehicle.year > f.yearEnd) return false; // 明確範圍上界(null=開放式不設上界)
-    }
-    return true;
-  });
-}
-
 /**
  * 分類比對(兩層階層涵蓋、#212 子類上架):
  * - 選子類(`sub` 有值):商品分類 === 「大類 · 子類」麵包屑(精確)。
@@ -116,7 +86,11 @@ export function filterProducts(
     (id) => brands.find((b) => b.id === id)?.name.trim().toLowerCase() ?? '',
   );
   return products.filter((p) => {
-    if (cascade.vehicle && !matchesVehicle(p, cascade.vehicle)) return false;
+    // 🔴 S1(2026-07-12、adversarial F4):vehicle 不再 client 過濾 —— 車款篩選已下推 DB
+    //   (page.tsx 依 ?vehicle= 走 RPC search_products_by_vehicle = direct ∪ 家族樹展開去重、
+    //   products prop 即相容子集)。舊 matchesVehicle 只認 products.fitments(direct),留著會把
+    //   繼承命中(掛母款 MT-09 的通用件 × 選 MT-09 SP)靜默濾掉 = 74→124 白做。
+    //   cascade.vehicle 仍持狀態(chips/標題/URL 同步用)、僅不在此過濾。
     if (cascade.category && !matchesCategory(p, cascade.category)) return false;
     if (selectedBrandNames.length && !selectedBrandNames.includes(p.brand.trim().toLowerCase())) {
       return false;
