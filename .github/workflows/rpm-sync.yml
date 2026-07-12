@@ -4,7 +4,7 @@
 # plan:docs/specs/2026-06-03-S5-scheduling-plan.md(Sean 拍 Q-S5-platform=A)。
 # V1 matrix(2026-07-05 雙跨模型審查 must-fix、Sean 拍 gbracing+bonamici 上架):每家一個獨立 job
 #   跑「自己完整一輪」(不變式 1 軟下架隔離);fail-fast:false = 一家 gate abort 不拖垮別家;
-#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。cncracing 不在 matrix(writeAllowed=false 雙保險)。
+#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。matrix 涵蓋全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275)。
 #
 # ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable
 #   (無人值守需週期性 repo 活動或定期到 Actions 頁確認仍啟用)。
@@ -39,7 +39,7 @@ jobs:
       fail-fast: false # 一家 gate abort(如 #261 新分類)不中斷其他家同步(審查 S1:防跨供應商耦合)
       max-parallel: 1 # 序列跑:同一 target DB、避免併發寫入面(各家 scope 本已隔離、此為保守層)
       matrix:
-        supplier: [rpm, gbracing, bonamici] # cncracing 僅乾跑(supplier-config writeAllowed=false 硬擋)
+        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc] # 全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275);samco 14165 變體序列跑較久但各 job 6h 上限
     steps:
       - name: Checkout
         uses: actions/checkout@v6
