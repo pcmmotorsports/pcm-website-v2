@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { ADMIN_SESS_COOKIE, verifySession } from '../session/session';
 import { getSessionActor } from '../session/actor';
 import { getRequestId } from '../audit/context';
-import { getAdminOrderStatusOptionsRepository } from './order-repository';
+import { getAdminOrderStatusOptionsRepository, getAdminAuditLogRepository } from './order-repository';
 import { isAllowedOrigin, parseStatusOptionEditForm } from './status-option-form';
 
 // M-4a Slice D-3 狀態選項設定 server action(編輯既有 order_status_options:label/color/text_color/sort_order/is_active)。
@@ -18,7 +18,9 @@ import { isAllowedOrigin, parseStatusOptionEditForm } from './status-option-form
 //   ③ actor 具名身分 —— picker cookie(缺=拒);
 //   ④ 寫入走 service_role UPDATE(order_status_options column-level grant 已收窄至 5 欄、code/created_at 凍結);
 //   ⑤ PRG:結果碼 → revalidate + redirect(?r=saved/notfound/invalid/denied/error);DB error 不外洩、server log 留 request_id。
-// 🔴 審計(admin_audit_log DB 寫)留 D-3b;本片先 console.info attempt log(基本可追溯)。
+// 🔴 審計:成功變更寫 admin_audit_log(D-3b;透過 SupabaseAuditLogRepository.record() **直呼**、重用本 action
+//   已驗的 actor/requestId〔避 buildAuditContext 重取 getSessionActor+null-throw、保證 audit actor==authz actor〕;
+//   log-and-continue=稽核失敗不擋使用者);attempt log(console.info)記每次嘗試含失敗。
 // 固定 redirect 回 /settings/order-statuses(單一設定頁、無 return_to → 零 open-redirect 面)。
 
 const SETTINGS_PATH = '/settings/order-statuses';
@@ -60,7 +62,7 @@ export async function updateStatusOptionAction(formData: FormData): Promise<void
 
   const requestId = await getRequestId();
 
-  // attempt log(僅識別欄位;審計 admin_audit_log DB 寫 = D-3b)。
+  // attempt log(每次嘗試、僅識別欄位;成功變更另寫 admin_audit_log,見下)。
   console.info('[admin/settings] order_status_option.update.attempt', {
     request_id: requestId,
     sid: session.sid,
@@ -84,6 +86,25 @@ export async function updateStatusOptionAction(formData: FormData): Promise<void
       message: String(e.message ?? '').slice(0, 200),
     });
     redirectWith('error');
+  }
+
+  // 🔴 成功變更寫 admin_audit_log(D-3b);log-and-continue:稽核失敗不擋使用者(變更已生效),只 server log。
+  if (code === 'saved') {
+    try {
+      await getAdminAuditLogRepository().record(
+        {
+          action: 'order_status_option.update',
+          target: `order_status_option:${parsed.code}`,
+          after: parsed.update,
+        },
+        { actor: actor.id, requestId, sourceApp: 'admin' },
+      );
+    } catch (auditErr) {
+      console.error('[admin/settings] 稽核寫入失敗(變更已生效、不擋使用者)', {
+        request_id: requestId,
+        message: String((auditErr as { message?: unknown }).message ?? '').slice(0, 200),
+      });
+    }
   }
 
   revalidatePath(SETTINGS_PATH);

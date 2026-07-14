@@ -1,6 +1,8 @@
 import 'server-only';
 import { SupabaseOrderAdapter, SupabaseOrderStatusOptionsAdapter } from '@pcm/adapters';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
+import { SupabaseAuditLogRepository } from '../audit/supabase-repository';
+import type { AuditLogInserter } from '../audit/repository';
 
 /**
  * 後台訂單 repo 建構(M-4a 訂單線第一片;server-only、絕不入 client bundle)。
@@ -26,4 +28,26 @@ export function getAdminOrderRepository(): SupabaseOrderAdapter {
  */
 export function getAdminOrderStatusOptionsRepository(): SupabaseOrderStatusOptionsAdapter {
   return new SupabaseOrderStatusOptionsAdapter(createSupabaseServiceClient());
+}
+
+/**
+ * 稽核 log repo(M-4a M0-S2 → D-3b 首個真呼叫端;admin 寫入動作寫 admin_audit_log)。
+ *
+ * 🔴 REQUIRED-2:service_role 對 admin_audit_log 無 SELECT → insert **禁鏈 `.select()`**(return=minimal、
+ *   不回讀 id/created_at,否則 RETURNING 需 SELECT → 42501)。本 inserter 只取 { error } 形狀、天然符合。
+ * 🔴 server-only:createSupabaseServiceClient 亦 server-only,client component import 即編譯期報錯。
+ */
+export function getAdminAuditLogRepository(): SupabaseAuditLogRepository {
+  const client = createSupabaseServiceClient();
+  const inserter: AuditLogInserter = {
+    insert: async (row) => {
+      // AdminAuditLogInsert.before/after=unknown ↔ 生成 Database Json:runtime 皆 Json 相容(null 或可序列化快照);
+      // before/after 是唯一型別落差,於 supabase-js 邊界從 client 推導 insert 參數型別 cast
+      // (admin app 無 Database 在手、不為此擴 @pcm/adapters barrel public API)。
+      const q = client.from('admin_audit_log');
+      const { error } = await q.insert(row as Parameters<typeof q.insert>[0]);
+      return { error: error ? { message: error.message } : null };
+    },
+  };
+  return new SupabaseAuditLogRepository(inserter);
 }
