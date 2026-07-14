@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderStatusOptionsRepository } from '@pcm/ports';
-import type { OrderStatusOption } from '@pcm/domain';
+import type { OrderStatusOption, OrderStatusOptionUpdate } from '@pcm/domain';
 import type { Database } from './database.types';
 
 /**
@@ -42,7 +42,7 @@ function mapOrderStatusOptionRow(row: OrderStatusOptionRow): OrderStatusOption {
  *   只有 admin server 讀得到;composition 層 = apps/admin lib/orders/order-repository.ts);
  * - 回全量(含 inactive;badge 解析停用選項的舊單)、sort_order ASC;
  * - error → 裸 throw(對齊 SupabaseOrderAdapter 慣例;caller〔admin 頁〕try/catch 退錯誤態、頁面不 500);
- * - 寫入(Slice D 設定 UI)屆時擴方法,本片唯讀。
+ * - 寫入:`updateOrderStatusOption`(M-4a Slice D-3 設定頁編輯既有;INSERT/新增留 D-3b)。
  */
 export class SupabaseOrderStatusOptionsAdapter implements IOrderStatusOptionsRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) {}
@@ -57,5 +57,34 @@ export class SupabaseOrderStatusOptionsAdapter implements IOrderStatusOptionsRep
       throw error;
     }
     return (data as OrderStatusOptionRow[]).map(mapOrderStatusOptionRow);
+  }
+
+  /**
+   * 更新既有狀態選項(M-4a Slice D-3 設定頁;code 為鍵、不可改)。
+   *
+   * 🔴 只 UPDATE {label, color, text_color, sort_order, is_active} —— code/created_at 絕不入 SET
+   * (DB column-level grant 已收窄至此 5 欄、此處為型別+字面縱深)。停用走 is_active=false(soft-delete、非 DELETE)。
+   * `.select()` 回讀在位列(service_role 對本表有 SELECT grant)→ 0 列 = NOT_FOUND(caller 分流)。
+   * error → 裸 throw(對齊慣例;caller server action try/catch 退錯誤碼)。
+   */
+  async updateOrderStatusOption(
+    code: string,
+    update: OrderStatusOptionUpdate,
+  ): Promise<'UPDATED' | 'NOT_FOUND'> {
+    const { data, error } = await this.supabase
+      .from('order_status_options')
+      .update({
+        label: update.label,
+        color: update.color,
+        text_color: update.textColor,
+        sort_order: update.sortOrder,
+        is_active: update.isActive,
+      })
+      .eq('code', code)
+      .select(ORDER_STATUS_OPTIONS_SELECT);
+    if (error) {
+      throw error;
+    }
+    return data && data.length > 0 ? 'UPDATED' : 'NOT_FOUND';
   }
 }

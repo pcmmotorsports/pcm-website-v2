@@ -91,3 +91,76 @@ describe('SupabaseOrderStatusOptionsAdapter.listOrderStatusOptions', () => {
     ).rejects.toThrow();
   });
 });
+
+// M-4a Slice D-3:from('order_status_options').update({5欄}).eq('code',code).select(白名單) 鏈。
+function makeUpdateClient(result: { data: unknown; error: unknown }) {
+  const select = vi.fn().mockResolvedValue(result);
+  const eq = vi.fn().mockReturnValue({ select });
+  const update = vi.fn().mockReturnValue({ eq });
+  const from = vi.fn().mockReturnValue({ update });
+  return { client: { from } as unknown as SupabaseClient, from, update, eq, select };
+}
+
+describe('SupabaseOrderStatusOptionsAdapter.updateOrderStatusOption', () => {
+  const UPDATE = {
+    label: '已收已定',
+    color: '#FBE4A6',
+    textColor: 'dark' as const,
+    sortOrder: 10,
+    isActive: true,
+  };
+
+  it('🔴 UPDATE 只送 5 欄、絕不含 code/created_at(凍結欄);eq(code);select 回讀 → UPDATED', async () => {
+    const { client, from, update, eq, select } = makeUpdateClient({
+      data: [
+        {
+          code: 'received_confirmed',
+          label: '已收已定',
+          color: '#FBE4A6',
+          text_color: 'dark',
+          sort_order: 10,
+          is_active: true,
+        },
+      ],
+      error: null,
+    });
+
+    const res = await new SupabaseOrderStatusOptionsAdapter(client).updateOrderStatusOption(
+      'received_confirmed',
+      UPDATE,
+    );
+
+    expect(from).toHaveBeenCalledWith('order_status_options');
+    expect(update).toHaveBeenCalledWith({
+      label: '已收已定',
+      color: '#FBE4A6',
+      text_color: 'dark',
+      sort_order: 10,
+      is_active: true,
+    });
+    // 🔴 凍結欄縱深:update payload 絕不含 code / created_at(DB column-level grant 已擋、此處字面守門)
+    const payload = update.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('code');
+    expect(payload).not.toHaveProperty('created_at');
+    expect(eq).toHaveBeenCalledWith('code', 'received_confirmed');
+    expect(select).toHaveBeenCalledWith(ORDER_STATUS_OPTIONS_SELECT);
+    expect(res).toBe('UPDATED');
+  });
+
+  it('code 不存在(select 回 0 列)→ NOT_FOUND', async () => {
+    const { client } = makeUpdateClient({ data: [], error: null });
+    await expect(
+      new SupabaseOrderStatusOptionsAdapter(client).updateOrderStatusOption('nope', UPDATE),
+    ).resolves.toBe('NOT_FOUND');
+  });
+
+  it('DB error(CHECK 違反 / 權限)→ 裸 throw(caller 退 error 碼、不外洩)', async () => {
+    const { client } = makeUpdateClient({
+      data: null,
+      error: new Error('violates check constraint'),
+    });
+    await expect(
+      new SupabaseOrderStatusOptionsAdapter(client).updateOrderStatusOption('received_confirmed', UPDATE),
+    ).rejects.toThrow();
+  });
+});

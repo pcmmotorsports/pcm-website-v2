@@ -1,0 +1,91 @@
+'use server';
+
+import { cookies, headers } from 'next/headers';
+import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
+// 相對 import(非 @/):見 session/actor.ts 註解(vitest @ alias 指 storefront)。
+import { ADMIN_SESS_COOKIE, verifySession } from '../session/session';
+import { getSessionActor } from '../session/actor';
+import { getRequestId } from '../audit/context';
+import { getAdminOrderStatusOptionsRepository } from './order-repository';
+import { isAllowedOrigin, parseStatusOptionEditForm } from './status-option-form';
+
+// M-4a Slice D-3 狀態選項設定 server action(編輯既有 order_status_options:label/color/text_color/sort_order/is_active)。
+//
+// 🔴 安全縱深(鏡像 Slice C 三閘;不只靠 proxy 登入閘):
+//   ① verifySession(cookie) 自驗 —— 無效票證 → 拒;
+//   ② Origin fail-closed —— 缺 Origin 即拒 + 精確等值(dev 走 ADMIN_DEV_BYPASS localhost);
+//   ③ actor 具名身分 —— picker cookie(缺=拒);
+//   ④ 寫入走 service_role UPDATE(order_status_options column-level grant 已收窄至 5 欄、code/created_at 凍結);
+//   ⑤ PRG:結果碼 → revalidate + redirect(?r=saved/notfound/invalid/denied/error);DB error 不外洩、server log 留 request_id。
+// 🔴 審計(admin_audit_log DB 寫)留 D-3b;本片先 console.info attempt log(基本可追溯)。
+// 固定 redirect 回 /settings/order-statuses(單一設定頁、無 return_to → 零 open-redirect 面)。
+
+const SETTINGS_PATH = '/settings/order-statuses';
+
+const DEV_BYPASS =
+  process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
+
+type ResultCode = 'saved' | 'notfound' | 'invalid' | 'denied' | 'error';
+
+/** 結果碼 → /settings/order-statuses?r=<code>(PRG;固定站內路徑、無 open-redirect 面)。 */
+function redirectWith(code: ResultCode): never {
+  redirect(`${SETTINGS_PATH}?r=${code}`);
+}
+
+export async function updateStatusOptionAction(formData: FormData): Promise<void> {
+  const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
+
+  // ① session 自驗(fail-closed)。
+  const session = await verifySession(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
+  if (!session) {
+    redirectWith('denied');
+  }
+
+  // ② Origin fail-closed。
+  if (!isAllowedOrigin(headerStore.get('origin'), { devBypass: DEV_BYPASS })) {
+    redirectWith('denied');
+  }
+
+  // ③ 具名身分(picker;缺=拒)。
+  const actor = await getSessionActor();
+  if (!actor) {
+    redirectWith('denied');
+  }
+
+  const parsed = parseStatusOptionEditForm(formData);
+  if (!parsed.ok) {
+    redirectWith('invalid');
+  }
+
+  const requestId = await getRequestId();
+
+  // attempt log(僅識別欄位;審計 admin_audit_log DB 寫 = D-3b)。
+  console.info('[admin/settings] order_status_option.update.attempt', {
+    request_id: requestId,
+    sid: session.sid,
+    actor: actor.id,
+    code: parsed.code,
+  });
+
+  let code: ResultCode;
+  try {
+    const result = await getAdminOrderStatusOptionsRepository().updateOrderStatusOption(
+      parsed.code,
+      parsed.update,
+    );
+    code = result === 'UPDATED' ? 'saved' : 'notfound';
+  } catch (err) {
+    // DB error / CHECK violation → 固定碼、不外洩;server log 只留摘要(不印整個 err:轉型錯誤可能回顯輸入值)。
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[admin/settings] 狀態選項更新失敗', {
+      request_id: requestId,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      message: String(e.message ?? '').slice(0, 200),
+    });
+    redirectWith('error');
+  }
+
+  revalidatePath(SETTINGS_PATH);
+  redirectWith(code);
+}

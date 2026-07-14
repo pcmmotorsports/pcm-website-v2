@@ -399,6 +399,21 @@ export type OrderStatusOption = {
 };
 
 /**
+ * OrderStatusOptionUpdate: 後台狀態選項可改欄(M-4a Slice D-3;設定頁 inline 編輯既有選項的全欄快照)。
+ *
+ * 🔴 `code` / `created_at` **不可改**:code = 唯一鍵 + orders.workflow_status soft-ref,改碼會孤兒化既有單
+ * (DB column-level UPDATE grant 已擋、型別層亦不含)。停用 = `isActive=false`(soft-delete、無硬 DELETE)。
+ * 全 5 欄必填(設定頁一次送整列、非部分 patch)。
+ */
+export type OrderStatusOptionUpdate = {
+  label: string;
+  color: string;
+  textColor: 'light' | 'dark';
+  sortOrder: number;
+  isActive: boolean;
+};
+
+/**
  * PlaceOrderLine: 結帳送出的單一購物車品項(client → server 線契約)。
  *
  * 對齊 create_order RPC(20260604130000)p_lines:`variantId` XOR `(supplierSlug + sku)`、皆帶 qty。
