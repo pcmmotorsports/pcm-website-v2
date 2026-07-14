@@ -15,6 +15,7 @@ import {
   formatOrderDateTime,
 } from '../../lib/orders/order-detail-view';
 import { WorkflowStatusBadge } from './workflow-status-badge';
+import { OrderEditForm } from './order-edit-form';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
 // 🔴 PII 邊界:本頁顯示客人姓名/電話/email+收件快照(admin-only、service_role、明細專用白名單);
@@ -124,6 +125,7 @@ export function OrderDetail({
   statusOptions: OrderStatusOption[];
 }) {
   const optionsByCode = indexOrderStatusOptions(statusOptions);
+  const activeOptions = statusOptions.filter((o) => o.isActive);
   const cancelled = detail.cancelledAt !== null;
 
   return (
@@ -201,6 +203,8 @@ export function OrderDetail({
           )}
         </div>
       )}
+
+      <OrderEditForm detail={detail} activeOptions={activeOptions} />
 
       <ItemsTable detail={detail} />
     </div>

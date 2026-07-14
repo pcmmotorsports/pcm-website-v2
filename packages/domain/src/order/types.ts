@@ -246,10 +246,33 @@ export type AdminOrderSummary = {
    * 🔴 純操作/顯示軸:金流真相恆為 paymentStatus,本欄絕不進金流/對帳/退款判斷。
    */
   workflowStatus: string | null;
+  /** 樂觀鎖版本(M-4a Slice C;寫入路徑帶此值當 WHERE version 條件、衝突 409 重載)。 */
+  version: number;
 };
 
 /** 開票紀錄狀態(orders.invoice_status;DB CHECK 三值,v1 簡單欄位、不串電子發票 API)。 */
 export type InvoiceStatus = 'not_issued' | 'issued' | 'voided';
+
+/**
+ * AdminOrderWorkflowPatch: 後台改單 patch(M-4a Slice C;admin_update_order_workflow RPC 入參)。
+ *
+ * 🔴「未提供 ≠ 清空」語意(對齊 RPC jsonb key 存在性):
+ * - 欄位**省略(undefined)** = 不動該欄;
+ * - `workflowStatus`/`invoiceNumber`/`invoiceAmount` 明給 `null` = 清空(Sean「全清重設」);
+ * - `shippingMethod`/`invoiceStatus` 不可為 null(DB NOT NULL);
+ * - `workflowStatus` 非 null 時須為 order_status_options.code(RPC 端驗 is_active、UI 不可信)。
+ * 🔴 型別層**無** payment/fulfillment/金額 total 欄(金流紅線:改單絕不碰金流真相軸)。
+ */
+export type AdminOrderWorkflowPatch = {
+  workflowStatus?: string | null;
+  shippingMethod?: string;
+  invoiceNumber?: string | null;
+  invoiceAmount?: number | null;
+  invoiceStatus?: InvoiceStatus;
+};
+
+/** 後台改單結果碼(RPC 回傳;UI 分流:成功 / 版本衝突重載 / 無變更)。 */
+export type AdminOrderWorkflowResult = 'UPDATED' | 'CONFLICT' | 'NOOP';
 
 /**
  * AdminOrderDetailItem: 後台訂單明細單一品項(M-4a Slice B;order_items 投影)。
@@ -320,6 +343,8 @@ export type AdminOrderDetail = {
   cancelledAt: string | null;
   /** 取消原因=可對客文案(會員可見自己單此欄;內部原因在 admin_audit_log) */
   cancelledReason: string | null;
+  /** 樂觀鎖版本(M-4a Slice C;明細頁表單 hidden 帶此值當寫入條件) */
+  version: number;
   items: AdminOrderDetailItem[];
 };
 

@@ -161,6 +161,7 @@ export type SupabaseAdminOrderRow = Pick<
   | 'display_position'
   | 'cancelled_at'
   | 'workflow_status'
+  | 'version'
 > & {
   /**
    * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
@@ -200,6 +201,7 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     displayPosition: row.display_position,
     cancelledAt: row.cancelled_at,
     workflowStatus: row.workflow_status, // M-4a:NULL=未設定;未知 code 顯示端兜底(soft-ref、無硬 FK)
+    version: row.version, // M-4a Slice C:每列 inline 改單表單帶此值當樂觀鎖條件
   };
 }
 
@@ -234,6 +236,7 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'invoice_status'
   | 'cancelled_at'
   | 'cancelled_reason'
+  | 'version'
 > & {
   /** 同 SupabaseAdminOrderRow.customers:many-to-one 單物件、防禦容陣列/null。 */
   customers:
@@ -325,6 +328,7 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     invoiceStatus: narrowInvoiceStatus(row.invoice_status),
     cancelledAt: row.cancelled_at,
     cancelledReason: row.cancelled_reason,
+    version: row.version, // M-4a Slice C:明細頁改單表單帶此值當樂觀鎖條件
     items: row.order_items.map(
       (item): AdminOrderDetailItem => ({
         variantSku: item.variant_sku,

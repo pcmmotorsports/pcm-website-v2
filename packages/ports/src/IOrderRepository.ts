@@ -7,6 +7,8 @@ import type {
   AdminOrderDetail,
   AdminOrderFilter,
   AdminOrderSummary,
+  AdminOrderWorkflowPatch,
+  AdminOrderWorkflowResult,
   Paginated,
   PaginationParams,
   CustomerId,
@@ -90,6 +92,26 @@ export interface IOrderRepository {
    * 另立具名白名單);🔴 鐵則 12:仍零成本/經銷價欄、零 tappay_rec_trade_id。
    */
   findAdminOrderDetail(id: OrderId): Promise<AdminOrderDetail | null>;
+
+  /**
+   * 後台改單(M-4a Slice C;設 workflow_status / shipping_method / 發票紀錄三欄)。
+   *
+   * 🔴 走 owner SECURITY DEFINER RPC `admin_update_order_workflow`(orders 對 service_role 已 REVOKE
+   * 直寫〔20260611120000 §4〕→ 唯一寫入車道):RPC 內鎖列 + 樂觀鎖 `version=expectedVersion` +
+   * 讀 before → UPDATE(SET 字面恰 5 欄、🔴 金流欄一律不動)→ 同交易寫 admin_audit_log。
+   *
+   * - `patch` 語意見 `AdminOrderWorkflowPatch`(未提供 ≠ 清空);`actor`/`requestId` 由 server session
+   *   /correlation 提供(client 不可信、RPC 端亦驗非空);
+   * - 回 `'UPDATED'`(成功)/ `'CONFLICT'`(版本不符或查無 → UI 重載)/ `'NOOP'`(空 patch 或無實際差異);
+   * - RPC 端輸入非法(未知 code / 金流欄 key / 越界)→ throw(caller 收斂成固定錯誤碼、不外洩 DB error)。
+   */
+  updateAdminOrderWorkflow(
+    id: OrderId,
+    expectedVersion: number,
+    patch: AdminOrderWorkflowPatch,
+    actor: string,
+    requestId: string,
+  ): Promise<AdminOrderWorkflowResult>;
 
   // TODO M-4a-XX: 補 listByDateRange — 月結統計用
 }

@@ -1430,6 +1430,17 @@ export type Database = {
       }
     }
     Functions: {
+      // ⚠️ 手動先行加入(migration 20260714130000 尚未 apply;Sean db push 後重 gen 應與此一致)。
+      admin_update_order_workflow: {
+        Args: {
+          p_order_id: string
+          p_expected_version: number
+          p_patch: Json
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       begin_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
       catalog_brand_counts: {
         Args: never

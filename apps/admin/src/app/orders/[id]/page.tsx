@@ -7,13 +7,22 @@ import {
 } from '@/lib/orders/order-repository';
 import { isOrderId } from '@/lib/orders/order-detail-view';
 import { OrderDetail } from '@/components/orders/order-detail';
+import { ResultBanner } from '@/components/orders/result-banner';
 
 // M-4a Slice B:後台訂單明細頁(server component、唯讀)。
 // 🔴 PII:客人姓名/電話/email+收件快照只在本頁(明細專用白名單、service_role、登入閘後);列表不帶。
 export const dynamic = 'force-dynamic';
 
-export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function OrderDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { id } = await params;
+  const rawSearch = await searchParams;
+  const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
   // id 形狀守門:非 UUID 直接 404、不打 DB(路由參數不透傳查詢)。
   if (!isOrderId(id)) {
     notFound();
@@ -52,6 +61,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
       >
         ← 返回訂單列表
       </Link>
+
+      <ResultBanner code={resultCode} />
 
       {loadFailed || detail === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

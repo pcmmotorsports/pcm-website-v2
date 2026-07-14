@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { generateRequestId, isSafeRequestId, REQUEST_ID_HEADER } from '@/lib/request-id';
+import { generateRequestId, REQUEST_ID_HEADER } from '@/lib/request-id';
 import { ADMIN_SESS_COOKIE, verifySession } from '@/lib/session/session';
 
 // M-4a M0-S2 correlation id 貫穿(PRD §6.7)+ M0-S3 SSO 登入閘。Next 16 約定:proxy.ts(舊 middleware.ts)。
-// 每個 admin 請求戳一個 x-request-id(沿用上游代理帶進來的、否則新產),讓 handler→audit→DB→外部服務 log 跨層追蹤。
+// 每個 admin 請求 server 端**一律新產** x-request-id,讓 handler→audit→DB→外部服務 log 跨層追蹤。
 // 🔴 登入閘:crypto.subtle 驗 admin session(runtime-neutral,不綁 proxy runtime 假設)。
 //    prod 未登入 → 導 /api/sso/start;dev(NODE_ENV≠production)放行逃生(本機無報價單發起端,否則鎖死)。
 //    SSO 收端 start/callback 未登入必須可達(否則無限迴圈)→ 顯式白名單(精確兩條、不用萬用,防未來 sso 端點被靜默放行)。
@@ -18,9 +18,11 @@ const DEV_AUTH_BYPASS =
   process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
 
 export async function proxy(request: NextRequest): Promise<NextResponse> {
-  // 🔴 邊界只沿用「形狀安全」的上游 x-request-id;不合法(含注入嘗試)一律新產(見 isSafeRequestId)。
-  const incoming = request.headers.get(REQUEST_ID_HEADER);
-  const requestId = isSafeRequestId(incoming) ? incoming : generateRequestId();
+  // 🔴 correlation id **一律 server 新產、絕不沿用 inbound**(Fable diff must-fix 1)。
+  //    現拓樸=Vercel 直入、無內部代理會帶合法 x-request-id → 唯一 inbound 來源是 client 自帶;
+  //    沿用會讓持 session 者指定/重複 request_id 汙染稽核關聯(actor 已自報,request_id 是稽核鏈
+  //    僅剩硬關聯、必須 server 權威)。忽略 request.headers 的同名值。
+  const requestId = generateRequestId();
 
   const { pathname } = request.nextUrl;
 

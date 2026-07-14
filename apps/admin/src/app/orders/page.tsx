@@ -10,6 +10,7 @@ import {
 } from '@/lib/orders/order-list-view';
 import { OrderFilterBar } from '@/components/orders/order-filter-bar';
 import { OrdersTable } from '@/components/orders/orders-table';
+import { ResultBanner } from '@/components/orders/result-banner';
 import { ListPagination } from '@/components/shared/list-pagination';
 
 // M-4a 後台訂單列表(server component、workflow_status 主狀態+雙軸次要篩選、server 端分頁)。
@@ -23,7 +24,9 @@ export default async function OrdersPage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { filter, page } = parseOrderListSearchParams(await searchParams);
+  const rawSearchParams = await searchParams;
+  const { filter, page } = parseOrderListSearchParams(rawSearchParams);
+  const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
@@ -65,6 +68,7 @@ export default async function OrdersPage({
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}
       </div>
 
+      <ResultBanner code={resultCode} />
       <OrderFilterBar filter={filter} statusOptions={statusOptions} />
 
       {loadFailed ? (

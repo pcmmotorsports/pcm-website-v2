@@ -7,10 +7,9 @@ import {
   PAYMENT_CHANNEL_LABEL,
   formatOrderDate,
   formatOrderAmount,
-  workflowStatusBadge,
   indexOrderStatusOptions,
 } from '../../lib/orders/order-list-view';
-import { WorkflowStatusBadge } from './workflow-status-badge';
+import { WorkflowStatusCell } from './workflow-status-cell';
 
 // M-4a 訂單列表 table(server-render;無 TanStack、拖曳排序留訂單線-03)。
 // Slice A:主狀態欄 = workflow_status 彩色 badge(Sean 的收款×訂定×貨況合併標籤;order_status_options 策展);
@@ -23,9 +22,11 @@ const TD = 'px-3 py-2 text-sm whitespace-nowrap';
 function OrderRow({
   order,
   optionsByCode,
+  activeOptions,
 }: {
   order: AdminOrderSummary;
   optionsByCode: ReadonlyMap<string, OrderStatusOption>;
+  activeOptions: OrderStatusOption[];
 }) {
   const cancelled = order.cancelledAt !== null;
   return (
@@ -41,7 +42,11 @@ function OrderRow({
         )}
       </td>
       <td className={TD}>
-        <WorkflowStatusBadge badge={workflowStatusBadge(order.workflowStatus, optionsByCode)} />
+        <WorkflowStatusCell
+          order={order}
+          optionsByCode={optionsByCode}
+          activeOptions={activeOptions}
+        />
       </td>
       <td className={TD}>{order.customerName ?? '—'}</td>
       <td className={`${TD} text-muted-foreground`}>{formatOrderDate(order.createdAt)}</td>
@@ -72,6 +77,7 @@ export function OrdersTable({
   }
 
   const optionsByCode = indexOrderStatusOptions(statusOptions);
+  const activeOptions = statusOptions.filter((o) => o.isActive);
 
   return (
     <div className='overflow-x-auto rounded-lg border bg-card'>
@@ -89,7 +95,12 @@ export function OrdersTable({
         </thead>
         <tbody>
           {orders.map((order) => (
-            <OrderRow key={order.id} order={order} optionsByCode={optionsByCode} />
+            <OrderRow
+              key={order.id}
+              order={order}
+              optionsByCode={optionsByCode}
+              activeOptions={activeOptions}
+            />
           ))}
         </tbody>
       </table>

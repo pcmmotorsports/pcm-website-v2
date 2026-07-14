@@ -10,11 +10,13 @@ import type {
   AdminOrderDetail,
   AdminOrderFilter,
   AdminOrderSummary,
+  AdminOrderWorkflowPatch,
+  AdminOrderWorkflowResult,
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
-import type { Database } from './database.types';
+import type { Database, Json } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
@@ -44,7 +46,7 @@ export const ORDER_LIST_SELECT =
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + 無成本欄名 + 無 `*` + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)';
+  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, customers(name)';
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -59,7 +61,7 @@ export const ADMIN_ORDER_LIST_SELECT =
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + forbidden-token 守門。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)';
+  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -236,6 +238,58 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       return null;
     }
     return mapSupabaseAdminOrderDetailRowToDetail(data as unknown as SupabaseAdminOrderDetailRow);
+  }
+
+  /**
+   * 後台改單(M-4a Slice C;走 admin_update_order_workflow owner RPC)。
+   *
+   * 🔴 patch → jsonb wire:**只放呼叫端明確提供的 key**(未提供 = 省略 = RPC 端「不動該欄」;
+   * 明給 null = 清空)。逐欄顯式建構(同 mapPlaceOrderToCreateOrderArgs 白名單縱深),
+   * 即使 patch 帶意外欄也不洩到 RPC。金流欄型別層已無,此處 wire 再縱深。
+   *
+   * RPC 回文字碼 'UPDATED'/'CONFLICT'/'NOOP';error(輸入非法 / DB)→ 裸 throw
+   * (caller server action 收斂成固定錯誤碼、不外洩 DB error 到瀏覽器)。
+   */
+  async updateAdminOrderWorkflow(
+    id: string,
+    expectedVersion: number,
+    patch: AdminOrderWorkflowPatch,
+    actor: string,
+    requestId: string,
+  ): Promise<AdminOrderWorkflowResult> {
+    // 逐欄:key 存在且值非 undefined 才進 wire(null=清空、透傳);undefined=視同未提供、不進 wire。
+    const p: Record<string, string | number | null> = {};
+    if ('workflowStatus' in patch && patch.workflowStatus !== undefined) {
+      p.workflow_status = patch.workflowStatus;
+    }
+    if ('shippingMethod' in patch && patch.shippingMethod !== undefined) {
+      p.shipping_method = patch.shippingMethod;
+    }
+    if ('invoiceNumber' in patch && patch.invoiceNumber !== undefined) {
+      p.invoice_number = patch.invoiceNumber;
+    }
+    if ('invoiceAmount' in patch && patch.invoiceAmount !== undefined) {
+      p.invoice_amount = patch.invoiceAmount;
+    }
+    if ('invoiceStatus' in patch && patch.invoiceStatus !== undefined) {
+      p.invoice_status = patch.invoiceStatus;
+    }
+
+    const { data, error } = await this.supabase.rpc('admin_update_order_workflow', {
+      p_order_id: id,
+      p_expected_version: expectedVersion,
+      p_patch: p as Json,
+      p_actor: actor,
+      p_request_id: requestId,
+    });
+    if (error) {
+      throw error;
+    }
+    // RPC RETURNS text scalar → data 即 'UPDATED'/'CONFLICT'/'NOOP';防腐壞收斂。
+    if (data === 'UPDATED' || data === 'CONFLICT' || data === 'NOOP') {
+      return data;
+    }
+    throw new Error('admin_update_order_workflow RPC 回傳非預期碼');
   }
 
   // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──

@@ -225,7 +225,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(客人顯示 customers(name),零成本欄)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)',
+      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, customers(name)',
     );
   });
 
@@ -264,6 +264,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_channel: 'tappay',
           display_position: null,
           cancelled_at: null,
+          version: 5,
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
         },
       ],
@@ -308,6 +309,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           displayPosition: null,
           cancelledAt: null,
           workflowStatus: 'received_confirmed',
+          version: 5,
         },
       ],
       total: 37,
@@ -355,6 +357,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           display_position: 3,
           cancelled_at: '2099-05-02T00:00:00Z',
           workflow_status: null,
+          version: 2,
           customers: null,
         },
       ],
@@ -378,6 +381,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       displayPosition: 3,
       cancelledAt: '2099-05-02T00:00:00Z',
       workflowStatus: null, // NULL = 未設定(顯示端兜「未設定」中性 badge)
+      version: 2,
     });
   });
 
@@ -396,6 +400,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           display_position: null,
           cancelled_at: null,
           workflow_status: 'shipped_done',
+          version: 1,
           customers: [{ name: '李大同' }], // 陣列形狀
         },
       ],
@@ -454,6 +459,7 @@ const DETAIL_ROW = {
   invoice_status: 'not_issued',
   cancelled_at: null,
   cancelled_reason: null,
+  version: 7,
   customers: { name: '王小明', email: 'a@b.c', phone: '0912345678' },
   order_items: [
     {
@@ -469,7 +475,7 @@ const DETAIL_ROW = {
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;與列表白名單分立)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)',
+      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)',
     );
   });
 
@@ -521,6 +527,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       invoiceStatus: 'not_issued',
       cancelledAt: null,
       cancelledReason: null,
+      version: 7,
       items: [
         {
           variantSku: 'BMS-13OEM-G-F',
@@ -577,5 +584,78 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     await expect(
       new SupabaseOrderAdapter(failing.client).findAdminOrderDetail('o1'),
     ).rejects.toThrow();
+  });
+});
+
+// ── updateAdminOrderWorkflow:後台改單(M-4a Slice C、走 admin_update_order_workflow RPC)──
+function makeRpcClient(result: { data: unknown; error: unknown }) {
+  const rpc = vi.fn().mockResolvedValue(result);
+  return { client: { rpc } as unknown as SupabaseClient, rpc };
+}
+
+describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
+  it('patch → jsonb wire:只放明確提供的 key(camelCase→snake_case);回 UPDATED', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    const res = await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1',
+      5,
+      { workflowStatus: 'shipped_done', invoiceStatus: 'issued' },
+      'sean',
+      'req-1',
+    );
+    expect(rpc).toHaveBeenCalledWith('admin_update_order_workflow', {
+      p_order_id: 'o1',
+      p_expected_version: 5,
+      p_patch: { workflow_status: 'shipped_done', invoice_status: 'issued' },
+      p_actor: 'sean',
+      p_request_id: 'req-1',
+    });
+    expect(res).toBe('UPDATED');
+  });
+
+  it('🔴 金流紅線:patch 只含白名單 5 欄映射,未提供欄不進 wire(空 patch → p_patch={})', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'NOOP', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow('o1', 5, {}, 'sean', 'req-2');
+    expect(rpc).toHaveBeenCalledWith(
+      'admin_update_order_workflow',
+      expect.objectContaining({ p_patch: {} }),
+    );
+  });
+
+  it('明給 null → 清空語意透傳 wire(workflow_status:null 進 p_patch)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1',
+      5,
+      { workflowStatus: null, invoiceNumber: null, invoiceAmount: null },
+      'sean',
+      'req-3',
+    );
+    expect(rpc).toHaveBeenCalledWith(
+      'admin_update_order_workflow',
+      expect.objectContaining({
+        p_patch: { workflow_status: null, invoice_number: null, invoice_amount: null },
+      }),
+    );
+  });
+
+  it('CONFLICT / NOOP 碼直送', async () => {
+    for (const code of ['CONFLICT', 'NOOP'] as const) {
+      const { client } = makeRpcClient({ data: code, error: null });
+      await expect(
+        new SupabaseOrderAdapter(client).updateAdminOrderWorkflow('o1', 5, { invoiceStatus: 'voided' }, 'sean', 'r'),
+      ).resolves.toBe(code);
+    }
+  });
+
+  it('RPC error → 裸 throw(caller server action 收斂固定碼);非預期碼 → throw 防腐壞', async () => {
+    const failing = makeRpcClient({ data: null, error: new Error('workflow_status 非有效啟用狀態') });
+    await expect(
+      new SupabaseOrderAdapter(failing.client).updateAdminOrderWorkflow('o1', 5, { workflowStatus: 'ghost' }, 'sean', 'r'),
+    ).rejects.toThrow();
+    const weird = makeRpcClient({ data: 'WAT', error: null });
+    await expect(
+      new SupabaseOrderAdapter(weird.client).updateAdminOrderWorkflow('o1', 5, {}, 'sean', 'r'),
+    ).rejects.toThrow('非預期');
   });
 });
