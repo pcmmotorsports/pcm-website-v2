@@ -1,8 +1,8 @@
 # CLAUDE.md
 
 > **Claude Code 工作規則檔(常載本體;細節與「為什麼」按下方路由表按需讀)。** 每 session 自動載入。
-> Codex 雙生檔 = `AGENTS.md`(共用規則改動須同步)。2026-07-03 瘦身:移除 @import 常載、改按需路由;原版備份 `docs/archive/2026-07-03-CLAUDE-md-pre-slim.md`。
-> **衝突仲裁:`STATUS.md` > `docs/PHASE-1-NORTHSTAR.md` > 本檔 > 其他 md > 對話歷史。**
+> Codex 入口 = `AGENTS.md`；共同規則只寫在 `docs/ops/AI_CONTRACT.md`，不再靠雙生檔人工同步。2026-07-03 瘦身備份仍在 `docs/archive/2026-07-03-CLAUDE-md-pre-slim.md`。
+> **固定政策:** `docs/ops/AI_CONTRACT.md` > 本檔；**現況:** 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 歷史 memory／對話。
 
 ---
 
@@ -11,9 +11,9 @@
 ```bash
 cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && git log --oneline -5
 ```
-預期:branch=`dev` / 工作樹 clean+up-to-date / HEAD 對齊 STATUS.md。**任一不綠 → 停下回報 Sean、不自行修復狀態。**
+預期:branch=`dev` / HEAD 對齊 STATUS.md。CURRENT 已標 ownership 的 dirty 可保留並繼續；無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean，不自行 reset／stash／清理。
 
-- **每 session 必讀**:STATUS.md(重點「下一步」「Sean 待決策」「Blocker」)+ 本工作直接相關的 handoff/PRD。讀完回報 Sean「已就緒、可開工」。
+- **每 session 必讀**:`STATUS.md` + `docs/ops/AI_CONTRACT.md` + `docs/handoff/CURRENT.md` + 本工作直接相關的 handoff/PRD。Codex 與 Claude 都可完整執行；任務明確寫審查時才唯讀。
 - **新 milestone / 接手陌生領域才加讀**:`docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。
 - **陌生領域開工加一步(盲點掃描)**:上列檔讀完、寫 plan 前,派 subagent 回答「這領域裡我和 Sean 可能都沒想到的坑/依賴/隱含決策是什麼」,把 unknown unknowns 變成問題清單附進 plan 再動手。
 - **禁止為「保險」通讀大檔**:用路由表,命中觸發條件才讀對應段落(讀不相關長檔 = 燒 token 也稀釋注意力)。
@@ -104,7 +104,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 分工 + 自驅 SOP(現行預設;五方分工表與完整鏈見 `docs/patterns/cowork-review-chain.md` 與 `AGENTS.md`)
 
-- 分工要點:Sean 拍板/push/操作 dashboard/肉眼驗收;Claude Code(你)實作/commit/測試/自驅規劃、**不 push、不 deploy、不替 Sean 拍板、不做視覺設計**;Codex 收 Packet 唯讀審(不同模型第二意見);Claude Design 管視覺。
+- 分工要點:Sean 拍板/push/操作 dashboard/肉眼驗收;Codex 或 Claude 執行 session 都可實作/commit/測試/自驅規劃、**不 push、不 deploy、不替 Sean 拍板、不做視覺設計**;明確審查 session 唯讀作不同模型第二意見;Design session 管視覺。
 - **9 步自驅 SOP**:①起手(讀 STATUS 下一步 + design 真權威 grep)②規劃前偵察 pass(派 haiku/sonnet 掃 backlog/STATUS/specs/memory/lessons 多關鍵字變體 + 查 graphify 連動面、套 T1 範本)→ 自寫 slice plan(標 L1/L2/L3、判鐵則 8、plan 附「相關既有紀錄與連動面」一節列命中項與連動檔)③關卡1:預設跳 codex、僅鐵則 8 重大改動跑 `codex-adversary` 審 plan(輪數上限 2、仍不收斂=整理決策題給 Sean;07-10 拍板)→ 決策岔路一次性批次問 Sean ④實作(鐵則 3/5/6)⑤三綠 `/slice-checkpoint` ⑥code-reviewer subagent 必跑(一輪制:R1 PASS 含 nit → 修完直接進 commit 不複審;R1 FAIL 才修完跑 R2 確認;07-10 拍板)⑦關卡2:預設只走 code-reviewer、僅命中鐵則 12 或鐵則 8 才跑 codex 審 diff(每 slice 硬上限 2 輪、round2 仍 FAIL 停下 raise Sean)⑧commit(精準 add、字面vs事實一致、STATUS 7 欄同 commit)+ 收尾對帳(本 session Sean 拍板逐條 vs 已落檔;漏的補寫進對應檔——拍板落 memory `project_*.md`、含決定/理由/連動面、一板一檔或更新既有、不只留 commit body)+ busboy-end ⑨**不 push** 等 Sean 手動推。
 - codex-adversary 紀律:只 main session 跑(subagent 被 classifier 擋)、只唯讀(`-s read-only`、settings.json deny 擋 fix/apply/a)、跑前後 `git status --porcelain` 比對零留痕;Codex 與 PCM 鐵則/Sean 拍板衝突以後者為準。
 

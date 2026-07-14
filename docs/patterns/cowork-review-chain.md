@@ -1,5 +1,7 @@
 # Cowork Review Chain 規範
 
+> 本檔保存一條可選的對抗審查流程；表內舊角色名稱不代表永久分工。2026-07-14 起，Codex 與 Claude 都可擔任執行或審查 session，實際模式以 `docs/ops/AI_CONTRACT.md` 與當次任務為準。
+
 > **狀態:** 新建 / 2026-05-22 Stage 3 v4 落地
 > **層級:** docs/patterns/、衝突仲裁在 CLAUDE.md 之下、其他 patterns 並列
 > **對應:** outputs/stage-3-final-v4-master 5 階段對抗審查鏈 + self-audit 14 條補案

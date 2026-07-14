@@ -1,0 +1,4 @@
+interface:
+  display_name: "PCM Handoff"
+  short_description: "讓 Codex 與 Claude 以共同真相安全交接"
+  default_prompt: "Use $pcm-handoff to verify the repo state and update the current handoff."

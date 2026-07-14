@@ -1,5 +1,7 @@
 # Codex 檢查者角色規範
 
+> 本檔只在任務明確指定「審查」「Review Packet」「唯讀」時啟用。它描述的是審查模式，不是 Codex 的永久角色；一般任務中 Codex 與 Claude 都可完整實作。
+
 > 狀態:2026-05-23 新增
 > 用途:給新 Codex 視窗快速進入「檢查者」角色,專門審 Claude Code / Cowork 產出的 review packet 與工作流成果。
 > 層級:docs/patterns。若與 `AGENTS.md` 衝突,以 `AGENTS.md` 為準。

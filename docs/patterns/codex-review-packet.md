@@ -1,5 +1,7 @@
 # Codex Review Packet 流程
 
+> 本流程是明確唯讀的審查模式，不限制 Codex 在其他任務擔任完整執行者。執行者與審查者都可由 Codex 或 Claude 擔任，但同一成果的獨立審查應由另一個 session／模型完成。
+
 > **Status:** 🟢 落地 / 2026-05-19 / Slice 0
 > **層級:** docs/patterns/、衝突仲裁在 ADR 之下、CLAUDE.md / AGENTS.md 鐵則 12 之細節檔
 > **本檔角色:** 固化「重大改動 / 進度結束 → Codex 唯讀第二視角審查」的人機協作流程

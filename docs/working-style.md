@@ -483,19 +483,18 @@ Sean 講新方向時、可能跟之前拍板的衝突。我:
 
 ## 8. 我與 Sean 的分工邊界
 
-> **2026-07-06 更新:預設 = Claude Code 自驅、Cowork 轉為可選;本檔他處若殘留 Claude.ai 主導語氣,以本節與 CLAUDE.md 為準。**
+> **2026-07-14 更新:** Codex 與 Claude 都可擔任完整執行者或明確唯讀審查者；角色由任務模式決定，權威來源為 `docs/ops/AI_CONTRACT.md`、`AGENTS.md` 與 `CLAUDE.md`。
 
-現行五方分工(權威來源:`AGENTS.md`「五方分工」表 + `CLAUDE.md`「分工 + 自驅 SOP」段;code-reviewer 是 Claude Code session 內角色、非第六方):
+現行模式分工：
 
 | 角色 | 做 | 不做 |
 |---|---|---|
-| Sean | 拍板決策 / push commit(review checkpoint)/ 操作 dashboard(GitHub / Vercel / Railway / Supabase / Telegram)/ Terminal 跑命令 / Claude Design 改設計 / 肉眼驗收 slice | 寫 code / debug / 看 git diff 細節 |
-| Cowork(Claude.ai,可選模式) | 規劃 / 寫 slice 指令 / 寫 .md·handoff / 決策題 / spawn PRD·slice reviewer(**非預設**、Sean 明確要走 Cowork 模式才啟用) | 寫實作 code / 拍板 / 視覺設計 / commit / push |
-| Claude Code(**現行預設**) | 9 步自驅 SOP:自規劃(讀 STATUS + grep 真權威)+ 實作 + git commit + 測試 + 偵察 design + spawn code-reviewer + 跑 skill + 收尾對帳 | push / deploy / 替 Sean 拍板 / 視覺設計 |
-| Codex | 收 Codex Review Packet 唯讀審查、回 findings / 風險 / 是否可繼續(不同模型第二意見) | 改 code / commit / push / 替代 code-reviewer |
-| Claude Design | 視覺與前台設計,輸出 .jsx + .css(對 GitHub 唯讀,不 commit / 不 push;Sean 從 Claude Design 取出後本地手動 commit + push) | 寫 storefront 程式 / 後台設計 / push |
+| Sean | 拍板決策 / push commit / 操作 dashboard / 肉眼驗收 | 寫 code / debug / 看 git diff 細節 |
+| Codex 或 Claude 執行 session | 自規劃 / 實作 / 測試 / 精準 commit / 更新 STATUS 與 CURRENT | 未授權 push / deploy / 替 Sean 拍板 / 視覺設計 |
+| Codex 或 Claude 審查 session | 任務明確寫審查時唯讀回 findings / 風險 / 是否可繼續 | 改 code / commit / 寫入外部系統 |
+| Design session | 視覺與前台設計、輸出設計稿 | 把設計稿當成已實作 / 未驗證即 deploy |
 
-五方分工清楚、不越界。完整鏈見 `docs/patterns/cowork-review-chain.md`。
+Review Packet 是審查模式的一種，完整鏈見 `docs/patterns/cowork-review-chain.md`。
 
 ---
 

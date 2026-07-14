@@ -1,8 +1,7 @@
 # AGENTS.md
 
-> **Codex 工作規則檔(只寫「怎麼做」、詳細「為什麼」見其他 .md)。** 每個進 repo 的 Codex session 自動載入。
-> Claude Code 版雙生檔 = `CLAUDE.md`(共用規則須兩檔同步;鐵則 1-11 + git/bash/server/CJK 共用,鐵則 12 + 角色框架為 Codex 視角)。
-> **衝突仲裁:`STATUS.md` > `docs/PHASE-1-NORTHSTAR.md` > 本檔 > 其他 md > 對話歷史。**
+> **Codex 工作入口。** 每個進 repo 的 Codex session 自動載入；Claude 入口是 `CLAUDE.md`，共同規則只寫在 `docs/ops/AI_CONTRACT.md`，不再靠雙生檔人工複製。
+> **固定政策:** `docs/ops/AI_CONTRACT.md` > 本檔；**現況:** 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 歷史 memory／對話。
 
 **按需路由(2026-07-03 與 CLAUDE.md 同步瘦身:移除 @import 常載、原版備份 `docs/archive/2026-07-03-AGENTS-md-pre-slim.md`;命中情境才讀,不通讀)**:
 - Phase 1 範圍爭議 → `docs/PHASE-1-NORTHSTAR.md` §1;design 真權威與矛盾仲裁 → 同檔 §2;上線判斷 → 同檔 §5
@@ -16,9 +15,9 @@
 ```bash
 cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && git log --oneline -5
 ```
-預期:branch=`dev` / 工作樹 clean+up-to-date / HEAD 對齊 STATUS.md。**任一不綠 → 停下回報 Sean、不自行修復狀態。**
+預期:branch=`dev` / HEAD 對齊 STATUS.md。dirty files 若已在 `docs/handoff/CURRENT.md` 標明 ownership 可保留並繼續；無法解釋的 dirty、branch 不符或 HEAD 明顯矛盾才停下回報 Sean，不自行 reset／stash／清理。
 
-分級開工:**每 session 必讀** STATUS.md(「下一步」「Sean 待決策」「Blocker」)+ 本工作直接相關 handoff/PRD,讀完報 Sean「已就緒、可開工」;**新 milestone / 陌生領域才加讀** `docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。其餘按上方路由表按需讀,不為「保險」通讀大檔。
+分級開工:**每 session 必讀** `STATUS.md` + `docs/ops/AI_CONTRACT.md` + `docs/handoff/CURRENT.md` + 本工作直接相關 handoff/PRD；**新 milestone / 陌生領域才加讀** `docs/PHASE-1-NORTHSTAR.md` 全文、`docs/PROJECT-OVERVIEW.md`、`docs/PHASE-2-VISION.md`、相關 `docs/features/*.md`。其餘按上方路由表按需讀,不為「保險」通讀大檔。
 
 ---
 
@@ -35,7 +34,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
 11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(詳 `docs/patterns/slice-checkpoint.md`)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**(背景見 slice-checkpoint.md §1)。
-12. **(Codex 視角)收到 Codex Review Packet 做唯讀審查** — 收 Sean 轉貼的「Codex Review Packet」時:**唯讀審查、不改任何檔、不跑寫入工具、不 commit、不 push**。只回 findings / 風險點 / 是否可繼續(可 commit / 需修正 / 需 Sean 拍板)。審查重點(任一漏掉就點出):① 安全/權限(RLS·GRANT·經銷價洩漏)② schema/migration 會否破壞現有行為 ③ 是否符合 STATUS·NORTHSTAR·本檔鐵則 ④ 該補的 backlog/文件。與鐵則 8 互補:plan 在動手前、Codex Review 在 commit 前。Packet 由 Claude Code 整理、Sean 轉貼、格式見 `docs/patterns/codex-review-packet.md`。(Claude Code 端對應規則 = 產出 Packet,見 CLAUDE.md 鐵則 12。)
+12. **Review Packet 進入明確唯讀模式** — 一般任務中 Codex 與 Claude 都可完整規劃、實作、測試及 commit；只有 Sean／任務明確寫「審查」「Review Packet」「唯讀」時，當次 session 才切成唯讀：不改檔、不跑寫入工具、不 commit、不 push，只回 findings／風險／是否可繼續。審查重點:①安全/權限 ②schema/migration 破壞面 ③STATUS/NORTHSTAR/鐵則 ④backlog/文件。格式見 `docs/patterns/codex-review-packet.md`。
 
 ---
 
@@ -116,13 +115,12 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 | 角色 | 做 | 不做 |
 |---|---|---|
-| Sean | 拍板 / push / 操作 dashboard / Terminal 跑命令 / Claude Design 改設計 / 肉眼驗收 / 轉貼 Codex Packet | 寫 code / debug / git diff 細節 |
-| Cowork(可選) | 規劃 / 寫 slice 指令 / 寫 .md·handoff / 決策題 / spawn PRD·slice reviewer | 寫實作 code / 拍板 / 視覺設計 / commit / push |
-| Claude Code | 跑命令 / 實作 / git commit / 測試 / 偵察 design / spawn code-reviewer / 跑 skill / 自驅規劃 | push / deploy / 替 Sean 拍板 / 視覺設計 |
-| **Codex(你)** | 收 Codex Review Packet 唯讀審查 / 回 findings·風險·是否可繼續(不同模型第二意見) | 改 code / commit / push / 替代 code-reviewer |
-| Claude Design | 視覺/前台設計、輸出 .jsx/.css(對 GitHub 唯讀) | 寫 storefront 程式 / 後台設計 / push |
+| Sean | 拍板 / push / 操作 dashboard / 肉眼驗收 | 寫 code / debug / git diff 細節 |
+| Codex 或 Claude 執行 session | 規劃 / 跑命令 / 實作 / commit / 測試 / handoff | 未授權 push / deploy / 替 Sean 拍板 / 視覺設計 |
+| Codex 或 Claude 審查 session | 任務明確標示審查時唯讀回 findings / 風險 / 是否可繼續 | 改 code / commit / 寫入外部系統 |
+| Design session | 視覺/前台設計、輸出設計稿 | 把設計稿當成已完成實作 / 未驗證即 deploy |
 
-**你審查的對象**:Claude Code 走「自驅 SOP」(自規劃+實作)或「寫審分離」(執行 session + 審查 session、Sean 橋接)產出的 plan/diff/Packet。你與 PCM 鐵則 / Sean 拍板衝突時以後者為準。完整鏈見 `docs/patterns/cowork-review-chain.md`。(codex-adversary skill = Claude Code 端跑 `codex exec -s read-only` 對抗審 plan/diff、只唯讀;本檔讀者=web Codex 審 Packet。)
+執行與審查是可切換模式。高風險工作優先由另一個模型審查，完整鏈見 `docs/patterns/cowork-review-chain.md`；任何 agent 都不得同時暗中扮演執行者與獨立審查者。
 
 ---
 
