@@ -41,7 +41,7 @@ export const ORDER_LIST_SELECT =
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + 無成本欄名 + 無 `*` + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)';
+  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -177,6 +177,14 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
     if (filter.orderSource) query = query.eq('order_source', filter.orderSource);
     if (filter.paymentChannel) query = query.eq('payment_channel', filter.paymentChannel);
+    // workflow_status 三態(M-4a Slice A):undefined=不篩 / null=只看未設定(IS NULL)/ string=指定 code。
+    // 用 `!== undefined` 判別(truthy 判別會把 null 吞成不篩);對齊 AdminOrderFilter docstring。
+    if (filter.workflowStatus !== undefined) {
+      query =
+        filter.workflowStatus === null
+          ? query.is('workflow_status', null)
+          : query.eq('workflow_status', filter.workflowStatus);
+    }
 
     const { data, error, count } = await query
       .order('created_at', { ascending: false })

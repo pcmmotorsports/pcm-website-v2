@@ -204,8 +204,10 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   const range = vi.fn().mockResolvedValue(result);
   const order = vi.fn().mockReturnValue({ range });
   const eq = vi.fn();
-  const builder = { eq, order };
+  const is = vi.fn();
+  const builder = { eq, is, order };
   eq.mockReturnValue(builder); // query = query.eq(...) 保持可鏈
+  is.mockReturnValue(builder); // query = query.is(...) 保持可鏈(workflow_status IS NULL)
   const select = vi.fn().mockReturnValue(builder);
   const from = vi.fn().mockReturnValue({ select });
   return {
@@ -213,6 +215,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
     from,
     select,
     eq,
+    is,
     order,
     range,
   };
@@ -221,7 +224,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(客人顯示 customers(name),零成本欄)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)',
+      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)',
     );
   });
 
@@ -245,7 +248,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     }
   });
 
-  it('查詢鏈 orders / select(ADMIN_ORDER_LIST_SELECT,{count:exact}) / 四軸 eq 下推 / order(created_at desc) / range(offset,offset+limit-1);row → AdminOrderSummary', async () => {
+  it('查詢鏈 orders / select(ADMIN_ORDER_LIST_SELECT,{count:exact}) / 五軸 eq 下推 / order(created_at desc) / range(offset,offset+limit-1);row → AdminOrderSummary', async () => {
     const { client, from, select, eq, order, range } = makeAdminListClient({
       data: [
         {
@@ -254,6 +257,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           created_at: '2099-04-15T10:00:00Z',
           payment_status: 'paid',
           fulfillment_status: 'notOrdered',
+          workflow_status: 'received_confirmed',
           total: 5200,
           order_source: 'web',
           payment_channel: 'tappay',
@@ -272,18 +276,20 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
         fulfillmentStatus: 'notOrdered',
         orderSource: 'web',
         paymentChannel: 'tappay',
+        workflowStatus: 'received_confirmed',
       },
       { limit: 20, offset: 40 },
     );
 
     expect(from).toHaveBeenCalledWith('orders');
     expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    // 四軸篩選各下推一次 DB where(非前端過濾)
+    // 五軸篩選各下推一次 DB where(非前端過濾)
     expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
     expect(eq).toHaveBeenCalledWith('fulfillment_status', 'notOrdered');
     expect(eq).toHaveBeenCalledWith('order_source', 'web');
     expect(eq).toHaveBeenCalledWith('payment_channel', 'tappay');
-    expect(eq).toHaveBeenCalledTimes(4);
+    expect(eq).toHaveBeenCalledWith('workflow_status', 'received_confirmed');
+    expect(eq).toHaveBeenCalledTimes(5);
     expect(order).toHaveBeenCalledWith('created_at', { ascending: false });
     expect(range).toHaveBeenCalledWith(40, 59); // offset 40、limit 20 → [40, 59] 含端
     expect(res).toEqual({
@@ -300,10 +306,26 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           total: { amount: 5200, currency: 'TWD' },
           displayPosition: null,
           cancelledAt: null,
+          workflowStatus: 'received_confirmed',
         },
       ],
       total: 37,
     });
+  });
+
+  it('workflowStatus=null(「未設定」篩選)→ is(workflow_status, null) 下推、不走 eq;undefined → 兩者皆不呼', async () => {
+    const { client, eq, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { workflowStatus: null },
+      { limit: 20 },
+    );
+    expect(is).toHaveBeenCalledWith('workflow_status', null);
+    expect(eq).not.toHaveBeenCalled();
+
+    const second = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(second.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(second.is).not.toHaveBeenCalled();
+    expect(second.eq).not.toHaveBeenCalled();
   });
 
   it('無篩選 → 完全不下推 eq(全表);offset 預設 0 → range(0, limit-1)', async () => {
@@ -331,6 +353,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_channel: 'cash',
           display_position: 3,
           cancelled_at: '2099-05-02T00:00:00Z',
+          workflow_status: null,
           customers: null,
         },
       ],
@@ -353,6 +376,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       total: { amount: 999, currency: 'TWD' },
       displayPosition: 3,
       cancelledAt: '2099-05-02T00:00:00Z',
+      workflowStatus: null, // NULL = 未設定(顯示端兜「未設定」中性 badge)
     });
   });
 
@@ -370,6 +394,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_channel: 'tappay',
           display_position: null,
           cancelled_at: null,
+          workflow_status: 'shipped_done',
           customers: [{ name: '李大同' }], // 陣列形狀
         },
       ],

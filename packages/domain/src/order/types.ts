@@ -202,6 +202,13 @@ export type AdminOrderFilter = {
   fulfillmentStatus?: FulfillmentStatus;
   orderSource?: OrderSource;
   paymentChannel?: PaymentChannel;
+  /**
+   * 訂單處理狀態篩選(M-4a workflow_status;Sean 的主操作軸):
+   * - `undefined` = 不篩;
+   * - `string` = 指定 order_status_options.code(動態詞彙、非靜態 enum,值域由 DB CHECK slug 格式約束);
+   * - `null` = 只看「未設定」(workflow_status IS NULL 的單;新進線上單未 triage 態)。
+   */
+  workflowStatus?: string | null;
 };
 
 /**
@@ -233,6 +240,31 @@ export type AdminOrderSummary = {
   displayPosition: number | null;
   /** 取消時間 ISO(非 null = 已取消;本片純顯示,取消功能留取消片) */
   cancelledAt: string | null;
+  /**
+   * 訂單處理狀態(M-4a、orders.workflow_status;soft-ref order_status_options.code)。
+   * NULL = 未設定(新進線上單未 triage);未知 code(選項被停用/改碼)由顯示端兜底、不在此層擋。
+   * 🔴 純操作/顯示軸:金流真相恆為 paymentStatus,本欄絕不進金流/對帳/退款判斷。
+   */
+  workflowStatus: string | null;
+};
+
+/**
+ * OrderStatusOption: 後台訂單處理狀態詞彙(M-4a、order_status_options 表;Sean 可設定+顏色)。
+ *
+ * Sean 的 Google Sheet 工作方式:單一「訂單狀態」下拉 + 底色(收款×訂定×貨況合併標籤)。
+ * `code` = 穩定識別碼(orders.workflow_status soft-ref);`label` = 顯示文字(截圖逐字);
+ * `color` = badge 底色 hex;`textColor` = 深底淺字/淺底深字;`sortOrder` = 下拉排序;
+ * `isActive` = soft-delete(停用不硬刪,既有單指向不消失、顯示端仍可解析 label)。
+ */
+export type OrderStatusOption = {
+  code: string;
+  label: string;
+  /** badge 底色(hex,如 '#FBE4A6';DB CHECK 保證格式) */
+  color: string;
+  /** 字色模式:'light' 深底淺字 / 'dark' 淺底深字 */
+  textColor: 'light' | 'dark';
+  sortOrder: number;
+  isActive: boolean;
 };
 
 /**

@@ -1,4 +1,4 @@
-import type { AdminOrderFilter } from '@pcm/domain';
+import type { AdminOrderFilter, OrderStatusOption } from '@pcm/domain';
 import { SelectFilter } from '../shared/select-filter';
 import {
   PAYMENT_STATUS_OPTIONS,
@@ -9,19 +9,35 @@ import {
   FULFILLMENT_STATUS_PARAM,
   ORDER_SOURCE_PARAM,
   PAYMENT_CHANNEL_PARAM,
+  WORKFLOW_STATUS_PARAM,
+  workflowStatusFilterOptions,
+  workflowStatusSelectValue,
 } from '../../lib/orders/order-list-view';
 
-// M-4a 訂單線第一片:雙軸 + 次要下拉篩選(server-render、native form GET;無 client JS)。
-// 主雙軸 = 付款狀態 × 出貨狀態(營運最常查「已付未出」);次要 = 來源 / 管道。
+// M-4a 訂單篩選列(server-render、native form GET;無 client JS)。
+// Slice A:主篩選 = 訂單狀態(workflow_status;Sean 的合併彩色狀態、動態選項來自 order_status_options
+// + 「未設定」哨兵);次要 = 舊雙軸(付款/出貨,granular 查「已付未出」)+ 來源/管道。
 // 送出 → 瀏覽器組 query string 導回 /orders → server 重讀 searchParams 重查(page 天然回 1)。
 
-export function OrderFilterBar({ filter }: { filter: AdminOrderFilter }) {
+export function OrderFilterBar({
+  filter,
+  statusOptions,
+}: {
+  filter: AdminOrderFilter;
+  statusOptions: OrderStatusOption[];
+}) {
   return (
     <form
       method='get'
       action='/orders'
       className='flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4 text-card-foreground'
     >
+      <SelectFilter
+        name={WORKFLOW_STATUS_PARAM}
+        label='訂單狀態'
+        value={workflowStatusSelectValue(filter.workflowStatus)}
+        options={workflowStatusFilterOptions(statusOptions, filter.workflowStatus)}
+      />
       <SelectFilter
         name={PAYMENT_STATUS_PARAM}
         label='付款狀態'

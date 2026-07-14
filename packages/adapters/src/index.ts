@@ -22,6 +22,9 @@ export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
 // (authenticated client 對 orders/order_items 僅 SELECT、建單只能走 RPC)→ root public export、
 // 鏡像 Address/Customer/Vehicle(非 /server 受控小門〔那是 Wallet service_role 用〕)。
 export { SupabaseOrderAdapter } from './supabase/SupabaseOrderAdapter';
+// M-4a Slice A:訂單處理狀態詞彙讀 adapter(admin-only;client 由 admin composition 注入 service_role、
+// 本 class 不持金鑰,同 SupabaseOrderAdapter 注入模式)。
+export { SupabaseOrderStatusOptionsAdapter } from './supabase/SupabaseOrderStatusOptionsAdapter';
 // M-1-14d-2:SupabaseWalletAdapter 因 addEntry 需 service_role writeClient(金流敏感、server-only
 // 邊界)、不在 root public API export、改從 @pcm/adapters/server export(見 server.ts)。
 export { createSupabaseAnonClient } from './supabase/client';

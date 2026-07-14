@@ -1,5 +1,5 @@
 import 'server-only';
-import { SupabaseOrderAdapter } from '@pcm/adapters';
+import { SupabaseOrderAdapter, SupabaseOrderStatusOptionsAdapter } from '@pcm/adapters';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 
 /**
@@ -18,4 +18,12 @@ import { createSupabaseServiceClient } from '@pcm/adapters/server';
  */
 export function getAdminOrderRepository(): SupabaseOrderAdapter {
   return new SupabaseOrderAdapter(createSupabaseServiceClient());
+}
+
+/**
+ * 訂單處理狀態詞彙 repo(M-4a Slice A;order_status_options 對 client 全鎖 → 必走 service_role)。
+ * 呼叫端(/orders server component)僅用 `listOrderStatusOptions`(具名白名單投影)。
+ */
+export function getAdminOrderStatusOptionsRepository(): SupabaseOrderStatusOptionsAdapter {
+  return new SupabaseOrderStatusOptionsAdapter(createSupabaseServiceClient());
 }

@@ -9,6 +9,7 @@ import type {
   FulfillmentStatus,
   OrderSource,
   PaymentChannel,
+  OrderStatusOption,
 } from '@pcm/domain';
 import { pickEnum, parsePage, buildListHref, type FilterOption } from '../shared/list-params';
 
@@ -20,6 +21,16 @@ export const PAYMENT_STATUS_PARAM = 'payment_status';
 export const FULFILLMENT_STATUS_PARAM = 'fulfillment_status';
 export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
+export const WORKFLOW_STATUS_PARAM = 'workflow_status';
+
+/**
+ * workflow_status 篩選的「未設定」哨兵值(URL `?workflow_status=unset` → filter.workflowStatus=null)。
+ * ⚠️ 'unset' 本身是合法 code slug → Slice D 設定 UI 須保留字擋掉,避免真 code 撞哨兵被吞。
+ */
+export const WORKFLOW_STATUS_UNSET_VALUE = 'unset';
+
+/** workflow_status code 合法形狀(對齊 DB CHECK orders_workflow_status_format;非法值忽略=不篩)。 */
+const WORKFLOW_STATUS_CODE_RE = /^[a-z0-9_]{1,64}$/;
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
@@ -112,8 +123,21 @@ export function parseOrderListSearchParams(raw: RawSearchParams): {
     fulfillmentStatus: pickEnum(raw[FULFILLMENT_STATUS_PARAM], FULFILLMENT_STATUS_VALUES),
     orderSource: pickEnum(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannel: pickEnum(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
+    workflowStatus: parseWorkflowStatusParam(raw[WORKFLOW_STATUS_PARAM]),
   };
   return { filter, page: parsePage(raw.page) };
+}
+
+/**
+ * workflow_status 篩選值解析(動態詞彙、無靜態 enum 可 pickEnum → 改「形狀守門」):
+ * - 缺 / 陣列 / 空字串 / 非法形狀 → undefined(不篩;等同其他軸的非法值忽略);
+ * - `'unset'` 哨兵 → null(只看未設定);
+ * - 合法 slug → 原樣(不存在的 code 查回 0 筆、無注入面〔supabase-js 參數化〕、無害)。
+ */
+function parseWorkflowStatusParam(raw: string | string[] | undefined): string | null | undefined {
+  if (typeof raw !== 'string' || raw === '') return undefined;
+  if (raw === WORKFLOW_STATUS_UNSET_VALUE) return null;
+  return WORKFLOW_STATUS_CODE_RE.test(raw) ? raw : undefined;
 }
 
 /** 建 `/orders?...` 連結(分頁 / 篩選保留;page=1 省略);走共用 buildListHref。 */
@@ -121,6 +145,10 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
   return buildListHref(
     '/orders',
     [
+      [
+        WORKFLOW_STATUS_PARAM,
+        filter.workflowStatus === null ? WORKFLOW_STATUS_UNSET_VALUE : filter.workflowStatus,
+      ],
       [PAYMENT_STATUS_PARAM, filter.paymentStatus],
       [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
       [ORDER_SOURCE_PARAM, filter.orderSource],
@@ -128,6 +156,72 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
     ],
     page,
   );
+}
+
+// ── workflow_status 彩色 badge 檢視模型(M-4a Slice A;純函式、單測)──────────
+// Sean 的主操作狀態欄:label/color 來自 order_status_options(DB 策展),顯示端兜 NULL / 未知 code。
+
+/** badge 檢視模型:known=true 用 DB 色(inline style);known=false 中性灰(Tailwind class)。 */
+export type WorkflowStatusBadgeView = {
+  label: string;
+  /** 底色 hex(known=false 時空字串、元件走中性樣式) */
+  color: string;
+  /** 'light' 深底淺字 / 'dark' 淺底深字 */
+  textColor: 'light' | 'dark';
+  /** false = NULL(未設定)或 code 查無選項(被改碼/停用後刪?soft-delete 下罕見)→ 中性灰兜底 */
+  known: boolean;
+};
+
+/**
+ * workflow_status → badge 檢視模型:
+ * - NULL → 「未設定」中性灰(新進線上單未 triage 態;對齊 Sean Sheet「新列他手動設狀態」心智);
+ * - 選項命中(含 is_active=false 停用者;soft-delete 語意=舊單仍解析得到)→ DB label+color;
+ * - 查無 code → 原樣顯示 code 的中性灰(誠實呈現、不編造 label)。
+ */
+export function workflowStatusBadge(
+  code: string | null,
+  optionsByCode: ReadonlyMap<string, OrderStatusOption>,
+): WorkflowStatusBadgeView {
+  if (code === null) {
+    return { label: '未設定', color: '', textColor: 'dark', known: false };
+  }
+  const option = optionsByCode.get(code);
+  if (!option) {
+    return { label: code, color: '', textColor: 'dark', known: false };
+  }
+  return { label: option.label, color: option.color, textColor: option.textColor, known: true };
+}
+
+/** options 陣列 → code 索引 Map(頁面查一次、列表逐列 O(1) 解析)。 */
+export function indexOrderStatusOptions(
+  options: OrderStatusOption[],
+): ReadonlyMap<string, OrderStatusOption> {
+  return new Map(options.map((o) => [o.code, o]));
+}
+
+/**
+ * 篩選下拉選項:active 選項 +「未設定」哨兵。
+ * `current` = 目前 URL 篩選值:若為「合法但不在 active 清單」的 code(停用選項/未知 code),
+ * 補一項讓 defaultValue 有落點 —— 否則下拉回顯「全部」、使用者重送 form 會靜默清掉篩選(code-reviewer nit)。
+ */
+export function workflowStatusFilterOptions(
+  options: OrderStatusOption[],
+  current?: string | null,
+): FilterOption[] {
+  const active = options.filter((o) => o.isActive).map((o) => ({ value: o.code, label: o.label }));
+  if (typeof current === 'string' && !active.some((o) => o.value === current)) {
+    const known = options.find((o) => o.code === current);
+    active.push({ value: current, label: known ? `${known.label}(已停用)` : current });
+  }
+  return [...active, { value: WORKFLOW_STATUS_UNSET_VALUE, label: '未設定' }];
+}
+
+/** filter.workflowStatus(undefined|null|code)→ <select> defaultValue 字串。 */
+export function workflowStatusSelectValue(
+  workflowStatus: string | null | undefined,
+): string | undefined {
+  if (workflowStatus === undefined) return undefined;
+  return workflowStatus === null ? WORKFLOW_STATUS_UNSET_VALUE : workflowStatus;
 }
 
 /**

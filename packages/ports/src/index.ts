@@ -9,6 +9,8 @@ export type * from './IVehicleRepository';
 export type * from './IWalletRepository';
 export type * from './IAuthService';
 export type * from './IOrderRepository';
+// M-4a 訂單處理狀態詞彙(order_status_options;admin-only、與會員側 IOrderRepository 刻意拆港)
+export type * from './IOrderStatusOptionsRepository';
 export type * from './ISheetsAdapter';
 export type * from './ITapPayAdapter';
 export type * from './IPaymentConfirmer';

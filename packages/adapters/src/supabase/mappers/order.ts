@@ -157,6 +157,7 @@ export type SupabaseAdminOrderRow = Pick<
   | 'payment_channel'
   | 'display_position'
   | 'cancelled_at'
+  | 'workflow_status'
 > & {
   /**
    * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
@@ -195,5 +196,6 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     displayPosition: row.display_position,
     cancelledAt: row.cancelled_at,
+    workflowStatus: row.workflow_status, // M-4a:NULL=未設定;未知 code 顯示端兜底(soft-ref、無硬 FK)
   };
 }

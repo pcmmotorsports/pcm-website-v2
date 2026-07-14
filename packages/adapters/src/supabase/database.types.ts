@@ -439,6 +439,39 @@ export type Database = {
           },
         ]
       }
+      // ⚠️ 手動先行加入(migration 20260714120000 尚未 apply;Sean db push 後重 gen 應與此一致):
+      //    order_status_options 新表 + orders 4 新欄(workflow_status / invoice_number / invoice_amount / invoice_status)。
+      //    盲 regen 若在 apply 前跑會把這段吃掉 → 先 apply 再 gen。
+      order_status_options: {
+        Row: {
+          code: string
+          color: string
+          created_at: string
+          is_active: boolean
+          label: string
+          sort_order: number
+          text_color: string
+        }
+        Insert: {
+          code: string
+          color: string
+          created_at?: string
+          is_active?: boolean
+          label: string
+          sort_order: number
+          text_color?: string
+        }
+        Update: {
+          code?: string
+          color?: string
+          created_at?: string
+          is_active?: boolean
+          label?: string
+          sort_order?: number
+          text_color?: string
+        }
+        Relationships: []
+      }
       orders: {
         Row: {
           address_id: string | null
@@ -453,6 +486,9 @@ export type Database = {
           fulfillment_status: Database["public"]["Enums"]["fulfillment_status"]
           id: string
           invoice: Json
+          invoice_amount: number | null
+          invoice_number: string | null
+          invoice_status: string
           order_source: string
           paid_at: string | null
           payment_channel: string
@@ -467,6 +503,7 @@ export type Database = {
           total: number
           updated_at: string
           version: number
+          workflow_status: string | null
         }
         Insert: {
           address_id?: string | null
@@ -481,6 +518,9 @@ export type Database = {
           fulfillment_status?: Database["public"]["Enums"]["fulfillment_status"]
           id?: string
           invoice: Json
+          invoice_amount?: number | null
+          invoice_number?: string | null
+          invoice_status?: string
           order_source?: string
           paid_at?: string | null
           payment_channel?: string
@@ -495,6 +535,7 @@ export type Database = {
           total: number
           updated_at?: string
           version?: number
+          workflow_status?: string | null
         }
         Update: {
           address_id?: string | null
@@ -509,6 +550,9 @@ export type Database = {
           fulfillment_status?: Database["public"]["Enums"]["fulfillment_status"]
           id?: string
           invoice?: Json
+          invoice_amount?: number | null
+          invoice_number?: string | null
+          invoice_status?: string
           order_source?: string
           paid_at?: string | null
           payment_channel?: string
@@ -523,6 +567,7 @@ export type Database = {
           total?: number
           updated_at?: string
           version?: number
+          workflow_status?: string | null
         }
         Relationships: [
           {
