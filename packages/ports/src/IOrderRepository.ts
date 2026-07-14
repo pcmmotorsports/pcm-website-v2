@@ -4,6 +4,7 @@ import type {
   OrderId,
   OrderListItem,
   OrderStatusFilter,
+  AdminOrderDetail,
   AdminOrderFilter,
   AdminOrderSummary,
   Paginated,
@@ -78,6 +79,17 @@ export interface IOrderRepository {
     filter: AdminOrderFilter,
     pagination: PaginationParams,
   ): Promise<Paginated<AdminOrderSummary>>;
+
+  /**
+   * admin 訂單明細(M-4a Slice B;/orders/[id] 明細頁)。
+   *
+   * 回 `AdminOrderDetail` **讀模型投影**(非 domain `Order` 重建 → 繞過 #217,同摘要方法先例;
+   * `findById` deferred stub 不動)。查無 → null(caller 404、不 throw)。
+   *
+   * 🔴 PII 邊界:明細才攜客人姓名/電話/email+收件快照(service_role、`ADMIN_ORDER_DETAIL_SELECT`
+   * 另立具名白名單);🔴 鐵則 12:仍零成本/經銷價欄、零 tappay_rec_trade_id。
+   */
+  findAdminOrderDetail(id: OrderId): Promise<AdminOrderDetail | null>;
 
   // TODO M-4a-XX: 補 listByDateRange — 月結統計用
 }

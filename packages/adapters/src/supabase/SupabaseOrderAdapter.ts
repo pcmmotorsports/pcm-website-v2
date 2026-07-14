@@ -7,6 +7,7 @@ import type {
   OrderListItem,
   PlaceOrderInput,
   PlaceOrderResult,
+  AdminOrderDetail,
   AdminOrderFilter,
   AdminOrderSummary,
   Paginated,
@@ -18,8 +19,10 @@ import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
   mapSupabaseAdminOrderRowToSummary,
+  mapSupabaseAdminOrderDetailRowToDetail,
   type CreateOrderRpcResult,
   type SupabaseAdminOrderRow,
+  type SupabaseAdminOrderDetailRow,
 } from './mappers/order';
 
 /**
@@ -42,6 +45,21 @@ export const ORDER_LIST_SELECT =
  */
 export const ADMIN_ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, customers(name)';
+
+/**
+ * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
+ *
+ * 🔴 PII 邊界(設計檔 2026-07-13):明細**才**攜 customers(name, email, phone)+
+ * shipping_address_snapshot(收件姓名/電話/地址)+ invoice(結帳開票需求)——列表投影
+ * `ADMIN_ORDER_LIST_SELECT` 維持精簡零 PII、兩白名單**刻意分立**。
+ * 🔴 鐵則 12:**仍禁** `select('*')`、零成本欄(price_store / price_by_tier / cost)、
+ * **零 tappay_rec_trade_id**(金流對帳識別碼不進顯示層)、零 cart_session_id / address_id /
+ * tier_at_checkout。order_items 內嵌成交價欄(unit_price / line_total)=該單實際賣價、非經銷價表;
+ * product_snapshot = create_order 寫入的 {sku, spec, title}、無價格欄(mapper 防禦容缺)。
+ * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + forbidden-token 守門。
+ */
+export const ADMIN_ORDER_DETAIL_SELECT =
+  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -196,6 +214,28 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       mapSupabaseAdminOrderRowToSummary,
     );
     return { items, total: count ?? 0 };
+  }
+
+  /**
+   * admin 訂單明細(M-4a Slice B;/orders/[id];service_role 全表、讀模型投影繞 #217)。
+   *
+   * - 投影 `ADMIN_ORDER_DETAIL_SELECT`(明細專用白名單:含 PII、零成本/經銷/rec_trade_id);
+   * - `.maybeSingle()`:查無 → null(caller 404、不 throw);error → 裸 throw(caller 退錯誤態);
+   * - embed cast 同 list 慣例(customers many-to-one 生成型別不穩、以 runtime 真相 cast + mapper 正規化)。
+   */
+  async findAdminOrderDetail(id: string): Promise<AdminOrderDetail | null> {
+    const { data, error } = await this.supabase
+      .from('orders')
+      .select(ADMIN_ORDER_DETAIL_SELECT)
+      .eq('id', id)
+      .maybeSingle();
+    if (error) {
+      throw error;
+    }
+    if (!data) {
+      return null;
+    }
+    return mapSupabaseAdminOrderDetailRowToDetail(data as unknown as SupabaseAdminOrderDetailRow);
   }
 
   // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──

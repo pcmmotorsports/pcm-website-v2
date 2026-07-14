@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { AdminOrderSummary, OrderStatusOption } from '@pcm/domain';
 import {
   PAYMENT_STATUS_LABEL,
@@ -30,7 +31,9 @@ function OrderRow({
   return (
     <tr className='border-t'>
       <td className={TD}>
-        <span className='font-medium'>{order.displayId}</span>
+        <Link href={`/orders/${order.id}`} className='font-medium hover:underline'>
+          {order.displayId}
+        </Link>
         {cancelled && (
           <span className='bg-destructive/10 text-destructive ml-2 inline-flex rounded-full px-2 py-0.5 text-xs'>
             已取消

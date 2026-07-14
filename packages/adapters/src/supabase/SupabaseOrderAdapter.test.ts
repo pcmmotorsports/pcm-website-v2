@@ -15,6 +15,7 @@ import {
   SupabaseOrderAdapter,
   ORDER_LIST_SELECT,
   ADMIN_ORDER_LIST_SELECT,
+  ADMIN_ORDER_DETAIL_SELECT,
 } from './SupabaseOrderAdapter';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
@@ -416,6 +417,165 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     });
     await expect(
       new SupabaseOrderAdapter(client).listOrderSummariesForAdmin({}, { limit: 20 }),
+    ).rejects.toThrow();
+  });
+});
+
+// ── findAdminOrderDetail:後台訂單明細(M-4a Slice B、明細專用 PII 白名單)──
+// mock from('orders').select(ADMIN_ORDER_DETAIL_SELECT).eq('id', id).maybeSingle()。
+function makeDetailClient(result: { data: unknown; error: unknown }) {
+  const maybeSingle = vi.fn().mockResolvedValue(result);
+  const eq = vi.fn().mockReturnValue({ maybeSingle });
+  const select = vi.fn().mockReturnValue({ eq });
+  const from = vi.fn().mockReturnValue({ select });
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, maybeSingle };
+}
+
+const DETAIL_ROW = {
+  id: 'o1',
+  display_id: 'PCM-2099-0001',
+  created_at: '2099-04-15T10:00:00Z',
+  payment_status: 'paid',
+  fulfillment_status: 'notOrdered',
+  workflow_status: 'received_unconfirmed',
+  order_source: 'web',
+  payment_channel: 'tappay',
+  payment_method: 'tappay',
+  paid_at: '2099-04-15T10:05:00Z',
+  subtotal: 5000,
+  shipping_fee: 200,
+  discount_total: 0,
+  total: 5200,
+  shipping_method: 'home',
+  shipping_address_snapshot: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
+  invoice: { type: 'personal', taxId: '', title: '', carrier: '', donateCode: '' },
+  invoice_number: null,
+  invoice_amount: null,
+  invoice_status: 'not_issued',
+  cancelled_at: null,
+  cancelled_reason: null,
+  customers: { name: '王小明', email: 'a@b.c', phone: '0912345678' },
+  order_items: [
+    {
+      variant_sku: 'BMS-13OEM-G-F',
+      quantity: 2,
+      unit_price: 2500,
+      line_total: 5000,
+      product_snapshot: { sku: 'BMS-13OEM-G-F', spec: { finish: 'Glossy' }, title: '下導流' },
+    },
+  ],
+};
+
+describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;與列表白名單分立)', () => {
+    expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
+      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)',
+    );
+  });
+
+  it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
+    const forbidden = [
+      '*',
+      'price_store',
+      'price_by_tier',
+      'priceByTier',
+      'cost',
+      'tappay_rec_trade_id',
+      'tier_at_checkout',
+      'cart_session_id',
+      'address_id',
+      'wallet',
+    ];
+    for (const token of forbidden) {
+      expect(ADMIN_ORDER_DETAIL_SELECT).not.toContain(token);
+    }
+  });
+
+  it('查詢鏈 orders / select(明細白名單) / eq(id) / maybeSingle;row → AdminOrderDetail(jsonb 防禦解析)', async () => {
+    const { client, from, select, eq } = makeDetailClient({ data: DETAIL_ROW, error: null });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(from).toHaveBeenCalledWith('orders');
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_DETAIL_SELECT);
+    expect(eq).toHaveBeenCalledWith('id', 'o1');
+    expect(res).toEqual({
+      id: 'o1',
+      displayId: 'PCM-2099-0001',
+      createdAt: '2099-04-15T10:00:00Z',
+      paymentStatus: 'paid',
+      fulfillmentStatus: 'notOrdered',
+      workflowStatus: 'received_unconfirmed',
+      orderSource: 'web',
+      paymentChannel: 'tappay',
+      paymentMethod: 'tappay',
+      paidAt: '2099-04-15T10:05:00Z',
+      subtotal: { amount: 5000, currency: 'TWD' },
+      shippingFee: { amount: 200, currency: 'TWD' },
+      discountTotal: { amount: 0, currency: 'TWD' },
+      total: { amount: 5200, currency: 'TWD' },
+      shippingMethod: 'home',
+      shippingAddress: { name: '王小明', phone: '0912345678', line: '台北市信義區 1 號' },
+      customer: { name: '王小明', email: 'a@b.c', phone: '0912345678' },
+      invoiceRequest: { type: 'personal', taxId: null, title: null, carrier: null, donateCode: null }, // 空字串 → null
+      invoiceNumber: null,
+      invoiceAmount: null,
+      invoiceStatus: 'not_issued',
+      cancelledAt: null,
+      cancelledReason: null,
+      items: [
+        {
+          variantSku: 'BMS-13OEM-G-F',
+          title: '下導流',
+          spec: { finish: 'Glossy' },
+          quantity: 2,
+          unitPrice: { amount: 2500, currency: 'TWD' },
+          lineTotal: { amount: 5000, currency: 'TWD' },
+        },
+      ],
+    });
+  });
+
+  it('jsonb 腐壞防禦:snapshot 非物件 / spec 缺 / invoice null → 各欄 null、不 throw', async () => {
+    const { client } = makeDetailClient({
+      data: {
+        ...DETAIL_ROW,
+        shipping_address_snapshot: 'corrupted',
+        invoice: null,
+        customers: null,
+        order_items: [
+          { variant_sku: 'X', quantity: 1, unit_price: 100, line_total: 100, product_snapshot: null },
+        ],
+      },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(res?.shippingAddress).toEqual({ name: null, phone: null, line: null });
+    expect(res?.customer).toEqual({ name: null, email: null, phone: null });
+    expect(res?.invoiceRequest.type).toBeNull();
+    expect(res?.items[0]).toMatchObject({ title: null, spec: null });
+  });
+
+  it('invoice_status 意外值(DB CHECK 外)→ fail-safe narrow 成 not_issued、發票紀錄帶值直送', async () => {
+    const { client } = makeDetailClient({
+      data: {
+        ...DETAIL_ROW,
+        invoice_status: 'weird',
+        invoice_number: '60556739',
+        invoice_amount: 10920,
+      },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(res?.invoiceStatus).toBe('not_issued');
+    expect(res?.invoiceNumber).toBe('60556739');
+    expect(res?.invoiceAmount).toEqual({ amount: 10920, currency: 'TWD' });
+  });
+
+  it('查無(maybeSingle null)→ null(caller 404);查詢 error → 裸 throw', async () => {
+    const { client } = makeDetailClient({ data: null, error: null });
+    await expect(new SupabaseOrderAdapter(client).findAdminOrderDetail('o-nope')).resolves.toBeNull();
+    const failing = makeDetailClient({ data: null, error: new Error('connection refused') });
+    await expect(
+      new SupabaseOrderAdapter(failing.client).findAdminOrderDetail('o1'),
     ).rejects.toThrow();
   });
 });

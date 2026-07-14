@@ -3,7 +3,10 @@ import type {
   PlaceOrderInput,
   PlaceOrderLine,
   OrderInvoice,
+  AdminOrderDetail,
+  AdminOrderDetailItem,
   AdminOrderSummary,
+  InvoiceStatus,
   OrderSource,
   PaymentChannel,
 } from '@pcm/domain';
@@ -197,5 +200,140 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     displayPosition: row.display_position,
     cancelledAt: row.cancelled_at,
     workflowStatus: row.workflow_status, // M-4a:NULL=未設定;未知 code 顯示端兜底(soft-ref、無硬 FK)
+  };
+}
+
+// ── 讀路徑(admin 明細):orders row + 內嵌 customers / order_items → AdminOrderDetail(M-4a Slice B)──
+
+/**
+ * admin 明細讀 row 型別 —— derive 自生成 Database Row(對齊 SupabaseAdminOrderRow 慣例)。
+ * 只取 `ADMIN_ORDER_DETAIL_SELECT` 投影欄。🔴 PII 欄(shipping_address_snapshot / invoice /
+ * customers email·phone)只在明細投影;仍零成本欄、零 tappay_rec_trade_id。
+ */
+export type SupabaseAdminOrderDetailRow = Pick<
+  Database['public']['Tables']['orders']['Row'],
+  | 'id'
+  | 'display_id'
+  | 'created_at'
+  | 'payment_status'
+  | 'fulfillment_status'
+  | 'workflow_status'
+  | 'order_source'
+  | 'payment_channel'
+  | 'payment_method'
+  | 'paid_at'
+  | 'subtotal'
+  | 'shipping_fee'
+  | 'discount_total'
+  | 'total'
+  | 'shipping_method'
+  | 'shipping_address_snapshot'
+  | 'invoice'
+  | 'invoice_number'
+  | 'invoice_amount'
+  | 'invoice_status'
+  | 'cancelled_at'
+  | 'cancelled_reason'
+> & {
+  /** 同 SupabaseAdminOrderRow.customers:many-to-one 單物件、防禦容陣列/null。 */
+  customers:
+    | { name: string | null; email: string | null; phone: string | null }
+    | { name: string | null; email: string | null; phone: string | null }[]
+    | null;
+  order_items: {
+    variant_sku: string;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+    product_snapshot: unknown; // jsonb;{sku,spec,title} 由 create_order 寫入,防禦解析
+  }[];
+};
+
+/** jsonb 防禦取 string 欄:非物件/非字串/空字串 → null(DB 腐壞不炸頁、誠實顯示缺)。 */
+function pickString(obj: unknown, key: string): string | null {
+  if (obj === null || typeof obj !== 'object') return null;
+  const value = (obj as Record<string, unknown>)[key];
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** product_snapshot.spec 防禦解析:物件且值全轉字串;缺/非物件 → null。 */
+function pickSpec(snapshot: unknown): Record<string, string> | null {
+  if (snapshot === null || typeof snapshot !== 'object') return null;
+  const spec = (snapshot as Record<string, unknown>).spec;
+  if (spec === null || typeof spec !== 'object' || Array.isArray(spec)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(spec as Record<string, unknown>)) {
+    if (typeof v === 'string' || typeof v === 'number') out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+/** invoice_status 防禦 narrow:DB CHECK 三值;意外值 fail-safe 當 'not_issued' 顯示、不炸頁。 */
+function narrowInvoiceStatus(raw: string): InvoiceStatus {
+  return raw === 'issued' || raw === 'voided' ? raw : 'not_issued';
+}
+
+/**
+ * wire orders 明細 row → domain AdminOrderDetail(snake_case → camelCase;M-4a Slice B)。
+ *
+ * 金額全走 `toMoneyAmount` 中央守門(整數/非負;絕不 `as MoneyAmount`);jsonb(收件快照/開票需求/
+ * 品項 snapshot)逐欄防禦解析(缺/形狀不對 → null,頁面顯示「—」、不 500);
+ * `orderSource`/`paymentChannel` text→enum narrow 同摘要慣例(DB CHECK 保證值域)。
+ */
+export function mapSupabaseAdminOrderDetailRowToDetail(
+  row: SupabaseAdminOrderDetailRow,
+): AdminOrderDetail {
+  const customer = row.customers == null ? null : Array.isArray(row.customers) ? row.customers[0] : row.customers;
+  return {
+    id: row.id,
+    displayId: row.display_id,
+    createdAt: row.created_at,
+    paymentStatus: row.payment_status,
+    fulfillmentStatus: row.fulfillment_status,
+    workflowStatus: row.workflow_status,
+    orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域
+    paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
+    paymentMethod: row.payment_method,
+    paidAt: row.paid_at,
+    subtotal: { amount: toMoneyAmount(row.subtotal), currency: 'TWD' },
+    shippingFee: { amount: toMoneyAmount(row.shipping_fee), currency: 'TWD' },
+    discountTotal: { amount: toMoneyAmount(row.discount_total), currency: 'TWD' },
+    total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
+    shippingMethod: row.shipping_method,
+    shippingAddress: {
+      name: pickString(row.shipping_address_snapshot, 'name'),
+      phone: pickString(row.shipping_address_snapshot, 'phone'),
+      line: pickString(row.shipping_address_snapshot, 'line'),
+    },
+    customer: {
+      name: customer?.name ?? null,
+      email: customer?.email ?? null,
+      phone: customer?.phone ?? null,
+    },
+    invoiceRequest: {
+      type: pickString(row.invoice, 'type'),
+      taxId: pickString(row.invoice, 'taxId'),
+      title: pickString(row.invoice, 'title'),
+      carrier: pickString(row.invoice, 'carrier'),
+      donateCode: pickString(row.invoice, 'donateCode'),
+    },
+    invoiceNumber: row.invoice_number,
+    invoiceAmount:
+      row.invoice_amount === null
+        ? null
+        : { amount: toMoneyAmount(row.invoice_amount), currency: 'TWD' },
+    invoiceStatus: narrowInvoiceStatus(row.invoice_status),
+    cancelledAt: row.cancelled_at,
+    cancelledReason: row.cancelled_reason,
+    items: row.order_items.map(
+      (item): AdminOrderDetailItem => ({
+        variantSku: item.variant_sku,
+        title: pickString(item.product_snapshot, 'title'),
+        spec: pickSpec(item.product_snapshot),
+        quantity: item.quantity,
+        unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
+        lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
+      }),
+    ),
   };
 }

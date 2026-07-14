@@ -248,6 +248,81 @@ export type AdminOrderSummary = {
   workflowStatus: string | null;
 };
 
+/** 開票紀錄狀態(orders.invoice_status;DB CHECK 三值,v1 簡單欄位、不串電子發票 API)。 */
+export type InvoiceStatus = 'not_issued' | 'issued' | 'voided';
+
+/**
+ * AdminOrderDetailItem: 後台訂單明細單一品項(M-4a Slice B;order_items 投影)。
+ *
+ * `title`/`spec` 來自 `product_snapshot` jsonb(create_order RPC 寫入 {sku,spec,title};防禦容缺 → null)。
+ * 🔴 鐵則 12:`unitPrice`/`lineTotal` = 該單**成交價**(下單當下實際賣價、integer 元位 → Money),
+ * **非**經銷價表(price_store / price_by_tier / cost 零滲入;snapshot 本身無價格欄)。
+ */
+export type AdminOrderDetailItem = {
+  variantSku: string;
+  /** 品名(product_snapshot.title;缺 → null 防禦) */
+  title: string | null;
+  /** 規格 kv(product_snapshot.spec;缺/非物件 → null 防禦) */
+  spec: Record<string, string> | null;
+  quantity: number;
+  /** 成交單價(整數元位;非經銷價表) */
+  unitPrice: Money;
+  /** 小計 = 下單當下 server 算的 line_total(不重算) */
+  lineTotal: Money;
+};
+
+/**
+ * AdminOrderDetail: 後台訂單明細讀模型(M-4a Slice B;/orders/[id] 明細頁、admin-only)。
+ *
+ * 🔴 PII 邊界(設計檔 2026-07-13):明細**才**攜 客戶姓名/電話/email + 收件快照(姓名/電話/地址)——
+ * 走 service_role、`ADMIN_ORDER_DETAIL_SELECT` 另立具名白名單,**不進列表投影**(列表維持精簡)。
+ * 🔴 鐵則 12:**仍零**成本/經銷價欄(price_store / price_by_tier / cost)、**零** tappay_rec_trade_id
+ * (金流對帳識別碼不進後台顯示層;對帳走 #250/W1 管線)。
+ * `invoiceRequest` = 既有 orders.invoice jsonb(客人結帳開票**需求**:個人/統編/載具);
+ * `invoiceNumber/Amount/Status` = 開票**紀錄**三欄(Sean 手填;兩者語意分離)。
+ * `paymentMethod` = 金流事實軸(金流 RPC 寫入;報表算錢用它)、`paymentChannel` = 管理/預期軸。
+ */
+export type AdminOrderDetail = {
+  id: OrderId;
+  displayId: DisplayId;
+  createdAt: string;
+  paymentStatus: PaymentStatus;
+  fulfillmentStatus: FulfillmentStatus;
+  /** 訂單處理狀態(NULL=未設定;同 AdminOrderSummary.workflowStatus 語意) */
+  workflowStatus: string | null;
+  orderSource: OrderSource;
+  paymentChannel: PaymentChannel;
+  /** 金流事實軸(付款成功才有值;null=尚無成功請款) */
+  paymentMethod: string | null;
+  paidAt: string | null;
+  subtotal: Money;
+  shippingFee: Money;
+  discountTotal: Money;
+  total: Money;
+  /** 出貨方式(既有欄、結帳寫入;現值 'home',Slice C 起 admin 可改) */
+  shippingMethod: string;
+  /** 收件快照 PII(orders.shipping_address_snapshot jsonb {name,phone,line};防禦容缺) */
+  shippingAddress: { name: string | null; phone: string | null; line: string | null };
+  /** 客人資訊 PII(join customers;姓名/email/電話) */
+  customer: { name: string | null; email: string | null; phone: string | null };
+  /** 結帳開票需求(orders.invoice jsonb;type/taxId/title/carrier/donateCode,防禦容缺) */
+  invoiceRequest: {
+    type: string | null;
+    taxId: string | null;
+    title: string | null;
+    carrier: string | null;
+    donateCode: string | null;
+  };
+  /** 開票紀錄三欄(M-4a;Sean 手填) */
+  invoiceNumber: string | null;
+  invoiceAmount: Money | null;
+  invoiceStatus: InvoiceStatus;
+  cancelledAt: string | null;
+  /** 取消原因=可對客文案(會員可見自己單此欄;內部原因在 admin_audit_log) */
+  cancelledReason: string | null;
+  items: AdminOrderDetailItem[];
+};
+
 /**
  * OrderStatusOption: 後台訂單處理狀態詞彙(M-4a、order_status_options 表;Sean 可設定+顏色)。
  *
