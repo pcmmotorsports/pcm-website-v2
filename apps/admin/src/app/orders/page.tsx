@@ -62,7 +62,7 @@ export default async function OrdersPage({
   const total = result?.total ?? 0;
 
   return (
-    <div className='mx-auto max-w-6xl space-y-4'>
+    <div className='space-y-4'>
       <div className='flex items-center justify-between'>
         <h1 className='text-2xl font-semibold'>訂單</h1>
         {!loadFailed && <p className='text-muted-foreground text-sm'>共 {total} 筆</p>}

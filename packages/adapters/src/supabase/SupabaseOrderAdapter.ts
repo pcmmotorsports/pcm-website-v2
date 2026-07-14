@@ -38,15 +38,23 @@ export const ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, total, order_items(quantity)';
 
 /**
- * admin orders 摘要投影白名單(M-4a 訂單線第一片、後台 /orders 列表;service_role 全表)。
+ * admin orders 列表投影白名單(M-4a 訂單線;後台 /orders「每商品一列」列表;service_role 全表)。
  *
- * 🔴 鐵則 12:具名白名單 + 內嵌 `customers(name)`(客人顯示);**禁** `select('*')`、**零**成本欄
- * (orders 表本身無 price_store / price_by_tier / cost、天生守;白名單守慣例縱深、防未來加欄靜默洩漏)、
- * **不含** unit_price / line_total / product_snapshot / tappay_rec_trade_id / invoice / shipping_address_snapshot / tier_at_checkout。
- * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + 無成本欄名 + 無 `*` + spy 守門。
+ * 🔴 鐵則 12:具名白名單、**禁** `select('*')`。
+ * - orders 層:客人顯示 `customers(name)` + `tier_at_checkout`(會員等級;M-4a Slice D-1a 起投影)。
+ * - 品項層:內嵌 `order_items(variant_sku, quantity, unit_price, line_total, product_snapshot, …)`——
+ *   `unit_price`/`line_total` = 該單**成交價**(下單實際賣價、非經銷價表,同明細投影先例);
+ *   `product_snapshot` 供品名 title(mapper 防禦容缺)。
+ * - brand join:`product_variants(products(brands(name)))`——🔴 穿越帶 `price_store`/`price_by_tier` 的
+ *   product_variants/products,但**只取 `brands.name`**;forbidden-token 測試守 price_store/price_by_tier/cost
+ *   永不入投影 = 縱深防線。
+ * 🔴 tier_at_checkout / 成交價由 forbidden 移 allowed = **有意識鬆綁**(依據 docs/specs/2026-07-15-m4a-
+ *   order-list-redesign-slice-d-plan.md §0 經銷價護欄①;admin server-render、SSO 閘後、絕不進非 admin client bundle);
+ *   SupabaseOrderAdapter.test.ts 同步改 byte-equal 快照 + 保留真禁 token 斷言。
+ * module-level `export const` → 測試 byte-equal + forbidden-token + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, customers(name)';
+  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, tier_at_checkout, customers(name), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))))';
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -173,7 +181,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   /**
    * admin 訂單列表摘要(M-4a 訂單線第一片;後台營運找單 / 看狀態;service_role 全表、非 RLS own-only)。
    *
-   * - 投影 `ADMIN_ORDER_LIST_SELECT` 具名白名單(禁 `select('*')`、零成本欄、內嵌 customers(name));
+   * - 投影 `ADMIN_ORDER_LIST_SELECT` 具名白名單(禁 `select('*')`;內嵌 customers(name) + tier_at_checkout(會員等級)
+   *   + order_items 成交價/品名 + brand join〔穿越 product_variants/products 只取 brands(name)、經銷價成本欄零投影,
+   *   縱深防線見 const docstring〕;M-4a Slice D-1a「每商品一列」);
    * - 雙軸 + 次要篩選走 **DB where 下推**(payment_status / fulfillment_status / order_source / payment_channel、
    *   缺欄 = 不限;全在 FilterBuilder 階段套用、避免 order/range 後改鏈型別);
    * - **server 端分頁** `.range(offset, offset+limit-1)`(offset 預設 0)+ 排序 `created_at` DESC(新到舊)+

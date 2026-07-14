@@ -5,6 +5,7 @@ import type {
   OrderInvoice,
   AdminOrderDetail,
   AdminOrderDetailItem,
+  AdminOrderLine,
   AdminOrderSummary,
   InvoiceStatus,
   OrderSource,
@@ -148,6 +149,17 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
  * 字面 = domain enum(直送);`order_source` / `payment_channel` 生成為 text `string`(DB CHECK 約束、非 pg enum)
  * → mapper 端 narrow 成 domain enum(見下)。`total` integer 元位 → Money。
  */
+/**
+ * admin 列表品項內嵌 row 型別(M-4a Slice D-1a;每商品一列)——scalar 欄 derive 自生成 order_items Row,
+ * brand 巢狀 embed 手型別(variant→product→brand;many-to-one 單物件、任一層缺 → null)。
+ */
+type AdminOrderListItemEmbed = Pick<
+  Database['public']['Tables']['order_items']['Row'],
+  'variant_sku' | 'quantity' | 'unit_price' | 'line_total' | 'product_snapshot'
+> & {
+  product_variants: { products: { brands: { name: string } | null } | null } | null;
+};
+
 export type SupabaseAdminOrderRow = Pick<
   Database['public']['Tables']['orders']['Row'],
   | 'id'
@@ -162,6 +174,7 @@ export type SupabaseAdminOrderRow = Pick<
   | 'cancelled_at'
   | 'workflow_status'
   | 'version'
+  | 'tier_at_checkout'
 > & {
   /**
    * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
@@ -170,6 +183,13 @@ export type SupabaseAdminOrderRow = Pick<
    *    PostgREST 語意 many-to-one = 單物件、但跨版本 / 生成器推斷有落差,mapper 端正規化吸收(見 customerNameFromEmbed)。
    */
   customers: { name: string } | { name: string }[] | null;
+  /**
+   * 內嵌 order_items(每商品一列;M-4a Slice D-1a)。orders→order_items = to-many → 陣列(或 null 防禦);
+   * 每列 variant→product→brand = many-to-one → 單物件(或 null,variant_id 可為 null / join 缺)。
+   * 成交價 unit_price/line_total = 該單實際賣價(非經銷價表);穿越的 product_variants/products 價格欄
+   * **不投影**(見 ADMIN_ORDER_LIST_SELECT)。runtime cast `as unknown as SupabaseAdminOrderRow[]` 吸收 embed 型別落差。
+   */
+  order_items: AdminOrderListItemEmbed[] | null;
 };
 
 /** customers embed → 客人顯示名:容單物件 / 陣列兩形狀(防 PostgREST embed cardinality 落差)、缺 → null。 */
@@ -177,6 +197,18 @@ function customerNameFromEmbed(embed: SupabaseAdminOrderRow['customers']): strin
   if (embed == null) return null;
   const record = Array.isArray(embed) ? embed[0] : embed;
   return record?.name ?? null;
+}
+
+/** order_items 內嵌 → domain AdminOrderLine:brand 走 variant→product→brand(任一層缺 → null);成交價整數 → Money。 */
+function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
+  return {
+    variantSku: item.variant_sku,
+    title: pickString(item.product_snapshot, 'title'),
+    brand: item.product_variants?.products?.brands?.name ?? null,
+    quantity: item.quantity,
+    unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
+    lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
+  };
 }
 
 /**
@@ -202,6 +234,8 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     cancelledAt: row.cancelled_at,
     workflowStatus: row.workflow_status, // M-4a:NULL=未設定;未知 code 顯示端兜底(soft-ref、無硬 FK)
     version: row.version, // M-4a Slice C:每列 inline 改單表單帶此值當樂觀鎖條件
+    tierAtCheckout: row.tier_at_checkout, // M-4a Slice D-1a:會員等級(member_tier enum;顯示端映射一般/車行)
+    lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
   };
 }
 

@@ -223,30 +223,42 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 }
 
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(客人顯示 customers(name),零成本欄)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價 + brand join;零經銷價成本欄)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, customers(name)',
+      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, tier_at_checkout, customers(name), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))))',
     );
   });
 
-  it('🔴 鐵則 12:投影不含任何成本 / 經銷 / 敏感欄名、且無 select("*")', () => {
+  // 🔴 M-4a Slice D-1a 有意識鬆綁(依據 docs/specs/2026-07-15-m4a-order-list-redesign-slice-d-plan.md §0 經銷價護欄①):
+  //「每商品一列」需 tier_at_checkout(會員等級)+ order_items 成交價(unit_price/line_total)+ product_snapshot(品名)
+  // + brand join → 由 forbidden 移出。admin server-render、SSO 閘後、絕不進非 admin client bundle(WorkflowStatusCell 亦 server component)。
+  // 🔴 縱深防線:brand join 穿越帶 price_store/price_by_tier/price_general 的 product_variants/products,故下列**經銷價成本欄
+  // 永久 forbidden**(投影只取 brands(name);任一成本欄誤入即被本測試擋下)。
+  it('🔴 鐵則 12:投影不含任何經銷價 / 成本欄名、且無 select("*")(成交價/tier 已於 D-1a 有意識放行、非成本欄)', () => {
     const forbidden = [
       '*',
       'price_store',
       'price_by_tier',
       'priceByTier',
+      'price_general',
       'cost',
-      'unit_price',
-      'line_total',
-      'product_snapshot',
       'tappay_rec_trade_id',
       'shipping_address_snapshot',
       'invoice',
-      'tier_at_checkout',
+      'cart_session_id',
+      'address_id',
     ];
     for (const token of forbidden) {
       expect(ADMIN_ORDER_LIST_SELECT).not.toContain(token);
     }
+  });
+
+  it('🔴 D-1a 每商品一列:投影確含 tier_at_checkout + order_items 成交價 + brand join(brands(name))', () => {
+    expect(ADMIN_ORDER_LIST_SELECT).toContain('tier_at_checkout');
+    expect(ADMIN_ORDER_LIST_SELECT).toContain('order_items(');
+    expect(ADMIN_ORDER_LIST_SELECT).toContain('unit_price');
+    expect(ADMIN_ORDER_LIST_SELECT).toContain('line_total');
+    expect(ADMIN_ORDER_LIST_SELECT).toContain('product_variants(products(brands(name)))');
   });
 
   it('查詢鏈 orders / select(ADMIN_ORDER_LIST_SELECT,{count:exact}) / 五軸 eq 下推 / order(created_at desc) / range(offset,offset+limit-1);row → AdminOrderSummary', async () => {
@@ -265,7 +277,26 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           display_position: null,
           cancelled_at: null,
           version: 5,
+          tier_at_checkout: 'store', // 車行
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
+          order_items: [
+            {
+              variant_sku: 'BMS-13OEM-G-F',
+              quantity: 2,
+              unit_price: 2500,
+              line_total: 5000,
+              product_snapshot: { sku: 'BMS-13OEM-G-F', title: '下導流' },
+              product_variants: { products: { brands: { name: 'Bonamici' } } }, // variant→product→brand
+            },
+            {
+              variant_sku: 'SUP-ONLY-SKU',
+              quantity: 1,
+              unit_price: 200,
+              line_total: 200,
+              product_snapshot: { sku: 'SUP-ONLY-SKU', title: '螺絲包' },
+              product_variants: null, // variant_id null(supplier_slug+sku 型)→ brand null 容缺
+            },
+          ],
         },
       ],
       error: null,
@@ -310,6 +341,25 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           cancelledAt: null,
           workflowStatus: 'received_confirmed',
           version: 5,
+          tierAtCheckout: 'store',
+          lines: [
+            {
+              variantSku: 'BMS-13OEM-G-F',
+              title: '下導流',
+              brand: 'Bonamici',
+              quantity: 2,
+              unitPrice: { amount: 2500, currency: 'TWD' },
+              lineTotal: { amount: 5000, currency: 'TWD' },
+            },
+            {
+              variantSku: 'SUP-ONLY-SKU',
+              title: '螺絲包',
+              brand: null,
+              quantity: 1,
+              unitPrice: { amount: 200, currency: 'TWD' },
+              lineTotal: { amount: 200, currency: 'TWD' },
+            },
+          ],
         },
       ],
       total: 37,
@@ -358,7 +408,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           cancelled_at: '2099-05-02T00:00:00Z',
           workflow_status: null,
           version: 2,
+          tier_at_checkout: 'general', // 一般
           customers: null,
+          order_items: null, // embed 缺 → lines []
         },
       ],
       error: null,
@@ -382,6 +434,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       cancelledAt: '2099-05-02T00:00:00Z',
       workflowStatus: null, // NULL = 未設定(顯示端兜「未設定」中性 badge)
       version: 2,
+      tierAtCheckout: 'general',
+      lines: [],
     });
   });
 

@@ -69,7 +69,7 @@ export interface IOrderRepository {
   /**
    * admin 訂單列表「摘要」(M-4a 訂單線第一片;後台營運找單 / 看狀態)。
    *
-   * 回 `Paginated<AdminOrderSummary>`(摘要投影、不含 items[]):繞過 #217、比照 `listByCustomer` vs
+   * 回 `Paginated<AdminOrderSummary>`(M-4a Slice D-1a 起每商品一列、攜 `lines[]` 品項展開 + tier + brand join):繞過 #217、比照 `listByCustomer` vs
    * `listSummariesByCustomer` 分離先例 —— **新增** admin 專用摘要方法、不動既有 `listByStatus` stub /
    * `listByCustomer` / `listSummariesByCustomer`(會員側零影響)。
    *

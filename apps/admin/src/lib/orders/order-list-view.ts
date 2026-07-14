@@ -9,6 +9,7 @@ import type {
   FulfillmentStatus,
   OrderSource,
   PaymentChannel,
+  MemberTier,
   OrderStatusOption,
 } from '@pcm/domain';
 import { pickEnum, parsePage, buildListHref, type FilterOption } from '../shared/list-params';
@@ -89,6 +90,16 @@ export const PAYMENT_CHANNEL_LABEL: Record<PaymentChannel, string> = {
   bank_transfer: '銀行轉帳',
   cash: '現金',
   none: '未指定',
+};
+
+/**
+ * 會員等級標籤(orders.tier_at_checkout;M-4a Slice D-1a 列表「會員等級」欄)。
+ * Sean 需求二分:一般 / 車行 —— store 與 premiumStore 皆歸「車行」(進階經銷仍是車行客)。
+ */
+export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
+  general: '一般',
+  store: '車行',
+  premiumStore: '車行',
 };
 
 function toOptions<T extends string>(

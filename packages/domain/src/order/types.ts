@@ -212,9 +212,32 @@ export type AdminOrderFilter = {
 };
 
 /**
+ * AdminOrderLine: 後台訂單列表「每商品一列」品項投影(M-4a Slice D-1a;order_items 內嵌展開)。
+ *
+ * 🔴 鐵則 12:`unitPrice`/`lineTotal` = 該單**成交價**(下單當下實際賣價、integer 元位 → Money),
+ * 非經銷價表 —— brand join 只取 `brands.name`,穿越的 product_variants/products 價格欄(price_store /
+ * price_by_tier)絕不投影(見 `ADMIN_ORDER_LIST_SELECT` byte-lock + forbidden-token 測試縱深)。
+ * `brand`:order_items.variant_id → product_variants → products → brands.name;variant_id 為 null
+ * (supplier_slug+sku 型 line)或 join 缺 → null(顯示端「—」)。
+ */
+export type AdminOrderLine = {
+  /** 料號(order_items.variant_sku) */
+  variantSku: string;
+  /** 品名(product_snapshot.title;缺 → null 防禦) */
+  title: string | null;
+  /** 商品品牌(join brands.name;缺 → null) */
+  brand: string | null;
+  quantity: number;
+  /** 成交單價(整數元位;非經銷價表) */
+  unitPrice: Money;
+  /** 小計 line_total(下單當下 server 算、不重算) */
+  lineTotal: Money;
+};
+
+/**
  * AdminOrderSummary: 後台訂單列表摘要投影(admin read-model、server 分頁)。
  *
- * 用途:後台 /orders 列表(找單 / 看狀態)。刻意**不含** `items[]`(繞過 #217,同 OrderListItem);
+ * 用途:後台 /orders 列表(找單 / 看狀態)。M-4a Slice D-1a 起攜 `lines[]`(每商品一列展開、brand join)+ tierAtCheckout;
  * 比 `OrderListItem` 多攜:客人顯示名(join customers)、order_source、payment_channel、display_position、
  * cancelled_at(取消軸,非 null = 已取消,本片純顯示、取消功能留取消片)。
  *
@@ -248,6 +271,14 @@ export type AdminOrderSummary = {
   workflowStatus: string | null;
   /** 樂觀鎖版本(M-4a Slice C;寫入路徑帶此值當 WHERE version 條件、衝突 409 重載)。 */
   version: number;
+  /**
+   * 會員等級(orders.tier_at_checkout、下單當下等級快照)。general=一般、store/premiumStore=車行。
+   * 🔴 鐵則 12:tier + 品項成交價同列 = 經銷價脈絡,僅 admin server-render(SSO 閘後)消費、
+   * 絕不進非 admin client bundle(本讀模型只由 server component 用)。
+   */
+  tierAtCheckout: MemberTier;
+  /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
+  lines: AdminOrderLine[];
 };
 
 /** 開票紀錄狀態(orders.invoice_status;DB CHECK 三值,v1 簡單欄位、不串電子發票 API)。 */
