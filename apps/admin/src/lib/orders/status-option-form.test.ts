@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import {
   isAllowedOrigin,
   parseStatusOptionEditForm,
+  parseStatusOptionCreateForm,
   CODE_FIELD,
   LABEL_FIELD,
   COLOR_FIELD,
@@ -92,5 +93,33 @@ describe('parseStatusOptionEditForm — 形狀守門(值域權威在 DB CHECK)',
     for (const bad of ['UPPER', 'has space', 'unset', '__clear__', '']) {
       expect(parseStatusOptionEditForm(form({ ...VALID, [CODE_FIELD]: bad })).ok).toBe(false);
     }
+  });
+});
+
+describe('parseStatusOptionCreateForm — 新增(code 使用者輸入=中性 slug)', () => {
+  it('合法整列 → ok、input 含 code + 5 欄', () => {
+    expect(parseStatusOptionCreateForm(form(VALID))).toEqual({
+      ok: true,
+      input: {
+        code: 'received_confirmed',
+        label: '已收已定',
+        color: '#FBE4A6',
+        textColor: 'dark',
+        sortOrder: 10,
+        isActive: true,
+      },
+    });
+  });
+
+  it('code 非法形狀 / 保留字 / 空 → false(同 edit 值域守門)', () => {
+    for (const bad of ['UPPER', 'has space', 'unset', '__clear__', '']) {
+      expect(parseStatusOptionCreateForm(form({ ...VALID, [CODE_FIELD]: bad })).ok).toBe(false);
+    }
+  });
+
+  it('label 空 / color 非 hex / sort_order 負 → false', () => {
+    expect(parseStatusOptionCreateForm(form({ ...VALID, [LABEL_FIELD]: '   ' })).ok).toBe(false);
+    expect(parseStatusOptionCreateForm(form({ ...VALID, [COLOR_FIELD]: 'red' })).ok).toBe(false);
+    expect(parseStatusOptionCreateForm(form({ ...VALID, [SORT_ORDER_FIELD]: '-1' })).ok).toBe(false);
   });
 });

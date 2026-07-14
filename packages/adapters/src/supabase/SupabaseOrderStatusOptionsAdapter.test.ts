@@ -164,3 +164,52 @@ describe('SupabaseOrderStatusOptionsAdapter.updateOrderStatusOption', () => {
     ).rejects.toThrow();
   });
 });
+
+// M-4a Slice D-3c:from('order_status_options').insert({6欄}) 鏈(無 .select();只取 { error })。
+function makeInsertClient(result: { error: unknown }) {
+  const insert = vi.fn().mockResolvedValue(result);
+  const from = vi.fn().mockReturnValue({ insert });
+  return { client: { from } as unknown as SupabaseClient, from, insert };
+}
+
+describe('SupabaseOrderStatusOptionsAdapter.createOrderStatusOption', () => {
+  const INPUT = {
+    code: 'new_status',
+    label: '新狀態',
+    color: '#ABCDEF',
+    textColor: 'light' as const,
+    sortOrder: 100,
+    isActive: true,
+  };
+
+  it('INSERT 具名 6 欄(含 code、無 created_at)、無 .select() → CREATED', async () => {
+    const { client, from, insert } = makeInsertClient({ error: null });
+    const res = await new SupabaseOrderStatusOptionsAdapter(client).createOrderStatusOption(INPUT);
+    expect(from).toHaveBeenCalledWith('order_status_options');
+    expect(insert).toHaveBeenCalledWith({
+      code: 'new_status',
+      label: '新狀態',
+      color: '#ABCDEF',
+      text_color: 'light',
+      sort_order: 100,
+      is_active: true,
+    });
+    const payload = insert.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('created_at'); // 交 DB default
+    expect(res).toBe('CREATED');
+  });
+
+  it('code 重複(unique_violation 23505)→ DUPLICATE(非 throw、caller 退友善碼)', async () => {
+    const { client } = makeInsertClient({ error: { code: '23505', message: 'duplicate key value' } });
+    await expect(
+      new SupabaseOrderStatusOptionsAdapter(client).createOrderStatusOption(INPUT),
+    ).resolves.toBe('DUPLICATE');
+  });
+
+  it('其他 DB error(非 23505)→ 裸 throw', async () => {
+    const { client } = makeInsertClient({ error: new Error('some other db error') });
+    await expect(
+      new SupabaseOrderStatusOptionsAdapter(client).createOrderStatusOption(INPUT),
+    ).rejects.toThrow();
+  });
+});

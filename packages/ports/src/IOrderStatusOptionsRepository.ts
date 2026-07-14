@@ -29,4 +29,10 @@ export interface IOrderStatusOptionsRepository {
     code: string,
     update: OrderStatusOptionUpdate,
   ): Promise<'UPDATED' | 'NOT_FOUND'>;
+
+  /**
+   * 新增狀態選項(M-4a Slice D-3c 設定頁;code 由呼叫端提供=中性 slug)。
+   * 回 'CREATED'(成功)/ 'DUPLICATE'(code 已存在、PK 衝突)。RESERVED_CODES+DB CHECK 雙層擋非法/保留字。
+   */
+  createOrderStatusOption(input: OrderStatusOption): Promise<'CREATED' | 'DUPLICATE'>;
 }

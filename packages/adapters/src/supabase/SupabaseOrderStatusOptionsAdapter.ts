@@ -87,4 +87,27 @@ export class SupabaseOrderStatusOptionsAdapter implements IOrderStatusOptionsRep
     }
     return data && data.length > 0 ? 'UPDATED' : 'NOT_FOUND';
   }
+
+  /**
+   * 新增狀態選項(M-4a Slice D-3c 設定頁;service_role INSERT grant〔Slice A 20260714120000〕)。
+   *
+   * 🔴 code 由呼叫端提供(中性 slug、非從 label 衍生;RESERVED_CODES〔form 層〕+ DB CHECK 雙層擋非法/保留字)。
+   * INSERT 具名 6 欄、無 created_at(交 DB default);**不鏈 `.select()`**(只需 { error }、不回讀)。
+   * PK 重複(unique_violation 23505)→ 'DUPLICATE'(caller 退友善碼);其他 error → 裸 throw。
+   */
+  async createOrderStatusOption(input: OrderStatusOption): Promise<'CREATED' | 'DUPLICATE'> {
+    const { error } = await this.supabase.from('order_status_options').insert({
+      code: input.code,
+      label: input.label,
+      color: input.color,
+      text_color: input.textColor,
+      sort_order: input.sortOrder,
+      is_active: input.isActive,
+    });
+    if (error) {
+      if (error.code === '23505') return 'DUPLICATE'; // code PK 已存在
+      throw error;
+    }
+    return 'CREATED';
+  }
 }

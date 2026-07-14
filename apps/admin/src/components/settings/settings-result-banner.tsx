@@ -3,9 +3,11 @@
 
 const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> = {
   saved: { text: '已儲存變更。', tone: 'ok' },
+  created: { text: '已新增狀態選項。', tone: 'ok' },
   notfound: { text: '找不到該狀態選項(可能已被移除),未儲存。', tone: 'warn' },
+  duplicate: { text: '代碼(code)已存在,請換一個,未新增。', tone: 'warn' },
   invalid: {
-    text: '輸入格式不正確(標籤 1–32 字、顏色須 #RRGGBB、排序須非負整數),未儲存。',
+    text: '輸入格式不正確(代碼須小寫英數底線、標籤 1–32 字、顏色須 #RRGGBB、排序須非負整數)。',
     tone: 'warn',
   },
   denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },

@@ -8,7 +8,11 @@ import { ADMIN_SESS_COOKIE, verifySession } from '../session/session';
 import { getSessionActor } from '../session/actor';
 import { getRequestId } from '../audit/context';
 import { getAdminOrderStatusOptionsRepository, getAdminAuditLogRepository } from './order-repository';
-import { isAllowedOrigin, parseStatusOptionEditForm } from './status-option-form';
+import {
+  isAllowedOrigin,
+  parseStatusOptionEditForm,
+  parseStatusOptionCreateForm,
+} from './status-option-form';
 
 // M-4a Slice D-3 狀態選項設定 server action(編輯既有 order_status_options:label/color/text_color/sort_order/is_active)。
 //
@@ -28,7 +32,7 @@ const SETTINGS_PATH = '/settings/order-statuses';
 const DEV_BYPASS =
   process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
 
-type ResultCode = 'saved' | 'notfound' | 'invalid' | 'denied' | 'error';
+type ResultCode = 'saved' | 'created' | 'notfound' | 'duplicate' | 'invalid' | 'denied' | 'error';
 
 /** 結果碼 → /settings/order-statuses?r=<code>(PRG;固定站內路徑、無 open-redirect 面)。 */
 function redirectWith(code: ResultCode): never {
@@ -101,6 +105,76 @@ export async function updateStatusOptionAction(formData: FormData): Promise<void
       );
     } catch (auditErr) {
       console.error('[admin/settings] 稽核寫入失敗(變更已生效、不擋使用者)', {
+        request_id: requestId,
+        message: String((auditErr as { message?: unknown }).message ?? '').slice(0, 200),
+      });
+    }
+  }
+
+  revalidatePath(SETTINGS_PATH);
+  redirectWith(code);
+}
+
+/**
+ * 新增狀態選項(M-4a Slice D-3c;鏡像 update 三閘 + 稽核;code 由使用者輸入=中性 slug)。
+ * INSERT 成功='created';code 重複(PK 23505)='duplicate'(友善碼、非 error)。
+ */
+export async function createStatusOptionAction(formData: FormData): Promise<void> {
+  const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
+
+  // ① session 自驗、② Origin fail-closed、③ 具名 actor(鏡像 update;缺任一 → denied)。
+  const session = await verifySession(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
+  if (!session) {
+    redirectWith('denied');
+  }
+  if (!isAllowedOrigin(headerStore.get('origin'), { devBypass: DEV_BYPASS })) {
+    redirectWith('denied');
+  }
+  const actor = await getSessionActor();
+  if (!actor) {
+    redirectWith('denied');
+  }
+
+  const parsed = parseStatusOptionCreateForm(formData);
+  if (!parsed.ok) {
+    redirectWith('invalid');
+  }
+
+  const requestId = await getRequestId();
+  console.info('[admin/settings] order_status_option.create.attempt', {
+    request_id: requestId,
+    sid: session.sid,
+    actor: actor.id,
+    code: parsed.input.code,
+  });
+
+  let code: ResultCode;
+  try {
+    const result = await getAdminOrderStatusOptionsRepository().createOrderStatusOption(parsed.input);
+    code = result === 'CREATED' ? 'created' : 'duplicate';
+  } catch (err) {
+    const e = err as { code?: unknown; message?: unknown };
+    console.error('[admin/settings] 狀態選項新增失敗', {
+      request_id: requestId,
+      code: typeof e.code === 'string' ? e.code : undefined,
+      message: String(e.message ?? '').slice(0, 200),
+    });
+    redirectWith('error');
+  }
+
+  // 🔴 成功新增寫 admin_audit_log(重用 D-3b 基建;log-and-continue)。
+  if (code === 'created') {
+    try {
+      await getAdminAuditLogRepository().record(
+        {
+          action: 'order_status_option.create',
+          target: `order_status_option:${parsed.input.code}`,
+          after: parsed.input,
+        },
+        { actor: actor.id, requestId, sourceApp: 'admin' },
+      );
+    } catch (auditErr) {
+      console.error('[admin/settings] 稽核寫入失敗(新增已生效、不擋使用者)', {
         request_id: requestId,
         message: String((auditErr as { message?: unknown }).message ?? '').slice(0, 200),
       });

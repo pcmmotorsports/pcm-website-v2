@@ -2,7 +2,7 @@
 // authz(session/Origin)在 action 檔;本檔只做「表單 → OrderStatusOptionUpdate」的形狀層驗證
 // (值域 fail-closed 權威在 DB CHECK:code slug / label 1..32 / color hex / text_color IN light,dark)。
 
-import type { OrderStatusOptionUpdate } from '@pcm/domain';
+import type { OrderStatusOption, OrderStatusOptionUpdate } from '@pcm/domain';
 
 // Origin 白名單複用 Slice C(prod 精確等值 https://admin.pcmmotorsports.com、缺 Origin 拒、dev localhost)。
 export { isAllowedOrigin } from './workflow-form';
@@ -72,4 +72,39 @@ export function parseStatusOptionEditForm(form: FormLike): StatusOptionEditParse
   const isActive = form.has(IS_ACTIVE_FIELD);
 
   return { ok: true, code, update: { label, color, textColor, sortOrder, isActive } };
+}
+
+export type StatusOptionCreateParse =
+  | { ok: true; input: OrderStatusOption }
+  | { ok: false };
+
+/**
+ * 表單 → OrderStatusOption(新增選項;M-4a Slice D-3c)。與 edit 同值域守門,差別:
+ * - code = **要新增的中性 slug**(呼叫端輸入、非從 label 衍生;RESERVED_CODES + DB CHECK 雙層);
+ * - 回完整 OrderStatusOption(含 code);唯一性由 DB PK 保證(重複走 adapter 23505 → 'DUPLICATE')。
+ * 任一不合 → ok:false(action 退 'invalid')。
+ */
+export function parseStatusOptionCreateForm(form: FormLike): StatusOptionCreateParse {
+  const code = asString(form.get(CODE_FIELD));
+  if (!code || !CODE_RE.test(code) || RESERVED_CODES.has(code)) return { ok: false };
+
+  const label = (asString(form.get(LABEL_FIELD)) ?? '').trim();
+  if (label === '' || label.length > LABEL_MAX) return { ok: false };
+
+  const color = asString(form.get(COLOR_FIELD)) ?? '';
+  if (!COLOR_RE.test(color)) return { ok: false };
+
+  const textColor = asString(form.get(TEXT_COLOR_FIELD));
+  if (textColor !== 'light' && textColor !== 'dark') return { ok: false };
+
+  const sortRaw = (asString(form.get(SORT_ORDER_FIELD)) ?? '').trim();
+  if (!/^\d{1,10}$/.test(sortRaw)) return { ok: false };
+  const sortOrder = Number(sortRaw);
+  if (!Number.isInteger(sortOrder) || sortOrder < 0 || sortOrder > SORT_ORDER_MAX) {
+    return { ok: false };
+  }
+
+  const isActive = form.has(IS_ACTIVE_FIELD);
+
+  return { ok: true, input: { code, label, color, textColor, sortOrder, isActive } };
 }

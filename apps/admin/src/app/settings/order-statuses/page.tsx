@@ -2,9 +2,10 @@ import type { OrderStatusOption } from '@pcm/domain';
 import { getAdminOrderStatusOptionsRepository } from '@/lib/orders/order-repository';
 import { StatusOptionEditRow } from '@/components/settings/status-option-edit-row';
 import { SettingsResultBanner } from '@/components/settings/settings-result-banner';
+import { StatusOptionCreateForm } from '@/components/settings/status-option-create-form';
 
 // M-4a Slice D-3 訂單狀態選項設定頁(server component、force-dynamic;SSO 閘後 admin-only)。
-// 編輯既有 order_status_options(標籤/底色/字色/排序/啟用);code 不可改、停用=soft-delete。新增留 D-3b。
+// order_status_options CRUD(D-3a 編輯既有 + D-3c 新增;標籤/底色/字色/排序/啟用);code 不可改、停用=soft-delete。
 export const dynamic = 'force-dynamic';
 
 type SearchParams = Record<string, string | string[] | undefined>;
@@ -58,6 +59,11 @@ export default async function OrderStatusesSettingsPage({
           ))}
         </div>
       )}
+
+      <div className='space-y-2'>
+        <h2 className='text-lg font-semibold'>新增狀態選項</h2>
+        <StatusOptionCreateForm />
+      </div>
     </div>
   );
 }
