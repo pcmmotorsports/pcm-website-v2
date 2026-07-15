@@ -504,6 +504,21 @@
 .acc-inline-form-inner input:focus { border-color: var(--c-text, #0a0a0a); }
 .acc-inline-form-inner input:disabled { background: var(--c-surface-2, #f4f4f5); color: var(--c-text-3, #aaa); }
 
+/* V-1c++:車庫車型欄「字典雙下拉 ↔ 自行輸入」切換連結鈕 */
+.acc-veh-mode-toggle {
+  align-self: flex-start;
+  margin-top: -6px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--c-text-2, #555);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.acc-veh-mode-toggle:hover { color: var(--c-text, #0a0a0a); }
+
 .acc-inline-check {
   flex-direction: row !important;
   align-items: center !important;

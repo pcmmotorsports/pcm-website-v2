@@ -13,16 +13,25 @@
 //   form 保持 generic、不 hardcode action → 可重用(veh.id 僅決定 heading 字面,id 綁定由 parent closure 處理)
 // - controlled state + useTransition;成功 ok → router.refresh()〔g-4c pattern、重讀 page server component 即時刷新清單〕+ onClose()
 //
+// V-1c++(Sean 07-16 實測回饋二輪):車型欄改「字典雙下拉(品牌/車型 VehicleCombo)為主、
+// 自行輸入為 fallback」——與首頁選車同一 combobox 原型(打字過濾/可捲全清單、無 8 筆截斷),
+// 點選出的名稱=字典標準字面「品牌 車型」→ 首頁愛車 chips 一鍵套用 100% 精確命中。
+// 年份維持自由填寫:車主的實車年份不一定在 fitment 字典年份裡(例如字典只收 2018-2020、
+// 車是 2016),強制字典年份會把人卡死;chips 套用時年份合法才帶入(VehicleFinder 既有閘)。
+// 字典沒有的車 → 「改用自行輸入」照打照存,自由度不變(車種鐵律:字典零猜、自由文字不硬配)。
+//
 // #181 雙通道(沿用 InlineAddressForm pattern、但無巢狀 — VehicleInput 僅 name 必填):
 // - fieldErrors.name(.auth-field-err 顯車型 input 下方);formError 帳號層級(.auth-err 表單頂部)
 // - 信任邊界全在 server(addVehicleAction safeParse);client 不重驗、收 server 逐欄回傳渲染
+//   (dict 模式的「品牌車型都要選」是 client 端組字guard、非 server 規則複驗)
 
 import { useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { VehicleInput } from '@pcm/schemas';
 import type { AddVehicleActionResult, VehicleFieldErrors } from '@/app/account/vehicle/actions';
-import { filterVehicleOptions } from '@/lib/vehicle-match';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import { VehicleCombo } from '@/components/VehicleSelect';
 
 // 表單初值(新增:id 缺/null + isPrimary 由 parent 依清單空否帶入;編輯〔g-6c〕:帶完整 CustomerVehicle 值)。
 export type InlineVehicleInitial = {
@@ -42,30 +51,42 @@ export type InlineVehicleFormProps = {
   // g-6b 傳 addVehicleAction;g-6c 編輯傳 (input) => updateVehicleAction(veh.id!, input)(id 綁定在 parent closure)。
   onSubmit: (input: VehicleInput) => Promise<AddVehicleActionResult>;
   /**
-   * V-1c+(Sean 07-15 實測回饋):車型欄打字時的字典建議清單(「品牌 車型」字面、server 端
-   * fetchVehicleTaxonomy 衍生)。點選=填入標準字面(→首頁愛車 chips 一鍵套用可精確命中);
-   * 不選照打照存=自由輸入 fallback 不變(字典沒有的車照樣能記)。缺省 []=無建議、行為同舊版。
+   * V-1c++:車型字典(結構化 taxonomy、server 端 fetchVehicleTaxonomy 直傳)。有值=品牌/車型
+   * 雙下拉為主 + 自行輸入 fallback;缺省 []=退回純自由輸入(行為同 V-1c 前舊版、不擋)。
    */
-  vehicleModelOptions?: string[];
+  vehicleBrands?: MockMotoBrand[];
 };
+
+/** 編輯模式:既有 name 若正好是字典標準字面「品牌 車型」→ 回填雙下拉;否則走自行輸入。 */
+function parseDictName(
+  brands: MockMotoBrand[],
+  name: string,
+): { brand: string; model: string } | null {
+  for (const b of brands) {
+    for (const m of b.models) {
+      if (`${b.name} ${m.name}` === name) return { brand: b.name, model: m.name };
+    }
+  }
+  return null;
+}
 
 export function InlineVehicleForm({
   veh,
   onClose,
   onSubmit,
-  vehicleModelOptions = [],
+  vehicleBrands = [],
 }: InlineVehicleFormProps) {
   const router = useRouter();
   const [isPrimary, setIsPrimary] = useState(!!veh.isPrimary);
+  // 車型欄雙模式:dict=字典雙下拉(預設、可精確命中愛車 chips);free=自行輸入(字典沒有的車)。
+  // 初始:無字典 → free;name 空(新增)→ dict;name=字典標準字面 → dict 回填;其餘(自由文字)→ free。
+  const initialDict = veh.name ? parseDictName(vehicleBrands, veh.name) : null;
+  const [mode, setMode] = useState<'dict' | 'free'>(
+    vehicleBrands.length === 0 ? 'free' : !veh.name || initialDict ? 'dict' : 'free',
+  );
+  const [brandName, setBrandName] = useState<string | null>(initialDict?.brand ?? null);
+  const [modelName, setModelName] = useState<string | null>(initialDict?.model ?? null);
   const [name, setName] = useState(veh.name ?? '');
-  const [nameFocus, setNameFocus] = useState(false);
-  // 車型字典建議:聚焦+有輸入才顯、上限 8、已全等時不再跳(避免選完還掛著)
-  const nameSuggestions =
-    nameFocus && name.trim() !== ''
-      ? filterVehicleOptions(vehicleModelOptions, name, (l) => l)
-          .filter((l) => l !== name)
-          .slice(0, 8)
-      : [];
   const [year, setYear] = useState(veh.year ?? '');
   const [engine, setEngine] = useState(veh.engine ?? '');
   const [km, setKm] = useState(veh.km ?? '');
@@ -76,11 +97,21 @@ export function InlineVehicleForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  const curBrand = brandName !== null ? vehicleBrands.find((b) => b.name === brandName) : undefined;
+  const modelOptions = curBrand?.models.map((m) => m.name) ?? [];
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
+    // dict 模式組字 guard(client 端 UI 組合、非 server 規則複驗):品牌車型都選了才有名稱可組。
+    if (mode === 'dict' && (brandName === null || modelName === null)) {
+      setFieldErrors({ name: '請選擇品牌與車型,或改用自行輸入' });
+      setFormError(null);
+      return;
+    }
+    const submitName = mode === 'dict' ? `${brandName} ${modelName}` : name;
     startTransition(async () => {
       // 信任邊界在 server(addVehicleAction safeParse);client 不重驗、收逐欄回傳渲染。
-      const result = await onSubmit({ isPrimary, name, year, engine, km, mods, service });
+      const result = await onSubmit({ isPrimary, name: submitName, year, engine, km, mods, service });
       if (result.fieldErrors) {
         setFieldErrors(result.fieldErrors);
         setFormError(null);
@@ -107,47 +138,88 @@ export function InlineVehicleForm({
       {/* 頂部:帳號層級錯(請重新登入 / 儲存失敗 = formError);逐欄錯顯各欄下方(#181 雙通道) */}
       {formError && <div className="auth-err">{formError}</div>}
 
-      <label>
-        <span>車型</span>
-        {/* V-1c+(Sean 07-15 實測回饋):打字跳字典建議(共用 vehicle-match 核心、.vsc-list 樣式);
-            點選=填標準字面(→首頁愛車 chips 可精確命中)、不選照打照存=自由輸入 fallback 不變。
-            onMouseDown 先於 blur=點選不被關閉搶走。 */}
-        <div className="vsc">
-          <input
-            role="combobox"
-            aria-expanded={nameSuggestions.length > 0}
-            aria-autocomplete="list"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onFocus={() => setNameFocus(true)}
-            onBlur={() => setNameFocus(false)}
-            required
-            placeholder="YAMAHA YZF-R6"
-          />
-          {nameSuggestions.length > 0 && (
-            <ul className="vsc-list" role="listbox" aria-label="車型建議">
-              {nameSuggestions.map((label) => (
-                <li
-                  key={label}
-                  role="option"
-                  aria-selected={false}
-                  className="vsc-option"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setName(label);
-                    setNameFocus(false);
-                  }}
-                  // 外層 label:取消 click activation、防 focus 轉發回 input 重開清單(同 VehicleSelect)
-                  onClick={(e) => e.preventDefault()}
-                >
-                  {label}
-                </li>
-              ))}
-            </ul>
+      {mode === 'dict' ? (
+        <>
+          {/* V-1c++:品牌/車型=與首頁同一 combobox 原型(VehicleCombo variant="form"、裸 input
+              吃 account.css 表單樣式);清單可捲、無截斷;換品牌 → 車型連動清空。 */}
+          <label>
+            <span>品牌</span>
+            <VehicleCombo
+              label="選擇品牌"
+              value={brandName}
+              options={vehicleBrands.map((b) => b.name)}
+              placeholder="YAMAHA"
+              variant="form"
+              onPick={(n) => {
+                setBrandName(n);
+                setModelName(null);
+              }}
+              onClear={() => {
+                setBrandName(null);
+                setModelName(null);
+              }}
+            />
+          </label>
+          <label>
+            <span>車型</span>
+            <VehicleCombo
+              label="選擇車型"
+              value={modelName}
+              options={modelOptions}
+              disabled={brandName === null}
+              placeholder="YZF-R6"
+              variant="form"
+              onPick={(n) => setModelName(n)}
+              onClear={() => setModelName(null)}
+            />
+            {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
+          </label>
+          <button
+            type="button"
+            className="acc-veh-mode-toggle"
+            onClick={() => {
+              // 已選齊 → 帶入組合字面當自由輸入初值(V-1d 指示「客人可改顯示名」);未選齊保留原值。
+              if (brandName !== null && modelName !== null) setName(`${brandName} ${modelName}`);
+              setMode('free');
+              setFieldErrors({});
+            }}
+          >
+            清單裡找不到你的車?改用自行輸入
+          </button>
+        </>
+      ) : (
+        <>
+          <label>
+            <span>車型</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              placeholder="YAMAHA YZF-R6"
+            />
+            {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
+          </label>
+          {vehicleBrands.length > 0 && (
+            <button
+              type="button"
+              className="acc-veh-mode-toggle"
+              onClick={() => {
+                // NIT-1(值班台):切回 dict 時重解析 name,字典字面命中就回填雙下拉
+                // (鏡像編輯模式回填語意;所見=所送、避免剛打的字面「消失」突兀)。
+                const hit = parseDictName(vehicleBrands, name);
+                if (hit) {
+                  setBrandName(hit.brand);
+                  setModelName(hit.model);
+                }
+                setMode('dict');
+                setFieldErrors({});
+              }}
+            >
+              改用清單選車(品牌/車型)
+            </button>
           )}
-        </div>
-        {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
-      </label>
+        </>
+      )}
       <label>
         <span>年份</span>
         <input value={year} onChange={(e) => setYear(e.target.value)} placeholder="2022" />

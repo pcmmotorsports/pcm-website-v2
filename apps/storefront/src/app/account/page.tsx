@@ -130,11 +130,10 @@ export default async function AccountPage() {
     console.error('[account/page] orders 讀取失敗、退化空陣列:', orderError);
   }
 
-  // V-1c+(Sean 07-15 實測回饋):車型欄字典建議=taxonomy(unstable_cache 900s、失敗回 [])
-  // 衍生「品牌 車型」labels;點選存標準字面 → 首頁愛車 chips 一鍵套用可精確命中。
-  const vehicleModelOptions = (await fetchVehicleTaxonomy()).flatMap((b) =>
-    b.models.map((m) => `${b.name} ${m.name}`),
-  );
+  // V-1c++(Sean 07-16 實測回饋二輪):車型欄改品牌/車型雙下拉(與首頁同 combobox 原型),
+  // 結構化 taxonomy 直傳(unstable_cache 900s、失敗回 []=表單退回純自由輸入);
+  // 點選組出的名稱=字典標準字面「品牌 車型」→ 首頁愛車 chips 一鍵套用可精確命中。
+  const vehicleBrands = await fetchVehicleTaxonomy();
 
   return (
     <AccountView
@@ -144,7 +143,7 @@ export default async function AccountPage() {
       profile={{ name, phone, birthday }}
       addresses={addresses}
       vehicles={vehicles}
-      vehicleModelOptions={vehicleModelOptions}
+      vehicleBrands={vehicleBrands}
       orders={orders}
     />
   );

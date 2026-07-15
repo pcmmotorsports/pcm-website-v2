@@ -22,11 +22,18 @@ type ComboProps = {
   onPick: (name: string) => void;
   /** 清空本層(input 清空後 commit) */
   onClear: () => void;
-  /** 掛載點外殼(V-1c 視覺回歸修):'catalog'=cft token 小框;'finder'=design ed-finder-slot(標籤+無框線) */
-  variant: 'catalog' | 'finder';
+  /** 掛載點外殼(V-1c 視覺回歸修):'catalog'=cft token 小框;'finder'=design ed-finder-slot
+   *  (標籤+無框線);'form'=裸 input、樣式交掛載表單的 CSS(V-1c++ 車庫表單字典雙下拉) */
+  variant: 'catalog' | 'finder' | 'form';
   /** finder 變體的 slot 標籤字面(design:品牌/車型/年份) */
   slotLabel?: string;
 };
+
+// V-1c++:車庫「新增車輛」表單重用同一 combobox 原型(打字過濾/鍵盤/唯一精確命中),
+// 具名匯出、不複製第二份行為(全站選車行為單一來源)。
+export function VehicleCombo(props: ComboProps) {
+  return <Combo {...props} />;
+}
 
 function Combo({
   label,
@@ -89,10 +96,16 @@ function Combo({
   };
 
   // finder 變體=design ed-finder-slot 結構(小標籤在上、無框線輸入;.ed-finder-slot 已 relative
-  // 供 .vsc-list 定位);catalog 變體=型錄 cft token 小框。
+  // 供 .vsc-list 定位);catalog 變體=型錄 cft token 小框;form 變體=裸 input(外觀由掛載表單
+  // 的 CSS 決定,如 account.css .acc-inline-form-inner input 選擇器)。
   const Wrapper = variant === 'finder' ? 'label' : 'div';
   const wrapperClass = variant === 'finder' ? 'ed-finder-slot vsc' : 'vsc';
-  const inputClass = variant === 'finder' ? 'vsc-input vsc-input--finder' : 'cft-select vsc-input';
+  const inputClass =
+    variant === 'finder'
+      ? 'vsc-input vsc-input--finder'
+      : variant === 'form'
+        ? 'vsc-input'
+        : 'cft-select vsc-input';
 
   return (
     <Wrapper className={wrapperClass}>

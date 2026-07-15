@@ -26,6 +26,7 @@
 import { Fragment, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { CustomerVehicle } from '@pcm/domain';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { InlineVehicleForm, type InlineVehicleInitial } from '@/components/account/InlineVehicleForm';
 import {
   addVehicleAction,
@@ -35,11 +36,11 @@ import {
 
 export type VehiclesTabProps = {
   vehicles: CustomerVehicle[];
-  /** V-1c+:車型欄字典建議(「品牌 車型」labels;server 端 taxonomy 衍生、缺省 [] 行為同舊) */
-  vehicleModelOptions?: string[];
+  /** V-1c++:車型字典(結構化 taxonomy;表單品牌/車型雙下拉用、缺省 [] 退回純自由輸入) */
+  vehicleBrands?: MockMotoBrand[];
 };
 
-export function VehiclesTab({ vehicles, vehicleModelOptions = [] }: VehiclesTabProps) {
+export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) {
   // 單一 inline 表單狀態(對齊 design vehEdit):null=全關 / 無 id=新增 / 有 id=編輯該筆。
   const [vehEdit, setVehEdit] = useState<InlineVehicleInitial | null>(null);
   const router = useRouter();
@@ -114,7 +115,7 @@ export function VehiclesTab({ vehicles, vehicleModelOptions = [] }: VehiclesTabP
                 ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
               >
                 <InlineVehicleForm
-                  vehicleModelOptions={vehicleModelOptions}
+                  vehicleBrands={vehicleBrands}
                   veh={vehEdit}
                   onClose={() => setVehEdit(null)}
                   // id 綁 parent closure(對齊 InlineVehicleForm 註解設計:form 保持 generic、action 由 parent 帶 id)。
@@ -133,7 +134,7 @@ export function VehiclesTab({ vehicles, vehicleModelOptions = [] }: VehiclesTabP
             ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
           >
             <InlineVehicleForm
-              vehicleModelOptions={vehicleModelOptions}
+              vehicleBrands={vehicleBrands}
               veh={vehEdit}
               onClose={() => setVehEdit(null)}
               onSubmit={addVehicleAction}
