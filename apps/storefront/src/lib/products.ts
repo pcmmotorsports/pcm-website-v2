@@ -108,9 +108,28 @@ function hashIdToNumber(s: string): number {
 const CATALOG_REVALIDATE_SECONDS = 900;
 
 export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
-  const firstFitment = product.fitments[0];
+  // 急件2 止血(2026-07-15):domain fitments=jsonb 直透、motoBrand/modelCode 實際可為 null
+  // (prod 實證 55 商品/82 條目、PDP SSR `.trim()` 炸頁 31 次)→ 資料進入點鏡像 toCardFitments
+  // 白名單慣例:非 string→''、雙空 drop;下游(formatCardFits/S1 dedup/ProductFitments)不再見髒值。
+  const uiFitments = product.fitments.flatMap((f) => {
+    const motoBrand = typeof f.motoBrand === 'string' ? f.motoBrand : '';
+    const modelCode = typeof f.modelCode === 'string' ? f.modelCode : '';
+    if (!motoBrand && !modelCode) return [];
+    return [
+      {
+        motoBrand,
+        modelCode,
+        ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
+        ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
+        ...(f.unconfirmed ? { unconfirmed: true } : {}),
+        // S1:適配來源透傳(inherited=家族樹推導;products.fitments 原始值皆無此欄=direct)
+        ...(f.matchSource ? { matchSource: f.matchSource } : {}),
+      },
+    ];
+  });
+  const firstFitment = uiFitments[0];
   const fits = firstFitment
-    ? `${firstFitment.motoBrand} ${firstFitment.modelCode}`
+    ? `${firstFitment.motoBrand} ${firstFitment.modelCode}`.trim()
     : '通用款';
 
   const effectivePrice = computeEffectivePrice(product, tier);
@@ -174,15 +193,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     //   `fits` 單字串仍為卡片用衍生值、兩者並存。全公開車輛相容資訊、無敏感欄)。
     //   yearEnd 條件帶忠實保留 domain 三態、不壓平:null=開放式("2025+")、number=明確迄年、
     //   undefined(省略)=單年(ProductFitments 渲染以 yearEnd===yearStart 或缺值判單年)。
-    fitments: product.fitments.map((f) => ({
-      motoBrand: f.motoBrand,
-      modelCode: f.modelCode,
-      ...(f.yearStart != null ? { yearStart: f.yearStart } : {}),
-      ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
-      ...(f.unconfirmed ? { unconfirmed: true } : {}),
-      // S1:適配來源透傳(inherited=家族樹推導;products.fitments 原始值皆無此欄=direct)
-      ...(f.matchSource ? { matchSource: f.matchSource } : {}),
-    })),
+    //   急件2:映射已上移函式頂部統一消毒(非 string 車款名→''、雙空 drop),fits 同源。
+    fitments: uiFitments,
     originalPrice,
     tierLabel,
   };
@@ -557,7 +569,14 @@ export const fetchProductByHandle = cache(
     // 去重:同(車廠|車型)已在 direct 出現者不重列(direct provenance 較強);trim 對齊
     // matchesCategory/vehicle-taxonomy 慣例。fail-soft:inherited 查掛只少「推導層」、不 500 整頁。
     try {
-      const inherited = await adapter.listInheritedFitments(product.id);
+      // 急件2:inherited 來源(effective 表 jsonb)同樣可含 null 車款名 → 與 toUIProduct 同款
+      // 消毒(非 string→''、雙空 drop)再進 dedup/合併;ui.fitments 已在 toUIProduct 消毒過。
+      const inherited = (await adapter.listInheritedFitments(product.id)).flatMap((f) => {
+        const motoBrand = typeof f.motoBrand === 'string' ? f.motoBrand : '';
+        const modelCode = typeof f.modelCode === 'string' ? f.modelCode : '';
+        if (!motoBrand && !modelCode) return [];
+        return [{ ...f, motoBrand, modelCode }];
+      });
       if (inherited.length > 0) {
         const directKeys = new Set(
           (ui.fitments ?? []).map((f) => `${f.motoBrand.trim()}|${f.modelCode.trim()}`),

@@ -60,4 +60,33 @@ describe('formatCardFits', () => {
   it('車款名皆空 → 回退 fallback(不顯空「適用 」)', () => {
     expect(formatCardFits([{ motoBrand: '', modelCode: '' }], '通用款')).toBe('通用款');
   });
+
+  // 急件2(2026-07-15 prod 炸頁止血):jsonb 直透 null 車款名 → 不 throw、髒條目略過、全髒回退。
+  describe('null/非字串車款名防呆(急件2)', () => {
+    const dirty = (over: Record<string, unknown>): UIFitment =>
+      ({ motoBrand: 'YAMAHA', modelCode: 'MT-09', ...over }) as unknown as UIFitment;
+
+    it('motoBrand:null(prod 實證 shape)→ 不 throw、以 modelCode 照算', () => {
+      expect(formatCardFits([dirty({ motoBrand: null, modelCode: 'GasGas 700 SM/Enduro' })], 'x')).toBe(
+        'GasGas 700 SM/Enduro',
+      );
+    });
+
+    it('modelCode:null → 不 throw、以 motoBrand 照算', () => {
+      expect(formatCardFits([dirty({ modelCode: null, yearStart: 2021 })], 'x')).toBe("YAMAHA '21");
+    });
+
+    it('雙 null 條目略過、其餘正常條目照算', () => {
+      expect(
+        formatCardFits(
+          [dirty({ motoBrand: null, modelCode: null }), f({ yearStart: 2018, yearEnd: 2024 })],
+          'x',
+        ),
+      ).toBe("YAMAHA MT-09 '18–'24");
+    });
+
+    it('全髒(雙 null)→ 回退 fallback、不 throw', () => {
+      expect(formatCardFits([dirty({ motoBrand: null, modelCode: null })], '通用款')).toBe('通用款');
+    });
+  });
 });

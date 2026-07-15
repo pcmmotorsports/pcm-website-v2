@@ -11,6 +11,11 @@
 
 import type { UIFitment } from '@/data/mock-products';
 
+/** 急件2 防呆:車款名欄位 jsonb 直透可為 null/非字串(prod 實證)→ 非 string 一律視為 ''。 */
+function cleanName(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : '';
+}
+
 /** 兩位數年份:2018 → '18(負模數保護,理論上年份恆正)。 */
 function twoDigit(year: number): string {
   return `'${String(((year % 100) + 100) % 100).padStart(2, '0')}`;
@@ -45,8 +50,13 @@ export function formatCardFits(fitments: UIFitment[] | undefined, fallback: stri
 
   const byModel = new Map<string, UIFitment[]>();
   for (const f of fitments) {
+    // 急件2 belt(資料進入點已消毒、此為第二層保未來呼叫端):非 string 車款名視為 ''、
+    // 雙空條目略過(降級不炸頁);略過後 byModel 空 → 走下方 fallback。
+    const brand = cleanName(f.motoBrand);
+    const model = cleanName(f.modelCode);
+    if (!brand && !model) continue;
     // 同一車款的 direct + inherited(matchSource 不同)歸同款、不重複計數。
-    const key = `${f.motoBrand.trim()} ${f.modelCode.trim()}`;
+    const key = `${brand} ${model}`;
     const list = byModel.get(key);
     if (list) list.push(f);
     else byModel.set(key, [f]);
@@ -57,7 +67,7 @@ export function formatCardFits(fitments: UIFitment[] | undefined, fallback: stri
   const only = [...byModel.values()][0];
   const first = only?.[0];
   if (!only || !first) return fallback;
-  const label = `${first.motoBrand} ${first.modelCode}`.trim();
+  const label = `${cleanName(first.motoBrand)} ${cleanName(first.modelCode)}`.trim();
   if (!label) return fallback; // 防禦:車款名皆空 → 回退,不顯空「適用 」
 
   const years = summarizeModelYears(only);

@@ -152,3 +152,47 @@ describe('toUIProduct — 經銷價 strip 最後一哩(M-11 安全回歸)', () =
     expect(ui.videoUrl).toBe('https://youtu.be/dQw4w9WgXcQ');
   });
 });
+
+// 急件2(2026-07-15 prod PDP 炸頁止血):products.fitments jsonb 直透可含 null 車款名
+// (實證 55 商品/82 條目、如 {"modelCode":"GasGas 700 SM/Enduro","motoBrand":null})。
+// toUIProduct=資料進入點守門:非 string→''、雙空 drop;下游 .trim() 不再炸。
+describe('toUIProduct — null 車款名 fitments 消毒(急件2)', () => {
+  type DirtyFitment = Product['fitments'][number];
+  const dirtyFitment = (over: Record<string, unknown>): DirtyFitment =>
+    ({ motoBrand: 'Ducati', modelCode: 'Panigale V4', ...over }) as unknown as DirtyFitment;
+
+  it('motoBrand:null(prod 實證 shape)→ 補空字串、條目保留、fits 無 null 字面', () => {
+    const ui = toUIProduct(
+      fakeProduct({ fitments: [dirtyFitment({ motoBrand: null, modelCode: 'GasGas 700 SM/Enduro' })] }),
+      'general',
+    );
+    expect(ui.fitments).toEqual([{ motoBrand: '', modelCode: 'GasGas 700 SM/Enduro' }]);
+    expect(ui.fits).toBe('GasGas 700 SM/Enduro');
+  });
+
+  it('modelCode:null → 補空字串、motoBrand 照留;雙 null 條目 drop、其餘照算', () => {
+    const ui = toUIProduct(
+      fakeProduct({
+        fitments: [
+          dirtyFitment({ modelCode: null }),
+          dirtyFitment({ motoBrand: null, modelCode: null }),
+          dirtyFitment({ yearStart: 2020 }),
+        ],
+      }),
+      'general',
+    );
+    expect(ui.fitments).toEqual([
+      { motoBrand: 'Ducati', modelCode: '' },
+      { motoBrand: 'Ducati', modelCode: 'Panigale V4', yearStart: 2020 },
+    ]);
+  });
+
+  it('全髒(雙 null)→ fitments 空、fits 回退通用款、不 throw', () => {
+    const ui = toUIProduct(
+      fakeProduct({ fitments: [dirtyFitment({ motoBrand: null, modelCode: null })] }),
+      'general',
+    );
+    expect(ui.fitments).toEqual([]);
+    expect(ui.fits).toBe('通用款');
+  });
+});
