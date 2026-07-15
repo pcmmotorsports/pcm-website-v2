@@ -217,9 +217,15 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     const clientUserAgent = reqHeaders.get('user-agent')?.slice(0, 1024) ?? null;
 
     // ④ 建單(零 userId/tier/price;身分/算價全 create_order RPC server 權威)。
+    //   V-3a:line 可帶 optional vehicle(schema 已判別式驗+非法丟欄;RPC 端白名單重組
+    //   → order_items.vehicle_snapshot;純 metadata、無價/tier 面)。
     const placeOrderInput: PlaceOrderInput = {
       lines: parsedLines.data.map(
-        (l): PlaceOrderLine => ({ variantId: l.variantId, quantity: l.quantity }),
+        (l): PlaceOrderLine => ({
+          variantId: l.variantId,
+          quantity: l.quantity,
+          ...(l.vehicle !== undefined ? { vehicle: l.vehicle } : {}),
+        }),
       ),
       addressId: parsedCheckout.data.addressId,
       shippingMethod: parsedCheckout.data.shippingMethod,

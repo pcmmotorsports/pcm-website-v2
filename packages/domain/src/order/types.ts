@@ -437,18 +437,33 @@ export type OrderStatusOptionUpdate = {
 };
 
 /**
+ * PlaceOrderVehicle: 品項「給哪台車用」(M-4a V-3a;client → server 線契約、選填)。
+ *
+ * 形狀=storefront CartItemVehicle(V-2a 判別式)的 wire 鏡像:kind:'dict'=字典字面(picker/typeahead/
+ * 搜尋帶入/車庫 dict 對)、kind:'free'=自由輸入(§7 恆人工確認路)。逐 kind 隔離(dict 無 raw、
+ * free 無 brand/model=值班台 REQUIRED-3)。create_order RPC 端白名單重組後存 order_items.vehicle_snapshot
+ * (字面凍結、車種鐵律零猜);非法形狀=RPC 端 NULL、不擋單(選填)。
+ *
+ * 🔴 純 metadata:不進取價/數量/變體解析任何路徑;無 price / tier 欄(鐵則 12)。
+ */
+export type PlaceOrderVehicle =
+  | { kind: 'dict'; brand: string; model: string; year?: number; source: 'search' | 'garage' | 'picker' }
+  | { kind: 'free'; raw: string; year?: number; source: 'garage' | 'freetext' };
+
+/**
  * PlaceOrderLine: 結帳送出的單一購物車品項(client → server 線契約)。
  *
  * 對齊 create_order RPC(20260604130000)p_lines:`variantId` XOR `(supplierSlug + sku)`、皆帶 qty。
  * S3a 後 sku 非全域唯一 → 優先 variantId;無 variantId 時用 (supplierSlug, sku) 複合鍵防撞錯變體/錯價。
+ * V-3a:每 line 可帶 optional `vehicle`(PlaceOrderVehicle;→ order_items.vehicle_snapshot)。
  *
  * 🔴 鐵則 12(plan v6 §5 紅線 3 server 價權威):**型別層無** price / unitPrice / tier / priceByTier /
  * priceStore / cost 欄。client 只送「買什麼變體、買幾個」、**永不送價/tier**;單價 / 小計 / 運費 / total
  * 全由 create_order RPC server 自算、client 送的任何金額一律忽略。
  */
 export type PlaceOrderLine =
-  | { variantId: string; quantity: number }
-  | { supplierSlug: string; sku: string; quantity: number };
+  | { variantId: string; quantity: number; vehicle?: PlaceOrderVehicle }
+  | { supplierSlug: string; sku: string; quantity: number; vehicle?: PlaceOrderVehicle };
 
 /**
  * OrderInvoice: 結帳發票資訊(對齊 create_order RPC p_invoice + design CheckoutPage)。

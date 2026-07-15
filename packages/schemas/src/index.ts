@@ -171,11 +171,36 @@ export type CheckoutInput = z.infer<typeof CheckoutInput>;
 //    quantity 對齊 CartContext MAX_QTY=99;陣列長度上限 200 對齊 RPC >200 reject + resolveCartLines MAX_LINES。
 // 🔴 fail-closed 語意(寫入路徑 vs 顯示路徑 resolveCartLines):顯示路徑有變體缺 variantId → found:false 略過該行;
 //    寫入路徑(charge-actions chargePaymentAction 建單段)同情境 safeParse 失敗 → **REJECT 整單**(回 formError)、不可略過壞行續建單。
+// V-3a:品項「給哪台車用」(選填;鏡像 CartItemVehicle 判別式、與 create_order RPC 白名單**同構**
+//   =值班台 REQUIRED-4:逐 kind 隔離〔dict 無 raw、free 無 brand/model〕/ 非空 ≤200 / year 4 位
+//   1900-2100 / source 白名單)。🔴 `.catch(undefined)`=非法形狀**丟 vehicle 不擋單**(選填語意、
+//   RPC 端「白名單失敗=NULL 不 RAISE」同構;與 variantId 缺失=REJECT 整單的寫入 fail-closed 不同層)。
+//   🔴 無 price/tier 欄(鐵則 12);RPC 端仍二次白名單(縱深、不信本層)。
+const PlaceOrderVehicleInput = z
+  .discriminatedUnion('kind', [
+    z.object({
+      kind: z.literal('dict'),
+      brand: z.string().trim().min(1).max(200),
+      model: z.string().trim().min(1).max(200),
+      year: z.number().int().min(1900).max(2100).optional(),
+      source: z.enum(['search', 'garage', 'picker']),
+    }),
+    z.object({
+      kind: z.literal('free'),
+      raw: z.string().trim().min(1).max(200),
+      year: z.number().int().min(1900).max(2100).optional(),
+      source: z.enum(['garage', 'freetext']),
+    }),
+  ])
+  .optional()
+  .catch(undefined);
+
 export const PlaceOrderLinesInput = z
   .array(
     z.object({
       variantId: z.uuid({ error: '商品規格資訊有誤' }),
       quantity: z.number().int().min(1).max(99),
+      vehicle: PlaceOrderVehicleInput, // V-3a 選填;非法=丟欄不擋單(見上)
     }),
   )
   .min(1, { error: '購物車是空的' })

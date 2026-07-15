@@ -30,7 +30,7 @@
 
 import { useRef, useState } from 'react';
 import type { ShippingMethod } from '@pcm/domain';
-import { useCart } from '@/contexts/CartContext';
+import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import { setPaymentInflight } from '@/lib/payment/inflight-marker';
@@ -87,14 +87,20 @@ export function useChargePayment(): UseChargePayment {
       setState({ status: 'error', message: '購物車是空的,無法結帳' });
       return false;
     }
-    const lines: { variantId: string; quantity: number }[] = [];
+    // V-3a:line 帶上該列「給哪台車用」(CartItemVehicle、選填;server schema 判別式驗+RPC 白名單
+    //   重組 → order_items.vehicle_snapshot;🔴 純 metadata 不含價/tier、缺=不帶)。
+    const lines: { variantId: string; quantity: number; vehicle?: CartItemVehicle }[] = [];
     for (const it of items) {
       if (!it.variantId) {
         inFlightRef.current = false;
         setState({ status: 'error', message: '購物車有商品缺少規格資訊,請返回購物車重新確認' });
         return false;
       }
-      lines.push({ variantId: it.variantId, quantity: it.qty });
+      lines.push({
+        variantId: it.variantId,
+        quantity: it.qty,
+        ...(it.vehicle !== undefined ? { vehicle: it.vehicle } : {}),
+      });
     }
 
     setState({ status: 'submitting' });

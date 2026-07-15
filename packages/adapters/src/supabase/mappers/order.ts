@@ -2,6 +2,7 @@ import type {
   OrderListItem,
   PlaceOrderInput,
   PlaceOrderLine,
+  PlaceOrderVehicle,
   OrderInvoice,
   AdminOrderDetail,
   AdminOrderDetailItem,
@@ -30,10 +31,15 @@ import type { Database } from '../database.types';
  * (`mapSupabaseOrderToDomain`、含 OrderItem[])仍延 stage ③(backlog #217:order_items 無 product_id)。
  */
 
-/** create_order RPC line(wire):variant_id XOR (supplier_slug, sku),皆帶 qty。 */
+/** create_order RPC line 的 optional vehicle(wire;V-3a、鏡像 domain PlaceOrderVehicle 逐 kind 隔離)。 */
+type CreateOrderRpcVehicle =
+  | { kind: 'dict'; brand: string; model: string; year?: number; source: 'search' | 'garage' | 'picker' }
+  | { kind: 'free'; raw: string; year?: number; source: 'garage' | 'freetext' };
+
+/** create_order RPC line(wire):variant_id XOR (supplier_slug, sku),皆帶 qty;V-3a 可帶 vehicle。 */
 type CreateOrderRpcLine =
-  | { variant_id: string; qty: number }
-  | { supplier_slug: string; sku: string; qty: number };
+  | { variant_id: string; qty: number; vehicle?: CreateOrderRpcVehicle }
+  | { supplier_slug: string; sku: string; qty: number; vehicle?: CreateOrderRpcVehicle };
 
 /** create_order RPC invoice(wire):type 必、其餘選(RPC 逐鍵 ->> 主控 + jsonb_strip_nulls)。 */
 type CreateOrderRpcInvoice = {
@@ -62,12 +68,33 @@ export type CreateOrderRpcResult = {
   display_id: string;
 };
 
+/** V-3a vehicle:逐欄顯式重建(逐 kind 隔離、不透傳整物件=不夾帶意外欄;year undefined 不外送)。
+ *  🔴 純 metadata、無價/tier;RPC 端仍白名單重組(縱深、本層非最終閘)。 */
+function mapVehicle(v: PlaceOrderVehicle): CreateOrderRpcVehicle {
+  if (v.kind === 'dict') {
+    return {
+      kind: 'dict',
+      brand: v.brand,
+      model: v.model,
+      ...(v.year !== undefined ? { year: v.year } : {}),
+      source: v.source,
+    };
+  }
+  return {
+    kind: 'free',
+    raw: v.raw,
+    ...(v.year !== undefined ? { year: v.year } : {}),
+    source: v.source,
+  };
+}
+
 /** 單一 line:domain camelCase + quantity → RPC snake_case + qty(顯式白名單鍵、不夾帶意外欄)。 */
 function mapLine(line: PlaceOrderLine): CreateOrderRpcLine {
+  const vehicle = line.vehicle !== undefined ? { vehicle: mapVehicle(line.vehicle) } : {};
   if ('variantId' in line) {
-    return { variant_id: line.variantId, qty: line.quantity };
+    return { variant_id: line.variantId, qty: line.quantity, ...vehicle };
   }
-  return { supplier_slug: line.supplierSlug, sku: line.sku, qty: line.quantity };
+  return { supplier_slug: line.supplierSlug, sku: line.sku, qty: line.quantity, ...vehicle };
 }
 
 /** invoice:顯式 5 鍵(type 必、其餘選);額外鍵不外送、RPC 亦逐鍵主控。 */

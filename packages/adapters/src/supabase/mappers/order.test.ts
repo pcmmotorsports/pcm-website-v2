@@ -82,6 +82,33 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     ]);
   });
 
+  it('V-3a:line 帶 vehicle → 逐欄顯式重建(dict 多餘欄剝除;free year undefined 不外送)', () => {
+    // dirty 模擬 runtime 竄改(型別層不允許、cast 繞過):mapVehicle 逐欄重建必剝
+    const dirty = {
+      kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search', priceHint: 999,
+    } as never;
+    const args = mapPlaceOrderToCreateOrderArgs(
+      input({ lines: [{ variantId: 'v1', quantity: 1, vehicle: dirty }] }),
+    );
+    expect(args.p_lines).toEqual([
+      { variant_id: 'v1', qty: 1, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' } },
+    ]);
+    expect(Object.keys((args.p_lines[0] as { vehicle: object }).vehicle)).not.toContain('priceHint');
+
+    const noYear = mapPlaceOrderToCreateOrderArgs(
+      input({ lines: [{ variantId: 'v1', quantity: 1, vehicle: { kind: 'free', raw: '阿嬤的野狼', source: 'freetext' } }] }),
+    );
+    expect(noYear.p_lines).toEqual([
+      { variant_id: 'v1', qty: 1, vehicle: { kind: 'free', raw: '阿嬤的野狼', source: 'freetext' } },
+    ]);
+    expect(Object.keys((noYear.p_lines[0] as { vehicle: object }).vehicle)).not.toContain('year');
+  });
+
+  it('V-3a:無 vehicle line → 不帶 vehicle 鍵(既有 wire byte 零變)', () => {
+    const args = mapPlaceOrderToCreateOrderArgs(input());
+    expect(Object.keys(args.p_lines[0]!)).toEqual(['variant_id', 'qty']);
+  });
+
   it('invoice 完整(company)映射 5 鍵', () => {
     const args = mapPlaceOrderToCreateOrderArgs(
       input({

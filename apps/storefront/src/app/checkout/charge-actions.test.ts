@@ -258,6 +258,30 @@ describe('chargePaymentAction — 🔴 server 值單一來源(零信任/防竄)'
     expect(placeOrderInput.cartSessionId).toBe(CLIENT_CART);
   });
 
+  it('V-3a:line 合法 vehicle → 原樣進 placeOrder input;非法 vehicle → 丟欄不擋單(schema catch=RPC 同構)', async () => {
+    const action = await getAction();
+    await action(
+      validInput({
+        lines: [
+          { variantId: VARIANT, quantity: 2, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' } },
+        ],
+      }),
+    );
+    const [, withVeh] = mockPlaceOrder.mock.calls[0]!;
+    expect(withVeh.lines).toEqual([
+      { variantId: VARIANT, quantity: 2, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' } },
+    ]);
+
+    mockPlaceOrder.mockClear();
+    await action(
+      validInput({
+        lines: [{ variantId: VARIANT, quantity: 2, vehicle: { kind: 'weird', hack: 1 } }], // 非法 → 丟欄
+      }),
+    );
+    const [, dropped] = mockPlaceOrder.mock.calls[0]!;
+    expect(dropped.lines).toEqual([{ variantId: VARIANT, quantity: 2 }]); // 單照建、vehicle 不進
+  });
+
   it('🔴 3DS-7:缺 cart_session_id → formError、零 placeOrder/charge(fail-closed)', async () => {
     const action = await getAction();
     const res = await action(validInput({ cartSessionId: undefined }));

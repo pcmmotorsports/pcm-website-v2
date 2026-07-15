@@ -83,6 +83,24 @@ describe('useChargePayment', () => {
     expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ agreed: true }));
   });
 
+  it('V-3a:cart item 帶 vehicle → lines 逐列帶入;未帶列無 vehicle 鍵(選填)', async () => {
+    setCart([
+      { productId: 'p1', variantId: 'v1', qty: 1, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' } },
+      { productId: 'p2', variantId: 'v2', qty: 2 },
+    ]);
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit(ARGS);
+    });
+    const payload = chargeMock.mock.calls[0]![0] as { lines: Record<string, unknown>[] };
+    expect(payload.lines).toEqual([
+      { variantId: 'v1', quantity: 1, vehicle: { kind: 'dict', brand: 'YAMAHA', model: 'MT-09', year: 2021, source: 'search' } },
+      { variantId: 'v2', quantity: 2 },
+    ]);
+    expect(Object.keys(payload.lines[1]!)).not.toContain('vehicle');
+  });
+
   it('🔴 連點兩次只呼一次 action;paid → 清車一次 + 終態保持上鎖(第三次也不呼)', async () => {
     setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
