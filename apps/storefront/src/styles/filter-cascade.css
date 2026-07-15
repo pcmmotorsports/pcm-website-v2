@@ -221,3 +221,16 @@
 }
 .vsc-option.is-hi { background: var(--c-surface-2); } /* hover 經 onMouseEnter→hi 同源、無雙高亮 */
 .vsc-option[aria-selected='true'] { font-weight: 600; }
+
+/* 急件1(Sean 手機實測右側露白):V-1b 換裝後兩層逃逸——①`.vsc-input{min-width:132px}`
+   宣告在上方 ≤1023px 區塊之後、同 specificity 蓋掉 media 內 `.cft-select{min-width:0}`;
+   ②flex child 從 select 變 `.vsc` wrapper(無 flex/min-width、flex 預設 min-width:auto 縮不動)
+   → 3×132px+gap ≈ 436px > 375-430px 視口 → body 水平溢出。
+   本塊必須位於 `.vsc-input` 基礎宣告之後才蓋得回來(cascade 生效教訓)。 */
+@media (max-width: 1023px) {
+  .cft-cascade .vsc { flex: 1; min-width: 0; }
+  .vsc-input { min-width: 0; width: 100%; }
+  /* 下拉面板:窄槽內不撐破視口(基礎 min-width:100% 遇長車款名會長到內容寬)、選項改可折行 */
+  .vsc-list { max-width: calc(100vw - 28px); }
+  .vsc-option { white-space: normal; }
+}
