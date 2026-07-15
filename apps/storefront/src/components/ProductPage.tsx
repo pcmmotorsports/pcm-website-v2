@@ -28,7 +28,7 @@ import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
 import { ProductFitments } from './ProductFitments';
-import { ProductFitmentCheck } from './ProductFitmentCheck';
+import { ProductFitmentCheck, type PdpUrlVehicle } from './ProductFitmentCheck';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { GarageChipItem } from './GarageChips';
 import { BrandShowcase } from './BrandShowcase';
@@ -55,6 +55,8 @@ export type ProductPageProps = {
   motoBrands?: MockMotoBrand[];
   /** V-2b:§7 愛車快選(登入會員;未登入/失敗/無 fitments=[])。 */
   garage?: GarageChipItem[];
+  /** V-2c:URL `?vehicle=` 解析後名稱字面(route 端 parseVehicleFromUrl);§7 優先於 context 鏡。 */
+  urlVehicle?: PdpUrlVehicle | null;
 };
 
 type Crumb = { label: string; href?: string; current?: boolean };
@@ -69,6 +71,7 @@ export function ProductPage({
   relatedVehicleParam,
   motoBrands = [],
   garage = [],
+  urlVehicle = null,
 }: ProductPageProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -307,8 +310,9 @@ export function ProductPage({
         </section>
         {/* 2026-07-11(Sean 拍板):服務保障橫條移入 ProductInfo 右欄(買價下方、窄欄直立);原 OD-5 hero 下方全寬版退場。 */}
         {/* V-2b §7:「是否適用我的車」保守比對(適用車款表段首;讀選車 context→checkFitment;
-            display-only 不寫庫不擋購物車、車種鐵律零猜)。無 fitments 時元件內返 null。 */}
-        <ProductFitmentCheck fitments={product.fitments ?? []} motoBrands={motoBrands} garage={garage} />
+            display-only 不寫庫不擋購物車、車種鐵律零猜)。無 fitments 時元件內返 null。
+            V-2c:urlVehicle=URL 第一真相、優先於 context 鏡(修過期鏡顯舊車/購物車帶錯車)。 */}
+        <ProductFitmentCheck fitments={product.fitments ?? []} motoBrands={motoBrands} garage={garage} urlVehicle={urlVehicle} />
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
             D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
         <ProductFitments product={product} />

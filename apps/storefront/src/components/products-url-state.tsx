@@ -23,6 +23,7 @@ import {
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { ProductExtraFilters } from './filter-state';
+import { clearVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 // 🔴 R3:SearchParamsLike + parseVehicleFromUrl 抽到無 hooks 的 @/lib/vehicle-url(供詳情頁 Server
 //   Component 共用、本檔含 hooks 不可被 server import);本檔 re-export parseVehicleFromUrl 保 back-compat。
 import { parseVehicleFromUrl, type SearchParamsLike } from '@/lib/vehicle-url';
@@ -255,6 +256,8 @@ export function useCatalogFilterUrlSync(
  * - vehicle 清除 → 刪 `vehicle` key;長版遺留 key(?brand=&model=&year= 書籤)在兩方向皆一併清
  *   (`brand` 僅在與 `model` 同在=車輛長版語意時清;?brand= 單獨=商品品牌 filter、不可誤刪)。
  * - URL 無變化即 no-op(mount 還原波、StrictMode 雙跑安全);與現值比對後才 replace。
+ * - V-2c:寫 URL 同一時機同步 vehicle-context 鏡(鏡恆跟隨 URL 真相;真清除才清鏡、
+ *   mount 無車不清 — 詳 effect 內註解)。
  */
 export function useVehicleUrlSync(
   vehicle: CascadeFilterState['vehicle'],
@@ -280,7 +283,7 @@ export function useVehicleUrlSync(
     let next: string | null = null;
     if (vehicle) {
       const brandObj = motoBrands.find((b) => b.name === vehicle.brand);
-      if (!brandObj) return; // taxonomy 查無(清單空/資料缺)→ 保守不動 URL
+      if (!brandObj) return; // taxonomy 查無(清單空/資料缺)→ 保守不動 URL(鏡同、不寫不清)
       const modelObj =
         vehicle.model != null ? brandObj.models?.find((m) => m.name === vehicle.model) : null;
       if (vehicle.model != null && !modelObj) return;
@@ -290,6 +293,24 @@ export function useVehicleUrlSync(
         if (vehicle.year != null) segs.push(String(vehicle.year));
       }
       next = segs.join(':');
+      // V-2c R2:鏡恆跟隨 URL 真相 — 與寫 URL 同一時機單點寫鏡(避免雙寫競態);修「型錄換車/
+      // 清車不寫鏡 → PDP §7 顯舊車+購物車帶錯車」。名稱字面自 taxonomy(brandName/modelName=
+      // V-2a REQUIRED-3 additive 欄);brand-only 也寫(鏡跟 URL、消費端名稱不齊自然零猜)。
+      // deep-link 入站水合同輪重寫同值=冪等無害(URL 本為真相)。
+      writeVehicleContext({
+        brandId: brandObj.id,
+        modelId: modelObj?.id,
+        year: modelObj != null && vehicle.year != null ? vehicle.year : undefined,
+        label: [brandObj.name, modelObj?.name, modelObj != null ? vehicle.year : undefined]
+          .filter((s) => s != null)
+          .join(' '),
+        brandName: brandObj.name,
+        modelName: modelObj?.name,
+      });
+    } else if (pendingRestoreRef.current === false) {
+      // V-2c R2:真清除(本 mount 曾有車、使用者清車)→ 清鏡。mount 無車(ref 仍 null)不清:
+      // 直接逛 /products 不得洗掉首頁/他頁寫的鏡(URL 無車≠使用者清車)。
+      clearVehicleContext();
     }
     const hadLongVehicle = params.get('brand') != null && params.get('model') != null;
     if (next !== null) params.set('vehicle', next);

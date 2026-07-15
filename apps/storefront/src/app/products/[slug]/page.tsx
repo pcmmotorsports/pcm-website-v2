@@ -170,6 +170,13 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         relatedVehicleParam={vehicleParamForHref ?? undefined}
         motoBrands={taxonomy}
         garage={garage}
+        // V-2c:URL `?vehicle=` 第一真相下傳 §7(parsedVehicle=taxonomy 解析名稱字面;
+        //   優先於 sessionStorage context 鏡、掛載回寫同步鏡=修「回上一頁換車後 PDP 顯舊車」)。
+        urlVehicle={
+          parsedVehicle
+            ? { brandName: parsedVehicle.brand, modelName: parsedVehicle.model, year: parsedVehicle.year }
+            : null
+        }
       />
     </>
   );

@@ -82,4 +82,37 @@ describe('ProductFitmentCheck（§7）', () => {
     const { container } = render(<ProductFitmentCheck fitments={[]} motoBrands={BRANDS} />);
     expect(container.firstChild).toBeNull();
   });
+
+  // ── V-2c:URL `?vehicle=` 恆第一真相、優先於 context 鏡(修「回上一頁換車後 PDP 顯舊車」)──
+
+  it('V-2c:urlVehicle 優先於過期鏡 → 判 URL 車款、掛載回寫同步鏡', () => {
+    setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750' }); // 過期鏡=舊車
+    render(
+      <ProductFitmentCheck
+        fitments={FITMENTS}
+        motoBrands={BRANDS}
+        urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }}
+      />,
+    );
+    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy(); // 顯 URL 車、非鏡的舊車
+    const raw = window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY);
+    const ctx = JSON.parse(raw!) as { brandName?: string; modelName?: string; year?: number };
+    expect(ctx.brandName).toBe('YAMAHA'); // 鏡已同步=addToCart 帶入同源、不再分家
+    expect(ctx.modelName).toBe('MT-09');
+    expect(ctx.year).toBe(2022);
+  });
+
+  it('V-2c:urlVehicle brand-only → 不判定(現選入口、零猜)、鏡同步蓋掉過期鏡', () => {
+    setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750' });
+    render(
+      <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA' }} />,
+    );
+    expect(screen.getByText('確認是否適用你的車')).toBeTruthy();
+    const ctx = JSON.parse(window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY)!) as {
+      brandName?: string;
+      modelName?: string;
+    };
+    expect(ctx.brandName).toBe('YAMAHA');
+    expect(ctx.modelName).toBeUndefined();
+  });
 });

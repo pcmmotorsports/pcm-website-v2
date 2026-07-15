@@ -24,6 +24,9 @@ import type { GarageChipItem } from './GarageChips';
 /** context/picker 選定的車款(顯示名 + slug + 年;供比對與顯示) */
 type Chosen = { brandName: string; modelName: string; year?: number };
 
+/** V-2c:URL `?vehicle=` 解析後的名稱字面(route 端 parseVehicleFromUrl 對照 taxonomy 解出)。 */
+export type PdpUrlVehicle = { brandName: string; modelName?: string; year?: number };
+
 function toCheckVehicle(c: Chosen): FitmentCheckVehicle {
   return { kind: 'dict', brandId: slugify(c.brandName), modelId: slugify(c.modelName), year: c.year };
 }
@@ -35,23 +38,49 @@ export function ProductFitmentCheck({
   fitments,
   motoBrands,
   garage = [],
+  urlVehicle = null,
 }: {
   fitments: UIFitment[];
   motoBrands: MockMotoBrand[];
   garage?: GarageChipItem[];
+  /** V-2c:URL `?vehicle=` 恆為第一真相 — 有值時優先於 context 鏡、掛載即回寫同步鏡。 */
+  urlVehicle?: PdpUrlVehicle | null;
 }) {
-  const [chosen, setChosen] = useState<Chosen | null>(null);
+  // V-2c:初始 chosen 優先序=URL vehicle > context 鏡(useState initializer 讀 prop、SSR 同繪零分歧;
+  // 鏡只能在 client effect 讀)。URL 車款名稱齊(brand+model)才可判定;brand-only 走現選入口。
+  const [chosen, setChosen] = useState<Chosen | null>(() =>
+    urlVehicle?.modelName
+      ? { brandName: urlVehicle.brandName, modelName: urlVehicle.modelName, year: urlVehicle.year }
+      : null,
+  );
   const [editing, setEditing] = useState(false);
   const [sel, setSel] = useState<{ brand: string; model?: string; year?: number } | null>(null);
   const [suggest, setSuggest] = useState<{ entries: string[]; garageYear: number | undefined } | null>(null);
 
-  // 讀全站 context(client;REQUIRED-3 防禦讀取)。名稱字面欄(V-2a additive)齊全才能判定=零猜;
-  // 缺名稱欄(舊 context)→ 不自動判定、走現選入口。
+  // V-2c mount:URL `?vehicle=` 恆第一真相 —
+  // - 有 URL vehicle → 不讀鏡(過期鏡=Sean 07-15 實測「顯上一台車」bug 本體)、掛載即
+  //   writeVehicleContext 回寫同步(brand-only 也寫=鏡恆跟隨;banner/addToCart 讀到同源、不再分家。
+  //   名稱不齊時兩消費端本就零猜不動作)。冪等:重進同 URL 重寫同值無害。
+  // - 無 URL vehicle → 照舊讀鏡(REQUIRED-3 防禦讀取;名稱字面欄齊全才判定=零猜)→ 再無 → 現選入口。
+  // mount-only:urlVehicle 為 server 每繪新物件,若列 deps、重繪會把使用者「更改車款」後的選擇/鏡
+  // 蓋回 URL 車款(鏡與 banner 分家)→ 依 react-nextjs-rules.md mount-only 合法寫法 disable。
   useEffect(() => {
+    if (urlVehicle) {
+      writeVehicleContext({
+        brandId: slugify(urlVehicle.brandName),
+        modelId: urlVehicle.modelName ? slugify(urlVehicle.modelName) : undefined,
+        year: urlVehicle.year,
+        label: [urlVehicle.brandName, urlVehicle.modelName, urlVehicle.year].filter(Boolean).join(' '),
+        brandName: urlVehicle.brandName,
+        modelName: urlVehicle.modelName,
+      });
+      return;
+    }
     const ctx = readVehicleContext();
     if (ctx && ctx.brandName && ctx.modelName) {
       setChosen({ brandName: ctx.brandName, modelName: ctx.modelName, year: ctx.year });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 無 fitments(通用款/無資料)→ 整段不渲染(同 ProductFitments 空狀態)
