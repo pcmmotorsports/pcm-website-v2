@@ -140,6 +140,7 @@ function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): 
     image: 'https://cdn.example/img.jpg',
     fits: 'Aprilia RSV4',
     variantLabel: null,
+    sku: null,
     unitPrice: 14600,
     ...over,
   };

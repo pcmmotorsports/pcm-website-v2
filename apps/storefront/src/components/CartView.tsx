@@ -103,6 +103,8 @@ export function CartView({
                     <Link href={href} className="cart-item-name">
                       {line.name}
                     </Link>
+                    {/* V-2a2:料號恆顯行(sku 有值才顯)+ 規格行(有變體規格才顯)=與 PDP 資訊對齊 */}
+                    {line.sku && <div className="cart-item-sku">料號 {line.sku}</div>}
                     {line.variantLabel && <div className="cart-item-variant">{line.variantLabel}</div>}
                     <div className="cart-item-vehicle">適用 {line.fits}</div>
                     {/* V-2a 單列車款欄(給哪台車用;覆寫整車套用值=混車訂單) */}

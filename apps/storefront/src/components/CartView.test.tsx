@@ -90,6 +90,7 @@ function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): 
     image: 'https://cdn.example/img.jpg',
     fits: 'Aprilia RSV4',
     variantLabel: null,
+    sku: null,
     unitPrice: 14600,
     ...over,
   };
@@ -113,7 +114,7 @@ describe('CartView(M-3-S2-b2-d)', () => {
   it('有商品 → 渲染品牌/名稱/適用/變體標/單價/小計 + 件數 + 免運(滿門檻)', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
     resolveMock.mockResolvedValue([
-      resolvedLine({ productId: 'rpm-1', variantId: 'v1', variantLabel: 'Forged · Glossy', unitPrice: 15200 }),
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1', variantLabel: 'Forged · Glossy', sku: 'DCC01-G-F', unitPrice: 15200 }),
     ]);
     const { container } = render(<CartView />);
     expect(await screen.findByText('碳纖維車台護蓋')).toBeTruthy();
@@ -121,6 +122,7 @@ describe('CartView(M-3-S2-b2-d)', () => {
     expect(screen.getByText('RPM')).toBeTruthy();
     expect(screen.getByText('適用 Aprilia RSV4')).toBeTruthy();
     expect(screen.getByText('Forged · Glossy')).toBeTruthy();
+    expect(screen.getByText('料號 DCC01-G-F')).toBeTruthy(); // V-2a2:料號恆顯行
     // 小計 = 15200 × 2 = 30,400(行小計 / 小計 / 總計 同值、用精準 selector 避撞)
     expect(container.querySelector('.cart-item-price-main')?.textContent).toBe('NT$ 30,400');
     expect(container.querySelector('.cart-grand span:last-child')?.textContent).toBe('NT$ 30,400');

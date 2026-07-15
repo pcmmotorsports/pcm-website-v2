@@ -48,8 +48,10 @@ export type ResolvedCartLine = {
   image: string | null;
   /** 適用車款衍生字串(design cart-item-vehicle「適用 X」) */
   fits: string;
-  /** 變體識別字串(spec 值合併 / fallback sku;無變體商品為 null) */
+  /** 變體識別字串(**純規格** spec 值合併;spec 空 or 無變體 → null;V-2a2 起不再 fallback sku) */
   variantLabel: string | null;
+  /** 料號(V-2a2:變體=variant.sku;無變體商品無料號欄 → null;公開識別、無價格面) */
+  sku: string | null;
   /** 🔴 general 公開單價(整數元位 NT$);**唯一價格欄、無 priceByTier/store/cost** */
   unitPrice: number;
 };
@@ -61,14 +63,13 @@ const MAX_LINES = 200;
 const MAX_PRODUCT_ID_LEN = 256;
 const MAX_VARIANT_ID_LEN = 64;
 
-/** 把變體 spec 物件壓成顯示字串(值合併、去空);無有效值回 null。 */
-function variantLabelFromSpec(spec: Record<string, string>, fallbackSku: string): string | null {
+/** 把變體 spec 物件壓成**純規格**顯示字串(值合併、去空);無有效值回 null。
+ *  V-2a2:不再 fallback sku(料號改獨立 sku 欄恆顯,避免規格空時料號被塞進規格行=雙顯/語意混淆)。 */
+function variantLabelFromSpec(spec: Record<string, string>): string | null {
   const values = Object.values(spec)
     .map((v) => (typeof v === 'string' ? v.trim() : ''))
     .filter((v) => v.length > 0);
-  if (values.length > 0) return values.join(' · ');
-  // spec 全空(理論罕見)→ fallback 顯料號(至少能辨識變體);料號也空 → null。
-  return fallbackSku.trim().length > 0 ? fallbackSku.trim() : null;
+  return values.length > 0 ? values.join(' · ') : null;
 }
 
 /**
@@ -116,6 +117,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
         image: null,
         fits: '',
         variantLabel: null,
+        sku: null,
         unitPrice: 0,
       });
       continue;
@@ -123,6 +125,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
 
     let unitPrice: number;
     let variantLabel: string | null = null;
+    let sku: string | null = null; // V-2a2:變體=variant.sku、無變體=null
     if (variantId) {
       const variant = (product.variants ?? []).find((v) => v.id === variantId);
       if (!variant) {
@@ -137,13 +140,15 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
           image: product.image ?? null,
           fits: product.fits,
           variantLabel: null,
+          sku: null,
           unitPrice: 0,
         });
         continue;
       }
       // 🔴 變體單價取 UIVariant.price(= priceByTier.general、唯一真值;toUIProduct 已 strip)。
       unitPrice = variant.price;
-      variantLabel = variantLabelFromSpec(variant.spec, variant.sku);
+      variantLabel = variantLabelFromSpec(variant.spec);
+      sku = variant.sku.trim().length > 0 ? variant.sku.trim() : null; // 料號恆顯(獨立行)
     } else if ((product.variants?.length ?? 0) > 0) {
       // 🔴 有變體商品卻未帶有效 variantId(省略 / 空字串 / 空白)→ fail-closed found:false。
       //   不退化成群代表價(群價 = 群內最低、回該價 = 錯價;對齊 round1 / 非-string variantId 同類)。
@@ -157,6 +162,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
         image: product.image ?? null,
         fits: product.fits,
         variantLabel: null,
+        sku: null,
         unitPrice: 0,
       });
       continue;
@@ -175,6 +181,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
       image: product.image ?? null,
       fits: product.fits,
       variantLabel,
+      sku,
       unitPrice,
     });
   }

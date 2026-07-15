@@ -60,6 +60,7 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     expect(line.found).toBe(true);
     expect(line.unitPrice).toBe(15200);
     expect(line.variantLabel).toBe('Forged · Glossy');
+    expect(line.sku).toBe('DCC01-G-F'); // V-2a2:料號獨立欄恆顯
     expect(line.brand).toBe('RPM');
     expect(line.name).toBe('碳纖維車台護蓋');
     expect(line.fits).toBe('Aprilia RSV4');
@@ -67,20 +68,22 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     expect(line.image).toBe('https://cdn.example/img.jpg');
   });
 
-  it('無變體 line → unitPrice = product.price(群 general)、variantLabel = null', async () => {
+  it('無變體 line → unitPrice = product.price(群 general)、variantLabel = null、sku = null', async () => {
     fetchMock.mockResolvedValue(makeProduct({ variants: [] }));
     const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
     expect(line.found).toBe(true);
     expect(line.unitPrice).toBe(14600);
     expect(line.variantLabel).toBeNull();
+    expect(line.sku).toBeNull(); // 無變體商品無料號欄
   });
 
-  it('spec 全空 → variantLabel fallback 料號 sku', async () => {
+  it('V-2a2:spec 全空 → variantLabel null(不再 fallback)、sku 獨立恆顯料號', async () => {
     fetchMock.mockResolvedValue(
       makeProduct({ variants: [{ id: 'v1', sku: 'DCC01-X', spec: {}, price: 9000, images: [] }] }),
     );
     const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
-    expect(line.variantLabel).toBe('DCC01-X');
+    expect(line.variantLabel).toBeNull();
+    expect(line.sku).toBe('DCC01-X');
   });
 
   it('商品不存在 → found:false', async () => {

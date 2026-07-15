@@ -38,6 +38,7 @@ function line(over: Partial<ResolvedCartLineView['resolved']> & { productId: str
       image: 'https://cdn.example/img.jpg',
       fits: 'Aprilia RSV4',
       variantLabel: null,
+      sku: null,
       unitPrice: 14600,
       ...over,
     },

@@ -9,9 +9,10 @@
   border: 1px solid var(--c-border);
   border-radius: 10px;
 }
+/* V-2a2:車款欄標題顯眼化(Sean 開站回饋「灰又小」)——頂欄與逐列皆升字級/加粗/深字色 */
 .cvf-label {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--c-text);
   margin-bottom: 8px;
 }
@@ -19,9 +20,9 @@
   margin: 8px 0;
 }
 .cart-item-body .cvf-label {
-  font-size: 12px;
-  color: var(--c-text-2);
-  font-weight: 400;
+  font-size: 13px;
+  color: var(--c-text);
+  font-weight: 600;
 }
 .cvf-current {
   display: flex;
@@ -111,7 +112,9 @@
 }
 .cvf-hint {
   margin-top: 6px;
-  font-size: 12px;
-  color: var(--c-text-3);
+  font-size: 12.5px;
+  color: var(--c-text-2); /* V-2a2:自 --c-text-3 最淺灰升一級(07-09 全站灰字教訓、可讀文字不用最淺) */
 }
+/* V-2a2:「+ 選擇車款」鈕顯眼化(未填時的主要行動點) */
+.cart-item-body .cvf-add { font-weight: 600; color: var(--c-text); }
 .cvf-done { align-self: flex-start; }
