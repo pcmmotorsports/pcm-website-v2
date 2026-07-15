@@ -15,6 +15,7 @@ import {
   SupabaseOrderAdapter,
   ORDER_LIST_SELECT,
   ADMIN_ORDER_LIST_SELECT,
+  ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED,
   ADMIN_ORDER_DETAIL_SELECT,
 } from './SupabaseOrderAdapter';
 
@@ -203,7 +204,8 @@ describe('SupabaseOrderAdapter.listSummariesByCustomer + ORDER_LIST_SELECT 守�
 // eq 可鏈(回自身 builder);order 回 {range};range 為終端、await 回 {data, error, count}。
 function makeAdminListClient(result: { data: unknown; error: unknown; count: number | null }) {
   const range = vi.fn().mockResolvedValue(result);
-  const order = vi.fn().mockReturnValue({ range });
+  const order = vi.fn();
+  order.mockReturnValue({ order, range }); // order 可鏈兩次(created_at 主鍵+id 次鍵)再 range
   const eq = vi.fn();
   const is = vi.fn();
   const builder = { eq, is, order };
@@ -223,10 +225,17 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 }
 
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價 + brand join;零經銷價成本欄)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, tier_at_checkout, customers(name), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))))',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, product_variants(products(brands(name))))',
     );
+  });
+
+  it('🔴 D-2:item 狀態篩選版投影與主常數唯一差異 = order_items!inner(白名單逐欄相同)', () => {
+    expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).toBe(
+      ADMIN_ORDER_LIST_SELECT.replace('order_items(', 'order_items!inner('),
+    );
+    expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).toContain('order_items!inner(');
   });
 
   // 🔴 M-4a Slice D-1a 有意識鬆綁(依據 docs/specs/2026-07-15-m4a-order-list-redesign-slice-d-plan.md §0 經銷價護欄①):
@@ -250,6 +259,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     ];
     for (const token of forbidden) {
       expect(ADMIN_ORDER_LIST_SELECT).not.toContain(token);
+      expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).not.toContain(token); // 篩選版同鎖
     }
   });
 
@@ -261,7 +271,10 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     expect(ADMIN_ORDER_LIST_SELECT).toContain('product_variants(products(brands(name)))');
   });
 
-  it('查詢鏈 orders / select(ADMIN_ORDER_LIST_SELECT,{count:exact}) / 五軸 eq 下推 / order(created_at desc) / range(offset,offset+limit-1);row → AdminOrderSummary', async () => {
+  // ⚠️ 誠實邊界(Codex R1 nit-2):本測試 mock 只驗 wire 參數(投影常數/filter 下推)與 mapper 形狀,
+  // **不模擬 PostgREST !inner 的實際過濾**(fixture 刻意含一筆不符篩選的 null 品項=順驗 mapper 容缺;
+  // 真 PostgREST「只回命中品項、count 以父單計」= Sean 部署後開站實測驗收點,列晨報)。
+  it('查詢鏈 orders / select(item 篩選版,{count:exact}) / 五軸下推(workflow 打 order_items.workflow_status)/ order(created_at desc) / range;row → AdminOrderSummary', async () => {
     const { client, from, select, eq, order, range } = makeAdminListClient({
       data: [
         {
@@ -270,30 +283,34 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           created_at: '2099-04-15T10:00:00Z',
           payment_status: 'paid',
           fulfillment_status: 'notOrdered',
-          workflow_status: 'received_confirmed',
           total: 5200,
           order_source: 'web',
           payment_channel: 'tappay',
           display_position: null,
           cancelled_at: null,
-          version: 5,
           tier_at_checkout: 'store', // 車行
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
           order_items: [
             {
+              id: 'oi-1',
               variant_sku: 'BMS-13OEM-G-F',
               quantity: 2,
               unit_price: 2500,
               line_total: 5000,
               product_snapshot: { sku: 'BMS-13OEM-G-F', title: '下導流' },
+              workflow_status: 'received_confirmed', // D-2 per-item 真相
+              version: 3,
               product_variants: { products: { brands: { name: 'Bonamici' } } }, // variant→product→brand
             },
             {
+              id: 'oi-2',
               variant_sku: 'SUP-ONLY-SKU',
               quantity: 1,
               unit_price: 200,
               line_total: 200,
               product_snapshot: { sku: 'SUP-ONLY-SKU', title: '螺絲包' },
+              workflow_status: null, // 未設定
+              version: 1,
               product_variants: null, // variant_id null(supplier_slug+sku 型)→ brand null 容缺
             },
           ],
@@ -315,15 +332,19 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     );
 
     expect(from).toHaveBeenCalledWith('orders');
-    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    // 五軸篩選各下推一次 DB where(非前端過濾)
+    // 🔴 D-2:workflow 有篩 → 用 !inner 版投影(無命中品項的訂單整列消失)
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
+      count: 'exact',
+    });
+    // 五軸篩選各下推一次 DB where(非前端過濾);workflow 打 **item 層** 欄(orders 層停寫=stale、不打)
     expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
     expect(eq).toHaveBeenCalledWith('fulfillment_status', 'notOrdered');
     expect(eq).toHaveBeenCalledWith('order_source', 'web');
     expect(eq).toHaveBeenCalledWith('payment_channel', 'tappay');
-    expect(eq).toHaveBeenCalledWith('workflow_status', 'received_confirmed');
+    expect(eq).toHaveBeenCalledWith('order_items.workflow_status', 'received_confirmed');
     expect(eq).toHaveBeenCalledTimes(5);
-    expect(order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(order).toHaveBeenNthCalledWith(1, 'created_at', { ascending: false });
+    expect(order).toHaveBeenNthCalledWith(2, 'id', { ascending: false }); // n1 次鍵:同秒單分頁穩定
     expect(range).toHaveBeenCalledWith(40, 59); // offset 40、limit 20 → [40, 59] 含端
     expect(res).toEqual({
       items: [
@@ -339,25 +360,29 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           total: { amount: 5200, currency: 'TWD' },
           displayPosition: null,
           cancelledAt: null,
-          workflowStatus: 'received_confirmed',
-          version: 5,
           tierAtCheckout: 'store',
           lines: [
             {
+              id: 'oi-1',
               variantSku: 'BMS-13OEM-G-F',
               title: '下導流',
               brand: 'Bonamici',
               quantity: 2,
               unitPrice: { amount: 2500, currency: 'TWD' },
               lineTotal: { amount: 5000, currency: 'TWD' },
+              workflowStatus: 'received_confirmed',
+              version: 3,
             },
             {
+              id: 'oi-2',
               variantSku: 'SUP-ONLY-SKU',
               title: '螺絲包',
               brand: null,
               quantity: 1,
               unitPrice: { amount: 200, currency: 'TWD' },
               lineTotal: { amount: 200, currency: 'TWD' },
+              workflowStatus: null,
+              version: 1,
             },
           ],
         },
@@ -366,17 +391,21 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     });
   });
 
-  it('workflowStatus=null(「未設定」篩選)→ is(workflow_status, null) 下推、不走 eq;undefined → 兩者皆不呼', async () => {
-    const { client, eq, is } = makeAdminListClient({ data: [], error: null, count: 0 });
+  it('workflowStatus=null(「未設定」篩選)→ !inner 投影 + is(order_items.workflow_status, null);undefined → 主投影、eq/is 皆不呼', async () => {
+    const { client, select, eq, is } = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
       { workflowStatus: null },
       { limit: 20 },
     );
-    expect(is).toHaveBeenCalledWith('workflow_status', null);
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
+      count: 'exact',
+    });
+    expect(is).toHaveBeenCalledWith('order_items.workflow_status', null);
     expect(eq).not.toHaveBeenCalled();
 
     const second = makeAdminListClient({ data: [], error: null, count: 0 });
     await new SupabaseOrderAdapter(second.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(second.select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
     expect(second.is).not.toHaveBeenCalled();
     expect(second.eq).not.toHaveBeenCalled();
   });
@@ -406,8 +435,6 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_channel: 'cash',
           display_position: 3,
           cancelled_at: '2099-05-02T00:00:00Z',
-          workflow_status: null,
-          version: 2,
           tier_at_checkout: 'general', // 一般
           customers: null,
           order_items: null, // embed 缺 → lines []
@@ -432,8 +459,6 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       total: { amount: 999, currency: 'TWD' },
       displayPosition: 3,
       cancelledAt: '2099-05-02T00:00:00Z',
-      workflowStatus: null, // NULL = 未設定(顯示端兜「未設定」中性 badge)
-      version: 2,
       tierAtCheckout: 'general',
       lines: [],
     });
@@ -453,8 +478,6 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           payment_channel: 'tappay',
           display_position: null,
           cancelled_at: null,
-          workflow_status: 'shipped_done',
-          version: 1,
           customers: [{ name: '李大同' }], // 陣列形狀
         },
       ],
@@ -496,7 +519,6 @@ const DETAIL_ROW = {
   created_at: '2099-04-15T10:00:00Z',
   payment_status: 'paid',
   fulfillment_status: 'notOrdered',
-  workflow_status: 'received_unconfirmed',
   order_source: 'web',
   payment_channel: 'tappay',
   payment_method: 'tappay',
@@ -517,19 +539,22 @@ const DETAIL_ROW = {
   customers: { name: '王小明', email: 'a@b.c', phone: '0912345678' },
   order_items: [
     {
+      id: 'oi-1',
       variant_sku: 'BMS-13OEM-G-F',
       quantity: 2,
       unit_price: 2500,
       line_total: 5000,
       product_snapshot: { sku: 'BMS-13OEM-G-F', spec: { finish: 'Glossy' }, title: '下導流' },
+      workflow_status: 'received_unconfirmed', // D-2 per-item 真相
+      version: 4,
     },
   ],
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;與列表白名單分立)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version)',
     );
   });
 
@@ -563,7 +588,6 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       createdAt: '2099-04-15T10:00:00Z',
       paymentStatus: 'paid',
       fulfillmentStatus: 'notOrdered',
-      workflowStatus: 'received_unconfirmed',
       orderSource: 'web',
       paymentChannel: 'tappay',
       paymentMethod: 'tappay',
@@ -584,12 +608,15 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       version: 7,
       items: [
         {
+          id: 'oi-1',
           variantSku: 'BMS-13OEM-G-F',
           title: '下導流',
           spec: { finish: 'Glossy' },
           quantity: 2,
           unitPrice: { amount: 2500, currency: 'TWD' },
           lineTotal: { amount: 5000, currency: 'TWD' },
+          workflowStatus: 'received_unconfirmed',
+          version: 4,
         },
       ],
     });
@@ -603,7 +630,16 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
         invoice: null,
         customers: null,
         order_items: [
-          { variant_sku: 'X', quantity: 1, unit_price: 100, line_total: 100, product_snapshot: null },
+          {
+            id: 'oi-x',
+            variant_sku: 'X',
+            quantity: 1,
+            unit_price: 100,
+            line_total: 100,
+            product_snapshot: null,
+            workflow_status: null,
+            version: 1,
+          },
         ],
       },
       error: null,
@@ -653,21 +689,36 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
     const res = await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
       'o1',
       5,
-      { workflowStatus: 'shipped_done', invoiceStatus: 'issued' },
+      { shippingMethod: '宅配', invoiceStatus: 'issued' },
       'sean',
       'req-1',
     );
     expect(rpc).toHaveBeenCalledWith('admin_update_order_workflow', {
       p_order_id: 'o1',
       p_expected_version: 5,
-      p_patch: { workflow_status: 'shipped_done', invoice_status: 'issued' },
+      p_patch: { shipping_method: '宅配', invoice_status: 'issued' },
       p_actor: 'sean',
       p_request_id: 'req-1',
     });
     expect(res).toBe('UPDATED');
   });
 
-  it('🔴 金流紅線:patch 只含白名單 5 欄映射,未提供欄不進 wire(空 patch → p_patch={})', async () => {
+  it('🔴 D-2(Codex R1 must-fix 1):繞型別硬塞 workflowStatus → wire 絕不含 workflow_status(orders 層停寫、adapter 不映射)', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
+      'o1',
+      5,
+      { workflowStatus: 'shipped_done', invoiceStatus: 'issued' } as unknown as Parameters<
+        SupabaseOrderAdapter['updateAdminOrderWorkflow']
+      >[2],
+      'sean',
+      'req-1b',
+    );
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    expect(args.p_patch).toEqual({ invoice_status: 'issued' }); // toEqual=零額外鍵、workflow_status 被丟棄
+  });
+
+  it('🔴 金流紅線:patch 只含白名單 4 欄映射(D-2 起無 workflow_status),未提供欄不進 wire(空 patch → p_patch={})', async () => {
     const { client, rpc } = makeRpcClient({ data: 'NOOP', error: null });
     await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow('o1', 5, {}, 'sean', 'req-2');
     expect(rpc).toHaveBeenCalledWith(
@@ -676,19 +727,19 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
     );
   });
 
-  it('明給 null → 清空語意透傳 wire(workflow_status:null 進 p_patch)', async () => {
+  it('明給 null → 清空語意透傳 wire(invoice 兩欄 null 進 p_patch)', async () => {
     const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
     await new SupabaseOrderAdapter(client).updateAdminOrderWorkflow(
       'o1',
       5,
-      { workflowStatus: null, invoiceNumber: null, invoiceAmount: null },
+      { invoiceNumber: null, invoiceAmount: null },
       'sean',
       'req-3',
     );
     expect(rpc).toHaveBeenCalledWith(
       'admin_update_order_workflow',
       expect.objectContaining({
-        p_patch: { workflow_status: null, invoice_number: null, invoice_amount: null },
+        p_patch: { invoice_number: null, invoice_amount: null },
       }),
     );
   });
@@ -703,13 +754,60 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
   });
 
   it('RPC error → 裸 throw(caller server action 收斂固定碼);非預期碼 → throw 防腐壞', async () => {
-    const failing = makeRpcClient({ data: null, error: new Error('workflow_status 非有效啟用狀態') });
+    const failing = makeRpcClient({ data: null, error: new Error('invoice_number 非法') });
     await expect(
-      new SupabaseOrderAdapter(failing.client).updateAdminOrderWorkflow('o1', 5, { workflowStatus: 'ghost' }, 'sean', 'r'),
+      new SupabaseOrderAdapter(failing.client).updateAdminOrderWorkflow('o1', 5, { invoiceNumber: 'x'.repeat(65) }, 'sean', 'r'),
     ).rejects.toThrow();
     const weird = makeRpcClient({ data: 'WAT', error: null });
     await expect(
       new SupabaseOrderAdapter(weird.client).updateAdminOrderWorkflow('o1', 5, {}, 'sean', 'r'),
+    ).rejects.toThrow('非預期');
+  });
+});
+
+// ── updateAdminOrderItemWorkflow:per-item 改狀態(M-4a Slice D-2、走 admin_update_order_item_workflow RPC)──
+
+describe('SupabaseOrderAdapter.updateAdminOrderItemWorkflow', () => {
+  it('wire:p_patch 恰 workflow_status 單鍵(code 設定);回 UPDATED', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    const res = await new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow(
+      'oi-1',
+      3,
+      'shipped_done',
+      'sean',
+      'req-i1',
+    );
+    expect(rpc).toHaveBeenCalledWith('admin_update_order_item_workflow', {
+      p_item_id: 'oi-1',
+      p_expected_version: 3,
+      p_patch: { workflow_status: 'shipped_done' },
+      p_actor: 'sean',
+      p_request_id: 'req-i1',
+    });
+    expect(res).toBe('UPDATED');
+  });
+
+  it('🔴 品項凍結紅線:null=清空語意透傳;wire 恆單鍵、絕不夾帶 quantity/unit_price/line_total/variant 欄', async () => {
+    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
+    await new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow('oi-1', 3, null, 'sean', 'req-i2');
+    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
+    expect(args.p_patch).toEqual({ workflow_status: null }); // 恰單鍵(toEqual=零額外鍵)
+  });
+
+  it('CONFLICT / NOOP 碼直送;RPC error → 裸 throw;非預期碼 → throw 防腐壞', async () => {
+    for (const code of ['CONFLICT', 'NOOP'] as const) {
+      const { client } = makeRpcClient({ data: code, error: null });
+      await expect(
+        new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow('oi-1', 1, 'cancelled', 'sean', 'r'),
+      ).resolves.toBe(code);
+    }
+    const failing = makeRpcClient({ data: null, error: new Error('workflow_status 非有效啟用狀態') });
+    await expect(
+      new SupabaseOrderAdapter(failing.client).updateAdminOrderItemWorkflow('oi-1', 1, 'ghost', 'sean', 'r'),
+    ).rejects.toThrow();
+    const weird = makeRpcClient({ data: 42, error: null });
+    await expect(
+      new SupabaseOrderAdapter(weird.client).updateAdminOrderItemWorkflow('oi-1', 1, null, 'sean', 'r'),
     ).rejects.toThrow('非預期');
   });
 });

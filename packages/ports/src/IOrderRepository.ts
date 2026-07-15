@@ -94,11 +94,13 @@ export interface IOrderRepository {
   findAdminOrderDetail(id: OrderId): Promise<AdminOrderDetail | null>;
 
   /**
-   * 後台改單(M-4a Slice C;設 workflow_status / shipping_method / 發票紀錄三欄)。
+   * 後台改單(M-4a Slice C;D-2 起 admin 路徑只映射 shipping_method / 發票紀錄三欄=4 欄,
+   * workflow_status 寫入面移 item 層 updateAdminOrderItemWorkflow;order 層 RPC 白名單已收窄
+   * =送該 key 即 RAISE、20260716130000 §4)。
    *
    * 🔴 走 owner SECURITY DEFINER RPC `admin_update_order_workflow`(orders 對 service_role 已 REVOKE
    * 直寫〔20260611120000 §4〕→ 唯一寫入車道):RPC 內鎖列 + 樂觀鎖 `version=expectedVersion` +
-   * 讀 before → UPDATE(SET 字面恰 5 欄、🔴 金流欄一律不動)→ 同交易寫 admin_audit_log。
+   * 讀 before → UPDATE(SET 字面恰 4 業務欄+version+updated_at、🔴 金流欄一律不動)→ 同交易寫 admin_audit_log。
    *
    * - `patch` 語意見 `AdminOrderWorkflowPatch`(未提供 ≠ 清空);`actor`/`requestId` 由 server session
    *   /correlation 提供(client 不可信、RPC 端亦驗非空);
@@ -109,6 +111,27 @@ export interface IOrderRepository {
     id: OrderId,
     expectedVersion: number,
     patch: AdminOrderWorkflowPatch,
+    actor: string,
+    requestId: string,
+  ): Promise<AdminOrderWorkflowResult>;
+
+  /**
+   * 後台 per-item 改狀態(M-4a Slice D-2;設 order_items.workflow_status 單欄)。
+   *
+   * 🔴 走 owner SECURITY DEFINER RPC `admin_update_order_item_workflow`(order_items 對 service_role
+   * 已 REVOKE 直寫〔20260611120000 §4〕→ 唯一寫入車道;鏡像 Slice C):RPC 內鎖 item 列 + 樂觀鎖
+   * `version=expectedVersion` + 讀 before → UPDATE(SET 字面恰 workflow_status+version+updated_at、
+   * 🔴 品項凍結欄 quantity / unit_price / line_total / variant_sku / variant_id / product_snapshot
+   * 與金流欄一律不動)→ 同交易寫 admin_audit_log(target=`order_item:<id>`)。
+   *
+   * - `workflowStatus`:code=設定(RPC 端驗 order_status_options.is_active、僅實際變更時)/ null=清空;
+   * - 回 `'UPDATED'` / `'CONFLICT'`(版本不符或查無 item → UI 重載)/ `'NOOP'`(與現值相同);
+   * - RPC 端輸入非法(未知 code / 非白名單 key)→ throw(caller 收斂固定錯誤碼)。
+   */
+  updateAdminOrderItemWorkflow(
+    itemId: string,
+    expectedVersion: number,
+    workflowStatus: string | null,
     actor: string,
     requestId: string,
   ): Promise<AdminOrderWorkflowResult>;

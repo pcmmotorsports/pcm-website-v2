@@ -77,7 +77,12 @@ export default async function OrdersPage({
         </div>
       ) : (
         <>
-          <OrdersTable orders={orders} statusOptions={statusOptions} />
+          <OrdersTable
+            orders={orders}
+            statusOptions={statusOptions}
+            itemStatusFiltered={filter.workflowStatus !== undefined}
+            returnTo={buildOrderListHref(filter, page)}
+          />
           <ListPagination
             page={page}
             total={total}

@@ -34,7 +34,7 @@ export function OrderFilterBar({
     >
       <SelectFilter
         name={WORKFLOW_STATUS_PARAM}
-        label='訂單狀態'
+        label='商品狀態'
         value={workflowStatusSelectValue(filter.workflowStatus)}
         options={workflowStatusFilterOptions(statusOptions, filter.workflowStatus)}
       />

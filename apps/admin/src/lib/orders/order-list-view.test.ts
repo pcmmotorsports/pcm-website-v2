@@ -23,6 +23,7 @@ import {
   indexOrderStatusOptions,
   workflowStatusFilterOptions,
   workflowStatusSelectValue,
+  summarizeOrderItemWorkflow,
 } from './order-list-view';
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
@@ -227,5 +228,28 @@ describe('格式化', () => {
 
   it('ORDERS_PAGE_SIZE = 20', () => {
     expect(ORDERS_PAGE_SIZE).toBe(20);
+  });
+});
+
+// ── summarizeOrderItemWorkflow — 整單彙總(M-4a D-2;拍板 Q-A=A 全同→該值、混合→多狀態)──
+
+describe('summarizeOrderItemWorkflow — 整單狀態彙總', () => {
+  it('全同值 → uniform 該值;全 NULL → uniform null(未設定)', () => {
+    expect(summarizeOrderItemWorkflow(['shipped_done', 'shipped_done'])).toEqual({
+      kind: 'uniform',
+      code: 'shipped_done',
+    });
+    expect(summarizeOrderItemWorkflow([null, null])).toEqual({ kind: 'uniform', code: null });
+    expect(summarizeOrderItemWorkflow(['cancelled'])).toEqual({ kind: 'uniform', code: 'cancelled' });
+  });
+
+  it('任一分歧(含 NULL 與 code 混)→ mixed', () => {
+    expect(summarizeOrderItemWorkflow(['shipped_done', 'cancelled'])).toEqual({ kind: 'mixed' });
+    expect(summarizeOrderItemWorkflow(['shipped_done', null])).toEqual({ kind: 'mixed' });
+    expect(summarizeOrderItemWorkflow([null, 'shipped_done', null])).toEqual({ kind: 'mixed' });
+  });
+
+  it('空陣列(理論不發生)→ uniform null 兜底', () => {
+    expect(summarizeOrderItemWorkflow([])).toEqual({ kind: 'uniform', code: null });
   });
 });

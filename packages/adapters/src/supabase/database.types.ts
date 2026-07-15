@@ -340,6 +340,8 @@ export type Database = {
         Relationships: []
       }
       order_items: {
+        // ⚠️ workflow_status / version / updated_at 手動先行加入(migration 20260716120000 尚未 apply;
+        //    Sean db push 後重 gen 應與此一致)。
         Row: {
           availability_at_checkout: string | null
           id: string
@@ -348,8 +350,11 @@ export type Database = {
           product_snapshot: Json
           quantity: number
           unit_price: number
+          updated_at: string
           variant_id: string | null
           variant_sku: string
+          version: number
+          workflow_status: string | null
         }
         Insert: {
           availability_at_checkout?: string | null
@@ -359,8 +364,11 @@ export type Database = {
           product_snapshot: Json
           quantity: number
           unit_price: number
+          updated_at?: string
           variant_id?: string | null
           variant_sku: string
+          version?: number
+          workflow_status?: string | null
         }
         Update: {
           availability_at_checkout?: string | null
@@ -370,8 +378,11 @@ export type Database = {
           product_snapshot?: Json
           quantity?: number
           unit_price?: number
+          updated_at?: string
           variant_id?: string | null
           variant_sku?: string
+          version?: number
+          workflow_status?: string | null
         }
         Relationships: [
           {
@@ -1430,10 +1441,21 @@ export type Database = {
       }
     }
     Functions: {
-      // ⚠️ 手動先行加入(migration 20260714130000 尚未 apply;Sean db push 後重 gen 應與此一致)。
+      // ⚠️ 手動先行加入(migration 20260714130000;live 已 apply、2026-07-16 MCP 實查)。
       admin_update_order_workflow: {
         Args: {
           p_order_id: string
+          p_expected_version: number
+          p_patch: Json
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: string
+      }
+      // ⚠️ 手動先行加入(migration 20260716130000 尚未 apply;Sean db push 後重 gen 應與此一致)。
+      admin_update_order_item_workflow: {
+        Args: {
+          p_item_id: string
           p_expected_version: number
           p_patch: Json
           p_actor: string

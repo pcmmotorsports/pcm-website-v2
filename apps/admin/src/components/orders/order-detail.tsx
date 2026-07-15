@@ -7,6 +7,7 @@ import {
   formatOrderAmount,
   workflowStatusBadge,
   indexOrderStatusOptions,
+  summarizeOrderItemWorkflow,
 } from '../../lib/orders/order-list-view';
 import {
   INVOICE_STATUS_LABEL,
@@ -15,9 +16,12 @@ import {
   formatOrderDateTime,
 } from '../../lib/orders/order-detail-view';
 import { WorkflowStatusBadge } from './workflow-status-badge';
+import { ItemWorkflowStatusCell } from './item-workflow-status-cell';
 import { OrderEditForm } from './order-edit-form';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
+// D-2:狀態=per-item(品項表逐列 ItemWorkflowStatusCell 改;header badge=items 彙總、
+// 全同→該色/混合→多狀態;orders.workflow_status 停寫不讀)。
 // 🔴 PII 邊界:本頁顯示客人姓名/電話/email+收件快照(admin-only、service_role、明細專用白名單);
 // 仍零成本/經銷價(品項單價=該單成交價)、零 tappay_rec_trade_id。
 
@@ -35,7 +39,15 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
+function ItemsTable({
+  detail,
+  optionsByCode,
+  activeOptions,
+}: {
+  detail: AdminOrderDetail;
+  optionsByCode: ReadonlyMap<string, OrderStatusOption>;
+  activeOptions: OrderStatusOption[];
+}) {
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';
   return (
@@ -48,11 +60,12 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
             <th className={`${TH} text-right`}>數量</th>
             <th className={`${TH} text-right`}>單價</th>
             <th className={`${TH} text-right`}>小計</th>
+            <th className={TH}>商品狀態</th>
           </tr>
         </thead>
         <tbody>
-          {detail.items.map((item, i) => (
-            <tr key={`${item.variantSku}-${i}`} className='border-t'>
+          {detail.items.map((item) => (
+            <tr key={item.id} className='border-t'>
               <td className={TD}>
                 <div>{item.title ?? '—'}</div>
                 {item.spec && (
@@ -73,6 +86,17 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
               <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
                 NT$ {formatOrderAmount(item.lineTotal.amount)}
               </td>
+              {/* D-2:per-item 狀態逐列改(item 層樂觀鎖;PRG 回明細頁) */}
+              <td className={`${TD} whitespace-nowrap`}>
+                <ItemWorkflowStatusCell
+                  itemId={item.id}
+                  workflowStatus={item.workflowStatus}
+                  version={item.version}
+                  returnTo={`/orders/${detail.id}`}
+                  optionsByCode={optionsByCode}
+                  activeOptions={activeOptions}
+                />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -84,6 +108,7 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
             <td className='px-3 py-1.5 pt-3 text-right tabular-nums whitespace-nowrap'>
               NT$ {formatOrderAmount(detail.subtotal.amount)}
             </td>
+            <td />
           </tr>
           <tr>
             <td colSpan={4} className='text-muted-foreground px-3 py-1.5 text-right'>
@@ -92,6 +117,7 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
             <td className='px-3 py-1.5 text-right tabular-nums whitespace-nowrap'>
               NT$ {formatOrderAmount(detail.shippingFee.amount)}
             </td>
+            <td />
           </tr>
           {detail.discountTotal.amount > 0 && (
             <tr>
@@ -101,6 +127,7 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
               <td className='px-3 py-1.5 text-right tabular-nums whitespace-nowrap'>
                 −NT$ {formatOrderAmount(detail.discountTotal.amount)}
               </td>
+              <td />
             </tr>
           )}
           <tr className='border-t font-medium'>
@@ -110,6 +137,7 @@ function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
             <td className='px-3 py-2 text-right tabular-nums whitespace-nowrap'>
               NT$ {formatOrderAmount(detail.total.amount)}
             </td>
+            <td />
           </tr>
         </tfoot>
       </table>
@@ -127,12 +155,20 @@ export function OrderDetail({
   const optionsByCode = indexOrderStatusOptions(statusOptions);
   const activeOptions = statusOptions.filter((o) => o.isActive);
   const cancelled = detail.cancelledAt !== null;
+  // D-2:header 整單狀態=items 彙總(全同→該色、混合→「多狀態」;orders.workflow_status 停寫不讀)。
+  const summary = summarizeOrderItemWorkflow(detail.items.map((i) => i.workflowStatus));
 
   return (
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>{detail.displayId}</h1>
-        <WorkflowStatusBadge badge={workflowStatusBadge(detail.workflowStatus, optionsByCode)} />
+        {summary.kind === 'mixed' ? (
+          <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
+            多狀態
+          </span>
+        ) : (
+          <WorkflowStatusBadge badge={workflowStatusBadge(summary.code, optionsByCode)} />
+        )}
         {cancelled && (
           <span className='bg-destructive/10 text-destructive inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
             已取消
@@ -204,9 +240,9 @@ export function OrderDetail({
         </div>
       )}
 
-      <OrderEditForm detail={detail} activeOptions={activeOptions} />
+      <OrderEditForm detail={detail} />
 
-      <ItemsTable detail={detail} />
+      <ItemsTable detail={detail} optionsByCode={optionsByCode} activeOptions={activeOptions} />
     </div>
   );
 }

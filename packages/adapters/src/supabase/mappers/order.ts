@@ -155,7 +155,14 @@ export function mapSupabaseOrderRowToListItem(row: SupabaseOrderListRow): OrderL
  */
 type AdminOrderListItemEmbed = Pick<
   Database['public']['Tables']['order_items']['Row'],
-  'variant_sku' | 'quantity' | 'unit_price' | 'line_total' | 'product_snapshot'
+  | 'id'
+  | 'variant_sku'
+  | 'quantity'
+  | 'unit_price'
+  | 'line_total'
+  | 'product_snapshot'
+  | 'workflow_status'
+  | 'version'
 > & {
   product_variants: { products: { brands: { name: string } | null } | null } | null;
 };
@@ -172,8 +179,6 @@ export type SupabaseAdminOrderRow = Pick<
   | 'payment_channel'
   | 'display_position'
   | 'cancelled_at'
-  | 'workflow_status'
-  | 'version'
   | 'tier_at_checkout'
 > & {
   /**
@@ -202,12 +207,15 @@ function customerNameFromEmbed(embed: SupabaseAdminOrderRow['customers']): strin
 /** order_items 內嵌 → domain AdminOrderLine:brand 走 variant→product→brand(任一層缺 → null);成交價整數 → Money。 */
 function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
   return {
+    id: item.id,
     variantSku: item.variant_sku,
     title: pickString(item.product_snapshot, 'title'),
     brand: item.product_variants?.products?.brands?.name ?? null,
     quantity: item.quantity,
     unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
     lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
+    workflowStatus: item.workflow_status, // M-4a D-2:per-item 真相;NULL=未設定
+    version: item.version, // per-item 改狀態表單樂觀鎖
   };
 }
 
@@ -232,8 +240,7 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     total: { amount: toMoneyAmount(row.total), currency: 'TWD' },
     displayPosition: row.display_position,
     cancelledAt: row.cancelled_at,
-    workflowStatus: row.workflow_status, // M-4a:NULL=未設定;未知 code 顯示端兜底(soft-ref、無硬 FK)
-    version: row.version, // M-4a Slice C:每列 inline 改單表單帶此值當樂觀鎖條件
+    // (D-2 起不攜 orders.workflow_status/version:per-item 真相在 lines[]、整單=顯示端彙總。)
     tierAtCheckout: row.tier_at_checkout, // M-4a Slice D-1a:會員等級(member_tier enum;顯示端映射一般/車行)
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
   };
@@ -253,7 +260,6 @@ export type SupabaseAdminOrderDetailRow = Pick<
   | 'created_at'
   | 'payment_status'
   | 'fulfillment_status'
-  | 'workflow_status'
   | 'order_source'
   | 'payment_channel'
   | 'payment_method'
@@ -278,11 +284,14 @@ export type SupabaseAdminOrderDetailRow = Pick<
     | { name: string | null; email: string | null; phone: string | null }[]
     | null;
   order_items: {
+    id: string;
     variant_sku: string;
     quantity: number;
     unit_price: number;
     line_total: number;
     product_snapshot: unknown; // jsonb;{sku,spec,title} 由 create_order 寫入,防禦解析
+    workflow_status: string | null; // M-4a D-2:per-item 狀態(NULL=未設定)
+    version: number; // M-4a D-2:per-item 樂觀鎖
   }[];
 };
 
@@ -327,7 +336,7 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     createdAt: row.created_at,
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
-    workflowStatus: row.workflow_status,
+    // (D-2 起不攜 orders.workflow_status:明細「訂單狀態」=顯示端由 items[].workflowStatus 彙總。)
     orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域
     paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
     paymentMethod: row.payment_method,
@@ -365,12 +374,15 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     version: row.version, // M-4a Slice C:明細頁改單表單帶此值當樂觀鎖條件
     items: row.order_items.map(
       (item): AdminOrderDetailItem => ({
+        id: item.id,
         variantSku: item.variant_sku,
         title: pickString(item.product_snapshot, 'title'),
         spec: pickSpec(item.product_snapshot),
         quantity: item.quantity,
         unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
         lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
+        workflowStatus: item.workflow_status, // M-4a D-2:per-item 真相
+        version: item.version, // per-item 改狀態表單樂觀鎖
       }),
     ),
   };

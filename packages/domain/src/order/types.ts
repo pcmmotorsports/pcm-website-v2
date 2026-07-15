@@ -203,10 +203,12 @@ export type AdminOrderFilter = {
   orderSource?: OrderSource;
   paymentChannel?: PaymentChannel;
   /**
-   * 訂單處理狀態篩選(M-4a workflow_status;Sean 的主操作軸):
+   * 商品狀態篩選(M-4a;D-2 起=**item 層**語意:至少一品項為此狀態的訂單、且只顯示命中品項列
+   * 〔adapter 用 order_items!inner 投影+order_items.workflow_status 下推;orders.workflow_status
+   * 停寫 stale、不再篩〕):
    * - `undefined` = 不篩;
    * - `string` = 指定 order_status_options.code(動態詞彙、非靜態 enum,值域由 DB CHECK slug 格式約束);
-   * - `null` = 只看「未設定」(workflow_status IS NULL 的單;新進線上單未 triage 態)。
+   * - `null` = 只看「有品項未設定狀態」的單(order_items.workflow_status IS NULL)。
    */
   workflowStatus?: string | null;
 };
@@ -221,6 +223,8 @@ export type AdminOrderFilter = {
  * (supplier_slug+sku 型 line)或 join 缺 → null(顯示端「—」)。
  */
 export type AdminOrderLine = {
+  /** 品項 id(order_items.id;D-2 起 per-item 改狀態表單的 target) */
+  id: string;
   /** 料號(order_items.variant_sku) */
   variantSku: string;
   /** 品名(product_snapshot.title;缺 → null 防禦) */
@@ -232,6 +236,14 @@ export type AdminOrderLine = {
   unitPrice: Money;
   /** 小計 line_total(下單當下 server 算、不重算) */
   lineTotal: Money;
+  /**
+   * per-item 訂單處理狀態(M-4a D-2、order_items.workflow_status;soft-ref order_status_options.code)。
+   * NULL=未設定。item 層=唯一操作真相(Sean 2026-07-15 拍板 Q-A=A);整單狀態=顯示端彙總。
+   * 🔴 純操作/顯示軸:金流真相恆為 order 的 paymentStatus,本欄絕不進金流/對帳/退款判斷。
+   */
+  workflowStatus: string | null;
+  /** 樂觀鎖版本(M-4a D-2;per-item 改狀態表單 hidden 帶此值當 WHERE version 條件)。 */
+  version: number;
 };
 
 /**
@@ -263,14 +275,10 @@ export type AdminOrderSummary = {
   displayPosition: number | null;
   /** 取消時間 ISO(非 null = 已取消;本片純顯示,取消功能留取消片) */
   cancelledAt: string | null;
-  /**
-   * 訂單處理狀態(M-4a、orders.workflow_status;soft-ref order_status_options.code)。
-   * NULL = 未設定(新進線上單未 triage);未知 code(選項被停用/改碼)由顯示端兜底、不在此層擋。
-   * 🔴 純操作/顯示軸:金流真相恆為 paymentStatus,本欄絕不進金流/對帳/退款判斷。
-   */
-  workflowStatus: string | null;
-  /** 樂觀鎖版本(M-4a Slice C;寫入路徑帶此值當 WHERE version 條件、衝突 409 重載)。 */
-  version: number;
+  // (M-4a D-2 起本讀模型**不再攜** orders.workflow_status / orders.version:per-item 真相移至
+  //  lines[].workflowStatus/version;整單狀態=顯示端由 lines 彙總〔全同→該值、混合→多狀態〕;
+  //  列表 order 層 inline 改單退場 → 不需 orders.version。明細頁改 shipping/invoice 仍用
+  //  AdminOrderDetail.version。)
   /**
    * 會員等級(orders.tier_at_checkout、下單當下等級快照)。general=一般、store/premiumStore=車行。
    * 🔴 鐵則 12:tier + 品項成交價同列 = 經銷價脈絡,僅 admin server-render(SSO 閘後)消費、
@@ -289,13 +297,14 @@ export type InvoiceStatus = 'not_issued' | 'issued' | 'voided';
  *
  * 🔴「未提供 ≠ 清空」語意(對齊 RPC jsonb key 存在性):
  * - 欄位**省略(undefined)** = 不動該欄;
- * - `workflowStatus`/`invoiceNumber`/`invoiceAmount` 明給 `null` = 清空(Sean「全清重設」);
- * - `shippingMethod`/`invoiceStatus` 不可為 null(DB NOT NULL);
- * - `workflowStatus` 非 null 時須為 order_status_options.code(RPC 端驗 is_active、UI 不可信)。
+ * - `invoiceNumber`/`invoiceAmount` 明給 `null` = 清空;
+ * - `shippingMethod`/`invoiceStatus` 不可為 null(DB NOT NULL)。
  * 🔴 型別層**無** payment/fulfillment/金額 total 欄(金流紅線:改單絕不碰金流真相軸)。
+ * 🔴 D-2 起型別層**亦無 workflowStatus**(orders.workflow_status 停寫=雙層強制:TS 層關死
+ * 〔Codex R1 must-fix 1〕+ DB 層 RPC 白名單收窄、送到即 RAISE〔Fable 關卡1 REQUIRED-2、
+ * 20260716130000 §4〕;狀態唯一寫入面=item 層 updateAdminOrderItemWorkflow)。
  */
 export type AdminOrderWorkflowPatch = {
-  workflowStatus?: string | null;
   shippingMethod?: string;
   invoiceNumber?: string | null;
   invoiceAmount?: number | null;
@@ -313,6 +322,8 @@ export type AdminOrderWorkflowResult = 'UPDATED' | 'CONFLICT' | 'NOOP';
  * **非**經銷價表(price_store / price_by_tier / cost 零滲入;snapshot 本身無價格欄)。
  */
 export type AdminOrderDetailItem = {
+  /** 品項 id(order_items.id;D-2 起明細頁 per-item 改狀態表單的 target) */
+  id: string;
   variantSku: string;
   /** 品名(product_snapshot.title;缺 → null 防禦) */
   title: string | null;
@@ -323,6 +334,10 @@ export type AdminOrderDetailItem = {
   unitPrice: Money;
   /** 小計 = 下單當下 server 算的 line_total(不重算) */
   lineTotal: Money;
+  /** per-item 訂單處理狀態(同 AdminOrderLine.workflowStatus 語意;M-4a D-2) */
+  workflowStatus: string | null;
+  /** 樂觀鎖版本(per-item 改狀態表單 hidden;M-4a D-2) */
+  version: number;
 };
 
 /**
@@ -342,8 +357,7 @@ export type AdminOrderDetail = {
   createdAt: string;
   paymentStatus: PaymentStatus;
   fulfillmentStatus: FulfillmentStatus;
-  /** 訂單處理狀態(NULL=未設定;同 AdminOrderSummary.workflowStatus 語意) */
-  workflowStatus: string | null;
+  // (M-4a D-2 起不攜 orders.workflow_status:整單狀態=顯示端由 items[].workflowStatus 彙總。)
   orderSource: OrderSource;
   paymentChannel: PaymentChannel;
   /** 金流事實軸(付款成功才有值;null=尚無成功請款) */

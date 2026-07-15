@@ -51,10 +51,27 @@ export const ORDER_LIST_SELECT =
  * 🔴 tier_at_checkout / 成交價由 forbidden 移 allowed = **有意識鬆綁**(依據 docs/specs/2026-07-15-m4a-
  *   order-list-redesign-slice-d-plan.md §0 經銷價護欄①;admin server-render、SSO 閘後、絕不進非 admin client bundle);
  *   SupabaseOrderAdapter.test.ts 同步改 byte-equal 快照 + 保留真禁 token 斷言。
+ * - M-4a D-2:orders 層 workflow_status / version **退出投影**(per-item 真相移 order_items;
+ *   orders.workflow_status 停寫停讀、整單狀態=顯示端彙總);order_items 內嵌加 `id, workflow_status,
+ *   version`(per-item 改狀態表單 target + 樂觀鎖)。
  * module-level `export const` → 測試 byte-equal + forbidden-token + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, total, order_source, payment_channel, display_position, cancelled_at, version, tier_at_checkout, customers(name), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot, product_variants(products(brands(name))))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, product_variants(products(brands(name))))';
+
+/**
+ * admin orders 列表投影 — **item 狀態篩選版**(M-4a D-2;僅 `filter.workflowStatus` 有值時使用)。
+ *
+ * 與 `ADMIN_ORDER_LIST_SELECT` **唯一差異** = `order_items!inner(...)`:PostgREST 對內嵌資源的
+ * filter(`.eq('order_items.workflow_status', code)` / `.is(..., null)`)只濾內嵌列、父列仍全回;
+ * `!inner` 讓「無任何品項命中」的訂單整列消失 = 篩選語意「該單至少一品項為此狀態、且只顯示命中品項列」。
+ * 🔴 orders.workflow_status 停寫(D-2)→ 篩選**必須**走 item 層,打舊欄=篩到 stale 值。
+ * 🔴 鐵則 12 白名單與主常數逐欄相同(測試 byte-equal 斷言兩常數僅差 `!inner`)。
+ */
+export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SELECT.replace(
+  'order_items(',
+  'order_items!inner(',
+);
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -69,7 +86,7 @@ export const ADMIN_ORDER_LIST_SELECT =
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + forbidden-token 守門。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, workflow_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(variant_sku, quantity, unit_price, line_total, product_snapshot)';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -200,24 +217,32 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   ): Promise<Paginated<AdminOrderSummary>> {
     const offset = pagination.offset ?? 0;
 
+    // workflow 篩選(M-4a D-2 起走 **item 層**):orders.workflow_status 停寫=stale、絕不再打;
+    // 有篩 → `order_items!inner` 版投影(無命中品項的訂單整列消失、命中品項才顯示),
+    // filter 打內嵌欄 `order_items.workflow_status`。undefined=不篩 / null=未設定(IS NULL)/ code。
+    const itemStatusFilter = filter.workflowStatus; // local 供 TS narrowing(undefined=不篩)
     let query = this.supabase
       .from('orders')
-      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+      .select(
+        itemStatusFilter !== undefined
+          ? ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED
+          : ADMIN_ORDER_LIST_SELECT,
+        { count: 'exact' },
+      );
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
     if (filter.orderSource) query = query.eq('order_source', filter.orderSource);
     if (filter.paymentChannel) query = query.eq('payment_channel', filter.paymentChannel);
-    // workflow_status 三態(M-4a Slice A):undefined=不篩 / null=只看未設定(IS NULL)/ string=指定 code。
-    // 用 `!== undefined` 判別(truthy 判別會把 null 吞成不篩);對齊 AdminOrderFilter docstring。
-    if (filter.workflowStatus !== undefined) {
+    if (itemStatusFilter !== undefined) {
       query =
-        filter.workflowStatus === null
-          ? query.is('workflow_status', null)
-          : query.eq('workflow_status', filter.workflowStatus);
+        itemStatusFilter === null
+          ? query.is('order_items.workflow_status', null)
+          : query.eq('order_items.workflow_status', itemStatusFilter);
     }
 
     const { data, error, count } = await query
       .order('created_at', { ascending: false })
+      .order('id', { ascending: false }) // 次鍵防同秒單分頁跨頁重複/漏單(Fable D-2 verdict n1)
       .range(offset, offset + pagination.limit - 1);
     if (error) {
       throw error;
@@ -268,10 +293,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     requestId: string,
   ): Promise<AdminOrderWorkflowResult> {
     // 逐欄:key 存在且值非 undefined 才進 wire(null=清空、透傳);undefined=視同未提供、不進 wire。
+    // 🔴 D-2:workflow_status 不再映射(型別層已無;orders 層停寫、狀態唯一寫入面=item 層 RPC)。
     const p: Record<string, string | number | null> = {};
-    if ('workflowStatus' in patch && patch.workflowStatus !== undefined) {
-      p.workflow_status = patch.workflowStatus;
-    }
     if ('shippingMethod' in patch && patch.shippingMethod !== undefined) {
       p.shipping_method = patch.shippingMethod;
     }
@@ -300,6 +323,37 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       return data;
     }
     throw new Error('admin_update_order_workflow RPC 回傳非預期碼');
+  }
+
+  /**
+   * 後台 per-item 改狀態(M-4a Slice D-2;走 admin_update_order_item_workflow owner RPC、鏡像 Slice C)。
+   *
+   * 🔴 wire 縱深:patch jsonb **只**建 `workflow_status` 單鍵(RPC 端白名單亦僅此鍵;
+   * 品項凍結欄 quantity/unit_price/line_total/variant_* 型別層+wire 層+RPC 白名單三層皆無路可進)。
+   * null=清空(回未設定)、code=設定(RPC 端驗 is_active)。
+   * 回 'UPDATED'/'CONFLICT'/'NOOP';error → 裸 throw(caller server action 收斂固定碼)。
+   */
+  async updateAdminOrderItemWorkflow(
+    itemId: string,
+    expectedVersion: number,
+    workflowStatus: string | null,
+    actor: string,
+    requestId: string,
+  ): Promise<AdminOrderWorkflowResult> {
+    const { data, error } = await this.supabase.rpc('admin_update_order_item_workflow', {
+      p_item_id: itemId,
+      p_expected_version: expectedVersion,
+      p_patch: { workflow_status: workflowStatus } as Json,
+      p_actor: actor,
+      p_request_id: requestId,
+    });
+    if (error) {
+      throw error;
+    }
+    if (data === 'UPDATED' || data === 'CONFLICT' || data === 'NOOP') {
+      return data;
+    }
+    throw new Error('admin_update_order_item_workflow RPC 回傳非預期碼');
   }
 
   // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──

@@ -210,6 +210,24 @@ export function indexOrderStatusOptions(
   return new Map(options.map((o) => [o.code, o]));
 }
 
+// ── 整單狀態彙總(M-4a D-2;Sean 拍板 Q-A=A 逐字「全同→該色、混合→多狀態、不再手設」)──
+
+/** 整單彙總結果:uniform=全品項同值(含全 NULL=未設定)/ mixed=品項狀態分歧。 */
+export type OrderWorkflowSummary = { kind: 'uniform'; code: string | null } | { kind: 'mixed' };
+
+/**
+ * 品項 workflow_status 陣列 → 整單彙總(純函式;orders.workflow_status 停寫、**唯一**整單狀態來源):
+ * - 空陣列(理論不發生,create_order 保證 ≥1 line)→ uniform null(顯示「未設定」);
+ * - 全同值(含全 NULL)→ uniform 該值;有任一分歧 → mixed(顯示端「多狀態」中性 badge)。
+ */
+export function summarizeOrderItemWorkflow(
+  codes: readonly (string | null)[],
+): OrderWorkflowSummary {
+  const first = codes[0];
+  if (first === undefined) return { kind: 'uniform', code: null }; // 空陣列(顯示「未設定」)
+  return codes.every((c) => c === first) ? { kind: 'uniform', code: first } : { kind: 'mixed' };
+}
+
 /**
  * 篩選下拉選項:active 選項 +「未設定」哨兵。
  * `current` = 目前 URL 篩選值:若為「合法但不在 active 清單」的 code(停用選項/未知 code),
