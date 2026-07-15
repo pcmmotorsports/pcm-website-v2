@@ -18,8 +18,9 @@ import { WorkflowStatusBadge } from './workflow-status-badge';
 //   數量 / 單價 / 總金額 / **商品狀態**)逐列。
 // D-2(拍板 Q-A=A):狀態欄=per-item 逐列各自改(ItemWorkflowStatusCell、item 層樂觀鎖);
 //   整單狀態=彙總顯示掛單號下方(全同→該色 badge、混合→「多狀態」中性)、不再手設。
-// 🔴 鐵則 12:單價 / 總金額 + 會員等級同列 = 經銷價脈絡,全 server-render(ItemWorkflowStatusCell 亦
-//   server component、<form action={serverAction}> 零 client JS)→ 敏感值不序列化進 client bundle;SSO 閘後 admin-only。
+// 🔴 鐵則 12:單價 / 總金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進
+//   client bundle;SSO 閘後 admin-only。唯一 client 元件=狀態欄 WorkflowStatusSelect(帶色下拉、
+//   只收 code/label/色值策展資料;寫入仍 <form action={serverAction}>)。
 // 「年份廠牌車種」欄 = V-3(order_items.vehicle_snapshot)落地才點亮,D-1a 期間不出欄。
 
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
