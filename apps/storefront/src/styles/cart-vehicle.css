@@ -122,6 +122,10 @@
   outline: none;
   border-color: var(--c-text);
 }
+/* V-2d④:自由輸入框同防 iOS 聚焦縮放(≥16px;同 filter-cascade .vsc-input 手機規則) */
+@media (max-width: 1023px) {
+  .cvf-free-input { font-size: 16px; }
+}
 .cvf-hint {
   margin-top: 6px;
   font-size: 12.5px;

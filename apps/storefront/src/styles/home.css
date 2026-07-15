@@ -721,6 +721,24 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .ed-finder-garage-chip:hover { border-color: var(--ed-c-ink); }
+.ed-finder-garage-chip { white-space: nowrap; } /* chip 內文字不折行(V-2d②:名稱長時整顆滑、不撐高) */
+
+/* V-2d②(Sean 07-15 真機:「我的愛車會被推到下一行」爆版):≤900px(finder 既有手機斷點)
+   愛車列改單行橫向捲動條——label 與 chips 恆同一行、超寬滑動看;建議清單(.ed-finder-suggest)
+   維持 wrap(明選清單要一次看全、非同病)。 */
+@media (max-width: 900px) {
+  .ed-finder-garage {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* 捲動條藏(strip 慣例);仍可滑 */
+    margin-right: calc(var(--ed-gutter) * -1);
+    padding-right: var(--ed-gutter); /* 右緣露半顆=可滑 affordance、沿用 gutter */
+  }
+  .ed-finder-garage::-webkit-scrollbar { display: none; }
+  .ed-finder-garage-label { flex: 0 0 auto; white-space: nowrap; }
+  .ed-finder-garage-chip { flex: 0 0 auto; }
+}
 
 /* ── V-1c 視覺回歸修(Sean 回饋「首頁欄位很醜」):combobox 在 finder 變體沿 design
    .ed-finder-slot select 外觀(無框線/透明底/同字級/右側 chevron),版型回 slot 結構 ── */
@@ -746,6 +764,12 @@
   opacity: 1; /* 蓋掉 .vsc-input:disabled 的 0.55、對齊 design(僅變 color/cursor、chevron 維持 ink) */
 }
 .ed-finder-slot .vsc-input--finder:disabled::placeholder { color: var(--ed-c-ink-mute); }
+/* V-2d④:首頁 finder 輸入框手機 ≥16px 防 iOS 聚焦縮放(<16px 聚焦即 zoom+pan)。
+   🔴 本塊必須位於上方基礎宣告(font-size:15px)之後——同 specificity 靠 source order 蓋回
+   (cascade 生效教訓、同 filter-cascade.css 急件1 註;R1 Critical=原置於基礎宣告前=死碼)。 */
+@media (max-width: 1023px) {
+  .ed-finder-slot .vsc-input--finder { font-size: 16px; }
+}
 .ed-finder-slot .vsc-list {
   top: calc(100% + 10px);
   left: 0;

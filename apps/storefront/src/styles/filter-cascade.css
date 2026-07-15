@@ -229,7 +229,9 @@
    本塊必須位於 `.vsc-input` 基礎宣告之後才蓋得回來(cascade 生效教訓)。 */
 @media (max-width: 1023px) {
   .cft-cascade .vsc { flex: 1; min-width: 0; }
-  .vsc-input { min-width: 0; width: 100%; }
+  /* V-2d④:font-size ≥16px=iOS Safari 聚焦不自動縮放視口(<16px 聚焦即 zoom+pan=Sean
+     「整個畫面好像會滑動」成因之一);僅手機/平板斷點、桌機字級不動 */
+  .vsc-input { min-width: 0; width: 100%; font-size: 16px; }
   /* 下拉面板:窄槽內不撐破視口(基礎 min-width:100% 遇長車款名會長到內容寬)、選項改可折行 */
   .vsc-list { max-width: calc(100vw - 28px); }
   .vsc-option { white-space: normal; }

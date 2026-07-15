@@ -7,7 +7,7 @@
 // 🔴 typeahead=design-reference 零先例、Sean 口述授權行為偏離(視覺對齊);controlled by
 // 外部 vehicle 值(reducer/context)=鏡像天然成立、無本地鏡像 effect。
 
-import { useState, type KeyboardEvent } from 'react';
+import { useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
 
@@ -49,6 +49,7 @@ function Combo({
   const [text, setText] = useState<string | null>(null); // null=未編輯(顯 value)
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null); // V-2d④:點選選定後主動 blur 收手機鍵盤
   const shown = text ?? value ?? '';
   const list = filterVehicleOptions(options, text ?? '', (n) => n);
 
@@ -113,6 +114,7 @@ function Combo({
         <span className="ed-finder-slot-label">{slotLabel}</span>
       )}
       <input
+        ref={inputRef}
         type="text"
         role="combobox"
         aria-expanded={open}
@@ -146,6 +148,11 @@ function Combo({
               onMouseDown={(e) => {
                 e.preventDefault();
                 pick(name);
+                // V-2d④(Sean 07-15 真機「鍵盤一直卡在那邊」):點選(觸控/滑鼠)選定後主動
+                // 釋放 focus 收鍵盤——preventDefault 保住的 focus 改為明確 blur;rAF 延到 state
+                // flush 後才 blur → onBlur commit 讀到 text=null 早退、不與 pick 重複 dispatch。
+                // 鍵盤 Enter 選定不走此路=桌機鍵盤流不變。
+                requestAnimationFrame(() => inputRef.current?.blur());
               }}
               // finder 變體 Wrapper=label:取消 click 的 label activation(否則點選後 focus 轉發
               // 回 input → onFocus 重開整份清單掛著;code-reviewer R1)

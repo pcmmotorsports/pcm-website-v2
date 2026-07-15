@@ -56,6 +56,9 @@ export function ProductFitmentCheck({
   const [editing, setEditing] = useState(false);
   const [sel, setSel] = useState<{ brand: string; model?: string; year?: number } | null>(null);
   const [suggest, setSuggest] = useState<{ entries: string[]; garageYear: number | undefined } | null>(null);
+  // V-2d③(Sean 07-15 真機:「手機放直的很不好看」):手機預設收合=單顆入口鈕+愛車 chips 在前,
+  // 點開才展三層選單(CSS ≤1023px 生效;桌機恆展開、.pfc-expand 不顯)。§7 判定/文案四態零動、只動殼。
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   // V-2c mount:URL `?vehicle=` 恆第一真相 —
   // - 有 URL vehicle → 不讀鏡(過期鏡=Sean 07-15 實測「顯上一台車」bug 本體)、掛載即
@@ -91,6 +94,8 @@ export function ProductFitmentCheck({
     setEditing(false);
     setSuggest(null);
     setSel(null);
+    setPickerOpen(false); // 下次進 picker(更改以外路徑)回收合預設
+
     // 寫 context=全站連動(brandId/modelId 用 slugify(name)=taxonomy slug 空間;附名稱字面欄)
     writeVehicleContext({
       brandId: slugify(c.brandName),
@@ -138,10 +143,11 @@ export function ProductFitmentCheck({
               </>
             )}
           </div>
-          <button type="button" className="pfc-link" onClick={() => { setSel(null); setSuggest(null); setEditing(true); }}>更改車款</button>
+          {/* 更改車款=明確要改 → 直接展開選單(V-2d③ 收合入口只擋首見的高牆) */}
+          <button type="button" className="pfc-link" onClick={() => { setSel(null); setSuggest(null); setPickerOpen(true); setEditing(true); }}>更改車款</button>
         </div>
       ) : (
-        <div className="pfc-picker">
+        <div className={`pfc-picker${pickerOpen ? ' pfc-picker-open' : ''}`}>
           <div className="pfc-picker-label">確認是否適用你的車</div>
           {garage.length > 0 && (
             <div className="pfc-garage">
@@ -170,6 +176,10 @@ export function ProductFitmentCheck({
               )}
             </div>
           )}
+          {/* V-2d③ 手機收合入口(≤1023px 未展開才顯、桌機 CSS 藏);點開展下方三層選單 */}
+          <button type="button" className="pfc-expand" onClick={() => setPickerOpen(true)}>
+            選擇車款,確認是否適用
+          </button>
           <div className="pfc-select">
             <VehicleSelect
               motoBrands={motoBrands}

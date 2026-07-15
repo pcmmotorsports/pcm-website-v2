@@ -102,6 +102,15 @@ describe('ProductFitmentCheck（§7）', () => {
     expect(ctx.year).toBe(2022);
   });
 
+  it('V-2d③:picker 預設收合殼——入口鈕存在、點擊加 pfc-picker-open(展開=CSS ≤1023 生效;§7 邏輯零動)', () => {
+    const { container } = render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    const picker = container.querySelector('.pfc-picker')!;
+    expect(picker.classList.contains('pfc-picker-open')).toBe(false);
+    fireEvent.click(screen.getByText('選擇車款,確認是否適用'));
+    expect(container.querySelector('.pfc-picker')!.classList.contains('pfc-picker-open')).toBe(true);
+    expect(screen.getByRole('combobox', { name: '選擇品牌' })).toBeTruthy(); // 選單仍在(桌機恆顯)
+  });
+
   it('V-2c:urlVehicle brand-only → 不判定(現選入口、零猜)、鏡同步蓋掉過期鏡', () => {
     setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750' });
     render(

@@ -124,4 +124,22 @@ describe('VehicleSelect', () => {
     expect(brand.value).toBe('');
     expect(combo('選擇車型').disabled).toBe(true);
   });
+
+  it('V-2d④:點選選定後主動 blur 收鍵盤(rAF 後);鍵盤 Enter 選定不 blur=桌機流不變', async () => {
+    render(<Harness />);
+    const brand = combo('選擇品牌');
+    brand.focus();
+    fireEvent.change(brand, { target: { value: 'ya' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    expect(document.activeElement).not.toBe(brand); // 觸控/滑鼠選定 → focus 釋放=手機鍵盤收
+    const model = combo('選擇車型');
+    model.focus();
+    fireEvent.change(model, { target: { value: 'r' } });
+    fireEvent.keyDown(model, { key: 'ArrowDown' });
+    fireEvent.keyDown(model, { key: 'Enter' });
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    expect((combo('選擇車型') as HTMLInputElement).value).toBe('R6');
+    expect(document.activeElement).toBe(model); // Enter 路徑不 blur
+  });
 });
