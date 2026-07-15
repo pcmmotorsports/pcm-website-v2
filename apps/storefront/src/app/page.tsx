@@ -73,7 +73,14 @@ export default async function HomePage({
         // 序列化面收窄:chips 只需 id/name/year(engine/km/mods 等不進 client props;皆為
         // 本人 own 資料、此為最小面原則非洩漏修補)
         const vehicles = await (await getVehicleRepo()).listByCustomer(user.id);
-        return vehicles.map((v) => ({ id: v.id, name: v.name, year: v.year }));
+        // V-1d:dict 欄一併投影(chips 精確 lookup 快路徑;仍為窄投影、不整台 CustomerVehicle 序列化)
+        return vehicles.map((v) => ({
+          id: v.id,
+          name: v.name,
+          year: v.year,
+          dictBrandName: v.dictBrandName,
+          dictModelName: v.dictModelName,
+        }));
       } catch (garageError) {
         console.error('[home] 愛車清單讀取失敗、chips 退化不顯示:', garageError);
         return [];

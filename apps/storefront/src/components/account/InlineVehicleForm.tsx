@@ -32,6 +32,7 @@ import type { VehicleInput } from '@pcm/schemas';
 import type { AddVehicleActionResult, VehicleFieldErrors } from '@/app/account/vehicle/actions';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { VehicleCombo } from '@/components/VehicleSelect';
+import { vehicleLabel } from '@/lib/vehicle-match';
 
 // 表單初值(新增:id 缺/null + isPrimary 由 parent 依清單空否帶入;編輯〔g-6c〕:帶完整 CustomerVehicle 值)。
 export type InlineVehicleInitial = {
@@ -43,6 +44,9 @@ export type InlineVehicleInitial = {
   km?: string;
   mods?: string;
   service?: string | null;
+  /** V-1d:字典鍵名稱字面對(編輯回填雙下拉的第一優先來源;缺/null=走 name 字面解析 fallback) */
+  dictBrandName?: string | null;
+  dictModelName?: string | null;
 };
 
 export type InlineVehicleFormProps = {
@@ -64,7 +68,7 @@ function parseDictName(
 ): { brand: string; model: string } | null {
   for (const b of brands) {
     for (const m of b.models) {
-      if (`${b.name} ${m.name}` === name) return { brand: b.name, model: m.name };
+      if (vehicleLabel(b.name, m.name) === name) return { brand: b.name, model: m.name };
     }
   }
   return null;
@@ -79,8 +83,14 @@ export function InlineVehicleForm({
   const router = useRouter();
   const [isPrimary, setIsPrimary] = useState(!!veh.isPrimary);
   // 車型欄雙模式:dict=字典雙下拉(預設、可精確命中愛車 chips);free=自行輸入(字典沒有的車)。
-  // 初始:無字典 → free;name 空(新增)→ dict;name=字典標準字面 → dict 回填;其餘(自由文字)→ free。
-  const initialDict = veh.name ? parseDictName(vehicleBrands, veh.name) : null;
+  // 初始:無字典 → free;dict 欄有值(V-1d 落庫、寫入時已 server 驗)→ dict 直接回填;
+  // name 空(新增)→ dict;name=字典標準字面 → dict 回填(舊資料 fallback);其餘(自由文字)→ free。
+  const initialDict =
+    veh.dictBrandName != null && veh.dictModelName != null
+      ? { brand: veh.dictBrandName, model: veh.dictModelName }
+      : veh.name
+        ? parseDictName(vehicleBrands, veh.name)
+        : null;
   const [mode, setMode] = useState<'dict' | 'free'>(
     vehicleBrands.length === 0 ? 'free' : !veh.name || initialDict ? 'dict' : 'free',
   );
@@ -108,10 +118,24 @@ export function InlineVehicleForm({
       setFormError(null);
       return;
     }
-    const submitName = mode === 'dict' ? `${brandName} ${modelName}` : name;
+    const submitName = mode === 'dict' ? vehicleLabel(brandName!, modelName!) : name;
+    // V-1d:dict 對恆送(dict=名稱字面對、free=雙 null=REQUIRED-1 覆蓋殘留);server 端 fail-closed 再驗。
+    const dictPair =
+      mode === 'dict'
+        ? { dictBrandName: brandName, dictModelName: modelName }
+        : { dictBrandName: null, dictModelName: null };
     startTransition(async () => {
       // 信任邊界在 server(addVehicleAction safeParse);client 不重驗、收逐欄回傳渲染。
-      const result = await onSubmit({ isPrimary, name: submitName, year, engine, km, mods, service });
+      const result = await onSubmit({
+        isPrimary,
+        name: submitName,
+        year,
+        engine,
+        km,
+        mods,
+        service,
+        ...dictPair,
+      });
       if (result.fieldErrors) {
         setFieldErrors(result.fieldErrors);
         setFormError(null);
@@ -179,7 +203,7 @@ export function InlineVehicleForm({
             className="acc-veh-mode-toggle"
             onClick={() => {
               // 已選齊 → 帶入組合字面當自由輸入初值(V-1d 指示「客人可改顯示名」);未選齊保留原值。
-              if (brandName !== null && modelName !== null) setName(`${brandName} ${modelName}`);
+              if (brandName !== null && modelName !== null) setName(vehicleLabel(brandName, modelName));
               setMode('free');
               setFieldErrors({});
             }}

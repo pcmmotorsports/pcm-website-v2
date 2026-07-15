@@ -8,9 +8,9 @@ import {
   mapVehicleToInsertRow,
 } from './mappers/vehicle';
 
-/** customer_vehicles 表投射(對齊 migration 11 欄)。 */
+/** customer_vehicles 表投射(對齊 migration 11 欄+V-1d 字典鍵兩欄)。 */
 const VEHICLE_SELECT =
-  'id, customer_user_id, is_primary, name, year, engine, km, mods, service, created_at, updated_at';
+  'id, customer_user_id, is_primary, name, year, engine, km, mods, service, dict_brand_name, dict_model_name, created_at, updated_at';
 
 /**
  * SupabaseVehicleAdapter:Supabase 真實 IVehicleRepository 實作(M-1-14d)。

@@ -75,20 +75,32 @@ export type AddressInput = z.infer<typeof AddressInput>;
 // service:design 為 <input type="date">(空 → ''、填 → ISO date 字串)→ transform 把 '' 正規化為 null
 //   (#177:DB customer_vehicles.service 是 nullable date 欄,塞空字串會觸發 invalid input syntax for type date;
 //    domain CustomerVehicle.service 本就 string | null,正規化後型別/runtime 一致)。
-export const VehicleInput = z.object({
-  isPrimary: z.boolean().default(false),
-  // #201:name trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveVehicle L774
-  //   `if (!form.name.trim()) return;`(client 已擋純空白、server 補上同防線)。
-  name: z.string().trim().min(1, { error: '請填寫車型' }),
-  year: z.string().default(''),
-  engine: z.string().default(''),
-  km: z.string().default(''),
-  mods: z.string().default(''),
-  service: z
-    .string()
-    .default('')
-    .transform((s) => (s === '' ? null : s)),
-});
+export const VehicleInput = z
+  .object({
+    isPrimary: z.boolean().default(false),
+    // #201:name trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveVehicle L774
+    //   `if (!form.name.trim()) return;`(client 已擋純空白、server 補上同防線)。
+    name: z.string().trim().min(1, { error: '請填寫車型' }),
+    year: z.string().default(''),
+    engine: z.string().default(''),
+    km: z.string().default(''),
+    mods: z.string().default(''),
+    service: z
+      .string()
+      .default('')
+      .transform((s) => (s === '' ? null : s)),
+    // V-1d:車輛字典鍵(taxonomy brand.name/model.name 名稱字面;null=自由輸入)。
+    //   default(null)=舊 caller 不帶也恆出現在 parsed.data → update patch 恆寫兩欄
+    //   (REQUIRED-1:dict 車改自由輸入存檔 → 雙 null 覆蓋、舊對不殘留)。
+    //   「存在於 taxonomy」的 fail-closed 驗證在 server action 層(schema 不查字典)。
+    dictBrandName: z.string().trim().min(1).nullable().default(null),
+    dictModelName: z.string().trim().min(1).nullable().default(null),
+  })
+  // 成對不變式(鏡像 DB CHECK):單邊有值=拒(client 組合 bug 或竄改;fail-closed)。
+  .refine((v) => (v.dictBrandName === null) === (v.dictModelName === null), {
+    error: '字典車款欄位必須成對',
+    path: ['dictBrandName'],
+  });
 export type VehicleInput = z.infer<typeof VehicleInput>;
 
 // === Profile form(design profile tab L662-671) ===

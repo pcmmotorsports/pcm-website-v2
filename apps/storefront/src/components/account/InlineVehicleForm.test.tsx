@@ -94,6 +94,37 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     expect(screen.getByText(/改用清單選車/)).toBeTruthy();
   });
 
+  it('V-1d:dict 模式送出=帶名稱字面對;free 模式送出=雙 null(REQUIRED-1 覆蓋殘留)', async () => {
+    const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
+    pickByTyping('選擇品牌', 'Yamaha');
+    pickByTyping('選擇車型', 'YZF-R6');
+    fireEvent.click(screen.getByText('儲存'));
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      dictBrandName: 'Yamaha',
+      dictModelName: 'YZF-R6',
+    });
+  });
+
+  it('V-1d REQUIRED-1:dict 車編輯 → 切自行輸入改名 → 存 → dict 對雙 null(舊對不殘留)', async () => {
+    const { onSubmit } = renderForm({
+      vehicleBrands: BRANDS,
+      veh: { id: 'v1', name: 'Yamaha YZF-R1', dictBrandName: 'Yamaha', dictModelName: 'YZF-R1' },
+    });
+    expect(combo('選擇品牌').value).toBe('Yamaha'); // dict 欄優先回填
+    fireEvent.click(screen.getByText(/改用自行輸入/));
+    fireEvent.change(screen.getByPlaceholderText('YAMAHA YZF-R6'), {
+      target: { value: '我的改裝 R1' },
+    });
+    fireEvent.click(screen.getByText('儲存'));
+    await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled());
+    expect(onSubmit.mock.calls[0]![0]).toMatchObject({
+      name: '我的改裝 R1',
+      dictBrandName: null,
+      dictModelName: null,
+    });
+  });
+
   it('NIT-1:自由輸入=字典字面 → 切回清單選車時回填雙下拉(所見=所送)', () => {
     renderForm({ vehicleBrands: BRANDS });
     fireEvent.click(screen.getByText(/改用自行輸入/));

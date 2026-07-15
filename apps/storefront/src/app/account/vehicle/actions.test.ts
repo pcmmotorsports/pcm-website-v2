@@ -30,6 +30,15 @@ vi.mock('@/lib/auth/composition', () => ({
 vi.mock('@/lib/supabase/server', () => ({
   createServerSupabaseClient: () => mockCreateServerSupabaseClient(),
 }));
+// V-1d:actions 引用 fetchVehicleTaxonomy(@/lib/products 檔頭 import 'server-only' → node 測試環境炸)
+// → mock 整檔只給 taxonomy;預設含 YAMAHA/YZF-R6(validInput dict 案可過)、個案覆寫驗 fail-closed。
+const mockFetchVehicleTaxonomy = vi.fn();
+vi.mock('@/lib/products', () => ({
+  fetchVehicleTaxonomy: () => mockFetchVehicleTaxonomy(),
+}));
+const TAXONOMY = [
+  { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'r6', name: 'YZF-R6', years: [2020] }] },
+];
 
 async function getActions() {
   const m = await import('./actions');
@@ -53,6 +62,7 @@ beforeEach(() => {
     auth: { getUser: () => mockGetUser() },
   });
   mockGetVehicleRepo.mockResolvedValue(fakeRepo);
+  mockFetchVehicleTaxonomy.mockResolvedValue(TAXONOMY);
 });
 
 afterEach(() => {
@@ -220,5 +230,54 @@ describe('deleteVehicleAction(g-6c server action)', () => {
     const result = await deleteVehicleAction('v-1');
     expect(result).toEqual({ ok: true });
     expect(mockDeleteVehicle).toHaveBeenCalledWith(fakeRepo, 'u-session', 'v-1');
+  });
+});
+
+// V-1d:dict 對 server fail-closed 驗證(值班台 REQUIRED:client 選單只是便利、不可信)。
+describe('V-1d dict 對 fail-closed(add/update 共用 validateDictPair)', () => {
+  beforeEach(() => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'u1' } } });
+  });
+
+  it('合法 dict 對(brand 存在+model 屬該 brand)→ 放行、use-case 收到成對值', async () => {
+    mockAddVehicle.mockResolvedValue({});
+    const { addVehicleAction } = await getActions();
+    const result = await addVehicleAction(
+      validInput({ dictBrandName: 'YAMAHA', dictModelName: 'YZF-R6' }),
+    );
+    expect(result).toEqual({ ok: true });
+    expect(mockAddVehicle.mock.calls[0]![2]).toMatchObject({
+      dictBrandName: 'YAMAHA',
+      dictModelName: 'YZF-R6',
+    });
+  });
+
+  it('brand 不在字典 / model 不屬該 brand → fieldErrors 拒寫、不呼叫 use-case', async () => {
+    const { addVehicleAction, updateVehicleAction } = await getActions();
+    const r1 = await addVehicleAction(validInput({ dictBrandName: 'HONDA', dictModelName: 'YZF-R6' }));
+    expect(r1.fieldErrors?.name).toMatch(/不在清單/);
+    const r2 = await updateVehicleAction('v1', validInput({ dictBrandName: 'YAMAHA', dictModelName: 'CBR' }));
+    expect(r2.fieldErrors?.name).toMatch(/不在清單/);
+    expect(mockAddVehicle).not.toHaveBeenCalled();
+    expect(mockUpdateVehicle).not.toHaveBeenCalled();
+  });
+
+  it('taxonomy 載入失敗(回 [])→ dict 路徑 formError 拒寫(fail-closed);自由輸入不受影響', async () => {
+    mockFetchVehicleTaxonomy.mockResolvedValue([]);
+    mockAddVehicle.mockResolvedValue({});
+    const { addVehicleAction } = await getActions();
+    const dictResult = await addVehicleAction(
+      validInput({ dictBrandName: 'YAMAHA', dictModelName: 'YZF-R6' }),
+    );
+    expect(dictResult.formError).toMatch(/暫時無法載入/);
+    const freeResult = await addVehicleAction(validInput());
+    expect(freeResult).toEqual({ ok: true });
+  });
+
+  it('單邊 dict 欄(竄改)→ schema 成對 refine 擋在 safeParse、不呼叫 use-case', async () => {
+    const { addVehicleAction } = await getActions();
+    const result = await addVehicleAction(validInput({ dictBrandName: 'YAMAHA' }));
+    expect(result.ok).toBeUndefined();
+    expect(mockAddVehicle).not.toHaveBeenCalled();
   });
 });

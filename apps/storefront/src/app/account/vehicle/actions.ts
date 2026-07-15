@@ -18,6 +18,7 @@ import { addVehicle, updateVehicle, deleteVehicle } from '@pcm/use-cases';
 import { VehicleInput } from '@pcm/schemas';
 import { getVehicleRepo } from '@/lib/auth/composition';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { fetchVehicleTaxonomy } from '@/lib/products';
 
 // 逐欄 fieldErrors(僅 name;VehicleInput 只 name 必填、其餘選填無格式驗證、無巢狀 → 比 address invoice 簡單)。
 export type VehicleFieldErrors = {
@@ -30,6 +31,26 @@ export type AddVehicleActionResult = {
   formError?: string;
   ok?: true;
 };
+
+/**
+ * V-1d server fail-closed 字典驗證(值班台 REQUIRED:client 選單只是便利、不可信):
+ * dict 對有值 → 逐字驗 brand.name 存在於 taxonomy 且 model.name 屬該 brand;查無=拒寫。
+ * taxonomy 載入失敗(fetchVehicleTaxonomy 內部 catch 回 [])→ dict 路徑一律拒(fail-closed)、
+ * 自由輸入路徑(dict 雙 null)不受影響。成對性已由 schema refine+DB CHECK 雙層守、此處不重驗。
+ */
+async function validateDictPair(data: VehicleInput): Promise<AddVehicleActionResult | null> {
+  if (data.dictBrandName === null) return null;
+  const taxonomy = await fetchVehicleTaxonomy();
+  if (taxonomy.length === 0) {
+    return { formError: '車款清單暫時無法載入,請稍後再試或改用自行輸入' };
+  }
+  const brand = taxonomy.find((b) => b.name === data.dictBrandName);
+  const model = brand?.models.find((m) => m.name === data.dictModelName);
+  if (!brand || !model) {
+    return { fieldErrors: { name: '所選車款不在清單中,請重新選擇或改用自行輸入' } };
+  }
+  return null;
+}
 
 // g-6c 更新結果同新增形狀(InlineVehicleForm onSubmit 共用此型別、編輯重用同表單)。
 export type UpdateVehicleActionResult = AddVehicleActionResult;
@@ -68,6 +89,10 @@ export async function addVehicleAction(input: unknown): Promise<AddVehicleAction
     }
     return { formError: '請填寫必要欄位' };
   }
+
+  // V-1d:dict 對 fail-closed 字典驗證(查無/載入失敗=拒寫;自由輸入不受影響)。
+  const dictReject = await validateDictPair(parsed.data);
+  if (dictReject) return dictReject;
 
   // 信任邊界 ③/④/⑤:addVehicle 用 user.id 填 customerUserId(不信 input)、isPrimary→unsetCurrentPrimaryExcept swap、
   // RLS / partial unique 守;catch 不上洩原始 error。
@@ -115,6 +140,11 @@ export async function updateVehicleAction(
     }
     return { formError: '請填寫必要欄位' };
   }
+
+  // V-1d:dict 對 fail-closed 字典驗證(同 add;REQUIRED-1 恆寫兩欄由 schema default(null) 保證
+  // parsed.data 恆帶 dict 對 → mapper 恆寫入、dict→free 存檔=雙 null 覆蓋不殘留)。
+  const dictReject = await validateDictPair(parsed.data);
+  if (dictReject) return dictReject;
 
   // 信任邊界 ③/④/⑤:updateVehicle 用 user.id 驗 ownership、patch 白名單(parsed.data 已 strip id/customerUserId/時間欄)、
   // RLS / partial unique 守;跨會員越權 / 不存在 id 由 use-case verify(isPrimary)+ RLS 擋。

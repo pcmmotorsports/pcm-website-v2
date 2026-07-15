@@ -56,6 +56,8 @@ function makeVeh(over: Partial<CustomerVehicle> = {}): CustomerVehicle {
     km: '12,340 km',
     mods: '7 件',
     service: '2026-03-12',
+    dictBrandName: null,
+    dictModelName: null,
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',
     ...over,

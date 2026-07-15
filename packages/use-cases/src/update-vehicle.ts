@@ -7,7 +7,10 @@ import { verifyOwnedThenUnsetOtherPrimary, verifyVehicleOwned } from './_vehicle
  * 註:`service` 空值 '' → null 正規化在 schema 層 VehicleInput.transform 完成(#177、對齊 DB date 欄不接受空字串),use-case pass-through。
  */
 export type VehiclePatch = Partial<
-  Pick<CustomerVehicle, 'isPrimary' | 'name' | 'year' | 'engine' | 'km' | 'mods' | 'service'>
+  Pick<
+    CustomerVehicle,
+    'isPrimary' | 'name' | 'year' | 'engine' | 'km' | 'mods' | 'service' | 'dictBrandName' | 'dictModelName'
+  >
 >;
 
 /**

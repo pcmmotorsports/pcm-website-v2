@@ -118,7 +118,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
     render(
       <VehicleFinder
         motoBrands={BRANDS}
-        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021' }]}
+        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021', dictBrandName: null, dictModelName: null }]}
       />,
     );
     fireEvent.click(screen.getByText('2021 mt-09 sp'));
@@ -129,7 +129,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
 
   it('多命中(MT-0 substring 命中兩車型、非精確)→ 展開建議清單、點選才套用', () => {
     render(
-      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g2', name: 'MT-0', year: '' }]} />,
+      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g2', name: 'MT-0', year: '', dictBrandName: null, dictModelName: null }]} />,
     );
     fireEvent.click(screen.getByText('MT-0'));
     expect(combo('選擇品牌').value).toBe(''); // 不自動套用
@@ -141,9 +141,38 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
     expect(combo('選擇車型').value).toBe('MT-09');
   });
 
+  it('V-1d 分流:dict 欄有值 → 精確 lookup 直套(顯示名隨便改都不影響)', () => {
+    render(
+      <VehicleFinder
+        motoBrands={BRANDS}
+        garage={[
+          { id: 'g4', name: '我的通勤車', year: '2021', dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP' },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByText('2021 我的通勤車'));
+    expect(combo('選擇品牌').value).toBe('Yamaha');
+    expect(combo('選擇車型').value).toBe('MT-09 SP');
+    expect(combo('選擇年份').value).toBe('2021');
+  });
+
+  it('V-1d 分流:dict 欄指向已演化消失的車款 → 降級字面比對流(零猜)', () => {
+    render(
+      <VehicleFinder
+        motoBrands={BRANDS}
+        garage={[
+          { id: 'g5', name: '我的紅色小車', year: '', dictBrandName: 'Yamaha', dictModelName: '已下架車型' },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByText('我的紅色小車'));
+    expect(screen.getByText(/無法對應/)).toBeTruthy(); // name 零命中 → 提示、不套用
+    expect(combo('選擇品牌').value).toBe('');
+  });
+
   it('零命中(純自由文字)→ 顯「無法對應」提示、不套用不猜', () => {
     render(
-      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g3', name: '我的紅色小車', year: '' }]} />,
+      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g3', name: '我的紅色小車', year: '', dictBrandName: null, dictModelName: null }]} />,
     );
     fireEvent.click(screen.getByText('我的紅色小車'));
     expect(screen.getByText(/無法對應/)).toBeTruthy();

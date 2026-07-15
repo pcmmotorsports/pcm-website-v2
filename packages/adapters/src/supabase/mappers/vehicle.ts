@@ -38,6 +38,9 @@ export function mapSupabaseVehicleToDomain(row: SupabaseVehicleRow): CustomerVeh
     km: row.km ?? '',
     mods: row.mods ?? '',
     service: row.service,
+    // V-1d:字典鍵名稱字面對(nullable 直送;恆成對由 DB CHECK+schema 守)
+    dictBrandName: row.dict_brand_name,
+    dictModelName: row.dict_model_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -58,6 +61,8 @@ export function mapVehicleToInsertRow(
     km: vehicle.km,
     mods: vehicle.mods,
     service: vehicle.service,
+    dict_brand_name: vehicle.dictBrandName,
+    dict_model_name: vehicle.dictModelName,
   };
 }
 
@@ -75,5 +80,9 @@ export function mapVehiclePatchToRow(patch: Partial<CustomerVehicle>): SupabaseV
   if (patch.km !== undefined) row.km = patch.km;
   if (patch.mods !== undefined) row.mods = patch.mods;
   if (patch.service !== undefined) row.service = patch.service;
+  // V-1d REQUIRED-1:dict 對 patch 有帶(schema default 保證 delivery 層恆帶、含雙 null)就恆寫入,
+  // 防「dict 車改自由輸入存檔 → 舊對殘留 → chips 套錯車」;undefined(非表單路徑)才略過。
+  if (patch.dictBrandName !== undefined) row.dict_brand_name = patch.dictBrandName;
+  if (patch.dictModelName !== undefined) row.dict_model_name = patch.dictModelName;
   return row;
 }

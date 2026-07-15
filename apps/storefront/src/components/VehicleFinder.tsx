@@ -21,7 +21,7 @@ import { useRouter } from 'next/navigation';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CustomerVehicle } from '@pcm/domain';
 import { VehicleSelect } from './VehicleSelect';
-import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
+import { filterVehicleOptions, uniqueExactMatch, vehicleLabel } from '@/lib/vehicle-match';
 import { writeVehicleContext } from '@/lib/vehicle-context';
 
 type VehicleSel = { brand: string; model?: string; year?: number } | null;
@@ -29,7 +29,7 @@ type VehicleSel = { brand: string; model?: string; year?: number } | null;
 /** 攤平字典:每車型一項(brand+model 名稱與 label;chips 比對/建議清單共用字典字面)。 */
 function flattenModels(motoBrands: MockMotoBrand[]) {
   return motoBrands.flatMap((b) =>
-    b.models.map((m) => ({ brand: b, model: m, label: `${b.name} ${m.name}` })),
+    b.models.map((m) => ({ brand: b, model: m, label: vehicleLabel(b.name, m.name) })),
   );
 }
 
@@ -39,7 +39,7 @@ export function VehicleFinder({
 }: {
   motoBrands: MockMotoBrand[];
   /** 登入會員車庫(未登入/讀取失敗=[]、整排 chips 不顯示) */
-  garage?: Pick<CustomerVehicle, 'id' | 'name' | 'year'>[];
+  garage?: Pick<CustomerVehicle, 'id' | 'name' | 'year' | 'dictBrandName' | 'dictModelName'>[];
 }) {
   const router = useRouter();
   const [vehicle, setVehicle] = useState<VehicleSel>(null);
@@ -63,10 +63,25 @@ export function VehicleFinder({
     setSuggest(null);
   };
 
-  const onGarageChip = (g: { name: string; year: string }) => {
+  const onGarageChip = (g: {
+    name: string;
+    year: string;
+    dictBrandName: string | null;
+    dictModelName: string | null;
+  }) => {
     const entries = flattenModels(motoBrands);
     // 車庫 year=自由文字(domain 註:text input)→ 僅四位數字才嘗試帶入年份、其餘不猜
     const garageYear = /^\d{4}$/.test(g.year.trim()) ? Number(g.year.trim()) : undefined;
+    // V-1d 分流:dict 欄有值(存車時 server 已驗)→ 名稱字面精確 lookup 直套(零比對);
+    // lookup 查無(字典演化:改名/下架)→ 降級走下方 REQUIRED-2 字面比對流、零猜不硬配。
+    if (g.dictBrandName !== null && g.dictModelName !== null) {
+      const brand = motoBrands.find((b) => b.name === g.dictBrandName);
+      const model = brand?.models.find((m) => m.name === g.dictModelName);
+      if (brand && model) {
+        applyEntry({ brand, model }, garageYear);
+        return;
+      }
+    }
     // 唯一精確命中(正規化=trim/大小寫/全形半形)才自動套用:先比「品牌 車型」全名、再比車型名
     const exact =
       uniqueExactMatch(entries, g.name, (e) => e.label) ??

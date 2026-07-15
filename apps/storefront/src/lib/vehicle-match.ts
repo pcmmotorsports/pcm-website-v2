@@ -43,3 +43,12 @@ export function uniqueExactMatch<T>(
   const hits = items.filter((item) => normalizeVehicleQuery(nameOf(item)) === q);
   return hits.length === 1 ? (hits[0] as T) : null;
 }
+
+/**
+ * V-1d 字面構造收斂(值班台記錄項):「品牌 車型」顯示字面的唯一構造點。
+ * chips 精確比對/表單組名/建議清單 label 全走此函式;slug 化(dict 欄)後比對走名稱字面
+ * lookup、此字面只剩顯示用途。
+ */
+export function vehicleLabel(brandName: string, modelName: string): string {
+  return `${brandName} ${modelName}`;
+}

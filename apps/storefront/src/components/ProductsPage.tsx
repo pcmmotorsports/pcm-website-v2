@@ -36,6 +36,7 @@
 'use client';
 
 import { useMemo, useReducer, useRef, useState, type CSSProperties } from 'react';
+import { vehicleLabel } from '@/lib/vehicle-match';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -98,7 +99,11 @@ function PageHeader({ cascade }: { cascade: CascadeFilterState }) {
   const title =
     cascade.category?.sub ??
     cascade.category?.main ??
-    (cascade.vehicle ? `${cascade.vehicle.brand} ${cascade.vehicle.model ?? ''}`.trim() : '全部商品');
+    (cascade.vehicle
+      ? cascade.vehicle.model != null
+        ? vehicleLabel(cascade.vehicle.brand, cascade.vehicle.model)
+        : cascade.vehicle.brand
+      : '全部商品');
 
   return (
     <div className="pp-head">

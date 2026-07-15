@@ -192,6 +192,8 @@ export type Database = {
         Row: {
           created_at: string
           customer_user_id: string
+          dict_brand_name: string | null
+          dict_model_name: string | null
           engine: string | null
           id: string
           is_primary: boolean
@@ -205,6 +207,8 @@ export type Database = {
         Insert: {
           created_at?: string
           customer_user_id: string
+          dict_brand_name?: string | null
+          dict_model_name?: string | null
           engine?: string | null
           id?: string
           is_primary?: boolean
@@ -218,6 +222,8 @@ export type Database = {
         Update: {
           created_at?: string
           customer_user_id?: string
+          dict_brand_name?: string | null
+          dict_model_name?: string | null
           engine?: string | null
           id?: string
           is_primary?: boolean

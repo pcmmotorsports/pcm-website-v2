@@ -41,3 +41,35 @@ describe('VehicleInput.name 純空白 trim(#201、對齊 design saveVehicle L774
     expect(parsed.name).toBe('YAMAHA YZF-R6');
   });
 });
+
+// V-1d:dict 對(名稱字面)成對不變式+default(null) 恆出現(REQUIRED-1 的 schema 層依據:
+// parsed.data 恆帶兩欄 → update patch 恆寫入、dict→free 存檔=雙 null 覆蓋殘留)。
+describe('VehicleInput.dict 對(V-1d)', () => {
+  it('缺省 → 雙 null 恆出現在 parsed 結果', () => {
+    const parsed = VehicleInput.parse({ name: 'YAMAHA YZF-R6' });
+    expect(parsed.dictBrandName).toBeNull();
+    expect(parsed.dictModelName).toBeNull();
+    expect('dictBrandName' in parsed).toBe(true);
+  });
+
+  it('成對有值 → 逐字保留', () => {
+    const parsed = VehicleInput.parse({
+      name: 'YAMAHA YZF-R6',
+      dictBrandName: 'YAMAHA',
+      dictModelName: 'YZF-R6',
+    });
+    expect(parsed.dictBrandName).toBe('YAMAHA');
+    expect(parsed.dictModelName).toBe('YZF-R6');
+  });
+
+  it('單邊有值 → reject(成對不變式、鏡像 DB CHECK)', () => {
+    expect(VehicleInput.safeParse({ name: 'x', dictBrandName: 'YAMAHA' }).success).toBe(false);
+    expect(VehicleInput.safeParse({ name: 'x', dictModelName: 'YZF-R6' }).success).toBe(false);
+  });
+
+  it('空字串當值 → reject(min(1);表單不會送空字串、竄改才會)', () => {
+    expect(
+      VehicleInput.safeParse({ name: 'x', dictBrandName: '', dictModelName: '' }).success,
+    ).toBe(false);
+  });
+});

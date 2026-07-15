@@ -24,6 +24,11 @@ export type CustomerVehicle = {
   km: string; // 里程(含千分位 + 單位)
   mods: string; // 已改裝(簡述)
   service: string | null; // 最近保養 ISO date or null
+  // V-1d:車輛字典鍵(taxonomy brand.name / model.name 名稱字面逐字;NULL=自由輸入/舊資料)。
+  // 恆成對(同 null 或同非 null;DB CHECK + schema 成對驗證雙層守)。首頁愛車 chips:
+  // 有值走精確 lookup 直套、null 走 REQUIRED-2 字面比對流。
+  dictBrandName: string | null;
+  dictModelName: string | null;
   createdAt: string;
   updatedAt: string;
 };
