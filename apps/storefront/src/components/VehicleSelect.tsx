@@ -22,9 +22,23 @@ type ComboProps = {
   onPick: (name: string) => void;
   /** 清空本層(input 清空後 commit) */
   onClear: () => void;
+  /** 掛載點外殼(V-1c 視覺回歸修):'catalog'=cft token 小框;'finder'=design ed-finder-slot(標籤+無框線) */
+  variant: 'catalog' | 'finder';
+  /** finder 變體的 slot 標籤字面(design:品牌/車型/年份) */
+  slotLabel?: string;
 };
 
-function Combo({ label, value, options, disabled, placeholder, onPick, onClear }: ComboProps) {
+function Combo({
+  label,
+  value,
+  options,
+  disabled,
+  placeholder,
+  onPick,
+  onClear,
+  variant,
+  slotLabel,
+}: ComboProps) {
   const [text, setText] = useState<string | null>(null); // null=未編輯(顯 value)
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
@@ -74,15 +88,24 @@ function Combo({ label, value, options, disabled, placeholder, onPick, onClear }
     }
   };
 
+  // finder 變體=design ed-finder-slot 結構(小標籤在上、無框線輸入;.ed-finder-slot 已 relative
+  // 供 .vsc-list 定位);catalog 變體=型錄 cft token 小框。
+  const Wrapper = variant === 'finder' ? 'label' : 'div';
+  const wrapperClass = variant === 'finder' ? 'ed-finder-slot vsc' : 'vsc';
+  const inputClass = variant === 'finder' ? 'vsc-input vsc-input--finder' : 'cft-select vsc-input';
+
   return (
-    <div className="vsc">
+    <Wrapper className={wrapperClass}>
+      {variant === 'finder' && slotLabel && (
+        <span className="ed-finder-slot-label">{slotLabel}</span>
+      )}
       <input
         type="text"
         role="combobox"
         aria-expanded={open}
         aria-label={label}
         aria-autocomplete="list"
-        className="cft-select vsc-input"
+        className={inputClass}
         value={shown}
         placeholder={placeholder}
         disabled={disabled}
@@ -111,6 +134,9 @@ function Combo({ label, value, options, disabled, placeholder, onPick, onClear }
                 e.preventDefault();
                 pick(name);
               }}
+              // finder 變體 Wrapper=label:取消 click 的 label activation(否則點選後 focus 轉發
+              // 回 input → onFocus 重開整份清單掛著;code-reviewer R1)
+              onClick={(e) => e.preventDefault()}
               // 滑鼠懸停=同一 highlight 來源(hi),避免 hover/is-hi 雙高亮歧義(R1 minor)
               onMouseEnter={() => setHi(i)}
             >
@@ -119,7 +145,7 @@ function Combo({ label, value, options, disabled, placeholder, onPick, onClear }
           ))}
         </ul>
       )}
-    </div>
+    </Wrapper>
   );
 }
 
@@ -132,6 +158,7 @@ export function VehicleSelect({
   onClearBrand,
   onClearModel,
   onClearYear,
+  variant = 'catalog',
 }: {
   motoBrands: MockMotoBrand[];
   vehicle: { brand: string; model?: string; year?: number } | null;
@@ -144,6 +171,8 @@ export function VehicleSelect({
   onClearModel: () => void;
   /** 清 year(保留 brand+model) */
   onClearYear: () => void;
+  /** 掛載點外殼:'catalog'(預設、cft 小框)/'finder'(首頁 design slot 版型) */
+  variant?: 'catalog' | 'finder';
 }) {
   const curBrand = vehicle ? motoBrands.find((b) => b.name === vehicle.brand) : undefined;
   const models = curBrand?.models ?? [];
@@ -158,27 +187,33 @@ export function VehicleSelect({
         label="選擇品牌"
         value={vehicle?.brand ?? null}
         options={motoBrands.map((b) => b.name)}
-        placeholder="品牌"
+        placeholder={variant === 'finder' ? '—' : '品牌'}
         onPick={onPickBrand}
         onClear={onClearBrand}
+        variant={variant}
+        slotLabel="品牌"
       />
       <Combo
         label="選擇車型"
         value={vehicle?.model ?? null}
         options={models.map((m) => m.name)}
         disabled={!vehicle}
-        placeholder="車型"
+        placeholder={variant === 'finder' ? '—' : '車型'}
         onPick={onPickModel}
         onClear={onClearModel}
+        variant={variant}
+        slotLabel="車型"
       />
       <Combo
         label="選擇年份"
         value={vehicle?.year != null ? String(vehicle.year) : null}
         options={years.map((y) => String(y))}
         disabled={!vehicle || vehicle.model == null || modelNoYears}
-        placeholder={modelNoYears ? '不限年份' : '年份'}
+        placeholder={modelNoYears ? '不限年份' : variant === 'finder' ? '—' : '年份'}
         onPick={(name) => onPickYear(Number(name))}
         onClear={onClearYear}
+        variant={variant}
+        slotLabel="年份"
       />
     </>
   );

@@ -721,3 +721,33 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .ed-finder-garage-chip:hover { border-color: var(--ed-c-ink); }
+
+/* ── V-1c 視覺回歸修(Sean 回饋「首頁欄位很醜」):combobox 在 finder 變體沿 design
+   .ed-finder-slot select 外觀(無框線/透明底/同字級/右側 chevron),版型回 slot 結構 ── */
+.ed-finder-slot .vsc-input--finder {
+  border: 0;
+  background-color: transparent;
+  font-size: 15px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--ed-c-ink);
+  outline: none;
+  padding: 0 22px 0 0;
+  width: 100%;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230a0a0a' stroke-width='1.8'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right center;
+  background-size: 14px;
+}
+.ed-finder-slot .vsc-input--finder::placeholder { color: var(--ed-c-ink); opacity: 1; }
+.ed-finder-slot .vsc-input--finder:disabled {
+  color: var(--ed-c-ink-mute);
+  cursor: not-allowed;
+  opacity: 1; /* 蓋掉 .vsc-input:disabled 的 0.55、對齊 design(僅變 color/cursor、chevron 維持 ink) */
+}
+.ed-finder-slot .vsc-input--finder:disabled::placeholder { color: var(--ed-c-ink-mute); }
+.ed-finder-slot .vsc-list {
+  top: calc(100% + 10px);
+  left: 0;
+  min-width: max(100%, 220px);
+}

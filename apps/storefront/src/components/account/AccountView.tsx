@@ -79,12 +79,14 @@ export type AccountViewProps = {
   addresses: CustomerAddress[];
   // g-6a:愛車清單(page.tsx getVehicleRepo→listByCustomer 算好傳入;forward 給 VehiclesTab 唯讀渲染)
   vehicles: CustomerVehicle[];
+  /** V-1c+:車型欄字典建議 labels(page.tsx taxonomy 衍生;forward 給 VehiclesTab) */
+  vehicleModelOptions?: string[];
   // M-3:訂單摘要清單(page.tsx getOrderRepo→listSummariesByCustomer 算好傳入;forward 給 OrdersTab 全列 +
   // OverviewTab 最近訂單 slice(0,2)。orderCount 與此同源、Q5=A 一致)
   orders: OrderListItem[];
 };
 
-export function AccountView({ user, stats, featured, profile, addresses, vehicles, orders }: AccountViewProps) {
+export function AccountView({ user, stats, featured, profile, addresses, vehicles, vehicleModelOptions, orders }: AccountViewProps) {
   const [tab, setTab] = useState<TabId>('overview');
 
   // g-4a Q4=A:displayName / avatarChar 用 profile.name(customers.name SoT)為主、displayEmail 退化、
@@ -141,7 +143,7 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
             {tab === 'orders' && <OrdersTab orders={orders} />}
             {tab === 'wallet' && <WalletTab />}
             {tab === 'favorites' && <FavoritesTab />}
-            {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} />}
+            {tab === 'vehicles' && <VehiclesTab vehicles={vehicles} vehicleModelOptions={vehicleModelOptions} />}
             {tab === 'address' && <AddressTab addresses={addresses} defaultName={profile.name} />}
             {tab === 'profile' && <ProfileTab profile={profile} email={user.displayEmail} />}
           </div>

@@ -42,6 +42,16 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
     expect(screen.getByText('搜尋部品')).toBeDefined();
   });
 
+  it('視覺回歸鎖(Sean 07-15「欄位很醜」):design slot 版型=三個 ed-finder-slot+小標籤', () => {
+    const { container } = render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
+    const slots = container.querySelectorAll('.ed-finder-bar .ed-finder-slot');
+    expect(slots).toHaveLength(3);
+    const labels = [...container.querySelectorAll('.ed-finder-slot-label')].map((e) => e.textContent);
+    expect(labels).toEqual(['品牌', '車型', '年份']);
+    expect(container.querySelector('.ed-finder-slot .vsc-input--finder')).toBeTruthy();
+    expect(container.querySelector('.ed-finder-bar .cft-select')).toBeNull(); // 型錄樣式不得滲入首頁
+  });
+
   it('打字選品牌 → 車型欄解鎖並可打字選定', () => {
     render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
     const brand = MOCK_MOTO_BRANDS[0]!;

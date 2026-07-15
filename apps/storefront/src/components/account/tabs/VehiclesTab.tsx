@@ -35,9 +35,11 @@ import {
 
 export type VehiclesTabProps = {
   vehicles: CustomerVehicle[];
+  /** V-1c+:車型欄字典建議(「品牌 車型」labels;server 端 taxonomy 衍生、缺省 [] 行為同舊) */
+  vehicleModelOptions?: string[];
 };
 
-export function VehiclesTab({ vehicles }: VehiclesTabProps) {
+export function VehiclesTab({ vehicles, vehicleModelOptions = [] }: VehiclesTabProps) {
   // 單一 inline 表單狀態(對齊 design vehEdit):null=全關 / 無 id=新增 / 有 id=編輯該筆。
   const [vehEdit, setVehEdit] = useState<InlineVehicleInitial | null>(null);
   const router = useRouter();
@@ -112,6 +114,7 @@ export function VehiclesTab({ vehicles }: VehiclesTabProps) {
                 ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
               >
                 <InlineVehicleForm
+                  vehicleModelOptions={vehicleModelOptions}
                   veh={vehEdit}
                   onClose={() => setVehEdit(null)}
                   // id 綁 parent closure(對齊 InlineVehicleForm 註解設計:form 保持 generic、action 由 parent 帶 id)。
@@ -130,6 +133,7 @@ export function VehiclesTab({ vehicles }: VehiclesTabProps) {
             ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
           >
             <InlineVehicleForm
+              vehicleModelOptions={vehicleModelOptions}
               veh={vehEdit}
               onClose={() => setVehEdit(null)}
               onSubmit={addVehicleAction}

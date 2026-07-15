@@ -149,7 +149,7 @@ components:
     business_overrides:
       - field: "typeaheadVehicleSelect"
         design_value: "FilterTop.jsx L286-407 三層原生 select(不能打字;design 全站零 typeahead 先例)"
-        storefront_value: "CascadeFilterTop 桌機三層改 VehicleSelect 可打字 combobox(prefix/substring 過濾、鍵盤導航、唯一精確命中才自動套用;候選恆字典字面零猜=車種鐵律;.cft-select 視覺 token 與佈局字面不動)+ 手機 FilterDrawer 車輛 tab 加「打字快速找車」過濾列(V-1b2;tap drill 外殼不變、共用 vehicle-match 核心)+ 首頁 VehicleFinder 三層同換 VehicleSelect(V-1c)"
+        storefront_value: "CascadeFilterTop 桌機三層改 VehicleSelect 可打字 combobox(prefix/substring 過濾、鍵盤導航、唯一精確命中才自動套用;候選恆字典字面零猜=車種鐵律;.cft-select 視覺 token 與佈局字面不動)+ 手機 FilterDrawer 車輛 tab 加「打字快速找車」過濾列(V-1b2;tap drill 外殼不變、共用 vehicle-match 核心)+ 首頁 VehicleFinder 三層同換 VehicleSelect(V-1c;variant=finder 沿 design slot 版型)+ 車庫 InlineVehicleForm 車型欄字典建議清單(V-1c+;Sean 07-15 實測回饋授權、自由輸入 fallback 不變)"
         decided_at: "2026-07-15"
         decision_source: "overnight-kickoff V-1 + Sean 口述「現行商品目錄車款篩選不能打字=同一個痛點、一併解」;V-1 plan 關卡1 verdict=三欄 combobox 收"
         backlog: "V-1b2/V-1c 已落地;續 V-2(購物車車款欄+PDP 適用比對)"
@@ -218,8 +218,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/VehicleFinder.tsx"
       css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-finder* 21 處
-      last_modified_commit: "f8ce7a4"  # 記可達祖先=Q2 日期欄 commit;V-1c 真改見 git log
-      last_modified_date: "2026-07-15 [V-1c 首頁選車換 VehicleSelect combobox+愛車 chips+context 鏡寫(Sean Q4;V-1 plan 關卡1 PASS)]:三層原生 select → VehicleSelect 可打字 combobox(共用 vehicle-match 核心;typeahead=business_override typeaheadVehicleSelect、.ed-finder 佈局字面不動);登入會員「我的愛車」chips(app/page.tsx server 端 RLS own 讀 customer_vehicles、序列化只收 id/name/year;未登入/讀取失敗=[] 整排不顯):點擊=正規化唯一精確命中(先「品牌 車型」全名再車型名)→ 直接套用三欄(車庫 year 四位數字且在字典年份內才帶入、其餘不猜);多/零命中 → 建議清單(字典 label 字面 substring 過濾、客人明選)/「無法對應」提示=REQUIRED-2 零模糊零 AI 猜(車種鐵律);搜尋 push 前寫 lib/vehicle-context(sessionStorage pcm.vehicle.v1 鏡、URL 恆第一真相、V-2 消費;REQUIRED-3 防禦讀取)。home.css 加 .ed-finder-garage/.ed-finder-suggest 段(--ed-c-rule token)。前:2026-07-03 (S2/#220b:資料源 MOCK_MOTO_BRANDS → props motoBrands〔server fetchVehicleTaxonomy 從真 fitment 衍生、輕量 fitments-only 查詢〕;push 長版 ?brand=&model=&year= → 短版 ?vehicle=brandId:modelId[:year]〔id 空間與 /products 解析端統一、M-1-13I Q1=C 長版任務結束、parseVehicleFromUrl 長版分支留吸收書籤〕;真資料 37/94 車型 fitment 全缺年 → 年份下拉顯「不限年份」可搜尋〔車型層過濾、graceful degradation、design mock 無此情境〕)"
+      last_modified_commit: "dc811d3"  # 記可達祖先=V-1c commit;視覺回歸修見 git log
+      last_modified_date: "2026-07-15 [V-1c 視覺回歸修+車庫表單字典建議(Sean 開站實測兩回饋)]:①V-1c 換元件時丟了 design ed-finder-slot 版型(「.ed-finder 佈局字面不動」記錄與事實矛盾、本次校正)→ VehicleSelect 加 variant=finder:Combo 包回 label.ed-finder-slot+小標籤(品牌/車型/年份)、input=.vsc-input--finder 鏡射 design select 外觀(無框線/透明/15px/500/右 chevron 同 data-URI 字面、未選態 —);option 加 onClick preventDefault(label activation 會把 focus 轉發回 input 重開清單);測試鎖 3 slot+標籤字面+cft-select 不得滲入首頁。②車庫 InlineVehicleForm 車型欄加字典建議(打字跳「品牌 車型」labels substring 上限 8、點選填標準字面→愛車 chips 可精確命中;自由輸入 fallback 不變照打照存;account/page.tsx taxonomy 衍生 labels 逐層 optional 傳入、RSC payload +約數十 KB)=Q4「所有車款選擇點」延伸、Sean 07-15 實測回饋授權。前:2026-07-15 [V-1c 首頁選車換 VehicleSelect combobox+愛車 chips+context 鏡寫(Sean Q4;V-1 plan 關卡1 PASS)]:三層原生 select → VehicleSelect 可打字 combobox(共用 vehicle-match 核心;typeahead=business_override typeaheadVehicleSelect、.ed-finder 佈局字面不動);登入會員「我的愛車」chips(app/page.tsx server 端 RLS own 讀 customer_vehicles、序列化只收 id/name/year;未登入/讀取失敗=[] 整排不顯):點擊=正規化唯一精確命中(先「品牌 車型」全名再車型名)→ 直接套用三欄(車庫 year 四位數字且在字典年份內才帶入、其餘不猜);多/零命中 → 建議清單(字典 label 字面 substring 過濾、客人明選)/「無法對應」提示=REQUIRED-2 零模糊零 AI 猜(車種鐵律);搜尋 push 前寫 lib/vehicle-context(sessionStorage pcm.vehicle.v1 鏡、URL 恆第一真相、V-2 消費;REQUIRED-3 防禦讀取)。home.css 加 .ed-finder-garage/.ed-finder-suggest 段(--ed-c-rule token)。前:2026-07-03 (S2/#220b:資料源 MOCK_MOTO_BRANDS → props motoBrands〔server fetchVehicleTaxonomy 從真 fitment 衍生、輕量 fitments-only 查詢〕;push 長版 ?brand=&model=&year= → 短版 ?vehicle=brandId:modelId[:year]〔id 空間與 /products 解析端統一、M-1-13I Q1=C 長版任務結束、parseVehicleFromUrl 長版分支留吸收書籤〕;真資料 37/94 車型 fitment 全缺年 → 年份下拉顯「不限年份」可搜尋〔車型層過濾、graceful degradation、design mock 無此情境〕)"
     design:
       component: "design-reference/components/HomePage.jsx"  # VehicleFinder 在 design 是 HomePage 內元素
       css: "design-reference/styles/home.css"  # .ed-finder* 21 處(對齊 home.css 字面、非 vehicle-drawer.css)
@@ -231,6 +231,7 @@ components:
       - "apps/storefront/src/lib/vehicle-match.ts"  # V-1c:chips 精確比對/建議過濾核心
       - "apps/storefront/src/lib/vehicle-context.ts"  # V-1c:跨頁車款 context(sessionStorage 鏡;V-2 消費)
       - "apps/storefront/src/lib/vehicle-taxonomy.ts"  # S1/S2 共用衍生函式(id 空間單一來源)
+      - "apps/storefront/src/components/account/InlineVehicleForm.tsx"  # V-1c+:車庫車型欄字典建議(account/page.tsx taxonomy labels 逐層傳入)
       - "apps/storefront/src/app/page.tsx"  # S2:首頁 server fetch taxonomy → props
     business_overrides:
       - field: "garageChipsAndTypeahead"

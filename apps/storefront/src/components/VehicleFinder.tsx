@@ -136,6 +136,7 @@ export function VehicleFinder({
         )}
         <div className="ed-finder-bar">
           <VehicleSelect
+            variant="finder"
             motoBrands={motoBrands}
             vehicle={vehicle}
             onPickBrand={(name) => setVehicle({ brand: name })}

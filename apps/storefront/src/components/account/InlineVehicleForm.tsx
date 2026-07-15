@@ -22,6 +22,7 @@ import type { FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import type { VehicleInput } from '@pcm/schemas';
 import type { AddVehicleActionResult, VehicleFieldErrors } from '@/app/account/vehicle/actions';
+import { filterVehicleOptions } from '@/lib/vehicle-match';
 
 // 表單初值(新增:id 缺/null + isPrimary 由 parent 依清單空否帶入;編輯〔g-6c〕:帶完整 CustomerVehicle 值)。
 export type InlineVehicleInitial = {
@@ -40,12 +41,31 @@ export type InlineVehicleFormProps = {
   onClose: () => void;
   // g-6b 傳 addVehicleAction;g-6c 編輯傳 (input) => updateVehicleAction(veh.id!, input)(id 綁定在 parent closure)。
   onSubmit: (input: VehicleInput) => Promise<AddVehicleActionResult>;
+  /**
+   * V-1c+(Sean 07-15 實測回饋):車型欄打字時的字典建議清單(「品牌 車型」字面、server 端
+   * fetchVehicleTaxonomy 衍生)。點選=填入標準字面(→首頁愛車 chips 一鍵套用可精確命中);
+   * 不選照打照存=自由輸入 fallback 不變(字典沒有的車照樣能記)。缺省 []=無建議、行為同舊版。
+   */
+  vehicleModelOptions?: string[];
 };
 
-export function InlineVehicleForm({ veh, onClose, onSubmit }: InlineVehicleFormProps) {
+export function InlineVehicleForm({
+  veh,
+  onClose,
+  onSubmit,
+  vehicleModelOptions = [],
+}: InlineVehicleFormProps) {
   const router = useRouter();
   const [isPrimary, setIsPrimary] = useState(!!veh.isPrimary);
   const [name, setName] = useState(veh.name ?? '');
+  const [nameFocus, setNameFocus] = useState(false);
+  // 車型字典建議:聚焦+有輸入才顯、上限 8、已全等時不再跳(避免選完還掛著)
+  const nameSuggestions =
+    nameFocus && name.trim() !== ''
+      ? filterVehicleOptions(vehicleModelOptions, name, (l) => l)
+          .filter((l) => l !== name)
+          .slice(0, 8)
+      : [];
   const [year, setYear] = useState(veh.year ?? '');
   const [engine, setEngine] = useState(veh.engine ?? '');
   const [km, setKm] = useState(veh.km ?? '');
@@ -89,7 +109,43 @@ export function InlineVehicleForm({ veh, onClose, onSubmit }: InlineVehicleFormP
 
       <label>
         <span>車型</span>
-        <input value={name} onChange={(e) => setName(e.target.value)} required placeholder="YAMAHA YZF-R6" />
+        {/* V-1c+(Sean 07-15 實測回饋):打字跳字典建議(共用 vehicle-match 核心、.vsc-list 樣式);
+            點選=填標準字面(→首頁愛車 chips 可精確命中)、不選照打照存=自由輸入 fallback 不變。
+            onMouseDown 先於 blur=點選不被關閉搶走。 */}
+        <div className="vsc">
+          <input
+            role="combobox"
+            aria-expanded={nameSuggestions.length > 0}
+            aria-autocomplete="list"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onFocus={() => setNameFocus(true)}
+            onBlur={() => setNameFocus(false)}
+            required
+            placeholder="YAMAHA YZF-R6"
+          />
+          {nameSuggestions.length > 0 && (
+            <ul className="vsc-list" role="listbox" aria-label="車型建議">
+              {nameSuggestions.map((label) => (
+                <li
+                  key={label}
+                  role="option"
+                  aria-selected={false}
+                  className="vsc-option"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    setName(label);
+                    setNameFocus(false);
+                  }}
+                  // 外層 label:取消 click activation、防 focus 轉發回 input 重開清單(同 VehicleSelect)
+                  onClick={(e) => e.preventDefault()}
+                >
+                  {label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
       </label>
       <label>

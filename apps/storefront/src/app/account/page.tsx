@@ -39,7 +39,7 @@ import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getAddressRepo, getVehicleRepo, getOrderRepo } from '@/lib/auth/composition';
 import { AccountView } from '@/components/account/AccountView';
-import { fetchFeaturedProducts } from '@/lib/products';
+import { fetchFeaturedProducts, fetchVehicleTaxonomy } from '@/lib/products';
 import { LINE_SYNTHETIC_EMAIL_DOMAIN } from '@/lib/auth/line';
 import type { MemberTier, CustomerAddress, CustomerVehicle, OrderListItem } from '@pcm/domain';
 
@@ -130,6 +130,12 @@ export default async function AccountPage() {
     console.error('[account/page] orders 讀取失敗、退化空陣列:', orderError);
   }
 
+  // V-1c+(Sean 07-15 實測回饋):車型欄字典建議=taxonomy(unstable_cache 900s、失敗回 [])
+  // 衍生「品牌 車型」labels;點選存標準字面 → 首頁愛車 chips 一鍵套用可精確命中。
+  const vehicleModelOptions = (await fetchVehicleTaxonomy()).flatMap((b) =>
+    b.models.map((m) => `${b.name} ${m.name}`),
+  );
+
   return (
     <AccountView
       user={{ name, displayEmail }}
@@ -138,6 +144,7 @@ export default async function AccountPage() {
       profile={{ name, phone, birthday }}
       addresses={addresses}
       vehicles={vehicles}
+      vehicleModelOptions={vehicleModelOptions}
       orders={orders}
     />
   );
