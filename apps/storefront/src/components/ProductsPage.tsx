@@ -230,7 +230,9 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // S1:cascade.vehicle → URL(短版 ?vehicle=)→ server 以 RPC 重查(車款篩選下推 DB、
   // 繼承件也命中);取代舊 client matchesVehicle。詳 products-url-state.useVehicleUrlSync。
   useVehicleUrlSync(cascade.vehicle, motoBrands);
-  useCatalogFilterUrlSync(cascade, extras);
+  // V-1a:第三參數=還原窗口守衛對照表(與 useDeepLinkRestore 同源;memo 穩定 identity 免 effect 空轉)
+  const restoreSources = useMemo(() => ({ categories, productBrands: brands }), [categories, brands]);
+  useCatalogFilterUrlSync(cascade, extras, restoreSources);
 
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。

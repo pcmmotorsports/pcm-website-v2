@@ -3,7 +3,7 @@
 
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** **M-4a 後台第一期**(訂單+客戶+SSO;admin.pcmmotorsports.com LIVE)進行中。前一主線 **M-3 結帳 3DS 重設計整線 ✅ 全落地**(Phase I 0a-4d 對帳脊椎/sweeper/cron + Phase II 5a/5b/6 charge-redirect 已 merge dev、逐 commit 審查 PASS;flag 全 false、🔴 prod checkout 仍不可開=真刷卡待 sandbox 3DS E2E + Sean 驗收;原文見 PROGRESS.md「2026-07-16 STATUS.md 瘦身歸檔」)。
-**當前 slice(2026-07-16 Day-2):** 🔴 M-4a D-2 per-item 訂單狀態(最高風險硬閘片;Sean Q-A=A)= order_items +workflow_status/version/updated_at+backfill 繼承(`20260716120000`)+ `admin_update_order_item_workflow` owner RPC 鏡像 Slice C 單鍵白名單+同交易 audit target=order_item:{id}(`20260716130000`;§4 同檔**收窄 Slice C RPC**=workflow_status 移出白名單送到即 RAISE=停寫升 DB 強制、Fable REQUIRED-2)+ admin UI 全切 item 層(列表逐列改狀態+整單彙總 badge 全同→該色/混合→多狀態、明細品項表逐列改、訂單編輯表單移除狀態下拉、篩選改打 order_items.workflow_status+!inner、「商品狀態」標籤)。審查鏈:真 DB 交易模擬 ×3 PASS 零留痕+code-reviewer PASS+Codex 盲審 R1 FAIL→修→R2 PASS+Fable 對抗審 R1 FAIL(MF-1 全鏈關死+ACL aclexplode allowlist+5 nit)→全修→R2(見 verdict)。🔴 **部署順序硬規:先 db push 兩支(120000→130000)→ 驗 → 才 git push**(反向=新投影選不存在欄、後台整頁炸)。**✅ 已上線(2026-07-15 Sean 依硬順序 db push 兩支→git push→deploy,origin/dev=eca83bd、production READY)**;開站實測回饋兩則:①商品狀態欄合併**單格帶色下拉+存**(左 badge 刪、閉合態依已存值上色、改選即變色;WorkflowStatusSelect 小型 client 元件只收策展 code/label/色值零敏感、孤兒/未知落點保留、明細頁同款、彙總 badge 不動)=**本 commit 完工**(純 UI 零 schema/RPC、byte-lock 白名單未動;三綠+full vitest 196 檔 2086 綠+code-reviewer R1 PASS nit 已清)②D-1b 篩選即時生效+多勾選 ✅ 完工(五軸收 OrderFilterControls 單一 client state、URL 全量 state 導出=值班台 MF-1 修復路;adapter 多值 .in/混勾 .or(referencedTable)+RE 雙層守門;值班台 R1 四面 PASS+MF-1→R2 PASS+nit-1 已上;code-reviewer PASS)。下一=V-1 VehicleSelect。
+**當前 slice(2026-07-16 Day-2):** 🔴 M-4a D-2 per-item 訂單狀態(最高風險硬閘片;Sean Q-A=A)= order_items +workflow_status/version/updated_at+backfill 繼承(`20260716120000`)+ `admin_update_order_item_workflow` owner RPC 鏡像 Slice C 單鍵白名單+同交易 audit target=order_item:{id}(`20260716130000`;§4 同檔**收窄 Slice C RPC**=workflow_status 移出白名單送到即 RAISE=停寫升 DB 強制、Fable REQUIRED-2)+ admin UI 全切 item 層(列表逐列改狀態+整單彙總 badge 全同→該色/混合→多狀態、明細品項表逐列改、訂單編輯表單移除狀態下拉、篩選改打 order_items.workflow_status+!inner、「商品狀態」標籤)。審查鏈:真 DB 交易模擬 ×3 PASS 零留痕+code-reviewer PASS+Codex 盲審 R1 FAIL→修→R2 PASS+Fable 對抗審 R1 FAIL(MF-1 全鏈關死+ACL aclexplode allowlist+5 nit)→全修→R2(見 verdict)。🔴 **部署順序硬規:先 db push 兩支(120000→130000)→ 驗 → 才 git push**(反向=新投影選不存在欄、後台整頁炸)。**✅ 已上線(2026-07-15 Sean 依硬順序 db push 兩支→git push→deploy,origin/dev=eca83bd、production READY)**;開站實測回饋兩則:①商品狀態欄合併**單格帶色下拉+存**(左 badge 刪、閉合態依已存值上色、改選即變色;WorkflowStatusSelect 小型 client 元件只收策展 code/label/色值零敏感、孤兒/未知落點保留、明細頁同款、彙總 badge 不動)=**本 commit 完工**(純 UI 零 schema/RPC、byte-lock 白名單未動;三綠+full vitest 196 檔 2086 綠+code-reviewer R1 PASS nit 已清)②D-1b 篩選即時生效+多勾選 ✅ 完工(五軸收 OrderFilterControls 單一 client state、URL 全量 state 導出=值班台 MF-1 修復路;adapter 多值 .in/混勾 .or(referencedTable)+RE 雙層守門;值班台 R1 四面 PASS+MF-1→R2 PASS+nit-1 已上;code-reviewer PASS)。下一=V-1 VehicleSelect。→ **V-1 plan 過值班台關卡1(一輪 PASS)+ V-1a 三痛點修復 ✅ 本 commit**(①子分類兩層還原缺口②返回時空 state 洗 URL=還原窗口守衛補上③頂部三層鏡像 effect 單向→恆鏡像④膠囊拆三顆零 reducer 改動;真瀏覽器 Sean 逐字動線實證全過;code-reviewer R1 FAIL→修→R2 PASS+值班台快掃 PASS);W8 儲值金文案 ✅ 97b2ed0。下一=V-1b VehicleSelect 元件+型錄掛載。
 **Branch:** dev
 
 ## 最後更新
@@ -15,9 +15,9 @@
 > dev。C 本 commit 的內容見「最新 slice／最後更新」；下表只列 3 個已可達前序 commit，避免同一 commit 自指 hash 在 amend 後失真。🚀 origin/main = `e8a3c15` production。
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `97b2ed0` | fix(storefront): W8 儲值金分頁開發註記改中性對客文案 [m-4a] | 2026-07-15 |
+| `575f57d` | feat(admin): M-4a D-1b 訂單篩選即時生效+下拉多勾選+已勾數 badge [m-4a] | 2026-07-15 |
 | `7e955c9` | feat(admin): 商品狀態欄合併單格帶色下拉+存、左 badge 刪 [m-4a] | 2026-07-15 |
-| `a9da070` | docs(docs): STATUS.md 瘦身主表回 30 行、歷史 207 行歸檔 PROGRESS.md [m-4a] | 2026-07-15 |
-| `eca83bd` | feat(admin): M-4a D-2 訂單狀態切 per-item(item RPC+停寫升 DB 強制) [m-4a] | 2026-07-16 |
 
 ## 下一步
 **🔴 M-4a Day-2 續行(2026-07-15;D-2 ✅ 上線、開站回饋兩則皆落地)**:①商品狀態單格帶色 ✅ `7e955c9` ②D-1b 篩選即時生效+多勾選 ✅ 本 commit(雙審 PASS 鏈見最後更新)→ **V-1 VehicleSelect(下一片;三痛點=URL 狀態保留/膠囊拆三顆/篩選鏡像;鐵則 1 先 grep design-reference)**→ V-2 購物車車款欄+商品頁適用比對 → 小件穿插(Q2 日期欄/Q3d 佔位圖/Q3a 三佔位頁/W 批次)→ Q3e 結帳內嵌地址 → V-3 vehicle_snapshot(硬閘)→ Q3b 訪客結帳/Q3c 忘記密碼=plan only。註:Slice A migration `20260714120000` 經 D-2 backfill 依賴+開站彩色實證=已在 prod(原獨立 db push 條歸檔)。

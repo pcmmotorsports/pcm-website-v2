@@ -16,6 +16,7 @@ import {
   selectVehicleModel,
   selectVehicleYear,
   selectCategoryMain,
+  selectCategorySub,
   toggleBrand,
   type CascadeFilterAction,
   type CascadeFilterState,
@@ -39,17 +40,37 @@ export const DEFAULT_PER_PAGE = 25;
 // 背景:design 是 SPA in-memory nav(onNav('products',{category}))、Next port 產生了
 // `/products?category=` 連結但全站無人讀此 key(遷移缺口)→ 首頁分類卡點了無過濾。
 // 模式對齊 vehicle:mount 讀一次 → 對照真實清單驗證(查無=fail-safe 忽略、顯全部)→ dispatch。
-// 僅入站、不回寫 URL(與 vehicle 同 idiom:useBrowseUrlSync 只回寫 page/sort/per、保留外來參數)。
+// ⚠️ V-1a 字面校正(值班台 REQUIRED-1):「僅入站、不回寫 URL」已被 P4 推翻——category/pbrand/price
+// 現由 useCatalogFilterUrlSync 回寫 URL、vehicle 由 useVehicleUrlSync 回寫;本段僅「入站水合」半邊仍為真。
 
-/** ?category= 值:分類「名稱」(raw_path、人類可讀)為主;防禦性亦接受 DB id。單層 16 大類;子類深連結留 #212。 */
+/** #212 兩層分類的 URL 分隔符(seed 麵包屑 raw_path/useCatalogFilterUrlSync 寫出端同字面 ` · `)。 */
+const CATEGORY_URL_SEPARATOR = ' · ';
+
+/**
+ * ?category= 值:分類「名稱」(raw_path、人類可讀)為主;防禦性亦接受 DB id。
+ * V-1a(2026-07-15):支援 #212 兩層 `大類 · 子類`(useCatalogFilterUrlSync 寫出端同格式;
+ * 修「選子類→進商品→上一頁分類整個丟」=兩層字串對單層清單永遠 miss 的還原缺口)。
+ * 子類查無 → 保守只還原大類;大類查無 → null(fail-safe、不套用)。
+ */
 export function parseCategoryFromUrl(
   searchParams: SearchParamsLike,
-  categories: { id: string; name: string }[],
-): { mainId: string; main: string } | null {
+  categories: { id: string; name: string; children?: { id: string; name: string }[] }[],
+): { mainId: string; main: string; subId?: string; sub?: string } | null {
   const raw = searchParams.get('category');
   if (!raw) return null;
-  const hit = categories.find((c) => c.name === raw || c.id === raw);
-  return hit ? { mainId: hit.id, main: hit.name } : null; // 查無 → null(fail-safe、不套用)
+  // 病態防護:大類名本身含分隔符時,先試全字串 exact match 再切分(現況 seed 無此名、零成本補洞)
+  const exact = categories.find((c) => c.name === raw || c.id === raw);
+  if (exact) return { mainId: exact.id, main: exact.name };
+  const sepIndex = raw.indexOf(CATEGORY_URL_SEPARATOR);
+  const mainRaw = sepIndex === -1 ? raw : raw.slice(0, sepIndex);
+  const subRaw = sepIndex === -1 ? null : raw.slice(sepIndex + CATEGORY_URL_SEPARATOR.length);
+  const hit = categories.find((c) => c.name === mainRaw || c.id === mainRaw);
+  if (!hit) return null;
+  if (subRaw) {
+    const subHit = hit.children?.find((s) => s.name === subRaw || s.id === subRaw);
+    if (subHit) return { mainId: hit.id, main: hit.name, subId: subHit.id, sub: subHit.name };
+  }
+  return { mainId: hit.id, main: hit.name };
 }
 
 /**
@@ -162,19 +183,42 @@ export function useBrowseUrlSync(currentPage: number, sort: string, perPage: num
 export function useCatalogFilterUrlSync(
   cascade: CascadeFilterState,
   extras: ProductExtraFilters,
+  // V-1a 還原窗口守衛的對照表(與 useDeepLinkRestore 同源清單;守窗口條件=「可還原」而非「參數存在」)
+  restoreSources: {
+    categories: { id: string; name: string; children?: { id: string; name: string }[] }[];
+    productBrands: { id: string }[];
+  },
 ): void {
   const router = useRouter();
   const initialized = useRef(false);
+  // 🔴 還原窗口守衛(V-1a;同 useVehicleUrlSync idiom):useDeepLinkRestore 的 dispatch 未 flush 前,
+  // 本 effect 若以「state 還空、URL 帶可還原 category/pbrand」執行(StrictMode 第二次 invoke 會繞過
+  // initialized 首輪守衛),會把 URL 上待還原的參數整組洗掉=返回/深連結分類丟失。
+  // 規則:state 對應軸仍空且 URL 參數**可還原**(parse 命中對照表、對齊 vehicle idiom)且還原未消化
+  // → skip;查無(改名殘連結等)=restore 永不來 → 不 hold、照常同步(price 等其他軸不得被吞、
+  // 垃圾參數同 vehicle 語意清掉);state 首次非空=消化、之後才允許清。
+  const pendingRestoreRef = useRef<boolean | null>(null);
   useEffect(() => {
     if (!initialized.current) {
       initialized.current = true;
       return;
     }
     const params = new URLSearchParams(window.location.search);
+    const stateHasAny = cascade.category !== null || cascade.brands.length > 0;
+    if (stateHasAny) {
+      pendingRestoreRef.current = false; // 還原已消化(或使用者自選)
+    } else if (pendingRestoreRef.current !== false) {
+      const restorable =
+        parseCategoryFromUrl(params, restoreSources.categories) !== null ||
+        parseBrandFiltersFromUrl(params, restoreSources.productBrands).length > 0;
+      if (restorable) {
+        return; // 還原窗口:URL 參數待 restore dispatch flush、勿清
+      }
+    }
     params.delete('pbrand');
     for (const brand of [...cascade.brands].sort()) params.append('pbrand', brand);
     const category = cascade.category?.sub
-      ? `${cascade.category.main} · ${cascade.category.sub}`
+      ? `${cascade.category.main}${CATEGORY_URL_SEPARATOR}${cascade.category.sub}`
       : cascade.category?.main;
     if (category) params.set('category', category);
     else params.delete('category');
@@ -193,7 +237,7 @@ export function useCatalogFilterUrlSync(
     if (next !== `${window.location.pathname}${window.location.search}`) {
       router.replace(next, { scroll: false });
     }
-  }, [cascade, extras, router]);
+  }, [cascade, extras, restoreSources, router]);
 }
 
 /**
@@ -272,7 +316,7 @@ export function useVehicleUrlSync(
 export function useDeepLinkRestore(opts: {
   searchParams: SearchParamsLike;
   motoBrands: MockMotoBrand[];
-  categories: { id: string; name: string }[];
+  categories: { id: string; name: string; children?: { id: string; name: string }[] }[];
   productBrands: { id: string }[];
   dispatch: Dispatch<CascadeFilterAction>;
   skipPageResetOnce: MutableRefObject<boolean>;
@@ -290,7 +334,13 @@ export function useDeepLinkRestore(opts: {
       if (v.model) dispatch(selectVehicleModel(v.model));
       if (v.year !== undefined) dispatch(selectVehicleYear(v.year));
     }
-    if (urlCategory) dispatch(selectCategoryMain(urlCategory.mainId, urlCategory.main)); // 空狀態直選、冪等
+    if (urlCategory) {
+      dispatch(selectCategoryMain(urlCategory.mainId, urlCategory.main)); // 空狀態直選、冪等
+      // V-1a:#212 兩層還原補子類(mount 單次 dispatch、無 toggle 反覆問題)
+      if (urlCategory.subId && urlCategory.sub) {
+        dispatch(selectCategorySub(urlCategory.subId, urlCategory.sub));
+      }
+    }
     if (urlBrands.length > 0 && !brandAppliedOnce.current) {
       brandAppliedOnce.current = true;
       for (const brand of urlBrands) dispatch(toggleBrand(brand));

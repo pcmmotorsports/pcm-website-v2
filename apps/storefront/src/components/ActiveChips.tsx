@@ -4,7 +4,14 @@
 // >400 行必拆)。.ac-* CSS 原隨 filter-top.css(M-1-10)落地、[#221] 拆檔後移入
 // filter-cascade.css(與 CascadeFilterTop .cft-* 同檔、皆「目前篩選狀態」UI)。
 
-import { clearVehicle, clearCategory, toggleBrand, clearAll } from '@pcm/ui';
+import {
+  clearVehicle,
+  selectVehicleBrand,
+  selectVehicleModel,
+  clearCategory,
+  toggleBrand,
+  clearAll,
+} from '@pcm/ui';
 import {
   makeInitialExtraFilters,
   type CascadeControlledProps,
@@ -24,12 +31,29 @@ export function ActiveChips({
   const chips: { key: string; label: string; onRemove: () => void }[] = [];
 
   if (cascade.vehicle) {
+    // V-1a(Sean 07-15 追加 2):整台車一顆 → brand/model/year 各一顆、可單刪。
+    // 連動語意走既有 reducer cascade reset:刪 brand=clearVehicle(全清);
+    // 刪 model=重選同 brand(select-brand 清 model+year);刪 year=重選同 model(select-model 清 year)。
     const { brand, model, year } = cascade.vehicle;
     chips.push({
-      key: 'vehicle',
-      label: [brand, model, year].filter(Boolean).join(' · '),
+      key: 'vehicle-brand',
+      label: brand,
       onRemove: () => dispatch(clearVehicle()),
     });
+    if (model !== undefined) {
+      chips.push({
+        key: 'vehicle-model',
+        label: model,
+        onRemove: () => dispatch(selectVehicleBrand(brand)),
+      });
+    }
+    if (year !== undefined && model !== undefined) {
+      chips.push({
+        key: 'vehicle-year',
+        label: String(year),
+        onRemove: () => dispatch(selectVehicleModel(model)),
+      });
+    }
   }
   if (cascade.category) {
     chips.push({

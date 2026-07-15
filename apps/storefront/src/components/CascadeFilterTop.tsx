@@ -52,17 +52,28 @@ export function CascadeFilterTop({
   const [tmpModel, setTmpModel] = useState('');
   const [tmpYear, setTmpYear] = useState('');
 
-  // cascade.vehicle 被外部清除(ActiveChips /「清除全部」/「清除車輛」等)時、同步
-  // 清空 select 導覽 state,避免下拉殘留已清除的車款(對齊 design 真權威 effect)。
+  const brands = data.motoBrands;
+
+  // V-1a(Sean 07-15 追加 3「篩選欄位鏡像」):select 恆鏡像 cascade.vehicle 現值——
+  // 原 effect 只在「外部清除」同步清空,深連結/首頁進站還原(useDeepLinkRestore)設值時
+  // select 停在佔位=痛點 #3。改成設值/清除都同步(state 存名稱 → 對照 taxonomy 轉 id;
+  // 查無=保守清空不猜);使用者自選路徑 dispatch 後回流同值=冪等無感。
   useEffect(() => {
     if (!cascade.vehicle) {
       setTmpBrand('');
       setTmpModel('');
       setTmpYear('');
+      return;
     }
-  }, [cascade.vehicle]);
-
-  const brands = data.motoBrands;
+    const b = brands.find((x) => x.name === cascade.vehicle?.brand);
+    const m =
+      cascade.vehicle.model != null
+        ? b?.models.find((x) => x.name === cascade.vehicle?.model)
+        : undefined;
+    setTmpBrand(b?.id ?? '');
+    setTmpModel(m?.id ?? '');
+    setTmpYear(cascade.vehicle.year != null && m ? String(cascade.vehicle.year) : '');
+  }, [cascade.vehicle, brands]);
   const curBrand = brands.find((b) => b.id === tmpBrand);
   const models = curBrand?.models ?? [];
   const curModel = models.find((m) => m.id === tmpModel);
