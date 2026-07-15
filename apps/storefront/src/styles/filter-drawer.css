@@ -274,3 +274,23 @@
   .fd-drawer { width: 100vw; }
   .fd-tabs { width: 108px; }
 }
+
+/* ── V-1b2 打字快速找車(抽屜車輛 tab;比對核心同桌機 VehicleSelect)── */
+.fd-veh-search {
+  width: 100%;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  font-size: 16px;
+  font-family: inherit;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 4px;
+}
+.fd-veh-search::placeholder { color: var(--c-text-3); }
+.fd-veh-search:focus { outline: none; border-color: var(--c-text); }
+.fd-veh-empty {
+  padding: 12px 4px;
+  font-size: 13px;
+  color: var(--c-text-3);
+}

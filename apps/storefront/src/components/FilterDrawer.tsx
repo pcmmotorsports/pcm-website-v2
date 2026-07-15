@@ -5,7 +5,8 @@
 // - jsx → tsx + props type
 // - window.FilterDrawer UMD 註冊移除(改 ES export)
 // - open / onClose / resultCount / initialTab 留成 prop(宿主控制抽屜開合 / 起始分頁)
-// - 抽屜導覽 state(tab / vehBrand / vehModel / catMain)維持本元件 local useState
+// - 抽屜導覽 state(tab / catMain)維持本元件 local useState;車輛 tab(vehBrand/vehModel drill+
+//   V-1b2 打字快速找車)抽出 FilterDrawerVehicleTab(鐵則 6:本檔加料會破 400 行)
 //   (UI 特異、不入 reducer)
 // - className 字面完全不動
 //
@@ -28,9 +29,6 @@
 
 import { useEffect, useState } from 'react';
 import {
-  selectVehicleBrand,
-  selectVehicleModel,
-  selectVehicleYear,
   selectCategoryMain,
   selectCategorySub,
   clearCategory,
@@ -43,8 +41,9 @@ import {
   type CascadeControlledProps,
   type ExtrasControlledProps,
 } from './filter-state';
-import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
+import { FilterDrawerVehicleTab } from './FilterDrawerVehicleTab';
 import type { MockBrand } from '@/data/mock-brands';
 
 export type FilterDrawerData = {
@@ -102,8 +101,6 @@ export function FilterDrawer({
   hidePromoFlags?: boolean;
 } & CascadeControlledProps & ExtrasControlledProps) {
   const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'vehicle');
-  const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
-  const [vehModel, setVehModel] = useState<MockMotoModel | null>(null);
   const [catMain, setCatMain] = useState<MockCategory | null>(null);
 
   useEffect(() => {
@@ -153,12 +150,6 @@ export function FilterDrawer({
     setExtras(makeInitialExtraFilters());
   };
 
-  const isYearActive = (y: number) =>
-    !!cascade.vehicle &&
-    cascade.vehicle.brand === vehBrand?.name &&
-    cascade.vehicle.model === vehModel?.name &&
-    cascade.vehicle.year === y;
-
   return (
     <>
       <div className="fd-overlay" onClick={onClose} />
@@ -184,57 +175,11 @@ export function FilterDrawer({
           </div>
           <div className="fd-panel">
             {tab === 'vehicle' && (
-              <div className="fd-veh">
-                {!vehBrand ? (
-                  <>
-                    <div className="fd-step-label">選擇品牌</div>
-                    {data.motoBrands.map((b) => (
-                      <button key={b.id} className="fd-row"
-                        onClick={() => setVehBrand(b)}>
-                        <span>{b.name}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
-                      </button>
-                    ))}
-                  </>
-                ) : !vehModel ? (
-                  <>
-                    <button className="fd-back" onClick={() => setVehBrand(null)}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
-                      {vehBrand.name}
-                    </button>
-                    <div className="fd-step-label">選擇車型</div>
-                    {vehBrand.models.map((m) => (
-                      <button key={m.id} className="fd-row"
-                        onClick={() => setVehModel(m)}>
-                        <span>{m.name}</span>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
-                      </button>
-                    ))}
-                  </>
-                ) : (
-                  <>
-                    <button className="fd-back" onClick={() => setVehModel(null)}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
-                      {vehBrand.name} / {vehModel.name}
-                    </button>
-                    <div className="fd-step-label">選擇年份</div>
-                    {vehModel.years.map((y) => (
-                      <button key={y}
-                        className={`fd-row ${isYearActive(y) ? 'is-active' : ''}`}
-                        onClick={() => {
-                          dispatch(selectVehicleBrand(vehBrand.name));
-                          dispatch(selectVehicleModel(vehModel.name));
-                          dispatch(selectVehicleYear(y));
-                        }}>
-                        <span>{y}</span>
-                        {isYearActive(y) && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5" /></svg>
-                        )}
-                      </button>
-                    ))}
-                  </>
-                )}
-              </div>
+              <FilterDrawerVehicleTab
+                motoBrands={data.motoBrands}
+                cascade={cascade}
+                dispatch={dispatch}
+              />
             )}
 
             {tab === 'category' && (
