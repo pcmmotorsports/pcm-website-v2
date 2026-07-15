@@ -1,35 +1,20 @@
-// CascadeFilterTop.tsx — 車款 cascade selects(Slice C 風格)
-// 桌機:sticky bar、品牌 / 車型 / 年份 連動下拉。
+// CascadeFilterTop.tsx — 車款 cascade 選擇列(V-1b 起=可打字 combobox 版)
+// 桌機:sticky bar、品牌 / 車型 / 年份 三欄 VehicleSelect(typeahead)。
 // 手機:精簡 chip、點擊由 ProductsPage / FilterDrawer 接手開抽屜。
 //
-// 字面從 design-reference/components/FilterTop.jsx L286-407 直接搬(M-1-10):
-// - jsx → tsx + props type
-// - window.CascadeFilterTop UMD 註冊移除(改 ES export)
-// - tmpBrand / tmpModel / tmpYear 為 select 導覽 state、維持 local useState
-// - onOpenDrawer 留成 optional prop(接 FilterDrawer)
-// - className 字面完全不動
+// 佈局字面源自 design-reference/components/FilterTop.jsx L286-407(M-1-10 搬入);
+// V-1b(2026-07-15、Sean 拍板+值班台 plan verdict):三顆原生 <select> 換 VehicleSelect
+// 可打字 combobox(design 零 typeahead 先例=行為層 Sean 口述授權偏離;.cft-bar/.cft-cascade
+// 佈局與 .cft-select 視覺 token 不動)。
 //
-// 狀態管理(M-1-08 拍板 B 混合模式 → M-1-12a 改 controlled):
-// - vehicle 走 @pcm/ui cascadeFilterReducer;本元件不持 extras(僅車款 cascade)。
-// - M-1-10 期間本元件自管 cascade;M-1-12a 起改 controlled —— cascade / dispatch
-//   由宿主透過 props 傳入(Sean 拍板狀態架構=方案 1、見
-//   docs/recon/M-1-12-products-page-recon.md)。
-//
-// 字面 vs 事實揭示:
-// 1. design 的 searchVehicle 函式定義了但 JSX 無按鈕引用(死碼)→ 不搬
-//    (no-unused-vars 會擋、且搬死碼違三視角可維護性)。
-// 2. design 的「vehicle 被外部清除時 reset tmp」useEffect:M-1-10 自管模式無外部
-//    清除者、當時判定不搬;M-1-12a 改 controlled 後 ActiveChips /「清除全部」等
-//    外部清除者出現、select 下拉會與 cascade 失同步(M-1-12c-1 肉眼驗發現)→
-//    M-1-12c 補回此 effect(對齊 design 真權威、推翻 M-1-10 不搬判定)。
-// 3. design 從既有 filters.vehicle hydrate initBrand / initModel 的初始化 → 自管模式
-//    起始恆為空(makeInitialCascadeState)→ tmp 直接初始 '' 、不搬 hydrate 邏輯。
-// 4. design 的 local clearVehicle 函式與 @pcm/ui 同名 action creator import 衝突 →
-//    local 改名 handleClearVehicle。
+// 狀態管理(M-1-08 拍板 B → M-1-12a controlled):vehicle 走 @pcm/ui cascadeFilterReducer、
+// cascade/dispatch 由宿主傳入。V-1b 起本元件**零 local select state**——VehicleSelect 直接
+// controlled by cascade.vehicle(V-1a 鏡像 effect 的雙向同步需求由 controlled 天然滿足、
+// tmpBrand/tmpModel/tmpYear 與鏡像 effect 一併退場);清除語意=combobox 清空該層(連動
+// 由 reducer cascade reset 保證)+ 右側「清除車輛」鈕保留。
 
 'use client';
 
-import { useEffect, useState, type ChangeEvent } from 'react';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -38,6 +23,7 @@ import {
 } from '@pcm/ui';
 import type { CascadeControlledProps } from './filter-state';
 import type { FilterTopData } from './FilterTop';
+import { VehicleSelect } from './VehicleSelect';
 
 export function CascadeFilterTop({
   data,
@@ -48,79 +34,14 @@ export function CascadeFilterTop({
   data: FilterTopData;
   onOpenDrawer?: (target: string) => void;
 } & CascadeControlledProps) {
-  const [tmpBrand, setTmpBrand] = useState('');
-  const [tmpModel, setTmpModel] = useState('');
-  const [tmpYear, setTmpYear] = useState('');
-
-  const brands = data.motoBrands;
-
-  // V-1a(Sean 07-15 追加 3「篩選欄位鏡像」):select 恆鏡像 cascade.vehicle 現值——
-  // 原 effect 只在「外部清除」同步清空,深連結/首頁進站還原(useDeepLinkRestore)設值時
-  // select 停在佔位=痛點 #3。改成設值/清除都同步(state 存名稱 → 對照 taxonomy 轉 id;
-  // 查無=保守清空不猜);使用者自選路徑 dispatch 後回流同值=冪等無感。
-  useEffect(() => {
-    if (!cascade.vehicle) {
-      setTmpBrand('');
-      setTmpModel('');
-      setTmpYear('');
-      return;
-    }
-    const b = brands.find((x) => x.name === cascade.vehicle?.brand);
-    const m =
-      cascade.vehicle.model != null
-        ? b?.models.find((x) => x.name === cascade.vehicle?.model)
-        : undefined;
-    setTmpBrand(b?.id ?? '');
-    setTmpModel(m?.id ?? '');
-    setTmpYear(cascade.vehicle.year != null && m ? String(cascade.vehicle.year) : '');
-  }, [cascade.vehicle, brands]);
-  const curBrand = brands.find((b) => b.id === tmpBrand);
-  const models = curBrand?.models ?? [];
-  const curModel = models.find((m) => m.id === tmpModel);
-  const years = curModel?.years ?? [];
-
-  const onBrandChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    setTmpBrand(val);
-    setTmpModel('');
-    setTmpYear('');
-    const b = brands.find((x) => x.id === val);
-    if (b) dispatch(selectVehicleBrand(b.name));
-    else dispatch(clearVehicle());
-  };
-
-  const onModelChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    setTmpModel(val);
-    setTmpYear('');
-    const b = brands.find((x) => x.id === tmpBrand);
-    const m = b?.models.find((x) => x.id === val);
-    if (b && m) dispatch(selectVehicleModel(m.name));
-    else if (b) dispatch(selectVehicleBrand(b.name));
-  };
-
-  const onYearChange = (e: ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    setTmpYear(val);
-    const b = brands.find((x) => x.id === tmpBrand);
-    const m = b?.models.find((x) => x.id === tmpModel);
-    if (b && m && val) dispatch(selectVehicleYear(Number(val)));
-    else if (b && m) dispatch(selectVehicleModel(m.name));
-  };
-
-  const handleClearVehicle = () => {
-    setTmpBrand('');
-    setTmpModel('');
-    setTmpYear('');
-    dispatch(clearVehicle());
-  };
+  const vehicle = cascade.vehicle;
 
   // 手機版 chip 顯示文字(S1:停在品牌/車型層〔未選年〕成為常態 → year 缺時不顯 '{yy};
   //   修原 `String(undefined).slice(-2)` 顯示 "'ed" 的 latent bug;model 缺退品牌名)
-  const vehShort = cascade.vehicle
+  const vehShort = vehicle
     ? [
-        cascade.vehicle.model ?? cascade.vehicle.brand,
-        cascade.vehicle.year != null ? `'${String(cascade.vehicle.year).slice(-2)}` : '',
+        vehicle.model ?? vehicle.brand,
+        vehicle.year != null ? `'${String(vehicle.year).slice(-2)}` : '',
       ]
         .filter(Boolean)
         .join(' ')
@@ -138,23 +59,25 @@ export function CascadeFilterTop({
               </svg>
             </span>
             <span className="cft-label">確認適用車款</span>
-            <select className="cft-select" value={tmpBrand} onChange={onBrandChange} aria-label="選擇品牌">
-              <option value="">品牌</option>
-              {brands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-            <select className="cft-select" value={tmpModel} onChange={onModelChange} disabled={!tmpBrand} aria-label="選擇車型">
-              <option value="">車型</option>
-              {models.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-            <select className="cft-select" value={tmpYear} onChange={onYearChange} disabled={!tmpModel} aria-label="選擇年份">
-              <option value="">年份</option>
-              {years.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
+            <VehicleSelect
+              motoBrands={data.motoBrands}
+              vehicle={vehicle}
+              onPickBrand={(name) => dispatch(selectVehicleBrand(name))}
+              onPickModel={(name) => dispatch(selectVehicleModel(name))}
+              onPickYear={(year) => dispatch(selectVehicleYear(year))}
+              onClearBrand={() => dispatch(clearVehicle())}
+              onClearModel={() => {
+                if (vehicle) dispatch(selectVehicleBrand(vehicle.brand));
+              }}
+              onClearYear={() => {
+                if (vehicle?.model != null) dispatch(selectVehicleModel(vehicle.model));
+              }}
+            />
             <span className="cft-helper">先選車，只顯示裝得上的零件</span>
           </div>
           <div className="cft-right">
-            {cascade.vehicle && (
-              <button className="cft-clear" onClick={handleClearVehicle} aria-label="清除車輛篩選">清除車輛</button>
+            {vehicle && (
+              <button className="cft-clear" onClick={() => dispatch(clearVehicle())} aria-label="清除車輛篩選">清除車輛</button>
             )}
           </div>
         </div>

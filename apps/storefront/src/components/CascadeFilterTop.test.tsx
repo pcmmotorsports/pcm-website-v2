@@ -35,14 +35,16 @@ describe('CascadeFilterTop', () => {
     expect(screen.getByText('確認適用車款')).toBeDefined();
   });
 
-  it('should reveal the 清除車輛 button after selecting a brand', () => {
+  it('should reveal the 清除車輛 button after picking a brand via typeahead(V-1b combobox 版)', () => {
     render(<Harness />);
-    // 第一個 select = 品牌;選 MOCK_MOTO_BRANDS 第一筆
-    const [brandSelect] = screen.getAllByRole('combobox');
-    if (!brandSelect) throw new Error('品牌 select 未 render');
+    // 第一個 combobox = 品牌;打全名 → blur 唯一精確命中自動套用(REQUIRED-2)
+    const [brandInput] = screen.getAllByRole('combobox');
+    if (!brandInput) throw new Error('品牌 combobox 未 render');
     const [firstBrand] = MOCK_MOTO_BRANDS;
     if (!firstBrand) throw new Error('MOCK_MOTO_BRANDS 為空');
-    fireEvent.change(brandSelect, { target: { value: firstBrand.id } });
+    fireEvent.change(brandInput, { target: { value: firstBrand.name } });
+    fireEvent.blur(brandInput);
     expect(screen.getByText('清除車輛')).toBeDefined();
+    expect((brandInput as HTMLInputElement).value).toBe(firstBrand.name);
   });
 });
