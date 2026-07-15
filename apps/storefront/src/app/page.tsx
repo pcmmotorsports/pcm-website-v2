@@ -25,6 +25,8 @@ import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
 import { resolveTierFromRequest } from '@/lib/tier';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getVehicleRepo } from '@/lib/auth/composition';
 
 // d2 build 揭示:本頁 server-side fetch Supabase、build 階段預生成 SSG 會撞 env 未注入
 // (build worker 不讀 monorepo root .env.local、`createSupabaseAnonClient` requireEnv throw)。
@@ -55,17 +57,35 @@ export default async function HomePage({
   //   失敗回 []);與 /products 解析端同一衍生函式 = 首頁選車深連結 id 空間一致、必命中列表過濾
   // - categories(Q4-S5):CategoryGrid 真分類化(修「首頁分類卡點了無過濾」死連結;同 /products
   //   側欄的 fetchCategories→buildCategoryTree,只列有商品分類、深連結 ?category=<真分類名> 必命中過濾)
-  const [featured, motoBrands, categories] = await Promise.all([
+  // - garage(V-1c):登入會員愛車 chips(RLS vehicles_*_own 守自己 row;未登入/讀取失敗
+  //   → [] chips 整排不顯示、頁面不 500;本頁已 force-dynamic+讀 cookies=零額外快取語意變更)
+  const [featured, motoBrands, categories, garage] = await Promise.all([
     fetchFeaturedProducts(),
     fetchVehicleTaxonomy(),
     fetchCategories(),
+    (async () => {
+      try {
+        const supabase = await createServerSupabaseClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return [];
+        // 序列化面收窄:chips 只需 id/name/year(engine/km/mods 等不進 client props;皆為
+        // 本人 own 資料、此為最小面原則非洩漏修補)
+        const vehicles = await (await getVehicleRepo()).listByCustomer(user.id);
+        return vehicles.map((v) => ({ id: v.id, name: v.name, year: v.year }));
+      } catch (garageError) {
+        console.error('[home] 愛車清單讀取失敗、chips 退化不顯示:', garageError);
+        return [];
+      }
+    })(),
   ]);
 
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
       <Header currentPage="home" />
       <HomeHero />
-      <VehicleFinder motoBrands={motoBrands} />
+      <VehicleFinder motoBrands={motoBrands} garage={garage} />
       <FeatureEditorial />
       <CategoryGrid categories={categories} />
       <HomeSelect featured={featured} />

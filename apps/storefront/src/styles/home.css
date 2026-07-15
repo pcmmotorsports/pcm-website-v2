@@ -692,3 +692,32 @@
   .ed-footer-inner { grid-template-columns: 1fr; gap: 48px; }
   .ed-footer-cols { grid-template-columns: 1fr 1fr; gap: 32px; }
 }
+
+/* ── V-1c 我的愛車 chips + 建議清單(登入會員;沿 ed-finder token)── */
+.ed-finder-garage,
+.ed-finder-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.ed-finder-garage-label,
+.ed-finder-suggest-label {
+  font-size: 12.5px;
+  color: var(--ed-c-ink-mute);
+}
+.ed-finder-garage-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--ed-c-ink);
+  background: transparent;
+  border: 1px solid var(--ed-c-rule);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.ed-finder-garage-chip:hover { border-color: var(--ed-c-ink); }
