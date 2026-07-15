@@ -92,6 +92,7 @@ function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): 
     variantLabel: null,
     sku: null,
     unitPrice: 14600,
+    fitments: [],
     ...over,
   };
 }

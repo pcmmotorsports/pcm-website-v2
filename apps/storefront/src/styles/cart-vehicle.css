@@ -43,6 +43,18 @@
 .cvf-chip[data-kind='free'] {
   border-style: dashed;
 }
+/* V-2e:車款 vs 商品適用不符(checkFitment no-match)→ 紅膠囊+「可能不適用」小字
+   (§7 保守方向:僅 no-match 亮紅;qualified/free 中性不誤嚇;display-only 不擋結帳) */
+.cvf-chip[data-fit='no-match'] {
+  color: var(--c-red-dark);
+  background: var(--c-red-soft);
+  border-color: var(--c-red);
+}
+.cvf-mismatch {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-red-dark);
+}
 .cvf-note {
   font-size: 12px;
   color: var(--c-text-2);

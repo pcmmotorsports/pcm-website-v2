@@ -23,6 +23,8 @@ type FakeProduct = {
   price: number;
   image: string | null;
   variants: { id: string; sku: string; spec: Record<string, string>; price: number; images: string[] }[];
+  /** V-2e:白名單投影測試用(容多餘欄、驗剝除) */
+  fitments?: { motoBrand: string; modelCode: string; yearStart?: number; yearEnd?: number | null; [k: string]: unknown }[];
 };
 
 function makeProduct(over: Partial<FakeProduct> = {}): FakeProduct {
@@ -206,5 +208,30 @@ describe('resolveCartLines(M-3-S2-b2-d 購物車 line 解析)', () => {
     const line = first(await resolveCartLines([{ productId: 'rpm-1' }]));
     expect(line.found).toBe(true);
     expect(line.unitPrice).toBe(14600);
+  });
+
+  it('V-2e:fitments 白名單投影(逐欄重建、多餘欄剝除、yearEnd null 開放式保留不塌)', async () => {
+    fetchMock.mockResolvedValue(
+      makeProduct({
+        fitments: [
+          { motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: null, internal: 'x' },
+          { motoBrand: 'Honda', modelCode: 'CB650R' }, // 無年份=不限
+        ],
+      }),
+    );
+    const line = first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }]));
+    expect(line.fitments).toEqual([
+      { motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021, yearEnd: null },
+      { motoBrand: 'Honda', modelCode: 'CB650R' },
+    ]);
+    // 多餘欄確實被剝(toEqual 對 undefined 欄寬鬆、需顯式驗 key 不存在)
+    expect(Object.keys(line.fitments[0]!)).not.toContain('internal');
+  });
+
+  it('V-2e:無 fitments 商品 → fitments=[](found:false 各分支亦 [])', async () => {
+    fetchMock.mockResolvedValue(makeProduct());
+    expect(first(await resolveCartLines([{ productId: 'rpm-1', variantId: 'v1' }])).fitments).toEqual([]);
+    fetchMock.mockResolvedValue(null);
+    expect(first(await resolveCartLines([{ productId: 'gone' }])).fitments).toEqual([]);
   });
 });

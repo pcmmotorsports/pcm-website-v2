@@ -98,3 +98,62 @@ describe('CartVehicleField', () => {
     expect(onChange).toHaveBeenCalledWith(null);
   });
 });
+
+// ── V-2e:車款 vs 商品適用不符 → 紅膠囊「可能不適用」(重用 §7 checkFitment、僅 no-match 亮紅)──
+describe('CartVehicleField — V-2e 不符紅膠囊', () => {
+  const FITMENTS = [{ motoBrand: 'Yamaha', modelCode: 'MT-09 SP', yearStart: 2021, yearEnd: 2022 }];
+
+  it('dict 車型未列 → 膠囊 data-fit=no-match + 「可能不適用」小字', () => {
+    render(
+      <CartVehicleField label="x" value={{ kind: 'dict', brand: 'Honda', model: 'CB650R', source: 'picker' }}
+        onChange={vi.fn()} motoBrands={BRANDS} fitments={FITMENTS} />,
+    );
+    expect(screen.getByText('Honda CB650R').getAttribute('data-fit')).toBe('no-match');
+    expect(screen.getByText(/可能不適用/)).toBeTruthy();
+  });
+
+  it('dict 年份不合(2019 vs 2021-2022)→ no-match 紅(§7 反向:列了車型但年份不符)', () => {
+    render(
+      <CartVehicleField label="x" value={{ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2019, source: 'picker' }}
+        onChange={vi.fn()} motoBrands={BRANDS} fitments={FITMENTS} />,
+    );
+    expect(screen.getByText('2019 Yamaha MT-09 SP').getAttribute('data-fit')).toBe('no-match');
+    expect(screen.getByText(/可能不適用/)).toBeTruthy();
+  });
+
+  it('dict 命中 → data-fit=match、無「可能不適用」', () => {
+    render(
+      <CartVehicleField label="x" value={{ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'picker' }}
+        onChange={vi.fn()} motoBrands={BRANDS} fitments={FITMENTS} />,
+    );
+    expect(screen.getByText('2021 Yamaha MT-09 SP').getAttribute('data-fit')).toBe('match');
+    expect(screen.queryByText(/可能不適用/)).toBeNull();
+  });
+
+  it('dict 年份未知+受限 fitment=qualified → 中性不紅(人工確認路、不誤嚇)', () => {
+    render(
+      <CartVehicleField label="x" value={{ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', source: 'picker' }}
+        onChange={vi.fn()} motoBrands={BRANDS} fitments={FITMENTS} />,
+    );
+    expect(screen.getByText('Yamaha MT-09 SP').getAttribute('data-fit')).toBe('qualified');
+    expect(screen.queryByText(/可能不適用/)).toBeNull();
+  });
+
+  it('free 自由輸入 → 不判定不紅(kind:free=人工確認)', () => {
+    render(
+      <CartVehicleField label="x" value={{ kind: 'free', raw: '阿嬤的野狼', source: 'freetext' }}
+        onChange={vi.fn()} motoBrands={BRANDS} fitments={FITMENTS} />,
+    );
+    expect(screen.getByText('阿嬤的野狼').getAttribute('data-fit')).toBeNull();
+    expect(screen.queryByText(/可能不適用/)).toBeNull();
+  });
+
+  it('無 fitments prop(頂部整車欄)→ 不判定(跨商品無單一判定對象)', () => {
+    render(
+      <CartVehicleField label="x" value={{ kind: 'dict', brand: 'Honda', model: 'CB650R', source: 'picker' }}
+        onChange={vi.fn()} motoBrands={BRANDS} />,
+    );
+    expect(screen.getByText('Honda CB650R').getAttribute('data-fit')).toBeNull();
+    expect(screen.queryByText(/可能不適用/)).toBeNull();
+  });
+});

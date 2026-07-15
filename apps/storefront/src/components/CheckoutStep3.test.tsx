@@ -40,6 +40,7 @@ function line(over: Partial<ResolvedCartLineView['resolved']> & { productId: str
       variantLabel: null,
       sku: null,
       unitPrice: 14600,
+      fitments: [],
       ...over,
     },
     lineTotal,

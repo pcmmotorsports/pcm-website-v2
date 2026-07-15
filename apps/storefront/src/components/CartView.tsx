@@ -107,13 +107,16 @@ export function CartView({
                     {line.sku && <div className="cart-item-sku">料號 {line.sku}</div>}
                     {line.variantLabel && <div className="cart-item-variant">{line.variantLabel}</div>}
                     <div className="cart-item-vehicle">適用 {line.fits}</div>
-                    {/* V-2a 單列車款欄(給哪台車用;覆寫整車套用值=混車訂單) */}
+                    {/* V-2a 單列車款欄(給哪台車用;覆寫整車套用值=混車訂單)
+                        V-2e:傳該商品 fitments → dict 車款不符=紅膠囊「可能不適用」(重用 §7
+                        checkFitment;free/年份未知=中性人工確認路;display-only 不擋結帳) */}
                     <CartVehicleField
                       label="這件給哪台車"
                       value={item.vehicle}
                       onChange={(v) => setItemVehicle(item, v)}
                       motoBrands={motoBrands}
                       garage={garage}
+                      fitments={line.fitments}
                     />
                     <div className="cart-item-actions">
                       <div className="cart-qty">

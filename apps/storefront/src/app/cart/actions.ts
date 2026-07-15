@@ -22,6 +22,7 @@
 //   - 找不到商品 / 變體已不存在(舊 cart stale)→ found:false,client 不顯示該行、不計入小計。
 
 import { fetchProductByHandle } from '@/lib/products';
+import type { UIFitment } from '@/data/mock-products';
 
 /** client 傳入的 line key(僅 productId + 選用 variantId;qty 由 client 自管、不影響單價解析)。 */
 export type CartLineInput = {
@@ -54,7 +55,20 @@ export type ResolvedCartLine = {
   sku: string | null;
   /** 🔴 general 公開單價(整數元位 NT$);**唯一價格欄、無 priceByTier/store/cost** */
   unitPrice: number;
+  /** V-2e:適用車款(UIFitment 公開欄白名單投影、與 PDP 同 shape;client 對 line vehicle 跑
+   *  checkFitment 顯「可能不適用」;🔴 判定在 client=cart vehicle 不出站紅線不動)。 */
+  fitments: UIFitment[];
 };
+
+/** V-2e:UIFitment 公開欄白名單投影(逐欄重建、不透傳整物件;yearEnd null=開放式語意保留、禁塌)。 */
+function projectFitments(fitments: UIFitment[] | undefined): UIFitment[] {
+  return (fitments ?? []).map((f) => ({
+    motoBrand: f.motoBrand,
+    modelCode: f.modelCode,
+    ...(f.yearStart !== undefined ? { yearStart: f.yearStart } : {}),
+    ...(f.yearEnd !== undefined ? { yearEnd: f.yearEnd } : {}),
+  }));
+}
 
 // 品項上限:對齊 create_order RPC「品項≤200」fail-closed(防 client 送超量 line 打爆查詢)。
 const MAX_LINES = 200;
@@ -119,6 +133,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
         variantLabel: null,
         sku: null,
         unitPrice: 0,
+        fitments: [], // found:false 不渲染、無判定需求
       });
       continue;
     }
@@ -142,6 +157,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
           variantLabel: null,
           sku: null,
           unitPrice: 0,
+          fitments: [],
         });
         continue;
       }
@@ -164,6 +180,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
         variantLabel: null,
         sku: null,
         unitPrice: 0,
+        fitments: [],
       });
       continue;
     } else {
@@ -183,6 +200,7 @@ export async function resolveCartLines(lines: unknown): Promise<ResolvedCartLine
       variantLabel,
       sku,
       unitPrice,
+      fitments: projectFitments(product.fitments), // V-2e:白名單投影(client 判「可能不適用」)
     });
   }
   return out;

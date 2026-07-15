@@ -10,10 +10,13 @@
 import { useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CartItemVehicle } from '@/contexts/CartContext';
+import type { UIFitment } from '@/data/mock-products';
 import type { GarageChipItem } from './GarageChips';
 import { VehicleSelect } from './VehicleSelect';
 import { vehicleLabel } from '@/lib/vehicle-match';
 import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
+import { checkFitment, type FitmentCheckStatus } from '@/lib/fitment-match';
+import { slugify } from '@/lib/vehicle-taxonomy';
 
 /** 車款欄顯示字面(dict=品牌車型+年;free=raw+年)。 */
 export function formatCartVehicle(v: CartItemVehicle): string {
@@ -21,6 +24,22 @@ export function formatCartVehicle(v: CartItemVehicle): string {
     return [v.year, vehicleLabel(v.brand, v.model)].filter(Boolean).join(' ');
   }
   return [v.year, v.raw].filter(Boolean).join(' ');
+}
+
+/** V-2e:cart line 車款 vs 商品 fitments 判定(重用 §7 checkFitment 同一顆腦、零新比對邏輯)。
+ *  只判 kind:'dict'(slugify(名稱字面)=同源 slug 空間);free/無 fitments/無值 → null=不顯示判定
+ *  (自由輸入=人工確認路、不誤嚇;§7 保守方向:僅 no-match 亮紅)。 */
+export function cartVehicleFitStatus(
+  fitments: UIFitment[] | undefined,
+  v: CartItemVehicle | undefined,
+): FitmentCheckStatus | null {
+  if (!v || v.kind !== 'dict' || !fitments || fitments.length === 0) return null;
+  return checkFitment(fitments, {
+    kind: 'dict',
+    brandId: slugify(v.brand),
+    modelId: slugify(v.model),
+    year: v.year,
+  });
 }
 
 const SOURCE_NOTE: Record<CartItemVehicle['source'], string> = {
@@ -39,6 +58,7 @@ export function CartVehicleField({
   garage = [],
   label,
   hint,
+  fitments,
 }: {
   value: CartItemVehicle | undefined;
   /** null=清除本欄 */
@@ -49,8 +69,13 @@ export function CartVehicleField({
   label: string;
   /** 提示文案(非強制;§2「建議填寫車款…」) */
   hint?: string;
+  /** V-2e:該商品適用車款(單列欄傳入=不符顯紅膠囊;頂部整車欄不傳=跨商品無單一判定對象) */
+  fitments?: UIFitment[];
 }) {
   const [editing, setEditing] = useState(false);
+  // V-2e:不符=紅膠囊+「可能不適用」(§7 保守方向:僅 no-match 亮紅;qualified/free/undetermined
+  // 中性不誤嚇);display-only 不擋結帳。頂部整車欄不傳 fitments=恆 null 不判。
+  const fit = cartVehicleFitStatus(fitments, value);
   // picker 本地選態(brand→model→year;model 選定即 commit kind:'dict')
   const [sel, setSel] = useState<LocalSel>(null);
   const [freetext, setFreetext] = useState('');
@@ -110,7 +135,12 @@ export function CartVehicleField({
       <div className="cvf-label">{label}</div>
       {value && !editing ? (
         <div className="cvf-current">
-          <span className="cvf-chip" data-kind={value.kind}>{formatCartVehicle(value)}</span>
+          <span className="cvf-chip" data-kind={value.kind} data-fit={fit ?? undefined}>
+            {formatCartVehicle(value)}
+          </span>
+          {fit === 'no-match' && (
+            <span className="cvf-mismatch" role="status">可能不適用 · 下單前我們會與你確認</span>
+          )}
           {SOURCE_NOTE[value.source] && <span className="cvf-note">{SOURCE_NOTE[value.source]}</span>}
           <button type="button" className="cvf-link" onClick={startEdit}>更改</button>
           <button type="button" className="cvf-link" onClick={() => onChange(null)}>清除</button>
