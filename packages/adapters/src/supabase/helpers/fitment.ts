@@ -1,4 +1,4 @@
-import { resolveEnd, type FitmentSpec } from '@pcm/domain';
+import { type FitmentSpec } from '@pcm/domain';
 
 /**
  * fitment 結構化 helpers(對齊 docs/specs/M-1-03-main-b-PRD.md §5.2 / §5.3 / §5.5
@@ -104,25 +104,8 @@ export function parseWireFitment(str: string): FitmentSpec {
 }
 
 /**
- * 年份範圍重疊判定(規則 3、對齊 InMemoryProductRepository.matchFitment 重構後等價)。
- *
- * 規則:
- * - 任一邊 yearStart undefined → return true(無年份限制 = 不限年份)
- * - 否則:actualEnd / specEnd 用 resolveEnd 解析
- *   (actual / spec 兩端對稱處理 yearEnd null/undefined、對齊 backlog #94)
- * - 範圍重疊判定:actual.start ≤ spec.end 且 spec.start ≤ actual.end
- *
- * **使用前提:** 本 helper 只負責年份範圍判定、**不**比對 motoBrand / modelCode。
- * 預期搭配 listByFitment SQL `.contains('fitments', [{motoBrand, modelCode}])` server-side
- * prefilter 後使用;若孤立呼叫(例 InMemory 走規則 1+2+3 全部 in-memory、見其 matchFitment private),
- * 必須上游自行處理 motoBrand / modelCode 配對、否則回傳 true 不代表整體 match。
- *
- * @see resolveEnd(packages/domain/src/catalog/year-range.ts)
- * @see packages/adapters/src/in-memory/InMemoryProductRepository.ts matchFitment 規則 3
+ * 年份範圍重疊判定(V-2b 起升 domain=年份語意單一來源;本處改 re-export、既有呼叫零漂移)。
+ * 語意/簽名逐字不變(actual/spec 只判年份、不比 motoBrand/modelCode)。
+ * @see packages/domain/src/catalog/year-range.ts matchFitmentYear
  */
-export function matchFitmentYear(actual: FitmentSpec, spec: FitmentSpec): boolean {
-  if (actual.yearStart === undefined || spec.yearStart === undefined) return true;
-  const actualEnd = resolveEnd(actual.yearStart, actual.yearEnd);
-  const specEnd = resolveEnd(spec.yearStart, spec.yearEnd);
-  return actual.yearStart <= specEnd && spec.yearStart <= actualEnd;
-}
+export { matchFitmentYear } from '@pcm/domain';

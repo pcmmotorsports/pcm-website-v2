@@ -31,3 +31,37 @@ export function resolveEnd(
   if (yearEnd === undefined) return yearStart;
   return yearEnd;
 }
+
+/**
+ * 年份範圍重疊判定(V-2b 起升 domain=年份語意單一來源;原 adapters/helpers/fitment.ts、
+ * 該處改 re-export 保既有呼叫零漂移)。actual/spec 皆 FitmentSpec 年份區間。
+ *
+ * 規則(逐字對齊原 adapters 版、byte 等價):
+ * - 任一邊 yearStart undefined → return true(無年份限制=不限年份)
+ * - 否則 actualEnd/specEnd 用 resolveEnd 解析(兩端對稱處理 yearEnd null/undefined)
+ * - 範圍重疊:actual.start ≤ spec.end 且 spec.start ≤ actual.end
+ *
+ * 🔴 只判年份、**不**比對 motoBrand/modelCode(呼叫端自理配對)。使用者單年查詢=退化區間
+ * `{yearStart:Y, yearEnd:Y}`;storefront §7 比對禁自寫年份判定、一律呼本顆(S4 語意分叉教訓)。
+ *
+ * @see resolveEnd
+ * @see packages/adapters/src/in-memory/InMemoryProductRepository.ts matchFitment 規則 3
+ */
+export function matchFitmentYear(
+  actual: { yearStart?: number; yearEnd?: number | null },
+  spec: { yearStart?: number; yearEnd?: number | null },
+): boolean {
+  if (actual.yearStart === undefined || spec.yearStart === undefined) return true;
+  const actualEnd = resolveEnd(actual.yearStart, actual.yearEnd);
+  const specEnd = resolveEnd(spec.yearStart, spec.yearEnd);
+  return actual.yearStart <= specEnd && spec.yearStart <= actualEnd;
+}
+
+/**
+ * fitment 是否不限年份(yearStart 未定義=該車型全年份適用)。
+ * V-2b §7:使用者年份未知時,唯有命中此類 fitment 才可顯無條件「✓ 適用」,否則保守顯 qualified。
+ * 抽 domain=年份語意單一來源(storefront 禁自寫 `yearStart === undefined` 判定行)。
+ */
+export function isYearUnrestricted(spec: { yearStart?: number }): boolean {
+  return spec.yearStart === undefined;
+}

@@ -20,7 +20,7 @@ export type * from './payment/types';
 
 // runtime helper re-export(規則見 ADR-0003 §3.1.1)
 export { toMoneyAmount } from './shared/types';
-export { resolveEnd } from './catalog/year-range';
+export { resolveEnd, matchFitmentYear, isYearUnrestricted } from './catalog/year-range';
 export { computeEffectivePrice } from './catalog/pricing';
 export { designTierToSchema, schemaTierToDesign } from './shared/utils';
 export { AuthError } from './identity/auth';

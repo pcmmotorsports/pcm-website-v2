@@ -31,6 +31,8 @@ import { parseVehicleFromUrl, vehicleUrlParam } from '@/lib/vehicle-url';
 import { serializeProductJsonLd } from '@/lib/product-jsonld';
 import { resolveSiteUrl, isAbsoluteHttpUrl } from '@/lib/site-url';
 import { ProductPage } from '@/components/ProductPage';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getVehicleRepo } from '@/lib/auth/composition';
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -94,7 +96,35 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
   //   filter 語意、需 model 同在才當車輛長版、不誤觸)。
   const hasVehicleParam =
     spGet('vehicle') != null || (spGet('brand') != null && spGet('model') != null);
-  const taxonomy = hasVehicleParam ? await fetchVehicleTaxonomy() : [];
+  // V-2b:§7「是否適用我的車」需車款字典(現選入口 VehicleSelect)+ 車庫(愛車快選);商品有 fitments
+  //   才渲染比對(ProductFitmentCheck 無 fitments 返 null)→ 只在需要時撈。taxonomy(unstable_cache
+  //   900s)兼供推薦引擎 slug 解析;garage=per-user RLS own、容錯 []、序列化收窄(鏡像 cart/products page)。
+  const hasFitments = (product.fitments?.length ?? 0) > 0;
+  const [taxonomy, garage] = await Promise.all([
+    hasVehicleParam || hasFitments ? fetchVehicleTaxonomy() : Promise.resolve([]),
+    hasFitments
+      ? (async () => {
+          try {
+            const supabase = await createServerSupabaseClient();
+            const {
+              data: { user },
+            } = await supabase.auth.getUser();
+            if (!user) return [];
+            const vehicles = await (await getVehicleRepo()).listByCustomer(user.id);
+            return vehicles.map((v) => ({
+              id: v.id,
+              name: v.name,
+              year: v.year,
+              dictBrandName: v.dictBrandName,
+              dictModelName: v.dictModelName,
+            }));
+          } catch (garageError) {
+            console.error('[pdp] 愛車清單讀取失敗、§7 快選退化不顯示:', garageError);
+            return [];
+          }
+        })()
+      : Promise.resolve([]),
+  ]);
   const parsedVehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, taxonomy) : null;
   // Case A 反查需 motoBrand + modelCode 都有;只選了品牌沒選車型 → 當作沒車(Case B 同品牌)。
   const vehicle: VehicleSelection | undefined =
@@ -138,6 +168,8 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         relatedMoreHref={relatedMoreHref}
         relatedHasVehicle={vehicle != null}
         relatedVehicleParam={vehicleParamForHref ?? undefined}
+        motoBrands={taxonomy}
+        garage={garage}
       />
     </>
   );
