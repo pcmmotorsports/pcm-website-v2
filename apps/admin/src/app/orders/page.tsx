@@ -80,7 +80,7 @@ export default async function OrdersPage({
           <OrdersTable
             orders={orders}
             statusOptions={statusOptions}
-            itemStatusFiltered={filter.workflowStatus !== undefined}
+            itemStatusFiltered={filter.workflowStatuses !== undefined}
             returnTo={buildOrderListHref(filter, page)}
           />
           <ListPagination

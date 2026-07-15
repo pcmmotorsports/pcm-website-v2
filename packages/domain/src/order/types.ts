@@ -200,18 +200,27 @@ export type PaymentChannel = 'tappay' | 'bank_transfer' | 'cash' | 'none';
 export type AdminOrderFilter = {
   paymentStatus?: PaymentStatus;
   fulfillmentStatus?: FulfillmentStatus;
-  orderSource?: OrderSource;
-  paymentChannel?: PaymentChannel;
+  /** 來源多勾選(D-1b;undefined/空陣列=不限、多值=OR〔IN〕)。 */
+  orderSources?: readonly OrderSource[];
+  /** 管道多勾選(D-1b;同上)。 */
+  paymentChannels?: readonly PaymentChannel[];
   /**
-   * 商品狀態篩選(M-4a;D-2 起=**item 層**語意:至少一品項為此狀態的訂單、且只顯示命中品項列
+   * 商品狀態多勾選(M-4a;D-2 起=**item 層**語意:至少一品項命中的訂單、且只顯示命中品項列
    * 〔adapter 用 order_items!inner 投影+order_items.workflow_status 下推;orders.workflow_status
-   * 停寫 stale、不再篩〕):
-   * - `undefined` = 不篩;
-   * - `string` = 指定 order_status_options.code(動態詞彙、非靜態 enum,值域由 DB CHECK slug 格式約束);
-   * - `null` = 只看「有品項未設定狀態」的單(order_items.workflow_status IS NULL)。
+   * 停寫 stale、不再篩〕;D-1b 起多勾選=各值 OR):
+   * - `undefined` / 空陣列 = 不篩;
+   * - 元素 `string` = order_status_options.code(動態詞彙、值域由 DB CHECK slug 格式約束=
+   *   {@link WORKFLOW_STATUS_CODE_RE});
+   * - 元素 `null` =「品項未設定狀態」(order_items.workflow_status IS NULL)可與 code 混勾。
    */
-  workflowStatus?: string | null;
+  workflowStatuses?: readonly (string | null)[];
 };
+
+/**
+ * workflow_status code 合法形狀(對齊 DB CHECK orders_workflow_status_format;admin 解析層白名單
+ * 守門 + adapter `.or()` 字串內插前 fail-closed 再驗的**單一來源**)。
+ */
+export const WORKFLOW_STATUS_CODE_RE = /^[a-z0-9_]{1,64}$/;
 
 /**
  * AdminOrderLine: 後台訂單列表「每商品一列」品項投影(M-4a Slice D-1a;order_items 內嵌展開)。

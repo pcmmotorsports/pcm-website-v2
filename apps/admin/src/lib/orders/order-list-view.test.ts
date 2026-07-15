@@ -22,12 +22,12 @@ import {
   workflowStatusBadge,
   indexOrderStatusOptions,
   workflowStatusFilterOptions,
-  workflowStatusSelectValue,
+  workflowStatusSelectedValues,
   summarizeOrderItemWorkflow,
 } from './order-list-view';
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
-  it('合法四軸值 → filter 帶入;page 解析', () => {
+  it('合法四軸值 → filter 帶入(來源/管道 D-1b 多勾選=陣列);page 解析', () => {
     const { filter, page } = parseOrderListSearchParams({
       payment_status: 'paid',
       fulfillment_status: 'shipped',
@@ -38,8 +38,8 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     expect(filter).toEqual({
       paymentStatus: 'paid',
       fulfillmentStatus: 'shipped',
-      orderSource: 'manual_line',
-      paymentChannel: 'bank_transfer',
+      orderSources: ['manual_line'],
+      paymentChannels: ['bank_transfer'],
     });
     expect(page).toBe(3);
   });
@@ -54,14 +54,20 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     expect(filter).toEqual({
       paymentStatus: undefined,
       fulfillmentStatus: undefined,
-      orderSource: undefined,
-      paymentChannel: undefined,
+      orderSources: undefined,
+      paymentChannels: undefined,
     });
   });
 
-  it('string[] 值取首個', () => {
-    const { filter } = parseOrderListSearchParams({ payment_status: ['unpaid', 'paid'] });
+  it('單值軸 string[] 取首個;多勾選軸收全部合法值+去重、非法值剔除', () => {
+    const { filter } = parseOrderListSearchParams({
+      payment_status: ['unpaid', 'paid'],
+      order_source: ['web', 'manual_line', 'web', 'HACK'],
+      payment_channel: ['tappay', 'paypal', 'cash'],
+    });
     expect(filter.paymentStatus).toBe('unpaid');
+    expect(filter.orderSources).toEqual(['web', 'manual_line']);
+    expect(filter.paymentChannels).toEqual(['tappay', 'cash']);
   });
 
   it('缺 searchParams → 全 undefined + page 1', () => {
@@ -69,32 +75,41 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
     expect(filter).toEqual({
       paymentStatus: undefined,
       fulfillmentStatus: undefined,
-      orderSource: undefined,
-      paymentChannel: undefined,
+      orderSources: undefined,
+      paymentChannels: undefined,
     });
     expect(page).toBe(1);
   });
 });
 
-describe('parseOrderListSearchParams — workflow_status(動態詞彙、形狀守門)', () => {
-  it('合法 code slug → 原樣帶入', () => {
+describe('parseOrderListSearchParams — workflow_status(動態詞彙、形狀守門;D-1b 多勾選)', () => {
+  it('合法 code slug → 原樣帶入(單值=單元素陣列)', () => {
     const { filter } = parseOrderListSearchParams({ workflow_status: 'received_confirmed' });
-    expect(filter.workflowStatus).toBe('received_confirmed');
+    expect(filter.workflowStatuses).toEqual(['received_confirmed']);
   });
 
-  it('unset 哨兵 → null(只看未設定)', () => {
-    const { filter } = parseOrderListSearchParams({ workflow_status: 'unset' });
-    expect(filter.workflowStatus).toBeNull();
+  it('unset 哨兵 → null 元素(未設定;可與 code 混勾)', () => {
+    expect(parseOrderListSearchParams({ workflow_status: 'unset' }).filter.workflowStatuses).toEqual(
+      [null],
+    );
+    expect(
+      parseOrderListSearchParams({ workflow_status: ['paid_wait', 'unset'] }).filter
+        .workflowStatuses,
+    ).toEqual(['paid_wait', null]);
   });
 
-  it('非法形狀(大寫/空白/注入/過長/空字串/陣列)→ undefined(不篩、注入不透傳)', () => {
+  it('多值:合法值保序去重、非法形狀逐值剔除;全非法/缺 → undefined(不篩、注入不透傳)', () => {
+    expect(
+      parseOrderListSearchParams({ workflow_status: ['a_1', 'HACK', 'a_1', 'b_2'] }).filter
+        .workflowStatuses,
+    ).toEqual(['a_1', 'b_2']);
     for (const bad of ['HACK', 'a b', 'x; DROP', 'é', 'a'.repeat(65), '']) {
-      expect(parseOrderListSearchParams({ workflow_status: bad }).filter.workflowStatus).toBe(
-        undefined,
-      );
+      expect(
+        parseOrderListSearchParams({ workflow_status: bad }).filter.workflowStatuses,
+      ).toBe(undefined);
     }
     expect(
-      parseOrderListSearchParams({ workflow_status: ['a', 'b'] }).filter.workflowStatus,
+      parseOrderListSearchParams({ workflow_status: ['HACK', ''] }).filter.workflowStatuses,
     ).toBe(undefined);
   });
 });
@@ -104,11 +119,14 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
     expect(buildOrderListHref({}, 1)).toBe('/orders');
   });
 
-  it('帶篩選 + page>1 → 保留篩選 + page', () => {
-    const href = buildOrderListHref({ paymentStatus: 'paid', orderSource: 'web' }, 2);
+  it('帶篩選 + page>1 → 保留篩選 + page;多勾選=同鍵重複 param', () => {
+    const href = buildOrderListHref(
+      { paymentStatus: 'paid', orderSources: ['web', 'manual_line'] },
+      2,
+    );
     expect(href).toContain('/orders?');
     expect(href).toContain('payment_status=paid');
-    expect(href).toContain('order_source=web');
+    expect(href).toContain('order_source=web&order_source=manual_line');
     expect(href).toContain('page=2');
   });
 
@@ -118,11 +136,14 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
     expect(href).not.toContain('page=');
   });
 
-  it('workflowStatus:code 原樣、null → unset 哨兵、undefined → 不出現', () => {
-    expect(buildOrderListHref({ workflowStatus: 'shipped_done' }, 2)).toContain(
+  it('workflowStatuses:code 原樣、null → unset 哨兵、混勾=重複 param、undefined → 不出現', () => {
+    expect(buildOrderListHref({ workflowStatuses: ['shipped_done'] }, 2)).toContain(
       'workflow_status=shipped_done',
     );
-    expect(buildOrderListHref({ workflowStatus: null }, 2)).toContain('workflow_status=unset');
+    expect(buildOrderListHref({ workflowStatuses: [null] }, 2)).toContain('workflow_status=unset');
+    expect(buildOrderListHref({ workflowStatuses: ['paid_wait', null] }, 2)).toContain(
+      'workflow_status=paid_wait&workflow_status=unset',
+    );
     expect(buildOrderListHref({}, 2)).not.toContain('workflow_status');
   });
 });
@@ -171,7 +192,7 @@ describe('workflowStatusBadge — NULL / 命中 / 停用 / 未知 code 兜底', 
   });
 });
 
-describe('workflowStatusFilterOptions / workflowStatusSelectValue', () => {
+describe('workflowStatusFilterOptions / workflowStatusSelectedValues', () => {
   it('篩選下拉 = active 選項(依傳入序)+ 未設定哨兵殿後;停用選項不入列', () => {
     expect(workflowStatusFilterOptions(OPTIONS)).toEqual([
       { value: 'received_confirmed', label: '已收已定' },
@@ -180,23 +201,21 @@ describe('workflowStatusFilterOptions / workflowStatusSelectValue', () => {
     ]);
   });
 
-  it('current 為停用/未知 code → 補回顯項(不靜默清篩選);current 為 active code/null → 不加項', () => {
-    expect(workflowStatusFilterOptions(OPTIONS, 'retired_code')).toContainEqual({
-      value: 'retired_code',
-      label: '停用中(已停用)',
-    });
-    expect(workflowStatusFilterOptions(OPTIONS, 'ghost_code')).toContainEqual({
-      value: 'ghost_code',
-      label: 'ghost_code',
-    });
-    expect(workflowStatusFilterOptions(OPTIONS, 'received_confirmed')).toHaveLength(3);
-    expect(workflowStatusFilterOptions(OPTIONS, null)).toHaveLength(3);
+  it('已勾值含停用/未知 code → 各補回顯項(不靜默清篩選);active code/null → 不加項', () => {
+    const withOrphans = workflowStatusFilterOptions(OPTIONS, ['retired_code', 'ghost_code']);
+    expect(withOrphans).toContainEqual({ value: 'retired_code', label: '停用中(已停用)' });
+    expect(withOrphans).toContainEqual({ value: 'ghost_code', label: 'ghost_code' });
+    expect(workflowStatusFilterOptions(OPTIONS, ['received_confirmed'])).toHaveLength(3);
+    expect(workflowStatusFilterOptions(OPTIONS, [null])).toHaveLength(3);
   });
 
-  it('selectValue:undefined → undefined(全部)/ null → unset / code 原樣', () => {
-    expect(workflowStatusSelectValue(undefined)).toBe(undefined);
-    expect(workflowStatusSelectValue(null)).toBe(WORKFLOW_STATUS_UNSET_VALUE);
-    expect(workflowStatusSelectValue('shipped_done')).toBe('shipped_done');
+  it('selectedValues:undefined → [] / null 元素 → unset / code 原樣保序', () => {
+    expect(workflowStatusSelectedValues(undefined)).toEqual([]);
+    expect(workflowStatusSelectedValues([null])).toEqual([WORKFLOW_STATUS_UNSET_VALUE]);
+    expect(workflowStatusSelectedValues(['shipped_done', null])).toEqual([
+      'shipped_done',
+      WORKFLOW_STATUS_UNSET_VALUE,
+    ]);
   });
 });
 

@@ -4,6 +4,8 @@ import { describe, it, expect } from 'vitest';
 import {
   firstValue,
   pickEnum,
+  pickEnumMulti,
+  allValues,
   parsePage,
   computePagination,
   buildListHref,
@@ -24,6 +26,22 @@ describe('firstValue / pickEnum', () => {
     expect(pickEnum('', allowed)).toBeUndefined();
     expect(pickEnum(undefined, allowed)).toBeUndefined();
     expect(pickEnum('red; DROP', allowed)).toBeUndefined(); // 注入不透傳
+  });
+
+  it('allValues:string → 單元素、string[] 原樣、缺 → 空陣列', () => {
+    expect(allValues('a')).toEqual(['a']);
+    expect(allValues(['a', 'b'])).toEqual(['a', 'b']);
+    expect(allValues(undefined)).toEqual([]);
+  });
+
+  it('pickEnumMulti:收全部白名單命中值+去重保序;全非法 / 缺 → undefined', () => {
+    const allowed = ['red', 'blue'] as const;
+    expect(pickEnumMulti(['red', 'blue'], allowed)).toEqual(['red', 'blue']);
+    expect(pickEnumMulti(['blue', 'red', 'blue'], allowed)).toEqual(['blue', 'red']); // 去重保序
+    expect(pickEnumMulti('red', allowed)).toEqual(['red']); // 單值也走多值形狀
+    expect(pickEnumMulti(['red', 'green'], allowed)).toEqual(['red']); // 非法逐值剔除
+    expect(pickEnumMulti(['green', ''], allowed)).toBeUndefined();
+    expect(pickEnumMulti(undefined, allowed)).toBeUndefined();
   });
 });
 
@@ -126,5 +144,17 @@ describe('buildListHref — 連結建構', () => {
 
   it('自訂 pageParam 名', () => {
     expect(buildListHref('/x', [], 3, 'p')).toBe('/x?p=3');
+  });
+
+  it('多勾選軸 string[] → 同鍵重複 param 保序;空陣列略過(D-1b)', () => {
+    const href = buildListHref(
+      '/orders',
+      [
+        ['workflow_status', ['paid_wait', 'unset']],
+        ['order_source', []],
+      ],
+      1,
+    );
+    expect(href).toBe('/orders?workflow_status=paid_wait&workflow_status=unset');
   });
 });

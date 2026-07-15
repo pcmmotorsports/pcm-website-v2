@@ -15,7 +15,7 @@ import type {
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
-import { toMoneyAmount } from '@pcm/domain';
+import { toMoneyAmount, WORKFLOW_STATUS_CODE_RE } from '@pcm/domain';
 import type { Database, Json } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
@@ -201,8 +201,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * - 投影 `ADMIN_ORDER_LIST_SELECT` 具名白名單(禁 `select('*')`;內嵌 customers(name) + tier_at_checkout(會員等級)
    *   + order_items 成交價/品名 + brand join〔穿越 product_variants/products 只取 brands(name)、經銷價成本欄零投影,
    *   縱深防線見 const docstring〕;M-4a Slice D-1a「每商品一列」);
-   * - 雙軸 + 次要篩選走 **DB where 下推**(payment_status / fulfillment_status / order_source / payment_channel、
-   *   缺欄 = 不限;全在 FilterBuilder 階段套用、避免 order/range 後改鏈型別);
+   * - 雙軸 + 次要篩選走 **DB where 下推**(payment_status / fulfillment_status 單值 .eq;order_source /
+   *   payment_channel D-1b 起多勾選 .in;缺欄 / 空陣列 = 不限;全在 FilterBuilder 階段套用、避免 order/range 後改鏈型別);
    * - **server 端分頁** `.range(offset, offset+limit-1)`(offset 預設 0)+ 排序 `created_at` DESC(新到舊)+
    *   `count: 'exact'` 取符合條件總筆數(供 UI「共 N 筆」+ 分頁控制);
    * - error → 裸 throw(對齊 placeOrder / listSummariesByCustomer 慣例;caller〔admin 頁〕try/catch 退錯誤態、頁面不 500)。
@@ -217,27 +217,47 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   ): Promise<Paginated<AdminOrderSummary>> {
     const offset = pagination.offset ?? 0;
 
-    // workflow 篩選(M-4a D-2 起走 **item 層**):orders.workflow_status 停寫=stale、絕不再打;
-    // 有篩 → `order_items!inner` 版投影(無命中品項的訂單整列消失、命中品項才顯示),
-    // filter 打內嵌欄 `order_items.workflow_status`。undefined=不篩 / null=未設定(IS NULL)/ code。
-    const itemStatusFilter = filter.workflowStatus; // local 供 TS narrowing(undefined=不篩)
+    // workflow 篩選(M-4a D-2 起走 **item 層**;D-1b 起多勾選=各值 OR):orders.workflow_status
+    // 停寫=stale、絕不再打;有篩 → `order_items!inner` 版投影(無命中品項的訂單整列消失、
+    // 命中品項才顯示),filter 打內嵌欄 `order_items.workflow_status`。
+    // 🔴 fail-closed 形狀守門:.or() 是**字串內插**(非參數化)→ code 逐一過 WORKFLOW_STATUS_CODE_RE
+    //   (單一來源 @pcm/domain、對齊 DB CHECK;caller〔admin 解析層〕已守過、此處縱深再驗),
+    //   非法形狀直接剔除(剔完若空=該軸不篩;純 .in/.is 路徑同守、行為一致不分岔)。
+    const wf = filter.workflowStatuses ?? [];
+    // String() 先取原始值再驗(對抗審 F3 硬化:驗的字串=內插的字串、同一 primitive,封 stateful
+    // toString 理論面;URL 進線恆 string、此為縱深)。
+    const wfCodes = wf
+      .filter((c): c is string => typeof c === 'string')
+      .map(String)
+      .filter((c) => WORKFLOW_STATUS_CODE_RE.test(c));
+    const wfHasNull = wf.includes(null);
+    const wfActive = wfCodes.length > 0 || wfHasNull;
     let query = this.supabase
       .from('orders')
       .select(
-        itemStatusFilter !== undefined
-          ? ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED
-          : ADMIN_ORDER_LIST_SELECT,
+        wfActive ? ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED : ADMIN_ORDER_LIST_SELECT,
         { count: 'exact' },
       );
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
-    if (filter.orderSource) query = query.eq('order_source', filter.orderSource);
-    if (filter.paymentChannel) query = query.eq('payment_channel', filter.paymentChannel);
-    if (itemStatusFilter !== undefined) {
-      query =
-        itemStatusFilter === null
-          ? query.is('order_items.workflow_status', null)
-          : query.eq('order_items.workflow_status', itemStatusFilter);
+    if (filter.orderSources?.length) {
+      query = query.in('order_source', [...filter.orderSources]);
+    }
+    if (filter.paymentChannels?.length) {
+      query = query.in('payment_channel', [...filter.paymentChannels]);
+    }
+    if (wfActive) {
+      if (wfCodes.length > 0 && wfHasNull) {
+        // code 混勾「未設定」→ 內嵌資源 or(codes IN ∪ IS NULL);code 已過 RE、可安全內插。
+        query = query.or(
+          `workflow_status.in.(${wfCodes.join(',')}),workflow_status.is.null`,
+          { referencedTable: 'order_items' },
+        );
+      } else if (wfCodes.length > 0) {
+        query = query.in('order_items.workflow_status', wfCodes);
+      } else {
+        query = query.is('order_items.workflow_status', null);
+      }
     }
 
     const { data, error, count } = await query

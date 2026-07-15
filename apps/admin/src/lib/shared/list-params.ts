@@ -20,6 +20,29 @@ export function pickEnum<T extends string>(
   return v !== undefined && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
 }
 
+/** 取全部值(searchParams 多值 param → string[];缺 → 空陣列)。 */
+export function allValues(raw: string | string[] | undefined): string[] {
+  if (raw === undefined) return [];
+  return Array.isArray(raw) ? raw : [raw];
+}
+
+/**
+ * 多勾選版白名單守門(D-1b):逐值收白名單命中者、去重、保序;
+ * 全非法 / 缺 → undefined(= 不篩,對齊 pickEnum「非法忽略」語意)。
+ */
+export function pickEnumMulti<T extends string>(
+  raw: string | string[] | undefined,
+  allowed: readonly T[],
+): T[] | undefined {
+  const picked: T[] = [];
+  for (const v of allValues(raw)) {
+    if ((allowed as readonly string[]).includes(v) && !picked.includes(v as T)) {
+      picked.push(v as T);
+    }
+  }
+  return picked.length > 0 ? picked : undefined;
+}
+
 /** page 解析:正整數、預設 1、下界 1(非法 / 缺 → 1)。 */
 export function parsePage(raw: string | string[] | undefined): number {
   const v = firstValue(raw);
@@ -70,17 +93,22 @@ export function computePagination(
 
 /**
  * 建列表連結 `${path}?...`:只帶有值的鍵(空 / undefined 略)、page=1 省略(乾淨 URL);entries 順序決定 query 順序。
+ * 多勾選軸(D-1b)傳 string[] → 同鍵重複 param(`?k=a&k=b`;空陣列略)。
  * (各列表頁傳自己的篩選 entries + page;分頁 prev/next 保留篩選。)
  */
 export function buildListHref(
   path: string,
-  entries: readonly (readonly [string, string | undefined])[],
+  entries: readonly (readonly [string, string | readonly string[] | undefined])[],
   page: number,
   pageParam: string = 'page',
 ): string {
   const params = new URLSearchParams();
   for (const [key, value] of entries) {
-    if (value) params.set(key, value);
+    if (Array.isArray(value)) {
+      for (const v of value) if (v) params.append(key, v);
+    } else if (value) {
+      params.set(key, value as string);
+    }
   }
   if (page > 1) params.set(pageParam, String(page));
   const qs = params.toString();
