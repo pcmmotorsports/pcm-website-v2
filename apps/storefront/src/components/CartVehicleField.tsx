@@ -152,20 +152,17 @@ export function CartVehicleField({
               motoBrands={motoBrands}
               vehicle={sel}
               onPickBrand={(name) => setSel({ brand: name })}
-              onPickModel={(name) =>
-                setSel((v) => {
-                  if (!v) return v;
-                  commitDict(v.brand, name, undefined, 'picker'); // 選到車型即帶入(年份可後補)
-                  return { brand: v.brand, model: name };
-                })
-              }
-              onPickYear={(year) =>
-                setSel((v) => {
-                  if (!v?.model) return v;
-                  commitDict(v.brand, v.model, year, 'picker');
-                  return { ...v, year };
-                })
-              }
+              onPickModel={(name) => {
+                // commit 移出 setSel updater=純函式(值班台 nit:updater 內呼 onChange 於 StrictMode 雙跑)
+                if (!sel) return;
+                setSel({ brand: sel.brand, model: name });
+                commitDict(sel.brand, name, undefined, 'picker'); // 選到車型即帶入(年份可後補)
+              }}
+              onPickYear={(year) => {
+                if (!sel?.model) return;
+                setSel({ ...sel, year });
+                commitDict(sel.brand, sel.model, year, 'picker');
+              }}
               onClearBrand={() => setSel(null)}
               onClearModel={() => setSel((v) => (v ? { brand: v.brand } : v))}
               onClearYear={() => setSel((v) => (v ? { brand: v.brand, model: v.model } : v))}
