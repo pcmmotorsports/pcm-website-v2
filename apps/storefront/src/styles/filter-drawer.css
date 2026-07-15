@@ -275,12 +275,25 @@
   .fd-tabs { width: 108px; }
 }
 
-/* ── V-1b2 打字快速找車(抽屜車輛 tab;比對核心同桌機 VehicleSelect)── */
+/* ── V-1b2 打字快速找車 + V-1f 三修(跨層直搜 / 置頂群組 / 鍵盤不遮)── */
+/* V-1f ②③:愛車鈕+搜尋欄收進置頂群組,sticky 於 .fd-panel 捲動容器頂端
+   (聚焦搜尋時不被推走、鍵盤不遮輸入);16px inset 留白=非整排跨頁。 */
+.fd-veh-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 8px 16px 10px;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+.fd-veh-results {
+  /* 結果列表隨 .fd-panel 捲動;.fd-step-label/.fd-row 自帶 16px 內距、天然對齊置頂群組 */
+  padding-top: 2px;
+}
 .fd-veh-search {
   width: 100%;
-  margin-bottom: 10px;
   padding: 10px 12px;
-  font-size: 16px;
+  font-size: 16px; /* 🔴 iOS 不放大(V-1b2 3DS-4 教訓、勿降 <16px) */
   font-family: inherit;
   color: var(--c-text);
   background: var(--c-surface);
@@ -290,7 +303,7 @@
 .fd-veh-search::placeholder { color: var(--c-text-3); }
 .fd-veh-search:focus { outline: none; border-color: var(--c-text); }
 .fd-veh-empty {
-  padding: 12px 4px;
+  padding: 12px 16px;
   font-size: 13px;
   color: var(--c-text-3);
 }

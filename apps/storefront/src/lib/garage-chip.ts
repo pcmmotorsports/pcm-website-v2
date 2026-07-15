@@ -36,10 +36,15 @@ export type GarageChipSuggest = {
 
 export type GarageChipResult = GarageChipApply | GarageChipSuggest;
 
-type FlatEntry = { brand: MockMotoBrand; model: MockMotoModel; label: string };
+/** 攤平字典一項:每車型 brand+model 與「品牌 車型」label(跨層搜尋/建議清單共用字面空間)。 */
+export type FlatVehicleEntry = { brand: MockMotoBrand; model: MockMotoModel; label: string };
 
-/** 攤平字典:每車型一項(brand+model 與「品牌 車型」label)。 */
-function flattenModels(motoBrands: MockMotoBrand[]): FlatEntry[] {
+/**
+ * 攤平字典:每車型一項(brand+model 與「品牌 車型」label)。
+ * 愛車 chip 建議清單(本檔)+ 手機抽屜跨層直搜(FilterDrawerVehicleTab、V-1f)共用同一顆——
+ * 打字在「品牌 車型」字面空間跨層命中(打 r6 直達車款),車種鐵律零猜、字典字面直出。
+ */
+export function flattenVehicleModels(motoBrands: MockMotoBrand[]): FlatVehicleEntry[] {
   return motoBrands.flatMap((b) =>
     b.models.map((m) => ({ brand: b, model: m, label: vehicleLabel(b.name, m.name) })),
   );
@@ -68,7 +73,7 @@ export function resolveGarageChip(
   motoBrands: MockMotoBrand[],
   garage: GarageVehicleInput,
 ): GarageChipResult {
-  const entries = flattenModels(motoBrands);
+  const entries = flattenVehicleModels(motoBrands);
   const garageYear = parseGarageYear(garage.year);
 
   // V-1d 分流:dict 欄有值(存車時 server 已驗)→ 名稱字面精確 lookup 直套(零比對);
@@ -99,13 +104,13 @@ export function resolveGarageChip(
 
 /**
  * 建議清單點選:label(字典字面)→ entry → apply(garageYear 同閘門帶入)。
- * label 查無(理論不達:entries 恆源自 flattenModels)→ null,呼叫端不套用。
+ * label 查無(理論不達:entries 恆源自 flattenVehicleModels)→ null,呼叫端不套用。
  */
 export function resolveSuggestionLabel(
   motoBrands: MockMotoBrand[],
   label: string,
   garageYear: number | undefined,
 ): GarageChipApply | null {
-  const entry = flattenModels(motoBrands).find((e) => e.label === label);
+  const entry = flattenVehicleModels(motoBrands).find((e) => e.label === label);
   return entry ? resolveApply(entry.brand, entry.model, garageYear) : null;
 }
