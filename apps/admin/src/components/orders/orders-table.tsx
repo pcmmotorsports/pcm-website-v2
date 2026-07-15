@@ -5,6 +5,7 @@ import {
   PAYMENT_CHANNEL_LABEL,
   MEMBER_TIER_LABEL,
   formatOrderAmount,
+  formatOrderDate,
   indexOrderStatusOptions,
   summarizeOrderItemWorkflow,
   workflowStatusBadge,
@@ -90,6 +91,12 @@ function OrderGroup({
               )}
             </td>
           )}
+          {/* Q2=A(07-16 晨拍板):加回日期欄(created_at 已在投影、訂單層 rowSpan) */}
+          {i === 0 && (
+            <td className={`${TD} text-muted-foreground text-xs`} rowSpan={rowSpan}>
+              {formatOrderDate(order.createdAt)}
+            </td>
+          )}
           <td className={TD}>{line?.brand ?? '—'}</td>
           <td className={`${TD} font-mono text-xs`}>{line?.variantSku ?? '—'}</td>
           <td className={TD}>{line?.title ?? '—'}</td>
@@ -166,6 +173,7 @@ export function OrdersTable({
         <thead>
           <tr>
             <th className={TH}>訂單編號</th>
+            <th className={TH}>日期</th>
             <th className={TH}>商品品牌</th>
             <th className={TH}>料號</th>
             <th className={TH}>物品名稱</th>
