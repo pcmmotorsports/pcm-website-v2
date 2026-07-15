@@ -55,3 +55,31 @@ describe('vehicle-context — 防禦讀取(壞資料 → null 絕不 throw)', ()
     expect(() => clearVehicleContext(null)).not.toThrow();
   });
 });
+
+describe('vehicle-context — V-2a additive 名稱字面欄(brandName/modelName)', () => {
+  it('write→read 帶回 brandName/modelName 名稱字面', () => {
+    const s = memStorage();
+    writeVehicleContext(
+      { brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'Yamaha MT-09 SP 2021', brandName: 'Yamaha', modelName: 'MT-09 SP' },
+      s,
+    );
+    expect(readVehicleContext(s)).toMatchObject({ brandName: 'Yamaha', modelName: 'MT-09 SP' });
+  });
+
+  it('舊 context 缺名稱欄 → 讀回 undefined、不擋整筆(不 bump key 相容)', () => {
+    const s = memStorage({
+      [VEHICLE_CONTEXT_KEY]: '{"brandId":"yamaha","modelId":"mt-09-sp","label":"Yamaha MT-09 SP","savedAt":1}',
+    });
+    const v = readVehicleContext(s);
+    expect(v).not.toBeNull();
+    expect(v!.brandName).toBeUndefined();
+    expect(v!.modelName).toBeUndefined();
+  });
+
+  it('名稱欄型別錯(非字串)→ null(逐欄防禦)', () => {
+    const s = memStorage({
+      [VEHICLE_CONTEXT_KEY]: '{"brandId":"y","label":"x","savedAt":1,"brandName":9}',
+    });
+    expect(readVehicleContext(s)).toBeNull();
+  });
+});

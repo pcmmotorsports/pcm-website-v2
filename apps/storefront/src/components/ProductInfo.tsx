@@ -35,7 +35,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MemberTier } from '@pcm/domain';
 import type { MockProduct, UIVariant } from '@/data/mock-products';
-import { useCart } from '@/contexts/CartContext';
+import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
+import { readVehicleContext } from '@/lib/vehicle-context';
 import { ProductSwatchPreview } from './ProductSwatchPreview';
 import { ProductServices } from './ProductServices';
 
@@ -241,10 +242,19 @@ export function ProductInfo({ product, tier, selectedVariant, onSelectVariant, i
     // M-3-S2-b2-c:cart 線契約改帶 variant_id(變體 uuid = selectedVariant.id、建單 RPC create_order 的
     //   variant_id 來源;取代 M-1-16c-3 把 sku 塞 color 的權宜 hack)。無變體 → variantId undefined、
     //   line key 退回 productId。🔴 不送價(server 依 tier 取價、鐵則 12)。
+    // V-2a 帶入路徑1(搜尋情境自動帶):選車 context 有字典名稱字面(brandName/modelName 齊全、
+    //   REQUIRED-3 additive 欄)→ 標 kind:'dict' source:'search'、購物車顯「已依你的搜尋帶入」可改;
+    //   舊 context 缺名稱欄 → 不自動帶入(零猜);label 反解析=脆、禁。
+    const ctx = readVehicleContext();
+    const vehicle: CartItemVehicle | undefined =
+      ctx && ctx.brandName && ctx.modelName
+        ? { kind: 'dict', brand: ctx.brandName, model: ctx.modelName, year: ctx.year, source: 'search' }
+        : undefined;
     addItem({
       productId: product.slug,
       qty,
       variantId: selectedVariant?.id,
+      ...(vehicle ? { vehicle } : {}),
     });
   };
 

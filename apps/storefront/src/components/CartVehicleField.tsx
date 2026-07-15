@@ -1,0 +1,194 @@
+'use client';
+
+// CartVehicleField.tsx — 購物車「給哪台車用」車款欄(V-2a;真權威 spec §2)。
+// 一個欄同時支援 §2 四帶入路徑的手動端:①愛車快選(登入會員 garage chips、共用 resolveGarageChip
+// 決策腦)②打字 typeahead + ③三層 combobox(VehicleSelect、字典字面)④自由輸入 fallback(字典沒有
+// 照打照存=kind:'free')。頂部欄=整車套用、單列欄=覆寫,兩處共用本元件(外殼同、onChange 去向不同)。
+// 🔴 車種鐵律:picker/typeahead/garage 命中恆字典字面(kind:'dict');自由輸入明標 kind:'free'、零猜。
+// §7 商品頁比對只認 kind:'dict';free 恆走「人工確認」路(不在本元件、在 V-2b)。
+
+import { useState } from 'react';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { CartItemVehicle } from '@/contexts/CartContext';
+import type { GarageChipItem } from './GarageChips';
+import { VehicleSelect } from './VehicleSelect';
+import { vehicleLabel } from '@/lib/vehicle-match';
+import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
+
+/** 車款欄顯示字面(dict=品牌車型+年;free=raw+年)。 */
+export function formatCartVehicle(v: CartItemVehicle): string {
+  if (v.kind === 'dict') {
+    return [v.year, vehicleLabel(v.brand, v.model)].filter(Boolean).join(' ');
+  }
+  return [v.year, v.raw].filter(Boolean).join(' ');
+}
+
+const SOURCE_NOTE: Record<CartItemVehicle['source'], string> = {
+  search: '來自你的搜尋',
+  garage: '來自你的車庫',
+  picker: '',
+  freetext: '自由輸入 · 我們會人工確認',
+};
+
+type LocalSel = { brand: string; model?: string; year?: number } | null;
+
+export function CartVehicleField({
+  value,
+  onChange,
+  motoBrands,
+  garage = [],
+  label,
+  hint,
+}: {
+  value: CartItemVehicle | undefined;
+  /** null=清除本欄 */
+  onChange: (v: CartItemVehicle | null) => void;
+  motoBrands: MockMotoBrand[];
+  garage?: GarageChipItem[];
+  /** 欄標題(頂部=「給哪台車用(套用全部)」;單列=「這件給哪台車」) */
+  label: string;
+  /** 提示文案(非強制;§2「建議填寫車款…」) */
+  hint?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  // picker 本地選態(brand→model→year;model 選定即 commit kind:'dict')
+  const [sel, setSel] = useState<LocalSel>(null);
+  const [freetext, setFreetext] = useState('');
+  const [suggest, setSuggest] = useState<{ entries: string[]; garageYear: number | undefined; raw: string } | null>(null);
+
+  const commitDict = (
+    brand: string,
+    model: string,
+    year: number | undefined,
+    source: 'search' | 'garage' | 'picker',
+  ) => {
+    onChange({ kind: 'dict', brand, model, year, source });
+  };
+
+  const startEdit = () => {
+    // 進編輯:dict 值回填 picker、free 值回填 freetext
+    if (value?.kind === 'dict') setSel({ brand: value.brand, model: value.model, year: value.year });
+    else setSel(null);
+    setFreetext(value?.kind === 'free' ? value.raw : '');
+    setSuggest(null);
+    setEditing(true);
+  };
+
+  const done = () => {
+    setEditing(false);
+    setSuggest(null);
+  };
+
+  const onGarageChip = (g: GarageChipItem) => {
+    const r = resolveGarageChip(motoBrands, g);
+    if (r.kind === 'apply') {
+      commitDict(r.brand, r.model, r.year, 'garage');
+      done();
+    } else {
+      // 多/零命中:多=建議清單明選;零=提供「以自由輸入記下」(honor 車庫車、不猜 dict)
+      setSuggest({ entries: r.entries, garageYear: r.garageYear, raw: g.name });
+    }
+  };
+
+  const onPickSuggestion = (label2: string, garageYear: number | undefined) => {
+    const applied = resolveSuggestionLabel(motoBrands, label2, garageYear);
+    if (applied) {
+      commitDict(applied.brand, applied.model, applied.year, 'garage');
+      done();
+    }
+  };
+
+  const submitFreetext = () => {
+    const raw = freetext.trim();
+    if (raw === '') return;
+    onChange({ kind: 'free', raw, source: 'freetext' });
+    done();
+  };
+
+  return (
+    <div className="cvf">
+      <div className="cvf-label">{label}</div>
+      {value && !editing ? (
+        <div className="cvf-current">
+          <span className="cvf-chip" data-kind={value.kind}>{formatCartVehicle(value)}</span>
+          {SOURCE_NOTE[value.source] && <span className="cvf-note">{SOURCE_NOTE[value.source]}</span>}
+          <button type="button" className="cvf-link" onClick={startEdit}>更改</button>
+          <button type="button" className="cvf-link" onClick={() => onChange(null)}>清除</button>
+        </div>
+      ) : editing ? (
+        <div className="cvf-edit">
+          {garage.length > 0 && (
+            <div className="cvf-garage">
+              <span className="cvf-garage-label">我的愛車</span>
+              {garage.map((g) => (
+                <button key={g.id} type="button" className="cat-garage-chip" onClick={() => onGarageChip(g)}>
+                  {[g.year, g.name].filter(Boolean).join(' ')}
+                </button>
+              ))}
+            </div>
+          )}
+          {suggest && (
+            <div className="cvf-suggest" role="listbox" aria-label="車款建議清單">
+              {suggest.entries.length > 0 ? (
+                <>
+                  <span className="cvf-note">「{suggest.raw}」可能是:</span>
+                  {suggest.entries.map((s) => (
+                    <button key={s} type="button" className="cat-garage-chip" role="option" aria-selected={false}
+                      onClick={() => onPickSuggestion(s, suggest.garageYear)}>
+                      {s}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <button type="button" className="cvf-link"
+                  onClick={() => { onChange({ kind: 'free', raw: suggest.raw, source: 'garage' }); done(); }}>
+                  以自由輸入記下「{suggest.raw}」(下單後人工確認)
+                </button>
+              )}
+            </div>
+          )}
+          <div className="cvf-picker">
+            <VehicleSelect
+              motoBrands={motoBrands}
+              vehicle={sel}
+              onPickBrand={(name) => setSel({ brand: name })}
+              onPickModel={(name) =>
+                setSel((v) => {
+                  if (!v) return v;
+                  commitDict(v.brand, name, undefined, 'picker'); // 選到車型即帶入(年份可後補)
+                  return { brand: v.brand, model: name };
+                })
+              }
+              onPickYear={(year) =>
+                setSel((v) => {
+                  if (!v?.model) return v;
+                  commitDict(v.brand, v.model, year, 'picker');
+                  return { ...v, year };
+                })
+              }
+              onClearBrand={() => setSel(null)}
+              onClearModel={() => setSel((v) => (v ? { brand: v.brand } : v))}
+              onClearYear={() => setSel((v) => (v ? { brand: v.brand, model: v.model } : v))}
+            />
+          </div>
+          <div className="cvf-free">
+            <input
+              type="text"
+              className="cvf-free-input"
+              placeholder="找不到?直接輸入車款(例:2017 R6)"
+              aria-label="自由輸入車款"
+              value={freetext}
+              onChange={(e) => setFreetext(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitFreetext(); } }}
+            />
+            <button type="button" className="cvf-link" onClick={submitFreetext} disabled={freetext.trim() === ''}>記下</button>
+          </div>
+          <button type="button" className="cvf-link cvf-done" onClick={done}>完成</button>
+        </div>
+      ) : (
+        <button type="button" className="cvf-add" onClick={startEdit}>+ 選擇車款</button>
+      )}
+      {hint && !value && !editing && <div className="cvf-hint">{hint}</div>}
+    </div>
+  );
+}

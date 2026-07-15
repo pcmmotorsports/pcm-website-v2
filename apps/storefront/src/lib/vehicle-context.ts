@@ -14,6 +14,11 @@ export type VehicleContextValue = {
   year?: number;
   /** 顯示 label(字典字面組合;僅顯示用、比對一律回字典) */
   label: string;
+  // V-2a REQUIRED-3(值班台):字典名稱字面 additive optional 欄——寫入點本手握名稱、供購物車
+  // 自動帶入(路徑1)組 CartItem kind:'dict' 用(避免 label 反解析=脆)。舊 context 缺此欄
+  // → 讀回為 undefined → 消費端不自動帶入(零猜);不 bump KEY=非 breaking、防禦讀取容缺欄。
+  brandName?: string;
+  modelName?: string;
   savedAt: number;
 };
 
@@ -63,11 +68,16 @@ export function readVehicleContext(
     if (o.modelId !== undefined && typeof o.modelId !== 'string') return null;
     if (o.year !== undefined && !Number.isInteger(o.year)) return null;
     if (typeof o.label !== 'string' || typeof o.savedAt !== 'number') return null;
+    // additive 名稱字面欄:present 必為 string、缺欄=undefined(舊 context 相容、不擋整筆)
+    if (o.brandName !== undefined && typeof o.brandName !== 'string') return null;
+    if (o.modelName !== undefined && typeof o.modelName !== 'string') return null;
     return {
       brandId: o.brandId,
       modelId: o.modelId as string | undefined,
       year: o.year as number | undefined,
       label: o.label,
+      brandName: o.brandName as string | undefined,
+      modelName: o.modelName as string | undefined,
       savedAt: o.savedAt,
     };
   } catch {

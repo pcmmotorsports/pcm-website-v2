@@ -144,12 +144,15 @@ export function VehicleFinder({
               if (!brandObj || !modelObj) return;
               const parts = [brandObj.id, modelObj.id];
               if (vehicle?.year != null) parts.push(String(vehicle.year));
-              // context 鏡寫(V-2 消費;URL 恆第一真相)
+              // context 鏡寫(V-2 消費;URL 恆第一真相)。V-2a REQUIRED-3:additive 名稱字面欄
+              // (brandName/modelName)供購物車自動帶入組 CartItem kind:'dict';此處本手握字典名稱。
               writeVehicleContext({
                 brandId: brandObj.id,
                 modelId: modelObj.id,
                 year: vehicle?.year,
                 label: [brandObj.name, modelObj.name, vehicle?.year].filter(Boolean).join(' '),
+                brandName: brandObj.name,
+                modelName: modelObj.name,
               });
               const params = new URLSearchParams({ vehicle: parts.join(':') });
               router.push(`/products?${params.toString()}`);

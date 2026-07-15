@@ -302,3 +302,90 @@ describe('CartContext / cartSessionId(3DS-7 7a)', () => {
     expect(result.current.cartSessionId).toBeNull();
   });
 });
+
+describe('CartContext / V-2a 車款欄(setItemVehicle / setAllItemsVehicle / readVehicle 分驗)', () => {
+  const DICT = { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'picker' } as const;
+  const FREE = { kind: 'free', raw: '我的紅色小車', source: 'freetext' } as const;
+
+  it('setItemVehicle 只設命中列、不動別列 / 不改 qty / vehicle 非 line key', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 2, variantId: 'v1' });
+      result.current.addItem({ productId: 'b', qty: 1 });
+    });
+    act(() => {
+      result.current.setItemVehicle({ productId: 'a', variantId: 'v1' }, DICT);
+    });
+    expect(result.current.items).toHaveLength(2); // vehicle 非 discriminator、不分裂列
+    expect(result.current.items.find((i) => i.productId === 'a')!.vehicle).toEqual(DICT);
+    expect(result.current.items.find((i) => i.productId === 'a')!.qty).toBe(2);
+    expect(result.current.items.find((i) => i.productId === 'b')!.vehicle).toBeUndefined();
+  });
+
+  it('setItemVehicle(null) 清除該列車款欄', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 1 });
+      result.current.setItemVehicle({ productId: 'a' }, FREE);
+    });
+    expect(result.current.items[0]!.vehicle).toEqual(FREE);
+    act(() => {
+      result.current.setItemVehicle({ productId: 'a' }, null);
+    });
+    expect(result.current.items[0]!.vehicle).toBeUndefined();
+  });
+
+  it('setAllItemsVehicle 整車套用全列、覆蓋既有', () => {
+    const { result } = renderHook(() => useCart(), { wrapper });
+    act(() => {
+      result.current.addItem({ productId: 'a', qty: 1 });
+      result.current.addItem({ productId: 'b', qty: 1, variantId: 'v2' });
+      result.current.setItemVehicle({ productId: 'a' }, FREE); // 先各自改
+    });
+    act(() => {
+      result.current.setAllItemsVehicle(DICT); // 整車套用覆蓋
+    });
+    expect(result.current.items.every((i) => JSON.stringify(i.vehicle) === JSON.stringify(DICT))).toBe(true);
+    act(() => {
+      result.current.setAllItemsVehicle(null);
+    });
+    expect(result.current.items.every((i) => i.vehicle === undefined)).toBe(true);
+  });
+
+  it('readStorage:合法 dict/free vehicle 還原持久化', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([
+        { productId: 'a', qty: 1, vehicle: DICT },
+        { productId: 'b', qty: 1, vehicle: FREE },
+      ]),
+    );
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.items.find((i) => i.productId === 'a')!.vehicle).toEqual(DICT);
+    expect(result.current.items.find((i) => i.productId === 'b')!.vehicle).toEqual(FREE);
+  });
+
+  it('readStorage:壞 vehicle(未知 kind / dict 缺 brand / free 缺 raw / 非法 source)丟棄該欄、不擋整筆', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([
+        { productId: 'a', qty: 1, vehicle: { kind: 'bogus', brand: 'X' } },
+        { productId: 'b', qty: 1, vehicle: { kind: 'dict', model: 'M', source: 'picker' } }, // 缺 brand
+        { productId: 'c', qty: 1, vehicle: { kind: 'free', source: 'freetext' } }, // 缺 raw
+        { productId: 'd', qty: 1, vehicle: { kind: 'dict', brand: 'Y', model: 'M', source: 'evil' } }, // 非法 source
+      ]),
+    );
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.items).toHaveLength(4); // 品項保留
+    expect(result.current.items.every((i) => i.vehicle === undefined)).toBe(true); // 車款欄全丟
+  });
+
+  it('readStorage:dict vehicle year 非整數 → year 掉、其餘保留', () => {
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify([{ productId: 'a', qty: 1, vehicle: { kind: 'dict', brand: 'Y', model: 'M', year: 'abc', source: 'search' } }]),
+    );
+    const { result } = renderHook(() => useCart(), { wrapper });
+    expect(result.current.items[0]!.vehicle).toEqual({ kind: 'dict', brand: 'Y', model: 'M', year: undefined, source: 'search' });
+  });
+});

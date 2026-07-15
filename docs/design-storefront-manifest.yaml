@@ -220,8 +220,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/VehicleFinder.tsx"
       css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-finder* 21 處
-      last_modified_commit: "57ee31a"  # 記可達祖先=V-1e 父 commit;真改見 git log
-      last_modified_date: "2026-07-15 [V-1e 決策腦抽共用(型錄「我的愛車」鈕連帶)]:onGarageChip 的「dict 精確 lookup→REQUIRED-2 唯一精確命中→建議清單」決策抽入 lib/garage-chip.resolveGarageChip/resolveSuggestionLabel(型錄 GarageChips 共用同一顆、不複製第二份);VehicleFinder 改吃純函式=行為/視覺零改動(既有 5 路徑測試綠即證等價、年份閘門/雙鍵降級逐分支不變)。前:2026-07-15 [V-1c 視覺回歸修+車庫表單字典建議(Sean 開站實測兩回饋)]:①V-1c 換元件時丟了 design ed-finder-slot 版型(「.ed-finder 佈局字面不動」記錄與事實矛盾、本次校正)→ VehicleSelect 加 variant=finder:Combo 包回 label.ed-finder-slot+小標籤(品牌/車型/年份)、input=.vsc-input--finder 鏡射 design select 外觀(無框線/透明/15px/500/右 chevron 同 data-URI 字面、未選態 —);option 加 onClick preventDefault(label activation 會把 focus 轉發回 input 重開清單);測試鎖 3 slot+標籤字面+cft-select 不得滲入首頁。②車庫 InlineVehicleForm 車型欄加字典建議(打字跳「品牌 車型」labels substring 上限 8、點選填標準字面→愛車 chips 可精確命中;自由輸入 fallback 不變照打照存;account/page.tsx taxonomy 衍生 labels 逐層 optional 傳入、RSC payload +約數十 KB)=Q4「所有車款選擇點」延伸、Sean 07-15 實測回饋授權。前:2026-07-15 [V-1c 首頁選車換 VehicleSelect combobox+愛車 chips+context 鏡寫(Sean Q4;V-1 plan 關卡1 PASS)]:三層原生 select → VehicleSelect 可打字 combobox(共用 vehicle-match 核心;typeahead=business_override typeaheadVehicleSelect、.ed-finder 佈局字面不動);登入會員「我的愛車」chips(app/page.tsx server 端 RLS own 讀 customer_vehicles、序列化只收 id/name/year;未登入/讀取失敗=[] 整排不顯):點擊=正規化唯一精確命中(先「品牌 車型」全名再車型名)→ 直接套用三欄(車庫 year 四位數字且在字典年份內才帶入、其餘不猜);多/零命中 → 建議清單(字典 label 字面 substring 過濾、客人明選)/「無法對應」提示=REQUIRED-2 零模糊零 AI 猜(車種鐵律);搜尋 push 前寫 lib/vehicle-context(sessionStorage pcm.vehicle.v1 鏡、URL 恆第一真相、V-2 消費;REQUIRED-3 防禦讀取)。home.css 加 .ed-finder-garage/.ed-finder-suggest 段(--ed-c-rule token)。前:2026-07-03 (S2/#220b:資料源 MOCK_MOTO_BRANDS → props motoBrands〔server fetchVehicleTaxonomy 從真 fitment 衍生、輕量 fitments-only 查詢〕;push 長版 ?brand=&model=&year= → 短版 ?vehicle=brandId:modelId[:year]〔id 空間與 /products 解析端統一、M-1-13I Q1=C 長版任務結束、parseVehicleFromUrl 長版分支留吸收書籤〕;真資料 37/94 車型 fitment 全缺年 → 年份下拉顯「不限年份」可搜尋〔車型層過濾、graceful degradation、design mock 無此情境〕)"
+      last_modified_commit: "0011f87"  # 記可達祖先=V-2a 父 commit(=V-1e);真改見 git log
+      last_modified_date: "2026-07-15 [V-2a 連帶:寫 vehicle-context 補 brandName/modelName 名稱字面欄(REQUIRED-3 additive;供購物車路徑1 自動帶入組 kind:'dict'、此處本手握字典名稱)]。前:2026-07-15 [V-1e 決策腦抽共用(型錄「我的愛車」鈕連帶)]:onGarageChip 的「dict 精確 lookup→REQUIRED-2 唯一精確命中→建議清單」決策抽入 lib/garage-chip.resolveGarageChip/resolveSuggestionLabel(型錄 GarageChips 共用同一顆、不複製第二份);VehicleFinder 改吃純函式=行為/視覺零改動(既有 5 路徑測試綠即證等價、年份閘門/雙鍵降級逐分支不變)。前:2026-07-15 [V-1c 視覺回歸修+車庫表單字典建議(Sean 開站實測兩回饋)]:①V-1c 換元件時丟了 design ed-finder-slot 版型(「.ed-finder 佈局字面不動」記錄與事實矛盾、本次校正)→ VehicleSelect 加 variant=finder:Combo 包回 label.ed-finder-slot+小標籤(品牌/車型/年份)、input=.vsc-input--finder 鏡射 design select 外觀(無框線/透明/15px/500/右 chevron 同 data-URI 字面、未選態 —);option 加 onClick preventDefault(label activation 會把 focus 轉發回 input 重開清單);測試鎖 3 slot+標籤字面+cft-select 不得滲入首頁。②車庫 InlineVehicleForm 車型欄加字典建議(打字跳「品牌 車型」labels substring 上限 8、點選填標準字面→愛車 chips 可精確命中;自由輸入 fallback 不變照打照存;account/page.tsx taxonomy 衍生 labels 逐層 optional 傳入、RSC payload +約數十 KB)=Q4「所有車款選擇點」延伸、Sean 07-15 實測回饋授權。前:2026-07-15 [V-1c 首頁選車換 VehicleSelect combobox+愛車 chips+context 鏡寫(Sean Q4;V-1 plan 關卡1 PASS)]:三層原生 select → VehicleSelect 可打字 combobox(共用 vehicle-match 核心;typeahead=business_override typeaheadVehicleSelect、.ed-finder 佈局字面不動);登入會員「我的愛車」chips(app/page.tsx server 端 RLS own 讀 customer_vehicles、序列化只收 id/name/year;未登入/讀取失敗=[] 整排不顯):點擊=正規化唯一精確命中(先「品牌 車型」全名再車型名)→ 直接套用三欄(車庫 year 四位數字且在字典年份內才帶入、其餘不猜);多/零命中 → 建議清單(字典 label 字面 substring 過濾、客人明選)/「無法對應」提示=REQUIRED-2 零模糊零 AI 猜(車種鐵律);搜尋 push 前寫 lib/vehicle-context(sessionStorage pcm.vehicle.v1 鏡、URL 恆第一真相、V-2 消費;REQUIRED-3 防禦讀取)。home.css 加 .ed-finder-garage/.ed-finder-suggest 段(--ed-c-rule token)。前:2026-07-03 (S2/#220b:資料源 MOCK_MOTO_BRANDS → props motoBrands〔server fetchVehicleTaxonomy 從真 fitment 衍生、輕量 fitments-only 查詢〕;push 長版 ?brand=&model=&year= → 短版 ?vehicle=brandId:modelId[:year]〔id 空間與 /products 解析端統一、M-1-13I Q1=C 長版任務結束、parseVehicleFromUrl 長版分支留吸收書籤〕;真資料 37/94 車型 fitment 全缺年 → 年份下拉顯「不限年份」可搜尋〔車型層過濾、graceful degradation、design mock 無此情境〕)"
     design:
       component: "design-reference/components/HomePage.jsx"  # VehicleFinder 在 design 是 HomePage 內元素
       css: "design-reference/styles/home.css"  # .ed-finder* 21 處(對齊 home.css 字面、非 vehicle-drawer.css)
@@ -918,18 +918,30 @@ components:
   CartPage:
     storefront:
       component: "apps/storefront/src/app/cart/page.tsx + apps/storefront/src/components/CartView.tsx + apps/storefront/src/app/cart/actions.ts (M-3-S2-b2-d:server route + client 殼 + resolveCartLines server action)"
-      css: "apps/storefront/src/styles/cart.css"
-      last_modified_commit: "0118e83"  # 記可達祖先=本 slice 父 commit(避 amend orphan);本 slice 真改見 git log [S2-b2-d]
-      last_modified_date: "2026-06-06 (M-3-S2-b2-d:購物車頁搬 design CartPage L11-178 + cart-* CSS;🔴 cart 線契約 {productId,variantId} → server resolveCartLines 取標題/圖/general 單價〔鐵則 12 價不存 client〕;運費走 @pcm/domain calculateShippingFee)"
+      css: "apps/storefront/src/styles/cart.css + apps/storefront/src/styles/cart-vehicle.css (V-2a CartVehicleField)"
+      last_modified_commit: "0011f87"  # 記可達祖先=V-2a 父 commit(=V-1e);本 slice 真改見 git log
+      last_modified_date: "2026-07-15 [V-2a 購物車車款欄(真權威 order-item-vehicle-capture-design v0.2 §2;plan 關卡1 R1 PASS、拆片 A、3 REQUIRED 折入)]:購物車加「給哪台車用」欄——頂部整車套用(填一次全列帶入=§2 不造成選擇負擔預設)+ 單列覆寫(混車訂單);共用元件 CartVehicleField(VehicleSelect 三層 combobox typeahead + 登入會員愛車快選〔共用 resolveGarageChip 決策腦、不複製第三份〕+ 自由輸入 fallback)。CartItem 加判別式 vehicle(kind:'dict' 字典字面 / kind:'free' 自由輸入=值班台 REQUIRED-1;readStorage 依 kind 分驗、壞資料丟該欄不擋整筆)+ setItemVehicle/setAllItemsVehicle。帶入路徑1(搜尋情境自動帶):ProductInfo.addToCart 讀 vehicle-context、名稱字面齊全(REQUIRED-3 additive brandName/modelName)才標 kind:'dict' source:'search'、舊 context 缺欄不帶=零猜。cart/page.tsx force-dynamic + Promise.all 讀 taxonomy+車庫(RLS own/容錯 [])。🔴 純 client/localStorage、不送價/不寫 DB(V-3 才落 order_items.vehicle_snapshot)、車種鐵律零猜。三綠+full vitest 208 檔 2196 綠。前:2026-06-06 (M-3-S2-b2-d:購物車頁搬 design CartPage L11-178 + cart-* CSS;🔴 cart 線契約 {productId,variantId} → server resolveCartLines 取標題/圖/general 單價〔鐵則 12 價不存 client〕;運費走 @pcm/domain calculateShippingFee)"
     design:
       authority: "design-reference/components/AccountPages.jsx CartPage(L11-178)"
       css: "design-reference/styles/account.css cart-* (L18-323 + mobile L859-875)"
     related_storefront:
-      - "apps/storefront/src/app/layout.tsx"  # import cart.css
-      - "apps/storefront/src/contexts/CartContext.tsx"  # cart 線契約 {productId,variantId} 來源(M-3-S2-b2-c)
-      - "apps/storefront/src/lib/products.ts"  # resolveCartLines 走 fetchProductByHandle(釘 general、strip priceByTier)
+      - "apps/storefront/src/app/layout.tsx"  # import cart.css + cart-vehicle.css(V-2a)
+      - "apps/storefront/src/contexts/CartContext.tsx"  # cart 線契約 {productId,variantId,vehicle?} 來源(M-3-S2-b2-c;V-2a 加 vehicle union+setters)
+      - "apps/storefront/src/lib/products.ts"  # resolveCartLines 走 fetchProductByHandle;V-2a cart route 走 fetchVehicleTaxonomy
       - "apps/storefront/src/components/MobileTabBar.tsx"  # 購物車 tab #194 本片解除 disabled
+      - "apps/storefront/src/components/CartVehicleField.tsx"  # V-2a:購物車車款欄(combobox+愛車快選+自由輸入;共用 resolveGarageChip 決策腦)
+      - "apps/storefront/src/components/VehicleSelect.tsx"  # V-2a:三層 combobox(V-1b 建、車款欄復用)
+      - "apps/storefront/src/lib/garage-chip.ts"  # V-2a:愛車快選決策腦(V-1e 建、車款欄復用)
+      - "apps/storefront/src/lib/vehicle-context.ts"  # V-2a REQUIRED-3:additive brandName/modelName;路徑1 自動帶入來源
+      - "apps/storefront/src/components/ProductInfo.tsx"  # V-2a 路徑1:addToCart 讀 context 標 kind:dict source:search
     business_overrides:
+      - field: "cartVehicleField"
+        design_value: "design CartPage 無車款欄(客人無法標『這件給哪台車』);design 全站零 typeahead/愛車快選先例"
+        storefront_value: "購物車加『給哪台車用』欄:頂部整車套用(setAllItemsVehicle)+ 單列覆寫(setItemVehicle);CartVehicleField=VehicleSelect 三層 combobox typeahead + 愛車快選(共用 resolveGarageChip 決策腦)+ 自由輸入 fallback。CartItem.vehicle 判別式 union(kind:'dict' 字典字面 / kind:'free' 自由輸入);純 client/localStorage、不送價不寫 DB(V-3 才落 order_items.vehicle_snapshot)。帶入路徑1=搜尋 context 名稱齊全自動帶 kind:dict source:search、零猜。車種鐵律=picker/快選恆字典字面、free 明標不猜"
+        decided_at: "2026-07-15"
+        decision_source: "Sean 2026-07-15 深夜拍板(order-item-vehicle-capture-design v0.2 §2/§6 Q1=A/Q2=A/Q4 全站連動)+ V-2 plan 關卡1 verdict(REQUIRED-1 判別式形狀/REQUIRED-3 context 名稱欄)"
+        backlog: "V-2b(商品頁 §7 保守適用比對)/ V-3(order_items.vehicle_snapshot 硬閘持久化)"
+        reason: "Sean 拍板全站連動車款帶入;行為/欄位層授權偏離、視覺沿 cart token"
       - field: "cartPriceServerResolved"
         design_value: "CartPage 直接從 window.PCM_DATA + getEffectivePrice(p, tier) client 端算價"
         storefront_value: "cart 線只存 {productId,variantId,qty}、不存價;CartView hydrate 後丟 resolveCartLines server action 換回標題/圖/general 單價(fetchProductByHandle 釘 general、strip priceByTier)"

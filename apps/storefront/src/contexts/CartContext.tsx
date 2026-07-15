@@ -61,8 +61,20 @@ export type CartLineKey = {
   variantId?: string;
 };
 
+// V-2a「給哪台車用」(值班台 REQUIRED-1 判別式形狀):
+//   kind:'dict' = 來自字典(picker/typeahead/搜尋帶入/車庫 dict 對非 null)、brand/model 為字典名稱字面
+//     → §7 商品頁比對只判此類;
+//   kind:'free' = 自由輸入 or 車庫舊自由文字(dict 對雙 null)、只有 raw 原字串 → §7 恆走「人工確認」路。
+// 🔴 freetext 不得偽造 dict 對(車種鐵律零猜);vehicle 非 line key discriminator=同品同變體不因車款分裂兩列。
+// 純 client(localStorage)、不送價/不寫 DB;V-3 才落 order_items.vehicle_snapshot。
+export type CartItemVehicle =
+  | { kind: 'dict'; brand: string; model: string; year?: number; source: 'search' | 'garage' | 'picker' }
+  | { kind: 'free'; raw: string; year?: number; source: 'garage' | 'freetext' };
+
 export type CartItem = CartLineKey & {
   qty: number;
+  /** V-2a:此列適用車款(選填;§2 帶入優先序;無=未填、不擋結帳) */
+  vehicle?: CartItemVehicle;
 };
 
 export type CartContextValue = {
@@ -74,6 +86,10 @@ export type CartContextValue = {
   addItem: (item: CartItem) => void;
   removeItem: (key: CartLineKey) => void;
   updateQty: (key: CartLineKey, qty: number) => void;
+  /** V-2a:設/清單列適用車款(null=清)。vehicle 非 line key、不動去重/session。 */
+  setItemVehicle: (key: CartLineKey, vehicle: CartItemVehicle | null) => void;
+  /** V-2a:整車套用——一次帶入全列(§2「不造成選擇負擔」;覆蓋各列既有值)。 */
+  setAllItemsVehicle: (vehicle: CartItemVehicle | null) => void;
   clear: () => void;
   /** 成交後換新 key(7b 僅在「DB 確定 paid」呼;模糊態保留 key=dedup 防雙扣把手)。 */
   regenerateCartSession: () => void;
@@ -93,6 +109,25 @@ function clampQty(qty: unknown): number {
   return Math.min(floored, MAX_QTY);
 }
 
+/** V-2a:CartItem.vehicle 讀回逐 kind 分驗(壞資料→undefined 丟棄、絕不 throw;鏡像既有逐欄防禦)。 */
+function readVehicle(v: unknown): CartItemVehicle | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const year = typeof o.year === 'number' && Number.isInteger(o.year) ? o.year : undefined;
+  if (o.kind === 'dict') {
+    if (typeof o.brand !== 'string' || o.brand.length === 0) return undefined;
+    if (typeof o.model !== 'string' || o.model.length === 0) return undefined;
+    if (o.source !== 'search' && o.source !== 'garage' && o.source !== 'picker') return undefined;
+    return { kind: 'dict', brand: o.brand, model: o.model, year, source: o.source };
+  }
+  if (o.kind === 'free') {
+    if (typeof o.raw !== 'string' || o.raw.length === 0) return undefined;
+    if (o.source !== 'garage' && o.source !== 'freetext') return undefined;
+    return { kind: 'free', raw: o.raw, year, source: o.source };
+  }
+  return undefined;
+}
+
 function readStorage(): CartItem[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -109,7 +144,8 @@ function readStorage(): CartItem[] {
       // v2:只認 variantId(string 非空 → 帶、否則無變體 undefined);舊 v1 的 color/size 不解析、自然丟棄。
       const variantId =
         typeof x.variantId === 'string' && x.variantId.length > 0 ? x.variantId : undefined;
-      out.push({ productId: x.productId, qty, variantId });
+      const vehicle = readVehicle(x.vehicle); // V-2a:選填、壞資料丟棄不擋整筆
+      out.push({ productId: x.productId, qty, variantId, ...(vehicle ? { vehicle } : {}) });
     }
     return out;
   } catch {
@@ -201,6 +237,33 @@ export function CartProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  // V-2a:設/清單列車款(不變 qty/session/去重;null=移除該欄)。以 line key 定位。
+  const setItemVehicle = useCallback((key: CartLineKey, vehicle: CartItemVehicle | null) => {
+    setItems((prev) =>
+      prev.map((p) => {
+        if (!sameLine(p, key)) return p;
+        if (vehicle === null) {
+          const { vehicle: _drop, ...rest } = p;
+          return rest;
+        }
+        return { ...p, vehicle };
+      }),
+    );
+  }, []);
+
+  // V-2a:整車套用(全列同一車款;null=全清)。頂部車款欄一次填=§2 預設路。
+  const setAllItemsVehicle = useCallback((vehicle: CartItemVehicle | null) => {
+    setItems((prev) =>
+      prev.map((p) => {
+        if (vehicle === null) {
+          const { vehicle: _drop, ...rest } = p;
+          return rest;
+        }
+        return { ...p, vehicle };
+      }),
+    );
+  }, []);
+
   const clear = useCallback(() => setItems([]), []);
 
   // 成交換新 key(7b 僅「DB 確定 paid」呼)。hydrate 前呼也安全:mount 讀用 prev ?? 不覆寫、持久化 gate isHydrated。
@@ -220,10 +283,12 @@ export function CartProvider({ children }: { children: ReactNode }) {
       addItem,
       removeItem,
       updateQty,
+      setItemVehicle,
+      setAllItemsVehicle,
       clear,
       regenerateCartSession,
     }),
-    [items, totalQty, isHydrated, cartSessionId, addItem, removeItem, updateQty, clear, regenerateCartSession]
+    [items, totalQty, isHydrated, cartSessionId, addItem, removeItem, updateQty, setItemVehicle, setAllItemsVehicle, clear, regenerateCartSession]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

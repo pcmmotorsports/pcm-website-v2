@@ -315,3 +315,36 @@ describe('ProductInfo', () => {
     expect(screen.getByRole('button', { name: 'S' })).toBeDefined();
   });
 });
+
+describe('ProductInfo — V-2a 路徑1(搜尋情境自動帶入車款)', () => {
+  const CTX_KEY = 'pcm.vehicle.v1';
+  const CART_KEY = 'pcm-cart-mock-v2';
+  afterEach(() => {
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.clear();
+      window.localStorage.clear();
+    }
+  });
+
+  it('context 名稱字面齊全 → 加入購物車帶 vehicle kind:dict source:search', () => {
+    window.sessionStorage.setItem(
+      CTX_KEY,
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'Yamaha MT-09 SP 2021', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
+    );
+    renderInfo(MOCK_PRODUCTS[0]!);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
+    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' });
+  });
+
+  it('context 缺名稱欄(舊 context)→ 不自動帶入(零猜)', () => {
+    window.sessionStorage.setItem(
+      CTX_KEY,
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', label: 'Yamaha MT-09 SP', savedAt: 1 }),
+    );
+    renderInfo(MOCK_PRODUCTS[0]!);
+    fireEvent.click(screen.getByRole('button', { name: '加入購物車' }));
+    const items = JSON.parse(window.localStorage.getItem(CART_KEY)!);
+    expect(items[0].vehicle).toBeUndefined();
+  });
+});

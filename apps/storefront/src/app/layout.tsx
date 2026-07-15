@@ -48,6 +48,7 @@ import '../styles/home.css';
 import '../styles/auth.css';
 import '../styles/account.css';
 import '../styles/cart.css';
+import '../styles/cart-vehicle.css'; // V-2a:CartVehicleField 車款欄(.cvf-* 自有 class;garage/建議 chip 復用全域 .cat-garage-chip、零 cascade 交互)
 import '../styles/checkout.css';
 import '../styles/error.css'; // A3:404 頁 err-*(design 序 error.css 在 checkout 後;獨立 class 零 cascade 交互)
 import '../styles/pages-shipping.css'; // A2:/info/shipping(design pages.css 抽段;faq 家族帶 .shipping-content scope 防撞 product-page.css)

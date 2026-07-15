@@ -21,15 +21,35 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { useCart } from '@/contexts/CartContext';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
+import { CartVehicleField } from '@/components/CartVehicleField';
+import type { GarageChipItem } from '@/components/GarageChips';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { CartItem, CartItemVehicle } from '@/contexts/CartContext';
 
 /** React key:productId + variantId(JSON、零碰撞、純 ASCII)。 */
 function lineKey(line: { productId: string; variantId?: string }): string {
   return JSON.stringify([line.productId, line.variantId ?? null]);
 }
 
-export function CartView() {
+/** 全列車款一致=回該車款(頂部整車欄顯示值);混車/空=undefined(頂欄顯未套用)。 */
+function commonVehicle(items: CartItem[]): CartItemVehicle | undefined {
+  if (items.length === 0) return undefined;
+  const first = JSON.stringify(items[0]!.vehicle ?? null);
+  if (first === 'null') return undefined;
+  return items.every((i) => JSON.stringify(i.vehicle ?? null) === first) ? items[0]!.vehicle : undefined;
+}
+
+export function CartView({
+  motoBrands = [],
+  garage = [],
+}: {
+  /** V-2a:車款字典(VehicleSelect combobox);cart route server 傳入 */
+  motoBrands?: MockMotoBrand[];
+  /** V-2a:登入會員愛車(快選;未登入/失敗=[]) */
+  garage?: GarageChipItem[];
+} = {}) {
   const router = useRouter();
-  const { updateQty, removeItem } = useCart();
+  const { updateQty, removeItem, setItemVehicle, setAllItemsVehicle } = useCart();
   const cart = useResolvedCart('home');
 
   const goCheckout = () => router.push('/checkout');
@@ -56,6 +76,19 @@ export function CartView() {
           <div className="cart-head-count">{lines.length} 件商品</div>
         </div>
 
+        {/* V-2a 整車套用:填一次全列帶入(§2「不造成選擇負擔」預設路);混車時單列可各自改 */}
+        <div className="cart-vehicle-top">
+          <CartVehicleField
+            label="給哪台車用(套用全部商品)"
+            hint="建議填寫車款,方便我們為你確認商品是否適用"
+            // 以可見(server-resolved)列判一致態:server 濾掉的 stale 列不影響頂欄顯示(code-reviewer minor)
+            value={commonVehicle(lines.map((l) => l.item))}
+            onChange={setAllItemsVehicle}
+            motoBrands={motoBrands}
+            garage={garage}
+          />
+        </div>
+
         <div className="cart-layout">
           <div className="cart-items">
             {lines.map(({ item, resolved: line, lineTotal }) => {
@@ -72,6 +105,14 @@ export function CartView() {
                     </Link>
                     {line.variantLabel && <div className="cart-item-variant">{line.variantLabel}</div>}
                     <div className="cart-item-vehicle">適用 {line.fits}</div>
+                    {/* V-2a 單列車款欄(給哪台車用;覆寫整車套用值=混車訂單) */}
+                    <CartVehicleField
+                      label="這件給哪台車"
+                      value={item.vehicle}
+                      onChange={(v) => setItemVehicle(item, v)}
+                      motoBrands={motoBrands}
+                      garage={garage}
+                    />
                     <div className="cart-item-actions">
                       <div className="cart-qty">
                         <button
