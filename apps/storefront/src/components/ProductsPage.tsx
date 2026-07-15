@@ -68,6 +68,7 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockProduct } from '@/data/mock-products';
 import type { MockBrand } from '@/data/mock-brands';
 import { buildBrandTaxonomy } from '@/lib/brand-taxonomy';
+import type { GarageChipItem } from './GarageChips';
 
 // 訊息態(載入失敗 / 找不到商品)共用樣式;沿用原空狀態 inline 字面、不新增 CSS 檔。
 const MESSAGE_STATE_STYLE: CSSProperties = {
@@ -92,6 +93,8 @@ export type ProductsPageProps = {
   /** server-resolved 全目錄車輛清單(S1:products 可能是按車過濾子集、下拉不可再由它衍生;
    *  fetchVehicleTaxonomy 快取版、與 URL slug 解析同源=id 空間一致) */
   motoBrands: MockMotoBrand[];
+  /** V-1e:登入會員愛車(RLS own、序列化收窄;未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
+  garage?: GarageChipItem[];
 };
 
 // PageHeader — 頁首標題 + 麵包屑(標題依 cascade 已選分類 / 車輛推導)
@@ -194,7 +197,7 @@ function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () 
   );
 }
 
-export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands }: ProductsPageProps) {
+export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [] }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
@@ -283,6 +286,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         data={data}
         cascade={cascade}
         dispatch={dispatch}
+        garage={garage}
         onOpenDrawer={() => setDrawerOpen(true)}
       />
 
@@ -398,6 +402,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         dispatch={dispatch}
         extras={extras}
         setExtras={setExtras}
+        garage={garage}
       />
 
       <HomeFooter />

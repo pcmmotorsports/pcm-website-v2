@@ -19,15 +19,19 @@ import {
 import type { Dispatch } from 'react';
 import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
 import { filterVehicleOptions } from '@/lib/vehicle-match';
+import { GarageChips, type GarageChipItem } from './GarageChips';
 
 export function FilterDrawerVehicleTab({
   motoBrands,
   cascade,
   dispatch,
+  garage = [],
 }: {
   motoBrands: MockMotoBrand[];
   cascade: CascadeFilterState;
   dispatch: Dispatch<CascadeFilterAction>;
+  /** V-1e:登入會員愛車 chips(手機掛載點;未登入/讀取失敗=[]、不顯示) */
+  garage?: GarageChipItem[];
 }) {
   const [vehBrand, setVehBrand] = useState<MockMotoBrand | null>(null);
   const [vehModel, setVehModel] = useState<MockMotoModel | null>(null);
@@ -49,6 +53,9 @@ export function FilterDrawerVehicleTab({
 
   return (
     <div className="fd-veh">
+      {/* V-1e:「我的愛車」鈕(登入會員才顯示、點開展膠囊、套用=dispatch 進同一 cascade;
+          與桌機 CascadeFilterTop 共用 GarageChips、外殼 variant=drawer) */}
+      <GarageChips garage={garage} motoBrands={motoBrands} dispatch={dispatch} variant="drawer" />
       <input
         type="search"
         inputMode="search"

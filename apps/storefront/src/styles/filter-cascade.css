@@ -234,3 +234,74 @@
   .vsc-list { max-width: calc(100vw - 28px); }
   .vsc-option { white-space: normal; }
 }
+
+/* ============================================================
+   GarageChips — V-1e 型錄「我的愛車」鈕 + 膠囊
+   桌機掛 CascadeFilterTop(.cft-right)=dropdown 面板;手機掛 FilterDrawer 車輛 tab=inline。
+   用全站 --c-* token(非 home 的 .ed-page 作用域 --ed-c-*、避免型錄無定義破色)。
+   ============================================================ */
+.cat-garage { position: relative; }
+.cat-garage-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cat-garage-toggle:hover { border-color: var(--c-text); background: var(--c-surface-2); }
+.cat-garage-panel { display: flex; flex-direction: column; gap: 8px; }
+.cat-garage-chips,
+.cat-garage-suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.cat-garage-suggest-label { width: 100%; font-size: 12.5px; color: var(--c-text-2); }
+.cat-garage-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--c-text);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.cat-garage-chip:hover { border-color: var(--c-text); background: var(--c-surface-2); }
+
+/* 桌機:dropdown 面板(絕對定位、不撐開 sticky bar) */
+.cat-garage--top .cat-garage-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 60;
+  min-width: 240px;
+  max-width: 360px;
+  padding: 12px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.12);
+}
+
+/* 手機抽屜:inline 於車輛 tab 頂部、鈕撐滿好按 */
+.cat-garage--drawer { margin-bottom: 12px; }
+.cat-garage--drawer .cat-garage-toggle { width: 100%; justify-content: center; min-height: 42px; }
+.cat-garage--drawer .cat-garage-panel {
+  margin-top: 8px;
+  padding: 10px;
+  background: var(--c-surface-2);
+  border-radius: 8px;
+}

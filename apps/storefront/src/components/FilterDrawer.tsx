@@ -45,6 +45,7 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
 import { FilterDrawerVehicleTab } from './FilterDrawerVehicleTab';
 import type { MockBrand } from '@/data/mock-brands';
+import type { GarageChipItem } from './GarageChips';
 
 export type FilterDrawerData = {
   motoBrands: MockMotoBrand[];
@@ -85,12 +86,15 @@ export function FilterDrawer({
   dispatch,
   extras,
   setExtras,
+  garage = [],
 }: {
   open: boolean;
   onClose: () => void;
   data: FilterDrawerData;
   resultCount: number;
   initialTab?: DrawerTab;
+  /** V-1e:登入會員愛車 chips(手機車輛 tab 內「我的愛車」鈕;未登入/失敗=[]、不顯示) */
+  garage?: GarageChipItem[];
   /** #220-B1:真資料單一分類 → 隱藏「零件分類」tab(同 FilterSide hideCategory) */
   hideCategory?: boolean;
   /** #220-B1:真資料單一品牌 RPM CARBON → 隱藏「品牌」tab(#220c) */
@@ -179,6 +183,7 @@ export function FilterDrawer({
                 motoBrands={data.motoBrands}
                 cascade={cascade}
                 dispatch={dispatch}
+                garage={garage}
               />
             )}
 

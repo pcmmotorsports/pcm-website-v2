@@ -21,6 +21,8 @@ import {
 } from '@/lib/products';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { parseCatalogQuery } from '@/lib/catalog-query';
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { getVehicleRepo } from '@/lib/auth/composition';
 
 // useSearchParams 在 client component 需 route 端標 dynamic、否則 production build 報
 // Static Generation 錯;對齊首頁 page.tsx L31-34 既有慣例(Phase 1 dev 真資料動態)。
@@ -60,10 +62,35 @@ export default async function ProductsRoute({ searchParams }: Props) {
 
   // 車輛下拉清單:恆撈全目錄 taxonomy(unstable_cache 900s、輕量 fitments 投影),
   // 兼作 URL slug→原始名對照表(與 client deep-link restore 同一份、id 空間一致)。
-  const [motoBrands, categories, brands] = await Promise.all([
+  // garage(V-1e):登入會員愛車 chips(RLS vehicles_*_own 守自己 row;未登入/讀取失敗→[]、
+  //   「我的愛車」鈕整排不顯示、頁面不 500)。本 route 已 force-dynamic → 加 per-user 讀取
+  //   零快取語意變更(值班台 verdict 特別查過);併入既有 Promise.all 不 serial 疊 TTFB。
+  const [motoBrands, categories, brands, garage] = await Promise.all([
     fetchVehicleTaxonomy(),
     fetchCategories(),
     fetchCatalogBrandTaxonomy(),
+    (async () => {
+      try {
+        const supabase = await createServerSupabaseClient();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return [];
+        // 序列化面收窄:chips 只需 id/name/year/dict 對(engine/km/mods 等不進 client props;
+        // 皆本人 own 資料、此為最小面原則、與首頁 page.tsx 同一投影)
+        const vehicles = await (await getVehicleRepo()).listByCustomer(user.id);
+        return vehicles.map((v) => ({
+          id: v.id,
+          name: v.name,
+          year: v.year,
+          dictBrandName: v.dictBrandName,
+          dictModelName: v.dictModelName,
+        }));
+      } catch (garageError) {
+        console.error('[products] 愛車清單讀取失敗、chips 退化不顯示:', garageError);
+        return [];
+      }
+    })(),
   ]);
   const vehicle = hasVehicleParam ? parseVehicleFromUrl({ get: spGet }, motoBrands) : null;
 
@@ -77,6 +104,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
       categories={categories}
       brands={brands}
       motoBrands={motoBrands}
+      garage={garage}
     />
   );
 }

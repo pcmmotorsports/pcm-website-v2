@@ -24,15 +24,19 @@ import {
 import type { CascadeControlledProps } from './filter-state';
 import type { FilterTopData } from './FilterTop';
 import { VehicleSelect } from './VehicleSelect';
+import { GarageChips, type GarageChipItem } from './GarageChips';
 
 export function CascadeFilterTop({
   data,
   onOpenDrawer,
   cascade,
   dispatch,
+  garage = [],
 }: {
   data: FilterTopData;
   onOpenDrawer?: (target: string) => void;
+  /** V-1e:登入會員愛車 chips(未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
+  garage?: GarageChipItem[];
 } & CascadeControlledProps) {
   const vehicle = cascade.vehicle;
 
@@ -76,6 +80,8 @@ export function CascadeFilterTop({
             <span className="cft-helper">先選車，只顯示裝得上的零件</span>
           </div>
           <div className="cft-right">
+            {/* V-1e:「我的愛車」鈕(登入會員才顯示、點開展膠囊、套用=dispatch 進同一 cascade) */}
+            <GarageChips garage={garage} motoBrands={data.motoBrands} dispatch={dispatch} variant="top" />
             {vehicle && (
               <button className="cft-clear" onClick={() => dispatch(clearVehicle())} aria-label="清除車輛篩選">清除車輛</button>
             )}
