@@ -6,9 +6,9 @@
 // 無 context 車款 → 現選入口(愛車快選 chips + VehicleSelect;選定寫 context=全站連動)。
 //
 // 🔴 §7 正確性紅線(錯誤 ✓ 比空白更糟):判定一律走 lib/fitment-match.checkFitment(domain
-// matchFitmentYear/isYearUnrestricted 年份單一來源+slugify 同源橋接);車種鐵律零猜。display-only:
-// 不寫庫、不擋加入購物車。context.brandId/modelId=taxonomy slug(與 slugify(fitment) 同空間、by
-// construction 一致);picker 選定用 slugify(name) 組 context slug(等於 taxonomy id)。
+// matchFitmentYear/isYearUnrestricted 年份單一來源+名稱字面 NFKC 精確比對=V-2h/MF-1 廢 slugify 橋接);
+// 車種鐵律零猜。display-only:不寫庫、不擋加入購物車。chosen 恆手握品牌/車型名稱字面(比對一律回字典
+// 字面);slugify 僅用於 writeVehicleContext 的 URL/id slug 空間、不再進比對。
 
 import { useEffect, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
@@ -28,7 +28,8 @@ type Chosen = { brandName: string; modelName: string; year?: number };
 export type PdpUrlVehicle = { brandName: string; modelName?: string; year?: number };
 
 function toCheckVehicle(c: Chosen): FitmentCheckVehicle {
-  return { kind: 'dict', brandId: slugify(c.brandName), modelId: slugify(c.modelName), year: c.year };
+  // V-2h/MF-1:比對吃名稱字面(NFKC 精確、廢 slugify 橋接);slug 仍用於 writeVehicleContext 的 URL/id 空間。
+  return { kind: 'dict', brandName: c.brandName, modelName: c.modelName, year: c.year };
 }
 function chosenLabel(c: Chosen): string {
   return [c.year, vehicleLabel(c.brandName, c.modelName)].filter(Boolean).join(' ');

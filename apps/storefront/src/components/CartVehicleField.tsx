@@ -16,7 +16,6 @@ import { VehicleSelect } from './VehicleSelect';
 import { vehicleLabel } from '@/lib/vehicle-match';
 import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
 import { checkFitment, type FitmentCheckStatus } from '@/lib/fitment-match';
-import { slugify } from '@/lib/vehicle-taxonomy';
 
 /** 車款欄顯示字面(dict=品牌車型+年;free=raw+年)。 */
 export function formatCartVehicle(v: CartItemVehicle): string {
@@ -27,8 +26,8 @@ export function formatCartVehicle(v: CartItemVehicle): string {
 }
 
 /** V-2e:cart line 車款 vs 商品 fitments 判定(重用 §7 checkFitment 同一顆腦、零新比對邏輯)。
- *  只判 kind:'dict'(slugify(名稱字面)=同源 slug 空間);free/無 fitments/無值 → null=不顯示判定
- *  (自由輸入=人工確認路、不誤嚇;§7 保守方向:僅 no-match 亮紅)。 */
+ *  只判 kind:'dict'(名稱字面 NFKC 精確比對=V-2h/MF-1 廢 slugify 橋接);free/無 fitments/無值 → null
+ *  =不顯示判定(自由輸入=人工確認路、不誤嚇;§7 保守方向:僅 no-match 亮紅)。 */
 export function cartVehicleFitStatus(
   fitments: UIFitment[] | undefined,
   v: CartItemVehicle | undefined,
@@ -36,8 +35,8 @@ export function cartVehicleFitStatus(
   if (!v || v.kind !== 'dict' || !fitments || fitments.length === 0) return null;
   return checkFitment(fitments, {
     kind: 'dict',
-    brandId: slugify(v.brand),
-    modelId: slugify(v.model),
+    brandName: v.brand,
+    modelName: v.model,
     year: v.year,
   });
 }
