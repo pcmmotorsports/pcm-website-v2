@@ -4,7 +4,7 @@
 // 驗:context dict 命中→✓ / 未列→✗ / 年份未定→qualified / 無 context→現選入口 /
 //     愛車快選→比對 / 無 fitments→null。判定核心 checkFitment 另有 lib/fitment-match.test。
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { ProductFitmentCheck } from './ProductFitmentCheck';
 import { VEHICLE_CONTEXT_KEY } from '@/lib/vehicle-context';
@@ -141,5 +141,68 @@ describe('ProductFitmentCheck（§7）', () => {
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={null} />);
     expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
     expect(screen.queryByText(/先前的車款連結已失效/)).toBeNull(); // 無失效提示
+  });
+
+  // ── V-2h/MF-3:同頁 URL 車款變更反應式重判 + 選車回寫 URL ──
+
+  it('V-2h/MF-3:同頁 URL 車款變更(rerender)→ 重新判定(修 mount-only 留舊值)', () => {
+    const { rerender } = render(
+      <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }} />,
+    );
+    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy(); // 2022 在 2021-2024 → match
+    rerender(
+      <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2019 }} />,
+    );
+    expect(screen.getByText(/未列於適用清單/)).toBeTruthy(); // 2019 不合 → 重判 no-match
+  });
+
+  it('V-2h/MF-3:同頁 URL 車款被清除(→ null)→ 清判定顯現選入口、不回填舊鏡', () => {
+    setContext({ brandName: 'HONDA', modelName: 'CB650R' }); // 鏡有別車
+    const { rerender } = render(
+      <ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={{ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }} />,
+    );
+    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    rerender(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={null} />);
+    expect(screen.getByText('確認是否適用你的車')).toBeTruthy(); // 現選入口
+    expect(screen.queryByText(/CB650R/)).toBeNull(); // 不回填舊鏡的 HONDA
+  });
+
+  it('V-2h/MF-3:愛車快選 commit → onPersistVehicle 帶 taxonomy id param(round-trip 消歧)', () => {
+    const onPersist = vi.fn();
+    render(
+      <ProductFitmentCheck
+        fitments={FITMENTS}
+        motoBrands={BRANDS}
+        garage={[{ id: 'g1', name: 'MT-09', year: '2022', dictBrandName: 'YAMAHA', dictModelName: 'MT-09', isPrimary: false }]}
+        onPersistVehicle={onPersist}
+      />,
+    );
+    fireEvent.click(screen.getByText('2022 MT-09'));
+    expect(onPersist).toHaveBeenCalledWith('yamaha:mt-09:2022'); // taxonomy id 空間、非 slugify(name)
+  });
+
+  it('V-2h/MF-3:onPersistVehicle 用 taxonomy id、碰撞序號存活(非 slugify(name) 丟序號=MF-1 教訓)', () => {
+    const onPersist = vi.fn();
+    // 「MT 09」(空白)slugify → 'mt-09' 與「MT-09」撞、taxonomy id 加序號 'mt-09-2';param 必用 id 非 slugify
+    const COLLIDE = [
+      {
+        id: 'yamaha',
+        name: 'YAMAHA',
+        models: [
+          { id: 'mt-09', name: 'MT-09', years: [2022] },
+          { id: 'mt-09-2', name: 'MT 09', years: [2022] },
+        ],
+      },
+    ] as MockMotoBrand[];
+    render(
+      <ProductFitmentCheck
+        fitments={[{ motoBrand: 'YAMAHA', modelCode: 'MT 09', yearStart: 2022 }]}
+        motoBrands={COLLIDE}
+        garage={[{ id: 'g1', name: 'MT 09', year: '2022', dictBrandName: 'YAMAHA', dictModelName: 'MT 09', isPrimary: false }]}
+        onPersistVehicle={onPersist}
+      />,
+    );
+    fireEvent.click(screen.getByText('2022 MT 09'));
+    expect(onPersist).toHaveBeenCalledWith('yamaha:mt-09-2:2022'); // 序號存活;slugify 會塌成 mt-09
   });
 });

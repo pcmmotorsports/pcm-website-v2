@@ -10,7 +10,7 @@
 // 車種鐵律零猜。display-only:不寫庫、不擋加入購物車。chosen 恆手握品牌/車型名稱字面(比對一律回字典
 // 字面);slugify 僅用於 writeVehicleContext 的 URL/id slug 空間、不再進比對。
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { UIFitment } from '@/data/mock-products';
 import { checkFitment, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
@@ -43,18 +43,47 @@ function chosenLabel(c: Chosen): string {
   return [c.year, vehicleLabel(c.brandName, c.modelName)].filter(Boolean).join(' ');
 }
 
+/** URL resolved 車款(名稱字面)→ 同步 sessionStorage 鏡(brandId/modelId 用 slugify=URL/id slug 空間)。 */
+function writeMirrorFromResolved(r: PdpUrlVehicle): void {
+  writeVehicleContext({
+    brandId: slugify(r.brandName),
+    modelId: r.modelName ? slugify(r.modelName) : undefined,
+    year: r.year,
+    label: [r.brandName, r.modelName, r.year].filter(Boolean).join(' '),
+    brandName: r.brandName,
+    modelName: r.modelName,
+  });
+}
+
+/**
+ * V-2h/MF-3:chosen(名稱字面)→ URL 短版 param `brandId:modelId[:year]`(taxonomy id 空間、含碰撞
+ * 序號=正確 round-trip;非 slugify(name) 免丟序號)。名稱對不到 taxonomy(理論不達:chosen 恆源自
+ * 字典選項)→ null,呼叫端不寫 URL。
+ */
+function vehicleUrlParamFor(c: Chosen, motoBrands: MockMotoBrand[]): string | null {
+  const brand = motoBrands.find((b) => b.name === c.brandName);
+  const model = brand?.models.find((m) => m.name === c.modelName);
+  if (!brand || !model) return null;
+  return [brand.id, model.id, c.year].filter(Boolean).join(':');
+}
+
 export function ProductFitmentCheck({
   fitments,
   motoBrands,
   garage = [],
   urlVehicle = null,
+  onPersistVehicle,
 }: {
   fitments: UIFitment[];
   motoBrands: MockMotoBrand[];
   garage?: GarageChipItem[];
   /** V-2c:URL `?vehicle=` 恆為第一真相 — 有值時優先於 context 鏡、掛載即回寫同步鏡。
-   *  V-2h/MF-2:三態(見 PdpUrlVehicleState)—'invalid' 表參數在但對不到 taxonomy。 */
+   *  V-2h/MF-2:三態(見 PdpUrlVehicleState)—'invalid' 表參數在但對不到 taxonomy。
+   *  V-2h/MF-3:ProductPage 反應式衍生(useSearchParams+taxonomy)→ 同頁 URL 變更即重判。 */
   urlVehicle?: PdpUrlVehicleState;
+  /** V-2h/MF-3:選車回寫 URL(param=`brandId:modelId[:year]` 或 null 清除;由 ProductPage 做
+   *  router.replace 條件式 skip);URL=第一真相 settle point。缺=不回寫(如測試直傳 prop)。 */
+  onPersistVehicle?: (param: string | null) => void;
 }) {
   // V-2h/MF-2:URL 車款三態拆解 — 'invalid'(參數在、對不到)與 null(無參數)行為不同。
   const urlInvalid = urlVehicle === 'invalid';
@@ -86,14 +115,7 @@ export function ProductFitmentCheck({
     // MF-2:URL 車款無法解析('invalid')→ 不讀鏡、不寫鏡(避免顯過期舊車判定);chosen 留 null=現選入口。
     if (urlInvalid) return;
     if (urlResolved) {
-      writeVehicleContext({
-        brandId: slugify(urlResolved.brandName),
-        modelId: urlResolved.modelName ? slugify(urlResolved.modelName) : undefined,
-        year: urlResolved.year,
-        label: [urlResolved.brandName, urlResolved.modelName, urlResolved.year].filter(Boolean).join(' '),
-        brandName: urlResolved.brandName,
-        modelName: urlResolved.modelName,
-      });
+      writeMirrorFromResolved(urlResolved);
       return;
     }
     const ctx = readVehicleContext();
@@ -102,6 +124,34 @@ export function ProductFitmentCheck({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // V-2h/MF-3:同頁 URL `?vehicle=` 變更後重新同步 chosen(URL=第一真相 settle point;修 mount-only
+  // 舊值不重判)。urlKey=urlVehicle 的穩定序列化;lastUrlKeyRef 守門「只在真變更才動」——mount(key
+  // 未變)與 StrictMode 重跑(同 key)皆早退,避免蓋掉 mount effect 的鏡讀入 / 誤清。🔴 此處**絕不讀鏡**
+  // (被清除=absent 時清判定、不回填舊鏡=尊重清除意圖);讀鏡僅限 mount effect 的 carry-in。
+  const urlKey = JSON.stringify(urlVehicle ?? null);
+  const lastUrlKeyRef = useRef(urlKey);
+  useEffect(() => {
+    if (lastUrlKeyRef.current === urlKey) return; // mount / StrictMode 同 key 重跑 → 不動
+    lastUrlKeyRef.current = urlKey;
+    setEditing(false);
+    if (urlInvalid) {
+      setChosen(null); // 變成壞連結 → 清判定、顯重新選車(MF-2 語意)
+      return;
+    }
+    if (urlResolved?.modelName) {
+      setChosen({ brandName: urlResolved.brandName, modelName: urlResolved.modelName, year: urlResolved.year });
+      writeMirrorFromResolved(urlResolved);
+      return;
+    }
+    if (urlResolved) {
+      setChosen(null); // brand-only → 名稱不齊不判定、現選入口(零猜);鏡仍同步 brand
+      writeMirrorFromResolved(urlResolved);
+      return;
+    }
+    setChosen(null); // absent(被清除)→ 清判定、不讀鏡
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlKey]);
 
   // 無 fitments(通用款/無資料)→ 整段不渲染(同 ProductFitments 空狀態)
   if (!fitments || fitments.length === 0) return null;
@@ -122,6 +172,14 @@ export function ProductFitmentCheck({
       brandName: c.brandName,
       modelName: c.modelName,
     });
+
+    // V-2h/MF-3:選車回寫 URL(URL=第一真相 settle point;ProductPage router.replace 條件式 skip)。
+    // param 用 taxonomy id(vehicleUrlParamFor)確保 round-trip 消歧;URL 變更後 reactive effect 由 URL
+    // 收斂(setChosen 同值=冪等、chosen 與 URL 不分歧);param===現值時 ProductPage skip=chosen 已樂觀設妥。
+    // 🔴 對不到 taxonomy(理論不達:chosen 恆源自字典選項)→ param=null → 不寫 URL(null 語意=清除、
+    // 誤傳會清掉剛選的車;guard 對齊 vehicleUrlParamFor 檔頭契約)。
+    const param = vehicleUrlParamFor(c, motoBrands);
+    if (param) onPersistVehicle?.(param);
   };
 
   const onGarageChip = (g: GarageChipItem) => {

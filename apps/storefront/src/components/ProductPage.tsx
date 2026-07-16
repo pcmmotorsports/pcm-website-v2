@@ -16,10 +16,11 @@
 
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
+import { parseVehicleFromUrl } from '@/lib/vehicle-url';
 import { useCart } from '@/contexts/CartContext';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
@@ -54,9 +55,8 @@ export type ProductPageProps = {
   motoBrands?: MockMotoBrand[];
   /** V-2b:§7 愛車快選(登入會員;未登入/失敗/無 fitments=[])。 */
   garage?: GarageChipItem[];
-  /** V-2c:URL `?vehicle=` 解析後名稱字面(route 端 parseVehicleFromUrl);§7 優先於 context 鏡。
-   *  V-2h/MF-2:'invalid'=參數在但對不到 taxonomy(不讀鏡、顯重新選車)。 */
-  urlVehicle?: PdpUrlVehicleState;
+  // V-2h/MF-3:URL 車款不再由 route 傳 prop——ProductPage 反應式衍生(useSearchParams+motoBrands),
+  //   同頁 URL 變更即重判;SSR 初值與 route 端 parseVehicleFromUrl 同源同值(motoBrands=同一 taxonomy)。
 };
 
 export function ProductPage({
@@ -69,9 +69,41 @@ export function ProductPage({
   relatedVehicleParam,
   motoBrands = [],
   garage = [],
-  urlVehicle = null,
 }: ProductPageProps) {
-  const router = useRouter(); // mobile buybar router.back()（麵包屑/vehicle pill 的 URL 邏輯已移 ProductBreadcrumb）
+  const router = useRouter(); // mobile buybar router.back() + MF-3 選車回寫 URL（麵包屑/vehicle pill 已移 ProductBreadcrumb）
+  const searchParams = useSearchParams();
+  const pathname = usePathname();
+
+  // V-2h/MF-3:反應式衍生 URL 車款三態(取代 route 靜態 prop)——同頁 `?vehicle=` 變更即重判。
+  //   邏輯與 route [slug]/page.tsx 同源(parseVehicleFromUrl + MF-2 三態):無參數=null(讀鏡)/
+  //   參數在但對不到 taxonomy='invalid'(不讀鏡、顯重選)/ 已解析=名稱字面物件。SSR 同繪同值(motoBrands
+  //   =route 傳的同一 taxonomy)→ 零 hydration mismatch。
+  const liveUrlVehicle: PdpUrlVehicleState = useMemo(() => {
+    const hasVehicleParam =
+      searchParams.get('vehicle') != null ||
+      (searchParams.get('brand') != null && searchParams.get('model') != null);
+    if (!hasVehicleParam) return null;
+    const parsed = parseVehicleFromUrl(searchParams, motoBrands);
+    return parsed
+      ? { brandName: parsed.brand, modelName: parsed.model, year: parsed.year }
+      : 'invalid';
+  }, [searchParams, motoBrands]);
+
+  // V-2h/MF-3(關卡1=Option A):選車回寫 URL 用 router.replace(scroll:false)——與 ProductBreadcrumb
+  //   handleClearVehicle 同機制、選車後 server 相關商品/推薦 realign 到新車(§7 一致性)。
+  //   🔴 條件式 skip:目標 param === 現值不寫(避免無謂 RSC refetch / render loop);null=清除 vehicle。
+  const persistVehicle = useCallback(
+    (param: string | null) => {
+      const current = searchParams.get('vehicle');
+      if ((param ?? null) === (current ?? null)) return; // 已同值 → 不寫(chosen 已樂觀設妥)
+      const params = new URLSearchParams(searchParams.toString());
+      if (param) params.set('vehicle', param);
+      else params.delete('vehicle');
+      const q = params.toString();
+      router.replace(q ? `${pathname}?${q}` : pathname, { scroll: false });
+    },
+    [searchParams, pathname, router],
+  );
 
   // M-1-13e-b:接 CartContext;Mobile sticky bar 用(對齊 design L127-130 addToCart 行為)
   // (Phase 1 mock:localStorage 暫存、無後端;M-3 swap 真結帳時介面不變)
@@ -140,8 +172,15 @@ export function ProductPage({
         {/* 2026-07-11(Sean 拍板):服務保障橫條移入 ProductInfo 右欄(買價下方、窄欄直立);原 OD-5 hero 下方全寬版退場。 */}
         {/* V-2b §7:「是否適用我的車」保守比對(適用車款表段首;讀選車 context→checkFitment;
             display-only 不寫庫不擋購物車、車種鐵律零猜)。無 fitments 時元件內返 null。
-            V-2c:urlVehicle=URL 第一真相、優先於 context 鏡(修過期鏡顯舊車/購物車帶錯車)。 */}
-        <ProductFitmentCheck fitments={product.fitments ?? []} motoBrands={motoBrands} garage={garage} urlVehicle={urlVehicle} />
+            V-2c:URL 第一真相優先於 context 鏡;V-2h/MF-3:liveUrlVehicle 反應式(同頁 URL 變更即重判)
+            + onPersistVehicle 選車回寫 URL(Option A router.replace 條件式 skip)。 */}
+        <ProductFitmentCheck
+          fitments={product.fitments ?? []}
+          motoBrands={motoBrands}
+          garage={garage}
+          urlVehicle={liveUrlVehicle}
+          onPersistVehicle={persistVehicle}
+        />
         {/* OD-12:適用車款表(ProductFitments)— OD 模板 §7.5 直接搬、接 S6 真資料 product.fitments;
             D1=A 3 欄(車廠/車型/年式)。無 fitments(mock / 通用款 / 無資料真品)→ 元件內返 null 整段不渲染。 */}
         <ProductFitments product={product} />

@@ -171,16 +171,9 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         relatedVehicleParam={vehicleParamForHref ?? undefined}
         motoBrands={taxonomy}
         garage={garage}
-        // V-2c:URL `?vehicle=` 第一真相下傳 §7(parsedVehicle=taxonomy 解析名稱字面;
-        //   優先於 sessionStorage context 鏡、掛載回寫同步鏡=修「回上一頁換車後 PDP 顯舊車」)。
-        // V-2h/MF-2:三態 — 無參數=null(讀鏡)/ 參數在但對不到 taxonomy='invalid'(不讀鏡、顯重新選車)/ 已解析=物件。
-        urlVehicle={
-          !hasVehicleParam
-            ? null
-            : parsedVehicle
-              ? { brandName: parsedVehicle.brand, modelName: parsedVehicle.model, year: parsedVehicle.year }
-              : 'invalid'
-        }
+        // V-2h/MF-3:URL 車款不再由 route 傳 prop——ProductPage 反應式衍生(useSearchParams + motoBrands=
+        //   本 taxonomy)。SSR 同繪同值(同一 parseVehicleFromUrl + MF-2 三態);同頁 URL 變更即重判。
+        //   route 仍算 parsedVehicle 供推薦引擎 Case A 反查(見上)。
       />
     </>
   );
