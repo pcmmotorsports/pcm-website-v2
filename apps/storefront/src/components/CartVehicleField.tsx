@@ -13,17 +13,11 @@ import type { CartItemVehicle } from '@/contexts/CartContext';
 import type { UIFitment } from '@/data/mock-products';
 import type { GarageChipItem } from './GarageChips';
 import { VehicleSelect } from './VehicleSelect';
-import { vehicleLabel } from '@/lib/vehicle-match';
 import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
 import { checkFitment, type FitmentCheckStatus } from '@/lib/fitment-match';
-
-/** 車款欄顯示字面(dict=品牌車型+年;free=raw+年)。 */
-export function formatCartVehicle(v: CartItemVehicle): string {
-  if (v.kind === 'dict') {
-    return [v.year, vehicleLabel(v.brand, v.model)].filter(Boolean).join(' ');
-  }
-  return [v.year, v.raw].filter(Boolean).join(' ');
-}
+// V-2h/MF-6:formatCartVehicle 抽到無依賴 lib(供 CheckoutStep3 免拉整個 client 元件);此處 re-export 保 back-compat。
+import { formatCartVehicle } from '@/lib/cart-vehicle-format';
+export { formatCartVehicle };
 
 /** V-2e:cart line 車款 vs 商品 fitments 判定(重用 §7 checkFitment 同一顆腦、零新比對邏輯)。
  *  只判 kind:'dict'(名稱字面 NFKC 精確比對=V-2h/MF-1 廢 slugify 橋接);free/無 fitments/無值 → null

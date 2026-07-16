@@ -109,6 +109,26 @@ describe('CheckoutStep3(M-3-S2-b2-e3a)', () => {
     expect(screen.getByText('NT$ 30,400')).toBeTruthy();
   });
 
+  it('V-2h/MF-6:逐品項顯車款(dict + free、唯讀重用 formatCartVehicle)', () => {
+    const dictLine: ResolvedCartLineView = {
+      ...line({ productId: 'rpm-1' }),
+      item: { productId: 'rpm-1', variantId: undefined, qty: 1, vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'picker' } },
+    };
+    const freeLine: ResolvedCartLineView = {
+      ...line({ productId: 'rpm-2', name: '排氣管' }),
+      item: { productId: 'rpm-2', variantId: undefined, qty: 1, vehicle: { kind: 'free', raw: '我的老車', source: 'freetext' } },
+    };
+    const { container } = renderStep3({ lines: [dictLine, freeLine] });
+    expect(screen.getByText(/車款：2021 Yamaha MT-09 SP/)).toBeTruthy();
+    expect(screen.getByText(/車款：我的老車/)).toBeTruthy();
+    expect(container.querySelectorAll('.co-review-item-vehicle').length).toBe(2);
+  });
+
+  it('V-2h/MF-6:無 vehicle 的品項不顯車款行', () => {
+    const { container } = renderStep3(); // 預設 line 無 item.vehicle
+    expect(container.querySelector('.co-review-item-vehicle')).toBeNull();
+  });
+
   it('同意 checkbox → onAgreedChange(true)', () => {
     const { container, props } = renderStep3({ agreed: false });
     const cb = container.querySelector('.co-agree input') as HTMLInputElement;

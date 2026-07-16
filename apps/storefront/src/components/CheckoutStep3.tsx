@@ -19,6 +19,7 @@ import type { ReactNode } from 'react';
 import type { CustomerAddress } from '@pcm/domain';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
+import { formatCartVehicle } from '@/lib/cart-vehicle-format';
 
 export type CheckoutStep3Props = {
   /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 不渲染收件 body。 */
@@ -125,6 +126,10 @@ export function CheckoutStep3({
                   {resolved.variantLabel && <span>{resolved.variantLabel}</span>}
                   <span>× {item.qty}</span>
                 </div>
+                {/* V-2h/MF-6:逐品項顯車款(spec §6;唯讀、重用 formatCartVehicle;free 亦顯=下單後人工確認) */}
+                {item.vehicle && (
+                  <div className="co-review-item-vehicle">車款：{formatCartVehicle(item.vehicle)}</div>
+                )}
               </div>
               <div className="co-review-item-price">NT$ {lineTotal.toLocaleString()}</div>
             </div>

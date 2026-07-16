@@ -351,6 +351,8 @@
 .co-review-item-brand { font-family: var(--f-mono); font-size: 10px; letter-spacing: 0.1em; color: var(--c-text-2); text-transform: uppercase; }
 .co-review-item-name { font-size: 13px; font-weight: 500; }
 .co-review-item-meta { font-size: 11px; color: var(--c-text-2); display: flex; gap: 10px; }
+/* V-2h/MF-6:結帳確認逐品項車款(唯讀;色 --c-text-2 與 meta 一致、稍留上距) */
+.co-review-item-vehicle { font-size: 11px; color: var(--c-text-2); margin-top: 2px; }
 .co-review-item-price { font-family: var(--f-mono); font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
 
 .co-agree {
