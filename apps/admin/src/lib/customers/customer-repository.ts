@@ -92,6 +92,66 @@ export async function adjustCustomerWallet(args: {
   throw new Error('admin_adjust_wallet RPC 回傳非預期碼');
 }
 
+/** RPC 業務結果碼(輸入非法/DB error=throw,由 caller 收斂固定碼)。 */
+export type AdminTierSetResult = 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND';
+
+/**
+ * RPC admin_set_customer_tier 的最小呼叫面(migration 20260717010000 **尚未 db push**、不在生成型別
+ * database.types.ts 內)→ 文件化窄 cast(先例:SupabaseOrderAdapter create_order「db-push-pending
+ * 窄 cast」模式+fitment-queries VehicleRpcClient);Sean db push + gen types 後可移除、改 typed Args。
+ */
+type TierRpcClient = {
+  rpc(
+    fn: 'admin_set_customer_tier',
+    args: {
+      p_customer_user_id: string;
+      p_tier: string;
+      p_note: string;
+      p_actor: string;
+      p_request_id: string;
+    },
+  ): PromiseLike<{
+    data: string | null; // RPC RETURNS text scalar
+    error: { code?: string; message?: string } | null;
+  }>;
+};
+
+/**
+ * 會員等級變更(M-4a tier 編輯片;走 admin_set_customer_tier owner RPC〔20260717010000〕)。
+ *
+ * 🔴 唯一寫入路:RPC 內 UPDATE customers 僅 SET tier 單欄 + admin_audit_log INSERT 同交易;
+ * 同值冪等回 'NO_CHANGE' 零寫入零稽核;EXECUTE 僅 service_role。
+ * (SupabaseCustomerAdapter.update patch 白名單僅 name/phone/birthday、欄級 GRANT 不含 tier
+ * =adapter 無 tier 寫入路,本 RPC 是全 repo 唯一;關卡1 verdict 驗訖。)
+ * 回 'UPDATED'/'NO_CHANGE'/'NOT_FOUND';error(輸入非法/DB)→ 裸 throw(caller server action 收斂固定碼)。
+ */
+export async function setCustomerTier(args: {
+  customerId: string;
+  tier: 'general' | 'store' | 'premiumStore';
+  note: string;
+  actor: string;
+  requestId: string;
+}): Promise<AdminTierSetResult> {
+  const { data, error } = await (createSupabaseServiceClient() as unknown as TierRpcClient).rpc(
+    'admin_set_customer_tier',
+    {
+      p_customer_user_id: args.customerId,
+      p_tier: args.tier,
+      p_note: args.note,
+      p_actor: args.actor,
+      p_request_id: args.requestId,
+    },
+  );
+  if (error) {
+    throw error;
+  }
+  // RPC RETURNS text scalar → data 即固定碼;防腐壞收斂(鏡像 adjustCustomerWallet)。
+  if (data === 'UPDATED' || data === 'NO_CHANGE' || data === 'NOT_FOUND') {
+    return data;
+  }
+  throw new Error('admin_set_customer_tier RPC 回傳非預期碼');
+}
+
 /**
  * 後台地址/車庫 repo 建構(M-4a 客戶明細-b;server-only、唯讀呼叫)。
  *

@@ -6909,6 +6909,45 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-16 / M-4a 客戶明細-b
 - **相關:** #249 / M-4a 客戶線
 
+### #279. 💰 儲值金 ledger DB 級 idempotency 去重(admin 調整 back-resubmit 重複入帳)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - `admin_adjust_wallet` RPC(`20260716210000`)無 DB 級去重:PRG redirect 吸收一般 double-submit、submit 鈕 island pending disable 擋雙擊(皆前端縱深),但**瀏覽器 back-resubmit / 網路重送**仍可重複入帳(同金額同備註插兩列 ledger)。tier 編輯 RPC 無此問題(同值 NO_CHANGE 天然冪等);錢是「加法語意」無法用同值判重。
+- **觸發事件:**
+  - 2026-07-16 儲值金編輯片 codex 關卡2 F1(強烈建議 DB 級);Sean 拍 D1=A(island 保留、DB 去重進 backlog 隨 tier 片評=本條)。
+- **預期解法:**
+  - `customer_wallet_ledger` 加 `request_id text` 欄(nullable、人工調整路必填)+ partial UNIQUE index(`WHERE request_id IS NOT NULL`);RPC 改收 p_request_id 入列、撞唯一鍵回 'DUPLICATE' 固定碼(UI 顯「已處理過、未重複入帳」)。既有列 NULL 不受影響、零回填。
+- **不修會痛在:**
+  - bug 可追蹤性:重複入帳發生時 ledger 兩列字面完全合法,只能靠 audit request_id 人工比對抓重,對帳成本高。
+  - 可維護性:每次動儲值金 UI(如未來批次調整)都要重新論證前端縱深夠不夠,DB 級一次解決。
+  - 擴充性:未來儲值金接自動化來源(匯款對帳機器人等)時,呼叫端重試=必然事件,無 DB 冪等鍵不敢接。
+- **估時:** 30-40 分(migration 加欄+index+RPC 改+模擬驗證;動錢=走硬閘全程)
+- **依賴:** 無(獨立 migration;與 #214 訂單層 idempotency 同思路不同表)
+- **發現於:** 2026-07-16 / M-4a 儲值金編輯(codex F1→D1 拍板)
+- **相關:** #214 / #202 / M-4a 客戶線
+
+### #280. 🧹 儲值金 RPC v_ws 空白集補全 + ledger service_role 直插 ACL 收斂評估(tier 片 codex 同洞外溢)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - tier 編輯片 codex 關卡2 F2 抓出:`admin_adjust_wallet`(`20260716210000`、已 apply)的 v_ws 空白集只有 12 字元,漏 U+1680/U+2000-200A/U+205F/U+200C/U+200D/U+2060/U+180E 等 → 持 service key 直呼可用冷門 Unicode 空白繞過「備註必填」。tier RPC(`20260717010000`)已用 31 字元全集,兩支同 family 字面漂移。
+  - 同思路 F1 外溢:service_role 對 `customer_wallet_ledger` 有 INSERT(RLS policy `wallet_insert_service_role`+表級權限)→ 持 service key 可直插 ledger 繞過 audit(app 層已毒化 write 槽=縱深,DB 層未封;tier 片已把 customers 表級 UPDATE 收斂成欄級、ledger 是否同收斂需評估 deposit-wallet use-case 未來接線需求)。
+- **觸發事件:**
+  - 2026-07-16 tier 編輯片 codex 關卡2 F2(v_ws 補全集)落地於 tier RPC;wallet 同洞因動錢硬閘不夾帶、開本條。
+- **預期解法:**
+  - 新 migration `CREATE OR REPLACE admin_adjust_wallet` 只換 v_ws 為 31 字元全集(拒收面變嚴、fail-closed 方向、無行為放寬);順評 ledger INSERT ACL 收斂(若收=deposit-wallet use-case 接線時改走 RPC)。動錢=走硬閘全程(plan 關卡1→codex→Sean db push→值班台模擬)。
+- **不修會痛在:**
+  - 可維護性:同 family 兩支 RPC 驗證強度不一致,審下一支時要記兩套基準。
+  - bug 可追蹤性:視覺空白備註一旦寫入,對帳時「這筆為什麼沒原因」查無字面線索。
+  - 擴充性:ledger 直插洞在接自動化來源前必須收,晚收=接線時被迫重審整條。
+- **估時:** 20-30 分(migration+模擬清單;可與 #279 idempotency 同 migration 一次收)
+- **依賴:** 建議與 #279 併片(同支 RPC、一次硬閘流程)
+- **發現於:** 2026-07-16 / M-4a tier 編輯(codex 關卡2 F2/F1 外溢)
+- **相關:** #279 / #202 / M-4a 客戶線
+
 ## 紀錄模板
 
 ```markdown

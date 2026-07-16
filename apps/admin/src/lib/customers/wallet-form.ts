@@ -73,14 +73,17 @@ export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
     entryType: direction,
     signedAmount: direction === 'use' ? -amount : amount,
     note,
-    returnTo: parseWalletReturnTo(form),
+    returnTo: parseCustomersReturnTo(form.get(WALLET_RETURN_TO_FIELD)),
   };
 }
 
-/** return_to:站內 /customers 路徑(鏡像 orders 線 parseReturnTo;拒 `..`);非法 → 退 '/customers'。 */
-function parseWalletReturnTo(form: FormLike): string {
-  const raw = asString(form.get(WALLET_RETURN_TO_FIELD));
-  return raw && !raw.includes('..') && /^\/customers(\/[^\s]*)?(\?[^\s]*)?$/.test(raw)
-    ? raw
+/**
+ * return_to:站內 /customers 路徑(鏡像 orders 線 parseReturnTo;拒 `..`);非法 → 退 '/customers'。
+ * export 供客戶域各表單共用(儲值金/tier 編輯同一守門;tier-form.ts 亦用)。
+ */
+export function parseCustomersReturnTo(raw: FormDataEntryValue | null): string {
+  const v = typeof raw === 'string' ? raw : null;
+  return v && !v.includes('..') && /^\/customers(\/[^\s]*)?(\?[^\s]*)?$/.test(v)
+    ? v
     : '/customers';
 }

@@ -91,17 +91,23 @@ export const ADMIN_ORDER_DETAIL_SELECT =
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
  *
- * **單一 authenticated client + 建單走 RPC(零 service_role)**:
+ * **client 由 wire-up 層注入、本 adapter 不建 client;建單走 RPC**(M-4a 起雙注入形,docstring
+ * 對齊實況=tier 片欠帳修、值班台 verdict N1):
+ * - **storefront**:composition `getOrderRepo` 注 cookie-aware request-scoped **authenticated** client
+ *   (能讀 session cookie 拿 auth.uid();RLS own-only 生效)。
+ * - **admin(M-4a)**:`apps/admin` `order-repository.ts` 注 **service_role** client(BYPASSRLS 看全單
+ *   =後台預期;`20260611120000` admin 唯讀保留 SELECT)——「零 service_role」舊字面已不成立。
+ *   admin 讀=`listOrderSummariesForAdmin`/`findAdminOrderDetail`/`listSummariesByCustomer`(白名單投影);
+ *   admin 寫=`updateAdminOrderWorkflow`/`updateAdminOrderItemWorkflow`(owner RPC+同交易 audit,
+ *   非裸 UPDATE);會員歸屬縱深靠各方法顯式 `.eq()`。
  * - 建單 `placeOrder` 呼 `create_order` SECURITY DEFINER RPC(migration 20260604130000):
  *   authenticated 對 orders/order_items 僅 SELECT、無直接 INSERT → 建單只能走本 RPC;
  *   價 / 運費 / tier / 歸屬全 RPC server 端 `auth.uid()` + product_variants 權威算,
  *   client 永不送價 / tier / userId;return DTO 只 `{order_id, display_id}`(🔴 鐵則 12 零價結構)。
- * - **不持 service_role**:client 由 wire-up 層(composition `getOrderRepo`)注入 cookie-aware
- *   request-scoped authenticated client(能讀 session cookie 拿 auth.uid());本 adapter 不建 client。
  *
  * **server-only**:從 `@pcm/adapters` root export(來源 client.ts 頂層 `import 'server-only'` 約束整條
- * chain);鏡像 SupabaseAddressAdapter/Customer/Vehicle(authenticated 零 service_role → root barrel、
- * 非 /server 受控小門〔那是 Wallet service_role / Auth 專用〕)。
+ * chain);鏡像 SupabaseAddressAdapter/Customer/Vehicle(root barrel、非 /server 受控小門〔那是
+ * Wallet service_role / Auth 專用;admin 的 service client 亦從 /server 取〕)。
  *
  * **讀路徑延 stage ③**:findById / listByCustomer / listByStatus 重建 domain Order 需從 order_items
  * 還原 OrderItem,但 order_items **無 product_id**(只有 variant_id)→ domain OrderItem.productId 必填
@@ -145,7 +151,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   }
 
   /**
-   * 付款編排窄讀(②-③c-1、plan v6 §4):`select total`(單欄、RLS own-only)→ Money。
+   * 付款編排窄讀(②-③c-1、plan v6 §4):`select total`(單欄;storefront authenticated client
+   * 下 RLS own-only;admin 不呼本方法)→ Money。
    * - 查無 / 非本人(RLS 濾掉)→ null(caller fail-closed 拒付款、不 throw)。
    * - DB `total integer` 元位 → `toMoneyAmount` 中央守門(整數/非負;絕不 `as MoneyAmount`)。
    * - 🔴 鐵則 12:此值為 charge 與 confirm p_amount 的單一金額來源(client 永不送價、零浮點)。
@@ -171,9 +178,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * 列出某會員訂單摘要(account OrdersTab / Overview 最近訂單;created_at desc 新到舊)。
    *
    * 🔴 鐵則 12 / IDOR 縱深:
-   * - RLS `orders_select_own`(auth.uid() = customer_user_id)資料層強制 own-only;
-   * - 顯式 `.eq('customer_user_id', customerId)` 應用層歸屬縱深(任一層失效另一層仍擋);
-   * - 走注入的 authenticated/RLS client(零 service_role);
+   * - 顯式 `.eq('customer_user_id', customerId)` 應用層歸屬縱深(兩種注入 client 下皆為歸屬保證);
+   * - storefront(authenticated client):RLS `orders_select_own`(auth.uid() = customer_user_id)
+   *   資料層再擋一層(任一層失效另一層仍擋);
+   * - admin(M-4a 明細-b 起):注 service_role(BYPASSRLS)、RLS 層不生效,own-scoping 唯一保證
+   *   =上述顯式 eq(值班台快掃親驗);
    * - 投影 `ORDER_LIST_SELECT` 白名單 + 內嵌 `order_items(quantity)`(只算件數、零價格/PII 欄)。
    * - **隱藏 unpaid 孤兒單(#249 治標)**:`.neq('payment_status','unpaid')` 濾掉客人放棄付款後停留
    *   unpaid 的孤兒單(對齊 Shopify 客人端:未付成不進訂單列表);orderCount(account/page 同源 `orders.length`)天然跟著對齊。

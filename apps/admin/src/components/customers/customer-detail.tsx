@@ -18,11 +18,15 @@ import {
   CustomerVehiclesSection,
 } from './customer-detail-sections';
 import { WalletAdjustForm } from './wallet-adjust-form';
+import { TierEditForm } from './tier-edit-form';
 
-// M-4a 客戶明細-a+b+儲值金編輯:基本資料 + 儲值金(餘額 + 流水 + 調整表單)+ 訂單歷史 + 地址 + 車庫。
+// M-4a 客戶明細-a+b+儲值金編輯+tier 編輯:基本資料(含等級變更表單)+ 儲值金(餘額 + 流水 + 調整表單)
+// + 訂單歷史 + 地址 + 車庫。
 // 🔴 PII 邊界:本頁顯示客人 email/電話/生日/地址/引擎號(admin-only、service_role、登入閘後);列表不帶。
 // 🔴 儲值金 = Sean 2026-07-16 拍板 admin 後台可顯示+可調整(override 05-31 前台 hold、範圍僅後台);
 //    調整=WalletAdjustForm → admin_adjust_wallet owner RPC(plan 關卡1 PASS;ledger+audit 同交易)。
+// 🔴 tier 編輯 = TierEditForm → admin_set_customer_tier owner RPC(關卡1 PASS+Q1=A/Q2=A 07-16 拍板;
+//    UPDATE 單欄+audit 同交易、同值 NO_CHANGE 冪等)。
 // 🔴 零成本/經銷價欄(customers/ledger/OrderListItem 型別層皆無);tier=會員等級標籤、非價格。
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
@@ -124,6 +128,7 @@ export function CustomerDetail({
           <Field label='生日' value={customer.birthday} />
           <Field label='會員等級' value={TIER_LABEL[customer.tier]} />
           <Field label='註冊日期' value={formatCustomerDate(customer.createdAt)} />
+          <TierEditForm customerId={customer.id} currentTier={customer.tier} />
         </section>
 
         <section className={CARD}>
