@@ -30,6 +30,10 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
   // 觸控手勢:上下滑關閉 + 左右滑輪播(共用 ProductGallery 同款 hook)。hook 需無條件呼叫、置於 early return 前。
   const lbSwipe = useLightboxSwipe({ count: len, goNext: lbNext, goPrev: lbPrev, onDismiss: () => setLbIdx(null) });
 
+  // V-2g:換圖/開關重置縮放(避免上一張的縮放殘留到下一張);只需 lbIdx 變更時跑(resetZoom 走 stable refs)。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { lbSwipe.resetZoom(); }, [lbIdx]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -61,7 +65,14 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
       </button>
       {/* 手勢:上下滑關閉(手指跟隨 + 保守門檻)+ 左右滑無限輪播(useLightboxSwipe、touch-action:none) */}
       <div className="pd-lb-stage" ref={lbSwipe.stageRef} {...lbSwipe.stageProps}>
-        <img src={sw.img} alt={sw.alt} onClick={() => setLbIdx(null)} style={{ cursor: 'zoom-out' }} />
+        {/* V-2g:雙指縮放/平移套 imageRef;放大態單擊不關閉(交給 pinch 縮回或 X/滑下/ESC/背景) */}
+        <img
+          ref={lbSwipe.imageRef}
+          src={sw.img}
+          alt={sw.alt}
+          onClick={() => { if (!lbSwipe.isZoomed()) setLbIdx(null); }}
+          style={{ cursor: 'zoom-out' }}
+        />
       </div>
       <div className="pd-lb-caption">
         {sw.name} · {sw.meta}

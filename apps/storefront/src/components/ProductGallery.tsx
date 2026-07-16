@@ -144,6 +144,9 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
     goPrev: lbPrev,
     onDismiss: () => setLightbox(false),
   });
+  // V-2g:換圖/開關 lightbox 重置縮放(避免上一張縮放殘留;resetZoom 走 stable refs)。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { lbSwipe.resetZoom(); }, [activeImg, lightbox]);
 
   return (
     <>
@@ -262,10 +265,12 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
           </button>
           {/* 手勢:上下滑關閉(手指跟隨 + 保守門檻)+ 左右滑無限輪播(useLightboxSwipe、touch-action:none) */}
           <div className="pd-lb-stage" ref={lbSwipe.stageRef} {...lbSwipe.stageProps}>
+            {/* V-2g:雙指縮放/平移套 imageRef;放大態單擊不關閉(pinch 縮回或 X/滑下/ESC/背景) */}
             <img
+              ref={lbSwipe.imageRef}
               src={resolveSrc(gallery[activeImg]!, usingReal, 2000, 90, 'contain')}
               alt={product.name}
-              onClick={() => setLightbox(false)}
+              onClick={() => { if (!lbSwipe.isZoomed()) setLightbox(false); }}
               style={{ cursor: 'zoom-out' }}
             />
           </div>

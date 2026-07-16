@@ -1738,6 +1738,9 @@
   cursor: zoom-out;
   user-select: none;
   -webkit-user-drag: none;
+  /* V-2g:雙指縮放/平移 transform 套此(JS useLightboxSwipe);中心縮放 + GPU 提示 */
+  transform-origin: center center;
+  will-change: transform;
 }
 .pd-lb-close {
   position: absolute;
