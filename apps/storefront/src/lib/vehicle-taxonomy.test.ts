@@ -75,6 +75,28 @@ describe('buildVehicleTaxonomy', () => {
     expect(tax[0]!.models[0]!.years).toEqual([2020, 2021, 2022]);
   });
 
+  it('dedupes NFKC-equivalent model names and preserves the first-seen spelling', () => {
+    const tax = buildVehicleTaxonomy([
+      makeProduct(1, [{ motoBrand: 'Yamaha', modelCode: 'ＭＴ－０９', yearStart: 2020 }]),
+      makeProduct(2, [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2021 }]),
+    ]);
+    expect(tax).toHaveLength(1);
+    expect(tax[0]!.models).toHaveLength(1);
+    expect(tax[0]!.models[0]!.name).toBe('ＭＴ－０９');
+    expect(tax[0]!.models[0]!.years).toEqual([2020, 2021]);
+  });
+
+  it('dedupes case-only model variants and preserves the first-seen spelling', () => {
+    const tax = buildVehicleTaxonomy([
+      makeProduct(1, [{ motoBrand: 'Yamaha', modelCode: 'MT-09', yearStart: 2020 }]),
+      makeProduct(2, [{ motoBrand: 'Yamaha', modelCode: 'mt-09', yearStart: 2021 }]),
+    ]);
+    expect(tax).toHaveLength(1);
+    expect(tax[0]!.models).toHaveLength(1);
+    expect(tax[0]!.models[0]!.name).toBe('MT-09');
+    expect(tax[0]!.models[0]!.years).toEqual([2020, 2021]);
+  });
+
   it('sorts brands and models alphabetically', () => {
     const tax = buildVehicleTaxonomy([
       makeProduct(1, [
@@ -94,6 +116,7 @@ describe('buildVehicleTaxonomy', () => {
       makeProduct(2, [{ motoBrand: 'MV-Agusta', modelCode: 'F4', yearStart: 2020 }]),
     ]);
     expect(tax).toHaveLength(2);
+    expect(tax.map((b) => b.name).sort()).toEqual(['MV Agusta', 'MV-Agusta'].sort());
     expect(tax.map((b) => b.id).sort()).toEqual(['mv-agusta', 'mv-agusta-2']);
   });
 

@@ -16,12 +16,13 @@
 // 排序 = 品牌 / 車型依名稱升冪、年份升冪(對齊 design mock years 升冪慣例);中性預設,
 // 視覺/熱門排序 Sean 後續 design skill 可調。
 //
-// #211 誠實揭示:fitment 字串未在匯入端正規化;本函式直出、僅 trim 前後空白、不做其他清洗
-// (大小寫/連字號變體會裂成獨立選項節點、id 加序號保唯一;treat 為上游資料品質問題、非此層修)。
-// 比對端 products-filter-logic matchesVehicle 同樣 trim 後比對、兩端對稱(防「選項出現、選了比不中」)。
+// #211:顯示字面只 trim 前後空白、恆保留 first-seen 原字面;dedup key 與車款比對共用
+// normalizeVehicleQuery(NFKC+trim+lower)，只統一節點識別、不改寫顯示。空白與連字號不互折，
+// 仍保留兩節點，slug 碰撞加序號保唯一。
 
 import type { MockProduct } from '@/data/mock-products';
 import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
+import { normalizeVehicleQuery } from './vehicle-match';
 
 /** 衍生只需 fitments 欄(server 端輕量查詢可餵、不必完整 MockProduct;ProductsPage 傳全型別自然相容)。 */
 type FitmentSource = Pick<MockProduct, 'fitments'>;
@@ -61,23 +62,28 @@ export function buildVehicleTaxonomy(products: FitmentSource[]): MockMotoBrand[]
     }
   }
 
-  // brand name → (model name → Set<year>);以名稱為鍵(與 fitment 同源、比對端一致)。
-  const brands = new Map<string, Map<string, Set<number>>>();
+  // normalized brand key → first-seen 字面 + normalized model key → first-seen 字面 + Set<year>。
+  const brands = new Map<
+    string,
+    { name: string; models: Map<string, { name: string; years: Set<number> }> }
+  >();
   for (const p of products) {
     for (const f of p.fitments ?? []) {
       const brand = f.motoBrand?.trim();
       const model = f.modelCode?.trim();
       if (!brand || !model) continue;
 
-      let models = brands.get(brand);
-      if (!models) {
-        models = new Map();
-        brands.set(brand, models);
+      const brandKey = normalizeVehicleQuery(brand);
+      const modelKey = normalizeVehicleQuery(model);
+      let brandEntry = brands.get(brandKey);
+      if (!brandEntry) {
+        brandEntry = { name: brand, models: new Map() };
+        brands.set(brandKey, brandEntry);
       }
-      let years = models.get(model);
-      if (!years) {
-        years = new Set();
-        models.set(model, years);
+      let modelEntry = brandEntry.models.get(modelKey);
+      if (!modelEntry) {
+        modelEntry = { name: model, years: new Set() };
+        brandEntry.models.set(modelKey, modelEntry);
       }
 
       const ys = f.yearStart;
@@ -87,7 +93,7 @@ export function buildVehicleTaxonomy(products: FitmentSource[]): MockMotoBrand[]
         else if (f.yearEnd === null) ye = Math.max(ys, maxYear); // 開放式 → cap 資料上界
         else ye = f.yearEnd; // 明確範圍
         ye = Math.min(ye, ys + MAX_YEAR_SPAN); // 防髒資料展開失控(見 MAX_YEAR_SPAN)
-        for (let y = ys; y <= ye; y++) years.add(y);
+        for (let y = ys; y <= ye; y++) modelEntry.years.add(y);
       }
     }
   }
@@ -96,10 +102,10 @@ export function buildVehicleTaxonomy(products: FitmentSource[]): MockMotoBrand[]
   // slug、加序號保唯一,防 React key 撞 + parseVehicleFromUrl 只命中第一筆)
   const out: MockMotoBrand[] = [];
   const usedBrandIds = new Set<string>();
-  for (const [brandName, models] of brands) {
+  for (const { name: brandName, models } of brands.values()) {
     const usedModelIds = new Set<string>();
     const modelList: MockMotoModel[] = [];
-    for (const [modelName, yearSet] of models) {
+    for (const { name: modelName, years: yearSet } of models.values()) {
       modelList.push({
         id: uniqueId(slugify(modelName), usedModelIds),
         name: modelName,
