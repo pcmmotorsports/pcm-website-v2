@@ -36,7 +36,9 @@ export function resolveEnd(
  * 年份範圍重疊判定(V-2b 起升 domain=年份語意單一來源;原 adapters/helpers/fitment.ts、
  * 該處改 re-export 保既有呼叫零漂移)。actual/spec 皆 FitmentSpec 年份區間。
  *
- * 規則(逐字對齊原 adapters 版、byte 等價):
+ * 規則邏輯逐字對齊原 adapters 版=**執行期等價**(nit-7 措辭更正:非 byte-identical——參數型別由
+ * 原 FitmentSpec **刻意放寬**為結構化年份區間 `{yearStart?; yearEnd?}`,避免 storefront §7 拉整包
+ * catalog types;行為/規則等價、簽名放寬,呼叫端零漂移):
  * - 任一邊 yearStart undefined → return true(無年份限制=不限年份)
  * - 否則 actualEnd/specEnd 用 resolveEnd 解析(兩端對稱處理 yearEnd null/undefined)
  * - 範圍重疊:actual.start ≤ spec.end 且 spec.start ≤ actual.end

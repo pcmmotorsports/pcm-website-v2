@@ -13,7 +13,7 @@ describe('resolveEnd', () => {
   });
 });
 
-describe('matchFitmentYear（V-2b 升 domain;byte 等價原 adapters 版）', () => {
+describe('matchFitmentYear（V-2b 升 domain;規則邏輯等價原 adapters 版、簽名刻意放寬=非 byte-identical）', () => {
   it('actual 無 yearStart → true(不限年份)', () => {
     expect(matchFitmentYear({}, { yearStart: 2021, yearEnd: 2022 })).toBe(true);
   });

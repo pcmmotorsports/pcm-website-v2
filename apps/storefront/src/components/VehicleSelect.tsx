@@ -7,7 +7,7 @@
 // 🔴 typeahead=design-reference 零先例、Sean 口述授權行為偏離(視覺對齊);controlled by
 // 外部 vehicle 值(reducer/context)=鏡像天然成立、無本地鏡像 effect。
 
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
 
@@ -52,6 +52,11 @@ function Combo({
   const inputRef = useRef<HTMLInputElement>(null); // V-2d④:點選選定後主動 blur 收手機鍵盤
   const shown = text ?? value ?? '';
   const list = filterVehicleOptions(options, text ?? '', (n) => n);
+  // V-2h/nit-8:完整 combobox 互動模型——listbox/option 具穩定 id,input aria-controls 指 listbox、
+  //   aria-activedescendant 指鍵盤高亮項(讓螢幕報讀器於方向鍵導航時報出當前選項)。
+  const listboxId = useId();
+  const listOpen = open && !disabled && list.length > 0;
+  const optionId = (i: number) => `${listboxId}-opt-${i}`;
 
   const pick = (name: string) => {
     setText(null);
@@ -120,6 +125,8 @@ function Combo({
         aria-expanded={open}
         aria-label={label}
         aria-autocomplete="list"
+        aria-controls={listOpen ? listboxId : undefined}
+        aria-activedescendant={listOpen && hi >= 0 ? optionId(hi) : undefined}
         className={inputClass}
         value={shown}
         placeholder={placeholder}
@@ -136,11 +143,12 @@ function Combo({
         onBlur={commit}
         onKeyDown={onKeyDown}
       />
-      {open && !disabled && list.length > 0 && (
-        <ul className="vsc-list" role="listbox" aria-label={`${label}選項`}>
+      {listOpen && (
+        <ul className="vsc-list" role="listbox" id={listboxId} aria-label={`${label}選項`}>
           {list.map((name, i) => (
             <li
               key={name}
+              id={optionId(i)}
               role="option"
               aria-selected={name === value}
               className={`vsc-option${i === hi ? ' is-hi' : ''}`}

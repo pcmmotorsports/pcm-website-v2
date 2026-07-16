@@ -90,6 +90,19 @@ describe('VehicleSelect', () => {
     expect(year.value).toBe('2022');
   });
 
+  it('V-2h/nit-8:完整 combobox ARIA——開列表 aria-controls 指 listbox、方向鍵導航更新 aria-activedescendant', () => {
+    render(<Harness />);
+    const brand = combo('選擇品牌');
+    fireEvent.focus(brand);
+    const listboxId = brand.getAttribute('aria-controls');
+    expect(listboxId).toBeTruthy();
+    expect(document.getElementById(listboxId!)?.getAttribute('role')).toBe('listbox');
+    fireEvent.keyDown(brand, { key: 'ArrowDown' }); // hi 0→1(focus 起 hi=-1)
+    const active = brand.getAttribute('aria-activedescendant');
+    expect(active).toBeTruthy();
+    expect(document.getElementById(active!)?.getAttribute('role')).toBe('option');
+  });
+
   it('focus 未導航直接 Enter=不誤選首項;重選同值不 wipe 下層(R1 must-fix)', () => {
     render(<Harness />);
     const brand = combo('選擇品牌');
