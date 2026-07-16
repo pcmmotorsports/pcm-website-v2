@@ -85,6 +85,7 @@ export default async function ProductsRoute({ searchParams }: Props) {
           year: v.year,
           dictBrandName: v.dictBrandName,
           dictModelName: v.dictModelName,
+          isPrimary: v.isPrimary,
         }));
       } catch (garageError) {
         console.error('[products] 愛車清單讀取失敗、chips 退化不顯示:', garageError);

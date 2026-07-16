@@ -40,6 +40,7 @@ export default async function CartRoute() {
           year: v.year,
           dictBrandName: v.dictBrandName,
           dictModelName: v.dictModelName,
+          isPrimary: v.isPrimary,
         }));
       } catch (garageError) {
         console.error('[cart] 愛車清單讀取失敗、快選退化不顯示:', garageError);

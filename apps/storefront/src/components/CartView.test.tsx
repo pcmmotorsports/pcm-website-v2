@@ -27,6 +27,8 @@ const { cartRef, resolveMock, pushMock } = vi.hoisted(() => ({
       addItem: vi.fn(),
       removeItem: vi.fn(),
       updateQty: vi.fn(),
+      setItemVehicle: vi.fn(),
+      setAllItemsVehicle: vi.fn(),
       clear: vi.fn(),
     },
   },
@@ -68,6 +70,8 @@ afterEach(() => {
 function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
   const updateQty = vi.fn();
   const removeItem = vi.fn();
+  const setItemVehicle = vi.fn();
+  const setAllItemsVehicle = vi.fn();
   cartRef.current = {
     items,
     totalQty: items.reduce((s, i) => s + i.qty, 0),
@@ -75,9 +79,11 @@ function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
     addItem: vi.fn(),
     removeItem,
     updateQty,
+    setItemVehicle,
+    setAllItemsVehicle,
     clear: vi.fn(),
   };
-  return { updateQty, removeItem };
+  return { updateQty, removeItem, setItemVehicle, setAllItemsVehicle };
 }
 
 function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): ResolvedCartLine {
@@ -190,6 +196,35 @@ describe('CartView(M-3-S2-b2-d)', () => {
     expect(container.textContent).not.toContain('priceByTier');
     // 無劃線價 <s>
     expect(container.querySelector('s')).toBeNull();
+  });
+
+  it('V-2h/MF-5:登入唯一/主車 → 首載預填未填列(source:garage)、不覆蓋 search 帶入列', async () => {
+    const searchItem: CartItem = {
+      productId: 'rpm-1', variantId: 'v1', qty: 1,
+      vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09', year: 2021, source: 'search' },
+    };
+    const emptyItem: CartItem = { productId: 'rpm-2', qty: 1 };
+    const { setItemVehicle } = setCart([searchItem, emptyItem]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'rpm-1', variantId: 'v1' }),
+      resolvedLine({ productId: 'rpm-2', name: '小料件' }),
+    ]);
+    const BRANDS = [{ id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-09-sp', name: 'MT-09 SP', years: [2021] }] }];
+    const garage = [{ id: 'g1', name: 'MT-09 SP', year: '2021', dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP', isPrimary: true }];
+    render(<CartView motoBrands={BRANDS} garage={garage} />);
+    await screen.findByText('碳纖維車台護蓋');
+    await waitFor(() => expect(setItemVehicle).toHaveBeenCalledTimes(1)); // 只補未填 rpm-2、不碰 search 的 rpm-1
+    const [calledItem, calledVehicle] = setItemVehicle.mock.calls[0]!;
+    expect(calledItem.productId).toBe('rpm-2');
+    expect(calledVehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'garage' });
+  });
+
+  it('V-2h/MF-5:未登入(garage=[])→ 不預填', async () => {
+    const { setItemVehicle } = setCart([{ productId: 'rpm-2', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-2', name: '小料件' })]);
+    render(<CartView />);
+    await screen.findByText('小料件');
+    expect(setItemVehicle).not.toHaveBeenCalled();
   });
 
   it('stale line(found:false)→ 不渲染、退空狀態', async () => {

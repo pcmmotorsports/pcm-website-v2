@@ -117,6 +117,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
               year: v.year,
               dictBrandName: v.dictBrandName,
               dictModelName: v.dictModelName,
+              isPrimary: v.isPrimary,
             }));
           } catch (garageError) {
             console.error('[pdp] 愛車清單讀取失敗、§7 快選退化不顯示:', garageError);

@@ -2,7 +2,7 @@
 // 逐分支對齊原 VehicleFinder.onGarageChip(18877be):dict 快路徑 / 精確命中 / 建議清單 / 年份閘門。
 
 import { describe, expect, it } from 'vitest';
-import { resolveGarageChip, resolveSuggestionLabel } from './garage-chip';
+import { resolveGarageChip, resolveGaragePrefillVehicle, resolveSuggestionLabel } from './garage-chip';
 import type { MockMotoBrand } from '../data/mock-moto-brands';
 
 const BRANDS: MockMotoBrand[] = [
@@ -118,5 +118,39 @@ describe('resolveSuggestionLabel — 建議明選 → apply', () => {
 
   it('label 查無(理論不達)→ null', () => {
     expect(resolveSuggestionLabel(BRANDS, '不存在 label', 2021)).toBeNull();
+  });
+});
+
+describe('resolveGaragePrefillVehicle — V-2h/MF-5 車庫自動預填(唯一/primary、零猜)', () => {
+  const gv = (over: Partial<{ name: string; year: string; dictBrandName: string | null; dictModelName: string | null; isPrimary: boolean }>) => ({
+    name: 'x', year: '', dictBrandName: null, dictModelName: null, isPrimary: false, ...over,
+  });
+
+  it('唯一車(length===1)且可解析 → apply', () => {
+    expect(resolveGaragePrefillVehicle(BRANDS, [gv({ dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP', year: '2021' })]))
+      .toEqual({ kind: 'apply', brand: 'Yamaha', model: 'MT-09 SP', year: 2021 });
+  });
+
+  it('多台車 → 選 isPrimary 的那台解析', () => {
+    const r = resolveGaragePrefillVehicle(BRANDS, [
+      gv({ name: '路上撿的', dictBrandName: 'Yamaha', dictModelName: 'MT-09', isPrimary: false }),
+      gv({ dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP', year: '2022', isPrimary: true }),
+    ]);
+    expect(r).toEqual({ kind: 'apply', brand: 'Yamaha', model: 'MT-09 SP', year: 2022 });
+  });
+
+  it('多台車且無 primary → null(不猜)', () => {
+    expect(resolveGaragePrefillVehicle(BRANDS, [
+      gv({ dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP' }),
+      gv({ dictBrandName: 'Yamaha', dictModelName: 'MT-09' }),
+    ])).toBeNull();
+  });
+
+  it('車庫空 → null', () => {
+    expect(resolveGaragePrefillVehicle(BRANDS, [])).toBeNull();
+  });
+
+  it('唯一車但無法唯一解析(free 文字不在字典)→ null(不預填、零猜)', () => {
+    expect(resolveGaragePrefillVehicle(BRANDS, [gv({ name: '阿嬤的野狼' })])).toBeNull();
   });
 });

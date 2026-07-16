@@ -71,7 +71,7 @@ describe('ProductFitmentCheck（§7）', () => {
       <ProductFitmentCheck
         fitments={FITMENTS}
         motoBrands={BRANDS}
-        garage={[{ id: 'g1', name: 'MT-09', year: '2022', dictBrandName: 'YAMAHA', dictModelName: 'MT-09' }]}
+        garage={[{ id: 'g1', name: 'MT-09', year: '2022', dictBrandName: 'YAMAHA', dictModelName: 'MT-09', isPrimary: false }]}
       />,
     );
     fireEvent.click(screen.getByText('2022 MT-09'));

@@ -39,7 +39,7 @@ describe('GarageChips(V-1e 型錄我的愛車鈕)', () => {
   it('toggle 鈕點開才展膠囊列', () => {
     render(
       <GarageChips
-        garage={[{ id: 'g1', name: 'MT-09 SP', year: '2021', dictBrandName: null, dictModelName: null }]}
+        garage={[{ id: 'g1', name: 'MT-09 SP', year: '2021', dictBrandName: null, dictModelName: null, isPrimary: false }]}
         motoBrands={BRANDS}
         dispatch={vi.fn()}
         variant="top"
@@ -54,7 +54,7 @@ describe('GarageChips(V-1e 型錄我的愛車鈕)', () => {
     const dispatch = vi.fn();
     render(
       <GarageChips
-        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021', dictBrandName: null, dictModelName: null }]}
+        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021', dictBrandName: null, dictModelName: null, isPrimary: false }]}
         motoBrands={BRANDS}
         dispatch={dispatch}
         variant="top"
@@ -73,7 +73,7 @@ describe('GarageChips(V-1e 型錄我的愛車鈕)', () => {
     const dispatch = vi.fn();
     render(
       <GarageChips
-        garage={[{ id: 'g1', name: 'MT-09 SP', year: '', dictBrandName: null, dictModelName: null }]}
+        garage={[{ id: 'g1', name: 'MT-09 SP', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]}
         motoBrands={BRANDS}
         dispatch={dispatch}
         variant="top"
@@ -91,7 +91,7 @@ describe('GarageChips(V-1e 型錄我的愛車鈕)', () => {
     const dispatch = vi.fn();
     render(
       <GarageChips
-        garage={[{ id: 'g2', name: 'MT-0', year: '', dictBrandName: null, dictModelName: null }]}
+        garage={[{ id: 'g2', name: 'MT-0', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]}
         motoBrands={BRANDS}
         dispatch={dispatch}
         variant="drawer"
@@ -114,7 +114,7 @@ describe('GarageChips(V-1e 型錄我的愛車鈕)', () => {
     const dispatch = vi.fn();
     render(
       <GarageChips
-        garage={[{ id: 'g3', name: '我的紅色小車', year: '', dictBrandName: null, dictModelName: null }]}
+        garage={[{ id: 'g3', name: '我的紅色小車', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]}
         motoBrands={BRANDS}
         dispatch={dispatch}
         variant="top"

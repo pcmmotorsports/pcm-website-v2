@@ -103,6 +103,23 @@ export function resolveGarageChip(
 }
 
 /**
+ * V-2h/MF-5 車庫自動預填(spec §2「登入會員有唯一車或 primary 車 → 預填」):
+ * 唯一車(garage.length===1)或 primary 車 → 經 resolveGarageChip 唯一精確解析成 dict apply 才回;
+ * 否則 null(>1 台且無 primary=不猜 / 無法唯一解析〔free 文字·字典演化〕=不預填、車種鐵律零猜)。
+ * 純函式、無 React 依賴 → node 單測;呼叫端(CartView)只補未填列、不覆蓋 search 帶入。
+ */
+export function resolveGaragePrefillVehicle(
+  motoBrands: MockMotoBrand[],
+  garage: (GarageVehicleInput & { isPrimary: boolean })[],
+): GarageChipApply | null {
+  if (garage.length === 0) return null;
+  const chosen = garage.length === 1 ? garage[0] : garage.find((g) => g.isPrimary);
+  if (!chosen) return null; // >1 台且無 primary → 不猜
+  const r = resolveGarageChip(motoBrands, chosen);
+  return r.kind === 'apply' ? r : null; // 無法唯一解析(free 文字/字典演化)→ 不預填
+}
+
+/**
  * 建議清單點選:label(字典字面)→ entry → apply(garageYear 同閘門帶入)。
  * label 查無(理論不達:entries 恆源自 flattenVehicleModels)→ null,呼叫端不套用。
  */

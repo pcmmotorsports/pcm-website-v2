@@ -14,6 +14,7 @@
 //   (階段① general-only)、運費統一 5000/未滿 100(Sean 拍 B + #161)、checkout 守門移 /checkout server、
 //   變體識別顯 spec 值(variant 粒度 b2-c)、cart-loading net-new。
 
+import { useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
@@ -22,6 +23,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { useCart } from '@/contexts/CartContext';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { CartVehicleField } from '@/components/CartVehicleField';
+import { resolveGaragePrefillVehicle } from '@/lib/garage-chip';
 import type { GarageChipItem } from '@/components/GarageChips';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CartItem, CartItemVehicle } from '@/contexts/CartContext';
@@ -51,6 +53,29 @@ export function CartView({
   const router = useRouter();
   const { updateQty, removeItem, setItemVehicle, setAllItemsVehicle } = useCart();
   const cart = useResolvedCart('home');
+
+  // V-2h/MF-5(spec §2 車庫預填):登入會員有唯一車或 primary 車 → 首次載入補未填列(標「來自你的車庫」)。
+  // 🔴 只補未填列(!item.vehicle)=不覆蓋 search 帶入(優先序 search>garage);唯一精確解析才補=零猜。
+  // run-once ref:清空後不再回填(尊重使用者清除意圖)、避免 setItemVehicle 觸發 cart 變更的回圈。
+  const prefilledRef = useRef(false);
+  useEffect(() => {
+    if (prefilledRef.current || cart.status !== 'ready') return;
+    // 首次 ready 即定案(apply 落空亦置旗標=不重試):garage/motoBrands 為 server props、首繪即定值,
+    // 故首個 ready render 資料必齊、不會漏預填。若未來改成 ready 後 async 載車庫,此處需改為僅成功才置旗標。
+    prefilledRef.current = true;
+    const apply = resolveGaragePrefillVehicle(motoBrands, garage);
+    if (!apply) return;
+    const gv: CartItemVehicle = {
+      kind: 'dict',
+      brand: apply.brand,
+      model: apply.model,
+      source: 'garage',
+      ...(apply.year !== undefined ? { year: apply.year } : {}),
+    };
+    for (const l of cart.lines) {
+      if (!l.item.vehicle) setItemVehicle(l.item, gv);
+    }
+  }, [cart, motoBrands, garage, setItemVehicle]);
 
   const goCheckout = () => router.push('/checkout');
   const goContinue = () => router.push('/products');

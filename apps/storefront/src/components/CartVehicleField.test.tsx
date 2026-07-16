@@ -60,7 +60,7 @@ describe('CartVehicleField', () => {
     const onChange = vi.fn();
     render(
       <CartVehicleField label="x" value={undefined} onChange={onChange} motoBrands={BRANDS}
-        garage={[{ id: 'g1', name: 'MT-09 SP', year: '2021', dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP' }]} />,
+        garage={[{ id: 'g1', name: 'MT-09 SP', year: '2021', dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP', isPrimary: false }]} />,
     );
     fireEvent.click(screen.getByText('+ 選擇車款'));
     fireEvent.click(screen.getByText('2021 MT-09 SP'));
@@ -81,7 +81,7 @@ describe('CartVehicleField', () => {
     const onChange = vi.fn();
     render(
       <CartVehicleField label="x" value={undefined} onChange={onChange} motoBrands={BRANDS}
-        garage={[{ id: 'g9', name: '阿嬤的野狼', year: '', dictBrandName: null, dictModelName: null }]} />,
+        garage={[{ id: 'g9', name: '阿嬤的野狼', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]} />,
     );
     fireEvent.click(screen.getByText('+ 選擇車款'));
     fireEvent.click(screen.getByText('阿嬤的野狼'));

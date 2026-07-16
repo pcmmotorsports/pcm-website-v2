@@ -80,6 +80,7 @@ export default async function HomePage({
           year: v.year,
           dictBrandName: v.dictBrandName,
           dictModelName: v.dictModelName,
+          isPrimary: v.isPrimary,
         }));
       } catch (garageError) {
         console.error('[home] 愛車清單讀取失敗、chips 退化不顯示:', garageError);

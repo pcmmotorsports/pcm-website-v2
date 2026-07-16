@@ -28,10 +28,11 @@ import {
   type GarageChipApply,
 } from '@/lib/garage-chip';
 
-/** chips 所需的車庫最小面(序列化收窄、與首頁 page.tsx 同一投影;無 engine/km/mods/PII)。 */
+/** chips 所需的車庫最小面(序列化收窄、與首頁 page.tsx 同一投影;無 engine/km/mods/PII)。
+ *  V-2h/MF-5:加 isPrimary(spec §2 自動預填選唯一/主車;純 boolean 旗標、無 PII)。 */
 export type GarageChipItem = Pick<
   CustomerVehicle,
-  'id' | 'name' | 'year' | 'dictBrandName' | 'dictModelName'
+  'id' | 'name' | 'year' | 'dictBrandName' | 'dictModelName' | 'isPrimary'
 >;
 
 export function GarageChips({
