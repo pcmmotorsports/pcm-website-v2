@@ -1,8 +1,9 @@
+import Link from 'next/link';
 import type { AdminCustomerSummary } from '@pcm/domain';
 import { TIER_LABEL, formatCustomerDate } from '../../lib/customers/customer-list-view';
 
-// M-4a 客戶管理第一片:輕量客戶列表 table(server-render)。
-// 🔴 不顯 wallet/儲值(#202 HOLD);tier=會員等級標籤(非價格)。phone 可 null → '—'。
+// M-4a 客戶管理第一片:輕量客戶列表 table(server-render);明細-a 起姓名連 /customers/[id]。
+// 🔴 列表不顯 wallet/儲值(儲值金顯示在明細頁=Sean 07-16 拍板 admin 可顯);tier=會員等級標籤(非價格)。phone 可 null → '—'。
 
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap';
@@ -10,7 +11,11 @@ const TD = 'px-3 py-2 text-sm whitespace-nowrap';
 function CustomerRow({ customer }: { customer: AdminCustomerSummary }) {
   return (
     <tr className='border-t'>
-      <td className={`${TD} font-medium`}>{customer.name}</td>
+      <td className={`${TD} font-medium`}>
+        <Link href={`/customers/${customer.id}`} className='hover:underline'>
+          {customer.name}
+        </Link>
+      </td>
       <td className={`${TD} text-muted-foreground`}>{customer.email}</td>
       <td className={`${TD} text-muted-foreground`}>{customer.phone ?? '—'}</td>
       <td className={TD}>

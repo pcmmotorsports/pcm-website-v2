@@ -4,25 +4,26 @@
 ## 當前狀態
 **Phase:** Phase 1 / **Milestone:** **M-4a 後台第一期**(訂單+客戶+SSO;admin.pcmmotorsports.com LIVE)進行中。
 **M-4a V 線 ✅ 全收工上 production**(V-1~V-3b:購物車/PDP 選車 §7 保守適用比對 + order_items.vehicle_snapshot 持久化硬閘〔create_order RPC 相鄰〕+ admin 訂單列表車款欄直出 + taxonomy 車款節點 NFKC 統一;三模型鏈 Codex 寫→Opus 審+prod 交易模擬→Fable 終審)。連帶 **P4+S4 目錄年份卡片 + priceMax=0 修**隨本次 FF 一併上線=/products preview gate 已解除(剩 Sean 正式站肉眼驗)。前一主線 **M-3 結帳 3DS 重設計整線 ✅ 全落地**(flag 全 false、🔴 prod checkout 仍不可開=真刷卡待 sandbox 3DS E2E + Sean 驗收)。V 線逐片流水+M-3 巨段已歸 PROGRESS.md。
-**下一階段=M-4a 第一期收口**:①客戶線(admin 客戶 tab + tier 編輯高風險片)②Email 通知片 ③最新商品;優先序待 Sean 拍(候選+分工模型見 `docs/handoff/2026-07-16-m4a-vline-close-next-phase-kickoff.md` §3/§5)。
+**下一階段=M-4a 第一期收口(Sean 07-16 拍優先序:①客戶線→②Email→③最新商品、④小件穿插)**。客戶線進行中:列表(唯讀)先前已上線;**當前 slice=客戶明細-a ✅ 本 commit**(基本資料+儲值金餘額/流水,唯讀;🔴 Sean 07-16 拍板 admin 後台顯示儲值金=override 05-31 前台 hold、範圍僅 admin、memory 已記;code-reviewer R1 FAIL 1 must-fix docstring→修→R2 PASS)。拆片續行=明細-b(訂單歷史+地址+車庫)→儲值金編輯(🔴 高風險=ledger entry 寫入、plan 關卡1)→tier 編輯(🔴 高風險件#3、plan 關卡1)。
 **Branch:** dev
 
 ## 最後更新
+2026-07-16 — Claude Code session(**M-4a 客戶明細-a**〔客戶線第 2 片、唯讀〕:新 `/customers/[id]` 明細頁=基本資料(email/電話/生日/tier/註冊日)+儲值金(餘額/累積+流水表);組合既有 service_role adapter(`findById`+`SupabaseWalletAdapter.listEntries` 雙槽注 service_role、零 domain/port/adapter 改動);鏡像 orders/[id] 慣例=UUID 守門不打 DB/allSettled 分開容錯/loadFailed 200/查無 404/流水失敗誠實錯誤態;列表姓名連結明細。🔴 儲值金顯示=Sean 07-16 拍板 admin 後台可顯(override 05-31 前台 hold、範圍僅 admin、memory `project_wallet-deposit-taiwan-legal-hold` 已記 override;本片唯讀零寫入、addEntry 零呼叫點 grep 驗);鐵則 12 不觸發理由=唯讀顯示、零 schema/RPC/GRANT、無 pricing 運算、customers/ledger 表無成本欄。+7 測(UUID 守門/類型標籤/金額格式);三綠+full vitest 216 檔 2311 綠+build admin;code-reviewer R1 FAIL〔1 must-fix=repository docstring 字面失效〕→修→R2 PASS。未 push〔done 單丟 review-inbox 等值班台代推〕、無 migration。)
 2026-07-16 — M-4a V 線全收工上 production(執行 session + 值班審查台收尾):V-3a order_items.vehicle_snapshot 持久化硬閘(DB `20260716180000`+`190000` 6v 白名單逐 kind 隔離、不擋單)+ V-3b admin 列表車款欄 + create_order 車款欄型別閘強化(`20260716200000`)+ taxonomy NFKC 識別。審驗鏈=Codex 寫→Opus 審+prod 庫交易模擬 9 攻擊樣本零留痕→Fable 終審 PASS 0 must-fix→Sean db push 全 apply+真機驗→`dev:main` FF 上正式站。**dev=origin/dev=origin/main=`b6c97fd`、DB 至 `20260716200000`(全 apply)、零待推零待審**。V 線逐片原文=PROGRESS.md「2026-07-16 增補歸檔」。
 
 ## 最近 3 commit
-> dev。🚀 origin/main = `b6c97fd` production(dev=main 對齊、零待推)。
+> dev。本 commit 見「最後更新」;下表列 3 個已可達前序 commit。🚀 origin/main = `b6c97fd` production。
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `6c34037` | docs(docs): 重寫 STATUS 主表 7 欄對齊 V 線收工上 production [m-4a] | 2026-07-16 |
 | `b6c97fd` | fix(storefront): 統一 taxonomy 車款節點 NFKC 識別 [m-4a] | 2026-07-16 |
 | `cd79939` | fix(medusa): 強化 create_order 車款欄位型別閘 [m-4a] | 2026-07-16 |
-| `69de8e7` | feat(admin): V-3b 訂單列表車款欄 vehicle_snapshot 直出 [m-4a] | 2026-07-16 |
 
 ## 下一步
-**M-4a 第一期收口(優先序待 Sean 拍;值班台推薦 1→2→3,4 穿插)**:①**客戶線**=admin 客戶 tab + tier 編輯(🔴 高風險件#3=service_role 寫 customers.tier+稽核+step-up、鐵則 8→先偵察 pass 再提 plan 過值班台關卡1;tier 後台寫不需 #215 前置=07-13 分析);拆片 客戶列表〔唯讀〕→客戶明細→tier 編輯〔硬閘單獨一片〕。②**Email 通知片**=下單成功+出貨(outbox 表+sweep cron+Resend 復用;plan=`docs/handoff/2026-07-13-email-notification-slice-plan.md`;🔴 動工前先給 Sean 決策題「觸發點碰不碰金流 RPC」)。③**最新商品**(storefront 例行 UI)。④小件穿插=Q3d 佔位圖/Q3a 佔位頁/Q3e 結帳內嵌地址。獨立線(未排):搜尋 S2 lightech #275→S3 MVP;M-3 真刷卡 gate。M-4a 收尾後開 Sean 交代「流程再優化」正式題。
+**M-4a 第一期收口(Sean 07-16 拍:①客戶線→②Email→③最新商品、④小件穿插)**:①**客戶線**進行中——列表 ✅(先前已上線)→ **明細-a ✅ 本 commit**(基本資料+儲值金顯示)→ **明細-b**(訂單歷史 `listSummariesByCustomer` 既有 method+地址+車庫,唯讀例行)→ **儲值金編輯**(🔴 高風險=動錢;加值/扣款走 ledger entry insert〔金額整數、CHECK 守號、trigger 同步餘額、禁裸覆寫〕;先 plan 過值班台關卡1)→ **tier 編輯**(🔴 高風險件#3=service_role 寫 customers.tier+audit+step-up、鐵則 8;偵察已完=audit_log migration 20260712210000 apply 狀態待驗/actor 現為過渡 cookie 待接真 SSO session/step-up 門檻待拍,plan 時逐項處理;tier 後台寫不需 #215 前置=07-13 分析)。②**Email 通知片**(plan=`docs/handoff/2026-07-13-email-notification-slice-plan.md`;🔴 動工前先給 Sean 決策題「觸發點碰不碰金流 RPC」)。③**最新商品**(storefront 例行 UI)。④小件穿插=Q3d 佔位圖/Q3a 佔位頁/Q3e 結帳內嵌地址。獨立線(未排):搜尋 S2 lightech #275→S3 MVP;M-3 真刷卡 gate。M-4a 收尾後開 Sean 交代「流程再優化」正式題。
 
 ## Sean 待決策
-①**下一階段優先序**(kickoff §3 標號 1-6;值班台推薦 1→2→3 收 M-4a 第一期、4 穿插)。②**Email 片觸發點碰不碰金流 RPC**(plan 內建議=outbox 不進訂單交易、不碰 create_order;動 Email 片前拍)。③(非阻擋)車款搜尋繼承件卡片是否併 inherited 年份=R3、日後另議。
+①**Email 片觸發點碰不碰金流 RPC**(plan 內建議=outbox 不進訂單交易、不碰 create_order;動 Email 片前拍)。②(到 tier 編輯片時拍)step-up 二次驗證門檻(auth_time 多久算近期+過期 re-auth 動線)。③(非阻擋)車款搜尋繼承件卡片是否併 inherited 年份=R3、日後另議。
 
 ## Blocker
 **🔴 0072 雙扣待 Sean W1 退款**(open):PCM-2026-0072 舊+0073 新各 17,300、W1 報表已偵測為 open anomaly→Sean 依 runbook(claim→TapPay Dashboard 退舊→resolve);非程式 blocker。
