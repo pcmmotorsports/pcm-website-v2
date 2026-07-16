@@ -11,6 +11,7 @@ import type {
   PaymentChannel,
   MemberTier,
   OrderStatusOption,
+  OrderItemVehicleSnapshot,
 } from '@pcm/domain';
 import { WORKFLOW_STATUS_CODE_RE } from '@pcm/domain';
 import {
@@ -278,4 +279,16 @@ export function formatOrderDate(iso: string): string {
 /** 金額顯示:orders 金額為 integer 元位(非分;migration 20260604120000 註解「金額一律 integer 元位」)→ 千分位。 */
 export function formatOrderAmount(amount: number): string {
   return amount.toLocaleString('en-US');
+}
+
+/**
+ * 車款快照 → 列表顯示字面(V-3b「年份廠牌車種」欄;order_items.vehicle_snapshot 直出)。
+ * dict=「年 品牌 車型」/ free=「年 自由輸入」;NULL(未帶車款)→ null,顯示端兜「—」。純顯示無價/tier 面。
+ */
+export function formatOrderItemVehicle(vehicle: OrderItemVehicleSnapshot | null): string | null {
+  if (vehicle === null) return null;
+  if (vehicle.kind === 'dict') {
+    return [vehicle.year, vehicle.brand, vehicle.model].filter(Boolean).join(' ');
+  }
+  return [vehicle.year, vehicle.raw].filter(Boolean).join(' ');
 }

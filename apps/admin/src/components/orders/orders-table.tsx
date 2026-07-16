@@ -6,6 +6,7 @@ import {
   MEMBER_TIER_LABEL,
   formatOrderAmount,
   formatOrderDate,
+  formatOrderItemVehicle,
   indexOrderStatusOptions,
   summarizeOrderItemWorkflow,
   workflowStatusBadge,
@@ -22,7 +23,8 @@ import { WorkflowStatusBadge } from './workflow-status-badge';
 // 🔴 鐵則 12:單價 / 總金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進
 //   client bundle;SSO 閘後 admin-only。唯一 client 元件=狀態欄 WorkflowStatusSelect(帶色下拉、
 //   只收 code/label/色值策展資料;寫入仍 <form action={serverAction}>)。
-// 「年份廠牌車種」欄 = V-3(order_items.vehicle_snapshot)落地才點亮,D-1a 期間不出欄。
+// V-3b:「年份廠牌車種」欄已點亮 = order_items.vehicle_snapshot(V-3a 落 prod)逐品項直出、
+//   formatOrderItemVehicle 顯示(dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
@@ -100,6 +102,10 @@ function OrderGroup({
           <td className={TD}>{line?.brand ?? '—'}</td>
           <td className={`${TD} font-mono text-xs`}>{line?.variantSku ?? '—'}</td>
           <td className={TD}>{line?.title ?? '—'}</td>
+          {/* V-3b:年份廠牌車種(order_items.vehicle_snapshot 直出;未帶車款/佔位列→「—」) */}
+          <td className={`${TD} text-muted-foreground text-xs`}>
+            {(line && formatOrderItemVehicle(line.vehicle)) || '—'}
+          </td>
           <td className={`${TD} text-right tabular-nums`}>{line ? line.quantity : '—'}</td>
           <td className={`${TD} text-right tabular-nums`}>
             {line ? `NT$ ${formatOrderAmount(line.unitPrice.amount)}` : '—'}
@@ -177,6 +183,7 @@ export function OrdersTable({
             <th className={TH}>商品品牌</th>
             <th className={TH}>料號</th>
             <th className={TH}>物品名稱</th>
+            <th className={TH}>年份廠牌車種</th>
             <th className={`${TH} text-right`}>數量</th>
             <th className={`${TH} text-right`}>單價</th>
             <th className={`${TH} text-right`}>總金額</th>

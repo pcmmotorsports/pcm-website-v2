@@ -253,7 +253,21 @@ export type AdminOrderLine = {
   workflowStatus: string | null;
   /** 樂觀鎖版本(M-4a D-2;per-item 改狀態表單 hidden 帶此值當 WHERE version 條件)。 */
   version: number;
+  /**
+   * 該品項「給哪台車用」快照(M-4a V-3b、order_items.vehicle_snapshot;client 下單凍結、admin 列表直出)。
+   * NULL=下單未帶車款。🔴 純顯示 metadata、無價/tier 面;mapper 防禦解析壞形狀 → null。
+   */
+  vehicle: OrderItemVehicleSnapshot | null;
 };
+
+/**
+ * OrderItemVehicleSnapshot: order_items.vehicle_snapshot 讀模型(M-4a V-3b;admin 列表車款欄直出)。
+ * 形狀鏡像 PlaceOrderVehicle(create_order 白名單寫入);read 端 `source` 放寬為 string(相容凍結快照/
+ * 舊資料多來源);缺/壞形狀 → null(mapper parseVehicleSnapshot 防禦解析、不炸頁)。
+ */
+export type OrderItemVehicleSnapshot =
+  | { kind: 'dict'; brand: string; model: string; year?: number; source: string }
+  | { kind: 'free'; raw: string; year?: number; source: string };
 
 /**
  * AdminOrderSummary: 後台訂單列表摘要投影(admin read-model、server 分頁)。

@@ -346,8 +346,8 @@ export type Database = {
         Relationships: []
       }
       order_items: {
-        // ⚠️ workflow_status / version / updated_at 手動先行加入(migration 20260716120000 尚未 apply;
-        //    Sean db push 後重 gen 應與此一致)。
+        // ⚠️ workflow_status / version / updated_at(migration 20260716120000)+ vehicle_snapshot
+        //    (V-3a migration 20260716180000、已 apply prod)手動加入;Sean 重 gen types 應與此一致。
         Row: {
           availability_at_checkout: string | null
           id: string
@@ -359,6 +359,7 @@ export type Database = {
           updated_at: string
           variant_id: string | null
           variant_sku: string
+          vehicle_snapshot: Json | null
           version: number
           workflow_status: string | null
         }
@@ -373,6 +374,7 @@ export type Database = {
           updated_at?: string
           variant_id?: string | null
           variant_sku: string
+          vehicle_snapshot?: Json | null
           version?: number
           workflow_status?: string | null
         }
@@ -387,6 +389,7 @@ export type Database = {
           updated_at?: string
           variant_id?: string | null
           variant_sku?: string
+          vehicle_snapshot?: Json | null
           version?: number
           workflow_status?: string | null
         }

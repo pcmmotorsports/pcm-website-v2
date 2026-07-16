@@ -9,6 +9,7 @@ import {
   buildOrderListHref,
   formatOrderDate,
   formatOrderAmount,
+  formatOrderItemVehicle,
   ORDERS_PAGE_SIZE,
   PAYMENT_STATUS_LABEL,
   FULFILLMENT_STATUS_LABEL,
@@ -270,5 +271,26 @@ describe('summarizeOrderItemWorkflow — 整單狀態彙總', () => {
 
   it('空陣列(理論不發生)→ uniform null 兜底', () => {
     expect(summarizeOrderItemWorkflow([])).toEqual({ kind: 'uniform', code: null });
+  });
+});
+
+describe('formatOrderItemVehicle（V-3b 年份廠牌車種欄）', () => {
+  it('dict → 「年 品牌 車型」', () => {
+    expect(formatOrderItemVehicle({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' }))
+      .toBe('2021 Yamaha MT-09 SP');
+  });
+
+  it('dict 無年份 → 「品牌 車型」', () => {
+    expect(formatOrderItemVehicle({ kind: 'dict', brand: 'Honda', model: 'CB650R', source: 'garage' }))
+      .toBe('Honda CB650R');
+  });
+
+  it('free → 「年 raw」', () => {
+    expect(formatOrderItemVehicle({ kind: 'free', raw: '我的老車', year: 2005, source: 'freetext' }))
+      .toBe('2005 我的老車');
+  });
+
+  it('null(未帶車款)→ null(顯示端兜「—」)', () => {
+    expect(formatOrderItemVehicle(null)).toBeNull();
   });
 });

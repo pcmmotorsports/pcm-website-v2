@@ -3,7 +3,9 @@ import type { PlaceOrderInput } from '@pcm/domain';
 import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
+  mapSupabaseAdminOrderRowToSummary,
   type SupabaseOrderListRow,
+  type SupabaseAdminOrderRow,
 } from './order';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
@@ -173,5 +175,87 @@ describe('mapSupabaseOrderRowToListItem(讀路徑摘要投影)', () => {
 
   it('0-item(空 array)→ itemCount=0(防禦 case)', () => {
     expect(mapSupabaseOrderRowToListItem(listRow({ order_items: [] })).itemCount).toBe(0);
+  });
+});
+
+// ── V-3b:admin 摘要 order_items.vehicle_snapshot 防禦解析 → AdminOrderLine.vehicle ──
+
+type AdminItemEmbed = SupabaseAdminOrderRow['order_items'] extends (infer E)[] | null ? E : never;
+
+function adminItem(over: Partial<AdminItemEmbed> = {}): AdminItemEmbed {
+  return {
+    id: 'oi-1',
+    variant_sku: 'DCC01-G-F',
+    quantity: 1,
+    unit_price: 100,
+    line_total: 100,
+    product_snapshot: { title: '碳纖護蓋' },
+    workflow_status: null,
+    version: 1,
+    vehicle_snapshot: null,
+    product_variants: null,
+    ...over,
+  } as AdminItemEmbed;
+}
+
+function adminRow(item: AdminItemEmbed): SupabaseAdminOrderRow {
+  return {
+    id: 'o-1',
+    display_id: 'PCM-2026-0001',
+    created_at: '2026-07-16T00:00:00Z',
+    payment_status: 'unpaid',
+    fulfillment_status: 'notOrdered',
+    total: 100,
+    order_source: 'web',
+    payment_channel: 'none',
+    display_position: null,
+    cancelled_at: null,
+    tier_at_checkout: 'general',
+    customers: null,
+    order_items: [item],
+  } as SupabaseAdminOrderRow;
+}
+
+const vehOf = (snap: unknown) =>
+  mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({ vehicle_snapshot: snap as AdminItemEmbed['vehicle_snapshot'] }))).lines[0]!.vehicle;
+
+describe('mapSupabaseAdminOrderRowToSummary — V-3b vehicle_snapshot 解析', () => {
+  it('dict 快照 → 逐欄解析(year/source 保留)', () => {
+    expect(vehOf({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' })).toEqual({
+      kind: 'dict',
+      brand: 'Yamaha',
+      model: 'MT-09 SP',
+      year: 2021,
+      source: 'search',
+    });
+  });
+
+  it('free 快照(無 year)→ 解析、year 不外送', () => {
+    expect(vehOf({ kind: 'free', raw: '阿嬤的野狼', source: 'freetext' })).toEqual({
+      kind: 'free',
+      raw: '阿嬤的野狼',
+      source: 'freetext',
+    });
+  });
+
+  it('null(未帶車款)→ null', () => {
+    expect(vehOf(null)).toBeNull();
+  });
+
+  it('壞形狀 dict 缺 brand → null(防禦、不炸頁)', () => {
+    expect(vehOf({ kind: 'dict', model: 'X', source: 's' })).toBeNull();
+  });
+
+  it('未知 kind → null', () => {
+    expect(vehOf({ kind: 'bus', foo: 1 })).toBeNull();
+  });
+
+  it('year 非整數 → 略去 year 欄(仍解析出車款)', () => {
+    expect(vehOf({ kind: 'dict', brand: 'Honda', model: 'CB650R', year: 'abc', source: 'garage' })).toEqual({
+      kind: 'dict',
+      brand: 'Honda',
+      model: 'CB650R',
+      source: 'garage',
+    });
   });
 });

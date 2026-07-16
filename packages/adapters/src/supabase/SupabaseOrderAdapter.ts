@@ -57,7 +57,7 @@ export const ORDER_LIST_SELECT =
  * module-level `export const` → 測試 byte-equal + forbidden-token + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, product_variants(products(brands(name))))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))))';
 
 /**
  * admin orders 列表投影 — **item 狀態篩選版**(M-4a D-2;僅 `filter.workflowStatus` 有值時使用)。

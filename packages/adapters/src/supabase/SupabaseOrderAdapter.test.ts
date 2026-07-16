@@ -231,9 +231,9 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 }
 
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, product_variants(products(brands(name))))',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))))',
     );
   });
 
@@ -306,6 +306,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               product_snapshot: { sku: 'BMS-13OEM-G-F', title: '下導流' },
               workflow_status: 'received_confirmed', // D-2 per-item 真相
               version: 3,
+              vehicle_snapshot: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' }, // V-3b
               product_variants: { products: { brands: { name: 'Bonamici' } } }, // variant→product→brand
             },
             {
@@ -317,6 +318,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               product_snapshot: { sku: 'SUP-ONLY-SKU', title: '螺絲包' },
               workflow_status: null, // 未設定
               version: 1,
+              vehicle_snapshot: null, // V-3b:未帶車款
               product_variants: null, // variant_id null(supplier_slug+sku 型)→ brand null 容缺
             },
           ],
@@ -380,6 +382,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               lineTotal: { amount: 5000, currency: 'TWD' },
               workflowStatus: 'received_confirmed',
               version: 3,
+              vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' },
             },
             {
               id: 'oi-2',
@@ -391,6 +394,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               lineTotal: { amount: 200, currency: 'TWD' },
               workflowStatus: null,
               version: 1,
+              vehicle: null,
             },
           ],
         },

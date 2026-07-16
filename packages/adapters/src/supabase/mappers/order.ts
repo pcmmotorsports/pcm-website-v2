@@ -8,6 +8,7 @@ import type {
   AdminOrderDetailItem,
   AdminOrderLine,
   AdminOrderSummary,
+  OrderItemVehicleSnapshot,
   InvoiceStatus,
   OrderSource,
   PaymentChannel,
@@ -190,6 +191,7 @@ type AdminOrderListItemEmbed = Pick<
   | 'product_snapshot'
   | 'workflow_status'
   | 'version'
+  | 'vehicle_snapshot'
 > & {
   product_variants: { products: { brands: { name: string } | null } | null } | null;
 };
@@ -231,6 +233,26 @@ function customerNameFromEmbed(embed: SupabaseAdminOrderRow['customers']): strin
   return record?.name ?? null;
 }
 
+/**
+ * vehicle_snapshot jsonb 防禦解析 → OrderItemVehicleSnapshot(V-3b;壞形狀/缺/非法 → null,不炸頁)。
+ * dict 需 brand+model 非空;free 需 raw 非空;year 整數選填;source 放寬為 string(相容凍結快照多來源)。
+ */
+function parseVehicleSnapshot(raw: unknown): OrderItemVehicleSnapshot | null {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const year = typeof o.year === 'number' && Number.isInteger(o.year) ? o.year : undefined;
+  const source = typeof o.source === 'string' ? o.source : '';
+  if (o.kind === 'dict') {
+    if (typeof o.brand !== 'string' || o.brand === '' || typeof o.model !== 'string' || o.model === '') return null;
+    return { kind: 'dict', brand: o.brand, model: o.model, ...(year !== undefined ? { year } : {}), source };
+  }
+  if (o.kind === 'free') {
+    if (typeof o.raw !== 'string' || o.raw === '') return null;
+    return { kind: 'free', raw: o.raw, ...(year !== undefined ? { year } : {}), source };
+  }
+  return null;
+}
+
 /** order_items 內嵌 → domain AdminOrderLine:brand 走 variant→product→brand(任一層缺 → null);成交價整數 → Money。 */
 function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
   return {
@@ -243,6 +265,7 @@ function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
     lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
     workflowStatus: item.workflow_status, // M-4a D-2:per-item 真相;NULL=未設定
     version: item.version, // per-item 改狀態表單樂觀鎖
+    vehicle: parseVehicleSnapshot(item.vehicle_snapshot), // V-3b:車款快照直出(NULL=未帶;純顯示)
   };
 }
 
