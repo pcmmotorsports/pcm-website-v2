@@ -1,14 +1,12 @@
 'use server';
 
-import { cookies, headers } from 'next/headers';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 // 相對 import(非 @/):見 session/actor.ts 註解(vitest @ alias 指 storefront)。
-import { ADMIN_SESS_COOKIE, verifySession } from '../session/session';
-import { getSessionActor } from '../session/actor';
+import { authorizeAdminMutation } from '../session/authorize';
 import { getRequestId } from '../audit/context';
 import { getAdminOrderRepository } from './order-repository';
-import { isAllowedOrigin, parseWorkflowPatchForm, parseItemWorkflowForm } from './workflow-form';
+import { parseWorkflowPatchForm, parseItemWorkflowForm } from './workflow-form';
 
 // M-4a Slice C 後台改單 server action(D-2 起只映射 shipping_method / 發票紀錄三欄=4 欄;
 // workflow_status 寫入面移 item 層 updateOrderItemWorkflowAction,order 層 RPC 白名單已同步收窄
@@ -24,9 +22,6 @@ import { isAllowedOrigin, parseWorkflowPatchForm, parseItemWorkflowForm } from '
 //   ⑤ PRG:結果碼 → revalidate + redirect 帶固定 query(?r=saved/conflict/noop/invalid/denied/error);
 //      DB error 不外洩瀏覽器、server log 留 request_id;redirect 不包在吞它的 catch。
 
-const DEV_BYPASS =
-  process.env.NODE_ENV !== 'production' && process.env.ADMIN_DEV_BYPASS === '1';
-
 type ResultCode = 'saved' | 'conflict' | 'noop' | 'invalid' | 'denied' | 'error';
 
 /** 結果碼 → returnTo?r=<code>(PRG;returnTo 已由 parse 限定站內 /orders 路徑)。 */
@@ -35,22 +30,8 @@ function redirectWith(returnTo: string, code: ResultCode): never {
   redirect(`${returnTo}${sep}r=${code}`);
 }
 
-/**
- * 共用授權閘(①session 自驗 ②Origin fail-closed ③具名 actor;M-4a D-2 抽出、order/item 兩 action 共用)。
- * 任一失敗 → null(caller redirect denied;不以未知身分寫稽核)。
- */
-async function authorizeAdminMutation(): Promise<{
-  sid: string;
-  actorId: string;
-} | null> {
-  const [cookieStore, headerStore] = await Promise.all([cookies(), headers()]);
-  const session = await verifySession(cookieStore.get(ADMIN_SESS_COOKIE)?.value);
-  if (!session) return null;
-  if (!isAllowedOrigin(headerStore.get('origin'), { devBypass: DEV_BYPASS })) return null;
-  const actor = await getSessionActor();
-  if (!actor) return null;
-  return { sid: session.sid, actorId: actor.id };
-}
+// 共用授權閘 authorizeAdminMutation:M-4a 儲值金編輯片起搬至 ../session/authorize.ts
+// (orders / customers 兩域共用;行為零變更、原封搬移)。
 
 export async function updateOrderWorkflowAction(formData: FormData): Promise<void> {
   // ①②③ 授權閘(session/Origin/actor;共用 helper、語意同 Slice C 原三段)。

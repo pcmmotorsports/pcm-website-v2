@@ -7,6 +7,7 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
   conflict: { text: '這張單在你編輯期間被改過了,已重新載入最新狀態,請確認後再存一次。', tone: 'warn' },
   invalid: { text: '表單內容不正確,未儲存。', tone: 'warn' },
   denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
+  not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
   error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
 };
 

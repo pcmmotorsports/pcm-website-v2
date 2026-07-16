@@ -17,11 +17,12 @@ import {
   CustomerAddressesSection,
   CustomerVehiclesSection,
 } from './customer-detail-sections';
+import { WalletAdjustForm } from './wallet-adjust-form';
 
-// M-4a 客戶明細-a+b:基本資料 + 儲值金(餘額 + 流水)+ 訂單歷史 + 地址 + 車庫、server-render 唯讀。
+// M-4a 客戶明細-a+b+儲值金編輯:基本資料 + 儲值金(餘額 + 流水 + 調整表單)+ 訂單歷史 + 地址 + 車庫。
 // 🔴 PII 邊界:本頁顯示客人 email/電話/生日/地址/引擎號(admin-only、service_role、登入閘後);列表不帶。
-// 🔴 儲值金 = Sean 2026-07-16 拍板 admin 後台可顯示(override 05-31 前台 hold、範圍僅後台);
-//    「修改」= 後續高風險寫入片(ledger entry、plan 關卡1),本片唯讀零寫入路徑。
+// 🔴 儲值金 = Sean 2026-07-16 拍板 admin 後台可顯示+可調整(override 05-31 前台 hold、範圍僅後台);
+//    調整=WalletAdjustForm → admin_adjust_wallet owner RPC(plan 關卡1 PASS;ledger+audit 同交易)。
 // 🔴 零成本/經銷價欄(customers/ledger/OrderListItem 型別層皆無);tier=會員等級標籤、非價格。
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
@@ -129,6 +130,7 @@ export function CustomerDetail({
           <h2 className={CARD_TITLE}>儲值金</h2>
           <Field label='目前餘額' value={formatWalletBalance(customer.walletBalance)} />
           <Field label='累積儲值' value={formatWalletBalance(customer.totalDeposit)} />
+          <WalletAdjustForm customerId={customer.id} />
         </section>
       </div>
 

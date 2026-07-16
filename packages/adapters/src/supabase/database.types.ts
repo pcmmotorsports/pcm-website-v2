@@ -1472,6 +1472,18 @@ export type Database = {
         }
         Returns: string
       }
+      // ⚠️ 手動先行加入(migration 20260716210000 尚未 apply;Sean db push 後重 gen 應與此一致)。
+      admin_adjust_wallet: {
+        Args: {
+          p_customer_user_id: string
+          p_entry_type: string
+          p_amount: number
+          p_note: string
+          p_actor: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       begin_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
       catalog_brand_counts: {
         Args: never

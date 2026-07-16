@@ -16,8 +16,9 @@ import {
 import { getAdminOrderRepository } from '@/lib/orders/order-repository';
 import { isCustomerId } from '@/lib/customers/customer-detail-view';
 import { CustomerDetail } from '@/components/customers/customer-detail';
+import { ResultBanner } from '@/components/orders/result-banner';
 
-// M-4a 客戶明細-a+b:後台客戶明細頁(server component、唯讀;基本資料+儲值金+訂單歷史+地址+車庫)。
+// M-4a 客戶明細-a+b+儲值金編輯:後台客戶明細頁(server component;儲值金卡含調整表單、其餘唯讀)。
 // 🔴 PII:email/電話/生日/地址/引擎號只在本頁(service_role、登入閘後)。
 export const dynamic = 'force-dynamic';
 
@@ -36,10 +37,14 @@ function settle<T>(
 
 export default async function CustomerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = await params;
+  const rawSearch = await searchParams;
+  const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
   // id 形狀守門:非 UUID 直接 404、不打 DB(路由參數不透傳查詢;鏡像 orders/[id])。
   if (!isCustomerId(id)) {
     notFound();
@@ -74,6 +79,8 @@ export default async function CustomerDetailPage({
       >
         ← 返回客戶列表
       </Link>
+
+      <ResultBanner code={resultCode} />
 
       {customerResult.failed || customerResult.value === null ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

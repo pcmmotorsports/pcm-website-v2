@@ -28,15 +28,68 @@ export function getAdminCustomerRepository(): SupabaseCustomerAdapter {
  * 後台儲值金 repo 建構(M-4a 客戶明細-a;server-only)。
  *
  * SupabaseWalletAdapter 雙 client DI 原設計為 storefront(readClient=authenticated RLS own /
- * writeClient=service_role)。admin 端讀「任意客戶」流水 = 兩槽皆注 **service_role**
- * (BYPASSRLS 看全客人=後台預期、同 getAdminCustomerRepository 理由);本片唯讀、
- * 呼叫端只用 `listEntries`(儲值金「修改」= 後續高風險寫入片、走 plan 關卡1、不在此)。
+ * writeClient=service_role)。admin 端讀「任意客戶」流水 = read 槽注 **service_role**
+ * (BYPASSRLS 看全客人=後台預期、同 getAdminCustomerRepository 理由);呼叫端只用 `listEntries`。
+ *
+ * 🔴 write 槽=毒化 client(儲值金編輯片;明細-a reviewer 記的 poisoned-write-client 選項採用):
+ * admin 儲值金寫入唯一路 = `adjustCustomerWallet`(admin_adjust_wallet owner RPC、同交易寫 audit);
+ * `addEntry` 直插 ledger 會**繞過稽核** → write 槽注「碰即 throw」client,未來誤接立即爆、不靜默。
+ * (apps/admin 內 addEntry 0 呼叫點;全 repo 1 處=packages/use-cases/deposit-wallet.ts 未接線
+ * use-case、不經本 getter,不受影響。)
  *
  * (未在 vitest 覆蓋:同上檔頭理由——server-only 純 wiring。)
  */
 export function getAdminWalletRepository(): SupabaseWalletAdapter {
-  const client = createSupabaseServiceClient();
-  return new SupabaseWalletAdapter(client, client);
+  return new SupabaseWalletAdapter(createSupabaseServiceClient(), createPoisonedWalletWriteClient());
+}
+
+type WalletWriteClient = ConstructorParameters<typeof SupabaseWalletAdapter>[1];
+
+function createPoisonedWalletWriteClient(): WalletWriteClient {
+  return new Proxy({} as object, {
+    get(_target, prop) {
+      throw new Error(
+        `admin wallet write 槽已毒化(存取 ${String(prop)}):儲值金寫入唯一路=adjustCustomerWallet(admin_adjust_wallet RPC、同交易稽核);addEntry 直插=繞過 audit,禁用。`,
+      );
+    },
+  }) as WalletWriteClient;
+}
+
+/** RPC 業務結果碼(輸入非法/DB error=throw,由 caller 收斂固定碼)。 */
+export type AdminWalletAdjustResult = 'ADJUSTED' | 'NOT_FOUND';
+
+/**
+ * 儲值金調整(M-4a 儲值金編輯片;走 admin_adjust_wallet owner RPC〔20260716210000〕)。
+ *
+ * 🔴 唯一寫入路:RPC 內 ledger INSERT + admin_audit_log INSERT 同交易、餘額只走 DB trigger
+ * (函式體零 UPDATE customers=禁裸覆寫);EXECUTE 僅 service_role。
+ * signedAmount 已轉號(deposit=+n / use=-n;parseWalletAdjustForm 產出)。
+ * 回 'ADJUSTED'/'NOT_FOUND';error(輸入非法/DB)→ 裸 throw(caller server action 收斂固定碼)。
+ */
+export async function adjustCustomerWallet(args: {
+  customerId: string;
+  entryType: 'deposit' | 'use';
+  signedAmount: number;
+  note: string;
+  actor: string;
+  requestId: string;
+}): Promise<AdminWalletAdjustResult> {
+  const { data, error } = await createSupabaseServiceClient().rpc('admin_adjust_wallet', {
+    p_customer_user_id: args.customerId,
+    p_entry_type: args.entryType,
+    p_amount: args.signedAmount,
+    p_note: args.note,
+    p_actor: args.actor,
+    p_request_id: args.requestId,
+  });
+  if (error) {
+    throw error;
+  }
+  // RPC RETURNS text scalar → data 即 'ADJUSTED'/'NOT_FOUND';防腐壞收斂(鏡像 updateAdminOrderWorkflow)。
+  if (data === 'ADJUSTED' || data === 'NOT_FOUND') {
+    return data;
+  }
+  throw new Error('admin_adjust_wallet RPC 回傳非預期碼');
 }
 
 /**
