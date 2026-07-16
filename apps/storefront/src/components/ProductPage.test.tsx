@@ -45,8 +45,11 @@ afterEach(() => {
   mockReplace.mockReset();
   mockPush.mockReset();
   mockSearchParams = new URLSearchParams();
-  // 清掉 CartProvider 寫進 localStorage 的測試殘留、避免 test 之間互染
-  if (typeof window !== 'undefined') window.localStorage.clear();
+  // 清掉 CartProvider 寫進 localStorage 的測試殘留 + 選車 context 鏡、避免 test 之間互染
+  if (typeof window !== 'undefined') {
+    window.localStorage.clear();
+    window.sessionStorage.clear();
+  }
 });
 
 describe('ProductPage', () => {
@@ -386,5 +389,27 @@ describe('ProductPage', () => {
       '規格區',
       'FAQ N°04',
     );
+  });
+
+  it('V-2h/MF-4:手機 sticky buybar 加購亦帶車款(讀選車 context、與 ProductInfo 共用 readSearchVehicle)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog');
+    window.sessionStorage.setItem(
+      'pcm.vehicle.v1',
+      JSON.stringify({ brandId: 'yamaha', modelId: 'mt-09-sp', year: 2021, label: 'x', brandName: 'Yamaha', modelName: 'MT-09 SP', savedAt: 1 }),
+    );
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    const buybarCart = container.querySelector('.pd-mbb-cart') as HTMLButtonElement;
+    expect(buybarCart).toBeTruthy();
+    fireEvent.click(buybarCart);
+    const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
+    expect(items[0].vehicle).toEqual({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' });
+  });
+
+  it('V-2h/MF-4:buybar 無選車 context → item 不帶 vehicle(零猜、對照)', () => {
+    mockSearchParams = new URLSearchParams('from=catalog'); // 無 sessionStorage 選車鏡
+    const { container } = render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={[]} />);
+    fireEvent.click(container.querySelector('.pd-mbb-cart') as HTMLButtonElement);
+    const items = JSON.parse(window.localStorage.getItem('pcm-cart-mock-v2')!);
+    expect(items[0].vehicle).toBeUndefined();
   });
 });

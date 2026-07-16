@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { MemberTier } from '@pcm/domain';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { parseVehicleFromUrl } from '@/lib/vehicle-url';
+import { readSearchVehicle } from '@/lib/search-vehicle';
 import { useCart } from '@/contexts/CartContext';
 import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
@@ -129,10 +130,14 @@ export function ProductPage({
     //   OD-4a selectedVariant 已提升至 ProductPage、buybar 同步使用者選擇)。取代 M-1-16c-3 把 sku 塞 color
     //   的 hack + 原 product.color mock fallback(非 SKU、移除、留著反污染 line key)。無變體 → variantId
     //   undefined、line key 退回 productId。🔴 不送價(server 依 tier 取價、鐵則 12)。
+    // V-2h/MF-4:sticky buybar 加購亦帶車款(讀選車 context=與 ProductInfo.addToCart 共用 readSearchVehicle
+    //   單一來源;修「不同入口加購車款有無不一致」)。名稱不齊=零猜不帶。
+    const vehicle = readSearchVehicle();
     addItem({
       productId: product.slug,
       qty: 1,
       variantId: selectedVariant?.id,
+      ...(vehicle ? { vehicle } : {}),
     });
   };
 
