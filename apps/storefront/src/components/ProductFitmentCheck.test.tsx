@@ -124,4 +124,22 @@ describe('ProductFitmentCheck（§7）', () => {
     expect(ctx.brandName).toBe('YAMAHA');
     expect(ctx.modelName).toBeUndefined();
   });
+
+  // ── V-2h/MF-2:URL 車款三態 —— 'invalid'(參數在但對不到 taxonomy)不讀舊鏡、顯重新選車 ──
+
+  it('V-2h/MF-2:urlVehicle="invalid" → 不讀過期鏡、不顯舊車判定、顯重新選車入口 + 失效提示', () => {
+    setContext({ brandName: 'APRILIA', modelName: 'DORSODURO 750', year: 2015 }); // 過期鏡=舊車
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle="invalid" />);
+    expect(screen.queryByText(/DORSODURO 750/)).toBeNull(); // 舊車判定不出現(不讀過期鏡)
+    expect(screen.queryByText(/已記下你的車款/)).toBeNull(); // 亦無 undetermined 判定訊息
+    expect(screen.getByText('確認是否適用你的車')).toBeTruthy(); // 現選入口
+    expect(screen.getByText(/先前的車款連結已失效/)).toBeTruthy(); // 失效提示
+  });
+
+  it('V-2h/MF-2:urlVehicle=null(無參數)→ 照舊讀鏡顯車(對照:只 invalid 才不讀)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle={null} />);
+    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.queryByText(/先前的車款連結已失效/)).toBeNull(); // 無失效提示
+  });
 });

@@ -1933,6 +1933,8 @@
 .pfc-msg b { font-size: 14px; color: var(--c-text); font-weight: 600; }
 .pfc-sub { font-size: 12.5px; color: var(--c-text-2); }
 .pfc-sub a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+/* V-2h/MF-2:URL 車款失效提示(重新選車);間距與現選入口分隔、色維持 --c-text-2 不誤嚇 */
+.pfc-invalid { margin: 0 0 10px; }
 .pfc-link {
   flex: none;
   align-self: center;

@@ -28,7 +28,7 @@ import { HomeFooter } from './HomeFooter';
 import { ProductGallery } from './ProductGallery';
 import { ProductInfo } from './ProductInfo';
 import { ProductFitments } from './ProductFitments';
-import { ProductFitmentCheck, type PdpUrlVehicle } from './ProductFitmentCheck';
+import { ProductFitmentCheck, type PdpUrlVehicleState } from './ProductFitmentCheck';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { GarageChipItem } from './GarageChips';
 import { BrandShowcase } from './BrandShowcase';
@@ -55,8 +55,9 @@ export type ProductPageProps = {
   motoBrands?: MockMotoBrand[];
   /** V-2b:§7 愛車快選(登入會員;未登入/失敗/無 fitments=[])。 */
   garage?: GarageChipItem[];
-  /** V-2c:URL `?vehicle=` 解析後名稱字面(route 端 parseVehicleFromUrl);§7 優先於 context 鏡。 */
-  urlVehicle?: PdpUrlVehicle | null;
+  /** V-2c:URL `?vehicle=` 解析後名稱字面(route 端 parseVehicleFromUrl);§7 優先於 context 鏡。
+   *  V-2h/MF-2:'invalid'=參數在但對不到 taxonomy(不讀鏡、顯重新選車)。 */
+  urlVehicle?: PdpUrlVehicleState;
 };
 
 type Crumb = { label: string; href?: string; current?: boolean };

@@ -172,10 +172,13 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
         garage={garage}
         // V-2c:URL `?vehicle=` 第一真相下傳 §7(parsedVehicle=taxonomy 解析名稱字面;
         //   優先於 sessionStorage context 鏡、掛載回寫同步鏡=修「回上一頁換車後 PDP 顯舊車」)。
+        // V-2h/MF-2:三態 — 無參數=null(讀鏡)/ 參數在但對不到 taxonomy='invalid'(不讀鏡、顯重新選車)/ 已解析=物件。
         urlVehicle={
-          parsedVehicle
-            ? { brandName: parsedVehicle.brand, modelName: parsedVehicle.model, year: parsedVehicle.year }
-            : null
+          !hasVehicleParam
+            ? null
+            : parsedVehicle
+              ? { brandName: parsedVehicle.brand, modelName: parsedVehicle.model, year: parsedVehicle.year }
+              : 'invalid'
         }
       />
     </>

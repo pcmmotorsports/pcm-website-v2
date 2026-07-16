@@ -27,6 +27,14 @@ type Chosen = { brandName: string; modelName: string; year?: number };
 /** V-2c:URL `?vehicle=` 解析後的名稱字面(route 端 parseVehicleFromUrl 對照 taxonomy 解出)。 */
 export type PdpUrlVehicle = { brandName: string; modelName?: string; year?: number };
 
+/**
+ * V-2h/MF-2:URL 車款三態(修「URL 車款無法解析卻退回讀舊鏡、顯過期舊車判定」)。
+ * - `null`      無 `?vehicle=` 參數 → 照舊讀 context 鏡(絕大多數 PDP)。
+ * - `'invalid'` 參數在、但對不到 taxonomy(壞/過期連結、目錄已無此車)→ **不讀鏡**、顯「重新選車」入口。
+ * - `PdpUrlVehicle` 已解析(brand-only 亦算解析、走現選入口)。
+ */
+export type PdpUrlVehicleState = PdpUrlVehicle | 'invalid' | null;
+
 function toCheckVehicle(c: Chosen): FitmentCheckVehicle {
   // V-2h/MF-1:比對吃名稱字面(NFKC 精確、廢 slugify 橋接);slug 仍用於 writeVehicleContext 的 URL/id 空間。
   return { kind: 'dict', brandName: c.brandName, modelName: c.modelName, year: c.year };
@@ -44,14 +52,20 @@ export function ProductFitmentCheck({
   fitments: UIFitment[];
   motoBrands: MockMotoBrand[];
   garage?: GarageChipItem[];
-  /** V-2c:URL `?vehicle=` 恆為第一真相 — 有值時優先於 context 鏡、掛載即回寫同步鏡。 */
-  urlVehicle?: PdpUrlVehicle | null;
+  /** V-2c:URL `?vehicle=` 恆為第一真相 — 有值時優先於 context 鏡、掛載即回寫同步鏡。
+   *  V-2h/MF-2:三態(見 PdpUrlVehicleState)—'invalid' 表參數在但對不到 taxonomy。 */
+  urlVehicle?: PdpUrlVehicleState;
 }) {
+  // V-2h/MF-2:URL 車款三態拆解 — 'invalid'(參數在、對不到)與 null(無參數)行為不同。
+  const urlInvalid = urlVehicle === 'invalid';
+  const urlResolved: PdpUrlVehicle | null = urlVehicle && urlVehicle !== 'invalid' ? urlVehicle : null;
+
   // V-2c:初始 chosen 優先序=URL vehicle > context 鏡(useState initializer 讀 prop、SSR 同繪零分歧;
   // 鏡只能在 client effect 讀)。URL 車款名稱齊(brand+model)才可判定;brand-only 走現選入口。
+  // MF-2:'invalid' → urlResolved=null → 初始無 chosen(不讀鏡=不顯過期舊車)。
   const [chosen, setChosen] = useState<Chosen | null>(() =>
-    urlVehicle?.modelName
-      ? { brandName: urlVehicle.brandName, modelName: urlVehicle.modelName, year: urlVehicle.year }
+    urlResolved?.modelName
+      ? { brandName: urlResolved.brandName, modelName: urlResolved.modelName, year: urlResolved.year }
       : null,
   );
   const [editing, setEditing] = useState(false);
@@ -69,14 +83,16 @@ export function ProductFitmentCheck({
   // mount-only:urlVehicle 為 server 每繪新物件,若列 deps、重繪會把使用者「更改車款」後的選擇/鏡
   // 蓋回 URL 車款(鏡與 banner 分家)→ 依 react-nextjs-rules.md mount-only 合法寫法 disable。
   useEffect(() => {
-    if (urlVehicle) {
+    // MF-2:URL 車款無法解析('invalid')→ 不讀鏡、不寫鏡(避免顯過期舊車判定);chosen 留 null=現選入口。
+    if (urlInvalid) return;
+    if (urlResolved) {
       writeVehicleContext({
-        brandId: slugify(urlVehicle.brandName),
-        modelId: urlVehicle.modelName ? slugify(urlVehicle.modelName) : undefined,
-        year: urlVehicle.year,
-        label: [urlVehicle.brandName, urlVehicle.modelName, urlVehicle.year].filter(Boolean).join(' '),
-        brandName: urlVehicle.brandName,
-        modelName: urlVehicle.modelName,
+        brandId: slugify(urlResolved.brandName),
+        modelId: urlResolved.modelName ? slugify(urlResolved.modelName) : undefined,
+        year: urlResolved.year,
+        label: [urlResolved.brandName, urlResolved.modelName, urlResolved.year].filter(Boolean).join(' '),
+        brandName: urlResolved.brandName,
+        modelName: urlResolved.modelName,
       });
       return;
     }
@@ -150,6 +166,10 @@ export function ProductFitmentCheck({
       ) : (
         <div className={`pfc-picker${pickerOpen ? ' pfc-picker-open' : ''}`}>
           <div className="pfc-picker-label">確認是否適用你的車</div>
+          {/* MF-2:URL 車款對不到 taxonomy(壞/過期連結)→ 提示重新選車、不顯任何過期舊車判定 */}
+          {urlInvalid && (
+            <p className="pfc-sub pfc-invalid" role="status">先前的車款連結已失效,請重新選擇你的車。</p>
+          )}
           {garage.length > 0 && (
             <div className="pfc-garage">
               <span className="pfc-garage-label">我的愛車</span>
