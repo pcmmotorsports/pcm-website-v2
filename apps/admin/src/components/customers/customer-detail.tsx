@@ -1,4 +1,10 @@
-import type { Customer, WalletLedgerEntry } from '@pcm/domain';
+import type {
+  Customer,
+  CustomerAddress,
+  CustomerVehicle,
+  OrderListItem,
+  WalletLedgerEntry,
+} from '@pcm/domain';
 import Link from 'next/link';
 import { TIER_LABEL, formatCustomerDate } from '../../lib/customers/customer-list-view';
 import {
@@ -6,13 +12,17 @@ import {
   formatWalletEntryAmount,
   formatWalletBalance,
 } from '../../lib/customers/customer-detail-view';
+import {
+  CustomerOrdersSection,
+  CustomerAddressesSection,
+  CustomerVehiclesSection,
+} from './customer-detail-sections';
 
-// M-4a 客戶明細-a:基本資料 + 儲值金(餘額 + 流水)、server-render 唯讀。
-// 🔴 PII 邊界:本頁顯示客人 email/電話/生日(admin-only、service_role、登入閘後);列表不帶生日。
+// M-4a 客戶明細-a+b:基本資料 + 儲值金(餘額 + 流水)+ 訂單歷史 + 地址 + 車庫、server-render 唯讀。
+// 🔴 PII 邊界:本頁顯示客人 email/電話/生日/地址/引擎號(admin-only、service_role、登入閘後);列表不帶。
 // 🔴 儲值金 = Sean 2026-07-16 拍板 admin 後台可顯示(override 05-31 前台 hold、範圍僅後台);
 //    「修改」= 後續高風險寫入片(ledger entry、plan 關卡1),本片唯讀零寫入路徑。
-// 🔴 零成本/經銷價欄(customers/ledger 表本身無);tier=會員等級標籤、非價格。
-// 訂單歷史/地址/車庫 = 明細-b(下一片)。
+// 🔴 零成本/經銷價欄(customers/ledger/OrderListItem 型別層皆無);tier=會員等級標籤、非價格。
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
@@ -78,11 +88,23 @@ export function CustomerDetail({
   customer,
   walletEntries,
   walletLoadFailed,
+  orders,
+  ordersLoadFailed,
+  addresses,
+  addressesLoadFailed,
+  vehicles,
+  vehiclesLoadFailed,
 }: {
   customer: Customer;
   walletEntries: WalletLedgerEntry[];
-  /** 流水載入失敗(基本資料仍可看;誠實顯示錯誤態、不顯空清單假象)。 */
+  /** 各區塊載入失敗旗標(基本資料仍可看;誠實顯示錯誤態、不顯空清單假象)。 */
   walletLoadFailed: boolean;
+  orders: OrderListItem[];
+  ordersLoadFailed: boolean;
+  addresses: CustomerAddress[];
+  addressesLoadFailed: boolean;
+  vehicles: CustomerVehicle[];
+  vehiclesLoadFailed: boolean;
 }) {
   return (
     <div className='space-y-4'>
@@ -120,6 +142,13 @@ export function CustomerDetail({
           <WalletLedgerTable entries={walletEntries} />
         )}
       </section>
+
+      <CustomerOrdersSection orders={orders} loadFailed={ordersLoadFailed} />
+
+      <div className='grid gap-4 md:grid-cols-2'>
+        <CustomerAddressesSection addresses={addresses} loadFailed={addressesLoadFailed} />
+        <CustomerVehiclesSection vehicles={vehicles} loadFailed={vehiclesLoadFailed} />
+      </div>
     </div>
   );
 }

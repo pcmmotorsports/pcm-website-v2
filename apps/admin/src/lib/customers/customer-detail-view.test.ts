@@ -2,10 +2,11 @@
 // isCustomerId 形狀守門 / 儲值金類型標籤覆蓋 / 金額格式化(signed 流水 + 餘額)。
 
 import { describe, it, expect } from 'vitest';
-import type { WalletEntryType } from '@pcm/domain';
+import type { InvoiceType, WalletEntryType } from '@pcm/domain';
 import {
   isCustomerId,
   WALLET_ENTRY_LABEL,
+  ADDRESS_INVOICE_LABEL,
   formatWalletEntryAmount,
   formatWalletBalance,
 } from './customer-detail-view';
@@ -31,6 +32,13 @@ describe('WALLET_ENTRY_LABEL', () => {
   it('三值全覆蓋、字面對齊 domain WalletEntryType 語意(儲值/消費折抵/退款返還)', () => {
     const all: WalletEntryType[] = ['deposit', 'use', 'refund'];
     expect(all.map((t) => WALLET_ENTRY_LABEL[t])).toEqual(['儲值', '消費折抵', '退款返還']);
+  });
+});
+
+describe('ADDRESS_INVOICE_LABEL', () => {
+  it('三值全覆蓋、字面對齊 domain InvoiceType 語意(個人/公司/捐贈)', () => {
+    const all: InvoiceType[] = ['personal', 'company', 'donate'];
+    expect(all.map((t) => ADDRESS_INVOICE_LABEL[t])).toEqual(['個人', '公司', '捐贈']);
   });
 });
 

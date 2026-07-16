@@ -13,8 +13,10 @@ import type { AuditLogInserter } from '../audit/repository';
  *
  * 🔴 server-only:本檔頂層 `import 'server-only'` + createSupabaseServiceClient 亦 server-only,client component
  * import 即編譯期報錯;service_role 金鑰只在 server runtime 讀、不進 client bundle / git。
- * 🔴 只暴露列表所需:回傳 SupabaseOrderAdapter 實例,呼叫端(server component)僅用 `listOrderSummariesForAdmin`
- * (具名白名單投影、零成本欄)。建單 / 付款相關方法不在後台列表路徑使用。
+ * 🔴 只暴露唯讀摘要:回傳 SupabaseOrderAdapter 實例,呼叫端(server component)用 `listOrderSummariesForAdmin`
+ * (訂單列表)、`findAdminOrderDetail`(明細)、`listSummariesByCustomer`(客戶明細-b 訂單歷史;
+ * ⚠️ 沿用 #249 隱含濾 unpaid、揭示見 backlog #278)——皆具名白名單投影、零成本欄。
+ * 建單 / 付款相關方法不在後台路徑使用。
  *
  * (未在 vitest 覆蓋:本檔 import server-only〔node/測試環境會 throw〕;純 wiring、行為由 adapter 單測 + 頁面實測驗。)
  */

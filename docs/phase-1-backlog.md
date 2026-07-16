@@ -6890,6 +6890,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
+### #278. 🧾 admin 客戶明細「訂單歷史」沿用 #249 濾 unpaid(待付款單在客戶頁查無)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 客戶明細-b 訂單歷史復用 storefront 的 `listSummariesByCustomer`(`SupabaseOrderAdapter.ts:190` 隱含 `.neq('payment_status','unpaid')`=#249 治標、會員視角藏放棄付款孤兒單)。後台客戶明細因此**看不到該客的待付款單**(含 late-success 扣款爭議單=🔴 memory 明載必須查得到的類型),但 admin `/orders` 列表有「待付款」篩選看得到同一單 → 兩後台頁互相矛盾。
+- **觸發事件:**
+  - 2026-07-16 客戶明細-b code-reviewer R1 must-fix 1(揭示即收、修法另片);本片已在 sections.tsx 註解 + commit body 揭示。
+- **預期解法:**
+  - admin 專用查法(新 port method 或參數化 includeUnpaid、白名單投影不變),客戶明細顯全量+「待付款」標示;不動 storefront 共用 method 語意。
+- **不修會痛在:**
+  - 可維護性:支援場景「這客人說被扣款但看不到單」在客戶頁查無、得繞去訂單列表換篩選,雙軌心智。
+  - bug 可追蹤性:金流爭議(雙扣/late-success)排查以客戶為錨最自然,此頁缺 unpaid=排查斷鏈。
+  - 擴充性:未來客戶頁掛「未完成結帳跟進」類營運功能時必回頭補這條。
+- **估時:** 20-30 分(port method + adapter + 頁面標示 + 測試)
+- **依賴:** 無(#249 治本=Shopify 付成才建單為 Phase 2、不互擋)
+- **發現於:** 2026-07-16 / M-4a 客戶明細-b
+- **相關:** #249 / M-4a 客戶線
+
 ## 紀錄模板
 
 ```markdown

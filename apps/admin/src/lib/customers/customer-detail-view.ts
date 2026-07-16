@@ -2,7 +2,7 @@
 // 明細專屬:id 形狀守門 / 儲值金類型標籤 / 金額格式化。列表共用(tier 標籤/日期)仍在
 // customer-list-view.ts、本檔不重定義。無 server-only、無 @/ → 可單測。
 
-import type { WalletEntryType } from '@pcm/domain';
+import type { InvoiceType, WalletEntryType } from '@pcm/domain';
 
 /** UUID 形狀守門(路由 [id];非法直接 404、不打 DB;鏡像 order-detail-view isOrderId)。 */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,3 +36,14 @@ export function formatWalletBalance(amount: number): string {
   const abs = Math.abs(amount).toLocaleString('en-US');
   return amount < 0 ? `−NT$ ${abs}` : `NT$ ${abs}`;
 }
+
+/**
+ * 地址發票類型標籤(customer_addresses.invoice_type 三值;對齊 domain InvoiceType JSDoc
+ * 語意字面:personal 個人〔手機載具〕/ company 公司〔抬頭+統編〕/ donate 捐贈〔愛心碼〕。
+ * 與訂單側 invoiceTypeLabel〔二聯/三聯開票需求〕語意不同、刻意分開不共用)。
+ */
+export const ADDRESS_INVOICE_LABEL: Record<InvoiceType, string> = {
+  personal: '個人',
+  company: '公司',
+  donate: '捐贈',
+};

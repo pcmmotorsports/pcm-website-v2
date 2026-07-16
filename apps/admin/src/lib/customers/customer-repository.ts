@@ -1,5 +1,9 @@
 import 'server-only';
-import { SupabaseCustomerAdapter } from '@pcm/adapters';
+import {
+  SupabaseAddressAdapter,
+  SupabaseCustomerAdapter,
+  SupabaseVehicleAdapter,
+} from '@pcm/adapters';
 import { createSupabaseServiceClient, SupabaseWalletAdapter } from '@pcm/adapters/server';
 
 /**
@@ -33,4 +37,20 @@ export function getAdminCustomerRepository(): SupabaseCustomerAdapter {
 export function getAdminWalletRepository(): SupabaseWalletAdapter {
   const client = createSupabaseServiceClient();
   return new SupabaseWalletAdapter(client, client);
+}
+
+/**
+ * 後台地址/車庫 repo 建構(M-4a 客戶明細-b;server-only、唯讀呼叫)。
+ *
+ * 兩 adapter 原設計注 authenticated client(RLS own);admin 注 **service_role**
+ * (BYPASSRLS 看任意客戶=後台預期),scoping 由 adapter `listByCustomer` 顯式
+ * `.eq('customer_user_id', id)` 保證。呼叫端只用 `listByCustomer`(create/update/delete
+ * 不在明細-b、後台寫入片另議)。訂單歷史走既有 `getAdminOrderRepository`(lib/orders)。
+ */
+export function getAdminAddressRepository(): SupabaseAddressAdapter {
+  return new SupabaseAddressAdapter(createSupabaseServiceClient());
+}
+
+export function getAdminVehicleRepository(): SupabaseVehicleAdapter {
+  return new SupabaseVehicleAdapter(createSupabaseServiceClient());
 }
