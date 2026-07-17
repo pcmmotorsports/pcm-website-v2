@@ -28,6 +28,21 @@
 3. 🔴 **E2a-c 已定合約**:sweeper route=`api/cron/email-sweep`(GET/CRON_SECRET/limit 50/`maxRunSeconds: maxDuration`/`errors>0→503`/`deferred>0→200`/counts allowlist/**零告警**);composition=`lib/email/composition.ts`(`getSweepEmailOutboxDeps`);**排程仍待 E2b pg_cron**(本片與 E2a-c 皆不進 `vercel.json`)。
 4. 審查閘=code-reviewer + codex 關卡2(**勿省**;⚠️ `EXIT=0` 假訊號、**必讀輸出內容**;`codex exec` 背景跑+porcelain 前後比對)。🔴 **修 must-fix 一律 grep 全 diff 掃同款、非只改點名行**(E2a-c R1→R2 兩輪皆因此再 FAIL)。
 
+## 🌙 過夜自驅片單(2026-07-18 夜;Sean 過夜跑、早上驗收)
+
+> 新視窗照此片單依序跑,**卡住就跳下一片**(不空轉不猜),持續寫晨間報告 `docs/handoff/2026-07-19-overnight-report.md`(①完成片+commit hash ②🔴 Sean 待辦逐條 ③卡住/跳過原因 ④決策題)。**每片走完整 SOP:graphify 查連動→plan(標 L1/L2/L3、判鐵則8)→實作→三綠→審查→精準 commit+STATUS 7 欄同 commit→不 push**。
+
+**🔴 審查省 codex 額度規則(Sean 2026-07-18 拍)**:codex 關卡2 **只跑高風險片**(鐵則 12 = order/payment/schema/RLS/migration/tier/經銷價、或鐵則 8 重大改動);**純前台 UI/小件低風險片跳 codex**,走 **code-reviewer + Fable** 兩審即可(Fable = `Task` spawn `adversarial-reviewer` + `model:fable`、在 Claude 訂閱、不吃 codex OpenAI 額度;不可用時路由 Opus 仍算獨立一審)。每個 reviewer 硬上限 2 輪、R2 仍 FAIL→停該片寫報告跳下一片;🔴 修 must-fix grep 全 diff 掃同款。
+
+**片單(依序、卡住跳下一項)**:
+1. **E2a-2**(對帳補寄+五訊號)= app 層無 migration、**可完全自主**。🔴 高風險(order 對帳)→ **三審含 codex**。紅線見上「E2a-2 執行視窗」。
+2. **E2b**(pg_cron/pg_net/Vault)= 🔴 **Sean-gated**(db push/SQL Editor/Vault)→ **只寫 plan 進報告、不執行任何 DDL/schedule**。
+3. **E3**(order_created enqueue)= 動付款成功路徑 🔴 高風險 → 可做 app 層 + L2 placeholder 文案、**真文案等 Sean 過目**、enqueue 必全 catch 不影響付款、產 Codex Packet 進報告(三審含 codex);判斷風險高就只寫 plan 等 Sean。
+4. **不擋線小件**(純前台低風險 → **跳 codex、code-reviewer + Fable 兩審**):最新商品 UI / Q3d 佔位圖 / Q3a 佔位頁 / Q3e 結帳內嵌地址。
+5. **E4** = 🔴 **BLOCKED**(等 Sean 定義「一批」+ dedup 算法)→ 不做。
+
+**硬 STOP(命中寫報告+跳過,絕不自己做)**:push / db push / migration apply / SQL Editor / Vault / pg_cron / pg_net / 動 .env* / 輸出 secret / 替 Sean 拍板 / L3 內容 / 不可逆或對外 / 文案最終版 / 宣稱「肉眼驗」/ 鐵則 8 重大改動的「執行」/ 兩輪用盡或同錯法第 2 次。
+
 ## 流程紀律(沿用)
 
 - 執行 session 不 push(07-17 三推皆 Sean 明說);動 schema commit 壓住等 db push+驗;dev:main 恆 Sean 明說。
