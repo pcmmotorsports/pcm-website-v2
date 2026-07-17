@@ -78,7 +78,16 @@ Email 通知片**規劃階段**:偵察 → plan v1 → **雙審皆 FAIL(Fable 7 
 
 **銷案表已核**(Fable R2 逐條):v2 引用紀律「零引用失真」、遠優於 v1;`payload` 不可變快照論證經親驗成立(條件:M-3 退款線若動單內容須重審)。
 
-## 8. 🔴 等 Sean 醒來拍(未答不動工)
+## 8-A. ✅ Sean 已拍(2026-07-16 深夜、動工 gate 全解除)
+
+| 題 | 拍板 | 連鎖影響 |
+|---|---|---|
+| **S1 可靠度** | **A=做完整版**(薄 outbox+sweeper+自動重試+dead-man check) | 極簡案否決;=plan 預設架構(PRD §6.6) |
+| **S2 出貨信語意** | **B=每出一批寄一封**(部分出貨也通知、接受客人收多封) | 🔴 **E4 unblock,但 E1a schema 必改**:`UNIQUE(event_type,order_id)` **作廢**(會擋掉同訂單第二封)→ 改 `dedup_key text NOT NULL` + `UNIQUE(event_type,dedup_key)`;觸發改掛 per-item `updateOrderItemWorkflowAction`(`order-actions.ts:89`);**「一批」定義=E4 前置偵察**(admin 現況是 per-item RPC;`request_id` 不可直接當 key=雙擊產生兩 id 兩封);backlog「per-item 部分出貨信」移出=本片範圍 |
+| **S3 退款後是否寄** | **A=不寄**(送出前 gate 抑制);**且明示認可「無法保證只寄一次」** | §4.1 gate;§3.5-5 殘留窗=**Sean 認可、非 Claude 自宣** |
+| **S4(非必拍)ACL** | Sean 未否決 → 照 Fable 裁示 **GRANT service_role** | 非 codex 的 RPC-only;分歧全紀錄 plan §4.3 |
+
+## 8-B. 仍待 Sean 拍(**不擋本片動工**)
 
 1. **★是否過度工程(plan §2.5)**:codex 誠實揭示——若「信件只是方便通知、訂單真相在後台、有人會巡檢」→ **await 送 + failed 告警 + 人工補** 就夠,outbox+sweeper 是過度工程;若「承諾客人可靠收到、沒人每日巡檢」→ 薄 outbox+sweeper 是合理基本設施。**PRD §6.6 明文要求 outbox+重試**,故 plan 預設走後者。**這是 Sean 的板,不是模型的。**
 2. **Vercel 升 Pro?**(合規議題,**與本片無因果**):官方明載 Hobby 禁商業用途,PCM 賣場已命中(「Advertising the sale of a product or service」+「processing payment」)。$20/月。**Sean 已知悉、尚未拍。**
