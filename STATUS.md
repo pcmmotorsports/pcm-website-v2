@@ -24,12 +24,16 @@
 2026-07-16 — Claude Code session(**M-4a 客戶明細-a**〔客戶線第 2 片、唯讀〕:新 `/customers/[id]` 明細頁=基本資料(email/電話/生日/tier/註冊日)+儲值金(餘額/累積+流水表);組合既有 service_role adapter(`findById`+`SupabaseWalletAdapter.listEntries` 雙槽注 service_role、零 domain/port/adapter 改動);鏡像 orders/[id] 慣例=UUID 守門不打 DB/allSettled 分開容錯/loadFailed 200/查無 404/流水失敗誠實錯誤態;列表姓名連結明細。🔴 儲值金顯示=Sean 07-16 拍板 admin 後台可顯(override 05-31 前台 hold、範圍僅 admin、memory `project_wallet-deposit-taiwan-legal-hold` 已記 override;本片唯讀零寫入、addEntry 零呼叫點 grep 驗);鐵則 12 不觸發理由=唯讀顯示、零 schema/RPC/GRANT、無 pricing 運算、customers/ledger 表無成本欄。+7 測(UUID 守門/類型標籤/金額格式);三綠+full vitest 216 檔 2311 綠+build admin;code-reviewer R1 FAIL〔1 must-fix=repository docstring 字面失效〕→修→R2 PASS。未 push〔done 單丟 review-inbox 等值班台代推〕、無 migration。)
 
 ## 最近 3 commit
-> dev。本 commit 見「最後更新」;下表列 3 個已可達前序 commit。🚀 **origin/dev=`55365e6`**。⚠️ **本欄以「本 commit 落地後」為時間框**(STATUS 慣例;codex R2 must-fix=前版把**尚未提交**的工作區 diff 算成 commit,與 CURRENT 的落地前框打架):**寫檔當下** `git rev-list --count origin/dev..HEAD` = **1**(僅 `f39a5f8`,E2a-a 仍是工作區 8 檔未提交);**本 commit 落地後** = **未推 2 commit**(`f39a5f8` E1c 交接 + 本 commit E2a-a)。(前版「本地零未推」在 `f39a5f8` 產出當下即成假=已知 busboy off-by-one);origin/main=`13ce3a9`(production、本線未上)。⚠️ `dev`=pcm-admin 的 **production** 分支 → 該次 push 觸發 admin 重部署=預期(E2a-a **零消費者**:`reclaimStaleLeases` 全 repo 零呼叫點、E2a-b/c 才接;migration 純註解零 DDL、**無需 re-apply**)。
+> dev。本 commit 見「最後更新」;下表列 3 個**已可達**前序 commit(`merge-base --is-ancestor` 驗)。
+> 🚀 **origin/dev=`55365e6`;未推 commit 數 = 以 `git rev-list --count origin/dev..HEAD` **實跑為準、本欄不寫死數字**。
+> ⚠️ **為何不寫死**(2026-07-17,同款前科第 9 次):此處寫死的數字**每多一個 commit 就當場變假** —— 前版「本地零未推」在 `f39a5f8` 產出當下即假、改寫的「未推 2 commit」在 `816f085` 產出當下又假。**寫死的自指數字/行號是結構性假字面來源**(同 memory `feedback_claimed-sync-but-only-patched-touched-lines` 與「自指行號改引文錨」教訓)→ 一律改成**可執行的取得方式**。
+> ⚠️ `dev`=pcm-admin 的 **production** 分支 → push 觸發 admin 重部署=預期(Email 線至 E2a-a 為止**零消費者**:`reclaimStaleLeases` 全 repo 零呼叫點、E2a-b/c 才接;migration 自 `55365e6` 起僅動頭註 = 純註解零 DDL、**無需 re-apply**)。origin/main=`13ce3a9`(production、本線未上)。
+
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `816f085` | docs(docs): Email plan 真權威搬進 repo+升 v3.3 [m-4a] | 2026-07-17 |
+| `6a8b155` | feat(storefront): E2a-a lease 回收 port 擴充+adapter 實作 [m-4a] | 2026-07-17 |
 | `f39a5f8` | docs(docs): E1c 收工交接+STATUS 過期 push 字面逐條銷 [m-4a] | 2026-07-17 |
-| `55365e6` | docs(schemas): Email 退避三列+訊號 5 落 migration §⑨ [m-4a] | 2026-07-17 |
-| `e90cbd3` | fix(storefront): 解析 Resend 429 body 分辨限流與額度 [m-4a] | 2026-07-17 |
 
 ## 下一步
 **M-4a 第一期收口(①客戶線 ✅ 全完→②Email 進行中→③最新商品、④小件穿插)**:②**Email 通知片**——**E1a/E1b/E1c ✅ 全關已推;E2a 拆三片(Sean 07-17 Q12=A)→ E2a-a ✅ code 收工(本 commit、未推)→ 下一=E2a-b**。
