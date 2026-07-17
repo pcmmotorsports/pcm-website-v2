@@ -60,7 +60,7 @@
 --          最佳化)。TOCTOU:sweeper A 選中 X(attempts=4)→ sweeper B 先把 X 推到 attempts=5/failed →
 --          A 的 CAS `WHERE id=X AND status IN ('pending','failed')` **仍成立** → attempts 變 6、多送一次。
 --          有界(非無限)但仍是突破上限;guard 下放到 CAS 才真正原子。
---        · dead-man check(plan §3.6)的「最老 pending/failed age」述詞**必須**排除死列 —— 否則終態列
+--        · dead-man check(plan §3.6)的「最老 pending/failed age」述詞**必須**排除死列(⚠️ **此 age 述詞已於 §⑨ 修正** —— E1c 後日額度列會合法睡 24h、照舊述詞會誤報「排程死」)—— 否則終態列
 --          age 永增 → 永久告警噪音,把真正的 pg_cron 靜默死亡淹掉(= liveness 唯一來源被廢)。
 --        · 🔴 **但排除死列會開另一個洞**(R2 nit,必須同時補):死列僅剩 edge-triggered 終態告警可偵測,
 --          而該告警管道 = `EmailAlertNotifierAdapter` = **Resend 本身** → Resend 長時中斷時,全部列耗盡
@@ -111,6 +111,10 @@
 --            ①pending 堆積 = 排程死 ②dead letter = 送不出去 ③stale sending = 認領後死
 --            ④paid 但無列 = **列從沒進來**(前三者的共同盲區)
 --          **四者都要跑在獨立管道(anomaly-alert daily cron),不可放進 sweeper 自己**。
+--          🔴🔴 **本節不是終點 —— E1c-2 已增補「訊號 5(額度耗盡)」並「修正訊號 1 述詞」→ 見本頭註 §⑨**
+--          **(§⑦ 與 §⑨ 漂移時以 §⑨ 為準)。** ⚠️ 上面「四訊號」「①-④」是 E1a 當時的完整集,**現已是五訊號**;
+--          只讀到本行就收工 → 訊號 5 不存在 → Sean 要的「系統告知額度不足」永遠不叫 + 日額度列合法睡 24h
+--          會觸發訊號 1 誤報「排程死」(關卡2 code-reviewer must-fix:§⑦ 的收束句會讓讀者無理由續讀)。
 --          🔴 分工界線(Fable R3 實測背書):①-③ 由**本表狀態空間**完整分割(它以 UNCOVERED probe 窮舉
 --          六態 × 生死 attempts,證明「三訊號 ∪ {sent, skipped_no_real_email, skipped_order_ineligible}」
 --          覆蓋全狀態空間、**DB 層無漏網列**);④ 補的是**表外**的洞(列不存在)—— 兩者不重疊、都要有。
@@ -138,6 +142,68 @@
 --      → 故:①轉入本態**必寫** `last_error_code = 'order_ineligible'`(符合 regex)供事後稽核追得到
 --        ②抑制路徑**必附測試**(哪些訂單狀態進、哪些不進),**gate 的正確性本身就是 E2a 的責任**,
 --        DB 這層幫不上忙。
+--
+--   ⑨ 🔴 **E1c 增補:429 三分 × 逐碼退避 × 訊號 5**(2026-07-17;Sean 拍 Q6=A / Q9=A / Q11=A)
+--      ⚠️ **本段是 E1c-2 依 Fable 關卡1 F4 寫入的**:plan §3.6 頭註自寫「兩處字面漂移**以 migration 為準**」,
+--      而 §⑦ 是 E1a 審過 4 輪的**四**訊號版本 → 若新合約只寫在 plan 或 TS JSDoc,E2a/E2a-2 實作者依仲裁序
+--      會把它**當漂移丟棄** → Sean 要的「系統告知額度不足」永遠不叫。**故落此處。**
+--      🔴 **本段 = 逐碼退避合約的權威**(與 `packages/ports/src/IEmailOutbox.ts` 的 `EmailSendErrorCode`
+--      逐碼 JSDoc 並存;漂移以本檔為準)。
+--
+--      **為何存在**:E1c 前 429 恆映射 `http_429` → 撞 Resend 日額度(Free = **100 封/日**)時,可重試的信
+--      被當一般失敗 → 幾分鐘內(sweeper 每 5 分鐘一輪)燒完 5 次 attempts → **永久死信,隔天額度重置也
+--      不補寄**(對帳看到列已存在就不補)。E1c-1(`e90cbd3`)已讓 sender 讀 429 body 頂層 `name` 分三碼。
+--
+--      🔴 **REQUIRED-E2a 退避三列(+ 兜底列;關卡2 檢核點)**:
+--      ┌ `rate_limited`(官方 `rate_limit_exceeded`)= 打太快 → **保守短退避**(固定值由 E2a 定)。
+--      │   ⚠️ **E1c-1 不傳出 header**:官方雖有 `Retry-After` / `ratelimit-reset`,但 `SendEmailResult` 與
+--      │   `ResendFetchLike` **皆未承載 headers** → E2a **拿不到**。精準版 = **backlog #285**(擴
+--      │   `SendEmailResult` 回 provider-neutral retry hint;🔴 紅線:**不得透傳原始 header 字串**、須有上限約束)。
+--      ├ `quota_daily_exceeded`(官方 `daily_quota_exceeded`)= 日額度耗盡 →
+--      │   **失敗時點 + ≥24h + jitter;🔴 禁指數退避;燒速上限 = 每日 1 次。**
+--      │   (照一般指數退避 → **當天燒完 5 次 attempts → 永久死信** = E1c 存在的理由被抵銷。)
+--      │   ⚠️ **官方未揭露確切重置邊界,只要求「等待 24 小時」**(2026-07-17 親查 errors 頁:有「等待 24 小時」
+--      │   建議動作、**無任何重置時刻/時區/是否滾動窗的敘述**)→ **用滾動 +24h、不可寫「隔天午夜」**
+--      │   (不依賴時區假設:不管 UTC / 台北 / 滾動窗,+24h 必跨重置點)。
+--      ├ `quota_monthly_exceeded`(官方 `monthly_quota_exceeded`)= 月額度耗盡 → **比照 daily(+24h)+ 訊號 5
+--      │   每日告警**(**Sean Q9=A**)。官方**即時處置是升級**;否則恢復**取決於帳期重置、不假設確切時刻**
+--      │   (故仍每日重試 = 帳期若重置即自動成功、無需人工)。5 天緩衝(每日告警)、5 天無處置 → 死信。
+--      │   🔴 **誠實揭示(Sean 已知悉此缺口才拍)**:**目前無「死信人工重送」工具** = **backlog #286**。
+--      └ `http_429` = **無法分辨的 429**(body 非 JSON / 無 `name` / `name` 非三字面〔含原型鏈名如 `toString`〕)
+--          → 🔴 **一律 ≥24h 保守長退避(比照 `quota_daily_exceeded`)= Sean Q11=A。**
+--          ⚠️ **修正 Fable 關卡1 C1 的字面**:C1 原寫「視同 `rate_limited`」,但 `rate_limited` 是**短**退避
+--          → 照抄 = 未知 429 若實際是日額度仍會幾分鐘燒完 → 死信(C1 的原意是「保守」、不是「同一格」;
+--          codex 關卡2 R1 抓出此矛盾)。
+--          🔴 **已知代價(codex 關卡2 R2 must-fix;Sean 已知悉才拍 Q11=A)**:若該 429 實際只是瞬時限流
+--          (CDN/WAF 抖動、秒級 rate limit)→ 該封信**白等約 24h**(信仍會寄出、不會消失)。
+--          ⚠️ **代價上界取決於未確認事實**:429 body 是否必然含 `name` —— **兩官方 SDK 不一致**
+--          (resend-node `ErrorResponse` 宣告含 `name`;resend-go 的 `case http.StatusTooManyRequests` 解
+--          `DefaultError{ Message string }` **不含 Name**)→ **若實際不含 → 所有 429 落本格 → 全部 24h 延遲**。
+--          🔴 故**不得**宣稱 E1c「零回歸 / 最壞只是無效果」(該字面已作廢)。
+--          **拍板理由**:PCM 量級(10-30 單/日、sweeper 每 5 分鐘一輪)距 Resend 限流門檻(官方 5 req/s;
+--          ⚠️ 另一頁 10 req/s、**官方多處不一致未收斂**)數個量級 → 撞 429 幾乎必然是額度耗盡而非打太快。
+--
+--      🔴 **訊號 5(新增;四訊號 → 五訊號)= 額度耗盡專屬告警**:
+--        述詞 = `count(**status = 'failed'** AND last_error_code IN ('quota_daily_exceeded','quota_monthly_exceeded')) > 0`
+--        → 告警「Resend 額度不足,請升級」+ **冷卻/去重**(否則月額度列每日重複推播)。
+--        🔴 **必須走 LINE 管道**(`LineAlertNotifierAdapter`;Sean Q7=A 確認已啟用)—— **Resend 額度用完時,
+--        走 Resend 的告警信自己也送不出去**(= §⑦ 早記過的「告警管道自己就是 Resend」死結)。
+--        🔴 **為何是必要配套、非加值**(Q5+Q6 交互):Sean Q5=A =「**等系統告知額度不足我再升級**」;
+--        但 Q6=A 讓撞額度的信「睡到隔天」= **不會變成死信** → **訊號 2(唯一抓死信的)不會叫** →
+--        Q6=A 這個修法**恰好讓 Sean 更收不到額度通知**(信被好好保住了,所以沒人覺得有事)= 與 Q5=A 正相反。
+--        🔴 **述詞必須收窄 `status='failed'`(不可收 `pending`)**(codex 關卡2 R1 must-fix):額度判定與
+--        `markFailed` **同次寫入**;若收 `pending` → 「昨日額度 failed 留舊碼 → 今日重認領後程序死 → lease
+--        回收成 pending **未清舊碼**」→ **誤報「仍在撞額度」**(實際是程序死亡)。
+--        ⚠️ 與 §⑦ 訊號 2(dead letter)不重疊:訊號 2 抓「已耗盡 attempts」,訊號 5 抓「**尚未**耗盡但正在撞額度」
+--        = 早期徵兆(Q5=A 要的正是這個)。
+--
+--      🔴 **訊號 1 述詞修正(§⑦ 原字面在 E1c 後會誤報)**(codex 關卡2 R1 must-fix):
+--        §⑦ 訊號 1 = 「最老 `pending`/`failed` 且 `attempts < max_attempts` 的 **age > N 小時**」→
+--        日額度列**合法睡 24h**(status=`failed`、attempts < max)→ **age 必然越過 N** → 誤報「排程死」,
+--        且**與訊號 5 同時叫 = 兩個互相矛盾的告警進 LINE**(一個說 pg_cron 掛了、一個說額度不足)。
+--        → **修正述詞** = 「**已到 `next_retry_at` 且逾寬限仍未處理**」(非單看列齡);
+--          或等價地:訊號 1 排除 `last_error_code IN ('quota_daily_exceeded','quota_monthly_exceeded')` 的列。
+--        修正後訊號 1 不再涵蓋**合法長退避**,訊號 5 才確實是必要配套(而非過度工程)。
 --
 -- 🔴 ACL 偏離註記(plan §4.3、Fable n3 要求明寫):
 --   本表 GRANT **INSERT, SELECT, UPDATE** TO service_role,**偏離** cited pattern `admin_audit_log`

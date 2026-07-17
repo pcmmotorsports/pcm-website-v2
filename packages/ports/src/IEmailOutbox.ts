@@ -36,14 +36,13 @@ export type EmailOutboxEventType = 'order_created' | 'order_shipped';
  * 🔴 **重試政策是本 union 語意的一部分**(codex 關卡1 N1:真抽象來自 adapter 邊界與語意定義,
  * 不只是把單字順序改掉)。逐碼退避合約見下方逐碼 JSDoc。
  *
- * 🔴 **權威落點(關卡2 code-reviewer + codex **雙命中** must-fix:前版字面是**不實宣稱**)**:
- * 前版寫「權威 = migration `20260717020000` §⑦ REQUIRED-E2a(兩處漂移以 migration 為準)」——
- * 但**該段實際零逐碼退避內容**(它管的是 attempts/CAS 述詞與 dead-man 訊號),等於把**唯一**寫著
- * 本合約的地方(本 JSDoc)預先判成漂移時的輸家 → E2a 實作者照「權威」去 migration 找 → 查無 →
- * 本片存在的理由(≥24h 退避)失去背書。
- * **現況(E1c-1):本 JSDoc = 逐碼退避合約的唯一定義處。**
- * 🔴 **E1c-2 硬閘(E2a 動工前必完成)**:把逐碼政策 + 未知 429 保守策略 + 可執行驗收寫入 migration
- * §⑦ → 屆時兩處並存、以 migration 為準(plan §3.6 仲裁序)。**E1c-2 未落地前,勿宣稱 migration 已是權威。**
+ * 🔴 **權威落點 = migration `20260717020000` 頭註 §⑨**(E1c-2 已落地;**本 JSDoc 與 §⑨ 並存,
+ * 漂移以 §⑨ 為準**)。⚠️ **是 §⑨、不是 §⑦** —— §⑦ 管的是 attempts/CAS 述詞與 dead-man 訊號、
+ * **零逐碼退避內容**;§⑨ 才是 E1c 的退避三列 + 訊號 5 + 訊號 1 述詞修正。
+ * (歷史:E1c-1 前版曾寫「權威 = §⑦」= **引用不存在的權威**〔關卡2 code-reviewer + codex 雙命中〕;
+ * E1c-1 改寫後又留下「本 JSDoc = 唯一定義處 / E1c-2 未落地前勿宣稱 migration 已是權威」——
+ * 該字面在 E1c-2 落地當下即成假、且與 §⑨ 形成**閉環矛盾**〔兩處互指對方「還沒好」→ 訊號 5 照樣被丟棄〕,
+ * 為 E1c-2 關卡2 must-fix、**已於同 commit 逐條銷案**。)
  */
 export type EmailSendErrorCode =
   | 'http_400'
@@ -112,7 +111,7 @@ export type EmailSendErrorCode =
    * 不假設確切時刻**(故仍每日重試 = 帳期若重置即自動成功,無需人工)。
    * **E2a 退避 = 比照 daily(+24h)+ dead-man 訊號 5 每日告警**(Sean 2026-07-17 拍 Q9=A)。
    * 理由:升 Pro 後額度即恢復 → 下次重試自動全寄;5 天緩衝(每日告警)、5 天無處置 → 死信。
-   * 🔴 **誠實揭示:目前無「死信人工重送」工具**(Sean 已知悉此缺口才拍;已開 backlog)。
+   * 🔴 **誠實揭示:目前無「死信人工重送」工具**(Sean 已知悉此缺口才拍;backlog **#286**)。
    */
   | 'quota_monthly_exceeded'
   /** transport 層失敗(fetch reject / 逾時);與 HTTP 狀態碼互斥。 */
