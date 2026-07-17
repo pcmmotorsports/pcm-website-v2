@@ -13,6 +13,9 @@
  *   端仍可能塞過 DB regex 的 PII 字串)→ 非 allowlist 一律改寫 `provider_error`。
  * - 🔴 mark* 三出口皆帶 `claimedAttempts` 世代柵欄:lease 回收 + 他人再認領後(attempts 已 +1),
  *   舊持有者延遲到達的標記 `.eq('attempts', 舊世代)` 必 0 列 → 不覆寫別人的在途列(ABA 擋掉)。
+ * - 🔴 **離開 sending 的第四條路 = `reclaimStaleLeases`(E2a-a)**:回收器**不是持有者、不帶世代
+ *   柵欄**(帶不了),以 `claimed_at < staleBefore` 述詞判定所有權 —— 故「mark* 三出口皆帶柵欄」
+ *   **不等於**「所有離開 sending 的路都有柵欄」。兩條路的共同義務只有 `claimed_at = NULL`。
  *
  * ⚠️ `email_outbox` 不在生成型別 database.types.ts(該檔落後 live schema=既有 backlog、regen 屬另一
  * slice)→ 本檔用**文件化窄 cast**(先例:helpers/fitment-queries.ts VehicleRpcClient),composition 端
@@ -86,6 +89,13 @@ const EMAIL_SEND_ERROR_CODE_FLAGS: Record<EmailSendErrorCode, true> = {
   provider_error: true,
 };
 const EMAIL_SEND_ERROR_CODE_ALLOWLIST = new Set<string>(Object.keys(EMAIL_SEND_ERROR_CODE_FLAGS));
+
+/**
+ * lease 回收的稽核碼(Sean Q2=A)。**刻意不是 `EmailSendErrorCode` 成員**:它描述的是「本地程序
+ * 死掉」、不是「Resend 寄送失敗」——若走 markFailed 會被上面的 allowlist 改寫成 provider_error
+ * (稽核碼被靜默吃掉)。故比照 `order_ineligible` 在本檔內部寫死;過 DB CHECK `^[a-z0-9_]{1,64}$`。
+ */
+const LEASE_RECLAIMED_ERROR_CODE = 'lease_reclaimed';
 
 /** 表投射(對齊 migration 16 欄中寄送所需子集;不取 created_at/sent_at/last_error_code)。 */
 const JOB_SELECT =
@@ -336,7 +346,44 @@ export class SupabaseEmailOutboxAdapter implements IEmailOutbox {
   }
 
   /**
-   * 離開 sending 的唯一出口:一律連帶 `claimed_at = NULL`(雙向 CHECK 的 app 義務;漏清 →
+   * lease 回收(port JSDoc 為合約全文)。**不能走 `leaveSending`**:那支硬帶
+   * `.eq('attempts', claimedAttempts)` 世代柵欄,而回收器不是持有者、無此值。
+   *
+   * 🔴 述詞本身即所有權判定:`status='sending' AND claimed_at < staleBefore`(吃
+   * `email_outbox_lease_idx`=partial on status='sending')。原持有者若在本句之前標記完成 →
+   * status 已離開 sending → 0 列;兩個回收器並發 → PG 列鎖序列化,後者看到的已是 failed → 0 列。
+   * 🔴 `attempts` 不動(認領時已 +1);`claimed_at = NULL` 是雙向 CHECK 的 app 義務。
+   * 🔴 無 `attempts < max_attempts` guard = **刻意**:達上限的列也必須離開 sending,否則永久卡
+   * sending → 訊號 3 永久告警;落 failed@max 後由訊號 2(dead letter)接手 = 正確歸屬。
+   *
+   * ⚠️ **無 `limit` = 無界批次(關卡2 codex nit;量級假設寫死於此)**:單句 UPDATE 會翻掉**所有**
+   * 符合 stale 述詞的列。現況可接受(只有「先前被認領過」的列可能 stale;PCM 每日數十封,
+   * 且 stale 列數受 `claimDue` 的 limit 上界約束)。🔴 **但本 port 無物理批次上限** → caller 傳錯
+   * `staleBefore`(例如取值過小)會**一次翻掉所有在途列** = 系統性重複寄信。故安全下界是 caller
+   * 責任(見 port JSDoc);E2a-b 應評估是否加明確 batch limit / `maxAffected`。
+   */
+  async reclaimStaleLeases(staleBefore: Date, nextRetryAt: Date): Promise<number> {
+    const { data, error } = await this.client
+      .from('email_outbox')
+      .update({
+        status: 'failed',
+        claimed_at: null,
+        last_error_code: LEASE_RECLAIMED_ERROR_CODE,
+        next_retry_at: nextRetryAt.toISOString(),
+      })
+      .eq('status', 'sending')
+      .lt('claimed_at', staleBefore.toISOString())
+      .select('id');
+    if (error) {
+      throw new Error(`email_outbox lease 回收失敗(${error.code ?? 'unknown'})`);
+    }
+    return data?.length ?? 0;
+  }
+
+  /**
+   * **持有者路徑**離開 sending 的唯一出口(⚠️ E2a-a 起**不是全域唯一** —— `reclaimStaleLeases`
+   * 是回收器路徑的第二個出口,不經本 helper;前版「離開 sending 的唯一出口」字面已於本片更正)。
+   * 一律連帶 `claimed_at = NULL`(雙向 CHECK 的 app 義務;漏清 →
    * 每次標記都 check_violation → 列卡 sending → lease 回收重認領 = 系統性重複寄信)。
    * 述詞鎖 `status='sending'` **+ `attempts = claimedAttempts` 世代柵欄**(codex 關卡2 R1
    * must-fix:lease 回收→他人再認領後 attempts 已 +1,舊持有者延遲標記必 0 列、不覆寫

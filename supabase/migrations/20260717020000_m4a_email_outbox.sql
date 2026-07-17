@@ -77,16 +77,21 @@
 --            → 永久漏信且無人知。可達性=合約自己留的門:§3.5-4 lease 回收把 stale sending 翻回
 --            **pending**,若 E2a 採「認領時遞增 attempts」(自然寫法、且是唯一能鎖住 crash-loop 毒信的
 --            寫法)→ 第 5 次認領後 function 死 → 回收 → `pending@5/5` = 隱形死列。
+--            🔴🔴 **上述「翻回 pending」= E1a 當時的假設,已由 E2a-a 定案推翻 → 見本頭註 §⑩**
+--            (Sean Q2=A:回收落 **`failed`**、非 pending)→ **`pending@max` 在現行合約下不可達**。
+--            本段保留為歷史論證(它證明的是「若回收落 pending 則第四種死法存在」,前提已不成立)。
 --            收進 `pending` 零誤報:在 REQUIRED-E2a 的 CAS guard 下,`pending@max` **永遠不可能再被認領**
---            = 定義上就是死列。
+--            = 定義上就是死列。→ 訊號 2 仍保留 `pending` 分支 = **縱深/fail-safe**(§⑩)。
 --          ⚠️ **E2a 定案「attempts 在認領時或記失敗時遞增」「回收落 pending 或 failed」時,必須回頭過本表**
 --            (兩者交互決定第四種死法是否存在)。
+--            ✅ **本義務已於 E2a-a 履行、結論落在 §⑩**(attempts=認領時 +1 / 回收落 failed → 零盲區)。
 --          兩訊號並存 = 保留 durable poll 偵測、又不產生 age 永增噪音。
 --        · 🔴 **第三個訊號:卡在 `sending` 的列**(codex 關卡2 must-fix)。前兩個訊號有共同盲區——
 --          age 訊號只掃 `pending`/`failed`,dead-letter count 只看 `attempts >= max_attempts`;
 --          若 sweeper **認領後(status 已轉 sending)才死**(pg_cron 停、function timeout、部署中斷),
 --          該列 **兩個訊號都不命中** → 永久卡 sending、零告警 = 靜默死亡仍然存在。
---          (lease 回收〔plan §3.5-4〕本應把它翻回 pending,但**回收器自己就跑在 sweeper 裡** → sweeper 死
+--          (lease 回收〔plan §3.5-4〕本應把它翻回 pending〔⚠️ **E2a-a 已改為落 `failed`**,見 §⑩;
+--          本訊號 3 的存在理由不受影響〕,但**回收器自己就跑在 sweeper 裡** → sweeper 死
 --          則回收也死 = 同歸於盡,正是 §3.6「不可自我監看」的同一個坑。)
 --          → dead-man **必須**另加:`status='sending' AND claimed_at < now() - <lease>` 的 count/age > 0 → 告警。
 --        · 🔴 **第四個訊號:列從來沒被寫進來**(codex 關卡2 R5 must-fix = 第五種死法)。
@@ -111,8 +116,12 @@
 --            ①pending 堆積 = 排程死 ②dead letter = 送不出去 ③stale sending = 認領後死
 --            ④paid 但無列 = **列從沒進來**(前三者的共同盲區)
 --          **四者都要跑在獨立管道(anomaly-alert daily cron),不可放進 sweeper 自己**。
---          🔴🔴 **本節不是終點 —— E1c-2 已增補「訊號 5(額度耗盡)」並「修正訊號 1 述詞」→ 見本頭註 §⑨**
---          **(§⑦ 與 §⑨ 漂移時以 §⑨ 為準)。** ⚠️ 上面「四訊號」「①-④」是 E1a 當時的完整集,**現已是五訊號**;
+--          🔴🔴 **本節不是終點 —— 續讀 §⑨ 與 §⑩,兩段都要讀完才算讀完本節**:
+--          **§⑨**(E1c-2)= 增補「訊號 5(額度耗盡)」+ 修正訊號 1 述詞;
+--          **§⑩**(E2a-a)= lease 回收落點定案(**回收落 `failed`、不是本節 :77-79 寫的 pending**)
+--          + attempts 遞增時機 + 訊號表零盲區論證 = 本節「⚠️ **E2a 定案…必須回頭過本表**」那條義務的**履行落點**。
+--          **(漂移仲裁:§⑦ < §⑨ < §⑩,以最後者為準;§⑩ 僅涵蓋回收落點/attempts/盲區主題。)**
+--          ⚠️ 上面「四訊號」「①-④」是 E1a 當時的完整集,**現已是五訊號**;
 --          只讀到本行就收工 → 訊號 5 不存在 → Sean 要的「系統告知額度不足」永遠不叫 + 日額度列合法睡 24h
 --          會觸發訊號 1 誤報「排程死」(關卡2 code-reviewer must-fix:§⑦ 的收束句會讓讀者無理由續讀)。
 --          🔴 分工界線(Fable R3 實測背書):①-③ 由**本表狀態空間**完整分割(它以 UNCOVERED probe 窮舉
@@ -135,12 +144,14 @@
 --        · 不進 due 索引(述詞只收 pending/failed)、不被任何 dead-man 訊號命中(訊號 1/2 要 pending|failed、
 --          訊號 3 要 sending)→ 天然靜默 = **正確的靜默**(它是預期內的合法終局,不是死信)。
 --        · `claimed_at` 依 §⑦ 雙向 CHECK 必須為 NULL(從 sending 轉入時要清)。
---      ⚠️ **「哪些訂單狀態算 ineligible」= E2a 定案**(plan §4.1「哪些狀態該抑制」);本片只立這一格。
---      🔴 **REQUIRED-E2a(Fable R3 指出的唯一殘餘盲區、關卡2 檢核點)**:本態**天然不被任何訊號命中**
---      (那是刻意的 —— 它是合法終局、不是死信),代價是 **E2a 若「誤判」eligible → ineligible,
+--      ⚠️ **「哪些訂單狀態算 ineligible」= E2a-2 定案**(plan §4.1「哪些狀態該抑制」);本片只立這一格。
+--      (⚠️ **E2a-a 更正**:原寫「E2a」,Sean **Q12=A** 把 E2a 拆為 a/b/c 後、gate 權責明確落在 **E2a-2**;
+--       port JSDoc 已同步 —— 此處是權威檔,漏改會讓下一片把 gate 錯塞進 E2a-b/c〔關卡2 codex must-fix〕。)
+--      🔴 **REQUIRED-E2a-2(Fable R3 指出的唯一殘餘盲區、關卡2 檢核點)**:本態**天然不被任何訊號命中**
+--      (那是刻意的 —— 它是合法終局、不是死信),代價是 **E2a-2 若「誤判」eligible → ineligible,
 --      零訊號、零對帳補救**(對帳看到列已存在就不補寄 → 該客人永遠收不到信、且無人知)。
 --      → 故:①轉入本態**必寫** `last_error_code = 'order_ineligible'`(符合 regex)供事後稽核追得到
---        ②抑制路徑**必附測試**(哪些訂單狀態進、哪些不進),**gate 的正確性本身就是 E2a 的責任**,
+--        ②抑制路徑**必附測試**(哪些訂單狀態進、哪些不進),**gate 的正確性本身就是 E2a-2 的責任**,
 --        DB 這層幫不上忙。
 --
 --   ⑨ 🔴 **E1c 增補:429 三分 × 逐碼退避 × 訊號 5**(2026-07-17;Sean 拍 Q6=A / Q9=A / Q11=A)
@@ -194,6 +205,10 @@
 --        🔴 **述詞必須收窄 `status='failed'`(不可收 `pending`)**(codex 關卡2 R1 must-fix):額度判定與
 --        `markFailed` **同次寫入**;若收 `pending` → 「昨日額度 failed 留舊碼 → 今日重認領後程序死 → lease
 --        回收成 pending **未清舊碼**」→ **誤報「仍在撞額度」**(實際是程序死亡)。
+--        ⚠️ **E2a-a 更正(結論不變、理由已過期)**:上句的「回收成 pending 未清舊碼」情境**現已不可達**
+--        —— Q2=A 定案回收落 **`failed`** 且**覆寫** `last_error_code='lease_reclaimed'`(見 §⑩)→ 舊 quota
+--        碼被沖掉、訊號 5 天然不誤報。**收窄 `status='failed'` 的結論仍然要照做**(理由改為:額度碼只由
+--        `markFailed` 於額度判定同次寫入,`pending` 態不可能帶有效的 quota 碼)。
 --        ⚠️ 與 §⑦ 訊號 2(dead letter)不重疊:訊號 2 抓「已耗盡 attempts」,訊號 5 抓「**尚未**耗盡但正在撞額度」
 --        = 早期徵兆(Q5=A 要的正是這個)。
 --
@@ -204,6 +219,38 @@
 --        → **修正述詞** = 「**已到 `next_retry_at` 且逾寬限仍未處理**」(非單看列齡);
 --          或等價地:訊號 1 排除 `last_error_code IN ('quota_daily_exceeded','quota_monthly_exceeded')` 的列。
 --        修正後訊號 1 不再涵蓋**合法長退避**,訊號 5 才確實是必要配套(而非過度工程)。
+--
+--   ⑩ 🔴 **E2a-a 定案:lease 回收落點 × attempts 遞增時機 —— §⑦「必須回頭過訊號表」的回頭結論**
+--      (2026-07-17;Sean 拍 **Q2=A**。⚠️ **本段是 §⑦「必須回頭過本表」那條義務的履行落點**;§⑦/§⑨/§⑩ 內部漂移
+--      **以 §⑩ 為準**,但僅限本段涵蓋的主題=回收落點/attempts/訊號表盲區,其餘仍依 §⑨ > §⑦。)
+--
+--      **為何落在本檔而非 TS JSDoc**(與 §⑨ 同一個理由、本專案已踩兩次):plan §3.6 頭註自寫
+--      「兩處字面漂移**以 migration 為準**」→ 合約只寫進 `IEmailOutbox.ts` JSDoc,E2a-b/c 實作者依
+--      仲裁序會把它**當漂移丟棄**、改照 §⑦「lease 回收把 stale sending 翻回 **pending**」那句實作 → **重新打開下面要關的洞**。
+--
+--      🔴 **定案(三條,E2a-b/c 與 E2a-2 皆須照此)**:
+--      ┌ **attempts 於「認領時」+1**(port 已定、世代 token 單調遞增是 ABA 柵欄的前提);
+--      │   `markFailed`/回收**皆不遞增**。
+--      ├ **lease 回收落 `failed`**(**不是 `pending`**;Sean Q2=A)+ 退避(`next_retry_at` 由 caller 算)
+--      │   + `last_error_code='lease_reclaimed'`(**覆寫**舊碼)+ `claimed_at=NULL`。
+--      │   實作 = port `IEmailOutbox.reclaimStaleLeases(staleBefore, nextRetryAt)`(E2a-a 新增)。
+--      │   🔴 該方法**不帶** `attempts` 世代柵欄(回收器非持有者、無此值),以 CAS 述詞
+--      │   `status='sending' AND claimed_at < staleBefore` 自身作所有權判定;亦**刻意不帶**
+--      │   `attempts < max_attempts` guard(達上限的列也必須離開 sending,否則訊號 3 永久告警)。
+--      └ **`lease_reclaimed` 不是 `EmailSendErrorCode` 成員**(它是「本地程序死」非「寄送失敗」)→
+--          由 adapter 內部寫死(比照 `order_ineligible`),**不得**改走 `markFailed`——會被其 runtime
+--          allowlist 改寫成 `provider_error`、稽核碼靜默消失。
+--
+--      🔴 **回頭過訊號表的結論 = 零盲區**(E2a-a 關卡2 雙審獨立重推導確認:code-reviewer + Fable
+--      〔codex 撞 quota 牆未跑〕):
+--      · 回收後 `failed@max` → **訊號 2** 述詞 `status IN ('pending','failed') AND attempts >= max_attempts`
+--        命中 = 死信告警;`failed@<max` → 帶 `next_retry_at` 回 due 掃描 = 正常重試。
+--      · 🔴 **§⑦ 的「第四種死法 `pending@max` 隱形死列」在本定案下不可達** —— 其唯一可達門是
+--        「回收翻回 pending」(§⑦ 的第四種死法可達性論證),Q2=A 已關閉。狀態空間窮舉:寫 `pending` 的路只剩
+--        ①enqueue(`attempts=0`)②Q1 線受控翻回(源頭 `skipped_no_real_email` 從未被認領、`attempts=0`)
+--        → 皆非 `@max`;而 attempts 只在認領時遞增、遞增後必為 `sending`。
+--      · ⚠️ **訊號 2 仍必須保留 `pending` 分支**(不可因「不可達」而收窄成只有 `failed`)= **縱深**:
+--        可達性論證若有誤,該分支是唯一的網;且 §⑦ 對它的原始論證(`pending@max` 零誤報)仍成立。
 --
 -- 🔴 ACL 偏離註記(plan §4.3、Fable n3 要求明寫):
 --   本表 GRANT **INSERT, SELECT, UPDATE** TO service_role,**偏離** cited pattern `admin_audit_log`

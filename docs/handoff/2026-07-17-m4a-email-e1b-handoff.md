@@ -32,11 +32,14 @@
 
 ## 5. 開放項(待辦)
 
-- ⏳ **E2a(下一片、接手主工作)**:sweeper route(復用 anomaly-alert 骨架 `vercel.json:11-14` 慣例)+對帳補寄(§3.5b 固定下界+NOT EXISTS)+**dead-man 四訊號**+lease 回收+failed 告警+單測。硬合約:
+- ⏳ ~~**E2a(下一片、接手主工作)**:sweeper route+對帳補寄+**dead-man 四訊號**+lease 回收+failed 告警+單測。~~
+  🔴 **本句四處已過期(E2a-a 更正、2026-07-17)**:①**E2a 已由 Sean Q12=A 拆三片**=**E2a-a**(零件層:port `reclaimStaleLeases`+adapter 回收,✅ 已完成)→ **E2a-b**(退避政策+sweeper use-case)→ **E2a-c**(route+composition);②**對帳補寄 = E2a-2**、不在 E2a;③**四訊號 → 五訊號**(§⑨ 增補額度耗盡)且**五訊號全歸 E2a-2 的獨立管道**;④**Sean Q13=A:E2a 三片皆不做 failed 告警**(sweeper 不可自我監看)。以下硬合約仍有效:
   - 🔴 **照 `IEmailOutbox` port 用、勿自寫 SQL 繞過**(attempts guard/世代柵欄/claimed_at 清空已內建於 adapter;繞過=把 8 輪+2 輪審查的成果作廢)。
-  - 🔴 定案「attempts 遞增時機(已定=認領時,port 已實作)×回收落 pending 或 failed」時**必須回頭過 plan §3.6 訊號表**(決定第四種死法是否存在)。
-  - 🔴 lease 回收翻 pending 時**不清 attempts**(世代柵欄依賴 attempts 單調遞增)且必清 claimed_at(雙向 CHECK)。回收器跑在 sweeper 裡=已知「不可自我監看」限制,靠訊號 3 兜。
-  - 「哪些訂單狀態算 ineligible」本片定案;轉入必寫 `last_error_code='order_ineligible'`+抑制路徑必附測試。
+  - ✅ **已由 E2a-a 定案、本兩行字面已過期**(2026-07-17;權威=migration `20260717020000` 頭註 **§⑩**):
+    ~~定案「attempts 遞增時機 × 回收落 pending 或 failed」時必須回頭過 plan §3.6 訊號表~~ → **義務已履行**(結論=零盲區、`pending@max` 不可達);
+    ~~lease 回收**翻 pending**時不清 attempts~~ → **Sean Q2=A:回收落 `failed`、不是 pending**(+`last_error_code='lease_reclaimed'` 覆寫舊碼;attempts 不動、必清 claimed_at 不變)。實作=port `reclaimStaleLeases`。
+  - 🔴 回收器跑在 sweeper 裡=已知「不可自我監看」限制,靠訊號 3 兜(此行仍有效)。
+  - 「哪些訂單狀態算 ineligible」= **E2a-2 定案**(⚠️ 本行原寫「本片定案」= 依 plan §5 拆片表已過期);轉入必寫 `last_error_code='order_ineligible'`+抑制路徑必附測試。
   - composition:service_role client 窄 cast 為 `EmailOutboxClient`、`syntheticEmailDomain` 從 `line.ts:38` 注入;走 line-admin 式 server-only 模組(`apps/storefront/src/lib/auth/line-admin.ts` 為範例;放 storefront=plan Q7 裁示)。
   - 審查閘=code-reviewer+**codex 關卡2**(plan §5/§6 明定)。
 - ⏳ E2b→E3→E4 依 plan §5 順序;**部署順序不可調**(E2a 部署→Vercel secret→Vault 同值→db push E2b→驗→才 E3)。E3 另記:enqueue 必須全 catch(組裝層驗證也會 throw)、不影響付款;文案字面先給 Sean 過目。

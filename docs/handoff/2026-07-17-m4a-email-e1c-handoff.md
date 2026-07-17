@@ -2,7 +2,8 @@
 
 > 一句話:本 session 目標本來是 E2a,**偵察中發現 Resend 額度缺陷 → 插入 E1c 兩片**(429 分類 + 合約落 migration),雙片皆收工**已 push**;E2a 未動工。
 > 環境:pcm-website-v2 · Supabase prod(bmpnplmnldofgaohnaok)· branch dev · engineering mode。HEAD=`55365e6` = origin/dev。
-> 接手先讀:`STATUS.md`「下一步」→ 本檔 → plan **v3.2**(`/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md`)§3.5b/§3.6/§4.2 → migration `20260717020000` 頭註 **§⑦+§⑨(漂移以 §⑨ 為準)** → `packages/ports/src/IEmailOutbox.ts` 全檔 JSDoc(E2a 使用合約)。
+> 🔴 **本檔 = E1c 當次快照,其「下一步/開工依據」字面已被 E2a-a 超越(2026-07-17)**——E2a 已由 Sean **Q12=A 拆三片**(E2a-a ✅ 已完成、下一=E2a-b);**仲裁序已是 §⑦ < §⑨ < §⑩**(§⑩=回收落點定案);**`reclaimStaleLeases` port method 已存在**(本檔下方「需新增 port method」= 已完成的未來式)。→ **開工入口以 `docs/handoff/CURRENT.md` 與 `STATUS.md`「下一步」為準**,本檔僅供 E1c 追溯。
+> (原字面)接手先讀:`STATUS.md`「下一步」→ 本檔 → plan **v3.2** §3.5b/§3.6/§4.2 → migration `20260717020000` 頭註 ~~**§⑦+§⑨(漂移以 §⑨ 為準)**~~ **§⑦+§⑨+§⑩** → `packages/ports/src/IEmailOutbox.ts` 全檔 JSDoc。
 
 ## 1. 為什麼會插隊出 E1c(這片不在原 plan 裡)
 
@@ -78,7 +79,7 @@ sweeper route(復用 anomaly-alert 骨架 `vercel.json:11-14`)+ 對帳補寄(§3
 **Sean 明說「push commit」→ 已推**:`origin/dev` = `55365e6`,本地零未推。`origin/main` 未動(storefront production 不含本線)。⚠️ **`dev` = pcm-admin 的 production 分支** → 本次 push 觸發 admin 重部署=預期,只帶未被引用的新零件、零行為變更。
 凍結 dirty **19 件**(`.gitignore`/`docs/progress-roadmap.html`/`*.png`/`docs/handoff/2026-07-1*` 群/`docs/reviews/2026-07-16-*`/`docs/specs/2026-07-1*`/`docs/superpowers/`)原封未動 —— **接手不得 reset/stash/混入 commit**。secret 掃描:本檔+diff 零金鑰零連線字串。
 
-**接手 1-2-3**:①讀 STATUS「下一步」+ 本檔 §4/§5 ②讀 plan v3.2 §3.5b/§3.6/§4.2 + migration **§⑦+§⑨** + `IEmailOutbox.ts` JSDoc + memory `project_m4a-email-e2a-decisions` ③E2a 偵察 pass(anomaly-alert route 骨架 + 新 port method 簽章 + 訊號 5 落點)→ slice plan 給 Sean 過目 → 動工。
+~~**接手 1-2-3**:①讀 STATUS「下一步」+ 本檔 §4/§5 ②讀 plan v3.2 + migration **§⑦+§⑨** + `IEmailOutbox.ts` JSDoc + memory ③E2a 偵察 pass(anomaly-alert route 骨架 + **新 port method 簽章** + 訊號 5 落點)→ slice plan → 動工。~~ 🔴 **本節已由 E2a-a 執行完畢、字面過期**(偵察 pass 已做、slice plan Sean 已批 Q12/Q13、port method **已實作**;仲裁序已含 **§⑩**)→ **接手請改讀 `CURRENT.md`「下一個最小動作」**。
 
 ## 相關 plan / 記憶 / 文件
 

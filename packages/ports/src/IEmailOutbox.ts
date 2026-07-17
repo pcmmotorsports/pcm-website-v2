@@ -14,10 +14,15 @@
  *   guard(CAS 才是原子決策點;due 掃描只是最佳化)。
  * - **attempts 於認領時 +1**(鎖住 crash-loop 毒信;dead-man 訊號 2 已依此語意含 `pending@max`
  *   隱形死列)。markFailed **不再**遞增。認領後的 `attempts` 值同時是**所有權世代 token**(見下)。
- * - 每一句離開 `sending` 的 UPDATE(markSent / markFailed / markSkippedOrderIneligible)必同時
- *   `claimed_at = NULL`(雙向 CHECK `(status='sending') = (claimed_at IS NOT NULL)`),且**必帶
- *   本次認領的 `claimedAttempts` 世代柵欄**——否則 lease 回收 + 他人再認領後,舊持有者延遲到達的
- *   標記會覆寫別人的在途列(ABA;codex 關卡2 R1 must-fix)。
+ * - 每一句離開 `sending` 的 UPDATE **無條件**必同時 `claimed_at = NULL`
+ *   (雙向 CHECK `(status='sending') = (claimed_at IS NOT NULL)`)。
+ * - 🔴 **離開 `sending` 有兩條路,所有權判定方式不同(E2a-a 更正:前版寫「每一句…必帶世代柵欄」,
+ *   在 `reclaimStaleLeases` 落地後即成假 —— 它也離開 sending、卻不可能帶柵欄)**:
+ *   · **持有者路徑**(markSent / markFailed / markSkippedOrderIneligible)= **必帶本次認領的
+ *     `claimedAttempts` 世代柵欄**;否則 lease 回收 + 他人再認領後,舊持有者延遲到達的標記會覆寫
+ *     別人的在途列(ABA;codex 關卡2 R1 must-fix)。
+ *   · **回收器路徑**(`reclaimStaleLeases`)= 非持有者、**無柵欄可帶**,改以 CAS 述詞
+ *     `status='sending' AND claimed_at < staleBefore` 自身作為所有權判定(詳見該方法 JSDoc)。
  * - `skipped_no_real_email` = 可翻轉態(Q1 獨立線受控翻回 pending);`skipped_order_ineligible` =
  *   不可翻轉終態(S3=A 落點、轉入必寫 `last_error_code='order_ineligible'`)。
  */
@@ -26,8 +31,14 @@ export type EmailOutboxEventType = 'order_created' | 'order_shipped';
 
 /**
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
- * 定義放本檔=它是 outbox `last_error_code` 欄的值域;sender(IEmailSender)產出、outbox 消費。
+ * 定義放本檔=它是 **sender 產出的失敗碼**值域(sender〔IEmailSender〕產出、outbox 消費);
  * 新增碼 = 改本 union + adapter 映射表與 runtime allowlist,不得動態產生。
+ *
+ * ⚠️ **本 union ≠ `last_error_code` 欄的完整值域**(前版此字面已作廢):該欄另有 **adapter 內部寫死、
+ * 刻意不入本 union 的稽核碼** —— `order_ineligible`(S3=A 抑制終態)與 `lease_reclaimed`(E2a-a
+ * 回收;見 `reclaimStaleLeases`)。兩者描述的都**不是「Resend 寄送失敗」**,故不經本 union 與
+ * `markFailed`(會被其 runtime allowlist 改寫成 `provider_error`)。欄的真實值域 =
+ * 本 union ∪ {`order_ineligible`, `lease_reclaimed`};DB 只以 regex 約束格式、不列舉。
  *
  * 🔴 **命名 provider 中立**(E1c;關卡1 codex+Fable 兩審皆判「對的抽象」):port 是抽象層、不綁
  * Resend 字面(provider 專屬 enum 只活在 adapter 映射表=正確位置);未來 provider 語意不等價時
@@ -216,7 +227,44 @@ export interface IEmailOutbox {
   /**
    * `sending → skipped_order_ineligible`(S3=A 寄送前 gate:訂單已退款/取消 → 抑制)。
    * 🔴 不可翻轉終態、零訊號零對帳補救 → 必寫 `last_error_code='order_ineligible'` 供稽核
-   * (migration §⑧);「哪些訂單狀態算 ineligible」= E2a 定案、gate 正確性是 E2a 的責任。
+   * (migration §⑧);「哪些訂單狀態算 ineligible」= E2a-2 定案、gate 正確性是該片的責任。
    */
   markSkippedOrderIneligible(id: string, claimedAttempts: number): Promise<boolean>;
+
+  /**
+   * lease 回收:把「認領後程序才死」而卡在 `sending` 的列翻回**可重試的 `failed`**
+   * (Sean 2026-07-17 拍 **Q2=A**:落 `failed`、非 `pending`)。回傳實際回收的列數。
+   *
+   * 🔴 **為何是新方法、不是複用 `markFailed`(= 擴充 port,不是繞過 port)**:
+   * - 回收器**不是 lease 持有者**、手上沒有 `claimedAttempts` → 上面三個 mark* 的世代柵欄
+   *   `.eq('attempts', claimedAttempts)` 在此**無值可帶**,簽章物理上接不上。
+   * - `lease_reclaimed` **不是 `EmailSendErrorCode` 成員**(它不是「寄送失敗」、是「本地程序死」)
+   *   → 硬塞進 `markFailed` 會被其 runtime allowlist **改寫成 `provider_error`**,Q2=A 要的稽核碼
+   *   被靜默吃掉。故該碼由 adapter **內部寫死**(形同 `markSkippedOrderIneligible` 的
+   *   `order_ineligible`),不經本 union。
+   *
+   * 🔴 **所有權判定 = CAS 述詞本身**(`status='sending' AND claimed_at < staleBefore`),不需世代
+   * 柵欄:述詞一旦不成立(列已被原持有者標記完成/已被別的回收器搶先)→ 0 列 = 沒回收到。
+   *
+   * 🔴 **`attempts` 一律不動**(認領時已 +1、單調遞增是世代 token 的前提)。故回收後可能是
+   * `failed@max` = 死信 → 由 dead-man **訊號 2**(`status IN ('pending','failed') AND
+   * attempts >= max_attempts`)命中,零盲區。⚠️ **Fable 實測的「第四種死法 `pending@max` 隱形死列」
+   * 在 Q2=A 下不可達**——它的前提是回收翻回 `pending`。
+   * 🔴 **權威落點 = migration `20260717020000` 頭註 §⑩**(§⑦ 那條「E2a 定案回收落點時必須回頭過
+   * 訊號表」義務的履行處;漂移以 §⑩ 為準)。⚠️ 本段是**摘要、不是權威** —— 前版寫「此即回頭結論」
+   * 而未回寫 migration = 假字面(關卡2 code-reviewer + Fable 雙審獨立命中):plan §3.6 自寫「漂移以
+   * migration 為準」→ 結論只寫 TS JSDoc 會被下一片實作者依仲裁序丟棄,照 §⑦「回收翻回 pending」的舊字面實作
+   * 「回收翻 pending」→ 重開本方法要關的洞。
+   *
+   * 🔴 **`staleBefore` 的安全下界是 caller 的責任**(lease 長度不由本 port 決定):必須**大於
+   * sweeper 單輪最長可能執行時間**,否則會把**還在途**的列判成 stale → 原持有者仍會寄出、列已被
+   * 翻回 failed → 再次認領 → **重複寄信**(只剩 Resend 24h Idempotency-Key 兜)。
+   * ⚠️ 另須含**跨 instance app 時鐘偏差**餘裕(關卡2 Fable F2):`claimed_at` 由**認領方的 app 鐘**寫
+   * (adapter 內 `new Date()`)、`staleBefore` 由**回收方的 app 鐘**算 → 兩者非同一台機器時,偏差直接
+   * 吃掉 lease 餘裕。plan §3.6 的 lease ≥1h 量級下實害趨零,但取值不得逼近 route `maxDuration`。
+   *
+   * @param staleBefore `claimed_at` 早於此刻的 `sending` 列才回收(= now - lease)。
+   * @param nextRetryAt 回收後的下次重試時間(退避策略由 caller 算,與 `markFailed` 同慣例)。
+   */
+  reclaimStaleLeases(staleBefore: Date, nextRetryAt: Date): Promise<number>;
 }

@@ -6,8 +6,14 @@
  * 「可重試失敗」與「程式錯誤」混流)。
  *
  * 🔴 REQUIRED-E1b(migration `20260717020000` §⑤/§⑦、plan v3.1 §4 差異表):
- * - `errorCode` 走**有限 allowlist**(`EmailSendErrorCode`,定義見 IEmailOutbox=last_error_code
- *   值域);**非 allowlist HTTP status / 其他無法歸類的失敗 → `provider_error`**
+ * - `errorCode` 走**有限 allowlist**(`EmailSendErrorCode`,定義見 IEmailOutbox)。
+ *   ⚠️ **前版寫「= `last_error_code` 值域」= 假字面**(E2a-a 關卡2 codex must-fix;與
+ *   `IEmailOutbox.ts` 同款、上輪只補了那一檔 = 同款前科第 6 次):`last_error_code` 欄另可合法
+ *   存 adapter 內部寫死的稽核碼 `order_ineligible`(S3=A 抑制終態)與 `lease_reclaimed`(E2a-a
+ *   lease 回收)——兩者皆**非「sender 產出的寄送失敗」**、不經本 union。
+ *   **本 union = sender 產出的失敗碼值域**;欄的真實值域 = 本 union ∪ {`order_ineligible`,
+ *   `lease_reclaimed`}(🔴 日後若要把 `last_error_code` **讀回**成型別,不得直接套本 union、會漏兩碼)。
+ *   **非 allowlist HTTP status / 其他無法歸類的失敗 → `provider_error`**
  *   (⚠️ codex 關卡2 R2 nit:前版「未知一律 `provider_error`」與下方破例的「**未知 429 `name` →
  *   `http_429`**」字面衝突 —— 未知 429 是**明列例外**、不落 `provider_error`)。
  *   **原則:禁**由 provider 回應的任意 `.message`/body 轉碼。

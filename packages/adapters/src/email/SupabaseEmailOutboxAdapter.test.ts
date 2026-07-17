@@ -275,7 +275,7 @@ describe('SupabaseEmailOutboxAdapter.claimDue / claimById(CAS 認領)', () => {
   });
 });
 
-describe('SupabaseEmailOutboxAdapter 離開 sending 三出口(雙向 CHECK + ABA 世代柵欄)', () => {
+describe('SupabaseEmailOutboxAdapter 持有者路徑三出口(雙向 CHECK + ABA 世代柵欄)', () => {
   it('markSent:status=sent + sent_at + 🔴 claimed_at=NULL,述詞鎖 sending + attempts 世代', async () => {
     const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
     expect(await adapter(makeClient(b)).markSent('outbox-1', 1)).toBe(true);
@@ -340,5 +340,86 @@ describe('SupabaseEmailOutboxAdapter 離開 sending 三出口(雙向 CHECK + ABA
   it('所有權已失(lease 被回收、0 列)→ false 不覆寫', async () => {
     const b = makeBuilder({ data: [], error: null });
     expect(await adapter(makeClient(b)).markSent('outbox-1', 1)).toBe(false);
+  });
+});
+
+describe('SupabaseEmailOutboxAdapter.reclaimStaleLeases(回收器路徑;E2a-a、Sean Q2=A)', () => {
+  const STALE_BEFORE = new Date('2026-07-17T02:00:00Z');
+  const NEXT_RETRY = new Date('2026-07-17T03:00:00Z');
+
+  it('stale sending → failed + 🔴 last_error_code=lease_reclaimed + claimed_at=NULL + next_retry_at', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    expect(await adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY)).toBe(1);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    // Q2=A:落 failed(可重試態)、非 pending —— 訊號 2 述詞含 failed@max ⇒ 零盲區。
+    expect(vals.status).toBe('failed');
+    expect(vals.last_error_code).toBe('lease_reclaimed');
+    expect(vals.claimed_at).toBeNull();
+    expect(vals.next_retry_at).toBe(NEXT_RETRY.toISOString());
+    // 關卡2 code-reviewer nit:逐欄斷言放行「多寫一個無關欄」(如 sent_at=說謊成已寄)→ 釘死全集。
+    expect(Object.keys(vals).sort()).toEqual([
+      'claimed_at',
+      'last_error_code',
+      'next_retry_at',
+      'status',
+    ]);
+  });
+
+  it('🔴 反證「回收不可改走 markFailed」:把 lease_reclaimed 餵進 markFailed → 被改寫成 provider_error', async () => {
+    // 關卡2 code-reviewer nit:前版只斷言「常數 !== provider_error」= 同義反覆、從未跑過 allowlist,
+    // 證不到它宣稱的性質。真證據 = 反向跑一次:證明「走 markFailed 這條路,稽核碼會被靜默吃掉」,
+    // 這才是 reclaimStaleLeases 必須自己寫欄、不得複用 markFailed 的實據(Q2=A 要的碼會消失)。
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    await adapter(makeClient(b)).markFailed(
+      'outbox-1',
+      1,
+      'lease_reclaimed' as EmailSendErrorCode,
+      NEXT_RETRY,
+    );
+    expect((argsOf(b, 'update')[0]![0] as Record<string, unknown>).last_error_code).toBe(
+      'provider_error',
+    );
+  });
+
+  it('🔴 述詞 = status=sending + claimed_at < staleBefore(所有權判定;不帶也不可能帶世代柵欄)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    await adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY);
+    expect(argsOf(b, 'eq')).toEqual([['status', 'sending']]);
+    expect(argsOf(b, 'lt')).toEqual([['claimed_at', STALE_BEFORE.toISOString()]]);
+    // 關卡2 Fable F3:精確比對 lt/eq 抓不到「有人日後用 .lte 加 attempts guard」→ 顯式釘死空集。
+    expect(argsOf(b, 'lte')).toEqual([]);
+    // 🔴 關卡2 codex must-fix:fake builder 不論有無 .select 都回注入 data → 拔掉實作的
+    // `.select('id')` 時 7 測仍全綠 = 自證自演。但真 Supabase 的 UPDATE **預設不回列**
+    // (官方:須接 .select() 才回更新列)→ 屆時 data 恆空、reclaim 永遠回 0 = 回收靜默失效
+    // (列繼續卡 sending → 訊號 3 永久告警)。故顯式釘死投射。
+    expect(argsOf(b, 'select')).toEqual([['id']]);
+  });
+
+  it('🔴 attempts 一律不動(認領時已 +1;世代 token 單調遞增是 ABA 柵欄的前提)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-1' }], error: null });
+    await adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY);
+    const vals = argsOf(b, 'update')[0]![0] as Record<string, unknown>;
+    expect(vals).not.toHaveProperty('attempts');
+  });
+
+  it('🔴 刻意無 attempts < max guard:達上限的列也必須離開 sending(否則訊號 3 永久告警)', async () => {
+    const b = makeBuilder({ data: [{ id: 'outbox-max' }], error: null });
+    await adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY);
+    // 回收後 = failed@max → 由訊號 2(dead letter)接手,而非卡在 sending 讓訊號 3 一直叫。
+    expect(argsOf(b, 'lt')).toEqual([['claimed_at', STALE_BEFORE.toISOString()]]);
+  });
+
+  it('批次回收 → 回傳實際列數;無 stale 列 → 0(sweeper 回應 counts-only 的來源)', async () => {
+    const many = makeBuilder({ data: [{ id: 'a' }, { id: 'b' }, { id: 'c' }], error: null });
+    expect(await adapter(makeClient(many)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY)).toBe(3);
+    const none = makeBuilder({ data: [], error: null });
+    expect(await adapter(makeClient(none)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY)).toBe(0);
+  });
+
+  it('DB 錯誤 → throw,且訊息不含收件者/payload(PII 不進錯誤)', async () => {
+    const b = makeBuilder({ data: null, error: { code: '42501', message: 'permission denied' } });
+    await expect(
+      adapter(makeClient(b)).reclaimStaleLeases(STALE_BEFORE, NEXT_RETRY),
+    ).rejects.toThrow(/lease 回收失敗\(42501\)/);
   });
 });
