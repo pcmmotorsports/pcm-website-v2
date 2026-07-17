@@ -25,8 +25,9 @@
 
 ## 最近 3 commit
 > dev。本 commit 見「最後更新」;下表列 3 個**已可達**前序 commit(`merge-base --is-ancestor` 驗)。
-> 🚀 **origin/dev=`55365e6`;未推 commit 數 = 以 `git rev-list --count origin/dev..HEAD` **實跑為準、本欄不寫死數字**。
-> ⚠️ **為何不寫死**(2026-07-17,同款前科第 9 次):此處寫死的數字**每多一個 commit 就當場變假** —— 前版「本地零未推」在 `f39a5f8` 產出當下即假、改寫的「未推 2 commit」在 `816f085` 產出當下又假。**寫死的自指數字/行號是結構性假字面來源**(同 memory `feedback_claimed-sync-but-only-patched-touched-lines` 與「自指行號改引文錨」教訓)→ 一律改成**可執行的取得方式**。
+> 🚀 **`origin/dev` 指向何處、未推幾個 commit —— 本欄一律不寫死,以實跑為準**:
+>   `git rev-parse --short origin/dev` / `git rev-list --count origin/dev..HEAD`。
+> ⚠️ **為何不寫死**(2026-07-17,同款前科第 9-10 次):此處寫死的 hash/數字**每多一個 commit 或每次 push 就當場變假** —— 「本地零未推」在 `f39a5f8` 產出當下即假 → 改「未推 2 commit」在 `816f085` 產出當下又假 → **治本只治了「數字」、卻漏掉旁邊的 `origin/dev=55365e6`,push 完當場又假**(第 10 次;**證明「只補眼前那一處」的病連在治本時都會復發** → 同一欄的**所有**自指字面必須一起改)。**寫死的自指數字/行號是結構性假字面來源**(同 memory `feedback_claimed-sync-but-only-patched-touched-lines` 與「自指行號改引文錨」教訓)→ 一律改成**可執行的取得方式**。
 > ⚠️ `dev`=pcm-admin 的 **production** 分支 → push 觸發 admin 重部署=預期(Email 線至 E2a-a 為止**零消費者**:`reclaimStaleLeases` 全 repo 零呼叫點、E2a-b/c 才接;migration 自 `55365e6` 起僅動頭註 = 純註解零 DDL、**無需 re-apply**)。origin/main=`13ce3a9`(production、本線未上)。
 
 | Hash | 訊息 | 時間 |
