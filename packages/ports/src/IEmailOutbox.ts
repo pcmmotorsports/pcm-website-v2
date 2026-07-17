@@ -28,6 +28,22 @@ export type EmailOutboxEventType = 'order_created' | 'order_shipped';
  * 有限錯誤碼 allowlist(對齊 DB CHECK `^[a-z0-9_]{1,64}$`;E2a 依此決定退避/告警)。
  * 定義放本檔=它是 outbox `last_error_code` 欄的值域;sender(IEmailSender)產出、outbox 消費。
  * 新增碼 = 改本 union + adapter 映射表與 runtime allowlist,不得動態產生。
+ *
+ * 🔴 **命名 provider 中立**(E1c;關卡1 codex+Fable 兩審皆判「對的抽象」):port 是抽象層、不綁
+ * Resend 字面(provider 專屬 enum 只活在 adapter 映射表=正確位置);未來 provider 語意不等價時
+ * 仍可回 `provider_error` → port 未被綁死。
+ *
+ * 🔴 **重試政策是本 union 語意的一部分**(codex 關卡1 N1:真抽象來自 adapter 邊界與語意定義,
+ * 不只是把單字順序改掉)。逐碼退避合約見下方逐碼 JSDoc。
+ *
+ * 🔴 **權威落點(關卡2 code-reviewer + codex **雙命中** must-fix:前版字面是**不實宣稱**)**:
+ * 前版寫「權威 = migration `20260717020000` §⑦ REQUIRED-E2a(兩處漂移以 migration 為準)」——
+ * 但**該段實際零逐碼退避內容**(它管的是 attempts/CAS 述詞與 dead-man 訊號),等於把**唯一**寫著
+ * 本合約的地方(本 JSDoc)預先判成漂移時的輸家 → E2a 實作者照「權威」去 migration 找 → 查無 →
+ * 本片存在的理由(≥24h 退避)失去背書。
+ * **現況(E1c-1):本 JSDoc = 逐碼退避合約的唯一定義處。**
+ * 🔴 **E1c-2 硬閘(E2a 動工前必完成)**:把逐碼政策 + 未知 429 保守策略 + 可執行驗收寫入 migration
+ * §⑦ → 屆時兩處並存、以 migration 為準(plan §3.6 仲裁序)。**E1c-2 未落地前,勿宣稱 migration 已是權威。**
  */
 export type EmailSendErrorCode =
   | 'http_400'
@@ -37,11 +53,68 @@ export type EmailSendErrorCode =
   | 'http_408'
   | 'http_409'
   | 'http_422'
+  /**
+   * 🔴 **無法分辨的 429**(E1c 後的殘餘語意 —— 不再是「所有 429」):body 非 JSON / 無 `name` /
+   * `name` 非三個 quota-rate 字面(含原型鏈名如 `toString`)→ 落此碼。典型來源 = 邊緣層(CDN/WAF)
+   * 限流回應(無 Resend body);亦涵蓋「429 body 實際無 `name`」的殘餘不確定(見 adapter 的
+   * `QUOTA_ERROR_CODE_BY_NAME` 註解:兩官方 SDK 對 429 形狀不一致)。
+   *
+   * 🔴 **E2a 退避 = 保守長退避(≥24h,比照 `quota_daily_exceeded`)= Sean 2026-07-17 拍 Q11=A。**
+   * ⚠️ **修正前版矛盾(codex 關卡2 R1 must-fix)**:前版寫「視同 `rate_limited`」,但 `rate_limited`
+   * 是**短**退避 → 未知 429 若實際是日額度,照短退避仍會在幾分鐘內燒完 attempts → 死信 =
+   * **重開 E1c 要關的洞**(Fable 關卡1 C1 的原意是「保守」,不是「跟 rate_limited 同一格」)。
+   *
+   * 🔴 **已知代價(codex 關卡2 R2 must-fix 抓出;Sean 已知悉此代價才拍 Q11=A)**:
+   * 若該 429 實際只是**瞬時限流**(CDN/WAF 抖動、Resend 秒級 rate limit)→ 該封信**白等約 24h**
+   * 才重試(信仍會寄出、不會消失)。
+   * ⚠️ **代價上界取決於一個未確認事實**:429 body 是否必然含 `name`(**兩官方 SDK 不一致**,見
+   * adapter 的 `QUOTA_ERROR_CODE_BY_NAME` 註解)。**若實際不含 → 所有 429 都落本格 → 全部 24h 延遲。**
+   * → 🔴 故**不得**宣稱本片「零回歸 / 最壞只是無效果」(前版此字面**已作廢**:分類失敗時退避政策
+   * 仍生效 = 真實延遲,非「無效果」)。
+   * **拍板理由(Sean 已知悉)**:PCM 量級(10-30 單/日、sweeper 每 5 分鐘一輪)距 Resend 限流門檻
+   * 數個量級 → 撞 429 幾乎必然是額度耗盡而非打太快 → 「未知即當額度」對本專案是合理預設。
+   * **第三選項已記 backlog #285**(解析 `Retry-After` → provider-neutral retry hint;有 hint 用 hint、
+   * 無 hint 才長退避)—— codex 正確指出「延遲 24h vs 永久死信」是**假二分法**,本片選 A 是**取捨、
+   * 非唯一解**。
+   */
   | 'http_429'
   | 'http_500'
   | 'http_502'
   | 'http_503'
   | 'http_504'
+  /**
+   * 打太快(Resend 官方 `rate_limit_exceeded`)。
+   * ⚠️ **官方 rate limit 數值多處不一致 = 未確認**(2026-07-17 查:introduction 頁親讀「5 requests per
+   * second per team」;rate-limit 頁 10 req/s;codex 關卡2 另指 Account Quotas 頁)→ 標未確認、不採信
+   * 單一值。**非阻擋**:PCM 量級(sweeper 每 5 分鐘一輪、10-30 單/日)遠低於任一數值。
+   * **E2a 退避 = 保守短退避**(固定值由 E2a 定)。
+   * 🔴 **本片不傳出 header**(codex 關卡2 must-fix):官方雖有 `Retry-After` / `ratelimit-reset`,
+   * 但 `SendEmailResult` 與 `ResendFetchLike` **皆未承載 headers** → E2a **拿不到**。
+   * 若未來要依 header 精準退避,須擴 `SendEmailResult` 回傳 **provider-neutral retry hint**
+   * (由 adapter 解析 + 驗證 + 上限約束,不得透傳原始 header)= **另片、非本片範圍**。
+   */
+  | 'rate_limited'
+  /**
+   * 日額度用盡(官方 `daily_quota_exceeded`;Free = 100 封/日):**當下重試不會成功**。
+   * ⚠️ **精確敘述(codex 關卡2 nit;前版「明天會成功」是絕對敘述、官方不保證)**:官方只支持
+   * 「**最早可在等待 24 小時後恢復**」;恢復後若流量仍超過額度 → **可能再次耗盡**(非一次性)。
+   * 🔴 **E2a 退避 = 失敗時點 + ≥24h + jitter;禁指數退避;燒速上限 = 每日 1 次。**
+   * (照一般指數退避 → 當天燒完 5 次 attempts → **永久死信,即使隔天額度重置也不補寄** = E1c 存在的理由。)
+   * ⚠️ **官方未揭露確切重置邊界,只要求「等待 24 小時」**(codex 關卡2 R2 nit 精確化;2026-07-17
+   * 親查 errors 頁:有「等待 24 小時」的建議動作、**無任何重置時刻/時區/是否滾動窗的敘述**)
+   * → **用滾動 +24h、不可寫「隔天午夜」**:不依賴時區假設(不管 UTC / 台北 / 滾動窗,+24h 必跨重置點)。
+   */
+  | 'quota_daily_exceeded'
+  /**
+   * 月額度用盡(官方 `monthly_quota_exceeded`;Free = 3,000 封/月)。
+   * ⚠️ **精確敘述(codex 關卡2 nit;前版「非升級不可、睡多久都沒用」是絕對敘述,且與本檔自己
+   * 「每日重試」的政策自相矛盾)**:官方的**即時處置是升級**;否則恢復**取決於帳期重置、
+   * 不假設確切時刻**(故仍每日重試 = 帳期若重置即自動成功,無需人工)。
+   * **E2a 退避 = 比照 daily(+24h)+ dead-man 訊號 5 每日告警**(Sean 2026-07-17 拍 Q9=A)。
+   * 理由:升 Pro 後額度即恢復 → 下次重試自動全寄;5 天緩衝(每日告警)、5 天無處置 → 死信。
+   * 🔴 **誠實揭示:目前無「死信人工重送」工具**(Sean 已知悉此缺口才拍;已開 backlog)。
+   */
+  | 'quota_monthly_exceeded'
   /** transport 層失敗(fetch reject / 逾時);與 HTTP 狀態碼互斥。 */
   | 'network_error'
   /** 兜底:非 allowlist 內的 HTTP 狀態、畸形回應、或無法歸類的 provider 失敗。 */

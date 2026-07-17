@@ -7,7 +7,17 @@
  *
  * 🔴 REQUIRED-E1b(migration `20260717020000` §⑤/§⑦、plan v3.1 §4 差異表):
  * - `errorCode` 走**有限 allowlist**(`EmailSendErrorCode`,定義見 IEmailOutbox=last_error_code
- *   值域);未知一律 `provider_error`。**禁**由 provider 回應的任意 `.message`/body 轉碼。
+ *   值域);**非 allowlist HTTP status / 其他無法歸類的失敗 → `provider_error`**
+ *   (⚠️ codex 關卡2 R2 nit:前版「未知一律 `provider_error`」與下方破例的「**未知 429 `name` →
+ *   `http_429`**」字面衝突 —— 未知 429 是**明列例外**、不落 `provider_error`)。
+ *   **原則:禁**由 provider 回應的任意 `.message`/body 轉碼。
+ *   🔴 **`.message` 永不參與轉碼、永不外傳 —— 此條無例外。**
+ * - 🔴 **窄幅破例(E1c;Sean 2026-07-17 Q6=A 授權)**:僅 `status === 429` 時,adapter 得解析 body
+ *   判別三種 429(rate limit / 日額度 / 月額度)。**精確範圍(codex 關卡2 nit)**:`json()` 會解析
+ *   **整份** body;解析後**僅存取頂層 `name`**,且**只有 `name` 可影響分類結果**;其他欄位
+ *   (尤其 `message`)不得存取、不得進入任何 sink。邊界與殘餘風險見 `ResendEmailSenderAdapter`
+ *   檔頭「§ 窄幅破例」。**定性 = 授權下的破例、不是「原則從未被違反」**(codex 關卡1 must-fix:
+ *   後者是話術 —— `res.json()` 必然緩衝整份 body,「不讀」≠「不使用」)。
  * - 冪等鍵**不收自由字串**(codex 關卡2 R1 must-fix:任意字串會被誤餵 orderId/dedupKey/亂數 →
  *   跨列碰鍵或失去 crash 重送保護)→ 收結構化 `idempotency` 座標,由 adapter 組
  *   `<event_type>/<outbox_id>` 字面(plan §3.5-2)。

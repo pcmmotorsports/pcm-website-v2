@@ -78,6 +78,10 @@ const EMAIL_SEND_ERROR_CODE_FLAGS: Record<EmailSendErrorCode, true> = {
   http_502: true,
   http_503: true,
   http_504: true,
+  // E1c(Sean Q6=A):429 三分;退避政策見 @pcm/ports EmailSendErrorCode 逐碼 JSDoc。
+  rate_limited: true,
+  quota_daily_exceeded: true,
+  quota_monthly_exceeded: true,
   network_error: true,
   provider_error: true,
 };

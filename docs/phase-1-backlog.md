@@ -7011,6 +7011,40 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-17 / M-4a Email 片 E1a(plan v3.1 §9 backlog 清單落實)
 - **相關:** #281 / #250 / M-4a Email 片 E3
 
+### #286. 📮 死信人工重送工具(Email outbox)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低(E3 上線後升 🟠 中 — 屆時才有真信會死)
+- **問題:**
+  - outbox 列 `attempts >= max_attempts` 後即為**死信**:不進 due 索引、不會再被認領、**對帳補寄看到列已存在就不補寄** → 該客人永遠收不到信。目前**無任何工具可救回**(無 reset attempts、無手動重送入口)。
+  - 觸發情境(Sean 2026-07-17 拍 **Q9=A 時已知悉此缺口才拍**):撞 Resend 月額度 → 每日重試 → **連 5 天未升級** → 死信。dead-man 訊號 2/5 會告警,但告警之後**沒有下一步動作可做**。
+- **觸發事件:**
+  - (任一)①真的出現死信(訊號 2 告警)②E3 上線後 Sean 要求「補寄那幾封」③outbox 保留政策 #281 實作時一併評估。
+- **預期解法:**
+  - admin 側最小工具:列出死信(零 PII counts + outbox id)+ 單筆/批次 reset(`attempts=0`、`next_retry_at=now()`、`status='pending'`)+ audit log。
+  - 🔴 **紅線**:reset **不可清 `attempts` 以外的世代語意** —— `attempts` 同時是 ABA 世代柵欄的 token(見 `IEmailOutbox` JSDoc);reset 必須在**確認該列非 `sending`** 下進行,否則與在途持有者撞車 → 重複寄信。
+- **不修會痛在:**
+  - bug 可追蹤性:系統知道信死了、也叫了,但**人收到告警後無事可做** = 告警淪為噪音。
+  - 可維護性:唯一替代路徑是手動下 SQL 改 prod 資料表(繞過 audit、且要人記得 `attempts` 的世代語意)。
+
+### #285. 📮 Email sender 傳出 provider-neutral retry hint(未知 429 精準退避)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - E1c-1 的合約:**未知 429**(body 非 JSON / 無 `name` / `name` 非三字面)→ `http_429` → **保守長退避 ≥24h**。
+  - 🔴 **已知代價(codex 關卡2 R2 must-fix 抓出、Sean 2026-07-17 拍 Q11=A 明示接受)**:若該 429 實際只是瞬時限流(CDN/WAF 抖動、Resend 秒級 rate limit),該封信會**白等約 24 小時**才重試(信仍會寄出、不會消失)。
+  - **拍板理由(Sean 已知悉才拍)**:PCM 量級(10-30 單/日、sweeper 每 5 分鐘一輪)距 Resend 限流門檻(官方 5 req/s;⚠️ 另一頁寫 10 req/s、**官方兩頁矛盾未收斂**)差數個量級 → 撞 429 幾乎必然是額度耗盡而非打太快 → 「未知即當額度」對本專案是合理預設。
+  - ⚠️ **此代價的上界取決於一個未確認事實**:429 body 是否必然含 `name`(**兩官方 SDK 不一致** —— resend-node `ErrorResponse` 宣告含 `name`、resend-go 的 429 分支解 `DefaultError{Message}` 不含 `Name`)。若實際不含 → **所有** 429 都落未知格 → 全部 24h 延遲。
+- **觸發事件:**
+  - (任一)①實測發現正常交易信被延遲 24h(E3 上線後觀察)②Resend 客服/文件確認 429 body 形狀 ③升級 Resend 方案後仍見 `http_429` 告警。
+- **預期解法:**
+  - adapter 解析 `Retry-After` / `ratelimit-reset` header → **解析 + 驗證 + 上限約束**後,以 **provider-neutral retry hint**(秒數)擴進 `SendEmailResult`;E2a「有 hint 用 hint、無 hint 才長退避」。
+  - 🔴 **紅線**:**不得透傳原始 header 字串**(對齊 REQUIRED-E1b「provider 自由文字不進錯誤碼」的立法意圖);hint 須有上限約束(防 provider 回超長值卡死重試)。
+  - 需擴 `ResendFetchLike` 回應型別以承載 headers(E1c-1 刻意未做 = 範圍控制)。
+- **不修會痛在:**
+  - 可維護性:退避策略對「未知」一律取最壞,精度受限於分類能力;分類前提(429 含 `name`)一旦被證偽,整批 429 都吃 24h 延遲而無人察覺。
+
 ### #284. 📮 Email 文案後台可改(L2 → L3 升級路徑)
 
 - **狀態:** ⏳ 待執行
