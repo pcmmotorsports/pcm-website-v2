@@ -80,3 +80,21 @@ export {
   type CheckAnomalyAlertsOptions,
   type CheckAnomalyAlertsResult,
 } from './check-anomaly-alerts';
+
+// M-4a Email 片 E2a-b:逐碼退避政策(§⑨ 三列+plan v3.3 §5 兜底列的唯一 TS 實作落點;E2a sweeper
+// 與 E3 after() 皆須經此算 next_retry_at,不得內聯退避數字)。
+export {
+  computeEmailBackoff,
+  LEASE_RECLAIM_RETRY_DELAY_MS,
+  type EmailBackoffRandom,
+} from './email-backoff';
+
+// M-4a Email 片 E2a-b:outbox sweeper use-case(sweepEmailOutbox、週期觸發〔E2a-c route → E2b pg_cron〕
+// → ①lease 回收〔§⑩ 落 failed+lease_reclaimed〕②claimDue ③逐封順序寄送→markSent/markFailed〔email-backoff 退避〕;
+// 零告警〔Q13=A、五訊號全歸 E2a-2〕、counts-only 零 PII、單封 fail-closed、at-least-once)。
+export {
+  sweepEmailOutbox,
+  type SweepEmailOutboxDeps,
+  type SweepEmailOutboxOptions,
+  type SweepEmailOutboxResult,
+} from './sweep-email-outbox';
