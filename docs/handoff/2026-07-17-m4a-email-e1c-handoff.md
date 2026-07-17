@@ -83,6 +83,6 @@ sweeper route(復用 anomaly-alert 骨架 `vercel.json:11-14`)+ 對帳補寄(§3
 
 ## 相關 plan / 記憶 / 文件
 
-plan **v3.2**(`/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md`)、migration `supabase/migrations/20260717020000_m4a_email_outbox.sql`(§⑦+§⑨)、memory `project_m4a-email-e2a-decisions`(本 session 主紀錄)/`project_refund-line-two-stage`(Q8)/`project_m4a-email-e1a-decisions`(E1a+E1b)、backlog **#285**/**#286**、前交接 `docs/handoff/2026-07-17-m4a-email-e1b-handoff.md`(§5 的「四訊號」已被 §⑨ 超越為五訊號)。
+plan **v3.2**(`docs/specs/2026-07-16-m4a-email-notify-plan.md`)、migration `supabase/migrations/20260717020000_m4a_email_outbox.sql`(§⑦+§⑨)、memory `project_m4a-email-e2a-decisions`(本 session 主紀錄)/`project_refund-line-two-stage`(Q8)/`project_m4a-email-e1a-decisions`(E1a+E1b)、backlog **#285**/**#286**、前交接 `docs/handoff/2026-07-17-m4a-email-e1b-handoff.md`(§5 的「四訊號」已被 §⑨ 超越為五訊號)。
 
 — E1c 實作視窗(Claude Code),2026-07-17

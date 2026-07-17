@@ -18,7 +18,7 @@
 ## 🔴 下一個最小動作(E2a 執行視窗)
 
 1. 讀 migration `20260717020000` 頭註 **§⑦+§⑨+§⑩**(⚠️ **漂移仲裁序 = §⑦ < §⑨ < §⑩**;§⑦「四訊號」已被 §⑨ 超越為**五訊號**;**§⑩ = E2a-a 的回收落點定案**〔回收落 `failed`、`pending@max` 不可達、零盲區〕)+ `packages/ports/src/IEmailOutbox.ts` JSDoc(⚠️ **世代柵欄只在持有者路徑**;回收器走 CAS 述詞)+ memory `project_m4a-email-e2a-decisions`(Q1-Q13)+ plan **v3.2** §3.5b/§3.6/§4.2。
-2. 🔴 **E2a-b 動工前硬前置 = 同步 plan 至 v3.3**(外部 repo `pcm-tools`、E2a-a 帶不進):§3.5-4/§3.6 的「lease 回收翻 **pending**」= Q2=A 已推翻(落 `failed`);§5 的「E2a + failed 告警」= Q13=A 已作廢。
+2. ✅ **原硬前置「同步 plan」已消滅**(Sean 07-17 **Q15=A**):plan 真權威**已搬進本 repo** = **`docs/specs/2026-07-16-m4a-email-notify-plan.md` v3.3**(舊路徑 `pcm-tools/review-inbox/` 為**零版控 untracked 檔**、已改指標 stub、**不得再引用**)。v3.3 已更正:§3.5-4/§3.6 回收落 `failed`(非 pending)、§5 拆片表 E2a-a✅/b/c、§5「E2a + failed 告警」**作廢**(Q13=A)。→ **plan 從此與 code 同 commit,不再有跨 repo 同步債**。
 3. **E2a-b**(退避政策模組 + sweeper use-case + 單測;鏡像 `checkAnomalyAlerts` 分層):退避照 **§⑨ 三列**(quota_daily/monthly+`http_429` = 失敗時點 +24h+jitter、**禁指數退避**;`rate_limited` = 15 分+jitter;其餘 = 指數 5min×2^(attempts-1) 上限 2h)。**燒速上限每日 1 次不需另做機關**:`max_attempts=5` 配 +24h 天然 = 每日一次 → 5 天緩衝。
 4. **E2a-c**(route + server-only composition + 單測):骨架抄 `anomaly-alert/route.ts`;composition 抄 `line-admin.ts:19-21`(`import 'server-only'` + `eslint-disable-next-line no-restricted-imports` 受控例外);窄 cast `createSupabaseServiceClient() as unknown as EmailOutboxClient`;`syntheticEmailDomain` 注入 `LINE_SYNTHETIC_EMAIL_DOMAIN`(`line.ts:38`)。🔴 **不進 `vercel.json` crons**(排程走 E2b 的 pg_cron;Hobby cron 一天一次放不了 `*/5`)。
 5. 審查閘=code-reviewer + codex 關卡2(plan §5 明定、**勿省**)。⚠️ **codex 07-17 起撞 quota 牆、07-23 才恢復**(`EXIT=0` 是假訊號=錯誤寫 stdout;**必讀輸出內容**才知有沒有真的審)→ 替身 = adversarial-reviewer 帶 **Fable**(真跨模型),但**不等於 codex 背書**、不得寫「雙審都過」= STATUS 待決策⑥。
@@ -43,6 +43,6 @@
 ## 相關入口
 
 - 當次快照:`docs/handoff/2026-07-17-m4a-email-e1c-handoff.md`
-- plan 真權威:`/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md` **v3.2**
+- plan 真權威:`docs/specs/2026-07-16-m4a-email-notify-plan.md` **v3.2**
 - memory:`project_m4a-email-e2a-decisions`(**Q1-Q13** 拍板+Resend 事實+E1c/E2a-a 審查紀錄)/ `project_refund-line-two-stage`(Q8)/ `project_m4a-email-e1a-decisions`(E1a+E1b+REQUIRED-E2a/E3 義務)
 - backlog:**#285**(未知 429 精準退避)/ **#286**(死信人工重送工具)

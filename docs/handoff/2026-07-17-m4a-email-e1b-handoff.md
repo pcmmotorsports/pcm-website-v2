@@ -2,7 +2,7 @@
 
 > 一句話:E1a migration prod 驗證 PASS(放行三步全關)+ E1b(port/adapter 層)雙審過、**已 push**。
 > 環境:pcm-website-v2 · Supabase prod(bmpnplmnldofgaohnaok)· branch dev · engineering mode。HEAD=`7b30ced` = origin/dev。
-> 接手先讀:`STATUS.md`「下一步」→ 本檔 → plan v3.1(`/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md`)§3.5b/§3.6/§4.2 → migration `20260717020000` 頭註 §⑦§⑧ → **`packages/ports/src/IEmailOutbox.ts` 全檔 JSDoc(E2a 的使用合約)**。
+> 接手先讀:`STATUS.md`「下一步」→ 本檔 → plan v3.1(`docs/specs/2026-07-16-m4a-email-notify-plan.md`)§3.5b/§3.6/§4.2 → migration `20260717020000` 頭註 §⑦§⑧ → **`packages/ports/src/IEmailOutbox.ts` 全檔 JSDoc(E2a 的使用合約)**。
 
 ## 1. 做了什麼(按時序)
 
@@ -53,6 +53,6 @@ feature 全推(origin/dev=`7b30ced`);本交接檔+CURRENT.md 更新後以 docs c
 
 ## 相關 plan / 記憶 / 文件
 
-plan v3.1(pcm-tools/review-inbox/m4a-email-notify-plan.md)、migration `supabase/migrations/20260717020000_m4a_email_outbox.sql`、memory `project_m4a-email-e1a-decisions`(含 E1b 段+E2a/E3 義務)、`project_m4a-email-notify-decisions`、前交接 `docs/handoff/2026-07-17-m4a-email-e1a-handoff.md`(⚠️ §1/§3 已被本 session 超越)。
+plan v3.1(docs/specs/2026-07-16-m4a-email-notify-plan.md)、migration `supabase/migrations/20260717020000_m4a_email_outbox.sql`、memory `project_m4a-email-e1a-decisions`(含 E1b 段+E2a/E3 義務)、`project_m4a-email-notify-decisions`、前交接 `docs/handoff/2026-07-17-m4a-email-e1a-handoff.md`(⚠️ §1/§3 已被本 session 超越)。
 
 — E1a 驗證+E1b 實作視窗(Claude Code),2026-07-17

@@ -14,7 +14,7 @@ Email 通知片**規劃階段**:偵察 → plan v1 → **雙審皆 FAIL(Fable 7 
 
 | 檔 | 內容 |
 |---|---|
-| **`/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md`** | **plan v2=唯一真權威**(含 §10 v1 must-fix 銷案表、§8 未決 11 題) |
+| **`docs/specs/2026-07-16-m4a-email-notify-plan.md`** | **plan v2=唯一真權威**(含 §10 v1 must-fix 銷案表、§8 未決 11 題) |
 | `~/.../memory/project_m4a-email-notify-decisions.md` | Sean 四拍板 + 雙審 must-fix 摘要 + 教訓 |
 | `~/.../memory/project_m4a-email-trigger-no-money-rpc.md` | 🔴 觸發點「A」字面已釐清=**C 案(app 層)不是 trigger** |
 | `~/.../memory/reference_pcm-platform-plans-vercel-hobby-supabase-pro.md` | 🔴 平台方案實查:**Vercel=Hobby / Supabase=Pro** |

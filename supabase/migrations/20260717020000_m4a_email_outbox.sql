@@ -1,7 +1,7 @@
 -- ============================================================
 -- M-4a Email 通知片 E1a:email_outbox(薄 outbox 表 + ACL + 索引 + fail-closed 斷言)
 -- ============================================================
--- 真權威:plan **v3.1** `/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md` §4(schema)+ §3.4/§3.5/§3.6/§3.7。
+-- 真權威:plan **v3.1** `docs/specs/2026-07-16-m4a-email-notify-plan.md` §4(schema)+ §3.4/§3.5/§3.6/§3.7。
 --          (v3.1 = 本片審查鏈逼出的 §3.5-1/§3.6/§4 增補;**E1b/E2a 開工前必讀那三節**。)
 --          Sean 拍板(07-16 深夜)= S1=A 做完整版(薄 outbox+sweeper+自動重試+dead-man check)/
 --          S2=B 每出一批寄一封 / S3=A 退款後不寄(→ §⑧ 落點)。

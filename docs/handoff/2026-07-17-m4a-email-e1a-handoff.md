@@ -15,7 +15,7 @@ Sean 已要 db push 指令(§4)。**下一片=E1b(port/adapter)**,但 E1b 依賴
 
 | 檔 | 內容 |
 |---|---|
-| **`/Users/sean_1/pcm-tools/review-inbox/m4a-email-notify-plan.md`** | **plan v3.1 = 唯一真權威**。🔴 **E1b/E2a/E4 開工前必讀 §3.4 / §3.5-1 / §3.5-3 / §3.6 / §4 / §7 / §9**。⚠️ **未標 v3.1 的段落 = v2/v3 原字面、僅供追溯決策脈絡**;凡與 v3.1 節次或 migration 衝突 → **以後者為準** |
+| **`docs/specs/2026-07-16-m4a-email-notify-plan.md`** | **plan v3.1 = 唯一真權威**。🔴 **E1b/E2a/E4 開工前必讀 §3.4 / §3.5-1 / §3.5-3 / §3.6 / §4 / §7 / §9**。⚠️ **未標 v3.1 的段落 = v2/v3 原字面、僅供追溯決策脈絡**;凡與 v3.1 節次或 migration 衝突 → **以後者為準** |
 | **`supabase/migrations/20260717020000_m4a_email_outbox.sql`** | schema 真權威(plan §4 的 SQL 區塊**已被它超越**)。頭註 §①-§⑧ 是設計決定;**§⑦ = REQUIRED-E2a 硬合約**;檔尾 = 總則 A/B + 斷言 0-13 |
 | `~/.claude/.../memory/project_m4a-email-e1a-decisions.md` | Sean 07-17 四拍板 + schema 決定 + REQUIRED 合約 + 模擬陷阱 |
 | `~/.claude/.../memory/project_m4a-email-notify-decisions.md` | Sean 07-16 拍板(Q1/Q2/Q4 + S1/S2/S3/S4) |
