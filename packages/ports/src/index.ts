@@ -22,6 +22,10 @@ export type * from './IPollSettleThrottle';
 // M-3 #250 雙扣 anomaly 主動告警:聚合讀 + 推播 port
 export type * from './IAnomalyAlertReader';
 export type * from './IAlertNotifier';
+// M-4a Email 通知片 E1b:交易信 outbox 狀態機 + 寄送 port(與告警 IAlertNotifier 刻意拆港:
+// 收件者逐封不同、失敗回結構化錯誤碼不 throw、outbox 需錯誤碼落表退避)。
+export type * from './IEmailOutbox';
+export type * from './IEmailSender';
 
 // Contract test framework 不從 main entry re-export(M-1-03-prep-audit S1 修正):
 // - tree-shaking 樂觀假設不可信、main entry re-export 會把 vitest 拉進 production bundle

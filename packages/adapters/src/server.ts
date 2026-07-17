@@ -81,3 +81,23 @@ export {
   EmailAlertNotifierAdapter,
   type EmailAlertNotifierConfig,
 } from './payment/EmailAlertNotifierAdapter';
+
+// M-4a Email 通知片 E1b:交易信 outbox 狀態機 + Resend 寄送 + 組裝層(plan v3.1 §5)。
+// 全走 server-only subpath:outbox 表含 recipient_email(PII、client 零權限)、Resend 持 API key、
+// outbox client = service_role 注入(composition 於 E2a/E3 走 line-admin 式受控模組;
+// syntheticEmailDomain 必須從 line.ts LINE_SYNTHETIC_EMAIL_DOMAIN 注入 = 單一字面來源)。
+export {
+  SupabaseEmailOutboxAdapter,
+  isSyntheticEmail,
+  type EmailOutboxClient,
+  type SupabaseEmailOutboxAdapterConfig,
+} from './email/SupabaseEmailOutboxAdapter';
+export {
+  ResendEmailSenderAdapter,
+  type ResendEmailSenderConfig,
+} from './email/ResendEmailSenderAdapter';
+export {
+  buildOrderCreatedPayload,
+  orderCreatedSubject,
+  ORDER_CREATED_EVENT_VERSION,
+} from './email/order-email-assembly';
