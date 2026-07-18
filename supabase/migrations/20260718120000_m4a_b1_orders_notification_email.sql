@@ -72,8 +72,11 @@
 --     ——含尾點 FQDN / 子網域 / NBSP / 全形空白四縫實測被擋,且「相似但合法域」實測未被誤擋。
 --   · **第三輪(Codex 第一輪 consider 後新增 3b2 述詞內容核對):`SIM_ALL_PASS_V3`**
 --     ——3b2 四子項全過**且未誤報**,另加測重音 `usér@example.com` 實測被擋。
---   · 🔴 **突變驗證(證明 3b2 不是假綠)**:故意套**弱化版 CHECK**(移除 `^[!-~]+$` 那條)→
---     3b2 正確 RAISE `MUTATION_CAUGHT`。**寫了斷言 ≠ 斷言抓得到,故實跑突變確認。**
+--   · 🔴 **突變驗證 ×3(證明 3b2 六項核對不是假綠)**——**寫了斷言 ≠ 斷言抓得到,故逐項實跑**:
+--     ① 移除 `^[!-~]+$` → 正確 RAISE `MUTATION_CAUGHT`
+--     ② 移除 email 形狀 regex → 偵測到缺失(Codex 第二輪補提:前版 3b2 漏核此項)
+--     ③ 移除合成域精確等值 `<>` → 偵測到缺失(同上)
+--     正常版三次皆**未誤報**(`PROBE_RESULT` 三項皆 t)。
 --   · 🔴 3b2 的比對字面**取自 `pg_get_constraintdef` 實測輸出**(非憑記憶):PG 將 `NOT LIKE`
 --     正規化為 **`!~~`**、regex 加 `::text` cast → 斷言若照原始 SQL 字面寫會永遠命中不到。
 --   · 三輪事後零留痕實查皆為:residual_column=0 / residual_check=0 / orders 仍 30 筆 30 欄;
@@ -187,6 +190,13 @@ BEGIN
   IF position('!~~' IN v_def) = 0 OR position('%.line.pcmmotorsports.local' IN v_def) = 0 THEN
     RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺子網域阻擋(NOT LIKE 正規化為 !~~) → sub.line.… 繞過面重開;拒繼續';
   END IF;
+  -- 🔴 Codex 第二輪:前版 3b2 只核四項,漏了 email 形狀與「精確合成域等值」兩條 → 弱化這兩條仍會通過。
+  IF position('^[^@]+@[^@]+' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺 email 形狀約束(單一 @ / domain 含點)→ 任意字串可落表;拒繼續';
+  END IF;
+  IF position('<> ''line.pcmmotorsports.local''' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺合成域精確等值阻擋 → line_{sub}@line.pcmmotorsports.local 本體可落表;拒繼續';
+  END IF;
 
   -- 3c. 本檔零 backfill:既有列必須全部仍為 NULL(有值 = 本檔被誤加 UPDATE/DEFAULT)。
   SELECT count(*) INTO v_cnt FROM public.orders WHERE notification_email IS NOT NULL;
@@ -223,9 +233,12 @@ $$;
 -- 【註】下方「模擬斷言 N」指的是**模擬用 DO block** 的編號,非本檔 §3 的 3a-3d(本檔僅 4 條)。
 --       模擬 SQL 全文與原始輸出 → Codex Packet(docs/reviews/2026-07-18-m4a-b1-notification-email-packet.md)。
 --
--- ✅ 0. **DO 3b2 述詞內容核對有效性(突變驗證)**:套弱化版 CHECK(移除 `^[!-~]+$`)→ 3b2 正確
---    RAISE `MUTATION_CAUGHT`;套正確版 → 四子項全過且未誤報(`SIM_ALL_PASS_V3`)。
---    = 證明此斷言**真的殺得死「CHECK 被弱化但斷言仍過」的假綠**,非僅寫在那裡好看。
+-- ✅ 0. **DO 3b2 述詞內容核對(共 6 項)之有效性 —— 突變驗證 ×3**:
+--    核對項:①`^[!-~]+$` ②`octet_length`+`254` ③`rtrim` 去尾點 ④`!~~`+`%.line…` 子網域
+--            ⑤email 形狀 `^[^@]+@[^@]+` ⑥合成域精確等值 `<> 'line.pcmmotorsports.local'`
+--            (⑤⑥為 Codex 第二輪補提 —— 前版只核四項,弱化這兩條仍會通過)
+--    突變實跑:拔①→RAISE `MUTATION_CAUGHT`;拔⑤→偵測到;拔⑥→偵測到;正常版三次皆未誤報。
+--    = 證明此斷言**真的殺得死「CHECK 日後被弱化但斷言仍過」的假綠**,非僅寫在那裡好看。
 -- ✅ 1. 欄存在:orders.notification_email text、is_nullable=YES。(模擬斷言 1)
 -- ✅ 2. CHECK 生效 —— 兩層互補驗證(兩者證明的事情不同、缺一不可):
 --    · **DO block 內真 UPDATE**(模擬斷言 6-13)= 證明「CHECK 真的作用在 orders 表上」:
@@ -251,7 +264,12 @@ $$;
 --    ⚠️ **「套檔後真建一張新單」未測**(需合成 auth.users+地址+FK 鏈,成本高)→ 併入 B-2 交易模擬。
 -- ✅ 7. confirm_order_payment 零接觸:函式存在(1)且定義不含本欄字面(0)。(唯讀實查)
 -- ✅ 8. orders 無使用者 trigger(pg_trigger NOT tgisinternal=0);且不在 realtime publication(0)。
--- ⚠️ 9. 鎖面:lock_timeout='3s' 已寫入,但**實際超時行為未測**(需製造長交易競爭;30 筆小表 ALTER
---    為毫秒級,實務風險極低;且非交易 block 時該語句為 no-op)——誠實揭示,非宣稱已驗。
+-- ⚠️ 9. 鎖面:`lock_timeout='3s'` 已寫入且**經 `supabase db push` 執行時確定生效**(CLI v2.98.1
+--    `ExecBatch` 隱式交易;見檔頭)。**實際超時行為未實測**(未製造長交易競爭情境)。
+--    🔴 **本條前一版寫「30 筆小表為毫秒級、實務風險極低、非交易時 no-op」= 錯誤論述,已刪**
+--    (Codex 兩輪皆駁:取得 ACCESS EXCLUSIVE 可被長交易**無限阻擋**、與資料量無關;檔頭已更正,
+--    此處是同款「只改被點名那一處」的殘留 → 一併對齊)。
+--    🔴 **執行路徑限定**:本檔僅允許經 `supabase db push`;**不得改走 SQL Editor 等非交易路徑**
+--    (那條路徑不具鎖超時保護)。
 -- ✅ 10. ROLLBACK 零留痕(兩輪皆查):residual_column=0 / residual_check=0 / orders 仍 30 筆 30 欄。
 -- ============================================================
