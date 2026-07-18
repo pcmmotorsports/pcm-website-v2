@@ -36,7 +36,18 @@
 
 ### 3.1 欄位
 `orders.notification_email text` **nullable 先行**（D2=A）。不塞 `shipping_address_snapshot`（F8 硬約束）。
-CHECK：`notification_email IS NULL OR ( 格式有效 AND value = btrim(value) AND 無控制字元 AND octet_length(value) <= 254 AND lower(split_part(value,'@',2)) <> 'line.pcmmotorsports.local' )`
+CHECK 🔴 **（現行契約 — 已與 migration `20260718120000` 逐字對齊；B-1 實作後經 code-reviewer 兩輪 + Codex 審查收斂，舊版「等值比對 + 無控制字元」字面已作廢）**：
+```sql
+notification_email IS NULL OR (
+      notification_email = btrim(notification_email)
+  AND notification_email ~ '^[!-~]+$'
+  AND octet_length(notification_email) <= 254
+  AND notification_email ~ '^[^@]+@[^@]+\.[^@]+$'
+  AND rtrim(lower(split_part(notification_email,'@',2)), '.') <> 'line.pcmmotorsports.local'
+  AND rtrim(lower(split_part(notification_email,'@',2)), '.') NOT LIKE '%.line.pcmmotorsports.local'
+)
+```
+六條件逐條語意與 **B-3 app 層鏡像義務**見 §3.4。
 🔴 **舊訂單全為 NULL 是預期狀態**（B-1 為 additive 加欄）→ 收緊策略見 B-6，**不得用裸 `SET NOT NULL`**。
 
 ### 3.2 觸發與失敗語意
@@ -62,8 +73,10 @@ CHECK：`notification_email IS NULL OR ( 格式有效 AND value = btrim(value) A
 - **server 只正規化一次**產生 canonical（trim、domain 轉小寫、拒控制字元/CR/LF）。client 驗證只做 UX，**不得當安全閘**。
 - 🔴 **長度一律以 UTF-8 octet 計，三處同源**：DB `octet_length(...) <= 254`；JS 判斷帶入用 `Buffer.byteLength(value,'utf8') <= 40`；TapPay `String(40)` **保守視為 octet**。
   ⚠️ 禁用 JS `.length`（UTF-16 code unit）或 PG `length()`（字元數）——三者對非 ASCII 不等值，會產生 DB 收下、TapPay 靜默改值的邊界縫。
-- 禁合成域比對**大小寫不敏感**（防 `User@LINE.PCMMOTORSPORTS.LOCAL` 繞過）。
+- 🔴 **只允許可列印 ASCII（`^[!-~]+$`）**（B-1 code-reviewer 抓出的 Unicode 空白縫）：`btrim()` 只去 ASCII space、`[[:cntrl:]]` 不含 U+00A0/U+3000 → 舊述詞會放行 **NBSP / 全形空白 / 零寬空格**。此條一舉擋掉所有空白類、控制字元與非 ASCII。**已知代價＝不支援 IDN/UTF-8 國際化 email**（與 TapPay 要求 RFC 5322 相容，實務可接受）。實測 12 個重音/類 ASCII 對抗樣本（é/á/ü/ø/ß/西里爾 а/軟連字號/組合附加符號）**全擋**，`~`(0x7E)與 `!`(0x21) 邊界**全過**。
+- 🔴 **禁合成域＝三重防繞過**（① 大小寫不敏感 ② **去尾點 FQDN**：`rtrim(...,'.')`，擋 `x@line.pcmmotorsports.local.` ③ **擋子網域**：`NOT LIKE '%.line.pcmmotorsports.local'`，擋 `x@sub.line…`）。實測「相似但不同域」`ok@notline.pcmmotorsports.local2.com` **未被誤擋**。
 - zod schema 的 254 上限**與 DB CHECK 同值同源**（共用常數、禁各自寫死）。
+- 🔴🔴 **B-3 app 層鏡像義務（硬性；漏做＝結帳 500）**：server canonical 驗證必須鏡像上列**全部**規則 —— 尤其 ① 只允許可列印 ASCII ② 去尾點 + domain **後綴**比對（非等值）。否則 app 層放行、DB 層才擋 → 使用者看到的是無意義的 500 而非欄位驗證訊息。**此為 B-3 驗收條件,不得省略。**
 
 ### 3.5 權限邊界
 不擴大 `payment_confirmer`（現僅 EXECUTE `confirm_order_payment` 窄權）。enqueue producer＝獨立 server-only 組件，沿用 orders service-role SELECT + outbox 受控寫入。log／回應**禁帶 email 原值**。
@@ -74,7 +87,7 @@ CHECK：`notification_email IS NULL OR ( 格式有效 AND value = btrim(value) A
 |---|---|---|
 | B-1 🔴 | migration：`notification_email` **nullable** 加欄 + §3.1 CHECK（octet 單位）；不動既有單 | schema、Sean db push + 交易模擬 |
 | B-2 🔴 | migration：**同一 migration 內 DROP 舊 8-param + CREATE 9-param（第 9 參 `DEFAULT NULL`）** + **ACL 鏡像重建 + `has_function_privilege` fail-closed 斷言**。🔴 **函式體必須以 prod 當下最新版為基底**（`pg_get_functiondef` 取出、**禁從舊 migration 複製**）並**逐行 diff 驗證** vehicle snapshot／vehicle type guard／法律同意／cart dedup／價格與敏感欄防護**零遺失**（codex R2：複製錯版＝靜默回滾已上線防護）；prod 交易模擬 | 金流 RPC、鐵則12 Packet |
-| B-3 | 結帳頁收件資料區塊加 email 欄（D1=A）+ zod 驗證（254 octet、與 DB 同源常數）+ 預填規則（會員真 email 預填／合成域空白）+ **UI 揭露文案** + smoke test；**gate＝單一 env flag 同時翻四層**（UI 顯示／client payload／server schema requirement／RPC 呼叫形態），**預設 off**、四層同刻翻轉＝**app 內無層間順序問題**。🔴 **但跨片有唯一合法順序（codex R3 #7）**：`B-1/B-2 完成並驗證 → B-3/B-4 部署但 flag 保持 off → 開 flag 並記錄精確切換時戳（＝§5 R3 的 cutoff）→ 觀察窗 → B-6`。**不得在 B-2 未完成前開 flag**（server 要求 email 但 RPC 尚無該參數＝結帳中斷） | 共用結帳元件 |
+| B-3 | 結帳頁收件資料區塊加 email 欄（D1=A）+ zod 驗證（254 octet、與 DB 同源常數,🔴 **必鏡像 §3.4 全部六條件**：可列印 ASCII / 去尾點 / 擋子網域 —— 漏做＝app 放行、DB 擋、結帳 500）+ 預填規則（會員真 email 預填／合成域空白）+ **UI 揭露文案** + smoke test；**gate＝單一 env flag 同時翻四層**（UI 顯示／client payload／server schema requirement／RPC 呼叫形態），**預設 off**、四層同刻翻轉＝**app 內無層間順序問題**。🔴 **但跨片有唯一合法順序（codex R3 #7）**：`B-1/B-2 完成並驗證 → B-3/B-4 部署但 flag 保持 off → 開 flag 並記錄精確切換時戳（＝§5 R3 的 cutoff）→ 觀察窗 → B-6`。**不得在 B-2 未完成前開 flag**（server 要求 email 但 RPC 尚無該參數＝結帳中斷） | 共用結帳元件 |
 | B-4 🔴 | `charge-actions` 串接：canonical email 存入 `create_order`；**條件帶入** `buildCardholder`（§3.3 三分支：canonical 合格／session 合格／皆不合格帶空字串），三路徑各測試 + 40/41 octet 邊界測試；更新 `cardholder.ts` 拍板註解 | 金流 action、鐵則12 |
 | B-5 🔴 | enqueue 掛 §3.2 兩個匯聚點；付款優先、全 catch；**可部署但不得宣稱功能上線**（gate 見 §6） | 鐵則12 |
 | B-6 🔴 | **收緊片**：⚠️ 不可用裸 `SET NOT NULL`（會驗全部存量列，舊單與過渡窗 NULL 必炸；回填合成值又撞 §3.1 禁合成域 CHECK＝自相矛盾）→ 改 **cutoff 式 CHECK**：`created_at >= <切換時戳> → notification_email IS NOT NULL`；**同片移除 RPC 第 9 參數 DEFAULT**（否則 authenticated caller 可直呼 RPC 省略該參數繞過必填，app 層 schema 擋不住 — codex R2 #3）；明文 backfill／刪除政策 + 觀察窗 N 天 | schema、獨立片、**列入 §6 上線 gate** |

@@ -45,8 +45,10 @@
 --   同族硬拷貝另有 **`apps/storefront/src/lib/auth/field-validation.ts:53`**(該檔自帶「⚠️ 必與
 --   lib/auth/line.ts 同步」註解、因 line.ts 為 server-only 不可進 client 驗證)。
 --   → **改域名須此三處同改並另開 migration**,否則本 CHECK 靜默失效。
---   (全樹 grep 核實:其餘命中皆為註解非字面常數 —— account/page.tsx:58、cardholder.ts:4、
---    20260717020000:28。)
+--   (全樹 grep 核實:其餘 **production** 命中皆為註解非字面常數 —— account/page.tsx:58、
+--    cardholder.ts:4、20260717020000:28。⚠️ Codex 第一輪補正:**測試檔另有字面值**
+--    `apps/storefront/src/lib/email/composition.test.ts:27`,屬測試注入值、非 production 真權威,
+--    但改域名時**一併 grep 全樹**才不會漏。)
 --   ⚠️ 本 CHECK 為 **backstop、非唯一防線**:真防線在 server 端 canonical 正規化(B-3/B-4)。
 --   🔴 **B-3 驗收必含(app 層須鏡像本 CHECK 的兩條規則,否則 app 放行、DB 才擋 = 使用者看到
 --   無意義的 500 而非欄位驗證訊息)**:
@@ -62,13 +64,20 @@
 --   同一隱式交易;檔內顯式 COMMIT 會提早結束它,讓「schema 落地」與「history 登記」之間出現斷線窗。
 --   無顯式 COMMIT 時 DO 斷言 RAISE 連 history 一起回滾 = fail-closed 更乾淨。
 --
--- 動手前真 DB 交易模擬:✅ **PASS ×2(2026-07-18,project bmpnplmnldofgaohnaok)**
+-- 動手前真 DB 交易模擬:✅ **PASS ×3 + 突變驗證 ×1(2026-07-18,project bmpnplmnldofgaohnaok)**
 --   手法 = **單一 DO block**(套本檔 DDL → 逐條斷言 → 結尾無條件 RAISE 強制回滾)→ 單語句原子性,
 --   MCP 縱使 autocommit 亦零留痕(沿用 E1a 手法)。
 --   · 第一輪(述詞修正前):10 條斷言 PASS。
 --   · **第二輪(code-reviewer R1 兩個 nit 修正後、即本檔現行述詞):15 條斷言 PASS**
 --     ——含尾點 FQDN / 子網域 / NBSP / 全形空白四縫實測被擋,且「相似但合法域」實測未被誤擋。
---   · 兩輪事後零留痕實查皆為:residual_column=0 / residual_check=0 / orders 仍 30 筆 30 欄。
+--   · **第三輪(Codex 第一輪 consider 後新增 3b2 述詞內容核對):`SIM_ALL_PASS_V3`**
+--     ——3b2 四子項全過**且未誤報**,另加測重音 `usér@example.com` 實測被擋。
+--   · 🔴 **突變驗證(證明 3b2 不是假綠)**:故意套**弱化版 CHECK**(移除 `^[!-~]+$` 那條)→
+--     3b2 正確 RAISE `MUTATION_CAUGHT`。**寫了斷言 ≠ 斷言抓得到,故實跑突變確認。**
+--   · 🔴 3b2 的比對字面**取自 `pg_get_constraintdef` 實測輸出**(非憑記憶):PG 將 `NOT LIKE`
+--     正規化為 **`!~~`**、regex 加 `::text` cast → 斷言若照原始 SQL 字面寫會永遠命中不到。
+--   · 三輪事後零留痕實查皆為:residual_column=0 / residual_check=0 / orders 仍 30 筆 30 欄;
+--     遠端 `schema_migrations` 最新仍為 `20260717020000`(本檔確實未 apply)。
 --   · 另以**純唯讀 SELECT 表達式矩陣共 35 樣本:35/35 符合預期**(見檔尾;含 code-reviewer R2
 --     要求補的 12 個**重音/類 ASCII 對抗樣本**,實測關閉「`[!-~]` 在非 C collation 可能放行
 --     重音拉丁字母」的疑慮)。
@@ -81,11 +90,15 @@
 -- ── 0. 鎖面:ADD COLUMN(nullable、無 DEFAULT)在 PG 11+ 為 metadata-only;
 --    但 ADD CONSTRAINT CHECK 會取 ACCESS EXCLUSIVE 並掃描既有列驗證(現 30 筆全 NULL → 瞬時)。
 --    設 lock_timeout 防「意外撞上長交易而卡住真實結帳建單」。
---    ⚠️ **效力取決於執行路徑是否包在交易內**:依上方「交易邊界」段的推論(supabase CLI ExecBatch
---    把整檔跑在同一隱式交易)**此處應會生效**;但若某執行路徑非交易 block,SET LOCAL 退化為
---    WARNING **no-op**(兩態皆安全:生效=超時即失敗 fail-closed;no-op=回退預設無限等待,
---    而 30 筆小表 ALTER 為毫秒級)。**標「未實測」是因未製造長交易競爭情境**,非對前述推論存疑
---    (檔尾第 9)。鏡像檔 20260714120000 未用此手法 = 本檔刻意偏離、理由如上。
+--    ✅ **指定執行路徑下確定生效**(Codex 第一輪查證 supabase CLI **v2.98.1** `pkg/migration/file.go`
+--    的 `ExecBatch` 原始碼:以隱式交易執行 SQL 並在同一批登記 migration history)→ 經
+--    `supabase db push` 執行時,本 `SET LOCAL lock_timeout='3s'` **會生效**。
+--    🔴 **本檔僅允許經 `supabase db push` 執行;非交易路徑不具鎖超時保護。**
+--    ⚠️ **前一版註解「非交易時 no-op 也安全,因為 30 筆小表是毫秒級」是錯的(Codex 已駁)**:
+--    取得 ACCESS EXCLUSIVE lock 可能被**長交易無限阻擋**,與本表資料量無關 —— 資料量只決定
+--    「拿到鎖之後」的掃描時間,不決定「要等多久才拿得到鎖」。
+--    檔尾第 9 標「未實測」= 未製造長交易競爭情境實測超時行為,非對上述 CLI 查證存疑。
+--    鏡像檔 20260714120000 未用此手法 = 本檔刻意偏離、理由如上。
 SET LOCAL lock_timeout = '3s';
 
 -- ── 1. 加欄(nullable、無 DEFAULT)────────────────────────────────────────────
@@ -118,12 +131,15 @@ COMMENT ON COLUMN public.orders.notification_email IS
 -- ── 3. fail-closed 斷言:欄型態 / CHECK 存在 / 既有列未被動到 / 無意外欄級 ACL ──
 --    ⚠️ 誠實定性:3a/3b/3d 在本檔 DDL 未被竄改的前提下**近乎恆真**(ADD CONSTRAINT 不加 NOT VALID
 --    必然 convalidated;ADD COLUMN 必然無 attacl)= **結構守衛**、非行為驗證(行為驗證在交易模擬)。
---    實質防呆價值最高者為 3c(零 backfill,擋日後有人在本檔加 UPDATE/DEFAULT)。
+--    實質防呆價值:**3c**(零 backfill,擋日後有人在本檔加 UPDATE/DEFAULT)與
+--    **3b2**(🔴 Codex 第一輪 consider 後新增 —— **述詞內容**核對,擋「CHECK 被弱化但 3b 仍過」的假綠;
+--    比對字面取自 `pg_get_constraintdef` 實測輸出)。
 DO $$
 DECLARE
   v_cnt      integer;
   v_nullable text;
   v_type     text;
+  v_def      text;
 BEGIN
   -- 3a. 欄存在、型別 text、nullable(NOT NULL 會在 B-2 前弄斷結帳)。
   SELECT data_type, is_nullable INTO v_type, v_nullable
@@ -148,6 +164,28 @@ BEGIN
      AND convalidated;
   IF v_cnt <> 1 THEN
     RAISE EXCEPTION 'B-1 異常 — orders_notification_email_valid CHECK 不存在或未驗證(count=%);拒繼續', v_cnt;
+  END IF;
+
+  -- 3b2. 🔴 CHECK **述詞內容**核對(Codex 第一輪 consider:3b 只驗「存在且 convalidated」,
+  --      日後若有人把述詞弱化成寬鬆版,3b 仍會通過 = 假綠)。
+  --      比對字面取自 `pg_get_constraintdef` **實測輸出**(非憑記憶):PG 會把 NOT LIKE 正規化為
+  --      `!~~`、regex 加 `::text` cast。用 position() 而非 LIKE(述詞本身含 `%` 字元)。
+  SELECT pg_get_constraintdef(oid) INTO v_def FROM pg_constraint
+   WHERE conrelid = 'public.orders'::regclass AND conname = 'orders_notification_email_valid';
+  IF v_def IS NULL THEN
+    RAISE EXCEPTION 'B-1 異常 — 取不到 CHECK 述詞定義;拒繼續';
+  END IF;
+  IF position('^[!-~]+$' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺「只允許可列印 ASCII」成分 → NBSP/全形空白/零寬空格/非 ASCII 繞過面重開;拒繼續';
+  END IF;
+  IF position('octet_length' IN v_def) = 0 OR position('254' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺 octet_length 254 上限 → 單位若退回字元數即與 TapPay/JS 側不一致;拒繼續';
+  END IF;
+  IF position('rtrim' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺 rtrim 去尾點 → 合成域尾點 FQDN 繞過面重開;拒繼續';
+  END IF;
+  IF position('!~~' IN v_def) = 0 OR position('%.line.pcmmotorsports.local' IN v_def) = 0 THEN
+    RAISE EXCEPTION 'B-1 異常 — CHECK 述詞缺子網域阻擋(NOT LIKE 正規化為 !~~) → sub.line.… 繞過面重開;拒繼續';
   END IF;
 
   -- 3c. 本檔零 backfill:既有列必須全部仍為 NULL(有值 = 本檔被誤加 UPDATE/DEFAULT)。
@@ -185,6 +223,9 @@ $$;
 -- 【註】下方「模擬斷言 N」指的是**模擬用 DO block** 的編號,非本檔 §3 的 3a-3d(本檔僅 4 條)。
 --       模擬 SQL 全文與原始輸出 → Codex Packet(docs/reviews/2026-07-18-m4a-b1-notification-email-packet.md)。
 --
+-- ✅ 0. **DO 3b2 述詞內容核對有效性(突變驗證)**:套弱化版 CHECK(移除 `^[!-~]+$`)→ 3b2 正確
+--    RAISE `MUTATION_CAUGHT`;套正確版 → 四子項全過且未誤報(`SIM_ALL_PASS_V3`)。
+--    = 證明此斷言**真的殺得死「CHECK 被弱化但斷言仍過」的假綠**,非僅寫在那裡好看。
 -- ✅ 1. 欄存在:orders.notification_email text、is_nullable=YES。(模擬斷言 1)
 -- ✅ 2. CHECK 生效 —— 兩層互補驗證(兩者證明的事情不同、缺一不可):
 --    · **DO block 內真 UPDATE**(模擬斷言 6-13)= 證明「CHECK 真的作用在 orders 表上」:
