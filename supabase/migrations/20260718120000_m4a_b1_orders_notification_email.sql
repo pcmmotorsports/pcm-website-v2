@@ -93,15 +93,21 @@
 -- ── 0. 鎖面:ADD COLUMN(nullable、無 DEFAULT)在 PG 11+ 為 metadata-only;
 --    但 ADD CONSTRAINT CHECK 會取 ACCESS EXCLUSIVE 並掃描既有列驗證(現 30 筆全 NULL → 瞬時)。
 --    設 lock_timeout 防「意外撞上長交易而卡住真實結帳建單」。
---    ✅ **指定執行路徑下確定生效**(Codex 第一輪查證 supabase CLI **v2.98.1** `pkg/migration/file.go`
---    的 `ExecBatch` 原始碼:以隱式交易執行 SQL 並在同一批登記 migration history)→ 經
---    `supabase db push` 執行時,本 `SET LOCAL lock_timeout='3s'` **會生效**。
---    🔴 **本檔僅允許經 `supabase db push` 執行;非交易路徑不具鎖超時保護。**
---    ⚠️ **前一版註解「非交易時 no-op 也安全,因為 30 筆小表是毫秒級」是錯的(Codex 已駁)**:
---    取得 ACCESS EXCLUSIVE lock 可能被**長交易無限阻擋**,與本表資料量無關 —— 資料量只決定
---    「拿到鎖之後」的掃描時間,不決定「要等多久才拿得到鎖」。
---    檔尾第 9 標「未實測」= 未製造長交易競爭情境實測超時行為,非對上述 CLI 查證存疑。
---    鏡像檔 20260714120000 未用此手法 = 本檔刻意偏離、理由如上。
+--    🔴🔴 **2026-07-18 apply 實測結論:本行是 no-op、並未生效。**
+--      `supabase db push` 實際輸出:`WARNING (25P01): SET LOCAL can only be used in transaction blocks`
+--    → **實測推翻了 Codex 第一輪的原始碼推論**(它查 supabase CLI **v2.98.1**
+--      `pkg/migration/file.go` 的 `ExecBatch`,認定以隱式交易執行、故 SET LOCAL 會生效)。
+--      **教訓:原始碼查證 ≠ 實際執行行為;唯一權威是實跑輸出。**
+--      ⚠️ 本檔前一版據該推論寫「經 db push 執行時確定生效」= **錯誤宣稱,已作廢**。
+--    · **實際後果**:本次 apply **全程無鎖超時保護**。所幸未撞上長交易、ALTER 秒級完成,
+--      無實害 —— 但那是運氣,不是設計保證。
+--    · **保留本行的理由**:no-op 僅發 WARNING、無害;且若未來 CLI 改為包交易則自動生效。
+--      🔴 **但不得再宣稱它提供任何保護**。需要鎖保護的後續片(尤其 **B-2 改 `create_order`**,
+--      屆時鎖競爭風險遠高於本片)**必須另尋機制**,不可沿用本行了事。
+--    · ⚠️ 更早一版還寫過「非交易時 no-op 也安全,因為 30 筆小表是毫秒級」= **錯誤論述、已刪**
+--      (Codex 兩輪皆駁:取得 ACCESS EXCLUSIVE 可被**長交易無限阻擋**、與資料量無關 ——
+--       資料量只決定「拿到鎖之後」的掃描時間,不決定「要等多久才拿得到鎖」)。
+--    鏡像檔 20260714120000 未用此手法 = 本檔刻意偏離;**事後看,該檔的選擇才是對的**。
 SET LOCAL lock_timeout = '3s';
 
 -- ── 1. 加欄(nullable、無 DEFAULT)────────────────────────────────────────────
@@ -264,12 +270,14 @@ $$;
 --    ⚠️ **「套檔後真建一張新單」未測**(需合成 auth.users+地址+FK 鏈,成本高)→ 併入 B-2 交易模擬。
 -- ✅ 7. confirm_order_payment 零接觸:函式存在(1)且定義不含本欄字面(0)。(唯讀實查)
 -- ✅ 8. orders 無使用者 trigger(pg_trigger NOT tgisinternal=0);且不在 realtime publication(0)。
--- ⚠️ 9. 鎖面:`lock_timeout='3s'` 已寫入且**經 `supabase db push` 執行時確定生效**(CLI v2.98.1
---    `ExecBatch` 隱式交易;見檔頭)。**實際超時行為未實測**(未製造長交易競爭情境)。
---    🔴 **本條前一版寫「30 筆小表為毫秒級、實務風險極低、非交易時 no-op」= 錯誤論述,已刪**
---    (Codex 兩輪皆駁:取得 ACCESS EXCLUSIVE 可被長交易**無限阻擋**、與資料量無關;檔頭已更正,
---    此處是同款「只改被點名那一處」的殘留 → 一併對齊)。
---    🔴 **執行路徑限定**:本檔僅允許經 `supabase db push`;**不得改走 SQL Editor 等非交易路徑**
---    (那條路徑不具鎖超時保護)。
+-- ❌ 9. 鎖面:**`lock_timeout='3s'` 實測為 no-op、未生效**(2026-07-18 apply 實跑輸出
+--    `WARNING (25P01): SET LOCAL can only be used in transaction blocks`)。
+--    → 本次 apply **全程無鎖超時保護**;未撞長交易是運氣、非設計保證。
+--    🔴 **推翻鏈(誠實記錄)**:①最早版「no-op 也安全,30 筆是毫秒級」= 錯(Codex 駁:
+--    ACCESS EXCLUSIVE 可被長交易無限阻擋、與資料量無關)②修正版「經 db push 確定生效」
+--    = 也錯(Codex 查 CLI 原始碼的推論,被本次 apply 的實測輸出推翻)③**現行 = 實測事實**。
+--    **教訓:原始碼查證 ≠ 實際行為;唯一權威是實跑輸出。**
+--    🔴 **對後續片的義務**:B-2(改 `create_order`)鎖競爭風險遠高於本片,**不得沿用本行**,
+--    需另尋可控交易的執行路徑或獨立 session 設定。
 -- ✅ 10. ROLLBACK 零留痕(兩輪皆查):residual_column=0 / residual_check=0 / orders 仍 30 筆 30 欄。
 -- ============================================================
