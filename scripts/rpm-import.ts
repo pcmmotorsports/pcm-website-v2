@@ -21,7 +21,8 @@
  *   註(S3b):來源改吃 QUOTE_*(取代 S2 退役的 SOURCE_SUPABASE_URL / SOURCE_SUPABASE_SECRET_KEY raw 讀)。
  *
  * 🔴 紅線(S3b/S4/S5):各段檔頭(rpm-fetch 讀乾淨 view 濾 supplier_slug=<呼叫端傳入> + 57014 退避重試;
- *   rpm-transform price_retail→price_general〔零售〕/ price_store 欄 NULL / 停寫敏感 metadata / delisted_at=null 復架;
+ *   rpm-transform price_retail→price_general〔零售〕/ price_store 欄 NULL / 停寫敏感 metadata /
+ *   delisted_at **鏡射來源**(view v3 投影、合約 §10;非舊的無條件 null 復架 — 別改回去);
  *   rpm-delta 兩層價格硬 gate + pv_spec preflight;rpm-preflight 抓取完整性 gate〔W1〕;rpm-reconcile 下架對賬安全 gate + scope rpm 軟下架)。
  */
 
@@ -39,6 +40,7 @@ import {
   transformGroup,
   transformVariant,
   variantSortKey,
+  liveVariantsOf,
   type ProductRow,
   type VariantRow,
   type GroupTransformContext,
@@ -189,13 +191,22 @@ async function main(): Promise<void> {
   let unseededSubGroups = 0; // 有完整 pair 卻 resolve 不到 seed 子類(seed 漂移、異常)
   const conflictGroups: { mainSku: string; pairs: string[] }[] = []; // 群內「跨大類」衝突(Codex must-fix 2 的危險情境:錯置到別大類)
   let subMildGroups = 0; // 同大類但子類分歧(輕微;取決定性子類、不 abort)
+  let partialDelistDropped = 0; // R2-SF2:部分停產群被剔除的變體數(唯一會產生孤兒的路徑)
+  let partialDelistGroups = 0;
   for (const [mainSku, variants] of entries) {
-    const vehicleLabel = variants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
+    // 🔴 liveVariants 必須在【最上面】算,群內所有衍生值(車款標籤、分類 pair、群層轉換、變體列)
+    //    一律吃同一個集合。規則與理由見 rpm-transform.ts 的 liveVariantsOf。
+    //    對抗審查 R2-SF1:若車款標籤與分類 pair 仍吃全部 variants,停產變體的殘留舊標籤會污染在售群 ——
+    //    最嚴重情境是停產變體的 major_category_v2_zh 與在售的不同 => majorsInGroup.size===2
+    //    => 進 conflictGroups => WRITE 模式整批 abort,等於「停產品的殘留標籤凍結整家供應商同步」,
+    //    正是本次改動要消滅的事故類型。
+    const liveVariants = liveVariantsOf(variants);
+    const vehicleLabel = liveVariants.find((v) => v.vehicle_label)?.vehicle_label ?? ''; // 群內第一個非空
     // 分類:群內收集去重「大類 · 子類」完整 pair + 大類集合(Codex must-fix 2:防 .find 靜默取第一筆/合成不存在麵包屑)。
     //   恰一 pair=正常;0=大面積 null;>1 且同大類=輕微子類分歧(取決定性子類);>1 且跨大類=危險衝突(abort)。
     const pairs = new Set<string>();
     const majorsInGroup = new Set<string>();
-    for (const v of variants) {
+    for (const v of liveVariants) {
       if (v.major_category_v2_zh && v.sub_category_v2_zh) {
         pairs.add(`${v.major_category_v2_zh}${CATEGORY_PATH_SEP}${v.sub_category_v2_zh}`);
         majorsInGroup.add(v.major_category_v2_zh);
@@ -227,9 +238,15 @@ async function main(): Promise<void> {
       syncDescription: config.syncDescription,
       syncInstallResources: config.syncInstallResources, // #270:gbracing/bonamici=true 寫 manuals/video_url、rpm/cnc=false 凍結
     };
-    const pr = transformGroup(mainSku, variants, vehicleLabel, ctx, now);
+    // 群層轉換同樣吃 liveVariants(分開餵會讓商品卡顯示已被剔除的停產變體價格 ——
+    // 對抗審查實例:停產款 $1,000 / 在售款 $2,000,卡片仍顯示 $1,000)。
+    const pr = transformGroup(mainSku, liveVariants, vehicleLabel, ctx, now);
     productRows.push(pr);
-    const sorted = [...variants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
+    if (liveVariants.length < variants.length) {
+      partialDelistDropped += variants.length - liveVariants.length; // R2-SF2 可觀測性
+      partialDelistGroups++;
+    }
+    const sorted = [...liveVariants].sort((a, b) => (variantSortKey(a) < variantSortKey(b) ? -1 : 1));
     variantsByExternalId.set(
       pr.external_id,
       sorted.map((v, idx) => transformVariant(v, now, idx, config.variantImages)),
@@ -238,6 +255,27 @@ async function main(): Promise<void> {
   const variantRows = [...variantsByExternalId.values()].flat();
   const sourceExternalIds = new Set(productRows.map((p) => p.external_id)); // S4 下架對賬:本次 source 出現的主碼集合
   const sourceVariantSkus = new Set(variantRows.map((v) => v.sku)); // V1 變體級對賬:本次 source 變體碼集合
+
+  // ── 鏡射下架的能見度(對抗審查 F2)──
+  //   view v3「投影不過濾」後,商品可經【鏡射】變成對顧客隱藏,這條路徑不經 W1(5%)/S4(10%)
+  //   —— 那兩道閘量的是「缺席」,鏡射路徑零缺席、兩閘皆不觸發。無人值守 cron 若不 log,
+  //   來源側一次誤標可讓整家供應商在顧客站靜默蒸發而無人察覺。故此處【永遠】印出數量與比例。
+  //   (刻意只 log 不 abort:來源側已有 fetcher MIN_SAFE_FETCH 安全閘 + view 的 7 天去抖兩層防護,
+  //    且套用 v3 當次本就會一次鏡射大量既有停產品 —— 加 abort 會讓首次同步必掛。
+  //    是否要再加一道量閘 = 待 Sean 拍板的 backlog,不在本 slice 自行決定。)
+  const mirroredDelistedCount = productRows.filter((p) => p.delisted_at).length;
+  const scopeNote = FULL_MODE ? '' : '(篩選後、非全量比例)'; // R2-N1:--group/--limit 下分母非全量,免誤判事故
+  console.log(
+    `[rpm-import] 鏡射下架:${mirroredDelistedCount}/${productRows.length} 群帶 delisted_at` +
+      `(${productRows.length ? ((mirroredDelistedCount / productRows.length) * 100).toFixed(1) : '0.0'}%${scopeNote}` +
+      `;來源側權威、本站不重判;比例異常高請查報價單庫 storefront_catalog_v)`,
+  );
+  // R2-SF2:部分停產剔除是【唯一】會產生變體孤兒的路徑;孤兒 >10% 會撞 VARIANT_DELETE_RATIO_ABORT
+  // 而 F3 又禁兩旗標並用 => 先讓它在撞閘【之前】就可見(「目前只佔 0.07%」是快照、不是不變式)。
+  console.log(
+    `[rpm-import] 部分停產剔除變體:${partialDelistDropped} 顆 / ${partialDelistGroups} 群${scopeNote}` +
+      `(將走孤兒硬刪;整群停產者保留全變體、不計入)`,
+  );
 
   // ── 乾跑診斷:逐群 v2 分類解析彙整(#212)──
   if (categoryResolutions.length) {

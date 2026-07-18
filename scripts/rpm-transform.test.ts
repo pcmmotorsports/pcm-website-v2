@@ -15,6 +15,7 @@ import {
   resolveFitmentYears,
   normalizeManuals,
   pickInstallVideo,
+  liveVariantsOf,
   type GroupTransformContext,
 } from './rpm-transform';
 import type { SourceFitmentEntry } from './rpm-fetch';
@@ -559,5 +560,124 @@ describe('#270 安裝資源 manuals/video_url', () => {
     const { product } = runGroup('GB-IR', rpmIr, null, RPM_CTX); // RPM_CTX.syncInstallResources=false
     expect('manuals' in product).toBe(false);
     expect('video_url' in product).toBe(false);
+  });
+});
+
+describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
+  const dBase: SourceProductRow = {
+    supplier_slug: 'bonamici', main_sku: 'BON-D', sku: 'BON-D-A', highlights_zh: null, pdf_urls: null, video_urls: null,
+    product_name: 'Rearset', product_name_zh: '腳踏後移',
+    description: null, category_zh: '腳踏', major_category_zh: '操控部品',
+    vehicle_label: null, fitment_parsed: null,
+    spec: null, price_retail: '9000',
+    image_url: null, images: [], stock_status: 'in_stock',
+  };
+  const D_CTX: GroupTransformContext = {
+    brandId: 'brand-bon', categoryId: 'cat-ops', handlePrefix: 'bonamici',
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false,
+  };
+
+  it('來源未投影此欄(舊 view / 舊 fixture)→ null,行為與改前一致', () => {
+    const { product } = runGroup('BON-D', [dBase], null, D_CTX);
+    expect(product.delisted_at).toBeNull();
+  });
+
+  it('全部變體皆已下架 → 鏡射為整群下架(取最新時戳)', () => {
+    const variants = [
+      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...dBase, sku: 'BON-D-B', delisted_at: '2026-07-11T00:00:00.000Z' },
+    ];
+    const { product } = runGroup('BON-D', variants, null, D_CTX);
+    expect(product.delisted_at).toBe('2026-07-11T00:00:00.000Z');
+  });
+
+  it('🔴 只有部分變體下架 → 整群維持上架(比照 availability 的 bool_or,不可誤殺還在賣的變體)', () => {
+    const variants = [
+      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...dBase, sku: 'BON-D-B', delisted_at: null },
+    ];
+    const { product } = runGroup('BON-D', variants, null, D_CTX);
+    expect(product.delisted_at).toBeNull();
+  });
+
+  // 🔴 對抗審查 F1:上一條只鎖「群層」答案,若不同時斷言「那顆停產變體去哪了」= 假綠。
+  //    停產變體必須被當成缺席(不進 sourceVariantSkus)→ 判孤兒 → 硬刪,否則會永遠掛在
+  //    選項裡可下單:create_order 的下架擋阻只看產品層 delisted_at,部分停產群的產品層是 null。
+  //    ⚠️ 直接 import 正式的 liveVariantsOf(不在測試裡複製一份邏輯,否則正式碼改壞測試仍綠)。
+
+  it('🔴 F1 部分下架:停產變體必須被剔除(視同缺席→孤兒→硬刪),在售變體保留', () => {
+    const variants = [
+      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...dBase, sku: 'BON-D-B', delisted_at: null },
+    ];
+    const live = liveVariantsOf(variants);
+    expect(live.map((v) => v.sku)).toEqual(['BON-D-B']);
+  });
+
+  it('🔴 F1 整群下架:變體【全部保留】(產品層已擋單;全刪會撞變體刪除 10% 閘)', () => {
+    const variants = [
+      { ...dBase, sku: 'BON-D-A', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...dBase, sku: 'BON-D-B', delisted_at: '2026-07-10T00:00:00.000Z' },
+    ];
+    const live = liveVariantsOf(variants);
+    expect(live.map((v) => v.sku)).toEqual(['BON-D-A', 'BON-D-B']);
+  });
+
+  it('F1 無任何停產:變體原封不動(零行為改變)', () => {
+    const variants = [
+      { ...dBase, sku: 'BON-D-A', delisted_at: null },
+      { ...dBase, sku: 'BON-D-B' },
+    ];
+    expect(liveVariantsOf(variants).map((v) => v.sku)).toEqual(['BON-D-A', 'BON-D-B']);
+  });
+
+  it('商品復架(來源清空 delisted_at)→ 鏡射回 null,不需人工介入', () => {
+    const variants = [{ ...dBase, sku: 'BON-D-A', delisted_at: null }];
+    const { product } = runGroup('BON-D', variants, null, D_CTX);
+    expect(product.delisted_at).toBeNull();
+  });
+
+  it('🔴 RPM byte 錨不破:rpm fixture 無此欄 → 仍為 null(key 位置與型別不變)', () => {
+    const { product } = runGroup('APRILIA-01', APRILIA, 'Aprilia RS660', RPM_CTX);
+    expect(product.delisted_at).toBeNull();
+    expect(Object.keys(product)).toEqual(RPM_PRODUCT_KEYS);
+  });
+});
+
+describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商品卡價格洩漏已剔除的停產變體)', () => {
+  const pBase: SourceProductRow = {
+    supplier_slug: 'cncracing', main_sku: 'PR320', sku: 'PR320-A', highlights_zh: null, pdf_urls: null, video_urls: null,
+    product_name: 'Lever', product_name_zh: '拉桿',
+    description: null, category_zh: '拉桿', major_category_zh: '操控部品',
+    vehicle_label: null, fitment_parsed: null,
+    spec: null, price_retail: '2000',
+    image_url: null, images: [], stock_status: 'in_stock',
+  };
+  const P_CTX: GroupTransformContext = {
+    brandId: 'brand-cnc', categoryId: 'cat-ops', handlePrefix: 'cncracing',
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false,
+  };
+
+  it('停產的最低價變體不可決定群價(群層必須吃 liveVariantsOf 的結果)', () => {
+    const variants = [
+      { ...pBase, sku: 'PR320-CHEAP', price_retail: '1000', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...pBase, sku: 'PR320-LIVE', price_retail: '2000', delisted_at: null },
+    ];
+    const live = liveVariantsOf(variants);
+    const { product } = runGroup('PR320', live, null, P_CTX);
+    expect(live.map((v) => v.sku)).toEqual(['PR320-LIVE']);
+    expect(Number(product.price_general)).toBe(2000); // 不可是 1000(那顆變體已被剔除、站上不存在)
+    expect(product.delisted_at).toBeNull(); // 部分停產 → 整群維持上架
+  });
+
+  it('整群停產:變體全保留、群價照舊算、群層帶最新下架時戳', () => {
+    const variants = [
+      { ...pBase, sku: 'PR320-A', price_retail: '1000', delisted_at: '2026-07-09T00:00:00.000Z' },
+      { ...pBase, sku: 'PR320-B', price_retail: '2000', delisted_at: '2026-07-10T00:00:00.000Z' },
+    ];
+    const live = liveVariantsOf(variants);
+    const { product, variantRows } = runGroup('PR320', live, null, P_CTX);
+    expect(variantRows).toHaveLength(2);
+    expect(product.delisted_at).toBe('2026-07-10T00:00:00.000Z');
   });
 });

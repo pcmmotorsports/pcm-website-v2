@@ -59,6 +59,14 @@ export interface SourceProductRow {
   //   mapImages(rpm-transform)兼容兩形狀、rpm 物件路徑不動(byte 錨)。
   images: ({ url: string } | string)[] | null;
   stock_status: string; // in_stock / out
+  // 下架權威(合約 §10、view v3 起):來源側【已套用 7 天去抖】的下架時戳。
+  // 非 null = 該變體已確認停產;網站【鏡射不重判】(不再從「view 缺席」自行推下架)。
+  //
+  // 🔴 optional 只是型別/fixture 便利,**runtime 恆存在**:VIEW_COLS 恆 select 此欄,
+  //    來源 view 若尚未升到 v3(欄不存在),PostgREST 回 42703 → 整個請求 400 →
+  //    fetchPageWithRetry 白重試 3 次後 throw(fail-closed、不會寫髒資料,但該供應商同步整個掛掉)。
+  //    **故部署順序必須「先套報價單庫 v3 migration、再上本 repo code」**,不可顛倒。
+  delisted_at?: string | null;
 }
 
 // view 公開欄(零敏感;不取 brand/category/variant_count/last_synced_at — transform 不需)。
@@ -70,7 +78,7 @@ const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, description, ' +
   'vehicle_label, fitment_parsed, category_zh, major_category_zh, major_category_v2_zh, sub_category_v2_zh, ' +
   'spec, price_retail, image_url, images, stock_status, ' +
-  'highlights_zh, pdf_urls, video_urls';
+  'highlights_zh, pdf_urls, video_urls, delisted_at';
 
 // ── source fetch(分頁 + 重試、全程 .eq('supplier_slug', supplierSlug);讀乾淨 view 取代 raw 兩查)──
 const MAX_RETRY = 3; // S5:每頁最多嘗試次數(初次 + 2 重試)

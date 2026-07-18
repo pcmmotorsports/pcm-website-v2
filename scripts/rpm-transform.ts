@@ -321,6 +321,33 @@ function normalizeHighlights(raw: unknown): string[] {
   return raw.filter((x): x is string => typeof x === 'string' && x.trim() !== '');
 }
 
+/** 群內「應寫進網站」的變體。
+ *
+ *  view v3「投影不過濾」後,停產列不再從來源消失 => 停產變體不會被判孤兒、會照常 upsert 成
+ *  可售變體;而 create_order 的下架擋阻只看【產品層】p.delisted_at
+ *  (20260716200000_m4a_v3a_create_order_vehicle_type_guard.sql:171),部分停產群的產品層是 null
+ *  => 客人仍可下單買到停產的那個顏色/規格(rpm-reconcile.ts:9-14 要防的正是此事)。
+ *  故部分停產群把停產變體剔除 => 進不了 sourceVariantSkus => 判孤兒 => 硬刪。
+ *
+ *  🔴 整群停產者【保留全部變體】:
+ *    - 產品層 delisted_at 已設 => 網站 RLS 隱藏 + create_order 擋單,保護已足夠;
+ *    - 若連整群停產也剔除,會一次產生大量孤兒:實測 bonamici 148/1006 = 14.7%,
+ *      超過 VARIANT_DELETE_RATIO_ABORT 10%(rpm-reconcile.ts)=> 整批同步 abort。
+ *  實測目前部分停產僅 cncracing 2 群 3 個變體 = 3/4379 = 0.07%,遠低於閘門。
+ *
+ *  ⚠️ 此結果必須【同時】餵給 transformGroup 與 transformVariant:群層價格/圖片/文案取自變體集合,
+ *     若群層仍吃全部變體、只有變體列被剔除,商品卡會顯示一個已不存在之停產變體的價格。
+ */
+export function liveVariantsOf(variants: SourceProductRow[]): SourceProductRow[] {
+  return isFullyDelisted(variants) ? variants : variants.filter((v) => !v.delisted_at);
+}
+
+/** 整群停產 = 群內每一顆變體都帶來源側墓碑。單一真相,liveVariantsOf 與 transformGroup 共用
+ *  (R2-N3:原本兩處各寫一次同樣的 every 判斷 = 雙份真相,日後只改一邊就會不一致)。 */
+export function isFullyDelisted(variants: SourceProductRow[]): boolean {
+  return variants.length > 0 && variants.every((v) => v.delisted_at);
+}
+
 export function transformGroup(
   mainSku: string,
   variants: SourceProductRow[],
@@ -380,7 +407,24 @@ export function transformGroup(
     metadata: {
       name_en: basis.product_name, // 英文全名留參考(非敏感、S1 CHECK 不擋)
     }, // 🔴 停寫 shopee/cost/source_*(S1 CHECK 硬擋)+ source_corrected_count(view 無 manually_corrected)
-    delisted_at: null, // 🔴 S4 復架:出現在 source = 上架、upsert 還原任何先前下架時戳
+    // 下架權威 = 來源側單一裁判(合約 §10;view v3 起投影 delisted_at)。
+    // 🔴 鏡射、不重判:改前是無條件 null(出現在 source 即視為上架),等於要求 S4 從
+    //    「view 缺席」自行推下架 —— 正是合約要消滅的雙重去抖,且會讓大批停產撞上
+    //    W1 5% / S4 10% 兩道防誤殺閘(bonamici 22.9% 曾使該供應商同步整個凍結)。
+    // 群層語意比照上方 availability 的 bool_or:**全部變體都已下架才算整群下架**,
+    //    只要有任一變體仍在售就維持上架(取最新時戳當群下架時間)。
+    // 來源未投影此欄(舊 view / 舊 fixture)→ undefined → 視同未下架、行為與改前一致。
+    // 取 max 僅為記錄語意:下游全部只做 IS NULL 判斷(rpm-reconcile.ts:49,110、
+    // 網站 RLS 20260602135934:64、create_order:171),不依賴精確時戳。
+    // 先 filter 出非空值再取 max(不用 reduce 種子 '' 與 ! 斷言):若日後有人把 every 放寬成 some,
+    // 這裡不會啞掉漏出空字串,而是自然取到實際最新值。
+    delisted_at: isFullyDelisted(variants)
+      ? variants
+          .map((v) => v.delisted_at)
+          .filter((d): d is string => Boolean(d))
+          .sort()
+          .at(-1) ?? null
+      : null,
     updated_at: now, // 顯式帶(無 trigger)
   };
 }

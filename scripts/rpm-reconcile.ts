@@ -2,8 +2,10 @@
  * rpm-reconcile — S4 下架對賬(源頭消失 → 軟下架、不硬刪避免撞訂單/歷史)+ V1 變體級對賬
  *
  * 雙向 lifecycle:
- *   - 復架(re-list):presence=active 由 rpm-transform ProductRow 帶 `delisted_at: null`、
- *     upsert 時自動還原(商品回到 source view → 復上架);本檔不處理復架、只處理下架。
+ *   - 復架(re-list):由 rpm-transform ProductRow **鏡射來源 view 的 delisted_at**、upsert 時自動還原
+ *     (來源清空墓碑 → 投影 null → 復上架);本檔不處理復架、只處理下架。
+ *     🔴 v3(合約 §10)起【不再】無條件寫 `delisted_at: null` —— 那是「presence 即上架」的舊語意,
+ *     會把來源側的下架權威洗掉並重建雙重去抖。維護者勿改回。
  *   - 下架(delist):target 現存「未下架」RPM 商品中、不在本次 source external_id 集合者 → 設 delisted_at=now。
  *     變體無 delisted_at 欄、靠 S1 RLS(parent 未下架 EXISTS)連動隱藏、不個別下架。
  *   - 🔴 變體級對賬(V1、2026-07-05 雙跨模型審查 must-fix F1-F3):群(main_sku)還在、但群內某
