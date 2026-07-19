@@ -7065,6 +7065,73 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-17 / M-4a Email 片 E1a(Q4 拍板的升級路徑落實)
 - **相關:** #281 / M-4a Email 片 E3 / 鐵則 9
 
+### #287. 🧹 商品目錄品牌參數改單值(`?pbrands=a,b`)— 消除 Next segment key 碰撞的治本解
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - 現況品牌篩選以**重複 query key** 寫 URL(`products-url-state.tsx:220` 的 `params.append('pbrand', …)`)。
+  - 🔴 Next 16.2.6 產生 page segment cache key 走 `Object.fromEntries(new URLSearchParams(...))`
+    (`next/dist/esm/client/route-params.js` `getCacheKeyForDynamicParam`,code-reviewer 2026-07-19 於
+    node_modules 實查確認)→ **重複 key 只留最後一個值**。故 `?pbrand=a&pbrand=b` 與 `?pbrand=b`
+    的 segment key **相同** → `router.replace` 判定同一 segment、重用舊 CacheNode、零 RSC 請求。
+  - 症狀(Sean 2026-07-19 回報、正式站+本地 production build 皆穩定重現):勾多個品牌後**取消非
+    「字母序最後」的那個**,該品牌商品不消失、件數停在舊值(取消 akrapovic 停在 1103、應為 455)。
+  - 已修(本片):`useCatalogFilterUrlSync` 在**偵測到 segment key 碰撞時**補一次 `router.refresh()`。
+    正確性已補齊,但碰撞情境仍需 **2 次型錄查詢**(replace 抓一次無效 + refresh 抓一次有效)。
+  - ⚠️ 本條是**已知且被明示揭示的殘餘成本**,不是遺漏。
+- **觸發事件:**
+  - (任一)①型錄頁效能被實測指出瓶頸在重複查詢 ②Next 升級後 `router.refresh()` 行為改變或
+    replace 開始正常重抓(屆時現行條件式 refresh 需重評)③品牌篩選新增更多可複選軸、重複 key 擴散。
+- **預期解法:**
+  - 品牌改**單一值逗號分隔**(`?pbrands=akrapovic,bonamici`)→ 每個組合的 segment key 天然不同
+    → 可移除條件式 `refresh()`、恆一次查詢。
+  - 🔴 讀取端須**同時相容**舊的重複 `?pbrand=` 格式(客人已分享的連結、站內既有入口),輸出端只產新格式。
+  - 涉及檔:前台寫出端 `products-url-state.tsx`、讀取端 `parseBrandFiltersFromUrl`、
+    server 端 `lib/catalog-query.ts:64-66`(現用 `getAll('pbrand')`)+ 對應測試。
+  - 屬鐵則 8 重大改動(跨 3 檔 + 動對外可見的 URL 合約)→ **須先提 plan 等 Sean 批准**。
+- **不修會痛在:**
+  - 擴充性:任何新的「可複選」篩選軸若沿用重複 key,會複製同一個 bug;現行修法是偵測碰撞後補救,
+    不是從結構上消除碰撞。
+  - 可維護性:`useCatalogFilterUrlSync` 內留著一段依賴 Next 內部快取實作細節的 `segmentKey` 比對,
+    Next 升級即可能失效(升級時需重跑本片的六步實測)。
+  - bug 可追蹤性:碰撞情境的雙查詢在效能圖上會像「偶發的重複請求」,不看註解無法解釋為何只有
+    某些操作才雙查。
+- **估時:** 60-90 分鐘(含舊格式相容 + 測試 + production build 實測)
+- **依賴:** 無(可獨立進行)
+- **發現於:** 2026-07-19 / Sean 回報品牌篩選取消無效
+- **相關:** #288(E2E 守門)/ 鐵則 8
+- **順帶記錄(既有漂移、非本次引入):** `products-url-state.tsx:82` 註解寫「產品品牌深連結改獨立
+  key…見 backlog #269」,但 #269 實際標題為「首頁殘餘死連結:/install /stores + `?filter=new|sale`」
+  (`docs/phase-1-backlog.md:6712`),且全檔查無「`?brand=` 命名空間消歧」條目 → 該引用是 dangling。
+  本條(#287)實作時順手把該註解一併修正或補建對應條目。
+
+### #288. 🧪 前台篩選加 production build E2E 回歸測試(現有 playwright 只跑 `next dev`)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+- **問題:**
+  - #287 那個 bug **只在 production build 顯現**(dev 與 production 的 router 快取行為不同),且
+    「hook 有正確呼叫 router API、但 App Router 沒重抓」這種**框架層**回歸,單元測試在本質上擋不住
+    —— 單元測試只能驗「有沒有呼叫」,驗不到「呼叫後畫面有沒有真的更新」。
+  - 現有 `playwright.config.ts:28` 啟動的是 `next dev` → 守不住這條路徑(codex 2026-07-19 指出)。
+  - 本片已補的單元測試(`products-url-state.hooks.test.tsx`)擋得住「有人拿掉/改成無條件 refresh」
+    (雙向突變實測驗證過),但擋不住「Next 升級後行為改變」。
+- **觸發事件:**
+  - (任一)①Next 大版本升級前 ②再次出現「網址對但畫面沒更新」類型的客訴 ③篩選器重構。
+- **預期解法:**
+  - 新增一條走真 `next build && next start` 的 Playwright 測試,對品牌篩選跑
+    `A → A+B → B`(取消非最後值)與 `A+B → A`(取消最後值)兩組,斷言**畫面上的商品件數與
+    商品卡內容**真的變了(而非只驗 URL);另計 `/products` 的 RSC 請求數當成本守門。
+  - 需要固定的測試資料(現行斷言吃真 DB 件數,會隨上架變動)。
+- **不修會痛在:**
+  - bug 可追蹤性:同類 bug 只能靠 Sean 肉眼在正式站發現,而這次就是這樣被發現的。
+  - 可維護性:每次動篩選 URL 層都要人工跑一次 production build 手測(本片就跑了 5 次 rebuild)。
+- **估時:** 90-120 分鐘(含測試資料固定化)
+- **依賴:** 需先決定測試資料策略(固定 fixture vs 專用測試頁)
+- **發現於:** 2026-07-19 / Sean 回報品牌篩選取消無效
+- **相關:** #287
+
 ## 紀錄模板
 
 ```markdown

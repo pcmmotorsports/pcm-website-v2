@@ -236,7 +236,25 @@ export function useCatalogFilterUrlSync(
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     if (next !== `${window.location.pathname}${window.location.search}`) {
+      // 🔴 2026-07-19 修「取消其中一個品牌,該品牌商品不消失」(Sean 回報)。詳因與治本解 = backlog #287。
+      // 根因(實測 + 讀 node_modules 內 Next 16.2.6 原始碼坐實):`route-params.js`
+      // `getCacheKeyForDynamicParam` 以 `Object.fromEntries(new URLSearchParams(...))` 產 page
+      // segment key → **重複 key 只留最後值**。品牌走 :220 `.append()` + 字母序,於是
+      // `?pbrand=akrapovic&pbrand=bonamici` 與 `?pbrand=bonamici` 的 key 同為 `pbrand: bonamici`
+      // → replace 判定同一 segment、重用舊 CacheNode、零 RSC 請求 → 畫面停在舊清單。
+      // ⚠️ 僅在無 `page` 參數時顯現(:235 刪 page 本身即改變 key)→ 第 1 頁才踩得到。
+      // 🔴 必須是**條件式**:category(:224)/price(:226)/pmin·pmax(:229-230)皆單值 key、天然不
+      //    碰撞,無條件 refresh 會讓每次切分類/拉價格都對全型錄多查一次(R1 must-fix-2)。
+      // 🔴 碰撞不是「移除」專屬:先選 bonamici 再加 akrapovic 亦碰撞(R2 nit-B、測試案例⑤守)。
+      // ⚠️ 已實測否決:改用 native `window.history.replaceState` + refresh() **沒有修好**
+      //    (原生 replaceState 不更新 Next canonical URL、refresh 仍抓舊 key)。勿改回。
+      // 🔴 殘餘成本:碰撞情境仍需 2 次查詢;本修法依賴 Next 內部實作,升級 Next 須重跑實測(#288)。
+      const segmentKey = (search: string) =>
+        JSON.stringify(Object.fromEntries(new URLSearchParams(search)));
+      const collides =
+        segmentKey(window.location.search) === segmentKey(next.split('?')[1] ?? '');
       router.replace(next, { scroll: false });
+      if (collides) router.refresh();
     }
   }, [cascade, extras, restoreSources, router]);
 }

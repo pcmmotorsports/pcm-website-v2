@@ -20,6 +20,10 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: vi.fn(),
     replace: (url: string) => window.history.replaceState(null, '', url),
+    // 2026-07-19:useCatalogFilterUrlSync 修「取消品牌商品不消失」後會呼叫 refresh()
+    // (Next 16.2.6 重複 query key 只留最後值 → segment key 碰撞 → replace 不重抓 RSC);
+    // 測試環境無 server 往返、no-op stub 即可,缺此鍵會 throw router.refresh is not a function。
+    refresh: vi.fn(),
   }),
   // M-1-13I Bug 1:ProductsPage useSearchParams 讀 URL vehicle(+#6 page/sort/per lazy init)
   useSearchParams: () => hoisted.search,
