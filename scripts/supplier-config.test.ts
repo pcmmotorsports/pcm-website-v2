@@ -77,6 +77,19 @@ describe('getSupplierConfig', () => {
     }
   });
 
+  it('🔴 上架第三批 akrapovic(2026-07-19 Sean 拍板 Q1=A):對照值 + writeAllowed 硬鎖 false', () => {
+    // 值皆 2026-07-19 MCP 實查(plan = docs/handoff/2026-07-19-akrapovic-onboarding-plan.md)。
+    const ak = getSupplierConfig('akrapovic');
+    expect(ak.brandSlug).toBe('akrapovic'); // identity;brands 表已有列(0 商品)
+    expect(ak.handlePrefix).toBe('akrapovic');
+    expect(ak.syncDescription).toBe(true); // 642/648
+    expect(ak.syncInstallResources).toBe(true); // PDF 635 群;video 0
+    expect(ak.categoryStrategy).toEqual({ kind: 'per-group' }); // 10 對
+    expect(ak.variantImages).toBe('per-variant'); // 1:1 單變體家(648=648)
+    // 🔴 翻 true 前置:乾跑+審查+報價單側商品名補車款落地+Sean 批(plan §3 步驟 5)。改這行=面對這三關。
+    expect(ak.writeAllowed).toBe(false);
+  });
+
   it('should throw fail-closed on unregistered / prototype-chain keys', () => {
     expect(() => getSupplierConfig('unknown-supplier')).toThrow(/未知供應商/);
     // 🔴 原型鏈 key(truthy 繼承成員)也須 throw、不得回繼承物件(F2、Fable 對抗審)
@@ -85,10 +98,10 @@ describe('getSupplierConfig', () => {
     expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ 第三批 akrapovic(2026-07-19)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
-      'bonamici', 'cncracing', 'eazigrip', 'ebc', 'evotech', 'front3d',
+      'akrapovic', 'bonamici', 'cncracing', 'eazigrip', 'ebc', 'evotech', 'front3d',
       'gbracing', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
     ]);
   });

@@ -228,6 +228,18 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant', // 抽群實測:群內各變體同一張圖(per-variant 直用等價)
     writeAllowed: true, // ✅ 2026-07-11 #274 源頭填 spec(tier 材質軸、5fa0ad3)上 prod + 乾跑全綠(68 群/112 變體、pv_spec 撞鍵 0)後開寫
   },
+  // 上架第三批(2026-07-19 Sean 拍板 Q1=A:akrapovic → kspeed → lightech):
+  //   plan = docs/handoff/2026-07-19-akrapovic-onboarding-plan.md;值皆 2026-07-19 MCP 實查。
+  akrapovic: {
+    supplierSlug: 'akrapovic',
+    brandSlug: 'akrapovic', // identity;brands 表已有列(MCP 實查 2026-07-19,0 商品)
+    handlePrefix: 'akrapovic',
+    syncDescription: true, // 642/648
+    syncInstallResources: true, // PDF 說明書 635 群;video 0
+    categoryStrategy: { kind: 'per-group' }, // 10 對(排氣系統 7 子類為主)
+    variantImages: 'per-variant', // 1:1 單變體家(648=648)
+    writeAllowed: false, // 🔴 乾跑+審查+報價單側商品名補車款落地後,Sean 批才開寫(plan §3 步驟 5)
+  },
 };
 
 /**
