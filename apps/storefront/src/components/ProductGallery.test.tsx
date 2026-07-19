@@ -140,4 +140,45 @@ describe('ProductGallery', () => {
     fireEvent.click(screen.getByLabelText('下一張'));
     expect(screen.getByText('03 / 03')).toBeDefined();
   });
+
+  // Sean 2026-07-19:桌機主要用鍵盤翻 lightbox,原本 ←/→ 獨走 clamp → 頭尾卡住,
+  // 與同一 lightbox 內的箭頭按鈕/觸控左右滑(皆已無限輪播)不一致。
+  describe('lightbox 鍵盤 ←/→ 無限輪播', () => {
+    // ⚠️ hero 與 lightbox 各有一個 "NN / 03" 計數器 → 必須指名 .pd-lb-counter,
+    //    用 screen.getByText 會多重命中。
+    const lbCounter = () => document.querySelector('.pd-lb-counter')!.textContent;
+
+    function openLightbox() {
+      render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+      fireEvent.click(document.querySelector('.pd-hero-img') as HTMLElement);
+      expect(screen.getByRole('dialog')).toBeDefined();
+    }
+
+    it('最後一張按 → 回到第一張', () => {
+      openLightbox();
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(lbCounter()).toBe('03 / 03');
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(lbCounter()).toBe('01 / 03');
+    });
+
+    it('第一張按 ← 回到最後一張', () => {
+      openLightbox();
+      expect(lbCounter()).toBe('01 / 03');
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(lbCounter()).toBe('03 / 03');
+    });
+
+    it('lightbox 未開時 ←/→ 仍為 clamp(Q-2=C hero 行為不變)', () => {
+      render(<ProductGallery product={MOCK_PRODUCTS[0]!} />);
+      expect(screen.queryByRole('dialog')).toBeNull();
+      fireEvent.keyDown(window, { key: 'ArrowLeft' });
+      expect(screen.getByText('01 / 03')).toBeDefined(); // 停在第一張、不繞到最後
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      fireEvent.keyDown(window, { key: 'ArrowRight' });
+      expect(screen.getByText('03 / 03')).toBeDefined(); // 停在最後一張、不繞回第一張
+    });
+  });
 });

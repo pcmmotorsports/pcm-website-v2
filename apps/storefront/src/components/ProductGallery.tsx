@@ -114,8 +114,15 @@ export function ProductGallery({ product, selectedVariant }: ProductGalleryProps
         if (lightbox) setLightbox(false);
         return;
       }
-      if (e.key === 'ArrowRight') setActiveImg((i) => Math.min(gallery.length - 1, i + 1));
-      else if (e.key === 'ArrowLeft') setActiveImg((i) => Math.max(0, i - 1));
+      if (gallery.length === 0) return;
+      // Sean 2026-07-19:lightbox 開啟時 ←/→ 也要無限輪播,與同一 lightbox 內的箭頭按鈕、
+      // 觸控左右滑同語意(桌機主要靠鍵盤,原本 clamp 會在頭尾卡住 = 手機能循環、桌機不能)。
+      // lightbox 未開的 hero 切圖維持 clamp(Q-2=C 原行為,不在本次範圍)。
+      if (e.key === 'ArrowRight') {
+        setActiveImg((i) => (lightbox ? (i + 1) % gallery.length : Math.min(gallery.length - 1, i + 1)));
+      } else if (e.key === 'ArrowLeft') {
+        setActiveImg((i) => (lightbox ? (i - 1 + gallery.length) % gallery.length : Math.max(0, i - 1)));
+      }
     };
     window.addEventListener('keydown', onKey);
     let prevOverflow: string | null = null;

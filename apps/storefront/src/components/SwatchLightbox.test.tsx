@@ -52,6 +52,15 @@ describe('SwatchLightbox', () => {
     expect(screen.getByText(`01 / ${total}`)).toBeDefined();
   });
 
+  // Sean 2026-07-19:鍵盤原本獨走 clamp、與箭頭/滑動不一致 → 改走同一支 lbNext/lbPrev。
+  it('鍵盤 ←/→ 與箭頭同語意無限輪播', () => {
+    render(<Harness start={0} />);
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    expect(screen.getByText(`${total} / ${total}`)).toBeDefined();
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(screen.getByText(`01 / ${total}`)).toBeDefined();
+  });
+
   it('dismisses on a large vertical swipe-down (上下滑關閉)', () => {
     render(<Harness start={1} />);
     const stage = document.querySelector('.pd-lb-stage')!;

@@ -10,7 +10,7 @@
 
 'use client';
 
-import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 import type { RpmSwatch } from '@/data/rpm-swatches';
 import { useLightboxSwipe } from '@/hooks/useLightboxSwipe';
 
@@ -25,8 +25,9 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
   const len = swatches.length;
 
   // 無限輪播(Sean 2026-07-09):滑到最後一張再往右 → 回第一張;箭頭同款(不再 disabled 卡在頭尾)。
-  const lbNext = () => setLbIdx((i) => (i === null ? i : (i + 1) % len));
-  const lbPrev = () => setLbIdx((i) => (i === null ? i : (i - 1 + len) % len));
+  // useCallback:鍵盤 effect 依賴這兩支(見下方 ←/→),身分穩定才不會每次 render 重掛 listener。
+  const lbNext = useCallback(() => setLbIdx((i) => (i === null ? i : (i + 1) % len)), [len, setLbIdx]);
+  const lbPrev = useCallback(() => setLbIdx((i) => (i === null ? i : (i - 1 + len) % len)), [len, setLbIdx]);
   // 觸控手勢:上下滑關閉 + 左右滑輪播(共用 ProductGallery 同款 hook)。hook 需無條件呼叫、置於 early return 前。
   const lbSwipe = useLightboxSwipe({ count: len, goNext: lbNext, goPrev: lbPrev, onDismiss: () => setLbIdx(null) });
 
@@ -38,8 +39,10 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setLbIdx(null);
-      else if (e.key === 'ArrowRight') setLbIdx((i) => (i === null ? i : Math.min(swatches.length - 1, i + 1)));
-      else if (e.key === 'ArrowLeft') setLbIdx((i) => (i === null ? i : Math.max(0, i - 1)));
+      // Sean 2026-07-19:←/→ 改走 lbNext/lbPrev,與箭頭按鈕、觸控左右滑同一支函式 = 同語意無限輪播
+      // (原本鍵盤獨走 clamp,桌機在頭尾卡住)。
+      else if (e.key === 'ArrowRight') lbNext();
+      else if (e.key === 'ArrowLeft') lbPrev();
     };
     window.addEventListener('keydown', onKey);
     const prevOverflow = document.body.style.overflow;
@@ -48,7 +51,7 @@ export function SwatchLightbox({ swatches, lbIdx, setLbIdx }: SwatchLightboxProp
       window.removeEventListener('keydown', onKey);
       document.body.style.overflow = prevOverflow;
     };
-  }, [open, swatches.length, setLbIdx]);
+  }, [open, setLbIdx, lbNext, lbPrev]);
 
   if (lbIdx === null) return null;
   const sw = swatches[lbIdx];
