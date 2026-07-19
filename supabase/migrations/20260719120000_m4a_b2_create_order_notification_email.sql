@@ -23,9 +23,34 @@
 --   schema_migrations 寫入落到另一筆交易(schema 已改、history 未記)→ 由「兩簽章
 --   DROP IF EXISTS = 整支可重跑」兜底收斂,非已驗證的原子性。Sean 明示接受(plan §3.1)。
 --
+-- 🔴 apply 失敗/中斷後的 SOP(codex 關卡2 M-5;**不可直接再按一次 db push**):
+--   codex 讀 supabase CLI v2.98.1 原始碼(pkg/migration/file.go + pgconn ExecBatch)確認:CLI 先送
+--   本檔全部語句、**之後才追加** schema_migrations 的 history INSERT;且 pgconn 遇到顯式交易控制時
+--   不再提供整批隱式交易 → 「9-param 已生效、history 未記」**確定可能發生**,不是理論假設。
+--   故 db push 報錯或中斷時,依序做完下列三查再決定,任何一步意外即停下交人工判斷:
+--     ①查 history:select version from supabase_migrations.schema_migrations where version='20260719120000';
+--     ②查簽章:select oid::regprocedure::text from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+--               where n.nspname='public' and p.proname='create_order';
+--     ③查完整指紋(段 2.5 同一公式)並比對本檔的 8-param / 9-param 兩個常數。
+--   判讀:①無 + ②僅 8-param + ③== 8-param 基線 → 完全沒套上,可安全重跑。
+--         ①無 + ②僅 9-param + ③== 9-param 預期產出 → 正是「schema 已改、history 未記」的裂縫,
+--           重跑會走段 2.5 狀態 B、指紋相符才放行 → 可安全重跑。
+--         ①有 + ②僅 9-param + ③相符 → 已完成,**不需也不應重跑**。
+--         其餘任何組合(指紋不符 / 兩簽章並存 / 兩者皆無)→ **停,不得重跑**,交 Sean 判斷。
+--
 -- 🔴 函式體來源與驗證(零手動轉錄):
 --   權威基底 = 2026-07-19 由 prod pg_get_functiondef 取得;prosrc md5 = a60944edb678064c468ba517391cc311
---   全屬性基線指紋 = 2b898129e49d194c30ab8039b857c0be
+--   完整指紋(公式 = 上方 pg_temp.b2_create_order_fp,單一來源):
+--     · 8-param 基線(prod 現況)  = 77945871ed5d9f5dcac7f8d53c9f192c
+--     · 9-param 預期產出(本檔)  = 850e2e3cf5f503391df5fe6fe0067cce
+--     兩值皆於 2026-07-19 在 **production 實測取得**(8-param 直接查;9-param 以異名複製品在
+--     交易內建出後求值、結尾 RAISE 回滾,零留痕),並與本機拋棄式 PG 的結果逐字相符。
+--   ⚠️ 指紋歷經兩次公式更正,前兩代值**皆已作廢,勿再引用**:
+--     · 2b898129e49d194c30ab8039b857c0be(初代;漏 proretset / prosupport / seclabel = 關卡2 M-2)
+--     · beca7444c4c29251940509d889fe0c74(二代;seclabel 只比 objoid、且誤查 pg_shseclabel
+--       = 關卡2 round2 #2)
+--     凍結 snapshot §2 的指紋列屬初代公式,因該檔自訂「產出後不得再編輯」→ 現行值與完整
+--     catalog 一律以補充檔 docs/reviews/2026-07-19-b2-preapply-snapshot-supplement.md 為準。
 --   本檔函式體以程式產生,並經「反向還原後 md5 等回基線」驗證 → 除下列 1 處 delta 外零位元組偏差:
 --     · orders INSERT 欄位清單 + VALUES 各加一欄(notification_email / p_notification_email)
 --   ⚠️ 「1 處」= **同一個 INSERT 敘述**;跑 unified diff 會看到 **2 個 hunk**(欄位清單與
@@ -42,73 +67,143 @@ BEGIN;
 
 SET LOCAL lock_timeout = '3s';
 
--- 🔴 Q5=A 緩解:令遵守同一約定的 migration 互斥(對不遵守約定的外部 DDL 無效,已誠實揭示)
-SELECT pg_advisory_xact_lock(20260719120000);
+-- ── application-defined「create_order DDL 約定鎖」(codex 關卡2 M-1 修正 + round2 nit)──
+--   🔴 原本用「本 migration 自己的時戳」20260719120000 當 key = **假互斥**:下一支 migration
+--      會用它自己的時戳,兩把鎖永不衝突。前一視窗宣稱「已緩解」為不成立的宣稱,已作廢。
+--   改用**所有 create_order DDL 共用的固定常數**。此常數本身就是約定,日後任何動
+--   public.create_order 的 migration 一律沿用**這個字面值**、不得各自重算或改寫。
+--   常數來源(僅供追溯,apply 時不再計算,避免依賴未文件化函式):
+--     select hashtext('public.create_order');  → 1201033732(2026-07-19 於 prod PG 17.6 取得)
+--   🔴 用詞界定(codex round2 nit:原寫「object-scoped」過強):advisory lock key 是
+--      **應用層自訂的數字資源**,PG 並未把它綁定到 pg_proc 物件;命名為「約定鎖」才符實。
+--      32-bit key 理論上可與別人的約定碰撞 → 後果是**誤等待**(多等 lock_timeout 3s 後 fail-fast),
+--      **不會**造成互斥失效,方向安全。
+--   🔴 能力邊界(誠實界定,勿再誇大):只讓**同樣寫死此常數**的 migration 互斥;
+--      對不遵守此約定的任何外部 DDL session **無效**。真正的防線仍是 Q5=A 的有界假設
+--      ——「所有 schema 變更走 db push、由 Sean 單人序列執行,無第二個 DDL 行為者」。
+--      若日後出現第二個 schema 變更管道(CI 自動 migration、他人取得 DB 權限),該假設即失效。
+SELECT pg_advisory_xact_lock(1201033732);
 
--- ── 段 2.5:apply-time 基線守門(codex R3 BLOCKER-1)──────────────────
+-- ── 指紋函式:**單一定義來源**(codex 關卡2 round2 #1)──────────────────────
+--   🔴 原設計把同一條公式**抄在段 2.5 與斷言⑧兩處**,並宣稱「兩處不一致就 fail-closed」。
+--      該宣稱**不成立**:斷言⑧只驗「⑧自己的公式算出的產物 == ⑧自己的常數」,從未與段 2.5
+--      的公式比對。若有人同時弱化段 2.5 的公式**並重取該處的兩個常數**,首次 apply 走狀態 A、
+--      根本不會用到狀態 B 常數,⑧照樣通過 → 之後 COMMENT 被外部改動就會被弱化的守門放行。
+--      **根治法 = 公式只寫一次**,守門與斷言共用,結構上不可能不一致。
+--   pg_temp = session 級暫存 schema,不進 public、不留正式物件;本檔 COMMIT 前另有顯式 DROP。
+--
+--   🔴 指紋涵蓋欄位 = plan E11 全欄:
+--     prosrc / pg_get_function_arguments / pg_get_expr(proargdefaults) / proargnames /
+--     prosecdef / proconfig / proacl / owner / prorettype / proretset / lanname / provolatile /
+--     proparallel / proisstrict / proleakproof / procost / prorows / prosupport /
+--     security label / COMMENT。(pronargs、pronargdefaults 由 args 字串與 default 運算式涵蓋。)
+--   🔴 security label 精確化(codex 關卡2 round2 #2):原查詢只用 `objoid = p.oid` 取 count。
+--      `pg_seclabel` 的識別鍵是 (objoid, **classoid**, objsubid, provider) —— 只比 objoid
+--      可能誤配到**其他 catalog 中同一 OID 數值**的物件標籤;且 `pg_shseclabel` 依定義只存
+--      cluster-shared 物件(role/database/tablespace),函式**不可能**出現在該表,原本查它
+--      反而製造誤配面。故:①只查 `pg_seclabel` 並補 `classoid='pg_proc'::regclass AND objsubid=0`
+--      ②改存**排序後的 provider=label 串接**(比 count 更能偵測「標籤被換掉」而非只偵測數量)。
+CREATE FUNCTION pg_temp.b2_create_order_fp(p_oid oid) RETURNS text
+LANGUAGE sql STABLE
+SET search_path = pg_catalog
+AS $fp$
+  SELECT md5(
+    coalesce(p.prosrc,'')                        || '|' ||
+    pg_get_function_arguments(p.oid)             || '|' ||
+    coalesce(pg_get_expr(p.proargdefaults,0),'') || '|' ||
+    coalesce(p.proargnames::text,'')             || '|' ||
+    p.prosecdef::text                            || '|' ||
+    coalesce(p.proconfig::text,'')               || '|' ||
+    coalesce(p.proacl::text,'')                  || '|' ||
+    pg_get_userbyid(p.proowner)::text            || '|' ||
+    p.prorettype::regtype::text                  || '|' ||
+    p.proretset::text                            || '|' ||
+    l.lanname::text                              || '|' ||
+    p.provolatile::text                          || '|' ||
+    p.proparallel::text                          || '|' ||
+    p.proisstrict::text                          || '|' ||
+    p.proleakproof::text                         || '|' ||
+    p.procost::text                              || '|' ||
+    p.prorows::text                              || '|' ||
+    p.prosupport::text                           || '|' ||
+    coalesce((SELECT string_agg(s.provider || '=' || s.label, ',' ORDER BY s.provider, s.label)
+                FROM pg_seclabel s
+               WHERE s.objoid = p.oid
+                 AND s.classoid = 'pg_proc'::regclass
+                 AND s.objsubid = 0), '')        || '|' ||
+    coalesce(obj_description(p.oid,'pg_proc'),'')
+  )
+  FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+  WHERE p.oid = p_oid
+$fp$;
+
+-- ── 段 2.5:apply-time 基線守門(codex R3 BLOCKER-1;關卡2 M-2/M-3 補強)────────
 --   目的:DROP IF EXISTS 會願意輾過『任何』現況,包含別人後來改過的較新版本。
---   守門要求當下必為兩個預期狀態之一,否則中止,絕不覆寫未知版本。
---   指紋涵蓋 prosrc + 簽章 + default + secdef + proconfig + acl + owner + 回傳型別
---   + 語言 + volatility + parallel + strict + leakproof + cost + rows + COMMENT。
+--   守門要求當下必為兩個預期狀態之一,且**完整指紋**相符,否則中止,絕不覆寫未知版本。
+--
+--   🔴 指紋涵蓋欄位(關卡2 M-2:原公式漏 proretset / prosupport / security label 三項,
+--      而這三項明明列在 plan E11 → 舊公式配「全屬性」稱呼是名稱誇大實際能力,已補齊)。
+--      **公式本身定義於上方 `pg_temp.b2_create_order_fp`(單一來源)**,守門與檔尾斷言共用。
+--
+--   🔴 狀態 B 改驗**完整預期產出指紋**(關卡2 M-3):原設計只驗 prosrc md5 + 簽章字串,
+--      理由寫「ACL/COMMENT 本就要 canonicalize,故無風險」——**那正是守門存在要禁止的
+--      覆寫行為**。正常的 history 裂縫必然發生在本檔完整 COMMIT 之後,現況就該逐位元組
+--      等於本檔的預期產出;放寬沒有正當理由。若有人在裂縫後改了 owner / SECURITY DEFINER /
+--      search_path / ACL / COMMENT,現在會被擋下而非靜默洗掉。
+--
+--   ⚠️ 9-param 預期產出指紋是**自指常數**(其輸入含本檔下方的 COMMENT 與 ACL 字面)。
+--      代償控制:檔尾斷言⑧以**同一個 helper**(結構上必然同公式)重算並比對**同一個常數**
+--      → 任何人改了 COMMENT/ACL/函式體卻忘了同步此常數,**首次 apply 就會在斷言階段
+--      整批回滾並吵**,不會潛伏到某次重跑才誤擋。
+--      🔴 界定(codex round2 #1 更正):此代償控制保護的是「**常數**未隨檔案內容更新」;
+--         「兩處公式漂移」則是靠 helper 只有一份**在結構上消除**,而非靠斷言偵測。
+--         原字面宣稱斷言能證明兩處公式一致 —— **不成立,已作廢**。
 DO $guard$
 DECLARE
-  v_fp8   text;
-  v_src9  text;
-  v_args9 text;
-  v_n8    int;
-  v_n9    int;
+  v_oid8  oid  := to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
+  v_oid9  oid  := to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)');
+  v_oid   oid;
+  v_state text;
+  v_want  text;
+  v_fp    text;
+  v_dump  text;
 BEGIN
-  SELECT count(*) INTO v_n8 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-   WHERE n.nspname='public' AND p.proname='create_order'
-     AND p.oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
-  SELECT count(*) INTO v_n9 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-   WHERE n.nspname='public' AND p.proname='create_order'
-     AND p.oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)');
-
-  IF v_n8 = 1 AND v_n9 = 0 THEN
-    -- 狀態 A:首次 apply。要求完整指紋 == 基線(body 相同但屬性被動過也會被擋)
-    SELECT md5(
-      coalesce(p.prosrc,'')                       || '|' ||
-      pg_get_function_arguments(p.oid)            || '|' ||
-      coalesce(pg_get_expr(p.proargdefaults,0),'')|| '|' ||
-      p.prosecdef::text                           || '|' ||
-      coalesce(p.proconfig::text,'')              || '|' ||
-      coalesce(p.proacl::text,'')                 || '|' ||
-      pg_get_userbyid(p.proowner)::text           || '|' ||
-      p.prorettype::regtype::text                 || '|' ||
-      l.lanname::text                             || '|' ||
-      p.provolatile::text                         || '|' ||
-      p.proparallel::text                         || '|' ||
-      p.proisstrict::text                         || '|' ||
-      p.proleakproof::text                        || '|' ||
-      p.procost::text                             || '|' ||
-      p.prorows::text                             || '|' ||
-      coalesce(obj_description(p.oid,'pg_proc'),'')
-    ) INTO v_fp8
-      FROM pg_proc p JOIN pg_language l ON l.oid=p.prolang
-     WHERE p.oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
-    IF v_fp8 IS DISTINCT FROM '2b898129e49d194c30ab8039b857c0be' THEN
-      RAISE EXCEPTION 'B-2 守門:8-param 完整指紋與基線不符(實際=%,預期=%)。現行 create_order 已被本 migration 之外的變更動過 → 中止,不覆寫未知版本。'
-        , v_fp8, '2b898129e49d194c30ab8039b857c0be';
-    END IF;
-
-  ELSIF v_n9 = 1 AND v_n8 = 0 THEN
-    -- 狀態 B:裂縫後重跑(schema 已建成 9-param、history 未記)。
-    --   此處比對 prosrc md5 + 簽章字串(而非完整指紋):完整指紋含 ACL/COMMENT,
-    --   而本 migration 接下來本就會把它們重建成 canonical 值,故不構成覆寫風險。
-    --   若 prosrc 或簽章不符 → 是別人的 9-param 版本,一樣中止。
-    SELECT md5(p.prosrc), pg_get_function_arguments(p.oid) INTO v_src9, v_args9
-      FROM pg_proc p
-     WHERE p.oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)');
-    IF v_src9 IS DISTINCT FROM '0bc0d256b7483c5dd6ef1f8f97b4e9a7' THEN
-      RAISE EXCEPTION 'B-2 守門:既存 9-param 的 prosrc md5 與本檔預期產出不符(實際=%,預期=%)→ 非本 migration 所建,中止。', v_src9, '0bc0d256b7483c5dd6ef1f8f97b4e9a7';
-    END IF;
-    IF v_args9 IS DISTINCT FROM 'p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb, p_cart_session_id uuid, p_terms_version text, p_client_ip text, p_client_ua text, p_notification_email text DEFAULT NULL::text' THEN
-      RAISE EXCEPTION 'B-2 守門:既存 9-param 簽章與預期不符(實際=%)→ 中止。', v_args9;
-    END IF;
-
+  IF v_oid8 IS NOT NULL AND v_oid9 IS NULL THEN
+    -- 狀態 A:首次 apply。預期 == prod 8-param 基線。
+    v_state := 'A(首次 apply,現況僅 8-param)';
+    v_oid   := v_oid8;
+    v_want  := '77945871ed5d9f5dcac7f8d53c9f192c';
+  ELSIF v_oid9 IS NOT NULL AND v_oid8 IS NULL THEN
+    -- 狀態 B:history 裂縫後重跑。預期 == 本檔自身的完整產出(非放寬版)。
+    v_state := 'B(history 裂縫後重跑,現況僅 9-param)';
+    v_oid   := v_oid9;
+    v_want  := '850e2e3cf5f503391df5fe6fe0067cce';
   ELSE
-    RAISE EXCEPTION 'B-2 守門:create_order 現況非預期狀態(8-param 數=%,9-param 數=%)。預期為「僅 8-param」或「僅 9-param」→ 中止,交人工判斷。', v_n8, v_n9;
+    RAISE EXCEPTION 'B-2 守門:create_order 現況非預期狀態(8-param 存在=%,9-param 存在=%)。預期為「僅 8-param」或「僅 9-param」→ 中止,交人工判斷(處置見檔頭 SOP)。'
+      , (v_oid8 IS NOT NULL), (v_oid9 IS NOT NULL);
+  END IF;
+
+  v_fp := pg_temp.b2_create_order_fp(v_oid);
+
+  -- 🔴 逐欄 dump:md5 不符時單看雜湊無法診斷是哪一項漂移,故一併輸出可讀清單
+  --    (只含 catalog 屬性與雜湊,不含 prosrc / COMMENT 全文)
+  SELECT format('｜實際屬性:args=%s｜default=%s｜argnames=%s｜secdef=%s｜config=%s｜acl=%s｜owner=%s｜ret=%s｜retset=%s｜lang=%s｜vol=%s｜par=%s｜strict=%s｜leak=%s｜cost=%s｜rows=%s｜support=%s｜seclabel=%s｜prosrc_md5=%s｜comment_md5=%s(len=%s)',
+      pg_get_function_arguments(p.oid), coalesce(pg_get_expr(p.proargdefaults,0),'(無)'),
+      coalesce(p.proargnames::text,''), p.prosecdef, coalesce(p.proconfig::text,''),
+      coalesce(p.proacl::text,''), pg_get_userbyid(p.proowner), p.prorettype::regtype::text,
+      p.proretset, l.lanname, p.provolatile, p.proparallel, p.proisstrict, p.proleakproof,
+      p.procost, p.prorows, p.prosupport::text,
+      coalesce((SELECT string_agg(s.provider || '=' || s.label, ',' ORDER BY s.provider, s.label)
+                  FROM pg_seclabel s
+                 WHERE s.objoid = p.oid AND s.classoid = 'pg_proc'::regclass AND s.objsubid = 0), '(無)'),
+      md5(coalesce(p.prosrc,'')), md5(coalesce(obj_description(p.oid,'pg_proc'),'')),
+      length(coalesce(obj_description(p.oid,'pg_proc'),''))) INTO v_dump
+    FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+   WHERE p.oid = v_oid;
+
+  IF v_fp IS DISTINCT FROM v_want THEN
+    RAISE EXCEPTION 'B-2 守門:狀態 % 的完整指紋與預期不符(實際=%,預期=%)→ 現行 create_order 已被本 migration 之外的變更動過,中止,絕不覆寫未知版本。%'
+      , v_state, v_fp, v_want, v_dump;
   END IF;
 END
 $guard$;
@@ -425,7 +520,7 @@ DECLARE
   v_strict boolean; v_leak boolean; v_cost real; v_rows real;
   v_retset boolean; v_support text;
   v_nargs int; v_ndef int; v_names text; v_cmt_md5 text; v_cmt_len int; v_src text;
-  v_seclabel int; v_shseclabel int;
+  v_seclabel int; v_fp9 text;
 BEGIN
   SELECT count(*) INTO v_n8 FROM pg_proc WHERE oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
   IF v_n8 <> 0 THEN RAISE EXCEPTION '斷言②失敗:舊 8-param 仍存在(=overload 風險)'; END IF;
@@ -512,15 +607,35 @@ BEGIN
   IF v_src <> '0bc0d256b7483c5dd6ef1f8f97b4e9a7' THEN
     RAISE EXCEPTION '斷言失敗:prosrc md5=%(預期=%)', v_src, '0bc0d256b7483c5dd6ef1f8f97b4e9a7'; END IF;
 
+  -- 🔴 security label(codex 關卡2 round2 #2 精確化):
+  --    `pg_seclabel` 的識別鍵是 (objoid, **classoid**, objsubid, provider) → 只比 objoid
+  --    會誤配其他 catalog 中同一 OID 數值的物件標籤,故補 classoid + objsubid。
+  --    `pg_shseclabel` 只存 cluster-shared 物件(role/database/tablespace),函式**依定義
+  --    不會**出現在該表 → 查它不增加保護、只增加誤配面,已移除(原斷言字面作廢)。
   SELECT count(*) INTO v_seclabel FROM pg_seclabel
-   WHERE objoid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)')::oid;
-  SELECT count(*) INTO v_shseclabel FROM pg_shseclabel
-   WHERE objoid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)')::oid;
-  IF v_seclabel <> 0 OR v_shseclabel <> 0 THEN
-    RAISE EXCEPTION '斷言⑤失敗:seclabel=%,shseclabel=%(基線皆 0)', v_seclabel, v_shseclabel; END IF;
+   WHERE objoid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)')::oid
+     AND classoid = 'pg_proc'::regclass
+     AND objsubid = 0;
+  IF v_seclabel <> 0 THEN
+    RAISE EXCEPTION '斷言⑤失敗:pg_proc security label 數=%(基線 0)', v_seclabel; END IF;
 
-  RAISE NOTICE 'B-2 斷言矩陣全數通過(9-param / ACL / 全屬性 / 簽章 / prosrc)';
+  -- 🔴 斷言⑧:剛建好的 9-param 完整指紋 == 段 2.5 狀態 B 所用的預期產出常數。
+  --    這條是段 2.5 那個**自指常數的代償控制**:改了上方 COMMENT/ACL/函式體卻忘了重取常數,
+  --    本斷言會在**首次 apply** 當場失敗、整批回滾並吵出來,不會潛伏到某次重跑才誤擋。
+  --    🔴 公式共用同一個 `pg_temp.b2_create_order_fp` helper(codex round2 #1)→
+  --       「兩處公式漂移」在結構上不可能發生,不再倚賴斷言去偵測。
+  --    常數重取方式:以同一 helper 對套用後的 9-param 求值(交易模擬即可,見 plan §6-B)。
+  v_fp9 := pg_temp.b2_create_order_fp(
+    to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)'));
+  IF v_fp9 IS DISTINCT FROM '850e2e3cf5f503391df5fe6fe0067cce' THEN
+    RAISE EXCEPTION '斷言⑧失敗:本次產出的 9-param 完整指紋=%,與段 2.5 狀態 B 常數 % 不符 → 檔案內容已改但該常數未同步重取。', v_fp9, '850e2e3cf5f503391df5fe6fe0067cce'; END IF;
+
+  RAISE NOTICE 'B-2 斷言矩陣全數通過(9-param / ACL / E11 全欄 / 簽章 / prosrc / 完整指紋)';
 END
 $assert$;
+
+-- ── 清掉暫存指紋 helper(pg_temp 本就 session 級、不留正式物件;顯式 DROP 求乾淨,
+--    避免同一次 db push 的後續 migration 在同 session 撞見殘留定義)──
+DROP FUNCTION pg_temp.b2_create_order_fp(oid);
 
 COMMIT;
