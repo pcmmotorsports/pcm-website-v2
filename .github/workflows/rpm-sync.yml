@@ -68,3 +68,34 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: pnpm exec tsx scripts/rpm-import.ts --confirm-write --supplier=${{ matrix.supplier }} # tsx 已釘 devDep(--frozen-lockfile 裝固定版、不每天抓 latest、防供應鏈)
+
+  image-trim-scan:
+    needs: sync
+    if: ${{ !cancelled() }} # cancel 時不跑、sync 部分失敗仍跑(docs/specs/2026-07-19-product-image-trim-plan.md §4)
+    continue-on-error: true # 掃描失敗不影響主同步(獨立 job)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false # 同步腳本不需 design-reference submodule
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run product image trim scan (incremental)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: pnpm exec tsx scripts/image-trim-scan.ts --confirm-write --limit=800
