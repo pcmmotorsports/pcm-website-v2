@@ -1,6 +1,9 @@
 # CURRENT HANDOFF — pcm-website-v2
 
 > 這是下一個 Codex 或 Claude session 的唯一當次交接入口。長期規則看 `docs/ops/AI_CONTRACT.md`,專案進度以根目錄 `STATUS.md` 為準(已同 commit 對齊)。
+> 🆕 **2026-07-19 前台插隊線當次快照**:`docs/handoff/2026-07-19-storefront-catalog-lightbox-handoff.md`
+> (商品卡去白邊 trim 線 ✅ 上 production + lightbox 鍵盤循環 ✅;含未結項與部署狀態。
+> **兩條線皆已收工,不是 M-4a 下一步**;M-4a 主線下一步仍是本檔 + `STATUS.md` 的 **B-3**)。
 > E1c 當次快照:`docs/handoff/2026-07-17-m4a-email-e1c-handoff.md`(⚠️ **僅供 E1c 追溯、不是開工依據**——其「下一步」字面已被 E2a-a 超越〔E2a 已拆三片、§⑩ 已定案、port method 已存在〕;**開工入口 = 本檔 + `STATUS.md`「下一步」**)。
 
 ## 交接資訊
