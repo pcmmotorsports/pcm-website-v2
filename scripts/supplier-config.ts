@@ -238,7 +238,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true, // PDF 說明書 635 群;video 0
     categoryStrategy: { kind: 'per-group' }, // 10 對(排氣系統 7 子類為主)
     variantImages: 'per-variant', // 1:1 單變體家(648=648)
-    writeAllowed: false, // 🔴 乾跑+審查+報價單側商品名補車款落地後,Sean 批才開寫(plan §3 步驟 5)
+    // ✅ 2026-07-19 Sean 批首灌後開寫。四道前置全過:乾跑全綠 / Codex R1 四 must-fix 清完
+    //    (M1 新品驗價 M2 群數指紋 M3 首灌 runbook M4 行為測試)/ 報價單側 648 筆商品名定案寫入
+    //    (最終=不帶車款)/ Sean 明確點頭。首灌走監控式手動執行,matrix 待驗證通過才加。
+    writeAllowed: true,
   },
 };
 

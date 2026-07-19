@@ -37,33 +37,27 @@ function runImportCli(args: string[]): { status: number | null; output: string }
 }
 
 describe('rpm-import CLI:writeAllowed 硬鎖行為(must-fix M4)', () => {
+  // 🔴 未授權樣本 = lightech(#275 https 重抓未完成、writeAllowed 仍 false)。
+  //    原本這條用 akrapovic;2026-07-19 首灌批准後它翻 true,這條測試**當場紅**——
+  //    正是本檔要證明的事:guard 沒觸發時流程會往下走到 requireEnv。換樣本、不是放寬斷言。
+  //    未來 lightech 開寫時這條也會紅 → 那時再換成當時仍未授權的一家(名單見 supplier-config.ts)。
   it(
-    '🔴 akrapovic + --confirm-write → 非零退出且明說 writeAllowed=false(建線/連線前就擋)',
+    '🔴 lightech(未授權)+ --confirm-write → 非零退出且明說 writeAllowed=false(建線/連線前就擋)',
     () => {
-      const { status, output } = runImportCli(['--supplier=akrapovic', '--confirm-write']);
+      const { status, output } = runImportCli(['--supplier=lightech', '--confirm-write']);
       expect(status).not.toBe(0);
       expect(output).toMatch(/writeAllowed=false/);
-      expect(output).toMatch(/akrapovic/);
-      // guard 必須在任何連線之前:若它跑到 requireEnv 才死,代表 guard 位置被搬到連線之後
+      expect(output).toMatch(/lightech/);
+      // guard 必須在任何連線之前:若它跑到 requireEnv 才死,代表 guard 被搬到連線之後或被拿掉
       expect(output).not.toMatch(/QUOTE_SUPABASE_URL not set/);
     },
     CLI_TIMEOUT,
   );
 
-  it(
-    '🔴 lightech + --confirm-write → 同樣擋(硬鎖非 akrapovic 專屬)',
-    () => {
-      const { status, output } = runImportCli(['--supplier=lightech', '--confirm-write']);
-      expect(status).not.toBe(0);
-      expect(output).toMatch(/writeAllowed=false/);
-    },
-    CLI_TIMEOUT,
-  );
-
-  it(
-    '對照組:授權家(rpm)+ --confirm-write 不該被 writeAllowed 擋(證明擋的是授權、不是全部擋)',
-    () => {
-      const { status, output } = runImportCli(['--supplier=rpm', '--confirm-write']);
+  it.each(['rpm', 'akrapovic'])(
+    '對照組:授權家(%s)+ --confirm-write 不該被 writeAllowed 擋(證明擋的是授權、不是全部擋)',
+    (supplier) => {
+      const { status, output } = runImportCli([`--supplier=${supplier}`, '--confirm-write']);
       expect(status).not.toBe(0); // 沙箱無 env → 卡在 requireEnv(非本測試關注點)
       expect(output).not.toMatch(/writeAllowed=false/); // 🔴 這才是斷言:它過了授權關
       expect(output).toMatch(/QUOTE_SUPABASE_URL not set/);

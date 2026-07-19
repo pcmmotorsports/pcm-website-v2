@@ -86,8 +86,11 @@ describe('getSupplierConfig', () => {
     expect(ak.syncInstallResources).toBe(true); // PDF 635 群;video 0
     expect(ak.categoryStrategy).toEqual({ kind: 'per-group' }); // 10 對
     expect(ak.variantImages).toBe('per-variant'); // 1:1 單變體家(648=648)
-    // 🔴 翻 true 前置:乾跑+審查+報價單側商品名補車款落地+Sean 批(plan §3 步驟 5)。改這行=面對這三關。
-    expect(ak.writeAllowed).toBe(false);
+    // ✅ 2026-07-19 Sean 批首灌後翻 true。前置四關全過:乾跑全綠 / Codex R1 四 must-fix 清完
+    //    (M1 新品驗價 M2 群數指紋 M3 首灌 runbook M4 CLI 行為測試)/ 報價單側 648 筆商品名定案
+    //    寫入(最終格式=不帶車款)/ Sean 明確點頭。首灌=監控式手動執行,rpm-sync.yml matrix
+    //    待寫後驗證通過才加(runbook §1:排程先不含它,免首灌沒收拾完就被隔天 03:57 再跑一次)。
+    expect(ak.writeAllowed).toBe(true);
   });
 
   it('should throw fail-closed on unregistered / prototype-chain keys', () => {
