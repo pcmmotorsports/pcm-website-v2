@@ -6,8 +6,9 @@
 //
 // 純讀已 commit 的 .sql(非連線 live DB)→ 抓「最新」含運費 CASE 的 create_order migration 的 §7、
 // assert == TS 常數。取「最新」(時戳前綴最大、含運費 CASE 的 migration)= 當前生效定義
-// (create_order 走 CREATE OR REPLACE、後者勝);故未來運費若調整,superseded 舊 migration 保留舊值
-// 不誤紅。改運費須同步「TS 常數 + 新 CREATE OR REPLACE migration」兩處,本 gate 即攔任一處漏改。
+// (後者勝:同簽章走 CREATE OR REPLACE;🔴 M-4a B-2 起改參數數量的片走 DROP + CREATE ——
+//  PG 不允許用 CREATE OR REPLACE 改參數數量,那會產生 overload 而非取代);故未來運費若調整,
+// superseded 舊 migration 保留舊值不誤紅。改運費須同步「TS 常數 + 新 migration」兩處,本 gate 即攔任一處漏改。
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
