@@ -48,24 +48,32 @@ akrapovic: {
 5. **開寫前置 §3-1 逐條清掉** → Sean 拍板 → writeAllowed→true + matrix 加列 → commit → **Sean push** → 首灌
 6. 隔日驗證:648 群上站、抽 3 群比對報價單源、顧客身分 RLS 抽驗
 
-### §3-1 開寫前 must-fix(Codex R1 2026-07-19,不清不開寫)
+### §3-1 開寫前 must-fix(Codex R1 2026-07-19)— ✅ 四項已清(2026-07-19 下午)
 
-| # | 問題(首灌=target 0 時) | 處置 |
-|---|---|---|
-| M1 | 價格離群檢查只掃「變價」,首灌全是新品 → 價格錯 100 倍也放行(`rpm-delta.ts:96-117`) | 首灌前跑獨立驗價:新品價 vs 報價單源逐筆比對腳本,或 rpm-import 加新品絕對價檢查 |
-| M2 | W1 縮水閘 target=0 恆過 → 來源殘缺(如只抓到 500/648)也放行(`rpm-preflight.ts:55-63`) | 首灌帶預期群數指紋(648)守門;不符即停 |
-| M3 | 寫入非原子(products 分批 500 → variants),中途失敗留半套商品上架(`rpm-import.ts:406-437`) | 首灌採**受監控手動執行**(非交給排程),備妥立即下架補償程序;失敗即清 |
-| M4 | writeAllowed 硬鎖只有值測試,guard 被改測試仍綠(`supplier-config.test.ts` vs `rpm-import.ts:110-118`) | 補 CLI 整合測試:akrapovic+--confirm-write 須在建線前 throw |
+| # | 問題(首灌=target 0 時) | 處置 | 落地 |
+|---|---|---|---|
+| M1 | 價格離群檢查只掃「變價」,首灌全是新品 → 價格錯 100 倍也放行(`rpm-delta.ts:96-117`) | 首灌前跑獨立驗價:新品價 vs 報價單源逐筆比對腳本,或 rpm-import 加新品絕對價檢查 | ✅ `rpm-delta.ts` `checkNewItemPrices`:①對來源獨立重算逐筆比對(**恆驗**、不共用 transform 實作)②絕對價區間(**僅首灌**硬擋;日常關=實查 gbracing 45 筆真低於 100 元、當日常閘會誤殺)。gate 在 `rpm-import.ts` 寫入前 abort |
+| M2 | W1 縮水閘 target=0 恆過 → 來源殘缺(如只抓到 500/648)也放行(`rpm-preflight.ts:55-63`) | 首灌帶預期群數指紋(648)守門;不符即停 | ✅ `rpm-preflight.ts` `checkGroupCountGate` + CLI `--expect-groups=N`:**首灌寫入未帶指紋=fail-closed abort**(不是選配)、不符即停、刻意無容差 |
+| M3 | 寫入非原子(products 分批 500 → variants),中途失敗留半套商品上架(`rpm-import.ts:406-437`) | 首灌採**受監控手動執行**(非交給排程),備妥立即下架補償程序;失敗即清 | ✅ `docs/runbooks/2026-07-19-akrapovic-first-load-runbook.md`:前置清單→乾跑→監控式寫入→補償(先關寫入源再軟下架、硬刪為最後手段附 FK 連帶實查)→寫後驗證。**matrix 留到驗證後才加** |
+| M4 | writeAllowed 硬鎖只有值測試,guard 被改測試仍綠(`supplier-config.test.ts` vs `rpm-import.ts:110-118`) | 補 CLI 整合測試:akrapovic+--confirm-write 須在建線前 throw | ✅ `scripts/rpm-import-cli.test.ts`:實際 spawn CLI(沙箱 cwd + 白名單 env、無任何連線憑證),驗 akrapovic/lightech 被擋、rpm 對照組**不**被 writeAllowed 擋(證明擋的是授權而非全擋) |
 
 nit 已清:exact-keys 測試標題補「第三批」。nit 留檔:`categoryStrategy` 是死欄位(僅 config/測試消費,
 實際分類走 v2 兩欄路徑)— 屬既有設計債,不在本 plan 範圍,記錄不動。
 
-## 4. Phase B(報價單側,平行進行,另一份改動)
+## 4. Phase B(報價單側)— ✅ 已完成,且**命名決策已 supersede**
 
-Q2=A 商品名補車款:223 個同名「Slip-On Line」+ 54 缺中文名,改 `lib/translators/akrapovic.py`
-以 fitment 組名(比照 evotech「品名 - 車款」)。既有 594 列是機器鎖(translation_locked=true、_at=null),
-翻譯器改好後**需一次性 include-locked 回填**(僅機器鎖列,Sean Q2 拍板即授權,仍出 .command 由 Sean 雙擊)。
-**時序建議:Phase B 落地後再開寫(§3 步驟 5),讓顧客第一眼看到的就是帶車款的名稱。**
+🔴 **本節原本寫「Q2=A 補車款」,那是當日稍早的版本、已被 Sean 推翻,別照舊版做。**
+
+最終定案(2026-07-19 下午,Sean 看過實際輸出後改的):
+**車款與年份都不進商品名**——網站本來就有車款對應欄位,名稱再塞車款會讓版面塞不下;
+前綴保留 `Akrapovic`(Q-前綴=2)。最終格式=「Akrapovic[ 系列] 材質+品項」。
+
+- 已寫入正式庫:648 筆 `product_name_zh`(報價單 repo commits `5f954d8` → `0fd1265` 兩輪,
+  第二輪即為 supersede 後的短版)。走試算→確認→寫入→自驗,獨立重算兩輪 0 不一致、寫後抽查殘留車款/年份 0。
+- 腳本:報價單 repo `scripts/akrapovic_name_backfill.py`(決定論、12 測試)。
+- ★ **此命名標準通用化**:之後 kspeed / lightech 的名稱工作一律沿用「不帶車款」,不再重問。
+
+→ 對本 plan 的影響:§3 步驟 4 已完成,首灌時顧客看到的就是最終短版名稱。
 
 ## 5. 風險與回滾
 

@@ -90,6 +90,80 @@ export function printFetchIntegrityReport(r: FetchIntegrityReport): void {
   }
 }
 
+// ── M2:首灌群數指紋(Codex R1 2026-07-19 must-fix M2)──
+/**
+ * W1 抓取完整性 gate 的結構性盲區:它比的是「target 現存上架 − 本次 source」的差集,
+ * **首灌(target active=0)分母為 0 → shrinkRatio 恆 0 → 恆過**。此時來源只抓到 500/648
+ * 也照灌,顧客站首日就少 148 群、且沒有任何基線可事後察覺(缺的東西從沒存在過)。
+ *
+ * 補法=呼叫端帶「預期群數指紋」當外部基線(乾跑當下實查、寫進 .command/runbook),
+ * 寫入模式下:首灌**必須**帶(不帶=fail-closed abort)、帶了不符即停。
+ * 非首灌不強制(W1 差集本身已有分母、能量出缺口)。
+ *
+ * 刻意不設容差:指紋是「這一批就是這麼多群」的快照,來源真的變了就重跑乾跑、改數字再來
+ * ——這道摩擦正是它的價值(自動放寬 = 又變成恆過的閘)。
+ */
+export interface GroupCountGateReport {
+  sourceGroupCount: number;
+  expectedGroupCount: number | null;
+  isFirstLoad: boolean; // target 該供應商 active=0
+  required: boolean; // 本次是否強制要指紋(寫入 + 首灌)
+  aborted: boolean;
+  abortReason?: string;
+}
+
+export function checkGroupCountGate(params: {
+  sourceGroupCount: number;
+  expectedGroupCount: number | null;
+  targetActiveCount: number;
+  isWrite: boolean;
+}): GroupCountGateReport {
+  const { sourceGroupCount, expectedGroupCount, targetActiveCount, isWrite } = params;
+  const isFirstLoad = targetActiveCount === 0;
+  const required = isWrite && isFirstLoad;
+  const base = { sourceGroupCount, expectedGroupCount, isFirstLoad, required };
+
+  if (expectedGroupCount === null) {
+    return required
+      ? {
+          ...base,
+          aborted: true,
+          abortReason:
+            `首灌(target 現存上架=0)必須帶 --expect-groups=<乾跑實查群數> 當基線:` +
+            `W1 縮水閘在首灌恆過(分母 0)、來源殘缺無從察覺。本次來源 ${sourceGroupCount} 群,` +
+            `確認屬實後帶 --expect-groups=${sourceGroupCount} 重跑`,
+        }
+      : { ...base, aborted: false };
+  }
+  if (sourceGroupCount !== expectedGroupCount) {
+    return {
+      ...base,
+      aborted: true,
+      abortReason:
+        `群數指紋不符:來源 ${sourceGroupCount} 群 ≠ 預期 ${expectedGroupCount} 群` +
+        `(差 ${sourceGroupCount - expectedGroupCount});疑來源殘缺/截斷或來源真的變了。` +
+        `先重跑乾跑確認全貌,屬實再改 --expect-groups(不設容差=刻意的摩擦)`,
+    };
+  }
+  return { ...base, aborted: false };
+}
+
+export function printGroupCountGate(r: GroupCountGateReport): void {
+  console.log('\n=== 群數指紋 gate(M2、首灌基線)===');
+  if (r.aborted) {
+    console.error(`🔴 ALERT 群數指紋 abort、不寫:${r.abortReason}`);
+    return;
+  }
+  if (r.expectedGroupCount !== null) {
+    console.log(`✅ 來源 ${r.sourceGroupCount} 群 = 預期指紋 ${r.expectedGroupCount} 群`);
+  } else {
+    console.log(
+      `(未帶 --expect-groups;來源 ${r.sourceGroupCount} 群、${r.isFirstLoad ? '首灌' : '非首灌'}` +
+        `${r.isFirstLoad ? '、寫入模式將強制要求指紋' : '、W1 差集已有基線、不強制'})`,
+    );
+  }
+}
+
 // ── F3:bypass 旗標互斥護欄(不變式 5)──
 /**
  * 禁同時帶 `--allow-fetch-shrink` + `--allow-large-delist`:兩道防誤殺 bypass 同開 = 盲寫,

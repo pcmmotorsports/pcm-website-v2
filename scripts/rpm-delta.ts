@@ -59,6 +59,8 @@ export interface DeltaReport {
   variantChanges: DeltaLine[];
   newProducts: number;
   newVariants: number;
+  newProductKeys: string[]; // M1:新品 external_id(target 查無)——首灌驗價的對象
+  newVariantKeys: string[]; // M1:新變體 sku
   abnormal: DeltaLine[]; // 新價 null/0/負/NaN(硬 abort、不可覆寫)
   outliers: DeltaLine[]; // 漲價/大跌>30%/單價離譜(防呆瞄、非硬擋)
 }
@@ -92,29 +94,38 @@ export async function computeDelta(
 
   const productChanges: DeltaLine[] = [];
   const abnormal: DeltaLine[] = [];
-  let newProducts = 0;
+  const newProductKeys: string[] = [];
   for (const p of productRows) {
     const known = existProd.has(p.external_id);
     const oldPrice = known ? existProd.get(p.external_id)! : null;
     const line: DeltaLine = { key: p.external_id, oldPrice, newPrice: p.price_general, pct: pct(oldPrice, p.price_general) };
-    if (!known) newProducts++;
+    if (!known) newProductKeys.push(p.external_id);
     else if (oldPrice !== p.price_general) productChanges.push(line);
     if (isAbnormal(p.price_general)) abnormal.push(line);
   }
 
   const variantChanges: DeltaLine[] = [];
-  let newVariants = 0;
+  const newVariantKeys: string[] = [];
   for (const v of variantRows) {
     const known = existVar.has(v.sku);
     const oldPrice = known ? existVar.get(v.sku)! : null;
     const line: DeltaLine = { key: v.sku, oldPrice, newPrice: v.price_general, pct: pct(oldPrice, v.price_general) };
-    if (!known) newVariants++;
+    if (!known) newVariantKeys.push(v.sku);
     else if (oldPrice !== v.price_general) variantChanges.push(line);
     if (isAbnormal(v.price_general)) abnormal.push(line);
   }
 
   const outliers = [...productChanges, ...variantChanges].filter(isOutlier);
-  return { productChanges, variantChanges, newProducts, newVariants, abnormal, outliers };
+  return {
+    productChanges,
+    variantChanges,
+    newProducts: newProductKeys.length,
+    newVariants: newVariantKeys.length,
+    newProductKeys,
+    newVariantKeys,
+    abnormal,
+    outliers,
+  };
 }
 
 export function printDeltaReport(r: DeltaReport, opts: { full?: boolean; json?: boolean } = {}): void {
@@ -142,6 +153,106 @@ export function printDeltaReport(r: DeltaReport, opts: { full?: boolean; json?: 
     console.log('🔴 異常列(硬 abort、不可覆寫):');
     console.table(r.abnormal.slice(0, cap));
   }
+}
+
+// ── M1:新品驗價(Codex R1 2026-07-19 must-fix M1)──
+/**
+ * 價格 delta gate 的結構性盲區:它只比得出「變價」——**新品沒有舊價可比**(oldPrice=null、
+ * pct=null → isOutlier 直接 return false)。首灌時 648 群全是新品 → 整批價格零檢查,
+ * 錯 100 倍也照上架(異常列只擋 null/0/負/NaN,10 元跟 100 萬都算「正常」)。
+ *
+ * 補兩層:
+ *   ① **對源逐筆比對**(任何時候都硬擋):把商品/變體要寫的 price_general,對「從來源列獨立重算」
+ *      的值。這是查 transform 接線是否還對(接錯欄=接到經銷價/成本、忘了 round、單位錯位),
+ *      不是查來源本身對不對。刻意不呼叫 rpm-transform 的實作,避免同一個 bug 兩邊一起錯。
+ *   ② **絕對價區間**(僅首灌硬擋、日常只報):落在 [floor, ceiling] 外 → 疑單位/小數點錯位。
+ *      日常不硬擋是實查決定(2026-07-19 報價單庫:gbracing 45 筆 < 100 元、eazigrip/evotech 各 2 筆 80 元
+ *      = 真實便宜小件);拿它當日常硬閘會天天誤殺 gbracing 同步。首灌是一次性人工監控場景、擋得起。
+ */
+export const NEW_ITEM_PRICE_FLOOR = 100; // 元;低於此疑小數點/單位錯位(實查最低真實價=gbracing 50 元、故僅首灌硬擋)
+export const NEW_ITEM_PRICE_CEILING = ABSURD_PRICE; // 與離群價同上限(實查最高真實價=akrapovic 151,600)
+
+export interface NewItemPriceIssue {
+  level: 'product' | 'variant';
+  key: string;
+  price: number | null; // 要寫進網站的值
+  sourcePrice: number | null; // 從來源列獨立重算的值
+  reason: 'source-mismatch' | 'below-floor' | 'above-ceiling';
+  detail: string;
+}
+
+/** 來源單值 → 整數 TWD;null/空/非法 → null(獨立實作,不共用 rpm-transform 的 roundTwd) */
+export function independentPrice(v: string | number | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * 群基準價獨立重算 = min(price_retail) 取整(對齊 rpm-transform 的「群內最低零售價」規則、但另寫一份)。
+ * 任一列價非法 → null(transform 那側該群基準也會落 null、再由異常列硬 abort 接手)。
+ */
+export function independentGroupPrice(rows: { price_retail: string | number | null }[]): number | null {
+  if (!rows.length) return null;
+  let min: number | null = null;
+  for (const r of rows) {
+    const n = independentPrice(r.price_retail);
+    if (n === null) return null;
+    if (min === null || n < min) min = n;
+  }
+  return min;
+}
+
+/**
+ * 新品驗價。`items` = 本次判定為新品的商品/變體(key、要寫的價、來源獨立重算價)。
+ * `enforceBand`:首灌傳 true(絕對區間也算 issue);日常傳 false(只留對源比對)。
+ */
+export function checkNewItemPrices(
+  items: { level: 'product' | 'variant'; key: string; price: number | null; sourcePrice: number | null }[],
+  opts: { enforceBand: boolean; floor?: number; ceiling?: number } = { enforceBand: false },
+): NewItemPriceIssue[] {
+  const floor = opts.floor ?? NEW_ITEM_PRICE_FLOOR;
+  const ceiling = opts.ceiling ?? NEW_ITEM_PRICE_CEILING;
+  const issues: NewItemPriceIssue[] = [];
+  for (const it of items) {
+    const { level, key, price, sourcePrice } = it;
+    if (price !== sourcePrice) {
+      issues.push({
+        level,
+        key,
+        price,
+        sourcePrice,
+        reason: 'source-mismatch',
+        detail: `要寫 ${price} ≠ 來源獨立重算 ${sourcePrice}(transform 接線疑接錯欄/漏取整/單位錯位)`,
+      });
+      continue; // 接線已不可信,不必再談區間
+    }
+    if (!opts.enforceBand || price === null) continue;
+    if (price < floor) {
+      issues.push({ level, key, price, sourcePrice, reason: 'below-floor', detail: `${price} < 首灌下限 ${floor}(疑小數點/單位錯位)` });
+    } else if (price > ceiling) {
+      issues.push({ level, key, price, sourcePrice, reason: 'above-ceiling', detail: `${price} > 首灌上限 ${ceiling}(疑倉庫資料打錯)` });
+    }
+  }
+  return issues;
+}
+
+export function printNewItemPriceReport(
+  issues: NewItemPriceIssue[],
+  counts: { newProducts: number; newVariants: number; enforceBand: boolean },
+): void {
+  console.log('\n=== 新品驗價(M1、對來源逐筆比對)===');
+  console.log(
+    `新商品 ${counts.newProducts} / 新變體 ${counts.newVariants};` +
+      `絕對價區間硬擋=${counts.enforceBand ? '開(首灌)' : '關(日常、只留對源比對)'}`,
+  );
+  if (!issues.length) {
+    console.log('✅ 新品價與來源獨立重算逐筆相符、無區間異常');
+    return;
+  }
+  console.error(`🔴 新品驗價 ${issues.length} 筆問題、寫入模式將 abort:`);
+  console.table(issues.slice(0, 50));
+  if (issues.length > 50) console.log(`(另有 ${issues.length - 50} 筆未列)`);
 }
 
 export function hasPriceChange(r: DeltaReport): boolean {

@@ -10,9 +10,10 @@
  * 跑法(tsx 已釘為 devDep、走 pnpm exec;CI workflow 同):
  *   pnpm exec tsx scripts/rpm-import.ts --dry-run [--supplier=rpm] [--group=APRILIA-01] [--limit=3] [--delta-full]
  *     → 跑 W1 抓取完整性 + pv_spec preflight + 兩層價格 delta gate + S4 下架對賬報告(全量才跑)、印清單、不寫
- *   pnpm exec tsx scripts/rpm-import.ts --confirm-write [--supplier=rpm] [--allow-large-delist] [--allow-fetch-shrink]
+ *   pnpm exec tsx scripts/rpm-import.ts --confirm-write [--supplier=rpm] [--expect-groups=648] [--allow-large-delist] [--allow-fetch-shrink]
  *     → 正式寫入 + S4 下架對賬(源頭消失→軟下架、只全量);硬 gate:異常列(null/0/負/NaN)無條件 abort、
- *       任何寫入須帶 --confirm-write;S5 W1 抓取完整性 gate(商品維度差集、來源缺現存上架商品>5% 疑截斷硬 abort 除非 --allow-fetch-shrink);
+ *       M2 群數指紋 gate(首灌 target active=0 時 W1 恆過 → 強制帶 --expect-groups=<乾跑實查群數>、不符即停);
+*       任何寫入須帶 --confirm-write;S5 W1 抓取完整性 gate(商品維度差集、來源缺現存上架商品>5% 疑截斷硬 abort 除非 --allow-fetch-shrink);
  *       下架安全 gate:source 空硬 abort、下架比例>10% abort 除非 --allow-large-delist
  *
  * env(repo 根 .env.local、不入 git):
@@ -52,6 +53,10 @@ import {
   hasPriceChange,
   hasAbnormal,
   preflightSpecUnique,
+  checkNewItemPrices,
+  printNewItemPriceReport,
+  independentPrice,
+  independentGroupPrice,
 } from './rpm-delta';
 import {
   computeDelist,
@@ -65,6 +70,8 @@ import {
   checkFetchIntegrity,
   printFetchIntegrityReport,
   assertBypassFlagsExclusive,
+  checkGroupCountGate,
+  printGroupCountGate,
   readHandleOwners,
   preflightHandles,
   printHandlePreflightReport,
@@ -89,6 +96,8 @@ const DELTA_FULL = process.argv.includes('--delta-full'); // delta 印全量(非
 const DELTA_JSON = process.argv.includes('--delta-json'); // delta 出 JSON 留證(S3b-2 sign-off)
 const GROUP_FILTER = argValue('--group'); // 篩單群(dry-run 驗 / D5 單群上線抽驗)
 const LIMIT = Number(argValue('--limit') ?? '0') || 0; // 篩前 N 群(dry-run)
+// M2(Codex R1 must-fix):預期群數指紋。首灌(target active=0)寫入模式強制要帶——W1 縮水閘該情境恆過。
+const EXPECT_GROUPS = parseExpectGroups(argValue('--expect-groups'));
 const ALLOW_LARGE_DELIST = process.argv.includes('--allow-large-delist'); // S4:放行大比例下架(防誤殺 bypass、需確認來源完整才帶)
 const ALLOW_FETCH_SHRINK = process.argv.includes('--allow-fetch-shrink'); // S5 W1:放行大幅來源縮水(防誤殺 bypass、需確認來源完整才帶)
 // 🔴 S4 下架對賬只在全量模式跑(篩選下 source 不完整、跑了會誤殺全站)。
@@ -98,6 +107,16 @@ const FULL_MODE = !GROUP_FILTER && LIMIT === 0;
 function argValue(flag: string): string | undefined {
   const hit = process.argv.find((a) => a.startsWith(`${flag}=`));
   return hit ? hit.slice(flag.length + 1) : undefined;
+}
+
+/** --expect-groups=N 解析:未帶→null;非正整數→fail-closed throw(免「--expect-groups=abc」被當沒帶而靜默放行) */
+function parseExpectGroups(raw: string | undefined): number | null {
+  if (raw === undefined) return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`--expect-groups 需為正整數(收到「${raw}」);帶乾跑實查到的群數當基線`);
+  }
+  return n;
 }
 
 function requireEnv(name: string): string {
@@ -178,6 +197,20 @@ async function main(): Promise<void> {
   }
   console.log(`[rpm-import] 分群 ${groups.size} 群`);
 
+  // ── M2:群數指紋 gate(首灌基線;Codex R1 must-fix)──
+  //   比的是【來源全量群數】(fetch 永遠全量、--group/--limit 只篩寫入)→ 與篩選模式無關。
+  //   dry-run 只報告(Sean 看全貌、順便讀出這次該帶的指紋值);寫入模式 aborted → throw。
+  const groupCountGate = checkGroupCountGate({
+    sourceGroupCount: groups.size,
+    expectedGroupCount: EXPECT_GROUPS,
+    targetActiveCount: fetchIntegrity.targetActiveCount,
+    isWrite: !DRY_RUN,
+  });
+  printGroupCountGate(groupCountGate);
+  if (!DRY_RUN && groupCountGate.aborted) {
+    throw new Error(`群數指紋 gate 觸發、不寫:${groupCountGate.abortReason}`); // 🔴 loud alert + 非零退出(cron 警報)
+  }
+
   // 篩選(dry-run --group / --limit)
   let entries = [...groups.entries()];
   if (GROUP_FILTER) entries = entries.filter(([m]) => m === GROUP_FILTER.toUpperCase());
@@ -193,6 +226,10 @@ async function main(): Promise<void> {
   let subMildGroups = 0; // 同大類但子類分歧(輕微;取決定性子類、不 abort)
   let partialDelistDropped = 0; // R2-SF2:部分停產群被剔除的變體數(唯一會產生孤兒的路徑)
   let partialDelistGroups = 0;
+  // M1 新品驗價:從【來源列】獨立重算的價,與 transform 產出的 price_general 逐筆對(見 rpm-delta 檔內說明)。
+  //   來源=liveVariants(與 transform 吃同一集合;停產剔除屬另一個問題、不混進驗價)。
+  const sourceGroupPrice = new Map<string, number | null>(); // external_id → min(price_retail) 獨立重算
+  const sourceVariantPrice = new Map<string, number | null>(); // sku → price_retail 獨立重算
   for (const [mainSku, variants] of entries) {
     // 🔴 liveVariants 必須在【最上面】算,群內所有衍生值(車款標籤、分類 pair、群層轉換、變體列)
     //    一律吃同一個集合。規則與理由見 rpm-transform.ts 的 liveVariantsOf。
@@ -242,6 +279,8 @@ async function main(): Promise<void> {
     // 對抗審查實例:停產款 $1,000 / 在售款 $2,000,卡片仍顯示 $1,000)。
     const pr = transformGroup(mainSku, liveVariants, vehicleLabel, ctx, now);
     productRows.push(pr);
+    sourceGroupPrice.set(pr.external_id, independentGroupPrice(liveVariants)); // M1:獨立重算、不共用 transform 實作
+    for (const v of liveVariants) sourceVariantPrice.set(v.sku, independentPrice(v.price_retail));
     if (liveVariants.length < variants.length) {
       partialDelistDropped += variants.length - liveVariants.length; // R2-SF2 可觀測性
       partialDelistGroups++;
@@ -368,6 +407,41 @@ async function main(): Promise<void> {
   // ── 價格 delta gate(兩層、唯讀比對)──
   const delta = await computeDelta(target, config.supplierSlug, productRows, variantRows);
   printDeltaReport(delta, { full: DELTA_FULL, json: DELTA_JSON });
+
+  // ── 硬 gate:新品驗價(M1、Codex R1 must-fix)──
+  //   delta gate 只比得出「變價」,新品無舊價可比 → 首灌整批零檢查。此處對來源逐筆比對(恆驗)
+  //   + 絕對價區間(僅首灌硬擋、日常誤殺率高故只報;實查依據見 rpm-delta.ts)。
+  //   dry-run 印報告不 throw(對齊其他 gate);寫入模式有 issue → abort 不進 upsert。
+  const isFirstLoad = fetchIntegrity.targetActiveCount === 0;
+  const productPriceByExtId = new Map(productRows.map((p) => [p.external_id, p.price_general]));
+  const variantPriceBySku = new Map(variantRows.map((v) => [v.sku, v.price_general]));
+  const newItemPriceIssues = checkNewItemPrices(
+    [
+      ...delta.newProductKeys.map((key) => ({
+        level: 'product' as const,
+        key,
+        price: productPriceByExtId.get(key) ?? null,
+        sourcePrice: sourceGroupPrice.get(key) ?? null,
+      })),
+      ...delta.newVariantKeys.map((key) => ({
+        level: 'variant' as const,
+        key,
+        price: variantPriceBySku.get(key) ?? null,
+        sourcePrice: sourceVariantPrice.get(key) ?? null,
+      })),
+    ],
+    { enforceBand: isFirstLoad },
+  );
+  printNewItemPriceReport(newItemPriceIssues, {
+    newProducts: delta.newProducts,
+    newVariants: delta.newVariants,
+    enforceBand: isFirstLoad,
+  });
+  if (!DRY_RUN && newItemPriceIssues.length) {
+    throw new Error(
+      `新品驗價 ${newItemPriceIssues.length} 筆問題、abort 不寫(對源不符=transform 接線壞;區間異常=疑單位錯位;dry-run 看清單)`,
+    );
+  }
 
   if (DRY_RUN) {
     const sample = productRows[0];

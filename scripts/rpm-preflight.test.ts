@@ -10,10 +10,53 @@ import {
   preflightHandles,
   readHandleOwners,
   checkFetchIntegrity,
+  checkGroupCountGate,
   summarizeCategoryResolution,
   findNullCategoryProducts,
   type HandleIssue,
 } from './rpm-preflight';
+
+describe('M2 checkGroupCountGate(首灌群數指紋、Codex R1 must-fix)', () => {
+  it('🔴 首灌 + 寫入 + 未帶指紋 → abort(補 W1 在 target active=0 恆過的洞)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 648, expectedGroupCount: null, targetActiveCount: 0, isWrite: true });
+    expect(r.isFirstLoad).toBe(true);
+    expect(r.required).toBe(true);
+    expect(r.aborted).toBe(true);
+    expect(r.abortReason).toMatch(/--expect-groups=648/); // 訊息直接吐出該帶的值
+  });
+  it('🔴 帶了指紋但來源少抓 → abort(500/648 情境:W1 放行、本閘擋下)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 500, expectedGroupCount: 648, targetActiveCount: 0, isWrite: true });
+    expect(r.aborted).toBe(true);
+    expect(r.abortReason).toMatch(/500 群 ≠ 預期 648 群/);
+  });
+  it('指紋相符 → 放行', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 648, expectedGroupCount: 648, targetActiveCount: 0, isWrite: true });
+    expect(r.aborted).toBe(false);
+  });
+  it('多抓也擋(不是只防少、來源混入別家/重複群同樣可疑)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 700, expectedGroupCount: 648, targetActiveCount: 0, isWrite: true });
+    expect(r.aborted).toBe(true);
+  });
+  it('非首灌未帶指紋 → 不強制、不擋(W1 差集已有基線)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 640, expectedGroupCount: null, targetActiveCount: 648, isWrite: true });
+    expect(r.isFirstLoad).toBe(false);
+    expect(r.required).toBe(false);
+    expect(r.aborted).toBe(false);
+  });
+  it('非首灌帶了指紋不符 → 仍擋(帶了就當基線用)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 640, expectedGroupCount: 648, targetActiveCount: 648, isWrite: true });
+    expect(r.aborted).toBe(true);
+  });
+  it('dry-run 首灌未帶指紋 → 不 required(乾跑就是去把指紋值讀出來的)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 648, expectedGroupCount: null, targetActiveCount: 0, isWrite: false });
+    expect(r.required).toBe(false);
+    expect(r.aborted).toBe(false);
+  });
+  it('dry-run 帶指紋不符 → 仍標 aborted(呼叫端 dry-run 只印報告不 throw)', () => {
+    const r = checkGroupCountGate({ sourceGroupCount: 500, expectedGroupCount: 648, targetActiveCount: 0, isWrite: false });
+    expect(r.aborted).toBe(true);
+  });
+});
 
 describe('F3 assertBypassFlagsExclusive(不變式 5)', () => {
   it('同帶兩個 bypass 旗標 → throw', () => {

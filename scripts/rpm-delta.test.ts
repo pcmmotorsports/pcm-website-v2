@@ -5,7 +5,74 @@
 //   V1:變體級對賬排定硬刪的孤兒 sku(deletedSkus)不參與模擬(upsert 前已刪)。
 
 import { describe, it, expect } from 'vitest';
-import { simulateSpecCollisions } from './rpm-delta';
+import {
+  simulateSpecCollisions,
+  checkNewItemPrices,
+  independentPrice,
+  independentGroupPrice,
+  NEW_ITEM_PRICE_FLOOR,
+  NEW_ITEM_PRICE_CEILING,
+} from './rpm-delta';
+
+describe('M1 新品驗價(Codex R1 must-fix:首灌全是新品 → delta gate 零檢查)', () => {
+  const item = (key: string, price: number | null, sourcePrice: number | null) =>
+    ({ level: 'product' as const, key, price, sourcePrice });
+
+  it('🔴 價格錯 100 倍 → source-mismatch(這就是 Codex 點名的首灌情境)', () => {
+    const issues = checkNewItemPrices([item('AK-001', 1_260_000, 12_600)], { enforceBand: true });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.reason).toBe('source-mismatch');
+  });
+
+  it('對源相符 + 在區間內 → 零 issue', () => {
+    const issues = checkNewItemPrices([item('AK-001', 12_600, 12_600)], { enforceBand: true });
+    expect(issues).toEqual([]);
+  });
+
+  it('🔴 首灌:低於下限硬擋(疑小數點錯位)', () => {
+    const issues = checkNewItemPrices([item('X', 50, 50)], { enforceBand: true });
+    expect(issues[0]!.reason).toBe('below-floor');
+  });
+
+  it('日常(enforceBand=false):同一筆低價放行(實查 gbracing 45 筆 <100 元是真實便宜小件、不可天天誤殺)', () => {
+    const issues = checkNewItemPrices([item('X', 50, 50)], { enforceBand: false });
+    expect(issues).toEqual([]);
+  });
+
+  it('🔴 首灌:超過上限硬擋', () => {
+    const issues = checkNewItemPrices([item('X', NEW_ITEM_PRICE_CEILING + 1, NEW_ITEM_PRICE_CEILING + 1)], { enforceBand: true });
+    expect(issues[0]!.reason).toBe('above-ceiling');
+  });
+
+  it('對源不符時不重複報區間(接線已不可信、先修接線)', () => {
+    const issues = checkNewItemPrices([item('X', 5, 500)], { enforceBand: true });
+    expect(issues).toHaveLength(1);
+    expect(issues[0]!.reason).toBe('source-mismatch');
+  });
+
+  it('🔴 來源查無對應列(sourcePrice=null 而要寫有值)→ 仍算不符(fail-closed、不靜默放行)', () => {
+    const issues = checkNewItemPrices([item('GHOST', 12_600, null)], { enforceBand: false });
+    expect(issues[0]!.reason).toBe('source-mismatch');
+  });
+
+  it('下限剛好等於 floor → 放行(邊界用 < 非 <=)', () => {
+    expect(checkNewItemPrices([item('X', NEW_ITEM_PRICE_FLOOR, NEW_ITEM_PRICE_FLOOR)], { enforceBand: true })).toEqual([]);
+  });
+
+  it('independentPrice:字串 numeric 取整、null/空/非法 → null', () => {
+    expect(independentPrice('12600.00')).toBe(12_600);
+    expect(independentPrice('12600.60')).toBe(12_601);
+    expect(independentPrice(null)).toBeNull();
+    expect(independentPrice('')).toBeNull();
+    expect(independentPrice('abc')).toBeNull();
+  });
+
+  it('independentGroupPrice:取群內最低價;任一列非法 → null(交給異常列硬 abort 接手)', () => {
+    expect(independentGroupPrice([{ price_retail: '3000' }, { price_retail: '1700.00' }, { price_retail: 2500 }])).toBe(1700);
+    expect(independentGroupPrice([{ price_retail: '3000' }, { price_retail: null }])).toBeNull();
+    expect(independentGroupPrice([])).toBeNull();
+  });
+});
 
 const spec = (color: string): Record<string, string> => ({ color });
 
