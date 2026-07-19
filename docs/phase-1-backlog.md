@@ -7132,6 +7132,53 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-19 / Sean 回報品牌篩選取消無效
 - **相關:** #287
 
+### #289. 🐛 帶 `?page=N` 的深連結進站 → 頁碼被吃掉(內容第 1 頁、分頁 UI 停在舊頁碼)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟠 中
+  - 🔴 **2026-07-19 優先級上修**:初版寫「🟡 低」的依據是「最終仍由 `useBrowseUrlSync` 收尾落回
+    正確頁」——該句**未經實測、且已被實測推翻**(code-reviewer R2 must-fix 抓出)。實際不會自癒。
+- **問題:**
+  - `useCatalogFilterUrlSync` 以 `lastFilterKeyRef` 的**篩選值指紋**判斷是否 `delete('page')`,
+    但該指紋**無法區分「使用者改篩選」與「深連結還原波」**。
+  - 失敗情境:`/products?pbrand=akrapovic&page=2` 進站 → mount 首輪走 `initialized` 守衛(指紋=空)
+    → `useDeepLinkRestore` dispatch 讓 `cascade.brands` 變非空 → 第二輪指紋由空變非空 →
+    誤判為使用者操作 → `delete('page')` → `router.replace('/products?pbrand=akrapovic')`
+    → **多打一次全型錄 RSC**;隨後 `usePageResetOnFilterChange`(有 `skipOnceRef` 守)保住 page=2、
+    `useBrowseUrlSync` 再 replace 回 `page=2`。
+  - 🔴 **不會自癒(已實測、非推論)**:`useBrowseUrlSync` 的 deps 是
+    `[currentPage, sort, perPage, router]` —— 還原波刪掉 page 後,`page` state 仍是 2、
+    `currentPage = min(page, totalPages)` 未變、sort/perPage 未變 → **effect 不重跑** →
+    `page=2` 永不寫回。(`usePageResetOnFilterChange` 因 `skipOnceRef` 被吞掉,也不會 setPage(1)。)
+  - **實測終態**(本地 production build,`/products?pbrand=akrapovic&page=2` 進站,等 6 秒):
+    URL = `?pbrand=akrapovic`、內容 = **第 1 頁**(第一張卡與直接載入第 1 頁的對照組同為
+    `akrapovic-s-d9so14-hifft`)、分頁 UI **停在第 2 頁** → **與 Sean 原本回報的症狀同形**。
+  - ✅ 已對照 `61f45b6`(未含 2026-07-19 分頁修法)實測,**行為完全相同** → 確為既有 bug。
+  - 🔴 **既有行為、非 2026-07-19 分頁修復引入**(舊版無條件 `delete('page')` 同樣會在還原波刪掉
+    page);該片只是把這條路徑**明文化**,並未擴大或縮小它。code-reviewer R1 must-fix-1 指出。
+- **觸發事件:**
+  - (任一)①實測發現帶 `?page=N` 的分享連結進站會閃第 1 頁 ②型錄頁 RSC 請求數被列為效能瓶頸
+    ③要再新增會寫入 URL 的篩選軸(屆時三處「篩選是否變動」的判斷會更難對齊)。
+- **預期解法:**
+  - 比照 `usePageResetOnFilterChange` 的 `skipOnceRef` idiom:讓 `useCatalogFilterUrlSync` 也吞掉
+    還原波一次;或在 restore 消化後(`pendingRestoreRef.current` 由 null 轉 false 那一刻)
+    重新 seed `lastFilterKeyRef`,使還原造成的指紋變動不被計為使用者操作。
+  - 🔴 更根本的方向:`page` 的權威寫入者是 `useBrowseUrlSync`,但 `useCatalogFilterUrlSync` 也寫它
+    (為省一次往返)。兩個寫入者 + 三處「篩選是否變動」判斷(`filterKey` /
+    `usePageResetOnFilterChange` 的 key / 還原窗口守衛)是本檔的結構性複雜度來源,可一併收斂。
+- **不修會痛在:**
+  - 可維護性:三處「篩選是否變動」的判斷各自維護,`filterKey` 是
+    `JSON.stringify([cascade, extras, sort, perPage])` 的子集;任何人往其中一處加軸而未同步其他處,
+    就會靜默漂移(改該軸後停在舊頁碼、或還原波行為改變)。
+  - bug 可追蹤性:症狀是「偶爾閃一下第 1 頁 + 多一次請求」,不看註解無法歸因。
+- **同類路徑(R2 nit-2,未實測):** `filterKey` 不含 vehicle,故在 `?page=3` 選車時本 effect 不再
+  刪 page,`useVehicleUrlSync` 會帶著 `page=3` 導覽一次,收斂靠 `setPage(1)`。與上述同一條 deps
+  疑慮,修 #289 時應一併實測。舊版(無條件刪)會在選車時順手清掉 page = 行為有差異。
+- **估時:** 40-60 分鐘(含還原波的單元測試)
+- **依賴:** 無
+- **發現於:** 2026-07-19 / 分頁失效修復的 code-reviewer R1 + R2(R2 推翻了 R1 處置時的「會自癒」假設)
+- **相關:** #287 / #288
+
 ## 紀錄模板
 
 ```markdown

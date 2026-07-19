@@ -199,7 +199,32 @@ export function useCatalogFilterUrlSync(
   // → skip;查無(改名殘連結等)=restore 永不來 → 不 hold、照常同步(price 等其他軸不得被吞、
   // 垃圾參數同 vehicle 語意清掉);state 首次非空=消化、之後才允許清。
   const pendingRestoreRef = useRef<boolean | null>(null);
+  // 🔴 2026-07-19 修「分頁失效」(既有 bug、已用基準版對照確認非品牌片引入;單元測試坐實根因):
+  // 本 effect deps 含 `restoreSources`(ProductsPage 的 `useMemo(...,[categories,brands])`)→
+  // server 每回新 props 就換 identity → effect 重跑 → 舊版**無條件** `delete('page')` 把使用者
+  // 剛翻到的 `?page=2` 洗掉、內容退回第 1 頁(分頁 UI 卻停在第 2 頁)。目錄 512 頁形同翻不動。
+  // 修法:改為只在**篩選值指紋變動**時才刪 page。
+  // 🔴 **本修法不涵蓋深連結還原波**(R1 must-fix-1 / R2 must-fix,已實測、非推論):
+  //    此指紋無法區分「使用者改篩選」與「還原波」——`/products?pbrand=x&page=2` 進站時 restore
+  //    dispatch 會讓指紋由空變非空 → 誤判為使用者操作 → 刪掉 page。
+  //    ⚠️ **不會自癒**:`useBrowseUrlSync` deps=[currentPage,sort,perPage,router] 此時全未變 →
+  //    effect 不重跑 → page 永不寫回。實測終態(本地 production build,`?pbrand=akrapovic&page=2`):
+  //    URL 掉成 `?pbrand=akrapovic`、內容是第 1 頁、分頁 UI 停在第 2 頁 = 與原症狀同形。
+  //    ✅ 已對照 `61f45b6`(未含本修法)實測**行為完全相同** → **既有 bug、非本次引入**;
+  //    本片未擴大亦未縮小它。修法(skip-once)見 backlog **#289**。
+  const lastFilterKeyRef = useRef<string | null>(null);
   useEffect(() => {
+    // 篩選值指紋(只取會寫進 URL 的軸;brands 排序後比對,避免順序抖動誤判為變動)
+    const filterKey = JSON.stringify([
+      cascade.category?.main ?? null,
+      cascade.category?.sub ?? null,
+      [...cascade.brands].sort(),
+      extras.price ?? null,
+      extras.priceRange ?? null,
+    ]);
+    const prevFilterKey = lastFilterKeyRef.current;
+    lastFilterKeyRef.current = filterKey;
+    const filtersChanged = prevFilterKey !== null && prevFilterKey !== filterKey;
     if (!initialized.current) {
       initialized.current = true;
       return;
@@ -232,23 +257,36 @@ export function useCatalogFilterUrlSync(
       params.delete('pmin');
       params.delete('pmax');
     }
-    params.delete('page');
+    // 篩選指紋變動才回第 1 頁;server 回新 props 造成的 effect 重跑(指紋未變)不得洗掉頁碼。
+    // 🔴 `page` 的**權威寫入者是 `useBrowseUrlSync`**;此處刪除只為省掉「先用舊頁碼查一次再被
+    //    更正」的往返。⚠️ `filterKey` 是 `usePageResetOnFilterChange` key 的**刻意子集**——不含
+    //    vehicle/sort/perPage(那些由 useBrowseUrlSync 收);兩者本就不同步、非漂移(R2 nit-1)。
+    //    新增**會寫進本 effect URL** 的軸時才需同步 `filterKey`,代價是多一次往返、非停在舊頁碼。
+    if (filtersChanged) params.delete('page');
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    if (next !== `${window.location.pathname}${window.location.search}`) {
-      // 🔴 2026-07-19 修「取消其中一個品牌,該品牌商品不消失」(Sean 回報)。詳因與治本解 = backlog #287。
+    // 🔴 比較「值」而非字面:重建 pbrand(delete+append)必然把它排到尾端,`?pbrand=x&page=2`
+    // 會變成 `?page=2&pbrand=x` —— 值同、僅順序不同。字面比較會讓每次 props 抖動都多送一次
+    // 導覽 + 多查一次全型錄;正規化後純順序差異不再觸發導覽。
+    const normalizedQuery = (search: string) =>
+      JSON.stringify(
+        [...new URLSearchParams(search).entries()].sort((a, b) =>
+          a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]),
+        ),
+      );
+    if (normalizedQuery(window.location.search) !== normalizedQuery(next.split('?')[1] ?? '')) {
+      // 🔴 2026-07-19 修「取消其中一個品牌,該品牌商品不消失」(Sean 回報)。全貌 = backlog #287。
       // 根因(實測 + 讀 node_modules 內 Next 16.2.6 原始碼坐實):`route-params.js`
       // `getCacheKeyForDynamicParam` 以 `Object.fromEntries(new URLSearchParams(...))` 產 page
-      // segment key → **重複 key 只留最後值**。品牌走 :220 `.append()` + 字母序,於是
-      // `?pbrand=akrapovic&pbrand=bonamici` 與 `?pbrand=bonamici` 的 key 同為 `pbrand: bonamici`
-      // → replace 判定同一 segment、重用舊 CacheNode、零 RSC 請求 → 畫面停在舊清單。
-      // ⚠️ 僅在無 `page` 參數時顯現(:235 刪 page 本身即改變 key)→ 第 1 頁才踩得到。
-      // 🔴 必須是**條件式**:category(:224)/price(:226)/pmin·pmax(:229-230)皆單值 key、天然不
-      //    碰撞,無條件 refresh 會讓每次切分類/拉價格都對全型錄多查一次(R1 must-fix-2)。
-      // 🔴 碰撞不是「移除」專屬:先選 bonamici 再加 akrapovic 亦碰撞(R2 nit-B、測試案例⑤守)。
-      // ⚠️ 已實測否決:改用 native `window.history.replaceState` + refresh() **沒有修好**
-      //    (原生 replaceState 不更新 Next canonical URL、refresh 仍抓舊 key)。勿改回。
-      // 🔴 殘餘成本:碰撞情境仍需 2 次查詢;本修法依賴 Next 內部實作,升級 Next 須重跑實測(#288)。
+      // segment key → **重複 key 只留最後值**;品牌走 delete+append 重複 key + 字母序,故
+      // `?pbrand=a&pbrand=b` 與 `?pbrand=b` 的 key 相同 → replace 判定同一 segment、重用舊
+      // CacheNode、零 RSC 請求 → 畫面停在舊清單。⚠️ 上方的條件式刪 page 在品牌變動時必然生效
+      // (品牌變 → 指紋變 → 刪 page),刪除本身即改變 key,故此 bug 只在 URL 無 page 時顯現。
+      // 🔴 必須**條件式**:category/price/pmin·pmax 皆單值 key、天然不碰撞,無條件 refresh 會讓
+      //    每次切分類/拉價格都對全型錄多查一次(R1 must-fix-2)。碰撞亦非「移除」專屬——先選
+      //    bonamici 再加 akrapovic 同樣碰撞(R2 nit-B,測試案例⑤守)。
+      // ⚠️ 已實測否決:native `replaceState` + refresh() **沒有修好**(不更新 Next canonical URL)。
+      // 🔴 殘餘成本:碰撞時仍需 2 次查詢;依賴 Next 內部實作,升級須重跑實測(E2E 守門 = #288)。
       const segmentKey = (search: string) =>
         JSON.stringify(Object.fromEntries(new URLSearchParams(search)));
       const collides =
