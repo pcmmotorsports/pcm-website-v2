@@ -74,7 +74,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_image_trim TO service_rol
 
 ## 4. CI 增量掛點(S3;`rpm-sync.yml`)
 
-- matrix 全家跑完後新增獨立 job `image-trim-scan`(`needs: sync`、`if: ${{ !cancelled() }}`——nit-7:cancel 時不跑、sync 部分失敗仍跑):`pnpm exec tsx scripts/image-trim-scan.ts --confirm-write --limit 800`。
+- matrix 全家跑完後新增獨立 job `image-trim-scan`(`needs: sync`、`if: ${{ !cancelled() }}`——nit-7:cancel 時不跑、sync 部分失敗仍跑):`pnpm exec tsx scripts/image-trim-scan.ts --confirm-write --limit=800`(等號式=parseArgs 唯一支援形式;S2 code-reviewer Important 抓 plan/腳本字面不同構、以腳本為準同步)。
 - job 自帶 env secrets(與 sync job 同組 SUPABASE URL/service key 引用;nit-7)。
 - 失敗不影響主同步(獨立 job、`continue-on-error: true`);--limit 防 CI 時長失控(單日新圖遠低於 800;積壓自然逐日消化)。
 
