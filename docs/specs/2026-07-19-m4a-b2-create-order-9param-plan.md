@@ -768,3 +768,59 @@ Fable 複核時的自主加驗(非信我的摘要字面,皆自行實查):
 `pnpm lint` → `Tasks: 10 successful, 10 total` /
 root `pnpm test` → `Test Files 226 passed (226)` · `Tests 2491 passed | 1 todo (2492)` /
 運費 drift gate 單獨 verbose → `Tests 3 passed (3)`。build:N/A(本片純 `.sql` + `.md`)。
+
+---
+
+## 16. 路徑② —— apply 後驗收(2026-07-19,Sean 已 `db push` 成功)
+
+`supabase db push` 輸出含關鍵判定行 `NOTICE: B-2 斷言矩陣全數通過(9-param / ACL / E11 全欄 /
+簽章 / prosrc / 完整指紋)` + `Finished supabase db push.`;`.env.local` 已還原。
+
+### 16.1 Catalog 驗收(全過)
+
+| 項目 | 實測值 | 預期 |
+|---|---|---|
+| 簽章總數 | **1** | 恰為 1(無 overload) |
+| 現行簽章 | `create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)` | 9-param |
+| 簽章字串 | `… p_client_ua text, p_notification_email text DEFAULT NULL::text` | 精確等值 |
+| **完整指紋** | **`850e2e3cf5f503391df5fe6fe0067cce`** | == apply 前於 prod 實測預測值 ✅ |
+| `prosrc` md5 | `0bc0d256b7483c5dd6ef1f8f97b4e9a7` | == 檔內常數 |
+| `proacl` / owner | `{postgres=X/postgres,authenticated=X/postgres}` / `postgres` | 精確還原 |
+| 六角色矩陣 | authenticated=**t**;anon / service_role / payment_confirmer / authenticator / PUBLIC 皆 **f** | fail-closed |
+| security label / `pg_temp` helper 殘留 / 探針殘留 | **0 / 0 / 0** | 零殘留 |
+
+🔴 **M-5 的裂縫沒有發生**:`schema_migrations` 內 `20260719120000` **已記 1 筆**、水位已推進至
+`20260719120000` → 「schema 已改、history 未記」這次**未出現**。
+⚠️ **但這只是一次成功案例,不是 CLI 交易模型的證明** —— 檔頭三查 SOP 仍然有效、日後仍須遵守。
+
+### 16.2 PostgREST smoke(唯一能證明 schema cache 已重載的路徑)
+
+| # | 呼叫 | HTTP / code | 判讀 |
+|---|---|---|---|
+| A | 送 **9 參**(含 `p_notification_email`) | `401` / `42501 permission denied for function create_order` | PostgREST **在 schema cache 找到 9 參簽章**才走到權限檢查 → **快取已重載** |
+| B | 送 **8 參**(現行 TS 呼叫形態) | `401` / `42501` | 舊形態仍解析得到(第 9 參吃 DEFAULT),**且非 `42725 is not unique`** → 無 overload,B-3 前結帳不會斷 |
+| C | **對照組**:不存在的函式 | `404` / `PGRST202 … no matches were found in the schema cache` | 證明「快取沒有」的回應長相,使 A/B 的 42501 成為有意義的差分,而非碰巧 |
+
+**零寫入**:三次呼叫皆在權限檢查被擋、**函式體從未執行** → `nextval()` 未消耗
+(實查產號序列 `last_value=100` 未跳)、`orders` 仍 30 筆。
+
+🔴 **與 §6-B-9 原設計的落差(誠實揭示)**:原設計是「以 `authenticated` 身分送、讓函式體第 0 步
+`RAISE` 缺 cart_session_id」來證明**進入函式體**。實際執行時我**沒有可用的使用者 JWT**
+(簽發需 `.env` 內的 JWT secret,受規則封鎖)→ 改以 publishable key(= `anon` 身分)+ **對照組**
+達成同一個判定目標。
+**這個版本證明了**:9 參簽章存在於 schema cache 且可被 PostgREST 解析;8 參形態不撞 42725;
+anon 確實無權執行(從 API 表面再證一次,非只有 catalog)。
+**這個版本沒有證明**:函式體內部行為(未進入函式體)。該面向由 §16.1 的 `prosrc` md5 相符
++ 本機 17.10 的實跑覆蓋,**但不是經由 PostgREST 觀察到的**。
+
+### 16.3 資料面零留痕
+
+`orders` **30** 筆(未變)/ `order_items` 40 / `order_legal_consents` 0 /
+`notification_email` 非 NULL **0** 筆 / 最後一筆訂單仍 `2026-06-27` / 產號序列 `100` 未跳 /
+`public.b2_*` 探針殘留 **0**。
+
+### 16.4 ⚠️ apply 完成 ≠ 通知功能上線
+
+第 9 參仍是 `DEFAULT NULL`、`authenticated` 直呼 RPC 可省略 → **必填收緊是 B-6**。
+**在 PRD §6 八項上線 gate 全數達成前,禁用「通知功能上線」「孤兒已消滅」字面。**
+下一步 = **B-3**(結帳頁 email 欄 + zod **必鏡像 §3.4 全部六條件**,漏做 = app 放行、DB 擋、結帳 500)。
