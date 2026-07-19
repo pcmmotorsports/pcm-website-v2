@@ -1,29 +1,43 @@
-# B-2 apply 前凍結 snapshot —— **補充檔**(codex 關卡2 M-4 / round2 #1#2)
+# B-2 apply 前凍結 snapshot —— **補充檔**
 
-> **本檔補足 `docs/reviews/2026-07-19-b2-preapply-snapshot.md` 的缺口,與該檔合起來才是完整的 rollback 權威。**
-> ⚠️ 本檔同為**凍結副本**,產出後不得再編輯;prod 若再變動,另產新檔而非改本檔。
+> 補足 `docs/reviews/2026-07-19-b2-preapply-snapshot.md` 的缺口,與該檔合起來才是完整的 rollback 權威。
 > **取樣/驗證時間**:2026-07-19。來源 = production `bmpnplmnldofgaohnaok`(PG 17.6)唯讀查詢
-> + 本機拋棄式 PostgreSQL 17.10 實跑重建驗證。
+> + 本機拋棄式 PostgreSQL 17.10 實跑驗證。
 
-## 0. 為什麼需要本檔 —— codex 關卡2 M-4 的三條指控與逐條回應
+## 0. 檔案性質與修訂紀錄(🔴 web Codex 審後更正)
+
+⚠️ **本檔初版把整份宣告為「產出後不得再編輯」,那是過早的宣稱** —— 它在**尚未通過任何一輪審查**
+時就自稱凍結,而審查 findings 本來就會改到它。現改為**分層**:
+
+| 段 | 性質 | 可否修訂 |
+|---|---|---|
+| §1 E11 完整 catalog、§3 `pg_get_functiondef` 全文 | **凍結基線資料**(取自 prod 的事實) | ❌ 不得修改。prod 若再變動 → 另產新檔 |
+| §2 指紋常數 | 隨公式版本更新 | ⚠️ 僅在公式更正時重取,須註明世代 |
+| §4 驗證紀錄、§5 rollback SQL | 審查期間的工作產物 | ✅ 隨 findings 修訂,並記於下表 |
+
+| 修訂 | 觸發 | 改了什麼 |
+|---|---|---|
+| r1 | codex 關卡2 round1 M-4 | 建檔:補完整 functiondef + E11 全欄 + rollback SQL |
+| r2 | codex 關卡2 round2 #1/#2 | 指紋公式改單一 helper、security label 精確化 → 常數三代 |
+| r3 | **web Codex must-fix #1/#2、nit #6** | rollback 改用共用 `pg_temp` helper(原本守門與斷言**各抄一份**、本檔卻稱「自帶一份同義公式」= 假的單一來源);rollback **交付模式改 forward-only migration**;清掉殘留的過強用詞;補三個負向測試 |
+
+### 為什麼需要本檔 —— codex 關卡2 M-4 的三條指控與回應
 
 | codex 指控 | 回應 |
 |---|---|
-| snapshot 只存 `prosrc` 本體、**不是**完整 `pg_get_functiondef` | ✅ 本檔 §3 補上完整 `pg_get_functiondef` 全文,且已證明與 prod **逐位元組相同**(§4 驗證紀錄) |
-| snapshot 自身未明列 `proretset=false` | ✅ 本檔 §1 補上 E11 **全欄**,含 `proretset` / `prosupport` / `pronargs` / `pronargdefaults` / `proargnames` |
-| repo 內**沒有可直接執行的 rollback migration**,事故時得臨場組 header | ✅ 本檔 §5 收錄**預先產生、已 parse 驗證且已實跑驗證**的完整 rollback SQL,含守門與專屬斷言 |
+| snapshot 只存 `prosrc` 本體、**不是**完整 `pg_get_functiondef` | ✅ §3 補上完整全文,且已證明與 prod **逐位元組相同**(§4 第 2 條) |
+| snapshot 自身未明列 `proretset=false` | ✅ §1 補上 E11 **全欄** |
+| repo 內**沒有可直接執行的 rollback**,事故時得臨場組 header | ✅ §5 收錄**預先產生、已 parse 且已正/負向實跑驗證**的 rollback SQL |
 
-🔴 **指紋取代關係(已歷兩次更正,前兩代皆作廢)**:
+🔴 **指紋世代(前兩代皆作廢,勿再引用)**:
 
 | 代 | 8-param 值 | 作廢原因 |
 |---|---|---|
-| 初代 | `2b898129e49d194c30ab8039b857c0be` | 公式漏 `proretset` / `prosupport` / security-label(關卡2 **M-2**)。原 snapshot §2 末列與 §5 第 1 項用的就是此值 |
-| 二代 | `beca7444c4c29251940509d889fe0c74` | security-label 只比 `objoid`(缺 `classoid`/`objsubid`)且誤查 `pg_shseclabel`(關卡2 **round2 #2**) |
+| 初代 | `2b898129e49d194c30ab8039b857c0be` | 漏 `proretset` / `prosupport` / security-label(關卡2 M-2)。原 snapshot §2 用的是此值 |
+| 二代 | `beca7444c4c29251940509d889fe0c74` | security-label 只比 `objoid`、且誤查 `pg_shseclabel`(round2 #2) |
 | **現行** | **`77945871ed5d9f5dcac7f8d53c9f192c`** | — |
 
-原 snapshot 因自訂「產出後不得再編輯」而保持原狀,不回頭改寫;**引用時一律以本檔為準**。
-
-## 1. E11 完整 catalog(8-param 基線,prod 實查)
+## 1. E11 完整 catalog(8-param 基線,prod 實查)【凍結】
 
 | 欄位 | 值 |
 |---|---|
@@ -38,20 +52,19 @@
 | `proacl` | `{postgres=X/postgres,authenticated=X/postgres}` |
 | owner | `postgres` |
 | `prorettype` | `jsonb` |
-| **`proretset`** | **`false`** ← snapshot 未明列,本檔補 |
+| `proretset` | `false` |
 | `lanname` | `plpgsql` |
 | `provolatile` / `proparallel` | `v` / `u` |
 | `proisstrict` / `proleakproof` | `false` / `false` |
 | `procost` / `prorows` | `100` / `0` |
-| **`prosupport`** | **`-`** ← snapshot 併在「cost/rows/support」列,本檔獨立明列 |
+| `prosupport` | `-` |
 | security label(`pg_seclabel`,`classoid='pg_proc'` 且 `objsubid=0`) | *(無)* |
 | COMMENT md5 / 長度 | `7aec7ae7dbf52af683586a360ccde641` / `584`(全文見原 snapshot §3) |
 | `pg_get_functiondef` md5 / octets | `62c1a8898c010eeec3393370dbc1ce78` / `12527`(全文見本檔 §3) |
 
-⚠️ **`pg_shseclabel` 已從指紋與斷言中移除**(關卡2 round2 #2):該表依定義只存 cluster-shared
-物件(role / database / tablespace),函式**不可能**出現在其中;原本以 `objoid` 單鍵查它,
-反而可能誤配到**同一 OID 數值的角色標籤**。原 snapshot §2「seclabel / shseclabel = 0 / 0」
-的後半項屬無效查詢,**不再作為斷言依據**。
+⚠️ **`pg_shseclabel` 已從指紋與斷言移除**(round2 #2):該表依定義只存 cluster-shared 物件
+(role/database/tablespace),函式不可能在其中;原本以 `objoid` 單鍵查它反而可能誤配同值 OID 的角色標籤。
+原 snapshot §2「seclabel / shseclabel = 0 / 0」的後半項屬無效查詢,**不再作為斷言依據**。
 
 ## 2. 完整指紋(現行公式)
 
@@ -60,19 +73,19 @@
 | 8-param 基線(prod 現況) | **`77945871ed5d9f5dcac7f8d53c9f192c`** |
 | 9-param 預期產出(B-2 apply 後) | **`850e2e3cf5f503391df5fe6fe0067cce`** |
 
-🔴 **公式只有一份定義**(關卡2 round2 #1):migration 內的
-`pg_temp.b2_create_order_fp(oid)`,段 2.5 守門與檔尾斷言⑧**共用同一個 helper**。
-原設計把公式抄兩份並宣稱「不一致就 fail-closed」——**該宣稱不成立**(斷言⑧只驗自己的公式
-對自己的常數,從不與段 2.5 比對),已改為結構性單一來源。本檔 §5 的 rollback SQL 因屬
-獨立檔案/獨立 session,自帶一份同義公式,其正確性由 §4 第 9 條的實跑結果背書。
+🔴 **公式在每個檔案內都只有一份定義**:B-2 migration 用 `pg_temp.b2_create_order_fp(oid)`
+(段 2.5 守門 + 檔尾斷言⑧共用);§5 rollback SQL 用 `pg_temp.b2_rollback_fp(oid)`
+(守門 + 事後斷言共用)。兩支 helper 的公式逐字同義。
 
-涵蓋 20 個輸入 = plan E11 全欄(`pronargs` / `pronargdefaults` 由 args 字串與 default
-運算式字面涵蓋)。重取方式:對目標 oid 呼叫該 helper。
+⚠️ **誠實界定**:「同義」由**人工比對 + 兩邊實跑對同一物件得出相同指紋**支持,
+**不是**由程式強制;**跨檔案沒有機制保證兩支 helper 永遠一致**(單檔內則是結構性保證)。
 
-## 3. `pg_get_functiondef` 全文(8-param;md5 `62c1a8898c010eeec3393370dbc1ce78`)
+涵蓋 20 個輸入 = plan E11 全欄(`pronargs`/`pronargdefaults` 由 args 字串與 default 運算式涵蓋)。
 
-> 🔴 零手動轉錄:本段由本機以凍結副本重建 8-param 後,以 `pg_get_functiondef` 輸出,
-> 再與 prod 的 md5/octets 對帳確認**逐位元組相同**(見 §4 第 2 條)。
+## 3. `pg_get_functiondef` 全文(8-param;md5 `62c1a8898c010eeec3393370dbc1ce78`)【凍結】
+
+> 🔴 零手動轉錄:本機以凍結副本重建 8-param 後由 `pg_get_functiondef` 輸出,
+> 再與 prod 的 md5/octets 對帳確認**逐位元組相同**(§4 第 2 條)。
 > 驗證法:抽出下列 code block 內容(不含前後 fence,含結尾換行)取 md5,應等於上列值。
 
 ```sql
@@ -349,51 +362,89 @@ $function$
 
 ## 4. 驗證紀錄(實跑,非推論)
 
-**本機環境**:`initdb` 全新 cluster、PostgreSQL 17.10、port 55432、僅建 `anon` /
-`authenticated` / `service_role` / `payment_confirmer` / `authenticator` 五個角色,跑完即銷毀。
-**prod 環境**:所有 prod 查詢皆唯讀,或以「交易內建物 → 結尾無條件 `RAISE`」自動回滾;跑後已複查零留痕。
+**本機**:`initdb` 全新 cluster、PostgreSQL **17.10**、僅建 `anon`/`authenticated`/`service_role`/
+`payment_confirmer`/`authenticator` 五角色,跑完即銷毀。
+**prod**(PG **17.6**):唯讀查詢,或「交易內建物 → 結尾無條件 `RAISE`」自動回滾;跑後已複查零留痕。
 
 | # | 驗證項 | 環境 | 結果 |
 |---|---|---|---|
-| 1 | 自凍結 snapshot §3/§4 抽出 COMMENT 與函式體,md5 比對 | 本機 | ✅ `7aec7ae7…`/584 與 `a60944ed…`/12225 **精確相符** |
-| 2 | 以該副本重建 8-param,取 `pg_get_functiondef` 與 prod 對帳 | 本機+prod | ✅ md5 `62c1a889…`、12527 octets **逐位元組相同** |
-| 3 | 重建後算完整指紋,與 prod 8-param 對帳 | 本機+prod | ✅ 皆為 `77945871…`(含 `proacl` 精確相同)→ **證明凍結副本足以重建基線** |
-| 4 | 🔴 **語法預檢**:對 migration 檔**原文**(未做任何剔除)整份執行 | 本機 | ✅ `BEGIN` / `SET LOCAL` / `pg_advisory_xact_lock` / `CREATE FUNCTION pg_temp…` / 守門 DO / `DROP`×2 / `CREATE` / `REVOKE` / `GRANT` / `ALTER OWNER` / `COMMENT ON FUNCTION` / `NOTIFY` / 斷言 DO / `DROP FUNCTION pg_temp…` / `COMMIT` **全數解析並執行,零語法錯** |
-| 5 | 狀態 A 正向:8-param 基線 → apply | 本機 | ✅ 斷言矩陣全過並 `COMMIT` |
-| 6 | 狀態 B 正向:僅 9-param(模擬 history 裂縫)→ 重跑 | 本機 | ✅ 守門放行、斷言全過、`COMMIT`(可重跑成立) |
+| 1 | 自凍結 snapshot 抽出 COMMENT 與函式體並比 md5 | 本機 | ✅ `7aec7ae7…`/584、`a60944ed…`/12225 **精確相符** |
+| 2 | 以該副本重建 8-param,`pg_get_functiondef` 與 prod 對帳 | 本機+prod | ✅ md5 `62c1a889…`、12527 octets **逐位元組相同** |
+| 3 | 重建後完整指紋 vs prod 8-param | 本機+prod | ✅ 皆 `77945871…`(含 `proacl` 相同)→ **凍結副本足以重建基線** |
+| 4 | 🔴 **語法預檢**:對 migration **檔案原文**(零剔除)整份執行 | 本機 | ✅ 全部語句解析並執行,**零語法錯** |
+| 5 | 狀態 A 正向(8-param 基線 → apply) | 本機 | ✅ 斷言矩陣全過並 `COMMIT` |
+| 6 | 狀態 B 正向(僅 9-param,模擬 history 裂縫 → 重跑) | 本機 | ✅ 守門放行、斷言全過、`COMMIT` |
 | 7 | 🔴 狀態 A 負向:偷偷 `GRANT EXECUTE … TO anon` 後 apply | 本機 | ✅ 守門**擋下**,整批回滾 |
-| 8 | 🔴 狀態 B 負向:竄改 9-param 的 COMMENT 後重跑 | 本機 | ✅ 守門**擋下** → **M-3 修法實證有效**(舊設計會靜默覆寫) |
-| 9 | rollback SQL(§5)實跑 | 本機 | ✅ 斷言全過並 `COMMIT`,指紋回到 `77945871…` = **精確還原基線** |
-| 10 | `pg_temp` helper 是否殘留 | 本機 | ✅ apply 後查 `pg_temp*` schema 內同名函式 = **0** |
-| 11 | 9-param 預期產出指紋 | **prod** | ✅ 以**異名複製品**(`b2_fp_probe`,指紋公式不含函式名)在交易內建出後求值 = `850e2e3c…`,**與本機/檔內常數相符**;結尾 `RAISE` 回滾 |
-| 12 | 9-param 函式體推導 | **prod** | ✅ 由 prod **自身 `prosrc`** 套 1 處 delta 推導,md5 = `0bc0d256…` **等於 migration 檔內本體**(零轉錄) |
-| 13 | 環境相依屬性(ACL / owner / `DEFAULT NULL` 呈現 / argnames / retset / support / cost / rows / config / vol / par / strict / leak / secdef) | **prod** | ✅ 逐項與本機相同;特別是 `pg_get_function_arguments` 對第 9 參呈現為 `p_notification_email text DEFAULT NULL::text`、`pg_get_expr(proargdefaults,0)` = `NULL::text` |
-| 14 | prod 零留痕複查 | **prod** | ✅ 探針殘留 0、`create_order` 仍 1 個 8-param 簽章、`prosrc` md5 未變、`orders` 筆數未變、migration 水位未變 |
+| 8 | 🔴 狀態 B 負向:竄改 9-param 的 COMMENT 後重跑 | 本機 | ✅ 守門**擋下**(關卡2 M-3 修法實證有效) |
+| 9 | rollback SQL 正向實跑 | 本機 | ✅ 斷言全過並 `COMMIT`,指紋回到 `77945871…` = **精確還原基線** |
+| 10 | `pg_temp` helper 殘留檢查(兩支) | 本機 | ✅ 跑完 `pg_temp*` schema 內同名函式 = **0** |
+| 11 | 9-param 預期產出指紋 | **prod** | ✅ 異名複製品(公式不含函式名)交易內求值 = `850e2e3c…`,**與檔內常數相符**;`RAISE` 回滾 |
+| 12 | 9-param 函式體推導 | **prod** | ✅ 由 prod **自身 `prosrc`** 套 1 處 delta 推導,md5 = `0bc0d256…` **等於檔內本體**(零轉錄) |
+| 13 | 環境相依屬性逐項比對 | **prod** | ✅ ACL / owner / `DEFAULT NULL::text` / argnames / retset / support / cost / rows / config / vol / par / strict / leak / secdef 全部與本機相同 |
+| 14 | prod 零留痕複查 | **prod** | ✅ 探針殘留 0、`create_order` 仍 1 個 8-param、`prosrc` md5 未變、`orders` 筆數未變、水位未變 |
+| **15** | 🔴 **rollback 守門負向 A:竄改既存 9-param 的 COMMENT 後跑 rollback**(web Codex #1 要求) | 本機 | ✅ **在 `DROP` 之前**失敗;複查:9-param 仍在(`t`)、8-param 未被誤建(`f`) |
+| **16** | 🔴 **rollback 守門負向 B:對既存 9-param `GRANT EXECUTE … TO anon` 後跑 rollback** | 本機 | ✅ 同樣被擋,9-param 仍在 |
+| **17** | 🔴 **斷言⑧ 負向:改 migration 產物(COMMENT)但常數保持舊值**(web Codex #3 要求) | 本機 | ✅ 明確觸發「斷言⑧失敗」;複查:整批回滾(9-param 不存在)、8-param 基線完好且指紋未被動過 |
+| **18** | `CALLED ON NULL INPUT` / `NOT LEAKPROOF` 顯式化後指紋是否改變 | 本機 | ✅ 兩個指紋**皆未改變**(catalog 值本就相同)→ 常數不需重取 |
 
 ⚠️ **仍未涵蓋的面**(誠實界定,勿當已驗):
+
 1. `supabase db push` 這支 CLI 的**交易邊界行為**(= migration 檔頭 SOP 所處理的 history 裂縫)——
-   Sean 拍 Q3=A 明示**不做** disposable DB failure-injection,故此項**至今未驗**。
+   Sean 拍 Q3=A 明示**不做** disposable DB failure-injection,故**至今未驗**。
 2. **PostgREST schema cache 重載**(plan §6-B 第 9 項的 smoke)—— 屬 apply 後路徑②,尚未執行。
-3. **security label 的偵測效果**:`classoid`/`objsubid` 過濾是**結構性修正**,但本機無 label provider
-   可裝、**未做正向注入測試**;現況兩邊皆為「無 label」,只證明公式在無 label 時正確。
-4. 本機 PG 17.10 vs prod 17.6 的版本差:第 2/3/11/12/13 條的 byte-level 與指紋相符已大幅降低風險,但非證明。
+3. **security label 的偵測效果**:`classoid`/`objsubid` 過濾是**結構性修正**,本機無 label provider
+   可裝、**未做正向注入測試**;現況兩端皆「無 label」,只證明無 label 時公式正確。
+4. **跨檔案的公式一致性**無程式強制(見 §2 界定);單檔內為結構性保證。
+5. 本機 PG **17.10** vs prod **17.6**:第 2/3/11/12/13 條的 byte-level 與指紋相符已大幅降低風險,**非證明**。
 
-## 5. rollback SQL(預先產生、已 parse 驗證、已實跑驗證)
+## 5. rollback SQL(預先產生、已 parse 驗證、已正/負向實跑驗證)
 
-> 🔴 **刻意不放在 `supabase/migrations/`** —— 放進去會被下一次 `db push` 自動套用。
-> 需要 rollback 時:由 Sean 複製本段到 Supabase SQL Editor 執行,或另存為新時戳 migration。
-> 本段由程式自凍結副本組裝(零手動轉錄),已於本機完整執行通過(§4 第 9 條)。
+### 5.1 🔴 交付模式(web Codex must-fix #2;原「貼進 SQL Editor」寫法已作廢)
+
+需要 rollback 時,把 §5.2 另存為**新時戳的 forward-only migration**
+(例:`supabase/migrations/<新時戳>_m4a_b2_rollback_create_order_9param.sql`)再走正常 `db push`。
+
+❌ **不要直接貼進 Supabase SQL Editor** —— 那會把 schema 退回 8-param,但
+`supabase_migrations.schema_migrations` 仍記載 `20260719120000` 已套用 → 下一次 `db push`
+**會跳過 B-2 不再重套**,形成「history 說已套、schema 卻是舊版」的裂縫(正是 B-2 檔頭 SOP
+費力防範的那一種);且 B-4 之後的呼叫端仍送 9 參 → 對 8-param 會撞 `42883` 全面失敗。
+
+⚠️ **break-glass**(prod 當機、來不及走 migration 流程)才可用 SQL Editor,且**必須同時**:
+
+1. 手動 reconcile history:`delete from supabase_migrations.schema_migrations where version='20260719120000';`
+2. **同步回滾 app 端**:先把 storefront 退回送 8 參的版本(B-4 之後的呼叫端送 9 參會撞 `42883`)。
+3. 事後補跑 B-2 檔頭的「查 history → 查簽章 → 查完整指紋」三查 SOP 才算收斂。
+
+🔴 **本段刻意不放進 `supabase/migrations/`** —— 放進去會被下一次 `db push` **自動套用**,
+等於把訂單 RPC 無預警退版。
+
+### 5.2 SQL 全文
+
+> 由程式自凍結副本組裝(零手動轉錄),已於本機完整執行通過(§4 第 9/15/16 條)。
 
 ```sql
 -- ============================================================
 -- B-2 ROLLBACK:9-param create_order → 還原 8-param 基線
 --
--- 🔴 本檔是「預先產生並經 PG 實際 parse 驗證」的 rollback SQL(codex 關卡2 M-4)。
+-- 🔴 **交付模式(web Codex must-fix #2 更正;原「貼進 SQL Editor」寫法已作廢)**
+--   需要 rollback 時,把本檔**另存為新時戳的 forward-only migration**
+--   (例:supabase/migrations/<新時戳>_m4a_b2_rollback_create_order_9param.sql)
+--   再走正常 `supabase db push`。
+--   ❌ **不要直接貼進 Supabase SQL Editor 執行** —— 那會把 schema 退回 8-param,但
+--      `supabase_migrations.schema_migrations` 仍記載 `20260719120000` 已套用 →
+--      下一次 `db push` 會**跳過 B-2 不再重套**,形成「history 說已套、schema 卻是舊版」的裂縫
+--      (正是 B-2 檔頭 SOP 費力防範的那一種),且 B-4 之後的呼叫端仍送 9 參 → 全面失敗。
+--   ⚠️ break-glass(prod 當機、來不及走 migration 流程)才可用 SQL Editor,且**必須同時**:
+--      ① 手動 reconcile history:delete from supabase_migrations.schema_migrations
+--         where version='20260719120000';(否則裂縫留存)
+--      ② **同步回滾 app 端**:B-4 以後的呼叫端會送第 9 參,對 8-param 會撞
+--         `42883 function does not exist` → 必須先把 storefront 退回送 8 參的版本。
+--      ③ 事後補跑 B-2 檔頭的「查 history → 查簽章 → 查完整指紋」三查 SOP 才算收斂。
+--
+-- 🔴 本檔是「預先產生並經 PG 實際 parse + 實跑驗證」的 rollback SQL(codex 關卡2 M-4)。
 --    來源 = docs/reviews/2026-07-19-b2-preapply-snapshot.md 的凍結副本,以程式抽出、零手動轉錄:
 --      · 函式體 = snapshot §4 code block,md5 a60944edb678064c468ba517391cc311(12225 octets)
 --      · COMMENT = snapshot §3 code block,md5 7aec7ae7dbf52af683586a360ccde641(584 字元)
---    ⚠️ **刻意不放在 supabase/migrations/**:放進去會被下一次 db push 自動套用。
---       需要 rollback 時,由 Sean 複製本段到 Supabase SQL Editor 執行,或另存為新時戳 migration。
 --
 -- 前置:僅在「B-2 已 apply(9-param 生效)且確定要退回」時執行。執行前先讀 plan §9。
 -- ============================================================
@@ -402,22 +453,20 @@ BEGIN;
 
 SET LOCAL lock_timeout = '3s';
 
--- 與 B-2 migration 共用同一把 object-scoped 鎖(常數即約定,勿改)
+-- application-defined「create_order DDL 約定鎖」(web Codex nit #6:原用詞把它講成綁定 pg_proc
+-- 物件,過強、已改;PG 並未把 advisory key 綁到任何物件)。
+-- 與 B-2 migration 共用同一常數 —— 常數即約定,勿改。只互斥同樣寫死此常數的 migration,
+-- 對不遵守此約定的外部 DDL 無效。
 SELECT pg_advisory_xact_lock(1201033732);
 
--- ── 守門:現況必須恰為「B-2 所建的 9-param」,否則中止 ──
-DO $guard$
-DECLARE
-  v_oid8 oid := to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
-  v_oid9 oid := to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)');
-  v_fp   text;
-BEGIN
-  IF v_oid9 IS NULL THEN
-    RAISE EXCEPTION 'rollback 守門:9-param create_order 不存在 → 沒有東西可回退,中止。';
-  END IF;
-  IF v_oid8 IS NOT NULL THEN
-    RAISE EXCEPTION 'rollback 守門:8-param 與 9-param 並存(非 B-2 產出的狀態)→ 中止,交人工判斷。';
-  END IF;
+-- ── 指紋函式:**單一定義來源**(web Codex must-fix #1)──────────────────────
+--   🔴 原本守門與事後斷言**各抄一份公式**,補充檔卻稱「自帶一份同義公式」——
+--      那正是 B-2 主檔 round2 修掉的同一個病(假的單一來源)在 rollback 檔復發。
+--      現改為共用 helper,兩處在結構上不可能漂移。公式與 B-2 主檔逐字同義。
+CREATE FUNCTION pg_temp.b2_rollback_fp(p_oid oid) RETURNS text
+LANGUAGE sql STABLE
+SET search_path = pg_catalog
+AS $fp$
   SELECT md5(
     coalesce(p.prosrc,'')                        || '|' ||
     pg_get_function_arguments(p.oid)             || '|' ||
@@ -443,8 +492,25 @@ BEGIN
                  AND s.classoid = 'pg_proc'::regclass
                  AND s.objsubid = 0), '')        || '|' ||
     coalesce(obj_description(p.oid,'pg_proc'),'')
-  ) INTO v_fp
-    FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang WHERE p.oid = v_oid9;
+  )
+  FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+  WHERE p.oid = p_oid
+$fp$;
+
+-- ── 守門:現況必須恰為「B-2 所建的 9-param」,否則中止(在任何 DROP 之前)──
+DO $guard$
+DECLARE
+  v_oid8 oid := to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
+  v_oid9 oid := to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)');
+  v_fp   text;
+BEGIN
+  IF v_oid9 IS NULL THEN
+    RAISE EXCEPTION 'rollback 守門:9-param create_order 不存在 → 沒有東西可回退,中止。';
+  END IF;
+  IF v_oid8 IS NOT NULL THEN
+    RAISE EXCEPTION 'rollback 守門:8-param 與 9-param 並存(非 B-2 產出的狀態)→ 中止,交人工判斷。';
+  END IF;
+  v_fp := pg_temp.b2_rollback_fp(v_oid9);
   IF v_fp IS DISTINCT FROM '850e2e3cf5f503391df5fe6fe0067cce' THEN
     RAISE EXCEPTION 'rollback 守門:現存 9-param 完整指紋=%,非 B-2 的預期產出 % → 已被他人改過,中止,不覆寫未知版本。', v_fp, '850e2e3cf5f503391df5fe6fe0067cce';
   END IF;
@@ -468,6 +534,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 VOLATILE
 PARALLEL UNSAFE
+CALLED ON NULL INPUT
+NOT LEAKPROOF
 COST 100
 SET search_path = ''
 AS $fn$
@@ -756,37 +824,11 @@ BEGIN
   IF to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text)') IS NOT NULL THEN
     RAISE EXCEPTION 'rollback 斷言失敗:9-param 仍存在'; END IF;
 
-  SELECT md5(
-    coalesce(p.prosrc,'')                        || '|' ||
-    pg_get_function_arguments(p.oid)             || '|' ||
-    coalesce(pg_get_expr(p.proargdefaults,0),'') || '|' ||
-    coalesce(p.proargnames::text,'')             || '|' ||
-    p.prosecdef::text                            || '|' ||
-    coalesce(p.proconfig::text,'')               || '|' ||
-    coalesce(p.proacl::text,'')                  || '|' ||
-    pg_get_userbyid(p.proowner)::text            || '|' ||
-    p.prorettype::regtype::text                  || '|' ||
-    p.proretset::text                            || '|' ||
-    l.lanname::text                              || '|' ||
-    p.provolatile::text                          || '|' ||
-    p.proparallel::text                          || '|' ||
-    p.proisstrict::text                          || '|' ||
-    p.proleakproof::text                         || '|' ||
-    p.procost::text                              || '|' ||
-    p.prorows::text                              || '|' ||
-    p.prosupport::text                           || '|' ||
-    coalesce((SELECT string_agg(s.provider || '=' || s.label, ',' ORDER BY s.provider, s.label)
-                FROM pg_seclabel s
-               WHERE s.objoid = p.oid
-                 AND s.classoid = 'pg_proc'::regclass
-                 AND s.objsubid = 0), '')        || '|' ||
-    coalesce(obj_description(p.oid,'pg_proc'),'')
-  ), coalesce(p.proacl::text,''), pg_get_userbyid(p.proowner)::text,
+  SELECT coalesce(p.proacl::text,''), pg_get_userbyid(p.proowner)::text,
          p.prosecdef, coalesce(p.proconfig::text,''),
          md5(coalesce(obj_description(p.oid,'pg_proc'),'')), md5(p.prosrc)
-    INTO v_fp, v_acl, v_owner, v_secdef, v_cfg, v_cmt_md5, v_src
-    FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
-   WHERE p.oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
+    INTO v_acl, v_owner, v_secdef, v_cfg, v_cmt_md5, v_src
+    FROM pg_proc p WHERE p.oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
   IF NOT FOUND THEN RAISE EXCEPTION 'rollback 斷言失敗:8-param 未建成'; END IF;
 
   IF v_src <> 'a60944edb678064c468ba517391cc311' THEN
@@ -812,13 +854,16 @@ BEGIN
   IF has_function_privilege('public','public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)','EXECUTE') THEN
     RAISE EXCEPTION 'rollback 斷言失敗:PUBLIC 可執行'; END IF;
 
-  -- 🔴 完整指紋 == 凍結基線(涵蓋 proretset / prosupport / seclabel,與 B-2 段 2.5 同一公式)
+  -- 🔴 完整指紋 == 凍結基線(**與守門共用同一個 helper**,非另抄一份公式)
+  v_fp := pg_temp.b2_rollback_fp(to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)'));
   IF v_fp <> '77945871ed5d9f5dcac7f8d53c9f192c' THEN
     RAISE EXCEPTION 'rollback 斷言失敗:8-param 完整指紋=%(預期 77945871ed5d9f5dcac7f8d53c9f192c)', v_fp; END IF;
 
   RAISE NOTICE 'B-2 rollback 斷言全數通過(已精確還原 8-param 基線)';
 END
 $assert$;
+
+DROP FUNCTION pg_temp.b2_rollback_fp(oid);
 
 COMMIT;
 ```

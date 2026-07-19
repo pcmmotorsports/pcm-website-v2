@@ -212,7 +212,15 @@ $guard$;
 DROP FUNCTION IF EXISTS public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text);
 DROP FUNCTION IF EXISTS public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text,text);
 
--- ── CREATE 9-param(屬性全部顯式寫出,不倚賴 PG 預設值日後不變)──
+-- ── CREATE 9-param ─────────────────────────────────────────────────────
+--   🔴 屬性宣稱的精確版本(web Codex nit #5:原字面「屬性全部顯式寫出,不倚賴 PG 預設值
+--      日後不變」**高估了 CREATE 本身的能力,已作廢**):
+--      · **可在 CREATE 顯式指定者,已全部指定**:RETURNS / LANGUAGE / SECURITY DEFINER /
+--        VOLATILE / PARALLEL UNSAFE / CALLED ON NULL INPUT / NOT LEAKPROOF / COST / SET search_path。
+--      · **CREATE 語法無從指定者**:`prosupport`(需另下 ALTER FUNCTION … SUPPORT)、
+--        `prorows`(僅 set-returning 函式適用)→ 這兩項取 PG 預設。
+--      · 故「不倚賴預設值」**不是靠 CREATE 達成的**,而是靠**檔尾斷言逐項精確驗證**:
+--        預設值日後若改變,斷言會 fail-closed 擋下,而非默默生效。
 CREATE FUNCTION public.create_order(
   p_lines              jsonb,
   p_address_id         uuid,
@@ -229,6 +237,8 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 VOLATILE
 PARALLEL UNSAFE
+CALLED ON NULL INPUT
+NOT LEAKPROOF
 COST 100
 SET search_path = ''
 AS $fn$

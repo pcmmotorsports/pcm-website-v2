@@ -1,9 +1,14 @@
 # B-2 片級 plan — `create_order` 8 參數 → 9 參數(`p_notification_email`)
 
-> **狀態**(2026-07-19 更新;原字面「待 Sean 批准。尚未動工、尚未寫 migration 檔」**已作廢**):
-> Sean 已批准並拍板 Q1-Q5 + 語法預檢;migration 檔**已寫、已 commit `1c63970`**;
-> codex 關卡1 R1-R3 + code-reviewer R1/R2 + **關卡2(判 NO-GO 5 must-fix,已全數處置見 §15)** 皆已跑。
-> **未 push、未 db push;prod 完全未被動過。** 下一步 = 重跑 codex 關卡2 要 GO,才交 Sean。
+> **狀態**(2026-07-19 第三次更新;前兩版字面〔「待 Sean 批准、尚未動工」與「commit `1c63970`、
+> 關卡2 只跑過一輪、下一步=重跑關卡2」〕**皆已作廢**):
+> Sean 已批准並拍板 Q1-Q5 + 語法預檢 + **「不開 CLI round 3、改貼網頁版 Codex」**;
+> 審查已跑:codex 關卡1 R1-R3、code-reviewer R1/R2、**codex 關卡2 CLI round1 NO-GO(5 must-fix)
+> + round2 NO-GO(3 must-fix + 1 nit)**〔銷案見 §15/§15.2〕、**web Codex NO-GO(4 must-fix + 3 nit)**
+> 〔銷案見 §15.4〕。**上述所有 findings 皆已處置。**
+> **至今未取得任何一輪 GO**;CLI 關卡2 輪數上限已用完(§15.3)。
+> **未 push、未 db push;production 完全未被動過。**
+> ⚠️ 目前 commit 以實跑為準:`git log --oneline -1`(勿在此寫死 hash,寫死當場就會過期)。
 > **真權威上位文件**:`docs/specs/2026-07-18-b0-order-notification-email-prd.md`(B-0 PRD v3 §4 B-2 列、§5 R1)。
 > **本檔性質**:Claude Code 07-19 視窗撰寫,**不屬 Sean ownership 凍結清單**(該清單的 07-19 spec 是 `2026-07-19-m4a-email-e2a-2-plan.md`,已因方向轉折作廢)。
 > **紀律**:本檔所有數字/hash 皆附「可執行取得方式」,不寫死自指狀態;未實測項一律標 ⚠️ 未驗。
@@ -472,7 +477,14 @@ A: A|B|C
 ## 9. Rollback
 
 - **交易內失敗**:`BEGIN/COMMIT` 保證整批回滾,prod 維持舊 8-param,無中間態。
-- **apply 後需回退**(🔴 codex R2 #6 更正,原字面作廢):另開 rollback migration ——
+- 🔴 **apply 後需回退 —— 交付模式(web Codex must-fix #2 更正;「貼進 SQL Editor」寫法已作廢)**:
+  rollback **必須是新時戳的 forward-only migration**,走正常 `db push` 套用。
+  ❌ 直接貼 SQL Editor 會把 schema 退回 8-param、但 `schema_migrations` 仍記載 `20260719120000`
+  已套用 → 下一次 `db push` **跳過 B-2 不再重套**,形成「history 說已套、schema 卻是舊版」的裂縫
+  (正是本檔費力防範的那一種);且 B-4 之後呼叫端仍送 9 參 → 撞 `42883` 全面失敗。
+  ⚠️ break-glass 才可用 SQL Editor,且必須同時做 history reconciliation + app 端回滾 + 三查 SOP,
+  詳補充檔 §5.1。
+- **apply 後需回退的內容**(🔴 codex R2 #6 更正,原字面作廢):另開 rollback migration ——
   `DROP FUNCTION IF EXISTS public.create_order(9 參簽章);` + 貼回 **apply 前凍結保存的函式定義**(見下)+ 同一組 `REVOKE`/`GRANT`/`OWNER` + 同一組斷言。
   ⚠️ **不得**「重新把舊 migration `20260716200000` 當權威貼回」——那是同一條權威鏈錯誤的復發(§2.1 已撤回該論證)。
   🔴 **前置義務 —— 凍結「完整可重建狀態」,不只函式定義**(codex R3 #3 更正:`pg_get_functiondef`
@@ -679,3 +691,25 @@ PCM 規則:**關卡 2 每 slice 硬上限 2 輪,round2 仍 FAIL → 停、raise 
 round1(前一視窗)NO-GO、round2(本視窗)NO-GO → **上限已用完**。
 上述 4 條**已全部修完並重新實跑驗證**(見補充檔 §4 的 14 條),但**尚未有任何一輪拿到 GO**。
 → 決策題交 Sean;**我不自行開 round 3**(前例:關卡 1 的 R3 也是 Sean 拍 Q4=B 才破例開)。
+
+### 15.4 網頁版 Codex 審查(2026-07-19,Sean 拍 A 走此關取代 CLI round 3)—— 判定 NO-GO,4 must-fix + 3 nit
+
+**Sean 拍板**:CLI 關卡2 輪數上限已用完,**不破例開 round 3**;改由 Sean 把 Packet 貼給網頁版 Codex
+(= 鐵則 12 本來就規定要走的關,不算破例加輪)。以下逐條銷案。
+
+| # | Codex 判定 | 我的複核 | 處置 | 落點 |
+|---|---|---|---|---|
+| w-1 | 🔴 rollback SQL **守門與事後斷言各抄一份公式**,補充檔卻稱「自帶一份同義公式」= **round2 假單一來源在 rollback 檔復發**;且只有正向 rollback 測試,沒有證明 rollback 守門會擋變造 | **成立**(實查:rollback 內公式出現 2 次) | **全收**。rollback 改用共用 `pg_temp.b2_rollback_fp(oid)` helper(守門 + 事後斷言);**補兩個負向測試**:竄改既存 9-param 的 COMMENT / ACL 後跑 rollback,皆須**在 `DROP` 之前**失敗 → 實跑通過(補充檔 §4 第 15/16 條) | rollback SQL、補充檔 §2/§4/§5 |
+| w-2 | 🔴 **交付模式錯誤**:文件允許直接貼 SQL Editor → schema 退回但 `schema_migrations` 仍記載 B-2 已套用 → 下次 `db push` 跳過 B-2,形成本檔費力防範的同一種裂縫;B-4 之後呼叫端仍送 9 參會全面失敗 | **成立**,而且是**自己防的坑自己踩** | **全收**。rollback 改為**新時戳 forward-only migration** 走正常 `db push`;SQL Editor 降為 break-glass,且強制附 history reconciliation + app 端回滾 + 三查 SOP | plan §9、補充檔 §5.1、rollback SQL 檔頭 |
+| w-3 | 🔴 **斷言⑧ 宣稱的保護路徑從未被測**:兩個負向測試測的是「既存物件被竄改」,不是「migration 產物改變但常數保持舊值」;§3 也沒把它列為未驗 | **成立,且最難堪** —— 我在本 session 才剛把「沒有負向測試就不准說已生效」寫進 memory,當場又犯 | **全收**。以檔案**副本**突變 COMMENT、常數保持舊值 → 實跑確認明確觸發「斷言⑧失敗」且整批回滾、8-param 基線完好(補充檔 §4 第 17 條) | 補充檔 §4 |
+| w-4 | 🔴 plan **頂端狀態**仍寫 commit `1c63970`、關卡2 只有第一輪、下一步=重跑;同檔後段卻已記 round2 NO-GO | **成立** —— 又是「只改被點名那一處」的同款復發 | **全收**。頂端改為第三次更新版,明列三輪審查現況、無 GO、輪數用盡;**commit hash 改為「以 `git log --oneline -1` 實跑為準」**,不再寫死自指值 | plan 檔頭 |
+| w-5 | nit:「屬性全部顯式寫出、不倚賴 PG 預設值」不實 —— `prosupport` 等仍由預設產生,安全性實際來自檔尾斷言 | 成立 | **順手清**,且**修成真的**:CREATE 補 `CALLED ON NULL INPUT` / `NOT LEAKPROOF`(可指定者全指定),並改寫為「CREATE 無從指定者(`prosupport`/`prorows`)取預設,其正確性由檔尾斷言 fail-closed 驗證」。⚠️ 實測:加這兩個子句**兩個指紋皆未改變** → 常數不需重取(補充檔 §4 第 18 條) | migration CREATE 段 |
+| w-6 | nit:rollback 仍稱 advisory lock 為 `object-scoped`,與 round2「已全數清除」矛盾 | 成立 —— **第三次**同款漏改 | **順手清**。改「application-defined create_order DDL 約定鎖」,並在產生器加 `assert 'object-scoped' not in rb` 讓漏改當場炸 | rollback SQL |
+| w-7 | nit:Packet 兩處稱 migration 642 行,實際 641 行 | 成立(`mig.count('\n')+1` 在檔尾有換行時多算 1) | **順手清**。改由 `len(splitlines())` 計算 | Packet 產生器 |
+
+**Codex 未提出的其他面**:未再出現經銷價外洩 / 浮點金額 / client tier 信任問題。
+
+🔴 **本輪最重要的自省**:w-1 / w-4 / w-6 是**同一個病的第三、四、五次復發**(只改被點名那一處 /
+名字大於能力),w-3 則是**在我剛把該教訓寫成 memory 的同一個 session 內立刻復發**。
+→ 治本不能只靠「記得要 grep」,已改為**在產生器內加 assert 讓漏改當場炸**(w-6 的做法),
+並把負向測試列為「宣稱某控制有效」的硬前置。相關:[[feedback_control-named-beyond-its-actual-power]]。
