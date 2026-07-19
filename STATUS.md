@@ -26,6 +26,7 @@
 ⑬**🔴 Fable 再抓兩條(皆文件層、皆成立)**:①plan §9 頂部已把「貼 SQL Editor」降為 break-glass,但**同節的缺口對照表仍把它與 forward-only migration 並列**且不帶三義務 = w-2 銷案「全收」字面 vs 事實不符(**同款漏改第 6 次**);②「先退 app 再退 DB」只寫在 break-glass 分支,但 `42883`/`PGRST202` 是**交付模式無關**的 —— B-4 上線後走正常 rollback migration 一樣結帳全斷,把它掛在「不要貼 SQL Editor」段落 = **後果歸因錯位** → 已新增「步驟 0」到三處。nit 兩條(斷言編號亂序 + 未涵蓋清單漏 in-flight/cached plan)一併清畢。
 ⑫**🔴 自省**:上述①④與 nit「object-scoped 用詞殘留」是**同一個病的第三至五次復發**;③更是**在我剛把該教訓寫成 memory 的同一 session 內立刻復發**。治本已改為**在產生器內加 assert 讓漏改當場炸**,並把「負向測試」列為宣稱任何控制有效的硬前置。
 ⑨**制度層(Sean 拍 Q6=A/Q7=A)**:Fable 稽核查出「只改被點名那一處」**已復發 9+ 次**,且該規則的治本步驟 **07-17 就已寫在 memory**、07-18/19 照樣復發 → 根因 = **時機型規則放在只能靠回憶的載體**,而 `settings.json` 的 hooks 是唯一 deterministic 層、原 6 個 hook 零個觸發規則。→ 新增 `~/.claude/hooks/contract-sync-reminder.js`(PostToolUse `Write|Edit`;命中權威文件時提醒 grep 全樹建舊字面清單;每 session ≤3 次;錯誤一律靜默 exit 0;**六項測試全過**),掛進既有 `Write|Edit` 群組 = 零常載成本;MEMORY.md 該行改**觸發器句式**。MEMORY.md 精簡(156 行/26.8KB/140 檔,三項觸發值全破)= **Q7=A 順延至 M-4a 收尾**。
+⑭**制度層第二支 deterministic hook(Sean 07-19 拍 A)**:新增 `~/.claude/hooks/push-state-watch.js`(**Stop** 事件,掛既有 Stop 群組=零常載成本)—— 每次停下自動比對未推數與 upstream SHA,**只在未推數下降或 upstream 位移時出聲**,不跑 `git fetch`,錯誤一律靜默 exit 0;**8 項測試全過**;`settings.json` 已備份 `.bak-20260719-b2`。動機:「收工前查未推數」當時**已散在 8 份文件內文**卻仍沒能在事發當下提醒任何人 → **prose 層對時機型規則無效已第二次被實證**(第一次=「只改被點名那一處」→ `contract-sync-reminder.js`)。
 
 ## 最近 3 commit
 > dev。本 commit 見「最後更新」;下表列 3 個**已可達**前序 commit(`merge-base --is-ancestor` 驗)。
