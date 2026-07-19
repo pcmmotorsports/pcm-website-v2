@@ -47,6 +47,7 @@
 🔴 **跨片唯一合法順序**(PRD codex R3 #7):`B-1/B-2 完成並驗證 → B-3/B-4 部署但 flag 保持 off → 開 flag 並記錄精確切換時戳(=cutoff)→ 觀察窗 → B-6`。**不得在 B-2 未 apply 前開 flag**(server 要求 email 但 RPC 尚無該參數 = 結帳中斷)。
 ⚠️ **B-2 apply 後 ≠ 必填生效**:第 9 參仍是 `DEFAULT NULL`、`authenticated` 直呼 RPC 可省略 → 必填收緊是 **B-6**(同片移除 DEFAULT,否則必填可被繞過)。
 ⚠️ **B-3/B-4 動 TS 時必銷的舊字面清單 11 項** = B-2 plan §8.2(含兩處**硬編碼 8 鍵字面斷言**:`mappers/order.test.ts:38-47` 的 sorted 陣列、`SupabaseOrderAdapter.test.ts:55-64` 的 mock —— 不同步即為假綠)。
+**交接檔** = `docs/handoff/2026-07-19-m4a-b2-applied-handoff.md`(B-2 收案 + B-3 起手 + 未驗項 + rollback 路徑)。
 拆片全圖 = PRD §4(B-1~B-6 + C-1~C-4)、**上線 gate 8 項** = PRD §6(全數達成前**禁用「通知功能上線/孤兒已消滅」字面**)。
 ③**最新商品**(storefront 例行 UI)。④小件穿插=Q3d 佔位圖/Q3a 佔位頁/Q3e 結帳內嵌地址。獨立線(未排):**LINE 補資料線**(動工前 Sean 須先拍「真實 email 存哪」);搜尋 S2 lightech #275→S3 MVP;M-3 真刷卡 gate;step-up 全套另片。**M-4a 收尾後**:①開 Sean 交代的「流程再優化」正式題 ②**MEMORY.md 精簡**(Q7=A 順延項)。
 
