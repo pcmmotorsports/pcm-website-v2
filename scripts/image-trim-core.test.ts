@@ -96,6 +96,21 @@ describe('classifyTrim(純函式邊界)', () => {
     ).toBe('failed');
   });
 
+  it('捨入後 l+w>1(numeric(6,5) 進位)→ failed,不得寫進 DB 撞 bbox_complete', () => {
+    // 未捨入時 l+w 恰為 1;兩項各進位 5e-6 → 1.00001 > 1(2026-07-19 首灌 batch 19 實證)
+    const row = classifyTrim({
+      ...base,
+      naturalWidth: 200000,
+      naturalHeight: 1000,
+      offsetLeft: -1,
+      trimmedWidth: 199999,
+      offsetTop: 0,
+      trimmedHeight: 500,
+    });
+    expect(row.status).toBe('failed');
+    expect(row.bbox_left).toBeNull();
+  });
+
   it('零/負維度與量測不自洽(l+w>1)→ failed', () => {
     expect(classifyTrim({ ...base, trimmedWidth: 0 }).status).toBe('failed');
     expect(classifyTrim({ ...base, naturalWidth: 0 }).status).toBe('failed');

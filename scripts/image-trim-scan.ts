@@ -15,7 +15,9 @@
  *   NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SECRET_KEY(同 rpm-import 目標寫慣例)
  *
  * 紅線(plan §0/§3):
- *   - 單圖失敗絕不中斷批次、結尾 exit 0(CI job 不得因個別 CDN 壞圖翻紅;env 缺=設定錯才 exit 1)
+ *   - 單圖失敗絕不中斷批次、結尾 exit 0(CI job 不得因個別 CDN 壞圖翻紅)
+ *   - exit 1 僅兩種:①env 缺=設定錯 ②DB upsert 逐列降級後仍有寫不進去的列
+ *     (=資料本身違反 DDL CHECK 之類的真問題,非個別 CDN 抓圖失敗)
  *   - 同 host 併發 ≤2(禮貌上限)、逾時 15s、重試 1 次、單圖 ≤10MB
  *   - 只 fetch 供應商公開 CDN 圖 bytes;來源 URL 不改寫、不搬圖
  *   - 可續跑:增量=EXCEPT 已有列,中斷重跑自動接續(OP-首灌依此、無需 checkpoint 檔)
@@ -200,20 +202,32 @@ async function main() {
 
   // 4. upsert(batch;analyzed_at 交給 DB DEFAULT now() — upsert 需顯式帶避免沿用舊值)
   const nowIso = new Date().toISOString();
+  let upsertFailures = 0;
   for (let i = 0; i < results.length; i += UPSERT_BATCH) {
     const batch = results.slice(i, i + UPSERT_BATCH).map((r) => ({ ...r, analyzed_at: nowIso }));
     const { error } = await db.from('product_image_trim').upsert(batch, { onConflict: 'url' });
     if (error) {
-      console.error(`upsert failed at batch ${i / UPSERT_BATCH}: ${error.message}`);
-      process.exit(1);
+      // 🔴 一列違反 constraint 不得吞掉整批(更不得中止其餘批次、丟棄整趟掃描結果):
+      //    降級逐列 upsert,壞列單獨記錄、其餘照寫(2026-07-19 首灌實證)。
+      console.error(`upsert batch ${i / UPSERT_BATCH} failed (${error.message}) — 降級逐列`);
+      for (const row of batch) {
+        const { error: rowErr } = await db
+          .from('product_image_trim')
+          .upsert([row], { onConflict: 'url' });
+        if (rowErr) {
+          upsertFailures++;
+          console.error(`  upsert row failed url=${row.url}: ${rowErr.message}`);
+        }
+      }
     }
   }
 
   const counts = { ok: 0, no_trim: 0, failed: 0 };
   for (const r of results) counts[r.status]++;
   console.log(
-    `done scanned=${results.length} ok=${counts.ok} no_trim=${counts.no_trim} failed=${counts.failed}`,
+    `done scanned=${results.length} ok=${counts.ok} no_trim=${counts.no_trim} failed=${counts.failed} upsert_failures=${upsertFailures}`,
   );
+  if (upsertFailures > 0) process.exit(1);
 }
 
 // 直跑才執行(單測 import parseArgs 不觸發副作用)

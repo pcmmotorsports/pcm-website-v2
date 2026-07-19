@@ -108,14 +108,24 @@ export function classifyTrim(m: {
   }
   if (width > NO_TRIM_RATIO && height > NO_TRIM_RATIO) return nonOkRow(m.url, 'no_trim');
   if (width * height < MIN_AREA_RATIO) return nonOkRow(m.url, 'failed');
+  // 🔴 先四捨五入到 numeric(6,5) 精度、再驗不變式:round5 每項最多 +5e-6,
+  //    對未捨入值做的 l+w<=1 檢查不足以保證捨入後仍成立
+  //    (2026-07-19 首灌實證:batch 19 撞 bbox_complete)。
+  const rl = round5(left);
+  const rt = round5(top);
+  const rw = round5(width);
+  const rh = round5(height);
+  if (rw <= 0 || rh <= 0 || rw > 1 || rh > 1 || rl + rw > 1 || rt + rh > 1) {
+    return nonOkRow(m.url, 'failed');
+  }
   return {
     url: m.url,
     status: 'ok',
-    // numeric(6,5):5 位小數截斷(DDL 上限 <1 / ≤1 由 classify 已保)
-    bbox_left: round5(left),
-    bbox_top: round5(top),
-    bbox_width: round5(width),
-    bbox_height: round5(height),
+    // numeric(6,5):5 位小數(上限 <1 / ≤1 由上方捨入後斷言已保)
+    bbox_left: rl,
+    bbox_top: rt,
+    bbox_width: rw,
+    bbox_height: rh,
     natural_width: nw,
     natural_height: nh,
   };
