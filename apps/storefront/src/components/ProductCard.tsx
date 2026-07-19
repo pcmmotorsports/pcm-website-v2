@@ -11,7 +11,8 @@
 
 import Link from 'next/link';
 import { useMemo, useState, type CSSProperties, type ReactNode } from 'react';
-import type { MockProduct } from '@/data/mock-products';
+import type { MockProduct, UIImageTrim } from '@/data/mock-products';
+import { computeTrimStyle } from '@/lib/image-trim-style';
 import { Price } from './Price';
 import { formatCardFits } from './product-card-fits';
 
@@ -66,9 +67,15 @@ type ProductImageProps = {
    * 有值 → 渲染真圖(hover 微縮放、無 cross-fade);`null` / 缺 → fallback seed placeholder gallery。
    */
   image?: string | null;
+  /**
+   * trim 線 S4b:卡片首圖去白邊 bbox(已經 parseImageTrim 收斂)。有值且 computeTrimStyle
+   * 算得出(縮放 ≤3×)→ 去白邊置中模式(白底、內容佔框 92%;F3 拍板=白底 letterbox、
+   * Sean 肉眼驗可改);缺 / 過小 fallback → 現行 cover 路徑 byte 不變。
+   */
+  trim?: UIImageTrim;
 };
 
-export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, hover = false, image = null }: ProductImageProps) {
+export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, hover = false, image = null, trim }: ProductImageProps) {
   // hooks 一律置頂、不可條件呼叫(react-hooks/rules-of-hooks error);real-image 分支與 fallback
   // 共用同一組 hook、僅 render 內 branch(imgs/failedIdx 在 real 分支不用、開銷可忽略)。
   const imgs = useMemo(() => productGallery(seed), [seed]);
@@ -76,13 +83,34 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, ho
   const [realFailed, setRealFailed] = useState(false);
   const [c1, c2] = PALETTES[tone as Tone] ?? PALETTES.neutral;
   const showReal = !!image && !realFailed;
+  // trim 線 S4b:有 bbox 且縮放在上限內 → 去白邊置中模式;否則 undefined = 現行 cover 路徑 byte 不變
+  const trimStyle = showReal && trim ? computeTrimStyle(trim) : undefined;
   return (
     <div className="pcard-gallery" style={{
       width: '100%', height: '100%', position: 'relative',
-      background: `linear-gradient(145deg, ${c1} 0%, ${c2} 100%)`,
+      // F3(Fable 關卡1):trim 模式底=純白(與去白邊圖無縫;彩色漸層只留 cover/placeholder 路徑)
+      background: trimStyle ? '#ffffff' : `linear-gradient(145deg, ${c1} 0%, ${c2} 100%)`,
       overflow: 'hidden',
     }}>
       {showReal ? (
+        trimStyle ? (
+          // trim 模式:內容框等比縮放佔框 92% 置中(width/left/top=computeTrimStyle;不裁內容、只裁白邊)
+          <img
+            src={image!}
+            alt={label}
+            loading="lazy"
+            onError={() => setRealFailed(true)}
+            className="pcard-gallery-img"
+            style={{
+              position: 'absolute',
+              width: trimStyle.width, left: trimStyle.left, top: trimStyle.top, height: 'auto',
+              // MF-1:縮放原點=內容框中心(偏心 bbox 用 img 中心會把內容 scale 出卡框)
+              transformOrigin: trimStyle.transformOrigin,
+              transform: hover ? 'scale(1.04)' : 'scale(1)',
+              transition: 'transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
+            } as CSSProperties}
+          />
+        ) : (
         // M-1-16c-1:真圖單張、object-fit cover + hover 微縮放;load 失敗 → setRealFailed 退回 placeholder
         <img
           src={image!}
@@ -97,6 +125,7 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, ho
             transition: 'transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
           } as CSSProperties}
         />
+        )
       ) : (
         imgs.map((id, i) => failedIdx[i] ? null : (
           <img
@@ -163,7 +192,7 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
       style={{ cursor: 'pointer' }}
     >
       <div className="pcard-img-wrap">
-        <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} hover={hover} image={p.image} />
+        <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} hover={hover} image={p.image} trim={p.imageTrim} />
         {badge && <div className="pcard-badge">{badge}</div>}
         {/* 沒貨徽章移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
             storefront 偏離 design 字面 L101-103、backlog #161 追蹤 Claude Design 補對齊) */}

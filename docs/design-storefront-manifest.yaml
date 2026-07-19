@@ -711,8 +711,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/ProductCard.tsx"
       css: "apps/storefront/src/styles/product-card.css"
-      last_modified_commit: "4347c09"  # 記可達祖先=互動 iteration 2 父(卡片 A 點綴 slice)
-      last_modified_date: "2026-07-08 [卡片點綴方案 A「速度紅線」(Sean 拍板整頁熱血點綴 A、業務 override)]:全站商品卡片 hover 頂端紅線由左掃出(.pcard::before scaleX)+ 卡片價格轉品牌賽車紅(.pcard .price-main color var(--c-red)),為冷淡黑白加賽車速度感;直角極簡/字級/結構不變。現況無促銷、與 is-sale 紅不衝突(未來促銷再以 badge/刪除線區隔)。品名 hover 紅底線略過(.pcard-name -webkit-line-clamp box、background 底線會被裁切、避 bug)。純 CSS、lint+build+完整 vitest 160 檔 1798 綠。前:2026-06-01 (M-1-16c-1 ProductImage 加 image prop:有真圖渲染真圖、無則 fallback seed placeholder gallery)"
+      last_modified_commit: "589fedb"  # 記可達祖先=trim S4b 父 commit(=S4a);真改見 git log
+      last_modified_date: "2026-07-19 [trim S4b 商品卡去白邊縮放(Sean 拍 Q1=B;plan docs/specs/2026-07-19-product-image-trim-plan.md、Fable 關卡1 兩輪 GO)]:ProductImage 加 trim prop——有 product_image_trim bbox(經 domain parseImageTrim+S4a 兩 mapper 收斂)且 computeTrimStyle(lib/image-trim-style.ts、純函式+7 測)算得出(≤3× 縮放上限)→ 去白邊置中模式(img 絕對定位 width/left/top %、內容佔框 92%、白底 letterbox=F3 拍板、hover scale 沿用);無 bbox/過小 → 現行 cover 路徑 byte 不變(+2 卡片測);載入失敗=既有 onError 退 Unsplash placeholder(非 cover;codex S4b nit 更正字面)。hover scale 原點=內容框中心(codex S4b MF-1:偏心 bbox 用 img 中心會 scale 出框)。零 CSS 檔改動(inline style 慣例);消費端 ProductsPage/ProductPage related/HomeSelect 經 ProductCard 自動生效、OverviewTab 直用 ProductImage 已補傳 trim(codex S4b MF-2)。🔴 資料端部署順序硬依賴見 S4a commit(migration 20260719150000 先 apply)。前:2026-07-08 [卡片點綴方案 A「速度紅線」(Sean 拍板整頁熱血點綴 A、業務 override)]:全站商品卡片 hover 頂端紅線由左掃出(.pcard::before scaleX)+ 卡片價格轉品牌賽車紅(.pcard .price-main color var(--c-red)),為冷淡黑白加賽車速度感;直角極簡/字級/結構不變。現況無促銷、與 is-sale 紅不衝突(未來促銷再以 badge/刪除線區隔)。品名 hover 紅底線略過(.pcard-name -webkit-line-clamp box、background 底線會被裁切、避 bug)。純 CSS、lint+build+完整 vitest 160 檔 1798 綠。前:2026-06-01 (M-1-16c-1 ProductImage 加 image prop:有真圖渲染真圖、無則 fallback seed placeholder gallery)"
     design:
       component: "design-reference/components/ProductCard.jsx"
       css: "design-reference/styles/product-card.css"
@@ -720,7 +720,14 @@ components:
       - "apps/storefront/src/components/ProductsPage.tsx"
       - "apps/storefront/src/components/ProductPage.tsx"  # Related grid
       - "apps/storefront/src/components/account/tabs/OverviewTab.tsx"  # 為你推薦也用 ProductImage
-    business_overrides: []
+    business_overrides:
+      - field: "cardImageTrimZoom"
+        design_value: "ProductCard.jsx 真圖 object-fit cover 滿框裁切(design 無去白邊機制、白邊大的原圖商品被切邊/顯小)"
+        storefront_value: "有 product_image_trim bbox 的卡片改去白邊置中(computeTrimStyle:內容框等比縮放佔框 92%、白底 letterbox、≤3× 縮放上限;無資料/過小/髒數據=cover 原路 byte 不變、天然 fallback)"
+        decided_at: "2026-07-19"
+        decision_source: "Sean 截圖實錘 cover 切商品本體+拍 Q1=B 一步到位+指定 Fable 審(關卡1 R1 NO-GO→v1.1→R2 GO);plan docs/specs/2026-07-19-product-image-trim-plan.md"
+        backlog: "trim 線收尾;白底 vs 漸層框=Sean 肉眼驗可一行改回(F3)"
+        reason: "供應商原圖白邊不一、統一 cover 必有切邊;bbox 預算好存 DB=客端零運算零額外下載"
 
   ProductGallery:
     storefront:

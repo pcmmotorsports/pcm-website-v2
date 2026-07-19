@@ -62,4 +62,36 @@ describe('ProductCard', () => {
     const imgs = screen.getAllByAltText(product.brand);
     expect(imgs.some((el) => el.getAttribute('src')?.includes('images.unsplash.com'))).toBe(true);
   });
+
+  // trim 線 S4b:去白邊模式 vs cover fallback
+  it('should apply trim positioning and white background when p.imageTrim resolves', () => {
+    const realUrl = 'https://cdn.shopify.com/s/files/test-trim.jpg';
+    // l=t=0.1 w=h=0.5 方圖 → computeTrimStyle width 184% / left top -14.4%
+    const trim = { l: 0.1, t: 0.1, w: 0.5, h: 0.5, nw: 1000, nh: 1000 };
+    render(<ProductCard p={{ ...product, image: realUrl, imageTrim: trim }} />);
+    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src') === realUrl)!;
+    expect(img.style.width).toBe('184%');
+    expect(img.style.left).toBe('-14.4%');
+    expect(img.style.top).toBe('-14.4%');
+    expect(img.style.transformOrigin).toBe('35% 35%');
+    expect(img.style.objectFit).toBe('');
+    const gallery = img.closest('.pcard-gallery') as HTMLElement;
+    expect(gallery.style.background).toContain('255, 255, 255');
+  });
+
+  it('should keep the cover path byte-identical when imageTrim is absent or too small', () => {
+    const realUrl = 'https://cdn.shopify.com/s/files/test-cover.jpg';
+    // 無 trim → cover
+    render(<ProductCard p={{ ...product, image: realUrl }} />);
+    // 內容過小(w=h=0.2 → 460% 超 300% 上限)→ 一樣 cover fallback
+    render(<ProductCard p={{ ...product, image: realUrl, imageTrim: { l: 0.4, t: 0.4, w: 0.2, h: 0.2, nw: 1000, nh: 1000 } }} />);
+    const covers = screen.getAllByAltText(product.brand).filter((el) => el.getAttribute('src') === realUrl);
+    expect(covers.length).toBe(2);
+    for (const img of covers) {
+      expect(img.style.objectFit).toBe('cover');
+      expect(img.style.width).toBe('100%');
+      const gallery = img.closest('.pcard-gallery') as HTMLElement;
+      expect(gallery.style.background).toContain('linear-gradient');
+    }
+  });
 });

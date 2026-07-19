@@ -16,7 +16,7 @@
 
 - 圖片資料流(v1.1 依 Fable F1 更正):`products.images jsonb`(`20260507004826_init_products.sql:32`)→ **兩條卡片資料路**:①車款目錄走 RPC `search_catalog_by_vehicle`(JSON 打包於 `20260712183000_products_catalog_page_public.sql:82-97`;同檔 L5-31 是平面 view `products_list_public`、`security_invoker=true`)②首頁精選/全目錄/相關商品/車款頁走 `products_public` view(`20260510134708_products_public_view.sql`;`apps/storefront/src/lib/products.ts:513` 一帶)→ `toUIProduct`。→ domain `images: string[]`(`packages/domain/src/catalog/types.ts:194`)→ `MockProduct.image?`(`mock-products.ts:118`)。**S1 必須兩條路都曝光 trim,否則首頁/相關商品卡與目錄卡不一致**;`products_list_public` 的直接消費端於 S1 實作時 grep 確認、有消費才第三處曝光。
 - 每日同步:`.github/workflows/rpm-sync.yml` cron `0 19 * * *`、matrix 12 家 `max-parallel:1`、`fail-fast:false`;寫 products 於 `scripts/rpm-import.ts:491`;代表圖組裝於 `scripts/rpm-transform.ts:366-401`。
-- 商品卡:`ProductCard.tsx:87-99`(inline `objectFit:'cover'`、hover scale 1.04、onError 退 placeholder);格子 `.pcard-img-wrap { aspect-ratio: 1/1 }`(`product-card.css:31`)。消費端=ProductsPage/ProductRelated/HomeSelect/OverviewTab(皆經 ProductCard)。
+- 商品卡:`ProductCard.tsx:87-99`(inline `objectFit:'cover'`、hover scale 1.04、onError 退 placeholder);格子 `.pcard-img-wrap { aspect-ratio: 1/1 }`(`product-card.css:31`)。消費端=ProductsPage/ProductRelated/HomeSelect(經 ProductCard)+OverviewTab(**直用 ProductImage、非經 ProductCard**;S4b 已各自傳 trim——codex S4b MF-2 更正舊誤稱)。
 - **不在範圍**:`CartView.tsx:124` 購物車裸 img 縮圖、`ProductGallery.tsx` 詳情頁大圖——皆不動。
 - 依賴:sharp 0.34.5 僅為 Next 傳遞依賴(lockfile 已含 darwin+linux prebuilt)、**無 package.json 直接宣告**;repo **無**抓外部圖 bytes 先例(逾時/重試/UA 須新建)。
 - DB:無 per-image metadata 表先例;migration 慣例 `YYYYMMDDHHMMSS_<milestone>_<slug>.sql`;最新=`20260719120000`。
@@ -83,9 +83,9 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_image_trim TO service_rol
 - 資料流(F1+MF-2 更正):wire 鍵/欄名兩路皆 `card_image_trim`,但**映射入口有兩個**——①RPC 路走 `catalogRowToUIProduct`(`apps/storefront/src/lib/catalog-page.ts`)②`products_public` 路走 adapter→domain→`toUIProduct`(`lib/products.ts`)。S4 必須**抽共用 runtime parser**(clamp+形狀驗證單一來源)、兩個 mapper 都接、各附測試,收斂到 `MockProduct.imageTrim?: {l,t,w,h,nw,nh}`(optional、純加法);漏接任一路=不同頁商品卡不一致。
 - **底色策略(F3)**:trim 生效時 `.pcard-gallery` 背景改**純白**(去白邊圖與白底無縫;現行彩色漸層底只留給無 trim 的 cover 路徑)。此屬品味預設:Sean 肉眼驗實品後若偏好漸層框,改一行 CSS 即可、不動資料層。
 - 渲染數學(通用瀏覽器、不依賴 object-view-box):框=正方形;目標=內容框等比縮放至佔框 92%(P=0.92)置中。
-  - 內容像素框 `cw=w*nw, ch=h*nh`;`scale = P*F/max(cw,ch)`(F=框邊長,以 % 表達免量測):img 顯示寬 `= P*100/max(w, h*(nh/nw)*ar…)`——實作為純函式 `computeTrimStyle(trim)` 回 `{width%, left%, top%}` inline style,wrapper `overflow:hidden` 沿用。
+  - 內容像素框 `cw=w*nw, ch=h*nh`;`scale = P*F/max(cw,ch)`(F=框邊長,以 % 表達免量測):img 顯示寬 `= P*100/max(w, h*(nh/nw)*ar…)`——實作為純函式 `computeTrimStyle(trim)` 回 `{width%, left%, top%, transformOrigin}` inline style(transformOrigin=**內容框中心**、非 img 中心;codex S4b MF-1),wrapper `overflow:hidden` 沿用。
   - **防髒數據 clamp**:l/t∈[0,1)、w/h∈(0,1]、l+w≤1、t+h≤1、nw/nh>0、縮放倍率上限 3×(超界=退回現狀 cover);單元測試鎖 clamp。
-- 無 `imageTrim`/clamp 未過/`no_trim`=現行 cover 路徑 **byte 不變**;hover scale 1.04 與 onError placeholder 沿用(nit-6:hover origin=img 中心、bbox 不對稱時微漂移 ≤2% 框寬=接受)。
+- 無 `imageTrim`/clamp 未過/`no_trim`=現行 cover 路徑 **byte 不變**;hover scale 1.04 與 onError placeholder 沿用。~~nit-6:hover origin=img 中心、微漂移接受~~ **已作廢**:codex S4b MF-1 實證偏心 bbox(如 l=.8 t=.9 w=.2 h=.1、250×1000)在 img 中心原點下 scale 1.04 會把內容推出卡框裁切 → 改 origin=內容框中心(附該極端案例測試)。
 - **design 對齊(MF-1)**:design-reference 商品卡無 trim 先例(cover 行為源自 design);本功能=Sean 2026-07-19 拍板的**行為層授權偏離**(截圖實錘切邊痛點、Q1=B),卡片佈局/字級/token 字面不動;S4 收尾於 manifest 補 business_override 條目(對齊 typeahead 前例)。
 - 測試:`computeTrimStyle` 純函式測(正常/邊界/髒數據)+ ProductCard 有/無 trim 兩渲染案。
 

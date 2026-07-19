@@ -129,7 +129,8 @@ export function OverviewTab({
             {featured.products.map((p) => (
               <Link key={p.id} href={`/products/${p.slug}`} className="acc-rec-item">
                 <div className="acc-rec-img">
-                  <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} image={p.image} />
+                  {/* trim 線 S4b(codex MF-2):為你推薦同步吃去白邊 bbox、四消費端一致 */}
+                  <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} image={p.image} trim={p.imageTrim} />
                 </div>
                 <div className="acc-rec-name">{p.name}</div>
                 <div className="acc-rec-price">NT$ {p.price.toLocaleString()}</div>
