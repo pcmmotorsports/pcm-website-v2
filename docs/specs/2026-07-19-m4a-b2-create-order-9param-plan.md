@@ -489,7 +489,8 @@ A: A|B|C
   已套用 → 下一次 `db push` **跳過 B-2 不再重套**,形成「history 說已套、schema 卻是舊版」的裂縫
   (正是本檔費力防範的那一種);且 B-4 之後呼叫端仍送 9 參 → 撞 `42883` 全面失敗。
   ⚠️ break-glass 才可用 SQL Editor,且必須同時做 history reconciliation + app 端回滾 + 三查 SOP,
-  詳補充檔 §5.1。
+  詳補充檔 §5.2(⚠️ Fable nit-3:本指標原寫 §5.1,那是補充檔加入「步驟 0」章節**之前**的編號;
+  順移後 §5.1=步驟 0、§5.2=交付模式與 break-glass 三義務、§5.3=SQL 全文)。
 - **apply 後需回退的內容**(🔴 codex R2 #6 更正,原字面作廢):另開 rollback migration ——
   `DROP FUNCTION IF EXISTS public.create_order(9 參簽章);` + 貼回 **apply 前凍結保存的函式定義**(見下)+ 同一組 `REVOKE`/`GRANT`/`OWNER` + 同一組斷言。
   ⚠️ **不得**「重新把舊 migration `20260716200000` 當權威貼回」——那是同一條權威鏈錯誤的復發(§2.1 已撤回該論證)。
@@ -706,7 +707,7 @@ round1(前一視窗)NO-GO、round2(本視窗)NO-GO → **上限已用完**。
 | # | Codex 判定 | 我的複核 | 處置 | 落點 |
 |---|---|---|---|---|
 | w-1 | 🔴 rollback SQL **守門與事後斷言各抄一份公式**,補充檔卻稱「自帶一份同義公式」= **round2 假單一來源在 rollback 檔復發**;且只有正向 rollback 測試,沒有證明 rollback 守門會擋變造 | **成立**(實查:rollback 內公式出現 2 次) | **全收**。rollback 改用共用 `pg_temp.b2_rollback_fp(oid)` helper(守門 + 事後斷言);**補兩個負向測試**:竄改既存 9-param 的 COMMENT / ACL 後跑 rollback,皆須**在 `DROP` 之前**失敗 → 實跑通過(補充檔 §4 第 15/16 條) | rollback SQL、補充檔 §2/§4/§5 |
-| w-2 | 🔴 **交付模式錯誤**:文件允許直接貼 SQL Editor → schema 退回但 `schema_migrations` 仍記載 B-2 已套用 → 下次 `db push` 跳過 B-2,形成本檔費力防範的同一種裂縫;B-4 之後呼叫端仍送 9 參會全面失敗 | **成立**,而且是**自己防的坑自己踩** | **全收**。rollback 改為**新時戳 forward-only migration** 走正常 `db push`;SQL Editor 降為 break-glass,且強制附 history reconciliation + app 端回滾 + 三查 SOP | plan §9、補充檔 §5.1、rollback SQL 檔頭 |
+| w-2 | 🔴 **交付模式錯誤**:文件允許直接貼 SQL Editor → schema 退回但 `schema_migrations` 仍記載 B-2 已套用 → 下次 `db push` 跳過 B-2,形成本檔費力防範的同一種裂縫;B-4 之後呼叫端仍送 9 參會全面失敗 | **成立**,而且是**自己防的坑自己踩** | **全收**。rollback 改為**新時戳 forward-only migration** 走正常 `db push`;SQL Editor 降為 break-glass,且強制附 history reconciliation + app 端回滾 + 三查 SOP | plan §9、補充檔 §5.1〔**當時編號**;§15.5 加入「步驟 0」章節後已順移為 §5.2〕、rollback SQL 檔頭 |
 | w-3 | 🔴 **斷言⑧ 宣稱的保護路徑從未被測**:兩個負向測試測的是「既存物件被竄改」,不是「migration 產物改變但常數保持舊值」;§3 也沒把它列為未驗 | **成立,且最難堪** —— 我在本 session 才剛把「沒有負向測試就不准說已生效」寫進 memory,當場又犯 | **全收**。以檔案**副本**突變 COMMENT、常數保持舊值 → 實跑確認明確觸發「斷言⑧失敗」且整批回滾、8-param 基線完好(補充檔 §4 第 17 條) | 補充檔 §4 |
 | w-4 | 🔴 plan **頂端狀態**仍寫 commit `1c63970`、關卡2 只有第一輪、下一步=重跑;同檔後段卻已記 round2 NO-GO | **成立** —— 又是「只改被點名那一處」的同款復發 | **全收**。頂端改為第三次更新版,明列三輪審查現況、無 GO、輪數用盡;**commit hash 改為「以 `git log --oneline -1` 實跑為準」**,不再寫死自指值 | plan 檔頭 |
 | w-5 | nit:「屬性全部顯式寫出、不倚賴 PG 預設值」不實 —— `prosupport` 等仍由預設產生,安全性實際來自檔尾斷言 | 成立 | **順手清**,且**修成真的**:CREATE 補 `CALLED ON NULL INPUT` / `NOT LEAKPROOF`(可指定者全指定),並改寫為「CREATE 無從指定者(`prosupport`/`prorows`)取預設,其正確性由檔尾斷言 fail-closed 驗證」。⚠️ 實測:加這兩個子句**兩個指紋皆未改變** → 常數不需重取(補充檔 §4 第 18 條) | migration CREATE 段 |
@@ -740,3 +741,30 @@ prosrc delta 恰 1 個 INSERT 敘述且兩端 md5 相符、Q1=A 確實落地(零
 
 **Fable 明示的翻盤條件**:F1 字面改正 + F2 的模式無關前置落進三處 → 該審查轉 **GO**
 (並註明「高風險金流套用前仍依制度配 codex 正牌背書」)。**本輪已照此完成。**
+
+#### 15.5.1 Fable 複核 —— 判定 **GO**(PASS-with-comments)
+
+F1/F2/nit-1/nit-2 修完後,凍結於 commit `1357cc0` 請 Fable 複核**它自己列的翻盤條件**。判定 **GO**。
+
+Fable 複核時的自主加驗(非信我的摘要字面,皆自行實查):
+
+- 全樹掃 `SQL Editor` 字面 → **零對等並列殘留**(僅剩 2 處命中,兩處都是 F2 修正本身的「這不是貼 SQL Editor 才會有的後果」)
+- 逐行核 migration diff → **僅動斷言 DO block**,CREATE 本體 / COMMENT / ACL 語句零觸碰
+  → 兩個指紋常數與 `prosrc` md5 `0bc0d256…` **依然有效,無連帶失效風險**
+- 重算 packet 內嵌 migration 全文 md5 → 與檔案 **EXACT MATCH**(「逐位元組相符」宣稱為真)
+
+⚠️ **Fable 明示保留兩點(不擋 GO,但不可略過)**:
+
+1. 依既有制度,**高風險金流 apply 前仍配 codex 正牌跨模型背書** —— 屬既定流程,非新增條件。
+2. 它**未重跑三綠**,依唯讀紀律**不背書那些數字字面**。三綠由本視窗實跑並列於 §15.5.2。
+
+**nit-3(不擋 GO,已順手清)**:補充檔加入「步驟 0」章節後,§5.x 全體順移
+(§5.1=步驟 0、§5.2=交付模式與 break-glass 三義務、§5.3=SQL 全文),
+但 plan §9 與 §15.4 w-2 列各有 1 處仍指舊 §5.1 → 已更正並註明編號順移。
+
+#### 15.5.2 本視窗實跑的三綠(Fable 不背書、由我負責)
+
+`pnpm typecheck` → `Tasks: 8 successful, 8 total` /
+`pnpm lint` → `Tasks: 10 successful, 10 total` /
+root `pnpm test` → `Test Files 226 passed (226)` · `Tests 2491 passed | 1 todo (2492)` /
+運費 drift gate 單獨 verbose → `Tests 3 passed (3)`。build:N/A(本片純 `.sql` + `.md`)。
