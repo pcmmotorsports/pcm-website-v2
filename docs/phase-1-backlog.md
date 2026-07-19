@@ -7124,6 +7124,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     `A → A+B → B`(取消非最後值)與 `A+B → A`(取消最後值)兩組,斷言**畫面上的商品件數與
     商品卡內容**真的變了(而非只驗 URL);另計 `/products` 的 RSC 請求數當成本守門。
   - 需要固定的測試資料(現行斷言吃真 DB 件數,會隨上架變動)。
+  - 🔴 **由 #289 移交的必測案例(2026-07-19)**:「**`?page=3` 時選車**」——`filterKey` 不含
+    vehicle,選車時 `useCatalogFilterUrlSync` 不再刪 page、`useVehicleUrlSync` 會帶著舊 page
+    導覽一次,收斂靠 `usePageResetOnFilterChange` 的 `setPage(1)`。#289 收案時**未能實測**
+    (`/products` 桌面版無車款選單,「選擇車款」是 mobile-only chip、桌面寬高為 0,須走 mobile
+    drawer)→ 本條目須**桌面 + mobile 兩種視窗**各測一次。
 - **不修會痛在:**
   - bug 可追蹤性:同類 bug 只能靠 Sean 肉眼在正式站發現,而這次就是這樣被發現的。
   - 可維護性:每次動篩選 URL 層都要人工跑一次 production build 手測(本片就跑了 5 次 rebuild)。
@@ -7134,8 +7139,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #289. 🐛 帶 `?page=N` 的深連結進站 → 頁碼被吃掉(內容第 1 頁、分頁 UI 停在舊頁碼)
 
-- **狀態:** ⏳ 待執行
-- **優先級:** 🟠 中
+- **狀態:** ✅ **完成(2026-07-19,Sean 拍 Q10=B 當場接著修)**
+  - 修法 = 在 `useCatalogFilterUrlSync` 內、刪 page **之前**先用「**不動 page**」的版本比對:
+    若已等於當前 URL,代表 state 只是**剛追上 URL**(還原波)→ 直接收手,不刪 page 也不導覽。
+    此判準不需 skip-once 旗標,故不會與 `usePageResetOnFilterChange` 的 `skipOnceRef` 互搶。
+  - 驗證:production build 實測 `/products?pbrand=akrapovic&page=2` 進站 → URL 保持
+    `?pbrand=akrapovic&page=2`、第一張卡 `akrapovic-sm-k10so1t`(**≠** 第 1 頁的
+    `akrapovic-s-d9so14-hifft`)= 真的停在第 2 頁;分頁 UI 與內容一致。
+    突變測試:拿掉該判斷 → 測試案例⑩轉紅。品牌六步與分頁 1/2/3 頁皆無回歸。
+  - 🔴 下方問題敘述保留為**歷史紀錄**(含被實測推翻的「會自癒」假設之更正),供日後追溯。
+- **原優先級:** 🟠 中
   - 🔴 **2026-07-19 優先級上修**:初版寫「🟡 低」的依據是「最終仍由 `useBrowseUrlSync` 收尾落回
     正確頁」——該句**未經實測、且已被實測推翻**(code-reviewer R2 must-fix 抓出)。實際不會自癒。
 - **問題:**
@@ -7171,9 +7184,18 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     `JSON.stringify([cascade, extras, sort, perPage])` 的子集;任何人往其中一處加軸而未同步其他處,
     就會靜默漂移(改該軸後停在舊頁碼、或還原波行為改變)。
   - bug 可追蹤性:症狀是「偶爾閃一下第 1 頁 + 多一次請求」,不看註解無法歸因。
-- **同類路徑(R2 nit-2,未實測):** `filterKey` 不含 vehicle,故在 `?page=3` 選車時本 effect 不再
-  刪 page,`useVehicleUrlSync` 會帶著 `page=3` 導覽一次,收斂靠 `setPage(1)`。與上述同一條 deps
-  疑慮,修 #289 時應一併實測。舊版(無條件刪)會在選車時順手清掉 page = 行為有差異。
+- 🔴 **同類路徑:仍未實測、義務移交 #288(不得視為隨 #289 一併銷案)**
+  - 內容:`filterKey` 不含 vehicle,故在 `?page=3` **選車**時本 effect 不再刪 page,
+    `useVehicleUrlSync` 會帶著 `page=3` 導覽一次,收斂靠 `setPage(1)`。舊版(無條件刪)會在
+    選車時順手清掉 page = **行為有差異**。
+  - ⚠️ **未實測的原因(誠實揭示,非遺忘)**:2026-07-19 收案時嘗試補測,發現 `/products` 桌面
+    版**沒有**車款選單——「選擇車款」是 mobile-only chip(`cft-mobile-chip`,桌面實測寬高為 0),
+    要走 mobile drawer 才點得到。判斷硬湊一次操作不如據實記錄,故**明寫未驗證**並移交。
+  - 移交對象:**#288**(production build E2E 守門)——該條目本就要涵蓋各篩選軸,請把
+    「`?page=3` 時選車」列為必測案例之一(桌面 + mobile 兩種視窗)。
+  - 風險評估:此路徑**不會**造成 #289 那種「內容與頁碼不一致」——`usePageResetOnFilterChange`
+    的 key 含整個 `cascade`(涵蓋 vehicle),選車必觸發 `setPage(1)`;最壞情況是多一次帶舊
+    `page=3` 的導覽往返。**此評估來自讀碼,未經實測。**
 - **估時:** 40-60 分鐘(含還原波的單元測試)
 - **依賴:** 無
 - **發現於:** 2026-07-19 / 分頁失效修復的 code-reviewer R1 + R2(R2 推翻了 R1 處置時的「會自癒」假設)

@@ -180,6 +180,18 @@ export function useBrowseUrlSync(currentPage: number, sort: string, perPage: num
   }, [currentPage, sort, perPage, router]);
 }
 
+/**
+ * query string 的「值」指紋(排序後比對,忽略參數順序)。
+ * 重建 pbrand(delete+append)必然把它排到尾端,`?pbrand=x&page=2` → `?page=2&pbrand=x`,
+ * 值同僅順序不同;字面比較會讓每次 props 抖動都多送一次導覽 + 多查一次全型錄。
+ */
+const normalizedQuery = (search: string) =>
+  JSON.stringify(
+    [...new URLSearchParams(search).entries()].sort((a, b) =>
+      a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]),
+    ),
+  );
+
 /** P4:品牌／分類／價格 UI state 變動時，寫入 URL 並讓 route 重跑 server catalog query。 */
 export function useCatalogFilterUrlSync(
   cascade: CascadeFilterState,
@@ -204,14 +216,9 @@ export function useCatalogFilterUrlSync(
   // server 每回新 props 就換 identity → effect 重跑 → 舊版**無條件** `delete('page')` 把使用者
   // 剛翻到的 `?page=2` 洗掉、內容退回第 1 頁(分頁 UI 卻停在第 2 頁)。目錄 512 頁形同翻不動。
   // 修法:改為只在**篩選值指紋變動**時才刪 page。
-  // 🔴 **本修法不涵蓋深連結還原波**(R1 must-fix-1 / R2 must-fix,已實測、非推論):
-  //    此指紋無法區分「使用者改篩選」與「還原波」——`/products?pbrand=x&page=2` 進站時 restore
-  //    dispatch 會讓指紋由空變非空 → 誤判為使用者操作 → 刪掉 page。
-  //    ⚠️ **不會自癒**:`useBrowseUrlSync` deps=[currentPage,sort,perPage,router] 此時全未變 →
-  //    effect 不重跑 → page 永不寫回。實測終態(本地 production build,`?pbrand=akrapovic&page=2`):
-  //    URL 掉成 `?pbrand=akrapovic`、內容是第 1 頁、分頁 UI 停在第 2 頁 = 與原症狀同形。
-  //    ✅ 已對照 `61f45b6`(未含本修法)實測**行為完全相同** → **既有 bug、非本次引入**;
-  //    本片未擴大亦未縮小它。修法(skip-once)見 backlog **#289**。
+  // ⚠️ 指紋本身**無法區分**「使用者改篩選」與「深連結還原波」(`?pbrand=x&page=2` 進站時 restore
+  //    dispatch 會讓指紋由空變非空);該缺口由 effect 內的「state 剛追上 URL 即收手」判斷補上
+  //    (見下方 #289 段)。兩者合起來才完整,單獨留任一個都會讓 `?page=N` 深連結被吃掉頁碼。
   const lastFilterKeyRef = useRef<string | null>(null);
   useEffect(() => {
     // 篩選值指紋(只取會寫進 URL 的軸;brands 排序後比對,避免順序抖動誤判為變動)
@@ -257,6 +264,15 @@ export function useCatalogFilterUrlSync(
       params.delete('pmin');
       params.delete('pmax');
     }
+    // 🔴 #289:先用「**尚未刪 page**」的版本比對——若它已等於當前 URL,代表 state 只是**剛追上
+    //    URL**(深連結還原波:`?pbrand=x&page=2` 進站,restore dispatch 讓 state 由空變非空),
+    //    🔴 安全前提(勿破壞):`params` 是 `window.location.search` 的原樣拷貝,本 effect 只改寫
+    //    pbrand/category/price/pmin/pmax 五軸;外來鍵(vehicle/sort/per/filter/from)兩側恆等,
+    //    故此比對 ⟺「五軸已全數與 state 一致」。**不得**在本行之前再新增任何 `params.set/delete`。
+    //    URL 本來就是正確結果 → 直接收手。缺這道判斷時,還原波會被 `filtersChanged` 誤判為
+    //    使用者操作而刪掉 page:實測終態 = 內容第 1 頁 + 分頁 UI 停在第 2 頁、且**不會自癒**
+    //    (`useBrowseUrlSync` deps 此時全未變、effect 不重跑,page 永不寫回)。
+    if (normalizedQuery(window.location.search) === normalizedQuery(params.toString())) return;
     // 篩選指紋變動才回第 1 頁;server 回新 props 造成的 effect 重跑(指紋未變)不得洗掉頁碼。
     // 🔴 `page` 的**權威寫入者是 `useBrowseUrlSync`**;此處刪除只為省掉「先用舊頁碼查一次再被
     //    更正」的往返。⚠️ `filterKey` 是 `usePageResetOnFilterChange` key 的**刻意子集**——不含
@@ -265,15 +281,6 @@ export function useCatalogFilterUrlSync(
     if (filtersChanged) params.delete('page');
     const qs = params.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    // 🔴 比較「值」而非字面:重建 pbrand(delete+append)必然把它排到尾端,`?pbrand=x&page=2`
-    // 會變成 `?page=2&pbrand=x` —— 值同、僅順序不同。字面比較會讓每次 props 抖動都多送一次
-    // 導覽 + 多查一次全型錄;正規化後純順序差異不再觸發導覽。
-    const normalizedQuery = (search: string) =>
-      JSON.stringify(
-        [...new URLSearchParams(search).entries()].sort((a, b) =>
-          a[0] === b[0] ? a[1].localeCompare(b[1]) : a[0].localeCompare(b[0]),
-        ),
-      );
     if (normalizedQuery(window.location.search) !== normalizedQuery(next.split('?')[1] ?? '')) {
       // 🔴 2026-07-19 修「取消其中一個品牌,該品牌商品不消失」(Sean 回報)。全貌 = backlog #287。
       // 根因(實測 + 讀 node_modules 內 Next 16.2.6 原始碼坐實):`route-params.js`

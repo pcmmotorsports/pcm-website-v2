@@ -15,12 +15,17 @@
 // `useCatalogFilterUrlSync` 的 deps 含 restoreSources,server 每回新 props 就換 identity → effect
 // 重跑 → 舊版**無條件** `delete('page')` 洗掉使用者剛翻到的 `?page=2`。改為只在篩選指紋變動時刪。
 //
+// 案例⑩ = **深連結還原波**(同日第三片、backlog #289 ✅ 已修):`?page=N` 進站時 restore dispatch
+// 讓篩選指紋由空變非空 → 被誤判為使用者操作而刪掉 page(實測**不會自癒**:useBrowseUrlSync 的
+// deps 此時全未變、effect 不重跑)。修法 = 刪 page 前先比對「不動 page 的版本」,若已等於當前
+// URL 代表 state 只是剛追上 URL → 直接收手。
+//
 // 突變驗證(2026-07-19 全數實跑):
 //   拿掉 refresh → ①紅;改無條件 refresh → ②③④紅;改「只有品牌變少才 refresh」→ ②⑤紅;
-//   `delete('page')` 改回無條件 → ⑥紅;filterKey 拿掉 category 軸 → ⑧紅;拿掉 price 軸 → ⑨紅。
+//   `delete('page')` 改回無條件 → ⑥紅;filterKey 拿掉 category 軸 → ⑧紅;拿掉 price 軸 → ⑨紅;
+//   拿掉還原波 early return → ⑩紅。
 // ⚠️ 已知未擋住(R2 評估為不值得補):`[...brands].sort()` 拿掉(reducer 不會產生不同順序、
 //    UI 不可達)、`prevFilterKey !== null` 守衛拿掉(該守衛是不可達死碼,拿掉零行為差異)。
-// ⚠️ 本檔**不涵蓋深連結還原波**(`?page=N` 進站被吃掉頁碼)= 既有 bug、backlog #289。
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
@@ -209,6 +214,27 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     expect(url).toBeDefined();
     expect(url).not.toContain('page=');
     expect(url).toContain('price=');
+  });
+
+  it('⑩ 深連結還原波(state 剛追上 URL)→ 不得動 URL、不得吃掉 ?page=(#289)', () => {
+    // 🔴 `/products?pbrand=akrapovic&page=2` 進站:mount 首輪 state 還空(走 initialized 早退),
+    // useDeepLinkRestore dispatch 後 state 變 ['akrapovic'] → 指紋由空變非空。
+    // 若把這一波誤判為「使用者改篩選」就會刪掉 page → 實測終態為內容第 1 頁 + UI 停在第 2 頁,
+    // 且**不會自癒**(useBrowseUrlSync 的 deps 此時全未變、effect 不重跑)。
+    // ⚠️ 本案例用「首輪空 → rerender 非空」模擬還原波,等價前提 = `useDeepLinkRestore` 的所有
+    //    dispatch 同步發生在同一 effect → React 批次成**單一 render**,不會出現「category 先到、
+    //    brands 後到」的半波(半波會使 params 少掉 pbrand、early return 不觸發、page 仍被吃)。
+    window.history.replaceState(null, '', '/products?pbrand=akrapovic&page=2');
+
+    const { rerender } = renderHook(
+      ({ brands }: { brands: string[] }) =>
+        useCatalogFilterUrlSync(cascade(brands), EXTRAS, RESTORE_SOURCES),
+      { initialProps: { brands: [] as string[] } }, // mount 時 state 還空(還原尚未 flush)
+    );
+    rerender({ brands: ['akrapovic'] }); // restore dispatch 到位 → state 追上 URL
+
+    expect(hoisted.replace).not.toHaveBeenCalled();
+    expect(hoisted.refresh).not.toHaveBeenCalled();
   });
 
   it('④ 分類變動(單值 key、天然不碰撞)→ 不得多餘 refresh', () => {
