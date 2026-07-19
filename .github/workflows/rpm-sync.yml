@@ -39,7 +39,7 @@ jobs:
       fail-fast: false # 一家 gate abort(如 #261 新分類)不中斷其他家同步(審查 S1:防跨供應商耦合)
       max-parallel: 1 # 序列跑:同一 target DB、避免併發寫入面(各家 scope 本已隔離、此為保守層)
       matrix:
-        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc] # 全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275);samco 14165 變體序列跑較久但各 job 6h 上限
+        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic] # 全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275);akrapovic 2026-07-19 首灌 648 群驗證通過後加入(runbook §5 全過);samco 14165 變體序列跑較久但各 job 6h 上限
     steps:
       - name: Checkout
         uses: actions/checkout@v6
