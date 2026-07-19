@@ -28,6 +28,7 @@ import { MotogadgetShowcase } from './MotogadgetShowcase';
 import { Front3dShowcase } from './Front3dShowcase';
 import { MateryaShowcase } from './MateryaShowcase';
 import { EbcShowcase } from './EbcShowcase';
+import { AkrapovicShowcase } from './AkrapovicShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -68,6 +69,9 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
       return <MateryaShowcase />;
     case 'ebc':
       return <EbcShowcase />;
+    // 上架第三批(2026-07-19):N°01 三卡 + N°02 冠軍工藝(官網 hero 影片帶 + 故事兩段 + 信任狀)
+    case 'akrapovic':
+      return <AkrapovicShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;
