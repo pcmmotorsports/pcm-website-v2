@@ -477,6 +477,12 @@ A: A|B|C
 ## 9. Rollback
 
 - **交易內失敗**:`BEGIN/COMMIT` 保證整批回滾,prod 維持舊 8-param,無中間態。
+- 🔴🔴 **apply 後需回退 —— 步驟 0(交付模式無關的硬前置;Fable F2)**:
+  B-4 上線後已部署的 storefront 會送第 9 參 → **不論走哪種交付模式**,只要先退 DB 就會撞
+  `42883` / PostgREST `PGRST202` = **結帳全斷**,直到 app 退版重新部署。
+  ⚠️ 前一版把此後果寫在「不要貼 SQL Editor」段落內當該模式的罪狀,**暗示走 migration 路徑就沒問題
+  = 後果歸因錯位**(Fable F2),已更正。→ rollback 前必先查「B-4 是否已上線」;是則**先退 app
+  並確認部署生效**,才准動 DB。(2026-07-19 當下 B-4 尚未上線,可直接進交付模式。)
 - 🔴 **apply 後需回退 —— 交付模式(web Codex must-fix #2 更正;「貼進 SQL Editor」寫法已作廢)**:
   rollback **必須是新時戳的 forward-only migration**,走正常 `db push` 套用。
   ❌ 直接貼 SQL Editor 會把 schema 退回 8-param、但 `schema_migrations` 仍記載 `20260719120000`
@@ -517,7 +523,7 @@ A: A|B|C
   |---|---|
   | 1. 指紋公式未涵蓋 `proretset` | ✅ 已補進**主公式**(連同 `prosupport` / seclabel / `proargnames`,見 §4 段 2.5 的 M-2 更正),不只 rollback 片自己補 |
   | 2. snapshot 凍的是 `prosrc` 本體、非 `pg_get_functiondef` 全文 | ✅ 補充檔 §3 收錄**完整 `pg_get_functiondef` 全文**;md5 `62c1a8898c010eeec3393370dbc1ce78` / 12527 octets,已與 prod 對帳**逐位元組相同** |
-  | 3.(關卡2 M-4)repo 內無可直接執行的 rollback,事故時需臨場組 header | ✅ 補充檔 §5 收錄**預先產生 + 已 parse 驗證 + 已本機實跑驗證**的完整 rollback SQL(含守門與專屬斷言)。🔴 **刻意不放 `supabase/migrations/`**(放進去會被下次 `db push` 自動套用)→ 需要時由 Sean 貼進 SQL Editor 或另存新時戳 migration |
+  | 3.(關卡2 M-4)repo 內無可直接執行的 rollback,事故時需臨場組 header | ✅ 補充檔 §5 收錄**預先產生 + 已 parse 驗證 + 已本機實跑驗證**的完整 rollback SQL(含守門與專屬斷言)。🔴 **刻意不放 `supabase/migrations/`**(放進去會被下次 `db push` 自動套用)→ 需要時**另存為新時戳 forward-only migration 走正常 `db push`**;SQL Editor 僅限 break-glass 且須附 history reconciliation + app 端回滾 + 三查 SOP(詳補充檔 §5.1/§5.2)。<br>⚠️ 本列前一版與 forward-only 並列寫「或貼進 SQL Editor」、且不帶上述義務 —— **Fable F1 判定為 w-2 銷案的字面 vs 事實不符**(§9 頂部已改、這一列沒跟著改 = 同款漏改第 6 次),已更正 |
 
   🔴 **rollback 可執行性已由實跑證明,非紙上宣稱**(補充檔 §4 驗證表):本機拋棄式 PG 上
   「凍結副本重建 8-param → 指紋 == prod 基線 `77945871…`」→「apply migration → 9-param」→
@@ -713,3 +719,24 @@ round1(前一視窗)NO-GO、round2(本視窗)NO-GO → **上限已用完**。
 名字大於能力),w-3 則是**在我剛把該教訓寫成 memory 的同一個 session 內立刻復發**。
 → 治本不能只靠「記得要 grep」,已改為**在產生器內加 assert 讓漏改當場炸**(w-6 的做法),
 並把負向測試列為「宣稱某控制有效」的硬前置。相關:[[feedback_control-named-beyond-its-actual-power]]。
+
+### 15.5 Fable 對抗審查(2026-07-19,Sean 指定)—— 判定 NO-GO,2 must-fix + 2 nit
+
+**Sean 指示**:web Codex 四條 must-fix 修完後,再用 Fable 審一次。受審凍結版 = commit `f650a50`。
+
+🔴 **關鍵訊號**:Fable 判定 **migration SQL 本體零 must-fix**,兩條 must-fix **皆在文件/SOP 層**、
+不動 SQL、不需 Sean 重新拍板。且 Fable **自行重算**(非引用宣稱)驗證了九個面向:
+prosrc delta 恰 1 個 INSERT 敘述且兩端 md5 相符、Q1=A 確實落地(零 trim/零正規化)、
+`pg_temp` helper 無 shadow 可乘之隙(顯式限定 + 同名撞 `42723` fail-closed)、
+狀態 A/B 二分無漏(第三 overload 由斷言①攔截)、自指常數界定誠實、ACL 六角色矩陣充分、
+驗證強度界定無「本機講成 prod」、金流鐵則全過、snapshot 自 `1c63970` 後零編輯(git log 實查)。
+
+| # | Fable 判定 | 我的複核 | 處置 |
+|---|---|---|---|
+| F1 | 🔴 §9 頂部已把「貼 SQL Editor」降為 break-glass,但**同節 40 行後的 M-4 缺口對照表第 3 列**仍把它與 forward-only migration **並列為對等選項**且不帶三義務 —— 而那正是事故時最可能被讀到的一列(它是「rollback SQL 放哪」那一列)→ w-2 銷案的「全收」二字**字面 vs 事實不符** | **成立**。grep 全樹確認 B-2 範圍內僅此 1 處殘留 —— **同款漏改第 6 次** | **全收**。該列改為與補充檔 §5.1/§5.2 一致,並明記本列曾漏改 |
+| F2 | 🔴 「先退 app 再退 DB」只寫在 **break-glass 分支**,但 `42883`/`PGRST202` 是**交付模式無關**的:B-4 上線後走正常 forward-only rollback migration 一樣會讓結帳全斷,而照 primary 路徑走的操作者**完全不會被警告**;把該後果掛在「❌ 不要貼 SQL Editor」段落 = **後果歸因錯位、不誠實** | **成立**。這是「把 A 模式的通用後果寫成 B 模式的罪狀」,等於暗示 primary 路徑安全 | **全收**。新增**步驟 0(交付模式無關硬前置)**到三處:補充檔 §5.1、rollback SQL 檔頭、plan §9 |
+| nit-1 | 斷言區編號亂序(②排在①前)、prosrc md5 斷言無編號 | 成立 | **順手清**:①②依序重排;prosrc 斷言編為**斷言⑨** |
+| nit-2 | 補充檔「仍未涵蓋」5 條漏列「apply 當下 in-flight 呼叫 / PostgREST 舊 OID cached plan」 | 成立 | **順手清**:補為第 6 條,並註明現況免驗理由(checkout 未開、逾三週零呼叫)**與該理由的失效條件**(flag 開啟後須重新評估) |
+
+**Fable 明示的翻盤條件**:F1 字面改正 + F2 的模式無關前置落進三處 → 該審查轉 **GO**
+(並註明「高風險金流套用前仍依制度配 codex 正牌背書」)。**本輪已照此完成。**

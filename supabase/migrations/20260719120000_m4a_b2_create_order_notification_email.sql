@@ -532,18 +532,20 @@ DECLARE
   v_nargs int; v_ndef int; v_names text; v_cmt_md5 text; v_cmt_len int; v_src text;
   v_seclabel int; v_fp9 text;
 BEGIN
-  SELECT count(*) INTO v_n8 FROM pg_proc WHERE oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
-  IF v_n8 <> 0 THEN RAISE EXCEPTION '斷言②失敗:舊 8-param 仍存在(=overload 風險)'; END IF;
-
   -- 🔴 斷言①:public.create_order 的**簽章總數**必須恰為 1。
   --    只驗「8-param 不在 + 9-param 在」不夠 —— 若另有型別相異的第三個 overload
-  --    (例如末參 varchar),上面兩查都看不見,apply 後 8 引數呼叫會撞 42725
+  --    (例如末參 varchar),那兩查都看不見,apply 後 8 引數呼叫會撞 42725
   --    is not unique = 結帳全斷(plan E4 實測過的災難模式)。
+  --    (Fable nit-1:原本 ② 排在 ① 前面,已改為依編號順序,事故時逐條核銷不易錯位。)
   SELECT count(*) INTO v_sigs FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'create_order';
   IF v_sigs <> 1 THEN
     RAISE EXCEPTION '斷言①失敗:public.create_order 簽章總數=%(必須恰為 1;>1 即 overload 歧義風險)', v_sigs;
   END IF;
+
+  -- 斷言②:舊 8-param 簽章必須已不存在
+  SELECT count(*) INTO v_n8 FROM pg_proc WHERE oid = to_regprocedure('public.create_order(jsonb,uuid,text,jsonb,uuid,text,text,text)');
+  IF v_n8 <> 0 THEN RAISE EXCEPTION '斷言②失敗:舊 8-param 仍存在(=overload 風險)'; END IF;
 
   SELECT p.prosecdef, coalesce(p.proconfig::text,''), pg_get_userbyid(p.proowner)::text,
          p.prorettype::regtype::text, l.lanname::text, p.provolatile::text, p.proparallel::text,
@@ -613,9 +615,10 @@ BEGIN
   IF v_cmt_md5 IS NULL THEN RAISE EXCEPTION '斷言⑥失敗:COMMENT 為空(DROP 後未重建)'; END IF;
   IF v_cmt_len < 400 THEN RAISE EXCEPTION '斷言⑥失敗:COMMENT 長度=%(疑為佔位符)', v_cmt_len; END IF;
 
-  -- 斷言:函式體 = 已驗證產出(除 1 處 delta 外與 prod 基線零偏差)
+  -- 斷言⑨:函式體 = 已驗證產出(除 1 處 delta 外與 prod 基線零偏差)
+  --   (Fable nit-1:本條原本無編號,對照 plan §4 段 7 逐條核銷時容易漏掉,已補。)
   IF v_src <> '0bc0d256b7483c5dd6ef1f8f97b4e9a7' THEN
-    RAISE EXCEPTION '斷言失敗:prosrc md5=%(預期=%)', v_src, '0bc0d256b7483c5dd6ef1f8f97b4e9a7'; END IF;
+    RAISE EXCEPTION '斷言⑨失敗:prosrc md5=%(預期=%)', v_src, '0bc0d256b7483c5dd6ef1f8f97b4e9a7'; END IF;
 
   -- 🔴 security label(codex 關卡2 round2 #2 精確化):
   --    `pg_seclabel` 的識別鍵是 (objoid, **classoid**, objsubid, provider) → 只比 objoid

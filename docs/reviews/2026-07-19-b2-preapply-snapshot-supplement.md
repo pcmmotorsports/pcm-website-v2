@@ -396,12 +396,33 @@ $function$
    可裝、**未做正向注入測試**;現況兩端皆「無 label」,只證明無 label 時公式正確。
 4. **跨檔案的公式一致性**無程式強制(見 §2 界定);單檔內為結構性保證。
 5. 本機 PG **17.10** vs prod **17.6**:第 2/3/11/12/13 條的 byte-level 與指紋相符已大幅降低風險,**非證明**。
+6. **apply 當下的 in-flight 呼叫與 PostgREST 舊 OID cached plan 行為**(Fable nit-2 補列):
+   `DROP FUNCTION` 取的是函式 object 的 `AccessExclusiveLock`,執行中的呼叫通常不持衝突鎖;
+   DROP+CREATE 會換 OID、清函式統計。**此面向未做並發實測**。
+   現況可接受的理由:prod checkout 尚未開放(3DS flag 全 false)、`create_order` 已逾三週零呼叫
+   → 實質零並發流量。⚠️ **flag 開啟後若還要動同一函式,本項必須重新評估、不可沿用此免驗理由。**
 
 ## 5. rollback SQL(預先產生、已 parse 驗證、已正/負向實跑驗證)
 
-### 5.1 🔴 交付模式(web Codex must-fix #2;原「貼進 SQL Editor」寫法已作廢)
+### 5.1 🔴🔴 步驟 0(**交付模式無關**的硬前置;Fable F2)——「先退 app,再退 DB」
 
-需要 rollback 時,把 §5.2 另存為**新時戳的 forward-only migration**
+B-4 上線後,已部署的 storefront 會送**第 9 參**。此時**不論走哪種交付模式**,只要先把 DB 退回
+8-param,呼叫端就會撞 `42883` / PostgREST `PGRST202 no matching function` → **結帳 100% 全斷**,
+直到 app 退版重新部署為止。
+
+⚠️ **這不是「貼 SQL Editor」才會有的後果** —— 走正常 forward-only migration 一樣會發生。
+本檔前一版把它寫在「❌ 不要貼 SQL Editor」段落裡當作該模式的罪狀,**等於暗示走 migration 路徑就沒這問題,
+不誠實**(Fable 判定為「後果歸因錯位」),已更正。
+
+rollback 前必須先做:
+
+1. 實查已部署的呼叫端是否送第 9 參(= **B-4 是否已上線**)。
+2. 若是 → **先把 storefront 退回送 8 參的版本、確認部署已生效**,才准跑 §5.2。
+3. 若否(B-4 尚未上線,如 2026-07-19 當下)→ 可直接進下方交付模式。
+
+### 5.2 🔴 交付模式(web Codex must-fix #2;原「貼進 SQL Editor」寫法已作廢)
+
+需要 rollback 時,把 §5.3 另存為**新時戳的 forward-only migration**
 (例:`supabase/migrations/<新時戳>_m4a_b2_rollback_create_order_9param.sql`)再走正常 `db push`。
 
 ❌ **不要直接貼進 Supabase SQL Editor** —— 那會把 schema 退回 8-param,但
@@ -412,19 +433,29 @@ $function$
 ⚠️ **break-glass**(prod 當機、來不及走 migration 流程)才可用 SQL Editor,且**必須同時**:
 
 1. 手動 reconcile history:`delete from supabase_migrations.schema_migrations where version='20260719120000';`
-2. **同步回滾 app 端**:先把 storefront 退回送 8 參的版本(B-4 之後的呼叫端送 9 參會撞 `42883`)。
+2. app 端回滾:見 **§5.1 步驟 0**(該項為**交付模式無關**的硬前置,非 break-glass 專屬)。
 3. 事後補跑 B-2 檔頭的「查 history → 查簽章 → 查完整指紋」三查 SOP 才算收斂。
 
 🔴 **本段刻意不放進 `supabase/migrations/`** —— 放進去會被下一次 `db push` **自動套用**,
 等於把訂單 RPC 無預警退版。
 
-### 5.2 SQL 全文
+### 5.3 SQL 全文
 
 > 由程式自凍結副本組裝(零手動轉錄),已於本機完整執行通過(§4 第 9/15/16 條)。
 
 ```sql
 -- ============================================================
 -- B-2 ROLLBACK:9-param create_order → 還原 8-param 基線
+--
+-- 🔴🔴 **步驟 0(交付模式無關的硬前置;Fable F2)——「先退 app,再退 DB」**
+--   B-4 上線後,已部署的 storefront 會送**第 9 參**。此時**不論**走哪種交付模式,
+--   只要先把 DB 退回 8-param,呼叫端就會撞 `42883` / PostgREST `PGRST202 no matching function`
+--   → **結帳 100% 全斷**,直到 app 退版重新部署為止。
+--   ⚠️ 這**不是**「貼 SQL Editor」才會有的後果 —— 走正常 forward-only migration 一樣會發生。
+--   故 rollback 前必須先做:
+--     ① 實查已部署的呼叫端是否送第 9 參(= B-4 是否已上線)。
+--     ② 若是 → **先把 storefront 退回送 8 參的版本、確認部署已生效**,才准跑本檔。
+--     ③ 若否(B-4 尚未上線,如 2026-07-19 當下)→ 可直接進交付模式。
 --
 -- 🔴 **交付模式(web Codex must-fix #2 更正;原「貼進 SQL Editor」寫法已作廢)**
 --   需要 rollback 時,把本檔**另存為新時戳的 forward-only migration**
@@ -437,8 +468,7 @@ $function$
 --   ⚠️ break-glass(prod 當機、來不及走 migration 流程)才可用 SQL Editor,且**必須同時**:
 --      ① 手動 reconcile history:delete from supabase_migrations.schema_migrations
 --         where version='20260719120000';(否則裂縫留存)
---      ② **同步回滾 app 端**:B-4 以後的呼叫端會送第 9 參,對 8-param 會撞
---         `42883 function does not exist` → 必須先把 storefront 退回送 8 參的版本。
+--      ② app 端回滾:見上方**步驟 0**(該項為交付模式無關的硬前置,非 break-glass 專屬)。
 --      ③ 事後補跑 B-2 檔頭的「查 history → 查簽章 → 查完整指紋」三查 SOP 才算收斂。
 --
 -- 🔴 本檔是「預先產生並經 PG 實際 parse + 實跑驗證」的 rollback SQL(codex 關卡2 M-4)。
