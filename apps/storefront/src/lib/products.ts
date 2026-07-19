@@ -163,6 +163,8 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     //   無圖 → null、ProductImage fallback seed placeholder。修首頁/卡片「通用機車生活照」根因
     //   (原只設 imgTone:'neutral'、ProductImage 用 seed 生成 unsplash 通用照)。
     image: product.images[0] ?? null,
+    // trim 線 S4a:卡片首圖去白邊 bbox(domain cardImageTrim 已經 parseImageTrim 收斂;無=undefined → cover fallback)。
+    imageTrim: product.cardImageTrim,
     // M-1-16c-3:商品圖全陣列(ProductGallery 詳情頁用;image 為其第一張)。
     images: product.images,
     // M-1-16c-4a:副標 ← domain product.subtitle(Webike 式真副標、如「Ducati Panigale · 碳纖維」);

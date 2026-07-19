@@ -1,3 +1,5 @@
+import { parseImageTrim } from '@pcm/domain';
+
 import type { MockProduct, UIFitment } from '@/data/mock-products';
 
 export type CatalogListRow = {
@@ -14,6 +16,8 @@ export type CatalogListRow = {
   category_raw: string | null;
   /** S4:RPC 投影的原始 fitments jsonb(公開車輛相容資料);shape 不保證 → 由 toCardFitments 白名單收。 */
   fitments?: unknown;
+  /** trim 線 S4a:卡片首圖去白邊 bbox jsonb(RPC 第 13 鍵、migration 20260719150000);shape 不保證 → domain parseImageTrim 收斂;apply 前無此鍵=undefined。 */
+  card_image_trim?: unknown;
 };
 
 /**
@@ -66,6 +70,8 @@ export function catalogRowToUIProduct(row: CatalogListRow): MockProduct {
     color: 'silver',
     imgTone: 'neutral',
     image: row.card_image,
+    // trim 線 S4a:與 adapter mapper 同一顆 domain parseImageTrim 收斂(單一來源、髒數據=undefined → cover fallback)。
+    imageTrim: parseImageTrim(row.card_image_trim) ?? undefined,
     originalPrice: null,
     tierLabel: null,
   };

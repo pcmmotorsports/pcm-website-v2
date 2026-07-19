@@ -1374,6 +1374,8 @@ export type Database = {
         Row: {
           availability: string | null
           brand_id: string | null
+          // trim 線 S4a 手動增補(migration 20260719150000 view 末欄;full re-gen 落後=B-4 慣例、僅補此欄解 typed client 擋路)
+          card_image_trim: Json | null
           category_id: string | null
           created_at: string | null
           description: string | null

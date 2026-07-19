@@ -89,6 +89,20 @@ export type ProductManual = {
   sizeKB?: number;
 };
 
+/**
+ * 卡片首圖去白邊 bbox(trim 線 S4a;0..1 比例 + rotate 後原圖 px)。
+ * 🟢 UI 自控形狀、與 domain ImageTrim 結構等價(刻意解耦、同 ProductManual/UIFitment 慣例);
+ * 值一律經 domain parseImageTrim 收斂後才進本型別(兩條卡片資料路單一來源)。
+ */
+export type UIImageTrim = {
+  l: number;
+  t: number;
+  w: number;
+  h: number;
+  nw: number;
+  nh: number;
+};
+
 export type MockProduct = {
   id: number;
   /** URL-safe ASCII slug,格式 `${brandToSlug(brand)}-${id}`、unique(brand+id 天然 unique);M-1-13a 落地、M-1-16 真資料種子時必填 */
@@ -116,6 +130,12 @@ export type MockProduct = {
    * 既有 seed placeholder gallery。mock 資料省略此欄(走 fallback、不破舊測試)。
    */
   image?: string | null;
+  /**
+   * 卡片首圖去白邊 bbox(trim 線 S4a:toUIProduct ← domain `product.cardImageTrim` /
+   * catalogRowToUIProduct ← RPC `card_image_trim` 鍵,皆經 parseImageTrim 收斂)。
+   * 缺/髒數據/migration apply 前 → undefined = ProductCard 走現狀 cover(天然向後相容)。
+   */
+  imageTrim?: UIImageTrim;
   /**
    * 商品圖片陣列(M-1-16c-3:toUIProduct ← domain `product.images`、群代表圖全陣列;
    * ProductGallery 詳情頁用)。`image` 為其第一張、卡片用。mock 省略 → ProductGallery fallback。

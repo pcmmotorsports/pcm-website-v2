@@ -275,3 +275,26 @@ describe('mapSupabaseProductToDomain 變體整合', () => {
     expect(noVideo.video_url).toBeNull(); // videoUrl undefined → null 持久化(對齊 products.video_url nullable)
   });
 });
+
+describe('mapSupabaseProductToDomain card_image_trim(trim 線 S4a)', () => {
+  const trim = { l: 0.1, t: 0.2, w: 0.5, h: 0.6, nw: 1200, nh: 900 };
+
+  it('合法 trim jsonb → domain cardImageTrim(parseImageTrim 收斂)', () => {
+    const product = mapSupabaseProductToDomain({ ...baseProductRow, card_image_trim: trim });
+    expect(product.cardImageTrim).toEqual(trim);
+  });
+
+  it('缺鍵(save 路徑 base 表回讀;僅 row 物件層——adapter 請求層 42703 另屬部署順序依賴)→ undefined', () => {
+    expect(mapSupabaseProductToDomain(baseProductRow).cardImageTrim).toBeUndefined();
+  });
+
+  it('髒數據(超界 / 非物件)→ undefined(cover fallback、不 throw)', () => {
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, card_image_trim: { ...trim, l: 1.5 } })
+        .cardImageTrim,
+    ).toBeUndefined();
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, card_image_trim: 'junk' }).cardImageTrim,
+    ).toBeUndefined();
+  });
+});

@@ -1,4 +1,5 @@
 import type { Money, MemberTier } from '../shared/types';
+import type { ImageTrim } from './image-trim';
 
 export type ProductId = string;
 
@@ -256,6 +257,15 @@ export type Product = {
   videoUrl?: string;
   /** 商品圖片 URL 陣列、來源含廠商 URL 與 Supabase Storage 上傳(對齊 ADR-0004 Q2=A2、上傳機制 M-1-13 / M-1-16 落地) */
   images: string[];
+  /**
+   * 卡片首圖去白邊 bbox(trim 線 2026-07-19;← products_public.card_image_trim、
+   * parseImageTrim 收斂;無掃描資料 / save 路徑(base 表回讀無此欄)= undefined,
+   * 前端一律 fallback 現狀 cover)。
+   * 🔴 部署順序硬依賴(S4a code-reviewer Critical):adapter 讀路徑 select **指名**此欄,
+   * 對未 apply migration 20260719150000 的 DB 會 PostgREST 42703 throw=目錄全斷,
+   * **不是**優雅降級 → 本欄相關 code 不得部署到未 apply 的環境(先 db push、後部署)。
+   */
+  cardImageTrim?: ImageTrim;
   /**
    * 商品 availability(對齊 ProductAvailability type alias、跨 layer 共用)
    *

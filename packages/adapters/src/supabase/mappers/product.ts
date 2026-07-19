@@ -1,4 +1,5 @@
 import {
+  parseImageTrim,
   toMoneyAmount,
   type Brand,
   type CategoryPath,
@@ -56,6 +57,14 @@ export type SupabaseProductRow = {
   // #270 安裝資源。manuals jsonb 來源 shape 不保證(元素可能缺 label/url)→ unknown[]、mapper guard 收斂 ProductManual[];video_url 單支影片 URL(2026-07-10 起混格式 youtube/vimeo/mp4、UI 三分流)或 null。
   manuals: unknown[] | null;
   video_url: string | null;
+  /**
+   * 卡片首圖去白邊 bbox jsonb(trim 線 S4a;products_public.card_image_trim 末欄、
+   * migration 20260719150000)。optional:save 路徑回讀 base products 表無此欄(row 物件層缺鍵
+   * → mapper 收 undefined)。shape 不保證 → unknown、mapper 用 domain parseImageTrim 收斂。
+   * 🔴 注意:「缺鍵=undefined」只描述 mapper 拿到 row 之後;adapter select 指名此欄、
+   * 對未 apply 的 DB 是請求層 42703 throw、根本到不了 mapper(部署順序硬依賴、見 adapter 常數註)。
+   */
+  card_image_trim?: unknown;
   handle: string;
   /**
    * price_by_tier jsonb(雙寫過渡期 source of truth)。
@@ -212,6 +221,8 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     // #270 安裝影片:單支影片 URL(2026-07-10 起混格式 youtube/vimeo/mp4);空字串/非字串→undefined(對齊 domain Product.videoUrl optional)。
     videoUrl: typeof row.video_url === 'string' && row.video_url.trim() !== '' ? row.video_url : undefined,
     images: row.images,
+    // trim 線 S4a:卡片首圖去白邊 bbox → domain 共用 parseImageTrim 收斂(髒數據/缺鍵/save 路徑=undefined、前端 fallback cover)。
+    cardImageTrim: parseImageTrim(row.card_image_trim) ?? undefined,
     availability: row.availability,
     handle: row.handle,
     subtitle: row.subtitle ?? '',

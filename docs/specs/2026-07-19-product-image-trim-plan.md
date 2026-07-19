@@ -107,7 +107,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_image_trim TO service_rol
 | S4a | 資料接線(RPC/adapter 兩 mapper + 共用 runtime parser + MockProduct.imageTrim + 測試) | code-reviewer |
 | S4b | ProductCard TSX+CSS(鐵則 5 同片)+ 白底策略 + manifest business_override + 實跑截圖 | 關卡2(同 S1 條件) |
 
-順序:S1→S2→OP-首灌→S4a→S4b(前端見真數據)→S3(CI 收尾)。每片三綠;S4b 加 build+實跑截圖。前端兩片天然向後相容(apply 前欄/鍵不存在=undefined=現狀 fallback)。
+順序:S1→S2→OP-首灌→S4a→S4b(前端見真數據)→S3(CI 收尾)。每片三綠;S4b 加 build+實跑截圖。⚠️ 向後相容僅 **RPC 路**成立(jsonb 缺鍵=undefined);**adapter 路 select 指名 `card_image_trim`,對未 apply 的 DB=PostgREST 42703 目錄全斷**(S4a code-reviewer Critical 更正原「天然向後相容」誤稱)→ **部署順序硬依賴:先 db push 20260719150000、後部署 S4a 起的 code**;S4a 未上線前 dev 不得 promote main。
 
 ## 8. Fable 關卡1 銷案表(R1 NO-GO → v1.1;R2 GO)
 

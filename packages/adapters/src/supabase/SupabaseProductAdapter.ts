@@ -53,6 +53,19 @@ const PRODUCT_SELECT_DETAIL =
   'id, external_id, title, subtitle, description, highlights, manuals, video_url, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
 /**
+ * View-read projection(trim 線 S4a):PRODUCT_SELECT_DETAIL + `card_image_trim`
+ * (products_public 末欄、migration 20260719150000;卡片首圖去白邊 bbox jsonb 或 null)。
+ * 🔴 讀寫投影拆分的理由:save() 對 **base products 表** upsert 後 `.select()` 重用投影,
+ * base 表無 card_image_trim → 直接加進 PRODUCT_SELECT_DETAIL 會讓 save 42703。
+ * 故:所有 products_public **讀路徑**用本常數;save() 維持 PRODUCT_SELECT_DETAIL(base-safe)、
+ * 其回讀 row 缺此欄 → mapper 收斂 cardImageTrim=undefined(合法、前端 fallback cover)。
+ * 🔴 部署順序硬依賴(S4a code-reviewer Critical;同檔 WITH_VARIANTS 註的 42703 實測同理):
+ * PostgREST 對 select 指名不存在欄回 42703 error、非「缺鍵優雅降級」→ 本常數上線的環境
+ * **必須**已 apply migration 20260719150000,否則所有目錄讀路徑整條 throw。
+ */
+const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim`;
+
+/**
  * Detail-with-variants projection(M-1-16c-2、backlog #203):PRODUCT_SELECT_DETAIL +
  * embed `product_variants_public(...)` 7 欄(view DDL 10 欄、adapter 只投射 domain 變體所需 7 欄:
  * id / sku / spec / price_general / availability / images / sort_order)。
@@ -64,7 +77,7 @@ const PRODUCT_SELECT_DETAIL =
  *   透過 embed 亦無法 select(實測 PostgreSQL 42703「column does not exist」)→ 經銷價在 DB 層硬擋、
  *   不僅靠 application 投射選擇。PostgREST view↔view 關係已實測偵測成功(不需 product_id fallback)。
  */
-const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
+const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL_VIEW}, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
 
 /**
  * SupabaseProductAdapter:Supabase 真實 ProductRepository 實作。
@@ -140,7 +153,7 @@ export class SupabaseProductAdapter implements IProductRepository {
 
     const { data, error } = await this.supabase
       .from('products_public')
-      .select(PRODUCT_SELECT_DETAIL)
+      .select(PRODUCT_SELECT_DETAIL_VIEW)
       .eq('category_id', categoryId);
 
     if (error) {
@@ -175,7 +188,7 @@ export class SupabaseProductAdapter implements IProductRepository {
       (from, to) =>
         this.supabase
           .from('products_public')
-          .select(PRODUCT_SELECT_DETAIL)
+          .select(PRODUCT_SELECT_DETAIL_VIEW)
           .eq('category_id', categoryId)
           .order('id', { ascending: true })
           .range(from, to),
@@ -215,7 +228,7 @@ export class SupabaseProductAdapter implements IProductRepository {
     const orderDesc = options?.orderBy === 'created_desc';
 
     if (limit !== undefined && limit <= 1000) {
-      const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL);
+      const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL_VIEW);
       const ordered = orderDesc
         ? base.order('created_at', { ascending: false }).order('id', { ascending: false })
         : base.order('id', { ascending: true });
@@ -228,7 +241,7 @@ export class SupabaseProductAdapter implements IProductRepository {
 
     const rows = (await fetchAllPaginated(
       (from, to) => {
-        const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL);
+        const base = this.supabase.from('products_public').select(PRODUCT_SELECT_DETAIL_VIEW);
         const ordered = orderDesc
           ? base.order('created_at', { ascending: false }).order('id', { ascending: false })
           : base.order('id', { ascending: true });
@@ -249,7 +262,7 @@ export class SupabaseProductAdapter implements IProductRepository {
   async listByBrand(brandId: string): Promise<Product[]> {
     const { data, error } = await this.supabase
       .from('products_public')
-      .select(PRODUCT_SELECT_DETAIL)
+      .select(PRODUCT_SELECT_DETAIL_VIEW)
       .eq('brand_id', brandId);
 
     if (error) {
@@ -273,7 +286,7 @@ export class SupabaseProductAdapter implements IProductRepository {
     const rows = await queryProductsByFitment(
       this.supabase,
       spec,
-      PRODUCT_SELECT_DETAIL,
+      PRODUCT_SELECT_DETAIL_VIEW,
     );
     return rows.map(mapSupabaseProductToDomain);
   }
@@ -324,7 +337,7 @@ export class SupabaseProductAdapter implements IProductRepository {
   async listGeneral(): Promise<Product[]> {
     const rows = await queryGeneralProducts(
       this.supabase,
-      PRODUCT_SELECT_DETAIL,
+      PRODUCT_SELECT_DETAIL_VIEW,
     );
     return rows.map(mapSupabaseProductToDomain);
   }
@@ -355,7 +368,7 @@ export class SupabaseProductAdapter implements IProductRepository {
 
     const { data, error, count } = await this.supabase
       .from('products_public')
-      .select(PRODUCT_SELECT_DETAIL, { count: 'exact' })
+      .select(PRODUCT_SELECT_DETAIL_VIEW, { count: 'exact' })
       .or(filter)
       .range(offset, offset + params.limit - 1);
 
