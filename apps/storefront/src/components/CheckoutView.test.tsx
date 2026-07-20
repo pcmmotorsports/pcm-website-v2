@@ -155,12 +155,21 @@ const ADDR: CustomerAddress = {
   line: '新北市新莊區化成路 736 巷 18 號',
 } as unknown as CustomerAddress;
 
-function renderCheckout(over: { addresses?: CustomerAddress[]; memberTier?: MemberTier } = {}) {
+function renderCheckout(
+  over: {
+    addresses?: CustomerAddress[];
+    memberTier?: MemberTier;
+    notificationEmailEnabled?: boolean;
+    initialNotificationEmail?: string;
+  } = {},
+) {
   return render(
     <CheckoutView
       addresses={over.addresses ?? [ADDR]}
       memberName="王小明"
       memberTier={over.memberTier ?? 'general'}
+      notificationEmailEnabled={over.notificationEmailEnabled ?? false}
+      initialNotificationEmail={over.initialNotificationEmail ?? ''}
     />,
   );
 }
@@ -195,6 +204,35 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     // 右側摘要:小計 15200×2=30,400、應付總額(>=5000 免運)
     expect(container.querySelector('.co-grand-val')?.textContent).toBe('NT$ 30,400');
     expect(screen.getByText('ORDER SUMMARY')).toBeTruthy();
+  });
+
+  it('Email flag off：欄位不出現，維持既有結帳畫面', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
+    renderCheckout();
+    await screen.findByText('貨運宅配');
+    expect(screen.queryByLabelText('Email')).toBeNull();
+  });
+
+  it('Email flag on：無效值留在 Step1 顯示欄位錯誤；有效值 canonical 後才前進', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
+    renderCheckout({ notificationEmailEnabled: true, initialNotificationEmail: '' });
+    await screen.findByText('貨運宅配');
+
+    const input = screen.getByLabelText('Email') as HTMLInputElement;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(input, 'scrollIntoView', { configurable: true, value: scrollIntoView });
+    fireEvent.change(input, { target: { value: 'invalid-email' } });
+    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
+    expect(screen.getByText('Email 格式不正確')).toBeTruthy();
+    expect(screen.queryByText('發票資訊')).toBeNull();
+    expect(document.activeElement).toBe(input);
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+
+    fireEvent.change(input, { target: { value: ' User.Name@EXAMPLE.COM ' } });
+    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
+    expect(screen.getByText('發票資訊')).toBeTruthy();
   });
 
   it('地址選擇 radio → is-on', async () => {
@@ -323,7 +361,10 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
     getPrimeMock.mockResolvedValue('prime_test');
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0007' });
-    const { container } = renderCheckout();
+    const { container } = renderCheckout({
+      notificationEmailEnabled: true,
+      initialNotificationEmail: 'Member@example.com',
+    });
     await gotoStep3Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
@@ -335,12 +376,14 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
       addressId: string;
       shippingMethod: string;
       prime: string;
+      notificationEmail?: string;
     };
     expect(payload.lines).toEqual([{ variantId: 'v1', quantity: 2 }]); // 零價
     expect(payload.lines[0]).not.toHaveProperty('unitPrice');
     expect(payload.prime).toBe('prime_test');
     expect(payload.shippingMethod).toBe('home');
     expect(payload.addressId).toBe('addr-1');
+    expect(payload.notificationEmail).toBe('Member@example.com');
     expect(payload).not.toHaveProperty('userId');
     expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
     expect(payload).not.toHaveProperty('amount'); // 🔴 client 零送價

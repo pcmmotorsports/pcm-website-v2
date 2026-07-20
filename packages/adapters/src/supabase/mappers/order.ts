@@ -25,7 +25,7 @@ import type { Database } from '../database.types';
  * domain `quantity` → RPC `qty`(對齊 create_order RPC `v_line->>'qty'`)。
  *
  * (ADR-0003 §3.4:wire 字面只在 mapper 邊界、不 leak domain/ports/use-case。)
- * 對齊 migration create_order **8-param**(#241 `20260630120000` 加 p_terms_version/p_client_ip/p_client_ua)+ return DTO `{order_id, display_id}`。
+ * 對齊 migration create_order **flag-off 8 / flag-on 9-param**(B-2 第 9 參數 p_notification_email)+ return DTO `{order_id, display_id}`。
  *
  * 讀路徑「摘要」(orders row + 內嵌 order_items(quantity) → `OrderListItem`)= M-3 OrdersTab,見
  * `mapSupabaseOrderRowToListItem`(繞過 #217:摘要不含 items[])。完整 Order 重建
@@ -51,7 +51,7 @@ type CreateOrderRpcInvoice = {
   donateCode?: string;
 };
 
-/** create_order RPC 入參(wire、對齊 #241 8-param:0b 5-param + p_terms_version / p_client_ip / p_client_ua)。 */
+/** create_order RPC 入參(wire；B-3 以 optional key 區分 flag-off 8 / flag-on 9 參數形狀)。 */
 export type CreateOrderRpcArgs = {
   p_lines: CreateOrderRpcLine[];
   p_address_id: string;
@@ -61,6 +61,7 @@ export type CreateOrderRpcArgs = {
   p_terms_version: string; // 🔴 #241 同意條款版本(server 注入);RPC NULL/空 fail-closed
   p_client_ip: string | null; // 🔴 #241 best-effort 同意來源 IP(可 null;RPC left 截 128);PII、非價
   p_client_ua: string | null; // 🔴 #241 best-effort User-Agent(可 null;RPC left 截 1024);PII、非價
+  p_notification_email?: null; // B-3 flag-on 只允許 null marker；canonical 真值到 B-4 才擴型
 };
 
 /** create_order RPC return DTO(wire、對齊 RPC RETURNS jsonb `{order_id, display_id}`、零價結構)。 */
@@ -126,6 +127,9 @@ export function mapPlaceOrderToCreateOrderArgs(input: PlaceOrderInput): CreateOr
     p_terms_version: input.termsVersion, // 🔴 #241 同意條款版本(server 注入 CURRENT_TERMS_VERSION)
     p_client_ip: input.clientIp ?? null, // 🔴 #241 best-effort PII(缺 → null;RPC 容忍)
     p_client_ua: input.clientUserAgent ?? null, // 🔴 #241 best-effort PII(缺 → null)
+    ...(Object.prototype.hasOwnProperty.call(input, 'notificationEmail')
+      ? { p_notification_email: null }
+      : {}),
   };
 }
 

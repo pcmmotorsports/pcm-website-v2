@@ -15,6 +15,10 @@ import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getAddressRepo } from '@/lib/auth/composition';
+import {
+  getCheckoutNotificationEmailPrefill,
+  isCheckoutNotificationEmailEnabled,
+} from '@/lib/email/notification-email-gate';
 import { CheckoutView } from '@/components/CheckoutView';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 
@@ -31,6 +35,13 @@ export default async function CheckoutRoute() {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect('/login');
+
+  // 單一 server flag 讀一次後往 UI 傳；session Email 仍須共用 canonical schema 驗過才可預填。
+  const notificationEmailEnabled = isCheckoutNotificationEmailEnabled();
+  const initialNotificationEmail = getCheckoutNotificationEmailPrefill(
+    user.email,
+    notificationEmailEnabled,
+  );
 
   const { data: customerRow, error: customerError } = await supabase
     .from('customers')
@@ -58,5 +69,13 @@ export default async function CheckoutRoute() {
     console.error('[checkout/page] addresses 讀取失敗、退化空陣列:', addressError);
   }
 
-  return <CheckoutView addresses={addresses} memberName={memberName} memberTier={memberTier} />;
+  return (
+    <CheckoutView
+      addresses={addresses}
+      memberName={memberName}
+      memberTier={memberTier}
+      notificationEmailEnabled={notificationEmailEnabled}
+      initialNotificationEmail={initialNotificationEmail}
+    />
+  );
 }

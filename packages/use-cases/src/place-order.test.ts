@@ -59,7 +59,7 @@ describe('placeOrder', () => {
     expect(place).not.toHaveBeenCalled();
   });
 
-  it('3DS-0b fail-closed:缺 cartSessionId throw、不打 repo(create_order 8-param 必填縱深)', async () => {
+  it('3DS-0b fail-closed:缺 cartSessionId throw、不打 repo(create_order 的 cart key 必填縱深)', async () => {
     const place = vi.fn();
     const repo = makeRepo({ placeOrder: place });
 

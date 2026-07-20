@@ -81,6 +81,20 @@ describe('useChargePayment', () => {
       await result.current.submit(ARGS);
     });
     expect(chargeMock).toHaveBeenCalledWith(expect.objectContaining({ agreed: true }));
+    expect(chargeMock.mock.calls[0]![0]).not.toHaveProperty('notificationEmail');
+  });
+
+  it('B-3:只有 caller 明確帶入時，payload 才帶 notificationEmail', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0001' });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({ ...ARGS, notificationEmail: 'Member@example.com' });
+    });
+
+    expect(chargeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ notificationEmail: 'Member@example.com' }),
+    );
   });
 
   it('V-3a:cart item 帶 vehicle → lines 逐列帶入;未帶列無 vehicle 鍵(選填)', async () => {
@@ -200,6 +214,16 @@ describe('useChargePayment', () => {
       status: 'error',
       message: '收件地址缺少手機號碼,請補齊後再試',
     });
+  });
+
+  it('fieldErrors.notificationEmail → 優先顯示 Email 欄位訊息', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    chargeMock.mockResolvedValue({ fieldErrors: { notificationEmail: 'Email 格式不正確' } });
+    const { result } = renderHook(() => useChargePayment());
+    await act(async () => {
+      await result.current.submit({ ...ARGS, notificationEmail: 'invalid-email' });
+    });
+    expect(result.current.state).toEqual({ status: 'error', message: 'Email 格式不正確' });
   });
 
   it('submit 回傳 terminal:paid/processing → true、error → false(View 據此維持 primeBusyRef;r2)', async () => {

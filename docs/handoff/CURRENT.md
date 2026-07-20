@@ -8,11 +8,11 @@
 
 - Updated: 2026-07-20, Asia/Taipei
 - Agent: Codex
-- Mode: Git／文件整理；未動產品碼、DB、GitHub、Vercel 或環境變數
+- Mode: M-4a B-3 獨立 review R3 PASS，本片由本 commit 收錄；未 push
 - Branch: `dev`
-- Cleanup base: `a0c62c0`
+- Implementation base: `54df4ec`
 - Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；本輪未 push
-- Cleanup result: 既有 dirty 已分類收案；本檔 commit 完成後 working tree 應為 clean
+- Expected dirty: 本 commit 後應為 clean；若仍有 dirty，先辨認 ownership
 
 每個新 session 仍須自行重跑：
 
@@ -28,7 +28,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - B-0 PRD ✅
 - B-1 `orders.notification_email` nullable 欄位 + 六條件 CHECK：repo SSoT 記錄為已 apply production
 - B-2 `create_order` 8→9 參：repo SSoT 記錄為已 apply production，且路徑②驗收完成
-- 下一片：**B-3（結帳 email 欄 + zod 六條件鏡像）**
+- B-3：**程式、測試與三輪獨立審查已完成，R3 PASS；由本 commit 收錄，未 push**
 - B-2 上線不等於通知功能已上線；第 9 參仍可 `DEFAULT NULL`，必填收緊屬 B-6
 
 ### #288 production-build E2E 支線
@@ -51,31 +51,32 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
-| 主軌 | **M-4a B-3**：結帳 email 欄 + zod 六條件鏡像 | 全域優先 | 不受 #288-b 阻擋 |
+| 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由本 commit 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
 兩軌業務上獨立，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
 另一條若同時存在只能唯讀，避免 shared index／push 夾帶事故。
 
-## 4. 主軌開工卡：M-4a B-3
+## 4. 主軌審查卡：M-4a B-3
 
-### 目標
+### 已實作
 
-在結帳收件資料區塊加入 email 欄、會員真 email 預填／LINE 合成域留白、UI 揭露文案與 smoke test；
-server canonical 驗證須與 DB CHECK 同源。**B-3 部署後 flag 仍保持 off。**
+結帳收件資料區塊已加入通知 Email 欄、會員真 Email 安全預填／LINE 合成域留白、UI 揭露文案與測試；
+client／server 共用同一份 canonical schema。單一 strict opt-in flag 同步控制四層；off 精確 8 參，on 精確 9 參但第 9 值固定 `null`，所以 B-3 **不會持久化真 Email**。flag 仍保持 off。
 
-### 動工前依序讀
+### 獨立審查依序讀
 
-1. `docs/handoff/2026-07-19-m4a-b2-applied-handoff.md` §1、§3、§5、§7
-2. `docs/specs/2026-07-18-b0-order-notification-email-prd.md` §3.1、§3.4、§4、§5、§6
-3. `docs/specs/2026-07-19-m4a-b2-create-order-9param-plan.md` §8.2
-4. `STATUS.md`「下一步」
+1. `docs/reviews/2026-07-20-m4a-b3-checkout-notification-email-packet.md`
+2. `docs/specs/2026-07-20-m4a-b3-checkout-notification-email-plan.md`
+3. `docs/specs/2026-07-18-b0-order-notification-email-prd.md` §3.1、§3.4、§4、§5、§6
+4. `docs/specs/2026-07-19-m4a-b2-create-order-9param-plan.md` §8.2
+5. `docs/handoff/2026-07-19-m4a-b2-applied-handoff.md` §1、§3、§5、§7
 
 ### 六條件硬紅線
 
 zod／server canonical 驗證必須鏡像 DB 的全部六條件，不能只用一般 `email()`：
 
-1. 值等於 `btrim` 後結果，不收前後 ASCII space
+1. raw 值先只裁掉前後 ASCII space（U+0020），再驗證 canonical 值；DB 收到的值不得帶 padding
 2. 只允許可列印 ASCII `^[!-~]+$`
 3. UTF-8 octet 長度 ≤ 254
 4. 僅一個 `@`，且 domain 至少含一個 `.`
@@ -97,11 +98,13 @@ client 驗證只改善 UX，server 必須重新驗證；log、錯誤與回應不
 - Q2=A：`packages/adapters/src/supabase/database.types.ts` 刻意留到 B-4 更新，不得在 B-3 誤判為漏做
 - `packages/domain/src/order/order.ts` 的 `createOrder()` 是 domain factory，不是 RPC，勿誤改
 
-### 開工與收工 gate
+### 審查與收工 gate
 
-- 本片跨共用結帳元件與多檔，鐵則 8 成立：**先做精確 slice plan，Sean 批准後才改碼**
-- plan 必含：L1/L2/L3、graphify／直接讀碼連動面、檔案清單、驗收、rollback、review triggers
-- 涉 order／checkout contract，commit 前走高風險獨立審查與 Review Packet
+- Sean 已批准精確 slice plan；本輪按該 plan 實作完成
+- 涉 order／checkout contract，三輪高風險獨立唯讀審查已完成；Review Packet 已同步
+- R1 verdict=`FAIL`：null-only marker、manifest 正式清單、flag-on 桌機／手機實測、active 舊字面四項已全修，且已由 R2 reviewer 確認全數銷案
+- R2 verdict=`FAIL`：reviewer 確認 R1 四項全銷案，另抓到 Email input 14px 會觸發 iOS Safari 聚焦縮放；已改 mobile 16px、加 CSS RED→GREEN 守門、`agent-browser` 重驗，並同步其檔頭 nit
+- R3 verdict=`PASS`：0 must-fix；R1／R2 findings 全銷案，可進 commit checkpoint
 - 動 `.ts/.tsx`：typecheck + lint + build + 相稱測試全綠後才可 commit
 - 不開 flag、不 push、不 deploy、不 apply migration；這些保留 Sean checkpoint
 - PRD §6 八項 gate 未全數達成前，禁稱「通知功能上線」或「孤兒已消滅」
@@ -188,27 +191,26 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ### 本輪已驗證
 
-- branch、HEAD、local remote-tracking refs、ahead/behind
-- CURRENT 與 `STATUS.md`、B-3 PRD／B-2 handoff／11 項清單、#288 v3.2 plan／backlog 的字面對帳
-- 所有原 dirty 已逐檔分類；沒有 staged 漏件或產品碼變更
-- 被 migration／測試引用的文件仍在原路徑，引用未斷
-- archive 共 13 個檔案，4 張圖片尺寸與內容未修改
-- 進度地圖 94 步計數：57 完成 + 2 進行中 + 35 未開始
-- `git diff --check` 通過；歷史 Review Packet 的 15 個行尾空白已純格式清除
+- B-3 共用六條件 schema、UI／prefill、client payload、server 重驗、domain／mapper／adapter 四層 gate
+- flag off 精確 8 RPC 鍵；flag on 精確 9 鍵且 `p_notification_email: null`
+- typecheck 8/8、lint 10/10、build 2/2
+- full test：235 檔、2589 passed、1 todo
+- 五層突變自驗：schema／UI／payload／server／RPC 任一防線拿掉都會轉紅，還原後全綠
+- design manifest validate 通過；既有 ProductPage path-token warning 未新增
+- 本機 process-only flag-on 瀏覽器流程：1280×1000 桌機與 390×844 手機 2/2 通過；驗預填、揭露、地址切換、錯誤阻擋、canonical、前進／返回、手機固定列與零水平溢出。R2 修後再由 `agent-browser` 實量 Email computed style=`16px`、焦點正確、錯誤存在、scrollWidth=innerWidth=390。臨時 preview／E2E harness 已刪，未改 `.env*`
+- 手機肉眼初驗發現錯誤紅字被固定 buybar 遮住；已補 RED test 與 focus + 置中捲動修正，回歸後完整可見
+- iOS Safari `<16px` 聚焦縮放風險已由 checkout mobile breakpoint 16px + `checkout.test.ts` 靜態守門鎖住
 
 ### 本輪尚未驗證
 
-- production DB 當前 migration 水位與 B-1/B-2 runtime 狀態
-- GitHub Secrets 是否仍存在、dev/main E2E workflow 最新 run 是否綠
-- Vercel／正式站目前部署
-- B-3 或 #288-b 的任何產品測試；本輪只是 Git／文件整理
+- B-3 已由本 commit 收錄；push、deploy、正式 flag 與 B-4 尚未執行
+- 正式 authenticated `/checkout` 的 flag-on 驗收（正式 flag 仍 off；本輪只驗本機 process-only flag + 真 `CheckoutView`）
+- production DB、Vercel 或正式站 runtime；本片不連線、不部署
 
 ### 需要 Sean
 
-- 準備施工時只需指定：**主軌 B-3（推薦，維持全域優先序）**，或 **支線 #288-b**
-- 本輪 cleanup commits 尚未 push；是否 push 仍是 Sean checkpoint
+- 現在不需操作 dashboard、DB、env；本 commit 完成後仍不 push，下一片 B-4 需另行確認範圍
 - push、deploy、production migration、env／GitHub Secrets、正式 flag 切換仍由 Sean 操作或逐次明確批准
-- 手機「選擇車款」文案／死碼 chip 移除的正式站肉眼驗收，前版 handoff 記錄為尚待跑
 
 ## 9. 安全邊界
 
@@ -223,6 +225,8 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - 現況 SSoT：`STATUS.md`
 - 共用規則：`docs/ops/AI_CONTRACT.md`
 - B-3 PRD：`docs/specs/2026-07-18-b0-order-notification-email-prd.md`
+- B-3 實作 plan：`docs/specs/2026-07-20-m4a-b3-checkout-notification-email-plan.md`
+- B-3 Review Packet：`docs/reviews/2026-07-20-m4a-b3-checkout-notification-email-packet.md`
 - B-2 收案：`docs/handoff/2026-07-19-m4a-b2-applied-handoff.md`
 - 11 項舊字面：`docs/specs/2026-07-19-m4a-b2-create-order-9param-plan.md` §8.2
 - #288 plan：`docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2

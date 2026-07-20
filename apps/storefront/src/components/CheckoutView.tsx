@@ -31,10 +31,11 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
+import { NotificationEmailInput } from '@pcm/schemas';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
+import { CheckoutStep1 } from '@/components/CheckoutStep1';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStep3 } from '@/components/CheckoutStep3';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
@@ -69,9 +70,19 @@ export type CheckoutViewProps = {
   memberName: string;
   /** 會員等級(server page customers.tier;階段① 顯示用、價格仍 general-only) */
   memberTier: MemberTier;
+  /** B-3 四層單一 flag；server page 讀一次後往下傳，預設 off。 */
+  notificationEmailEnabled: boolean;
+  /** 僅可能是 server 共用 schema 驗過的真 Email；LINE 合成域與壞值均為空字串。 */
+  initialNotificationEmail: string;
 };
 
-export function CheckoutView({ addresses, memberName, memberTier }: CheckoutViewProps) {
+export function CheckoutView({
+  addresses,
+  memberName,
+  memberTier,
+  notificationEmailEnabled,
+  initialNotificationEmail,
+}: CheckoutViewProps) {
   const router = useRouter();
   const cart = useResolvedCart('home');
   const charge = useChargePayment();
@@ -80,6 +91,8 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   const [shippingAddrId, setShippingAddrId] = useState<string | undefined>(
     () => addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id,
   );
+  const [notificationEmail, setNotificationEmail] = useState(initialNotificationEmail);
+  const [notificationEmailError, setNotificationEmailError] = useState<string | null>(null);
   // 配送方式:Q1=A 僅 home(後端 white-list 仍含 store、UI 暫不開合作店家取貨);
   // useResolvedCart('home') 直接用字面、運費鏡像走 home。
 
@@ -96,7 +109,21 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
   // 同意條款(Step3)。
   const [agreed, setAgreed] = useState(false);
 
-  const goNext = () => setStep((s) => Math.min(3, s + 1));
+  const goNext = () => {
+    if (step === 1 && notificationEmailEnabled) {
+      const result = NotificationEmailInput.safeParse(notificationEmail);
+      if (!result.success) {
+        setNotificationEmailError(result.error.issues[0]?.message ?? 'Email 格式不正確');
+        const emailInput = document.getElementById('checkout-notification-email');
+        emailInput?.focus();
+        emailInput?.scrollIntoView?.({ block: 'center' });
+        return;
+      }
+      setNotificationEmail(result.data);
+      setNotificationEmailError(null);
+    }
+    setStep((s) => Math.min(3, s + 1));
+  };
   const goBack = () => setStep((s) => Math.max(1, s - 1));
 
   // ②-④b 刷卡送出(對齊 design submitOrder `if (!agreed) return` 守門 + processing 態):
@@ -125,7 +152,14 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
         setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
         return;
       }
-      terminal = await charge.submit({ addressId: shippingAddrId, shippingMethod: 'home', invoice, prime, agreed });
+      terminal = await charge.submit({
+        addressId: shippingAddrId,
+        shippingMethod: 'home',
+        invoice,
+        prime,
+        agreed,
+        ...(notificationEmailEnabled ? { notificationEmail } : {}),
+      });
     } finally {
       if (!terminal) {
         primeBusyRef.current = false;
@@ -239,69 +273,22 @@ export function CheckoutView({ addresses, memberName, memberTier }: CheckoutView
 
             {/* ===== STEP 1: 收件資料 + 配送方式 ===== */}
             {step === 1 && (
-              <>
-                <section className="co-section">
-                  <div className="co-section-head">
-                    <div className="ap-mono">N°01 · DELIVERY ADDRESS</div>
-                    <h2>收件資料</h2>
-                  </div>
-                  <div className="co-addr-list">
-                    {addresses.map((a) => (
-                      <label key={a.id} className={`co-addr ${shippingAddrId === a.id ? 'is-on' : ''}`}>
-                        <input
-                          type="radio"
-                          name="addr"
-                          checked={shippingAddrId === a.id}
-                          onChange={() => setShippingAddrId(a.id)}
-                        />
-                        <span className="co-addr-radio" />
-                        <div className="co-addr-body">
-                          <div className="co-addr-row">
-                            <span className="co-addr-name">{a.name}</span>
-                            <span className="co-addr-phone">{a.phone}</span>
-                            {a.isDefault && <span className="co-addr-tag ap-mono">DEFAULT</span>}
-                          </div>
-                          <div className="co-addr-line">{a.line}</div>
-                        </div>
-                      </label>
-                    ))}
-                    {/* 新增地址延後(e1 偏離):連會員中心管理收件地址(單一 CRUD 源) */}
-                    <Link href="/account" className="co-addr-add">
-                      ＋ 到會員中心新增 / 管理收件地址
-                    </Link>
-                  </div>
-                </section>
-
-                <section className="co-section">
-                  <div className="co-section-head">
-                    <div className="ap-mono">N°02 · SHIPPING METHOD</div>
-                    <h2>配送方式</h2>
-                  </div>
-                  <div className="co-ship-grid">
-                    {/* Q1=A 僅宅配 home(合作店家取貨延後) */}
-                    <label className="co-ship is-on">
-                      <input type="radio" name="ship" checked readOnly />
-                      <span className="co-ship-radio" />
-                      <div className="co-ship-body">
-                        <div className="co-ship-head-row">
-                          <div className="co-ship-label">貨運宅配</div>
-                          <div className="co-ship-meta">{shipping === 0 ? '免運' : `NT$ ${shipping}`}</div>
-                        </div>
-                        <div className="co-ship-desc">
-                          滿 NT$ {FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,1-3 個工作天送達
-                        </div>
-                      </div>
-                    </label>
-                  </div>
-                </section>
-
-                <div className="co-actions">
-                  <button className="btn-outline co-btn-back" onClick={() => router.push('/cart')}>← 返回購物車</button>
-                  <button className="btn-primary co-btn-next" onClick={goNext} disabled={nextDisabled}>
-                    下一步:付款方式 <span>→</span>
-                  </button>
-                </div>
-              </>
+              <CheckoutStep1
+                addresses={addresses}
+                shippingAddrId={shippingAddrId}
+                onShippingAddressChange={setShippingAddrId}
+                shipping={shipping}
+                notificationEmailEnabled={notificationEmailEnabled}
+                notificationEmail={notificationEmail}
+                notificationEmailError={notificationEmailError}
+                onNotificationEmailChange={(value) => {
+                  setNotificationEmail(value);
+                  setNotificationEmailError(null);
+                }}
+                onBack={() => router.push('/cart')}
+                onNext={goNext}
+                nextDisabled={nextDisabled}
+              />
             )}
 
             {/* ===== STEP 2: 發票 + 付款方式(e2)===== */}

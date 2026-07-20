@@ -12,5 +12,6 @@ export type CheckoutInvoiceFieldErrors = Partial<
 export type CheckoutFieldErrors = {
   addressId?: string;
   shippingMethod?: string;
+  notificationEmail?: string;
   invoice?: CheckoutInvoiceFieldErrors;
 };

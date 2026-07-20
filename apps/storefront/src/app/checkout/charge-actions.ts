@@ -3,7 +3,8 @@
 // app/checkout/charge-actions.ts — 結帳刷卡 server action(M-3 ②-③e、plan v6 §7)
 //
 // 🔴 鐵則 12 成交 path:組「建單(既有 placeOrder)→ charge → confirm」整鏈。
-// 前端契約 = { addressId, shippingMethod, invoice, lines, prime } —— **零價、零 cardholder、零 orderId**
+// 前端契約 = { addressId, shippingMethod, invoice, lines, prime, cartSessionId, agreed,
+//   notificationEmail?(B-3 flag-on) } —— **零價、零 cardholder、零 orderId**
 // (client 多塞的鍵一律不讀;金額 = server read-back orders.total 單一來源;cardholder = server 組裝)。
 //
 // 信任邊界(五層 + 付款層;沿用 addAddressAction 既有五層信任邊界 pattern):
@@ -45,7 +46,7 @@ import {
   settleCharge,
   preflightReleaseSibling,
 } from '@pcm/use-cases';
-import { CheckoutInput, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
+import { createCheckoutInputSchema, PlaceOrderLinesInput, TapPayPrimeInput } from '@pcm/schemas';
 import type {
   ConfirmPaymentOutcome,
   InitiatePaymentOutcome,
@@ -64,6 +65,7 @@ import {
 } from '@/lib/payment/composition';
 import { buildCardholder, type BuildCardholderFailReason } from '@/lib/payment/cardholder';
 import { isThreeDSEnabled } from '@/lib/payment/three-ds-flag';
+import { isCheckoutNotificationEmailEnabled } from '@/lib/email/notification-email-gate';
 import { resolveThreeDSConfig, buildResultUrls, isHttpsUrl } from '@/lib/payment/three-ds-urls';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { headers } from 'next/headers';
@@ -111,11 +113,14 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
 
   const raw = (typeof input === 'object' && input !== null ? input : {}) as Record<string, unknown>;
 
-  // ②a CheckoutInput(只驗 addressId/shippingMethod/invoice、strip 未知欄)。
-  const parsedCheckout = CheckoutInput.safeParse({
+  // ②a 單一 Email flag 同步選 schema：off 維持舊 3 欄並 strip 偷塞值；on 要求 Email 並做 server canonical 二次驗證。
+  const notificationEmailEnabled = isCheckoutNotificationEmailEnabled();
+  const checkoutSchema = createCheckoutInputSchema(notificationEmailEnabled);
+  const parsedCheckout = checkoutSchema.safeParse({
     addressId: raw.addressId,
     shippingMethod: raw.shippingMethod,
     invoice: raw.invoice,
+    ...(notificationEmailEnabled ? { notificationEmail: raw.notificationEmail } : {}),
   });
   if (!parsedCheckout.success) {
     const fieldErrors: CheckoutFieldErrors = {};
@@ -127,7 +132,7 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
         (p1 === 'carrier' || p1 === 'title' || p1 === 'taxId' || p1 === 'donateCode')
       ) {
         (fieldErrors.invoice ??= {})[p1] = issue.message;
-      } else if (p0 === 'addressId' || p0 === 'shippingMethod') {
+      } else if (p0 === 'addressId' || p0 === 'shippingMethod' || p0 === 'notificationEmail') {
         fieldErrors[p0] = issue.message;
       }
     }
@@ -237,6 +242,8 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       termsVersion: CURRENT_TERMS_VERSION,
       clientIp,
       clientUserAgent,
+      // B-3 只切到 9-param RPC 形狀；canonical 真值持久化刻意留 B-4。
+      ...(notificationEmailEnabled ? { notificationEmail: null } : {}),
     };
     const orderRepo = await getOrderRepo();
     const placed = await placeOrder(orderRepo, placeOrderInput);

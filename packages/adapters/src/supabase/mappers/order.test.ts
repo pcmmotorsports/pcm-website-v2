@@ -4,6 +4,7 @@ import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
   mapSupabaseAdminOrderRowToSummary,
+  type CreateOrderRpcArgs,
   type SupabaseOrderListRow,
   type SupabaseAdminOrderRow,
 } from './order';
@@ -33,7 +34,7 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
     expect(args.p_cart_session_id).toBe('cs-abc');
   });
 
-  it('🔴 wire 鍵集合鎖定恰 8 鍵(#241;db push 前守門:typecheck 對多加鍵盲、改測試鎖鍵集合 + db push 後重 gen 抓少鍵)', () => {
+  it('🔴 B-3 flag-off wire 鍵集合仍鎖定恰 8 鍵；flag-on 第 9 鍵另測', () => {
     const args = mapPlaceOrderToCreateOrderArgs(input());
     expect(Object.keys(args).sort()).toEqual(
       [
@@ -47,6 +48,38 @@ describe('mapPlaceOrderToCreateOrderArgs', () => {
         'p_terms_version',
       ].sort(),
     );
+  });
+
+  it('B-3 flag-on marker：notificationEmail 存在時才輸出第 9 鍵，null 不會被省略', () => {
+    const args = mapPlaceOrderToCreateOrderArgs(input({ notificationEmail: null }));
+
+    expect(Object.keys(args).sort()).toEqual(
+      [
+        'p_address_id',
+        'p_cart_session_id',
+        'p_client_ip',
+        'p_client_ua',
+        'p_invoice',
+        'p_lines',
+        'p_notification_email',
+        'p_shipping_method',
+        'p_terms_version',
+      ].sort(),
+    );
+    expect(Reflect.get(args, 'p_notification_email')).toBeNull();
+  });
+
+  it('B-3 型別只允許 null marker，不允許真 Email 提前穿過 domain／wire 邊界', () => {
+    // @ts-expect-error B-3 不得讓 canonical 真值進 PlaceOrderInput；B-4 才會擴型。
+    const forbiddenDomainInput: PlaceOrderInput = { ...input(), notificationEmail: 'real@example.com' };
+    const forbiddenWireArgs: CreateOrderRpcArgs = {
+      ...mapPlaceOrderToCreateOrderArgs(input()),
+      // @ts-expect-error B-3 wire 第 9 鍵只允許 null；B-4 才會擴型。
+      p_notification_email: 'real@example.com',
+    };
+
+    expect(forbiddenDomainInput.notificationEmail).toBe('real@example.com');
+    expect(forbiddenWireArgs.p_notification_email).toBe('real@example.com');
   });
 
   it('🔴 #241:termsVersion → p_terms_version;clientIp/UA → p_client_ip/ua(缺 → null)', () => {

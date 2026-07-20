@@ -3,8 +3,8 @@
 // 注入式 mock SupabaseClient 攔 .rpc(fn, args):斷言 placeOrder 呼 create_order RPC、args 為對齊契約的
 // snake_case wire(quantity→qty / 複合鍵 / 發票)、回傳只 {orderId, displayId};RPC error 上拋不吞;
 // 回傳格式非預期防腐壞 throw;讀路徑 deferred-stub(延 stage ③ 訂單查詢、backlog #217)reject 未實作。
-// 線上 create_order RPC 已就緒(S2-a + S2-b1 migration 已 db push、authenticated EXECUTE/anon REVOKE 正確);
-// ⚠️ #241 8-param(0b 5-param + p_terms_version/p_client_ip/p_client_ua)尚待 db push、本檔以 mock 驗 TS wire 對齊 8-param 簽名。
+// production create_order 已由 B-2 升為 9-param(第 9 參 DEFAULT NULL)；B-3 mock 同時鎖 flag-off 8 鍵相容
+// 與 flag-on 9 鍵/null。database.types.ts 依 Sean Q2=A 留 B-4 重生，暫由 mapper/wire 測試守形狀。
 // 真打 RPC(端到端建單)可成、留 Sean 階段①末肉眼驗;本片 mock client 單元測只驗 adapter 行為。
 
 import { describe, it, expect, vi } from 'vitest';
@@ -51,7 +51,7 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       }),
     );
 
-    // 🔴 鐵則 12:傳給 RPC 的 args 即 mapper 輸出(snake_case、零 price/tier/userId;#241 8-param)
+    // 🔴 鐵則 12:flag-off 傳給 RPC 的 args 即 mapper 8 鍵輸出(snake_case、零 price/tier/userId)
     expect(rpc).toHaveBeenCalledWith('create_order', {
       p_lines: [{ supplier_slug: 'rpm', sku: 'DCC01-G-F', qty: 3 }],
       p_address_id: 'addr-1',
@@ -63,6 +63,22 @@ describe('SupabaseOrderAdapter.placeOrder', () => {
       p_client_ua: null,
     });
     expect(res).toEqual({ orderId: 'o1', displayId: 'PCM-2026-0001' });
+  });
+
+  it('B-3 flag-on marker：呼叫同一 RPC 時帶第 9 參數 p_notification_email:null', async () => {
+    const { client, rpc } = makeClient({
+      data: { order_id: 'o1', display_id: 'PCM-2026-0001' },
+      error: null,
+    });
+    const adapter: IOrderRepository = new SupabaseOrderAdapter(client);
+
+    await adapter.placeOrder(input({ notificationEmail: null }));
+
+    expect(rpc).toHaveBeenCalledWith(
+      'create_order',
+      expect.objectContaining({ p_notification_email: null }),
+    );
+    expect(Object.keys(rpc.mock.calls[0]![1] as object)).toHaveLength(9);
   });
 
   it('RPC error(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw)', async () => {

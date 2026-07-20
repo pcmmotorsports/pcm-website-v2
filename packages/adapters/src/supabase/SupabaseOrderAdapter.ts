@@ -115,8 +115,8 @@ export const ADMIN_ORDER_DETAIL_SELECT =
  * 訂單查詢(plan §7)。
  *
  * #106:client 注入 `SupabaseClient<Database>` generic、findTotal 欄位 compile 期檢。`.rpc('create_order', args)`
- * 入參走 typed Args(3DS-0b db push 已落地、database.types.ts 已重 gen 5-param、原 db-push-pending 窄 cast 已移、
- * 恢復少鍵 drift 偵測);`data as unknown as CreateOrderRpcResult` **保留**(create_order RPC generated
+ * 入參走 mapper 白名單；B-3 依 flag 產精確 8 / 9 鍵(database.types.ts 的 9th key 已拍板留 B-4 重 gen)。
+ * `data as unknown as CreateOrderRpcResult` **保留**(create_order RPC generated
  * `Returns: Json`、wire 為 narrowed `{order_id, display_id}` DTO、Json→DTO 須 cast;非 type-safety 漏洞、
  * 是 RPC jsonb scalar 邊界的正當投射)。RPC `RETURNS jsonb` scalar → data 即該物件、不需 `.single()`。
  */
@@ -129,9 +129,7 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * RPC 錯誤(RAISE / 網路)原樣上拋不吞(對齊既有 adapter 裸 throw 慣例);回 `{orderId, displayId}`。
    */
   async placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
-    // 3DS-0b:db push 已落地(2026-06-17 整 bundle)、database.types.ts 已重 gen 為 5-param create_order,
-    // 故移除原 db-push-pending 窄 cast → mapper 輸出直接賦值 typed Args,恢復「少必填鍵」正向 drift 偵測
-    // (mapper 漏鍵 → typecheck 即紅;配 mapper test 鎖輸出恰 5 鍵雙層守門)。
+    // B-3:mapper 以 notificationEmail 屬性是否存在，產精確 8 / 9 鍵；同一 RPC 名稱不變。
     const { data, error } = await this.supabase.rpc(
       'create_order',
       mapPlaceOrderToCreateOrderArgs(input),

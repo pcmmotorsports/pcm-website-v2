@@ -497,7 +497,7 @@ export type OrderInvoice = {
  * PlaceOrderInput: 建單 use-case / repo 寫入 input(client → server 線契約、value-object)。
  *
  * 對齊 create_order RPC 簽名(p_lines / p_address_id / p_shipping_method / p_invoice / p_cart_session_id
- * / p_terms_version / p_client_ip / p_client_ua、#241 8-param):
+ * / p_terms_version / p_client_ip / p_client_ua + B-2 p_notification_email、flag-off 8 / flag-on 9-param):
  * - `lines`:購物車品項(1..200、每筆 qty 1..10000、上限 RPC 驗)
  * - `addressId`:收件地址 id(RPC 以 auth.uid() 驗本人歸屬、防 IDOR)
  * - `shippingMethod`:配送方式(運費 RPC §7 自算、見 shipping.ts)
@@ -518,7 +518,7 @@ export type PlaceOrderInput = {
   cartSessionId: string;
   /**
    * 🔴 #241 同意條款版本(server 注入 `CURRENT_TERMS_VERSION`、**非 client 送**;對齊 create_order
-   * 8-param `p_terms_version`)。create_order 路徑必填(NULL/空 → RPC RAISE「無 consent 不生 order」、
+   * 舊 8 鍵路徑的 `p_terms_version`)。create_order 路徑必填(NULL/空 → RPC RAISE「無 consent 不生 order」、
    * 同 transaction 原子寫 order_legal_consents)。
    */
   termsVersion: string;
@@ -526,6 +526,11 @@ export type PlaceOrderInput = {
   clientIp?: string | null;
   /** 🔴 #241 best-effort 同意來源 User-Agent(server 抓、可 null)。 */
   clientUserAgent?: string | null;
+  /**
+   * B-3 RPC shape marker：屬性不存在=flag off、維持精確 8 參數；屬性存在=flag on、送第 9 參數。
+   * B-3 刻意只送 null，不寫入客人 Email；canonical 真值接線保留 B-4。
+   */
+  notificationEmail?: null;
 };
 
 /**

@@ -31,6 +31,7 @@ const mockBuildCardholder = vi.fn();
 const mockGetUser = vi.fn();
 // 3DS-6a:flag 分岔 + result_url 組裝(three-ds-flag / three-ds-urls 各有獨立單元測;此處 mock 驗分岔接線)。
 const mockIsThreeDSEnabled = vi.fn();
+const mockIsCheckoutNotificationEmailEnabled = vi.fn();
 const mockResolveThreeDSConfig = vi.fn();
 const mockBuildResultUrls = vi.fn();
 const mockIsHttpsUrl = vi.fn();
@@ -56,6 +57,9 @@ vi.mock('@/lib/payment/composition', () => ({
 }));
 vi.mock('@/lib/payment/three-ds-flag', () => ({
   isThreeDSEnabled: () => mockIsThreeDSEnabled(),
+}));
+vi.mock('@/lib/email/notification-email-gate', () => ({
+  isCheckoutNotificationEmailEnabled: () => mockIsCheckoutNotificationEmailEnabled(),
 }));
 vi.mock('@/lib/payment/three-ds-urls', () => ({
   resolveThreeDSConfig: () => mockResolveThreeDSConfig(),
@@ -131,6 +135,7 @@ beforeEach(() => {
   mockConfirmPayment.mockResolvedValue({ kind: 'paid', idempotent: false });
   // 3DS-6a 預設 flag off(既有同步測沿用、3DS mock 不被呼);各 3DS 測顯式 mockReturnValue(true)。
   mockIsThreeDSEnabled.mockReturnValue(false);
+  mockIsCheckoutNotificationEmailEnabled.mockReturnValue(false);
   mockResolveThreeDSConfig.mockReturnValue({ base: 'https://pcm.example', secret: 's'.repeat(48) });
   mockBuildResultUrls.mockReturnValue({
     frontendRedirectUrl: 'https://pcm.example/checkout/callback?order=order-server-1',
@@ -160,6 +165,38 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
     const res = await action(validInput({ addressId: 'not-uuid' }));
     expect(res).toMatchObject({ fieldErrors: { addressId: expect.any(String) } });
     expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('B-3 flag off：不要求 Email，client 偷塞也不進 PlaceOrderInput，維持 8-param marker absent', async () => {
+    const action = await getAction();
+    await action(validInput({ notificationEmail: 'attacker@example.com' }));
+
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput).not.toHaveProperty('notificationEmail');
+  });
+
+  it.each([
+    ['缺值', undefined, '請填寫 Email'],
+    ['格式錯誤', 'invalid-email', 'Email 格式不正確'],
+    ['LINE 合成域', 'line_test@line.pcmmotorsports.local', 'Email 格式不正確'],
+  ])('B-3 flag on：%s → 欄位錯誤且零建單', async (_label, notificationEmail, message) => {
+    mockIsCheckoutNotificationEmailEnabled.mockReturnValue(true);
+    const action = await getAction();
+    const res = await action(validInput({ notificationEmail }));
+
+    expect(res).toEqual({ fieldErrors: { notificationEmail: message } });
+    expect(mockBuildCardholder).not.toHaveBeenCalled();
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+  });
+
+  it('B-3 flag on：合法 padded Email 通過 server canonical 驗證，但只送 9th null，真值留 B-4', async () => {
+    mockIsCheckoutNotificationEmailEnabled.mockReturnValue(true);
+    const action = await getAction();
+    await action(validInput({ notificationEmail: ' Member@EXAMPLE.COM ' }));
+
+    const [, placeOrderInput] = mockPlaceOrder.mock.calls[0]!;
+    expect(placeOrderInput.notificationEmail).toBeNull();
+    expect(JSON.stringify(placeOrderInput)).not.toContain('Member@example.com');
   });
 
   it('lines 非法(缺 variantId)→ formError REJECT 整單', async () => {

@@ -220,6 +220,17 @@
 }
 .co-addr-add:hover { border-color: var(--c-text); }
 
+/* B-3 business override:design-reference 沒有通知 Email；沿用既有 auth-field 視覺語言。 */
+.co-notification-email { margin: 18px 0 0; }
+.co-notification-email input[aria-invalid="true"] { border-color: var(--c-red); }
+.co-field-hint {
+  display: block;
+  margin-top: 7px;
+  color: var(--c-text-2);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 /* Shipping methods */
 .co-ship-grid {
   display: grid;
@@ -529,6 +540,8 @@
   .co-step-label { font-size: 12px; }
   .co-ship-grid { grid-template-columns: 1fr; }
   .co-card-row { grid-template-columns: 1fr; }
+  /* 🔴 iOS Safari 聚焦 <16px input 會自動放大；通知 Email 不得降回 auth-field 的 14px。 */
+  .co-notification-email input { font-size: 16px; }
 
   .co-mobile-buybar {
     display: flex;

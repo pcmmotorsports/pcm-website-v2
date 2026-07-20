@@ -42,6 +42,8 @@ export type ChargeArgs = {
   prime: string;
   /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client;前端鈕已 payDisabled=!agreed)。 */
   agreed: boolean;
+  /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
+  notificationEmail?: string;
 };
 
 export type ChargeState =
@@ -114,6 +116,9 @@ export function useChargePayment(): UseChargePayment {
         prime: args.prime,
         cartSessionId, // 🔴 3DS-7:client CartContext 穩定 key(server 驗 uuid/非空;空車不可達此=items>0 已保證生成)
         agreed: args.agreed, // 🔴 #241:同意條款 → server action 重驗(不信任 client)
+        ...(args.notificationEmail !== undefined
+          ? { notificationEmail: args.notificationEmail }
+          : {}),
       });
     } catch {
       // 🔴 fail-closed(審查側 BLOCKER 修):action 內部 catch 全吞回 formError,走到這裡 =
@@ -176,7 +181,10 @@ export function useChargePayment(): UseChargePayment {
     let message = GENERIC_FAIL;
     if ('formError' in res && res.formError) message = res.formError;
     else if ('fieldErrors' in res && res.fieldErrors) {
-      message = res.fieldErrors.addressId ?? '結帳資料有誤,請返回上一步確認';
+      message =
+        res.fieldErrors.notificationEmail ??
+        res.fieldErrors.addressId ??
+        '結帳資料有誤,請返回上一步確認';
     }
     setState({ status: 'error', message });
     return false;
