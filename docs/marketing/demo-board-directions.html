@@ -1,0 +1,677 @@
+<title>Eazi-Grip Demo Board — 三個視覺方向</title>
+
+<style>
+  :root {
+    --ink:        #16181c;
+    --ink-2:      #4a4f57;
+    --ink-3:      #797f89;
+    --ground:     #eceef0;
+    --panel:      #f7f8f9;
+    --line:       #d6d9de;
+    --accent:     #7a1f1f;
+
+    --sans: system-ui, -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink:    #e8eaed;
+      --ink-2:  #a8adb6;
+      --ink-3:  #767c86;
+      --ground: #131518;
+      --panel:  #1b1e23;
+      --line:   #2e333a;
+      --accent: #d98080;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink:    #e8eaed;
+    --ink-2:  #a8adb6;
+    --ink-3:  #767c86;
+    --ground: #131518;
+    --panel:  #1b1e23;
+    --line:   #2e333a;
+    --accent: #d98080;
+  }
+  :root[data-theme="light"] {
+    --ink:    #16181c;
+    --ink-2:  #4a4f57;
+    --ink-3:  #797f89;
+    --ground: #eceef0;
+    --panel:  #f7f8f9;
+    --line:   #d6d9de;
+    --accent: #7a1f1f;
+  }
+
+  * { box-sizing: border-box; }
+
+  .wrap {
+    font-family: var(--sans);
+    background: var(--ground);
+    color: var(--ink);
+    padding: clamp(24px, 5vw, 64px);
+    line-height: 1.65;
+  }
+
+  .masthead {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 64ch;
+    margin-bottom: clamp(32px, 5vw, 56px);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .masthead h1 {
+    margin: 0;
+    font-size: clamp(26px, 3.4vw, 40px);
+    font-weight: 650;
+    letter-spacing: -.02em;
+    text-wrap: balance;
+  }
+  .masthead p { margin: 0; color: var(--ink-2); font-size: 15px; }
+
+  .decks {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: clamp(28px, 4vw, 48px);
+    align-items: start;
+  }
+
+  .deck { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+  .deck-head { display: flex; flex-direction: column; gap: 4px; }
+  .deck-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .16em;
+    color: var(--ink-3);
+  }
+  .deck-name { font-size: 19px; font-weight: 640; letter-spacing: -.01em; }
+  .deck-note { font-size: 13.5px; color: var(--ink-2); }
+
+  /* ---------- shared board frame ---------- */
+  .board {
+    aspect-ratio: 420 / 594;
+    width: 100%;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    container-type: inline-size;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0,0,0,.16), 0 12px 28px -12px rgba(0,0,0,.3);
+  }
+
+  .b-brand   { display: flex; flex-direction: column; justify-content: center; }
+  .b-hook    { display: flex; flex-direction: column; justify-content: center; }
+  .b-grid    { display: grid; grid-template-columns: 1fr 1fr; }
+  .b-foot    { display: flex; flex-direction: column; justify-content: center; }
+
+  .cell { display: flex; flex-direction: column; position: relative; min-width: 0; }
+
+  /* material swatches, rendered with CSS so each direction can restyle the frame */
+  .chip {
+    aspect-ratio: 1;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    background: #0c0c0d;
+  }
+  .chip::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+  }
+  /* EVO — tall hemispherical studs */
+  .m-evo::after {
+    background-image:
+      radial-gradient(circle at 34% 32%, rgba(255,255,255,.5) 0 8%, transparent 9%),
+      radial-gradient(circle at 50% 50%, #6d7076 0 34%, #232529 36%, transparent 38%);
+    background-size: 15% 15%, 15% 15%;
+  }
+  /* PRO — low, flat discs */
+  .m-pro::after {
+    background-image:
+      radial-gradient(circle at 50% 50%, #4a4d52 0 26%, #1a1c1f 28%, transparent 30%);
+    background-size: 11% 11%;
+  }
+  /* Silicone — fine suede */
+  .m-sil::after {
+    background-image:
+      repeating-linear-gradient(58deg, rgba(255,255,255,.045) 0 1px, transparent 1px 3px),
+      repeating-linear-gradient(-58deg, rgba(0,0,0,.3) 0 1px, transparent 1px 3px);
+  }
+  /* PPF — clear gloss */
+  .m-ppf::after {
+    background-image: linear-gradient(128deg, rgba(255,255,255,.34) 0 18%, rgba(255,255,255,.05) 30% 62%, rgba(255,255,255,.24) 78% 100%);
+  }
+  /* transparent variants sit over painted tank */
+  .clear { background: linear-gradient(160deg, #8d1b22, #5d1015); }
+  .clear.m-evo::after {
+    background-image:
+      radial-gradient(circle at 34% 32%, rgba(255,255,255,.62) 0 8%, transparent 9%),
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,.2) 0 34%, rgba(0,0,0,.28) 36%, transparent 38%);
+    background-size: 15% 15%, 15% 15%;
+  }
+  .clear.m-pro::after {
+    background-image:
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,.16) 0 26%, rgba(0,0,0,.24) 28%, transparent 30%);
+    background-size: 11% 11%;
+  }
+  .m-ppf { background: linear-gradient(160deg, #8d1b22, #5d1015); }
+
+  .pick { position: absolute; z-index: 2; }
+
+  /* ================= A · 賽道工業風 ================= */
+  .dir-a {
+    --a-ground: #0a0b0c;
+    --a-ink:    #f2f4f2;
+    --a-dim:    #8e938f;
+    --a-hot:    #c8f02a;
+    background: var(--a-ground);
+    color: var(--a-ink);
+    font-family: var(--sans);
+  }
+  .dir-a .b-brand {
+    padding: 6cqw 6cqw 4cqw;
+    border-bottom: .8cqw solid var(--a-hot);
+    gap: .6cqw;
+  }
+  .dir-a .logo {
+    font-size: 9.4cqw;
+    font-weight: 800;
+    letter-spacing: -.035em;
+    line-height: .92;
+    font-style: italic;
+  }
+  .dir-a .agency {
+    font-size: 2.5cqw;
+    letter-spacing: .1em;
+    color: var(--a-hot);
+    font-weight: 620;
+  }
+  .dir-a .b-hook {
+    padding: 4.6cqw 6cqw;
+    background: repeating-linear-gradient(135deg, #131416 0 3.4cqw, #0f1012 3.4cqw 6.8cqw);
+  }
+  .dir-a .hook {
+    font-size: 6.4cqw;
+    font-weight: 800;
+    line-height: 1.12;
+    letter-spacing: -.02em;
+  }
+  .dir-a .hook em { font-style: normal; color: var(--a-hot); }
+  .dir-a .b-grid { padding: 4.4cqw 4.4cqw 2cqw; gap: 3.6cqw 4cqw; }
+  .dir-a .cell { gap: 1.5cqw; }
+  .dir-a .chip { border: .5cqw solid #2a2d30; }
+  .dir-a .cell.is-pick .chip { border-color: var(--a-hot); }
+  .dir-a .m-name { font-size: 3.5cqw; font-weight: 780; letter-spacing: .02em; }
+  .dir-a .m-line { font-size: 2.65cqw; color: var(--a-dim); line-height: 1.3; }
+  .dir-a .gauge { display: flex; gap: .7cqw; margin-top: .4cqw; align-items: center; }
+  .dir-a .gauge i { width: 1.9cqw; height: 1.9cqw; background: #34383c; display: block; transform: skewX(-14deg); }
+  .dir-a .gauge i.on { background: var(--a-hot); }
+  .dir-a .gauge span { font-size: 2.1cqw; color: var(--a-dim); letter-spacing: .1em; margin-right: .5cqw; }
+  .dir-a .pick {
+    top: -1.6cqw; right: -1.2cqw;
+    background: var(--a-hot); color: #0a0b0c;
+    font-size: 2.2cqw; font-weight: 800;
+    padding: .5cqw 1.4cqw;
+    transform: skewX(-14deg);
+  }
+  .dir-a .b-foot {
+    padding: 4cqw 6cqw 5cqw;
+    border-top: .5cqw solid #24272a;
+    gap: 2cqw;
+  }
+  .dir-a .price { font-size: 5.2cqw; font-weight: 800; letter-spacing: -.02em; }
+  .dir-a .price small { font-size: 2.8cqw; font-weight: 600; color: var(--a-dim); letter-spacing: 0; }
+  .dir-a .foot-row { display: flex; align-items: center; gap: 3cqw; }
+  .dir-a .qr { width: 11cqw; height: 11cqw; flex: none; }
+  .dir-a .qr-cap { font-size: 2.6cqw; color: var(--a-dim); line-height: 1.35; }
+  .dir-a .shop {
+    font-size: 2.5cqw; color: var(--a-hot);
+    border-top: .3cqw dashed #2f3336; padding-top: 1.6cqw;
+    letter-spacing: .04em;
+  }
+
+  /* ================= B · 精品極簡 ================= */
+  .dir-b {
+    --b-ground: #f4f3f1;
+    --b-ink:    #1a1a19;
+    --b-dim:    #86847f;
+    --b-line:   #cfcdc8;
+    background: var(--b-ground);
+    color: var(--b-ink);
+  }
+  .dir-b .b-brand { padding: 8cqw 7cqw 5cqw; gap: 1.6cqw; align-items: center; text-align: center; }
+  .dir-b .logo { font-size: 6.2cqw; font-weight: 300; letter-spacing: .3em; text-indent: .3em; }
+  .dir-b .agency { font-size: 2.2cqw; letter-spacing: .24em; color: var(--b-dim); text-indent: .24em; }
+  .dir-b .b-hook { padding: 0 7cqw 6cqw; align-items: center; text-align: center; }
+  .dir-b .hook { font-size: 4.4cqw; font-weight: 400; line-height: 1.5; letter-spacing: .04em; }
+  .dir-b .hook em { font-style: normal; display: block; color: var(--b-dim); font-size: 3.3cqw; margin-top: 1cqw; }
+  .dir-b .b-grid {
+    padding: 0 7cqw;
+    gap: 4.6cqw 5cqw;
+    border-top: 1px solid var(--b-line);
+    padding-top: 5.5cqw;
+  }
+  .dir-b .cell { gap: 1.8cqw; align-items: center; text-align: center; }
+  .dir-b .chip { border-radius: 50%; }
+  .dir-b .m-name { font-size: 2.9cqw; font-weight: 500; letter-spacing: .12em; }
+  .dir-b .m-line { font-size: 2.4cqw; color: var(--b-dim); line-height: 1.4; }
+  .dir-b .gauge { display: flex; gap: .9cqw; align-items: center; justify-content: center; }
+  .dir-b .gauge span { display: none; }
+  .dir-b .gauge i { width: 1.5cqw; height: 1.5cqw; border-radius: 50%; border: 1px solid var(--b-ink); display: block; }
+  .dir-b .gauge i.on { background: var(--b-ink); }
+  .dir-b .pick {
+    top: 0; left: 50%; transform: translate(-50%, -140%);
+    font-size: 2cqw; letter-spacing: .16em; color: var(--b-dim);
+  }
+  .dir-b .b-foot { padding: 6cqw 7cqw 7cqw; align-items: center; text-align: center; gap: 2.4cqw; }
+  .dir-b .price { font-size: 3.4cqw; font-weight: 400; letter-spacing: .08em; }
+  .dir-b .price small { font-size: 2.4cqw; color: var(--b-dim); }
+  .dir-b .foot-row { display: flex; flex-direction: column; align-items: center; gap: 1.6cqw; }
+  .dir-b .qr { width: 10cqw; height: 10cqw; }
+  .dir-b .qr-cap { font-size: 2.2cqw; color: var(--b-dim); letter-spacing: .1em; }
+  .dir-b .shop { font-size: 2.2cqw; color: var(--b-dim); letter-spacing: .1em; border-top: 1px solid var(--b-line); padding-top: 2.4cqw; width: 100%; }
+
+  /* ================= C · 資訊圖表風 ================= */
+  .dir-c {
+    --c-ground: #1e242b;
+    --c-panel:  #263038;
+    --c-ink:    #eef2f5;
+    --c-dim:    #94a2ad;
+    --c-key:    #f0a72c;
+    --c-bar:    #4aa3c7;
+    background: var(--c-ground);
+    color: var(--c-ink);
+  }
+  .dir-c .b-brand {
+    padding: 5cqw 5.5cqw 3.4cqw;
+    display: flex; flex-direction: row; align-items: baseline; justify-content: space-between; gap: 2cqw;
+  }
+  .dir-c .logo { font-size: 6.4cqw; font-weight: 700; letter-spacing: -.02em; }
+  .dir-c .agency { font-size: 2.1cqw; color: var(--c-dim); letter-spacing: .07em; text-align: right; line-height: 1.35; }
+  .dir-c .b-hook { padding: 0 5.5cqw 4cqw; }
+  .dir-c .hook { font-size: 5cqw; font-weight: 700; line-height: 1.2; letter-spacing: -.015em; }
+  .dir-c .hook em { font-style: normal; color: var(--c-key); }
+  .dir-c .b-grid { grid-template-columns: 1fr; padding: 0 5.5cqw; gap: 1.5cqw; align-content: start; }
+  .dir-c .cell {
+    flex-direction: row; align-items: center; gap: 3cqw;
+    background: var(--c-panel); padding: 2cqw;
+  }
+  .dir-c .cell.is-pick { outline: .45cqw solid var(--c-key); }
+  .dir-c .chip { width: 13cqw; flex: none; }
+  .dir-c .m-body { display: flex; flex-direction: column; gap: .5cqw; flex: 1; min-width: 0; }
+  .dir-c .m-name { font-size: 2.9cqw; font-weight: 700; letter-spacing: .02em; }
+  .dir-c .m-line { font-size: 2.3cqw; color: var(--c-dim); line-height: 1.3; }
+  .dir-c .gauge { display: flex; align-items: center; gap: 1.2cqw; margin-top: .5cqw; }
+  .dir-c .gauge span { font-size: 1.9cqw; color: var(--c-dim); letter-spacing: .08em; flex: none; }
+  .dir-c .gauge .track { height: 1.5cqw; background: #161c21; flex: 1; position: relative; overflow: hidden; }
+  .dir-c .gauge .track b { position: absolute; inset: 0 auto 0 0; background: var(--c-bar); display: block; }
+  .dir-c .cell.is-pick .gauge .track b { background: var(--c-key); }
+  .dir-c .pick {
+    position: static;
+    background: var(--c-key); color: #1b1206;
+    font-size: 1.9cqw; font-weight: 700; letter-spacing: .04em;
+    padding: .4cqw 1.1cqw; align-self: flex-start;
+  }
+  .dir-c .b-foot {
+    margin: 3.4cqw 5.5cqw 5cqw;
+    background: var(--c-panel);
+    padding: 3.4cqw;
+    gap: 2.4cqw;
+  }
+  .dir-c .price { font-size: 4.2cqw; font-weight: 700; letter-spacing: -.015em; }
+  .dir-c .price small { font-size: 2.4cqw; font-weight: 500; color: var(--c-dim); letter-spacing: 0; }
+  .dir-c .foot-row { display: flex; align-items: center; gap: 2.6cqw; }
+  .dir-c .qr { width: 10.5cqw; height: 10.5cqw; flex: none; }
+  .dir-c .qr-cap { font-size: 2.3cqw; color: var(--c-dim); line-height: 1.35; }
+  .dir-c .shop { font-size: 2.2cqw; color: var(--c-dim); border-top: .3cqw solid #36434d; padding-top: 1.8cqw; }
+
+  /* spec list under each board */
+  .spec { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-2); }
+  .spec div { display: flex; gap: 8px; }
+  .spec b { color: var(--ink); font-weight: 600; flex: none; min-width: 3.2em; }
+
+  .foot {
+    margin-top: clamp(40px, 6vw, 72px);
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--ink-2);
+    max-width: 70ch;
+  }
+  .foot strong { color: var(--ink); font-weight: 620; }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <span class="eyebrow">Eazi-Grip × PCM ・ A2 展示板</span>
+    <h1>三個視覺方向</h1>
+    <p>同一份文案、同一個版面結構,三種調性。實際尺寸 420 × 594 mm,六塊 120 × 120 mm 材質樣板可直接觸摸。挑一個方向,再進細部設計與印刷。</p>
+  </header>
+
+  <div class="decks">
+
+    <!-- ============ A ============ -->
+    <section class="deck">
+      <div class="deck-head">
+        <span class="deck-tag">方向 A</span>
+        <span class="deck-name">賽道工業風</span>
+        <span class="deck-note">黑底、螢光黃綠、斜切標記。車行環境視覺雜訊多,這個方向搶得到注意力,也是這個品類的原生語言。</span>
+      </div>
+
+      <div class="board dir-a">
+        <div class="b-brand">
+          <div class="logo">EAZI-GRIP</div>
+          <div class="agency">台灣總代理 ・ PCM MOTORSPORTS</div>
+        </div>
+        <div class="b-hook">
+          <div class="hook">摸摸看。<br><em>選錯的比買貴的多。</em></div>
+        </div>
+        <div class="b-grid">
+          <div class="cell">
+            <div class="chip m-evo"></div>
+            <div class="m-name">EVO 黑</div>
+            <div class="m-line">賽道級最強咬合</div>
+            <div class="gauge"><span>咬合</span><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-evo clear"></div>
+            <div class="m-name">EVO 透明</div>
+            <div class="m-line">同款透明,不遮車色</div>
+            <div class="gauge"><span>咬合</span><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          </div>
+          <div class="cell is-pick">
+            <span class="pick">9 成車友選這款</span>
+            <div class="chip m-pro"></div>
+            <div class="m-name">PRO 黑</div>
+            <div class="m-line">街跑日常最好動</div>
+            <div class="gauge"><span>咬合</span><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-pro clear"></div>
+            <div class="m-name">PRO 透明</div>
+            <div class="m-line">低調不搶車色</div>
+            <div class="gauge"><span>咬合</span><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-sil"></div>
+            <div class="m-name">SILICONE</div>
+            <div class="m-line">長途久坐不磨褲</div>
+            <div class="gauge"><span>咬合</span><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-ppf"></div>
+            <div class="m-name">PPF 犀牛皮</div>
+            <div class="m-line">純護漆,不止滑</div>
+            <div class="gauge"><span>咬合</span><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <div class="b-foot">
+          <div class="price">NT$1,950 起 <small>・ 可代客施工</small></div>
+          <div class="foot-row">
+            <svg class="qr" viewBox="0 0 29 29" shape-rendering="crispEdges" aria-hidden="true">
+              <rect width="29" height="29" fill="#f2f4f2"/>
+              <g fill="#0a0b0c">
+                <path d="M2 2h7v7H2zM3 3v5h5V3z"/><rect x="4" y="4" width="3" height="3"/>
+                <path d="M20 2h7v7h-7zM21 3v5h5V3z"/><rect x="22" y="4" width="3" height="3"/>
+                <path d="M2 20h7v7H2zM3 21v5h5v-5z"/><rect x="4" y="22" width="3" height="3"/>
+                <rect x="11" y="2" width="1" height="2"/><rect x="13" y="2" width="1" height="1"/><rect x="15" y="3" width="1" height="2"/>
+                <rect x="11" y="5" width="2" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="16" y="5" width="1" height="1"/>
+                <rect x="11" y="8" width="1" height="1"/><rect x="13" y="7" width="1" height="2"/><rect x="16" y="8" width="1" height="1"/>
+                <rect x="2" y="11" width="2" height="1"/><rect x="5" y="11" width="1" height="1"/><rect x="7" y="12" width="2" height="1"/>
+                <rect x="3" y="13" width="1" height="2"/><rect x="6" y="14" width="1" height="1"/><rect x="8" y="15" width="1" height="1"/>
+                <rect x="2" y="16" width="1" height="1"/><rect x="5" y="16" width="2" height="1"/>
+                <rect x="11" y="11" width="2" height="2"/><rect x="14" y="11" width="1" height="1"/><rect x="16" y="12" width="2" height="1"/>
+                <rect x="12" y="14" width="1" height="2"/><rect x="15" y="14" width="2" height="1"/><rect x="18" y="15" width="1" height="2"/>
+                <rect x="11" y="17" width="1" height="1"/><rect x="14" y="17" width="1" height="2"/><rect x="17" y="18" width="1" height="1"/>
+                <rect x="20" y="11" width="1" height="2"/><rect x="22" y="12" width="2" height="1"/><rect x="25" y="11" width="1" height="1"/>
+                <rect x="21" y="14" width="2" height="1"/><rect x="24" y="15" width="1" height="2"/><rect x="26" y="14" width="1" height="1"/>
+                <rect x="20" y="17" width="1" height="1"/><rect x="23" y="17" width="1" height="1"/><rect x="25" y="18" width="2" height="1"/>
+                <rect x="11" y="20" width="1" height="2"/><rect x="13" y="21" width="2" height="1"/><rect x="16" y="20" width="1" height="1"/>
+                <rect x="12" y="23" width="1" height="1"/><rect x="14" y="24" width="1" height="2"/><rect x="17" y="23" width="2" height="1"/>
+                <rect x="11" y="26" width="2" height="1"/><rect x="15" y="26" width="1" height="1"/><rect x="18" y="25" width="1" height="2"/>
+                <rect x="20" y="20" width="2" height="1"/><rect x="23" y="20" width="1" height="2"/><rect x="26" y="21" width="1" height="1"/>
+                <rect x="20" y="23" width="1" height="1"/><rect x="22" y="23" width="2" height="1"/><rect x="25" y="24" width="2" height="1"/>
+                <rect x="21" y="25" width="1" height="2"/><rect x="24" y="26" width="1" height="1"/><rect x="26" y="26" width="1" height="1"/>
+              </g>
+            </svg>
+            <div class="qr-cap">掃碼查你的車<br>有沒有</div>
+          </div>
+          <div class="shop">展示與施工由 武人重車 提供</div>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div><b>底色</b><span>純黑 #0A0B0C</span></div>
+        <div><b>重點色</b><span>螢光黃綠 #C8F02A</span></div>
+        <div><b>字體</b><span>粗黑體斜切,標題義大利斜體</span></div>
+        <div><b>優點</b><span>三公尺外就看得到,重機玩家一眼認得出調性</span></div>
+        <div><b>風險</b><span>若車行牆面本來就很雜,黑底可能糊掉</span></div>
+      </div>
+    </section>
+
+    <!-- ============ B ============ -->
+    <section class="deck">
+      <div class="deck-head">
+        <span class="deck-tag">方向 B</span>
+        <span class="deck-name">精品極簡</span>
+        <span class="deck-note">米白、細字、大量留白。拉開與白牌貼紙的階級差,但在雜亂的車行環境裡可能不夠搶眼。</span>
+      </div>
+
+      <div class="board dir-b">
+        <div class="b-brand">
+          <div class="logo">EAZI-GRIP</div>
+          <div class="agency">台灣總代理 ・ PCM MOTORSPORTS</div>
+        </div>
+        <div class="b-hook">
+          <div class="hook">摸摸看。<em>選錯的比買貴的多。</em></div>
+        </div>
+        <div class="b-grid">
+          <div class="cell">
+            <div class="chip m-evo"></div>
+            <div class="m-name">EVO 黑</div>
+            <div class="m-line">賽道級最強咬合</div>
+            <div class="gauge"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-evo clear"></div>
+            <div class="m-name">EVO 透明</div>
+            <div class="m-line">同款透明,不遮車色</div>
+            <div class="gauge"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i></div>
+          </div>
+          <div class="cell is-pick">
+            <span class="pick">9 成車友選這款</span>
+            <div class="chip m-pro"></div>
+            <div class="m-name">PRO 黑</div>
+            <div class="m-line">街跑日常最好動</div>
+            <div class="gauge"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-pro clear"></div>
+            <div class="m-name">PRO 透明</div>
+            <div class="m-line">低調不搶車色</div>
+            <div class="gauge"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-sil"></div>
+            <div class="m-name">SILICONE</div>
+            <div class="m-line">長途久坐不磨褲</div>
+            <div class="gauge"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+          </div>
+          <div class="cell">
+            <div class="chip m-ppf"></div>
+            <div class="m-name">PPF 犀牛皮</div>
+            <div class="m-line">純護漆,不止滑</div>
+            <div class="gauge"><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+        </div>
+        <div class="b-foot">
+          <div class="price">NT$1,950 起 <small>・ 可代客施工</small></div>
+          <div class="foot-row">
+            <svg class="qr" viewBox="0 0 29 29" shape-rendering="crispEdges" aria-hidden="true">
+              <rect width="29" height="29" fill="#f4f3f1"/>
+              <g fill="#1a1a19">
+                <path d="M2 2h7v7H2zM3 3v5h5V3z"/><rect x="4" y="4" width="3" height="3"/>
+                <path d="M20 2h7v7h-7zM21 3v5h5V3z"/><rect x="22" y="4" width="3" height="3"/>
+                <path d="M2 20h7v7H2zM3 21v5h5v-5z"/><rect x="4" y="22" width="3" height="3"/>
+                <rect x="11" y="2" width="1" height="2"/><rect x="13" y="2" width="1" height="1"/><rect x="15" y="3" width="1" height="2"/>
+                <rect x="11" y="5" width="2" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="16" y="5" width="1" height="1"/>
+                <rect x="11" y="8" width="1" height="1"/><rect x="13" y="7" width="1" height="2"/><rect x="16" y="8" width="1" height="1"/>
+                <rect x="2" y="11" width="2" height="1"/><rect x="5" y="11" width="1" height="1"/><rect x="7" y="12" width="2" height="1"/>
+                <rect x="3" y="13" width="1" height="2"/><rect x="6" y="14" width="1" height="1"/><rect x="8" y="15" width="1" height="1"/>
+                <rect x="2" y="16" width="1" height="1"/><rect x="5" y="16" width="2" height="1"/>
+                <rect x="11" y="11" width="2" height="2"/><rect x="14" y="11" width="1" height="1"/><rect x="16" y="12" width="2" height="1"/>
+                <rect x="12" y="14" width="1" height="2"/><rect x="15" y="14" width="2" height="1"/><rect x="18" y="15" width="1" height="2"/>
+                <rect x="11" y="17" width="1" height="1"/><rect x="14" y="17" width="1" height="2"/><rect x="17" y="18" width="1" height="1"/>
+                <rect x="20" y="11" width="1" height="2"/><rect x="22" y="12" width="2" height="1"/><rect x="25" y="11" width="1" height="1"/>
+                <rect x="21" y="14" width="2" height="1"/><rect x="24" y="15" width="1" height="2"/><rect x="26" y="14" width="1" height="1"/>
+                <rect x="20" y="17" width="1" height="1"/><rect x="23" y="17" width="1" height="1"/><rect x="25" y="18" width="2" height="1"/>
+                <rect x="11" y="20" width="1" height="2"/><rect x="13" y="21" width="2" height="1"/><rect x="16" y="20" width="1" height="1"/>
+                <rect x="12" y="23" width="1" height="1"/><rect x="14" y="24" width="1" height="2"/><rect x="17" y="23" width="2" height="1"/>
+                <rect x="11" y="26" width="2" height="1"/><rect x="15" y="26" width="1" height="1"/><rect x="18" y="25" width="1" height="2"/>
+                <rect x="20" y="20" width="2" height="1"/><rect x="23" y="20" width="1" height="2"/><rect x="26" y="21" width="1" height="1"/>
+                <rect x="20" y="23" width="1" height="1"/><rect x="22" y="23" width="2" height="1"/><rect x="25" y="24" width="2" height="1"/>
+                <rect x="21" y="25" width="1" height="2"/><rect x="24" y="26" width="1" height="1"/><rect x="26" y="26" width="1" height="1"/>
+              </g>
+            </svg>
+            <div class="qr-cap">掃碼查你的車有沒有</div>
+          </div>
+          <div class="shop">展示與施工由 武人重車 提供</div>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div><b>底色</b><span>米白 #F4F3F1</span></div>
+        <div><b>重點色</b><span>無,只用墨黑與灰</span></div>
+        <div><b>字體</b><span>細體大字距,圓形樣板框</span></div>
+        <div><b>優點</b><span>質感最高,凸顯與白牌的階級差</span></div>
+        <div><b>風險</b><span>太安靜。淺底在油污環境也容易髒</span></div>
+      </div>
+    </section>
+
+    <!-- ============ C ============ -->
+    <section class="deck">
+      <div class="deck-head">
+        <span class="deck-tag">方向 C</span>
+        <span class="deck-name">資訊圖表風</span>
+        <span class="deck-note">深藍灰、橫向長條、量表化比較。最好懂、最能引發諮詢,視覺沒有 A 帥,但溝通效率最高。</span>
+      </div>
+
+      <div class="board dir-c">
+        <div class="b-brand">
+          <div class="logo">EAZI-GRIP</div>
+          <div class="agency">台灣總代理<br>PCM MOTORSPORTS</div>
+        </div>
+        <div class="b-hook">
+          <div class="hook">摸摸看。<em>選錯的比買貴的多。</em></div>
+        </div>
+        <div class="b-grid">
+          <div class="cell">
+            <div class="chip m-evo"></div>
+            <div class="m-body">
+              <div class="m-name">EVO 黑</div>
+              <div class="m-line">賽道級最強咬合</div>
+              <div class="gauge"><span>咬合</span><div class="track"><b style="width:100%"></b></div></div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="chip m-evo clear"></div>
+            <div class="m-body">
+              <div class="m-name">EVO 透明</div>
+              <div class="m-line">同款透明,不遮車色</div>
+              <div class="gauge"><span>咬合</span><div class="track"><b style="width:100%"></b></div></div>
+            </div>
+          </div>
+          <div class="cell is-pick">
+            <div class="chip m-pro"></div>
+            <div class="m-body">
+              <span class="pick">9 成車友選這款</span>
+              <div class="m-name">PRO 黑</div>
+              <div class="m-line">街跑日常最好動</div>
+              <div class="gauge"><span>咬合</span><div class="track"><b style="width:60%"></b></div></div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="chip m-pro clear"></div>
+            <div class="m-body">
+              <div class="m-name">PRO 透明</div>
+              <div class="m-line">低調不搶車色</div>
+              <div class="gauge"><span>咬合</span><div class="track"><b style="width:60%"></b></div></div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="chip m-sil"></div>
+            <div class="m-body">
+              <div class="m-name">SILICONE 絨面</div>
+              <div class="m-line">長途久坐不磨褲</div>
+              <div class="gauge"><span>咬合</span><div class="track"><b style="width:35%"></b></div></div>
+            </div>
+          </div>
+          <div class="cell">
+            <div class="chip m-ppf"></div>
+            <div class="m-body">
+              <div class="m-name">PPF 犀牛皮</div>
+              <div class="m-line">純護漆,不止滑</div>
+              <div class="gauge"><span>咬合</span><div class="track"><b style="width:0%"></b></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="b-foot">
+          <div class="price">NT$1,950 起 <small>・ 可代客施工</small></div>
+          <div class="foot-row">
+            <svg class="qr" viewBox="0 0 29 29" shape-rendering="crispEdges" aria-hidden="true">
+              <rect width="29" height="29" fill="#eef2f5"/>
+              <g fill="#1e242b">
+                <path d="M2 2h7v7H2zM3 3v5h5V3z"/><rect x="4" y="4" width="3" height="3"/>
+                <path d="M20 2h7v7h-7zM21 3v5h5V3z"/><rect x="22" y="4" width="3" height="3"/>
+                <path d="M2 20h7v7H2zM3 21v5h5v-5z"/><rect x="4" y="22" width="3" height="3"/>
+                <rect x="11" y="2" width="1" height="2"/><rect x="13" y="2" width="1" height="1"/><rect x="15" y="3" width="1" height="2"/>
+                <rect x="11" y="5" width="2" height="1"/><rect x="14" y="6" width="1" height="1"/><rect x="16" y="5" width="1" height="1"/>
+                <rect x="11" y="8" width="1" height="1"/><rect x="13" y="7" width="1" height="2"/><rect x="16" y="8" width="1" height="1"/>
+                <rect x="2" y="11" width="2" height="1"/><rect x="5" y="11" width="1" height="1"/><rect x="7" y="12" width="2" height="1"/>
+                <rect x="3" y="13" width="1" height="2"/><rect x="6" y="14" width="1" height="1"/><rect x="8" y="15" width="1" height="1"/>
+                <rect x="2" y="16" width="1" height="1"/><rect x="5" y="16" width="2" height="1"/>
+                <rect x="11" y="11" width="2" height="2"/><rect x="14" y="11" width="1" height="1"/><rect x="16" y="12" width="2" height="1"/>
+                <rect x="12" y="14" width="1" height="2"/><rect x="15" y="14" width="2" height="1"/><rect x="18" y="15" width="1" height="2"/>
+                <rect x="11" y="17" width="1" height="1"/><rect x="14" y="17" width="1" height="2"/><rect x="17" y="18" width="1" height="1"/>
+                <rect x="20" y="11" width="1" height="2"/><rect x="22" y="12" width="2" height="1"/><rect x="25" y="11" width="1" height="1"/>
+                <rect x="21" y="14" width="2" height="1"/><rect x="24" y="15" width="1" height="2"/><rect x="26" y="14" width="1" height="1"/>
+                <rect x="20" y="17" width="1" height="1"/><rect x="23" y="17" width="1" height="1"/><rect x="25" y="18" width="2" height="1"/>
+                <rect x="11" y="20" width="1" height="2"/><rect x="13" y="21" width="2" height="1"/><rect x="16" y="20" width="1" height="1"/>
+                <rect x="12" y="23" width="1" height="1"/><rect x="14" y="24" width="1" height="2"/><rect x="17" y="23" width="2" height="1"/>
+                <rect x="11" y="26" width="2" height="1"/><rect x="15" y="26" width="1" height="1"/><rect x="18" y="25" width="1" height="2"/>
+                <rect x="20" y="20" width="2" height="1"/><rect x="23" y="20" width="1" height="2"/><rect x="26" y="21" width="1" height="1"/>
+                <rect x="20" y="23" width="1" height="1"/><rect x="22" y="23" width="2" height="1"/><rect x="25" y="24" width="2" height="1"/>
+                <rect x="21" y="25" width="1" height="2"/><rect x="24" y="26" width="1" height="1"/><rect x="26" y="26" width="1" height="1"/>
+              </g>
+            </svg>
+            <div class="qr-cap">掃碼查你的車<br>有沒有</div>
+          </div>
+          <div class="shop">展示與施工由 武人重車 提供</div>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div><b>底色</b><span>深藍灰 #1E242B</span></div>
+        <div><b>重點色</b><span>琥珀 #F0A72C(只用在推薦款)</span></div>
+        <div><b>字體</b><span>中黑體,橫向量表比較</span></div>
+        <div><b>優點</b><span>客人自己看就懂差別,店員好接話</span></div>
+        <div><b>風險</b><span>樣板較小(橫排),觸摸體驗略輸 A 與 B</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <p class="foot">
+    <strong>三個方向的樣板尺寸不同:</strong>A 與 B 是 2 欄 × 3 列的大方塊,單塊接近 120 × 120 mm;C 改成橫排長條,樣板會縮到約 90 mm。摸的體驗 A ≈ B &gt; C,看懂的速度 C &gt; A &gt; B。
+    這塊板的第一任務是讓人伸手去摸,所以如果難以取捨,建議偏向 A 或 B。
+  </p>
+</div>
