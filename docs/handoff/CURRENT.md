@@ -2,15 +2,15 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前只有兩個合法開工入口：主軌 M-4a B-3，或支線 #288-b。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳計畫首片 L0，或支線 #288-b；同一時間只允許一個寫入 session。**
 
 ## 1. 交接快照
 
 - Updated: 2026-07-20, Asia/Taipei
 - Agent: Codex
-- Mode: M-4a B-3 獨立 review R3 PASS，本片由本 commit 收錄；未 push
+- Mode: M-3 兩步結帳設計／實作計畫完成；尚未施工、未 push
 - Branch: `dev`
-- Implementation base: `54df4ec`
+- Implementation base: `041ade6`
 - Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；本輪未 push
 - Expected dirty: 本 commit 後應為 clean；若仍有 dirty，先辨認 ownership
 
@@ -28,7 +28,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - B-0 PRD ✅
 - B-1 `orders.notification_email` nullable 欄位 + 六條件 CHECK：repo SSoT 記錄為已 apply production
 - B-2 `create_order` 8→9 參：repo SSoT 記錄為已 apply production，且路徑②驗收完成
-- B-3：**程式、測試與三輪獨立審查已完成，R3 PASS；由本 commit 收錄，未 push**
+- B-3：**程式、測試與三輪獨立審查已完成，R3 PASS；commit `a7ff24d`，未 push**
 - B-2 上線不等於通知功能已上線；第 9 參仍可 `DEFAULT NULL`，必填收緊屬 B-6
 
 ### #288 production-build E2E 支線
@@ -41,20 +41,29 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
   - `STATUS.md` 仍列「Secrets 待設定」
   - 本輪未連 GitHub live 重驗，故不得把任一說法當成當前已確認事實
 
+### M-3 兩步結帳方向
+
+- Sean 已批准 A：由三步改成兩步，第二步採單欄連續式。
+- 設計真權威：`docs/specs/2026-07-20-m3-two-step-checkout-design.md`。
+- 實作計畫：`docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md`；已經 Sol High 兩輪唯讀審查，R1 10 項與 R2 4 項 must-fix 均已折入；依 repo 兩輪上限未跑 R3。
+- 計畫共 12 片：L0、U1、U2a、U2b、U3a、U3b、U4a、U4b、U5、L1、V1a、V1b。L1 等 Sean／法律核准正式條款與隱私內容；未完成 L1+V1b 前不得稱 production checkout 完成。
+- 本輪只完成設計與計畫文件；checkout code、route、migration、flag、deploy、DB 均未動。
+
 ### 作廢入口
 
 **E2a-2 已於 2026-07-18 D′ 轉折後作廢。**
 `docs/specs/2026-07-19-m4a-email-e2a-2-plan.md` 與舊過夜片單只供歷史追溯，
 **不得據此規劃、施工或恢復「對帳補寄 + 五訊號」舊路線**。
 
-## 3. 雙軌入口
+## 3. 三個入口
 
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
-| 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由本 commit 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
+| 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由 `a7ff24d` 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
+| M-3 | **兩步結帳 L0**：先校正法律 SSoT／backlog，產品線再由 U1 原子切兩步 | Sean 本輪新批准方向 | L1 受正式法律內容阻擋；U1–U5 可在 flag-off 平行準備 |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
-兩軌業務上獨立，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
+三個入口業務上可獨立規劃，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
 另一條若同時存在只能唯讀，避免 shared index／push 夾帶事故。
 
 ## 4. 主軌審查卡：M-4a B-3
