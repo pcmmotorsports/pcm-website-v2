@@ -132,7 +132,7 @@ export function FilterDrawer({
   // #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏對應 tab(同 FilterSide;車種=#220b 留)。
   // 其他 tab = 現貨(#161 SHOW_IN_STOCK_FILTER=false 關著)+ 新品/特價(hidePromoFlags 隱);兩者皆空時整 tab 隱藏避空殼。
   const tabs: { id: DrawerTab; label: string; count: number }[] = [
-    { id: 'vehicle', label: '依車輛搜尋', count: cascade.vehicle ? 1 : 0 },
+    { id: 'vehicle', label: '選擇車款', count: cascade.vehicle ? 1 : 0 },
     ...(hideCategory ? [] : [{ id: 'category' as DrawerTab, label: '零件分類', count: cascade.category ? 1 : 0 }]),
     ...(hideBrand ? [] : [{ id: 'brand' as DrawerTab, label: '品牌', count: cascade.brands.length }]),
     { id: 'price', label: '價格', count: extras.price ? 1 : 0 },

@@ -28,79 +28,51 @@ import { GarageChips, type GarageChipItem } from './GarageChips';
 
 export function CascadeFilterTop({
   data,
-  onOpenDrawer,
   cascade,
   dispatch,
   garage = [],
 }: {
   data: FilterTopData;
-  onOpenDrawer?: (target: string) => void;
   /** V-1e:登入會員愛車 chips(未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
   garage?: GarageChipItem[];
 } & CascadeControlledProps) {
   const vehicle = cascade.vehicle;
 
-  // 手機版 chip 顯示文字(S1:停在品牌/車型層〔未選年〕成為常態 → year 缺時不顯 '{yy};
-  //   修原 `String(undefined).slice(-2)` 顯示 "'ed" 的 latent bug;model 缺退品牌名)
-  const vehShort = vehicle
-    ? [
-        vehicle.model ?? vehicle.brand,
-        vehicle.year != null ? `'${String(vehicle.year).slice(-2)}` : '',
-      ]
-        .filter(Boolean)
-        .join(' ')
-    : null;
-
   return (
-    <>
-      {/* ── 桌機 cascade bar ── */}
-      <div className="cft-bar">
-        <div className="cft-inner">
-          <div className="cft-cascade">
-            <span className="cft-icon" aria-hidden="true">
-              <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
-              </svg>
-            </span>
-            <span className="cft-label">確認適用車款</span>
-            <VehicleSelect
-              motoBrands={data.motoBrands}
-              vehicle={vehicle}
-              onPickBrand={(name) => dispatch(selectVehicleBrand(name))}
-              onPickModel={(name) => dispatch(selectVehicleModel(name))}
-              onPickYear={(year) => dispatch(selectVehicleYear(year))}
-              onClearBrand={() => dispatch(clearVehicle())}
-              onClearModel={() => {
-                if (vehicle) dispatch(selectVehicleBrand(vehicle.brand));
-              }}
-              onClearYear={() => {
-                if (vehicle?.model != null) dispatch(selectVehicleModel(vehicle.model));
-              }}
-            />
-            <span className="cft-helper">先選車，只顯示裝得上的零件</span>
-          </div>
-          <div className="cft-right">
-            {/* V-1e:「我的愛車」鈕(登入會員才顯示、點開展膠囊、套用=dispatch 進同一 cascade) */}
-            <GarageChips garage={garage} motoBrands={data.motoBrands} dispatch={dispatch} variant="top" />
-            {vehicle && (
-              <button className="cft-clear" onClick={() => dispatch(clearVehicle())} aria-label="清除車輛篩選">清除車輛</button>
-            )}
-          </div>
+    /* ── cascade bar(桌機與手機同一條;手機精簡 chip 已於 2026-07-20 移除,Sean 授權)── */
+    <div className="cft-bar">
+      <div className="cft-inner">
+        <div className="cft-cascade">
+          <span className="cft-icon" aria-hidden="true">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
+            </svg>
+          </span>
+          <span className="cft-label">確認適用車款</span>
+          <VehicleSelect
+            motoBrands={data.motoBrands}
+            vehicle={vehicle}
+            onPickBrand={(name) => dispatch(selectVehicleBrand(name))}
+            onPickModel={(name) => dispatch(selectVehicleModel(name))}
+            onPickYear={(year) => dispatch(selectVehicleYear(year))}
+            onClearBrand={() => dispatch(clearVehicle())}
+            onClearModel={() => {
+              if (vehicle) dispatch(selectVehicleBrand(vehicle.brand));
+            }}
+            onClearYear={() => {
+              if (vehicle?.model != null) dispatch(selectVehicleModel(vehicle.model));
+            }}
+          />
+          <span className="cft-helper">先選車，只顯示裝得上的零件</span>
+        </div>
+        <div className="cft-right">
+          {/* V-1e:「我的愛車」鈕(登入會員才顯示、點開展膠囊、套用=dispatch 進同一 cascade) */}
+          <GarageChips garage={garage} motoBrands={data.motoBrands} dispatch={dispatch} variant="top" />
+          {vehicle && (
+            <button className="cft-clear" onClick={() => dispatch(clearVehicle())} aria-label="清除車輛篩選">清除車輛</button>
+          )}
         </div>
       </div>
-
-      {/* ── 手機精簡 chip(無 label,避免擠到第二行)── */}
-      <div className="cft-mobile-bar">
-        <button className="cft-mobile-chip" onClick={() => onOpenDrawer?.('vehicle')}>
-          <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
-          </svg>
-          <span className="cft-mobile-name">{vehShort || '選擇車款'}</span>
-          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-          </svg>
-        </button>
-      </div>
-    </>
+    </div>
   );
 }

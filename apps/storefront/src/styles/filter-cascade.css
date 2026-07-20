@@ -91,39 +91,9 @@
 }
 .cft-clear:hover { color: var(--c-text); }
 
-/* 手機版精簡 chip */
-.cft-mobile-bar {
-  display: none;
-  padding: 8px 14px;
-  background: var(--c-surface);
-  border-bottom: 1px solid var(--c-border);
-  position: sticky;
-  top: 69px;
-  z-index: 40;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-}
-.cft-mobile-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border: 1px solid var(--c-border);
-  border-radius: 999px;
-  background: var(--c-surface);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--c-text);
-  transition: border-color 0.15s, background 0.15s;
-}
-.cft-mobile-chip:hover { border-color: var(--c-text); background: var(--c-surface-2); }
-.cft-mobile-eyebrow {
-  font-size: 10px;
-  font-family: var(--f-mono, monospace);
-  color: var(--c-text-2);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.cft-mobile-name { font-weight: 500; }
+/* 手機版精簡 chip:2026-07-20 移除(Sean 授權;design-reference 內為 base display:none
+   且全檔無顯示規則=死碼,詳 backlog #290)。手機車款入口 = 本檔 .cft-bar 三層 select
+   + 「篩選」FAB → FilterDrawer「選擇車款」tab。 */
 
 @media (max-width: 1023px) {
   /* cascade bar: 隱藏 label，selects 縮小排一行 */
@@ -144,7 +114,6 @@
     flex: 1;
   }
   .cft-right { display: none; }
-  .cft-mobile-bar { display: none; }
 }
 
 /* ============================================================

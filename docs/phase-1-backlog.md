@@ -7127,8 +7127,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 🔴 **由 #289 移交的必測案例(2026-07-19)**:「**`?page=3` 時選車**」——`filterKey` 不含
     vehicle,選車時 `useCatalogFilterUrlSync` 不再刪 page、`useVehicleUrlSync` 會帶著舊 page
     導覽一次,收斂靠 `usePageResetOnFilterChange` 的 `setPage(1)`。#289 收案時**未能實測**
-    (`/products` 桌面版無車款選單,「選擇車款」是 mobile-only chip、桌面寬高為 0,須走 mobile
-    drawer)→ 本條目須**桌面 + mobile 兩種視窗**各測一次。
+    (當時判定「`/products` 桌面版無車款選單」)。
+  - 🔴 **2026-07-20 production build 實測推翻上述前提**:桌面車款選單 `.cft-bar` 可見可用
+    (1440×64、三個 combobox「選擇品牌/選擇車型/選擇年份」、點擊展開 54 個選項);當時量到
+    寬高 0 的是**另一個元件** `.cft-mobile-bar`(全尺寸皆 `display:none` 的死碼,見 #290)。
+    → **桌面路徑改走 `.cft-bar` combobox 真互動**,不需 mobile drawer。
+  - 本條目仍須**桌面 + mobile 兩種視窗**各測一次;🔴 **mobile 入口 = 「篩選」FAB
+    `.pp-mobile-fab`**(`ProductsPage.tsx:187-197`),**不是**「選擇車款」chip。
 - **不修會痛在:**
   - bug 可追蹤性:同類 bug 只能靠 Sean 肉眼在正式站發現,而這次就是這樣被發現的。
   - 可維護性:每次動篩選 URL 層都要人工跑一次 production build 手測(本片就跑了 5 次 rebuild)。
@@ -7188,9 +7193,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 內容:`filterKey` 不含 vehicle,故在 `?page=3` **選車**時本 effect 不再刪 page,
     `useVehicleUrlSync` 會帶著 `page=3` 導覽一次,收斂靠 `setPage(1)`。舊版(無條件刪)會在
     選車時順手清掉 page = **行為有差異**。
-  - ⚠️ **未實測的原因(誠實揭示,非遺忘)**:2026-07-19 收案時嘗試補測,發現 `/products` 桌面
+  - ⚠️ **未實測的原因(2026-07-19 當時的判定)**:收案時嘗試補測,判定 `/products` 桌面
     版**沒有**車款選單——「選擇車款」是 mobile-only chip(`cft-mobile-chip`,桌面實測寬高為 0),
     要走 mobile drawer 才點得到。判斷硬湊一次操作不如據實記錄,故**明寫未驗證**並移交。
+  - 🔴 **2026-07-20 更正:上述原因不成立**。production build 實測:桌面車款選單 `.cft-bar`
+    可見可用(1440×64、三個 combobox、點擊展開 54 個選項);當時量到寬高 0 的是**同頁另一個
+    元件** `.cft-mobile-bar`(全尺寸皆 `display:none` 的死碼,見 #290)→ **當時桌面即可實測**,
+    延期並非必要。教訓=下「找不到某 UI」的結論前,須先確認量到的是不是目標元件本身。
   - 移交對象:**#288**(production build E2E 守門)——該條目本就要涵蓋各篩選軸,請把
     「`?page=3` 時選車」列為必測案例之一(桌面 + mobile 兩種視窗)。
   - 風險評估:此路徑**不會**造成 #289 那種「內容與頁碼不一致」——`usePageResetOnFilterChange`
@@ -7200,6 +7209,40 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **依賴:** 無
 - **發現於:** 2026-07-19 / 分頁失效修復的 code-reviewer R1 + R2(R2 推翻了 R1 處置時的「會自癒」假設)
 - **相關:** #287 / #288
+
+### #290. 🧟 `.cft-mobile-bar`(「選擇車款」chip)全尺寸皆 display:none = 死碼
+
+- **狀態:** ✅ **完成(2026-07-20)** —— Sean 看過 production build 強制顯示截圖後拍 A **刪除**。
+  移除範圍:`CascadeFilterTop.tsx` markup + `onOpenDrawer` prop + `vehShort` 衍生值、
+  `filter-cascade.css` 四段樣式 + `:147` 隱藏規則、`filter-responsive.css` 兩條隱藏規則。
+  手機車款入口不減(`.cft-bar` 三層 VehicleSelect + 「篩選」FAB → 抽屜「選擇車款」tab)。
+  記錄於 manifest `business_overrides.mobileVehicleChipRemoved`(含 design 端即死碼的實證)。
+- **優先級:** 🟡 低
+- **問題:**
+  - `.cft-mobile-bar` 在**所有**螢幕尺寸皆 `display:none`,無任何規則將其改回可見 →
+    使用者永遠看不到這個元件。
+  - **實證(2026-07-20 production build + 瀏覽器實測,桌面 1440px)**:`.cft-mobile-bar` =
+    `display:none` / 0×0;同頁 `.cft-bar`(真正的桌機車款列)= `display:block` / 1440×64、
+    三個 combobox 可互動、展開 54 個選項。
+  - 四條隱藏規則出處:`apps/storefront/src/styles/filter-cascade.css:95-96`(base
+    `display:none`)、`filter-cascade.css:147`(≤1023px 再次 none)、
+    `filter-responsive.css:62`(≤1079px none)、`filter-responsive.css:109`
+    (`[data-mobile="true"]` none)。markup 在 `apps/storefront/src/components/CascadeFilterTop.tsx:93`。
+  - 🔴 **承自 design-reference、非實作走樣**:`design-reference/styles/filter-top.css:322-323`
+    本身即 base `display:none`(註解「手機版精簡 chip」),且該檔 `:372` / `:476` 兩處亦為
+    none、**全檔無任何規則讓它顯示**。依鐵則 1(design 直接搬、不翻譯),storefront 照搬正確。
+  - ~~待確認:這是 design 刻意廢棄,還是 design 漏寫了顯示規則~~ → **已由 Sean 2026-07-20
+    拍板解答:刪除**(看過 production build 強制顯示截圖後決定;判定為與 `.cft-bar` 三層
+    VehicleSelect 功能重複的冗餘入口)。偏離 design 已記入 manifest
+    `business_overrides.mobileVehicleChipRemoved`,非違規。
+- **不修會痛在:**
+  - 可維護性:死碼會讓後人誤判頁面結構(**已實際造成一次誤判**:#289 因此把「`?page=3` 時
+    選車」測試案例延期,理由事後證實不成立)。
+- **估時:** ~~30 分鐘~~ → 實際已完成(與抽屜 tab 改名同片)
+- **依賴:** ~~需 Sean 或 design 端確認意圖~~ → 已解除(Sean 2026-07-20 拍 A 刪除)
+- **發現於:** 2026-07-20 / #288 plan 的關卡1 對抗審查(Fable 指出桌面 `.cft-bar` 未被隱藏,經
+  production build 實測確認)
+- **相關:** #288 / #289 / 鐵則 1
 
 ## 紀錄模板
 

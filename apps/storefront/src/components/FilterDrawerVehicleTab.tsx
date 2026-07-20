@@ -1,6 +1,7 @@
 'use client';
 
-// FilterDrawerVehicleTab.tsx — 手機抽屜「依車輛搜尋」tab(V-1b2 抽出;V-1f 三修)。
+// FilterDrawerVehicleTab.tsx — 手機抽屜「選擇車款」tab(V-1b2 抽出;V-1f 三修;
+// 2026-07-20 tab 標籤由「依車輛搜尋」改為「選擇車款」= Sean 授權覆蓋 design)。
 // V-1f(Sean 07-15 開站實測回饋):
 //  ① 跨層直搜:打字非空 → 在「品牌 車型」攤平字面空間跨層搜尋(共用 garage-chip.flattenVehicleModels
 //     + vehicle-match.filterVehicleOptions,與愛車建議清單同一顆核心、零新比對邏輯、車種鐵律零猜),

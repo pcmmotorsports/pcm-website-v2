@@ -69,8 +69,11 @@
 | **#288** | production build E2E 守門(現有 playwright 只跑 `next dev`,擋不住框架層回歸)。**已收 #289 移交的必測案例**:`?page=3` 時選車(桌面 + mobile 各一次) | 🟠 中 |
 | **#289** | ✅ **已完成**(本 session 第三片);條目保留歷史敘述與「會自癒」假設被推翻的更正 | — |
 
-⚠️ **本 session 未實測、已明寫的項**:`?page=3` 時**選車**路徑。原因=`/products` 桌面版
+⚠️ **本 session 未實測、已明寫的項**:`?page=3` 時**選車**路徑。當時原因=判定 `/products` 桌面版
 沒有車款選單(「選擇車款」是 mobile-only chip、桌面實測寬高為 0,須走 mobile drawer);
+🔴 **2026-07-20 production build 實測更正:此原因不成立** —— 桌面車款選單 `.cft-bar` 可見可用
+(1440×64、三個 combobox、點擊展開 54 個車款選項);當時量到寬高 0 的是**另一個元件**
+`.cft-mobile-bar`(全尺寸皆 `display:none` 的死碼,見 backlog #290)→ **當時桌面即可實測**;
 不硬湊,改為明寫未驗證並移交 #288。讀碼評估不致造成內容與頁碼不一致
 (`usePageResetOnFilterChange` key 含整個 cascade、選車必 `setPage(1)`),最壞為多一次
 帶舊 page 的往返 —— **此評估同樣來自讀碼、未經實測**。

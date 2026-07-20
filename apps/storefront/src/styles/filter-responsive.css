@@ -59,7 +59,6 @@
   .cft-cascade { gap: 6px; flex-wrap: nowrap; }
   .cft-select { font-size: 12px; padding: 6px 22px 6px 8px; min-width: 0; flex: 1; }
   .cft-right { display: none; }
-  .cft-mobile-bar { display: none; }
   /* Hide sidebar in mobile wrapper */
   .fs-side { display: none; }
   .pp-layout.has-side { grid-template-columns: 1fr; }
@@ -106,7 +105,6 @@
 [data-mobile="true"] .cft-cascade { gap: 6px; flex-wrap: nowrap; }
 [data-mobile="true"] .cft-select { font-size: 12px; padding: 6px 22px 6px 8px; min-width: 0; flex: 1; }
 [data-mobile="true"] .cft-right { display: none; }
-[data-mobile="true"] .cft-mobile-bar { display: none; }
 /* Hide sidebar in mobile wrapper */
 [data-mobile="true"] .fs-side { display: none; }
 [data-mobile="true"] .pp-layout.has-side { grid-template-columns: 1fr; }

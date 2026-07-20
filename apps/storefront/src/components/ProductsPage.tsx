@@ -287,7 +287,6 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         cascade={cascade}
         dispatch={dispatch}
         garage={garage}
-        onOpenDrawer={() => setDrawerOpen(true)}
       />
 
       <div className="pp-layout has-side" data-filter-style="cascade">

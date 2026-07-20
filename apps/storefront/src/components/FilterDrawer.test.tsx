@@ -62,6 +62,18 @@ describe('FilterDrawer', () => {
     expect(screen.getByText('查看 128 件商品')).toBeDefined();
   });
 
+  // Sean 2026-07-20:車輛 tab 標籤由「依車輛搜尋」改為「選擇車款」= 授權覆蓋 design
+  // (design-reference/components/FilterDrawer.jsx:31 仍為舊字面、刻意不同步)。
+  // 釘住新字面,避免日後對齊 design 時被無聲改回。
+  it('should label the vehicle tab 選擇車款 (not the design-reference 依車輛搜尋)', () => {
+    const { container } = render(<Harness open />);
+    // 綁到 tab 按鈕本身、不只驗字串存在:否則日後 tab 被移除、而「選擇車款」四字
+    // 從別處(如 CartVehicleField 的「+ 選擇車款」)滲進抽屜時,斷言仍會假綠。
+    const tabLabels = [...container.querySelectorAll('.fd-tab')].map((el) => el.textContent);
+    expect(tabLabels[0]).toContain('選擇車款');
+    expect(tabLabels.some((t) => t?.includes('依車輛搜尋'))).toBe(false);
+  });
+
   it('should switch to the brand tab when the brand tab is clicked', () => {
     render(<Harness open />);
     fireEvent.click(screen.getByText('品牌'));
