@@ -46,6 +46,10 @@ export default defineConfig({
       // glob 會誤抓 apps/storefront/e2e/*.spec.ts、故排除整個 e2e/(見 apps/storefront/
       // playwright.config.ts、測試基建 T-1)。
       '**/e2e/**',
+      // 🔴 #288-a:`**/e2e/**` **不匹配 `e2e-prod` 這個 segment**(glob 比對整段路徑名),
+      // 故 production build E2E 的目錄必須另外排除,否則 vitest 會拿它自己的 runner
+      // 去跑 @playwright/test 的 API = 假紅。見 apps/storefront/playwright.prod.config.ts。
+      '**/e2e-prod/**',
     ],
     environment: 'node',
   },

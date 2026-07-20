@@ -1,0 +1,87 @@
+name: E2E (production build)
+
+# 為什麼要有這條(#288-a;plan = docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md v3.2)
+#
+# 2026-07-19 商品目錄連出三個 bug(品牌取消不消失 / 分頁失效 / 深連結頁碼被吃),
+# 三個**全部由 Sean 逛正式站發現**,自動化零攔截。根因分兩層:
+#   1. 這三個 bug 只在 `next build && next start` 下重現,`next dev` 看不到
+#      → 既有 playwright.config.ts 跑的是 next dev,結構上擋不到。
+#   2. 🔴 更關鍵:既有 e2e **從來沒進過 CI**(ci.yml 只有 typecheck/lint/vitest)。
+#      Playwright 2026-05-27 引進後(`435baa4`),config **引進至今零修改**、e2e 停在 2 檔,
+#      當初註解自己寫的「CI gate 留後續 slice(T-2+)」**兩個月沒發生**。
+#      → 沒進 CI 的守門 = 只有人記得才跑 = 等於沒有。本檔就是補這一層。
+#
+# 為什麼自己 build 而不是打 Vercel 預覽網址:
+#   預覽網址有 SSO 保護(實測 302 → vercel.com/sso-api),繞過機制需
+#   Protection Bypass for Automation,而該功能在 Hobby 方案是否可用**查證未果**。
+#   本機實測 `next build` 冷啟僅 19 秒 → 自己 build 成本極低,且完全不依賴 Vercel 方案。
+#
+# env 說明(非新增洩漏面):
+#   NEXT_PUBLIC_* 依定義會被 inline 進 client bundle、**本來就對所有訪客公開**,
+#   放進 GitHub Secrets 只是換一個存放處,不構成新的暴露。
+#   🔴 仍以 Secrets 存放(而非寫死於本檔),避免日後值變動時散落多處。
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+
+concurrency:
+  group: e2e-prod-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e-prod:
+    runs-on: ubuntu-latest
+    # 只跳過 fork PR(拿不到 secrets、且不該讓外部 PR 取得)。
+    # 🔴 本倉庫自己的 push/PR **一律跑,缺 secrets 就要硬紅** ——
+    #    先前這裡的註解宣稱「缺 secrets 時整個 job 跳過」,但條件只判 fork、根本沒碰 secrets;
+    #    加上 GitHub 未設定的 secret 會內插成**空字串**(env var 仍建立),
+    #    等於「沒設定資料庫也一路綠」。該假宣稱已移除,改由 preflight 驗非空值硬擋
+    #    (見 scripts/e2e-prod-preflight.mjs)。
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @pcm/storefront exec playwright install --with-deps chromium
+
+      - name: Run production-build E2E
+        working-directory: apps/storefront
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+        # playwright.prod.config.ts 的 webServer 會依序跑:
+        #   preflight(檢查 env 鍵**有非空值**、不輸出值)→ next build → next start :3200
+        run: pnpm test:e2e:prod
+
+      # trace 只會在測試 assertion 失敗時產生;preflight/build/server-start 失敗時可能沒有 trace,甚至沒有 test-results 目錄。
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-trace
+          path: apps/storefront/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

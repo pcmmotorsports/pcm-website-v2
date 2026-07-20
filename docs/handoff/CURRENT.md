@@ -1,6 +1,15 @@
 # CURRENT HANDOFF — pcm-website-v2
 
 > 這是下一個 Codex 或 Claude session 的唯一當次交接入口。長期規則看 `docs/ops/AI_CONTRACT.md`,專案進度以根目錄 `STATUS.md` 為準(已同 commit 對齊)。
+> 🆕 **2026-07-20 #288-a production build E2E 守門(非 M-4a 主線、獨立支線)**:
+> plan 真權威 `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2、
+> Packet `docs/reviews/2026-07-20-288a-prod-e2e-packet.md`。**狀態:✅ 已 commit(未 push、等 Sean 推)**。
+> 審查鏈走完:code-reviewer R1 6 must-fix → Fable 7 條 → web Codex FAIL 4 must-fix + 5 consider + 4 nit,
+> **全數處置 + 複驗**(詳 Packet 文末「R2 後記」);分工=web Codex 審(Sean 人工中繼)、
+> sonnet/codex CLI 當 executor 修檔、Claude Code 主 session 審 diff + 複驗(Sean 07-20 拍的新分工)。
+> 🔴 **CI 生效前置:Sean 須設 GitHub Secrets** `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`,未設 → 每次 push CI 硬紅(刻意不 skip)。
+> Ownership 見下方「Working tree ownership」。**M-4a 主線下一步仍是 B-3、不受此片影響**
+> (STATUS.md「下一步」已補雙軌註記)。
 > 🆕 **2026-07-19 前台插隊線當次快照**:`docs/handoff/2026-07-19-storefront-catalog-lightbox-handoff.md`
 > (商品卡去白邊 trim 線 ✅ 上 production + lightbox 鍵盤循環 ✅;含未結項與部署狀態。
 > **兩條線皆已收工,不是 M-4a 下一步**;M-4a 主線下一步仍是本檔 + `STATUS.md` 的 **B-3**)。
@@ -56,6 +65,12 @@
 
 - `.gitignore`、`docs/progress-roadmap.html`(pre-existing modified、刻意不 stage)
 - untracked 凍結:`admin-orders.png`、`mobile-*.png`、`docs/handoff/2026-07-1*` kickoff/report 群、`docs/reviews/2026-07-16-m4a-v-line-packet.md`、`docs/specs/2026-07-1*`、`docs/superpowers/`
+- 🆕 **2026-07-20 #288-a(E2E 守門支線、未 commit、awaiting codex review finalization)**:
+  `apps/storefront/scripts/e2e-prod-preflight.mjs`、`apps/storefront/playwright.prod.config.ts`、
+  `apps/storefront/e2e-prod/runner-smoke.spec.ts`、`.github/workflows/e2e-prod.yml`、
+  `vitest.config.ts`、`apps/storefront/package.json`、
+  `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md`、`docs/phase-1-backlog.md`、`STATUS.md`
+  ——全屬本片(✅ 已於 07-20 收進單一 commit;另含 `docs/reviews/2026-07-20-288a-prod-e2e-packet.md` 與本檔)。
 - 接手不得 reset/stash/刪除或混成同一 commit。
 
 ## 安全邊界

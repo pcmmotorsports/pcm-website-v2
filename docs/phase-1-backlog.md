@@ -7137,8 +7137,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修會痛在:**
   - bug 可追蹤性:同類 bug 只能靠 Sean 肉眼在正式站發現,而這次就是這樣被發現的。
   - 可維護性:每次動篩選 URL 層都要人工跑一次 production build 手測(本片就跑了 5 次 rebuild)。
-- **估時:** 90-120 分鐘(含測試資料固定化)
-- **依賴:** 需先決定測試資料策略(固定 fixture vs 專用測試頁)
+- 🔴 **2026-07-20 拆片與進度**(plan 真權威 = `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2,
+  經關卡1 **三輪**雙審 + code-reviewer R1):
+  - **#288-a ✅ 本次完成**:production config + preflight(驗**非空值**)+ vitest exclude +
+    package script + **GitHub Actions**(Sean 07-20 拍 A 推翻原「不接 CI」)+ 會斷的 smoke。
+  - **#288-b** 資料合約 globalSetup(含逾時)+ mobile device project(須斷言 `html[data-mobile="true"]`,
+    非只調 viewport —— `layout.tsx` 以 UA 判 `isMobile`)。
+  - **#288-c** 品牌兩組 + 件數 + 卡集合 + RSC 計數(規則見 plan §5.2:碰撞 `1..2` / 非碰撞 `=1`、
+    exact pathname、每次操作前清零;🔴 `MobileTabBar.tsx:49` 的 `/products` prefetch 會污染 exact 命中)。
+  - **#288-d** `?page=3` 時選車(桌面 `.cft-bar` combobox 真互動 + 手機 FAB→抽屜「選擇車款」)。
+  - **#288-e** 分頁黑箱守門(不變式見 plan §1.2)。
+- 🔴 **手動觸發時機**(#288-a 已接 CI、每次 push/PR 自動跑;下列情境**額外**須手動跑一次):
+  ①Next 大版本升級前 ②動 `products-url-state.tsx` 任一片 ③動篩選 URL 層 ④#287 落地時。
+- 🔴 **已知缺口**:`.github/workflows/e2e-prod.yml` 需 GitHub Secrets
+  `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`(兩者為 `NEXT_PUBLIC_`、
+  本即隨 client bundle 公開,非新增暴露面)。**未設定時 preflight 會硬紅**(已實測:
+  空字串亦擋)—— 刻意不做 skip,避免「沒設定卻顯示通過」的假綠。
+- CI 邊界(web-Codex 2026-07-20 審查指出):fork PR 被 if 條件跳過時 GitHub 回報 Success 而非 Failure,即使設為 required check 也不擋 merge -> fork PR 等於完全繞過這條 E2E(目前無外部貢獻者、風險低);未來若引入 Dependabot,其 PR 拿不到一般 Actions secrets,會固定紅,屆時需改用 pull_request_target + 顯式 gate 或 Dependabot secrets。
+- **估時:** 90-120 分鐘(含測試資料固定化)→ a 已完成,餘 b/c/d/e
+- **依賴:** 需先決定測試資料策略(固定 fixture vs 專用測試頁)→ 移至 **#288-b**
 - **發現於:** 2026-07-19 / Sean 回報品牌篩選取消無效
 - **相關:** #287
 
