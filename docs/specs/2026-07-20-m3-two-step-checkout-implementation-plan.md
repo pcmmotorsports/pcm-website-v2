@@ -29,6 +29,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - `agreed === true` server guard、server 金額重算、tier、RLS、cart session、create-order 與 B-3／B-4 邊界不變。
 - `CheckoutView.tsx` 目前 383 行；每片結束必須 `<400`，U1 起應低於 383。
 - 每片若動 `CheckoutPage` 相關 TSX/CSS/schema，必同步 `docs/design-storefront-manifest.yaml` 的 related paths、受影響 override、open drift、`last_modified_commit`（填該片開工時可達父 commit）與 `last_modified_date`（本片日期／內容），再跑 validate。
+- 每片收工都要在**同一 commit**更新 `STATUS.md` 七欄與 `docs/handoff/CURRENT.md`；各片「Commit」列出的精準實作檔之外，這兩份 SSoT 是固定必加檔，不得因片內清單未重複列出而省略。
 - 正式法律 route/version/hash 未全綠前，只能稱「兩步 UI 已實作／已測試」，不得稱 production checkout 完成。
 
 依賴順序：`L0` 可先做；產品線依序 `U1 → U2a → U2b → U3a → U3b → U4a → U4b → U5`；`L1` 等正式法律內容，可與產品線平行；`V1a` 同時等待 `U5 + L1`，`V1b` 再等待 `V1a`。
@@ -62,7 +63,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - GREEN：`terms-version.ts` 只校正 active 註解，不改 `CURRENT_TERMS_VERSION` 值。
 - 驗證：
   `pnpm typecheck && pnpm lint && pnpm build && node scripts/design-mirror.mjs --validate && git diff --check`
-- Commit：`docs(storefront): 建立正式法律頁上線硬閘 [m-3]`；精準 add 三個檔案。
+- Commit：`docs(storefront): 建立正式法律頁上線硬閘 [m-3]`；精準 add 三個任務檔案 + `STATUS.md` + `docs/handoff/CURRENT.md`。
 
 ⑥ Yes/No 驗收 + 禁止清單
 - #241／active comment／manifest 是否不再把 live #235 說成法律頁？

@@ -10,7 +10,7 @@
 - Agent: Codex
 - Mode: M-3 兩步結帳設計／實作計畫完成；尚未施工、未 push
 - Branch: `dev`
-- Implementation base: `041ade6`
+- Implementation base: `8ae0152`
 - Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；本輪未 push
 - Expected dirty: 本 commit 後應為 clean；若仍有 dirty，先辨認 ownership
 
