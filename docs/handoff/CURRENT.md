@@ -1,103 +1,236 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 這是下一個 Codex 或 Claude session 的唯一當次交接入口。長期規則看 `docs/ops/AI_CONTRACT.md`,專案進度以根目錄 `STATUS.md` 為準(已同 commit 對齊)。
-> 🏁 **2026-07-20 #288-a production build E2E 守門 ✅ 全收工上線(非 M-4a 主線、獨立支線)**:
-> commit `e700481` → Sean 批推 → **dev 與 main 皆已推齊**(07-20 當下兩者同指 `cc9ce02`;之後以實跑
-> `git rev-parse --short origin/dev origin/main` 為準)→ **GitHub Actions「E2E (production build)」
-> 首航 dev/main 兩條皆綠**(Secrets 已由 Sean 設好、preflight 非空檢查通過 = 真連上資料庫)。
-> plan 真權威 `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2(五片 a-e,**a ✅**)、
-> Packet+審查全史 `docs/reviews/2026-07-20-288a-prod-e2e-packet.md`(文末 R2 後記=web Codex FAIL 4 must-fix 的處置與複驗)。
-> 🔴 **本次上 production 的可見改動**(隨 dev:main FF 一併上線):`799a733` 手機死碼 chip 移除
-> + **抽屜車輛 tab 改「選擇車款」**(手機開篩選抽屜可肉眼驗)——Sean 肉眼驗待跑。
-> 🔴 **分工新拍板(Sean 07-20)**:codex CLI 可直接當 executor 動手修檔(`exec -s workspace-write`、
-> 帶精確 old/new 的 W 工單)、審查端核 diff;詳 memory `feedback_codex-cli-direct-executor-no-packet`
-> + 三個操作坑 `reference_codex-exec-write-root-cwd-and-hang-pattern`(🔴 可寫根=啟動 cwd,必從 repo 根啟動)。
-> Ownership 見下方「Working tree ownership」。**M-4a 主線下一步仍是 B-3、不受此片影響**
-> (STATUS.md「下一步」已補雙軌註記)。
-> 🆕 **2026-07-19 前台插隊線當次快照**:`docs/handoff/2026-07-19-storefront-catalog-lightbox-handoff.md`
-> (商品卡去白邊 trim 線 ✅ 上 production + lightbox 鍵盤循環 ✅;含未結項與部署狀態。
-> **兩條線皆已收工,不是 M-4a 下一步**;M-4a 主線下一步仍是本檔 + `STATUS.md` 的 **B-3**)。
-> E1c 當次快照:`docs/handoff/2026-07-17-m4a-email-e1c-handoff.md`(⚠️ **僅供 E1c 追溯、不是開工依據**——其「下一步」字面已被 E2a-a 超越〔E2a 已拆三片、§⑩ 已定案、port method 已存在〕;**開工入口 = 本檔 + `STATUS.md`「下一步」**)。
+> 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
+> 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
+> **目前只有兩個合法開工入口：主軌 M-4a B-3，或支線 #288-b。**
 
-## 交接資訊
+## 1. 交接快照
 
-- Updated: 2026-07-20,Asia/Taipei
-- Agent: Claude Code 視窗(**#288-a production build E2E 守門全收工上線**;審查鏈=code-reviewer 6 + Fable 7 + web Codex 4 must-fix 全處置;**下一視窗 Sean 預計改用 Codex 當執行端**)
-- Branch / HEAD: 🔴 hash/未推數**不寫死**,實跑取得:`git log --oneline -1` / `git rev-parse --short origin/dev origin/main` / `git rev-list --count origin/dev..HEAD`。本檔寫定當下 = dev 與 main **推齊同指 `cc9ce02`**、本地零未推;兩條 GitHub Actions(CI + E2E production build)在 dev/main **皆綠**。
-- DB: migrations 至 `20260719150000`(trim 線)**全 apply**;#288-a **零 migration、零產品程式碼改動**(純測試基建 + CI)。
+- Updated: 2026-07-20, Asia/Taipei
+- Agent: Codex
+- Mode: Git／文件整理；未動產品碼、DB、GitHub、Vercel 或環境變數
+- Branch: `dev`
+- Cleanup base: `a0c62c0`
+- Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；本輪未 push
+- Cleanup result: 既有 dirty 已分類收案；本檔 commit 完成後 working tree 應為 clean
 
-## 目前目標
+每個新 session 仍須自行重跑：
 
-**M-4a 第一期收口 ②通知線(修正版 D′)**。E 線(E1a~E2a-c)✅ 全關(歷史);07-18 轉折後:B-0 PRD ✅ → B-1 ✅ 已 apply 上 prod → B-2 ✅ 已 apply 上 prod + 路徑② 驗收 → **下一=B-3(結帳頁 email 欄 + zod 六條件鏡像)**,詳上方「下一個最小動作」。~~下一=E2a-2~~(**已作廢**,見 STATUS 07-18 轉折)。
-> 🔴 **Sean Q13=A:E2a 三片皆不做告警**(全歸 E2a-2 獨立管道;plan §5「E2a + failed 告警」字面**已作廢**——sweeper 不可自我監看)。
-> 🔴 **E2a-c 定案(Sean 07-18 依建議)**:**無 `*_ENABLED` gate**(codex 抓「未批准架構增項+靜默失敗態」→ 移除;真寄前自然閘=`ORDER_EMAIL_FROM` 未設即 503 + E2b pg_cron + E3 前表零列)。
+```bash
+cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --short --branch && git log --oneline -5
+```
 
-## 🔴 下一個最小動作(2026-07-20 收工後;二選一、看 Sean 指哪條)
+## 2. 已確認現況
 
-**主軌 = M-4a B-3(結帳頁 email 欄 + zod)**:
-1. 讀 `docs/handoff/2026-07-19-m4a-b2-applied-handoff.md`(B-2 收案 + B-3 起手)+ PRD `docs/specs/2026-07-18-b0-order-notification-email-prd.md` §3.4/§4。
-2. 🔴 紅線:zod **必鏡像 §3.4 全部六條件**(可列印 ASCII / 去尾點 / 擋子網域)—— 漏做 = app 放行、DB 擋、**結帳 500**;單一 env flag 同時翻四層、預設 off;B-3/B-4 動 TS 時必銷 **B-2 plan §8.2 的 11 項舊字面**(含兩處硬編碼 8 鍵斷言,不同步即假綠)。
-3. 規劃前必查 graphify 連動面 + plan 附「相關既有紀錄與連動面」節(SOP ②)。
+### M-4a 通知線（修正版 D′）
 
-**支線 = #288-b(E2E 資料合約 + mobile device project)**:
-plan v3.2 §6 表格(`docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md`);內容=globalSetup 資料合約(含 §7.1 逾時)+ 完整 device profile 的 mobile project(斷言 `html[data-mobile="true"]`);檔案清單以 §6 表為準。
-🔴 給 Codex 執行端的操作注意:`codex exec -s workspace-write` 的**可寫根=啟動時 cwd,必從 repo 根啟動**;審查唯讀仍 `-s read-only`;E2E 本機跑 `cd apps/storefront && pnpm test:e2e:prod`(會自己 build,勿與 dev server 併跑;`.next` 共用)。
+- 真權威：`docs/specs/2026-07-18-b0-order-notification-email-prd.md`
+- B-0 PRD ✅
+- B-1 `orders.notification_email` nullable 欄位 + 六條件 CHECK：repo SSoT 記錄為已 apply production
+- B-2 `create_order` 8→9 參：repo SSoT 記錄為已 apply production，且路徑②驗收完成
+- 下一片：**B-3（結帳 email 欄 + zod 六條件鏡像）**
+- B-2 上線不等於通知功能已上線；第 9 參仍可 `DEFAULT NULL`，必填收緊屬 B-6
 
----
+### #288 production-build E2E 支線
 
-## ~~🔴 下一個最小動作(E2a-2 執行視窗)~~(🔴 **已作廢** —— 07-18 D′ 轉折後 E2a-2 作廢、B-1/B-2 已上 prod,主線=B-3;下段僅供追溯)
+- #288-a ✅：production config、env preflight、會斷的 smoke、GitHub Actions workflow 已進 git
+- 實作 commit：`e700481`
+- 下一片：**#288-b（globalSetup 資料合約 + mobile device project）**
+- `STATUS.md` 與前版 CURRENT 對 GitHub Secrets／首航結果有漂移：
+  - 前版 CURRENT 記錄「Secrets 已設、dev/main 首航皆綠」
+  - `STATUS.md` 仍列「Secrets 待設定」
+  - 本輪未連 GitHub live 重驗，故不得把任一說法當成當前已確認事實
 
-> 🔴 **寫 E2a-2 plan 前必查 graphify 連動面**(Sean 07-17 當場抓、memory `feedback_graphify-query-before-planning-is-mandatory`):repo 根跑 `graphify query`(本 repo `graphify-out/`)查對帳/anomaly-alert/`checkAnomalyAlerts`/`email_outbox` NOT EXISTS 的連動邊,plan **必附「相關既有紀錄與連動面」一節**。**查(每片必做)≠ 刷 `--update`(milestone/每日收工才跑)**。
+### 作廢入口
 
-1. 讀 migration `20260717020000` 頭註 **§⑦+§⑨+§⑩**(仲裁序 §⑦<§⑨<§⑩、五訊號)+ **REQUIRED-E2a-2**(§⑧ `skipped_order_ineligible` 天然不被訊號命中的殘餘盲區)+ memory `project_m4a-email-e2a-decisions`(Q1-Q15)/ `project_refund-line-two-stage`(Q8)+ plan **v3.3** §3.5b/§3.6/§4。
-2. **E2a-2**(對帳補寄 + 五訊號掛 anomaly-alert 獨立管道 + 單測):
-   - **對帳補寄**(§3.5b):**固定下界+`NOT EXISTS`** 全量重疊掃(否決移動 watermark);**Q4=A 下界走 env、未設即 skip 並在 response 明說**;述詞欄=`orders.paid_at`;吃 `email_outbox_order_idx (order_id, event_type)`。
-   - **Q3=A ineligible gate** = `payment_status='refunded' OR cancelled_at IS NOT NULL`(🔴 **今日命中率 0**:兩者皆有欄零程式寫入、退款人工在 TapPay 後台 → 待[退款線第一段](memory `project_refund-line-two-stage`)落地才生效);轉入必寫 `last_error_code='order_ineligible'`+抑制路徑必附測試。
-   - **🔴 五訊號**掛 anomaly-alert **獨立管道**(`checkAnomalyAlerts` use-case / `getAnomalyAlertDeps` composition;🔴 **不可放進 sweeper 自我監看**、死時告警一起死)。訊號定義見 migration §⑦(1-4)+§⑨(訊號 5 額度耗盡走 LINE、訊號 1 述詞修正)。
-3. 🔴 **E2a-c 已定合約**:sweeper route=`api/cron/email-sweep`(GET/CRON_SECRET/limit 50/`maxRunSeconds: maxDuration`/`errors>0→503`/`deferred>0→200`/counts allowlist/**零告警**);composition=`lib/email/composition.ts`(`getSweepEmailOutboxDeps`);**排程仍待 E2b pg_cron**(本片與 E2a-c 皆不進 `vercel.json`)。
-4. 審查閘=code-reviewer + codex 關卡2(**勿省**;⚠️ `EXIT=0` 假訊號、**必讀輸出內容**;`codex exec` 背景跑+porcelain 前後比對)。🔴 **修 must-fix 一律 grep 全 diff 掃同款、非只改點名行**(E2a-c R1→R2 兩輪皆因此再 FAIL)。
+**E2a-2 已於 2026-07-18 D′ 轉折後作廢。**
+`docs/specs/2026-07-19-m4a-email-e2a-2-plan.md` 與舊過夜片單只供歷史追溯，
+**不得據此規劃、施工或恢復「對帳補寄 + 五訊號」舊路線**。
 
-## 🌙 過夜自驅片單(2026-07-18 夜;Sean 過夜跑、早上驗收)
+## 3. 雙軌入口
 
-> 新視窗照此片單依序跑,**卡住就跳下一片**(不空轉不猜),持續寫晨間報告 `docs/handoff/2026-07-19-overnight-report.md`(①完成片+commit hash ②🔴 Sean 待辦逐條 ③卡住/跳過原因 ④決策題)。**每片走完整 SOP:graphify 查連動→plan(標 L1/L2/L3、判鐵則8)→實作→三綠→審查→精準 commit+STATUS 7 欄同 commit→不 push**。
+| 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
+|---|---|---|---|
+| 主軌 | **M-4a B-3**：結帳 email 欄 + zod 六條件鏡像 | 全域優先 | 不受 #288-b 阻擋 |
+| 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
-**🔴 審查省 codex 額度規則(Sean 2026-07-18 拍)**:codex 關卡2 **只跑高風險片**(鐵則 12 = order/payment/schema/RLS/migration/tier/經銷價、或鐵則 8 重大改動);**純前台 UI/小件低風險片跳 codex**,走 **code-reviewer + Fable** 兩審即可(Fable = `Task` spawn `adversarial-reviewer` + `model:fable`、在 Claude 訂閱、不吃 codex OpenAI 額度;不可用時路由 Opus 仍算獨立一審)。每個 reviewer 硬上限 2 輪、R2 仍 FAIL→停該片寫報告跳下一片;🔴 修 must-fix grep 全 diff 掃同款。
+兩軌業務上獨立，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
+另一條若同時存在只能唯讀，避免 shared index／push 夾帶事故。
 
-**片單(依序、卡住跳下一項)**:
-1. **E2a-2**(對帳補寄+五訊號)= app 層無 migration、**可完全自主**。🔴 高風險(order 對帳)→ **三審含 codex**。紅線見上「E2a-2 執行視窗」。
-2. **E2b**(pg_cron/pg_net/Vault)= 🔴 **Sean-gated**(db push/SQL Editor/Vault)→ **只寫 plan 進報告、不執行任何 DDL/schedule**。
-3. **E3**(order_created enqueue)= 動付款成功路徑 🔴 高風險 → 可做 app 層 + L2 placeholder 文案、**真文案等 Sean 過目**、enqueue 必全 catch 不影響付款、產 Codex Packet 進報告(三審含 codex);判斷風險高就只寫 plan 等 Sean。
-4. **不擋線小件**(純前台低風險 → **跳 codex、code-reviewer + Fable 兩審**):最新商品 UI / Q3d 佔位圖 / Q3a 佔位頁 / Q3e 結帳內嵌地址。
-5. **E4** = 🔴 **BLOCKED**(等 Sean 定義「一批」+ dedup 算法)→ 不做。
+## 4. 主軌開工卡：M-4a B-3
 
-**硬 STOP(命中寫報告+跳過,絕不自己做)**:push / db push / migration apply / SQL Editor / Vault / pg_cron / pg_net / 動 .env* / 輸出 secret / 替 Sean 拍板 / L3 內容 / 不可逆或對外 / 文案最終版 / 宣稱「肉眼驗」/ 鐵則 8 重大改動的「執行」/ 兩輪用盡或同錯法第 2 次。
+### 目標
 
-## 流程紀律(沿用)
+在結帳收件資料區塊加入 email 欄、會員真 email 預填／LINE 合成域留白、UI 揭露文案與 smoke test；
+server canonical 驗證須與 DB CHECK 同源。**B-3 部署後 flag 仍保持 off。**
 
-- 執行 session 不 push(07-17 三推皆 Sean 明說);動 schema commit 壓住等 db push+驗;dev:main 恆 Sean 明說。
-- ⚠️ `dev` = pcm-admin 的 **production** 分支(推 dev = admin 後台直接上線);storefront 才守 `main`。
-- 拍板即落檔;codex 全程 `-s read-only`+porcelain 前後比對。
+### 動工前依序讀
 
-## Working tree ownership(凍結、勿混入 commit)
+1. `docs/handoff/2026-07-19-m4a-b2-applied-handoff.md` §1、§3、§5、§7
+2. `docs/specs/2026-07-18-b0-order-notification-email-prd.md` §3.1、§3.4、§4、§5、§6
+3. `docs/specs/2026-07-19-m4a-b2-create-order-9param-plan.md` §8.2
+4. `STATUS.md`「下一步」
 
-- `.gitignore`、`docs/progress-roadmap.html`(pre-existing modified、刻意不 stage)
-- untracked 凍結:`admin-orders.png`、`mobile-*.png`、`docs/handoff/2026-07-1*` kickoff/report 群、`docs/reviews/2026-07-16-m4a-v-line-packet.md`、`docs/specs/2026-07-1*`、`docs/superpowers/`
-- 🆕 **2026-07-20 #288-a(E2E 守門支線、未 commit、awaiting codex review finalization)**:
-  `apps/storefront/scripts/e2e-prod-preflight.mjs`、`apps/storefront/playwright.prod.config.ts`、
-  `apps/storefront/e2e-prod/runner-smoke.spec.ts`、`.github/workflows/e2e-prod.yml`、
-  `vitest.config.ts`、`apps/storefront/package.json`、
-  `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md`、`docs/phase-1-backlog.md`、`STATUS.md`
-  ——全屬本片(✅ 已於 07-20 收進單一 commit;另含 `docs/reviews/2026-07-20-288a-prod-e2e-packet.md` 與本檔)。
-- 接手不得 reset/stash/刪除或混成同一 commit。
+### 六條件硬紅線
 
-## 安全邊界
+zod／server canonical 驗證必須鏡像 DB 的全部六條件，不能只用一般 `email()`：
 
-- 不讀不輸出 `.env*`、service role、TapPay/LINE secret、客戶個資實值。
-- migration db push=Sean 操作;`email_outbox.recipient_email`=PII、client 零權限;經銷價不進非 admin client;金額整數;audit 不可繞。
+1. 值等於 `btrim` 後結果，不收前後 ASCII space
+2. 只允許可列印 ASCII `^[!-~]+$`
+3. UTF-8 octet 長度 ≤ 254
+4. 僅一個 `@`，且 domain 至少含一個 `.`
+5. domain 小寫並去尾點後，不得等於 `line.pcmmotorsports.local`
+6. domain 小寫並去尾點後，不得是 `*.line.pcmmotorsports.local`
 
-## 相關入口
+漏任一條會形成「app 放行、DB CHECK 擋下、客人只看到結帳 500」。
+client 驗證只改善 UX，server 必須重新驗證；log、錯誤與回應不得帶 email 原值。
 
-- 當次快照:`docs/handoff/2026-07-17-m4a-email-e1c-handoff.md`
-- plan 真權威:`docs/specs/2026-07-16-m4a-email-notify-plan.md` **v3.3**
-- memory:`project_m4a-email-e2a-decisions`(**Q1-Q13** 拍板+Resend 事實+E1c/E2a-a 審查紀錄)/ `project_refund-line-two-stage`(Q8)/ `project_m4a-email-e1a-decisions`(E1a+E1b+REQUIRED-E2a/E3 義務)
-- backlog:**#285**(未知 429 精準退避)/ **#286**(死信人工重送工具)
+### 接線與字面紅線
+
+- 單一 env flag 同時控制四層：UI 顯示、client payload、server schema requirement、RPC 呼叫形態
+- flag 預設 off；跨片順序固定：
+  `B-1/B-2 完成 → B-3/B-4 部署且 flag off → 開 flag 並記 cutoff → 觀察窗 → B-6`
+- B-3／B-4 動 TS 時，逐條核銷 B-2 plan §8.2 的 11 項「8 參數」舊字面
+- 兩處假綠高風險斷言：
+  - `packages/adapters/src/supabase/mappers/order.test.ts`
+  - `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts`
+- Q2=A：`packages/adapters/src/supabase/database.types.ts` 刻意留到 B-4 更新，不得在 B-3 誤判為漏做
+- `packages/domain/src/order/order.ts` 的 `createOrder()` 是 domain factory，不是 RPC，勿誤改
+
+### 開工與收工 gate
+
+- 本片跨共用結帳元件與多檔，鐵則 8 成立：**先做精確 slice plan，Sean 批准後才改碼**
+- plan 必含：L1/L2/L3、graphify／直接讀碼連動面、檔案清單、驗收、rollback、review triggers
+- 涉 order／checkout contract，commit 前走高風險獨立審查與 Review Packet
+- 動 `.ts/.tsx`：typecheck + lint + build + 相稱測試全綠後才可 commit
+- 不開 flag、不 push、不 deploy、不 apply migration；這些保留 Sean checkpoint
+- PRD §6 八項 gate 未全數達成前，禁稱「通知功能上線」或「孤兒已消滅」
+
+## 5. 支線開工卡：#288-b
+
+### 目標
+
+為現有 production-build Playwright runner 加：
+
+1. `globalSetup` 資料合約與 fail-fast
+2. 完整 mobile device profile project
+3. `html[data-mobile="true"]` 斷言
+
+### 動工前依序讀
+
+1. `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` §3、§6、§7.1、§7.3、§9、§10
+2. `docs/phase-1-backlog.md` #288
+3. `apps/storefront/playwright.prod.config.ts`
+4. `apps/storefront/e2e-prod/runner-smoke.spec.ts`
+5. `apps/storefront/scripts/e2e-prod-preflight.mjs`
+
+### 實作紅線
+
+- 收檔以 plan §6 為準：globalSetup 檔 + production config + backlog + `STATUS.md`
+- Playwright 執行序是 webServer ready 後才跑 globalSetup；env preflight 已在 webServer command 前綴，不得搬回 globalSetup
+- globalSetup 不受一般 test timeout 保護：必設 `globalTimeout`、page/action/navigation timeout
+- 失敗訊息只列非敏感計數，不印 URL、key、email 或資料內容
+- mobile project 必用完整 Playwright device preset（含 UA），不能只改 viewport
+- 必斷言 `html[data-mobile="true"]`，避免 viewport 是手機、server UA 卻仍判桌機的混血態
+- 不改既有 `playwright.config.ts`、既有 dev specs、產品邏輯或 `.env*`
+- 本機命令：
+
+```bash
+cd /Users/sean_1/pcm-website-v2/apps/storefront && pnpm test:e2e:prod
+```
+
+`test:e2e:prod` 會自行 build；不要與 dev server 同跑，兩者共用 `.next`。
+
+### 資料策略漂移
+
+- plan §9／§10 寫「不做固定 fixture，先打真 DB + fail-fast contract」
+- backlog #288 的依賴卻寫「固定 fixture vs 專用測試頁，移至 #288-b」
+- 在 Sean 未另行推翻前，**預設遵守 plan v3.2：#288-b 只做不寫資料的 fail-fast contract**；
+  不自行新增 production fixture、專用產品頁或正式資料寫入
+- 若實作發現 #288-c 所需 A/B 首屏差異無法靠唯讀 contract 保證，再把資料策略獨立列成 Sean 決策，
+  不在 #288-b 暗中擴 scope
+
+### 開工與收工 gate
+
+- #288 全線鐵則 8 已由 Sean 2026-07-20 批准，仍須遵守 plan §6 的單片範圍
+- 鐵則 12 已觸發：commit 前產／更新 Codex Review Packet
+- typecheck + lint + root tests + production E2E；未實跑不得寫成通過
+- 不 push、不改 GitHub Secrets、不 deploy
+
+## 6. Codex 執行端操作坑
+
+- `workspace-write` 的可寫根由**啟動時 cwd**決定；必須從 repo 根啟動 Codex
+- 若從子目錄或其他目錄啟動，即使後來 `cd`，也可能無法寫 repo 目標檔
+- 執行端使用 `codex exec -s workspace-write`；唯讀審查才使用 `-s read-only`
+- 工單要給精確 scope／old-new／驗收，不讓執行端自行擴張
+- 若命令長時間無輸出，先檢查 cwd、sandbox 與 subprocess 狀態，不要重複啟動第二個寫入 session
+
+## 7. Git cleanup 收案
+
+Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Review Packet、截圖與行銷文件
+被持續標成「凍結勿動」，卻沒有進 git，因而逐日累積；不是 Git 自行產生異常。
+
+本輪採 Sean 選定的「保留式整理」：
+
+- `33ccc41`：擴大 `.env*`／`.vercel` 本機檔忽略，保留 `.env.example` 例外
+- `cf0dfaa`：收錄 20 份歷史證據；已結案 handoff／截圖／舊設計稿移到
+  `docs/archive/2026-07-20-git-cleanup/`
+- `a9acb23`：三份 Eazi-Grip 行銷產物獨立收案
+- `dd4413f`：進度地圖刷新至 2026-07-20（57 完成／2 進行中／35 未開始）
+- 被 migration／測試直接引用的文件保留原路徑，並加「歷史／作廢，不得開工」標記
+- E2a-2 明確作廢；現行通知線仍走 D′／B-3
+- 沒有刪除任何原始資料，也沒有把 dirty 藏進 stash
+
+新 session 預期從 clean tree 起手。只可精準 stage 自己片內檔案；禁 `git add .`／`git add -A`。
+若 status 再出現 dirty，先辨認 ownership；無法解釋才停下問 Sean。
+
+## 8. 已驗證／尚未驗證／需要 Sean
+
+### 本輪已驗證
+
+- branch、HEAD、local remote-tracking refs、ahead/behind
+- CURRENT 與 `STATUS.md`、B-3 PRD／B-2 handoff／11 項清單、#288 v3.2 plan／backlog 的字面對帳
+- 所有原 dirty 已逐檔分類；沒有 staged 漏件或產品碼變更
+- 被 migration／測試引用的文件仍在原路徑，引用未斷
+- archive 共 13 個檔案，4 張圖片尺寸與內容未修改
+- 進度地圖 94 步計數：57 完成 + 2 進行中 + 35 未開始
+- `git diff --check` 通過；歷史 Review Packet 的 15 個行尾空白已純格式清除
+
+### 本輪尚未驗證
+
+- production DB 當前 migration 水位與 B-1/B-2 runtime 狀態
+- GitHub Secrets 是否仍存在、dev/main E2E workflow 最新 run 是否綠
+- Vercel／正式站目前部署
+- B-3 或 #288-b 的任何產品測試；本輪只是 Git／文件整理
+
+### 需要 Sean
+
+- 準備施工時只需指定：**主軌 B-3（推薦，維持全域優先序）**，或 **支線 #288-b**
+- 本輪 cleanup commits 尚未 push；是否 push 仍是 Sean checkpoint
+- push、deploy、production migration、env／GitHub Secrets、正式 flag 切換仍由 Sean 操作或逐次明確批准
+- 手機「選擇車款」文案／死碼 chip 移除的正式站肉眼驗收，前版 handoff 記錄為尚待跑
+
+## 9. 安全邊界
+
+- 不讀、不輸出、不提交 `.env*`、token、service role、TapPay／LINE credential
+- email 是 PII；log、告警、錯誤與 handoff 不得記錄原值
+- 不碰正式 DB／migration apply／GitHub Secrets／Vercel env／feature flag，除非 Sean 對該動作明確批准
+- 不 reset、stash、刪除或順手 commit 其他 session 新增的檔案
+- 預設不 push、不 merge、不 deploy
+
+## 10. 相關入口
+
+- 現況 SSoT：`STATUS.md`
+- 共用規則：`docs/ops/AI_CONTRACT.md`
+- B-3 PRD：`docs/specs/2026-07-18-b0-order-notification-email-prd.md`
+- B-2 收案：`docs/handoff/2026-07-19-m4a-b2-applied-handoff.md`
+- 11 項舊字面：`docs/specs/2026-07-19-m4a-b2-create-order-9param-plan.md` §8.2
+- #288 plan：`docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2
+- #288 backlog：`docs/phase-1-backlog.md` #288
+- #288-a 實作：`e700481`
+- Git cleanup archive：`docs/archive/2026-07-20-git-cleanup/`
+- Git cleanup commits：`33ccc41`、`cf0dfaa`、`a9acb23`、`dd4413f`
+- 前版 CURRENT 推齊修正：`cc9ce02`
+- 前版雙軌交接：`a0c62c0`
+
+— END —
