@@ -86,3 +86,9 @@ graphify-out/
 
 # impeccable design-hook 本機快取(session 工具產物、不入 git)
 .impeccable/
+.vercel
+# 廣義擋所有 .env 變體(補上方 Env 段漏掉的 .env.production / .env.backup / *.bak 等)
+.env*
+# 例外必須放在廣義規則之後、否則會被上面那行蓋掉(範例檔無真密碼、需入 git 供對照)
+!.env.example
+!**/.env.example
