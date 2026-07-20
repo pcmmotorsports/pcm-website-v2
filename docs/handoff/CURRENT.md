@@ -3,7 +3,7 @@
 > 這是下一個 Codex 或 Claude session 的唯一當次交接入口。長期規則看 `docs/ops/AI_CONTRACT.md`,專案進度以根目錄 `STATUS.md` 為準(已同 commit 對齊)。
 > 🆕 **2026-07-20 #288-a production build E2E 守門(非 M-4a 主線、獨立支線)**:
 > plan 真權威 `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2、
-> Packet `docs/reviews/2026-07-20-288a-prod-e2e-packet.md`。**狀態:✅ 已 commit(未 push、等 Sean 推)**。
+> Packet `docs/reviews/2026-07-20-288a-prod-e2e-packet.md`。**狀態:✅ 已 commit `e700481`**(push 狀態不寫死,實跑 `git rev-list --count origin/dev..HEAD` 為準;Sean 07-20 已口頭批推)。
 > 審查鏈走完:code-reviewer R1 6 must-fix → Fable 7 條 → web Codex FAIL 4 must-fix + 5 consider + 4 nit,
 > **全數處置 + 複驗**(詳 Packet 文末「R2 後記」);分工=web Codex 審(Sean 人工中繼)、
 > sonnet/codex CLI 當 executor 修檔、Claude Code 主 session 審 diff + 複驗(Sean 07-20 拍的新分工)。
