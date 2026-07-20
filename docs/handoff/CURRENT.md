@@ -1,13 +1,17 @@
 # CURRENT HANDOFF — pcm-website-v2
 
 > 這是下一個 Codex 或 Claude session 的唯一當次交接入口。長期規則看 `docs/ops/AI_CONTRACT.md`,專案進度以根目錄 `STATUS.md` 為準(已同 commit 對齊)。
-> 🆕 **2026-07-20 #288-a production build E2E 守門(非 M-4a 主線、獨立支線)**:
-> plan 真權威 `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2、
-> Packet `docs/reviews/2026-07-20-288a-prod-e2e-packet.md`。**狀態:✅ 已 commit `e700481`**(push 狀態不寫死,實跑 `git rev-list --count origin/dev..HEAD` 為準;Sean 07-20 已口頭批推)。
-> 審查鏈走完:code-reviewer R1 6 must-fix → Fable 7 條 → web Codex FAIL 4 must-fix + 5 consider + 4 nit,
-> **全數處置 + 複驗**(詳 Packet 文末「R2 後記」);分工=web Codex 審(Sean 人工中繼)、
-> sonnet/codex CLI 當 executor 修檔、Claude Code 主 session 審 diff + 複驗(Sean 07-20 拍的新分工)。
-> 🔴 **CI 生效前置:Sean 須設 GitHub Secrets** `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY`,未設 → 每次 push CI 硬紅(刻意不 skip)。
+> 🏁 **2026-07-20 #288-a production build E2E 守門 ✅ 全收工上線(非 M-4a 主線、獨立支線)**:
+> commit `e700481` → Sean 批推 → **dev 與 main 皆已推齊**(07-20 當下兩者同指 `cc9ce02`;之後以實跑
+> `git rev-parse --short origin/dev origin/main` 為準)→ **GitHub Actions「E2E (production build)」
+> 首航 dev/main 兩條皆綠**(Secrets 已由 Sean 設好、preflight 非空檢查通過 = 真連上資料庫)。
+> plan 真權威 `docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md` v3.2(五片 a-e,**a ✅**)、
+> Packet+審查全史 `docs/reviews/2026-07-20-288a-prod-e2e-packet.md`(文末 R2 後記=web Codex FAIL 4 must-fix 的處置與複驗)。
+> 🔴 **本次上 production 的可見改動**(隨 dev:main FF 一併上線):`799a733` 手機死碼 chip 移除
+> + **抽屜車輛 tab 改「選擇車款」**(手機開篩選抽屜可肉眼驗)——Sean 肉眼驗待跑。
+> 🔴 **分工新拍板(Sean 07-20)**:codex CLI 可直接當 executor 動手修檔(`exec -s workspace-write`、
+> 帶精確 old/new 的 W 工單)、審查端核 diff;詳 memory `feedback_codex-cli-direct-executor-no-packet`
+> + 三個操作坑 `reference_codex-exec-write-root-cwd-and-hang-pattern`(🔴 可寫根=啟動 cwd,必從 repo 根啟動)。
 > Ownership 見下方「Working tree ownership」。**M-4a 主線下一步仍是 B-3、不受此片影響**
 > (STATUS.md「下一步」已補雙軌註記)。
 > 🆕 **2026-07-19 前台插隊線當次快照**:`docs/handoff/2026-07-19-storefront-catalog-lightbox-handoff.md`
@@ -17,18 +21,31 @@
 
 ## 交接資訊
 
-- Updated: 2026-07-18,Asia/Taipei
-- Agent: Claude Code 實作視窗(**E2a-c sweeper route + server-only composition + 單測**〔`api/cron/email-sweep/route.ts`+`lib/email/composition.ts`+兩測+plan;codex R1 5+R2 3 must-fix 全修+突變自驗〕)
-- Branch / HEAD: `dev` = E2a-c commit(🔴 hash/未推數**不寫死**,實跑取得:`git log --oneline -1` / `git rev-parse --short origin/dev` / `git rev-list --count origin/dev..HEAD`;本檔寫定當下 = origin/dev `a691a9d`〔E2a-b 已推〕、本地 ahead 1〔E2a-c〕)。`origin/main` = `13ce3a9`(production、本線未上)
-- DB: migrations 至 `20260717020000` **全 apply**;E1c-2(§⑨)與 **E2a-a(§⑩)**皆 = **純註解增補、零 DDL**(獨立驗證:剔除 `--` 行後 byte-identical → **無需 re-apply、無漂移**);無新 migration
+- Updated: 2026-07-20,Asia/Taipei
+- Agent: Claude Code 視窗(**#288-a production build E2E 守門全收工上線**;審查鏈=code-reviewer 6 + Fable 7 + web Codex 4 must-fix 全處置;**下一視窗 Sean 預計改用 Codex 當執行端**)
+- Branch / HEAD: 🔴 hash/未推數**不寫死**,實跑取得:`git log --oneline -1` / `git rev-parse --short origin/dev origin/main` / `git rev-list --count origin/dev..HEAD`。本檔寫定當下 = dev 與 main **推齊同指 `cc9ce02`**、本地零未推;兩條 GitHub Actions(CI + E2E production build)在 dev/main **皆綠**。
+- DB: migrations 至 `20260719150000`(trim 線)**全 apply**;#288-a **零 migration、零產品程式碼改動**(純測試基建 + CI)。
 
 ## 目前目標
 
-**M-4a 第一期收口 ②Email 通知片**。E1a ✅ → E1b ✅ → E1c ✅ 已推 → **E2a 拆三片(Sean Q12=A)**:E2a-a ✅(`6a8b155`)→ E2a-b ✅(`a691a9d`)→ **E2a-c(route+server-only composition)✅ code 收工、未推(本 commit)** → **下一=E2a-2(對帳+五訊號)** → E2b(pg_cron/pg_net/Vault)→ E3(order_created)→ E4。
+**M-4a 第一期收口 ②通知線(修正版 D′)**。E 線(E1a~E2a-c)✅ 全關(歷史);07-18 轉折後:B-0 PRD ✅ → B-1 ✅ 已 apply 上 prod → B-2 ✅ 已 apply 上 prod + 路徑② 驗收 → **下一=B-3(結帳頁 email 欄 + zod 六條件鏡像)**,詳上方「下一個最小動作」。~~下一=E2a-2~~(**已作廢**,見 STATUS 07-18 轉折)。
 > 🔴 **Sean Q13=A:E2a 三片皆不做告警**(全歸 E2a-2 獨立管道;plan §5「E2a + failed 告警」字面**已作廢**——sweeper 不可自我監看)。
 > 🔴 **E2a-c 定案(Sean 07-18 依建議)**:**無 `*_ENABLED` gate**(codex 抓「未批准架構增項+靜默失敗態」→ 移除;真寄前自然閘=`ORDER_EMAIL_FROM` 未設即 503 + E2b pg_cron + E3 前表零列)。
 
-## 🔴 下一個最小動作(E2a-2 執行視窗)
+## 🔴 下一個最小動作(2026-07-20 收工後;二選一、看 Sean 指哪條)
+
+**主軌 = M-4a B-3(結帳頁 email 欄 + zod)**:
+1. 讀 `docs/handoff/2026-07-19-m4a-b2-applied-handoff.md`(B-2 收案 + B-3 起手)+ PRD `docs/specs/2026-07-18-b0-order-notification-email-prd.md` §3.4/§4。
+2. 🔴 紅線:zod **必鏡像 §3.4 全部六條件**(可列印 ASCII / 去尾點 / 擋子網域)—— 漏做 = app 放行、DB 擋、**結帳 500**;單一 env flag 同時翻四層、預設 off;B-3/B-4 動 TS 時必銷 **B-2 plan §8.2 的 11 項舊字面**(含兩處硬編碼 8 鍵斷言,不同步即假綠)。
+3. 規劃前必查 graphify 連動面 + plan 附「相關既有紀錄與連動面」節(SOP ②)。
+
+**支線 = #288-b(E2E 資料合約 + mobile device project)**:
+plan v3.2 §6 表格(`docs/specs/2026-07-20-catalog-prod-build-e2e-plan.md`);內容=globalSetup 資料合約(含 §7.1 逾時)+ 完整 device profile 的 mobile project(斷言 `html[data-mobile="true"]`);檔案清單以 §6 表為準。
+🔴 給 Codex 執行端的操作注意:`codex exec -s workspace-write` 的**可寫根=啟動時 cwd,必從 repo 根啟動**;審查唯讀仍 `-s read-only`;E2E 本機跑 `cd apps/storefront && pnpm test:e2e:prod`(會自己 build,勿與 dev server 併跑;`.next` 共用)。
+
+---
+
+## ~~🔴 下一個最小動作(E2a-2 執行視窗)~~(🔴 **已作廢** —— 07-18 D′ 轉折後 E2a-2 作廢、B-1/B-2 已上 prod,主線=B-3;下段僅供追溯)
 
 > 🔴 **寫 E2a-2 plan 前必查 graphify 連動面**(Sean 07-17 當場抓、memory `feedback_graphify-query-before-planning-is-mandatory`):repo 根跑 `graphify query`(本 repo `graphify-out/`)查對帳/anomaly-alert/`checkAnomalyAlerts`/`email_outbox` NOT EXISTS 的連動邊,plan **必附「相關既有紀錄與連動面」一節**。**查(每片必做)≠ 刷 `--update`(milestone/每日收工才跑)**。
 
