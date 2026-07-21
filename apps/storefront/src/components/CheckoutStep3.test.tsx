@@ -137,6 +137,12 @@ describe('CheckoutStep3(M-3-S2-b2-e3a)', () => {
     expect(props.onAgreedChange).toHaveBeenCalledWith(true);
   });
 
+  it('🔴 U1:省略 onEditStep2(兩步版同頁)→ 付款/發票編輯鈕不渲染,收件/商品仍在', () => {
+    renderStep3({ onEditStep2: undefined });
+    const edits = screen.getAllByRole('button', { name: '編輯' });
+    expect(edits.length).toBe(2); // 收件 / 商品
+  });
+
   it('編輯鈕 → 對應 callback(收件→Address / 付款·發票→Step2 / 商品→Items)', () => {
     const { props } = renderStep3();
     const edits = screen.getAllByRole('button', { name: '編輯' });

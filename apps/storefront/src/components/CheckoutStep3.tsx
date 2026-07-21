@@ -3,10 +3,14 @@
 // CheckoutStep3.tsx — 結帳 Step3 確認複查(M-3-S2-b2-e3a)
 //
 // 直接搬 design-reference/components/CheckoutPage.jsx Step3(L506-594、鐵則 1 字面)。
-// 由 CheckoutView 在 step === 3 時渲染;presentational 收 props,送出/建單(submitOrder)+
+// 🔴 M-3 兩步結帳 U1 起由 CheckoutView 在 **step === 2** 渲染(接在 CheckoutStep2 之後、同一頁);
+//   檔名與元件名維持 CheckoutStep3 = 尚未退役的 shell,U2a 抽小元件、U2b 退役本檔。
+// presentational 收 props,送出/建單(submitOrder)+
 // 送出按鈕在 CheckoutView 的 co-actions(②-④b 接 chargePaymentAction 刷卡)。
 //
-// 四 readonly 複查區塊(收件 / 付款 / 發票 / 商品)+ 編輯鈕跳回對應步驟 + 同意條款。
+// 四 readonly 複查區塊(收件 / 付款 / 發票 / 商品)+ 編輯鈕 + 同意條款。
+// 🔴 U1:付款 / 發票兩顆「編輯」原本跳回 step2,兩步版下該兩區已在同頁上方 → onEditStep2 未傳時
+//   不渲染該兩顆鈕(不留下按了沒反應的死鈕);三步時代的呼叫端傳入即維持原行為。
 //
 // design 偏離(commit body + manifest override 揭示):
 //   - 付款複查只顯「信用卡 · TapPay」、不顯卡末四碼(e2 信用卡欄純 UI、本就零卡資料)。
@@ -39,8 +43,8 @@ export type CheckoutStep3Props = {
   onAgreedChange: (v: boolean) => void;
   /** 編輯收件 → 跳回 step1。 */
   onEditAddress: () => void;
-  /** 編輯付款 / 發票 → 跳回 step2。 */
-  onEditStep2: () => void;
+  /** 編輯付款 / 發票 → 跳回發票/付款區;U1 兩步版同頁無處可跳 → 省略即不渲染該兩顆編輯鈕。 */
+  onEditStep2?: () => void;
   /** 編輯商品 → 回購物車。 */
   onEditItems: () => void;
   /** ②-④b:TapPay 安全卡欄 slot(渲染於付款方式複查 body 內;undefined 維持 readonly 行為)。 */
@@ -85,7 +89,9 @@ export function CheckoutStep3({
       <div className="co-review-block">
         <div className="co-review-block-head">
           <div className="ap-mono">付款方式</div>
-          <button type="button" className="co-review-edit" onClick={onEditStep2}>編輯</button>
+          {onEditStep2 && (
+            <button type="button" className="co-review-edit" onClick={onEditStep2}>編輯</button>
+          )}
         </div>
         <div className="co-review-body">
           <div>信用卡 · TapPay</div>
@@ -97,7 +103,9 @@ export function CheckoutStep3({
       <div className="co-review-block">
         <div className="co-review-block-head">
           <div className="ap-mono">發票資訊</div>
-          <button type="button" className="co-review-edit" onClick={onEditStep2}>編輯</button>
+          {onEditStep2 && (
+            <button type="button" className="co-review-edit" onClick={onEditStep2}>編輯</button>
+          )}
         </div>
         <div className="co-review-body">
           {invoice.type === 'personal' && (

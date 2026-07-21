@@ -63,7 +63,7 @@ describe('CheckoutStep1', () => {
     expect(screen.getByText('貨運宅配')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /返回購物車/ }));
-    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
     expect(onBack).toHaveBeenCalledOnce();
     expect(onNext).toHaveBeenCalledOnce();
   });

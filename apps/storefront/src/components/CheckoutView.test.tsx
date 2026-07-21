@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
 //
-// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼;②-④b 接 TapPay 刷卡流程)。
+// CheckoutView smoke test(M-3-S2-b2-e1 結帳殼;②-④b 接 TapPay 刷卡流程;U1 起兩步)。
 //
-// 驗:① 載入態 ② 空車 ③ ready:3 步 + Step1 + 配送 + 右側摘要(②-④b 抽 CheckoutSummaryAside、字面不變)
-//     ④ 地址選擇 ⑤ 導航 ⑤b step3 勾同意 + canGetPrime → 確認付款 enabled;canGetPrime false → disabled
+// 驗:① 載入態 ② 空車 ③ ready:2 步 + Step1 + 配送 + 右側摘要(②-④b 抽 CheckoutSummaryAside、字面不變)
+//     ④ 地址選擇 ⑤ 導航 ⑤b step2 勾同意 + canGetPrime → 確認付款 enabled;canGetPrime false → disabled
 //     ⑥ member block ⑦ 🔴 經銷零洩漏 ⑧ 無地址 disabled
 //     ②-④b 刷卡接線:⑨ 確認付款 → getPrime → chargePaymentAction 收零價線+prime + paid 終態 + 清車
 //     ⑩ 失敗(formError)→ 通用錯誤 + 不清車 ⑪ 🔴 線缺 variantId → client 拒、零 action 呼叫
 //     ⑫ getPrime null → 友善錯誤、零 action ⑬ processing → 終態+清車 ⑭ in_flight/wait → 留頁+不清車
-//     ⑮ Step3 渲染 TapPay 卡欄容器(tpfield、零 <input> 收卡資料)
+//     ⑮ Step 2 渲染 TapPay 卡欄容器(tpfield、零 <input> 收卡資料)
+//     🔴 U1:⑱ 步驟列只有兩步 + CTA 字面 + 無第三步入口 ⑲ TapPay active 序列 false→true→false→true
 // mock CartContext + cart/actions + charge-actions + useTapPayCard(SDK 不進 jsdom)+ next/navigation。
 
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -17,8 +18,17 @@ import type { CartItem } from '@/contexts/CartContext';
 import type { ResolvedCartLine } from '@/app/cart/actions';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
 
-const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, confirmInflightMock, setInflightMock, tapRef } =
-  vi.hoisted(() => ({
+const {
+  cartRef,
+  resolveMock,
+  pushMock,
+  chargeMock,
+  getPrimeMock,
+  confirmInflightMock,
+  setInflightMock,
+  tapRef,
+  tapActiveRef,
+} = vi.hoisted(() => ({
   cartRef: {
     current: {
       items: [] as CartItem[],
@@ -45,6 +55,9 @@ const { cartRef, resolveMock, pushMock, chargeMock, getPrimeMock, confirmInfligh
       fieldStatus: { number: 0 as const, expiry: 0 as const, ccv: 0 as const },
     },
   },
+  // U1:mock 必須真的接收 active 參數(舊 mock 忽略它 → step 對錯都綠 = 假綠)。
+  // 只記「轉換序列」(同值連續 render 不重複記),供斷言 false → true → false → true。
+  tapActiveRef: { current: [] as boolean[] },
 }));
 
 vi.mock('@/contexts/CartContext', () => ({
@@ -64,7 +77,11 @@ vi.mock('@/hooks/useTapPayCard', () => ({
     expirationDate: 'tappay-card-expiration-date',
     ccv: 'tappay-card-ccv',
   },
-  useTapPayCard: () => ({ ...tapRef.current, getPrime: getPrimeMock }),
+  useTapPayCard: (active: boolean) => {
+    const seq = tapActiveRef.current;
+    if (seq[seq.length - 1] !== active) seq.push(active);
+    return { ...tapRef.current, getPrime: getPrimeMock };
+  },
 }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
@@ -114,6 +131,7 @@ afterEach(() => {
     canGetPrime: true,
     fieldStatus: { number: 0, expiry: 0, ccv: 0 },
   };
+  tapActiveRef.current = [];
 });
 
 function setCart(items: CartItem[], opts: { isHydrated?: boolean } = {}) {
@@ -187,14 +205,13 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(await screen.findByText('購物車是空的')).toBeTruthy();
   });
 
-  it('ready:3 步指示器 + Step1 地址 + 配送 + 右側摘要', async () => {
+  it('ready:2 步指示器 + Step1 地址 + 配送 + 右側摘要', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 2 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
     const { container } = renderCheckout();
     expect(await screen.findByText('貨運宅配')).toBeTruthy();
-    // 步指示器 3 步
-    expect(screen.getByText('付款方式')).toBeTruthy();
-    expect(screen.getByText('確認訂單')).toBeTruthy();
+    // 步指示器 2 步(U1)
+    expect(screen.getByText('發票與付款')).toBeTruthy();
     // Step1 地址(王小明 同時為 member 名 → 用 .co-addr-name scoped 查避撞)
     expect(container.querySelector('.co-addr-name')?.textContent).toBe('王小明');
     expect(container.querySelector('.co-addr-phone')?.textContent).toBe('0912345678');
@@ -224,15 +241,15 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(input, 'scrollIntoView', { configurable: true, value: scrollIntoView });
     fireEvent.change(input, { target: { value: 'invalid-email' } });
-    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
     expect(screen.getByText('Email 格式不正確')).toBeTruthy();
-    expect(screen.queryByText('發票資訊')).toBeNull();
+    expect(screen.queryAllByText('發票資訊').length).toBe(0); // 擋在 Step1、未進 Step2
     expect(document.activeElement).toBe(input);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
 
     fireEvent.change(input, { target: { value: ' User.Name@EXAMPLE.COM ' } });
-    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
-    expect(screen.getByText('發票資訊')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    expect(screen.getAllByText('發票資訊').length).toBeGreaterThan(0); // canonical 後才前進 Step2
   });
 
   it('地址選擇 radio → is-on', async () => {
@@ -249,45 +266,85 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(container.querySelectorAll('.co-addr')[1]?.className).toContain('is-on');
   });
 
-  it('導航:step1→step2(發票/付款)→step3(確認複查)→上一步、返回購物車→/cart', async () => {
+  it('導航:step1→step2(發票/付款/複查/條款同頁)→上一步、返回購物車→/cart', async () => {
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     renderCheckout();
     await screen.findByText('貨運宅配');
 
-    // → step2:發票 + 付款方式(e2)
-    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
-    expect(screen.getByText('發票資訊')).toBeTruthy();
+    // → step2:發票 + 付款方式 + 複查 + 條款(U1 起同一步、不再有第三步)
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    // ⚠️ U1 WIP:發票區(CheckoutStep2 的 h2)與發票複查區(CheckoutStep3 的 ap-mono)同頁並存 = 2 個
+    //    同字面節點;U2a/U2b 退役 Step3 shell 後回到 1 個。
+    expect(screen.getAllByText('發票資訊').length).toBe(2);
     expect(screen.getByText('信用卡(TapPay)')).toBeTruthy();
-
-    // → step3:確認複查(e3a:同意條款 + 商品複查 + 確認付款鈕)
-    fireEvent.click(screen.getByRole('button', { name: /下一步:確認訂單/ }));
     expect(screen.getByText(/我已閱讀並同意/)).toBeTruthy();
     expect(screen.getByText(/商品清單/)).toBeTruthy();
+    // 🔴 第三步入口已消滅
+    expect(screen.queryByRole('button', { name: /下一步:確認訂單/ })).toBeNull();
+    // 🔴 死鈕回歸守門(R2 覆蓋缺口):同頁無處可跳 → View 不得傳 onEditStep2,
+    //    「編輯」只剩收件 + 商品兩顆;若日後把 prop 加回去,此處會轉紅。
+    expect(screen.getAllByRole('button', { name: '編輯' }).length).toBe(2);
     // 未勾同意 → 確認付款 disabled(co-actions + buybar 兩顆都 disabled)
     const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
     expect(payButtons.length).toBeGreaterThanOrEqual(1);
     expect(payButtons.every((b) => b.disabled)).toBe(true);
 
-    // 上一步 → 回 step2
-    fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
-    expect(screen.getByText('發票資訊')).toBeTruthy();
-
-    // 上一步 → 回 step1
+    // 上一步 → 直接回 step1(兩步之間唯一往返)
     fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
     expect(screen.getByText('貨運宅配')).toBeTruthy();
+    expect(screen.queryAllByText('發票資訊').length).toBe(0);
 
     fireEvent.click(screen.getByRole('button', { name: /返回購物車/ }));
     expect(pushMock).toHaveBeenCalledWith('/cart');
   });
 
-  it('step3 勾同意 → 確認付款 enabled(送出 e3b 接線、e3a 僅 UI gate)', async () => {
+  it('🔴 ⑱ U1 步驟列只有兩步、CTA 字面「下一步:發票與付款」、無第三步入口', async () => {
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     const { container } = renderCheckout();
     await screen.findByText('貨運宅配');
-    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
-    fireEvent.click(screen.getByRole('button', { name: /下一步:確認訂單/ }));
+
+    const steps = container.querySelectorAll('.co-step');
+    expect(steps.length).toBe(2);
+    expect(Array.from(steps).map((s) => s.querySelector('.co-step-label')?.textContent)).toEqual([
+      '收件資料',
+      '發票與付款',
+    ]);
+    expect(screen.getByRole('button', { name: /下一步:發票與付款/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /下一步:確認訂單/ })).toBeNull();
+
+    // 進 step2 後步驟列仍只有兩步、第一步可回點
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    expect(container.querySelectorAll('.co-step').length).toBe(2);
+    fireEvent.click(container.querySelectorAll<HTMLButtonElement>('.co-step')[0]!);
+    expect(screen.getByText('貨運宅配')).toBeTruthy();
+  });
+
+  it('🔴 ⑲ TapPay active 只在 step 2:序列 false → true → false → true(mock 真收 active、防假綠)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await screen.findByText('貨運宅配');
+    expect(tapActiveRef.current).toEqual([false]); // step1:不 setup
+    expect(container.querySelector('#tappay-card-number')).toBeNull(); // 卡欄容器不在第一步
+
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    expect(tapActiveRef.current).toEqual([false, true]); // step2:啟用
+
+    fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
+    expect(tapActiveRef.current).toEqual([false, true, false]); // 回 step1:cleanup
+
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    expect(tapActiveRef.current).toEqual([false, true, false, true]); // 重入 step2:重 setup
+  });
+
+  it('step2 勾同意 → 確認付款 enabled(送出 e3b 接線、e3a 僅 UI gate)', async () => {
+    setCart([{ productId: 'rpm-1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
+    const { container } = renderCheckout();
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
 
     const agree = container.querySelector('.co-agree input') as HTMLInputElement;
     fireEvent.click(agree);
@@ -321,23 +378,22 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     renderCheckout({ addresses: [] });
     await screen.findByText('貨運宅配');
-    const next = screen.getByRole('button', { name: /下一步:付款方式/ }) as HTMLButtonElement;
+    const next = screen.getByRole('button', { name: /下一步:發票與付款/ }) as HTMLButtonElement;
     expect(next.disabled).toBe(true);
   });
 
   // ===== ②-④b:刷卡接線(getPrime → chargePaymentAction → 六態)=====
-  async function gotoStep3Agreed(container: HTMLElement) {
+  async function gotoStep2Agreed(container: HTMLElement) {
     await screen.findByText('貨運宅配');
-    fireEvent.click(screen.getByRole('button', { name: /下一步:付款方式/ }));
-    fireEvent.click(screen.getByRole('button', { name: /下一步:確認訂單/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
     fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
   }
 
-  it('⑮ Step3 渲染 TapPay 卡欄容器(tpfield 三欄、零 <input> 收卡資料)', async () => {
+  it('⑮ Step 2 渲染 TapPay 卡欄容器(tpfield 三欄、零 <input> 收卡資料)', async () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     expect(container.querySelector('#tappay-card-number.tpfield')).toBeTruthy();
     expect(container.querySelector('#tappay-card-expiration-date.tpfield')).toBeTruthy();
     expect(container.querySelector('#tappay-card-ccv.tpfield')).toBeTruthy();
@@ -351,7 +407,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
     expect(payButtons.every((b) => b.disabled)).toBe(true);
   });
@@ -365,7 +421,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
       notificationEmailEnabled: true,
       initialNotificationEmail: 'Member@example.com',
     });
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText('訂單已成立')).toBeTruthy();
@@ -396,7 +452,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
     getPrimeMock.mockResolvedValue('prime_test');
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
     expect(confirmInflightMock).toHaveBeenCalled();
     expect(getPrimeMock).not.toHaveBeenCalled(); // handleSubmit 軟提醒在 getPrime 前 return
@@ -409,7 +465,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     getPrimeMock.mockResolvedValue('prime_test');
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0008' });
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     const payBtn = screen.getAllByRole('button', { name: /確認付款/ })[0]!;
     // 原生連點包同一 act(fireEvent 各自包 act 會先 flush primeBusy → 第二擊打在 disabled 鈕、
     // 測不到 ref;單 act 內兩擊 = re-render 前、state 版擋不住、唯 primeBusyRef 同步擋)。
@@ -428,7 +484,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     getPrimeMock.mockResolvedValue('prime_test');
     chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試或聯繫客服 LINE' });
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText('付款失敗,請稍後再試或聯繫客服 LINE')).toBeTruthy();
@@ -441,7 +497,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     getPrimeMock.mockResolvedValue('prime_test');
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText(/缺少規格資訊/)).toBeTruthy();
@@ -454,7 +510,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
     getPrimeMock.mockResolvedValue(null);
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText(/卡片資訊驗證失敗/)).toBeTruthy();
@@ -472,7 +528,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
       message: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認',
     });
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText('付款處理中')).toBeTruthy();
@@ -488,7 +544,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     const PAY = 'https://sandbox.tappaysdk.com/tpc/3ds/pay?token=abc123';
     chargeMock.mockResolvedValue({ redirect: true, redirectUrl: PAY });
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     const node = await screen.findByTestId('checkout-redirecting');
@@ -503,7 +559,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     getPrimeMock.mockResolvedValue('prime_test');
     chargeMock.mockRejectedValue(new Error('network'));
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
 
     expect(await screen.findByText('付款狀態確認中')).toBeTruthy();
@@ -523,7 +579,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
       message: '您有一筆付款正在處理中,請稍候再試',
     });
     const { container } = renderCheckout();
-    await gotoStep3Agreed(container);
+    await gotoStep2Agreed(container);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
     expect(await screen.findByText(/正在處理中,請稍候再試/)).toBeTruthy();
     expect(cartRef.current.clear).not.toHaveBeenCalled();
@@ -538,7 +594,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     });
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     const { container: c2 } = renderCheckout();
-    await gotoStep3Agreed(c2);
+    await gotoStep2Agreed(c2);
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
     expect(await screen.findByText(/未扣款;系統忙碌中/)).toBeTruthy();
     expect(cartRef.current.clear).not.toHaveBeenCalled();

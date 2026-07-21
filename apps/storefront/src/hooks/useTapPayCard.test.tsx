@@ -3,7 +3,7 @@
 // useTapPayCard hook test(M-3 ②-④a;SDK 以 window.TPDirect stub 注入、零真 script 載入)。
 // 驗:
 // ① env 缺 → ready:'error'(fail-safe、不掛頁)。
-// ② active=false → 不 setupSDK(只在 step3 啟用)。
+// ② active=false → 不 setupSDK(只在卡欄步驟(U1 起 step2)啟用)。
 // ③ active=true + TPDirect 已在 → setupSDK(appId 數字化, key, 'sandbox' fallback)+ card.setup
 //    (design placeholder 字面)+ onUpdate 映 state(canGetPrime/fieldStatus)。
 // ④ getPrime:canGetPrime false → null;status≠0 → null(log 僅 status、零 msg/prime);
@@ -74,7 +74,7 @@ describe('useTapPayCard', () => {
     expect(tp.setupSDK).not.toHaveBeenCalled();
   });
 
-  it('② active=false → 不 setupSDK(只在 step3 啟用)', async () => {
+  it('② active=false → 不 setupSDK(只在卡欄步驟(U1 起 step2)啟用)', async () => {
     const tp = stubTPDirect();
     renderHook(() => useTapPayCard(false));
     await act(async () => {});
@@ -167,7 +167,7 @@ describe('useTapPayCard', () => {
     expect(result.current.canGetPrime).toBe(true);
   });
 
-  it('⑦ active→false 即清 state(canGetPrime=false;step3 重入首 render 不顯 stale enabled 鈕;審查側 MUST-FIX)', async () => {
+  it('⑦ active→false 即清 state(canGetPrime=false;卡欄步驟重入首 render 不顯 stale enabled 鈕;審查側 MUST-FIX)', async () => {
     const tp = stubTPDirect();
     const { result, rerender } = renderHook(({ active }) => useTapPayCard(active), {
       initialProps: { active: true },
@@ -178,7 +178,7 @@ describe('useTapPayCard', () => {
     });
     expect(result.current.canGetPrime).toBe(true);
 
-    rerender({ active: false }); // 離開 step3 → 同步清(重入首 render 讀到的就是 false)
+    rerender({ active: false }); // 離開卡欄步驟 → 同步清(重入首 render 讀到的就是 false)
     expect(result.current.canGetPrime).toBe(false);
     expect(result.current.ready).toBe('loading');
   });

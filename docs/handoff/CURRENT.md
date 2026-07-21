@@ -2,19 +2,20 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第二片 U1（L0 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第三片 U2a（L0 + U1 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
 
 ## 1. 交接快照
 
 - Updated: 2026-07-21, Asia/Taipei
 - Agent: Claude Code
-- Mode: 執行模式；M-3 兩步結帳 **Slice L0＝本 commit**（docs／註解 only）；未 push、未 deploy、未進 U1
+- Mode: 執行模式；M-3 兩步結帳 **Slice U1＝本 commit**（首次動 checkout code）；L0＝`d619c14`（docs／註解 only、本 commit 的 parent）；未 push、未 deploy、未進 U2a
 - Branch: `dev`
-- Implementation base（兩者不同，勿混用）：
-  - **開工基底** = `a53897f`（本輪 preflight 時的 HEAD）
-  - 🔴 **L0 commit 的實際 parent** = `0be428e`「docs(docs): 交接 Eazi-Grip 總代理上市規劃 [marketing]」
-    —— 該 commit 由**另一條線**於 2026-07-21 19:43 在本輪進行中建立，**不屬於 L0**。
-    後續任何 push／revert／review 的範圍計算都必須把它算進去，不可假設 L0 commit 直接接在 `a53897f` 上。
+- Implementation base：
+  - **U1（本 commit）開工基底 ＝ 其 parent ＝ `d619c14`**（L0 commit）—— 本輪 preflight HEAD 與 parent **相同**，無 L0 那種落差。
+  - 🔴 **L0 的歷史落差（勿套用到 U1）**：L0 的開工基底是 `a53897f`，但其實際 parent 是 `0be428e`「docs(docs): 交接 Eazi-Grip 總代理上市規劃 [marketing]」——
+    該 commit 由**另一條線**於 2026-07-21 19:43 在 L0 進行中建立、**不屬於 L0**。
+    後續任何 push／revert／review 的範圍計算都必須把它算進去。
+  - 🔴 **本輪開工前已確認 working tree 只有一個寫入 session**（前一視窗 19:09 啟動、最後動作 22:57「L0 收工」後閒置，未再寫入；tree clean、HEAD 對齊 SSoT）。
 - Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；本輪未 push
 - Expected dirty: 本 commit 後應為 clean；若仍有 dirty，先辨認 ownership
 
@@ -51,14 +52,32 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - 設計真權威：`docs/specs/2026-07-20-m3-two-step-checkout-design.md`。
 - 實作計畫：`docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md`；已經 Sol High 兩輪唯讀審查，R1 10 項與 R2 4 項 must-fix 均已折入；依 repo 兩輪上限未跑 R3。
 - 計畫共 12 片：L0、U1、U2a、U2b、U3a、U3b、U4a、U4b、U5、L1、V1a、V1b。L1 等兩份正式條款與隱私內容取得核准（**核准矩陣＝Sean 必要、法律顧問選配加簽**，非二擇一；詳 backlog #291）；未完成 L1+V1b 前不得稱 production checkout 完成。
-- **Slice L0 ✅ ＝本 commit（2026-07-21、docs／註解 only）**：
+- **Slice L0 ✅ ＝ `d619c14`（2026-07-21、docs／註解 only、本 commit 的 parent）**：
   - 新開 backlog **#291**「正式服務條款／隱私政策 route + version/hash」，狀態 🔴 **BLOCKED**，acceptance 十條齊備。
   - 修正 #241 對 live #235 的錯誤依賴（live #235 = 「Step3／完成頁退換貨連結 + 客服 LINE 入口」，**不產出法律頁**）；#235 條目加反向 cross-link 防再漂移。
   - 校正 `apps/storefront/src/lib/legal/terms-version.ts` **active 註解**（依賴改指 #291；標明現行 hash provenance 取自 design **草稿**、不得當未來正式內容來源）。`CURRENT_TERMS_VERSION` 值 `'2026-06-30'` **未動**。
   - manifest `CheckoutPage.open_drifts.checkoutLegalPagesDeferred` 改記「已納入 #291／正式來源待核准／不得複製 design 草稿／仍是上線前人工 release checkpoint」；`last_modified_commit` = `a53897f`（**開工時的 preflight HEAD ＝ 可達祖先，不是本 commit 的 parent**；實際 parent 見 §1）、`last_modified_date` 前置新段。
   - 🔴 **未做（硬紅線遵守）**：未自撰法律文案、未杜撰聯絡資訊、未新增 `/terms`／`/privacy` route、未建 migration、未 bump version、未改既有 consent 歷史、未 apply DB、未開 flag、未 deploy、未 push。已 apply 的 `20260630120000` migration 歷史註解**未回改**。
-- **下一片 = U1**「兩步骨架 + TapPay active 原子切換」，**待 Sean 放行**；本輪未進 U1。
-- checkout code、route、migration、flag、deploy、DB 至今仍全數未動。
+- **Slice U1 ✅ ＝本 commit（2026-07-21、首次動 checkout code）**：
+  - step domain 由 `1|2|3` **原子**收斂為 `CheckoutStep = 1 | 2`；新檔 `apps/storefront/src/components/CheckoutStepIndicator.tsx`（56 行）為唯一型別源，步驟列兩格「收件資料／發票與付款」、只有已完成步驟可回點。
+  - **同片**把 `useTapPayCard(step === 3)` 改 `(step === 2)`，不留「步驟已兩步、卡欄仍綁第三步」的中間斷裂 commit。
+  - Step 2 依序掛既有 `CheckoutStep2` + `CheckoutStep3`；「下一步:確認訂單」移除；Step 1 CTA 改「**下一步:發票與付款**」（半形冒號）。
+  - `CheckoutStep3Props.onEditStep2` 改 optional：兩步版同頁無處可跳 → 不傳即不渲染付款／發票兩顆「編輯」鈕（不留死鈕）。
+  - 🔴 **付款安全契約逐條未動**（diff 實證）：`useTapPayCard.tsx` 僅 3 處註解、零邏輯行（generation guard／active=false 即清 state／重入重 setup／getPrime 15s timeout 全留）；`confirmProceedIfInflight → getPrime → charge.submit` 順序、`primeBusyRef` 同步鎖、終態不釋放策略未動；`charge-actions.ts`／`useChargePayment.tsx`／`TapPayCardFields.tsx` 不在改動檔清單內。
+  - 🔴 **反假綠**：舊 `CheckoutView.test.tsx` 的 `useTapPayCard` mock **忽略 `active`**（步驟切對切錯都綠）→ 改為真收參數並斷言序列 `false → true → false → true`；突變（`step === 2` → `step === 1`）實測轉紅、還原後綠。
+  - ⚠️ **U1 = WIP 中間態**：假卡欄與 `CheckoutStep3` shell 仍在、Step 2 有重複字面節點 → **只可稱「兩步 UI 骨架已實作」**，不得稱兩步結帳完成（見 manifest open drift `checkoutTwoStepWipWaitingU2`）。
+  - **審查兩條線（皆先 FAIL、findings 全修）**：
+    - code-reviewer **R1 `FAIL`**：1 must-fix（本兩份 SSoT 未同 commit 更新）+ 6 nit，全數已處理。
+    - 外部 codex 唯讀（`codex exec -s read-only`，跑前後 `git status --porcelain` 比對**零留痕**）**R1 `NO-GO`**：4 must-fix + 2 nit，全數屬實全數已修。
+    - 🔴 **最關鍵一條＝版面缺陷，測試全綠也抓不到**：`checkout.css` 的步驟列 grid 仍是三欄（base 與 900px 斷點兩處）→ 兩顆步驟鈕只佔 2/3 寬、**留下空的幽靈第三欄**；而我在同一片的 CSS 檔頭還寫了「規則本身未變（不依賴步數）」這句**不實**字面。已改兩處為 2 欄 + 檔頭改記「欄數硬編碼、兩處必須同步」+ **新增 `styles/checkout.test.ts` 兩條 CSS 守門**，並實跑兩種突變（桌機改回 3 欄／mobile 改回 3 欄）確認**各自轉紅**、還原後綠。
+    - 🔴 **「只改被點名那一處」在同一片復發**：manifest 我只更新了一處，漏掉 active 元件描述的「結帳殼 + 3 步」與 `checkoutStep3ReviewAdaptations` 的「最後一步輸入」→ 已全掃補齊。
+    - 其餘：targeted 數字過時（已更正）、STATUS 留下指向不存在內容的前向引用（已補實體）、`git diff --check` 不涵蓋 untracked 新檔（改用 `git add` 後 `git diff --cached --check`）、步驟指示器當前步驟是「可聚焦可按卻無反應」的假控制（見下方 R2 的最終修法）。
+    - **code-reviewer R2 `FAIL`（3 must-fix，全在 SSoT 字面、code 面 0 must-fix）**：①CURRENT 內 full test 數字自相矛盾（2597 vs 2600）②`STATUS.md` 當前狀態段尾句仍寫「下一片=U1、待 Sean 放行」＝**同一份 diff 內第三次「只改被點名那一處」**，且落在最高權威段落 ③新元件行數寫 48、實測 56（a11y 修入後未重量）。**三條全已修**，數字改為實跑值。R2 另獨立**突變驗證了 CSS 守門有效**（三種突變字串皆由綠轉紅，非鬆 regex）。
+    - **a11y 最終修法（R2 nit 推翻我原本的做法）**：原本把當前步驟設成原生 `disabled` —— R2 指出代價是「移出 tab 順序 + 多數螢幕閱讀器不朗讀 disabled 控制項 ⇒ `aria-current` 很可能永遠念不到」。改為業界標準：**當前步驟保持可聚焦**，以 `aria-current="step"` + `aria-disabled` 表達「我在這一步、此刻不可動作」，handler 由 `step > s.n` 守門 no-op；**只有未完成步驟**用原生 `disabled`。CSS 對應改 `.co-step.is-active[aria-disabled='true'] { cursor: default; }`。
+    - 另補：R2 指出「View 不傳 `onEditStep2`」無測試鎖住（日後加回去會靜默產生死鈕）→ 已在 `CheckoutView.test.tsx` 加「step 2 的『編輯』鈕恰為 2 顆」斷言。
+    - 🔴 **誠實現況**：R2 的 3 條 must-fix 修正**尚未經第三方覆核**（依 repo 一輪制／兩輪上限，未再開 R3）；codex 線修完後亦未跑 R2。
+- **下一片 = U2a**「抽第二步 presentational review sections」，**待 Sean 放行**；本輪未進 U2a。
+- route、migration、flag、deploy、DB 至今仍全數未動（U1 只動 checkout **UI 層**與測試／manifest／SSoT）。
 
 ### 作廢入口
 
@@ -71,7 +90,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
 | 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由 `a7ff24d` 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
-| M-3 | **兩步結帳 U1**（L0 ✅ 已收工）：由 U1 原子切兩步骨架 + TapPay active | Sean 本輪新批准方向 | L1 受 #291 正式法律內容阻擋；U1–U5 可在 flag-off 平行準備 |
+| M-3 | **兩步結帳 U2a**（L0 + U1 ✅ 已收工）：抽第二步 presentational review sections、畫面與行為不變 | Sean 本輪新批准方向 | L1 受 #291 正式法律內容阻擋；U2a–U5 可在 flag-off 平行推進 |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
 三個入口業務上可獨立規劃，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
@@ -209,7 +228,23 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ## 8. 已驗證／尚未驗證／需要 Sean
 
-### 本輪已驗證（2026-07-21 Slice L0，實跑）
+### 本輪已驗證（2026-07-21 Slice U1，實跑）
+
+- `pnpm exec turbo run typecheck --force` → **8/8 successful、0 cached**
+- `pnpm exec turbo run lint --force` → **10/10 successful、0 cached**
+- `pnpm exec turbo run build --force` → **2/2 successful、0 cached**
+- `pnpm test`（full）→ **236 檔 2600 passed + 1 todo**
+- targeted：`pnpm exec vitest run` CheckoutStepIndicator / CheckoutView / CheckoutStep1 / CheckoutStep2 / CheckoutStep3 / useTapPayCard / styles-checkout **七檔 → 64 passed**
+- 🔴 上列數字為**修完兩輪審查 findings 之後**重跑的最終值（先前寫的「5 檔 52 passed」是修補前的過時數字，已由 codex 抓出更正）
+- `node scripts/design-mirror.mjs --validate` → **26 元件／215 path tokens OK／24 `last_modified_commit` 可達 OK**（+1 token＝新增的 `CheckoutStepIndicator.tsx`；既有 `ProductPage.related_storefront[8]` 無-token warning 為既存、未新增）
+- `git diff --check`：clean（exit 0）
+- `wc -l apps/storefront/src/components/CheckoutView.tsx` → **359**（< 383，鐵則 6；U1 前為 383）
+- **RED→GREEN 實測**：先寫測試時 **19 個既有測試轉紅 + `CheckoutStepIndicator.test.tsx` 無法載入**（元件不存在），實作後全綠
+- **突變自驗（反假綠）**：`useTapPayCard(step === 2)` → `(step === 1)` ⇒ 新測 ⑲ 轉紅（`AssertionError: expected [ true ] to deeply equal [ false ]`），還原後綠
+- ⚠️ **證據等級（沿用 L0 的誠實標註）**：除 `design-mirror --validate` 由 code-reviewer 獨立重跑複核外，其餘數字屬**本視窗自報**、terminal 輸出未存成 committed artifact
+- ⚠️ 「未 apply DB／未開 flag／未 deploy」屬外部系統動作、repo 內無法自證；可自證的只有「未 push」
+
+### 前一片已驗證（2026-07-21 Slice L0，實跑）
 
 > 🔴 **並行寫入事故（誠實揭示；同款事故第 2 次）**：2026-07-21 19:12–19:28 期間，**有兩個 Claude session 同時對同一個 working tree 寫入**這五個檔案，違反本檔「同一時間只允許一個寫入 session」。
 > 兩邊各自對「誰是正牌寫入者」有**互相矛盾**的紀錄，**從 repo 內無法裁決**（`git reflog` 不記執行者、檔案 mtime 只證明時間不證明身分）→ 本檔**不採信任何一方的歸屬敘述**，只記可查證事實。
@@ -241,7 +276,7 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - 手機肉眼初驗發現錯誤紅字被固定 buybar 遮住；已補 RED test 與 focus + 置中捲動修正，回歸後完整可見
 - iOS Safari `<16px` 聚焦縮放風險已由 checkout mobile breakpoint 16px + `checkout.test.ts` 靜態守門鎖住
 
-### 本輪尚未驗證／尚未執行（Slice L0）
+### 前一片尚未驗證／尚未執行（Slice L0）
 
 - ✅ **外部 codex 唯讀 review 已執行**（2026-07-21，`codex exec -s read-only -c service_tier="fast"`，codex-cli 0.144.1；每輪跑前後 `git status --porcelain` 皆 0＝零留痕）。🔴 **Sean 2026-07-21 拍板：往後鐵則 12 觸發時不再產 Review Packet 給 Sean 人工貼 web Codex，一律由主 session 直接跑 `codex exec -s read-only`**（memory `feedback_codex-cli-direct-executor-no-packet` 已更新；`/codex-review` skill 的「產檔給 Sean 貼」流程視為已被取代）。
 - **審查輪次與結果（截至本 commit；🔴 至今無任何一輪 PASS）**：
@@ -262,9 +297,15 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
   2. **被我判為「凍結歷史／範圍外」而跳過的 active 檔案段落**（STATUS 的 07-20 條目、plan `:56`）—— 它們仍在對讀者傳播舊事實。→ 判定「凍結」不等於可以留著錯的字面，至少要標作廢。
 - 🔴 **amend 會讓自指 hash 當場失效**：本片 amend 4 次，STATUS 內寫死的 `d40b059` 早已不可達（死 hash，R4 抓出）→ 自指 commit hash 一律不寫死，改記可執行取得方式。
 - ✅ **R3 第 4 條的兩處延伸字面，Sean 已授權處置並完成**：①實作計畫 plan 檔 `:7`／`:56`／`:66` 誠實化（硬閘→人工 release checkpoint、核准矩陣精確化、收檔數更正為 7），該檔因此成為本片第 **7** 個收檔 ②commit subject 改為 `docs(storefront): 建立正式法律頁上線 checkpoint [m-3]`（原「上線硬閘」為任務指定字面，經 R3 判定與實際能力不符；未 push 故零歷史改寫成本）。
-- U1 **尚未開始**；route／migration／version bump **尚未做**；DB／env／flag／deploy／push **均未做**
-- 未跑 **full** `pnpm test`（本片零 `.ts/.tsx` 行為變更，只動註解與 docs；`typecheck`+`lint`+`build`+manifest validate 已涵蓋，另加跑了 `charge-actions.test.ts` 66 測）
-- L0 未驗證任何 runtime／瀏覽器行為（本片不產生 UI 變更）
+- （L0 當時字面，已被 U1 取代）~~U1 尚未開始~~ → **U1 已於本 commit 完成**；route／migration／version bump 仍未做；DB／env／flag／deploy／push **均未做**
+- L0 未跑 **full** `pnpm test`（該片零 `.ts/.tsx` 行為變更；U1 本片已補跑 full 236 檔 2600 passed + 1 todo）
+- L0 未驗證任何 runtime／瀏覽器行為（該片不產生 UI 變更）
+
+### U1 尚未驗證（本輪誠實揭示）
+
+- **未跑真瀏覽器／桌機／390px 手機驗收**：U1 全部證據來自 vitest（jsdom）+ typecheck/lint/build；真 TapPay SDK 在 jsdom 內是 mock，**「真 iframe 在 step 2 掛得起來」本輪未經真瀏覽器證實**。真瀏覽器與 3DS 驗收由 plan 的 **V1a／V1b** 負責。
+- **未跑任何真實刷卡／sandbox 3DS**；flag 維持 off，production checkout 仍不可開。
+- 「肉眼驗」未做（Sean 專屬用詞；本輪只有程式驗證）。
 
 ### 前輪尚未驗證（M-4a B-3，沿用）
 
@@ -275,7 +316,7 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 ### 需要 Sean
 
 - 🔴 **正式服務條款與隱私政策內容的來源**（#291 唯一 blocker）：由誰產出／何時可提供、核准人與核准日期。**AI 不自撰、不得複製 `design-reference/components/LegalPage.jsx` 草稿**（該檔自述「草稿待法務 review」、含假電話／假 Email、未實作服務、與 PCM 現行政策衝突的七日退貨說法）
-- **是否放行下一片 U1**（L0 已收工、停在 checkpoint）
+- **是否放行下一片 U2a**（U1 已收工、停在 checkpoint）：A＝做 U2a「抽第二步 presentational review sections」（推薦；純 presentational、不改付款行為）／B＝先做 #292 SSoT 收斂／C＝回原主軌 B-4。✅ **U1 本身已由 Sean 於 2026-07-21 放行並完成**。
 - ✅ **審查已結（Sean 2026-07-21 拍板：不開 R5、接受現況收工）**：外部 codex 唯讀跑滿 **R1→R4、四輪全數 `NO-GO`**（累計 28 條 must-fix、全數屬實、全數已修；R3／R4 為 Sean 明示放行，repo 預設上限 2 輪）。🔴 **誠實現況＝R4 的 9 條修正尚未經第三方覆核**；在有任何一輪 PASS 之前，不得把本 commit 描述為已通過審查。
 - ✅ **結構性根因已拍板並落檔（Sean 2026-07-21 拍 A）**：同一組事實（核准矩陣／parent／審查狀態／checkpoint 定位）重複散落 7 個檔案 + commit message、靠人工同步 —— 四輪審查證明此結構下人工同步會持續漏。採 **A 案＝收斂為單一來源**（#291 為法律頁事實的唯一權威，其餘各處只留一行指標、不複製內容；自指 hash 不寫死；字面反驗須納入 commit message）。已開 **backlog #292** 獨立一片承接，**不塞進 L0 或任何既有 slice**。
 - 現在不需操作 dashboard、DB、env；本 commit 完成後仍不 push，主軌下一片 B-4 需另行確認範圍

@@ -166,7 +166,9 @@ export function CheckoutStep2({
                     <input placeholder="•••" maxLength={4} disabled readOnly />
                   </label>
                 </div>
-                <div className="co-card-note">信用卡資訊將於最後一步以 TapPay 安全欄位輸入(本頁不收集卡號)</div>
+                {/* 🔴 U1 兩步後「最後一步」已不存在(真卡欄就在本頁下方)→ 字面改為指向下方安全欄位;
+                    整個預覽區塊(含本行)由 U2b 刪除。 */}
+                <div className="co-card-note">信用卡資訊請於下方 TapPay 安全欄位輸入(本頁不收集卡號)</div>
               </div>
             </div>
           </label>

@@ -115,7 +115,7 @@ export function CheckoutStep1({
       <div className="co-actions">
         <button className="btn-outline co-btn-back" onClick={onBack}>← 返回購物車</button>
         <button className="btn-primary co-btn-next" onClick={onNext} disabled={nextDisabled}>
-          下一步:付款方式 <span>→</span>
+          下一步:發票與付款 <span>→</span>
         </button>
       </div>
     </>

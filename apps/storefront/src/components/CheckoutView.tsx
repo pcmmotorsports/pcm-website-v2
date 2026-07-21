@@ -3,11 +3,18 @@
 // CheckoutView.tsx — 結帳頁 client 殼(M-3-S2-b2-e1 建;②-④b 接 TapPay 刷卡流程)
 //
 // 直接搬 design-reference/components/CheckoutPage.jsx(L163-694、鐵則 1 字面)。
-// e1 範圍:結帳殼 + 3 步指示器 + Step1(收件地址選擇 + 配送方式)+ mobile buybar;
-//   Step2(發票 / 付款)= e2、Step3(確認複查)= e3a;右側摘要 ②-④b 抽 CheckoutSummaryAside(鐵則 6)。
+// e1 範圍:結帳殼 + 步驟指示器 + Step1(收件地址選擇 + 配送方式)+ mobile buybar;
+//   Step2(發票 / 付款)= e2、確認複查元件 = e3a(CheckoutStep3);右側摘要 ②-④b 抽 CheckoutSummaryAside(鐵則 6)。
+//
+// 🔴 M-3 兩步結帳 U1(business override checkoutTwoStepFlow、Sean 已批准):
+//   step domain 由 `1|2|3` 原子收斂為 `CheckoutStep = 1 | 2`(型別源 CheckoutStepIndicator);
+//   Step 2 = 發票 + 付款 + 複查 + 條款 + 付款鈕同一頁,「下一步:確認訂單」已移除。
+//   ⚠️ WIP 中間態:本片只搬骨架,Step 2 內仍「依序掛」既有 CheckoutStep2 + CheckoutStep3 兩個元件
+//   (含 Step2 的 disabled 假卡欄);抽小元件、退役 CheckoutStep3 shell 與移除假卡欄 = U2a/U2b。
+//
 // ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
-//   Step3 付款方式複查 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
-//   只在 step===3 啟用 setup)→ 確認付款 = getPrime → useChargePayment.submit(chargePaymentAction:
+//   付款方式複查 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
+//   只在 step===2 啟用 setup)→ 確認付款 = getPrime → useChargePayment.submit(chargePaymentAction:
 //   server cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)→ 結果映 UI:
 //   paid / processing / unknown(action throw 回應遺失層、可能已扣款、審查側 BLOCKER 修)→
 //   CheckoutSuccess 終態(processing/unknown 帶勿重複付款文案);error / wait / in_flight
@@ -38,6 +45,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { CheckoutStep1 } from '@/components/CheckoutStep1';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStep3 } from '@/components/CheckoutStep3';
+import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutStepIndicator';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { CheckoutRedirecting } from '@/components/CheckoutRedirecting';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
@@ -46,12 +54,6 @@ import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { useChargePayment } from '@/hooks/useChargePayment';
 import { useTapPayCard } from '@/hooks/useTapPayCard';
 import { confirmProceedIfInflight } from '@/lib/payment/inflight-marker';
-
-const STEPS = [
-  { n: 1, l: '收件資料' },
-  { n: 2, l: '付款方式' },
-  { n: 3, l: '確認訂單' },
-] as const;
 
 // 發票草稿預設(對齊 design defaultInvoice L69、CheckoutInput.invoice zod);
 // 模組層常數(穩定參照)避免進 effect deps。
@@ -87,7 +89,7 @@ export function CheckoutView({
   const cart = useResolvedCart('home');
   const charge = useChargePayment();
 
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<CheckoutStep>(1);
   const [shippingAddrId, setShippingAddrId] = useState<string | undefined>(
     () => addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id,
   );
@@ -96,7 +98,7 @@ export function CheckoutView({
   // 配送方式:Q1=A 僅 home(後端 white-list 仍含 store、UI 暫不開合作店家取貨);
   // useResolvedCart('home') 直接用字面、運費鏡像走 home。
 
-  // 發票:state 提升至此(跨步驟存活、e3 送出時讀);Step2 UI 在 CheckoutStep2、Step3 複查在 CheckoutStep3。
+  // 發票:state 提升至此(跨步驟存活、送出時讀);發票 UI 在 CheckoutStep2、複查在 CheckoutStep3(U1 起同為 Step 2)。
   // 從選中地址自動帶入、使用者可手動覆寫的 effect 對齊 design L72-76。
   const [invoice, setInvoice] = useState<InvoiceDraft>(DEFAULT_INVOICE);
   const [invoiceOverride, setInvoiceOverride] = useState(false);
@@ -106,7 +108,7 @@ export function CheckoutView({
     if (addr?.invoice) setInvoice({ ...DEFAULT_INVOICE, ...addr.invoice });
   }, [shippingAddrId, addresses, invoiceOverride]);
 
-  // 同意條款(Step3)。
+  // 同意條款(Step 2 底部)。
   const [agreed, setAgreed] = useState(false);
 
   const goNext = () => {
@@ -122,18 +124,18 @@ export function CheckoutView({
       setNotificationEmail(result.data);
       setNotificationEmailError(null);
     }
-    setStep((s) => Math.min(3, s + 1));
+    setStep(2); // U1:兩步 domain,goNext 只可能 1→2
   };
-  const goBack = () => setStep((s) => Math.max(1, s - 1));
+  const goBack = () => setStep(1); // U1:兩步 domain,goBack 只可能 2→1
 
   // ②-④b 刷卡送出(對齊 design submitOrder `if (!agreed) return` 守門 + processing 態):
-  // TapPay 卡欄只在 step===3 啟用(setup 需容器在 DOM);getPrime 成功才呼 chargePaymentAction
+  // TapPay 卡欄只在 step===2 啟用(U1:卡欄所在步驟由 3 改 2;setup 需容器在 DOM);getPrime 成功才呼 chargePaymentAction
   // (六態契約見 useChargePayment)。🔴 雙擊防線:primeBusyRef 同步原子鎖(state 版 re-render 前
   // 擋不住同一輪連點、getPrime 會重複呼;codex 關卡2 r1)→ getPrime 全程只進一次;
   // 終態(paid/processing、submit 回 true)**不釋放**(r2:終態 render 前的空窗也不得再進
   // getPrime;畫面隨即切 CheckoutSuccess)。primeBusy state 只負責 UI disabled 鏡像。
   // shippingMethod 釘 'home'(Q1=A);身分/金額零 client(RPC auth.uid() + findTotal read-back)。
-  const tappay = useTapPayCard(step === 3);
+  const tappay = useTapPayCard(step === 2);
   const primeBusyRef = useRef(false);
   const [primeBusy, setPrimeBusy] = useState(false);
   const [primeError, setPrimeError] = useState<string | null>(null);
@@ -249,23 +251,8 @@ export function CheckoutView({
           <div className="co-head-meta">共 {lines.length} 件商品</div>
         </div>
 
-        {/* Step indicator */}
-        <div className="co-steps">
-          {STEPS.map((s) => {
-            const state = step > s.n ? 'is-done' : step === s.n ? 'is-active' : '';
-            return (
-              <button
-                key={s.n}
-                className={`co-step ${state}`}
-                onClick={() => { if (step > s.n) setStep(s.n); }}
-                disabled={step < s.n}
-              >
-                <span className="co-step-num">{state === 'is-done' ? '✓' : String(s.n).padStart(2, '0')}</span>
-                <span className="co-step-label">{s.l}</span>
-              </button>
-            );
-          })}
-        </div>
+        {/* Step indicator(U1:兩步、型別源 CheckoutStepIndicator) */}
+        <CheckoutStepIndicator step={step} onStepChange={setStep} />
 
         <div className="co-layout">
           {/* ============ LEFT MAIN ============ */}
@@ -291,7 +278,7 @@ export function CheckoutView({
               />
             )}
 
-            {/* ===== STEP 2: 發票 + 付款方式(e2)===== */}
+            {/* ===== STEP 2: 發票 + 付款 + 複查 + 條款(U1 單一步驟;U2a/U2b 再抽元件退役 Step3 shell)===== */}
             {step === 2 && (
               <>
                 <CheckoutStep2
@@ -300,18 +287,6 @@ export function CheckoutView({
                   invoiceOverride={invoiceOverride}
                   setInvoiceOverride={setInvoiceOverride}
                 />
-                <div className="co-actions">
-                  <button className="btn-outline co-btn-back" onClick={goBack}>← 上一步</button>
-                  <button className="btn-primary co-btn-next" onClick={goNext}>
-                    下一步:確認訂單 <span>→</span>
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* ===== STEP 3: 確認訂單(e3a UI;送出建單 e3b 接)===== */}
-            {step === 3 && (
-              <>
                 <CheckoutStep3
                   currentAddr={addresses.find((a) => a.id === shippingAddrId)}
                   shippingLabel="貨運宅配"
@@ -320,7 +295,8 @@ export function CheckoutView({
                   agreed={agreed}
                   onAgreedChange={setAgreed}
                   onEditAddress={() => setStep(1)}
-                  onEditStep2={() => setStep(2)}
+                  // 付款 / 發票「編輯」不再跨步驟:兩區已在同頁上方 → 不傳 onEditStep2、該兩顆鈕不渲染
+                  // (U2a/U2b 抽小元件後這層 shell 退役)。
                   onEditItems={() => router.push('/cart')}
                   paymentSlot={
                     <TapPayCardFields ready={tappay.ready} fieldStatus={tappay.fieldStatus} />
@@ -359,10 +335,10 @@ export function CheckoutView({
         {/* Mobile buybar */}
         <div className="co-mobile-buybar">
           <div className="co-mobile-buybar-info">
-            <div className="ap-mono">{step === 3 ? '應付總額' : '目前金額'}</div>
+            <div className="ap-mono">{step === 2 ? '應付總額' : '目前金額'}</div>
             <div className="co-mobile-buybar-price">NT$ {total.toLocaleString()}</div>
           </div>
-          {step < 3 ? (
+          {step === 1 ? (
             <button className="btn-primary co-mobile-buybar-btn" onClick={goNext} disabled={nextDisabled}>
               下一步 <span>→</span>
             </button>

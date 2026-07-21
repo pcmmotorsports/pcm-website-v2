@@ -84,7 +84,8 @@ function readClientEnv(): { appId: number; appKey: string; env: 'sandbox' | 'pro
 }
 
 /**
- * @param active 卡欄容器是否在 DOM(View 的 step===3):false 不載 SDK 不 setup(容器不存在時
+ * @param active 卡欄容器是否在 DOM(View 的 step===2、U1 兩步版;三步時代為 step===3):
+ *   false 不載 SDK 不 setup(容器不存在時
  *   card.setup 會失敗);true→false→true(步驟往返)重 setup(先清容器殘留 iframe)。
  */
 export function useTapPayCard(active: boolean): UseTapPayCard {
@@ -108,7 +109,7 @@ export function useTapPayCard(active: boolean): UseTapPayCard {
     if (!active) {
       mountedRef.current = false;
       // 🔴 離開即清 state(審查側 MUST-FIX):iframe 已隨容器卸載,殘留 canGetPrime=true 會讓
-      // step3 重入的**首 render**(active 輪 effect 重置跑在 render 後)顯示 stale enabled 付款鈕;
+      // 卡欄步驟重入的**首 render**(active 輪 effect 重置跑在 render 後)顯示 stale enabled 付款鈕;
       // 此處清掉 → 重入首 render 即 disabled、待新 setup onUpdate 再開。
       setState({ ready: 'loading', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } });
       return;
