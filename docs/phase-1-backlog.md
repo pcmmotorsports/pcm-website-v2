@@ -6021,7 +6021,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修會痛在:**
   - 可維護性 / UX:客人卡住只能自己亂找、客服負擔增;擴充性:政策頁建立後順手接。
 - **發現於:** 2026-06-15 / Gemini 結帳廣度檢視(review-log §3 #5)。
-- **相關:** rpm-policies / legal pages 待建 backlog / CheckoutSuccess
+- **相關:** rpm-policies / CheckoutSuccess / [[#291]](法律頁 route + version/hash;**本條目與法律頁無關**,2026-07-21 L0 更正 #241 曾把本條目誤當法律頁工作單)
 - **分流標籤:** `P2-later`
 
 ---
@@ -6108,7 +6108,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** ✅ 已實作(2026-07-01、worktree=dev、待 Sean db push;真權威 `docs/specs/2026-06-30-m3-241-checkout-consent-plan.md`)
   - 實作:charge-actions ②e `raw.agreed !== true` server 驗(不信任 client、置於所有付款/建單/settle 副作用前)+ best-effort IP/UA(headers、截 128/1024)→ create_order 5→8 param 同 transaction 原子寫 `order_legal_consents`(新 1:1 表、RLS 零 policy + REVOKE ALL = IP/UA PII 隔離)+ `legal_terms_versions` 版本登錄表(content_hash provenance、FK)+ `terms-version.ts` 常數。前端鈕已 payDisabled=!agreed(對齊 design、不加 inline 提示)。
   - 審查:Gemini scope/設計 + codex 關卡1(FAIL→9 finding 全修)+ 關卡2(zero-regression 乾淨)+ code-reviewer + adversarial-reviewer(皆 PASS-WITH-NITS)+ L1 安全輕掃 0 finding + migration MCP 零留痕 + 三綠 + vitest 1507。
-  - 🔴 **誠實邊界**:本片 = 同意訊號 + 內容雜湊 provenance,**非完整法律效力** —— 完整效力需 **#235**(結帳條款連結 `href="#"` → 接可讀條款/隱私頁,前端/內容片、耦合相依)。
+  - 🔴 **誠實邊界**:本片 = 同意訊號 + 內容雜湊 provenance,**非完整法律效力** —— 完整效力需 **[[#291]]**(正式服務條款／隱私政策 route + version/hash;結帳條款連結目前仍是 `href="#"` no-op → 接可讀條款/隱私頁)。
+    ⚠️ **2026-07-21 更正(Slice L0)**:本行原寫「完整效力需 **#235**」= **錯誤依賴**。live #235 的實際標題是
+    「🔁 Step3 / 完成頁 退換貨連結 + 客服 LINE 入口」,不是法律頁工作單、也不會產出 `/terms`、`/privacy`。
+    法律頁的唯一工作單是 **#291**。(已 apply 的 migration `20260630120000` 內歷史註解**不回改**。)
   - 🔴 **db push sequencing**:code 期待 8-param、live 仍 5-param 未推 → **Sean db push 在先、才驗 checkout**(prod 未部署=零影響);db push 後 `generate_typescript_types` 重生兩表 Row 型別。
   - 殘留 NIT(可接受):terms version + content_hash 雙處(terms-version.ts + migration seed)手動同步 bump(已雙處 callout 緩解、無自動斷言);條款改版時注意。
 - **優先級:** 🟠 中(上線前必補;合規/爭議面)
@@ -7260,6 +7263,139 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-20 / #288 plan 的關卡1 對抗審查(Fable 指出桌面 `.cft-bar` 未被隱藏,經
   production build 實測確認)
 - **相關:** #288 / #289 / 鐵則 1
+
+---
+
+### #291. ⚖️ 正式服務條款／隱私政策 route + version/hash(production checkout 上線前人工 release checkpoint)
+
+- 🔴 **本條目的性質(誠實定位;codex 唯讀審查 R1 must-fix)**:以下所有「不得／必須」目前**只是 prose,
+  沒有任何機械守門** —— 沒有 CI 檢查、沒有 deploy preflight、沒有 feature flag 條件會擋下
+  「複製 design 草稿建 route 上線」。因此本條目是**人工 release checkpoint**,不是技術上的硬閘;
+  真正機械化(deterministic release check:核准內容 artifact/hash ↔ routes ↔ `CURRENT_TERMS_VERSION`
+  ↔ `legal_terms_versions` row 四者一致才准 deploy)本身也是 L1 plan 的交付項之一。
+- **狀態:** ⏳ 待執行(🔴 **BLOCKED — 等兩份正式內容核准;核准矩陣=Sean 必要、法律顧問選配加簽(非二擇一),詳下方驗收條件 1**;內容到位前不得開工;
+  到位後另寫高風險 plan,對應實作計畫 `docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md` Slice L1)
+- **優先級:** 🔴 高(production checkout 開放付款的硬前置)
+- **問題:**
+  - storefront **沒有** `/terms`、`/privacy` route;結帳同意條款的兩個連結是
+    `href="#"` + `preventDefault()` 的 no-op placeholder
+    (`apps/storefront/src/components/CheckoutStep3.tsx:145-146`)→ 客人勾「我已閱讀並同意」時
+    **實際讀不到任何條款內容**。
+  - #241 已落地的是**同意訊號 + 版本 + 內容雜湊 provenance**,不是完整法律效力;
+    其「完整效力需 #235」的字面是**錯誤依賴** —— live #235 的實際標題是
+    「🔁 Step3 / 完成頁 退換貨連結 + 客服 LINE 入口」,不是法律頁工作單、
+    也不會產出 `/terms`、`/privacy`。本條目(#291)才是法律頁的唯一工作單。
+  - 🔴 **`design-reference/components/LegalPage.jsx` 不得直接複製上線**:該檔內容多處明寫
+    「草稿待法務 review」,並含假電話／假 Email、尚未實作的服務,以及與 PCM 現有政策衝突的
+    七日退貨說法。它**只能**當視覺結構參考。
+- **觸發事件(任一觸發即啟動實作):**
+  - 兩份正式服務條款與隱私政策內容取得核准(**Sean 必要、法律顧問選配加簽**);或
+  - production checkout 準備對外開放付款(此時本條目為**上線前必過的人工 release checkpoint**、
+    不得跳過;注意目前無機械守門會自動擋下,見上方「本條目的性質」)。
+- **預期解法(未來 plan 的驗收條件,逐條可 yes/no):**
+  1. 兩份正式內容經**核准**,plan 內記錄核准人與核准日期;AI 不自行撰寫、不杜撰任何條文。
+     🔴 **核准矩陣(不得留「或」的解釋空間,codex R1 must-fix)**:**Sean 為必要核准人**(兩份皆須);
+     法律顧問為**選配加簽**(Sean 可自行決定是否送外部法務,但送了就必須把顧問意見一併記錄)。
+     即「Sean 核准=必要且最低條件;法律顧問核准=Sean 可加不可省的第二層」。
+     ⚠️ **核准對象=實際渲染後的完整頁面 payload**(含由 SSoT 插值進去的所有字面),
+     不是只核准兩份原始文字檔。
+  2. route 固定為 **`/terms`、`/privacy`**(不另立命名)。
+  3. 兩個 route **可匿名讀取**(未登入即可完整閱讀),並有測試證明。
+  4. 頁面內的**聯絡資訊取自既有 SSoT**(`apps/storefront/src/lib/site-config.ts` 的
+     `LEGAL_NAME`／`TAX_ID`／`CONTACT_PHONE`／`CONTACT_EMAIL`／`STORE_ADDRESS` 等)
+     → **零杜撰聯絡方式**。
+     🔴 **`apps/storefront/src/data/rpm-policies.ts` 不算已核准來源**(codex R1 must-fix):
+     該檔 `:5-6` 自述「該鑑賞期免除是對客戶的法律主張、**Sean 仍在確認準確性**」→
+     若法律頁要引用退換貨/鑑賞期字面,**必須先解除該檔的待確認狀態、或把該段納入本條目的核准範圍**,
+     否則會出現「兩份主文已核准、但頁面插入了另一段未核准政策」的破口。
+  5. 兩份內容使用**唯一一套 canonicalization 與 hash 合成規則**(單一實作 + 測試,
+     不得在腳本/migration/前端各寫一份同義公式)。
+     🔴 **該規則必須在 L1 plan 內明文定義到可重現**(codex R1 must-fix:目前只寫「唯一」不夠判定):
+     至少須指定 ①canonical payload 是什麼(原始 markdown/純文字/渲染後 DOM 文字)②兩份內容的
+     **串接順序與 separator** ③SSoT 插值是在 hash 前或後 ④換行/空白/編碼正規化方式。
+     未定義完成前不得宣稱條件 5 已滿足。
+  6. 新 terms version **不得沿用 `2026-06-30`**(該值已對應舊 provenance)。
+  7. `CURRENT_TERMS_VERSION`(`apps/storefront/src/lib/legal/terms-version.ts`)、
+     **實際顯示內容**算出的 hash、`legal_terms_versions` 對應 row **三者一致**,並有守門證據。
+  8. migration **只能 forward-only 新增版本 row**;不得修改或刪除既有 `legal_terms_versions`
+     與 `order_legal_consents` 歷史。
+  9. production `supabase db push` **保留 Sean checkpoint**(AI 不自行 apply)。
+  10. **所有**同意條款連結改為**新分頁開啟**:`target="_blank"` + `rel="noopener noreferrer"`,
+      避免清掉結帳中的資料。🔴 **必改消費端清單(全部都是 blocker、不得只改 checkout;codex R1 must-fix
+      指出原文與下方「相關」欄的 RegisterPage 敘述自相矛盾)**:
+      ①`apps/storefront/src/components/CheckoutStep3.tsx:145-146`(結帳同意條款,兩個連結)
+      ②`apps/storefront/src/components/RegisterPage.tsx:116`(註冊頁同意條款,兩個連結)。
+      兩者皆為現行 `href="#"`;條件 10 要成立**必須兩處都改完**。
+- **不修會痛在:**
+  - 擴充性:條款頁不存在 → production checkout 無法合規開放付款,整條金流線卡在最後一哩。
+  - 可維護性:`CURRENT_TERMS_VERSION` 與 content_hash 目前靠人工雙處同步;沒有「顯示內容 ⇄ hash
+    ⇄ DB row」三方守門,下次改版必然漂移且無人察覺。
+  - bug 可追蹤性:客人簽的是「看不到內容的同意」。爭議時 `order_legal_consents` **可以**證明
+    同意的版本字串與其 FK 指向的 `legal_terms_versions.content_hash`(provenance 這層是有的),
+    但**無法證明客人實際可讀到／看到的渲染內容** —— 因為連結是 no-op、頁面根本不存在 →
+    舉證鏈斷在最關鍵的一環。
+- **估時:** 內容到位後 ~90-120 分鐘(route + 內容搬運 + canonical/hash + 測試 + migration 草案);
+  **不含**法律內容產出時間(外部依賴)。
+- **依賴:** 🔴 **兩份正式內容取得核准**(唯一 blocker;**Sean 必要、法律顧問選配加簽**,核准對象=渲染後完整 payload);
+  其後 = 新 forward-only migration + Sean `db push`。
+- **發現於:** 2026-07-20 / M-3 兩步結帳設計 §10「法律頁硬閘」;
+  2026-07-21 Slice L0 落為正式 backlog 條目並修正 #241 的錯誤依賴。
+- **相關:** [[#241]](同意條款 server 驗 + 同意紀錄;其「完整效力需 #235」字面已於 L0 更正為本條目)、
+  [[#235]](退換貨連結 + 客服 LINE 入口;**與法律頁無關**、不得當成法律頁工作單)、
+  `docs/specs/2026-07-20-m3-two-step-checkout-design.md` §10、
+  `docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md` Slice L1、
+  `apps/storefront/src/lib/legal/terms-version.ts`、
+  `supabase/migrations/20260630120000_m3_241_checkout_consent.sql`(已 apply、歷史註解不回改)、
+  `apps/storefront/src/components/RegisterPage.tsx:116`(註冊頁同意條款連結同為 `href="#"`;
+  🔴 **2026-07-21 更正**:原寫「非本條目 blocker」與上方驗收條件 10 自相矛盾 ——
+  依條件 10,RegisterPage 與 CheckoutStep3 **兩處都必須改完**本條目才算完成)
+- **🔴 已知殘留舊字面 = 5 個檔案／6 個 line-level 命中(2026-07-21 L0 全樹 grep 後誠實揭示,
+  刻意不改、非漏改;數字經 codex 唯讀審查複核):**
+  下列位置仍寫「完整效力需 #235」,因屬**凍結歷史紀錄**、L0 範圍不回改;
+  未來引用時一律以本條目(#291)為準:
+  - `supabase/migrations/20260630120000_m3_241_checkout_consent.sql:23`(已 apply 的 migration,依規不回改)
+  - `docs/specs/2026-06-30-m3-241-checkout-consent-plan.md:105`(#241 當次已收案的 slice plan)
+  - `PROGRESS.md:323`、`:392`(歷史變更紀錄)
+  - `docs/design-storefront-manifest.yaml` `CheckoutPage.last_modified_date` 內
+    「前:2026-07-01」歷史段(該欄為逐片累積日誌,新段已於頂端註明作廢)
+  - `docs/reviews/2026-06-24-gemini-payment-flow-third-eye-review.md:47`(凍結 review log;
+    字面為「條款連結 `href="#"` → backlog #235」,同屬把條款連結指向 #235 的舊指涉)
+- **分流標籤:** `P1-before-launch`
+
+---
+
+### #292. 🧩 SSoT 事實重複散落多檔 → 收斂為單一來源(Sean 2026-07-21 拍 A)
+
+- **狀態:** ⏳ 待執行(獨立一片、不塞進任何既有 slice)
+- **優先級:** 🟠 中(不擋線,但每次改動都在課稅)
+- **問題:**
+  - 同一組事實目前**同時寫在 7 個檔案 + commit message** 裡,靠人工同步:
+    核准矩陣、commit parent、審查狀態、#291 的定位(人工 checkpoint vs 硬閘)。
+  - 🔴 **實證(非推測)**:M-3 Slice L0 為此跑了**四輪外部審查、累計 28 條 must-fix**,
+    **每一輪的 findings 都是同一句話**——「修了被點名那一處,漏掉別處等價字面」。
+    R3 後已改用「先建事實×位置清單再一次改完 + 逐一 grep 反驗」,**R4 仍抓到 9 條**。
+  - 根因不是不夠仔細,是**結構**:N 個副本 × 人工同步 = 漏改機率隨副本數線性上升;
+    且有兩個載體特別容易漏 ——**commit message**(用 append 修補、不會回頭重讀開頭)與
+    **被判為「凍結歷史/範圍外」而跳過的 active 段落**。
+  - 另一個結構坑:**`git commit --amend` 會讓所有自指 hash 當場失效**,SSoT 內寫死的
+    commit hash 會變成死 hash(L0 實際發生、由 R4 抓出)。
+- **預期解法(Sean 拍 A):**
+  - **單一來源制**:每個事實只在**一處**寫全文(法律頁相關=#291),其餘位置一律只留
+    **一行指標**(如「核准矩陣詳 #291」),**不複製內容**。
+  - 自指數字/hash **一律不寫死**,改記可執行取得方式(`git log --oneline -1` 等),
+    對齊既有教訓(STATUS「最近 3 commit」欄已有先例)。
+  - 收工前的字面反驗**必須納入 commit message 本身**(它是最常被漏的載體)。
+  - 適用範圍先限縮在**本次已知會重複的四類事實**,不做全 repo 大掃除。
+- **不修會痛在:**
+  - 可維護性:每次改一個事實都要人工掃 7 處;L0 實測代價=四輪審查、28 條 must-fix。
+  - bug 可追蹤性:副本之間互相矛盾時,接手者無從判斷哪個是真的(L0 期間 commit message
+    頭尾自相矛盾即為實例)。
+  - 擴充性:U1-U5 每片都會再產生同類事實,不治本則每片複製一次這個成本。
+- **估時:** ~45-60 分(盤點四類事實的所有副本 → 定單一來源 → 其餘改指標 → grep 反驗)
+- **依賴:** 無(L0 已收工;建議在 U1 之前或之後獨立做,不與產品線混片)
+- **發現於:** 2026-07-21 / M-3 Slice L0 四輪審查後 Sean 拍板
+- **相關:** [[#291]](法律頁,本次的單一來源候選)、`docs/handoff/CURRENT.md`、`STATUS.md`
+- **分流標籤:** `P1-before-launch`
 
 ## 紀錄模板
 

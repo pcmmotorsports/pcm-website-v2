@@ -2,15 +2,19 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳計畫首片 L0，或支線 #288-b；同一時間只允許一個寫入 session。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第二片 U1（L0 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
 
 ## 1. 交接快照
 
-- Updated: 2026-07-20, Asia/Taipei
-- Agent: Codex
-- Mode: M-3 兩步結帳設計／實作計畫完成；尚未施工、未 push
+- Updated: 2026-07-21, Asia/Taipei
+- Agent: Claude Code
+- Mode: 執行模式；M-3 兩步結帳 **Slice L0＝本 commit**（docs／註解 only）；未 push、未 deploy、未進 U1
 - Branch: `dev`
-- Implementation base: `8ae0152`
+- Implementation base（兩者不同，勿混用）：
+  - **開工基底** = `a53897f`（本輪 preflight 時的 HEAD）
+  - 🔴 **L0 commit 的實際 parent** = `0be428e`「docs(docs): 交接 Eazi-Grip 總代理上市規劃 [marketing]」
+    —— 該 commit 由**另一條線**於 2026-07-21 19:43 在本輪進行中建立，**不屬於 L0**。
+    後續任何 push／revert／review 的範圍計算都必須把它算進去，不可假設 L0 commit 直接接在 `a53897f` 上。
 - Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；本輪未 push
 - Expected dirty: 本 commit 後應為 clean；若仍有 dirty，先辨認 ownership
 
@@ -46,8 +50,15 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - Sean 已批准 A：由三步改成兩步，第二步採單欄連續式。
 - 設計真權威：`docs/specs/2026-07-20-m3-two-step-checkout-design.md`。
 - 實作計畫：`docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md`；已經 Sol High 兩輪唯讀審查，R1 10 項與 R2 4 項 must-fix 均已折入；依 repo 兩輪上限未跑 R3。
-- 計畫共 12 片：L0、U1、U2a、U2b、U3a、U3b、U4a、U4b、U5、L1、V1a、V1b。L1 等 Sean／法律核准正式條款與隱私內容；未完成 L1+V1b 前不得稱 production checkout 完成。
-- 本輪只完成設計與計畫文件；checkout code、route、migration、flag、deploy、DB 均未動。
+- 計畫共 12 片：L0、U1、U2a、U2b、U3a、U3b、U4a、U4b、U5、L1、V1a、V1b。L1 等兩份正式條款與隱私內容取得核准（**核准矩陣＝Sean 必要、法律顧問選配加簽**，非二擇一；詳 backlog #291）；未完成 L1+V1b 前不得稱 production checkout 完成。
+- **Slice L0 ✅ ＝本 commit（2026-07-21、docs／註解 only）**：
+  - 新開 backlog **#291**「正式服務條款／隱私政策 route + version/hash」，狀態 🔴 **BLOCKED**，acceptance 十條齊備。
+  - 修正 #241 對 live #235 的錯誤依賴（live #235 = 「Step3／完成頁退換貨連結 + 客服 LINE 入口」，**不產出法律頁**）；#235 條目加反向 cross-link 防再漂移。
+  - 校正 `apps/storefront/src/lib/legal/terms-version.ts` **active 註解**（依賴改指 #291；標明現行 hash provenance 取自 design **草稿**、不得當未來正式內容來源）。`CURRENT_TERMS_VERSION` 值 `'2026-06-30'` **未動**。
+  - manifest `CheckoutPage.open_drifts.checkoutLegalPagesDeferred` 改記「已納入 #291／正式來源待核准／不得複製 design 草稿／仍是上線前人工 release checkpoint」；`last_modified_commit` = `a53897f`（**開工時的 preflight HEAD ＝ 可達祖先，不是本 commit 的 parent**；實際 parent 見 §1）、`last_modified_date` 前置新段。
+  - 🔴 **未做（硬紅線遵守）**：未自撰法律文案、未杜撰聯絡資訊、未新增 `/terms`／`/privacy` route、未建 migration、未 bump version、未改既有 consent 歷史、未 apply DB、未開 flag、未 deploy、未 push。已 apply 的 `20260630120000` migration 歷史註解**未回改**。
+- **下一片 = U1**「兩步骨架 + TapPay active 原子切換」，**待 Sean 放行**；本輪未進 U1。
+- checkout code、route、migration、flag、deploy、DB 至今仍全數未動。
 
 ### 作廢入口
 
@@ -60,7 +71,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
 | 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由 `a7ff24d` 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
-| M-3 | **兩步結帳 L0**：先校正法律 SSoT／backlog，產品線再由 U1 原子切兩步 | Sean 本輪新批准方向 | L1 受正式法律內容阻擋；U1–U5 可在 flag-off 平行準備 |
+| M-3 | **兩步結帳 U1**（L0 ✅ 已收工）：由 U1 原子切兩步骨架 + TapPay active | Sean 本輪新批准方向 | L1 受 #291 正式法律內容阻擋；U1–U5 可在 flag-off 平行準備 |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
 三個入口業務上可獨立規劃，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
@@ -198,7 +209,27 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ## 8. 已驗證／尚未驗證／需要 Sean
 
-### 本輪已驗證
+### 本輪已驗證（2026-07-21 Slice L0，實跑）
+
+> 🔴 **並行寫入事故（誠實揭示；同款事故第 2 次）**：2026-07-21 19:12–19:28 期間，**有兩個 Claude session 同時對同一個 working tree 寫入**這五個檔案，違反本檔「同一時間只允許一個寫入 session」。
+> 兩邊各自對「誰是正牌寫入者」有**互相矛盾**的紀錄，**從 repo 內無法裁決**（`git reflog` 不記執行者、檔案 mtime 只證明時間不證明身分）→ 本檔**不採信任何一方的歸屬敘述**，只記可查證事實。
+> Sean 於 19:35 後確認收斂為單一視窗收尾。**收尾視窗對最終內容重跑全部驗證**（`turbo --force`、0 cached、非 cache hit），不沿用任何一方先前自報的數字；下列每一條都是收尾視窗親跑的輸出。
+> **一處**由並行期間留下、經覆核**確認為正確**而保留的修正：#291 的分流標籤改為合規值 `P1-before-launch`（`P1-launch-gate` 不在 backlog 規範四選一內）。此為逐行核對整份 diff 後確認的唯一一處；原先寫「兩處」是筆誤，已由 codex 唯讀審查抓出並更正。
+> 🔴 **給下一個 session 的教訓**：開工前除了 `git status`，還要確認沒有第二個視窗掛在同一個 repo；本次是在 commit 前一刻才發現，若當時直接 commit 就會把未經自己驗證的字面收進 SSoT。
+
+- `pnpm exec turbo run typecheck --force` → **8/8 successful、0 cached**
+- `pnpm exec turbo run lint --force` → **10/10 successful、0 cached**
+- `pnpm exec turbo run build --force` → **2/2 successful、0 cached**
+- `node scripts/design-mirror.mjs --validate`：**26 元件／214 path tokens OK／24 `last_modified_commit` 可達 OK**；既有 `ProductPage.related_storefront[8]` 無-token warning 為既存、未新增
+- `git diff --check`：clean（exit 0）
+- `pnpm exec vitest run apps/storefront/src/app/checkout/charge-actions.test.ts`（**須從 repo 根跑**，從 `apps/storefront/` 跑會 `No test files found`）：**1 檔 66 passed**（`CURRENT_TERMS_VERSION` 的直接消費者）
+- `terms-version.ts` 經 diff 實證為**純註解變更**：濾掉註解行後 `+/-` 為空，`CURRENT_TERMS_VERSION = '2026-06-30'` 值未動
+- RED→GREEN 字面驗證：改前 grep 證實 #241 誤指 #235、active 註解誤稱 #235、manifest 記「Phase 1 不做 legal pages」；改後全樹 grep 確認三處 active 字面均已更正，殘留者僅存在於**凍結歷史紀錄**且已逐條列入 #291
+- manifest 結構完整性：`--validate` 解析成功、214 path tokens 與 B-3 紀錄一致（條目數未淨變）、diff 僅落在 `CheckoutPage` 段
+- ⚠️ **上列數字的證據等級（codex R1 nit，誠實標註）**：除 `design-mirror --validate` 的 `26/214/24` 與 `git diff --check` 已被獨立第三方（fresh read-back agent 與 codex）重跑複核外，其餘 `0 cached`／`8-8`／`10-10`／`2-2`／`66 passed` 屬**收尾視窗自報**、terminal 輸出未存成 committed artifact → 對後續 reviewer 而言是 **self-reported**。要完全消除此疑慮須把驗證輸出存檔進 repo（本輪未做）。
+- ⚠️ 同理，「未 apply DB／未開 flag／未 deploy」屬**外部系統動作**，repo 內無法自證；可自證的只有「未 push」（remote 查無該 commit）
+
+### 前輪已驗證（M-4a B-3，沿用）
 
 - B-3 共用六條件 schema、UI／prefill、client payload、server 重驗、domain／mapper／adapter 四層 gate
 - flag off 精確 8 RPC 鍵；flag on 精確 9 鍵且 `p_notification_email: null`
@@ -210,15 +241,44 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - 手機肉眼初驗發現錯誤紅字被固定 buybar 遮住；已補 RED test 與 focus + 置中捲動修正，回歸後完整可見
 - iOS Safari `<16px` 聚焦縮放風險已由 checkout mobile breakpoint 16px + `checkout.test.ts` 靜態守門鎖住
 
-### 本輪尚未驗證
+### 本輪尚未驗證／尚未執行（Slice L0）
 
-- B-3 已由本 commit 收錄；push、deploy、正式 flag 與 B-4 尚未執行
+- ✅ **外部 codex 唯讀 review 已執行**（2026-07-21，`codex exec -s read-only -c service_tier="fast"`，codex-cli 0.144.1；每輪跑前後 `git status --porcelain` 皆 0＝零留痕）。🔴 **Sean 2026-07-21 拍板：往後鐵則 12 觸發時不再產 Review Packet 給 Sean 人工貼 web Codex，一律由主 session 直接跑 `codex exec -s read-only`**（memory `feedback_codex-cli-direct-executor-no-packet` 已更新；`/codex-review` skill 的「產檔給 Sean 貼」流程視為已被取代）。
+- **審查輪次與結果（截至本 commit；🔴 至今無任何一輪 PASS）**：
+
+| 輪 | 審查者 | verdict | must-fix |
+|---|---|---|---|
+| R1 | codex 唯讀 | `NO-GO` | 8（+2 nit）|
+| R1 | 另一視窗 code-reviewer | `FAIL` | 4（+2 nit）|
+| R2 | codex 唯讀 | `NO-GO` | 3 |
+| R3 | codex 唯讀（Sean 明示放行） | `NO-GO` | 4 |
+| R4 | codex 唯讀（Sean 明示放行） | `NO-GO` | 9 |
+| | | **累計** | **28，全數屬實、全數已修** |
+
+- 🔴 **R4 的修正尚未經第三方覆核**；在有任何一輪 PASS 之前，本 commit 不得被描述為已通過審查。
+- 🔴 **最嚴重的單一 finding（R1，code-reviewer 抓）**：commit body 與 STATUS 曾寫「code-reviewer R1 PASS(0 must-fix)」＝**不實** —— 那次 PASS 跑在並行寫入期間的舊 diff 上，其後內容又改過。**審查 verdict 必須綁定它實際看到的版本**，版本變了就重審，不可沿用舊 verdict。
+- 🔴 **同一缺陷連續四輪復發**（每輪皆「修了被點名處、漏掉別處等價字面」）。R3 後改用「先建事實×位置清單一次改完 + 逐一 grep 反驗」，**R4 仍抓到 9 條**，根因這輪才看清：我的清單只涵蓋 repo 內檔案，漏了兩個載體 ——
+  1. **commit message 本身**：一路 append R2／R3 段落卻從未回頭重讀開頭 → 同一份 message 頭寫「15 條」「a53897f 是父 commit」，尾寫「19 條」。**本輪已整份重寫、非 append 修補**。
+  2. **被我判為「凍結歷史／範圍外」而跳過的 active 檔案段落**（STATUS 的 07-20 條目、plan `:56`）—— 它們仍在對讀者傳播舊事實。→ 判定「凍結」不等於可以留著錯的字面，至少要標作廢。
+- 🔴 **amend 會讓自指 hash 當場失效**：本片 amend 4 次，STATUS 內寫死的 `d40b059` 早已不可達（死 hash，R4 抓出）→ 自指 commit hash 一律不寫死，改記可執行取得方式。
+- ✅ **R3 第 4 條的兩處延伸字面，Sean 已授權處置並完成**：①實作計畫 plan 檔 `:7`／`:56`／`:66` 誠實化（硬閘→人工 release checkpoint、核准矩陣精確化、收檔數更正為 7），該檔因此成為本片第 **7** 個收檔 ②commit subject 改為 `docs(storefront): 建立正式法律頁上線 checkpoint [m-3]`（原「上線硬閘」為任務指定字面，經 R3 判定與實際能力不符；未 push 故零歷史改寫成本）。
+- U1 **尚未開始**；route／migration／version bump **尚未做**；DB／env／flag／deploy／push **均未做**
+- 未跑 **full** `pnpm test`（本片零 `.ts/.tsx` 行為變更，只動註解與 docs；`typecheck`+`lint`+`build`+manifest validate 已涵蓋，另加跑了 `charge-actions.test.ts` 66 測）
+- L0 未驗證任何 runtime／瀏覽器行為（本片不產生 UI 變更）
+
+### 前輪尚未驗證（M-4a B-3，沿用）
+
+- B-3 已由 `a7ff24d` 收錄；push、deploy、正式 flag 與 B-4 尚未執行
 - 正式 authenticated `/checkout` 的 flag-on 驗收（正式 flag 仍 off；本輪只驗本機 process-only flag + 真 `CheckoutView`）
 - production DB、Vercel 或正式站 runtime；本片不連線、不部署
 
 ### 需要 Sean
 
-- 現在不需操作 dashboard、DB、env；本 commit 完成後仍不 push，下一片 B-4 需另行確認範圍
+- 🔴 **正式服務條款與隱私政策內容的來源**（#291 唯一 blocker）：由誰產出／何時可提供、核准人與核准日期。**AI 不自撰、不得複製 `design-reference/components/LegalPage.jsx` 草稿**（該檔自述「草稿待法務 review」、含假電話／假 Email、未實作服務、與 PCM 現行政策衝突的七日退貨說法）
+- **是否放行下一片 U1**（L0 已收工、停在 checkpoint）
+- ✅ **審查已結（Sean 2026-07-21 拍板：不開 R5、接受現況收工）**：外部 codex 唯讀跑滿 **R1→R4、四輪全數 `NO-GO`**（累計 28 條 must-fix、全數屬實、全數已修；R3／R4 為 Sean 明示放行，repo 預設上限 2 輪）。🔴 **誠實現況＝R4 的 9 條修正尚未經第三方覆核**；在有任何一輪 PASS 之前，不得把本 commit 描述為已通過審查。
+- ✅ **結構性根因已拍板並落檔（Sean 2026-07-21 拍 A）**：同一組事實（核准矩陣／parent／審查狀態／checkpoint 定位）重複散落 7 個檔案 + commit message、靠人工同步 —— 四輪審查證明此結構下人工同步會持續漏。採 **A 案＝收斂為單一來源**（#291 為法律頁事實的唯一權威，其餘各處只留一行指標、不複製內容；自指 hash 不寫死；字面反驗須納入 commit message）。已開 **backlog #292** 獨立一片承接，**不塞進 L0 或任何既有 slice**。
+- 現在不需操作 dashboard、DB、env；本 commit 完成後仍不 push，主軌下一片 B-4 需另行確認範圍
 - push、deploy、production migration、env／GitHub Secrets、正式 flag 切換仍由 Sean 操作或逐次明確批准
 
 ## 9. 安全邊界

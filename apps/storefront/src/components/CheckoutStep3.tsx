@@ -13,7 +13,12 @@
 //   - 商品複查走 useResolvedCart 的 server-resolved 行(brand/name/variantLabel/lineTotal、釘 general、
 //     零經銷洩漏),非 design 的 window.PCM_DATA + getEffectivePrice(p, tier)。
 //   - 配送只「貨運宅配」home(Q1=A);儲值金折抵 / 優惠券複查行不做(§3.2 + #202)。
-//   - 服務條款 / 隱私政策連結為 no-op placeholder(legal pages 未建、Phase 1 不做、待 backlog)。
+//   - 服務條款 / 隱私政策連結為 no-op placeholder(`href="#"` + preventDefault、legal pages 未建)。
+//     🔴 2026-07-21 更正:原註解寫「Phase 1 不做」已作廢 —— 正式法律頁=**backlog #291**
+//     (route /terms、/privacy + version/hash),狀態 BLOCKED 等正式內容核准
+//     (🔴 核准矩陣=Sean 必要、法律顧問選配加簽,非二擇一),
+//     且為 production checkout 開放付款的前置**人工** release checkpoint(無機械守門)。
+//     改連結時走 #291、不得自撰法律文案。
 
 import type { ReactNode } from 'react';
 import type { CustomerAddress } from '@pcm/domain';

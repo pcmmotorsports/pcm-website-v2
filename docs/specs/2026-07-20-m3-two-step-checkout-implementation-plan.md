@@ -4,7 +4,7 @@
 
 **Goal:** 把三步結帳改成 Sean 已批准的兩步單欄流程，讓客人在第二步完成發票、TapPay 安全卡欄、商品確認、條款與付款，同時保留既有金流、3DS、雙扣防線與 server 權威。
 
-**Architecture:** `CheckoutView` 保留跨步驟 state 與付款 orchestrator；第二步以小元件排列收件摘要、發票、付款、商品與條款。非卡片錯誤存具名 map；TapPay 錯誤由 `submitAttempted + live fieldStatus` 衍生，status 轉 0 時自然只清該欄。法律頁內容／版本／hash 是獨立硬閘，不與 UI 重構混在同一片。
+**Architecture:** `CheckoutView` 保留跨步驟 state 與付款 orchestrator；第二步以小元件排列收件摘要、發票、付款、商品與條款。非卡片錯誤存具名 map；TapPay 錯誤由 `submitAttempted + live fieldStatus` 衍生，status 轉 0 時自然只清該欄。法律頁內容／版本／hash 是獨立的**上線前人工 release checkpoint**（🔴 2026-07-21 L0 誠實化更正：原字面「硬閘」不成立——目前無任何 CI／deploy preflight／flag 條件會機械擋下，機械守門本身是 L1 交付項；詳 backlog #291），不與 UI 重構混在同一片。
 
 **Tech Stack:** Next.js App Router、React、TypeScript、Zod、Vitest + Testing Library、TapPay Web SDK iframe fields、Playwright／`agent-browser`、YAML design manifest、Supabase forward-only migration（僅正式法律內容獲核准後另片建立）。
 
@@ -53,7 +53,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - `/slice-checkpoint`: 跑；`/codex-review`: 觸發（法律同意版本與 production gate）。
 
 ④ Manifest Impact + Review 觸發
-- `CheckoutPage.open_drifts.checkoutLegalPagesDeferred` 改成「正式來源待 Sean／法律核准；#291；不得複製 design 草稿」。
+- `CheckoutPage.open_drifts.checkoutLegalPagesDeferred` 改成「正式來源待核准〔🔴 核准矩陣＝Sean 必要、法律顧問選配加簽，非二擇一；核准對象＝渲染後完整 payload〕；#291；不得複製 design 草稿；為上線前人工 release checkpoint〔非機械守門〕」。（🔴 2026-07-21 L0 更正：原字面「待 Sean／法律核准」語意含糊，可能被讀成兩者擇一。）
 - 同步 `last_modified_commit/date`；保留其他 open drifts。
 - review_triggers: prd_review / code_review / security_review_required / codex_review_required。
 
@@ -63,7 +63,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - GREEN：`terms-version.ts` 只校正 active 註解，不改 `CURRENT_TERMS_VERSION` 值。
 - 驗證：
   `pnpm typecheck && pnpm lint && pnpm build && node scripts/design-mirror.mjs --validate && git diff --check`
-- Commit：`docs(storefront): 建立正式法律頁上線硬閘 [m-3]`；精準 add 三個任務檔案 + `STATUS.md` + `docs/handoff/CURRENT.md`。
+- Commit：`docs(storefront): 建立正式法律頁上線 checkpoint [m-3]`（🔴 2026-07-21 更正：原指定字面為「上線硬閘」，經 codex R3 判定與實際能力不符、Sean 授權改為 checkpoint）；精準 add 三個任務檔案 + `STATUS.md` + `docs/handoff/CURRENT.md`（🔴 **實際收檔 7 個**：原文列的 5 檔 + `apps/storefront/src/components/CheckoutStep3.tsx`〔其 active 註解同屬本片要消滅的舊字面〕+ **本 plan 檔自身**〔:7／:56／:66 三處誠實化更正〕）。
 
 ⑥ Yes/No 驗收 + 禁止清單
 - #241／active comment／manifest 是否不再把 live #235 說成法律頁？
