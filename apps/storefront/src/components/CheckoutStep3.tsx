@@ -4,7 +4,12 @@
 //
 // 直接搬 design-reference/components/CheckoutPage.jsx Step3(L506-594、鐵則 1 字面)。
 // 🔴 M-3 兩步結帳 U1 起由 CheckoutView 在 **step === 2** 渲染(接在 CheckoutStep2 之後、同一頁);
-//   檔名與元件名維持 CheckoutStep3 = 尚未退役的 shell,U2a 抽小元件、U2b 退役本檔。
+//   檔名與元件名維持 CheckoutStep3 = 尚未退役的 shell,U2b 退役本檔。
+// 🔴 U2a(本片):收件摘要 / 付款 body / 商品清單 / 條款四段 JSX **已抽到**
+//   `CheckoutStep2ReviewSections.tsx`(CheckoutShippingSummary / CheckoutPaymentSection /
+//   CheckoutOrderReview),本檔改為 compose 那三個 export;props、畫面與 handler 契約皆未變。
+//   **發票資訊 readonly 複查區刻意留在本檔內聯**——它是 U2b 要刪除的重複節點
+//   (可編輯的發票表單已在同頁 CheckoutStep2),抽出來不會有未來消費端。
 // presentational 收 props,送出/建單(submitOrder)+
 // 送出按鈕在 CheckoutView 的 co-actions(②-④b 接 chargePaymentAction 刷卡)。
 //
@@ -27,8 +32,12 @@
 import type { ReactNode } from 'react';
 import type { CustomerAddress } from '@pcm/domain';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
+import {
+  CheckoutOrderReview,
+  CheckoutPaymentSection,
+  CheckoutShippingSummary,
+} from '@/components/CheckoutStep2ReviewSections';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
-import { formatCartVehicle } from '@/lib/cart-vehicle-format';
 
 export type CheckoutStep3Props = {
   /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 不渲染收件 body。 */
@@ -70,36 +79,17 @@ export function CheckoutStep3({
         <h2>確認訂單</h2>
       </div>
 
-      {/* 收件資料 readonly */}
-      <div className="co-review-block">
-        <div className="co-review-block-head">
-          <div className="ap-mono">收件資料</div>
-          <button type="button" className="co-review-edit" onClick={onEditAddress}>編輯</button>
-        </div>
-        {currentAddr && (
-          <div className="co-review-body">
-            <div><strong>{currentAddr.name}</strong> · {currentAddr.phone}</div>
-            <div>{currentAddr.line}</div>
-            <div className="co-review-sub">{shippingLabel}</div>
-          </div>
-        )}
-      </div>
+      {/* 收件資料 readonly(U2a 抽出) */}
+      <CheckoutShippingSummary
+        currentAddr={currentAddr}
+        shippingLabel={shippingLabel}
+        onEdit={onEditAddress}
+      />
 
-      {/* 付款方式 readonly(信用卡欄純 UI、不顯卡末四碼) */}
-      <div className="co-review-block">
-        <div className="co-review-block-head">
-          <div className="ap-mono">付款方式</div>
-          {onEditStep2 && (
-            <button type="button" className="co-review-edit" onClick={onEditStep2}>編輯</button>
-          )}
-        </div>
-        <div className="co-review-body">
-          <div>信用卡 · TapPay</div>
-          {paymentSlot}
-        </div>
-      </div>
+      {/* 付款方式 readonly(信用卡欄純 UI、不顯卡末四碼;U2a 抽出) */}
+      <CheckoutPaymentSection onEdit={onEditStep2} paymentSlot={paymentSlot} />
 
-      {/* 發票資訊 readonly */}
+      {/* 發票資訊 readonly(U2b 退役對象、無未來消費端 → 本片不抽) */}
       <div className="co-review-block">
         <div className="co-review-block-head">
           <div className="ap-mono">發票資訊</div>
@@ -120,45 +110,13 @@ export function CheckoutStep3({
         </div>
       </div>
 
-      {/* 商品清單 readonly */}
-      <div className="co-review-block">
-        <div className="co-review-block-head">
-          <div className="ap-mono">商品清單 ({lines.length})</div>
-          <button type="button" className="co-review-edit" onClick={onEditItems}>編輯</button>
-        </div>
-        <div className="co-review-items">
-          {lines.map(({ item, resolved, lineTotal }) => (
-            <div key={`${item.productId}-${item.variantId ?? ''}`} className="co-review-item">
-              <div className="co-review-item-img">
-                {resolved.image && <img src={resolved.image} alt={resolved.name} />}
-              </div>
-              <div className="co-review-item-body">
-                <div className="co-review-item-brand">{resolved.brand}</div>
-                <div className="co-review-item-name">{resolved.name}</div>
-                <div className="co-review-item-meta">
-                  {resolved.variantLabel && <span>{resolved.variantLabel}</span>}
-                  <span>× {item.qty}</span>
-                </div>
-                {/* V-2h/MF-6:逐品項顯車款(spec §6;唯讀、重用 formatCartVehicle;free 亦顯=下單後人工確認) */}
-                {item.vehicle && (
-                  <div className="co-review-item-vehicle">車款：{formatCartVehicle(item.vehicle)}</div>
-                )}
-              </div>
-              <div className="co-review-item-price">NT$ {lineTotal.toLocaleString()}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* 同意條款(服務條款 / 隱私政策連結為 no-op placeholder、legal pages 未建) */}
-      <label className="co-agree">
-        <input type="checkbox" checked={agreed} onChange={(e) => onAgreedChange(e.target.checked)} />
-        <span>
-          我已閱讀並同意 PCM Motorsports 的{' '}
-          <a href="#" onClick={(e) => e.preventDefault()}>服務條款</a> 與{' '}
-          <a href="#" onClick={(e) => e.preventDefault()}>隱私政策</a>
-        </span>
-      </label>
+      {/* 商品清單 readonly + 同意條款(U2a 抽出;fragment 保持兩者同層兄弟) */}
+      <CheckoutOrderReview
+        lines={lines}
+        agreed={agreed}
+        onAgreedChange={onAgreedChange}
+        onEditItems={onEditItems}
+      />
     </section>
   );
 }

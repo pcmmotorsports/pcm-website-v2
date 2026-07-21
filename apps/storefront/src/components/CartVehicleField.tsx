@@ -15,7 +15,8 @@ import type { GarageChipItem } from './GarageChips';
 import { VehicleSelect } from './VehicleSelect';
 import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
 import { checkFitment, type FitmentCheckStatus } from '@/lib/fitment-match';
-// V-2h/MF-6:formatCartVehicle 抽到無依賴 lib(供 CheckoutStep3 免拉整個 client 元件);此處 re-export 保 back-compat。
+// V-2h/MF-6:formatCartVehicle 抽到無依賴 lib(供結帳商品複查免拉整個 client 元件;U2a 起消費端 =
+// CheckoutStep2ReviewSections,原為 CheckoutStep3);此處 re-export 保 back-compat。
 import { formatCartVehicle } from '@/lib/cart-vehicle-format';
 export { formatCartVehicle };
 

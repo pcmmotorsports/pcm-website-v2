@@ -275,7 +275,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     // → step2:發票 + 付款方式 + 複查 + 條款(U1 起同一步、不再有第三步)
     fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
     // ⚠️ U1 WIP:發票區(CheckoutStep2 的 h2)與發票複查區(CheckoutStep3 的 ap-mono)同頁並存 = 2 個
-    //    同字面節點;U2a/U2b 退役 Step3 shell 後回到 1 個。
+    //    同字面節點;U2b 退役 Step3 shell 後回到 1 個(U2a 只搬 JSX 到新檔、可見節點數不變)。
     expect(screen.getAllByText('發票資訊').length).toBe(2);
     expect(screen.getByText('信用卡(TapPay)')).toBeTruthy();
     expect(screen.getByText(/我已閱讀並同意/)).toBeTruthy();

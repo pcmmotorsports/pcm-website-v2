@@ -7279,7 +7279,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **問題:**
   - storefront **沒有** `/terms`、`/privacy` route;結帳同意條款的兩個連結是
     `href="#"` + `preventDefault()` 的 no-op placeholder
-    (`apps/storefront/src/components/CheckoutStep3.tsx:145-146`)→ 客人勾「我已閱讀並同意」時
+    (🔴 2026-07-22 U2a 起該 markup 位於 `apps/storefront/src/components/CheckoutStep2ReviewSections.tsx`
+    的 `CheckoutOrderReview`,原在 `CheckoutStep3.tsx`;定位用 `rg -n '服務條款' apps/storefront/src`
+    ——**不寫死行號**,U1/L0 已示範寫死的自指行號會當場變假)→ 客人勾「我已閱讀並同意」時
     **實際讀不到任何條款內容**。
   - #241 已落地的是**同意訊號 + 版本 + 內容雜湊 provenance**,不是完整法律效力;
     其「完整效力需 #235」的字面是**錯誤依賴** —— live #235 的實際標題是
@@ -7323,8 +7325,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   10. **所有**同意條款連結改為**新分頁開啟**:`target="_blank"` + `rel="noopener noreferrer"`,
       避免清掉結帳中的資料。🔴 **必改消費端清單(全部都是 blocker、不得只改 checkout;codex R1 must-fix
       指出原文與下方「相關」欄的 RegisterPage 敘述自相矛盾)**:
-      ①`apps/storefront/src/components/CheckoutStep3.tsx:145-146`(結帳同意條款,兩個連結)
-      ②`apps/storefront/src/components/RegisterPage.tsx:116`(註冊頁同意條款,兩個連結)。
+      ①`apps/storefront/src/components/CheckoutStep2ReviewSections.tsx` 的 `CheckoutOrderReview`
+      (結帳同意條款,兩個連結;🔴 **2026-07-22 U2a 起**,原在 `CheckoutStep3.tsx`——該檔現只 compose、
+      且 U2b 會整個退役,屆時本條目仍指向正確位置)
+      ②`apps/storefront/src/components/RegisterPage.tsx`(註冊頁同意條款,兩個連結)。
+      🔴 兩處一律不寫死行號(自指行號會當場變假),用 `rg -n '服務條款' apps/storefront/src` 定位。
       兩者皆為現行 `href="#"`;條件 10 要成立**必須兩處都改完**。
 - **不修會痛在:**
   - 擴充性:條款頁不存在 → production checkout 無法合規開放付款,整條金流線卡在最後一哩。
@@ -7346,9 +7351,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   `docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md` Slice L1、
   `apps/storefront/src/lib/legal/terms-version.ts`、
   `supabase/migrations/20260630120000_m3_241_checkout_consent.sql`(已 apply、歷史註解不回改)、
-  `apps/storefront/src/components/RegisterPage.tsx:116`(註冊頁同意條款連結同為 `href="#"`;
+  `apps/storefront/src/components/RegisterPage.tsx`(註冊頁同意條款連結同為 `href="#"`;
   🔴 **2026-07-21 更正**:原寫「非本條目 blocker」與上方驗收條件 10 自相矛盾 ——
-  依條件 10,RegisterPage 與 CheckoutStep3 **兩處都必須改完**本條目才算完成)
+  依條件 10,RegisterPage 與**結帳同意條款所在檔**〔🔴 2026-07-22 U2a 起 =
+  `CheckoutStep2ReviewSections.tsx`,原 `CheckoutStep3.tsx`〕**兩處都必須改完**本條目才算完成)
 - **🔴 已知殘留舊字面 = 5 個檔案／6 個 line-level 命中(2026-07-21 L0 全樹 grep 後誠實揭示,
   刻意不改、非漏改;數字經 codex 唯讀審查複核):**
   下列位置仍寫「完整效力需 #235」,因屬**凍結歷史紀錄**、L0 範圍不回改;

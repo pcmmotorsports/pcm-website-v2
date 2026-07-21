@@ -10,7 +10,9 @@
 //   step domain 由 `1|2|3` 原子收斂為 `CheckoutStep = 1 | 2`(型別源 CheckoutStepIndicator);
 //   Step 2 = 發票 + 付款 + 複查 + 條款 + 付款鈕同一頁,「下一步:確認訂單」已移除。
 //   ⚠️ WIP 中間態:本片只搬骨架,Step 2 內仍「依序掛」既有 CheckoutStep2 + CheckoutStep3 兩個元件
-//   (含 Step2 的 disabled 假卡欄);抽小元件、退役 CheckoutStep3 shell 與移除假卡欄 = U2a/U2b。
+//   (含 Step2 的 disabled 假卡欄)。U2a ✅ 已把 Step3 的收件摘要 / 付款 body / 商品 + 條款抽成
+//   CheckoutStep2ReviewSections 的三個 export(Step3 改 compose、畫面零變動);
+//   退役 CheckoutStep3 shell 與移除假卡欄 = U2b。
 //
 // ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
 //   付款方式複查 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
@@ -278,7 +280,7 @@ export function CheckoutView({
               />
             )}
 
-            {/* ===== STEP 2: 發票 + 付款 + 複查 + 條款(U1 單一步驟;U2a/U2b 再抽元件退役 Step3 shell)===== */}
+            {/* ===== STEP 2: 發票 + 付款 + 複查 + 條款(U1 單一步驟;U2a 已抽元件、U2b 退役 Step3 shell)===== */}
             {step === 2 && (
               <>
                 <CheckoutStep2
@@ -296,7 +298,7 @@ export function CheckoutView({
                   onAgreedChange={setAgreed}
                   onEditAddress={() => setStep(1)}
                   // 付款 / 發票「編輯」不再跨步驟:兩區已在同頁上方 → 不傳 onEditStep2、該兩顆鈕不渲染
-                  // (U2a/U2b 抽小元件後這層 shell 退役)。
+                  // (U2b 退役這層 shell)。
                   onEditItems={() => router.push('/cart')}
                   paymentSlot={
                     <TapPayCardFields ready={tappay.ready} fieldStatus={tappay.fieldStatus} />

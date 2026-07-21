@@ -1,7 +1,8 @@
 // cart-vehicle-format.ts — 購物車車款顯示字面(純函式、無 React/DOM 依賴)。
 //
 // V-2h/MF-6 抽出理由:formatCartVehicle 原在 components/CartVehicleField.tsx('use client'、
-// 內含 VehicleSelect/garage-chip/fitment-match 等重依賴)。結帳確認頁 CheckoutStep3 只需這顆
+// 內含 VehicleSelect/garage-chip/fitment-match 等重依賴)。結帳商品複查(U2a 起 =
+// CheckoutStep2ReviewSections 的 CheckoutOrderReview;原在 CheckoutStep3)只需這顆
 // 純顯示格式化函式、卻會被迫把整個 CartVehicleField 模組拉進 checkout bundle;故把純函式搬到
 // 本無依賴模組供多處共用(對齊 lib/vehicle-url.ts 自 products-url-state 抽出的先例)。
 // CartVehicleField re-export 保 back-compat(既有 import + 測試零動)。
