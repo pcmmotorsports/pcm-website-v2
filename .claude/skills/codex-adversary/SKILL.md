@@ -32,8 +32,8 @@ Codex 是**不同模型(OpenAI gpt-5.5)**,比 Claude 審 Claude 更對抗(無共
 
 | 關卡 | 何時跑 |
 |---|---|
-| **關卡1(plan)** | 我自己規劃 slice 且屬重大改動(鐵則 8:跨 3+ 檔 / 動 schema·API·共用元件·config / 影響部署)。小 slice / 例行前台 slice 跳。 |
-| **關卡2(diff)** | 命中鐵則 12(security / RLS / migration / schema / pricing / order / payment / 會員 tier / 經銷價)或鐵則 8 重大改動 + milestone 收尾。純前台 form/tab/CSS/型別 slice(如 g-5b 收件地址表單、M-1-14c)一律跳、走 code-reviewer 即可。 |
+| **關卡1(plan)** | 我自己規劃 slice 且屬高風險片(鐵則 12 六類:錢/權限/DB 結構與大量寫入/平台設定/對外不可回收/共用元件行為;2026-07-22 拍板 C)。標準/輕量片跳。 |
+| **關卡2(diff)** | 命中鐵則 12 六類(同上)+ milestone 收尾總審。跨 3 檔/一般 API 不再自動觸發(2026-07-22 拍板 C);純前台 form/tab/CSS/型別 slice(如 g-5b 收件地址表單、M-1-14c)一律跳、走 code-reviewer 即可。 |
 
 (Sean 若說「每個 slice 都跑」→ 全開。)
 

@@ -2,13 +2,12 @@
 
 > 本流程是明確唯讀的審查模式，不限制 Codex 在其他任務擔任完整執行者。執行者與審查者都可由 Codex 或 Claude 擔任，但同一成果的獨立審查應由另一個 session／模型完成。
 
-> **Status:** 🟢 落地 / 2026-05-19 / Slice 0
+> **Status:** 🟡 歷史備查(2026-07-21 拍板:鐵則 12 改直呼 codex CLI 唯讀審、不再產書面 Packet;僅 Sean 明確要書面 Packet 時用本流程。鐵則 12 現行六類清單以 `CLAUDE.md` 為準)/ 原落地 2026-05-19
 > **層級:** docs/patterns/、衝突仲裁在 ADR 之下、CLAUDE.md / AGENTS.md 鐵則 12 之細節檔
 > **本檔角色:** 固化「重大改動 / 進度結束 → Codex 唯讀第二視角審查」的人機協作流程
 >
 > 配合閱讀:
-> - `CLAUDE.md` 鐵則 12(Claude Code 端:產 packet)
-> - `AGENTS.md` 鐵則 12(Codex 端:收 packet 唯讀審查)
+> - `CLAUDE.md` / `AGENTS.md` 鐵則 12(現行:高風險六類、直呼 codex CLI;本檔為其歷史書面變體)
 > - `CLAUDE.md` 鐵則 8(重大改動動手前先提 plan;與本流程互補)
 > - `docs/patterns/slice-checkpoint.md`(三綠 checkpoint;packet 須附三綠結果)
 

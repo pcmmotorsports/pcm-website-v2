@@ -34,7 +34,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
 11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(詳 `docs/patterns/slice-checkpoint.md`)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**(背景見 slice-checkpoint.md §1)。
-12. **Review Packet 進入明確唯讀模式** — 一般任務中 Codex 與 Claude 都可完整規劃、實作、測試及 commit；只有 Sean／任務明確寫「審查」「Review Packet」「唯讀」時，當次 session 才切成唯讀：不改檔、不跑寫入工具、不 commit、不 push，只回 findings／風險／是否可繼續。審查重點:①安全/權限 ②schema/migration 破壞面 ③STATUS/NORTHSTAR/鐵則 ④backlog/文件。格式見 `docs/patterns/codex-review-packet.md`。
+12. **高風險改動 commit 前必過第二視角對抗審查** — 高風險=動到任一(2026-07-22 拍板 C 案):**①錢**(order·payment·refund·pricing·經銷價·會員 tier·儲值金)**②權限**(auth·RLS·GRANT·service_role·server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema·migration·批次匯入)**④平台設定**(next.config·vercel.json·Prisma·CI·env)**⑤對外不可回收**(寄信·對外發布·法律頁)**⑥共用元件 packages/ui 行為改動**(純樣式除外)。跨 3 檔/一般 API/進度單元收尾不自動觸發;Sean 說「Ready for review」必審;milestone 收尾總審一次。不產書面 Packet(07-21 拍板),由執行端直呼另一模型唯讀對抗審查(Claude 端=codex CLI `-s read-only`;你被指派審查時同樣唯讀)。審查模式紀律=`docs/ops/AI_CONTRACT.md` §2:不改檔、不跑寫入工具、不 commit、不 push,只回 findings/風險/是否可繼續。審查重點:安全/權限、schema/migration 破壞面、STATUS/NORTHSTAR/鐵則、backlog/文件。歷史 Packet 格式備查 `docs/patterns/codex-review-packet.md`。
 
 ---
 
@@ -126,7 +126,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 快速自檢清單(你審 slice 是否合規的對照)
 
-**slice 開工前應有**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS) ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD) ☐ 判鐵則 8 重大改動(是則先提 plan 等批) ☐ 涉金流/RLS/GRANT/migration/schema/auth/.env 任一 → 逐字過鐵則 8+12 觸發清單(硬清單、不憑自評) ☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節) ☐ 估時 15-45 分鐘(超出拆)。
+**slice 開工前應有**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS) ☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD) ☐ 判鐵則 8 重大改動(是則先提 plan 等批) ☐ 涉錢/權限/schema·migration·大量寫入/平台設定/對外發送/共用元件行為任一 → 逐字過鐵則 12 六類清單(硬清單、不憑自評) ☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節) ☐ 估時 15-45 分鐘(超出拆)。
 
 **寫 slice 指令應有**:☐ 直接搬非翻譯 ☐ grep design 字面 ☐ CSS+TSX 同 slice ☐ 前後台同步 ☐ 標內容分級 ☐ 估時 15-45 分 ☐ 數字內部一致 ☐ 用詞精準(preview≠production / stash≠working tree / commit≠push) ☐ 禁止清單可執行不矛盾 ☐ 結尾「— 禁止清單結束 —」未截斷 ☐ 重大改動先提 plan。
 

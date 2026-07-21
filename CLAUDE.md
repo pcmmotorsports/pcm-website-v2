@@ -33,7 +33,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
 11. **Slice 收工三綠 Checkpoint** — commit 前強制跑 typecheck+lint(動 .ts/.tsx 加 build)、任一紅停下修紅再 commit、不繞道/disable/skip/ignore(`/slice-checkpoint` skill、詳 `docs/patterns/slice-checkpoint.md`)。**字面 vs 事實守則:commit 訊息對應實際內容、不假裝完成沒做的事、有偏離寫 commit body 註明**(背景見 slice-checkpoint.md §1)。
-12. **重大改動/進度結束產 Codex Review Packet** — 觸發(任一):鐵則 8 重大改動 / 動 security·RLS·GRANT·migration·schema·API / 動會員 tier·經銷價·pricing·order·payment / 進度單元收尾(=STATUS「下一步」同一編號項 slice 全完成、或 milestone 收尾)/ 自評有風險(只能加審;前列硬觸發命中即產、不得以自評無風險跳過)/ Sean 說「Ready for review」。停下、跑完三綠、**commit 前**產 Packet(自帶規則摘錄、Codex 無需 repo 即可審)、提醒 Sean 貼 Codex、**不 push**;findings 回來再決定。格式見 `docs/patterns/codex-review-packet.md`。(與鐵則 8 互補:plan 在動手前、Packet 在 commit 前。動作分流:slice 內 commit 前的審查 = 關卡 2 跑 `codex-adversary` 自動審;書面 Packet = 進度單元/milestone 收尾或 Sean 說 Ready for review 時產、由 Sean 貼 web Codex。)
+12. **高風險改動 commit 前必過 Codex 對抗審查** — 高風險=動到任一(2026-07-22 拍板 C 案):**①錢**(order·payment·refund·pricing·經銷價·會員 tier·儲值金)**②權限**(auth·RLS·GRANT·service_role·server/client 邊界)**③DB 結構與大量/不可逆寫入**(schema·migration·批次匯入)**④平台設定**(next.config·vercel.json·Prisma·CI·env)**⑤對外不可回收**(寄信·對外發布·法律頁)**⑥共用元件 packages/ui 行為改動**(props 介面/邏輯/資料流;純樣式=標準片)。跨 3 檔/一般 API/進度單元收尾**不再自動觸發**;自評有風險只能加審不能免審;Sean 說「Ready for review」必審;milestone 收尾仍跑一次總審。動作:停下、跑完三綠、**commit 前**直呼 codex CLI 唯讀對抗審查(`codex-adversary` 關卡2、`-s read-only`;07-21 拍板不產書面 Packet)、findings 修完才 commit、**不 push**。審查唯讀紀律見 `docs/ops/AI_CONTRACT.md` §2;歷史 Packet 格式備查 `docs/patterns/codex-review-packet.md`。
 
 ---
 
@@ -57,7 +57,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | skill 與工具用法(context7 / graphify / busboy 細節) | `docs/tools-and-skills.md` |
 | 跨專案關聯問題(老闆腦/報價單/上架鏈與本 repo 怎麼連) | 四 repo 合併圖 `/Users/sean_1/老闆腦/跨專案圖/`(cd 進去 `graphify query "問題"`;repo 內問題優先用本 repo `graphify-out/`,較新;合併圖由老闆腦維護、本 repo 不更新它) |
 | 三綠細節 / 字面vs事實背景 | `docs/patterns/slice-checkpoint.md` |
-| Codex Packet 格式 | `docs/patterns/codex-review-packet.md` |
+| 歷史 Codex Packet 格式(2026-07-21 起停用、改直呼 codex CLI) | `docs/patterns/codex-review-packet.md` |
 | 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md` |
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護;2026-07-10 六檔合併) |
@@ -85,7 +85,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 - **「產生新檔→驗證→覆蓋」**:`cat > /tmp/x <<'EOF'` → `test -s /tmp/x || exit 1` → `mv /tmp/x target`。
 - **不假設非 macOS CLI 已裝**:`jq`/`yq` 用前 `command -v` 確認、或改 Python 內建。
 - **zsh nomatch**:glob 無匹配 exit 1、含 glob 加 `|| true` 或用 `find`。
-- **CJK / str_replace**:大塊中文(全形標點易誤打半形、byte 不 match)str_replace 連敗 2 次切策略:① sed + 特徵文字 anchor ② read→整段 rewrite→write ③ 拆短 anchor;切策略後僅再試 1 次、同一處總嘗試上限 3 次、仍敗停下回報不做第 4 次。
+- **CJK / str_replace 切策略**:見常載 `~/.claude/rules/00-work-rules.md` §5(單一權威,此處不重複;2026-07-22 去重)。
 
 ## Server 端鐵則(會員與價格、Phase 1 核心)
 
@@ -105,13 +105,14 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 ## 分工 + 自驅 SOP(現行預設;五方分工表與完整鏈見 `docs/patterns/cowork-review-chain.md` 與 `AGENTS.md`)
 
 - 分工要點:Sean 拍板/push/操作 dashboard/肉眼驗收;Codex 或 Claude 執行 session 都可實作/commit/測試/自驅規劃、**不 push、不 deploy、不替 Sean 拍板、不做視覺設計**;明確審查 session 唯讀作不同模型第二意見;Design session 管視覺。
-- **9 步自驅 SOP**:①起手(讀 STATUS 下一步 + design 真權威 grep)②規劃前偵察 pass(派 haiku/sonnet 掃 backlog/STATUS/specs/memory/lessons 多關鍵字變體 + 查 graphify 連動面、套 T1 範本)→ 自寫 slice plan(標 L1/L2/L3、判鐵則 8、plan 附「相關既有紀錄與連動面」一節列命中項與連動檔)③關卡1:預設跳 codex、僅鐵則 8 重大改動跑 `codex-adversary` 審 plan(輪數上限 2、仍不收斂=整理決策題給 Sean;07-10 拍板)→ 決策岔路一次性批次問 Sean ④實作(鐵則 3/5/6)⑤三綠 `/slice-checkpoint` ⑥code-reviewer subagent 必跑(一輪制:R1 PASS 含 nit → 修完直接進 commit 不複審;R1 FAIL 才修完跑 R2 確認;07-10 拍板)⑦關卡2:預設只走 code-reviewer、僅命中鐵則 12 或鐵則 8 才跑 codex 審 diff(每 slice 硬上限 2 輪、round2 仍 FAIL 停下 raise Sean)⑧commit(精準 add、字面vs事實一致、STATUS 7 欄同 commit)+ 收尾對帳(本 session Sean 拍板逐條 vs 已落檔;漏的補寫進對應檔——拍板落 memory `project_*.md`、含決定/理由/連動面、一板一檔或更新既有、不只留 commit body)+ busboy-end ⑨**不 push** 等 Sean 手動推。
+- **片型分級(2026-07-22 拍板)**:動手前先標片型。**輕量片**=不碰「共用元件(packages/ui)/金流·order·payment/schema·migration·RLS/auth·tier/next.config·vercel.json·Prisma·CI/.env」且體積=單一元件 CSS+TSX、文案、smoke test 補齊或純 docs → 只跑 SOP ①④⑤⑧⑨(跳偵察 pass、graphify 查詢、關卡1、code-reviewer、關卡2)。**標準片**=其餘 → 全 9 步(同一條線延續片:偵察 pass 沿用本 session 已有結果、免重跑)。**高風險片**=命中鐵則 12 六類 → 全 9 步、對抗審查不降級(僅命中鐵則 8=照常提 plan 等批、片型另按前兩級判)。
+- **9 步自驅 SOP**:①起手(讀 STATUS 下一步 + design 真權威 grep)②規劃前偵察 pass(標準片以上;派 haiku/sonnet 掃 backlog/STATUS/specs/memory/lessons 多關鍵字變體 + 查 graphify 連動面、套 T1 範本)→ 自寫 slice plan(標 L1/L2/L3 與片型、判鐵則 8、plan 附「相關既有紀錄與連動面」一節列命中項與連動檔)③關卡1:預設跳 codex、僅高風險片(鐵則 12 六類)跑 `codex-adversary` 審 plan(輪數上限 2、仍不收斂=整理決策題給 Sean;07-22 拍板 C)→ 決策岔路一次性批次問 Sean ④實作(鐵則 3/5/6)⑤三綠 `/slice-checkpoint` ⑥code-reviewer subagent(標準片以上必跑、輕量片跳過;一輪制詳常載 00-work-rules §5 輪次紀律)⑦關卡2:預設只走 code-reviewer、僅命中鐵則 12 才跑 codex 審 diff(每 slice 硬上限 2 輪、round2 仍 FAIL 停下 raise Sean)⑧commit(精準 add、字面vs事實一致、STATUS 7 欄同 commit)+ 收尾對帳(本 session Sean 拍板逐條 vs 已落檔;漏的補寫進對應檔——拍板落 memory `project_*.md`、含決定/理由/連動面、一板一檔或更新既有、不只留 commit body)+ busboy-end ⑨**不 push** 等 Sean 手動推。
 - codex-adversary 紀律:只 main session 跑(subagent 被 classifier 擋)、只唯讀(`-s read-only`、settings.json deny 擋 fix/apply/a)、跑前後 `git status --porcelain` 比對零留痕;Codex 與 PCM 鐵則/Sean 拍板衝突以後者為準。
 
 ## 快速自檢清單
 
-**slice 開工前**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS)☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD)☐ 判鐵則 8 重大改動(是則先提 plan 等批)☐ 涉金流/RLS/GRANT/migration/schema/auth/.env 任一 → 逐字過鐵則 8+12 觸發清單(硬清單、不憑自評)☐ 規劃前偵察 pass(掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節)☐ 估時 15-45 分鐘(超出拆)。
-**slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ 命中鐵則 12 → 產 Packet + 提醒 Sean、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body)☐ busboy-end ☐ 不 push。(`/pcm-roadmap` 與 `/graphify --update` 不隨每 slice:milestone 收尾或每日收工跑一次即可;07-10 拍板)
+**slice 開工前**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS)☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD)☐ 標片型(輕量/標準/高風險;輕量片=三綠+smoke test 直達 commit)☐ 判鐵則 8 重大改動(是則先提 plan 等批)☐ 涉錢/權限/schema·migration·大量寫入/平台設定/對外發送/共用元件行為任一 → 逐字過鐵則 12 六類清單(硬清單、不憑自評)☐ 規劃前偵察 pass(標準片以上;掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節)☐ 估時 15-45 分鐘(超出拆)。
+**slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ 命中鐵則 12 → codex CLI 對抗審查已跑(不產 Packet、07-21 拍板)、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body)☐ busboy-end ☐ 不 push。(`/pcm-roadmap` 與 `/graphify --update` 不隨每 slice:milestone 收尾或每日收工跑一次即可;07-10 拍板)
 
 ## 突發狀況
 

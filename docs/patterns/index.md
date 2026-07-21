@@ -16,7 +16,7 @@
 | `money-handling.md` | brand type MoneyAmount 守門規範(ADR-0004 Q4=A3 落地),跑金額運算時讀 |
 | `slice-checkpoint.md` | 三綠 Checkpoint(typecheck+lint+build)規範,鐵則 11 細節檔 |
 | `slice-instruction-six-piece.md` | Slice 指令格式六件套完整規格(Cowork 模式) |
-| `codex-review-packet.md` | Codex Review Packet 流程,鐵則 12 細節檔 |
+| `codex-review-packet.md` | Codex Review Packet 流程(歷史備查;2026-07-21 起鐵則 12 改直呼 codex CLI) |
 | `codex-inspector-role.md` | 給新 Codex 視窗的「檢查者」角色說明(唯讀審查) |
 | `cowork-review-chain.md` | Cowork 五階段對抗審查鏈規範 |
 

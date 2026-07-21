@@ -349,7 +349,7 @@ Phase 1 是「上架真權威前台 + 對應後台」、不直接做這 9 點功
 
 **除外(Sean 2026-06-14 拍不做):** 延遲請款 / 自動週期扣款(定期定額)。
 
-**共通紀律:** ① 結算對帳全複用 M-3 webhook inbox + settleCharge;② 涉儲存 `card_key`/token(#229)= 鐵則 12 要害:server-only + 加密 at rest + 零進 client bundle/log/git + 驗 token 歸屬登入會員(防 IDOR)、正式做前提 plan + commit 前 Codex Packet;③ 逐行 SDK 細讀於各 PRD 啟動時做(TapPay docs 為 SPA、需點分頁渲染或問客服),wallet 介接「需再核實」勿憑記憶;④ 業務開通:**可現在辦**(不需 live 站)= #226 LINE Pay(客服 02-2366-0080 帳號申請、sandbox 可先開發)+ #229 卡片記憶(書面問 TapPay PCI/合約);🔴 **等部署** = #228 Apple/Google Pay(網域驗證/平台審查需 **live 結帳頁** serve 驗證檔 + 看得到實際結帳流 → gated on「新賣場結帳頁部署上線」、**不能部署前辦**)。實作皆須等 M-3 3DS 收尾。
+**共通紀律:** ① 結算對帳全複用 M-3 webhook inbox + settleCharge;② 涉儲存 `card_key`/token(#229)= 鐵則 12 要害:server-only + 加密 at rest + 零進 client bundle/log/git + 驗 token 歸屬登入會員(防 IDOR)、正式做前提 plan + commit 前 codex CLI 對抗審查(2026-07-21 拍板不產 Packet);③ 逐行 SDK 細讀於各 PRD 啟動時做(TapPay docs 為 SPA、需點分頁渲染或問客服),wallet 介接「需再核實」勿憑記憶;④ 業務開通:**可現在辦**(不需 live 站)= #226 LINE Pay(客服 02-2366-0080 帳號申請、sandbox 可先開發)+ #229 卡片記憶(書面問 TapPay PCI/合約);🔴 **等部署** = #228 Apple/Google Pay(網域驗證/平台審查需 **live 結帳頁** serve 驗證檔 + 看得到實際結帳流 → gated on「新賣場結帳頁部署上線」、**不能部署前辦**)。實作皆須等 M-3 3DS 收尾。
 
 ---
 
