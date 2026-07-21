@@ -76,6 +76,12 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
     - **a11y 最終修法（R2 nit 推翻我原本的做法）**：原本把當前步驟設成原生 `disabled` —— R2 指出代價是「移出 tab 順序 + 多數螢幕閱讀器不朗讀 disabled 控制項 ⇒ `aria-current` 很可能永遠念不到」。改為業界標準：**當前步驟保持可聚焦**，以 `aria-current="step"` + `aria-disabled` 表達「我在這一步、此刻不可動作」，handler 由 `step > s.n` 守門 no-op；**只有未完成步驟**用原生 `disabled`。CSS 對應改 `.co-step.is-active[aria-disabled='true'] { cursor: default; }`。
     - 另補：R2 指出「View 不傳 `onEditStep2`」無測試鎖住（日後加回去會靜默產生死鈕）→ 已在 `CheckoutView.test.tsx` 加「step 2 的『編輯』鈕恰為 2 顆」斷言。
     - 🔴 **誠實現況**：R2 的 3 條 must-fix 修正**尚未經第三方覆核**（依 repo 一輪制／兩輪上限，未再開 R3）；codex 線修完後亦未跑 R2。
+- **2026-07-22 Sean 看過 U1 真畫面後再拍兩題**（全文 memory `project_m3-u1-two-step-decisions`）：
+  - **Q1=A**：假信用卡框**照計畫走、不插隊** —— U2a 抽元件 → **U2b 一併刪**（假卡欄 + CheckoutStep3 shell）。
+  - **Q2=C**：付款方式文案改白話 —— `co-pay-label`「信用卡(TapPay)」→「**信用卡付款**」；`co-pay-desc` 刪末段「· 後端串接 TapPay SDK」、保留「VISA · Mastercard · JCB · AE，3D 驗證」。
+    🔴 **屬授權覆蓋 design**（兩行字面源自 `design-reference/components/CheckoutPage.jsx:398-399`）→ U2b 須登記 business override `checkoutPaymentLabelPlainLanguage`，否則違反鐵則 1。
+    🔴 **兩個消費端一起改**：`CheckoutStep2.tsx` 選項列（Sean 點名）＋ `CheckoutStep3.tsx` 複查行「信用卡 · TapPay」（**未點名、依同一原則延伸、Sean 可否決**）＋ 4 個測試檔字面；**不動** `CheckoutStep1.tsx` 的 B-3 揭示文案。落點＝plan U2b §④/§⑤（含文案搜尋 gate）。
+  - Sean 另問「將來串虛擬帳戶，上下要連動嗎」→ **會，結構已是可擴充單選**（design §6.3；design `:432` 原本就畫了 ATM 選項）；但**虛擬帳戶不在 Phase 1**（design §4.2），且需取號／對帳／逾期取消／訂單狀態機，**不是前端工作**。
 - **下一片 = U2a**「抽第二步 presentational review sections」，**待 Sean 放行**；本輪未進 U2a。
 - route、migration、flag、deploy、DB 至今仍全數未動（U1 只動 checkout **UI 層**與測試／manifest／SSoT）。
 

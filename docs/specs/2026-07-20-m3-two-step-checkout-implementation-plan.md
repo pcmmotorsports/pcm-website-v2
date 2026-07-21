@@ -173,15 +173,22 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 ④ Manifest Impact + Review 觸發
 - `checkoutStepsWipPlaceholder` 改為兩步內容完成；`checkoutStep3ReviewAdaptations` 明寫退役；`checkoutCardUiOnlyNoTapPay` 清「Step3／最後一步」舊字面；保留法律 open drift。
 - 同步 related paths、`last_modified_commit/date`。
+- 🔴 **新增 business override `checkoutPaymentLabelPlainLanguage`**（2026-07-22 Sean 拍 Q2=C）：`design_value` = `design-reference/components/CheckoutPage.jsx:398-399` 的「信用卡(TapPay)」+「VISA · Mastercard · JCB · AE，3D 驗證 · 後端串接 TapPay SDK」；`storefront_value` 見 ⑤ 的字面；`reason` = 「後端串接 TapPay SDK」是講給工程師聽的、對客人無意義，卡別與 3D 驗證保留以增加下單信心。
 - review_triggers: slice_review / code_review / security_review_required / codex_review_required。
 
 ⑤ 執行步驟
+- 🔴 **文案改動（2026-07-22 Sean 拍 Q2=C；授權覆蓋 design、非自行翻譯）——「事實 × 位置」完整清單，兩處消費端必須一起改，不得只改被點名的那一處**：
+  - `CheckoutStep2.tsx` 付款方式選項：`co-pay-label` 由「信用卡(TapPay)」改為「**信用卡付款**」；`co-pay-desc` 由「VISA · Mastercard · JCB · AE，3D 驗證 · 後端串接 TapPay SDK」改為「**VISA · Mastercard · JCB · AE，3D 驗證**」（只刪最後一段技術字串）。
+  - `CheckoutStep3.tsx`（若本片尚未刪除該檔則同步，刪除時併入新複查區塊）付款複查行：「信用卡 · TapPay」改為「**信用卡付款**」。⚠️ Sean 原話只點名付款方式那一列，此處是依「拿掉技術名詞、對客人白話」原則延伸套用的**第二個消費端**；Sean 可否決。
+  - 連動測試字面（改字必同步、否則轉紅）：`CheckoutStep2.test.tsx`、`CheckoutView.test.tsx`、`CheckoutStep3.test.tsx`（含其 docblock）。
+  - 不動：`CheckoutStep1.tsx` 的「此信箱也可能用於信用卡付款驗證」（B-3 揭示文案、語意不同）、CSS 註解內的「信用卡欄」字樣。
 - RED：`CheckoutStep2.test.tsx` 斷言同頁可見摘要、發票、真 slot、商品、terms；disabled 原生卡號/expiry/CVV inputs 不存在。
 - GREEN：擴充 Step2 props；View 只掛 Step2；刪 `CheckoutStep3.tsx/.test.tsx`；CSS 調整單欄結構。
 - GREEN：收件摘要仍保留完整地址文字，只以 `.co-shipping-summary-address { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }` 做單行視覺截短，不能以 JS slice 丟失地址；component test 驗完整文字仍在 DOM，CSS test 鎖三條規則。
 - 精確測試：
   `pnpm exec vitest run apps/storefront/src/components/CheckoutStep2.test.tsx apps/storefront/src/components/CheckoutStep2ReviewSections.test.tsx apps/storefront/src/components/CheckoutView.test.tsx apps/storefront/src/styles/checkout.test.ts`
 - 搜尋 gate：`rg -n "CheckoutStep3|最後一步輸入|下一步:確認訂單" apps/storefront/src` 必須零 active 命中。
+- 🔴 文案搜尋 gate（Q2=C）：`rg -n "信用卡\(TapPay\)|信用卡 · TapPay|後端串接 TapPay SDK" apps/storefront/src` 必須零 active 命中（design-reference 為視覺真權威、不回改）。
 - 全驗證：`pnpm typecheck && pnpm lint && pnpm build && pnpm test && node scripts/design-mirror.mjs --validate && git diff --check`
 - Commit：`refactor(storefront): 合併發票付款與訂單確認 [m-3]`。
 
