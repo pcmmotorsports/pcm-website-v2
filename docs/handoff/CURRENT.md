@@ -82,6 +82,12 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
     🔴 **屬授權覆蓋 design**（兩行字面源自 `design-reference/components/CheckoutPage.jsx:398-399`）→ U2b 須登記 business override `checkoutPaymentLabelPlainLanguage`，否則違反鐵則 1。
     🔴 **兩個消費端一起改**：`CheckoutStep2.tsx` 選項列（Sean 點名）＋ `CheckoutStep3.tsx` 複查行「信用卡 · TapPay」（**未點名、依同一原則延伸、Sean 可否決**）＋ 4 個測試檔字面；**不動** `CheckoutStep1.tsx` 的 B-3 揭示文案。落點＝plan U2b §④/§⑤（含文案搜尋 gate）。
   - Sean 另問「將來串虛擬帳戶，上下要連動嗎」→ **會，結構已是可擴充單選**（design §6.3；design `:432` 原本就畫了 ATM 選項）；但**虛擬帳戶不在 Phase 1**（design §4.2），且需取號／對帳／逾期取消／訂單狀態機，**不是前端工作**。
+- 🔴 **正式上線閘（Sean 2026-07-22 拍 A）：`dev` 暫不推 `main`**
+  - 現況：`origin/main` = `a0c62c0`（07-20），`dev` 領先 **15 個 commit**；實測 **fast-forward 可推、零 migration、B-3 Email flag off、3DS flag false** → 技術上安全。
+  - 不推的理由＝**U1 是刻意留的 WIP**：客人登入後進結帳第二步會看到「發票資訊」「付款方式」各兩次、灰掉的假信用卡欄、夾在中間的「確認訂單」標題。付款雖走不完（flag 關著），但**畫面看得到**，會傷信任。
+  - 另一理由：**U1 未經真瀏覽器驗收** —— 桌機僅 Sean 本機 localhost 看過，**390px 手機版零驗證**（U1 的幽靈第三欄教訓＝測試全綠也可能版面壞掉）。
+  - **解閘條件**：U2a + U2b 做完（假卡欄與重複區塊清乾淨）＋ Sean 肉眼驗手機版 → 才 `git push origin dev:main`。
+  - 🔴 **在此之前任何 session 不得推 `main`**；推 `dev` 不受此閘限制（storefront 正式站追 `main`）。
 - **下一片 = U2a**「抽第二步 presentational review sections」，**待 Sean 放行**；本輪未進 U2a。
 - route、migration、flag、deploy、DB 至今仍全數未動（U1 只動 checkout **UI 層**與測試／manifest／SSoT）。
 
