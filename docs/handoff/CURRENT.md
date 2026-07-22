@@ -7,7 +7,8 @@
 
 ## 1. 交接快照
 
-- Updated: 2026-07-22 11:45, Asia/Taipei（U2b 收工交接）
+- Updated: 2026-07-22 12:5x, Asia/Taipei（U2b 後續:導覽列品牌死連結修正 ＝ 本 commit）
+- 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**
 - Agent: Claude Code
 - Mode: 執行模式；M-3 兩步結帳 **Slice U2b ＝ 本 commit**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪未 push**；未 deploy、未推 `main`
 - Branch: `dev`

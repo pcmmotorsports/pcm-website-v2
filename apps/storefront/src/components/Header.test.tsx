@@ -76,6 +76,34 @@ describe('Header', () => {
     expect(screen.getByLabelText('購物車')).toBeDefined();
   });
 
+  // 🔴 導覽列連結目的地守門(2026-07-22):Header 的「品牌」原本指向不存在的 /brands,
+  //   客人按了吃 404 —— 頁尾「品牌專區」早已依 Q4-S5 拍板改指 /products,Header 是漏改的第二個消費端。
+  //   本測試把整組 href 鎖住,任何人改動導覽目的地都會當場轉紅、必須是刻意的。
+  //   ⚠️ /install 與 /stores 目前**仍是已知死連結**(backlog #269、待 Sean 定內容),
+  //      刻意鎖住現況以免被誤讀成「已修好」;#269 收斂時本測試會轉紅,那是預期的提醒。
+  describe('導覽列連結目的地 (2026-07-22 品牌死連結修正 + #269 現況鎖)', () => {
+    it('每個導覽項目的 href 與預期一致,且「品牌」不再指向不存在的 /brands', () => {
+      const { container } = renderWithCart(<Header isMobile={false} />);
+      const nav = container.querySelector('.pcm-nav') ?? container.querySelector('nav');
+      const actual = Array.from(nav?.querySelectorAll('a') ?? []).map((a) => [
+        a.textContent?.trim(),
+        a.getAttribute('href'),
+      ]);
+
+      expect(actual).toEqual([
+        ['商品目錄', '/products'],
+        ['依車輛搜尋', '/#vehicle-finder'],
+        ['品牌', '/products'], // 🔴 Phase 2 才有品牌頁;先對齊頁尾、不得改回 /brands
+        ['新品', '/products?filter=new'],
+        ['特價', '/products?filter=sale'],
+        ['安裝預約', '/install'], // ⚠️ 已知死連結 = backlog #269
+        ['合作店家', '/stores'], // ⚠️ 已知死連結 = backlog #269
+      ]);
+      // 明確斷言:不得有任何導覽項目再指向 /brands
+      expect(actual.some(([, href]) => href === '/brands')).toBe(false);
+    });
+  });
+
   describe('會員圖示條件路由 (g-1b、#179 D-f 收尾)', () => {
     it('desktop 未登入 → 會員圖示點擊 → router.push(/login)', () => {
       renderWithCart(<Header isMobile={false} />);

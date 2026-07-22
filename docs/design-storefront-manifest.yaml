@@ -795,8 +795,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/Header.tsx"
       css: "apps/storefront/src/styles/header.css"
-      last_modified_commit: "4988438"  # 記可達祖先(=LINE CTA 4988438、非直接父;直接父=提交當下 dev tip、避 amend orphan);本次真改見 git log:server UA 透過 MobileContext 下傳、修 iPhone 卡桌機 header
-      last_modified_date: "2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
+      last_modified_commit: "8a3852e"  # 記可達祖先(=M-3 U2b 8a3852e、本片開工時 HEAD;非直接父、避 amend orphan);本次真改見 git log:導覽列「品牌」死連結修正
+      last_modified_date: "2026-07-22 (導覽列「品牌」死連結修正:href 由不存在的 /brands 改為 /products。🔴 **非新拍板、是漏改的第二個消費端**——HomeFooter「品牌專區」早已依 Q4-S5 拍板改指 /products〔`HomeFooter.tsx` 檔頭註解:『brands → /products(Q4-S5 修 404、品牌專區頁留 Phase 2)』〕,該次只改頁尾、Header 漏改,客人按上方導覽列「品牌」會吃 404。design-reference 無 BrandPage 元件 → 非 design 偏離,屬既有 routingAdaptation drift 的落實。新增 Header.test.tsx 導覽守門:鎖住全部 7 個 href 字面 + 明確斷言不得再出現 /brands;突變實測(改回 /brands)當場轉紅。⚠️ /install 與 /stores **仍是已知死連結**(backlog #269、待 Sean 定內容),測試刻意鎖住現況以免被誤讀成已修好。前:2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
     design:
       component: "design-reference/components/Header.jsx"
       css: "design-reference/styles/header.css"

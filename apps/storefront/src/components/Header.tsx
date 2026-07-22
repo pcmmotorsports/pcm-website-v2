@@ -96,7 +96,10 @@ export function Header({
   const navItems = [
     { id: 'catalog', label: '商品目錄', href: '/products' },
     { id: 'vehicle', label: '依車輛搜尋', href: '/#vehicle-finder' },
-    { id: 'brands', label: '品牌', href: '/brands' },
+    // 🔴 品牌頁留 Phase 2、先指商品目錄:沿用 HomeFooter「品牌專區」已套用的 Q4-S5 拍板
+    //   (該次只改了頁尾、Header 漏改 → `/brands` route 不存在、客人按了吃 404)。
+    //   design-reference 無 BrandPage 元件,故非 design 偏離、是 route adaptation 的第二個消費端補齊。
+    { id: 'brands', label: '品牌', href: '/products' },
     { id: 'new', label: '新品', href: '/products?filter=new' },
     { id: 'sale', label: '特價', href: '/products?filter=sale', sale: true },
     { id: 'install', label: '安裝預約', href: '/install' },
