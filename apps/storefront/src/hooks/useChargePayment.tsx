@@ -40,7 +40,8 @@ export type ChargeArgs = {
   shippingMethod: ShippingMethod;
   invoice: InvoiceDraft;
   prime: string;
-  /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client;前端鈕已 payDisabled=!agreed)。 */
+  /** 🔴 #241 同意服務條款 checkbox 狀態;送 server action 重驗(不信任 client)。
+   *  ⚠️ 2026-07-22 U3b:前端已改為「未勾也可按、按下顯示錯誤」→ server guard 是唯一權威。 */
   agreed: boolean;
   /** B-3 flag-on 才存在；server 仍會以同一份 schema 重新驗證。 */
   notificationEmail?: string;

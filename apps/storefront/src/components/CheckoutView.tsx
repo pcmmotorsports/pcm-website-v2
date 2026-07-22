@@ -15,11 +15,10 @@
 //
 // ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
 //   付款方式選項 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
-//   只在 step===2 啟用 setup)→ 確認付款 = getPrime → useChargePayment.submit(chargePaymentAction:
-//   server cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)→ 結果映 UI:
-//   paid / processing / unknown(action throw 回應遺失層、可能已扣款、審查側 BLOCKER 修)→
-//   CheckoutSuccess 終態(processing/unknown 帶勿重複付款文案);error / wait / in_flight
-//   → 留頁顯示訊息(wait = 誠實未扣款請稍候、in_flight = 另筆進行中);canGetPrime gate 雙鈕 disabled。
+//   只在 step===2 啟用 setup)→ 確認付款 = **U3b 非卡片 validation** → getPrime →
+//   useChargePayment.submit(server cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)
+//   → 結果映 UI:paid / processing / unknown(action throw 回應遺失層、可能已扣款)→ CheckoutSuccess
+//   終態;error / wait / in_flight → 留頁,訊息與非卡片錯誤共用 CheckoutPaymentFeedback 單一 alert。
 //
 // route adaptation(對齊 storefront 慣例、非 design 視覺偏離):
 //   - <Header>/<HomeFooter>(取代 design Header/Footer onNav prop);Header 無 cartCount prop。
@@ -49,7 +48,11 @@ import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutS
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { CheckoutRedirecting } from '@/components/CheckoutRedirecting';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
+import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
+import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
+import { validateNonCardFields } from '@/lib/checkout/validate-checkout-payment';
+import { usePaymentErrors } from '@/hooks/usePaymentErrors';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { useChargePayment } from '@/hooks/useChargePayment';
 import { useTapPayCard } from '@/hooks/useTapPayCard';
@@ -102,14 +105,32 @@ export function CheckoutView({
   // 從選中地址自動帶入、使用者可手動覆寫的 effect 對齊 design L72-76。
   const [invoice, setInvoice] = useState<InvoiceDraft>(DEFAULT_INVOICE);
   const [invoiceOverride, setInvoiceOverride] = useState(false);
+
+  // U3b:非卡片錯誤 lifecycle(state + 清除規則在 usePaymentErrors;驗證在 lib 純函式)。
+  const payErrors = usePaymentErrors();
+
+  // invoice 走 ref 取 effect 內的 prev 值(進 deps 會讓 effect 自我觸發迴圈);
+  // clearInvoiceKeys 是 stable callback,可正常列進 deps。
+  const invoiceRef = useRef(invoice);
+  invoiceRef.current = invoice;
+  const { clearInvoiceKeys } = payErrors;
   useEffect(() => {
     if (invoiceOverride) return;
     const addr = addresses.find((a) => a.id === shippingAddrId);
-    if (addr?.invoice) setInvoice({ ...DEFAULT_INVOICE, ...addr.invoice });
-  }, [shippingAddrId, addresses, invoiceOverride]);
+    if (!addr?.invoice) return;
+    const next = { ...DEFAULT_INVOICE, ...addr.invoice };
+    // 🔴 走 diff、不可改成「一律清三個」(理由見 clearInvoiceErrorsOnChange docstring)。
+    clearInvoiceKeys(invoiceRef.current, next);
+    setInvoice(next);
+  }, [shippingAddrId, addresses, invoiceOverride, clearInvoiceKeys]);
 
   // 同意條款(Step 2 底部)。
   const [agreed, setAgreed] = useState(false);
+
+  const handleInvoiceChange = (next: InvoiceDraft) => {
+    payErrors.clearInvoiceKeys(invoice, next);
+    setInvoice(next);
+  };
 
   const goNext = () => {
     if (step === 1 && notificationEmailEnabled) {
@@ -131,32 +152,56 @@ export function CheckoutView({
   };
   const goBack = () => setStep(1); // U1:兩步 domain,goBack 只可能 2→1
 
-  // ②-④b 刷卡送出(對齊 design submitOrder `if (!agreed) return` 守門 + processing 態):
-  // TapPay 卡欄只在 step===2 啟用(U1:卡欄所在步驟由 3 改 2;setup 需容器在 DOM);getPrime 成功才呼 chargePaymentAction
-  // (六態契約見 useChargePayment)。🔴 雙擊防線:primeBusyRef 同步原子鎖(state 版 re-render 前
-  // 擋不住同一輪連點、getPrime 會重複呼;codex 關卡2 r1)→ getPrime 全程只進一次;
-  // 終態(paid/processing、submit 回 true)**不釋放**(r2:終態 render 前的空窗也不得再進
-  // getPrime;畫面隨即切 CheckoutSuccess)。primeBusy state 只負責 UI disabled 鏡像。
-  // shippingMethod 釘 'home'(Q1=A);身分/金額零 client(RPC auth.uid() + findTotal read-back)。
+  // ②-④b 刷卡送出。TapPay 卡欄只在 step===2 啟用(U1:setup 需容器在 DOM);getPrime 成功才呼
+  // chargePaymentAction(六態契約見 useChargePayment)。🔴 雙擊防線:primeBusyRef 同步原子鎖
+  // (state 版 re-render 前擋不住同輪連點;codex 關卡2 r1)→ getPrime 全程只進一次;終態
+  // (paid/processing、submit 回 true)**不釋放**(r2)。shippingMethod 釘 'home';身分/金額零 client。
+  // 🔴 U3b:design 原 submitOrder 的 `if (!agreed) return` 前端硬擋**已移除** —— 改為 design §7.3
+  //   「未填完整時仍可按、用來觸發錯誤導引」;consent 的權威守門在 server(charge-actions ②e)。
   const tappay = useTapPayCard(step === 2);
   const primeBusyRef = useRef(false);
   const [primeBusy, setPrimeBusy] = useState(false);
   const [primeError, setPrimeError] = useState<string | null>(null);
   const submitting = charge.state.status === 'submitting' || primeBusy;
-  const payDisabled = !agreed || submitting || !tappay.canGetPrime;
+  // `!tappay.canGetPrime` 由 U4a 移除(屆時卡片欄錯誤才有導引可顯示)。
+  const payDisabled = submitting || !tappay.canGetPrime;
   const handleSubmit = async () => {
+    // 🔴 順序不可調動(codex 關卡1 R1#6 / R3-B / 關卡2 R1#1 釘死):同步 guard → **淘汰舊 charge error**
+    //   → non-card validation → confirm → prime 鎖 → getPrime → **解除淘汰** → charge.submit。
     if (payDisabled || primeBusyRef.current) return;
+    // 🔴 每次按下都先淘汰上一輪 charge error(codex 關卡2):合法直接重試時 getPrime 可等 ~15 秒,
+    //   不淘汰則舊「付款失敗」整段掛著。`wait`/`in_flight` 不受影響(見 alertFor)。
+    payErrors.retireChargeMessage();
+    const validation = validateNonCardFields({
+      addressId: shippingAddrId,
+      invoice,
+      notificationEmailEnabled,
+      notificationEmail,
+      agreed,
+    });
+    payErrors.applyValidation(validation);
+    if (!validation.valid) {
+      // 🔴 有錯即止:confirmProceedIfInflight / getPrime / chargePaymentAction 一律 0 次。
+      //   prime 訊息一併淘汰,否則客人修完欄位後舊訊息會幽靈重現。
+      setPrimeError(null);
+      return;
+    }
     if (!confirmProceedIfInflight()) return; // 🔴 P3:另開分頁防呆軟提醒(取消則不送出;後端 preflight 才是雙扣真防線)
     primeBusyRef.current = true;
     setPrimeBusy(true);
     setPrimeError(null);
     let terminal = false;
     try {
-      const prime = await tappay.getPrime();
+      // 🔴 `.catch(() => null)`:SDK 若 throw,無 catch 會讓 handler 靜默結束、客人完全沒訊息;
+      //   轉 null 即落入下方友善錯誤路徑(code-reviewer nit,已由 getPrime reject 測試守門)。
+      const prime = await tappay.getPrime().catch(() => null);
       if (!prime) {
         setPrimeError('卡片資訊驗證失敗,請確認卡號 / 有效期 / CVV 後重試');
         return;
       }
+      // 🔴 stale 解除必須晚到這裡(R3-B):getPrime 可等 ~15 秒,期間 charge.state 仍持上一輪訊息,
+      //   提早解除會讓舊訊息在取 prime 期間重新現身。submit 內部同步切 'submitting'、與本行同批。
+      payErrors.resumeChargeMessage();
       terminal = await charge.submit({
         addressId: shippingAddrId,
         shippingMethod: 'home',
@@ -172,14 +217,8 @@ export function CheckoutView({
       }
     }
   };
-  // 留頁訊息(getPrime 失敗 / error 可重試 / wait 請稍候 / in_flight 另筆進行中)。
-  const stayMessage =
-    primeError ??
-    (charge.state.status === 'error' ||
-      charge.state.status === 'wait' ||
-      charge.state.status === 'in_flight'
-      ? charge.state.message
-      : null);
+  // 付款區唯一 alert 的文字(U3b:逐欄摘要 > formError > getPrime 失敗 > 未過期的 charge 訊息)。
+  const paymentAlert = payErrors.alertFor({ primeError, chargeState: charge.state });
 
   // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。
   if (charge.state.status === 'paid') {
@@ -266,14 +305,20 @@ export function CheckoutView({
               <CheckoutStep1
                 addresses={addresses}
                 shippingAddrId={shippingAddrId}
-                onShippingAddressChange={setShippingAddrId}
+                onShippingAddressChange={(id) => {
+                  if (id === shippingAddrId) return; // 值沒變 → 不清(只清真正被修正的欄位)
+                  setShippingAddrId(id);
+                  payErrors.clearKeys(['shipping.address']);
+                }}
                 shipping={shipping}
                 notificationEmailEnabled={notificationEmailEnabled}
                 notificationEmail={notificationEmail}
                 notificationEmailError={notificationEmailError}
                 onNotificationEmailChange={(value) => {
+                  if (value === notificationEmail) return; // 值沒變 → 不清
                   setNotificationEmail(value);
                   setNotificationEmailError(null);
+                  payErrors.clearKeys(['notificationEmail']);
                 }}
                 onBack={() => router.push('/cart')}
                 onNext={goNext}
@@ -289,7 +334,7 @@ export function CheckoutView({
                   shippingLabel="貨運宅配"
                   onEditAddress={() => setStep(1)}
                   invoice={invoice}
-                  setInvoice={setInvoice}
+                  setInvoice={handleInvoiceChange}
                   invoiceOverride={invoiceOverride}
                   setInvoiceOverride={setInvoiceOverride}
                   paymentSlot={
@@ -297,14 +342,14 @@ export function CheckoutView({
                   }
                   lines={lines}
                   agreed={agreed}
-                  onAgreedChange={setAgreed}
+                  onAgreedChange={(v) => {
+                    setAgreed(v);
+                    payErrors.clearKeys(['terms']);
+                  }}
                   onEditItems={() => router.push('/cart')}
+                  errors={payErrors.errors}
                 />
-                {stayMessage && (
-                  <p className="co-submit-error" role="alert">
-                    {stayMessage}
-                  </p>
-                )}
+                <CheckoutPaymentFeedback message={paymentAlert} />
                 <div className="co-actions">
                   <button className="btn-outline co-btn-back" onClick={goBack} disabled={submitting}>← 上一步</button>
                   <button
@@ -331,25 +376,15 @@ export function CheckoutView({
         </div>
 
         {/* Mobile buybar */}
-        <div className="co-mobile-buybar">
-          <div className="co-mobile-buybar-info">
-            <div className="ap-mono">{step === 2 ? '應付總額' : '目前金額'}</div>
-            <div className="co-mobile-buybar-price">NT$ {total.toLocaleString()}</div>
-          </div>
-          {step === 1 ? (
-            <button className="btn-primary co-mobile-buybar-btn" onClick={goNext} disabled={nextDisabled}>
-              下一步 <span>→</span>
-            </button>
-          ) : (
-            <button
-              className="btn-primary co-mobile-buybar-btn"
-              onClick={handleSubmit}
-              disabled={payDisabled}
-            >
-              {submitting ? '處理中…' : '確認付款'}
-            </button>
-          )}
-        </div>
+        <CheckoutMobileBuybar
+          step={step}
+          total={total}
+          submitting={submitting}
+          nextDisabled={nextDisabled}
+          payDisabled={payDisabled}
+          onNext={goNext}
+          onSubmit={handleSubmit}
+        />
       </main>
       <HomeFooter />
     </div>

@@ -3,7 +3,8 @@
 // CheckoutView smoke test(M-3-S2-b2-e1 結帳殼;②-④b 接 TapPay 刷卡流程;U1 起兩步)。
 //
 // 驗:① 載入態 ② 空車 ③ ready:2 步 + Step1 + 配送 + 右側摘要(②-④b 抽 CheckoutSummaryAside、字面不變)
-//     ④ 地址選擇 ⑤ 導航 ⑤b step2 勾同意 + canGetPrime → 確認付款 enabled;canGetPrime false → disabled
+//     ④ 地址選擇 ⑤ 導航 ⑤b 🔴 U3b:未勾同意**仍可按**(design §7.3 用錯誤導引取代 disabled),
+//        按下顯示 terms 紅字且零 getPrime/action;canGetPrime false → 仍 disabled(U4a 才移除該條件)
 //     ⑥ member block ⑦ 🔴 經銷零洩漏 ⑧ 無地址 disabled
 //     ②-④b 刷卡接線:⑨ 確認付款 → getPrime → chargePaymentAction 收零價線+prime + paid 終態 + 清車
 //     ⑩ 失敗(formError)→ 通用錯誤 + 不清車 ⑪ 🔴 線缺 variantId → client 拒、零 action 呼叫
@@ -165,8 +166,11 @@ function resolvedLine(over: Partial<ResolvedCartLine> & { productId: string }): 
   };
 }
 
+// 🔴 U3b:id 必須是真 UUID —— CheckoutInput.addressId 是 z.uuid(),U3b 起付款鈕會實際跑這道
+//   驗證。舊 fixture 'addr-1' 會被判「請選擇收件地址」而擋下所有付款路徑測試。
+//   正式站的 addressId 一律來自 DB(真 UUID),故此為 fixture 貼近現實、非放寬驗證。
 const ADDR: CustomerAddress = {
-  id: 'addr-1',
+  id: '11111111-1111-4111-8111-111111111111',
   isDefault: true,
   name: '王小明',
   phone: '0912345678',
@@ -253,7 +257,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
   });
 
   it('地址選擇 radio → is-on', async () => {
-    const addr2 = { ...ADDR, id: 'addr-2', isDefault: false, name: '李大華' } as unknown as CustomerAddress;
+    const addr2 = { ...ADDR, id: '22222222-2222-4222-8222-222222222222', isDefault: false, name: '李大華' } as unknown as CustomerAddress;
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     const { container } = renderCheckout({ addresses: [ADDR, addr2] });
@@ -284,10 +288,12 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(screen.queryByRole('button', { name: /下一步:確認訂單/ })).toBeNull();
     // 🔴 死鈕回歸守門:付款 / 發票不再有複查編輯鈕,「編輯」只剩收件 + 商品兩顆。
     expect(screen.getAllByRole('button', { name: '編輯' }).length).toBe(2);
-    // 未勾同意 → 確認付款 disabled(co-actions + buybar 兩顆都 disabled)
+    // 🔴 U3b:未勾同意**不再** disabled(design §7.3「未填完整時仍可按,用來觸發清楚的錯誤導引」)。
+    //   舊斷言(every disabled === true)已被本片推翻,改為斷言「可按」;
+    //   「按下去會發生什麼」由下方 U3b describe 專測。
     const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
     expect(payButtons.length).toBeGreaterThanOrEqual(1);
-    expect(payButtons.every((b) => b.disabled)).toBe(true);
+    expect(payButtons.every((b) => b.disabled)).toBe(false);
 
     // 上一步 → 直接回 step1(兩步之間唯一往返)
     fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
@@ -338,17 +344,19 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(tapActiveRef.current).toEqual([false, true, false, true]); // 重入 step2:重 setup
   });
 
-  it('step2 勾同意 → 確認付款 enabled(送出 e3b 接線、e3a 僅 UI gate)', async () => {
+  // 🔴 U3b 改寫:`!agreed` 已從 payDisabled 移除 → 「勾同意才 enabled」的舊語意不再成立。
+  //   本測試改守剩下的那道鎖:canGetPrime。勾不勾同意都不影響 disabled。
+  it('step2 canGetPrime=true → 確認付款 enabled,且與是否勾同意無關(U3b)', async () => {
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     const { container } = renderCheckout();
     await screen.findByText('貨運宅配');
     fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
 
-    const agree = container.querySelector('.co-agree input') as HTMLInputElement;
-    fireEvent.click(agree);
-    const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
-    expect(payButtons.every((b) => b.disabled)).toBe(false);
+    const payButtons = () => screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
+    expect(payButtons().every((b) => b.disabled)).toBe(false); // 未勾同意也 enabled
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    expect(payButtons().every((b) => b.disabled)).toBe(false); // 勾了仍 enabled
   });
 
   it('member block:名 + TierBadge + general 升級連結', async () => {
@@ -463,7 +471,7 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(payload.lines[0]).not.toHaveProperty('unitPrice');
     expect(payload.prime).toBe('prime_test');
     expect(payload.shippingMethod).toBe('home');
-    expect(payload.addressId).toBe('addr-1');
+    expect(payload.addressId).toBe(ADDR.id);
     expect(payload.notificationEmail).toBe('Member@example.com');
     expect(payload).not.toHaveProperty('userId');
     expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
@@ -623,5 +631,326 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
     expect(await screen.findByText(/未扣款;系統忙碌中/)).toBeTruthy();
     expect(cartRef.current.clear).not.toHaveBeenCalled();
+  });
+});
+
+// ===== U3b:非卡片全錯誤 state 與 ARIA =====
+describe('CheckoutView 非卡片錯誤(U3b)', () => {
+  /** 進 step2、不勾同意(U3b 起不影響按鈕可用性)。 */
+  async function gotoStep2(container: HTMLElement) {
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    return container;
+  }
+  const pay = () => screen.getAllByRole('button', { name: /確認付款/ })[0]!;
+  const setupCart = () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+  };
+
+  it('🔴 未勾同意按下付款 → 顯示 terms 紅字,且 confirm/getPrime/action 呼叫次數皆為 0', async () => {
+    setupCart();
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(pay());
+
+    expect(screen.getByText('請先閱讀並同意服務條款與隱私政策')).toBeTruthy();
+    // 🔴 validation 有錯 → 絕不進入付款鏈的任何一環
+    expect(confirmInflightMock).toHaveBeenCalledTimes(0);
+    expect(getPrimeMock).toHaveBeenCalledTimes(0);
+    expect(chargeMock).toHaveBeenCalledTimes(0);
+  });
+
+  it('🔴 全合法 → 仍沿原路徑,且呼叫「順序」為 confirm → getPrime → action(既有付款鏈未被切斷)', async () => {
+    setupCart();
+    const order: string[] = [];
+    confirmInflightMock.mockImplementation(() => {
+      order.push('confirm');
+      return true;
+    });
+    getPrimeMock.mockImplementation(async () => {
+      order.push('getPrime');
+      return 'prime-ok';
+    });
+    chargeMock.mockImplementation(async () => {
+      order.push('action');
+      return { ok: true, displayId: 'PCM-2026-0001' };
+    });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(order).toEqual(['confirm', 'getPrime', 'action']);
+  });
+
+  it('🔴 跨類錯誤存活:只修發票抬頭 → title 紅字消失,terms 紅字與 ARIA 仍在(殺「全清」mutant)', async () => {
+    setupCart();
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    // 切公司發票 → 未填抬頭/統編,且未勾同意 → 一次產生三個 key
+    fireEvent.click(screen.getByRole('button', { name: '公司發票(三聯式)' }));
+    fireEvent.click(pay());
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+    expect(screen.getByText('請先閱讀並同意服務條款與隱私政策')).toBeTruthy();
+
+    // 只修抬頭 → 只有它該消失
+    fireEvent.change(container.querySelector('#checkout-invoice-title') as HTMLInputElement, {
+      target: { value: '賓士機車有限公司' },
+    });
+    expect(screen.queryByText('請填寫公司抬頭')).toBeNull();
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+    expect(screen.getByText('請先閱讀並同意服務條款與隱私政策')).toBeTruthy();
+    expect((container.querySelector('#checkout-agree') as HTMLInputElement).getAttribute('aria-invalid')).toBe('true');
+
+    // 再勾同意 → terms 消失,統編錯誤仍在
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    expect(screen.queryByText('請先閱讀並同意服務條款與隱私政策')).toBeNull();
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+  });
+
+  it('🔴 切換發票類型 → 隱藏欄位的錯誤從 state/DOM/ARIA 全消失,且不阻擋付款', async () => {
+    setupCart();
+    getPrimeMock.mockResolvedValue('prime-ok');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0002' });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(screen.getByRole('button', { name: '公司發票(三聯式)' }));
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    fireEvent.click(pay());
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+
+    // 切回個人發票 → 公司欄位錯誤必須完全消失(不只視覺隱藏)
+    fireEvent.click(screen.getByRole('button', { name: '個人發票' }));
+    expect(screen.queryByText('請填寫公司抬頭')).toBeNull();
+    expect(screen.queryByText('統編需 8 碼數字')).toBeNull(); // 切類型 → 三個 invoice key 全清
+    expect(container.querySelector('#checkout-invoice-title-error')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull(); // 摘要也一併消失
+
+    // 且不再阻擋付款
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(chargeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('捐贈發票缺愛心碼 → 紅字;填入後消失', async () => {
+    setupCart();
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(screen.getByRole('button', { name: '捐贈發票' }));
+    fireEvent.click(pay());
+    expect(screen.getByText('請填愛心碼')).toBeTruthy();
+    fireEvent.change(container.querySelector('#checkout-invoice-donate-code') as HTMLInputElement, {
+      target: { value: '8585' },
+    });
+    expect(screen.queryByText('請填愛心碼')).toBeNull();
+  });
+
+  it('🔴 付款區只有一個 role=alert(摘要),逐欄紅字不得各自成為 alert', async () => {
+    setupCart();
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(screen.getByRole('button', { name: '公司發票(三聯式)' }));
+    fireEvent.click(pay());
+    // 🔴 誠實邊界:此斷言只在 TapPay ready==='ready' 的一般可達路徑成立;
+    //   ready==='error' 時 TapPayCardFields 自帶一個 alert(既有債,U4a 收斂)。
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.textContent).toBe('還有 3 個項目需要確認,已在上方標示');
+    expect(container.querySelectorAll('.auth-field-err[role="alert"]')).toHaveLength(0);
+  });
+
+  it('🔴 殭屍訊息:付款失敗後改壞欄位再按 → 摘要取代舊訊息;修完欄位後舊訊息不得復活', async () => {
+    setupCart();
+    getPrimeMock.mockResolvedValue('prime-ok');
+    chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試' });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText('付款失敗,請稍後再試')).toBeTruthy();
+
+    // 取消同意 → 再按 → 驗證擋下,摘要取代舊訊息
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    fireEvent.click(pay());
+    expect(screen.queryByText('付款失敗,請稍後再試')).toBeNull();
+    expect(screen.getByText('還有 1 個項目需要確認,已在上方標示')).toBeTruthy();
+
+    // 修完欄位 → 摘要消失,但舊付款訊息**不得**幽靈重現
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    expect(screen.queryByText('還有 1 個項目需要確認,已在上方標示')).toBeNull();
+    expect(screen.queryByText('付款失敗,請稍後再試')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('🔴 confirm 取消 → 舊付款訊息仍不得復活,且 getPrime/action 為 0', async () => {
+    setupCart();
+    getPrimeMock.mockResolvedValue('prime-ok');
+    chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試' });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText('付款失敗,請稍後再試')).toBeTruthy();
+
+    // 驗證擋下一次(淘汰舊訊息)
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    fireEvent.click(pay());
+    // 修好 → 再按,但這次使用者在「另一筆付款進行中」提醒按了取消
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    getPrimeMock.mockClear();
+    chargeMock.mockClear();
+    confirmInflightMock.mockReturnValue(false);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(getPrimeMock).toHaveBeenCalledTimes(0);
+    expect(chargeMock).toHaveBeenCalledTimes(0);
+    expect(screen.queryByText('付款失敗,請稍後再試')).toBeNull(); // 🔴 取消不得讓舊訊息復活
+  });
+
+  it('🔴 getPrime 待決期間,舊付款訊息不得現身(stale 解除不可早於送出前一刻)', async () => {
+    setupCart();
+    chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試' });
+    getPrimeMock.mockResolvedValue('prime-ok');
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText('付款失敗,請稍後再試')).toBeTruthy();
+
+    // 驗證擋下(淘汰舊訊息)→ 修好 → 再按,但 getPrime 卡住不 resolve
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    fireEvent.click(pay());
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    let releasePrime: (v: string) => void = () => {};
+    getPrimeMock.mockImplementation(() => new Promise<string>((res) => { releasePrime = res; }));
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    // 🔴 取 prime 期間(真實最長可達 ~15 秒):舊 charge 訊息絕不可重新現身
+    expect(screen.queryByText('付款失敗,請稍後再試')).toBeNull();
+    await act(async () => {
+      releasePrime('prime-ok');
+    });
+  });
+
+  it('🔴 直接合法重試:取 prime 期間舊「付款失敗」必須立刻消失(不必先觸發 validation error)', async () => {
+    // codex 關卡2 抓到的缺口:原本只在 validation 失敗那條路徑淘汰舊訊息,
+    // 但客人最常見的動作是「什麼都沒改、直接再按一次」→ getPrime 可等 ~15 秒,舊訊息會一直掛著。
+    setupCart();
+    getPrimeMock.mockResolvedValue('prime-ok');
+    chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試' });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText('付款失敗,請稍後再試')).toBeTruthy();
+
+    // 什麼都不改,直接再按一次;讓 getPrime 卡住不 resolve
+    let releasePrime: (v: string) => void = () => {};
+    getPrimeMock.mockImplementation(() => new Promise<string>((res) => { releasePrime = res; }));
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.queryByText('付款失敗,請稍後再試')).toBeNull();
+    await act(async () => {
+      releasePrime('prime-ok');
+    });
+  });
+
+  it('🔴 淘汰後新的付款錯誤必須能重新顯示(殺「刪掉 resumeChargeMessage 仍全綠」的假綠)', async () => {
+    setupCart();
+    getPrimeMock.mockResolvedValue('prime-ok');
+    chargeMock.mockResolvedValue({ formError: '付款失敗,請稍後再試' });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    // 第二次送出:stale 已被第一次的 submit 設過 → 若 resume 被刪,新訊息會被永久吞掉
+    chargeMock.mockResolvedValue({ formError: '卡片遭拒,請換一張卡' });
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText('卡片遭拒,請換一張卡')).toBeTruthy();
+  });
+
+  it('🔴 in_flight 警語不得被 validation 擋下的 submit 淘汰(它描述的是當下仍成立的事實)', async () => {
+    setupCart();
+    getPrimeMock.mockResolvedValue('prime-ok');
+    chargeMock.mockResolvedValue({ payment: 'in_flight', message: '另一筆付款進行中,請稍候再試' });
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText('另一筆付款進行中,請稍候再試')).toBeTruthy();
+
+    // 取消同意 → 再按(validation 擋下)→ 修好 → in_flight 警語必須還在
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    fireEvent.click(pay());
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    expect(screen.getByText('另一筆付款進行中,請稍候再試')).toBeTruthy();
+  });
+
+  it('🔴 getPrime 直接 throw → 仍顯示友善卡片錯誤(不得整個 handler 靜默結束、畫面全無提示)', async () => {
+    setupCart();
+    getPrimeMock.mockRejectedValue(new Error('SDK boom'));
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    await act(async () => {
+      fireEvent.click(pay());
+    });
+    expect(screen.getByText(/卡片資訊驗證失敗/)).toBeTruthy();
+    expect(chargeMock).toHaveBeenCalledTimes(0);
+  });
+
+  it('🔴 地址物件參照變動但發票值沒變 → 既有發票錯誤不得被誤清(必須真的跑進 auto-fill effect)', async () => {
+    setupCart();
+    // 🔴 關鍵:錯誤必須在 `invoiceOverride === false` 下產生,否則 effect 會 early return、
+    //   這條測試就變成什麼都沒驗的假綠(codex 關卡1 R2-5 明確點名)。
+    //   → 讓**地址本身**帶一張欄位不齊的公司發票,使用者完全不碰發票分頁。
+    const addrWithCompanyInvoice = {
+      ...ADDR,
+      invoice: { type: 'company', carrier: '', title: '', taxId: '', donateCode: '' },
+    } as unknown as CustomerAddress;
+    const props = {
+      memberName: '王小明',
+      memberTier: 'general' as MemberTier,
+      notificationEmailEnabled: false,
+      initialNotificationEmail: '',
+    };
+    const { container, rerender } = render(
+      <CheckoutView addresses={[addrWithCompanyInvoice]} {...props} />,
+    );
+    await gotoStep2(container);
+    // 自動帶入的公司發票缺抬頭/統編 → 未碰發票分頁,invoiceOverride 仍為 false
+    expect(container.querySelector('.co-inv-hint')).not.toBeNull(); // 「已從收件地址自動帶入」= 未 override
+    fireEvent.click(pay());
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+
+    // server props 重送:內容相同、物件參照不同 → effect 重跑(invoiceOverride 仍 false)
+    rerender(
+      <CheckoutView addresses={[{ ...addrWithCompanyInvoice }]} {...props} />,
+    );
+    // 🔴 值沒變 → 錯誤必須原封不動(若 effect 改成「一律清三個」,這兩行會轉紅)
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
   });
 });

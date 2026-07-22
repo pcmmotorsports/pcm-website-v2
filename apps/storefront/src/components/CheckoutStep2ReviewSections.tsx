@@ -31,27 +31,64 @@ import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import { formatCartVehicle } from '@/lib/cart-vehicle-format';
 
 export type CheckoutShippingSummaryProps = {
-  /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 不渲染 body。 */
+  /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 時 body 只在有錯誤時渲染。 */
   currentAddr: CustomerAddress | undefined;
   /** 配送方式顯示字(Q1=A 僅「貨運宅配」)。 */
   shippingLabel: string;
   /** 編輯收件 → 跳回 step1。 */
   onEdit: () => void;
+  /** U3b:收件地址錯誤紅字(Step 2 無地址欄位,導引靠本區既有的「編輯」鈕回 Step1)。 */
+  shippingError?: string;
+  /** U3b:通知 Email 錯誤紅字(同上,Email 欄在 Step1)。 */
+  emailError?: string;
 };
 
-/** 精簡收件摘要(U2b:地址單行截短純 CSS、完整字面仍在 DOM)。 */
-export function CheckoutShippingSummary({ currentAddr, shippingLabel, onEdit }: CheckoutShippingSummaryProps) {
+/** 精簡收件摘要(U2b:地址單行截短純 CSS、完整字面仍在 DOM;U3b:加非卡片錯誤紅字)。 */
+export function CheckoutShippingSummary({
+  currentAddr,
+  shippingLabel,
+  onEdit,
+  shippingError,
+  emailError,
+}: CheckoutShippingSummaryProps) {
+  // 🔴 U3b(codex 關卡1 R2 抓到):body 原本只在 `currentAddr` 存在時渲染,
+  //   但 `shipping.address` 出錯的情境正是 currentAddr 為 undefined —— 紅字會永遠顯示不出來。
+  //   → 改成「有地址 **或** 有任一錯誤」就渲染 body;地址三行仍各自受 currentAddr 守護。
+  const hasError = Boolean(shippingError || emailError);
+  // 🔴 逐項組合、只列**真的會渲染**的 id:若寫死單一 id,「只有 emailError」時會指向不存在的節點
+  //   (dangling idref、a11y 驗證器會抓;code-reviewer nit)。
+  const errorIds =
+    [
+      shippingError ? 'checkout-shipping-error' : null,
+      emailError ? 'checkout-notification-email-error' : null,
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined;
   return (
     <div className="co-review-block">
       <div className="co-review-block-head">
         <div className="ap-mono">收件資料</div>
-        <button type="button" className="co-review-edit" onClick={onEdit}>編輯</button>
+        <button type="button" className="co-review-edit" onClick={onEdit} aria-describedby={errorIds}>
+          編輯
+        </button>
       </div>
-      {currentAddr && (
+      {(currentAddr || hasError) && (
         <div className="co-review-body">
-          <div><strong>{currentAddr.name}</strong> · {currentAddr.phone}</div>
-          <div className="co-shipping-summary-address">{currentAddr.line}</div>
-          <div className="co-review-sub">{shippingLabel}</div>
+          {currentAddr && (
+            <>
+              <div><strong>{currentAddr.name}</strong> · {currentAddr.phone}</div>
+              <div className="co-shipping-summary-address">{currentAddr.line}</div>
+              <div className="co-review-sub">{shippingLabel}</div>
+            </>
+          )}
+          {/* 🔴 紅字必須留在 .co-review-body 內:放到 .co-review-block 之後會打斷
+              checkout.css `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 多一條底線。 */}
+          {shippingError && (
+            <span id="checkout-shipping-error" className="auth-field-err">{shippingError}</span>
+          )}
+          {emailError && (
+            <span id="checkout-notification-email-error" className="auth-field-err">{emailError}</span>
+          )}
         </div>
       )}
     </div>
@@ -65,10 +102,18 @@ export type CheckoutOrderReviewProps = {
   onAgreedChange: (v: boolean) => void;
   /** 編輯商品 → 回購物車。 */
   onEditItems: () => void;
+  /** U3b:未勾同意的錯誤紅字(design §7.3:按鈕仍可按,用錯誤導引取代 disabled)。 */
+  termsError?: string;
 };
 
 /** 商品清單複查 + 同意條款(fragment:兩者為同層兄弟,見檔頭 DOM 結構契約)。 */
-export function CheckoutOrderReview({ lines, agreed, onAgreedChange, onEditItems }: CheckoutOrderReviewProps) {
+export function CheckoutOrderReview({
+  lines,
+  agreed,
+  onAgreedChange,
+  onEditItems,
+  termsError,
+}: CheckoutOrderReviewProps) {
   return (
     <>
       {/* 商品清單 readonly */}
@@ -103,13 +148,26 @@ export function CheckoutOrderReview({ lines, agreed, onAgreedChange, onEditItems
 
       {/* 同意條款(服務條款 / 隱私政策連結為 no-op placeholder、legal pages 未建=#291) */}
       <label className="co-agree">
-        <input type="checkbox" checked={agreed} onChange={(e) => onAgreedChange(e.target.checked)} />
+        <input
+          type="checkbox"
+          id="checkout-agree"
+          checked={agreed}
+          onChange={(e) => onAgreedChange(e.target.checked)}
+          aria-invalid={termsError ? 'true' : undefined}
+          // 🔴 只在有錯時掛,否則會留下指向不存在節點的 dangling idref(a11y 驗證器會抓)。
+          aria-describedby={termsError ? 'checkout-agree-error' : undefined}
+        />
         <span>
           我已閱讀並同意 PCM Motorsports 的{' '}
           <a href="#" onClick={(e) => e.preventDefault()}>服務條款</a> 與{' '}
           <a href="#" onClick={(e) => e.preventDefault()}>隱私政策</a>
         </span>
       </label>
+      {/* 🔴 紅字為 .co-agree 的同層 sibling(不進 label 內):.co-agree 是 flex 版面,
+          塞進去會被當成第三個 flex item 擠掉勾選框與文字的對齊。無 CSS 依賴 .co-agree:last-child。 */}
+      {termsError && (
+        <span id="checkout-agree-error" className="auth-field-err">{termsError}</span>
+      )}
     </>
   );
 }

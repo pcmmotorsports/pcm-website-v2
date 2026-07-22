@@ -86,6 +86,7 @@ function Harness({ over = {} }: { over?: HarnessOver }) {
       agreed={false}
       onAgreedChange={vi.fn()}
       onEditItems={vi.fn()}
+      errors={{}}
       {...over}
     />
   );
@@ -289,5 +290,95 @@ describe('CheckoutStep2 商品與條款(U2b)', () => {
     expect(container.textContent).not.toContain('price_store');
     expect(container.textContent).not.toContain('priceByTier');
     expect(container.querySelector('s')).toBeNull();
+  });
+});
+
+// ===== U3b:非卡片錯誤的顯示、ARIA 與 DOM 落點 =====
+describe('CheckoutStep2 發票錯誤(U3b)', () => {
+  const companyErrors = {
+    'invoice.title': '請填寫公司抬頭',
+    'invoice.taxId': '統編需 8 碼數字',
+  };
+
+  function renderCompanyWithErrors() {
+    return render(
+      <Harness over={{ invoice: { ...EMPTY_INVOICE, type: 'company' }, errors: companyErrors }} />,
+    );
+  }
+
+  it('公司發票兩欄同時錯 → 兩條紅字都在(全錯誤一次顯示、非逐一阻擋)', () => {
+    renderCompanyWithErrors();
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+    expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+  });
+
+  it('各欄 aria-invalid + aria-describedby 指向自己的紅字,且該 id 真的存在', () => {
+    const { container } = renderCompanyWithErrors();
+    for (const [id, errId] of [
+      ['checkout-invoice-title', 'checkout-invoice-title-error'],
+      ['checkout-invoice-tax-id', 'checkout-invoice-tax-id-error'],
+    ] as const) {
+      const input = container.querySelector(`#${id}`) as HTMLInputElement;
+      expect(input.getAttribute('aria-invalid')).toBe('true');
+      expect(input.getAttribute('aria-describedby')).toBe(errId);
+      expect(container.querySelectorAll(`#${errId}`)).toHaveLength(1); // 存在且唯一
+    }
+  });
+
+  it('🔴 無錯時 aria-describedby / aria-invalid 一律不掛(禁 dangling idref)', () => {
+    const { container } = render(
+      <Harness over={{ invoice: { ...EMPTY_INVOICE, type: 'company' }, errors: {} }} />,
+    );
+    const input = container.querySelector('#checkout-invoice-title') as HTMLInputElement;
+    expect(input.hasAttribute('aria-describedby')).toBe(false);
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('🔴 紅字必須在 label.auth-field 內、且不得是 .co-inv-grid 的直接子元素(版面守門)', () => {
+    const { container } = renderCompanyWithErrors();
+    const grid = container.querySelector('.co-inv-grid') as HTMLElement;
+    // ① 直接子元素只有兩個欄位 label(多一個 = grid 多一格、排版被擠歪)
+    expect(grid.children).toHaveLength(2);
+    for (const child of Array.from(grid.children)) expect(child.tagName).toBe('LABEL');
+    // ② 每條紅字的最近祖先是 label.auth-field(比數子元素更強:包 wrapper 也殺得死)
+    for (const errId of ['checkout-invoice-title-error', 'checkout-invoice-tax-id-error']) {
+      const err = container.querySelector(`#${errId}`) as HTMLElement;
+      expect(err.closest('label.auth-field')).not.toBeNull();
+      expect(err.parentElement?.classList.contains('co-inv-grid')).toBe(false);
+    }
+  });
+
+  it('捐贈發票愛心碼錯 → 紅字 + ARIA,且同樣在 label 內', () => {
+    const { container } = render(
+      <Harness
+        over={{
+          invoice: { ...EMPTY_INVOICE, type: 'donate' },
+          errors: { 'invoice.donateCode': '請填愛心碼' },
+        }}
+      />,
+    );
+    const input = container.querySelector('#checkout-invoice-donate-code') as HTMLInputElement;
+    expect(input.getAttribute('aria-describedby')).toBe('checkout-invoice-donate-code-error');
+    const err = container.querySelector('#checkout-invoice-donate-code-error') as HTMLElement;
+    expect(err.closest('label.auth-field')).not.toBeNull();
+  });
+
+  it('🔴 切換發票類型後,隱藏欄位的紅字與 ARIA 完全不在 DOM(不只是視覺隱藏)', () => {
+    // errors 仍帶著 company 的兩個 key,但目前類型是 personal → 該欄位根本不渲染
+    const { container } = render(
+      <Harness over={{ invoice: EMPTY_INVOICE, errors: companyErrors }} />,
+    );
+    expect(container.querySelector('#checkout-invoice-title')).toBeNull();
+    expect(container.querySelector('#checkout-invoice-title-error')).toBeNull();
+    expect(container.textContent).not.toContain('請填寫公司抬頭');
+  });
+
+  it('條款錯誤 → checkbox aria 連到紅字,紅字為 .co-agree 的同層 sibling(不進 flex 容器)', () => {
+    const { container } = render(<Harness over={{ errors: { terms: '請先閱讀並同意服務條款與隱私政策' } }} />);
+    const cb = container.querySelector('#checkout-agree') as HTMLInputElement;
+    expect(cb.getAttribute('aria-invalid')).toBe('true');
+    expect(cb.getAttribute('aria-describedby')).toBe('checkout-agree-error');
+    const err = container.querySelector('#checkout-agree-error') as HTMLElement;
+    expect(err.closest('.co-agree')).toBeNull();
   });
 });

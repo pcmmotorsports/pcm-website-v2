@@ -162,7 +162,8 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
     return { formError: '購物車工作階段資訊有誤,請重新整理頁面後再試' };
   }
 
-  // ②e 🔴 #241 同意條款 server 驗(不信任 client;前端鈕已 payDisabled=!agreed,此為繞 UI 直打 action 的縱深)。
+  // ②e 🔴 #241 同意條款 server 驗(不信任 client)。⚠️ 2026-07-22 U3b 起前端**不再**用 payDisabled=!agreed
+  //   硬擋(改為 design §7.3「仍可按、按下顯示錯誤導引」)→ 本 guard 從「縱深」升格為**唯一**權威守門。
   //   🔴 守門放 try{ 之前(buildCardholder/preflightReleaseSibling/placeOrder/charge/settle **全部之前**;codex 關卡1 B3;
   //   登入 gate + schema parse 之後=純讀/驗證、非付款副作用):agreed !== true → 任何**付款/建單/settle 副作用**前 return,
   //   零扣款零建單、不動 sibling/settle;涵蓋 flag-on(3DS)+ flag-off(同步)兩路徑。

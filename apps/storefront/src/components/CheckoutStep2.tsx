@@ -41,6 +41,7 @@ import {
   CheckoutShippingSummary,
 } from '@/components/CheckoutStep2ReviewSections';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
+import type { CheckoutPaymentErrors } from '@/lib/checkout/validate-checkout-payment';
 
 /** 發票草稿:對齊 CheckoutInput.invoice zod(b2-a)+ CustomerAddress.invoice 真資料形狀。 */
 export type InvoiceDraft = CustomerAddress['invoice'];
@@ -72,6 +73,11 @@ export type CheckoutStep2Props = {
   onAgreedChange: (v: boolean) => void;
   /** 編輯商品 → 回購物車。 */
   onEditItems: () => void;
+  /**
+   * U3b:非卡片錯誤 map(由 CheckoutView 在按下確認付款時產生、逐欄清除)。
+   * 🔴 本元件只負責**顯示**,不自行驗證、不自行清除 —— 唯一真相在 View 的 state。
+   */
+  errors: CheckoutPaymentErrors;
 };
 
 export function CheckoutStep2({
@@ -87,6 +93,7 @@ export function CheckoutStep2({
   agreed,
   onAgreedChange,
   onEditItems,
+  errors,
 }: CheckoutStep2Props) {
   // 任一發票欄變更 → 標記 override(停止地址自動帶入)。
   const patch = (p: Partial<InvoiceDraft>) => {
@@ -102,6 +109,8 @@ export function CheckoutStep2({
           currentAddr={currentAddr}
           shippingLabel={shippingLabel}
           onEdit={onEditAddress}
+          shippingError={errors['shipping.address']}
+          emailError={errors.notificationEmail}
         />
       </section>
 
@@ -142,24 +151,43 @@ export function CheckoutStep2({
             </div>
           )}
 
+          {/* 🔴 U3b 紅字一律放在 label.auth-field **內部**:`.co-inv-grid` 是
+              `grid-template-columns: 1fr 1fr`(checkout.css:158),任何直接子元素都會變成一個格子、
+              把欄位排版擠歪,而三綠與單元測試都看不見這種版面回歸(見測試的 DOM 位置守門)。 */}
           {invoice.type === 'company' && (
             <div className="co-inv-grid">
               <label className="auth-field">
                 <span>公司抬頭</span>
                 <input
+                  id="checkout-invoice-title"
                   value={invoice.title}
                   placeholder="例:賓士機車有限公司"
+                  aria-invalid={errors['invoice.title'] ? 'true' : undefined}
+                  aria-describedby={errors['invoice.title'] ? 'checkout-invoice-title-error' : undefined}
                   onChange={(e) => patch({ title: e.target.value })}
                 />
+                {errors['invoice.title'] && (
+                  <span id="checkout-invoice-title-error" className="auth-field-err">
+                    {errors['invoice.title']}
+                  </span>
+                )}
               </label>
               <label className="auth-field">
                 <span>統一編號</span>
                 <input
+                  id="checkout-invoice-tax-id"
                   value={invoice.taxId}
                   placeholder="8 碼數字"
                   maxLength={8}
+                  aria-invalid={errors['invoice.taxId'] ? 'true' : undefined}
+                  aria-describedby={errors['invoice.taxId'] ? 'checkout-invoice-tax-id-error' : undefined}
                   onChange={(e) => patch({ taxId: e.target.value })}
                 />
+                {errors['invoice.taxId'] && (
+                  <span id="checkout-invoice-tax-id-error" className="auth-field-err">
+                    {errors['invoice.taxId']}
+                  </span>
+                )}
               </label>
             </div>
           )}
@@ -169,10 +197,20 @@ export function CheckoutStep2({
               <label className="auth-field co-inv-full">
                 <span>愛心碼</span>
                 <input
+                  id="checkout-invoice-donate-code"
                   value={invoice.donateCode}
                   placeholder="例:8585"
+                  aria-invalid={errors['invoice.donateCode'] ? 'true' : undefined}
+                  aria-describedby={
+                    errors['invoice.donateCode'] ? 'checkout-invoice-donate-code-error' : undefined
+                  }
                   onChange={(e) => patch({ donateCode: e.target.value })}
                 />
+                {errors['invoice.donateCode'] && (
+                  <span id="checkout-invoice-donate-code-error" className="auth-field-err">
+                    {errors['invoice.donateCode']}
+                  </span>
+                )}
               </label>
               <div className="co-inv-note">常用:925(伊甸)、5995(家扶)、8585(罕病)</div>
             </div>
@@ -227,6 +265,7 @@ export function CheckoutStep2({
           agreed={agreed}
           onAgreedChange={onAgreedChange}
           onEditItems={onEditItems}
+          termsError={errors.terms}
         />
       </section>
     </>

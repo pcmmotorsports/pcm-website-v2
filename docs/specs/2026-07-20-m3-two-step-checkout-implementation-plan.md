@@ -325,6 +325,15 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - 更新 `checkoutCardUiOnlyNoTapPay` 與 `checkoutAllErrorsAtOnce`；保留 `checkoutCardFieldFontSize16`。
 - 同步 related paths、open drift、`last_modified_commit/date`。
 - review_triggers: code_review / security_review_required / codex_review_required。
+- 🔴 **U3b（2026-07-22）補入 —— 兩項若不寫在此處就無人承接**：
+  ① **移除 `TapPayCardFields` 的內層 `role="alert"`**（`ready==='error'` 那顆），改由 U4a 的
+     `card.module` 併入 `CheckoutPaymentFeedback` 的共用摘要 → 付款區恢復「唯一 alert」（design §7.2）。
+     🔴 必須與接上 `card.module` **同片完成**：先拆內層 alert 而摘要還沒接 ＝ SDK 失敗完全沒有 assertive 通知。
+     U3b 已於 manifest `checkoutAllErrorsAtOnce` 記為既有債；U3b 的測試只宣稱
+     「`ready==='ready'` 一般可達路徑下唯一」，**未宣稱全域唯一**。
+  ② **鐵則 6 跑道**：U3b 收工時 `CheckoutView.tsx` ＝ **392 行**（上限 400）。
+     U4a 動它之前**必須先外移**（候選：mobile buybar／loading-empty 狀態抽純 UI 元件），
+     不得靠壓縮註解硬塞。U3b 已用掉**三刀**（`validate-checkout-payment.ts` ＋ `usePaymentErrors.ts` ＋ `CheckoutMobileBuybar.tsx`）。
 
 ⑤ 執行步驟
 - RED：submitAttempted=false 不提早紅；true 時 number/expiry/ccv 的 1/2/3 各自紅，0 不紅。

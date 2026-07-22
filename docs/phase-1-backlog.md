@@ -6108,6 +6108,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** ✅ 已實作(2026-07-01、worktree=dev、待 Sean db push;真權威 `docs/specs/2026-06-30-m3-241-checkout-consent-plan.md`)
   - 實作:charge-actions ②e `raw.agreed !== true` server 驗(不信任 client、置於所有付款/建單/settle 副作用前)+ best-effort IP/UA(headers、截 128/1024)→ create_order 5→8 param 同 transaction 原子寫 `order_legal_consents`(新 1:1 表、RLS 零 policy + REVOKE ALL = IP/UA PII 隔離)+ `legal_terms_versions` 版本登錄表(content_hash provenance、FK)+ `terms-version.ts` 常數。前端鈕已 payDisabled=!agreed(對齊 design、不加 inline 提示)。
   - 審查:Gemini scope/設計 + codex 關卡1(FAIL→9 finding 全修)+ 關卡2(zero-regression 乾淨)+ code-reviewer + adversarial-reviewer(皆 PASS-WITH-NITS)+ L1 安全輕掃 0 finding + migration MCP 零留痕 + 三綠 + vitest 1507。
+  - ⚠️ **2026-07-22 更正(Slice U3b)**:上一行「前端鈕已 payDisabled=!agreed」**自 U3b 起不再成立**。
+    兩步結帳依 design §7.3「未填完整時仍可按,用來觸發清楚的錯誤導引」移除該前端硬擋,改為按下後跑
+    non-card validation、未勾同意顯示逐欄紅字並 early return(**不呼 getPrime、不呼 server action**)。
+    影響:`charge-actions` ②e 的 `raw.agreed !== true` 由「縱深」升格為**唯一**權威守門(server 邏輯未改)。
+    本條目「預期解法」寫的是「付款鈕 disabled **或** inline 提示」→ U3b 走的是後者,驗收仍成立。
   - 🔴 **誠實邊界**:本片 = 同意訊號 + 內容雜湊 provenance,**非完整法律效力** —— 完整效力需 **[[#291]]**(正式服務條款／隱私政策 route + version/hash;結帳條款連結目前仍是 `href="#"` no-op → 接可讀條款/隱私頁)。
     ⚠️ **2026-07-21 更正(Slice L0)**:本行原寫「完整效力需 **#235**」= **錯誤依賴**。live #235 的實際標題是
     「🔁 Step3 / 完成頁 退換貨連結 + 客服 LINE 入口」,不是法律頁工作單、也不會產出 `/terms`、`/privacy`。

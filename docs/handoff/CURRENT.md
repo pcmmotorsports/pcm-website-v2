@@ -7,12 +7,22 @@
 
 ## 1. 交接快照
 
-- Updated: 2026-07-22 16:05, Asia/Taipei（**M-3 兩步結帳 Slice U3a：建立 canonical invoice schema ＝ 本 commit**）
+- Updated: 2026-07-22 19:50, Asia/Taipei（**M-3 兩步結帳 Slice U3b：非卡片全錯誤 state 與 ARIA ＝ 本 commit**）
+- **下一片 ＝ M-3 U4a「TapPay 1/2/3 全紅與逐欄自清」**（或依 Sean 指示回主軌 M-4a B-4）。
+  🔴 **U4a 開工前的兩個硬前置（已寫進 plan U4a §④，不要靠記憶）**：
+  ① `CheckoutView.tsx` 收工時 **392 行 / 上限 400** —— 再加東西前**仍建議先外移**
+     （剩餘候選：loading／empty 狀態抽純 UI 元件；mobile buybar 已於 U3b 抽走）。U3b 已用掉**三刀**
+     （`lib/checkout/validate-checkout-payment.ts` + `hooks/usePaymentErrors.ts`），不得再靠壓縮註解硬塞。
+  ② **移除 `TapPayCardFields` 內層 `role="alert"`**，且**必須與接上 `card.module` 摘要同片完成** ——
+     先拆而摘要沒接 ＝ SDK 失敗完全沒有 assertive 通知。
+  🔴 **U3b 之後仍不得宣稱 design §7.2「全錯誤一次顯示」已達成**：`payDisabled` 仍含 `!tappay.canGetPrime`
+     → 卡片欄沒填妥時按鈕依舊 disabled、U3b 的驗證根本不會跑。實際可見成果僅限
+     「卡片已填妥、但條款／發票沒填好」這條路徑。open drift `checkoutAllErrorsAtOnce` 維持 open。
 - ✅ **U2b `8a3852e` 的 Fable 補審已完成**（Sean 2026-07-22 拍 A）＝ **PASS-with-comments、0 must-fix、判定可 push**。
   🔴 **它抓到 codex 與 code-reviewer 都沒抓到的 F1**：真 TapPayCardFields 進到 `<label class="co-pay">` 內後，radio 的可及名稱由整個 label 內容推導 → 螢幕閱讀器會把「卡號 / 有效期 / CVV / …加密處理」整串念出來；U2a 之前卡欄是 `aria-hidden` 的假預覽故不會，**這是 U2b 引入的無障礙退化**。已於本 commit 修（radio 加 `aria-label`，零視覺變動）。
   另補 F2 測試缺口（同意勾選無法撤回會全綠）。**F3 併入驗收清單**：手機肉眼驗請加測「點『卡號 / 有效期 / CVV』**文字**（不是欄位框）之後，再點欄位框能否正常輸入」—— ⚠️ Sean 2026-07-22 的驗收沒測到這一項。
-- **下一片 ＝ M-3 U3b「非卡片全錯誤 state 與 ARIA」**（或依 Sean 指示回主軌 M-4a B-4）。
-  🔴 **U3a 只鋪 canonical 地基、UI 一行沒接**：第二步畫面目前仍無逐欄紅字／`aria-invalid`／`aria-describedby`／錯誤摘要／第一錯誤 focus-scroll。已於 manifest 開 open drift `checkoutAllErrorsAtOnce` 記錄，由 U3b → U4a → U4b 依序收斂，**在那之前不得宣稱 design §7.2「全錯誤一次顯示」已達成**。
+- ✅ **U3b 已接上非卡片錯誤**（逐欄紅字／`aria-invalid`／條件式 `aria-describedby`／付款區單一 `role=alert` 摘要）；
+  **仍未接**：卡片三欄與 `card.module`（U4a）、第一錯誤 focus-scroll（U4b）。
 - ✅ **顧客站每日同步時間已往後搬（2026-07-22 完成、獨立 commit）**：
   `.github/workflows/rpm-sync.yml` cron `'0 19 * * *'`（UTC 19:00＝台灣次日 03:00）→ `'30 4 * * *'`（UTC 04:30＝台灣同日 12:30）。
   需求單＝報價單 repo `docs/handoff/REQ-2026-07-22-網站庫同步時間.md`；片型＝高風險片（鐵則 12 ④平台設定：CI），codex 對抗審查已跑。
@@ -304,7 +314,80 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ## 8. 已驗證／尚未驗證／需要 Sean
 
-### 本輪已驗證（2026-07-22 Slice U3a，實跑）
+### 本輪已驗證（2026-07-22 Slice U3b，實跑）
+
+- **開工前並行視窗檢查（硬前置、實跑）**：`ps aux | grep native-binary/claude` 列出 **4 個**進程，逐一
+  `lsof -a -p <PID> -d cwd`：PID 8215 ＝ 本視窗（以 shell 的 parent 鏈逐層驗證，非猜測）、
+  **PID 94437 cwd 亦為本 repo**（15:09 起、transcript 一分鐘前仍在寫）、另兩個在報價單 repo。
+  → **停下回報 Sean、不自行處理**；Sean 回「a（已不用）」後複查 `ps -p 94437` 已不存在才動手。當時 tree 乾淨。
+- **三綠（全 `TURBO_FORCE=true`、0 cached）**：typecheck **8/8**、lint **10/10**、build **2/2**；`git diff --check` 乾淨。
+- **full `pnpm test`：239 檔 2715 passed + 1 todo**（前一片基準 236 檔 2654 ＝ **+3 檔 +61 測**）。
+  逐檔實測拆解：**新檔 3 支共 33 測**（`validate-checkout-payment.test.ts` 24 + `CheckoutPaymentFeedback.test.tsx` 3
+  + `CheckoutMobileBuybar.test.tsx` 6）＋ **既有檔 +28** ＝ **61**，與全套差值 2715−2654 吻合。
+- **`node scripts/design-mirror.mjs --validate`**：26 元件 / **227** path tokens OK / 24 可達 OK
+  （220 → 227 ＝ 本片新增的 7 條 related path，數字對得上）。⚠️ `ProductPage.related_storefront[8]` 警告為既有。
+- **`wc -l apps/storefront/src/components/CheckoutView.tsx` ＝ 392**（開工 357、鐵則 6 上限 400）。
+  三刀外移：純邏輯 → `validate-checkout-payment.ts`（172 行）、state lifecycle → `usePaymentErrors.ts`（98 行）、
+  手機底部操作列 → `CheckoutMobileBuybar.tsx`（53 行）。
+- **🔴 突變實測 13/13 全數轉紅、零假綠**（腳本與備份在 scratchpad；跑完逐檔 shasum 比對，5 個檔全部逐字還原）：
+  ①停用 type-change cleanup ②逐欄 map 改 `issues[0]` ③`valid` 改用 map 是否為空（fail-open）
+  ④紅字改成 `.co-inv-grid` 直接子元素 ⑤清除 wrapper 改成全清 ⑥收件紅字改放 `.co-review-body` 之外
+  ⑦`aria-describedby` 無條件恆掛 ⑧stale 解除移到 `getPrime` 之前 ⑨auto-fill effect 改回一律清三個
+  ⑩`.co-review-body` 渲染條件改回只看 `currentAddr` ⑪describedby 改回寫死單一 id
+  ⑫stale 改回套用到所有可重試態 ⑬`getPrime` 拿掉 `.catch`。
+- **付款鏈零破壞（實測斷言，非讀碼推理）**：validation 失敗 →
+  `confirmProceedIfInflight` / `getPrime` / `chargePaymentAction` 呼叫次數**皆為 0**；
+  全合法 → 呼叫**順序**斷言 `['confirm','getPrime','action']`。既有同輪雙擊守門測試未被破壞。
+- **四輪審查（高風險片不降級）**：
+  ① **codex 關卡1 R1 FAIL（9 must-fix + 1 nit）** —— 抓到雙通道 state 缺失、殭屍訊息、地址／Email 清除路徑漏、
+     auto-fill effect 誤清、順序未釘死、註解變假、鐵則 6 額度不足、測試假綠七類。
+  ② **Fable 盲審 R1 FAIL（2 must-fix + 4 nit + 1 疑慮）** —— 🔴 **獨家抓到 codex 沒抓到的三條**：
+     「View 層清除全滅 mutant 可假綠」（我原本規劃的四個突變**全部殺不死**它）、
+     `.co-review-block:last-child` 底線陷阱、紅名單漏列 `:466`。四項與 codex 重疊 ＝ 交叉確認為真問題。
+  ③ **codex R2 FAIL（3 未解決 + 3 新 must-fix）** → **R3 FAIL（2 剩餘）**，Sean 拍 A 放行動工（v1.3）。
+  ④ **code-reviewer R1 FAIL（1 Critical + 4 nit）**，全數核實屬實、全數已修 + 補負向測試（突變⑪⑫⑬）。
+  ⑤ **codex 關卡2 R1 FAIL（2 must-fix + 1 nit）**，全數核實屬實、全數已修：
+     🔴 **must-fix ①（真漏洞 + 我的測試假綠）**：舊「付款失敗」只在**驗證失敗**那條路徑被淘汰，
+        但客人最常見的動作是「什麼都不改、直接再按一次」→ 取 prime 期間（可達 ~15 秒）舊訊息一直掛著。
+        且 codex 指出「刪掉 `resumeChargeMessage()` 仍可能假綠」—— 屬實，因為我原本的測試在 stale 從未被
+        設為 true 的狀態下就斷言訊息出現。**修法**：每次按下都先淘汰，並補兩條測試
+        （「直接重試期間舊訊息消失」「淘汰後新錯誤可重新顯示」）。
+        **突變⑭ 實測**：刪除 `resumeChargeMessage()` → **7 條轉紅**（含這兩條新測），假綠已封死。
+     ⑥ **codex 關卡2 R2 FAIL —— 但程式修正全數判定通過，剩餘全是文件字面**（4 處，已全修並自行重量驗證）：
+        manifest 兩處被我改成「⚠️ 仍未完成：U3a ✅／U3b ✅」自相矛盾、`handleSubmit` 的「順序不可調動」
+        註解仍寫成淘汰發生在 `getPrime` 後（**與實作相反、且這是金流硬順序註解**）、
+        CURRENT 把 `usePaymentErrors.ts` 誤寫成 93 行（實際 98；起因是我用 `（8`→`（9` 這種殘缺 anchor 做取代）、
+        測試數拆解沿用了抽 buybar 前的舊版（正確＝新檔 3 支 33 測 ＋ 既有檔 +28 ＝ 61）。
+        另指出 buybar 的 disabled 守門「擋得住旗標互換、擋不住 `nextDisabled || payDisabled` 混用」——
+        屬實，已補反向案例並以 **突變⑮** 實測轉紅。
+        🔴 **本輪四個數字全部由我自己重跑 `wc -l` 與逐檔 vitest 取得，非採信審查者轉述。**
+     ② manifest 三處已成假話（兩處仍稱 U3a/U3b 未完成、一處行數過期）→ 已改。
+     ③ nit：清除函式改 **stable callback + functional update、不閉包 `errors`**（concurrent／中止 render 下
+        可能讀到未提交狀態）→ 已改，`invoiceFieldsChanged` 以純值比較判定 formError 失效、不讀 state；
+        View 端的 `clearInvoiceKeysRef` 隨之移除、改正常列進 effect deps。
+- 🔴 **鐵則 6 第三刀（codex 關卡2 修法的連帶後果，據實揭示）**：must-fix ① 的修法把 `CheckoutView.tsx`
+  推到 **401 行 / 上限 400**。我**沒有**再靠壓縮註解硬塞（那正是我寫給 U4a 的禁令），改為執行
+  **plan U4a §④ 早已指定的外移候選之一** —— 把手機底部固定操作列抽成
+  `CheckoutMobileBuybar.tsx`（53 行，純 presentational、JSX 逐字搬移、class／DOM／文案／handler 契約不變，
+  配 6 條守門測試含「兩顆按鈕各吃自己的 disabled 旗標」）。結果 **392 行**、留 8 行跑道。
+  ⚠️ 這是本片唯一一處**超出原 plan 範圍**的結構改動，理由＝鐵則 6 是硬規則、不可帶著違反 commit。
+- 🔴 **code-reviewer 抓到的 Critical（本輪最痛、值得下一個 session 引以為戒）**：我用 `s.index()` 找
+  `last_modified_date: "2026-07-22 [M-3 兩步結帳 Slice U3a` 當 anchor 寫 manifest，**但 AccountPages 也有一條
+  同樣開頭的 U3a 連動紀錄且排在前面** → U3b 的敘述被寫進 **AccountPages**，同時造成三重壞結果：
+  ①AccountPages 被寫了假話（本片零 account 檔變更）②它原本的 U3a 連動紀錄被覆蓋刪除
+  ③CheckoutPage 該記的地方沒記到（commit 說 U3b、date 說 U3a，自己跟自己打架）。
+  **`design-mirror --validate` 抓不到**（只驗 path token 存在性與 commit 可達性）。
+  已用 `git show HEAD:` 取回 AccountPages 原文還原、U3b 改寫進 CheckoutPage，兩者 commit/date 各自一致。
+  **根因 ＝ anchor 未驗證唯一性就寫入**；同一份腳本裡 commit 那行我有 `assert count==1` 保護、date 那行沒有。
+- **等價類（`payDisabled=!agreed` 字面）處理**：⚠️ 本輪此清單**錯了三次**（v1.1「3 處」＝ 搜尋範圍只有 3 個目錄、
+  非全樹；v1.2「7 處」證據清單誤列 `manifest:1188`、漏掉 `manifest:1035`）。**定案 ＝ 先寫死準則再列結果**：
+  準則 A（字面 `payDisabled=!agreed`）全樹 7 處、準則 B（語意）另 3 處。
+  **改 4 處**（`charge-actions.ts:165` / `useChargePayment.tsx:43` / `CheckoutView.tsx` 檔頭 / backlog #241，
+  全為 comment-only，**server 邏輯一行未改**）；**刻意不改 6 處**（`PROGRESS.md`、`2026-06-30` #241 plan ×2、
+  `manifest:1035`、`2026-06-20` 3DS redesign、backlog #241「問題」段 —— 全是歷史快照，回頭塗改歷史是另一種造假）。
+  backlog #241 採**附加更正註記、不塗改原文**（前例 ＝ 同條目已有的「⚠️ 2026-07-21 更正（Slice L0）」）。
+
+### 前一片已驗證（2026-07-22 Slice U3a，實跑）
 
 - **開工前並行視窗檢查（硬前置、實跑）**：`ps aux | grep native-binary/claude` 列出 4 個進程，逐一 `lsof -a -p <PID> -d cwd`：
   PID 94437 ＝ 本視窗、**PID 59840 cwd 亦為本 repo**（10:37 起、存活中）、另兩個在報價單 repo。
@@ -446,7 +529,30 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - L0 未跑 **full** `pnpm test`（該片零 `.ts/.tsx` 行為變更；U1 本片已補跑 full 236 檔 2600 passed + 1 todo）
 - L0 未驗證任何 runtime／瀏覽器行為（該片不產生 UI 變更）
 
-### U3a 尚未驗證（本輪誠實揭示）
+### U3b 尚未驗證（本輪誠實揭示）
+
+- **零真瀏覽器驗證**：全部證據來自 vitest（jsdom）+ typecheck/lint/build + 突變實測。
+  🔴 **本片動了真 TSX**（不像 U3a 零 UI 變更）→ 版面回歸（紅字撐開、grid 擠壓、摘要位置）
+  **只有真瀏覽器看得到**。已加 DOM 位置守門測試（紅字須在 `label.auth-field` 內／`.co-review-body` 內），
+  但那證明的是「節點掛在對的父層」，**不是「看起來沒壞」**。
+- **未跑真 TapPay／sandbox 3DS／真刷卡**；flag 維持 off。
+- 🔴 **`shipping.address` 與 `notificationEmail` 兩條 key 在 Step 2 的 UI 上不可達**
+  （addressId 恆為 server UUID；Email 已由 `goNext` 擋在 Step1）→ 保留它們是鏡像 server 契約的
+  defense-in-depth，**不宣稱它們擋得住什麼**；測試以元件 props 直接驗 DOM/ARIA 契約，不偽稱是使用者路徑。
+- 🔴 **`usePaymentErrors.ts` 無獨立 test 檔**：行為由 `CheckoutView.test.tsx` 覆蓋，
+  且突變⑤（改成全清）與⑫（stale 改回全套用）都由它抓到 ＝ 有機械證據，但**非逐函式單測**。
+- 🔴 **nit「auto-fill effect 無條件清 formError」的修法沒有回歸測試**：該路徑需要「對不上固定 key 的 issue」
+  （如 `invoice.type` 被竄改）才會產生 formError，而那在 UI 上不可達 → 無法用 View 測試自然觸發。
+  修法本身已實作（只在 errors 真的變動時才清），但**沒有守門測試**，據實揭示、不宣稱已覆蓋。
+- **「肉眼驗」未做**（Sean 專屬用詞；本輪只有程式驗證）。
+- **未動 `.env*`、未 apply DB、未開 flag、未 deploy、未 push。**
+- ⚠️ **code-reviewer R1 的 1 Critical + 4 nit 全部修完後,未再開 R2 複審**（依 repo 輪次紀律）。
+  修法已逐條自驗：Critical 以 `sed -n` 逐行比對 841/1035 兩處、三個 nit 各配一個負向突變（⑪⑫⑬）實測轉紅。
+  **下一個 session 若要複驗,這是最該看的一段。**
+- ⚠️ **STATUS.md 主表既有漂移**：規則寫「分隔線上 ≤30 行嚴守」，實測 **129 行**（本片進來前即如此、非本片造成；
+  本片只加 3 行）。未在本片處理 ＝ 範圍外，但記在此處避免無人發現。
+
+### U3a 尚未驗證（沿用）
 
 - **零真瀏覽器驗證**：本片全部證據來自 vitest（jsdom）+ typecheck/lint/build + 差分探針。不過本片**不動任何 UI**（零 TSX／零 CSS 變更），客人可見畫面理應零變化 —— 這是讀碼推理 + 消費端實查，非真瀏覽器實測。
 - **未跑真 TapPay／sandbox 3DS／真刷卡**；flag 維持 off。
