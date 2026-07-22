@@ -135,7 +135,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
 | 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由 `a7ff24d` 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
-| M-3 | **兩步結帳 U3a**（L0 + U1 + U2a + U2b ✅ 已收工）：建立 canonical invoice schema | 兩步 UI 內容已完成，接下來是驗證/錯誤態/schema 收斂 | L1 受 #291 正式法律內容阻擋；U3a–U5 可在 flag-off 平行推進。🔴 **正式上線閘只差 Sean 手機肉眼驗，未點頭前不得推 `main`** |
+| M-3 | **兩步結帳 U3a**（L0 + U1 + U2a + U2b ✅ 已收工）：建立 canonical invoice schema | 兩步 UI 內容已完成，接下來是驗證/錯誤態/schema 收斂 | L1 受 #291 正式法律內容阻擋；U3a–U5 可在 flag-off 平行推進。✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A）；🔴 **但推 `main` 仍是 Sean 手動動作、不得代推** |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
 三個入口業務上可獨立規劃，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
@@ -402,7 +402,7 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - **未跑真瀏覽器／桌機／390px 手機驗收**：本片全部證據來自 vitest（jsdom）+ typecheck/lint/build + DOM 字串等價比對。**「抽元件後真 TapPay iframe 仍掛得起來」未經真瀏覽器證實**（jsdom 內 SDK 是 mock）。可降低風險的事實：`paymentSlot` 的 React element 由 `CheckoutView` 建立、只是被多包一層 function component，`TAPPAY_FIELD_IDS` 與 hook 的 selector／setup／cleanup 皆未動，`checkout.css` 零變更 —— 但這是**讀碼推理，不是實測**。真瀏覽器與 3DS 驗收由 plan 的 **V1a／V1b** 負責。
 - **未做 `pnpm exec vitest run` 以外的 TapPay 生命週期回歸**（`useTapPayCard.test.tsx` 本片未列入 targeted，但已含在 full `pnpm test` 的 237 檔內、全綠）。
 - 「肉眼驗」未做（Sean 專屬用詞；本輪只有程式驗證）。
-- **U2a 對「正式上線閘」零進度**：解閘要的是 U2b 的可見成果 + Sean 手機肉眼驗（U2b 已於 2026-07-22 完成，只剩肉眼驗）。
+- **U2a 對「正式上線閘」零進度**：解閘要的是 U2b 的可見成果 + Sean 驗收（U2b `8a3852e` 已於 2026-07-22 完成，同日 Sean 驗收並拍 Q1=A → **三條件全達成、閘已解除**）。
 
 ### U1 尚未驗證（沿用）
 
