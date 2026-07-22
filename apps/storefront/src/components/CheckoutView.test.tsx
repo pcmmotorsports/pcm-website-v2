@@ -4,7 +4,8 @@
 //
 // 驗:① 載入態 ② 空車 ③ ready:2 步 + Step1 + 配送 + 右側摘要(②-④b 抽 CheckoutSummaryAside、字面不變)
 //     ④ 地址選擇 ⑤ 導航 ⑤b 🔴 U3b:未勾同意**仍可按**(design §7.3 用錯誤導引取代 disabled),
-//        按下顯示 terms 紅字且零 getPrime/action;canGetPrime false → 仍 disabled(U4a 才移除該條件)
+//        按下顯示 terms 紅字且零 getPrime/action。🔴 **U4a 起 canGetPrime 不再是按鈕鎖**:
+//        付款鈕只看 submitting;卡欄未填妥改由 validateTapPayFields 擋在 getPrime 前並顯示紅字。
 //     ⑥ member block ⑦ 🔴 經銷零洩漏 ⑧ 無地址 disabled
 //     ②-④b 刷卡接線:⑨ 確認付款 → getPrime → chargePaymentAction 收零價線+prime + paid 終態 + 清車
 //     ⑩ 失敗(formError)→ 通用錯誤 + 不清車 ⑪ 🔴 線缺 variantId → client 拒、零 action 呼叫
@@ -18,6 +19,11 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { CartItem } from '@/contexts/CartContext';
 import type { ResolvedCartLine } from '@/app/cart/actions';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
+import {
+  CARD_NOT_READY_MESSAGE,
+  TERMS_REQUIRED_MESSAGE,
+} from '@/lib/checkout/validate-checkout-payment';
+
 
 const {
   cartRef,
@@ -50,10 +56,15 @@ const {
   confirmInflightMock: vi.fn(() => true),
   setInflightMock: vi.fn(),
   tapRef: {
+    // U4a:狀態碼要能被測試設成 1/2/3(空/格式錯/打一半),故不可釘成 `0 as const` 字面型別。
     current: {
-      ready: 'ready' as const,
+      ready: 'ready',
       canGetPrime: true,
-      fieldStatus: { number: 0 as const, expiry: 0 as const, ccv: 0 as const },
+      fieldStatus: { number: 0, expiry: 0, ccv: 0 },
+    } as {
+      ready: 'loading' | 'ready' | 'error';
+      canGetPrime: boolean;
+      fieldStatus: { number: 0 | 1 | 2 | 3; expiry: 0 | 1 | 2 | 3; ccv: 0 | 1 | 2 | 3 };
     },
   },
   // U1:mock 必須真的接收 active 參數(舊 mock 忽略它 → step 對錯都綠 = 假綠)。
@@ -350,9 +361,10 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(tapActiveRef.current).toEqual([false, true, false, true]); // 重入 step2:重 setup
   });
 
-  // 🔴 U3b 改寫:`!agreed` 已從 payDisabled 移除 → 「勾同意才 enabled」的舊語意不再成立。
-  //   本測試改守剩下的那道鎖:canGetPrime。勾不勾同意都不影響 disabled。
-  it('step2 canGetPrime=true → 確認付款 enabled,且與是否勾同意無關(U3b)', async () => {
+  // 🔴 U3b 改寫 + U4a 再修正:`!agreed`(U3b)與 `!tappay.canGetPrime`(U4a)都已從 payDisabled 移除。
+  //   本測試現在只守一件事:**勾不勾同意都不影響 enabled**(付款鈕不再是 consent 的鎖)。
+  //   ⚠️ 它**不**證明「canGetPrime 那道鎖存在或不存在」—— 那由 ⑤c 獨立守(codex 關卡2 nit)。
+  it('step2 未勾/已勾同意 → 確認付款皆 enabled(consent 不再鎖按鈕;U3b→U4a)', async () => {
     setCart([{ productId: 'rpm-1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1' })]);
     const { container } = renderCheckout();
@@ -441,14 +453,116 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(container.querySelector('.co-pay-body > .co-card-form')).toBeTruthy(); // 仍在 Step 2
   });
 
-  it('⑤c canGetPrime=false → 勾同意後確認付款仍 disabled(雙鈕)', async () => {
+  // 🔴 U4a 語意反轉:`!tappay.canGetPrime` 已從 payDisabled 移除(design §7.3 未填完整仍可按)。
+  //   舊語意「canGetPrime=false → 按鈕 disabled」不再成立;改守「按得下去、但擋在 getPrime 之前
+  //   且一定有訊息」——沒有訊息的話,客人會遇到「按了完全沒反應」的死路。
+  it('🔴 ⑤c canGetPrime=false → 雙鈕 enabled;按下去被擋、零 getPrime/action,且顯示原因(U4a)', async () => {
     tapRef.current = { ...tapRef.current, canGetPrime: false };
     setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
     resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
     const { container } = renderCheckout();
     await gotoStep2Agreed(container);
     const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
-    expect(payButtons.every((b) => b.disabled)).toBe(true);
+    expect(payButtons.every((b) => b.disabled)).toBe(false); // 不再是死鎖
+
+    fireEvent.click(payButtons[0]!);
+    expect(confirmInflightMock).not.toHaveBeenCalled();
+    expect(getPrimeMock).not.toHaveBeenCalled();
+    expect(chargeMock).not.toHaveBeenCalled();
+    // 三欄看似填妥卻不可取 prime = 矛盾態,必須有話講(否則按了沒反應)
+    expect(screen.getAllByText(CARD_NOT_READY_MESSAGE).length).toBeGreaterThan(0);
+  });
+
+  // 🔴 canGetPrime 釘 **true** 以隔離變因(codex 關卡2 must-fix、同款假綠第 3 次):
+  //   若同時設 false,View 就算被改成「只看 canGetPrime、完全忽略 fieldStatus」也照樣全綠。
+  //   `canGetPrime=false` 那道鎖由下方 ⑤c 獨立守。
+  it('🔴 U4a 卡片三欄未填 → 按下付款:三欄紅字 + 零 getPrime/action,且付款區只有一個 alert', async () => {
+    tapRef.current = {
+      ready: 'ready',
+      canGetPrime: true,
+      fieldStatus: { number: 1, expiry: 3, ccv: 2 },
+    };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(screen.getByText('請輸入完整卡號')).toBeTruthy();       // status 1
+    expect(screen.getByText('請輸入完整有效期')).toBeTruthy();     // status 3(打一半,Q2=B 與空白同語)
+    expect(screen.getByText('安全碼不正確,請重新確認')).toBeTruthy(); // status 2
+    expect(getPrimeMock).not.toHaveBeenCalled();
+    expect(chargeMock).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('alert')).toHaveLength(1); // design §7.2 唯一 assertive 出口
+  });
+
+  it('🔴 U4a 卡片 + 條款 + 發票錯誤**一次全顯示**,摘要數量 = 畫面實際紅字數(design §7.2)', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: false, fieldStatus: { number: 1, expiry: 0, ccv: 0 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    // 讓地址自帶一張「缺抬頭、統編合法」的公司發票 → 只留 invoice.title 一個錯(統編填合法值)
+    const addrCompany = {
+      ...ADDR,
+      invoice: { type: 'company', carrier: '', title: '', taxId: '12345675', donateCode: '' },
+    } as unknown as CustomerAddress;
+    const { container } = renderCheckout({ addresses: [addrCompany] });
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    // 不勾同意 → terms 也錯
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(screen.getByText('請輸入完整卡號')).toBeTruthy();
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+    expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy();
+
+    // 🔴 綁死「顯示端」與「摘要端」:摘要說 N 個,畫面上就必須真的有 N 條紅字。
+    //   兩邊各自 spread 合併,少算/漏傳其中一半都會在這裡爆。
+    const redTexts = container.querySelectorAll('.auth-field-err, .co-card-error');
+    const alertText = screen.getByRole('alert').textContent ?? '';
+    const n = Number(/還有 (\d+) 個項目/.exec(alertText)?.[1]);
+    expect(n).toBe(redTexts.length);
+    expect(n).toBe(3);
+  });
+
+  it('🔴 U4a 逐欄自清:卡號 2→0 後(不重按)只有 card.number 紅字消失,其餘保留', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: false, fieldStatus: { number: 2, expiry: 1, ccv: 0 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(screen.getByText('卡號不正確,請重新確認')).toBeTruthy();
+    expect(screen.getByText('請輸入完整有效期')).toBeTruthy();
+    expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy();
+
+    // 客人把卡號改對(SDK 回報 status 0)→ 只有這一欄的紅字該消失,不需要重按付款。
+    tapRef.current = { ...tapRef.current, fieldStatus: { number: 0, expiry: 1, ccv: 0 } };
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement); // 觸發一次 rerender
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
+    expect(screen.queryByText('卡號不正確,請重新確認')).toBeNull();
+    expect(screen.getByText('請輸入完整有效期')).toBeTruthy(); // 其他卡片欄保留
+  });
+
+  it('🔴 U4a 送出失敗 → 回上一步 → 重入第二步:卡片紅字全消失,發票/條款紅字仍在', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(screen.getByText('請輸入完整卡號')).toBeTruthy();
+    expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+
+    // 卡片錯誤衍生自「已隨 iframe 銷毀」的 SDK 狀態 → 重入後不得殘留(客人還沒重按付款)
+    expect(screen.queryByText('請輸入完整卡號')).toBeNull();
+    expect(screen.queryByText('請輸入完整有效期')).toBeNull();
+    // 非卡片錯誤的值還在 React state、錯誤依然成立 → 刻意保留
+    expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy();
   });
 
   it('🔴 ⑨ 確認付款 → getPrime → chargePaymentAction 收零價線 + prime + paid 終態 + 清車', async () => {

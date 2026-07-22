@@ -307,7 +307,12 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 
 ---
 
-## Slice U4a：TapPay 1/2/3 全紅與逐欄自清（25–40 分鐘）
+## Slice U4a：TapPay 1/2/3 全紅與逐欄自清（25–40 分鐘）— ✅ 2026-07-23 完成
+
+> 🔴 **實際執行分兩片**（Sean 2026-07-22 拍 Q1=A）：`U4a-0` 純 UI 外移騰鐵則 6 跑道（`6082e21`）→ `U4a` 本體。
+> 🔴 **體積誠實揭示**：U4a 本體實際約 45–60 分鐘、**超過鐵則 4 的 45 分上限**，屬**已知且有理由的例外** ——
+> 「解開付款鈕的鎖」與「卡片錯誤導引」必須同一個 commit，否則中間會存在一個「按得下去但完全沒有提示」的版本，
+> 比兩端任何一個狀態都糟。此判斷由 Claude 做出並報備，非事後合理化。
 
 ````markdown
 ① 任務目標
@@ -340,9 +345,11 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - RED：number 由 2→0 後只移除 `card.number`；expiry/ccv/terms 仍顯示。
 - GREEN：`validateTapPayFields(fieldStatus, ready, submitAttempted)` 每 render 衍生 card errors，不把 card errors永久存 state；ready=error 另產 `card.module`，loading/1/3 不得通過。
 - GREEN：本片同時把 `payDisabled` 的 `!tappay.canGetPrime` 移除；按下後合併 live card errors，有錯才 early return。卡片與 non-card 全合法時仍沿既有 handler 付款。
-- `TapPayCardFields` 收 `submitAttempted` 與衍生 errors；每欄 `aria-invalid/describedby`，但本片不做 focus registry。
+- `TapPayCardFields` 收**衍生 errors**（`card.*` 四鍵）；每欄 `aria-invalid/describedby`，但本片不做 focus registry。
+  🔴 **2026-07-23 U4a 實作更正**：原字面寫「同收 `submitAttempted`」＝ 同一份狀態存兩份；實際採**單一 ownership** —— `submitAttempted` 由 `usePaymentErrors` 持有（含「離開第二步即重設」的生命週期），元件只收已經算好的 errors。
 - 精確測試：
   `pnpm exec vitest run apps/storefront/src/components/TapPayCardFields.test.tsx apps/storefront/src/lib/checkout/validate-checkout-payment.test.ts apps/storefront/src/components/CheckoutView.test.tsx`
+  🔴 **2026-07-23 U4a 實作更正**：`TapPayCardFields.test.tsx` 在本片開工時**全樹不存在**（原字面把它當既有檔），實際是由 U4a **新建**。
 - 突變：status 1 當 valid，指定 test 必紅；還原後綠。
 - 全驗證：`pnpm typecheck && pnpm lint && pnpm build && pnpm test && node scripts/design-mirror.mjs --validate && git diff --check`
 - Commit：`feat(storefront): 顯示 TapPay 全欄錯誤 [m-3]`。

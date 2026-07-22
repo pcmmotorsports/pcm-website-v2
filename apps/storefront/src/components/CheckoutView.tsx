@@ -53,7 +53,7 @@ import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
 import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
 import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
-import { validateNonCardFields } from '@/lib/checkout/validate-checkout-payment';
+import { validateNonCardFields, validateTapPayFields } from '@/lib/checkout/validate-checkout-payment';
 import { usePaymentErrors } from '@/hooks/usePaymentErrors';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { useChargePayment } from '@/hooks/useChargePayment';
@@ -109,7 +109,7 @@ export function CheckoutView({
   const [invoiceOverride, setInvoiceOverride] = useState(false);
 
   // U3b:非卡片錯誤 lifecycle(state + 清除規則在 usePaymentErrors;驗證在 lib 純函式)。
-  const payErrors = usePaymentErrors();
+  const payErrors = usePaymentErrors(step);
 
   // invoice 走 ref 取 effect 內的 prev 值(進 deps 會讓 effect 自我觸發迴圈);
   // clearInvoiceKeys 是 stable callback,可正常列進 deps。
@@ -165,8 +165,19 @@ export function CheckoutView({
   const [primeBusy, setPrimeBusy] = useState(false);
   const [primeError, setPrimeError] = useState<string | null>(null);
   const submitting = charge.state.status === 'submitting' || primeBusy;
-  // `!tappay.canGetPrime` 由 U4a 移除(屆時卡片欄錯誤才有導引可顯示)。
-  const payDisabled = submitting || !tappay.canGetPrime;
+  // 🔴 U4a:`!tappay.canGetPrime` **已移除**(design §7.3「未填完整時仍可按、用錯誤導引取代 disabled」)。
+  //   縱深未降低:①本檔 validation 閘擋在 getPrime 前 ②getPrime 內部仍檢查 getTappayFieldsStatus()
+  //   ③server 權威守門。移除的只是「按鈕按不下去卻不說為什麼」這個死鎖。
+  const payDisabled = submitting;
+  // 🔴 card errors 每 render 由 live fieldStatus 衍生、**不存 state**(plan §⑤ 硬紅線):
+  //   status 2→0 時該欄紅字自然消失,不需要第二套清除路徑。
+  //   「按過付款沒」與其離開第二步的重設規則由 usePaymentErrors 持有(該 hook docstring 有完整理由)。
+  const cardValidation = validateTapPayFields({
+    ready: tappay.ready,
+    canGetPrime: tappay.canGetPrime,
+    fieldStatus: tappay.fieldStatus,
+    submitAttempted: payErrors.submitAttempted,
+  });
   const handleSubmit = async () => {
     // 🔴 順序不可調動(codex 關卡1 R1#6 / R3-B / 關卡2 R1#1 釘死):同步 guard → **淘汰舊 charge error**
     //   → non-card validation → confirm → prime 鎖 → getPrime → **解除淘汰** → charge.submit。
@@ -174,6 +185,7 @@ export function CheckoutView({
     // 🔴 每次按下都先淘汰上一輪 charge error(codex 關卡2):合法直接重試時 getPrime 可等 ~15 秒,
     //   不淘汰則舊「付款失敗」整段掛著。`wait`/`in_flight` 不受影響(見 alertFor)。
     payErrors.retireChargeMessage();
+    payErrors.markSubmitAttempted();
     const validation = validateNonCardFields({
       addressId: shippingAddrId,
       invoice,
@@ -182,7 +194,16 @@ export function CheckoutView({
       agreed,
     });
     payErrors.applyValidation(validation);
-    if (!validation.valid) {
+    // 🔴 卡片閘與非卡片閘**同時求值、一起擋**(design §7.2「同一次 submit 找到的所有錯誤全部顯示,
+    //   不採逐一阻擋」)。submitAttempted 顯式傳 true:closure 裡的 state 這一輪還沒更新。
+    //   放行只看 `valid` 旗標,**不看 errors map 是否為空**(未按過付款時 map 恆空但 valid 可能 false)。
+    const cardResult = validateTapPayFields({
+      ready: tappay.ready,
+      canGetPrime: tappay.canGetPrime,
+      fieldStatus: tappay.fieldStatus,
+      submitAttempted: true,
+    });
+    if (!validation.valid || !cardResult.valid) {
       // 🔴 有錯即止:confirmProceedIfInflight / getPrime / chargePaymentAction 一律 0 次。
       //   prime 訊息一併淘汰,否則客人修完欄位後舊訊息會幽靈重現。
       setPrimeError(null);
@@ -219,8 +240,13 @@ export function CheckoutView({
       }
     }
   };
-  // 付款區唯一 alert 的文字(U3b:逐欄摘要 > formError > getPrime 失敗 > 未過期的 charge 訊息)。
-  const paymentAlert = payErrors.alertFor({ primeError, chargeState: charge.state });
+  // 付款區唯一 alert 的文字。U4a 起優先序 = formError > 只有 card.module 時念全文 > 逐欄數量摘要
+  //   > getPrime 失敗 > 未過期的 charge 訊息(合併在 usePaymentErrors 內、不在 View inline 算)。
+  const paymentAlert = payErrors.alertFor({
+    primeError,
+    chargeState: charge.state,
+    cardErrors: cardValidation.errors,
+  });
 
   // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。四態畫面在 CheckoutTerminalScreen。
   // 🔴 U4a-0:條件必須是 status 型別守衛,**不可**寫成「元件回傳值是否 truthy」——
@@ -302,7 +328,11 @@ export function CheckoutView({
                   invoiceOverride={invoiceOverride}
                   setInvoiceOverride={setInvoiceOverride}
                   paymentSlot={
-                    <TapPayCardFields ready={tappay.ready} fieldStatus={tappay.fieldStatus} />
+                    <TapPayCardFields
+                      ready={tappay.ready}
+                      fieldStatus={tappay.fieldStatus}
+                      errors={cardValidation.errors}
+                    />
                   }
                   lines={lines}
                   agreed={agreed}

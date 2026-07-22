@@ -38,7 +38,8 @@ export const TAPPAY_FIELD_IDS = {
 export type TapPayCardState = {
   /** 'loading' SDK 載入/設定中;'ready' 卡欄可用;'error' env 缺/SDK 載入失敗(渲染錯誤態、不掛頁)。 */
   ready: 'loading' | 'ready' | 'error';
-  /** 三欄皆 valid → 可取 prime(確認付款鈕 gate;鏡像官方 example disabled 行為)。 */
+  /** 三欄皆 valid → 可取 prime。🔴 **U4a 起不再是「付款鈕 disabled」的依據**(按鈕只看 submitting);
+   *  它成為 `validateTapPayFields` 的放行條件之一 + `getPrime` 內部第二道閘。 */
   canGetPrime: boolean;
   /** 各欄狀態碼(2=error 時 UI 可標紅;0=valid/1=empty/3=typing)。 */
   fieldStatus: { number: TapPayFieldStatusCode; expiry: TapPayFieldStatusCode; ccv: TapPayFieldStatusCode };
@@ -108,16 +109,18 @@ export function useTapPayCard(active: boolean): UseTapPayCard {
     const generation = ++setupGenerationRef.current;
     if (!active) {
       mountedRef.current = false;
-      // 🔴 離開即清 state(審查側 MUST-FIX):iframe 已隨容器卸載,殘留 canGetPrime=true 會讓
-      // 卡欄步驟重入的**首 render**(active 輪 effect 重置跑在 render 後)顯示 stale enabled 付款鈕;
-      // 此處清掉 → 重入首 render 即 disabled、待新 setup onUpdate 再開。
+      // 🔴 離開即清 state(審查側 MUST-FIX):iframe 已隨容器卸載,殘留 canGetPrime=true 在 U3b 時代
+      // 只是「誤開付款鈕」,但 **U4a 起它是 validateTapPayFields 的放行條件** → stale true 會讓驗證
+      // 直接判 valid、放行進 confirm/getPrime(風險升級,本段絕不可拿掉);
+      // 此處清掉 → 重入首 render 即 loading/canGetPrime=false。⚠️ U4a 起付款鈕只看 submitting、
+      // **不再有 UI 鎖**,本段的保護對象已改成「驗證 fail-closed 並顯示載入中訊息」而非「按鈕 disabled」。
       setState({ ready: 'loading', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } });
       return;
     }
     mountedRef.current = true;
     let cancelled = false;
-    // 重置(code-reviewer minor):步驟往返後 iframe 重建為空、canGetPrime 殘留 true 會令鈕先 enabled
-    // (getPrime 內二道閘雖擋、但顯誤導錯誤);回到初始 loading/false、待 onUpdate 再開。
+    // 重置(code-reviewer minor):步驟往返後 iframe 重建為空、canGetPrime 殘留 true 會讓 U4a 的
+    // validateTapPayFields 誤判 valid(getPrime 內二道閘雖仍擋、但客人會看到誤導訊息);回到初始 loading/false、待 onUpdate 再開。
     setState({ ready: 'loading', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } });
 
     async function init() {

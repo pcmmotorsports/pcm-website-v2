@@ -62,8 +62,9 @@ const LINE: ResolvedCartLineView = {
 };
 
 /** 真 TapPay 卡欄(presentational、不進 SDK):用真元件才驗得到 .co-card-form 與三個容器 id。 */
+// U4a:`errors` 改為必填 prop(漏傳會讓 ready==='error' 的 fail-safe 訊息靜默變空白紅字)→ 此處顯式給空 map。
 const REAL_SLOT = (
-  <TapPayCardFields ready="ready" fieldStatus={{ number: 0, expiry: 0, ccv: 0 }} />
+  <TapPayCardFields ready="ready" fieldStatus={{ number: 0, expiry: 0, ccv: 0 }} errors={{}} />
 );
 
 type HarnessOver = Partial<Parameters<typeof CheckoutStep2>[0]>;

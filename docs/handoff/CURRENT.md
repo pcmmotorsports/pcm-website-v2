@@ -7,26 +7,41 @@
 
 ## 1. 交接快照
 
-- Updated: 2026-07-22 23:55, Asia/Taipei（**M-3 兩步結帳 Slice U4a-0：外移結帳終態與空車畫面 ＝ 本 commit**）
-- **下一片 ＝ M-3 U4a「TapPay 1/2/3 全紅與逐欄自清」**（或依 Sean 指示回主軌 M-4a B-4）。
-  ① ✅ **鐵則 6 硬前置已解除**：`CheckoutView.tsx` **392 → 356 行 / 上限 400**，跑道 **44 行**。
-     U4a-0（本 commit）已執行第四·五刀外移（`CheckoutTerminalScreen.tsx` / `CheckoutCartNotice.tsx`，
-     皆純 presentational、行為零變更）。U4a **不必再先外移**；U4b 若再吃光跑道則須自行外移，不得壓縮註解硬塞。
-  ② 🔴 **仍然有效的硬前置**：**移除 `TapPayCardFields` 內層 `role="alert"`**，
-     且**必須與接上 `card.module` 摘要同片完成** —— 先拆而摘要沒接 ＝ SDK 失敗完全沒有 assertive 通知。
-  ③ 🔴 **Sean 2026-07-22 四拍板已定，動工前必讀** memory `project_m3-u4a-card-errors-decisions`：
-     Q1=A 拆兩片／Q2=B 卡欄文案兩態／Q3=B 模組錯誤念全文／Q4=B 卡欄未就緒分兩句（防「按了沒反應」死路）。
-  ④ 🔴 **plan 字面兩處與事實不符，U4a 同片須一併更正**：
-     `TapPayCardFields.test.tsx` **全樹不存在**（plan §⑤ 當成既有檔要求跑它）→ U4a 要**新建**；
-     plan `:343` 寫 `TapPayCardFields` 同收 `submitAttempted`，實際採單一 ownership（attempt 只在 View）。
-  🔴 **U3b 之後仍不得宣稱 design §7.2「全錯誤一次顯示」已達成**：`payDisabled` 仍含 `!tappay.canGetPrime`
-     → 卡片欄沒填妥時按鈕依舊 disabled、U3b 的驗證根本不會跑。實際可見成果僅限
-     「卡片已填妥、但條款／發票沒填好」這條路徑。open drift `checkoutAllErrorsAtOnce` 維持 open。
+- Updated: 2026-07-23 02:10, Asia/Taipei（**M-3 兩步結帳 Slice U4a：顯示 TapPay 全欄錯誤 ＝ 本 commit**）
+- **下一片 ＝ M-3 U4b「第一錯誤 focus/scroll + lifecycle 回歸」**（或依 Sean 指示回主軌 M-4a B-4）。
+  ① 🔴 **鐵則 6 硬前置(最重要)**：`CheckoutView.tsx` **386 行 / 上限 400、跑道只剩 14 行**，
+     而 U4b 要建 focus target registry（每個錯誤一個 target、固定順序、focus + scrollIntoView）＝ 一定不只 14 行。
+     → **動它之前必須先外移**，不得靠壓縮註解硬塞（U3b 在此連踩三次：401→400→399→401）。
+     ⚠️ 外移候選受 design §8 限制：`CheckoutView` **必須保留付款 orchestrator**，
+     能抽的是「錯誤導引 / focus registry」那半、或 Step2 的 actions 區塊；
+     付款鏈（`confirmProceedIfInflight → getPrime → charge.submit`）**不得離開 View**。
+  ② ✅ **U4a 已完成的前置**（不必再做）：卡片三欄 + `card.module` 已接、`payDisabled` 的 `!tappay.canGetPrime` 已移除、
+     `TapPayCardFields` 內層 `role="alert"` 已移除（與 `card.module` 摘要同片完成）。
+  ③ 🔴 **U4b 的 design 依據**（§7.2 逐字）：「完成錯誤集合後，捲動並聚焦第一個可聚焦錯誤；其他紅字仍保留」＋
+     「TapPay iframe 無法直接聚焦內部 input 時，聚焦該欄的可存取容器並捲至該區」。
+     固定順序見 plan U4b §⑤：`shipping.address → notificationEmail → invoice.title → invoice.taxId →
+     invoice.donateCode → card.module → card.number → card.expiry → card.ccv → terms`。
+  ④ 🔴 **U4b 同片要補的既有缺口**：`aria-invalid`/`aria-describedby` 目前掛在無顯式 role 的 `div.tpfield` 上，
+     **螢幕閱讀器是否朗讀未經實測**；U4b 的 `role="group" tabIndex={-1}` 外層容器才是真正的可及容器。
+  ⑤ ✅ **plan 字面已於 U4a 更正**：`TapPayCardFields.test.tsx` 已新建（plan §⑤ 原把它當既有檔）；
+     `submitAttempted` 採單一 ownership，且**實作時再進一步收進 `usePaymentErrors`**（非 View）——
+     plan `:343` 的字面已同步改掉。
+  ⑥ 🔴 **真瀏覽器驗證方法已建立（Sean 2026-07-23 指名 `agent-browser`）**：
+     `/checkout` 有登入守門，作法＝建臨時路由以 fixture props 掛 `CheckoutView`、用完即刪並驗 `git status` 無殘留；
+     購物車走真實「加入購物車」流程取得真 variantId。詳 memory `reference_agent-browser-cli-real-browser-verify`。
+     **動前台 TSX/CSS 的片,收工前都要這樣實看一次**，不要再只交 jsdom 全綠。
+  🔴 **U4a 之後仍不得宣稱 design §7.2「全錯誤一次顯示」全段達成**：§7.2 逐字還要求
+     「完成錯誤集合後，捲動並聚焦第一個可聚焦錯誤」＝ **U4b 尚未做**。
+     可誠實宣稱的是**前半段**：同一次 submit 的所有錯誤（卡片三欄 + card.module + 發票 + 條款）
+     已全部同時顯示、不再逐一阻擋 —— 這點有真瀏覽器實測（390px、4 條紅字一次全出、單一 alert）。
+     open drift `checkoutAllErrorsAtOnce` **維持 open**，剩 U4b／U5。
 - ✅ **U2b `8a3852e` 的 Fable 補審已完成**（Sean 2026-07-22 拍 A）＝ **PASS-with-comments、0 must-fix、判定可 push**。
   🔴 **它抓到 codex 與 code-reviewer 都沒抓到的 F1**：真 TapPayCardFields 進到 `<label class="co-pay">` 內後，radio 的可及名稱由整個 label 內容推導 → 螢幕閱讀器會把「卡號 / 有效期 / CVV / …加密處理」整串念出來；U2a 之前卡欄是 `aria-hidden` 的假預覽故不會，**這是 U2b 引入的無障礙退化**。已於本 commit 修（radio 加 `aria-label`，零視覺變動）。
   另補 F2 測試缺口（同意勾選無法撤回會全綠）。**F3 併入驗收清單**：手機肉眼驗請加測「點『卡號 / 有效期 / CVV』**文字**（不是欄位框）之後，再點欄位框能否正常輸入」—— ⚠️ Sean 2026-07-22 的驗收沒測到這一項。
-- ✅ **U3b 已接上非卡片錯誤**（逐欄紅字／`aria-invalid`／條件式 `aria-describedby`／付款區單一 `role=alert` 摘要）；
-  **仍未接**：卡片三欄與 `card.module`（U4a）、第一錯誤 focus-scroll（U4b）。
+- ✅ **U3b 已接上非卡片錯誤** + ✅ **U4a（本 commit）已接上卡片三欄與 `card.module`**
+  （逐欄紅字／`aria-invalid`／條件式 `aria-describedby`／付款區單一 `role=alert` 摘要；
+  `payDisabled` 的 `!tappay.canGetPrime` 已移除；`TapPayCardFields` 內層 `role="alert"` 已移除）。
+  **仍未接**：第一錯誤 focus-scroll（U4b）、validate-then-pay 與步驟列鎖（U5）。
 - 🔴 **graphify 索引已過期**（2026-07-22 U4a-0 實測）：查詢結果仍含 U2b 已刪除的 `CheckoutStep3.tsx`。
   規劃連動面時**改以全樹 grep 為準**，不得採信 graphify 輸出、也不得宣稱「已查 graphify 連動面」等同已覆蓋。
   刷圖是 milestone 收尾工作，本片未做。
@@ -321,7 +336,55 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ## 8. 已驗證／尚未驗證／需要 Sean
 
-### 本輪已驗證（2026-07-22 Slice U4a-0，實跑）
+### 本輪已驗證（2026-07-23 Slice U4a，實跑）
+
+- **三綠（全 `TURBO_FORCE=true`、0 cached）**：typecheck **8/8**、lint **10/10**、build **2/2**；`git diff --check` 乾淨。
+  ⚠️ 過程中 typecheck 曾單獨紅過一次（build 與測試都綠）：hoisted `tapRef` 把 `fieldStatus` 釘成 `0 as const`
+  字面型別，測試要設 1/2/3 就 TS2322 → 已放寬型別。**這正是三綠要分三道跑的理由**。
+- **full `pnpm test`：242 檔 2755 passed + 1 todo**（前一片基準 241 檔 2726 ＝ **+1 檔 +29 測**）。
+  逐檔：`TapPayCardFields.test.tsx` **9**（新檔）＋ `validate-checkout-payment.test.ts` 24→**40**（+16）
+  ＋ `CheckoutView.test.tsx` 41→**45**（+4，其中 ⑤c 為語意反轉改寫）＝ 29，與全套差值吻合。
+- **`design-mirror --validate`**：26 元件 / **232** path tokens / 24 可達（231→232 ＝ 本片新增 1 個測試檔）。
+- **`wc -l CheckoutView.tsx` ＝ 386**（開工 356、上限 400）→ 🔴 **跑道只剩 14 行，U4b 必須先外移**。
+- 🔴 **突變實測 12/12 全紅**（四檔跑完 shasum 與基準逐字一致）：
+  M1 status 3 當 valid / M2 `valid` 改用「errors 是否為空」(**10 紅**) / M3 valid 拿掉 canGetPrime /
+  M4 紅字改成 `.co-card-row` 直接子元素(**7 紅**) / M5 內層 `role=alert` 復活 / M7 移除 submitAttempted 顯示閘 /
+  M8a·M8b `alertFor` 內部合併各丟掉一半 / M9 早退漏 `!cardResult.valid` / M10 loading 當 valid /
+  M11 移除 `step!==2` reset / M12 formError 排回數量之後。
+  ⚠️ **M2 的確切形式**（Fable nit：不同寫法紅的條數差很多，字面要精準）＝ 把 `const valid = …` 整行換成
+  `const valid = true`（等同「valid 在 errors 填入前求值、恆真」），得 **10 紅**；
+  若改成「在 return 點才用 `Object.keys(errors).length===0` 判」只會 **1 紅**（由 lib 那條專測守住）。
+- **第四層 Fable 盲審：FAIL → 1 must-fix（已修）+ 2 nit**。
+  🔴 **它獨家抓到的 must-fix ＝ 送審版本沒凍結**：我在跑 codex 關卡2 **之前**就 `git add`，
+  之後依 code-reviewer／codex findings 改的 5 個檔沒有重新 stage（`MM` 狀態）→ 它審的是**過期快照**。
+  它並實測證明差異是真的：把付款閘改成「只看 `canGetPrime`、完全忽略 `fieldStatus`」這個 mutant，
+  對**舊 staged 版 45/45 全綠（存活）**、對**工作區版 1 紅（被殺）**。
+  已全部重新 `git add` 並驗 `git diff --name-only` 為空（staged ＝ 工作區），
+  且**重跑該 mutant 確認在最終版本轉紅**。對應 memory `feedback_freeze-artifact-before-adversarial-review`
+  ——這條規則我讀過卻還是犯了，記在此供下一個 session 引以為戒。
+  另 2 nit：M2 突變形式字面（已於上一段補）、`ready==='error'` 分支文字全來自 props（已改 `errors` 為必填 prop）。
+  ✅ Fable 獨立重現並確認：`CheckoutView.tsx` 386 行、full test 242 檔 2755 passed ＋ 1 todo、
+  manifest 26/232/24、design §7.2/§7.3 引句逐字命中、no-op 宣稱成立、**無 fail-open、無死路、無鎖洩漏**。
+- 🔴 **第一輪突變有 2 個存活 ＝ 我自己的測試假綠（已修，值得下一個 session 引以為戒）**：
+  「status 3 絕不 valid」與「loading 絕不 valid」兩條，我把 `canGetPrime` 設成 `false`
+  → `valid=false` 是**因為 canGetPrime**，不是因為受測的那個條件；斷言通過的理由是錯的。
+  改成釘 `canGetPrime=true` 隔離變因、並補 status 2 / ready=error 兩條同款隔離測試後，M1/M10 才轉紅。
+- 🔴 **本線首次真瀏覽器驗證（`agent-browser` + production build，390×844 與 360×780）**：
+  `/checkout` 有 server 登入守門（307→/login），故建臨時路由 `tmp-checkout-preview` 以 fixture props 掛
+  `CheckoutView`，**用完即刪、已驗 `git status` 無殘留**（U2a harness 前例）。購物車走真實流程加入真商品
+  （variantId 來自真 DB）。實測結果：
+  ① 卡片三欄 + 條款共 **4 條紅字一次全顯示**（design §7.2 前半段）
+  ② 付款區 `role="alert"` **恰好 1 個**（內層 alert 移除生效）
+  ③ 摘要「還有 4 個項目」**＝ 畫面實際紅字節點數 4**
+  ④ `.co-card-row` 子元素恰好 2 個且都是 `.auth-field` → **grid 擠歪的陷阱沒有發生**
+  ⑤ **零橫向溢出**；⑥ 付款鈕**確實可按**（真 TapPay SDK 已載入並回報三欄為空）＝ `!canGetPrime` 移除在真瀏覽器生效
+- **手機版置中檢查（Sean 2026-07-23 交辦）＝ 通過**：390/360px 下 `.co-main`／`.co-head`／`.co-layout`／
+  `.co-body`／`.co-section`／`.co-pay`／buybar 左右**完全對稱**、零橫向溢出。
+  `.co-card-form` 左 98 / 右 66（差 32px）**不是版面歪掉**：`.co-pay` 是 `grid-template-columns: 20px 226px`
+  （左欄放圓鈕），卡欄本來就在右欄內；其父 `.co-pay` 本身左右各 49px 對稱。
+- **Sean 2026-07-23 交辦的 `agent-browser`** 已落 memory `reference_agent-browser-cli-real-browser-verify` ＋ 索引一行。
+
+### 前一片已驗證（2026-07-22 Slice U4a-0，實跑）
 
 - **開工前並行視窗檢查（硬前置、實跑）**：`ps aux | grep native-binary/claude` 列 **3 個**進程，
   逐一 `lsof -a -p <PID> -d cwd`：PID 43119 ＝ 本視窗（以 shell `$PPID` 逐層比對、非猜測），
@@ -580,7 +643,22 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - L0 未跑 **full** `pnpm test`（該片零 `.ts/.tsx` 行為變更；U1 本片已補跑 full 236 檔 2600 passed + 1 todo）
 - L0 未驗證任何 runtime／瀏覽器行為（該片不產生 UI 變更）
 
-### U4a-0 尚未驗證（本輪誠實揭示）
+### U4a 尚未驗證（本輪誠實揭示）
+
+- 🔴 **未跑真刷卡 / sandbox 3DS**。真瀏覽器只驗到「卡欄錯誤與版面」，**沒有真的送出過一筆付款**；
+  flag 維持 off。`getPrime` 成功之後那一段（charge.submit → 3DS → callback）本片零觸碰、也零實測。
+- 🔴 **`aria-invalid` / `aria-describedby` 掛在無顯式 role 的 `div.tpfield` 上，螢幕閱讀器是否真的朗讀＝未實測**。
+  真正的可及容器（`role="group"` + `tabIndex={-1}`）是 **U4b** 的交付項。本片只宣稱「屬性已掛上且有守門測試」。
+- 🔴 **不得宣稱 design §7.2 全段完成**：§7.2 逐字還要求「完成錯誤集合後，捲動並聚焦第一個可聚焦錯誤」＝ U4b。
+  目前可誠實宣稱的只有「同一次 submit 的所有錯誤已全部顯示、不再逐一阻擋」這半段。
+- 🔴 **`CheckoutView.tsx` 386/400、跑道只剩 14 行** → U4b 開工前**必須先外移**，不得壓縮註解硬塞。
+  ⚠️ 外移候選受 design §8 限制：View **必須保留付款 orchestrator**，能抽的是「錯誤導引」那半或 Step2 actions 區塊，
+  付款鏈（confirm → getPrime → charge.submit）不得離開 View。
+- **「肉眼驗」未做**（Sean 專屬用詞；本輪是我用 agent-browser 做的程式驗證，不等於 Sean 肉眼驗）。
+- **未 apply DB、未開 flag、未動 `.env*`、未 deploy、未 push。**
+- ⚠️ **STATUS.md 主表既有漂移續增**：規則 ≤30 行，U4a-0 收工 134 行、**本片 137 行**。非本片造成、但本片讓它更糟。
+
+### U4a-0 尚未驗證（沿用）
 
 - **零真瀏覽器驗證**。本片動的是**四個付款終態畫面與兩個過場畫面**的 render 位置。
   jsdom 測試證明「同樣的 props 產生同樣的節點與文案」，**不證明「在真瀏覽器裡看起來沒壞」**。

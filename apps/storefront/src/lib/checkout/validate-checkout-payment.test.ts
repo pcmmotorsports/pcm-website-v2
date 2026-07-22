@@ -10,11 +10,15 @@ import { describe, expect, it } from 'vitest';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import {
   buildPaymentAlert,
+  CARD_MODULE_ERROR_MESSAGE,
+  CARD_MODULE_LOADING_MESSAGE,
+  CARD_NOT_READY_MESSAGE,
   clearErrorKeys,
   clearInvoiceErrorsOnChange,
   GENERIC_CHECKOUT_MESSAGE,
   TERMS_REQUIRED_MESSAGE,
   validateNonCardFields,
+  validateTapPayFields,
   type CheckoutPaymentErrors,
 } from './validate-checkout-payment';
 
@@ -191,16 +195,61 @@ describe('buildPaymentAlert', () => {
     );
   });
 
-  it('逐欄錯誤優先於 formError / primeError / charge 訊息', () => {
+  it('逐欄錯誤優先於 primeError / charge 訊息', () => {
     expect(
       buildPaymentAlert({
         errors: { terms: 'a' },
-        formError: 'F',
+        formError: null,
         primeError: 'P',
         chargeMessage: 'C',
         chargeMessageStale: false,
       }),
     ).toBe('還有 1 個項目需要確認,已在上方標示');
+  });
+
+  // 🔴 U4a 刻意改動的排序:formError 提到最前面。
+  //   U3b 時代 validateNonCardFields 保證「formError 非 null ⟺ 非卡片 errors 為空」,兩者互斥,
+  //   所以誰前誰後等價。但 U4a 把**卡片**錯誤併進同一個 map 後互斥就破了:
+  //   可能同時「formError 非 null」+「card errors 有值」。此時若走數量格式,formError 完全沒有
+  //   顯示表面(它沒有任何 inline 紅字位置)→ 客人看到卡片紅字、修好、再按、還是被擋,
+  //   永遠看不到真正原因 = 死迴圈。
+  it('🔴 formError 與卡片錯誤並存 → 念 formError(它沒有 inline 顯示表面,不念就消失)', () => {
+    expect(
+      buildPaymentAlert({
+        errors: { 'card.number': '請輸入完整卡號' },
+        formError: GENERIC_CHECKOUT_MESSAGE,
+        primeError: null,
+        chargeMessage: null,
+        chargeMessageStale: false,
+      }),
+    ).toBe(GENERIC_CHECKOUT_MESSAGE);
+  });
+
+  // 🔴 排序改動對 U3b 既有情境是 no-op 的回歸證明:凡是 validateNonCardFields 真的產得出來的
+  //   組合(formError 非 null ⟹ map 空;map 非空 ⟹ formError null),新舊排序輸出必須完全相同。
+  it('🔴 非卡片單獨情境:排序改動前後輸出完全相同(no-op 回歸)', () => {
+    // (a) map 非空、formError null → 數量格式(與 U3b 相同)
+    expect(
+      buildPaymentAlert({ ...empty, errors: { terms: 'a', 'invoice.title': 'b' } }),
+    ).toBe('還有 2 個項目需要確認,已在上方標示');
+    // (b) map 空、formError 非 null → formError(與 U3b 相同)
+    expect(buildPaymentAlert({ ...empty, formError: 'F' })).toBe('F');
+  });
+
+  // Sean 2026-07-22 Q3=B:模組層錯誤不是客人「需要確認」的事(他做什麼都沒用)→ 念全文。
+  it('🔴 只有 card.module 一鍵 → 念全文,不念數量格式', () => {
+    expect(
+      buildPaymentAlert({ ...empty, errors: { 'card.module': CARD_MODULE_ERROR_MESSAGE } }),
+    ).toBe(CARD_MODULE_ERROR_MESSAGE);
+  });
+
+  it('card.module 與其他錯誤並存 → 回到數量格式(此時客人確實有事要做)', () => {
+    expect(
+      buildPaymentAlert({
+        ...empty,
+        errors: { 'card.module': CARD_MODULE_ERROR_MESSAGE, terms: 'a' },
+      }),
+    ).toBe('還有 2 個項目需要確認,已在上方標示');
   });
 
   it('map 空 → formError 承接(fail-closed 訊息不會消失)', () => {
@@ -221,5 +270,148 @@ describe('buildPaymentAlert', () => {
 
   it('全空 → null(不渲染 alert)', () => {
     expect(buildPaymentAlert(empty)).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// U4a:TapPay 卡片欄驗證
+// ─────────────────────────────────────────────────────────────────────────────
+describe('validateTapPayFields', () => {
+  const ok = {
+    ready: 'ready' as const,
+    canGetPrime: true,
+    fieldStatus: { number: 0 as const, expiry: 0 as const, ccv: 0 as const },
+    submitAttempted: true,
+  };
+
+  it('三欄皆 0 + ready + canGetPrime → valid、零錯誤', () => {
+    const r = validateTapPayFields(ok);
+    expect(r.valid).toBe(true);
+    expect(r.errors).toEqual({});
+  });
+
+  // 🔴 這組必須把 canGetPrime 釘成 **true** 才有意義。
+  //   我第一版寫成 canGetPrime:false → valid 是「因為 canGetPrime 才 false」,
+  //   斷言通過的理由是錯的;突變實測(把 `=== 0` 改成 `!== 2`、把 ready 判斷改成 `!== 'error'`)
+  //   兩個 mutant 都存活 = 我自己的測試假綠。這裡改成「唯一可能讓它 invalid 的就是受測那個條件」。
+  it('🔴 status 1/3 絕不視為 valid(canGetPrime 釘 true 以隔離變因,逐欄都驗)', () => {
+    for (const status of [1, 3] as const) {
+      for (const field of ['number', 'expiry', 'ccv'] as const) {
+        const r = validateTapPayFields({
+          ...ok,
+          canGetPrime: true,
+          fieldStatus: { ...ok.fieldStatus, [field]: status },
+        });
+        expect(r.valid).toBe(false);
+      }
+    }
+  });
+
+  it('🔴 status 2 絕不視為 valid(同樣釘 canGetPrime=true)', () => {
+    for (const field of ['number', 'expiry', 'ccv'] as const) {
+      const r = validateTapPayFields({
+        ...ok,
+        canGetPrime: true,
+        fieldStatus: { ...ok.fieldStatus, [field]: 2 },
+      });
+      expect(r.valid).toBe(false);
+    }
+  });
+
+  it('🔴 ready=loading 絕不視為 valid(三欄全 0 + canGetPrime=true,唯一變因就是 ready)', () => {
+    const r = validateTapPayFields({ ...ok, ready: 'loading', canGetPrime: true });
+    expect(r.valid).toBe(false);
+  });
+
+  it('🔴 ready=error 絕不視為 valid(同上,唯一變因是 ready)', () => {
+    const r = validateTapPayFields({ ...ok, ready: 'error', canGetPrime: true });
+    expect(r.valid).toBe(false);
+  });
+
+  it('status 1(空)與 3(打一半)共用「請輸入完整X」;2(格式錯)用「X不正確」(Sean Q2=B 兩態)', () => {
+    for (const status of [1, 3] as const) {
+      const r = validateTapPayFields({
+        ...ok,
+        canGetPrime: false,
+        fieldStatus: { number: status, expiry: status, ccv: status },
+      });
+      expect(r.errors['card.number']).toBe('請輸入完整卡號');
+      expect(r.errors['card.expiry']).toBe('請輸入完整有效期');
+      expect(r.errors['card.ccv']).toBe('請輸入完整安全碼');
+    }
+    const bad = validateTapPayFields({
+      ...ok,
+      canGetPrime: false,
+      fieldStatus: { number: 2, expiry: 2, ccv: 2 },
+    });
+    expect(bad.errors['card.number']).toBe('卡號不正確,請重新確認');
+    expect(bad.errors['card.expiry']).toBe('有效期不正確,請重新確認');
+    expect(bad.errors['card.ccv']).toBe('安全碼不正確,請重新確認');
+  });
+
+  it('只有一欄壞 → 只報那一欄(其他欄不牽連)', () => {
+    const r = validateTapPayFields({
+      ...ok,
+      canGetPrime: false,
+      fieldStatus: { number: 2, expiry: 0, ccv: 0 },
+    });
+    expect(r.errors['card.number']).toBeTruthy();
+    expect('card.expiry' in r.errors).toBe(false);
+    expect('card.ccv' in r.errors).toBe(false);
+  });
+
+  // 🔴 codex 關卡1 R2 must-fix:若把 valid 實作成「errors 是否為空」,這兩個案例會被誤判成通過。
+  it('🔴 submitAttempted=false → errors 為空,但 valid 必須是 false(擋 fail-open)', () => {
+    const loading = validateTapPayFields({
+      ...ok,
+      ready: 'loading',
+      canGetPrime: false,
+      submitAttempted: false,
+    });
+    expect(loading.errors).toEqual({});
+    expect(loading.valid).toBe(false);
+
+    const invalidField = validateTapPayFields({
+      ...ok,
+      canGetPrime: false,
+      fieldStatus: { number: 2, expiry: 0, ccv: 0 },
+      submitAttempted: false,
+    });
+    expect(invalidField.errors).toEqual({});
+    expect(invalidField.valid).toBe(false);
+  });
+
+  it('🔴 ready=error → 即使沒按過付款也產 card.module(今日就是一進畫面就顯示,不得倒退)', () => {
+    const r = validateTapPayFields({ ...ok, ready: 'error', submitAttempted: false });
+    expect(r.valid).toBe(false);
+    expect(r.errors['card.module']).toBe(CARD_MODULE_ERROR_MESSAGE);
+    // 該分支根本不渲染三個欄位 → 不得同時產逐欄錯誤(否則指向不存在的欄位)
+    expect('card.number' in r.errors).toBe(false);
+    expect('card.expiry' in r.errors).toBe(false);
+    expect('card.ccv' in r.errors).toBe(false);
+  });
+
+  it('ready=loading + 按過付款 → card.module 走「載入中」,不產逐欄紅字(欄位還沒掛出來)', () => {
+    const r = validateTapPayFields({ ...ok, ready: 'loading', canGetPrime: false });
+    expect(r.valid).toBe(false);
+    expect(r.errors['card.module']).toBe(CARD_MODULE_LOADING_MESSAGE);
+    expect('card.number' in r.errors).toBe(false);
+  });
+
+  // 🔴 防死路(Sean Q4=B):移除按鈕鎖後,這個矛盾態若沒有訊息 = 按了完全沒反應。
+  it('🔴 三欄皆 0 但 canGetPrime=false → invalid 且必須有 card.module 訊息(不得 invalid 卻零訊息)', () => {
+    const r = validateTapPayFields({ ...ok, canGetPrime: false });
+    expect(r.valid).toBe(false);
+    expect(r.errors['card.module']).toBe(CARD_NOT_READY_MESSAGE);
+  });
+
+  it('canGetPrime=false 但已有逐欄錯誤 → 不再疊加 card.module(避免重複報同一件事)', () => {
+    const r = validateTapPayFields({
+      ...ok,
+      canGetPrime: false,
+      fieldStatus: { number: 1, expiry: 0, ccv: 0 },
+    });
+    expect(r.errors['card.number']).toBeTruthy();
+    expect('card.module' in r.errors).toBe(false);
   });
 });

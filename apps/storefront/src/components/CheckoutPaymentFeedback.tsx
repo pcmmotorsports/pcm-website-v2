@@ -9,10 +9,11 @@
 // 🔴 抽出的第二個理由 = 鐵則 6:CheckoutView.tsx 開工時 357 行、硬上限 400,
 //   摘要文字仲裁(buildPaymentAlert)與渲染都不留在 View 內。
 //
-// 🔴 誠實邊界:「付款區唯一 alert」僅在 TapPay `ready==='ready'` 的一般可達路徑成立。
-//   `TapPayCardFields` 在 `ready==='error'` 時自帶一個 role="alert"(既有,U2a 之前就存在),
-//   窄路徑下仍可能兩個 alert 並存 —— 該既有債由 U4a 併 `card.module` 摘要時收斂
-//   (見 manifest open drift `checkoutAllErrorsAtOnce`)。本元件不宣稱全域唯一。
+// 🔴 U4a(2026-07-23)起本元件是**付款區唯一** alert:`TapPayCardFields` 內層那顆
+//   `role="alert"`(ready==='error' 時)已移除,SDK 失敗改由 `card.module` 併入本元件的共用摘要
+//   → design §7.2「避免多個 assertive alert 一起朗讀」在付款區已達成,並有守門測試
+//   (該 <p> 不得有 role 屬性 + 元件層 queryAllByRole('alert')===0;突變讓它復活會轉紅)。
+//   ⚠️ 仍**不宣稱全域唯一**:Step 1 另有自己的 alert,但兩者分屬不同步驟、不會並存。
 
 export type CheckoutPaymentFeedbackProps = {
   /** buildPaymentAlert 仲裁後的單一訊息;null = 不渲染任何節點(不留空殼)。 */

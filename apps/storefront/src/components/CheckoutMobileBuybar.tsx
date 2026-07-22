@@ -18,7 +18,8 @@ export type CheckoutMobileBuybarProps = {
   submitting: boolean;
   /** Step 1 的「下一步」是否 disabled(未選收件地址)。 */
   nextDisabled: boolean;
-  /** Step 2 的「確認付款」是否 disabled(U3b 起不含 !agreed;仍含 submitting / !canGetPrime)。 */
+  /** Step 2 的「確認付款」是否 disabled(**U4a 起只含 submitting**;`!agreed` 於 U3b、
+   *  `!tappay.canGetPrime` 於 U4a 先後移除 —— design §7.3「未填完整仍可按、用錯誤導引取代 disabled」)。 */
   payDisabled: boolean;
   onNext: () => void;
   onSubmit: () => void;
