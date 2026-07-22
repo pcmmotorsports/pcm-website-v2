@@ -94,8 +94,10 @@ function hashIdToNumber(s: string): number {
 /**
  * 型錄資料跨請求快取秒數(perf/P3、Sean 2026-07-08 拍 Q2=15 分)。
  *
- * 商品目錄由 GitHub Actions rpm-sync.yml 每日台灣 12:30 同步(2026-07-22 由 03:00 改;vercel.json 兩條
- * cron 為金流用途、與商品無關)。
+ * 商品目錄由 GitHub Actions rpm-sync.yml 每日同步(2026-07-22 由表訂台灣 03:00 改為 12:30;vercel.json
+ * 兩條 cron 為金流用途、與商品無關)。
+ * 🔴 **表訂 12:30 ≠ 實際 12:30**:GitHub 排程延遲實測(28 次)最小 55 分/中位 72 分/最大 111 分
+ * → 實際更新時間預期落在**台灣 13:25-14:21**、約 10-13 分鐘跑完。談快取新鮮度請以此為準。
  * 🔴 **「每日僅一次寫入」不成立**(2026-07-22 codex 審查更正):報價單側另有台灣 11:30 的
  * `sync_storefront_fitments` 每日寫網站庫 `product_fitments_effective`(車款搜尋用),與本快取的
  * 目錄資料不同表但同屬「每日變動的商品資料」。
