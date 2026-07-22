@@ -89,7 +89,8 @@ describe('getSupplierConfig', () => {
     // ✅ 2026-07-19 Sean 批首灌後翻 true。前置四關全過:乾跑全綠 / Codex R1 四 must-fix 清完
     //    (M1 新品驗價 M2 群數指紋 M3 首灌 runbook M4 CLI 行為測試)/ 報價單側 648 筆商品名定案
     //    寫入(最終格式=不帶車款)/ Sean 明確點頭。首灌=監控式手動執行,rpm-sync.yml matrix
-    //    待寫後驗證通過才加(runbook §1:排程先不含它,免首灌沒收拾完就被隔天 03:57 再跑一次)。
+    //    待寫後驗證通過才加(runbook §1:排程先不含它,免首灌沒收拾完就被下一次排程再跑一次
+    //    〔台灣 12:30 表訂;2026-07-22 前為 03:00。首灌在 12:30 前失敗的話「下一次」就是當天〕)。
     expect(ak.writeAllowed).toBe(true);
   });
 

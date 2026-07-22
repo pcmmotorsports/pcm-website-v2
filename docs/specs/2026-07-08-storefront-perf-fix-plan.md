@@ -40,7 +40,7 @@
   - ⚠️ `fetchCatalogProducts` **豁免不包**(實作期實測發現):全目錄投影 3,816,327 bytes 超過 Next data cache 單條 2MB 上限、寫入被拒(server log 逐字留證)——包了=永無命中還每請求多付 miss+必敗寫入+2 行錯誤 log。/products 快取治本併入 P4(server 分頁後單頁投影 <2MB 自然可快取)。
   - `fetchFeaturedProducts`:⚠️ 輸出隨 tier 變(price/originalPrice/tierLabel 走 computeEffectivePrice)。拆成 `getFeaturedUIProductsCached()`(快取 general UI 投影、實測條目 <1KB、無任何 tier 變體進快取;K2 round2 對齊實作名)+ 外層 catch;**顯示價釘死 general**(K1 round1 糾正:anon 路徑的 store/premiumStore 價本來就是 dummy 0——mappers/product.ts:172,179——把真 tier 傳進 toUIProduct 會顯示 NT$0 錯價;釘 general 與 fetchCatalogProducts 及 account/page.tsx:91,98「禁 tier-aware pricing」既有先例一致)。call sites 全列:app/page.tsx(首頁)、app/account/page.tsx(已固定 general)。
   - revalidate 秒數 = Sean 拍板(見 §4 Q2);加 cache tags 供未來 on-demand 失效。
-- **為什麼**:商品資料每天只在台灣時間 03:00 由 GitHub Actions rpm-sync.yml 更新一次(vercel.json 的 2 條 cron 是金流用途、與商品無關),快取幾分鐘零業務風險;第二個訪客起 DB 成本歸零。
+- **為什麼**:商品資料每天只在台灣時間 12:30 由 GitHub Actions rpm-sync.yml 更新一次(2026-07-22 前為 03:00;15 分快取的理由不受影響)(vercel.json 的 2 條 cron 是金流用途、與商品無關),快取幾分鐘零業務風險;第二個訪客起 DB 成本歸零。
 - **影響面**:src/lib/products.ts 為主(+featured 重構牽動 page.tsx、account/page.tsx 呼叫點對齊)。**安全紅線已預先驗證**:四函式打 products_public view(view 級排除 price_store/price_by_tier/metadata)+ anon client(RLS),經銷價欄位雙重擋在快取之外;featured 顯示價釘 general 後,任何 tier 變體皆不進快取、也不再有 dummy 0 錯價路徑。**語意變更明示**:帶 tier cookie 的訪客首頁精選價將從「dummy 資料算出的 tier 價」變為 general 價(現行 tier 價在此路徑無正確資料源,屬修正非退化;真 tier 定價待 #215 server 端 tier 查證後另接)。
 - **Rollback**:git revert;快取層是純包裝、拆掉即回原行為。
 - **殘餘未確認項**:Vercel 文件的版本對照表未把 unstable_cache 明列在 Next 16+ 列(僅 15 列),跨 instance 共享行為部署後用重複 curl 實測 TTFB 確認;若無共享效果,fallback 是改 'use cache'(需開 cacheComponents,另提 plan)。
@@ -67,7 +67,7 @@
 - backlog **#205**(featured 旗標機制 Phase-1 暫緩)= P2 維持現行「全目錄 id 升冪前 4」語意(C4 後現狀)、不動 #205 範圍;**#259**(首格為測試商品)為既有內容問題、本 plan 不碰不解。
 - backlog **#206**(詳情頁 ISR 前置評估義務)= 本 plan 不動詳情頁、不觸發。
 - backlog **#247**(sitemap 效能輕量列舉待)= 不在本 plan,P4 時順帶評估。
-- 商品同步管道:.github/workflows/rpm-sync.yml 每日 UTC 19:00(台灣 03:00)。
+- 商品同步管道:.github/workflows/rpm-sync.yml 每日 UTC 04:30(台灣 12:30;2026-07-22 前為 UTC 19:00 / 台灣 03:00)。
 - eslint boundaries 7 條(eslint.config.js:60-;adapters→domain+ports、apps→全部)——P2 動 ports+adapters,K1 審查已附此規則。
 - 查無任何「快取/region 禁動」的既有拍板(偵察遍搜 backlog/STATUS/lessons §12/specs/handoff)。
 

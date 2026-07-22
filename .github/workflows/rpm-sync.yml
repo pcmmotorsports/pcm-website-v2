@@ -1,12 +1,25 @@
 # 供應商每日同步(報價單 B庫 → 網站庫)— S5 排程上線;V1 多供應商 matrix(2026-07-05)
 #
-# 每天台灣 03:00(UTC 19:00)自動跑全量同步 + S4 下架對賬 + V1 變體級對賬 + S5 W1 抓取完整性 gate。
+# 每天台灣 12:30(UTC 04:30)自動跑全量同步 + S4 下架對賬 + V1 變體級對賬 + S5 W1 抓取完整性 gate。
+# 🔴 2026-07-22 由台灣 03:00 改為 12:30(需求單:報價單 repo docs/handoff/REQ-2026-07-22-網站庫同步時間.md)。
+#   原因:報價單側 2026-07-22 把爬蟲排程整批搬到清晨(台灣 03:30-04:20 十二家爬蟲 → 06:00 分類重算
+#   → 11:30 報價單庫→網站庫 fitment 同步),而本 workflow 原本排台灣 03:00 = **比爬蟲開跑還早 30 分鐘**,
+#   因此在爬蟲正常的日子必然拿到前一天的庫存與價格。12:30 在上述四段的**排程順序之後**。
+#   ⚠️ 不可再往前搬到 11:30 之前,否則退回同一個問題。
+#
+# 🔴 **誠實邊界:12:30 只是「排在上游之後」,不是「上游已完成」的保證。** 兩個 repo 之間
+#   **沒有任何完成訊號 / preflight / 失敗閘**,本 workflow 不會知道上游有沒有跑成功:
+#   ① 報價單側防睡鎖 caffeinate 只覆蓋台灣 03:22-07:17(見該 repo launchd/com.pcm.morning-awake.plist),
+#      **11:30 的 fitment 同步落在防睡鎖放開之後 4 小時**、該機 pmset 閒置 1 分鐘即睡
+#      → 可能發生該 plist 註解自述的「跑起來但網路不通的假失敗」(2026-07-22 lightech/samco-stock 即此下場)。
+#   ② 11:30 若失敗或延遲,12:30 仍會照跑並同步到**更舊**的 fitment。
+#   → 上游完成訊號 / preflight 是**未做的工作**,已於 2026-07-22 raise 給 Sean(跨 repo、非本 repo 可單獨解)。
 # plan:docs/specs/2026-06-03-S5-scheduling-plan.md(Sean 拍 Q-S5-platform=A)。
 # V1 matrix(2026-07-05 雙跨模型審查 must-fix、Sean 拍 gbracing+bonamici 上架):每家一個獨立 job
 #   跑「自己完整一輪」(不變式 1 軟下架隔離);fail-fast:false = 一家 gate abort 不拖垮別家;
 #   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。matrix 涵蓋全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275)。
 #
-# ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable
+# ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable(**本 repo 實查為 public、規則適用**)
 #   (無人值守需週期性 repo 活動或定期到 Actions 頁確認仍啟用)。
 # 告警:失敗走 GitHub Actions 預設 email(寄給上次改本檔者);LINE/webhook 升級留 follow-up。
 #
@@ -19,11 +32,19 @@ name: Supplier Daily Sync
 
 on:
   schedule:
-    # ⚠️ GitHub Actions cron 一律 UTC、勿填台灣時間。UTC 19:00 = 台灣次日 03:00(UTC+8 全年無夏令時)。
-    - cron: '0 19 * * *'
+    # ⚠️ **本檔未設 timezone → 走 GitHub 預設的 UTC**;勿在此填台灣時間。
+    #   UTC 04:30 = 台灣**同日** 12:30(UTC+8 全年無夏令時)。
+    #   (前值 '0 19 * * *' = UTC 19:00 = 台灣**次日** 03:00;2026-07-22 改,理由見檔頭。)
+    # ⚠️ 排程時間是**最早觸發時間、不是保證**:GitHub 高負載時會延遲、甚至**整次丟棄**,
+    #   官方未給延遲上限(本 workflow 實測過表訂 03:00、實跑 03:57)。因此不可依賴「幾點一定跑完」;
+    #   缺跑偵測目前**沒有**(見下方告警段)。
+    - cron: '30 4 * * *'
   workflow_dispatch: # 手動觸發(GitHub 預設限有 write 權限的 collaborator)
 
-# W2 並發互斥:後到的 run 排隊、不 cancel 進行中(reconcile 寫到一半被砍會留髒中間態)。
+# W2 並發互斥:cancel-in-progress:false = 不 cancel 進行中(reconcile 寫到一半被砍會留髒中間態)。
+# 🔴 更正(2026-07-22 codex 審查):原註解「後到的 run 排隊」不精確 —— GitHub 同一 concurrency group
+#   最多保留 **1 個 running + 1 個 pending**;第三個 run 會**取代**既有 pending(該次等於被丟棄)。
+#   排程與 workflow_dispatch 重疊時可能漏掉一次同步,且不會有失敗通知。
 concurrency:
   group: rpm-sync
   cancel-in-progress: false

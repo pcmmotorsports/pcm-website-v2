@@ -8,14 +8,14 @@
 
 ## 0. Sean 三條件(硬約束)
 
-1. **每日自動**:新圖由既有每日同步(GitHub Actions `rpm-sync.yml`、台灣 03:00)自動補算,Sean 零操作。
+1. **每日自動**:新圖由既有每日同步(GitHub Actions `rpm-sync.yml`、台灣 12:30;2026-07-22 前為 03:00)自動補算,Sean 零操作。
 2. **不影響既有**:products 表零改動;無 trim 資料=照現狀顯示(最壞=現狀);掃描失敗不擋同步。
 3. **來源零變更**:圖片仍在供應商 CDN、URL 不動、不搬圖、不加外部付費服務。
 
 ## 1. 相關既有紀錄與連動面(偵察 pass 2026-07-19)
 
 - 圖片資料流(v1.1 依 Fable F1 更正):`products.images jsonb`(`20260507004826_init_products.sql:32`)→ **兩條卡片資料路**:①車款目錄走 RPC `search_catalog_by_vehicle`(JSON 打包於 `20260712183000_products_catalog_page_public.sql:82-97`;同檔 L5-31 是平面 view `products_list_public`、`security_invoker=true`)②首頁精選/全目錄/相關商品/車款頁走 `products_public` view(`20260510134708_products_public_view.sql`;`apps/storefront/src/lib/products.ts:513` 一帶)→ `toUIProduct`。→ domain `images: string[]`(`packages/domain/src/catalog/types.ts:194`)→ `MockProduct.image?`(`mock-products.ts:118`)。**S1 必須兩條路都曝光 trim,否則首頁/相關商品卡與目錄卡不一致**;`products_list_public` 的直接消費端於 S1 實作時 grep 確認、有消費才第三處曝光。
-- 每日同步:`.github/workflows/rpm-sync.yml` cron `0 19 * * *`、matrix 12 家 `max-parallel:1`、`fail-fast:false`;寫 products 於 `scripts/rpm-import.ts:491`;代表圖組裝於 `scripts/rpm-transform.ts:366-401`。
+- 每日同步:`.github/workflows/rpm-sync.yml` cron `30 4 * * *`(台灣 12:30;2026-07-22 前為 `0 19 * * *` / 台灣 03:00)、matrix 12 家 `max-parallel:1`、`fail-fast:false`;寫 products 於 `scripts/rpm-import.ts:491`;代表圖組裝於 `scripts/rpm-transform.ts:366-401`。
 - 商品卡:`ProductCard.tsx:87-99`(inline `objectFit:'cover'`、hover scale 1.04、onError 退 placeholder);格子 `.pcard-img-wrap { aspect-ratio: 1/1 }`(`product-card.css:31`)。消費端=ProductsPage/ProductRelated/HomeSelect(經 ProductCard)+OverviewTab(**直用 ProductImage、非經 ProductCard**;S4b 已各自傳 trim——codex S4b MF-2 更正舊誤稱)。
 - **不在範圍**:`CartView.tsx:124` 購物車裸 img 縮圖、`ProductGallery.tsx` 詳情頁大圖——皆不動。
 - 依賴:sharp 0.34.5 僅為 Next 傳遞依賴(lockfile 已含 darwin+linux prebuilt)、**無 package.json 直接宣告**;repo **無**抓外部圖 bytes 先例(逾時/重試/UA 須新建)。

@@ -36,7 +36,7 @@
 | `quote.pcmmotorsports.com` | 報價單後台 + 型錄資料源 | `/Users/sean_1/API大量上架` | 不動 |
 | **`shop.pcmmotorsports.com`** | **本商城** | `pcm-website-v2` | 🆕 新增副網域 |
 
-資料流:報價單爬蟲 → Supabase → 商城讀 Supabase(每天 03:00 GHA、S5 live)。子網域各自獨立部署、共用 Supabase `bmpnplmnldofgaohnaok`;商城 runtime 不跨呼叫 quote/bikes。
+資料流:報價單爬蟲 → Supabase → 商城讀 Supabase(每天台灣 12:30 GHA、S5 live(2026-07-22 前為 03:00))。子網域各自獨立部署、共用 Supabase `bmpnplmnldofgaohnaok`;商城 runtime 不跨呼叫 quote/bikes。
 
 ---
 

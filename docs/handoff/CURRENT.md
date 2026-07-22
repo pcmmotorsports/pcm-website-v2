@@ -13,12 +13,19 @@
   另補 F2 測試缺口（同意勾選無法撤回會全綠）。**F3 併入驗收清單**：手機肉眼驗請加測「點『卡號 / 有效期 / CVV』**文字**（不是欄位框）之後，再點欄位框能否正常輸入」—— ⚠️ Sean 2026-07-22 的驗收沒測到這一項。
 - **下一片 ＝ M-3 U3b「非卡片全錯誤 state 與 ARIA」**（或依 Sean 指示回主軌 M-4a B-4）。
   🔴 **U3a 只鋪 canonical 地基、UI 一行沒接**：第二步畫面目前仍無逐欄紅字／`aria-invalid`／`aria-describedby`／錯誤摘要／第一錯誤 focus-scroll。已於 manifest 開 open drift `checkoutAllErrorsAtOnce` 記錄，由 U3b → U4a → U4b 依序收斂，**在那之前不得宣稱 design §7.2「全錯誤一次顯示」已達成**。
-- 🆕 **另一條待辦（非 M-3 線、尚未動工）＝ 顧客站每日同步時間往後搬**：需求單由報價單那側開立 ＝
-  `/Users/sean_1/API大量上架/PCM報價單-V2/docs/handoff/REQ-2026-07-22-網站庫同步時間.md`。
-  改 `.github/workflows/rpm-sync.yml` 第 22-23 行 `cron: '0 19 * * *'` → `'30 4 * * *'`（台灣 03:00 → 12:30）+ 同步改 UTC 換算註解。
-  原因：現行排程比報價單側爬蟲（台灣 03:30 開跑）還早 30 分鐘，顧客站每天同步到的必然是**前一天**的庫存與價格。
-  🔴 **片型＝高風險片（鐵則 12 ④平台設定：CI）**→ 需自己的 codex 對抗審查與獨立 commit，**不得併入 M-3 任何一片**。
-  需求單引用的第 22-23 行內容**已於 2026-07-22 唯讀核對屬實**。
+- ✅ **顧客站每日同步時間已往後搬（2026-07-22 完成、獨立 commit）**：
+  `.github/workflows/rpm-sync.yml` cron `'0 19 * * *'`（UTC 19:00＝台灣次日 03:00）→ `'30 4 * * *'`（UTC 04:30＝台灣同日 12:30）。
+  需求單＝報價單 repo `docs/handoff/REQ-2026-07-22-網站庫同步時間.md`；片型＝高風險片（鐵則 12 ④平台設定：CI），codex 對抗審查已跑。
+  原因：舊排程比報價單側爬蟲（台灣 03:30 開跑）還早 30 分鐘，顧客站每天同步到的必然是**前一天**的庫存與價格。
+  ✅ **實查：本 repo 預設分支＝`dev`**（`gh repo view` 取得）→ scheduled workflow 跑 default branch，**推 `dev` 即生效、不必推 `main`**。
+  🔴 **codex 抓到的真問題（未解、跨 repo）**：12:30 只是「排在上游之後」，**不是「上游已完成」的保證** ——
+  兩個 repo 之間沒有任何完成訊號／preflight／失敗閘。報價單側防睡鎖 caffeinate 只覆蓋台灣 03:22-07:17，
+  而 **11:30 的 `sync_storefront_fitments` 落在防睡鎖放開後 4 小時**、該機 `pmset` 閒置 1 分鐘即睡
+  → 可能發生該 plist 註解自述的「跑起來但網路不通的假失敗」（2026-07-22 lightech／samco-stock 即此下場）。
+  11:30 失敗或延遲時，12:30 仍會照跑並同步到**更舊**的 fitment。**已 raise 給 Sean、待決策**（見「需要 Sean」）。
+  🔴 **另兩項既有缺口（非本次造成、未修）**：① matrix 12 家 `max-parallel:1`、各 job 上限 6h，
+  **總時長從未實測、無 timeout、無「營業時間前完成」SLO** ② 失敗只走 GitHub 預設 email，**無缺跑偵測**
+  （排程被停用／觸發被丟棄時不會產生 failed run，也就不會有通知）。
 - 🔴 **Sean 的真刷驗收路徑（2026-07-22 明講）＝ 正式站開 1 元商品直接刷，不走本地區網**。規劃結帳驗收時**別再提「用手機連本機」**。連帶 backlog #293（本地 HTTPS 通道）已擱置。
   ⚠️ 該計畫的三個前置（已查證）：①正式站結帳目前關著（3DS flag 全 false、`isThreeDSEnabled` 註解明寫「僅 sandbox/staging」）②退款無自動化（全樹無 TapPay refund 呼叫實作，依 07-17 拍板要 Sean 手動去 Dashboard 退）③1 元商品會被一般客人看到（正式站目錄公開、無「只有我看得到」機制）。詳 memory `project_sean-real-payment-verify-via-1nt-product`。
 - 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**

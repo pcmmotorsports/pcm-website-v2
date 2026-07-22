@@ -94,8 +94,15 @@ function hashIdToNumber(s: string): number {
 /**
  * 型錄資料跨請求快取秒數(perf/P3、Sean 2026-07-08 拍 Q2=15 分)。
  *
- * 商品資料每日僅台灣 03:00 由 GitHub Actions rpm-sync.yml 同步一次(vercel.json 兩條 cron
- * 為金流用途、與商品無關)→ 15 分 staleness 零業務風險、保留人工改 DB 後合理生效窗。
+ * 商品目錄由 GitHub Actions rpm-sync.yml 每日台灣 12:30 同步(2026-07-22 由 03:00 改;vercel.json 兩條
+ * cron 為金流用途、與商品無關)。
+ * 🔴 **「每日僅一次寫入」不成立**(2026-07-22 codex 審查更正):報價單側另有台灣 11:30 的
+ * `sync_storefront_fitments` 每日寫網站庫 `product_fitments_effective`(車款搜尋用),與本快取的
+ * 目錄資料不同表但同屬「每日變動的商品資料」。
+ * ⚠️ 15 分 staleness 的**代價已隨排程改動而改變**:同步從 03:00(無人瀏覽)移到 12:30(營業時間
+ * 10:00-19:00 內)→ 同步完成後最多 15 分鐘,客人仍可能看到同步前的價格/庫存,且 `revalidateTag('catalog')`
+ * **尚未接上**(見下方 tag 說明)。這比改動前**不會更差**(改動前整天都是前一天的資料),但
+ * 「零業務風險」是**未經實測的推論**,不是已驗證結論。要消除此窗需接 tag 主動失效。
  *
  * unstable_cache 紀律(Next 16.2 查證、plan §P3):
  *   - cached 函式只接純參數、內部不呼叫 cookies()/headers()、不閉包 tier/request 狀態
