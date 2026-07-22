@@ -39,6 +39,10 @@
 - 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**
 - Agent: Claude Code
 - Mode: 執行模式；**本 commit ＝ M-3 兩步結帳 Slice U3a「建立 canonical invoice schema」**（12 片中的第 5 片、內容分級 L1、高風險片〔鐵則 12 ①錢：`CheckoutInput` 的消費端是刷卡 server action `chargePaymentAction`〕；收檔 11 個；**本片開工基底 ＝ preflight HEAD ＝ parent ＝ `e4b9581`**；審查＝codex 關卡1 + 關卡2 + code-reviewer 全跑、不降級）。**以下為前一片 `62d8522` 的歷史紀錄**：`cart_session_id` 非安全環境 fallback（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪已於 2026-07-22 由 Sean 授權推出**（`dev` 與 `main` 皆已推、`origin/main` = `e000040`）；未 deploy 之外的動作（DB／flag／env）仍未做
+- **🚀 2026-07-22 Sean 拍 A 授權推正式站**:`git push origin dev:main` 完成,**`origin/main` = `origin/dev` = `fa1dd01`**（FF、無 merge）。
+  推前逐檔核實:main 缺的 4 個 commit 中**真正會執行的程式碼只有 `packages/schemas/src/index.ts`**(非註解 65 行 = U3a);
+  其餘四個 storefront 檔實測**非註解變動 0**。🔴 **cron 從來不需要 main**(scheduled workflow 讀 default branch = `dev`、實查)。
+  ⚠️ U3a 等價性是機器證明、**未在真瀏覽器或正式站驗過**。⚠️ push 仍是 Sean 的手動決定,本次為明確字面授權才代為執行。
 - Branch: `dev`
 - Implementation base：
   - **U2b 開工基底 ＝ preflight HEAD ＝ `6443a8e`**（U2a commit「抽出結帳複查區塊」）＝ **`8a3852e` 的 parent**（🔴 **非本 commit 的 parent** —— 本 commit 的 parent 是 `5609352`），兩者**相同**（`git merge-base --is-ancestor` 驗過）。開工時 `dev` 領先 `origin/dev` 1 個 commit（＝U2a、Sean 尚未推）。
