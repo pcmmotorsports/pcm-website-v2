@@ -7403,6 +7403,43 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **相關:** [[#291]](法律頁,本次的單一來源候選)、`docs/handoff/CURRENT.md`、`STATUS.md`
 - **分流標籤:** `P1-before-launch`
 
+---
+
+### #293. 🔒 真機驗收缺 HTTPS 通道 → secure-context-only API 在 LAN HTTP 逐個踩雷
+
+- **狀態:** ⏳ 待執行(需 Sean 決定要不要投入 ops 摩擦)
+- **發現於:** 2026-07-22,Sean 用手機驗收 M-3 U2b 時撞到 `crypto.randomUUID` crash
+- **依賴:** 無(可獨立執行);與 M-3 U3a-U5 無先後關係
+- **分流:** P2-later(不擋上線、擋真機驗收深度;若改判上線前必做則升 P1-before-launch)
+- **優先級:** 🟡 低(不影響客人;擋住「真手機驗收結帳互動」這條路)
+- **問題:**
+  - 真機驗收目前走 `http://<LAN-IP>:3001`(區域網路 + 純 HTTP)= **非安全環境**
+    (實測 `window.isSecureContext === false`)。
+  - 瀏覽器的 **secure-context-only API 在此一律不存在**。2026-07-22 已實際撞到第一個:
+    `crypto.randomUUID` → `addItem` 直接 throw、整頁 crash、購物車完全不能用
+    (該次已用 `crypto.getRandomValues` fallback 修掉,見 `CartContext.tsx` 的 `newCartSessionId`)。
+  - 🔴 **但那只是點狀修補**:Fable 對抗審查明確指出「下一個在 LAN HTTP 壞掉的不會是 randomUUID,
+    而是 TapPay SDK / secure cookie 之類」——那些**不是我方 code、fallback 救不了**。
+- **不修未來會痛在哪:**
+  - **真手機驗收結帳互動這條路會再次撞牆**,而且下一次撞到的很可能是第三方 SDK,
+    當場無解、只能停下來重新想辦法 —— 正好發生在最需要驗收的時刻(上線前)。
+  - 每撞一次就要開一片高風險修補(本次這片就是:動到雙扣去重子、跑滿 codex 兩關 + Fable)。
+- **修法方向(擇一,需 Sean 定):**
+  - A. 本機自簽憑證跑 HTTPS(如 `next dev --experimental-https` 或自備 cert/key)——
+    效果 = **解除 secure-context 前提**,`crypto.*` 這類瀏覽器 API 一次到位。
+    🔴 **執行前必查證(未確認、不得直接照做)**:憑證的 SAN 是否涵蓋**手機要連的 LAN IP**。
+    codex 關卡2 指出 Next 在未指定 hostname 時,憑證可能只含 `localhost`/`127.0.0.1`/`::1`,
+    手機用 LAN IP 連會憑證 hostname 不符 —— 光信任 CA 不夠。需查當版是否支援指定 hostname,
+    或自行產生含 LAN IP SAN 的憑證。
+    ⚠️ 也**不等於「修好所有問題」**:TapPay 等第三方 SDK 在該環境的行為仍須另外實測。
+    代價 = 每台要驗收的裝置都要信任 CA(Sean 手動步驟)。
+  - B. tunnel(cloudflared / ngrok)給一個真 HTTPS 網址 —— 零裝置設定;
+    代價 = **把 dev build 對外公開**,屬對外可見動作、需 Sean 明確批准,且不應長期開著。
+  - C. 維持現況,只在撞到時逐個點狀修 —— 成本分攤但總量最高,且會在驗收當下才爆。
+- **關聯:** memory `reference_pcm-mobile-device-verify-dev-vs-prod`(真機驗互動必用 production build);
+  本次 fallback 修補見 `CartContext.tsx` `newCartSessionId` 與其 commit。
+- **估時:** A 約 30-60 分鐘(含 Sean 裝憑證);B 約 15 分鐘但需批准;C = 0 但持續課稅。
+
 ## 紀錄模板
 
 ```markdown

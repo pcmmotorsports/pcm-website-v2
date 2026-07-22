@@ -33,7 +33,10 @@
 //
 // 鐵則對齊:
 // - 鐵則 9 L1 標記(API 結構穩定、M-3 swap 實作不動介面)
-// - 鐵則 6:本檔 <300 軟警戒內(7a 加 cartSessionId state + 持久化、~230 行)
+// - 鐵則 6:🔴 本檔**已超過 300 行硬警戒、仍低於 400 行必拆線**(實測 329 行)(原註解「<300 軟警戒內、~230 行」
+//   在 2026-07-22 前即已是假字面、當時實為 303 行,同日修正)。不拆的理由:newCartSessionId 為十餘行
+//   純函式,與其三個呼叫點(hydrate / addItem / regenerate)同檔內聚;拆出去反而讓「去重子在哪裡生成」
+//   要跨檔追,提高雙扣線排查成本。下次再長就評估把持久化 I/O 那段抽出。
 // - server 端鐵則「會員與價格」:本 Provider 不存價格(只存 productId + qty + color / size 規格)、價格永遠由 server 端 resolve
 
 'use client';
@@ -54,6 +57,29 @@ const SESSION_KEY = 'pcm-cart-session-v1'; // 3DS-7 cart-instance idempotency ke
 //   storefront 無 zod 直接依賴,不引 z.uuid 避脆弱 transitive import)。
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_QTY = 99;
+
+/** 產生 cart-instance 去重子(3DS-7 cart_session_id)。
+ *
+ *  🔴 為什麼不能直接呼 `crypto.randomUUID()`:它是 **secure-context-only** API(僅 HTTPS / localhost)。
+ *     2026-07-22 實測 `http://192.168.0.234:3001`(區域網路真機驗收):`isSecureContext=false`、
+ *     `typeof crypto.randomUUID === 'undefined'` → 舊版在 `addItem` 直接 throw、整頁 crash、購物車完全不能用。
+ *     正式站是 HTTPS(secure context)故真實客人從未遇到;壞的是區網 HTTP 的開發／真機驗收路徑。
+ *
+ *  🔴 fallback 為什麼必須密碼學強度:本值是**雙扣防線的去重把手**(charge-actions ②d 讀 client 值 →
+ *     begin cart-instance dedup),碰撞會讓兩筆不同結帳被誤判為同一筆。故用 `crypto.getRandomValues`
+ *     (非 secure-context-only、全 context 可用、與 randomUUID 同等熵),**絕不使用 Math.random**。
+ *
+ *  產出格式與 randomUUID 相同(RFC 4122 v4:version nibble=4、variant 高位=10xx),
+ *  必通過本檔 UUID_RE 與 server 端 charge-actions / callback 的同層 UUID_RE fail-closed 驗證。
+ */
+function newCartSessionId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6]! & 0x0f) | 0x40; // version 4
+  b[8] = (b[8]! & 0x3f) | 0x80; // variant 10xx
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 
 export type CartLineKey = {
   productId: string;
@@ -197,7 +223,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
     // 🔴 prev ?? stored ?? 還原車補生:不覆寫 pre-hydrate 已 regenerate/addItem 的 key(hydrate-race 防線);
     //   storedSession 無但有還原品項(7a 前的舊車)→ 補生一把,使既有車也納入去重。
     setCartSessionId(
-      (prev) => prev ?? storedSession ?? (restored.length > 0 ? crypto.randomUUID() : null),
+      (prev) => prev ?? storedSession ?? (restored.length > 0 ? newCartSessionId() : null),
     );
     setIsHydrated(true);
   }, []);
@@ -213,7 +239,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const addItem = useCallback((item: CartItem) => {
     const safeQty = clampQty(item.qty);
     if (safeQty < 1) return;
-    setCartSessionId((prev) => prev ?? crypto.randomUUID()); // 空車首件 → 生 key
+    setCartSessionId((prev) => prev ?? newCartSessionId()); // 空車首件 → 生 key
     setItems((prev) => {
       const idx = prev.findIndex((p) => sameLine(p, item));
       if (idx >= 0) {
@@ -267,7 +293,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => setItems([]), []);
 
   // 成交換新 key(7b 僅「DB 確定 paid」呼)。hydrate 前呼也安全:mount 讀用 prev ?? 不覆寫、持久化 gate isHydrated。
-  const regenerateCartSession = useCallback(() => setCartSessionId(crypto.randomUUID()), []);
+  const regenerateCartSession = useCallback(() => setCartSessionId(newCartSessionId()), []);
 
   const totalQty = useMemo(
     () => items.reduce((sum, item) => sum + item.qty, 0),
