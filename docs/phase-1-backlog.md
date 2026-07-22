@@ -5208,7 +5208,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **狀態:** ⏳ 待執行
 - **優先級:** 🟡 低
 - **問題:**
-  - company 發票模式統編 8 碼格式目前只在 server zod(AddressInput superRefine `/^\d{8}$/`)守、DB 層無 CHECK
+  - company 發票模式統編 8 碼格式目前只在 server zod(**canonical `CheckoutInvoiceInput` 的 superRefine** `/^\d{8}$/`;U3a 起 AddressInput 與 CheckoutInput 共用同一實例、不再各抄一份)守、DB 層無 CHECK
   - 直打 Supabase REST/RPC API(繞 storefront server action)可寫入 malformed 統編(如 7 碼 / 含字母);現有 DB CHECK 只有 `addresses_invoice_company_has_data`(title/taxId 非空)、不驗 8 碼格式
 - **觸發事件:**
   - 2026-05-29 / M-1-14e-g-5b codex 關卡2 round1 finding(Consider、非阻擋、不擋 g-5b)
@@ -5223,7 +5223,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 20-30 min(動 migration + advisor check;鐵則 12 觸發 = 獨立 slice)
 - **依賴:** 無(可獨立做、不擋 g-5c~g-7)
 - **發現於:** 2026-05-29 / M-1-14e-g-5b codex 關卡2 round1
-- **相關:** packages/schemas/src/index.ts AddressInput superRefine / customer_addresses 表(M-1-14a migration)/ 鐵則 12(動 migration / schema)
+- **相關:** packages/schemas/src/index.ts **`CheckoutInvoiceInput`**(U3a 起的 canonical 發票 schema;原分散在 AddressInput / CheckoutInputBase 兩份、已收斂)/ customer_addresses 表(M-1-14a migration)/ 鐵則 12(動 migration / schema)
 
 ---
 

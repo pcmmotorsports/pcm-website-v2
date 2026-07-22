@@ -97,6 +97,25 @@ describe('updateAddressAction(g-5c server action)', () => {
     expect(mockUpdateAddress).not.toHaveBeenCalled();
   });
 
+  // 🔴 U3a 行為差異的永久守門(codex 關卡2 must-fix;Sean 2026-07-22 拍 A 明示接受此差異)。
+  //    fatal 兄弟欄位(isDefault 非 boolean)+ 發票缺欄:
+  //    - U3a 之前:外層 superRefine 被 zod 中止 → 只剩無對應欄位的 isDefault issue
+  //      → fieldErrors 空 → 回 formError。
+  //    - U3a 之後:發票規則住在 invoice 欄自己身上照跑 → fieldErrors.invoice 有值 → 回 fieldErrors。
+  //    這是**回傳通道切換**,正常 UI 打不出來(isDefault 由 checkbox 產生),需繞前端直打 action。
+  //    釘住它是為了讓未來任何一次「不小心改回外層 superRefine」當場轉紅。
+  it('fatal 兄弟欄位 + 發票缺欄 → 回 fieldErrors(非 formError);U3a 通道差異守門', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const { updateAddressAction } = await getActions();
+    const res = await updateAddressAction(
+      'addr-1',
+      validInput({ isDefault: '不是 boolean', invoice: { type: 'donate' } }),
+    );
+    expect(res.fieldErrors?.invoice?.donateCode).toBe('請填愛心碼');
+    expect(res.formError).toBeUndefined();
+    expect(mockUpdateAddress).not.toHaveBeenCalled();
+  });
+
   it('malformed input(非 object)→ formError fallback、不無聲失敗', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const { updateAddressAction } = await getActions();

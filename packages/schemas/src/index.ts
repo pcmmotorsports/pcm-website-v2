@@ -42,39 +42,64 @@ export const RegisterInput = z.object({
 });
 export type RegisterInput = z.infer<typeof RegisterInput>;
 
-// === Address form(design InlineAddressForm L686-757) ===
+// === Canonical 發票 schema(M-3 兩步結帳 U3a;地址表單與結帳表單的唯一真相)===
 // invoice.type 三 tab:personal(手機載具選填)/ company(抬頭+統編必填)/ donate(愛心碼必填)。
 // 跨欄位驗證對齊 DB CHECK addresses_invoice_company_has_data / addresses_invoice_donate_has_code(M-1-14a)。
-export const AddressInput = z
+//
+// 🔴 U3a 之前 AddressInput 與 CheckoutInputBase **各抄一份**同樣的形狀與規則,靠「兩處同步」
+//    紀律維持(改一邊忘另一邊 → 地址簿與結帳的發票驗證會走鐘)。本 schema 是唯一定義,
+//    兩處以 `invoice: CheckoutInvoiceInput` compose 同一實例;測試以 `toBe` 鎖住實例同一性。
+//
+// 🔴 superRefine 內 path 只寫 ['title'] / ['taxId'] / ['donateCode'](本 schema 自身視角);
+//    巢狀 compose 後 zod 會自動補上外層 key → ['invoice','title'] 等,不手動拼字串。
+//    兩種 path 都有測試釘住(checkout.test.ts「單獨使用」與「巢狀 compose」兩條)。
+//
+// 🔴 與 U3a 之前的等價性(Sean 2026-07-22 拍 A;窮舉 21,546 組輸入實測):
+//    ① accept/reject 完全等價 —— 驗證零放寬,沒有任何輸入從拒變收。
+//    ② 成功案 parsed output(defaults / strip)完全等價。
+//    ③ 失敗案 issue 集合恆為超集(只增不減)。
+//    ④ issue 陣列順序**不保證等價**。
+//    ③④ 的來源:舊版規則掛在外層 superRefine,zod 4 遇 fatal issue(`invalid_type` /
+//    z.enum `invalid_value`)會中止外層 checks → 發票錯誤被吞;新版規則住在本 schema
+//    自己的 parse 內,不受兄弟欄位影響。正常 UI 打不出這種輸入(需繞前端直打 action)。
+//    🔴 消費端硬規則:**不得以 `issues[0]` 當欄位錯誤來源**,必須逐欄建 map
+//    (現行 charge-actions.ts 與 account/address/actions.ts 皆已是逐欄,不受影響)。
+export const CheckoutInvoiceInput = z
   .object({
-    isDefault: z.boolean().default(false),
-    // #201:name/line trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveAddress L705
-    //   `if (!form.name.trim() || !form.line.trim()) return;`(client 已擋純空白、server 補上同防線)。
-    name: z.string().trim().min(1, { error: '請填寫收件人' }),
-    phone: z.string().default(''),
-    line: z.string().trim().min(1, { error: '請填寫地址' }),
-    invoice: z.object({
-      type: z.enum(['personal', 'company', 'donate']),
-      carrier: z.string().default(''),
-      title: z.string().default(''),
-      taxId: z.string().default(''),
-      donateCode: z.string().default(''),
-    }),
+    type: z.enum(['personal', 'company', 'donate']),
+    carrier: z.string().default(''),
+    title: z.string().default(''),
+    taxId: z.string().default(''),
+    donateCode: z.string().default(''),
   })
-  .superRefine((data, ctx) => {
-    const { invoice } = data;
+  .superRefine((invoice, ctx) => {
     if (invoice.type === 'company') {
       if (!invoice.title) {
-        ctx.addIssue({ code: 'custom', message: '請填寫公司抬頭', path: ['invoice', 'title'] });
+        ctx.addIssue({ code: 'custom', message: '請填寫公司抬頭', path: ['title'] });
       }
       if (!/^\d{8}$/.test(invoice.taxId)) {
-        ctx.addIssue({ code: 'custom', message: '統編需 8 碼數字', path: ['invoice', 'taxId'] });
+        ctx.addIssue({ code: 'custom', message: '統編需 8 碼數字', path: ['taxId'] });
       }
     }
     if (invoice.type === 'donate' && !invoice.donateCode) {
-      ctx.addIssue({ code: 'custom', message: '請填愛心碼', path: ['invoice', 'donateCode'] });
+      ctx.addIssue({ code: 'custom', message: '請填愛心碼', path: ['donateCode'] });
     }
   });
+// input = 表單送進來的形狀(有 default 的四欄為選填);output = parse 後五欄齊全。
+// 🔴 兩者不可混用:normalized / 已入庫資料一律用 CheckoutInvoice(output)。
+export type CheckoutInvoiceInput = z.input<typeof CheckoutInvoiceInput>;
+export type CheckoutInvoice = z.output<typeof CheckoutInvoiceInput>;
+
+// === Address form(design InlineAddressForm L686-757) ===
+export const AddressInput = z.object({
+  isDefault: z.boolean().default(false),
+  // #201:name/line trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveAddress L705
+  //   `if (!form.name.trim() || !form.line.trim()) return;`(client 已擋純空白、server 補上同防線)。
+  name: z.string().trim().min(1, { error: '請填寫收件人' }),
+  phone: z.string().default(''),
+  line: z.string().trim().min(1, { error: '請填寫地址' }),
+  invoice: CheckoutInvoiceInput,
+});
 export type AddressInput = z.infer<typeof AddressInput>;
 
 // === Vehicle form(design InlineVehicleForm L760-798、僅 name 必填) ===
@@ -137,44 +162,20 @@ export type ProfileInput = z.infer<typeof ProfileInput>;
 // 地址／配送／發票對齊 create_order 舊 8 鍵；B-3 Email schema 只負責 app 驗證，RPC 第 9 鍵由 mapper 決定。
 // 🔴 購物車品項(variant_id/sku + qty)不在本 schema:由 CartContext 提供、結帳時組 p_lines(S2-b2-b use-case);
 //    本 schema 只驗「結帳填寫表單」(地址 + 配送 + 發票 + flag-on 通知 Email)。
-// invoice 跨欄位驗證鏡像 AddressInput(company 須抬頭 + 8 碼統編、donate 須愛心碼);
-// ⚠️ invoice 形狀與 AddressInput 重複未抽共用 —— 抽出 InvoiceInput 須重排 AddressInput superRefine
-//    的 path(['invoice','title']→['title'])會動既有地址表單錯誤顯示 + 測試,風險高於收益,留待
-//    後續統一重構(現以「兩處同步」紀律維持、改 invoice 規則須同步兩 schema)。
+// invoice 跨欄位驗證與 AddressInput **共用同一個** canonical schema(U3a;見 CheckoutInvoiceInput
+//    的說明,含等價性邊界與「消費端不得用 issues[0]」硬規則)。改發票規則只需改那一處。
 const CheckoutInputBase = z.object({
   addressId: z.uuid({ error: '請選擇收件地址' }),
   shippingMethod: z.enum(['home', 'store'], { error: '請選擇配送方式' }),
-  invoice: z.object({
-    type: z.enum(['personal', 'company', 'donate']),
-    carrier: z.string().default(''),
-    title: z.string().default(''),
-    taxId: z.string().default(''),
-    donateCode: z.string().default(''),
-  }),
+  invoice: CheckoutInvoiceInput,
 });
 
-function addCheckoutInvoiceRules<T extends z.infer<typeof CheckoutInputBase>>(
-  data: T,
-  ctx: z.RefinementCtx,
-) {
-  const { invoice } = data;
-  if (invoice.type === 'company') {
-    if (!invoice.title) {
-      ctx.addIssue({ code: 'custom', message: '請填寫公司抬頭', path: ['invoice', 'title'] });
-    }
-    if (!/^\d{8}$/.test(invoice.taxId)) {
-      ctx.addIssue({ code: 'custom', message: '統編需 8 碼數字', path: ['invoice', 'taxId'] });
-    }
-  }
-  if (invoice.type === 'donate' && !invoice.donateCode) {
-    ctx.addIssue({ code: 'custom', message: '請填愛心碼', path: ['invoice', 'donateCode'] });
-  }
-}
-
-const CheckoutInputWithoutNotificationEmail = CheckoutInputBase.superRefine(addCheckoutInvoiceRules);
+// U3a 起這是純別名(原本承載 invoice superRefine、已移入 CheckoutInvoiceInput);
+// 保留具名常數是為了下方三個 overload 的可讀性,不是漏刪。
+const CheckoutInputWithoutNotificationEmail = CheckoutInputBase;
 const CheckoutInputWithNotificationEmail = CheckoutInputBase.extend({
   notificationEmail: NotificationEmailInput,
-}).superRefine(addCheckoutInvoiceRules);
+});
 
 export function createCheckoutInputSchema(
   notificationEmailRequired: true,

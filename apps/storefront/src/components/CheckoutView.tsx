@@ -115,6 +115,9 @@ export function CheckoutView({
     if (step === 1 && notificationEmailEnabled) {
       const result = NotificationEmailInput.safeParse(notificationEmail);
       if (!result.success) {
+        // 🔴 U3a 立了「不得用 issues[0] 當欄位錯誤來源」硬規則,**此處是明示豁免**:
+        //    parse 的對象是單欄 `NotificationEmailInput`(非物件 schema),所有 issue 都屬同一欄、
+        //    順序無關。全樹唯一命中點,勿誤判為漏改(見 @pcm/schemas CheckoutInvoiceInput 註解)。
         setNotificationEmailError(result.error.issues[0]?.message ?? 'Email 格式不正確');
         const emailInput = document.getElementById('checkout-notification-email');
         emailInput?.focus();

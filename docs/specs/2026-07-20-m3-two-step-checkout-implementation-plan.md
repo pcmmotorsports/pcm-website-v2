@@ -234,6 +234,10 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 
 ⑤ 執行步驟
 - RED：Address 與 Checkout tests 先同時鎖 company title/taxId、donate code 的 message 與完整 issue path `invoice.title|taxId|donateCode`。
+  🔴 這批屬**特徵測試**（重構前對著舊 schema 就應全綠＝規則未被改動的機械證據），非傳統 RED；
+  真正會由紅轉綠的是「canonical export」與「fatal sibling 等價性邊界」兩組。兩者都要有。
+- 測試覆蓋面下限（codex 關卡1 must-fix）：**Address／flag-off Checkout／flag-on Checkout** 三條路徑各自都要有
+  fatal sibling 案例；並鎖住「issue 順序不保證、消費端須逐欄建 map」。
 - GREEN：export：
   `export const CheckoutInvoiceInput = z.object({...defaults...}).superRefine(...)`
   `export type CheckoutInvoiceInput = z.input<typeof CheckoutInvoiceInput>`
@@ -245,7 +249,18 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - Commit：`refactor(schemas): 統一結帳與地址發票驗證 [m-3]`。
 
 ⑥ Yes/No 驗收 + 禁止清單
-- address／checkout parsed defaults、message、issue path 是否 byte-for-byte 等價？
+- 🔴 **原字面「byte-for-byte 等價」已作廢**（2026-07-22 Sean 拍 A）。以 §⑤ 指定的 compose 做法**不可達**：
+  舊版規則掛外層 `superRefine`，zod 4 遇 fatal issue（`invalid_type` / z.enum `invalid_value`）會中止外層 checks →
+  發票錯誤被吞；新版規則住在 invoice 欄自己的 parse 內故照跑。窮舉 21,546 組輸入實測確認差異真實存在。
+  改以下列四條為驗收（全部 yes 才算過）：
+- accept/reject 是否**完全等價**（不得有任何輸入從「拒」變「收」＝驗證零放寬）？
+- 成功案的 parsed output（defaults／strip）是否**完全等價**？
+- 失敗案的 issue 集合是否恆為**超集**（只增不減，且額外 issue 只來自 fatal sibling 抑制差異）？
+- issue **陣列順序不保證等價**已明確記錄，且已確認**無任何消費端依賴 `issues[0]` 或 issue 數量**？
+- 測試是否同時涵蓋 **Address／flag-off Checkout／flag-on Checkout** 三條路徑，以及 **fatal sibling** 情境
+  與 **server action 回傳通道**（`fieldErrors` vs `formError`）的差異？
+- 是否有**結構性防漂移**測試（以 `toBe` 鎖住 Address 與 Checkout 的 invoice 指向同一實例）？
+  🔴 行為測試抓不到「有人把 schema 複製回去變成第二份定義」，只有實例同一性測試抓得到。
 - 禁止：不改驗證規則、不改 Email schema、不改 DB/create_order、不手抄第二套 regex、不 push/deploy。
 — 禁止清單結束 —
 ````

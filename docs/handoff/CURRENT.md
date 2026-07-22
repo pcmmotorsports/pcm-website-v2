@@ -2,21 +2,28 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第五片 U3a（L0 + U1 + U2a + U2b 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第六片 U3b（L0 + U1 + U2a + U2b + U3a 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
 
 ## 1. 交接快照
 
-- Updated: 2026-07-22 13:15, Asia/Taipei（U2b 後續第 2 片:cart_session_id 非安全環境 fallback ＝ 本 commit）
+- Updated: 2026-07-22 16:05, Asia/Taipei（**M-3 兩步結帳 Slice U3a：建立 canonical invoice schema ＝ 本 commit**）
 - ✅ **U2b `8a3852e` 的 Fable 補審已完成**（Sean 2026-07-22 拍 A）＝ **PASS-with-comments、0 must-fix、判定可 push**。
   🔴 **它抓到 codex 與 code-reviewer 都沒抓到的 F1**：真 TapPayCardFields 進到 `<label class="co-pay">` 內後，radio 的可及名稱由整個 label 內容推導 → 螢幕閱讀器會把「卡號 / 有效期 / CVV / …加密處理」整串念出來；U2a 之前卡欄是 `aria-hidden` 的假預覽故不會，**這是 U2b 引入的無障礙退化**。已於本 commit 修（radio 加 `aria-label`，零視覺變動）。
   另補 F2 測試缺口（同意勾選無法撤回會全綠）。**F3 併入驗收清單**：手機肉眼驗請加測「點『卡號 / 有效期 / CVV』**文字**（不是欄位框）之後，再點欄位框能否正常輸入」—— ⚠️ Sean 2026-07-22 的驗收沒測到這一項。
-- **下一片 ＝ M-3 U3a「建立 canonical invoice schema」**（或依 Sean 指示回主軌 M-4a B-4）。
+- **下一片 ＝ M-3 U3b「非卡片全錯誤 state 與 ARIA」**（或依 Sean 指示回主軌 M-4a B-4）。
+  🔴 **U3a 只鋪 canonical 地基、UI 一行沒接**：第二步畫面目前仍無逐欄紅字／`aria-invalid`／`aria-describedby`／錯誤摘要／第一錯誤 focus-scroll。已於 manifest 開 open drift `checkoutAllErrorsAtOnce` 記錄，由 U3b → U4a → U4b 依序收斂，**在那之前不得宣稱 design §7.2「全錯誤一次顯示」已達成**。
+- 🆕 **另一條待辦（非 M-3 線、尚未動工）＝ 顧客站每日同步時間往後搬**：需求單由報價單那側開立 ＝
+  `/Users/sean_1/API大量上架/PCM報價單-V2/docs/handoff/REQ-2026-07-22-網站庫同步時間.md`。
+  改 `.github/workflows/rpm-sync.yml` 第 22-23 行 `cron: '0 19 * * *'` → `'30 4 * * *'`（台灣 03:00 → 12:30）+ 同步改 UTC 換算註解。
+  原因：現行排程比報價單側爬蟲（台灣 03:30 開跑）還早 30 分鐘，顧客站每天同步到的必然是**前一天**的庫存與價格。
+  🔴 **片型＝高風險片（鐵則 12 ④平台設定：CI）**→ 需自己的 codex 對抗審查與獨立 commit，**不得併入 M-3 任何一片**。
+  需求單引用的第 22-23 行內容**已於 2026-07-22 唯讀核對屬實**。
 - 🔴 **Sean 的真刷驗收路徑（2026-07-22 明講）＝ 正式站開 1 元商品直接刷，不走本地區網**。規劃結帳驗收時**別再提「用手機連本機」**。連帶 backlog #293（本地 HTTPS 通道）已擱置。
   ⚠️ 該計畫的三個前置（已查證）：①正式站結帳目前關著（3DS flag 全 false、`isThreeDSEnabled` 註解明寫「僅 sandbox/staging」）②退款無自動化（全樹無 TapPay refund 呼叫實作，依 07-17 拍板要 Sean 手動去 Dashboard 退）③1 元商品會被一般客人看到（正式站目錄公開、無「只有我看得到」機制）。詳 memory `project_sean-real-payment-verify-via-1nt-product`。
 - 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**
 - Agent: Claude Code
-- Mode: 執行模式；**本 commit ＝ `cart_session_id` 非安全環境 fallback**（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪已於 2026-07-22 由 Sean 授權推出**（`dev` 與 `main` 皆已推、`origin/main` = `e000040`）；未 deploy 之外的動作（DB／flag／env）仍未做
+- Mode: 執行模式；**本 commit ＝ M-3 兩步結帳 Slice U3a「建立 canonical invoice schema」**（12 片中的第 5 片、內容分級 L1、高風險片〔鐵則 12 ①錢：`CheckoutInput` 的消費端是刷卡 server action `chargePaymentAction`〕；收檔 11 個；**本片開工基底 ＝ preflight HEAD ＝ parent ＝ `e4b9581`**；審查＝codex 關卡1 + 關卡2 + code-reviewer 全跑、不降級）。**以下為前一片 `62d8522` 的歷史紀錄**：`cart_session_id` 非安全環境 fallback（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪已於 2026-07-22 由 Sean 授權推出**（`dev` 與 `main` 皆已推、`origin/main` = `e000040`）；未 deploy 之外的動作（DB／flag／env）仍未做
 - Branch: `dev`
 - Implementation base：
   - **U2b 開工基底 ＝ preflight HEAD ＝ `6443a8e`**（U2a commit「抽出結帳複查區塊」）＝ **`8a3852e` 的 parent**（🔴 **非本 commit 的 parent** —— 本 commit 的 parent 是 `5609352`），兩者**相同**（`git merge-base --is-ancestor` 驗過）。開工時 `dev` 領先 `origin/dev` 1 個 commit（＝U2a、Sean 尚未推）。
@@ -140,7 +147,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
 | 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由 `a7ff24d` 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
-| M-3 | **兩步結帳 U3a**（L0 + U1 + U2a + U2b ✅ 已收工）：建立 canonical invoice schema | 兩步 UI 內容已完成，接下來是驗證/錯誤態/schema 收斂 | L1 受 #291 正式法律內容阻擋；U3a–U5 可在 flag-off 平行推進。✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A）；🔴 **但推 `main` 仍是 Sean 手動動作、不得代推** |
+| M-3 | **兩步結帳 U3b**（L0 + U1 + U2a + U2b + U3a ✅ 已收工）：非卡片全錯誤 state 與 ARIA | 兩步 UI 內容已完成，接下來是驗證/錯誤態/schema 收斂 | L1 受 #291 正式法律內容阻擋；U3a–U5 可在 flag-off 平行推進。✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A）；🔴 **但推 `main` 仍是 Sean 手動動作、不得代推** |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
 三個入口業務上可獨立規劃，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
@@ -278,7 +285,36 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ## 8. 已驗證／尚未驗證／需要 Sean
 
-### 本輪已驗證（2026-07-22 Slice U2b，實跑）
+### 本輪已驗證（2026-07-22 Slice U3a，實跑）
+
+- **開工前並行視窗檢查（硬前置、實跑）**：`ps aux | grep native-binary/claude` 列出 4 個進程，逐一 `lsof -a -p <PID> -d cwd`：
+  PID 94437 ＝ 本視窗、**PID 59840 cwd 亦為本 repo**（10:37 起、存活中）、另兩個在報價單 repo。
+  → **停下回報 Sean、不自行處理**；Sean 回覆「B ＝ 那個視窗是刻意留著的、照樣開工」後才動手。當時 tree 乾淨、無 index.lock。
+- **HEAD 與交接單落差已查明非異常**：交接寫 `e000040`、實際 `e4b9581`，後者是 Sean 授權推出後補的字面同步 commit（commit body 自述）。`git rev-list --count origin/dev..HEAD` ＝ **0**、`origin/dev` ＝ `origin/main` ＝ `e4b9581`。
+- **🔴 窮舉差分實測 21,546 組輸入**（Address 17,496 + Checkout 4,050；zod 4.4.3 實裝版，舊/新兩版並排跑）：
+  accept/reject 分歧 **0**、成功案 parsed output 分歧 **0**、「候選非現行超集」**0**、issue 集合不同 **4,662 案**（全為多報發票錯誤）。
+  觸發條件 ＝ 同一次 parse 有 fatal issue（`invalid_type` / z.enum `invalid_value`）；反證：單獨 `too_small`（姓名空）或單獨 `invalid_format`（addressId 非 uuid）**不**觸發。
+- **測試 +35**：`address.test.ts` 4→20、`checkout.test.ts` 30→48、`account/address/actions.test.ts` 10→11（逐檔實跑取得，非推算）。
+- **RED → GREEN 基線（以最終版測試對原始 schema 重測）＝ 11 failed / 68 passed（79）** → 改後 **79/79**。
+  🔴 **誠實拆解（codex 關卡2 + code-reviewer 同時抓到我原本寫錯）**：79 ＝ 既有 44 + 新增 35；
+  新增的 35 條中 **24 條對著舊 schema 就已全綠**（＝發票規則未被改動的機械證據）、**11 條如預期轉紅**。
+  ⚠️ 先前寫的「50 條發票特徵測試重構前全綠」**是錯的** —— 那 50 裡有 34 條是與發票無關的既有測試。
+- **🔴 突變實測 6 個全部轉紅、還原後全綠**：①canonical 內層 path 改回 `['invoice','title']` ②統編 regex `^\d{8}$` 放寬成 `^\d+$` ③AddressInput 改用自己的 z.object 複本 ④**codex 關卡2 自建：兩個 overload 回傳型別對調** —— runtime 測試 **45 條全綠**、只有 `expectTypeOf` + `tsc` 抓得到 ⑤`CheckoutInvoice` 由 `z.output` 改 `z.input` ⑥**code-reviewer 自建：規則被複製回外層 superRefine（invoice 仍指 canonical）** —— 補斷言前 **63 條全綠**。
+  🔴 **教訓（已落 memory）**：原本宣稱「只有實例同一性 `toBe` 測試抓得到 schema 被複製回兩份」是**過度宣稱**。`toBe` 只涵蓋「invoice 欄被換成另一個 z.object」；「規則被複製回外層」會讓同一 path 出現兩條 issue，而以 `.find()` 取值的斷言全部照樣綠 —— 要靠新增的「**同一欄只報一次 issue**」斷言才擋得住。守門的名字不可大於它的實際能力。
+- **三綠（全 `TURBO_FORCE=true`、0 cached）**：typecheck **8/8**、lint **10/10**、build **2/2**；`git diff --check` 乾淨。
+- **full `pnpm test`：236 檔 2654 passed + 1 todo**（對前一片基準 2619 ＝ **+35**，與逐檔拆解 16+18+1 完全吻合）。
+- **`node scripts/design-mirror.mjs --validate`**：26 元件 / **220** path tokens OK / 24 last_modified_commit 可達 OK。
+  ⚠️ `ProductPage.related_storefront[8]` 的「無 path token」警告為**既有**、本片未碰 ProductPage。
+- **三輪審查全部 FAIL → 全數核實屬實後折入**（高風險片、不降級）：
+  ① **codex 關卡1 R1 FAIL**：判定 plan §⑥「byte-for-byte 等價」以 plan 自己指定的做法不可達、推薦 A 案。
+     🔴 另抓到**我自己探針的兩個缺陷**：完全沒測 flag-on schema、對 issues 做了 `.sort()` 把陣列順序差異自己抹掉。已補探針 v3 證實。
+  ② **codex 關卡2 R1 FAIL（6 must-fix + 1 nit）**：測試未達 plan 自訂覆蓋面（Address 無 fatal sibling、無 server action 通道守門）、overload 型別假綠、片序 4→5、CURRENT 前瞻性宣稱、backlog #198 舊落點、RED 數字不實。
+  ③ **code-reviewer R1 FAIL（3 Critical + 2 Important）**：獨立重跑驗證所有數字；額外抓到 codex 沒抓到的 **`toBe` 覆蓋面過度宣稱**、STATUS 同欄兩個互斥「現行下一片」、四處錯置的「(本 commit)」、AccountPages 漏 bump。
+  🔴 **三個審查層各自抓到別人沒抓到的東西**，與前四片的實證一致。兩個 codex 輪次皆 `-s read-only`、跑前後 `git status --porcelain` 零留痕。
+- **消費端實查（非推論）**：`charge-actions.ts` 與 `account/address/actions.ts` 皆為**逐欄建 map**、不吃 issue 順序；`useChargePayment.tsx` 以 `notificationEmail ?? addressId ?? 通用` 按鍵取訊息 → **客人看到的錯誤字句零變化**。
+  全樹唯一仍用 `issues[0]` 的正式碼 ＝ `CheckoutView.tsx` 的單欄 `NotificationEmailInput` parse（順序無關），已加明示豁免註解。
+
+### 前一片已驗證（2026-07-22 Slice U2b，實跑）
 
 - **開工前並行視窗檢查（硬前置、實跑）**：`ps aux | grep native-binary/claude` 列出 3 個進程，
   逐一 `lsof -a -p <PID> -d cwd` → **PID 41369（U2a 那個視窗）cwd 仍是本 repo、且 10 分鐘前還在寫 transcript**
@@ -391,7 +427,19 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - L0 未跑 **full** `pnpm test`（該片零 `.ts/.tsx` 行為變更；U1 本片已補跑 full 236 檔 2600 passed + 1 todo）
 - L0 未驗證任何 runtime／瀏覽器行為（該片不產生 UI 變更）
 
-### U2b 尚未驗證（本輪誠實揭示）
+### U3a 尚未驗證（本輪誠實揭示）
+
+- **零真瀏覽器驗證**：本片全部證據來自 vitest（jsdom）+ typecheck/lint/build + 差分探針。不過本片**不動任何 UI**（零 TSX／零 CSS 變更），客人可見畫面理應零變化 —— 這是讀碼推理 + 消費端實查，非真瀏覽器實測。
+- **未跑真 TapPay／sandbox 3DS／真刷卡**；flag 維持 off。
+- **⚠️ 已知且已被 Sean 接受的行為差異（未實測、僅推理 + 差分探針證據）**：偽造 payload 打 `addAddressAction` 時，回傳通道可能由 `formError` 變 `fieldErrors`。**未以真 server action 端對端實測過**，證據來源為讀 `actions.ts:80-85`（fieldErrors 為空才 fallback）+ 差分探針的 issue 集合差異。
+- **「肉眼驗」未做**（Sean 專屬用詞；本輪只有程式驗證）。
+- **審查已全部跑完並收斂**：codex 關卡1 R1 FAIL → 折入；codex 關卡2 R1 FAIL（6 must-fix + 1 nit）→ 全數核實屬實、全折入；
+  code-reviewer R1 FAIL（3 Critical + 2 Important）→ 全數核實屬實、全折入。詳細逐條見上方「本輪已驗證」。
+  ⚠️ **修完後未再開 R2 複審**（依 repo 輪次紀律，R1 的 findings 全為機械字面 + 測試斷言補強，已由我逐條實跑驗證：
+  突變⑥ 補斷言後轉紅、突變④ 補型別守門後 tsc 轉紅、所有數字重量後寫入）。**下一個 session 若要複驗，這是最該看的一段。**
+- **未動 `.env*`、未 apply DB、未開 flag、未 deploy、未 push。**
+
+### U2b 尚未驗證（沿用）
 
 - **零真瀏覽器驗證**：桌機與 390px 手機版都沒開過，只有 jsdom 測試綠。版面缺陷（破圖、截短失效、卡欄擠壓）
   三綠與單元測試都看不見 —— 這正是解閘還要 Sean 手機肉眼驗的原因。

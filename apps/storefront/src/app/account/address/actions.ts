@@ -4,15 +4,17 @@
 //
 // 鏡像 g-4a updateProfileAction 信任邊界 pattern(已過 codex 雙關卡):
 // - ① server session getUser 取 user.id(不從表單 body 取 customerUserId)
-// - ② AddressInput zod safeParse(strip 未知欄 + invoice superRefine:company→title/taxId、donate→donateCode)
+// - ② AddressInput zod safeParse(strip 未知欄 + 發票跨欄位規則:company→title/taxId、donate→donateCode;
+//     🔴 U3a 起規則住在 @pcm/schemas `CheckoutInvoiceInput`〔與結帳表單共用同一實例〕、非本 schema 自帶)
 // - ③ addAddress use-case 用 currentUserId 填 customerUserId、收窄型別 AddressCreateInput(不信 input id/customerUserId)
 // - ④ RLS addresses_*_own(auth.uid()=customer_user_id 守自己 row、跨 user 寫入被 DB 擋)
 // - ⑤ DB CHECK addresses_invoice_company_has_data / _donate_has_code(superRefine 已對齊、最後防線)
 // - addAddress isDefault=true → unsetCurrentDefaultExcept(先 unset 舊預設→create、best-effort swap、e-2a 已實作)
 //
 // #181 雙通道 + ok 標(g-5b InlineAddressForm 收 ok 後 router.refresh + onClose):
-// - fieldErrors 逐欄,**含巢狀 invoice 路徑**:AddressInput superRefine issue.path 為 ['invoice','taxId'] 等,
+// - fieldErrors 逐欄,**含巢狀 invoice 路徑**:發票規則的 issue.path 為 ['invoice','taxId'] 等,
 //   對應到表單 company/donate tab 下的 invoice 欄;頂層 name/phone/line 走 fieldErrors[欄]。
+//   🔴 必須逐欄建 map、不得用 issues[0] 當錯誤來源(U3a 起 issue 順序不保證;下方迴圈已是逐欄)。
 // - formError 帳號層級(請重新登入 / 儲存失敗);不洩 Supabase 原始 error。
 
 import { addAddress, updateAddress, deleteAddress } from '@pcm/use-cases';
@@ -20,7 +22,8 @@ import { AddressInput } from '@pcm/schemas';
 import { getAddressRepo } from '@/lib/auth/composition';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 
-// invoice 巢狀 fieldErrors(對齊 AddressInput superRefine path ['invoice', 'title'|'taxId'|'donateCode'])。
+// invoice 巢狀 fieldErrors(對齊 issue path ['invoice', 'title'|'taxId'|'donateCode'];規則源=
+// @pcm/schemas `CheckoutInvoiceInput`,內層 path 不含前綴、compose 後由 zod 自動補 'invoice')。
 export type AddressInvoiceFieldErrors = Partial<
   Record<'carrier' | 'title' | 'taxId' | 'donateCode', string>
 >;
@@ -62,7 +65,7 @@ export async function addAddressAction(input: unknown): Promise<AddAddressAction
     return { formError: '請重新登入' };
   }
 
-  // 信任邊界 ②:AddressInput safeParse(strip 未知欄 + invoice superRefine、fieldErrors 逐欄含巢狀)。
+  // 信任邊界 ②:AddressInput safeParse(strip 未知欄 + 共用發票規則、fieldErrors 逐欄含巢狀)。
   const parsed = AddressInput.safeParse(input);
   if (!parsed.success) {
     const fieldErrors: AddressFieldErrors = {};
@@ -118,7 +121,7 @@ export async function updateAddressAction(
     return { formError: '請重新登入' };
   }
 
-  // 信任邊界 ②:AddressInput safeParse(strip 未知欄 + invoice superRefine、fieldErrors 逐欄含巢狀)。
+  // 信任邊界 ②:AddressInput safeParse(strip 未知欄 + 共用發票規則、fieldErrors 逐欄含巢狀)。
   const parsed = AddressInput.safeParse(input);
   if (!parsed.success) {
     const fieldErrors: AddressFieldErrors = {};

@@ -630,6 +630,11 @@ export const RegisterInput = z.object({
 export type RegisterInput = z.infer<typeof RegisterInput>;
 
 // === Address form(對齊 design InlineAddressForm) ===
+// 🔴 2026-07-22 U3a 起實作已偏離本 PRD 草圖:invoice 的形狀與 superRefine 已抽成 canonical
+//    `CheckoutInvoiceInput`(與結帳表單共用同一實例),AddressInput 改為 `invoice: CheckoutInvoiceInput`,
+//    且內層 path 只寫 ['title'] 等、由 zod 巢狀 compose 自動補 'invoice' 前綴
+//    (本草圖寫的 path: ['invoice.title'] 是**單一字串**、與實作的 ['invoice','title'] 不同,勿照抄)。
+//    真權威 = packages/schemas/src/index.ts。
 export const AddressInput = z.object({
   isDefault: z.boolean().default(false),
   name: z.string().min(1, '請填寫收件人'),
