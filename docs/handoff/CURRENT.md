@@ -16,7 +16,7 @@
   ⚠️ 該計畫的三個前置（已查證）：①正式站結帳目前關著（3DS flag 全 false、`isThreeDSEnabled` 註解明寫「僅 sandbox/staging」）②退款無自動化（全樹無 TapPay refund 呼叫實作，依 07-17 拍板要 Sean 手動去 Dashboard 退）③1 元商品會被一般客人看到（正式站目錄公開、無「只有我看得到」機制）。詳 memory `project_sean-real-payment-verify-via-1nt-product`。
 - 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**
 - Agent: Claude Code
-- Mode: 執行模式；**本 commit ＝ `cart_session_id` 非安全環境 fallback**（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪未 push**；未 deploy、未推 `main`
+- Mode: 執行模式；**本 commit ＝ `cart_session_id` 非安全環境 fallback**（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪已於 2026-07-22 由 Sean 授權推出**（`dev` 與 `main` 皆已推、`origin/main` = `e000040`）；未 deploy 之外的動作（DB／flag／env）仍未做
 - Branch: `dev`
 - Implementation base：
   - **U2b 開工基底 ＝ preflight HEAD ＝ `6443a8e`**（U2a commit「抽出結帳複查區塊」）＝ **`8a3852e` 的 parent**（🔴 **非本 commit 的 parent** —— 本 commit 的 parent 是 `5609352`），兩者**相同**（`git merge-base --is-ancestor` 驗過）。開工時 `dev` 領先 `origin/dev` 1 個 commit（＝U2a、Sean 尚未推）。
@@ -27,7 +27,7 @@
     後續任何 push／revert／review 的範圍計算都必須把它算進去。
   - 🔴 **U2a 開工前並行視窗檢查（實跑，非宣稱）**：`ps aux | grep native-binary/claude` 起初列出 **3 個**進程，逐一 `lsof -a -p <PID> -d cwd` 後發現**兩個 cwd 指向本 repo**（68808 ＝ 本視窗、71740 ＝ 前一視窗，其 transcript 在 13 秒前仍在寫）；十餘秒後複查，**71740 已自行結束**（`ps -p 71740` 回 NOT RUNNING），第三個（95505）cwd 在報價單 repo、不相干 → 確認全程只有本視窗寫入本 repo。tree clean、HEAD ＝ `96cf42c` 對齊 SSoT。
   - 🔴 **U1 那輪的同款檢查**：前一視窗 19:09 啟動、最後動作 22:57「L0 收工」後閒置未再寫入。
-- Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得；**本輪未 push**（U1 那次的 push 是 Sean 明示指示，非常態）
+- Git snapshot: HEAD、remote refs 與未推數一律用下方命令即時取得。**🚀 2026-07-22 收工時 Sean 授權推出 `dev` 與 `dev:main`，兩者皆已完成**（推前 `origin/main` = `a0c62c0`）；⚠️ push 仍是 Sean 的手動決定，任何 session 不得代推或主動提議。
 - Expected dirty: 本 commit 後應為 clean；若仍有 dirty，先辨認 ownership
 
 每個新 session 仍須自行重跑：
@@ -113,7 +113,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
     🔴 **兩個消費端一起改**：`CheckoutStep2.tsx` 選項列（Sean 點名）＋ `CheckoutStep3.tsx` 複查行「信用卡 · TapPay」（**未點名、依同一原則延伸、Sean 可否決**）＋ 4 個測試檔字面；**不動** `CheckoutStep1.tsx` 的 B-3 揭示文案。落點＝plan U2b §④/§⑤（含文案搜尋 gate）。
   - Sean 另問「將來串虛擬帳戶，上下要連動嗎」→ **會，結構已是可擴充單選**（design §6.3；design `:432` 原本就畫了 ATM 選項）；但**虛擬帳戶不在 Phase 1**（design §4.2），且需取號／對帳／逾期取消／訂單狀態機，**不是前端工作**。
 - 🔴 **正式上線閘（Sean 2026-07-22 拍 A）：`dev` 暫不推 `main`**
-  - 現況：`origin/main` = `a0c62c0`（07-20）；`dev` 領先幾個 commit **本欄不寫死**（U1 那次寫「15 個」在後續 commit 產出當下即變假）→ 一律實跑 `git rev-list --count origin/main..dev`。實測 **fast-forward 可推、零 migration、B-3 Email flag off、3DS flag false** → 技術上安全。
+  - 🚀 **2026-07-22 已解閘並推出**：`origin/main` 由 `a0c62c0` 前進到 `e000040`（Sean 授權、fast-forward、無 merge）。以下為推出前的歷史記錄。~~現況：`origin/main` = `a0c62c0`（07-20）~~；`dev` 領先幾個 commit **本欄不寫死** → 一律實跑 `git rev-list --count origin/main..dev`。實測 **fast-forward 可推、零 migration、B-3 Email flag off、3DS flag false** → 技術上安全。
   - 不推的理由＝**U1 是刻意留的 WIP**：客人登入後進結帳第二步會看到「發票資訊」「付款方式」各兩次、灰掉的假信用卡欄、夾在中間的「確認訂單」標題。付款雖走不完（flag 關著），但**畫面看得到**，會傷信任。
   - 另一理由：**U1 未經真瀏覽器驗收** —— 桌機僅 Sean 本機 localhost 看過，**390px 手機版零驗證**（U1 的幽靈第三欄教訓＝測試全綠也可能版面壞掉）。
   - **解閘條件**：U2a（✅ `6443a8e`）+ U2b（✅ `8a3852e`）＋ Sean 驗收 390px（✅ **已達成**：2026-07-22 以**桌機瀏覽器 390px 視窗**驗過①無重複區塊 ②無假卡欄 ③版面正常，Sean 回覆「沒問題」並於同日拍 Q1=A **明確定義此即滿足「肉眼驗手機版」**；🔴 誠實揭示：**非真手機**，**第 ④ 項「點卡號 / 有效期 / CVV 文字標籤後焦點」未驗**〔觸控行為、滑鼠模擬不準〕） → **三條件全部達成、閘已解除**；`git push origin dev:main` 為 Sean 的手動動作。
@@ -400,7 +400,7 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
   iframe 屬 interactive content、點 iframe 本身不受影響；codex 兩輪均判定「無不改就會壞的證據」、維持 nit，
   故保留 design 結構（鐵則 1）而非改成 `div`。**請 Sean 手機肉眼驗時指定測這一項**。
 - **真 TapPay sandbox 未跑**：卡欄搬位置後的實際 setup / 輸入 / Step 2→1→2 重建，只有 jsdom mock 驗過。
-- **未 push、未 deploy、未推 `main`、未動 `.env*`、未 apply DB、未開 flag。**
+- **未動 `.env*`、未 apply DB、未開 flag、未 deploy（指未手動觸發部署；push main 會由 Vercel 自動建置）。**⚠️ 「未 push／未推 main」為該片收工當下的字面，**2026-07-22 收工時 Sean 已授權推出兩者**。
 
 ### U2a 尚未驗證（沿用）
 
@@ -429,7 +429,7 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - ⚠️ **本輪偏離交接指示、已報備並取得繼續**：交接單原寫 `terms-version.ts` 等三處「不用再改」，但其括號內仍寫著即將不存在的檔名 `CheckoutStep3.tsx`、依本片的 G6 gate 會失敗 →**只拿掉死檔名、不動指標與邏輯**（`terms-version.ts` / `cart-vehicle-format.ts` / `CartVehicleField.tsx` 各 1 行註解）。
 - ✅ **審查已結（Sean 2026-07-21 拍板：不開 R5、接受現況收工）**：外部 codex 唯讀跑滿 **R1→R4、四輪全數 `NO-GO`**（累計 28 條 must-fix、全數屬實、全數已修；R3／R4 為 Sean 明示放行，repo 預設上限 2 輪）。🔴 **誠實現況＝R4 的 9 條修正尚未經第三方覆核**；在有任何一輪 PASS 之前，不得把本 commit 描述為已通過審查。
 - ✅ **結構性根因已拍板並落檔（Sean 2026-07-21 拍 A）**：同一組事實（核准矩陣／parent／審查狀態／checkpoint 定位）重複散落 7 個檔案 + commit message、靠人工同步 —— 四輪審查證明此結構下人工同步會持續漏。採 **A 案＝收斂為單一來源**（#291 為法律頁事實的唯一權威，其餘各處只留一行指標、不複製內容；自指 hash 不寫死；字面反驗須納入 commit message）。已開 **backlog #292** 獨立一片承接，**不塞進 L0 或任何既有 slice**。
-- 現在不需操作 dashboard、DB、env；**本輪未 push；`dev` 領先 `origin/dev` 的數量本欄一律不寫死**（每多一個 commit 就當場變假）→ 實跑 `git rev-list --count origin/dev..HEAD` 為準（U1 那次的 `origin/dev` push 是 Sean 明示指示、非常態）；主軌下一片 B-4 需另行確認範圍
+- 現在不需操作 dashboard、DB、env；**2026-07-22 Sean 授權後 `dev` 與 `main` 皆已推出**，`dev` 領先 `origin/dev` 的數量本欄一律不寫死（每多一個 commit 就當場變假）→ 實跑 `git rev-list --count origin/dev..HEAD` 為準（U1 那次的 `origin/dev` push 是 Sean 明示指示、非常態）；主軌下一片 B-4 需另行確認範圍
 - push、deploy、production migration、env／GitHub Secrets、正式 flag 切換仍由 Sean 操作或逐次明確批准
 
 ## 9. 安全邊界
