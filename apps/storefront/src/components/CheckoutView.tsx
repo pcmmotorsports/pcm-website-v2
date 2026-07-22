@@ -12,12 +12,14 @@
 //   U1 搬骨架 → U2a 抽複查區塊 → **U2b ✅ 收斂完成**:三步版 shell `CheckoutStep3.tsx` 已退役刪除,
 //   Step 2 只掛單一 `CheckoutStep2`(內含 CheckoutStep2ReviewSections 的收件摘要與訂單複查),
 //   disabled 假卡欄與重複的發票 / 付款複查節點全部移除。
+//   🔴 鐵則 6 跑道:U3b 三刀(validate-checkout-payment / usePaymentErrors / CheckoutMobileBuybar)後 392 行;
+//   U4a-0 第四·五刀(CheckoutTerminalScreen / CheckoutCartNotice、皆純 presentational 零行為變更)後 356 行。
 //
 // ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
 //   付款方式選項 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
 //   只在 step===2 啟用 setup)→ 確認付款 = **U3b 非卡片 validation** → getPrime →
 //   useChargePayment.submit(server cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)
-//   → 結果映 UI:paid / processing / unknown(action throw 回應遺失層、可能已扣款)→ CheckoutSuccess
+//   → 結果映 UI:paid / processing / unknown(action throw 回應遺失層、可能已扣款)→ CheckoutTerminalScreen
 //   終態;error / wait / in_flight → 留頁,訊息與非卡片錯誤共用 CheckoutPaymentFeedback 單一 alert。
 //
 // route adaptation(對齊 storefront 慣例、非 design 視覺偏離):
@@ -45,8 +47,8 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { CheckoutStep1 } from '@/components/CheckoutStep1';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutStepIndicator';
-import { CheckoutSuccess } from '@/components/CheckoutSuccess';
-import { CheckoutRedirecting } from '@/components/CheckoutRedirecting';
+import { CheckoutTerminalScreen, isTerminalChargeState } from '@/components/CheckoutTerminalScreen';
+import { CheckoutCartNotice } from '@/components/CheckoutCartNotice';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
 import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
 import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
@@ -220,53 +222,15 @@ export function CheckoutView({
   // 付款區唯一 alert 的文字(U3b:逐欄摘要 > formError > getPrime 失敗 > 未過期的 charge 訊息)。
   const paymentAlert = payErrors.alertFor({ primeError, chargeState: charge.state });
 
-  // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。
-  if (charge.state.status === 'paid') {
-    return <CheckoutSuccess displayId={charge.state.displayId} />;
-  }
-  if (charge.state.status === 'processing') {
-    return (
-      <CheckoutSuccess
-        displayId={charge.state.displayId}
-        variant="processing"
-        message={charge.state.message}
-      />
-    );
-  }
-  // unknown(②-④ fix、審查側 BLOCKER):action throw = 回應遺失層、可能已扣款 → 終態勿重複
-  // 付款(無單號;hook 已清車 + 持鎖、不可重送)。
-  if (charge.state.status === 'unknown') {
-    return <CheckoutSuccess variant="unknown" message={charge.state.message} />;
-  }
-  // 🔴 3DS-6b(flag on 3DS 啟動成功):整頁導向 TapPay payment_url(導向副作用封裝於 CheckoutRedirecting
-  //   的 useEffect、render 期不副作用;付款狀態非終態、不清車)。
-  if (charge.state.status === 'redirect') {
-    return <CheckoutRedirecting redirectUrl={charge.state.redirectUrl} />;
-  }
+  // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。四態畫面在 CheckoutTerminalScreen。
+  // 🔴 U4a-0:條件必須是 status 型別守衛,**不可**寫成「元件回傳值是否 truthy」——
+  //   JSX 元素恆為 truthy、子元件回 null 也擋不住,會讓非終態的整頁結帳表單消失。
+  if (isTerminalChargeState(charge.state)) return <CheckoutTerminalScreen state={charge.state} />;
 
-  if (cart.status === 'loading') {
-    return (
-      <div data-screen-label="Checkout" className="co-page">
-        <Header currentPage="checkout" />
-        <div className="cart-loading">載入結帳資料…</div>
-        <HomeFooter />
-      </div>
-    );
-  }
-
+  if (cart.status === 'loading') return <CheckoutCartNotice variant="loading" />;
   // 空車不進結帳(對齊 design 假設「有商品」;導回購物車)。
   if (cart.status === 'empty') {
-    return (
-      <div data-screen-label="Checkout" className="co-page">
-        <Header currentPage="checkout" />
-        <div className="cart-empty">
-          <h2>購物車是空的</h2>
-          <p>先挑選部品再來結帳吧。</p>
-          <button className="btn-primary" onClick={() => router.push('/products')}>繼續購物</button>
-        </div>
-        <HomeFooter />
-      </div>
-    );
+    return <CheckoutCartNotice variant="empty" onContinueShopping={() => router.push('/products')} />;
   }
 
   const { lines, subtotal, shipping, total } = cart;

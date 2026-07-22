@@ -203,10 +203,16 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(screen.getByText('載入結帳資料…')).toBeTruthy();
   });
 
-  it('空車 → 導購物車提示', async () => {
+  it('空車 → 導購物車提示 + 「繼續購物」實際導向 /products', async () => {
     setCart([]);
     renderCheckout();
     expect(await screen.findByText('購物車是空的')).toBeTruthy();
+    // 🔴 U4a-0(codex 關卡1 R2 must-fix):空車畫面外移成 CheckoutCartNotice 後,導航是靠
+    //   onContinueShopping prop 接回來的。只斷言文案的話,接線斷掉畫面照樣長一樣、DOM 比對也全綠
+    //   → 必須真的點下去驗 router.push。
+    fireEvent.click(screen.getByRole('button', { name: '繼續購物' }));
+    expect(pushMock).toHaveBeenCalledWith('/products');
+    expect(pushMock).toHaveBeenCalledTimes(1);
   });
 
   it('ready:2 步指示器 + Step1 地址 + 配送 + 右側摘要', async () => {
@@ -477,6 +483,40 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
     expect(payload).not.toHaveProperty('amount'); // 🔴 client 零送價
     expect(cartRef.current.clear).toHaveBeenCalledOnce(); // paid 才清車
+  });
+
+  // 🔴 U4a-0(code-reviewer must-fix):本片把終態 render 外移,而「終態必須優先於 loading/empty」
+  //   是 CheckoutView 裡最高風險的一條不變量(註解自己寫了「clear() 後 cart 轉 empty 不可蓋掉終態」),
+  //   卻**從來沒有測試守過** —— 因為既有測試的 `clear` 是 no-op `vi.fn()`,cartRef.items 永遠不會變空,
+  //   `useResolvedCart` 的 status 因此恆為 'ready',四條終態測試全程走不到 empty 分支。
+  //   後果:若有人把終態判斷挪到 loading/empty 之後(U4a/U4b 往這段插行時極易發生),
+  //   剛刷完卡的客人會看到「購物車是空的」而不是「訂單已成立」+ 單號 → 直接誘導重複付款,
+  //   而既有 40 條 + 本片 10 條新測試**照樣全綠**。這條補上以殺死該假綠。
+  it('🔴 終態優先於空車:paid 後 clear() 真的清空購物車 → 仍顯示訂單已成立 + 單號,不得掉回「購物車是空的」', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1', unitPrice: 15200 })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0009' });
+    // 與既有測試的差別:讓 clear() 真的把品項清掉(模擬正式環境 CartContext 的行為)。
+    cartRef.current.clear = vi.fn(() => {
+      cartRef.current.items = [];
+      cartRef.current.totalQty = 0;
+    });
+
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(await screen.findByText('訂單已成立')).toBeTruthy();
+    expect(cartRef.current.items).toHaveLength(0); // 前置成立:購物車此刻真的是空的
+
+    // 🔴 上面 findByText 的那次 render 就已經是「cart 已空」狀態下重新評估的結果
+    //   (clear() 在 charge.submit 內、早於 paid 的 setState)→ 終態必須贏過 empty。
+    //   ⚠️ 不要在這裡補 fireEvent.click(container) 假裝「再觸發一次 render」:那不會觸發 React rerender
+    //   (無 handler、無 state 變更),寫了只是讓後人誤解測試機制(codex 關卡2 nit)。
+    expect(screen.getByText('訂單已成立')).toBeTruthy();
+    expect(screen.getByText('PCM-2026-0009')).toBeTruthy();
+    expect(screen.queryByText('購物車是空的')).toBeNull();
+    expect(screen.queryByText('載入結帳資料…')).toBeNull();
   });
 
   it('🔴 P3 in-flight 軟提醒取消(confirm false)→ 連 getPrime 都不進、零 chargePaymentAction(不送出)', async () => {
