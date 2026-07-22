@@ -8,7 +8,10 @@
 ## 1. 交接快照
 
 - Updated: 2026-07-22 13:15, Asia/Taipei（U2b 後續第 2 片:cart_session_id 非安全環境 fallback ＝ 本 commit）
-- 🔴 **下一件事 ＝ 補跑 U2b `8a3852e` 的 Fable 對抗審查**（Sean 2026-07-22 拍 A）。U2b 是高風險片（真 TapPay 卡片輸入表面搬位置），當時跑了 codex 關卡1×2＋關卡2×2＋code-reviewer×2，**但漏跑 Fable**；本片補跑後證明 Fable 確實抓得到 codex 漏掉的假綠缺口，故 U2b 值得補。趁未推 main 做。
+- ✅ **U2b `8a3852e` 的 Fable 補審已完成**（Sean 2026-07-22 拍 A）＝ **PASS-with-comments、0 must-fix、判定可 push**。
+  🔴 **它抓到 codex 與 code-reviewer 都沒抓到的 F1**：真 TapPayCardFields 進到 `<label class="co-pay">` 內後，radio 的可及名稱由整個 label 內容推導 → 螢幕閱讀器會把「卡號 / 有效期 / CVV / …加密處理」整串念出來；U2a 之前卡欄是 `aria-hidden` 的假預覽故不會，**這是 U2b 引入的無障礙退化**。已於本 commit 修（radio 加 `aria-label`，零視覺變動）。
+  另補 F2 測試缺口（同意勾選無法撤回會全綠）。**F3 併入驗收清單**：手機肉眼驗請加測「點『卡號 / 有效期 / CVV』**文字**（不是欄位框）之後，再點欄位框能否正常輸入」—— ⚠️ Sean 2026-07-22 的驗收沒測到這一項。
+- **下一片 ＝ M-3 U3a「建立 canonical invoice schema」**（或依 Sean 指示回主軌 M-4a B-4）。
 - 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**
 - Agent: Claude Code
 - Mode: 執行模式；**本 commit ＝ `cart_session_id` 非安全環境 fallback**（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪未 push**；未 deploy、未推 `main`

@@ -200,7 +200,11 @@ export function CheckoutStep2({
         <div className="co-pay-list">
           {/* Q1=A 僅信用卡;ATM 隱藏(§3.2)。單一選項 → checked readOnly(鏡像 e1 配送)。 */}
           <label className="co-pay is-on">
-            <input type="radio" name="pay" checked readOnly />
+            {/* 🔴 aria-label 必要(Fable 對抗審查 F1):外層是 <label>,radio 的可及名稱預設由整個 label
+                內容組成。U2a 之前卡欄是 aria-hidden 的假預覽、不入名稱;U2b 換成**真** TapPayCardFields
+                後不能 aria-hidden(它是互動元素)→ 螢幕閱讀器念這顆 radio 會把「卡號 / 有效期 / CVV /
+                卡片資訊由 TapPay 安全欄位加密處理…」整串一起念出來。顯式 aria-label 蓋掉推導名稱。 */}
+            <input type="radio" name="pay" checked readOnly aria-label="信用卡付款" />
             <span className="co-pay-radio" />
             <div className="co-pay-body">
               <div className="co-pay-label">信用卡付款</div>

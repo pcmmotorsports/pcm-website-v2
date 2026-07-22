@@ -216,6 +216,17 @@ describe('CheckoutStep2 付款(U2b)', () => {
     expect(screen.queryByText('ATM 轉帳')).toBeNull();
   });
 
+  it('🔴 無障礙:radio 可及名稱只有「信用卡付款」,不含整段卡欄文字(Fable F1)', () => {
+    render(<Harness />);
+    // 外層是 <label>,若沒有顯式 aria-label,radio 的可及名稱會由整個 label 內容推導 ——
+    // 真卡欄(不能 aria-hidden)的「卡號 / 有效期 / CVV / …加密處理」會整串被念出來。
+    const radio = screen.getByRole('radio', { name: '信用卡付款' });
+    expect(radio).toBeTruthy();
+    expect(radio.getAttribute('aria-label')).toBe('信用卡付款');
+    // 反向守門:拿掉 aria-label 後,推導名稱會含「卡號」→ 這條會抓到
+    expect(screen.queryByRole('radio', { name: /卡號/ })).toBeNull();
+  });
+
   it('🔴 真卡欄落點:.co-pay-body > .co-card-form(A 案;放錯層會轉紅)', () => {
     const { container } = render(<Harness />);
     expect(container.querySelector('.co-pay-body > .co-card-form')).toBeTruthy();
@@ -259,6 +270,17 @@ describe('CheckoutStep2 商品與條款(U2b)', () => {
     const cb = container.querySelector('.co-agree input') as HTMLInputElement;
     fireEvent.click(cb);
     expect(onAgreedChange).toHaveBeenCalledWith(true);
+  });
+
+  // 🔴 撤回權守門(Fable F2 測試缺口):原本只測「勾上」,
+  //    把 onAgreedChange 誤接成 `() => setAgreed(true)` 會讓客人**勾了就取消不掉**、全測試仍綠。
+  it('🔴 已勾選狀態下再點 → onAgreedChange(false),同意可撤回', () => {
+    const onAgreedChange = vi.fn();
+    const { container } = render(<Harness over={{ agreed: true, onAgreedChange }} />);
+    const cb = container.querySelector('.co-agree input') as HTMLInputElement;
+    expect(cb.checked).toBe(true);
+    fireEvent.click(cb);
+    expect(onAgreedChange).toHaveBeenCalledWith(false);
   });
 
   it('🔴 經銷零洩漏:無「經銷」/ price_store / priceByTier / 劃線價', () => {
