@@ -12,6 +12,8 @@
   🔴 **它抓到 codex 與 code-reviewer 都沒抓到的 F1**：真 TapPayCardFields 進到 `<label class="co-pay">` 內後，radio 的可及名稱由整個 label 內容推導 → 螢幕閱讀器會把「卡號 / 有效期 / CVV / …加密處理」整串念出來；U2a 之前卡欄是 `aria-hidden` 的假預覽故不會，**這是 U2b 引入的無障礙退化**。已於本 commit 修（radio 加 `aria-label`，零視覺變動）。
   另補 F2 測試缺口（同意勾選無法撤回會全綠）。**F3 併入驗收清單**：手機肉眼驗請加測「點『卡號 / 有效期 / CVV』**文字**（不是欄位框）之後，再點欄位框能否正常輸入」—— ⚠️ Sean 2026-07-22 的驗收沒測到這一項。
 - **下一片 ＝ M-3 U3a「建立 canonical invoice schema」**（或依 Sean 指示回主軌 M-4a B-4）。
+- 🔴 **Sean 的真刷驗收路徑（2026-07-22 明講）＝ 正式站開 1 元商品直接刷，不走本地區網**。規劃結帳驗收時**別再提「用手機連本機」**。連帶 backlog #293（本地 HTTPS 通道）已擱置。
+  ⚠️ 該計畫的三個前置（已查證）：①正式站結帳目前關著（3DS flag 全 false、`isThreeDSEnabled` 註解明寫「僅 sandbox/staging」）②退款無自動化（全樹無 TapPay refund 呼叫實作，依 07-17 拍板要 Sean 手動去 Dashboard 退）③1 元商品會被一般客人看到（正式站目錄公開、無「只有我看得到」機制）。詳 memory `project_sean-real-payment-verify-via-1nt-product`。
 - 🔴 **U2b 已通過 Sean 驗收**（2026-07-22、**390px 桌機模擬**、①無重複區塊 ②無假卡欄 ③版面正常 三項通過）。⚠️ **不是真手機**，且**第 ④ 項「點卡號文字標籤後焦點是否正常」未驗**——該項需真觸控裝置，而真機測試被 `crypto.randomUUID` 非安全環境問題擋住（見下一片）。**推 main 與否由 Sean 決定，本 session 不推、不提議推。**
 - Agent: Claude Code
 - Mode: 執行模式；**本 commit ＝ `cart_session_id` 非安全環境 fallback**（高風險片、鐵則 12 ①錢；收檔 6 個：`CartContext.tsx` / `CartContext.test.tsx` / manifest〔CartPage＋CheckoutPage 兩處〕/ backlog #293 / `STATUS.md` / 本檔。**本片開工基底 ＝ parent ＝ `5609352`**〔導覽列品牌死連結修正〕；審查＝codex 關卡1×2＋關卡2＋Fable＋code-reviewer 全跑、不降級）。**以下 U2b 段落為歷史紀錄**：M-3 兩步結帳 **Slice U2b ＝ `8a3852e`**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪未 push**；未 deploy、未推 `main`
