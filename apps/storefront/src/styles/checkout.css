@@ -283,9 +283,11 @@
 .co-ship-desc { font-size: 12px; color: var(--c-text-2); line-height: 1.5; }
 
 /* Payment method + card form (e2;搬 design L266-299。
-   信用卡欄為純 UI 預覽(disabled)、co-card-note 為 storefront 新增說明、非 design。
+   🔴 U2b 起 .co-card-form 內是**真的 TapPay 安全欄位 iframe 容器**(TapPayCardFields 渲染),
+   不再是 disabled 假卡欄;落點回到 design L400-422 的原始結構 = .co-pay > .co-pay-body > .co-card-form,
+   下方 margin-top / padding-top / border-top 就是為這個位置寫的分隔線。
    .co-pay.is-disabled / :hover:not(.is-disabled) 為 design L277/L279 字面防禦規則、
-   單一 TapPay 選項暫未套用、多付款方式上線時啟用、不裁剪保 design 保真。) */
+   單一信用卡選項暫未套用、多付款方式上線時啟用、不裁剪保 design 保真。) */
 .co-pay-list { display: flex; flex-direction: column; gap: 8px; }
 .co-pay {
   display: grid;
@@ -329,12 +331,23 @@
 .tpfield.tpfield-error { border-color: var(--c-red); }
 .co-card-error { font-size: 13px; color: var(--c-red); margin: 0; }
 
-/* Step 3 review + agree (e3a;搬 design L351-403) */
+/* Review blocks + agree (e3a;搬 design L351-403;U2b 起住在 Step 2 的收件摘要與 N°05 確認訂單區) */
 .co-review-block {
   padding: 16px 0;
   border-bottom: 1px solid var(--c-border);
 }
 .co-review-block:last-child { border-bottom: 0; padding-bottom: 0; }
+/* 🔴 U2b:收件摘要自成一個 .co-section(區塊本身就是第一個子元素、上方沒有 co-section-head),
+   若不歸零會與 .co-section 的 24px 上內距疊加成 40px。N°05 區的第一個子元素是 .co-section-head,
+   不會命中本規則,故既有版面不受影響。 */
+.co-section > .co-review-block:first-child { padding-top: 0; }
+/* 🔴 U2b:收件摘要地址單行截短**只用 CSS**、完整地址字串必須留在 DOM(不得 JS slice 丟字);
+   styles/checkout.test.ts 鎖住下列三條宣告,CheckoutStep2ReviewSections.test.tsx 驗完整字面仍在。 */
+.co-shipping-summary-address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .co-review-block-head {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 10px;

@@ -1,21 +1,23 @@
 'use client';
 
-// CheckoutStep2ReviewSections.tsx — 第二步複查區塊(M-3 兩步結帳 Slice U2a)
+// CheckoutStep2ReviewSections.tsx — 第二步複查區塊(M-3 兩步結帳 Slice U2a 建、U2b 收斂)
 //
-// 🔴 **純 presentational extraction**:三個 export 的 JSX 逐字搬自 `CheckoutStep3.tsx`
-//   對應區塊,DOM 語意、class、文案與 handler 契約一律不變(U2a 驗收條件)。
-//   字面真權威仍是 design-reference/components/CheckoutPage.jsx Step3(L506-594、鐵則 1);
-//   本片只換「這段 JSX 住在哪個檔」,不換它長什麼樣、不改付款行為。
+// 🔴 **純 presentational**:兩個 export 的 JSX 逐字搬自 design-reference 已退役的三步版
+//   Step3 對應區塊,DOM 語意、class、文案與 handler 契約一律不變。
+//   字面真權威 = design-reference/components/CheckoutPage.jsx Step3(L506-594、鐵則 1)。
+//   唯一消費端 = `CheckoutStep2.tsx`(U2b 起第二步的唯一內容元件)。
 //
-// 為什麼抽:U2b 要把第二步組成單欄(精簡收件摘要 → 發票 → 唯一 TapPay slot → 商品 → 條款)
-//   並退役 `CheckoutStep3.tsx` shell;先把「未來 Step2 會用到的區塊」抽成獨立 export,
-//   U2b 才能只搬掛載點、不必在同一片同時搬 JSX 又改結構。
+// 🔴 U2b 變更紀錄:
+//   - 原第三個 export `CheckoutPaymentSection`(付款方式複查區 + TapPay slot)**已刪除**——
+//     U2b 依 design §5/§6.3 把真 `TapPayCardFields` 改掛在 `CheckoutStep2` 的 N°04 付款方式
+//     選項 `.co-pay-body` 內(design L400-422 原始結構),該複查區塊會與選項列重複、故無消費端。
+//   - `CheckoutShippingSummary` 的地址行加上 `.co-shipping-summary-address`:
+//     🔴 單行截短**只用 CSS**(overflow/text-overflow/white-space),完整地址字串仍完整留在 DOM,
+//     絕不以 JS slice 丟字(測試逐條鎖住)。
+//   - 發票 readonly 複查區隨三步版 shell 一起退役(可編輯發票表單就在同頁 `CheckoutStep2`)。
 //
-// 🔴 刻意**不含**發票資訊 readonly 複查區:那是 U2b 要刪掉的重複節點
-//   (可編輯的發票表單已在同頁 CheckoutStep2),抽出來不會有未來消費端 → 留在 Step3 shell 內隨其退役。
-//
-// 安全契約(未因抽取而改變):
-//   - `paymentSlot` 由 CheckoutView 建立 `<TapPayCardFields>` 後原樣傳入,本檔只負責放位置;
+// 安全契約:
+//   - 本檔零 <input> 收卡資料;唯一卡片輸入表面是 `CheckoutStep2` 掛的 `TapPayCardFields`,
 //     PAN / 有效期 / CVV 只存在 TapPay iframe,不進 React state、我方 input、server、log、DB。
 //   - 商品行走 useResolvedCart 的 server-resolved 值(釘 general、零經銷價洩漏)。
 //   - 服務條款 / 隱私政策連結仍為 no-op placeholder(`href="#"` + preventDefault);
@@ -24,7 +26,6 @@
 // 🔴 DOM 結構契約:`CheckoutOrderReview` 回傳 fragment(商品區塊與同意條款為同層兄弟)。
 //   包 wrapper 會改變 `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 視覺變動。
 
-import type { ReactNode } from 'react';
 import type { CustomerAddress } from '@pcm/domain';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import { formatCartVehicle } from '@/lib/cart-vehicle-format';
@@ -38,7 +39,7 @@ export type CheckoutShippingSummaryProps = {
   onEdit: () => void;
 };
 
-/** 收件資料複查(U2b 再精簡成單行摘要;本片維持現況完整字面、不截短)。 */
+/** 精簡收件摘要(U2b:地址單行截短純 CSS、完整字面仍在 DOM)。 */
 export function CheckoutShippingSummary({ currentAddr, shippingLabel, onEdit }: CheckoutShippingSummaryProps) {
   return (
     <div className="co-review-block">
@@ -49,35 +50,10 @@ export function CheckoutShippingSummary({ currentAddr, shippingLabel, onEdit }: 
       {currentAddr && (
         <div className="co-review-body">
           <div><strong>{currentAddr.name}</strong> · {currentAddr.phone}</div>
-          <div>{currentAddr.line}</div>
+          <div className="co-shipping-summary-address">{currentAddr.line}</div>
           <div className="co-review-sub">{shippingLabel}</div>
         </div>
       )}
-    </div>
-  );
-}
-
-export type CheckoutPaymentSectionProps = {
-  /** 編輯付款 → 跳回發票/付款區;兩步版同頁無處可跳 → 省略即不渲染該鈕(不留死鈕)。 */
-  onEdit?: () => void;
-  /** TapPay 安全卡欄 slot(唯一卡片輸入表面;undefined 維持 readonly 行為)。 */
-  paymentSlot?: ReactNode;
-};
-
-/** 付款方式複查 + TapPay 卡欄掛載位置(不顯卡末四碼、我方零 input)。 */
-export function CheckoutPaymentSection({ onEdit, paymentSlot }: CheckoutPaymentSectionProps) {
-  return (
-    <div className="co-review-block">
-      <div className="co-review-block-head">
-        <div className="ap-mono">付款方式</div>
-        {onEdit && (
-          <button type="button" className="co-review-edit" onClick={onEdit}>編輯</button>
-        )}
-      </div>
-      <div className="co-review-body">
-        <div>信用卡 · TapPay</div>
-        {paymentSlot}
-      </div>
     </div>
   );
 }

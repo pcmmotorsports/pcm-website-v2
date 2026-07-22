@@ -155,7 +155,14 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 
 ---
 
-## Slice U2b：組成單欄 Step 2 並退役 Step 3（30–45 分鐘）
+## Slice U2b：組成單欄 Step 2 並退役 Step 3（30–45 分鐘）— ✅ 2026-07-22 完成
+
+> 執行時的兩項偏離（皆已落檔、commit body 揭示）：
+> ① **付款區採 A 案**（Sean 2026-07-22 拍）：真 TapPay 卡欄掛在 N°04 付款方式選項的 `.co-pay-body` 內
+> （= design-reference `CheckoutPage.jsx:400-422` 原始結構），因此 U2a 抽出的 `CheckoutPaymentSection`
+> 與付款選項列重複、無消費端 → 連同其 4 條測試一併刪除；下方 ⑤ 原寫「Step3 複查行改『信用卡付款』」
+> 的第二消費端隨該區塊消失而自然滿足。
+> ② 搜尋 gate 改寫為 G1–G6 機械形式（見 ⑤）。
 
 ````markdown
 ① 任務目標
@@ -187,8 +194,14 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - GREEN：收件摘要仍保留完整地址文字，只以 `.co-shipping-summary-address { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }` 做單行視覺截短，不能以 JS slice 丟失地址；component test 驗完整文字仍在 DOM，CSS test 鎖三條規則。
 - 精確測試：
   `pnpm exec vitest run apps/storefront/src/components/CheckoutStep2.test.tsx apps/storefront/src/components/CheckoutStep2ReviewSections.test.tsx apps/storefront/src/components/CheckoutView.test.tsx apps/storefront/src/styles/checkout.test.ts`
-- 搜尋 gate：`rg -n "CheckoutStep3|最後一步輸入|下一步:確認訂單" apps/storefront/src` 必須零 active 命中。
-- 🔴 文案搜尋 gate（Q2=C）：`rg -n "信用卡\(TapPay\)|信用卡 · TapPay|後端串接 TapPay SDK" apps/storefront/src` 必須零 active 命中（design-reference 為視覺真權威、不回改）。
+- 🔴 搜尋 gate（**2026-07-22 U2b 執行時改寫為可機械判定的 yes/no**；原字面「必須零 active 命中」不可執行——保留的負向守門測試本身就會被 `rg` 命中，「active」需人工解讀。codex 關卡 1 R1/R2 均判此為 must-fix）：
+  - G1 使用面必須恰為 0：`rg -n 'from .*CheckoutStep3|<CheckoutStep3|CheckoutStep3Props|CheckoutStep3\(' apps/storefront/src`
+  - G2 檔案不存在：`test ! -e apps/storefront/src/components/CheckoutStep3.tsx && test ! -e apps/storefront/src/components/CheckoutStep3.test.tsx`
+  - G3 文案（Q2=C）非測試檔必須恰為 0：`rg -n '信用卡\(TapPay\)|信用卡 · TapPay|後端串接 TapPay SDK' apps/storefront/src --glob '!*.test.tsx'`；測試檔命中必須**全部**是 `not.toContain` 負向斷言（commit body 逐行列出）。
+  - G4 必須恰為 0：`rg -n '最後一步輸入' apps/storefront/src`
+  - G5 非測試檔必須恰為 0：`rg -n '下一步:確認訂單' apps/storefront/src --glob '!*.test.tsx'`；測試檔命中必須**全部**是 `queryByRole(...) → toBeNull` 負向斷言（commit body 逐行列出）。
+  - G6 `rg -n 'CheckoutStep3' apps/storefront/src` 的殘留命中必須逐條列出，且每條都是明確標記「已退役」的歷史沿革註解；無法如此標記者一律改寫。
+  - ⚠️ design-reference 為視覺真權威、一律不回改，不納入任何 gate 範圍。
 - 全驗證：`pnpm typecheck && pnpm lint && pnpm build && pnpm test && node scripts/design-mirror.mjs --validate && git diff --check`
 - Commit：`refactor(storefront): 合併發票付款與訂單確認 [m-3]`。
 
@@ -380,6 +393,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - RED：七態 UI 契約；processing 再分兩案：有 displayId 的已建立單路徑清 cart；無 displayId 的 preflight hold 不清 cart但維持終態鎖，不能只驗文字。
 - GREEN：`handleSubmit` 先合併 non-card state + live card errors，set submitAttempted，errors 非空 focus 後 return；再走原 `confirmProceedIfInflight → primeBusyRef → getPrime → charge.submit → terminal finally`。
 - `payDisabled` 只含 submitting/prime busy/終態鎖；不再用 `!agreed || !canGetPrime` 永久擋點擊。
+- 🔴 **步驟列同源上鎖（2026-07-22 U2b 補入；原 U5 字面只涵蓋付款鈕，導致 drift `checkoutStepIndicatorUnlockedDuringPayment` 無人承接）**：`CheckoutStepIndicator` 的 `onStepChange` 必須與付款鈕**共用同一組 submitting / primeBusy 判斷**，付款進行中不得由步驟列退回 Step 1；不得另建第二套鎖來源。驗收：付款進行中點步驟列第一步無效，且「← 上一步」與步驟列兩條回頭路的 disabled 條件一致。
 - desktop 與 `.co-mobile-buybar` 只呼同一 handler；底部 padding 不遮 terms/錯誤。
 - `charge-actions.test.ts` 證明 agreed=false 時所有副作用 0；本片預設不改 `charge-actions.ts`。
 - 精確測試：

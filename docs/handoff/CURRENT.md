@@ -2,16 +2,18 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第四片 U2b（L0 + U1 + U2a 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第五片 U3a（L0 + U1 + U2a + U2b 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
+> 🔴 **但正式上線閘只差最後一項：Sean 手機肉眼驗 390px。在 Sean 點頭前，任何 session 不得推 `main`。**
 
 ## 1. 交接快照
 
-- Updated: 2026-07-22 02:0x, Asia/Taipei（U2a 收工交接）
+- Updated: 2026-07-22 11:45, Asia/Taipei（U2b 收工交接）
 - Agent: Claude Code
-- Mode: 執行模式；M-3 兩步結帳 **Slice U2a ＝ 本 commit**（抽第二步 presentational review sections、純內部重構）；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪未 push**；未 deploy、未進 U2b
+- Mode: 執行模式；M-3 兩步結帳 **Slice U2b ＝ 本 commit**（組成單欄 Step 2 並退役 Step 3；**片型＝高風險片**、鐵則 12 ①錢 命中 → 關卡1＋關卡2 codex 對抗審查都跑、不降級）；U2a＝`6443a8e`；U1＝`8061255`；L0＝`d619c14`；拍板紀錄＝`56c01de`。**本輪未 push**；未 deploy、未推 `main`
 - Branch: `dev`
 - Implementation base：
-  - **U2a 開工基底 ＝ preflight HEAD ＝ `96cf42c`**（「立正式上線閘 dev 暫不推 main」）＝ 本 commit 的 parent，兩者**相同**（`git merge-base --is-ancestor` 驗過）。開工時 `dev` 與 `origin/dev` 對齊、未推 0。
+  - **U2b 開工基底 ＝ preflight HEAD ＝ `6443a8e`**（U2a commit「抽出結帳複查區塊」）＝ 本 commit 的 parent，兩者**相同**（`git merge-base --is-ancestor` 驗過）。開工時 `dev` 領先 `origin/dev` 1 個 commit（＝U2a、Sean 尚未推）。
+  - **U2a 開工基底 ＝ preflight HEAD ＝ `96cf42c`**（「立正式上線閘 dev 暫不推 main」）＝ **U2a commit `6443a8e` 的 parent**（非本 commit 的 parent），兩者**相同**（`git merge-base --is-ancestor` 驗過）。開工時 `dev` 與 `origin/dev` 對齊、未推 0。
   - **U1（`8061255`、2026-07-21 23:55）開工基底 ＝ 其 parent ＝ `d619c14`**（L0 commit）—— 該輪 preflight HEAD 與 parent **相同**，無 L0 那種落差。
   - 🔴 **L0 的歷史落差（勿套用到 U1）**：L0 的開工基底是 `a53897f`，但其實際 parent 是 `0be428e`「docs(docs): 交接 Eazi-Grip 總代理上市規劃 [marketing]」——
     該 commit 由**另一條線**於 2026-07-21 19:43 在 L0 進行中建立、**不屬於 L0**。
@@ -78,7 +80,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
     - **a11y 最終修法（R2 nit 推翻我原本的做法）**：原本把當前步驟設成原生 `disabled` —— R2 指出代價是「移出 tab 順序 + 多數螢幕閱讀器不朗讀 disabled 控制項 ⇒ `aria-current` 很可能永遠念不到」。改為業界標準：**當前步驟保持可聚焦**，以 `aria-current="step"` + `aria-disabled` 表達「我在這一步、此刻不可動作」，handler 由 `step > s.n` 守門 no-op；**只有未完成步驟**用原生 `disabled`。CSS 對應改 `.co-step.is-active[aria-disabled='true'] { cursor: default; }`。
     - 另補：R2 指出「View 不傳 `onEditStep2`」無測試鎖住（日後加回去會靜默產生死鈕）→ 已在 `CheckoutView.test.tsx` 加「step 2 的『編輯』鈕恰為 2 顆」斷言。
     - 🔴 **誠實現況**：R2 的 3 條 must-fix 修正**尚未經第三方覆核**（依 repo 一輪制／兩輪上限，未再開 R3）；codex 線修完後亦未跑 R2。
-- **Slice U2a ✅ ＝ 本 commit（2026-07-22、12 片中的第 3 片、內容分級 L1、片型＝標準片）**：
+- **Slice U2a ✅ ＝ `6443a8e`（2026-07-22、12 片中的第 3 片、內容分級 L1、片型＝標準片）**：
   - **片型自行覆核**（未沿用前人判定）：拿 2026-07-22 新版 `CLAUDE.md` 鐵則 12 **六類硬清單**逐條比對 —— ①錢 ②權限 ③DB 結構／大量寫入 ④平台設定 ⑤對外不可回收 ⑥`packages/ui` 共用元件行為，**六類全部未命中**（只搬顯示層 JSX、零 handler、零金額計算，`paymentSlot` 由 `CheckoutView` 建立 `<TapPayCardFields>` 後原樣傳遞；新檔在 `apps/storefront/src/components/`，非 `packages/ui`）→ codex 關卡1／關卡2 **不觸發**；但跨多檔且動 checkout 結構、不算輕量片 → 走完整 9 步含 code-reviewer。
   - 新檔 `apps/storefront/src/components/CheckoutStep2ReviewSections.tsx`（**139 行 < 300**）export `CheckoutShippingSummary`／`CheckoutPaymentSection`／`CheckoutOrderReview`，JSX **逐字**搬自 `CheckoutStep3.tsx`；後者退為 compose（**164 → 122 行**；🔴 **不是字面上的「只 compose」**，見下一條）。
   - 🔴 **發票資訊 readonly 複查區刻意不抽**：它是 U2b 要刪的重複節點（可編輯發票表單已在同頁 `CheckoutStep2`），抽出無未來消費端 → 留在 shell 內隨其一起退役。**因此 `CheckoutStep3.tsx` 並非字面上的「只 compose」**（plan ⑤ 原字面），此為刻意偏離、已於 commit body 與 manifest 揭示。
@@ -107,10 +109,14 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
   - 現況：`origin/main` = `a0c62c0`（07-20）；`dev` 領先幾個 commit **本欄不寫死**（U1 那次寫「15 個」在後續 commit 產出當下即變假）→ 一律實跑 `git rev-list --count origin/main..dev`。實測 **fast-forward 可推、零 migration、B-3 Email flag off、3DS flag false** → 技術上安全。
   - 不推的理由＝**U1 是刻意留的 WIP**：客人登入後進結帳第二步會看到「發票資訊」「付款方式」各兩次、灰掉的假信用卡欄、夾在中間的「確認訂單」標題。付款雖走不完（flag 關著），但**畫面看得到**，會傷信任。
   - 另一理由：**U1 未經真瀏覽器驗收** —— 桌機僅 Sean 本機 localhost 看過，**390px 手機版零驗證**（U1 的幽靈第三欄教訓＝測試全綠也可能版面壞掉）。
-  - **解閘條件**：U2a（✅ 本 commit）+ **U2b（未做）**＋ Sean 肉眼驗手機版 → 才 `git push origin dev:main`。⚠️ **U2a 完成不構成任何解閘進度** —— 它是內部重構，假卡欄與重複區塊一個都沒清，畫面與 U1 收工時完全相同。
+  - **解閘條件**：U2a（✅ `6443a8e`）+ **U2b（✅ 本 commit）**＋ **Sean 肉眼驗手機版 390px（🔴 唯一未達成項）** → 才 `git push origin dev:main`。
+  - 🔴 **U2b 已把「不推的理由」清掉**：重複的「發票資訊」「付款方式」節點、灰掉的假信用卡欄、多餘的第三步 shell 全部刪除；但**第二個理由（真瀏覽器 390px 未驗收）仍然成立** —— 本片同樣只有測試綠、零真機驗證。
+  - 🔴 **肉眼驗請指定測四項**：①第二步是否還有重複區塊 ②假信用卡欄是否已消失 ③390px 版面是否破圖（尤其收件摘要地址單行截短、付款區卡欄）④**點「卡號 / 有效期 / CVV」的文字標籤後，焦點是否正常留在該欄**（＝本片明示的殘餘風險：`.co-pay` 依 design 是 `<label>`，點文字標籤可能觸發 label activation 把焦點交給隱藏的 readOnly radio；點 iframe 本身不受影響、codex 兩輪均判無「不改就會壞」的證據，故保留 design 結構）。
+  - ⚠️ **U2a 是內部重構、對解閘零進度；解閘所需的可見成果由 U2b（本 commit）提供**（U2a 收工當時假卡欄與重複區塊一個都沒清、畫面與 U1 相同，該敘述現已由 U2b 取代）。
   - 🔴 **在此之前任何 session 不得推 `main`**；推 `dev` 不受此閘限制（storefront 正式站追 `main`）。
-- **下一片 = U2b**「組成單欄 Step 2 並退役 Step 3」（含 Sean Q1=A 刪假卡欄、Q2=C 付款文案改白話與其 business override `checkoutPaymentLabelPlainLanguage`），**待 Sean 放行**；本輪未進 U2b。
-- route、migration、flag、deploy、DB 至今仍全數未動（U1 動 checkout **UI 層**、U2a 只做**同層 JSX 搬家**，兩者都只碰 UI ＋ 測試／manifest／SSoT）。
+- **下一片 = U3a**「建立 canonical invoice schema」（plan Slice U3a）。⚠️ **U3a 不是解閘條件** —— 正式上線閘只等 Sean 手機肉眼驗；U3a–U5 可在 flag-off 下平行推進。
+- ~~下一片 = U2b~~ **✅ 2026-07-22 完成（本 commit）**：組成單欄 Step 2、刪假卡欄與 Step3 shell、付款文案改白話並登記 business override `checkoutPaymentLabelPlainLanguage`。🔴 **執行時 Sean 追加拍板「付款區採 A 案」**：真 TapPay 卡欄掛在 N°04 付款方式選項的 `.co-pay-body` 內（＝design-reference `CheckoutPage.jsx:400-422` 原始結構），而非交接單原設想的「掛在付款複查區塊內」——後者會讓畫面連續出現兩次「付款方式 / 信用卡付款」＝正是本片要消滅的重複。連帶：U2a 抽出的 `CheckoutPaymentSection` 無消費端 → **連同其 4 條測試刪除**，`CheckoutStep2ReviewSections.tsx` 剩 `CheckoutShippingSummary` / `CheckoutOrderReview` 兩 export；原計畫「第二個消費端也要改文案」因該節點整個消失而自然滿足。
+- route、migration、flag、deploy、DB 至今仍全數未動（U1 動 checkout **UI 層**、U2a 只做**同層 JSX 搬家**、U2b 收斂 UI 並刪除 `CheckoutStep3.tsx`／`.test.tsx`，**三者**都只碰 UI ＋ 測試／manifest／SSoT）。
 
 ### 作廢入口
 
@@ -123,7 +129,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 | 軌道 | 下一片 | 優先序 | 是否互相阻擋 |
 |---|---|---|---|
 | 主軌 | **M-4a B-4 規劃 checkpoint**：B-3 已由 `a7ff24d` 收錄；B-4 接真值持久化與 TapPay 三分支 | 全域優先 | 不受 #288-b 阻擋 |
-| M-3 | **兩步結帳 U2b**（L0 + U1 + U2a ✅ 已收工）：組成單欄 Step 2、刪假卡欄與 Step3 shell、付款文案改白話 | 正式上線閘的最後一道施工 | L1 受 #291 正式法律內容阻擋；U2b–U5 可在 flag-off 平行推進 |
+| M-3 | **兩步結帳 U3a**（L0 + U1 + U2a + U2b ✅ 已收工）：建立 canonical invoice schema | 兩步 UI 內容已完成，接下來是驗證/錯誤態/schema 收斂 | L1 受 #291 正式法律內容阻擋；U3a–U5 可在 flag-off 平行推進。🔴 **正式上線閘只差 Sean 手機肉眼驗，未點頭前不得推 `main`** |
 | 支線 | **#288-b**：E2E 資料合約 + mobile device project | 非 M-4a 主線 | 不受 B-3 阻擋 |
 
 三個入口業務上可獨立規劃，但共用 `dev` 與同一 working tree；**同一時間只讓一個執行 session 寫入**，
@@ -261,7 +267,28 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 
 ## 8. 已驗證／尚未驗證／需要 Sean
 
-### 本輪已驗證（2026-07-22 Slice U2a，實跑）
+### 本輪已驗證（2026-07-22 Slice U2b，實跑）
+
+- **開工前並行視窗檢查（硬前置、實跑）**：`ps aux | grep native-binary/claude` 列出 3 個進程，
+  逐一 `lsof -a -p <PID> -d cwd` → **PID 41369（U2a 那個視窗）cwd 仍是本 repo、且 10 分鐘前還在寫 transcript**
+  → **停下回報 Sean、不自行處理**；Sean 關閉後重驗只剩本視窗（PID 59840）才動手。當時 git 樹乾淨、無汙染。
+- **三綠（全部 `TURBO_FORCE=true`、0 cached，不吃 turbo 快取）**：typecheck 8/8、lint 10/10、build 2/2。
+- **full `pnpm test`：236 檔 2609 passed + 1 todo**。對 U2a 基準（237 檔 2614 + 1 todo）＝ **-1 檔 -5 測**，
+  已實測拆解：刪除 16 條（`CheckoutStep3.test.tsx` 12 條 + `CheckoutPaymentSection` describe 4 條）、新增 11 條。
+  checkout 四檔 57 綠；U2a 版同組五檔基準 62 綠（用 `git stash` 取基準後還原，`git status` 已比對）。
+- **🔴 突變實測（證明守門非假綠，非只看綠）**：
+  ①把 `onEditAddress` 誤接成 `onEditItems` → `CheckoutStep2.test.tsx` 與 `CheckoutView.test.tsx` 兩條接線守門**同時轉紅**；
+  ②把 `paymentSlot` 移出 `.co-pay-body` → 落點守門 + 卡欄容器唯一性守門**共 3 條轉紅**；還原後全綠。
+- **搜尋 gate G1–G6 全過**（原 plan 的「必須零 active 命中」不可機械判定，已於本片改寫並同步回 plan §⑤）：
+  G1 使用面 0 / G2 兩檔確認不存在 / G3 文案非測試檔 0（測試檔 3 處全為 `not.toContain` 負向斷言：`CheckoutStep2.test.tsx:212,213,214`）/
+  G4 `最後一步輸入` 0 / G5 非測試檔 0（測試檔 2 處全為 `toBeNull` 負向斷言：`CheckoutView.test.tsx:284,314`）/
+  G6 殘留 2 處皆明確標「已退役」（`CheckoutView.tsx:12`、`CheckoutStep2.tsx:10`）。
+- **`node scripts/design-mirror.mjs --validate`**：26 元件 / 217 path tokens OK / 24 last_modified_commit 可達 OK。
+- **codex 對抗審查兩關卡（高風險片、不降級）**：關卡1 **R1 FAIL（4 must-fix）** → 我逐檔核實 4 條全為真 → 全折入 →
+  **R2 FAIL（4 must-fix，全為完整性缺口）** → 亦全折入；依 **plan 層審查上限 2 輪**不開第 3 輪，改由關卡2 審實際 diff。
+  兩輪皆 `-s read-only`，跑前後 `git status --porcelain` 比對**零留痕**。
+
+### 前一片已驗證（2026-07-22 Slice U2a，實跑）
 
 - `pnpm exec turbo run typecheck --force` → **8/8 successful、0 cached**
 - `pnpm exec turbo run lint --force` → **10/10 successful、0 cached**
@@ -353,12 +380,23 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 - L0 未跑 **full** `pnpm test`（該片零 `.ts/.tsx` 行為變更；U1 本片已補跑 full 236 檔 2600 passed + 1 todo）
 - L0 未驗證任何 runtime／瀏覽器行為（該片不產生 UI 變更）
 
-### U2a 尚未驗證（本輪誠實揭示）
+### U2b 尚未驗證（本輪誠實揭示）
+
+- **零真瀏覽器驗證**：桌機與 390px 手機版都沒開過，只有 jsdom 測試綠。版面缺陷（破圖、截短失效、卡欄擠壓）
+  三綠與單元測試都看不見 —— 這正是解閘還要 Sean 手機肉眼驗的原因。
+- **🔴 殘餘風險（明示、未實測、不自宣接受）**：`.co-pay` 依 design 為 `<label>`，
+  點「卡號 / 有效期 / CVV」**文字標籤**（非 iframe 本身）時，label activation 可能把焦點交給隱藏的 readOnly radio。
+  iframe 屬 interactive content、點 iframe 本身不受影響；codex 兩輪均判定「無不改就會壞的證據」、維持 nit，
+  故保留 design 結構（鐵則 1）而非改成 `div`。**請 Sean 手機肉眼驗時指定測這一項**。
+- **真 TapPay sandbox 未跑**：卡欄搬位置後的實際 setup / 輸入 / Step 2→1→2 重建，只有 jsdom mock 驗過。
+- **未 push、未 deploy、未推 `main`、未動 `.env*`、未 apply DB、未開 flag。**
+
+### U2a 尚未驗證（沿用）
 
 - **未跑真瀏覽器／桌機／390px 手機驗收**：本片全部證據來自 vitest（jsdom）+ typecheck/lint/build + DOM 字串等價比對。**「抽元件後真 TapPay iframe 仍掛得起來」未經真瀏覽器證實**（jsdom 內 SDK 是 mock）。可降低風險的事實：`paymentSlot` 的 React element 由 `CheckoutView` 建立、只是被多包一層 function component，`TAPPAY_FIELD_IDS` 與 hook 的 selector／setup／cleanup 皆未動，`checkout.css` 零變更 —— 但這是**讀碼推理，不是實測**。真瀏覽器與 3DS 驗收由 plan 的 **V1a／V1b** 負責。
 - **未做 `pnpm exec vitest run` 以外的 TapPay 生命週期回歸**（`useTapPayCard.test.tsx` 本片未列入 targeted，但已含在 full `pnpm test` 的 237 檔內、全綠）。
 - 「肉眼驗」未做（Sean 專屬用詞；本輪只有程式驗證）。
-- **U2a 對「正式上線閘」零進度**：解閘要的是 U2b 的可見成果 + Sean 手機肉眼驗。
+- **U2a 對「正式上線閘」零進度**：解閘要的是 U2b 的可見成果 + Sean 手機肉眼驗（U2b 已於 2026-07-22 完成，只剩肉眼驗）。
 
 ### U1 尚未驗證（沿用）
 
@@ -375,10 +413,12 @@ Root cause：2026-07-12 至 07-20 多個 session 產出的 handoff、spec、Revi
 ### 需要 Sean
 
 - 🔴 **正式服務條款與隱私政策內容的來源**（#291 唯一 blocker）：由誰產出／何時可提供、核准人與核准日期。**AI 不自撰、不得複製 `design-reference/components/LegalPage.jsx` 草稿**（該檔自述「草稿待法務 review」、含假電話／假 Email、未實作服務、與 PCM 現行政策衝突的七日退貨說法）
-- **是否放行下一片 U2b**（U2a 已收工、停在 checkpoint）：A＝做 U2b「組成單欄 Step 2 並退役 Step 3」（推薦；**這是正式上線閘的最後一道施工**，同片含 Q1=A 刪假卡欄與 Q2=C 付款文案改白話）／B＝先做 #292 SSoT 收斂／C＝回原主軌 B-4。✅ **U1（2026-07-21 放行）與 U2a（2026-07-22 放行）皆已完成**。
+- 🔴 **Sean 用手機看一次結帳第二步（390px）＝ 正式上線閘的最後一道**：確認①沒有重複區塊 ②沒有假信用卡欄③版面沒破圖 ④點「卡號」文字標籤後焦點正常。**Sean 點頭才可 `git push origin dev:main`**。
+- ~~是否放行下一片 U2b~~ **✅ 2026-07-22 上午已放行、已完成（本 commit）**。同時 Sean 追拍「付款區採 A 案」（真卡欄掛付款選項 body 內、刪除重複的付款複查區塊）。
+- ⚠️ **本輪偏離交接指示、已報備並取得繼續**：交接單原寫 `terms-version.ts` 等三處「不用再改」，但其括號內仍寫著即將不存在的檔名 `CheckoutStep3.tsx`、依本片的 G6 gate 會失敗 →**只拿掉死檔名、不動指標與邏輯**（`terms-version.ts` / `cart-vehicle-format.ts` / `CartVehicleField.tsx` 各 1 行註解）。
 - ✅ **審查已結（Sean 2026-07-21 拍板：不開 R5、接受現況收工）**：外部 codex 唯讀跑滿 **R1→R4、四輪全數 `NO-GO`**（累計 28 條 must-fix、全數屬實、全數已修；R3／R4 為 Sean 明示放行，repo 預設上限 2 輪）。🔴 **誠實現況＝R4 的 9 條修正尚未經第三方覆核**；在有任何一輪 PASS 之前，不得把本 commit 描述為已通過審查。
 - ✅ **結構性根因已拍板並落檔（Sean 2026-07-21 拍 A）**：同一組事實（核准矩陣／parent／審查狀態／checkpoint 定位）重複散落 7 個檔案 + commit message、靠人工同步 —— 四輪審查證明此結構下人工同步會持續漏。採 **A 案＝收斂為單一來源**（#291 為法律頁事實的唯一權威，其餘各處只留一行指標、不複製內容；自指 hash 不寫死；字面反驗須納入 commit message）。已開 **backlog #292** 獨立一片承接，**不塞進 L0 或任何既有 slice**。
-- 現在不需操作 dashboard、DB、env；**U2a 本輪未 push**（U1 那次的 `origin/dev` push 是 Sean 明示指示、非常態）；主軌下一片 B-4 需另行確認範圍
+- 現在不需操作 dashboard、DB、env；**本輪（U2b）未 push，U2a `6443a8e` 也仍未推**（合計 2 個未推 commit，實跑 `git rev-list --count origin/dev..HEAD` 為準）（U1 那次的 `origin/dev` push 是 Sean 明示指示、非常態）；主軌下一片 B-4 需另行確認範圍
 - push、deploy、production migration、env／GitHub Secrets、正式 flag 切換仍由 Sean 操作或逐次明確批准
 
 ## 9. 安全邊界

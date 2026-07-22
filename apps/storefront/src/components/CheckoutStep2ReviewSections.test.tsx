@@ -1,19 +1,18 @@
 // @vitest-environment jsdom
 //
-// CheckoutStep2ReviewSections test(M-3 兩步結帳 U2a:抽第二步 presentational review sections)。
+// CheckoutStep2ReviewSections test(M-3 兩步結帳 U2a 建、U2b 收斂)。
 //
-// 🔴 本檔是 U2a 的 RED 先行守門:三個 export 是自 CheckoutStep3.tsx **逐字搬出**的區塊,
-//   抽取前後 DOM 語意、class、文案與 handler 契約必須不變。
-//   CheckoutStep3.test.tsx / CheckoutView.test.tsx **完全不改**仍須全綠 = 「畫面不變」的真證據;
-//   本檔額外把 U2b 要用到的契約逐條釘住(下一片改動時會當場轉紅)。
+// 🔴 本檔守住兩個 export 的 presentational 契約(DOM 語意、class、文案、handler)。
+//   U2b 變更:原第三個 export CheckoutPaymentSection 已刪除(真 TapPay 卡欄改掛
+//   CheckoutStep2 的 .co-pay-body、該複查區塊與付款選項列重複),其斷言隨之移除;
+//   付款落點與唯一性改由 CheckoutStep2.test.tsx 守門。
 //
-// 驗:① 收件摘要=姓名 + 電話 + **完整現況地址字面** + 配送方式 + 編輯鈕
-//     ② 🔴 本片不得引入截短:地址以單一完整文字節點存在、無省略號、無 JS slice 痕跡
-//     ③ 付款區=「信用卡 · TapPay」+ TapPay slot(唯一卡片輸入表面)+ 編輯鈕 optional
-//     ④ 訂單複查=品牌 / 規格 / 數量 / 車款 / 行總額 + 編輯回購物車
-//     ⑤ 同意條款 checkbox → onAgreedChange;服務條款 / 隱私政策連結仍為 no-op placeholder(#291)
-//     ⑥ 🔴 經銷零洩漏(無 price_store / priceByTier /「經銷」/ 劃線價)
-//     ⑦ 🔴 卡資料零洩漏:三區塊皆不得出現卡號 / 有效期 / CVV 我方 input
+// 驗:① 收件摘要=姓名 + 電話 + **完整地址字面** + 配送方式 + 編輯鈕
+//     ② 🔴 地址只准 CSS 單行截短:完整字面以單一文字節點存在、無省略號、無 JS slice 痕跡
+//     ③ 訂單複查=品牌 / 規格 / 數量 / 車款 / 行總額 + 編輯回購物車
+//     ④ 同意條款 checkbox → onAgreedChange;服務條款 / 隱私政策連結仍為 no-op placeholder(#291)
+//     ⑤ 🔴 經銷零洩漏(無 price_store / priceByTier /「經銷」/ 劃線價)
+//     ⑥ 🔴 DOM 結構契約:CheckoutOrderReview 回傳 fragment、不得包 wrapper
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
@@ -21,13 +20,12 @@ import type { CustomerAddress } from '@pcm/domain';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import {
   CheckoutOrderReview,
-  CheckoutPaymentSection,
   CheckoutShippingSummary,
 } from './CheckoutStep2ReviewSections';
 
 afterEach(cleanup);
 
-// 🔴 完整現況地址字面(U2b 才以 CSS ellipsis 做單行視覺截短、且不得用 JS slice 丟字)。
+// 🔴 完整地址字面(U2b 以 CSS ellipsis 做單行視覺截短、且不得用 JS slice 丟字)。
 const FULL_ADDRESS = '新北市新莊區化成路 736 巷 18 號';
 
 const ADDR: CustomerAddress = {
@@ -77,7 +75,7 @@ describe('CheckoutShippingSummary(U2a)', () => {
     expect(onEdit).toHaveBeenCalledTimes(1);
   });
 
-  it('🔴 U2a 不得引入截短:地址為單一完整文字節點、無省略號', () => {
+  it('🔴 截短只准用 CSS:地址為單一完整文字節點 + .co-shipping-summary-address、無省略號', () => {
     const { container } = render(
       <CheckoutShippingSummary currentAddr={ADDR} shippingLabel="貨運宅配" onEdit={vi.fn()} />,
     );
@@ -85,7 +83,9 @@ describe('CheckoutShippingSummary(U2a)', () => {
     // 完整字面必須整段存在(exact match、非 substring 容忍)
     const node = screen.getByText(FULL_ADDRESS);
     expect(node.textContent).toBe(FULL_ADDRESS);
-    // JS slice / 手動截短會留下省略號;本片一律不得出現
+    // 🔴 截短掛在 CSS 類名上;改成 JS slice 會同時弄丟這個 class 與完整字面
+    expect(node.className).toContain('co-shipping-summary-address');
+    // JS slice / 手動截短會留下省略號;一律不得出現
     expect(container.textContent).not.toContain('…');
     expect(container.textContent).not.toContain('...');
   });
@@ -96,38 +96,6 @@ describe('CheckoutShippingSummary(U2a)', () => {
     );
     expect(container.querySelector('.co-review-body')).toBeNull();
     expect(screen.getByRole('button', { name: '編輯' })).toBeTruthy();
-  });
-});
-
-describe('CheckoutPaymentSection(U2a)', () => {
-  it('付款方式字面 + TapPay slot 渲染於複查 body 內', () => {
-    const { container } = render(
-      <CheckoutPaymentSection paymentSlot={<div data-testid="tappay-slot" />} />,
-    );
-    expect(screen.getByText('付款方式')).toBeTruthy();
-    expect(screen.getByText('信用卡 · TapPay')).toBeTruthy();
-    expect(container.querySelector('.co-review-body [data-testid="tappay-slot"]')).toBeTruthy();
-    // 卡末四碼從未顯示(e2 起信用卡欄零卡資料)
-    expect(container.textContent).not.toContain('****');
-  });
-
-  it('🔴 我方零卡片 input:區塊內不存在任何 input(唯一輸入表面是 TapPay iframe)', () => {
-    const { container } = render(
-      <CheckoutPaymentSection paymentSlot={<div data-testid="tappay-slot" />} />,
-    );
-    expect(container.querySelectorAll('input').length).toBe(0);
-  });
-
-  it('onEdit 省略 → 不渲染編輯鈕(兩步版同頁無處可跳、不留死鈕)', () => {
-    render(<CheckoutPaymentSection paymentSlot={<div />} />);
-    expect(screen.queryByRole('button', { name: '編輯' })).toBeNull();
-  });
-
-  it('onEdit 傳入 → 渲染編輯鈕並回呼', () => {
-    const onEdit = vi.fn();
-    render(<CheckoutPaymentSection onEdit={onEdit} paymentSlot={<div />} />);
-    fireEvent.click(screen.getByRole('button', { name: '編輯' }));
-    expect(onEdit).toHaveBeenCalledTimes(1);
   });
 });
 

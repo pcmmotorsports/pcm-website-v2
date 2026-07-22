@@ -28,6 +28,18 @@ describe('checkout 步驟列欄數 guard(U1 兩步)', () => {
   });
 });
 
+// 🔴 U2b:收件摘要地址的單行截短**只能靠 CSS**。若有人改成 JS slice,
+//   CheckoutStep2ReviewSections.test.tsx 會抓到「完整字面不見了」,本測試則抓到「三條規則被拿掉」。
+//   兩邊各守一半,缺一都補不上(規則還在但沒套用 / 套用了但字面被 JS 砍掉)。
+describe('checkout 收件摘要地址截短 guard(U2b)', () => {
+  it('.co-shipping-summary-address 三條 CSS 截短宣告齊備', () => {
+    const rule = CSS.match(/\.co-shipping-summary-address\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/overflow:\s*hidden\s*;/);
+    expect(rule).toMatch(/text-overflow:\s*ellipsis\s*;/);
+    expect(rule).toMatch(/white-space:\s*nowrap\s*;/);
+  });
+});
+
 describe('checkout mobile CSS guard', () => {
   it('通知 Email input 在 mobile breakpoint 至少 16px，避免 iOS Safari 聚焦自動放大', () => {
     const mobileStart = CSS.indexOf('@media (max-width: 900px)');

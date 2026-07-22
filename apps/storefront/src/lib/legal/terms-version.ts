@@ -16,8 +16,8 @@
  *   完整法律效力另需 **backlog #291**(正式服務條款 / 隱私政策 route `/terms`、`/privacy`
  *   + 新 version + 顯示內容 hash 與 `legal_terms_versions` row 一致)。
  *   結帳的兩個條款連結目前仍是 no-op `href="#"`;🔴 **U2a(2026-07-22)起該 markup 已移到
- *   `CheckoutStep2ReviewSections.tsx` 的 `CheckoutOrderReview`**(原在 `CheckoutStep3.tsx`,
- *   後者現只 compose)→ #291 要改連結時改的是前者。定位用 `rg -n '服務條款' apps/storefront/src`。
+ *   `CheckoutStep2ReviewSections.tsx` 的 `CheckoutOrderReview`**(三步版 shell 已於 U2b 退役刪除)
+ *   → #291 要改連結時改的是前者。定位用 `rg -n '服務條款' apps/storefront/src`。
  *   ⚠️ 2026-07-21 更正:本段原寫「另需 #235」= 錯誤依賴 —— live #235 是
  *   「Step3 / 完成頁退換貨連結 + 客服 LINE 入口」、不產出法律頁。
  *   🔴 #291 未完成前,不得宣稱結帳具備完整法律效力,也不得開放 production 付款。

@@ -4,18 +4,17 @@
 //
 // 直接搬 design-reference/components/CheckoutPage.jsx(L163-694、鐵則 1 字面)。
 // e1 範圍:結帳殼 + 步驟指示器 + Step1(收件地址選擇 + 配送方式)+ mobile buybar;
-//   Step2(發票 / 付款)= e2、確認複查元件 = e3a(CheckoutStep3);右側摘要 ②-④b 抽 CheckoutSummaryAside(鐵則 6)。
+//   Step2(第二步全部內容)= CheckoutStep2;右側摘要 ②-④b 抽 CheckoutSummaryAside(鐵則 6)。
 //
-// 🔴 M-3 兩步結帳 U1(business override checkoutTwoStepFlow、Sean 已批准):
+// 🔴 M-3 兩步結帳(business override checkoutTwoStepFlow、Sean 已批准):
 //   step domain 由 `1|2|3` 原子收斂為 `CheckoutStep = 1 | 2`(型別源 CheckoutStepIndicator);
-//   Step 2 = 發票 + 付款 + 複查 + 條款 + 付款鈕同一頁,「下一步:確認訂單」已移除。
-//   ⚠️ WIP 中間態:本片只搬骨架,Step 2 內仍「依序掛」既有 CheckoutStep2 + CheckoutStep3 兩個元件
-//   (含 Step2 的 disabled 假卡欄)。U2a ✅ 已把 Step3 的收件摘要 / 付款 body / 商品 + 條款抽成
-//   CheckoutStep2ReviewSections 的三個 export(Step3 改 compose、畫面零變動);
-//   退役 CheckoutStep3 shell 與移除假卡欄 = U2b。
+//   Step 2 = 收件摘要 + 發票 + 付款 + 商品 + 條款 + 付款鈕同一頁,三步版的第三步入口鈕已移除。
+//   U1 搬骨架 → U2a 抽複查區塊 → **U2b ✅ 收斂完成**:三步版 shell `CheckoutStep3.tsx` 已退役刪除,
+//   Step 2 只掛單一 `CheckoutStep2`(內含 CheckoutStep2ReviewSections 的收件摘要與訂單複查),
+//   disabled 假卡欄與重複的發票 / 付款複查節點全部移除。
 //
 // ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
-//   付款方式複查 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
+//   付款方式選項 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
 //   只在 step===2 啟用 setup)→ 確認付款 = getPrime → useChargePayment.submit(chargePaymentAction:
 //   server cardholder 組裝 → 建單 → findTotal → 鎖 → charge → confirm)→ 結果映 UI:
 //   paid / processing / unknown(action throw 回應遺失層、可能已扣款、審查側 BLOCKER 修)→
@@ -46,7 +45,6 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { CheckoutStep1 } from '@/components/CheckoutStep1';
 import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
-import { CheckoutStep3 } from '@/components/CheckoutStep3';
 import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutStepIndicator';
 import { CheckoutSuccess } from '@/components/CheckoutSuccess';
 import { CheckoutRedirecting } from '@/components/CheckoutRedirecting';
@@ -100,7 +98,7 @@ export function CheckoutView({
   // 配送方式:Q1=A 僅 home(後端 white-list 仍含 store、UI 暫不開合作店家取貨);
   // useResolvedCart('home') 直接用字面、運費鏡像走 home。
 
-  // 發票:state 提升至此(跨步驟存活、送出時讀);發票 UI 在 CheckoutStep2、複查在 CheckoutStep3(U1 起同為 Step 2)。
+  // 發票:state 提升至此(跨步驟存活、送出時讀);發票 UI 在 CheckoutStep2(U2b 起唯一節點、無 readonly 複查)。
   // 從選中地址自動帶入、使用者可手動覆寫的 effect 對齊 design L72-76。
   const [invoice, setInvoice] = useState<InvoiceDraft>(DEFAULT_INVOICE);
   const [invoiceOverride, setInvoiceOverride] = useState(false);
@@ -280,29 +278,24 @@ export function CheckoutView({
               />
             )}
 
-            {/* ===== STEP 2: 發票 + 付款 + 複查 + 條款(U1 單一步驟;U2a 已抽元件、U2b 退役 Step3 shell)===== */}
+            {/* ===== STEP 2: 收件摘要 + 發票 + 付款 + 商品 + 條款(U2b 起單一元件)===== */}
             {step === 2 && (
               <>
                 <CheckoutStep2
+                  currentAddr={addresses.find((a) => a.id === shippingAddrId)}
+                  shippingLabel="貨運宅配"
+                  onEditAddress={() => setStep(1)}
                   invoice={invoice}
                   setInvoice={setInvoice}
                   invoiceOverride={invoiceOverride}
                   setInvoiceOverride={setInvoiceOverride}
-                />
-                <CheckoutStep3
-                  currentAddr={addresses.find((a) => a.id === shippingAddrId)}
-                  shippingLabel="貨運宅配"
-                  invoice={invoice}
-                  lines={lines}
-                  agreed={agreed}
-                  onAgreedChange={setAgreed}
-                  onEditAddress={() => setStep(1)}
-                  // 付款 / 發票「編輯」不再跨步驟:兩區已在同頁上方 → 不傳 onEditStep2、該兩顆鈕不渲染
-                  // (U2b 退役這層 shell)。
-                  onEditItems={() => router.push('/cart')}
                   paymentSlot={
                     <TapPayCardFields ready={tappay.ready} fieldStatus={tappay.fieldStatus} />
                   }
+                  lines={lines}
+                  agreed={agreed}
+                  onAgreedChange={setAgreed}
+                  onEditItems={() => router.push('/cart')}
                 />
                 {stayMessage && (
                   <p className="co-submit-error" role="alert">

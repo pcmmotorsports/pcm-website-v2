@@ -21,7 +21,7 @@
 | # | 事實 | 出處 |
 |---|---|---|
 | F1 | 結帳表單 schema `CheckoutInput` 只含 `addressId`/`shippingMethod`/`invoice`；完整付款 payload 另含 `lines`/`prime`/`cartSessionId`/`agreed` | `packages/schemas/src/index.ts:139-151`；`checkout-form-types.ts:13-15` |
-| F2 | **結帳頁 Step1 顯示並選擇收件資料、Step3 複查；不能在結帳頁編輯**（編輯在會員中心） | `CheckoutView.tsx:240-272`；`CheckoutStep3.tsx:64-76`；`InlineAddressForm.tsx:105,110,115` |
+| F2 | **結帳頁 Step1 顯示並選擇收件資料、Step2 以精簡摘要複查；不能在結帳頁編輯**（編輯在會員中心）。🔴 2026-07-22 U2b 更正：原記「Step3 複查」與出處 `CheckoutStep3.tsx` 已失準——兩步結帳收斂後該檔已退役刪除，複查改由 `CheckoutStep2ReviewSections.tsx` 的 `CheckoutShippingSummary` 承載、渲染於 Step 2 | `CheckoutView.tsx`（以 `rg -n 'CheckoutStep1' apps/storefront/src/components/CheckoutView.tsx` 定位）；`CheckoutStep2ReviewSections.tsx` 的 `CheckoutShippingSummary`；`InlineAddressForm.tsx:105,110,115` |
 | F3 | `create_order` = 8 參數，零 email 參數；**現行版含 vehicle snapshot／vehicle type guard／法律同意／cart dedup／價格與敏感欄防護** | `20260716200000_...:34-43,275-305` |
 | F4 | 該檔註解「尚未 apply」＝過期字面；prod 已 apply 至 `20260717020000` | Supabase `schema_migrations` 實查 |
 | F5 | TapPay `cardholder.email` 現取自 session `user.email`（LINE 客人＝合成假信箱）；既有拍板明訂 **cardholder 不收 client 值** | `TapPayChargeAdapter.ts:93-97,164-167`；`cardholder.ts:3,49-51,75` |

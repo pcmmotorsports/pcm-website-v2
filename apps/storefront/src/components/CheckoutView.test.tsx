@@ -272,18 +272,17 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     renderCheckout();
     await screen.findByText('貨運宅配');
 
-    // → step2:發票 + 付款方式 + 複查 + 條款(U1 起同一步、不再有第三步)
+    // → step2:收件摘要 + 發票 + 付款 + 商品 + 條款(U2b 起單一元件、不再有第三步)
     fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
-    // ⚠️ U1 WIP:發票區(CheckoutStep2 的 h2)與發票複查區(CheckoutStep3 的 ap-mono)同頁並存 = 2 個
-    //    同字面節點;U2b 退役 Step3 shell 後回到 1 個(U2a 只搬 JSX 到新檔、可見節點數不變)。
-    expect(screen.getAllByText('發票資訊').length).toBe(2);
-    expect(screen.getByText('信用卡(TapPay)')).toBeTruthy();
+    // 🔴 U2b:重複的發票 readonly 複查節點已刪除 → 同字面節點由 2 個回到 1 個。
+    //    這條就是「重複區塊已消滅」的機械證據,不得為了讓它綠而繞過。
+    expect(screen.getAllByText('發票資訊').length).toBe(1);
+    expect(screen.getByText('信用卡付款')).toBeTruthy();
     expect(screen.getByText(/我已閱讀並同意/)).toBeTruthy();
     expect(screen.getByText(/商品清單/)).toBeTruthy();
     // 🔴 第三步入口已消滅
     expect(screen.queryByRole('button', { name: /下一步:確認訂單/ })).toBeNull();
-    // 🔴 死鈕回歸守門(R2 覆蓋缺口):同頁無處可跳 → View 不得傳 onEditStep2,
-    //    「編輯」只剩收件 + 商品兩顆;若日後把 prop 加回去,此處會轉紅。
+    // 🔴 死鈕回歸守門:付款 / 發票不再有複查編輯鈕,「編輯」只剩收件 + 商品兩顆。
     expect(screen.getAllByRole('button', { name: '編輯' }).length).toBe(2);
     // 未勾同意 → 確認付款 disabled(co-actions + buybar 兩顆都 disabled)
     const payButtons = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
@@ -400,6 +399,32 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     // 🔴 卡資料零進我方 input:tpfield 容器內無 input 元素(iframe 由 SDK 注入、jsdom mock 下為空)
     expect(container.querySelectorAll('.tpfield input').length).toBe(0);
     expect(screen.getByText(/TapPay 安全欄位加密處理/)).toBeTruthy();
+    // 🔴 U2b 落點守門(codex 關卡1 must-fix):卡欄必須在付款方式選項 body 內,
+    //    且三個容器全站各恰 1 個 —— 放錯層或重複渲染(= 多個真卡表面)都會當場轉紅。
+    expect(container.querySelector('.co-pay-body > .co-card-form')).toBeTruthy();
+    for (const id of ['tappay-card-number', 'tappay-card-expiration-date', 'tappay-card-ccv']) {
+      expect(container.querySelectorAll(`#${id}`).length).toBe(1);
+    }
+  });
+
+  it('🔴 U2b 編輯鈕接線:收件那顆回 Step 1(不呼 router)、商品那顆進 /cart', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+
+    // 第 1 顆 = 收件:必須回到 Step 1,且不得呼叫 router.push
+    fireEvent.click(screen.getAllByRole('button', { name: '編輯' })[0]!);
+    expect(screen.getByRole('button', { name: /下一步:發票與付款/ })).toBeTruthy();
+    expect(screen.queryAllByText('發票資訊').length).toBe(0);
+    expect(pushMock).not.toHaveBeenCalled(); // 誤接成 onEditItems 會在此轉紅
+
+    // 回到 Step 2,第 2 顆 = 商品:必須進 /cart 且留在 Step 2
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: '編輯' })[1]!);
+    expect(pushMock).toHaveBeenCalledWith('/cart');
+    expect(container.querySelector('.co-pay-body > .co-card-form')).toBeTruthy(); // 仍在 Step 2
   });
 
   it('⑤c canGetPrime=false → 勾同意後確認付款仍 disabled(雙鈕)', async () => {

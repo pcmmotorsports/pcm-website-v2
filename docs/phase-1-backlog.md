@@ -7326,8 +7326,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
       避免清掉結帳中的資料。🔴 **必改消費端清單(全部都是 blocker、不得只改 checkout;codex R1 must-fix
       指出原文與下方「相關」欄的 RegisterPage 敘述自相矛盾)**:
       ①`apps/storefront/src/components/CheckoutStep2ReviewSections.tsx` 的 `CheckoutOrderReview`
-      (結帳同意條款,兩個連結;🔴 **2026-07-22 U2a 起**,原在 `CheckoutStep3.tsx`——該檔現只 compose、
-      且 U2b 會整個退役,屆時本條目仍指向正確位置)
+      (結帳同意條款,兩個連結;🔴 **2026-07-22 U2a 起**,原在 `CheckoutStep3.tsx`——
+      該檔已於同日 U2b 退役刪除,本條目指向的位置為現役、無需再改)
       ②`apps/storefront/src/components/RegisterPage.tsx`(註冊頁同意條款,兩個連結)。
       🔴 兩處一律不寫死行號(自指行號會當場變假),用 `rg -n '服務條款' apps/storefront/src` 定位。
       兩者皆為現行 `href="#"`;條件 10 要成立**必須兩處都改完**。
