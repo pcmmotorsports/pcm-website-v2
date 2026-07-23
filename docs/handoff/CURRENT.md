@@ -2,11 +2,18 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳 U5 ✅ 收工上正式站（`3bfee6b`、付款中遮罩）；**下一線＝「TapPay sandbox→正式 + 黑洞即時對帳 + 1 元真刷」（Sean 2026-07-23 開新視窗做、做完他要真刷測試；設計輸入＋架構查證＋金流紅線見 memory `project_tappay-production-blackhole-settle-line`）**，或支線 #288-b；同一時間只允許一個寫入 session。**
+> **現行主線＝M-3 TapPay 正式化線(Sean 2026-07-23 開工、已推 `origin/dev` `5d92936`):S1a「付款送出逾時出口」✅ 收工(四層審過)→ 下一片 S1b。** plan 真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S1a-S6+L1);金流紅線+設計輸入=memory `project_tappay-production-blackhole-settle-line`。並行入口:主軌 M-4a B-4、支線 #288-b、法律頁 L1(草稿待核准);**同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
 
 ## 1. 交接快照
 
+- Updated: 2026-07-23, Asia/Taipei — **M-3 TapPay 正式化線 S1a ✅ 收工並推 `origin/dev`**（S1a=`b73e9cb`、法律草稿=`5d92936`；`origin/main` 仍 `3bfee6b` 未動、storefront 正式站不受影響）。
+- **S1a「付款送出逾時出口」**（高風險金流片、四層審不降級全過）：`useChargePayment.submit` 以 `withSubmitTimeout` 包 action，逾時(90s provisional、值待 S3 實測定案)→ reject → 落既有 catch 的 `unknown` 終態（掀 U5 遮罩給出口、清車、保留 `cart_session_id` 不 regenerate、不釋 `inFlightRef`）；catch 加 `setPaymentInflight` 跨分頁軟提醒。🔴 **付款鏈語意零改**。full storefront 1475 測綠、突變 3/3 全紅。**agent-browser 併入 S3**（Sean 拍 A：零版面變更、逾時路徑僅 3DS 開啟後可達）。
+- 🔴 **下一片 S1b**：新 server action `reconcileCartSession(cartSessionId)` → **新 by-cartSessionId 節流 RPC**（現有 `claim_order_poll_settle` 是 by-orderId、無此版）→ `find_active_sibling_own`（own-only auth.uid()）→ `settleCharge`（重用、**零新刪除邏輯**）→ 回 paid/failed/pending。**含 DB migration → 交易模擬(BEGIN→模擬→驗→ROLLBACK 零留痕)+ Sean 手動 db push。** 🔴 **規劃前先查 graphify 連動面 / 全樹 grep（索引可能過期、以 grep 為準；別把「索引過期」讀成「跳過看地圖」＝U5 教訓）。**
+- 🔴 **Sean 5 決策（2026-07-23、本線、已鎖）**：Q1a=B 軟上線（法律頁 L1 必須、擋 S4）／Q1b=A Claude 起草法律（7 天合法條件式：現貨照 7 天+真客製排除+回復原狀+價值減損；「下單訂貨/選變體」不算客製）／Q2=A 訂單只標記 failed/cancelled 不物理刪／Q3=A 黑洞對帳=webhook+sweeper 兩網+超時出口+by-cartSessionId 反查／Q4=A sweeper 搬 Supabase pg_cron 分鐘級／Q5=A 一起開 anomaly-alert。全文＝memory `project_tappay-production-blackhole-settle-line` + plan §1。
+- 🔴 **全線 Sean 手動步驟（Claude 碰到一律停下交手）**：S1b/S2 的 db push、S4 正式金鑰+開 3 flag（TAPPAY_3DS_ENABLED/CRON_SWEEPER_ENABLED/ANOMALY_ALERT_ENABLED）+ 換正式 merchant + TapPay 後台登記 notify URL、S5 上架 1 元商品+真刷、S6 TapPay 後台退款+手動改 payment_status、所有 push。go-live 一組開關硬清單見 plan §3。
+- **法律頁草稿**：`docs/specs/2026-07-23-pcm-legal-terms-privacy-draft.md`（服務條款 15 條+隱私政策，已填 site-config 真實聯絡資訊，含審閱期/瑕疵擔保；**待 Sean/律師核准才上 `/terms` `/privacy` route**）。負責人=林蓁瑜、快遞、訂貨 2-12 週、退貨運費依解除權/換貨分流。
+- ⚠️ **以下為前一片 U4b 的歷史交接、非現況**：
 - Updated: 2026-07-23, Asia/Taipei（**M-3 兩步結帳 Slice U4b：第一錯誤 focus/scroll + lifecycle 回歸 ＝ 本 commit**；U4a `f071415` 為前一 commit）
 - **✅ U4b 已收工**（本 commit；U 線第 9 片、L1、高風險片）：聚焦第一個可聚焦錯誤 + `.auth-field` 可及容器（role=group/tabIndex=-1、零新增節點）+ 動作列外移進 CheckoutStep2（§8）。**五層審查全跑(不降級)全數折入/銷案**：plan 層 codex 關卡1 FAIL→6 + Fable FAIL→2+6nit;diff 層 code-reviewer(opus)**PASS**+1nit、codex 關卡2 FAIL→2(已修)、Fable 盲審 **PASS**+3nit（N1 preventScroll 採 / N3 焦點轉移測補 / N2 outline 品味題留 Sean）。✅ **agent-browser 真瀏覽器程式驗證 PASS（390px、桌機+mobile 兩路徑）**：焦點落 `#checkout-card-number`、**未彈到 `.co-pay` 隱藏 radio**（解掉 U2b 殘餘風險）、scrollIntoView 置中在 buybar 之上、grid 兩子不歪、零溢出、buybar 不遮 terms/同意 → **design §7.2 全段達成**。⚠️ 誠實邊界：程式驗證非 Sean 肉眼驗、走 fixture 路由（非真 /checkout E2E、未送出付款）、fixture 用完即刪 git 零留痕。付款鏈零變更、`CheckoutView.tsx` 386→389/400。
 - 🚀 **2026-07-23 Sean 授權推正式站,`git push origin dev` + `git push origin dev:main` 皆完成**：`origin/dev` = `origin/main` = **`ed44478`**（FF、推前 main=`fa1dd01`）。storefront 正式站現部署 checkout U3b+U4a-0+U4a+U4b（錯誤顯示 + 聚焦）；🔴 `git diff --name-only fa1dd01..ed44478` 實查零 migration/零平台設定/零 admin，付款 flag 未碰（真刷卡狀態不變）。⚠️ U4b 的 §7.2 focus 僅 agent-browser 程式驗證、**未經 Sean 正式站肉眼驗**。Sean 轉新視窗續工。
