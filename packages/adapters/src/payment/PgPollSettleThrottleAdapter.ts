@@ -6,12 +6,14 @@
  * host 釘死 + 顯式 servername);per-request `new Client()` + `finally end()`。
  *
  * 呼 3DS-S2b 窄權 RPC `claim_order_poll_settle(orderId, throttleSeconds)`(payment_confirmer 唯一可呼;
- * 原子 per-order throttle、閘對齊 4a-2 claim〔unpaid + 非 manual + ceiling〕)。RETURNS boolean:
- * true=放行(caller 可呼 settleCharge)/ false=被 throttle(skip)。
+ * 原子 per-order throttle)。🔴 **最終 predicate(R1c2 `20260624120009` CREATE OR REPLACE)**:
+ * `(pending/charged 受 非manual + ceiling<8) OR (released 繞 manual/ceiling)`,**所有狀態**仍受 `order unpaid` + 節流窗限制。
+ * RETURNS boolean:true=放行(caller 可呼 settleCharge)/ false=被 throttle(skip)。
  *
  * 錯誤紀律(對齊 PgChargeAttemptAdapter PF-E):不轉傳 pg 原始 message;throw 通用訊息(零 PII/credential)。
  *
- * @see supabase/migrations/20260621120000_m3_3ds_s2b_poll_settle_throttle.sql
+ * @see supabase/migrations/20260621120000_m3_3ds_s2b_poll_settle_throttle.sql(基線)
+ * @see supabase/migrations/20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql(最終 released 繞閘版)
  * @see docs/specs/2026-06-21-m3-3ds-s2b-poll-settle-throttle-plan.md §6.2
  */
 import 'server-only';

@@ -19,9 +19,10 @@ export interface IPollSettleThrottle {
   /**
    * 原子 per-order throttle claim。
    *
-   * 放行(窗內未放行過 + RPC 端閘全過:order unpaid + 非 manual + settle_attempt_count<8)→ DB set
-   * `last_poll_settle_at=now()`、回 **true**(caller 可呼 settleCharge);否則(窗內已放行 / 非 unpaid / manual /
-   * 達 ceiling / 無 active attempt / `throttleSeconds<0`)→ 回 **false**(caller skip settleCharge、只讀狀態回)。
+   * 放行(窗內未放行過 + RPC 端閘全過)→ DB set `last_poll_settle_at=now()`、回 **true**(caller 可呼 settleCharge);
+   * 否則 → 回 **false**(caller skip settleCharge、只讀狀態回)。🔴 **最終 predicate(R1c2 `20260624120009`)**:
+   * `(pending/charged 受 非manual + count<8) OR (released 繞 manual/ceiling)`,所有狀態仍受 order unpaid + 節流窗;
+   * false 來源=窗內已放行 / 非 unpaid / (pending·charged 已 manual 或達 ceiling) / 無 active attempt / `throttleSeconds<0`。
    *
    * 並發安全(多分頁同時打同單):RPC 內 UPDATE row lock 序列化 + EvalPlanQual 重評 → 窗內只一個回 true、不雙放行。
    * throttle = 「省 Record 呼叫」非「保結算正確」(正確性 100% 在 settleCharge〔Record 權威〕+ 冪等);不得因
