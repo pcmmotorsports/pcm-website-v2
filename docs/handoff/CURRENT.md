@@ -9,6 +9,7 @@
 
 - Updated: 2026-07-23, Asia/Taipei（**M-3 兩步結帳 Slice U4b：第一錯誤 focus/scroll + lifecycle 回歸 ＝ 本 commit**；U4a `f071415` 為前一 commit）
 - **✅ U4b 已收工**（本 commit；U 線第 9 片、L1、高風險片）：聚焦第一個可聚焦錯誤 + `.auth-field` 可及容器（role=group/tabIndex=-1、零新增節點）+ 動作列外移進 CheckoutStep2（§8）。**五層審查全跑(不降級)全數折入/銷案**：plan 層 codex 關卡1 FAIL→6 + Fable FAIL→2+6nit;diff 層 code-reviewer(opus)**PASS**+1nit、codex 關卡2 FAIL→2(已修)、Fable 盲審 **PASS**+3nit（N1 preventScroll 採 / N3 焦點轉移測補 / N2 outline 品味題留 Sean）。✅ **agent-browser 真瀏覽器程式驗證 PASS（390px、桌機+mobile 兩路徑）**：焦點落 `#checkout-card-number`、**未彈到 `.co-pay` 隱藏 radio**（解掉 U2b 殘餘風險）、scrollIntoView 置中在 buybar 之上、grid 兩子不歪、零溢出、buybar 不遮 terms/同意 → **design §7.2 全段達成**。⚠️ 誠實邊界：程式驗證非 Sean 肉眼驗、走 fixture 路由（非真 /checkout E2E、未送出付款）、fixture 用完即刪 git 零留痕。付款鏈零變更、`CheckoutView.tsx` 386→389/400。
+- 🚀 **2026-07-23 Sean 授權推正式站,`git push origin dev` + `git push origin dev:main` 皆完成**：`origin/dev` = `origin/main` = **`ed44478`**（FF、推前 main=`fa1dd01`）。storefront 正式站現部署 checkout U3b+U4a-0+U4a+U4b（錯誤顯示 + 聚焦）；🔴 `git diff --name-only fa1dd01..ed44478` 實查零 migration/零平台設定/零 admin，付款 flag 未碰（真刷卡狀態不變）。⚠️ U4b 的 §7.2 focus 僅 agent-browser 程式驗證、**未經 Sean 正式站肉眼驗**。Sean 轉新視窗續工。
 - **下一片 ＝ M-3 U5「validate-then-pay、七態回歸與 mobile + 步驟列同源上鎖」**（或依 Sean 指示回主軌 M-4a B-4）。以下 U4b 交接內容為歷史紀錄。
   ① 🔴 **鐵則 6 硬前置(最重要)**：`CheckoutView.tsx` **386 行 / 上限 400、跑道只剩 14 行**，
      而 U4b 要建 focus target registry（每個錯誤一個 target、固定順序、focus + scrollIntoView）＝ 一定不只 14 行。
