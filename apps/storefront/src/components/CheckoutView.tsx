@@ -259,10 +259,17 @@ export function CheckoutView({
     cardErrors: cardValidation.errors,
   });
 
-  // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。四態畫面在 CheckoutTerminalScreen。
+  // 終態(優先於 loading/empty;clear() 後 cart 轉 empty 不可蓋掉終態)。各終態畫面在 CheckoutTerminalScreen。
   // 🔴 U4a-0:條件必須是 status 型別守衛,**不可**寫成「元件回傳值是否 truthy」——
   //   JSX 元素恆為 truthy、子元件回 null 也擋不住,會讓非終態的整頁結帳表單消失。
-  if (isTerminalChargeState(charge.state)) return <CheckoutTerminalScreen state={charge.state} />;
+  if (isTerminalChargeState(charge.state)) // 🔴 S1b-2:透傳 reconcile props(邏輯在 useReconcilePayment、鐵則 6)
+    return (
+      <CheckoutTerminalScreen
+        state={charge.state}
+        onReconcile={charge.reconcile}
+        reconcileDisabled={charge.reconcileDisabled}
+      />
+    );
 
   if (cart.status === 'loading') return <CheckoutCartNotice variant="loading" />;
   // 空車不進結帳(對齊 design 假設「有商品」;導回購物車)。

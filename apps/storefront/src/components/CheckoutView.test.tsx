@@ -123,6 +123,11 @@ vi.mock('@/components/CheckoutRedirecting', () => ({
 vi.mock('@/lib/payment/inflight-marker', () => ({
   setPaymentInflight: setInflightMock,
   confirmProceedIfInflight: confirmInflightMock,
+  clearPaymentInflight: vi.fn(),
+}));
+// S1b-2:useChargePayment 內部組合 useReconcilePayment(→ reconcile-actions server action);mock 避免 jsdom 載入 server 依賴。
+vi.mock('@/app/checkout/reconcile-actions', () => ({
+  reconcileCartSession: vi.fn().mockResolvedValue({ status: 'pending' }),
 }));
 
 import { CheckoutView } from './CheckoutView';

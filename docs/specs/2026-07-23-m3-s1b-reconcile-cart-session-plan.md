@@ -31,7 +31,7 @@
 
 ## 0.6 R2 findings 處置(codex R2 FAIL、Fable R2 GO;plan 層第 2 輪=上限)
 
-- **MF1-MF5**:codex R2 + Fable R2 皆確認**已正確折入**(Fable 實讀 `:186-191` 驗 paid 生命週期等價、`20260624120009` 驗 released 語意、CheckoutTerminalScreen 窮盡守衛驗 reconciled_failed 不漏渲染)。
+- **MF1-MF5**:codex R2 + Fable R2 皆確認**已正確折入**(Fable 實讀 `:198-202` 驗 paid 生命週期等價、`20260624120009` 驗 released 語意、CheckoutTerminalScreen 窮盡守衛驗 reconciled_failed 不漏渲染)。
 - **MF6(SSoT 同步時機)**:v2 誤延到 S1b-2 → v3 §9 改 **S1b-1 開工同 commit**(否則 S1b-1 期間 CURRENT/STATUS 仍指錯資料庫方案)。
 - **MF7(hook state ownership 未凍結)**:codex R2 + Fable R2 雙抓 → v3 §5 凍結「useReconcilePayment 只組合於 useChargePayment 內部、對外唯一契約 charge.reconcile()、View 不自行實例化」。
 - **🆕 新 finding #3(reconcile 自身黑洞、codex R2)**:client→server action reject/hang → reconciling 永久 true、按鈕死鎖 = 重現 S1a 死路 → v3 §5 加 client bounded timeout + catch→pending + finally 解鎖 + 兩條回歸測試。
@@ -110,7 +110,7 @@ S1a 讓黑洞卡死的客人跳出「付款狀態未知」死路畫面,但無法
 **hook `reconcile()` 方法(MF1/MF2/MF7/新#3 擁有者)**:
 - 🔴 **state ownership 凍結(MF7,codex R2 + Fable R2 雙抓)**:`useChargePayment` **維持唯一 `ChargeState` owner**;外移的 `useReconcilePayment` **只能組合於 `useChargePayment` 內部**(由後者注入 `setState`/`inFlightRef`/`clear`/`regenerateCartSession`/`cartSessionId`,或傳入明確 paid/failed/pending callbacks),對外唯一契約 = `charge.reconcile()` + `charge.reconciling`(+ cooldown)。**不留「hook 或 helper」二選一給施工臨場決定;`CheckoutView` 絕不自行實例化 `useReconcilePayment`**——否則獨立 state 碰不到私有 `setState`/`inFlightRef` → `charge.state` 永停 `unknown`、終態畫面不觸發(按了沒反應)。
 - `charge.reconcile()` 呼 `reconcileCartSession(cartSessionId)`,映射(全程 setState 走 useChargePayment 私有 owner):
-  - `paid` → **既有 paid 生命週期的超集(MF1;現行順序)**:`clearPaymentInflight()` → `clear()` → `regenerateCartSession()` → `setState({status:'paid',displayId})`(既有 `submit` paid 路徑 `:186-191` = `clear→regenerate→setState paid`;reconcile 多一步清 unknown 專屬 in-flight marker〔`:170` 設的〕)。加回歸測試「reconcile paid 後下次加購取得新 cartSessionId」。
+  - `paid` → **既有 paid 生命週期的超集(MF1;現行順序)**:`clearPaymentInflight()` → `clear()` → `regenerateCartSession()` → `setState({status:'paid',displayId})`(既有 `submit` paid 路徑 `:198-202` = `clear→regenerate→setState paid`;reconcile 多一步清 unknown 專屬 in-flight marker〔`:181` 設的〕)。加回歸測試「reconcile paid 後下次加購取得新 cartSessionId」。
   - `failed` → `clearPaymentInflight()` + `setState({status:'reconciled_failed', displayId?, message})`(cart 已清、保留無意義;displayId 若 lookup active 分支有帶則透傳供客訴查、與 paid 同揭露面〔N2〕)。
   - `pending` → 不改終態(維持 `unknown`)、更新「仍在確認中,請稍候再查」+ **cooldown**;**inFlightRef 維持鎖**(unknown 終態鎖不釋)。
 - 🔴 **client 端 bounded timeout(新 finding #3,codex R2:reconcile 自身不可再成黑洞)**:`reconcileCartSession` 呼叫必包**獨立 bounded timeout**(比照 S1a 既有已審 `withSubmitTimeout` pattern)→ Promise reject / 永不 settle → `catch` 當 `pending`、`finally` 解除 `reconciling`;**cooldown 與 `reconciling`(請求中)兩個 state 分離**(否則永久 disabled = 重現 S1a 正在修的死路)。加回歸測試「Promise reject」+「永不 resolve」→ 斷言按鈕不永久 disabled。
@@ -151,7 +151,7 @@ S1a 讓黑洞卡死的客人跳出「付款狀態未知」死路畫面,但無法
 - 找單 RPC:`find_active_sibling_own(p_cart_session_id uuid)`(`20260624120001`、authenticated own-only SECDEF;WHERE `status IN(pending,charged)` → failed/released 不在 active 集回 none);adapter `SupabaseSiblingLookupAdapter.ts:28`;`getSiblingLookup` `composition.ts:146`(**async**)。
 - 🔴 **節流 RPC 最終定義 = `20260624120009_m3_3ds_r1c2_poll_settle_released_predicate.sql:61-90`**(`CREATE OR REPLACE` 覆蓋基線 `20260621120000`):predicate = `(pending/charged AND 非manual AND count<8) OR status='released'`,released 繞 manual/ceiling(§2.5 持續對帳);`getPollSettleThrottle` `composition.ts:206`。
 - 對帳引擎:`settleCharge` `settle-charge.ts:45`;−1/5→markFailed(`:112-122`)、0/1→paid 收斂(`:137-138,254-291`)、其餘 pending。
-- client 終態:`CheckoutView.tsx:265`(`isTerminalChargeState`→`CheckoutTerminalScreen`;終態優先於 empty-cart)、`CheckoutTerminalScreen.tsx:27-87`(`FULL_PAGE_BY_STATUS` 窮盡表 + 四 branch)、`CheckoutSuccess.tsx:38-67`(variant paid/processing/unknown/failed;failed CTA 現寫死 `/cart:55`)、`useChargePayment.tsx`(ChargeState `:50-66`、paid 路徑 `:186-191`、`regenerateCartSession`/`clear` 自 useCart `:111`、`clearPaymentInflight`/`setPaymentInflight` 自 inflight-marker)。
+- client 終態:`CheckoutView.tsx:265`(`isTerminalChargeState`→`CheckoutTerminalScreen`;終態優先於 empty-cart)、`CheckoutTerminalScreen.tsx`(`FULL_PAGE_BY_STATUS` 窮盡表 + 五 branch〔S1b-2 加 reconciled_failed〕+ never 守衛)、`CheckoutSuccess.tsx`(variant paid/processing/unknown/failed;🔴 S1b-2 起 failed CTA 參數化 ctaTo/ctaLabel、預設 `/cart`)、`useChargePayment.tsx`(ChargeState `:50-66`、paid 路徑 `:198-202`、`regenerateCartSession`/`clear` 自 useCart `:111`、`clearPaymentInflight`/`setPaymentInflight` 自 inflight-marker)。
 - migration 命名:`YYYYMMDDHHMMSS_<slice>_<desc>.sql`;最新 `20260719150000`;本片 Q1a=A **零新 migration**。
 
 ## 9. SSoT 同步(MF6;🔴 codex R2:**S1b-1 開工同 commit**,不可延到 S1b-2)

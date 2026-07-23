@@ -34,6 +34,7 @@ import { useCart, type CartItemVehicle } from '@/contexts/CartContext';
 import { chargePaymentAction, type ChargePaymentActionResult } from '@/app/checkout/charge-actions';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
 import { setPaymentInflight } from '@/lib/payment/inflight-marker';
+import { useReconcilePayment } from '@/hooks/useReconcilePayment';
 
 export type ChargeArgs = {
   addressId: string | undefined;
@@ -61,6 +62,9 @@ export type ChargeState =
   | { status: 'processing'; displayId?: string; message: string }
   /** 🔴 action 呼叫 throw(回應遺失層):付款狀態未知、可能已扣款 → 終態、勿重複付款、無單號。 */
   | { status: 'unknown'; message: string }
+  /** 🔴 S1b-2:reconcile 反查到明確未成功(server settleCharge 已 markFailed、款項未成立)→ 全頁終態、
+   *  CTA「重新選購」(unknown 態車已被 S1a 清、無法還原);displayId 若 active 分支有帶則透傳供客訴查。 */
+  | { status: 'reconciled_failed'; message: string; displayId?: string }
   /** 🔴 3DS-6b:3DS 啟動成功 → 即將整頁跳轉 TapPay payment_url(付款狀態非終態、UI 鎖定導向中、不清車)。 */
   | { status: 'redirect'; redirectUrl: string }
   | { status: 'paid'; displayId: string };
@@ -69,6 +73,13 @@ export type UseChargePayment = {
   state: ChargeState;
   /** 回傳是否落入終態(paid/processing/unknown = true;呼叫端據此維持自身終態鎖、如 View 的 primeBusyRef)。 */
   submit: (args: ChargeArgs) => Promise<boolean>;
+  /** 🔴 S1b-2 黑洞「查詢付款結果」:即時反查 → paid/reconciled_failed/維持 unknown(邏輯在 useReconcilePayment、
+   *  組合於本 hook 內部以共用同一 ChargeState;plan §5 MF7 凍結)。 */
+  reconcile: () => void;
+  /** 反查請求進行中(bounded timeout + finally 保證重置)。 */
+  reconciling: boolean;
+  /** 按鈕 disabled = reconciling || 冷卻中(兩者皆保證重置 → 永不永久鎖死)。 */
+  reconcileDisabled: boolean;
 };
 
 const GENERIC_FAIL = '付款失敗,請稍後再試或聯繫客服 LINE';
@@ -231,5 +242,16 @@ export function useChargePayment(): UseChargePayment {
     return false;
   }
 
-  return { state, submit };
+  // 🔴 S1b-2:reconcile 邏輯外移至 useReconcilePayment(避免本 hook 再膨脹過 200 警戒;鐵則 6),但**組合於此
+  //   內部**、注入私有 setState/clear/regenerateCartSession/cartSessionId → 反查結果驅動**同一份** ChargeState
+  //   (plan §5 MF7 凍結:唯一 owner 是本 hook,View 不得自行實例化 useReconcilePayment)。
+  const reconciler = useReconcilePayment({ cartSessionId, setState, clear, regenerateCartSession });
+
+  return {
+    state,
+    submit,
+    reconcile: reconciler.reconcile,
+    reconciling: reconciler.reconciling,
+    reconcileDisabled: reconciler.reconcileDisabled,
+  };
 }

@@ -33,6 +33,7 @@ const FULL_PAGE_BY_STATUS = {
   paid: true,
   processing: true,
   unknown: true,
+  reconciled_failed: true,
   redirect: true,
 } as const satisfies Record<ChargeState['status'], boolean>;
 
@@ -41,10 +42,10 @@ type FullPageStatus = {
 }[keyof typeof FULL_PAGE_BY_STATUS];
 
 /**
- * 會整頁取代結帳表單的四個狀態。
+ * 會整頁取代結帳表單的五個狀態(S1b-2 加 reconciled_failed)。
  *
- * 🔴 **命名誠實化(codex 關卡2 nit):這四個不是「都已成付款結果」** ——
- *   `paid` / `processing` / `unknown` 是付款結果(已成立 / 處理中 / 回應遺失),
+ * 🔴 **命名誠實化(codex 關卡2 nit):這五個不是「都已成付款結果」** ——
+ *   `paid` / `processing` / `unknown` / `reconciled_failed` 是付款結果(已成立 / 處理中 / 回應遺失 / 明確未成功),
  *   而 **`redirect` 是 3DS 導向中的 UI 鎖定態、付款尚未裁決**(見 `useChargePayment.tsx` 該 variant 註解)。
  *   它們的共同點只有「整頁取代表單」這件事,**不得**把 paid/processing 的清車或成功語意套到 redirect 上。
  *
@@ -57,7 +58,17 @@ export function isTerminalChargeState(state: ChargeState): state is TerminalChar
   return FULL_PAGE_BY_STATUS[state.status];
 }
 
-export function CheckoutTerminalScreen({ state }: { state: TerminalChargeState }) {
+export function CheckoutTerminalScreen({
+  state,
+  onReconcile,
+  reconcileDisabled,
+}: {
+  state: TerminalChargeState;
+  /** 🔴 S1b-2:unknown 畫面「查詢付款結果」按鈕 handler(由 CheckoutView 透傳 charge.reconcile);其他態不用。 */
+  onReconcile?: () => void;
+  /** 反查請求中或冷卻中 → 按鈕 disabled(由 CheckoutView 透傳 charge.reconcileDisabled)。 */
+  reconcileDisabled?: boolean;
+}) {
   if (state.status === 'paid') {
     return <CheckoutSuccess displayId={state.displayId} />;
   }
@@ -71,9 +82,29 @@ export function CheckoutTerminalScreen({ state }: { state: TerminalChargeState }
     );
   }
   // unknown(②-④ fix、審查側 BLOCKER):action throw = 回應遺失層、可能已扣款 → 終態勿重複
-  // 付款(無單號;hook 已清車 + 持鎖、不可重送)。
+  // 付款(無單號;hook 已清車 + 持鎖、不可重送)。🔴 S1b-2:掛「查詢付款結果」即時反查按鈕(死路出口)。
   if (state.status === 'unknown') {
-    return <CheckoutSuccess variant="unknown" message={state.message} />;
+    return (
+      <CheckoutSuccess
+        variant="unknown"
+        message={state.message}
+        onReconcile={onReconcile}
+        reconcileDisabled={reconcileDisabled}
+      />
+    );
+  }
+  // 🔴 S1b-2(MF5、Q2a=A):reconcile 反查到明確未成功 → 全頁「付款未完成」;沿用 CheckoutSuccess failed 視覺,
+  //   但 CTA 參數化為「重新選購」→ /products(unknown 態車已被 S1a 清、無法還原,誠實引導重新加購)。
+  if (state.status === 'reconciled_failed') {
+    return (
+      <CheckoutSuccess
+        variant="failed"
+        message={state.message}
+        ctaTo="/products"
+        ctaLabel="重新選購"
+        {...(state.displayId ? { displayId: state.displayId } : {})}
+      />
+    );
   }
   // 🔴 3DS-6b(flag on 3DS 啟動成功):整頁導向 TapPay payment_url(導向副作用封裝於 CheckoutRedirecting
   //   的 useEffect、render 期不副作用;付款狀態非終態、不清車)。

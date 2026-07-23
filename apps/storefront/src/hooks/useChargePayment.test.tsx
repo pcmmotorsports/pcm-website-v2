@@ -11,10 +11,10 @@
 // mock '@/contexts/CartContext' + '@/app/checkout/charge-actions'。
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { renderHook, act, cleanup } from '@testing-library/react';
+import { renderHook, act, cleanup, waitFor } from '@testing-library/react';
 import type { CartItem } from '@/contexts/CartContext';
 
-const { cartRef, chargeMock, setInflightMock } = vi.hoisted(() => ({
+const { cartRef, chargeMock, setInflightMock, clearInflightMock, reconcileMock } = vi.hoisted(() => ({
   cartRef: {
     current: {
       items: [] as CartItem[],
@@ -30,6 +30,8 @@ const { cartRef, chargeMock, setInflightMock } = vi.hoisted(() => ({
   },
   chargeMock: vi.fn(),
   setInflightMock: vi.fn(),
+  clearInflightMock: vi.fn(),
+  reconcileMock: vi.fn(),
 }));
 
 vi.mock('@/contexts/CartContext', () => ({
@@ -40,6 +42,11 @@ vi.mock('@/app/checkout/charge-actions', () => ({
 }));
 vi.mock('@/lib/payment/inflight-marker', () => ({
   setPaymentInflight: setInflightMock,
+  clearPaymentInflight: clearInflightMock,
+}));
+// S1b-2:useChargePayment 內部組合 useReconcilePayment(→ reconcile-actions);mock 避免載入 server 依賴。
+vi.mock('@/app/checkout/reconcile-actions', () => ({
+  reconcileCartSession: reconcileMock,
 }));
 
 import { useChargePayment } from './useChargePayment';
@@ -70,6 +77,8 @@ afterEach(() => {
   cleanup();
   chargeMock.mockReset();
   setInflightMock.mockReset();
+  clearInflightMock.mockReset();
+  reconcileMock.mockReset();
 });
 
 describe('useChargePayment', () => {
@@ -372,5 +381,36 @@ describe('useChargePayment', () => {
     });
     expect(cartRef.current.clear).toHaveBeenCalledTimes(1);
     expect(cartRef.current.regenerateCartSession).not.toHaveBeenCalled();
+  });
+
+  // 🔴 S1b-2 MF7 接線守門:useReconcilePayment 組合於此、注入私有 setState → reconcile 結果必須驅動**同一份**
+  //   ChargeState(若 View 自行實例化獨立 state,charge.state 會永停 unknown、終態畫面不觸發)。
+  it('🔴 S1b-2 MF7:reconcile paid → charge.state 切 paid + 清車 + 換 key + 清 in-flight 記號', async () => {
+    setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+    reconcileMock.mockResolvedValue({ status: 'paid', displayId: 'PCM-2026-0011' });
+    const { result } = renderHook(() => useChargePayment());
+
+    act(() => result.current.reconcile());
+
+    await waitFor(() =>
+      expect(result.current.state).toEqual({ status: 'paid', displayId: 'PCM-2026-0011' }),
+    );
+    expect(cartRef.current.clear).toHaveBeenCalledTimes(1);
+    expect(cartRef.current.regenerateCartSession).toHaveBeenCalledTimes(1);
+    expect(clearInflightMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 S1b-2:reconcile failed → charge.state 切 reconciled_failed(全頁失敗態驅動)', async () => {
+    reconcileMock.mockResolvedValue({ status: 'failed', displayId: 'PCM-2026-0012' });
+    const { result } = renderHook(() => useChargePayment());
+
+    act(() => result.current.reconcile());
+
+    await waitFor(() =>
+      expect(result.current.state).toMatchObject({
+        status: 'reconciled_failed',
+        displayId: 'PCM-2026-0012',
+      }),
+    );
   });
 });

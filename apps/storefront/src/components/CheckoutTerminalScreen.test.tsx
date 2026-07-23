@@ -7,7 +7,7 @@
 //    真 bug(把 JSX 元素當 truthy 旗標 → 非終態整頁結帳表單消失)做成負向測試。
 
 import { describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import type { ChargeState } from '@/hooks/useChargePayment';
 import {
   CheckoutTerminalScreen,
@@ -65,6 +65,54 @@ describe('CheckoutTerminalScreen', () => {
     expect(screen.getByTestId('checkout-redirecting').getAttribute('data-url')).toBe(url);
     cleanup();
   });
+
+  it('🔴 S1b-2 reconciled_failed → 付款未完成 + CTA「重新選購」/products(參數化 CTA、非 /cart)', () => {
+    render(
+      <CheckoutTerminalScreen
+        state={{ status: 'reconciled_failed', message: '這筆付款未成功,款項未成立。' }}
+      />,
+    );
+    expect(screen.getByText('付款未完成')).toBeTruthy();
+    expect(screen.getByText('這筆付款未成功,款項未成立。')).toBeTruthy();
+    const cta = screen.getByRole('link', { name: /重新選購/ });
+    expect(cta.getAttribute('href')).toBe('/products');
+    // 回歸:reconcile 失敗態不出現 3DS-3 的「返回購物車」
+    expect(screen.queryByRole('link', { name: /返回購物車/ })).toBeNull();
+    cleanup();
+  });
+
+  it('🔴 S1b-2 unknown + onReconcile → 顯示「查詢付款結果」鈕、可點觸發、reconcileDisabled 時鎖', () => {
+    const onReconcile = vi.fn();
+    const { rerender } = render(
+      <CheckoutTerminalScreen
+        state={{ status: 'unknown', message: 'm' }}
+        onReconcile={onReconcile}
+        reconcileDisabled={false}
+      />,
+    );
+    const btn = screen.getByRole('button', { name: /查詢付款結果/ });
+    expect((btn as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(btn);
+    expect(onReconcile).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <CheckoutTerminalScreen
+        state={{ status: 'unknown', message: 'm' }}
+        onReconcile={onReconcile}
+        reconcileDisabled={true}
+      />,
+    );
+    expect((screen.getByRole('button', { name: /查詢付款結果/ }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    cleanup();
+  });
+
+  it('unknown 無 onReconcile(3DS-callback 等場景)→ 不渲染查詢按鈕(回歸)', () => {
+    render(<CheckoutTerminalScreen state={{ status: 'unknown', message: 'm' }} />);
+    expect(screen.queryByRole('button', { name: /查詢付款結果/ })).toBeNull();
+    cleanup();
+  });
 });
 
 describe('isTerminalChargeState', () => {
@@ -72,6 +120,7 @@ describe('isTerminalChargeState', () => {
     { status: 'paid', displayId: 'PCM-2026-0007' },
     { status: 'processing', message: 'm' },
     { status: 'unknown', message: 'm' },
+    { status: 'reconciled_failed', message: 'm' },
     { status: 'redirect', redirectUrl: 'https://example.test' },
   ];
 
@@ -86,7 +135,7 @@ describe('isTerminalChargeState', () => {
     { status: 'in_flight', message: 'm' },
   ];
 
-  it('四個終態全回 true', () => {
+  it('五個終態全回 true', () => {
     for (const s of TERMINAL) expect(isTerminalChargeState(s)).toBe(true);
   });
 

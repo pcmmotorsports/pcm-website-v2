@@ -437,6 +437,14 @@
   display: inline-flex; align-items: center; gap: 8px;
   padding: 14px 32px;
 }
+/* 🔴 S1b-2:unknown 黑洞出口的雙動作(查詢付款結果 + 繼續購物);只此新場景用、不影響 paid/processing/failed 單一 CTA。 */
+.co-success-actions {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; margin-top: 28px;
+}
+/* button.co-success-cta:reconcile 觸發鈕(非 Link)→ 補 button 預設重置,對齊 .btn-primary 視覺。 */
+button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
+.co-success-cta:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Actions */
 /* .btn-outline:storefront 首用(返回鈕),搬 design pages.css L65-78(.btn-primary 已在 cart.css)。 */
