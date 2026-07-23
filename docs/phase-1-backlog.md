@@ -7149,8 +7149,13 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   經關卡1 **三輪**雙審 + code-reviewer R1):
   - **#288-a ✅ 本次完成**:production config + preflight(驗**非空值**)+ vitest exclude +
     package script + **GitHub Actions**(Sean 07-20 拍 A 推翻原「不接 CI」)+ 會斷的 smoke。
-  - **#288-b** 資料合約 globalSetup(含逾時)+ mobile device project(須斷言 `html[data-mobile="true"]`,
-    非只調 viewport —— `layout.tsx` 以 UA 判 `isMobile`)。
+  - **#288-b ✅ 完成(2026-07-24、未 push)**:`e2e-prod/global-setup.ts` 資料合約 fail-fast(開跑前驗
+    /products 真有卡片+件數、每操作顯式 timeout、config 加 `globalTimeout`/`actionTimeout`)+ mobile
+    device project = **Pixel 5**(chromium 系、UA 含 Android → `data-mobile="true"`;🔴 **非 iPhone**——iPhone
+    preset 是 webkit、本機未裝會啟動失敗)。斷言落既有 `runner-smoke.spec.ts`(project-aware:
+    chromium→`'false'` / mobile→`'true'`,比只驗 mobile 更強)= **plan §6 檔案清單外的揭示偏離**(斷言必須落 spec、
+    重用既有 smoke=最少檔)。三綠 + E2E `2 passed`(desktop+mobile)+ 突變 2/2:改斷言恆 false→mobile 紅、
+    壞 globalSetup 選擇器→整套 fail-fast 中止 0 test。
   - **#288-c** 品牌兩組 + 件數 + 卡集合 + RSC 計數(規則見 plan §5.2:碰撞 `1..2` / 非碰撞 `=1`、
     exact pathname、每次操作前清零;🔴 `MobileTabBar.tsx:49` 的 `/products` prefetch 會污染 exact 命中)。
   - **#288-d** `?page=3` 時選車(桌面 `.cft-bar` combobox 真互動 + 手機 FAB→抽屜「選擇車款」)。
@@ -7162,8 +7167,9 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   本即隨 client bundle 公開,非新增暴露面)。**未設定時 preflight 會硬紅**(已實測:
   空字串亦擋)—— 刻意不做 skip,避免「沒設定卻顯示通過」的假綠。
 - CI 邊界(web-Codex 2026-07-20 審查指出):fork PR 被 if 條件跳過時 GitHub 回報 Success 而非 Failure,即使設為 required check 也不擋 merge -> fork PR 等於完全繞過這條 E2E(目前無外部貢獻者、風險低);未來若引入 Dependabot,其 PR 拿不到一般 Actions secrets,會固定紅,屆時需改用 pull_request_target + 顯式 gate 或 Dependabot secrets。
-- **估時:** 90-120 分鐘(含測試資料固定化)→ a 已完成,餘 b/c/d/e
-- **依賴:** 需先決定測試資料策略(固定 fixture vs 專用測試頁)→ 移至 **#288-b**
+- **估時:** 90-120 分鐘(含測試資料固定化)→ a/b 已完成,餘 c/d/e
+- **依賴:** 需先決定測試資料策略(固定 fixture vs 專用測試頁)→ #288-b 已採「打真 DB + globalSetup fail-fast 合約」
+  (plan §10.1:固定 fixture 是獨立議題、不擋 c/d/e);⚠️ 故 c/d/e 的斷言會隨上架狀況波動,設計時避免寫死具體件數/slug
 - **發現於:** 2026-07-19 / Sean 回報品牌篩選取消無效
 - **相關:** #287
 

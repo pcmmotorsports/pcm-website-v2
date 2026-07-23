@@ -32,7 +32,7 @@ import { test, expect } from '@playwright/test';
  * 本檔只做「管線 + 資料連通」的最低保證,**不守任何篩選行為**
  * (品牌 / 分頁 / 選車 / 深連結依序在 #288-c / d / e)。
  */
-test('production build 起得來,且 /products 真的取到目錄資料', async ({ page }) => {
+test('production build 起得來,且 /products 真的取到目錄資料', async ({ page, isMobile }) => {
   const response = await page.goto('/products');
   expect(response?.ok(), '/products 應回 2xx').toBe(true);
 
@@ -46,4 +46,16 @@ test('production build 起得來,且 /products 真的取到目錄資料', async 
   const total = Number(countText.replace(/[^\d]/g, ''));
   expect(Number.isFinite(total) && total > 0, `.pp-count 應顯示大於 0 的件數,實得「${countText}」`)
     .toBe(true);
+
+  // ③ #288-b:SSR 的 <html data-mobile> 必須反映 device 的 UA class
+  //    (app/layout.tsx:83 以 UA regex /iPhone|Android|Mobile/i 判定、與 viewport 無關)。
+  //    本斷言在兩個 project 下各驗一次 —— chromium(Desktop Chrome)→ 'false'、
+  //    mobile(Pixel 5、UA 含 Android)→ 'true'。比「只驗 mobile=true」更強:
+  //    也擋「mobile project 誤配到桌面 UA」與「桌面請求被誤判成 mobile」兩種回歸。
+  //    isMobile fixture = project use 的 isMobile 旗標(Desktop Chrome=false / Pixel 5=true),
+  //    與該 preset 的 UA 對齊,故可當「這個 project 該不該是 mobile」的期望來源。
+  const dataMobile = await page.locator('html').getAttribute('data-mobile');
+  expect(dataMobile, `html[data-mobile] 應反映 device UA class(isMobile=${isMobile})`).toBe(
+    isMobile ? 'true' : 'false',
+  );
 });
