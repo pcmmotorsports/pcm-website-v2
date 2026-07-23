@@ -7446,6 +7446,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   本次 fallback 修補見 `CartContext.tsx` `newCartSessionId` 與其 commit。
 - **估時:** A 約 30-60 分鐘(含 Sean 裝憑證);B 約 15 分鐘但需批准;C = 0 但持續課稅。
 
+### #294. 🔑 CRON_SECRET 三 route 共用 → 拆獨立 secret(或 email-sweep 補獨立 secret + durable throttle)
+
+- **狀態:** ⏳ 待執行(S4 前評估;不擋 S2)
+- **優先級:** 🟠 中(洩漏放大面;非即時金流風險)
+- **問題:**
+  - 單一 `CRON_SECRET` 同時保護 **settle-sweep + anomaly-alert + email-sweep** 三支 cron route(三者各自 `requireCronSecret()` 讀同一 `process.env.CRON_SECRET`)。🔴 `apps/storefront/src/lib/cron/rate-limit.ts:3` 的威脅模型註解只列 **settle-sweep 與 anomaly-alert 兩支、漏 email-sweep** → 本條一併順修該註解。
+  - 其中 **email-sweep 無 `*_ENABLED` flag**(firing 由 pg_cron 是否存在控制)→ 持有洩漏之 CRON_SECRET 者可觸發客戶寄信(outbox 有列時);限流僅 **per-instance best-effort**(非全域硬上限)。
+  - ⇒ CRON_SECRET 洩漏衝擊**大於**「僅冪等 sweeper 觸發」。(settle/anomaly 偽觸發仍不能偽造付款——settleCharge 冪等、Record 唯一權威。)
+- **觸發事件:** 2026-07-24 S2 pg_cron 落地時 codex 關卡2 抓出(原 S2 migration 頭註誤述 cron_secret「僅守冪等 sweeper」)。
+- **預期解法:**
+  - A. 三把獨立 secret(payment / anomaly / email),各 route 讀各自 env、pg_cron wrapper 帶各自 Bearer。
+  - B. 至少給 email-sweep 獨立 secret + durable(跨 instance)throttle,縮小「無 flag + best-effort 限流」的放大面。
+- **不修會痛在:**
+  - 擴充性:未來任一 cron route 洩漏或需輪替,牽動全部三支(一把 secret = 一次全換、全部重設 pg_cron/Vercel env)。
+  - 可維護性:blast radius 難界定,事故時要同時盤三支 route 的影響。
+  - bug 可追蹤性:三支共用同源,log/告警無法從 secret 區分是哪支被濫用。
+- **估時:** A 約 60-90 分鐘(動三 route env + pg_cron wrapper + Vercel + 事故 SOP);B 約 30-45 分鐘。
+- **依賴:** email-sweep 的 pg_cron(email 線 E2b,尚未落地)一併考量;與 S2 pg_cron 基礎設施相鄰。
+- **發現於:** 2026-07-24 / M-3 S2 codex 關卡2。
+- **相關:** `supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql` 頭註殘餘風險;`apps/storefront/src/lib/cron/rate-limit.ts`;S2 slice plan §11。
+
 ## 紀錄模板
 
 ```markdown

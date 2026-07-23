@@ -2,15 +2,5 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "installCommand": "corepack enable && pnpm install --frozen-lockfile",
-  "regions": ["sin1"],
-  "crons": [
-    {
-      "path": "/api/cron/settle-sweep",
-      "schedule": "0 0 * * *"
-    },
-    {
-      "path": "/api/cron/anomaly-alert",
-      "schedule": "0 1 * * *"
-    }
-  ]
+  "regions": ["sin1"]
 }
