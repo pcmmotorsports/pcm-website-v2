@@ -2,13 +2,14 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳第六片 U3b（L0 + U1 + U2a + U2b + U3a 已收工），或支線 #288-b；同一時間只允許一個寫入 session。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳下一片 U5（L0 + U1 + U2a + U2b + U3a + U3b + U4a + U4b code+jsdom 已收工；U4b 尚待 diff 層審查 + agent-browser 收工 gate），或支線 #288-b；同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
 
 ## 1. 交接快照
 
-- Updated: 2026-07-23 02:10, Asia/Taipei（**M-3 兩步結帳 Slice U4a：顯示 TapPay 全欄錯誤 ＝ 本 commit**）
-- **下一片 ＝ M-3 U4b「第一錯誤 focus/scroll + lifecycle 回歸」**（或依 Sean 指示回主軌 M-4a B-4）。
+- Updated: 2026-07-23, Asia/Taipei（**M-3 兩步結帳 Slice U4b：第一錯誤 focus/scroll + lifecycle 回歸 ＝ 本 commit**；U4a `f071415` 為前一 commit）
+- **✅ U4b 已收工**（本 commit；U 線第 9 片、L1、高風險片）：聚焦第一個可聚焦錯誤 + `.auth-field` 可及容器（role=group/tabIndex=-1、零新增節點）+ 動作列外移進 CheckoutStep2（§8）。**五層審查全跑(不降級)全數折入/銷案**：plan 層 codex 關卡1 FAIL→6 + Fable FAIL→2+6nit;diff 層 code-reviewer(opus)**PASS**+1nit、codex 關卡2 FAIL→2(已修)、Fable 盲審 **PASS**+3nit（N1 preventScroll 採 / N3 焦點轉移測補 / N2 outline 品味題留 Sean）。✅ **agent-browser 真瀏覽器程式驗證 PASS（390px、桌機+mobile 兩路徑）**：焦點落 `#checkout-card-number`、**未彈到 `.co-pay` 隱藏 radio**（解掉 U2b 殘餘風險）、scrollIntoView 置中在 buybar 之上、grid 兩子不歪、零溢出、buybar 不遮 terms/同意 → **design §7.2 全段達成**。⚠️ 誠實邊界：程式驗證非 Sean 肉眼驗、走 fixture 路由（非真 /checkout E2E、未送出付款）、fixture 用完即刪 git 零留痕。付款鏈零變更、`CheckoutView.tsx` 386→389/400。
+- **下一片 ＝ M-3 U5「validate-then-pay、七態回歸與 mobile + 步驟列同源上鎖」**（或依 Sean 指示回主軌 M-4a B-4）。以下 U4b 交接內容為歷史紀錄。
   ① 🔴 **鐵則 6 硬前置(最重要)**：`CheckoutView.tsx` **386 行 / 上限 400、跑道只剩 14 行**，
      而 U4b 要建 focus target registry（每個錯誤一個 target、固定順序、focus + scrollIntoView）＝ 一定不只 14 行。
      → **動它之前必須先外移**，不得靠壓縮註解硬塞（U3b 在此連踩三次：401→400→399→401）。

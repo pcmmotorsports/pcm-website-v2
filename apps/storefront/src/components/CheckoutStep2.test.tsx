@@ -88,6 +88,12 @@ function Harness({ over = {} }: { over?: HarnessOver }) {
       onAgreedChange={vi.fn()}
       onEditItems={vi.fn()}
       errors={{}}
+      paymentAlert={null}
+      onBack={vi.fn()}
+      onSubmit={vi.fn()}
+      submitting={false}
+      payDisabled={false}
+      total={29200}
       {...over}
     />
   );
@@ -381,5 +387,48 @@ describe('CheckoutStep2 發票錯誤(U3b)', () => {
     expect(cb.getAttribute('aria-describedby')).toBe('checkout-agree-error');
     const err = container.querySelector('#checkout-agree-error') as HTMLElement;
     expect(err.closest('.co-agree')).toBeNull();
+  });
+});
+
+describe('CheckoutStep2 動作列 + 付款回饋(U4b 自 CheckoutView 外移)', () => {
+  it('🔴 上一步 / 確認付款兩鈕接線:各只觸發自己的 handler', () => {
+    const onBack = vi.fn();
+    const onSubmit = vi.fn();
+    render(<Harness over={{ onBack, onSubmit }} />);
+    fireEvent.click(screen.getByRole('button', { name: /上一步/ }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /確認付款/ }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 確認付款鈕顯示 total、disabled 由 payDisabled 決定', () => {
+    const { rerender } = render(<Harness over={{ total: 29200, payDisabled: false }} />);
+    const pay = () => screen.getByRole('button', { name: /確認付款/ }) as HTMLButtonElement;
+    expect(pay().textContent).toContain('29,200');
+    expect(pay().disabled).toBe(false);
+    rerender(<Harness over={{ total: 29200, payDisabled: true }} />);
+    expect(pay().disabled).toBe(true);
+  });
+
+  it('🔴 submitting → 上一步 disabled(disabled=submitting)+ 確認付款顯「處理中…」', () => {
+    // View 實際接線 payDisabled=submitting;此處鏡像(兩鈕 disabled 各由不同 prop 驅動:back=submitting、pay=payDisabled)。
+    render(<Harness over={{ submitting: true, payDisabled: true }} />);
+    const back = screen.getByRole('button', { name: /上一步/ }) as HTMLButtonElement;
+    const pay = screen.getByRole('button', { name: /處理中/ }) as HTMLButtonElement;
+    expect(back.disabled).toBe(true); // 上一步鈕 disabled={submitting}
+    expect(pay.disabled).toBe(true); // 確認付款鈕 disabled={payDisabled}
+    expect(pay.textContent).toContain('處理中');
+    expect(screen.queryByText(/確認付款/)).toBeNull();
+  });
+
+  it('paymentAlert 有值 → 付款區單一 role=alert;null → 不渲染', () => {
+    const { container, rerender } = render(<Harness over={{ paymentAlert: '還有 2 個項目需要確認,已在上方標示' }} />);
+    const alerts = screen.getAllByRole('alert');
+    expect(alerts.length).toBe(1);
+    expect(alerts[0]!.textContent).toContain('還有 2 個項目需要確認');
+    rerender(<Harness over={{ paymentAlert: null }} />);
+    expect(container.querySelector('.co-submit-error')).toBeNull();
   });
 });

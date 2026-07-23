@@ -14,8 +14,8 @@
 //     🔴 U1:⑱ 步驟列只有兩步 + CTA 字面 + 無第三步入口 ⑲ TapPay active 序列 false→true→false→true
 // mock CartContext + cart/actions + charge-actions + useTapPayCard(SDK 不進 jsdom)+ next/navigation。
 
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { CartItem } from '@/contexts/CartContext';
 import type { ResolvedCartLine } from '@/app/cart/actions';
 import type { CustomerAddress, MemberTier } from '@pcm/domain';
@@ -1106,5 +1106,118 @@ describe('CheckoutView 非卡片錯誤(U3b)', () => {
     // 🔴 值沒變 → 錯誤必須原封不動(若 effect 改成「一律清三個」,這兩行會轉紅)
     expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
     expect(screen.getByText('統編需 8 碼數字')).toBeTruthy();
+  });
+});
+
+describe('CheckoutView 第一錯誤 focus/scroll(U4b)', () => {
+  let scrollSpy: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    // jsdom 不實作 scrollIntoView → 定義成 spy(否則 focusFirstPaymentError 的 el.scrollIntoView?.() 靜默略過)。
+    scrollSpy = vi.fn();
+    // jsdom 無 scrollIntoView;用 defineProperty(value:any)避開 DOM 方法簽名型別衝突(同 :262 既有 pattern)。
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrollSpy,
+    });
+  });
+  afterEach(() => {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  });
+
+  async function gotoStep2(container: HTMLElement) {
+    await screen.findByText('貨運宅配');
+    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    return container;
+  }
+  const payDesktop = () => screen.getAllByRole('button', { name: /確認付款|處理中/ })[0]!;
+
+  const ADDR_COMPANY_NO_TITLE = {
+    ...ADDR,
+    invoice: { type: 'company', carrier: '', title: '', taxId: '12345675', donateCode: '' },
+  } as unknown as CustomerAddress;
+
+  it('🔴 多錯(發票抬頭 + 卡欄 + 條款)→ 依固定順序聚焦第一個(invoice.title)、捲動一次;其餘紅字全留、alert 恰 1', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: true, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout({ addresses: [ADDR_COMPANY_NO_TITLE] });
+    await gotoStep2(container);
+    fireEvent.click(payDesktop()); // 不勾同意 → terms 也錯
+
+    // 固定順序 invoice.title 早於 card.* 早於 terms → 聚焦落在公司抬頭 input
+    expect(document.activeElement?.id).toBe('checkout-invoice-title');
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(scrollSpy).toHaveBeenCalledWith({ block: 'center' });
+    // 其餘紅字仍全在(design §7.2「其他紅字仍保留」)
+    expect(screen.getByText('請填寫公司抬頭')).toBeTruthy();
+    expect(screen.getByText('請輸入完整卡號')).toBeTruthy();
+    expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('🔴 ready=error + terms 錯 → 先聚焦 checkout-payment-module(card.module 排 terms 之前)、terms 紅字仍保留', async () => {
+    tapRef.current = { ready: 'error', canGetPrime: false, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(payDesktop()); // 不勾同意 → terms 錯
+
+    expect(document.activeElement?.id).toBe('checkout-payment-module');
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(TERMS_REQUIRED_MESSAGE)).toBeTruthy(); // 不得跳過 card.module 也不得吃掉 terms 紅字
+  });
+
+  it('🔴 K1-3 首次 submit(卡三欄空)→ 立即聚焦新產生的 card.number(證 errorsRef 讀到本輪最新合併 map、非上一輪空值)', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: true, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement); // 勾同意 → 只留卡欄錯
+    fireEvent.click(payDesktop());
+
+    // 卡欄三欄 status 1 → card.number/expiry/ccv 皆錯,固定順序 card.number 先 → 聚焦其外層容器
+    expect(document.activeElement?.id).toBe('checkout-card-number');
+    expect(scrollSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 N3 修好第一欄後再按 → 焦點移到新的第一個錯誤(seq 遞增可重複聚焦、非只聚焦一次)', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: true, fieldStatus: { number: 1, expiry: 1, ccv: 1 } };
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement); // 勾同意 → 只留卡欄錯
+    fireEvent.click(payDesktop());
+    expect(document.activeElement?.id).toBe('checkout-card-number');
+
+    // 客人把卡號改對(SDK 回 status 0)→ 卡號不再是錯誤 → 再按聚焦應移到新的第一個錯誤(有效期)
+    tapRef.current = { ...tapRef.current, fieldStatus: { number: 0, expiry: 1, ccv: 1 } };
+    fireEvent.click(payDesktop());
+    expect(document.activeElement?.id).toBe('checkout-card-expiry');
+  });
+
+  it('🔴 K1-4 動作列外移契約:確認付款鈕恰 2 顆(桌機 co-btn-pay 在前、mobile buybar 在後),兩顆都接同一 handleSubmit', async () => {
+    tapRef.current = { ready: 'ready', canGetPrime: true, fieldStatus: { number: 0, expiry: 0, ccv: 0 } };
+    getPrimeMock.mockResolvedValue(null); // 只需證「按了會進 getPrime」= 兩鈕都接付款鏈
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep2(container);
+    fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement); // 勾同意 → validation 全過
+
+    const btns = screen.getAllByRole('button', { name: /確認付款/ }) as HTMLButtonElement[];
+    expect(btns).toHaveLength(2);
+    expect(btns[0]!.className).toContain('co-btn-pay'); // 桌機動作列(CheckoutStep2 尾端、.co-body 內)在前
+    expect(btns[1]!.className).toContain('co-mobile-buybar-btn'); // mobile buybar 在後
+
+    // 桌機鈕 → getPrime
+    fireEvent.click(btns[0]!);
+    await waitFor(() => expect(getPrimeMock).toHaveBeenCalledTimes(1));
+    // mobile 鈕 → 也 getPrime(證同一 orchestrator,非只有桌機接線)
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[1]!);
+    await waitFor(() => expect(getPrimeMock).toHaveBeenCalledTimes(2));
   });
 });

@@ -167,19 +167,24 @@ describe('useTapPayCard', () => {
     expect(result.current.canGetPrime).toBe(true);
   });
 
-  it('⑦ active→false 即清 state(canGetPrime=false;卡欄步驟重入首 render 不顯 stale enabled 鈕;審查側 MUST-FIX)', async () => {
+  it('⑦ active→false 即清 state(canGetPrime=false + ready=loading + 🔴 fieldStatus 回 {1,1,1};卡欄步驟重入首 render 不顯 stale enabled 鈕/stale 逐欄錯;審查側 MUST-FIX + Fable F2)', async () => {
     const tp = stubTPDirect();
     const { result, rerender } = renderHook(({ active }) => useTapPayCard(active), {
       initialProps: { active: true },
     });
     await waitFor(() => expect(result.current.ready).toBe('ready'));
     await act(async () => {
-      tp.fireUpdate({ canGetPrime: true, status: { number: 0, expiry: 0, ccv: 0 } });
+      tp.fireUpdate({ canGetPrime: true, status: { number: 0, expiry: 2, ccv: 0 } }); // 有效期打錯
     });
     expect(result.current.canGetPrime).toBe(true);
+    expect(result.current.fieldStatus).toEqual({ number: 0, expiry: 2, ccv: 0 });
 
-    rerender({ active: false }); // 離開卡欄步驟 → 同步清(重入首 render 讀到的就是 false)
+    rerender({ active: false }); // 離開卡欄步驟 → 同步清(重入首 render 讀到的就是 empty)
     expect(result.current.canGetPrime).toBe(false);
     expect(result.current.ready).toBe('loading');
+    // 🔴 Fable F2:fieldStatus 必須回 {1,1,1}(empty)—— 否則重入按付款會在空 iframe 上顯示「有效期不正確」
+    //   而非「請輸入完整有效期」(U4b validateTapPayFields 由 live fieldStatus 衍生逐欄文案)。
+    //   ⑥/⑦ 原本只驗 canGetPrime/ready,漏了 fieldStatus → 若有人把重設改成只清 canGetPrime,此斷言才擋得住。
+    expect(result.current.fieldStatus).toEqual({ number: 1, expiry: 1, ccv: 1 });
   });
 });

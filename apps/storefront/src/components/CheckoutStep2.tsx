@@ -1,6 +1,11 @@
 'use client';
 
-// CheckoutStep2.tsx — 結帳第二步的唯一內容元件(M-3 兩步結帳 Slice U2b)
+// CheckoutStep2.tsx — 結帳第二步的唯一內容元件(M-3 兩步結帳 Slice U2b;U4b 起含動作列)
+//
+// 🔴 U4b(design §8「CheckoutStep2 只負責排列第二步區塊與動作列」):付款區回饋 CheckoutPaymentFeedback +
+//   動作列(上一步 / 確認付款)自 CheckoutView 外移進本檔尾端(騰鐵則 6 跑道)。DOM 順序、CSS 皆不變。
+//   🔴 付款 orchestrator 不離開 View:onSubmit=View.handleSubmit(付款鏈 confirmProceedIfInflight→
+//   getPrime→charge.submit 仍全在 View),本檔只掛按鈕、傳 disabled/label。
 //
 // 區塊來源(鐵則 1 字面真權威):
 //   - 發票 N°03 / 付款方式 N°04 = design-reference/components/CheckoutPage.jsx Step2(L317-437)。
@@ -40,6 +45,7 @@ import {
   CheckoutOrderReview,
   CheckoutShippingSummary,
 } from '@/components/CheckoutStep2ReviewSections';
+import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import type { CheckoutPaymentErrors } from '@/lib/checkout/validate-checkout-payment';
 
@@ -78,6 +84,22 @@ export type CheckoutStep2Props = {
    * 🔴 本元件只負責**顯示**,不自行驗證、不自行清除 —— 唯一真相在 View 的 state。
    */
   errors: CheckoutPaymentErrors;
+  /**
+   * U4b(design §8:CheckoutStep2 負責「動作列」)——付款區回饋 + 上一步/確認付款兩鈕自 CheckoutView 外移進來。
+   * 🔴 付款 orchestrator 仍在 View:`onSubmit` = View 的 handleSubmit(付款鏈不離開 View),此處只掛按鈕。
+   */
+  /** 付款區唯一 role=alert 摘要文字(buildPaymentAlert 仲裁後);null 不渲染。 */
+  paymentAlert: string | null;
+  /** 上一步 → 回 Step1。 */
+  onBack: () => void;
+  /** 確認付款 → View.handleSubmit。 */
+  onSubmit: () => void;
+  /** submitting / prime 取得中(兩鈕 disabled 與 label 依此)。 */
+  submitting: boolean;
+  /** 確認付款鈕 disabled 條件(U4a 起 = submitting;卡欄未填改由 validation 擋 + 錯誤導引)。 */
+  payDisabled: boolean;
+  /** 應付總額(顯示於確認付款鈕)。 */
+  total: number;
 };
 
 export function CheckoutStep2({
@@ -94,6 +116,12 @@ export function CheckoutStep2({
   onAgreedChange,
   onEditItems,
   errors,
+  paymentAlert,
+  onBack,
+  onSubmit,
+  submitting,
+  payDisabled,
+  total,
 }: CheckoutStep2Props) {
   // 任一發票欄變更 → 標記 override(停止地址自動帶入)。
   const patch = (p: Partial<InvoiceDraft>) => {
@@ -268,6 +296,16 @@ export function CheckoutStep2({
           termsError={errors.terms}
         />
       </section>
+
+      {/* ===== 付款區回饋 + 動作列(design §8:CheckoutStep2 負責動作列;U4b 自 CheckoutView 外移騰鐵則 6 跑道)=====
+          DOM 順序不變:仍在 .co-body 內、mobile buybar 之前 → 桌機確認付款鈕在 getAllByRole 中排前。 */}
+      <CheckoutPaymentFeedback message={paymentAlert} />
+      <div className="co-actions">
+        <button className="btn-outline co-btn-back" onClick={onBack} disabled={submitting}>← 上一步</button>
+        <button className="btn-primary co-btn-pay" disabled={payDisabled} onClick={onSubmit}>
+          {submitting ? '處理中…' : <>確認付款 NT$ {total.toLocaleString()} <span>→</span></>}
+        </button>
+      </div>
     </>
   );
 }

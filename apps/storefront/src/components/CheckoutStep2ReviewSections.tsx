@@ -29,6 +29,7 @@
 import type { CustomerAddress } from '@pcm/domain';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import { formatCartVehicle } from '@/lib/cart-vehicle-format';
+import { PAYMENT_FOCUS_TARGET_IDS } from '@/lib/checkout/focus-first-error';
 
 export type CheckoutShippingSummaryProps = {
   /** 選中的收件地址(= addresses.find(shippingAddrId));undefined 時 body 只在有錯誤時渲染。 */
@@ -68,7 +69,15 @@ export function CheckoutShippingSummary({
     <div className="co-review-block">
       <div className="co-review-block-head">
         <div className="ap-mono">收件資料</div>
-        <button type="button" className="co-review-edit" onClick={onEdit} aria-describedby={errorIds}>
+        {/* 🔴 U4b:shipping.address / notificationEmail 錯誤的 focus target(兩欄位在 Step1;
+            此鈕永遠渲染〔在 currentAddr 條件外〕、可聚焦,聚焦即導引回 Step1 修正)。 */}
+        <button
+          type="button"
+          id={PAYMENT_FOCUS_TARGET_IDS.shippingSummaryEdit}
+          className="co-review-edit"
+          onClick={onEdit}
+          aria-describedby={errorIds}
+        >
           編輯
         </button>
       </div>

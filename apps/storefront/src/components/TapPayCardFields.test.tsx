@@ -2,13 +2,17 @@
 //
 // TapPayCardFields 守門測試(M-3 兩步結帳 Slice U4a)。
 //
-// 🔴 本檔守的四件事(擋不住就是假綠):
+// 🔴 本檔守的五件事(擋不住就是假綠):
 //   ① 逐欄紅字 + aria-invalid + **條件式** aria-describedby(沒錯時不掛,避免 dangling idref)
+//      🔴 U4b:ARIA 掛在**外層可及容器**(`.auth-field` role=group、id=checkout-card-*),
+//         內層 SDK mount(`.tpfield`、id=tappay-*)**不再掛** aria-invalid/aria-describedby(Fable N1、防雙層重複朗讀)
 //   ② **版面**:紅字必須在 `.auth-field` 內部;`.co-card-row` 是 1fr 1fr grid,
 //      做成它的直接子元素會多一個格子把兩欄擠歪 —— 三綠與一般單元測試都看不見這種回歸
 //   ③ `ready==='error'` 那顆 <p> **不得再有 role="alert"**(U4a 移除;assertive 通知統一由
 //      CheckoutPaymentFeedback 發,design §7.2「避免多個 assertive alert 一起朗讀」)
 //   ④ `card.module` **真的被本元件消費**(不是只丟給共用摘要就算數)
+//   ⑤ 🔴 U4b 雙層 DOM 契約:每卡欄外層可聚焦容器(id=checkout-card-*、role=group、tabIndex=-1)+
+//      內層 SDK mount(id=tappay-*、位置不變);付款模組外層 id=checkout-payment-module(每狀態恰 1 個)
 
 import { describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -44,7 +48,7 @@ describe('TapPayCardFields — 逐欄錯誤與 ARIA', () => {
     cleanup();
   });
 
-  it('三欄各自的錯誤 → 紅字 + aria-invalid=true + describedby 指到自己那條紅字的 id', () => {
+  it('三欄各自的錯誤 → 紅字 + 外層容器 aria-invalid=true + describedby 指到自己那條紅字的 id', () => {
     const { container } = renderFields({
       errors: {
         'card.number': '請輸入完整卡號',
@@ -52,15 +56,23 @@ describe('TapPayCardFields — 逐欄錯誤與 ARIA', () => {
         'card.ccv': '請輸入完整安全碼',
       },
     });
+    // [外層容器 id(ARIA 落點), 內層 SDK mount id, 紅字 id, 文案]
     const cases = [
-      ['tappay-card-number', 'checkout-card-number-error', '請輸入完整卡號'],
-      ['tappay-card-expiration-date', 'checkout-card-expiry-error', '有效期不正確,請重新確認'],
-      ['tappay-card-ccv', 'checkout-card-ccv-error', '請輸入完整安全碼'],
+      ['checkout-card-number', 'tappay-card-number', 'checkout-card-number-error', '請輸入完整卡號'],
+      ['checkout-card-expiry', 'tappay-card-expiration-date', 'checkout-card-expiry-error', '有效期不正確,請重新確認'],
+      ['checkout-card-ccv', 'tappay-card-ccv', 'checkout-card-ccv-error', '請輸入完整安全碼'],
     ] as const;
-    for (const [fieldId, errorId, msg] of cases) {
-      const field = container.querySelector(`#${fieldId}`)!;
-      expect(field.getAttribute('aria-invalid')).toBe('true');
-      expect(field.getAttribute('aria-describedby')).toBe(errorId);
+    for (const [wrapperId, mountId, errorId, msg] of cases) {
+      // 🔴 U4b:ARIA 在外層可及容器
+      const wrapper = container.querySelector(`#${wrapperId}`)!;
+      expect(wrapper.getAttribute('role')).toBe('group');
+      expect(wrapper.getAttribute('aria-invalid')).toBe('true');
+      expect(wrapper.getAttribute('aria-describedby')).toBe(errorId);
+      // 🔴 內層 SDK mount 不再掛 ARIA(防雙層重複朗讀),但 id 仍在(SDK setup 依賴)
+      const mount = container.querySelector(`#${mountId}`)!;
+      expect(mount.hasAttribute('aria-invalid')).toBe(false);
+      expect(mount.hasAttribute('aria-describedby')).toBe(false);
+      expect(mount.parentElement).toBe(wrapper); // mount 在 wrapper 內
       const err = container.querySelector(`#${errorId}`)!;
       expect(err.textContent).toBe(msg);
       expect(err.classList.contains('auth-field-err')).toBe(true); // 不得用裸 span(會被灰色 label 樣式蓋掉)
@@ -68,15 +80,54 @@ describe('TapPayCardFields — 逐欄錯誤與 ARIA', () => {
     cleanup();
   });
 
-  it('🔴 只有一欄有錯 → 另外兩欄不得留下 aria-invalid / aria-describedby(條件式、非恆掛)', () => {
+  it('🔴 只有一欄有錯 → 另外兩欄外層不得留下 aria-invalid / aria-describedby(條件式、非恆掛)', () => {
     const { container } = renderFields({ errors: { 'card.number': '請輸入完整卡號' } });
-    for (const id of ['tappay-card-expiration-date', 'tappay-card-ccv']) {
-      const field = container.querySelector(`#${id}`)!;
-      expect(field.hasAttribute('aria-invalid')).toBe(false);
-      expect(field.hasAttribute('aria-describedby')).toBe(false);
+    for (const id of ['checkout-card-expiry', 'checkout-card-ccv']) {
+      const wrapper = container.querySelector(`#${id}`)!;
+      expect(wrapper.hasAttribute('aria-invalid')).toBe(false);
+      expect(wrapper.hasAttribute('aria-describedby')).toBe(false);
     }
     expect(container.querySelectorAll('.auth-field-err')).toHaveLength(1);
     cleanup();
+  });
+
+  it('🔴 U4b 雙層 DOM 契約:三欄各有可聚焦外層容器(id=checkout-card-*、role=group、tabIndex=-1、aria-label),SDK mount id 不變', () => {
+    const { container } = renderFields();
+    const map = [
+      ['checkout-card-number', 'tappay-card-number', '卡號'],
+      ['checkout-card-expiry', 'tappay-card-expiration-date', '有效期'],
+      ['checkout-card-ccv', 'tappay-card-ccv', 'CVV'],
+    ] as const;
+    for (const [wrapperId, mountId, label] of map) {
+      const wrapper = container.querySelector(`#${wrapperId}`) as HTMLElement;
+      expect(wrapper).not.toBeNull();
+      expect(wrapper.classList.contains('auth-field')).toBe(true); // 零新增節點:容器 = 既有 .auth-field
+      expect(wrapper.getAttribute('role')).toBe('group');
+      expect(wrapper.tabIndex).toBe(-1);
+      expect(wrapper.getAttribute('aria-label')).toBe(label);
+      // 內層 SDK mount 保留原 id、在 wrapper 內
+      const mount = container.querySelector(`#${mountId}`)!;
+      expect(mount.classList.contains('tpfield')).toBe(true);
+      expect(mount.closest(`#${wrapperId}`)).toBe(wrapper);
+    }
+    cleanup();
+  });
+
+  it('🔴 付款模組外層 id=checkout-payment-module + role=group + tabIndex=-1,每狀態恰 1 個(非重複 id)', () => {
+    for (const ready of ['ready', 'loading', 'error'] as const) {
+      const { container } = renderFields({
+        ready,
+        fieldStatus: { number: 1, expiry: 1, ccv: 1 },
+        errors: ready === 'error' ? { 'card.module': CARD_MODULE_ERROR_MESSAGE } : {},
+      });
+      const modules = container.querySelectorAll('#checkout-payment-module');
+      expect(modules).toHaveLength(1);
+      const m = modules[0] as HTMLElement;
+      expect(m.classList.contains('co-card-form')).toBe(true);
+      expect(m.getAttribute('role')).toBe('group');
+      expect(m.tabIndex).toBe(-1);
+      cleanup();
+    }
   });
 
   it('🔴 版面守門:紅字必在 .auth-field 內,且 .co-card-row 不得有直接子元素紅字(grid 會被擠歪)', () => {

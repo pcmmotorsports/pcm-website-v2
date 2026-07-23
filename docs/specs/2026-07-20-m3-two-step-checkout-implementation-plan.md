@@ -382,7 +382,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - review_triggers: code_review / security_review_required / codex_review_required。
 
 ⑤ 執行步驟
-- DOM 契約：付款模組外層 id=`checkout-payment-module`、`role="group" tabIndex={-1}`，作 `card.module` target；各卡欄外層 focus wrapper id=`checkout-card-number|expiry|ccv`，`role="group" tabIndex={-1}` + ref + ARIA；內層 SDK mount div **保留** `TAPPAY_FIELD_IDS.number|expirationDate|ccv`，hook selector/setup/cleanup 不改。
+- DOM 契約：付款模組外層 id=`checkout-payment-module`、`role="group" tabIndex={-1}`，作 `card.module` target；各卡欄外層 focus wrapper id=`checkout-card-number|expiry|ccv`，`role="group" tabIndex={-1}` + ARIA；內層 SDK mount div **保留** `TAPPAY_FIELD_IDS.number|expirationDate|ccv`，hook selector/setup/cleanup 不改。
+  - 🔴 **2026-07-23 U4b 實作偏離(Fable N6、字面同步)**：①「focus wrapper」＝**既有 `.auth-field` 本身**掛 id/role/tabIndex/ARIA，**不另包新 div**（零新增節點 → `.co-card-row` grid 兩子不變、零版面回歸）②聚焦以 **`getElementById`** 定位、**不用 ref**（CheckoutStep2 於 step≠2 整段卸載重掛時由 DOM 現查、無 ref staleness；mirror `goNext` 的 email 聚焦寫法）。「+ ref」原字面已作廢。
 - fixed order：`shipping.address → notificationEmail → invoice.title → invoice.taxId → invoice.donateCode → card.module → card.number → card.expiry → card.ccv → terms`。
 - RED：spy `focus()`、`scrollIntoView({block:'center'})`；同時 invoice/card/terms error 時只第一 target 各被呼一次，全部紅字仍存在，只有一個 `role=alert`。
 - RED：ready=error + terms error 時先 focus/scroll `checkout-payment-module`，terms 紅字仍保留，不得跳過 `card.module`。

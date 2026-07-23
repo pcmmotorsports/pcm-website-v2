@@ -14,6 +14,9 @@
 //   disabled 假卡欄與重複的發票 / 付款複查節點全部移除。
 //   🔴 鐵則 6 跑道:U3b 三刀(validate-checkout-payment / usePaymentErrors / CheckoutMobileBuybar)後 392 行;
 //   U4a-0 第四·五刀(CheckoutTerminalScreen / CheckoutCartNotice、皆純 presentational 零行為變更)後 356 行。
+//   U4b:聚焦邏輯外移至 lib/checkout/focus-first-error.ts + hooks/useFirstErrorFocus.tsx(不塞 View);
+//   桌機動作列 + CheckoutPaymentFeedback 移進 CheckoutStep2(design §8「CheckoutStep2 負責動作列」)。
+//   🔴 付款 orchestrator 仍在 View(design §8):handleSubmit 全鏈未動,只以 onSubmit prop 傳給 Step2 的按鈕。
 //
 // ②-④b 成交流程(取代 e3b 純建單;本檔走 useChargePayment 刷卡整鏈):
 //   付款方式選項 body 插 TapPay 安全卡欄(paymentSlot;卡資料零進 React state、useTapPayCard
@@ -50,11 +53,11 @@ import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutS
 import { CheckoutTerminalScreen, isTerminalChargeState } from '@/components/CheckoutTerminalScreen';
 import { CheckoutCartNotice } from '@/components/CheckoutCartNotice';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
-import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
 import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
 import { validateNonCardFields, validateTapPayFields } from '@/lib/checkout/validate-checkout-payment';
 import { usePaymentErrors } from '@/hooks/usePaymentErrors';
+import { useFirstErrorFocus } from '@/hooks/useFirstErrorFocus';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { useChargePayment } from '@/hooks/useChargePayment';
 import { useTapPayCard } from '@/hooks/useTapPayCard';
@@ -178,6 +181,10 @@ export function CheckoutView({
     fieldStatus: tappay.fieldStatus,
     submitAttempted: payErrors.submitAttempted,
   });
+  // 🔴 U4b:按下付款、有錯 → 聚焦第一個錯誤(design §7.2「捲動並聚焦第一個可聚焦錯誤」)。
+  //   傳入卡片 + 非卡片的合併 map;hook 於 commit 後對**最新**值聚焦(見 useFirstErrorFocus 時序註解)。
+  //   聚焦 orchestration 是 View 職責(design §8),但 registry 與 DOM 副作用外移至 lib/hook(鐵則 6、不塞 View)。
+  const requestErrorFocus = useFirstErrorFocus({ ...payErrors.errors, ...cardValidation.errors });
   const handleSubmit = async () => {
     // 🔴 順序不可調動(codex 關卡1 R1#6 / R3-B / 關卡2 R1#1 釘死):同步 guard → **淘汰舊 charge error**
     //   → non-card validation → confirm → prime 鎖 → getPrime → **解除淘汰** → charge.submit。
@@ -207,6 +214,9 @@ export function CheckoutView({
       // 🔴 有錯即止:confirmProceedIfInflight / getPrime / chargePaymentAction 一律 0 次。
       //   prime 訊息一併淘汰,否則客人修完欄位後舊訊息會幽靈重現。
       setPrimeError(null);
+      // 🔴 U4b:錯誤集合完成後聚焦第一個(design §7.2)。此刻 applyValidation/markSubmitAttempted 已排入
+      //   同批 setState → 下一 render 的合併 map 已含卡片錯誤,hook 於 commit 後才真正聚焦(讀最新值)。
+      requestErrorFocus();
       return;
     }
     if (!confirmProceedIfInflight()) return; // 🔴 P3:另開分頁防呆軟提醒(取消則不送出;後端 preflight 才是雙扣真防線)
@@ -316,45 +326,38 @@ export function CheckoutView({
               />
             )}
 
-            {/* ===== STEP 2: 收件摘要 + 發票 + 付款 + 商品 + 條款(U2b 起單一元件)===== */}
+            {/* ===== STEP 2: 收件摘要 + 發票 + 付款 + 商品 + 條款 + 動作列(U2b 單一元件;U4b 起動作列亦在其內)===== */}
             {step === 2 && (
-              <>
-                <CheckoutStep2
-                  currentAddr={addresses.find((a) => a.id === shippingAddrId)}
-                  shippingLabel="貨運宅配"
-                  onEditAddress={() => setStep(1)}
-                  invoice={invoice}
-                  setInvoice={handleInvoiceChange}
-                  invoiceOverride={invoiceOverride}
-                  setInvoiceOverride={setInvoiceOverride}
-                  paymentSlot={
-                    <TapPayCardFields
-                      ready={tappay.ready}
-                      fieldStatus={tappay.fieldStatus}
-                      errors={cardValidation.errors}
-                    />
-                  }
-                  lines={lines}
-                  agreed={agreed}
-                  onAgreedChange={(v) => {
-                    setAgreed(v);
-                    payErrors.clearKeys(['terms']);
-                  }}
-                  onEditItems={() => router.push('/cart')}
-                  errors={payErrors.errors}
-                />
-                <CheckoutPaymentFeedback message={paymentAlert} />
-                <div className="co-actions">
-                  <button className="btn-outline co-btn-back" onClick={goBack} disabled={submitting}>← 上一步</button>
-                  <button
-                    className="btn-primary co-btn-pay"
-                    disabled={payDisabled}
-                    onClick={handleSubmit}
-                  >
-                    {submitting ? '處理中…' : <>確認付款 NT$ {total.toLocaleString()} <span>→</span></>}
-                  </button>
-                </div>
-              </>
+              <CheckoutStep2
+                currentAddr={addresses.find((a) => a.id === shippingAddrId)}
+                shippingLabel="貨運宅配"
+                onEditAddress={() => setStep(1)}
+                invoice={invoice}
+                setInvoice={handleInvoiceChange}
+                invoiceOverride={invoiceOverride}
+                setInvoiceOverride={setInvoiceOverride}
+                paymentSlot={
+                  <TapPayCardFields
+                    ready={tappay.ready}
+                    fieldStatus={tappay.fieldStatus}
+                    errors={cardValidation.errors}
+                  />
+                }
+                lines={lines}
+                agreed={agreed}
+                onAgreedChange={(v) => {
+                  setAgreed(v);
+                  payErrors.clearKeys(['terms']);
+                }}
+                onEditItems={() => router.push('/cart')}
+                errors={payErrors.errors}
+                paymentAlert={paymentAlert}
+                onBack={goBack}
+                onSubmit={handleSubmit}
+                submitting={submitting}
+                payDisabled={payDisabled}
+                total={total}
+              />
             )}
           </div>
 
