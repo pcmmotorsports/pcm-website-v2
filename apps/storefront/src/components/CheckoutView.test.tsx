@@ -24,6 +24,17 @@ import {
   TERMS_REQUIRED_MESSAGE,
 } from '@/lib/checkout/validate-checkout-payment';
 
+// jsdom 未實作 <dialog> showModal/close → U5 付款中遮罩(CheckoutPaymentOverlay)在 submitting 態
+// 會呼叫 showModal;補最小 stub 讓 jsdom 可跑(真 modal/inert 行為留 agent-browser)。
+if (typeof HTMLDialogElement.prototype.showModal !== 'function') {
+  HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) {
+    if (this.open) throw new DOMException('dialog already open', 'InvalidStateError');
+    this.open = true;
+  };
+}
+if (typeof HTMLDialogElement.prototype.close !== 'function') {
+  HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) { this.open = false; };
+}
 
 const {
   cartRef,
@@ -785,6 +796,86 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
     expect(await screen.findByText(/未扣款;系統忙碌中/)).toBeTruthy();
     expect(cartRef.current.clear).not.toHaveBeenCalled();
+  });
+
+  // ===== U5:付款中遮罩(CheckoutPaymentOverlay;submitting 驅動、終態整頁換)=====
+  // 🔴 codex 關卡1 F3:逐態確保遮罩「只在 submitting 開啟、留頁態收掉、終態整頁換不殘留」。
+  //    真 modal / inert 背景鎖鍵盤 / ::backdrop 非 jsdom 能驗、留 agent-browser 真瀏覽器。
+  const overlay = (c: HTMLElement) => c.querySelector('dialog.co-pay-overlay') as HTMLDialogElement | null;
+
+  it('U5 idle(非付款中)→ 遮罩存在但未開啟', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    expect(overlay(container)).toBeTruthy();
+    expect(overlay(container)!.open).toBe(false);
+  });
+
+  it('U5 付款進行中(getPrime 未決 = submitting)→ 遮罩以 modal 開啟(鎖住整頁)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockImplementation(() => new Promise<string>(() => {})); // 永不 resolve → 停在 submitting
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    await waitFor(() => expect(overlay(container)!.open).toBe(true));
+  });
+
+  it('U5 getPrime 失敗(null)→ submitting 結束、遮罩收掉、留頁顯錯誤(非終態)', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue(null);
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(await screen.findByText(/卡片資訊驗證失敗/)).toBeTruthy();
+    expect(overlay(container)!.open).toBe(false);
+  });
+
+  it.each([
+    ['error(formError)', { formError: '付款失敗,請稍後再試或聯繫客服 LINE' }, /付款失敗/],
+    ['wait(charge_failed_wait)', { ok: false, payment: 'charge_failed_wait', message: '付款未成功、未扣款;系統忙碌中,請約 10 分鐘後再試' }, /未扣款;系統忙碌中/],
+    ['in_flight', { ok: false, payment: 'in_flight', message: '您有一筆付款正在處理中,請稍候再試' }, /正在處理中/],
+  ])('U5 留頁態 %s → charge 結束 submitting 轉 false、遮罩收掉留頁', async (_label, result, msg) => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue(result);
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(await screen.findByText(msg)).toBeTruthy();
+    expect(overlay(container)!.open).toBe(false);
+  });
+
+  it.each([
+    ['paid', { ok: true, displayId: 'PCM-2026-0100' }, '訂單已成立'],
+    ['processing', { ok: false, payment: 'processing', displayId: 'PCM-2026-0101', message: '付款已收或處理中,請勿重複付款,客服 LINE 將協助確認' }, '付款處理中'],
+    ['redirect', { redirect: true, redirectUrl: 'https://sandbox.tappaysdk.com/tpc/3ds/pay?token=x' }, null],
+  ])('U5 終態 %s → isTerminalChargeState 整頁換、DOM 無遮罩(不殘留)', async (_label, result, text) => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue(result);
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    if (text) await screen.findByText(text);
+    else await screen.findByTestId('checkout-redirecting');
+    expect(overlay(container)).toBeNull();
+  });
+
+  it('U5 unknown(action throw)終態 → 整頁換、DOM 無遮罩', async () => {
+    setCart([{ productId: 'rpm-1', variantId: 'v1', qty: 1 }]);
+    resolveMock.mockResolvedValue([resolvedLine({ productId: 'rpm-1', variantId: 'v1' })]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockRejectedValue(new Error('network'));
+    const { container } = renderCheckout();
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+    expect(await screen.findByText('付款狀態確認中')).toBeTruthy();
+    expect(overlay(container)).toBeNull();
   });
 });
 

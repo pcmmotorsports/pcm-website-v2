@@ -51,3 +51,18 @@ describe('checkout mobile CSS guard', () => {
     expect(mobileCss).toMatch(/\.co-notification-email input\s*\{[^}]*font-size:\s*16px\s*;/);
   });
 });
+
+// 🔴 U5:付款中遮罩靠原生 <dialog> ::backdrop 蓋整頁 + dialog 本身去邊框透明讓 backdrop 全屏。
+//   若有人拿掉 backdrop 深色背景 / 忘了清 dialog 預設邊框,遮罩會變成一個有框小白盒 = 蓋不住頁面。
+describe('checkout 付款中遮罩 CSS guard(U5)', () => {
+  it('.co-pay-overlay::backdrop 具深色半透明背景(遮罩蓋整頁)', () => {
+    const rule = CSS.match(/\.co-pay-overlay::backdrop\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/background:\s*rgba\(/);
+  });
+
+  it('.co-pay-overlay 去除 dialog 預設邊框與背景(讓 backdrop 全屏)', () => {
+    const rule = CSS.match(/\.co-pay-overlay\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/border:\s*none/);
+    expect(rule).toMatch(/background:\s*transparent/);
+  });
+});

@@ -404,6 +404,15 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 
 ## Slice U5：validate-then-pay、七態回歸與 mobile（35–45 分鐘）
 
+> 🔴 **2026-07-23 決策取代（Sean 拍 A/A/A、memory `project_m3-u5-payment-overlay-decisions`）**：
+> 本段「步驟列同源上鎖 / validate-then-pay」原方案**已作廢**。U5 改為 **付款中全頁遮罩**（新元件 `CheckoutPaymentOverlay`）：
+> submitting 時以原生 `<dialog>` showModal 蓋全頁 modal 遮罩（top layer + inert 鎖背景 + onCancel 擋 Esc + close 事件重開防 Chrome/FF close-request 連按兩次 Esc 穿透），
+> 一次擋掉所有回頭/離開入口（取代逐一鎖按鈕），收斂 drift `checkoutStepIndicatorUnlockedDuringPayment`；
+> `CheckoutStepIndicator` 補 `locked={submitting}` 縱深守門；3D 維持整頁跳轉、不放取消鈕（Q3=A）。
+> **已於 2026-07-23 實作 + 四層審查（code-reviewer opus / codex 關卡2 / Fable 盲審）+ agent-browser 真瀏覽器驗證完成**；
+> 殘餘風險 F5（charge 無 timeout + 遮罩鎖死 = hang 無限鎖）待 Sean 決策。
+> 以下原文（步驟列鎖方案）僅供歷史追溯、不得據此施工。
+
 ````markdown
 ① 任務目標
 - 內容分級：L1。

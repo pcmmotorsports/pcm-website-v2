@@ -52,6 +52,7 @@ import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutStepIndicator';
 import { CheckoutTerminalScreen, isTerminalChargeState } from '@/components/CheckoutTerminalScreen';
 import { CheckoutCartNotice } from '@/components/CheckoutCartNotice';
+import { CheckoutPaymentOverlay } from '@/components/CheckoutPaymentOverlay';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
 import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
 import { TapPayCardFields } from '@/components/TapPayCardFields';
@@ -274,6 +275,9 @@ export function CheckoutView({
 
   return (
     <div data-screen-label="Checkout" className="co-page">
+      {/* U5:付款進行中全頁遮罩(原生 dialog top layer;submitting 時鎖住整頁所有回頭/離開入口、
+          收斂 drift checkoutStepIndicatorUnlockedDuringPayment;付款鏈零改) */}
+      <CheckoutPaymentOverlay open={submitting} />
       <Header currentPage="checkout" />
       <main className="co-main">
         {/* Breadcrumb */}
@@ -294,7 +298,7 @@ export function CheckoutView({
         </div>
 
         {/* Step indicator(U1:兩步、型別源 CheckoutStepIndicator) */}
-        <CheckoutStepIndicator step={step} onStepChange={setStep} />
+        <CheckoutStepIndicator step={step} onStepChange={setStep} locked={submitting} />
 
         <div className="co-layout">
           {/* ============ LEFT MAIN ============ */}

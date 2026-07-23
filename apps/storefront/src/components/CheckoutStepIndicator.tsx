@@ -30,9 +30,12 @@ export type CheckoutStepIndicatorProps = {
   step: CheckoutStep;
   /** 只有已完成步驟會呼叫(回點上一步);當前步驟與未完成步驟皆不觸發。 */
   onStepChange: (step: CheckoutStep) => void;
+  /** U5 縱深守門(Fable F1):付款進行中(submitting)即使遮罩被 Esc×2 短暫關閉,步驟列也不作動、
+   *  不退回 Step 1;與付款鈕同源 submitting、非第二套鎖來源。遮罩 CheckoutPaymentOverlay 為主鎖。 */
+  locked?: boolean;
 };
 
-export function CheckoutStepIndicator({ step, onStepChange }: CheckoutStepIndicatorProps) {
+export function CheckoutStepIndicator({ step, onStepChange, locked }: CheckoutStepIndicatorProps) {
   return (
     <div className="co-steps">
       {STEPS.map((s) => {
@@ -41,7 +44,7 @@ export function CheckoutStepIndicator({ step, onStepChange }: CheckoutStepIndica
           <button
             key={s.n}
             className={`co-step ${state}`}
-            onClick={() => { if (step > s.n) onStepChange(s.n); }}
+            onClick={() => { if (!locked && step > s.n) onStepChange(s.n); }}
             disabled={step < s.n}
             aria-current={state === 'is-active' ? 'step' : undefined}
             aria-disabled={step <= s.n ? true : undefined}

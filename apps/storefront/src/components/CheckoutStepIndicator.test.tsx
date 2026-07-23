@@ -95,4 +95,15 @@ describe('CheckoutStepIndicator(M-3 兩步結帳 U1)', () => {
     fireEvent.click(second);
     expect(onStepChange).not.toHaveBeenCalled();
   });
+
+  it('🔴 U5 locked(付款中)→ 點已完成步驟不觸發 onStepChange(縱深守門、Fable F1)', () => {
+    const onStepChange = vi.fn();
+    const { container } = render(
+      <CheckoutStepIndicator step={2} onStepChange={onStepChange} locked />,
+    );
+    const steps = container.querySelectorAll<HTMLButtonElement>('.co-step');
+    // 已完成的第一步:非 locked 時可回點(見 ③);locked(付款中)時 handler no-op、不退回 Step 1。
+    fireEvent.click(steps[0]!);
+    expect(onStepChange).not.toHaveBeenCalled();
+  });
 });
