@@ -4,12 +4,14 @@
 //   同 cartSessionId sibling lookup → settle → hold/existing_paid、不重複建單扣款)+ W1 偵測退款。
 //   本記號只讓客人「知道」有付款進行中(另開分頁再結帳時軟提醒)、減少困惑與重複打 server。
 //
-// 機制:跳 TapPay 前(useChargePayment redirect 分支)寫 localStorage 記號 {cartSessionId, ts};
+// 機制:跳 TapPay 前(useChargePayment redirect 分支)、或回應遺失/送出逾時 catch(S1a unknown 終態、可能已扣未定)寫 localStorage 記號 {cartSessionId, ts};
 //   下次結帳送出前(CheckoutView handleSubmit)檢查未過期記號 → window.confirm 軟提醒(可繼續/取消);
 //   付款有結論(callback paid/failed/no_attempt 掛 ClearPaymentInflight)或逾 TTL(6 分)→ 清/失效。
 // 🔴 localStorage 跨分頁同源共享 → 適合做「另開分頁」偵測。
 // SSR-safe:typeof window 守衛(結帳為 client component、守衛防意外 SSR import);
 //   localStorage 不可用(隱私模式/配額/throw)→ 一律 fail-safe 靜默略過,**絕不可炸結帳**(P3 非關鍵防線)。
+// 🔴 S1a 重用於 unknown 終態(回應遺失/逾時、可能已扣未定):不確定窗可能長達數小時(sweeper 目前每日一次),
+//   TTL 6 分後另分頁零警示=已知警示窗縮短(無新雙扣路:同 key server dedup 硬防、不同 key 殘餘已於 useChargePayment 揭示);完整化留 S1b。
 
 const KEY = 'pcm-payment-inflight';
 /** 6 分鐘(TapPay OTP 約 5 分過期 + 緩衝;Sean 2026-06-27 Q2=6 分)。 */
@@ -17,7 +19,7 @@ const TTL_MS = 6 * 60 * 1000;
 
 export type PaymentInflightMarker = { cartSessionId: string; ts: number };
 
-/** 跳 TapPay 前寫記號(redirect 分支)。fail-safe:localStorage throw 不影響結帳。
+/** 寫記號:redirect 分支(跳 TapPay 前)、或回應遺失/逾時 catch(S1a,可能已扣未定)。fail-safe:localStorage throw 不影響結帳。
  *  cartSessionId 目前僅輔助記錄(confirmProceedIfInflight 只看記號存在性);null → '' 仍設記號。 */
 export function setPaymentInflight(cartSessionId: string | null): void {
   if (typeof window === 'undefined') return;

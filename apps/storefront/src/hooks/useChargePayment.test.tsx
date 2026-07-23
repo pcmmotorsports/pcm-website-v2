@@ -263,6 +263,7 @@ describe('useChargePayment', () => {
       message: '付款狀態未知,請勿重複付款,客服 LINE 將協助確認',
     });
     expect(cartRef.current.clear).toHaveBeenCalledTimes(1); // 清車(防殘留 cart 誘導重刷)
+    expect(setInflightMock).toHaveBeenCalledWith('cart-sess-default'); // 🔴 codex must-fix:回應遺失同設跨分頁記號
 
     chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0003' });
     await act(async () => {
@@ -270,6 +271,42 @@ describe('useChargePayment', () => {
     });
     expect(chargeMock).toHaveBeenCalledTimes(1);
     expect(result.current.state.status).toBe('unknown');
+  });
+
+  it('🔴 S1a F5:送出逾時無回應 → unknown 終態(掀遮罩給出口;清車、不 regenerate、不釋鎖防雙扣)', async () => {
+    vi.useFakeTimers();
+    try {
+      setCart([{ productId: 'p1', variantId: 'v1', qty: 1 }]);
+      chargeMock.mockReturnValue(new Promise(() => {})); // 永不 resolve:模擬網路黑洞(server 收到、回應永不回)
+      const { result } = renderHook(() => useChargePayment());
+      let terminal: Promise<boolean> | undefined;
+      act(() => {
+        terminal = result.current.submit(ARGS);
+      });
+      expect(result.current.state.status).toBe('submitting'); // 送出當下:submitting、遮罩仍蓋
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(89_999); // 逾時前一刻:仍 submitting(釘住 90s 門檻、不得回退到更短)
+      });
+      expect(result.current.state.status).toBe('submitting');
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1); // 跨過 90s 邊界 → reject → catch → unknown
+      });
+      expect(result.current.state).toEqual({
+        status: 'unknown',
+        message: '付款狀態未知,請勿重複付款,客服 LINE 將協助確認',
+      });
+      expect(cartRef.current.clear).toHaveBeenCalledTimes(1); // 清車
+      expect(cartRef.current.regenerateCartSession).not.toHaveBeenCalled(); // 🔴 模糊態保留 key 防雙扣
+      expect(setInflightMock).toHaveBeenCalledWith('cart-sess-default'); // 🔴 codex must-fix:跨分頁 in-flight 軟提醒
+      await expect(terminal!).resolves.toBe(true); // 終態:呼叫端不得釋放自身鎖
+      chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0010' });
+      await act(async () => {
+        await result.current.submit(ARGS); // 終態鎖:第二次 submit 不得再呼 action
+      });
+      expect(chargeMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('🔴 3DS-6b redirect(3DS 啟動成功)→ state=redirect + redirectUrl;不清車;submit 回 true(UI 鎖維持)', async () => {

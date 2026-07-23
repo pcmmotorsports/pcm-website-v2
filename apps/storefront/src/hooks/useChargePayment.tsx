@@ -17,7 +17,7 @@
 //   殘留 cart 誘導重買重刷;②-⑥ webhook 對帳收斂。
 // - 🔴 R3 preflight hold(processing **無單號**)→ **不 clear**:§2.3 新單未建、保留 cart 供 sibling 確定
 //   failed 後再結帳;按鈕仍鎖死(終態鎖、Q2=B 防焦慮連按再打 Record)。
-// - 🔴 unknown(action 呼叫 throw = 回應遺失層)→ **clear + 終態鎖**(審查側 BLOCKER 修):
+// - 🔴 unknown(action 呼叫 throw = 回應遺失層,或 S1a 送出逾時無回應=F5 出口)→ **clear + 終態鎖**(審查側 BLOCKER 修):
 //   client 無法分辨「請求沒送到(零扣款)」vs「送到了、server 已完成 charge+confirm、回應在
 //   回程遺失(已扣款)」;後者 order 已 paid → per-user 閘不再攔同人新請求(migration 閘
 //   predicate 排除 payment_status='paid')→ 若釋鎖重試 = 新單第二次扣款(真雙扣)。
@@ -75,6 +75,38 @@ const GENERIC_FAIL = '付款失敗,請稍後再試或聯繫客服 LINE';
 // 🔴 回應遺失層終態文案(禁誘導重刷;與 action MSG_PROCESSING 同精神、但 client 無單號)。
 const MSG_UNKNOWN = '付款狀態未知,請勿重複付款,客服 LINE 將協助確認';
 
+// 🔴 S1a F5:charge server action 無 client 逾時 → 網路黑洞時 submit 永不落地、submitting 恆真、
+//   U5 遮罩(open=submitting)永久鎖死(客人卡「付款處理中」、唯一出路重新整理而畫面又叫別關)。
+//   加上限=末路 hang-breaker(非正常路徑機制):逾時 = 回應未定、可能已扣款 → reject 落下方 catch 的
+//   unknown 終態(掀遮罩給出口、清車、保留 cart_session_id 不 regenerate、不釋鎖防雙扣)。
+//   🔴 值取捨(codex 關卡2 must-fix + Fable F1):client 逾時專治「client 完全收不到回應」的黑洞(連線斷死;
+//   server 端即使被平台 maxDuration 殺,那個 error 也回不到 client)。正常 initiate→redirect / 同步 charge 應
+//   於「數秒」內回 → 取保守 90s(遠高於正常延遲、不誤傷 90s 內的慢成功)。真 >90s 收不到回應會降級 unknown
+//   =安全方向、非雙扣;該 pending attempt 由 S1b 反查 / sweeper 收斂,客人可聯繫客服或重試。
+//   ⚠️ Vercel effective maxDuration 未實查(repo 無 maxDuration 設定、Hobby 上限視 Fluid 而定)→ S3 併驗。
+//   **provisional:S3 sandbox 3DS E2E 實測 charge/redirect 真延遲 + 平台 cap 後定案,才進 S4 prod。**
+const SUBMIT_TIMEOUT_MS = 90_000;
+
+// 逾時 → reject(不 cancel 底層請求:server 端可能仍完成)。防雙扣多層:client 終態鎖(inFlightRef 不釋放)
+//   + 清車不 regenerate 保留 cart_session_id(server cart-dedup 把手)+ 跨分頁 in-flight 軟提醒(catch 內設)
+//   + server per-order 鎖。⚠️ 殘餘:另一分頁若持不同 cartSessionId 且原請求 late-paid,server per-user 閘排除
+//   paid 單 → 軟提醒被強行略過時仍有雙扣面(同型風險回應遺失 catch 既有;S1a 擴大觸發面〔+ >90s 慢成功〕;硬封閉待 server 端 S1b/backlog)。
+function withSubmitTimeout<T>(p: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('charge-submit-timeout')), SUBMIT_TIMEOUT_MS);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 export function useChargePayment(): UseChargePayment {
   const { items, clear, cartSessionId, regenerateCartSession } = useCart();
   const [state, setState] = useState<ChargeState>({ status: 'idle' });
@@ -109,25 +141,33 @@ export function useChargePayment(): UseChargePayment {
     setState({ status: 'submitting' });
     let res: ChargePaymentActionResult;
     try {
-      res = await chargePaymentAction({
-        addressId: args.addressId,
-        shippingMethod: args.shippingMethod,
-        invoice: args.invoice,
-        lines,
-        prime: args.prime,
-        cartSessionId, // 🔴 3DS-7:client CartContext 穩定 key(server 驗 uuid/非空;空車不可達此=items>0 已保證生成)
-        agreed: args.agreed, // 🔴 #241:同意條款 → server action 重驗(不信任 client)
-        ...(args.notificationEmail !== undefined
-          ? { notificationEmail: args.notificationEmail }
-          : {}),
-      });
+      // 🔴 S1a:包 withSubmitTimeout —— 逾時 reject → 下方 catch 的 unknown 終態(修 F5、掀遮罩)。
+      res = await withSubmitTimeout(
+        chargePaymentAction({
+          addressId: args.addressId,
+          shippingMethod: args.shippingMethod,
+          invoice: args.invoice,
+          lines,
+          prime: args.prime,
+          cartSessionId, // 🔴 3DS-7:client CartContext 穩定 key(server 驗 uuid/非空;空車不可達此=items>0 已保證生成)
+          agreed: args.agreed, // 🔴 #241:同意條款 → server action 重驗(不信任 client)
+          ...(args.notificationEmail !== undefined
+            ? { notificationEmail: args.notificationEmail }
+            : {}),
+        }),
+      );
     } catch {
       // 🔴 fail-closed(審查側 BLOCKER 修):action 內部 catch 全吞回 formError,走到這裡 =
-      // 回應遺失層(網路斷在去程或回程/序列化異常)——「送到了但回應丟」時 server 可能已完成
-      // charge+confirm(已扣款),不可當零扣款釋鎖重試(見檔頭清車政策)。
-      // 比照 processing 終態:清車 + 終態鎖(inFlightRef 不釋放)+ 勿重複付款文案。
+      // 回應遺失層(網路斷在去程或回程/序列化異常),**或 S1a 送出逾時 SUBMIT_TIMEOUT_MS 無回應**——
+      // 兩者皆「送到了但回應未定」、server 可能已完成 charge+confirm(已扣款),不可當零扣款釋鎖重試。
+      // 比照 processing 終態:清車 + 終態鎖(inFlightRef 不釋放)+ 勿重複付款文案(掀遮罩、F5 出口)。
       clear();
-      // 🔴 3DS-7:回應遺失=可能已扣未定 → **保留 cart_session_id、不 regenerate**(同 processing、防雙扣;勿加)。
+      // 🔴 3DS-7:回應遺失/逾時=可能已扣未定 → **保留 cart_session_id、不 regenerate**(同 processing;
+      //   保留 key = server cart-dedup 命中既有單的把手、防雙扣;勿加 regenerate)。
+      // 🔴 S1a(codex 關卡2 must-fix):可能已扣未定 → 寫跨分頁 in-flight 記號(同 redirect 路徑),另開
+      //   分頁再結帳時 handleSubmit 軟提醒,縮小「另一分頁不同 key late-paid 後重送」殘餘雙扣面(軟提醒
+      //   非硬防線;硬封閉待 server 端 S1b/backlog)。
+      setPaymentInflight(cartSessionId);
       setState({ status: 'unknown', message: MSG_UNKNOWN });
       return true; // 終態:呼叫端(View primeBusyRef)同樣不得釋放
     }
