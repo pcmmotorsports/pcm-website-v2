@@ -2,7 +2,7 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳下一片 U5（L0 + U1 + U2a + U2b + U3a + U3b + U4a + U4b code+jsdom 已收工；U4b 尚待 diff 層審查 + agent-browser 收工 gate），或支線 #288-b；同一時間只允許一個寫入 session。**
+> **目前三個合法開工入口：主軌 M-4a B-4、M-3 兩步結帳 U5 ✅ 收工上正式站（`3bfee6b`、付款中遮罩）；**下一線＝「TapPay sandbox→正式 + 黑洞即時對帳 + 1 元真刷」（Sean 2026-07-23 開新視窗做、做完他要真刷測試；設計輸入＋架構查證＋金流紅線見 memory `project_tappay-production-blackhole-settle-line`）**，或支線 #288-b；同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
 
 ## 1. 交接快照
