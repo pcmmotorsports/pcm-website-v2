@@ -164,7 +164,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: true, // PDF 2,019 群;影片截面 0(Vimeo 預期、晚到自然補)
     categoryStrategy: { kind: 'per-group' }, // 10 大類
     variantImages: 'per-variant', // 抽群實測:同群各色各自 1 張圖(0011M04COB/NER 各異)
-    writeAllowed: false, // 🔴 過夜零寫入;Sean 批 demo 後開
+    // ✅ 2026-07-24 Sean 批首灌後開寫。前置全清:商品圖 12k 已轉存 R2(0 http)、spec color
+    //    鍵改條件式(消 39 群空色 incomplete_spec)、乾跑 4566/4566 對上零未分類、handle 撞鍵 0、
+    //    pv_spec 撞鍵 0、價格離群 0。
+    writeAllowed: true,
   },
   eazigrip: {
     supplierSlug: 'eazigrip',
