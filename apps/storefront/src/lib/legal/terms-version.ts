@@ -26,17 +26,19 @@
  *   ⑤ 才 bump 本檔兩個常數 → 部署
  * 先 bump 常數而 DB 沒那一列 → 每一筆結帳都 FK 違反、直接失敗。
  *
- * ── 誠實邊界(2026-07-24 現況)─────────────────────────────────────────────────
- * ✅ 已完成(**程式碼層**):`/terms`、`/privacy` route;結帳頁與註冊頁 `href="#"` 已接真連結 + footer 入口;
- *   內容雜湊綁定機制 + 守門測試;migration `20260724120000_m3_291_legal_terms_v2` 已寫好並經
- *   交易模擬(BEGIN→驗→ROLLBACK 零留痕)+ 突變自驗(hash 不符確實 RAISE)。
- * 🔴 **尚未完成**:`20260724120000` 已於 2026-07-24 apply,但它登錄的是**修正前**的 hash;
- *   定稿 hash 由 `20260724130000` 修正,**該支尚未 apply**(`supabase db push` 需讀 `.env.local`,
- *   而 Claude 被 settings.json 硬擋不得碰 `.env*` ⇒ 這一步是 Sean 的終端動作)。
- *   ⇒ **修正檔 apply 完成前不得部署**。🔴 **風險不是「結帳全斷」(該描述已更正)**:
- *   版本列已存在 ⇒ 不會 FK 失敗;FK 只綁 version 不綁 content_hash ⇒ 會**成功建單**並把同意
- *   掛到 hash 錯誤的版本列上 = **靜默舉證錯配**,比結帳斷線更難發現。
- *   本地已 bump 是為了讓 hash 守門測試綠;未 commit 未 push 未 deploy ⇒ 正式站不受影響。
+ * ── 現況(2026-07-24 已上線)─────────────────────────────────────────────────
+ * ✅ **全數完成並上正式站**:`/terms`、`/privacy` route + 結帳/註冊 `href="#"` 接真連結 + footer 入口;
+ *   內容雜湊綁定機制 + 守門測試;兩支 migration 皆 apply(`20260724120000` 首登、
+ *   `20260724130000` 修正為定稿 hash `eca6a241…`,正式 DB 該列已與本檔常數逐字一致);
+ *   commit `5d5af4c` 已推 origin/dev + origin/main、Vercel production 部署 READY,
+ *   `shop.pcmmotorsports.com/terms`、`/privacy` 實測 **HTTP 200 + 內容正確**。
+ *   ⇒ 客人結帳勾「我已閱讀並同意」時**真的讀得到條款**(原缺口已補)。
+ * 🔴 **部署順序(給未來改版的人,現況已滿足)**:改對外文字時務必
+ *   ① 改文字 → ② 取新 hash → ③ 寫 migration seed → ④ db push 並確認 → ⑤ 才 bump 本檔常數 → ⑥ 部署。
+ *   顛倒的風險不是「結帳全斷」(版本列已存在、不會 FK 失敗),而是**成功建單但把同意掛到 hash 錯誤的
+ *   版本列上 = 靜默舉證錯配**,比斷線更難發現。
+ * ⚠️ **仍 open(#291 唯一剩項)**:`/terms`、`/privacy` 的**渲染後完整內容 Sean 尚未逐字肉眼看過**
+ *   (他核准的是草稿;第 10 條後依拍板 B 改寫過)⇒ manifest drift `legalRenderedPayloadNotEyeballed`。
  * ⚠️ 仍非「完整法律效力」背書:
  *   ① 本次條款**未經律師簽核**(Sean 2026-07-24 判「不用」)。
  *   ② **第 10 條鑑賞期排除主張 = Sean 拍板 B、與 Claude 查證結論相反、風險已知並由 Sean 承擔**:
@@ -47,7 +49,7 @@
  *      ⇒ `/terms` 與 `/info/shipping`(`data/rpm-policies.ts`)口徑**現已一致**
  *        (codex 關卡2 must-fix #2 的「同站互相矛盾」已消除),但一致的是**被查證為站不住的那一側**。
  *      🔴 **不要自行把口徑「修正」回法律建議版**——那會推翻 Sean 拍板。要改先問他。
- * ⚠️ `TAPPAY_3DS_ENABLED` 是否已開 = Sean 的手動動作,**本檔不寫死**;
+ * ⚠️ **法律頁上線 ≠ 開放付款**:`TAPPAY_3DS_ENABLED` 是否已開 = Sean 的手動動作,**本檔不寫死**;
  *   現況一律以 `STATUS.md` Blocker 欄與 Vercel 實際設定為準。
  *
  * 相關真權威:`docs/specs/2026-06-30-m3-241-checkout-consent-plan.md` §7

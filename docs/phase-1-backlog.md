@@ -7279,7 +7279,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #291. ⚖️ 正式服務條款／隱私政策 route + version/hash(production checkout 上線前人工 release checkpoint)
 
-- 🟡 **狀態:已實作、🔴 未 commit 未 deploy(2026-07-24)** —— 原 BLOCKED 的「等正式內容核准」已由 **Sean 2026-07-24 核准** 解除。
+- ✅ **狀態:2026-07-24 全鏈上線** —— commit `5d5af4c` 已推 dev+main、Vercel production 部署 READY、`shop.pcmmotorsports.com/terms`+`/privacy` 實測 **HTTP 200 + 內容正確**、兩支 migration 皆 apply(DB 版本列 hash=`eca6a241…` 與程式常數逐字一致)。原 BLOCKED(等內容核准)+ 「未 commit 未 deploy / migration 未 apply」皆已解除。🔴 **唯一剩項不結案**:`/terms` `/privacy` 渲染後 payload Sean 尚未逐字肉眼看過(drift `legalRenderedPayloadNotEyeballed`);未經律師簽核(明示不用)。
   - ✅ **已交付**:`/terms`、`/privacy` route(`app/terms|privacy/page.tsx` + `components/LegalDocPage.tsx`;
     內容 SSoT=`data/legal-content.ts`,取自 `docs/specs/2026-07-23-pcm-legal-terms-privacy-draft.md` 已核准版、
     剝除內部註記;聯絡/登記資訊自 `lib/site-config` 衍生、零硬編碼)+ **兩個消費端連結都改完**
@@ -7290,14 +7290,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     不含註解/程式碼)+ `data/legal-content-hash.test.ts` 守門(改字沒 bump 版本就紅、含章節順序敏感度突變自驗)。
     `CURRENT_TERMS_VERSION` = `'2026-07-24'`、`CURRENT_TERMS_CONTENT_HASH` =
     `d6117ee59b6536d156e4bcf78ce3bb2fea30abe8111a49eadb87a08e026bcd6c`;
-    🔴 **兩支 migration**:`20260724120000`(**已於 07-24 apply**、登錄 hash fd26ac4e…401d)+ `20260724130000`(**待 apply**、修正為定稿 hash eca6a241…b6ab;文字因 codex 關卡2 must-fix 再次異動)。
+    `CURRENT_TERMS_CONTENT_HASH` = `eca6a2415d0599c16fbea7ed81316584dab6ba6c7856e4c48f9e5c89514cb6ab`(定稿)。
+    🔴 **兩支 migration 皆已 apply(2026-07-24)**:`20260724120000`(首登 hash fd26ac4e…401d)+ `20260724130000`(定稿 hash eca6a241…b6ab;文字因 codex 關卡2 must-fix + Sean Q2/Q3 拍板再次異動)。
     兩支皆經**交易模擬(BEGIN→驗→ROLLBACK、零留痕)**與**突變自驗**(前者:hash 不符確實 RAISE P0001;
     後者:指向已有同意紀錄的版本確實 RAISE、證明「不得覆寫客人簽過的版本」是機制不是註解)。
-  - 🔴 **仍未完成 → 本條目不結案**:修正檔 `20260724130000` **尚未 apply 到正式 DB**(第一支已 apply)。
-    `supabase db push` 需讀 `.env.local`(該檔含 `¿` 字元、Go dotenv 解析即炸),而 **Claude 被 settings.json
-    硬擋不得碰 `.env*`** ⇒ **db push 是 Sean 的終端動作**(指令見 STATUS「下一步」)。
-    🔴 **順序硬性**:apply 完成前**不得部署** bump 後的 storefront。
-    🔴 **提早部署的真實風險(2026-07-24 更正,原本寫的「結帳全斷」是錯的)**:版本列 `'2026-07-24'` **已存在**於正式 DB(首支 migration 已 apply)⇒ 現在部署**不會** FK 失敗、結帳不會斷。FK 只綁 `terms_version`、**不綁 `content_hash`** ⇒ 會**成功建單**,把客人對新條款畫面的同意掛到一列 `content_hash` 仍是舊值的版本上 —— **靜默的舉證錯配、無任何錯誤訊息**,危險性比「結帳全斷」**更高**(壞事發生時沒人會發現)。且期間一旦產生 consent,修正檔的守衛會拒絕覆寫,只能改開新版本鍵收拾。
+  - ✅ **已上線(2026-07-24)**:commit 5d5af4c 推 dev+main、production READY、/terms+/privacy 實測 HTTP 200 + 內容正確、DB 版本列 hash=`eca6a241…` 與程式常數逐字一致。本條目**唯一不結案項** = Sean 肉眼驗渲染後 payload。
+    ⚠️ **給未來改版的人(現況已滿足)**:改對外文字硬序 = 改文字→取新 hash→寫 migration seed→
+    Sean db push 並確認→bump 常數→部署(db push 是 Sean 終端動作:supabase CLI 讀 `.env.local`、Claude 被 settings.json 擋)。
+    顛倒的風險**不是「結帳全斷」**(版本列已存在、不 FK 失敗),而是**成功建單但把同意掛到 hash 錯誤的列 = 靜默舉證錯配**(比斷線更難發現);且期間一旦產生 consent,修正檔守衛會拒絕覆寫、只能改開新版本鍵收拾。
     🔴 **db push 會連帶推 S2 pg_cron(`20260723120000`)** —— 該支尚未 apply 且需先建 vault secret,
     故指令須先把它暫移開;S2 之後單獨推時因版本序在前,需 `--include-all`。
   - ⚠️ **未經律師簽核 —— Sean 2026-07-24 答「不用」**(核准矩陣中律師屬選配;Sean 逕行核准發布)。
@@ -7330,7 +7330,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   測試只證明 repo 裡有一支 migration 寫了它,不證明它被 apply 過。
   ⇒ 「apply 前不得部署」目前**仍只是 prose**;要真正機械化需 deploy preflight 連線查 DB(未做、非本片範圍)。
   **因此本條目不得記為「只剩 db push」** —— 正確說法是「只剩 db push,且部署順序仍靠人遵守」。
-- **狀態:** 🟡 **進行中 —— 原 BLOCKED(等內容核准)已由 Sean 2026-07-24 核准解除**;程式碼層完成、DB 修正檔待 apply、未 commit 未 deploy。詳本條目頂端。
+- **狀態:** ✅ **2026-07-24 全鏈上線**(原 BLOCKED 已解除;兩支 migration apply、推 dev+main、production READY、實測 200)。唯一不結案 = Sean 肉眼驗渲染後 payload。詳本條目頂端。
   (對應實作計畫 `docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md` Slice L1)
 - **優先級:** 🔴 高(production checkout 開放付款的硬前置)
 - **問題(⚠️ 以下為 2026-07-24 之前的原始問題陳述、保留供追溯;現況見本條目頂端「狀態」):**
