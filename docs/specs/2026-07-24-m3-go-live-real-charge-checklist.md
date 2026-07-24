@@ -109,6 +109,11 @@ select proname from pg_proc where proname in
   'record_webhook_event','begin_charge_attempt','mark_charge_attempt_charged') order by 1;
 ```
 
+✅ **2026-07-24 Sean 實跑:回 8 筆、全到** —— begin_charge_attempt / find_active_sibling_own /
+get_active_charge_attempt / mark_charge_attempt_charged / mark_charge_attempt_released_for_user /
+record_charge_bank_txn / record_charge_pending_rec / record_webhook_event。**檢查 A 通過、F1 解除。**
+(⚠️ 點時間驗證:若日後重建/還原 DB 需重驗。)
+
 **要回 8 支,少任何一支就別刷**(先補 db push)。
 缺了的症狀:每次按付款都回「訂單付款狀態確認中,請勿重複付款」、**畫面不會告訴你原因**(錯誤被吞成通用字面),零建單零扣款。
 
@@ -118,9 +123,21 @@ select proname from pg_proc where proname in
 格式檢查全過 → 3D 正常跳轉 → **客人 OTP 完成、錢真的扣掉** → TapPay 把人導到錯的網域(404)、
 webhook 也打到錯的網域 → **我方訂單永遠不會變成已付款,而且沒有任何兜底會救它**。
 
-用瀏覽器開這個網址(把 `<...>` 換成你設的值):
-`<NEXT_PUBLIC_SITE_URL>/checkout/callback?order=00000000-0000-0000-0000-000000000000`
-**必須看到「處理中」之類的頁面,不能是 404、網址列不能跳去別的網域。**
+🔴 **先確認它到底有沒有設**:本 repo 對這顆是**「沒設就休眠」**設計(`seo.ts:8-10`、`site-url.ts:11-15`:
+未設 → robots 全擋 + sitemap 空,等上線才設)→ **很可能至今未設**。
+**沒設的後果**:`resolveThreeDSConfig()` 直接 throw → **每一筆 3DS 付款都失敗**(fail-closed、零扣款,
+但畫面只給通用錯誤、不會說是這個原因)。
+
+步驟:
+1. Vercel → storefront 正式站專案 → Settings → Environment Variables → 找 `NEXT_PUBLIC_SITE_URL`。
+   - **沒有這一顆** → 就是它,補設成正式網域(格式見上表)。
+   - **有** → 記下逐字的值,做下一步比對。
+2. 確認那個值 **逐字等於你自己平常瀏覽賣場的網域**(`www.` 有無、`shop.` 子網域都算不同)。
+3. 用瀏覽器開:`<該值>/checkout/callback?order=00000000-0000-0000-0000-000000000000`
+   **通過的樣子**:出現我們自己站台的頁面(處理中/錯誤提示/導去登入都算過),
+   且**網址列仍停在你的賣場網域**。
+   **不通過**:404、或網址列跳去另一個網域 → 值填錯了,修好再刷。
+   (`/checkout/callback` 路由已實查存在於 `origin/main`,故現行正式站就測得到。)
 
 ## 步驟 7:真刷測試(照這個順序)
 
