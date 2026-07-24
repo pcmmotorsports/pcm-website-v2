@@ -22,7 +22,7 @@
 # plan:docs/specs/2026-06-03-S5-scheduling-plan.md(Sean 拍 Q-S5-platform=A)。
 # V1 matrix(2026-07-05 雙跨模型審查 must-fix、Sean 拍 gbracing+bonamici 上架):每家一個獨立 job
 #   跑「自己完整一輪」(不變式 1 軟下架隔離);fail-fast:false = 一家 gate abort 不拖垮別家;
-#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。matrix 涵蓋全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275)。
+#   max-parallel:1 = 序列寫同一 DB、降低併發寫入面。matrix 涵蓋全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech+kspeed 2026-07-24 首灌後補入;🔴 extreme 為靜態一次性 fixture、刻意不列(supplier-config.ts:249)。
 #
 # ⚠️ 已知陷阱:GitHub scheduled workflow 60 天無 repo 活動會被自動 disable(**本 repo 實查為 public、規則適用**)
 #   (無人值守需週期性 repo 活動或定期到 Actions 頁確認仍啟用)。
@@ -69,7 +69,7 @@ jobs:
       # 🔴 總執行時長實測(2026-07-22、近 12 次執行):**0.17-0.22 小時 = 約 10-13 分鐘**(整個 matrix 12 家序列跑完)。
       #   → 各 job 6h 上限推出的「最壞 72 小時」是理論值、與實況差兩個數量級;12:30 開跑約 13:40 前結束。
       matrix:
-        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic] # 全 writeAllowed=true 品牌(2026-07-12 Sean 拍「所有品牌每日同步」);lightech 除外(writeAllowed=false、#275);akrapovic 2026-07-19 首灌 648 群驗證通過後加入(runbook §5 全過);samco 14165 變體序列跑較久但各 job 6h 上限
+        supplier: [rpm, gbracing, bonamici, cncracing, evotech, eazigrip, samco, motogadget, front3d, materya, ebc, akrapovic, lightech, kspeed] # 全「需每日同步」品牌(2026-07-12 Sean 拍「所有品牌每日同步」);akrapovic 07-19 首灌後加入;lightech+kspeed 2026-07-24 首灌後加入(lightech 原 #275 除外、已開寫);🔴 extreme 刻意不列(supplier-config.ts:249 靜態一次性 fixture、不接每日排程);samco 14165 變體序列跑較久但各 job 6h 上限
     steps:
       - name: Checkout
         uses: actions/checkout@v6
