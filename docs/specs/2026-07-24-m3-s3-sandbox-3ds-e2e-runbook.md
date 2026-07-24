@@ -1,5 +1,16 @@
 # Runbook — M-3 S3「sandbox 3DS 全鏈實測」(2026-07-24 草稿)
 
+> # 🔴🔴 已作廢 —— Sean 2026-07-24 拍板「不走 sandbox、直接正式站真刷」
+>
+> Sean 過夜批次 **Q2/Q3 = 來真的**:放棄 sandbox/staging 3DS 測試,改為
+> **正式站開 1 元商品 + 他自己的真信用卡直接刷**驗收(拍板見 memory
+> `project_sean-real-payment-verify-via-1nt-product` 2026-07-24 段)。
+> ⇒ **本檔的 §1 兩個前置(staging 部署管道、3DS sandbox merchant)與 §3 sandbox 腳本全部不執行。**
+> 仍有價值、已移轉到真刷路徑的部分:§3 的**測試情境清單**(3DS happy-path / 三條黑洞兜底 /
+> S1a 逾時出口)與 **§3-C 的 90s SUBMIT_TIMEOUT 定案方法**——這些改在**真刷**時驗。
+> 真刷 go-live 步驟改見 `docs/specs/2026-07-24-m3-go-live-real-charge-checklist.md`。
+> 本檔僅留作歷史追溯,**不得據此規劃或執行**。
+
 > ⚠️ **Claude 過夜自主起草的測試程序草稿。S3 主體=Sean 手動在 staging 操作(非寫 code)。**
 > 上位真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S3 段 §「S3」)。
 > S1a/S1b/S2 code 已收工;S3 只**驗**、不改 code(除非跑出 bug 需修 → 那才回頭 code)。

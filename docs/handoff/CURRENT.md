@@ -7,6 +7,10 @@
 
 ## 1. 交接快照
 
+- Updated: 2026-07-24, Asia/Taipei — 🔴🔴 **Sean 五拍板、方向大轉向(推翻 S3 sandbox 路線)**:**Q1=A** B-4 採統一三分支(方向已批、下一步 codex 關卡1)/ **Q2+Q3=來真的**——**放棄 sandbox 3DS 測試,金流全部用正式站 1 元商品 + Sean 真信用卡直接刷驗收**(`2026-07-24-m3-s3-sandbox-3ds-e2e-runbook.md` 已標作廢、改走 `2026-07-24-m3-go-live-real-charge-checklist.md`)/ **Q4=B** 退款線提前啟動第二段=後台取消訂單即自動打 TapPay refund(PRD `2026-07-24-refund-automation-line-prd.md`、5-7 片、需 Sean db push + admin Vercel TapPay env)/ **Q5=A** #269 排隊。Sean 總方針逐字:「**先把金流做到可以完整實際刷卡,要測試等等所有都用我自己真的信用卡+1 元賣場直接刷**」。
+  - 🔴 **真刷前硬前置(實查、最易漏)**:`origin/main`=`3bfee6b` **落後 dev 11 commit**,缺 S1a 逾時出口(`b73e9cb`)+ S1b 黑洞反查(`43c0d6d`/`7289808`)+ S2(`a5d7619`)→ **不先 `git push origin dev:main`,真刷遇網路黑洞會讓付款遮罩永久鎖死**(U5 遺留 F5)。= checklist 步驟 0。
+  - 🔴 **唯一擋真刷的待拍 = #291 法律頁**:結帳「同意服務條款」連結是死的、`/terms` `/privacy` 不存在;flag 一開 + 1 元商品公開 → 真客人買到勾同意卻讀不到條款。A=先掛條款頁(草稿已備)/ B=先不管、藏好商品自測、風險自負。**Sean 未答、Claude 不得自行掛法律頁(鐵則 12 ⑤對外發布)**。
+  - go-live 確切 env 欄位名/URL 格式/測試腳本/停損 = `docs/specs/2026-07-24-m3-go-live-real-charge-checklist.md`(皆自程式碼實查、附檔案:行號)。
 - Updated: 2026-07-24, Asia/Taipei（凌晨）— **過夜自主 session 總結(Sean 睡前交代「推進不需他手動的活、要他批的排隊」)**：**未 push、未 apply DB、未開 flag、未動 `.env*`**;`dev` ahead `origin/dev` **4**(S2 `a5d7619` + 下列三 commit)。
   - ✅ **#288-b「production build E2E 資料合約 globalSetup + mobile device project」收工=`a26cdf4`**(支線、標準片、非金流)：新 `e2e-prod/global-setup.ts` 資料合約 fail-fast + config 加 globalSetup/globalTimeout/actionTimeout + mobile project=Pixel 5(非 iPhone=webkit 未裝)+ `runner-smoke.spec.ts` 加 project-aware `data-mobile` 斷言。三綠 + `pnpm test:e2e:prod` **2 passed** + 突變 2/2;code-reviewer(sonnet)獨立重跑 = **PASS 0 must-fix**。揭示偏離(改了 plan §6 清單外的 spec、因 §6 自身矛盾)已寫進 commit body。下一 = #288-c 品牌篩選斷言。
   - ✅ **B-4 plan 草稿=`faef29a`**(主軌、docs);✅ **S3 runbook 草稿=本 commit**(M-3、docs)。皆**只規劃未 code**(B-4 命中鐵則 12 ①錢、S3 主體 Sean 手動)。
