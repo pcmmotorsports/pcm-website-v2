@@ -10,7 +10,8 @@
 // 驗:① 收件摘要=姓名 + 電話 + **完整地址字面** + 配送方式 + 編輯鈕
 //     ② 🔴 地址只准 CSS 單行截短:完整字面以單一文字節點存在、無省略號、無 JS slice 痕跡
 //     ③ 訂單複查=品牌 / 規格 / 數量 / 車款 / 行總額 + 編輯回購物車
-//     ④ 同意條款 checkbox → onAgreedChange;服務條款 / 隱私政策連結仍為 no-op placeholder(#291)
+//     ④ 同意條款 checkbox → onAgreedChange;服務條款 / 隱私政策=真 route `/terms`、`/privacy`
+//        (#291、2026-07-24 接線;target=_blank + rel=noopener noreferrer,避免結帳中途同頁導航丟狀態)
 //     ⑤ 🔴 經銷零洩漏(無 price_store / priceByTier /「經銷」/ 劃線價)
 //     ⑥ 🔴 DOM 結構契約:CheckoutOrderReview 回傳 fragment、不得包 wrapper
 
@@ -161,13 +162,27 @@ describe('CheckoutOrderReview(U2a)', () => {
     expect(props.onAgreedChange).toHaveBeenCalledWith(true);
   });
 
-  it('服務條款 / 隱私政策仍為 no-op placeholder(legal pages 未建、backlog #291)', () => {
+  it('服務條款 / 隱私政策已接真 route,且開新分頁(#291、2026-07-24)', () => {
     const { container } = renderOrderReview();
     expect(screen.getByText(/我已閱讀並同意/)).toBeTruthy();
     const links = Array.from(container.querySelectorAll('.co-agree a')) as HTMLAnchorElement[];
-    expect(links.map((a) => a.textContent)).toEqual(['服務條款', '隱私政策']);
-    expect(links.every((a) => a.getAttribute('href') === '#')).toBe(true);
+    expect(links.map((a) => a.textContent?.trim())).toEqual(['服務條款', '隱私政策']);
+    // 🔴 真 route(舊值 '#' = 客人勾同意卻讀不到內容,已修)
+    expect(links.map((a) => a.getAttribute('href'))).toEqual(['/terms', '/privacy']);
+    // 🔴 結帳進行中同頁導航會丟掉結帳狀態 → 必須開新分頁
+    expect(links.every((a) => a.getAttribute('target') === '_blank')).toBe(true);
+    expect(links.every((a) => (a.getAttribute('rel') ?? '').includes('noopener'))).toBe(true);
   });
+
+  // 🔴 **刻意不在此寫「點連結不會誤勾同意」的 jsdom 測試** —— 寫過、實測是假綠,已移除:
+  //   ① jsdom 不實作 descendant 的 label activation:把元件的 onClick 保護整個拿掉,該測試仍全綠
+  //      ⇒ 它證明不了任何事。
+  //   ② 後續真瀏覽器(Chromium)實測給出真正的答案:a[href] 屬 interactive content、
+  //      被 HTML 規格排除在 label activation 之外 → **本來就不會誤勾**,不需要任何 JS 保護
+  //      (對照組:同結構下點純文字 <span> 會勾起來,證明 label activation 是活的)。
+  //      元件端因此**移除**了原本掛的 stopPropagation(它不是保護來源、留著會誤導)。
+  //   ⇒ 這條的真守門是「連結必須是 a[href]」這個結構事實,不是任何 jsdom 斷言。
+  //      日後若把連結改成非互動元素(span + onClick),保護即失效 —— 那時才需要真瀏覽器回歸測試。
 
   it('🔴 經銷零洩漏:無「經銷」/ price_store / priceByTier / 劃線價', () => {
     const { container } = renderOrderReview({

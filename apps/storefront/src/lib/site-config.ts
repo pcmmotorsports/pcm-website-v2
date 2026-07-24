@@ -16,6 +16,8 @@ export const LEGAL_NAME = '派達有限公司';
 export const LEGAL_NAME_EN = 'PCM MOTOR PARTS LTD';
 /** 統一編號(台灣)。 */
 export const TAX_ID = '90003020';
+/** 公司負責人(登記事項;Sean 2026-07-23 提供,供 /terms 企業經營者資訊條使用)。 */
+export const LEGAL_REPRESENTATIVE = '林蓁瑜';
 /** 客服 / 門市電話(E.164)。 */
 export const CONTACT_PHONE = '+886-930-531-867';
 /** 客服 / 門市電話(台灣本地顯示格式;與 CONTACT_PHONE 同一支號碼、UI 顯示用)。 */

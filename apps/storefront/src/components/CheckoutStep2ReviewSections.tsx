@@ -20,8 +20,9 @@
 //   - 本檔零 <input> 收卡資料;唯一卡片輸入表面是 `CheckoutStep2` 掛的 `TapPayCardFields`,
 //     PAN / 有效期 / CVV 只存在 TapPay iframe,不進 React state、我方 input、server、log、DB。
 //   - 商品行走 useResolvedCart 的 server-resolved 值(釘 general、零經銷價洩漏)。
-//   - 服務條款 / 隱私政策連結仍為 no-op placeholder(`href="#"` + preventDefault);
-//     正式 route /terms 與 /privacy = backlog #291(BLOCKED 等正式內容核准),改連結時走 #291。
+//   - ✅ 服務條款 / 隱私政策連結已接真 route `/terms`、`/privacy`(#291、2026-07-24 Sean 核准內容後上線);
+//     原 no-op placeholder(`href="#"` + preventDefault)已移除。連結細節見下方 `.co-agree` 區塊註解
+//     (target=_blank 防結帳中途離開;label activation 由 HTML 規格排除 a[href]、**不需也未掛任何 JS 保護**)。
 //
 // 🔴 DOM 結構契約:`CheckoutOrderReview` 回傳 fragment(商品區塊與同意條款為同層兄弟)。
 //   包 wrapper 會改變 `.co-review-block:last-child { border-bottom: 0 }` 的命中對象 = 視覺變動。
@@ -155,7 +156,17 @@ export function CheckoutOrderReview({
         </div>
       </div>
 
-      {/* 同意條款(服務條款 / 隱私政策連結為 no-op placeholder、legal pages 未建=#291) */}
+      {/* 同意條款。#291:兩個連結已接上真頁面 /terms、/privacy(2026-07-24,原為 no-op placeholder)。
+          🔴 `target="_blank"` 是必要的:結帳進行到一半,同頁導航離開會丟掉結帳狀態(表單 / cart session)。
+          ⚠️ **「點連結會不會誤勾同意」= 已實測、結論是不會**(2026-07-24 真 Chromium):
+             這兩個 <a> 雖在 <label className="co-agree"> 內,但 HTML 規格把 **interactive content
+             後代**(a[href])排除在 label activation 之外 → 點它不會切換勾選框。
+             實測含**有效對照組**:同頁點 label 內的純文字 <span> 會勾起來(證明 label activation 是活的、
+             非假陰性),點 a[href] 則不會。⇒ 客人「讀條款」不會被誤記為「已同意」。
+          🔴 因此**不掛** onClick stopPropagation —— 先前版本掛過,實測證明它**不是**這道保護的來源
+             (React 事件委派在根節點、跑得比 label 晚),留著會讓後人誤以為那是守門(對齊
+             memory `feedback_control-named-beyond-its-actual-power`:防護不可命名超過實際能力)。
+             ⚠️ 但若日後把連結改成**非互動元素**(span + onClick),上述規格保護即失效、會誤勾 —— 別那樣改。 */}
       <label className="co-agree">
         <input
           type="checkbox"
@@ -168,8 +179,13 @@ export function CheckoutOrderReview({
         />
         <span>
           我已閱讀並同意 PCM Motorsports 的{' '}
-          <a href="#" onClick={(e) => e.preventDefault()}>服務條款</a> 與{' '}
-          <a href="#" onClick={(e) => e.preventDefault()}>隱私政策</a>
+          <a href="/terms" target="_blank" rel="noopener noreferrer">
+            服務條款
+          </a>{' '}
+          與{' '}
+          <a href="/privacy" target="_blank" rel="noopener noreferrer">
+            隱私政策
+          </a>
         </span>
       </label>
       {/* 🔴 紅字為 .co-agree 的同層 sibling(不進 label 內):.co-agree 是 flex 版面,

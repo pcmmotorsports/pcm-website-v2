@@ -72,7 +72,9 @@ export function InfoShippingPage() {
                   <span>
                     運費 NT$ {HOME_SHIPPING_FEE}（滿 NT$ {FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運）
                   </span>
-                  <span>1-3 個工作天</span>
+                  {/* 🔴 #291(Sean 07-24 拍 Q2=A):加「出貨後」—— 原字面與 /terms 第 10 條的
+                      「訂貨約 2-12 週」並列時,會被讀成三天到貨的交期承諾。這裡指的是出貨後的宅配時間。 */}
+                  <span>出貨後 1-3 個工作天</span>
                 </div>
               </div>
             </div>

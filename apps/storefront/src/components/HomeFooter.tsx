@@ -48,6 +48,9 @@ export function HomeFooter() {
             <Link href="/install">安裝預約</Link>
             <Link href="/stores">合作店家</Link>
             <Link href="/info/shipping">配送 & 退貨</Link>
+            {/* #291(2026-07-24):法律頁須從任何頁可達,不能只在結帳/註冊才找得到。 */}
+            <Link href="/terms">服務條款</Link>
+            <Link href="/privacy">隱私政策</Link>
             <button type="button" disabled aria-label="聯絡客服(尚未上線)">聯絡客服</button>
           </div>
           <div>

@@ -113,7 +113,21 @@ export function RegisterPage({ next }: { next?: string } = {}) {
                 checked={form.agree}
                 onChange={(e) => setForm({ ...form, agree: e.target.checked })}
               />
-              <span>我同意 <a href="#">服務條款</a> 與 <a href="#">隱私政策</a></span>
+              {/* #291(2026-07-24):原為死連結 href="#",已接真頁面。
+                  `target="_blank"`:避免填到一半的註冊表單被導航沖掉。
+                  ⚠️ 連結雖在 <label> 內,但 a[href] 屬 interactive content、被 HTML 規格排除在
+                  label activation 之外 → 點它不會誤勾同意(2026-07-24 真瀏覽器實測 + 對照組確認;
+                  詳 CheckoutStep2ReviewSections.tsx 同段註解)。故不掛 stopPropagation。 */}
+              <span>
+                我同意{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer">
+                  服務條款
+                </a>{' '}
+                與{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer">
+                  隱私政策
+                </a>
+              </span>
             </label>
             {fieldErrors.agree && <span className="auth-field-err">{fieldErrors.agree}</span>}
             <button type="submit" className="auth-submit" disabled={pending}>建立帳號</button>

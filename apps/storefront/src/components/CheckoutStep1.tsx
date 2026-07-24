@@ -105,7 +105,8 @@ export function CheckoutStep1({
                 <div className="co-ship-meta">{shipping === 0 ? '免運' : `NT$ ${shipping}`}</div>
               </div>
               <div className="co-ship-desc">
-                滿 NT$ {FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,1-3 個工作天送達
+                {/* 🔴 #291(Sean 07-24 拍 Q2=A):加「出貨後」,與 /terms 第 10 條的訂貨 2-12 週分清楚 */}
+                滿 NT$ {FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,出貨後 1-3 個工作天送達
               </div>
             </div>
           </label>

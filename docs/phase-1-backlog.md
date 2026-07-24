@@ -7279,17 +7279,63 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #291. ⚖️ 正式服務條款／隱私政策 route + version/hash(production checkout 上線前人工 release checkpoint)
 
+- 🟡 **狀態:已實作、🔴 未 commit 未 deploy(2026-07-24)** —— 原 BLOCKED 的「等正式內容核准」已由 **Sean 2026-07-24 核准** 解除。
+  - ✅ **已交付**:`/terms`、`/privacy` route(`app/terms|privacy/page.tsx` + `components/LegalDocPage.tsx`;
+    內容 SSoT=`data/legal-content.ts`,取自 `docs/specs/2026-07-23-pcm-legal-terms-privacy-draft.md` 已核准版、
+    剝除內部註記;聯絡/登記資訊自 `lib/site-config` 衍生、零硬編碼)+ **兩個消費端連結都改完**
+    (`CheckoutStep2ReviewSections.tsx` 的 `CheckoutOrderReview` + `RegisterPage.tsx`,
+    皆 `target=_blank` 與 `rel=noopener noreferrer`),另加 footer 入口 + smoke test(8 測、突變驗證過真會紅)。
+    ⇒ **部署後**客人才讀得到條款;在 commit + deploy 之前,正式站仍是死連結、缺口未補。
+  - ✅ **version/hash 機制已建立(程式碼層)**:`canonicalLegalPayload()`(只序列化真的渲染給客人看的字,
+    不含註解/程式碼)+ `data/legal-content-hash.test.ts` 守門(改字沒 bump 版本就紅、含章節順序敏感度突變自驗)。
+    `CURRENT_TERMS_VERSION` = `'2026-07-24'`、`CURRENT_TERMS_CONTENT_HASH` =
+    `d6117ee59b6536d156e4bcf78ce3bb2fea30abe8111a49eadb87a08e026bcd6c`;
+    🔴 **兩支 migration**:`20260724120000`(**已於 07-24 apply**、登錄 hash fd26ac4e…401d)+ `20260724130000`(**待 apply**、修正為定稿 hash eca6a241…b6ab;文字因 codex 關卡2 must-fix 再次異動)。
+    兩支皆經**交易模擬(BEGIN→驗→ROLLBACK、零留痕)**與**突變自驗**(前者:hash 不符確實 RAISE P0001;
+    後者:指向已有同意紀錄的版本確實 RAISE、證明「不得覆寫客人簽過的版本」是機制不是註解)。
+  - 🔴 **仍未完成 → 本條目不結案**:修正檔 `20260724130000` **尚未 apply 到正式 DB**(第一支已 apply)。
+    `supabase db push` 需讀 `.env.local`(該檔含 `¿` 字元、Go dotenv 解析即炸),而 **Claude 被 settings.json
+    硬擋不得碰 `.env*`** ⇒ **db push 是 Sean 的終端動作**(指令見 STATUS「下一步」)。
+    🔴 **順序硬性**:apply 完成前**不得部署** bump 後的 storefront。
+    🔴 **提早部署的真實風險(2026-07-24 更正,原本寫的「結帳全斷」是錯的)**:版本列 `'2026-07-24'` **已存在**於正式 DB(首支 migration 已 apply)⇒ 現在部署**不會** FK 失敗、結帳不會斷。FK 只綁 `terms_version`、**不綁 `content_hash`** ⇒ 會**成功建單**,把客人對新條款畫面的同意掛到一列 `content_hash` 仍是舊值的版本上 —— **靜默的舉證錯配、無任何錯誤訊息**,危險性比「結帳全斷」**更高**(壞事發生時沒人會發現)。且期間一旦產生 consent,修正檔的守衛會拒絕覆寫,只能改開新版本鍵收拾。
+    🔴 **db push 會連帶推 S2 pg_cron(`20260723120000`)** —— 該支尚未 apply 且需先建 vault secret,
+    故指令須先把它暫移開;S2 之後單獨推時因版本序在前,需 `--include-all`。
+  - ⚠️ **未經律師簽核 —— Sean 2026-07-24 答「不用」**(核准矩陣中律師屬選配;Sean 逕行核准發布)。
+    不得記為「已完成法務審閱」。
+  - ⚠️ **核准對象落差(誠實)**:#291 驗收要求核准「**渲染後完整 payload**」,Sean 核准的是**草稿文字**;
+    → 請 Sean 實開 `/terms` `/privacy` 看過後才可收斂;現記為 manifest open_drift `legalRenderedPayloadNotEyeballed`。
+  - 🔴 **Sean 2026-07-24 三拍板(codex 關卡2 R2 後)**:**Q1=A** 覆寫既有版本列(牴觸 backlog #291 驗收條件「只能新增不得修改既有列」→ Sean 裁定例外;理由=該版本 0 筆同意、storefront 從未部署,且今天已是 07-24、開新鍵只能用假日期)。**Q2=A** 統一交期口徑三處:`ProductTabs` LINE 提醒去掉「現貨庫存流動快」斷言、`InfoShippingPage` 與 `CheckoutStep1` 的「1-3 個工作天」加「出貨後」前綴(與條款的訂貨 2-12 週分清楚)。**Q3=A** 隱私政策 Cookie/localStorage 段據實改寫為兩段式(頁面載入即背景查價、結帳另送車輛資訊),接受因此再推一次 db push。
+  - ⚖️ **七日鑑賞期口徑 = Sean 2026-07-24 拍板 B(三度確認、風險自負)**:全站主張「客製化委任代購商品
+    不適用消保法 19 條七日解除權」。⇒ `/terms` 第 10 條已改寫為與 `/info/shipping`
+    (`data/rpm-policies.ts`)**同一口徑**,原「站內法律文案自相矛盾」已消除。
+    🔴 但一致的是**被查證為站不住的那一側**:準則第 2 條 7 款例外**無「代購」**,
+    行政院總說明附表第二款明文「消費者依現有顏色或規格中加以指定或選擇者,**非屬**客製化給付」。
+    Claude 建議之選項 D(僅對真客製品逐項標示排除)未獲採納。
+    **法源、反駁理由、Sean 已知悉之事實**全部存於 memory `project_seven-day-withdrawal-stance-decision`。
+    **Claude 不得自行把口徑改回法律建議版**(那會推翻拍板);要改先問 Sean。
+    ⚠️ **未查證項(下次碰法律頁先查)**:「零售業網路交易定型化契約應記載及不得記載事項」是否把
+    「排除/拋棄七日解除權」列為**不得記載事項** —— 若是,除該條款無效外另有主管機關限期改正/罰鍰風險
+    (準則第 3 條會讓該公告優先適用)。
+  - ✅ **已解消**:原「條款承諾各商品頁明確標示客製品、實際沒做」的落差(code-reviewer 抓出)——
+    B 案改為**全站一體主張**、條款不再承諾逐項標示,故該不實陳述已不存在。
+    per-product「不適用七日」欄位改為選項 D 的配套,僅在 Sean 未來改採 D 時才需要。
 - 🔴 **本條目的性質(誠實定位;codex 唯讀審查 R1 must-fix)**:以下所有「不得／必須」目前**只是 prose,
   沒有任何機械守門** —— 沒有 CI 檢查、沒有 deploy preflight、沒有 feature flag 條件會擋下
   「複製 design 草稿建 route 上線」。因此本條目是**人工 release checkpoint**,不是技術上的硬閘;
   真正機械化(deterministic release check:核准內容 artifact/hash ↔ routes ↔ `CURRENT_TERMS_VERSION`
   ↔ `legal_terms_versions` row 四者一致才准 deploy)本身也是 L1 plan 的交付項之一。
-- **狀態:** ⏳ 待執行(🔴 **BLOCKED — 等兩份正式內容核准;核准矩陣=Sean 必要、法律顧問選配加簽(非二擇一),詳下方驗收條件 1**;內容到位前不得開工;
-  到位後另寫高風險 plan,對應實作計畫 `docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md` Slice L1)
+  🔴 **2026-07-24 進度與仍缺的那一段(codex 關卡2 must-fix #4)**:四者中的**前三者已機械化** ——
+  `legal-content-hash.test.ts` 釘住「對外文字 ↔ `CURRENT_TERMS_CONTENT_HASH` ↔ migration `.sql` 內的 INSERT」,
+  三者不同步即三綠紅。**仍缺第四者**:沒有任何檢查會去問**正式 DB** 是否真的存在該 version/hash 那一列 ——
+  測試只證明 repo 裡有一支 migration 寫了它,不證明它被 apply 過。
+  ⇒ 「apply 前不得部署」目前**仍只是 prose**;要真正機械化需 deploy preflight 連線查 DB(未做、非本片範圍)。
+  **因此本條目不得記為「只剩 db push」** —— 正確說法是「只剩 db push,且部署順序仍靠人遵守」。
+- **狀態:** 🟡 **進行中 —— 原 BLOCKED(等內容核准)已由 Sean 2026-07-24 核准解除**;程式碼層完成、DB 修正檔待 apply、未 commit 未 deploy。詳本條目頂端。
+  (對應實作計畫 `docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md` Slice L1)
 - **優先級:** 🔴 高(production checkout 開放付款的硬前置)
-- **問題:**
-  - storefront **沒有** `/terms`、`/privacy` route;結帳同意條款的兩個連結是
-    `href="#"` + `preventDefault()` 的 no-op placeholder
+- **問題(⚠️ 以下為 2026-07-24 之前的原始問題陳述、保留供追溯;現況見本條目頂端「狀態」):**
+  - ~~storefront **沒有** `/terms`、`/privacy` route;結帳同意條款的兩個連結是
+    `href="#"` + `preventDefault()` 的 no-op placeholder~~ → **2026-07-24 已建 route 並接真連結**
     (🔴 2026-07-22 U2a 起該 markup 位於 `apps/storefront/src/components/CheckoutStep2ReviewSections.tsx`
     的 `CheckoutOrderReview`,原在 `CheckoutStep3.tsx`;定位用 `rg -n '服務條款' apps/storefront/src`
     ——**不寫死行號**,U1/L0 已示範寫死的自指行號會當場變假)→ 客人勾「我已閱讀並同意」時

@@ -9,7 +9,9 @@
 
 - Updated: 2026-07-24, Asia/Taipei — 🔴🔴 **Sean 五拍板、方向大轉向(推翻 S3 sandbox 路線)**:**Q1=A** B-4 採統一三分支(方向已批、下一步 codex 關卡1)/ **Q2+Q3=來真的**——**放棄 sandbox 3DS 測試,金流全部用正式站 1 元商品 + Sean 真信用卡直接刷驗收**(`2026-07-24-m3-s3-sandbox-3ds-e2e-runbook.md` 已標作廢、改走 `2026-07-24-m3-go-live-real-charge-checklist.md`)/ **Q4=B** 退款線提前啟動第二段=後台取消訂單即自動打 TapPay refund(PRD `2026-07-24-refund-automation-line-prd.md`、5-7 片、需 Sean db push + admin Vercel TapPay env)/ **Q5=A** #269 排隊。Sean 總方針逐字:「**先把金流做到可以完整實際刷卡,要測試等等所有都用我自己真的信用卡+1 元賣場直接刷**」。
   - 🔴 **真刷前硬前置(實查、最易漏)**:`origin/main`=`3bfee6b` **落後 dev 11 commit**,缺 S1a 逾時出口(`b73e9cb`)+ S1b 黑洞反查(`43c0d6d`/`7289808`)+ S2(`a5d7619`)→ **不先 `git push origin dev:main`,真刷遇網路黑洞會讓付款遮罩永久鎖死**(U5 遺留 F5)。= checklist 步驟 0。
-  - 🔴 **唯一擋真刷的待拍 = #291 法律頁**:結帳「同意服務條款」連結是死的、`/terms` `/privacy` 不存在;flag 一開 + 1 元商品公開 → 真客人買到勾同意卻讀不到條款。A=先掛條款頁(草稿已備)/ B=先不管、藏好商品自測、風險自負。**Sean 未答、Claude 不得自行掛法律頁(鐵則 12 ⑤對外發布)**。
+  - ✅ **#291 法律頁已由 Sean 2026-07-24 拍 A 核准並實作**(原「唯一擋真刷的待拍」已解除):`/terms` `/privacy` route + 結帳/註冊接真連結 + footer 入口 + 版本/內容雜湊綁定機制皆已完成、三綠。
+    🔴 **仍未 commit 未 deploy**;DB 修正檔 `20260724130000` **待 Sean db push**(第一支 `20260724120000` 已於 07-24 apply)。**apply 前不得部署**。🔴 **提早部署的真實風險(2026-07-24 更正,原本寫的「結帳全斷」是錯的)**:版本列 `'2026-07-24'` **已存在**於正式 DB(首支 migration 已 apply)⇒ 現在部署**不會** FK 失敗、結帳不會斷。FK 只綁 `terms_version`、**不綁 `content_hash`** ⇒ 會**成功建單**,把客人對新條款畫面的同意掛到一列 `content_hash` 仍是舊值的版本上 —— **靜默的舉證錯配、無任何錯誤訊息**,危險性比「結帳全斷」**更高**(壞事發生時沒人會發現)。且期間一旦產生 consent,修正檔的守衛會拒絕覆寫,只能改開新版本鍵收拾。
+    ⚖️ 七日鑑賞期口徑 = **Sean 拍板 B**(全站主張客製化委任代購不適用),與 Claude 查證結論相反、風險自負;法源與反駁理由見 memory `project_seven-day-withdrawal-stance-decision`。**任何 session 不得自行改回**。
   - go-live 確切 env 欄位名/URL 格式/測試腳本/停損 = `docs/specs/2026-07-24-m3-go-live-real-charge-checklist.md`(皆自程式碼實查、附檔案:行號)。
 - Updated: 2026-07-24, Asia/Taipei（凌晨）— **過夜自主 session 總結(Sean 睡前交代「推進不需他手動的活、要他批的排隊」)**：**未 push、未 apply DB、未開 flag、未動 `.env*`**;`dev` ahead `origin/dev` **4**(S2 `a5d7619` + 下列三 commit)。
   - ✅ **#288-b「production build E2E 資料合約 globalSetup + mobile device project」收工=`a26cdf4`**(支線、標準片、非金流)：新 `e2e-prod/global-setup.ts` 資料合約 fail-fast + config 加 globalSetup/globalTimeout/actionTimeout + mobile project=Pixel 5(非 iPhone=webkit 未裝)+ `runner-smoke.spec.ts` 加 project-aware `data-mobile` 斷言。三綠 + `pnpm test:e2e:prod` **2 passed** + 突變 2/2;code-reviewer(sonnet)獨立重跑 = **PASS 0 must-fix**。揭示偏離(改了 plan §6 清單外的 spec、因 §6 自身矛盾)已寫進 commit body。下一 = #288-c 品牌篩選斷言。
@@ -144,7 +146,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --sho
 - 實作計畫：`docs/specs/2026-07-20-m3-two-step-checkout-implementation-plan.md`；已經 Sol High 兩輪唯讀審查，R1 10 項與 R2 4 項 must-fix 均已折入；依 repo 兩輪上限未跑 R3。
 - 計畫共 12 片：L0、U1、U2a、U2b、U3a、U3b、U4a、U4b、U5、L1、V1a、V1b。L1 等兩份正式條款與隱私內容取得核准（**核准矩陣＝Sean 必要、法律顧問選配加簽**，非二擇一；詳 backlog #291）；未完成 L1+V1b 前不得稱 production checkout 完成。
 - **Slice L0 ✅ ＝ `d619c14`（2026-07-21 19:55、docs／註解 only、U1 的 parent）**：
-  - 新開 backlog **#291**「正式服務條款／隱私政策 route + version/hash」，狀態 🔴 **BLOCKED**，acceptance 十條齊備。
+  - 新開 backlog **#291**「正式服務條款／隱私政策 route + version/hash」，狀態 🔴 **BLOCKED**，acceptance 十條齊備。（⚠️ 此為當時快照；**BLOCKED 已於 2026-07-24 由 Sean 核准內容解除**、程式碼層已完成，見本檔頂端。）
   - 修正 #241 對 live #235 的錯誤依賴（live #235 = 「Step3／完成頁退換貨連結 + 客服 LINE 入口」，**不產出法律頁**）；#235 條目加反向 cross-link 防再漂移。
   - 校正 `apps/storefront/src/lib/legal/terms-version.ts` **active 註解**（依賴改指 #291；標明現行 hash provenance 取自 design **草稿**、不得當未來正式內容來源）。`CURRENT_TERMS_VERSION` 值 `'2026-06-30'` **未動**。
   - manifest `CheckoutPage.open_drifts.checkoutLegalPagesDeferred` 改記「已納入 #291／正式來源待核准／不得複製 design 草稿／仍是上線前人工 release checkpoint」；`last_modified_commit` = `a53897f`（**開工時的 preflight HEAD ＝ 可達祖先，不是本 commit 的 parent**；實際 parent 見 §1）、`last_modified_date` 前置新段。
