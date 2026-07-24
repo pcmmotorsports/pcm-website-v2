@@ -7519,6 +7519,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-24 / M-3 S2 codex 關卡2。
 - **相關:** `supabase/migrations/20260723120000_m3_s2_settle_sweep_pgcron.sql` 頭註殘餘風險;`apps/storefront/src/lib/cron/rate-limit.ts`;S2 slice plan §11。
 
+### #295. 🚚 免運門檻／運費金額改後台可管理(取代雙處 hardcode)
+
+- **狀態:** ⏳ 待評估(Sean 2026-07-25 提出;**明確不進退刷自動化線**、該線收工後再評)
+- **優先級:** 🟡 中低(今日零痛點——門檻自 2026-06-04 定為 5000/100 後從未調整;痛點在「Sean 想自己調價卻得找 AI 改 code + Sean db push」)
+- **問題:**
+  - 免運門檻 `5000` 與宅配運費 `100` 是**雙處 hardcode**:TS 側 `packages/domain/src/order/shipping.ts:26,32`、SQL 側 `create_order` RPC §7(`20260716190000_m4a_v3a_create_order_vehicle_whitelist.sql:260`)。#216 已建 drift gate 守兩處同步,但**兩處都要改 code**。
+  - 內容分級目前標 **L2**(`shipping.ts:9` 自述「季度可能調整」= hardcode + backlog 合規)。若 Sean 實際調整頻率上升,分級應重判;**頻率拿不準預設當 L3**(鐵則 9)。
+  - Sean 2026-07-25 原話:「免運門檻、運費多少 是不是應該改成我可以在後台管理修改反而比較簡單?還是更難....」
+- **觸發事件:** 2026-07-25 退刷線 Q6(退款重算運費要用當下規則還是下單凍結規則)拍 B=凍結 → 引出「規則本身該不該可管理」。
+- **預期解法:**
+  - A. **規則表 + 生效版本**(推薦最終型):新表 `shipping_fee_policies`(threshold / home_fee / effective_from / active)+ admin CRUD;`create_order` §7 改讀當前生效列;前台 `calculateShippingFee` 由 server 傳入當前規則。🔴 **必須 CREATE OR REPLACE 654 行、9 參的 `create_order` 金流 RPC** = 鐵則 12 ①錢+③DB,需交易模擬 + 四層審。
+  - B. **只做 admin 唯讀顯示 + 改動 runbook**:不動 RPC,把「改運費要動哪兩處 + 怎麼驗 drift gate」寫成 SOP,Sean 提需求由 AI 執行。成本極低、但沒解決 Sean 的自助需求。
+- **不修會痛在:**
+  - 擴充性:未來要做「滿額免運活動」「不同配送方式各自費率」「離島加價」時,雙處 hardcode 會變成雙處 if-else 疊加,create_order 每次都得動。
+  - 可維護性:每次調價=一次 code 改動 + Sean db push + 部署,調價從「填個數字」變成一次完整發版風險。
+  - bug 可追蹤性:調價後無任何「何時改的、誰改的、舊值多少」紀錄;對帳看到舊單運費與現行規則不符時無從查證(RF2a-0 的凍結欄只解退款側、不解稽核側)。
+- **估時:** A 約 4-6 小時(表 + seed + create_order RPC 改寫 + backfill + 前台傳遞 + admin CRUD + 交易模擬 + 四層審);B 約 30 分鐘。
+- **依賴:** 🔴 **退刷自動化線全線收工後才評估**——理由:A 案要動的 `create_order` 正是 07-24「補差額商品免運」片 Sean 拍 A 案(走自取路)刻意避開的高風險函式;退刷線本身已是最高風險線(錢+權限+DB),中途疊加動建單 RPC = 兩個高風險同時在飛。RF2a-0(凍結欄)先落地後,本條的 A 案與凍結欄**不衝突**(凍結欄=歷史快照、規則表=當前設定,兩者並存)。
+- **發現於:** 2026-07-25 / M-3 退刷線 Q6 拍板當下(Sean 主動提問)。
+- **相關:** #216(運費門檻雙處 hardcode drift gate);PRD `docs/specs/2026-07-24-refund-automation-line-prd.md` §0c + §4 RF2a-0;`packages/domain/src/order/shipping.ts`;鐵則 9 內容分級。
+
 ## 紀錄模板
 
 ```markdown
