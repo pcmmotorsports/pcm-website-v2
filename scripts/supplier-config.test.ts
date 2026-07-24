@@ -55,7 +55,7 @@ describe('getSupplierConfig', () => {
     expect(cnc.syncInstallResources).toBe(true);
   });
 
-  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 逐家 gate(2026-07-12 全開 7 家、僅 lightech #275 未開)', () => {
+  it('🔴 品牌放量 8 家(2026-07-10):對照值 + writeAllowed 逐家 gate(2026-07-24 全 8 家皆開寫)', () => {
     // brandSlug=brands 表 MCP 實查(2026-07-10);唯一非 identity 對照 = eazigrip→eazi-grip。
     expect(getSupplierConfig('eazigrip').brandSlug).toBe('eazi-grip');
     for (const slug of ['evotech', 'lightech', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
@@ -63,9 +63,10 @@ describe('getSupplierConfig', () => {
     }
     // ✅ 2026-07-11~12 全開 7 家:evotech/samco/motogadget/front3d(晨報 Q1=A 乾淨家、已匯入 prod)
     //   + eazigrip/materya/ebc(#274 源頭治本後上 prod、Sean --confirm-write:eazigrip view 去重、
-    //   materya 分群、ebc 填 spec);lightech(待 #275 https 重抓)仍 false。
-    //   翻 true 前先過 Sean(改這行=面對這個問題)。
-    const writeOpened = new Set(['evotech', 'samco', 'motogadget', 'front3d', 'eazigrip', 'materya', 'ebc']);
+    //   materya 分群、ebc 填 spec)。
+    //   ✅ 2026-07-24 lightech 亦開寫首灌(#275 商品圖 12k 轉存 R2、0 mixed-content、乾跑 4566/4566
+    //   分類零未分類、Sean 批首灌 commit 4fb424a)→ 本 8 家全開。翻 true 前先過 Sean(改這行=面對這個問題)。
+    const writeOpened = new Set(['evotech', 'lightech', 'samco', 'motogadget', 'front3d', 'eazigrip', 'materya', 'ebc']);
     for (const slug of ['evotech', 'lightech', 'eazigrip', 'samco', 'motogadget', 'front3d', 'materya', 'ebc']) {
       const c = getSupplierConfig(slug);
       expect(c.handlePrefix).toBe(slug); // handle 命名空間 = supplierSlug(gbracing 前例)
@@ -102,11 +103,15 @@ describe('getSupplierConfig', () => {
     expect(() => getSupplierConfig('__proto__')).toThrow(/未知供應商/);
   });
 
-  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ 第三批 akrapovic(2026-07-19)', () => {
+  it('should register exactly the pilot set + 品牌放量 8 家(2026-07-10)+ akrapovic(07-19)+ extreme/kspeed(07-24)', () => {
     // 防呆:誰未查證就多塞一家 → 這條逼他改測試同時面對「已 MCP 查證了嗎」。
+    // 2026-07-24 品牌上架第三批補 extreme(第 15 家、commit 9a2f62a/d756651)+ kspeed(第 16 家、
+    //   commit 2b5cba1;supplierSlug='kspeed'、brandSlug='k-speed' 拼法分岔)並開寫首灌。
+    // __gated_canary__ = 永久 guard 測試靶(非真供應商、writeAllowed 恆 false);底線排序在字母前。
     expect(Object.keys(SUPPLIER_CONFIGS).sort()).toEqual([
-      'akrapovic', 'bonamici', 'cncracing', 'eazigrip', 'ebc', 'evotech', 'front3d',
-      'gbracing', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
+      '__gated_canary__',
+      'akrapovic', 'bonamici', 'cncracing', 'eazigrip', 'ebc', 'evotech', 'extreme', 'front3d',
+      'gbracing', 'kspeed', 'lightech', 'materya', 'motogadget', 'rpm', 'samco',
     ]);
   });
 });

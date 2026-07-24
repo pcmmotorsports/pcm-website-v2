@@ -37,17 +37,17 @@ function runImportCli(args: string[]): { status: number | null; output: string }
 }
 
 describe('rpm-import CLI:writeAllowed 硬鎖行為(must-fix M4)', () => {
-  // 🔴 未授權樣本 = lightech(#275 https 重抓未完成、writeAllowed 仍 false)。
-  //    原本這條用 akrapovic;2026-07-19 首灌批准後它翻 true,這條測試**當場紅**——
-  //    正是本檔要證明的事:guard 沒觸發時流程會往下走到 requireEnv。換樣本、不是放寬斷言。
-  //    未來 lightech 開寫時這條也會紅 → 那時再換成當時仍未授權的一家(名單見 supplier-config.ts)。
+  // 🔴 未授權樣本 = __gated_canary__(supplier-config.ts 永久 guard 測試靶、writeAllowed 恆 false)。
+  //    歷史:原用 akrapovic → 2026-07-19 首灌翻 true 當場紅;改 lightech → 2026-07-24 亦開寫首灌再紅。
+  //    2026-07-24 所有真品牌皆 writeAllowed=true → 無真實未授權樣本可用 → 改用永久 canary(Sean 拍板放行)。
+  //    測的仍是:guard 沒觸發時流程會往下走到 requireEnv(換樣本、不是放寬斷言)。
   it(
-    '🔴 lightech(未授權)+ --confirm-write → 非零退出且明說 writeAllowed=false(建線/連線前就擋)',
+    '🔴 __gated_canary__(未授權)+ --confirm-write → 非零退出且明說 writeAllowed=false(建線/連線前就擋)',
     () => {
-      const { status, output } = runImportCli(['--supplier=lightech', '--confirm-write']);
+      const { status, output } = runImportCli(['--supplier=__gated_canary__', '--confirm-write']);
       expect(status).not.toBe(0);
       expect(output).toMatch(/writeAllowed=false/);
-      expect(output).toMatch(/lightech/);
+      expect(output).toMatch(/__gated_canary__/);
       // guard 必須在任何連線之前:若它跑到 requireEnv 才死,代表 guard 被搬到連線之後或被拿掉
       expect(output).not.toMatch(/QUOTE_SUPABASE_URL not set/);
     },

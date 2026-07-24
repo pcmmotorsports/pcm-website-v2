@@ -70,7 +70,8 @@ type ProductImageProps = {
   /**
    * trim 線 S4b:卡片首圖去白邊 bbox(已經 parseImageTrim 收斂)。有值且 computeTrimStyle
    * 算得出(縮放 ≤3×)→ 去白邊置中模式(白底、內容佔框 92%;F3 拍板=白底 letterbox、
-   * Sean 肉眼驗可改);缺 / 過小 fallback → 現行 cover 路徑 byte 不變。
+   * Sean 肉眼驗可改);缺 / 過小 fallback → contain 完整顯示 + --c-surface-2 灰底 letterbox
+   * (Sean 2026-07-24 Q1=A;原 cover 會裁非方圖)。
    */
   trim?: UIImageTrim;
 };
@@ -83,13 +84,16 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, ho
   const [realFailed, setRealFailed] = useState(false);
   const [c1, c2] = PALETTES[tone as Tone] ?? PALETTES.neutral;
   const showReal = !!image && !realFailed;
-  // trim 線 S4b:有 bbox 且縮放在上限內 → 去白邊置中模式;否則 undefined = 現行 cover 路徑 byte 不變
+  // trim 線 S4b:有 bbox 且縮放在上限內 → 去白邊置中模式;否則 undefined = contain fallback 路徑
   const trimStyle = showReal && trim ? computeTrimStyle(trim) : undefined;
   return (
     <div className="pcard-gallery" style={{
       width: '100%', height: '100%', position: 'relative',
-      // F3(Fable 關卡1):trim 模式底=純白(與去白邊圖無縫;彩色漸層只留 cover/placeholder 路徑)
-      background: trimStyle ? '#ffffff' : `linear-gradient(145deg, ${c1} 0%, ${c2} 100%)`,
+      // 底色:真圖+trim=純白(與去白邊圖無縫、F3 Fable 關卡1);真圖+contain fallback=--c-surface-2 淺灰
+      //   letterbox(Sean 2026-07-24 拍板 Q1=A、對齊詳情頁 hero);無真圖=placeholder 彩色漸層。
+      background: showReal
+        ? (trimStyle ? '#ffffff' : 'var(--c-surface-2)')
+        : `linear-gradient(145deg, ${c1} 0%, ${c2} 100%)`,
       overflow: 'hidden',
     }}>
       {showReal ? (
@@ -111,7 +115,9 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, ho
             } as CSSProperties}
           />
         ) : (
-        // M-1-16c-1:真圖單張、object-fit cover + hover 微縮放;load 失敗 → setRealFailed 退回 placeholder
+        // M-1-16c-1:真圖單張、object-fit contain + hover 微縮放;load 失敗 → setRealFailed 退回 placeholder
+        // Sean 2026-07-24 override design(原 cover):非正方形合成圖 cover 會裁掉上下 → contain 完整顯示;
+        //   letterbox 底色 = 上方 .pcard-gallery background 分支給的 var(--c-surface-2)(trim 模式走白底分支不受影響)。
         <img
           src={image!}
           alt={label}
@@ -120,7 +126,7 @@ export function ProductImage({ tone = 'neutral', label = 'PRODUCT', seed = 0, ho
           className="pcard-gallery-img"
           style={{
             position: 'absolute', inset: 0,
-            width: '100%', height: '100%', objectFit: 'cover',
+            width: '100%', height: '100%', objectFit: 'contain',
             transform: hover ? 'scale(1.04)' : 'scale(1)',
             transition: 'transform 1.4s cubic-bezier(0.2,0.7,0.1,1)',
           } as CSSProperties}
