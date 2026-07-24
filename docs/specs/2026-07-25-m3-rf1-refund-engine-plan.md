@@ -1,10 +1,10 @@
-# RF1 Slice Plan — 退款金額+運費重算引擎(純函式)(2026-07-25;**v3 = Q6=B 凍結運費規則折入**)
+# RF1 Slice Plan — 退款金額+運費重算引擎(純函式)(2026-07-25;**v4 = codex 關卡1 R2 findings 折入**)
 
 > 退刷自動化線第 1 片(上位 PRD=`docs/specs/2026-07-24-refund-automation-line-prd.md` §4 RF1;拍板=§0/§0b/§0c)。
 > 片型=**高風險片**(鐵則 12 ①錢:本片產出=全線退款金額的數學權威、且動到共用運費函式簽章);審查=codex 關卡1→實作→三綠→code-reviewer→codex 關卡2、不降級。
 > 內容分級=**L1**(純程式邏輯、無內容);估時 **50 分鐘**(§5 揭示鐵則 4 偏離與理由)。
 >
-> **版本沿革**:v1 初稿 → codex 關卡1 R1 **FAIL 8 findings** → v2 折入 6 條技術面 + 升 Q6 決策題 → **v3(本版)= Sean 拍 Q6=B(下單凍結運費規則)折入**:引擎改收 `shippingRule` 參數、`calculateShippingFee` 加選填第三參數。
+> **版本沿革**:v1 初稿 → codex 關卡1 R1 **FAIL 8 findings** → v2 折入 6 條技術面 + 升 Q6 決策題 → v3 = Sean 拍 Q6=B(下單凍結)折入,引擎改收 `shippingRule`、`calculateShippingFee` 加選填第三參數 → **v4(本版)= codex 關卡1 R2 判 FAIL、4 條 findings 全折入**(§10);**plan 層 2 輪已用盡、不跑 R3**。
 
 ## 1. 目標與動機
 
@@ -36,8 +36,14 @@ export interface ShippingRule {
   homeFee: MoneyAmount;        // 宅配未達門檻運費
 }
 
-/** 現行規則(= FREE_SHIPPING_THRESHOLD / HOME_SHIPPING_FEE;#216 drift gate 仍守這兩個常數) */
-export const DEFAULT_SHIPPING_RULE: ShippingRule = { ... };
+/**
+ * 現行規則。🔴 **v4(R2-F1):必須逐欄由既有兩常數建立、不得另寫字面值**
+ * ——否則 `DEFAULT_SHIPPING_RULE` 可獨立漂走而 #216 gate 與測 19 都抓不到(同源假綠)。
+ */
+export const DEFAULT_SHIPPING_RULE: ShippingRule = {
+  freeThreshold: toMoneyAmount(FREE_SHIPPING_THRESHOLD),
+  homeFee: toMoneyAmount(HOME_SHIPPING_FEE),
+};
 
 export function calculateShippingFee(
   subtotal: Money,
@@ -47,6 +53,9 @@ export function calculateShippingFee(
 ```
 
 🔴 **零複製門檻邏輯**:`store→0` / `subtotal >= rule.freeThreshold ? 0 : rule.homeFee` 分支仍只此一處;RF1 引擎呼叫本函式、不自行實作分支(§6 驗收條件 2)。
+
+🔴 **v4(R2-F1)#216 drift gate 必須同片擴充**:既有 `packages/domain/src/order/shipping-rpc-drift.test.ts` 只斷言「TS 兩常數 == 最新 create_order migration §7 CASE」;本片新增 `DEFAULT_SHIPPING_RULE` 後,gate 須加斷言 **`DEFAULT_SHIPPING_RULE.freeThreshold/homeFee` 逐欄 == 該兩常數 == SQL CASE 兩數**(三方一致)。
+🔴 **字面事實更正(v4)**:當前生效的 `create_order` 定義 = **`supabase/migrations/20260719120000_m4a_b2_create_order_notification_email.sql`**(運費 CASE 在 `:459`、`INSERT INTO public.orders` 具名欄位在 `:471-477`)。⚠️ 先前 PRD/偵察與 codex R2 分別引用 `20260716190000` / `20260716200000` **皆為已被取代的舊版**(drift gate 依檔名時戳取最新、實測即 `20260719120000`)。其 INSERT 為**具名欄位列**⇒ 新增欄位不在列內 ⇒ **RF2a-0 的 B3(欄位 DEFAULT 凍結、零 RPC 改動)路線經此實證可行**。
 
 ### 3.2 引擎型別
 
@@ -91,11 +100,11 @@ interface RefundQuote {
 type RefundQuoteRejection =
   // v2(F6):錯誤分類對齊 errors.ts 既有 kind 命名(invalid_quantity / currency_mismatch /
   //     subtotal_mismatch 在 errors.ts:29-33 本就各自獨立),不混塞 invalid_amount、不宣稱「鏡像」。
-  | 'empty_refund'                    // refundItems 空 / 全 0
+  | 'empty_refund'                    // 🔴 v4(R2-F3):**僅限 refundItems 為空陣列**;任何 quantity ≤ 0 走 invalid_quantity
   | 'unknown_item'                    // 退的品項不在 remainingItems
   | 'duplicate_refund_item'           // refundItems 內同 orderItemId 重複
   | 'duplicate_remaining_item'        // v2(F4)
-  | 'invalid_quantity'                // v2(F4/F6):數量非安全整數 / 負 / 超 DB int 上限
+  | 'invalid_quantity'                // v2(F4/F6)+v4(R2-F3):數量非安全整數 / **≤0(含 0)** / 超 DB int 上限;`refundItems` 與 `remainingItems` 兩陣列都檢
   | 'quantity_exceeds_remaining'
   | 'invalid_amount'                  // 僅金額(數量與幣別已分家)
   | 'currency_mismatch'               // v2(F6)
@@ -143,17 +152,18 @@ type RefundQuoteRejection =
 | 7 | 退 50 品項(跨門檻) | refund=−50 → `non_positive_refund` 拒 |
 | 8 | store 單任意退 | fee 恆 0、adjustment=none、refund=品項額 |
 | 9 | 量 3×1000 退 1(Q3=B) | refund=1000、`refundedLines[0].remainingQuantityAfter=2` |
-| 10 | 退量>剩餘 / 未知品項 / 空退 / refundItems 同 id 重複 / remainingItems 同 id 重複 | 各對應 rejection(含 F4 兩項) |
+| 10 | 退量>剩餘 / 未知品項 / **refundItems=`[]`** / refundItems 同 id 重複 / remainingItems 同 id 重複 | 各對應 rejection(空陣列→`empty_refund`;含 F4 兩項) |
+| 10b | 🔴 **v4(R2-F3)rejection 優先序**:`refundItems=[{qty:0}]`(非空但量 0)、`remainingItems` 內含 `remainingQuantity:0` | 兩者皆 → `invalid_quantity`(**不是** `empty_refund`);另證「空陣列」與「量 0」兩路徑各回各的 kind、契約無歧義 |
 | 11 | discount>0 / subtotal 與品項和不符 | `discount_unsupported` / `subtotal_mismatch` |
 | 12 | 非整數金額、負金額、幣別混用、數量 0/負/非整數、method='' 或 'pickup' | `invalid_amount` / `currency_mismatch` / `invalid_quantity` / `invalid_shipping_method`(**逐 kind 分別斷言、不接受只驗 ok===false**) |
 | 13 | v2(F2):留 NT$0 品項退光付費品項 | `zero_value_remainder_unsupported`;另組「連 NT$0 品項一起全退」→ fullRefund 正常 |
 | 14 | v2(F5):unitPrice=2147483647、乘積溢位、currentSubtotal 超上限、`MAX_SAFE_INTEGER+1`、rule 欄超上限 | 全回 `amount_overflow`、零 throw |
 | 15 | 守恆不變量:多組固定情境多輪部分退到清空 | Σrefund + 殘值 = 原付,恆成立 |
 | 16 | 引擎對外零 throw:所有壞輸入包 try/catch 斷言未 throw | 全回 `{ok:false}` |
-| 17 | 🔴 **v3 凍結規則生效**:**同一張訂單**(剩餘 2500、原 fee 0)分別套 `{5000,100}` 與 `{3000,60}` | 前者 newFee=100/refund=2900、後者 newFee=0/refund=3000 → **證明規則來自輸入而非模組常數** |
+| 17 | 🔴 **v3 凍結規則生效(v4 修正期望值、R2-F2)**:同一情境(退 3000 品項後 `newSubtotal=2500`、原 fee 0)分別套三組規則 | `{5000,100}`→newFee **100**/refund **2900**;`{3000,60}`→2500<3000 → newFee **60**/refund **2940**;`{2000,60}`→2500≥2000 → newFee **0**/refund **3000**。⇒ 三組同時證「**門檻**與**費率**都取自輸入、非模組常數」。⚠️ v3 原寫 `{3000,60}`→0/3000 **算錯**(2500<3000 不可能免運),codex R2 抓出 |
 | 18 | 🔴 **v3 規則守門**:rule 欄負數 / 非整數 / 缺欄 | `invalid_shipping_rule`、零 throw |
-| 19 | 🔴 **v3 `shipping.ts` 零行為變更**:既有兩參呼叫 vs 三參傳 `DEFAULT_SHIPPING_RULE`,對門檻上下與 store/home 全組合 | 逐組**輸出全等** |
-| 20 | 突變自驗:①移除 fullRefund→0 特例(2/4 紅)②公式 −(新−舊) 改 +(1 紅)③移除 non_positive 閘(6/7 紅)④fullRefund 判定改回 `newSubtotal===0`(13 紅)⑤移除溢位守門(14 紅)⑥**引擎改用 `DEFAULT_SHIPPING_RULE` 忽略輸入 rule(17 紅)** | 6 組全紅才收 |
+| 19 | 🔴 **v3 `shipping.ts` 零行為變更(v4 補強、R2-F1)**:①既有兩參呼叫 vs 三參傳 `DEFAULT_SHIPPING_RULE` 逐組**輸出全等** ②🔴 **加「固定期望值表」對照**:`home/4999→100`、`home/5000→0`、`home/5001→0`、`store/任意→0`(**寫死期望數字、不由常數推導**) | ①②皆過。🔴 **只有 ① 是同源假綠**(兩參本就 delegate 到 DEFAULT)→ 必須有 ② 才擋得住「DEFAULT 寫錯」;另由 #216 gate 擴充斷言把 `DEFAULT_SHIPPING_RULE` 綁死到常數 |
+| 20 | 突變自驗:①移除 fullRefund→0 特例(2/4 紅)②公式 −(新−舊) 改 +(1 紅)③移除 non_positive 閘(6/7 紅)④fullRefund 判定改回 `newSubtotal===0`(13 紅)⑤移除溢位守門(14 紅)⑥**引擎改用 `DEFAULT_SHIPPING_RULE` 忽略輸入 rule(17 的 `{3000,60}` 與 `{2000,60}` 兩組轉紅)** ⑦🔴 **v4:`DEFAULT_SHIPPING_RULE` 改寫死 `{4000,150}`**(測 19-② 固定期望值表 + #216 擴充 gate 轉紅;若只有 19-① 則**不會紅**=證同源假綠已被補上) | 7 組全紅才收 |
 
 ## 5. 鐵則判定
 
@@ -182,7 +192,8 @@ type RefundQuoteRejection =
 
 - **#216**:運費門檻 TS↔SQL drift gate 已存在 → 本片保留 `FREE_SHIPPING_THRESHOLD`/`HOME_SHIPPING_FEE` 常數為 `DEFAULT_SHIPPING_RULE` 的來源,**gate 保護不失效**。
 - **#295**(🆕 2026-07-25 本次新登):運費後台管理 → 明確**不進本線**、退刷線收工後評估;本片的 `ShippingRule` 型別是它未來的天然介面。
-- **RF2a-0**(🆕 Q6=B 衍生):`orders` 凍結欄 + `create_order` 寫入 + backfill → 本片**不依賴它先落地**(測試自帶規則值);但 RF5 串接時必須有它才能取得真凍結值。
+- **RF2a-0**(🆕 Q6=B 衍生;🔴 **v4 修正 R2-F4:以下為 B3 精確敘述,舊「`create_order` 寫入 + backfill」字面已作廢**):`orders` 加 `shipping_free_threshold`/`shipping_home_fee` 兩欄、`NOT NULL DEFAULT`=當前規則,**零 `create_order` 改動**(其 INSERT 為具名欄位列 `20260719120000:471-477` ⇒ 新欄不在列內 ⇒ 由 DB DEFAULT 填值)、**免獨立 backfill**(PG11+ 加帶 DEFAULT 欄位同時回填既有列)。本片**不依賴它先落地**(測試自帶規則值)。
+- 🔴 **RF5 串接 gate(v4 新增、R2-F4)**:RF5 實作前 **RF2a-0 必須已 apply**;RF5 組 `shippingRule` **只能**讀 `orders.shipping_free_threshold` / `orders.shipping_home_fee` 兩欄,**嚴禁 fallback 到 `DEFAULT_SHIPPING_RULE`**(fallback = 悄悄退回 Q6=A 當下表語意、Q6=B 拍板失效)。RF5 須有負向測試:兩欄任一為 null/缺 → 拒絕退款並回明確錯誤,**不得代入預設值**。
 - **#26**:partiallyRefunded enum(Q1=A)→ RF2a 的事、本片不碰 `payment_status`。
 - **graphify**:退款態樞紐在 `settleCharge` 分類層(RF7)、與本片無耦合。
 - **Q5=A**(隔日覆核 + 失敗回滾 + 告警):狀態機議題、不影響本片純數學。
@@ -200,8 +211,20 @@ type RefundQuoteRejection =
 | F7 | 運費規則版本(當下表 vs 下單凍結)未定義 | ✅ 屬實且超出 AI 拍板範圍 | **v3 折入:Sean 拍 Q6=B 凍結** → `shippingRule` 入參 + `calculateShippingFee` 選填參數 + 測 17/18/19 + 突變⑥ + 新片 RF2a-0 + backlog #295 |
 | F8 | 40 分鐘估時不可信 | ✅ 接受 | v2 重估 45 → v3 因 Q6=B 擴充再估 **50**(§5 揭示鐵則 4 偏離與不拆理由) |
 
-## 10. 開工前 gate(全數已解)
+## 10. codex 關卡1 R2 findings 逐條銷案(2026-07-25;**R2 判 FAIL、4 條全屬實**)
 
-- ~~Q6 運費規則版本~~ → ✅ **Sean 2026-07-25 拍 B(下單凍結)**,已折入本 v3。
-- ~~Q5 D4 覆核口徑~~ → ✅ **Sean 拍 A + 失敗回滾/告警要求**(PRD §0c),屬 RF8 範圍、不擋本片。
-- 剩餘 gate:**codex 關卡1 R2 複審本 v3 通過**(plan 層審查上限 2 輪;R2 仍 FAIL → 停下 raise Sean)。
+| # | codex R2 finding | 核對結果 | 處置(v4) |
+| --- | --- | --- | --- |
+| R2-F1 | `DEFAULT_SHIPPING_RULE` 未與 #216 綁定、測 19 是**同源假綠**(兩參本就 delegate 到 DEFAULT,DEFAULT 寫錯兩邊一起錯仍「全等」) | ✅ 屬實(既有 gate `shipping-rpc-drift.test.ts` 只斷言 TS 常數 ↔ SQL CASE,不含新常數) | ①`DEFAULT_SHIPPING_RULE` **逐欄由既有兩常數建立**(結構上不可能漂)②#216 gate 同片擴充為三方斷言 ③測 19 加「**寫死期望值表**」(4999→100/5000→0/store→0)④突變⑦專驗此假綠已補 |
+| R2-F2 | 測 17 期望值**算錯**:`newSubtotal=2500` 套 `{3000,60}` 應收 **60**、非 0 | ✅ 屬實(2500 < 3000 不可能免運;是我的算術錯) | 期望值改 60/2940;並擴為**三組規則**(`{5000,100}`/`{3000,60}`/`{2000,60}`)同時證門檻與費率都取自輸入;突變⑥改對應兩組 |
+| R2-F3 | `empty_refund`(含「全 0」)與矩陣「quantity 0 → `invalid_quantity`」**契約互相矛盾**,實作者可任選一邊 | ✅ 屬實(§3.2 註解與測 12 直接衝突) | 定優先序:`empty_refund` **僅限空陣列**;任何 quantity ≤ 0(兩個輸入陣列都檢)→ `invalid_quantity`;新增測 10b 專驗兩路徑各回各的 kind |
+| R2-F4 | §8 殘留舊方案文字(「`create_order` 寫入 + backfill」),與已拍定的 B3 矛盾 → 施工者可能去碰 654 行金流 RPC | ✅ 屬實(PRD 已改 B3、本 plan §8 未同步=正是「改 spec 只補動到的行」慣犯) | §8 改為 B3 精確敘述 + 新增 **RF5 串接 gate**(只能讀 orders 兩欄、**嚴禁 fallback default**、須負向測試) |
+
+🔴 **附帶字面更正(兩方都錯,v4 已修)**:當前生效 `create_order` = **`20260719120000_m4a_b2_create_order_notification_email.sql`**(CASE `:459`、INSERT `:471-477`)。codex R2 引 `20260716200000`、本 session 偵察引 `20260716190000`,**兩者皆已被取代**;結論(B3 可行)不變、依據行號已更正為實測值。
+
+## 11. 開工前 gate
+
+- ~~Q6 運費規則版本~~ → ✅ **Sean 2026-07-25 拍 B(下單凍結)**,已折入 v3/v4。
+- ~~Q5 D4 覆核口徑~~ → ✅ **Sean 拍 A + 失敗回滾/告警**(PRD §0c),屬 RF8、不擋本片。
+- 🔴 **plan 層 codex 審查 2 輪已用盡**(R1 FAIL 8 條 → v2/v3 折入;R2 FAIL 4 條 → v4 折入)。依 `~/.claude/rules/00-work-rules.md` §5「plan 層審查上限 2 輪、round2 仍 FAIL 停下 raise Sean」+ codex-adversary skill 同條 → **不跑 R3**。
+- ⏳ **等 Sean 早上拍**:RF1 是否直接開工實作(v4 已折入全部 12 條 findings、diff 層仍有 code-reviewer + codex 關卡2 兩道把關),或要再跑一輪 plan 審。**誠實說明**:R2 的 4 條都是機械性錯誤(算錯期望值/契約矛盾/文件未同步/測試同源),**非方向問題**;兩輪 findings 沒有一條質疑核心公式或 Q6=B 架構。
