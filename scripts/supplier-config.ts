@@ -257,7 +257,10 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     syncInstallResources: false, // 靜態 fixture、pdf/video 皆 0、無安裝資源來源
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 每變體自身圖(檔名含自身 sku,如 ped-gp_evo_cbr100020_bd_*)
-    writeAllowed: false, // 🔴 過夜零寫入;乾跑全綠 + Sean 批首灌後才開
+    // ✅ 2026-07-24 Sean 批首灌後開寫。前置全清:65 腳踏 4 軸 spec pv_spec 撞鍵 0、v2 分類
+    //    712/712 回填(taxonomy_v2_recompute)乾跑 664/664 對上零未分類、5 筆腳踏中文名翻譯錯置修正、
+    //    handle 撞鍵 0、價格離群 0。
+    writeAllowed: true,
   },
   // 上架第 16 家(2026-07-24):K-SPEED(泰國 Cafe Racer 改裝廠)。
   //   🔴 brandSlug='k-speed'(≠ supplierSlug='kspeed'、拼法分岔;brands seed 20260724140000 已 apply)。
