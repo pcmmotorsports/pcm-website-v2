@@ -46,14 +46,35 @@ async function globalSetup(config: FullConfig): Promise<void> {
       );
     }
 
-    // 唯讀:數首屏商品卡 + 解析件數。兩者都在 force-dynamic 的 SSR HTML 內,不需等 client hydration。
-    // (與 runner-smoke 同源錨點;此處作為「開跑前」的 fail-fast 閘,smoke 仍在 test 內獨立驗一次。)
-    const cardCount = await page.locator('.pp-grid a[href^="/products/"]').count();
+    // 唯讀:數首屏商品卡 + 解析件數。
+    // 🔴 2026-07-24 實測坑:/products 現有 loading.tsx skeleton(06110a8 起走 Suspense streaming),
+    // domcontentloaded 當下可能還停在骨架(0 張真卡、無 .pp-count 元素),真內容隨後才流入替換。
+    // .count() 本身不會重試,必須先等第一張真卡 visible 才能數,否則會在骨架態誤判「無目錄資料」。
+    // (與 runner-smoke.spec.ts:41 等的是同一件事,但寫法刻意不同:那邊逾時直接讓 expect 判紅,
+    // 這裡吞掉逾時、改由下面的訊息分岔自己講清楚根因——guard 的價值就在這句話,不能省。)
+    // 用 CONTRACT_NAV_TIMEOUT_MS(非 OP_TIMEOUT_MS):目錄持續匯入變大,冷 RPC 逼近 15s 時
+    // 舊寫法會在真資料还没流完就假紅;此處等的是「同一次冷請求」的資料,理應套用同一冷啟預算。
+    const cards = page.locator('.pp-grid a[href^="/products/"]');
+    const cardsRendered = await cards
+      .first()
+      .waitFor({ state: 'visible', timeout: CONTRACT_NAV_TIMEOUT_MS })
+      .then(() => true)
+      .catch(() => false);
+    const cardCount = await cards.count();
     const countText = (await page.locator('.pp-count').innerText().catch(() => '')).trim();
     const total = Number(countText.replace(/[^\d]/g, ''));
     const totalOk = Number.isFinite(total) && total > 0;
 
     if (cardCount < 1 || !totalOk) {
+      if (totalOk && !cardsRendered) {
+        // 件數解析成功(代表這一頁確實查得到真資料)、但商品卡等滿預算仍未渲染出來——
+        // 這不是 DB 未連通(DB 明顯有回應),更像 streaming 卡住或前端渲染壞掉,訊息不可混為一談。
+        throw new Error(
+          `[e2e-prod 資料合約] /products 件數=${total}(DB 有回應)但商品卡在 ` +
+            `${CONTRACT_NAV_TIMEOUT_MS / 1000}s 內未渲染完成 — 疑似 streaming/前端渲染卡住` +
+            `(非 DB 未連通),先中止整套 E2E。`,
+        );
+      }
       throw new Error(
         `[e2e-prod 資料合約] /products 回 2xx 但無目錄資料` +
           `(商品卡=${cardCount}、件數=${totalOk ? total : '不可解析'})` +
