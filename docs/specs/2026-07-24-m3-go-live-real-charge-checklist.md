@@ -83,6 +83,34 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 - **A**:先把條款掛上(草稿已備:`docs/specs/2026-07-23-pcm-legal-terms-privacy-draft.md`,你看過點頭我就做)
 - **B**:先不管,只測自己的卡、商品藏好、測完下架,風險自負
 
+## 🔴 步驟 6.5:刷之前的兩項硬檢查(沒過別刷)
+
+> 來源:2026-07-24 3DS 鏈首刷前對抗審查(opus),總判 **NO-GO → 這兩項綠才降為 GO**。
+> ⚠️ **F1 是本檢查表初版漏掉的**(初版只寫了 S2 sweeper、沒寫 3DS RPC 是否已 apply)。
+
+**檢查 A:正式站 DB 是否已 apply 3DS 那批 RPC(缺了 → 每次結帳都卡死、零扣款)**
+到 Supabase SQL Editor 跑:
+
+```
+select proname from pg_proc where proname in
+ ('find_active_sibling_own','mark_charge_attempt_released_for_user',
+  'record_charge_bank_txn','record_charge_pending_rec','get_active_charge_attempt',
+  'record_webhook_event','begin_charge_attempt','mark_charge_attempt_charged') order by 1;
+```
+
+**要回 8 支,少任何一支就別刷**(先補 db push)。
+缺了的症狀:每次按付款都回「訂單付款狀態確認中,請勿重複付款」、**畫面不會告訴你原因**(錯誤被吞成通用字面),零建單零扣款。
+
+**檢查 B:`NEXT_PUBLIC_SITE_URL` 是否逐字等於客人瀏覽的那個網域(🔴 唯一「看起來正常但其實會掉錢」的設定)**
+程式只驗**格式**(https、無路徑/查詢),**不驗它是不是這台站**(`three-ds-urls.ts:35-57`)。
+若正式站跑在 `shop.pcmmotorsports.com` 但這個變數填成 `www.pcmmotorsports.com`(或反過來):
+格式檢查全過 → 3D 正常跳轉 → **客人 OTP 完成、錢真的扣掉** → TapPay 把人導到錯的網域(404)、
+webhook 也打到錯的網域 → **我方訂單永遠不會變成已付款,而且沒有任何兜底會救它**。
+
+用瀏覽器開這個網址(把 `<...>` 換成你設的值):
+`<NEXT_PUBLIC_SITE_URL>/checkout/callback?order=00000000-0000-0000-0000-000000000000`
+**必須看到「處理中」之類的頁面,不能是 404、網址列不能跳去別的網域。**
+
 ## 步驟 7:真刷測試(照這個順序)
 
 1. **正常付款**:加購 1 元商品 → 結帳 → 填卡 → 應跳 3D 驗證 → 完成 → **顯示訂單編號**。
@@ -94,10 +122,39 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 4. **退款**:目前**手動**——去 TapPay 後台退,再手動改訂單狀態。
    (自動退款正在規劃:`docs/specs/2026-07-24-refund-automation-line-prd.md`)
 
-## 步驟 8:出事怎麼停
+⚠️ **測黑洞時不要把 3D 驗證頁留在另一個分頁「等一下再完成」**——那是**設計上允許雙扣的窗**
+(舊單被 release 後放行建新單,舊分頁稍後完成 OTP → 兩筆都扣;系統會記錄但不阻止,
+而告警 cron 現在沒開 = 沒人通知你)。要測黑洞就**直接關掉那個分頁**。
 
-把 `TAPPAY_3DS_ENABLED` 改掉(非 `true` 即關)→ 重新部署 → 付款路徑即關閉。
-1 元商品下架。已扣的款走 TapPay 後台退。
+## 步驟 7.5:刷的時候開三個視窗盯
+
+① Vercel → storefront 專案 → Logs(即時) ② TapPay 後台交易紀錄 ③ Supabase SQL Editor。
+按下付款後照順序看:
+
+- Log 有沒有 `initiateThreeDSCharge { status: 0 }` → **沒有 = 根本沒送出去**(回頭看檢查 A / flag)。
+- 有沒有跳到 3D 驗證頁 → **沒跳 = payment_url 被擋**(多半是檢查 B 沒過)。
+- OTP 完成後有沒有 `recordQuery { status: …, numberOfTransactions: 1 }`
+  → 🔴 **有這行、但訂單還是「處理中」= 最可能第一次就中的那個 bug**
+  (成交判定閘從沒跑過真實 TapPay 回應;`settle-charge.ts:217` 硬要求 `currency==='TWD'`,
+  但回應的 currency 是選填 → 若真回應沒帶,會永遠停 pending)。
+  **把那行完整輸出留下來給 Claude,照真回應改閘即可。錢在、可退、不會誤報成功。**
+
+## 步驟 8:出事怎麼辦(三種處置)
+
+1. **畫面「處理中」但 TapPay 顯示已授權**(錢在、單沒成立):
+   用**同一個帳號**在瀏覽器開 `<站台>/api/orders/<訂單UUID>/payment-status`
+   → 它會主動再跑一次結算。還是不行 = 上面那個 bug,要改 code。
+2. **要立刻止血**:把 `TAPPAY_3DS_ENABLED` 改成非 `true` → 重新部署 → 付款路徑即關;1 元商品下架。
+   已扣的款走 TapPay 後台退。
+3. **懷疑雙扣**:查 `payment_double_charge_anomalies` 有沒有 open 的列(系統自己記的雙扣證據)。
+   🔴 **告警 cron 沒開 → 不會有人通知你,只能自己查。**
+
+## ⚠️ 首刷期間「背景兜底是關的」(誠實揭示)
+
+S2 的 sweeper 與雙扣告警**都還沒 apply 到 DB**,`vercel.json` 也已無 crons
+→ 現存唯一自動兜底 = **TapPay webhook 重送**(官方 1/2/4/8/16 分、最多 5 次)。
+且 webhook 是「收件匣落地就回 200、結算丟背景 best-effort」——背景那段失敗的話 TapPay 不會再送、
+**目前沒有任何東西會重跑它**。首刷你人在現場可接受,但**正式營運前要把 S2 補上**。
 
 ---
 
