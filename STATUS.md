@@ -20,6 +20,8 @@
 **Branch:** dev
 
 ## 最後更新
+2026-07-24(**本 commit**;M-3 **補差額商品免運「自取路」✅ 收工** — 標準片、純前台 storefront、零金流 RPC、零 migration、零 db push)— 補差額 1 元商品(handle `pcm-balance-payment`)整車結帳 → 自動走「自取」(store)配送 → 免運(重用既有 `create_order` §7 `store→0` + 前台 `calculateShippingFee` `store→0`;**Sean 拍 A 案避開高風險金流 RPC**);混入一般商品即回宅配(home)照常收運費 = 天然防混車偷吃步。新 `lib/balance-payment.ts`(BALANCE_PAYMENT_HANDLE + isBalancePaymentOnlyCart)+ `hooks/useCheckoutShipping.tsx`(method/label/flag、鐵則 6 外移)+ CartView/CheckoutView/CheckoutStep1 運費鏡像 + 標籤兩態同步(前後台零漂移、鐵則 3)。**鐵則 6**:CheckoutView 本卡 400、把發票自動帶入 effect 外移 `hooks/useInvoiceAutofill.tsx` → **388/400**。**驗證**:三綠(typecheck 8/8、lint 10/10、build 2/2)、full test **251 檔 2874 passed+1 todo**、code-reviewer(opus) R1 FAIL(鐵則 6 408>400)→ 外移修 → R2。⚠️ **既有安全觀察(非本片引入)**:`create_order` p_shipping_method 是 client 送、§7 對 store 一律 0、不校驗 cart↔method → crafted request 可對真實訂單免運;本片未擴大此面(前台原寫死 home、現只對 balance 車送 store)。🔴 **本片曾遭並行 session `git stash` 撞車、已還原重套**(詳下)。**未 push;下一 = 退刷自動化線(C、需 Sean db push+env+拍板)。**
+
 2026-07-24(**本 commit**;M-4a **已收未定 A 案「付款↔品項狀態前台閘」✅ 收工** — 標準片、純前台顯示層、零 DB/零金流邏輯)— 後台訂單「商品狀態」下拉依該單 `payment_status` 收窄選項:**paid 藏未收半邊(4 個 `unpaid_` 前綴)、unpaid 藏已收半邊、cancelled 雙邊恆在、partiallyPaid/refunded 不過濾**(Sean 三子拍板 Q1/Q2/Q3=A);paid+未設定 → 下拉「預選」已收未定(純顯示層、DB 仍 null、按存才落庫、防呆退哨兵)。🔴 **當前值一律保留**(落在被藏半邊仍出現、否則 select 顯示不在選項內的值)。分類權威=seed migration `20260714120000` 的 2×4 矩陣(§6.1)。改 6 檔:`workflow-form.ts`(加 `WF_RECEIVED_UNCONFIRMED` 常數)/ `workflow-select-options.ts`(`buildWorkflowSelectOptions` 加 `paymentStatus` 過濾 + 抽 `resolveDefaultWorkflowValue` 純函式)/ `item-workflow-status-cell.tsx`(加 prop)/ `order-detail.tsx` + `orders-table.tsx`(傳 `paymentStatus`)/ test(16 案窮舉)。**驗證**:三綠(typecheck 8/8、lint 10/10、build 2/2)、full test **250 檔 2867 passed+1 todo**、**code-reviewer(opus) R1 PASS 0 must-fix**(3 nit:自訂 code prefix 分類限制=Slice D backlog、另 2 抽純函式測+自訂碼測已順手清)。🔴 **零金流影響**:`workflow_status` 純顯示軸(migration COMMENT「絕不驅動金流/對帳/退款」)、`payment_status` 僅唯讀供過濾;非鐵則 12 六類、標準片不觸發 codex 對抗審。拍板落 memory `project_m3-first-real-charge-success-2026-07-24`。**未 push;下一 = 補差額商品免運。**
 
 2026-07-24(**ops/真刷里程碑、未 commit code**;詳 memory `project_m3-first-real-charge-success-2026-07-24`)— 🎉 **PCM 正式站完成史上第一筆真信用卡 3DS 刷卡**:訂單 `PCM-2026-0102` `paid` + 真 TapPay rec_trade_id、NT$101(商品 NT$1 + 運費 NT$100、真錢真扣、Sean 待手動退)。**Blocker「真刷卡待 sandbox 3DS E2E」解除**（改走正式站 1 元真刷、sandbox 路線作廢）。🔴 **根因除錯**:真刷一路失敗,逐關排除後追出 = **`PAYMENT_CONFIRMER_DB_URL` 環境變數 go-live 檢查表漏列**（`composition.ts:158` requireEnv throw）→ Sean 補設 + 重設 `payment_confirmer` 角色密碼後全鏈通；**檢查表已補這顆（機制防復發）**。連帶:①**補差額用賣場 1 元商品**上正式庫（品牌 PCM／分類 服務／其他／`pcm-balance-payment`／supplier_slug=manual／seed 檔+對抗審 GO；🔴 缺免運=補差額用途待解）②**付款↔品項狀態「已收未定」連動**拍 A 案（純前台閘、3 規則、下個 session 建）。退刷自動化線（訂單取消+TapPay refund）= 5-7 片正經線待開（PRD 已備、需 Sean db push+admin env+拍 D1-D4）。**未 push、未 commit code**（本 session=ops+prod seed via MCP+env,無業務 code 變更）。
@@ -120,12 +122,12 @@
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `275a13c` | feat(admin): 訂單商品狀態下拉依付款狀態收窄選項 [M-4a] | 2026-07-24 |
 | `5134bf6` | Merge remote-tracking branch 'origin/main' into dev | 2026-07-24 |
-| `786118a` | ci(sync): 每日同步 matrix 補 lightech+kspeed(extreme 靜態一次性不列)[brand] | 2026-07-24 |
-| `d730f61` | test(scripts): 校正品牌上架後過期回歸測試 + 永久 guard canary [brand] | 2026-07-24 |
+| `786118a` | ci(sync): 每日同步 matrix 補 lightech+kspeed(extreme 靜態一次性不列) | 2026-07-24 |
 
 ## 下一步
-✅ **已收未定 A 案(付款↔品項狀態前台閘)✅ 收工=本 commit**(標準片、純前台、零 DB;Sean Q1/Q2/Q3=A、code-reviewer opus R1 PASS)。🔴 **現行連做三項(Sean 2026-07-24「都要做、一步一步來」)**:①A 案 ✅ → ②**補差額 1 元商品免運**(現況 `pcm-balance-payment` 會被加 NT$100 運費、不合補差額用途)← **下一片** → ③**退刷自動化線**(5-7 片正經線、鐵則 12 錢+權限+DB、需 Sean db push + admin TapPay env + 拍 D1-D4、到該步停下交手)。
+✅ **已收未定 A 案(付款↔品項狀態前台閘)✅ 收工=本 commit**(標準片、純前台、零 DB;Sean Q1/Q2/Q3=A、code-reviewer opus R1 PASS)。🔴 **現行連做三項(Sean 2026-07-24「都要做、一步一步來」)**:①A 案 ✅ → ②**補差額商品免運 ✅**(Sean 拍 A 案=自取路、零金流 RPC;整車 balance→store 免運、混車回 home、鐵則 6 CheckoutView 外移 388/400)← **本 commit** → ③**退刷自動化線**(5-7 片正經線、鐵則 12 錢+權限+DB、需 Sean db push + admin TapPay env + 拍 D1-D4、到該步停下交手)← **下一片**。⚠️ 本 session 前台檔曾遭並行 session `git stash` 撞車、已還原重套(Sean 那邊自行 git;stash@{0} 含另一線 global-setup.ts、勿丟)。
 
 ✅ **#291 法律頁全鏈上線(2026-07-24)**:commit `5d5af4c` 已推 origin/dev + origin/main、Vercel production 部署 READY、`shop.pcmmotorsports.com/terms`+`/privacy` 實測 **HTTP 200 + 內容正確**;兩支 migration(`20260724120000` 首登 + `20260724130000` 定稿 hash `eca6a241…`)皆 apply、正式 DB 該列與程式常數逐字一致。⇒ 客人結帳勾同意**真的讀得到條款**。
 🔴 **#291 唯一剩項 = Sean 親眼看渲染後 `/terms`、`/privacy`**(硬重整或無痕視窗;重點第 10 條 = 拍板 B 改寫後、他尚未逐字看過)→ 看過即收 drift `legalRenderedPayloadNotEyeballed`;要改文字則走「改→取新 hash→db push→推」一輪。

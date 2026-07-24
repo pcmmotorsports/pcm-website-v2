@@ -15,7 +15,10 @@ const ADDR = {
   line: '測試市測試路 1 號',
 } as unknown as CustomerAddress;
 
-function renderStep1(notificationEmailEnabled: boolean) {
+function renderStep1(
+  notificationEmailEnabled: boolean,
+  opts: { balancePaymentCheckout?: boolean; shipping?: number } = {},
+) {
   const onNotificationEmailChange = vi.fn();
   const onNext = vi.fn();
   const onBack = vi.fn();
@@ -25,7 +28,8 @@ function renderStep1(notificationEmailEnabled: boolean) {
       addresses={[ADDR]}
       shippingAddrId={ADDR.id}
       onShippingAddressChange={vi.fn()}
-      shipping={0}
+      shipping={opts.shipping ?? 0}
+      balancePaymentCheckout={opts.balancePaymentCheckout ?? false}
       notificationEmailEnabled={notificationEmailEnabled}
       notificationEmail="Member@EXAMPLE.COM"
       notificationEmailError={null}
@@ -40,6 +44,22 @@ function renderStep1(notificationEmailEnabled: boolean) {
 }
 
 describe('CheckoutStep1', () => {
+  it('一般結帳:配送區顯宅配 + 滿額免運提示', () => {
+    renderStep1(false);
+    expect(screen.getByText('貨運宅配')).toBeTruthy();
+    expect(screen.getByText(/滿 NT\$ 5,000 免運/)).toBeTruthy();
+    expect(screen.queryByText('補款專用')).toBeNull();
+  });
+
+  it('補差額結帳:配送區顯「補款專用・免運」、不顯宅配滿額提示', () => {
+    renderStep1(false, { balancePaymentCheckout: true });
+    expect(screen.getByText('補款專用')).toBeTruthy();
+    expect(screen.getByText('免運')).toBeTruthy();
+    expect(screen.getByText(/補差額 \/ 運費差額付款專用,免運費/)).toBeTruthy();
+    expect(screen.queryByText('貨運宅配')).toBeNull();
+    expect(screen.queryByText(/滿 NT\$ 5,000 免運/)).toBeNull();
+  });
+
   it('flag off 時完全不顯示 Email 欄與揭露文案', () => {
     renderStep1(false);
     expect(screen.queryByLabelText('Email')).toBeNull();

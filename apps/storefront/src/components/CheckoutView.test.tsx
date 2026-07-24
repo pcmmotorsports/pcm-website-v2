@@ -425,8 +425,8 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
 
   // ===== ②-④b:刷卡接線(getPrime → chargePaymentAction → 六態)=====
   async function gotoStep2Agreed(container: HTMLElement) {
-    await screen.findByText('貨運宅配');
-    fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
+    // 錨點用「下一步」按鈕(補差額車 Step1 配送標籤=補款專用、非貨運宅配、兩情境共用此按鈕)。
+    fireEvent.click(await screen.findByRole('button', { name: /下一步:發票與付款/ }));
     fireEvent.click(container.querySelector('.co-agree input') as HTMLInputElement);
   }
 
@@ -613,6 +613,23 @@ describe('CheckoutView(M-3-S2-b2-e1)', () => {
     expect(payload).not.toHaveProperty('cardholder'); // 🔴 client 零送 cardholder
     expect(payload).not.toHaveProperty('amount'); // 🔴 client 零送價
     expect(cartRef.current.clear).toHaveBeenCalledOnce(); // paid 才清車
+  });
+
+  it('🔴 補差額商品整車 → create_order 傳 shippingMethod=store(自取免運)', async () => {
+    setCart([{ productId: 'pcm-balance-payment', variantId: 'vb', qty: 1 }]);
+    resolveMock.mockResolvedValue([
+      resolvedLine({ productId: 'pcm-balance-payment', variantId: 'vb', unitPrice: 1 }),
+    ]);
+    getPrimeMock.mockResolvedValue('prime_test');
+    chargeMock.mockResolvedValue({ ok: true, displayId: 'PCM-2026-0009' });
+    const { container } = renderCheckout({});
+    await gotoStep2Agreed(container);
+    fireEvent.click(screen.getAllByRole('button', { name: /確認付款/ })[0]!);
+
+    expect(await screen.findByText('訂單已成立')).toBeTruthy();
+    expect(chargeMock).toHaveBeenCalledOnce();
+    const payload = chargeMock.mock.calls[0]![0] as { shippingMethod: string };
+    expect(payload.shippingMethod).toBe('store'); // 混車以外唯一免運路徑
   });
 
   // 🔴 U4a-0(code-reviewer must-fix):本片把終態 render 外移,而「終態必須優先於 loading/empty」

@@ -22,6 +22,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 import { useCart } from '@/contexts/CartContext';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
+import { isBalancePaymentOnlyCart } from '@/lib/balance-payment';
 import { CartVehicleField } from '@/components/CartVehicleField';
 import { resolveGaragePrefillVehicle } from '@/lib/garage-chip';
 import type { GarageChipItem } from '@/components/GarageChips';
@@ -51,8 +52,11 @@ export function CartView({
   garage?: GarageChipItem[];
 } = {}) {
   const router = useRouter();
-  const { updateQty, removeItem, setItemVehicle, setAllItemsVehicle } = useCart();
-  const cart = useResolvedCart('home');
+  const { items, updateQty, removeItem, setItemVehicle, setAllItemsVehicle } = useCart();
+  // 🔴 補差額商品整車 → 自取免運(對齊 CheckoutView + create_order store→0;購物車頁運費不漂移)。
+  const cart = useResolvedCart(
+    isBalancePaymentOnlyCart(items.map((i) => i.productId)) ? 'store' : 'home',
+  );
 
   // V-2h/MF-5(spec §2 車庫預填):登入會員有唯一車或 primary 車 → 首次載入補未填列(標「來自你的車庫」)。
   // 🔴 只補未填列(!item.vehicle)=不覆蓋 search 帶入(優先序 search>garage);唯一精確解析才補=零猜。

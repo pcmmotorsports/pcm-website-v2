@@ -60,19 +60,11 @@ import { validateNonCardFields, validateTapPayFields } from '@/lib/checkout/vali
 import { usePaymentErrors } from '@/hooks/usePaymentErrors';
 import { useFirstErrorFocus } from '@/hooks/useFirstErrorFocus';
 import { useResolvedCart } from '@/hooks/useResolvedCart';
+import { useCheckoutShipping } from '@/hooks/useCheckoutShipping';
+import { useInvoiceAutofill, DEFAULT_INVOICE } from '@/hooks/useInvoiceAutofill';
 import { useChargePayment } from '@/hooks/useChargePayment';
 import { useTapPayCard } from '@/hooks/useTapPayCard';
 import { confirmProceedIfInflight } from '@/lib/payment/inflight-marker';
-
-// 發票草稿預設(對齊 design defaultInvoice L69、CheckoutInput.invoice zod);
-// 模組層常數(穩定參照)避免進 effect deps。
-const DEFAULT_INVOICE: InvoiceDraft = {
-  type: 'personal',
-  carrier: '',
-  title: '',
-  taxId: '',
-  donateCode: '',
-};
 
 export type CheckoutViewProps = {
   /** 會員收件地址清單(server page getAddressRepo→listByCustomer、RLS 守自己 row) */
@@ -95,7 +87,9 @@ export function CheckoutView({
   initialNotificationEmail,
 }: CheckoutViewProps) {
   const router = useRouter();
-  const cart = useResolvedCart('home');
+  // 配送方式 + 標籤依購物車自算(補差額整車=store 免運;鐵則 6 外移至 useCheckoutShipping)。
+  const { method: shippingMethod, label: shippingLabel, balancePaymentCheckout } = useCheckoutShipping();
+  const cart = useResolvedCart(shippingMethod);
   const charge = useChargePayment();
 
   const [step, setStep] = useState<CheckoutStep>(1);
@@ -104,8 +98,6 @@ export function CheckoutView({
   );
   const [notificationEmail, setNotificationEmail] = useState(initialNotificationEmail);
   const [notificationEmailError, setNotificationEmailError] = useState<string | null>(null);
-  // 配送方式:Q1=A 僅 home(後端 white-list 仍含 store、UI 暫不開合作店家取貨);
-  // useResolvedCart('home') 直接用字面、運費鏡像走 home。
 
   // 發票:state 提升至此(跨步驟存活、送出時讀);發票 UI 在 CheckoutStep2(U2b 起唯一節點、無 readonly 複查)。
   // 從選中地址自動帶入、使用者可手動覆寫的 effect 對齊 design L72-76。
@@ -115,20 +107,15 @@ export function CheckoutView({
   // U3b:非卡片錯誤 lifecycle(state + 清除規則在 usePaymentErrors;驗證在 lib 純函式)。
   const payErrors = usePaymentErrors(step);
 
-  // invoice 走 ref 取 effect 內的 prev 值(進 deps 會讓 effect 自我觸發迴圈);
-  // clearInvoiceKeys 是 stable callback,可正常列進 deps。
-  const invoiceRef = useRef(invoice);
-  invoiceRef.current = invoice;
-  const { clearInvoiceKeys } = payErrors;
-  useEffect(() => {
-    if (invoiceOverride) return;
-    const addr = addresses.find((a) => a.id === shippingAddrId);
-    if (!addr?.invoice) return;
-    const next = { ...DEFAULT_INVOICE, ...addr.invoice };
-    // 🔴 走 diff、不可改成「一律清三個」(理由見 clearInvoiceErrorsOnChange docstring)。
-    clearInvoiceKeys(invoiceRef.current, next);
-    setInvoice(next);
-  }, [shippingAddrId, addresses, invoiceOverride, clearInvoiceKeys]);
+  // 選中地址→發票自動帶入(未覆寫時);invoiceRef/effect 外移至 useInvoiceAutofill(鐵則 6)。
+  useInvoiceAutofill({
+    invoice,
+    setInvoice,
+    invoiceOverride,
+    shippingAddrId,
+    addresses,
+    clearInvoiceKeys: payErrors.clearInvoiceKeys,
+  });
 
   // 同意條款(Step 2 底部)。
   const [agreed, setAgreed] = useState(false);
@@ -161,7 +148,7 @@ export function CheckoutView({
   // ②-④b 刷卡送出。TapPay 卡欄只在 step===2 啟用(U1:setup 需容器在 DOM);getPrime 成功才呼
   // chargePaymentAction(六態契約見 useChargePayment)。🔴 雙擊防線:primeBusyRef 同步原子鎖
   // (state 版 re-render 前擋不住同輪連點;codex 關卡2 r1)→ getPrime 全程只進一次;終態
-  // (paid/processing、submit 回 true)**不釋放**(r2)。shippingMethod 釘 'home';身分/金額零 client。
+  // (paid/processing、submit 回 true)**不釋放**(r2)。shippingMethod 依車自算(補差額=store 免運);身分/金額零 client。
   // 🔴 U3b:design 原 submitOrder 的 `if (!agreed) return` 前端硬擋**已移除** —— 改為 design §7.3
   //   「未填完整時仍可按、用來觸發錯誤導引」;consent 的權威守門在 server(charge-actions ②e)。
   const tappay = useTapPayCard(step === 2);
@@ -238,7 +225,7 @@ export function CheckoutView({
       payErrors.resumeChargeMessage();
       terminal = await charge.submit({
         addressId: shippingAddrId,
-        shippingMethod: 'home',
+        shippingMethod,
         invoice,
         prime,
         agreed,
@@ -322,6 +309,7 @@ export function CheckoutView({
                   payErrors.clearKeys(['shipping.address']);
                 }}
                 shipping={shipping}
+                balancePaymentCheckout={balancePaymentCheckout}
                 notificationEmailEnabled={notificationEmailEnabled}
                 notificationEmail={notificationEmail}
                 notificationEmailError={notificationEmailError}
@@ -341,7 +329,7 @@ export function CheckoutView({
             {step === 2 && (
               <CheckoutStep2
                 currentAddr={addresses.find((a) => a.id === shippingAddrId)}
-                shippingLabel="貨運宅配"
+                shippingLabel={shippingLabel}
                 onEditAddress={() => setStep(1)}
                 invoice={invoice}
                 setInvoice={handleInvoiceChange}

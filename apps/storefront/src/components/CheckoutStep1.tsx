@@ -9,6 +9,8 @@ export type CheckoutStep1Props = {
   shippingAddrId: string | undefined;
   onShippingAddressChange: (addressId: string) => void;
   shipping: number;
+  /** 🔴 補差額商品整車結帳:配送區顯「補款專用・免運」而非宅配(對齊 store→0 免運、不誤導客人)。 */
+  balancePaymentCheckout: boolean;
   notificationEmailEnabled: boolean;
   notificationEmail: string;
   notificationEmailError: string | null;
@@ -23,6 +25,7 @@ export function CheckoutStep1({
   shippingAddrId,
   onShippingAddressChange,
   shipping,
+  balancePaymentCheckout,
   notificationEmailEnabled,
   notificationEmail,
   notificationEmailError,
@@ -101,12 +104,14 @@ export function CheckoutStep1({
             <span className="co-ship-radio" />
             <div className="co-ship-body">
               <div className="co-ship-head-row">
-                <div className="co-ship-label">貨運宅配</div>
+                <div className="co-ship-label">{balancePaymentCheckout ? '補款專用' : '貨運宅配'}</div>
                 <div className="co-ship-meta">{shipping === 0 ? '免運' : `NT$ ${shipping}`}</div>
               </div>
               <div className="co-ship-desc">
                 {/* 🔴 #291(Sean 07-24 拍 Q2=A):加「出貨後」,與 /terms 第 10 條的訂貨 2-12 週分清楚 */}
-                滿 NT$ {FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,出貨後 1-3 個工作天送達
+                {balancePaymentCheckout
+                  ? '補差額 / 運費差額付款專用,免運費'
+                  : `滿 NT$ ${FREE_SHIPPING_THRESHOLD.toLocaleString()} 免運,出貨後 1-3 個工作天送達`}
               </div>
             </div>
           </label>
