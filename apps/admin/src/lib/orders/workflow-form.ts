@@ -18,6 +18,13 @@ export const INVOICE_STATUS_FIELD = 'invoice_status';
 /** 「清空 workflow_status」的下拉哨兵值(明確清空 vs 未動;'unset' 是篩選哨兵、此處另用避免混淆)。 */
 export const WF_CLEAR_VALUE = '__clear__';
 
+/**
+ * paid 且尚未設定狀態時,下拉預選的預設狀態 code(Sean 2026-07-24 已收未定 A 案 Q3=A)。
+ * 🔴 純顯示層預設:DB 仍為 null,operator 按「存」才真正寫入(不自動落庫)。
+ * 對應 seed 2×4 矩陣 paid×notOrdered → 已收未定(design §6.1)。
+ */
+export const WF_RECEIVED_UNCONFIRMED = 'received_unconfirmed';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const WF_CODE_RE = /^[a-z0-9_]{1,64}$/;
 

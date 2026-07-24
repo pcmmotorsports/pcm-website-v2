@@ -1,13 +1,15 @@
-import type { OrderStatusOption } from '@pcm/domain';
+import type { OrderStatusOption, PaymentStatus } from '@pcm/domain';
 import { updateOrderItemWorkflowAction } from '../../lib/orders/order-actions';
 import {
-  WF_CLEAR_VALUE,
   ITEM_ID_FIELD,
   VERSION_FIELD,
   RETURN_TO_FIELD,
   WF_STATUS_FIELD,
 } from '../../lib/orders/workflow-form';
-import { buildWorkflowSelectOptions } from '../../lib/orders/workflow-select-options';
+import {
+  buildWorkflowSelectOptions,
+  resolveDefaultWorkflowValue,
+} from '../../lib/orders/workflow-select-options';
 import { WorkflowStatusSelect } from './workflow-status-select';
 
 // M-4a Slice D-2:per-item inline 改狀態(單格帶色下拉+存;Sean 07-15 開站回饋拍板合併、左 badge 刪)。
@@ -22,6 +24,7 @@ export function ItemWorkflowStatusCell({
   returnTo,
   optionsByCode,
   activeOptions,
+  paymentStatus,
 }: {
   itemId: string;
   workflowStatus: string | null;
@@ -30,9 +33,17 @@ export function ItemWorkflowStatusCell({
   returnTo: string;
   optionsByCode: ReadonlyMap<string, OrderStatusOption>;
   activeOptions: OrderStatusOption[];
+  /** 本單付款狀態(已收未定 A 案 Q4=A/Q2/Q3;驅動半邊過濾 + paid 預設預選) */
+  paymentStatus: PaymentStatus;
 }) {
-  // 孤兒落點/上色規則在 buildWorkflowSelectOptions(純函式、有單測)。
-  const selectOptions = buildWorkflowSelectOptions(workflowStatus, optionsByCode, activeOptions);
+  // 孤兒落點/上色/半邊過濾規則 + Q3 預設值皆抽為純函式(有單測)。
+  const selectOptions = buildWorkflowSelectOptions(
+    workflowStatus,
+    optionsByCode,
+    activeOptions,
+    paymentStatus,
+  );
+  const defaultValue = resolveDefaultWorkflowValue(workflowStatus, activeOptions, paymentStatus);
 
   return (
     <form action={updateOrderItemWorkflowAction} className='flex items-center gap-1'>
@@ -41,7 +52,7 @@ export function ItemWorkflowStatusCell({
       <input type='hidden' name={RETURN_TO_FIELD} value={returnTo} />
       <WorkflowStatusSelect
         name={WF_STATUS_FIELD}
-        defaultValue={workflowStatus ?? WF_CLEAR_VALUE}
+        defaultValue={defaultValue}
         options={selectOptions}
         ariaLabel='商品狀態'
       />

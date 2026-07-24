@@ -133,6 +133,7 @@ function OrderGroup({
                 returnTo={returnTo}
                 optionsByCode={optionsByCode}
                 activeOptions={activeOptions}
+                paymentStatus={order.paymentStatus}
               />
             ) : (
               '—'

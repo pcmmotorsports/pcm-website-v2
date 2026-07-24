@@ -95,6 +95,7 @@ function ItemsTable({
                   returnTo={`/orders/${detail.id}`}
                   optionsByCode={optionsByCode}
                   activeOptions={activeOptions}
+                  paymentStatus={detail.paymentStatus}
                 />
               </td>
             </tr>
