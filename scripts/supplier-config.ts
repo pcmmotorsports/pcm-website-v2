@@ -281,6 +281,22 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     //    (v2 分類齊、零未分類)、handle 撞鍵 0、pv_spec 撞鍵 0、價格離群 0、圖已正規化為 URL 陣列。
     writeAllowed: true,
   },
+  // 🔴 永久 guard 測試靶(非真供應商、Sean 2026-07-24 拍板放行):所有真品牌已 writeAllowed=true
+  //   → rpm-import CLI 的 writeAllowed 硬鎖守衛失去「真實未授權樣本」;保留此永久 false 樣本讓
+  //   「未授權 --confirm-write 於連線前被擋」的安全回歸測試持續有效(rpm-import-cli.test.ts)。
+  //   永不開寫、不入 rpm-sync.yml matrix(matrix 為寫死清單、不從本物件衍生)、getSupplierConfig
+  //   僅於顯式 --supplier=__gated_canary__ 呼叫時命中 → 對真每日同步管線惰性零副作用。
+  //   brandSlug 亦為假值(writeAllowed=false 於 resolveId 前即擋、從不被 DB 觸及)。
+  __gated_canary__: {
+    supplierSlug: '__gated_canary__',
+    brandSlug: '__gated_canary__',
+    handlePrefix: '__gated_canary__',
+    syncDescription: false,
+    syncInstallResources: false,
+    categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant',
+    writeAllowed: false, // 🔴 永久鎖定 = guard 測試靶;勿開寫
+  },
 };
 
 /**
