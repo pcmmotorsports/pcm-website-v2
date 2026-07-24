@@ -20,6 +20,8 @@ import { MotogadgetShowcase } from '@/components/MotogadgetShowcase';
 import { Front3dShowcase } from '@/components/Front3dShowcase';
 import { MateryaShowcase } from '@/components/MateryaShowcase';
 import { EbcShowcase } from '@/components/EbcShowcase';
+import { KspeedShowcase } from '@/components/KspeedShowcase';
+import { ExtremeComponentsShowcase } from '@/components/ExtremeComponentsShowcase';
 import { BRAND_FIXTURES } from '../fixtures';
 
 export const metadata = { robots: { index: false } };
@@ -34,6 +36,8 @@ const SHOWCASES: Record<string, () => ReactNode> = {
   front3d: () => <Front3dShowcase />,
   materya: () => <MateryaShowcase />,
   ebc: () => <EbcShowcase />,
+  'k-speed': () => <KspeedShowcase />,
+  extreme: () => <ExtremeComponentsShowcase />,
 };
 
 export function generateStaticParams() {

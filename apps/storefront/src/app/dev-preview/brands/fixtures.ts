@@ -154,4 +154,39 @@ export const BRAND_FIXTURES: Record<string, BrandFixture> = {
     ],
     videoSamples: ["https://www.youtube.com/watch?v=Vp2g_WKppkw", "https://www.youtube.com/watch?v=IxMUWSTcHlA", "https://www.youtube.com/watch?v=kv65ykvQhhs"],
   },
+  // 品牌放量(2026-07-24 Sean 拍板 GO):K-SPEED / Extreme 尚無商品進網站 DB,dev-preview 為唯一肉眼驗路徑。
+  'k-speed': {
+    supplierSlug: 'kspeed',
+    brandSlug: 'k-speed',
+    groups: 989, variants: 1053,
+    pdfGroups: 0, videoGroups: 57,
+    topCats: [{ cat: "車殼外觀", groups: 355 }, { cat: "燈具方向燈", groups: 166 }, { cat: "操控部品", groups: 129 }, { cat: "後視鏡", groups: 87 }, { cat: "排氣系統", groups: 77 }],
+    // 報價單 view 真資料 snapshot(2026-07-24 查 storefront_catalog_v;圖為 storage.googleapis.com https、安全)
+    products: [
+      { mainSku: "RB0146", nameZh: "Diabolus v2 水箱護網", cat: "操控部品", img: "https://storage.googleapis.com/cloud-storage-prod/files/be2zzwihbtcml7tnn9m.jpg", vehicle: "Honda CMX 300 Rebel", price: 4200, pdfs: 0, video: null },
+      { mainSku: "CT059", nameZh: "Diabolus ABS前土除", cat: "車殼外觀", img: "https://storage.googleapis.com/cloud-storage-prod/files/u5bi80ywlwmml7ublwa.jpg", vehicle: "Honda CT 125", price: 5000, pdfs: 0, video: null },
+      { mainSku: "RB0051", nameZh: "Diabolus ABS油箱蓋", cat: "車殼外觀", img: "https://storage.googleapis.com/cloud-storage-prod/files/h1ib2phi5kml7tqvqs.jpg", vehicle: "Honda CMX 300 Rebel", price: 6500, pdfs: 0, video: null },
+      { mainSku: "GB12", nameZh: "Diabolus 後避震器", cat: "避震系統", img: "https://storage.googleapis.com/cloud-storage-prod/files/65a908dd5d17.jpg", vehicle: "Honda GB350", price: 10900, pdfs: 0, video: null },
+      { mainSku: "EE083", nameZh: "復古握把", cat: "操控部品", img: "https://storage.googleapis.com/cloud-storage-prod/files/12dbfb7815f89.jpg", vehicle: null, price: 1200, pdfs: 0, video: null },
+      { mainSku: "TT073", nameZh: "Takegawa 煞車卡鉗離合器組", cat: "煞車系統", img: "https://storage.googleapis.com/cloud-storage-prod/files/0r1d51i4ng6ml7wm0gw.jpg", vehicle: null, price: 7000, pdfs: 0, video: null },
+    ],
+    videoSamples: [],
+  },
+  'extreme': {
+    supplierSlug: 'extreme',
+    brandSlug: 'extreme',
+    groups: 712, variants: 930,
+    pdfGroups: 0, videoGroups: 0,
+    topCats: [{ cat: "車殼外觀", groups: 378 }, { cat: "操控部品", groups: 265 }, { cat: "引擎部品", groups: 69 }],
+    // ⚠ extreme view 目前 image_url 全 null(圖待報價單補、Sean 2026-07-24「圖片正在補了」)→ 代表商品圖暫用
+    //   官網真實產品照(www.extreme-components.com/images/stories/virtuemart/product/*、https 安全);
+    //   NT 售價未定(view price_retail 與官網 SKU 未一一對映)→ price null、渲染「—」不臆造。
+    products: [
+      { mainSku: "PED-GP EVO RS660 B", nameZh: "GP EVO 腳踏後移組", cat: "操控部品", img: "https://www.extreme-components.com/images/stories/virtuemart/product/ped-gp_evo_rs660_b_30_v2.jpg", vehicle: "Aprilia RS660 / Tuono 660", price: null, pdfs: 0, video: null },
+      { mainSku: "PROT-ENG PANV4R", nameZh: "鋁合金引擎護蓋（2 件）", cat: "引擎部品", img: "https://www.extreme-components.com/images/stories/virtuemart/product/prot_motote_ducati_v4r_30.jpg", vehicle: "Ducati Panigale V4R", price: null, pdfs: 0, video: null },
+      { mainSku: "CH12065", nameZh: "碳纖維車架保護貼", cat: "車殼外觀", img: "https://www.extreme-components.com/images/stories/virtuemart/product/CH12065_30.jpg", vehicle: "Honda CBR 1000RR-R / SP", price: null, pdfs: 0, video: null },
+      { mainSku: "SEMI S1000RR 19B", nameZh: "進階分離把手", cat: "操控部品", img: "https://www.extreme-components.com/images/stories/virtuemart/product/semimanubri_bms_s1000rr_vb_2019_01.jpg", vehicle: "BMW S1000RR", price: null, pdfs: 0, video: null },
+    ],
+    videoSamples: [],
+  },
 };

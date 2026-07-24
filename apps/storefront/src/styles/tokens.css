@@ -61,6 +61,12 @@
      akrapovic 色值取自官方 ak-logo.svg fill 字面(#c00020;www.akrapovic.com/assets/images/ak-logo.svg)。 */
   --akra-red: #c00020;
 
+  /* Brand accents — 品牌放量(2026-07-24 Sean 拍板 GO)。同上原則:僅進各自品牌特色區。
+     extreme 紅取樣自 Sean 提供官方 logo(精品-extreme.png)紅 X 主色 #e00018、-deep 加深供淺底文字可讀性。
+     🔴 K-SPEED 全黑品牌、無官方色票 → 不臆測專色、accent 落中性 --c-text(pd-bs 預設)。 */
+  --ext-red: #e00018;
+  --ext-red-deep: #b3000f;
+
   /* Type */
   --f-sans: "Inter", "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --f-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;

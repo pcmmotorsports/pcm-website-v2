@@ -21,12 +21,14 @@ const NAMES: Record<string, string> = {
   front3d: 'Front3D',
   materya: 'Materya',
   ebc: 'EBC Brakes',
+  'k-speed': 'K-SPEED',
+  extreme: 'Extreme Components',
 };
 
 export default function BrandDemoIndexPage() {
   return (
     <main className="pd-page">
-      <h1 style={{ fontSize: 24, fontWeight: 800, margin: '8px 0 4px' }}>品牌放量 demo(9 家)</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 800, margin: '8px 0 4px' }}>品牌放量 demo(11 家)</h1>
       <p style={{ color: 'var(--c-text-2)', fontSize: 14, margin: '0 0 20px' }}>
         每家 = 品牌形象版面(N°01+N°02)+ 報價單真資料代表商品。點品牌名進入完整版面。
       </p>

@@ -29,6 +29,8 @@ import { Front3dShowcase } from './Front3dShowcase';
 import { MateryaShowcase } from './MateryaShowcase';
 import { EbcShowcase } from './EbcShowcase';
 import { AkrapovicShowcase } from './AkrapovicShowcase';
+import { KspeedShowcase } from './KspeedShowcase';
+import { ExtremeComponentsShowcase } from './ExtremeComponentsShowcase';
 
 export type BrandShowcaseProps = { product: MockProduct };
 
@@ -72,6 +74,11 @@ export function BrandShowcase({ product }: BrandShowcaseProps) {
     // 上架第三批(2026-07-19):N°01 三卡 + N°02 冠軍工藝(官網 hero 影片帶 + 故事兩段 + 信任狀)
     case 'akrapovic':
       return <AkrapovicShowcase />;
+    // 品牌放量(2026-07-24 Sean 拍板 GO):K-SPEED(影片 facade + 兩段 + 信任狀)/ Extreme(橫幅 + 三段 + 信任狀)
+    case 'k-speed':
+      return <KspeedShowcase />;
+    case 'extreme':
+      return <ExtremeComponentsShowcase />;
     default:
       // 其餘未知品牌 → 無形象區
       return null;

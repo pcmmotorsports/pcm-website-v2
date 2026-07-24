@@ -1062,6 +1062,7 @@
 .pd-bs--samco { --bs-accent: var(--samco-blue); }
 .pd-bs--ebc { --bs-accent: var(--ebc-blue); }
 .pd-bs--akrapovic { --bs-accent: var(--akra-red); }
+.pd-bs--extreme { --bs-accent: var(--ext-red-deep); }
 
 /* eyebrow 文字 lockup(無 logo 家 eazi-grip/motogadget/front3d 的品牌標記佔位;
    直角框 + 義體字對齊全站直角美學;Sean 補 logo 後換 pd-eb-logo <img>、見晨報補圖清單) */
