@@ -259,6 +259,22 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     variantImages: 'per-variant', // 每變體自身圖(檔名含自身 sku,如 ped-gp_evo_cbr100020_bd_*)
     writeAllowed: false, // 🔴 過夜零寫入;乾跑全綠 + Sean 批首灌後才開
   },
+  // 上架第 16 家(2026-07-24):K-SPEED(泰國 Cafe Racer 改裝廠)。
+  //   🔴 brandSlug='k-speed'(≠ supplierSlug='kspeed'、拼法分岔;brands seed 20260724140000 已 apply)。
+  //   值皆 2026-07-24 MCP 實查:989 列/960 群、描述 988/989 繁中、summary 987、v2 分類 989/989(不落未分類)、
+  //   圖 https(Google Cloud Storage)、pv_spec 撞鍵 0。影片 57、pdf 0。
+  kspeed: {
+    supplierSlug: 'kspeed',
+    brandSlug: 'k-speed', // 🔴 來源 slug ≠ brand slug(拼法分岔,勿填成 kspeed)
+    handlePrefix: 'kspeed',
+    syncDescription: true, // 988/989 繁中描述
+    syncInstallResources: true, // 影片 57 群
+    categoryStrategy: { kind: 'per-group' },
+    variantImages: 'per-variant',
+    // ✅ 2026-07-24 Sean 批首灌後開寫。乾跑全綠:960 群/989 變體、category 960/960 對上
+    //    (v2 分類齊、零未分類)、handle 撞鍵 0、pv_spec 撞鍵 0、價格離群 0、圖已正規化為 URL 陣列。
+    writeAllowed: true,
+  },
 };
 
 /**
