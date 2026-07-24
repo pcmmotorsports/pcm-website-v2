@@ -48,6 +48,7 @@
 | `NEXT_PUBLIC_TAPPAY_ENV` | `production` | 🔴 **client 端另一顆、必須跟上面 `TAPPAY_ENV` 一起改**。只認字面 `production`,其餘一律當 sandbox(`useTapPayCard.tsx:84` fail-safe) |
 | `NEXT_PUBLIC_TAPPAY_APP_ID` | TapPay 正式 App ID | client SDK 用(`useTapPayCard.tsx:80`);須為**正整數** |
 | `NEXT_PUBLIC_TAPPAY_APP_KEY` | TapPay 正式 App Key | client SDK 用(`useTapPayCard.tsx:81`);空值 → 卡欄根本不載入 |
+| `PAYMENT_CONFIRMER_DB_URL` | 付款窄權 DB 連線字串(見下) | 🔴 **初版漏列、2026-07-24 首刷實錘炸這顆**(`composition.ts:158` `requireEnv` throw)。3DS preflight 必用,缺 → 每筆刷卡「付款失敗/未知」、零建單。**格式=session pooler**:`postgresql://payment_confirmer.<ref>:<pwd>@aws-1-<region>.pooler.supabase.com:5432/postgres`。🔴 **絕不用直連 host `db.<ref>.supabase.co`(IPv6-only、Vercel 連不到→卡住變「未知」)**。密碼=`payment_confirmer` 角色密碼(SQL Editor `ALTER ROLE payment_confirmer PASSWORD '...'` 設定/重設);sslmode 免帶(adapter 自做 verify-full) |
 
 🔴 **「四憑證必須成套、來自同一個 TapPay 帳戶」**(handoff `2026-06-23-3ds-yi-refund-version-round3-pass-handoff.md:41`):
 `NEXT_PUBLIC_TAPPAY_APP_ID` / `NEXT_PUBLIC_TAPPAY_APP_KEY`(client)與 `TAPPAY_PARTNER_KEY` / `TAPPAY_MERCHANT_ID`(server)
