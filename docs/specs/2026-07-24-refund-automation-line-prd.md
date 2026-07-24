@@ -8,6 +8,16 @@
 
 ## 0. 2026-07-25 Sean 拍板定案(D1-D4 + 新增運費重算議題)
 
+### 0b. 🆕 2026-07-25 第二批拍板(偵察 pass 後 Q1-Q4;§4 拆片已依此重定)
+
+- **Q1=A**:payment_status **加 `partiallyRefunded` enum 值**(第 5 值;backlog #26 收案。影響面=所有讀此欄的消費端須逐一過:email ineligible gate、admin workflow-select-options paymentStatus 過濾、admin 顯示、zod/wire mapper)。
+- **Q2=A**:退款 RPC **同交易把 orders `subtotal/shipping_fee/total` 三欄更新為「剩餘有效值」**(維持 `orders_total_balances` CHECK=`20260604120000:112`;原始金額完整留退款帳本+audit 可追溯)。
+- **Q3=B** 🔴:**支援部分數量退**(同品項量 3 可只退 1;推翻 Claude 推薦的整行退)→ 引擎輸入含退數量、冪等鍵改 per-退款請求(非 per-品項)、RPC 驗「剩餘可退數量 ≥ 本次退數量」、UI 加數量選擇。複雜度升一階、Sean 知情選 B。
+- **Q4=A**:**不 step-up**、原因必填+完整 audit(沿 tier 片 07-16 慣例;`2026-07-12-m4a-admin-phase1-prd.md:44` 的取消訂單 step-up 字面由本拍板取代)。
+- **D5 定案:不轉 Claude Design demo、Sean 拍「我們自己處理就好」**——後台退款 UI 由執行 session 直接做、收工 Sean 肉眼驗。🔴 **前提更正(2026-07-25 偵察實查)**:訂單**明細頁已有**「小計/運費/折扣/總計」四行 summary(`apps/admin/src/components/orders/order-detail.tsx:104-143`、shippingFee L119),訂單**列表**無運費欄;D5 縮為「退款操作 UI + 退款態顯示」、非從零補運費顯示。
+- **delay_capture 事實(Sean 提出、已查證)**:PCM **不送 `delay_capture_in_days`=預設 0 當日請款**(`TapPayChargeAdapter.ts:147,176`、測試守門 `:384`)→ 每筆交易請款成功後即可部分退款(TapPay 規則:未請款交易只能全額 void、請款後才可部分退)。
+- ⏳ **Q5 待 Sean 確認(D4 口徑)**:D4=B(退款送出成功先標「退款處理中」、隔日 Record API 覆核才轉 refunded)是否維持,或改「refund API `status=0` 當下即標已退款、不做隔日覆核」。官方文件仍明寫「退款隔日才真正生效」(`docs/reference/tappay-reference.md` §2.3);影響 RF2a 狀態欄(processing 態去留)與 RF8。
+
 > 🔴 **D1 改採「部分退款」(推翻 PRD 原推薦「只全額」)** — 本線範圍與複雜度顯著擴張,§4 拆片估 5-7 片需下個 session 重定(見下「拆片影響」)。下個 session 起(Q=A、乾淨 session 續作),須一併考量**訂單管理系統的操作方式與顯示方式**。
 
 - **D1 = B 部分退款(依品項)**。理由(Sean):後台一張訂單多筆品項是**分開顯示**,退款也按**該品項**退。
@@ -45,20 +55,22 @@
 
 ## 3. 🔴 兩個最容易漏、會出事的耦合
 
-1. **`settle-charge.ts:124-131` 的 refund_anomaly**(recon 抓到、最隱藏):sweeper/settle 現在把 TapPay `record_status ∈ {2,3}`(退款態)判成 `refund_anomaly` → 回 pending + `console.error`「Phase 1 無退款流程」。**退款一上線但沒改這段** → 退掉的單只要還有 active charge_attempt,**每次 sweep 都被判異常、永久假告警、不收斂**。→ 本線**必須**同步改這段(退款是合法終態、不再當異常)。
+1. **`settle-charge.ts:124-132` 的 refund_anomaly**(recon 抓到、最隱藏;行號 2026-07-25 複核為 124-132):sweeper/settle 現在把 TapPay `record_status ∈ {2,3}`(退款態)判成 `refund_anomaly` → 回 pending + `console.error`「Phase 1 無退款流程」。**退款一上線但沒改這段** → 退掉的單只要還有 active charge_attempt,**每次 sweep 都被判異常、永久假告警、不收斂**。→ 本線**必須**同步改這段(退款是合法終態、不再當異常)。
 2. **隔日生效 vs 本地狀態**(§2.3):TapPay 退款**隔日才真生效**。本地一按就標 `refunded`,若銀行端最終退款失敗,本地與 TapPay 會不同步一段時間 → 需覆核機制(見 D4)。
 
-## 4. 拆片(估;順序可調,實作前逐片再定 plan)
+## 4. 拆片(🔴 2026-07-25 依 D1=B + Q1-Q4 重定,取代原 R1-R7;估 9 片;全線鐵則 12 高風險、每片 plan→codex 關卡1→實作→三綠→code-reviewer→codex 關卡2 不降級,RPC 片加交易模擬)
 
 | 片 | 內容 | 卡手動 |
-|---|---|---|
-| **R1** | 新 owner SECURITY DEFINER RPC `admin_cancel_refund_order`(樂觀鎖 version + 同交易寫 `cancelled_at/reason` + `payment_status='refunded'` + `admin_audit_log`;EXECUTE 僅 service_role + fail-closed 斷言;冪等閘見 D2)。**先不含真退款、回傳「待退款」**,讓 RPC/audit/UI 骨架先過審 | migration=**Sean db push** |
-| **R2** | `TapPayChargeAdapter.refund()` 實作(既有 fetch pattern、新 `refundUrl` config 欄、partner_key + rec_trade_id、`bank_refund_id` 唯一)+ 單元測試。🔴 **D1=B**:須支援帶 `amount`(部分退)、全額退才不帶;呼叫端傳入重算後金額 | — |
-| **R3** | admin order-repository 接 `payment_charge_attempts` 取該單 `rec_trade_id`(退款要用)| 純讀取、無 migration |
-| **R4** | admin TapPay composition root(server-only、金鑰不進 client)+ Sean 在 admin Vercel 設 `TAPPAY_PARTNER_KEY`(prod)/`TAPPAY_MERCHANT_ID`/`TAPPAY_ENV` | Sean 設 Vercel env |
-| **R5** | 串接:取消按鈕 → 先呼 refund()(成功才)→ R1 的 RPC 落 refunded + audit;冪等(防連點雙退)+ 失敗態(refund 失敗→單不動、顯錯)| — |
-| **R6** 🔴 | 改 `settle-charge.ts` refund_anomaly:退款為合法終態、不再永久告警(§3-1)| — |
-| **R7** | 隔日生效覆核 / 對帳(D4)+ 後台顯示態「退款處理中→已退款」+ SOP | 視 D4 |
+| --- | --- | --- |
+| **RF1** | **退款金額+運費重算引擎**(`packages/domain` 純函式):輸入=當下剩餘品項(含各品項剩餘可退數量)+要退品項與數量(Q3=B)+配送方式+目前運費 → 輸出=退款額、新運費、明細。規則:`退款額=退品項金額−(新運費−舊運費)`;全退→運費歸 0 連同回退;`store` 恆 0 不重算;**退款額 ≤0 組合直接拒**(負退款擋下、提示改整單取消或加退品項)。鏡像 `calculateShippingFee`(`shipping.ts:26-53`、對齊 #216 drift gate)。窮舉測試含 Sean 5500 退 3000→2900 範例、多次連續部分退(基準=當下餘額)、部分數量退 | — |
+| **RF2a** | **退款帳本 schema + enum**(migration):新表 `order_refunds`(order_id、品項+數量、退款額、運費差、`bank_refund_id` 唯一鍵〔≤20 字元〕、TapPay refund_id、狀態 processing/confirmed/failed、原因、操作者)+ per-退款請求冪等鍵(Q3=B 非 per-品項)+ `partiallyRefunded` enum 值(Q1=A)。ACL 鏡像 audit append-only 慣例 | migration=**Sean db push** |
+| **RF2b** | **退款 RPC**(`admin_refund_order_items` + `admin_cancel_order` 整單取消):SECURITY DEFINER、`FOR UPDATE`+CAS、RPC 內 SQL 重算驗證呼叫端退款額(不符 reject;SQL 版只驗證不做權威、防三處公式漂移)、驗剩餘可退數量、同交易寫 ledger(processing)+ orders 三金額欄更新為剩餘有效值(Q2=A)+ `cancelled_at/reason`(整單)+ audit;鏡像 `admin_set_customer_tier`/`admin_adjust_wallet`(EXECUTE 僅 service_role + fail-closed 斷言) | migration=**Sean db push** + 交易模擬 |
+| **RF3** | **`TapPayChargeAdapter.refund()` 實作**(現 stub throw `:211-214`):新 `refundUrl` config 欄(現無)、帶 `amount`=部分退/不帶=全額(參考 §2.3)、`bank_refund_id` 格式、timeout 30s + 單元測試。🔴 併驗「同一 rec_trade_id 多次部分退」官方口徑(未確認項①) | — |
+| **RF4** | **admin TapPay 基建**:order-repository 接 `payment_charge_attempts` 取 `rec_trade_id`(純讀取)+ admin 首個 TapPay composition root(server-only、D3=A) | Sean 設 admin Vercel env(`TAPPAY_PARTNER_KEY`/`TAPPAY_MERCHANT_ID`/`TAPPAY_ENV`) |
+| **RF5** | **串接 server action**:退款操作 → RF1 算額 → `refund()` 成功才 → RF2b RPC 落帳(processing);refund 失敗→單不動、顯錯;防連點冪等 | — |
+| **RF6** | **後台 UI**(D5=自行處理、不等 demo):明細頁品項退款操作(數量選擇、Q3=B)+ 運費重算預覽 + 整單取消(原因必填、Q4=A 不 step-up)+ 「退款處理中/已退款」顯示 | 收工 Sean 肉眼驗 |
+| **RF7** 🔴 | **settle-charge 退款態重分類**:record_status ∈ {2,3} 現判 `refund_anomaly` 永久假告警(`settle-charge.ts:124-132`)→ 改對 `order_refunds` 帳本對帳=合法終態;改分類層、全部 caller 自動繼承。**排序硬約束:必須在第一筆真退款測試前落地** | — |
+| **RF8** | **D4 覆核 + 收尾**(依 Q5 答案定深度):sweeper/settle 遇 2/3 → confirm 帳本 → 翻 payment_status(refunded/partiallyRefunded)+ 後台狀態顯示 + 客服退款 SOP runbook(收 #62)+ 0072/0073 雙扣 NT$17,300 正規收口路徑 | 視 Q5 |
 
 ## 5. Sean 設計決策(2026-07-25 已定案,詳 §0)
 
