@@ -7,6 +7,15 @@
 
 ## 1. 交接快照
 
+- Updated: 2026-07-25, Asia/Taipei(**過夜規劃 session;Sean 睡前交辦「先認真規劃、plan、一審、二審,要我決策的早上再看」**)— 🔴 **零程式實作、零 migration、零 DB、零 flag、未動 `.env*`、未 push**。
+  - **產出四項**:①**退刷線 Sean 六拍板全落檔**(Q1=A partiallyRefunded enum / Q2=A RPC 同交易更新三金額欄 / Q3=B **部分數量退** / Q4=A 不 step-up / Q5=A 隔日覆核+**失敗回滾與告警** / Q6=B **下單凍結運費規則**);拆片由 R1-R7 重定為 **RF1-RF8** 並新增 **RF2a-0**(Q6=B 衍生、走 **B3 欄位 `NOT NULL DEFAULT` 凍結、零 `create_order` 改動** —— 實證依據=當前生效 RPC `20260719120000_m4a_b2_create_order_notification_email.sql:471-477` 的 INSERT 為具名欄位列)。②**RF1 slice plan v4**(`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md`)。③**全站缺口盤點與後台可管理網站規劃 v3**(`docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md`)。④**backlog #295**(運費後台管理)。
+  - **審查**:兩份規劃各跑滿 **codex 關卡1 兩輪**。RF1:R1 FAIL 8 + R2 FAIL 4 = **12 findings 全折入**。全站規劃:R1 FAIL 12 + R2 FAIL 8 = **19 折入 + 1 駁回**。🔴 **兩份皆已用盡 plan 層 2 輪上限、依規則不跑 R3** → 開工前需 Sean 確認方向。
+  - 🔴🔴 **本 session 最重要的教訓(已寫進兩份 plan 與 memory)**:全站規劃 v1 **有 6 條現況事實寫錯**,最嚴重的是誤稱「首頁最新商品寫死撈碳纖維部品分類」**並據此寫成決策題要 Sean 拍板** —— 實測 `apps/storefront/src/lib/products.ts:247-255` 是 `listAllProducts({ limit: 4, orderBy: 'created_desc' })`(真的是最新商品)。**根因=偵察 subagent 把 `fetchRelatedProducts` 誤當 `fetchFeaturedProducts`,主對話未親自開檔驗證就採用**。⇒ 新紀律:**偵察 subagent 對「某函式實際做什麼」的轉述,主對話必須親驗後才能寫進給 Sean 的決策題**(memory `feedback_verify-subagent-function-behavior-before-decision-question`)。另:v3 草稿一度把 Unsplash 授權寫成「已查證」實為憑記憶,發現後**實際親讀 `https://unsplash.com/license`** 補正。
+  - **codex 也有 1 條誤判被駁回**:它指「`STATUS.md:149` 未寫『未排』」,實查該行逐字含「獨立線(未排):…搜尋 S2 lightech #275→S3 MVP;…」⇒ 原宣稱正確、不改(codex 只擷取到分號後子字串)。
+  - 🔴 **搜尋功能結論(Sean 問「被鎖起來了」)**:**不是被鎖、是半成品**。`Header.tsx:50-52` dispatch `pcm-open-search` → `apps/storefront` **零 listener**(但 `design-reference/components/App.jsx:346` **有**);`SearchOverlay.jsx`(205 行完整 UI)未搬進正式站;`search-overlay.css` 不存在;`searchByKeyword()`(`SupabaseProductAdapter.ts:357-383`)**零呼叫端**。⚠️ 且 design 彈窗回**四組結果**(商品/品牌/分類/車款,`SearchOverlay.jsx:56-60`)、正式後端只回商品 → 接線**非單純搬運**,需先定 server 邊界 + DTO + `/products` keyword URL contract(🔴 碰 #287/#288 URL-state 禁區)。
+  - **下一步(等 Sean 早上答 7 題,詳 `STATUS.md` 「Sean 待決策」)**:退刷線 1 題(RF1 是否開工)+ 全站規劃 6 題(施工順序 / 圖片存哪〔🔴 **ADR-0004 早已拍 Supabase Storage**,`docs/architecture/supabase-schema-design.md:586-590`〕/ Unsplash 處置 / 內容發布模型 / 手動商品邊界 / 價格窄路 + 內容改動頻率)。
+  - **Git**:本 session 全為 docs commit;`dev` 未 push。
+
 - Updated: 2026-07-24, Asia/Taipei（晚間）— 🎉🎉 **PCM 正式站完成史上第一筆真信用卡 3DS 刷卡、金流全鏈打通、Blocker 解除。** 全文 = memory `project_m3-first-real-charge-success-2026-07-24`。
   - **里程碑**:訂單 `PCM-2026-0102` `paid`→已測退→**現 `refunded`**(Claude MCP 標;真扣 NT$101=NT$1 商品+NT$100 運費、Sean 已 TapPay 後台退款、隔日生效)。真 TapPay `rec_trade_id=D20260724gUTcg1`。**「真刷卡待 sandbox 3DS E2E」Blocker 正式解除**（sandbox 路線作廢、走正式站 1 元真刷）。
   - 🔴 **根因大坑(下次重建 DB 或新環境必看)**:真刷一路失敗,逐關排除後追出 = **`PAYMENT_CONFIRMER_DB_URL` 環境變數 go-live 檢查表原本漏列**（`composition.ts:158` requireEnv throw、3DS preflight 必用）。Sean 已補設（session pooler 格式、**非**直連 IPv6 host）+ SQL Editor `ALTER ROLE payment_confirmer PASSWORD` 重設密碼對齊。**檢查表步驟 2 已補這顆（機制防復發）**。
