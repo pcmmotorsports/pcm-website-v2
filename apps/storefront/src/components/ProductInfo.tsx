@@ -65,8 +65,9 @@ export type ProductInfoProps = {
 //   (防 findSwatch fallback 顯錯誤碳纖樣品;通用色塊 hex_color 為後續獨立工作、見 #265)。
 type Dim = string; // RPM 模式 = 'pattern' | 'finish' 合成維;泛型模式 = spec 原始 key
 const DIM_LABEL: Record<string, string> = { pattern: '紋路', finish: '表面' };
-// 泛型維標籤(key 皆 2026-07-04 報價單 DB spec 實際命中:color=CNC/bonamici/eazigrip/lightech、
-//   material=bonamici/materya、design/tier=eazigrip、version=lightech);未列 key fallback 顯原字。
+// 泛型維標籤(key 皆報價單 DB spec 實際命中:color=CNC/bonamici/eazigrip/lightech/extreme、
+//   material=bonamici/materya、design/tier=eazigrip、version=lightech/extreme、
+//   shift/quickshifter=extreme 腳踏後移);未列 key fallback 顯原字。
 const GENERIC_DIM_LABEL: Record<string, string> = {
   color: '顏色',
   material: '材質',
@@ -75,9 +76,11 @@ const GENERIC_DIM_LABEL: Record<string, string> = {
   version: '版本',
   finish: '表面', // 2026-07-12 E1:eazigrip GUARD/TANK 表面貼降級泛型後、表面軸標籤
   pack: '入數', // 2026-07-12 E3(Sean):儀表貼「PACK」→「入數」(值 1/2→一組/兩組 由報價單源頭)
+  shift: '打檔', // 2026-07-24:extreme 腳踏後移打檔方向(正打 / 反打 / 正反打)
+  quickshifter: '快排', // 2026-07-24:extreme 腳踏後移快排軸(快排專用 / 無快排;部分群無此軸)
 };
 // 泛型維順序:主軸(顏色)最前、表面次之;未列 key 排後、保持首見序(sort 穩定)。
-const GENERIC_DIM_PRIORITY = ['color', 'finish', 'material', 'design', 'tier', 'version'];
+const GENERIC_DIM_PRIORITY = ['color', 'finish', 'material', 'design', 'tier', 'version', 'shift', 'quickshifter'];
 const WEAVE_LABEL: Record<string, string> = { Twill: '斜紋', Plain: '平織', Forged: '鍛造', Honeycomb: '蜂巢' };
 const FINISH_LABEL: Record<string, string> = { Glossy: '亮光', Matt: '消光' };
 const SPECIAL_LABEL: Record<string, string> = { '12K': '12K', Kevlar: 'Kevlar' };
