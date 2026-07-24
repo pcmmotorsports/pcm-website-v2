@@ -79,19 +79,21 @@ describe('ProductCard', () => {
     expect(gallery.style.background).toContain('255, 255, 255');
   });
 
-  it('should keep the cover path byte-identical when imageTrim is absent or too small', () => {
+  it('should use object-fit contain (full image, no crop) when imageTrim is absent or too small', () => {
+    // Sean 2026-07-24 拍板:非 trim 的 fallback 由 cover→contain(非正方形合成圖 cover 會裁掉上下)。
     const realUrl = 'https://cdn.shopify.com/s/files/test-cover.jpg';
-    // 無 trim → cover
+    // 無 trim → contain fallback
     render(<ProductCard p={{ ...product, image: realUrl }} />);
-    // 內容過小(w=h=0.2 → 460% 超 300% 上限)→ 一樣 cover fallback
+    // 內容過小(w=h=0.2 → 460% 超 300% 上限)→ 一樣走 contain fallback
     render(<ProductCard p={{ ...product, image: realUrl, imageTrim: { l: 0.4, t: 0.4, w: 0.2, h: 0.2, nw: 1000, nh: 1000 } }} />);
     const covers = screen.getAllByAltText(product.brand).filter((el) => el.getAttribute('src') === realUrl);
     expect(covers.length).toBe(2);
     for (const img of covers) {
-      expect(img.style.objectFit).toBe('cover');
+      expect(img.style.objectFit).toBe('contain');
       expect(img.style.width).toBe('100%');
       const gallery = img.closest('.pcard-gallery') as HTMLElement;
-      expect(gallery.style.background).toContain('linear-gradient');
+      // 真圖 contain fallback letterbox 底 = --c-surface-2 淺灰(Sean Q1=A);彩色漸層只留 placeholder 路徑
+      expect(gallery.style.background).toContain('--c-surface-2');
     }
   });
 });
