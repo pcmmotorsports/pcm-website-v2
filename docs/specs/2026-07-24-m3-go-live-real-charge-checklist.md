@@ -45,6 +45,17 @@
 | `TAPPAY_3DS_ENABLED` | `true` | 🔴 **只認字面 `true`**,空/其他一律當關(`three-ds-flag.ts:20`) |
 | `TAPPAY_NOTIFY_PATH_SECRET` | 自己產一組亂碼 | 🔴 **≥32 字元、只能 `A-Z a-z 0-9 _ -`**(`notify-secret.ts:15-23`) |
 | `NEXT_PUBLIC_SITE_URL` | 例 `https://shop.pcmmotorsports.com` | 🔴 **必須是乾淨 https origin**:不能有路徑/查詢字串/`#`、不能 http、不能帶帳密(`three-ds-urls.ts:35-57`)。多半已設(SEO 用),**但要確認格式合規**,否則 3DS 一律走不了 |
+| `NEXT_PUBLIC_TAPPAY_ENV` | `production` | 🔴 **client 端另一顆、必須跟上面 `TAPPAY_ENV` 一起改**。只認字面 `production`,其餘一律當 sandbox(`useTapPayCard.tsx:84` fail-safe) |
+| `NEXT_PUBLIC_TAPPAY_APP_ID` | TapPay 正式 App ID | client SDK 用(`useTapPayCard.tsx:80`);須為**正整數** |
+| `NEXT_PUBLIC_TAPPAY_APP_KEY` | TapPay 正式 App Key | client SDK 用(`useTapPayCard.tsx:81`);空值 → 卡欄根本不載入 |
+
+🔴 **「四憑證必須成套、來自同一個 TapPay 帳戶」**(handoff `2026-06-23-3ds-yi-refund-version-round3-pass-handoff.md:41`):
+`NEXT_PUBLIC_TAPPAY_APP_ID` / `NEXT_PUBLIC_TAPPAY_APP_KEY`(client)與 `TAPPAY_PARTNER_KEY` / `TAPPAY_MERCHANT_ID`(server)
+**必須對齊同一個正式商店帳戶**,且該商店要**已開通 3D**。混到不同帳戶 → 交易被拒。
+
+🔴 **兩顆 ENV 不一致會怎樣**:client 是 sandbox、server 是 production(或反過來)→
+瀏覽器產出的 prime 屬於 sandbox、卻被送到 production API(或反之)→ **每一筆都失敗**。
+不會掉錢,但你會看到莫名其妙的付款失敗。**兩顆要同時改成 `production`。**
 
 產 secret 的方法(你的終端機跑一次,把輸出貼進 Vercel):
 
