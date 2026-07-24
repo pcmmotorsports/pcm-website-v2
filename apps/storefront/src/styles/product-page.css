@@ -133,10 +133,13 @@
   flex: 0 0 100%;
   height: 100%;
   position: relative;
+  /* Sean 2026-07-24 override design(原 cover):商品照多為非正方形合成圖,cover 會裁掉上下 →
+     改 contain 完整顯示,留白底 letterbox 用 --c-surface-2(對齊目錄卡 .pcard-img-wrap 底色)。 */
+  background: var(--c-surface-2);
 }
 .pd-hero-slide img {
   width: 100%; height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   display: block;
   pointer-events: none;
 }
