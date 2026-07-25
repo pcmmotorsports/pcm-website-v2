@@ -21,7 +21,7 @@
 
 - **Q5=A(D4=B 維持)+ 新增失敗路徑要求**:按下退款當下顯示「退款處理中」;**系統隔日仍必須向 TapPay 覆核一次**;覆核發現**沒退成** → ①**跳通知**(掛既有 anomaly-alert 管道 Email+LINE、S2 已備 flag 待 S4)②**款項狀態回復**(`payment_status` 由 processing 態回 `paid`;品項 `workflow_status` 回「已收未定」`received_unconfirmed`)。⇒ RF8 範圍擴張:不只「覆核成功轉 refunded」,還要**失敗回滾 + 告警**。
   - ⚠️ 字面理解待確認(不擋工):Sean 原句「當下顯示A」解讀為「當下顯示走 A 口徑=退款處理中」;若實為「當下就顯示已退款、背後隔天複查」,RF6 顯示文案改一處即可、其餘設計不變。
-- **Q6=B 下單凍結運費規則**(推翻 Claude 推薦的 A=當下表)。⇒ 新增 **RF2a-0** 片:`orders` 加凍結欄 + `create_order` 寫入 + 既有訂單 backfill。RF1 引擎改收 `shippingRule` 參數(不再直讀模組常數)。
+- **Q6=B 下單凍結運費規則**(推翻 Claude 推薦的 A=當下表)。⇒ 新增 **RF2a-0** 片:`orders` 加凍結欄。🔴 **實作路線 = B3(靠欄位 `NOT NULL DEFAULT` 凍結、零 `create_order` 改動;兩個數字欄 backfill 免寫)**;🆕 **另加第三欄 `shipping_method_at_checkout` + BEFORE INSERT trigger**(Sean 明示會改運送方式;該欄**需要** backfill 且有 apply 當下的雙重斷言)。理由與殘餘風險見 **§4b**。⚠️ 本行原字面為「`create_order` 寫入 + 既有訂單 backfill」= 拍板當下的初步想法,**已被 B3 取代**(2026-07-25 codex 關卡2 R1 抓出兩處字面矛盾後校正;拍板 Q6=B「下單凍結」本身不變)。RF1 引擎改收 `shippingRule` 參數(不再直讀模組常數)。
 - 🆕 **Sean 提問:免運門檻/運費金額改成後台可管理?** → **答:方向對、但不進本線**(理由見 backlog 新條目)。本線走 Q6=B 的最小正確實作(凍結數字欄);後台管理另立 backlog、退刷線收工後評估。**關鍵理由**:後台管理必須讓 `create_order`(654 行金流 RPC、9 參)改成讀表,而「避免動 create_order」正是 07-24 補差額免運片 Sean 拍 A 案的原因;在最高風險的退刷線中途再塞一個動建單 RPC 的擴張=兩個高風險疊加。RF2a-0 的凍結欄與未來規則表**不衝突**(凍結欄是歷史快照、規則表是當前設定,兩者並存)。
 
 > 🔴 **D1 改採「部分退款」(推翻 PRD 原推薦「只全額」)** — 本線範圍與複雜度顯著擴張,§4 拆片估 5-7 片需下個 session 重定(見下「拆片影響」)。下個 session 起(Q=A、乾淨 session 續作),須一併考量**訂單管理系統的操作方式與顯示方式**。
@@ -69,7 +69,7 @@
 | 片 | 內容 | 卡手動 |
 | --- | --- | --- |
 | **RF1** | **退款金額+運費重算引擎**(`packages/domain` 純函式;含 `calculateShippingFee` 加選填 `rule` 參數、預設=現行常數、唯一呼叫端 `useResolvedCart.tsx:118` 零行為變更)。輸入=**訂單凍結運費規則**(Q6=B)+ 當下剩餘品項(含各品項剩餘可退數量)+要退品項與數量(Q3=B)+配送方式+目前運費 → 輸出=退款額、新運費、明細。規則:`退款額=退品項金額−(新運費−舊運費)`;全退→運費歸 0 連同回退;`store` 恆 0 不重算;**退款額 ≤0 組合直接拒**(負退款擋下、提示改整單取消或加退品項)。鏡像 `calculateShippingFee`(`shipping.ts:26-53`、對齊 #216 drift gate)。窮舉測試含 Sean 5500 退 3000→2900 範例、多次連續部分退(基準=當下餘額)、部分數量退 | — |
-| **RF2a-0** 🆕 | **凍結運費規則**(Q6=B):`orders` 加 `shipping_free_threshold`/`shipping_home_fee` 兩欄,**`NOT NULL DEFAULT` 值=當前規則(5000/100)**。🔴 **實作路線 B3 = 靠欄位 DEFAULT 凍結、零 `create_order` 改動**(理由見下 §4b);PG11+ 加帶 DEFAULT 的欄位會**同時回填既有列** → backfill 免寫。加 drift gate:TS 常數 ↔ SQL RPC ↔ 欄位 DEFAULT 三方同步(擴 #216) | migration=**Sean db push** + 交易模擬 |
+| **RF2a-0** 🆕 | **凍結運費規則**(Q6=B):`orders` 加 `shipping_free_threshold`/`shipping_home_fee` 兩欄,**`NOT NULL DEFAULT` 值=當前規則(5000/100)**。🔴 **實作路線 B3 = 靠欄位 DEFAULT 凍結、零 `create_order` 改動**(理由見下 §4b);PG11+ 加帶 DEFAULT 的欄位會**同時回填既有列** → **這兩欄** backfill 免寫。🆕 **另加 `shipping_method_at_checkout` + BEFORE INSERT trigger**(該欄需回填 + apply 當下雙重斷言;見 §4b)。加 drift gate:TS 常數 ↔ SQL RPC ↔ 欄位 DEFAULT 三方同步(擴 #216) | migration=**Sean db push** + 交易模擬 |
 | **RF2a** | **退款帳本 schema + enum**(migration):新表 `order_refunds`(order_id、品項+數量、退款額、運費差、`bank_refund_id` 唯一鍵〔≤20 字元〕、TapPay refund_id、狀態 processing/confirmed/failed、原因、操作者)+ per-退款請求冪等鍵(Q3=B 非 per-品項)+ `partiallyRefunded` enum 值(Q1=A)。ACL 鏡像 audit append-only 慣例 | migration=**Sean db push** |
 | **RF2b** | **退款 RPC**(`admin_refund_order_items` + `admin_cancel_order` 整單取消):SECURITY DEFINER、`FOR UPDATE`+CAS、RPC 內 SQL 重算驗證呼叫端退款額(不符 reject;SQL 版只驗證不做權威、防三處公式漂移)、驗剩餘可退數量、同交易寫 ledger(processing)+ orders 三金額欄更新為剩餘有效值(Q2=A)+ `cancelled_at/reason`(整單)+ audit;鏡像 `admin_set_customer_tier`/`admin_adjust_wallet`(EXECUTE 僅 service_role + fail-closed 斷言) | migration=**Sean db push** + 交易模擬 |
 | **RF3** | **`TapPayChargeAdapter.refund()` 實作**(現 stub throw `:211-214`):新 `refundUrl` config 欄(現無)、帶 `amount`=部分退/不帶=全額(參考 §2.3)、`bank_refund_id` 格式、timeout 30s + 單元測試。🔴 併驗「同一 rec_trade_id 多次部分退」官方口徑(未確認項①) | — |
@@ -78,6 +78,33 @@
 | **RF6** | **後台 UI**(D5=自行處理、不等 demo):明細頁品項退款操作(數量選擇、Q3=B)+ 運費重算預覽 + 整單取消(原因必填、Q4=A 不 step-up)+ 「退款處理中/已退款」顯示 | 收工 Sean 肉眼驗 |
 | **RF7** 🔴 | **settle-charge 退款態重分類**:record_status ∈ {2,3} 現判 `refund_anomaly` 永久假告警(`settle-charge.ts:124-132`)→ 改對 `order_refunds` 帳本對帳=合法終態;改分類層、全部 caller 自動繼承。**排序硬約束:必須在第一筆真退款測試前落地** | — |
 | **RF8** | **D4 隔日覆核 + 失敗回滾 + 收尾**(Q5=A 定案):sweeper/settle 遇 record_status 2/3 → confirm 帳本 → 翻 `payment_status`(refunded/partiallyRefunded);🔴 **覆核發現沒退成 → ①掛 anomaly-alert 跳通知(Email+LINE)②回滾:`payment_status` 回 `paid`、品項 `workflow_status` 回 `received_unconfirmed`(已收未定)、帳本列標 failed**。另含後台狀態顯示 + 客服退款 SOP runbook(收 #62)+ 0072/0073 雙扣 NT$17,300 正規收口路徑 | 視 flag(S4) |
+
+## 4b. RF2a-0 為何走 B3(靠欄位 DEFAULT 凍結、零 `create_order` 改動)
+
+> 🔴 **本節 2026-07-25 補寫**:§4 的 RF2a-0 列原本寫「理由見下 §4b」但**本節當時不存在**;
+> 同時 §0c 仍留舊路線字面(「`create_order` 寫入 + 既有訂單 backfill」)與 B3 矛盾。
+> 兩處皆由 codex 關卡2 R1 抓出,已同步。**拍板不變(Q6=B 下單凍結)**,只是路線字面校正為 B3。
+
+**B3 的做法(兩個數字欄)**:`orders` 加 `shipping_free_threshold` / `shipping_home_fee`,`NOT NULL DEFAULT` = 當前規則(5000/100)。`create_order` 的 `INSERT` 是**具名 13 欄列**(`20260719120000:471-477`,兩位審查者各自實查確認它是 `orders` 的**唯一 INSERT 路徑**)⇒ 新欄不在列內、由 DB DEFAULT 填值。PG11+ 加帶非 volatile DEFAULT 的欄位為 metadata-only,既有列同時涵蓋 ⇒ **這兩欄 backfill 免寫**。
+
+**🆕 第三欄 + trigger(Sean 2026-07-25 拍板衍生;RF2a-0 已實作)**:Sean 明確答「**我可能會改運送方式,非常有可能**」⇒ 下表 R2 的「徹底解」當場升格為本片範圍,`orders` 另加 `shipping_method_at_checkout`(text、`NOT NULL`、CHECK `IN ('home','store')`)。
+- 🔴 **為何不能省**:運費金額**回推不出**原配送方式 —— 存 100 ⇒ 必為「宅配未達免運」;存 0 ⇒ 可能「自取」**也可能**「宅配滿額免運」。後台把 home 改 store 後,RF5 若用當下 method 算(store→0)會少扣運費 = **多退錢**。
+- 🔴 **DEFAULT 做不到**(不能引用同列其他欄位)⇒ 用 **BEFORE INSERT trigger** `orders_freeze_shipping_snapshot_bi`。⚠️ 這是 `public.orders` 上的**第一個 trigger**。
+- ⚠️ **本欄需要 backfill**(「backfill 免寫」只適用上面兩個數字欄):既有列以 `= shipping_method` 回填,並在 **apply 當下**斷言兩件事才允許回填 —— ①稽核內「真的改過 `shipping_method`」筆數 = 0 ②每列的 `shipping_fee` 與 `shipping_method` 自洽(store⇒0;home⇒未滿門檻 100、滿額 0)。任一不成立即 `RAISE` 拒絕套用。
+- 🔴 **殘餘風險(Fable 對抗審查 F2、需 Sean 知情)**:若有人**直接用 SQL**(不經後台 RPC)把某單的 method 翻轉**且同時**讓 `shipping_fee` 保持自洽(例如 store→home 且 subtotal ≥ 5000,兩種情形 fee 都是 0),上述兩道斷言都抓不到,該單會回填出錯的快照。發生機率低(需要人為手動改 prod 資料),但**不是零**。
+
+**為何不走「改 `create_order` 明寫快照」**:那支是 654 行 9 參的金流 RPC。2026-07-24 補差額免運片 Sean 已拍 A 案、刻意避開它;在最高風險的退刷線中途再塞一個動建單 RPC 的改動 = 兩個高風險疊加。
+
+**🔴 B3 的結構性上限(codex 關卡2 R1 抓出;殘餘風險、未自宣接受)**
+
+| # | 風險 | 目前緩解 | 徹底解法 |
+| --- | --- | --- | --- |
+| R1 | **部署窗不具原子性**:改規則需同時改「TS 常數 + 新 `create_order` migration + 欄位 `SET DEFAULT`」。若新 RPC 先上線、DEFAULT 後改,期間訂單會「按新規則收運費、凍結舊值」⇒ RF5/RF1 退款算錯 | ①#216 三方 gate 讓漏改在 CI 就紅 ②規則變更把 `SET DEFAULT` 與新版 `create_order` 放**同一支 migration**,並以**顯式 `BEGIN` / `COMMIT` 包住那兩句**。🔴 **更正(Fable F4)**:「同一支 migration」本身**不保證原子** —— 本 repo 已實證 migration 檔不跑在單一顯式交易內(`SET LOCAL` 是 no-op);不自己包交易的話,同檔仍有**秒級**收新價凍舊值的窗 | 讓 `create_order` 算完運費後**明寫**快照(= 動那支 RPC) |
+| ~~R2~~ ✅ | **`shipping_method` 事後可被後台 RPC 改**(`admin_update_order_workflow` 可寫任意 ≤64 字元字串):home 單改成 store 後,若 RF5 依「當下 method」算(store=0)會少扣運費 → **多退錢** | ✅ **已由 RF2a-0 解**:加 `shipping_method_at_checkout` 快照欄 + BEFORE INSERT trigger,RF5 只讀快照欄。RF5 仍須對非 `home`\|`store` 值 fail-closed 拒退 + 負向測試 | 殘餘 = 「直接用 SQL 翻轉且維持 fee 自洽」的手動改資料(見上方 🔴 殘餘風險段,需 Sean 知情接受) |
+| R3 | 只凍結「兩個純數字」,未來規則變複雜(規則表/分區運費/不計免運品項/補差額特例)無法重現當時算法 | 現況規則就是兩個數字、足夠 | 改快照「算法版本 + 參數」 |
+
+⇒ **Sean 已答(2026-07-25)**:**Q1=A 接受 R1 的緩解**(不動 `create_order`);**R2 因「非常有可能改運送方式」升格為本片範圍、已實作第三欄+trigger**。
+⇒ **仍待 Sean 知情接受的殘餘項**:①R1 的秒級部署窗(改運費那天才會遇到)②第三欄回填的「手動 SQL 翻轉且 fee 自洽」盲區(Fable F2)。
 
 ## 5. Sean 設計決策(2026-07-25 已定案,詳 §0)
 

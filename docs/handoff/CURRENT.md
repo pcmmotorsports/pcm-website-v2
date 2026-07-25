@@ -7,7 +7,17 @@
 
 ## 1. 交接快照
 
-- Updated: 2026-07-25(深夜), Asia/Taipei — ✅ **#216 運費 drift gate anchor 修正收工(本 commit、未 push)= codex 關卡2 R3 的第 5 條**。輕量片、**只動 `packages/domain/src/order/shipping-rpc-drift.test.ts` 一個測試檔**、零 runtime 行為變更、零 DB。
+- Updated: 2026-07-25(深夜 2), Asia/Taipei — ✅ **RF2a-0「凍結運費規則 + 配送方式」code 收工(本 commit、🔴 未 apply、未 push)**。高風險片、動 live `orders`。
+  - **做了什麼**:`orders` 加三欄 —— `shipping_free_threshold`/`shipping_home_fee`(`NOT NULL DEFAULT` 5000/100,**B3 = 零 `create_order` 改動**)+ 🆕 `shipping_method_at_checkout`(NOT NULL + CHECK `IN ('home','store')`);🆕 **`orders` 上第一個 trigger**(BEFORE INSERT,只把 `shipping_method` 複製進快照欄)。#216 gate 擴三方 + 換引號感知 SQL 掃描器。PRD 補 §4b。
+  - 🔴 **為何多了第三欄**:Sean 明確答「**我可能會改運送方式,非常有可能**」。運費金額回推不出原方式(存 0 可能自取、也可能宅配滿額免運)⇒ 後台 home→store 後 RF5 會少扣運費 = **多退錢**。DEFAULT 不能引用同列其他欄 ⇒ 只能 trigger。
+  - **審查鏈**:codex 關卡2 R1 FAIL 9 → R2 FAIL 10(兩輪用盡)→ Sean 拍 A 改派 **Fable(adversarial-reviewer)R1 NO-GO 4 must-fix + 2 consider + 8 nit** → 全折入 → **Fable R2 GO**(全數 HOLDS + 2 新 nit 已清)。
+  - 🔴 **最嚴重發現(Fable F1)**:原順序 `SET NOT NULL` 在 trigger **之前**,而 migration 不保證單一交易 ⇒ 半套用會留下「NOT NULL 已生效、trigger 不存在」⇒ **每筆結帳 INSERT 都失敗**。已改序:加欄(可 NULL)→ 建 trigger(不存在才 CREATE,避開 DROP+CREATE 斷單窗)→ 回填 + SET NOT NULL(**同一個 DO block、同生共死**)。
+  - 🔴 **回填證據改成 apply 當下驗(Fable F2 = TOCTOU)**:①稽核「真改過 `shipping_method`」筆數=0 ②每列 `shipping_fee` 與 `shipping_method` 自洽。實測:稽核 14 筆動到該欄但**真改動 0 筆**、交叉檢 33 列全過、repo 內**無不落稽核的寫入車道**。
+  - **驗證**:三綠 8/10/2、full test **252 檔 2930 passed + 1 todo**、gate 10/10、**突變 8 組於最終版實測(6 紅 + 2 應綠)**、每組 shasum 逐字元還原。
+  - 🔴 **apply 卡兩件 Sean 手動事**:`.env.local` 暫移開;**S2 `20260723120000` 未套且其前置閘會 RAISE、會擋住整個 `db push`**(runbook = S2 plan §11)。
+  - 🔴 **兩項殘餘風險待 Sean 知情接受**:①改運費那天的秒級部署窗(同一支 migration 需自己包 `BEGIN/COMMIT`)②回填盲區 = 繞過後台直接 SQL 翻轉方式且維持 fee 自洽。
+
+- Updated: 2026-07-25(深夜), Asia/Taipei — ✅ **#216 運費 drift gate anchor 修正收工(`0673312`、未 push)= codex 關卡2 R3 的第 5 條**。輕量片、**只動 `packages/domain/src/order/shipping-rpc-drift.test.ts` 一個測試檔**、零 runtime 行為變更、零 DB。
   - **問題**:gate 原本挑「最新一支**命中運費 CASE regex** 的 migration」當對照基準,而非「最新一支**定義 `create_order`** 的 migration」⇒ 最新那支一旦把 CASE 寫成 regex 抓不到的形狀,gate **靜默退回已作廢舊 migration、永遠綠**。實查:7 支 migration 定義 `create_order`、當時 7 支全命中 regex(回退鏈深且無聲);另 1 支 `20260612150000` 只在 DROP/GRANT 提到函式名 ⇒ anchor 必須要求 `CREATE [OR REPLACE] FUNCTION`。
   - 🔴 **RF2a-0 直接相關**:那片要把運費改成讀 `orders` 凍結欄位,正是會觸發假綠的形狀 ⇒ **擴 gate 成三方時必須沿用新 anchor 語意**(抓不到 CASE 就紅、不准回退)。
   - **負向驗證**:臨時放一支最新、`CASE WHEN v_subtotal >= v_free_threshold THEN 0 ELSE v_home_fee END` 的 migration → **新版 4 紅 / 舊版 6 綠**(舊版假綠是實測);臨時檔跑完即刪、`git status` 零留痕。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**(**本片新增測試數 0**、是加強既有那條)。
