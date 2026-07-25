@@ -1,7 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "comment_for_humans": "PCM 工作流 repo 共享設定。settings.local.json 是個人設定不入 repo, 本檔入 git。Stage 3 v4 落地採 Sean 2026-05-22 拍板 A2:.env 保護改用 permissions.deny 路徑規則(現行正確語法、hard-block、不需腳本); design-mirror pre-commit 與 code-reviewer SubagentStop 兩個需腳本的 hook 延後(見下方 _deferred_hooks_note)。",
-
   "permissions": {
     "deny": [
       "Bash(cat .env*)",
@@ -18,9 +16,21 @@
       "Bash(codex apply)",
       "Bash(codex a *)",
       "Bash(codex a)"
+    ],
+    "ask": [
+      "mcp__claude_ai_Supabase__apply_migration"
     ]
   },
-
+  "_migration_drift_note": [
+    "Sean 2026-07-25 拍板 B(選項 A=deny 全鎖 / B=ask 每次問 / C=不做):MCP apply_migration 改為 ask、不 deny。",
+    "為何要管:正式 schema 有兩條寫入路徑且『編號規則不同』—— supabase db push 用檔名時間戳(20260724140000), MCP apply_migration 用套用當下的時鐘自動重編(20260724085956)。內容相同但紀錄對不上, 導致 supabase/migrations/ 這份藍圖不再等於正式 DB 的實況。",
+    "實錘兩次:①2026-05-24 M-1-14a 兩支會員 migration ②2026-07-24 K-SPEED seed —— 後者於 2026-07-25 RF2a-0+S2 上線當下讓 db push 全面罷工(正確行為, 但爆在最不該爆的時刻), 修法 supabase migration repair --status reverted 20260724085956。純文字規則(memory project_supabase-migration-version-drift 已載明『別用 MCP 寫正式 schema』)兩個月內失效兩次 ⇒ 機制優先律。",
+    "為何不做 CI 偵測:supabase_migrations schema 不在 Data API 曝露清單(2026-07-25 實測 PostgREST 只曝 public + graphql_public), CI 要比對就得把 prod DB 密碼放進 GitHub Secrets —— 為一個診斷檢查新增高價值機密的攻擊面, 不划算。正解是斷因不是偵測。",
+    "為何選 ask 不選 deny(Sean 明示理由):要保留 Supabase + Claude 結合的彈性(例如 preview branch 快速套用)。ask 讓『無聲製造漂移』變成不可能, 但 Sean 放行後仍可用。",
+    "🔴 誠實邊界:ask 擋的是『無聲發生』, 不是『絕對不會發生』—— 放行後照樣會產生漂移。放行前請先確認目標是 preview branch 而非正式專案。",
+    "MCP 其餘功能(execute_sql 唯讀查詢/交易模擬/list_*/get_advisors 等)完全不受影響 —— 2026-07-25 的 RF2a-0 交易模擬與全部 apply 後驗證都靠它, 本規則無意減少 MCP 使用。"
+  ],
+  "comment_for_humans": "PCM 工作流 repo 共享設定。settings.local.json 是個人設定不入 repo, 本檔入 git。Stage 3 v4 落地採 Sean 2026-05-22 拍板 A2:.env 保護改用 permissions.deny 路徑規則(現行正確語法、hard-block、不需腳本); design-mirror pre-commit 與 code-reviewer SubagentStop 兩個需腳本的 hook 延後(見下方 _deferred_hooks_note)。",
   "_codex_adversary_note": [
     "2026-05-23 Sean 拍板 A:用 Codex(不同模型)當對抗審查器(skill: codex-adversary)。",
     "防線分層(誠實、非全靠 deny):(1) deny 擋明確會改檔的子命令 codex fix / apply / a(含無參數與帶參數形式);(2) codex exec 一律由 skill 紀律強制帶 -s read-only —— deny 無法精準『只擋非唯讀 exec、放行唯讀 exec』(pattern 重疊),故不在 deny 層處理;(3) 每次跑 codex 前後比對 git status --porcelain 一致(審 staged 時 status 本就非空、看的是有無新增變動)當實質改檔防線。",
@@ -28,18 +38,19 @@
     "未被 deny 覆蓋的殘留風險:codex exec 不帶 -s read-only(workspace-write)+ --dangerously-bypass-approvals-and-sandbox —— 靠 skill 紀律明文禁用 + baseline 比對抓。",
     "codex 需網路 egress、只能 main session 跑(subagent 的 dangerouslyDisableSandbox 被 classifier 擋、2026-05-23 實測)。"
   ],
-
   "_a2_decision_note": [
     "Sean 2026-05-22 拍板 A2(對齊 docs/proposals/stage-3-bundle-code-deliverables.md §F):",
     "原 §F 用 PreToolUse hook 擋 .env 寫/改, 但其讀檔方法 process.env.CLAUDE_TOOL_INPUT_FILE_PATH 在現行 (2026-05) Claude Code 不存在 — 經 claude-code-guide 查證: 工具輸入走 stdin JSON, 取檔路徑須讀 .tool_input.file_path, block 須 exit 2(非 exit 1)。",
     "A2 改用 permissions.deny 路徑規則達成同目的: deny 規則由 Claude Code 強制執行、hard-block、無 escaping 風險、不需外部腳本。.env / .env.* 的 Write 與 Edit 一律擋, Bash 的 cat/重導向也擋。",
     "deny 路徑語法 (gitignore 語意, 任意深度): .env = 精確檔名任意深度; .env.* = .env.local/.env.production 等。經 claude-code-guide 查證為 2026-05 官方語法。"
   ],
-
   "_deferred_hooks_note": [
     "以下兩個 hook 屬 §F 原設計、但需先建 scripts/hooks/ 腳本、本 onboarding slice (Stage-3) 不擴 scope、延後到第一個真用到的 slice 用專門 slice 把腳本做對:",
     "1. PreToolUse(Bash) commit pre-check: 動 storefront 必先跑 design-mirror.mjs(.claude/scratch/{slice-id}/inspect.json 存在 + 時間戳新鮮)。需 scripts/hooks/pre-commit-check.sh, 腳本須以現行語法讀 stdin JSON、找不到 inspect 時 exit 2 攔 git commit。本 onboarding slice 不跑任何 storefront 變更、故暫不需。",
     "2. SubagentStop code-reviewer 強制: implementer subagent 跑了但 code-reviewer 未跑時攔後續 commit。需 scripts/hooks/subagent-stop-check.mjs。code-reviewer subagent 本 slice 才建出、首次真用在 M-1-13I 起、屆時補腳本。",
     "建腳本時務必對齊 claude-code-guide 查證結論: hook 輸入走 stdin JSON(無 CLAUDE_TOOL_INPUT_FILE_PATH env var); block 用 exit 2; 腳本不存在時工具照常放行(非阻擋錯), 故腳本內須自帶 existence guard 避免每次跑跳錯。"
-  ]
+  ],
+  "enabledPlugins": {
+    "ponytail@ponytail": true
+  }
 }
