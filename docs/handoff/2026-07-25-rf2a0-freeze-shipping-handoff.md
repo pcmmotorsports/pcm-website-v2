@@ -110,6 +110,37 @@ curl -s -H "apikey: <publishable-key>" -H "Authorization: Bearer <publishable-ke
 ~~原步驟:Dashboard → Project Settings → Data API → Exposed schemas 人工確認~~
 (若要人工複核:`https://supabase.com/dashboard/project/bmpnplmnldofgaohnaok/settings/api` → **Exposed schemas** 欄位,應只有 `public`、`graphql_public`)
 
+### ✅ A/B/C/D 全部已完成並經機械驗證(2026-07-25 實測,Sean 做完後由 Claude 逐項核)
+
+| 項目 | 驗證結果 | 依據 |
+| --- | --- | --- |
+| A `CRON_SECRET` | ✅ 存在(Production + Preview) | `vercel env ls production` |
+| B `pg_cron` | ✅ **1.6.4** installed | MCP `list_extensions` |
+| B `pg_net` | ✅ **0.20.0** installed、`net.http_get` 存在 | 同上 + `pg_proc` catalog 查證 |
+| C `cron_base_url` | ✅ 恰 1 筆、`https://` 開頭、**無尾斜線**、指向 `shop.pcmmotorsports.com`、無空白字元(len=31) | 只取長度/布林、**未輸出明文** |
+| C `cron_secret` | ✅ 恰 1 筆、長度 **32**、無空白字元 | 同上 |
+| D 曝露 schema | ✅ 只有 `public`, `graphql_public` | PostgREST `PGRST106` 實測(見上) |
+| 🔴 **vault 鑰匙 == Vercel 值** | ✅ **已實測一致** | 見下方連通實證 |
+| 尚未存在(正確) | `pcm_cron` schema=0、`cron.job`=0 | 這兩個由 migration 建立 |
+
+**🔴 連通實證(取代 S2 plan §11 步驟 6 的「apply 後才驗」;apply 前就先證明了)**
+方法:讓**資料庫自己**發請求 —— `net.http_get` 從 vault 取值組 Bearer 打正式站 cron 路由,**密碼全程不離開 DB**(不進對話、不落檔)。
+前置:Sean 改過 Vercel 密碼後**已重新部署 production**(改 env 不會自動生效,必須 redeploy;實測該版 `Ready`)。
+
+```sql
+select net.http_get(
+  url := (select decrypted_secret from vault.decrypted_secrets where name = 'cron_base_url') || '/api/cron/settle-sweep',
+  headers := jsonb_build_object('Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets where name = 'cron_secret')),
+  timeout_milliseconds := 15000
+);
+-- 再以回傳的 request_id 查:
+select id, status_code, left(content, 300), error_msg, (select count(*) from net.http_request_queue) from net._http_response where id = <request_id>;
+```
+
+**實測輸出**:`status_code = 200`、body = `{"ok":true,"enabled":false,"skipped":"sweeper_disabled"}`、`error_msg = null`、`http_request_queue = 0`。
+⇒ ①密碼兩邊一致(不一致會 401)②路由連得到且 flag 正確為關 ③**Authorization 未滯留在 request queue**(codex 對 S2 的 F8 疑慮實測清除)。
+⚠️ 留痕:`net._http_response` 多一筆(pg_net 自帶 **6 小時 TTL**、會自動消失);`http_request_queue` 已清空。
+
 ### ⏸ 這裡停一下:等接手 session 跑完 RF2a-0 交易模擬(§1 第 1 點)再 push
 
 ### E. db push(這行保證會把 `.env.local` 還原,即使 push 失敗)
