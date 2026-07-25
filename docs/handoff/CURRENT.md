@@ -7,7 +7,8 @@
 
 ## 1. 交接快照
 
-- Updated: 2026-07-25(深夜 3), Asia/Taipei — 🚀 **RF2a-0 + S2 pg_cron ✅ 已 apply production(本 commit = ops 紀錄、零程式碼變更)**。
+- Updated: 2026-07-25(深夜 3), Asia/Taipei — 🚀 **RF2a-0 + S2 pg_cron ✅ 已 apply production(ops 片、零程式碼變更)**。
+  - 📄 **完整交接包 = `docs/handoff/2026-07-25-rf2a0-s2-applied-handoff.md`**(六段:DB 足跡 / db push 兩次失敗根因 / 真刷驗證 / 並行 session 警告 / 開放項 / 進入點)。以下為摘要。
   - **順序**:apply 前正式站**交易模擬 PASS**(零留痕)→ Sean 拍 **A 接受兩項殘餘風險** → `supabase db push --include-all` 套用三支 → apply 後獨立驗證全綠。
   - 🔴 **交易模擬最有價值的一項**:合成兩筆單走「具名 31 欄」INSERT(=`create_order` 的形狀、不列三新欄)→ **三新欄全由 DEFAULT + trigger 補上、兩筆都成立** ⇒ **B3「零 `create_order` 改動」由推論升級為實跑證實**。負向測試:往快照欄寫 `bogus` → `check_violation`。手法=`BEGIN` → migration 可執行語句逐字 → 合成 INSERT → **結尾刻意 `RAISE`**(即使 `ROLLBACK` 未跑到,交易已 abort、物理上不可能 commit)。
   - 🔴 **db push 兩次失敗才成功,兩個都不是程式問題**:①**migration 版本漂移** —— K-SPEED seed 07-24 由前一 session 走 **MCP `apply_migration`**,MCP **以當下時鐘重新編號**為 `20260724085956`、與本地檔名 `20260724140000` 對不上 ⇒ `db push` 全面罷工(正確行為)。修法 `supabase migration repair --status reverted 20260724085956` 後正式套用該檔(`ON CONFLICT DO NOTHING` ⇒ 空轉)。**完整比對由 DB 自己做**:remote 76 / local 78、remote-only 恰 1、local-only 恰 3。②S2 版號早於已套的 07-24 兩支 ⇒ 需 `--include-all`(兩者無先後依賴)。
