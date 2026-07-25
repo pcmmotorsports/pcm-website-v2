@@ -90,8 +90,25 @@ BEGIN
 END $$;
 ```
 
-### D. Dashboard → API Settings:確認 Data API 曝露 schema **不含** `net` / `cron` / `vault`
-(預設如此;但這是 S2 安全性的**必要條件**、migration 自己驗不到 ⇒ 人工硬核)
+### D. ✅ **已完成(2026-07-25 實測)**:Data API 曝露 schema 不含 `net`/`cron`/`vault`
+
+S2 plan §11 原本把這條列為「人工看 Dashboard 硬核」。**已改成機械驗證**(機制優先律):
+`authenticator` 角色的 `rolconfig` 內**沒有** `pgrst.db_schemas`(⇒ 由 Dashboard 管、SQL 讀不到,S2 plan 這點正確),
+但可以**從外面問 PostgREST 自己**——它會在錯誤訊息裡列出完整曝露清單:
+
+```bash
+curl -s -H "apikey: <publishable-key>" -H "Authorization: Bearer <publishable-key>" \
+  -H "Accept-Profile: net" \
+  "https://bmpnplmnldofgaohnaok.supabase.co/rest/v1/products?select=id&limit=1"
+```
+(publishable key 取得:Supabase MCP `get_publishable_keys`,或直接讀 client bundle —— 它本來就是公開值、不是 secret)
+
+**2026-07-25 實測輸出**:`HTTP 406` + `PGRST106` + `"Only the following schemas are exposed: public, graphql_public"`
+⇒ `net` / `cron` / `vault` **均未曝露、S2 的安全必要條件成立**(對照:`Accept-Profile: public` 回 `HTTP 200`,證明這個測法本身有效、不是一律 406)。
+🔴 **這條在每次改 Dashboard 曝露設定後要重驗**;可考慮收成 backlog 做成 CI 檢查。
+
+~~原步驟:Dashboard → Project Settings → Data API → Exposed schemas 人工確認~~
+(若要人工複核:`https://supabase.com/dashboard/project/bmpnplmnldofgaohnaok/settings/api` → **Exposed schemas** 欄位,應只有 `public`、`graphql_public`)
 
 ### ⏸ 這裡停一下:等接手 session 跑完 RF2a-0 交易模擬(§1 第 1 點)再 push
 
