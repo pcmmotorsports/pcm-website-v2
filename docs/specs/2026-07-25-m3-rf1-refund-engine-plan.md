@@ -227,4 +227,5 @@ type RefundQuoteRejection =
 - ~~Q6 運費規則版本~~ → ✅ **Sean 2026-07-25 拍 B(下單凍結)**,已折入 v3/v4。
 - ~~Q5 D4 覆核口徑~~ → ✅ **Sean 拍 A + 失敗回滾/告警**(PRD §0c),屬 RF8、不擋本片。
 - 🔴 **plan 層 codex 審查 2 輪已用盡**(R1 FAIL 8 條 → v2/v3 折入;R2 FAIL 4 條 → v4 折入)。依 `~/.claude/rules/00-work-rules.md` §5「plan 層審查上限 2 輪、round2 仍 FAIL 停下 raise Sean」+ codex-adversary skill 同條 → **不跑 R3**。
-- ⏳ **等 Sean 早上拍**:RF1 是否直接開工實作(v4 已折入全部 12 條 findings、diff 層仍有 code-reviewer + codex 關卡2 兩道把關),或要再跑一輪 plan 審。**誠實說明**:R2 的 4 條都是機械性錯誤(算錯期望值/契約矛盾/文件未同步/測試同源),**非方向問題**;兩輪 findings 沒有一條質疑核心公式或 Q6=B 架構。
+- ✅ **Sean 2026-07-25 拍 A = 直接開工實作**(知情:plan 層 2 輪已用盡、12 findings 全折入、diff 層仍有 code-reviewer + codex 關卡2 兩道)。→ **本 plan gate 全解、進實作**。
+- (原題留存)~~RF1 是否直接開工實作~~(v4 已折入全部 12 條 findings、diff 層仍有 code-reviewer + codex 關卡2 兩道把關),或要再跑一輪 plan 審。**誠實說明**:R2 的 4 條都是機械性錯誤(算錯期望值/契約矛盾/文件未同步/測試同源),**非方向問題**;兩輪 findings 沒有一條質疑核心公式或 Q6=B 架構。
