@@ -2,10 +2,24 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> **現行主線＝M-3 TapPay 正式化線(Sean 2026-07-23 開工):S1a「付款送出逾時出口」✅(`b73e9cb`、已推 `origin/dev`)+ S1b-1「reconcileCartSession 後端」✅(`43c0d6d`)+ S1b-2「前端接線」✅ 收工(本 session、**未 push**、零 migration)→ S2 sweeper 搬 pg_cron ✅ code+branch(flag 留 S4、待 Sean db push)→ 下一片 S3。** plan 真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S1a-S6+L1);金流紅線+設計輸入=memory `project_tappay-production-blackhole-settle-line`。並行入口:主軌 M-4a B-4、支線 #288-b、法律頁 L1(草稿待核准);**同一時間只允許一個寫入 session。**
+> 🔴 **現行主線已於 2026-07-26 換軌 ＝ M-4b 後台重建「員工上工」線**(Sean 定調北極星:「可以完整上線給員工使用…他們不是工程師」)。**接手第一件事 = 做全後台畫面預覽 artifact,不是寫 code**(Sean 明確指示)。完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`;主規格 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(先讀 §0a 最新拍板)。施工序 = E11 積木 → E8 員工權限 → E10 訂單閉環;**會計線(E13/E14)+ 電子發票 Sean 拍 Q3=C 整條延後、研究已完成不必重查**。**2 支 commit 未 push。**
+>
+> **(以下為前一條主線,未完成、暫非優先)M-3 TapPay 正式化線(Sean 2026-07-23 開工):S1a「付款送出逾時出口」✅(`b73e9cb`、已推 `origin/dev`)+ S1b-1「reconcileCartSession 後端」✅(`43c0d6d`)+ S1b-2「前端接線」✅ 收工(本 session、**未 push**、零 migration)→ S2 sweeper 搬 pg_cron ✅ code+branch(flag 留 S4、待 Sean db push)→ 下一片 S3。** plan 真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S1a-S6+L1);金流紅線+設計輸入=memory `project_tappay-production-blackhole-settle-line`。並行入口:主軌 M-4a B-4、支線 #288-b、法律頁 L1(草稿待核准);**同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
 
 ## 1. 交接快照
+
+- Updated: 2026-07-26, Asia/Taipei — 🔴 **換軌:M-4b 後台重建「員工上工」線開跑。本 session 零 code、零 migration、零 UI 變更,產出=規格 + 23 份研究底稿(約 4700 行)。2 支 commit 未 push(`b6908fb`、`6427616`)。**
+  - 📄 **完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`**(七段:含 Sean 本 session 全部拍板總表、接手主任務定義、開放項)。以下為摘要。
+  - 🔴 **接手第一件事 = 做全後台畫面預覽 artifact**(Sean 逐字:「整個全部要做的東西可以先用 artifacts 讓我先了解預期畫面…包含所有後台、會計、訂單等等」)。**不是寫 code**;發布前須先載入 `artifact-design` skill;涵蓋範圍與誠實要求見交接包 §5-A(9 大項)。
+  - **北極星(Sean 逐字)**:「可以完整上線給員工使用,操作,修改網站。而且他們不是工程師」⇒ 驗收標準 = 主規格 §1「員工的一天」**27 項**,實查 **✅3 / ⚠️6 / ❌18**。
+  - **主體確認**:PCM = **派達有限公司**(統編公開資訊)。session 中一度誤判 `~/Desktop/派達資料/` 的 401 是「別家公司」→ **已作廢**,因該誤判撤回的第一輪結論**全部恢復有效**。
+  - **Sean 拍板(接手不得重問,全表在交接包 §7)**:401 由記帳士報兩個月一次 ⇒ 後台不自產 401;**Q3=C 會計線整條延後**;N1 員工見經銷價不見成本;**N2=B 兩級角色(成本是唯一分界線 ⇒ 免 RBAC 矩陣)**;N4=A 先做積木;N5 訂單可先做但**須做到 27 項全綠**;成本走逐訂單品項快照;**匯率與加成係數兩者都要快照**;項目下拉受控 + 說明自由文字。
+  - **施工序** = **E11 後台 UI 積木 → E8 員工帳號權限 → E10 訂單閉環**。E11 第一片已規劃:抽 `<AdminDataTable>` 先重構 `customers-table.tsx`(60 行)驗證,**不從 `orders-table.tsx`(210 行、rowSpan)下手**。
+  - 🔴 **上線硬前置**:`apps/admin/src/lib/staff.ts:3` 逐字「臨時解:M-4b 完整帳號/權限前先 hardcode 名單」= **員工帳號目前寫死**。
+  - 🔴 **延後前記下的最大缺口**:**薪資 domain 完全不存在**(記帳士主交付物「扣繳匯總」25 欄主體是薪資扣繳)⇒ 日後開 E14 時**薪資是主體、收支帳是配角**。
+  - 🔴 **流程自陳**:開工前未 grep 既有規劃,與同日稍早的 `docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md` v3 重疊,一度準備重問已答過的題;已於主規格 §0 對帳、**不推翻 E0-E9 編號**。
+  - ⚠️ **誠實邊界**:零 code ⇒ **未跑三綠**(依鐵則 11 不觸發);地圖未刷(純文件 session);研究檔入 repo 前掃 PII 零命中(身分證格式唯一命中 `A123456789` = 台灣通用範例號)。
 
 - Updated: 2026-07-25(深夜 3), Asia/Taipei — 🚀 **RF2a-0 + S2 pg_cron ✅ 已 apply production(ops 片、零程式碼變更)**。
   - 📄 **完整交接包 = `docs/handoff/2026-07-25-rf2a0-s2-applied-handoff.md`**(六段:DB 足跡 / db push 兩次失敗根因 / 真刷驗證 / 並行 session 警告 / 開放項 / 進入點)。以下為摘要。
