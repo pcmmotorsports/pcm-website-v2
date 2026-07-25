@@ -813,9 +813,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-02 / M-0-03 audit
 - **相關:** `docs/architecture/dependency-rules.md` §5.3
 
-### #26. ⏳ partiallyRefunded transition 評估
+### #26. ✅ partiallyRefunded transition 評估
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ✅ **已收(2026-07-25、M-3 RF2a)** — 評估結論 = **擴 enum**。已落地三項:①`payment_status` 加第 5 值(migration `20260725130000`)②domain `PaymentStatus` union + `PAYMENT_TRANSITIONS`(🔴 Sean Q1=A **允許自我轉移**,支援同一單多次部分退,為 5 值中唯一例外)③**ADR-0003 §3.2 對照表已同步**(wire 欄為 `—`:ADR-0005 已 pivot custom Supabase、無 Medusa 對應需求,不憑記憶填字面)。⚠️ **未 apply production、未 push**,待 Sean `db push`;🔴 `ADD VALUE` **不可逆**。adapter mapping 為直接 passthrough、無需額外映射。詳 `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md`。
+- **原狀態:** ⏳ 待執行
 - **分流:** P1-before-launch
 - **優先級:** 🟡 低
 - **問題:**

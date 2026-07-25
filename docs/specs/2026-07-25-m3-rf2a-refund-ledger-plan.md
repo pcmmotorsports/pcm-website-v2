@@ -162,7 +162,7 @@ ALTER TABLE public.order_items ADD CONSTRAINT order_items_order_id_id_key UNIQUE
    - CHECK `status <> 'processing' OR (confirmed_at IS NULL AND failed_reason IS NULL)`
 
 5. 🆕 **狀態轉移合法性 trigger**(R2 新 must-fix、v3 折入):上列 CHECK 只驗**單列內部自洽**,擋不住「已 `confirmed` 的列被改回 `failed`」——RF8 覆核一旦有 bug,會把一筆銀行端已成功的退款覆寫成失敗,帳本語法合法但語意矛盾、且**不可靠地驅動退款回滾**。
-   ⇒ 加 `BEFORE UPDATE` trigger `orders_refund_status_transition_bu`,合法轉移**僅**:
+   ⇒ 加 `BEFORE UPDATE` trigger `order_refunds_status_transition_bu`,合法轉移**僅**:
    - `processing → confirmed`
    - `processing → failed`
    - 同值(冪等重寫)
@@ -207,7 +207,7 @@ DEFERRED 是必要的:RPC 會先插 header 再插明細,立即驗會誤擋合法
 | `order_refunds_ledger_consistency_ac` | `public.order_refunds` | `AFTER INSERT OR UPDATE` | 空明細 header(此路徑是唯一能抓到它的)+ 該 header 的 sum |
 | `order_refund_items_ledger_consistency_ac` | `public.order_refund_items` | `AFTER INSERT OR UPDATE OR DELETE` | 明細增刪改後 sum 失衡(含 `DELETE` 後 sum 變小、v2 漏列的事件) |
 
-兩者皆 `DEFERRABLE INITIALLY DEFERRED FOR EACH ROW`,共用函式 `pcm_assert_refund_ledger_consistent(p_refund_id uuid)`,函式內驗:
+兩者皆 `DEFERRABLE INITIALLY DEFERRED FOR EACH ROW`,共用函式 `pcm_assert_refund_ledger_consistent()`(零參數 trigger 函式,refund_id 由 TG_OP/NEW/OLD 推導),函式內驗:
 
 1. 該 refund 明細列數 `>= 1`。
 2. `items_amount = COALESCE(SUM(line_amount), 0)`。
@@ -337,7 +337,12 @@ typecheck / lint / build(動 .ts);full test 全綠;`git diff --check` 乾淨。
 
 ## 10. 驗收條件(逐條 yes/no)
 
-1. 兩支 migration 存在、命名對齊時戳慣例、皆冪等可重跑;§5.2 自帶顯式 `BEGIN/COMMIT`。
+1. 兩支 migration 存在、命名對齊時戳慣例;§5.2 自帶顯式 `BEGIN/COMMIT`。
+   🔴 **冪等性字面更正(code-reviewer〔Fable〕抓到 v3 此處不實)**:**只有 §5.1 冪等**(`ADD VALUE IF NOT EXISTS`);
+   **§5.2 不冪等** —— 全檔零 `IF NOT EXISTS`(實查 = 0 處),成功套用後重放會在第一句 `CREATE TABLE` 撞 duplicate。
+   **這是刻意的**:`CREATE TABLE IF NOT EXISTS` 會讓「表已存在但結構不同」**靜默通過**,在金流帳本上比直接炸更危險
+   ⇒ 寧可重放時明確失敗、由人判斷。正常 `db push` 有 `schema_migrations` 記錄、不會重放;
+   ⚠️ 但本 repo 有**版本漂移前例**(MCP `apply_migration` 自行重編號 ⇒ 記錄對不上),真發生時需人工判斷,不可盲目重跑。
 2. §9.1 十一項於 preview branch 全 PASS,**實際輸出貼進交接**(不寫「應該會過」)。
 3. §9.2 九項突變**實測**,M1-M5、M7-M9 全紅;M6 於 §8.9 補斷言後轉紅。
 4. §8 十項 TS 同步全數完成;三綠 + full test 全綠。
@@ -460,8 +465,8 @@ v2 折入後估 **50-60 分鐘**,超過 15-45 分鐘上限。建議拆:
 
 ### 15.1 環境誠實邊界(重要)
 
-- 🔴 **branch 自動套用 main migration 歷史時 `MIGRATIONS_FAILED`**,停在 `20260712142722`(下一支 `20260712203000` 失敗)。
-  **非本片造成**(我的兩支是 `20260725130000/130100`、離該點 30+ 支)。⇒ 本次實測的 schema **落後 production 30 餘支 migration**。
+- 🔴 **branch 自動套用 main migration 歷史時 `MIGRATIONS_FAILED`**,停在 `20260712142722`(下一支 `20260712183000` 起失敗)。
+  **非本片造成**(我的兩支是 `20260725130000/130100`、離該點 30+ 支)。⇒ 本次實測的 schema **落後 production 24 支 migration**。
   已確認我的兩支所需前置在 branch 上齊備(`orders` / `order_items` / `payment_status` 4 值 / `order_items` PK 單欄 id),故結論在「本片兩支 migration 的行為」範圍內成立;
   **不可據此宣稱「已在等同 production 的環境驗過」**。該既有失敗值得另立 backlog 追(本片不處理)。
 - 套用方式 = MCP `execute_sql` 分段送**可執行語句**(檔頭大段註解不送,對齊 RF2a-0 慣例);
@@ -542,5 +547,5 @@ IMMEDIATE 模式下 INSERT header 當下 trigger 就炸了,**後面的明細 INS
    🔴 舊版(只取 `NEW`)在此案例只會驗 B、直接放行 —— 這條測試設計成「只有 A 違反」才殺得死該 bug。
 2. **`TRUNCATE order_refund_items`**:被 `pcm_refund_ledger_block_truncate` 擋下(`P0001`)。
 
-⚠️ 誠實邊界同 §15.1:branch schema 仍落後 production 30 餘支(既有 `MIGRATIONS_FAILED`,非本片);
+⚠️ 誠實邊界同 §15.1:branch schema 仍落後 production 24 支(既有 `MIGRATIONS_FAILED`,非本片);
 檔內顯式 `BEGIN/COMMIT` 依然**未被直接執行驗證**(MCP 自帶交易)。

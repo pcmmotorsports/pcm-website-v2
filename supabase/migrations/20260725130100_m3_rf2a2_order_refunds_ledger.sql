@@ -488,6 +488,10 @@ COMMIT;
 --   DROP TABLE IF EXISTS public.order_refunds;        -- 連帶 CHECK / index / trigger
 --   DROP FUNCTION IF EXISTS public.pcm_assert_refund_ledger_consistent();
 --   DROP FUNCTION IF EXISTS public.pcm_order_refund_status_transition();
+--   DROP FUNCTION IF EXISTS public.pcm_refund_ledger_block_truncate();   -- 🔴 關卡2 折入時新增,勿漏
+-- ⚠️ 本檔**不冪等**(全檔零 IF NOT EXISTS,刻意:CREATE TABLE IF NOT EXISTS 會讓
+--    「表已存在但結構不同」靜默通過,金流帳本上比直接炸更危險)⇒ 重放會在第一句 CREATE TABLE 失敗,
+--    此時應人工判斷 schema_migrations 是否漂移,不可盲目重跑。
 --   ALTER TABLE public.order_items DROP CONSTRAINT IF EXISTS order_items_order_id_id_key;
 -- ⚠️ 前一支 20260725130000 的 enum 加值**無法** rollback(PG 不支援移除 enum 值)。
 -- ────────────────────────────────────────────────────────────────────────────
