@@ -142,17 +142,18 @@
 ⑭**制度層第二支 deterministic hook(Sean 07-19 拍 A)**:新增 `~/.claude/hooks/push-state-watch.js`(**Stop** 事件,掛既有 Stop 群組=零常載成本)—— 每次停下自動比對未推數與 upstream SHA,**只在未推數下降或 upstream 位移時出聲**,不跑 `git fetch`,錯誤一律靜默 exit 0;**8 項測試全過**;`settings.json` 已備份 `.bak-20260719-b2`。動機:「收工前查未推數」當時**已散在 8 份文件內文**卻仍沒能在事發當下提醒任何人 → **prose 層對時機型規則無效已第二次被實證**(第一次=「只改被點名那一處」→ `contract-sync-reminder.js`)。
 
 ## 最近 3 commit
-> dev。本 commit 見「最後更新」;下表列 3 個**已可達**前序 commit(`merge-base --is-ancestor` 驗)。
-> 🚀 **`origin/dev` 指向何處、未推幾個 commit —— 本欄一律不寫死,以實跑為準**:
->   `git rev-parse --short origin/dev` / `git rev-list --count origin/dev..HEAD`。
+> dev。本 commit 見「最後更新」。
+> 🏁 **2026-07-25 Sean 拍板 A:本欄的 hash 表已撤除、改為可執行取得方式**(與下方 `origin/dev` 同款原則、同一節內不再有兩套標準)。**觸發事證**:同日 docs 清理片實錄——填表當下 HEAD 是 `5827dbf`,commit 前一秒已被並行視窗推進到 `3bd8626`,**表格在寫完的瞬間就過期**;修一次、對方再 commit 又過期 ⇒ 雙 session 並行下這張表**結構上維護不了**,不是勤勞就能補的。
+>
+> ```bash
+> git log --oneline -4                          # 第 1 行=本 commit,其後 3 行=前序三筆
+> git rev-parse --short origin/dev              # origin/dev 指向何處
+> git rev-list --count origin/dev..HEAD         # 未推幾個
+> git merge-base --is-ancestor <hash> HEAD      # 驗某 hash 是否為可達前序(防 busboy off-by-one orphan)
+> ```
+>
 > ⚠️ **為何不寫死**(2026-07-17,同款前科第 9-10 次):此處寫死的 hash/數字**每多一個 commit 或每次 push 就當場變假** —— 「本地零未推」在 `f39a5f8` 產出當下即假 → 改「未推 2 commit」在 `816f085` 產出當下又假 → **治本只治了「數字」、卻漏掉旁邊的 `origin/dev=55365e6`,push 完當場又假**(第 10 次;**證明「只補眼前那一處」的病連在治本時都會復發** → 同一欄的**所有**自指字面必須一起改)。**寫死的自指數字/行號是結構性假字面來源**(同 memory `feedback_claimed-sync-but-only-patched-touched-lines` 與「自指行號改引文錨」教訓)→ 一律改成**可執行的取得方式**。
 > ⚠️ `dev`=pcm-admin 的 **production** 分支 → push 觸發 admin 重部署=預期(Email 線至 E2a-a 為止**零消費者**:`reclaimStaleLeases` 全 repo 零呼叫點、E2a-b/c 才接;migration 自 `55365e6` 起僅動頭註 = 純註解零 DDL、**無需 re-apply**)。origin/main:**同理不寫死**,以 `git rev-parse --short origin/main` 為準(2026-07-19 trim 線收工時 Sean 已 `push origin dev:main` → main 與 dev 對齊、trim 線全上 production;此前長期停在 `13ce3a9`)。
-
-| Hash | 訊息 | 時間 |
-|---|---|---|
-| `5827dbf` | docs(docs): STATUS 最近 3 commit 表補上 f0388c0 [M-4a] | 2026-07-25 |
-| `7f8e3ed` | chore(config): MCP apply_migration 改 ask 防 migration 版本漂移 [M-3] | 2026-07-25 |
-| `1dcef06` | docs(docs): 66 檔一次性產物封存 archive + 路由表補登兩行 [M-4a] | 2026-07-25 |
 
 ## 下一步
 ✅ **RF1 退款金額+運費重算引擎 ✅ 收工(`ccad329`)** — 退刷線第 1 片、高風險片、純 domain 函式(零 DB/零 migration/零 UI/**尚未被任何地方呼叫**)。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變自驗 20 組全數有效**。**五輪審查**(codex 關卡1 R1/R2 → code-reviewer opus → codex 關卡2 R1/R2/R3〔R3 Sean 特別授權破例〕)、**31 must-fix + 9 nit 全折入**;🔴 **其中質疑核心公式/金額正確性/Q6=B 架構的:0 條**;另 1 條 codex 誤判經實查駁回。🔴 **四次突變「初版 0 紅」= 真假綠**(守門存在但移除後測試全綠;3 次根因是**遮蔽**——另一道守門先擋或回同一 kind)。plan 真權威=`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` **v8**。🔴 **第 31 條 = R3-5(#216 gate anchor 對照錯對象)不在 `ccad329` 內、修在後續 commit**(見「最後更新」本 commit 條);R3 由兩個並行視窗各跑一次 codex(白付一次)、只有多問「前兩輪修法是否成立」的那邊抓到 R3-5。
