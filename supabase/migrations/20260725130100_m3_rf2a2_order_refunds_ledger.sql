@@ -65,6 +65,11 @@ BEGIN
 END $$;
 
 -- ══ 1. order_items 加複合唯一鍵(供 order_refund_items 的複合 FK 引用)══════════
+-- 🔴 lock_timeout(codex 關卡2):ADD CONSTRAINT UNIQUE 需 ACCESS EXCLUSIVE lock。
+--    若 apply 當下有未結束的結帳交易持有該表的鎖,ALTER 會無限等待,
+--    並讓其後所有 order_items INSERT 排在它後面 = db push 演變成結帳阻塞。
+--    ⇒ 5 秒等不到就放棄整支 migration(交易回滾),改挑離峰重跑,不賭。
+SET LOCAL lock_timeout = '5s';
 -- 🔴 動既有 live 表:純加唯一索引,不改資料、不改既有約束語意、不影響 create_order。
 -- 目的:讓「退款明細的品項必須屬於該退款 header 的訂單」成為 **DB 層**強制,而非 RPC 自律。
 --       (單靠兩個獨立 FK 做不到:order A 的 header 可以掛 order B 的品項,兩個 FK 各自都合法。)
@@ -166,10 +171,12 @@ CREATE TABLE public.order_refund_items (
 -- RF2b 算「剩餘可退數量」要對單一品項跨退款聚合。
 CREATE INDEX order_refund_items_order_item_idx ON public.order_refund_items (order_item_id);
 
--- ⚠️ ON DELETE RESTRICT 的連帶效果(刻意):
---    order_items.order_id 對 orders 是 ON DELETE CASCADE。一旦某訂單有退款帳,
---    刪除該 orders 列會因本表 RESTRICT 而失敗 ⇒ 帳本反過來保護訂單不被誤刪。
---    這是預期行為;真要刪需先處理帳本(而金流紅線本就禁止硬刪已扣款訂單)。
+-- ⚠️ 刪除 orders 時的實際擋點(codex 關卡2 nit:原註解因果不精確,已更正):
+--    一旦某訂單有退款帳,`DELETE FROM orders` 會失敗,但**第一個擋下它的通常是
+--    `order_refunds.order_id → orders(id)` 這條 FK 的預設 NO ACTION**(header 直接參照 orders),
+--    而不是「cascade 到 order_items 之後才由本表 RESTRICT 擋」。
+--    兩層都在,事故判讀時別把錯誤來源歸錯層。
+--    效果不變:帳本反過來保護訂單不被誤刪(金流紅線本就禁止硬刪已扣款訂單)。
 
 -- ══ 4. 主從一致性:兩個 DEFERRED CONSTRAINT TRIGGER ═══════════════════════════
 -- 🔴 為何是「兩個」(codex 關卡1 R2 抓到、v2 原設計是錯的):
@@ -182,56 +189,73 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
+  v_ids           uuid[];
   v_refund_id     uuid;
   v_items_amount  integer;
   v_sum           integer;
   v_cnt           integer;
   v_bad           integer;
 BEGIN
-  -- 依觸發來源取 refund_id(DELETE 事件只有 OLD)。
+  -- 依觸發來源決定「要驗哪些 refund」。
+  -- 🔴 UPDATE 必須同時驗 OLD 與 NEW(codex 關卡2 抓到):把某列明細從 refund A 改掛到 B 時,
+  --    若只驗 NEW(B),A 可能因此變成零明細卻無人檢查 —— B 的合計仍正確、整筆交易照樣 COMMIT。
   IF TG_TABLE_NAME = 'order_refunds' THEN
-    v_refund_id := NEW.id;
+    v_ids := ARRAY[NEW.id];
   ELSIF TG_OP = 'DELETE' THEN
-    v_refund_id := OLD.refund_id;
+    v_ids := ARRAY[OLD.refund_id];
+  ELSIF TG_OP = 'UPDATE' THEN
+    v_ids := ARRAY[OLD.refund_id, NEW.refund_id];
   ELSE
-    v_refund_id := NEW.refund_id;
+    v_ids := ARRAY[NEW.refund_id];
   END IF;
 
-  -- header 已不存在(整筆退款於同交易內被刪)⇒ 無不變式可驗,放行。
-  SELECT items_amount INTO v_items_amount
-    FROM public.order_refunds WHERE id = v_refund_id;
-  IF NOT FOUND THEN
-    RETURN NULL;
-  END IF;
+  FOREACH v_refund_id IN ARRAY v_ids LOOP
+    -- header 已不存在(整筆退款於同交易內被刪)⇒ 該 id 無不變式可驗,跳過。
+    SELECT items_amount INTO v_items_amount
+      FROM public.order_refunds WHERE id = v_refund_id;
+    CONTINUE WHEN NOT FOUND;
 
-  SELECT count(*), COALESCE(SUM(line_amount), 0)
-    INTO v_cnt, v_sum
-    FROM public.order_refund_items WHERE refund_id = v_refund_id;
+    SELECT count(*), COALESCE(SUM(line_amount), 0)
+      INTO v_cnt, v_sum
+      FROM public.order_refund_items WHERE refund_id = v_refund_id;
 
-  -- ① 至少一列明細(這條只有 header 表那個 trigger 抓得到)。
-  IF v_cnt = 0 THEN
-    RAISE EXCEPTION 'order_refunds 不變式違反 — 退款 % 沒有任何品項明細;拒繼續', v_refund_id;
-  END IF;
+    -- ① 至少一列明細(這條只有 header 表那個 trigger 抓得到)。
+    IF v_cnt = 0 THEN
+      RAISE EXCEPTION 'order_refunds 不變式違反 — 退款 % 沒有任何品項明細;拒繼續', v_refund_id;
+    END IF;
 
-  -- ② header 金額 = Σ 明細。
-  IF v_sum <> v_items_amount THEN
-    RAISE EXCEPTION 'order_refunds 不變式違反 — 退款 % 的 items_amount(%)與明細合計(%)不符;拒繼續',
-      v_refund_id, v_items_amount, v_sum;
-  END IF;
+    -- ② header 金額 = Σ 明細。
+    IF v_sum <> v_items_amount THEN
+      RAISE EXCEPTION 'order_refunds 不變式違反 — 退款 % 的 items_amount(%)與明細合計(%)不符;拒繼續',
+        v_refund_id, v_items_amount, v_sum;
+    END IF;
 
-  -- ③ 每列明細對照 order_items 本體:不得超過原始數量、單價須與訂單快照一致。
-  --    ⚠️ 只擋「單次」超量;跨次累積超退不在此(見檔頭「本檔不做」①)。
-  SELECT count(*) INTO v_bad
-    FROM public.order_refund_items ri
-    JOIN public.order_items oi ON oi.id = ri.order_item_id
-   WHERE ri.refund_id = v_refund_id
-     AND (ri.quantity > oi.quantity OR ri.unit_price <> oi.unit_price);
-  IF v_bad > 0 THEN
-    RAISE EXCEPTION 'order_refunds 不變式違反 — 退款 % 有 % 列明細超過原始數量或單價與訂單不符;拒繼續',
-      v_refund_id, v_bad;
-  END IF;
+    -- ③ 每列明細對照 order_items 本體:不得超過原始數量、單價須與訂單快照一致。
+    --    ⚠️ 只擋「單次」超量;跨次累積超退不在此(見檔頭「本檔不做」①)。
+    SELECT count(*) INTO v_bad
+      FROM public.order_refund_items ri
+      JOIN public.order_items oi ON oi.id = ri.order_item_id
+     WHERE ri.refund_id = v_refund_id
+       AND (ri.quantity > oi.quantity OR ri.unit_price <> oi.unit_price);
+    IF v_bad > 0 THEN
+      RAISE EXCEPTION 'order_refunds 不變式違反 — 退款 % 有 % 列明細超過原始數量或單價與訂單不符;拒繼續',
+        v_refund_id, v_bad;
+    END IF;
+  END LOOP;
 
   RETURN NULL;
+END;
+$$;
+
+-- 🔴 row-level trigger 對 TRUNCATE 完全不觸發(codex 關卡2):owner 若 TRUNCATE 明細表,
+--    所有 header 會保留、明細歸零,上述不變式靜默失效。⇒ 兩表皆加 statement-level 攔截。
+--    (service_role 已無 TRUNCATE 權限〔§7 斷言〕,本段是對 owner 誤操作的縱深防護。)
+CREATE OR REPLACE FUNCTION public.pcm_refund_ledger_block_truncate()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION '退款帳本禁止 TRUNCATE(%)—— 會讓 header/明細不變式靜默失效;如確需清理請逐列 DELETE 並讓 trigger 逐筆驗證', TG_TABLE_NAME;
 END;
 $$;
 
@@ -248,6 +272,14 @@ CREATE CONSTRAINT TRIGGER order_refund_items_ledger_consistency_ac
   AFTER INSERT OR UPDATE OR DELETE ON public.order_refund_items
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.pcm_assert_refund_ledger_consistent();
+
+CREATE TRIGGER order_refunds_block_truncate_bt
+  BEFORE TRUNCATE ON public.order_refunds
+  FOR EACH STATEMENT EXECUTE FUNCTION public.pcm_refund_ledger_block_truncate();
+
+CREATE TRIGGER order_refund_items_block_truncate_bt
+  BEFORE TRUNCATE ON public.order_refund_items
+  FOR EACH STATEMENT EXECUTE FUNCTION public.pcm_refund_ledger_block_truncate();
 
 -- ══ 5. 狀態轉移硬防線 ═══════════════════════════════════════════════════════
 -- 單列 CHECK 只驗自洽,擋不住「已 confirmed 被改回 failed」——
@@ -291,6 +323,15 @@ REVOKE ALL ON TABLE public.order_refund_items FROM PUBLIC, anon, authenticated, 
 
 GRANT SELECT ON TABLE public.order_refunds      TO service_role;
 GRANT SELECT ON TABLE public.order_refund_items TO service_role;
+
+-- 🔴 函式 EXECUTE 收斂(codex 關卡2):PostgreSQL 新建 function **預設 GRANT EXECUTE TO PUBLIC**。
+--    兩支 trigger 函式都是 SECURITY DEFINER,PUBLIC 可執行 = 多一個以 owner 權限起跑的入口
+--    (直接呼叫會因缺 trigger context 而失敗,但任何能在自有 table 上建 trigger 的 role
+--     都能把它掛上去、以 definer 身分執行)。service_role 無表寫權**不能**消除這個面。
+--    ⇒ 全數 REVOKE;trigger 由表擁有者觸發、不需要任何 role 的 EXECUTE 權限。
+REVOKE ALL ON FUNCTION public.pcm_assert_refund_ledger_consistent()  FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.pcm_order_refund_status_transition()   FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.pcm_refund_ledger_block_truncate()     FROM PUBLIC, anon, authenticated, service_role;
 
 -- ══ 7. fail-closed 斷言(樣板 = 20260717020000 email_outbox:448-475)═══════════
 DO $$
@@ -391,6 +432,33 @@ BEGIN
    WHERE tgname = 'order_refunds_status_transition_bu' AND NOT tgisinternal;
   IF v_cnt <> 1 THEN
     RAISE EXCEPTION 'RF2a-2 斷言失敗 — 狀態轉移 trigger 應存在;拒繼續';
+  END IF;
+
+  -- 7i. TRUNCATE 攔截 trigger 兩支都在(row-level trigger 對 TRUNCATE 不觸發,少了就是靜默破口)。
+  SELECT count(*) INTO v_cnt
+    FROM pg_trigger
+   WHERE tgname IN ('order_refunds_block_truncate_bt', 'order_refund_items_block_truncate_bt')
+     AND NOT tgisinternal;
+  IF v_cnt <> 2 THEN
+    RAISE EXCEPTION 'RF2a-2 斷言失敗 — TRUNCATE 攔截 trigger 應恰 2 個,實 % 個;拒繼續', v_cnt;
+  END IF;
+
+  -- 7j. 三支函式的 EXECUTE 必須零外授(SECURITY DEFINER + PUBLIC EXECUTE = 以 owner 權限起跑的入口)。
+  --     proacl IS NULL 代表「只有 owner 的預設權限」= 已被 REVOKE 乾淨。
+  SELECT count(*) INTO v_cnt
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public'
+     AND p.proname IN ('pcm_assert_refund_ledger_consistent',
+                       'pcm_order_refund_status_transition',
+                       'pcm_refund_ledger_block_truncate')
+     AND p.proacl IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM aclexplode(p.proacl) AS a
+        WHERE a.grantee <> p.proowner
+     );
+  IF v_cnt <> 0 THEN
+    RAISE EXCEPTION 'RF2a-2 斷言失敗 — trigger 函式仍有 owner 以外的 EXECUTE 授權(% 支);拒繼續', v_cnt;
   END IF;
 END $$;
 

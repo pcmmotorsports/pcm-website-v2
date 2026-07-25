@@ -346,7 +346,11 @@ typecheck / lint / build(動 .ts);full test 全綠;`git diff --check` 乾淨。
    - `grep -rnE "'(unpaid|paid|partiallyPaid|refunded)'" --include=*.ts --include=*.tsx`(值字面,可抓 `Array<[PaymentStatus,...]>`、zod、mock、fixture)
    - 兩份結果逐一確認已含第 5 值或確認不需改(附理由)。
 6. PRD §5 D2 的 per-品項字面已改為 per-退款請求。
-7. commit 訊息**不含**「交易模擬」字面涵蓋 §5.1(§3);誠實寫「§5.2 交易模擬 + preview branch 實測」。
+7. commit 訊息**不含**「交易模擬」字面(§3)。
+   🔴 **v3 更正(codex 關卡2 抓到本條與 §15 自相矛盾)**:v2 這裡原寫「誠實寫『§5.2 交易模擬 + preview branch 實測』」,
+   但 §15.1 明載**檔內顯式 `BEGIN/COMMIT` 本次未被直接執行驗證**(MCP 自帶交易、未重複送)。
+   ⇒ 正確口徑 = **只宣稱 preview branch 實測**;**§5.2 的原子性屬「已寫入、未驗證」**,其作用對象是 `supabase db push`,
+   真正驗證要等 Sean apply 當下觀察(或日後在能執行整檔的環境重測)。
 8. 表註解明寫兩件事:①運費權威驗證在 RF2b RPC(§6.3-3)②累積超退防線在 RF2b、本表未強制(§6.6)。
 9. 未 push、未 apply production、未開任何 flag、未動 `.env*`。
 
@@ -506,3 +510,37 @@ IMMEDIATE 模式下 INSERT header 當下 trigger 就炸了,**後面的明細 INS
 2. **跨次累積超退確實不擋**。品項原始數量 1、已退 1,再用**另一個** `bank_refund_id` 退 1 → **INSERT 成功**,
    查得 `original_qty=1 / refunded_qty_total=2 / over_refunded=true`。
    ⇒ §6.6 的揭示屬實、非形式免責。**RF2b 落地前不得宣稱帳本已防超退。**
+
+---
+
+## 16. codex 關卡2(diff 層)R1 折入紀錄(2026-07-25、`-s read-only`、審 commit `91d6642`)
+
+🔴 **流程違反自陳**:鐵則 12 要求高風險片「**commit 前**」跑關卡2,本片是 commit 後才補跑。
+已於下方修完並另開 commit(不 amend —— 並行 session 期間 amend 有改到別人 commit 的風險)。
+
+**判定 = NO-GO,6 must-fix + 3 nit。逐條核對後:5 條成立、1 條駁回。**
+
+| finding | 處置 |
+| --- | --- |
+| 子列 UPDATE 換 `refund_id` 只驗 NEW header,舊 header 不再驗 | ✅ **成立、已修**:函式改為 `TG_OP='UPDATE'` 時取 `ARRAY[OLD.refund_id, NEW.refund_id]` 並 `FOREACH` 迴圈驗。**已實測**(下方 16.1) |
+| row-level trigger 對 `TRUNCATE` 完全不觸發 | ✅ **成立、已修**:兩表各加 `BEFORE TRUNCATE ... FOR EACH STATEMENT` 攔截 + 斷言 7i。**已實測** |
+| 兩支 SECURITY DEFINER 函式保有預設 `PUBLIC EXECUTE` | ✅ **成立、已修**:三支函式全 `REVOKE ALL ... FROM PUBLIC, anon, authenticated, service_role` + 新斷言 7j(`pg_proc.proacl` 逐條驗無 owner 以外 grantee) |
+| 對 live `order_items` 加 UNIQUE 前無 `lock_timeout` | ✅ **成立、已修**:`SET LOCAL lock_timeout = '5s'`,等不到即整支回滾、改挑離峰重跑 |
+| plan §10.7 驗收條件與 §15 自相矛盾 | ✅ **成立、已修**:§10.7 改為「只宣稱 preview branch 實測」,`BEGIN/COMMIT` 定位為**已寫入、未驗證**(作用對象是 `db push`) |
+| `confirmed` 列仍可帶非空 `failed_reason` | ❌ **駁回(實測)**:CHECK `(status='failed') = (failed_reason 非空)` 在該情境為 `false = true` → **不通過**。production 唯讀純表達式求值實證:`confirmed + 失敗原因 → false`(擋下)、`failed + 原因 → true`、`confirmed + NULL → true`。該情境早已被擋 |
+| `ON DELETE RESTRICT` 因果不精確(nit) | ✅ 已修註解:實際第一個擋點通常是 `order_refunds.order_id → orders(id)` 的預設 NO ACTION,非 cascade 後的 child RESTRICT |
+| §15 無保存 SQL/result transcript(nit) | ⚠️ **接受、不補**:branch 已刪、無法回溯補。已在此明記此限制;日後同類驗證應保留逐條輸出 |
+| 測試數字無 committed runner output(nit) | ⚠️ **接受**:repo 既有慣例即如此(數字寫進 commit body 供人工複跑);不為本片單獨改變慣例 |
+
+### 16.1 修正後重驗(preview branch `cjmkbdctedddyvcfxpuz`,用畢已刪)
+
+兩支 migration 全段重新套用成功,**含新增的 7i / 7j 斷言**。針對兩個新修的洞做**精確重現**測試:
+
+1. **UPDATE 換 `refund_id`**:把 refund A 的唯一明細改掛到 B,**同時**把 B 的 `items_amount` 調成 5500(= 2500+3000)
+   ⇒ **B 側完全合法、無任何違反**,唯一問題是 A 變零明細。
+   結果:`P0001` 且訊息**指名 A**(`fa000000…`)⇒ 證明 `OLD.refund_id` 確實被驗到。
+   🔴 舊版(只取 `NEW`)在此案例只會驗 B、直接放行 —— 這條測試設計成「只有 A 違反」才殺得死該 bug。
+2. **`TRUNCATE order_refund_items`**:被 `pcm_refund_ledger_block_truncate` 擋下(`P0001`)。
+
+⚠️ 誠實邊界同 §15.1:branch schema 仍落後 production 30 餘支(既有 `MIGRATIONS_FAILED`,非本片);
+檔內顯式 `BEGIN/COMMIT` 依然**未被直接執行驗證**(MCP 自帶交易)。

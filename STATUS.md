@@ -30,7 +30,16 @@
 🔴 **⑥-a 過程誠實紀錄**:首輪 11 條負向「全紅」是**假的** —— `SET CONSTRAINTS ALL IMMEDIATE` 下 INSERT header 當場炸「沒有明細」,後面明細根本沒跑 ⇒ 5 條測的都是同一條防線(**遮蔽**,RF1 教訓的 DB 版再現)。全部改為獨立交易 + DEFERRED + **每條只違反一項**重測才成立。
 🔴 **⑥-b 兩條「揭示成立」的反面實證**:①欄級 grant 只有 `attacl` 抓得到 —— 實測 `attacl`=**1 筆**、`role_table_grants`=**0 筆**、`relacl`=**0 筆** ⇒ 證明 codex R2 判 v2 斷言 INADEQUATE 屬實 ②**跨次累積超退確實不擋** —— 原始數量 1、已退 1,換一個 `bank_refund_id` 再退 1 **成功**(`over_refunded=true`)⇒ **RF2b 落地前不得宣稱帳本已防超退**。
 ⚠️ **⑥-c 環境邊界**:branch 自動套 main migration 歷史時 `MIGRATIONS_FAILED`、停在 `20260712142722`(**既有問題、非本片**,我的兩支離該點 30+ 支)⇒ 實測 schema **落後 production 30 餘支**,結論僅及於「本片兩支 migration 的行為」,**不可宣稱已在等同 production 的環境驗過**。另:檔內顯式 `BEGIN/COMMIT` 本次**未被直接執行驗證**(MCP 自帶交易),其作用對象是 `db push`。
-🔴 **剩項**:`db push` 兩支 = **Sean 手動**;帳本兩表**零寫入端**(刻意,RF2b 才寫)⇒ apply 後無真資料可驗、只能驗結構。plan 真權威 = `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md` v3(§13/§14 折入紀錄、§15 實測紀錄)。
+**⑦ codex 關卡2(diff 層)= 後續 commit**:🔴 **流程違反自陳** —— 鐵則 12 要求高風險片「**commit 前**」跑關卡2,本片是 commit 後才補跑(已修完另開 commit,不 amend、避開並行 session 撞車)。**判定 NO-GO 6 must-fix + 3 nit → 核對後 5 條成立、1 條駁回**:
+　✅ **①子列 UPDATE 換 `refund_id` 只驗 NEW、舊 header 不再驗**(把 A 的唯一明細移到 B 並同步調正 B 金額 ⇒ B 全合法、A 變零明細卻放行)→ 函式改 `FOREACH` 驗 `OLD+NEW`;**已在 branch 精確重現並實測擋下、訊息指名 A**。
+　✅ ②row-level trigger 對 `TRUNCATE` 不觸發 → 兩表加 `BEFORE TRUNCATE` 攔截 + 斷言 7i;**已實測擋下**。
+　✅ ③三支 SECURITY DEFINER 函式保有預設 `PUBLIC EXECUTE`(= 以 owner 權限起跑的入口)→ 全 REVOKE + 新斷言 7j 驗 `pg_proc.proacl`。
+　✅ ④動 live `order_items` 加 UNIQUE 前無 `lock_timeout` → 加 `SET LOCAL lock_timeout='5s'`(等不到即整支回滾、改挑離峰,不賭結帳阻塞)。
+　✅ ⑤plan §10.7 與 §15 自相矛盾(要求宣稱「§5.2 交易模擬」但 §15 明載未驗證)→ 改為只宣稱 preview branch 實測、`BEGIN/COMMIT` 定位為**已寫入未驗證**。
+　❌ **駁回 1 條**:稱「`confirmed` 列可帶非空 `failed_reason`」——實測 CHECK `(status='failed')=(failed_reason 非空)` 在該情境為 `false=true` ⇒ **早已擋下**(production 唯讀純表達式求值,未碰任何表)。
+　⚠️ nit 2 條接受不補:preview branch 已刪、無法回溯保存 transcript;測試數字無 committed runner output = repo 既有慣例。
+**⑧ 修正後重驗**(branch `cjmkbdctedddyvcfxpuz`、用畢已刪):兩支全段重套成功含新斷言;三綠 8/8·10/10 + full **2945** 不變。
+🔴 **剩項**:`db push` 兩支 = **Sean 手動**;帳本兩表**零寫入端**(刻意,RF2b 才寫)⇒ apply 後無真資料可驗、只能驗結構。plan 真權威 = `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md` v3(§13/§14 關卡1 折入、§15 實測、§16 關卡2 折入)。
 
 2026-07-25(`1dcef06` 主體 + `5827dbf` STATUS 補 + **本 commit** graphify 同步;**docs 清理封存 + 路由補登** — 輕量片、**零程式碼變更、零 migration、零 DB、零 flag、未動 `.env*`**)— 與 M-3 主線無關的整理片,Sean 07-25 拍板執行。
 **① 66 檔 `git mv` 進 `docs/archive/2026-07-25-docs-cleanup/`(零刪除)**:recon 8 / reviews 10 / audits 1 / handoff 47;`docs/` 追蹤檔(排除 archive)**295 → 229**。判定=**機械訊號**:將全 repo 追蹤文字檔(排除既有 archive)讀為單一語料,逐檔比對其**檔名與完整路徑**是否出現於其中 → 零命中才列候選,再依目錄性質與最後 commit 日期分組、僅搬一次性產物類。⚠️ **未逐檔閱讀內容**;日後發現誤判直接 `git mv` 搬回即可。完整原始路徑清單見該目錄 `README.md`。
