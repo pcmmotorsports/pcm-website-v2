@@ -150,9 +150,9 @@
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `f0388c0` | docs(docs): RF2a-0+S2 已 apply production + 交易模擬與驗證紀錄 [M-3] | 2026-07-25 |
 | `03e4c13` | docs(handoff): S2 前置 A-D 全數機械驗證通過 + apply 前連通實證 200 [M-3] | 2026-07-25 |
 | `a698ba8` | feat(schemas): RF2a-0 orders 凍結運費規則與配送方式三欄+trigger [M-3] | 2026-07-25 |
-| `0673312` | fix(schemas): #216 運費 drift gate anchor 改對照最新 create_order 定義檔 [M-3] | 2026-07-25 |
 
 ## 下一步
 ✅ **RF1 退款金額+運費重算引擎 ✅ 收工(`ccad329`)** — 退刷線第 1 片、高風險片、純 domain 函式(零 DB/零 migration/零 UI/**尚未被任何地方呼叫**)。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變自驗 20 組全數有效**。**五輪審查**(codex 關卡1 R1/R2 → code-reviewer opus → codex 關卡2 R1/R2/R3〔R3 Sean 特別授權破例〕)、**31 must-fix + 9 nit 全折入**;🔴 **其中質疑核心公式/金額正確性/Q6=B 架構的:0 條**;另 1 條 codex 誤判經實查駁回。🔴 **四次突變「初版 0 紅」= 真假綠**(守門存在但移除後測試全綠;3 次根因是**遮蔽**——另一道守門先擋或回同一 kind)。plan 真權威=`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` **v8**。🔴 **第 31 條 = R3-5(#216 gate anchor 對照錯對象)不在 `ccad329` 內、修在後續 commit**(見「最後更新」本 commit 條);R3 由兩個並行視窗各跑一次 codex(白付一次)、只有多問「前兩輪修法是否成立」的那邊抓到 R3-5。
