@@ -56,6 +56,35 @@ describe('付款軸狀態機', () => {
       expect(canPaymentTransition('paid', 'paid')).toBe(false); // 自我轉移
       expect(canPaymentTransition('unpaid', 'unpaid')).toBe(false);
     });
+
+    // ── M-3 RF2a:partiallyRefunded(Sean 2026-07-25 Q1=A)────────────────────
+    it('partiallyRefunded 前向邊合法(paid → partiallyRefunded → refunded)', () => {
+      expect(canPaymentTransition('paid', 'partiallyRefunded')).toBe(true);
+      expect(canPaymentTransition('partiallyRefunded', 'refunded')).toBe(true);
+    });
+
+    it('🔴 partiallyRefunded 自我轉移合法 = 同一單可多次部分退', () => {
+      // PRD §0 邊界①:多次連續部分退、每次以當下剩餘餘額重算運費。
+      // 第二次退款時 from 與 to 都是 partiallyRefunded ⇒ 不開自我轉移則合法業務流程被擋。
+      expect(canPaymentTransition('partiallyRefunded', 'partiallyRefunded')).toBe(true);
+    });
+
+    it('🔴 自我轉移例外僅限 partiallyRefunded — 其餘 4 值仍全非法', () => {
+      // 守門本條的理由:若有人把例外誤實作成「from === to 一律放行」,
+      // 上面那條照樣綠、整條禁自我轉移規則卻已被拆掉 ⇒ 需要本條才殺得死。
+      expect(canPaymentTransition('paid', 'paid')).toBe(false);
+      expect(canPaymentTransition('unpaid', 'unpaid')).toBe(false);
+      expect(canPaymentTransition('partiallyPaid', 'partiallyPaid')).toBe(false);
+      expect(canPaymentTransition('refunded', 'refunded')).toBe(false);
+    });
+
+    it('partiallyRefunded 的非法邊(不可回 paid / 回未付 / 倒回 partiallyPaid / 未付即退 / 終態後)', () => {
+      expect(canPaymentTransition('partiallyRefunded', 'paid')).toBe(false);
+      expect(canPaymentTransition('partiallyRefunded', 'unpaid')).toBe(false);
+      expect(canPaymentTransition('partiallyRefunded', 'partiallyPaid')).toBe(false);
+      expect(canPaymentTransition('unpaid', 'partiallyRefunded')).toBe(false);
+      expect(canPaymentTransition('refunded', 'partiallyRefunded')).toBe(false);
+    });
   });
 
   it('assertPaymentTransition 非法 throw OrderError illegal_payment_transition', () => {
@@ -143,7 +172,13 @@ describe('雙軸獨立', () => {
   });
 
   // 型別層雙軸完整性:確保兩 enum 互不污染(編譯期已擋、此處 runtime 抽樣)
-  const allPayment: PaymentStatus[] = ['unpaid', 'paid', 'partiallyPaid', 'refunded'];
+  const allPayment: PaymentStatus[] = [
+    'unpaid',
+    'paid',
+    'partiallyPaid',
+    'refunded',
+    'partiallyRefunded',
+  ];
   const allFulfillment: FulfillmentStatus[] = [
     'notOrdered',
     'ordered',

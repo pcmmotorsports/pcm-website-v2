@@ -1,0 +1,45 @@
+-- M-3 RF2a-1:payment_status enum 加第 5 值 'partiallyRefunded'
+--
+-- 目的:退刷線 D1=B「部分退款(依品項)」需要一個介於 paid 與 refunded 之間的狀態。
+--       收 backlog #26(2026-05-02 M-0-06 §8.4 deep audit 開立、當時判「M-3-08 實作 refund 時依實況評估」)。
+-- 拍板:Sean 2026-07-25 Q1=A(允許自我轉移,多次部分退都停在本狀態)。
+--       plan 真權威 = docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md §5.1。
+-- 依賴:20260604120000_m3_s2a_orders_order_items.sql:50(CREATE TYPE payment_status,原 4 值)。
+-- 鐵則:12 ①錢(payment_status = 金流紅線欄)+ ③DB 結構。高風險片、審查不降級。
+--
+-- ────────────────────────────────────────────────────────────────────────────
+-- 🔴 為何本檔「只有一句」且「刻意不包 BEGIN/COMMIT」
+-- ────────────────────────────────────────────────────────────────────────────
+-- PostgreSQL 17 官方文件(sql-altertype Notes)逐字:
+--   "If ALTER TYPE ... ADD VALUE (the form that adds a new value to an enum type)
+--    is executed inside a transaction block, the new value cannot be used until
+--    after the transaction has been committed."
+--
+-- ⇒ 新值在「加它的那個交易」內不可被使用。連帶三個後果:
+--   ① 本檔不自帶 BEGIN/COMMIT —— 包了也無實益,且會讓「同交易內順便用一下新值」的寫法直接失敗。
+--   ② 本檔**不可**與 20260725130100(帳本表)合併 —— 合併後該檔若有任何語句引用新值即失敗。
+--      (實際上帳本表刻意不引用本值、status 走自己的 text CHECK,故兩檔之間無 enum 依賴、只有邏輯先後。)
+--   ③ 🔴 **本檔無法做 PCM 慣用的交易模擬**(BEGIN → 套用 → 用新值插合成資料 → 驗 → RAISE 回滾):
+--      「用新值插資料」那一步在同交易內物理上做不到。
+--      ⇒ 驗證改走 Supabase preview branch 實測(Sean 2026-07-25 Q3=A);
+--      ⇒ **任何交付物、commit 訊息、報告都不得宣稱本檔做過交易模擬**。
+--
+-- 本 repo 在此之前 **零 ALTER TYPE ... ADD VALUE 先例**(2026-07-25 實查 supabase/migrations/*.sql)。
+--
+-- ────────────────────────────────────────────────────────────────────────────
+-- 🔴 不可逆(rollback 誠實說明)
+-- ────────────────────────────────────────────────────────────────────────────
+-- PostgreSQL **不支援移除 enum 值**。本檔沒有真正的 rollback:
+--   - 不能 ALTER TYPE ... DROP VALUE(語法不存在)。
+--   - 唯一「撤除」途徑 = 重建整個 type 並改寫所有依賴欄位/函式,在 live 金流表上屬高風險大手術。
+-- ⇒ 實務 rollback = **停止使用該值**(TS 側移除、不寫入),DB 留一個沒人用的 enum 值(無功能影響)。
+-- ⇒ Sean 2026-07-25 已於 plan §11 R1 知情接受此不可逆性。
+--
+-- ────────────────────────────────────────────────────────────────────────────
+-- 冪等與排序
+-- ────────────────────────────────────────────────────────────────────────────
+-- IF NOT EXISTS ⇒ 重跑為空轉(db push 重放安全)。
+-- 不使用 BEFORE/AFTER 定位 ⇒ 新值 enumsortorder = 5(排在 refunded 之後)。
+--   已實查 repo 內無任何依賴 payment_status enum 排序的邏輯(排序只影響 ORDER BY 該欄的結果)。
+
+ALTER TYPE public.payment_status ADD VALUE IF NOT EXISTS 'partiallyRefunded';

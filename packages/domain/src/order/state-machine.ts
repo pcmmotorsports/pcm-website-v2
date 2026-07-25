@@ -22,16 +22,24 @@ import { OrderError } from './errors';
  * 前向邊(partial capture / 退款),構成一致的付款生命週期 DAG、避免亂跳:
  * - `unpaid` → `paid`(主路徑)/ `partiallyPaid`(部分入帳、保留)
  * - `partiallyPaid` → `paid`(補足)/ `refunded`(退剩餘、保留)
- * - `paid` → `partiallyPaid`(部分退款、保留)/ `refunded`(全額退款、保留)
+ * - `paid` → `partiallyPaid`(部分入帳更正、保留)/ `refunded`(全額退款)/ `partiallyRefunded`(部分退款,M-3 RF2a)
+ * - `partiallyRefunded` → `partiallyRefunded`(🔴 **自我轉移**,見下)/ `refunded`(退到剩餘為 0)
  * - `refunded` → ∅(終態)
  *
  * 隱含非法(throw):任何 `→ unpaid`(不可回退未付)、`unpaid → refunded`(未付不可退)、
- * `refunded → *`(終態)、自我轉移。
+ * `refunded → *`(終態)、自我轉移 —— **唯一例外 = `partiallyRefunded → partiallyRefunded`**。
+ *
+ * 🔴 該例外的理由(Sean 2026-07-25 Q1=A、M-3 RF2a):PRD §0 邊界①拍板支援「多次連續部分退,
+ * 每次以退款當下剩餘餘額重算運費」。第二次部分退時 from 與 to 都是 `partiallyRefunded`,
+ * 若不開自我轉移則合法業務流程會被 `assertPaymentTransition` 擋掉。
+ * 替代案(先回 `paid` 再轉)已被否決:會在稽核留下「退款後客人又付款」的假象。
+ * ⚠️ 例外**僅限此值**;其餘 4 值仍不得自我轉移(靠本表不列自己達成,見同檔測試的負向斷言)。
  */
 const PAYMENT_TRANSITIONS: Record<PaymentStatus, readonly PaymentStatus[]> = {
   unpaid: ['paid', 'partiallyPaid'],
   partiallyPaid: ['paid', 'refunded'],
-  paid: ['partiallyPaid', 'refunded'],
+  paid: ['partiallyPaid', 'refunded', 'partiallyRefunded'],
+  partiallyRefunded: ['partiallyRefunded', 'refunded'],
   refunded: [],
 };
 

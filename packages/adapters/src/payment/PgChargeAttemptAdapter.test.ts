@@ -474,6 +474,35 @@ describe('PgChargeAttemptAdapter.findActiveByOrderId(parseActiveAttempt;R2a acti
     },
   );
 
+  // 🔴 M-3 RF2a:PAYMENT_STATUSES 是手抄的 fail-closed 白名單(readonly PaymentStatus[]),
+  //    少列一個值**不是型別錯誤** ⇒ typecheck 抓不到。漏抄的後果不是顯示問題,而是
+  //    該狀態訂單只要有 active charge attempt 就 ChargeAttemptParseError throw、付款流程直接斷。
+  //    本測試**硬編碼全 5 值**(刻意不從 adapter 常數或型別衍生,否則同源假綠),
+  //    PaymentStatus 加值而忘了同步該陣列時會轉紅。
+  it.each([
+    'unpaid',
+    'paid',
+    'partiallyPaid',
+    'refunded',
+    'partiallyRefunded',
+  ] as const)('🔴 order_payment_status=%s → 解析成功(fail-closed 白名單須涵蓋全 enum)', async (ps) => {
+    const { client } = makeClient({
+      query: async () => beginRows({ ...ACTIVE_BASE, status: 'pending', order_payment_status: ps }),
+    });
+    const res = await new PgChargeAttemptAdapter('conn', () => client).findActiveByOrderId(ORDER);
+    expect(res?.orderPaymentStatus).toBe(ps);
+  });
+
+  it('🔴 未知 payment_status 仍 fail-closed throw(白名單不是裝飾)', async () => {
+    const { client } = makeClient({
+      query: async () =>
+        beginRows({ ...ACTIVE_BASE, status: 'pending', order_payment_status: 'bogus_status' }),
+    });
+    await expect(
+      new PgChargeAttemptAdapter('conn', () => client).findActiveByOrderId(ORDER),
+    ).rejects.toThrow();
+  });
+
   it('RPC NULL → null(無單 / 無 active attempt)', async () => {
     const { client } = makeClient({ query: async () => ({ rows: [{ result: null }] }) });
     const res = await new PgChargeAttemptAdapter('conn', () => client).findActiveByOrderId(ORDER);

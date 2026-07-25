@@ -26,12 +26,17 @@ const PAID_FULFILLMENT_LABEL: Record<FulfillmentStatus, string> = {
  * | refunded | (任意) | 已退款 |
  * | unpaid | (任意) | 待付款 |
  * | partiallyPaid | (任意) | 付款確認中 |
+ * | partiallyRefunded | (任意) | 已退部分 |
  * | paid | notOrdered | 已付款 訂單處理中 |
  * | paid | ordered | 訂單處理中 |
  * | paid | inStock | 備貨完成‧待出貨 |
  * | paid | shipped | 商品寄出 |
  *
- * exhaustive:switch 覆蓋全 4 PaymentStatus + `never` 守門(新增 enum 值未處理 → 編譯期紅);
+ * 🔴 `partiallyRefunded`(M-3 RF2a)比照 `refunded`/`unpaid`/`partiallyPaid`:**付款軸壓過出貨軸**、
+ * 不細分 fulfillment。誠實限制:部分退款後訂單仍有保留品項在跑出貨流程,單一「已退部分」字串
+ * **看不出剩餘品項進度** —— 該顯示屬 RF6(後台退款 UI)範圍,本片不處理、也不假裝已處理。
+ *
+ * exhaustive:switch 覆蓋全 5 PaymentStatus + `never` 守門(新增 enum 值未處理 → 編譯期紅);
  * `partiallyPaid` 顯式回「付款確認中」、絕不 fall-through 成空字串(codex M1)。
  * 終態用「商品寄出」;design mock 的「已完成」無後台對應狀態(fulfillment 終態僅 shipped)→ 不產「已完成」。
  *
@@ -48,6 +53,8 @@ export function orderStatusLabel(
       return '待付款';
     case 'partiallyPaid':
       return '付款確認中';
+    case 'partiallyRefunded':
+      return '已退部分';
     case 'paid':
       return PAID_FULFILLMENT_LABEL[fulfillment];
     default: {

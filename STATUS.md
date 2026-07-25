@@ -20,6 +20,18 @@
 **Branch:** dev
 
 ## 最後更新
+2026-07-25(**本 commit**;M-3 **RF2a「退款帳本 + partiallyRefunded enum」✅ code 收工** — 高風險片〔鐵則 12 ①錢 payment_status 金流紅線欄 + ③DB 結構〕;**未 push、未 apply production、未開 flag、未動 `.env*`**)— 退刷線第 3 片(RF1 → RF2a-0 → **RF2a**)。
+**① 兩支 migration**:`20260725130000`(enum 加第 5 值 `partiallyRefunded`,收 backlog #26)+ `20260725130100`(帳本兩表 `order_refunds` / `order_refund_items` + 複合 FK + 兩個 DEFERRED CONSTRAINT TRIGGER + 狀態轉移 trigger + RLS zero-policy + 7 段 fail-closed 斷言)。🔴 **拆兩支的硬理由**:PG 官方逐字「`ALTER TYPE ... ADD VALUE` 在交易內加的新值,**要 COMMIT 後才能使用**」⇒ **本片無法做 PCM 慣用的交易模擬**(RF2a-0 靠它把 B3 從推論升級為實證),改走 preview branch;**任何交付物不得宣稱本片做過交易模擬**。repo 內 `ADD VALUE` 零先例。
+**② Sean 四拍板**:Q1=A `partiallyRefunded` **允許自我轉移**(多次部分退都停在本狀態、全 5 值唯一例外)/ Q2=A 同片改 TS / Q3=A 拆兩支 + preview branch / Q4=B **不拆片、知情接受超鐵則 4**(折入審查後估 50-60 分)。拍板落 memory `project_m3-rf2a-refund-ledger-decisions`。
+**③ 審查**:codex 關卡1 **R1 NO-GO 14 must-fix + 4 nit → 折入 v2 → R2 NO-GO(11 條 HOLDS / 4 條 INADEQUATE + 2 新)→ 折入 v3**;plan 層 2 輪上限用盡、依規則不跑 R3。🔴 **R2 抓到的硬錯**:v2 的「一致性 trigger」若只掛子表,**「零明細 header」永遠不觸發** ⇒ 空單頭完全擋不住 → v3 改為 header + child **兩個** trigger、child 含 `OR DELETE`。🔴 **我自己的錯**:v1 寫「表名全 repo 零命中」**未實跑 grep**(實際 STATUS.md:163 就有)→ v2 更正為「schema 層零命中」。🔴 **codex 也錯一條**(稱 codegen 慣例是 `--linked`,實為 `--project-id` 且檔頭明文禁 `--linked`)→ 駁回,改採 repo 慣例手加。
+**④ TS 同步 11 項**(Q2=A):型別 union / 狀態機轉移表與註解 / **`PgChargeAttemptAdapter.ts:310` 手抄白名單**(🔴 `readonly PaymentStatus[]` 少一個元素**不是型別錯誤**=靜默,漏改則該狀態訂單有 active attempt 即 throw)/ admin 值域陣列 + label / storefront switch + 註解表 / `order-display.test.ts` **16→20 組**含 `toHaveLength` 硬斷言 / `workflow-select-options` catch-all 註記 / `database.types.ts` 手加兩處(**不重 gen**:`--project-id` 指向尚未 apply 的 production、會拿回 4 值)/ **ADR-0003 §3.2 對照表**(backlog #26 明列、plan 原漏)/ 3 個測試檔。
+**⑤ 驗證**:三綠 typecheck **8/8** · lint **10/10** · build **2/2**(全 0 cached)、full test **252 檔 2945 passed + 1 todo**(前片 2930、+15)、`git diff --check` 乾淨。**TS 突變 4/4 全紅**(白名單漏值 / 移除自我轉移 / 自我轉移誤開給所有值 / admin 陣列漏值),每組還原後 shasum 一致;🔴 **M6 特別重要**:補獨立硬斷言**前**它是綠的(假綠實錘)、補後轉紅。
+**⑥ preview branch 實測**(`acfzyhavudpnyyaejyeb`、用畢已刪;$0.01344/hr):enum 5 值、**新值可用性實測成功**、正向 3 組全過(Sean 範例 **2900**、負 delta −100、delta 0)、負向 11 條、ACL 以 `SET LOCAL ROLE service_role` 實測 INSERT/UPDATE/DELETE 皆 **42501**、SELECT 正常。
+🔴 **⑥-a 過程誠實紀錄**:首輪 11 條負向「全紅」是**假的** —— `SET CONSTRAINTS ALL IMMEDIATE` 下 INSERT header 當場炸「沒有明細」,後面明細根本沒跑 ⇒ 5 條測的都是同一條防線(**遮蔽**,RF1 教訓的 DB 版再現)。全部改為獨立交易 + DEFERRED + **每條只違反一項**重測才成立。
+🔴 **⑥-b 兩條「揭示成立」的反面實證**:①欄級 grant 只有 `attacl` 抓得到 —— 實測 `attacl`=**1 筆**、`role_table_grants`=**0 筆**、`relacl`=**0 筆** ⇒ 證明 codex R2 判 v2 斷言 INADEQUATE 屬實 ②**跨次累積超退確實不擋** —— 原始數量 1、已退 1,換一個 `bank_refund_id` 再退 1 **成功**(`over_refunded=true`)⇒ **RF2b 落地前不得宣稱帳本已防超退**。
+⚠️ **⑥-c 環境邊界**:branch 自動套 main migration 歷史時 `MIGRATIONS_FAILED`、停在 `20260712142722`(**既有問題、非本片**,我的兩支離該點 30+ 支)⇒ 實測 schema **落後 production 30 餘支**,結論僅及於「本片兩支 migration 的行為」,**不可宣稱已在等同 production 的環境驗過**。另:檔內顯式 `BEGIN/COMMIT` 本次**未被直接執行驗證**(MCP 自帶交易),其作用對象是 `db push`。
+🔴 **剩項**:`db push` 兩支 = **Sean 手動**;帳本兩表**零寫入端**(刻意,RF2b 才寫)⇒ apply 後無真資料可驗、只能驗結構。plan 真權威 = `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md` v3(§13/§14 折入紀錄、§15 實測紀錄)。
+
 2026-07-25(`1dcef06` 主體 + `5827dbf` STATUS 補 + **本 commit** graphify 同步;**docs 清理封存 + 路由補登** — 輕量片、**零程式碼變更、零 migration、零 DB、零 flag、未動 `.env*`**)— 與 M-3 主線無關的整理片,Sean 07-25 拍板執行。
 **① 66 檔 `git mv` 進 `docs/archive/2026-07-25-docs-cleanup/`(零刪除)**:recon 8 / reviews 10 / audits 1 / handoff 47;`docs/` 追蹤檔(排除 archive)**295 → 229**。判定=**機械訊號**:將全 repo 追蹤文字檔(排除既有 archive)讀為單一語料,逐檔比對其**檔名與完整路徑**是否出現於其中 → 零命中才列候選,再依目錄性質與最後 commit 日期分組、僅搬一次性產物類。⚠️ **未逐檔閱讀內容**;日後發現誤判直接 `git mv` 搬回即可。完整原始路徑清單見該目錄 `README.md`。
 **② C 組=反向處置(不是封存、是補連結)**:`docs/patterns/index.md` 與 `docs/runbooks/supplier-storefront-onboarding.md` 雖零引用但**內容現行有效**(前者自述為「給從零進入此 repo 的新 Claude」的目錄索引;後者為 2026-07-24 一次上三家品牌踩坑後寫成的單一入口 runbook)→ **補進 `CLAUDE.md` 路由表兩行**,實測 `test -f` 兩目標檔皆存在。
@@ -160,7 +172,11 @@
 ✅ **RF2a-0 ✅ code 收工(`a698ba8`)+ ✅ 已 apply production(2026-07-25、詳「最後更新」`f0388c0` 條)**:三欄 + `orders` 第一個 trigger + 三方 gate;審查鏈 codex 兩輪 FAIL → Fable R1 NO-GO → **Fable R2 GO**。apply 前跑正式站交易模擬 PASS(零留痕)、Sean 拍 A 接受兩項殘餘風險、`db push --include-all` 連同 S2 一併套用、apply 後獨立驗證全綠。
 🔴 **RF2a-0 唯一剩項 = 1 元商品真刷 smoke(不可跳)**:模擬與 apply 後驗證用的都是**合成單**,整支 migration **從未被真實 `create_order` 走過** ⇒ 下一筆真訂單成立後須查其 `shipping_method_at_checkout` 有值且等於 `shipping_method`,才可稱「新 trigger 沒把結帳弄壞」。
 ✅ **S2 pg_cron 亦於同批 apply 並完成端到端實證**:兩 job active、`cron.job_run_details` 實跑 succeeded、`net._http_response` **200** + `{"enabled":false,"skipped":"sweeper_disabled"}`、`http_request_queue`=0;`vercel.json` 舊 crons 已移除且該 commit 已在 `origin/main`(S4 開 flag 的硬前置成立)。**flag 仍全關**。
-🔴 **下一片 = RF2a**(退款帳本 `order_refunds` 表 + `bank_refund_id` 唯一鍵 ≤20 字元 + `partiallyRefunded` enum,Q1=A、收 backlog #26)→ **需 Sean db push**。逐片起手見交接包 `docs/handoff/2026-07-25-rf1-refund-engine-handoff.md` §5。
+✅ **RF2a ✅ code 收工(本 commit)**:兩支 migration(enum 加值 + 帳本兩表)+ TS 同步 11 項 + 三綠 + full 2945 + TS 突變 4/4 + preview branch 實測(詳「最後更新」)。**未 push、未 apply**。
+🔴 **下一片 = RF2b**(退款 RPC `admin_refund_order_items` + `admin_cancel_order`:SECURITY DEFINER + `FOR UPDATE` + CAS + SQL 側重算驗證 + 同交易更新 orders 三金額欄〔Q2=A〕+ audit)→ **需 Sean db push + 交易模擬**。
+🔴 **RF2b 的四個硬前置(RF2a 明確移交、不可遺漏)**:①同交易 `JOIN orders` 驗 `shipping_fee_before` 與重算後 `shipping_fee_after`(帳本只有值域上界、**未與 orders 綁定**)②**跨次累積超退驗證 + 鎖策略**(DB 層不擋、已實證 `over_refunded=true`;需 `FOR UPDATE` 鎖 `order_items`,與 RPC 同片設計)③`quantity`/`unit_price` 先在 RPC 驗並回可讀 rejection kind(DB trigger 會 `RAISE`、後台只會看到 500)④`kind` 分類鏡像 RF1 §3.3-10b。
+🔴 **RF8 前置**:狀態只能 `processing → confirmed|failed`(DB trigger 硬擋),覆核須先讀狀態、已終態則 no-op,不可盲目 UPDATE。
+🔴 **正式站 apply 後**:重跑 `database.types.ts` codegen 對齊(本片為避開「production 尚未 apply → 重 gen 拿回 4 值」而手加兩處)。
 
 🔴🔴 **2026-07-25 規劃產出(等 Sean 拍板者已全數答畢、見下)**:
 - **① 退刷自動化線**:Sean 拍板 **Q1=A partiallyRefunded enum / Q2=A RPC 同交易更新三金額欄 / Q3=B 支援部分數量退 / Q4=A 不 step-up / Q5=A 隔日覆核+失敗回滾告警 / Q6=B 下單凍結運費規則**(PRD `docs/specs/2026-07-24-refund-automation-line-prd.md` §0b/§0c = 權威)。拆片重定為 **RF1→RF2a-0→RF2a→RF2b→RF3→RF4→RF5→RF6→RF7→RF8**(RF2a-0 為 Q6=B 衍生新片、走 **B3 欄位 DEFAULT 凍結、零 create_order 改動**)。**RF1 plan 已過 codex 關卡1 兩輪**(R1 FAIL 8 + R2 FAIL 4、12 findings 全折入)→ ✅ **Sean 已拍 A 開工、RF1 已收工 `ccad329`**(此處原寫「等 Sean 答」已過期;plan 現行版本 **v8**)。
@@ -191,6 +207,7 @@
 
 ## Sean 待決策
 ✅ **2026-07-25 七題全部已答**(拍板落檔:退刷線 PRD §0b/§0c + 全站規劃 §0b):Q1=A 直接開工 RF1(✅ 已收工 `ccad329`)/ Q2=A 先修搜尋 + 🔴 追加「模糊搜尋涵蓋內文·標題·料號·車款·年份·類似關鍵字」/ Q3=A 沿用 ADR-0004 **Supabase Storage**(不推翻)/ Q4=A Unsplash 先轉存自有空間避熱連結破圖 / Q5=A 內容走**草稿→預覽→發布→可回滾**、AI 改的一律先當草稿 / **Q6=B 完整手動商品**(公開可搜尋·可下單·可管庫存·可下架;範圍擴張、Sean 知情)/ Q7-1=A 手動商品價格走後台專屬表單+完整紀錄、Q7-2=B 首頁內容一季 1-3 次=**L2**(⇒ 內容管理非鐵則 9 強制、讓位給搜尋與商品)。另 Sean 授權 **codex 關卡2 破例第三輪**(RF1)。
+🆕 **RF2a 兩支 migration 待 Sean `db push`**(`20260725130000` enum 加值 + `20260725130100` 帳本兩表)。🔴 **`ADD VALUE` 不可逆**(PG 不支援移除 enum 值;rollback = 停用該值、DB 留一個沒人用的值)——plan §11 R1 已揭示、Sean 批 plan 時知情。順序:先 `130000` 後 `130100`(兩支無 enum 依賴、僅邏輯先後)。
 🔴 **仍需 Sean 動手的**:①~~RF2a-0 的 db push~~ **✅ 2026-07-25 已完成**(連同 S2;拍 A 接受兩項殘餘風險)→ 改為 **1 元商品真刷 smoke**(驗新 trigger 沒弄壞結帳)②admin Vercel TapPay env(RF4)③**E0 開工前四題**(詳 `docs/specs/2026-07-25-search-engine-options-recon.md` §5)。
 🆕 **2026-07-25 新增一題(非阻擋)**:`db push` 因 **migration 版本漂移**罷工一次(K-SPEED seed 07-24 走 MCP `apply_migration` 被自動重新編號)。memory 早有「正式 schema 用 db push 別用 MCP」但**無機制擋** ⇒ 是否加一道 CI 檢查(比對本地檔名 vs remote `schema_migrations`,對不上即紅)?**A=加(機制優先律)/ B=先不加、靠人記得**。
 

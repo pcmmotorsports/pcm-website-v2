@@ -306,8 +306,23 @@ function parseBeginResult(rows: Array<Record<string, unknown>>): BeginChargeAtte
   return { acquired: false, reason: r.reason };
 }
 
-/** 合法 PaymentStatus 值(對齊 orders.payment_status enum;fail-closed 驗證用)。 */
-const PAYMENT_STATUSES: readonly PaymentStatus[] = ['unpaid', 'paid', 'partiallyPaid', 'refunded'];
+/**
+ * 合法 PaymentStatus 值(對齊 orders.payment_status enum;fail-closed 驗證用)。
+ *
+ * 🔴 **這份清單是手抄的,typecheck 抓不到漏抄** —— 型別是 `readonly PaymentStatus[]`,
+ * 少列一個值不是型別錯誤(陣列元素數量不受 union 約束)。而 `parseActiveAttempt` 拿它做
+ * fail-closed 驗證:DB 有某狀態、這裡沒列 → 該訂單只要有 active charge attempt 就會
+ * `ChargeAttemptParseError` throw、付款流程直接斷。
+ * ⇒ **`PaymentStatus` 每次加值,必須手動同步本行**(對照 `Record<PaymentStatus, T>` 那種寫法會編譯錯、
+ *   會自己喊;陣列型不會)。M-3 RF2a 加 `partiallyRefunded` 時即為此類。
+ */
+const PAYMENT_STATUSES: readonly PaymentStatus[] = [
+  'unpaid',
+  'paid',
+  'partiallyPaid',
+  'refunded',
+  'partiallyRefunded',
+];
 
 /** 解析 get_active_charge_attempt RPC jsonb;RPC RETURN NULL → null;形狀不符 → throw(通用)。 */
 function parseActiveAttempt(rows: Array<Record<string, unknown>>): ActiveChargeAttempt | null {

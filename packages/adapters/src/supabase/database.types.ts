@@ -1706,7 +1706,7 @@ export type Database = {
       fulfillment_status: "notOrdered" | "ordered" | "inStock" | "shipped"
       invoice_type: "personal" | "company" | "donate"
       member_tier: "general" | "store" | "premiumStore"
-      payment_status: "unpaid" | "paid" | "partiallyPaid" | "refunded"
+      payment_status: "unpaid" | "paid" | "partiallyPaid" | "refunded" | "partiallyRefunded"
       wallet_entry_type: "deposit" | "use" | "refund"
     }
     CompositeTypes: {
@@ -1838,7 +1838,7 @@ export const Constants = {
       fulfillment_status: ["notOrdered", "ordered", "inStock", "shipped"],
       invoice_type: ["personal", "company", "donate"],
       member_tier: ["general", "store", "premiumStore"],
-      payment_status: ["unpaid", "paid", "partiallyPaid", "refunded"],
+      payment_status: ["unpaid", "paid", "partiallyPaid", "refunded", "partiallyRefunded"],
       wallet_entry_type: ["deposit", "use", "refund"],
     },
   },

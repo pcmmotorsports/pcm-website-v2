@@ -224,6 +224,21 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
   it('付款狀態', () => {
     for (const v of PAYMENT_STATUS_VALUES) expect(PAYMENT_STATUS_LABEL[v]).toBeTruthy();
   });
+
+  // 🔴 上一條從 PAYMENT_STATUS_VALUES 迴圈衍生 ⇒ 陣列漏加值時它**照樣全綠**(假綠:
+  //    少一個元素既不是型別錯誤、也不會讓迴圈失敗)。本條改用**獨立硬編碼期望**,
+  //    與該陣列無衍生關係 ⇒ PaymentStatus 加值而忘了同步 PAYMENT_STATUS_VALUES 時會轉紅。
+  //    (M-3 RF2a 加 partiallyRefunded 時補;plan §9.2 M6 的殺手測試。)
+  it('付款狀態 — 值域獨立斷言(不從 PAYMENT_STATUS_VALUES 衍生)', () => {
+    expect(PAYMENT_STATUS_VALUES).toHaveLength(5);
+    expect([...PAYMENT_STATUS_VALUES].sort()).toEqual([
+      'paid',
+      'partiallyPaid',
+      'partiallyRefunded',
+      'refunded',
+      'unpaid',
+    ]);
+  });
   it('出貨狀態', () => {
     for (const v of FULFILLMENT_STATUS_VALUES) expect(FULFILLMENT_STATUS_LABEL[v]).toBeTruthy();
   });

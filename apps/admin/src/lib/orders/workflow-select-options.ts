@@ -30,13 +30,17 @@ function isUnpaidSide(code: string): boolean {
  * - cancelled → 恆 true(雙邊、Sean Q2=A);
  * - paid → 藏未收半邊(只留已收半邊 + 中性);
  * - unpaid → 藏已收半邊(只留未收半邊 + 中性);
- * - partiallyPaid / refunded → 不過濾(無對應詞彙、全給 Sean 手判、Q1=A)。
+ * - partiallyPaid / refunded / partiallyRefunded → 不過濾(無對應詞彙、全給 Sean 手判、Q1=A)。
+ *
+ * 🔴 M-3 RF2a 加入 `partiallyRefunded` 後**行為刻意不變**:它落在最後的 catch-all、不過濾。
+ * 理由=部分退款後訂單仍有保留品項在跑出貨流程,已收/未收半邊都可能適用,收窄反而擋掉合法選項。
+ * ⚠️ 日後若把 catch-all 改成逐值列舉或收緊分流,**必須同時決定此值的歸屬**,否則會靜默改變行為。
  */
 function isVisibleForPayment(code: string, paymentStatus: PaymentStatus): boolean {
   if (NEUTRAL_CODES.has(code)) return true;
   if (paymentStatus === 'paid') return !isUnpaidSide(code);
   if (paymentStatus === 'unpaid') return isUnpaidSide(code);
-  return true; // partiallyPaid / refunded
+  return true; // partiallyPaid / refunded / partiallyRefunded
 }
 
 /**

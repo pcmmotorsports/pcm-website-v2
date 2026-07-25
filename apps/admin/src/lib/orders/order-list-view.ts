@@ -43,11 +43,15 @@ export const WORKFLOW_STATUS_UNSET_VALUE = 'unset';
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
+// 🔴 手抄清單、typecheck 抓不到漏抄(`readonly PaymentStatus[]` 少一個元素不是型別錯誤)。
+//    漏抄的後果:新狀態不出現在後台篩選下拉,且 `?payment_status=<新值>` 會被 pickEnum 白名單靜默丟棄。
+//    ⇒ PaymentStatus 每次加值必須手動同步本陣列(M-3 RF2a 的 partiallyRefunded 即為此類)。
 export const PAYMENT_STATUS_VALUES: readonly PaymentStatus[] = [
   'paid',
   'unpaid',
   'partiallyPaid',
   'refunded',
+  'partiallyRefunded',
 ];
 export const FULFILLMENT_STATUS_VALUES: readonly FulfillmentStatus[] = [
   'notOrdered',
@@ -77,6 +81,8 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   unpaid: '待付款',
   partiallyPaid: '付款確認中',
   refunded: '已退款',
+  // M-3 RF2a:部分退款(退了一部分、訂單仍有保留品項)。與會員側 order-display.ts 同字面。
+  partiallyRefunded: '已退部分',
 };
 
 export const FULFILLMENT_STATUS_LABEL: Record<FulfillmentStatus, string> = {

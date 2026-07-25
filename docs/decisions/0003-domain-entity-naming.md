@@ -117,6 +117,13 @@ domain enum 用 PCM 業務動詞 / 名詞、不直接套用 Medusa wire 字串�
 | `unpaid` | `awaiting` | 客人錢未收 |
 | `refunded` | `refunded` | 已退款 |
 | `partiallyPaid` | `partially_captured` | 部分收款(月結) |
+| `partiallyRefunded` | —(見註) | 部分退款(退了一部分、訂單仍有保留品項) |
+
+> **註(M-3 RF2a、2026-07-25 新增,收 backlog #26)**:`partiallyRefunded` 的 wire 欄為 `—`。
+> 本表原始用途是「PCM domain 命名 vs Medusa 命名」的理據對照,而 ADR-0005 已 pivot 為 custom
+> Supabase direct、不再有 Medusa wire 對應需求;**不憑記憶填 Medusa 字面**(字面值三來源律)。
+> DB 對應 = `payment_status` enum 第 5 值(`supabase/migrations/20260725130000_...sql`)。
+> 🔴 此值**允許自我轉移**(Sean 2026-07-25 Q1=A,支援同一單多次部分退),是 5 值中唯一的例外。
 
 範例(訂單出貨狀態 — Medusa 蓋不到、PCM 自家):
 

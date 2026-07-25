@@ -23,11 +23,24 @@ export type DisplayId = string;
  * | unpaid | awaiting |
  * | partiallyPaid | partially_captured |
  * | refunded | refunded |
+ * | partiallyRefunded | —(見下) |
  *
  * Medusa wire 字串困在 adapter 內、ports / use-case / storefront 只見 domain enum。
  * 合法轉移表見 `state-machine.ts`(Phase 1 主路徑 unpaid→paid;refunded/partiallyPaid 留型別)。
+ *
+ * 🔴 `partiallyRefunded`(M-3 RF2a、2026-07-25 新增,收 backlog #26):
+ * 部分退款後的狀態(退了一部分、訂單仍有保留品項)。**wire 欄為 `—`**:ADR-0003 §3.2 原對照表
+ * 未列此值,且 ADR-0005 已 pivot 為 custom Supabase direct、不再有 Medusa wire 對應需求
+ * ——不憑記憶填 Medusa 字面。DB 對應 = `payment_status` enum 第 5 值(migration 20260725130000)。
+ * 🔴 **允許自我轉移**(Sean 2026-07-25 Q1=A):同一單可多次部分退,每次都停在本狀態;
+ * 這是全 5 值中**唯一**開此例外者,其餘值仍禁自我轉移(靠 `PAYMENT_TRANSITIONS` 不列自己達成)。
  */
-export type PaymentStatus = 'paid' | 'unpaid' | 'partiallyPaid' | 'refunded';
+export type PaymentStatus =
+  | 'paid'
+  | 'unpaid'
+  | 'partiallyPaid'
+  | 'refunded'
+  | 'partiallyRefunded';
 
 /**
  * FulfillmentStatus: 出貨狀態(domain enum、PCM 自家狀態機)。
