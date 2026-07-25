@@ -1,0 +1,1497 @@
+<title>PCM 後台重建 · 全畫面預覽</title>
+
+<style>
+  :root{
+    --paper:#EDEFF2; --surface:#FFFFFF; --surface-2:#F6F7F9;
+    --ink:#14171C; --ink-2:#586070; --ink-3:#8A92A0;
+    --line:#CBD1D9; --line-soft:#E1E5EA;
+    --accent:#BF3B12; --accent-soft:#FBEDE8;
+    --built:#1A6B4A; --built-soft:#E4F2EB;
+    --partial:#8A5A05; --partial-soft:#FAF0DC;
+    --todo:#6B7484; --todo-soft:#EDEFF3;
+    --unsure:#654BA6; --unsure-soft:#EFEAFA;
+    --sans:"PingFang TC","Noto Sans TC","Hiragino Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+    --rail:236px;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#101317; --surface:#171B21; --surface-2:#1D222A;
+      --ink:#E8EBEF; --ink-2:#9BA4B2; --ink-3:#6E7887;
+      --line:#333B46; --line-soft:#262C35;
+      --accent:#F2764A; --accent-soft:#2E1810;
+      --built:#5FC69A; --built-soft:#14291F;
+      --partial:#DDAA4E; --partial-soft:#2A2113;
+      --todo:#8C96A6; --todo-soft:#1F242C;
+      --unsure:#A992EE; --unsure-soft:#1F1A2E;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#101317; --surface:#171B21; --surface-2:#1D222A;
+    --ink:#E8EBEF; --ink-2:#9BA4B2; --ink-3:#6E7887;
+    --line:#333B46; --line-soft:#262C35;
+    --accent:#F2764A; --accent-soft:#2E1810;
+    --built:#5FC69A; --built-soft:#14291F;
+    --partial:#DDAA4E; --partial-soft:#2A2113;
+    --todo:#8C96A6; --todo-soft:#1F242C;
+    --unsure:#A992EE; --unsure-soft:#1F1A2E;
+  }
+  :root[data-theme="light"]{
+    --paper:#EDEFF2; --surface:#FFFFFF; --surface-2:#F6F7F9;
+    --ink:#14171C; --ink-2:#586070; --ink-3:#8A92A0;
+    --line:#CBD1D9; --line-soft:#E1E5EA;
+    --accent:#BF3B12; --accent-soft:#FBEDE8;
+    --built:#1A6B4A; --built-soft:#E4F2EB;
+    --partial:#8A5A05; --partial-soft:#FAF0DC;
+    --todo:#6B7484; --todo-soft:#EDEFF3;
+    --unsure:#654BA6; --unsure-soft:#EFEAFA;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--sans); font-size:15px; line-height:1.7;
+    -webkit-text-size-adjust:100%;
+  }
+  h1,h2,h3,h4{text-wrap:balance; margin:0; line-height:1.3}
+  p{margin:0}
+  a{color:inherit}
+
+  /* ---------- shell ---------- */
+  .shell{display:grid; grid-template-columns:var(--rail) minmax(0,1fr); gap:0; max-width:1360px; margin:0 auto}
+
+  .rail{
+    position:sticky; top:0; align-self:start; height:100vh; overflow-y:auto;
+    padding:28px 18px 40px; border-right:1px solid var(--line-soft);
+  }
+  .rail-brand{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--accent); margin-bottom:4px}
+  .rail-title{font-size:14px; font-weight:600; margin-bottom:18px; line-height:1.4}
+  .rail nav{display:flex; flex-direction:column; gap:1px}
+  .rail nav a{
+    display:flex; gap:9px; align-items:baseline; text-decoration:none;
+    padding:5px 8px; border-radius:5px; font-size:13px; color:var(--ink-2);
+  }
+  .rail nav a:hover{background:var(--surface); color:var(--ink)}
+  .rail nav a:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+  .rail nav a .n{font-family:var(--mono); font-size:11px; color:var(--ink-3); min-width:16px}
+  .rail nav .grp{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); padding:14px 8px 4px}
+
+  .main{padding:28px 34px 120px; min-width:0}
+
+  /* ---------- masthead ---------- */
+  .mast{margin-bottom:14px}
+  .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent)}
+  .mast h1{font-size:clamp(28px,4.4vw,44px); font-weight:650; letter-spacing:-.02em; margin:8px 0 12px}
+  .lede{font-size:17px; color:var(--ink-2); max-width:60ch}
+
+  .alarm{
+    margin:22px 0; padding:18px 20px; background:var(--accent-soft);
+    border:1px solid var(--accent); border-radius:6px;
+  }
+  .alarm h2{font-size:16px; margin-bottom:8px; color:var(--accent)}
+  .alarm p{font-size:14.5px; color:var(--ink-2)}
+  .alarm strong{color:var(--ink)}
+
+  /* ---------- scoreboard ---------- */
+  .score{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin:22px 0}
+  .score div{background:var(--surface); border:1px solid var(--line-soft); border-radius:6px; padding:13px 15px}
+  .score b{display:block; font-family:var(--mono); font-size:27px; font-weight:600; letter-spacing:-.02em; font-variant-numeric:tabular-nums; line-height:1.2}
+  .score span{font-size:12.5px; color:var(--ink-2)}
+  .score .c-built b{color:var(--built)} .score .c-partial b{color:var(--partial)}
+  .score .c-todo b{color:var(--todo)} .score .c-accent b{color:var(--accent)}
+
+  /* ---------- legend ---------- */
+  .legend{background:var(--surface); border:1px solid var(--line-soft); border-radius:6px; padding:18px 20px; margin:22px 0 34px}
+  .legend h2{font-size:14px; margin-bottom:14px}
+  .legend-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px}
+  .legend-item{display:flex; gap:11px; align-items:flex-start}
+  .swatch{width:38px; height:26px; border-radius:4px; flex-shrink:0; margin-top:2px; background:var(--surface-2)}
+  .swatch.s-live{border:2px solid var(--built)}
+  .swatch.s-part{border:2px dashed var(--partial)}
+  .swatch.s-new{border:2px dashed var(--todo)}
+  .swatch.s-ask{border:2px dashed var(--unsure)}
+  .legend-item p{font-size:12.5px; color:var(--ink-2); line-height:1.5}
+  .legend-item b{display:block; font-size:13px; color:var(--ink); font-weight:600}
+
+  /* ---------- status chips ---------- */
+  .chip{
+    display:inline-flex; align-items:center; gap:5px; white-space:nowrap;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.05em;
+    padding:2px 8px; border-radius:99px; font-weight:600;
+  }
+  .chip.live{background:var(--built-soft); color:var(--built); border:1px solid var(--built)}
+  .chip.part{background:var(--partial-soft); color:var(--partial); border:1px dashed var(--partial)}
+  .chip.new{background:var(--todo-soft); color:var(--todo); border:1px dashed var(--todo)}
+  .chip.ask{background:var(--unsure-soft); color:var(--unsure); border:1px dashed var(--unsure)}
+
+  /* ---------- section ---------- */
+  section.sheet{margin-top:56px; scroll-margin-top:20px}
+  .sheet-head{display:flex; gap:16px; align-items:baseline; border-top:2px solid var(--ink); padding-top:14px; margin-bottom:6px; flex-wrap:wrap}
+  .sheet-num{font-family:var(--mono); font-size:32px; font-weight:600; color:var(--accent); letter-spacing:-.03em; line-height:1}
+  .sheet-head h2{font-size:23px; font-weight:640; letter-spacing:-.015em; flex:1; min-width:180px}
+  .sheet-sub{font-size:14.5px; color:var(--ink-2); max-width:62ch; margin-bottom:22px}
+  .sheet-sub code{font-family:var(--mono); font-size:12.5px; background:var(--surface-2); padding:1px 5px; border-radius:3px; border:1px solid var(--line-soft)}
+
+  h3.blk{font-size:16px; font-weight:620; margin:34px 0 4px; display:flex; align-items:center; gap:10px; flex-wrap:wrap}
+  h3.blk:first-of-type{margin-top:0}
+  .blk-note{font-size:13.5px; color:var(--ink-2); margin-bottom:14px; max-width:62ch}
+
+  /* ---------- wireframe frame ---------- */
+  .wf{background:var(--surface); border-radius:7px; margin:0 0 8px; overflow:hidden}
+  .wf.live{border:2px solid var(--built)}
+  .wf.part{border:2px dashed var(--partial)}
+  .wf.new{border:2px dashed var(--todo)}
+  .wf.ask{border:2px dashed var(--unsure)}
+  .wf-bar{
+    display:flex; align-items:center; gap:8px; padding:7px 12px;
+    background:var(--surface-2); border-bottom:1px solid var(--line-soft);
+    font-family:var(--mono); font-size:11px; color:var(--ink-2);
+  }
+  .wf-bar .dots{display:flex; gap:4px}
+  .wf-bar .dots i{width:8px; height:8px; border-radius:99px; background:var(--line); display:block}
+  .wf-bar .path{flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .wf-body{padding:16px; overflow-x:auto}
+
+  /* ---------- mock UI primitives ---------- */
+  .m-row{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+  .m-row.tight{gap:6px}
+  .m-between{display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap}
+  .m-h{font-size:15px; font-weight:620}
+  .m-sub{font-size:12px; color:var(--ink-3)}
+
+  .m-btn{
+    font-family:var(--sans); font-size:12.5px; padding:5px 12px; border-radius:5px;
+    border:1px solid var(--line); background:var(--surface); color:var(--ink); white-space:nowrap;
+  }
+  .m-btn.pri{background:var(--ink); color:var(--surface); border-color:var(--ink)}
+  .m-btn.danger{border-color:var(--accent); color:var(--accent)}
+  .m-btn.ghost{border-style:dashed; color:var(--ink-2)}
+
+  .m-pill{
+    display:inline-flex; align-items:center; gap:6px; font-size:12px;
+    padding:3px 9px; border-radius:99px; background:var(--surface-2); border:1px solid var(--line);
+  }
+  .m-pill .x{color:var(--ink-3); font-family:var(--mono)}
+  .m-tag{display:inline-block; font-size:11px; padding:1px 7px; border-radius:99px; background:var(--surface-2); border:1px solid var(--line-soft); color:var(--ink-2)}
+
+  .m-tabs{display:flex; gap:2px; border-bottom:1px solid var(--line-soft); margin-bottom:12px; overflow-x:auto}
+  .m-tabs span{font-size:12.5px; padding:6px 11px; white-space:nowrap; color:var(--ink-2); border-bottom:2px solid transparent}
+  .m-tabs span.on{color:var(--ink); border-bottom-color:var(--ink); font-weight:600}
+  .m-tabs span.prop{border-bottom-style:dashed; border-bottom-color:var(--todo); color:var(--todo)}
+
+  table.m-tbl{width:100%; border-collapse:collapse; font-size:12px; min-width:520px}
+  table.m-tbl th{
+    text-align:left; font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:.03em;
+    color:var(--ink-3); padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;
+  }
+  table.m-tbl td{padding:7px 8px; border-bottom:1px solid var(--line-soft); vertical-align:top}
+  table.m-tbl td.num,table.m-tbl th.num{text-align:right; font-variant-numeric:tabular-nums; font-family:var(--mono)}
+  table.m-tbl .newcol{color:var(--todo); border-bottom:1px dashed var(--todo)}
+  table.m-tbl tr.sel td{background:var(--accent-soft)}
+
+  .m-field{margin-bottom:10px}
+  .m-field label{display:block; font-size:11.5px; color:var(--ink-2); margin-bottom:3px}
+  .m-input{
+    height:30px; border:1px solid var(--line); border-radius:5px; background:var(--surface-2);
+    display:flex; align-items:center; padding:0 9px; font-size:12.5px; color:var(--ink-2);
+  }
+  .m-input.tall{height:58px; align-items:flex-start; padding-top:7px}
+  .m-input.dash{border-style:dashed; border-color:var(--todo)}
+  .m-input .caret{margin-left:auto; color:var(--ink-3); font-family:var(--mono); font-size:10px}
+
+  .m-card{border:1px solid var(--line-soft); border-radius:6px; padding:12px 13px; background:var(--surface)}
+  .m-card.dash{border-style:dashed; border-color:var(--todo)}
+  .m-card h5{font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:0 0 8px; font-weight:600}
+  .m-kv{display:flex; justify-content:space-between; gap:12px; font-size:12px; padding:2px 0}
+  .m-kv span:first-child{color:var(--ink-3)}
+  .m-kv span:last-child{text-align:right; font-variant-numeric:tabular-nums}
+
+  .m-grid2{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+  .m-grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:10px}
+  .m-grid4{display:grid; grid-template-columns:repeat(4,1fr); gap:10px}
+  .m-split{display:grid; grid-template-columns:minmax(0,1.9fr) minmax(0,1fr); gap:14px}
+  @media (max-width:720px){
+    .m-grid4,.m-grid3{grid-template-columns:1fr 1fr}
+    .m-split{grid-template-columns:1fr}
+  }
+
+  .m-steps{display:flex; align-items:center; gap:8px; font-size:11.5px; color:var(--ink-3); font-family:var(--mono); flex-wrap:wrap}
+  .m-steps b{color:var(--ink); font-weight:600}
+  .m-steps i{font-style:normal; color:var(--line)}
+
+  .m-timeline{border-left:2px solid var(--line); padding-left:14px; display:flex; flex-direction:column; gap:9px}
+  .m-timeline div{font-size:12px; position:relative}
+  .m-timeline div::before{content:""; position:absolute; left:-19px; top:6px; width:7px; height:7px; border-radius:99px; background:var(--line); border:2px solid var(--surface)}
+  .m-timeline time{font-family:var(--mono); font-size:10.5px; color:var(--ink-3); display:block}
+
+  .m-chart{height:96px; display:flex; align-items:flex-end; gap:5px; padding-top:8px}
+  .m-chart i{flex:1; background:var(--line); border-radius:2px 2px 0 0; display:block}
+  .m-chart i.hi{background:var(--accent)}
+
+  /* pins */
+  .pin{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:17px; height:17px; border-radius:99px; background:var(--accent); color:#fff;
+    font-family:var(--mono); font-size:10px; font-weight:700; flex-shrink:0; vertical-align:1px;
+  }
+  ol.notes{list-style:none; padding:0; margin:10px 0 0; display:flex; flex-direction:column; gap:7px; counter-reset:pin}
+  ol.notes li{display:flex; gap:9px; font-size:13px; color:var(--ink-2); line-height:1.6; align-items:flex-start; counter-increment:pin}
+  ol.notes li::before{
+    content:counter(pin); flex-shrink:0; margin-top:3px;
+    display:inline-flex; align-items:center; justify-content:center;
+    width:17px; height:17px; border-radius:99px; background:var(--accent); color:#fff;
+    font-family:var(--mono); font-size:10px; font-weight:700;
+  }
+  ol.notes b{color:var(--ink); font-weight:600}
+  ol.notes code{font-family:var(--mono); font-size:12px; background:var(--surface-2); padding:1px 4px; border-radius:3px; border:1px solid var(--line-soft)}
+
+  /* phone frame */
+  .phones{display:flex; gap:18px; flex-wrap:wrap}
+  .phone{width:236px; flex-shrink:0}
+  .phone-shell{border-radius:20px; padding:9px 7px; background:var(--surface-2); border:1px solid var(--line)}
+  .phone-screen{background:var(--surface); border-radius:13px; overflow:hidden; border:1px solid var(--line-soft)}
+  .phone.new .phone-screen{border:2px dashed var(--todo)}
+  .phone.live .phone-screen{border:2px solid var(--built)}
+  .phone-cap{font-size:12px; color:var(--ink-2); text-align:center; margin-top:8px; line-height:1.5}
+  .ph-bar{display:flex; align-items:center; gap:7px; padding:8px 10px; border-bottom:1px solid var(--line-soft); font-size:12px; font-weight:600}
+  .ph-body{padding:9px}
+  .ph-card{border:1px solid var(--line-soft); border-radius:6px; padding:9px 10px; margin-bottom:7px}
+  .ph-card.dash{border-style:dashed; border-color:var(--todo)}
+  .ph-l1{display:flex; justify-content:space-between; gap:8px; font-size:12.5px; font-weight:600}
+  .ph-l2{font-size:11px; color:var(--ink-3); margin-top:2px}
+  .ph-l3{display:flex; justify-content:space-between; gap:8px; font-size:11.5px; margin-top:5px; align-items:center}
+  .ph-amt{font-family:var(--mono); font-variant-numeric:tabular-nums; font-weight:600}
+
+  /* misc blocks */
+  .rules{display:grid; grid-template-columns:repeat(auto-fit,minmax(258px,1fr)); gap:12px; margin-top:6px}
+  .rule{background:var(--surface); border:1px solid var(--line-soft); border-radius:6px; padding:13px 15px}
+  .rule b{display:block; font-size:13.5px; margin-bottom:4px}
+  .rule b::first-letter{font-family:var(--mono); color:var(--accent); font-size:15px}
+  .rule p{font-size:12.5px; color:var(--ink-2); line-height:1.6}
+
+  .asks{background:var(--unsure-soft); border:1px dashed var(--unsure); border-radius:6px; padding:14px 17px; margin-top:16px}
+  .asks h4{font-size:13px; color:var(--unsure); margin-bottom:8px; font-family:var(--mono); letter-spacing:.04em}
+  .asks ul{margin:0; padding-left:19px; font-size:13px; color:var(--ink-2); line-height:1.75}
+  .asks li::marker{color:var(--unsure)}
+
+  .warn{background:var(--accent-soft); border:1px solid var(--accent); border-radius:6px; padding:13px 16px; margin-top:14px; font-size:13.5px; color:var(--ink-2)}
+  .warn b{color:var(--accent)}
+
+  .prov{font-family:var(--mono); font-size:11.5px; color:var(--ink-3); margin-top:9px; line-height:1.7}
+
+  footer{margin-top:70px; border-top:2px solid var(--ink); padding-top:22px; font-size:13px; color:var(--ink-2)}
+  footer h2{font-size:19px; color:var(--ink); margin-bottom:12px}
+  footer ol{padding-left:20px; line-height:1.9; margin:0 0 16px}
+  footer b{color:var(--ink)}
+
+  /* mobile shell */
+  @media (max-width:900px){
+    .shell{grid-template-columns:1fr}
+    .rail{
+      position:sticky; top:0; height:auto; z-index:20;
+      background:var(--paper); border-right:0; border-bottom:1px solid var(--line);
+      padding:12px 16px;
+    }
+    .rail-title{display:none}
+    .rail-brand{margin-bottom:8px}
+    .rail nav{flex-direction:row; overflow-x:auto; gap:6px; padding-bottom:2px}
+    .rail nav .grp{display:none}
+    .rail nav a{border:1px solid var(--line-soft); background:var(--surface); border-radius:99px; padding:4px 11px; font-size:12.5px; white-space:nowrap}
+    .main{padding:22px 16px 90px}
+    .m-grid2{grid-template-columns:1fr}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important; transition:none!important}}
+</style>
+
+<div class="shell">
+
+  <aside class="rail">
+    <div class="rail-brand">PCM · 後台重建</div>
+    <div class="rail-title">全畫面預覽<br>2026-07-26</div>
+    <nav>
+      <span class="grp">總覽</span>
+      <a href="#top"><span class="n">00</span>怎麼看這份</a>
+      <span class="grp">畫面</span>
+      <a href="#s1"><span class="n">01</span>側邊選單</a>
+      <a href="#s2"><span class="n">02</span>訂單</a>
+      <a href="#s3"><span class="n">03</span>商品</a>
+      <a href="#s4"><span class="n">04</span>客戶</a>
+      <a href="#s5"><span class="n">05</span>員工與權限</a>
+      <a href="#s6"><span class="n">06</span>會計(延後)</a>
+      <a href="#s7"><span class="n">07</span>區間報表</a>
+      <a href="#s8"><span class="n">08</span>供應商</a>
+      <a href="#s9"><span class="n">09</span>手機版</a>
+      <span class="grp">附錄</span>
+      <a href="#s10"><span class="n">10</span>通用規範</a>
+      <a href="#next"><span class="n">11</span>下一步</a>
+    </nav>
+  </aside>
+
+  <main class="main" id="top">
+
+    <div class="mast">
+      <div class="eyebrow">畫面草圖 · 驗收用 · 非成品</div>
+      <h1>後台重建 · 全畫面預覽</h1>
+      <p class="lede">
+        這是「房子的平面圖」,不是蓋好的房子。目的是讓你在動工前先看一次
+        <b>每個畫面東西放在哪、按鈕長什麼樣、資訊怎麼排</b>,指出哪裡不對,我再改;
+        改到你點頭才開始寫程式。
+      </p>
+    </div>
+
+    <div class="alarm">
+      <h2>🔴 先講最重要的一件事:這裡面幾乎全部都還不存在</h2>
+      <p>
+        後台目前<strong>只有 6 個頁面</strong>(總覽首頁、訂單列表、訂單明細、客戶列表、客戶明細、訂單狀態設定)。
+        這份預覽裡出現的其他畫面 —— 商品、供應商、員工權限、會計、報表、手動建單、退款、快遞單號 ——
+        <strong>一個都還沒做</strong>。所以每張圖我都標了狀態:<b>實線框 = 今天就能點得到,虛線框 = 我畫的草圖、還不存在</b>。
+      </p>
+    </div>
+
+    <div class="score">
+      <div class="c-built"><b>6</b><span>今天真的能用的頁面</span></div>
+      <div class="c-accent"><b>28</b><span>這份預覽涵蓋的畫面</span></div>
+      <div class="c-built"><b>2</b><span>「員工的一天」已做完</span></div>
+      <div class="c-partial"><b>6</b><span>做了一半</span></div>
+      <div class="c-todo"><b>19</b><span>完全還沒做</span></div>
+    </div>
+
+    <div class="legend">
+      <h2>四種框線代表什麼</h2>
+      <div class="legend-grid">
+        <div class="legend-item">
+          <span class="swatch s-live"></span>
+          <div><b>實線綠框 · 現在就有</b><p>已經上線、你今天登入後台就點得到,長相跟這張圖一致。</p></div>
+        </div>
+        <div class="legend-item">
+          <span class="swatch s-part"></span>
+          <div><b>虛線黃框 · 做了一半</b><p>畫面在、功能缺一角。圖上會標明缺什麼。</p></div>
+        </div>
+        <div class="legend-item">
+          <span class="swatch s-new"></span>
+          <div><b>虛線灰框 · 提案要做</b><p>完全不存在。這是依規格與 Shopify / Medusa / Odoo 研究畫的提案。</p></div>
+        </div>
+        <div class="legend-item">
+          <span class="swatch s-ask"></span>
+          <div><b>虛線紫框 · 待你確認</b><p>規格沒寫到、我自己先提一版。你覺得不對就直接說。</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════════ 01 側邊選單 ══════════════ -->
+    <section class="sheet" id="s1">
+      <div class="sheet-head">
+        <span class="sheet-num">01</span>
+        <h2>側邊選單</h2>
+        <span class="chip part">部分有</span>
+      </div>
+      <p class="sheet-sub">
+        左邊那排導覽。現在只有 4 項、<b>而且沒有「商品」</b> —— 這是為什麼員工現在完全沒辦法從後台改商品。
+        新結構把功能分成五組,並把「成本」相關的項目對員工隱藏。
+      </p>
+
+      <div class="m-split">
+        <div>
+          <h3 class="blk">現在的樣子 <span class="chip live">現在就有</span></h3>
+          <p class="blk-note">來源:<code>app-sidebar.tsx:23-28</code>(4 項寫死在程式裡)</p>
+          <div class="wf live" style="max-width:270px">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">PCM 後台</span></div>
+            <div class="wf-body" style="padding:12px">
+              <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin-bottom:8px">管理</div>
+              <div class="m-input" style="background:var(--surface-2); margin-bottom:5px">總覽</div>
+              <div class="m-input" style="margin-bottom:5px">訂單</div>
+              <div class="m-input" style="margin-bottom:5px">客戶</div>
+              <div class="m-input">設定</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h3 class="blk">提案的樣子 <span class="chip ask">待你確認</span></h3>
+          <p class="blk-note">規格裡沒有新選單結構的明文,這版是我依 E10–E14 的範圍自己排的。</p>
+          <div class="wf ask" style="max-width:270px">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">PCM 後台</span></div>
+            <div class="wf-body" style="padding:12px; font-size:12.5px">
+              <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:0 0 6px">日常</div>
+              <div class="m-input dash" style="margin-bottom:4px">今日待辦 <span class="m-tag" style="margin-left:auto">6</span></div>
+              <div class="m-input" style="background:var(--surface-2); margin-bottom:4px">訂單</div>
+              <div class="m-input" style="margin-bottom:4px">客戶</div>
+
+              <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:12px 0 6px">商品</div>
+              <div class="m-input dash" style="margin-bottom:4px">商品</div>
+              <div class="m-input dash" style="margin-bottom:4px">分類 · 品牌</div>
+              <div class="m-input dash" style="margin-bottom:4px">供應商</div>
+
+              <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:12px 0 6px">網站內容</div>
+              <div class="m-input dash" style="margin-bottom:4px">首頁與圖片</div>
+              <div class="m-input dash" style="margin-bottom:4px">品牌介紹 · 安裝資源</div>
+
+              <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:12px 0 6px">報表 <span style="color:var(--accent)">· 只有管理者看得到</span></div>
+              <div class="m-input dash" style="margin-bottom:4px">區間報表</div>
+              <div class="m-input dash" style="margin-bottom:4px">成本精算</div>
+              <div class="m-input dash" style="margin-bottom:4px; opacity:.55">記帳 · 資金帳戶</div>
+
+              <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:12px 0 6px">設定</div>
+              <div class="m-input" style="margin-bottom:4px">訂單狀態</div>
+              <div class="m-input dash" style="margin-bottom:4px">員工與權限</div>
+              <div class="m-input dash">匯率與加成係數</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>「今日待辦」放最上面</b> —— 員工每天開電腦第一眼看的東西。現在完全沒有這個檢視,員工只能自己在訂單列表裡翻。</li>
+        <li><b>報表整組只有管理者看得到</b> —— 你拍板「成本是唯一的角色分界線」,所以員工登入時整個「報表」群組不出現,不是灰掉,是不存在。</li>
+        <li><b>記帳與資金帳戶畫成半透明</b> —— 因為你拍板 Q3=C 整條會計線延後。畫面先畫好給你看,但這一期不做。</li>
+        <li><b>「匯率與加成係數」是新設定頁</b> —— 你的 1.04 加成係數要能在後台改,而且改了不能動到舊訂單的歷史成本。</li>
+      </ol>
+
+      <div class="asks">
+        <h4>? 待你確認</h4>
+        <ul>
+          <li>這五組分法對嗎?還是你習慣「訂單 / 商品 / 客戶」平鋪不分組?</li>
+          <li>「今日待辦」你會不會其實想直接進訂單列表就好?</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════ 02 訂單 ══════════════ -->
+    <section class="sheet" id="s2">
+      <div class="sheet-head">
+        <span class="sheet-num">02</span>
+        <h2>訂單</h2>
+        <span class="chip part">部分有</span>
+      </div>
+      <p class="sheet-sub">
+        「員工的一天」27 項裡有 <b>12 項落在訂單</b>。列表與明細已經上線,但備註、快遞單號、手動建單、匯款確認、退款操作
+        <b>全部是零</b>。以下六個畫面。
+      </p>
+
+      <!-- 2.1 列表 -->
+      <h3 class="blk">2.1　訂單列表 <span class="chip part">部分有</span></h3>
+      <p class="blk-note">現在有 13 欄、5 個篩選軸;缺預設檢視、批次操作、篩選 pill、快遞單號欄。</p>
+
+      <div class="wf part">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單</span></div>
+        <div class="wf-body">
+          <div class="m-tabs">
+            <span class="on">全部</span>
+            <span class="prop">待處理 <span class="pin">1</span></span>
+            <span class="prop">已付款待下單</span>
+            <span class="prop">等到貨</span>
+            <span class="prop">待出貨</span>
+            <span class="prop">＋ 存成檢視</span>
+          </div>
+
+          <div class="m-between" style="margin-bottom:10px">
+            <div class="m-row tight">
+              <span class="m-pill">商品狀態:待下單 <span class="x">✕</span></span>
+              <span class="m-pill">付款:已付款 <span class="x">✕</span></span>
+              <span class="m-btn ghost">全部清除 <span class="pin">2</span></span>
+            </div>
+            <div class="m-row tight">
+              <span class="m-btn">匯出 CSV</span>
+              <span class="m-btn pri">＋ 手動建單 <span class="pin">3</span></span>
+            </div>
+          </div>
+
+          <div class="m-between" style="background:var(--accent-soft); border:1px dashed var(--accent); border-radius:5px; padding:6px 10px; margin-bottom:8px">
+            <span style="font-size:12.5px"><b>已選 3 筆</b></span>
+            <div class="m-row tight">
+              <span class="m-btn">改商品狀態</span>
+              <span class="m-btn">標已向供應商下單</span>
+              <span class="m-btn">列印出貨單</span>
+              <span class="pin">4</span>
+            </div>
+          </div>
+
+          <table class="m-tbl">
+            <thead><tr>
+              <th style="width:22px"><span style="font-family:var(--mono)">☑</span></th>
+              <th>訂單編號</th><th>日期</th><th>品牌</th><th>料號</th><th>物品名稱</th>
+              <th>年份廠牌車種</th><th class="num">數量</th><th class="num">單價</th><th class="num">總金額</th>
+              <th>會員等級</th><th>客戶</th><th>商品狀態</th><th>來源·管道</th>
+              <th class="newcol">快遞單號 <span class="pin">5</span></th>
+            </tr></thead>
+            <tbody>
+              <tr class="sel">
+                <td>☑</td><td rowspan="2" style="font-weight:600">PCM-2026-0104</td><td rowspan="2">07/25</td>
+                <td>Lightech</td><td style="font-family:var(--mono)">LTC-004</td><td>腳踏後移組</td>
+                <td>2023 Ducati V4</td><td class="num">1</td><td class="num">18,500</td><td class="num">18,500</td>
+                <td rowspan="2"><span class="m-tag">白金</span></td><td rowspan="2">王大明</td>
+                <td><span class="m-tag">待下單</span></td><td rowspan="2">網站·刷卡</td>
+                <td rowspan="2" class="newcol">—</td>
+              </tr>
+              <tr class="sel">
+                <td>☑</td><td>Eazi-Grip</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td>油箱貼</td>
+                <td>2023 Ducati V4</td><td class="num">1</td><td class="num">1,800</td><td class="num">1,800</td>
+                <td><span class="m-tag">已到貨</span></td>
+              </tr>
+              <tr>
+                <td>☐</td><td style="font-weight:600">PCM-2026-0103</td><td>07/24</td>
+                <td>K-SPEED</td><td style="font-family:var(--mono)">KS-1120</td><td>短牌架</td>
+                <td>2021 Rebel 500</td><td class="num">2</td><td class="num">2,400</td><td class="num">4,800</td>
+                <td><span class="m-tag">一般</span></td><td>陳小華</td>
+                <td><span class="m-tag">已出貨</span></td><td>網站·匯款</td>
+                <td class="newcol" style="font-family:var(--mono)">9001-2837-11</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="m-between" style="margin-top:10px; font-size:12px; color:var(--ink-3)">
+            <span>共 34 筆</span>
+            <div class="m-row tight"><span class="m-btn">上一頁</span><span class="m-btn">下一頁</span><span class="pin">6</span></div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>預設檢視(上排分頁)= 新的</b>。點一下就跳到「今天要處理的那批」,不用每次重設篩選。現在完全沒有。<span class="chip ask">哪幾個檢視待你確認</span></li>
+        <li><b>篩選改成可單獨拿掉的標籤</b>。現在的篩選只能一個一個回去取消勾選,看不出「我到底篩了什麼」。</li>
+        <li><b>手動建單按鈕</b> —— 你北極星裡的「接非網站有的商品訂單」入口就在這。詳見 2.3。</li>
+        <li><b>勾選後,操作按鈕直接長在標題列上</b>(不是浮在畫面下方的黑條)。你說商品進度「可以一次多個」,就是這個。</li>
+        <li><b>快遞單號欄是新增的</b>。現在資料庫裡根本沒有這個欄位,員工出貨後單號無處可放。</li>
+        <li><b>超過 50 筆才出現換頁</b>,而且只有「上一頁 / 下一頁」+ 總筆數,不做頁碼輸入框。</li>
+      </ol>
+
+      <div class="asks">
+        <h4>? 待你確認(規格 §6 的 Q7/Q8/Q9 還沒拍板)</h4>
+        <ul>
+          <li>列表要顯示哪幾欄?現在 13 欄在電腦上就很擠了。有沒有哪幾欄你其實不看?</li>
+          <li>上排的預設檢視要哪幾個?我先提「待處理 / 已付款待下單 / 等到貨 / 待出貨」。</li>
+        </ul>
+      </div>
+
+      <!-- 2.2 明細 -->
+      <h3 class="blk">2.2　訂單明細 <span class="chip part">部分有</span></h3>
+      <p class="blk-note">現在有 4 張卡 + 品項表 + 一個只能改「出貨方式 / 發票」的編輯表單。新增的是右邊整欄。</p>
+
+      <div class="wf part">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / PCM-2026-0104</span></div>
+        <div class="wf-body">
+          <div class="m-between" style="margin-bottom:12px">
+            <div class="m-row">
+              <span class="m-h" style="font-size:18px">PCM-2026-0104</span>
+              <span class="m-tag">多狀態</span>
+              <span class="m-tag" style="border-style:dashed; color:var(--todo)">VIP 客 <span class="pin">4</span></span>
+            </div>
+            <div class="m-row tight">
+              <span class="m-btn ghost">確認匯款 <span class="pin">5</span></span>
+              <span class="m-btn danger">退款 <span class="pin">6</span></span>
+            </div>
+          </div>
+
+          <div class="m-split">
+            <div>
+              <div class="m-grid2" style="margin-bottom:10px">
+                <div class="m-card"><h5>客戶資訊</h5>
+                  <div class="m-kv"><span>姓名</span><span>王大明</span></div>
+                  <div class="m-kv"><span>電話</span><span>0912-345-678</span></div>
+                  <div class="m-kv"><span>Email</span><span>wang@…</span></div>
+                </div>
+                <div class="m-card"><h5>收件與出貨</h5>
+                  <div class="m-kv"><span>收件人</span><span>王大明</span></div>
+                  <div class="m-kv"><span>地址</span><span>台中市…</span></div>
+                  <div class="m-kv"><span>出貨方式</span><span>宅配</span></div>
+                </div>
+                <div class="m-card"><h5>付款</h5>
+                  <div class="m-kv"><span>付款狀態</span><span>已付款</span></div>
+                  <div class="m-kv"><span>出貨狀態</span><span>未出貨</span></div>
+                  <div class="m-kv"><span>付款時間</span><span>07/25 14:22</span></div>
+                </div>
+                <div class="m-card"><h5>發票</h5>
+                  <div class="m-kv"><span>需求型式</span><span>個人 · 載具</span></div>
+                  <div class="m-kv"><span>開立狀態</span><span>未開立</span></div>
+                  <div class="m-kv"><span>發票號碼</span><span>—</span></div>
+                </div>
+              </div>
+
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>出貨資訊 <span class="pin">1</span></h5>
+                <div class="m-grid3">
+                  <div class="m-field"><label>快遞公司</label><div class="m-input dash">黑貓宅急便 <span class="caret">▾</span></div></div>
+                  <div class="m-field"><label>快遞單號</label><div class="m-input dash">9001-2837-11</div></div>
+                  <div class="m-field"><label>出貨日</label><div class="m-input dash">2026-07-26</div></div>
+                </div>
+                <div class="m-row tight"><span class="m-btn ghost">查詢物流狀態</span><span class="m-btn ghost">寄出貨通知信給客人</span></div>
+              </div>
+
+              <div style="border:1px solid var(--line-soft); border-radius:6px; overflow:hidden; margin-bottom:10px">
+                <table class="m-tbl" style="min-width:460px">
+                  <thead><tr><th>品項</th><th>SKU</th><th class="num">數量</th><th class="num">單價</th><th class="num">小計</th><th>商品狀態</th><th class="newcol">已下單 / 到貨 / 出貨 <span class="pin">2</span></th></tr></thead>
+                  <tbody>
+                    <tr><td>腳踏後移組</td><td style="font-family:var(--mono)">LTC-004</td><td class="num">1</td><td class="num">18,500</td><td class="num">18,500</td><td><span class="m-tag">待下單</span></td><td class="newcol num">0 / 0 / 0</td></tr>
+                    <tr><td>油箱貼</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td class="num">1</td><td class="num">1,800</td><td class="num">1,800</td><td><span class="m-tag">已到貨</span></td><td class="newcol num">1 / 1 / 0</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="m-card dash">
+                <h5>退款與退貨 <span class="pin">3</span></h5>
+                <div class="m-grid2">
+                  <div>
+                    <div class="m-sub" style="margin-bottom:5px">錢的軸 —— 退款紀錄</div>
+                    <div class="m-kv"><span>2026-07-26 退刷</span><span>−NT$ 1,800</span></div>
+                    <div class="m-kv"><span>狀態</span><span>已送出 TapPay</span></div>
+                  </div>
+                  <div>
+                    <div class="m-sub" style="margin-bottom:5px">貨的軸 —— 退貨收回</div>
+                    <div class="m-kv"><span>油箱貼 ×1</span><span>等待客人寄回</span></div>
+                    <div class="m-kv"><span>收到日</span><span>—</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>備註 <span class="pin">7</span></h5>
+                <div class="m-field"><label>客人備註(客人自己填的)</label><div class="m-input tall dash">麻煩上班時間送</div></div>
+                <div class="m-field"><label>內部備註(客人看不到)</label><div class="m-input tall dash">已跟 Lightech 確認 8/2 出貨</div></div>
+                <div class="m-row tight"><span class="m-tag">急件</span><span class="m-tag">缺貨</span><span class="m-btn ghost" style="font-size:11px; padding:2px 8px">＋ 標籤</span></div>
+              </div>
+
+              <div class="m-card dash">
+                <h5>訂單歷程 <span class="pin">8</span></h5>
+                <div class="m-timeline">
+                  <div><time>07/26 09:14 · Sean</time>標記「已向 Lightech 下單」</div>
+                  <div><time>07/25 14:22 · 系統</time>刷卡成功 NT$ 20,300</div>
+                  <div><time>07/25 14:20 · 系統</time>訂單成立(網站)</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>出貨資訊整張卡是新的</b>。快遞公司、單號、出貨日現在資料庫裡都沒有欄位。「寄出貨通知信」接的是既有的信件系統,不另外做一套。</li>
+        <li><b>品項多了「已下單 / 到貨 / 出貨」三個數字</b>。這是 Shopify、Medusa、Odoo 三家一致的做法:<b>用數量記,不用狀態記</b>。這樣「一張單三個商品退兩個」「一個商品買 3 個退 1 個」才算得清楚。</li>
+        <li><b>退款與退貨分成左右兩半</b> —— 錢一條線、貨一條線。因為會有「錢先退了、貨還沒寄回來」的情況,兩邊不能綁在一起。退款的帳本 2026-07-25 已經上線了,<b>缺的只有這個畫面</b>。</li>
+        <li><b>標籤</b>可以自己貼(急件、缺貨、留貨…),列表可以照標籤篩。</li>
+        <li><b>「確認匯款」按鈕</b> —— 客人匯款後員工按這顆,系統記下是誰在什麼時候確認的。現在完全沒有這個流程。</li>
+        <li><b>「退款」按鈕</b> —— 按下去走 2.5 的畫面。</li>
+        <li><b>備註分兩欄</b>:客人自己填的、跟內部只有你們看得到的,不能混在同一格。</li>
+        <li><b>訂單歷程</b> —— 誰在什麼時候改了什麼。資料庫的紀錄表(<code>admin_audit_log</code>)已經有了,<b>只是沒有畫面看</b>。</li>
+      </ol>
+
+      <!-- 2.3 手動建單 -->
+      <h3 class="blk">2.3　手動建單(接非網站有的商品) <span class="chip new">提案要做</span></h3>
+      <p class="blk-note">你北極星的第 3 項。客人 LINE 你要一個網站上沒有的東西,員工要能直接開單。</p>
+
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / 新增</span></div>
+        <div class="wf-body">
+          <div class="m-steps" style="margin-bottom:14px"><b>① 選客人</b><i>›</i><b>② 加商品</b><i>›</i>③ 運費與付款<i>›</i>④ 確認送出</div>
+          <div class="m-split">
+            <div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>客人</h5>
+                <div class="m-field"><label>搜尋既有客人,或直接新建</label><div class="m-input dash">王大明 · 0912-345-678 · 白金 <span class="caret">▾</span></div></div>
+              </div>
+              <div class="m-card dash">
+                <h5>商品 <span class="pin">1</span></h5>
+                <div class="m-tabs" style="margin-bottom:10px"><span class="on">從網站商品挑</span><span>自己打一筆</span></div>
+                <div class="m-grid4" style="margin-bottom:8px">
+                  <div class="m-field" style="grid-column:span 2"><label>品名</label><div class="m-input dash">Rizoma 後照鏡 特殊訂製</div></div>
+                  <div class="m-field"><label>數量</label><div class="m-input dash">1</div></div>
+                  <div class="m-field"><label>單價</label><div class="m-input dash">12,000</div></div>
+                </div>
+                <div class="m-grid4">
+                  <div class="m-field" style="grid-column:span 2"><label>供應商 <span style="color:var(--accent)">(管理者才看得到成本)</span></label><div class="m-input dash">Rizoma <span class="caret">▾</span></div></div>
+                  <div class="m-field"><label>進價</label><div class="m-input dash" style="opacity:.5">•••</div></div>
+                  <div class="m-field"><label>幣別</label><div class="m-input dash" style="opacity:.5">EUR</div></div>
+                </div>
+                <div class="m-row tight" style="margin-top:8px"><span class="m-btn ghost">＋ 再加一筆</span></div>
+              </div>
+            </div>
+            <div>
+              <div class="m-card dash">
+                <h5>金額</h5>
+                <div class="m-kv"><span>小計</span><span>12,000</span></div>
+                <div class="m-kv"><span>運費</span><span>0</span></div>
+                <div class="m-kv"><span>白金折扣</span><span>−600</span></div>
+                <div class="m-kv" style="border-top:1px solid var(--line-soft); margin-top:6px; padding-top:6px; font-weight:700"><span>總計</span><span>NT$ 11,400</span></div>
+                <div class="m-field" style="margin-top:12px"><label>付款方式</label><div class="m-input dash">匯款(待確認) <span class="caret">▾</span></div></div>
+                <div class="m-field"><label>來源</label><div class="m-input dash">LINE 手動 <span class="caret">▾</span></div></div>
+                <button class="m-btn pri" style="width:100%; margin-top:8px">建立訂單</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>「自己打一筆」是關鍵</b> —— 商品不在網站上時,員工直接打品名、數量、單價就能開單。</li>
+      </ol>
+      <div class="warn">
+        <b>⚠ 動手前必驗:</b>建立訂單的資料庫程式(<code>create_order</code>)目前<b>是否允許自由輸入品項還沒查證</b>。
+        如果不允許,這片要先改資料庫。這是規格明列的「不准當成事實直接做」的項目之一。
+      </div>
+
+      <!-- 2.4 匯款確認 -->
+      <h3 class="blk">2.4　匯款確認 <span class="chip new">提案要做</span></h3>
+      <p class="blk-note">資料庫裡「匯款」這個付款方式早就有了,但<b>沒有任何確認收款的流程</b>。員工現在無法把匯款單標成已收。</p>
+      <div class="m-split">
+        <div class="wf new">
+          <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">確認匯款 · 彈出視窗</span></div>
+          <div class="wf-body">
+            <div class="m-h" style="margin-bottom:4px">確認收到匯款</div>
+            <div class="m-sub" style="margin-bottom:12px">PCM-2026-0103 · 應收 NT$ 4,800</div>
+            <div class="m-grid2">
+              <div class="m-field"><label>入帳日期</label><div class="m-input dash">2026-07-26</div></div>
+              <div class="m-field"><label>實收金額</label><div class="m-input dash">4,800</div></div>
+            </div>
+            <div class="m-field"><label>匯款後五碼</label><div class="m-input dash">31427</div></div>
+            <div class="m-field"><label>入哪個帳戶 <span class="pin">1</span></label><div class="m-input dash">玉山 007-xxx 公司戶 <span class="caret">▾</span></div></div>
+            <div class="m-field"><label>備註</label><div class="m-input dash">客人分兩筆匯</div></div>
+            <div class="m-row tight" style="margin-top:10px"><span class="m-btn">取消</span><span class="m-btn pri">確認收款</span></div>
+          </div>
+        </div>
+        <div>
+          <ol class="notes" style="margin-top:0">
+            <li><b>「入哪個帳戶」這格,這一期先不出現</b>(灰掉或直接拿掉)。它屬於延後的會計線;等會計開工才接上資金帳戶。這一期只要記「收到了、多少、誰確認的」。</li>
+          </ol>
+          <div class="asks">
+            <h4>? 待你確認</h4>
+            <ul>
+              <li>實收金額跟應收<b>對不起來</b>的時候(客人少匯 100),你要系統擋下來,還是允許記差額?</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2.5 退款 -->
+      <h3 class="blk">2.5　退款操作 <span class="chip new">提案要做</span></h3>
+      <p class="blk-note">
+        退款的<b>帳本 2026-07-25 已經上線</b>(<code>order_refunds</code> / <code>order_refund_items</code>),
+        但後台程式碼裡搜「退款」<b>零命中</b> —— 完全沒有畫面。你現在要退款只能自己去 TapPay 後台按。
+      </p>
+      <div class="m-split">
+        <div class="wf new">
+          <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">退款 · 彈出視窗</span></div>
+          <div class="wf-body">
+            <div class="m-h" style="margin-bottom:12px">退款 · PCM-2026-0104</div>
+            <table class="m-tbl" style="min-width:0; margin-bottom:10px">
+              <thead><tr><th></th><th>品項</th><th class="num">已買</th><th class="num">退幾個</th><th class="num">退多少</th></tr></thead>
+              <tbody>
+                <tr><td>☐</td><td>腳踏後移組</td><td class="num">1</td><td class="num">0</td><td class="num">0</td></tr>
+                <tr class="sel"><td>☑</td><td>油箱貼</td><td class="num">1</td><td class="num">1</td><td class="num">1,800</td></tr>
+              </tbody>
+            </table>
+            <div class="m-field"><label>退款方式</label><div class="m-input dash">原卡退刷(TapPay) <span class="caret">▾</span></div></div>
+            <div class="m-field"><label>退款原因</label><div class="m-input dash">商品瑕疵 <span class="caret">▾</span></div></div>
+            <div class="m-card dash" style="margin:10px 0">
+              <div class="m-kv"><span>退款金額</span><span style="font-weight:700">NT$ 1,800</span></div>
+              <div class="m-kv"><span>客人要寄回嗎</span><span>要 · 建立退貨單 <span class="pin">1</span></span></div>
+            </div>
+            <div class="warn" style="margin:0 0 10px; font-size:12.5px"><b>⚠ 退款送出後無法取消。</b>請再確認一次金額。</div>
+            <div class="m-row tight"><span class="m-btn">取消</span><span class="m-btn danger">確認退款 NT$ 1,800</span></div>
+          </div>
+        </div>
+        <div>
+          <ol class="notes" style="margin-top:0">
+            <li><b>「客人要寄回嗎」是分岔點</b>。勾了就同時開一張退貨單、進到 2.2 的「貨的軸」;不勾就是純退錢不收貨。這兩件事在系統裡是分開的。</li>
+          </ol>
+          <div class="warn">
+            <b>金流紅線(既有規矩,不放寬):</b>只有明確失敗的付款才動訂單;查不到、或已扣款的,絕不自動移除,
+            要移除也是<b>改標記、不是硬刪</b>。退款一律留完整紀錄。
+          </div>
+        </div>
+      </div>
+
+      <!-- 2.6 快遞 -->
+      <h3 class="blk">2.6　快遞單號與追蹤 <span class="chip new">提案要做</span></h3>
+      <p class="blk-note">已經畫在 2.2 的「出貨資訊」卡裡。這裡補列表側的批次輸入 —— 一次出五單時不用進五次明細頁。</p>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">批次輸入單號 · 彈出視窗</span></div>
+        <div class="wf-body">
+          <div class="m-h" style="margin-bottom:4px">批次輸入快遞單號</div>
+          <div class="m-sub" style="margin-bottom:12px">已選 3 筆 · 快遞公司統一設為 <b>黑貓宅急便</b></div>
+          <table class="m-tbl" style="min-width:0">
+            <thead><tr><th>訂單</th><th>客戶</th><th>單號</th></tr></thead>
+            <tbody>
+              <tr><td>PCM-2026-0101</td><td>林先生</td><td><div class="m-input dash" style="height:26px">9001-2837-09</div></td></tr>
+              <tr><td>PCM-2026-0103</td><td>陳小華</td><td><div class="m-input dash" style="height:26px">9001-2837-11</div></td></tr>
+              <tr><td>PCM-2026-0104</td><td>王大明</td><td><div class="m-input dash" style="height:26px">貼上或掃描…</div></td></tr>
+            </tbody>
+          </table>
+          <div class="m-row tight" style="margin-top:10px">
+            <span class="m-btn">取消</span>
+            <span class="m-btn pri">存檔並寄出貨通知信(3 封)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 03 商品 ══════════════ -->
+    <section class="sheet" id="s3">
+      <div class="sheet-head">
+        <span class="sheet-num">03</span>
+        <h2>商品</h2>
+        <span class="chip new">整區都不存在</span>
+      </div>
+      <p class="sheet-sub">
+        後台<b>完全沒有商品這個區塊</b>。今天要新增或改一個商品,唯一的路是工程師在終端機跑指令。
+        這是「員工不用找工程師」這件事最大的缺口。版面已定案 —— 照 Medusa 官方後台的原始碼排。
+      </p>
+
+      <h3 class="blk">3.1　商品列表 <span class="chip new">提案要做</span></h3>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 商品</span></div>
+        <div class="wf-body">
+          <div class="m-between" style="margin-bottom:10px">
+            <div class="m-row tight">
+              <span class="m-pill">品牌:Lightech <span class="x">✕</span></span>
+              <span class="m-pill">狀態:上架中 <span class="x">✕</span></span>
+            </div>
+            <div class="m-row tight">
+              <span class="m-btn">匯入供應商 Excel</span><span class="m-btn">匯出 CSV</span><span class="m-btn pri">＋ 新增商品</span>
+            </div>
+          </div>
+          <table class="m-tbl">
+            <thead><tr><th style="width:22px">☑</th><th>圖</th><th>商品名稱</th><th>料號</th><th>品牌</th><th>分類</th><th class="num">變體</th><th class="num">售價</th><th>狀態</th><th>供應商</th></tr></thead>
+            <tbody>
+              <tr><td>☐</td><td><span style="display:inline-block;width:26px;height:26px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line)"></span></td>
+                <td>腳踏後移組</td><td style="font-family:var(--mono)">LTC-004</td><td>Lightech</td><td>腳踏</td><td class="num">6</td><td class="num">18,500</td><td><span class="m-tag">上架中</span></td><td>Lightech</td></tr>
+              <tr><td>☐</td><td><span style="display:inline-block;width:26px;height:26px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line)"></span></td>
+                <td>油箱貼</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td>Eazi-Grip</td><td>防滑貼</td><td class="num">42</td><td class="num">1,800</td><td><span class="m-tag">上架中</span></td><td>Eazi-Grip</td></tr>
+              <tr><td>☐</td><td><span style="display:inline-block;width:26px;height:26px;border-radius:4px;background:var(--surface-2);border:1px dashed var(--todo)"></span></td>
+                <td>短牌架</td><td style="font-family:var(--mono)">KS-1120</td><td>K-SPEED</td><td>牌架</td><td class="num">3</td><td class="num">2,400</td><td><span class="m-tag">草稿</span></td><td>K-SPEED</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <h3 class="blk">3.2　新增 / 編輯商品 <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">版面已定</span></h3>
+      <p class="blk-note">左邊主欄由上到下:基本資料 → 圖片 → 規格選項 → 變體;右邊側欄:上架狀態 → 運送 → 分類 → 屬性。這個順序是照 Medusa 官方原始碼抄的,不是我自己排的。</p>
+
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 商品 / 腳踏後移組</span></div>
+        <div class="wf-body">
+          <div class="m-between" style="margin-bottom:12px; border-bottom:1px solid var(--line-soft); padding-bottom:10px">
+            <span class="m-h">腳踏後移組</span>
+            <div class="m-row tight"><span class="m-sub">未儲存的變更 <span class="pin">5</span></span><span class="m-btn">預覽</span><span class="m-btn pri">儲存</span></div>
+          </div>
+          <div class="m-split">
+            <div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>1 · 基本資料</h5>
+                <div class="m-field"><label>商品名稱</label><div class="m-input dash">Lightech 腳踏後移組</div></div>
+                <div class="m-field"><label>網址代稱</label><div class="m-input dash">lightech-rearset</div></div>
+                <div class="m-field"><label>商品說明</label><div class="m-input tall dash">CNC 削切鋁合金,六段可調…</div></div>
+              </div>
+
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>2 · 圖片 <span class="pin">1</span></h5>
+                <div class="m-row tight">
+                  <span style="width:62px;height:62px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-3);font-family:var(--mono)">主圖</span>
+                  <span style="width:62px;height:62px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line)"></span>
+                  <span style="width:62px;height:62px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line)"></span>
+                  <span style="width:62px;height:62px;border-radius:5px;border:1px dashed var(--todo);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--todo)">＋</span>
+                </div>
+                <p class="m-sub" style="margin-top:7px">拖曳排序 · 每張可填替代文字(給 Google 看)</p>
+              </div>
+
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>3 · 規格選項</h5>
+                <div class="m-grid2">
+                  <div><div class="m-sub" style="margin-bottom:4px">顏色</div><div class="m-row tight"><span class="m-tag">黑</span><span class="m-tag">金</span><span class="m-tag">鈦</span></div></div>
+                  <div><div class="m-sub" style="margin-bottom:4px">車型</div><div class="m-row tight"><span class="m-tag">V4</span><span class="m-tag">V2</span></div></div>
+                </div>
+                <div class="m-row tight" style="margin-top:8px"><span class="m-btn ghost">＋ 加一個選項</span></div>
+              </div>
+
+              <div class="m-card dash">
+                <h5>4 · 變體 <span class="pin">2</span></h5>
+                <div class="m-between" style="margin-bottom:8px">
+                  <span class="m-sub">3 顏色 × 2 車型 = <b>6 個變體</b></span>
+                  <span class="m-btn ghost">一鍵生成全部組合</span>
+                </div>
+                <table class="m-tbl" style="min-width:0">
+                  <thead><tr><th style="width:22px">☑</th><th>變體</th><th>料號</th><th class="num">售價</th><th class="num">庫存</th></tr></thead>
+                  <tbody>
+                    <tr class="sel"><td>☑</td><td>黑 / V4</td><td style="font-family:var(--mono)">LTC-004-BK-V4</td><td class="num">18,500</td><td class="num">2</td></tr>
+                    <tr class="sel"><td>☑</td><td>金 / V4</td><td style="font-family:var(--mono)">LTC-004-GD-V4</td><td class="num">19,200</td><td class="num">0</td></tr>
+                    <tr><td>☐</td><td>鈦 / V4</td><td style="font-family:var(--mono)">LTC-004-TI-V4</td><td class="num">21,000</td><td class="num">1</td></tr>
+                  </tbody>
+                </table>
+                <div class="m-between" style="background:var(--accent-soft); border:1px dashed var(--accent); border-radius:5px; padding:5px 9px; margin-top:8px">
+                  <span style="font-size:12px"><b>已選 2 個變體</b></span>
+                  <div class="m-row tight"><span class="m-btn" style="font-size:11px">批次改價</span><span class="m-btn" style="font-size:11px">批次改庫存</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>上架狀態 <span class="pin">3</span></h5>
+                <div class="m-field"><div class="m-input dash">上架中 <span class="caret">▾</span></div></div>
+                <p class="m-sub">草稿 / 上架 / 下架 / 封存</p>
+              </div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>運送</h5>
+                <div class="m-field"><label>重量(g)</label><div class="m-input dash">1,200</div></div>
+                <div class="m-field"><label>需要運送</label><div class="m-input dash">是 <span class="caret">▾</span></div></div>
+              </div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>分類歸屬</h5>
+                <div class="m-row tight"><span class="m-tag">腳踏 ✕</span><span class="m-tag">Ducati ✕</span><span class="m-btn ghost" style="font-size:11px; padding:2px 8px">＋</span></div>
+              </div>
+              <div class="m-card dash">
+                <h5>屬性 <span class="pin">4</span></h5>
+                <div class="m-kv"><span>品牌</span><span>Lightech</span></div>
+                <div class="m-kv"><span>供應商</span><span>Lightech</span></div>
+                <div class="m-kv" style="color:var(--accent)"><span>成本</span><span>只有管理者看得到</span></div>
+                <div class="m-kv"><span>適用車型</span><span>Ducati V4 / V2</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>圖片改成真的上傳</b>。現在網站上的商品圖全是供應商的網址,對方換圖或關站,我們的圖就掛掉。改成存進自己的空間(這點你已拍板 Q2=A)。</li>
+        <li><b>變體矩陣一鍵生成,是這整區最省時間的功能</b>。3 顏色 × 2 車型不用手打 6 次,選好選項按一下全部生出來,再框選批次改價。PCM 規格變體多,這個槓桿最大。</li>
+        <li><b>商品狀態四種</b>:草稿(還沒好)/ 上架 / 下架 / 封存。現在完全沒有「草稿」概念。</li>
+        <li><b>成本欄員工看不到</b> —— 而且是<b>資料根本不送到員工的瀏覽器</b>,不是畫面上藏起來。</li>
+        <li><b>有沒改完就想離開,會擋你一下</b>。</li>
+      </ol>
+
+      <div class="asks">
+        <h4>? 待你確認(規格 §6 的 N6,還沒拍板)</h4>
+        <ul>
+          <li><b>同一張圖能不能給多個商品共用?</b>能共用要做「圖庫」(像 Shopify);不能共用就是圖綁死單一商品(像 Medusa)。<b>這題之後再改會很痛</b>,最好現在就決定。</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ══════════════ 04 客戶 ══════════════ -->
+    <section class="sheet" id="s4">
+      <div class="sheet-head">
+        <span class="sheet-num">04</span>
+        <h2>客戶</h2>
+        <span class="chip part">部分有</span>
+      </div>
+      <p class="sheet-sub">
+        列表跟明細都在,而且明細已經有訂單歷史、收件地址、車庫。<b>缺的是「能改」</b> ——
+        現在員工只能改會員等級跟儲值金,客人打來說「我電話換了」,員工改不了。
+      </p>
+
+      <div class="m-split">
+        <div>
+          <h3 class="blk">4.1　客戶列表 <span class="chip live">現在就有</span></h3>
+          <p class="blk-note">5 欄,長相就是這樣。</p>
+          <div class="wf live">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 客戶</span></div>
+            <div class="wf-body">
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th>姓名</th><th>Email</th><th>電話</th><th>會員等級</th><th>註冊日期</th></tr></thead>
+                <tbody>
+                  <tr><td style="font-weight:600">王大明</td><td>wang@…</td><td>0912-345-678</td><td><span class="m-tag">白金</span></td><td>2026-03-14</td></tr>
+                  <tr><td style="font-weight:600">陳小華</td><td>chen@…</td><td>—</td><td><span class="m-tag">一般</span></td><td>2026-05-02</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 class="blk">要補的 <span class="chip new">提案要做</span></h3>
+          <p class="blk-note">列表上加搜尋、等級篩選、累計消費欄。</p>
+          <div class="wf new">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 客戶</span></div>
+            <div class="wf-body">
+              <div class="m-field"><div class="m-input dash">🔍 搜尋姓名 / 電話 / Email</div></div>
+              <div class="m-row tight" style="margin-bottom:8px"><span class="m-pill">等級:白金 <span class="x">✕</span></span></div>
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th>姓名</th><th>電話</th><th>等級</th><th class="num newcol">累計消費</th><th class="num newcol">訂單數</th></tr></thead>
+                <tbody>
+                  <tr><td style="font-weight:600">王大明</td><td>0912-345-678</td><td><span class="m-tag">白金</span></td><td class="num newcol">186,400</td><td class="num newcol">9</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="blk">4.2　客戶明細 <span class="chip part">部分有</span></h3>
+      <div class="wf part">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 客戶 / 王大明</span></div>
+        <div class="wf-body">
+          <div class="m-between" style="margin-bottom:12px">
+            <div class="m-row"><span class="m-h" style="font-size:18px">王大明</span><span class="m-tag">白金</span></div>
+            <div class="m-row tight"><span class="m-btn ghost">寄密碼重設信 <span class="pin">2</span></span><span class="m-btn pri">編輯</span></div>
+          </div>
+          <div class="m-split">
+            <div>
+              <div class="m-grid2" style="margin-bottom:10px">
+                <div class="m-card"><h5>基本資料 <span class="pin">1</span></h5>
+                  <div class="m-kv"><span>Email</span><span>wang@…</span></div>
+                  <div class="m-kv"><span>電話</span><span>0912-345-678</span></div>
+                  <div class="m-kv"><span>生日</span><span>1988-06-02</span></div>
+                  <div class="m-kv"><span>會員等級</span><span>白金 ✎</span></div>
+                  <div class="m-kv"><span>註冊日期</span><span>2026-03-14</span></div>
+                </div>
+                <div class="m-card"><h5>儲值金</h5>
+                  <div class="m-kv"><span>目前餘額</span><span>2,400</span></div>
+                  <div class="m-kv"><span>累積儲值</span><span>10,000</span></div>
+                  <div class="m-row tight" style="margin-top:8px"><span class="m-btn" style="font-size:11px">調整 ✎</span></div>
+                </div>
+              </div>
+              <div class="m-card" style="margin-bottom:10px"><h5>訂單歷史</h5>
+                <div class="m-kv"><span>PCM-2026-0104 · 07/25</span><span>NT$ 20,300 · 已付款</span></div>
+                <div class="m-kv"><span>PCM-2026-0098 · 06/11</span><span>NT$ 8,400 · 已完成</span></div>
+              </div>
+              <div class="m-grid2">
+                <div class="m-card"><h5>收件地址</h5><div class="m-kv"><span>預設</span><span>台中市…</span></div></div>
+                <div class="m-card"><h5>車庫</h5><div class="m-kv"><span>1</span><span>2023 Ducati V4</span></div></div>
+              </div>
+            </div>
+            <div>
+              <div class="m-card dash"><h5>內部備註與標籤 <span class="pin">3</span></h5>
+                <div class="m-row tight" style="margin-bottom:8px"><span class="m-tag">熟客</span><span class="m-tag">只收下午貨</span><span class="m-btn ghost" style="font-size:11px; padding:2px 8px">＋</span></div>
+                <div class="m-input tall dash">習慣先問價再下單,回覆要快</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>整張「基本資料」卡要變成可編</b>。你說的「可以所有會員資料」—— 姓名、電話、Email、生日、地址、愛車全部要能改。現在只有會員等級跟儲值金那兩個 ✎ 是真的能按的。</li>
+        <li><b>密碼重設只能「寄信給客人」</b>,後台不能直接幫客人設一組新密碼。這是安全底線,不放寬。</li>
+        <li><b>內部備註與標籤是新的</b>。客人看不到。</li>
+      </ol>
+    </section>
+
+    <!-- ══════════════ 05 員工權限 ══════════════ -->
+    <section class="sheet" id="s5">
+      <div class="sheet-head">
+        <span class="sheet-num">05</span>
+        <h2>員工帳號與權限</h2>
+        <span class="chip new">提案要做</span>
+      </div>
+      <p class="sheet-sub">
+        <b>這是「給員工用」最硬的一道關卡。</b>現在員工名單是<b>寫死在程式碼裡</b>的
+        (<code>staff.ts</code> 裡逐字寫著「臨時解」)—— 要加一個員工得請工程師改程式、重新部署。
+        你拍板兩級角色,<b>成本是唯一的分界線</b>,所以權限可以做得很簡單,不用做那種一格一格打勾的權限表。
+      </p>
+
+      <div class="m-split">
+        <div>
+          <div class="wf new">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 設定 / 員工與權限</span></div>
+            <div class="wf-body">
+              <div class="m-between" style="margin-bottom:10px"><span class="m-h">員工帳號</span><span class="m-btn pri">＋ 邀請員工</span></div>
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th>姓名</th><th>Email</th><th>角色</th><th>最後登入</th><th></th></tr></thead>
+                <tbody>
+                  <tr><td style="font-weight:600">Sean</td><td>sean@…</td><td><span class="m-tag" style="border-color:var(--accent); color:var(--accent)">管理者</span></td><td>剛剛</td><td>—</td></tr>
+                  <tr><td style="font-weight:600">小美</td><td>mei@…</td><td><span class="m-tag">員工</span></td><td>今天 09:12</td><td>✎ 停用</td></tr>
+                  <tr><td style="font-weight:600">阿豪</td><td>hao@…</td><td><span class="m-tag">員工</span></td><td>7 天前</td><td>✎ 停用</td></tr>
+                </tbody>
+              </table>
+              <p class="m-sub" style="margin-top:10px">停用 = 立刻登不進來,但他做過的紀錄全部保留。</p>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="wf new">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">兩個角色差在哪</span></div>
+            <div class="wf-body">
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th></th><th>員工</th><th>管理者</th></tr></thead>
+                <tbody>
+                  <tr><td>看訂單、改訂單</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>改價錢</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>退款</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>新增 / 改商品</td><td>✓</td><td>✓</td></tr>
+                  <tr><td>看會員經銷價</td><td>✓</td><td>✓</td></tr>
+                  <tr style="background:var(--accent-soft)"><td><b>看成本</b></td><td><b>✕</b></td><td><b>✓</b></td></tr>
+                  <tr style="background:var(--accent-soft)"><td><b>看報表(含毛利)</b></td><td><b>✕</b></td><td><b>✓</b></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <ol class="notes">
+            <li><b>只有兩條紅線</b>:成本、報表。其他全一樣。這是你拍板的,所以不做複雜權限矩陣。</li>
+            <li><b>「看不到」是資料不送過去</b>,不是畫面藏起來。員工的瀏覽器裡根本不會有成本這個數字。</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 06 會計 ══════════════ -->
+    <section class="sheet" id="s6">
+      <div class="sheet-head">
+        <span class="sheet-num">06</span>
+        <h2>會計收支帳</h2>
+        <span class="chip new">提案要做</span>
+        <span class="chip ask">你已拍板「這一期不做」</span>
+      </div>
+      <p class="sheet-sub">
+        <b>你拍板 Q3=C:會計整條線延後,先把員工上工做完。</b>畫面還是畫給你看
+        (研究已經做完了,不會浪費),但<b>這一期不動工</b>。
+        重點是:員工<b>不需要懂借貸</b> —— 只選「記收入 / 記支出 / 帳戶轉帳」,分錄由系統自己產。
+      </p>
+
+      <h3 class="blk">6.1　三步記帳卡</h3>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 記帳</span></div>
+        <div class="wf-body">
+          <div class="m-grid3" style="margin-bottom:14px">
+            <div class="m-card dash" style="text-align:center; padding:16px"><div style="font-size:22px">↓</div><b style="font-size:14px">記收入</b></div>
+            <div class="m-card dash" style="text-align:center; padding:16px; border-color:var(--accent); background:var(--accent-soft)"><div style="font-size:22px">↑</div><b style="font-size:14px">記支出</b></div>
+            <div class="m-card dash" style="text-align:center; padding:16px"><div style="font-size:22px">⇄</div><b style="font-size:14px">帳戶轉帳</b></div>
+          </div>
+
+          <div class="m-steps" style="margin-bottom:12px"><b>① 日期與對象</b><i>›</i><b>② 常用情境</b><i>›</i><b>③ 帳戶與金額</b></div>
+
+          <div class="m-split">
+            <div>
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>① 日期與對象</h5>
+                <div class="m-grid2">
+                  <div class="m-field"><label>日期</label><div class="m-input dash">2026-07-26</div></div>
+                  <div class="m-field"><label>對象</label><div class="m-input dash">新竹物流</div></div>
+                </div>
+              </div>
+
+              <div class="m-card dash" style="margin-bottom:10px">
+                <h5>② 常用情境 <span class="pin">1</span></h5>
+                <div class="m-row tight">
+                  <span class="m-tag">國際運費</span><span class="m-tag" style="border-color:var(--accent); color:var(--accent)">國內物流</span>
+                  <span class="m-tag">進口稅金</span><span class="m-tag">進貨成本</span><span class="m-tag">補款/調整</span>
+                  <span class="m-tag">勞健保</span><span class="m-tag">水電</span><span class="m-tag">罰款/規費</span>
+                  <span class="m-tag">辦公雜支</span><span class="m-tag">薪資</span><span class="m-tag">其他</span>
+                </div>
+                <div class="m-field" style="margin-top:10px"><label>說明(自由輸入,不進統計) <span class="pin">2</span></label><div class="m-input dash">05月新竹物流</div></div>
+              </div>
+
+              <div class="m-card dash">
+                <h5>③ 帳戶與金額</h5>
+                <div class="m-grid2">
+                  <div class="m-field"><label>從哪個帳戶付 <span class="pin">3</span></label><div class="m-input dash">玉山 007-xxx 公司戶 <span class="caret">▾</span></div></div>
+                  <div class="m-field"><label>含稅總額</label><div class="m-input dash">3,150</div></div>
+                </div>
+                <div style="border-top:1px dashed var(--line); margin:10px 0; padding-top:10px">
+                  <div class="m-field"><label>有統一發票 / 憑證嗎? <span class="pin">4</span></label><div class="m-input dash">有 <span class="caret">▾</span></div></div>
+                  <div class="m-grid4">
+                    <div class="m-field"><label>發票號碼</label><div class="m-input dash">AB-12345678</div></div>
+                    <div class="m-field"><label>賣方統編</label><div class="m-input dash">12345678</div></div>
+                    <div class="m-field"><label>未稅</label><div class="m-input dash">3,000</div></div>
+                    <div class="m-field"><label>稅額</label><div class="m-input dash">150</div></div>
+                  </div>
+                  <div class="m-row tight"><span class="m-btn ghost">📎 上傳發票照片</span><span class="m-sub">上傳後才能過帳</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div class="m-card dash" style="border-color:var(--accent); background:var(--accent-soft)">
+                <h5 style="color:var(--accent)">送出後會發生什麼 <span class="pin">5</span></h5>
+                <div class="m-kv"><span>玉山 007-xxx</span><span style="color:var(--accent)">−3,150</span></div>
+                <div class="m-kv"><span>國內物流(費用)</span><span>+3,000</span></div>
+                <div class="m-kv"><span>可扣抵進項稅額</span><span>+150</span></div>
+                <p class="m-sub" style="margin-top:8px; line-height:1.6">員工不用選借方貸方,系統自己產。畫面只講「哪個帳戶會少多少錢」。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>情境卡上的字,是從你自己的試算表撈出來的</b>,不是教科書科目。你實際寫過 DHL、FEDEX、新竹物流、KINEO稅金…共 158 種不同寫法,歸成 11 類。</li>
+        <li><b>「項目」是下拉、「說明」才是自由打字</b>。這是為了讓統計算得出來 —— 你現在的試算表裡「新竹」「新竹物流」「新竹貨運」「新竹5月」是四個不同的東西,加不起來。</li>
+        <li><b>要講「從哪個帳戶 → 到哪個帳戶」</b>。因為「銀行轉現金」既不是收入也不是支出,單純記收支會漏掉一邊。</li>
+        <li><b>沒有發票就強制填原因,並標「不可扣抵」</b>。</li>
+        <li><b>右邊這塊即時告訴你錢會怎麼跑</b>,員工不用懂會計也知道自己按了什麼。</li>
+      </ol>
+
+      <h3 class="blk">6.2　資金帳戶餘額</h3>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 資金帳戶</span></div>
+        <div class="wf-body">
+          <div class="m-grid4">
+            <div class="m-card dash"><h5>公司零用金</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">18,240</div><p class="m-sub">現金</p></div>
+            <div class="m-card dash"><h5>玉山 007-xxx</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">412,880</div><p class="m-sub">公司戶</p></div>
+            <div class="m-card dash"><h5>信用卡清算</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--accent)">−63,400</div><p class="m-sub">未扣款</p></div>
+            <div class="m-card dash" style="border-style:dashed; display:flex; align-items:center; justify-content:center; color:var(--todo)">＋ 新增帳戶</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="warn">
+        <b>⚠ 延後前記下的最大缺口:薪資完全不存在。</b>
+        記帳士要的主要東西「扣繳匯總」有 25 欄,主體是薪資(本薪 / 伙食費 / 加班費 / 年終 / 勞健保 / 勞退 6%…),
+        PCM 系統跟這份規格<b>完全沒有涵蓋</b>。以後開會計線時,<b>薪資是主角、收支帳是配角</b>,不能照「先做收支帳」排。
+      </div>
+    </section>
+
+    <!-- ══════════════ 07 報表 ══════════════ -->
+    <section class="sheet" id="s7">
+      <div class="sheet-head">
+        <span class="sheet-num">07</span>
+        <h2>區間報表</h2>
+        <span class="chip new">提案要做</span>
+      </div>
+      <p class="sheet-sub">
+        你說「都要,還要可以選幾月幾號到幾號」—— 所以這不叫「月報表」,叫<b>區間報表</b>:
+        任意起訖日,月 / 雙月 / 季 / 年只是快捷鍵。<b>只有管理者看得到。</b>
+      </p>
+
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 報表</span></div>
+        <div class="wf-body">
+          <div class="m-between" style="margin-bottom:14px">
+            <div class="m-row tight">
+              <div class="m-input dash" style="width:130px">2026-07-01</div><span class="m-sub">→</span><div class="m-input dash" style="width:130px">2026-07-26</div>
+            </div>
+            <div class="m-row tight">
+              <span class="m-tag" style="border-color:var(--accent); color:var(--accent)">本月</span>
+              <span class="m-tag">上月</span><span class="m-tag">雙月</span><span class="m-tag">本季</span><span class="m-tag">今年</span>
+              <span class="pin">1</span>
+            </div>
+          </div>
+
+          <div class="m-grid4" style="margin-bottom:14px">
+            <div class="m-card dash"><h5>營業額</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">486,200</div></div>
+            <div class="m-card dash"><h5>毛利 <span class="pin">2</span></h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--built)">112,840</div><p class="m-sub">3 筆成本未填 → 未知</p></div>
+            <div class="m-card dash"><h5>訂單數</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">34</div></div>
+            <div class="m-card dash"><h5>客單價</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">14,300</div></div>
+          </div>
+
+          <div class="m-split">
+            <div class="m-card dash">
+              <h5>每日營業額</h5>
+              <div class="m-chart">
+                <i style="height:38%"></i><i style="height:52%"></i><i style="height:31%"></i><i style="height:71%"></i>
+                <i style="height:45%"></i><i style="height:88%"></i><i style="height:62%"></i><i style="height:40%"></i>
+                <i style="height:55%"></i><i class="hi" style="height:96%"></i><i style="height:48%"></i><i style="height:66%"></i>
+              </div>
+            </div>
+            <div class="m-card dash">
+              <h5>各品牌銷售</h5>
+              <div class="m-kv"><span>Lightech</span><span>168,400</span></div>
+              <div class="m-kv"><span>Eazi-Grip</span><span>121,900</span></div>
+              <div class="m-kv"><span>K-SPEED</span><span>96,200</span></div>
+              <div class="m-kv"><span>其他</span><span>99,700</span></div>
+            </div>
+          </div>
+
+          <div class="m-grid3" style="margin-top:12px">
+            <div class="m-card dash"><h5>各員工處理量</h5><div class="m-kv"><span>小美</span><span>19 單</span></div><div class="m-kv"><span>阿豪</span><span>15 單</span></div></div>
+            <div class="m-card dash"><h5>現金與銀行餘額</h5><div class="m-kv"><span>合計</span><span>431,120</span></div></div>
+            <div class="m-card dash"><h5>應收未收 / 退款</h5><div class="m-kv"><span>應收未收</span><span>28,600</span></div><div class="m-kv"><span>退款</span><span>−1,800</span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>起訖日是主角、快捷鍵是配角</b>。你要看 7/3 到 7/19 就直接選。</li>
+        <li><b>成本沒填的訂單,毛利顯示「未知」,絕不用 0 充數</b>。用 0 會讓整月毛利看起來比實際高,這比沒數字更危險。</li>
+      </ol>
+
+      <div class="warn">
+        <b>⚠ 一件要你確認的事:</b>你月報表裡「本月支出運費」那格,2025/07 顯示 <b>11,833</b>,
+        但同一頁的明細加起來是 <b>88,782</b>,<b>差了大約 7.5 倍</b>。口徑不明。
+        在你確認之前,這格<b>不會被拿來當報表的來源</b>。
+      </div>
+    </section>
+
+    <!-- ══════════════ 08 供應商 ══════════════ -->
+    <section class="sheet" id="s8">
+      <div class="sheet-head">
+        <span class="sheet-num">08</span>
+        <h2>供應商主檔與價目表</h2>
+        <span class="chip new">提案要做</span>
+      </div>
+      <p class="sheet-sub">
+        <b>現在系統裡沒有「供應商」這個東西</b> —— 只有商品上掛一個文字欄。
+        PCM 是代購生意,供應商是核心,但 Shopify 跟 Medusa 都沒這塊,只有 Odoo 有,所以這版是照 Odoo 抄的。
+      </p>
+
+      <div class="m-split">
+        <div>
+          <div class="wf new">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 供應商 / Lightech</span></div>
+            <div class="wf-body">
+              <div class="m-between" style="margin-bottom:12px"><span class="m-h">Lightech</span><span class="m-btn pri">儲存</span></div>
+              <div class="m-grid2">
+                <div class="m-field"><label>供應商名稱</label><div class="m-input dash">Lightech S.r.l.</div></div>
+                <div class="m-field"><label>國家 / 幣別</label><div class="m-input dash">義大利 · EUR <span class="caret">▾</span></div></div>
+                <div class="m-field"><label>聯絡人 / Email</label><div class="m-input dash">Marco · sales@…</div></div>
+                <div class="m-field"><label>預設交期</label><div class="m-input dash">14 天</div></div>
+              </div>
+              <h5 style="font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); margin:14px 0 8px">供應商商品價目表 <span class="pin">1</span></h5>
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th>商品</th><th class="num">量階</th><th class="num">單價</th><th class="num">折扣%</th><th>有效期</th></tr></thead>
+                <tbody>
+                  <tr><td>腳踏後移組</td><td class="num">1+</td><td class="num">€ 289</td><td class="num">0</td><td>2026-12-31</td></tr>
+                  <tr><td>腳踏後移組</td><td class="num">5+</td><td class="num">€ 262</td><td class="num">9</td><td>2026-12-31</td></tr>
+                  <tr><td>後移專用踏板</td><td class="num">1+</td><td class="num">€ 74</td><td class="num">0</td><td>2026-12-31</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="wf new">
+            <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">代購進度 <span class="pin">2</span></span></div>
+            <div class="wf-body">
+              <div class="m-timeline">
+                <div><time>待處理</time>客人下單、還沒跟供應商叫貨</div>
+                <div><time>已向供應商下單</time>記供應商單號、預計到貨日</div>
+                <div><time>供應商已出貨</time></div>
+                <div><time>已送達</time>進倉、可出貨給客人</div>
+                <div style="color:var(--accent)"><time>異常</time>缺貨 / 停產 / 要等</div>
+              </div>
+            </div>
+          </div>
+          <ol class="notes">
+            <li><b>價目表可以有量階</b>(買 5 個以上另一個價)跟有效期。這是 Odoo 的做法,對代購很實用。</li>
+            <li><b>代購進度鏈</b> —— 現在系統只有「整張訂單」一個出貨狀態,你說過「這屬於商品狀態,可以一個商品一個商品標記」,所以要下放到<b>每個商品</b>。</li>
+          </ol>
+          <div class="asks">
+            <h4>? 待你確認(規格 §6 的 N9,還沒拍板)</h4>
+            <ul><li>供應商主檔<b>這一期做不做</b>?做了範圍會變大,但代購這塊確實最缺。</li></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════ 09 手機版 ══════════════ -->
+    <section class="sheet" id="s9">
+      <div class="sheet-head">
+        <span class="sheet-num">09</span>
+        <h2>手機版</h2>
+        <span class="chip new">提案要做</span>
+      </div>
+      <p class="sheet-sub">
+        你常用手機遠端看。規則已定:<b>手機上列表一律變成一張張卡片,不做左右滑的表格</b>。
+        重要欄位加粗放最上面、次要資訊放第二行、金額跟狀態靠右。
+        現在訂單列表 13 欄在手機上根本不能用。
+      </p>
+
+      <div class="phones">
+        <div class="phone new">
+          <div class="phone-shell"><div class="phone-screen">
+            <div class="ph-bar"><span>☰</span><span>訂單</span><span style="margin-left:auto; font-weight:400; color:var(--ink-3)">🔍</span></div>
+            <div class="ph-body">
+              <div class="m-row tight" style="margin-bottom:8px"><span class="m-pill" style="font-size:11px">待處理 ✕</span></div>
+              <div class="ph-card dash">
+                <div class="ph-l1"><span>PCM-2026-0104</span><span class="ph-amt">20,300</span></div>
+                <div class="ph-l2">王大明 · 白金 · 2 件</div>
+                <div class="ph-l3"><span class="m-tag">多狀態</span><span class="m-tag">已付款</span></div>
+              </div>
+              <div class="ph-card dash">
+                <div class="ph-l1"><span>PCM-2026-0103</span><span class="ph-amt">4,800</span></div>
+                <div class="ph-l2">陳小華 · 一般 · 1 件</div>
+                <div class="ph-l3"><span class="m-tag">已出貨</span><span class="m-tag">匯款</span></div>
+              </div>
+              <div class="ph-card dash">
+                <div class="ph-l1"><span>PCM-2026-0101</span><span class="ph-amt">12,900</span></div>
+                <div class="ph-l2">林先生 · 一般 · 3 件</div>
+                <div class="ph-l3"><span class="m-tag">待下單</span><span class="m-tag">已付款</span></div>
+              </div>
+            </div>
+          </div></div>
+          <p class="phone-cap">訂單列表 → 卡片<br>單號與金額同一行、最顯眼</p>
+        </div>
+
+        <div class="phone new">
+          <div class="phone-shell"><div class="phone-screen">
+            <div class="ph-bar"><span>‹</span><span>PCM-2026-0104</span></div>
+            <div class="ph-body">
+              <div class="ph-card dash"><div class="ph-l1"><span>王大明</span><span class="ph-amt">20,300</span></div><div class="ph-l2">0912-345-678 · 台中市…</div></div>
+              <div class="ph-card dash">
+                <div class="m-sub" style="margin-bottom:5px">品項</div>
+                <div class="ph-l3"><span>腳踏後移組 ×1</span><span class="m-tag">待下單</span></div>
+                <div class="ph-l3"><span>油箱貼 ×1</span><span class="m-tag">已到貨</span></div>
+              </div>
+              <div class="ph-card dash"><div class="m-sub" style="margin-bottom:5px">快遞單號</div><div class="m-input dash" style="height:28px">輸入或掃描…</div></div>
+              <div class="m-row tight"><span class="m-btn" style="flex:1; text-align:center">備註</span><span class="m-btn pri" style="flex:1; text-align:center">標記出貨</span></div>
+            </div>
+          </div></div>
+          <p class="phone-cap">訂單明細 → 直向堆疊<br>常用動作固定在下方</p>
+        </div>
+
+        <div class="phone new">
+          <div class="phone-shell"><div class="phone-screen">
+            <div class="ph-bar"><span>☰</span><span>今日待辦</span></div>
+            <div class="ph-body">
+              <div class="ph-card dash"><div class="ph-l1"><span>待向供應商下單</span><span class="ph-amt">6</span></div></div>
+              <div class="ph-card dash"><div class="ph-l1"><span>已到貨待出貨</span><span class="ph-amt">3</span></div></div>
+              <div class="ph-card dash"><div class="ph-l1"><span>待確認匯款</span><span class="ph-amt">2</span></div></div>
+              <div class="ph-card dash"><div class="ph-l1"><span>退款待處理</span><span class="ph-amt" style="color:var(--accent)">1</span></div></div>
+            </div>
+          </div></div>
+          <p class="phone-cap">員工首頁<br>一眼看完今天要做幾件</p>
+        </div>
+
+        <div class="phone new">
+          <div class="phone-shell"><div class="phone-screen">
+            <div class="ph-bar"><span>‹</span><span>商品</span></div>
+            <div class="ph-body">
+              <div class="ph-card dash"><div class="ph-l1"><span>腳踏後移組</span><span class="ph-amt">18,500</span></div><div class="ph-l2">Lightech · 6 個變體</div><div class="ph-l3"><span class="m-tag">上架中</span><span></span></div></div>
+              <div class="ph-card dash"><div class="ph-l1"><span>油箱貼</span><span class="ph-amt">1,800</span></div><div class="ph-l2">Eazi-Grip · 42 個變體</div><div class="ph-l3"><span class="m-tag">上架中</span><span></span></div></div>
+              <div class="ph-card dash"><div class="ph-l1"><span>短牌架</span><span class="ph-amt">2,400</span></div><div class="ph-l2">K-SPEED · 3 個變體</div><div class="ph-l3"><span class="m-tag">草稿</span><span></span></div></div>
+            </div>
+          </div></div>
+          <p class="phone-cap">商品列表 → 卡片<br>圖 + 名稱 + 售價 + 狀態</p>
+        </div>
+      </div>
+
+      <div class="warn">
+        <b>手機上不做的事:</b>會計記帳、報表細看、變體矩陣批次改價 —— 這些照樣做得到,
+        但畫面優先為電腦設計,手機上只保證「看得到、按得動」,不保證好操作。
+      </div>
+    </section>
+
+    <!-- ══════════════ 10 通用規範 ══════════════ -->
+    <section class="sheet" id="s10">
+      <div class="sheet-head">
+        <span class="sheet-num">10</span>
+        <h2>七條通用規範</h2>
+      </div>
+      <p class="sheet-sub">全後台所有畫面都照這七條走,不逐頁重新決定。來源:Shopify Polaris 官方規範 + Odoo 實機測試。</p>
+      <div class="rules">
+        <div class="rule"><b>1 · 手機列表一律轉卡片</b><p>不做左右滑的表格。主要欄位加粗置頂、次要副行、金額狀態靠右。</p></div>
+        <div class="rule"><b>2 · 篩選用可個別移除的標籤</b><p>顯示在列表上方,能單獨拿掉也能全部清除,不藏進彈窗。</p></div>
+        <div class="rule"><b>3 · 表單錯誤講兩次</b><p>最上方總結一次(並跳到那裡),每一欄旁邊再講一次。只講一種,人找不到錯在哪。</p></div>
+        <div class="rule"><b>4 · 批次操作按鈕長在標題列上</b><p>不做浮在畫面下方的黑色長條。跨頁全選要有獨立文案。</p></div>
+        <div class="rule"><b>5 · 超過 50 筆才分頁</b><p>「共 N 筆 + 上一頁 / 下一頁」,不做頁碼輸入框。</p></div>
+        <div class="rule"><b>6 · 會出事的動作要問第二次</b><p>刪除、退款一律二次確認;有沒存的東西要離開,先擋一下。</p></div>
+        <div class="rule"><b>7 · 提示訊息至少停 10 秒</b><p>無障礙要求。不做 2 秒閃一下就消失的那種。</p></div>
+      </div>
+    </section>
+
+    <footer id="next">
+      <h2>接下來怎麼走</h2>
+      <ol>
+        <li><b>你看這份、指出哪裡不對</b> —— 特別是紫色虛線框那些「待確認」的,還有訂單列表要顯示哪幾欄。</li>
+        <li><b>我依你的回饋改這份預覽</b>,改到你點頭。</li>
+        <li><b>才開始寫程式</b>,順序是:後台共用積木 → 員工帳號與權限 → 訂單閉環。</li>
+      </ol>
+
+      <h2 style="font-size:16px; margin-top:26px">還沒決定、等你的六件事</h2>
+      <ol style="line-height:2">
+        <li>側邊選單這五組分法對不對</li>
+        <li>訂單列表要顯示哪幾欄、上排要哪幾個預設檢視</li>
+        <li>匯款金額對不起來時,擋下來還是允許記差額</li>
+        <li>同一張商品圖能不能給多個商品共用(<b>之後再改很痛</b>)</li>
+        <li>供應商主檔這一期做不做</li>
+        <li>月報表「本月支出運費」那格差 7.5 倍的口徑</li>
+      </ol>
+
+      <p class="prov" style="margin-top:26px">
+        資料來源 · 現況 6 頁為 2026-07-26 實查 apps/admin/src/app 逐檔確認<br>
+        側邊選單 4 項 = app-sidebar.tsx:23-28 · 訂單 13 欄 = orders-table.tsx:182-194 · 訂單明細 4 卡 = order-detail.tsx:184-230<br>
+        客戶列表 5 欄 = customers-table.tsx:44-50 · 員工名單寫死 = staff.ts:3<br>
+        版面與規範依 docs/specs/2026-07-25-admin-backend-rebuild-spec.md §1 / §4 / §5 · 研究底稿 23 份於 docs/specs/research-2026-07-25/
+      </p>
+    </footer>
+
+  </main>
+</div>
