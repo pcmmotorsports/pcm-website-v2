@@ -56,11 +56,29 @@ export {
   parseDisplayId,
 } from './order/display-id';
 // order 運費規則(M-3-S2-b2、純函式;前台顯示鏡像、權威值由 create_order RPC §7 自算)
+// 🔴 **`DEFAULT_SHIPPING_RULE` 刻意不從 barrel 匯出**(codex 關卡2 must-fix):
+//   退刷線 Q6=B 要求退款重算只能用訂單凍結規則;若此處匯出,RF5 極易寫成
+//   `?? DEFAULT_SHIPPING_RULE` 的 fallback = 悄悄退回「當下運費表」語意、拍板失效。
+//   註解攔不住誤用 → **拿掉匯出**才攔得住(機制優先於規則文字)。
+//   需要它的只有 `calculateShippingFee` 的預設參數與 #216 drift gate,兩者都在 domain 內部。
 export {
   calculateShippingFee,
   FREE_SHIPPING_THRESHOLD,
   HOME_SHIPPING_FEE,
 } from './order/shipping';
+export type { ShippingRule } from './order/shipping';
+// order 退款金額 + 運費重算引擎(M-3 退刷線 RF1、純函式;退款金額唯一 TS 權威)
+export { computeRefundQuote } from './order/refund';
+export type {
+  RefundQuote,
+  RefundQuoteInput,
+  RefundQuoteLine,
+  RefundQuoteRejection,
+  RefundQuoteResult,
+  RefundRemainingItem,
+  RefundRequestItem,
+  RefundShippingAdjustment,
+} from './order/refund';
 
 // payment 確認 domain 錯誤(M-3 階段②-②b、confirm 失敗分類:unreachable=可重 confirm / rejected=孤兒)
 export type { PaymentConfirmErrorCode } from './payment/errors';

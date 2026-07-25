@@ -14,7 +14,8 @@ import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from './shipping';
+import { calculateShippingFee, FREE_SHIPPING_THRESHOLD, HOME_SHIPPING_FEE } from './shipping';
+import { toMoneyAmount } from '../shared/types';
 
 // packages/domain/src/order/ → repo root 上 4 層 → supabase/migrations
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../supabase/migrations');
@@ -45,5 +46,30 @@ describe('運費門檻 TS ↔ create_order RPC §7 drift gate(#216)', () => {
   it('最新 create_order migration §7 未滿運費 == domain HOME_SHIPPING_FEE', () => {
     const sql = latestCreateOrderShipping();
     expect(sql?.fee).toBe(HOME_SHIPPING_FEE);
+  });
+
+  // ── RF1 擴充:gate 由「TS 常數 ↔ SQL」兩方擴為「TS 常數 ↔ 預設規則 ↔ SQL」三方 ──
+  //
+  // 🔴 為何必須加(codex 關卡1 R2-F1):RF1 給 calculateShippingFee 加了選填第三參數 `rule`,
+  //   預設值為模組私有的 DEFAULT_SHIPPING_RULE。若該預設值另寫字面數字而非由常數衍生,
+  //   它可獨立漂走 —— 而「兩參呼叫 vs 三參傳 DEFAULT」的等價測試會**同源假綠**
+  //   (兩邊都吃同一個錯的 default → 永遠相等),兩方 gate 也抓不到,但 storefront 顯示的運費已變。
+  // 🔴 v6(codex 關卡2 R2 must-fix):DEFAULT_SHIPPING_RULE 已改為**模組私有、完全不 export**
+  //   (防 RF5 寫 fallback)→ 本 gate 改以**行為**驗證預設值,不直接斷言物件欄位。
+  const twd = (n: number) => ({ amount: toMoneyAmount(n), currency: 'TWD' as const });
+
+  it('預設規則的免運門檻(行為驗證)== FREE_SHIPPING_THRESHOLD', () => {
+    expect(calculateShippingFee(twd(FREE_SHIPPING_THRESHOLD), 'home').amount).toBe(0);
+    expect(calculateShippingFee(twd(FREE_SHIPPING_THRESHOLD - 1), 'home').amount).toBe(HOME_SHIPPING_FEE);
+  });
+
+  it('預設規則的未滿運費(行為驗證)== HOME_SHIPPING_FEE', () => {
+    expect(calculateShippingFee(twd(0), 'home').amount).toBe(HOME_SHIPPING_FEE);
+  });
+
+  it('預設規則 == 最新 create_order migration §7 兩數(三方一致、行為驗證)', () => {
+    const sql = latestCreateOrderShipping();
+    expect(calculateShippingFee(twd(sql!.threshold), 'home').amount).toBe(0);
+    expect(calculateShippingFee(twd(sql!.threshold - 1), 'home').amount).toBe(sql!.fee);
   });
 });
