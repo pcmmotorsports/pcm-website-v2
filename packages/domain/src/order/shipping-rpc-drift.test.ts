@@ -4,11 +4,20 @@
 //   ↔ create_order RPC §7 `CASE WHEN v_subtotal >= 5000 THEN 0 ELSE 100 END`)原無 CI gate、
 //   改一處忘另一處會靜默漂移(顯示運費 ≠ 實際成交運費)。本測補對比守門。
 //
-// 純讀已 commit 的 .sql(非連線 live DB)→ 抓「最新」含運費 CASE 的 create_order migration 的 §7、
-// assert == TS 常數。取「最新」(時戳前綴最大、含運費 CASE 的 migration)= 當前生效定義
+// 純讀已 commit 的 .sql(非連線 live DB)→ 抓**最新一支定義 create_order 的 migration**的 §7 運費 CASE、
+// assert == TS 常數。取「最新」(時戳前綴最大者)= 當前生效定義
 // (後者勝:同簽章走 CREATE OR REPLACE;🔴 M-4a B-2 起改參數數量的片走 DROP + CREATE ——
 //  PG 不允許用 CREATE OR REPLACE 改參數數量,那會產生 overload 而非取代);故未來運費若調整,
 // superseded 舊 migration 保留舊值不誤紅。改運費須同步「TS 常數 + 新 migration」兩處,本 gate 即攔任一處漏改。
+//
+// 🔴 **anchor = 「定義 create_order」而非「命中運費 CASE regex」**(2026-07-25 codex 關卡2 R3 複驗抓出、
+//   Sean 拍 A 當場修):舊版是「由新往舊翻、第一個**命中 CASE regex** 的檔就採用」。實查當時 7 支
+//   migration 都定義 create_order 且 7 支都命中 regex ⇒ 一旦最新那支把 CASE 寫成 regex 抓不到的形狀
+//   (**RF2a-0/RF2b 正要把運費改成讀凍結欄位/變數**,例如 `v_subtotal >= v_free_threshold`),
+//   gate 會**靜默退回已被取代的舊 migration**、永遠綠,而真正生效的運費已漂走 = 假綠。
+//   現行語意:最新那支**抓不到 CASE 就直接紅**(附指示訊息),不准回退。
+//   ⚠️ 另有 1 支(`20260612150000_m3_s2d_charge_attempts.sql`)只在 DROP/GRANT 提到 create_order、
+//   並未定義它 ⇒ anchor regex 必須要求 `CREATE [OR REPLACE] FUNCTION`,不能只比對函式名。
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -21,21 +30,49 @@ import { toMoneyAmount } from '../shared/types';
 const MIGRATIONS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../../../../supabase/migrations');
 // §7 運費 CASE:`v_subtotal >= <門檻> THEN 0 ELSE <未滿運費> END`
 const SHIPPING_CASE = /v_subtotal\s*>=\s*(\d+)\s*THEN\s*0\s*ELSE\s*(\d+)\s*END/;
+// 🔴 anchor:必須是「定義」create_order 的檔(排除只 DROP/GRANT/COMMENT 提到函式名的 migration)
+const CREATE_ORDER_DEF = /CREATE\s+(OR\s+REPLACE\s+)?FUNCTION\s+public\.create_order\s*\(/i;
 
-function latestCreateOrderShipping(): { threshold: number; fee: number; file: string } | null {
+/** 最新一支**定義** create_order 的 migration 檔名(= 當前生效定義);查無回 null。 */
+function latestCreateOrderFile(): string | null {
   const files = readdirSync(MIGRATIONS_DIR)
     .filter((f) => f.endsWith('.sql'))
-    .sort(); // 檔名時戳前綴升冪 → 由後往前找,第一個含 CASE 的為最新生效定義
+    .sort(); // 檔名時戳前綴升冪 → 由後往前找,第一個「定義」create_order 的即最新生效定義
   for (let i = files.length - 1; i >= 0; i--) {
-    const m = readFileSync(join(MIGRATIONS_DIR, files[i]!), 'utf8').match(SHIPPING_CASE);
-    if (m) return { threshold: Number(m[1]), fee: Number(m[2]), file: files[i]! };
+    if (CREATE_ORDER_DEF.test(readFileSync(join(MIGRATIONS_DIR, files[i]!), 'utf8'))) return files[i]!;
   }
   return null;
 }
 
+/**
+ * 最新生效 create_order 的 §7 運費兩數。
+ * 🔴 **不回退**:最新那支定義檔抓不到運費 CASE 就回 null(→ gate 紅),
+ *    絕不改去讀舊 migration(那會產生「對照已作廢定義」的假綠)。
+ */
+function latestCreateOrderShipping(): { threshold: number; fee: number; file: string } | null {
+  const file = latestCreateOrderFile();
+  if (!file) return null;
+  const m = readFileSync(join(MIGRATIONS_DIR, file), 'utf8').match(SHIPPING_CASE);
+  if (!m) return null;
+  return { threshold: Number(m[1]), fee: Number(m[2]), file };
+}
+
 describe('運費門檻 TS ↔ create_order RPC §7 drift gate(#216)', () => {
-  it('migrations 內存在運費 CASE(gate 已接線、防 regex 漂走變空測)', () => {
-    expect(latestCreateOrderShipping()).not.toBeNull();
+  it('gate 已接線:最新 create_order 定義檔存在,且其 §7 運費 CASE 可解析(🔴 抓不到就紅、不回退舊檔)', () => {
+    const file = latestCreateOrderFile();
+    expect(file, 'supabase/migrations 內找不到任何定義 public.create_order 的 migration').not.toBeNull();
+
+    const sql = latestCreateOrderShipping();
+    expect(
+      sql,
+      `最新 create_order 定義檔「${file}」內解析不到 §7 運費 CASE(regex=${SHIPPING_CASE})。` +
+        '🔴 這代表運費算法已改寫形狀(例如 RF2a-0/RF2b 改讀 orders 凍結欄位或用變數)—— ' +
+        '請同步改本 gate(更新 SHIPPING_CASE,或改為對照欄位 DEFAULT),' +
+        '**不要**讓它退回舊 migration 對照:那會變成「拿已作廢定義對帳」的假綠。',
+    ).not.toBeNull();
+
+    // 三方 gate 的對照基準必須就是那支最新定義檔(防未來又被改成回退式搜尋)
+    expect(sql!.file).toBe(file);
   });
 
   it('最新 create_order migration §7 門檻 == domain FREE_SHIPPING_THRESHOLD', () => {

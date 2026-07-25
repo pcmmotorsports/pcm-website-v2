@@ -2,26 +2,32 @@
 
 > **給接手 session**:本檔是「接著做什麼、以及什麼還沒收」的唯一入口。
 > 起手照 `CLAUDE.md` 開工儀式;真權威仲裁序 = 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 本檔 > 歷史。
-> 🔴 **本 session 零 push、零 migration、零 DB、零 flag、未動 `.env*`**。
+> 🔴 **零 migration、零 DB、零 flag、未動 `.env*`**(本線至今)。
 
 ---
 
-## 1. 🔴 唯一擋住進度的決策(接手第一件事:確認 Sean 已答)
+## 🆕 2026-07-25 後續更新(§1/§2 已被事實取代,先讀本節)
 
-**RF1 已 code-complete 且全綠,但 `codex 關卡2 R2 判 FAIL`、plan 層與 diff 層審查輪數上限均已用盡。**
+**§1 的決策已由 Sean 裁示 (B)、且 RF1 已 commit 並推上 `origin/dev`。**
 
-- 四輪審查累計 **26 must-fix + 9 nit,全數折入**;另有 **1 條 codex 誤判經實查駁回**(見 §4)。
-- R2 的 6 條 findings **也已全部折入**(§3),但**依規則不得再跑 R3**
-  (`~/.claude/rules/00-work-rules.md` §5 + `codex-adversary` skill:round2 仍 FAIL → 停、raise Sean)。
-- ⇒ **Sean 需裁示二擇一**:
-  - **(A)** 直接 commit(理由:R2 的 6 條皆為隔離測試缺口與文件字面同步,**無一條質疑核心公式、Q6=B 架構或金額正確性**;diff 層已過 code-reviewer + codex 兩輪)
-  - **(B)** 授權例外再跑一輪 codex 關卡2 R3 確認
-
-🔴 **在 Sean 答覆前:不得 commit RF1**。工作區狀態見 §2。
+1. **Sean 拍 (B)** = 授權破例跑 codex 關卡2 **R3**。R3 判 **FAIL、共 5 must-fix**:
+   - **R3-1~R3-4** 折入 **`ccad329`**(退款引擎本體 commit;plan §10g 銷案表)。
+   - **R3-5** = **#216 drift gate 的 anchor 錯**,折入**後續 commit**(見下)。
+2. 🔴 **R3 實際被跑了兩次**——Sean 同一句「再跑第三輪審查」貼進兩個並行 Claude 視窗,兩邊各跑一次 codex(白付一次)。
+   兩邊唯一的差異來自**問題不同**:一邊只問「找新問題」,另一邊多問「**前兩輪的修法是否真的成立**」→ 後者才抓到 **R3-5**。
+   ⇒ 教訓已落 memory `feedback_single-review-session-avoid-parallel`(**重疊審查線唯一有價值的情況是問不同的問題**)。
+3. **R3-5 的內容(RF2a-0 必讀)**:`shipping-rpc-drift.test.ts` 原本挑「最新一支**命中運費 CASE regex** 的 migration」當對照基準,
+   而不是「最新一支**定義 `create_order`** 的 migration」。實查 7 支 migration 定義 `create_order` 且當時 7 支全命中 regex
+   ⇒ 最新那支一旦把 CASE 寫成 regex 抓不到的形狀(**RF2a-0/RF2b 改讀凍結欄位就是這個形狀**),
+   gate 會**靜默退回已作廢的舊 migration**、永遠綠,而真正生效的運費已漂走。
+   **修法**=anchor 改成「最新一支**定義** `create_order` 的檔」+ **抓不到 CASE 直接紅**(附指示訊息)+ 斷言對照檔就是那支。
+   **負向實測**:放一支「最新且用變數寫 CASE」的臨時 migration → **新版 4 紅 / 舊版 6 綠**(舊版假綠是實測、不是推論);臨時檔跑完即刪、`git status` 零留痕。
+4. **現況**:`dev` = `origin/dev`(已推)。RF1 相關 commit:`ccad329`(引擎)→ `33e1a40`(STATUS/CURRENT)→ 之後一支 gate 修正 commit。
+5. **下一片仍是 RF2a-0**(§5),**卡 Sean db push**;另 E0 搜尋線的 `pg_jieba` 前置未驗仍成立(§6)。
 
 ---
 
-## 2. 工作區現況(🔴 未 commit、有被並行 session 誤 stash 的風險)
+## 2. ⚠️ 工作區現況(**歷史快照、已被上方「後續更新」取代**:6 檔已 commit 進 `ccad329` 並推上 `origin/dev`;`/tmp/rf1-*` 備份與基準 shasum 已失效——並行視窗在 R3 期間改檔時連 `/tmp/rf1-base.sha` 一起改寫了)
 
 ```bash
 git -C /Users/sean_1/pcm-website-v2 status --porcelain
@@ -45,7 +51,7 @@ git -C /Users/sean_1/pcm-website-v2 status --porcelain
 ```bash
 cd /Users/sean_1/pcm-website-v2 && npx vitest run packages/domain/src/order/refund.test.ts packages/domain/src/order/shipping.test.ts packages/domain/src/order/shipping-rpc-drift.test.ts
 ```
-預期 `3 passed / 60 passed`。
+預期 `3 passed / 60 passed`(⚠️ **已過期**:R3 補測 14h + gate 加強後為 **3 passed / 62 passed**;full test = **252 檔 2926 passed + 1 todo**)。
 
 **最後一次完整驗證(本 session 實跑)**:typecheck 8/8、lint 10/10、build 2/2、full test **252 檔 2924 passed + 1 todo**。
 
@@ -100,7 +106,7 @@ commit body 必須揭示(來自審查要求):
 | 片 | 內容 | 卡手動 |
 | --- | --- | --- |
 | ~~RF1~~ | ✅ code-complete、待 §1 裁示後 commit | — |
-| **RF2a-0** ← **下一片** | 凍結運費規則:`orders` 加 `shipping_free_threshold` / `shipping_home_fee` 兩欄、`NOT NULL DEFAULT` = 當前值(5000/100)。🔴 **走 B3:靠欄位 DEFAULT 凍結、零 `create_order` 改動**(實證:當前生效 RPC `20260719120000_...:471-477` 的 INSERT 是具名欄位列 ⇒ 新欄不在列內);PG11+ 加帶 DEFAULT 欄位會同時回填既有列 ⇒ **backfill 免寫**。同片把 #216 drift gate 擴成「TS 常數 ↔ RPC CASE ↔ 欄位 DEFAULT」三方 | **Sean db push** + 交易模擬 |
+| **RF2a-0** ← **下一片** | 凍結運費規則:`orders` 加 `shipping_free_threshold` / `shipping_home_fee` 兩欄、`NOT NULL DEFAULT` = 當前值(5000/100)。🔴 **走 B3:靠欄位 DEFAULT 凍結、零 `create_order` 改動**(實證:當前生效 RPC `20260719120000_...:471-477` 的 INSERT 是具名欄位列 ⇒ 新欄不在列內);PG11+ 加帶 DEFAULT 欄位會同時回填既有列 ⇒ **backfill 免寫**。同片把 #216 drift gate 擴成「TS 常數 ↔ RPC CASE ↔ 欄位 DEFAULT」三方。🔴 **擴充時必須沿用 R3-5 的 anchor 語意**(對照「最新一支**定義** `create_order` 的檔」、抓不到 CASE 就**紅**),**不得退回「掃到哪支算哪支」**——那正是會靜默對照已作廢定義的假綠形狀 | **Sean db push** + 交易模擬 |
 | RF2a | 退款帳本 schema:`order_refunds` 表 + `bank_refund_id` 唯一鍵(≤20 字元)+ 狀態 + **`partiallyRefunded` enum**(Q1=A、收 backlog #26) | **Sean db push** |
 | RF2b | 退款 RPC(`admin_refund_order_items` + `admin_cancel_order`):SECURITY DEFINER + `FOR UPDATE` + CAS + SQL 側重算驗證 + 同交易更新 orders 三金額欄(Q2=A)+ audit。🔴 **kind 分類須鏡像 RF1 的 §3.3-10b** | **Sean db push** + 交易模擬 |
 | RF3 | `TapPayChargeAdapter.refund()`(現 stub throw `:211-214`)+ 新 `refundUrl` config 欄 + timeout 30s | — |
@@ -139,4 +145,5 @@ commit body 必須揭示(來自審查要求):
 | RF1 plan v4 / v2 / 凍結送關卡1 |
 | 退刷線第二批拍板 + 邊界四答 + Q5/Q6 + RF2a-0 改 B3 |
 
-🔴 **未 push;push 是 Sean 的手動動作,任何 session 不得代推或主動提議。**
+🔴 **push 是 Sean 的手動動作,任何 session 不得代推或主動提議。**
+⚠️ **本節「未 push」已過期**:Sean 2026-07-25 已推,`dev` = `origin/dev`(含 `ccad329` RF1 引擎 + `33e1a40` STATUS/CURRENT)。

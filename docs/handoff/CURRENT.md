@@ -7,6 +7,13 @@
 
 ## 1. 交接快照
 
+- Updated: 2026-07-25(深夜), Asia/Taipei — ✅ **#216 運費 drift gate anchor 修正收工(本 commit、未 push)= codex 關卡2 R3 的第 5 條**。輕量片、**只動 `packages/domain/src/order/shipping-rpc-drift.test.ts` 一個測試檔**、零 runtime 行為變更、零 DB。
+  - **問題**:gate 原本挑「最新一支**命中運費 CASE regex** 的 migration」當對照基準,而非「最新一支**定義 `create_order`** 的 migration」⇒ 最新那支一旦把 CASE 寫成 regex 抓不到的形狀,gate **靜默退回已作廢舊 migration、永遠綠**。實查:7 支 migration 定義 `create_order`、當時 7 支全命中 regex(回退鏈深且無聲);另 1 支 `20260612150000` 只在 DROP/GRANT 提到函式名 ⇒ anchor 必須要求 `CREATE [OR REPLACE] FUNCTION`。
+  - 🔴 **RF2a-0 直接相關**:那片要把運費改成讀 `orders` 凍結欄位,正是會觸發假綠的形狀 ⇒ **擴 gate 成三方時必須沿用新 anchor 語意**(抓不到 CASE 就紅、不准回退)。
+  - **負向驗證**:臨時放一支最新、`CASE WHEN v_subtotal >= v_free_threshold THEN 0 ELSE v_home_fee END` 的 migration → **新版 4 紅 / 舊版 6 綠**(舊版假綠是實測);臨時檔跑完即刪、`git status` 零留痕。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**(**本片新增測試數 0**、是加強既有那條)。
+  - 🔴 **流程教訓**:R3 被兩個並行視窗各跑一次 codex(Sean 同一句指令貼進兩個視窗)= **白付一次**;兩邊唯一差別是**問題不同**——只有多問「前兩輪修法是否真的成立」的那邊抓到本條。memory `feedback_single-review-session-avoid-parallel` 已補。
+  - 上一條 entry 的「30 must-fix」→ 連同本條共 **31 must-fix**;plan 現行版本 **v8**。
+
 - Updated: 2026-07-25(晚), Asia/Taipei — ✅ **RF1 退款引擎收工 `ccad329` + 本 session 全部 docs 已推 `origin/dev`**。
   - **RF1**(退刷線第 1 片、高風險片、純 domain):`computeRefundQuote` 純函式,公式=`退款額 = 退品項金額 −(新運費−舊運費)`、守恆恆等且**路徑無關**;全退回退運費;Q3=B 部分數量退;**Q6=B 凍結規則為必填輸入、引擎不 fallback**;對外零 throw(最外層 try/catch);16 種 rejection kind;幣別強制 TWD;DB int 上限全鏈守門。**尚未被任何地方呼叫**(消費端在 RF5/RF6)。
   - **驗證**:三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變 20 組全數有效**。
