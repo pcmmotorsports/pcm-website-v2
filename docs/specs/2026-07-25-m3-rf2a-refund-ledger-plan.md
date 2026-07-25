@@ -504,7 +504,8 @@ IMMEDIATE 模式下 INSERT header 當下 trigger 就炸了,**後面的明細 INS
 - **負向**:金額不符公式 / 重複 `bank_refund_id` / 21 字元 / `confirmed` 但 `confirmed_at` NULL 全數 `check_violation` 或 `unique_violation`。
 - **狀態轉移**:`processing → confirmed` 成功;`confirmed → failed` 被 `P0001` 擋下(終態不可轉出)。
 - **ACL 以 `SET LOCAL ROLE service_role` 實測**:INSERT / UPDATE / DELETE 三者皆 **42501**,SELECT 正常 ⇒ 寫入確實只能走 SECURITY DEFINER RPC。
-- **fail-closed 斷言 7 段**(client 7 權限 / service_role 應有 / 應無 / role_table_grants / relacl / attacl / RLS + trigger 存在)套用時全數通過。
+- **fail-closed 斷言**(當時 7 段:client 7 權限 / service_role 應有 / 應無 / `role_table_grants` / `relacl` / `attacl` / RLS + trigger 存在)套用時全數通過。
+  ⚠️ **字面更正(codex 關卡2 R2 nit)**:關卡2 折入後**增為 9 段** —— 新增 **7i**(TRUNCATE 攔截 trigger 兩支皆在)與 **7j**(三支 trigger 函式的 EXECUTE 零外授)。本節描述的是**§15 當時**那一輪的狀態,最終交付物以 migration 檔為準。
 
 ### 15.4 🔴 兩條「揭示成立」的反面實證(不是嘴上說說)
 
@@ -549,3 +550,30 @@ IMMEDIATE 模式下 INSERT header 當下 trigger 就炸了,**後面的明細 INS
 
 ⚠️ 誠實邊界同 §15.1:branch schema 仍落後 production 24 支(既有 `MIGRATIONS_FAILED`,非本片);
 檔內顯式 `BEGIN/COMMIT` 依然**未被直接執行驗證**(MCP 自帶交易)。
+
+---
+
+## 17. codex 關卡2 R2 確認輪(2026-07-25、`-s read-only`、審 `7faf004` + `a10b12a`)
+
+**判定 = GO,0 surviving must-fix。** R2 的任務是驗證 R1 的修法是否真的成立(非找新問題)。
+
+| R1 finding | R2 判定 |
+| --- | --- |
+| UPDATE 換 `refund_id` | **HOLDS** — `OLD/NEW` 都逐一查 header,`CONTINUE WHEN NOT FOUND` 緊接 `SELECT INTO`,不會跳過仍存在的 A/B 或驗到 NULL |
+| TRUNCATE | **HOLDS** — `BEFORE TRUNCATE` 擋直接與 `CASCADE` 截斷;一般 owner 也會觸發,僅**刻意 disable trigger 的 owner／superuser** 可繞過;函式維持 SECURITY INVOKER 正確 |
+| 函式 EXECUTE 收斂 | **HOLDS** — REVOKE 後 ACL 為非空 owner-only;撤 EXECUTE **不會**阻斷 trigger 執行 |
+| `lock_timeout` | **HOLDS** — 顯式 `BEGIN` 內的 `SET LOCAL` 覆蓋其後全部 DDL 至 `COMMIT`;逾時中止交易、回滾整檔 |
+| `confirmed` + `failed_reason`(我方駁回) | **HOLDS** — `(false = true)` 為 false、CHECK 確實拒絕 ⇒ **駁回成立** |
+| 交易模擬字面 | **HOLDS** — 文件已只宣稱 preview 實測,並明示檔內 `BEGIN/COMMIT` 尚未直接驗證 |
+| 全部誠實揭示 | **HOLDS** — 跨退款超退、運費未綁 orders、§5.2 非冪等、顯式交易未驗、preview 落後 24 支,均仍正確揭示 |
+
+### 17.1 R2 的 2 個 nit(已順手清)
+
+1. 🔴 **7j 斷言把 `proacl IS NULL` 當安全**——PostgreSQL 中 `proacl IS NULL` 代表「沿用預設權限」,
+   而函式預設就是 **PUBLIC 有 EXECUTE** ⇒ 「函式被 DROP+CREATE 卻沒補 REVOKE」會靜默放行。
+   → 改用 `has_function_privilege` 直接問四個角色能否執行,NULL 情況自然涵蓋。
+   **production 實證判準可用**:已 REVOKE 的 `admin_adjust_wallet` / `admin_set_customer_tier` / `create_order`
+   三支皆 `proacl IS NULL = false` 且 `has_function_privilege('public',…) = false`。
+   ⚠️ **誠實邊界**:7j 的**改版本身未經 preview branch 重跑**(僅其判準經 production 唯讀實證);
+   apply 當下若 REVOKE 成功則四項皆 false、斷言通過,行為與改版前一致。
+2. plan §15.3 仍寫「斷言 7 段」,關卡2 折入後實為 **9 段**(新增 7i/7j)→ 已標註為「§15 當時狀態」並指向 migration 檔為準。

@@ -38,7 +38,10 @@
 　✅ ⑤plan §10.7 與 §15 自相矛盾(要求宣稱「§5.2 交易模擬」但 §15 明載未驗證)→ 改為只宣稱 preview branch 實測、`BEGIN/COMMIT` 定位為**已寫入未驗證**。
 　❌ **駁回 1 條**:稱「`confirmed` 列可帶非空 `failed_reason`」——實測 CHECK `(status='failed')=(failed_reason 非空)` 在該情境為 `false=true` ⇒ **早已擋下**(production 唯讀純表達式求值,未碰任何表)。
 　⚠️ nit 2 條接受不補:preview branch 已刪、無法回溯保存 transcript;測試數字無 committed runner output = repo 既有慣例。
-**⑧ 修正後重驗**(branch `cjmkbdctedddyvcfxpuz`、用畢已刪):兩支全段重套成功含新斷言;三綠 8/8·10/10 + full **2945** 不變。
+**⑧ 修正後重驗**(branch `cjmkbdctedddyvcfxpuz`、用畢已刪):兩支全段重套成功含新斷言;三綠 8/8·10/10 + full **2945** 不變。**兩個新修的洞各做精確重現測試皆擋下**(UPDATE 換 `refund_id` → 訊息指名 A;`TRUNCATE` → 被攔)。
+**⑨ code-reviewer(Sean 指定 Fable 跑、跨模型)= `a10b12a`**:判定 **FAIL 3 must-fix + 6 nit**,實測核對後**全數成立、零駁回**。🔴 **三條都是「我說了但沒做到」**:①commit/STATUS/migration 檔頭都寫「收 backlog #26」但 #26 實查仍掛 ⏳ 待執行(已真的收)②plan 宣稱「兩支皆冪等可重跑」但帳本那支 `IF NOT EXISTS` 實查 **0 處**(已改誠實版 + 寫明不加 guard 是刻意:`CREATE TABLE IF NOT EXISTS` 會讓「表已存在但結構不同」靜默通過、金流帳本上比直接炸更危險)③**漏跑關卡2 R2 確認輪**(已補)。另 5 nit 已修:**三處數字無來源**(「落後 30 餘支」實為 **24 支**、「下一支 `20260712203000`」實為 `20260712183000`、「3 個測試檔」實為 **4 個**)、rollback 註解漏第三支函式、plan 兩處識別字與交付物不符、manifest 條目未 amend。Fable 亦獨立複驗 2945/252、`STATUS.md:163`、`ADD VALUE` 零先例、TS 值域全樹無漏網等為正確。
+**⑩ codex 關卡2 R2 = 🏁 GO,0 surviving must-fix**:七條全 **HOLDS**(含**我方駁回經確認成立**)。2 nit 已順手清:🔴 **7j 斷言誤把 `proacl IS NULL` 當安全** —— PG 中 NULL 代表「沿用預設」而函式預設就是 **PUBLIC 有 EXECUTE** ⇒ 改用 `has_function_privilege` 直接問四角色(production 實證:已 REVOKE 的 `admin_adjust_wallet`/`admin_set_customer_tier`/`create_order` 三支皆 `proacl IS NULL=false` 且 `public 不可執行`);plan「7 段斷言」字面 → 實為 **9 段**(+7i/7j)。⚠️ **誠實邊界**:7j 改版**未經 branch 重跑**,僅其判準經 production 唯讀實證。
+🔴 **⑪ 推 `dev` 前的硬前置(推之前才發現、plan §11 R6 原本只推導了反方向)**:`dev` = admin 的 **production** 分支,本片改了後台付款狀態篩選(`order-list-view.ts:126` 下拉多「已退部分」、`:148` URL 白名單放行、`SupabaseOrderAdapter.ts:248` 直接 `.eq('payment_status', …)`)⇒ **若 git push 先於 db push,後台一旦有人點該篩選,PG 會回「enum 無此值」、訂單列表當場壞**。⇒ **正確順序 = 先 `db push` 兩支、再 push `dev`**(Sean 2026-07-25 待答)。
 🔴 **剩項**:`db push` 兩支 = **Sean 手動**;帳本兩表**零寫入端**(刻意,RF2b 才寫)⇒ apply 後無真資料可驗、只能驗結構。plan 真權威 = `docs/specs/2026-07-25-m3-rf2a-refund-ledger-plan.md` v3(§13/§14 關卡1 折入、§15 實測、§16 關卡2 折入)。
 
 2026-07-25(`1dcef06` 主體 + `5827dbf` STATUS 補 + **本 commit** graphify 同步;**docs 清理封存 + 路由補登** — 輕量片、**零程式碼變更、零 migration、零 DB、零 flag、未動 `.env*`**)— 與 M-3 主線無關的整理片,Sean 07-25 拍板執行。

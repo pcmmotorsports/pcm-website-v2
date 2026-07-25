@@ -444,7 +444,12 @@ BEGIN
   END IF;
 
   -- 7j. 三支函式的 EXECUTE 必須零外授(SECURITY DEFINER + PUBLIC EXECUTE = 以 owner 權限起跑的入口)。
-  --     proacl IS NULL 代表「只有 owner 的預設權限」= 已被 REVOKE 乾淨。
+  --     🔴 **不要用 `proacl IS NULL` 當「安全」的判準**(codex 關卡2 R2 nit,屬實):
+  --     在 PostgreSQL,`proacl IS NULL` 代表「**沿用預設權限**」,而函式的預設就是 **PUBLIC 有 EXECUTE**
+  --     —— 把 NULL 當乾淨會讓「函式被 DROP+CREATE 卻沒補 REVOKE」這種情況靜默放行。
+  --     ⇒ 改用 `has_function_privilege` 直接問「這個角色到底能不能執行」,NULL 情況自然被涵蓋。
+  --     (production 實證:已 REVOKE 的 admin_adjust_wallet / admin_set_customer_tier / create_order
+  --      三支皆 `proacl IS NULL = false` 且 `has_function_privilege('public',…) = false`。)
   SELECT count(*) INTO v_cnt
     FROM pg_proc p
     JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -452,13 +457,14 @@ BEGIN
      AND p.proname IN ('pcm_assert_refund_ledger_consistent',
                        'pcm_order_refund_status_transition',
                        'pcm_refund_ledger_block_truncate')
-     AND p.proacl IS NOT NULL
-     AND EXISTS (
-       SELECT 1 FROM aclexplode(p.proacl) AS a
-        WHERE a.grantee <> p.proowner
+     AND (
+       has_function_privilege('public',        p.oid, 'EXECUTE')
+       OR has_function_privilege('anon',          p.oid, 'EXECUTE')
+       OR has_function_privilege('authenticated', p.oid, 'EXECUTE')
+       OR has_function_privilege('service_role',  p.oid, 'EXECUTE')
      );
   IF v_cnt <> 0 THEN
-    RAISE EXCEPTION 'RF2a-2 斷言失敗 — trigger 函式仍有 owner 以外的 EXECUTE 授權(% 支);拒繼續', v_cnt;
+    RAISE EXCEPTION 'RF2a-2 斷言失敗 — trigger 函式仍可被 PUBLIC/anon/authenticated/service_role 執行(% 支);拒繼續', v_cnt;
   END IF;
 END $$;
 
