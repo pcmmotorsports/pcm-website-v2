@@ -20,7 +20,17 @@
 **Branch:** dev
 
 ## 最後更新
-2026-07-25(**本 commit**;M-3 **RF2a-0「凍結運費規則 + 配送方式」✅ code 收工** — 高風險片〔鐵則 12 ③DB 結構、動 live `orders`〕、🔴 **未 apply、未 push**)— 退刷線第 2 片。`orders` 加**三欄**:`shipping_free_threshold`/`shipping_home_fee`(`NOT NULL DEFAULT` 5000/100、走 **B3 零 `create_order` 改動**;實查其 INSERT 為具名 13 欄列 `20260719120000:471-477`、且為 orders 唯一 INSERT 路徑)+ 🆕 `shipping_method_at_checkout`(text NOT NULL + CHECK `IN ('home','store')`)。🆕 **`orders` 上第一個 trigger** `orders_freeze_shipping_snapshot_bi`(BEFORE INSERT、只做 `NEW.shipping_method_at_checkout := NEW.shipping_method`)。**為何要第三欄**:Sean 明確答「我可能會改運送方式,非常有可能」⇒ 運費金額回推不出原方式(存 0 可能自取、也可能宅配滿額免運)⇒ 後台改 home→store 後 RF5 會少扣運費=**多退錢**;DEFAULT 不能引用同列其他欄位 ⇒ 只能 trigger。#216 gate 擴為**三方**(TS 常數 ↔ RPC CASE ↔ 欄位 DEFAULT)並換成**引號感知 SQL 掃描器**。PRD 補 §4b(B3 理由 + 殘餘風險表 + 第三欄決定)。
+2026-07-25(**本 commit**;M-3 **RF2a-0 + S2 ✅ 已 apply production** — ops 片、**零程式碼變更、零 migration 新增**)— Sean 拍板接受兩項殘餘風險後完成 DB 上線。
+**① apply 前正式站交易模擬 ✅ PASS(接手 session 實跑、零留痕)**:`BEGIN` → migration 可執行語句逐字 → 合成 INSERT → **結尾刻意 `RAISE`**(即使 `ROLLBACK` 未跑到,交易已 abort、物理上不可能 commit)。🔴 **最有價值的一項**=合成兩筆單走「具名 31 欄」INSERT(=`create_order` 的形狀、不列三新欄)→ **三新欄全由 DEFAULT+trigger 補上、兩筆都成立** ⇒ **B3「零 `create_order` 改動」由推論升級為實跑證實**。負向測試:往快照欄寫 `bogus` → `check_violation`(CHECK 真的擋)。兩道 apply 閘實測 **0/0**。零留痕獨立複驗:三欄/trigger/函式/兩 CHECK 皆 0、`total_cols` 回 31、`order_rows`=33。⚠️ 誠實邊界:送進 MCP 的是**可執行語句**(檔頭 1-56 行純註解未送、載重述詞已逐條 grep 原檔比對逐字一致)、**未驗併發**、合成單非真走 `create_order`。
+**② Sean 2026-07-25 拍 A**:兩項殘餘風險(①改運費那天的秒級部署窗 ②回填盲區=繞過後台直接 SQL 翻轉方式且維持 fee 自洽)**都接受、可以 push**。⇒ 原標「擋 apply」的閘至此解除。拍板落 memory `project_rf2a0-freeze-shipping-decisions`。
+**③ 🔴 db push 兩次失敗才成功(兩個都不是程式問題)**:(a)**migration 版本漂移**——K-SPEED 品牌 seed 於 07-24 由前一 session 走 **MCP `apply_migration`** 套用,MCP **自行以當下時鐘重新編號**為 `20260724085956`,與本地檔名 `20260724140000` 對不上 ⇒ `db push` 全面罷工(正確行為)。修法=`supabase migration repair --status reverted 20260724085956` 後由 `db push` 正式套用該檔(內容 `ON CONFLICT (slug) DO NOTHING` ⇒ 重跑為空轉、已實查該列存在且值相同)。🔴 **完整比對由 DB 自己做**(非目視):remote 76 / local 78、**remote-only 恰 1 筆、local-only 恰 3 筆**。(b)S2 版號 `20260723120000` 早於已套的 07-24 兩支 ⇒ 需 `--include-all`(兩者無先後依賴、安全)。
+**④ 三支已套用**:`20260723120000` S2 pg_cron → `20260724140000` K-SPEED(空轉)→ `20260725120000` RF2a-0。RF2a-0 自印兩行 NOTICE:回填完成 + 自檢通過。
+**⑤ apply 後獨立驗證全綠(不採信 migration 自述)**:三欄 `integer/integer/text` 且 **NOT NULL**、DEFAULT 逐字 `5000`/`100`、兩條 CHECK **convalidated=true**、trigger `enabled=O` + 指向正確函式 + `BEFORE INSERT FOR EACH ROW`;33 筆回填 **快照對不上 0 / 規則值錯 0 / 快照為空 0**。S2:`pcm_cron` schema + `invoke_cron_route`(SECURITY DEFINER)、兩 job active(`*/2` 與 `0 1`)、**anon 與 authenticated 皆無 EXECUTE、anon 無 schema USAGE**(fail-closed 成立)。
+**⑥ 🔴 S2 端到端實證(非手動戳、排程自己跑的)**:`cron.job_run_details` = `pcm-settle-sweep :: succeeded :: 07:56:00`、失敗 0;`net._http_response` **status=200**、body `{"ok":true,"enabled":false,"skipped":"sweeper_disabled"}`、`error_msg=null`;`net.http_request_queue`=**0**(Authorization 未滯留)。⇒ pg_cron → wrapper → vault → 帶 Bearer 打正式站 → 200 全鏈通,且 flag 正確為關。
+**⑦ Vercel 舊排程**:`vercel.json` 已無 crons 區塊、移除它的 `a5d7619` 經 `git merge-base --is-ancestor` 驗**已在 `origin/main`** ⇒ 正式站不會兩套排程重複打(S4 開 flag 的硬前置成立)。
+🔴 **唯一剩項 = 1 元商品真刷 smoke(不可跳)**:今天的模擬與驗證都是合成單,**整支 migration 從未被真實 `create_order` 走過**;下一筆真訂單成立後須查其 `shipping_method_at_checkout` 有值且等於 `shipping_method`。**未 push(本 commit)、未開任何 flag、未動 `.env*`**。⚠️ `.env.local` 已驗完好(無 BOM、14 行 1891 bytes、10 個 key 與推前一致、`.bak` 無殘留);`supabase migration list` 報 `'¿'` 解析錯誤 = **CLI 吃不下檔內中文註解的既知現象**(memory `reference_supabase-cli-reads-env-local-blocker`)、非本次弄壞。
+
+2026-07-25(`a698ba8`;M-3 **RF2a-0「凍結運費規則 + 配送方式」✅ code 收工** — 高風險片〔鐵則 12 ③DB 結構、動 live `orders`〕;⚠️ 該 entry 產出當下為「未 apply、未 push」,**apply 已於同日完成、見上一條**)— 退刷線第 2 片。`orders` 加**三欄**:`shipping_free_threshold`/`shipping_home_fee`(`NOT NULL DEFAULT` 5000/100、走 **B3 零 `create_order` 改動**;實查其 INSERT 為具名 13 欄列 `20260719120000:471-477`、且為 orders 唯一 INSERT 路徑)+ 🆕 `shipping_method_at_checkout`(text NOT NULL + CHECK `IN ('home','store')`)。🆕 **`orders` 上第一個 trigger** `orders_freeze_shipping_snapshot_bi`(BEFORE INSERT、只做 `NEW.shipping_method_at_checkout := NEW.shipping_method`)。**為何要第三欄**:Sean 明確答「我可能會改運送方式,非常有可能」⇒ 運費金額回推不出原方式(存 0 可能自取、也可能宅配滿額免運)⇒ 後台改 home→store 後 RF5 會少扣運費=**多退錢**;DEFAULT 不能引用同列其他欄位 ⇒ 只能 trigger。#216 gate 擴為**三方**(TS 常數 ↔ RPC CASE ↔ 欄位 DEFAULT)並換成**引號感知 SQL 掃描器**。PRD 補 §4b(B3 理由 + 殘餘風險表 + 第三欄決定)。
 🔴 **審查鏈(高風險不降級)**:codex 關卡2 **R1 FAIL 9 must-fix+1 nit → R2 FAIL 10 must-fix+1 nit**(兩輪上限用盡)→ Sean 拍 A 改派 **adversarial-reviewer(Fable、跨模型)R1 NO-GO 4 must-fix+2 consider+8 nit** → 全折入 → **Fable R2 GO**(前述全數 HOLDS、新增 2 nit 已順手清)。
 🔴 **Fable F1 = 本片最嚴重發現**:原順序把 `SET NOT NULL` 排在 trigger **之前**,而 migration **不保證單一交易**(`SET LOCAL` no-op 實證)⇒ 中途失敗會留下「NOT NULL 已生效、trigger 不存在」⇒ **之後每筆結帳 INSERT 都違反 NOT NULL、結帳全斷**。已改序為「加欄(可 NULL)→ 建 trigger〔不存在才 CREATE,避開 DROP+CREATE 的斷單窗〕→ 回填 → SET NOT NULL」,且回填三段包在**單一 DO block**(同生共死)。
 🔴 **Fable F2 = 回填證據 TOCTOU**:原本拿「規劃日查過稽核」當依據,查詢時點 ≠ apply 時點。已把兩道斷言搬進 **apply 當下**、任一不成立即 `RAISE` 拒套用:①稽核中「真的改過 `shipping_method`」筆數=0 ②每列 `shipping_fee` 與 `shipping_method` 自洽(store⇒0、home⇒未滿 100/滿額 0)。實測:稽核 14 筆動到該欄、**真改動 0 筆**;交叉檢 33 列**全數通過**;repo 內**無不落稽核的寫入車道**(`20260714120000` 只在註解提到、UPDATE 僅寫 `workflow_status`;後台 RPC 同交易寫稽核)。
@@ -132,14 +142,15 @@
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
+| `03e4c13` | docs(handoff): S2 前置 A-D 全數機械驗證通過 + apply 前連通實證 200 [M-3] | 2026-07-25 |
+| `a698ba8` | feat(schemas): RF2a-0 orders 凍結運費規則與配送方式三欄+trigger [M-3] | 2026-07-25 |
 | `0673312` | fix(schemas): #216 運費 drift gate anchor 改對照最新 create_order 定義檔 [M-3] | 2026-07-25 |
-| `33e1a40` | docs: STATUS 7 欄 + CURRENT 交接更新 RF1 收工 [M-3] | 2026-07-25 |
-| `ccad329` | feat(schemas): 退款金額+運費重算引擎純函式 RF1 [M-3] | 2026-07-25 |
 
 ## 下一步
 ✅ **RF1 退款金額+運費重算引擎 ✅ 收工(`ccad329`)** — 退刷線第 1 片、高風險片、純 domain 函式(零 DB/零 migration/零 UI/**尚未被任何地方呼叫**)。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變自驗 20 組全數有效**。**五輪審查**(codex 關卡1 R1/R2 → code-reviewer opus → codex 關卡2 R1/R2/R3〔R3 Sean 特別授權破例〕)、**31 must-fix + 9 nit 全折入**;🔴 **其中質疑核心公式/金額正確性/Q6=B 架構的:0 條**;另 1 條 codex 誤判經實查駁回。🔴 **四次突變「初版 0 紅」= 真假綠**(守門存在但移除後測試全綠;3 次根因是**遮蔽**——另一道守門先擋或回同一 kind)。plan 真權威=`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` **v8**。🔴 **第 31 條 = R3-5(#216 gate anchor 對照錯對象)不在 `ccad329` 內、修在後續 commit**(見「最後更新」本 commit 條);R3 由兩個並行視窗各跑一次 codex(白付一次)、只有多問「前兩輪修法是否成立」的那邊抓到 R3-5。
-✅ **RF2a-0 ✅ code 收工(=本 commit)**:三欄 + `orders` 第一個 trigger + 三方 gate;審查鏈 codex 兩輪 FAIL → Fable R1 NO-GO → **Fable R2 GO**(詳「最後更新」本 commit 條)。
-🔴 **RF2a-0 卡在 Sean 手動兩件事(apply 前置)**:①`.env.local` 需暫移開(CLI 會讀它而擋 `db push`;Claude 不碰 `.env*`)②**未套的 `20260723120000` S2 pg_cron 會先被 `db push` 掃到、其前置閘 RAISE 拒套** ⇒ 要嘛先完成 S2 runbook(`docs/specs/2026-07-23-m3-s2-sweeper-pgcron-plan.md` §11:Dashboard 開 pg_cron+pg_net、SQL Editor 存 2 個 vault secret、Vercel 設 `CRON_SECRET`),要嘛另議只套 RF2a-0 的路徑(MCP 單套會製造版本漂移、不建議)。**另有兩項殘餘風險待 Sean 知情接受**(見「最後更新」本 commit 條末)。
+✅ **RF2a-0 ✅ code 收工(`a698ba8`)+ ✅ 已 apply production(2026-07-25、詳「最後更新」本 commit 條)**:三欄 + `orders` 第一個 trigger + 三方 gate;審查鏈 codex 兩輪 FAIL → Fable R1 NO-GO → **Fable R2 GO**。apply 前跑正式站交易模擬 PASS(零留痕)、Sean 拍 A 接受兩項殘餘風險、`db push --include-all` 連同 S2 一併套用、apply 後獨立驗證全綠。
+🔴 **RF2a-0 唯一剩項 = 1 元商品真刷 smoke(不可跳)**:模擬與 apply 後驗證用的都是**合成單**,整支 migration **從未被真實 `create_order` 走過** ⇒ 下一筆真訂單成立後須查其 `shipping_method_at_checkout` 有值且等於 `shipping_method`,才可稱「新 trigger 沒把結帳弄壞」。
+✅ **S2 pg_cron 亦於同批 apply 並完成端到端實證**:兩 job active、`cron.job_run_details` 實跑 succeeded、`net._http_response` **200** + `{"enabled":false,"skipped":"sweeper_disabled"}`、`http_request_queue`=0;`vercel.json` 舊 crons 已移除且該 commit 已在 `origin/main`(S4 開 flag 的硬前置成立)。**flag 仍全關**。
 🔴 **下一片 = RF2a**(退款帳本 `order_refunds` 表 + `bank_refund_id` 唯一鍵 ≤20 字元 + `partiallyRefunded` enum,Q1=A、收 backlog #26)→ **需 Sean db push**。逐片起手見交接包 `docs/handoff/2026-07-25-rf1-refund-engine-handoff.md` §5。
 
 🔴🔴 **2026-07-25 規劃產出(等 Sean 拍板者已全數答畢、見下)**:
@@ -171,7 +182,8 @@
 
 ## Sean 待決策
 ✅ **2026-07-25 七題全部已答**(拍板落檔:退刷線 PRD §0b/§0c + 全站規劃 §0b):Q1=A 直接開工 RF1(✅ 已收工 `ccad329`)/ Q2=A 先修搜尋 + 🔴 追加「模糊搜尋涵蓋內文·標題·料號·車款·年份·類似關鍵字」/ Q3=A 沿用 ADR-0004 **Supabase Storage**(不推翻)/ Q4=A Unsplash 先轉存自有空間避熱連結破圖 / Q5=A 內容走**草稿→預覽→發布→可回滾**、AI 改的一律先當草稿 / **Q6=B 完整手動商品**(公開可搜尋·可下單·可管庫存·可下架;範圍擴張、Sean 知情)/ Q7-1=A 手動商品價格走後台專屬表單+完整紀錄、Q7-2=B 首頁內容一季 1-3 次=**L2**(⇒ 內容管理非鐵則 9 強制、讓位給搜尋與商品)。另 Sean 授權 **codex 關卡2 破例第三輪**(RF1)。
-🔴 **仍需 Sean 動手的**:①**RF2a-0 的 db push**(下一片)②admin Vercel TapPay env(RF4)③**E0 開工前四題**(詳 `docs/specs/2026-07-25-search-engine-options-recon.md` §5)。
+🔴 **仍需 Sean 動手的**:①~~RF2a-0 的 db push~~ **✅ 2026-07-25 已完成**(連同 S2;拍 A 接受兩項殘餘風險)→ 改為 **1 元商品真刷 smoke**(驗新 trigger 沒弄壞結帳)②admin Vercel TapPay env(RF4)③**E0 開工前四題**(詳 `docs/specs/2026-07-25-search-engine-options-recon.md` §5)。
+🆕 **2026-07-25 新增一題(非阻擋)**:`db push` 因 **migration 版本漂移**罷工一次(K-SPEED seed 07-24 走 MCP `apply_migration` 被自動重新編號)。memory 早有「正式 schema 用 db push 別用 MCP」但**無機制擋** ⇒ 是否加一道 CI 檢查(比對本地檔名 vs remote `schema_migrations`,對不上即紅)?**A=加(機制優先律)/ B=先不加、靠人記得**。
 
 ~~2026-07-25 過夜規劃產出、共 7 題待答~~(已全數答畢):
 - **退刷線 1 題**(`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` §11):**RF1 是否直接開工實作**?plan 已過 codex 兩輪、12 findings 全折入、**plan 層 2 輪上限用盡**;R2 的 4 條皆機械性錯誤(算錯期望值/契約矛盾/文件未同步/測試同源),**無一條質疑核心公式或 Q6=B 架構**;diff 層仍有 code-reviewer + codex 關卡2 兩道。選項:A 直接開工 / B 再審一輪 / C 先做全站規劃的 E0 搜尋。

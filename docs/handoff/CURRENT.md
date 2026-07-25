@@ -7,7 +7,15 @@
 
 ## 1. 交接快照
 
-- Updated: 2026-07-25(深夜 2), Asia/Taipei — ✅ **RF2a-0「凍結運費規則 + 配送方式」code 收工(本 commit、🔴 未 apply、未 push)**。高風險片、動 live `orders`。
+- Updated: 2026-07-25(深夜 3), Asia/Taipei — 🚀 **RF2a-0 + S2 pg_cron ✅ 已 apply production(本 commit = ops 紀錄、零程式碼變更)**。
+  - **順序**:apply 前正式站**交易模擬 PASS**(零留痕)→ Sean 拍 **A 接受兩項殘餘風險** → `supabase db push --include-all` 套用三支 → apply 後獨立驗證全綠。
+  - 🔴 **交易模擬最有價值的一項**:合成兩筆單走「具名 31 欄」INSERT(=`create_order` 的形狀、不列三新欄)→ **三新欄全由 DEFAULT + trigger 補上、兩筆都成立** ⇒ **B3「零 `create_order` 改動」由推論升級為實跑證實**。負向測試:往快照欄寫 `bogus` → `check_violation`。手法=`BEGIN` → migration 可執行語句逐字 → 合成 INSERT → **結尾刻意 `RAISE`**(即使 `ROLLBACK` 未跑到,交易已 abort、物理上不可能 commit)。
+  - 🔴 **db push 兩次失敗才成功,兩個都不是程式問題**:①**migration 版本漂移** —— K-SPEED seed 07-24 由前一 session 走 **MCP `apply_migration`**,MCP **以當下時鐘重新編號**為 `20260724085956`、與本地檔名 `20260724140000` 對不上 ⇒ `db push` 全面罷工(正確行為)。修法 `supabase migration repair --status reverted 20260724085956` 後正式套用該檔(`ON CONFLICT DO NOTHING` ⇒ 空轉)。**完整比對由 DB 自己做**:remote 76 / local 78、remote-only 恰 1、local-only 恰 3。②S2 版號早於已套的 07-24 兩支 ⇒ 需 `--include-all`(兩者無先後依賴)。
+  - **apply 後獨立驗證(不採信 migration 自述)**:三欄 `integer/integer/text` 全 NOT NULL、DEFAULT 逐字 `5000`/`100`、兩 CHECK `convalidated=true`、trigger `enabled=O` + 正確函式 + `BEFORE INSERT FOR EACH ROW`;33 筆回填 **0 錯**。S2:兩 job active、**anon/authenticated 皆無 EXECUTE、anon 無 schema USAGE**;`cron.job_run_details` **排程自己跑出** `succeeded`、`net._http_response` **200** + `{"enabled":false,"skipped":"sweeper_disabled"}`、`http_request_queue`=0。
+  - 🔴 **唯一剩項 = 1 元商品真刷 smoke(不可跳)**:模擬與驗證用的都是**合成單**,整支 migration **從未被真實 `create_order` 走過**。
+  - ⚠️ `.env.local` 已驗完好(無 BOM、14 行 1891 bytes、10 key 與推前一致、`.bak` 無殘留);`supabase migration list` 報 `'¿'` = **CLI 吃不下檔內中文註解的既知現象**、非本次弄壞。**未 push、未開 flag、未動 `.env*`。**
+
+- Updated: 2026-07-25(深夜 2), Asia/Taipei — ✅ **RF2a-0「凍結運費規則 + 配送方式」code 收工(`a698ba8`)**。高風險片、動 live `orders`。(⚠️ 該條產出當下為「未 apply、未 push」,**apply 已於同日完成、見上一條**。)
   - **做了什麼**:`orders` 加三欄 —— `shipping_free_threshold`/`shipping_home_fee`(`NOT NULL DEFAULT` 5000/100,**B3 = 零 `create_order` 改動**)+ 🆕 `shipping_method_at_checkout`(NOT NULL + CHECK `IN ('home','store')`);🆕 **`orders` 上第一個 trigger**(BEFORE INSERT,只把 `shipping_method` 複製進快照欄)。#216 gate 擴三方 + 換引號感知 SQL 掃描器。PRD 補 §4b。
   - 🔴 **為何多了第三欄**:Sean 明確答「**我可能會改運送方式,非常有可能**」。運費金額回推不出原方式(存 0 可能自取、也可能宅配滿額免運)⇒ 後台 home→store 後 RF5 會少扣運費 = **多退錢**。DEFAULT 不能引用同列其他欄 ⇒ 只能 trigger。
   - **審查鏈**:codex 關卡2 R1 FAIL 9 → R2 FAIL 10(兩輪用盡)→ Sean 拍 A 改派 **Fable(adversarial-reviewer)R1 NO-GO 4 must-fix + 2 consider + 8 nit** → 全折入 → **Fable R2 GO**(全數 HOLDS + 2 新 nit 已清)。

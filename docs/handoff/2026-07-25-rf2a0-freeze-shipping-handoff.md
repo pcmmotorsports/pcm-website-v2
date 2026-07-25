@@ -1,5 +1,11 @@
 # 交接包 — RF2a-0 收工 + DB 上線 runbook + 搜尋線待拍(2026-07-25 深夜)
 
+> ## 🚀 2026-07-25 狀態更新:本檔 §1 與 §3 的 runbook **已全部執行完畢**
+> - **交易模擬 ✅ PASS**(零留痕)→ **Sean 拍 A 接受 §4 兩項殘餘風險** → **`db push --include-all` ✅ 三支已 apply production**(S2 pg_cron / K-SPEED seed / RF2a-0)→ **apply 後獨立驗證全綠**。
+> - 過程中 `db push` 罷工兩次、**兩次都不是程式問題**:①migration 版本漂移(K-SPEED seed 走 MCP 被重新編號)→ `migration repair --status reverted 20260724085956` ②S2 版號早於已套的 07-24 兩支 → 需 `--include-all`。
+> - 🔴 **唯一剩項 = §3-F.3 的 1 元商品真刷 smoke**(模擬與驗證用的都是合成單,整支 migration 從未被真實 `create_order` 走過)。
+> - 詳情見 `STATUS.md`「最後更新」本 commit 條與 `docs/handoff/CURRENT.md` 頂端。**§1 §3 以下內容保留為執行紀錄,勿再照做。**
+
 > **給接手 session**:本檔是「接著做什麼」的唯一入口。起手照 `CLAUDE.md` 開工儀式。
 > 真權威仲裁序 = 可驗證事實 > `STATUS.md` > `docs/handoff/CURRENT.md` > 本檔 > 歷史。
 > 前一份交接包 = `docs/handoff/2026-07-25-rf1-refund-engine-handoff.md`(RF1;§1/§2 已標過期)。
@@ -141,7 +147,7 @@ select id, status_code, left(content, 300), error_msg, (select count(*) from net
 ⇒ ①密碼兩邊一致(不一致會 401)②路由連得到且 flag 正確為關 ③**Authorization 未滯留在 request queue**(codex 對 S2 的 F8 疑慮實測清除)。
 ⚠️ 留痕:`net._http_response` 多一筆(pg_net 自帶 **6 小時 TTL**、會自動消失);`http_request_queue` 已清空。
 
-### ⏸ 這裡停一下:等接手 session 跑完 RF2a-0 交易模擬(§1 第 1 點)再 push
+### ✅ 這道停損點已通過(2026-07-25):交易模擬 PASS + Sean 拍 A → 已 push
 
 ### E. db push(這行保證會把 `.env.local` 還原,即使 push 失敗)
 ```bash
@@ -160,14 +166,15 @@ cd /Users/sean_1/pcm-website-v2 && test -f .env.local && echo env-restored-ok &&
 
 ---
 
-## 4. 🔴 兩項殘餘風險(擋 apply、不擋 commit;**尚未經 Sean 拍板接受**)
+## 4. ✅ 兩項殘餘風險 — **Sean 2026-07-25 拍 A「兩項都接受、可以 push」**(原「擋 apply」閘已解除)
 
 | # | 風險 | 何時會咬人 | 目前緩解 |
 | --- | --- | --- | --- |
 | 1 | **秒級部署窗**:改運費規則需同時改「TS 常數 + 新 `create_order` migration + 欄位 `SET DEFAULT`」;「同一支 migration」本身**不保證原子**(本 repo 實證 `SET LOCAL` 是 no-op ⇒ 逐句 autocommit) | **改運費那天**(年 0-1 次) | 三方 gate 擋漏改;規則變更時把兩句放同一支 migration **並自己包 `BEGIN/COMMIT`** |
 | 2 | **回填盲區**:繞過後台、**直接用 SQL** 翻轉某單的配送方式**且**維持 `shipping_fee` 自洽(例如 store→home 且 subtotal ≥ 5000,兩者 fee 都是 0)⇒ 兩道 apply 斷言都抓不到、該單回填出錯快照 | apply 當下(需人為手動改過 prod 資料) | 無;**機率低但非零**,已寫進 PRD §4b |
 
-⇒ 接手 session 應在 Sean push 前**再確認一次**他知情接受這兩項。
+⇒ ✅ **已於 2026-07-25 apply 前向 Sean 逐項說明並取得明確拍板 A(兩項都接受)**,拍板落 memory `project_rf2a0-freeze-shipping-decisions`。
+🔴 **風險①的實務提醒(給未來改運費的人)**:改規則時把「新 `create_order`」與「欄位 `SET DEFAULT`」放**同一支 migration 並自己包 `BEGIN/COMMIT`**(本 repo 已實證 `SET LOCAL` 在 migration 內是 no-op ⇒ 逐句 autocommit、同檔不保證原子);#216 三方 gate 會擋漏改但**擋不住時序**。
 
 ---
 
