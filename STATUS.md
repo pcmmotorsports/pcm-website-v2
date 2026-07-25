@@ -124,13 +124,16 @@
 
 | Hash | 訊息 | 時間 |
 |---|---|---|
-| `ee1722c` | docs(specs): 全站規劃 v3 折入 codex R2 七條 must-fix + 駁回一條誤判 [規劃] | 2026-07-25 |
+| `4bd47bb` | docs(handoff): RF1 交接包 — code-complete 待 Sean 裁示 commit + 退刷線 RF2a-0 起手 + E0 搜尋前置 [M-3] | 2026-07-25 |
 | `2871a70` | docs(specs): RF1 plan v4 折入 codex 關卡1 R2 四條 findings + 修正 create_order 引用 [M-3] | 2026-07-25 |
 | `88ec40c` | feat(storefront): 補差額商品整車走自取免運 [M-3] | 2026-07-24 |
 | `786118a` | ci(sync): 每日同步 matrix 補 lightech+kspeed(extreme 靜態一次性不列) | 2026-07-24 |
 
 ## 下一步
-🔴🔴 **2026-07-25 過夜規劃 session 產出(全部只規劃、零程式;等 Sean 早上拍板)**:
+✅ **RF1 退款金額+運費重算引擎 ✅ 收工(`ccad329`)** — 退刷線第 1 片、高風險片、純 domain 函式(零 DB/零 migration/零 UI/**尚未被任何地方呼叫**)。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變自驗 20 組全數有效**。**五輪審查**(codex 關卡1 R1/R2 → code-reviewer opus → codex 關卡2 R1/R2/R3〔R3 Sean 特別授權破例〕)、**30 must-fix + 9 nit 全折入**;🔴 **其中質疑核心公式/金額正確性/Q6=B 架構的:0 條**;另 1 條 codex 誤判經實查駁回。🔴 **四次突變「初版 0 紅」= 真假綠**(守門存在但移除後測試全綠;3 次根因是**遮蔽**——另一道守門先擋或回同一 kind)。plan 真權威=`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` **v7**。
+🔴 **下一片 = RF2a-0**(`orders` 加 `shipping_free_threshold`/`shipping_home_fee` 兩欄、`NOT NULL DEFAULT`=5000/100;走 **B3 靠欄位 DEFAULT 凍結、零 `create_order` 改動**、PG11+ 自動回填免 backfill;同片把 #216 gate 擴成三方)→ **需 Sean db push** + 交易模擬。逐片起手見交接包 `docs/handoff/2026-07-25-rf1-refund-engine-handoff.md` §5。
+
+🔴🔴 **2026-07-25 規劃產出(等 Sean 拍板者已全數答畢、見下)**:
 - **① 退刷自動化線**:Sean 拍板 **Q1=A partiallyRefunded enum / Q2=A RPC 同交易更新三金額欄 / Q3=B 支援部分數量退 / Q4=A 不 step-up / Q5=A 隔日覆核+失敗回滾告警 / Q6=B 下單凍結運費規則**(PRD `docs/specs/2026-07-24-refund-automation-line-prd.md` §0b/§0c = 權威)。拆片重定為 **RF1→RF2a-0→RF2a→RF2b→RF3→RF4→RF5→RF6→RF7→RF8**(RF2a-0 為 Q6=B 衍生新片、走 **B3 欄位 DEFAULT 凍結、零 create_order 改動**)。**RF1 plan v4 已過 codex 關卡1 兩輪**(R1 FAIL 8 條 + R2 FAIL 4 條、共 12 findings 全折入;plan 層 2 輪上限用盡不跑 R3)→ 🔴 **等 Sean 答「RF1 是否直接開工」**(見 plan §11)。
 - **② 全站缺口盤點與後台可管理網站規劃**(Sean 07-25 交辦)= `docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md` **v3**。經 codex 關卡1 **兩輪**(R1 FAIL 12 must-fix、R2 FAIL 8 must-fix;共 19 條折入 + **1 條實查後駁回**)。🔴 **v1 有 6 條現況事實寫錯已更正**(最嚴重=誤稱「首頁最新商品寫死撈碳纖維分類」並據此出決策題,實為 `lib/products.ts:247-255` `orderBy:'created_desc'`;根因=偵察 agent 把 `fetchRelatedProducts` 誤當 `fetchFeaturedProducts`、主對話未親驗)。**§9 六題待 Sean 答**。
 - **🔴 搜尋功能結論(Sean 問「被鎖起來」)**:**不是被鎖、是半成品**。`Header.tsx:50-52` dispatch `pcm-open-search`,但 `apps/storefront` 零 listener(design-reference/components/App.jsx:346 有);`SearchOverlay.jsx`(205 行)未搬進正式站;`search-overlay.css` 不存在;`searchByKeyword()`(`SupabaseProductAdapter.ts:357-383`)零呼叫端。⚠️ 且 design 彈窗有**四組結果**(商品/品牌/分類/車款)、正式後端只回商品 → 接線需先定 server 邊界+DTO+URL contract,非單純搬運。
@@ -158,7 +161,10 @@
 ③**最新商品**(storefront 例行 UI)。④小件穿插=Q3d 佔位圖/Q3a 佔位頁/Q3e 結帳內嵌地址;**akrapovic 品牌形象區 ✅ 已上 production**;**🆕 商品卡去白邊 trim 線(Sean 07-19 拍 Q1=B)✅ 全線收工並上 production**:S1 `ff217b6` → S2 `1568ad2` → S4a `589fedb` → S4b `ef70443` → S3 `ef50482` + 首灌熱修(見「最後更新」本 commit)(plan 真權威=`docs/specs/2026-07-19-product-image-trim-plan.md` v1.1)。硬序四步**已全數走完**:①Sean `db push`(`20260719150000`)✅ → ②路徑②驗收 16 項 DB 斷言 + 3 項 PostgREST smoke 全 PASS ✅ → ③OP-首灌 ✅(兩趟;DB 10,762 列 = ok 8,825 / no_trim 1,254 / failed 683)→ ④Sean 肉眼驗 ✅ 通過。正式站實抓 HTML 複驗生效。🔴 **未結**:`failed` 中 **665 列 = `www.eazi-grip.com` 首灌被限流**(圖本身正常、事後單張 curl 200),照 `FAILED_RETRY_MS`=7 天由 CI 自動重試;**提前 targeted 重跑需加「只重跑 failed」旗標(新 code 改動)= 待 Sean 拍**。🔴 **部署順序硬依賴(S4a Critical、已按序執行、後人回滾/重建環境仍適用)**:adapter select 指名 `card_image_trim`、未 apply 的 DB=**42703 目錄全斷**(非優雅降級)→ **先 db push、後推 dev/promote main**(admin 不用此 adapter、不受影響)。審查:Fable 關卡1 兩輪(R1 NO-GO 3 must-fix→R2 GO);codex 關卡2 S1 兩輪(6+2→2+1)、S4b 兩輪(2+1→3 字面);code-reviewer 每片(S1 PASS/S2 PASS/S4a R1 FAIL Critical→R2 PASS/S4b R1 FAIL→R2 PASS)。獨立線(未排):**LINE 補資料線**(動工前 Sean 須先拍「真實 email 存哪」);搜尋 S2 lightech #275→S3 MVP;M-3 真刷卡 gate;step-up 全套另片。**M-4a 收尾後**:①開 Sean 交代的「流程再優化」正式題 ②**MEMORY.md 精簡**(Q7=A 順延項)。
 
 ## Sean 待決策
-🔴🔴 **2026-07-25 過夜規劃產出、共 7 題待答(全部只規劃未實作)**:
+✅ **2026-07-25 七題全部已答**(拍板落檔:退刷線 PRD §0b/§0c + 全站規劃 §0b):Q1=A 直接開工 RF1(✅ 已收工 `ccad329`)/ Q2=A 先修搜尋 + 🔴 追加「模糊搜尋涵蓋內文·標題·料號·車款·年份·類似關鍵字」/ Q3=A 沿用 ADR-0004 **Supabase Storage**(不推翻)/ Q4=A Unsplash 先轉存自有空間避熱連結破圖 / Q5=A 內容走**草稿→預覽→發布→可回滾**、AI 改的一律先當草稿 / **Q6=B 完整手動商品**(公開可搜尋·可下單·可管庫存·可下架;範圍擴張、Sean 知情)/ Q7-1=A 手動商品價格走後台專屬表單+完整紀錄、Q7-2=B 首頁內容一季 1-3 次=**L2**(⇒ 內容管理非鐵則 9 強制、讓位給搜尋與商品)。另 Sean 授權 **codex 關卡2 破例第三輪**(RF1)。
+🔴 **仍需 Sean 動手的**:①**RF2a-0 的 db push**(下一片)②admin Vercel TapPay env(RF4)③**E0 開工前四題**(詳 `docs/specs/2026-07-25-search-engine-options-recon.md` §5)。
+
+~~2026-07-25 過夜規劃產出、共 7 題待答~~(已全數答畢):
 - **退刷線 1 題**(`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` §11):**RF1 是否直接開工實作**?plan 已過 codex 兩輪、12 findings 全折入、**plan 層 2 輪上限用盡**;R2 的 4 條皆機械性錯誤(算錯期望值/契約矛盾/文件未同步/測試同源),**無一條質疑核心公式或 Q6=B 架構**;diff 層仍有 code-reviewer + codex 關卡2 兩道。選項:A 直接開工 / B 再審一輪 / C 先做全站規劃的 E0 搜尋。
 - **全站規劃 6 題**(`docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md` §9):Q1 施工順序(先修搜尋 / 先做內容管理 / 併行〔🔴 需 Sean 額外授權破例,現規則明文單一寫入 session、已撞車兩次〕)、Q2 圖片存哪(🔴 **沿用 ADR-0004 已拍板的 Supabase Storage** vs 正式推翻改 R2)、Q3 Unsplash 首頁大圖處置、Q4 內容發布模型(草稿→預覽→發布→可回滾 vs 存了就上線;**決定 schema、答錯要重做**)、Q5 手動商品邊界(報價/補差額用 vs 完整可搜尋商品)、Q6-1 手動商品價格窄路 + Q6-2 首頁內容改動頻率(決定是否 L3)。
 

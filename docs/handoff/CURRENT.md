@@ -7,6 +7,15 @@
 
 ## 1. 交接快照
 
+- Updated: 2026-07-25(晚), Asia/Taipei — ✅ **RF1 退款引擎收工 `ccad329` + 本 session 全部 docs 已推 `origin/dev`**。
+  - **RF1**(退刷線第 1 片、高風險片、純 domain):`computeRefundQuote` 純函式,公式=`退款額 = 退品項金額 −(新運費−舊運費)`、守恆恆等且**路徑無關**;全退回退運費;Q3=B 部分數量退;**Q6=B 凍結規則為必填輸入、引擎不 fallback**;對外零 throw(最外層 try/catch);16 種 rejection kind;幣別強制 TWD;DB int 上限全鏈守門。**尚未被任何地方呼叫**(消費端在 RF5/RF6)。
+  - **驗證**:三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變 20 組全數有效**。
+  - **五輪審查**(codex 關卡1 R1 FAIL8 → R2 FAIL4 → code-reviewer opus FAIL 3+8 → codex 關卡2 R1 FAIL5 → R2 FAIL5+1 → **R3 FAIL4、Sean 特別授權破例**):**30 must-fix + 9 nit 全折入**;🔴 **質疑核心公式/金額正確性/Q6=B 架構的:0 條**;另 1 條 codex 誤判(指 `STATUS.md:149` 未寫「未排」)經實查駁回。R3 的 4 條已折入**但未再複審**(R3-1 已用突變 M20 機械驗證)。
+  - 🔴 **本片最有價值的發現 = 四次突變「初版 0 紅」**(M5/M14/M15/M20):防線存在但移除後測試全綠。三次根因是**遮蔽**(另一道守門先擋、或**回同一個 kind**)⇒ **隔離測試必須讓「移除該守門」產生可觀察的不同結果**,否則測試只是陪襯。詳 plan §10g。
+  - 🔴 **兩次同一操作失誤(已修正、未 push 前發現)**:為給 reviewer 看 diff 而先 stage 程式檔,之後 `git add docs/... && git commit` **未帶 pathspec** → docs commit 吞掉 RF1 程式碼(訊息與內容不符)。兩次皆 `reset --soft` 拆開、shasum 驗檔案零改動。**教訓:commit 一律帶 pathspec + 複驗 `git diff --staged --stat` 的檔數**。
+  - **下一片 = RF2a-0**:`orders` 加 `shipping_free_threshold`/`shipping_home_fee`(`NOT NULL DEFAULT` 5000/100)、走 **B3 靠 DEFAULT 凍結、零 `create_order` 改動**、PG11+ 自動回填、同片擴 #216 gate 為三方 → 🔴 **需 Sean db push + 交易模擬**。逐片起手 = `docs/handoff/2026-07-25-rf1-refund-engine-handoff.md` §5。
+  - **另一條線**:全站規劃 v3 + 搜尋偵察已落檔;Sean 七題全答(見 `STATUS.md`「Sean 待決策」)。🔴 **E0 開工前必驗 `pg_jieba` 在 Supabase 能否啟用**(ADR-0004 整條 tsvector 路線建立其上、從未實測)。
+
 - Updated: 2026-07-25, Asia/Taipei(**過夜規劃 session;Sean 睡前交辦「先認真規劃、plan、一審、二審,要我決策的早上再看」**)— 🔴 **零程式實作、零 migration、零 DB、零 flag、未動 `.env*`、未 push**。
   - **產出四項**:①**退刷線 Sean 六拍板全落檔**(Q1=A partiallyRefunded enum / Q2=A RPC 同交易更新三金額欄 / Q3=B **部分數量退** / Q4=A 不 step-up / Q5=A 隔日覆核+**失敗回滾與告警** / Q6=B **下單凍結運費規則**);拆片由 R1-R7 重定為 **RF1-RF8** 並新增 **RF2a-0**(Q6=B 衍生、走 **B3 欄位 `NOT NULL DEFAULT` 凍結、零 `create_order` 改動** —— 實證依據=當前生效 RPC `20260719120000_m4a_b2_create_order_notification_email.sql:471-477` 的 INSERT 為具名欄位列)。②**RF1 slice plan v4**(`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md`)。③**全站缺口盤點與後台可管理網站規劃 v3**(`docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md`)。④**backlog #295**(運費後台管理)。
   - **審查**:兩份規劃各跑滿 **codex 關卡1 兩輪**。RF1:R1 FAIL 8 + R2 FAIL 4 = **12 findings 全折入**。全站規劃:R1 FAIL 12 + R2 FAIL 8 = **19 折入 + 1 駁回**。🔴 **兩份皆已用盡 plan 層 2 輪上限、依規則不跑 R3** → 開工前需 Sean 確認方向。
