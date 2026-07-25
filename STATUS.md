@@ -20,7 +20,15 @@
 **Branch:** dev
 
 ## 最後更新
-2026-07-25(**本 commit**;M-3 **RF2a-0 + S2 ✅ 已 apply production** — ops 片、**零程式碼變更、零 migration 新增**)— Sean 拍板接受兩項殘餘風險後完成 DB 上線。
+2026-07-25(**本 commit**;**docs 清理封存 + 路由補登** — 輕量片、**零程式碼變更、零 migration、零 DB、零 flag、未動 `.env*`**)— 與 M-3 主線無關的整理片,Sean 07-25 拍板執行。
+**① 66 檔 `git mv` 進 `docs/archive/2026-07-25-docs-cleanup/`(零刪除)**:recon 8 / reviews 10 / audits 1 / handoff 47;`docs/` 追蹤檔(排除 archive)**295 → 229**。判定=**機械訊號**:將全 repo 追蹤文字檔(排除既有 archive)讀為單一語料,逐檔比對其**檔名與完整路徑**是否出現於其中 → 零命中才列候選,再依目錄性質與最後 commit 日期分組、僅搬一次性產物類。⚠️ **未逐檔閱讀內容**;日後發現誤判直接 `git mv` 搬回即可。完整原始路徑清單見該目錄 `README.md`。
+**② C 組=反向處置(不是封存、是補連結)**:`docs/patterns/index.md` 與 `docs/runbooks/supplier-storefront-onboarding.md` 雖零引用但**內容現行有效**(前者自述為「給從零進入此 repo 的新 Claude」的目錄索引;後者為 2026-07-24 一次上三家品牌踩坑後寫成的單一入口 runbook)→ **補進 `CLAUDE.md` 路由表兩行**,實測 `test -f` 兩目標檔皆存在。
+**③ 刻意未動**:`docs/specs/` 下 6 支零引用 plan(日期較近、需人工確認對應 slice 是否收工)、記憶檔 25 個索引孤兒(其中 **19 個仍被其他記憶 `[[連結]]` 引用**、刪之會斷鏈)—— **Sean 07-25 指示兩組都留著**。
+🔴 **④ 已知副作用(未處理)**:`graphify-out/` **未納入 git 追蹤**(故不在本次掃描語料內),其內含指向舊 `docs/` 路徑的節點、本次搬移後該批失效。**本次未自動重刷** —— 刷圖有「dedup fuzzy 吃掉真節點」的已知風險(memory `reference_graphify-update-dedup-fuzzy-eats-nodes`),須單獨作業並於刷前備份。
+🔴 **⑤ 並行 session 撞車實錄**:本片工作期間 HEAD 由 `03e4c13` 變為 `f0388c0`(另一視窗 commit RF2a-0 apply 紀錄)。實查該 commit 只含 `STATUS.md` + 兩支 handoff、**未捲入本片 66 個 staged rename** ⇒ pathspec 紀律有守住;本片 commit 亦全程用精準 pathspec。
+**驗證**:三綠 typecheck **8/8** · lint **10/10**(未動 `.ts`/`.tsx`,依鐵則 11 不跑 build)。**未 push。**
+
+2026-07-25(`f0388c0`;M-3 **RF2a-0 + S2 ✅ 已 apply production** — ops 片、**零程式碼變更、零 migration 新增**)— Sean 拍板接受兩項殘餘風險後完成 DB 上線。
 **① apply 前正式站交易模擬 ✅ PASS(接手 session 實跑、零留痕)**:`BEGIN` → migration 可執行語句逐字 → 合成 INSERT → **結尾刻意 `RAISE`**(即使 `ROLLBACK` 未跑到,交易已 abort、物理上不可能 commit)。🔴 **最有價值的一項**=合成兩筆單走「具名 31 欄」INSERT(=`create_order` 的形狀、不列三新欄)→ **三新欄全由 DEFAULT+trigger 補上、兩筆都成立** ⇒ **B3「零 `create_order` 改動」由推論升級為實跑證實**。負向測試:往快照欄寫 `bogus` → `check_violation`(CHECK 真的擋)。兩道 apply 閘實測 **0/0**。零留痕獨立複驗:三欄/trigger/函式/兩 CHECK 皆 0、`total_cols` 回 31、`order_rows`=33。⚠️ 誠實邊界:送進 MCP 的是**可執行語句**(檔頭 1-56 行純註解未送、載重述詞已逐條 grep 原檔比對逐字一致)、**未驗併發**、合成單非真走 `create_order`。
 **② Sean 2026-07-25 拍 A**:兩項殘餘風險(①改運費那天的秒級部署窗 ②回填盲區=繞過後台直接 SQL 翻轉方式且維持 fee 自洽)**都接受、可以 push**。⇒ 原標「擋 apply」的閘至此解除。拍板落 memory `project_rf2a0-freeze-shipping-decisions`。
 **③ 🔴 db push 兩次失敗才成功(兩個都不是程式問題)**:(a)**migration 版本漂移**——K-SPEED 品牌 seed 於 07-24 由前一 session 走 **MCP `apply_migration`** 套用,MCP **自行以當下時鐘重新編號**為 `20260724085956`,與本地檔名 `20260724140000` 對不上 ⇒ `db push` 全面罷工(正確行為)。修法=`supabase migration repair --status reverted 20260724085956` 後由 `db push` 正式套用該檔(內容 `ON CONFLICT (slug) DO NOTHING` ⇒ 重跑為空轉、已實查該列存在且值相同)。🔴 **完整比對由 DB 自己做**(非目視):remote 76 / local 78、**remote-only 恰 1 筆、local-only 恰 3 筆**。(b)S2 版號 `20260723120000` 早於已套的 07-24 兩支 ⇒ 需 `--include-all`(兩者無先後依賴、安全)。
@@ -148,7 +156,7 @@
 
 ## 下一步
 ✅ **RF1 退款金額+運費重算引擎 ✅ 收工(`ccad329`)** — 退刷線第 1 片、高風險片、純 domain 函式(零 DB/零 migration/零 UI/**尚未被任何地方呼叫**)。三綠 8/8·10/10·2/2、full test **252 檔 2926 passed + 1 todo**、**突變自驗 20 組全數有效**。**五輪審查**(codex 關卡1 R1/R2 → code-reviewer opus → codex 關卡2 R1/R2/R3〔R3 Sean 特別授權破例〕)、**31 must-fix + 9 nit 全折入**;🔴 **其中質疑核心公式/金額正確性/Q6=B 架構的:0 條**;另 1 條 codex 誤判經實查駁回。🔴 **四次突變「初版 0 紅」= 真假綠**(守門存在但移除後測試全綠;3 次根因是**遮蔽**——另一道守門先擋或回同一 kind)。plan 真權威=`docs/specs/2026-07-25-m3-rf1-refund-engine-plan.md` **v8**。🔴 **第 31 條 = R3-5(#216 gate anchor 對照錯對象)不在 `ccad329` 內、修在後續 commit**(見「最後更新」本 commit 條);R3 由兩個並行視窗各跑一次 codex(白付一次)、只有多問「前兩輪修法是否成立」的那邊抓到 R3-5。
-✅ **RF2a-0 ✅ code 收工(`a698ba8`)+ ✅ 已 apply production(2026-07-25、詳「最後更新」本 commit 條)**:三欄 + `orders` 第一個 trigger + 三方 gate;審查鏈 codex 兩輪 FAIL → Fable R1 NO-GO → **Fable R2 GO**。apply 前跑正式站交易模擬 PASS(零留痕)、Sean 拍 A 接受兩項殘餘風險、`db push --include-all` 連同 S2 一併套用、apply 後獨立驗證全綠。
+✅ **RF2a-0 ✅ code 收工(`a698ba8`)+ ✅ 已 apply production(2026-07-25、詳「最後更新」`f0388c0` 條)**:三欄 + `orders` 第一個 trigger + 三方 gate;審查鏈 codex 兩輪 FAIL → Fable R1 NO-GO → **Fable R2 GO**。apply 前跑正式站交易模擬 PASS(零留痕)、Sean 拍 A 接受兩項殘餘風險、`db push --include-all` 連同 S2 一併套用、apply 後獨立驗證全綠。
 🔴 **RF2a-0 唯一剩項 = 1 元商品真刷 smoke(不可跳)**:模擬與 apply 後驗證用的都是**合成單**,整支 migration **從未被真實 `create_order` 走過** ⇒ 下一筆真訂單成立後須查其 `shipping_method_at_checkout` 有值且等於 `shipping_method`,才可稱「新 trigger 沒把結帳弄壞」。
 ✅ **S2 pg_cron 亦於同批 apply 並完成端到端實證**:兩 job active、`cron.job_run_details` 實跑 succeeded、`net._http_response` **200** + `{"enabled":false,"skipped":"sweeper_disabled"}`、`http_request_queue`=0;`vercel.json` 舊 crons 已移除且該 commit 已在 `origin/main`(S4 開 flag 的硬前置成立)。**flag 仍全關**。
 🔴 **下一片 = RF2a**(退款帳本 `order_refunds` 表 + `bank_refund_id` 唯一鍵 ≤20 字元 + `partiallyRefunded` enum,Q1=A、收 backlog #26)→ **需 Sean db push**。逐片起手見交接包 `docs/handoff/2026-07-25-rf1-refund-engine-handoff.md` §5。

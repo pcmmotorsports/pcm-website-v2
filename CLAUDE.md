@@ -60,6 +60,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 | 歷史 Codex Packet 格式(2026-07-21 起停用、改直呼 codex CLI) | `docs/patterns/codex-review-packet.md` |
 | 審查鏈全貌 / 寫審分離 | `docs/patterns/cowork-review-chain.md` |
 | 鐵則字面的詳解與程式碼範例(規則以本檔為準) | `docs/patterns/general.md` + `docs/patterns/pcm-specific.md` |
+| 想知道 `docs/patterns/` 有哪些細節檔 / 從零接手本 repo 找入口 | `docs/patterns/index.md`(全目錄索引與各檔定位;2026-07-25 補登路由) |
+| 要把某供應商商品上架到顧客站 shop.pcmmotorsports.com | `docs/runbooks/supplier-storefront-onboarding.md`(完整流程 + forget-proof preflight;2026-07-24 一次上三家踩坑後寫成單一入口) |
 | 派 subagent / 判斷猶豫 / 交辦範本 / 制度維護 | `~/.claude/rules/00-work-rules.md`(每 session 自動常載;§1 調度 §2 判準 §3 範本 §4 維護;2026-07-10 六檔合併) |
 
 ---
