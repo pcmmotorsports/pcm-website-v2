@@ -313,8 +313,8 @@
       <a href="#top"><span class="n">00</span>怎麼看這份</a>
       <span class="grp">畫面</span>
       <a href="#s1"><span class="n">01</span>側邊選單</a>
-      <a href="#s2"><span class="n">02</span>訂單</a>
-      <a href="#s3"><span class="n">03</span>商品</a>
+      <a href="#s2"><span class="n">02</span>訂單 · 多單作業</a>
+      <a href="#s3"><span class="n">03</span>商品 · 圖庫</a>
       <a href="#s4"><span class="n">04</span>客戶</a>
       <a href="#s5"><span class="n">05</span>員工與權限</a>
       <a href="#s6"><span class="n">06</span>會計(延後)</a>
@@ -350,7 +350,7 @@
 
     <div class="score">
       <div class="c-built"><b>6</b><span>今天真的能用的頁面</span></div>
-      <div class="c-accent"><b>24</b><span>這份預覽涵蓋的畫面</span></div>
+      <div class="c-accent"><b>29</b><span>這份預覽涵蓋的畫面</span></div>
       <div class="c-built"><b>2</b><span>「員工的一天」已做完</span></div>
       <div class="c-partial"><b>6</b><span>做了一半</span></div>
       <div class="c-todo"><b>19</b><span>完全還沒做</span></div>
@@ -407,9 +407,9 @@
         </div>
 
         <div>
-          <h3 class="blk">提案的樣子 <span class="chip ask">待你確認</span></h3>
-          <p class="blk-note">規格裡沒有新選單結構的明文,這版是我依 E10–E14 的範圍自己排的。</p>
-          <div class="wf ask" style="max-width:270px">
+          <h3 class="blk">提案的樣子 <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">Q1=A 已拍板</span></h3>
+          <p class="blk-note">Sean 2026-07-26 拍板 A:五組分法可以。同時指示<b>「匯率與加成係數」移到「報表」群組</b>,已改。</p>
+          <div class="wf new" style="max-width:270px">
             <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">PCM 後台</span></div>
             <div class="wf-body" style="padding:12px; font-size:12.5px">
               <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:0 0 6px">日常</div>
@@ -429,12 +429,12 @@
               <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:12px 0 6px">報表 <span style="color:var(--accent)">· 只有管理者看得到</span></div>
               <div class="m-input dash" style="margin-bottom:4px">區間報表</div>
               <div class="m-input dash" style="margin-bottom:4px">成本精算</div>
+              <div class="m-input dash" style="margin-bottom:4px; border-color:var(--accent); color:var(--accent)">匯率與加成係數</div>
               <div class="m-input dash" style="margin-bottom:4px; opacity:.55">記帳 · 資金帳戶</div>
 
               <div class="m-sub" style="font-family:var(--mono); font-size:10px; letter-spacing:.1em; margin:12px 0 6px">設定</div>
               <div class="m-input" style="margin-bottom:4px">訂單狀態</div>
-              <div class="m-input dash" style="margin-bottom:4px">員工與權限</div>
-              <div class="m-input dash">匯率與加成係數</div>
+              <div class="m-input dash">員工與權限</div>
             </div>
           </div>
         </div>
@@ -444,16 +444,8 @@
         <li><b>「今日待辦」放最上面</b> —— 員工每天開電腦第一眼看的東西。現在完全沒有這個檢視,員工只能自己在訂單列表裡翻。</li>
         <li><b>報表整組只有管理者看得到</b> —— 你拍板「成本是唯一的角色分界線」,所以員工登入時整個「報表」群組不出現,不是灰掉,是不存在。</li>
         <li><b>記帳與資金帳戶畫成半透明</b> —— 因為你拍板 Q3=C 整條會計線延後。畫面先畫好給你看,但這一期不做。</li>
-        <li><b>「匯率與加成係數」是新設定頁</b> —— 你的 1.04 加成係數要能在後台改,而且改了不能動到舊訂單的歷史成本。</li>
+        <li><b>「匯率與加成係數」已從「設定」移到「報表」</b>(你 07-26 指示)。合理 —— 它跟毛利算法綁在一起,不是系統設定,而且同樣只有管理者該看得到。你的 1.04 加成係數要能在後台改,<b>而且改了不能動到舊訂單的歷史成本</b>。</li>
       </ol>
-
-      <div class="asks">
-        <h4>? 待你確認</h4>
-        <ul>
-          <li>這五組分法對嗎?還是你習慣「訂單 / 商品 / 客戶」平鋪不分組?</li>
-          <li>「今日待辦」你會不會其實想直接進訂單列表就好?</li>
-        </ul>
-      </div>
     </section>
 
     <!-- ══════════════ 02 訂單 ══════════════ -->
@@ -509,29 +501,30 @@
           <table class="m-tbl">
             <thead><tr>
               <th style="width:22px"><span style="font-family:var(--mono)">☑</span></th>
-              <th>訂單編號</th><th>日期</th><th>品牌</th><th>料號</th><th>物品名稱</th>
-              <th>年份廠牌車種</th><th class="num">數量</th><th class="num">單價</th><th class="num">總金額</th>
+              <th>訂單編號</th><th>日期</th>
+              <th>車種 <span class="pin">7</span></th><th>商品品牌</th><th>料號</th><th>物品名稱</th>
+              <th class="num">數量</th><th class="num">單價</th><th class="num">小計</th>
               <th>會員等級</th><th>客戶</th><th>商品狀態</th><th>來源·管道</th>
               <th class="newcol">快遞單號 <span class="pin">5</span></th>
             </tr></thead>
             <tbody>
               <tr class="sel">
                 <td>☑</td><td rowspan="2" style="font-weight:600">PCM-2026-0104</td><td rowspan="2">07/25</td>
-                <td>Lightech</td><td style="font-family:var(--mono)">LTC-004</td><td>腳踏後移組</td>
-                <td>2023 Ducati V4</td><td class="num">1</td><td class="num">18,500</td><td class="num">18,500</td>
+                <td>2023 Ducati V4</td><td>Lightech</td><td style="font-family:var(--mono)">LTC-004</td><td>腳踏後移組</td>
+                <td class="num">1</td><td class="num">18,500</td><td class="num">18,500</td>
                 <td rowspan="2"><span class="m-tag">白金</span></td><td rowspan="2">王大明</td>
                 <td><span class="m-tag">待下單</span></td><td rowspan="2">網站·刷卡</td>
                 <td rowspan="2" class="newcol">—</td>
               </tr>
               <tr class="sel">
-                <td>☑</td><td>Eazi-Grip</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td>油箱貼</td>
-                <td>2023 Ducati V4</td><td class="num">1</td><td class="num">1,800</td><td class="num">1,800</td>
+                <td>☑</td><td>2019 Monster 821</td><td>Eazi-Grip</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td>油箱貼</td>
+                <td class="num">1</td><td class="num">1,800</td><td class="num">1,800</td>
                 <td><span class="m-tag">已到貨</span></td>
               </tr>
               <tr>
                 <td>☐</td><td style="font-weight:600">PCM-2026-0103</td><td>07/24</td>
-                <td>K-SPEED</td><td style="font-family:var(--mono)">KS-1120</td><td>短牌架</td>
-                <td>2021 Rebel 500</td><td class="num">2</td><td class="num">2,400</td><td class="num">4,800</td>
+                <td>2021 Rebel 500</td><td>K-SPEED</td><td style="font-family:var(--mono)">KS-1120</td><td>短牌架</td>
+                <td class="num">2</td><td class="num">2,400</td><td class="num">4,800</td>
                 <td><span class="m-tag">一般</span></td><td>陳小華</td>
                 <td><span class="m-tag">已出貨</span></td><td>網站·匯款</td>
                 <td class="newcol" style="font-family:var(--mono)">9001-2837-11</td>
@@ -547,20 +540,20 @@
       </div>
 
       <ol class="notes">
-        <li><b>預設檢視(上排分頁)= 新的</b>。點一下就跳到「今天要處理的那批」,不用每次重設篩選。現在完全沒有。<span class="chip ask">哪幾個檢視待你確認</span></li>
+        <li><b>預設檢視(上排分頁)= 新的</b>。點一下就跳到「今天要處理的那批」,不用每次重設篩選。現在完全沒有。</li>
         <li><b>篩選改成可單獨拿掉的標籤</b>。現在的篩選只能一個一個回去取消勾選,看不出「我到底篩了什麼」。</li>
         <li><b>手動建單按鈕</b> —— 你北極星裡的「接非網站有的商品訂單」入口就在這。詳見 2.3。</li>
         <li><b>勾選後,操作按鈕直接長在標題列上</b>(不是浮在畫面下方的黑條)。你說商品進度「可以一次多個」,就是這個。</li>
         <li><b>快遞單號欄是新增的</b>。現在資料庫裡根本沒有這個欄位,員工出貨後單號無處可放。</li>
         <li><b>超過 50 筆才出現換頁</b>,而且只有「上一頁 / 下一頁」+ 總筆數,不做頁碼輸入框。</li>
+        <li><b>欄位順序已改成你的習慣:車種 → 商品品牌 → 料號 → 品名 → 數量 → 單價 → 小計。</b><br>
+          🔴 <b>要更正我昨天講的一件事</b>:車種欄<b>現在就有</b>(訂單列表已經逐商品顯示車種,不是新的),缺車種的是<b>訂單明細</b>那張品項表 —— 已在 2.2 補上。另外一張訂單裡<b>每個商品的車種可以不一樣</b>(上面範例第一單就是 V4 跟 Monster 821 各一件),這點畫面已照著做。</li>
       </ol>
 
-      <div class="asks">
-        <h4>? 待你確認(規格 §6 的 Q7/Q8/Q9 還沒拍板)</h4>
-        <ul>
-          <li>列表要顯示哪幾欄?現在 13 欄在電腦上就很擠了。有沒有哪幾欄你其實不看?</li>
-          <li>上排的預設檢視要哪幾個?我先提「待處理 / 已付款待下單 / 等到貨 / 待出貨」。</li>
-        </ul>
+      <div class="warn">
+        <b>✅ Q2=A 已拍板</b>(你 07-26)。但你同時在 2.2 特別強調車種與品牌要顯示,而我當時給的 A 選項是精簡版 8 欄、沒列這兩欄 ——
+        我判斷你要的是<b>「照現在這些欄、但用我的順序排」</b>,所以車種與品牌<b>保留</b>。
+        如果你其實是要把列表砍到 8 欄、車種品牌只留在明細頁,跟我說一聲就改。
       </div>
 
       <!-- 2.2 明細 -->
@@ -592,8 +585,13 @@
                 </div>
                 <div class="m-card"><h5>收件與出貨</h5>
                   <div class="m-kv"><span>收件人</span><span>王大明</span></div>
+                  <div class="m-kv"><span>電話</span><span>0912-345-678</span></div>
                   <div class="m-kv"><span>地址</span><span>台中市…</span></div>
                   <div class="m-kv"><span>出貨方式</span><span>宅配</span></div>
+                  <div class="m-row tight" style="margin-top:8px">
+                    <span class="m-btn ghost" style="font-size:11px">⧉ 複製收件資訊 <span class="pin">9</span></span>
+                  </div>
+                  <p class="m-sub" style="margin-top:5px; font-family:var(--mono); font-size:10.5px">王大明,0912-345-678,台中市…</p>
                 </div>
                 <div class="m-card"><h5>付款</h5>
                   <div class="m-kv"><span>付款狀態</span><span>已付款</span></div>
@@ -609,20 +607,33 @@
 
               <div class="m-card dash" style="margin-bottom:10px">
                 <h5>出貨資訊 <span class="pin">1</span></h5>
-                <div class="m-grid3">
-                  <div class="m-field"><label>快遞公司</label><div class="m-input dash">黑貓宅急便 <span class="caret">▾</span></div></div>
-                  <div class="m-field"><label>快遞單號</label><div class="m-input dash">9001-2837-11</div></div>
-                  <div class="m-field"><label>出貨日</label><div class="m-input dash">2026-07-26</div></div>
+                <div class="m-field">
+                  <label>快遞方式 <span class="pin">11</span></label>
+                  <div class="m-row tight">
+                    <span class="m-tag" style="border-color:var(--accent); color:var(--accent)">新竹貨運 · 串 API</span>
+                    <span class="m-tag">順豐快遞 · 自行輸入單號</span>
+                    <span class="m-tag">其他</span>
+                  </div>
                 </div>
-                <div class="m-row tight"><span class="m-btn ghost">查詢物流狀態</span><span class="m-btn ghost">寄出貨通知信給客人</span></div>
+                <div class="m-grid3">
+                  <div class="m-field"><label>快遞單號</label><div class="m-input dash">系統回填 9001-2837-11</div></div>
+                  <div class="m-field"><label>出貨日</label><div class="m-input dash">2026-07-26</div></div>
+                  <div class="m-field"><label>件數 / 材積</label><div class="m-input dash">1 件 · 60cm</div></div>
+                </div>
+                <div class="m-row tight">
+                  <span class="m-btn pri">帶入客戶資料 → 列印寄貨單</span>
+                  <span class="m-btn ghost">查詢物流狀態</span>
+                  <span class="m-btn ghost">寄出貨通知信給客人</span>
+                </div>
+                <p class="m-sub" style="margin-top:7px">選「順豐」或「其他」時,上面那顆變成手動填單號、不叫 API。</p>
               </div>
 
               <div style="border:1px solid var(--line-soft); border-radius:6px; overflow:hidden; margin-bottom:10px">
                 <table class="m-tbl" style="min-width:460px">
-                  <thead><tr><th>品項</th><th>SKU</th><th class="num">數量</th><th class="num">單價</th><th class="num">小計</th><th>商品狀態</th><th class="newcol">已下單 / 到貨 / 出貨 <span class="pin">2</span></th></tr></thead>
+                  <thead><tr><th class="newcol">車種 <span class="pin">10</span></th><th class="newcol">商品品牌</th><th>料號</th><th>物品名稱</th><th class="num">數量</th><th class="num">單價</th><th class="num">小計</th><th>商品狀態</th><th class="newcol">已下單 / 到貨 / 出貨 <span class="pin">2</span></th></tr></thead>
                   <tbody>
-                    <tr><td>腳踏後移組</td><td style="font-family:var(--mono)">LTC-004</td><td class="num">1</td><td class="num">18,500</td><td class="num">18,500</td><td><span class="m-tag">待下單</span></td><td class="newcol num">0 / 0 / 0</td></tr>
-                    <tr><td>油箱貼</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td class="num">1</td><td class="num">1,800</td><td class="num">1,800</td><td><span class="m-tag">已到貨</span></td><td class="newcol num">1 / 1 / 0</td></tr>
+                    <tr><td class="newcol">2023 Ducati V4</td><td class="newcol">Lightech</td><td style="font-family:var(--mono)">LTC-004</td><td>腳踏後移組</td><td class="num">1</td><td class="num">18,500</td><td class="num">18,500</td><td><span class="m-tag">待下單</span></td><td class="newcol num">0 / 0 / 0</td></tr>
+                    <tr><td class="newcol">2019 Monster 821</td><td class="newcol">Eazi-Grip</td><td style="font-family:var(--mono)">EZ-PRO-88</td><td>油箱貼</td><td class="num">1</td><td class="num">1,800</td><td class="num">1,800</td><td><span class="m-tag">已到貨</span></td><td class="newcol num">1 / 1 / 0</td></tr>
                   </tbody>
                 </table>
               </div>
@@ -674,7 +685,26 @@
         <li><b>「退款」按鈕</b> —— 按下去走 2.5 的畫面。</li>
         <li><b>備註分兩欄</b>:客人自己填的、跟內部只有你們看得到的,不能混在同一格。</li>
         <li><b>訂單歷程</b> —— 誰在什麼時候改了什麼。資料庫的紀錄表(<code>admin_audit_log</code>)已經有了,<b>只是沒有畫面看</b>。</li>
+        <li><b>「複製收件資訊」按鈕</b>(你 07-26 指示)。按一下把 <code>姓名,電話,地址</code> 三段用逗號串好丟進剪貼簿,直接貼到快遞單或 LINE。按鈕下面那行灰字就是實際會複製到的內容。</li>
+        <li><b>品項表補上「車種」與「商品品牌」</b>(你 07-26 指示),欄位順序照你的習慣:車種 → 商品品牌 → 料號 → 品名 → 數量 → 單價 → 小計。<br>
+          🟢 <b>好消息:資料早就在了、只是沒送到明細頁</b> —— 訂單列表已經逐商品顯示車種與品牌(<code>AdminOrderLine</code> 兩個欄位都有),但明細頁的資料契約 <code>AdminOrderDetailItem</code> 只帶了品名/料號/數量/單價/小計/狀態,<b>車種與品牌兩個欄位沒帶過去</b>。所以這是「補兩個欄位」不是「從頭做」。<br>
+          🔴 <b>而且一張訂單裡每個商品的車種可以不一樣</b>(範例第二列就是另一台 Monster 821),不能做成「整張單一個車種」。</li>
+        <li><b>快遞方式三選</b>(你 07-26 指示):<br>
+          <b>新竹貨運</b> —— 串 API,自動帶入客戶資料、直接列印寄貨單,單號由系統回填。<br>
+          <b>順豐快遞</b> —— 自行輸入單號。<br>
+          <b>其他</b> —— 自行輸入快遞商與單號。<br>
+          選順豐或其他時,「帶入客戶資料 → 列印寄貨單」那顆按鈕會換成手動填單號,不叫 API。</li>
       </ol>
+
+      <div class="warn">
+        <b>⚠ 新竹貨運 API 的三件事(實作前要先確認,我沒有憑空假設):</b><br>
+        你給的文件是 <b>新竹物流</b>(HCT)的 API 服務說明 v1
+        —— <code>cagweb01.hct.com.tw/Report/API服務說明_V1.pdf</code>,我<b>還沒讀過它的內容</b>,所以下面三件事都還是問號:<br>
+        ① 需要跟新竹申請哪種帳號 / 契約客戶代號 / 測試環境?<br>
+        ② 「列印寄貨單」是 API 回傳可列印檔,還是要我們自己排版?(決定要不要做列印樣板)<br>
+        ③ 是否有物流狀態查詢端點可做「單號追蹤」?<br>
+        ⇒ 開工前我會先逐條讀那份 PDF 再給你規格,<b>不會照著猜的做。</b>
+      </div>
 
       <!-- 2.3 手動建單 -->
       <h3 class="blk">2.3　手動建單(接非網站有的商品) <span class="chip new">提案要做</span></h3>
@@ -694,7 +724,12 @@
                 <h5>商品 <span class="pin">1</span></h5>
                 <div class="m-tabs" style="margin-bottom:10px"><span class="on">從網站商品挑</span><span>自己打一筆</span></div>
                 <div class="m-grid4" style="margin-bottom:8px">
-                  <div class="m-field" style="grid-column:span 2"><label>品名</label><div class="m-input dash">Rizoma 後照鏡 特殊訂製</div></div>
+                  <div class="m-field" style="grid-column:span 2"><label>客人車種 <span class="pin">2</span></label><div class="m-input dash">2023 Ducati V4 <span class="caret">▾</span></div></div>
+                  <div class="m-field" style="grid-column:span 2"><label>商品品牌</label><div class="m-input dash">Rizoma <span class="caret">▾</span></div></div>
+                </div>
+                <div class="m-grid4" style="margin-bottom:8px">
+                  <div class="m-field"><label>料號</label><div class="m-input dash">RZ-MIR-08</div></div>
+                  <div class="m-field"><label>品名</label><div class="m-input dash">後照鏡 特殊訂製</div></div>
                   <div class="m-field"><label>數量</label><div class="m-input dash">1</div></div>
                   <div class="m-field"><label>單價</label><div class="m-input dash">12,000</div></div>
                 </div>
@@ -724,6 +759,7 @@
 
       <ol class="notes">
         <li><b>「自己打一筆」是關鍵</b> —— 商品不在網站上時,員工直接打品名、數量、單價就能開單。</li>
+        <li><b>客人車種與商品品牌是必填</b>(你 07-26 指示)。這樣手動單跟網站單在列表與明細上長得一模一樣,不會出現「網站訂單有車種、手動訂單一片空白」的兩套資料。車種可以從客人的車庫直接挑,也可以自己打。</li>
       </ol>
       <div class="warn">
         <b>⚠ 動手前必驗:</b>建立訂單的資料庫程式(<code>create_order</code>)目前<b>是否允許自由輸入品項還沒查證</b>。
@@ -741,23 +777,34 @@
             <div class="m-sub" style="margin-bottom:12px">PCM-2026-0103 · 應收 NT$ 4,800</div>
             <div class="m-grid2">
               <div class="m-field"><label>入帳日期</label><div class="m-input dash">2026-07-26</div></div>
-              <div class="m-field"><label>實收金額</label><div class="m-input dash">4,800</div></div>
+              <div class="m-field"><label>實收金額</label><div class="m-input dash">4,700</div></div>
+            </div>
+            <div class="m-card dash" style="border-color:var(--partial); background:var(--partial-soft); margin-bottom:10px">
+              <div class="m-kv"><span>應收</span><span>4,800</span></div>
+              <div class="m-kv"><span>實收</span><span>4,700</span></div>
+              <div class="m-kv" style="font-weight:700; color:var(--partial)"><span>差額</span><span>−100</span></div>
+              <p class="m-sub" style="margin-top:6px">金額不符不擋你,但<b>備註變必填</b>,而且這筆會進「今日對帳」的待處理。<span class="pin">1</span></p>
             </div>
             <div class="m-field"><label>匯款後五碼</label><div class="m-input dash">31427</div></div>
-            <div class="m-field"><label>入哪個帳戶 <span class="pin">1</span></label><div class="m-input dash">玉山 007-xxx 公司戶 <span class="caret">▾</span></div></div>
-            <div class="m-field"><label>備註</label><div class="m-input dash">客人分兩筆匯</div></div>
+            <div class="m-field"><label>備註 <span style="color:var(--partial)">· 金額不符時必填</span></label><div class="m-input dash">客人少匯 100,已 LINE 通知補</div></div>
+            <div class="m-field"><label>入哪個帳戶 <span class="pin">2</span></label><div class="m-input dash" style="opacity:.5">(會計線延後,這一期不出現)</div></div>
             <div class="m-row tight" style="margin-top:10px"><span class="m-btn">取消</span><span class="m-btn pri">確認收款</span></div>
           </div>
         </div>
         <div>
           <ol class="notes" style="margin-top:0">
-            <li><b>「入哪個帳戶」這格,這一期先不出現</b>(灰掉或直接拿掉)。它屬於延後的會計線;等會計開工才接上資金帳戶。這一期只要記「收到了、多少、誰確認的」。</li>
+            <li><b>Q3=B 已拍板(你 07-26):金額不符照樣讓你確認,但要留備註。</b>不擋你,因為現實裡客人本來就會少匯、多匯、分兩筆匯。系統做的是<b>把差額算給你看 + 逼你寫一句為什麼 + 丟進待處理</b>,不是把你擋在門外。</li>
+            <li><b>「入哪個帳戶」這一期先不出現</b>。它屬於延後的會計線;等會計開工才接上資金帳戶。這一期只要記「收到了、多少、誰確認的」。</li>
           </ol>
-          <div class="asks">
-            <h4>? 待你確認</h4>
-            <ul>
-              <li>實收金額跟應收<b>對不起來</b>的時候(客人少匯 100),你要系統擋下來,還是允許記差額?</li>
-            </ul>
+
+          <div class="warn">
+            <b>📌 記住:將來接虛擬帳戶時這裡會變(你 07-26 提出)</b><br>
+            虛擬帳號的運作是「每張訂單發一組專屬匯款帳號」,銀行收到款直接打通知給我們,
+            <b>系統自動比對金額、自動翻成已付款</b> —— 員工不用再按這顆按鈕。這點成立。<br>
+            🔴 <b>但「匯錯金額就匯不進來」這句要打問號</b>:是否強制金額相符是<b>銀行 / 金流商設定的</b>,
+            有些是任意金額照收、只是標記異常。⇒ <b>差額處理流程不能因為將來有虛擬帳戶就砍掉</b>,
+            這個畫面要留著當人工補救路。<b>?待確認:串接前跟銀行問清楚金額是否強制相符。</b><br>
+            (虛擬帳戶本身不在 Phase 1 範圍 —— 沿用你先前的拍板,本次未改。)
           </div>
         </div>
       </div>
@@ -802,26 +849,184 @@
       </div>
 
       <!-- 2.6 快遞 -->
-      <h3 class="blk">2.6　快遞單號與追蹤 <span class="chip new">提案要做</span></h3>
-      <p class="blk-note">已經畫在 2.2 的「出貨資訊」卡裡。這裡補列表側的批次輸入 —— 一次出五單時不用進五次明細頁。</p>
+      <h3 class="blk">2.6　今日出貨作業 <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">依你 07-26 指示改版</span></h3>
+      <p class="blk-note">
+        原版要你自己填訂單編號 —— 你說<b>「想要變成用按鈕加入現有訂單,而不是自己填訂單編號」</b>,已改。
+        左邊直接列出目前所有還沒出貨的訂單,按「加入」推到右邊,右邊才填單號。<b>全程不用打字打訂單編號。</b>
+      </p>
       <div class="wf new">
-        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">批次輸入單號 · 彈出視窗</span></div>
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / 今日出貨</span></div>
         <div class="wf-body">
-          <div class="m-h" style="margin-bottom:4px">批次輸入快遞單號</div>
-          <div class="m-sub" style="margin-bottom:12px">已選 3 筆 · 快遞公司統一設為 <b>黑貓宅急便</b></div>
-          <table class="m-tbl" style="min-width:0">
-            <thead><tr><th>訂單</th><th>客戶</th><th>單號</th></tr></thead>
-            <tbody>
-              <tr><td>PCM-2026-0101</td><td>林先生</td><td><div class="m-input dash" style="height:26px">9001-2837-09</div></td></tr>
-              <tr><td>PCM-2026-0103</td><td>陳小華</td><td><div class="m-input dash" style="height:26px">9001-2837-11</div></td></tr>
-              <tr><td>PCM-2026-0104</td><td>王大明</td><td><div class="m-input dash" style="height:26px">貼上或掃描…</div></td></tr>
-            </tbody>
-          </table>
-          <div class="m-row tight" style="margin-top:10px">
-            <span class="m-btn">取消</span>
-            <span class="m-btn pri">存檔並寄出貨通知信(3 封)</span>
+          <div class="m-split">
+            <div>
+              <div class="m-between" style="margin-bottom:8px">
+                <span class="m-h" style="font-size:14px">還沒出貨的訂單 <span class="m-tag">7</span></span>
+                <div class="m-input dash" style="height:26px; width:150px; font-size:11.5px">🔍 找單號 / 客戶</div>
+              </div>
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th>訂單</th><th>客戶</th><th>件數</th><th>商品狀態</th><th></th></tr></thead>
+                <tbody>
+                  <tr><td>PCM-2026-0101</td><td>林先生</td><td class="num">3</td><td><span class="m-tag">已到貨</span></td><td><span class="m-btn ghost" style="font-size:11px; padding:2px 9px">加入 →</span></td></tr>
+                  <tr><td>PCM-2026-0103</td><td>陳小華</td><td class="num">1</td><td><span class="m-tag">已到貨</span></td><td><span class="m-btn ghost" style="font-size:11px; padding:2px 9px">加入 →</span></td></tr>
+                  <tr><td>PCM-2026-0104</td><td>王大明</td><td class="num">2</td><td><span class="m-tag">待下單</span></td><td><span class="m-btn ghost" style="font-size:11px; padding:2px 9px; opacity:.45">加入 →</span></td></tr>
+                  <tr><td>PCM-2026-0099</td><td>黃小姐</td><td class="num">1</td><td><span class="m-tag">已到貨</span></td><td><span class="m-btn ghost" style="font-size:11px; padding:2px 9px">加入 →</span></td></tr>
+                </tbody>
+              </table>
+              <p class="m-sub" style="margin-top:7px">商品還沒到貨的單,「加入」按鈕是灰的、按不下去。<span class="pin">2</span></p>
+            </div>
+
+            <div>
+              <div class="m-card dash" style="border-color:var(--accent)">
+                <h5 style="color:var(--accent)">今天要出的 <span class="m-tag">2</span></h5>
+                <div class="m-field"><label>快遞方式(整批套用)<span class="pin">1</span></label>
+                  <div class="m-row tight">
+                    <span class="m-tag" style="border-color:var(--accent); color:var(--accent)">新竹貨運</span>
+                    <span class="m-tag">順豐</span><span class="m-tag">其他</span>
+                  </div>
+                </div>
+                <div style="border-top:1px dashed var(--line); margin:10px 0; padding-top:10px">
+                  <div style="margin-bottom:9px">
+                    <div class="ph-l1" style="font-size:12.5px"><span>PCM-2026-0101 · 林先生</span><span style="color:var(--ink-3)">✕</span></div>
+                    <div class="m-input dash" style="height:26px; margin-top:4px">單號由新竹 API 回填</div>
+                  </div>
+                  <div>
+                    <div class="ph-l1" style="font-size:12.5px"><span>PCM-2026-0103 · 陳小華</span><span style="color:var(--ink-3)">✕</span></div>
+                    <div class="m-input dash" style="height:26px; margin-top:4px">單號由新竹 API 回填</div>
+                  </div>
+                </div>
+                <button class="m-btn pri" style="width:100%; margin-bottom:6px">送新竹貨運 → 列印 2 張寄貨單</button>
+                <button class="m-btn" style="width:100%">標記已出貨並寄通知信(2 封)<span class="pin">3</span></button>
+              </div>
+            </div>
           </div>
         </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>快遞方式整批套用一次就好</b> —— 今天全部走新竹就選一次,不用每單重選。要混著出就分兩批做。</li>
+        <li><b>還沒到貨的單「加入」按鈕是灰的</b>。這樣不會發生「東西還沒到就先印了寄貨單」。</li>
+        <li><b>出貨與通知信一顆按鈕包掉</b>:標記已出貨 + 回填單號 + 寄信給客人,一次完成,不用再進每張明細頁按一遍。</li>
+      </ol>
+
+      <!-- 2.7 多單同時作業 -->
+      <h3 class="blk">2.7　多單同時作業 <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">依你 07-26 痛點新增</span></h3>
+      <p class="blk-note">
+        你的原話:<b>「常常需要看多個訂單的商品資訊」「同樣的買家是否有既有尚未出貨的訂單」「要方便操作」</b>。
+        直覺的解法是「讓後台可以多開分頁」,但那只是把痛苦分散到十個視窗。
+        我提的是<b>三個把「不用切換」變成預設</b>的做法 —— 你挑,或說你其實就是要多開分頁。
+      </p>
+
+      <h4 style="font-size:14px; font-weight:620; margin:22px 0 4px">做法 A · 同一位客人的未出貨訂單,自己浮出來</h4>
+      <p class="blk-note">開任一張訂單時,系統自動查這位客人還有沒有別的單還沒出貨,直接在最上面告訴你。</p>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / PCM-2026-0104</span></div>
+        <div class="wf-body">
+          <div class="m-card dash" style="border-color:var(--accent); background:var(--accent-soft); margin-bottom:12px">
+            <div class="m-between">
+              <div>
+                <div style="font-size:13.5px; font-weight:600; color:var(--accent)">王大明 還有 2 張沒出貨的訂單 <span class="pin">1</span></div>
+                <div class="m-sub" style="margin-top:3px">PCM-2026-0098(1 件 · 已到貨)· PCM-2026-0091(2 件 · 待下單)</div>
+              </div>
+              <div class="m-row tight">
+                <span class="m-btn ghost">併成一次出貨</span>
+                <span class="m-btn ghost">全部展開看</span>
+              </div>
+            </div>
+          </div>
+          <div class="m-sub">(以下是這張訂單原本的內容…)</div>
+        </div>
+      </div>
+      <ol class="notes">
+        <li><b>這條省的是運費,不只是點擊數。</b>同一個客人三張單分三次寄 = 三次運費;系統主動提醒就能併成一次。<b>現在完全沒有這個提示</b>,要靠員工自己記得去搜尋客人名字。</li>
+      </ol>
+
+      <h4 style="font-size:14px; font-weight:620; margin:26px 0 4px">做法 B · 採購彙總 —— 直接解掉「來回切換看商品」的根因</h4>
+      <p class="blk-note">
+        我猜你來回開訂單、看多張單的商品,多半是為了回答同一個問題:<b>「這批要跟哪家叫什麼貨?」</b>
+        那與其讓你自己在十張訂單之間拼湊,不如系統直接<b>把所有待下單的商品跨訂單依供應商彙總一張表</b>。
+      </p>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / 採購彙總</span></div>
+        <div class="wf-body">
+          <div class="m-tabs">
+            <span class="on">待向供應商下單 <span class="m-tag">14</span></span>
+            <span>已下單等到貨 <span class="m-tag">9</span></span>
+            <span>缺貨 / 異常 <span class="m-tag">2</span></span>
+          </div>
+
+          <div class="m-card dash" style="margin-bottom:10px">
+            <div class="m-between" style="margin-bottom:8px">
+              <span class="m-h" style="font-size:14px">Lightech <span class="m-tag">3 筆 · 5 件</span></span>
+              <div class="m-row tight"><span class="m-btn ghost">匯出叫貨清單</span><span class="m-btn">整組標為已下單</span></div>
+            </div>
+            <table class="m-tbl" style="min-width:0">
+              <thead><tr><th style="width:22px">☑</th><th>料號</th><th>品名</th><th>車種</th><th class="num">數量</th><th>來自哪張單</th><th>客戶</th></tr></thead>
+              <tbody>
+                <tr class="sel"><td>☑</td><td style="font-family:var(--mono)">LTC-004</td><td>腳踏後移組</td><td>2023 Ducati V4</td><td class="num">1</td><td>PCM-2026-0104</td><td>王大明</td></tr>
+                <tr class="sel"><td>☑</td><td style="font-family:var(--mono)">LTC-004</td><td>腳踏後移組</td><td>2022 Panigale V2</td><td class="num">2</td><td>PCM-2026-0102</td><td>林先生</td></tr>
+                <tr class="sel"><td>☑</td><td style="font-family:var(--mono)">LTC-119</td><td>離合器拉桿</td><td>2023 Ducati V4</td><td class="num">2</td><td>PCM-2026-0091</td><td>王大明</td></tr>
+              </tbody>
+            </table>
+            <p class="m-sub" style="margin-top:7px">同料號跨訂單自動疊在一起 —— 這批 <b>LTC-004 共 3 個</b>,一次跟原廠叫,可能吃到量階折扣。<span class="pin">2</span></p>
+          </div>
+
+          <div class="m-card dash">
+            <div class="m-between">
+              <span class="m-h" style="font-size:14px">Eazi-Grip <span class="m-tag">2 筆 · 2 件</span></span>
+              <div class="m-row tight"><span class="m-btn ghost">匯出叫貨清單</span><span class="m-btn">整組標為已下單</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="notes">
+        <li><b>這張表不是新資料,是把既有資料換個方向看。</b>訂單是「依客人」切的,採購要的是「依供應商」切的 —— 同一批資料轉個身而已,但少掉的是每天翻十張訂單抄料號。</li>
+        <li><b>同料號跨訂單自動合併數量</b>。這是代購生意真正的槓桿:一次叫 3 個跟分三次叫 1 個,運費跟折扣差很多。</li>
+      </ol>
+
+      <h4 style="font-size:14px; font-weight:620; margin:26px 0 4px">做法 C · 真的要同時看兩張單時 —— 側邊預覽,不換頁</h4>
+      <p class="blk-note">在列表上點訂單編號,右邊滑出預覽,列表還在。要真的進去編輯才整頁打開。這樣比開十個瀏覽器分頁好管。</p>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單(側邊預覽開啟)</span></div>
+        <div class="wf-body">
+          <div class="m-split">
+            <div>
+              <table class="m-tbl" style="min-width:0">
+                <thead><tr><th>訂單</th><th>客戶</th><th class="num">金額</th><th>狀態</th></tr></thead>
+                <tbody>
+                  <tr class="sel"><td style="font-weight:600">PCM-2026-0104</td><td>王大明</td><td class="num">20,300</td><td><span class="m-tag">待下單</span></td></tr>
+                  <tr><td>PCM-2026-0103</td><td>陳小華</td><td class="num">4,800</td><td><span class="m-tag">已出貨</span></td></tr>
+                  <tr><td>PCM-2026-0102</td><td>林先生</td><td class="num">38,600</td><td><span class="m-tag">待下單</span></td></tr>
+                  <tr><td>PCM-2026-0101</td><td>黃小姐</td><td class="num">12,900</td><td><span class="m-tag">已到貨</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="m-card dash" style="border-color:var(--accent)">
+              <div class="m-between" style="margin-bottom:8px">
+                <span class="m-h" style="font-size:13.5px">PCM-2026-0104</span>
+                <span style="color:var(--ink-3); font-family:var(--mono); font-size:11px">✕</span>
+              </div>
+              <div class="m-kv"><span>王大明 · 白金</span><span>20,300</span></div>
+              <div style="border-top:1px dashed var(--line); margin:8px 0; padding-top:8px">
+                <div class="ph-l1" style="font-size:12px"><span>腳踏後移組 ×1</span><span class="m-tag">待下單</span></div>
+                <div class="ph-l2">2023 Ducati V4 · Lightech · LTC-004</div>
+                <div class="ph-l1" style="font-size:12px; margin-top:7px"><span>油箱貼 ×1</span><span class="m-tag">已到貨</span></div>
+                <div class="ph-l2">2019 Monster 821 · Eazi-Grip · EZ-PRO-88</div>
+              </div>
+              <div class="m-row tight"><span class="m-btn ghost" style="font-size:11px">釘住 <span class="pin">3</span></span><span class="m-btn" style="font-size:11px">整頁打開</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <ol class="notes">
+        <li><b>「釘住」= 保留在旁邊不關掉</b>,再點下一張就變成上下兩張並排,可以直接對照兩單的商品。釘超過兩張就收成頁籤。</li>
+      </ol>
+
+      <div class="asks">
+        <h4>? 這一節整個是我提的,要你選</h4>
+        <ul>
+          <li><b>A、B、C 三個做法要哪些?</b>我的建議是 <b>A + B 先做</b>(省運費 + 省抄料號,對日常最有感),C 側邊預覽比較貴、可以晚一點。</li>
+          <li><b>我猜「來回切換看多個訂單商品」是為了叫貨,猜對了嗎?</b>如果不是,是為了什麼?(例如查客人買過什麼、對照規格、算運費…)—— <b>知道真正的目的我才畫得準</b>,不然 B 這張表可能解錯問題。</li>
+        </ul>
       </div>
     </section>
 
@@ -891,6 +1096,10 @@
                   <span style="width:62px;height:62px;border-radius:5px;background:var(--surface-2);border:1px solid var(--line)"></span>
                   <span style="width:62px;height:62px;border-radius:5px;border:1px dashed var(--todo);display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--todo)">＋</span>
                 </div>
+                <div class="m-row tight" style="margin-top:8px">
+                  <span class="m-btn ghost">上傳新圖</span>
+                  <span class="m-btn ghost" style="border-color:var(--accent); color:var(--accent)">從圖庫挑 <span class="pin">6</span></span>
+                </div>
                 <p class="m-sub" style="margin-top:7px">拖曳排序 · 每張可填替代文字(給 Google 看)</p>
               </div>
 
@@ -957,14 +1166,49 @@
         <li><b>商品狀態四種</b>:草稿(還沒好)/ 上架 / 下架 / 封存。現在完全沒有「草稿」概念。</li>
         <li><b>成本欄員工看不到</b> —— 而且是<b>資料根本不送到員工的瀏覽器</b>,不是畫面上藏起來。</li>
         <li><b>有沒改完就想離開,會擋你一下</b>。</li>
+        <li><b>Q4 已拍板(你 07-26):圖片要能跨商品共用 → 做「圖庫」。</b>所以圖片卡多一顆「從圖庫挑」。同一張情境圖、同一張品牌 logo 上傳一次,所有商品都能掛;改一次全站同步。這條決定了資料庫的形狀(圖片是獨立的一張表、商品跟圖片是多對多),<b>還好現在決定,之後再改很痛。</b></li>
       </ol>
 
-      <div class="asks">
-        <h4>? 待你確認(規格 §6 的 N6,還沒拍板)</h4>
-        <ul>
-          <li><b>同一張圖能不能給多個商品共用?</b>能共用要做「圖庫」(像 Shopify);不能共用就是圖綁死單一商品(像 Medusa)。<b>這題之後再改會很痛</b>,最好現在就決定。</li>
-        </ul>
+      <h3 class="blk">3.5　圖庫 <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">Q4 已拍板</span></h3>
+      <p class="blk-note">因為圖片要共用,就得有一個地方管全部的圖。這是 Q4 拍板後長出來的新畫面。</p>
+      <div class="wf new">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 圖庫</span></div>
+        <div class="wf-body">
+          <div class="m-between" style="margin-bottom:10px">
+            <div class="m-row tight">
+              <div class="m-input dash" style="height:28px; width:170px; font-size:12px">🔍 搜尋檔名 / 替代文字</div>
+              <span class="m-pill">品牌:Lightech <span class="x">✕</span></span>
+            </div>
+            <span class="m-btn pri">上傳圖片</span>
+          </div>
+          <div class="m-grid4">
+            <div class="m-card dash" style="padding:8px">
+              <div style="height:74px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);margin-bottom:6px"></div>
+              <div style="font-size:11px">腳踏後移組_主圖.jpg</div>
+              <div class="m-sub" style="font-size:10.5px">用在 3 個商品 <span class="pin">1</span></div>
+            </div>
+            <div class="m-card dash" style="padding:8px">
+              <div style="height:74px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);margin-bottom:6px"></div>
+              <div style="font-size:11px">Lightech_logo.png</div>
+              <div class="m-sub" style="font-size:10.5px">用在 28 個商品</div>
+            </div>
+            <div class="m-card dash" style="padding:8px">
+              <div style="height:74px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);margin-bottom:6px"></div>
+              <div style="font-size:11px">安裝示意_01.jpg</div>
+              <div class="m-sub" style="font-size:10.5px">用在 6 個商品</div>
+            </div>
+            <div class="m-card dash" style="padding:8px">
+              <div style="height:74px;border-radius:4px;background:var(--surface-2);border:1px solid var(--line);margin-bottom:6px"></div>
+              <div style="font-size:11px">油箱貼_黑.jpg</div>
+              <div class="m-sub" style="font-size:10.5px; color:var(--accent)">沒有商品在用</div>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <ol class="notes">
+        <li><b>每張圖顯示「被幾個商品用」</b>。這格很重要 —— 有了它你才敢刪圖。顯示「沒有商品在用」的那些就是可以清掉的。刪一張還在被用的圖,系統會先問你「這張圖有 3 個商品在用,確定刪?」</li>
+      </ol>
     </section>
 
     <!-- ══════════════ 04 客戶 ══════════════ -->
@@ -1293,10 +1537,36 @@
         <li><b>成本沒填的訂單,毛利顯示「未知」,絕不用 0 充數</b>。用 0 會讓整月毛利看起來比實際高,這比沒數字更危險。</li>
       </ol>
 
-      <div class="warn">
-        <b>⚠ 一件要你確認的事:</b>你月報表裡「本月支出運費」那格,2025/07 顯示 <b>11,833</b>,
-        但同一頁的明細加起來是 <b>88,782</b>,<b>差了大約 7.5 倍</b>。口徑不明。
-        在你確認之前,這格<b>不會被拿來當報表的來源</b>。
+      <div class="warn" style="background:var(--built-soft); border-color:var(--built)">
+        <b style="color:var(--built)">✅ Q6 已解答(你 07-26)—— 那不是算錯,是兩個不同的東西。</b><br>
+        我原本以為 <b>11,833</b> 跟 <b>88,782</b> 應該相等、差 7.5 倍是 bug。你的答案是「兩個都對,但意思不同」:<br>
+        · <b>11,833</b> = 從<b>公司零錢櫃(現金)</b>付出去的運費<br>
+        · <b>88,782</b> = 公司<b>匯款</b>出去的運費紀錄<br>
+        ⇒ 同一筆「運費支出」,<b>錢從哪個口袋出去是兩回事</b>,本來就不該加在一起比。<br>
+        <b>對系統的影響(這條蠻關鍵的):</b>運費支出必須<b>依付款帳戶分開統計</b>,不能合成一個數字 ——
+        這正好就是會計那塊「資金帳戶」在解的問題。所以下面報表的運費那格改成分兩列。<br>
+        <span style="color:var(--unsure)">? 我照你的簡寫理解成「零錢櫃 = 公司零用金現金」,如果不是這個意思跟我說。</span>
+      </div>
+
+      <div class="wf new" style="margin-top:14px">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">報表 · 支出明細(依 Q6 改版)</span></div>
+        <div class="wf-body">
+          <div class="m-grid2">
+            <div class="m-card dash">
+              <h5>運費支出 · 依付款帳戶拆</h5>
+              <div class="m-kv"><span>公司零錢櫃(現金)</span><span>11,833</span></div>
+              <div class="m-kv"><span>銀行匯款</span><span>88,782</span></div>
+              <div class="m-kv" style="border-top:1px solid var(--line-soft); margin-top:6px; padding-top:6px; font-weight:700"><span>合計</span><span>100,615</span></div>
+            </div>
+            <div class="m-card dash">
+              <h5>其他支出 · 同樣拆兩欄</h5>
+              <div class="m-kv"><span></span><span style="font-family:var(--mono); font-size:10.5px; color:var(--ink-3)">現金 · 匯款</span></div>
+              <div class="m-kv"><span>進口稅金</span><span>0 · 42,300</span></div>
+              <div class="m-kv"><span>辦公雜支</span><span>3,240 · 0</span></div>
+              <div class="m-kv"><span>水電</span><span>0 · 6,180</span></div>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -1353,9 +1623,13 @@
             <li><b>價目表可以有量階</b>(買 5 個以上另一個價)跟有效期。這是 Odoo 的做法,對代購很實用。</li>
             <li><b>代購進度鏈</b> —— 現在系統只有「整張訂單」一個出貨狀態,你說過「這屬於商品狀態,可以一個商品一個商品標記」,所以要下放到<b>每個商品</b>。</li>
           </ol>
-          <div class="asks">
-            <h4>? 待你確認(規格 §6 的 N9,還沒拍板)</h4>
-            <ul><li>供應商主檔<b>這一期做不做</b>?做了範圍會變大,但代購這塊確實最缺。</li></ul>
+          <div class="warn">
+            <b>✅ Q5=B 已拍板(你 07-26):這一期不做,先把訂單與商品做完。</b><br>
+            所以這一整區<b>只是先畫給你看</b>,這期不動工。<br>
+            🔴 <b>但有一條會被連帶影響、要先講:</b>2.3 手動建單裡的「供應商」與「進價」欄,
+            在沒有供應商主檔之前<b>只能是自由打字的文字欄</b>,不是下拉選單 ——
+            意思是「Lightech」跟「lightech」會被當成兩家。這是刻意接受的代價,
+            等這區開工再收斂成正式的下拉。(這正是會計那邊 158 種寫法問題的同一個病,先記著。)
           </div>
         </div>
       </div>
@@ -1463,26 +1737,38 @@
         <div class="rule"><b>4 · 批次操作按鈕長在標題列上</b><p>不做浮在畫面下方的黑色長條。跨頁全選要有獨立文案。</p></div>
         <div class="rule"><b>5 · 超過 50 筆才分頁</b><p>「共 N 筆 + 上一頁 / 下一頁」,不做頁碼輸入框。</p></div>
         <div class="rule"><b>6 · 會出事的動作要問第二次</b><p>刪除、退款一律二次確認;有沒存的東西要離開,先擋一下。</p></div>
-        <div class="rule"><b>7 · 提示訊息至少停 10 秒</b><p>無障礙要求。不做 2 秒閃一下就消失的那種。</p></div>
+        <div class="rule"><b>7 · 提示訊息停 5 秒</b><p>你 07-26 拍板,由原本的 10 秒改為 5 秒。仍然不做 2 秒閃一下就消失的那種;訊息要能手動關掉,重要的錯誤不自動消失。</p></div>
       </div>
     </section>
 
     <footer id="next">
       <h2>接下來怎麼走</h2>
       <ol>
-        <li><b>你看這份、指出哪裡不對</b> —— 特別是紫色虛線框那些「待確認」的,還有訂單列表要顯示哪幾欄。</li>
-        <li><b>我依你的回饋改這份預覽</b>,改到你點頭。</li>
-        <li><b>才開始寫程式</b>,順序是:後台共用積木 → 員工帳號與權限 → 訂單閉環。</li>
+        <li>✅ <b>第一輪回饋已折入</b>(你 07-26 給的九項,見下方清單)。</li>
+        <li><b>再看一次這份</b>,尤其新增的 §2.7 多單同時作業、§3.5 圖庫、§7 支出拆兩列。</li>
+        <li><b>你點頭後才開始寫程式</b>,順序是:後台共用積木 → 員工帳號與權限 → 訂單閉環。</li>
       </ol>
 
-      <h2 style="font-size:16px; margin-top:26px">還沒決定、等你的六件事</h2>
-      <ol style="line-height:2">
-        <li>側邊選單這五組分法對不對</li>
-        <li>訂單列表要顯示哪幾欄、上排要哪幾個預設檢視</li>
-        <li>匯款金額對不起來時,擋下來還是允許記差額</li>
-        <li>同一張商品圖能不能給多個商品共用(<b>之後再改很痛</b>)</li>
-        <li>供應商主檔這一期做不做</li>
-        <li>月報表「本月支出運費」那格差 7.5 倍的口徑</li>
+      <h2 style="font-size:16px; margin-top:26px">✅ 你 07-26 拍板的九件事(已全部畫進去)</h2>
+      <ol style="line-height:1.9">
+        <li><b>Q1=A</b> 側邊選單五組分法 OK;<b>「匯率與加成係數」移到報表群組</b></li>
+        <li><b>Q2=A</b> 訂單列表欄位照提案,<b>順序改成你的習慣</b>:車種 → 商品品牌 → 料號 → 品名 → 數量 → 單價 → 小計</li>
+        <li><b>Q3=B</b> 匯款金額對不起來<b>允許記差額</b>、備註必填、進待處理</li>
+        <li><b>Q4</b> 商品圖<b>要跨商品共用</b> → 長出新的「圖庫」畫面(§3.5)</li>
+        <li><b>Q5=B</b> 供應商主檔<b>延後</b>,先做訂單與商品</li>
+        <li><b>Q6</b> 運費 11,833 vs 88,782 = <b>零錢櫃現金 vs 銀行匯款兩個口徑</b> → 報表改成依付款帳戶拆兩列</li>
+        <li>訂單明細:收件地址加<b>複製按鈕</b>(格式 <code style="font-family:var(--mono)">姓名,電話,地址</code>)、品項表補<b>車種與商品品牌</b></li>
+        <li>出貨:快遞方式三選 <b>新竹貨運(串 API 印寄貨單)/ 順豐(自填單號)/ 其他</b>;
+          2.6 改成<b>從未出貨清單按鈕加入</b>,不用自己打訂單編號</li>
+        <li>提示訊息由 10 秒改 <b>5 秒</b></li>
+      </ol>
+
+      <h2 style="font-size:16px; margin-top:26px">? 還沒解決的四件事</h2>
+      <ol style="line-height:1.9">
+        <li><b>訂單列表車種與品牌要不要留?</b>你 Q2 選的 A 是我寫的精簡版 8 欄、沒列這兩欄,但你隨後又特別強調要顯示 —— 我判斷是「照現在的欄位、用我的順序」,所以<b>留著</b>。要真的砍到 8 欄跟我說。</li>
+        <li><b>新竹物流 API 還沒讀。</b>你給的 PDF 我還沒逐條看,所以「怎麼申請帳號 / 寄貨單是 API 給還是我們自己排版 / 有沒有物流追蹤端點」三件都還是問號。開工前我會先讀完再給規格,<b>不照猜的做</b>。</li>
+        <li><b>虛擬帳戶是否強制金額相符?</b>你說「匯錯金額是無法匯款」—— 這要看銀行 / 金流商怎麼設,有些是照收只標異常。<b>串接前要跟銀行問清楚</b>;在問清楚之前,差額處理流程一律保留。</li>
+        <li><b>Q6 我的理解對不對?</b>我把「零錢貴」讀成「零錢櫃 = 公司零用金現金」。不是這個意思跟我說。</li>
       </ol>
 
       <p class="prov" style="margin-top:26px">
