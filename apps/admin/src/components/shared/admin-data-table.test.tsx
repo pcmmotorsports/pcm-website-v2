@@ -110,7 +110,29 @@ describe('AdminDataTable', () => {
     const amountCell = at([...firstRow.querySelectorAll('td')], 3);
     expect(amountCell.className).toContain('text-right');
     expect(amountCell.className).toContain('tabular-nums');
-    // 手機卡片的 trailing 槽自帶靠右,不吃 alignRight 的 class
-    expect(cards.querySelector('li')?.textContent).toContain('20300');
+    // 手機卡片的 trailing 槽自帶靠右:金額 span 本身不得帶 alignRight 的 class
+    const first = at([...cards.querySelectorAll('li')], 0);
+    const amountSpan = [...first.querySelectorAll('span')].find((s) => s.textContent === '20300');
+    expect(amountSpan).toBeTruthy();
+    expect(amountSpan?.className ?? '').not.toContain('text-right');
+    expect(amountSpan?.className ?? '').not.toContain('tabular-nums');
+  });
+
+  it('should treat an empty string cell as blank on both layouts', () => {
+    const { container } = render(
+      <AdminDataTable
+        rows={[{ id: 'c', name: '林先生', email: '', phone: null, amount: 100 }]}
+        columns={COLUMNS}
+        getRowKey={(r) => r.id}
+        emptyText='—'
+      />,
+    );
+    // 桌機:email 欄顯「—」保持對齊
+    const row = at([...container.querySelectorAll('tbody tr')], 0);
+    expect(at([...row.querySelectorAll('td')], 1).textContent).toBe('—');
+    // 手機:副行 email 與電話皆空 → 整行不出現,也不得殘留「·」分隔符
+    const card = at([...container.querySelectorAll('li')], 0);
+    expect(card.textContent).not.toContain('—');
+    expect(card.textContent).not.toContain('·');
   });
 });

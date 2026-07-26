@@ -13,7 +13,8 @@ import type { ReactNode } from 'react';
 //
 // ponytail: 桌機列與手機卡各渲染一次 cell(共兩份 DOM),換來零 JS、零視窗偵測、
 //   server component 直出。單頁 20-50 列的量級可忽略。若日後拿去接 orders-table
-//   (內含 ItemWorkflowStatusCell 這種帶 <form> 的 client 元件),雙渲染會產出重複表單 →
+//   (內含 ItemWorkflowStatusCell:包 <form action> 的 Server Component,巢狀
+//   WorkflowStatusSelect 才是 client 元件),雙渲染會產出重複表單與重複 client 狀態 →
 //   屆時改成單一 markup + CSS reflow,或讓帶互動的欄位只在 title/trailing 槽出現一次。
 
 export type AdminColumn<T> = {
@@ -21,7 +22,7 @@ export type AdminColumn<T> = {
   key: string;
   /** 桌機表頭文字。 */
   header: string;
-  /** 儲存格內容;回 null/undefined = 沒值(桌機顯「—」、手機該欄整格不出現)。 */
+  /** 儲存格內容;回 null/undefined/空字串 = 沒值(桌機顯「—」、手機該欄整格不出現)。 */
   cell: (row: T) => ReactNode;
   /** 追加到桌機 <td> 的 class(對齊既有各表的逐欄樣式)。 */
   className?: string;
@@ -40,9 +41,9 @@ export type AdminColumn<T> = {
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap';
 
-/** cell 回傳是否視為「沒值」;只認 null/undefined,空字串以外的 falsy(0、false)是有效值。 */
+/** cell 回傳是否視為「沒值」;認 null/undefined/空字串(`?? ''` 慣用寫法不落空),0、false 是有效值。 */
 function isBlank(node: ReactNode): boolean {
-  return node === null || node === undefined;
+  return node === null || node === undefined || node === '';
 }
 
 /** 以 · 串接非空節點;全空回 null(該行整行不渲染)。 */
@@ -78,6 +79,13 @@ export function AdminDataTable<T>({
   }
 
   const titleCol = columns.find((c) => c.mobile === 'title');
+  if (process.env.NODE_ENV !== 'production') {
+    const titleCount = columns.filter((c) => c.mobile === 'title').length;
+    if (titleCount !== 1)
+      console.warn(
+        `AdminDataTable: mobile 'title' 欄位應恰好 1 個,目前 ${titleCount} 個(0=卡片無主標、>1=只取第一個)`,
+      );
+  }
   const trailingCols = columns.filter((c) => c.mobile === 'trailing');
   const subCols = columns.filter((c) => c.mobile === 'sub');
   const metaCols = columns.filter((c) => c.mobile === 'meta');
