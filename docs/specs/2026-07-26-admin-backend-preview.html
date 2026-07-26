@@ -350,7 +350,7 @@
 
     <div class="score">
       <div class="c-built"><b>6</b><span>今天真的能用的頁面</span></div>
-      <div class="c-accent"><b>34</b><span>這份預覽涵蓋的畫面</span></div>
+      <div class="c-accent"><b>38</b><span>這份預覽涵蓋的畫面</span></div>
       <div class="c-built"><b>2</b><span>「員工的一天」已做完</span></div>
       <div class="c-partial"><b>6</b><span>做了一半</span></div>
       <div class="c-todo"><b>19</b><span>完全還沒做</span></div>
@@ -616,10 +616,10 @@
           🔴 <b>要更正我昨天講的一件事</b>:車種欄<b>現在就有</b>(訂單列表已經逐商品顯示車種,不是新的),缺車種的是<b>訂單明細</b>那張品項表 —— 已在 2.2 補上。另外一張訂單裡<b>每個商品的車種可以不一樣</b>(上面範例第一單就是 V4 跟 Monster 821 各一件),這點畫面已照著做。</li>
       </ol>
 
-      <div class="warn">
-        <b>✅ Q2=A 已拍板</b>(你 07-26)。但你同時在 2.2 特別強調車種與品牌要顯示,而我當時給的 A 選項是精簡版 8 欄、沒列這兩欄 ——
-        我判斷你要的是<b>「照現在這些欄、但用我的順序排」</b>,所以車種與品牌<b>保留</b>。
-        如果你其實是要把列表砍到 8 欄、車種品牌只留在明細頁,跟我說一聲就改。
+      <div class="warn" style="background:var(--built-soft); border-color:var(--built)">
+        <b style="color:var(--built)">✅ Q2=A + Q9=A 均已拍板</b>(你 07-26)。我當時給的 A 選項是精簡版 8 欄、沒列車種與品牌,
+        但你隨後特別強調要顯示 —— 我判斷你要的是「照現在這些欄、用我的順序排」,把兩欄留著。
+        <b>你已確認判斷正確,此題結案。</b>
       </div>
 
       <!-- 2.2 明細 -->
@@ -1109,8 +1109,30 @@
         <li><b>同料號跨訂單自動合併數量</b>。這是代購生意真正的槓桿:一次叫 3 個跟分三次叫 1 個,運費跟折扣差很多。</li>
       </ol>
 
-      <h4 style="font-size:14px; font-weight:620; margin:26px 0 4px">做法 C · 真的要同時看兩張單時 —— 側邊預覽,不換頁</h4>
-      <p class="blk-note">在列表上點訂單編號,右邊滑出預覽,列表還在。要真的進去編輯才整頁打開。這樣比開十個瀏覽器分頁好管。</p>
+      <h4 style="font-size:14px; font-weight:620; margin:26px 0 4px">
+        <s style="color:var(--ink-3)">做法 C · 側邊預覽 + 釘住</s>
+        <span class="chip part">✕ 已砍掉(你 07-26 拍板)</span>
+      </h4>
+      <div class="warn" style="margin:0 0 12px">
+        <b>你跟兩位審查員的判斷一致:C 不需要。</b>以目前 34 筆訂單的量,做一整套釘住並排太重。<br>
+        <b>改成極簡版:</b>訂單明細頁右上角加「‹ 上一張 / 下一張 ›」兩顆按鈕,
+        再加一顆「跳到這位客人的下一張未出貨單」。連續看單不用回列表,成本幾乎是零。<br>
+        <span style="color:var(--ink-3)">下圖保留當紀錄,說明砍掉的是什麼。</span>
+      </div>
+      <div class="wf part" style="max-width:420px; margin-bottom:14px">
+        <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">替代方案 · 訂單明細右上角</span></div>
+        <div class="wf-body">
+          <div class="m-between">
+            <span class="m-h" style="font-size:14px">PCM-2026-0104</span>
+            <div class="m-row tight">
+              <span class="m-btn ghost" style="font-size:11px">‹ 上一張</span>
+              <span class="m-btn ghost" style="font-size:11px">下一張 ›</span>
+              <span class="m-btn ghost" style="font-size:11px">王大明的下一張未出貨單 ›</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="blk-note" style="opacity:.6">(以下為已砍掉的 C 案原圖,僅留紀錄)</p>
       <div class="wf new">
         <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單(側邊預覽開啟)</span></div>
         <div class="wf-body">
@@ -1147,16 +1169,16 @@
         <li><b>「釘住」= 保留在旁邊不關掉</b>,再點下一張就變成上下兩張並排,可以直接對照兩單的商品。釘超過兩張就收成頁籤。</li>
       </ol>
 
-      <div class="asks">
-        <h4>? 這一節整個是我提的,要你選</h4>
-        <ul>
-          <li><b>建議順序已改</b>(兩位審查員都這樣建議):<b>做法 0 跨單搜尋 → A 同客人未出貨 → 之後再看要不要 B</b>。
-            我原本建議 A+B 先做,但 B 押在一個沒被證實的假設上,先做 0 比較安全。<b>C 兩位都建議砍掉</b>(以你目前 34 筆訂單的量,側邊釘住並排太重),
-            改成訂單明細頁加「上一張 / 下一張」兩顆按鈕就夠。</li>
-          <li>🔴 <b>還是要問你這題,答案會決定 B 做不做:你來回開訂單看商品,到底是為了什麼?</b><br>
-            A 為了跟供應商叫貨 · B 為了查車型規格對照客人講的話 · C 為了確認同料號沒重複答應給兩個客人 ·
-            D 客服電話中即時回答 · E 其他(請說)</li>
-        </ul>
+      <div class="warn" style="background:var(--built-soft); border-color:var(--built)">
+        <b style="color:var(--built)">✅ 2026-07-26 已拍板:0 + A + B 都做,C 砍掉。</b><br><br>
+        <b>而且「為什麼來回開訂單」這題你答了:五個動機全都有</b> ——
+        叫貨 ✓ 查車型規格對照客人講的話 ✓ 確認同料號沒重複答應 ✓ 客服電話即時回答 ✓ 其他 ✓<br><br>
+        🔴 <b>這個答案改變了做法的優先序,值得講清楚:</b><br>
+        兩位審查員原本擔心「B 採購彙總押在一個未證實的假設上」。
+        現在答案是<b>五個動機全都有</b> —— 意思是 <b>B 沒有解錯問題(叫貨確實是動機之一),但它只解得掉五分之一</b>。<br>
+        而<b>做法 0 跨單搜尋一個人就打到其中四個</b>:查規格、防重複承諾、客服即時回答、找東西在哪張單。<br>
+        ⇒ <b>順序建議:0 先做(打擊面最廣)→ A(省運費、最有感)→ B(叫貨專用工作台)。</b>
+        三個都要做,只是先後。
       </div>
 
       <!-- 2.8 取消訂單 -->
@@ -1473,6 +1495,76 @@
         <li><b>密碼重設只能「寄信給客人」</b>,後台不能直接幫客人設一組新密碼。這是安全底線,不放寬。</li>
         <li><b>內部備註與標籤是新的</b>。客人看不到。</li>
       </ol>
+
+      <h3 class="blk">4.3　密碼重設的完整鏈(前台 + 後台) <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">你 07-26 指示</span></h3>
+      <div class="alarm" style="margin:0 0 16px">
+        <h2>🔴 你這句話戳到一條斷掉的鏈子</h2>
+        <p>
+          你說「密碼重設這個功能在網頁登入畫面也要有」—— 我去查了,結果比想像嚴重:<br><br>
+          <b>①前台登入頁上「忘記密碼?」這幾個字已經在了,但它是死連結。</b>
+          客人看得到、點得下去、<b>什麼都不會發生</b>(<code>LoginPage.tsx:144</code> 是 <code>href="#"</code>,
+          程式裡第 15 行還自己註明「該流程不在範圍內」)。<br><br>
+          <b>②所以後台那顆「寄密碼重設信」按鈕,做了也沒用。</b>
+          信寄出去、客人點開連結 → <b>落到一個不存在的頁面</b>。整條鏈是斷的。<br><br>
+          <b>③這不是新需求,是欠的債。</b>design 原稿就畫了「忘記密碼?」
+          (<code>design-reference/components/AccountPages.jsx:224</code>),而且 design 自己的交接文件
+          第 40 行就寫著「註冊 / 忘記密碼 / 訂單歷史都要接後端」—— 當時跳過了,一直沒補。
+        </p>
+      </div>
+
+      <p class="blk-note">要能用,<b>三個地方都得動</b>,少一個整條鏈就是斷的:</p>
+
+      <div class="m-grid3" style="margin-bottom:14px">
+        <div class="wf part">
+          <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">① 前台 /login</span></div>
+          <div class="wf-body">
+            <div class="m-field"><label>Email</label><div class="m-input">wang@example.com</div></div>
+            <div class="m-field"><label>密碼</label><div class="m-input">••••••••</div></div>
+            <div class="m-between" style="margin-bottom:10px">
+              <span style="font-size:12px">☑ 記住我</span>
+              <span style="font-size:12px; color:var(--accent); text-decoration:underline">忘記密碼?</span>
+            </div>
+            <button class="m-btn pri" style="width:100%">登入</button>
+            <p class="m-sub" style="margin-top:8px"><b>字已經在了</b>,只是點了沒反應。<br>要做的是把它接到 ②。</p>
+          </div>
+        </div>
+
+        <div class="wf new">
+          <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">② 前台 /forgot-password</span></div>
+          <div class="wf-body">
+            <div class="m-h" style="font-size:14px; margin-bottom:4px">忘記密碼</div>
+            <p class="m-sub" style="margin-bottom:10px">輸入你註冊時用的 Email,我們寄一封重設信給你。</p>
+            <div class="m-field"><label>Email</label><div class="m-input dash">wang@example.com</div></div>
+            <button class="m-btn pri" style="width:100%">寄出重設信</button>
+            <p class="m-sub" style="margin-top:8px">送出後一律顯示「信已寄出」,<br><b>不管這個 Email 有沒有註冊過</b>。<span class="pin">1</span></p>
+          </div>
+        </div>
+
+        <div class="wf new">
+          <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">③ 前台 /reset-password</span></div>
+          <div class="wf-body">
+            <div class="m-h" style="font-size:14px; margin-bottom:4px">設定新密碼</div>
+            <p class="m-sub" style="margin-bottom:10px">從信裡的連結進來才看得到這一頁。</p>
+            <div class="m-field"><label>新密碼</label><div class="m-input dash">••••••••</div></div>
+            <div class="m-field"><label>再輸入一次</label><div class="m-input dash">••••••••</div></div>
+            <button class="m-btn pri" style="width:100%">設定新密碼</button>
+            <p class="m-sub" style="margin-top:8px">連結有時效,過期要重新申請。<span class="pin">2</span></p>
+          </div>
+        </div>
+      </div>
+
+      <ol class="notes">
+        <li><b>「信已寄出」不管有沒有註冊過都要顯示</b>。如果只有註冊過的才顯示成功,壞人就能拿這一頁<b>逐個試出哪些 Email 是你的客人</b>。這是標準做法,不是我保守。</li>
+        <li><b>後台那顆按鈕跟前台走同一條路</b>:員工按「寄密碼重設信」= 幫客人送出 ②;客人自己在前台申請也是走 ②。<b>兩邊寄的是同一封信、同一個重設頁</b>,不做兩套。</li>
+        <li>🔴 <b>順序上有個硬前置</b>:②③ 沒做之前,後台 4.2 那顆「寄密碼重設信」<b>不能上線</b> —— 否則員工按了,客人收到信點開是壞頁面,比沒這個功能還糟。</li>
+      </ol>
+
+      <div class="warn">
+        <b>⚠ 範圍提醒:這一項會跨到前台。</b>
+        本份預覽其餘 33 張畫面全部是後台;②③ 兩張是<b>客人看得到的前台頁面</b>,
+        屬於 storefront 而不是 admin。工程上是兩個不同的專案,<b>要分開排</b>,
+        但功能上它們是同一條鏈,不能只做一半。
+      </div>
     </section>
 
     <!-- ══════════════ 05 員工權限 ══════════════ -->
