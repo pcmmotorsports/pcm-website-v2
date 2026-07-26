@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // mock next/headers cookies() + headers():就地 vi.mock + vi.hoisted。
-const { cookieStore, headerStore } = vi.hoisted(() => ({
+const { cookieStore, headerStore, listStaffRows } = vi.hoisted(() => ({
   cookieStore: new Map<string, string>(),
   headerStore: new Map<string, string>(),
+  listStaffRows: vi.fn(),
 }));
 
 vi.mock('next/headers', () => ({
@@ -20,6 +21,8 @@ vi.mock('next/headers', () => ({
     }),
 }));
 
+vi.mock('../staff-repository', () => ({ listStaffRows }));
+
 import { getRequestId, buildAuditContext, recordAdminAudit } from './context';
 import { InMemoryAuditLogRepository } from './in-memory-repository';
 import { ACTOR_COOKIE } from '../session/actor';
@@ -29,6 +32,10 @@ describe('audit context', () => {
   beforeEach(() => {
     cookieStore.clear();
     headerStore.clear();
+    listStaffRows.mockReset().mockResolvedValue([
+      { id: 'sean', label: 'Sean(老闆)', is_active: true },
+      { id: 'staff_1', label: '員工 1(占位)', is_active: true },
+    ]);
   });
 
   describe('getRequestId', () => {

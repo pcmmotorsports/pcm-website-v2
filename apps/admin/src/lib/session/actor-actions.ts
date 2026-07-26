@@ -7,7 +7,7 @@ import { resolveStaff } from '../staff';
 import { ACTOR_COOKIE } from './actor';
 
 // M-4a M0-S2「選人」server action(PRD §6.1 最小具名身分)。
-// 🔴 臨時解 / 非授權邊界(見 session/actor.ts);SSO 收端上線後退場。
+// 🔴 使用者自行選擇 / 非授權邊界(見 session/actor.ts);真實身分驗證接上後退場。
 
 /**
  * 選具名身分並寫進 session cookie。
@@ -15,7 +15,7 @@ import { ACTOR_COOKIE } from './actor';
  */
 export async function selectActorAction(formData: FormData): Promise<void> {
   const raw = formData.get('actorId');
-  const staff = typeof raw === 'string' ? resolveStaff(raw) : null;
+  const staff = typeof raw === 'string' ? await resolveStaff(raw) : null;
   if (!staff) return;
 
   const store = await cookies();

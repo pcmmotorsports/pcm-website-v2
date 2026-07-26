@@ -27,7 +27,7 @@ export async function buildAuditContext(): Promise<AuditContext> {
   const actor = await getSessionActor();
   if (!actor) {
     throw new Error(
-      '稽核情境缺 actor — 尚未選具名身分(M0-S2 選人 / SSO 收端上線後由登入提供)',
+      '稽核情境缺 actor — 尚未選具名身分(M0-S2 自選身分;真實身分驗證待個人帳號接上)',
     );
   }
   return {

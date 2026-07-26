@@ -1,11 +1,12 @@
 import { selectActorAction } from '@/lib/session/actor-actions';
 import { getSessionActor } from '@/lib/session/actor';
-import { STAFF } from '@/lib/staff';
+import { listActiveStaff } from '@/lib/staff';
 
 // M0-S1 骨架占位頁 + M0-S2 具名身分選人。骨架驗收 = pnpm dev 跑得起來、殼可見可用;
 // 訂單/客戶線於後續 slice 才裝真頁面。
 export default async function AdminHomePage() {
   const actor = await getSessionActor();
+  const staff = await listActiveStaff();
 
   return (
     <div className='mx-auto max-w-2xl space-y-4 py-10'>
@@ -26,7 +27,9 @@ export default async function AdminHomePage() {
           <span className='text-foreground font-medium'>
             {actor ? actor.label : '尚未選擇'}
           </span>
-          。稽核 log 會把這個身分記成操作者。這是 SSO 上線前的臨時做法,登入完成後改由真實帳號提供。
+          {
+            '。稽核 log 會把這個身分記成操作者。🔴 這個身分是你自己選的、系統並未驗證 —— 目前登入只確認「有人通過認證」,不確認「是誰」。真實帳號驗證待報價單端建立個人帳號後接上。'
+          }
         </p>
         <form action={selectActorAction} className='mt-4 flex items-center gap-2'>
           <label htmlFor='actorId' className='sr-only'>
@@ -41,7 +44,7 @@ export default async function AdminHomePage() {
             <option value='' disabled>
               選擇身分…
             </option>
-            {STAFF.map((s) => (
+            {staff.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
               </option>

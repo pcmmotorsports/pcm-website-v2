@@ -3,9 +3,8 @@ import { cookies } from 'next/headers';
 import { resolveStaff, type StaffActor } from '../staff';
 
 // M-4a M0-S2 session 具名身分讀取層。
-// 🔴 臨時解:actor 以 cookie 承載(SSO 收端上線前的最小具名身分,PRD §6.1)。
-//    這**不是**登入 / 授權邊界——真正的驗證是 SSO 收端 slice 的事;此 cookie 只標「我是誰」。
-//    SSO 上線後,getSessionActor 改由真實登入 session 提供、cookie 版退場。
+// 🔴 actor 以 cookie 承載、內容來自使用者自行選擇。這**不是**登入 / 授權邊界,
+//    也沒有驗證「目前使用者是誰」;真實身分驗證待個人帳號接上後,此 cookie 版才退場。
 
 /** actor cookie 名(讀寫共用;寫在 session/actor-actions.ts)。 */
 export const ACTOR_COOKIE = 'pcm_admin_actor';
@@ -16,5 +15,5 @@ export const ACTOR_COOKIE = 'pcm_admin_actor';
  */
 export async function getSessionActor(): Promise<StaffActor | null> {
   const store = await cookies();
-  return resolveStaff(store.get(ACTOR_COOKIE)?.value);
+  return await resolveStaff(store.get(ACTOR_COOKIE)?.value);
 }

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // mock next/headers cookies():就地 vi.mock + vi.hoisted(storefront 慣例;無共用 setup)。
-const { cookieStore } = vi.hoisted(() => ({ cookieStore: new Map<string, string>() }));
+const { cookieStore, listStaffRows } = vi.hoisted(() => ({
+  cookieStore: new Map<string, string>(),
+  listStaffRows: vi.fn(),
+}));
 
 vi.mock('next/headers', () => ({
   cookies: () =>
@@ -13,10 +16,17 @@ vi.mock('next/headers', () => ({
     }),
 }));
 
+vi.mock('../staff-repository', () => ({ listStaffRows }));
+
 import { getSessionActor, ACTOR_COOKIE } from './actor';
 
 describe('getSessionActor', () => {
-  beforeEach(() => cookieStore.clear());
+  beforeEach(() => {
+    cookieStore.clear();
+    listStaffRows.mockReset().mockResolvedValue([
+      { id: 'sean', label: 'Sean(老闆)', is_active: true },
+    ]);
+  });
 
   it('should return the StaffActor for a valid actor cookie', async () => {
     cookieStore.set(ACTOR_COOKIE, 'sean');
