@@ -11,7 +11,7 @@
 
 | 產物 | 路徑 | 說明 |
 |---|---|---|
-| **畫面預覽 artifact** | `docs/specs/2026-07-26-admin-backend-preview.html`(2269 行) | 已發布 **https://claude.ai/code/artifact/f8f18cd5-401b-4924-af38-5ef5ecd6bf26**;**同一路徑重新 publish 即更新同一網址**(接手要改就改這個檔再 republish,不要另開) |
+| **畫面預覽 artifact** | `docs/specs/2026-07-26-admin-backend-preview.html`(2269 行) | 🔴 **原網址已失效**(07-26 第二輪實測:list+WebFetch 皆查無,原因不明)→ **現行網址=`https://claude.ai/code/artifact/2061fa03-5626-4aaa-b172-f818eb0e21e8`**(07-26 第二輪 session 重發布並持有;要改=改本檔再 republish 同路徑,或從其他 session 帶 `url` 參數) |
 | **新竹物流 API 參考** | `docs/reference/hct-logistics-api-reference.md` | 兩份官方 PDF 全文親讀後的整理 + 未確認清單 |
 | **E11 積木** | `apps/admin/src/components/shared/admin-data-table.tsx` + `.test.tsx` | 唯一動到程式的一片 |
 | **拍板 memory** | `project_m4b-admin-preview-decisions` / `reference_hct-logistics-api` | 已登 MEMORY.md |
@@ -113,7 +113,7 @@ Q1=A 選單五組 + 匯率係數改放報表 · Q2=A/Q9=A 列表欄位保留車�
 
 ## 相關檔案
 
-- **畫面預覽**:`docs/specs/2026-07-26-admin-backend-preview.html` → https://claude.ai/code/artifact/f8f18cd5-401b-4924-af38-5ef5ecd6bf26
+- **畫面預覽**:`docs/specs/2026-07-26-admin-backend-preview.html` → https://claude.ai/code/artifact/2061fa03-5626-4aaa-b172-f818eb0e21e8(原 f8f18cd5 網址已失效、07-26 重發布)
 - **新竹物流 API**:`docs/reference/hct-logistics-api-reference.md`
 - **主規格**:`docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(🔴 先讀 §0a;§6 的 N6 已於本 session 改為已拍板、§4-7 Toast 已改 5 秒)
 - **前一份 handoff**:`docs/handoff/2026-07-26-admin-backend-spec-handoff.md`
