@@ -735,6 +735,7 @@
                     <div class="m-kv"><span>油箱貼 ×1</span><span>等待客人寄回</span></div>
                     <div class="m-kv"><span>收到日</span><span>—</span></div>
                     <div class="m-row tight" style="margin-top:8px">
+                      <span class="m-btn ghost" style="font-size:11px; border-color:var(--accent); color:var(--accent)">叫新竹去收 <span class="pin">14</span></span>
                       <span class="m-btn ghost" style="font-size:11px">確認收到退貨</span>
                       <span class="m-btn ghost" style="font-size:11px">檢查結果</span>
                       <span class="m-btn ghost" style="font-size:11px">拒收 / 補寄</span>
@@ -785,16 +786,46 @@
           選順豐或其他時,「帶入客戶資料 → 列印寄貨單」那顆按鈕會換成手動填單號,不叫 API。</li>
         <li><b>品項多了「供應商單號 · 預計到貨」兩欄</b>(審查抓到我漏了)。代購交期 2-12 週,<b>客人最常問的就是「什麼時候到」</b>,而原本 29 張畫面裡沒有任何一格能填這個 —— 員工只能靠記憶或翻 email 回答。這兩欄是逐商品的,因為一張單的不同商品來自不同供應商、到貨時間本來就不同。</li>
         <li><b>退貨可以「操作」不只是「顯示」</b>(審查抓到)。原本只寫「等待客人寄回」但沒有任何按鈕能把它推進下一步,員工永遠卡在只能看。加上「確認收到退貨 / 檢查結果 / 拒收補寄」三個動作,退貨才走得完。</li>
+        <li><b>「叫新竹去收」是讀完 API 文件才發現的</b>(我原本完全沒想到)。新竹有一支專門的<b>逆物流</b> API ——
+          填客人的姓名、地址、電話,新竹就派人去他家收件。<br>
+          <b>客人不用自己跑物流行</b>,退貨完成率會差很多。而且我們自己也少一輪「你寄了沒?」的追蹤。</li>
       </ol>
 
+      <div class="warn" style="background:var(--built-soft); border-color:var(--built)">
+        <b style="color:var(--built)">✅ 新竹物流那份 PDF 我讀完了(27 頁全文)。三個問號全部有答案,而且比預期好。</b><br><br>
+        <b>① 寄貨單標籤不用我們自己排版</b> —— 上傳託運資料後,<b>新竹直接回傳標籤圖檔</b>
+        (回傳值有一個 <code>image</code> 欄位=標籤圖片字串),我們拿到就能印。<br>
+        <b>⚠ 但「出貨總表」要自己做</b> —— 文件明寫「除列印標籤外,<b>仍需列印出貨總表(一式二份)</b>供現場交接」,
+        而總表那支 API 的回傳值<b>沒有</b> image 欄位。⇒ 總表得我們自己排版。<br><br>
+        <b>② 有物流追蹤,兩種做法</b>:一種是產生一個加密網址直接讓客人點(最省事,新竹自己顯示貨況);
+        一種是我們自己查、自己顯示(單次最多 100 筆)。文件附了完整的貨況對照表(集貨/發送/配達/客戶不在/拒收退回…)。<br>
+        <b>⚠ 只查得到 30 天內</b>,更早的要打電話問營業所。<br><br>
+        <b>③ 認證單純,而且有測試環境</b> —— 出貨 API 就是「公司名稱 + 密碼」兩個參數,
+        文件直接給了測試帳號。要跟<b>配合站所的電腦負責人申請</b>,他們會給申請表單。<br><br>
+        <b>④ 意外收穫:可以走 JSON,不必真的搞 SOAP。</b>雖然是 SOAP 服務,但每支都有 <code>_Json</code> 版本。<br><br>
+        <span style="color:var(--ink-3)">來源:<code>cagweb01.hct.com.tw/Report/API服務說明_V1.pdf</code>(檔名寫 V1、內頁版本為 2022/12/30 ver 2.0),2026-07-26 親讀全文。</span>
+      </div>
+
+      <div class="alarm">
+        <h2>🔴 讀完 PDF 挖到兩件會改變設計的事</h2>
+        <p>
+          <b>① 一次只能拿 5 張標籤圖。</b>文件逐字:「傳送一批資料請不要超過 30 筆,<b>若使用回傳圖檔,一次上限為 5 筆</b>」。<br>
+          ⇒ <b>2.6 的批次出貨不能一次丟 20 單</b>,要自動切成每 5 筆一批送。這是實作細節,但如果沒讀到,
+          上線那天一次出 10 單就會失敗。<br><br>
+          <b>② 新竹可以幫我們去跟客人收退貨(逆物流)。</b>文件有一支專門的退貨託運 API,
+          填退貨人的姓名地址電話,新竹就派人去收。<br>
+          ⇒ <b>2.2 的退貨區塊可以從「等客人自己寄回」升級成「叫新竹去收」</b>,
+          客人不用跑物流行,退貨完成率會差很多。這一項我原本完全沒想到。
+        </p>
+      </div>
+
       <div class="warn">
-        <b>⚠ 新竹貨運 API 的三件事(實作前要先確認,我沒有憑空假設):</b><br>
-        你給的文件是 <b>新竹物流</b>(HCT)的 API 服務說明 v1
-        —— <code>cagweb01.hct.com.tw/Report/API服務說明_V1.pdf</code>,我<b>還沒讀過它的內容</b>,所以下面三件事都還是問號:<br>
-        ① 需要跟新竹申請哪種帳號 / 契約客戶代號 / 測試環境?<br>
-        ② 「列印寄貨單」是 API 回傳可列印檔,還是要我們自己排版?(決定要不要做列印樣板)<br>
-        ③ 是否有物流狀態查詢端點可做「單號追蹤」?<br>
-        ⇒ 開工前我會先逐條讀那份 PDF 再給你規格,<b>不會照著猜的做。</b>
+        <b>⚠ 幾個欄位長度限制,表單要照著擋(否則送出才失敗):</b>
+        訂單編號 30 字 · 收貨人姓名 40 字 · 電話 15 字 · <b>地址只有 100 字</b> · 備註 100 字。<br>
+        <b>重量是必填且要進位成整數、件數最少 1</b> ⇒ 出貨前一定要有人填重量,這一格不能留空。<br>
+        另:<b>同一個出貨日期內,訂單編號不可重複</b>;新竹貨號 100 天內不可重複。
+        我們的單號規則(PCM-2026-0104)符合、不會撞,但<b>同一張單分兩批出貨時要想清楚編號怎麼給</b>。<br>
+        還有:新竹每天凌晨 <b>03:40–04:30 系統維護</b>,那段時間查不到貨況。
       </div>
 
       <!-- 2.3 手動建單 -->
@@ -889,13 +920,17 @@
           </ol>
 
           <div class="warn">
-            <b>📌 記住:將來接虛擬帳戶時這裡會變(你 07-26 提出)</b><br>
+            <b>📌 將來接虛擬帳戶時這裡會怎麼變(你 07-26 已確認)</b><br><br>
             虛擬帳號的運作是「每張訂單發一組專屬匯款帳號」,銀行收到款直接打通知給我們,
-            <b>系統自動比對金額、自動翻成已付款</b> —— 員工不用再按這顆按鈕。這點成立。<br>
-            🔴 <b>但「匯錯金額就匯不進來」這句要打問號</b>:是否強制金額相符是<b>銀行 / 金流商設定的</b>,
-            有些是任意金額照收、只是標記異常。⇒ <b>差額處理流程不能因為將來有虛擬帳戶就砍掉</b>,
-            這個畫面要留著當人工補救路。<b>?待確認:串接前跟銀行問清楚金額是否強制相符。</b><br>
-            (虛擬帳戶本身不在 Phase 1 範圍 —— 沿用你先前的拍板,本次未改。)
+            <b>系統自動比對金額、自動翻成已付款</b>,員工不用再按這顆按鈕。<br><br>
+            <b>你確認:虛擬帳戶會強制金額相符</b>(金額不對就匯不進來)。
+            ⇒ <b>走虛擬帳號那條路的單,差額問題會自動消失。</b><br><br>
+            🔴 <b>但這個畫面還是要留著,兩個理由:</b><br>
+            ① <b>虛擬帳戶不在 Phase 1</b>(你先前的拍板,本次未改)—— 在它上線前,匯款全靠人工對帳,差額是常態。<br>
+            ② 就算虛擬帳戶上線了,<b>還是會有客人用一般轉帳匯到公司戶</b>(看到舊的匯款資訊、或直接問員工帳號)。
+            那條路沒有金額強制,差額照樣會發生。<br><br>
+            ⇒ 結論:<b>虛擬帳號那條自動化,一般轉帳這條留人工補救。兩條並存,不是二選一。</b><br>
+            <span style="color:var(--ink-3)">(「強制金額相符」這句來自你的確認,不是我查過銀行文件 —— 實際串接前仍建議跟銀行對一次規格。)</span>
           </div>
         </div>
       </div>
@@ -987,7 +1022,8 @@
                     <div class="m-input dash" style="height:26px; margin-top:4px">單號由新竹 API 回填</div>
                   </div>
                 </div>
-                <button class="m-btn pri" style="width:100%; margin-bottom:6px">送新竹貨運 → 列印 2 張寄貨單</button>
+                <button class="m-btn pri" style="width:100%; margin-bottom:6px">送新竹貨運 → 取得 2 張寄貨單</button>
+                <button class="m-btn ghost" style="width:100%; margin-bottom:6px">列印出貨總表(一式二份)<span class="pin">4</span></button>
                 <button class="m-btn" style="width:100%">標記已出貨並寄通知信(2 封)<span class="pin">3</span></button>
               </div>
             </div>
@@ -1003,6 +1039,10 @@
           改成:到貨的先出、沒到的留在清單等下一批,<b>每一批各自有自己的快遞單號</b>。
           客人收到兩個包裹、兩封通知信,系統都記得清楚。</li>
         <li><b>出貨與通知信一顆按鈕包掉</b>:標記已出貨 + 回填單號 + 寄信給客人,一次完成,不用再進每張明細頁按一遍。</li>
+        <li><b>「出貨總表」是新竹規定要印的,一式二份</b>(讀 API 文件才知道)—— 現場交接貨件時要簽。
+          標籤圖是新竹回傳的,<b>但總表要我們自己排版</b>,所以它是獨立一顆按鈕。<br>
+          🔴 <b>而且新竹一次最多只回 5 張標籤圖</b>,所以你一次勾 12 單時,系統會自動切成 3 批送出、
+          你只會看到「取得 12 張寄貨單」—— <b>切批是系統的事,不該讓你手動分三次做。</b></li>
       </ol>
 
       <!-- 2.7 多單同時作業 -->
@@ -1840,8 +1880,21 @@
             </div>
           </div>
 
+          <div class="m-card dash" style="border-color:var(--partial); background:var(--partial-soft); margin-bottom:14px">
+            <div class="m-between">
+              <div>
+                <h5 style="color:var(--partial)">⚠ 已收款、還沒出貨 <span class="pin">3</span></h5>
+                <p class="m-sub" style="max-width:46ch">這筆錢還不是你的 —— 會計上是<b>預收款(負債)</b>。下面的營業額<b>沒有把它算進去</b>。</p>
+              </div>
+              <div style="text-align:right">
+                <div style="font-family:var(--mono); font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--partial)">128,400</div>
+                <div class="m-sub">14 張單 · 最久 418 天</div>
+              </div>
+            </div>
+          </div>
+
           <div class="m-grid4" style="margin-bottom:14px">
-            <div class="m-card dash"><h5>營業額</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">486,200</div></div>
+            <div class="m-card dash"><h5>營業額 <span class="m-sub" style="font-size:9.5px">已出貨</span></h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">486,200</div></div>
             <div class="m-card dash"><h5>毛利 <span class="pin">2</span></h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums; color:var(--built)">112,840</div><p class="m-sub">3 筆成本未填 → 未知</p></div>
             <div class="m-card dash"><h5>訂單數</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">34</div></div>
             <div class="m-card dash"><h5>客單價</h5><div style="font-family:var(--mono); font-size:20px; font-weight:600; font-variant-numeric:tabular-nums">14,300</div></div>
@@ -1876,7 +1929,11 @@
       <ol class="notes">
         <li><b>起訖日是主角、快捷鍵是配角</b>。你要看 7/3 到 7/19 就直接選。</li>
         <li><b>成本沒填的訂單,毛利顯示「未知」,絕不用 0 充數</b>。用 0 會讓整月毛利看起來比實際高,這比沒數字更危險。</li>
-        <li><b>「各員工處理量」已換成「等待中訂單帳齡」</b>(你 07-26 拍板 Q10=A)。兩個員工看排行沒意義;交期 2-12 週的代購生意,<b>「有幾件卡著超過 30 / 60 天」才是真的該盯的數字</b>。同一份資訊也放在 §2.0 今日待辦的「逾期未到貨」格,員工每天看得到、不用等月底報表。</li>
+        <li><b>「各員工處理量」已換成「最久還沒出貨的訂單」</b>(你 07-26 拍板 Q10=A)。兩個員工看排行沒意義;交期 2-12 週的代購生意,<b>「哪一張卡最久」才是真的該盯的數字</b>。同一份資訊也放在 §2.0 今日待辦,員工每天看得到、不用等月底報表。</li>
+        <li><b>「已收款、還沒出貨」單獨拉一格,而且從營業額裡拿出來</b>(你 07-26 拍板)。<br>
+          這一格解決一個會讓你誤判的問題:<b>客人的錢收了但貨還沒出,那筆錢在會計上是負債不是收入。</b>
+          如果混進營業額,你看到的數字會比真實情況好看 —— 而你有單子等超過一年,金額不會小。<br>
+          所以營業額那格改成<b>只算已出貨的</b>,預收款另外一格用黃色標出來,還告訴你有幾張、最久幾天。</li>
       </ol>
 
       <div class="warn" style="background:var(--built-soft); border-color:var(--built)">
@@ -1887,7 +1944,7 @@
         ⇒ 同一筆「運費支出」,<b>錢從哪個口袋出去是兩回事</b>,本來就不該加在一起比。<br>
         <b>對系統的影響(這條蠻關鍵的):</b>運費支出必須<b>依付款帳戶分開統計</b>,不能合成一個數字 ——
         這正好就是會計那塊「資金帳戶」在解的問題。所以下面報表的運費那格改成分兩列。<br>
-        <span style="color:var(--unsure)">? 我照你的簡寫理解成「零錢櫃 = 公司零用金現金」,如果不是這個意思跟我說。</span>
+        <span style="color:var(--built)">✅ 你 07-26 確認我的理解正確:零錢櫃 = 公司零用金現金。此題結案。</span>
       </div>
 
       <div class="wf new" style="margin-top:14px">
@@ -2147,20 +2204,33 @@
       <p style="margin-top:10px">審查另外建議<b>砍掉三樣東西</b>,這要你決定:§2.7-C 側邊釘住(以你 34 筆訂單的量太重)、
       §2.1「＋ 存成檢視」自訂視圖(兩人團隊固定分頁就夠)、§7「各員工處理量」(兩個人排行沒意義,建議換成「等待中訂單帳齡」)。</p>
 
-      <h2 style="font-size:16px; margin-top:26px">? 還沒解決的四件事</h2>
+      <h2 style="font-size:16px; margin-top:26px">✅ 已結案的問題</h2>
       <ol style="line-height:1.9">
-        <li><b>訂單列表車種與品牌要不要留?</b>你 Q2 選的 A 是我寫的精簡版 8 欄、沒列這兩欄,但你隨後又特別強調要顯示 —— 我判斷是「照現在的欄位、用我的順序」,所以<b>留著</b>。要真的砍到 8 欄跟我說。</li>
-        <li><b>新竹物流 API 還沒讀。</b>你給的 PDF 我還沒逐條看,所以「怎麼申請帳號 / 寄貨單是 API 給還是我們自己排版 / 有沒有物流追蹤端點」三件都還是問號。開工前我會先讀完再給規格,<b>不照猜的做</b>。</li>
-        <li><b>虛擬帳戶是否強制金額相符?</b>你說「匯錯金額是無法匯款」—— 這要看銀行 / 金流商怎麼設,有些是照收只標異常。<b>串接前要跟銀行問清楚</b>;在問清楚之前,差額處理流程一律保留。</li>
-        <li><b>Q6 我的理解對不對?</b>我把「零錢貴」讀成「零錢櫃 = 公司零用金現金」。不是這個意思跟我說。</li>
-        <li><b>報表要不要把「已收款、還沒出貨」單獨拉一格?</b>你說有訂單等超過一年 —— 那筆錢在會計上是<b>負債(預收款)不是收入</b>。如果報表把它算進營業額,你看到的數字會比實際好看。</li>
+        <li><b>訂單列表車種與品牌保留</b> —— Q9=A,我的判斷正確</li>
+        <li><b>虛擬帳戶確定強制金額相符</b> —— 走虛擬帳號的差額問題會自動消失;但一般轉帳那條沒有強制,人工補救流程保留(見 §2.4)</li>
+        <li><b>Q6「零錢櫃 = 公司零用金現金」理解正確</b></li>
+        <li><b>報表把「已收款未出貨」單獨拉一格</b>,且從營業額中扣除(見 §7)</li>
+        <li><b>已付款的訂單可以取消</b> —— Q11=A,推翻舊規格的「限未付款」限制</li>
+        <li><b>帳齡改以「最久還沒出貨」為主軸</b> —— 你有訂單等超過一年,30/60 天門檻對代購沒意義</li>
       </ol>
+
+      <h2 style="font-size:16px; margin-top:26px">✅ 新竹物流 API 已查證完畢(2026-07-26)</h2>
+      <p style="margin-bottom:10px">你給的那份 PDF 我讀完全文 27 頁了,三個問號都有答案,詳見 §2.2。摘要:</p>
+      <ol style="line-height:1.9">
+        <li><b>寄貨單標籤新竹直接回傳圖檔</b>,不用我們排版 —— 但<b>出貨總表(一式二份)要自己做</b></li>
+        <li><b>有物流追蹤</b>,可以產一個網址讓客人自己點,也可以我們自己查(單次 100 筆上限、只查 30 天內)</li>
+        <li><b>認證就是「公司名稱 + 密碼」,而且有測試環境</b>,跟配合站所的電腦負責人申請</li>
+        <li><b>可以走 JSON,不必真的搞 SOAP</b>(每支服務都有 _Json 版本)</li>
+        <li>🔴 <b>一次最多只回 5 張標籤圖</b> ⇒ 批次出貨要自動切批,沒讀到這條上線那天就會爆</li>
+        <li>🔴 <b>新竹能幫我們去跟客人收退貨(逆物流)</b> ⇒ 退貨流程可大幅改善,我原本沒想到</li>
+      </ol>
+      <p style="margin-top:10px"><b>需要你做的一件事:</b>跟你配合的新竹站所電腦負責人申請 API 帳號(查貨與出貨是<b>兩張不同的申請表</b>)。有了帳號我才能實作。</p>
 
       <p class="prov" style="margin-top:26px">
         資料來源 · 現況 6 頁為 2026-07-26 實查 apps/admin/src/app 逐檔確認<br>
         側邊選單 4 項 = app-sidebar.tsx:23-28 · 訂單 13 欄 = orders-table.tsx:182-194 · 訂單明細 4 卡 = order-detail.tsx:184-230<br>
         客戶列表 5 欄 = customers-table.tsx:11-55(<b>2026-07-26 重構後的行號</b>;同日抽 AdminDataTable 積木,舊行號 44-50 已失效)· 員工名單寫死 = staff.ts:3<br>
-        版面與規範依 docs/specs/2026-07-25-admin-backend-rebuild-spec.md §1 / §4 / §5 · 研究底稿 23 份於 docs/specs/research-2026-07-25/
+        版面與規範依 docs/specs/2026-07-25-admin-backend-rebuild-spec.md §1 / §4 / §5 · 研究底稿 23 份於 docs/specs/research-2026-07-25/<br>新竹物流能力依 cagweb01.hct.com.tw/Report/API服務說明_V1.pdf 全文 27 頁(內頁版本 2022/12/30 ver 2.0),2026-07-26 親讀
       </p>
     </footer>
 
