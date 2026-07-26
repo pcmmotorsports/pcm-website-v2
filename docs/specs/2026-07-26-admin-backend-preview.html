@@ -350,7 +350,7 @@
 
     <div class="score">
       <div class="c-built"><b>6</b><span>今天真的能用的頁面</span></div>
-      <div class="c-accent"><b>38</b><span>這份預覽涵蓋的畫面</span></div>
+      <div class="c-accent"><b>39</b><span>這份預覽涵蓋的畫面</span></div>
       <div class="c-built"><b>2</b><span>「員工的一天」已做完</span></div>
       <div class="c-partial"><b>6</b><span>做了一半</span></div>
       <div class="c-todo"><b>19</b><span>完全還沒做</span></div>
@@ -539,7 +539,7 @@
             <span class="prop">已付款待下單</span>
             <span class="prop">等到貨</span>
             <span class="prop">待出貨</span>
-            <span class="prop">＋ 存成檢視</span>
+            
           </div>
 
           <div class="m-between" style="margin-bottom:10px">
@@ -611,7 +611,10 @@
         <li><b>手動建單按鈕</b> —— 你北極星裡的「接非網站有的商品訂單」入口就在這。詳見 2.3。</li>
         <li><b>勾選後,操作按鈕直接長在標題列上</b>(不是浮在畫面下方的黑條)。你說商品進度「可以一次多個」,就是這個。</li>
         <li><b>快遞單號欄是新增的</b>。現在資料庫裡根本沒有這個欄位,員工出貨後單號無處可放。</li>
-        <li><b>超過 50 筆才出現換頁</b>,而且只有「上一頁 / 下一頁」+ 總筆數,不做頁碼輸入框。</li>
+        <li><b>超過 50 筆才出現換頁</b>,而且只有「上一頁 / 下一頁」+ 總筆數,不做頁碼輸入框。<br>
+          🔴 <b>你 07-26 說訂單會有 1-300 筆</b> —— 這個量級下換頁是常態(不是偶爾),
+          所以<b>做法 0 的跨單搜尋變得更重要</b>:300 筆時靠翻頁找東西不可行,一定要能直接搜。</li>
+        <li><b>「＋ 存成檢視」已拿掉</b>(你 07-26 拍板 Q10=A)。上排四個固定分頁夠用,自訂視圖對兩人團隊是沒人會去設定的功能。要加分頁跟我說,直接改成固定的。</li>
         <li><b>欄位順序已改成你的習慣:車種 → 商品品牌 → 料號 → 品名 → 數量 → 單價 → 小計。</b><br>
           🔴 <b>要更正我昨天講的一件事</b>:車種欄<b>現在就有</b>(訂單列表已經逐商品顯示車種,不是新的),缺車種的是<b>訂單明細</b>那張品項表 —— 已在 2.2 補上。另外一張訂單裡<b>每個商品的車種可以不一樣</b>(上面範例第一單就是 V4 跟 Monster 821 各一件),這點畫面已照著做。</li>
       </ol>
@@ -1114,7 +1117,7 @@
         <span class="chip part">✕ 已砍掉(你 07-26 拍板)</span>
       </h4>
       <div class="warn" style="margin:0 0 12px">
-        <b>你跟兩位審查員的判斷一致:C 不需要。</b>以目前 34 筆訂單的量,做一整套釘住並排太重。<br>
+        <b>你跟兩位審查員的判斷一致:C 不需要。</b><br>🔴 <b>但要更正一個理由</b>:審查(與我)原本說「以 34 筆訂單的量太重」—— <b>34 筆是現在的資料量,不是你的預期量</b>。你 07-26 說訂單會有 <b>1-300 筆</b>。所以「量太小所以不需要」這個理由不成立,真正的理由是<b>你直接判斷用不到、而且做法 0 的跨單搜尋已經覆蓋大部分情境</b>。<br>
         <b>改成極簡版:</b>訂單明細頁右上角加「‹ 上一張 / 下一張 ›」兩顆按鈕,
         再加一顆「跳到這位客人的下一張未出貨單」。連續看單不用回列表,成本幾乎是零。<br>
         <span style="color:var(--ink-3)">下圖保留當紀錄,說明砍掉的是什麼。</span>
@@ -1184,8 +1187,11 @@
       <!-- 2.8 取消訂單 -->
       <h3 class="blk">2.8　取消訂單 <span class="chip new">提案要做</span> <span class="chip live" style="background:transparent">審查抓到整項漏畫</span></h3>
       <p class="blk-note">
-        27 項清單第 19 項。現在後台<b>能取消,但取消原因是一個自由文字欄</b> ——
-        跟會計那邊 158 種寫法一樣的病:統計不出來「到底為什麼被取消」。改成固定選項。
+        27 項清單第 19 項。<b>🔴 更正我上一版寫錯的現況</b>:我寫「現在後台能取消、只是原因是自由文字」——
+        <b>錯了。實查後台完全沒有任何取消訂單的按鈕或寫入路徑</b>
+        (<code>grep 取消訂單/cancelOrder/cancelled_at 寫入 apps/admin/src</code> 零命中)。
+        資料庫有 <code>cancelled_at</code> / <code>cancelled_reason</code> 兩個欄位、也有「已取消」的顯示,
+        但<b>沒有東西能把它寫進去</b>。取消原因是自由文字講的是<b>欄位型別</b>,不是說功能已經在。
       </p>
       <div class="m-split">
         <div class="wf new">
@@ -1215,6 +1221,71 @@
             <b>⚠ 取消是破壞性動作</b> —— 二次確認、要留原因、記在訂單歷程上(誰取消的、什麼時候、為什麼)。已取消的單不會消失,只是標成已取消。
           </div>
         </div>
+      </div>
+
+      <h4 style="font-size:14px; font-weight:620; margin:26px 0 4px">取消之後反悔 —— 能不能復原?<span class="chip live" style="background:transparent">你 07-26 提問</span></h4>
+      <div class="warn" style="background:var(--built-soft); border-color:var(--built); margin-bottom:14px">
+        <b style="color:var(--built)">✅ 能,而且技術上很乾淨。</b><br>
+        因為<b>取消從一開始就設計成「貼標籤」而不是「刪掉」</b> ——
+        資料庫的註解逐字寫著「<b>不硬刪</b>」。所以取消後訂單、品項、金額、車種、備註<b>全部原封不動還在</b>,
+        復原就只是把那張標籤撕掉。<br><br>
+        <b>你的判斷也是對的:已經退款的就不要復原,重新下單比較乾淨。</b>
+        所以我用「有沒有退過款」當唯一的閘門 —— 這是個系統查得到、不會有灰色地帶的條件。
+      </div>
+
+      <div class="m-split">
+        <div class="wf new">
+          <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">已取消的訂單明細</span></div>
+          <div class="wf-body">
+            <div class="m-card dash" style="border-color:var(--partial); background:var(--partial-soft); margin-bottom:12px">
+              <div class="m-between">
+                <div>
+                  <div style="font-size:13px; font-weight:600; color:var(--partial)">此訂單已於 07/26 取消</div>
+                  <div class="m-sub" style="margin-top:3px">原因:供應商缺貨 / 停產 · 取消人:Sean</div>
+                  <div class="m-sub">款項:<b>已收 NT$ 12,900,尚未退款</b></div>
+                </div>
+                <span class="m-btn ghost">復原這張訂單 <span class="pin">1</span></span>
+              </div>
+            </div>
+
+            <div class="m-card dash" style="border-color:var(--todo); background:var(--todo-soft)">
+              <div class="m-between">
+                <div>
+                  <div style="font-size:13px; font-weight:600">另一張:已取消 + 已退款</div>
+                  <div class="m-sub" style="margin-top:3px">款項:已退 NT$ 8,400 於 07/25</div>
+                </div>
+                <span class="m-btn ghost" style="opacity:.45">復原這張訂單</span>
+              </div>
+              <p class="m-sub" style="margin-top:7px">按鈕是灰的,旁邊寫:<b>已退款的訂單無法復原,請重新建單。</b> <span class="pin">2</span></p>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <ol class="notes" style="margin-top:0">
+            <li><b>沒退款 → 可以復原。</b>錢還在我們這裡、單子資料完好,復原後就回到取消前的樣子(付款狀態仍是已付款、商品狀態回到取消前那一格)。</li>
+            <li><b>已退款 → 不能復原。</b>錢已經還給客人了,復原會變成「有單沒錢」的鬼單,對帳一定出事。照你說的重新下單。</li>
+          </ol>
+
+          <div class="warn">
+            <b>⚠ 復原訂單 ≠ 復原採購。</b>如果取消時已經跟供應商那邊也取消訂貨了,
+            <b>貨不會自己回來</b>。所以復原後系統會把商品狀態退回「待下單」並提醒你:
+            「這張單有 2 件商品需要重新向供應商確認」。<b>系統只復原它管得到的東西,管不到的會明白告訴你。</b>
+          </div>
+        </div>
+      </div>
+
+      <div class="alarm" style="margin-top:16px">
+        <h2>🔴 你這個問題挖出一個規格衝突,要你拍板</h2>
+        <p>
+          既有的規劃文件明訂:<b>「取消限 unpaid(未付款)且未出貨」</b>
+          (<code>20260712203000_m4a_orders_admin_columns.sql:54</code> 引 PRD §4.2)。<br><br>
+          意思是<b>照現行設計,已付款的單根本不能取消</b> ——
+          但你問的情境(取消了、還沒退款)前提就是<b>已經付款</b>,
+          而且我上面 2.8 那張圖也直接畫了「已收款要不要一併退款」。<br><br>
+          <b>兩邊打架,是我畫超出既有規格而沒標注。</b>現實上客人付了錢又要取消是常態,
+          我認為該放寬,但這是改既有拍板、<b>要你點頭</b>。見下方 Q11。
+        </p>
       </div>
     </section>
 
@@ -1783,7 +1854,7 @@
           </div>
 
           <div class="m-grid3" style="margin-top:12px">
-            <div class="m-card dash"><h5>各員工處理量</h5><div class="m-kv"><span>小美</span><span>19 單</span></div><div class="m-kv"><span>阿豪</span><span>15 單</span></div></div>
+            <div class="m-card dash" style="border-color:var(--partial)"><h5 style="color:var(--partial)">等待中訂單帳齡</h5><div class="m-kv"><span>等超過 30 天</span><span>7 件</span></div><div class="m-kv"><span>等超過 60 天</span><span>2 件</span></div><div class="m-kv"><span>最久的一件</span><span>68 天</span></div></div>
             <div class="m-card dash"><h5>現金與銀行餘額</h5><div class="m-kv"><span>合計</span><span>431,120</span></div></div>
             <div class="m-card dash"><h5>應收未收 / 退款</h5><div class="m-kv"><span>應收未收</span><span>28,600</span></div><div class="m-kv"><span>退款</span><span>−1,800</span></div></div>
           </div>
@@ -1793,6 +1864,7 @@
       <ol class="notes">
         <li><b>起訖日是主角、快捷鍵是配角</b>。你要看 7/3 到 7/19 就直接選。</li>
         <li><b>成本沒填的訂單,毛利顯示「未知」,絕不用 0 充數</b>。用 0 會讓整月毛利看起來比實際高,這比沒數字更危險。</li>
+        <li><b>「各員工處理量」已換成「等待中訂單帳齡」</b>(你 07-26 拍板 Q10=A)。兩個員工看排行沒意義;交期 2-12 週的代購生意,<b>「有幾件卡著超過 30 / 60 天」才是真的該盯的數字</b>。同一份資訊也放在 §2.0 今日待辦的「逾期未到貨」格,員工每天看得到、不用等月底報表。</li>
       </ol>
 
       <div class="warn" style="background:var(--built-soft); border-color:var(--built)">
@@ -2062,6 +2134,16 @@
       </ol>
       <p style="margin-top:10px">審查另外建議<b>砍掉三樣東西</b>,這要你決定:§2.7-C 側邊釘住(以你 34 筆訂單的量太重)、
       §2.1「＋ 存成檢視」自訂視圖(兩人團隊固定分頁就夠)、§7「各員工處理量」(兩個人排行沒意義,建議換成「等待中訂單帳齡」)。</p>
+
+      <h2 style="font-size:16px; margin-top:26px">🔴 Q11 · 一題必須你拍板(規格衝突)</h2>
+      <p style="margin-bottom:10px">
+        既有規劃文件明訂<b>「取消訂單限未付款且未出貨」</b>,但你問的「取消後還沒退款能不能復原」
+        前提就是已付款,我 §2.8 也直接畫了已收款的取消流程 —— <b>兩邊打架</b>。要放寬既有拍板才能做。
+      </p>
+      <pre style="font-family:var(--mono); font-size:12.5px; background:var(--surface-2); border:1px solid var(--line); border-radius:6px; padding:12px 14px; overflow-x:auto; line-height:1.75; white-space:pre-wrap">Q11 已付款的訂單要不要能取消?
+A: A 要,已付款也能取消,取消時問要不要一併退款(推薦,現實常態)
+   B 不要,維持原規格:只有未付款的單能取消;已付款的只能走退款流程
+   C 要,但只有管理者能取消已付款的單,員工只能取消未付款的</pre>
 
       <h2 style="font-size:16px; margin-top:26px">? 還沒解決的四件事</h2>
       <ol style="line-height:1.9">
