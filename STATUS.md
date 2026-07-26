@@ -32,7 +32,13 @@
 **③-b 突變 2/2 全紅**:①拿掉 `is_active` 過濾(停用員工仍能當 actor)②DB 出錯改 throw(auth 路徑會整頁 500)。還原後 shasum 一致。
 🔴 **④ 流程誠實揭示:本片未跑 fresh-context 對抗審查 subagent**。原因=**Claude 月額度上限撞牆**(opus reviewer 起跑後被 API 中斷)。代償=主對話親自逐條攻六個面(auth fail-open / 停用員工殘留 cookie / 稽核軌斷裂 / repository / ACL 攻擊面 / 測試假綠)判 PASS 0 must-fix,加上 ③-a 的 production 交易模擬與 ③-b 突變。**「寫的人不審自己」仍成立**(Codex 寫、主對話審),缺的是 fresh context 與對抗框架。要補跑請下個 session 指示。
 **⑤ 已知欠債(不補會變永久)**:`staff-repository.ts:23` 用 `as unknown as StaffQueryClient` 繞過 client 型別,因 `staff` 表尚未 apply、generated types 無此表 ⇒ **Sean `db push` 後須重跑 `database.types.ts` codegen 並拿掉該 cast**。另 `service_role` 現有 INSERT/UPDATE 但本片零寫入端(E8-A2 才用),知情接受。
-**⑥ 下一步**:E8-A2 後台員工管理頁(新增/編輯/停用)。真認證線=報價單端(Sean 拍 **Q7=A** 帳號+密碼、TOTP 僅未記住的新裝置才要;**Q8=A** 由 Sean 指定初始密碼)。🔴 **「TOTP 裝置=身分」方案已作廢**(Sean Q5=B:裝置有共用、認不出人)。
+🚀 **⑥ 2026-07-26 已 apply production(Sean 明確授權由 Claude 代跑 `db push`)**:`--dry-run` 先確認**只會套本片一支**(無漂移)→ 正式套用 exit 0。🔴 **`.env.local` 全程 trap 保護、事後 sha256 + 位元組數比對還原**(1891 bytes),無殘留備份檔。
+**⑥-a 獨立驗證全綠(不採信 migration 自述斷言)**:欄數 **6**、RLS `true`、policy **0**、CHECK **3** 且未驗證 **0**、trigger 啟用 **1**、函式 `public` 可執行 **false**、列數 **3** ids=`sean,staff_1,staff_2`、`sean` is_manager **true**、全部 is_active **true**;**ACL 實測**:anon/authenticated SELECT **false**,service_role SELECT/INSERT **true**、DELETE/TRUNCATE **false**;**欄級**:可改 label/is_active **true**、可改 id/updated_at **false**。
+🔴 **⑥-b 稽核軌完整性實證(非推論)**:`admin_audit_log` 現有 **27 筆全部 `actor='sean'`,LEFT JOIN staff 全部對得到**。⇒ 當初若改動 seed id,這 27 筆會當場全變孤兒 —— 「seed id 逐字元不變」這條約束經真資料證實成立。
+**⑦ 折入 codex 關卡2 四條 must-fix(見前序 commit `0d0d668`)**:①UPDATE 改欄級 grant 鎖死 `id`(改名=歷史稽核列變孤兒,與不給 DELETE 同一目的)②加 `updated_at` trigger(原本是會說謊的欄)③斷言 4 種權限→**7 種**(TRUNCATE 可繞過「不給 DELETE」;既有 `admin_audit_log` 標準即 7 種)④`CURRENT.md` 過期字面 + 補「先 db push 再 push code」硬閘。nit:label CHECK 改 `btrim`。
+**⑦-a 折入審查者對「我的驗證方法」的質疑**(比 findings 更有價值):原模擬漏三個最致命突變 → 補測**負向 4/4 全擋**(改 id / 竄改 updated_at / 純空白 label / TRUNCATE);原突變只打 `staff.ts`、`authorizeAdminMutation` 本身零覆蓋 → 新增 `authorize.test.ts` **5 條**鎖三層閘,**突變 2/2 全紅**(actor null 改 fail-open / 拿掉 Origin 閘)。
+⚠️ **⑦-b 一次測試假象的誠實紀錄**:首輪模擬顯示「`updated_at` 沒變」,查明為 `now()` 回傳**交易開始時間**、同交易內 INSERT 與 UPDATE 相同 ⇒ **是測試無效非缺陷**。改用「停用 trigger 把時間撥回 2000-01-01 → 以 service_role 更新」證實 trigger 確實把時間拉回 `now()`、改 label 也觸發。
+**⑧ 下一步**:E8-A2 後台員工管理頁(新增/編輯/停用)。真認證線=報價單端(Sean 拍 **Q7=A** 帳號+密碼、TOTP 僅未記住的新裝置才要;**Q8=A** 由 Sean 指定初始密碼)。🔴 **「TOTP 裝置=身分」方案已作廢**(Sean Q5=B:裝置有共用、認不出人)。
 
 2026-07-26(前序 commit `e109d2b`=**backlog #296 儲值金按 Enter 變扣款 — 修正 + 守門**;**高風險片〔鐵則 12 ①錢:儲值金〕**;**未 push、零 migration、零 DB、零 flag、未動 `.env*`**)
 **① 問題**:`wallet-adjust-submit.tsx`「扣款」(`value='use'`)是 form 內**第一顆** submit ⇒ HTML 隱式提交規則下,員工在金額欄打完數字按 **Enter** 送出的是扣款(`wallet-form.ts:74` 寫成負數入帳、RPC 無下界可扣成負餘額)。**既有問題,非 E11-2 引入**;由 E11-2 對抗審查(opus C3)順帶挖出。
@@ -239,7 +245,7 @@
 - ✅ **② E11-1 `<AdminDataTable>` 已收工**(customers 列表為第一個消費端、桌機 DOM 逐字元不變 + 新增手機卡片)。✅ **code-reviewer 已於 07-26 補跑:PASS、0 must-fix、5 nit 已清**(SOP ⑥ 流程債關閉)。
 - ✅ **③ 新竹物流兩份官方 PDF 已親讀落檔** `docs/reference/hct-logistics-api-reference.md`(含未確認清單)。🔴 **圖檔一次 5 筆上限 ⇒ 批次出貨必須切批**;**逆物流可叫車收退貨**;**同日訂單編號不可重複 ⇒ 分批出貨會撞、後綴規則未定**。
 - ✅ **④ E11-2 `<AdminForm>`(卡片內嵌變體)已收工**(本 commit;三消費端 order-edit/tier-edit/wallet-adjust 已改接 + 8 條錢面守門測試)。🔴 **未做的三項已明列**:sticky 儲存列 / 雙層錯誤 banner / 未存離開警告 —— **等 E10 頁面級大表單有真實消費端才做,不投機抽象**。
-- ✅ **⑥ E8-A1 已收工**(名單進 DB;🔴 **待 Sean `db push` 才生效**——未 apply 前 `listActiveStaff` 會查無表、回 `[]` ⇒ 下拉空白且所有 mutation 被 fail-closed 擋下。**push code 前必須先 db push**)。**下一=E8-A2** 後台員工管理頁(新增/編輯/停用)。
+- ✅ **⑥ E8-A1 已收工並 🚀 已 apply production**(2026-07-26,Sean 授權 Claude 代跑 `db push`;獨立驗證全綠、稽核軌 27 筆全對得到)。⇒ **DB 已就緒,推 code 不再有順序風險**。**下一=E8-A2** 後台員工管理頁(新增/編輯/停用)。
 - 🔴 **真認證線(報價單端,跨 repo)= Sean 07-26 拍板**:Q1=B 身分來自報價單、Q7=A 帳號+密碼登入(TOTP 只在未記住的新裝置才要,日常免開 app)、Q8=A Sean 指定初始密碼。**「TOTP 裝置=身分」方案已作廢**(Q5=B 裝置有共用)。報價單端要動 4 處:users 表+登入認人 / session payload 帶身分 / SSO authorize 記錄帶身分 / exchange 回傳。執行者=Codex 在 `/Users/sean_1/API大量上架/PCM報價單-V2`(Q3=C),**尚未開工、需另寫規格**。
 - 🔴 **原 E8 候選項已由上列取代**(`staff.ts:3` 名單寫死已解)/ **E11-3** 給 `<AdminDataTable>` 補 rowSpan + 互動槽支援(這是接 `orders-table.tsx` 的硬前置)/ **E10 訂單閉環**(🔴 動工前必清兩個前置:**C1 同日分批出貨的訂單編號後綴規則未定**、**`create_order` RPC 是否允許自由品項未驗**;schema 要吃 U1 包裹表/U2 改單改全部/U3 多筆匯款)。
 - 🔴 **`orders-table.tsx` 仍不可直接接 `<AdminDataTable>`** —— rowSpan 同單分組 + 包 `<form action>` 的狀態欄(巢狀 client select),會撞雙渲染天花板(產出重複 `<form>`)。要嘛先做 E11-3 補支援,要嘛等商品列表這種新頁。
