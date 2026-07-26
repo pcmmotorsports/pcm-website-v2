@@ -7543,12 +7543,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #296. 💸 儲值金表單按 Enter 會變成「扣款」(隱式提交選到第一顆 submit)
 
-- **狀態:** ⏳ 待執行(**既有問題、非 E11-2 引入**;E11-2 對抗審查時由 opus 順帶挖出)
+- **狀態:** ✅ **完成**(2026-07-26,Sean 拍 **A 的 reorder 變體**〔非下方併列的 hidden-submit 變體〕;**既有問題、非 E11-2 引入**,E11-2 對抗審查時由 opus 順帶挖出)
+- **修法(已落地):** `wallet-adjust-submit.tsx` 兩顆 submit 的 DOM 順序對調 ⇒「加值」第一顆、「扣款」第二顆,Enter 落在安全方向。守門斷言 = `shared/admin-form-consumers.test.tsx`「第一顆 submit 必須是 deposit」(**突變 5/5 全紅**:改回原順序 / 在前面插一顆新 submit / 插 `<button type="">` / 插 `<button type="garbage">` / 加值鈕掛 `formAction` 覆寫,五種都被抓到)。
+- 🔴 **殘留 → 已另立 #297**:對調後「扣款」落在 `justify-end` 動作列的**最右**=慣用主要動作位置,而扣款**無二次確認**、RPC 無下界(可扣成負餘額)⇒ 照肌肉記憶點最右仍會直接扣款。opus C3 與 codex 關卡2 must-fix 1 獨立雙命中。**Sean 2026-07-26 看過可互動比較頁後拍 C=現況收案**,完整解走 **#297**。
+- 🔴 **承重事實(親讀 Blink 原始碼確認,非引述)**:Enter 打到誰,只看**第一顆 submit 鈕**。第一顆若被 disable,規範與 Blink 都是**整個放棄隱式提交、不往後找下一顆**(`HTMLFormElement::SubmitImplicitly` 的 `// Default (submit) button is not activated; no implicit submission.` 分支)⇒ 單純 disable 加值**不危險**,Enter 會什麼都不做。真正的迴歸風險是**有人移走加值或改排序**讓扣款變第一顆,那正是守門測試鎖的。
+- ⚠️ **查證教訓**:codex 關卡2 R1 曾稱「2026-04 Chromium 已改成往後找第一顆 non-disabled submitter」(引 WPT 同步 commit `ef936beb`),我照抄進註解;**R2 codex 自行更正、主對話再親讀 chromium/main 原始碼確認 R1 說法錯誤**。⇒ 外部行為事實不可只憑 commit message 或 subagent 轉述。
 - **優先級:** 🟠 中(不影響客人;是**員工誤操作直接動到錢**的路徑,且錯的方向是扣款)
 - **問題:**
-  - `apps/admin/src/components/customers/wallet-adjust-submit.tsx:15-23` —「扣款」(`value='use'`)是 form 內**第一顆** `type='submit'`,「加值」(`value='deposit'`)是第二顆。
-  - HTML 隱式提交規則:在單行文字欄按 Enter,瀏覽器選**第一顆 submit** 當 submitter ⇒ 員工在金額欄打完數字直接按 Enter,送出的是 `direction=use`、**扣款**。
-  - 🔴 親驗:`wallet-form.ts:74` `signedAmount: direction === 'use' ? -amount : amount` ⇒ 真的會寫成負數入帳。目前唯一的攔阻是「備註必填」——但備註若已填,Enter 就直接扣款成功。
+  - **(以下為修正前的狀態,已於 2026-07-26 修掉;現況=加值第一顆)** `wallet-adjust-submit.tsx:15-23` —「扣款」(`value='use'`)**曾是** form 內第一顆 `type='submit'`,「加值」(`value='deposit'`)第二顆。
+  - HTML 隱式提交規則:在單行文字欄按 Enter,瀏覽器選**第一顆 submit** 當 submitter ⇒ 員工在金額欄打完數字直接按 Enter,**當時**送出的是 `direction=use`、扣款。
+  - 🔴 親驗:`wallet-form.ts:74` `signedAmount: direction === 'use' ? -amount : amount` ⇒ 真的會寫成負數入帳。當時唯一的攔阻是「備註必填」——但備註若已填,Enter 就直接扣款成功。
 - **觸發事件:** 2026-07-26 / E11-2 `<AdminForm>` 積木片,opus 對抗審查 C3(該檔不在該片 diff 內,故不擋該片 commit)。
 - **預期解法:**
   - A. 在兩顆之前放一顆 `hidden` 的預設 submit(或把「加值」排第一顆)⇒ 讓 Enter 落在**安全方向**。🔴 排序會改變視覺,屬 Sean 拍板範圍。
@@ -7556,12 +7560,34 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - C. 維持現狀 + 依賴二次確認(目前**沒有**二次確認 ⇒ 等於不處理)。
 - **不修會痛在:**
   - 擴充性:未來任何「兩顆方向相反的 submit」表單(退款/取消、進貨/退貨)都會複製同一個地雷,沒有共用防護。
-  - 可維護性:此行為由 HTML 規範 + DOM 順序隱式決定,不在任何測試或註解裡 ⇒ 有人調整按鈕排版就會靜默改變 Enter 的語意。
+  - 可維護性:**(修正前)** 此行為由 HTML 規範 + DOM 順序隱式決定,當時不在任何測試或註解裡 ⇒ 有人調整按鈕排版就會靜默改變 Enter 的語意。**現已補上檔頭承重註解 + 守門測試,此痛點解除。**
   - bug 可追蹤性:誤扣款與正常扣款在 `wallet_ledger` 完全同形(同 `entryType='use'`、同操作者),事後**無法從資料分辨是誤按 Enter 還是刻意扣款**,只能靠客訴。
 - **估時:** A 約 15-20 分鐘(含 Sean 拍板按鈕順序 + smoke test);B 約 40 分鐘。
 - **依賴:** 無;可獨立執行。與 E11-2 積木無耦合(該檔未被積木化)。
 - **發現於:** 2026-07-26 / M-4b E11-2 opus 對抗審查 C3。
 - **相關:** `apps/admin/src/components/customers/wallet-adjust-form.tsx`;`apps/admin/src/lib/customers/wallet-form.ts:54-74`;D1 決策題(儲值金 DB 級去重)。
+
+### #297. ⚠️ 破壞性金錢動作缺二次確認(儲值金扣款為首例;#296 的完整解)
+
+- **狀態:** ⏳ 待執行(Sean 2026-07-26 拍板:**#296 走 C 先收、本條立 backlog**)
+- **優先級:** 🟠 中(不影響客人;是員工誤操作直接動到錢,且無自動回復)
+- **問題:**
+  - `wallet-adjust-submit.tsx` 的「扣款」**沒有二次確認**,按下即寫 `wallet_ledger`(`wallet-form.ts:74` 負數入帳),且 RPC **無下界、可扣成負餘額**。
+  - #296 已把「在金額欄按 Enter 會變扣款」修掉(加值改排第一顆),但**點擊路徑仍無防護**:扣款現在落在動作列**最右**=這套後台的慣用主要動作位(訂單頁的「儲存」也在最右)⇒ 照肌肉記憶點最右會直接扣款。
+  - 🔴 **Sean 知情接受此殘留**(2026-07-26 看過可互動比較頁後拍 C):判準=Enter 的洞危險在於**完全沒有視覺提示**,而點擊需要瞄準一顆紅框、寫著「扣款」的按鈕,性質不同。
+  - 🔴 **明確否決 CSS `order` 方案(原 A 案)**:它把畫面順序與 DOM 順序拆開,Enter 安全性靠 DOM 順序、視覺分隔靠 CSS ⇒ 未來有人看到扣款在左邊會「順手修正」而改回,洞**無聲重開**。**不用「靠人不看錯」的防護守錢。**
+- **觸發事件:** 2026-07-26 / #296 修正後,opus 對抗審 C3 與 codex 關卡2 must-fix 1 **獨立雙命中**「Enter 地雷換成點擊地雷」。
+- **預期解法:**
+  - A. 扣款加確認 Modal,列出**影響範圍**(客人、目前餘額、扣款金額、扣後餘額、可為負)—— 接 E11 積木的「破壞性確認 Modal + 影響範圍內容槽」(UX 審查 §5 #24、§8 E11 驗收加項),**不要為儲值金單獨刻一個**。
+  - B. 只加純文字二次確認(較輕,但無法重用)。
+- **不修會痛在:**
+  - 擴充性:退款、取消訂單、部分退款都是同一類「按下去就不可逆的錢面動作」,現在一個共用確認積木都沒有 ⇒ 每個域各刻一次。
+  - 可維護性:防護目前只存在於「按鈕排列順序」這個隱式約定裡(靠 `admin-form-consumers.test.tsx` 一條測試守),加一顆按鈕就可能破功。
+  - bug 可追蹤性:誤扣款與正常扣款在 `wallet_ledger` **完全同形**(同 `entryType='use'`、同操作者、同備註欄)⇒ 事後無法從資料分辨是誤點還是刻意,只能靠客訴。
+- **估時:** A 約 60-90 分鐘(含 E11 Modal 積木本體 + 儲值金接第一個消費端 + 測試);B 約 25 分鐘。
+- **依賴:** 建議與 **E11 `<AdminModal>` 積木**同片做(規格 §3.3;目前尚無消費端,本條正好是第一個真實消費端)。
+- **發現於:** 2026-07-26 / M-4b #296 修正片,opus + codex 雙審獨立命中。
+- **相關:** #296(Enter 路徑已修);`docs/specs/2026-07-26-admin-ux-operability-review.md` §5 #24(高風險動作「影響範圍」複核頁)+ §8 E11 驗收加項;`apps/admin/src/components/customers/wallet-adjust-submit.tsx`;D1 決策題(儲值金 DB 級去重)。
 
 ## 紀錄模板
 

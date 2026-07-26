@@ -60,6 +60,25 @@ function field(container: HTMLElement, name: string): HTMLElement | null {
   return container.querySelector(`[name="${name}"]`);
 }
 
+/**
+ * 回 form 內 DOM tree order 的**第一顆 submitter**(=隱式提交按 Enter 會選中的那顆)。
+ *
+ * 🔴 不能用屬性 selector 比對 `[type="submit"]`:HTML 規範中 `<button>` 的 type 是
+ * enumerated attribute,**缺失或無效值一律當 submit**(`<button type="">`、
+ * `<button type="garbage">` 都是 submit 鈕)。改讀 `.type` 屬性 —— DOM 會替我們正規化。
+ * `<input>` 則是 submit 與 image 兩種會成為 submitter。
+ * 另驗 `el.form === form`:元素可用 `form=` 屬性關聯到別張表單(或從外部關聯進來),
+ * 光看 descendant 會誤判。今天 `<AdminForm>` 沒有 id、關聯不到,先擋住未來。
+ */
+function firstSubmitterOf(form: HTMLFormElement): HTMLElement | null {
+  for (const el of form.querySelectorAll<HTMLButtonElement | HTMLInputElement>('button, input')) {
+    if (el.form !== form) continue;
+    if (el instanceof HTMLButtonElement && el.type === 'submit') return el;
+    if (el instanceof HTMLInputElement && (el.type === 'submit' || el.type === 'image')) return el;
+  }
+  return null;
+}
+
 /** hidden inputs 依 DOM 順序回 [name, value] 陣列。 */
 function hiddenPairs(container: HTMLElement): [string, string][] {
   return [...container.querySelectorAll<HTMLInputElement>('input[type="hidden"]')].map(
@@ -156,6 +175,20 @@ describe('WalletAdjustForm — E11-2 重構後的錢面欄位契約', () => {
         `form button[type="submit"][name="${WALLET_DIRECTION_FIELD}"]`,
       ),
     ];
-    expect(submitters.map((b) => b.value)).toEqual(['use', 'deposit']);
+    expect(submitters.map((b) => b.value)).toEqual(['deposit', 'use']);
+  });
+
+  it('should make deposit the first submit in the form so pressing Enter never withdraws', () => {
+    const { container } = render(<WalletAdjustForm customerId='cus-1' />);
+    // 🔴 backlog #296 的守門(Sean 2026-07-26 拍 A)。HTML 隱式提交選 form 內**第一顆 submit**
+    // (任何一顆,不限帶 name=direction 的)⇒ 員工在金額欄按 Enter 必須落在「加值」。
+    // 這條轉紅代表有人改了按鈕順序、或在前面插了新的 submit ⇒ 按 Enter 會變成扣款。
+    const form = container.querySelector('form');
+    expect(form).toBeTruthy();
+    const firstSubmit = firstSubmitterOf(form as HTMLFormElement);
+    expect(firstSubmit?.getAttribute('name')).toBe(WALLET_DIRECTION_FIELD);
+    expect(firstSubmit?.getAttribute('value')).toBe('deposit');
+    // 🔴 formAction 會整個覆寫 form 的 action(React 19 照樣執行)⇒ 光看 name/value 會假綠。
+    expect(firstSubmit?.hasAttribute('formaction')).toBe(false);
   });
 });

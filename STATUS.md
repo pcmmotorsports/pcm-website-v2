@@ -22,7 +22,19 @@
 **Branch:** dev
 
 ## 最後更新
-2026-07-26(**本 commit**=M-4b **④ E11-2 `<AdminForm>` 共用表單積木**;**標準片自評 → 經 Fable 更正為命中鐵則 12 ①錢**〔order/會員 tier/儲值金三張表單〕;**未 push、零 migration、零 DB、零 flag、未動 `.env*`**)
+2026-07-26(**本 commit**=**backlog #296 儲值金按 Enter 變扣款 — 修正 + 守門**;**高風險片〔鐵則 12 ①錢:儲值金〕**;**未 push、零 migration、零 DB、零 flag、未動 `.env*`**)
+**① 問題**:`wallet-adjust-submit.tsx`「扣款」(`value='use'`)是 form 內**第一顆** submit ⇒ HTML 隱式提交規則下,員工在金額欄打完數字按 **Enter** 送出的是扣款(`wallet-form.ts:74` 寫成負數入帳、RPC 無下界可扣成負餘額)。**既有問題,非 E11-2 引入**;由 E11-2 對抗審查(opus C3)順帶挖出。
+**② 修法(Sean 拍 A)**:兩顆 submit 的 DOM 順序對調 ⇒ 加值第一、扣款第二。**DOM 順序自此是承重的**,已於檔頭寫明「改順序前先讀 #296」。
+**③ 守門**:`admin-form-consumers.test.tsx` 新增「form 內第一顆 submitter 必須是 deposit 且不得帶 `formaction`」。🔴 **突變 5/5 全紅**:改回原順序 / 前面插一顆新 submit / 插 `<button type="">` / 插 `<button type="garbage">` / 加值鈕掛 `formAction` 覆寫;每組還原後 shasum 一致。
+🔴 **③-a selector 用 `.type` 屬性、不用屬性 selector**:HTML 規範中 `<button>` 的 type 是 enumerated attribute,**缺失或無效值一律當 submit** ⇒ `[type="submit"]` 屬性比對會漏掉 `type=""` 與 `type="garbage"`(codex 以 3 個 jsdom 反例實錘我的初版假綠)。改讀 `.type` 讓 DOM 正規化。
+**④ 審查三輪**:**opus 對抗審 = GO**(0 must-fix;9 次擊破嘗試全失敗並逐條寫明為何攻不破)→ **codex 關卡2 R1(`gpt-5.6-sol` xhigh 唯讀)= NO-GO 5 must-fix + 1 nit**,逐條核對後全數成立、已全修 → **codex 關卡2 R2 確認輪 = NO-GO**,R1 六條裁定 **5 HOLDS + 1 INADEQUATE**(該條=codex 更正它自己 R1 的查證錯誤,見 ④-a)+ 2 新 must-fix(皆為文件字面不一致)+ 4 nit,**已全修** → **codex 關卡2 R3(Sean 明確授權破例;鐵則 12 硬上限為 2 輪)= 🏁 GO、0 surviving must-fix**。R2 六條裁定 **4 HOLDS + 2 INADEQUATE(皆降為 nit)**;**主對話對 Blink 原始碼的解讀經 R3 裁定正確**。殘留 3 nit 皆知情接受:①helper 只掃 descendant,抓不到「form 外以 `form=id` 綁進來且排序更前」的 submit(現行 `<AdminForm>` **無 id**、關聯不到,不影響實際安全)②R3 自身的這條字面(本句即為補正)③「前兩個突變同時紅 2 條」成立是因為我插的假鈕剛好帶 `name=direction`,非測試本身性質 —— **不影響「5/5 每個突變至少殺死一條測試」的結論**。
+🔴 **④-a 一條外部事實錯了兩次,最後靠親讀原始碼定案(本片最大教訓)**:codex R1 稱「2026-04 Chromium 已改成往後找第一顆 non-disabled submitter」並附 CL `ef936beb` ⇒ **我照抄進元件註解,沒自己驗**。codex R2 **自行更正**:它 R1 只採信 commit message,而 `ef936beb` 其實是 WPT 同步 commit、不是 Chromium 行為變更。⇒ **主對話親讀 `chromium/main` 的 `HTMLFormElement::SubmitImplicitly` 原始碼定案**:第一顆 submit 若被 disable,`if (from_implicit_submission_trigger) { return; }` 分支直接放棄整個隱式提交、**不往後找**(原始碼註解逐字:`// Default (submit) button is not activated; no implicit submission.`)⇒ **R1 說法錯、R2 更正正確**。註解已重寫為「單純 disable 加值不危險(Enter 什麼都不做);真正的迴歸是有人移走加值或改排序」。⚠️ 過程中 WebFetch 的散文摘要**自相矛盾**(先說「停住」又說「繼續往下找」)—— 再次印證 memory `feedback_webfetch-money-enum-hallucination-read-dom`:關鍵字面必須親讀原始碼,不能吃摘要。
+🔴 **④-b 我的流程違規(自陳)**:**codex 審查期間我編輯了受審檔案**(`STATUS.md`/`phase-1-backlog.md`),且**在它回覆前就先寫上「codex 兩輪」「已收案」當成事實** —— 違反 memory `feedback_freeze-artifact-before-adversarial-review`(送審前必凍結、審查期間改檔=判定沒對象)。codex 將此列 must-fix 5,成立。補法=拍板後所有修改做完才凍結、再跑 R2 確認輪。
+🔴 **④-c 我對 Sean 講錯一句話、已更正**:曾寫「不做也可、現況不比修之前差」。**錯的** —— 修之前最右是加值(安全)、Enter 是扣款;修之後最右變扣款、Enter 是加值 ⇒ **是把地雷換位置,不是淨改善**。opus C3 與 codex must-fix 1 獨立雙命中。
+**⑤ 殘留與 Sean 拍板 C**:扣款現落在動作列**最右**=慣用主要動作位、且無二次確認。Sean 看過**可互動比較頁**(讓瀏覽器原生跑隱式提交並讀 `SubmitEvent.submitter`、非模擬;產品層顏色取自 `globals.css` 真 token)後拍 **C=現況收案**,完整解「破壞性金錢動作二次確認」立 **backlog #297**(建議與 E11 `<AdminModal>` 同片、儲值金扣款當第一個真實消費端)。🔴 **CSS `order` 方案明確否決**:畫面順序與 DOM 順序拆開 ⇒ 後人「順手修正」會讓洞無聲重開。
+**⑥ 驗證**:三綠 typecheck **8/8** · lint **10/10** · build **2/2**;full test **255 檔 2968 passed + 1 todo**(前一 commit 2967、+1 條守門);`git diff --check` 乾淨。
+
+2026-07-26(前序 commit `53eb90c`=M-4b **④ E11-2 `<AdminForm>` 共用表單積木**;**標準片自評 → 經 Fable 更正為命中鐵則 12 ①錢**〔order/會員 tier/儲值金三張表單〕;**未 push、零 migration、零 DB、零 flag、未動 `.env*`**)
 **⓪ 分工(Sean 07-26 拍板)**:Codex `gpt-5.6-sol` + `model_reasoning_effort=high` 讀寫執行、Claude 審 diff。🔴 **model id 為當場探針實測**(config 預設是 `gpt-5.6-terra`,故每次須顯式 `-m`)。**審查模型序(Sean 07-26 同日修正)**:一般審查=**opus 5 + xhigh**;Fable 留給高風險與複雜狀態。
 **① 產出**:新增 `apps/admin/src/components/shared/admin-form.tsx`(83 行;`AdminForm`/`AdminFormField`/`ADMIN_INPUT_CLASS`,Server Component、零 client JS)+ 兩個測試檔;三個消費端 `order-edit-form`(90→91)/`tier-edit-form`(62→59)/`wallet-adjust-form`(60→59)改接。**殺掉的具體重複=三檔各抄一份、逐字元相同的 `FIELD`/`LABEL`/`INPUT` class 常數**。
 🔴 **①-a 誠實定位**:**本片不等於規格 §3.3 的 `<AdminForm>` 全貌**,只做「卡片內嵌變體」。sticky 儲存列 / 雙層錯誤 banner / 未存離開警告**三項刻意不做**(前兩項需把零 client JS 表單升級成互動元件;sticky 對卡片內嵌小表單無意義)⇒ 等 E10 手動建單/改單的頁面級大表單有真實消費端再做。已於元件 `ponytail:` 註解寫明。
@@ -259,7 +271,7 @@
 
 ## Sean 待決策
 ✅ **2026-07-26 UX/營運審查 U1-U7 全數定案、Sean 已看圖確認**(U1/U3/U5/U7=A;U2=A 改版「改全部+直改極簡」;U4=A+**通道定案:LINE OA 推播給兩位員工〔額度夠=Sean 確認〕+每日彙整 Email、Chrome 推播不做**;U6=A 改版「只做告知義務、不設期限」。全文=`docs/specs/2026-07-26-admin-ux-operability-review.md` §7、拍板 memory `project_m4b-ux-review-u-decisions`;artifact §11 已依 11.1/11.2 二輪指示改版後獲 Sean「ok」)。**無開放項,可據以實作。**
-🔴 **2026-07-26 新開放項(E11-2 對抗審挖出、backlog #296)**:儲值金表單在金額欄按 **Enter** 會送出「扣款」而非「加值」(HTML 隱式提交選 form 內第一顆 submit,而「扣款」排第一)。修法 **A=把「加值」排第一顆(改視覺順序,屬你拍板)** / **B=攔 Enter 不隱式提交(需 client 化、較重)** / **C=維持現狀**(目前無二次確認 ⇒ 等於不處理)。**既有問題、非 E11-2 引入。**
+✅ **2026-07-26 #296 儲值金按 Enter 變扣款 — Sean 拍 A、已修完收案**(把「加值」排第一顆;既有問題非 E11-2 引入)。🔴 **殘留一項(已於同日拍板 C 收案,見下)**:對調後「扣款」落在動作列**最右**=慣用主要動作位置,而扣款**無二次確認**、RPC 無下界(可扣成負餘額)⇒ 照肌肉記憶點最右仍會直接扣款(opus 與 codex 兩輪審查獨立提出)。🔴 **誠實紀錄一句我先前寫錯、已更正的話**:我曾寫「不做也可、現況不比修之前差」—— **錯的**。修之前最右是「加值」(安全)、Enter 是扣款;修之後最右變「扣款」(危險)、Enter 是加值 ⇒ **這是把地雷換位置,不是淨改善**(opus C3 與 codex 關卡2 must-fix 1 獨立雙命中)。✅ **Sean 2026-07-26 已拍板 C**(看過可互動比較頁後決定;頁面讓瀏覽器原生跑隱式提交、非模擬):**現況收案,完整解「破壞性金錢動作二次確認」立 backlog #297**。判準=Enter 的洞危險在於**完全沒有視覺提示**,點擊需瞄準一顆紅框寫著「扣款」的鈕,性質不同。🔴 **CSS `order` 方案明確否決**:畫面順序與 DOM 順序拆開 ⇒ 後人「順手修正」會讓洞無聲重開,**不用靠人不看錯的防護守錢**。
 🔴 **2026-07-26 需 Sean 親自做:向新竹站所電腦負責人申請 API 帳號** —— **查貨與出貨是兩張不同的申請表**;沒有帳號無法實作出貨串接(細節 `docs/reference/hct-logistics-api-reference.md` §1)。
 ✅ ~~**2026-07-26 後台預覽 artifact 六題**~~ **已全數答畢並折入**(連同後續追加共十四項,落 memory `project_m4b-admin-preview-decisions`)。原文備查:
 🆕 **2026-07-26 後台預覽 artifact 六題**(看 `docs/specs/2026-07-26-admin-backend-preview.html` 後答;**規格沒寫的部分我已自畫提案版、不重問**,以下是真正需要你拍的):①側邊選單五組分法對不對(還是平鋪不分組)②訂單列表要顯示哪幾欄 + 上排預設檢視要哪幾個(規格 §6 Q7/Q8/Q9 仍 ⏳)③匯款實收與應收對不起來時,系統擋下來還是允許記差額 ④**同一張商品圖能否跨商品共用**(=規格 §6 **N6**;媒體庫 vs 綁死單一商品,**之後再改很痛**)⑤供應商主檔這一期做不做(=**N9**)⑥月報表「本月支出運費」摘要格口徑(2025/07 摘要 **11,833** vs 明細加總 **88,782**、差約 7.5 倍;**確認前不得沿用該格當報表來源**)。
@@ -301,7 +313,7 @@
 **🟡 #215 tier server 認證**:defer,真死線=M-2-08 接真經銷價前(07-13 分析:現況零洩漏)。
 
 ## 緊急 backlog
-**#296**(儲值金表單按 Enter 會變成「扣款」=員工誤操作直接動到錢;2026-07-26 E11-2 opus 對抗審挖出、既有問題非本片引入;修法涉按鈕順序=Sean 拍板)/ **#293**(真機驗收缺 HTTPS 通道、secure-context-only API 逐個踩雷;2026-07-22 開立)/ **#291**(正式法律頁 route + version/hash;🔴 上線前人工 release checkpoint〔非機械守門〕、非開發阻擋,詳見 Blocker 欄)/ **#292**(SSoT 事實收斂單一來源;Sean 07-21 拍 A、獨立一片)。其餘不擋線 backlog:**#281 outbox 保留政策+清理 job〔PII `recipient_email` 無限期滯留、E3 上線後升 🔴〕/ #282 `cron.job_run_details` 清理〔E2b 後才有對象〕/ #283 Resend bounce webhook / #284 Email 文案 L2→L3 / #285 retry hint 精準退避〔=Q11=A 的第三選項;未知 429 一律 ≥24h 的已知代價〕/ #286 死信人工重送工具〔=Q9=A 的誠實缺口:死信零救援,告警後無事可做〕** 皆 07-17 新開;Fable F1 表級 CHECK / F2 哨兵 md5 / create_order p_invoice 自由欄型別 / admin 明細頁未顯 vehicle_snapshot / V-2g 雙擊縮放刻意未做,詳 kickoff §4)
+~~#296~~ ✅ **已收案**(儲值金按 Enter 變扣款;Sean 07-26 拍 A、加值改排第一顆、守門測試突變 5/5 全紅)/ **#297**(破壞性金錢動作缺二次確認=#296 的完整解;Sean 07-26 拍 C 後立;🔴 建議與 E11 `<AdminModal>` 積木同片做、儲值金扣款當第一個真實消費端)/ **#293**(真機驗收缺 HTTPS 通道、secure-context-only API 逐個踩雷;2026-07-22 開立)/ **#291**(正式法律頁 route + version/hash;🔴 上線前人工 release checkpoint〔非機械守門〕、非開發阻擋,詳見 Blocker 欄)/ **#292**(SSoT 事實收斂單一來源;Sean 07-21 拍 A、獨立一片)。其餘不擋線 backlog:**#281 outbox 保留政策+清理 job〔PII `recipient_email` 無限期滯留、E3 上線後升 🔴〕/ #282 `cron.job_run_details` 清理〔E2b 後才有對象〕/ #283 Resend bounce webhook / #284 Email 文案 L2→L3 / #285 retry hint 精準退避〔=Q11=A 的第三選項;未知 429 一律 ≥24h 的已知代價〕/ #286 死信人工重送工具〔=Q9=A 的誠實缺口:死信零救援,告警後無事可做〕** 皆 07-17 新開;Fable F1 表級 CHECK / F2 哨兵 md5 / create_order p_invoice 自由欄型別 / admin 明細頁未顯 vehicle_snapshot / V-2g 雙擊縮放刻意未做,詳 kickoff §4)
 
 ---
 
