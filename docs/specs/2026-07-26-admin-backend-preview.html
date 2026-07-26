@@ -507,10 +507,11 @@
               <div class="m-row tight" style="margin-top:8px"><span class="m-btn" style="font-size:11px">開始今日出貨作業</span></div>
             </div>
             <div class="m-card dash" style="border-color:var(--partial)">
-              <h5 style="color:var(--partial)">逾期未到貨 <span class="m-tag">2</span></h5>
-              <div class="m-kv"><span>LTC-119 · 王大明</span><span style="color:var(--partial)">已等 68 天</span></div>
-              <div class="m-kv"><span>KS-1120 · 黃小姐</span><span style="color:var(--partial)">已等 45 天</span></div>
-              <p class="m-sub" style="margin-top:6px">超過預計到貨日就跳到這裡,不用自己記。<span class="pin">1</span></p>
+              <h5 style="color:var(--partial)">等最久、還沒出貨 <span class="m-tag">12</span></h5>
+              <div class="m-kv"><span>PCM-2025-0413 · 黃小姐</span><span style="color:var(--accent); font-weight:700">418 天</span></div>
+              <div class="m-kv"><span>PCM-2025-0602 · 林先生</span><span style="color:var(--accent)">271 天</span></div>
+              <div class="m-kv"><span>PCM-2026-0091 · 王大明</span><span style="color:var(--partial)">96 天</span></div>
+              <p class="m-sub" style="margin-top:6px"><b>從下單那天算到今天</b>,最久的排最前面。<span class="pin">1</span></p>
             </div>
             <div class="m-card dash">
               <h5>待確認匯款 <span class="m-tag">2</span></h5>
@@ -522,9 +523,23 @@
         </div>
       </div>
       <ol class="notes">
-        <li><b>「已等 N 天」是代購生意最該被自動盯著的數字</b>(審查建議)。交期 2-12 週,員工不可能記得哪一件等太久 —— 超過預計到貨日就自動跳到這一格,客人打來問之前你就先知道。</li>
+        <li><b>「等最久」這一格改過定義了(你 07-26 更正)。</b>我原本畫成「超過預計到貨日 30 天 / 60 天」——
+          那是照一般電商的尺度。你說<b>確實有訂單下單後超過一年還沒出貨</b>,所以改成:<br>
+          <b>從下單那天算到今天,最久的排最前面</b>,直接列出是哪一張單、哪個客人、等了幾天,點得進去。
+          不再用 30/60 天那種對你的生意來說「根本還在正常範圍」的門檻。</li>
         <li><b>今日對帳就長在這裡</b>,不另開一頁。金額不符的匯款留在這一格直到被處理,不會靜靜消失。</li>
       </ol>
+
+      <div class="warn">
+        <b>⚠ 你剛講的「有訂單超過一年」,影響的不只是這一格的畫面 —— 有三件事要順便想:</b><br><br>
+        <b>① 錢已經收了、貨還沒出,一年。</b>會計上這叫預收款,是掛在你帳上的<b>負債</b>,不是收入。
+        報表如果把它當成營業額,你看到的數字會比實際好。<b>?待確認:報表要不要把「已收款未出貨」單獨拉一格?</b><br><br>
+        <b>② 這種單多半不是「還在等」,是「被忘了」。</b>供應商停產沒人處理、客人失聯、當初漏跟進 ——
+        排在最前面就是為了讓它們浮出來被處理掉(出貨、取消退款、或跟客人重新確認),
+        而不是永遠靜靜躺著。<br><br>
+        <b>③ 這也回答了為什麼「取消 + 復原」要做好。</b>等一年的單最後往往是取消收場,
+        而且常常客人隔一陣子又說「還是要」——<b>正是你剛問的那個情境</b>。
+      </div>
 
       <!-- 2.1 列表 -->
       <h3 class="blk">2.1　訂單列表 <span class="chip part">部分有</span></h3>
@@ -1275,17 +1290,14 @@
         </div>
       </div>
 
-      <div class="alarm" style="margin-top:16px">
-        <h2>🔴 你這個問題挖出一個規格衝突,要你拍板</h2>
-        <p>
-          既有的規劃文件明訂:<b>「取消限 unpaid(未付款)且未出貨」</b>
-          (<code>20260712203000_m4a_orders_admin_columns.sql:54</code> 引 PRD §4.2)。<br><br>
-          意思是<b>照現行設計,已付款的單根本不能取消</b> ——
-          但你問的情境(取消了、還沒退款)前提就是<b>已經付款</b>,
-          而且我上面 2.8 那張圖也直接畫了「已收款要不要一併退款」。<br><br>
-          <b>兩邊打架,是我畫超出既有規格而沒標注。</b>現實上客人付了錢又要取消是常態,
-          我認為該放寬,但這是改既有拍板、<b>要你點頭</b>。見下方 Q11。
-        </p>
+      <div class="warn" style="margin-top:16px; background:var(--built-soft); border-color:var(--built)">
+        <b style="color:var(--built)">✅ Q11=A 已拍板(你 07-26):已付款的訂單也能取消,取消時問要不要一併退款。</b><br><br>
+        這推翻了既有規劃文件的一條舊限制 ——
+        <code>20260712203000_m4a_orders_admin_columns.sql:54</code> 原本寫「取消限 unpaid(未付款)且未出貨」。
+        現實上客人付了錢又要取消是常態,舊限制擋不住真實情況,已依你的拍板放寬。<br><br>
+        🔴 <b>放寬之後多出來的守門(不能省)</b>:已付款的單取消時,系統<b>強制你回答錢怎麼處理</b> ——
+        一併退款、或先取消稍後退。<b>不允許取消完就不管錢</b>,否則會生出「單沒了、錢還在我們這」的鬼帳。
+        這個選擇會寫進訂單歷程,誰選的、什麼時候選的都留著。
       </div>
     </section>
 
@@ -1854,7 +1866,7 @@
           </div>
 
           <div class="m-grid3" style="margin-top:12px">
-            <div class="m-card dash" style="border-color:var(--partial)"><h5 style="color:var(--partial)">等待中訂單帳齡</h5><div class="m-kv"><span>等超過 30 天</span><span>7 件</span></div><div class="m-kv"><span>等超過 60 天</span><span>2 件</span></div><div class="m-kv"><span>最久的一件</span><span>68 天</span></div></div>
+            <div class="m-card dash" style="border-color:var(--partial)"><h5 style="color:var(--partial)">最久還沒出貨的訂單</h5><div class="m-kv"><span>PCM-2025-0413 · 黃小姐</span><span style="color:var(--accent); font-weight:700">等 418 天</span></div><div class="m-kv"><span>PCM-2025-0602 · 林先生</span><span style="color:var(--accent)">等 271 天</span></div><div class="m-kv"><span>PCM-2026-0091 · 王大明</span><span style="color:var(--partial)">等 96 天</span></div><div class="m-kv" style="border-top:1px solid var(--line-soft); margin-top:6px; padding-top:6px"><span>超過 1 年</span><span>1 件</span></div><div class="m-kv"><span>超過半年</span><span>3 件</span></div><div class="m-kv"><span>超過 3 個月</span><span>8 件</span></div></div>
             <div class="m-card dash"><h5>現金與銀行餘額</h5><div class="m-kv"><span>合計</span><span>431,120</span></div></div>
             <div class="m-card dash"><h5>應收未收 / 退款</h5><div class="m-kv"><span>應收未收</span><span>28,600</span></div><div class="m-kv"><span>退款</span><span>−1,800</span></div></div>
           </div>
@@ -2135,22 +2147,13 @@
       <p style="margin-top:10px">審查另外建議<b>砍掉三樣東西</b>,這要你決定:§2.7-C 側邊釘住(以你 34 筆訂單的量太重)、
       §2.1「＋ 存成檢視」自訂視圖(兩人團隊固定分頁就夠)、§7「各員工處理量」(兩個人排行沒意義,建議換成「等待中訂單帳齡」)。</p>
 
-      <h2 style="font-size:16px; margin-top:26px">🔴 Q11 · 一題必須你拍板(規格衝突)</h2>
-      <p style="margin-bottom:10px">
-        既有規劃文件明訂<b>「取消訂單限未付款且未出貨」</b>,但你問的「取消後還沒退款能不能復原」
-        前提就是已付款,我 §2.8 也直接畫了已收款的取消流程 —— <b>兩邊打架</b>。要放寬既有拍板才能做。
-      </p>
-      <pre style="font-family:var(--mono); font-size:12.5px; background:var(--surface-2); border:1px solid var(--line); border-radius:6px; padding:12px 14px; overflow-x:auto; line-height:1.75; white-space:pre-wrap">Q11 已付款的訂單要不要能取消?
-A: A 要,已付款也能取消,取消時問要不要一併退款(推薦,現實常態)
-   B 不要,維持原規格:只有未付款的單能取消;已付款的只能走退款流程
-   C 要,但只有管理者能取消已付款的單,員工只能取消未付款的</pre>
-
       <h2 style="font-size:16px; margin-top:26px">? 還沒解決的四件事</h2>
       <ol style="line-height:1.9">
         <li><b>訂單列表車種與品牌要不要留?</b>你 Q2 選的 A 是我寫的精簡版 8 欄、沒列這兩欄,但你隨後又特別強調要顯示 —— 我判斷是「照現在的欄位、用我的順序」,所以<b>留著</b>。要真的砍到 8 欄跟我說。</li>
         <li><b>新竹物流 API 還沒讀。</b>你給的 PDF 我還沒逐條看,所以「怎麼申請帳號 / 寄貨單是 API 給還是我們自己排版 / 有沒有物流追蹤端點」三件都還是問號。開工前我會先讀完再給規格,<b>不照猜的做</b>。</li>
         <li><b>虛擬帳戶是否強制金額相符?</b>你說「匯錯金額是無法匯款」—— 這要看銀行 / 金流商怎麼設,有些是照收只標異常。<b>串接前要跟銀行問清楚</b>;在問清楚之前,差額處理流程一律保留。</li>
         <li><b>Q6 我的理解對不對?</b>我把「零錢貴」讀成「零錢櫃 = 公司零用金現金」。不是這個意思跟我說。</li>
+        <li><b>報表要不要把「已收款、還沒出貨」單獨拉一格?</b>你說有訂單等超過一年 —— 那筆錢在會計上是<b>負債(預收款)不是收入</b>。如果報表把它算進營業額,你看到的數字會比實際好看。</li>
       </ol>
 
       <p class="prov" style="margin-top:26px">
