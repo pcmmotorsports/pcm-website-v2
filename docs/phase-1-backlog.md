@@ -7541,6 +7541,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-25 / M-3 退刷線 Q6 拍板當下(Sean 主動提問)。
 - **相關:** #216(運費門檻雙處 hardcode drift gate);PRD `docs/specs/2026-07-24-refund-automation-line-prd.md` §0c + §4 RF2a-0;`packages/domain/src/order/shipping.ts`;鐵則 9 內容分級。
 
+### #296. 💸 儲值金表單按 Enter 會變成「扣款」(隱式提交選到第一顆 submit)
+
+- **狀態:** ⏳ 待執行(**既有問題、非 E11-2 引入**;E11-2 對抗審查時由 opus 順帶挖出)
+- **優先級:** 🟠 中(不影響客人;是**員工誤操作直接動到錢**的路徑,且錯的方向是扣款)
+- **問題:**
+  - `apps/admin/src/components/customers/wallet-adjust-submit.tsx:15-23` —「扣款」(`value='use'`)是 form 內**第一顆** `type='submit'`,「加值」(`value='deposit'`)是第二顆。
+  - HTML 隱式提交規則:在單行文字欄按 Enter,瀏覽器選**第一顆 submit** 當 submitter ⇒ 員工在金額欄打完數字直接按 Enter,送出的是 `direction=use`、**扣款**。
+  - 🔴 親驗:`wallet-form.ts:74` `signedAmount: direction === 'use' ? -amount : amount` ⇒ 真的會寫成負數入帳。目前唯一的攔阻是「備註必填」——但備註若已填,Enter 就直接扣款成功。
+- **觸發事件:** 2026-07-26 / E11-2 `<AdminForm>` 積木片,opus 對抗審查 C3(該檔不在該片 diff 內,故不擋該片 commit)。
+- **預期解法:**
+  - A. 在兩顆之前放一顆 `hidden` 的預設 submit(或把「加值」排第一顆)⇒ 讓 Enter 落在**安全方向**。🔴 排序會改變視覺,屬 Sean 拍板範圍。
+  - B. form 加 `onKeyDown` 攔 Enter 不隱式提交(需 client 化,較重)。
+  - C. 維持現狀 + 依賴二次確認(目前**沒有**二次確認 ⇒ 等於不處理)。
+- **不修會痛在:**
+  - 擴充性:未來任何「兩顆方向相反的 submit」表單(退款/取消、進貨/退貨)都會複製同一個地雷,沒有共用防護。
+  - 可維護性:此行為由 HTML 規範 + DOM 順序隱式決定,不在任何測試或註解裡 ⇒ 有人調整按鈕排版就會靜默改變 Enter 的語意。
+  - bug 可追蹤性:誤扣款與正常扣款在 `wallet_ledger` 完全同形(同 `entryType='use'`、同操作者),事後**無法從資料分辨是誤按 Enter 還是刻意扣款**,只能靠客訴。
+- **估時:** A 約 15-20 分鐘(含 Sean 拍板按鈕順序 + smoke test);B 約 40 分鐘。
+- **依賴:** 無;可獨立執行。與 E11-2 積木無耦合(該檔未被積木化)。
+- **發現於:** 2026-07-26 / M-4b E11-2 opus 對抗審查 C3。
+- **相關:** `apps/admin/src/components/customers/wallet-adjust-form.tsx`;`apps/admin/src/lib/customers/wallet-form.ts:54-74`;D1 決策題(儲值金 DB 級去重)。
+
 ## 紀錄模板
 
 ```markdown
