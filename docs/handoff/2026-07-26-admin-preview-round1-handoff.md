@@ -51,7 +51,7 @@ Q1=A 選單五組 + 匯率係數改放報表 · Q2=A/Q9=A 列表欄位保留車�
 - **誠實邊界**:外框 class 外加 `hidden … md:block` ⇒ **手機不再顯示桌機表格、改顯卡片**。這是本片要的功能,不在「零變更」宣稱範圍內
 - **驗證**:smoke test 6 條;三綠 typecheck 8/8 · lint 10/10 · build 2/2;full test **253 檔 2951 passed + 1 todo**(前片 252/2945)
 - 🔴 **流程缺口(未補)**:**未跑 code-reviewer subagent**(SOP ⑥ 標準片要求)。本 session 前段有「不得呼叫 Agent 工具」的環境層指示、Sean 不在線無法裁決 ⇒ 未擅自繞過,改以 parity 實測 + smoke test 代替。**要補跑請下個 session 指示。**(Sean 後段明示要 Codex+Fable 審預覽,那是對 artifact 的審查、不涵蓋這支 code)
-- 🔴 **已知天花板**(元件內 `ponytail:` 註解已標):桌機列與手機卡各渲染一次 cell = 兩份 DOM。**日後接 `orders-table.tsx` 會產出重複 `<form>`**(`ItemWorkflowStatusCell` 是帶表單的 client 元件)⇒ 屆時須改單一 markup + CSS reflow,或讓互動欄只出現在單一槽位
+- 🔴 **已知天花板**(元件內 `ponytail:` 註解已標):桌機列與手機卡各渲染一次 cell = 兩份 DOM。**日後接 `orders-table.tsx` 會產出重複 `<form>`**(`ItemWorkflowStatusCell` 是包 `<form action>` 的 Server Component,巢狀 `WorkflowStatusSelect` 才是 client 元件;2026-07-26 補審更正用語,風險本身不變)⇒ 屆時須改單一 markup + CSS reflow,或讓互動欄只出現在單一槽位
 
 ---
 
