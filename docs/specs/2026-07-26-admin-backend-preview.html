@@ -2213,7 +2213,7 @@
         <thead><tr><th>題</th><th>你的答案</th><th>畫在</th></tr></thead>
         <tbody>
           <tr><td>U1 分批寄 / 併箱</td><td><b>A</b> 做「包裹」這一層</td><td>11.1</td></tr>
-          <tr><td>U2 改訂單</td><td><b>A</b> 可改收件+品項數量;差額只記錄、不自動動錢</td><td>11.2</td></tr>
+          <tr><td>U2 改訂單</td><td><b>A 你的改版</b>:姓名/電話/地址/品項數量<b>全部能改</b>、畫面直改極簡;差額只記錄、不自動動錢</td><td>11.2</td></tr>
           <tr><td>U3 匯款差額</td><td><b>A</b> 可記多筆匯款;少收掛催款、多收強制處置</td><td>11.3</td></tr>
           <tr><td>U4 通知</td><td><b>A</b> + 你補充:LINE 通知 / Chrome 網頁通知當即時通道候選</td><td>11.4</td></tr>
           <tr><td>U5 負責人</td><td><b>A</b> 每單加「負責人 + 下次跟進日」</td><td>11.5</td></tr>
@@ -2228,58 +2228,70 @@
         <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / PCM-2026-0104 · 出貨區塊(改版)</span></div>
         <div class="wf-body">
           <div class="m-card" style="margin-bottom:10px">
-            <h5>包裹 1 · 新竹貨運 <span class="m-tag">已送達</span></h5>
-            <div class="m-kv"><span>物流單號</span><span style="font-family:var(--mono)">9031234567</span></div>
-            <div class="m-kv"><span>出貨日</span><span>07-24</span></div>
-            <div class="m-kv"><span>裝了什麼 <span class="pin">1</span></span><span>腳踏後移組 ×1 · 油箱貼 ×1</span></div>
+            <div class="m-between"><span><b>包裹 1</b> · 新竹貨運 <span class="m-tag">已送達</span></span><span class="m-sub" style="font-family:var(--mono)">9031234567 · 07-24 出貨</span></div>
+            <div class="m-kv" style="margin-top:4px"><span>收件人 <span class="pin">1</span></span><span><b>王大明</b> · 0912-345-678</span></div>
+            <table class="m-tbl" style="min-width:0; margin-top:6px">
+              <thead><tr><th>訂單</th><th>商品(變體)</th><th class="num">數量</th></tr></thead>
+              <tbody>
+                <tr><td style="font-family:var(--mono)">PCM-2026-0104</td><td>腳踏後移組(黑)</td><td class="num">1</td></tr>
+                <tr><td style="font-family:var(--mono)">PCM-2026-0104</td><td>油箱貼(V4 透明)</td><td class="num">1</td></tr>
+              </tbody>
+            </table>
           </div>
           <div class="m-card" style="margin-bottom:10px">
-            <h5>包裹 2 · 順豐 <span class="m-tag">運送中</span></h5>
-            <div class="m-kv"><span>物流單號</span><span style="font-family:var(--mono)">SF98765432</span></div>
-            <div class="m-kv"><span>出貨日</span><span>07-26</span></div>
-            <div class="m-kv"><span>裝了什麼</span><span>離合器拉桿 ×1(後到的貨)</span></div>
+            <div class="m-between"><span><b>包裹 2</b> · 順豐 <span class="m-tag">運送中</span></span><span class="m-sub" style="font-family:var(--mono)">SF98765432 · 07-26 出貨</span></div>
+            <div class="m-kv" style="margin-top:4px"><span>收件人</span><span><b>王大明</b> · 0912-345-678</span></div>
+            <table class="m-tbl" style="min-width:0; margin-top:6px">
+              <tbody>
+                <tr><td style="font-family:var(--mono)">PCM-2026-0104</td><td>離合器拉桿(可折 · 紅)</td><td class="num">1</td></tr>
+              </tbody>
+            </table>
           </div>
           <div class="m-card dash">
-            <h5>併箱示意 · 包裹 3 <span class="pin">2</span></h5>
-            <div class="m-kv"><span>PCM-2026-0104</span><span>油箱蓋 ×1</span></div>
-            <div class="m-kv"><span>PCM-2026-0102</span><span>拉桿護弓 ×2</span></div>
-            <div class="m-sub" style="margin-top:4px">兩張單的貨裝同一箱:一個包裹掛兩張單,各單各自記數量</div>
+            <div class="m-between"><span><b>併箱示意 · 包裹 3</b> <span class="pin">2</span></span><span class="m-sub">同一收件人的兩張單裝一箱</span></div>
+            <div class="m-kv" style="margin-top:4px"><span>收件人</span><span><b>王大明</b> · 0912-345-678</span></div>
+            <table class="m-tbl" style="min-width:0; margin-top:6px">
+              <tbody>
+                <tr><td style="font-family:var(--mono)">PCM-2026-0104</td><td>油箱蓋(快拆)</td><td class="num">1</td></tr>
+                <tr><td style="font-family:var(--mono)">PCM-2026-0107</td><td>拉桿護弓(碳纖)</td><td class="num">2</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
       <ol class="notes">
-        <li><b>每個包裹自己記</b>:快遞、單號、出貨日、裝了哪些品項各幾件。一張單寄三次=三個包裹。</li>
-        <li><b>多單併一箱也成立</b>:客人兩張單一起寄,運費與追蹤都掛同一個包裹,不用二選一。</li>
+        <li><b>包裹卡一眼看完,不用點進去</b>(你 07-26 指示):商品名稱與變體、數量、訂單單號、收件人姓名電話全在卡上 —— 打包核對、接客人電話查件都不用多按一下。</li>
+        <li><b>多單併一箱也成立</b>:同一收件人的兩張單裝同一箱,各單品項各自記數量,運費與追蹤共用這個包裹。</li>
         <li>訂單列表只顯示<b>最新包裹的狀態</b>當摘要,點進明細才看全部包裹。</li>
       </ol>
 
-      <h3 class="blk">11.2　改訂單:收件資訊+品項數量,錢只算不動 <span class="chip new">提案要做</span></h3>
-      <p class="blk-note">現在的「編輯訂單」只能改出貨方式和發票 —— 客人 LINE 說「地址改一下」其實沒地方改。你拍了 A:第一版做到改收件+改數量,差額算給你看但<b>不自動退款、不自動請款</b>。</p>
+      <h3 class="blk">11.2　改訂單:全部都能改,畫面走「直接改」 <span class="chip new">照你拍的改</span></h3>
+      <p class="blk-note">你 07-26 更正:不只地址 —— <b>姓名、電話、地址都可能改,全部開放</b>;畫面不要一堆欄位,越簡單越好。所以不做「改前 / 改後」對照表:<b>現值直接填在欄位裡,改哪格就改哪格</b>,存檔時系統自己記下差異。</p>
       <div class="wf new" style="max-width:560px">
         <div class="wf-bar"><span class="dots"><i></i><i></i><i></i></span><span class="path">後台 / 訂單 / PCM-2026-0104 / 修改訂單</span></div>
         <div class="wf-body">
-          <div class="m-tabs"><span>訂單資料</span><span class="on">收件與品項</span><span>發票</span></div>
-          <div class="m-grid2">
-            <div class="m-field"><label>收件地址(改前)</label><div class="m-input">台中市西屯區文心路 100 號</div></div>
-            <div class="m-field"><label>收件地址(改後)<span class="pin">1</span></label><div class="m-input dash">台中市北屯區崇德路 55 號 8F</div></div>
+          <div class="m-grid2" style="max-width:420px">
+            <div class="m-field"><label>收件人 <span class="pin">1</span></label><div class="m-input">王大明</div></div>
+            <div class="m-field"><label>電話</label><div class="m-input">0912-345-678</div></div>
           </div>
-          <table class="m-tbl" style="min-width:0">
-            <thead><tr><th>品項</th><th class="num">原數量</th><th class="num">改為</th><th class="num">差額</th></tr></thead>
+          <div class="m-field"><label>地址</label><div class="m-input dash">台中市北屯區崇德路 55 號 8F</div></div>
+          <table class="m-tbl" style="min-width:0; margin-top:4px">
+            <thead><tr><th>品項</th><th class="num">數量 <span class="pin">2</span></th><th class="num">小計</th></tr></thead>
             <tbody>
-              <tr><td>油箱貼</td><td class="num">2</td><td class="num">1</td><td class="num">−1,800</td></tr>
+              <tr><td>油箱貼(V4 透明)</td><td class="num"><span class="m-tag">2 → 1 ▾</span></td><td class="num">1,800</td></tr>
+              <tr><td>腳踏後移組(黑)<span class="m-sub"> · 已出貨,鎖定</span></td><td class="num" style="color:var(--ink-3)">1</td><td class="num" style="color:var(--ink-3)">18,500</td></tr>
             </tbody>
           </table>
-          <div class="m-card dash" style="margin-top:10px">
-            <div class="m-kv"><span>結果 <span class="pin">2</span></span><span><b>應退 NT$1,800</b> · 只記錄,不會自動退錢</span></div>
-            <div class="m-sub" style="margin-top:3px">要真的退 → 回明細按「退款」走原本的退款視窗;要補收 → 記在待辦,收到再確認</div>
+          <div class="m-between" style="margin-top:10px">
+            <span class="m-sub"><span class="pin">3</span> 數量有動才出現 → <b>應退 NT$1,800</b>(只記錄,退錢按「退款」另走)</span>
+            <span class="m-row tight"><span class="m-btn">取消</span><span class="m-btn pri">儲存</span></span>
           </div>
-          <div class="m-row" style="margin-top:10px; justify-content:flex-end"><span class="m-btn">取消</span><span class="m-btn pri">儲存修改 <span class="pin">3</span></span></div>
         </div>
       </div>
       <ol class="notes">
-        <li><b>最高頻的就是改地址</b>。已裝進包裹出貨的部分鎖住不能改,沒出的隨時可改。</li>
-        <li>改數量系統幫你算差額,但<b>錢的動作分開走</b>:退款仍走退款視窗(有二次確認那個),不會因為改單就自動動錢。</li>
-        <li>每次修改都留紀錄:誰改的、何時、改了什麼 —— 進訂單時間軸。</li>
+        <li><b>姓名 / 電話 / 地址全部能改</b>:現值預填、直接改、按儲存 —— 沒有分頁、沒有對照欄。改了什麼系統寫進時間軸,要查再去看。</li>
+        <li>數量在品項列上直接調;<b>已裝進包裹出貨的品項鎖定</b>(灰字),沒出的隨時可改。</li>
+        <li>錢的原則不變:差額<b>只記不動錢</b>,退款仍走退款視窗的二次確認。</li>
       </ol>
 
       <h3 class="blk">11.3　匯款:可記多筆,差額一定有下場 <span class="chip new">提案要做</span></h3>
