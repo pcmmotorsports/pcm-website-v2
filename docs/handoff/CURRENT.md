@@ -2,7 +2,9 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
-> 🔴 **現行主線已於 2026-07-26 換軌 ＝ M-4b 後台重建「員工上工」線**(Sean 定調北極星:「可以完整上線給員工使用…他們不是工程師」)。**接手第一件事 = 做全後台畫面預覽 artifact,不是寫 code**(Sean 明確指示)。完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`;主規格 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(先讀 §0a 最新拍板)。施工序 = E11 積木 → E8 員工權限 → E10 訂單閉環;**會計線(E13/E14)+ 電子發票 Sean 拍 Q3=C 整條延後、研究已完成不必重查**。🔴 **push 狀態當場查 `git log --oneline origin/dev..HEAD`,不看寫死數字**(Sean 已於 07-26 授權推 `ee0f66e..8643c2c`)。
+> 🔴 **現行主線已於 2026-07-26 換軌 ＝ M-4b 後台重建「員工上工」線**(Sean 定調北極星:「可以完整上線給員工使用…他們不是工程師」)。~~接手第一件事 = 做全後台畫面預覽 artifact~~ ✅ **已完成**(46 畫面、Sean 驗收畢、U1-U7 全拍板;artifact 現行網址見 STATUS)。完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`;主規格 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(先讀 §0a 最新拍板)。施工序 = E11 積木 → E8 員工權限 → E10 訂單閉環;
+>
+> 🔴🔴 **接手第一件事(2026-07-26 更新)= 先看 `git log --oneline origin/dev..HEAD` 有沒有未推的 migration**。目前未推 commit 中含 **`04f5511` E8-A1(新表 `public.staff`)**;⚠️ **必須先 `supabase db push` 再 push code** —— 未 apply 的 DB 配上新 code,`listActiveStaff` 查無表回 `[]` ⇒ 身分下拉空白 + 所有後台寫入被 fail-closed 擋下(`dev` = pcm-admin 的 **production** 分支,push 即部署)。**這不是優雅降級,是後台當場不能用。****會計線(E13/E14)+ 電子發票 Sean 拍 Q3=C 整條延後、研究已完成不必重查**。🔴 **push 狀態當場查 `git log --oneline origin/dev..HEAD`,不看寫死數字**(Sean 已於 07-26 授權推 `ee0f66e..8643c2c`)。
 >
 > **(以下為前一條主線,未完成、暫非優先)M-3 TapPay 正式化線(Sean 2026-07-23 開工):S1a「付款送出逾時出口」✅(`b73e9cb`、已推 `origin/dev`)+ S1b-1「reconcileCartSession 後端」✅(`43c0d6d`)+ S1b-2「前端接線」✅ 收工(本 session、**未 push**、零 migration)→ S2 sweeper 搬 pg_cron ✅ code+branch(flag 留 S4、待 Sean db push)→ 下一片 S3。** plan 真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S1a-S6+L1);金流紅線+設計輸入=memory `project_tappay-production-blackhole-settle-line`。並行入口:主軌 M-4a B-4、支線 #288-b、法律頁 L1(草稿待核准);**同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
@@ -16,7 +18,7 @@
   - **主體確認**:PCM = **派達有限公司**(統編公開資訊)。session 中一度誤判 `~/Desktop/派達資料/` 的 401 是「別家公司」→ **已作廢**,因該誤判撤回的第一輪結論**全部恢復有效**。
   - **Sean 拍板(接手不得重問,全表在交接包 §7)**:401 由記帳士報兩個月一次 ⇒ 後台不自產 401;**Q3=C 會計線整條延後**;N1 員工見經銷價不見成本;**N2=B 兩級角色(成本是唯一分界線 ⇒ 免 RBAC 矩陣)**;N4=A 先做積木;N5 訂單可先做但**須做到 27 項全綠**;成本走逐訂單品項快照;**匯率與加成係數兩者都要快照**;項目下拉受控 + 說明自由文字。
   - **施工序** = **E11 後台 UI 積木 → E8 員工帳號權限 → E10 訂單閉環**。E11 第一片已規劃:抽 `<AdminDataTable>` 先重構 `customers-table.tsx`(60 行)驗證,**不從 `orders-table.tsx`(210 行、rowSpan)下手**。
-  - 🔴 **上線硬前置**:`apps/admin/src/lib/staff.ts:3` 逐字「臨時解:M-4b 完整帳號/權限前先 hardcode 名單」= **員工帳號目前寫死**。
+  - ~~🔴 上線硬前置:`staff.ts:3` 員工帳號寫死~~ ✅ **E8-A1 已解**(`04f5511`,名單改由 DB 表 `public.staff` 提供;**migration 未 apply、見上方硬閘**)。🔴 **但 E8 沒做完**:actor 仍是使用者**自己從下拉挑的、系統未驗證**(UI 已誠實標示)。真認證 = 報價單端另一條跨 repo 線,Sean 07-26 拍板 Q1=B 身分來自報價單 / Q7=A 帳號+密碼登入(TOTP 只在未記住的新裝置才要)/ Q8=A Sean 指定初始密碼;**「TOTP 裝置=身分」方案已作廢**(Q5=B 裝置有共用)。報價單 repo = `/Users/sean_1/API大量上架/PCM報價單-V2`,要動 4 處(users 表+登入認人 / session payload 帶身分 / SSO authorize 記錄帶身分 / exchange 回傳),**尚未開工**。
   - 🔴 **延後前記下的最大缺口**:**薪資 domain 完全不存在**(記帳士主交付物「扣繳匯總」25 欄主體是薪資扣繳)⇒ 日後開 E14 時**薪資是主體、收支帳是配角**。
   - 🔴 **流程自陳**:開工前未 grep 既有規劃,與同日稍早的 `docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md` v3 重疊,一度準備重問已答過的題;已於主規格 §0 對帳、**不推翻 E0-E9 編號**。
   - ⚠️ **誠實邊界**:零 code ⇒ **未跑三綠**(依鐵則 11 不觸發);地圖未刷(純文件 session);研究檔入 repo 前掃 PII 零命中(身分證格式唯一命中 `A123456789` = 台灣通用範例號)。
