@@ -82,6 +82,7 @@ describe('V1 simulateSpecCollisions(spec 撞鍵模擬 + 孤兒排除)', () => {
     const collisions = simulateSpecCollisions(src, new Map(), new Map(), new Set());
     expect(collisions).toHaveLength(1);
     expect(collisions[0]!.skus.sort()).toEqual(['S1', 'S2']);
+    expect(collisions[0]!.kind).toBe('final');
   });
 
   it('🔴 F3 情境:變體改名同 spec、孤兒未排刪 → 撞(舊行為、供應商卡死源)', () => {
@@ -106,6 +107,68 @@ describe('V1 simulateSpecCollisions(spec 撞鍵模擬 + 孤兒排除)', () => {
     const existing = new Map([['pid-1', [{ sku: 'S1', spec: spec('red') }]]]); // 同 sku re-upsert
     const collisions = simulateSpecCollisions(src, idByExt, existing, new Set());
     expect(collisions).toEqual([]);
+  });
+
+  it('🔴 HOSEYAM005:最終 spec 唯一、但 BL 尚佔黑色 → 必須辨識中途換位碰撞', () => {
+    const src = new Map([
+      [
+        'HOSEYAM005',
+        [
+          { sku: 'HOSEYAM005', spec: spec('黑色') },
+          { sku: 'HOSEYAM005BL', spec: spec('藍色') },
+          { sku: 'HOSEYAM005RED', spec: spec('紅色') },
+        ],
+      ],
+    ]);
+    const idByExt = new Map([['HOSEYAM005', 'pid-hoseyam005']]);
+    const existing = new Map([
+      [
+        'pid-hoseyam005',
+        [
+          { sku: 'HOSEYAM005', spec: {} },
+          { sku: 'HOSEYAM005BL', spec: spec('黑色') },
+          { sku: 'HOSEYAM005RED', spec: spec('紅色') },
+        ],
+      ],
+    ]);
+
+    expect(simulateSpecCollisions(src, idByExt, existing, new Set())).toEqual([
+      {
+        externalId: 'HOSEYAM005',
+        kind: 'transition',
+        spec: '{"color":"黑色"}',
+        skus: ['HOSEYAM005', 'HOSEYAM005BL'],
+      },
+    ]);
+  });
+
+  it('雙向 swap cycle → 兩個目標 spec 都標 transition、交給 atomic RPC 一次換完', () => {
+    const src = new Map([
+      [
+        'G-SWAP',
+        [
+          { sku: 'A', spec: spec('藍色') },
+          { sku: 'B', spec: spec('黑色') },
+        ],
+      ],
+    ]);
+    const idByExt = new Map([['G-SWAP', 'pid-swap']]);
+    const existing = new Map([
+      [
+        'pid-swap',
+        [
+          { sku: 'A', spec: spec('黑色') },
+          { sku: 'B', spec: spec('藍色') },
+        ],
+      ],
+    ]);
+
+    const issues = simulateSpecCollisions(src, idByExt, existing, new Set());
+    expect(issues).toHaveLength(2);
+    expect(issues.every((issue) => issue.kind === 'transition')).toBe(true);
+    expect(new Set(issues.map((issue) => issue.spec))).toEqual(
+      new Set(['{"color":"黑色"}', '{"color":"藍色"}']),
+    );
   });
 
   it('新 product(target 查無 id)→ 只查 source 群內(既有行為回歸)', () => {

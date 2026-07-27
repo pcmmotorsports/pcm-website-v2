@@ -3,6 +3,10 @@
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
 >
+> ✅ **2026-07-27 Eazi-Grip Supplier Daily Sync 修復已完成本機實作與驗證。**根因不是爬蟲漏資料，而是 HOSEYAM005 的現況 `base={}`／`BL=黑色` 要更新成 `base=黑色`／`BL=藍色`；最終資料唯一，但一般逐列 bulk upsert 會在 BL 尚未離開黑色前撞 `pv_spec_unique`。修法辨識 final collision 與 transition hazard；final 仍寫前 abort，hazard 群完整排除一般 orphan delete/bulk upsert，交給 `public.sync_product_variant_group` 單一交易完成 supplier lock、payload 重驗、唯一 sentinel 騰位、孤兒刪除、完整 desired upsert 與終態 assert。RPC 為 SECURITY INVOKER，僅 `service_role` 可 EXECUTE。
+> ✅ **驗證證據:**Eazi-Grip 線上資料唯讀 dry-run 精準命中 HOSEYAM005 1 群 transition hazard、final collision=0；targeted Vitest 31/31、full suite 3029 passed + 1 todo、typecheck、lint、build、`git diff --check` 全綠；隔離 PostgreSQL 17 實跑 HOSE transition、既有兩 row A↔B、異常 primitive、metadata constraint 發生在 sentinel + orphan delete 後的整筆 rollback、ACL、以及雙連線 stale-preflight/TOCTOU（競態 SKU 保持 OTHER ownership、hazard transaction rollback、orphan 恢復、sentinel=0）。`supabase/tests/database/atomic_variant_group_sync.test.sql` 已留 25 項 pgTAP regression；本機臨時 cluster 沒安裝 pgTAP extension，故該檔未直接由 pgTAP runner 執行，關鍵 SQL 路徑另以等價 assertion 實跑。獨立唯讀對抗審查最終 PASS、0 finding。
+> 🔴 **migration-first release gate（不可倒序）:**先 apply `supabase/migrations/20260727084801_atomic_variant_group_sync.sql` 到 production 並驗 function signature / SECURITY INVOKER / ACL；成功後才可 push `dev` 讓 workflow 使用 RPC，再重跑 eazigrip sync。production migration、push、deploy、正式同步目前都**尚未執行**，均需 Sean 對該動作明確批准；只 push code 而未先 apply migration，會在 hazard 群呼叫不存在的 RPC，且前面的普通寫入可能已完成。
+>
 > 🔴🔴 **2026-07-28 20:00 後開工的 session:直接讀 `docs/handoff/2026-07-27-admin-full-planning-handoff.md`,那是你的唯一入口、本檔以下是背景。** Sean 07-27 指示:完整後台規劃與執行由**新 session 用 Fable 主導、codex 審查**;目標逐字=「我目標是把完整後台做好」。該檔含:開工步驟 / E0-E12 範圍全圖 / E8-B 認證線 11 片與六題拍板 / E10 三個前置 / 11 條踩過的陷阱 / 未查證項。
 > 🔴 **現行主線已於 2026-07-26 換軌 ＝ M-4b 後台重建「員工上工」線**(Sean 定調北極星:「可以完整上線給員工使用…他們不是工程師」)。~~接手第一件事 = 做全後台畫面預覽 artifact~~ ✅ **已完成**(46 畫面、Sean 驗收畢、U1-U7 全拍板;artifact 現行網址見 STATUS)。完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`;主規格 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(先讀 §0a 最新拍板)。施工序 = E11 積木 → E8 員工權限 → E10 訂單閉環;
 >

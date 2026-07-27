@@ -46,7 +46,14 @@ import {
   type VariantRow,
   type GroupTransformContext,
 } from './rpm-transform';
-import { resolveId, resolveIdOrNull, upsertBatched, partitionByKeyPresence } from './rpm-load';
+import {
+  resolveId,
+  resolveIdOrNull,
+  upsertBatched,
+  partitionByKeyPresence,
+  splitVariantSyncWork,
+  syncVariantGroupAtomic,
+} from './rpm-load';
 import {
   computeDelta,
   printDeltaReport,
@@ -395,12 +402,25 @@ async function main(): Promise<void> {
   //   dry-run 列報告不 throw(Sean 看完整碰撞清單、Phase 1 處置 C3:bonamici 3 群真正區分軸是尺寸、不在 spec);
   //   寫入模式撞鍵 → abort 不進 upsert(避免 23505 部分寫的髒中間態)。
   //   V1:排除已排定刪除的孤兒 sku(upsert 前先刪、不參與模擬;變體改名同 spec 不再恆撞=F3)。
-  const collisions = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId, orphanSkusToDelete);
-  if (!collisions.length) console.log('✅ pv_spec_unique preflight 撞鍵 0(留檔證據自明、免讀源碼反推)');
-  if (collisions.length) {
-    console.warn(`[rpm-import] 🔴 pv_spec_unique preflight 撞鍵 ${collisions.length} 群、寫入模式將 abort:`);
-    console.table(collisions.slice(0, 50));
-    if (collisions.length > 50) console.log(`(另有 ${collisions.length - 50} 群未列)`);
+  const specIssues = await preflightSpecUnique(target, config.supplierSlug, variantsByExternalId, orphanSkusToDelete);
+  const finalSpecCollisions = specIssues.filter((issue) => issue.kind === 'final');
+  const transitionHazards = specIssues.filter((issue) => issue.kind === 'transition');
+  const hazardExternalIds = new Set(transitionHazards.map((issue) => issue.externalId));
+  if (!finalSpecCollisions.length) {
+    console.log(
+      `✅ pv_spec_unique preflight 最終撞鍵 0 / 中途換位 ${hazardExternalIds.size} 群` +
+        (hazardExternalIds.size ? '(將走 atomic RPC)' : ''),
+    );
+  }
+  if (transitionHazards.length) {
+    console.warn(`[rpm-import] ⚠️ pv_spec_unique 中途換位 ${hazardExternalIds.size} 群、將排除一般 bulk 路徑:`);
+    console.table(transitionHazards.slice(0, 50));
+    if (transitionHazards.length > 50) console.log(`(另有 ${transitionHazards.length - 50} 個換位點未列)`);
+  }
+  if (finalSpecCollisions.length) {
+    console.warn(`[rpm-import] 🔴 pv_spec_unique 最終撞鍵 ${finalSpecCollisions.length} 個、寫入模式將 abort:`);
+    console.table(finalSpecCollisions.slice(0, 50));
+    if (finalSpecCollisions.length > 50) console.log(`(另有 ${finalSpecCollisions.length - 50} 個未列)`);
     if (!DRY_RUN) throw new Error('pv_spec_unique preflight 撞鍵、停止(避免部分寫的髒中間態)');
   }
 
@@ -496,19 +516,41 @@ async function main(): Promise<void> {
   ];
   const idByExtId = new Map(savedProducts.map((r) => [r.external_id as string, r.id as string]));
 
-  // ── V1 孤兒變體硬刪(variants upsert **前**:變體改名同 spec 先清舊列、免撞 pv_spec_unique 23505=F3)──
-  //   gate 已在寫入前驗過(aborted 早 throw);此處 orphanSkusToDelete 必為安全集合。
-  //   ⚠️ 無交易:刪除成功後若 variants upsert 失敗 → 該群短暫少列(下輪同步自癒、冪等);審查 should-fix 已知。
-  if (orphanSkusToDelete.size) {
-    const deleted = await applyVariantDelete(target, config.supplierSlug, [...orphanSkusToDelete]);
+  // transition hazard 群完整排除一般 orphan delete / bulk upsert，交給單一 RPC 原子處理。
+  // 一般群維持既有路徑；本 slice 的 rollback 承諾只涵蓋 hazard 商品群的變體，不擴成整家供應商大交易。
+  const variantWork = splitVariantSyncWork(variantsByExternalId, variantOrphans.orphans, hazardExternalIds);
+
+  // ── V1 一般群孤兒變體硬刪(variants upsert 前)──
+  //   ⚠️ 一般群仍是既有非交易行為；hazard 群 orphan 已排除，由 RPC 內同交易刪除。
+  if (variantWork.regularOrphanSkus.length) {
+    const deleted = await applyVariantDelete(target, config.supplierSlug, variantWork.regularOrphanSkus);
     console.log(`[rpm-import] 孤兒變體硬刪:${deleted} 列(scope ${config.supplierSlug};order_items FK SET NULL、歷史不破)`);
   }
 
-  const variantRowsWithProduct = productRows.flatMap((pr) =>
-    variantsByExternalId.get(pr.external_id)!.map((vr) => ({ ...vr, product_id: idByExtId.get(pr.external_id)! })),
+  const regularVariantRowsWithProduct = productRows
+    .filter((pr) => !hazardExternalIds.has(pr.external_id))
+    .flatMap((pr) =>
+      variantsByExternalId.get(pr.external_id)!.map((vr) => ({ ...vr, product_id: idByExtId.get(pr.external_id)! })),
+    );
+  if (regularVariantRowsWithProduct.length !== variantWork.regularVariants.length) {
+    throw new Error('variant work 分流計數不一致、拒絕寫入');
+  }
+  await upsertBatched(target, 'product_variants', regularVariantRowsWithProduct, 'supplier_slug,sku');
+
+  for (const group of variantWork.atomicGroups) {
+    const synced = await syncVariantGroupAtomic(
+      target,
+      config.supplierSlug,
+      group.externalId,
+      group.variants,
+      group.orphanSkus,
+    );
+    console.log(`  product_variants atomic:${group.externalId} ${synced}/${group.variants.length}`);
+  }
+  console.log(
+    `[rpm-import] WRITE 完成:${productRows.length} 商品 / ${variantRows.length} 變體` +
+      `(一般 ${regularVariantRowsWithProduct.length} / atomic ${variantWork.atomicGroups.length} 群)`,
   );
-  await upsertBatched(target, 'product_variants', variantRowsWithProduct, 'supplier_slug,sku');
-  console.log(`[rpm-import] WRITE 完成:${productRows.length} 商品 / ${variantRowsWithProduct.length} 變體`);
 
   // ── S4 下架對賬(源頭消失 → 軟下架;upsert 後跑、只全量、篩選模式跳過避免誤殺)──
   if (FULL_MODE) {

@@ -9,6 +9,7 @@
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { VariantRow } from './rpm-transform';
 
 // ── constants ──
 const BATCH_SIZE = 500;
@@ -89,4 +90,99 @@ export async function upsertBatched(
     console.log(`  ${table}: upserted ${Math.min(i + BATCH_SIZE, rows.length)}/${rows.length}`);
   }
   return out;
+}
+
+/**
+ * 有 spec transition hazard 的單一商品群，交給 DB RPC 在同一 transaction 內完成：
+ * 鎖定 → sentinel 騰位 → 孤兒刪除 → 完整 desired upsert → 終態 assert。
+ * product_id 不由 Node 傳入；DB 端用 supplier_slug + external_id 重新解析並鎖定。
+ */
+export async function syncVariantGroupAtomic(
+  tgt: SupabaseClient,
+  supplierSlug: string,
+  externalId: string,
+  variants: VariantRow[],
+  orphanSkus: string[],
+): Promise<number> {
+  const payload = variants.map(({ supplier_slug, ...variant }) => {
+    if (supplier_slug !== supplierSlug) {
+      throw new Error(
+        `syncVariantGroupAtomic ${externalId}:variant supplier_slug=${supplier_slug} 與 scope ${supplierSlug} 不符`,
+      );
+    }
+    return variant;
+  });
+  const { data, error } = await tgt.rpc('sync_product_variant_group', {
+    p_supplier_slug: supplierSlug,
+    p_external_id: externalId,
+    p_variants: payload,
+    p_orphan_skus: orphanSkus,
+  });
+  if (error) throw new Error(`syncVariantGroupAtomic ${externalId}: ${error.message}`);
+  if (data !== variants.length) {
+    throw new Error(
+      `syncVariantGroupAtomic ${externalId}:RPC 回傳 ${String(data)}、預期 ${variants.length}，拒絕當成功`,
+    );
+  }
+  return data;
+}
+
+export interface AtomicVariantGroup {
+  externalId: string;
+  variants: VariantRow[];
+  orphanSkus: string[];
+}
+
+/**
+ * hazard 群必須完整排除現有的「先刪 orphan、再 bulk upsert」兩條非交易路徑，
+ * 改由單一 RPC 同生共死。一般群維持既有批次行為，避免把整家同步擴成大交易。
+ */
+export function splitVariantSyncWork(
+  variantsByExternalId: Map<string, VariantRow[]>,
+  orphans: { sku: string; externalId: string }[],
+  hazardExternalIds: Set<string>,
+): {
+  regularVariants: VariantRow[];
+  regularOrphanSkus: string[];
+  atomicGroups: AtomicVariantGroup[];
+} {
+  for (const externalId of hazardExternalIds) {
+    if (!variantsByExternalId.has(externalId)) {
+      throw new Error(`splitVariantSyncWork:hazard 群 ${externalId} 不在本次完整 source`);
+    }
+  }
+  for (const orphan of orphans) {
+    if (!variantsByExternalId.has(orphan.externalId)) {
+      throw new Error(`splitVariantSyncWork:orphan ${orphan.sku} 的群 ${orphan.externalId} 不在本次完整 source`);
+    }
+  }
+
+  const orphanSkusByExternalId = new Map<string, string[]>();
+  for (const orphan of orphans) {
+    const list = orphanSkusByExternalId.get(orphan.externalId);
+    if (list) list.push(orphan.sku);
+    else orphanSkusByExternalId.set(orphan.externalId, [orphan.sku]);
+  }
+
+  const regularVariants: VariantRow[] = [];
+  const atomicGroups: AtomicVariantGroup[] = [];
+  for (const [externalId, variants] of variantsByExternalId) {
+    if (hazardExternalIds.has(externalId)) {
+      atomicGroups.push({
+        externalId,
+        variants,
+        orphanSkus: orphanSkusByExternalId.get(externalId) ?? [],
+      });
+    } else {
+      regularVariants.push(...variants);
+    }
+  }
+
+  return {
+    regularVariants,
+    regularOrphanSkus: orphans
+      .filter((orphan) => !hazardExternalIds.has(orphan.externalId))
+      .map((orphan) => orphan.sku),
+    atomicGroups,
+  };
 }

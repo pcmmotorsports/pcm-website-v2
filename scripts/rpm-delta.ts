@@ -4,8 +4,10 @@
  * 鐵則 12 pricing:S3b 切換零售價來源(price_listing→price_retail)是全站改價、非 no-op。
  *   - 兩層 delta:products by external_id(前台列表/卡片吃商品層基準價)+ variants by sku、各比 price_general。
  *   - 硬 gate:異常列(新價 null/0/負/NaN)不可覆寫硬 abort;任何正式寫入須帶 --confirm-write(見 rpm-import)。
- * pv_spec_unique preflight:非首灌升級若同群 spec 重複/孤兒撞 → 批次 upsert 部分寫後才 23505;
- *   先 source 群內查 + target 模擬(新 product 用 external_id synthetic key)、有撞先 abort 不寫。
+ * pv_spec_unique preflight:
+ *   - final：最終同群 spec 真重複/孤兒撞 → 寫前 abort。
+ *   - transition：最終唯一，但現況某 SKU 暫佔另一 SKU 的目標 spec → 分流到 atomic RPC。
+ *   兩者都先 source 群內查 + target 模擬(新 product 用 external_id synthetic key)，避免 bulk 中途才 23505。
  *
  * 全程唯讀 target(SELECT、別大 .in() 撞 GET URL 上限);只比 price_general(公開零售、非敏感)。
  */
@@ -264,12 +266,13 @@ export function hasAbnormal(r: DeltaReport): boolean {
 
 export interface SpecCollision {
   externalId: string;
+  kind: 'final' | 'transition';
   spec: string;
   skus: string[];
 }
 
 /**
- * 純模擬(可測):source 群內 spec 重複 + target 既有變體併入。
+ * 純模擬(可測):source 最終 spec 重複 + target 既有變體併入 + 同批 SKU 中途換位。
  * 🔴 V1(2026-07-05 審查 F3):`deletedSkus` = 變體級對賬已排定硬刪的孤兒 sku——變體 upsert 前會先刪,
  * 故**不併入**模擬(否則「變體改名、spec 不變」→ 新 sku 恆撞已死孤兒 → 該供應商同步永久卡死、無工具可解)。
  */
@@ -282,6 +285,7 @@ export function simulateSpecCollisions(
   const collisions: SpecCollision[] = [];
   for (const [externalId, srcVariants] of variantsByExternalId) {
     const srcSkus = new Set(srcVariants.map((v) => v.sku));
+    const desiredSpecBySku = new Map(srcVariants.map((v) => [v.sku, stableSpec(v.spec)]));
     const bySpec = new Map<string, string[]>();
     const add = (sku: string, spec: Record<string, string>): void => {
       const s = stableSpec(spec);
@@ -298,7 +302,28 @@ export function simulateSpecCollisions(
       }
     }
     for (const [spec, skus] of bySpec) {
-      if (skus.length > 1) collisions.push({ externalId, spec, skus });
+      if (skus.length > 1) collisions.push({ externalId, kind: 'final', spec, skus });
+    }
+
+    // target 目前的 spec 雖會被同批 source SKU 覆寫，仍可能在「逐列 upsert 的中途」
+    // 暫時佔住另一列的目標 spec。例:BL 現為黑、desired 要改藍；base desired 要改黑，
+    // 若 base 先寫就會在 BL 尚未離開前撞 pv_spec_unique。只報「佔位者也會搬走」的情境；
+    // 佔位者不搬＝上方 final collision，孤兒已排刪＝寫入前會先釋放，皆不重複列。
+    if (pid) {
+      const current = existByProduct.get(pid) ?? [];
+      const currentOwnerBySpec = new Map(
+        current.filter((v) => !deletedSkus.has(v.sku)).map((v) => [stableSpec(v.spec), v.sku]),
+      );
+      for (const desired of srcVariants) {
+        const desiredSpec = stableSpec(desired.spec);
+        if ((bySpec.get(desiredSpec)?.length ?? 0) > 1) continue; // final collision 已報
+        const occupantSku = currentOwnerBySpec.get(desiredSpec);
+        if (!occupantSku || occupantSku === desired.sku || !srcSkus.has(occupantSku)) continue;
+        const occupantCurrentSpec = desiredSpec;
+        const occupantDesiredSpec = desiredSpecBySku.get(occupantSku);
+        if (!occupantDesiredSpec || occupantDesiredSpec === occupantCurrentSpec) continue; // 不搬＝final collision
+        collisions.push({ externalId, kind: 'transition', spec: desiredSpec, skus: [desired.sku, occupantSku] });
+      }
     }
   }
   return collisions;
@@ -306,7 +331,9 @@ export function simulateSpecCollisions(
 
 /**
  * pv_spec_unique(product_id, spec) preflight。
- * source 群內(external_id 分群)spec 重複 + target 模擬(既有變體〔source 無、亦未排定刪除〕併入後是否撞)。
+ * source 群內(external_id 分群)最終 spec 重複 + target 模擬：
+ * ① 既有變體〔source 無、亦未排定刪除〕併入後是否真撞；
+ * ② source SKU 的 desired spec 是否仍被同批另一 SKU 暫佔(transition hazard)。
  * 新 product(target 查無 id)→ 只查 source 群內(external_id 即 synthetic key)。
  * `deletedSkus`:V1 變體級對賬排定硬刪的孤兒(upsert 前已清、不參與模擬;預設空=舊行為)。
  */
