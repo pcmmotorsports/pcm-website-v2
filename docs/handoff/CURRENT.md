@@ -6,7 +6,7 @@
 >
 > 🔴🔴 **接手第一件事(2026-07-26 更新)= 先看 `git log --oneline origin/dev..HEAD` 有沒有未推的 migration**。~~目前未推 commit 中含 `04f5511` E8-A1(新表 `public.staff`)~~ ✅ **已於 2026-07-26 apply production**(Sean 授權 Claude 代跑;獨立驗證全綠)⇒ **順序風險已解除、可安心推 code**。原硬閘理由備查:未 apply 的 DB 配新 code —— 未 apply 的 DB 配上新 code,`listActiveStaff` 查無表回 `[]` ⇒ 身分下拉空白 + 所有後台寫入被 fail-closed 擋下(`dev` = pcm-admin 的 **production** 分支,push 即部署)。**這不是優雅降級,是後台當場不能用。****會計線(E13/E14)+ 電子發票 Sean 拍 Q3=C 整條延後、研究已完成不必重查**。🔴 **push 狀態當場查 `git log --oneline origin/dev..HEAD`,不看寫死數字**(Sean 已於 07-26 授權推 `ee0f66e..8643c2c`)。
 >
-> **(以下為前一條主線,未完成、暫非優先)M-3 TapPay 正式化線(Sean 2026-07-23 開工):S1a「付款送出逾時出口」✅(`b73e9cb`、已推 `origin/dev`)+ S1b-1「reconcileCartSession 後端」✅(`43c0d6d`)+ S1b-2「前端接線」✅ 收工(本 session、**未 push**、零 migration)→ S2 sweeper 搬 pg_cron ✅ code+branch(flag 留 S4、待 Sean db push)→ 下一片 S3。** plan 真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S1a-S6+L1);金流紅線+設計輸入=memory `project_tappay-production-blackhole-settle-line`。並行入口:主軌 M-4a B-4、支線 #288-b、法律頁 L1(草稿待核准);**同一時間只允許一個寫入 session。**
+> **(以下為前一條主線,未完成、暫非優先)M-3 TapPay 正式化線(Sean 2026-07-23 開工):S1a「付款送出逾時出口」✅(`b73e9cb`、已推 `origin/dev`)+ S1b-1「reconcileCartSession 後端」✅(`43c0d6d`)+ S1b-2「前端接線」✅ 收工(已推)→ S2 sweeper 搬 pg_cron ✅(flag 留 S4;migration 已 apply)→ 下一片 S3。** plan 真權威=`docs/specs/2026-07-23-m3-tappay-production-settle-line-plan.md`(S1a-S6+L1);金流紅線+設計輸入=memory `project_tappay-production-blackhole-settle-line`。並行入口:主軌 M-4a B-4、支線 #288-b、法律頁 L1(草稿待核准);**同一時間只允許一個寫入 session。**
 > ✅ **正式上線閘已解除**（2026-07-22 Sean 拍 Q1=A：桌機 390px 視窗驗過即算滿足「肉眼驗手機版」）。誠實範圍：驗過 3/4 項、**非真手機、第 ④ 項觸控焦點未驗**。🔴 **但推 `main` 仍是 Sean 的手動動作** —— 任何 session 不得代推、不得主動提議推。
 
 ## 1. 交接快照
