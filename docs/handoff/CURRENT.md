@@ -4,7 +4,7 @@
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
 > 🔴 **現行主線已於 2026-07-26 換軌 ＝ M-4b 後台重建「員工上工」線**(Sean 定調北極星:「可以完整上線給員工使用…他們不是工程師」)。~~接手第一件事 = 做全後台畫面預覽 artifact~~ ✅ **已完成**(46 畫面、Sean 驗收畢、U1-U7 全拍板;artifact 現行網址見 STATUS)。完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`;主規格 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(先讀 §0a 最新拍板)。施工序 = E11 積木 → E8 員工權限 → E10 訂單閉環;
 >
-> 🧹 **開工順手做(Sean 2026-07-27 拍 A)= STATUS.md 主表精簡**:CLAUDE.md 要求「主表(分隔線上)≤30 行嚴守」,實查目前 **357 行**(2026-07-27 當場 `awk` 量;非本次造成、開工時已 343 行)。做法=**已完成線的細節移去 `PROGRESS.md`、主表只留現行主線**;🔴 **精簡 content、不砍欄**(7 欄結構保留)。趁開工讀 STATUS 時一起做,上下文最乾淨、判斷哪些能移最準。
+> ✅ **STATUS.md 主表精簡已完成(2026-07-27,Sean 拍板 A)**:主表 **357 → 30 行**(`awk` 當場量;分隔線現在第 31 行)、**7 欄結構完整保留**。移出的 357 行**逐字全文**存進 `PROGRESS.md` §「2026-07-27 STATUS 主表精簡存檔」的 `<details>` 區塊,**零刪除零改寫** —— 已用 `shasum` 逐位元組比對存檔區與精簡前主表:兩者 hash 相同(`221b8ba1…`)。🔴 存檔區內含當時的「本 commit」等自指字面,**那是當時的字面、刻意不修飾**;現況一律以精簡後的 `STATUS.md` 為準。
 >
 > 🔴🔴 **接手第一件事(2026-07-26 更新)= 先看 `git log --oneline origin/dev..HEAD` 有沒有未推的 migration**。~~目前未推 commit 中含 `04f5511` E8-A1(新表 `public.staff`)~~ ✅ **已於 2026-07-26 apply production**(Sean 授權 Claude 代跑;獨立驗證全綠)⇒ **順序風險已解除、可安心推 code**。原硬閘理由備查:未 apply 的 DB 配新 code —— 未 apply 的 DB 配上新 code,`listActiveStaff` 查無表回 `[]` ⇒ 身分下拉空白 + 所有後台寫入被 fail-closed 擋下(`dev` = pcm-admin 的 **production** 分支,push 即部署)。**這不是優雅降級,是後台當場不能用。****會計線(E13/E14)+ 電子發票 Sean 拍 Q3=C 整條延後、研究已完成不必重查**。🔴 **push 狀態當場查 `git log --oneline origin/dev..HEAD`,不看寫死數字**(Sean 已於 07-26 授權推 `ee0f66e..8643c2c`)。
 >
