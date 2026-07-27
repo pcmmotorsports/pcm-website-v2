@@ -131,10 +131,30 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-- **codex 關卡1 對 E10 總規劃的審查:本 session 結束時仍在執行中,findings 尚未 triage、尚未折入。**
-  輸出檔 `/private/tmp/claude-502/-Users-sean-1-pcm-website-v2/5be7ac52-bcf7-44a6-939a-3f7e09d89e30/scratchpad/codex-e10-k1-out.txt`
-  🔴 該路徑是 session 專屬暫存,**下個 session 可能已不存在** ⇒ 若讀不到,**重跑一次關卡1**(prompt 內容見總規劃 §5 與本檔 §3,或直接照總規劃重新出題)。**不要當作「審過了」。**
-- **總規劃未經任何審查放行** ⇒ 依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**。
+### 🔴🔴 codex 關卡1 = **FAIL,約 60 條 must-fix。總規劃 v1 判定需重寫,不是修補。**
+
+findings 全文已存進 repo:**`docs/reviews/2026-07-27-e10-master-plan-codex-k1.md`**(零留痕已驗)。
+**findings 尚未折入 —— 下個 session 的第一件事就是處理它。**
+
+**主對話抽驗三條,全部成立(不是 codex 過度嚴格)**:
+
+| 抽驗項 | 裁定 | 證據 |
+|---|---|---|
+| `internal_note` 加在 `orders` 會洩漏給客人 | ✅ **成立、資安面** | `20260604120000_m3_s2a_orders_order_items.sql:190` 逐字 `GRANT SELECT ON TABLE orders TO authenticated` = **整表欄位級全開** + `orders_select_own` RLS ⇒ 登入客人讀得到自己訂單的**所有欄位**。內部備註必須另立表或走 column-level 控制 |
+| **P2 與已拍板的 U7 直接衝突** | ✅ **成立、是我的流程錯誤** | `2026-07-26-admin-ux-operability-review.md` U7 逐字「**A Phase 1 人工查+手標已送達**」。我在 P2 建議「送達通知不做、不用員工手動標硬湊」= **提了一個與既有 Sean 拍板相反的方案而沒發現**,Sean 據此答了 P2=A |
+| 6 碼碰撞機率算錯 | ✅ **成立、我給 Sean 的數字是錯的** | 我寫「32 字母表」但同段又指定「排除易混淆字元 **+ 母音**」⇒ 36−(0,O,1,I,L)−(A,E,U)= **28 字**。實算:**5 碼 23.0%、6 碼 0.929%**(我報的是 12.6% / 0.4%)。**結論「用 6 碼」仍成立**(0.9% 且有重試 = 可接受),但數字要更正 |
+
+**其餘 must-fix 的主要類型**(未逐條裁定,下個 session 處理):
+①**片型與大小**:多數片混了 schema+RPC+audit+UI,遠超鐵則 4 的 15-45 分鐘,必須再拆
+②**依賴不閉合**:第 1 批寫 O0-O7 卻含依賴 O8 的 O7a/O7b;O11/O12 未依賴包裹片 O10;O19 未依賴帳本片
+③**27 項映射不誠實**:O14「接帳本做 UI」不成立 —— `order_refunds` 只給 service_role SELECT,且退款線 RF2b-RF8 本就未施工 ⇒ 第 17 項做完仍不能退款
+④**U 系列拍板未折入**:U1 多單併一箱 / U2 已裝箱鎖定 / U5 負責人與跟進日 / U4 通知矩陣 / U6 缺貨告知
+⑤**enum 不可 contract**:「所有 DB 片一律 expand/contract」對 O5 字面不成立
+⑥**數字自相矛盾**:片數 24 vs 22、高風險片 13 vs 12、server action 7(實際 6)
+⑦**C1 同檔既寫「未定」又寫「已拍板」**,且 `docs/reference/hct-logistics-api-reference.md:217` 仍記未定案 —— **repo 真權威未同步**
+
+🔴 依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**。
+⚠️ 依輪次紀律 plan 層上限 2 輪:v1 已用掉 R1。**重寫後只剩 1 輪 R2**;若 R2 仍不收斂 = 方向問題,整理決策題給 Sean、不再折衝。
 - 24 片的「2-4 週」是**整體粗估、未逐片估算**,不是承諾。
 - 27 項現況(✅2/⚠️6/❌19)沿用 2026-07-26 read-back,**本輪未逐項重驗**(列為 O0)。
 - E8-B plan v3 的 **34 條 must-fix 尚未重寫折入**;本輪只記錄狀態。

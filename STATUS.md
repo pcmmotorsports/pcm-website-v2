@@ -16,7 +16,7 @@
 
 ## 下一步
 🔴🔴 **施工序已於 2026-07-27 深夜改為「先 E10 訂單閉環、E8-B 認證線押後」(Sean Q1=A、二次確認 Q6=A)。唯一入口 = `docs/handoff/2026-07-27-e10-order-closure-handoff.md`**;總規劃本體 = **`docs/specs/2026-07-27-e10-order-closure-master-plan.md`**(24 片、13 片命中鐵則 12、Sean P1-P4+E1-E4 八題全拍板在 §6)。~~舊入口 `2026-07-27-admin-full-planning-handoff.md` 的施工序已被推翻~~。
-- 🔴 **總規劃尚未放行**:codex 關卡1 於 session 結束時**仍在執行、findings 未 triage 未折入**;暫存輸出路徑下個 session 可能已不存在 ⇒ **讀不到就重跑一次關卡1,不得當作已審過**。依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**。
+- 🔴🔴 **總規劃 v1 = codex 關卡1 FAIL、約 60 條 must-fix,判定需重寫(非修補)**。findings 全文存 `docs/reviews/2026-07-27-e10-master-plan-codex-k1.md`,**尚未折入 = 下個 session 第一件事**。主對話抽驗三條全部成立:①`internal_note` 放 `orders` 會洩漏給客人(`20260604120000…:190` 逐字 `GRANT SELECT ON TABLE orders TO authenticated` 整表全開)②**P2 建議與已拍板的 U7「Phase 1 人工查+手標已送達」直接衝突**(主對話流程錯誤)③6 碼碰撞機率報錯(實為 5 碼 23.0% / 6 碼 0.929%,非 12.6%/0.4%;結論用 6 碼仍成立)。依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**;plan 層只剩 1 輪 R2。
 - **E10 第一批 = O0-O7**(P4=B 分三批、每批 Sean 肉眼驗)。O0 必補查:orders 筆數(本輪 29)/ E11 積木是否已被兩頁採用 / 27 項逐項重驗(現值沿用 07-26、未重驗)。
 - **E8-B 押後**:Q5=A 第一期只做 email+密碼(2FA 另立 E8-C)⇒ 11 片縮為約 8 片;🔴 plan v3 經 codex 關卡1 **R2 FAIL 34 must-fix**、兩輪上限用盡,**判定需重寫**。🔴 新增硬前置:**報價單不能跑 `db push`**(本地 146 檔 vs ledger 160 筆版本號零重疊)。
 - **E12 供應商主檔 Q2=B 這期不做**(報價單 `suppliers` 16 列實為改裝品牌、非下單對象)。
