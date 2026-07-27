@@ -2,6 +2,8 @@
 
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
+>
+> 🔴🔴 **2026-07-28 20:00 後開工的 session:直接讀 `docs/handoff/2026-07-27-admin-full-planning-handoff.md`,那是你的唯一入口、本檔以下是背景。** Sean 07-27 指示:完整後台規劃與執行由**新 session 用 Fable 主導、codex 審查**;目標逐字=「我目標是把完整後台做好」。該檔含:開工步驟 / E0-E12 範圍全圖 / E8-B 認證線 11 片與六題拍板 / E10 三個前置 / 11 條踩過的陷阱 / 未查證項。
 > 🔴 **現行主線已於 2026-07-26 換軌 ＝ M-4b 後台重建「員工上工」線**(Sean 定調北極星:「可以完整上線給員工使用…他們不是工程師」)。~~接手第一件事 = 做全後台畫面預覽 artifact~~ ✅ **已完成**(46 畫面、Sean 驗收畢、U1-U7 全拍板;artifact 現行網址見 STATUS)。完整交接包 = `docs/handoff/2026-07-26-admin-backend-spec-handoff.md`;主規格 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`(先讀 §0a 最新拍板)。施工序 = E11 積木 → E8 員工權限 → E10 訂單閉環;
 >
 > ✅ **STATUS.md 主表精簡已完成(2026-07-27,Sean 拍板 A)**:主表 **357 → 30 行**(`awk` 當場量;分隔線現在第 31 行)、**7 欄結構完整保留**。移出的 357 行**逐字全文**存進 `PROGRESS.md` §「2026-07-27 STATUS 主表精簡存檔」的 `<details>` 區塊,**零刪除零改寫** —— 已用 `shasum` 逐位元組比對存檔區與精簡前主表:兩者 hash 相同(`221b8ba1…`)。🔴 存檔區內含當時的「本 commit」等自指字面,**那是當時的字面、刻意不修飾**;現況一律以精簡後的 `STATUS.md` 為準。

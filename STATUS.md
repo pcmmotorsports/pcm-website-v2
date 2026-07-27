@@ -7,20 +7,20 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env + TOTP)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
-2026-07-27 `0ab3897` **E8-A2 後台員工管理頁**(高風險片、鐵則 12 ②權限;已 push、零 migration、零 DB、零 flag、未動 `.env*`)+ `a8efa53` / `d2a17ad` docs。
-**產出**=`/settings/staff` 新增/改顯示名/改管理者標記/停用啟用,`sean`=break-glass 永不可停用(後台自鎖的唯一結構性防線)。**分工**=Codex `gpt-5.6-sol` xhigh 寫、主對話寫規格+審 diff+自跑驗證;🔴 **Codex 用「沙箱限制」遮住一個真 build break** ⇒ 它說「因環境限制未驗證」一律當「未知」、build 必主對話自跑。**審查**=codex-adversary xhigh FAIL **7 must-fix**、逐條核對全數成立且已全修(F1 自鎖競態→break-glass / F2 stale write 復活→拆兩支 action / F3 稽核失敗謊稱成功 / F4 `is_manager` 假安全語意 / F5 手機不能操作 / F6 `database.types.ts` 缺 staff / F7 SSoT)。**驗證(主對話自跑、不採信 Codex 自述)**=三綠 8/8·10/10·2/2、full test **261 檔 3018 passed + 1 todo**、突變 4/4 全紅;🔴 突變測試必須先 `grep` 驗「替換真的發生」(本片一度把無效突變誤判成假綠)。**更早的逐片紀錄(M-3 U 線 / RF 退刷線 / M-4a 通知線 / trim 線全部)→ `PROGRESS.md` 存檔區。**
+2026-07-27(**規劃/文件 session,零 code、零 migration、零 DB、零 flag、未動 `.env*`、未 push**)= ①STATUS 主表 **357→30 行**(`dc46f14`;移出全文逐字存 `PROGRESS.md`、`shasum` 驗零刪除)②**E8-B 真認證線 plan v3**(`4b39538`+本 commit)③**完整後台規劃交接檔**。
+🔴 **本輪最重要發現**:報價單站的**整套 2FA 是「全公司一組」不是「每人一份」**(`totp_devices` 14 欄與 `recovery_codes` 7 欄皆無 `user_id`;`auth_state.last_consumed_step:28` 逐字「全域 TOTP 防重放」⇒ **員工 A 用掉某 30 秒窗,員工 B 同窗的合法碼會被判重放、登不進去**;2FA 管理六路由全域;「記住裝置」零實作;`login/route.ts:127-131` legacy cookie fail-open)⇒ **「動 4 處」是低估,重拆為 B0-B10 十一片**。**codex 關卡1 R1 = FAIL 17 must-fix、逐條核對全數成立、駁回 0 條**(對帳表 plan §9);主對話 v1 自己寫錯三處已更正(詳 plan §1.4/D2/D3)。**Sean 六題全拍板**(Q6=A 一路做完才上線 / Q1=A 備援唯讀 / Q5=A 只有 sean 管 2FA / Q2=A 舊裝置歸 sean / **Q3=C 帳號用 email** / **Q4 先答 B 聽完風險後改 A 強制改密碼**)。**更早的逐片紀錄 → `PROGRESS.md` 存檔區。**
 
 ## 最近 3 commit
 > dev。🏁 **2026-07-25 Sean 拍板 A:不寫死 hash 與未推數**(寫死的自指數字每多一個 commit 或每次 push 就當場變假、同款前科已 10 次)→ 一律當場執行取得:`git log --oneline -4`(第 1 行=本 commit,其後 3 行=前序)/ `git rev-parse --short origin/dev` / `git rev-list --count origin/dev..HEAD` / `git merge-base --is-ancestor <hash> HEAD`(驗可達、防 busboy off-by-one orphan)。⚠️ `dev` = pcm-admin 的 **production** 分支,push 即部署;`origin/main` 同理不寫死。
 
 ## 下一步
-🔧 **兩條路等 Sean 選**(完整交接=`docs/handoff/CURRENT.md`):
-- **A. E10 訂單閉環** — 🔴 動工前必清三項:①**C1 同日分批出貨的訂單編號後綴規則未定**(新竹物流同日訂單編號不可重複、分批出貨會撞)②**`create_order` 已實證不可用於手動建單**(`:284` `auth.uid` 為 NULL 直接 exception、`:356`/`:360` 品項必須是既有 catalog 變體)⇒ 需另開 admin 專用 RPC ③schema 要吃 U1 包裹表 / U2 改單改全部 / U3 多筆匯款。
-- **B. 報價單端真認證線**(跨 repo `/Users/sean_1/API大量上架/PCM報價單-V2`)— Sean 已拍 **Q1=B** 身分來自報價單 / **Q7=A** 帳號+密碼登入(TOTP 只在未記住的新裝置才要)/ **Q8=A** Sean 指定初始密碼;「TOTP 裝置=身分」方案已作廢(Q5=B 裝置有共用)。要動 4 處:users 表+登入認人 / session payload 帶身分 / SSO authorize 記錄帶身分 / exchange 回傳。**尚未開工、需另寫規格。**
-- 排隊:**E11-3** 給 `<AdminDataTable>` 補 rowSpan + 互動槽(=接 `orders-table.tsx` 的硬前置;現況直接接會撞雙渲染天花板、產出重複 `<form>`)。
+🔴🔴 **2026-07-28 20:00 後新 session 接手完整後台規劃 + 執行(Sean 07-27 指示:Fable 主導規劃執行、codex 審查;目標逐字「我目標是把完整後台做好」)。唯一入口 = `docs/handoff/2026-07-27-admin-full-planning-handoff.md`**(含開工步驟 / E0-E12 範圍全圖 / 27 項驗收 / E8-B 十一片與六題拍板 / E10 三前置 / 11 條踩過的陷阱 / 未查證項)。**本 session 到此停止、不進實作。**
+- **E8-B 真認證線**:plan v3 就緒(`docs/specs/2026-07-27-m4b-e8b-real-auth-line-plan.md`)、六題全拍板、codex 關卡1 R1 已跑;🔴 **R2 刻意未跑**(留到拍完再審)+ 🔴 **一個未解設計題**:Q6=A 中間不上線 vs 報價單分支是 `main`(推即正式站)⇒ 11 片放哪(長期 branch / 全藏 flag / 混合),**沒答不要動 code**。
+- **E10 訂單閉環**:🔴 三前置未清 —— ①C1 同日分批出貨訂單編號後綴未定 ②**`create_order` 已實證不可用於手動建單**(`:284` `auth.uid` NULL 直接 exception、`:356`/`:360` 品項須為既有 catalog 變體)⇒ 需另開 admin 專用 RPC ③schema 要吃 U1 包裹表 / U2 改單改全部 / U3 多筆匯款。
+- 排隊:**E11-3** `<AdminDataTable>` 補 rowSpan + 互動槽(接 `orders-table.tsx` 的硬前置)/ **E11 Modal + toast** / **E12 供應商主檔(N9 未拍)**。
 
 ## Sean 待決策
-🔴 **需 Sean 親自做**:①向新竹站所電腦負責人申請物流 API 帳號(**查貨與出貨是兩張不同的申請表**;`docs/reference/hct-logistics-api-reference.md` §1)②**1 元商品真刷 smoke**(驗 RF2a-0 新 trigger 沒把結帳弄壞 —— 模擬與 apply 後驗證用的**都是合成單**、整支 migration 從未被真實 `create_order` 走過)。🆕 **一題待答(非阻擋)**:是否加 CI 檢查擋 migration 版本漂移(比對本地檔名 vs remote `schema_migrations`,對不上即紅)?**A=加(機制優先律)/ B=先不加、靠人記得**。已答畢的歷史拍板 → PROGRESS 存檔區 + memory `project_m4b-*` / `project_m3-*`。
+🔴 **需 Sean 親自做**:①向新竹站所電腦負責人申請物流 API 帳號(**查貨與出貨是兩張不同的申請表**;`docs/reference/hct-logistics-api-reference.md` §1)②**1 元商品真刷 smoke**(驗 RF2a-0 新 trigger 沒把結帳弄壞 —— 模擬與 apply 後驗證用的**都是合成單**)。🆕 **明天開工時要問的三題(現在別問)**:①E8-B 變 11 片跨兩 repo 後,施工序還是「E11→E8→E10」嗎、還是先做完 E10?②**N9 供應商主檔(E12)這期做不做**(07-26 問過未拍)③E8-B 承載方式(plan §7.4 a/b/c)。**非阻擋舊題**:是否加 CI 擋 migration 版本漂移(**A=加 / B=靠人記得**)。已答畢拍板 → memory `project_m4b-real-auth-line-decisions` / `project_m4b-*` / PROGRESS 存檔區。
 
 ## Blocker
 🟡 **M-3 prod checkout 仍不可開**(3DS flag 全 false、非硬 blocker、獨立線)/ 🟡 **M-3 階段⓪** 經銷價同步待報價單側三件就緒(合約 bump v2 + protected dealer view + least-privilege 憑證)/ 🟡 **#215** tier server 認證 defer、真死線=M-2-08 接真經銷價前。✅ **已解除**:#291 正式法律頁全鏈上線(剩 Sean 肉眼驗渲染後 payload)、0072 雙扣(經 Sean 核對為其本人開發測試單、已砍除)。
