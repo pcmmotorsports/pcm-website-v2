@@ -22,7 +22,26 @@
 **Branch:** dev
 
 ## 最後更新
-2026-07-26(**本 commit**=M-4b **E8-A1 員工名單改由資料庫提供**;高風險片〔鐵則 12 ③DB 結構 + ②auth 路徑〕;**未 push、migration 未 apply〔待 Sean `db push`〕、零 flag、未動 `.env*`**)
+2026-07-27(**本 commit**=M-4b **E8-A2 後台員工管理頁**〔新增/改顯示名/改管理者標記/停用啟用〕;高風險片〔鐵則 12 ②權限〕;**已 push、零 migration、零 DB、零 flag、未動 `.env*`**)
+**① 產出**:新頁 `/settings/staff` + 側邊選單一項。新檔:`app/settings/staff/page.tsx`、`components/settings/staff-{table,create-form,edit-row}.tsx`、`lib/staff-{actions,form,result-messages}.ts`(+ 對應測試)。改:`staff-repository.ts`、`app-sidebar.tsx`、`settings-result-banner.tsx`(messages 改可選 prop、預設為原常數 ⇒ 舊消費端零行為變更)、`admin-data-table.tsx`(見 ④-F5)、`database.types.ts`。
+🔴 **①-a 仍不解決「身分未經驗證」**:actor 仍由使用者自選。UI 文案已誠實標示。**不得宣稱 E8 完成。**
+**② 分工**:Codex `gpt-5.6-sol` + xhigh 執行兩輪(初稿 + 折入 must-fix),主對話寫規格 + 審 diff + 自跑全部驗證。
+🔴 **③ 主對話抓到一個 Codex 用「沙箱」遮住的真 build break**:它回報「admin build 因沙箱禁綁 port,1/2」;我實跑是 **0/2** —— 真因是 `'use server'` 檔 export 了常數物件(Next 規定只能 export async function)。**根因是我的規格**(要求把稽核 action 字面定成模組常數,既違反框架限制、也偏離 repo 既有的行內字面慣例)⇒ 已改回慣例。**教訓:Codex 說「因環境限制未驗證」時,一律當「未知」處理,不等於「驗了會過」**(已寫進修正輪規格,第二輪它照做、明講「未驗證」並另附 webpack build 佐證且聲明不能取代)。
+**④ fresh-context 對抗審查(codex-adversary skill、`-s read-only`、xhigh)= FAIL 7 must-fix,逐條核對後全數成立、零駁回,已全修**:
+　**F1(critical)自鎖可被蓄意觸發** —— 「最後一人」是快照檢查非原子:先正常停用到剩 2 人,再並行互停,兩邊都讀到 `active=2` 而通過 ⇒ **0 人啟用、後台永久鎖死,只能直接改 DB 救**。修法=**break-glass**:`sean` 永遠不得被停用,且**在讀取任何清單之前**就擋(不依賴快照)。🔴 **為何結構上成立**:`sean` 的 id 改不了(DB 欄級權限已 REVOKE `id` 的 UPDATE)、刪不掉(未授予 DELETE)⇒ 恆有 ≥1 啟用員工。原兩層檢查保留當縱深。
+　**F2 停用會被「自行復活」** —— 整列 UPDATE 送三欄:員工送出改名 → 他人停用他 → 舊請求才寫入,把 `is_active=true` 寫回。修法=**拆兩支 action/parser/repository**(profile 只 SET `label`+`is_manager`;狀態切換只 SET `is_active`)⇒ 改名這條路**碰不到**啟用狀態。
+　**F3 稽核失敗仍回「已儲存」** —— 權限異動永久生效卻無 durable 紀錄。修法=新結果碼 `audit_failed`,文案「變更已生效,但稽核紀錄寫入失敗 —— 請通知維護者。」(**變更真的生效,不謊稱失敗;也不假裝正常**)。
+　**F4 `is_manager` 假安全語意** —— UI 寫「管理者」但全 repo 無讀取端、任何 active staff 都能設。修法=文案改「管理者(標記用,尚未生效)」+「此標記目前不影響任何權限」,列表欄改「管理者標記/是·否」,對齊 migration 的 `COMMENT`。
+　**F5 手機完全不能操作** —— 操作欄無 mobile slot,卡片只看得到狀態。修法=**擴充 E11 積木**:`<AdminDataTable>` 加可選 `renderMobileActions`,渲染在卡片底部;既有消費端不傳即零行為變更、`customers-table.tsx` **零修改**。🔴 這正是「讓積木被真實消費端檢驗」的用意兌現。
+　**F6 `database.types.ts` 無 `staff`** —— repository 用 `as unknown` 繞過型別 ⇒ **build 綠不代表 schema 真的接上**。修法=**手加**型別(不重跑 codegen、避免吸進其他漂移),移除 cast 與自訂 client 介面。**E8-A1 記的那筆欠債本輪清掉**;型別已逐欄比對 production schema。
+　**F7 SSoT 未同步** —— 由主對話於本 commit 更新(Codex 明令不得碰)。
+**⑤ 驗證(主對話自跑,不採信 Codex 自述)**:三綠 typecheck **8/8** · lint **10/10** · build **2/2**(🔴 Codex 兩輪都驗不到這項);full test **261 檔 3018 passed + 1 todo**(E8-A1 後基準 257/2978)。`git diff --check` 乾淨。
+**⑤-a 突變 4/4 全紅**:①拿掉 break-glass ②profile 更新偷帶回 `is_active` ③稽核失敗謊稱 saved(轉紅 3 條)④拿掉手機操作槽。還原後 shasum 一致。
+⚠️ **⑤-b 我自己的一次誤判(誠實紀錄)**:M3 首次執行「存活」,我一度判定為假綠並如此回報 —— 實為**我的 perl 樣式寫錯**(code 是 `redirectWith(auditRecorded ? 'saved' : 'audit_failed')`,不是我假設的 `redirectWith('audit_failed')`)⇒ 根本沒替換到、檔案未變。**突變無效 ≠ 測試假綠**;重做後正確轉紅。⇒ 突變測試必須驗「替換確實發生」(本次事後補 `grep -c` 確認殘留為 0)。
+**⑥ 殘留(知情接受)**:F1 之後自鎖已不可能,但「任意員工集合的原子保證」仍需 DB trigger/RPC(規格禁止新增 migration);審查者建議的 `updated_at` CAS 未做 —— F2 拆表單後 stale write 已無法復活,CAS 的邊際價值低。
+**⑦ 下一步**:E10 訂單閉環,或報價單端真認證線(Sean 已拍 Q1=B / Q7=A / Q8=A,尚未開工)。🔴 **E10 動工前必清**:C1 同日分批出貨的訂單編號後綴未定;**`create_order` 已實證不可用於手動建單**(`:356`/`:360` 品項必須是既有 catalog 變體、`:284` `auth.uid` 為 NULL 直接 exception ⇒ 需另開 admin 專用 RPC)。
+
+2026-07-26(前序 commit `04f5511`+`0d0d668`+`9158e6e`=M-4b **E8-A1 員工名單改由資料庫提供**;高風險片〔鐵則 12 ③DB 結構 + ②auth 路徑〕;**未 push、migration 未 apply〔待 Sean `db push`〕、零 flag、未動 `.env*`**)
 **① 做了什麼**:`apps/admin/src/lib/staff.ts:15` 的 hardcode 名單改為 DB 表 `public.staff`。新 migration `20260726120000_m4b_e8a1_staff_table.sql` + 新 `staff-repository.ts`;`staff.ts` 拆成純函式 `pickStaff`(可單測)+ async `listActiveStaff`/`resolveStaff`(fail-closed)。消費端 `session/actor.ts`、`actor-actions.ts`、`app/page.tsx`、`audit/context.ts`(僅同步過期字面)。
 🔴 **①-a 本片不解決「身分未經驗證」**:actor 仍是使用者自己從下拉挑的(`actor.ts` 自陳非授權邊界)。UI 文案已改為誠實版逐字:「這個身分是你自己選的、系統並未驗證」。**不得宣稱 E8 完成**——真認證是報價單端另一條線(Sean 07-26 拍 Q1=B)。
 🔴 **①-b seed 三個 id 逐字元不變**(`sean`/`staff_1`/`staff_2`):`admin_audit_log.actor` 是 text 欄、歷史列已引用,改 id 會斷稽核軌。**不給 DELETE 權限**(停用走 `is_active=false`,否則舊稽核列失去對應人名);RLS zero-policy + client 零權限。`is_manager` 欄先建但 `COMMENT` 明寫「無任何程式讀取、不強制任何權限」。
@@ -245,6 +264,7 @@
 - ✅ **② E11-1 `<AdminDataTable>` 已收工**(customers 列表為第一個消費端、桌機 DOM 逐字元不變 + 新增手機卡片)。✅ **code-reviewer 已於 07-26 補跑:PASS、0 must-fix、5 nit 已清**(SOP ⑥ 流程債關閉)。
 - ✅ **③ 新竹物流兩份官方 PDF 已親讀落檔** `docs/reference/hct-logistics-api-reference.md`(含未確認清單)。🔴 **圖檔一次 5 筆上限 ⇒ 批次出貨必須切批**;**逆物流可叫車收退貨**;**同日訂單編號不可重複 ⇒ 分批出貨會撞、後綴規則未定**。
 - ✅ **④ E11-2 `<AdminForm>`(卡片內嵌變體)已收工**(本 commit;三消費端 order-edit/tier-edit/wallet-adjust 已改接 + 8 條錢面守門測試)。🔴 **未做的三項已明列**:sticky 儲存列 / 雙層錯誤 banner / 未存離開警告 —— **等 E10 頁面級大表單有真實消費端才做,不投機抽象**。
+- ✅ **⑦ E8-A2 後台員工管理頁已收工**(`/settings/staff`:新增/改顯示名/改管理者標記/停用啟用;break-glass 保證後台不會被自鎖)⇒ **Sean 現在可以自己加員工、停用員工,不必找工程師改 code**。🔴 **但身分仍未驗證**(actor 自選),E8 未完成。
 - ✅ **⑥ E8-A1 已收工並 🚀 已 apply production**(2026-07-26,Sean 授權 Claude 代跑 `db push`;獨立驗證全綠、稽核軌 27 筆全對得到)。⇒ **DB 已就緒,推 code 不再有順序風險**。**下一=E8-A2** 後台員工管理頁(新增/編輯/停用)。
 - 🔴 **真認證線(報價單端,跨 repo)= Sean 07-26 拍板**:Q1=B 身分來自報價單、Q7=A 帳號+密碼登入(TOTP 只在未記住的新裝置才要,日常免開 app)、Q8=A Sean 指定初始密碼。**「TOTP 裝置=身分」方案已作廢**(Q5=B 裝置有共用)。報價單端要動 4 處:users 表+登入認人 / session payload 帶身分 / SSO authorize 記錄帶身分 / exchange 回傳。執行者=Codex 在 `/Users/sean_1/API大量上架/PCM報價單-V2`(Q3=C),**尚未開工、需另寫規格**。
 - 🔴 **原 E8 候選項已由上列取代**(`staff.ts:3` 名單寫死已解)/ **E11-3** 給 `<AdminDataTable>` 補 rowSpan + 互動槽支援(這是接 `orders-table.tsx` 的硬前置)/ **E10 訂單閉環**(🔴 動工前必清兩個前置:**C1 同日分批出貨的訂單編號後綴規則未定**、**`create_order` RPC 是否允許自由品項未驗**;schema 要吃 U1 包裹表/U2 改單改全部/U3 多筆匯款)。

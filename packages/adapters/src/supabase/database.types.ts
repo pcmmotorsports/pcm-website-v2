@@ -1252,6 +1252,33 @@ export type Database = {
           },
         ]
       }
+      staff: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          is_manager: boolean
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          is_active?: boolean
+          is_manager?: boolean
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_manager?: boolean
+          label?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       customer_wallet_balance_check: {

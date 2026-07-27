@@ -1,7 +1,11 @@
 // settings-result-banner.tsx — 設定頁 PRG 結果提示(M-4a Slice D-3;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。tone 鏡像 orders/result-banner。
 
-const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> = {
+export type SettingsResultMessages = Readonly<
+  Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
+>;
+
+const MESSAGES: SettingsResultMessages = {
   saved: { text: '已儲存變更。', tone: 'ok' },
   created: { text: '已新增狀態選項。', tone: 'ok' },
   notfound: { text: '找不到該狀態選項(可能已被移除),未儲存。', tone: 'warn' },
@@ -20,9 +24,15 @@ const TONE = {
   error: 'border-destructive/30 bg-destructive/5 text-destructive',
 } as const;
 
-export function SettingsResultBanner({ code }: { code: string | undefined }) {
+export function SettingsResultBanner({
+  code,
+  messages = MESSAGES,
+}: {
+  code: string | undefined;
+  messages?: SettingsResultMessages;
+}) {
   if (!code) return null;
-  const msg = MESSAGES[code];
+  const msg = messages[code];
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>

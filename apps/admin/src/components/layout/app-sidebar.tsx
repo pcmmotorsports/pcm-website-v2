@@ -24,6 +24,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { key: 'overview', label: '總覽', icon: Icons.dashboard, href: '/' },
   { key: 'orders', label: '訂單', icon: Icons.billing, href: '/orders' },
   { key: 'customers', label: '客戶', icon: Icons.user, href: '/customers' },
+  { key: 'staff', label: '員工管理', icon: Icons.teams, href: '/settings/staff' },
   { key: 'settings', label: '設定', icon: Icons.settings, href: '/settings/order-statuses' },
 ];
 

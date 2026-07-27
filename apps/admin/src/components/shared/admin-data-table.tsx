@@ -63,12 +63,15 @@ export function AdminDataTable<T>({
   columns,
   getRowKey,
   emptyText,
+  renderMobileActions,
 }: {
   rows: readonly T[];
   columns: ReadonlyArray<AdminColumn<T>>;
   getRowKey: (row: T) => string;
   /** 查無資料時的整塊文案(各域自訂,如「目前沒有符合條件的客戶。」)。 */
   emptyText: string;
+  /** 給「手機上也必須能操作」的列表使用;內容固定放在每張手機卡片最下方。 */
+  renderMobileActions?: (row: T) => ReactNode;
 }) {
   if (rows.length === 0) {
     return (
@@ -144,6 +147,11 @@ export function AdminDataTable<T>({
               </div>
               {sub && <div className='text-muted-foreground mt-1 text-sm break-all'>{sub}</div>}
               {meta && <div className='text-muted-foreground mt-1 text-xs'>{meta}</div>}
+              {renderMobileActions && (
+                <div className='mt-3 border-t pt-3'>
+                  {renderMobileActions(row)}
+                </div>
+              )}
             </li>
           );
         })}

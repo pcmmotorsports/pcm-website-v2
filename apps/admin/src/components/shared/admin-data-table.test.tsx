@@ -135,4 +135,28 @@ describe('AdminDataTable', () => {
     expect(card.textContent).not.toContain('—');
     expect(card.textContent).not.toContain('·');
   });
+
+  it('should render optional actions only at the bottom of each mobile card', () => {
+    const { container } = render(
+      <AdminDataTable
+        rows={ROWS}
+        columns={COLUMNS}
+        getRowKey={(r) => r.id}
+        emptyText='—'
+        renderMobileActions={(row) => (
+          <form>
+            <button type='submit'>編輯 {row.id}</button>
+          </form>
+        )}
+      />,
+    );
+
+    const table = container.querySelector('table');
+    const cards = [...container.querySelectorAll('ul li')];
+    expect(table?.textContent).not.toContain('編輯 a');
+    expect(cards).toHaveLength(2);
+    expect(at(cards, 0).lastElementChild?.tagName).toBe('DIV');
+    expect(at(cards, 0).lastElementChild?.textContent).toBe('編輯 a');
+    expect(at(cards, 1).lastElementChild?.textContent).toBe('編輯 b');
+  });
 });
