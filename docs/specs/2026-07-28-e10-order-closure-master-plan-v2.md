@@ -434,13 +434,25 @@ E10 **吃下退款寫入線**:`order_refunds` 的寫入 owner RPC(RF2b)+ ACL + �
 
 **D1 片(M 型、🔴 高風險:③DB 不可逆 + ①錢面資料)—— 排在 A0 之後、A1 之前**:
 
+**🔴 相依資料實查(2026-07-28,`paid_at IS NOT NULL` = 留存的 3 張)—— 上一版寫錯,已更正**:
+
+| 相依表 | 屬於留存 3 張 | 屬於待刪 26 張 | D1 要做什麼 |
+|---|---|---|---|
+| `payment_charge_attempts` | **3** | **24** | 刪那 24 筆(NO ACTION、不先清會擋住 DELETE) |
+| `pending_invoices` | **3** | **0** | 🔴 **一筆都不能動** —— 3 筆全屬留存單。上一版寫「刪 26 張的 pending_invoices」是錯的:不但是 no-op,照字面做還會刪到要保留的發票紀錄 |
+| `order_legal_consents` | **2** | **2** | CASCADE 帶走 2 筆(全表 4 筆,**不是 4 筆全走**) |
+| `order_items` | **3** | **36** | CASCADE 帶走 36 列(全表 39) |
+| `email_outbox` / `order_refunds` / `order_refund_items` / `payment_double_charge_anomalies` | 0 | 0 | 全表零列,無動作 |
+
+**trigger 實查**:`orders` 只有 `orders_freeze_shipping_snapshot_bi`(**BEFORE INSERT**)⇒ D1 的 DELETE 與 UPDATE 都不會觸發它;`order_items` 零 trigger。
+
 | 步 | 動作 | 守則 |
 |---|---|---|
-| 1 | **先匯出存檔**:29 張 orders + order_items + payment_charge_attempts + pending_invoices 全欄 dump | 🔴 含 `shipping_address_snapshot`(真實地址)⇒ **存本機、不進 git**;路徑回報 Sean |
-| 2 | 刪 26 張無金流單的 `payment_charge_attempts` 與 `pending_invoices`(NO ACTION,不先清會擋住) | 只刪屬於那 26 張的;3 張留存的一列不動 |
-| 3 | 刪 26 張 orders | `order_items` 與 `order_legal_consents` 走 CASCADE。⚠️ **只有屬於那 26 張的會被帶走** —— 全表是 39 個品項列 / 4 筆同意紀錄,3 張留存單各 1 個品項(實查)⇒ 預期 CASCADE 掉 **36 個品項列**,同意紀錄筆數依歸屬當場數,**不預先寫死** |
+| 1 | **先匯出存檔**:29 張 orders + `order_items` + `payment_charge_attempts` + `pending_invoices` + `order_legal_consents` 全欄 dump | 🔴 含 `shipping_address_snapshot`(真實地址)⇒ **存本機、不進 git**;路徑回報 Sean |
+| 2 | 刪**屬於那 26 張**的 `payment_charge_attempts`(預期 **24 筆**) | 🔴 **不要碰 `pending_invoices`** —— 那 3 筆全屬留存單。條件一律用 `order_id IN (待刪集合)`,**不要用 `NOT IN (留存集合)` 以外的寫法**,並在刪前 assert 筆數 = 24 |
+| 3 | 刪 26 張 orders | CASCADE 預期帶走 `order_items` **36 列**、`order_legal_consents` **2 筆**;刪後 assert 兩者剩 **3 列 / 2 筆** |
 | 4 | 3 張留存單改號成新 6 碼格式 | DROP 舊 CHECK → UPDATE → ADD 新 CHECK,同一 migration |
-| 5 | `PCM-2026-0052` / `PCM-2026-0104` 的 `payment_status` → `refunded`(Q5) | 🔴 `paid → refunded` 是狀態機合法轉移(`state-machine.ts:41`);**來源=Sean 口述、非 TapPay 查證**,migration 註解要寫明 |
+| 5 | `PCM-2026-0052` / `PCM-2026-0104` 的 `payment_status` → `refunded`(Q5) | 🔴 `paid → refunded` 是狀態機合法轉移(`state-machine.ts:41`);DB 層無 UPDATE trigger 擋;**來源=Sean 口述、非 TapPay 查證**,migration 註解要寫明 |
 | 6 | 新 CHECK **暫時同時接受兩種格式** | ⚠️ 這一步不能省:`create_order` 在 N3 之前仍產舊格式,CHECK 若立刻收成新格式 only,**下一筆真實結帳當場被擋** |
 
 **N3 之後**才把 CHECK contract 成新格式 only。
