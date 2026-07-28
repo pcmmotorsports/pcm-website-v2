@@ -58,7 +58,7 @@
 | Q5 手動商品邊界 | **B 完整商品**(公開可搜尋/可下單/可管庫存/可下架) | 🔴 北極星第 3 項「接非網站有的商品訂單」**已被此拍板涵蓋且放大**=E6b |
 | Q6-1 手動商品價格 | **A** 後台專屬表單 + 每次設價留紀錄 | §5.2 價格走獨立窄路、不進內容 override |
 | Q6-2 內容改動頻率 | **B** 一季 1-3 次 = L2 | 內容管理非鐵則 9 強制、可排後 |
-| Q1 施工順序 | **A** 先修搜尋(E0) | 本檔新增 epic 一律排在 E0 之後 |
+| Q1 施工順序 | **A** 先修搜尋(E0) | ~~本檔新增 epic 一律排在 E0 之後~~(🔴 R14:舊排序條款標歷史 —— 現行施工序唯一權威 = E10 v2 §5.0,見本檔頁首更新) |
 
 ### 0.2 既有 E0-E9 涵蓋範圍(本檔不重做)
 
@@ -382,9 +382,11 @@ Sean 逐字:「**都要**,還有其他支出、收入的統計,到時候還要�
 
 ## 3. 三個結構性決定
 
-### 3.1 訂單:計數器是真相,狀態是顯示
+### 3.1 ~~訂單:計數器是真相,狀態是顯示~~(🔴 R14:整節已被 E10 v2 取代)
 
-**三家平台一致(Shopify / Medusa / Odoo),且與 PCM 現行做法相反。**
+> 🔴 **本節模型已 superseded**:E10 v2 §1 原則 2 —— **真相在明細表**(`order_item_procurement` / `order_cancellation_items`),計數器只是 **trigger 推導的摘要**、且**分軸隨模型增量**(不一次補齊);不變式見 v2 §5.1c。以下原文保留備查。
+
+~~**三家平台一致(Shopify / Medusa / Odoo),且與 PCM 現行做法相反。**~~
 
 Medusa `OrderItem` 每列 8 個數量欄(`packages/modules/order/src/models/order-item.ts`);Shopify `ReturnLineItem` 6 個數量欄 + `RefundLineItem.quantity`;Odoo Reverse Transfer 數量可編輯。
 
@@ -460,7 +462,7 @@ Shopify `Return`(貨)/ `Refund`(錢,無自己的 status);Medusa `Return` / `Orde
 4. 供應商 Excel 匯入 UI(把 `scripts/rpm-*.ts` 包成後台功能)
 5. 匯出 CSV
 
-決策點:**圖片能否跨商品重用**(Shopify 有媒體庫、Medusa 綁死單一商品)→ **N6(仍 ⏳ 未拍板)**。
+決策點:**圖片能否跨商品重用**(Shopify 有媒體庫、Medusa 綁死單一商品)→ **N6 ✅ 已拍「要共用 → 做媒體庫」**(07-26;R14 更正此處殘句,權威 = §6 N6 列)。
 ⚠️ 本檔有兩套題號並存,勿混:**Q1-Q6** = 既有 plan `site-wide-gap-and-admin-platform-plan.md` §9 的題(**全部已拍板**,見 §0.1);**N1-N9** = 本檔 §6 新增的題。此處指的是 **N6**。
 
 ### 5.3 客戶
@@ -488,9 +490,9 @@ Medusa 官方**沒有 RBAC UI**(要自兜);Shopify 是 19 大類細顆粒度權�
 
 ---
 
-## 6. 待 Sean 拍板
+## 6. ~~待 Sean 拍板~~ 新增題 N1-N9 拍板紀錄(🔴 R14 改名:**九題已全數拍板**,本節是紀錄不是待辦)
 
-🔴 **已在 §0.1 拍板的六題不重問。** 以下 8 題是既有 plan **未涵蓋**的新決策。
+🔴 **已在 §0.1 拍板的六題不重問。** 以下 ~~8 題~~ **9 題(N1-N9)**是既有 plan **未涵蓋**的新決策,**全部已拍**、逐列附權威出處。
 
 | # | 題目 | 為何重要 | 狀態 |
 |---|---|---|---|
@@ -522,7 +524,7 @@ Medusa 官方**沒有 RBAC UI**(要自兜);Shopify 是 19 大類細顆粒度權�
 
 ## 8. 未確認(禁止當事實實作)
 
-- `create_order` RPC 是否允許自由輸入品項(北極星第 3 項的前置,**動前必驗**)
+- ~~`create_order` RPC 是否允許自由輸入品項~~(🔴 R14 移出:**已驗證、不可用** —— E10 v2 §3 C2;第 3 批另建 admin 專用 RPC、六題開批閘)
 - Medusa `ReturnStatus` 完整 enum
 - Shopify 非 display 版 `fulfillmentStatus` 是否存在
 - Shopify 批次操作完整清單、Settings 完整分類
