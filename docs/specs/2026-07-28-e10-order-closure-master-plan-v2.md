@@ -1,6 +1,6 @@
 # M-4b E10 訂單閉環總規劃 **v2**(2026-07-28 重寫)
 
-> **狀態:** 🟡 提案,**待 Sean 批准 + codex 關卡1 通過才動第一片 code**(鐵則 8/12)
+> **狀態:** 🟢 **codex 關卡1 R20 PASS(2026-07-28,20 輪)→ 現在送 Sean 最終批准;批准後才動第一片 code**(鐵則 8/12;閘序 = 關卡1 先、Sean 批准後)
 > **取代:** `docs/specs/2026-07-27-e10-order-closure-master-plan.md` v1 —— v1 經 codex 關卡1 **FAIL、67 條 findings(62 must-fix + 5 nit)**,判定重寫非修補。逐條裁定 = `docs/reviews/2026-07-28-e10-k1-findings-triage.md`(駁回 0 條)
 > **驗收唯一標準:** `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1「員工的一天」27 項
 > **北極星(Sean 逐字):**「可以完整上線給員工使用,操作,修改網站。而且他們不是工程師」
@@ -153,7 +153,7 @@ v2 的 §1 四原則就是針對這三件事,不是風格偏好。
 
 | # | 前置 | 現況 |
 |---|---|---|
-| **C1** | 送新竹的識別值 | ✅ **格式已定案**:~~2026-07-27 P1:訂單編號自動加 `-1`/`-2`~~(**Q19=A 正式作廢**,2026-07-28)→ `shipment_reference` 6 碼、與訂單編號脫鉤(Q10=A;理由:U1 併箱時沒有唯一基底訂單號)、**無後綴**。**產號合約見 §8.5**。長度已驗(`epino` Char(30));🟡 **唯一殘餘 = 允許字元未載(§8.6 外部閘)⇒ 只有這一項擋出貨片**。`hct-logistics-api-reference.md` §8 已同步 |
+| **C1** | 送新竹的識別值 | ✅ **格式已定案**:~~2026-07-27 P1:訂單編號自動加 `-1`/`-2`~~(**Q19=A 正式作廢**,2026-07-28)→ `shipment_reference` 6 碼、與訂單編號脫鉤(Q10=A;理由:U1 併箱時沒有唯一基底訂單號)、**無後綴**。**產號合約見 §8.5**。長度已驗(`epino` Char(30));🟡 **允許字元未載 = C1 產號合約唯一未確認項**(§8.6);正式串接另有帳號申請、`escsno`/`esstno` 等**既知外部操作前置**(HCT ref §1,非決策題)。`hct-logistics-api-reference.md` §8 已同步 |
 | **C2** | `create_order` 不可用於手動建單 | ❌ 仍在:`:284` `auth.uid` 為 NULL 直接 exception;`:356`/`:360` 品項必須是既有 catalog 變體 ⇒ 需另開 admin 專用 RPC |
 | **C3** | schema 要吃 U1 包裹 / U2 改單 / U3 多筆匯款 | ❌ 未建模 ⇒ 由 §5.2 / §5.3 的模型片承接 |
 
@@ -710,7 +710,7 @@ R3 的解法是「表 service_role only + own-order 安全投影」。**R4 指�
 | 格式 | 沿用 §5.4a 同一組字母表與長度(**6 碼**),**共用 `pcm_generate_display_id()` helper**,不另發明第二套 |
 | 分批後綴 | ✅ **不加後綴(Q19=A,Sean 2026-07-28 親自作廢 P1)**:`shipment_reference` 本身全表唯一,後綴要解決的「同日撞號」問題已不存在。全檔不再有任何 `-1/-2` 語意 |
 | 刪除後 | **永不重用**。🔴 **實作 = 包裹永不硬刪**(R5 抓:live-row UNIQUE 在 DELETE 後會釋放值,「永不重用」光靠 unique 約束**不成立**)⇒ `shipments` 走 soft delete(`deleted_at`),列與 reference 永久保留 = tombstone;重送同一包裹沿用原值 |
-| 長度守門 | ✅ **長度已驗**:`epino` = **Char(30)**(`hct-logistics-api-reference.md:81`,R5 抓:我寫「未驗」但答案就在自己檔案裡)⇒ 6 碼遠低於上限。🟡 **允許字元仍未知**(文件未載)= 外部確認閘,Sean 申請 API 時問新竹;**只有這一項擋出貨片** |
+| 長度守門 | ✅ **長度已驗**:`epino` = **Char(30)**(`hct-logistics-api-reference.md:81`,R5 抓:我寫「未驗」但答案就在自己檔案裡)⇒ 6 碼遠低於上限。🟡 **允許字元仍未知**(文件未載)= C1 合約唯一未確認項,Sean 申請 API 時問新竹;另有帳號等既知外部前置(HCT ref §1) |
 
 🔴 **P1 的字面必須全樹統一**(R4 抓「同檔存在兩個基底語意」):
 `§3 C1`、`§5.2`、`docs/reference/hct-logistics-api-reference.md` 三處的「訂單編號-1/-2」**一律改為 `shipment_reference`**。

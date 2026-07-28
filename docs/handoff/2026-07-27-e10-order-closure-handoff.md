@@ -131,7 +131,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7→5→4→7→10→10→6→5→7→3)
+### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7→5→4→7→10→10→6→5→7→3→**PASS**)
 
 | 輪 | 結果 | findings 檔 |
 |---|---|---|
@@ -154,9 +154,10 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | R17 | FAIL **5**;DAG 循環解除 / A9w4 writer chain(67 片)/ 矩陣 P3 退場列 / job 世代式重開 / dead 結案 UI 落片 | `docs/reviews/2026-07-28-e10-k1-r17-codex.md` |
 | R18 | FAIL **7 + 1**;DAG 去重 / A9w4 拆三(69 片、高風險 42)/ 撤 status-options 寫權 / resolution 分流堵超退重開 | `docs/reviews/2026-07-28-e10-k1-r18-codex.md` |
 | R19 | FAIL **3 + 1**;兩閘字面 / DAG=片表統一 / 世代授權原子消耗(retry_consumed_at) | `docs/reviews/2026-07-28-e10-k1-r19-codex.md` |
+| **R20** | # ✅ **PASS**(附 2 nit 已修);逐字「規格已達可施工狀態」 | `docs/reviews/2026-07-28-e10-k1-r20-codex.md` |
 
-✅ **R1-R19 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
-✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R20**。
+✅ **R1-R20 全部已折入、關卡1 通過**(R1 逐條裁定 triage 檔,駁回 0 條)。
+🔴 **下一步:①Fable 四線復盤(Sean 已指示、ultracode)②復盤過後送 Sean 最終批准(鐵則 8;閘序 = 關卡1 先、Sean 批准後)③批准後從 A0a 動工**。
 ✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
 
 **R1 的三條抽驗備查(當時全部成立)**:
