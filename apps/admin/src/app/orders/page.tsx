@@ -25,7 +25,13 @@ export default async function OrdersPage({
   searchParams: Promise<SearchParams>;
 }) {
   const rawSearchParams = await searchParams;
-  const { filter, page } = parseOrderListSearchParams(rawSearchParams);
+  // M-4b E10 A10c1 單號搜尋:§7.1 逐批啟用閘,U 片一律掛 env flag、預設 off。
+  // 🔴 硬前置 = D0 migration 已 apply(orders.legacy_display_id)。未 apply 就開 ⇒
+  //    PostgREST 42703 ⇒ 整個訂單列表進錯誤態(不只搜尋壞掉)。
+  const orderNumberSearchEnabled = process.env.ADMIN_E10_ORDER_NUMBER_SEARCH === '1';
+  const { filter, page } = parseOrderListSearchParams(rawSearchParams, {
+    orderNumberSearchEnabled,
+  });
   const resultCode = typeof rawSearchParams.r === 'string' ? rawSearchParams.r : undefined;
   const offset = (page - 1) * ORDERS_PAGE_SIZE;
 
@@ -69,7 +75,11 @@ export default async function OrdersPage({
       </div>
 
       <ResultBanner code={resultCode} />
-      <OrderFilterBar filter={filter} statusOptions={statusOptions} />
+      <OrderFilterBar
+        filter={filter}
+        statusOptions={statusOptions}
+        orderNumberSearchEnabled={orderNumberSearchEnabled}
+      />
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>

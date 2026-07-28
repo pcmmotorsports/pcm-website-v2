@@ -13,11 +13,12 @@ import type {
   OrderStatusOption,
   OrderItemVehicleSnapshot,
 } from '@pcm/domain';
-import { WORKFLOW_STATUS_CODE_RE } from '@pcm/domain';
+import { WORKFLOW_STATUS_CODE_RE, normalizeOrderNumberSearch } from '@pcm/domain';
 import {
   pickEnum,
   pickEnumMulti,
   allValues,
+  firstValue,
   parsePage,
   buildListHref,
   type FilterOption,
@@ -32,6 +33,11 @@ export const FULFILLMENT_STATUS_PARAM = 'fulfillment_status';
 export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
 export const WORKFLOW_STATUS_PARAM = 'workflow_status';
+/**
+ * 訂單編號搜尋(M-4b E10 A10c1)。同時比對 `display_id` 與 `legacy_display_id`,
+ * 讓 D1 改號後客人手上的舊單號仍查得到(合約 = A9b1)。
+ */
+export const ORDER_NUMBER_PARAM = 'order_no';
 
 /**
  * workflow_status 篩選的「未設定」哨兵值(URL `?workflow_status=unset` → filter.workflowStatuses 含 null 元素)。
@@ -140,7 +146,10 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
  * 非法篩選值一律忽略(等同不篩選);多勾選軸(D-1b:商品狀態/來源/管道)收同鍵重複 param、
  * 逐值守門+去重、全非法/缺 → undefined;page 下界 1(parsePage 共用)。
  */
-export function parseOrderListSearchParams(raw: RawSearchParams): {
+export function parseOrderListSearchParams(
+  raw: RawSearchParams,
+  options?: { orderNumberSearchEnabled?: boolean },
+): {
   filter: AdminOrderFilter;
   page: number;
 } {
@@ -150,8 +159,29 @@ export function parseOrderListSearchParams(raw: RawSearchParams): {
     orderSources: pickEnumMulti(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
     workflowStatuses: parseWorkflowStatusesParam(raw[WORKFLOW_STATUS_PARAM]),
+    orderNumber: options?.orderNumberSearchEnabled
+      ? parseOrderNumberParam(raw[ORDER_NUMBER_PARAM])
+      : undefined,
   };
   return { filter, page: parsePage(raw.page) };
+}
+
+/**
+ * 單號搜尋參數解析(M-4b E10 A10c1)。
+ *
+ * 🔴 **flag 未開時整個不解析**(見 {@link parseOrderListSearchParams} 的 options):
+ * 本功能的 DB 前置是 D0 migration 的 `orders.legacy_display_id` 欄。D0 未 apply 時
+ * 打這條 filter 會讓 PostgREST 回 42703(欄位不存在)⇒ **整個訂單列表**(不只搜尋)
+ * 進錯誤態。⇒ D0 apply 之前 flag 一律 off。
+ *
+ * 🔴 **`invalid` 不吞掉、原樣往下傳**:adapter 對 invalid 會 fail-closed 回零筆。
+ * 若這裡把 invalid 當成 `undefined`,就變成「打錯字 = 不篩選 = 列出全部訂單」的 fail-open。
+ * (`normalizeOrderNumberSearch` 已把 invalid 的回傳值截到 32 字上限,不會把超長字串帶進 URL。)
+ */
+function parseOrderNumberParam(raw: string | string[] | undefined): string | undefined {
+  const parsed = normalizeOrderNumberSearch(firstValue(raw));
+  if (parsed.kind === 'empty') return undefined;
+  return parsed.kind === 'ok' ? parsed.value : parsed.input;
 }
 
 /**
@@ -184,6 +214,9 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
       [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
       [ORDER_SOURCE_PARAM, filter.orderSources],
       [PAYMENT_CHANNEL_PARAM, filter.paymentChannels],
+      // 🔴 分頁與 returnTo 都走這裡:漏列 = 翻頁或改狀態回跳時搜尋詞被靜默丟掉、
+      //    列表突然變成全部訂單(fail-open)。
+      [ORDER_NUMBER_PARAM, filter.orderNumber],
     ],
     page,
   );

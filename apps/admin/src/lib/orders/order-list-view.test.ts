@@ -309,3 +309,63 @@ describe('formatOrderItemVehicle（V-3b 年份廠牌車種欄）', () => {
     expect(formatOrderItemVehicle(null)).toBeNull();
   });
 });
+
+// ── M-4b E10 A10c1:單號搜尋參數 ────────────────────────────────────────────
+describe('parseOrderListSearchParams — A10c1 單號搜尋(order_no)', () => {
+  const on = { orderNumberSearchEnabled: true };
+
+  it('🔴 flag 未開 → 整個不解析(D0 未 apply 時打這條 filter 會 42703、整頁掛掉)', () => {
+    const { filter } = parseOrderListSearchParams({ order_no: 'YWP3PC' });
+    expect(filter.orderNumber).toBeUndefined();
+  });
+
+  it('flag 開啟 + 合法新格式 → 正規化後帶入', () => {
+    const { filter } = parseOrderListSearchParams({ order_no: 'ywp3pc' }, on);
+    expect(filter.orderNumber).toBe('YWP3PC');
+  });
+
+  it('flag 開啟 + 合法舊格式 → 帶入(改號後舊號仍可查)', () => {
+    const { filter } = parseOrderListSearchParams({ order_no: ' pcm-2026-0104 ' }, on);
+    expect(filter.orderNumber).toBe('PCM-2026-0104');
+  });
+
+  it('缺參數 / 空字串 → undefined(不篩選)', () => {
+    expect(parseOrderListSearchParams({}, on).filter.orderNumber).toBeUndefined();
+    expect(parseOrderListSearchParams({ order_no: '   ' }, on).filter.orderNumber).toBeUndefined();
+  });
+
+  it('🔴 格式不符不得吞成 undefined —— 吞掉就變成「打錯字 = 列出全部訂單」的 fail-open', () => {
+    const { filter } = parseOrderListSearchParams({ order_no: 'YWP3P0' }, on);
+    expect(filter.orderNumber).toBe('YWP3P0'); // 原樣往下傳,adapter 端 fail-closed 回零筆
+  });
+
+  it('🔴 超長輸入被截斷,不把上萬字帶進 filter 與後續 URL', () => {
+    const huge = `PCM-2026-${'9'.repeat(5000)}`;
+    const { filter } = parseOrderListSearchParams({ order_no: huge }, on);
+    expect(filter.orderNumber).toBeDefined();
+    expect(filter.orderNumber?.length).toBeLessThanOrEqual(32);
+  });
+
+  it('同鍵重複 param 取第一個(URL 被手動塞多值時行為明確)', () => {
+    const { filter } = parseOrderListSearchParams({ order_no: ['YWP3PC', 'BKPR5M'] }, on);
+    expect(filter.orderNumber).toBe('YWP3PC');
+  });
+});
+
+describe('buildOrderListHref — A10c1 單號搜尋要跟著翻頁與回跳走', () => {
+  it('🔴 帶單號時 href 必須保留 order_no(漏帶 = 翻第 2 頁就變回全部訂單)', () => {
+    const href = buildOrderListHref({ orderNumber: 'YWP3PC' }, 2);
+    expect(href).toContain('order_no=YWP3PC');
+    expect(href).toContain('page=2');
+  });
+
+  it('單號與其他篩選並存時兩者都在', () => {
+    const href = buildOrderListHref({ orderNumber: 'PCM-2026-0104', paymentStatus: 'paid' }, 1);
+    expect(href).toContain('order_no=PCM-2026-0104');
+    expect(href).toContain('payment_status=paid');
+  });
+
+  it('無單號 → href 不出現 order_no', () => {
+    expect(buildOrderListHref({ paymentStatus: 'paid' }, 1)).not.toContain('order_no');
+  });
+});

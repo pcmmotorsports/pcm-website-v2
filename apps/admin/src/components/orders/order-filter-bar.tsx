@@ -18,9 +18,12 @@ import {
 export function OrderFilterBar({
   filter,
   statusOptions,
+  orderNumberSearchEnabled = false,
 }: {
   filter: AdminOrderFilter;
   statusOptions: OrderStatusOption[];
+  /** M-4b E10 A10c1 單號搜尋開關(§7.1 逐批啟用閘;D0 apply 前一律 false)。 */
+  orderNumberSearchEnabled?: boolean;
 }) {
   return (
     <div className='bg-card text-card-foreground flex flex-wrap items-end gap-3 rounded-lg border p-4'>
@@ -30,12 +33,14 @@ export function OrderFilterBar({
         fulfillmentOptions={FULFILLMENT_STATUS_OPTIONS}
         sourceOptions={ORDER_SOURCE_OPTIONS}
         channelOptions={PAYMENT_CHANNEL_OPTIONS}
+        orderNumberSearchEnabled={orderNumberSearchEnabled}
         initial={{
           wf: workflowStatusSelectedValues(filter.workflowStatuses),
           pay: filter.paymentStatus ?? '',
           ful: filter.fulfillmentStatus ?? '',
           src: filter.orderSources ?? [],
           ch: filter.paymentChannels ?? [],
+          no: filter.orderNumber ?? '',
         }}
       />
       <a

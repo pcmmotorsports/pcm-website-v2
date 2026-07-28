@@ -238,8 +238,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     //    typecheck 因此抓不到 —— `.or()` 收的是純字串。
     //    D0 未 apply 時打這條 filter ⇒ PostgREST 42703(欄位不存在)⇒ 本方法裸 throw
     //    ⇒ **整個後台訂單列表**(不只搜尋)進錯誤態。
-    //    現況安全只因為 `parseOrderListSearchParams` 尚未填 `orderNumber`(A10c1 才接)。
-    //    ⇒ A10c1 接 query param 之前,D0 必須先 apply。
+    //    現況安全靠 **env flag `ADMIN_E10_ORDER_NUMBER_SEARCH` 預設 off**
+    //    (`apps/admin/src/app/orders/page.tsx`;A10c1 已接 query param,flag off 時整個不解析)。
+    //    ⇒ **D0 apply 之前不得開這個 flag。**
     const orderNumberSearch = normalizeOrderNumberSearch(filter.orderNumber);
     if (orderNumberSearch.kind === 'invalid') {
       return { items: [], total: 0 };

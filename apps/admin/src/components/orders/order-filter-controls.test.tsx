@@ -25,7 +25,7 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { wf: [], pay: '', ful: '', src: [], ch: [] },
+  initial: { wf: [], pay: '', ful: '', src: [], ch: [], no: '' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -117,5 +117,146 @@ describe('OrderFilterControls — MF-1 連勾不丟值(props 凍結窗內)', () 
       '/orders?workflow_status=unset&workflow_status=paid_wait',
       { scroll: false },
     );
+  });
+});
+
+// ── M-4b E10 A10c1:單號搜尋輸入框 ──────────────────────────────────────────
+describe('OrderFilterControls — A10c1 單號搜尋', () => {
+  it('flag 未開 → 完全不渲染搜尋框(D0 apply 前的預設狀態)', () => {
+    const { queryByLabelText } = render(<OrderFilterControls {...PROPS} />);
+    expect(queryByLabelText('訂單編號')).toBeNull();
+  });
+
+  it('flag 開啟 → 輸入單號按 Enter 才送出(打字中不查詢)', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
+    );
+    const input = getByLabelText('訂單編號');
+    fireEvent.change(input, { target: { value: 'YWP3PC' } });
+    expect(replace).not.toHaveBeenCalled(); // 每打一個字就查 = 又吵又慢
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace.mock.calls[0]?.[0]).toContain('order_no=YWP3PC');
+  });
+
+  it('舊格式單號同樣送得出去(改號後客服拿舊號來查)', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
+    );
+    const input = getByLabelText('訂單編號');
+    fireEvent.change(input, { target: { value: 'PCM-2026-0104' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(replace.mock.calls[0]?.[0]).toContain('order_no=PCM-2026-0104');
+  });
+
+  it('🔴 送出後再改其他篩選,單號不得被丟掉(href 由 state 全量導出、漏帶就 fail-open)', () => {
+    const { getByLabelText, getAllByRole } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
+    );
+    const input = getByLabelText('訂單編號');
+    fireEvent.change(input, { target: { value: 'YWP3PC' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    replace.mockClear();
+
+    // 改付款狀態(AutoApplySelect;第一個 select 是付款軸)
+    const selects = getAllByRole('combobox');
+    const paySelect = selects[0];
+    if (!paySelect) throw new Error('付款狀態 select 不存在');
+    fireEvent.change(paySelect, { target: { value: 'paid' } });
+
+    const href = replace.mock.calls[0]?.[0] as string;
+    expect(href).toContain('payment_status=paid');
+    expect(href, '改其他篩選時單號被丟掉 = 列表悄悄變回全部訂單').toContain('order_no=YWP3PC');
+  });
+
+  it('清空搜尋框送出 → URL 不再帶 order_no(等於取消搜尋)', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls
+        {...PROPS}
+        orderNumberSearchEnabled
+        initial={{ ...PROPS.initial, no: 'YWP3PC' }}
+      />,
+    );
+    const input = getByLabelText('訂單編號');
+    fireEvent.change(input, { target: { value: '  ' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(replace.mock.calls[0]?.[0]).not.toContain('order_no');
+  });
+
+  it('initial.no 有值時輸入框要顯示出來(整頁載入後看得到自己搜了什麼)', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls
+        {...PROPS}
+        orderNumberSearchEnabled
+        initial={{ ...PROPS.initial, no: 'PCM-2026-0104' }}
+      />,
+    );
+    expect((getByLabelText('訂單編號') as HTMLInputElement).value).toBe(
+      'PCM-2026-0104',
+    );
+  });
+});
+
+// A10c1 補強(code-reviewer nit):輸入框與其他軸的競態、以及 form 的送出入口
+describe('OrderFilterControls — A10c1 邊界', () => {
+  it('🔴 邊等其他軸的回音邊打字,打到一半的字不得被清空', () => {
+    const r = render(<OrderFilterControls {...PROPS} orderNumberSearchEnabled />);
+    const input = () => r.getByLabelText('訂單編號') as HTMLInputElement;
+
+    // 先改別軸(replace 在途、props 尚未追上)
+    const paySelect = r.getAllByRole('combobox')[0];
+    if (!paySelect) throw new Error('付款狀態 select 不存在');
+    fireEvent.change(paySelect, { target: { value: 'paid' } });
+
+    // 使用者邊等邊打字
+    fireEvent.change(input(), { target: { value: 'YWP3' } });
+
+    // 收斂回音進來(內容 = 我方最後推送的 state)
+    r.rerender(
+      <OrderFilterControls
+        {...PROPS}
+        orderNumberSearchEnabled
+        initial={{ ...PROPS.initial, pay: 'paid' }}
+      />,
+    );
+    expect(input().value, '回音採用時把打到一半的字清掉 = 使用者白打').toBe('YWP3');
+  });
+
+  it('外部導航真的換了單號時,輸入框要跟著換', () => {
+    const r = render(
+      <OrderFilterControls
+        {...PROPS}
+        orderNumberSearchEnabled
+        initial={{ ...PROPS.initial, no: 'YWP3PC' }}
+      />,
+    );
+    r.rerender(
+      <OrderFilterControls
+        {...PROPS}
+        orderNumberSearchEnabled
+        initial={{ ...PROPS.initial, no: 'BKPR5M' }}
+      />,
+    );
+    expect((r.getByLabelText('訂單編號') as HTMLInputElement).value).toBe('BKPR5M');
+  });
+
+  it('form 有明確的 submit 控制項(不靠 implicit submission、螢幕閱讀器也按得到)', () => {
+    const { getByRole } = render(<OrderFilterControls {...PROPS} orderNumberSearchEnabled />);
+    const btn = getByRole('button', { name: '搜尋訂單編號' });
+    expect((btn as HTMLButtonElement).type).toBe('submit');
+  });
+
+  it('🔴 input 不得有 name:form 無 action,hydration 前按 Enter 會走原生 GET 而清掉其他篩選', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
+    );
+    expect((getByLabelText('訂單編號') as HTMLInputElement).getAttribute('name')).toBeNull();
+  });
+
+  it('🔴 不得用 type=search:原生 × 與 Esc 只清草稿不送出,會讓人以為搜尋已取消', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
+    );
+    expect((getByLabelText('訂單編號') as HTMLInputElement).type).toBe('text');
   });
 });
