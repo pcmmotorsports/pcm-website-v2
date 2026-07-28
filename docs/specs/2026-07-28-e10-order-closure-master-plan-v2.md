@@ -480,16 +480,18 @@ E10 **吃下退款寫入線**:`order_refunds` 的寫入 owner RPC(RF2b)+ ACL + �
 
 | 單號 | 金額 | 付款狀態 | 實況 |
 |---|---|---|---|
-| 其餘 **26** 張 | — | `unpaid`、無 `paid_at` | ✅ 從未有金流,**砍掉零風險** |
+| 其餘 **26** 張 | — | `unpaid`、無 `paid_at` | ⚠️ **不是「零風險」** —— 其中 3 張有 `pending` 刷卡紀錄(見下)。正確說法 = **經 Sean 外部查證 TapPay 後核准刪除**,證據等級記在下方 |
 | `PCM-2026-0052` | NT$6,800 | **`paid`**(2026-06-23) | ⚠️ 有 TapPay 交易紀錄。依 memory,正式站首筆真刷是 07-24 的 0102 ⇒ 本筆**極可能是 sandbox**,但需 Sean 確認 |
 | `PCM-2026-0102` | NT$101 | `refunded`(2026-07-24) | 史上第一筆正式站真刷,已退款 |
-| `PCM-2026-0104` | NT$1,180 | **`paid`**(2026-07-25) | 🔴 **RF2a-0 驗證真刷,錢還沒退回來** |
+| `PCM-2026-0104` | NT$1,180 | **`paid`**(2026-07-25) | RF2a-0 驗證真刷。**Sean 2026-07-28 確認 TapPay 端已退款**(DB 尚未反映 ⇒ D1 第 9 步對齊) |
 
 **三張 `order_refunds` 帳本列數皆為 0** —— 因為 RF2b 寫入 RPC 從未施工,0102 的退款是在系統外做的、只把狀態翻成 `refunded`。
 
 **刪除的實際阻擋(FK 實查)**:`order_items`(39 列)與 `order_legal_consents`(4 列)是 CASCADE 可自動走;但
-`payment_charge_attempts`(**27 列**,NO ACTION)、`pending_invoices`(3 列,NO ACTION)、`email_outbox`(0 列,RESTRICT)
-**會直接擋住 DELETE**,必須先清。其中 `payment_charge_attempts` 是 3DS 雙扣防護的刷卡嘗試帳本。
+`payment_charge_attempts`(27 列,NO ACTION)、`pending_invoices`(3 列,NO ACTION)、`email_outbox`(0 列,RESTRICT)
+的 FK 規則**不會自動 CASCADE**,所以**指向待刪訂單的子列**必須先處理。
+🔴 **但實查後只有 `payment_charge_attempts` 真的需要動(24 筆)** —— `pending_invoices` 那 3 筆**全部屬於要保留的訂單、一筆都不能碰**,`email_outbox` 是 0 列。
+詳見下方相依資料表。`payment_charge_attempts` 是 3DS 雙扣防護的刷卡嘗試帳本。
 
 **關鍵事實(讓第三條路成立)**:🔴 **TapPay 的 `order_number` 送的是 `orders.id`(UUID)、不是 `display_id`**
 (`packages/adapters/src/tappay/TapPayChargeAdapter.ts:91` 逐字 `order_number: payload.orderId`)
@@ -500,6 +502,59 @@ E10 **吃下退款寫入線**:`order_refunds` 的寫入 owner RPC(RF2b)+ ACL + �
 ⇒ **N1 片(display-id 雙格式)可整片取消。**(CHECK 的最終狀態是新格式 only,但中間仍需一段暫時同時接受兩種的期間 —— 原因見 §8.4 第 6 步。)
 
 ✅ **Sean 2026-07-28 拍 A**(砍 26 + 改號 3)。
+
+### 8.5 R3 之後 Sean 再拍三題(2026-07-28)
+
+| 題 | 拍板 | 落地 |
+|---|---|---|
+| **Q10 併箱的新竹編號** | ✅ **A 包裹自己有一組獨立編號**(`shipments.shipment_reference`),送新竹用它、**與訂單編號脫鉤** | 解掉 **P1 與 U1 互相矛盾**(兩者都是 Sean 拍板):P1 的後綴以「訂單編號-序」為基底,但 U1 允許一箱裝多張訂單 ⇒ 該箱沒有唯一基底訂單號。新竹只要求「同日不重複」、未要求必須是訂單號(`hct-logistics-api-reference.md:121`)⇒ 獨立編號完全滿足。**P1 的「自動加後綴」語意改為:後綴掛在 `shipment_reference` 上,不是掛在訂單編號上** |
+| **Q11 文件深度** | ✅ **C 兩份分開** | **本檔 = 施工規格**(給 AI / codex 審,深度不設限、細節愈死愈好);**全貌給 Sean = 視覺呈現**(artifact,Q8=B 的動工前置)。⇒ 本檔不再為了「Sean 看得懂」而犧牲精確度;Sean 端的可讀性由視覺物件負責 |
+| **Q12 前台 stale 出貨狀態** | ✅ **B 前台改顯示「處理中」**,等第 2 批包裹真相就緒再換真資料 | 見下方 stale reader 清單 |
+
+#### 🔴 `fulfillment_status` 的 stale reader 全樹清單(R3 抓,主對話 grep 補完)
+
+Q1=B 之後這個欄位**沒有 writer 在維護**。上一版只排了「移除列表篩選」,實查**全樹 8 處在讀**:
+
+| 位置 | 面向 | 處置 |
+|---|---|---|
+| `apps/storefront/…/OrdersTab.tsx:45` | 🔴 **客人** | Q12=B:改顯示「處理中」 |
+| `apps/storefront/…/OverviewTab.tsx:108` | 🔴 **客人** | 同上 |
+| `apps/admin/…/order-detail.tsx:202` | 員工 | 移除該欄,改顯示品項層訂貨狀態 |
+| `apps/admin/…/customer-detail-sections.tsx:71` | 員工 | 同上 |
+| `apps/admin/…/order-filter-bar.tsx:36` | 員工 | 移除篩選 |
+| `apps/admin/…/order-list-view.ts:31,149,184` | 員工 | 移除參數與解析 |
+
+⚠️ **這是我這輪的復發**:codex 只點名了明細頁,我原本也只排了列表篩選。
+**同類必須全掃** —— memory `feedback_claimed-sync-but-only-patched-touched-lines` 記著「已復發 9 次以上」,這是第 10 次。
+
+#### 🔴 併箱的客人讀取邊界(R3 抓,原本沒想到)
+
+U1 允許**一箱裝多位客人的訂單** ⇒ 若 `shipments` / `shipment_items` 對 `authenticated` 開放,
+客人查自己的包裹就會看到**同箱其他客人**的單號、品項與收件資料。
+⇒ **兩張表一律 service_role only**;客人端另做 **own-order 安全投影**,只回「該客人自己那些 `shipment_items`」+ 包裹單號,
+**絕不回整個 shipment**。第 2 批的包裹模型片必須含這條。
+
+#### 🔴 D1 是 runbook 不是 migration(R3 抓)
+
+D1 寫死 production UUID 與「29 → 3」斷言 ⇒ **在本機 / preview / 全新 DB 重播必然失敗**。
+⇒ **拆兩件**:①可重播的 schema migration(CHECK 放寬)②**一次性 production data runbook**(含環境身分守門:
+執行前 assert 連到的是 production 專案、否則 abort)。**不要把一次性資料操作放進 migration 序列。**
+
+#### 🔴 產號的重試歸屬(R3 抓,§5.4a 的設計缺陷)
+
+`pcm_generate_display_id()` 若**只回候選值**,它不可能自己捕捉 INSERT 的 unique violation ⇒ 「重試 5 次」沒有歸屬。
+⇒ **改成**:helper 負責產候選,**重試迴圈與具名 constraint 捕捉一律寫在真正做 INSERT 的那一層**
+(`create_order` 與 admin 建單 RPC 各自實作、共用同一個 helper 與同一組上限常數)。
+N3a 同時要補:`search_path` 固定、pgcrypto schema qualification、`REVOKE EXECUTE FROM PUBLIC/anon/authenticated`、用盡時的告警落點。
+
+#### 🔴 其他 R3 修正
+
+- **A14 的「建手動單」是死按鈕** —— 建單第 3 批才有 ⇒ 第 1 批**不放該動作**(或放但 disabled 並寫明原因),第 3 批再啟用
+- **改號會讓客人手上的舊單號失效** —— D1→N3b 窗口內寄出的信帶舊號,N3c 又改號 ⇒ **必須保留永久 alias**(`orders.legacy_display_id`),客服與查詢都吃得到舊號
+- **計數器不得獨立手填**(R3 重申 R2 未解):`ordered_quantity` / `instock_quantity` **由 `order_item_procurement` 的具名數量與狀態原子推導**,A4 不提供「直接改數字」的入口
+- **`allocated_quantity` 跨列合計不能用一般 CHECK**(CHECK 只看單列)⇒ 改用 **owner RPC 內鎖住該 `order_item` 後重算** 或 constraint trigger,並補併發負向測試
+- **FK 匯出清單補 `payment_double_charge_anomaly_events`**(實查存在、0 列,經 `payment_double_charge_anomalies` 間接關聯 orders)
+- **D1 鎖列範圍**:不只鎖 29 張 orders,**同時鎖住目標 child rows**(`payment_charge_attempts` 等),否則重驗後、刪除前仍可能被付款流程改成 charged
 
 ### 8.4 Q2=A 的落地(D1 片)與它省掉的東西
 
