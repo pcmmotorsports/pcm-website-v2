@@ -1,6 +1,6 @@
 # M-4b E10 訂單閉環總規劃 **v2**(2026-07-28 重寫)
 
-> **狀態:** 🟢 **codex 關卡1 R20 PASS(2026-07-28,20 輪)→ Fable 復盤已折入 → 確認輪通過後才送 Sean 最終批准;批准後才動第一片 code**(鐵則 8/12;進度以 STATUS「下一步」為準)
+> **狀態:** # ✅ **Sean 已最終批准(2026-07-29 凌晨,拍 A)— 施工中**。批准附帶指示:**過夜自跑只做「不需 Sean 批准」的部分**(D1c apply、production db push、任何 push/deploy 一律留到早上);主模型 Opus、Codex 寫機械片、Fable+Codex 審查。
 > **取代:** `docs/specs/2026-07-27-e10-order-closure-master-plan.md` v1 —— v1 經 codex 關卡1 **FAIL、67 條 findings(62 must-fix + 5 nit)**,判定重寫非修補。逐條裁定 = `docs/reviews/2026-07-28-e10-k1-findings-triage.md`(駁回 0 條)
 > **驗收唯一標準:** `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1「員工的一天」27 項
 > **北極星(Sean 逐字):**「可以完整上線給員工使用,操作,修改網站。而且他們不是工程師」
