@@ -131,7 +131,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16)
+### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7)
 
 | 輪 | 結果 | findings 檔 |
 |---|---|---|
@@ -144,9 +144,10 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | R7 | FAIL **15 + 1**、R6 全關死;深水區 = 金流取消語意(第 1 批取消因此 fail-closed 到無退款需求的單) | `docs/reviews/2026-07-28-e10-k1-r7-codex.md` |
 | R8 | FAIL **17 + 4**、再下探跨 RPC 競態 / TapPay 退款外部冪等(`bank_refund_id` + `submitted`)/ D1 pooler 守門;兩題升為 §8.6 開批閘 | `docs/reviews/2026-07-28-e10-k1-r8-codex.md` |
 | R9 | FAIL **16 + 2**、零決策題全機械合約缺口;submitted 出路 / baseline 初始化位置 / 同 rec_trade_id 序列化 / D1 12 片 + A15 adapter 片 | `docs/reviews/2026-07-28-e10-k1-r9-codex.md` |
+| R10 | FAIL **7**、大幅收斂(R9 約 12 條關閉);A8c1 改鎖 `begin_charge_attempt` / rec_trade_id NOT NULL / `reconciling` 相位 / A15 port / D1t 拆二 | `docs/reviews/2026-07-28-e10-k1-r10-codex.md` |
 
-✅ **R1-R9 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
-✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R10**。
+✅ **R1-R10 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
+✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R11**。
 ✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
 
 **R1 的三條抽驗備查(當時全部成立)**:
