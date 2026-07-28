@@ -7,7 +7,7 @@
 > **輪次:** 🔴 **Sean 2026-07-28 拍 Q8=B 解除 plan 層兩輪上限**(逐字:「就算有第四輪第五輪都沒差,我要把全貌做好後再用視覺顯示完整一次 才開始動工」)。
 > 已跑:**R1 67**(審 v1)→ **R2 33** → **R3 31** → **R4 32** → **R5 26+2** → **R6 24+1** → **R7 15+1** → **R8 17+4** → **R9 16 must-fix + 2 nit**,九輪皆 FAIL,findings 各存 `docs/reviews/2026-07-28-e10-k1-r{2,…,9}-codex.md`。
 > 🟢 **R9 性質**:零產品決策題、全為可機械折入的合約缺口。對策 = `submitted` 補 reconciler claim 出路、reconcile baseline 移 worker 初始化、同 `rec_trade_id` 單一 active job、D1 線 9→12 片(守門/匯出腳本/正式匯出拆開 + orchestrator tooling 片)、A15 adapter timeout 片、允許集合再收斂到 `unpaid` only、D1b1 判定矩陣數值寫死。
-> 🟢 **R7→R8 收斂**:R7 對策(第 1 批取消 fail-closed 收斂到無退款需求的單、A8b 移第 3 批)成立;R8 再下探**跨 RPC 競態**(取消與付款五支 RPC 統一 `FOR UPDATE` 鎖序)、**TapPay 退款外部冪等**(`bank_refund_id` + reconcile 基準欄 + `submitted` 狀態 —— 退款隔日生效)、**D1 pooler 連線守門與 HTTP timeout**。兩條上升為產品決策 = §8.6 第 3 批開批閘(混合收款分軌 / partiallyPaid 應退額)。
+> 🟢 **R7→R8 收斂**:R7 對策(第 1 批取消 fail-closed 收斂到無退款需求的單、A8b 移第 3 批)成立;R8 再下探**跨 RPC 競態**(取消與付款相關 RPC 統一 `FOR UPDATE` 鎖序;R9 更正為三支 RPC 四施工片)、**TapPay 退款外部冪等**(`bank_refund_id` + reconcile 基準欄 + `submitted` 狀態 —— 退款隔日生效)、**D1 pooler 連線守門與 HTTP timeout**。兩條上升為產品決策 = §8.6 第 3 批開批閘(混合收款分軌 / partiallyPaid 應退額)。
 > 🔴 **R5 診斷(codex 回答主對話的追問)**:「反覆產生 finding 的核心,是新模型/新決策加進正文後**沒有同步生成唯一 DAG 與『schema→writer→reader→UI→驗收』閉環矩陣**;主因是規格深度不足,但 **P1 後綴、已到貨取消、取消原因映射、HCT 允許字元確實尚未定案**」。
 > 🟢 **R6 收斂判斷(codex 逐字摘要)**:N3a 前移、有界重試、告警通道、tombstone、cohort 口徑、dry-run/驗收矩陣、A14 拆片等類別**已實質關死**;剩餘 = 取消→採購反向守門、refund-job worker 合約、alias UI、鐵則 4 超大片、D1 細節與文件同步。
 > ⇒ 本檔為 **R9 折入後版本**。全檔唯一待決清單 = **§8.6**。下一步送 **R10**。
@@ -224,7 +224,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
        A5a/A6 (R) → A8c1/A8c2 金流 RPC 取消守門 (R; 取消過的單拒收款)
          → A8a1 整單取消核心 → A8a2 品項部分取消 (R; 僅無退款需求的單, fail-closed)
          ↓   ← 🔴 R8:守門先上、取消才上 —— 反序的窗口內「取消後仍可被收原額」;
-         ↓      五支 RPC 統一先 orders FOR UPDATE 再檢查(跨 RPC 競態)
+         ↓      三支 RPC(四施工片)統一先 orders FOR UPDATE 再檢查(跨 RPC 競態)
          ↓
        A5c/A9a/A9b2/A9c/A9d1/A9d2/A9g/A9h (A; 全部加法契約)
          ↓
@@ -267,7 +267,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 取消 | A7 | A8a1/A8a2(第 1 批,僅無退款需求單)+ A8c1/A8c2 金流守門(**先上**)/ A8b(**第 3 批**) | **A9g** | A13a / A13b | **19 = 部分綠(🔴 R8 精確化:整單取消 = 閉環;部分取消 = 安全可用但剩餘品項的卡付款被 A8c 封鎖、應收重算第 3 批,UI 明示);全綠隨第 3 批解鎖線** |
 | 退款工作 | **A7b**(schema 第 1 批先建,合約定死) | **全在第 3 批**:A8b(同交易 enqueue)+ worker(狀態機照 A7b) | A9g | A13b | (併入 19 的第 3 批部分) |
 | 列表投影 | — | — | A9c(admin 加法)/ **A9s(storefront 收縮)/ A9r(admin 收縮)**——兩者皆在 A9e/A9f **之後** | A9e / A9f / A11a-c | **1(部分)** |
-| 編號 | D0 | D1a1-D1c(runbook ×9)/ N3a / N3b / N3c | **A9b1**(display_id + legacy 命中) | **A10c1 單號搜尋**(🔴 R6:D1 前置,驗過舊號命中才准 D1) | — |
+| 編號 | D0 | D1a0-D1c(runbook ×12)/ N3a / N3b / N3c | **A9b1**(display_id + legacy 命中) | **A10c1 單號搜尋**(🔴 R6:D1 前置,驗過舊號命中才准 D1) | — |
 
 **閉環檢查**:每個綠燈的整條鏈都在同一批;第 1 批不依賴包裹、不依賴帳本、不依賴 N3a(D1 用寫死映射,§8.4)。
 
@@ -373,7 +373,7 @@ A9b1 / A9c / A9s / A9r 不算(只動客人可讀表的投影,無權限面);docs 
 | 內部 vs 對客 | `reason_code`(受控 code,內部)存本表;**對客文字**寫 `orders.cancelled_reason`,兩者由 RPC 同交易寫入。✅ **allowlist 與映射已定案 = §5.1d**(Q18,Sean 2026-07-28 拍「照這份」);未知 code 一律 `RAISE` fail-closed。A7/A8 開工阻擋解除 |
 | 與採購連動 | 取消後 `cancelled_quantity` 上升 ⇒ `ordered_quantity` **不自動下降**(已向供應商下的單不會因客人取消就消失);差額由第 3 批的採購退貨處理。✅ **已到貨後取消 = 不可(Q17=B,Sean 2026-07-28)**:已到貨部分只能走第 3 批退貨流程 ⇒ §5.1c 第四條不變式 `instock + cancelled ≤ quantity` **成立、隨 A1 上 CHECK**;A8a2 可取消量守門 `增量 ≤ quantity − instock − cancelled`,違反 `RAISE`;A13a 對已到貨品項顯示「不可取消,需走退貨」。🔴 **R6 的反向守門同步解**:A2b1 的 delta 守門(取消後不得為已取消部分加開採購)與本格互為表裡 |
 | 🔴 已出貨禁取消 | **上一版寫反了**(R4 抓,成立):我寫「包裹真相不存在 ⇒ 無法證明未出貨 ⇒ 不得取消」,但第 1 批**本來就沒有包裹模型** ⇒ 條件恆假、**一件都取消不了**,卻同時宣稱第 19 項變綠。**正確寫法**:第 1 批 `shipped_quantity` 欄**不存在**,出貨這件事在系統裡尚未發生 ⇒ 不變式 `cancelled ≤ quantity − shipped` **退化為 `cancelled ≤ quantity`、恆真**,取消照常運作(Q17=B 的已到貨守門另計,見「與採購連動」格)。🔴 **但這是有期限的正確**:第 2 批建包裹模型時,**同一片**必須把 `shipped_quantity` 加進不變式並改寫本 RPC —— 列為 **A8a1/A8a2/A8b 的 contract 債**,寫進第 2 批的 definition of done,**不是「日後自動生效」** |
-| 🔴 已付款取消 | 🔴 **R7 收斂 + R8 加嚴:第 1 批整個 fail-closed** —— A8a1/A8a2 只允許 `payment_status ∈ (unpaid, refunded)` **且該單 `payment_charge_attempts` 全為終態 `failed` 或零筆**(R8:只排 `pending` 仍會取消到已扣款未回填的單),其餘一律 `RAISE`。🔴 **五支 RPC(A8a1/A8a2/A8c1/A8c2 所改的 begin·confirm)統一先 `orders FOR UPDATE` 再檢查**(R8:消「取消與付款各自檢查各自通過」的競態);**部署序 A8c 守門先上、A8a 取消才上**。第 3 批依 §5.0 解鎖線(worker dormant → A8b → UI → enable)開通:enqueue `order_refund_jobs`(狀態機、fencing、`bank_refund_id` 外部冪等、reconcile 基準、`submitted` 隔日確認全在 A7b 合約);金額矩陣在 A8b(§5.3)。🔴 **第 19 項第 1 批 = 部分綠:整單取消閉環;部分取消安全可用但剩餘品項卡付款被守門封鎖(應收重算第 3 批,A13a 明示)** |
+| 🔴 已付款取消 | 🔴 **R7 收斂 + R8 加嚴:第 1 批整個 fail-closed** —— A8a1/A8a2 只允許 **`payment_status = 'unpaid'`**(R9 再收斂:`refunded` 分支是恆假字面已移除)**且該單 `payment_charge_attempts` 全為終態 `failed` 或零筆**(R8:只排 `pending` 仍會取消到已扣款未回填的單),其餘一律 `RAISE`。🔴 **三支 RPC、四個施工片(`admin_cancel_order` 兩片 + `record_charge_pending_rec` + `confirm_order_payment`)統一先 `orders FOR UPDATE` 再檢查**(R8:消「取消與付款各自檢查各自通過」的競態);**部署序 A8c 守門先上、A8a 取消才上**。第 3 批依 §5.0 解鎖線(worker dormant → A8b → UI → enable)開通:enqueue `order_refund_jobs`(狀態機、fencing、`bank_refund_id` 外部冪等、reconcile 基準、`submitted` 隔日確認全在 A7b 合約);金額矩陣在 A8b(§5.3)。🔴 **第 19 項第 1 批 = 部分綠:整單取消閉環;部分取消安全可用但剩餘品項卡付款被守門封鎖(應收重算第 3 批,A13a 明示)** |
 
 #### 5.1c 計數器跨欄不變式(第 1 批版本;**四條全上**)
 
