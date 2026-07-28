@@ -190,6 +190,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 片 | 型 | 內容 | 做完哪項變綠 |
 |---|---|---|---|
 | **A0** | docs | 規格凍結 + 現況重驗:`orders` 筆數 / E11 積木採用度 / **27 項逐項重驗**(現值是 07-26 的,已隔兩天) | — |
+| **D1** | M | 🔴 **舊訂單清理 + 改號**(Q2=A / Q5;完整六步與守則見 §8.4):匯出存檔 → 刪 26 張無金流單及其 `payment_charge_attempts`/`pending_invoices` → 3 張有金流的改新格式 → 0052/0104 狀態改 `refunded` → CHECK 暫收兩種格式。**排在 A1 之前**,讓 A1 的計數器回填只面對 3 列 | — |
 | **A1** | M | `order_items` 加 7 計數器欄(`ordered/instock/shipped/return_requested/return_received/cancelled_quantity`)。**同片做完**:加欄 nullable → 回填 → `SET NOT NULL DEFAULT 0` → CHECK 不變式(各值 ≤ `quantity`;`ordered ≥ instock ≥ shipped`)。🔴 回填規則 = **全部 0**,理由:既有 9 碼 `workflow_status` 是自由 code、映射不可靠,且 29 張單全為 Sean 測試單(#15) | — |
 | **A2** | M | `order_item_procurement` 新表(每 line **1:N**,吃同 SKU 分兩家 / 同家分批確認,#45)。欄:供應商名(自由文字)、聯絡管道、送出時間、供應商單號、回覆狀態、異常原因、預計到貨、`first_ordered_at`、`status_changed_at`。ACL = service_role only + RLS zero-policy(原則 3) | — |
 | **A3** | M | `order_notes` 新表(append-only):內部備註 / LINE·電話聯絡紀錄 / 「已告知客人」登記(U6)。欄:管道、對內對客、摘要、承諾日期、操作者。ACL 同 A2 | — |
@@ -203,7 +204,8 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | **A11** | U | 訂單列表新版版面(§5.1a);出貨軸唯讀灰 | 1(部分) |
 | **A12** | U | 列表批次標記訂貨。🔴 **不套 `<AdminDataTable>`** —— 直接做在 `orders-table`,理由見 §7.3(#23) | 4 |
 
-**第 1 批 = 13 片(A0-A12)。片型分佈:docs 1 / M 4 / R 4 / U 4。M 與 R 共 8 片一律高風險、對抗審查不降級。**
+**第 1 批 = 14 片(A0、D1、A1-A12)。片型分佈:docs 1 / M 5 / R 4 / U 4。M 與 R 共 9 片一律高風險、對抗審查不降級。**
+⚠️ D1 是本批**唯一不可逆**的一片(刪 production 資料)⇒ 匯出存檔沒做完不得執行,且它與 A1 之間要留一個 Sean 確認點。
 
 #### 5.1a 版面規格(repo 內可驗字面,取代 artifact)
 
@@ -261,13 +263,22 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 
 結論用 6 碼**仍成立**(0.9% 且有重試),但這是**首抽碰撞率、不是建單失敗率**(#52)。
 
-**拆 3 片(#55/#56/#57)**:
+**Q2=A 之後只剩 2 片**(原 3 片,#55/#56/#57):
 
 | 片 | 型 | 內容 |
 |---|---|---|
-| **N1** | U(domain) | `display-id.ts` 支援**雙格式**:新增 6 碼 parse/format/validate,舊 `PCM-YYYY-NNNN` 原樣可用;`parseDisplayId` 現回 `{year, seq}`、新格式無此語意 ⇒ 回傳型別要能表達「無序號語意」。零行為改動、純加能力 + 測試 |
-| **N2** | M | CHECK `orders_display_id_format`(`20260604120000:114` 逐字 `'^PCM-[0-9]{4}-[0-9]{4,}$'`)放寬成同時吃兩格式;既有 29 張單**保留原編號不動** |
-| **N3** | R | `create_order` 產號改亂碼 + **有界重試**:亂數源指定、**只捕捉具名 constraint**(不是所有 unique violation,#53)、上限用盡**明確報錯不靜默**、超限告警。🔴 這支是 **654 行 SECURITY DEFINER 金流函式**,本片必過 codex 關卡2 + Sean 1 元真刷 smoke |
+| ~~**N1**~~ | — | ❌ **整片取消**(Q2=A)。原本要做「舊新雙格式並存」,但 26 張舊單被刪、3 張改號後全表已是新格式 ⇒ domain 不需要同時吃兩種 |
+| **N2** | U(domain) | `display-id.ts` 把舊格式**換成**新 6 碼格式 + 測試。🔴 `parseDisplayId` 現回 `{year, seq}`,新格式**沒有這個語意** ⇒ 直接刪除該函式(全樹只有測試在用) |
+| **N3** | R | `create_order` 產號改亂碼 + **有界重試**:亂數源指定、**只捕捉具名 constraint**(不是所有 unique violation,#53)、上限用盡**明確報錯不靜默**、超限告警;**同一 migration** 把 D1 留下的寬鬆 CHECK contract 成新格式 only。🔴 這支是 **654 行 SECURITY DEFINER 金流函式**,本片必過 codex 關卡2 + Sean 1 元真刷 smoke |
+
+🔴 **真正的順序約束只有一條(DB 側)**:任何時刻 `orders_display_id_format` 必須接受 `create_order` 當下產出的格式。
+所以「換產號器」與「收緊 CHECK」必須在**同一個 migration**(N3 內),中間不能有一次部署的空窗。
+
+⚠️ **一個我原本寫錯、已更正的約束**:先前寫「N2 與 N3 必須同一次部署,否則結帳全斷」——
+**不成立**。實查:`assertDisplayId` 的唯一呼叫點是 domain factory `createOrder`(`order.ts:253`),
+而 **`createOrder` 全樹沒有任何生產呼叫端**(只有測試用;結帳走 `placeOrder` → `create_order` RPC,
+拿回的 `displayId` 是**純字串直接傳遞**,`packages/use-cases/src/place-order.ts:18` 註解逐字說明兩者同名不同物)。
+⇒ **N2 是純型別/測試層改動、對結帳零 runtime 影響,可獨立上線。**
 
 **已移除的 v1 待做項**:「排序改 `created_at`」—— 實查 `SupabaseOrderAdapter.ts:270-272` 已是 `created_at DESC, id DESC`,不是待做(#54)。
 ⚠️ `orders.display_position` 實查全為 NULL、未使用,不可當排序鍵。
@@ -346,7 +357,8 @@ Sean 已拍 N5「訂單域做到目標狀態才算數、不接受做一半」⇒
 | 題 | 拍板 | 連動 |
 |---|---|---|
 | **Q1 整單彙總狀態** | ✅ **B 不維護** —— `orders.fulfillment_status` **凍結不動、不再由計數器驅動**;篩選改走品項層條件(例「有品項還沒訂貨」) | 見 §8.1 |
-| **Q2 6 碼編號時機** | 🟡 **Sean 提第三案「現在訂單都是假的、可以全部砍掉用新的」** —— 實查後**不成立於全部 29 張**,見 §8.3,**待重新拍板** |
+| **Q2 舊訂單處理** | ✅ **A 砍 26 張無金流的 + 3 張有金流的改號** —— 雙格式支援整片取消,見 §8.3 / §8.4 |
+| **Q5 `PCM-2026-0104` 的 NT$1,180** | ✅ **Sean 2026-07-28 口頭確認「TapPay 都已經退款」+ 授權「怎麼處理都好」** ⇒ D1 片一併把 0052 / 0104 的 `payment_status` 改為 `refunded` 讓 DB 對齊事實。🔴 **來源=Sean 口述,未經 TapPay API 查證**(`TapPayChargeAdapter.recordQuery` 可查,需要時再跑) |
 | **Q3 退款完成定義** | ✅ **A E10 吃下 RF2b-RF8** —— 第 17 項才算真的綠 | 見 §8.2 |
 
 ### 8.1 Q1=B 的連動(四條 findings 因此消失)
@@ -388,7 +400,39 @@ E10 **吃下退款寫入線**:`order_refunds` 的寫入 owner RPC(RF2b)+ ACL + �
 效果 = 全表統一新格式(雙格式支援不用做,Sean 要的省事達成)+ 金流紀錄與雙扣帳本完整保留。
 ⇒ **N1 片(display-id 雙格式)可整片取消,N2 的 CHECK 直接換成新格式不必放寬。**
 
-**未解**:`PCM-2026-0104` 的 NT$1,180 是 Sean 自己的真實刷卡、目前仍在 `paid`,系統內沒有退款能力(RF2b 未做)。
-**砍單或改號都不會退錢** —— 這筆要不要處理是獨立問題,但**砍單會連 TapPay 交易編號一起消失**,之後只能去 TapPay 後台自己翻。
+✅ **Sean 2026-07-28 拍 A**(砍 26 + 改號 3)。
+
+### 8.4 Q2=A 的落地(D1 片)與它省掉的東西
+
+**再查兩層(讓改號安全的關鍵)**:
+
+1. `assertDisplayId` 全樹只出現在 `packages/domain/src/order/order.ts:253`(domain factory `createOrder` 內)
+   + barrel export + 測試;`apps/` 與 `packages/adapters/` **零命中**
+2. 而 **`createOrder` 這個 factory 全樹沒有任何生產呼叫端** —— 結帳走 `placeOrder` → `create_order` RPC,
+   回來的 `displayId` 是**純字串直接傳遞**(`packages/use-cases/src/place-order.ts:18` 註解逐字點明
+   `placeOrder` 與 domain factory `createOrder` 同名不同物);admin row mapper 同樣只當字串傳
+
+⇒ **改號後的 3 列不會被任何路徑驗證或拒絕。** 唯一會擋的是 DB 的 CHECK 約束,而那正是 D1 第 4 步在處理的。
+
+**因此省掉的**:
+- ❌ **N1 舊新雙格式支援整片取消**(#55/#56 的解法從「同時吃兩種」降級為「換掉」)—— domain 只需在 N3 時把舊格式**換成**新格式
+- ❌ **CHECK 不必「放寬成同時吃兩種」**,最終狀態是新格式 only
+
+**D1 片(M 型、🔴 高風險:③DB 不可逆 + ①錢面資料)—— 排在 A0 之後、A1 之前**:
+
+| 步 | 動作 | 守則 |
+|---|---|---|
+| 1 | **先匯出存檔**:29 張 orders + order_items + payment_charge_attempts + pending_invoices 全欄 dump | 🔴 含 `shipping_address_snapshot`(真實地址)⇒ **存本機、不進 git**;路徑回報 Sean |
+| 2 | 刪 26 張無金流單的 `payment_charge_attempts` 與 `pending_invoices`(NO ACTION,不先清會擋住) | 只刪屬於那 26 張的;3 張留存的一列不動 |
+| 3 | 刪 26 張 orders(`order_items` 39 列與 `order_legal_consents` 4 列走 CASCADE) | |
+| 4 | 3 張留存單改號成新 6 碼格式 | DROP 舊 CHECK → UPDATE → ADD 新 CHECK,同一 migration |
+| 5 | `PCM-2026-0052` / `PCM-2026-0104` 的 `payment_status` → `refunded`(Q5) | 🔴 `paid → refunded` 是狀態機合法轉移(`state-machine.ts:41`);**來源=Sean 口述、非 TapPay 查證**,migration 註解要寫明 |
+| 6 | 新 CHECK **暫時同時接受兩種格式** | ⚠️ 這一步不能省:`create_order` 在 N3 之前仍產舊格式,CHECK 若立刻收成新格式 only,**下一筆真實結帳當場被擋** |
+
+**N3 之後**才把 CHECK contract 成新格式 only。
+🔴 **D1 到 N3 之間的約束**:那 3 列的 `display_id` 是新格式而 domain 尚未支援 ⇒ **不得把它們餵進 domain `Order` factory**(讀取路徑本來就不會,但新寫的 code 要守這條)。
+
+**驗收**:交易模擬(BEGIN→跑完 1-6→驗筆數/格式/狀態→ROLLBACK)、匯出檔逐列比對、
+apply 後 read-back 確認 `orders` 剩 3 列且全為新格式、`payment_charge_attempts` 剩屬於那 3 張的列數。
 
 — END —
