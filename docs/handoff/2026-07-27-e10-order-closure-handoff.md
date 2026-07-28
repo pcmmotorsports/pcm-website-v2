@@ -22,7 +22,7 @@ git log --oneline origin/dev..HEAD && git rev-list --count origin/dev..HEAD
 3. `STATUS.md`
 4. memory:`project_m4b-e10-order-list-layout-decisions`(版面與編號定案)/ `project_admin-backend-staff-ready-goal`(北極星)/ `project_m4b-real-auth-line-decisions`(E8-B 押後狀態)
 
-🔴 **不要重問已拍板的題**(全表在總規劃 **§4 折入表與 §8 拍板節**、本檔 §3;R6 nit 更正:舊指標 §6 是完成定義、不是拍板表)。
+🔴 **不要重問已拍板的題**(拍板分佈:總規劃 **§8 拍板節(07-28 Q 系含 Q9)、§8.5、§8.6、§5.1a(E2-E4 落地)、§4 折入表(U 系)**、本檔 §3(07-27 Q/P/E 系);復盤L1 更正:原「全表在 §4+§8」字面不成立,已補 Q9 列並展開實際分佈)。
 
 ---
 
@@ -76,6 +76,8 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 ---
 
 ## §3 Sean 2026-07-27 拍板總表(接手不得重問)
+
+> 🔴 **題號消歧(復盤L1)**:本表 Q1-Q9 **僅限 07-27 當晚**;07-28 E10 v2 §8 另有一套同號不同題的 Q 系列。**跨檔引用一律帶日期**。
 
 | 題 | 拍板 |
 |---|---|
