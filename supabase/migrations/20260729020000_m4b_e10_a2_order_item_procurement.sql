@@ -82,10 +82,15 @@ CREATE TABLE public.order_item_procurement (
   -- 🔴 存 ' SO-123 ' 進來,用 'SO-123' 等值搜尋就會漏單(A9b2 的跨單搜尋靠等值)。
   -- 🔴 用 [[:space:]] 而不是 btrim:btrim 預設只剝 U+0020,**剝不掉全形空白 U+3000 與 tab**,
   --    而中文輸入法打出全形空白極常見 —— 那正是本條要防的病灶(Fable 復審 F1)。
+  -- 🔴 除了前後空白,零寬字元也要擋:[[:space:]] **不涵蓋** U+200B/200C/200D/FEFF(實測 confirmed),
+  --    單號裡混一個零寬空格照樣入庫,A9b2 用乾淨輸入等值查一樣漏單 —— 同一個病灶的第三層。
   CONSTRAINT order_item_procurement_supplier_order_no_nonempty
     CHECK (
       supplier_order_no IS NULL
-      OR supplier_order_no ~ '^[^[:space:]]([^[:space:]]|.*[^[:space:]])?$'
+      OR (
+        supplier_order_no ~ '^[^[:space:]]([^[:space:]]|.*[^[:space:]])?$'
+        AND pg_catalog.translate(supplier_order_no, U&'\200B\200C\200D\FEFF', '') = supplier_order_no
+      )
     ),
 
   -- 異常原因非空白(同上;U6 的缺貨告知靠這欄記「為什麼要等」)
