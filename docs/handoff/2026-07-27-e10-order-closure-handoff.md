@@ -22,7 +22,7 @@ git log --oneline origin/dev..HEAD && git rev-list --count origin/dev..HEAD
 3. `STATUS.md`
 4. memory:`project_m4b-e10-order-list-layout-decisions`(版面與編號定案)/ `project_admin-backend-staff-ready-goal`(北極星)/ `project_m4b-real-auth-line-decisions`(E8-B 押後狀態)
 
-🔴 **不要重問已拍板的題**(全表在總規劃 §6 與本檔 §3)。
+🔴 **不要重問已拍板的題**(全表在總規劃 **§4 折入表與 §8 拍板節**、本檔 §3;R6 nit 更正:舊指標 §6 是完成定義、不是拍板表)。
 
 ---
 
@@ -94,7 +94,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | **E3** | 配色:未做灰 / 已訂貨黃 / 已出貨綠 |
 | **E4** | **A 已出貨欄只放快遞單號**、不放出貨日期 |
 
-細節與依據全在總規劃 §6.1-§6.4。
+細節與依據全在總規劃 **§4(UX 決策折入表)與 §8(Sean 拍板)**(R6 nit 更正:舊指標 §6.1-§6.4 過時,v2 無 §6.4)。
 
 ---
 
@@ -131,7 +131,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 已跑四輪、判定「未收斂」(2026-07-28 更新)
+### 🔴🔴 codex 關卡1 已跑六輪(2026-07-28 更新;趨勢 67→33→31→32→26→24)
 
 | 輪 | 結果 | findings 檔 |
 |---|---|---|
@@ -139,9 +139,11 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | R2(審 v2) | FAIL **33 + 2** | `docs/reviews/2026-07-28-e10-k1-r2-codex.md` |
 | R3 | FAIL **31 + 2** | `docs/reviews/2026-07-28-e10-k1-r3-codex.md` |
 | R4 | FAIL **32 + 1**、codex 逐字**「未收斂」** | `docs/reviews/2026-07-28-e10-k1-r4-codex.md` |
+| R5 | FAIL **26 + 2**、首次實質下降 + 根因診斷(唯一 DAG + 閉環矩陣) | `docs/reviews/2026-07-28-e10-k1-r5-codex.md` |
+| R6 | FAIL **24 + 1**、首現「已關死類別」清單 | `docs/reviews/2026-07-28-e10-k1-r6-codex.md` |
 
-✅ **R1-R4 全部已折入**(逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
-🔴 主對話提「方向問題」決策題,**Sean 拍 Q15=D 繼續折第五輪** ⇒ 下一步 = **R5**。
+✅ **R1-R6 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
+✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R7**。
 ✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
 
 **R1 的三條抽驗備查(當時全部成立)**:
@@ -164,7 +166,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 ⑦**C1 同檔既寫「未定」又寫「已拍板」**,且 `docs/reference/hct-logistics-api-reference.md:217` 仍記未定案 —— **repo 真權威未同步**
 
 🔴 依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**。
-~~依輪次紀律 plan 層上限 2 輪~~ 🔴 **Sean 07-28 拍 Q8=B 解除上限**(逐字「就算有第四輪第五輪都沒差」);已跑五輪、R5 折入後續送 R6。
+~~依輪次紀律 plan 層上限 2 輪~~ 🔴 **Sean 07-28 拍 Q8=B 解除上限**(逐字「就算有第四輪第五輪都沒差」);已跑六輪、R6 折入後續送 R7。
 - 24 片的「2-4 週」是**整體粗估、未逐片估算**,不是承諾。
 - 27 項現況(✅2/⚠️6/❌19)沿用 2026-07-26 read-back,**本輪未逐項重驗**(列為 O0)。
 - E8-B plan v3 的 **34 條 must-fix 尚未重寫折入**;本輪只記錄狀態。
