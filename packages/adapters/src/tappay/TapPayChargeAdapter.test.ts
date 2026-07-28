@@ -472,3 +472,97 @@ describe('TapPayChargeAdapter.initiateThreeDSCharge — #16 PII：payment_url / 
     expect(logged).toContain('PABCDEFGHJKMNPQRSTV'); // bank_transaction_id(非 PII)
   });
 });
+
+// ── M-4b E10 A15:recordQuery 的可選中止訊號 ────────────────────────────────
+// 規格 = docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md §5.1 A15。
+// 目的:第 3 批的退款 worker 經 port 注入呼叫 adapter,必須傳得了 signal 才有逾時控制。
+function abortError(): Error {
+  const e = new Error('The operation was aborted');
+  e.name = 'AbortError';
+  return e;
+}
+
+describe('TapPayChargeAdapter.recordQuery — A15 中止訊號', () => {
+  it('有給 signal → 原樣傳進 fetch init', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ status: 2, trade_records: [] }));
+    vi.stubGlobal('fetch', fetchFn);
+    await new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY, { signal: controller.signal });
+    const init = fetchFn.mock.calls[0]![1] as RequestInit;
+    expect(init.signal).toBe(controller.signal);
+  });
+
+  it('🔴 未給 options → init.signal 為 undefined(既有 settleCharge 路徑零行為改動)', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ status: 2, trade_records: [] }));
+    vi.stubGlobal('fetch', fetchFn);
+    await new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY);
+    const init = fetchFn.mock.calls[0]![1] as RequestInit;
+    expect(init.signal).toBeUndefined();
+  });
+
+  it('🔴 中止 → 丟出 AbortError,絕不得被吞成「查無紀錄」', async () => {
+    // 逾時不是「這筆沒付款」的證據。若 adapter 把中止吞成 records: [],
+    // 上游 settleCharge 會把一張可能已扣款的單判成 failed 而移走 = 金流事故。
+    const controller = new AbortController();
+    const fetchFn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = init.signal;
+          if (!signal) throw new Error('本測試要求 signal 必須被傳進 fetch');
+          if (signal.aborted) {
+            reject(abortError());
+            return;
+          }
+          signal.addEventListener('abort', () => reject(abortError()));
+        }),
+    );
+    vi.stubGlobal('fetch', fetchFn);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    const pending = new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY, {
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(pending).rejects.toThrow(/aborted/i);
+    expect(controller.signal.aborted).toBe(true);
+    // 沒有走到解析與 log ⇒ 沒有半個「假裝查到東西」的產物
+    expect(infoSpy).not.toHaveBeenCalled();
+    infoSpy.mockRestore();
+  });
+
+  it('🔴 已中止的 signal → 立刻失敗,不留半掛請求', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchFn = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          if (init.signal?.aborted) {
+            reject(abortError());
+            return;
+          }
+          // 沒有中止就永遠不 settle = 若 signal 沒被傳進來,測試會逾時而不是假綠
+        }),
+    );
+    vi.stubGlobal('fetch', fetchFn);
+    await expect(
+      new TapPayChargeAdapter(CONFIG).recordQuery(REC_QUERY, { signal: controller.signal }),
+    ).rejects.toThrow(/aborted/i);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('中止只影響帶 signal 的那一次呼叫,不影響後續查詢', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetchFn = vi.fn((_url: string, init: RequestInit) => {
+      if (init.signal?.aborted) return Promise.reject(abortError());
+      return Promise.resolve(jsonResponse({ status: 2, trade_records: [] }));
+    });
+    vi.stubGlobal('fetch', fetchFn);
+    const adapter = new TapPayChargeAdapter(CONFIG);
+    await expect(adapter.recordQuery(REC_QUERY, { signal: controller.signal })).rejects.toThrow();
+    await expect(adapter.recordQuery(REC_QUERY)).resolves.toMatchObject({
+      numberOfTransactions: 0,
+    });
+  });
+});

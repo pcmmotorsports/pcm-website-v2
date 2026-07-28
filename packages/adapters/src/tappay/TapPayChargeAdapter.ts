@@ -21,7 +21,7 @@
  */
 import 'server-only';
 
-import type { ITapPayAdapter } from '@pcm/ports';
+import type { ITapPayAdapter, TapPayRecordQueryOptions } from '@pcm/ports';
 import type {
   ChargeStatus,
   Currency,
@@ -221,7 +221,10 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
    * 僅保留解析/audit)。HTTP 非 2xx / 格式異常 → throw(1b 映 pending)。
    * fail-closed:三把識別鍵全空 → 拒(絕不送無 filter 全表查 → 防誤命中他單)。`merchant_id` 每查必帶(限本商戶)。
    */
-  async recordQuery(query: TapPayRecordQuery): Promise<TapPayRecordResult> {
+  async recordQuery(
+    query: TapPayRecordQuery,
+    options?: TapPayRecordQueryOptions,
+  ): Promise<TapPayRecordResult> {
     if (!query.recTradeId && !query.orderNumber && !query.bankTransactionId) {
       throw new Error('recordQuery 需至少一把交易識別鍵(recTradeId/orderNumber/bankTransactionId)');
     }
@@ -243,6 +246,13 @@ export class TapPayChargeAdapter implements ITapPayAdapter {
         records_per_page: 50,
         page: 0,
       }),
+      // M-4b E10 A15:可選中止訊號(未給 = undefined = 既有無逾時行為,零行為改動)。
+      // 🔴 會傳 signal 的是**第 3 批的退款 worker**,不是 settleCharge —— settleCharge 是
+      //    唯一刻意不傳的呼叫端。中止時 fetch 丟出 signal.reason(可能是 AbortError、
+      //    也可能是 TimeoutError 或自訂值),走與「Record 失敗」同一條 throw 路
+      //    → 上游映 pending / record_unreachable(保留、不誤判 failed)。
+      //    消費端不得按錯誤 name 分支,理由見 ITapPayAdapter 的 TapPayRecordQueryOptions。
+      signal: options?.signal,
     });
     if (!response.ok) {
       // HTTP 層失敗 = 查不到真狀態 → throw(1b 映 pending 保留、不誤判 failed)。
