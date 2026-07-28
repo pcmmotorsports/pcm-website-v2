@@ -18,7 +18,7 @@ git log --oneline origin/dev..HEAD && git rev-list --count origin/dev..HEAD
 
 然後依序讀:
 1. 本檔全文
-2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批 = **26 片 A0a-A14**,Sean 拍板在 §8
+2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批 = **34 片 A0a-A14**(經四輪審查逐步重拆;片數一律以該檔 §5.1 表格當場數為準),Sean 拍板在 §8
 3. `STATUS.md`
 4. memory:`project_m4b-e10-order-list-layout-decisions`(版面與編號定案)/ `project_admin-backend-staff-ready-goal`(北極星)/ `project_m4b-real-auth-line-decisions`(E8-B 押後狀態)
 
@@ -106,8 +106,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 🔴 **必須補查的**(原 O0,現已拆成 **A0a / A0b / A0c** 三片):orders 現有筆數(本輪查得 **29**,會變)/ E11 積木 `<AdminDataTable>`·`<AdminForm>` 是否已被 orders/customers 兩頁實際採用 / 27 項逐項重驗(本輪沿用 07-26 的 ✅2 ⚠️6 ❌19、**未逐項重驗**)。
 
-⚠️ **一個待 Sean 決定的取捨**(已列進 O0):O7b 新版版面依賴 O4+O5+O7a+O8。
-若第一批要讓 Sean 驗到版面,**O8 需提前到第一批**;否則版面落到第二批。
+⚠️ ~~O7b 版面依賴 O4+O5+O7a+O8 的取捨~~ **已作廢**:O 系列片號全數退場,現行依賴圖見 v2 §5.0。
 
 ---
 
@@ -117,8 +116,8 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 |---|---|
 | **報價單不能 `db push`** | 本地 146 檔 vs ledger 160 筆**版本號零重疊**。PCM「正式 schema 用 db push」的鐵則**只適用 A庫**,不可套到報價單 |
 | **兩個 repo 都有並行 session 在寫** | 本輪實錘:報價單工作樹一路變動、最後被別條線 commit + push(`b7cc098`)並**捲走了本 session 寫的 STATUS.md 內容**;`pcm-website-v2` 也在 session 中途冒出別人的 migration。⇒ **每次 add 用 pathspec、立即 commit,絕不 `git add .`** |
-| **篩選必須在資料層** | `orders-table.tsx:66-67` 的 `rowSpan = rows.length` 取自**已篩選**的 lines(`:87` 逐字「`!inner` 投影只回命中品項」)⇒ 改成畫面層隱藏列會讓合併格連同單號與客戶一起消失 |
-| **不做整單彙總徽章** | `orders-table.tsx:89` 已有前例:篩選時必須關掉該徽章,否則把混合單誤顯為全同(code-reviewer 抓過) |
+| ~~篩選必須在資料層~~ 🔴 **本條錯誤、已作廢** | codex R1 抓、主對話親讀確認:`rowSpan` 是從**手上這份 lines** 算的,資料層或畫面層篩都行。**真正的約束 = 篩完必須重新分組並重算 rowSpan;禁止對既有 DOM 用 CSS/JS 隱藏列** |
+| ~~不做整單彙總徽章~~ 🔴 **過度概化、已作廢** | 註解只證明**不完整投影**不能拿來算彙總。**真正的約束 = 彙總的資料來源必須是完整品項集合** |
 | **短編號要有 unique + 有界重試** | 報價單短編號候選用盡後連撞 unique,誤報成「token 連續碰撞」500、系統當機 |
 | **`create_order` 不可用於手動建單** | `:284` `auth.uid` 為 NULL 直接 exception;`:356`/`:360` 品項必須是既有 catalog 變體 ⇒ 需另開 admin 專用 RPC |
 | **`orders.display_position` 全為 NULL** | 欄位存在但未使用,**不可假設它能當排序鍵** |
@@ -132,10 +131,20 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 = **FAIL,約 60 條 must-fix。總規劃 v1 判定需重寫,不是修補。**
+### 🔴🔴 codex 關卡1 已跑四輪、判定「未收斂」(2026-07-28 更新)
 
-findings 全文已存進 repo:**`docs/reviews/2026-07-27-e10-master-plan-codex-k1.md`**(零留痕已驗)。
-**findings 尚未折入 —— 下個 session 的第一件事就是處理它。**
+| 輪 | 結果 | findings 檔 |
+|---|---|---|
+| R1(審 v1) | FAIL **67**(去重後;must-fix 62 + nit 5。「約 60」是 62 的約數) | `docs/reviews/2026-07-27-e10-master-plan-codex-k1.md` |
+| R2(審 v2) | FAIL **33 + 2** | `docs/reviews/2026-07-28-e10-k1-r2-codex.md` |
+| R3 | FAIL **31 + 2** | `docs/reviews/2026-07-28-e10-k1-r3-codex.md` |
+| R4 | FAIL **32 + 1**、codex 逐字**「未收斂」** | `docs/reviews/2026-07-28-e10-k1-r4-codex.md` |
+
+✅ **R1-R4 全部已折入**(逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
+🔴 主對話提「方向問題」決策題,**Sean 拍 Q15=D 繼續折第五輪** ⇒ 下一步 = **R5**。
+✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
+
+**R1 的三條抽驗備查(當時全部成立)**:
 
 **主對話抽驗三條,全部成立(不是 codex 過度嚴格)**:
 
