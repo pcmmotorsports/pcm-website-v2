@@ -18,7 +18,7 @@ git log --oneline origin/dev..HEAD && git rev-list --count origin/dev..HEAD
 
 然後依序讀:
 1. 本檔全文
-2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批 = **34 片 A0a-A14**(經四輪審查逐步重拆;片數一律以該檔 §5.1 表格當場數為準),Sean 拍板在 §8
+2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批片數**一律以該檔 §5.1 表格 `awk` 當場數為準**(五輪審查逐步重拆,本檔不寫死數字),Sean 拍板在 §8
 3. `STATUS.md`
 4. memory:`project_m4b-e10-order-list-layout-decisions`(版面與編號定案)/ `project_admin-backend-staff-ready-goal`(北極星)/ `project_m4b-real-auth-line-decisions`(E8-B 押後狀態)
 
@@ -101,7 +101,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 ## §4 下一個 session 要做什麼
 
 1. **先處理 codex 關卡1 的 findings**(見 §6 未完成項)
-2. ~~Sean 批准總規劃後,從 **O0** 開始~~ ⇒ **O0-O22 這套片號已全數退場**。現行 = v2 的 **A0a-A14 共 26 片**(第 1 批),起點是 **A0a 資料現況重驗**,其後 **D1 前有 Sean 獨立批准閘**
+2. ~~Sean 批准總規劃後,從 **O0** 開始~~ ⇒ **O0-O22 這套片號已全數退場**。現行 = v2 §5.1 的 A 系列片(**片數以該表當場數為準,不抄進本檔**),起點是 **A0a 資料現況重驗**,其後 **D1 前有 Sean 獨立批准閘**
 3. ~~依 P4=B 第一批 = O0-O7~~ ⇒ 見 v2 §5.1
 
 🔴 **必須補查的**(原 O0,現已拆成 **A0a / A0b / A0c** 三片):orders 現有筆數(本輪查得 **29**,會變)/ E11 積木 `<AdminDataTable>`·`<AdminForm>` 是否已被 orders/customers 兩頁實際採用 / 27 項逐項重驗(本輪沿用 07-26 的 ✅2 ⚠️6 ❌19、**未逐項重驗**)。
@@ -164,7 +164,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 ⑦**C1 同檔既寫「未定」又寫「已拍板」**,且 `docs/reference/hct-logistics-api-reference.md:217` 仍記未定案 —— **repo 真權威未同步**
 
 🔴 依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**。
-⚠️ 依輪次紀律 plan 層上限 2 輪:v1 已用掉 R1。**重寫後只剩 1 輪 R2**;若 R2 仍不收斂 = 方向問題,整理決策題給 Sean、不再折衝。
+~~依輪次紀律 plan 層上限 2 輪~~ 🔴 **Sean 07-28 拍 Q8=B 解除上限**(逐字「就算有第四輪第五輪都沒差」);已跑五輪、R5 折入後續送 R6。
 - 24 片的「2-4 週」是**整體粗估、未逐片估算**,不是承諾。
 - 27 項現況(✅2/⚠️6/❌19)沿用 2026-07-26 read-back,**本輪未逐項重驗**(列為 O0)。
 - E8-B plan v3 的 **34 條 must-fix 尚未重寫折入**;本輪只記錄狀態。
