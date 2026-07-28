@@ -131,7 +131,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7→5→4→7→10→10→6→5→7)
+### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7→5→4→7→10→10→6→5→7→3)
 
 | 輪 | 結果 | findings 檔 |
 |---|---|---|
@@ -153,9 +153,10 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | R16 | FAIL **6 + 1**;A9v 只撤 item 支(修誤殺)/ A9w 拆三(66 片)/ dead 未結案仍序列化 / 告警結案 RPC / model-spec·UX 兩處 | `docs/reviews/2026-07-28-e10-k1-r16-codex.md` |
 | R17 | FAIL **5**;DAG 循環解除 / A9w4 writer chain(67 片)/ 矩陣 P3 退場列 / job 世代式重開 / dead 結案 UI 落片 | `docs/reviews/2026-07-28-e10-k1-r17-codex.md` |
 | R18 | FAIL **7 + 1**;DAG 去重 / A9w4 拆三(69 片、高風險 42)/ 撤 status-options 寫權 / resolution 分流堵超退重開 | `docs/reviews/2026-07-28-e10-k1-r18-codex.md` |
+| R19 | FAIL **3 + 1**;兩閘字面 / DAG=片表統一 / 世代授權原子消耗(retry_consumed_at) | `docs/reviews/2026-07-28-e10-k1-r19-codex.md` |
 
-✅ **R1-R18 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
-✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R19**。
+✅ **R1-R19 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
+✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R20**。
 ✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
 
 **R1 的三條抽驗備查(當時全部成立)**:
