@@ -145,7 +145,8 @@ written_off_quantity        已核銷
 
 Medusa v2 把 payment/fulfillment status 做成**算出來的衍生值、不落 DB 欄位**,結果官方 admin **無法用這兩個軸篩選或排序**(GitHub issue #14095,仍 open)。
 
-> **PCM 不能學這一步。** PCM 現在 `payment_status`/`fulfillment_status` 是真 enum 欄位 + 有索引,篩選正常。目標模型必須維持「**計數器是真相,顯示狀態materialize 成實體欄位**」。
+> ~~**PCM 不能學這一步。** PCM 現在 `payment_status`/`fulfillment_status` 是真 enum 欄位 + 有索引,篩選正常。目標模型必須維持「**計數器是真相,顯示狀態materialize 成實體欄位**」。~~
+> 🔴 **本結論已被 Sean 2026-07-28 拍 Q1=B 作廢**(R16 原地標記):`fulfillment_status` **凍結停寫、不 materialize、不做 trigger 同步**;真相在明細表、篩選走品項層 —— 權威 = E10 v2 §1 原則 2 / §8.1。`payment_status` 不受影響、照舊。
 
 ### 3.7 列表頁與明細頁(規模參考)
 

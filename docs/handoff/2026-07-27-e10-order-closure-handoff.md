@@ -131,7 +131,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7→5→4→7→10→10)
+### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17→16→7→5→4→7→10→10→6)
 
 | 輪 | 結果 | findings 檔 |
 |---|---|---|
@@ -150,9 +150,10 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | R13 | FAIL **7**;v2 本體 3 條(計數器歸零+CAS / canonical rail / D1 selector)+ **相鄰規格 4 條舊字面**(主規格施工序·自由品項·N7-N9、UX §8) | `docs/reviews/2026-07-28-e10-k1-r13-codex.md` |
 | R14 | FAIL **10**;v2 本體 5 條(rail writer 分離 / cash-only / 超額三路 / A0a 驗收 / 空狀態映射)+ 相鄰規格 5 條(主規格四處 + UX :65) | `docs/reviews/2026-07-28-e10-k1-r14-codex.md` |
 | R15 | FAIL **10 + 1**;P3 退場補 A9w/A9v 兩片(64 片)/ mapping 明列 tappay→card / order_payments 域發布序 / 現金退還合約 / dead 告警 durable | `docs/reviews/2026-07-28-e10-k1-r15-codex.md` |
+| R16 | FAIL **6 + 1**;A9v 只撤 item 支(修誤殺)/ A9w 拆三(66 片)/ dead 未結案仍序列化 / 告警結案 RPC / model-spec·UX 兩處 | `docs/reviews/2026-07-28-e10-k1-r16-codex.md` |
 
-✅ **R1-R15 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
-✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R16**。
+✅ **R1-R16 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
+✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R17**。
 ✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
 
 **R1 的三條抽驗備查(當時全部成立)**:
