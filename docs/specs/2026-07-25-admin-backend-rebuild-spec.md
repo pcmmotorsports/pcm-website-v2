@@ -393,7 +393,8 @@ quantity(已有) / ordered_quantity / instock_quantity / shipped_quantity
 ```
 不變式用 CHECK 鎖:各值 ≤ quantity,且 ordered ≥ instock ≥ shipped 逐級遞減。
 
-🔴 **反面教材**:Medusa 把 payment/fulfillment status 做成純衍生值,結果官方 admin **無法用這兩軸篩選排序**(GitHub issue #14095,仍 open)。**PCM 必須維持實體 enum 欄 + 索引**,由 trigger 從計數器同步。
+~~🔴 **反面教材**:Medusa 把 payment/fulfillment status 做成純衍生值,結果官方 admin **無法用這兩軸篩選排序**(GitHub issue #14095,仍 open)。**PCM 必須維持實體 enum 欄 + 索引**,由 trigger 從計數器同步。~~
+> 🔴 **本段已被 Sean 2026-07-28 拍板 Q1=B 推翻、由 E10 總規劃 v2 取代**(`2026-07-28-e10-order-closure-master-plan-v2.md` §8.1):`orders.fulfillment_status` 凍結不維護、**不做** trigger 同步;篩選走品項層條件。理由:上文是研究結論非拍板,PCM 的篩選需求在品項層即滿足。
 
 ### 3.2 錢與貨分兩條線
 
@@ -433,8 +434,10 @@ Shopify `Return`(貨)/ `Refund`(錢,無自己的 status);Medusa `Return` / `Orde
 
 - `order_items` 加計數器(§3.1)
 - 新增 `order_returns` / `order_return_items`(§3.2)
-- `orders` 加:`note`(客人備註)、`internal_note`(內部備註)、`tags text[]`、`tracking_number`、`tracking_carrier`、`shipped_at`、`delivered_at`、`cancel_reason`(enum,抄 Shopify 6 值 customer/declined/fraud/inventory/other/staff,取代自由文字)
-- `fulfillment_status` 加 `delivered` + `backorder`(⚠️ `ALTER TYPE ADD VALUE` 不可逆、新值同交易不可用,必須獨立 migration——RF2a 已踩過)
+- ~~`orders` 加:`note`、`internal_note`、`tags`、`tracking_*`、`shipped_at`、`delivered_at`、`cancel_reason`~~
+  > 🔴 **本行已被 E10 v2 取代**(原則 3:`orders` 對登入客人整表 SELECT 全開 ⇒ 內部備註/追蹤/取消原因**一律進 service_role-only 新表** `order_notes` / `shipments` / `order_cancellations`;`delivered_at` 因 U7 override(送達完全不做)不建)
+- ~~`fulfillment_status` 加 `delivered` + `backorder`~~
+  > 🔴 **已被 Q1=B(不加任何 enum 值)與 U7 override(不做送達)推翻**,由 E10 v2 取代
 - **手動建單**:`order_source` 三個 manual 值已備,補建單表單。🔴 **「非網站有的商品」需先驗證 `create_order` RPC 是否允許自由品項**(`order_items.variant_id` 本身 nullable,但 RPC 是否放行未查證)
 - **匯款收款**:`payment_channel='bank_transfer'` 已備,補「確認收款」操作 + 稽核
 - **訂單改單**:抄 Medusa `OrderChange` 的「逐動作 event log + 版本號」,不是存改前改後兩份
