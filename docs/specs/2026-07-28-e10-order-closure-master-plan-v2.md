@@ -5,11 +5,11 @@
 > **驗收唯一標準:** `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1「員工的一天」27 項
 > **北極星(Sean 逐字):**「可以完整上線給員工使用,操作,修改網站。而且他們不是工程師」
 > **輪次:** 🔴 **Sean 2026-07-28 拍 Q8=B 解除 plan 層兩輪上限**(逐字:「就算有第四輪第五輪都沒差,我要把全貌做好後再用視覺顯示完整一次 才開始動工」)。
-> 已跑:**R1 67**(審 v1)→ **R2 33** → **R3 31** → **R4 32** → **R5 26+2** → **R6 24+1** → **R7 15 must-fix + 1 nit**,七輪皆 FAIL,findings 各存 `docs/reviews/2026-07-28-e10-k1-r{2,3,4,5,6,7}-codex.md`。
-> 🟢 **R7 收斂判斷**:R6 的 24 條**全數關死**;剩餘類別 = 付款取消語意、refund worker 外部冪等與 lease fencing、D1 可執行性、文件漂移。R7 對策 = **第 1 批取消 fail-closed 收斂到無退款需求的單**(`unpaid`/`refunded`),已付款取消隨第 3 批 A8b + worker 解鎖 —— 第 19 項第 1 批只算部分綠。
+> 已跑:**R1 67**(審 v1)→ **R2 33** → **R3 31** → **R4 32** → **R5 26+2** → **R6 24+1** → **R7 15+1** → **R8 17 must-fix + 4 nit**,八輪皆 FAIL,findings 各存 `docs/reviews/2026-07-28-e10-k1-r{2,…,8}-codex.md`。
+> 🟢 **R7→R8 收斂**:R7 對策(第 1 批取消 fail-closed 收斂到無退款需求的單、A8b 移第 3 批)成立;R8 再下探**跨 RPC 競態**(取消與付款五支 RPC 統一 `FOR UPDATE` 鎖序)、**TapPay 退款外部冪等**(`bank_refund_id` + reconcile 基準欄 + `submitted` 狀態 —— 退款隔日生效)、**D1 pooler 連線守門與 HTTP timeout**。兩條上升為產品決策 = §8.6 第 3 批開批閘(混合收款分軌 / partiallyPaid 應退額)。
 > 🔴 **R5 診斷(codex 回答主對話的追問)**:「反覆產生 finding 的核心,是新模型/新決策加進正文後**沒有同步生成唯一 DAG 與『schema→writer→reader→UI→驗收』閉環矩陣**;主因是規格深度不足,但 **P1 後綴、已到貨取消、取消原因映射、HCT 允許字元確實尚未定案**」。
 > 🟢 **R6 收斂判斷(codex 逐字摘要)**:N3a 前移、有界重試、告警通道、tombstone、cohort 口徑、dry-run/驗收矩陣、A14 拆片等類別**已實質關死**;剩餘 = 取消→採購反向守門、refund-job worker 合約、alias UI、鐵則 4 超大片、D1 細節與文件同步。
-> ⇒ 本檔為 **R7 折入後版本**(R6 + Sean 三拍板已於前版折入)。全檔唯一待決清單 = **§8.6**。下一步送 **R8**。
+> ⇒ 本檔為 **R8 折入後版本**。全檔唯一待決清單 = **§8.6**。下一步送 **R9**。
 > ✅ **動工前置之一已滿足**:完整視覺全貌已交付且 Sean 批准方向(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。剩餘前置 = 關卡1 通過。
 >
 > ⚠️ **R2 的基線瑕疵(誠實記錄)**:主對話在 R2 審查**進行中**改了本檔(452 → 464 行),違反「送審前必先凍結版本」。
@@ -206,8 +206,9 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
        A9b1 單號搜尋合約 (A: display_id + legacy 命中) → A10c1 單號搜尋 UI (U)
          ↓   ← 🔴 R6:alias 讀模型與 UI 先於 D1,驗過舊號命中(測試資料層級)才准 D1;
          ↓      否則改號後客服無路查舊號
-       D1a1 匯出+映射 → D1a2 restore scripts → D1a3 還原演練
-         → D1b 證據 → 🔴 Sean 批准閘 → D1c apply (runbook; 閘序見 §8.4)
+       D1a1 匯出 → D1a2 映射 → D1a3/D1a4 restore scripts → D1a5/D1a6 演練
+         → D1b1 read-back → D1b2 dry-run+證據 → 🔴 Sean 批准閘 → D1c apply
+         (runbook ×9; 閘序見 §8.4)
          ↓
        A2 採購真相 → A3 備註 → A7 取消真相 → A7b 退款工作表 (M)
          ↓
@@ -216,8 +217,10 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
        A5b 正規化 SQL 函式 (T) → A2b1 總量守門 trigger (T) → A2b2 競態負測 (T)
          → A4a 重算 trigger (T) → A4b 競態負測+漂移 assert (T)
          ↓
-       A5a/A6 (R) → A8a 取消 RPC 核心 (R; 第 1 批僅無退款需求的單, R7 fail-closed)
-         → A8c 金流 RPC 取消守門 (R; 取消過的單拒收款)
+       A5a/A6 (R) → A8c1/A8c2 金流 RPC 取消守門 (R; 取消過的單拒收款)
+         → A8a1 整單取消核心 → A8a2 品項部分取消 (R; 僅無退款需求的單, fail-closed)
+         ↓   ← 🔴 R8:守門先上、取消才上 —— 反序的窗口內「取消後仍可被收原額」;
+         ↓      五支 RPC 統一先 orders FOR UPDATE 再檢查(跨 RPC 競態)
          ↓
        A5c/A9a/A9b2/A9c/A9d1/A9d2/A9g/A9h (A; 全部加法契約)
          ↓
@@ -226,16 +229,19 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
          ↓
        A10a/A10b/A10c2/A11a-c/A12a-b/A13a-b/A14a-c (U)
 
-第2批  N3a 共用產號 helper (R)  ← 🔴 R5 前移:shipment_reference 要用它
+第2批  N3a 共用產號 helper (T; R8 更正片型 — SQL helper 依本檔定義屬 T 非 R)
+       ← 🔴 R5 前移:shipment_reference 要用它
          ↓
        shipments + shipment_items (同客人限定, Q16=A) → 出貨 RPC/UI/通知/列印 → 前台 #240
-       (order_items.shipped_quantity 此時才加; A8a/A8b 的已出貨禁取消 contract 債同批清;
+       (order_items.shipped_quantity 此時才加; A8a1/A8a2/A8b 的已出貨禁取消 contract 債同批清;
         storefront 兩張會員卡片接回包裹真相、移除「處理中」降級 —— A9f 的 contract 債)
 
 第3批  order_payments (最先; A8b 的 partiallyPaid 實收真相靠它, R7)
          ↓
-       A8b 已付款取消分支 (R) + refund-job worker R/A 片 (狀態機照 A7b 合約) —— 同批上線,
-       解除 A8a 的 fail-closed ⇒ 第 19 項此時轉全綠
+       已付款取消解鎖線 —— 🔴 R8 定死可逐片發布序 (rollback = 反向逐步關):
+         ①worker R/A 片先上但 flag off (dormant) → ②A8b 上 (enqueue 開、UI 仍鎖)
+         → ③UI 解鎖已付款取消 → ④enable worker flag ⇒ 第 19 項此時轉全綠
+       (狀態機照 A7b 合約; 開工前置 = §8.6 退款線兩題拍板)
        order_returns / RF2b-RF8 退款線其餘
        order_internal / 改單 / 稽核線 / 待辦對帳 / 匯出
        admin 建單 RPC (呼叫 N3a; N3a 已在第 2 批存在; app 層 catch 見 N3b-app)
@@ -254,10 +260,10 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 備註·聯絡·告知 | A3 | A6 | A9a | A10a | **3**;**7 = A10a+A10b 聯合驗收**(告知在 A10a、異常原因在 A10b,缺一不綠) |
 | 計數器摘要 | A1 | **A4a trigger**(由 A2/A7 明細驅動,無手填入口;負測 = A4b) | A9c | A11a-c | — |
 | 批次訂貨 | — | **A9h 批次 coordinator(writer 側:server 端逐列呼叫 A5a)**(🔴 R6:coordinator 是寫入編排、不是讀模型) | 批次逐列結果型別(A9h 內定義,供 A12b 消費) | A12a / A12b | **4(部分綠:僅訂貨面)** |
-| 取消 | A7 | A8a(第 1 批,僅無退款需求單)+ A8c 金流守門 / A8b(**第 3 批**,R7 移) | **A9g** | A13a / A13b | **19 = 部分綠(未付款取消閉環);全綠隨第 3 批 A8b + worker**(R7:job 無 worker 消化 = 假閉環) |
+| 取消 | A7 | A8a1/A8a2(第 1 批,僅無退款需求單)+ A8c1/A8c2 金流守門(**先上**)/ A8b(**第 3 批**) | **A9g** | A13a / A13b | **19 = 部分綠(🔴 R8 精確化:整單取消 = 閉環;部分取消 = 安全可用但剩餘品項的卡付款被 A8c 封鎖、應收重算第 3 批,UI 明示);全綠隨第 3 批解鎖線** |
 | 退款工作 | **A7b**(schema 第 1 批先建,合約定死) | **全在第 3 批**:A8b(同交易 enqueue)+ worker(狀態機照 A7b) | A9g | A13b | (併入 19 的第 3 批部分) |
 | 列表投影 | — | — | A9c(admin 加法)/ **A9s(storefront 收縮)/ A9r(admin 收縮)**——兩者皆在 A9e/A9f **之後** | A9e / A9f / A11a-c | **1(部分)** |
-| 編號 | D0 | D1a1-D1c(runbook ×5)/ N3a / N3b / N3c | **A9b1**(display_id + legacy 命中) | **A10c1 單號搜尋**(🔴 R6:D1 前置,驗過舊號命中才准 D1) | — |
+| 編號 | D0 | D1a1-D1c(runbook ×9)/ N3a / N3b / N3c | **A9b1**(display_id + legacy 命中) | **A10c1 單號搜尋**(🔴 R6:D1 前置,驗過舊號命中才准 D1) | — |
 
 **閉環檢查**:每個綠燈的整條鏈都在同一批;第 1 批不依賴包裹、不依賴帳本、不依賴 N3a(D1 用寫死映射,§8.4)。
 
@@ -286,55 +292,61 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 4 | **D0** | M | `orders` 加 `legacy_display_id`(nullable、unique、索引)+ `display_id` CHECK 放寬成暫收新舊兩種格式 + 🔴 **`pending_invoices` 的 status CHECK 加 `voided`**(R5 實查:live CHECK 逐字 `ARRAY['pending','issued']` ⇒ D1 要寫的排除值**現在會直接被擋**)。**可重播、無 production 識別值**、與 D1 分開 | — |
 | 5 | **A9b1** | A | 🔴 **單號搜尋合約(R6:D1 前置)**:搜尋詞同時比對 `display_id` 與 `legacy_display_id`(D0 已建欄)。**定死走 adapter 投影、不開 DB RPC**。D1 前 production 的 legacy 欄全 NULL ⇒ 舊號命中以測試資料驗(插入含 legacy 值的測試列、assert 命中) | — |
 | 6 | **A10c1** | U | 🔴 **單號搜尋 UI(R6:D1 前置)**:消費 A9b1;輸入舊號 `PCM-2026-XXXX` 或新 6 碼皆命中。**本片與 A9b1 驗收通過 = D1 的開工前置** —— 否則改號後客服無路查舊號 | — |
-| 7 | **D1a1** | runbook | 🔴 **D1 準備①匯出與映射**(Q2=A / Q5 / Q7=C;完整規格見 §8.4):環境守門 wrapper、cohort allowlist 固定、逐表 `\copy` 匯出 + checksum、**26 組還原用新號映射(依 §5.4a 合約產生、驗 regex 與唯一)** | — |
-| 8 | **D1a2** | runbook | 🔴 **D1 準備②restore script ×2**:`restore-pre-n3c.sql`(舊 CHECK 環境,26 張以原舊號還原)/ `restore-post-n3c.sql`(新格式-only CHECK 環境,用 D1a1 的映射:`display_id ← 新號`、`legacy_display_id ← 原舊號`) | — |
-| 9 | **D1a3** | runbook | 🔴 **D1 準備③隔離 DB 還原演練 ×2**(兩支 script 各實跑一次;R7 抓:準備工作塞單片明顯超過 45 分鐘,拆三) | — |
-| 10 | **D1b** | runbook | 🔴 **D1 證據片**:TapPay read-back 六筆、完整 dry-run(BEGIN→模擬步驟 8-13→驗矩陣→ROLLBACK;**不含批准步驟 7**,R7 抓誤寫)、證據包(checksum / 演練紀錄 / read-back / dry-run 矩陣)交 Sean。**證據有效期 24 小時**(§8.4;逾期重跑本片) | — |
-| 11 | **D1c** | runbook | 🔴 **D1 apply 片**:Sean 明確批准後才可執行。**執行器 = 單一 TS orchestrator script**(R7 抓:交易鎖 + TapPay read-back 跨 DB/API 兩界,必須同一 process 同一 PG session;定義見 §8.4):鎖列 → **鎖後、刪除前重跑六筆 TapPay read-back(步驟 8b)** → 刪除 / 改號 / 狀態對齊 → 驗收矩陣;API 失敗 = `ROLLBACK`。**本批唯一不可逆**;🔴 **不是 migration** ⇒ **不進 migration 序列** | — |
-| 12 | **A2** | M | `order_item_procurement` 新表(**採購真相**,每 line 1:N)。🔴 **兩個數量欄**:`allocated_quantity`(這筆採購負責幾件)+ **`received_quantity`(這筆實際到貨幾件)** —— R3/R4 兩次抓:少了後者,`instock_quantity` **無來源可推導**。其餘:供應商名、`supplier_canonical_key`、聯絡管道、送出時間、供應商單號、回覆狀態、異常原因、預計到貨、`first_ordered_at`、`status_changed_at`。CHECK(R6 補負值與上限):**`allocated_quantity BETWEEN 1 AND 100000`、`received_quantity BETWEEN 0 AND allocated_quantity`**(皆整數)。**upsert 唯一鍵 `(order_item_id, supplier_canonical_key)`**(A5a 冪等重放靠它)。ACL = service_role only + RLS zero-policy。🔴 **排在 A1 之前**(真相表先於摘要欄) | — |
-| 13 | **A3** | M | `order_notes` 新表(append-only):內部備註 / LINE·電話聯絡紀錄 / 「已告知客人」登記(U6)。ACL 同 A2 | — |
-| 14 | **A7** | M | 🔴 **`order_cancellations` 新表**(取消真相,合約見 §5.1b)。header 含 `reason_code`(7 值 CHECK,§5.1d)+ 🔴 **`reason_detail` text(R7 補:Q18 的 `other` 手寫文字原本無處可放)—— CHECK 鎖 `other` 必填非空白、其餘 code 必 NULL**。**內部取消原因不進 `orders`**(原則 3);對客的 `orders.cancelled_reason` / `cancelled_at` 原封不動 | — |
-| 15 | **A7b** | M | 🔴 **`order_refund_jobs` 新表 + 完整工作狀態機合約**(R6:只有四個狀態名不可施工):`status` ∈ `queued / processing / completed / failed / dead`。欄:`refund_amount`(🔴 **單位 = 整數元,與 `order_refunds` 帳本同單位**,`20260725130100:94`)、`cancellation_id` FK + 🔴 **UNIQUE(R7:一次取消最多一個 job = 冪等鍵定死)**、**`payload_hash`(同鍵異 payload = `RAISE`,不靜默覆寫)**、`failed_reason`、`retry_count`、`next_retry_at`、**`claim_token` uuid(R7 fencing:claim 時產生)**、`claimed_at` / `claim_expires_at`(lease)、quote 快照、`order_refunds.id` nullable FK。**合法轉移**:`queued→processing`(claim 產新 `claim_token`,lease 5 分鐘)/ `processing→completed`·`processing→failed`(🔴 **必帶 token、CAS 比對不符 = `RAISE`** —— lease 過期被 reclaim 後,舊 worker 不得完成,防雙退)/ lease 過期 = 新 worker 重 claim(舊 token 作廢)/ `failed→queued`(`next_retry_at = now + 5min × 2^retry_count`)/ **`retry_count ≥ 6 → dead`(原子轉入死信終態,人工介入)**。🔴 **provider 冪等(R7)**:worker 每次執行前先 `recordQuery` reconcile —— `refunded_amount` 已含本次 ⇒ 直接標 `completed` 不重打 refund(堵「provider 成功、DB 回填前 crash」的重退)。ACL = service_role only + RLS zero-policy。worker 本體 = 第 3 批,**照本片合約施工、不得另立狀態機** | — |
-| 16 | **A1** | M | `order_items` 加**摘要欄**:`ordered_quantity` / `instock_quantity`(來源 A2)、`cancelled_quantity`(來源 A7)。加欄 nullable → 回填 0 → `SET DEFAULT 0` + `SET NOT NULL` → 跨欄 CHECK **四條全上**(§5.1c;Q17=B 後第四條一併上)。🔴 **只加這三欄**(Q9=B) | — |
-| 17 | **A5b** | T | 🔴 **改定 T 型**(R6 抓架構錯誤:A5a 是 Postgres owner RPC,**不可能呼叫 TypeScript 函式**)。改為 **SQL IMMUTABLE 函式 `public.pcm_supplier_canonical_key(text)`**:trim → 全半形歸一 → 大小寫歸一 → 連續空白收斂;**顯示值原樣保存、key 只做比對**。單一真相在 DB;app 層經投影讀 key、不自算。`REVOKE EXECUTE FROM PUBLIC, anon, authenticated`。相似度規則(Levenshtein ≤ 2,或一方為另一方前綴且較短者 ≥ 4 字元;候選上限 5 筆)**留在 A5c 的 app 層** | — |
-| 18 | **A2b1** | T | `allocated_quantity` 跨列總量守門 constraint trigger + **先鎖 parent `order_items` 列**(R4 抓:不鎖時併發兩筆各讀舊合計仍會一起超量);鎖序固定 `order_items` → `order_item_procurement`。🔴 **R6 補 delta 守門**:新增或調升 allocation 時 assert **`合計 ≤ quantity − cancelled_quantity`**(取消後不得為已取消部分加開採購);**取消前已寫入的採購事實不動**。行為單元測同片 | — |
-| 19 | **A2b2** | T | A2b1 的**負向測試片**:雙交易競態(兩 session 併發插入,assert 守門擋下)+ delta 守門負測(先取消再加購必須 `RAISE`) | — |
-| 20 | **A4a** | T | 🔴 **重算 constraint trigger**(R5 抓:「RPC 記得呼叫」= 第二真相):掛 `order_item_procurement` / `order_cancellation_items` AFTER INSERT/UPDATE/DELETE,同交易重算 parent `order_items` 的 `ordered/instock/cancelled_quantity`。**無手填入口、無「忘記呼叫」路徑**。行為單元測同片 | — |
-| 21 | **A4b** | T | A4a 的**負向測試片**:雙交易競態負測 + 漂移 assert(隨機抽單重算比對) | — |
-| 22 | **A5a** | R | `admin_upsert_item_procurement` owner RPC(窄)。🔴 **只收顯示值、SQL 內呼叫 A5b 函式產 canonical key**,不讓呼叫端傳 key(全站同一算法):upsert 鍵 `(order_item_id, supplier_canonical_key)`(A2 的 DB unique)、**同 payload 重放 = no-op**(A9h 批次重送靠這層冪等)+ `first_ordered_at` 僅首寫 / `status_changed_at` 每次更新 / no-op 不動日期 / 業務日 Asia/Taipei server 端算。摘要由 A4a trigger 自動重算、總量與 delta 守門在 A2b1 —— **本片不重複實作** | — |
-| 23 | **A6** | R | `admin_append_order_note` owner RPC | — |
-| 24 | **A8a** | R | `admin_cancel_order` owner RPC **核心片**(合約見 §5.1b / §5.1d):整單 / 品項層部分取消、冪等鍵 + payload hash 驗證、寫 `order_cancellations`(摘要由 A4a trigger 重算)、對客欄語意(整單才寫 `orders.cancelled_*`)、**可取消量守門 `增量 ≤ quantity − instock − cancelled`(Q17=B)**。🔴 **R7 fail-closed 收斂:第 1 批僅允許無退款需求的取消** —— `payment_status ∈ (unpaid, refunded)` 且**無 `pending` 的 `payment_charge_attempts`**;`paid` / `partiallyPaid` / `partiallyRefunded` 一律 `RAISE`(訊息指明「退款線第 3 批開通」)。否則 = 可取消但 refund job 無人消化的中間態(job 長期 `queued`) | — |
-| 25 | **A8c** | R | 🔴 **金流 RPC 取消守門(R7 新增;主對話實查:`confirm_payment` 全文零 `cancelled` 檢查 ⇒ 取消後的單仍可被收原額)**:`begin` / `confirm` 兩支金流 RPC 加守門 —— 訂單存在任何取消紀錄(`orders.cancelled_at` 非空 **或** `order_cancellations` 任一列)⇒ `RAISE` 拒收款(fail-closed;部分取消後原額已不正確,卡流程一律擋、改走人工)。**動既有金流函式 = 鐵則 12①,必過 codex 關卡2** | — |
-| 26 | **A9a** | A | 讀模型:訂單明細的 notes + procurement 投影、型別、mapper | — |
-| 27 | **A9b2** | A | 跨單搜尋合約:依**供應商單號**命中(讀 `order_item_procurement`)。走 adapter 投影、不開 DB RPC(單號搜尋的另一半 = A9b1,已在 D1 前完成) | — |
-| 28 | **A9c** | A | 列表投影改造:三軸欄位進 `ADMIN_ORDER_LIST_SELECT`。🔴 **純加法片**(R6)—— stale 欄的 UI 下架在 A9e、契約收縮在 A9r | — |
-| 29 | **A9d1** | A | server actions:counters / procurement 兩支 | — |
-| 30 | **A9d2** | A | server actions:note / cancel 兩支 | — |
-| 31 | **A9g** | A | 🔴 **取消 + 退款工作讀模型**(R5 抓:A13 要顯示「歷次取消、剩餘可取消量、refund job 狀態」,但 A9a 只有 notes/procurement):cancellations 歷程投影、逐品項剩餘可取消量、refund job 狀態(第 1 批因 A8a fail-closed 恆為空集合,投影照建) | — |
-| 32 | **A9h** | A | 🔴 **批次訂貨 coordinator(writer 側編排;R6 自「讀模型」格移正)**:server 端逐列呼叫 A5a。🔴 **R7 收斂:冪等完全 = A5a 的 business-key upsert 與 no-op 重放,本片不自建批次冪等**(上一版宣稱 `batch_id` 冪等但未持久化、無 DB unique = 空頭支票;重送批次 = 逐列重放、已成功列自然 no-op);**併發上限 = 5(固定值,序列分批)**;逐列結果型別(成功 / 失敗 / 原因),供 A12b 消費 | — |
-| 33 | **A5c** | A | 相似候選查詢 + 警告資料合約(供 A10b 顯示;**警告不阻擋送出**,只提示)。相似度算法在本片 app 層實作(規則見 A5b 行) | — |
-| 34 | **A9e** | U | 🔴 **admin stale `fulfillment_status` 顯示端下架**:`order-detail.tsx:202` / `customer-detail-sections.tsx:71` 移除該欄改顯示品項層訂貨狀態;`order-filter-bar.tsx:36` 與 `order-list-view.ts:31,149,184` 移除篩選參數。🔴 **先於 A9r**(消費端先停,契約才收縮) | — |
-| 35 | **A9f** | U | 🔴 **storefront 顯示端**(Q12=B + R7 修正):主對話實查 `order-display.ts` 的 `orderStatusLabel` **既有映射已是付款軸優先且 5 值 exhaustive + never 守門**(refunded→已退款 / unpaid→待付款 / partiallyPaid→付款確認中 / partiallyRefunded→已退部分)⇒ **本片只動 `paid` 分支**:`PAID_FULFILLMENT_LABEL[fulfillment]` 讀的是 stale 出貨軸 → `paid` 第 1 批一律回「處理中」,**其餘四值沿用既有鎖定文案、一字不動**(R7 抓:上一版自己發明新文案會覆蓋已拍板字面)。消費端 `OrdersTab.tsx:45` / `OverviewTab.tsx:108`。跨 app、面向客人,單獨成片;🔴 **contract 債:第 2 批接回包裹真相**(§5.2)。**先於 A9s** | — |
-| 36 | **A9s** | A | 🔴 **storefront 資料契約收縮**:投影移除 `fulfillmentStatus`、mapper 與 `OrderListItem` 型別同步、消費端測試更新。🔴 **在 A9f 之後**(先砍型別會讓仍在讀的 TSX 編譯斷) | — |
-| 37 | **A9r** | A | 🔴 **admin 資料契約收縮(R6 新增)**:`ADMIN_ORDER_LIST_SELECT` / 明細 adapter / 客戶摘要 adapter 與對應型別移除 `fulfillment_status`,消費端測試同步。**在 A9e 之後** | — |
-| 38 | **A10a** | U | 明細頁:內部備註 + 聯絡紀錄時間軸;🔴 **含 U6「已告知客人」的結構化欄位**(時間 / 管道 / 摘要)寫入與讀回 | **3** |
-| 39 | **A10b** | U | 明細頁:逐品項採購表單(含分配數量、到貨數量、異常原因、相似值警告) | **5, 6, 7**(🔴 R5 抓:第 7 項 = **A10a+A10b 聯合驗收** —— 告知紀錄在 A10a、異常原因在 A10b,兩片皆完成才綠) |
-| 40 | **A10c2** | U | 依供應商單號搜尋畫面(消費 A9b2) | — |
-| 41 | **A11a** | U | 列表桌機:**12 欄骨架 + rowSpan 分組重算**(§7.2) | — |
-| 42 | **A11b** | U | 列表桌機:**三軸膠囊元件**(付款單層 / 訂貨·出貨品項層,`n/m` 顯示;出貨軸唯讀灰) | — |
-| 43 | **A11c** | U | 列表**手機卡片版**(通用 UI 規範 §4-1) | **1(部分)** |
-| 44 | **A12a** | U | 列表批次選取(選取狀態 + 全選 / 反選 + 跨頁行為)。🔴 **不套 `<AdminDataTable>`**,理由見 §7.3 | — |
-| 45 | **A12b** | U | 批次標記訂貨動作 + **部分失敗逐列顯示**(UX §4 #20;消費 A9h 的逐列結果) | **4(部分綠:僅訂貨面)** |
-| 46 | **A13a** | U | 取消訂單 **影響範圍複核頁**(UX §5 #24:品項 / 數量 / 金額 / 收件快照 / 不可逆後果);🔴 **已到貨品項顯示「不可取消,需走退貨(第 3 批)」**(Q17=B);🔴 **已付款單顯示「取消需退款,退款線第 3 批開通」**(R7 fail-closed) | — |
-| 47 | **A13b** | U | 取消訂單主流程(消費 **A9g** 的歷程 / 剩餘可取消量) | **19(部分綠:未付款取消閉環)**(🔴 R7 抓:已付款取消的 refund job 在 worker(第 3 批)存在前只會長期 `queued` = 假閉環 ⇒ 已付款取消 fail-closed 至第 3 批;**19 全綠隨第 3 批 A8b + worker**) |
-| 48 | **A14a** | U | 狀態旁固定「下一步」(UX §5 #21),同一套詞彙貫穿列表 / 明細 | — |
-| 49 | **A14b** | U | 「編輯訂單」入口拆分(UX §5 #26):訂單資料 / 修改品項與地址 / 付款調整;不可做的顯示原因 | — |
-| 50 | **A14c** | U | 空狀態動作(UX §5 #25)。🔴 **不放「建手動單」**(第 3 批才有 = 死按鈕);只放「清除篩選」與「查詢範例」 | — |
+| 7 | **D1a1** | runbook | 🔴 **D1 匯出片**(Q2=A / Q5 / Q7=C;完整規格見 §8.4):環境守門 wrapper(R8:pooler 形態驗 username 的 project ref,見 §8.4 步 1)、cohort allowlist 固定、逐表 `\copy` 匯出 + checksum + `age` 加密 | — |
+| 8 | **D1a2** | runbook | 🔴 **D1 映射片**:26 組還原用新號映射(依 §5.4a 合約產生、驗 regex 與唯一;R8 抓與匯出混一片超時,拆出) | — |
+| 9 | **D1a3** | runbook | 🔴 **D1 restore-pre 片**:`restore-pre-n3c.sql`(舊 CHECK 環境,26 張以原舊號還原;依 FK 逆序) | — |
+| 10 | **D1a4** | runbook | 🔴 **D1 restore-post 片**:`restore-post-n3c.sql`(新格式-only CHECK 環境,用 D1a2 映射:`display_id ← 新號`、`legacy_display_id ← 原舊號`) | — |
+| 11 | **D1a5** | runbook | 🔴 **D1 演練片①**:隔離 DB 實跑 `restore-pre-n3c.sql` 還原演練 | — |
+| 12 | **D1a6** | runbook | 🔴 **D1 演練片②**:隔離 DB 實跑 `restore-post-n3c.sql` 還原演練(R8:每支 script、每次演練各自成片) | — |
+| 13 | **D1b1** | runbook | 🔴 **D1 read-back 片**:TapPay read-back 六筆 —— 🔴 **R8 補判定矩陣**:逐筆以該單 `payment_charge_attempts.rec_trade_id` 為查詢鍵、要求**唯一命中**;三筆已退單斷言 `refunded_amount` = 授權金額;三筆 `pending` 單允許狀態集合寫死(未授權 / 已取消),**零筆、多筆、狀態不在集合內 = 一律 abort**,不得人工解讀 | — |
+| 14 | **D1b2** | runbook | 🔴 **D1 dry-run + 證據片**:D1c orchestrator 帶 `--dry-run`(模擬步驟 8-13、強制 ROLLBACK)+ 證據包(checksum / 演練紀錄 / read-back / dry-run 矩陣)交 Sean。**證據有效期 24 小時**(逾期重跑本片) | — |
+| 15 | **D1c** | runbook | 🔴 **D1 apply 片**:Sean 明確批准後才可執行。**執行器 = 單一 TS orchestrator**(一個 pg client 全程同 session 持鎖;🔴 **R8 補 timeout 合約**:每次 TapPay 呼叫 30s AbortSignal + 六筆總體上限 3 分鐘 + 交易 idle timeout,任一逾時或 API 失敗 = `ROLLBACK` 後 exit 非零 —— `statement_timeout` 管不到 HTTP,見 §8.4)。鎖列 → 步驟 8b 重跑 read-back → 刪除 / 改號 / 狀態對齊 → 驗收矩陣。**本批唯一不可逆的一片**;🔴 不是 migration、不進 migration 序列 | — |
+| 16 | **A2** | M | `order_item_procurement` 新表(**採購真相**,每 line 1:N)。🔴 **兩個數量欄**:`allocated_quantity`(這筆採購負責幾件)+ **`received_quantity`(這筆實際到貨幾件)** —— R3/R4 兩次抓:少了後者,`instock_quantity` **無來源可推導**。其餘:供應商名、`supplier_canonical_key`、聯絡管道、送出時間、供應商單號、回覆狀態、異常原因、預計到貨、`first_ordered_at`、`status_changed_at`。CHECK(R6 補負值與上限):**`allocated_quantity BETWEEN 1 AND 100000`、`received_quantity BETWEEN 0 AND allocated_quantity`**(皆整數)。**upsert 唯一鍵 `(order_item_id, supplier_canonical_key)`**(A5a 冪等重放靠它)。ACL = service_role only + RLS zero-policy。🔴 **排在 A1 之前**(真相表先於摘要欄) | — |
+| 17 | **A3** | M | `order_notes` 新表(append-only):內部備註 / LINE·電話聯絡紀錄 / 「已告知客人」登記(U6)。ACL 同 A2 | — |
+| 18 | **A7** | M | 🔴 **`order_cancellations` 新表**(取消真相,合約見 §5.1b)。header 含 `reason_code`(7 值 CHECK,§5.1d)+ 🔴 **`reason_detail` text(R7 補:Q18 的 `other` 手寫文字原本無處可放)—— CHECK 鎖 `other` 必填非空白、其餘 code 必 NULL**。**內部取消原因不進 `orders`**(原則 3);對客的 `orders.cancelled_reason` / `cancelled_at` 原封不動 | — |
+| 19 | **A7b** | M | 🔴 **`order_refund_jobs` 新表 + 完整工作狀態機合約**:`status` ∈ `queued / processing / submitted / completed / failed / dead`(🔴 **R8 加 `submitted`**:TapPay 退款**隔日才生效**(tappay-reference.md:100)⇒ refund API 回 status 0 只代表「已送出」= `submitted`,**次日以 Record API 確認 `refunded_amount` 達標才轉 `completed`**,混用會把未落地的退款當已完成)。欄:`refund_amount`(整數元,同 `order_refunds` 單位)、`cancellation_id` FK + UNIQUE(🟡 只夠卡單軌;混合收款 = §8.6 開批閘)、`payload_hash`(同鍵異 payload `RAISE`)、🔴 **`bank_refund_id`(String ≤20,job 建立時產生一次、UNIQUE、重試沿用 —— TapPay 退款的商戶自訂不可重複識別碼,tappay-reference.md:94,主對話親驗;外部冪等靠它,`cancellation_id` UNIQUE 只管 DB 內)**、🔴 **reconcile 基準欄(R8):`rec_trade_id` + `refunded_before`(enqueue 時 Record 累計)+ `refunded_target`(= before + 本次)** —— worker 執行前 `recordQuery`:累計 = `refunded_target` ⇒ 已落地直接 `submitted→completed`;= `refunded_before` ⇒ 可安全送出;**其他值 = `failed` 待人工**(累計值無 baseline 會把前次部分退款誤認本次)、`failed_reason`、`retry_count`、`next_retry_at`、`claim_token` uuid、`claimed_at` / `claim_expires_at`(lease 5 分)、quote 快照、`order_refunds.id` nullable FK。**轉移**:`queued→processing`(claim 產新 token)/ `processing→submitted`(refund API status 0)·`processing→failed`(**帶 token CAS,不符 `RAISE`**)/ lease 過期 = 重 claim 舊 token 作廢 / `failed→queued`(backoff `5min × 2^retry`)/ `retry ≥ 6 → dead`(原子)。ACL = service_role only + RLS zero-policy。worker = 第 3 批,照本合約、不得另立 | — |
+| 20 | **A1** | M | `order_items` 加**摘要欄**:`ordered_quantity` / `instock_quantity`(來源 A2)、`cancelled_quantity`(來源 A7)。加欄 nullable → 回填 0 → `SET DEFAULT 0` + `SET NOT NULL` → 跨欄 CHECK **四條全上**(§5.1c;Q17=B 後第四條一併上)。🔴 **只加這三欄**(Q9=B) | — |
+| 21 | **A5b** | T | 🔴 **改定 T 型**(R6 抓架構錯誤:A5a 是 Postgres owner RPC,**不可能呼叫 TypeScript 函式**)。改為 **SQL IMMUTABLE 函式 `public.pcm_supplier_canonical_key(text)`**:trim → 全半形歸一 → 大小寫歸一 → 連續空白收斂;**顯示值原樣保存、key 只做比對**。單一真相在 DB;app 層經投影讀 key、不自算。`REVOKE EXECUTE FROM PUBLIC, anon, authenticated`。相似度規則(Levenshtein ≤ 2,或一方為另一方前綴且較短者 ≥ 4 字元;候選上限 5 筆)**留在 A5c 的 app 層** | — |
+| 22 | **A2b1** | T | `allocated_quantity` 跨列總量守門 constraint trigger + **先鎖 parent `order_items` 列**(R4 抓:不鎖時併發兩筆各讀舊合計仍會一起超量);鎖序固定 `order_items` → `order_item_procurement`。🔴 **R6 補 delta 守門**:新增或調升 allocation 時 assert **`合計 ≤ quantity − cancelled_quantity`**(取消後不得為已取消部分加開採購);**取消前已寫入的採購事實不動**。行為單元測同片 | — |
+| 23 | **A2b2** | T | A2b1 的**負向測試片**:雙交易競態(兩 session 併發插入,assert 守門擋下)+ delta 守門負測(先取消再加購必須 `RAISE`) | — |
+| 24 | **A4a** | T | 🔴 **重算 constraint trigger**(R5 抓:「RPC 記得呼叫」= 第二真相):掛 `order_item_procurement` / `order_cancellation_items` AFTER INSERT/UPDATE/DELETE,同交易重算 parent `order_items` 的 `ordered/instock/cancelled_quantity`。**無手填入口、無「忘記呼叫」路徑**。行為單元測同片 | — |
+| 25 | **A4b** | T | A4a 的**負向測試片**:雙交易競態負測 + 漂移 assert(隨機抽單重算比對) | — |
+| 26 | **A5a** | R | `admin_upsert_item_procurement` owner RPC(窄)。🔴 **只收顯示值、SQL 內呼叫 A5b 函式產 canonical key**,不讓呼叫端傳 key(全站同一算法):upsert 鍵 `(order_item_id, supplier_canonical_key)`(A2 的 DB unique)、**同 payload 重放 = no-op**(A9h 批次重送靠這層冪等)+ `first_ordered_at` 僅首寫 / `status_changed_at` 每次更新 / no-op 不動日期 / 業務日 Asia/Taipei server 端算。摘要由 A4a trigger 自動重算、總量與 delta 守門在 A2b1 —— **本片不重複實作** | — |
+| 27 | **A6** | R | `admin_append_order_note` owner RPC | — |
+| 28 | **A8a1** | R | `admin_cancel_order` **整單取消核心片**(合約 §5.1b / §5.1d):🔴 **R8 鎖序合約:先 `SELECT … FROM orders WHERE id = $1 FOR UPDATE` 再做一切檢查**(A8a1/A8a2 與 A8c1/A8c2 的 begin·confirm 五支同一鎖序,消跨 RPC 競態 —— 取消與付款各自檢查各自通過的窗口)。允許集合(fail-closed):`payment_status ∈ (unpaid, refunded)` **且該單 `payment_charge_attempts` 全部為終態 `failed` 或零筆 —— `pending`/`charged`/`released` 等任何其他狀態一律 `RAISE`**(R8 抓:只排 `pending` 仍會取消到已扣款未回填的單);`paid`/`partiallyPaid`/`partiallyRefunded` `RAISE`(退款線第 3 批)。冪等鍵 + payload hash、寫 header、對客欄(整單才寫 `orders.cancelled_*`、`other` 用 `reason_detail` 映射) | — |
+| 29 | **A8a2** | R | **品項層部分取消擴充片**(R8 拆:與整單同片超時):`order_cancellation_items` 寫入、可取消量守門 `增量 ≤ quantity − instock − cancelled`(Q17=B)、多次部分取消累積至全量時補寫對客欄。同 A8a1 鎖序與允許集合;摘要由 A4a trigger 重算。🔴 **誠實邊界(R8)**:部分取消後 A8c 會封鎖該單的卡收款 ⇒ 剩餘品項的付款回路(應收重算)= 第 3 批,第 1 批部分取消「安全可用但未閉環」,UI(A13a)明示 | — |
+| 30 | **A8c1** | R | 🔴 **金流 begin 側取消守門**(R8 拆二;實查 `confirm_payment` 零 cancelled 檢查):begin RPC 先 `FOR UPDATE` 鎖 orders 列(同 A8a1 鎖序)→ 存在任何取消紀錄(`cancelled_at` 非空或 `order_cancellations` 任一列)⇒ `RAISE` 拒開卡流程。**動既有金流函式 = 鐵則 12①,必過 codex 關卡2**;附負測 | — |
+| 31 | **A8c2** | R | 🔴 **金流 confirm 側取消守門**:同 A8c1 合約套在 confirm RPC。🔴 **部署序:A8c1/A8c2 先上、A8a1/A8a2 才上**(R8 抓:反過來的窗口內「取消後仍可被收原額」)。附負測 | — |
+| 32 | **A9a** | A | 讀模型:訂單明細的 notes + procurement 投影、型別、mapper | — |
+| 33 | **A9b2** | A | 跨單搜尋合約:依**供應商單號**命中(讀 `order_item_procurement`)。走 adapter 投影、不開 DB RPC(單號搜尋的另一半 = A9b1,已在 D1 前完成) | — |
+| 34 | **A9c** | A | 列表投影改造:三軸欄位進 `ADMIN_ORDER_LIST_SELECT`。🔴 **純加法片**(R6)—— stale 欄的 UI 下架在 A9e、契約收縮在 A9r | — |
+| 35 | **A9d1** | A | server actions:counters / procurement 兩支 | — |
+| 36 | **A9d2** | A | server actions:note / cancel 兩支 | — |
+| 37 | **A9g** | A | 🔴 **取消 + 退款工作讀模型**(R5 抓:A13 要顯示「歷次取消、剩餘可取消量、refund job 狀態」,但 A9a 只有 notes/procurement):cancellations 歷程投影、逐品項剩餘可取消量、refund job 狀態(第 1 批因 A8a1/A8a2 fail-closed 恆為空集合,投影照建) | — |
+| 38 | **A9h** | A | 🔴 **批次訂貨 coordinator(writer 側編排;R6 自「讀模型」格移正)**:server 端逐列呼叫 A5a。🔴 **R7 收斂:冪等完全 = A5a 的 business-key upsert 與 no-op 重放,本片不自建批次冪等**(上一版宣稱 `batch_id` 冪等但未持久化、無 DB unique = 空頭支票;重送批次 = 逐列重放、已成功列自然 no-op);**併發上限 = 5(固定值,序列分批)**;逐列結果型別(成功 / 失敗 / 原因),供 A12b 消費 | — |
+| 39 | **A5c** | A | 相似候選查詢 + 警告資料合約(供 A10b 顯示;**警告不阻擋送出**,只提示)。相似度算法在本片 app 層實作(規則見 A5b 行) | — |
+| 40 | **A9e** | U | 🔴 **admin stale `fulfillment_status` 顯示端下架**:`order-detail.tsx:202` / `customer-detail-sections.tsx:71` 移除該欄改顯示品項層訂貨狀態;`order-filter-bar.tsx:36` 與 `order-list-view.ts:31,149,184` 移除篩選參數。🔴 **先於 A9r**(消費端先停,契約才收縮) | — |
+| 41 | **A9f** | U | 🔴 **storefront 顯示端**(Q12=B + R7 修正):主對話實查 `order-display.ts` 的 `orderStatusLabel` **既有映射已是付款軸優先且 5 值 exhaustive + never 守門**(refunded→已退款 / unpaid→待付款 / partiallyPaid→付款確認中 / partiallyRefunded→已退部分)⇒ **本片只動 `paid` 分支**:`PAID_FULFILLMENT_LABEL[fulfillment]` 讀的是 stale 出貨軸 → `paid` 第 1 批一律回「處理中」,**其餘四值沿用既有鎖定文案、一字不動**(R7 抓:上一版自己發明新文案會覆蓋已拍板字面)。消費端 `OrdersTab.tsx:45` / `OverviewTab.tsx:108`。跨 app、面向客人,單獨成片;🔴 **contract 債:第 2 批接回包裹真相**(§5.2)。**先於 A9s** | — |
+| 42 | **A9s** | A | 🔴 **storefront 資料契約收縮**:投影移除 `fulfillmentStatus`、mapper 與 `OrderListItem` 型別同步、消費端測試更新。🔴 **在 A9f 之後**(先砍型別會讓仍在讀的 TSX 編譯斷) | — |
+| 43 | **A9r** | A | 🔴 **admin 資料契約收縮(R6 新增)**:`ADMIN_ORDER_LIST_SELECT` / 明細 adapter / 客戶摘要 adapter 與對應型別移除 `fulfillment_status`,消費端測試同步。**在 A9e 之後** | — |
+| 44 | **A10a** | U | 明細頁:內部備註 + 聯絡紀錄時間軸;🔴 **含 U6「已告知客人」的結構化欄位**(時間 / 管道 / 摘要)寫入與讀回 | **3** |
+| 45 | **A10b** | U | 明細頁:逐品項採購表單(含分配數量、到貨數量、異常原因、相似值警告) | **5, 6, 7**(🔴 R5 抓:第 7 項 = **A10a+A10b 聯合驗收** —— 告知紀錄在 A10a、異常原因在 A10b,兩片皆完成才綠) |
+| 46 | **A10c2** | U | 依供應商單號搜尋畫面(消費 A9b2) | — |
+| 47 | **A11a** | U | 列表桌機:**12 欄骨架 + rowSpan 分組重算**(§7.2) | — |
+| 48 | **A11b** | U | 列表桌機:**三軸膠囊元件**(付款單層 / 訂貨·出貨品項層,`n/m` 顯示;出貨軸唯讀灰) | — |
+| 49 | **A11c** | U | 列表**手機卡片版**(通用 UI 規範 §4-1) | **1(部分)** |
+| 50 | **A12a** | U | 列表批次選取(選取狀態 + 全選 / 反選 + 跨頁行為)。🔴 **不套 `<AdminDataTable>`**,理由見 §7.3 | — |
+| 51 | **A12b** | U | 批次標記訂貨動作 + **部分失敗逐列顯示**(UX §4 #20;消費 A9h 的逐列結果) | **4(部分綠:僅訂貨面)** |
+| 52 | **A13a** | U | 取消訂單 **影響範圍複核頁**(UX §5 #24:品項 / 數量 / 金額 / 收件快照 / 不可逆後果);🔴 **已到貨品項顯示「不可取消,需走退貨(第 3 批)」**(Q17=B);🔴 **已付款單顯示「取消需退款,退款線第 3 批開通」**(R7 fail-closed) | — |
+| 53 | **A13b** | U | 取消訂單主流程(消費 **A9g** 的歷程 / 剩餘可取消量) | **19(部分綠:未付款取消閉環)**(🔴 R7 抓:已付款取消的 refund job 在 worker(第 3 批)存在前只會長期 `queued` = 假閉環 ⇒ 已付款取消 fail-closed 至第 3 批;**19 全綠隨第 3 批 A8b + worker**) |
+| 54 | **A14a** | U | 狀態旁固定「下一步」(UX §5 #21),同一套詞彙貫穿列表 / 明細 | — |
+| 55 | **A14b** | U | 「編輯訂單」入口拆分(UX §5 #26):訂單資料 / 修改品項與地址 / 付款調整;不可做的顯示原因 | — |
+| 56 | **A14c** | U | 空狀態動作(UX §5 #25)。🔴 **不放「建手動單」**(第 3 批才有 = 死按鈕);只放「清除篩選」與「查詢範例」 | — |
 
-**第 1 批 = 50 片。片型(`awk` 逐列數、非手算):U 16 / A 11 / M 6 / T 5 / R 4 / docs 3 / runbook 5。**
+**第 1 批 = 56 片。片型(`awk` 逐列數、非手算):U 16 / A 11 / runbook 9 / M 6 / R 6 / T 5 / docs 3。**
 
 🔴 **高風險(判準:M / T / runbook / R 一律;A 型命中「service_role-only 表讀取投影」或「server action 授權邊界」才算)**:
-M 6 + T 5 + runbook 5 + R 4 + A 7(A9a / A9b2 / A5c / A9g 讀 service_role-only 表;A9d1 / A9d2 / A9h 是授權邊界)= **27 片**。
+M 6 + T 5 + runbook 9 + R 6 + A 7(A9a / A9b2 / A5c / A9g 讀 service_role-only 表;A9d1 / A9d2 / A9h 是授權邊界)= **33 片**。
 A9b1 / A9c / A9s / A9r 不算(只動客人可讀表的投影,無權限面);docs / D / U 不算。
 
 ⚠️ **同一段話我在 R3 與 R4 各寫錯一次片型分佈**(R3 寫 R5/A7/U10、R4 寫 M5/A7)。
@@ -351,9 +363,9 @@ A9b1 / A9c / A9s / A9r 不算(只動客人可讀表的投影,無權限面);docs 
 | 冪等鍵 | `(order_id, idempotency_key)` unique。🔴 **不能「由 server action 產生」**(R4 抓:重新呼叫會拿到新鍵 ⇒ 等於沒防護)。**鍵在使用者開啟取消畫面時就產生一次並寫進表單 hidden field**,整段互動(含重試、含瀏覽器重新送出)沿用同一個;RPC 端**額外驗 `actor` 與 payload hash**,同鍵不同內容 = `RAISE`,不是靜默覆寫 |
 | 對客欄何時動 | **整單取消**(所有品項剩餘量歸零)⇒ 同交易寫 `orders.cancelled_at` + `cancelled_reason`;**部分取消** ⇒ **兩欄都不動**(訂單還活著)。多次部分取消累積到全量時,**最後那次**才寫這兩欄。`cancelled_quantity` 各欄一律 `> 0` 且 `(cancellation_id, order_item_id)` unique |
 | 內部 vs 對客 | `reason_code`(受控 code,內部)存本表;**對客文字**寫 `orders.cancelled_reason`,兩者由 RPC 同交易寫入。✅ **allowlist 與映射已定案 = §5.1d**(Q18,Sean 2026-07-28 拍「照這份」);未知 code 一律 `RAISE` fail-closed。A7/A8 開工阻擋解除 |
-| 與採購連動 | 取消後 `cancelled_quantity` 上升 ⇒ `ordered_quantity` **不自動下降**(已向供應商下的單不會因客人取消就消失);差額由第 3 批的採購退貨處理。✅ **已到貨後取消 = 不可(Q17=B,Sean 2026-07-28)**:已到貨部分只能走第 3 批退貨流程 ⇒ §5.1c 第四條不變式 `instock + cancelled ≤ quantity` **成立、隨 A1 上 CHECK**;A8a 可取消量守門 `增量 ≤ quantity − instock − cancelled`,違反 `RAISE`;A13a 對已到貨品項顯示「不可取消,需走退貨」。🔴 **R6 的反向守門同步解**:A2b1 的 delta 守門(取消後不得為已取消部分加開採購)與本格互為表裡 |
-| 🔴 已出貨禁取消 | **上一版寫反了**(R4 抓,成立):我寫「包裹真相不存在 ⇒ 無法證明未出貨 ⇒ 不得取消」,但第 1 批**本來就沒有包裹模型** ⇒ 條件恆假、**一件都取消不了**,卻同時宣稱第 19 項變綠。**正確寫法**:第 1 批 `shipped_quantity` 欄**不存在**,出貨這件事在系統裡尚未發生 ⇒ 不變式 `cancelled ≤ quantity − shipped` **退化為 `cancelled ≤ quantity`、恆真**,取消照常運作(Q17=B 的已到貨守門另計,見「與採購連動」格)。🔴 **但這是有期限的正確**:第 2 批建包裹模型時,**同一片**必須把 `shipped_quantity` 加進不變式並改寫本 RPC —— 列為 **A8a/A8b 的 contract 債**,寫進第 2 批的 definition of done,**不是「日後自動生效」** |
-| 🔴 已付款取消 | 🔴 **R7 收斂:第 1 批整個 fail-closed** —— A8a 只允許 `payment_status ∈ (unpaid, refunded)` 且無 `pending` charge attempt 的取消,`paid`/`partiallyPaid`/`partiallyRefunded` 一律 `RAISE`(worker 第 3 批才存在,先開放只會製造長期 `queued` 的假閉環)。第 3 批 A8b + worker **同批**上線才解鎖:取消時**同交易** enqueue `order_refund_jobs`(狀態機、lease fencing、死信、provider reconcile 全在 A7b 合約);付款狀態 × 處置矩陣與金額語意在 A8b(§5.3)。🔴 **第 19 項:第 1 批 = 部分綠(未付款取消閉環);全綠掛在第 3 批退款工作建立且看得到** |
+| 與採購連動 | 取消後 `cancelled_quantity` 上升 ⇒ `ordered_quantity` **不自動下降**(已向供應商下的單不會因客人取消就消失);差額由第 3 批的採購退貨處理。✅ **已到貨後取消 = 不可(Q17=B,Sean 2026-07-28)**:已到貨部分只能走第 3 批退貨流程 ⇒ §5.1c 第四條不變式 `instock + cancelled ≤ quantity` **成立、隨 A1 上 CHECK**;A8a2 可取消量守門 `增量 ≤ quantity − instock − cancelled`,違反 `RAISE`;A13a 對已到貨品項顯示「不可取消,需走退貨」。🔴 **R6 的反向守門同步解**:A2b1 的 delta 守門(取消後不得為已取消部分加開採購)與本格互為表裡 |
+| 🔴 已出貨禁取消 | **上一版寫反了**(R4 抓,成立):我寫「包裹真相不存在 ⇒ 無法證明未出貨 ⇒ 不得取消」,但第 1 批**本來就沒有包裹模型** ⇒ 條件恆假、**一件都取消不了**,卻同時宣稱第 19 項變綠。**正確寫法**:第 1 批 `shipped_quantity` 欄**不存在**,出貨這件事在系統裡尚未發生 ⇒ 不變式 `cancelled ≤ quantity − shipped` **退化為 `cancelled ≤ quantity`、恆真**,取消照常運作(Q17=B 的已到貨守門另計,見「與採購連動」格)。🔴 **但這是有期限的正確**:第 2 批建包裹模型時,**同一片**必須把 `shipped_quantity` 加進不變式並改寫本 RPC —— 列為 **A8a1/A8a2/A8b 的 contract 債**,寫進第 2 批的 definition of done,**不是「日後自動生效」** |
+| 🔴 已付款取消 | 🔴 **R7 收斂 + R8 加嚴:第 1 批整個 fail-closed** —— A8a1/A8a2 只允許 `payment_status ∈ (unpaid, refunded)` **且該單 `payment_charge_attempts` 全為終態 `failed` 或零筆**(R8:只排 `pending` 仍會取消到已扣款未回填的單),其餘一律 `RAISE`。🔴 **五支 RPC(A8a1/A8a2/A8c1/A8c2 所改的 begin·confirm)統一先 `orders FOR UPDATE` 再檢查**(R8:消「取消與付款各自檢查各自通過」的競態);**部署序 A8c 守門先上、A8a 取消才上**。第 3 批依 §5.0 解鎖線(worker dormant → A8b → UI → enable)開通:enqueue `order_refund_jobs`(狀態機、fencing、`bank_refund_id` 外部冪等、reconcile 基準、`submitted` 隔日確認全在 A7b 合約);金額矩陣在 A8b(§5.3)。🔴 **第 19 項第 1 批 = 部分綠:整單取消閉環;部分取消安全可用但剩餘品項卡付款被守門封鎖(應收重算第 3 批,A13a 明示)** |
 
 #### 5.1c 計數器跨欄不變式(第 1 批版本;**四條全上**)
 
@@ -364,7 +376,7 @@ A9b1 / A9c / A9s / A9r 不算(只動客人可讀表的投影,無權限面);docs 
 🔴 **綠燈只掛在鏈末**(原則 4;codex R2 抓「A4/A5/A6 只有 RPC 就宣稱變綠」):
 schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具備讀取路徑與 UI 且有驗收證據**的那片。
 本批綠:**3, 5, 6, 7 全綠**;🔴 **第 4 項 = 部分綠(僅訂貨面,出貨面第 2 批)**;
-🔴 **第 19 項 = 部分綠(僅未付款取消閉環;已付款取消 fail-closed 至第 3 批 A8b + worker,R7)**;
+🔴 **第 19 項 = 部分綠(R8 精確化:整單取消 = 閉環;部分取消 = 安全可用但剩餘品項卡付款被 A8c 封鎖、應收重算第 3 批;已付款取消 fail-closed 至第 3 批解鎖線)**;
 第 **1** 項亦為部分(看得到今天有什麼,完整待辦要等第 3 批)。
 
 ⚠️ D1(D1a1-D1c 五片)是本批**唯一不可逆**的一線 ⇒ 見 §8.4 的獨立批准閘與驗收矩陣。
@@ -381,8 +393,8 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 | `internal_error` | 依您要求取消(🔴 **刻意不對客揭露我方疏失** —— Sean 知情核准) |
 | `other` | **手寫必填**(RPC 驗非空白;內部與對客同文字) |
 
-映射表是**可測合約**:A7 的 CHECK 收斂 `reason_code` 到這 7 值;A8a 依表產對客文字、未知 code `RAISE` fail-closed;測試逐 code 驗映射。
-🔴 **`other` 的手寫文字落點 = `order_cancellations.reason_detail`**(R7 抓:原合約無處存放;部分取消不寫 `orders.cancelled_reason`,沒有這欄文字就遺失):CHECK 鎖 `other` 必填非空白、其餘 code 必 NULL;整單取消時 A8a 把它映射為對客文字。
+映射表是**可測合約**:A7 的 CHECK 收斂 `reason_code` 到這 7 值;A8a1 依表產對客文字、未知 code `RAISE` fail-closed;測試逐 code 驗映射。
+🔴 **`other` 的手寫文字落點 = `order_cancellations.reason_detail`**(R7 抓:原合約無處存放;部分取消不寫 `orders.cancelled_reason`,沒有這欄文字就遺失):CHECK 鎖 `other` 必填非空白、其餘 code 必 NULL;整單取消時 A8a1 把它映射為對客文字。
 
 #### 5.1a 版面規格(repo 內可驗字面,取代 artifact)
 
@@ -413,7 +425,7 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 0. 🔴 **N3a 共用產號 helper**(R5 前移:`shipment_reference` 要共用它;順序見 §5.0)
 1. `shipments` + `shipment_items` 模型(U1;🔴 **Q16=A 同一位客人 + 同一份收件資料**,DB 層擋;**soft delete、永不硬刪**)
 2. 出貨 owner RPC(`shipment_reference` 由 N3a 產生、重試在本層;✅ **Q19=A(Sean 2026-07-28):P1 後綴正式作廢、不加 `-1/-2`** —— reference 本身全表唯一已足)
-2b. 🔴 **A8a/A8b contract 債**(§5.1b):`shipped_quantity` 加進不變式 + 改寫已出貨禁取消檢查 —— **本批 definition of done**
+2b. 🔴 **A8a1/A8a2/A8b contract 債**(§5.1b):`shipped_quantity` 加進不變式 + 改寫已出貨禁取消檢查 —— **本批 definition of done**
 3. 出貨輸入 UI + 追蹤連結 + 單號點擊複製(列表出貨軸此時才「活」)
 4. 手機出貨兩步守門(UX §5 #23)
 5. 新竹 API 失敗/重送安全:請求識別值 + 原始回覆 + 三段狀態(UX §4 #17)
@@ -428,8 +440,8 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 1. `order_payments` 收款帳本(U3 多筆匯款 / 四格 / 催款 / 溢款處置)。🔴 **排本批最先**(R7:A8b 的 `partiallyPaid` 上限 =「實收額」,現行 schema 沒有實收金額真相,只有這張帳本能提供)
 2. 匯款退款去向(受款帳戶 + 複核 + 參考號 + 防重複匯款,UX §1 #3)
 3. `order_returns` / `order_return_items` + `order_refunds.return_id`(#31)
-4. 🔴 **退款寫入線 RF2b-RF8** —— 見 §6.2 與 **Q3**。🔴 **含 A8b(已付款取消分支,R7 自第 1 批移入)與具名 refund-job worker 片(R + A),兩者同批上線、解除 A8a 的 fail-closed ⇒ 第 19 項轉全綠**。
-   **A8b 付款狀態 × 處置矩陣(可測合約)**:`unpaid` = 不建 job(應收調整走本批 `order_payments`)/ `paid` = 建 job,金額 = server 權威 quote(公式沿用 `order_refunds` 不變式 `refund_amount = items_amount − shipping_delta`、單位整數元,`20260725130100:114-115`)/ `partiallyPaid` = 建 job,**上限 = `order_payments` 實收累計**(R7:無帳本即無實收真相 ⇒ 本片必晚於項 1)/ `refunded` = 不建 job / `partiallyRefunded` = 🔴 **逐品項**用 `order_refund_items` 算剩餘可退量後重跑 quote,**全單上限 = 實收 − `order_refunds` 已退累計**(R7 抓:上一版「quote − 全單已退累計」會把其他品項的既有退款重複扣、甚至負數)。呼叫端不得傳金額;quote 快照存 job。
+4. 🔴 **退款寫入線 RF2b-RF8** —— 見 §6.2 與 **Q3**。🔴 **含 A8b(已付款取消分支,R7 自第 1 批移入)與具名 refund-job worker 片(R + A);發布序照 §5.0 解鎖線(worker dormant → A8b → UI 解鎖 → enable worker,rollback = 反向逐步關)⇒ 第 19 項轉全綠**。🔴 **開工前置 = §8.6「退款線兩題」拍板**(混合收款分軌 / partiallyPaid 應退額語意,R8 判定為產品決策非規格深度)。
+   **A8b 付款狀態 × 處置矩陣(可測合約)**:`unpaid` = 不建 job(應收調整走本批 `order_payments`)/ `paid` = 建 job,金額 = server 權威 quote(公式沿用 `order_refunds` 不變式 `refund_amount = items_amount − shipping_delta`、單位整數元,`20260725130100:114-115`)/ `partiallyPaid` = 🟡 **本次應退額的推導語意 = §8.6 退款線兩題之一,拍板前 fail-closed**(R8:只有「上限 = `order_payments` 實收累計」不夠,兩個合法實作會退不同金額;帳本仍是前置 ⇒ 本片必晚於項 1)/ `refunded` = 不建 job / `partiallyRefunded` = 🔴 **逐品項**用 `order_refund_items` 算剩餘可退量後重跑 quote,**全單上限 = 實收 − `order_refunds` 已退累計**(R7 抓:上一版「quote − 全單已退累計」會把其他品項的既有退款重複扣、甚至負數)。呼叫端不得傳金額;quote 快照存 job。🟡 混合收款(卡+匯款)單的退款分軌 = §8.6 另一題,拍板前混合單 fail-closed。
    **worker**:R 片 = claim/complete/fail owner RPC(狀態機、lease fencing(token CAS)、重試、死信**逐字照 A7b 合約**,不得另立);A 片 = 排程與 TapPay refund 組裝、**執行前 `recordQuery` reconcile**(A7b 合約)。worker 成功 = 寫 `order_refunds` + 回填 `refund_id` + 標 `completed` 同交易
 5. `order_internal`(U5 負責人 + 下次跟進日,service_role only)
 6. 改單(U2 改全部 + 直改極簡 + 已裝箱部分鎖定 + 逐動作 event log)
@@ -475,7 +487,7 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 |---|---|---|
 | ~~**N1**~~ | — | ❌ **取消**(Q2=A):domain 永遠不需要同時吃新舊兩種格式 |
 | **N2** | **D** | `display-id.ts` 依 §5.4a 換成新格式 + 測試。🔴 **不是只刪 `parseDisplayId`** —— `formatDisplayId(year, seq)` 也**還在產舊格式**,連同 `DISPLAY_ID_PATTERN`、`MIN_SEQ_DIGITS`、barrel export、型別註解、消費端測試**全部一起換掉**(R3 抓) |
-| **N3a** | R | 🔴 **共用產號 helper**:`public.pcm_generate_display_id() RETURNS text`。**先於任何消費端存在**(R1 #32 / R2 / R3 / R5 四次點名);🔴 **R5 前移到第 2 批最前** —— `shipment_reference` 也要用它。合約:SECURITY DEFINER、`SET search_path = ''`、pgcrypto 函式一律 schema-qualify(`extensions.gen_random_bytes`)、建後 `REVOKE EXECUTE FROM PUBLIC, anon, authenticated`(只留 owner 與需要的 definer 函式)、依賴檢查 assert pgcrypto 已裝 |
+| **N3a** | **T** | 🔴 **共用產號 helper**(R8 更正片型:SQL helper 依 §1 定義屬 T 非 R):`public.pcm_generate_display_id() RETURNS text`。**先於任何消費端存在**(R1 #32 / R2 / R3 / R5 四次點名);🔴 **R5 前移到第 2 批最前** —— `shipment_reference` 也要用它。合約:SECURITY DEFINER、`SET search_path = ''`、pgcrypto 函式一律 schema-qualify(`extensions.gen_random_bytes`)、建後 `REVOKE EXECUTE FROM PUBLIC, anon, authenticated`(只留 owner 與需要的 definer 函式)、依賴檢查 assert pgcrypto 已裝 |
 | **N3b** | R | `create_order` 改呼叫 helper。🔴 **重試迴圈寫在這一層、不在 helper 裡**(R3 抓:helper 只回候選值,不可能捕捉 INSERT 的 unique violation)—— 迴圈上限 5、只捕捉 `unique_violation` 且 `constraint_name = 'orders_display_id_key'`、用盡 `RAISE`(SQLSTATE `P0001` + token)。654 行金流函式,必過 codex 關卡2 + Sean 1 元真刷 smoke。🔴 **R 片只到 RAISE 為止 —— app 層 catch 與告警在 N3b-app**(R6:R 片不得偷渡 application 行為) |
 | **N3b-app** | **A** | 🔴 **R6 新增(告警的 application 落點原本沒有片)**:`placeOrder` use-case catch `pcm_display_id_exhausted` token → 走既有 `packages/adapters/src/payment/LineAlertNotifierAdapter` 送 LINE 告警 + server log,對客回一般結帳失敗(不洩內部細節)。**附負向測試**(模擬 RPC RAISE、assert 告警送出與正常錯誤回傳)。🔴 **部署序:N3b-app 先於 N3b**(R7 抓:N3b 先上則窗口內用盡事件無告警;catch 先上 = 永不觸發的安全 no-op)。admin 建單 action 的同款 catch = 第 3 批建單片 DoD(§5.3 項 10) |
 | **N3c** | M | 🔴 **收窗**:把 D1 之後、N3b 之前產生的**舊格式新單一併改號**,再把 CHECK contract 成新格式 only。**同一交易**:鎖列 → 逐列改號(舊號寫進 `legacy_display_id`)→ 收緊 CHECK → assert 零舊格式殘留。🔴 **逐列產號合約**(R5 抓漏):每列各自有界重試(同 §5.4a 上限 5)、只捕捉 `orders_display_id_key`、**任一列用盡 = 整交易 `RAISE` 回滾**(不留半改狀態);附負向碰撞測試(預插衝突值證明會重試) |
@@ -520,8 +532,8 @@ Sean 已拍 N5「訂單域做到目標狀態才算數、不接受做一半」⇒
 
 ### 6.3 其他誠實邊界
 
-- **不給總片數與總工期**。**第 1 批 = 50 片**(R7 折入後;**唯一有效來源是 §5.1 那張表、且一律 `awk` 當場數**)。第 2/3 批開批時才拆片,**現在給的數字必然是假的** —— v1 同檔寫過 24 / 22、高風險 13 / 12(實際 15),就是這麼來的(#61/#62)
-- 🔴 **第 1 批 14 → 26 → 31 → 34 → 40 → 48 → 50 片是七輪審查的結果、不是範圍擴張** —— 同樣的工作拆到每片真的能在 45 分鐘內做完並獨立驗收(50 = 48 + D1a 拆三 + A8c 新增 − A8b 移第 3 批)。**「片太大」R1-R7 七輪皆判**,是本線最頑固的一類 finding
+- **不給總片數與總工期**。**第 1 批 = 56 片**(R8 折入後;**唯一有效來源是 §5.1 那張表、且一律 `awk` 當場數**)。第 2/3 批開批時才拆片,**現在給的數字必然是假的** —— v1 同檔寫過 24 / 22、高風險 13 / 12(實際 15),就是這麼來的(#61/#62)
+- 🔴 **第 1 批 14 → 26 → 31 → 34 → 40 → 48 → 50 → 56 片是八輪審查的結果、不是範圍擴張** —— 同樣的工作拆到每片真的能在 45 分鐘內做完並獨立驗收(56 = 50 + D1 線 5→9 + A8a/A8c 各拆二)。**「片太大」R1-R8 八輪皆判**,是本線最頑固的一類 finding
 - 🔴 **片型分佈我親手寫錯過兩次**(R3 寫 R5/A7/U10、R4 寫 M5/A7)⇒ 該行**只准 `awk` 數完貼上**,禁止手算
 - 27 項現況沿用 2026-07-26 read-back,**至今未重驗**(A0 補)
 - 視覺 artifact 未讀取,版面以 §5.1a 文字為準(#66)
@@ -578,7 +590,7 @@ Sean 已拍 N5「訂單域做到目標狀態才算數、不接受做一半」⇒
 | **Q2 舊訂單處理** | ✅ **A 砍 26 張無金流的 + 3 張有金流的改號** —— 雙格式支援整片取消,見 §8.3 / §8.4 |
 | **Q5 `PCM-2026-0104` 的 NT$1,180** | ✅ **Sean 2026-07-28 口頭確認「TapPay 都已經退款」+ 授權「怎麼處理都好」** ⇒ D1 片一併把 0052 / 0104 的 `payment_status` 改為 `refunded` 讓 DB 對齊事實。🔴 **來源=Sean 口述,未經 TapPay API 查證**(`TapPayChargeAdapter.recordQuery` 可查,需要時再跑) |
 | **Q3 退款完成定義** | ✅ **A E10 吃下 RF2b-RF8** —— 第 17 項才算真的綠 | 見 §8.2 |
-| **Q17 已到貨後取消** | ✅ **B 不可取消,走退貨**(2026-07-28) | §5.1c 第四條不變式上 CHECK;A8a 守門;A13a 指路退貨 |
+| **Q17 已到貨後取消** | ✅ **B 不可取消,走退貨**(2026-07-28) | §5.1c 第四條不變式上 CHECK;A8a2 守門;A13a 指路退貨 |
 | **Q18 取消原因 allowlist** | ✅ **照草案**(2026-07-28) | 定案表 = §5.1d;A7/A8 開工阻擋解除 |
 | **Q19 P1 分批後綴** | ✅ **A 作廢**(2026-07-28;P1 是 Sean 拍板、由 Sean 本人作廢) | `shipment_reference` 不加 `-1/-2`;§8.5 |
 
@@ -708,12 +720,15 @@ D1 寫死 production UUID 與「29 → 3」斷言 ⇒ **在本機 / preview / �
 - ❌ **N1 舊新雙格式支援整片取消**(#55/#56 的解法從「同時吃兩種」降級為「換掉」)—— domain 只需在 N2 把舊格式**換成**新格式,永遠不必同時支援兩種
 - ⚠️ **但 DB 的 CHECK 仍需一段「暫時接受兩種」的期間**(**D0 放寬 → N3c 收緊**)。這跟 domain 無關,純粹因為 `create_order` 在 N3b 之前還在產舊格式。**別把這兩件事搞混**:domain 零雙格式、CHECK 有一段雙格式窗口
 
-**D1 線(runbook 型、🔴 高風險:③DB 不可逆 + ①錢面資料;R7 拆五片 —— D1a1 匯出+映射 = 步驟 1-3、D1a2 restore scripts + D1a3 演練 = 步驟 4、D1b 證據 = 步驟 5-6、D1c apply = 步驟 8-13,批准閘 = 步驟 7)—— 順序見 §5.0**:
+**D1 線(runbook 型、🔴 高風險:③DB 不可逆 + ①錢面資料;R8 拆九片 —— D1a1 匯出 = 步驟 1-3、D1a2 映射、D1a3/D1a4 restore scripts、D1a5/D1a6 演練 = 步驟 4、D1b1 read-back = 步驟 5、D1b2 dry-run+證據 = 步驟 6,批准閘 = 步驟 7、D1c apply = 步驟 8-13)—— 順序見 §5.0**:
 
 🔴 **D1c 執行器定義(R7 抓:交易鎖 + TapPay read-back 跨 DB/API 兩界,「跑 SQL 檔」做不到)**:
 單一 **TS orchestrator script**,一個 `pg` client 連線從 `BEGIN` 到 `COMMIT` 全程同一 session 持鎖;
 步驟 8b 的 `TapPayChargeAdapter.recordQuery` 在同一 process 內呼叫(唯讀 API,交易內無副作用);
 **任何 API 失敗或斷言不符 = `ROLLBACK` 後 exit 非零**。dry-run(步驟 6)= 同一支 script 帶 `--dry-run` 旗標,模擬步驟 8-13 後強制 `ROLLBACK`。
+🔴 **timeout 合約(R8:`statement_timeout` 管不到 HTTP,持列鎖打外部 API 必須自帶上限)**:
+每次 `recordQuery` 綁 30 秒 `AbortSignal`(TapPay 官方建議值)、六筆總體上限 3 分鐘、
+pg 連線設 `idle_in_transaction_session_timeout`;**任一逾時 = `ROLLBACK` 後退出**,不留半掛交易。
 
 **🔴 相依資料實查(2026-07-28,`paid_at IS NOT NULL` = 留存的 3 張)—— 上一版寫錯,已更正**:
 
@@ -750,8 +765,8 @@ D1 寫死 production UUID 與「29 → 3」斷言 ⇒ **在本機 / preview / �
 **閘序(R5 抓:上一版把批准閘放在 restore 演練之前 ⇒ Sean 批准時演練還沒做)**:
 **步驟 1-6 全部做完**(含 restore 演練、TapPay read-back、完整 dry-run)→ 🔴 **停下、把全部證據交給 Sean、
 取得「apply D1」明確批准** → 才跑步驟 8 起的正式交易。批准前不得執行任何正式 DELETE。此閘**不可與 A1 的確認點合併**。
-🔴 **證據有效期 = 24 小時**(R6 抓金流 TOCTOU:批准延遲期間 TapPay 端狀態仍可變):D1b 證據產出後逾 24 小時才拿到批准
-⇒ **重跑 D1b** 再 apply;且無論間隔多短,D1c 鎖列後、DELETE 前**必重跑六筆 read-back**(步驟 8b)。
+🔴 **證據有效期 = 24 小時**(R6 抓金流 TOCTOU:批准延遲期間 TapPay 端狀態仍可變):D1b2 證據產出後逾 24 小時才拿到批准
+⇒ **重跑 D1b1/D1b2** 再 apply;且無論間隔多短,D1c 鎖列後、DELETE 前**必重跑六筆 read-back**(步驟 8b)。
 
 **🔴 三組改號映射(依 §5.4a 合約產生、已驗 regex 與唯一性;R4 抓「宣稱寫死但全文沒有」)**
 
@@ -765,7 +780,7 @@ D1 寫死 production UUID 與「29 → 3」斷言 ⇒ **在本機 / preview / �
 
 | 步 | 動作 | 守則 |
 |---|---|---|
-| 1 | **環境守門(R6:必須可執行、不能只寫「assert ref」)**:①wrapper script 檢查連線字串 host 是否含 `bmpnplmnldofgaohnaok`(**只比對 host、不印完整 URL** —— 防憑證進 log)、不符 exit 1;②SQL 第一步 `DO` 區塊 assert cohort 的 29 個 UUID 在 `orders` 全數存在,否則 `RAISE` abort(本機 / preview 沒有這些 UUID ⇒ **資料本身就是環境閘**) | 🔴 **runbook 的第一行、不是註解**(D0 等 migration **不含**此 assert —— 它們可重播) |
+| 1 | **環境守門(R6:必須可執行;R8 修 pooler 誤殺)**:①wrapper 檢查連線字串**兩種合法形態擇一命中**:direct host 含 `bmpnplmnldofgaohnaok`,**或** pooler 形態(host = `*.pooler.supabase.com`)時 **username 含 `.bmpnplmnldofgaohnaok` 後綴**(R8 抓:pooler 的 project ref 在 username 不在 host,只驗 host 會拒絕正確環境);**只比對 host/username、不印完整 URL**,不符 exit 1;②SQL 第一步 `DO` 區塊 assert cohort 的 29 個 UUID 在 `orders` 全數存在,否則 `RAISE` abort(本機 / preview 沒有這些 UUID ⇒ **資料本身就是環境閘**) | 🔴 **runbook 的第一行、不是註解**(D0 等 migration **不含**此 assert —— 它們可重播) |
 | 2 | **固定 cohort**:以 `orders.id`(UUID)寫死 **26 筆待刪 / 3 筆留存** 的 allowlist **在 runbook 內** | 🔴 不用動態條件;**不進 migration**。🔴 **所有數量斷言一律 cohort 口徑**(R5 抓:全表 29→3 在「D1 前有新單進來」時必然失敗、還會誘使人擴大刪除範圍) |
 | 3 | **cohort 匯出**:29 張及依 FK 反查的完整相依集合(`order_items` / `order_legal_consents` / `payment_charge_attempts` / `pending_invoices` / `email_outbox` / `order_refunds` / `order_refund_items` / `payment_double_charge_anomalies` / `payment_double_charge_anomaly_events`) | 🔴 **匯出工具 = psql 客戶端逐表 `\copy (SELECT … WHERE order_id = ANY(cohort)) TO 'file.csv' WITH CSV HEADER`**(R6 抓:server-side `COPY … TO` 寫的是 **DB 伺服器**的檔案系統,Supabase 上拿不到;`\copy` 寫本機才成立。R5 已排除 `pg_dump --data-only` —— 不能按列篩)+ cohort manifest + 逐表 `sha256`。**0 列的表也要匯**(留空檔證明當時為 0)。`age` 加密、金鑰存 1Password、保存 180 天後銷毀、路徑與 checksum 回報 Sean |
 | 4 | **兩支版本化 restore script + 實跑還原演練**(隔離 DB) | 🔴 依 FK 逆序;`restore-pre-n3c.sql`(舊 CHECK 環境,26 張以原舊號還原)與 `restore-post-n3c.sql`(新格式-only CHECK 環境)**各演練一次**。🔴 **R6 抓:post-n3c 版還原 26 張舊號單會被新 CHECK 擋** ⇒ **D1a1** 依 §5.4a 合約**預產 26 組還原用新號映射**(驗 regex、彼此與現網不重複)、**D1a2** 版本化進 script:還原時 `display_id ← 新號`、`legacy_display_id ← 原舊號`,與留存 3 張同一模式;**D1a3** 演練必實跑此路徑 |
@@ -773,7 +788,7 @@ D1 寫死 production UUID 與「29 → 3」斷言 ⇒ **在本機 / preview / �
 | 6 | **完整 dry-run**:D1c orchestrator 帶 `--dry-run` → `BEGIN` → **模擬步驟 8-13(不含批准步驟 7,R7 抓誤寫)** → 驗整張矩陣 → `ROLLBACK` | 🔴 R5 抓:上一版模擬只跑到鎖列就宣稱能驗 29→3 |
 | 7 | 🔴 **Sean 批准閘**:1-6 的全部證據(匯出 checksum、演練紀錄、read-back 結果、dry-run 矩陣)交給 Sean,取得明確「apply D1」 | 批准前零正式寫入 |
 | 8 | **正式交易 + fail-fast**:`BEGIN` → `SET LOCAL lock_timeout='5s'` / `statement_timeout='60s'` → 依固定鎖序 `FOR UPDATE`:①`orders`(cohort 29 列,按 `id` 排序)②`order_items` ③`payment_charge_attempts` ④`pending_invoices` → 交易內重驗 cohort 計數與金流狀態,漂移即 `RAISE` | 🔴 **鎖住 orders 列即同時擋住所有新 FK 子列**(FK 驗證需 KEY SHARE、與 FOR UPDATE 互斥)⇒ `email_outbox` 等 0 列表**不需列級鎖**,交易內重驗 = 0 即可(R5 抓「鎖清單與匯出清單不一致」的正確解法,附機制依據) |
-| 8b | 🔴 **鎖後重跑六筆 TapPay read-back**(R6 抓金流 TOCTOU:D1b 的 read-back 在批准前,批准延遲期間外部狀態可變) | 鎖列已擋 DB 側變動,本步封外部側:六筆斷言與 D1b 完全相同,**任一對不上即 `ROLLBACK` abort**;結果併入 remediation audit。read-back 是唯讀 API、在交易內跑無副作用 |
+| 8b | 🔴 **鎖後重跑六筆 TapPay read-back**(R6 抓金流 TOCTOU:D1b 的 read-back 在批准前,批准延遲期間外部狀態可變) | 鎖列已擋 DB 側變動,本步封外部側:六筆斷言與 D1b1 完全相同,**任一對不上即 `ROLLBACK` abort**;結果併入 remediation audit。read-back 是唯讀 API、在交易內跑無副作用 |
 | 9 | 刪 cohort 26 張的 `payment_charge_attempts`(assert = **24 筆**) | 🔴 **`pending_invoices` 零刪除**(唯一動作 = 步驟 13 的 status 更新) |
 | 10 | 刪 cohort 26 張 orders | CASCADE 預期:`order_items` **36 列**、`order_legal_consents` **2 筆** |
 | 11 | 3 張留存單:`legacy_display_id ← 舊號`、`display_id ← 新號`(上表) | D0 已放寬 CHECK,本步不動約束 |
@@ -795,6 +810,11 @@ Sean 已口頭確認「TapPay 都已退款」(Q5)與「那 3 筆 pending 都沒�
 證據以「`refunded_amount` = 授權金額」為準;要退款時間就得擴充 port,**本線不做**(足夠證明全額退)。
 
 工具:`TapPayChargeAdapter.recordQuery`(唯讀、既有實作)。
+🔴 **判定矩陣(R8 補:「確認為未授權 / 已取消」原本無可執行判準)**:逐筆以該單
+`payment_charge_attempts.rec_trade_id` 為查詢鍵;**要求唯一命中**;三筆已退單斷言
+`refunded_amount` = 授權金額;三筆 `pending` 單的允許 `record_status` 集合**在 D1b1 片內
+對照 TapPay 官方枚舉逐字寫死**(語意 = 未授權或已取消)。**零筆、多筆、狀態不在集合內、
+金額不符 —— 一律 abort,不得人工解讀後放行。**
 **對不上就 abort,不進入刪除步驟。** 結果連同 Sean 的原話寫成一份 remediation audit 存進備份包。
 ⚠️ **這一步不是不信任 Sean** —— 是讓「當初憑什麼刪」在半年後翻帳時還查得到,而不是只剩一句對話。
 
@@ -831,6 +851,7 @@ dry-run(步驟 6)與正式 apply 後**各驗一次同一張矩陣**(R5 抓:檔�
 | **HCT 允許字元** | `epino` 長度已確認 Char(30);**允許字元文件未載** ⇒ Sean 申請 API 時問新竹站所 | 外部確認 | 第 2 批出貨片的最後一道外部閘 |
 | **通知矩陣**(UX §3 #11) | 8 事件 × Email/LINE,Sean 逐格勾選 | 開批閘 | 第 2 批項 7(內部通知)開工前 |
 | **admin 建單六題** | 自由品項價格算法 / 稅·折扣 / 客戶與地址 / 付款狀態 / 庫存影響 / 經銷價權限 | 開批閘 | 第 3 批項 10(手動建單)開工前 |
+| **退款線兩題**(R8) | ①混合收款(卡+匯款)單的退款分軌與分配順序(`cancellation_id` UNIQUE 只夠卡單軌)②`partiallyPaid` 取消的本次應退額推導語意(只定上限不夠,兩個合法實作會退不同金額) | 開批閘 | 第 3 批退款線(A8b / worker)開工前;拍板前對應情境 fail-closed |
 
 規則:任何新的未定需求**只准登記在本表**,其他段落只可引用「見 §8.6」;開批閘在對應批次開批時一次問 Sean,不零碎打斷。
 

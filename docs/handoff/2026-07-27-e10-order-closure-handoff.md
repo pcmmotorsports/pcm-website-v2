@@ -18,7 +18,7 @@ git log --oneline origin/dev..HEAD && git rev-list --count origin/dev..HEAD
 
 然後依序讀:
 1. 本檔全文
-2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批片數**一律以該檔 §5.1 表格 `awk` 當場數為準**(五輪審查逐步重拆,本檔不寫死數字),Sean 拍板在 §8
+2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批片數**一律以該檔 §5.1 表格 `awk` 當場數為準**(多輪審查逐步重拆、輪數不寫死,本檔不寫死數字),Sean 拍板在 §8
 3. `STATUS.md`
 4. memory:`project_m4b-e10-order-list-layout-decisions`(版面與編號定案)/ `project_admin-backend-staff-ready-goal`(北極星)/ `project_m4b-real-auth-line-decisions`(E8-B 押後狀態)
 
@@ -131,7 +131,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §6 🔴 誠實邊界與未完成項
 
-### 🔴🔴 codex 關卡1 已跑七輪(2026-07-28 更新;趨勢 67→33→31→32→26→24→15)
+### 🔴🔴 codex 關卡1 輪次表(2026-07-28 更新;趨勢 67→33→31→32→26→24→15→17)
 
 | 輪 | 結果 | findings 檔 |
 |---|---|---|
@@ -142,9 +142,10 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 | R5 | FAIL **26 + 2**、首次實質下降 + 根因診斷(唯一 DAG + 閉環矩陣) | `docs/reviews/2026-07-28-e10-k1-r5-codex.md` |
 | R6 | FAIL **24 + 1**、首現「已關死類別」清單 | `docs/reviews/2026-07-28-e10-k1-r6-codex.md` |
 | R7 | FAIL **15 + 1**、R6 全關死;深水區 = 金流取消語意(第 1 批取消因此 fail-closed 到無退款需求的單) | `docs/reviews/2026-07-28-e10-k1-r7-codex.md` |
+| R8 | FAIL **17 + 4**、再下探跨 RPC 競態 / TapPay 退款外部冪等(`bank_refund_id` + `submitted`)/ D1 pooler 守門;兩題升為 §8.6 開批閘 | `docs/reviews/2026-07-28-e10-k1-r8-codex.md` |
 
-✅ **R1-R7 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
-✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R8**。
+✅ **R1-R8 全部已折入**(R1 逐條裁定 `docs/reviews/2026-07-28-e10-k1-findings-triage.md`,駁回 0 條)。
+✅ **Sean 2026-07-28 拍 Q17=B / Q18 照草案 / Q19=A**(詳總規劃 v2 §8)⇒ 下一步 = **R9**。
 ✅ **全貌視覺已交付、Sean 批准方向**(artifact `ed7a6276-70fc-44f3-b09c-61c8991b5294`)。
 
 **R1 的三條抽驗備查(當時全部成立)**:
@@ -167,9 +168,9 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 ⑦**C1 同檔既寫「未定」又寫「已拍板」**,且 `docs/reference/hct-logistics-api-reference.md:217` 仍記未定案 —— **repo 真權威未同步**
 
 🔴 依鐵則 8/12,**Sean 批准 + 關卡1 通過前不得動第一片 code**。
-~~依輪次紀律 plan 層上限 2 輪~~ 🔴 **Sean 07-28 拍 Q8=B 解除上限**(逐字「就算有第四輪第五輪都沒差」);已跑七輪、R7 折入後續送 R8。
+~~依輪次紀律 plan 層上限 2 輪~~ 🔴 **Sean 07-28 拍 Q8=B 解除上限**(逐字「就算有第四輪第五輪都沒差」);輪數與趨勢**以上方輪次表為準、此行不再寫死**。
 - ~~24 片的「2-4 週」~~(⚠️ 歷史數字,現為 50 片)整體工期**未逐片估算**,不是承諾。
-- 27 項現況(✅2/⚠️6/❌19)沿用 2026-07-26 read-back,**本輪未逐項重驗**(列為 O0)。
+- 27 項現況(✅2/⚠️6/❌19)沿用 2026-07-26 read-back,**本輪未逐項重驗**(重驗 = v2 的 A0a-A0c 片;~~O0~~ 編號已退場)。
 - E8-B plan v3 的 **34 條 must-fix 尚未重寫折入**;本輪只記錄狀態。
 - **graphify 地圖本輪未刷** —— 本 session 在 `pcm-website-v2` **零 code 變更**(只新增一份 docs),依 handoff skill 步驟 2 跳過。
   ⚠️ 地圖仍含 E8-A1 之前的舊節點(`STAFF [staff.ts:15]`),下次要用地圖判連動面前**先刷**(必 `dedup=False`、刷前備份)。
@@ -179,14 +180,18 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ## §7 Git 狀態(當場查、不信本檔數字)
 
-**`pcm-website-v2`**
-- branch `dev`、**未推 0 筆**、**零 code 變更**
-- 未 commit:`docs/specs/2026-07-27-e10-order-closure-master-plan.md`(untracked)+ 本檔
+> ⚠️ **以下為 2026-07-27 交接當下的歷史快照(R8 抓與現況矛盾,標歷史、不刪)**。
+> 現況一律當場跑 `git log --oneline -4` / `git rev-list --count origin/dev..HEAD` 查,
+> 07-28 之後 dev 已累積多筆審查輪次 commit、工作樹以凍結紀律維持乾淨。
+
+**`pcm-website-v2`**(07-27 快照)
+- branch `dev`、~~未推 0 筆、零 code 變更~~
+- ~~未 commit:v1 總規劃(untracked)+ 本檔~~(v1 已作廢、皆已 commit)
 - 🔴 session 中途出現**別條線**的 `scripts/rpm-delta.ts` 等 4 檔改動,**不是本 session 的**,不要一起 commit
 
-**`/Users/sean_1/API大量上架/PCM報價單-V2`**
+**`/Users/sean_1/API大量上架/PCM報價單-V2`**(07-27 快照)
 - branch `main`(= 正式站,推即部署)
-- **未推 1 筆:`bbb8e32`**(LINE 推送預設不送店家價)—— 等 Sean 手動推
+- ~~未推 1 筆:`bbb8e32`~~(07-28 已由另一 session 連同 `36cf77c` 推上)
 - 工作樹另有別條線的 translation workbench 檔案,**不要碰**
 
 🔴 **不自動 push、不主動提議 push。**
