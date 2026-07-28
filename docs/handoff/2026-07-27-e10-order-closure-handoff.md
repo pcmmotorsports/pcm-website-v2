@@ -18,7 +18,7 @@ git log --oneline origin/dev..HEAD && git rev-list --count origin/dev..HEAD
 
 然後依序讀:
 1. 本檔全文
-2. 🔴 **`docs/specs/2026-07-27-e10-order-closure-master-plan.md`** ← **總規劃本體、24 片、Sean 拍板全在 §6**
+2. 🔴 **`docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`** ← **總規劃本體**(~~舊 v1 `2026-07-27-…-master-plan.md` 已作廢、24 片編號 O0-O22 全數退場~~)。第 1 批 = **26 片 A0a-A14**,Sean 拍板在 §8
 3. `STATUS.md`
 4. memory:`project_m4b-e10-order-list-layout-decisions`(版面與編號定案)/ `project_admin-backend-staff-ready-goal`(北極星)/ `project_m4b-real-auth-line-decisions`(E8-B 押後狀態)
 
@@ -69,7 +69,7 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 
 ### 2.5 產出 E10 總規劃 + 版面定案
 
-- 總規劃 `docs/specs/2026-07-27-e10-order-closure-master-plan.md`(**24 片、13 片命中鐵則 12**)
+- 總規劃 ~~`docs/specs/2026-07-27-e10-order-closure-master-plan.md`(24 片、13 片命中鐵則 12)~~ ⚠️ **該檔已作廢**(codex 關卡1 R1 FAIL 67 條 → 重寫成 `2026-07-28-…-v2.md`;R2 又 FAIL 33 條 → 再折入)。**24 片與 13 這兩個數字當時就是錯的**(實際表裡是 15 片高風險)
 - 視覺定案 artifact:`https://claude.ai/code/artifact/87d397af-8a38-44c2-99da-7f9887a0181f`(現況 13 欄 / 提案 12 欄 可切換)
 - Sean 當晚拍完 **P1-P4 + E1-E4** 八題(見 §3)
 
@@ -101,10 +101,10 @@ Sean 拍 A:改**三層 fail-closed**(共用函式預設參數 / route 旗標解�
 ## §4 下一個 session 要做什麼
 
 1. **先處理 codex 關卡1 的 findings**(見 §6 未完成項)
-2. Sean 批准總規劃後,從 **O0** 開始(規格凍結 + 現況補查)
-3. 依 P4=B **第一批 = O0-O7**(含 O7a 編號、O7b 版面)
+2. ~~Sean 批准總規劃後,從 **O0** 開始~~ ⇒ **O0-O22 這套片號已全數退場**。現行 = v2 的 **A0a-A14 共 26 片**(第 1 批),起點是 **A0a 資料現況重驗**,其後 **D1 前有 Sean 獨立批准閘**
+3. ~~依 P4=B 第一批 = O0-O7~~ ⇒ 見 v2 §5.1
 
-🔴 **O0 必須補查的**:orders 現有筆數(本輪查得 **29**,會變)/ E11 積木 `<AdminDataTable>`·`<AdminForm>` 是否已被 orders/customers 兩頁實際採用 / 27 項逐項重驗(本輪沿用 07-26 的 ✅2 ⚠️6 ❌19、**未逐項重驗**)。
+🔴 **必須補查的**(原 O0,現已拆成 **A0a / A0b / A0c** 三片):orders 現有筆數(本輪查得 **29**,會變)/ E11 積木 `<AdminDataTable>`·`<AdminForm>` 是否已被 orders/customers 兩頁實際採用 / 27 項逐項重驗(本輪沿用 07-26 的 ✅2 ⚠️6 ❌19、**未逐項重驗**)。
 
 ⚠️ **一個待 Sean 決定的取捨**(已列進 O0):O7b 新版版面依賴 O4+O5+O7a+O8。
 若第一批要讓 Sean 驗到版面,**O8 需提前到第一批**;否則版面落到第二批。
