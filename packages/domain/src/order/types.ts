@@ -227,6 +227,15 @@ export type AdminOrderFilter = {
    * - 元素 `null` =「品項未設定狀態」(order_items.workflow_status IS NULL)可與 code 混勾。
    */
   workflowStatuses?: readonly (string | null)[];
+  /**
+   * 訂單編號搜尋(M-4b E10 A9b1):**同時**比對 `display_id` 與 `legacy_display_id`,
+   * 讓改號後的舊單號永遠查得到(v2 §5.1 A9b1;D1 改號的開工前置)。
+   *
+   * - `undefined` / 空字串 = 不篩;
+   * - 值由 {@link normalizeOrderNumberSearch} 正規化(trim + 轉大寫)後才可進 adapter;
+   * - 🔴 **格式不符時 adapter 回零筆、不得退化成不篩選** —— 打錯字靜默列出全部訂單是 fail-open。
+   */
+  orderNumber?: string;
 };
 
 /**

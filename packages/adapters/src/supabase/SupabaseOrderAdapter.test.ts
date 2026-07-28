@@ -892,3 +892,132 @@ describe('SupabaseOrderAdapter.updateAdminOrderItemWorkflow', () => {
     ).rejects.toThrow('非預期');
   });
 });
+
+// ── M-4b E10 A9b1:單號搜尋(display_id + legacy_display_id 同時比對)───────────
+// 規格 = docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md §5.1 A9b1。
+// 走 adapter 投影、不開 DB RPC;.or() 是字串內插 ⇒ 值必先過 normalizeOrderNumberSearch。
+describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋', () => {
+  it('舊號搜尋 → .or 同時比對 display_id 與 legacy_display_id(改號後舊號仍查得到)', async () => {
+    const { client, or, select } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'PCM-2026-0104' },
+      { limit: 20 },
+    );
+    expect(or).toHaveBeenCalledWith(
+      'display_id.eq.PCM-2026-0104,legacy_display_id.eq.PCM-2026-0104',
+    );
+    // 單號搜尋不改投影(A9b1 是查詢合約、不是投影改造)
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+  });
+
+  it('新 6 碼搜尋 → 同一條 .or', async () => {
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'YWP3PC' },
+      { limit: 20 },
+    );
+    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
+  });
+
+  it('小寫與前後空白先正規化再內插(客服貼上的值不該查不到)', async () => {
+    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: '  ywp3pc  ' },
+      { limit: 20 },
+    );
+    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
+  });
+
+  it('未給 / 空字串 → 不篩選(不呼叫 .or、也不提前回零筆)', async () => {
+    const a = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(a.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(a.or).not.toHaveBeenCalled();
+    expect(a.range).toHaveBeenCalled();
+
+    const b = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(b.client).listOrderSummariesForAdmin(
+      { orderNumber: '   ' },
+      { limit: 20 },
+    );
+    expect(b.or).not.toHaveBeenCalled();
+    expect(b.range).toHaveBeenCalled();
+  });
+
+  it('🔴 fail-closed:格式不符 → 直接回零筆,且完全不查 DB(不得退化成列出全部)', async () => {
+    for (const bad of ['YWP3P0', 'YWP3P', 'YWP3PCX', 'PCM-2026-104', '王小明']) {
+      const { client, from, or, range } = makeAdminListClient({
+        data: [{ id: 'should-never-be-returned' }],
+        error: null,
+        count: 999,
+      });
+      const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+        { orderNumber: bad },
+        { limit: 20 },
+      );
+      expect(res, `格式不符應回零筆:${bad}`).toEqual({ items: [], total: 0 });
+      expect(from, `格式不符不該碰 DB:${bad}`).not.toHaveBeenCalled();
+      expect(or).not.toHaveBeenCalled();
+      expect(range).not.toHaveBeenCalled();
+    }
+  });
+
+  it('🔴 .or 內插注入形狀在 adapter 層 fail-closed(回零筆、不查 DB)', async () => {
+    for (const attack of [
+      'YWP3PC,payment_status.eq.paid',
+      'PCM-2026-0104,legacy_display_id.is.null',
+      'display_id.is.null',
+      'YWP3PC)',
+    ]) {
+      const { client, from } = makeAdminListClient({ data: [], error: null, count: 0 });
+      const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+        { orderNumber: attack },
+        { limit: 20 },
+      );
+      expect(res).toEqual({ items: [], total: 0 });
+      expect(from, `注入形狀不該碰 DB:${attack}`).not.toHaveBeenCalled();
+    }
+  });
+
+  it('單號搜尋可與既有雙軸篩選並用(各自下推、互不吃掉)', async () => {
+    const { client, or, eq } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'YWP3PC', paymentStatus: 'paid' },
+      { limit: 20 },
+    );
+    expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
+    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
+  });
+});
+
+// A9b1 補強(code-reviewer nit):orderNumber + workflowStatuses 併用 = 同一 query 兩次 .or,
+// key 分別是 `or` 與 `order_items.or`(referencedTable 選項)⇒ 不會互相覆蓋。
+describe('SupabaseOrderAdapter — A9b1 單號搜尋 × item 狀態篩選併用', () => {
+  it('兩條 .or 各自帶對的 referencedTable,互不吃掉', async () => {
+    const { client, or, select } = makeAdminListClient({ data: [], error: null, count: 0 });
+    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'YWP3PC', workflowStatuses: ['ok_code', null] },
+      { limit: 20 },
+    );
+    // item 狀態篩選作用中 → 走 !inner 投影
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
+      count: 'exact',
+    });
+    // 單號那條:無 referencedTable(打 orders 本表)
+    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
+    // item 狀態那條:帶 referencedTable
+    expect(or).toHaveBeenCalledWith('workflow_status.in.(ok_code),workflow_status.is.null', {
+      referencedTable: 'order_items',
+    });
+    expect(or).toHaveBeenCalledTimes(2);
+  });
+
+  it('🔴 單號格式不符時,即使有其他篩選也一律回零筆、完全不查 DB', async () => {
+    const { client, from } = makeAdminListClient({ data: [], error: null, count: 5 });
+    const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
+      { orderNumber: 'BAD!', paymentStatus: 'paid', workflowStatuses: ['ok_code'] },
+      { limit: 20 },
+    );
+    expect(res).toEqual({ items: [], total: 0 });
+    expect(from).not.toHaveBeenCalled();
+  });
+});

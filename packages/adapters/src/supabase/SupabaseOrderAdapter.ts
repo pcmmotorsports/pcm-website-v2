@@ -15,7 +15,11 @@ import type {
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
-import { toMoneyAmount, WORKFLOW_STATUS_CODE_RE } from '@pcm/domain';
+import {
+  toMoneyAmount,
+  WORKFLOW_STATUS_CODE_RE,
+  normalizeOrderNumberSearch,
+} from '@pcm/domain';
 import type { Database, Json } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
@@ -224,6 +228,23 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   ): Promise<Paginated<AdminOrderSummary>> {
     const offset = pagination.offset ?? 0;
 
+    // 單號搜尋(M-4b E10 A9b1):同時比對 display_id 與 legacy_display_id,
+    // 讓 D1 改號之後客人手上的舊單號永遠查得到。
+    // 🔴 fail-closed:輸入了但格式不符 ⇒ **直接回零筆**,不得退化成「不篩選」——
+    //    退化的話,客服打錯一個字就會看到全部訂單、還以為那就是搜尋結果。
+    // 🔴🔴 **runtime 前置:本路徑要求 D0 migration 已 apply**
+    //    (`supabase/migrations/20260729010000_m4b_e10_d0_display_id_expand.sql`)。
+    //    `legacy_display_id` 目前**不在** database.types.ts(欄位尚未 apply、型別未重生),
+    //    typecheck 因此抓不到 —— `.or()` 收的是純字串。
+    //    D0 未 apply 時打這條 filter ⇒ PostgREST 42703(欄位不存在)⇒ 本方法裸 throw
+    //    ⇒ **整個後台訂單列表**(不只搜尋)進錯誤態。
+    //    現況安全只因為 `parseOrderListSearchParams` 尚未填 `orderNumber`(A10c1 才接)。
+    //    ⇒ A10c1 接 query param 之前,D0 必須先 apply。
+    const orderNumberSearch = normalizeOrderNumberSearch(filter.orderNumber);
+    if (orderNumberSearch.kind === 'invalid') {
+      return { items: [], total: 0 };
+    }
+
     // workflow 篩選(M-4a D-2 起走 **item 層**;D-1b 起多勾選=各值 OR):orders.workflow_status
     // 停寫=stale、絕不再打;有篩 → `order_items!inner` 版投影(無命中品項的訂單整列消失、
     // 命中品項才顯示),filter 打內嵌欄 `order_items.workflow_status`。
@@ -247,6 +268,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       );
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
+    if (orderNumberSearch.kind === 'ok') {
+      // 兩欄對稱查:新 6 碼打 legacy 欄那半邊恆 0 命中(D0 的 CHECK 禁新格式進 legacy 欄),
+      // 舊號打 display_id 那半邊在改號後也恆 0 —— 刻意保持對稱,呼叫端不必知道這張單改過號沒有。
+      query = query.or(
+        `display_id.eq.${orderNumberSearch.value},legacy_display_id.eq.${orderNumberSearch.value}`,
+      );
+    }
     if (filter.orderSources?.length) {
       query = query.in('order_source', [...filter.orderSources]);
     }
