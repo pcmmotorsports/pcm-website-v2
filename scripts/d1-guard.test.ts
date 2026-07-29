@@ -13,6 +13,22 @@ describe('D1 cohort', () => {
     expect(new Set(D1_COHORT.map(({ id }) => id)).size).toBe(29);
   });
 
+  // 🔴 D1a3:N3c 收窗後,舊格式單號會被 CHECK 擋住 ⇒ 還原需要預備的新號。
+  //    這裡只驗形狀與不相撞;**與現網的碰撞必須在 restore 執行當下重驗**
+  //    (N3b 之後現網會長出新的 6 碼單號,凍結的映射可能過期)= D1a5 驗收條件。
+  it('26 組還原用新號:符合 §5.4a 格式、彼此不重複、不撞留存 3 張的新號', () => {
+    const codes = D1_DELETE_COHORT.map(({ restoreDisplayId }) => restoreDisplayId);
+
+    expect(codes).toHaveLength(26);
+    expect(new Set(codes).size).toBe(26);
+    for (const code of codes) {
+      expect(code).toMatch(/^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$/);
+    }
+    for (const taken of ['YWP3PC', 'BKPR5M', 'ZNHY8B']) {
+      expect(codes).not.toContain(taken);
+    }
+  });
+
   // 🔴 F1:配對比對證明不了歸屬 —— 把 0052 與某張待刪單互換,兩邊配對仍成立、
   //    數量仍 29,但 D1c 會照 D1_DELETE_COHORT 刪掉有真錢的 0052。歸屬只能釘死。
   it('留存名單釘死三張已付款單', () => {
