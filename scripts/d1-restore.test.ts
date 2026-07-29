@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
 import { buildCohortSelectors } from './d1-export';
-import { buildRestoreScript } from './d1-restore';
+import { buildRehearsalSeedScript, buildRestoreScript } from './d1-restore';
 
 const DIR = '/tmp/d1';
 const pre = buildRestoreScript('pre-n3c', 'production', DIR);
@@ -405,5 +405,48 @@ describe('d1-restore.sh(執行器)', () => {
     expect(sh).toContain('PGSSLMODE=verify-full');
     expect(sh).toContain('PGSSLROOTCERT="$WORK/supabase-ca.pem"');
     expect(sh).not.toMatch(/psql "\$D1_DB_URL"/);
+  });
+});
+
+// 🔴 演練庫的 auth.users 是空的,而 customers.user_id → auth.users 是 FK ⇒ 不補替身連第一張
+//    父表都插不進去。這正是「auth.users 不備份」那條殘餘風險在演練場上的具體長相。
+describe('buildRehearsalSeedScript(演練前置)', () => {
+  const seed = buildRehearsalSeedScript(DIR);
+
+  it('只塞 id、不塞任何個資', () => {
+    expect(seed).toContain('INSERT INTO auth.users (id) SELECT user_id FROM d1s_customers');
+    expect(seed).toContain('ON CONFLICT DO NOTHING');
+    // auth.users 只有 id 是 NOT NULL 且無預設(2026-07-29 實查)⇒ 其餘一欄都不該碰。
+    expect(seed).not.toMatch(/encrypted_password|email|phone|raw_user_meta_data/);
+  });
+
+  // 🔴 UUID 從備份當場讀,不寫死進 repo —— 少一個會跟 cohort 漂移的清單。
+  it('UUID 從 customers.csv 當場讀,repo 內不寫死', () => {
+    expect(seed).toContain("\\copy d1s_customers FROM '/tmp/d1/customers.csv'");
+    expect(seed).toContain('HEADER MATCH');
+    // 只看寫入 auth.users 那行 —— 守門段帶 cohort UUID 是應該的,帳號 UUID 才不該寫死。
+    const insert = seed.split('\n').find((l) => l.startsWith('INSERT INTO auth.users'))!;
+
+    expect(insert).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+  });
+
+  // 🔴 它會寫 auth.users —— 誤指 production 的後果不是「白跑一趟」。守門方向必須釘死。
+  it('守門釘死:連到 production 就中止', () => {
+    expect(seed).toContain(
+      'IF (SELECT system_identifier FROM pg_control_system()) = 7632885393857617092 THEN',
+    );
+    expect(seed).toContain('演練版,不得對 production 執行');
+    expect(seed).not.toContain('<> 7632885393857617092');
+  });
+
+  it('補完後 assert 筆數,且框在單一交易內', () => {
+    const l = seed.split('\n');
+
+    expect(seed).toContain('IF v_seeded <> 2 THEN');
+    expect(l).toContain('\\set ON_ERROR_STOP on');
+    expect(l.indexOf('BEGIN;')).toBeLessThan(l.indexOf('COMMIT;'));
+    expect(l.findIndex((x) => x.startsWith('INSERT INTO auth.users'))).toBeLessThan(
+      l.indexOf('COMMIT;'),
+    );
   });
 });

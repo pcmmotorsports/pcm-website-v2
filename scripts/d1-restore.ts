@@ -306,6 +306,48 @@ const PARENT_TABLES = [
   'legal_terms_versions',
 ] as const;
 
+/**
+ * D1a6/D1a7 演練前置:在**演練庫**補上帳號替身。
+ *
+ * 為什麼需要:`customers.user_id → auth.users` 是 FK,而 `auth.users` **刻意不備份**
+ * (Sean 2026-07-29 拍板 Q3=A:含密碼雜湊)。演練庫是全新的 branch、`auth.users` 空的,
+ * 少了它連第一張父表都插不進去。
+ *
+ * 🔴 這正是那條殘餘風險在演練場上的具體長相 —— 演練需要替身,恰好也證明了
+ * 「客人自刪帳號則該筆救不回」不是紙上推論。
+ *
+ * 🔴 **只塞 `id`,不塞任何個資**:`auth.users` 的 NOT NULL 欄只有 `id`
+ * (`is_sso_user`/`is_anonymous` 皆有預設值,2026-07-29 實查)。
+ * UUID 也**不寫死在 repo**,從備份的 `customers.csv` 當場讀 —— 少一個會漂移的清單。
+ *
+ * 🔴 守門沿用 `buildGuardSql('rehearsal')`:連到 production 就中止。
+ */
+export function buildRehearsalSeedScript(inDir: string): string {
+  return [
+    '\\echo D1a6 演練前置:補 auth.users 替身(只塞 id、無個資)',
+    '\\set ON_ERROR_STOP on',
+    'BEGIN;',
+    buildGuardSql('rehearsal'),
+    'CREATE TEMP TABLE d1s_customers (LIKE public.customers);',
+    `\\copy d1s_customers FROM '${inDir}/customers.csv' WITH (FORMAT csv, HEADER MATCH, NULL '\\N')`,
+    'INSERT INTO auth.users (id) SELECT user_id FROM d1s_customers ON CONFLICT DO NOTHING;',
+    `DO $$
+DECLARE
+  v_seeded integer;
+BEGIN
+  SELECT count(*) INTO v_seeded
+    FROM auth.users u
+   WHERE u.id IN (SELECT user_id FROM d1s_customers);
+
+  IF v_seeded <> ${EXPECTED_ROWS.customers} THEN
+    RAISE EXCEPTION 'D1:替身帳號應有 ${EXPECTED_ROWS.customers} 筆,實際 % 筆;拒繼續', v_seeded;
+  END IF;
+END $$;`,
+    'COMMIT;',
+    '\\echo 替身帳號已就緒,可以跑還原演練。',
+  ].join('\n');
+}
+
 export function buildRestoreScript(
   mode: RestoreMode,
   target: RestoreTarget,
@@ -499,6 +541,11 @@ if (process.argv[1]?.endsWith('d1-restore.ts')) {
   //    sslmode(preflight 已拒)⇒ libpq 預設 `prefer` = **完全不驗憑證**。
   //    D1a0 拍板的 verify-full 在真正動資料的那條路上必須也成立 ⇒ 把同一份 CA 寫成檔案,
   //    由 wrapper 以 PGSSLROOTCERT / PGSSLMODE 餵給 psql。
+  if (mode === '--seed-rehearsal' && target) {
+    console.log(buildRehearsalSeedScript(target));
+    process.exit(0);
+  }
+
   if (mode === '--write-ca' && target) {
     writeFileSync(target, SUPABASE_ROOT_CA_2021, { mode: 0o600 });
     process.exit(0);
