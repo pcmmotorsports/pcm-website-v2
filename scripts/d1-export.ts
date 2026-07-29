@@ -5,8 +5,14 @@
  * 匯出用 psql 的 `\copy`(客戶端寫本機檔);server-side `COPY ... TO` 寫的是資料庫
  * 伺服器的檔案系統,在 Supabase 上拿不到。`pg_dump --data-only` 也不行 —— 不能按列篩。
  *
- * 用法(輸出目錄必須已存在):
- *   npx tsx scripts/d1-export.ts <輸出目錄> | psql "$D1_DB_URL" -v ON_ERROR_STOP=1
+ * 用法(輸出目錄必須已存在)—— 🔴 **兩段必須用 && 串接**:
+ *   npx tsx scripts/d1-export.ts <輸出目錄> | psql "$D1_DB_URL" -v ON_ERROR_STOP=1 \
+ *     && shasum -a 256 <輸出目錄>/*.csv > <輸出目錄>/checksums.txt
+ *
+ * 🔴 校驗碼**故意不放在 psql 的 `\!` 裡**(codex R1-P2):`\!` 的失敗只會更新
+ * `SHELL_EXIT_CODE`,psql 不會因此中止,結果是磁碟滿或工具缺了照樣印「完成」、
+ * 交出一份沒有校驗碼的備份。改用 `&&` 串接:psql 失敗就不會跑到 shasum,
+ * shasum 失敗操作者當場看到非零退出。
  *
  * 🔴 cohort 直接 import `d1-cohort.ts`,**不在本檔重抄一份 UUID** —— 兩份清單會漂移,
  * 而漂移的後果是「匯出的不是即將被刪的那批」,出事時才會發現救不回來。
@@ -21,7 +27,18 @@
  * 逐格相符:orders 29 / order_items 39 / order_legal_consents 4 /
  * payment_charge_attempts 27 / pending_invoices 3,其餘五張 0 列。
  */
-import { D1_COHORT } from './d1-cohort';
+import { D1_COHORT, D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
+
+/**
+ * `PCM-2026-0101` 的「沒扣到錢」是 **Sean 本人查 TapPay 後確認、非系統 read-back**
+ * (2026-07-29 拍板 A0a-1)。半年後看這包備份的人必須看得到這件事的證據等級,
+ * 否則會誤以為每一筆都有系統證據。規格要求寫進 migration 註解 / manifest / audit 三處。
+ */
+function evidenceNote(displayId: string): string {
+  return displayId === 'PCM-2026-0101'
+    ? "'未扣款證據 = Sean 本人查 TapPay 確認(2026-07-29),非系統 read-back'"
+    : "''";
+}
 
 /**
  * 逐表 selector。**每張表寫死自己的條件、不共用一句通用 WHERE** ——
@@ -54,17 +71,34 @@ export function buildExportScript(outDir: string): string {
     ],
   ];
 
+  // cohort manifest:記錄「這包備份的範圍是什麼」。codex R1-P2 抓到原版只有檔案雜湊、
+  // 沒有刪留範圍 ⇒ 備份離開這個 checkout 之後,它證明不了自己涵蓋哪些單、誰該刪誰該留。
+  const manifestRows = [
+    ...D1_DELETE_COHORT.map(
+      ({ id, displayId }) =>
+        `      ('${id}'::uuid, '${displayId}', 'delete', ${evidenceNote(displayId)})`,
+    ),
+    ...D1_RETAIN_COHORT.map(
+      ({ id, displayId }) => `      ('${id}'::uuid, '${displayId}', 'retain', '')`,
+    ),
+  ].join(',\n');
+
   return [
     `\\echo D1a1 cohort 匯出:${D1_COHORT.length} 張訂單 / ${tables.length} 張表`,
+    // 🔴 codex R1-P1:十道 \copy 在 autocommit 下各自取到**不同時間點**的快照。
+    //    正式匯出期間只要 sweeper 或付款回寫動到 cohort,還原出來就會是一個
+    //    **從來沒存在過的狀態**(A 表是 10:00 的、B 表是 10:02 的)。
+    //    這是刪除後唯一的還原路徑,必須整包同一個快照。
+    //    READ ONLY 是第二道:本腳本在任何情況下都不該寫到 production。
+    'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;',
     ...tables.flatMap(([table, where]) => [
       `\\echo -- ${table}`,
       `\\copy (SELECT * FROM public.${table} WHERE ${where}) TO '${outDir}/${table}.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
     ]),
-    // manifest:時間戳(判 24 小時新鮮度)+ 逐檔行數 + sha256(判有沒有被動過)。
-    `\\! date -u '+匯出時間 (UTC) %Y-%m-%dT%H:%M:%SZ' > '${outDir}/manifest.txt'`,
-    `\\! wc -l '${outDir}'/*.csv >> '${outDir}/manifest.txt'`,
-    `\\! shasum -a 256 '${outDir}'/*.csv >> '${outDir}/manifest.txt'`,
-    `\\echo 完成。manifest = ${outDir}/manifest.txt`,
+    `\\echo -- cohort-manifest(刪留範圍 + 匯出時間)`,
+    `\\copy (SELECT m.display_id, m.id, m.membership, m.evidence, now() AS exported_at FROM (VALUES\n${manifestRows}\n    ) AS m(id, display_id, membership, evidence) ORDER BY m.display_id) TO '${outDir}/cohort-manifest.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
+    'COMMIT;',
+    `\\echo 完成。校驗碼請接著跑(見本檔用法):shasum -a 256 ${outDir}/*.csv`,
   ].join('\n');
 }
 

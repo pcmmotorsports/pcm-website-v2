@@ -29,9 +29,17 @@ describe('buildExportScript', () => {
     expect(copied).toEqual([...REQUIRED_TABLES]);
   });
 
-  it('29 個 cohort UUID 全數帶進 SQL', () => {
-    for (const { id } of D1_COHORT) {
-      expect(script).toContain(`'${id}'`);
+  // 🔴 只看匯出那幾行,不看整份腳本 —— manifest 段落也帶了 29 個 UUID,
+  //    拿整份腳本比對的話,「selector 只帶前 5 筆」這種缺陷會被 manifest 蓋掉
+  //    (突變測試實測抓到)。
+  it('29 個 cohort UUID 全數帶進每一道匯出 selector', () => {
+    const copyLines = script.split('\n').filter((l) => l.startsWith('\\copy (SELECT * FROM public.'));
+
+    expect(copyLines).toHaveLength(REQUIRED_TABLES.length);
+    for (const line of copyLines) {
+      for (const { id } of D1_COHORT) {
+        expect(line).toContain(`'${id}'`);
+      }
     }
   });
 
@@ -47,22 +55,49 @@ describe('buildExportScript', () => {
 
   // 🔴 server-side `COPY ... TO` 寫的是資料庫伺服器的檔案系統,在 Supabase 上拿不到檔案。
   //    只有 psql 客戶端的 `\copy` 會寫本機。
+  // 11 = 十張相依表 + 一份 cohort manifest。
   it('用客戶端 \\copy 而非 server-side COPY', () => {
     expect(script).not.toMatch(/^COPY /m);
-    expect([...script.matchAll(/^\\copy /gm)]).toHaveLength(REQUIRED_TABLES.length);
+    expect([...script.matchAll(/^\\copy /gm)]).toHaveLength(REQUIRED_TABLES.length + 1);
   });
 
   // 🔴 CSV 預設把 NULL 與空字串混同,還原時會違反部分唯一索引語意。restore 端需同格式。
-  it('每張表都定死 CSV 格式與 NULL 表示法', () => {
+  it('每份輸出都定死 CSV 格式與 NULL 表示法(含 manifest)', () => {
     expect([...script.matchAll(/WITH \(FORMAT csv, HEADER, NULL '\\N'\)/g)]).toHaveLength(
-      REQUIRED_TABLES.length,
+      REQUIRED_TABLES.length + 1,
     );
   });
 
-  it('產出 manifest:時間戳 + 行數 + sha256', () => {
-    expect(script).toContain('manifest.txt');
-    expect(script).toMatch(/date -u/);
-    expect(script).toMatch(/wc -l/);
-    expect(script).toMatch(/shasum -a 256/);
+  // 🔴 codex R1-P1:十道 \copy 在 autocommit 下各自取到不同時間點的快照,還原出來
+  //    會是一個從來沒存在過的狀態。整包必須框在同一個唯讀快照裡。
+  it('十張表框在同一個 REPEATABLE READ READ ONLY 交易內', () => {
+    const lines = script.split('\n');
+    const begin = lines.findIndex((l) => l.startsWith('BEGIN '));
+    const commit = lines.findIndex((l) => l.startsWith('COMMIT;'));
+
+    expect(lines[begin]).toBe('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;');
+    expect(commit).toBeGreaterThan(begin);
+    // 每一道 \copy 都必須落在 BEGIN 與 COMMIT 之間。
+    lines.forEach((line, i) => {
+      if (line.startsWith('\\copy ')) {
+        expect(i).toBeGreaterThan(begin);
+        expect(i).toBeLessThan(commit);
+      }
+    });
+  });
+
+  // 🔴 codex R1-P2:`\!` 的失敗只更新 SHELL_EXIT_CODE、psql 不會中止 ⇒ 磁碟滿時
+  //    照樣印「完成」、交出沒有校驗碼的備份。改用 && 串接,失敗當場非零退出。
+  it('校驗碼不放在 psql 的 \\! 裡(失敗不會中止 psql)', () => {
+    expect(script).not.toMatch(/\\!/);
+  });
+
+  // 🔴 codex R1-P2:manifest 要能獨立證明「這包備份涵蓋誰、誰該刪誰該留」。
+  it('cohort manifest 記錄刪留範圍、匯出時間與 0101 的證據等級', () => {
+    expect(script).toContain('cohort-manifest.csv');
+    expect(script).toContain('now() AS exported_at');
+    expect([...script.matchAll(/, 'delete', /g)]).toHaveLength(26);
+    expect([...script.matchAll(/, 'retain', /g)]).toHaveLength(3);
+    expect(script).toContain('非系統 read-back');
   });
 });
