@@ -2,7 +2,13 @@
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
-// 反映 LIVE prod schema(2026-07-13 M-4a 訂單線-01 orders 6 後台管理欄〔display_position/order_source/payment_channel/cancelled_at/cancelled_reason/version〕+ admin_audit_log + 搜尋/分類線 migration 已上 prod 後重 gen)。
+// 反映 LIVE prod schema(2026-07-29 重 gen:M-4b E10 第 1 批 D0/A2/A3 已 apply —— orders.legacy_display_id
+//   + order_item_procurement / order_item_procurement_receipts / order_notes 三張新表;同時補回 07-13 之後
+//   累積未同步的 migration(RF2a-0 運費凍結、order_refunds、email_outbox、staff 等))。
+// ⚠️ 本次重 gen 移除了 products_public / products_list_public / product_variants_public 三個 view 的
+//   Insert / Update 型別(CLI 依 view 可更新性判定)。已實查:三者的消費端全是 .select() 讀路徑,
+//   寫入一律走 base products 表(SupabaseProductAdapter 註解逐字「save 走 base products 表」)⇒ 移除無影響,
+//   由 typecheck 把關。若日後真要寫 view,先確認 view 可更新性再處理,勿手動補型別。
 export type Json =
   | string
   | number
@@ -324,6 +330,71 @@ export type Database = {
         }
         Relationships: []
       }
+      email_outbox: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          created_at: string
+          dedup_key: string
+          event_type: string
+          id: string
+          last_error_code: string | null
+          max_attempts: number
+          next_retry_at: string
+          order_id: string
+          payload: Json
+          recipient_email: string
+          request_id: string | null
+          sent_at: string | null
+          status: string
+          subject: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          dedup_key: string
+          event_type: string
+          id?: string
+          last_error_code?: string | null
+          max_attempts?: number
+          next_retry_at?: string
+          order_id: string
+          payload: Json
+          recipient_email: string
+          request_id?: string | null
+          sent_at?: string | null
+          status?: string
+          subject: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          created_at?: string
+          dedup_key?: string
+          event_type?: string
+          id?: string
+          last_error_code?: string | null
+          max_attempts?: number
+          next_retry_at?: string
+          order_id?: string
+          payload?: Json
+          recipient_email?: string
+          request_id?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_outbox_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       legal_terms_versions: {
         Row: {
           content_hash: string
@@ -345,9 +416,107 @@ export type Database = {
         }
         Relationships: []
       }
+      order_item_procurement: {
+        Row: {
+          allocated_quantity: number
+          contact_channel: string | null
+          created_at: string
+          exception_reason: string | null
+          expected_arrival_date: string | null
+          first_ordered_at: string | null
+          id: string
+          order_item_id: string
+          received_quantity: number
+          reply_status: string
+          status_changed_at: string | null
+          submitted_at: string | null
+          supplier_canonical_key: string
+          supplier_name: string
+          supplier_order_no: string | null
+        }
+        Insert: {
+          allocated_quantity: number
+          contact_channel?: string | null
+          created_at?: string
+          exception_reason?: string | null
+          expected_arrival_date?: string | null
+          first_ordered_at?: string | null
+          id?: string
+          order_item_id: string
+          received_quantity?: number
+          reply_status?: string
+          status_changed_at?: string | null
+          submitted_at?: string | null
+          supplier_canonical_key: string
+          supplier_name: string
+          supplier_order_no?: string | null
+        }
+        Update: {
+          allocated_quantity?: number
+          contact_channel?: string | null
+          created_at?: string
+          exception_reason?: string | null
+          expected_arrival_date?: string | null
+          first_ordered_at?: string | null
+          id?: string
+          order_item_id?: string
+          received_quantity?: number
+          reply_status?: string
+          status_changed_at?: string | null
+          submitted_at?: string | null
+          supplier_canonical_key?: string
+          supplier_name?: string
+          supplier_order_no?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_procurement_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_item_procurement_receipts: {
+        Row: {
+          created_at: string
+          id: string
+          note: string | null
+          procurement_id: string
+          quantity: number
+          received_at: string
+          received_by: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          procurement_id: string
+          quantity: number
+          received_at: string
+          received_by: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          note?: string | null
+          procurement_id?: string
+          quantity?: number
+          received_at?: string
+          received_by?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_procurement_receipts_procurement_id_fkey"
+            columns: ["procurement_id"]
+            isOneToOne: false
+            referencedRelation: "order_item_procurement"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
-        // ⚠️ workflow_status / version / updated_at(migration 20260716120000)+ vehicle_snapshot
-        //    (V-3a migration 20260716180000、已 apply prod)手動加入;Sean 重 gen types 應與此一致。
         Row: {
           availability_at_checkout: string | null
           id: string
@@ -459,9 +628,167 @@ export type Database = {
           },
         ]
       }
-      // ⚠️ 手動先行加入(migration 20260714120000 尚未 apply;Sean db push 後重 gen 應與此一致):
-      //    order_status_options 新表 + orders 4 新欄(workflow_status / invoice_number / invoice_amount / invoice_status)。
-      //    盲 regen 若在 apply 前跑會把這段吃掉 → 先 apply 再 gen。
+      order_notes: {
+        Row: {
+          author: string
+          body: string
+          channel: string | null
+          corrects_note_id: string | null
+          created_at: string
+          id: string
+          note_type: string
+          occurred_at: string | null
+          order_id: string
+        }
+        Insert: {
+          author: string
+          body: string
+          channel?: string | null
+          corrects_note_id?: string | null
+          created_at?: string
+          id?: string
+          note_type: string
+          occurred_at?: string | null
+          order_id: string
+        }
+        Update: {
+          author?: string
+          body?: string
+          channel?: string | null
+          corrects_note_id?: string | null
+          created_at?: string
+          id?: string
+          note_type?: string
+          occurred_at?: string | null
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_notes_corrects_same_order_fk"
+            columns: ["corrects_note_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_notes"
+            referencedColumns: ["id", "order_id"]
+          },
+          {
+            foreignKeyName: "order_notes_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_refund_items: {
+        Row: {
+          id: string
+          line_amount: number
+          order_id: string
+          order_item_id: string
+          quantity: number
+          refund_id: string
+          unit_price: number
+        }
+        Insert: {
+          id?: string
+          line_amount: number
+          order_id: string
+          order_item_id: string
+          quantity: number
+          refund_id: string
+          unit_price: number
+        }
+        Update: {
+          id?: string
+          line_amount?: number
+          order_id?: string
+          order_item_id?: string
+          quantity?: number
+          refund_id?: string
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_refund_items_order_item_fk"
+            columns: ["order_id", "order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["order_id", "id"]
+          },
+          {
+            foreignKeyName: "order_refund_items_refund_fk"
+            columns: ["refund_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds"
+            referencedColumns: ["id", "order_id"]
+          },
+        ]
+      }
+      order_refunds: {
+        Row: {
+          actor: string
+          bank_refund_id: string
+          confirmed_at: string | null
+          created_at: string
+          failed_reason: string | null
+          id: string
+          items_amount: number
+          order_id: string
+          reason: string
+          refund_amount: number
+          request_id: string
+          shipping_delta: number
+          shipping_fee_after: number
+          shipping_fee_before: number
+          status: string
+          tappay_refund_id: string | null
+        }
+        Insert: {
+          actor: string
+          bank_refund_id: string
+          confirmed_at?: string | null
+          created_at?: string
+          failed_reason?: string | null
+          id?: string
+          items_amount: number
+          order_id: string
+          reason: string
+          refund_amount: number
+          request_id: string
+          shipping_delta: number
+          shipping_fee_after: number
+          shipping_fee_before: number
+          status: string
+          tappay_refund_id?: string | null
+        }
+        Update: {
+          actor?: string
+          bank_refund_id?: string
+          confirmed_at?: string | null
+          created_at?: string
+          failed_reason?: string | null
+          id?: string
+          items_amount?: number
+          order_id?: string
+          reason?: string
+          refund_amount?: number
+          request_id?: string
+          shipping_delta?: number
+          shipping_fee_after?: number
+          shipping_fee_before?: number
+          status?: string
+          tappay_refund_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_refunds_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_status_options: {
         Row: {
           code: string
@@ -509,6 +836,8 @@ export type Database = {
           invoice_amount: number | null
           invoice_number: string | null
           invoice_status: string
+          legacy_display_id: string | null
+          notification_email: string | null
           order_source: string
           paid_at: string | null
           payment_channel: string
@@ -516,7 +845,10 @@ export type Database = {
           payment_status: Database["public"]["Enums"]["payment_status"]
           shipping_address_snapshot: Json
           shipping_fee: number
+          shipping_free_threshold: number
+          shipping_home_fee: number
           shipping_method: string
+          shipping_method_at_checkout: string
           subtotal: number
           tappay_rec_trade_id: string | null
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
@@ -541,6 +873,8 @@ export type Database = {
           invoice_amount?: number | null
           invoice_number?: string | null
           invoice_status?: string
+          legacy_display_id?: string | null
+          notification_email?: string | null
           order_source?: string
           paid_at?: string | null
           payment_channel?: string
@@ -548,7 +882,10 @@ export type Database = {
           payment_status?: Database["public"]["Enums"]["payment_status"]
           shipping_address_snapshot: Json
           shipping_fee: number
+          shipping_free_threshold?: number
+          shipping_home_fee?: number
           shipping_method: string
+          shipping_method_at_checkout: string
           subtotal: number
           tappay_rec_trade_id?: string | null
           tier_at_checkout: Database["public"]["Enums"]["member_tier"]
@@ -573,6 +910,8 @@ export type Database = {
           invoice_amount?: number | null
           invoice_number?: string | null
           invoice_status?: string
+          legacy_display_id?: string | null
+          notification_email?: string | null
           order_source?: string
           paid_at?: string | null
           payment_channel?: string
@@ -580,7 +919,10 @@ export type Database = {
           payment_status?: Database["public"]["Enums"]["payment_status"]
           shipping_address_snapshot?: Json
           shipping_fee?: number
+          shipping_free_threshold?: number
+          shipping_home_fee?: number
           shipping_method?: string
+          shipping_method_at_checkout?: string
           subtotal?: number
           tappay_rec_trade_id?: string | null
           tier_at_checkout?: Database["public"]["Enums"]["member_tier"]
@@ -1092,6 +1434,42 @@ export type Database = {
         }
         Relationships: []
       }
+      product_image_trim: {
+        Row: {
+          analyzed_at: string
+          bbox_height: number | null
+          bbox_left: number | null
+          bbox_top: number | null
+          bbox_width: number | null
+          natural_height: number | null
+          natural_width: number | null
+          status: string
+          url: string
+        }
+        Insert: {
+          analyzed_at?: string
+          bbox_height?: number | null
+          bbox_left?: number | null
+          bbox_top?: number | null
+          bbox_width?: number | null
+          natural_height?: number | null
+          natural_width?: number | null
+          status: string
+          url: string
+        }
+        Update: {
+          analyzed_at?: string
+          bbox_height?: number | null
+          bbox_left?: number | null
+          bbox_top?: number | null
+          bbox_width?: number | null
+          natural_height?: number | null
+          natural_width?: number | null
+          status?: string
+          url?: string
+        }
+        Relationships: []
+      }
       product_variants: {
         Row: {
           availability: string
@@ -1401,7 +1779,6 @@ export type Database = {
         Row: {
           availability: string | null
           brand_id: string | null
-          // trim 線 S4a 手動增補(migration 20260719150000 view 末欄;full re-gen 落後=B-4 慣例、僅補此欄解 typed client 擋路)
           card_image_trim: Json | null
           category_id: string | null
           created_at: string | null
@@ -1419,46 +1796,6 @@ export type Database = {
           title: string | null
           updated_at: string | null
           video_url: string | null
-        }
-        Insert: {
-          availability?: string | null
-          brand_id?: string | null
-          category_id?: string | null
-          created_at?: string | null
-          description?: string | null
-          external_id?: string | null
-          fitments?: Json | null
-          handle?: string | null
-          highlights?: Json | null
-          id?: string | null
-          images?: Json | null
-          manuals?: Json | null
-          price_general?: number | null
-          subtitle?: string | null
-          supplier_slug?: string | null
-          title?: string | null
-          updated_at?: string | null
-          video_url?: string | null
-        }
-        Update: {
-          availability?: string | null
-          brand_id?: string | null
-          category_id?: string | null
-          created_at?: string | null
-          description?: string | null
-          external_id?: string | null
-          fitments?: Json | null
-          handle?: string | null
-          highlights?: Json | null
-          id?: string | null
-          images?: Json | null
-          manuals?: Json | null
-          price_general?: number | null
-          subtitle?: string | null
-          supplier_slug?: string | null
-          title?: string | null
-          updated_at?: string | null
-          video_url?: string | null
         }
         Relationships: [
           {
@@ -1479,36 +1816,43 @@ export type Database = {
       }
     }
     Functions: {
-      // ⚠️ 手動先行加入(migration 20260714130000;live 已 apply、2026-07-16 MCP 實查)。
-      admin_update_order_workflow: {
-        Args: {
-          p_order_id: string
-          p_expected_version: number
-          p_patch: Json
-          p_actor: string
-          p_request_id: string
-        }
-        Returns: string
-      }
-      // ⚠️ 手動先行加入(migration 20260716130000 尚未 apply;Sean db push 後重 gen 應與此一致)。
-      admin_update_order_item_workflow: {
-        Args: {
-          p_item_id: string
-          p_expected_version: number
-          p_patch: Json
-          p_actor: string
-          p_request_id: string
-        }
-        Returns: string
-      }
-      // ⚠️ 手動先行加入(migration 20260716210000 尚未 apply;Sean db push 後重 gen 應與此一致)。
       admin_adjust_wallet: {
         Args: {
+          p_actor: string
+          p_amount: number
           p_customer_user_id: string
           p_entry_type: string
-          p_amount: number
           p_note: string
+          p_request_id: string
+        }
+        Returns: string
+      }
+      admin_set_customer_tier: {
+        Args: {
           p_actor: string
+          p_customer_user_id: string
+          p_note: string
+          p_request_id: string
+          p_tier: string
+        }
+        Returns: string
+      }
+      admin_update_order_item_workflow: {
+        Args: {
+          p_actor: string
+          p_expected_version: number
+          p_item_id: string
+          p_patch: Json
+          p_request_id: string
+        }
+        Returns: string
+      }
+      admin_update_order_workflow: {
+        Args: {
+          p_actor: string
+          p_expected_version: number
+          p_order_id: string
+          p_patch: Json
           p_request_id: string
         }
         Returns: string
@@ -1567,14 +1911,21 @@ export type Database = {
         Args: {
           p_address_id: string
           p_cart_session_id: string
-          // 🔴 手動校正(重 gen 後需重貼):create_order DDL(20260630120000)p_client_ip/p_client_ua 為
-          // 無 DEFAULT 的 text、註解明寫「可 NULL」(#241 best-effort PII);PostgREST 對無 DEFAULT 參數一律
-          // 型別化為非 null string〔無法表達「必填但可 null」〕→ 校正為 string | null 對齊 DDL 真相、
-          // 保留 SupabaseOrderAdapter.placeOrder 傳 null 語意(否則金流建單路徑型別紅)。
+          // 🔴 手動校正(重 gen 後需重貼)—— 2026-07-29 production 實查函式簽章逐字:
+          //   create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb,
+          //                p_cart_session_id uuid, p_terms_version text, p_client_ip text,
+          //                p_client_ua text, p_notification_email text DEFAULT NULL::text)
+          // 三個 text 參數在 DDL 都吃得下 NULL,但 PostgREST 的型別產生器**表達不了
+          // 「必填但可為 null」**,一律型別化為非 null string ⇒ 不校正的話金流建單路徑會型別紅。
+          // p_client_ip / p_client_ua = #241 best-effort PII(RPC 端 left 截斷、註解明寫可 NULL)。
           p_client_ip: string | null
           p_client_ua: string | null
           p_invoice: Json
           p_lines: Json
+          // 🔴 手動校正(同上):B-2 第 9 參,DDL `DEFAULT NULL::text`。呼叫端(mappers/order.ts
+          //   CreateOrderRpcArgs)在 B-3 flag-on 時只傳 `null` 當形狀 marker,canonical 真值等 B-4
+          //   才擴型 ⇒ 這裡必須收得下 null,否則 mapper 對不上。
+          p_notification_email?: string | null
           p_shipping_method: string
           p_terms_version: string
         }
@@ -1728,12 +2079,26 @@ export type Database = {
         Args: { p_brand: string; p_model?: string; p_year?: number }
         Returns: Json[]
       }
+      sync_product_variant_group: {
+        Args: {
+          p_external_id: string
+          p_orphan_skus?: string[]
+          p_supplier_slug: string
+          p_variants: Json
+        }
+        Returns: number
+      }
     }
     Enums: {
       fulfillment_status: "notOrdered" | "ordered" | "inStock" | "shipped"
       invoice_type: "personal" | "company" | "donate"
       member_tier: "general" | "store" | "premiumStore"
-      payment_status: "unpaid" | "paid" | "partiallyPaid" | "refunded" | "partiallyRefunded"
+      payment_status:
+        | "unpaid"
+        | "paid"
+        | "partiallyPaid"
+        | "refunded"
+        | "partiallyRefunded"
       wallet_entry_type: "deposit" | "use" | "refund"
     }
     CompositeTypes: {
@@ -1865,7 +2230,13 @@ export const Constants = {
       fulfillment_status: ["notOrdered", "ordered", "inStock", "shipped"],
       invoice_type: ["personal", "company", "donate"],
       member_tier: ["general", "store", "premiumStore"],
-      payment_status: ["unpaid", "paid", "partiallyPaid", "refunded", "partiallyRefunded"],
+      payment_status: [
+        "unpaid",
+        "paid",
+        "partiallyPaid",
+        "refunded",
+        "partiallyRefunded",
+      ],
       wallet_entry_type: ["deposit", "use", "refund"],
     },
   },

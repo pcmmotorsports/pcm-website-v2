@@ -1,5 +1,7 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🔴 **2026-07-29 上午起,E10 第 1 批的唯一入口 = `docs/handoff/2026-07-29-e10-batch1-handoff.md`**(三個開工前置全解除:規格已批准 / 三支 migration 已 apply / A9b1+A10c1 端到端已驗)。Sean 同日晨拍五題**改變了規格既有字面**,務必先讀 v2 規格 **§8.0 + §8.7**。
+
 > 這是新 Codex／Claude session 的當次交接入口。現況衝突時依
 > 「可驗證事實 → `STATUS.md` → 本檔 → 歷史 handoff／memory」仲裁。
 >
