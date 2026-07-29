@@ -10,7 +10,18 @@
 import { SUPABASE_ROOT_CA_2021 } from '../packages/adapters/src/payment/supabase-ca';
 import { D1_COHORT } from './d1-cohort';
 
-const PRODUCTION_PROJECT_REF = 'bmpnplmnldofgaohnaok';
+export const PRODUCTION_PROJECT_REF = 'bmpnplmnldofgaohnaok';
+
+/**
+ * production 叢集的 `pg_control_system().system_identifier`(2026-07-29 實查)。
+ *
+ * 🔴 **單一來源**(Fable R3-F7):原本 d1-guard 與 d1-restore 各寫死一份,兩處會漂移。
+ * 🔴 **它不是永久不變的**:Supabase 平台側遷移、大版本升級、或**他們自己做災難還原**
+ * 都會換掉這個值 —— 而最後那種情境正好與「你需要用這包備份」高度重疊。
+ * 合法變更時的處置寫在 `docs/runbooks/2026-07-29-d1a2-cohort-export.md`,
+ * **不要為了讓守門過而順手改這個常數**。
+ */
+export const PRODUCTION_CLUSTER_ID = '7632885393857617092';
 const EXPECTED_DATABASE = 'postgres';
 const EXPECTED_USER = `postgres.${PRODUCTION_PROJECT_REF}`;
 
@@ -103,7 +114,7 @@ BEGIN
   -- system_identifier 是叢集 initdb 當下產生的,邏輯還原出的新叢集會是新值。
   -- 🔴 擋不掉實體快照(pg_basebackup / storage snapshot 原樣保留同一個值);
   --    Supabase clone 用哪一種方式未確認。⇒ 不是身分的唯一證明,唯一證明在連線層。
-  IF (SELECT system_identifier FROM pg_control_system()) <> 7632885393857617092 THEN
+  IF (SELECT system_identifier FROM pg_control_system()) <> ${PRODUCTION_CLUSTER_ID} THEN
     RAISE EXCEPTION 'D1:叢集識別碼不符 production;拒繼續';
   END IF;
 

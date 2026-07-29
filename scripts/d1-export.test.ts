@@ -6,8 +6,16 @@ import { D1_TRANSACTION_GUARD_SQL } from './d1-guard';
 
 const script = buildExportScript('/tmp/d1');
 
-/** 相依表清單 = 規格 §8.4 步驟 3 逐字;少一張 = 那張表的資料刪掉就回不來。 */
+/**
+ * 相依表清單 = 規格 §8.4 步驟 3 逐字;少一張 = 那張表的資料刪掉就回不來。
+ * 前五張是 2026-07-29 Sean 拍板 Q1 補的**父表** —— cohort 指向它們,D1c 之後 FK 保護消失。
+ */
 const REQUIRED_TABLES = [
+  'customers',
+  'customer_addresses',
+  'products',
+  'product_variants',
+  'legal_terms_versions',
   'orders',
   'order_items',
   'order_legal_consents',
