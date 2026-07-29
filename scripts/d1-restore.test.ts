@@ -4,7 +4,11 @@ import { describe, expect, it } from 'vitest';
 
 import { D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
 import { buildCohortSelectors } from './d1-export';
-import { buildRehearsalSeedScript, buildRestoreScript } from './d1-restore';
+import {
+  buildRehearsalSeedScript,
+  buildRestoredVerifySql,
+  buildRestoreScript,
+} from './d1-restore';
 
 const DIR = '/tmp/d1';
 const pre = buildRestoreScript('pre-n3c', 'production', DIR);
@@ -448,5 +452,63 @@ describe('buildRehearsalSeedScript(演練前置)', () => {
     expect(l.findIndex((x) => x.startsWith('INSERT INTO auth.users'))).toBeLessThan(
       l.indexOf('COMMIT;'),
     );
+  });
+});
+
+// 🔴 這一段跑在交易**結束之後**的新連線裡:腳本內的驗證只證明「這筆交易看得到」,
+//    對「整筆被 rollback 掉」完全沒有感覺。兩者失效方式不同,不是重複勞動。
+describe('buildRestoredVerifySql(COMMIT 後重數)', () => {
+  const verify = buildRestoredVerifySql();
+
+  it('十五張表全數重數,期望值與還原時同一份', () => {
+    const expected: Record<string, number> = {
+      customers: 2, customer_addresses: 3, products: 9, product_variants: 9,
+      legal_terms_versions: 2, orders: 26, order_items: 36, order_legal_consents: 2,
+      payment_charge_attempts: 24, pending_invoices: 0, email_outbox: 0,
+      order_refunds: 0, order_refund_items: 0,
+      payment_double_charge_anomalies: 0, payment_double_charge_anomaly_events: 0,
+    };
+
+    for (const [table, rows] of Object.entries(expected)) {
+      expect(verify).toContain(`D1:還原後重數 ${table} = % 列(應 ${rows})`);
+    }
+    // 條件本身也要釘 —— 只驗訊息在的話,IF 改成 IF false 照樣全綠。
+    expect([...verify.matchAll(/IF v_count <> \d+ THEN/g)]).toHaveLength(15);
+  });
+
+  // 🔴 全部查 public.*:此刻資料已寫回,查暫存表反而驗不到「真的落地了」。
+  it('查的是 public.*,不是暫存表', () => {
+    expect(verify).not.toContain('d1r_');
+    expect([...verify.matchAll(/FROM public\.\w+ WHERE/g)].length).toBeGreaterThanOrEqual(15);
+  });
+});
+
+// 🔴 一鍵演練腳本本身也要釘:少一步就等於少驗一件事,而整個 suite 不會有反應。
+describe('d1-rehearsal.sh(一鍵演練)', () => {
+  const sh = readFileSync(new URL('./d1-rehearsal.sh', import.meta.url), 'utf8');
+
+  it('四步齊全且順序正確:解密 → 替身 → 還原 → 重數', () => {
+    const order = ['age -d', '--seed-rehearsal', 'scripts/d1-restore.sh pre rehearsal', '--verify-restored'];
+    const positions = order.map((needle) => sh.indexOf(needle));
+
+    expect(positions).not.toContain(-1);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+  });
+
+  // 🔴 還原一定要走正式那支 wrapper —— 自己另外拼一次 psql 就等於演練的不是要用的那支。
+  it('還原走正式 wrapper,不自己另拼一次', () => {
+    expect(sh).toContain('scripts/d1-restore.sh pre rehearsal "$DIR"');
+  });
+
+  it('明文備份只活在暫存資料夾,失敗也會清掉', () => {
+    expect(sh).toContain("trap 'rm -rf \"$WORK\"' EXIT");
+    expect(sh).toContain('chmod 700 "$WORK"');
+  });
+
+  it('set -euo pipefail + 連線字串不進 argv + verify-full', () => {
+    expect(sh).toContain('set -euo pipefail');
+    expect(sh).toContain('PGDATABASE="$D1_DB_URL"');
+    expect(sh).toContain('PGSSLMODE=verify-full');
+    expect(sh).not.toMatch(/psql "\$D1_DB_URL"/);
   });
 });

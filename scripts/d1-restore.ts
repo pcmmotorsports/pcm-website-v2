@@ -307,6 +307,36 @@ const PARENT_TABLES = [
 ] as const;
 
 /**
+ * 還原**完成之後**、在一個**全新連線**裡重數一次。
+ *
+ * 🔴 這不是重複勞動:腳本內的驗證跑在同一筆交易裡,證明的是「這筆交易看得到」;
+ * 這一段跑在交易結束之後,證明的是「**真的 COMMIT 了、別人也看得到**」。
+ * 兩者失效方式不同 —— 前者對「交易其實被 rollback 掉」完全沒有感覺。
+ */
+export function buildRestoredVerifySql(): string {
+  const live = buildCohortSelectors(
+    D1_DELETE_COHORT.map(({ id }) => id),
+    (table) => `public.${table}`,
+  );
+
+  return `DO $$
+DECLARE
+  v_count integer;
+BEGIN
+${live
+  .map(
+    ([table, where]) => `  SELECT count(*) INTO v_count FROM public.${table} WHERE ${where};
+  IF v_count <> ${EXPECTED_ROWS[table]} THEN
+    RAISE EXCEPTION 'D1:還原後重數 ${table} = % 列(應 ${EXPECTED_ROWS[table]});拒繼續', v_count;
+  END IF;`,
+  )
+  .join('\n\n')}
+
+  RAISE NOTICE 'D1:十五張表在新連線下重數全部相符。';
+END $$;`;
+}
+
+/**
  * D1a6/D1a7 演練前置:在**演練庫**補上帳號替身。
  *
  * 為什麼需要:`customers.user_id → auth.users` 是 FK,而 `auth.users` **刻意不備份**
@@ -541,6 +571,11 @@ if (process.argv[1]?.endsWith('d1-restore.ts')) {
   //    sslmode(preflight 已拒)⇒ libpq 預設 `prefer` = **完全不驗憑證**。
   //    D1a0 拍板的 verify-full 在真正動資料的那條路上必須也成立 ⇒ 把同一份 CA 寫成檔案,
   //    由 wrapper 以 PGSSLROOTCERT / PGSSLMODE 餵給 psql。
+  if (mode === '--verify-restored') {
+    console.log(buildRestoredVerifySql());
+    process.exit(0);
+  }
+
   if (mode === '--seed-rehearsal' && target) {
     console.log(buildRehearsalSeedScript(target));
     process.exit(0);

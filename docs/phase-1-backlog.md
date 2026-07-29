@@ -7610,6 +7610,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-27 / 報價單 2FA 線偵察;2026-07-29 Sean 拍板 A。
 - **相關:** memory `reference_quote-repo-migration-ledger-desync`(壞掉的樣本)/ `project_supabase-migration-version-drift`(正式 schema 用 `db push` 不用 MCP)/ `reference_supabase-cli-reads-env-local-blocker`(CLI 被 `.env.local` 擋住的繞法,CI 環境要一併考慮)。
 
+### #299. 🔴 `product_fitments_effective` 整張正式資料表不在版控裡(repo 無法從零重建資料庫)
+
+- **狀態:** 🔴 立即啟動(**2026-07-29 D1a6 演練實測撞到**;#298 的守門**抓不到這一類**)
+- **優先級:** 🔴 高(不影響客人;但「災難時用 repo 重建 schema」這條路現在是斷的)
+- **問題:**
+  - `public.product_fitments_effective` 在正式站是一張**完整的資料表** —— 148,716 列、PK、3 個索引、5 個 CHECK、對 `products` 的 FK(`ON DELETE CASCADE`)、RLS 已開。
+  - **`supabase/migrations/` 裡沒有任何一支建立它。** 它只存在於正式站,是當初在 SQL Editor / MCP 手動建的。
+  - **4 支 migration 引用它**:`20260712183000_products_catalog_page_public.sql` / `20260712193000_catalog_rpc_expose_fitments.sql` / `20260712213000_p4_catalog_rpc_split_generic_plan_replay.sql` / `20260719150000_catalog_product_image_trim.sql`。其中 `search_catalog_by_vehicle` 是 `LANGUAGE sql`,函式本體**在建立當下就會解析** ⇒ 表不存在即整支 migration 失敗。
+  - **實測證據(2026-07-29)**:建 preview branch `d1a6-restore-rehearsal` → 狀態 `MIGRATIONS_FAILED`、**85 支只跑了 54 支**、卡在 `20260712142722` 之後;缺 `order_legal_consents` / `email_outbox` / `order_refunds` / `order_refund_items` 四張表。手動補上該表後 rebase 即繼續往下跑。
+- **🔴 為什麼 #298 抓不到:** #298 比對的是「本地檔名 vs remote `schema_migrations` 版本號」,而這兩邊**完全一致**(85 支、local-only 0、remote-only 0)—— 它會回報「乾淨」。**版本號對齊不等於 migrations 建得出這個 schema。** 真正抓得到的檢查只有一種:**把全部 migration 套到空資料庫,再把結果與正式站的 schema 逐項 diff**。
+  ⇒ 這正是 memory `feedback_control-named-beyond-its-actual-power` 那條:防護的名字比它實際擋得住的範圍大。#298 上線前必須先寫明「它擋不住整張表沒進版控」。
+- **不修會痛在:**
+  - 擴充性:任何新環境(preview branch / 新開發庫 / 災難重建)都建不起來,而且失敗點在 2026-07-12,後面 31 支全部連帶不跑。
+  - 可維護性:同一個坑幾乎一定不只這一張 —— 需要一次全面 diff,不是補完這張就結束。
+  - bug 可追蹤性:症狀是「新分支 migration 失敗」,而錯誤訊息指向的是**引用它的那支 migration**、不是缺失的那張表,查起來會先懷疑錯地方(本次實測即如此)。
+- **預期解法:**
+  1. 先做**全面 diff**:空庫套完 85 支 → 與正式站 schema 逐項比對(表 / 欄 / 索引 / 約束 / 函式 / view / RLS policy),產出完整缺漏清單。**先知道有幾張,再決定怎麼補。**
+  2. 對每個缺漏補一支**冪等**的補登 migration(`CREATE TABLE IF NOT EXISTS` / `CREATE OR REPLACE`),使其對正式站是 no-op、對空庫是建立。
+  3. 補登後重建一次 preview branch 驗證 85 支全綠 = 可機械複驗的驗收條件。
+- **估時:** diff 60-90 分鐘(多半是比對腳本)+ 補登視缺漏數量而定
+- **依賴:** 🔴 **動 migration = 鐵則 12 ③ = 高風險片**,須先提 plan 等 Sean 批准、commit 前過 codex 關卡2。與 #298 互為前後:**先補齊(#299)再上守門(#298)**,否則守門一上線就紅、或更糟 —— 綠著卻沒在守。
+- **發現於:** 2026-07-29 / D1a6 還原演練建 preview branch 時實測撞到。
+- **相關:** #298(版本號守門,抓不到本條)/ memory `project_supabase-migration-version-drift` / `feedback_control-named-beyond-its-actual-power`。
+
 ## 紀錄模板
 
 ```markdown
