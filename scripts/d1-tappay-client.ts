@@ -92,6 +92,35 @@ export function assertStrictRecordWire(raw: unknown): void {
   }
 }
 
+/**
+ * 原始回應的**形狀**(只有鍵名與計數,零欄位值)—— 本檔 `assertStrictRecordWire` 註解
+ * 逐字要求「D1b1 首跑須把實回應形狀落 audit」:0052 的「查無」出口唯一的未知數就是
+ * 「TapPay 零命中時到底省不省略 `trade_records` 鍵」,而 parser 窄化後這件事就看不見了。
+ * 🔴 只存鍵名:值裡可能有 wire 白名單擋掉的 PII(card_info / cardholder)。
+ */
+export type D1RawShape = Readonly<{
+  topLevelKeys: readonly string[];
+  numberOfTransactions: unknown;
+  recordKeys: readonly (readonly string[])[];
+}>;
+
+export type D1RawShapeSink = (recTradeId: string, shape: D1RawShape) => void;
+
+export function describeRawShape(raw: unknown): D1RawShape {
+  if (typeof raw !== 'object' || raw === null) {
+    return { topLevelKeys: [], numberOfTransactions: null, recordKeys: [] };
+  }
+  const r = raw as Record<string, unknown>;
+  const records = Array.isArray(r.trade_records) ? r.trade_records : [];
+  return {
+    topLevelKeys: Object.keys(r).sort(),
+    numberOfTransactions: r.number_of_transactions ?? null,
+    recordKeys: records.map((rec) =>
+      typeof rec === 'object' && rec !== null ? Object.keys(rec as object).sort() : [],
+    ),
+  };
+}
+
 export type FetchLike = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
@@ -107,7 +136,14 @@ export type FetchLike = (
 export async function queryRecordByRecTradeId(
   config: D1TapPayClientConfig,
   recTradeId: string,
-  options: Readonly<{ deadlineAt: number; abortSignal: AbortSignal; fetchImpl?: FetchLike; now?: () => number }>,
+  options: Readonly<{
+    deadlineAt: number;
+    abortSignal: AbortSignal;
+    fetchImpl?: FetchLike;
+    now?: () => number;
+    /** D1b1 取證用:回報原始回應形狀(鍵名與計數,零值)。 */
+    onRawShape?: D1RawShapeSink;
+  }>,
 ): Promise<TapPayRecordResponseWire> {
   if (!recTradeId) {
     throw new Error('D1:recordQuery 需 rec_trade_id 查詢鍵;拒繼續');
@@ -143,6 +179,8 @@ export async function queryRecordByRecTradeId(
   }
 
   const raw: unknown = await response.json();
+  // 形狀先落(在任何檢查之前):檢查沒過時,形狀正是唯一能說明「為什麼沒過」的東西。
+  options.onRawShape?.(recTradeId, describeRawShape(raw));
   assertStrictRecordWire(raw);
   const wire = parseTapPayRecordResponse(raw);
   assertRecordsMerchant(wire, config.merchantId);

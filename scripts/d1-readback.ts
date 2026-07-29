@@ -130,6 +130,31 @@ function assertFactSet(facts: readonly D1AttemptFact[]): void {
   }
 }
 
+/**
+ * 🔴 查詢層入口閘(D1b1 關卡2 M1,審查者已實跑證偽舊寫法)。
+ *
+ * 舊寫法在兩個呼叫端各自 `facts.filter((f) => f.recTradeId !== null)` —— 那擋的是
+ * 「沒有鍵」,不是「這一筆不准查」。`PCM-2026-0101` 是 `unpaid` + 卡片 `pending`,
+ * 而 D1b1 刻意**不停 sweeper**;查詢前若它被回填 `rec_trade_id`,舊寫法就會把它
+ * 送去打正式商戶 —— 正是 §8.7 逐字禁止的那次查詢(型別述詞 `f is D1KeyedAttemptFact`
+ * 只是把同一個 null 判斷重述一次,不是第二道防線)。
+ *
+ * 本函式改以 **displayId** 排除,並在送出任何 HTTP 之前先跑整組前提斷言
+ * (0101 必 NULL + NT$2,400 + unpaid;漂移 = 拍板前提已變,停下重問)。
+ * **D1b1 取證與 D1c 步驟 8b 共用本函式,不得各自 filter。**
+ */
+export function selectFactsForQuery(
+  facts: readonly D1AttemptFact[],
+): readonly D1KeyedAttemptFact[] {
+  assertFactSet(facts);
+  return facts
+    .filter((f) => f.displayId !== NO_KEY_ORDER)
+    .map((f) => {
+      if (f.recTradeId === null) abort(f.displayId, 'rec_trade_id 缺失(assertFactSet 應已擋下)');
+      return { ...f, recTradeId: f.recTradeId };
+    });
+}
+
 function judgeHit(fact: D1AttemptFact, rec: TapPayRecordWire): D1ReadbackAuditRow {
   const { displayId } = fact;
   if (rec.recTradeId !== fact.recTradeId) {

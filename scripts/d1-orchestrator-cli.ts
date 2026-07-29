@@ -2,7 +2,7 @@
  * D1t2:D1 orchestrator CLI(規格 §5.1 row 17)。
  *
  * 用法(唯一 action grammar:第一個 token 是動作,其後全部 `--flag value`):
- *   pnpm exec tsx scripts/d1-orchestrator-cli.ts <dry-run|apply|recover-sweeper|verify-ca> --target <production|rehearsal> [flags]
+ *   pnpm exec tsx scripts/d1-orchestrator-cli.ts <dry-run|apply|recover-sweeper|verify-ca|readback> --target <production|rehearsal> [flags]
  *
  * 🔴 `--recover-sweeper` / `--verify-ca` 是**合法別名**(= 同名 action):D1t1 已 commit 的
  * 錯誤訊息與 master §8.4 逐字教操作者打 `--recover-sweeper` —— 嚴格 parser 若拒收旗標形,
@@ -18,6 +18,9 @@
  *     --state、--audit;禁 --merchant-id、禁 --confirm(零正式環境依賴)。
  *   recover-sweeper:不需 merchant/fixture/confirm;state/audit 規則同上。
  *   verify-ca:只收 --target production;獨立驗證、不進 orchestrator。
+ *   readback(D1b1 取證):唯讀 —— 一句 SELECT 撈六筆事實 → 五筆有鍵者打 TapPay →
+ *     §8.7 判定 → 證據 JSON。**不進 orchestrator、不開交易、不鎖列、不動 cron**;
+ *     因此不收 --state。--audit 即證據檔路徑(同樣拒覆蓋、0700/0600)。
  *
  * 🔴 exit code 分流必須認 stdout 的 `D1-OUTCOME: <outcome>` 判定字串,不得單憑 exit code
  * (與 Node 保留碼有重疊之虞;d1-orchestrator.ts D1_EXIT_CODES 註解)。parse 錯誤 = exit 2。
@@ -30,15 +33,20 @@ import path from 'node:path';
 import { SUPABASE_ROOT_CA_2021 } from '../packages/adapters/src/payment/supabase-ca';
 import { buildD1PgConfig, PRODUCTION_CLUSTER_ID, PRODUCTION_PROJECT_REF } from './d1-guard';
 import { runD1Orchestrator, D1_EXIT_CODES, type D1OrchestratorMode, type D1Target } from './d1-orchestrator';
-import { makeFixtureReadback, makeLiveReadback, type D1RunReadback } from './d1-readback-runner';
-import { buildD1TapPayConfig } from './d1-tappay-client';
+import {
+  makeFixtureReadback,
+  makeLiveReadback,
+  runD1ReadbackEvidence,
+  type D1RunReadback,
+} from './d1-readback-runner';
+import { buildD1TapPayConfig, PROD_RECORD_QUERY_URL, type D1RawShape } from './d1-tappay-client';
 
 export const D1_CONFIRM_PHRASE = 'DELETE-26-ORDERS';
 /** wrapper/runbook 分流認這個 stdout 判定字串,不單憑 exit code。 */
 export const D1_OUTCOME_PREFIX = 'D1-OUTCOME: ';
 export const PRODUCTION_STATE_PATH = path.join(homedir(), '.pcm-d1', 'sweeper-state.json');
 
-const ACTIONS = ['dry-run', 'apply', 'recover-sweeper', 'verify-ca'] as const;
+const ACTIONS = ['dry-run', 'apply', 'recover-sweeper', 'verify-ca', 'readback'] as const;
 type D1CliAction = (typeof ACTIONS)[number];
 /** 旗標別名(Fable R3-F2 + code-reviewer C1):master §8.4 與 D1t1 既有訊息的
  *  `--dry-run`/`--recover-sweeper` 字面照舊有效 —— 別名漏一個,操作路就被自家 parser 堵死。 */
@@ -47,6 +55,7 @@ const ACTION_ALIASES: Readonly<Record<string, D1CliAction>> = {
   '--apply': 'apply',
   '--recover-sweeper': 'recover-sweeper',
   '--verify-ca': 'verify-ca',
+  '--readback': 'readback',
 };
 
 const KNOWN_FLAGS = ['--target', '--merchant-id', '--audit', '--state', '--cluster-id', '--readback-fixture', '--confirm'] as const;
@@ -107,7 +116,14 @@ export function parseD1CliArgs(argv: readonly string[]): D1CliParseResult {
     if (flags.has('--readback-fixture')) return fail('production 禁用 --readback-fixture(刪除依據只能是真 TapPay read-back)');
     if (flags.has('--cluster-id')) return fail('production 的叢集識別碼由 repo 常數提供,禁用 --cluster-id');
     // 🔴 state 固定路徑:hard crash 後 recovery 必須找得到同一個檔(D1t2 R2-3)。
-    if (flags.has('--state')) return fail(`production 禁用自訂 --state(固定 ${PRODUCTION_STATE_PATH})`);
+    //    readback 不碰 sweeper ⇒ 它連 state 的概念都沒有,一律拒收。
+    if (flags.has('--state')) {
+      return fail(
+        action === 'readback'
+          ? 'readback 不碰 sweeper,不收 --state'
+          : `production 禁用自訂 --state(固定 ${PRODUCTION_STATE_PATH})`,
+      );
+    }
     const merchantId = flags.get('--merchant-id');
     if (action !== 'recover-sweeper' && !merchantId) {
       return fail('production 的 dry-run/apply 必填 --merchant-id(從 TapPay 商家後台抄;與 Vercel env 雙輸入斷言)');
@@ -122,7 +138,16 @@ export function parseD1CliArgs(argv: readonly string[]): D1CliParseResult {
     }
     return {
       ok: true,
-      config: { action, target, merchantId, auditPath: audit, statePath: PRODUCTION_STATE_PATH, clusterId: PRODUCTION_CLUSTER_ID, projectRef: PRODUCTION_PROJECT_REF },
+      config: {
+        action,
+        target,
+        merchantId,
+        auditPath: audit,
+        // readback 不碰 sweeper:state 路徑留空,避免它看起來像有 ownership 語意。
+        statePath: action === 'readback' ? '' : PRODUCTION_STATE_PATH,
+        clusterId: PRODUCTION_CLUSTER_ID,
+        projectRef: PRODUCTION_PROJECT_REF,
+      },
     };
   }
 
@@ -132,16 +157,20 @@ export function parseD1CliArgs(argv: readonly string[]): D1CliParseResult {
   const clusterId = flags.get('--cluster-id');
   if (!clusterId) return fail('rehearsal 必填 --cluster-id(由 harness 從隔離庫 pg_control_system() 撈取)');
   const state = flags.get('--state');
-  if (!state || !path.isAbsolute(state)) return fail('rehearsal 必填 --state(絕對路徑;harness 傳 tmp)');
+  if (action === 'readback') {
+    if (flags.has('--state')) return fail('readback 不碰 sweeper,不收 --state');
+  } else if (!state || !path.isAbsolute(state)) {
+    return fail('rehearsal 必填 --state(絕對路徑;harness 傳 tmp)');
+  }
   const fixturePath = flags.get('--readback-fixture');
   if (action === 'recover-sweeper') {
     if (fixturePath) return fail('recover-sweeper 不做 read-back,不收 --readback-fixture');
   } else if (!fixturePath) {
-    return fail('rehearsal 的 dry-run/apply 必填 --readback-fixture(隔離環境不得打真 TapPay)');
+    return fail('rehearsal 的 dry-run/apply/readback 必填 --readback-fixture(隔離環境不得打真 TapPay)');
   }
   return {
     ok: true,
-    config: { action, target, auditPath: audit, statePath: state, clusterId, projectRef: 'rehearsal', fixturePath },
+    config: { action, target, auditPath: audit, statePath: state ?? '', clusterId, projectRef: 'rehearsal', fixturePath },
   };
 }
 
@@ -277,7 +306,8 @@ export async function runD1Cli(
   }
 
   const pgConfig = config.target === 'production' ? buildD1PgConfig(dbUrl) : buildRehearsalPgConfig(dbUrl);
-  if (config.target === 'production') {
+  // readback 不碰 sweeper ⇒ statePath 是空字串,不該對 cwd 建目錄(關卡2 N6)。
+  if (config.target === 'production' && config.action !== 'readback') {
     mkdirSync(path.dirname(config.statePath), { recursive: true });
   }
   // audit 目錄先建:production dry-run 的 audit 若等五筆真 read-back 跑完才 ENOENT,
@@ -299,17 +329,6 @@ export async function runD1Cli(
     return 2;
   }
 
-  let runReadback: D1RunReadback;
-  if (config.action === 'recover-sweeper') {
-    runReadback = async () => {
-      throw new Error('D1:recover-sweeper 不做 read-back(程式錯誤)');
-    };
-  } else if (config.target === 'production') {
-    runReadback = makeLiveReadback(buildD1TapPayConfig(env, config.merchantId!));
-  } else {
-    runReadback = makeFixtureReadback(config.fixturePath!);
-  }
-
   const connectClient =
     overrides.connectClient ??
     (async (cfg: unknown): Promise<D1ConnectedClient> => {
@@ -321,6 +340,70 @@ export async function runD1Cli(
         end: () => c.end(),
       };
     });
+
+  // D1b1:唯讀取證 —— 不進 orchestrator、不開交易、不鎖列、不動 cron。
+  // 🔴 `readback-ok`=0 / `readback-aborted`=1;這兩個 outcome **不在** `D1_EXIT_CODES`
+  //    的 union 裡(它是 orchestrator 的六態)。分流一律認 stdout 的 `D1-OUTCOME:`,
+  //    不要靠 exit 1 去分辨它與 `not_committed`(關卡2 N9)。
+  if (config.action === 'readback') {
+    // 🔴 TapPay config 先建、再開連線(關卡2 N1):TAPPAY_ENV 非 production 或雙輸入
+    //    不符時,不該先白開一條正式站連線。
+    const rawShapes = new Map<string, D1RawShape>();
+    const sink = (recTradeId: string, shape: D1RawShape) => rawShapes.set(recTradeId, shape);
+    let runReadbackImpl: D1RunReadback;
+    let queryContext: { merchantId: string; endpoint: string };
+    try {
+      if (config.target === 'production') {
+        const tapPay = buildD1TapPayConfig(env, config.merchantId!);
+        runReadbackImpl = makeLiveReadback(tapPay, undefined, sink);
+        queryContext = { merchantId: tapPay.merchantId, endpoint: PROD_RECORD_QUERY_URL };
+      } else {
+        runReadbackImpl = makeFixtureReadback(config.fixturePath!, sink);
+        // rehearsal 的證據沒有法律效力,merchant 欄位如實寫明它是 fixture、不是商戶。
+        queryContext = { merchantId: 'rehearsal-fixture', endpoint: `fixture://${config.fixturePath!}` };
+      }
+    } catch (err) {
+      (overrides.out ?? console.log)(`${D1_OUTCOME_PREFIX}readback-aborted`);
+      log(`D1b1:前置組裝失敗(未連線、未查 TapPay):${String(err)}`);
+      return 1;
+    }
+
+    const client = await connectClient(pgConfig);
+    try {
+      const result = await runD1ReadbackEvidence({
+        target: config.target,
+        query: (sql, params) => client.query(sql, params),
+        runReadback: runReadbackImpl,
+        evidencePath: config.auditPath,
+        clusterId: config.clusterId,
+        queryContext,
+        rawShapes,
+        log,
+      });
+      (overrides.out ?? console.log)(`${D1_OUTCOME_PREFIX}${result.outcome}`);
+      log(result.message);
+      return result.outcome === 'readback-ok' ? 0 : 1;
+    } catch (err) {
+      // 🔴 逸出到 main 的 .catch 會讓 wrapper 只看到 exit 1、沒有判定字串(關卡2 N2)。
+      (overrides.out ?? console.log)(`${D1_OUTCOME_PREFIX}readback-aborted`);
+      log(`D1b1:未攔截錯誤:${String(err)}`);
+      return 1;
+    } finally {
+      await client.end().catch(() => {});
+    }
+  }
+
+  let runReadback: D1RunReadback;
+  if (config.action === 'recover-sweeper') {
+    runReadback = async () => {
+      throw new Error('D1:recover-sweeper 不做 read-back(程式錯誤)');
+    };
+  } else if (config.target === 'production') {
+    runReadback = makeLiveReadback(buildD1TapPayConfig(env, config.merchantId!));
+  } else {
+    runReadback = makeFixtureReadback(config.fixturePath!);
+  }
+
   const client = await connectClient(pgConfig);
   // 第二擊硬退出(state 保留給 self-heal);第一擊交給核心 graceful。
   let signalCount = 0;

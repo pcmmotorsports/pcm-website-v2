@@ -29,6 +29,7 @@ import { D1_COHORT, D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
 import { buildD1TransactionGuardSql } from './d1-guard';
 import {
   judgeReadback,
+  selectFactsForQuery,
   type D1AttemptFact,
   type D1KeyedAttemptFact,
   type D1ReadbackAuditRow,
@@ -521,8 +522,9 @@ export async function runD1Orchestrator(deps: D1OrchestratorDeps): Promise<D1Orc
         authorizedAmount: Number(r.total),
         paymentStatus: String(r.payment_status),
       }));
-      // 只把有鍵五筆交給查詢層(0101 物理上進不了;判定層仍吃全六筆)。
-      const keyedFacts = facts.filter((f): f is D1KeyedAttemptFact => f.recTradeId !== null);
+      // 🔴 只把「准查的五筆」交給查詢層 —— 以 displayId 排除 0101、且送出前先跑整組
+      //    前提斷言(D1b1 關卡2 M1;舊寫法只擋 null,0101 被回填鍵就會被拿去查正式商戶)。
+      const keyedFacts = selectFactsForQuery(facts);
       const results = await deps.runReadback(keyedFacts, abortController.signal, now() + READBACK_DEADLINE_MS);
       if (aborted) throw new Error('D1:已中止(signal);走 ROLLBACK 路');
       const auditRows = judgeReadback(facts, results);
