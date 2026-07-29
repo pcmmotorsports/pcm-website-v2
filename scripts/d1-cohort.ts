@@ -1,8 +1,11 @@
-import { createHash } from 'node:crypto';
-export type D1CohortOrder = Readonly<{
-  id: string;
-  displayId: string;
-}>;
+/**
+ * D1 cohort:D1c 會永久刪除的 26 張訂單 + 必須留下的 3 張。
+ *
+ * 🔴 本檔只負責「範圍」。**「這份清單有沒有被改壞」由 production 驗**(見 d1-guard.ts:
+ * SQL 逐組比對 (id, display_id) 配對、數量必須是 29)—— 打錯一碼、貼錯一筆、少一筆,
+ * 配對就對不上、當場中止。不在本檔自己算雜湊給自己看。
+ */
+export type D1CohortOrder = Readonly<{ id: string; displayId: string }>;
 
 export const D1_DELETE_COHORT = Object.freeze([
   { id: '50296666-0e47-4311-834e-0ffd62a66437', displayId: 'PCM-2026-0001' },
@@ -39,80 +42,30 @@ export const D1_RETAIN_COHORT = Object.freeze([
   { id: '6b7a783b-0c51-479d-aebb-72ae3499b52e', displayId: 'PCM-2026-0104' },
 ] as const satisfies readonly D1CohortOrder[]);
 
-export const D1_COHORT = Object.freeze([
+export const D1_COHORT: readonly D1CohortOrder[] = Object.freeze([
   ...D1_DELETE_COHORT,
   ...D1_RETAIN_COHORT,
-]) as readonly D1CohortOrder[];
-
-const d1CohortIds = D1_COHORT.map(({ id }) => id);
-
-// 🔴 以下三個 import-time 檢查是 **runbook 在 production 執行時唯一生效的閘**
-//    (那時 vitest 不在場)。Fable F4 更正:它們不是「與測試重複」——
-//    測試在本質上觀察不到 import-time guard 被移除,所以突變測試對它們一律綠。
-//    ⇒ 日後不得以「duplicate cleanup」為由刪除。
-if (
-  D1_DELETE_COHORT.length !== 26 ||
-  D1_RETAIN_COHORT.length !== 3 ||
-  D1_COHORT.length !== 29 ||
-  new Set(d1CohortIds).size !== 29
-) {
-  throw new Error('D1 cohort 常數必須是 26 筆待刪、3 筆留存，且 29 個 UUID 不得重複');
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-if (!d1CohortIds.every((id) => UUID_RE.test(id))) {
-  throw new Error('D1 cohort 含格式不合法的 UUID;guard.ts 會把它字串內插進 SQL,拒繼續');
-}
-
-/**
- * cohort 指紋 = 依 displayId 排序後 `id,displayId,delete|retain` 逐行串接的 md5。
- *
- * 🔴 **第三欄(陣列歸屬)是 Fable 對抗審查 F1 補上的,不得拿掉。** 原版只雜湊
- * `id,displayId`,而兩個陣列合併排序後「哪一筆屬於哪一陣列」的資訊完全消失 ——
- * 把 PCM-2026-0052(留存、已付款)與 PCM-2026-0001(待刪)整組互換陣列,
- * 長度仍 26/3、UUID 仍 29 個不重複、指紋逐字元相同(主對話實跑複驗成立),
- * D1c 會照 D1_DELETE_COHORT 刪掉一張有真錢的留存單。
- *
- * 釘值來源 = production:以 displayId 為鍵反查 29 筆,**歸屬由資料庫自己的
- * `paid_at` 決定**(`paid_at IS NOT NULL` = retain),在庫內算同一個 md5 =
- * ba1e416a8fc20c3afa76f6e19bc283af。所以這個值不是本檔自己算給自己看的。
- *
- * 🔴 它擋不住的(codex R2 C8 更正 —— 原本這裡把 D1b1 的涵蓋面寫得比事實大):
- * ①訂單在 D1 執行當下是否仍存在 → 那是 d1-guard.ts 的 SQL count 守門。
- * ②這 26 張是否真的沒扣到錢 → **D1b1 的 TapPay read-back 只查六筆 attempt,
- *   其中屬於待刪組的只有 0064 / 0090;0101 依 §8.7 明定不查(證據 = Sean 本人
- *   查 TapPay 後確認、非系統 read-back);其餘 23 張根本沒有逐筆 read-back。**
- *   ⇒ 「26 張都沒扣款」這件事在系統內沒有可機械複驗的證據,唯一還原路徑是
- *   D1a2 的加密匯出檔(180 天)。指紋只證明本檔字面沒被改過,不證明任何金流事實。
- */
-export const D1_COHORT_MD5 = 'ba1e416a8fc20c3afa76f6e19bc283af';
-
-type D1FingerprintRow = Readonly<{ id: string; displayId: string; membership: string }>;
-
-export const D1_COHORT_WITH_MEMBERSHIP: readonly D1FingerprintRow[] = Object.freeze([
-  ...D1_DELETE_COHORT.map((row) => ({ ...row, membership: 'delete' })),
-  ...D1_RETAIN_COHORT.map((row) => ({ ...row, membership: 'retain' })),
 ]);
 
 /**
- * 🔴 **`rows` 參數是 codex R2 C5 的修法,不得改回讀模組常數。**
- * 原版沒有參數 ⇒ 把整個函式改成 `return D1_COHORT_MD5` 一行,所有測試照樣全綠
- * (測試只驗「算出來 == 釘值」,而被掏空的版本永遠等於釘值)。
- * 開了參數之後,測試可以餵一份「留存單被搬進待刪組」的資料進來要求算出不同值,
- * 掏空的實作就過不了那條。
+ * 🔴 留存的三張單號寫死在這裡,是因為 (id, display_id) 配對比對**證明不了歸屬**:
+ * 把 0052(已付款、有真錢)與某張待刪單整組互換,兩邊配對都還是對的、數量還是 29,
+ * D1c 照 D1_DELETE_COHORT 就會刪掉 0052。歸屬只能在本檔釘死。
+ * (Fable 對抗審查 F1;主對話實跑複驗成立。)
  */
-export function d1CohortFingerprint(
-  rows: readonly D1FingerprintRow[] = D1_COHORT_WITH_MEMBERSHIP,
-): string {
-  const canonical = [...rows]
-    .sort((a, b) => a.displayId.localeCompare(b.displayId))
-    .map(({ id, displayId, membership }) => `${id},${displayId},${membership}`)
-    .join('\n');
+const RETAINED_DISPLAY_IDS = ['PCM-2026-0052', 'PCM-2026-0102', 'PCM-2026-0104'] as const;
 
-  return createHash('md5').update(canonical).digest('hex');
-}
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const DISPLAY_ID_RE = /^PCM-\d{4}-\d{4}$/;
 
-if (d1CohortFingerprint() !== D1_COHORT_MD5) {
-  throw new Error('D1 cohort 指紋與釘死值不符 — 本檔字面被改過,拒繼續');
+// 🔴 import 時就擋:runbook 在 production 跑的時候測試不在場,這裡是唯一還生效的閘。
+//    UUID / 單號格式必須驗 —— d1-guard.ts 會把它們字串內插進 SQL。
+if (
+  D1_DELETE_COHORT.length !== 26 ||
+  D1_RETAIN_COHORT.length !== 3 ||
+  new Set(D1_COHORT.map(({ id }) => id)).size !== 29 ||
+  !D1_COHORT.every(({ id, displayId }) => UUID_RE.test(id) && DISPLAY_ID_RE.test(displayId)) ||
+  D1_RETAIN_COHORT.map(({ displayId }) => displayId).join() !== RETAINED_DISPLAY_IDS.join()
+) {
+  throw new Error('D1 cohort 常數已被改動(筆數 / 重複 / 格式 / 留存名單);拒繼續');
 }
