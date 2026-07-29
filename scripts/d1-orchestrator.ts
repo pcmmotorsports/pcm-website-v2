@@ -26,7 +26,7 @@
  * 🔴 本檔不建 CLI(D1t2);不對任何 DB 實跑的驗證(D1t3,規格明定不可省)。
  */
 import { D1_COHORT, D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
-import { buildD1TransactionGuardSql, PRODUCTION_CLUSTER_ID } from './d1-guard';
+import { buildD1TransactionGuardSql } from './d1-guard';
 import {
   judgeReadback,
   type D1AttemptFact,
@@ -47,7 +47,8 @@ import {
 } from './d1-sweeper-control';
 import type { TapPayRecordResponseWire } from '../packages/adapters/src/tappay/wire';
 
-export type D1OrchestratorMode = 'apply' | 'dry-run';
+/** `recover-only` = D1t2 `--recover-sweeper`:只走 recovery mode,state 不在場即退出、絕不 fall through 到正式執行(D1t2 關卡1 R2-1)。 */
+export type D1OrchestratorMode = 'apply' | 'dry-run' | 'recover-only';
 export type D1Target = 'production' | 'rehearsal';
 
 export type D1Outcome =
@@ -357,6 +358,22 @@ export async function runD1Orchestrator(deps: D1OrchestratorDeps): Promise<D1Orc
       );
     }
 
+    // 🔴 活連線身分閘提前到**任何 cron/state 寫入之前**(codex K2:apply 會先停 sweeper、
+    //    交易守門在那之後才跑 —— loopback 若是 production 的 tunnel,沒有確認字串就動了
+    //    正式站的 cron)。cid 精確比對 deps.clusterId(production = 常數;rehearsal = harness
+    //    撈的隔離叢集值,天然 ≠ production)。
+    const liveIdentity = (await q(RECONCILE_IDENTITY_SQL)).rows[0];
+    if (
+      String(liveIdentity?.cid) !== deps.clusterId ||
+      liveIdentity?.su !== 'postgres' ||
+      liveIdentity?.db !== 'postgres'
+    ) {
+      return finish(
+        'not_committed',
+        `D1:當下連線的叢集/身分與目標不符(cid=${String(liveIdentity?.cid)});不動 cron、不接管 state,人工釐清`,
+      );
+    }
+
     // 2. state-first 分流(R27:state 判斷先於一切 active 斷言)。
     const existing = readState(deps.statePath);
     if (existing) {
@@ -374,6 +391,7 @@ export async function runD1Orchestrator(deps: D1OrchestratorDeps): Promise<D1Orc
           'D1:state 檔的 projectRef/clusterId 與本次目標不符(疑似跨環境誤用);不接管、不清除,人工釐清',
         );
       }
+      // (活連線身分閘已提前到取鎖後、所有路徑共用;此處不重複。)
       // recovery mode:CAS 接管(R26)→ 恢復/清 state → 附帶對帳(R3-F8)→ 退出,不開始正式執行。
       takeOverState(deps.statePath, runId);
       const { jobId: liveJobId, active } = await locateSweeperJob(q);
@@ -385,22 +403,56 @@ export async function runD1Orchestrator(deps: D1OrchestratorDeps): Promise<D1Orc
           `D1:state 內 jobId ${existing.jobId} 與現網五元組定位 ${liveJobId} 不符;不清除、人工釐清`,
         );
       }
-      if (active) {
-        // 已是 active:別的流程恢復到一半死掉 ⇒ 只清 state(read-back 已由 locate 完成)。
-        clearStateAtomic(deps.statePath);
-      } else {
-        await recoverSweeper({
-          query: q,
-          statePath: deps.statePath,
-          expectedRunId: runId,
-          projectRef: deps.projectRef,
-          clusterId: deps.clusterId,
-        });
-      }
+      // 🔴 兩階段順序(codex K2):①先對帳、②先落 recovery audit、③才動 cron/清 state ——
+      //    反過來的話,恢復後任何一步失敗就留下「已復原但無紀錄」。
+      // 🔴 recovery audit 寫**獨立檔**(`<audit>.recovery.json`):操作者若重用 apply 那次的
+      //    --audit 路徑,最小 recovery JSON 會覆蓋掉完整 read-back 與 T-Q3 證據(codex K2)。
       const present = await q(`SELECT count(*)::int AS n FROM public.orders WHERE id IN (${DELETE_IDS})`);
       const n = Number(present.rows[0]?.n);
-      const verdict = n === 26 ? '上輪未提交(26 張待刪單仍在)' : n === 0 ? '🔴 上輪已提交(26 張已刪)' : `⚠️ 非預期:待刪單剩 ${n} 張,人工釐清`;
-      return finish('recovery_only', `D1:recovery mode 完成(sweeper 已恢復、state 已清)。對帳:${verdict}。請檢查 ${deps.auditPath}`);
+      // 🔴 對帳只接受 0 或 26(codex K2 R2):1-25 = 半套狀態,恢復 cron/清 state 都可能
+      //    掩蓋現場 —— 保留一切、人工釐清。
+      if (n !== 0 && n !== 26) {
+        return finish(
+          'not_committed',
+          `D1:recovery 對帳非預期(待刪單剩 ${n} 張,應 0 或 26);不動 cron、state 保留,人工釐清`,
+        );
+      }
+      const verdict = n === 26 ? '上輪未提交(26 張待刪單仍在)' : '🔴 上輪已提交(26 張已刪)';
+      const recoveryAuditPath = `${deps.auditPath}.recovery-${runId}.json`;
+      writeJsonAtomic(recoveryAuditPath, {
+        version: 1,
+        outcome: 'recovery_only',
+        runId,
+        takenOverRunId: existing.runId,
+        reconcile: verdict,
+        startedAt: new Date().toISOString(),
+      });
+      try {
+        if (active) {
+          // 已是 active:別的流程恢復到一半死掉 ⇒ 只清 state(read-back 已由 locate 完成)。
+          clearStateAtomic(deps.statePath);
+        } else {
+          await recoverSweeper({
+            query: q,
+            statePath: deps.statePath,
+            expectedRunId: runId,
+            projectRef: deps.projectRef,
+            clusterId: deps.clusterId,
+          });
+        }
+      } catch (recErr) {
+        // 🔴 依對帳結果分流(codex K2 R2):上輪已提交時絕不可回報成可重跑。
+        return finish(
+          n === 0 ? 'committed_recovery_required' : 'not_committed_recovery_required',
+          `D1:recovery 對帳=「${verdict}」但恢復/清 state 失敗:${String(recErr)};state 保留,修復後重跑 --recover-sweeper`,
+        );
+      }
+      return finish('recovery_only', `D1:recovery mode 完成(sweeper 已恢復、state 已清)。對帳:${verdict}。請檢查 ${recoveryAuditPath}`);
+    }
+
+    // recover-only 且無 state:無事可恢復 —— 明確退出,絕不 fall through 到正式執行(D1t2 R2-1)。
+    if (deps.mode === 'recover-only') {
+      return finish('recovery_only', 'D1:無 state 檔,無事可恢復(非本流程停用的 job 不動);未動任何東西');
     }
 
     // 3. 正式分支 / dry-run preflight。
@@ -688,11 +740,13 @@ async function reconcileUnknown(deps: D1OrchestratorDeps): Promise<'committed' |
     const fresh = await deps.openFreshQuery();
     try {
       const idRow = (await fresh.query(RECONCILE_IDENTITY_SQL)).rows[0];
-      const clusterOk =
-        deps.target === 'production'
-          ? String(idRow?.cid) === PRODUCTION_CLUSTER_ID
-          : String(idRow?.cid) !== PRODUCTION_CLUSTER_ID;
-      if (idRow?.su !== 'postgres' || idRow?.db !== 'postgres' || !clusterOk) {
+      // 🔴 精確比對 deps.clusterId(codex K2:rehearsal 只驗「非 production」的話,
+      //    fresh 連到**另一個**隔離叢集讀 0/26 仍會誤定 committed/rolled-back)。
+      if (
+        String(idRow?.cid) !== deps.clusterId ||
+        idRow?.su !== 'postgres' ||
+        idRow?.db !== 'postgres'
+      ) {
         return 'unknown';
       }
       const { rows } = await fresh.query(

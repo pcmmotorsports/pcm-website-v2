@@ -321,7 +321,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 14 | **D1a6** | runbook | 🔴 **D1 演練片①**:隔離 DB 實跑 `restore-pre-n3c.sql` 還原演練 | — |
 | 15 | **D1a7** | runbook | 🔴 **D1 演練片②**:隔離 DB 實跑 `restore-post-n3c.sql` 還原演練。**🔴 Sean 07-29 拍板 Q2=A:移出第 1 批、改排第 2 批**(N3a 建好 `pcm_generate_display_id()` 才演練得了;post-n3c 還原只在第 3 批 N3c 之後才用得到)| — |
 | 16 | **D1t1** | runbook | 🔴 **D1 orchestrator 交易核心片**(R11 再拆:CLI/dry-run 另片):交易執行函式本體(BEGIN → 鎖序 → 步驟 8b-13 → COMMIT;任一 API 失敗 / 斷言不符 = `ROLLBACK` 後 exit 非零)。🔴 **復盤L3 修 + R22 補全:不得直接 import `TapPayChargeAdapter`** —— 檔頭 `import 'server-only'` 在純 node/tsx 載入即 throw;runbook 用**獨立小 client**(複用 `wire.ts` 解析與 Record API 組裝、env 讀 Partner Key、**`TAPPAY_ENV=production` + 正式商戶 merchant id 斷言、fetch 原生 30s AbortSignal**),D1t2 單元測含「node 環境可載入」斷言。🔴 **不依賴 A15**(R22:A15 改的是 server-only adapter 的 port 簽章,是**第 3 批 worker** 的依賴;runbook client 的 signal 是 fetch 原生)。🔴 **鎖策略照 §8.4 步驟 8 的 NOWAIT fence 定案**(不留「施工時 grep」) | — |
-| 17 | **D1t2** | runbook | 🔴 **D1 orchestrator CLI 片**:CLI 組裝 + `--dry-run` 模式(模擬步驟 8-13、強制 ROLLBACK)+ 隔離 DB 假資料單元測 | — |
+| 17 | **D1t2** | runbook | 🔴 **D1 orchestrator CLI 片**:CLI 組裝 + dry-run 模式(模擬步驟 8-13、強制 ROLLBACK;CLI 語法定案 = action grammar `dry-run\|apply\|recover-sweeper\|verify-ca` 為第一個 token,**四個動作皆有同名旗標別名**(`--dry-run`/`--apply`/`--recover-sweeper`/`--verify-ca`)—— 本檔他處與 D1t1 錯誤訊息的舊旗標字面因此照舊有效(2026-07-30 兩輪審查對撞後定案:操作者字面安全 > 語法唯一性))+ 隔離 DB 假資料單元測 | — |
 | 18 | **D1t3** | runbook | 🔴 **D1 timeout / rollback 整合驗證片**:六筆總體 3 分鐘上限、`SET LOCAL idle_in_transaction_session_timeout = '5min'`(大於總體 HTTP 預算 + 餘裕);**負測(R23 落片):①逾時後交易確實 rollback、不留半掛交易 ②雙交易 NOWAIT(反向持鎖時立即 abort、不等待)③kill -9 後啟動 self-heal(依 ownership state 檔恢復 sweeper)④🔴 **R24 fault-inject 兩個 crash 邊界:「state 已寫、job 未停」與「已恢復、state 未清」**(前者 self-heal 見 state+active=true ⇒ 只清 state;後者同)⑤🔴 **R25 雙 orchestrator 交錯負測:後取得者被 advisory lock 擋下**⑥🔴 **R26/R27 接管負測:A 寫 state、停 sweeper(`active=false`)後 kill -9;持不同 run id 的 B 取鎖 → state-first 分流進 recovery mode(不被正式分支的 active=true 斷言擋)→ CAS 接管、恢復、清 state**(隔離 DB 實跑) | — |
 | 19 | **D1b1** | runbook | 🔴 **D1 read-back 片**:TapPay read-back 六筆,**判定矩陣寫死(R9;數值親驗 tappay-reference.md:85-86)**:逐筆以 `payment_charge_attempts.rec_trade_id` 為查詢鍵、top `status ∈ {0,2}`(查詢成功語意)、**唯一命中**;三筆已退單(0052/0102/0104)斷言 `record_status = 3`(REFUNDED)且 `refunded_amount` = 授權金額;三筆 `pending` 單(0064/0090/0101)允許 `record_status ∈ {-1 (ERROR), 5 (CANCEL)}` —— 🔴 **`0`(AUTH)與 `4`(PENDING;三筆 3DS 已啟動、4 是最可能實際值 —— 預期分支非異常)皆不自動放行:出現 = 保留 cohort、輸出證據、停下等 Sean,不進刪除**(R21 同步片列)。🔴 **0052 出口同步(R21+R22 措辭統一)**:0052 **正式商戶查無** ⇒ 步驟 12 對 0052 走保持原值路徑 + audit 記「正式商戶查無」(**不得寫「sandbox 已證實/推定成立」—— read-back 只能證明正式商戶無此交易**),不擋其餘;0102/0104 查無必 abort。其餘零筆、多筆、狀態外、金額不符 = 一律 abort。~~🔴 **硬前置(A0a 實查)**:六筆 attempts 的 `rec_trade_id` **全部非 NULL**(欄位 nullable);任一 NULL = 停下 raise Sean,不得用寬條件替代~~ ⇒ 🔴 **2026-07-29 已觸發並由 Sean 拍板放行(A0a-1),條件改寫見 §8.7 —— D1b1 施工以 §8.7 為準,不以本行舊字面為準** | — |
 | 20 | **D1b2** | runbook | 🔴 **D1 dry-run + 證據片**:D1t2 CLI 帶 `--dry-run` 對 production 跑(模擬步驟 8-13、強制 ROLLBACK)+ 證據包(checksum / 演練紀錄 / read-back / dry-run 矩陣)交 Sean。**證據有效期 24 小時**(逾期重跑本片) | — |
@@ -819,7 +819,7 @@ pg 連線設 `idle_in_transaction_session_timeout`;**任一逾時 = `ROLLBACK` �
 **「只有明確 failed 才動單、查不到/已扣款絕不移、移除須改標記非硬刪」**)。
 
 ✅ **Sean 2026-07-28 拍 Q7=C 並提供事實:「都沒扣到錢,已確認」** ⇒ 三筆照刪。
-🔴 **證據等級寫明**:來源 = **Sean 本人查 TapPay 後的確認**,非系統 read-back;migration 註解與匯出檔都要記這句。
+🔴 **證據等級寫明**:來源 = **Sean 本人查 TapPay 後的確認**,非系統 read-back;~~migration 註解~~ **orchestrator audit JSON** 與匯出檔都要記這句(承接處依 T-Q3=A 改寫,見 §8.7 施工必做 2)。
 🔴 匯出存檔仍必須完整包含這三筆(刪除後唯一的紀錄就是那份檔)。
 
 #### D1 執行規格
@@ -941,7 +941,7 @@ dry-run(步驟 6)與正式 apply 後**各驗一次同一張矩陣**(R5 抓:檔�
 #### 施工必做
 
 1. D1b1 的證據包必須**逐筆標註證據等級**,0101 那筆寫死為「Sean 2026-07-29 口頭確認未扣款;無 `rec_trade_id`,未經 TapPay read-back」。
-2. D1c 的 migration 註解、cohort manifest、audit 紀錄**三處都要帶這句**(對齊 §8.4 對 Q5 的既有做法:「證據等級寫明,來源 = Sean 本人確認」)。
+2. D1c 的 **orchestrator audit JSON、cohort manifest、D1c runbook 三處都要帶這句**(對齊 §8.4 對 Q5 的既有做法:「證據等級寫明,來源 = Sean 本人確認」)。~~原字面「migration 註解」~~ 無承接者 —— D1c 不是 migration、不進 migration 序列(2026-07-29 深夜 Sean 拍 T-Q3=A 改承接處,詳 memory `project_m4b-d1-restore-backup-completeness`)。
 3. D1c 步驟 8b 的第二次 read-back 同樣**只涵蓋五筆**;不得因為少一筆就把整批 read-back 降級。
 
 #### 🟡 殘餘風險(列出、不自宣接受)

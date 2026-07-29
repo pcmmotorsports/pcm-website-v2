@@ -1,6 +1,6 @@
 # D1 線交接 —— 2026-07-29 傍晚
 
-> **新 session 讀這一份 + `STATUS.md` 就能接手 D1t2。**(D1t1 已於 2026-07-29 晚完成)
+> **新 session 讀這一份 + `STATUS.md` 就能接手 D1t3。**(D1t1/D1t2 已於 2026-07-29/30 完成)
 > 上游總規劃 = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`(§5.0 順序、§5.1 片表、§8.4 步驟)。
 > 第 1 批整體入口仍是 `docs/handoff/2026-07-29-e10-batch1-handoff.md`;本檔只講 D1 線。
 
@@ -14,9 +14,9 @@ D1 線十四片,**D1a0-D1a6 + D1t1 完成**。下一片 = **D1t2(CLI + dry-run)*
 |---|---|
 | D1a0 環境守門 / D1a1 匯出腳本 / D1a2 正式匯出 / D1a3 還原號映射 | ✅ |
 | D1a4 · D1a5 兩支還原腳本 / D1a6 還原演練 | ✅ 演練實跑通過 |
-| D1t1 交易核心 | ✅ 2026-07-29 晚(4 模組 + 25/25 突變紅;🔴 未對 DB 實跑,詳 STATUS 最後更新) |
-| **D1t2 CLI + dry-run** | ⬅️ **下一片** |
-| D1t3 timeout·rollback 整合負測 | 未開工(🟡 隔離環境如何供 pg_cron/pg_net 待 Sean) |
+| D1t1 交易核心 | ✅ 2026-07-29 晚(4 模組 + 25/25 突變紅) |
+| D1t2 CLI + dry-run + 隔離 DB 實跑 | ✅ 2026-07-30 凌晨(三段全過 + 10/10 突變紅;harness = `d1t2-rehearsal.sh` provision\|scenarios\|teardown) |
+| **D1t3 timeout·rollback 整合負測** | ⬅️ **下一片**(重用 D1t2 provision;fake cron 介面 = Sean T-Q1=A) |
 | D1b1 TapPay read-back / D1b2 dry-run 證據包 | 未開工 |
 | 🔴 Sean 批准閘 → D1c apply(唯一不可逆) | 未開工 |
 | ~~D1a7 post-n3c 演練~~ | **已移出第 1 批**(Sean Q2=A,改排第 2 批 N3a 之後) |

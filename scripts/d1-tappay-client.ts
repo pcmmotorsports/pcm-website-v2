@@ -145,12 +145,23 @@ export async function queryRecordByRecTradeId(
   const raw: unknown = await response.json();
   assertStrictRecordWire(raw);
   const wire = parseTapPayRecordResponse(raw);
+  assertRecordsMerchant(wire, config.merchantId);
+  return wire;
+}
 
-  // 回應每筆 merchant_id 必為本商戶,否則視為 wire 異常(照 adapter :266-270)。
+/**
+ * 回應每筆 merchant_id 必為指定商戶(照 adapter :266-270)。
+ * 🔴 抽成共用是 D1t2 關卡1 R1 的要求:rehearsal 的 readback fixture 也必須過同一道檢查
+ * (fixture 檔內自帶 merchantId 宣告為基準 —— 形狀紀律、非身分證明),
+ * 假資料不得比正式路徑寬鬆。
+ */
+export function assertRecordsMerchant(
+  wire: TapPayRecordResponseWire,
+  merchantId: string,
+): void {
   for (const rec of wire.records) {
-    if (rec.merchantId !== config.merchantId) {
+    if (rec.merchantId !== merchantId) {
       throw new Error('D1:TapPay Record 回應含非本商戶紀錄;abort');
     }
   }
-  return wire;
 }

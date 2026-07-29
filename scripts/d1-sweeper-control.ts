@@ -20,6 +20,7 @@
  * 清除 = unlink → fsync(父目錄)。rename 後不 fsync 目錄,斷電可能出現「job 已停、state 消失」。
  */
 import { closeSync, fsyncSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from 'node:fs';
+// (unlinkSync 亦用於 writeJsonAtomic 的 tmp 清理。)
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -110,7 +111,14 @@ export function writeJsonAtomic(filePath: string, value: unknown): void {
   assertAbsoluteStatePath(filePath);
   const dir = path.dirname(filePath);
   const tmp = path.join(dir, `.${path.basename(filePath)}.tmp`);
-  const fd = openSync(tmp, 'w');
+  // 0600 + O_EXCL(codex K2 R2:'w' 對既存 tmp inode 不會收緊權限;先 unlink 再 wx
+  // 保證拿到全新 0600 inode)。
+  try {
+    unlinkSync(tmp);
+  } catch {
+    /* 不存在即可。 */
+  }
+  const fd = openSync(tmp, 'wx', 0o600);
   try {
     writeSync(fd, JSON.stringify(value, null, 2));
     fsyncSync(fd);

@@ -122,6 +122,8 @@ function makeDb(overrides: Partial<Record<string, (call: Call, nth: number) => {
     if (sql === ADVISORY_LOCK_SQL) return { rows: [{ locked: true }] };
     if (sql === ADVISORY_LOCK_CANARY_SQL) return { rows: [{ n: 1 }] };
     if (sql === ADVISORY_UNLOCK_SQL) return { rows: [{ pg_advisory_unlock: true }] };
+    // 早期身分閘(全路徑必經):預設回與 deps.clusterId('123')相符的身分。
+    if (sql === RECONCILE_IDENTITY_SQL) return { rows: [{ cid: '123', su: 'postgres', db: 'postgres' }] };
     if (sql === LOCATE_SWEEPER_JOB_SQL) {
       // apply:停用前 active、alter false 後 inactive、恢復 alter true 後 active。
       const alterFalse = calls.filter((c) => c.sql.includes('active => false')).length;
@@ -394,6 +396,66 @@ describe('recovery mode(R26/R27)', () => {
   });
 });
 
+describe('recovery 對帳分流(codex K2 R2)', () => {
+  const seedState = () =>
+    writeStateAtomic(statePath, {
+      version: 1, projectRef: 'ref', clusterId: '123', jobId: 42, jobName: 'pcm-settle-sweep',
+      runId: 'run-舊', previousRunId: null, stateWrittenAt: 'x', jobStoppedAt: 'y',
+    });
+
+  it('對帳非 0/26(半套狀態)= 不動 cron、state 保留、人工', async () => {
+    seedState();
+    const db = makeDb({ [MATRIX_SQL[0]![0]]: () => ({ rows: [{ n: 13 }] }) });
+    const result = await runD1Orchestrator(makeDeps(db, { mode: 'recover-only' }));
+    expect(result.outcome).toBe('not_committed');
+    expect(result.message).toContain('應 0 或 26');
+    expect(db.calls.some((c) => c.sql.includes('cron.alter_job'))).toBe(false);
+    expect(existsSync(statePath)).toBe(true);
+  });
+
+  it.each([
+    [0, 'committed_recovery_required'],
+    [26, 'not_committed_recovery_required'],
+  ] as const)('對帳 n=%i + 恢復失敗 = %s(依對帳分流,不得謊報可重跑)', async (n, expected) => {
+    seedState();
+    const db = makeDb({
+      [MATRIX_SQL[0]![0]]: () => ({ rows: [{ n }] }),
+      [LOCATE_SWEEPER_JOB_SQL]: () => ({ rows: [{ jobid: 42, active: false }] }), // 走恢復路。
+      'SELECT cron.alter_job(job_id => $1, active => true)': () => {
+        throw new Error('alter 炸');
+      },
+    });
+    const result = await runD1Orchestrator(makeDeps(db, { mode: 'recover-only' }));
+    expect(result.outcome).toBe(expected);
+    expect(existsSync(statePath)).toBe(true); // state 保留給下一次 recovery。
+  });
+});
+
+describe('recover-only(D1t2 R2-1)', () => {
+  it('無 state = 明確退出 recovery_only,絕不 fall through 到正式執行', async () => {
+    const db = makeDb();
+    const result = await runD1Orchestrator(makeDeps(db, { mode: 'recover-only' }));
+    expect(result.outcome).toBe('recovery_only');
+    expect(result.message).toContain('無事可恢復');
+    const sqls = db.calls.map((c) => c.sql);
+    expect(sqls).not.toContain('BEGIN');
+    expect(sqls.some((s) => s.includes('cron.alter_job'))).toBe(false);
+  });
+
+  it('recovery 前活連線身分不符(連錯 loopback DB)= 不接管、不動 cron', async () => {
+    writeStateAtomic(statePath, {
+      version: 1, projectRef: 'ref', clusterId: '123', jobId: 42, jobName: 'pcm-settle-sweep',
+      runId: 'run-舊', previousRunId: null, stateWrittenAt: 'x', jobStoppedAt: 'y',
+    });
+    const db = makeDb({ [RECONCILE_IDENTITY_SQL]: () => ({ rows: [{ cid: '999', su: 'postgres', db: 'postgres' }] }) });
+    const result = await runD1Orchestrator(makeDeps(db, { mode: 'recover-only' }));
+    expect(result.outcome).toBe('not_committed');
+    expect(result.message).toContain('不接管');
+    expect(db.calls.some((c) => c.sql.includes('cron.alter_job'))).toBe(false);
+    expect(existsSync(statePath)).toBe(true); // state 原封不動。
+  });
+});
+
 describe('失敗路徑', () => {
   it('NOWAIT 鎖失敗 = ROLLBACK + not_committed,無任何 DELETE;未提交路徑恢復 sweeper', async () => {
     const nowaitSql = LOCK_SQL[2]![0];
@@ -462,7 +524,8 @@ describe('失敗路徑', () => {
 
 describe('COMMIT 結果不明(R2-5;身分驗證 + 對帳)', () => {
   const commitThrows = { COMMIT: () => { throw new Error('connection reset during COMMIT'); } };
-  const PROD_IDENTITY = { cid: '7632885393857617092', su: 'postgres', db: 'postgres' };
+  // fresh 對帳現在精確比對 deps.clusterId(測試 deps = '123')。
+  const PROD_IDENTITY = { cid: '123', su: 'postgres', db: 'postgres' };
 
   /** fresh 連線 fake:先回身分、再回 cohort 計數。 */
   const freshWith = (identity: Record<string, unknown>, n: number) => async () => ({
