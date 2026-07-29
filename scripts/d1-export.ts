@@ -72,6 +72,10 @@ export function buildExportScript(outDir: string): string {
     ],
   ];
 
+  // 🔴 **整道 \copy 必須擠在一行** —— psql 的 \copy 是客戶端 meta-command、不跨行,
+  //    跨行會噴 `\copy: parse error at end of line`。2026-07-29 首次實跑踩到:
+  //    十張表都過了,只有這道多行的 manifest 掛掉(測試只驗「指令內容對」、
+  //    沒驗「指令是不是一行」⇒ 產出的指令對、跑起來不對)。
   // cohort manifest:記錄「這包備份的範圍是什麼、從哪裡來」。codex R1-P2 抓到原版只有
   // 檔案雜湊、沒有刪留範圍 ⇒ 備份離開這個 checkout 之後就證明不了自己涵蓋哪些單。
   // 另記 current_database() 與叢集識別碼:半年後要能證明這包確實出自正式站,而不是
@@ -79,12 +83,12 @@ export function buildExportScript(outDir: string): string {
   const manifestRows = [
     ...D1_DELETE_COHORT.map(
       ({ id, displayId }) =>
-        `      ('${id}'::uuid, '${displayId}', 'delete', ${evidenceNote(displayId)})`,
+        `('${id}'::uuid, '${displayId}', 'delete', ${evidenceNote(displayId)})`,
     ),
     ...D1_RETAIN_COHORT.map(
-      ({ id, displayId }) => `      ('${id}'::uuid, '${displayId}', 'retain', '')`,
+      ({ id, displayId }) => `('${id}'::uuid, '${displayId}', 'retain', '')`,
     ),
-  ].join(',\n');
+  ].join(', ');
 
   return [
     `\\echo D1a1 cohort 匯出:${D1_COHORT.length} 張訂單 / ${tables.length} 張表`,
@@ -104,7 +108,7 @@ export function buildExportScript(outDir: string): string {
       `\\copy (SELECT * FROM public.${table} WHERE ${where}) TO '${outDir}/${table}.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
     ]),
     `\\echo -- cohort-manifest(刪留範圍 + 匯出時間)`,
-    `\\copy (SELECT m.display_id, m.id, m.membership, m.evidence, now() AS exported_at, current_database() AS db, (SELECT system_identifier FROM pg_control_system()) AS cluster_id FROM (VALUES\n${manifestRows}\n    ) AS m(id, display_id, membership, evidence) ORDER BY m.display_id) TO '${outDir}/cohort-manifest.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
+    `\\copy (SELECT m.display_id, m.id, m.membership, m.evidence, now() AS exported_at, current_database() AS db, (SELECT system_identifier FROM pg_control_system()) AS cluster_id FROM (VALUES ${manifestRows}) AS m(id, display_id, membership, evidence) ORDER BY m.display_id) TO '${outDir}/cohort-manifest.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
     'COMMIT;',
     `\\echo 完成。校驗碼請接著跑(見本檔用法):shasum -a 256 ${outDir}/*.csv`,
   ].join('\n');

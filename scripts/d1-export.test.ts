@@ -93,6 +93,20 @@ describe('buildExportScript', () => {
     expect(script).not.toMatch(/\\!/);
   });
 
+  // 🔴 2026-07-29 首次實跑踩到:psql 的 \\copy 是客戶端 meta-command、**不跨行**,
+  //    多行會噴 `\\copy: parse error at end of line`。原測試只驗「指令內容對」、
+  //    沒驗「指令是不是一行」⇒ 十張表都過、manifest 那道掛掉。
+  it('每一道 \\copy 都必須在自己那一行結束(psql meta-command 不跨行)', () => {
+    const copyLines = script.split('\n').filter((l) => l.startsWith('\\copy '));
+
+    expect(copyLines).toHaveLength(REQUIRED_TABLES.length + 1);
+    // 🔴 只數「有幾道 \copy」抓不到折行 —— 折行之後它還是只出現一次。
+    //    要驗的是每一行自己有沒有走完整道指令:結尾必須是 WITH 子句。
+    for (const line of copyLines) {
+      expect(line.endsWith("WITH (FORMAT csv, HEADER, NULL '\\N')")).toBe(true);
+    }
+  });
+
   // 🔴 codex R1-P2:manifest 要能獨立證明「這包備份涵蓋誰、誰該刪誰該留」。
   // 🔴 重用 D1a0 守門(不自創第二套)。連錯資料庫 = 拿到一份看起來正常、
   //    其實出自別的庫的備份,而它是刪除後唯一的還原路徑。
