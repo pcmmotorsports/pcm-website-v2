@@ -28,6 +28,7 @@
  * payment_charge_attempts 27 / pending_invoices 3,其餘五張 0 列。
  */
 import { D1_COHORT, D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
+import { D1_TRANSACTION_GUARD_SQL } from './d1-guard';
 
 /**
  * `PCM-2026-0101` 的「沒扣到錢」是 **Sean 本人查 TapPay 後確認、非系統 read-back**
@@ -71,8 +72,10 @@ export function buildExportScript(outDir: string): string {
     ],
   ];
 
-  // cohort manifest:記錄「這包備份的範圍是什麼」。codex R1-P2 抓到原版只有檔案雜湊、
-  // 沒有刪留範圍 ⇒ 備份離開這個 checkout 之後,它證明不了自己涵蓋哪些單、誰該刪誰該留。
+  // cohort manifest:記錄「這包備份的範圍是什麼、從哪裡來」。codex R1-P2 抓到原版只有
+  // 檔案雜湊、沒有刪留範圍 ⇒ 備份離開這個 checkout 之後就證明不了自己涵蓋哪些單。
+  // 另記 current_database() 與叢集識別碼:半年後要能證明這包確實出自正式站,而不是
+  // 某次演練用的複製庫。
   const manifestRows = [
     ...D1_DELETE_COHORT.map(
       ({ id, displayId }) =>
@@ -91,12 +94,17 @@ export function buildExportScript(outDir: string): string {
     //    這是刪除後唯一的還原路徑,必須整包同一個快照。
     //    READ ONLY 是第二道:本腳本在任何情況下都不該寫到 production。
     'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;',
+    // 🔴 **重用 D1a0 的守門,不另寫一套**(2026-07-29 教訓:同一題在 repo 裡已有解時
+    //    自創第二套,結果是兩套都要維護、而且新的那套漏洞更多)。
+    //    連錯資料庫的後果:拿到一份看起來正常、其實是別的庫的備份,而它是刪除後
+    //    唯一的還原路徑 —— 發現時已經來不及。守門在交易第一步,不符即整個交易中止。
+    D1_TRANSACTION_GUARD_SQL,
     ...tables.flatMap(([table, where]) => [
       `\\echo -- ${table}`,
       `\\copy (SELECT * FROM public.${table} WHERE ${where}) TO '${outDir}/${table}.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
     ]),
     `\\echo -- cohort-manifest(刪留範圍 + 匯出時間)`,
-    `\\copy (SELECT m.display_id, m.id, m.membership, m.evidence, now() AS exported_at FROM (VALUES\n${manifestRows}\n    ) AS m(id, display_id, membership, evidence) ORDER BY m.display_id) TO '${outDir}/cohort-manifest.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
+    `\\copy (SELECT m.display_id, m.id, m.membership, m.evidence, now() AS exported_at, current_database() AS db, (SELECT system_identifier FROM pg_control_system()) AS cluster_id FROM (VALUES\n${manifestRows}\n    ) AS m(id, display_id, membership, evidence) ORDER BY m.display_id) TO '${outDir}/cohort-manifest.csv' WITH (FORMAT csv, HEADER, NULL '\\N')`,
     'COMMIT;',
     `\\echo 完成。校驗碼請接著跑(見本檔用法):shasum -a 256 ${outDir}/*.csv`,
   ].join('\n');

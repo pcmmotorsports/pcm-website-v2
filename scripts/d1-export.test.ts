@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { D1_COHORT } from './d1-cohort';
 import { buildExportScript } from './d1-export';
+import { D1_TRANSACTION_GUARD_SQL } from './d1-guard';
 
 const script = buildExportScript('/tmp/d1');
 
@@ -93,6 +94,22 @@ describe('buildExportScript', () => {
   });
 
   // 🔴 codex R1-P2:manifest 要能獨立證明「這包備份涵蓋誰、誰該刪誰該留」。
+  // 🔴 重用 D1a0 守門(不自創第二套)。連錯資料庫 = 拿到一份看起來正常、
+  //    其實出自別的庫的備份,而它是刪除後唯一的還原路徑。
+  it('交易第一步就是 D1a0 的環境守門', () => {
+    const body = script.slice(script.indexOf('BEGIN ISOLATION LEVEL'));
+    const guardAt = body.indexOf(D1_TRANSACTION_GUARD_SQL);
+    const firstCopyAt = body.indexOf('\\copy ');
+
+    expect(guardAt).toBeGreaterThan(0);
+    expect(guardAt).toBeLessThan(firstCopyAt);
+  });
+
+  it('manifest 記錄來源資料庫與叢集識別碼', () => {
+    expect(script).toContain('current_database() AS db');
+    expect(script).toContain('system_identifier FROM pg_control_system()) AS cluster_id');
+  });
+
   it('cohort manifest 記錄刪留範圍、匯出時間與 0101 的證據等級', () => {
     expect(script).toContain('cohort-manifest.csv');
     expect(script).toContain('now() AS exported_at');
