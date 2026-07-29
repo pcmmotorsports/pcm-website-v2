@@ -19,7 +19,7 @@ D1 線十四片,**D1a0-D1a6 + D1t1/D1t2/D1t3 完成**(執行器與它的負測�
 | D1t1 交易核心 | ✅ 2026-07-29 晚(4 模組 + 25/25 突變紅) |
 | D1t2 CLI + dry-run + 隔離 DB 實跑 | ✅ 2026-07-30 凌晨(三段全過 + 10/10 突變紅;harness = `d1t2-rehearsal.sh` provision\|scenarios\|teardown) |
 | D1t3 timeout·rollback 整合負測 | ✅ 2026-07-30 凌晨(規格 row 18 ①-⑥ 六項全對真 PG17 實跑 + 兩段等長消融 + 突變 7/7 紅) |
-| **D1b1 TapPay read-back** | ⬅️ **下一片**(🔴 打真 TapPay 正式商戶 = Sean 必須在場;設計盤點見 §⑩) |
+| **D1b1 TapPay read-back** | 🧱 **程式碼就緒**(`1db5263`;CLI `readback` 動作、隔離庫實跑過正反兩向)⬅️ **只差實跑,🔴 打真 TapPay 正式商戶 = Sean 必須在場**;細節見 §⑩ |
 | D1b2 dry-run 證據包 | 未開工 |
 | 🔴 Sean 批准閘 → D1c apply(唯一不可逆) | 未開工 |
 | ~~D1a7 post-n3c 演練~~ | **已移出第 1 批**(Sean Q2=A,改排第 2 批 N3a 之後) |
@@ -159,17 +159,24 @@ D1t3 的隔離 DB 實跑負測**不可省略、不可降級**。
 | 0052 / 0064 / 0090 / 0102 / 0104 | 逐筆以 `rec_trade_id` 查、判定矩陣不降級 | 系統 read-back |
 | **0101(唯一無鍵)** | **不查**;禁用 `bank_transaction_id` 等替代鍵 | **Sean 本人確認,非系統 read-back** |
 
-**現況缺口(已實查):** 判定與查詢三支模組都在(見 §⑥ 表),但 **CLI 沒有獨立的 read-back 入口** ——
-四個動作是 `dry-run / apply / recover-sweeper / verify-ca`,read-back 只在 orchestrator 交易內跑得到。
+**✅ 程式碼已就緒(2026-07-30 凌晨,commit `1db5263`)—— 走的是 A 案:CLI 第五個動作 `readback`。**
+唯讀:兩句 SELECT(身分閘 + `READBACK_FACTS_SQL`)→ 五筆 keyed 打 TapPay → `judgeReadback` → 證據 JSON;
+**不進 orchestrator、不開交易、不鎖列、不動 cron、不寫 state**。
+(B 案「直接用 dry-run」被否決:它在 `REPEATABLE READ` 交易內會對 29 張正式站 orders `FOR UPDATE`、
+對 attempts `FOR UPDATE NOWAIT` —— 取證不該付演練刪除的代價,而 dry-run(= D1b2)本來就排在後面。)
 
-**兩條路,推薦 A:**
+**🔴 從未打過任何 TapPay,一次都沒有。** 隔離庫實跑用的是 fixture。
 
-- **A 新增 CLI `readback` 動作**:唯讀 —— 跑 `READBACK_FACTS_SQL`(SELECT)、五筆 keyed 打真 TapPay、
-  `judgeReadback`、寫證據 JSON。**不開交易、不鎖任何列、不動 cron。**
-- **B 直接用 `dry-run`**:read-back 確實會跑,但它在 `REPEATABLE READ` 交易內、會對 29 張 orders
-  `FOR UPDATE`、對 attempts `FOR UPDATE NOWAIT` ⇒ 拿「收集證據」去鎖正式站訂單,且撞上並發結帳就整批 abort。
+實跑指令(**等 Sean 在場才可執行**):
 
-⇒ 取證不該付演練刪除的代價,而 dry-run(= D1b2)本來就排在 D1b1 後面。
+```
+D1_DB_URL=... pnpm exec tsx scripts/d1-orchestrator-cli.ts readback \
+  --target production --merchant-id <從 TapPay 商家後台抄> --audit ~/.pcm-d1/d1b1-evidence.json
+```
+
+判定分流認 stdout 的 `D1-OUTCOME: readback-ok|readback-aborted`(**不要靠 exit code** ——
+這兩個 outcome 不在 orchestrator 六態的 `D1_EXIT_CODES` 裡)。`readback-aborted` 時證據**照樣落盤**
+(§8.7:出現 `0`/`4` = 保留 cohort、輸出證據、停下等 Sean)。
 
 **🔴 開工前必問 Sean(不可自己決定):**
 
