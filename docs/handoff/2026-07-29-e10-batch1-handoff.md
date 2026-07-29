@@ -78,7 +78,7 @@ ledger 零漂移:85 支、local-only 0、remote-only 0、`array_length(statement
 
 ## ⑥ 下一步
 
-照 §5.0 DAG:**D1a0 起的 D1 線**(D1c 前有 Sean 獨立批准閘)與 **A7 / A7b / A1** 等 M 片。
+照 §5.0 DAG:**D1 線已推進至 D1t1 完成(2026-07-29 晚),下一片 = D1t2**(線內入口 = `docs/handoff/2026-07-29-d1-line-handoff.md`;D1c 前有 Sean 獨立批准閘)與 **A7 / A7b / A1** 等 M 片。
 
 🟡 非阻擋:**D0-1** Sean 未答(全 repo migration 自寫 `BEGIN/COMMIT` 與 CLI 記帳的窄縫 —— A 維持現狀 / B 只改 D0 / C 開 backlog)。
 

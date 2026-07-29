@@ -63,10 +63,16 @@ export function buildD1PgConfig(connectionString: string) {
   const user = decodeURIComponent(url.username);
   const database = url.pathname.replace(/^\//, '');
 
+  // 🔴 port 必須是 session pooler 的 5432(或省略 = 預設 5432)。transaction pooler(6543)
+  //    的 host 與 username **與 session pooler 完全相同、唯一差異是 port** —— 誤用時
+  //    session-level advisory lock、跨語句 session 假設全部靜默失效(兩個 orchestrator
+  //    各在不同 backend 都拿得到鎖 = single-flight 歸零),而 host regex 照樣放行。
+  //    (2026-07-29 D1t1 Fable R3-F1)
   if (
     !POOLER_HOST_RE.test(host) ||
     user !== EXPECTED_USER ||
-    database !== EXPECTED_DATABASE
+    database !== EXPECTED_DATABASE ||
+    (url.port !== '' && url.port !== '5432')
   ) {
     throw new Error(SAFE_CONNECTION_ERROR);
   }
@@ -96,7 +102,23 @@ const cohortPairsSql = D1_COHORT.map(
  * ②D1t1/D1t2 真的呼叫了這兩個守門(前科:`assertDisplayId` 生產零呼叫端)
  * ③CA 正確時連得上 / 錯誤或缺漏時連不上,兩個方向實跑。
  */
-export const D1_TRANSACTION_GUARD_SQL = `DO $$
+/**
+ * target 版守門(D1t1 加;沿用 d1-restore.ts `buildGuardSql` 的雙向釘死模式):
+ * production 版 assert「必須是 production 叢集」、rehearsal 版 assert「**必須不是**」——
+ * 同一支 orchestrator 在兩種環境都有閘,演練版不可能誤傷 production,
+ * 而 D1t3 規格明定不可省的隔離 DB 實跑也才物理跑得起來(2026-07-29 Fable R3-F5)。
+ */
+export function buildD1TransactionGuardSql(target: 'production' | 'rehearsal'): string {
+  const clusterCheck =
+    target === 'production'
+      ? `  IF (SELECT system_identifier FROM pg_control_system()) <> ${PRODUCTION_CLUSTER_ID} THEN
+    RAISE EXCEPTION 'D1:叢集識別碼不符 production;拒繼續';
+  END IF;`
+      : `  IF (SELECT system_identifier FROM pg_control_system()) = ${PRODUCTION_CLUSTER_ID} THEN
+    RAISE EXCEPTION 'D1:本執行是演練版,不得對 production 執行;拒繼續';
+  END IF;`;
+
+  return `DO $$
 DECLARE
   v_cohort_count integer;
 BEGIN
@@ -114,9 +136,7 @@ BEGIN
   -- system_identifier 是叢集 initdb 當下產生的,邏輯還原出的新叢集會是新值。
   -- 🔴 擋不掉實體快照(pg_basebackup / storage snapshot 原樣保留同一個值);
   --    Supabase clone 用哪一種方式未確認。⇒ 不是身分的唯一證明,唯一證明在連線層。
-  IF (SELECT system_identifier FROM pg_control_system()) <> ${PRODUCTION_CLUSTER_ID} THEN
-    RAISE EXCEPTION 'D1:叢集識別碼不符 production;拒繼續';
-  END IF;
+${clusterCheck}
 
   -- 逐組比對 (id, display_id):打錯一碼 / 貼錯一筆 / 少一筆,配對就對不上、數量到不了 29。
   -- 由 production 當裁判,本 repo 不自算雜湊。
@@ -131,3 +151,6 @@ ${cohortPairsSql}
     RAISE EXCEPTION 'D1:cohort 配對應有 29 筆,實際 % 筆;拒繼續', v_cohort_count;
   END IF;
 END $$;`;
+}
+
+export const D1_TRANSACTION_GUARD_SQL = buildD1TransactionGuardSql('production');

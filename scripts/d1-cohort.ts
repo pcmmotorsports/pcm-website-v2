@@ -57,11 +57,20 @@ export const D1_DELETE_COHORT = Object.freeze([
   { id: '053c2801-e72e-4614-bb77-9ec33e0f82b0', displayId: 'PCM-2026-0103', restoreDisplayId: '6WQS8X' },
 ] as const satisfies readonly D1DeleteCohortOrder[]);
 
+/**
+ * 留存 3 張多帶 `newDisplayId`:**D1c 步驟 11 要改成的新 6 碼單號**(規格 §8.4:837-839 逐字)。
+ *
+ * 🔴 原本這組新號放在檔尾獨立陣列 `RETAINED_NEW_IDS`,與留存單靠**位置索引**隱式對應 ——
+ * 兩個陣列有一邊被重排,0052 就會拿到別人的新號而所有格式檢查照樣全綠。
+ * 改成逐筆具名欄位後,位置錯配在型式上不可能發生(2026-07-29 D1t1 關卡1 R1 折入)。
+ */
+export type D1RetainCohortOrder = D1CohortOrder & Readonly<{ newDisplayId: string }>;
+
 export const D1_RETAIN_COHORT = Object.freeze([
-  { id: '37e4ef4b-b766-4627-97e6-bbaa9618ddfa', displayId: 'PCM-2026-0052' },
-  { id: '2b75b50a-91c9-42b0-a9cd-35b17a2a7215', displayId: 'PCM-2026-0102' },
-  { id: '6b7a783b-0c51-479d-aebb-72ae3499b52e', displayId: 'PCM-2026-0104' },
-] as const satisfies readonly D1CohortOrder[]);
+  { id: '37e4ef4b-b766-4627-97e6-bbaa9618ddfa', displayId: 'PCM-2026-0052', newDisplayId: 'YWP3PC' },
+  { id: '2b75b50a-91c9-42b0-a9cd-35b17a2a7215', displayId: 'PCM-2026-0102', newDisplayId: 'BKPR5M' },
+  { id: '6b7a783b-0c51-479d-aebb-72ae3499b52e', displayId: 'PCM-2026-0104', newDisplayId: 'ZNHY8B' },
+] as const satisfies readonly D1RetainCohortOrder[]);
 
 export const D1_COHORT: readonly D1CohortOrder[] = Object.freeze([
   ...D1_DELETE_COHORT,
@@ -82,8 +91,8 @@ const DISPLAY_ID_RE = /^PCM-\d{4}-\d{4}$/;
 /** §5.4a 產號合約:28 字元字母表(去 0O1IL 易混淆、去 AEU 母音)、固定 6 碼、無前綴。 */
 const RESTORE_ID_RE = /^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$/;
 
-/** D1c 步驟 11 給留存 3 張改的新號。還原號不得與它們相撞。 */
-const RETAINED_NEW_IDS = ['YWP3PC', 'BKPR5M', 'ZNHY8B'] as const;
+/** 由留存 cohort 逐筆導出(單一來源);還原號不得與它們相撞。 */
+const RETAINED_NEW_IDS = D1_RETAIN_COHORT.map(({ newDisplayId }) => newDisplayId);
 
 const restoreIds = D1_DELETE_COHORT.map(({ restoreDisplayId }) => restoreDisplayId);
 
@@ -97,6 +106,8 @@ if (
   D1_RETAIN_COHORT.map(({ displayId }) => displayId).join() !== RETAINED_DISPLAY_IDS.join() ||
   !restoreIds.every((code) => RESTORE_ID_RE.test(code)) ||
   new Set(restoreIds).size !== 26 ||
+  !RETAINED_NEW_IDS.every((code) => RESTORE_ID_RE.test(code)) ||
+  new Set(RETAINED_NEW_IDS).size !== 3 ||
   restoreIds.some((code) => (RETAINED_NEW_IDS as readonly string[]).includes(code))
 ) {
   throw new Error('D1 cohort 常數已被改動(筆數 / 重複 / 格式 / 留存名單 / 還原號);拒繼續');

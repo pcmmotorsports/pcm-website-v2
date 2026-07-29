@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { D1_COHORT, D1_DELETE_COHORT, D1_RETAIN_COHORT } from './d1-cohort';
-import { buildD1PgConfig, D1_TRANSACTION_GUARD_SQL } from './d1-guard';
+import { buildD1PgConfig, buildD1TransactionGuardSql, D1_TRANSACTION_GUARD_SQL } from './d1-guard';
 
 const VALID =
   'postgresql://postgres.bmpnplmnldofgaohnaok:secret@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres';
@@ -166,5 +166,33 @@ BEGIN
     RAISE EXCEPTION 'D1:cohort 配對應有 29 筆,實際 % 筆;拒繼續', v_cohort_count;
   END IF;
 END $$;`);
+  });
+});
+
+describe('buildD1PgConfig:port 斷言(D1t1 Fable R3-F1)', () => {
+  // transaction pooler(6543)host/username 與 session pooler 完全相同、只差 port;
+  // 誤用時 session-level advisory lock 靜默失效(single-flight 歸零)。
+  it('port 6543 = 拒;5432 與省略 = 放行', () => {
+    const base =
+      'postgresql://postgres.bmpnplmnldofgaohnaok:secret@aws-0-ap-southeast-1.pooler.supabase.com';
+    expect(() => buildD1PgConfig(`${base}:6543/postgres`)).toThrow(/不符 production/);
+    expect(buildD1PgConfig(`${base}:5432/postgres`).port).toBe(5432);
+    expect(buildD1PgConfig(`${base}/postgres`).port).toBe(5432);
+  });
+});
+
+describe('buildD1TransactionGuardSql:target seam(D1t1 Fable R3-F5)', () => {
+  it('production 與 rehearsal 對叢集識別碼的斷言方向相反、其餘逐字相同', () => {
+    const prod = buildD1TransactionGuardSql('production');
+    const rehearsal = buildD1TransactionGuardSql('rehearsal');
+    expect(prod).toContain('<> 7632885393857617092');
+    expect(rehearsal).toContain('= 7632885393857617092');
+    expect(rehearsal).toContain('不得對 production 執行');
+    // 身分與 cohort 配對兩段完全一致(同一條路徑、兩個方向都有閘)。
+    for (const shared of ["session_user <> 'postgres'", 'v_cohort_count <> 29']) {
+      expect(prod).toContain(shared);
+      expect(rehearsal).toContain(shared);
+    }
+    expect(D1_TRANSACTION_GUARD_SQL).toBe(prod);
   });
 });
