@@ -5,10 +5,8 @@
 > 目前只證明了「解得開」。**還沒證明「塞得回去」** —— 而 Fable 抓到的那個 BLOCKER
 > (父表驗證查錯資料表、四種組合全滅)正好就是只讀腳本文字驗不到、必須實跑才會現形的那一類。
 >
-> 🔴 全程**不碰正式站**。演練跑在一個獨立的 Supabase 分支上,腳本本身也有守門:
+> 🔴 全程**不碰正式站**。演練跑在一個獨立的資料庫上,腳本本身也有守門:
 > 演練版一旦連到正式站會當場中止。
-
----
 
 ---
 
@@ -45,77 +43,44 @@ products 10 / variants 10 / terms 2)→ 跑**真正的匯出腳本** → 模擬 
 
 ---
 
-## 這一步的成本
+## 演練環境:為什麼是本機而不是 Supabase 分支
 
-Supabase preview branch = **每小時 US$0.01344**(約 NT$0.44)。演練跑完就刪,總花費不到 NT$2。
+**原本要用 Supabase preview branch(每小時約 NT$0.44),實測走不通:**
 
----
+1. 分支建立後狀態 `MIGRATIONS_FAILED` —— 85 支只跑了 54 支。根因 = **#299**
+   (`product_fitments_effective` 整張表不在版控裡,4 支 migration 引用它)。
+2. 更關鍵:**分支只提供 IPv6 直連位址、沒有 pooler**,這台機器連不上
+   (與正式站直連位址同一個問題)。⇒ 分支只有 MCP 進得去,而 `\copy` 是 psql 客戶端指令、
+   MCP 跑不了。
 
-## 你需要準備
-
-**① 分支的連線字串** —— 我建好分支之後,你到
-Supabase → 專案 **pcm-website-v2** → **Branches** → 點那個分支 → **Connect** → **Session pooler** 複製。
-
-🔴 那是**分支自己的**連線字串,跟正式站那條不一樣。別用錯。
-
-**② 解開備份**
-
-```bash
-cd ~ && age -d -o /tmp/d1.tar.gz d1-backup-20260729-v2.tar.gz.age && \
-mkdir -p /tmp/d1r && tar xzf /tmp/d1.tar.gz -C /tmp/d1r --strip-components=1 && \
-ls /tmp/d1r | wc -l
-```
-
-**要看到 `17`**(16 份 CSV + checksums.txt)。
+⇒ 改用**本機拋棄式 PostgreSQL 17.10 叢集**:免費、可完全控制、能直接跑 psql。
+角色與預設權限照正式站 `pg_default_acl` 實查值重建。
 
 ---
 
-## 執行
+## 你需要準備(只有補「用真備份跑一次」時才需要)
 
-### 第 1 步:指向分支
+**① 一個演練用資料庫的連線字串**(本機叢集或任何非正式站的資料庫)。
 
-```bash
-export D1_DB_URL='分支的連線字串'
-echo "長度=${#D1_DB_URL} / 尾段=${D1_DB_URL##*@}"
-```
+🔴 尾段必須跟正式站不一樣。`preflight` 會拒絕指向正式站專案的連線字串,
+腳本內的守門也會在連到正式站叢集時當場中止 —— 兩道,方向相反。
 
-🔴 **尾段必須跟正式站不一樣**(專案代號不同)。如果尾段跟正式站那條長得一樣,**立刻停下來** ——
-那代表複製到錯的地方了。
-
-### 第 2 步:補帳號替身
-
-```bash
-cd /Users/sean_1/pcm-website-v2 && npx tsx scripts/d1-restore.ts --seed-rehearsal /tmp/d1r > /tmp/d1-seed.sql && test -s /tmp/d1-seed.sql && psql "$D1_DB_URL" -f /tmp/d1-seed.sql
-```
-
-**為什麼要這一步**:備份裡的客戶掛在 Supabase 帳號底下,而帳號表我們**刻意沒備份**(你拍的 Q3=A,
-那張表有密碼雜湊)。全新的分支帳號表是空的,不補的話連第一張表都插不進去。
-
-補的只有 **2 個 UUID,沒有任何個資** —— 帳號表唯一必填的欄位就是 id。
-
-> 這一步本身也是那條殘餘風險的實證:**帳號一旦不見,那筆訂單就是救不回來**,
-> 演練也得靠替身才跑得動。不是紙上推論。
-
-### 第 3 步:真的還原
-
-```bash
-cd /Users/sean_1/pcm-website-v2 && scripts/d1-restore.sh pre rehearsal /tmp/d1r
-```
-
-會依序印出 5 個步驟。**任何一步紅了就整批 `ROLLBACK`,分支不會留下半套資料。**
+**② 加密備份**(預設路徑 `~/d1-backup-20260729-v2.tar.gz.age`)。
 
 ---
 
-## 跑完貼什麼給我
-
-1. 第 2 步與第 3 步的**完整畫面輸出**(不含連線字串那行)
-2. 這個:
+## 執行(補「用真備份跑一次」)
 
 ```bash
-psql "$D1_DB_URL" -c "SELECT (SELECT count(*) FROM orders) AS orders, (SELECT count(*) FROM order_items) AS items, (SELECT count(*) FROM payment_charge_attempts) AS attempts, (SELECT count(*) FROM customers) AS customers;"
+export D1_DB_URL='演練資料庫的連線字串'
+cd /Users/sean_1/pcm-website-v2
+scripts/d1-rehearsal.sh
 ```
 
-**應該是 orders 26 / items 36 / attempts 24 / customers 2。**
+就這樣。它會問你 age 密碼,然後自己跑完四步:解密 → 補帳號替身 → 走正式那支 wrapper 還原 →
+新連線重數。任何一步失敗就整條停,明文備份不論成敗都會被清掉。
+
+看到 **`🎉 演練通過`** 才算成功。
 
 ---
 
@@ -125,19 +90,9 @@ psql "$D1_DB_URL" -c "SELECT (SELECT count(*) FROM orders) AS orders, (SELECT co
 
 特別是這幾種,**都不要動腦筋修**,直接貼給我:
 
-- `column name mismatch in header line` —— 備份的欄位跟分支的 schema 對不上
+- `column name mismatch in header line` —— 備份的欄位跟資料庫的 schema 對不上
 - `violates foreign key constraint` —— 有父列不在
 - 任何 `D1:...拒繼續` 開頭的訊息 —— 那是我們自己的守門在講話,它擋下來一定有原因
 
 🔴 **絕對不要做的事**:把腳本裡的 `HEADER MATCH` 改成 `HEADER`、或把任何 assert 註解掉。
 那不是修好,那是把演練要驗的東西關掉。
-
----
-
-## 收尾
-
-演練通過之後告訴我,我把分支刪掉(停止計費),並清掉解壓出來的明文:
-
-```bash
-rm -rf /tmp/d1r /tmp/d1.tar.gz /tmp/d1-seed.sql
-```
