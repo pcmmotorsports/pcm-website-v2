@@ -32,6 +32,7 @@ import {
   PAYMENT_STATE_VERIFY_SQL,
   PENDING_FENCE_SQL,
   PRE_CASCADE_COUNTS_SQL,
+  READBACK_DEADLINE_MS,
   READBACK_FACTS_SQL,
   RECONCILE_IDENTITY_SQL,
   RENUMBER_COLLISION_SQL,
@@ -300,6 +301,16 @@ describe('apply happy path', () => {
     for (const s of ["lock_timeout = '5s'", "statement_timeout = '60s'", "idle_in_transaction_session_timeout = '5min'"]) {
       expect(TXN_SETUP_SQL.join('\n')).toContain(s);
     }
+  });
+
+  // D1t3(規格 row 18 表頭):idle 逾時必須**大於**六筆 read-back 的總體 HTTP 預算 ——
+  // 反過來的話,read-back 還在跑 server 就把交易砍了,每一次 D1c 都必然死在同一格。
+  // 從字面解析、不另抄常數:改小 SET LOCAL 或改大 deadline 都會在這裡轉紅。
+  it('idle_in_transaction_session_timeout 大於 read-back 整批 deadline(D1t3 表頭)', () => {
+    const literal = TXN_SETUP_SQL.join('\n').match(/idle_in_transaction_session_timeout = '(\d+)(ms|s|min)'/);
+    expect(literal).not.toBeNull();
+    const unitMs = { ms: 1, s: 1_000, min: 60_000 }[literal![2] as 'ms' | 's' | 'min'];
+    expect(Number(literal![1]) * unitMs).toBeGreaterThan(READBACK_DEADLINE_MS);
   });
 
   it('DELETE 語句綁定的是 cohort 26 組 UUID 字面(不是別的清單)', () => {

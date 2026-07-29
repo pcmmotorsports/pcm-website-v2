@@ -1,6 +1,6 @@
 # D1 線交接 —— 2026-07-29 傍晚
 
-> **新 session 讀這一份 + `STATUS.md` 就能接手 D1t3。**(D1t1/D1t2 已於 2026-07-29/30 完成)
+> **新 session 讀這一份 + `STATUS.md` 就能接手 D1b1。**(D1t1/D1t2/D1t3 已於 2026-07-29/30 完成)
 > 上游總規劃 = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`(§5.0 順序、§5.1 片表、§8.4 步驟)。
 > 第 1 批整體入口仍是 `docs/handoff/2026-07-29-e10-batch1-handoff.md`;本檔只講 D1 線。
 
@@ -8,7 +8,9 @@
 
 ## ① 現在在哪裡
 
-D1 線十四片,**D1a0-D1a6 + D1t1 完成**。下一片 = **D1t2(CLI + dry-run)**。
+D1 線十四片,**D1a0-D1a6 + D1t1/D1t2/D1t3 完成**(執行器與它的負測全部收工)。
+下一片 = **D1b1(TapPay read-back;🔴 打真 TapPay 正式商戶,必須 Sean 在場)**。
+施工前設計盤點 = 本檔 §⑩。
 
 | 片 | 狀態 |
 |---|---|
@@ -16,8 +18,9 @@ D1 線十四片,**D1a0-D1a6 + D1t1 完成**。下一片 = **D1t2(CLI + dry-run)*
 | D1a4 · D1a5 兩支還原腳本 / D1a6 還原演練 | ✅ 演練實跑通過 |
 | D1t1 交易核心 | ✅ 2026-07-29 晚(4 模組 + 25/25 突變紅) |
 | D1t2 CLI + dry-run + 隔離 DB 實跑 | ✅ 2026-07-30 凌晨(三段全過 + 10/10 突變紅;harness = `d1t2-rehearsal.sh` provision\|scenarios\|teardown) |
-| **D1t3 timeout·rollback 整合負測** | ⬅️ **下一片**(重用 D1t2 provision;fake cron 介面 = Sean T-Q1=A) |
-| D1b1 TapPay read-back / D1b2 dry-run 證據包 | 未開工 |
+| D1t3 timeout·rollback 整合負測 | ✅ 2026-07-30 凌晨(規格 row 18 ①-⑥ 六項全對真 PG17 實跑 + 兩段等長消融 + 突變 7/7 紅) |
+| **D1b1 TapPay read-back** | ⬅️ **下一片**(🔴 打真 TapPay 正式商戶 = Sean 必須在場;設計盤點見 §⑩) |
+| D1b2 dry-run 證據包 | 未開工 |
 | 🔴 Sean 批准閘 → D1c apply(唯一不可逆) | 未開工 |
 | ~~D1a7 post-n3c 演練~~ | **已移出第 1 批**(Sean Q2=A,改排第 2 批 N3a 之後) |
 
@@ -99,6 +102,10 @@ A2/A3 已 apply,`order_item_procurement`(經 `order_items`)與 `order_notes` 對
 | `scripts/d1-export.ts` | `buildCohortSelectors(cohort, source)` = **匯出與還原共用的表清單與 selector**,FK 家長優先序。D1t1 的刪除順序應**沿用它的反序**,不要另抄一份 |
 | `scripts/d1-restore.ts` | 兩支還原腳本 + `preflight` + 演練替身 + COMMIT 後重數 |
 | `scripts/d1-restore.sh` / `d1-rehearsal.sh` | 還原執行器 / 一鍵演練 |
+| `scripts/d1-orchestrator.ts` / `d1-orchestrator-cli.ts` | D1c 交易核心(六態結果)/ CLI(四動作 + 模式×目標 fail-closed 矩陣) |
+| `scripts/d1-readback.ts` / `d1-readback-runner.ts` / `d1-tappay-client.ts` | §8.7 判定矩陣純函式 / 真 TapPay 與 fixture 兩版 runner / 獨立 Record client。**D1b1 直接重用這三支,不要另寫** |
+| `scripts/d1t2-rehearsal.sh` | 隔離庫 `provision \| scenarios \| teardown`。**可被 `source` 重用**(D1t3 就是這樣接的);直接執行才走 dispatch |
+| `scripts/d1t3-negative.sh` / `d1t3-idle-timeout-probe.ts` | 六項故障負測 harness(`all \| negatives <workdir> [stages]`)/ idle 逾時探針 |
 
 ---
 
@@ -111,6 +118,14 @@ A2/A3 已 apply,`order_item_procurement`(經 `order_items`)與 `order_notes` 對
 
 ⇒ **D1t1 這種產生 SQL 的片,文字層測試 + 突變測試是必要條件,不是充分條件。**
 D1t3 的隔離 DB 實跑負測**不可省略、不可降級**。
+
+**2026-07-30 D1t3 收工後補一條同款教訓:負測 harness 自己也會假綠,而且更難察覺。**
+本片施工中實際發生四次:①持鎖者用了 `count(*) … FOR UPDATE`(PG 非法語法)⇒ 一列都沒鎖到、
+負測照樣「通過」;②`kill -9 $!` 殺到 bash 子 shell、orchestrator 變孤兒繼續跑向 COMMIT;
+③`STAGES` 帶前導空白 ⇒ 六段**全部靜默跳過、exit 0**;④探針把 server 的 `25P03` 用客戶端
+泛用訊息蓋掉 ⇒ 「為什麼被砍」的證據消失。
+⇒ **每一段負測都要配一段「等長、同形」的消融**(拿掉受測條件後必須轉綠),
+且**每一條新斷言都要有自己的突變**。沒有配對的負測 = 只證明了腳本跑得完。
 
 ---
 
@@ -132,3 +147,33 @@ D1t3 的隔離 DB 實跑負測**不可省略、不可降級**。
 **紀律:** 貼終端機輸出前,含 `export D1_DB_URL=` 或 `postgresql://` 的整行一律刪除;
 錯誤訊息本身不含密碼、可安全貼。診斷連線字串一律用
 `echo "長度=${#D1_DB_URL} / 開頭=${D1_DB_URL%%:*} / 尾段=${D1_DB_URL##*@}"`(`@` 前面會被切掉)。
+
+---
+
+## ⑩ D1b1 施工前盤點(2026-07-30 過夜整理;**一行 code 都還沒寫**)
+
+**唯一權威 = master plan v2 §8.7**(A0a-1 拍板後的條件改寫),**不是** §5.1 row 19 的舊字面。
+
+| 對象 | 走哪條路 | 證據等級 |
+|---|---|---|
+| 0052 / 0064 / 0090 / 0102 / 0104 | 逐筆以 `rec_trade_id` 查、判定矩陣不降級 | 系統 read-back |
+| **0101(唯一無鍵)** | **不查**;禁用 `bank_transaction_id` 等替代鍵 | **Sean 本人確認,非系統 read-back** |
+
+**現況缺口(已實查):** 判定與查詢三支模組都在(見 §⑥ 表),但 **CLI 沒有獨立的 read-back 入口** ——
+四個動作是 `dry-run / apply / recover-sweeper / verify-ca`,read-back 只在 orchestrator 交易內跑得到。
+
+**兩條路,推薦 A:**
+
+- **A 新增 CLI `readback` 動作**:唯讀 —— 跑 `READBACK_FACTS_SQL`(SELECT)、五筆 keyed 打真 TapPay、
+  `judgeReadback`、寫證據 JSON。**不開交易、不鎖任何列、不動 cron。**
+- **B 直接用 `dry-run`**:read-back 確實會跑,但它在 `REPEATABLE READ` 交易內、會對 29 張 orders
+  `FOR UPDATE`、對 attempts `FOR UPDATE NOWAIT` ⇒ 拿「收集證據」去鎖正式站訂單,且撞上並發結帳就整批 abort。
+
+⇒ 取證不該付演練刪除的代價,而 dry-run(= D1b2)本來就排在 D1b1 後面。
+
+**🔴 開工前必問 Sean(不可自己決定):**
+
+1. **`--merchant-id` 的第二來源** —— D1t1 就留下的未決題;production read-back 要 Sean 從 TapPay
+   商家後台抄一組 merchant id 當雙輸入斷言。
+2. **D1b1 實跑本身**(打真 TapPay 正式商戶)—— 過夜授權的禁區,Sean 必須在場。
+3. 證據包的保存位置與保存期(匯出檔是 180 天;證據包尚未定)。

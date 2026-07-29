@@ -19,7 +19,9 @@
 #   本機 PG 非 Supabase;70 秒沉降照真跑(不改時序常數 —— 保真的代價,全程約 +3 分鐘);
 #   CLI 的 signal 二擊硬退出本片零自動覆蓋(kill/signal 實跑 = D1t3 規格 row 18 負測)。
 set -euo pipefail
-cd "$(dirname "$0")/.."
+# 🔴 用 BASH_SOURCE 不用 $0:被 source 時 $0 是**呼叫端**腳本,而呼叫端多半已經 cd 到
+#    repo 根 ⇒ 這行會再 cd 一次、落到 repo 上一層(從 scripts/ 裡呼叫 d1t3 時實測重現)。
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 PORT=54329
 PGBIN="$(dirname "$(command -v initdb)")"
@@ -236,6 +238,12 @@ teardown() {
   esac
   rm -rf "$REAL"
 }
+
+# 被 source 時(D1t3 重用 provision/teardown/digest/runsql)不跑 dispatch。
+# 三種呼叫方式(`bash x.sh` / `./x.sh` / `source x.sh`)已逐一實測。
+if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+  return 0
+fi
 
 CMD="${1:-}"
 case "$CMD" in
