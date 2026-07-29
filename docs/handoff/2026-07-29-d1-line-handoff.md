@@ -73,10 +73,13 @@ NOWAIT 失敗 = **不自動重試**、鎖畢斷言用 **failed/released 計數 1
 
 ### 5-2 TapPay client 不能直接 import adapter
 
-`TapPayChargeAdapter` 檔頭有 `import 'server-only'`,**在純 node/tsx 載入即 throw**。
-⇒ runbook 用獨立小 client:複用 `wire.ts` 的解析與 Record API 組裝、env 讀 Partner Key、
-斷言 `TAPPAY_ENV=production` + 正式商戶 merchant id、用 fetch 原生 30s `AbortSignal`。
+`packages/adapters/src/tappay/TapPayChargeAdapter.ts:22` 逐字 `import 'server-only';`(2026-07-29 親驗),
+**在純 node/tsx 載入即 throw**。
+⇒ runbook 用獨立小 client:複用 `packages/adapters/src/tappay/wire.ts` 的解析與 Record API 組裝、
+env 讀 Partner Key、斷言 `TAPPAY_ENV=production` + 正式商戶 merchant id、用 fetch 原生 30s `AbortSignal`。
 **D1t2 單元測必須含「node 環境可載入」斷言。**
+
+⚠️ 注意目錄是 `src/tappay/` **不是** `src/payment/`(我自己第一次就查錯目錄、差點把「查無」寫進交接檔)。
 
 ### 5-3 D1c 前置:兩張新表的零引用斷言
 
