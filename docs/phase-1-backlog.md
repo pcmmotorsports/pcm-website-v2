@@ -7589,6 +7589,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-26 / M-4b #296 修正片,opus + codex 雙審獨立命中。
 - **相關:** #296(Enter 路徑已修);`docs/specs/2026-07-26-admin-ux-operability-review.md` §5 #24(高風險動作「影響範圍」複核頁)+ §8 E11 驗收加項;`apps/admin/src/components/customers/wallet-adjust-submit.tsx`;D1 決策題(儲值金 DB 級去重)。
 
+### #298. 🧾 CI 擋 migration 版本漂移(本地施工單 vs 資料庫登記簿對不上)
+
+- **狀態:** ⏳ 待執行(**Sean 2026-07-29 拍板 A = 加**;原為 STATUS「非阻擋舊題」,報價單實測壞掉後價值上升)
+- **優先級:** 🟠 中(不影響客人;壞掉時的症狀是「整條 migration 路徑不能用」,且發現時通常已無法回頭)
+- **問題:**
+  - 目前「本地 `supabase/migrations/` 檔案」與「remote `schema_migrations` 登記簿」是否一致,**完全靠人記得手動比對**,沒有任何機器守門。
+  - 🔴 **同組織內已有壞掉的樣本**:報價單 repo 本地 **146 檔 vs ledger 160 筆、版本號零重疊** ⇒ 該 repo **`supabase db push` 已完全不可用**(memory `reference_quote-repo-migration-ledger-desync`)。壞法不是一次爆掉,是長期無人比對累積出來的。
+  - 本 repo 現況乾淨(2026-07-29 實查:`migration list` **85 支**、local-only 0、remote-only 0、版本號不一致 0),但**乾淨的原因是人有記得,不是機器擋著** —— 換一個 session、換一個人就重演報價單的路徑。
+- **觸發事件:** 2026-07-27 查報價單 2FA 線時撞到「報價單不能跑 `db push`」,回頭發現本 repo 用的是同一套沒有守門的流程;2026-07-29 Sean 拍板加。
+- **預期解法:**
+  - CI job 對每個 PR / push 跑一次比對:列出 local-only 與 remote-only 版本號,任一非零即紅。
+  - 🔴 **需要 remote 讀取憑證** ⇒ secret 管理是本條的真難點,不是比對邏輯。若不想把憑證放進 CI,退而求其次 = 純本地 pre-commit hook 只驗檔名格式與單調遞增(**擋不住真漂移**,採用前必須照 memory `feedback_control-named-beyond-its-actual-power` 寫明它擋不住什麼)。
+- **不修會痛在:**
+  - 擴充性:第 2/3 批還有大量 migration 要上,漂移一旦發生,後面每一支都推不動。
+  - 可維護性:報價單已證明「補救成本」遠高於「預防成本」—— 那邊現在要人工重建 160 筆對應關係。
+  - bug 可追蹤性:漂移沒有告警,發現的方式一律是「某天 `db push` 突然失敗」,而那時已經分不清哪幾支是真的沒 apply。
+- **估時:** 60-90 分鐘(比對腳本 30 分 + CI 接線與 secret 40 分 + 負向測試:故意造一支 local-only 驗證它真的紅)
+- **依賴:** 🔴 **動 CI = 鐵則 12 ④平台設定 = 高風險片**,且屬鐵則 8「重大改動」⇒ **先提 plan 等 Sean 批准、commit 前必過 codex 關卡2**。不插隊 E10 第 1 批。
+- **發現於:** 2026-07-27 / 報價單 2FA 線偵察;2026-07-29 Sean 拍板 A。
+- **相關:** memory `reference_quote-repo-migration-ledger-desync`(壞掉的樣本)/ `project_supabase-migration-version-drift`(正式 schema 用 `db push` 不用 MCP)/ `reference_supabase-cli-reads-env-local-blocker`(CLI 被 `.env.local` 擋住的繞法,CI 環境要一併考慮)。
+
 ## 紀錄模板
 
 ```markdown
