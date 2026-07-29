@@ -106,7 +106,11 @@ v2 §6.1 定義 E10 完成 = 27 項中 **17 項**全綠:1 / 3 / 4 / 5 / 6 / 7 / 
 
 ---
 
-## 5. 建議的主表更正(**未執行,等 Sean 點頭**)
+## 5. 建議的主表更正(✅ **Sean 2026-07-29 拍 A0c-1=A,已執行**)
+
+> 三處都已改進 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md`:§1 表第 19 列、第 26 列、小計 2/5/20。
+> 另外同檔 §0 與 §5.6 兩處也在引用「`staff.ts:3` hardcode 名單」這個已過期字面,一併修正
+> ——「只補摸過的那幾行」正是本 repo 復發過 9 次以上的失敗模式(memory `feedback_claimed-sync-but-only-patched-touched-lines`)。
 
 `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1 表建議改兩列 + 一個小計:
 

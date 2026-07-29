@@ -284,7 +284,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 
 ### 5.1 第 1 批(詳片級;可直接開工)
 
-**Sean 做完會看到**:訂單列表換成新版 12 欄三軸;訂貨軸真的能標(含分配數量、含批次);明細頁能寫內部備註與聯絡紀錄、能記供應商單號與預計到貨;取消訂單這個動作**第一次存在**。
+**Sean 做完會看到**:訂單列表換成新版 13 欄三軸(Sean 07-29 拍 A0b-1=B,見 §5.1a);訂貨軸真的能標(含分配數量、含批次);明細頁能寫內部備註與聯絡紀錄、能記供應商單號與預計到貨;取消訂單這個動作**第一次存在**。
 **Sean 這批看不到**:出貨軸(顯示灰色「未出貨」、唯讀,第 2 批才會動)。
 
 ⚠️ **關於「只剩 3 張」的精確說法**(codex R2 抓上一版自我矛盾):
@@ -319,9 +319,9 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 16 | **D1t1** | runbook | 🔴 **D1 orchestrator 交易核心片**(R11 再拆:CLI/dry-run 另片):交易執行函式本體(BEGIN → 鎖序 → 步驟 8b-13 → COMMIT;任一 API 失敗 / 斷言不符 = `ROLLBACK` 後 exit 非零)。🔴 **復盤L3 修 + R22 補全:不得直接 import `TapPayChargeAdapter`** —— 檔頭 `import 'server-only'` 在純 node/tsx 載入即 throw;runbook 用**獨立小 client**(複用 `wire.ts` 解析與 Record API 組裝、env 讀 Partner Key、**`TAPPAY_ENV=production` + 正式商戶 merchant id 斷言、fetch 原生 30s AbortSignal**),D1t2 單元測含「node 環境可載入」斷言。🔴 **不依賴 A15**(R22:A15 改的是 server-only adapter 的 port 簽章,是**第 3 批 worker** 的依賴;runbook client 的 signal 是 fetch 原生)。🔴 **鎖策略照 §8.4 步驟 8 的 NOWAIT fence 定案**(不留「施工時 grep」) | — |
 | 17 | **D1t2** | runbook | 🔴 **D1 orchestrator CLI 片**:CLI 組裝 + `--dry-run` 模式(模擬步驟 8-13、強制 ROLLBACK)+ 隔離 DB 假資料單元測 | — |
 | 18 | **D1t3** | runbook | 🔴 **D1 timeout / rollback 整合驗證片**:六筆總體 3 分鐘上限、`SET LOCAL idle_in_transaction_session_timeout = '5min'`(大於總體 HTTP 預算 + 餘裕);**負測(R23 落片):①逾時後交易確實 rollback、不留半掛交易 ②雙交易 NOWAIT(反向持鎖時立即 abort、不等待)③kill -9 後啟動 self-heal(依 ownership state 檔恢復 sweeper)④🔴 **R24 fault-inject 兩個 crash 邊界:「state 已寫、job 未停」與「已恢復、state 未清」**(前者 self-heal 見 state+active=true ⇒ 只清 state;後者同)⑤🔴 **R25 雙 orchestrator 交錯負測:後取得者被 advisory lock 擋下**⑥🔴 **R26/R27 接管負測:A 寫 state、停 sweeper(`active=false`)後 kill -9;持不同 run id 的 B 取鎖 → state-first 分流進 recovery mode(不被正式分支的 active=true 斷言擋)→ CAS 接管、恢復、清 state**(隔離 DB 實跑) | — |
-| 19 | **D1b1** | runbook | 🔴 **D1 read-back 片**:TapPay read-back 六筆,**判定矩陣寫死(R9;數值親驗 tappay-reference.md:85-86)**:逐筆以 `payment_charge_attempts.rec_trade_id` 為查詢鍵、top `status ∈ {0,2}`(查詢成功語意)、**唯一命中**;三筆已退單(0052/0102/0104)斷言 `record_status = 3`(REFUNDED)且 `refunded_amount` = 授權金額;三筆 `pending` 單(0064/0090/0101)允許 `record_status ∈ {-1 (ERROR), 5 (CANCEL)}` —— 🔴 **`0`(AUTH)與 `4`(PENDING;三筆 3DS 已啟動、4 是最可能實際值 —— 預期分支非異常)皆不自動放行:出現 = 保留 cohort、輸出證據、停下等 Sean,不進刪除**(R21 同步片列)。🔴 **0052 出口同步(R21+R22 措辭統一)**:0052 **正式商戶查無** ⇒ 步驟 12 對 0052 走保持原值路徑 + audit 記「正式商戶查無」(**不得寫「sandbox 已證實/推定成立」—— read-back 只能證明正式商戶無此交易**),不擋其餘;0102/0104 查無必 abort。其餘零筆、多筆、狀態外、金額不符 = 一律 abort。🔴 **硬前置(A0a 實查)**:六筆 attempts 的 `rec_trade_id` **全部非 NULL**(欄位 nullable);任一 NULL = 停下 raise Sean,不得用寬條件替代 | — |
+| 19 | **D1b1** | runbook | 🔴 **D1 read-back 片**:TapPay read-back 六筆,**判定矩陣寫死(R9;數值親驗 tappay-reference.md:85-86)**:逐筆以 `payment_charge_attempts.rec_trade_id` 為查詢鍵、top `status ∈ {0,2}`(查詢成功語意)、**唯一命中**;三筆已退單(0052/0102/0104)斷言 `record_status = 3`(REFUNDED)且 `refunded_amount` = 授權金額;三筆 `pending` 單(0064/0090/0101)允許 `record_status ∈ {-1 (ERROR), 5 (CANCEL)}` —— 🔴 **`0`(AUTH)與 `4`(PENDING;三筆 3DS 已啟動、4 是最可能實際值 —— 預期分支非異常)皆不自動放行:出現 = 保留 cohort、輸出證據、停下等 Sean,不進刪除**(R21 同步片列)。🔴 **0052 出口同步(R21+R22 措辭統一)**:0052 **正式商戶查無** ⇒ 步驟 12 對 0052 走保持原值路徑 + audit 記「正式商戶查無」(**不得寫「sandbox 已證實/推定成立」—— read-back 只能證明正式商戶無此交易**),不擋其餘;0102/0104 查無必 abort。其餘零筆、多筆、狀態外、金額不符 = 一律 abort。~~🔴 **硬前置(A0a 實查)**:六筆 attempts 的 `rec_trade_id` **全部非 NULL**(欄位 nullable);任一 NULL = 停下 raise Sean,不得用寬條件替代~~ ⇒ 🔴 **2026-07-29 已觸發並由 Sean 拍板放行(A0a-1),條件改寫見 §8.7 —— D1b1 施工以 §8.7 為準,不以本行舊字面為準** | — |
 | 20 | **D1b2** | runbook | 🔴 **D1 dry-run + 證據片**:D1t2 CLI 帶 `--dry-run` 對 production 跑(模擬步驟 8-13、強制 ROLLBACK)+ 證據包(checksum / 演練紀錄 / read-back / dry-run 矩陣)交 Sean。**證據有效期 24 小時**(逾期重跑本片) | — |
-| 21 | **D1c** | runbook | 🔴 **D1 apply 片**:Sean 明確批准後才可執行,跑 D1t1/D1t2 orchestrator 正式模式:鎖列 → 步驟 8b 重跑 read-back(同 D1b1 判定矩陣)→ 刪除 / 改號 / 狀態對齊 → 驗收矩陣。**本批唯一不可逆的一片**;🔴 不是 migration、不進 migration 序列 | — |
+| 21 | **D1c** | runbook | 🔴 **D1 apply 片**:Sean 明確批准後才可執行,跑 D1t1/D1t2 orchestrator 正式模式:鎖列 → 步驟 8b 重跑 read-back(**判定矩陣依 §8.7,只涵蓋五筆有 `rec_trade_id` 的**)→ 刪除 / 改號 / 狀態對齊 → 驗收矩陣。**本批唯一不可逆的一片**;🔴 不是 migration、不進 migration 序列。🔴 **新增前置(2026-07-29,Fable 關卡2 F5)**:A2/A3 兩張新表對 `orders` / `order_items` 都是 **`ON DELETE RESTRICT`**,而**實際 apply 序已變成 A2/A3 先落地、D1c 之後才跑**(D1 線今早才解封)。⇒ 鎖列後、DELETE 前必須先斷言 **`order_item_procurement`(經 `order_items`)與 `order_notes` 對 cohort 零引用**;非零 = abort 人工釐清,不得硬刪。少了這條,若 A5a/A6 已上線且有人對待刪單寫過採購或備註,DELETE 會被 RESTRICT 擋在半路(fail-closed、不會誤刪,但 orchestrator 會炸在中途) | — |
 | 22 | **A2** | M | `order_item_procurement` 新表(**採購真相**,每 line 1:N)。🔴 **兩個數量欄**:`allocated_quantity`(這筆採購負責幾件)+ **`received_quantity`(這筆實際到貨幾件)** —— R3/R4 兩次抓:少了後者,`instock_quantity` **無來源可推導**。其餘:供應商名、`supplier_canonical_key`、聯絡管道、送出時間、供應商單號、回覆狀態、異常原因、預計到貨、`first_ordered_at`、`status_changed_at`。CHECK(R6 補負值與上限):**`allocated_quantity BETWEEN 1 AND 100000`、`received_quantity BETWEEN 0 AND allocated_quantity`**(皆整數)。**upsert 唯一鍵 `(order_item_id, supplier_canonical_key)`**(A5a 冪等重放靠它)。ACL = service_role only + RLS zero-policy。🔴 **排在 A1 之前**(真相表先於摘要欄) | — |
 | 23 | **A3** | M | `order_notes` 新表(append-only):內部備註 / LINE·電話聯絡紀錄 / 「已告知客人」登記(U6)。ACL 同 A2 | — |
 | 24 | **A7** | M | 🔴 **`order_cancellations` + `order_cancellation_items` 兩表同片建**(R12 抓:items 原無具名 schema 落點,但 A4a trigger 與 A8a2 都要寫它;取消真相,合約見 §5.1b)。header 含 `reason_code`(7 值 CHECK,§5.1d)+ 🔴 **`reason_detail` text(R7 補:Q18 的 `other` 手寫文字原本無處可放)—— CHECK 鎖 `other` 必填非空白、其餘 code 必 NULL**。**內部取消原因不進 `orders`**(原則 3);對客的 `orders.cancelled_reason` / `cancelled_at` 原封不動 | — |
@@ -359,7 +359,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 56 | **A10a** | U | 明細頁:內部備註 + 聯絡紀錄時間軸;🔴 **含 U6「已告知客人」的結構化欄位**(時間 / 管道 / 摘要)寫入與讀回 | **3** |
 | 57 | **A10b** | U | 明細頁:逐品項採購表單(含分配數量、到貨數量、異常原因、相似值警告) | **5, 6, 7**(🔴 R5 抓:第 7 項 = **A10a+A10b 聯合驗收** —— 告知紀錄在 A10a、異常原因在 A10b,兩片皆完成才綠) |
 | 58 | **A10c2** | U | 依供應商單號搜尋畫面(消費 A9b2) | — |
-| 59 | **A11a** | U | 列表桌機:**12 欄骨架 + rowSpan 分組重算**(§7.2) | — |
+| 59 | **A11a** | U | 列表桌機:🔴 **13 欄骨架**(Sean 07-29 拍 A0b-1=B;**欄位清單唯一權威 = §5.1a**,「12 欄」舊字面作廢)**+ rowSpan 分組重算**(§7.2) | — |
 | 60 | **A11b** | U | 列表桌機:**三軸膠囊元件**(付款單層 / 訂貨·出貨品項層,`n/m` 顯示;出貨軸唯讀灰) | — |
 | 61 | **A11c** | U | 列表**手機卡片版**(通用 UI 規範 §4-1) | **1(部分)** |
 | 62 | **A9v** | M | 🔴 **九碼 writer 停寫(R16 修正誤殺)**:**REVOKE `admin_update_order_item_workflow`**(item 支)+ 🔴 **R18 補:撤 `order_status_options` 的 service_role INSERT/UPDATE 寫權 + ACL 終態斷言**(否則 P3 停寫不真 —— UI 下架了、寫權還在)—— `admin_update_order_workflow` **保留**:親驗 `20260716120000:76` 它已在 D-2 收窄(送 `workflow_status` key = RAISE)、現管運送方式與發票四欄,撤了會讓合法改單失效。前置 = **grep 驗證全部 consumer(A9w1-4c + A11 重建後)零引用**;`order_items.workflow_status` 欄凍結不 DROP。**表序已同步:本片排 A11c 之後**(R17 修 DAG 循環) | — |
@@ -426,13 +426,25 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 
 #### 5.1a 版面規格(repo 內可驗字面,取代 artifact)
 
-**12 欄**:訂單編號(含付款軸小字)/ 日期 / 品牌 / 料號 / 品名 / 數量 / 金額 / 客戶(含等級小字)/ 訂貨 / 出貨 / 發票 / 操作。
+🔴 **13 欄**(Sean 2026-07-29 拍板 A0b-1=B;原寫 12 欄):
+訂單編號(含付款軸小字)/ 日期 / 品牌 / 料號 / 品名 / **年份廠牌車種** / 數量 / 金額 / 客戶(含等級小字)/ 訂貨 / 出貨 / 發票 / 操作。
+
+> **為什麼從 12 改成 13**:A0b 逐欄對帳發現原清單把兩個現行欄悄悄拿掉、且全檔未寫理由 ——
+> ①「年份廠牌車種」(V-3b 專門做的欄,`orders-table.tsx:104-107` 由 `vehicle_snapshot` 逐品項直出)
+> ②「來源 · 管道」。Sean 看過三案並排視覺(artifact `68a00571-7efc-49e1-9758-472a650b156e`)後拍 **B**:
+> **車種留下**(員工揀貨與確認相容性會看,拿掉等於每筆都要多點一次明細頁)、
+> **來源 · 管道拿掉**(明細頁 `order-detail.tsx:203-206` 已有,不是每天要看的資訊)。
+> ⇒ 欄數與現行 13 欄相同,擁擠度不比現況差。**A11a 依本行施工,不依「12 欄」舊字面。**
 
 | 動作 | 欄 | 理由 |
 |---|---|---|
 | 合併 | 單價 + 總金額 → 「金額」 | 🔴 **2026-07-28 實查更正**:39 個品項列 **`quantity` 全為 1**(`max(quantity)=1`)⇒ 單價 = 該列小計,兩欄數字相同;**但有 5 張單是多品項單**(39 列分佈在 29 張單)⇒ 那 5 張的整單總額 ≠ 任一列單價。**規則必須是「品項列 >1 **或** 任一列 `quantity` >1 就在合併格顯示整單總額」** —— v1 只寫了 `quantity >1` 這半條,會讓多品項單看不到總額 |
 | 移除 | 會員等級 | 併進客戶格第二行小字 |
 | 移除 | 商品狀態(9 碼下拉) | 退場,原地換成訂貨 + 出貨兩欄 |
+| 🔴 移除 | **來源 · 管道** | Sean 07-29 拍 A0b-1=B。明細頁 `order-detail.tsx:203-206` 已有,不是每天要看的資訊 ⇒ 列表讓位給三軸 |
+| 🔴 保留 | **年份廠牌車種** | Sean 07-29 拍 A0b-1=B。V-3b 專門做的欄(`orders-table.tsx:104-107`,`vehicle_snapshot` 逐品項直出);員工揀貨與確認相容性會看,拿掉等於每筆多點一次明細頁 |
+| 新增 | 發票 | 三軸之外的收尾軸(A11a 前置 = 既有 `pending_invoices` 四欄已在明細頁);列表只顯示載具別與開立與否 |
+| 新增 | 操作 | 取消 / 檢視入口。第 1 批「取消訂單」這個動作第一次存在(27 項第 19 項),需要列表層入口 |
 | 改寫 | 日期 → `07/25` | **跨年才補年份**(`2025/06/27`);完整時間戳仍在 DB |
 
 **三軸落點**:付款 = 訂單層(rowSpan 合併格內小字,「待付款」紅 = **design token `--c-red`(#dc2626,`tokens.css:16`)** —— 🔴 復盤L2 抓:原寫的 `#E73928` 在 design-reference/packages/apps **零命中**,且 `2026-07-12-search-vehicle-work-plan.md:92` 早有先例裁定「品牌色 hex 是外部色、用網站 token 不照抄」)/ 訂貨、出貨 = **品項層**膠囊。
@@ -563,7 +575,7 @@ Sean 已拍 N5「訂單域做到目標狀態才算數、不接受做一半」⇒
 - **不給總片數與總工期**。**第 1 批 = 69 片**(R18 折入後;**唯一有效來源是 §5.1 那張表、且一律 `awk` 當場數**)。第 2/3 批開批時才拆片,**現在給的數字必然是假的** —— v1 同檔寫過 24 / 22、高風險 13 / 12(實際 15),就是這麼來的(#61/#62)
 - 🔴 **第 1 批 14 → … → 66 → 67 → 69 片是十八輪審查的結果、不是範圍擴張** —— 同樣的工作拆到每片真的能在 45 分鐘內做完並獨立驗收(69 = 67 + A9w4 拆三)。**「片太大」是最頑固的一類 finding**,是本線最頑固的一類 finding
 - 🔴 **片型分佈我親手寫錯過兩次**(R3 寫 R5/A7/U10、R4 寫 M5/A7)⇒ 該行**只准 `awk` 數完貼上**,禁止手算
-- 27 項現況沿用 2026-07-26 read-back,**至今未重驗**(A0 補)
+- ~~27 項現況沿用 2026-07-26 read-back,**至今未重驗**(A0 補)~~ ✅ **2026-07-29 A0c 已重驗**:25 項一致、2 項漂移(#19 ⚠️→❌ 取消動作不存在、#26 證據行過期),**分母更正 = ✅2 / ⚠️5 / ❌20**(Sean 同日拍板 Q2=A,主規格 §1 表已改)。§6.1 的 17 項組成不變、綠燈宣稱不變,只有「相對於什麼變綠」的基準改了。證據 `docs/reviews/2026-07-29-e10-a0c-27item-reconcile.md`
 - 視覺 artifact 未讀取,版面以 §5.1a 文字為準(#66)
 - E8-B plan v3 的 34 條 must-fix **仍未重寫折入**;本檔只記錄狀態
 - 報價單 repo **不能跑 `supabase db push`**(本地 146 檔 vs ledger 160 筆版本號零重疊)—— 與 E10 無關,但 E8-B 開工前必處理
@@ -624,6 +636,20 @@ Sean 已拍 N5「訂單域做到目標狀態才算數、不接受做一半」⇒
 | **Q17 已到貨後取消** | ✅ **B 不可取消,走退貨**(2026-07-28) | §5.1c 第四條不變式上 CHECK;A8a2 守門;A13a 指路退貨 |
 | **Q18 取消原因 allowlist** | ✅ **照草案**(2026-07-28) | 定案表 = §5.1d;A7/A8 開工阻擋解除 |
 | **Q19 P1 分批後綴** | ✅ **A 作廢**(2026-07-28;P1 是 Sean 拍板、由 Sean 本人作廢) | `shipment_reference` 不加 `-1/-2`;§8.5 |
+
+### 8.0 🔴 Sean 2026-07-29 晨拍五題(過夜施工回報後)
+
+> 來源 = `docs/handoff/2026-07-29-e10-overnight-report.md` §2.3 的五個決策題。**題號沿用 A0a-1 / A0c-1 / A0b-1 / A3-1 / A2-1**,不與 07-28 的 Q 序混用。
+
+| 題 | 拍板 | 連動 |
+|---|---|---|
+| **A0a-1** `PCM-2026-0101` 無 `rec_trade_id` | ✅ **Sean 逐字「都沒扣到錢,放心刪除」** ⇒ **cohort 維持 26 張、0101 不移出**;它的「無金流」證據等級 = **Sean 本人確認**,非系統 read-back | 🔴 D1 線解封;**但 0101 的 D1b1 判定矩陣不適用**(沒有查詢鍵)⇒ 見 §8.7 |
+| **A0c-1** 27 項驗收表兩列與事實不符 | ✅ **A 改主表 + 小計 2/5/20** | `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1 第 19/26 列與小計已改;同檔 §0 與 §5.6 兩處過期的 `staff.ts:3` hardcode 字面一併修正;§6.3 誠實邊界該條已結案 |
+| **A0b-1** 新版列表欄位 | ✅ **B 13 欄:留「年份廠牌車種」、拿掉「來源 · 管道」**(看過三案並排視覺 artifact `68a00571-7efc-49e1-9758-472a650b156e` 後拍板) | §5.1a 欄位清單與動作表已改;§5.1 表 A11a 列已改;§5.0「Sean 做完會看到」已改。**「12 欄」全檔作廢** |
+| **A3-1** `order_notes` 誤選「已告知客人」改不掉 | ✅ **A 現在就加更正機制** | A3 migration 加 `corrects_note_id` + 複合 FK(只能更正同單)+ partial unique(一筆最多被更正一次)+ `corrects_not_self` CHECK;**append-only 不破壞**;U6 稽核查詢形狀寫死在 migration 註解 ⇒ **列為 A9a 驗收條件**(附「被更正的不得算已履行」負測) |
+| **A2-1** 採購只記到貨累計數 | ✅ **A 現在就加**(表未 apply、改檔最便宜) | A2 migration 加 `order_item_procurement_receipts` 逐批到貨明細(append-only、service_role only)。🔴 **新合約債**:`received_quantity` = 明細 SUM 這條等式**本片無 DB 層強制**(M 型零 trigger)⇒ **列為 A4a 驗收條件**,在 A4a 之前由 A4b writer 同交易自持 |
+
+**另一題非阻擋、Sean 未答**(D0-1):全 repo migration 自寫 `BEGIN/COMMIT` 與 Supabase CLI 記帳的窄縫 —— 維持現狀,未開 backlog。
 
 ### 8.1 Q1=B 的連動(四條 findings 因此消失)
 
@@ -892,5 +918,31 @@ dry-run(步驟 6)與正式 apply 後**各驗一次同一張矩陣**(R5 抓:檔�
 | **退款線兩題**(R8) | ①混合收款(卡+匯款)單的退款分軌與分配順序(世代式 one-current 約束只涵蓋卡單軌,R18 nit 同步)②`partiallyPaid` 取消的本次應退額推導語意(只定上限不夠,兩個合法實作會退不同金額) | 開批閘 | 第 3 批退款線(A8b / worker)開工前;拍板前對應情境 fail-closed |
 
 規則:任何新的未定需求**只准登記在本表**,其他段落只可引用「見 §8.6」;開批閘在對應批次開批時一次問 Sean,不零碎打斷。
+
+---
+
+### 8.7 🔴 A0a-1 拍板後的 D1b1 條件改寫(**D1b1 施工唯一權威**)
+
+**背景**:A0a 實查命中 §5.1 D1b1 原本寫死的硬停條件 —— 六筆 attempts 裡,`PCM-2026-0101`(NT$2,400、`unpaid`、卡片 `pending`)的 `rec_trade_id` 是 **NULL**,而規格把該欄寫死成 D1b1 唯一查詢鍵、且明文「不得用寬條件替代」。過夜 session 依規格停下、未自作主張,D1 線 14 片全部未動。
+
+**Sean 2026-07-29 晨拍板(逐字)**:「都沒扣到錢,放心刪除」。
+
+#### 改寫後的 D1b1 條件
+
+| 對象 | 走哪條路 | 證據等級 |
+|---|---|---|
+| 五筆**有** `rec_trade_id`(0052 / 0064 / 0090 / 0102 / 0104) | 🔴 **判定矩陣完全不變、不降級** —— 逐筆以 `rec_trade_id` 為查詢鍵、top `status ∈ {0,2}`、唯一命中;三筆已退單斷言 `record_status = 3` 且 `refunded_amount` = 授權金額;`pending` 單只允許 `record_status ∈ {-1, 5}`,出現 `0`/`4` 一律保留 cohort + 停下等 Sean。0052 正式商戶查無 = 保持原值 + audit,0102/0104 查無必 abort | 系統 read-back |
+| 🔴 **`PCM-2026-0101`(唯一無鍵者)** | **不做 TapPay read-back**(物理上無查詢鍵)。**不得改用 `bank_transaction_id` 或任何寬條件替代** —— 那條禁令仍然有效,本次放行的是「缺這筆 read-back 也照刪」,不是「換個鍵去查」。仍留在待刪 cohort(26 張不變) | 🔴 **Sean 本人確認,非系統 read-back** |
+
+#### 施工必做
+
+1. D1b1 的證據包必須**逐筆標註證據等級**,0101 那筆寫死為「Sean 2026-07-29 口頭確認未扣款;無 `rec_trade_id`,未經 TapPay read-back」。
+2. D1c 的 migration 註解、cohort manifest、audit 紀錄**三處都要帶這句**(對齊 §8.4 對 Q5 的既有做法:「證據等級寫明,來源 = Sean 本人確認」)。
+3. D1c 步驟 8b 的第二次 read-back 同樣**只涵蓋五筆**;不得因為少一筆就把整批 read-back 降級。
+
+#### 🟡 殘餘風險(列出、不自宣接受)
+
+- 0101 的「未扣款」在系統內**沒有可機械複驗的證據**。若日後對帳發現該筆其實有授權,匯出檔(`age` 加密、保存 180 天)是唯一還原路徑 —— 這正是 D1a2 匯出片存在的理由,**不得因本次放行而省略匯出**。
+- 「都沒扣到錢」是口語,涵蓋範圍以本節表格為準:**只解除 0101 的無鍵硬閘**,不取消其餘五筆的 read-back。若 Sean 的原意更廣(例如整批都不必 read-back),須另行拍板,施工端不得自行擴張解釋。
 
 — END —
