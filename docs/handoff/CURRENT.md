@@ -1,5 +1,20 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉 **2026-07-30 下午:backlog #301(TapPay Record API 三欄位)收工 —— `21cba57`,未 push、零 DB。**
+> 接手入口 = `docs/handoff/2026-07-30-301-tappay-record-handoff.md`。
+> 起點是「三個欄位名寫錯」,連帶修好一條**從未成立過的金流路徑**(弱識別時間窗讀不存在的欄
+> ⇒ 值恆 undefined ⇒ 該路一律卡 pending,而 10 條測試自帶那個欄位而全綠)。
+> 四輪對抗審查(codex×2 → Fable×2)、**19 must-fix + 12 nit 全折入、駁回 0**;
+> 🔴 **每輪抓到的都是「上一輪修法自己開的洞」**,R1 之後就收工會把兩條錯誤的成交路徑推上正式站。
+> ✅ Sean 拍板四題:Q1=A 身分閘改比 `original_amount` / Q2=A 順手改對已退場的 D1 矩陣 /
+> Q3=A 先試 codex(**未逾時、鐵則 12 按字面滿足**)/ **⑤ 追認=A 弱識別不得 markFailed 釋鎖**。
+> 🔴 **上線後必驗**:`time` 的毫秒單位**只有官方文件背書、實際值從未被觀察** —— 若實為秒,
+> 本片主要修復在正式站**靜默無效**(已埋 `reason:'window'` 的非 PII log 當活性信號)。
+> 🔴 **退款線 RF2b-RF8 的硬前置已解除**;下一片 = 回 E10 推進「後台取消訂單/退款」。
+> ⚠️ 工作樹另有並行 session 的檔案(mobile-catalog-ux / `CascadeFilterTop` / `docs/superpowers/`),
+> 本線全程未觸碰、未納入任何 commit。
+
+
 > 🎨 **2026-07-30 商品目錄選車 UX 已完成視覺拍板，下一手由 Claude 正式落地、Codex 唯讀審查。**
 > 完整開工交接：`docs/handoff/2026-07-30-catalog-ux-claude-execution-handoff.md`。
 > 長期決策：`docs/decisions/0007-catalog-vehicle-selection-ux.md`。
