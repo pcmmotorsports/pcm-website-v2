@@ -1,5 +1,20 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉🎉 **2026-07-30 晚:E10 第 1 批 A7「取消真相表」端到端完成 —— `93ef491` 已 push、migration `20260730130000` 已 apply production。**
+> 接手入口 = `docs/handoff/2026-07-30-a7-cancellations-handoff.md`。
+> 建 `order_cancellations` + `order_cancellation_items` 兩表 ⇒ **第 19 項「取消訂單」第一次有地方可寫**
+> (仍按不下:寫入在 A8a1/A8a2、畫面在 A13a/A13b)。
+> **五輪審查、58 must-fix + 31 nit 全折入、駁回 0**(關卡1 codex×2 → Fable×2 換模型換角度;關卡2 codex×1);
+> 🔴 **五輪裡有四輪抓到的是「上一輪修法自己開的洞」**;關卡2 的 12 條 must-fix **有 8 條是「驗收有洞」不是 code 錯**。
+> ✅ **Sean 拍板兩題**:Q1=A 空明細 header 要在 DB 層擋死 ⇒ **新增 A7-t 片**(尚未施工)/
+> Q2=A 「A8a1 不得單獨發布」寫進 master plan §5.1 的 A8a1 與 A8a2 兩列(機制優先律)。
+> 🔴 **施工中被自己的探針抓到三件事**:①`[[:space:]]` 是 locale-dependent、原 CHECK 放行全形空白
+> ⇒ 改明列碼位;**連帶查出隔離庫(C)與正式站(en_US.UTF-8)字元類語意不同 ⇒ 開 #305**
+> ②`actor` 形狀 CHECK 被 FK 嚴格支配、無法獨立證明 ⇒ 刪除 ③我的突變 runner 自己假綠。
+> ✅ **可重現驗證**:`scripts/a7-verify.sh all /tmp/a7v` → **37 / 0**(含 21+13 條突變全紅 + 兩組零突變對照綠)。
+> 🔴 **下一片三選一**:**A7-t**(建議先做,它一落地就要回頭改 A7 的一條斷言)/ A7b / A1。
+> ⚠️ 工作樹另有並行 session 的手機目錄 UX 十餘檔,本線全程未觸碰、零混入(已逐檔複驗)。
+
 > 🎉 **2026-07-30 下午:backlog #301(TapPay Record API 三欄位)收工 —— `21cba57`,未 push、零 DB。**
 > 接手入口 = `docs/handoff/2026-07-30-301-tappay-record-handoff.md`。
 > 起點是「三個欄位名寫錯」,連帶修好一條**從未成立過的金流路徑**(弱識別時間窗讀不存在的欄
