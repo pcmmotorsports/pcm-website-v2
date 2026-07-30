@@ -1,5 +1,27 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉 **2026-07-30 深夜:A7-t「取消帳本主從一致 trigger」code 收工 —— `54cbc64`、未 apply、未 push。**
+> 接手入口 = `docs/handoff/2026-07-30-a7t-consistency-trigger-handoff.md`;片級 plan = `docs/specs/2026-07-30-e10-a7t-cancellation-consistency-trigger-plan.md`(**v2 縮減版**)。
+> 產物:migration `20260730140000`(2 函式 + **4 支 trigger**)+ `scripts/a7t-behavior-probe.sql`(獨立檔獨立交易、12 案例)
+> + `scripts/a7t-verify.sh`(**27/0**)+ `scripts/a7t-concurrency-probe.sh`(**6/0**,自建自拆)。
+> 🔴 **四關審查、62 must-fix 全折入、駁回 0**:關卡1 codex xhigh **19+2** / Fable 換模型 **7+6+1**
+> (**兩模型抓到的僅 5 條重疊**;結果不是「修 26 條」,是 **plan v1→v2 縮小範圍重寫**)→ 關卡2 codex R1 **20+2+1** → R2 **16+1+2**。
+> 🔴 **本片最重要的判斷是砍範圍、不是加防禦**:併發漏洞**實測為真**(`REPEATABLE READ` 下兩交易各刪一列 ⇒ 雙雙放行、零明細 header 真的落地),
+> **但 codex 提的修法「鎖 parent」被實測證偽**(仍漏:鎖修得了併發執行、修不了快照過期);
+> 觸發前提「有人刪改明細」在現行規劃內不存在 ⇒ 改立**合約債 #307**(migration COMMENT + master plan A8a2/A7b + backlog 三處落點)。
+> 🔴 **該結論是條件性的**:零寫入 GRANT **不等於**無人能刪改 —— owner / superuser /
+> **A8a1 那種 SECURITY DEFINER owner RPC 不受表級 GRANT 限制** ⇒ **它們寫下第一個 UPDATE/DELETE,漏洞當天可達。**
+> 🔴 **驗收層封死七條「全綠而防線是死的」逃脫路徑**(`tgenabled` / `tgqual` / `tgfoid` / 綁 `tgrelid` / `md5(prosrc)` 指紋 / 完整 ACL allowlist / `CREATE` 不用 `OR REPLACE`);
+> 既有資料閘**先 `LOCK TABLE` 再驗**(TOCTOU,負測 = 併發 harness 案例 **E**)。
+> 🔴 **A7-1 一個 byte 都沒動** —— 前一份交接檔「回頭改它的 trigger=0 斷言」的指示**經兩個模型獨立確認是錯的**,
+> 並由 `a7-verify.sh` 仍 **37/0** 實測背書。我一度改了它的註解、被關卡2 抓出後已還原。
+> 🔴 **施工中被自己的 harness 與 codex 抓到九個錯**(全已修),最刺眼:後續每條行為突變都**紅在探針 7** = 判別力歸零而 FAIL 仍 0;
+> 5b 守門**守錯東西**(實際紅在探針 3,而我宣稱守案例 11);我把並行 session 的未 commit 內容**吞進 index**(已撤出);
+> R2 抓到我**「宣稱修了但沒修對」**(master plan 合約債仍在表格外)⇒ 教訓:**改完必須用機器驗**。
+> 🔴 **下一步**:①**A7b** 或 **A1**(§5.0 DAG 原定序)②Sean `supabase db push` 套用 `20260730140000`
+> —— **不急**:兩表零寫入 GRANT、無生產路徑會觸發那四支,風險窗在 A8a1 上線那刻才開。
+> ⚠️ 誠實邊界:本機 PG17.10 非 Supabase、C locale ≠ 正式站;**併發面刻意不防**(立場已明寫)。**零 TapPay 接觸面。**
+
 > 🎉🎉 **2026-07-30 晚:E10 第 1 批 A7「取消真相表」端到端完成 —— `93ef491` 已 push、migration `20260730130000` 已 apply production。**
 > 接手入口 = `docs/handoff/2026-07-30-a7-cancellations-handoff.md`。
 > 建 `order_cancellations` + `order_cancellation_items` 兩表 ⇒ **第 19 項「取消訂單」第一次有地方可寫**

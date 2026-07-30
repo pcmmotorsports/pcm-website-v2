@@ -7936,6 +7936,52 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ## 紀錄模板
 
+### #307. 🔒 帳本主從一致 trigger 在「有人刪改明細」時擋不住 —— 現行 append-only 寫法不觸發
+
+- **狀態:** ⏳ 待執行(**條件式**:只有在有片要刪改明細時才必須做,見「觸發條件」)
+- **優先級:** 🟠 中(今天觸發不了;但一旦有人做「退款更正 / 取消更正」功能就是硬前置)
+- **問題:**
+  - 取消帳本(`order_cancellations` / `order_cancellation_items`,A7-t `20260730140000`)與
+    退款帳本(`order_refunds` / `order_refund_items`,RF2a-2 `20260725130100`)的主從一致 trigger
+    都是「`SELECT count(*) … WHERE <parent_id> = ?` 為 0 就 RAISE」的形狀,**沒有鎖 parent、沒有隔離級閘**。
+  - 🔴 **實測**(本機 PG 17.10,harness = `scripts/a7t-concurrency-probe.sh`,**6/0**):
+    header 有兩列明細、兩個交易**各刪一列**時 ——
+    - `REPEATABLE READ`:兩邊都放行 ⇒ **零明細 header 真的落地**(該防護的存在理由當場失效)
+    - `REPEATABLE READ` + **鎖 parent(`FOR UPDATE`)**:🔴 **仍然漏** —— 鎖修得了「併發執行」,
+      修不了「快照過期」(後續 `count(*)` 仍用交易自己的舊快照)
+    - `READ COMMITTED`(PG 預設)且兩筆 commit 序列化:擋得住
+    - `SERIALIZABLE`:PostgreSQL 自己擋(`could not serialize access due to read/write dependencies`)
+  - ⇒ 有效修法是**兩層**:①鎖 parent(關掉 READ COMMITTED 下併發 trigger 執行的窗)
+    ②**隔離級 fail-closed 閘**(trigger 內斷言 `transaction_isolation` ∈ {read committed, serializable})。
+    只做①就宣稱「空 header 擋住了」= 防護命名超出它的實際能力。
+- **為什麼今天不修:**
+  - 觸發前提是「有人 DELETE 或 UPDATE 明細」,而四張表都是 **append-only**:
+    兩組表皆零寫入 GRANT(只有 `GRANT SELECT TO service_role`);**production writer 路徑**
+    (`apps/` + `packages/`,排除測試與探針)零命中;master plan 的寫入片(A8a1 寫 header /
+    A8a2 寫 items / A9g 只讀)與退款線規劃皆無刪改既有列;多次部分取消 = 累積新 header。
+  - ⇒ 不為一條目前不存在的路徑蓋防禦工事,改立本條當閘。
+- 🔴 **這個結論是條件性的(關卡2 codex 兩條 must-fix)**:
+  - 「零寫入 GRANT」**不等於**「無人能刪改」—— table owner、superuser、以及
+    **A8a1/A8a2 那種 SECURITY DEFINER owner RPC 都不受表級 GRANT 限制**。
+  - 正確講法是「**目前沒有任何 application writer 實作**」,不是「物理上不可能」。
+  - ⇒ **A8a1/A8a2 只要寫下第一個 `UPDATE`/`DELETE`,本條當天可達。**
+- **觸發條件(命中任一 ⇒ 本條升為該片的硬前置):**
+  - 任何片要 `DELETE` 或 `UPDATE` `order_cancellation_items` / `order_refund_items` 的**既有列**
+    (退款更正 / 沖銷 / 取消更正 / 資料修補腳本皆算)
+  - 任何片給這四張表開出 `INSERT` 以外的寫入權限
+  - 任何 writer 打算跑在 `REPEATABLE READ`
+- **已落點(A7-t commit `54cbc64` 內):**
+  - `supabase/migrations/20260730140000_…sql` 的函式 COMMENT
+  - master plan §5.1 的 **A8a2** 列與 **A7b** 列
+  - `docs/specs/2026-07-30-e10-a7t-cancellation-consistency-trigger-plan.md` §2.2
+- **觸發事件:**
+  - 2026-07-30 A7-t 關卡1,codex `gpt-5.6-sol` xhigh 抓到併發面;主對話實測確認漏洞為真,
+    **但同時實測證偽了它提的修法**(鎖 parent 不足)。再查觸發前提後判定為「目前不可達」⇒ 縮範圍改立本條。
+  - 退款側同型洞由獨立調查確認:同樣 append-only、同樣零寫入端、消費端 RF5/RF6/RF2b 皆未實作。
+    其 trigger 含 `DELETE` 事件純屬防禦性完備寫法(`20260725130100:182-184` 註解只說「刪明細後 sum 會失衡」),
+    非對應某個會刪改明細的流程。
+
+
 ```markdown
 ### #N. <Emoji> 標題
 
