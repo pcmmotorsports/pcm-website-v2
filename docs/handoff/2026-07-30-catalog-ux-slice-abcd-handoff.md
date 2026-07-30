@@ -1,8 +1,10 @@
 # 商品目錄選車 UX(ADR-0007)Slice A-D 交接
 
-> Updated: 2026-07-30 晚 · Asia/Taipei
-> Repo: `/Users/sean_1/pcm-website-v2` · Branch: `dev` · HEAD = `20df2fb`(= `origin/dev`,未推 0)
-> 執行 agent: Claude(opus-5)· 工作模式: 執行 → **已凍結,等 Codex 唯讀審查**
+> Updated: 2026-07-31 · Asia/Taipei(原 2026-07-30 晚;commit 與 Sean 驗收後更正)
+> Repo: `/Users/sean_1/pcm-website-v2` · Branch: `dev`
+> 🔴 **本線 commit = `2864e69`(27 檔)· 未 push**;其後 A7-t 線另有 commit 疊在上面,
+> push 時會一起上去 —— 推之前先看 `git log --oneline origin/dev..HEAD`,不看寫死數字。
+> 執行 agent: Claude(opus-5)· 工作模式: 執行 → **已 commit,未經 Codex 審查(見 §5)**
 > 前一份(開工指令)= `docs/handoff/2026-07-30-catalog-ux-claude-execution-handoff.md`
 > 長期決策 = `docs/decisions/0007-catalog-vehicle-selection-ux.md`
 > 拍板白話全集 = memory `project_catalog-ux-0730-decisions`
@@ -11,8 +13,9 @@
 
 ## 1. 一句話現況
 
-桌機與手機的選車 UX 已全部落地、**程式與測試完成、三綠全過、未 commit、未 push、零 DB 變更**;
-Sean 真機驗收六輪回饋全部折入。**下一手 = backlog #306(選車後即時計數),Sean 指定另開新視窗做。**
+桌機與手機的選車 UX 已全部落地、**三綠全過、已 commit(`2864e69`)、未 push、零 DB 變更**;
+Sean 真機驗收六輪回饋全部折入,**Q3「我的愛車」已於 2026-07-31 由 Sean 登入驗收通過**。
+**下一手 = backlog #306(選車後即時計數),Sean 指定另開新視窗做 —— 本線已 commit,可直接開始。**
 
 ---
 
@@ -51,7 +54,7 @@ Sean 真機驗收六輪回饋全部折入。**下一手 = backlog #306(選車後
 |---|---|---|
 | Q1 | 桌機「內容不滿版」驗收項與現況衝突 | **B 維持現況滿版**;`--shell-max: none` 是接手前設定、不動 ⇒ **該驗收項作廢** |
 | Q2 | 1025-1079px 帶狀區無篩選入口 | **A 順手修掉**(已完成) |
-| Q3 | 「我的愛車」我無法登入驗證 | **A Sean 自己登入肉眼驗** ⇒ 🔴 **此項不由 AI 宣稱通過** |
+| Q3 | 「我的愛車」我無法登入驗證 | **A Sean 自己登入肉眼驗** ⇒ ✅ **2026-07-31 Sean 已驗收通過**(逐字「我的愛車ok」) |
 | Q4 | 分類數字要跟著車款走 | **A lazy 查 + 等本片 commit 後另開一片** ⇒ backlog **#306** |
 | Q5 | 手機頁面標題區 79px | **B 藏大標題、留麵包屑**(用 clip 視覺隱藏,`<h1>` 語意保留) |
 | Q6 | 篩選膠囊列 27px | **A 不動**(唯一能單獨拿掉年份的地方) |
@@ -97,10 +100,14 @@ pnpm test                                 # 278 檔 3428 passed + 1 todo,0 faile
 - **件數閘實測**(桌機 1365):未選車 分類 15 / 品牌 16 個數字;選車後 **0 / 0**,可選項仍 15 列。
 
 🔴 **誠實邊界(未做,不得代為宣稱)**:
-- **「我的愛車」未驗** —— 需登入,我無憑證且不讀 `.env*`(Sean Q3=A 自驗)。
+- ~~**「我的愛車」未驗**~~ ✅ **2026-07-31 Sean 登入後肉眼驗收通過**(逐字「我的愛車ok」)。
+  🔴 紀錄口徑:這是 **Sean 背書**、不是 AI 驗的 —— 我無登入憑證且不讀 `.env*`,當時未宣稱通過。
 - **未跑 axe / 無障礙自動掃描**。
 - 真機鍵盤遮擋:`scrollIntoView` 機制已驗會呼叫,但 headless 無軟鍵盤 ⇒ **實際遮不遮只有真手機知道**。
-- 未 commit、未 push、未 deploy、零 DB 變更、未動 `.env*`。
+- 🔴 **本 commit 未經 Codex 審查** —— 開工交接檔要求「Codex PASS 後才 commit」,
+  Sean 於 2026-07-30 晚直接指示「先 commit 你的部分」⇒ 依指示提交,**審查閘未走**。
+  接手者若要補審,對象 = `git show 2864e69`。
+- 未 push、未 deploy、零 DB 變更、未動 `.env*`。
 
 ---
 
@@ -109,7 +116,8 @@ pnpm test                                 # 278 檔 3428 passed + 1 todo,0 faile
 同一個工作樹裡有**兩條線**。E10/A7 線在本 session 期間 commit + push 兩次(`93ef491`、`20df2fb`),
 之後又留下新的未提交檔案。**本線 commit 時必須精準 `git add`,不得掃進他線。**
 
-### 本線(21 檔,可 commit)
+### 本線 —— ✅ **已於 `2864e69` 提交(27 檔,含 ADR 與兩份交接檔)**
+下列清單是當時的 staged 內容,保留供追溯;現在要看實際內容用 `git show --stat 2864e69`。
 ```
 M  STATUS.md
 M  docs/handoff/CURRENT.md
@@ -137,13 +145,12 @@ M  apps/storefront/src/styles/filter-responsive.css
 ?? apps/storefront/src/styles/products-mobile.test.ts
 ```
 
-### 接手前已存在、由 Sean 決定是否提交(本線不自行刪)
+### 仍未提交、由 Sean 決定(本線不自行刪)
 ```
 ?? apps/storefront/src/app/dev-preview/mobile-catalog-ux/   # 已核准的視覺預覽(交接檔明令保留)
 ?? docs/superpowers/                                        # 預覽的 spec/plan
-?? docs/decisions/0007-catalog-vehicle-selection-ux.md      # ADR(前一 session 寫)
-?? docs/handoff/2026-07-30-catalog-ux-claude-execution-handoff.md
 ```
+(ADR-0007 與開工交接檔已一併收進 `2864e69` —— 否則 repo 會有「實作了一份不存在的 ADR」的懸空引用。)
 
 ### 🔴 他線(E10/A7-t)—— 絕對不要 add
 ```
@@ -184,19 +191,18 @@ M  supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql
 2. 跨 3+ 檔 ⇒ **鐵則 8:先提 plan 等批准**。
 3. client 取數需要 server action / route handler(現在件數是 server props 一次帶下來的)。
 
-🔴 **與本線的順序風險**:本線尚未 commit。若新視窗直接在同一個工作樹上疊 #306,兩批會混在一起、
-Codex 的審查對象會再變一次、commit 也難拆。**建議順序 = 先讓 Codex 審完本批並 commit,再開 #306**;
-若要並行,請新視窗只碰 #306 的檔並各自精準 add。
+✅ **順序風險已解除**:本線已於 `2864e69` 提交 ⇒ 新視窗可直接開始 #306,不會與本線混在同一批。
+🔴 但工作樹仍有 **A7-t 線**在動(見 §6)⇒ #306 的 commit 一樣要精準 `git add`,不得掃進他線。
 
 ---
 
 ## 8. 停在哪 / 下一個最小動作
 
-1. **Codex 唯讀審查**本批(審查範圍 = §6 的 21 檔)。
-2. findings 修完 → **精準 `git add`**(清單以當場 `git status` 為準、不看寫死數字)→ commit
-   （`feat(storefront): 商品目錄選車 UX 桌機手機正式落地 [M-4b]` 之類;STATUS/CURRENT 同 commit)。
-3. **不 push** —— 等 Sean 手動推。
-4. Sean 登入肉眼驗「我的愛車」(Q3=A)。
+1. ~~Codex 唯讀審查 → 修 findings → commit~~ 🔴 **已跳過審查直接 commit**(`2864e69`,Sean 指示)。
+   要補審的話對象 = `git show 2864e69`;審出問題就開新 commit 修,不要 amend
+   (後面已疊了 A7-t 線的 commit)。
+2. **不 push** —— 等 Sean 手動推;推之前先確認 A7-t 那條線也可推(會一起上去)。
+4. ~~Sean 登入肉眼驗「我的愛車」(Q3=A)~~ ✅ **2026-07-31 已完成**。
 5. 之後另開視窗做 #306。
 
 **地圖(graphify)未刷**:PCM 2026-07-10 拍板「`/graphify --update` 不隨每 slice 跑,milestone 收尾
