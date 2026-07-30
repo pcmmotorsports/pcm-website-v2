@@ -33,10 +33,12 @@ function tradeRecord(over: Partial<TapPayTradeRecord> = {}): TapPayTradeRecord {
     bankTransactionId: 'bank-1',
     merchantId: 'M_test',
     amount: toMoneyAmount(1050),
+    // #301:未退款時 original_amount === amount(TapPay 兩欄都回)。
+    originalAmount: toMoneyAmount(1050),
     currency: 'TWD',
     recordStatus: 1, // OK
     isCaptured: true,
-    transactionTimeMillis: TXN_TIME_MS,
+    timeMillis: TXN_TIME_MS,
     ...over,
   };
 }
@@ -172,10 +174,346 @@ describe('🔴 settleCharge — queryStatus=2 查詢成功放行(2026-06-21 quer
     [999, { kind: 'pending', reason: 'record_unverified' }], //          未知碼 → default fail-closed
   ])('R3 queryStatus=2 × record_status=%i → 逐態裁決(放行 status 後不弱化)', async (rs, expected) => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {}); // 退款態 console.error 告警(不影響裁決)
-    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: rs }, { queryStatus: 2 })) });
+    // 🔴 關卡2 R2-5:退款態(2/3)不能沿用「amount=原額、refunded 缺、is_captured=true」那組形狀 ——
+    //    那不是 TapPay 實際會回的東西。2 = 部分退(950+100)、3 = 全退(0+1050),兩者 is_captured=false。
+    const refundShape: Partial<TapPayTradeRecord> =
+      rs === 3
+        ? { isCaptured: false, amount: toMoneyAmount(0), refundedAmount: toMoneyAmount(1050) }
+        : rs === 2
+          ? { isCaptured: false, amount: toMoneyAmount(950), refundedAmount: toMoneyAmount(100) }
+          : {};
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({ recordStatus: rs, originalAmount: toMoneyAmount(1050), ...refundShape }, { queryStatus: 2 }),
+      ),
+    });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual(expected);
     errSpy.mockRestore();
   });
+  // 🔴 #301 + Sean 2026-07-30 拍板 A:已退款紀錄的**真實形狀**(amount 歸 0、原額在 original_amount)
+  //    必須走到 refund_anomaly 告警,而不是被金額閘當成「認不出的紀錄」默默擋掉。
+  //    兩者的裁決結果同為 pending/record_unverified ⇒ **只看回傳值分不出來**,故以告警是否發出為觀察點。
+  it('🔴 全額退款真實形狀(amount=0 + refunded=原額 + original_amount=orders.total + status=3 + is_captured=false)→ 退款異常告警有發出', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        // 形狀取自 2026-07-30 正式商戶實測(0102/0104)——`amount=0`、`refunded_amount=原額`、
+        // `record_status=3`、`is_captured=false` 四項是**觀察到的值**;`original_amount` 的值
+        // 當時未被觀察(parser 沒讀)⇒ 此處為合成值(關卡2 R2-9)。
+        recordResult({
+          recordStatus: 3,
+          isCaptured: false,
+          amount: toMoneyAmount(0),
+          refundedAmount: toMoneyAmount(1050),
+          originalAmount: toMoneyAmount(1050),
+        }),
+      ),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Record 顯退款態'), expect.anything());
+    errSpy.mockRestore();
+  });
+
+  // 消融:同一筆退款紀錄,若身分閘退回舊寫法(比 amount)則 amount=0 ≠ orders.total ⇒ 連告警都不會發。
+  // 用「拿掉 original_amount」模擬舊行為 —— 證明上一條測到的是新閘、不是巧合(其餘欄位等長同形)。
+  it('🔴 消融:退款紀錄缺 original_amount(退回比 amount)→ 被身分閘擋下、告警不發', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({
+          recordStatus: 3,
+          isCaptured: false,
+          amount: toMoneyAmount(0),
+          refundedAmount: toMoneyAmount(1050),
+          originalAmount: undefined,
+        }),
+      ),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(errSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  // 🔴 關卡2 F1(codex R1 must-fix):改比 original_amount **新增**了兩條 terminal 路徑 ——
+  //    「錢已退光(amount=0)卻宣稱 OK/CANCEL」的矛盾紀錄。守恆式 + 非退款態 amount 完好兩道閘擋下。
+  it('🔴 矛盾紀錄:original_amount=orders.total 但 amount=0、record_status=1(OK)→ 不得 paid', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({ recordStatus: 1, amount: toMoneyAmount(0), originalAmount: toMoneyAmount(1050) }),
+      ),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+
+  it('🔴 矛盾紀錄:original_amount=orders.total 但 amount=0、record_status=5(CANCEL)→ 不得 failed 釋鎖', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({ recordStatus: 5, amount: toMoneyAmount(0), originalAmount: toMoneyAmount(1050) }),
+      ),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markFailed).not.toHaveBeenCalled();
+  });
+
+  // 🔴 單獨驗「非退款態的 refunded_amount 必須是 0」(關卡2 R2-6 改版:原本寫成一條被我誤標為
+  //    「官方守恆式」的等式,已收斂成只套用在非退款態)。狀態取 1(OK)、amount 完好 ⇒
+  //    「amount 必須完好」那道閘刻意不適用,只有這道擋得住。
+  //    ⚠️ 觀察點用告警:被身分層擋下 = 不發;若誤放行進退款態判定 = 會發。
+  it('🔴 status=1(OK)卻帶非 0 的 refunded_amount(自相矛盾)→ 身分層擋下、告警不發', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const attempts = makeAttempts();
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({
+          recordStatus: 1,
+          amount: toMoneyAmount(1050),
+          refundedAmount: toMoneyAmount(1050), // 錢已退光卻宣稱交易完成
+          originalAmount: toMoneyAmount(1050),
+        }),
+      ),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+    expect(errSpy).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  // 🔴 這條**單獨**驗「非退款態 amount 必須完好」:守恆式刻意成立(950 + 100 = 1050)、
+  //    狀態取 1(OK)⇒ 拿掉這道閘就會被判 paid。上面那條矛盾紀錄測試蓋不到它(兩閘互相遮蔽)。
+  it('🔴 status=1(OK)但 amount 已被退款吃掉(950 + refunded 100 = 原額)→ 不得 paid', async () => {
+    const attempts = makeAttempts();
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({
+          recordStatus: 1,
+          amount: toMoneyAmount(950),
+          refundedAmount: toMoneyAmount(100),
+          originalAmount: toMoneyAmount(1050),
+        }),
+      ),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+
+  // 部分退款的**真實形狀**(950 + 100 = 1050、status=2):必須進退款異常告警、且絕不動錢。
+  it('🔴 部分退款真實形狀(amount=950 + refunded=100 + status=2)→ 告警 + 不 markCharged/confirm', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const attempts = makeAttempts();
+    const confirmer = makeConfirmer();
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({
+          recordStatus: 2,
+          amount: toMoneyAmount(950),
+          refundedAmount: toMoneyAmount(100),
+          originalAmount: toMoneyAmount(1050),
+        }),
+      ),
+      attempts,
+      confirmer,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Record 顯退款態'), expect.anything());
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+    expect(confirmer.confirm).not.toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  // 🔴 F2:弱識別窗復活後,時間欄自己也要守門(小數毫秒原本可直接穿窗)。
+  it('🔴 弱識別 + time 為小數毫秒(attempt+0.5)→ 不得通過時間窗', async () => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    const d = deps({
+      tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS + 0.5 })),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+
+  // ⚠️ 誠實標註:這條由**時間窗下界**(`>= attemptMs`)擋下,不是某道專屬的「非負」守門
+  //    (那道守門無法被單獨觸發、已刻意不加)。本條記錄行為,不宣稱它證明了額外防線。
+  it('🔴 弱識別 + time 為負值/0 → 不得通過時間窗(由窗下界擋下)', async () => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    for (const bad of [0, -1]) {
+      const d = deps({ tappay: makeTapPay(async () => recordResult({ timeMillis: bad })), attempts });
+      expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    }
+  });
+
+  // 🔴 單獨驗 ISO 形狀守門:`Date.parse('0')` 會**成功**解析成 2000-01-01,
+  //    再讓 record 時間落在那個假窗內 ⇒ 拿掉守門就會被判 paid(突變 M8 實測)。
+  it("🔴 attemptCreatedAt 為鬆散字面 '0' + record 時間落在誤解析出的窗內 → 不得 paid", async () => {
+    const bogusWindowMs = Date.parse('2000-01-01T00:00:00.000Z') + 1000;
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({
+        ...ACTIVE_PENDING,
+        recTradeId: null,
+        bankTransactionId: null,
+        attemptCreatedAt: '0',
+      })),
+    });
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ timeMillis: bogusWindowMs })), attempts });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+
+  // 🔴 關卡2 R2-1:用 hint 當查詢鍵 ⇒ 回應的 rec 必須就是那把 hint(查 A 收到 B = 不採信)。
+  it('🔴 弱識別走 hint:回應 rec_trade_id ≠ hint → 不得 paid(TapPay 沒照 filter 回,fail-closed)', async () => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    const d = deps({
+      // fixture 的 recTradeId 是 'D-rec-1',與送出的 hint 'D-hint' 不同。
+      tappay: makeTapPay(async () => recordResult({ bankTransactionId: undefined })),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID, recTradeIdHint: 'D-hint' })).toEqual({
+      kind: 'pending',
+      reason: 'record_unverified',
+    });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+
+  it('🔴 對照:hint 與回應 rec 相符 → 走得完(證明上一條不是因為這條路本來就不通)', async () => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    const d = deps({
+      tappay: makeTapPay(async () => recordResult({ recTradeId: 'D-hint', bankTransactionId: undefined })),
+      attempts,
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID, recTradeIdHint: 'D-hint' })).toEqual({
+      kind: 'paid',
+      idempotent: false,
+      displayId: DISPLAY_ID,
+    });
+  });
+
+  // 🔴 關卡2 R2-3:弱識別不得 markFailed 釋鎖 —— order_number 是訂單的鍵、不是這次 attempt 的鍵,
+  //    同單前一次 attempt 的 ERROR/CANCEL 延遲入帳會落在本次的窗內。
+  it.each([-1, 5])(
+    '🔴 弱識別(無 rec/bank/hint)+ record_status=%i → 不得 markFailed 釋鎖(維持 pending)',
+    async (rs) => {
+      const attempts = makeAttempts({
+        findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+      });
+      const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: rs })), attempts });
+      expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({
+        kind: 'pending',
+        reason: 'record_unverified',
+      });
+      expect(attempts.markFailed).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([-1, 5])('對照:強識別(有 rec)+ record_status=%i → 仍照舊 markFailed', async (rs) => {
+    const attempts = makeAttempts();
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: rs })), attempts });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'failed' });
+    expect(attempts.markFailed).toHaveBeenCalled();
+  });
+
+  // 🔴 關卡2 R2-4:形狀合法但**日曆上不存在**的日期會被 Date 靜默正規化(2/31 → 3/3)⇒ 窗整個平移。
+  it("🔴 attemptCreatedAt 為不存在的日曆日('2026-02-31')+ record 落在正規化後的窗內 → 不得 paid", async () => {
+    const normalizedMs = Date.parse('2026-03-03T00:00:00.000Z') + 1000;
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({
+        ...ACTIVE_PENDING,
+        recTradeId: null,
+        bankTransactionId: null,
+        attemptCreatedAt: '2026-02-31T00:00:00.000Z',
+      })),
+    });
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ timeMillis: normalizedMs })), attempts });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+    expect(attempts.markCharged).not.toHaveBeenCalled();
+  });
+
+  // 🔴 Fable R3 F7:窗寬常數 `SETTLE_WINDOW_FORWARD_MS`(24h)原本沒有邊界對照 ——
+  //    窗內用小 delta、窗外用 +48h,把常數改成 1 小時或 7 天都不會有測試轉紅。
+  it.each([
+    [24 * 60 * 60 * 1000, 'paid' as const], //     整整 24h = 窗內(<=,含邊界)
+    [24 * 60 * 60 * 1000 + 1, 'pending' as const], // 多 1ms = 窗外
+  ])('🔴 窗寬邊界:record 時間 = attempt + %ims → %s', async (delta, expectedKind) => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS + delta })), attempts });
+    const res = await settleCharge(d, { orderId: ORDER_ID });
+    expect(res.kind).toBe(expectedKind);
+  });
+
+  // 🔴 Fable R3 F4/F5:上線後要能分辨「這條路沒活」與「新閘擋掉了合法紀錄」——
+  //    被時間窗擋下時必須留下非 PII 的 triage 訊號(否則表象只有「單卡人工」)。
+  it('🔴 被時間窗擋下 → 留下非 PII 的 console.warn(reason=window;不含金額/卡資料)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    const d = deps({
+      tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS + 48 * 60 * 60 * 1000 })),
+      attempts,
+    });
+    await settleCharge(d, { orderId: ORDER_ID });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('識別/金額閘擋下'),
+      expect.objectContaining({ reason: 'window', orderId: ORDER_ID }),
+    );
+    // #16 PII / 金額不入 log。
+    expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('1050');
+    warnSpy.mockRestore();
+  });
+
+  it('🔴 被新加的金額閘擋下 → reason 可分辨(amount_eroded,不與一般 record_unverified 混在一起)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({ recordStatus: 1, amount: toMoneyAmount(0), originalAmount: toMoneyAmount(1050) }),
+      ),
+    });
+    await settleCharge(d, { orderId: ORDER_ID });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ reason: 'amount_eroded' }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  // 對照:既有防線(如 order_number 不符)刻意**不記** log,避免灌爆。
+  it('對照:order_number 不符(既有防線)→ 不記 log', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ orderNumber: 'order-其他人' })) });
+    await settleCharge(d, { orderId: ORDER_ID });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  // 正向對照:同一條弱識別路徑,時間欄合法(整數毫秒、窗內)時**確實**走得完 ——
+  // 否則上面兩條負向測試會因為「這條路根本到不了」而假綠(#301 修的就是這種假綠)。
+  it('🔴 正向對照:弱識別 + time 為合法整數毫秒(窗內)→ paid(證明這條路真的活著)', async () => {
+    const attempts = makeAttempts({
+      findActiveByOrderId: vi.fn(async () => ({ ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null })),
+    });
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS })), attempts });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({
+      kind: 'paid',
+      idempotent: false,
+      displayId: DISPLAY_ID,
+    });
+  });
+
   // R5a/R5b:放行 status 後仍要求恰 1 筆(count 與 records 各自擋、縱深不動)。
   it('R5a queryStatus=2 + count=0 → record_unverified(count 閘仍擋)', async () => {
     const d = deps({ tappay: makeTapPay(async () => recordResult({}, { queryStatus: 2, numberOfTransactions: 0 })) });
@@ -207,8 +545,21 @@ describe('settleCharge — Record 權威全條件不滿足 → pending:record_un
     const d = deps({ tappay: makeTapPay(async () => recordResult({ orderNumber: 'other-order' })) });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
   });
-  it('③ amount 不符 orders.total → record_unverified(不放行)', async () => {
-    const d = deps({ tappay: makeTapPay(async () => recordResult({ amount: toMoneyAmount(999) })) });
+  it('③ original_amount 不符 orders.total → record_unverified(不放行)', async () => {
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({ amount: toMoneyAmount(999), originalAmount: toMoneyAmount(999) }),
+      ),
+    });
+    expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
+  });
+  // 🔴 #301:缺 original_amount(舊紀錄/其他 payment_method)時退回 amount = 舊行為,金額閘一樣要擋得住。
+  it('③b 缺 original_amount 時 amount 不符 orders.total → record_unverified(fallback 不是漏洞)', async () => {
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        recordResult({ amount: toMoneyAmount(999), originalAmount: undefined }),
+      ),
+    });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
   });
   it('currency 非 TWD → record_unverified', async () => {
@@ -248,13 +599,35 @@ describe('settleCharge — record_status 官方 7 值映射(§5)', () => {
   });
   it('⑦ record_status=2(部分退款)→ pending:record_unverified + 告警(不自動放行)', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 2 })) });
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        // 真實部分退款形狀(950 + 100 = 1050、is_captured=false)。
+        recordResult({
+          recordStatus: 2,
+          isCaptured: false,
+          amount: toMoneyAmount(950),
+          refundedAmount: toMoneyAmount(100),
+          originalAmount: toMoneyAmount(1050),
+        }),
+      ),
+    });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
     expect(errSpy).toHaveBeenCalled();
   });
   it('⑦ record_status=3(完全退款)→ pending:record_unverified + 告警', async () => {
     const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 3 })) });
+    const d = deps({
+      tappay: makeTapPay(async () =>
+        // 真實全額退款形狀(amount 歸 0、refunded=原額、is_captured=false)。
+        recordResult({
+          recordStatus: 3,
+          isCaptured: false,
+          amount: toMoneyAmount(0),
+          refundedAmount: toMoneyAmount(1050),
+          originalAmount: toMoneyAmount(1050),
+        }),
+      ),
+    });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
     expect(errSpy).toHaveBeenCalled();
   });
@@ -310,14 +683,14 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
   const weakAttempt: ActiveChargeAttempt = { ...ACTIVE_PENDING, recTradeId: null, bankTransactionId: null };
   it('order_number fallback + 交易時間在窗內 → 正常裁決(paid)', async () => {
     const d = deps({
-      tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: TXN_TIME_MS })),
+      tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS })),
       attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
     });
     expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid');
   });
   it('order_number fallback + 交易時間超窗(+48h)→ pending:record_unverified(防誤命中遠古他單)', async () => {
     const d = deps({
-      tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: TXN_TIME_MS + 48 * 60 * 60 * 1000 })),
+      tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS + 48 * 60 * 60 * 1000 })),
       attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
     });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
@@ -326,7 +699,7 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
     const attempts = makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) });
     const d = deps({
       // record_status=5(CANCEL)舊交易在 attempt 前 → 不可走 markFailed 釋鎖放行重刷(雙扣)
-      tappay: makeTapPay(async () => recordResult({ recordStatus: 5, transactionTimeMillis: TXN_TIME_MS - 60 * 60 * 1000 })),
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 5, timeMillis: TXN_TIME_MS - 60 * 60 * 1000 })),
       attempts,
     });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
@@ -337,7 +710,7 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
     const attempts = makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) });
     const d = deps({
       // S1 收緊後下界=attempt:此交易早於 attempt → recordMatchesOrder 弱識別窗即擋成 record_unverified、到不了 explicit_failed
-      tappay: makeTapPay(async () => recordResult({ recordStatus: 5, transactionTimeMillis: TXN_TIME_MS - 3 * 60 * 1000 })),
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 5, timeMillis: TXN_TIME_MS - 3 * 60 * 1000 })),
       attempts,
     });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
@@ -346,7 +719,7 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
   });
   it('🔴 S1 收緊:弱識別 + record_status=1 paid 落 attempt「前」3min(原 -5min skew 帶內)→ pending:record_unverified(下界收成 attempt、移除 paid 自癒 skew、雙扣縫關閉)', async () => {
     const d = deps({
-      tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: TXN_TIME_MS - 3 * 60 * 1000 })),
+      tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS - 3 * 60 * 1000 })),
       attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
     });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
@@ -355,7 +728,7 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
     const attempts = makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) });
     const confirmer = makeConfirmer();
     const d = deps({
-      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, transactionTimeMillis: TXN_TIME_MS - 2 * 60 * 1000 })),
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, timeMillis: TXN_TIME_MS - 2 * 60 * 1000 })),
       attempts,
       confirmer,
     });
@@ -366,20 +739,20 @@ describe('settleCharge — 弱識別(order_number/hint fallback)時間窗(master
   });
   it('🔴 S1【審查②】弱識別 + record_status=0(AUTH)交易時間 = attempt(本 attempt 自己 charge)→ paid(走 settlePaid)', async () => {
     const d = deps({
-      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, transactionTimeMillis: TXN_TIME_MS })),
+      tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, timeMillis: TXN_TIME_MS })),
       attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
     });
     expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid');
   });
   it('弱識別 + Record 缺交易時間 → fail-closed pending:record_unverified(無法驗窗)', async () => {
     const d = deps({
-      tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: undefined })),
+      tappay: makeTapPay(async () => recordResult({ timeMillis: undefined })),
       attempts: makeAttempts({ findActiveByOrderId: vi.fn(async () => weakAttempt) }),
     });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
   });
   it('強識別(有 rec)不套時間窗:即使交易時間超窗仍正常(rec 已唯一識別)', async () => {
-    const d = deps({ tappay: makeTapPay(async () => recordResult({ transactionTimeMillis: TXN_TIME_MS + 99 * 24 * 60 * 60 * 1000 })) });
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ timeMillis: TXN_TIME_MS + 99 * 24 * 60 * 60 * 1000 })) });
     expect((await settleCharge(d, { orderId: ORDER_ID })).kind).toBe('paid'); // ACTIVE_PENDING 有 rec → 強識別、不驗窗
   });
 });
@@ -401,7 +774,7 @@ describe('settleCharge — S1 授權即成立:放寬不弱化識別/金額閘(AU
   });
   it('🔴【把關】AUTH + amount 不符 orders.total → pending:record_unverified(金額閘對 AUTH 仍擋)', async () => {
     const attempts = makeAttempts();
-    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, amount: toMoneyAmount(999) })), attempts });
+    const d = deps({ tappay: makeTapPay(async () => recordResult({ recordStatus: 0, isCaptured: false, amount: toMoneyAmount(999), originalAmount: toMoneyAmount(999) })), attempts });
     expect(await settleCharge(d, { orderId: ORDER_ID })).toEqual({ kind: 'pending', reason: 'record_unverified' });
     expect(attempts.markCharged).not.toHaveBeenCalled();
   });

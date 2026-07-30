@@ -151,11 +151,12 @@ const RECORD_CAPTURED_WIRE = {
       bank_transaction_id: '99887766',
       merchant_id: 'M_test',
       amount: 1050,
+      original_amount: 1050, // #301:未退款時兩欄同值
       currency: 'TWD',
       record_status: 1, // 1=OK 交易完成(此 fixture is_captured=true;1a 不裁決、成立判定在 1b)
       is_captured: true,
       refunded_amount: 0,
-      transaction_time_millis: 1700000000000,
+      time: 1700000000000, // #301:本 API 的交易時間欄是 `time`(毫秒),不是 transaction_time_millis
       // 🔴 PII 欄(白名單外、不應被解析進 domain):
       cardholder: { name: '王小明', email: 'buyer@example.com', phone_number: '0912345678' },
       card_info: { bin_code: '424242', last_four: '4242' },
@@ -178,11 +179,12 @@ describe('TapPayChargeAdapter.recordQuery — wire→domain 解析(不下裁決)
       bankTransactionId: '99887766',
       merchantId: 'M_test',
       amount: 1050,
+      originalAmount: 1050,
       currency: 'TWD',
       recordStatus: 1,
       isCaptured: true,
       refundedAmount: 0,
-      transactionTimeMillis: 1700000000000,
+      timeMillis: 1700000000000,
     });
     // 🔴 不下裁決:回傳物件無「paid / verdict」欄,只有原始解析欄。
     expect(res).not.toHaveProperty('paid');

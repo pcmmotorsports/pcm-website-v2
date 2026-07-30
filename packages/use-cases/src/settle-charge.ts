@@ -101,7 +101,18 @@ export async function settleCharge(
     return { kind: 'pending', reason: 'record_unverified' };
   }
   const tr = record.records[0]!;
-  if (!recordMatchesOrder(tr, attempt, orderId, hasStrongKey)) {
+  const matchFailure = recordMatchesOrder(tr, attempt, orderId, hasStrongKey, input.recTradeIdHint);
+  if (matchFailure !== null) {
+    if (LOGGED_MATCH_FAILURES.includes(matchFailure)) {
+      // 非 PII(orderId / attemptId / recordStatus / 原因字串);金額與卡資料一律不入 log。
+      console.warn('[settleCharge] 識別/金額閘擋下(非 PII;上線後 triage 用)', {
+        orderId,
+        attemptId: attempt.attemptId,
+        recordStatus: tr.recordStatus,
+        reason: matchFailure,
+        hasStrongKey,
+      });
+    }
     return { kind: 'pending', reason: 'record_unverified' };
   }
 
@@ -110,6 +121,22 @@ export async function settleCharge(
   const verdict = classifyRecordStatus(tr);
   if (verdict.kind !== 'paid_candidate') {
     if (verdict.kind === 'explicit_failed') {
+      // 🔴 **#301 關卡2 R2-3**:弱識別(無 rec/bank,只靠 hint/order_number)不得 markFailed 釋鎖。
+      //    order_number 是**訂單**的鍵、不是**這次 attempt** 的鍵 ⇒ 同單前一次 attempt 的 ERROR/CANCEL
+      //    只要延遲到本次 attempt 建立後才入帳,就會落在窗內、把**本次**attempt 標成 failed 並釋鎖,
+      //    而本次的 charge 可能正在途中 ⇒ 放行重刷 = 雙扣。paid 方向沒有這個對稱問題
+      //    (Record 證實的是「這張訂單收到了這筆錢」),failed 證實的只是「某次嘗試沒成功」。
+      //    ⚠️ 這條路在 #301 之前因時間欄讀錯而恆 fail-closed、從未生效;是本片讓它活過來才需要這道閘。
+      //    🔴 **Fable R3 F2 更正**:原本這裡寫「仍有 `expireStuckAtCeiling` 天花板可回收」是**錯的** ——
+      //    該函式(`20260615120001_..._sweeper_rpc.sql`)逐字**只做 `SET needs_manual_review = true`**,
+      //    attempt 仍停在 `pending/charged` ⇒ `initiate-payment.ts` 對同單 active attempt 回
+      //    `duplicate → settlement_required` ⇒ **那張單鎖到人工介入為止、沒有任何自動釋鎖**。
+      //    ⚠️ 即便如此仍不放行:#301 之前這條路恆 fail-closed(時間欄讀錯 ⇒ 窗恆 false),
+      //    ⇒ 本閘 = **維持正式站現行行為**(已由 git 查證:該欄名自 `3286a30` 引入後從未改過);
+      //    不加它才是啟用一條從未上線過的釋鎖路。
+      if (!hasStrongKey) {
+        return { kind: 'pending', reason: 'record_unverified' };
+      }
       // -1=ERROR / 5=CANCEL:明確未成功(且識別/金額/時間窗已過 §4 閘)→ markFailed 釋鎖(caller 放行重刷)。
       //    🔴 pre-attempt 防誤釋鎖縱深已前移到 §4 recordMatchesOrder 弱識別窗(下界=attempt、S1 收緊):弱識別
       //    pre-attempt 舊 Record 在 §4 即被擋成 record_unverified、到不了此處;強識別由鍵唯一識別(不套窗)。
@@ -181,13 +208,39 @@ const SETTLE_WINDOW_FORWARD_MS = 24 * 60 * 60 * 1000; // attempt 建立「後」
  * **paid/failed 同款硬化**:S1 前 paid 側曾用 `attempt − 5min` skew、被審查側逮為「授權即成立」後的雙扣縫(舊
  * AUTH 落 -5min 帶內被誤採信標 paid 釋鎖→本 attempt 若成交→重刷),已移除(純安全增益、不誤擋合法自癒)。
  * 🔴 鐵則 10:此論證綁定「bank_txn charge 前 durable」前提,未來改 initiate 順序須重核此窗。
+ *
+ * 🔴 **#301(2026-07-30)**:時間來源改為 Record API 真正的 `time` 欄(`TapPayTradeRecord.timeMillis`)。
+ * 舊碼讀 `transaction_time_millis` —— 該欄**不屬於本 API**(官方 reference 該詞條只掛 payByPrime/payByToken,
+ * 正式商戶實回 33 鍵亦無)⇒ 值恆 undefined ⇒ **本窗恆回 false ⇒ 弱識別路徑從未成立過**
+ * (10 條測試在 fixture 裡自帶那個不存在的欄位而全綠 = 測到一條現實中到不了的路)。
  */
 function withinAttemptWindow(
   recordTimeMillis: number | undefined,
   attemptCreatedAt: string,
 ): boolean {
-  if (recordTimeMillis === undefined) {
-    return false; // 弱識別又無交易時間 → 無法驗窗、fail-closed
+  // 🔴 關卡2 F2:本窗在 #301 之前恆 fail-closed(讀錯欄名)⇒ 這些型別守門從未被實際需要過。
+  //    復活之後必須自己驗:`time=attemptMs+0.5` 這種小數毫秒原本可直接穿窗。
+  // ⚠️ 只驗 safe integer,**不另加 `> 0`** —— 負值/0 已被下界(`>= attemptMs`,恆 > 0)擋住,
+  //    加了也**無法被單獨觸發** = 沒有測試證明得了它(突變實測:加上去拿掉都全綠)。
+  if (recordTimeMillis === undefined || !Number.isSafeInteger(recordTimeMillis)) {
+    return false; // 弱識別又無合法交易時間 → 無法驗窗、fail-closed
+  }
+  // attemptCreatedAt 來自本機 DB timestamptz;`Date.parse('0')` 之類的鬆散字面會被解析成 2000 年 ⇒
+  // 先要求 ISO 8601 形狀再 parse(fail-closed、不接受寬鬆解析)。
+  // 🔴 關卡2 R2-4:光比形狀不夠 —— `2026-02-31` 形狀合法,`Date` 會**靜默正規化**成 3/3 ⇒ 窗整個平移。
+  //    故日期部分要再驗一次「沒有被正規化」。
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/.exec(attemptCreatedAt);
+  if (!ymd) {
+    return false;
+  }
+  const [, y, mo, da] = ymd as unknown as [string, string, string, string];
+  const probe = new Date(Date.UTC(Number(y), Number(mo) - 1, Number(da)));
+  if (
+    probe.getUTCFullYear() !== Number(y) ||
+    probe.getUTCMonth() !== Number(mo) - 1 ||
+    probe.getUTCDate() !== Number(da)
+  ) {
+    return false; // 不存在的日曆日(2026-02-31 / 2026-13-01…)
   }
   const attemptMs = Date.parse(attemptCreatedAt);
   if (Number.isNaN(attemptMs)) {
@@ -199,24 +252,82 @@ function withinAttemptWindow(
 /**
  * 🔴 共用「本機↔Record 識別 + 金額」閘(codex 關卡2):terminal outcome(paid/failed)前必過,防誤命中他單。
  * - `order_number` 恆對 orderId;本機有 rec/bank → 必等於 Record(防 filter 異常採他單);
- * - `amount===orderTotal`(整數)+ `currency==='TWD'`(R5;orders 無 currency 欄、常數比);
+ * - `originalAmount ?? amount === orderTotal`(整數)+ `currency==='TWD'`(R5;orders 無 currency 欄、常數比)
+ *   + 非退款態(status ∉ {2,3})另要求 `amount === orderTotal` 且 `refundedAmount` 為 0;
+ *   + 弱識別走 hint 時,回應 rec 必須等於該 hint(關卡2 R2-1);
+ *   🔴 **#301 + Sean 2026-07-30 拍板 A**:官方逐字「`amount` 會因退款而減少」⇒ 已退款紀錄 `amount=0`,
+ *   拿它比 orders.total 必不符 ⇒ 該紀錄會被擋成 `record_unverified`、**`record_status` 2/3 的退款異常
+ *   告警永遠不會響**。改比不受退款影響的 `original_amount`(缺值退回 `amount` = 舊行為)。
+ *   ⚠️ 這**不新增任何 paid 路徑**:2/3 仍在 `classifyRecordStatus` 走 refund_anomaly → pending + 告警。
  * - 弱識別(無 rec/bank、走 hint/order_number)→ 加時間窗(下界=attempt、S1 收緊;master plan §1 step 2)。
  *   🔴 S1「授權即成立」後,此弱識別窗是 paid + failed 雙 terminal 防 pre-attempt 誤採信的**統一縱深**(下界
  *   零容忍 pre-attempt;原 explicit_failed 的二次窗 guard 已併入此處、不再分散)。
  * merchant 由 adapter recordQuery wire 完整性已 fail-closed(每筆 merchant_id 必本商戶、否則 throw)。
  */
+/**
+ * 識別/金額閘的擋下原因(Fable R3 F4/F5)。
+ *
+ * 🔴 為什麼要記原因:①`window` 是**唯一**能顯示「弱識別路徑到底活著沒」的信號 ——
+ * `time` 欄的毫秒單位目前只有官方文件背書、**實際值從未被觀察過**;若它其實是秒,
+ * 本片的主要修復會在正式站**靜默無效**(與 #301 修的原病同型、同樣沒人會發現)。
+ * ②`amount_eroded` / `refunded_on_non_refund_status` 是本片新加的閘;若它們誤擋合法紀錄,
+ * 表象只是「訂單卡人工」,不記原因就查不出為何。
+ * 三者以外的原因是既有防線、不另記(避免灌爆 log)。
+ */
+type MatchFailure =
+  | 'order_number'
+  | 'rec_mismatch'
+  | 'bank_mismatch'
+  | 'hint_mismatch'
+  | 'original_amount'
+  | 'currency'
+  | 'amount_eroded'
+  | 'refunded_on_non_refund_status'
+  | 'window';
+
+/** 只有這三種需要上線後 triage(其餘為既有防線,略過以免 log 灌爆)。 */
+const LOGGED_MATCH_FAILURES: readonly MatchFailure[] = [
+  'window',
+  'amount_eroded',
+  'refunded_on_non_refund_status',
+];
+
 function recordMatchesOrder(
   tr: TapPayTradeRecord,
   attempt: ActiveChargeAttempt,
   orderId: string,
   hasStrongKey: boolean,
-): boolean {
-  if (tr.orderNumber !== orderId) return false;
-  if (attempt.recTradeId !== null && tr.recTradeId !== attempt.recTradeId) return false;
-  if (attempt.bankTransactionId !== null && tr.bankTransactionId !== attempt.bankTransactionId) return false;
-  if (tr.amount !== attempt.orderTotal || tr.currency !== 'TWD') return false;
-  if (!hasStrongKey && !withinAttemptWindow(tr.transactionTimeMillis, attempt.attemptCreatedAt)) return false;
-  return true;
+  recTradeIdHint: string | undefined,
+): MatchFailure | null {
+  if (tr.orderNumber !== orderId) return 'order_number';
+  if (attempt.recTradeId !== null && tr.recTradeId !== attempt.recTradeId) return 'rec_mismatch';
+  if (attempt.bankTransactionId !== null && tr.bankTransactionId !== attempt.bankTransactionId) {
+    return 'bank_mismatch';
+  }
+  // 🔴 關卡2 R2-1:用 hint 當查詢鍵時,回應的 rec_trade_id 必須就是那把 hint。
+  //    hint 不是本機權威鍵,但「查 A 卻收到 B」= TapPay 沒照 filter 回 ⇒ 不採信(fail-closed)。
+  //    ⚠️ 這條在 #301 之前到不了(弱識別路徑恆 fail-closed),是本片讓它活過來才需要。
+  if (!hasStrongKey && recTradeIdHint && tr.recTradeId !== recTradeIdHint) return 'hint_mismatch';
+  // #301:身分閘比「原始金額」(不因退款減少);缺值退回 amount = 舊行為。
+  const originalAmount = tr.originalAmount ?? tr.amount;
+  if (originalAmount !== attempt.orderTotal) return 'original_amount';
+  if (tr.currency !== 'TWD') return 'currency';
+  // 🔴 只有退款態(2 PARTIALREFUNDED / 3 REFUNDED)允許 amount < 原額;其餘狀態 amount 必須完好 +
+  //    退款額必須是 0。否則 `{originalAmount:1050, amount:0, record_status:1}` 這種「錢已退光卻宣稱
+  //    交易完成」的矛盾紀錄會被判 paid(status 5 則會 markFailed 釋鎖)—— 舊碼的 amount 閘本來擋得住,
+  //    改比 original_amount 後**新增了這兩條 terminal 路徑**(codex 關卡2 R1 F1 給出可重現反例)。
+  //
+  //    🔴 **關卡2 R2-6 更正**:原本這裡還有一條 `amount + refunded === original` 的等式,
+  //    並被我寫成「官方守恆式」—— **官方欄位表沒有這條式子,那是我從三個欄位的語意推導的**。
+  //    且若 `refunded_amount` 對多次部分退款回的是「單次」而非「累計」,合法紀錄會被擋在告警之前
+  //    (= 該響的退款異常告警被靜音)。故該式**只套用在非退款態**(此時它等價於「退款額必須是 0」),
+  //    退款態(2/3)一律放行進 classifyRecordStatus 走告警。
+  if (tr.recordStatus !== 2 && tr.recordStatus !== 3) {
+    if (tr.amount !== attempt.orderTotal) return 'amount_eroded';
+    if ((tr.refundedAmount ?? 0) !== 0) return 'refunded_on_non_refund_status';
+  }
+  if (!hasStrongKey && !withinAttemptWindow(tr.timeMillis, attempt.attemptCreatedAt)) return 'window';
+  return null;
 }
 
 type RecordVerdict =

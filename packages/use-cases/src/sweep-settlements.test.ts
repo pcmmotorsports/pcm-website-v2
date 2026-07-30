@@ -44,7 +44,7 @@ function tradeRecordFor(orderId: string, over: Partial<TapPayTradeRecord> = {}):
     currency: 'TWD',
     recordStatus: 1, // OK
     isCaptured: true,
-    transactionTimeMillis: TXN_TIME_MS,
+    timeMillis: TXN_TIME_MS,
     ...over,
   };
 }
@@ -64,10 +64,17 @@ function resolveOrderId(q: TapPayRecordQuery): string {
   return '';
 }
 
-/** 預設 tappay:依 query 解析所屬 orderId、回 paid 紀錄(orderNumber 對齊真單 → 過 recordMatchesOrder)。 */
+/**
+ * 預設 tappay:依 query 解析所屬 orderId、回 paid 紀錄(orderNumber 對齊真單 → 過 recordMatchesOrder)。
+ *
+ * 🔴 **#301 關卡2 R2-1**:TapPay 是**依 `rec_trade_id` filter 查詢**的 ⇒ 以 rec 為鍵查到的紀錄,
+ * 其 `rec_trade_id` **必然等於那把鍵**。舊 fixture 一律回 `D-${orderId}`,等於在模擬
+ * 「查 A 收到 B」這種現實不會發生的回應 —— 新增的 hint 回核閘會(正確地)擋下它。
+ * 故此處讓回應的 rec 對齊查詢鍵。
+ */
 function makeTapPay(
   recordQuery: (q: TapPayRecordQuery) => Promise<TapPayRecordResult> = async (q) =>
-    paidResultFor(resolveOrderId(q)),
+    paidResultFor(resolveOrderId(q), q.recTradeId ? { recTradeId: q.recTradeId } : {}),
 ): ITapPayAdapter {
   // initiateThreeDSCharge(3DS-5a)為新增 port 方法;sweeper(結算半段)不呼用、stub 滿足介面。
   return { charge: vi.fn(), refund: vi.fn(), recordQuery: vi.fn(recordQuery), initiateThreeDSCharge: vi.fn() };
@@ -177,7 +184,8 @@ describe('sweepSettlements — ② inbox 來源', () => {
   });
 
   it('🔴 群3 inbox 帶 recTradeIdHint:弱 attempt 無 rec/bank → settleCharge 用 inbox rec 查 Record', async () => {
-    const recordQuery = vi.fn(async () => paidResultFor(ORDER_X));
+    // #301 R2-1:以 hint 為鍵查 ⇒ 回應的 rec 必然是那把 hint(fixture 對齊現實)。
+    const recordQuery = vi.fn(async () => paidResultFor(ORDER_X, { recTradeId: 'D-inbox-hint' }));
     const tappay: ITapPayAdapter = { charge: vi.fn(), refund: vi.fn(), recordQuery, initiateThreeDSCharge: vi.fn() };
     const inbox = makeInbox({
       claimDueEvents: vi.fn(async () => [{ recTradeId: 'D-inbox-hint', orderNumber: ORDER_X, attemptCount: 1 }]),
@@ -344,7 +352,11 @@ describe('sweepSettlements — 有界並發(群7;預設順序 / concurrency 可�
     });
     // rec 'D-rec-i' → order-i(模擬該 rec 屬該單)
     const tappay = makeTapPay(async (q) =>
-      paidResultFor(q.orderNumber ?? (q.recTradeId ?? '').replace('D-rec-', 'order-')),
+      // #301 R2-1:以 rec 為鍵查 ⇒ 回應的 rec 必然等於那把鍵。
+      paidResultFor(
+        q.orderNumber ?? (q.recTradeId ?? '').replace('D-rec-', 'order-'),
+        q.recTradeId ? { recTradeId: q.recTradeId } : {},
+      ),
     );
     const res = await sweepSettlements(deps({ attempts, inbox, tappay }), { ...OPTS, concurrency: 2 });
     expect(maxActive).toBeLessThanOrEqual(2); // 有界(不爆 pooler ceiling)

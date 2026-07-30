@@ -173,7 +173,7 @@ export async function runD1ReadbackEvidence(
     recordStatus: null,
     amount: null,
     refundedAmount: null,
-    transactionTimeMillis: null,
+    timeMillis: null,
     note: SEAN_ATTESTED_NOTE,
   };
   const shapes = () => Object.fromEntries(deps.rawShapes ?? new Map());

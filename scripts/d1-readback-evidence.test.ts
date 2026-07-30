@@ -41,12 +41,14 @@ const refunded = (rec: string, orderId: string, amount: number): TapPayRecordRes
       recTradeId: rec,
       orderNumber: orderId,
       merchantId: 'PCM_PROD',
-      isCaptured: true,
-      amount,
+      isCaptured: false, // 實測:已全額退款筆為 false
+      // #301 真實形狀:全額退款後餘額歸 0、原額在 original_amount。
+      amount: 0,
+      originalAmount: amount,
       currency: 'TWD',
       recordStatus: 3,
       refundedAmount: amount,
-      transactionTimeMillis: 1_700_000_000_000,
+      timeMillis: 1_700_000_000_000,
     },
   ],
 });
@@ -62,10 +64,11 @@ const cancelled = (rec: string, orderId: string, amount: number): TapPayRecordRe
       merchantId: 'PCM_PROD',
       isCaptured: true,
       amount,
+      originalAmount: amount,
       currency: 'TWD',
       recordStatus: 5,
       refundedAmount: 0,
-      transactionTimeMillis: 1_700_000_000_000,
+      timeMillis: 1_700_000_000_000,
     },
   ],
 });
@@ -284,12 +287,14 @@ describe('CLI readback 接線(關卡2 M4:這條分支原本零測試覆蓋)', ()
       rec_trade_id: id,
       order_number: orderId,
       merchant_id: 'FIXTURE_MERCHANT',
-      is_captured: true,
-      amount,
+      is_captured: status !== 3, // 實測:已退款筆為 false
+      // #301:全額退款(status=3)時 amount 歸 0、原額在 original_amount。
+      amount: status === 3 ? 0 : amount,
+      original_amount: amount,
       currency: 'TWD',
       record_status: status,
       refunded_amount: refunded,
-      transaction_time_millis: 1_700_000_000_000,
+      time: 1_700_000_000_000,
     });
     const wrap = (r: object) => ({ status: 0, msg: '', number_of_transactions: 1, trade_records: [r] });
     const fixture = {

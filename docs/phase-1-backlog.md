@@ -7667,7 +7667,46 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #301. 🔴 TapPay Record API 三處欄位假設經實測為誤(`wire.ts:68` 宣稱不實)
 
-- **狀態:** 🔴 立即啟動(退款線 RF2b 開工前的硬前置)
+- **狀態:** ✅ **已修(2026-07-30;Sean 拍板 Q1=A 身分閘改比 `original_amount` / Q2=A 順手改對已退場的 D1 矩陣。
+  另有一題 Q3 只決定「這片送誰審」= 先試 codex,不是本條的技術決策、不影響修法)**
+  - 🔴 **codex 關卡2 R1 判 NO-GO:6 must-fix + 5 nit,全數接受、駁回 0**,最重一條是
+    **本次修法自己新增的洞** —— 改比 `original_amount` 之後,`{original_amount=orders.total, amount=0,
+    record_status=1}` 這種「錢已退光卻宣稱交易完成」的矛盾紀錄會被判 **paid**(status 5 則 markFailed 釋鎖),
+    而舊碼的 amount 閘擋得住。已加兩道閘(**非退款態** `amount` 必須完好、`refunded_amount` 必為 0),
+    並補四條矛盾紀錄測試。
+    🔴 **措辭更正(R2-6)**:折入的第一版寫成「官方守恆式 `amount + refunded_amount = original_amount`」——
+    **官方欄位表沒有這條式子**,那是從三欄語意推導的;且若 `refunded_amount` 對多次部分退款回單次金額,
+    合法紀錄會被擋在退款告警之前。已收斂成只約束非退款態(等價於「退款額必為 0」),**code 裡沒有那條等式**。
+  - 🔴 **本片實際改到的範圍(比 #301 標題大,逐條列出以免日後誤以為只改了欄名)**:
+    ①身分閘改比 `original_amount`(**Sean 唯一拍板的一項**)②③ 上述兩道收尾閘
+    ④**hint 回核**(用 hint 查詢時,回應的 `rec_trade_id` 必須就是那把 hint)
+    ⑤**弱識別不得 markFailed 釋鎖**(審查過程中新增的行為變更;**Sean 2026-07-30 拍板 A 追認留著** ——
+    逐字取捨:「寧可你多花時間處理幾張單,也不要客人被扣兩次錢」)。
+    ④⑤ 都因為「弱識別路徑在 #301 之前恆 fail-closed、本片讓它活了」才需要;
+    Fable R3 已獨立確認 ⑤ = **維持正式站現行行為**(git 查證欄名自 `3286a30` 引入後從未改過 ⇒ 該路從未 terminal)。
+  - ⚠️ **退款告警的涵蓋範圍(Fable R3 F6;避免日後誤信)**:`settleCharge` 對已 `paid` 的訂單會**先短路**、
+    不查 Record ⇒ 真實世界最常見的退款形態(已付款訂單事後被退款,= 0102/0104 本尊)**永遠不會觸發**這條告警。
+    本片讓告警會響的母體只有「unpaid + 有 active attempt + Record 顯退款態」。已 paid 單的退款屬退款線(RF)。
+  - 🔴 **上線後要驗一件事(Fable R3 F4)**:`time` 欄的毫秒單位**只有官方文件背書、實際值從未被觀察**。
+    若它其實是秒,弱識別時間窗恆 false ⇒ 本片主要修復在正式站**靜默無效**(與 #301 原病同型)。
+    ⇒ 已在 `settleCharge` 補非 PII `console.warn`(`reason: 'window'`)當活性信號;
+    上線後看到大量 `window` 就是這個病,或用 `d1-readback` 對已知紀錄驗一次量級。
+  - 官方文件已親讀(自抓 `reference.html` 原始 HTML 解析,非小模型摘要)。
+  - 🔴 **證據分層(關卡2 R2-11 更正,原寫「與 07-30 實測逐格對照」不成立)**:實測只證明了
+    **鍵存在**(33 鍵)與**四個欄位的值**(`amount`=0 / `refunded_amount` / `record_status`=3 /
+    `is_captured`=false);`original_amount` 與 `time` 的**值從未被觀察**(當時 parser 沒讀)⇒
+    這兩欄只有官方語意背書,測試 fixture 內的數字是合成的。
+  - 🔴 **本條原文第 ② 點是誤推、已更正**:`refunded_amount` 官方逐字就是「**退款金額**」(已退多少),
+    不是「原本金額」。07-30 只有**全額退款**樣本,那種情況下「已退金額」與「原始金額」**恆等**
+    ⇒ 該樣本在型式上分辨不出兩種解讀,是當時直接從 101/1180 下的結論。語意以官方文件為準。
+  - 真正的第 ② 點是:**原始金額在 `original_amount`**(官方逐字「不會因款項被退款而受影響」),
+    而 `amount`「會因退款而減少」⇒ 拿 `amount` 當授權金額對帳才是錯的那一步。
+  - 🔴 **順帶抓到一個未知的真 bug**:`settle-charge.ts` 的弱識別時間窗讀不存在的欄位 ⇒ 值恆 undefined
+    ⇒ **弱識別路徑(無 rec_trade_id / bank_transaction_id、靠 order_number 反查)從未成立過、一律卡 pending**;
+    而 10 條測試在 fixture 裡自帶那個不存在的欄位 ⇒ 全綠、測的是一條現實中到不了的路。
+  - 修正範圍:`wire.ts` / `TapPayTradeRecord` / `TapPayChargeAdapter` / `settle-charge.ts`(身分閘改比
+    `original_amount ?? amount`、時間改讀 `time`)/ `scripts/d1-readback.ts` 矩陣 / `docs/reference/tappay-reference.md` §2.2。
+- **原狀態:** 🔴 立即啟動(退款線 RF2b 開工前的硬前置)
 - **優先級:** 🔴 高
 - **問題:**
   - `packages/adapters/src/tappay/wire.ts:68` **逐字宣稱**欄名「以官方 Record API reference 核實」,

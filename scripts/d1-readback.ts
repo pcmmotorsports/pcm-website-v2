@@ -6,9 +6,12 @@
  *
  * 🔴 判定矩陣逐字對照(master-plan v2 §8.7 表 + §8.4:875-886;測試逐格覆蓋):
  * - 五筆有 `rec_trade_id`(0052/0064/0090/0102/0104):不降級。top `status ∈ {0,2}`、
- *   要求唯一命中、回傳 recTradeId === 查詢鍵、amount === orders.total(整數元位,
- *   settle-charge.ts:217 同口徑)、currency 'TWD'、全部 safe integer。
- * - 三筆已退(0052/0102/0104):`record_status === 3` 且 `refunded_amount === amount`。
+ *   要求唯一命中、回傳 recTradeId === 查詢鍵、**`original_amount ?? amount` === orders.total**
+ *   (整數元位,與 settle-charge 同口徑;#301 更正 —— `amount` 會因退款減少)、
+ *   currency 'TWD'、全部 safe integer。
+ * - 三筆已退(0052/0102/0104):`record_status === 3` 且 **`refunded_amount === 原始金額`**
+ *   且 **`amount === 0`**(#301 更正:舊條件寫 `refunded_amount === amount`,全額退款時是 101===0、
+ *   永遠不成立)。
  * - 🔴 0052 專屬出口:零筆命中 ⇒ 保持原值 + audit「正式商戶查無」——**不得寫成
  *   「sandbox 已證實」**(查無只證明正式商戶無此交易);0102/0104 零筆 = abort。
  * - 兩筆 pending(0064/0090):**命中時**只收 `record_status ∈ {-1, 5}`;`0`(AUTH)與 `4`(PENDING)
@@ -21,24 +24,25 @@
  *   ⇒ 零筆**僅在 `payment_status === 'unpaid'` 時**放行 —— DB 與正式商戶對「沒收到錢」
  *   口徑一致才算數;`unpaid` 以外(DB 說收過錢、正式商戶卻查無)= 兩邊矛盾,一律 abort。
  *   證據等級 `official-no-hit`,**不得升格為 `system-readback`**(查無只證明正式商戶無此交易)。
- *   同批實證的反向支撐(🔴 措辭已於 2026-07-30 關卡2 更正,原文誤稱「金額逐格相符」):
+ *   同批實證的反向支撐(🔴 措辭已於 2026-07-30 關卡2 更正,原文誤稱「金額逐格相符」;
+ *   下方原本的「未解決」段落已於同日改為「已修」,不必再往下找那段):
  *   0102/0104 以**同一組 merchant id、同一條查詢路徑**各命中 1 筆,且 `rec_trade_id` 與
  *   `order_number` 逐格相符(實查證據檔確認)⇒ **查詢鍵綁定與商戶身分**已被正向證明,
  *   零筆不是查錯。**金額欄不在此列** —— 見下方「未解決」。
  *
- * 🔴 **未解決:本出口不足以解封 D1(2026-07-30 關卡2 codex + code-reviewer 一致指出)。**
- * D1b1 首跑在 0064 就 throw,`judgeHit` **從未對 0102/0104 執行過**;直接讀證據檔比對,
- * 本檔對「已全額退款紀錄」的三項假設與 TapPay 實回應不符,下次跑會改在 0102 abort:
- *   ① `amount` 實回 **0**(非授權金額;原額在 raw 的 `original_amount`)⇒ 撞 `judgeHit` 金額閘
- *   ② `refunded_amount` 實回 **101 / 1180**(= orders.total),而本檔要求它 `=== rec.amount`(0)
- *   ③ **`transaction_time_millis` 這個欄位不存在** —— raw 實有 `time` / `cap_millis` /
- *      `transaction_complete_millis` / `bank_transaction_*_millis`(`wire.ts:68` 的欄名待重訂)
- * 修這三項需要重查 TapPay 官方 Record API 文件、改 `wire.ts` 與本檔矩陣、重審。**尚未進行。**
+ * ✅ **上述三項欄位假設已於 2026-07-30 修正(backlog #301;Sean 拍板 Q2=A 順手改對)**:
+ *   ① 金額閘改比 `original_amount ?? amount`(官方逐字:`amount` 會因退款而減少、原額不受退款影響)
+ *   ② 全額退款判定改為 `refunded_amount === 原始金額`(官方逐字:`refunded_amount` = 已退金額)
+ *   ③ 交易時間改讀 `time`(本 API 無 `transaction_time_millis`)
+ * 🔴 **但 D1 線本身已於同日退場**(Sean 拍板:26 張永久刪除取消、改走換產號器;memory
+ * `project_m4b-d1c-delete-cancelled`)⇒ 本矩陣**現在沒有任何呼叫端會真的執行到正式站**,
+ * 且**未再對真 TapPay 跑過**(唯一一次真跑 = D1b1 首跑,在 0064 就 abort、`judgeHit` 從未執行)。
+ * 修正只有單元測試與官方文件背書,**不得據此宣稱「判定矩陣已驗證」**。
  * - 🔴 0101(唯一無鍵):不查。**禁用 bank_transaction_id 或任何寬條件替代**(§8.7 逐字;
  *   本函式的輸入型別根本不收該欄 = 物理排除)。證據等級 = Sean 本人確認、非系統 read-back。
  * - 其餘一切(多筆、狀態不在集合、金額不符、top status 異常)= abort,不留人工解讀路徑。
  *
- * `transactionTimeMillis`(關卡1 R2-8 + R3-F11):`record_status===3` 的退款證據筆必備
+ * `timeMillis`(wire `time`;關卡1 R2-8 + R3-F11):`record_status===3` 的退款證據筆必備
  * (缺 = throw);`-1`/`5` 選填(TapPay 對 ERROR/CANCEL 是否必帶未確認,不得讓合法取消
  * 紀錄 wedge 整條線),缺值 audit 記原因。
  */
@@ -92,7 +96,7 @@ export type D1ReadbackAuditRow = Readonly<{
   recordStatus: number | null;
   amount: number | null;
   refundedAmount: number | null;
-  transactionTimeMillis: number | null;
+  timeMillis: number | null;
   note: string;
 }>;
 
@@ -214,8 +218,14 @@ function judgeHit(fact: D1AttemptFact, rec: TapPayRecordWire): D1ReadbackAuditRo
   if (rec.orderNumber !== fact.orderId) {
     abort(displayId, `order_number ${rec.orderNumber} ≠ 本單 UUID(錯掛他單)`);
   }
-  if (!Number.isSafeInteger(rec.amount) || rec.amount !== fact.authorizedAmount) {
-    abort(displayId, `TapPay amount ${rec.amount} ≠ orders.total ${fact.authorizedAmount}`);
+  // 🔴 #301:金額閘比「原始金額」—— 官方逐字 `amount` 會因退款而減少(全額退款後 = 0),
+  //    拿它比 orders.total 會讓每一筆已退款的證據筆直接 abort。缺 original_amount 時退回 amount。
+  const originalAmount = rec.originalAmount ?? rec.amount;
+  if (!Number.isSafeInteger(originalAmount) || originalAmount !== fact.authorizedAmount) {
+    abort(
+      displayId,
+      `TapPay original_amount ${originalAmount}(amount ${rec.amount})≠ orders.total ${fact.authorizedAmount}`,
+    );
   }
   if (rec.currency !== 'TWD') {
     abort(displayId, `currency 非 TWD(實 ${rec.currency ?? '缺'})`);
@@ -225,19 +235,29 @@ function judgeHit(fact: D1AttemptFact, rec: TapPayRecordWire): D1ReadbackAuditRo
     if (rec.recordStatus !== 3) {
       abort(displayId, `已退單 record_status 應為 3(REFUNDED),實 ${rec.recordStatus}`);
     }
+    // 🔴 #301:全額退 = 已退金額(`refunded_amount`)等於**原始金額**,且退款後餘額 `amount` 歸零。
+    //    舊條件 `refunded_amount === amount` 在全額退款時是 101 === 0,永遠不成立。
     if (
       typeof rec.refundedAmount !== 'number' ||
       !Number.isSafeInteger(rec.refundedAmount) ||
-      rec.refundedAmount !== rec.amount
+      rec.refundedAmount !== originalAmount
     ) {
-      abort(displayId, `refunded_amount ${rec.refundedAmount ?? '缺'} ≠ 授權金額 ${rec.amount}(非全額退)`);
+      abort(
+        displayId,
+        `refunded_amount ${rec.refundedAmount ?? '缺'} ≠ 原始金額 ${originalAmount}(非全額退)`,
+      );
+    }
+    if (rec.amount !== 0) {
+      abort(displayId, `全額退款後餘額 amount 應為 0,實 ${rec.amount}`);
     }
     // 退款證據筆的交易時間必備(§8.4:867 要求存檔;wire 層選填 ⇒ 本層收緊)。
     if (
-      typeof rec.transactionTimeMillis !== 'number' ||
-      !Number.isSafeInteger(rec.transactionTimeMillis)
+      typeof rec.timeMillis !== 'number' ||
+      !Number.isSafeInteger(rec.timeMillis) ||
+      rec.timeMillis <= 0
     ) {
-      abort(displayId, 'transaction_time_millis 缺失(退款證據不完整)');
+      // 關卡2 F10:負 epoch / 0 也是 safe integer,但不是合法交易時間 ⇒ 不得成為退款證據。
+      abort(displayId, 'time 缺失或非法(退款證據不完整)');
     }
     return {
       displayId,
@@ -247,8 +267,8 @@ function judgeHit(fact: D1AttemptFact, rec: TapPayRecordWire): D1ReadbackAuditRo
       recordStatus: rec.recordStatus,
       amount: rec.amount,
       refundedAmount: rec.refundedAmount,
-      transactionTimeMillis: rec.transactionTimeMillis,
-      note: '全額退款證據成立(record_status=3、refunded_amount=授權金額)',
+      timeMillis: rec.timeMillis,
+      note: `全額退款證據成立(record_status=3、refunded_amount=原始金額 ${originalAmount}、餘額 amount=0)`,
     };
   }
 
@@ -262,8 +282,8 @@ function judgeHit(fact: D1AttemptFact, rec: TapPayRecordWire): D1ReadbackAuditRo
       );
     }
     const millis =
-      typeof rec.transactionTimeMillis === 'number' && Number.isSafeInteger(rec.transactionTimeMillis)
-        ? rec.transactionTimeMillis
+      typeof rec.timeMillis === 'number' && Number.isSafeInteger(rec.timeMillis)
+        ? rec.timeMillis
         : null;
     return {
       displayId,
@@ -273,10 +293,10 @@ function judgeHit(fact: D1AttemptFact, rec: TapPayRecordWire): D1ReadbackAuditRo
       recordStatus: rec.recordStatus,
       amount: rec.amount,
       refundedAmount: typeof rec.refundedAmount === 'number' ? rec.refundedAmount : null,
-      transactionTimeMillis: millis,
+      timeMillis: millis,
       note:
         millis === null
-          ? '未授權/已取消證據成立;transaction_time_millis 缺值(TapPay 對 ERROR/CANCEL 未必帶,記錄缺值原因)'
+          ? '未授權/已取消證據成立;time 缺值(TapPay 對 ERROR/CANCEL 未必帶,記錄缺值原因)'
           : '未授權/已取消證據成立',
     };
   }
@@ -315,7 +335,7 @@ export function judgeReadback(
         recordStatus: null,
         amount: null,
         refundedAmount: null,
-        transactionTimeMillis: null,
+        timeMillis: null,
         note: SEAN_ATTESTED_NOTE,
       });
       continue;
@@ -339,7 +359,7 @@ export function judgeReadback(
           recordStatus: null,
           amount: null,
           refundedAmount: null,
-          transactionTimeMillis: null,
+          timeMillis: null,
           // 🔴 措辭合約:只能說「正式商戶查無」。查無 ≠ sandbox 已證實(§8.4:880 R22)。
           note: '正式商戶查無此 rec_trade_id;依 §8.4 R21 保持原值,Sean 授權怎樣處理都好',
         });
@@ -363,7 +383,7 @@ export function judgeReadback(
           recordStatus: null,
           amount: null,
           refundedAmount: null,
-          transactionTimeMillis: null,
+          timeMillis: null,
           // 🔴 措辭合約(§8.4:880 R22)同樣適用:只能說「正式商戶查無」,不得寫「sandbox 已證實」。
           note:
             `正式商戶查無此 rec_trade_id,且 orders.payment_status='${NO_HIT_REQUIRED_PAYMENT_STATUS}'` +

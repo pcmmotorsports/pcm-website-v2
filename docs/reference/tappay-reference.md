@@ -9,7 +9,7 @@
 
 ## 0. 一句話結論
 
-**TapPay 沒有活躍維護的官方 Node/TS server SDK**(唯一候選 `tappay-nodejs` 官方明標 Deprecated、且不含 3DS)→ **PCM 自寫 `TapPayChargeAdapter` 的方向正確、繼續自寫**。經逐字核對,PCM 現有 Record Query / webhook 實作**與官方文件一致、無落差**;**唯一缺口 = `refund()` 未實作**(現 `throw`),規格見 §2.3,照官方文件補即可。
+**TapPay 沒有活躍維護的官方 Node/TS server SDK**(唯一候選 `tappay-nodejs` 官方明標 Deprecated、且不含 3DS)→ **PCM 自寫 `TapPayChargeAdapter` 的方向正確、繼續自寫**。~~經逐字核對,PCM 現有 Record Query / webhook 實作與官方文件一致、無落差~~ 🔴 **2026-07-30 更正(backlog #301)**:這句在 Record Query 上**是錯的** —— `amount` / `original_amount` / 交易時間欄三處與官方及實回應不符,已修(見 §2.2)。webhook 部分未發現落差。**另一個缺口 = `refund()` 未實作**(現 `throw`),規格見 §2.3。
 
 ---
 
@@ -84,7 +84,14 @@ PCM **已自寫實作**(`packages/adapters/src/tappay/TapPayChargeAdapter.ts`)�
 - `filters` 可用:`time`(起訖最大 90 天)/ `amount` / `cardholder`(phone·name·email)/ `merchant_id` / `record_status` / `rec_trade_id` / `order_number` / `bank_transaction_id` / `auth_code` / `currency` / `tsp` / `card_identifier`。
 - 回應:`status`(**0=成功且有更多分頁 / 2=成功且無更多分頁**,兩者皆「查詢成功」≠交易狀態)、`msg`、`records_per_page`、`page`、`total_page_count`、`number_of_transactions`、`trade_records`(JSONArray)。
 - 🔴 **`record_status` enum(7 值、逐字)**:`-1` ERROR / `0` AUTH(已授權未請款)/ `1` OK(完成)/ `2` PARTIALREFUNDED / `3` REFUNDED / `4` PENDING / `5` CANCEL。
-- **PCM 對照**:`packages/adapters/src/tappay/wire.ts` 的 parser 欄位命名/型別 + record_status 7 值 + top status 0/2 語意**與官方逐字一致、無落差**。sweeper(`settleCharge`)只在 `record_status` −1/5 才 markFailed、其餘保留 pending(見上位 plan §2 金流不變量)。
+- 🔴 **`trade_records[]` 金額三欄與時間欄(官方逐字、2026-07-30 backlog #301 重查)**:
+  - `amount` int —「交易金額,**會因退款而減少**」⇒ 全額退款後為 **0**,**不是**授權金額。
+  - `original_amount` int —「一筆交易的原始金額 **此金額不會因款項被退款而受影響**」⇒ 對帳要比「本來收多少」一律用這欄。
+  - `refunded_amount` int —「**退款金額**」(已退多少)。全額退款時它 = `original_amount`、`amount` = 0(2026-07-30 實測 0102/0104 的 `amount`=0、`refunded_amount`=101/1180、`record_status`=3、`is_captured`=false **是觀察值**;🔴 `original_amount` 與 `time` 的**值當時未被保存**,只確認鍵存在)。
+  - `time` long —「交易時間,**單位為毫秒**」= 本 API 的交易時間欄。
+  - 🔴 **`transaction_time_millis` 不屬於本 API** —— 官方 reference 該詞條的 Related topics 只列 payByPrime / payByToken;pay-by-prime 回應與 backend notify payload 確有此欄(PCM 那兩處用法正確),但 `trade_records` 沒有,正式商戶實回的 33 個鍵亦無。
+- **PCM 對照(2026-07-30 更正)**:`record_status` 7 值 + top status 0/2 語意與官方逐字一致;🔴 **但金額/時間四欄一度不一致** —— 舊 `wire.ts` 把 `amount` 當授權金額、未解析 `original_amount`、且讀了不存在的 `transaction_time_millis`(⇒ `settleCharge` 弱識別時間窗恆 fail-closed)。已於 backlog #301 修正並補真實形狀 fixture 測試(`wire.test.ts`)。**此處不再宣稱「無落差」——落差要逐欄列、由測試背書。**
+- **`settleCharge` 的 `record_status` 實際映射(2026-07-30 對程式碼實查更正;舊句「只在 −1/5 才 markFailed、其餘保留 pending」把 0/1 講錯了)**:`0` AUTH / `1` OK → **paid**(S1「授權即成立」)/ `-1` ERROR、`5` CANCEL → **markFailed 釋鎖** / `4` PENDING → pending / `2`、`3` 退款態 → pending + 告警(不自動放行)/ 未知碼 → pending。**且任何 terminal 前都要先過識別+金額閘**(#301 後:身分比 `original_amount`;**非退款態**另要求 `amount` 完好且 `refunded_amount` 為 0)。🔴 `amount + refunded_amount = original_amount` 這條等式是**從三欄語意推導**的、**官方欄位表沒有明文**,故不作為退款態的擋門(否則多次部分退款若回單次金額,合法紀錄會被擋在告警之前)。
 
 ### 2.3 🔴 Refund API — `/tpc/transaction/refund`(S6 目標;PCM 現為 stub)
 - Sandbox `https://sandbox.tappaysdk.com/tpc/transaction/refund` / 正式 `https://prod.tappaysdk.com/tpc/transaction/refund`。

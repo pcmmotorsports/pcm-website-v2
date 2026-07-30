@@ -161,8 +161,18 @@ export type TapPayTradeRecord = {
   orderNumber: string;
   bankTransactionId?: string;
   merchantId: string;
-  /** wire `amount`:整數最小貨幣單位(MoneyAmount 守門;3DS-1b 比對 orders.total)。 */
+  /**
+   * wire `amount`:整數最小貨幣單位(MoneyAmount 守門)。
+   * 🔴 **#301(2026-07-30 更正)**:官方逐字「交易金額,**會因退款而減少**」——
+   * 全額退款後為 0。要比對 orders.total 請用 `originalAmount ?? amount`(見下)。
+   */
   amount: MoneyAmount;
+  /**
+   * wire `original_amount`:官方逐字「一筆交易的原始金額 此金額不會因款項被退款而受影響」。
+   * 🔴 3DS-1b 身分/金額閘改比此欄(缺值退回 `amount`)—— 否則已退款紀錄(amount=0)會被當成
+   * 「認不出的紀錄」擋掉,`record_status` 2/3 的退款異常告警永遠不會響(Sean 2026-07-30 拍板 A)。
+   */
+  originalAmount?: MoneyAmount;
   /** wire `currency`(原值;1b 比對時嚴格斷言 'TWD',1a 不斷言以免擋掉歷史紀錄)。 */
   currency?: string;
   /** wire `record_status` 原值 int:-1=ERROR / 0=AUTH / 1=OK / 2=PARTIALREFUNDED / 3=REFUNDED / 4=PENDING / 5=CANCEL。 */
@@ -170,10 +180,14 @@ export type TapPayTradeRecord = {
   /** wire `is_captured`:true=已請款。🔴 S1「授權即成立」後 1b 裁決**不再讀**此欄(0/1 即成立);
    *  保留 parse/型別供未來精準帳務 authorized/captured 兩段 + audit。 */
   isCaptured: boolean;
-  /** wire `refunded_amount`:整數最小貨幣單位(部分/全退時非 0)。 */
+  /** wire `refunded_amount`:官方逐字「退款金額」= **已退多少**(部分/全退時非 0)。 */
   refundedAmount?: MoneyAmount;
-  /** wire `transaction_time_millis`:交易時間(epoch ms;3DS-1b order_number fallback 窄窗用)。 */
-  transactionTimeMillis?: number;
+  /**
+   * wire **`time`**:交易時間(epoch ms;3DS-1b order_number fallback 窄窗用)。
+   * 🔴 **#301(2026-07-30 更正)**:本 API 沒有 `transaction_time_millis` 欄(那是 payByPrime /
+   * backend notify 的欄位);舊碼讀錯名 ⇒ 此值恆 undefined ⇒ 弱識別窗恆 fail-closed。
+   */
+  timeMillis?: number;
 };
 
 /**

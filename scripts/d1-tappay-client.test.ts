@@ -86,12 +86,16 @@ describe('queryRecordByRecTradeId', () => {
     rec_trade_id: 'REC1',
     order_number: 'PCM-2026-0102',
     merchant_id: 'pcm-prod',
-    amount: 101,
+    // #301:全額退款紀錄的形狀。`amount=0` / `refunded_amount=101` / `record_status=3` /
+    //   `is_captured=false` 取自 2026-07-30 正式商戶實測 0102;**`original_amount` 與 `time`
+    //   的值未被觀察過、此處為合成值**(關卡2 R2-13)。
+    amount: 0,
+    original_amount: 101,
     currency: 'TWD',
     record_status: 3,
-    is_captured: true,
+    is_captured: false, // 實測:已全額退款筆為 false
     refunded_amount: 101,
-    transaction_time_millis: 1753000000000,
+    time: 1753000000000,
   };
 
   function fakeFetch(

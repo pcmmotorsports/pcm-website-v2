@@ -52,14 +52,28 @@ function record(displayId: keyof typeof KEYED, patch: Partial<TapPayRecordWire> 
     // TapPay order_number 存的是 orders.id(UUID),不是 display_id(adapter:91)。
     orderNumber: uuid,
     merchantId: 'pcm-prod',
-    amount: total,
+    // 🔴 #301 形狀:全額退款後 `amount` 歸 0、原額在 `original_amount`、`refunded_amount` = 已退金額。
+    //    `amount=0` / `refunded_amount` / `record_status=3` / `is_captured=false` 取自 2026-07-30
+    //    正式商戶實測;**`originalAmount` 與 `timeMillis` 的值未被觀察過、此處為合成值**(關卡2 R2-12)。
+    amount: 0,
+    originalAmount: total,
     currency: 'TWD',
     recordStatus: 3,
-    isCaptured: true,
+    // 🔴 實測:已全額退款的紀錄 is_captured 為 false(0102/0104 兩筆皆然)。
+    isCaptured: false,
     refundedAmount: total,
-    transactionTimeMillis: 1753000000000,
+    timeMillis: 1753000000000,
     ...patch,
   };
+}
+
+/** 未退款筆(pending/取消)的真實形狀:amount 未被退款吃掉、refunded_amount 為 0。 */
+function unrefunded(
+  displayId: keyof typeof KEYED,
+  patch: Partial<TapPayRecordWire> = {},
+): TapPayRecordWire {
+  const { total } = KEYED[displayId];
+  return record(displayId, { amount: total, refundedAmount: 0, ...patch });
 }
 
 function wire(records: TapPayRecordWire[], status = 0): TapPayRecordResponseWire {
@@ -72,8 +86,8 @@ function happyResults(): Map<string, TapPayRecordResponseWire> {
     ['PCM-2026-0052', wire([record('PCM-2026-0052')])],
     ['PCM-2026-0102', wire([record('PCM-2026-0102')])],
     ['PCM-2026-0104', wire([record('PCM-2026-0104')])],
-    ['PCM-2026-0064', wire([record('PCM-2026-0064', { recordStatus: 5, refundedAmount: 0 })])],
-    ['PCM-2026-0090', wire([record('PCM-2026-0090', { recordStatus: -1, refundedAmount: undefined })])],
+    ['PCM-2026-0064', wire([unrefunded('PCM-2026-0064', { recordStatus: 5 })])],
+    ['PCM-2026-0090', wire([unrefunded('PCM-2026-0090', { recordStatus: -1, refundedAmount: undefined })])],
   ]);
 }
 
@@ -85,7 +99,7 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
     for (const d of ['PCM-2026-0052', 'PCM-2026-0102', 'PCM-2026-0104']) {
       expect(byId.get(d)?.verdict).toBe('refund-confirmed');
       expect(byId.get(d)?.evidenceLevel).toBe('system-readback');
-      expect(byId.get(d)?.transactionTimeMillis).toBe(1753000000000);
+      expect(byId.get(d)?.timeMillis).toBe(1753000000000);
     }
     for (const d of ['PCM-2026-0064', 'PCM-2026-0090']) {
       expect(byId.get(d)?.verdict).toBe('not-charged-confirmed');
@@ -129,7 +143,7 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
       // 措辭合約(R22)同樣適用:查無 ≠ sandbox 已證實。
       expect(r.note.toLowerCase()).not.toContain('sandbox');
       // 查無沒有 TapPay 側數值可記,四欄必須是 null(不得從 DB 端補值冒充 read-back 結果)。
-      expect([r.recordStatus, r.amount, r.refundedAmount, r.transactionTimeMillis]).toEqual([
+      expect([r.recordStatus, r.amount, r.refundedAmount, r.timeMillis]).toEqual([
         null,
         null,
         null,
@@ -170,14 +184,14 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
   // pending 狀態掃描:-1/5 放行;0(AUTH)/4(PENDING)/1(OK)/2/3 全 abort。
   it.each([-1, 5])('pending 單 record_status %i 放行', (s) => {
     const results = happyResults();
-    results.set('PCM-2026-0064', wire([record('PCM-2026-0064', { recordStatus: s })]));
+    results.set('PCM-2026-0064', wire([unrefunded('PCM-2026-0064', { recordStatus: s })]));
     expect(judgeReadback(facts(), results).find((r) => r.displayId === 'PCM-2026-0064')?.verdict).toBe(
       'not-charged-confirmed',
     );
   });
   it.each([0, 1, 2, 3, 4])('pending 單 record_status %i = abort(0/4 = 交易在途,raise Sean)', (s) => {
     const results = happyResults();
-    results.set('PCM-2026-0090', wire([record('PCM-2026-0090', { recordStatus: s })]));
+    results.set('PCM-2026-0090', wire([unrefunded('PCM-2026-0090', { recordStatus: s })]));
     expect(() => judgeReadback(facts(), results)).toThrow(/不在自動放行集合/);
   });
 
@@ -187,19 +201,35 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
     expect(() => judgeReadback(facts(), results)).toThrow(/record_status 應為 3/);
   });
 
-  it('非全額退(refunded_amount ≠ 授權金額)= abort', () => {
+  it('非全額退(refunded_amount ≠ 原始金額)= abort', () => {
     const results = happyResults();
     results.set('PCM-2026-0102', wire([record('PCM-2026-0102', { refundedAmount: 100 })]));
     expect(() => judgeReadback(facts(), results)).toThrow(/非全額退/);
   });
 
-  it('退款證據筆缺 transaction_time_millis = abort;pending 筆缺值 = 放行 + note 記原因', () => {
+  // 🔴 關卡2 F10:負 epoch / 0 也是 safe integer,但不是合法交易時間。
+  //    本檔沒有時間窗可以順帶擋掉它 ⇒ 這道守門單獨承重、必須有自己的測試。
+  it.each([0, -1, -1_700_000_000_000])('退款證據的 time = %i(非法 epoch)= abort', (bad) => {
     const results = happyResults();
-    results.set('PCM-2026-0052', wire([record('PCM-2026-0052', { transactionTimeMillis: undefined })]));
-    expect(() => judgeReadback(facts(), results)).toThrow(/transaction_time_millis/);
+    results.set('PCM-2026-0102', wire([record('PCM-2026-0102', { timeMillis: bad })]));
+    expect(() => judgeReadback(facts(), results)).toThrow(/time 缺失或非法/);
+  });
+
+  // 🔴 #301:官方逐字「amount 會因退款而減少」⇒ 全額退款後餘額必為 0。
+  //    refunded_amount 對得上、但 amount 沒歸零 = 兩欄互相矛盾,不當成全額退款證據。
+  it('全額退款但 amount 未歸零 = abort(兩欄矛盾、不採信)', () => {
+    const results = happyResults();
+    results.set('PCM-2026-0102', wire([record('PCM-2026-0102', { amount: 101 })]));
+    expect(() => judgeReadback(facts(), results)).toThrow(/餘額 amount 應為 0/);
+  });
+
+  it('退款證據筆缺 time = abort;pending 筆缺值 = 放行 + note 記原因', () => {
+    const results = happyResults();
+    results.set('PCM-2026-0052', wire([record('PCM-2026-0052', { timeMillis: undefined })]));
+    expect(() => judgeReadback(facts(), results)).toThrow(/time 缺失/);
 
     const ok = happyResults();
-    ok.set('PCM-2026-0064', wire([record('PCM-2026-0064', { recordStatus: 5, transactionTimeMillis: undefined })]));
+    ok.set('PCM-2026-0064', wire([unrefunded('PCM-2026-0064', { recordStatus: 5, timeMillis: undefined })]));
     const r = judgeReadback(facts(), ok).find((x) => x.displayId === 'PCM-2026-0064')!;
     expect(r.verdict).toBe('not-charged-confirmed');
     expect(r.note).toContain('缺值');
@@ -207,8 +237,20 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
 
   it('金額不符 orders.total = abort;currency 非 TWD = abort', () => {
     const results = happyResults();
-    results.set('PCM-2026-0104', wire([record('PCM-2026-0104', { amount: 9999, refundedAmount: 9999 })]));
+    // #301:身分閘比 original_amount(不受退款影響),故金額漂移要打在這一欄。
+    results.set(
+      'PCM-2026-0104',
+      wire([record('PCM-2026-0104', { originalAmount: 9999, refundedAmount: 9999 })]),
+    );
     expect(() => judgeReadback(facts(), results)).toThrow(/orders\.total/);
+
+    // 🔴 缺 original_amount 時退回 amount(舊行為);此時 amount 漂移一樣要擋得住。
+    const legacy = happyResults();
+    legacy.set(
+      'PCM-2026-0104',
+      wire([record('PCM-2026-0104', { originalAmount: undefined, amount: 9999, refundedAmount: 9999 })]),
+    );
+    expect(() => judgeReadback(facts(), legacy)).toThrow(/orders\.total/);
 
     const cur = happyResults();
     cur.set('PCM-2026-0104', wire([record('PCM-2026-0104', { currency: 'USD' })]));
@@ -227,11 +269,11 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
 
   it('top status 非 0/2 = abort;status 2 放行', () => {
     const bad = happyResults();
-    bad.set('PCM-2026-0064', wire([record('PCM-2026-0064', { recordStatus: 5 })], 1));
+    bad.set('PCM-2026-0064', wire([unrefunded('PCM-2026-0064', { recordStatus: 5 })], 1));
     expect(() => judgeReadback(facts(), bad)).toThrow(/top status/);
 
     const ok = happyResults();
-    ok.set('PCM-2026-0064', wire([record('PCM-2026-0064', { recordStatus: 5 })], 2));
+    ok.set('PCM-2026-0064', wire([unrefunded('PCM-2026-0064', { recordStatus: 5 })], 2));
     expect(judgeReadback(facts(), ok)).toHaveLength(6);
   });
 

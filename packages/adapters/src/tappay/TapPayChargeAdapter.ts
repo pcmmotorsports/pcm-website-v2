@@ -59,11 +59,13 @@ function toTradeRecord(w: TapPayRecordWire): TapPayTradeRecord {
     bankTransactionId: w.bankTransactionId,
     merchantId: w.merchantId,
     amount: toMoneyAmount(w.amount),
+    // #301:原始金額(不因退款減少);缺值不補 amount,由消費端明寫 fallback。
+    originalAmount: w.originalAmount !== undefined ? toMoneyAmount(w.originalAmount) : undefined,
     currency: w.currency,
     recordStatus: w.recordStatus,
     isCaptured: w.isCaptured,
     refundedAmount: w.refundedAmount !== undefined ? toMoneyAmount(w.refundedAmount) : undefined,
-    transactionTimeMillis: w.transactionTimeMillis,
+    timeMillis: w.timeMillis,
   };
 }
 

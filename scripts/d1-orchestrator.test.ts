@@ -78,12 +78,14 @@ function happyReadback(): ReadonlyMap<string, TapPayRecordResponseWire> {
         recTradeId: KEYED[d].rec,
         orderNumber: idOf(d),
         merchantId: 'pcm-prod',
-        amount: KEYED[d].total,
+        // #301:全額退款後 amount 歸 0、原額在 originalAmount。
+        amount: recordStatus === 3 ? 0 : KEYED[d].total,
+        originalAmount: KEYED[d].total,
         currency: 'TWD',
         recordStatus,
-        isCaptured: true,
+        isCaptured: recordStatus !== 3, // 實測:已退款筆 is_captured=false
         refundedAmount: recordStatus === 3 ? KEYED[d].total : 0,
-        transactionTimeMillis: 1753000000000,
+        timeMillis: 1753000000000,
       },
     ],
   });

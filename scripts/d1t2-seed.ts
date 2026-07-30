@@ -157,12 +157,14 @@ export function buildFixture(variant: 'happy' | 'no-hit-0052' | 'no-hit-0102'): 
         rec_trade_id: rec,
         order_number: uuidOf(d),
         merchant_id: MERCHANT,
-        amount: READBACK_AMOUNTS[d],
+        // #301:全額退款後 amount 歸 0、原額在 original_amount(真實 Record API 形狀)。
+        amount: recordStatus === 3 ? 0 : READBACK_AMOUNTS[d],
+        original_amount: READBACK_AMOUNTS[d],
         currency: 'TWD',
         record_status: recordStatus,
-        is_captured: recordStatus === 3,
+        is_captured: recordStatus !== 3, // 實測:已退款筆 is_captured=false(原本寫反了)
         refunded_amount: recordStatus === 3 ? READBACK_AMOUNTS[d] : 0,
-        transaction_time_millis: 1753000000000,
+        time: 1753000000000,
       },
     ],
   });
