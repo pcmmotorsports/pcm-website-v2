@@ -7,7 +7,7 @@
 //
 // - 0 筆 → 保留 g-2 business override 空狀態(design 無 orders 空狀態);≥1 筆 → 渲染清單。
 // - 金額走整數 Money(total.amount.toLocaleString());狀態走 orderStatusLabel 雙軸中文;日期 formatOrderDate→YYYY-MM-DD。
-// - 件數 = itemCount(Σquantity、Q4=B);訂單號 = displayId(PCM-YYYY-NNNN)。
+// - 件數 = itemCount(Σquantity、Q4=B);訂單號 = displayId(新單 6 碼亂碼 / 舊單 PCM-YYYY-NNNN,兩者並存)。
 // - 查看詳情鈕(Q1=A):照 design 渲染、**無 onClick**;訂單詳情頁 = backlog #240(另開 slice)。
 // - 絕不搬 design mock 訂單假字面(PCM-2026-0042 / NT$ 18,600 / 已出貨 等);只渲染真 prop。
 

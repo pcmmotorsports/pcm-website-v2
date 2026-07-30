@@ -21,7 +21,7 @@
  * - `invalid_snapshot`:快照欄缺失 / 非字串(title / sku / spec / variantSku / productId)
  * - `invalid_field`:caller 字串 / enum 欄非「純字串」(如 `new String()` wrapper 帶隱藏 toJSON、
  *   會在 `JSON.stringify(order)` 偷渡任意字串;id / customerId / tierAtCheckout / status 等)
- * - `invalid_display_id`:displayId 不符 `PCM-YYYY-NNNN`
+ * - `invalid_display_id`:displayId 不符新 6 碼格式、也不符舊 `PCM-YYYY-NNNN`(N2 起兩收)
  * - `illegal_payment_transition`:付款軸非法轉移(跳級 / 倒退 / 自我 / terminal 後)
  * - `illegal_fulfillment_transition`:出貨軸非法轉移(同上)
  */

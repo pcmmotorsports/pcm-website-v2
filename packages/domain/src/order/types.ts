@@ -5,7 +5,9 @@ import type { CustomerId } from '../identity/types';
 export type OrderId = string;
 
 /**
- * DisplayId: 人類可讀訂單編號(格式 `PCM-YYYY-NNNN`)。
+ * DisplayId: 人類可讀訂單編號。🔴 **兩種格式永久並存**(Sean 2026-07-30 拍 Q1=A):
+ * 新單 = 6 碼亂碼(28 字元字母表、無前綴、由 DB `pcm_generate_display_id()` 產);
+ * 舊單 = `PCM-YYYY-NNNN`(2026-07-30 前建立的 30 張,不改號)。驗證見 order/display-id.ts。
  *
  * 型別為 string alias(對齊 OrderId 慣例);格式約定 / 驗證 / 組號 helper 見 `display-id.ts`。
  * 本片(M-3-S1)只定型別 + 格式約定 + 驗證 helper;**實際序號產生於後續 DB 片**
@@ -137,7 +139,7 @@ export type OrderStatusFilter = {
  */
 export type Order = {
   id: OrderId;
-  /** 人類可讀單號 `PCM-YYYY-NNNN`(display-id.ts 組 / 驗) */
+  /** 人類可讀單號(6 碼亂碼 或 舊 `PCM-YYYY-NNNN`;display-id.ts **只驗不組** —— N2 起 TS 側無產號能力) */
   displayId: DisplayId;
   customerId: CustomerId;
   items: OrderItem[];
@@ -168,7 +170,7 @@ export type Order = {
  */
 export type OrderListItem = {
   id: OrderId;
-  /** 人類可讀單號 `PCM-YYYY-NNNN` */
+  /** 人類可讀單號(6 碼亂碼 或 舊 `PCM-YYYY-NNNN`,兩者並存) */
   displayId: DisplayId;
   /** 下單時間 ISO 字串(orders.created_at 原樣;UI formatOrderDate 格式化為 YYYY-MM-DD) */
   createdAt: string;
@@ -304,7 +306,7 @@ export type OrderItemVehicleSnapshot =
  */
 export type AdminOrderSummary = {
   id: OrderId;
-  /** 人類可讀單號 `PCM-YYYY-NNNN` */
+  /** 人類可讀單號(6 碼亂碼 或 舊 `PCM-YYYY-NNNN`,兩者並存) */
   displayId: DisplayId;
   /** 下單時間 ISO(orders.created_at 原樣;UI formatOrderDate 格式化) */
   createdAt: string;

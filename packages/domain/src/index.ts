@@ -57,12 +57,10 @@ export {
   withPaymentStatus,
   withFulfillmentStatus,
 } from './order/state-machine';
-export {
-  formatDisplayId,
-  isValidDisplayId,
-  assertDisplayId,
-  parseDisplayId,
-} from './order/display-id';
+// 🔴 N2(2026-07-30):`formatDisplayId` / `parseDisplayId` **已刪除**、故不再匯出。
+//   產號從此只有一個生產者 = DB 的 `pcm_generate_display_id()`;TS 側不該能生單號。
+//   驗證改為「新 6 碼 + 舊 PCM-YYYY-NNNN 兩收」(兩格式永久並存,Sean 拍板 Q1=A)。
+export { isValidDisplayId, assertDisplayId } from './order/display-id';
 // order 運費規則(M-3-S2-b2、純函式;前台顯示鏡像、權威值由 create_order RPC §7 自算)
 // 🔴 **`DEFAULT_SHIPPING_RULE` 刻意不從 barrel 匯出**(codex 關卡2 must-fix):
 //   退刷線 Q6=B 要求退款重算只能用訂單凍結規則;若此處匯出,RF5 極易寫成

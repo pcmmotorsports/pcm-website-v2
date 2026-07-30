@@ -22,7 +22,7 @@ import { Header } from '@/components/Header';
 import { HomeFooter } from '@/components/HomeFooter';
 
 export type CheckoutSuccessProps = {
-  /** 建單回傳的人類可讀單號(PCM-YYYY-NNNN;零價結構,終態頁不讀回明細);unknown 無單號不傳。 */
+  /** 建單回傳的人類可讀單號(E10 N3b 起為 6 碼亂碼;舊單仍是 PCM-YYYY-NNNN、兩者並存。零價結構,終態頁不讀回明細);unknown 無單號不傳。 */
   displayId?: string;
   /** paid(預設)= 付款完成;processing = 已收或處理中;unknown = 狀態未知(回應遺失);failed = 明確未成功。 */
   variant?: 'paid' | 'processing' | 'unknown' | 'failed';
