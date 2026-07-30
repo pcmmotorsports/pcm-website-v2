@@ -1,5 +1,18 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉🎉 **2026-07-30 中午:訂單編號改 6 碼亂碼 N2/N3a/N3b 三片 code 全部收工。
+> 接手入口 = `docs/handoff/2026-07-30-n3-display-id-handoff.md`。**
+> commit `828cf5f`(N2)/ `24f0b63`(N3a)/ `946b837`(N3b)/ `30e6986`(docs);**未 apply、未 push**。
+> 🔴 **Sean 手動兩件**:①`supabase db push` ②**1 元商品真刷 smoke**(規格 §5.4b 明文要求、
+> **唯一能證明結帳沒壞的證據**)③push。未 apply **不會壞**(N3b 只在 apply 後改行為)。
+> 🔴 **下一片(Sean 拍板 C)= 修 backlog #301**(TapPay Record API 三處欄位重查)——
+> 退款線 RF2b-RF8 的硬前置。**建議開新視窗**(領域完全不同)。
+> 🔴 **鐵則 12 未按字面滿足**:codex 三次同款逾時 ⇒ 用 Fable 代替;
+> **是否接受此替代 = Sean 判斷,已提出、尚未回答。接手者不得自行宣告「已滿足」。**
+> ⚠️ 本 session 期間另有並行 session 在同 repo 工作(mobile-catalog-ux / CascadeFilterTop /
+> docs/superpowers);其檔案全程未觸碰、未納入本線任何 commit。
+
+
 > 🔴 **2026-07-29 上午起,E10 第 1 批的唯一入口 = `docs/handoff/2026-07-29-e10-batch1-handoff.md`**(三個開工前置全解除:規格已批准 / 三支 migration 已 apply / A9b1+A10c1 端到端已驗)。Sean 同日晨拍五題**改變了規格既有字面**,務必先讀 v2 規格 **§8.0 + §8.7**。
 > 🔴 **D1 線現況(2026-07-30 凌晨):D1a0-D1a6 + D1t1 + D1t2 全部完成,下一片 = D1t3(整合負測,重用 d1t2-rehearsal.sh provision)**;線內入口 = `docs/handoff/2026-07-29-d1-line-handoff.md`。⏰ 備份 24h 時效至 07-30 台灣 18:06,D1c 前預期重跑 D1a2。
 
