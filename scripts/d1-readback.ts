@@ -11,8 +11,29 @@
  * - 三筆已退(0052/0102/0104):`record_status === 3` 且 `refunded_amount === amount`。
  * - 🔴 0052 專屬出口:零筆命中 ⇒ 保持原值 + audit「正式商戶查無」——**不得寫成
  *   「sandbox 已證實」**(查無只證明正式商戶無此交易);0102/0104 零筆 = abort。
- * - 兩筆 pending(0064/0090):只收 `record_status ∈ {-1, 5}`;`0`(AUTH)與 `4`(PENDING)
+ * - 兩筆 pending(0064/0090):**命中時**只收 `record_status ∈ {-1, 5}`;`0`(AUTH)與 `4`(PENDING)
  *   **預期會發生、不是異常路徑**,出現即 abort raise Sean 附證據。
+ * - 🔴 **0064/0090 零筆出口(2026-07-30 D1b1 首跑實證後新增;Sean 拍板「窄化放寬」)**:
+ *   原規格假設「rec_trade_id 來自 3DS 啟動 ⇒ TapPay 端必有紀錄」(出處
+ *   `docs/reviews/2026-07-28-e10-fable-retrospective.md:82`),**D1b1 首跑當場推翻**:
+ *   兩張的 rec_trade_id 於正式商戶零命中,且 Sean 同日於 TapPay 商家後台實查
+ *   2026-06-26、2026-06-27 **兩日零交易紀錄**(不是「查不到那一筆」,是那兩天什麼都沒有)。
+ *   ⇒ 零筆**僅在 `payment_status === 'unpaid'` 時**放行 —— DB 與正式商戶對「沒收到錢」
+ *   口徑一致才算數;`unpaid` 以外(DB 說收過錢、正式商戶卻查無)= 兩邊矛盾,一律 abort。
+ *   證據等級 `official-no-hit`,**不得升格為 `system-readback`**(查無只證明正式商戶無此交易)。
+ *   同批實證的反向支撐(🔴 措辭已於 2026-07-30 關卡2 更正,原文誤稱「金額逐格相符」):
+ *   0102/0104 以**同一組 merchant id、同一條查詢路徑**各命中 1 筆,且 `rec_trade_id` 與
+ *   `order_number` 逐格相符(實查證據檔確認)⇒ **查詢鍵綁定與商戶身分**已被正向證明,
+ *   零筆不是查錯。**金額欄不在此列** —— 見下方「未解決」。
+ *
+ * 🔴 **未解決:本出口不足以解封 D1(2026-07-30 關卡2 codex + code-reviewer 一致指出)。**
+ * D1b1 首跑在 0064 就 throw,`judgeHit` **從未對 0102/0104 執行過**;直接讀證據檔比對,
+ * 本檔對「已全額退款紀錄」的三項假設與 TapPay 實回應不符,下次跑會改在 0102 abort:
+ *   ① `amount` 實回 **0**(非授權金額;原額在 raw 的 `original_amount`)⇒ 撞 `judgeHit` 金額閘
+ *   ② `refunded_amount` 實回 **101 / 1180**(= orders.total),而本檔要求它 `=== rec.amount`(0)
+ *   ③ **`transaction_time_millis` 這個欄位不存在** —— raw 實有 `time` / `cap_millis` /
+ *      `transaction_complete_millis` / `bank_transaction_*_millis`(`wire.ts:68` 的欄名待重訂)
+ * 修這三項需要重查 TapPay 官方 Record API 文件、改 `wire.ts` 與本檔矩陣、重審。**尚未進行。**
  * - 🔴 0101(唯一無鍵):不查。**禁用 bank_transaction_id 或任何寬條件替代**(§8.7 逐字;
  *   本函式的輸入型別根本不收該欄 = 物理排除)。證據等級 = Sean 本人確認、非系統 read-back。
  * - 其餘一切(多筆、狀態不在集合、金額不符、top status 異常)= abort,不留人工解讀路徑。
@@ -54,6 +75,12 @@ export type D1ReadbackVerdict =
   | 'keep-original-no-hit'
   /** pending 單確認未授權/已取消(record_status ∈ {-1,5})⇒ 照常刪除。 */
   | 'not-charged-confirmed'
+  /**
+   * 0064/0090 專屬:正式商戶查無 **且** `payment_status === 'unpaid'` ⇒ 照常刪除。
+   * 🔴 與 `not-charged-confirmed` 刻意分開兩個值:那個是 TapPay 逐格回報終態(system-readback),
+   * 這個是「兩邊都說沒有」(official-no-hit)。合併會讓 audit 讀者以為證據等級相同。
+   */
+  | 'not-charged-no-hit'
   /** 0101 專屬:無查詢鍵,Sean 本人確認、非系統 read-back。 */
   | 'sean-attested-no-key';
 
@@ -82,8 +109,30 @@ const EXPECTED_DISPLAY_IDS = [
 const NO_KEY_ORDER = 'PCM-2026-0101';
 const REFUNDED_ORDERS = ['PCM-2026-0052', 'PCM-2026-0102', 'PCM-2026-0104'] as const;
 const PENDING_ORDERS = ['PCM-2026-0064', 'PCM-2026-0090'] as const;
-/** 0052 是唯一有「查無 ⇒ 保持原值」出口的單(交易環境未證實);0102/0104 正式站真刷必有紀錄。 */
+/** 0052 是唯一**無條件**「查無 ⇒ 保持原值」的單(交易環境未證實);0102/0104 正式站真刷必有紀錄。 */
 const NO_HIT_TOLERATED = 'PCM-2026-0052';
+
+/**
+ * 🔴 0064/0090 的**條件式**零筆出口(2026-07-30 Sean 拍板 A「窄化放寬」;背景見檔頭)。
+ *
+ * 與 `NO_HIT_TOLERATED` 的差別 = **多一道 `payment_status === 'unpaid'` 前提**:
+ * 零筆本身只證明「正式商戶沒有這筆」,要它等於「沒收到錢」,必須 DB 自己也說沒收到。
+ *
+ * 名單**寫死這兩張、不沿用 `PENDING_ORDERS`** —— 日後若有人往 `PENDING_ORDERS` 加單,
+ * 不會連帶把零筆容忍度一起送出去(放寬要逐張明寫,不得靠共用清單長出來)。
+ */
+const NO_HIT_TOLERATED_WHEN_UNPAID = ['PCM-2026-0064', 'PCM-2026-0090'] as const;
+
+/** 上述出口的硬前提;與 `NO_KEY_ORDER_EXPECTED.paymentStatus` 同字彙(orders.payment_status)。 */
+const NO_HIT_REQUIRED_PAYMENT_STATUS = 'unpaid';
+
+/**
+ * Sean 2026-07-30 於 TapPay 商家後台的人工查證(D1b1 首跑當下)。
+ * 🔴 這是**人工觀察、非系統 read-back**(比照 0101 的 `SEAN_ATTESTED_NOTE` 先例):
+ * 程式無法在執行當下複驗它,故只入 audit 註記、不升格證據等級。
+ */
+export const SEAN_TAPPAY_CONSOLE_ATTESTATION =
+  'Sean 2026-07-30 於 TapPay 商家後台實查:2026-06-26、2026-06-27 兩日正式商戶零交易紀錄';
 
 export const SEAN_ATTESTED_NOTE =
   'Sean 2026-07-29 口頭確認未扣款;無 rec_trade_id,未經 TapPay read-back';
@@ -293,6 +342,32 @@ export function judgeReadback(
           transactionTimeMillis: null,
           // 🔴 措辭合約:只能說「正式商戶查無」。查無 ≠ sandbox 已證實(§8.4:880 R22)。
           note: '正式商戶查無此 rec_trade_id;依 §8.4 R21 保持原值,Sean 授權怎樣處理都好',
+        });
+        continue;
+      }
+      if ((NO_HIT_TOLERATED_WHEN_UNPAID as readonly string[]).includes(fact.displayId)) {
+        // 🔴 窄化前提:零筆只證明「正式商戶沒這筆」。要它等於「沒收到錢」,DB 必須也說沒收到。
+        //    DB 說收過錢卻查無 = 兩邊矛盾(可能是別的商戶收的),絕不在不可逆刪除前放行。
+        if (fact.paymentStatus !== NO_HIT_REQUIRED_PAYMENT_STATUS) {
+          abort(
+            fact.displayId,
+            `正式商戶查無,但 payment_status='${fact.paymentStatus}'(應 '${NO_HIT_REQUIRED_PAYMENT_STATUS}')` +
+              ' —— DB 說收過錢而正式商戶查無 = 兩邊矛盾,停下重問 Sean',
+          );
+        }
+        rows.push({
+          displayId: fact.displayId,
+          verdict: 'not-charged-no-hit',
+          evidenceLevel: 'official-no-hit',
+          recTradeId: fact.recTradeId,
+          recordStatus: null,
+          amount: null,
+          refundedAmount: null,
+          transactionTimeMillis: null,
+          // 🔴 措辭合約(§8.4:880 R22)同樣適用:只能說「正式商戶查無」,不得寫「sandbox 已證實」。
+          note:
+            `正式商戶查無此 rec_trade_id,且 orders.payment_status='${NO_HIT_REQUIRED_PAYMENT_STATUS}'` +
+            `(兩邊口徑一致 = 未收款);${SEAN_TAPPAY_CONSOLE_ATTESTATION}`,
         });
         continue;
       }

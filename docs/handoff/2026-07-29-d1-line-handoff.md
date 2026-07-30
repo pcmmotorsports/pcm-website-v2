@@ -1,5 +1,17 @@
 # D1 線交接 —— 2026-07-29 傍晚
 
+> ## 🛑 2026-07-30 上午 Sean 拍板:D1c 永久刪除**取消**
+>
+> 本檔以下全部內容以「要刪 26 張」為前提,**該前提已作廢**。
+> 現行入口 = `docs/runbooks/2026-07-30-d1b1-d1b2-d1c.md` 檔頭的停用區塊(含實測查到的
+> TapPay 三處欄位假設錯誤),決定與理由落在 memory `project_m4b-d1c-delete-cancelled`。
+>
+> **已實跑到哪**:D1b1 跑過一次(`readback-aborted`,證據檔 `~/.pcm-d1/d1b1-evidence-20260730.json`);
+> D1b2 / D1c **一步未跑**,正式站零寫入。
+> **§⑩ 那張表的「證據等級 = 系統 read-back」對 0064/0090 已不成立**(改為 `official-no-hit`)。
+>
+> **接手者請改看**:「29 張全部改號(可逆)取代刪除」提案。
+
 > **新 session 讀這一份 + `STATUS.md` 就能接手 D1b1。**(D1t1/D1t2/D1t3 已於 2026-07-29/30 完成)
 > 上游總規劃 = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md`(§5.0 順序、§5.1 片表、§8.4 步驟)。
 > 第 1 批整體入口仍是 `docs/handoff/2026-07-29-e10-batch1-handoff.md`;本檔只講 D1 線。

@@ -879,7 +879,33 @@ Sean 已口頭確認「TapPay 都已退款」(Q5)與「那 3 筆 pending 都沒�
 🔴 **0052 專屬出口(復盤L3;R23 措辭統一:0052 的交易環境未證實 —— 若其確非正式商戶交易,正式憑證查無即必然結果,原矩陣會把整條 D1 卡死)**:
 **0052 零筆命中 ⇒ 步驟 12 對 0052 走保持原值路徑**(remediation audit 記「**正式商戶查無**、Sean 授權怎樣處理都好」;🔴 R22:**不得對 sandbox 下結論** —— 查無只證明正式商戶無此交易),**不擋其餘步驟**;
 0102/0104 零筆 = 必 abort(正式站真刷必有紀錄)。
-三筆 `pending` 單允許 `record_status ∈ {-1 (ERROR), 5 (CANCEL)}` ——
+
+🔴 **0064/0090 條件式零筆出口(2026-07-30 D1b1 首跑實證後新增;Sean 當日拍板 A「窄化放寬」)**:
+**本段推翻本規格原本的假設。** 原假設 =「rec_trade_id 來自 3DS 啟動 ⇒ TapPay 端必有紀錄」
+(出處 `docs/reviews/2026-07-28-e10-fable-retrospective.md:82`,附 migration COMMENT 為證),
+故 0064/0090 零筆原本一律 abort。**D1b1 首跑當場證偽**:兩張於正式商戶零命中,且 Sean 同日
+於 TapPay 商家後台實查 **2026-06-26、2026-06-27 兩日零交易紀錄**(不是「查不到那一筆」,
+是那兩天正式商戶什麼都沒有)。
+⇒ **0064/0090 零筆僅在 `orders.payment_status = 'unpaid'` 時放行**(verdict `not-charged-no-hit`、
+證據等級 `official-no-hit`、照常刪除);**`unpaid` 以外 = DB 說收過錢而正式商戶查無 = 兩邊矛盾,
+一律 abort 停下重問**。措辭合約(R22)同樣適用:只能寫「正式商戶查無」,**不得寫「sandbox 已證實」**。
+**反向支撐**(🔴 措辭於同日關卡2 更正,原文誤稱「金額逐格相符」= 未驗證即斷言):
+同批 0102/0104 以**同一組 merchant id、同一條查詢路徑**各命中 1 筆,且 `rec_trade_id`
+與 `order_number` 逐格相符(讀證據檔實查)⇒ **查詢鍵綁定與商戶身分**已被正向證明,
+零筆不是查錯。**金額欄不在此列**,見下條。
+
+🔴 **本出口不足以解封 D1(2026-07-30 關卡2 codex + code-reviewer 一致)**:D1b1 首跑在
+0064 即 throw,`judgeHit` **從未對 0102/0104 執行**。直接讀證據檔比對,本規格對「已全額
+退款紀錄」的三項假設與 TapPay 實回應不符,下次跑會改在 0102 abort:
+①`amount` 實回 **0**(原額在 `original_amount`)②`refunded_amount` 實回 **101 / 1180**
+(= orders.total),而矩陣要求它 `= amount`(0)③**`transaction_time_millis` 欄位不存在**
+(實有 `time` / `cap_millis` / `transaction_complete_millis` / `bank_transaction_*_millis`)。
+⇒ 需重查官方 Record API 文件、改 `packages/adapters/src/tappay/wire.ts` 欄名與本節矩陣、重審。**尚未進行。**
+**殘餘風險(Sean 拍板時已明列)**:查無只證明「該商戶無此交易」,不排除別的商戶或 sandbox;
+補強靠 Sean 後台人工查證(入 audit 註記、非系統證據)。實作 = `scripts/d1-readback.ts`
+`NO_HIT_TOLERATED_WHEN_UNPAID`(名單寫死兩張、不沿用 `PENDING_ORDERS`,放寬須逐張明寫)。
+
+三筆 `pending` 單**命中時**允許 `record_status ∈ {-1 (ERROR), 5 (CANCEL)}` ——
 **`0`(AUTH)與 🔴 `4`(PENDING;復盤L3:三筆 3DS 已啟動、這是最可能的實際值)皆不在自動放行集合,
 出現即 abort raise Sean 附證據**(交易在途不算「沒扣到」的直接證據;**預期會發生、不是異常路徑**)。
 **其餘零筆、多筆、狀態不在集合內、金額不符 —— 一律 abort,不得人工解讀後放行。**
@@ -935,7 +961,7 @@ dry-run(步驟 6)與正式 apply 後**各驗一次同一張矩陣**(R5 抓:檔�
 
 | 對象 | 走哪條路 | 證據等級 |
 |---|---|---|
-| 五筆**有** `rec_trade_id`(0052 / 0064 / 0090 / 0102 / 0104) | 🔴 **判定矩陣完全不變、不降級** —— 逐筆以 `rec_trade_id` 為查詢鍵、top `status ∈ {0,2}`、唯一命中;三筆已退單斷言 `record_status = 3` 且 `refunded_amount` = 授權金額;`pending` 單只允許 `record_status ∈ {-1, 5}`,出現 `0`/`4` 一律保留 cohort + 停下等 Sean。0052 正式商戶查無 = 保持原值 + audit,0102/0104 查無必 abort | 系統 read-back |
+| 五筆**有** `rec_trade_id`(0052 / 0064 / 0090 / 0102 / 0104) | 🔴 **本列已被 2026-07-30 兩項事實取代,不得再照字面施工 —— 以 §8.7 為準**:①0064/0090 新增條件式零筆出口(降級,見 §8.7)②已退款矩陣的三項欄位假設經實測為誤。原字面:~~判定矩陣完全不變、不降級 …… 0052 正式商戶查無 = 保持原值 + audit,0102/0104 查無必 abort~~ | 0064/0090 = `official-no-hit`;其餘系統 read-back |
 | 🔴 **`PCM-2026-0101`(唯一無鍵者)** | **不做 TapPay read-back**(物理上無查詢鍵)。**不得改用 `bank_transaction_id` 或任何寬條件替代** —— 那條禁令仍然有效,本次放行的是「缺這筆 read-back 也照刪」,不是「換個鍵去查」。仍留在待刪 cohort(26 張不變) | 🔴 **Sean 本人確認,非系統 read-back** |
 
 #### 施工必做

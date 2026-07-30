@@ -7,6 +7,7 @@
  * | 三筆已退:record_status=3 ∧ refunded=授權額 | refunded 全組 + 狀態外 + 非全額退 |
  * | 0052 查無 ⇒ 保持原值 + audit「正式商戶查無」(禁 sandbox 措辭) | 0052 zero-hit |
  * | 0102/0104 查無 = abort | 0102/0104 zero-hit |
+ * | 🔴 0064/0090 查無 ∧ unpaid ⇒ not-charged-no-hit(official-no-hit);非 unpaid = abort | 0064/0090 zero-hit 成對 |
  * | pending 只收 {-1,5};0(AUTH)/4(PENDING)= abort raise Sean | pending 全狀態掃描 |
  * | 0101 不查、禁替代鍵、證據等級 = Sean 本人確認 | 0101 note / results 含 0101 / 0101 長出鍵 |
  * | 其餘(金額不符/多筆/狀態外)一律 abort | 各負例 |
@@ -14,7 +15,12 @@
 import { describe, expect, it } from 'vitest';
 
 import type { TapPayRecordResponseWire, TapPayRecordWire } from '../packages/adapters/src/tappay/wire';
-import { judgeReadback, SEAN_ATTESTED_NOTE, type D1AttemptFact } from './d1-readback';
+import {
+  judgeReadback,
+  SEAN_ATTESTED_NOTE,
+  SEAN_TAPPAY_CONSOLE_ATTESTATION,
+  type D1AttemptFact,
+} from './d1-readback';
 
 const KEYED = {
   'PCM-2026-0052': { rec: 'REC0052', total: 5100, uuid: 'uuid-0052' },
@@ -104,6 +110,55 @@ describe('judgeReadback:§8.7 判定矩陣', () => {
     expect(r.evidenceLevel).toBe('official-no-hit');
     expect(r.note).toContain('正式商戶查無');
     expect(r.note.toLowerCase()).not.toContain('sandbox');
+  });
+
+  // 🔴 0064/0090 條件式零筆出口(2026-07-30 D1b1 首跑實證後 Sean 拍板「窄化放寬」)。
+  //    放行與擋下**必須成對驗**:只驗放行 = 只證明了它會通過,證不了那道前提真的擋得住。
+  it.each(['PCM-2026-0064', 'PCM-2026-0090'] as const)(
+    '%s 查無 + payment_status=unpaid ⇒ not-charged-no-hit(證據等級 official-no-hit、非 system-readback)',
+    (d) => {
+      const results = happyResults();
+      results.set(d, wire([], 2));
+      const rows = judgeReadback(facts({ [d]: { paymentStatus: 'unpaid' } }), results);
+      const r = rows.find((x) => x.displayId === d)!;
+      expect(r.verdict).toBe('not-charged-no-hit');
+      expect(r.evidenceLevel).toBe('official-no-hit');
+      expect(r.evidenceLevel).not.toBe('system-readback');
+      expect(r.note).toContain('正式商戶查無');
+      expect(r.note).toContain(SEAN_TAPPAY_CONSOLE_ATTESTATION);
+      // 措辭合約(R22)同樣適用:查無 ≠ sandbox 已證實。
+      expect(r.note.toLowerCase()).not.toContain('sandbox');
+      // 查無沒有 TapPay 側數值可記,四欄必須是 null(不得從 DB 端補值冒充 read-back 結果)。
+      expect([r.recordStatus, r.amount, r.refundedAmount, r.transactionTimeMillis]).toEqual([
+        null,
+        null,
+        null,
+        null,
+      ]);
+    },
+  );
+
+  it.each(['PCM-2026-0064', 'PCM-2026-0090'] as const)(
+    '%s 查無 + payment_status≠unpaid = abort(DB 說收過錢、正式商戶查無 = 兩邊矛盾)',
+    (d) => {
+      const results = happyResults();
+      results.set(d, wire([], 2));
+      // 預設 fixture 就是 paid ⇒ 這是「放寬沒有失控」的守門。
+      expect(() => judgeReadback(facts(), results)).toThrow(/兩邊矛盾/);
+      // refunded 之類的其他非 unpaid 值同樣擋下(不是只擋 'paid' 這個字面)。
+      expect(() => judgeReadback(facts({ [d]: { paymentStatus: 'refunded' } }), results)).toThrow(
+        /兩邊矛盾/,
+      );
+    },
+  );
+
+  it('零筆容忍度不外溢:0064 放行不代表 0090 以外的單也能查無(0102 仍 abort)', () => {
+    const results = happyResults();
+    results.set('PCM-2026-0064', wire([], 2));
+    results.set('PCM-2026-0102', wire([], 2));
+    expect(() =>
+      judgeReadback(facts({ 'PCM-2026-0064': { paymentStatus: 'unpaid' } }), results),
+    ).toThrow(/正式站真刷必有紀錄/);
   });
 
   it.each(['PCM-2026-0102', 'PCM-2026-0104'] as const)('%s 查無 = abort(正式站真刷必有紀錄)', (d) => {
