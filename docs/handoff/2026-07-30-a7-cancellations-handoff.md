@@ -19,12 +19,13 @@
 
 | 選項 | 是什麼 | 為什麼可能先做 |
 |---|---|---|
-| **A7-t** | 🆕 **Sean 07-30 拍 Q1=A 新增的 T 片**:兩支 DEFERRED CONSTRAINT TRIGGER 擋「有 header、零明細」,照 `order_refunds` 的形狀(`20260725130100:182-186`)| 它補的是**目前唯一沒有 DB 層防線的洞**(合約債 ④);而且 A7 的結構斷言現在寫的是「新表零 user trigger」,**A7-t 落地時必須把它改成「恰好 2 支且是預期那兩支」**(已寫在 migration 註解裡) |
+| **A7-t** ✅**已於 07-30 深夜完成(code 收工、未 apply)** | 🆕 **Sean 07-30 拍 Q1=A 新增的 T 片**:兩支 DEFERRED CONSTRAINT TRIGGER 擋「有 header、零明細」,照 `order_refunds` 的形狀(`20260725130100:182-186`)| 它補的是**目前唯一沒有 DB 層防線的洞**(合約債 ④);~~而且 A7 的結構斷言現在寫的是「新表零 user trigger」,**A7-t 落地時必須把它改成「恰好 2 支且是預期那兩支」**(已寫在 migration 註解裡)~~ 🔴 **後半段已於 07-30 A7-t 施工時證偽作廢,見下方「開工必讀」第 2 點** |
 | **A7b** | `order_refund_jobs` schema + 完整狀態機合約(M 片)| 第 1 批表第 25 列;它是退款線(第 3 批)的 schema 前置 |
 | **A1** | `order_items` 加三個摘要欄 `ordered/instock/cancelled_quantity`(M 片)| §5.0 DAG 上 A7 → A7b → **A1** 就是原定序;A1 之後才輪到 T 型的 A5b/A2b1/A4a |
 
 🔴 **照 DAG 字面,原定序是 A7 → A7b → A1**;A7-t 是 Sean 新增的片、DAG 沒排它。
-我的建議:**先 A7-t**(它與 A7 同一個資料域、脈絡最近,而且它一落地就要回頭改 A7 的一條斷言 —— 隔越久越容易漏)。
+~~我的建議:先 A7-t~~ ✅ **A7-t 已於 07-30 深夜完成**(plan = `docs/specs/2026-07-30-e10-a7t-cancellation-consistency-trigger-plan.md` v2)。
+🔴 **現行下一片 = A7b 或 A1**(照 §5.0 DAG 原定序)。
 
 ### 🔴 A7-t 開工必讀(已經寫死的東西,不要重新設計)
 
@@ -32,9 +33,18 @@
    **只掛子表的話,「插了 header 但一列明細都沒插」永遠不會觸發任何事件** ⇒ 空 header 完全擋不住。
    ⇒ **必須兩支**:header 表一支 `AFTER INSERT`、子表一支**含 DELETE**(刪明細後 header 會變成零明細)。
    `order_refunds` 的 trigger function 還處理了 `UPDATE` 同時驗 OLD 與 NEW(把明細從 A 改掛到 B 時,A 可能變零明細卻沒人檢查)—— 那條也要照抄語意。
-2. **A7 的斷言要同步改**:A7-1 的結構驗收現在斷言「兩張新表 user trigger = 0」。
+2. ❌ ~~**A7 的斷言要同步改**:A7-1 的結構驗收現在斷言「兩張新表 user trigger = 0」。
    A7-t 落地後那條會**當場紅**(這是刻意設計的連動閘)⇒ A7-t 必須在同片把它改成「恰好 2 支、且是預期的那兩支」。
-   位置:`supabase/migrations/20260730130000_...sql` 的 §3.6。
+   位置:`supabase/migrations/20260730130000_...sql` 的 §3.6。~~
+   🔴🔴 **2026-07-30 A7-t 施工時證偽,本條作廢、不要照做。**
+   那條斷言**不會紅**:migration 依版本序執行,A7-1(`…130000`)必然早於 A7-t(`…140000`)
+   ⇒ 它的 DO block 執行當下 trigger 確實是 0;`scripts/a7-verify.sh:59` 也先 `DROP TABLE` 兩表再重套 A7-1
+   ⇒ trigger 隨表滅。**實測:A7-t 落地後 `scripts/a7-verify.sh all` 仍是 37 / 0。**
+   它是「該時點」的斷言、不是「永遠」的斷言;改一支已 apply 到 production 的 migration
+   會讓檔案與正式站跑過的內容不符,並弄壞它在全新重建路徑上本來正確的行為。
+   ⇒ A7-t 改為在**自己的 migration** 斷言自己的終態。
+   出處 = `docs/specs/2026-07-30-e10-a7t-cancellation-consistency-trigger-plan.md` §4.5
+   (關卡1 codex 與 Fable 兩個模型各自獨立確認)。
 3. **A7-t 是 T 型 = 高風險片**(鐵則 12③)⇒ 關卡1 審 plan + commit 前關卡2 審 diff。
 
 ---
@@ -114,7 +124,7 @@ scripts/a7-verify.sh all /tmp/a7v
 
 ## 7. 🔴 未做 / 待辦
 
-- **A7-t 尚未施工**(Sean 拍 Q1=A 新增)
+- ✅ **A7-t 已於 2026-07-30 深夜 code 收工**(未 apply、未 push)—— 交接檔 = `docs/handoff/2026-07-30-a7t-consistency-trigger-handoff.md`
 - **`docs/runbooks/2026-07-30-a7-rollback.md` 尚未撰寫** —— 承接時點 = **A8a1 開工前置**(第一個 writer 出現前必須存在;現在本表零寫入 GRANT ⇒ 風險窗未開)
 - **A8a1 的開工前置問題(plan §6.1)**:master plan 字面上 A8a1 寫 header、A8a2 才寫 items
   ⇒ A8a1 單獨上線會產生零明細 header。**約束已由 Sean 拍 Q2=A 寫進 master plan §5.1 的 A8a1/A8a2 兩列**,

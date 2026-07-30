@@ -19,7 +19,7 @@
 |---|---|---|---|
 | **A7-1** | migration:兩表 + 索引 + ACL + **結構/定義/ACL 驗收**(零合成資料、零行為探針、**零條件略過**)| ~30 分鐘 | `supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql` |
 | **A7-2** | 行為驗證腳本:環境閘 + trigger inventory 閘 + 合成 fixture + 全部行為探針 + sentinel rollback | ~35 分鐘 | `scripts/a7-behavior-probe.sql` |
-| **A7-t** | 🆕 **主從一致 constraint trigger 片**(**Sean 2026-07-30 拍 §12 Q1=A**):兩支 DEFERRED CONSTRAINT TRIGGER 擋「有 header、零明細」,照 `order_refunds` 的形狀(`20260725130100:182-186`)。**片型 T、獨立成片**(M 片不得放 trigger)| ~35 分鐘 | 另支 migration |
+| **A7-t** ✅**已完成 07-30** | 🆕 **主從一致 constraint trigger 片**(**Sean 2026-07-30 拍 §12 Q1=A**):兩支 DEFERRED CONSTRAINT TRIGGER 擋「有 header、零明細」,照 `order_refunds` 的形狀(`20260725130100:182-186`)。**片型 T、獨立成片**(M 片不得放 trigger)| ~35 分鐘 | 另支 migration |
 
 🔴 **交易邊界的正確敘述**(關卡2 nit 更正原字面):A7-1 在隔離庫**自己 COMMIT**(它就是一支正常 migration),
 A7-2 另開一筆交易跑探針、結尾整份 `ROLLBACK`。原本寫「探針交易自己建表」是錯的。
@@ -206,7 +206,12 @@ R3 F5 指出這條原本只是 A7 plan 裡的一句話、A8a1 作者從 master p
    —— 🔴 撈定義前先 `count(*)` 擋 FK **與 CHECK** 總數(Fable F6 + R3 F2:裸 `contype` 在多支時會靜默取任一支)
 5. 🔴 **兩張新表的 user trigger 數 = 0**(R4 N6):M 型「零 trigger」是本片的自我約束,但**先前沒有任何 DB 層驗收**
    ⇒ 沒有這條,一支偷偷加上的 clamp trigger 可以讓探針 25(大數量正向)看起來綠、實際值被改掉。
-   ⚠️ 這條在 **A7-t 落地後必須改成「恰好 2 支、且是預期的那兩支」**(A7-t 的驗收條件)
+   ⚠️❌ ~~這條在 **A7-t 落地後必須改成「恰好 2 支、且是預期的那兩支」**(A7-t 的驗收條件)~~
+   🔴 **2026-07-30 晚 A7-t 施工時證偽、本條作廢**:migration 依版本序執行,A7-1 早於 A7-t
+   ⇒ 本斷言執行當下 trigger 確實是 0、正確且應通過;`a7-verify.sh:59` 亦先 DROP 兩表再重套。
+   **實測:A7-t 落地後 `scripts/a7-verify.sh all` 仍 37 / 0。**
+   🔴 **A7-1 一個 byte 都沒動**(index 與 HEAD blob 相同)—— 我一度改了它的 §3.6 註解,被關卡2 抓出來後已 `git checkout` 還原。
+   A7-t 改為在自己的 migration 斷言自己的終態。出處 = `docs/specs/2026-07-30-e10-a7t-cancellation-consistency-trigger-plan.md` §4.5
 6-9. RLS 開 + zero-policy / 三 role × 四寫權 = 0 / `anon`·`authenticated` 無 SELECT 且 `service_role` 只有 SELECT / grantee allowlist + PUBLIC 零授權 + 零欄級 ACL
 
 ### 7.2 A7-2 行為探針(`scripts/a7-behavior-probe.sql`)
