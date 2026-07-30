@@ -1,5 +1,76 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉 **2026-07-31 凌晨:E10 第 1 批 A1「訂單品項數量摘要」code 收工 —— 未 apply、未 push。**
+> 片級 plan = `docs/specs/2026-07-30-e10-a1-order-item-summary-columns-plan.md`(**v2**,v1 已作廢)。
+> 產物 = migration `20260730150000`(新表 `public.order_item_quantity_summary` +
+> `order_items` 加 `UNIQUE (id, quantity)`)+ `scripts/a1-behavior-probe.sql`(14 案例)
+> + `scripts/a1-verify.sh`(**60/0**)+ `scripts/a1-lock-probe.sh`(併發鎖量測、自帶消融證明)。
+>
+> 🔴🔴 **Sean 拍板推翻 master plan §5.1 row 26 的落點** —— 三個摘要欄**不加在 `order_items`**、改建員工專用新表。
+> **觸發點是我給了錯的前提**:我說「放 `order_items` 不等於客人看得到,前台要另外寫程式才會顯示」,
+> 但 `order_items` 對登入客人有表級 SELECT(`20260604120000:191`)+ Data API 曝露
+> ⇒ **apply 當下客人打 API 就讀得到採購進度**,與前台無關。Sean 原話「我不會讓客人知道進度、只會有狀態顯示」
+> ⇒ 原設計做不到。**教訓可推廣:判斷客人看不看得到,看 GRANT + RLS + schema 曝露,不看前台有沒有寫渲染碼。**
+> 決策全文 = memory `project_m4b-a1-summary-columns-decisions`。
+>
+> 🔴 **再從「拆兩表」收斂成「三欄同放新表」的理由**:四條不變式都要跟 `order_items.quantity` 比,
+> 只要拆表就有一條跨表 ⇒ 只能用 A7-t 那種 trigger 補 ⇒ 繼承 **#307** 併發債;
+> 三欄同表 + `quantity` 去正規化靠**複合 FK 釘死** ⇒ 四條全回同表 CHECK、**零 trigger**。
+> 連帶:摘要列**惰性建立** ⇒ `create_order` **零改動**、無回填、不對 `order_items` 跑任何 UPDATE。
+>
+> 🔴 **四輪審查:關卡1 codex 23 → 關卡2 R1 13+2nit → R2 8+2nit → R3(換角度)7+1nit,
+> **共 51 must-fix 全折入、駁回 0**。**每一輪都還在抓到真的東西,所以每一輪都跑滿。**
+> 關卡2 最重三條都是**守門字面大於實際能力**:①**ACL 矩陣漏掉 PG17 的第八種表權限 `MAINTAIN`**
+> (實測授出去後 `has_table_privilege(…,'SELECT')` 仍為 false ⇒ 七格矩陣完全無感;正式站同為 PG17)
+> ②**PUBLIC 檢查排在角色矩陣之後** ⇒ 把那條斷言整個刪掉仍全綠(紅的是 anon.SELECT)⇒ **順序是正確性的一部分**
+> ③**「本片零新函式」只查了 trigger 數** ⇒ 沒掛 trigger 的新函式會全綠(改由外層 `pg_proc` 差集證明 + 配突變)。
+> 另抓到**探針自身突變的 sed 同時改到 N5 與 N6** ⇒ N5 的判官死了會由 N6 代打轉紅。
+>
+> 🔴 **codex 也抓到我兩處「字面 vs 事實」**:①plan 宣稱「加 row-count gate + 雙連線併發測試」而當時一道都沒做
+> ②migration 宣稱「shipped 契約債已寫進 master plan A8a1/A8a2」而實際沒寫。**兩處都已補實**。
+>
+> 🔴🔴 **R2 抓到我把一個假證明寫進了 STATUS**:第一版併發量測**背景啟動 migration 後立刻量 INSERT,
+> 沒有任何機制保證量測時鎖已被取得** ⇒ INSERT 可能搶先拿到鎖、量到的是「無競爭時的 INSERT」
+> ⇒ 那個「18ms」**與 migration 持鎖多久毫無關係**。**數字已撤回**,量測改寫成三段:
+> ①**持鎖上限 = migration 整個交易時長**(鎖在第一句取得、持有到 COMMIT ⇒ 不需 barrier,實測 **~32ms**)
+> ②消融(人工持鎖 2 秒 → 量到 ~1990ms,證明量得到)③barrier 版競爭測試(**先確認鎖被授予才發 INSERT**;
+> 量到低值時**明文標示不可反推成「沒有阻塞」**)。
+>
+> 🔴 **R2 另抓到三個「拿掉它也全綠」的洞**:①**主鍵完全沒被驗** —— 拿掉 PK 後 56 條驗收仍全綠,
+> 而「一個品項最多一列」當場消失 ②**`pg_proc` 差集只掃 `public`** ⇒ 在別的 schema 偷加函式仍全綠
+> ③**FK 的實體斷言與「自訂 grantee」斷言從未被證明** —— 前面的字串比對會先攔下,
+> 把那兩道判官整段刪掉照樣 56/0。三者皆已補專屬突變(其中 FK 那條用「別 schema 同名表 +
+> 調 `search_path`」讓逐字比對**騙得過**,只有 `confrelid` 抓得到)。
+>
+> 🔴 **修突變時又踩到一次同型假綠**:新加的 `pg_proc` 查詢**自己語法錯誤**(`prokind` 型別),
+> base 與 after **都是同一則 ERROR 文字** ⇒ 差集為空 ⇒ 兩條偷加函式突變雙雙「通過」。
+> ⇒ 已補 `assert_snapshot`:**任何拿來當基準的查詢輸出,先證明它本身有效**(非空且不含 `ERROR:`)。
+>
+> 🔴🔴 **R3 換角度抓到一條設計層的**(前兩輪逐行看 diff 看不到):**我把一個非權威快取寫成了守門依據**。
+> 摘要表是惰性建立的 ⇒ 真相已有取消 2、摘要列還沒建時,`COALESCE(…,0)` 會讓 A2b1 以為取消 0、
+> 放行加開採購 ⇒ 最終 `ordered=2/cancelled=2` **通過全部七條 CHECK 卻是錯的狀態**。
+> ⇒ master plan 已改成:**守門一律鎖 parent 後回真相表重算,`COALESCE` 只准用在顯示路徑**,
+> 並對「真相非零但摘要缺失」fail-closed。**A2b1 / A8a2 兩列都已寫死。**
+> R3 另抓到:**A4a 的 trigger 清單漏了真正的到貨來源 `order_item_procurement_receipts`**
+> (只掛採購表的話,「只 INSERT 一筆到貨明細」不會觸發任何重算 ⇒ `instock` 永遠 0);
+> **§9 的回滾在 A4a 之後不可執行** ⇒ 已變成 A4a 的 DoD 硬前置;
+> **`assert_snapshot` 沒套到 trigger/ACL 兩份基準、且抓不到 `psql: error:`**
+> ⇒ 全部改走 fail-closed 的 `snapshot()`(驗退出碼 + stderr + sentinel)並加**harness 自我測試**
+> (故意弄壞快照 SQL,必須當場中止);**lock probe 不得由「沒觀察到」反推持鎖窗多短**
+> (取樣靠反覆啟動 psql,實際間隔遠大於迴圈裡的 5ms)。
+>
+> ✅ **驗證**:三綠 + `a1-verify.sh all` **61/0** + 探針 **15/15** + 零殘留
+> + `a7-verify.sh` **37/0** / `a7t-verify.sh` **27/0** 零回歸
+> + **真 `create_order` 回歸**(仍能建單、摘要表未被觸碰 = 惰性建列成立)
+> + 併發鎖:**可主張的結論 = 持鎖窗上限約 32ms**(含 psql 啟動開銷 ⇒ 實際更短)。
+> ⚠️ 誠實邊界:本機 PG17.10 非 Supabase、`auth.uid()` 是 shim;`create_order` 的 fixture 是造的 = **煙霧測試**。
+> **零 TapPay 接觸面、零金額欄位改動。**
+>
+> 🔴 **下一步**:①**A7b**(`order_refund_jobs` schema + 退款工作狀態機合約)
+> ②**Sean 待答:A1 的 apply 路線 A/B**(ledger 停在 A7 ⇒ `db push` 會依序套 A7-t 再套 A1、
+> 兩支各自一個交易,A1 失敗會留半批;runbook 在 plan §3.4)。
+> ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
+
 > 🎉 **2026-07-30 深夜:A7-t「取消帳本主從一致 trigger」code 收工 —— `54cbc64`、未 apply、未 push。**
 > 接手入口 = `docs/handoff/2026-07-30-a7t-consistency-trigger-handoff.md`;片級 plan = `docs/specs/2026-07-30-e10-a7t-cancellation-consistency-trigger-plan.md`(**v2 縮減版**)。
 > 產物:migration `20260730140000`(2 函式 + **4 支 trigger**)+ `scripts/a7t-behavior-probe.sql`(獨立檔獨立交易、12 案例)
