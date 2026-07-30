@@ -1,6 +1,7 @@
 # 交接:訂單編號改 6 碼亂碼(N2 / N3a / N3b)—— 2026-07-30 中午
 
-> **狀態:code 三片全部收工、兩關審查全部走完。未 apply、未 push。**
+> **狀態:🎉 端到端完成。三片 code 收工 + 兩關審查走完 + 兩支 migration 已 apply production
+> + Sean 真刷驗證通過(訂單 `PTNGY2`,6 碼新格式、`paid`)+ 已推 `origin/dev = 4f91a8a`。**
 > **下一片(Sean 2026-07-30 拍板)= 修 backlog #301(TapPay Record API 三處欄位重查)**,
 > 它是退款線 RF2b-RF8 的硬前置。**建議開新視窗做** —— 領域完全不同。
 > 權威 = `docs/specs/2026-07-30-n3a-n3b-display-id-generator-plan.md`(628 行;§9 關卡1 / §10 關卡2 詳錄)。
@@ -18,37 +19,45 @@
 | `24f0b63` | **N3a** | 新 DB 函式 `public.pcm_generate_display_id()` + apply-time 探針 3 條;shim +2 行(pgcrypto) |
 | `946b837` | **N3b** | `create_order` 段 8 改呼它 + 上限 5 次有界重試;兩支驗證腳本 |
 | `30e6986` | docs | STATUS 7 欄、plan §9/§10 審查詳錄、master-plan v2 標註、backlog #300/#301 |
+| `518ffdd` | docs | 本交接檔 + CURRENT 入口 |
+| `27fb117` | docs | 待決策三條 |
+| `4f91a8a` | docs | 真刷 PTNGY2 驗證紀錄 + backlog #302(1 元商品免運缺口) |
 
-再加前一個 `96a813f`(plan 初版 + 筆數更正)= **未推 5 個 commit**。
-
----
-
-## 2. 🔴 Sean 手動兩件 —— 缺一則下一片不該開工
-
-1. **`supabase db push`**(套用 N3a + N3b)
-   需先把 `.env.local` 移開,或用 `--workdir` 指到 scratch 副本
-   (CLI 讀不下該檔內的中文註解;詳 memory `reference_supabase-cli-reads-env-local-blocker`)。
-2. **1 元商品真刷 smoke** —— master-plan v2 §5.4b 對 N3b **明文要求**。
-   🔴 **這是唯一能證明結帳沒壞的證據**,所有程式測試都取代不了。
-3. push。
-
-**⚠️ 沒做會怎樣**:不會壞。N3b 只在 apply 之後才改變行為;
-**未 apply 的 DB 配上新 code = 照舊產 `PCM-` 格式**(N2 是純型別層、對結帳零 runtime 影響)。
-⇒ 這與 E8-A1 那次「未 apply 的 DB 配新 code 會讓後台當場不能用」**不同**,不是硬閘。
-但**下一片若要動 orders / create_order,必須先確認這兩支已 apply**。
+前置 `96a813f`(plan 初版 + 筆數更正)。**全部已推,`origin/dev = 4f91a8a`。**
 
 ---
+
+## 2. ✅ Sean 手動三件**已全部完成**(2026-07-30)
+
+1. ✅ **`supabase db push`** —— 兩支 migration 已 apply production。
+   用 `--workdir /tmp/pcm-dbpush`(supabase 目錄副本)繞開 `.env.local`,**零碰 `.env*`**。
+   三行 NOTICE 全部符合預期,其中一行是關卡1 F4 那條 must-fix 的直接證據:
+   `N3b 守門通過:狀態 A(首次 apply;現況 = 20260719120000 版)`
+   🔴 若當初照抄 20260719120000 的「用參數個數判狀態」,這裡會判成「重跑」而中止 ⇒ **db push 會撞紅**。
+2. ✅ **1 元商品真刷 smoke** —— 訂單 **`PTNGY2`**(6 碼、`paid`)。這是 master-plan v2 §5.4b
+   對 N3b 明文要求的、也是**唯一能證明結帳沒壞的證據**。
+3. ✅ **push** —— `origin/dev = 4f91a8a`、未推 0。
+
+### apply 後獨立驗證 13 項全對(唯讀、不採信 migration 自述)
+- 產號函式:`secdef=true / vol=v / par=u / strict=false / search_path="" / owner=postgres`
+- 產號函式 ACL = `{postgres=X/postgres}` = **零對外授權**;anon/authenticated/service_role 皆不可 EXECUTE
+- `create_order` 完整指紋 = **`5a04e67df5d7cd1c18c5ae2a634e544a`**
+  🔴 **與本機隔離庫算出的常數逐字元相符 ⇒ 自指指紋守門跨環境成立、非本機巧合**
+- 新產號器接線 `true` / 舊 `order_display_seq` `false` / 約束名核對在 / 用盡 token 在
+- 既有五項行為字面全在(運費 CASE / consent / vehicle_snapshot / availability / 溢位守門)
+- 資料零異動:訂單 30 張、`legacy_display_id` 全 NULL、`order_display_seq` 仍 105/true
+  ⇒ **舊單一張都沒被碰、回滾前提仍成立**
+- 正式站實產 6 碼:`MGZ5JF DD6D6S Q3HCN9 6TZG6R P4CS97`;200 抽全符合 §5.4a
+- migration ledger 兩支皆登記、零漂移
 
 ## 3. 接手第一件事
 
 ```bash
-cd /Users/sean_1/pcm-website-v2 && git log --oneline origin/dev..HEAD
-psql/MCP 唯讀確認:SELECT to_regprocedure('public.pcm_generate_display_id()') IS NOT NULL;
+git log --oneline -3 && git status --porcelain
 ```
-- 未推數字**當場查、不看本檔寫死的 5**。
-- 若 `pcm_generate_display_id` 已存在 ⇒ Sean 已 apply;否則尚未。
-
----
+本線已全部推上去 ⇒ 預期未推 0(**當場查、不看本檔寫死的數字**)。
+工作樹若有 `CascadeFilterTop` / `dev-preview` / `docs/superpowers` 等未追蹤檔,
+那是**另一個並行 session** 的,不是本線殘留(見 §10)。
 
 ## 4. 驗證怎麼重跑(全部可重複)
 
@@ -75,8 +84,11 @@ done
 
 - 全部驗證跑在**本機 PostgreSQL 17,不是 Supabase**。
 - `auth.uid()` 是 shim(平常寫死回 NULL)、商品價格是手動塞的、序號要手動推進
-  ⇒ **建單那段是煙霧測試**,不是「結帳真的能用」。
-- **唯一能證明結帳沒壞的是 Sean 的 1 元真刷,尚未執行。**
+  ⇒ **harness 的建單段是煙霧測試**,它證明的是「產號接線與重試邏輯對」,
+  **不是**「結帳真的能用」。後者由下一條的真刷獨立提供。
+- ✅ **1 元真刷已完成**(`PTNGY2`)⇒ 「結帳沒壞」現在**有一手證據**,不再是待驗項。
+  ⚠️ 但真刷只證明了**一條 happy path**(單品項、home、personal 發票、無碰撞重試)——
+  重試路徑、非本約束上拋、產號用盡都只有隔離庫證據。
 - 🔴 **鐵則 12 未按字面滿足**:它要求高風險片過 **codex** 對抗審查;
   實際是 **Fable**(codex 今天三次同款逾時,三次皆驗零留痕、最小測試證實 CLI 本身正常)。
   **是否接受此替代 = Sean 判斷,已於對話提出、尚未回答。** 接手者不得自行宣告「已滿足」。
@@ -147,6 +159,12 @@ migration 註解內已逐字寫明。
 
 ## 9. 開放項
 
+- 🟡 **#302 待 Sean 拍板**:1 元補差額商品仍被收 NT$100 運費(真刷 `PTNGY2` = 1 / 100 / 101)。
+  🔴 **不是 bug** —— 運費規則照設計運作(1 < 免運門檻 5000);缺的是「該商品免運」這條
+  **從未實作**的例外。三案已列:A 商品層免運旗標(動 654 行金流函式 + 需回答「免運品混車誰付運費」)/
+  **B 改走後台手動建單(傾向;零金流 code 改動、E10 本來就要做)** / C 維持現狀+對客說明。
+  ⚠️ 這條 2026-07-24 首刷就發現、但只記在 memory 沒開編號 ⇒ 六天後 Sean 又講一次才補上。
+  **只靠 memory 存活的事情會弄丟。**
 - 🟡 **提案檔 Q2 未答**:舊 30 張測試單要不要在後台列表隱藏(不擋任何片)。
 - 🟡 **鐵則 12 的 Fable 替代是否接受**(見 §5)。
 - 🟡 **STATUS 主表 76 行,規則是 ≤30 行嚴守** —— 接手前就有的漂移(接手時 69 行),

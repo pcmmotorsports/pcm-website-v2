@@ -1,12 +1,22 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🎉🎉 **2026-07-30 中午:訂單編號改 6 碼亂碼 N2/N3a/N3b 三片 code 全部收工。
+> 🎨 **2026-07-30 商品目錄選車 UX 已完成視覺拍板，下一手由 Claude 正式落地、Codex 唯讀審查。**
+> 完整開工交接：`docs/handoff/2026-07-30-catalog-ux-claude-execution-handoff.md`。
+> 長期決策：`docs/decisions/0007-catalog-vehicle-selection-ux.md`。
+> 現況為未提交 UI 預覽與 query-gated 桌機參考；**尚未正式整合手機版、未 commit、未 push、未 deploy**。
+> Claude 完成 code + tests 後須凍結工作樹並回報 `Ready for review`；Codex 僅唯讀回 findings／GO-NO-GO，
+> 不修改檔案。Sean 審查後保留 push／deploy checkpoint。
+
+> 🎉🎉 **2026-07-30:訂單編號改 6 碼亂碼 N2/N3a/N3b **端到端完成**。
 > 接手入口 = `docs/handoff/2026-07-30-n3-display-id-handoff.md`。**
-> commit `828cf5f`(N2)/ `24f0b63`(N3a)/ `946b837`(N3b)/ `30e6986`(docs);**未 apply、未 push**。
-> 🔴 **Sean 手動兩件**:①`supabase db push` ②**1 元商品真刷 smoke**(規格 §5.4b 明文要求、
-> **唯一能證明結帳沒壞的證據**)③push。未 apply **不會壞**(N3b 只在 apply 後改行為)。
+> 三片 code + 兩關審查 + **兩支 migration 已 apply production** + **Sean 真刷驗證通過
+> (訂單 `PTNGY2`,6 碼、`paid`)** + 已推 `origin/dev = 4f91a8a`(未推 0)。
+> apply 後獨立驗證 13 項全對;`create_order` 指紋在正式站**逐字元** = 本機隔離庫算出的
+> `5a04e67d…` ⇒ 自指指紋守門跨環境成立。**舊 30 張訂單一張都沒被碰**。
 > 🔴 **下一片(Sean 拍板 C)= 修 backlog #301**(TapPay Record API 三處欄位重查)——
 > 退款線 RF2b-RF8 的硬前置。**建議開新視窗**(領域完全不同)。
+> 🟡 **#302 待拍板**:1 元補差額商品被收 NT$100 運費(**不是 bug**,是「該商品免運」從未實作;
+> 三案已列、傾向 B 改走後台手動建單)。
 > 🔴 **鐵則 12 未按字面滿足**:codex 三次同款逾時 ⇒ 用 Fable 代替;
 > **是否接受此替代 = Sean 判斷,已提出、尚未回答。接手者不得自行宣告「已滿足」。**
 > ⚠️ 本 session 期間另有並行 session 在同 repo 工作(mobile-catalog-ux / CascadeFilterTop /
