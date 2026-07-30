@@ -7634,6 +7634,71 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-07-29 / D1a6 還原演練建 preview branch 時實測撞到。
 - **相關:** #298(版本號守門,抓不到本條)/ memory `project_supabase-migration-version-drift` / `feedback_control-named-beyond-its-actual-power`。
 
+### #300. 🔔 訂單編號產號用盡時無告警(N3b-app 未做)
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟡 低
+- **問題:**
+  - `create_order` 產 6 碼訂單編號時,若連續 5 次撞號會 `RAISE`(SQLSTATE `P0001`、
+    message 含 token `pcm_display_id_exhausted`),客人看到一般結帳失敗、**沒有任何人被通知**。
+  - master-plan v2 §5.4b 原本有一片 **N3b-app** 專門處理:`placeOrder` use-case catch 該 token →
+    走既有 `packages/adapters/src/payment/LineAlertNotifierAdapter` 送 LINE 告警 + server log,
+    對客回一般結帳失敗(不洩內部細節)。規格 R7 逐字要求「**N3b-app 先於 N3b 部署**」。
+- **觸發事件:**
+  - 2026-07-30 N3a/N3b 施工前,Sean 拍板 **Q1=A 延後**、只做 N3a + N3b 兩片(後加 N2)。
+  - 延後依據(明寫,以免日後被當成「不需要」):碰撞機率 ≈ `(N / 4.82e8)^5`,N = 新格式單數、
+    上線當下為 **0**;且**不比現狀差** —— 現在任何 RPC `RAISE` 同樣是無告警的一般結帳失敗。
+  - 🔴 **不是因為它不需要,是因為它此刻不緊急。** N 隨營運成長,這條的價值隨之上升。
+- **預期解法:**
+  - 照 master-plan v2 §5.4b 的 **N3b-app** 片實作(A 片型):catch token → LINE 告警 + server log。
+  - 附負向測試:模擬 RPC `RAISE`,assert 告警確實送出**且**對客錯誤不含內部細節。
+  - admin 手動建單 action 的同款 catch = 第 3 批建單片 DoD(§5.3 項 10)。
+- **不修會痛在:**
+  - 擴充性:日後訂單量成長、或字母表/長度被改短(降低空間)時,撞號從「天文數字」變成
+    「偶發」,而系統仍然不會告警 —— 缺口會在最需要它的那一天才被發現。
+  - 可維護性:`pcm_generate_display_id()` 的 `RAISE` token 是刻意設計的告警接口,
+    沒有消費端 = 一個宣稱存在但沒接線的機制(與 `feedback_control-named-beyond-its-actual-power` 同型)。
+  - bug 可追蹤性:客人回報「結帳失敗」時,無法區分是產號用盡還是其他 RPC 錯誤,
+    只能靠翻 server log 猜。
+- **估時:** 30-45 分鐘(含負向測試)
+- **依賴:** N3b 已上線(否則該 token 不存在);`LineAlertNotifierAdapter` 已就緒(已在)
+- **發現於:** 2026-07-30 / N3a-N3b slice plan §7 開放項 1
+- **相關:** master-plan v2 §5.4a/§5.4b、`docs/specs/2026-07-30-n3a-n3b-display-id-generator-plan.md`
+
+### #301. 🔴 TapPay Record API 三處欄位假設經實測為誤(`wire.ts:68` 宣稱不實)
+
+- **狀態:** 🔴 立即啟動(退款線 RF2b 開工前的硬前置)
+- **優先級:** 🔴 高
+- **問題:**
+  - `packages/adapters/src/tappay/wire.ts:68` **逐字宣稱**欄名「以官方 Record API reference 核實」,
+    但 2026-07-30 對**真 TapPay 正式商戶**實測,三處與實回應不符:
+    1. 已**全額退款**的紀錄 `amount` 回 **0**,原始金額在 `original_amount`
+    2. `refunded_amount` 放的是**原本金額**(= `orders.total`),而非規格假設的「已退金額 = amount」
+    3. 🔴 **`transaction_time_millis` 這個欄位根本不存在** ——
+       實有 `time` / `cap_millis` / `transaction_complete_millis` / `bank_transaction_*_millis`
+  - ⇒ 那行註解是一條**未經驗證卻被寫成已核實**的斷言(`feedback_falsifiable-prediction-beats-endorsement`
+    的實例:註解裡的「已核實」也是一條沒被測的斷言)。
+- **觸發事件:**
+  - 2026-07-30 D1b1 首次對真 TapPay 正式商戶執行 Record API 查詢時發現(該次判定 `readback-aborted`)。
+  - 🔴 **退款線 RF2b-RF8 會直接踩到** —— 任何用 Record API 判定「是否已退款 / 退了多少」的邏輯,
+    建立在上述三個錯誤假設上都會算錯錢。
+- **預期解法:**
+  1. **先重查官方文件**(親讀、附 URL,不憑記憶、不憑舊註解)並與 07-30 實測回應逐格對照。
+  2. 更正 `wire.ts` 的欄名與型別;宣稱改成「**2026-07-30 對正式商戶實測 + 官方文件雙來源**」,
+     並標出兩者不一致處(若仍不一致,以實測為準並明寫)。
+  3. 補一組以**真實回應形狀**為 fixture 的測試(至少涵蓋:未退款 / 全額已退款 兩種形狀)。
+  4. 連帶檢查 `scripts/d1-readback.ts` 的判定矩陣(它要求 `refunded_amount = amount`,
+     在全額退款情境下實際是 `refunded_amount = orders.total`、`amount = 0` ⇒ 該條件永遠不成立)。
+- **不修會痛在:**
+  - 擴充性:退款自動化(RF2b-RF8)整條線的判定基礎是這三個欄位,錯的假設會擴散到每一片。
+  - 可維護性:程式碼裡有一句**明確的假保證**,後人會信它而不去重查 —— 比沒有註解更危險。
+  - bug 可追蹤性:金額判定錯誤不會拋錯,會**靜默算錯錢**(退多或退少),
+    且錯的方向取決於是全額退款還是部分退款,難以從結果反推根因。
+- **估時:** 1-2 小時(查證 + 改 + 測);屬鐵則 12 ①錢 ⇒ 需對抗審查
+- **依賴:** 無(可獨立進行);但**必須排在 RF2b 之前**
+- **發現於:** 2026-07-30 / D1b1 首次真實商戶取證
+- **相關:** memory `project_m4b-d1c-delete-cancelled`、`docs/reference/tappay-reference.md`、RF2b-RF8
+
 ## 紀錄模板
 
 ```markdown
