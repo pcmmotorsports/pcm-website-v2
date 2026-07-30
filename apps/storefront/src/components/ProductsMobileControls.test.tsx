@@ -1,0 +1,257 @@
+// @vitest-environment jsdom
+//
+// ProductsMobileControls — 手機商品目錄控制列(ADR-0007 手機決定 6-8)。
+// 鎖三件 Sean 拍板、且**責任一旦混回去就再也看不出來**的事:
+//   ① 分類 / 篩選 / 排序 = 三個獨立入口(不是同一個抽屜的三個 tab)
+//   ② 商品篩選面板只處理商品條件 —— 不放選車、不放「僅顯示現貨」
+//   ③ 「清除車輛」= 回到全部商品 + 清掉車輛相關分類(與選車面板的「清除草稿」語意不同)
+//
+// 資料全走真 taxonomy / 真分類 / cascadeFilterReducer;fixture 是字典形狀小樣本。
+
+import { useReducer, useState } from 'react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
+import { ProductsMobileControls } from './ProductsMobileControls';
+import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
+import type { FilterTopData } from './FilterTop';
+import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { MockCategory } from '@/data/mock-categories';
+import type { MockBrand } from '@/data/mock-brands';
+
+const MOTO_BRANDS: MockMotoBrand[] = [
+  { id: 'yamaha', name: 'Yamaha', models: [{ id: 'mt-09-sp', name: 'MT-09 SP', years: [2021, 2022] }] },
+] as MockMotoBrand[];
+
+const CATEGORIES: MockCategory[] = [
+  { id: 'carbon', name: '碳纖維部品', count: 20, children: [] },
+  { id: 'levers', name: '拉桿與把手', count: 36, children: [] },
+];
+
+const BRANDS: MockBrand[] = [
+  { id: 'rpm-carbon', name: 'RPM CARBON', count: 12 },
+  { id: 'lightech', name: 'LIGHTECH', count: 8 },
+] as MockBrand[];
+
+const data: FilterTopData = { motoBrands: MOTO_BRANDS, categories: CATEGORIES, brands: BRANDS };
+
+function Harness({ sort = 'recommend', setSort = vi.fn() }: { sort?: string; setSort?: (v: string) => void }) {
+  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
+  return (
+    <ProductsMobileControls
+      data={data}
+      cascade={cascade}
+      dispatch={dispatch}
+      extras={extras}
+      setExtras={setExtras}
+      resultCount={161}
+      sort={sort}
+      setSort={setSort}
+    />
+  );
+}
+
+/** 走完整選車流程(工具列 → 選車面板 → 套用),回到「已選車」狀態。 */
+function applyVehicle() {
+  fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
+  const brand = screen.getByLabelText('廠牌') as HTMLInputElement;
+  fireEvent.change(brand, { target: { value: 'Yamaha' } });
+  fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+  const model = screen.getByLabelText('車型') as HTMLInputElement;
+  fireEvent.change(model, { target: { value: 'MT-09 SP' } });
+  fireEvent.mouseDown(screen.getByRole('option', { name: 'MT-09 SP' }));
+  const year = screen.getByLabelText('年份') as HTMLInputElement;
+  fireEvent.change(year, { target: { value: '2022' } });
+  fireEvent.mouseDown(screen.getByRole('option', { name: '2022' }));
+  fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+}
+
+beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+describe('ProductsMobileControls(ADR-0007 手機三入口)', () => {
+  // ① 三個獨立入口。
+  it('工具列同時提供類別、品牌/價格、排序三個獨立入口', () => {
+    render(<Harness />);
+    expect(screen.getByRole('button', { name: '類別' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /品牌\/價格/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /排序/ })).toBeTruthy();
+  });
+
+  it('類別入口開的是分類面板(真分類、非車輛)', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+
+    expect(screen.getByText('碳纖維部品')).toBeTruthy();
+    expect(screen.getByText('拉桿與把手')).toBeTruthy();
+    // 分類面板不該混進選車
+    expect(screen.queryByText('選擇車款')).toBeNull();
+    expect(screen.queryByLabelText('廠牌')).toBeNull();
+  });
+
+  // ② 商品篩選只處理商品條件。
+  it('商品篩選面板只有商品條件:不放選車、不放現貨', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: /品牌\/價格/ }));
+
+    expect(screen.getByText('RPM CARBON')).toBeTruthy(); // 品牌
+    expect(screen.getByText('價格')).toBeTruthy();
+    expect(screen.queryByText('選擇車款')).toBeNull();
+    expect(screen.queryByLabelText('廠牌')).toBeNull();
+    expect(screen.queryByText('僅顯示現貨')).toBeNull();
+  });
+
+  it('篩選數字只計商品條件(品牌+價格)、不計車輛與分類', () => {
+    render(<Harness />);
+    applyVehicle();
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+    fireEvent.click(screen.getByText('碳纖維部品'));
+
+    // 車輛 + 分類都已選,但「篩選」入口不得因此顯示數字
+    expect(screen.getByRole('button', { name: /品牌\/價格/ }).textContent).not.toMatch(/\d/);
+
+    fireEvent.click(screen.getByRole('button', { name: /品牌\/價格/ }));
+    fireEvent.click(screen.getByText('RPM CARBON'));
+    fireEvent.click(screen.getByRole('button', { name: /查看 161 件商品/ }));
+    expect(screen.getByRole('button', { name: /品牌\/價格/ }).textContent).toMatch(/1/);
+  });
+
+  // Sean 2026-07-30:選了車之後,品牌右邊的數字是全站總數(`catalog_brand_counts()` 不吃
+  // 車輛參數)⇒ 會讓客人以為那個品牌有那麼多可選。選車後隱藏;未選車時它是對的、照常顯示。
+  // Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,那都不要」。
+  // 分類數與品牌數都來自不吃車輛參數的查詢 ⇒ 選車後是錯的(實測:198 件的車,分類仍顯示 2130)。
+  // 🔴 這條兩個方向都測:未選車必須**還在**(全站數=實際數、不無故拿掉既有資訊),
+  //    選車後必須**全部消失**。只測一半的話,「乾脆全部拿掉」也會是綠的。
+  it.each([
+    ['品牌/價格面板', /品牌\/價格/, 'RPM CARBON'],
+    ['類別面板', '類別', '碳纖維部品'],
+  ])('%s:未選車顯示件數、選車後一律不顯示', (_label, entry, sampleRow) => {
+    const { container, unmount } = render(<Harness />);
+
+    fireEvent.click(screen.getByRole('button', { name: entry }));
+    expect(container.querySelectorAll('.fd-row-count').length).toBeGreaterThan(0);
+    unmount();
+
+    render(<Harness />);
+    applyVehicle();
+    fireEvent.click(screen.getByRole('button', { name: entry }));
+    expect(screen.getByText(sampleRow)).toBeTruthy(); // 項目本身仍在、只是沒數字
+    expect(document.querySelectorAll('.fd-row-count')).toHaveLength(0);
+  });
+
+  it('排序入口列出排序選項、選定回報值(非字面)', () => {
+    const setSort = vi.fn();
+    render(<Harness setSort={setSort} />);
+    fireEvent.click(screen.getByRole('button', { name: /排序/ }));
+
+    fireEvent.click(screen.getByText('價格低到高'));
+    expect(setSort).toHaveBeenCalledWith('price-asc');
+  });
+
+  it('排序入口文字視覺置中,且字面固定為「排序」(Sean 2026-07-30 指定)', () => {
+    render(<Harness />);
+    const sortButton = screen.getByRole('button', { name: /排序/ });
+    expect(sortButton.className).toContain('pmc-tool--sort');
+    // 顯示字面固定;目前排序值改留 aria-label(資訊不消失、視覺不重複)
+    expect(sortButton.textContent?.trim()).toBe('排序');
+    expect(sortButton.getAttribute('aria-label')).toContain('推薦排序');
+  });
+
+  // 三個入口的字面 = Sean 指定,寫死鎖住(日後有人「順手改回」會當場轉紅)
+  it('三個入口字面為 類別 / 品牌價格 / 排序', () => {
+    const { container } = render(<Harness />);
+    const labels = [...container.querySelectorAll('.pmc-tool')].map((b) => b.textContent?.trim());
+    expect(labels).toEqual(['類別', '品牌/價格', '排序']);
+  });
+
+  // 未選車 → 入口;已選車 → 摘要。
+  it('未選車顯示「選擇車輛」入口、點開選車面板', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
+    expect(screen.getByText('選擇適用車輛')).toBeTruthy();
+    expect(screen.getByLabelText('廠牌')).toBeTruthy();
+  });
+
+  // 🔴 Sean 2026-07-30 第二輪真機回饋:「最上面這一群在手機版本上車種資訊過剩」。
+  //    第一屏原本把同一台車講四次(大塊摘要 / 黏頂精簡列 / 頁面標題 / ActiveChips 膠囊),
+  //    其中前兩個都是本元件加的。這條鎖住「本元件內車名只出現一次」——
+  //    再有人補一塊摘要回來就當場轉紅。
+  it('已選車時車輛資訊在本元件內只出現一次(不得再有大塊摘要重複)', () => {
+    const { container } = render(<Harness />);
+    applyVehicle();
+
+    const root = container.querySelector('.pmc-root') as HTMLElement;
+    const hits = [...root.querySelectorAll('*')].filter(
+      (el) => el.children.length === 0 && (el.textContent ?? '').includes('MT-09 SP'),
+    );
+    expect(hits).toHaveLength(1);
+    // 唯一那處必須在黏頂列內(捲到哪都看得到、才有留它的意義)
+    expect(container.querySelector('.pmc-sticky')?.contains(hits[0] as Node)).toBe(true);
+    // 大塊摘要整塊不得存在
+    expect(container.querySelector('.pmc-vehicle-summary')).toBeNull();
+    expect(container.querySelector('.pmc-vehicle')).toBeNull();
+  });
+
+  // Sean 2026-07-30 真機回報:大塊資訊捲走後,往下看商品時仍要有「換車 / 清車」出口。
+  // 🔴 這條同時是「黏頂列裡真的有東西」的守門:黏頂的是 .pmc-sticky,精簡列必須長在它裡面,
+  //    否則捲下去之後客人就只剩三個入口、換不了車(核准預覽的 compactVehicle 角色)。
+  it('已選車時黏頂列內含精簡車輛列 + 換車/清車出口', () => {
+    const { container } = render(<Harness />);
+    applyVehicle();
+
+    const sticky = container.querySelector('.pmc-sticky');
+    const compact = sticky?.querySelector('.pmc-compact');
+    expect(compact).not.toBeNull();
+    expect(compact?.textContent).toContain('MT-09 SP');
+    const actions = [...(compact?.querySelectorAll('button') ?? [])].map((b) => b.textContent);
+    expect(actions).toEqual(['更換', '清除']);
+    // 三個入口也必須在同一個黏頂容器內(否則捲下去只黏到一半)
+    expect(sticky?.querySelectorAll('.pmc-tool').length).toBe(3);
+  });
+
+  it('未選車時黏頂列不出現精簡車輛列(沒車可換)', () => {
+    const { container } = render(<Harness />);
+    expect(container.querySelector('.pmc-sticky')).not.toBeNull();
+    expect(container.querySelector('.pmc-compact')).toBeNull();
+  });
+
+  it('黏頂列的「更換」重開選車面板', () => {
+    const { container } = render(<Harness />);
+    applyVehicle();
+
+    const compactChange = [...container.querySelectorAll('.pmc-compact button')]
+      .find((b) => b.textContent === '更換') as HTMLElement;
+    fireEvent.click(compactChange);
+    expect(screen.getByText('選擇適用車輛')).toBeTruthy();
+  });
+
+  // ③ 清除車輛 = 回全部商品 + 清車輛相關分類。
+  it('「清除車輛」回到全部商品並一併清掉分類', () => {
+    const { container } = render(<Harness />);
+    applyVehicle();
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+    fireEvent.click(screen.getByText('碳纖維部品'));
+
+    // 🔴 綁黏頂列裡那顆:抽屜 footer 也有一顆叫「清除」(清商品條件),
+    //    用全域 getByRole 會撞到它 —— 兩顆的作用範圍完全不同,不能混。
+    const clearVehicle = [...container.querySelectorAll('.pmc-compact button')]
+      .find((b) => b.textContent === '清除') as HTMLElement;
+    fireEvent.click(clearVehicle);
+
+    // 車輛摘要消失 → 回到未選車入口
+    expect(screen.getByRole('button', { name: '選擇車輛' })).toBeTruthy();
+    expect(container.querySelector('.pmc-compact')).toBeNull();
+    expect(screen.queryByRole('button', { name: '更換' })).toBeNull();
+    // 分類也被清掉(cascade.category=null ⇒ 分類面板無 active 列)
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+    const active = screen.getByText('碳纖維部品').closest('button');
+    expect(active?.className).not.toContain('is-active');
+  });
+});

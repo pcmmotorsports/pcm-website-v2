@@ -92,7 +92,8 @@ describe('ProductsPage', () => {
 
   it('should mount the cascade bar and side filter', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
-    expect(screen.getByText('確認適用車款')).toBeDefined();
+    // ADR-0007(2026-07-30):桌機選車列字面由「確認適用車款」改為搜尋式「選擇適用車輛」
+    expect(screen.getByText('選擇適用車輛')).toBeDefined();
     expect(screen.getByText('篩選條件')).toBeDefined();
   });
 
@@ -103,10 +104,30 @@ describe('ProductsPage', () => {
     expect(screen.getByText('碳纖維前土除')).toBeDefined();
   });
 
-  it('should render pagination and the mobile filter fab', () => {
+  // ADR-0007:手機入口由單顆「篩選」FAB 改為 ProductsMobileControls 的三個獨立入口。
+  it('should render pagination and the mobile controls (three separate entries)', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     expect(screen.getByLabelText('每頁')).toBeDefined();
-    expect(screen.getByText('篩選')).toBeDefined();
+    expect(screen.getByRole('button', { name: '選擇車輛' })).toBeDefined();
+    // Sean 2026-07-30 指定字面:分類→類別、篩選→品牌/價格、推薦排序→排序
+    expect(screen.getByRole('button', { name: '類別' })).toBeDefined();
+    expect(screen.getByRole('button', { name: /品牌\/價格/ })).toBeDefined();
+    expect(screen.getByRole('button', { name: /排序/ })).toBeDefined();
+  });
+
+  // 🔴 這條抓的是一種「兩邊測試都綠、真手機整頁沒有選車入口」的失敗:
+  //    .cft-bar 在 ≤1023px 是 display:none(products-mobile.test.ts 鎖住),若手機控制列
+  //    被塞進 .cft-bar 內,它會被同一條規則一起關掉 —— 而 jsdom 不套 media query,
+  //    所有元件測試照樣全綠。故 DOM 位置本身必須是斷言。
+  it('keeps the mobile controls outside .cft-bar (which is display:none on mobile)', () => {
+    const { container } = render(
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    const bar = container.querySelector('.cft-bar');
+    const mobile = container.querySelector('.pmc-root');
+    expect(bar).not.toBeNull();
+    expect(mobile).not.toBeNull();
+    expect(bar?.contains(mobile as Node)).toBe(false);
   });
 
   it('should show the load-error state when error flag is set (#220 Q2=A)', () => {

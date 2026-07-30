@@ -30,12 +30,42 @@
 > 本線全程未觸碰、未納入任何 commit。
 
 
-> 🎨 **2026-07-30 商品目錄選車 UX 已完成視覺拍板，下一手由 Claude 正式落地、Codex 唯讀審查。**
-> 完整開工交接：`docs/handoff/2026-07-30-catalog-ux-claude-execution-handoff.md`。
-> 長期決策：`docs/decisions/0007-catalog-vehicle-selection-ux.md`。
-> 現況為未提交 UI 預覽與 query-gated 桌機參考；**尚未正式整合手機版、未 commit、未 push、未 deploy**。
-> Claude 完成 code + tests 後須凍結工作樹並回報 `Ready for review`；Codex 僅唯讀回 findings／GO-NO-GO，
-> 不修改檔案。Sean 審查後保留 push／deploy checkpoint。
+> 🎨 **2026-07-30 商品目錄選車 UX:Slice A-D 完成 + Sean 真機驗收六輪回饋全折入,工作樹已凍結 = `Ready for review`(未 commit)。**
+> 🔴 **接手入口 = `docs/handoff/2026-07-30-catalog-ux-slice-abcd-handoff.md`**(含 ownership 21 檔清單、
+> 拍板全集、真機三 bug 根因、#306 開工前置);開工指令原檔 = `docs/handoff/2026-07-30-catalog-ux-claude-execution-handoff.md`;長期決策:`docs/decisions/0007-catalog-vehicle-selection-ux.md`。
+> **桌機**:搜尋式三欄 + 年份新到舊由 `?vehicle-ui=preview` 提升為正式預設,query gate 整條移除
+> (`CascadeFilterTop` 現零 local state);「我的愛車」位置與中性色不動。
+> **手機**:新增 `MobileVehicleSheet`(草稿制選車面板)+ `ProductsMobileControls`(車輛列 + 分類/篩選/排序
+> 三獨立入口 + 排序面板);`FilterDrawer` 新增 `scope`('all' 預設不變 / 'category' / 'product');
+> 🔴 **手機不再顯示被壓縮的桌機三欄**(整條 `.cft-bar` 在 ≤1024px 關閉)—— 順帶修好「手機看不到我的愛車」
+> (舊 `.cft-right { display:none }`)。原單顆「篩選」FAB 退場。
+> **驗證**:三綠 + 完整 `pnpm test` **278 檔 3411 passed + 1 todo**;**突變 14/14 全紅**(還原經 shasum 逐檔驗);
+> production build + 真瀏覽器 390/1024/1025/1365 四 viewport 實測(含真字典跨層直搜、`?vehicle=` round-trip
+> 19037→43 件、清草稿≠清車輛、清除車輛回全部商品並清分類、排序 `?sort=price-asc`)。
+> 🔴 **本次驗證抓到兩個假綠**(已修,詳交接段落):①CSS 守門的 `@media` 切片跑出區塊、匹配到區塊外的
+> `[data-mobile]` 規則 ⇒ 拿掉真規則仍全綠 ②`pkill` 沒殺掉舊 server ⇒ 重建後那台服務 CSS 回 **500**,
+> 期間所有瀏覽器量測都是「沒有樣式的頁面」。
+> ✅ **Sean 三題已拍板**:**Q1=B** 桌機維持現況滿版(`--shell-max: none` 接手前既有、不動)⇒ 交接檔
+> 「桌機內容不滿版」驗收項依拍板作廢;**Q2=A** 已修掉 1025-1079px 帶狀死區 —— 商品頁版面規則
+> (側欄/兩欄/欄數鈕)由 ≤1079 移到 ≤1024,與選車列、手機列統一同一交界;實測 1079/1060/1026/1025
+> 四點皆為完整桌機、零水平溢出;順帶清掉已無 render 端的 FAB 樣式;守門 +2、突變 M15/M16 轉紅。
+> 🔴 **Q3=A:「我的愛車」需登入,我無憑證 ⇒ 這項留 Sean 肉眼驗、我不宣稱通過。**
+> 🟡 1025-1079px 仍會同時出現桌機商品版面 + 手機底部導覽(`mobile-tabbar` 斷點 1079、本片未動;
+> `body padding-bottom: 70px` 已預留、內容不被遮住)= 既有混搭、未擴大。
+> 🔴 **Sean 真機驗收(2026-07-30 晚、他自己用手機開 `172.20.10.3:3021`)抓到三件、全部已修並實測**:
+> ①「只選廠牌就要能搜尋」—— 我照預覽 mock 抄成「三欄全填才能送出」,比正式站能力更嚴(品牌-only
+> 本來就支援、桌機一直如此)⇒ 改逐層送出,實測 `?vehicle=yamaha` 2349 / `:mt-09` 396 / `:mt-09:2021` 198 件。
+> ②工具列沒黏住 —— sticky 掛在一個「高度剛好等於它自己」的 wrapper 上 ⇒ 移動空間 0、一捲就滑掉
+> (實測捲 900px 後在 `top:-835`);修法 = `.pmc-root` 手機改 `display: contents`、sticky 搬到
+> 只含「精簡車輛列 + 三入口」的 `.pmc-sticky`,實測捲 400/900/2000 皆固定 `top:64`、按鈕全可命中。
+> ③車款標題卡畫面中間 + 上方空一條 —— `products-page.css:302` 的 `top:120px` 註解逐字寫
+> `64 mobile header + 56 cascade bar`,**而手機的 cascade bar 已被本片關掉** ⇒ 幽靈偏移;
+> 手機覆蓋成 `position: static`。守門 +3、突變 M17/M18/M19 全轉紅;`pnpm test` **3421 passed + 1 todo**。
+> 🔴 **教訓(已寫 memory)**:這兩個 layout bug 在 jsdom **永遠綠**(不做 layout、不算 sticky),
+> 3400+ 條元件測試全過也抓不到 —— 只有真機/真瀏覽器捲動量測抓得到。
+> ✅ **第四題已拍板**:分類數字要跟著車款走(現況選了車仍顯示全站總數 = 會誤導)⇒ **A 案 lazy 查
+> + 等本片 commit 後另開一片**;全文與查證(既有 RPC 已吃 `p_category` 回 `total`、不需 migration)= backlog **#306**。
+> Codex 僅唯讀回 findings／GO-NO-GO;PASS 後才由 Claude 精準 commit。Sean 保留 push／deploy checkpoint。
 
 > 🎉🎉 **2026-07-30:訂單編號改 6 碼亂碼 N2/N3a/N3b **端到端完成**。
 > 接手入口 = `docs/handoff/2026-07-30-n3-display-id-handoff.md`。**

@@ -3,7 +3,8 @@
 // 字面對齊 design-reference/components/ProductsPage.jsx(M-1-12):
 // - Sean 拍板版面 filterStyle = cascade:頂部 CascadeFilterTop + 桌機左側
 //   FilterSide(hideVehicle:S1 曾解除、Sean 2026-07-03 實測恢復 —— 車輛選擇集中頂部)
-//   + 手機 FilterDrawer(vehicle tab 保留 = 手機選車入口)。
+//   + 手機 ProductsMobileControls(ADR-0007 2026-07-30 起:車輛列 + 分類/篩選/排序三入口;
+//     取代原「單顆篩選 FAB → FilterDrawer 六 tab 混一起」+ 手機被壓縮的桌機三欄選車列)。
 // - M-1-12 Codex review 修正:篩選 / 排序純函式拆 products-filter-logic.ts、
 //   ActiveChips / Pagination 拆同名檔(鐵則 6:元件檔 >400 行必拆);本檔保留
 //   主元件 + PageHeader / SortBar / MobileFab 三個小型版面子元件。
@@ -48,11 +49,12 @@ import { Header } from './Header';
 import { HomeFooter } from './HomeFooter';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { FilterSide } from './FilterSide';
-import { FilterDrawer } from './FilterDrawer';
+import { ProductsMobileControls } from './ProductsMobileControls';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
+import { SORT_OPTIONS } from '@/lib/sort-options';
 // #6:page/sort/perPage URL round-trip + vehicle URL 解析(拆檔=鐵則 6;詳 products-url-state.tsx 檔頭)
 import {
   useBrowseUrlState,
@@ -170,32 +172,21 @@ function SortBar({
           ))}
         </div>
         <div className="ft-divider" />
+        {/* 選項來自 lib/sort-options 單一定義點(手機的排序面板吃同一份;value 同時是 ?sort= 契約)。
+            手機不顯示本下拉(products-mobile.css 隱藏)= 排序改走上方工具列的獨立入口。 */}
         <select className="ft-sort" value={sort} onChange={(e) => setSort(e.target.value)}>
-          <option value="recommend">推薦排序</option>
-          <option value="new">最新上架</option>
-          <option value="price-asc">價格低到高</option>
-          <option value="price-desc">價格高到低</option>
-          <option value="sale">折扣優先</option>
+          {SORT_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
         </select>
       </div>
     </div>
   );
 }
 
-// MobileFab — 手機浮動篩選鈕(對齊 design ProductsPage.jsx L362-389;design 的
-// createPortal 進 bezel slot 屬 harness、不搬,直接 inline 渲染,CSS @media 控顯示)
-function MobileFab({ activeCount, onClick }: { activeCount: number; onClick: () => void }) {
-  return (
-    <button className="pp-mobile-fab is-cascade" onClick={onClick}>
-      <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-          d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-      </svg>
-      篩選
-      {activeCount > 0 && <span className="pp-fab-badge">{activeCount}</span>}
-    </button>
-  );
-}
+// ~~MobileFab~~(手機浮動篩選鈕)已於 ADR-0007 退場:Sean 拍板手機改「分類 / 篩選 / 排序
+// 三個獨立入口」,單顆 FAB 開一個六 tab 混合抽屜正是被否決的形狀。
+// 現行手機入口 = ProductsMobileControls(含 MobileVehicleSheet 與兩個 scope 的 FilterDrawer)。
 
 export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [] }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
@@ -204,7 +195,6 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const { sort, setSort, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
   const [gridCols, setGridCols] = useState(0); // 0=自動欄數(卡片固定寬、寬螢幕自動加欄);3/4/5=手動鎖定。顯示偏好、不進 URL(#6)
-  const [drawerOpen, setDrawerOpen] = useState(false);
   // #6:URL 還原 vehicle 的 mount dispatch 與「篩選變動重置頁碼」的協調旗標(見 vehicle effect 註解)
   const urlVehicleInitRef = useRef(false);
   const filterResetKeyRef = useRef<string | null>(null);
@@ -267,26 +257,31 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // 手機 FAB badge:已選篩選條件數(對齊 design activeCount L249-258)
-  const activeCount =
-    (cascade.vehicle ? 1 : 0) +
-    (cascade.category ? 1 : 0) +
-    cascade.brands.length +
-    (extras.price ? 1 : 0) +
-    (extras.inStock ? 1 : 0) +
-    (extras.isNew ? 1 : 0) +
-    (extras.isSale ? 1 : 0) +
-    extras.colors.length;
-
   return (
     <>
       <Header currentPage="catalog" />
 
+      {/* 桌機選車列(≤1024px 由 CSS 整條關閉) */}
       <CascadeFilterTop
         data={data}
         cascade={cascade}
         dispatch={dispatch}
         garage={garage}
+      />
+
+      {/* 手機控制列(≥1025px 由 CSS 關閉)。刻意**不**放進 .cft-bar 內:
+          .cft-bar 在手機是 display:none,放進去會被一起關掉 = 手機沒有任何選車入口。
+          守門 = ProductsPage.test.tsx「手機入口不在 .cft-bar 內」。 */}
+      <ProductsMobileControls
+        data={data}
+        cascade={cascade}
+        dispatch={dispatch}
+        extras={extras}
+        setExtras={setExtras}
+        garage={garage}
+        resultCount={resultCount}
+        sort={sort}
+        setSort={setSort}
       />
 
       <div className="pp-layout has-side" data-filter-style="cascade">
@@ -385,24 +380,8 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         </main>
       </div>
 
-      <MobileFab activeCount={activeCount} onClick={() => setDrawerOpen(true)} />
-
-      {/* C4a:解除 hideCategory → 手機抽屜「零件分類」tab 現身(drill 大類 → 可選「全部 {大類}」/ 子類)。
-          C3:解除 hideBrand → 手機抽屜「品牌」tab 現身(吃 buildBrandTaxonomy 動態衍生)。 */}
-      <FilterDrawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        data={data}
-        resultCount={resultCount}
-        initialTab="vehicle"
-        hideColor
-        hidePromoFlags
-        cascade={cascade}
-        dispatch={dispatch}
-        extras={extras}
-        setExtras={setExtras}
-        garage={garage}
-      />
+      {/* C4a/C3:真分類樹與真品牌清單仍由 FilterDrawer 提供,但改由 ProductsMobileControls
+          以 scope='category' / scope='product' 兩個獨立入口掛載(ADR-0007 責任分離)。 */}
 
       <HomeFooter />
     </>

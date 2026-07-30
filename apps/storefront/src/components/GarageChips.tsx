@@ -40,14 +40,20 @@ export function GarageChips({
   motoBrands,
   dispatch,
   variant,
+  onApplied,
 }: {
   garage: GarageChipItem[];
   motoBrands: MockMotoBrand[];
   dispatch: Dispatch<CascadeFilterAction>;
-  /** top=桌機 CascadeFilterTop 旁;drawer=手機 FilterDrawer 車輛 tab 內 */
-  variant: 'top' | 'drawer';
+  /** top=桌機 CascadeFilterTop 旁;drawer=手機 FilterDrawer 車輛 tab 內;
+   *  sheet=ADR-0007 手機選車面板頂部(無 toggle、卡片直接展開、一點即套用) */
+  variant: 'top' | 'drawer' | 'sheet';
+  /** 套用成功後通知宿主(ADR-0007 手機決定 2:點愛車 = 直接套用並關閉選車面板)。 */
+  onApplied?: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  // sheet 變體(ADR-0007):Sean 拍板「面板頂部**先顯示**我的愛車卡片」⇒ 恆展開、無 toggle。
+  const alwaysOpen = variant === 'sheet';
   const [suggest, setSuggest] = useState<{
     query: string;
     entries: string[];
@@ -65,6 +71,7 @@ export function GarageChips({
     if (a.year !== undefined) dispatch(selectVehicleYear(a.year));
     setOpen(false);
     setSuggest(null);
+    onApplied?.();
   };
 
   const onChip = (g: GarageChipItem) => {
@@ -83,21 +90,28 @@ export function GarageChips({
 
   return (
     <div className={`cat-garage cat-garage--${variant}`}>
-      <button
-        type="button"
-        className="cat-garage-toggle"
-        aria-expanded={open}
-        onClick={() => {
-          setOpen((o) => !o);
-          setSuggest(null);
-        }}
-      >
-        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
-        </svg>
-        <span>我的愛車</span>
-      </button>
-      {open && (
+      {alwaysOpen ? (
+        <div className="cat-garage-heading">
+          <span>我的愛車</span>
+          <small>點一下直接套用</small>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="cat-garage-toggle"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen((o) => !o);
+            setSuggest(null);
+          }}
+        >
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
+          </svg>
+          <span>我的愛車</span>
+        </button>
+      )}
+      {(open || alwaysOpen) && (
         <div className="cat-garage-panel">
           <div className="cat-garage-chips">
             {garage.map((g) => (

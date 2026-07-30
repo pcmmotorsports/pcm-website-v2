@@ -27,6 +27,11 @@ type ComboProps = {
   variant: 'catalog' | 'finder' | 'form';
   /** finder 變體的 slot 標籤字面(design:品牌/車型/年份) */
   slotLabel?: string;
+  /** ADR-0007:打了字但零命中時的提示字面。
+   *  🔴 為何是這裡而不是呼叫端:查詢字串是本元件的 local state(`text`),呼叫端看不到
+   *  「有沒有在打字」⇒ 零命中提示只能長在這裡。不傳=不渲染(既有三個掛載點行為零變動);
+   *  手機選車面板必須傳(取代 FilterDrawerVehicleTab 的「查無符合的…」出口、不得回歸)。 */
+  emptyHint?: string;
 };
 
 // V-1c++:車庫「新增車輛」表單重用同一 combobox 原型(打字過濾/鍵盤/唯一精確命中),
@@ -45,6 +50,7 @@ function Combo({
   onClear,
   variant,
   slotLabel,
+  emptyHint,
 }: ComboProps) {
   const [text, setText] = useState<string | null>(null); // null=未編輯(顯 value)
   const [open, setOpen] = useState(false);
@@ -56,6 +62,10 @@ function Combo({
   //   aria-activedescendant 指鍵盤高亮項(讓螢幕報讀器於方向鍵導航時報出當前選項)。
   const listboxId = useId();
   const listOpen = open && !disabled && list.length > 0;
+  // ADR-0007 零命中提示:必須「有打字」才顯示(空查詢時 list 恆為全清單、走不到這條);
+  // 只有傳了 emptyHint 的掛載點才渲染。
+  const showEmptyHint =
+    emptyHint !== undefined && open && !disabled && list.length === 0 && (text ?? '').trim() !== '';
   const optionId = (i: number) => `${listboxId}-opt-${i}`;
 
   const pick = (name: string) => {
@@ -143,6 +153,9 @@ function Combo({
         onBlur={commit}
         onKeyDown={onKeyDown}
       />
+      {showEmptyHint && (
+        <div className="vsc-list vsc-empty" role="status">{emptyHint}</div>
+      )}
       {listOpen && (
         <ul className="vsc-list" role="listbox" id={listboxId} aria-label={`${label}選項`}>
           {list.map((name, i) => (

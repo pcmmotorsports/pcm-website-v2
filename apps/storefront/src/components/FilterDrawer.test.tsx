@@ -27,10 +27,14 @@ function Harness({
   open,
   onClose = () => {},
   resultCount = 128,
+  scope,
+  initialTab,
 }: {
   open: boolean;
   onClose?: () => void;
   resultCount?: number;
+  scope?: 'all' | 'category' | 'product';
+  initialTab?: 'vehicle' | 'category' | 'brand' | 'price' | 'color' | 'other';
 }) {
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
@@ -40,6 +44,8 @@ function Harness({
       onClose={onClose}
       data={data}
       resultCount={resultCount}
+      scope={scope}
+      initialTab={initialTab}
       cascade={cascade}
       dispatch={dispatch}
       extras={extras}
@@ -96,5 +102,58 @@ describe('FilterDrawer', () => {
     render(<Harness open onClose={onClose} />);
     fireEvent.click(screen.getByText('查看 128 件商品'));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// ADR-0007 手機決定 7/8:分類與商品篩選拆成兩個獨立入口,商品篩選不得再含選車。
+// scope 預設 'all' = 現行全 tab 行為(dev-preview/filter-drawer 那頁靠它,不得被改掉)。
+describe('FilterDrawer scope(ADR-0007 責任分離)', () => {
+  const tabLabels = (container: HTMLElement) =>
+    [...container.querySelectorAll('.fd-tab')].map((el) => el.textContent ?? '');
+
+  it('scope 未指定 → 維持現行全 tab(含選擇車款)', () => {
+    const { container } = render(<Harness open />);
+    expect(tabLabels(container).some((t) => t.includes('選擇車款'))).toBe(true);
+  });
+
+  it('scope="product" → 無選擇車款、無零件分類、無現貨', () => {
+    const { container } = render(<Harness open scope="product" />);
+    const labels = tabLabels(container);
+
+    expect(labels.some((t) => t.includes('選擇車款'))).toBe(false);
+    expect(labels.some((t) => t.includes('零件分類'))).toBe(false);
+    expect(labels.some((t) => t.includes('品牌'))).toBe(true);
+    expect(labels.some((t) => t.includes('價格'))).toBe(true);
+    // 綁不到車輛 UI:抽屜內不得出現任何車款輸入或車款層級字面
+    expect(screen.queryByLabelText('打字快速找車')).toBeNull();
+    expect(screen.queryByText('僅顯示現貨')).toBeNull();
+  });
+
+  // 🔴 activeTab 回退機制的專屬測試(否則那段守門沒有任何測試會因它被拿掉而轉紅):
+  //    呼叫端把 initialTab 設成 scope 外的值(真實可能:複製貼上舊的 initialTab="vehicle"),
+  //    面板仍不得渲染選車 —— 責任邊界不能依賴呼叫端傳對參數。
+  it('scope="product" 即使被要求 initialTab="vehicle" 也不渲染選車', () => {
+    const { container } = render(<Harness open scope="product" initialTab="vehicle" />);
+
+    expect(screen.queryByLabelText('打字快速找車')).toBeNull();
+    expect(tabLabels(container).some((t) => t.includes('選擇車款'))).toBe(false);
+    // 回退到 scope 內第一個 tab(品牌)、不是空面板
+    expect(screen.getByText('BONAMICI RACING')).toBeTruthy();
+  });
+
+  it('scope="category" → 只有分類、且不出現 tab 列(單一責任面板)', () => {
+    const { container } = render(<Harness open scope="category" />);
+
+    expect(tabLabels(container)).toEqual([]);
+    expect(screen.getByText('選擇大分類')).toBeTruthy();
+    expect(screen.queryByLabelText('打字快速找車')).toBeNull();
+  });
+
+  it('scope="category" 的清除只清分類、不連坐清掉車輛', () => {
+    const onClose = vi.fn();
+    render(<Harness open scope="category" onClose={onClose} />);
+    // 面板標題字面須是分類、不是「篩選條件」(否則客人以為按了會清掉全部)
+    expect(screen.getByText('選擇商品分類')).toBeTruthy();
+    expect(screen.queryByText('篩選條件')).toBeNull();
   });
 });

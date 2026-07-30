@@ -1,0 +1,457 @@
+/* ============================================================
+   products-mobile.css — 手機商品目錄控制列與選車面板(ADR-0007、2026-07-30 Sean 拍板)
+   ------------------------------------------------------------
+   .pmc-* = ProductsMobileControls(車輛列 + 分類/篩選/排序三入口 + 排序面板)
+   .mvs-* = MobileVehicleSheet(選車面板)
+
+   視覺方向 = Sean 已核准的 /dev-preview/mobile-catalog-ux 手機版(紅白、大字、大型輸入欄位)。
+   🔴 但顏色**不照抄預覽的字面值**:預覽自帶 --accent/#fff/--line 等一組 module 內變數,
+      而正式站有深色模式([data-theme="dark"] 會改寫 --c-surface/--c-text/--c-border,
+      **不會**改寫 --c-red-soft)。照抄 `background:#fff` 這種字面 = 深色模式下白底白字。
+      故一律走全站 token;紅色一律 var(--c-red)(與既有手機 FAB 同一顆紅、不新增第二種紅)。
+
+   ⚠️ 顯示條件收在本檔最下方一區(桌機隱藏 / ≤1024px 顯示 / [data-mobile] 強制顯示),
+      守門 = styles/products-mobile.test.ts。
+   ============================================================ */
+
+.pmc-root { display: none; }
+
+/* ── 大塊車輛資訊(會捲走)── */
+.pmc-vehicle {
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+}
+
+/* ── 黏頂區:精簡車輛列 + 三入口 ──────────────────────────────────
+   🔴 sticky 只能在「自己父層的 box」內移動。第一版把 sticky 掛在一個高度剛好等於
+   它自己的 wrapper 上(163px 的 .pmc-bar 在 163px 的 .pmc-root 裡)⇒ 移動空間 0
+   ⇒ 一捲就跟著滑掉,看起來像「沒有固定成功」(Sean 2026-07-30 真機截圖抓到;
+   實測捲 900px 後該列在 top:-835)。
+   現在 .pmc-root 在手機是 `display: contents`(它的 box 被移除、children 上升到
+   頁面本體那層)⇒ 本層的父層有整頁高度、才真的黏得住。
+   ⚠️ `display: contents` 也代表 .pmc-root 本身不能再掛任何視覺樣式(padding/border/
+   background 都會被忽略)—— 視覺一律掛在 .pmc-vehicle / .pmc-sticky 上。 */
+.pmc-sticky {
+  position: sticky;
+  top: 64px; /* = 手機 header 高度(header.css sticky top:0、高 64-65px) */
+  z-index: 40;
+  background: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+/* 精簡車輛列:大塊資訊捲走後仍保留「換車 / 清車」出口(核准預覽的 compactVehicle) */
+.pmc-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 4px 14px;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 13px;
+  font-weight: 750;
+}
+.pmc-compact-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pmc-compact-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+.pmc-compact-actions button {
+  min-width: 54px;
+  min-height: 40px;
+  color: var(--c-red);
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  font-weight: 800;
+}
+.pmc-compact-actions button + button {
+  color: var(--c-text-2);
+  border-left: 1px solid var(--c-border);
+}
+
+.pmc-eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--c-red);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.pmc-vehicle-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+}
+.pmc-vehicle-empty p {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+.pmc-vehicle-cta {
+  flex: 0 0 auto;
+  min-height: 48px;
+  padding: 12px 18px;
+  color: #fff;
+  background: var(--c-red);
+  border: 1px solid var(--c-red);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.18);
+}
+
+/* ~~.pmc-vehicle-summary / .pmc-vehicle-text / .pmc-vehicle-actions / .pmc-change /
+   .pmc-clear-vehicle~~ 已於 Sean 2026-07-30 第二輪真機回饋後退場:已選車時大塊摘要與黏頂
+   精簡列在第一屏重複講同一台車。現在已選車只留 .pmc-compact,故這批樣式全無 render 端、刪除。 */
+
+/* 三個獨立入口。排序欄位較寬(字面較長)、且 ADR-0007 要求排序文字視覺置中。 */
+.pmc-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.25fr;
+  min-height: 50px;
+}
+.pmc-tool {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 6px;
+  background: var(--c-surface);
+  border: 0;
+  border-right: 1px solid var(--c-border);
+  font-size: 14px;
+  font-weight: 700;
+}
+.pmc-tool:last-child { border-right: 0; }
+/* ADR-0007 手機決定 7:排序文字視覺置中(整格置中、不因 checkmark/箭頭偏移) */
+.pmc-tool--sort {
+  justify-content: center;
+  text-align: center;
+}
+.pmc-tool-dot {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  color: #fff;
+  background: var(--c-red);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ── 面板共用外殼(選車 / 排序;分類與商品篩選沿用 filter-drawer.css)── */
+.pmc-overlay,
+.mvs-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(11, 13, 16, 0.46);
+  border: 0;
+}
+.pmc-sort-sheet,
+.mvs-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
+  width: min(100%, 520px);
+  margin: 0 auto;
+  display: grid;
+  overflow: hidden;
+  background: var(--c-surface);
+  border-radius: 22px 22px 0 0;
+  box-shadow: 0 -12px 40px rgba(13, 16, 20, 0.22);
+}
+.mvs-sheet {
+  max-height: min(92dvh, 820px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.pmc-sort-sheet {
+  max-height: 62dvh;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.mvs-head,
+.pmc-sort-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid var(--c-border);
+}
+.mvs-head h2,
+.pmc-sort-head h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 850;
+  letter-spacing: -0.02em;
+}
+.mvs-close,
+.pmc-sort-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--c-text-2);
+  background: transparent;
+  border: 0;
+}
+
+/* ── 選車面板本體 ── */
+.mvs-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 16px 28px;
+  /* 聚焦捲動(scrollIntoView block:'center')時底部仍留出鍵盤+套用鈕的空間 */
+  scroll-padding-bottom: 140px;
+}
+
+/* 「我的愛車」在本面板恆展開(GarageChips variant="sheet") */
+.cat-garage--sheet {
+  margin-bottom: 18px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--c-border);
+}
+.cat-garage-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.cat-garage-heading span { font-size: 17px; font-weight: 850; }
+.cat-garage-heading small { color: var(--c-text-3); font-size: 12px; }
+.cat-garage--sheet .cat-garage-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+.cat-garage--sheet .cat-garage-chip {
+  min-height: 64px;
+  padding: 11px 12px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 13px;
+  font-size: 15px;
+  font-weight: 750;
+  text-align: left;
+}
+
+.mvs-lead {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.mvs-lead p {
+  margin: 0;
+  color: var(--c-text-3);
+  font-size: 14px;
+}
+/* 「清除」= 只清草稿。刻意做成文字操作(非大鈕):它不是主要動作,
+   且與「清除車輛」在視覺上要分得開(兩者語意不同)。 */
+.mvs-clear-draft {
+  min-width: 52px;
+  min-height: 40px;
+  padding: 6px 2px;
+  color: var(--c-red);
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: right;
+}
+.mvs-clear-draft:disabled { color: var(--c-text-3); opacity: 0.6; cursor: default; }
+
+.mvs-field {
+  position: relative;
+  margin-top: 10px;
+  padding: 10px 13px 11px;
+  background: var(--c-surface);
+  border: 1px solid var(--c-border-strong);
+  border-radius: 13px;
+}
+.mvs-field:focus-within {
+  border-color: var(--c-red);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.09);
+}
+.mvs-field-label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+  color: var(--c-text-3);
+  font-size: 12px;
+  font-weight: 750;
+}
+/* 「可不選」= Sean 2026-07-30 回饋後放寬套用門檻(選了廠牌即可送出)的可見提示;
+   不加這個字客人看不出來車型/年份可以跳過,只會以為按鈕壞了。 */
+.mvs-field-label small {
+  color: var(--c-text-3);
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+.mvs-field .vsc { display: block; }
+/* 🔴 ≥16px 是硬要求(iOS Safari 聚焦 <16px 的 input 會自動放大整頁 = Sean 07-15 回報的
+   「整個畫面好像會滑動」);18px 同時對齊核准預覽的大字方向。 */
+.mvs-field input {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  padding: 0;
+  color: var(--c-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 18px;
+  font-weight: 800;
+}
+.mvs-field input::placeholder { color: var(--c-text-3); font-weight: 500; }
+.mvs-field input:disabled { color: var(--c-text-3); cursor: not-allowed; }
+/* 選項清單改 inline 展開(不用共用的絕對定位版):手機上絕對定位的清單會被
+   .mvs-body 的 overflow 裁掉,inline 推開內容才看得完整。 */
+.mvs-field .vsc-list {
+  position: static;
+  max-height: 200px;
+  margin: 8px -13px -11px;
+  padding: 4px 10px 8px;
+  background: var(--c-surface-2);
+  border: 0;
+  border-top: 1px solid var(--c-border);
+  border-radius: 0 0 13px 13px;
+  box-shadow: none;
+  overscroll-behavior: contain;
+}
+.mvs-field .vsc-option {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 9px 7px;
+  border-bottom: 1px solid var(--c-border);
+  border-radius: 0;
+  font-size: 15px;
+  font-weight: 750;
+  white-space: normal;
+}
+.mvs-field .vsc-option:last-child { border-bottom: 0; }
+.mvs-field .vsc-empty {
+  padding: 15px 7px;
+  color: var(--c-text-3);
+  font-size: 13px;
+}
+
+.mvs-foot {
+  padding: 12px 16px max(14px, env(safe-area-inset-bottom));
+  background: var(--c-surface);
+  border-top: 1px solid var(--c-border);
+}
+.mvs-apply {
+  width: 100%;
+  min-height: 52px;
+  padding: 13px 18px;
+  color: #fff;
+  background: var(--c-red);
+  border: 1px solid var(--c-red);
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.18);
+}
+.mvs-apply:disabled {
+  color: var(--c-text-3);
+  background: var(--c-surface-2);
+  border-color: var(--c-surface-2);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+/* ── 排序面板 ── */
+.pmc-sort-list {
+  overflow-y: auto;
+  padding: 4px 16px max(24px, env(safe-area-inset-bottom));
+}
+.pmc-sort-row {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 10px 4px;
+  background: var(--c-surface);
+  border: 0;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 18px;
+  text-align: center;
+}
+.pmc-sort-row:last-child { border-bottom: 0; }
+.pmc-sort-row.is-active { color: var(--c-red); font-weight: 800; }
+
+/* ============================================================
+   顯示條件 —— 本區是「手機才出現」的唯一定義點(守門 products-mobile.test.ts)
+   ============================================================ */
+@media (max-width: 1024px) {
+  /* contents(非 block)= 讓 .pmc-sticky 的父層變成頁面本體、sticky 才有移動空間;理由見上方 */
+  .pmc-root { display: contents; }
+
+  /* 🔴 修 Sean 2026-07-30 真機回報的「車款卡中間 + 上方一個空格」:
+     products-page.css 的手機規則是 `.pp-head { top: 120px }`,註解逐字寫
+     `/* 64 mobile header + 56 cascade bar *​/` —— 而 ADR-0007 已把手機的 cascade bar
+     整條關掉 ⇒ 那 56px 變成**幽靈偏移**:標題黏在畫面中央、上方空出一條。
+     手機的黏頂責任已由 .pmc-sticky(精簡車輛列 + 三入口)承擔,頁面標題不需要也不應該
+     再黏 —— 三層黏頂(header + 工具列 + 標題)會吃掉手機近 1/4 的畫面高度。
+     ⚠️ 只覆蓋 cascade 版面(正式商品頁);dev-preview 的 filter-top 版面不動。 */
+  .pp-layout[data-filter-style="cascade"] .pp-head {
+    position: static;
+  }
+
+  /* Sean 2026-07-30 Q1=B:手機藏大標題、留麵包屑。
+     第一屏原本把同一台車講四次(黏頂精簡列 / 大標題 / ActiveChips 膠囊 / 商品卡適用字樣);
+     大塊摘要已移除,這裡再收掉大標題 —— 車名在黏頂列一直看得到,標題純重複、卻吃 79px。
+     🔴 用 clip 而非 `display: none`:`.pp-title` 是本頁唯一的 <h1>,直接移除會讓螢幕報讀器與
+     搜尋引擎失去頁面主標題。改成視覺隱藏、語意保留(尺寸歸零但仍在無障礙樹上)。
+     麵包屑(首頁 › 商品目錄)保留 = Q1=B 的「留」,客人仍能回上一層。 */
+  .pp-layout[data-filter-style="cascade"] .pp-title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .pp-layout[data-filter-style="cascade"] .pp-head-row {
+    justify-content: flex-end;
+  }
+  /* 手機版沿用「N 件商品」計數,但排序改由上方工具列負責 ⇒ 隱藏 SortBar 的原生下拉,
+     避免同一頁出現兩個排序入口(ADR-0007 手機決定 7:排序是三入口之一)。 */
+  .pp-sortbar-right .ft-sort { display: none; }
+}
+/* dev-preview 強制手機殼(不在 media query 內、桌機寬度也會生效)走同一組規則 */
+[data-mobile="true"] .pmc-root { display: contents; }
+[data-mobile="true"] .pp-layout[data-filter-style="cascade"] .pp-head { position: static; }
+[data-mobile="true"] .pp-sortbar-right .ft-sort { display: none; }

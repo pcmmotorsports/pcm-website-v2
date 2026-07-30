@@ -44,6 +44,7 @@ import '../styles/filter-responsive.css';
 import '../styles/filter-side.css';
 import '../styles/filter-drawer.css';
 import '../styles/products-page.css';
+import '../styles/products-mobile.css'; // ADR-0007:手機商品目錄控制列 + 選車面板(.pmc-*/.mvs-*;序在 products-page 後=同 specificity 時本檔勝)
 import '../styles/home.css';
 import '../styles/auth.css';
 import '../styles/account.css';

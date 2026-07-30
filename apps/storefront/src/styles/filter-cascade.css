@@ -23,7 +23,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  /* ADR-0007:標題 + 三欄同一列(桌機;≤1023px 整條 .cft-bar 關閉、不需 wrap 退路) */
+  flex-wrap: nowrap;
 }
 .cft-label {
   /* 2026-07-11 #1-A(Sean 拍 A):車款選擇器改招呼式清楚標題 — 去 mono/uppercase、黑字粗體;
@@ -40,11 +41,57 @@
   color: var(--c-text-2);
   margin-right: 2px;
 }
-.cft-helper {
-  font-size: 13px;
-  color: var(--c-text-3);
-  margin-left: 14px;
+/* ADR-0007 桌機選車列(2026-07-30 Sean 拍板:原 `?vehicle-ui=preview` 提升為正式預設):
+   標題 +「可直接選擇，也可輸入搜尋」提示、三欄等寬搜尋框、框內放大鏡強化「可輸入」提示。
+   🔴 作用域一律收在 `.cft-cascade` 內 —— `.vsc` 同時是首頁 finder(.ed-finder-slot)與車庫
+   表單的殼,不加作用域會把放大鏡與 184px 固定寬潑到那兩個掛載點。
+   ~~.cft-helper「先選車，只顯示裝得上的零件」~~ 已隨提示句取代、渲染端與樣式一併移除。 */
+.cft-picker-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-right: 4px;
   white-space: nowrap;
+}
+.cft-picker-title .cft-label {
+  margin-right: 0;
+}
+.cft-picker-hint {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--c-text-3);
+}
+.cft-cascade .vsc::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  opacity: 0.55;
+  transform: translateY(-50%);
+  background: center / 14px 14px no-repeat
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='1.8' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/></svg>");
+}
+.cft-cascade .vsc-input {
+  width: 184px;
+  min-width: 184px;
+  padding-left: 34px;
+}
+.cft-cascade .vsc-input:disabled + .vsc-list,
+.cft-cascade .vsc:has(.vsc-input:disabled)::before {
+  opacity: 0.28;
+}
+
+/* 1025-1220px:提示句收起、欄寬縮到 156px(選車列仍單列不換行、不擠壓成小方框) */
+@media (max-width: 1220px) and (min-width: 1024px) {
+  .cft-picker-hint { display: none; }
+  .cft-cascade .vsc-input {
+    width: 156px;
+    min-width: 156px;
+  }
 }
 .cft-select {
   font-size: 16px;
@@ -95,26 +142,19 @@
    且全檔無顯示規則=死碼,詳 backlog #290)。手機車款入口 = 本檔 .cft-bar 三層 select
    + 「篩選」FAB → FilterDrawer「選擇車款」tab。 */
 
-@media (max-width: 1023px) {
-  /* cascade bar: 隱藏 label，selects 縮小排一行 */
-  .cft-bar {
-    display: block;
-    top: 64px; /* match mobile header height (12+40+12) — no gap */
-  }
-  .ft-bar { top: 64px; }
-  .cft-inner { padding: 8px 14px; gap: 6px; }
-  .cft-label { display: none; }
-  .cft-icon, .cft-helper { display: none; }
-  .cft-cascade { gap: 6px; flex-wrap: nowrap; }
-  .cft-select {
-    font-size: 14px; /* #5 手機觸控:字略大好讀 */
-    padding: 6px 22px 6px 10px;
-    min-height: 42px; /* #5 觸控目標 ≥42px、35-60 歲好按(視覺仍是一般下拉、不醜) */
-    min-width: 0;
-    flex: 1;
-  }
-  .cft-right { display: none; }
+/* 🔴 ADR-0007:手機**不再**顯示這條桌機選車列。
+   舊做法是把三欄壓成 14px / flex:1 併排 + 藏掉「我的愛車」(.cft-right) —— 那正是 Sean
+   看過後否決的形狀(三個被壓縮的橫向輸入框、且手機根本看不到我的愛車)。
+   手機選車入口改為 ProductsMobileControls + MobileVehicleSheet(products-mobile.css)。
+   關法只有這一條(整條 bar),不留第二個 modifier 鉤子;守門 = styles/products-mobile.test.ts。 */
+@media (max-width: 1024px) {
+  .cft-bar { display: none; }
 }
+@media (max-width: 1023px) {
+  .ft-bar { top: 64px; }
+}
+/* dev-preview 強制手機殼(不在 media query 內、桌機寬度也會生效)走同一條關法 */
+[data-mobile="true"] .cft-bar { display: none; }
 
 /* ============================================================
    ActiveChips — 目前篩選條件 pill 列
@@ -197,7 +237,8 @@
    → 3×132px+gap ≈ 436px > 375-430px 視口 → body 水平溢出。
    本塊必須位於 `.vsc-input` 基礎宣告之後才蓋得回來(cascade 生效教訓)。 */
 @media (max-width: 1023px) {
-  .cft-cascade .vsc { flex: 1; min-width: 0; }
+  /* ~~.cft-cascade .vsc { flex: 1 }~~ 移除:ADR-0007 後 .cft-bar 在手機整條關閉,
+     這條是三欄壓縮配方的殘件(留著會讓審查分不出哪條路是現行)。 */
   /* V-2d④:font-size ≥16px=iOS Safari 聚焦不自動縮放視口(<16px 聚焦即 zoom+pan=Sean
      「整個畫面好像會滑動」成因之一);僅手機/平板斷點、桌機字級不動 */
   .vsc-input { min-width: 0; width: 100%; font-size: 16px; }

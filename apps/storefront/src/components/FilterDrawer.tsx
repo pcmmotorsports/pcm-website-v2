@@ -24,6 +24,14 @@
 //    clearAllFilters() = clearAll() + setExtras(makeInitialExtraFilters()),等價。
 // 3. 細項 toggle 比照 FilterSide:點 active sub → clearCategory();否則
 //    selectCategoryMain + selectCategorySub。
+//
+// 2026-07-30 ADR-0007(手機決定 7/8):新增 `scope` —— 手機把「分類」與「商品篩選」拆成
+// 兩個獨立入口,而**商品篩選不得再放選車**(選車已是自己的面板 MobileVehicleSheet)。
+//   scope='all'(預設)= 現行全 tab 行為,`/dev-preview/filter-drawer` 靠它、不得改動。
+//   scope='category'  = 只有零件分類(單一責任 ⇒ 不渲染 tab 列)、清除只清分類。
+//   scope='product'   = 只有商品條件(品牌/價格/顏色/其他)、清除不動車輛與分類。
+// 🔴 可見 tab 與實際渲染的 panel 綁同一份 `tabs`(activeTab 回退機制):否則 `tab` state
+//    停在 scope 外的值時(例:換 scope 前選過 vehicle)會把選車面板漏進商品篩選。
 
 'use client';
 
@@ -55,6 +63,22 @@ export type FilterDrawerData = {
 
 type DrawerTab = 'vehicle' | 'category' | 'brand' | 'price' | 'color' | 'other';
 
+/** ADR-0007:抽屜責任範圍。null=不限制(現行全 tab)。 */
+type DrawerScope = 'all' | 'category' | 'product';
+
+const SCOPE_TABS: Record<DrawerScope, readonly DrawerTab[] | null> = {
+  all: null,
+  category: ['category'],
+  // 🔴 刻意不含 'vehicle' 與 'category':Sean 拍板「商品篩選只處理品牌、價格等商品條件」。
+  product: ['brand', 'price', 'color', 'other'],
+};
+
+const SCOPE_TITLE: Record<DrawerScope, string> = {
+  all: '篩選條件',
+  category: '選擇商品分類',
+  product: '篩選商品',
+};
+
 const PRICE_RANGES = [
   'NT$ 0 – 3,000',
   'NT$ 3,000 – 10,000',
@@ -78,6 +102,7 @@ export function FilterDrawer({
   data,
   resultCount,
   initialTab,
+  scope = 'all',
   hideCategory,
   hideBrand,
   hideColor,
@@ -93,6 +118,8 @@ export function FilterDrawer({
   data: FilterDrawerData;
   resultCount: number;
   initialTab?: DrawerTab;
+  /** ADR-0007 責任分離:'all'=現行全 tab;'category'=只有分類;'product'=只有商品條件(無選車)。 */
+  scope?: DrawerScope;
   /** V-1e:登入會員愛車 chips(手機車輛 tab 內「我的愛車」鈕;未登入/失敗=[]、不顯示) */
   garage?: GarageChipItem[];
   /** #220-B1:真資料單一分類 → 隱藏「零件分類」tab(同 FilterSide hideCategory) */
@@ -104,7 +131,9 @@ export function FilterDrawer({
   /** #220-B1:toUIProduct isNew/isSale 全 false → 隱藏新品/特價(與 #161 關著的現貨皆空時整 tab 隱藏) */
   hidePromoFlags?: boolean;
 } & CascadeControlledProps & ExtrasControlledProps) {
-  const [tab, setTab] = useState<DrawerTab>(initialTab ?? 'vehicle');
+  const [tab, setTab] = useState<DrawerTab>(
+    initialTab ?? (scope === 'category' ? 'category' : scope === 'product' ? 'brand' : 'vehicle'),
+  );
   const [catMain, setCatMain] = useState<MockCategory | null>(null);
 
   useEffect(() => {
@@ -119,19 +148,22 @@ export function FilterDrawer({
 
   if (!open) return null;
 
-  const activeCount =
-    (cascade.vehicle ? 1 : 0) +
-    (cascade.category ? 1 : 0) +
+  const productFilterCount =
     cascade.brands.length +
     (extras.price ? 1 : 0) +
     (extras.inStock ? 1 : 0) +
     (extras.isNew ? 1 : 0) +
     (extras.isSale ? 1 : 0) +
     extras.colors.length;
+  // ADR-0007:scope='product' 的計數不含車輛與分類(它們不在這個面板的責任內)。
+  const activeCount =
+    scope === 'product'
+      ? productFilterCount
+      : productFilterCount + (cascade.vehicle ? 1 : 0) + (cascade.category ? 1 : 0);
 
   // #220-B1:真資料單一分類/單一品牌 RPM CARBON/全 silver/無促銷 → 隱藏對應 tab(同 FilterSide;車種=#220b 留)。
   // 其他 tab = 現貨(#161 SHOW_IN_STOCK_FILTER=false 關著)+ 新品/特價(hidePromoFlags 隱);兩者皆空時整 tab 隱藏避空殼。
-  const tabs: { id: DrawerTab; label: string; count: number }[] = [
+  const allTabs: { id: DrawerTab; label: string; count: number }[] = [
     { id: 'vehicle', label: '選擇車款', count: cascade.vehicle ? 1 : 0 },
     ...(hideCategory ? [] : [{ id: 'category' as DrawerTab, label: '零件分類', count: cascade.category ? 1 : 0 }]),
     ...(hideBrand ? [] : [{ id: 'brand' as DrawerTab, label: '品牌', count: cascade.brands.length }]),
@@ -141,6 +173,22 @@ export function FilterDrawer({
       ? [{ id: 'other' as DrawerTab, label: '其他', count: (extras.inStock ? 1 : 0) + (extras.isNew ? 1 : 0) + (extras.isSale ? 1 : 0) }]
       : []),
   ];
+  // ADR-0007:scope 白名單過濾。scope 內只剩 1 個 tab 時不渲染 tab 列(單一責任面板)。
+  // 🔴 選了車就不顯示任何件數(Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,
+  //    那都不要」;起因是他指出「品牌右側不要出現該品牌數量,因為這樣會誤會以為有這麼多商品」)。
+  //    根因:分類數來自 `listCategories()`(`products_public` head:true exact count)、品牌數來自
+  //    `catalog_brand_counts()` RPC —— **兩者都不吃任何車輛參數**(`lib/products.ts`)⇒ 全站總數、
+  //    選了車也不會變。實測:選到 198 件商品的車,分類仍顯示 2130/1824/1076。
+  //    ⇒ 選車後這些數字是**錯的**,寧可不給也不給錯的(未選車時全站數=實際數、照常顯示)。
+  //    backlog #306 要做「按車款即時計數」;做完後這裡應改為顯示真實件數,而不是繼續隱藏。
+  const showCounts = cascade.vehicle === null;
+  const scopeTabs = SCOPE_TABS[scope];
+  const tabs = scopeTabs === null ? allTabs : allTabs.filter((t) => scopeTabs.includes(t.id));
+  // 🔴 渲染哪個 panel 一律由 `tabs` 決定:`tab` state 若落在 scope 之外(例:預設值 'brand'
+  //    卻 hideBrand、或日後有人重用同一個 instance 換 scope)就回退到第一個合法 tab、
+  //    絕不渲染 scope 外的 panel(否則選車會漏進商品篩選)。
+  const activeTab: DrawerTab | null =
+    tabs.some((t) => t.id === tab) ? tab : (tabs[0]?.id ?? null);
 
   const toggleColor = (id: string) => {
     setExtras((e) => ({
@@ -149,7 +197,20 @@ export function FilterDrawer({
     }));
   };
 
+  // ADR-0007:清除的作用範圍必須等於面板的責任範圍。
+  // 🔴 分類面板按「清除」不得連坐清掉客人的車(那是選車面板的「清除車輛」才做的事);
+  //    商品篩選面板同理只清品牌+價格等商品條件。
   const clearAllFilters = () => {
+    if (scope === 'category') {
+      dispatch(clearCategory());
+      return;
+    }
+    if (scope === 'product') {
+      // reducer 無 brands/clear action ⇒ 用既有 toggle 逐一移除(全部都在選中態)
+      for (const brandId of cascade.brands) dispatch(toggleBrand(brandId));
+      setExtras(makeInitialExtraFilters());
+      return;
+    }
     dispatch(clearAll());
     setExtras(makeInitialExtraFilters());
   };
@@ -159,7 +220,12 @@ export function FilterDrawer({
       <div className="fd-overlay" onClick={onClose} />
       <div className="fd-drawer">
         <div className="fd-head">
-          <div className="fd-head-title">篩選條件 {activeCount > 0 && <span className="fd-head-count">{activeCount}</span>}</div>
+          <div className="fd-head-title">
+            {SCOPE_TITLE[scope]}
+            {scope !== 'category' && activeCount > 0 && (
+              <span className="fd-head-count">{activeCount}</span>
+            )}
+          </div>
           <button className="fd-close" onClick={onClose} aria-label="close">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
               <path d="M18 6 6 18M6 6l12 12" />
@@ -167,6 +233,7 @@ export function FilterDrawer({
           </button>
         </div>
         <div className="fd-body">
+          {tabs.length > 1 && (
           <div className="fd-tabs">
             {tabs.map((t) => (
               <button key={t.id}
@@ -177,8 +244,9 @@ export function FilterDrawer({
               </button>
             ))}
           </div>
+          )}
           <div className="fd-panel">
-            {tab === 'vehicle' && (
+            {activeTab === 'vehicle' && (
               <FilterDrawerVehicleTab
                 motoBrands={data.motoBrands}
                 cascade={cascade}
@@ -187,7 +255,7 @@ export function FilterDrawer({
               />
             )}
 
-            {tab === 'category' && (
+            {activeTab === 'category' && (
               <div className="fd-veh">
                 {!catMain ? (
                   <>
@@ -204,7 +272,7 @@ export function FilterDrawer({
                             if (hasChildren) setCatMain(c);
                           }}>
                           <span>{c.name}</span>
-                          <span className="fd-row-count">{c.count}</span>
+                          {showCounts && <span className="fd-row-count">{c.count}</span>}
                           {hasChildren && (
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
                           )}
@@ -234,7 +302,7 @@ export function FilterDrawer({
                             }
                           }}>
                           <span>{s.name}</span>
-                          <span className="fd-row-count">{s.count}</span>
+                          {showCounts && <span className="fd-row-count">{s.count}</span>}
                           {active && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5" /></svg>}
                         </button>
                       );
@@ -244,7 +312,7 @@ export function FilterDrawer({
               </div>
             )}
 
-            {tab === 'brand' && (
+            {activeTab === 'brand' && (
               <div>
                 <div className="fd-search">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
@@ -257,14 +325,14 @@ export function FilterDrawer({
                       <input type="checkbox" checked={checked} onChange={() => dispatch(toggleBrand(b.id))} />
                       <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
                       <span className="fd-cbx-name">{b.name}</span>
-                      <span className="fd-row-count">{b.count}</span>
+                      {showCounts && <span className="fd-row-count">{b.count}</span>}
                     </label>
                   );
                 })}
               </div>
             )}
 
-            {tab === 'price' && (
+            {activeTab === 'price' && (
               <div style={{ padding: 16 }}>
                 {PRICE_RANGES.map((r) => (
                   <button key={r}
@@ -277,7 +345,7 @@ export function FilterDrawer({
               </div>
             )}
 
-            {tab === 'color' && (
+            {activeTab === 'color' && (
               <div className="fd-colors">
                 {COLORS.map((c) => {
                   const on = extras.colors.includes(c.id);
@@ -292,7 +360,7 @@ export function FilterDrawer({
               </div>
             )}
 
-            {tab === 'other' && (
+            {activeTab === 'other' && (
               <div>
                 {SHOW_IN_STOCK_FILTER && (
                   <label className={`fd-cbx ${extras.inStock ? 'is-checked' : ''}`}>

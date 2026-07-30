@@ -22,8 +22,10 @@ const data: FilterSideData = {
 };
 
 // controlled FilterSide 的宿主模擬 — 持 cascade reducer + extras state。
-function Harness({ hideVehicle }: { hideVehicle?: boolean }) {
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+function Harness({ hideVehicle, vehicle }: { hideVehicle?: boolean; vehicle?: boolean }) {
+  const [base, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  // 已選車態:直接組出 cascade(不依賴 UI 流程,測的是「有車 vs 沒車」這一個變數)
+  const cascade = vehicle ? { ...base, vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } } : base;
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   return (
     <FilterSide
@@ -141,5 +143,29 @@ describe('FilterSide', () => {
     // 「其他」accordion 預設收合、展開後仍應無「僅顯示現貨」label(flag 隱藏)
     fireEvent.click(screen.getByText('其他'));
     expect(screen.queryByText('僅顯示現貨')).toBeNull();
+  });
+});
+
+// Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,那都不要」+「包含桌機也是」。
+// 分類件數(`listCategories()`)與品牌件數(`catalog_brand_counts()`)都不吃車輛參數 ⇒ 選車後是錯的。
+// 🔴 兩個方向都測:未選車必須**還在**(全站數=實際數),選車後必須**全部消失**。
+//    只測一半的話「乾脆全部拿掉」也會是綠的。
+describe('FilterSide 件數在選車後隱藏(桌機側欄)', () => {
+  const counts = (c: HTMLElement) =>
+    c.querySelectorAll('.fs-tree-count, .fs-cbx-count').length;
+
+  it('未選車 → 分類與品牌件數照常顯示', () => {
+    const { container } = render(<Harness />);
+    fireEvent.click(screen.getByText('品牌')); // 品牌段預設收合,展開才看得到
+    expect(counts(container)).toBeGreaterThan(0);
+  });
+
+  it('已選車 → 分類與品牌件數一律不顯示(項目本身仍在)', () => {
+    const { container } = render(<Harness vehicle />);
+    fireEvent.click(screen.getByText('品牌'));
+    expect(counts(container)).toBe(0);
+    // 只拿掉數字、不拿掉可選項
+    expect(container.querySelectorAll('.fs-tree-row').length).toBeGreaterThan(0);
+    expect(container.querySelectorAll('.fs-cbx-row').length).toBeGreaterThan(0);
   });
 });
