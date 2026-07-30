@@ -9,6 +9,11 @@
 -- - `auth.uid()`:回 NULL(rehearsal 無 JWT;RLS policy 解析需要函式存在)。
 -- - vault / pcm_cron / cron / net:唯一引用者 = 被跳過的 `20260723120000`;
 --   cron/net 由 d1-fake-cron.sql 提供,vault 不 shim。
+-- - 🆕 **N3a(2026-07-30)`extensions` schema + pgcrypto**:平台上這兩者由 Supabase 預先建好,
+--   而 `supabase/migrations/` 內**零 `CREATE EXTENSION`**(#299 同一病灶)⇒ vanilla PG 上沒有。
+--   N3a 的 `pcm_generate_display_id()` 呼 `extensions.gen_random_bytes()`,不補就整批套用失敗。
+--   🔴 **已實跑證實非推論**:2026-07-30 provision 跑完 31 支 migration 後查 =
+--   `NO-extensions-schema | NO-pgcrypto`。正式站實查 = pgcrypto 1.3 @ schema `extensions`(版本相符)。
 BEGIN;
 
 DO $$ BEGIN
@@ -19,6 +24,10 @@ DO $$ BEGIN
   -- 20260719120000 的 ACL 斷言會查 authenticator(Supabase 平台角色)。
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator') THEN CREATE ROLE authenticator NOLOGIN; END IF;
 END $$;
+
+-- 🆕 N3a:Supabase 平台把 pgcrypto 裝在 `extensions` schema;vanilla PG 兩者都沒有。
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
 CREATE SCHEMA IF NOT EXISTS auth;
 
