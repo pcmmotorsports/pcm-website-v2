@@ -56,7 +56,7 @@ Sean 2026-07-31 指示:另一個視窗同時在同一個 repo 工作、一直互
 **三態**:未選車 = 全站數(server props、零額外查詢)/ 選了車還沒回來或算不出來 = **不顯示**
 (fail-safe,**絕不用全站數頂替**)/ 已回來 = 真實件數,0 件灰掉 + `disabled`。
 
-🔴 **取數輸入用 URL 的 `?vehicle=` 而不是 cascade state**:商品列表的件數就是 server 依同一個
+🔴 **取數輸入用 URL(`vehicleUrlParam`,短版與長版都認)而不是 cascade state**:商品列表的件數就是 server 依同一個
 字串算出來的 ⇒「面板數字」與「點進去的件數」有**結構性**保證,不是靠兩套邏輯抄得一樣。
 
 🔴 **「沒有這個 key」≠「0 件」**:key 可能是被 route 的分類白名單濾掉的(名稱含 LIKE 萬用字元),
@@ -148,3 +148,40 @@ pnpm test                                 # 279 檔 3458 passed + 1 todo
 3. **不 push** —— 等 Sean 手動推。
 4. worktree 用完可 `git worktree remove /Users/sean_1/pcm-website-v2-306`(Sean 決定;
    裡面的 `.env.local` 是 symlink、移除不影響主工作樹)。
+
+---
+
+## 9. 🔴 2026-07-31 追加:codex 關卡2(換模型)FAIL 8 must-fix、已全折入
+
+Sean 拍板補跑 codex(`-m gpt-5.6-sol -s read-only`,跑前後 `git status --porcelain` 比對零留痕)。
+**前兩輪 Claude code-reviewer(7+3 條)與這 8 條零重疊。** 修法 = `bce75b1`,合併 `2e2ce58`。
+
+**兩條是我自己判斷錯、寫進本檔的字面也錯**:
+1. 🔴 **長版書籤 `?brand=&model=` 會復發全站數**。本檔 §3 原寫「拿不到件數 ⇒ 退回不顯示(fail-safe)」
+   —— **錯**。server 端 `products/page.tsx:60` 把長版**當車**,而取數只讀 `?vehicle=` ⇒ 判「沒車」
+   ⇒ 顯示**全站數**。已改用既有 `vehicleUrlParam()`;長版合成出的字串會被 route 形狀白名單擋下
+   ⇒ 400 ⇒ 不顯示,這才是要的 fail-safe(實測 `?vehicle=Yamaha:MT-09` → `400 invalid_vehicle`)。
+2. 🔴 **`docs/design-storefront-manifest.yaml` 未同步**,違反 `docs/patterns/slice-checkpoint.md`
+   的強制 gate(動 `components/` 或 `styles/` 必同步)。更嚴重的是**前一輪 Claude 審查者回報
+   「本 repo 無 storefront manifest」,而我沒查證就接受** —— 該檔 297KB、就在 `docs/` 底下。
+   已更 ProductsPage 條目(可達祖先 `3092396` + 日期段 + 6 個 related 檔);
+   驗證器 `node scripts/design-mirror.mjs --validate`:broken **35 → 35**(全屬既有、非本片造成)、
+   path token 252→258 全解析、commit 可達性 25/25。
+
+**其餘六條**:hook 無 owner guard(`abort` 擋不住已進入完成序列的 promise ⇒ A 車數字可能永久掛 B 車上)/
+`unstable_cache` **不是 single-flight**(同一冷 key 同時三個請求 ⇒ 瞬間 324 次 RPC)/
+**品牌 taxonomy 根本沒包快取** ⇒ 熱請求每次都打全站聚合(**實測 ~190ms → 3.4ms**)/
+車輛驗證前就並行讀分類與品牌 ⇒ 假車款也能觸發全站聚合 / fan-out slot 不保證歸還(加 8s 逾時)/
+**ProductsPage 405 行破鐵則 6**(我 commit body 寫的 396 是上一版事實、加料後沒重數)。
+
+**部分折入**:C4(fan-out 閘會擋掉 stale revalidation ⇒ 持續飽和下 facet 可能停在舊數字)——
+single-flight 已大幅降低撞閘機率,剩下的是**刻意取捨**(相對於 DB 被打爆),已寫進註解;
+另 repo 目前沒有任何 `revalidateTag('catalog')` 呼叫,屬既有缺口、不在本片。
+
+**驗證**:三綠 + 合併後 `pnpm test` **281 檔 3486 passed + 1 todo**;突變 **5/5** 各紅在指定斷言
+(🔴 第一輪長版 URL 那條**全綠** = 修法零覆蓋,補測試才轉紅);
+SSR 第一幀三種 URL 逐一比對;真瀏覽器桌機加總 198 = `pp-count` 198、0 件三列 `disabled`+`0.38`;
+延遲 熱 **3.4ms** / 冷(新車款)**1.54s**。
+
+⚠️ **`docs/handoff/CURRENT.md` 尚未加入本節內容** —— 合併當下該檔正被 E10/A7b 線編輯(未提交),
+`git add` 會把對方的內容一起吞進我的 commit。接手者請把本節摘要補進 CURRENT。

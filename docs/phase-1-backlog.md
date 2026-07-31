@@ -7983,6 +7983,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
     🔴 **突變 7/7 各紅在指定斷言,但第一輪有 2 條是我的新測試自己假綠**:拿「件數 3 的列」去測
     `count === 0 && !isMainActive` ⇒ 前半恆假、拿掉修法照樣綠(0 件的列是 disabled 的,
     用點擊**永遠到不了**那個組合)⇒ 改成直接注入已選中的 cascade。**同型教訓第三次。**
+  - **關卡2 codex(換模型、Sean 2026-07-31 拍板補跑;`-m gpt-5.6-sol -s read-only`、跑前後零留痕已驗)**:
+    **FAIL 8 must-fix,逐條核對後全數成立、駁回 0**。🔴 **前兩輪 Claude 審查一條都沒重疊。**
+    ①🔴 **長版書籤 `?brand=&model=` 復發全站數**:server 端 `page.tsx:60` 把長版**當車**,
+    取數只讀 `?vehicle=` ⇒ 判「沒車」⇒ 顯示全站數。**我在交接檔寫的「退回不顯示」是錯的。**
+    改用既有 `vehicleUrlParam()`(短版直出、長版合成);合成字串被形狀白名單擋下 ⇒ 400 ⇒ 不顯示。
+    ②🔴 **`design-storefront-manifest.yaml` 未同步 = 違反 `slice-checkpoint` 強制 gate**;
+    更嚴重的是**前一輪 Claude 審查者說「本 repo 無 manifest」、我沒查證就接受**(該檔 297KB)。
+    ③ hook 無 owner guard(abort 擋不住已進入完成序列的 promise)④ `unstable_cache` 不是 single-flight
+    ⑤ **品牌 taxonomy 沒快取** ⇒ 熱請求每次打全站聚合(修後實測 **~190ms → 3.4ms**)
+    ⑥ 車輛驗證前就讀分類品牌 ⑦ fan-out slot 不保證歸還 ⑧ ProductsPage 405 行破鐵則 6。
+    突變 5/5 各紅在指定斷言(🔴 第一輪長版 URL 那條全綠 = 零覆蓋,補測試才轉紅)。
   - **#306-a 審查**:code-reviewer(opus)R1 **FAIL 7 must-fix + 11 nit,全數折入、駁回 0**。
     最重的三條都是**上游失敗會變成「錯的答案」**:①三支 taxonomy fetcher 都自己 catch 回 `[]`
     ⇒ 一次瞬時 DB 錯會回 200 分類全空,而 #306-b 依 Q2=A 會把**整個分類面板灰掉且點不下去**
