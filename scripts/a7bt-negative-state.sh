@@ -226,7 +226,7 @@ case_green "合法的第二張取消單 + 明細(deferred 全部當場檢查通�
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFC2', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '對照組', staff_a, 'req-ctl' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '對照組', staff_a, 'req-ctl' FROM fx;
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
   EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
@@ -254,7 +254,7 @@ case_green "已授權重試的前代之後開合法 gen2(含子表與 deferred �
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, 2,
          rec_trade, rpad('BRFCTL2', 20, '0'), repeat('b', 64),
-         amount, amount, 0, 0, 0,
+         amount + ship_before, amount, ship_before, 0, -ship_before,
          '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-ctl-g2' FROM fx;
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job2_id, order_id, order_item_id, qty, unit_price, amount FROM fx;
@@ -274,7 +274,7 @@ case_red "§7.4-1 直接 INSERT 一列 status='completed' 的假完成單" \
      reason, actor, request_id, status)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFN1', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '假完成單', staff_a, 'req-n1', 'completed' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '假完成單', staff_a, 'req-n1', 'completed' FROM fx;
 SQL
 
 case_red "INSERT 帶既往狀態(reviewed_at 非 NULL)" \
@@ -285,7 +285,7 @@ case_red "INSERT 帶既往狀態(reviewed_at 非 NULL)" \
      reason, actor, request_id, reviewed_at)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFN2', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '帶既往狀態', staff_a, 'req-n2', now() FROM fx;
+         amount, amount, ship_before, ship_before, 0, '帶既往狀態', staff_a, 'req-n2', now() FROM fx;
 SQL
 
 case_red "INSERT 計數器非起始值(retry_count=3)" \
@@ -296,7 +296,7 @@ case_red "INSERT 計數器非起始值(retry_count=3)" \
      reason, actor, request_id, retry_count)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFN3', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '計數器非零', staff_a, 'req-n3', 3 FROM fx;
+         amount, amount, ship_before, ship_before, 0, '計數器非零', staff_a, 'req-n3', 3 FROM fx;
 SQL
 
 sql_gen2_variant() {  # $1=bank id 尾碼 $2=reason $3=generation
@@ -307,7 +307,7 @@ cat <<SQL
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, ${3:-2},
          rec_trade, rpad('${1:?}', 20, '0'), repeat('b', 64),
-         amount, amount, 0, 0, 0,
+         amount + ship_before, amount, ship_before, 0, -ship_before,
          '${2:-客人要求取消(A7b-T T2 正向鏈)}', staff_a, 'req-t3a-g2' FROM fx;
 SQL
 }
@@ -335,7 +335,7 @@ case_red "§7.4-5 拿 gen1 的舊授權開 gen3(gen2 還活著)" \
      reason, actor, request_id)
   SELECT job3_id, cancellation_id, order_id, 3,
          rec_trade, rpad('BRFG3', 20, '0'), repeat('b', 64),
-         amount, amount, 0, 0, 0,
+         amount + ship_before, amount, ship_before, 0, -ship_before,
          '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t3a-g3' FROM fx;
 SQL
 
@@ -347,7 +347,7 @@ case_red "跳號:只有 gen1 已授權卻直接開 gen3" \
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, 3,
          rec_trade, rpad('BRFG3B', 20, '0'), repeat('b', 64),
-         amount, amount, 0, 0, 0,
+         amount + ship_before, amount, ship_before, 0, -ship_before,
          '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t3a-g3b' FROM fx;
 SQL
 
@@ -359,7 +359,7 @@ case_red "§7.4-7 該取消一列 job 都沒有卻開 gen2(NOT FOUND fail-closed
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id, 2,
          rec_trade, rpad('BRFN7', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '無前代', staff_a, 'req-n7' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '無前代', staff_a, 'req-n7' FROM fx;
 SQL
 
 case_red "§7.4-9a 後代 payload 與前代不同(reason 被改)" \
@@ -1062,7 +1062,7 @@ cat <<SQL
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFC3', 20, '0'), repeat('c', 64),
-         ${1:-amount}, ${1:-amount}, 0, 0, 0, '子表負測', staff_a, 'req-c3' FROM fx;
+         ${1:-amount}, ${1:-amount}, ship_before, ship_before, 0, '子表負測', staff_a, 'req-c3' FROM fx;
 SQL
 }
 
@@ -1148,6 +1148,31 @@ $(sql_job3_header)
   EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
 SQL
 
+case_red "§7.4-17c C8:跨取消單累計退掉的運費超過訂單實付運費(同一筆運費退兩次)" \
+         "a7bt_c8_cumulative_shipping_exceeds_order" p_fx2_completed <<SQL
+  -- 🔴🔴 **Fable R3 F1 的實測形狀**:第一筆 completed 工單已經把運費 137 整筆退掉
+  --    (fixture 的 job1 = before 137 / after 0 / delta -137)。
+  --    3.2c **強制**第二張取消單的工單再宣告一次 `shipping_fee_before = 137`
+  --    —— 那個欄位不會因為退過款而遞減 ⇒ 它可以「合法地」再退一次運費。
+  -- 🔴 這裡只多退**一元**(after = 136、delta = -1):
+  --    ① 累計 138 > 137 ⇒ 只可能紅在 C8;
+  --    ② 上界若少算一元或比較子寫成 >=,對照組(第 2 段那條 delta = 0 的合法第二張取消單,
+  --       累計恰好 = 137)會轉紅 ⇒ 邊界的兩側都被釘住。
+  -- 🔴 件數那一軸刻意全部合法:退的是 order_item2(cancellation2 取消的就是它)、1 件、
+  --    客人買了 1 件 ⇒ C5/C6/C3/C4/C7 逐條都過 ⇒ 這條負測不會被別條蓋掉。
+  INSERT INTO public.order_refund_jobs
+    (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
+     refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
+     reason, actor, request_id)
+  SELECT job3_id, cancellation2_id, order_id,
+         rec_trade, rpad('BRFC8', 20, '0'), repeat('c', 64),
+         amount + 1, amount, ship_before, ship_before - 1, -1,
+         '運費跨取消單累計負測', staff_a, 'req-c8' FROM fx;
+  INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
+  SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
 case_red "§7.4-17b 反向 trigger:工單建立後刪掉取消明細,必須當場被抓" \
          "a7bt_c5_item_not_cancelled" p_none <<'SQL'
   -- 🔴 沒有掛在 order_cancellation_items 上的第 11 支 trigger,這一格會**完全沒有反應**:
@@ -1204,6 +1229,44 @@ case_red "§7.4-17b shipping_fee_before 不等於訂單當下的運費(運費快
          '運費快照負測', staff_a, 'req-ship' FROM fx;
 SQL
 
+case_red "§7.4-17c 3.2d:訂單的 payment_status 表示錢從未全額收進來(未付款也開得出退款工單)" \
+         "a7bt_insert_order_payment_not_captured" p_fx2_completed <<'SQL'
+  -- 🔴 Fable R3 F3:修法前這一格會**成功** —— 整片 T 一次都沒讀過 payment_status,
+  --    擋住它的只是「只有 confirm_order_payment 會寫 rec_trade_id」這個跨 migration 的推論。
+  -- 🔴 只把 payment_status 改回種子原本的 `unpaid`(fixture 注入前就是這個值),
+  --    rec_trade / 運費 / 件數全部維持合法 ⇒ 只可能紅在 3.2d。
+  UPDATE public.orders SET payment_status = 'unpaid'
+   WHERE id = (SELECT order_id FROM fx);
+  INSERT INTO public.order_refund_jobs
+    (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
+     refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
+     reason, actor, request_id)
+  SELECT job3_id, cancellation2_id, order_id,
+         rec_trade, rpad('BRFPAY', 20, '0'), repeat('c', 64),
+         amount, amount, ship_before, ship_before, 0,
+         '未付款訂單負測', staff_a, 'req-pay' FROM fx;
+SQL
+
+# ── 隔離級 fail-closed(Fable R3 F11):**不能用 case_red 的外殼** ──────────────
+# 🔴 `SET TRANSACTION ISOLATION LEVEL` 必須是交易的第一個動作,而 case_red 的外殼是
+#    「sql_head 造 fixture → 才輪到壞資料那一步」⇒ 實測回 **25001**、CONSTRAINT_NAME 為空
+#    (那正是「紅了但不是紅在要測的地方」)。⇒ 本條自己開一個 `BEGIN ISOLATION LEVEL …`,
+#    再把 sql_head 疊上去(它的 `BEGIN;` 在已開交易裡只是 WARNING)。
+# 🔴 判定仍走 expect_red(斷言 CONSTRAINT_NAME + SQLSTATE),只是不進 CASE_N 與 §7.2 矩陣
+#    —— 它不是「一筆壞資料」,是「執行環境的前提不成立」。
+{ printf 'BEGIN ISOLATION LEVEL REPEATABLE READ;\n'
+  sql_head
+  red_wrap_head
+  cat <<'SQL'
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+  red_wrap_tail; } > "$WORK/neg-isolation.sql"
+expect_red "$WORK/neg-isolation.sql" "a7bt_isolation_not_read_committed" \
+  "隔離級 fail-closed:REPEATABLE READ 下主從一致函式必須拒跑(advisory 鎖的序列化論證前提)" "P7B01"
+# 🔴 `SEEN_IDS` 只有 case_red 會寫;這條走自訂外殼 ⇒ 手動補登,而且**只在真的紅對時才補**
+#    (`LAST_RED_OK` 由 expect_red 設定)⇒ 覆蓋率仍然是「紅對了」而不是「有跑過」。
+[ "$LAST_RED_OK" = yes ] && SEEN_IDS="$SEEN_IDS a7bt_isolation_not_read_committed"
+
 case_red "§7.4-17 子表 UPDATE 一律阻擋" "a7bt_items_update_blocked" p_none <<'SQL'
   UPDATE public.order_refund_job_items SET quantity = quantity
    WHERE job_id = (SELECT job_id FROM fx);
@@ -1254,7 +1317,7 @@ case_red "U1:同一取消的同一世代重複建" \
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id,
          rec_trade, rpad('BRFU1', 20, '0'), repeat('b', 64),
-         amount, amount, 0, 0, 0, '同世代重複建', staff_a, 'req-u1' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '同世代重複建', staff_a, 'req-u1' FROM fx;
 SQL
 
 # 🔴 U2 只有在 **INSERT 守門被關掉** 時才構造得出來(逐條理由見 plan §7.2 的「被支配」欄):
@@ -1271,7 +1334,7 @@ case_red "§7.4-20 U2:break-glass 下同一取消出現第二個未結案 job" \
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, 2,
          rec_trade, rpad('BRFU2', 20, '0'), repeat('b', 64),
-         amount, amount, 0, 0, 0, '第二個未結案', staff_a, 'req-u2' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '第二個未結案', staff_a, 'req-u2' FROM fx;
 SQL
 
 case_red "§7.4-20 U3:另一張取消單重用同一筆 TapPay 交易(rec_trade_id)" \
@@ -1282,7 +1345,7 @@ case_red "§7.4-20 U3:另一張取消單重用同一筆 TapPay 交易(rec_trade_
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFU3', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '同一筆交易兩個 job', staff_a, 'req-u3' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '同一筆交易兩個 job', staff_a, 'req-u3' FROM fx;
 SQL
 
 # U5:job1 已 completed 並綁定帳本 L;第二張取消單的 job 也想綁 L。
@@ -1295,7 +1358,7 @@ INSERT INTO public.order_refund_jobs
    reason, actor, request_id)
 SELECT job3_id, cancellation2_id, order_id,
        rec_trade, rpad('BRFU5', 20, '0'), repeat('c', 64),
-       amount, amount, 0, 0, 0, 'U5 第二個 job', staff_a, 'req-u5' FROM fx;
+       amount, amount, ship_before, ship_before, 0, 'U5 第二個 job', staff_a, 'req-u5' FROM fx;
 INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
 SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
 
@@ -1434,11 +1497,10 @@ cat <<SQL
 BEGIN;
 SET LOCAL lock_timeout = '30s';
 DO \$c\$
-DECLARE v_name text; v_c uuid; v_o uuid; v_amt integer; v_item uuid;
+DECLARE v_name text; v_c uuid; v_o uuid;
 BEGIN
-  SELECT j.cancellation_id, j.order_id, j.refund_amount INTO v_c, v_o, v_amt
+  SELECT j.cancellation_id, j.order_id INTO v_c, v_o
     FROM public.order_refund_jobs j WHERE j.generation = 1;
-  SELECT ji.order_item_id INTO v_item FROM public.order_refund_job_items ji LIMIT 1;
   INSERT INTO public.order_refund_jobs
     (id, cancellation_id, order_id, generation, rec_trade_id, bank_refund_id, payload_hash,
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
@@ -1447,9 +1509,15 @@ BEGIN
          j.refund_amount, j.items_amount, j.shipping_fee_before, j.shipping_fee_after,
          j.shipping_delta, j.reason, j.actor, 'req-$1'
     FROM public.order_refund_jobs j WHERE j.generation = 1;
+  -- 🔴 明細**逐列複製前代**,不要自己拼數字:原版用 `refund_amount` 當 unit_price,
+  --    那只在「運費 delta = 0 ⇒ refund_amount = items_amount」時碰巧成立
+  --    (2026-08-01 fixture 改跑非零運費後當場紅在 C2)。後代 item set 本來就必須逐列等於前代。
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
-  SELECT j.id, v_o, v_item, 1, v_amt, v_amt
-    FROM public.order_refund_jobs j WHERE j.generation = 2 AND j.request_id = 'req-$1';
+  SELECT j2.id, ji.order_id, ji.order_item_id, ji.quantity, ji.unit_price, ji.line_amount
+    FROM public.order_refund_jobs j2
+    JOIN public.order_refund_jobs j1 ON j1.generation = 1
+    JOIN public.order_refund_job_items ji ON ji.job_id = j1.id
+   WHERE j2.generation = 2 AND j2.request_id = 'req-$1';
   RAISE NOTICE 'T3A-CONC|$1|OK';
 EXCEPTION WHEN OTHERS THEN
   GET STACKED DIAGNOSTICS v_name = CONSTRAINT_NAME;
@@ -1557,6 +1625,188 @@ run_race "U1 在" "P7B01|a7bt_insert_not_direct_successor" no
 run_race "U1 已 DROP:plan §5.1 安全論證的反事實" "P7B01|a7bt_insert_not_direct_successor" yes
 
 # ══════════════════════════════════════════════════════════════
+# 9b. E14(更正結案)↔ gen2 INSERT 的競速(codex 關卡2 R2 的 must-fix,交接檔 §5-1)
+# ══════════════════════════════════════════════════════════════
+# 🔴🔴 **上面那兩輪只測了「兩筆 gen2 併發」一個形狀**。E14 那把
+#    `PERFORM 1 FROM order_cancellations … FOR UPDATE`(`:986`)存在的理由是**另一個**形狀:
+#    A 正在開 gen2、B 同時把授權更正掉 ⇒ 沒有那把鎖時 B 的 `EXISTS(後繼)` 查的是舊快照
+#    ⇒ 看不到 A 的 gen2 ⇒ E14 放行 ⇒ 留下「下一張卡已開出去、授權卻被撤銷」的孤兒。
+#    交接檔逐字:「拿掉或放錯位置,現有順序測試與具名突變**都會全綠**」——
+#    因為突變只會把 `a7bt_e14_successor_exists` 那句 RAISE 換掉,**碰不到那把鎖**。
+# 🔴 ⇒ 本段跑兩輪:①鎖在 ⇒ B 必須紅在 `a7bt_e14_successor_exists`;
+#    ②把那一行**就地拿掉** ⇒ B 必須**成功**(= 孤兒真的產生)。
+#    第二輪是這條測試唯一的承重證明:沒有它,第一輪的紅可能只是「反正 B 後跑」。
+log "9b/9 E14 ↔ gen2 併發(那把 cancellation 列鎖的專屬形狀;含拿掉鎖的反事實)"
+
+E14_LOCK_LINE='PERFORM 1 FROM public.order_cancellations WHERE id = OLD.cancellation_id FOR UPDATE;'
+# INSERT 側「鎖住該取消的最大世代列」那一句的結尾(`:377-382`)。拿掉 `FOR UPDATE` 就等於
+# A 不再鎖 gen1 那一列 —— 這是分辨「B 看得到 gen2 是誰的功勞」唯一的辦法。
+INS_LOCK_FRAG='     LIMIT 1
+       FOR UPDATE;'
+INS_LOCK_REPL='     LIMIT 1;'
+
+# mutate_fn <函式名> <被取代字串> <取代成> ; 回傳非 0 = 沒套上(呼叫端必須當場判 FAIL)
+# 🔴 **突變一定要證明自己套上了**(#306 的教訓:sed 樣式失配 ⇒ 突變沒套上卻被讀成「守門沒承重」)。
+# 🔴 **psql 變數在 dollar-quoted 區塊裡不會被展開**(本 repo 已在 `scripts/a7bt-rollback.sql:30`
+#    逐字記錄過同一個坑)⇒ 這裡只能走 shell 展開的 heredoc,`$m$` 要跳脫成 `\$m\$`。
+#    首版寫成 `-v frm=…` + `:'frm'`,實測「突變沒套上」——**那個失敗是被上面那道
+#    md5 前後比對抓到的**,不是靠我看出來的;沒有那道比對,它會變成「拿掉鎖也全綠」的假結論。
+mutate_fn() {
+  local fn="$1" from="$2" to="$3" before after
+  before="$(psql "$CURL" -qtA -c "SELECT md5(prosrc) FROM pg_proc WHERE proname='$fn'")"
+  psql "$CURL" -v ON_ERROR_STOP=1 -qtA >>"$WORK/e14-mutate.log" 2>&1 <<SQL
+DO \$m\$
+DECLARE v_src text;
+BEGIN
+  SELECT prosrc INTO v_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+   WHERE n.nspname = 'public' AND p.proname = '$fn';
+  IF position('$from' in v_src) = 0 THEN
+    RAISE EXCEPTION '突變樣式失配:$fn 的本體裡找不到要拿掉的那一段';
+  END IF;
+  v_src := replace(v_src, '$from', '$to');
+  EXECUTE format('CREATE OR REPLACE FUNCTION public.$fn() RETURNS trigger '
+                 'LANGUAGE plpgsql SECURITY INVOKER SET search_path = public, pg_temp AS %L', v_src);
+END
+\$m\$;
+SQL
+  after="$(psql "$CURL" -qtA -c "SELECT md5(prosrc) FROM pg_proc WHERE proname='$fn'")"
+  [ -n "$after" ] && [ "$before" != "$after" ] || return 1
+  ok "§7.4-6b 反事實已套上:$fn 的本體指紋改變(${before:0:8}… → ${after:0:8}…)"
+  return 0
+}
+
+run_race_e14() {  # $1=標籤 $2=期望 B 結果 $3=拿掉哪些鎖:no|e14|both
+  local label="$1" want_b="$2" drop_lock="$3" tag
+  tag="$(printf '%s' "$label" | tr -cd 'a-zA-Z0-9')"
+  rm -f "$WORK/a-inserted" "$WORK/go-commit"
+  psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1
+  if ! psql "$ADMIN" -v ON_ERROR_STOP=1 -qtA -c "CREATE DATABASE $CDB TEMPLATE postgres" \
+        >"$WORK/e14-create-$tag.log" 2>&1; then
+    bad "§7.4-6b($label):建立隔離資料庫失敗 ⇒ 本條**未執行**,不得算過"; return
+  fi
+  { sql_head; sql_retry_loop; sql_advance '2 days'; sql_e13_auth
+    printf 'SET CONSTRAINTS ALL IMMEDIATE;\nCOMMIT;\n'; } > "$WORK/e14-setup.sql"
+  if ! psql "$CURL" -v ON_ERROR_STOP=1 -qtA -f "$WORK/e14-setup.sql" >"$WORK/e14-setup-$tag.log" 2>&1; then
+    bad "§7.4-6b($label):前代 fixture 建立失敗(見 $WORK/e14-setup-$tag.log)⇒ 本條**未執行**"
+    psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1; return
+  fi
+
+  if [ "$drop_lock" != no ]; then
+    if ! mutate_fn pcm_a7bt_jobs_before_update "$E14_LOCK_LINE" 'PERFORM 1;'; then
+      bad "§7.4-6b($label):拿掉 E14 那把鎖的反事實**沒有套上** ⇒ 下面的結果證明不了任何事"
+      psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1; return
+    fi
+  fi
+  if [ "$drop_lock" = both ]; then
+    if ! mutate_fn pcm_a7bt_jobs_before_insert "$INS_LOCK_FRAG" "$INS_LOCK_REPL"; then
+      bad "§7.4-6b($label):拿掉 INSERT 側「鎖最大世代列」的反事實**沒有套上** ⇒ 結果證明不了任何事"
+      psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1; return
+    fi
+  fi
+
+  # session A:開 gen2,停在 COMMIT 之前
+  { conc_insert A BRFE14A
+    printf "\\\\! touch %s/a-inserted\n" "$WORK"
+    printf "\\\\! bash -c 'for i in \$(seq 1 300); do [ -f %s/go-commit ] && exit 0; sleep 0.1; done; exit 1'\n" "$WORK"
+    printf 'COMMIT;\n'
+  } > "$WORK/e14-a.sql"
+
+  # session B:E14 把 gen1 的授權**撤銷**掉(retry_authorized → external_refund_confirmed)
+  # 🔴 D9a 要求「非 retry_authorized ⇒ 證據兩欄必須為 NULL」⇒ 同一句一起清掉,
+  #    否則會先紅在 `orj_retry_auth_evidence_required` 而測不到後繼檢查。
+  # 🔴 `corrected_by` 必須不同於原結案人(orj_correction_two_person)⇒ 用 staff_b。
+  { printf 'BEGIN;\nSET LOCAL lock_timeout = %s;\n' "'30s'"
+    cat <<'SQL'
+DO $c$
+DECLARE v_name text;
+BEGIN
+  UPDATE public.order_refund_jobs
+     SET resolution = 'external_refund_confirmed',
+         retry_auth_recorded_refunded = NULL,
+         retry_auth_checked_at = NULL,
+         corrected_at = now(), corrected_by = 'staff_1',
+         correction_reason = 'e14-race:撤銷授權(E14 與 gen2 併發)'
+   WHERE generation = 1;
+  RAISE NOTICE 'T3A-E14|B|OK';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS v_name = CONSTRAINT_NAME;
+  RAISE NOTICE 'T3A-E14|B|%|%', SQLSTATE, coalesce(nullif(v_name, ''), '(空)');
+END
+$c$;
+COMMIT;
+SQL
+  } > "$WORK/e14-b.sql"
+
+  psql "$CURL" -qtA -f "$WORK/e14-a.sql" > "$WORK/e14-a-$tag.out" 2>&1 &
+  local pid_a=$! i n blocked=no
+  for i in $(seq 1 100); do [ -f "$WORK/a-inserted" ] && break; sleep 0.1; done
+  if [ ! -f "$WORK/a-inserted" ]; then
+    bad "§7.4-6b($label):session A 的 gen2 INSERT 沒有在 10 秒內完成 ⇒ 本條**未執行**"
+    kill "$pid_a" 2>/dev/null; wait "$pid_a" 2>/dev/null
+    psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1; return
+  fi
+  psql "$CURL" -qtA -f "$WORK/e14-b.sql" > "$WORK/e14-b-$tag.out" 2>&1 &
+  local pid_b=$!
+  for i in $(seq 1 100); do
+    n="$(psql "$URL" -qtA -c "SELECT count(*) FROM pg_stat_activity WHERE datname = '$CDB' AND wait_event_type = 'Lock' AND query LIKE '%e14-race%'")"
+    [ "$n" = "1" ] && { blocked=yes; break; }
+    sleep 0.1
+  done
+  touch "$WORK/go-commit"
+  wait "$pid_a" 2>/dev/null; wait "$pid_b" 2>/dev/null
+
+  # 🔴 barrier 的期望值隨反事實而變:只有「兩把鎖都拿掉」時 B 才不該被擋住
+  #    —— 拿掉 E14 那一把之後,B 仍會被 **A 對 gen1 那一列的列鎖**擋住(實測,見下方結論)。
+  local b_res orphan want_blocked
+  b_res="$(sed -n 's/.*T3A-E14|B|//p' "$WORK/e14-b-$tag.out" | head -1)"
+  case "$drop_lock" in both) want_blocked=no ;; *) want_blocked=yes ;; esac
+  [ "$blocked" = "$want_blocked" ] \
+    && ok "§7.4-6b($label)barrier 觀察到的阻塞狀態 = $want_blocked(與這一輪的前提相符)" \
+    || bad "§7.4-6b($label)barrier 期望阻塞=$want_blocked,實測=$blocked ⇒ 擋住 B 的不是這一輪以為的那個東西"
+  [ "$b_res" = "$want_b" ] \
+    && ok "§7.4-6b($label)session B 結果 = $want_b" \
+    || bad "§7.4-6b($label)session B 預期 [$want_b],實為 [$b_res]"
+
+  # 孤兒的直接定義:gen2 已存在,而 gen1 的 resolution 已不是 retry_authorized
+  orphan="$(psql "$CURL" -qtA -c "SELECT (SELECT count(*) FROM public.order_refund_jobs WHERE generation=2) || '/' || (SELECT resolution FROM public.order_refund_jobs WHERE generation=1)")"
+  if [ "$drop_lock" = both ]; then
+    [ "$orphan" = "1/external_refund_confirmed" ] \
+      && ok "🔴 §7.4-6b($label)**孤兒真的產生了**(gen2 已開出、gen1 授權已被撤銷:$orphan)⇒ 這條競速確實有東西擋著,不是「本來就不會發生」" \
+      || bad "§7.4-6b($label)兩把鎖都拿掉後預期產生孤兒 1/external_refund_confirmed,實為 $orphan"
+  else
+    [ "$orphan" = "1/retry_authorized" ] \
+      && ok "§7.4-6b($label)零孤兒:gen2 恰一列且 gen1 的授權原封不動($orphan)" \
+      || bad "§7.4-6b($label)預期 1/retry_authorized,實為 $orphan"
+  fi
+
+  psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1
+  [ "$(psql "$ADMIN" -qtA -c "SELECT count(*) FROM pg_database WHERE datname = '$CDB'")" = "0" ] \
+    && ok "§7.4-6b($label)隔離資料庫已刪除(主庫全程零接觸)" \
+    || bad "§7.4-6b($label)隔離資料庫沒刪掉"
+}
+
+run_race_e14 "兩把鎖都在" "P7B01|a7bt_e14_successor_exists" no
+run_race_e14 "只拿掉 E14 那把 cancellation 列鎖" "P7B01|a7bt_e14_successor_exists" e14
+run_race_e14 "兩把鎖都拿掉" "OK" both
+
+# 🔴🔴 **三輪跑出來的結論(寫在這裡,因為它推翻了 migration `:352-359` 的原註解)**:
+#    ① 兩把都在 ⇒ B 紅在 a7bt_e14_successor_exists、零孤兒。
+#    ② **只拿掉 E14 那把 cancellation 列鎖 ⇒ 結果完全一樣**(仍被擋、仍紅在同一條、仍零孤兒)。
+#    ③ 兩把都拿掉 ⇒ B 成功、**孤兒真的產生**。
+#    ⇒ 在這個競速形狀裡,真正承重的是 **INSERT 側「鎖住該取消的最大世代列」的 FOR UPDATE**
+#      —— 它鎖的正是 gen1 那一列,而 B 的 E14 UPDATE 目標也是 gen1
+#      ⇒ B 在 UPDATE 取列鎖時就被擋住,解鎖後 trigger 內的查詢是新 statement、
+#        READ COMMITTED 下取得新快照 ⇒ 看得到 A 剛提交的 gen2。
+#    ⇒ migration `:352-359` 那段「必須搶同一把、且與被查的列無關的鎖」的論證,
+#      在**這個**形狀下不是它擋住的。E14 那把鎖不是死碼(它仍是 break-glass 與其他形狀的一層),
+#      但**不得再被記成這條競速的防護**。已同步更正 migration 的註解。
+# ⚠️ **未測、且已登記為新發現**:E14 路徑的取鎖順序其實與 INSERT 路徑**相反**
+#    (UPDATE 自己先鎖 order_refund_jobs 那一列,trigger 才去鎖 order_cancellations;
+#     INSERT 則是先 cancellations 後 jobs)⇒ 理論上存在互鎖窗。
+#    後果是 PostgreSQL 偵測到並中止其中一方(**錯誤訊息,不是錢的錯誤**)⇒ 不擋本片,
+#    但要在第 3 批 worker 片之前決定要不要把 E14 也改成「先鎖 cancellations」。
+
+# ══════════════════════════════════════════════════════════════
 # 10. 覆蓋率 / 零留痕 / 結構零漂移
 # ══════════════════════════════════════════════════════════════
 log "覆蓋率 / 零留痕 / 結構零漂移"
@@ -1634,7 +1884,7 @@ cmp -s "$WORK/struct-before.snap" "$WORK/struct-after.snap" \
   && ok "結構零漂移:跑完全部負測(含 ADD COLUMN 與 replica 模式探針)後 catalog 一個 byte 都沒變" \
   || bad "結構漂移:跑完之後 catalog 被動到了"
 
-[ "$MODE" = "all" ] && count_gate 118 146 || count_gate 118 145
+[ "$MODE" = "all" ] && count_gate 120 164 || count_gate 120 163
 
 printf '  §7.2 一對一矩陣(實跑產生,可直接貼進 plan):%s\n' "$WORK/matrix.tsv"
 printf '  負測案例 %d 條  PASS=%d  FAIL=%d\n' "$CASE_N" "$PASS" "$FAIL"

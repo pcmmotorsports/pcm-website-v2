@@ -518,7 +518,9 @@ BEGIN
   -- 🔴 本探針自己另建一張取消單 ⇒ 也要滿足 T1 新增的兩道綁定守門
   --    (rec_trade_id = orders.tappay_rec_trade_id、shipping_fee_before = orders.shipping_fee)。
   --    這一行以 **owner** 身分跑,不影響下面「service_role 能不能建工單」那個待測問題。
-  UPDATE public.orders SET tappay_rec_trade_id = v_rec WHERE id = v_oid;
+  -- 🔴 2026-08-01 併同 3.2d(訂單必須真的收過錢)一起注入:種子挑到的那張單是 unpaid,
+  --    不注入的話探針會紅在 3.2d,而**待測問題(service_role 建不建得出工單)根本沒被問到**。
+  UPDATE public.orders SET tappay_rec_trade_id = v_rec, payment_status = 'paid' WHERE id = v_oid;
   INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
   VALUES (v_cid, v_oid, 'customer_request', gen_random_uuid(), repeat('a', 64), 'sean');
   INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)

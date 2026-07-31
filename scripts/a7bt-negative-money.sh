@@ -84,7 +84,7 @@ INSERT INTO public.order_refund_jobs
    reason, actor, request_id)
 SELECT job2_id, cancellation_id, order_id, 2,
        rec_trade, rpad('BRFT3BG2', 20, '0'), repeat('b', 64),
-       amount, amount, 0, 0, 0,
+       amount + ship_before, amount, ship_before, 0, -ship_before,
        '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t3b-g2'
   FROM fx;
 INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
@@ -235,7 +235,7 @@ case_red "§7.4-8 用一個已存在於 order_refunds 的 bank_refund_id 開新 
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
          rec_trade, rpad('BRFXT3B', 20, '0'), repeat('c', 64),
-         amount, amount, 0, 0, 0, '跨表重用', staff_a, 'req-x8' FROM fx;
+         amount, amount, ship_before, ship_before, 0, '跨表重用', staff_a, 'req-x8' FROM fx;
 SQL
 
 # ══════════════════════════════════════════════════════════════
@@ -378,9 +378,13 @@ case_red "§7.4-16 十一欄之 items_amount + refund_amount 成組不等(帳本
     (id, order_id, bank_refund_id, tappay_refund_id, items_amount,
      shipping_fee_before, shipping_fee_after, shipping_delta, refund_amount,
      status, reason, actor, request_id, confirmed_at)
+  -- 🔴 帳本側的 `refund_amount` 必須自己滿足 `= items_amount - shipping_delta`
+  --    (`order_refunds_amount_balances`)⇒ 不能寫 `refund_amount * 2`:
+  --    那只在 shipping_delta = 0 時碰巧成立(2026-08-01 fixture 改跑非零運費後當場紅在帳本自身的 CHECK,
+  --    而**不是**紅在要測的 job↔ledger 比對)。改成由 items_amount 重新推出來。
   SELECT (SELECT led_id FROM fx), j.order_id, j.bank_refund_id, j.tappay_refund_id,
          j.items_amount * 2, j.shipping_fee_before, j.shipping_fee_after, j.shipping_delta,
-         j.refund_amount * 2, 'confirmed', j.reason, j.actor, j.request_id, now()
+         j.items_amount * 2 - j.shipping_delta, 'confirmed', j.reason, j.actor, j.request_id, now()
     FROM public.order_refund_jobs j WHERE j.id = (SELECT job_id FROM fx);
   INSERT INTO public.order_refund_items (refund_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT (SELECT led_id FROM fx), order_id, order_item_id, qty, unit_price, amount FROM fx;
@@ -527,30 +531,31 @@ SQL
 # 6. §7.4-34 時區兩跑
 # ══════════════════════════════════════════════════════════════
 # 🔴 判別向量必須是「兩個時區會給出不同答案」的那一格,否則兩跑相同不代表任何事:
-#    取 last_refund_call_at = **今天(台北)01:00** ⇒ 它的 UTC 日期是**昨天**;
-#    checked_at = now()。台北日曆:兩者同一天 ⇒ D9b 必須**拒絕**。
-#    若實作誤用 `date_trunc('day', ts)`(= session 時區)且 session 為 UTC,
-#    兩者會落在不同 UTC 日 ⇒ 會**放行**。⇒ 這一格分得出對錯。
-# 🔴🔴 **前提門檻是 08:00,不是 01:00**(code-reviewer 抓、我逐時驗算成立):
-#    `last` 的 UTC 日期恆為「昨天」;要讓天真 UTC 實作**放行**,`checked_at`(= now())的 UTC 日期
-#    必須是「今天」⇒ UTC now 必須已過 00:00 ⇒ **台北時刻必須 ≥ 08:00**。
-#    台北 02:00–07:59 時兩種實作**都拒絕** ⇒ 兩跑全綠但**零判別力**,而註解卻宣稱它是判別向量
-#    = 正是本線一直在抓的「防護被命名成超出它實際能力」。⇒ 門檻改 8,未達就**大聲不執行**。
+#    `last_refund_call_at` 與 `retry_auth_checked_at` 都取**昨天(台北)**的 01:00 與 09:00
+#    ⇒ 台北日曆:同一天 ⇒ D9b 必須**拒絕**;
+#      UTC 日曆:前天 17:00 vs 昨天 01:00 = 不同天 ⇒ 誤用 session 時區的實作會**放行**。
+# 🔴🔴 **舊版把 `checked_at` 綁在 `now()` 上,那讓判別力隨時刻浮動**:
+#    `last` 的 UTC 日期恆為昨天,要讓天真 UTC 實作放行就得 UTC now 已過 00:00
+#    ⇒ 台北必須 ≥ 08:00,否則兩種實作都拒絕 = 兩跑全綠但零判別力
+#    (code-reviewer 抓到的原始病灶)。舊版的處置是加一道「台北 < 08:00 就大聲不執行」的門檻
+#    —— 正確但代價是**每天有八小時整段測不到**,而夜間正是本線實際施工的時段
+#    (2026-08-01 00:56 實際撞上:四條案例與七條斷言直接缺席)。
+#    ⇒ 改成把 `checked_at` 也一起注入成昨天的固定時刻 ⇒ **判別力與現在幾點無關**、門檻可以拿掉。
+#    ⇒ 唯一的保證仍然是下面那句 `disc` 機器斷言(不是這段註解):向量沒有判別力就當場轉紅。
+# 🔴 `retry_auth_checked_at` 只被「不得是未來時間」擋(T1 `a7bt_e13_checked_at_in_future`),
+#    昨天的值完全合法;D9b 也沒有把它與 `reviewed_at` 綁在一起(實查約束定義)。
 log "6/8 §7.4-34 時區兩跑(同一格在 UTC 與 Asia/Taipei 下必須同樣被拒)"
 
-tz_hour="$(runsql "SELECT extract(hour from (now() AT TIME ZONE 'Asia/Taipei'))::int")"
-if [ "$tz_hour" -lt 8 ] 2>/dev/null; then
-  bad "§7.4-34 前提不成立:現在台北 ${tz_hour} 點 < 08:00 ⇒ 本判別向量在此時段對兩種實作都拒絕、零判別力 ⇒ 本條**未執行**,不得算過"
-else
+TZ_LAST="(date_trunc('day', now() AT TIME ZONE 'Asia/Taipei') - interval '1 day' + interval '1 hour') AT TIME ZONE 'Asia/Taipei'"
+TZ_CHECKED="(date_trunc('day', now() AT TIME ZONE 'Asia/Taipei') - interval '1 day' + interval '9 hours') AT TIME ZONE 'Asia/Taipei'"
+
   p_dead_tz() {
     p_dead_ready
-    cat <<'SQL'
--- 注入:last_refund_call_at = 今天(台北)01:00 ⇒ UTC 日期是昨天、台北日期是今天
+    cat <<SQL
+-- 注入:last_refund_call_at = 昨天(台北)01:00 ⇒ UTC 日期是前天、台北日期是昨天
 SET LOCAL session_replication_role = replica;
 UPDATE public.order_refund_jobs
-   SET last_refund_call_at =
-         (date_trunc('day', now() AT TIME ZONE 'Asia/Taipei') + interval '1 hour')
-           AT TIME ZONE 'Asia/Taipei'
+   SET last_refund_call_at = $TZ_LAST
  WHERE id = (SELECT job_id FROM fx);
 SET LOCAL session_replication_role = origin;
 SQL
@@ -562,21 +567,21 @@ SQL
   #      UTC 日曆:last 與 checked **不同天**(⇒ 誤用 session 時區的實作會放行)
   disc="$(runsql "SELECT ((l AT TIME ZONE 'Asia/Taipei')::date = (c AT TIME ZONE 'Asia/Taipei')::date)
                       AND ((l AT TIME ZONE 'UTC')::date <> (c AT TIME ZONE 'UTC')::date)
-                    FROM (SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Taipei') + interval '1 hour')
-                                   AT TIME ZONE 'Asia/Taipei' AS l, now() AS c) v")"
+                      AND (c <= now())
+                    FROM (SELECT $TZ_LAST AS l, $TZ_CHECKED AS c) v")"
   [ "$disc" = "t" ] \
-    && ok "§7.4-34 判別力已證明:注入向量在台北日曆同日、在 UTC 日曆不同日(兩種實作會給出不同答案)" \
+    && ok "§7.4-34 判別力已證明:注入向量在台北日曆同日、在 UTC 日曆不同日、且 checked_at 不是未來(兩種實作會給出不同答案)" \
     || bad "§7.4-34 判別向量**沒有判別力**(disc=[$disc])⇒ 下面兩跑相同也證明不了任何事"
 
   for tz in UTC Asia/Taipei; do
     p_dead_tz_run() { printf "SET LOCAL TimeZone = '%s';\n" "$tz"; p_dead_tz; }
     case_red "§7.4-34 session TimeZone=$tz:台北同一日的結案必須被 D9b 拒絕" \
-             "orj_retry_auth_next_day_gate" p_dead_tz_run <<'SQL'
+             "orj_retry_auth_next_day_gate" p_dead_tz_run <<SQL
   UPDATE public.order_refund_jobs
      SET reviewed_at = now(), reviewed_by = (SELECT staff_a FROM fx),
          resolution = 'retry_authorized',
          retry_auth_recorded_refunded = refunded_before,
-         retry_auth_checked_at = now()
+         retry_auth_checked_at = $TZ_CHECKED
    WHERE id = (SELECT job_id FROM fx);
 SQL
   done
@@ -622,7 +627,6 @@ SQL
    WHERE id = (SELECT job_id FROM fx);
 SQL
   done
-fi
 
 # ══════════════════════════════════════════════════════════════
 # 7. §7.4-22 dormant gate:T1 之後的處置

@@ -733,9 +733,11 @@ harness 自我測試(故意弄壞快照 SQL 必須當場中止,`:138-144`)/ 結�
    ⇒ `23514`(check_violation)/ `*_fk` ⇒ `23503`(foreign_key_violation)/ 其餘 ⇒ `23505`(unique_violation)。
    (原文只寫了 `P7B01` 與 `23505` 兩種 —— 那是 T3b 補進 CHECK/FK 兩族之前的舊字面,已更正。)
 
-**實跑結果:107 條行為負測,全部紅在指定的 CONSTRAINT_NAME 且 SQLSTATE 相符;
-另有 6 條對照組(合法動作在同一個外殼下必須不紅,涵蓋 E1 / E4 / 第二張取消單 / E13 / E14 / gen2)。
-合計 113 案例 / 141 斷言 / 0 FAIL(`all` 模式,含從零 provision;`run` = 140)。**
+**實跑結果(2026-08-01 折入 Fable R3 之後重跑):114 條行為負測,全部紅在指定的 CONSTRAINT_NAME
+且 SQLSTATE 相符;另有 6 條對照組(合法動作在同一個外殼下必須不紅,涵蓋 E1 / E4 / 第二張取消單 /
+E13 / E14 / gen2)。合計 **120 案例 / 163 斷言 / 0 FAIL**(`run` 模式;`all` 含從零 provision = 164)。
+🔴 斷言數比案例數多出來的那些,主要來自第 9 段(§7.4-6 兩輪 gen2 併發)與**新增的第 9b 段**
+(§7.4-6b:E14 ↔ gen2 併發三輪,含兩輪就地反事實),以及走自訂外殼的隔離級 fail-closed 那一條。**
 
 | 約束/守門 ID | 正向前提 | 負向資料(只動一格) | 預期 SQLSTATE | 預期 CONSTRAINT_NAME | 對應 mutant |
 |---|---|---|---|---|---|
@@ -836,25 +838,30 @@ harness 自我測試(故意弄壞快照 SQL 必須當場中止,`:138-144`)/ 結�
 | `T3a-101` | `p_fx2_completed()` | §7.4-17 C3:退的數量超過原品項 | `P7B01` | `a7bt_c3_quantity_exceeds_order_item` | `T4-M-a7bt_c3_quantity_exceeds_order_item` |
 | `T3a-102` | `p_fx2_completed()` | §7.4-17 C4:單價不等於訂單快照 | `P7B01` | `a7bt_c4_unit_price_mismatch` | `T4-M-a7bt_c4_unit_price_mismatch` |
 | `T3a-103` | `p_fx2_completed()` | §7.4-17b C7:同一品項跨取消單的累計退款件數超過客人下單件數 | `P7B01` | `a7bt_c7_cumulative_exceeds_cancelled` | `T4-M-a7bt_c7_cumulative_exceeds_cancelled` |
-| `T3a-104` | `p_none()` | §7.4-17b 反向 trigger:工單建立後刪掉取消明細,必須當場被抓 | `P7B01` | `a7bt_c5_item_not_cancelled` | `T4-M-a7bt_c5_item_not_cancelled` |
-| `T3a-105` | `p_none()` | §7.4-17b 反向 trigger:工單建立後把取消明細改掛別的品項,必須當場被抓 | `P7B01` | `a7bt_c5_item_not_cancelled` | `T4-M-a7bt_c5_item_not_cancelled` |
-| `T3a-106` | `p_fx2_completed()` | §7.4-17b rec_trade_id 不是這張訂單自己的交易(退到別人的卡) | `P7B01` | `a7bt_insert_rec_trade_not_order_own` | `T4-M-a7bt_insert_rec_trade_not_order_own` |
-| `T3a-107` | `p_fx2_completed()` | §7.4-17b shipping_fee_before 不等於訂單當下的運費(運費快照憑空捏造) | `P7B01` | `a7bt_insert_shipping_before_not_order_own` | `T4-M-a7bt_insert_shipping_before_not_order_own` |
-| `T3a-108` | `p_none()` | §7.4-17 子表 UPDATE 一律阻擋 | `P7B01` | `a7bt_items_update_blocked` | `T4-M-a7bt_items_update_blocked` |
-| `T3a-109` | `p_none()` | §7.4-17 子表 DELETE 一律阻擋 | `P7B01` | `a7bt_items_delete_blocked` | `T4-M-a7bt_items_delete_blocked` |
-| `T3a-110` | `p_none()` | §7.4-19 主表 DELETE 一律阻擋(owner 身分) | `P7B01` | `a7bt_jobs_delete_blocked` | `T4-M-a7bt_jobs_delete_blocked` |
-| `T3a-111` | `p_none()` | §7.4-19 TRUNCATE 兩表同一句(先清 pending deferred) | `P7B01` | `a7bt_jobs_truncate_blocked` | `T4-M-a7bt_jobs_truncate_blocked` |
-| `T3a-112` | `p_none()` | §7.4-19 TRUNCATE 主表 CASCADE | `P7B01` | `a7bt_jobs_truncate_blocked` | `T4-M-a7bt_jobs_truncate_blocked` |
-| `T3a-113` | `p_none()` | §7.4-19 單獨 TRUNCATE 子表 | `P7B01` | `a7bt_items_truncate_blocked` | `T4-M-a7bt_items_truncate_blocked` |
-| `T3a-114` | `p_none()` | U1:同一取消的同一世代重複建 | `23505` | `orj_cancellation_generation_key` | `T4-M-orj_cancellation_generation_key` |
-| `T3a-115` | `p_replica()` | §7.4-20 U2:break-glass 下同一取消出現第二個未結案 job | `23505` | `orj_one_current_per_cancellation_idx` | `T4-M-orj_one_current_per_cancellation_idx` |
-| `T3a-116` | `p_fx2()` | §7.4-20 U3:另一張取消單重用同一筆 TapPay 交易(rec_trade_id) | `23505` | `orj_one_current_per_rec_trade_idx` | `T4-M-orj_one_current_per_rec_trade_idx` |
-| `T3a-117` | `p_u5()` | §7.4-21 U5:兩個 job 綁同一張帳本 | `23505` | `orj_one_job_per_refund_idx` | `T4-M-orj_one_job_per_refund_idx` |
-| `T3a-118` | `p_addcol()` | §7.4-36 新增一個不在任何 edge 白名單裡的欄,合法 E1 想順手寫它 | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-104` | `p_fx2_completed()` | §7.4-17c C8:跨取消單累計退掉的運費超過訂單實付運費(同一筆運費退兩次) | `P7B01` | `a7bt_c8_cumulative_shipping_exceeds_order` | `T4-M-a7bt_c8_cumulative_shipping_exceeds_order` |
+| `T3a-105` | `p_none()` | §7.4-17b 反向 trigger:工單建立後刪掉取消明細,必須當場被抓 | `P7B01` | `a7bt_c5_item_not_cancelled` | `T4-M-a7bt_c5_item_not_cancelled` |
+| `T3a-106` | `p_none()` | §7.4-17b 反向 trigger:工單建立後把取消明細改掛別的品項,必須當場被抓 | `P7B01` | `a7bt_c5_item_not_cancelled` | `T4-M-a7bt_c5_item_not_cancelled` |
+| `T3a-107` | `p_fx2_completed()` | §7.4-17b rec_trade_id 不是這張訂單自己的交易(退到別人的卡) | `P7B01` | `a7bt_insert_rec_trade_not_order_own` | `T4-M-a7bt_insert_rec_trade_not_order_own` |
+| `T3a-108` | `p_fx2_completed()` | §7.4-17b shipping_fee_before 不等於訂單當下的運費(運費快照憑空捏造) | `P7B01` | `a7bt_insert_shipping_before_not_order_own` | `T4-M-a7bt_insert_shipping_before_not_order_own` |
+| `T3a-109` | `p_fx2_completed()` | §7.4-17c 3.2d:訂單的 payment_status 表示錢從未全額收進來(未付款也開得出退款工單) | `P7B01` | `a7bt_insert_order_payment_not_captured` | `T4-M-a7bt_insert_order_payment_not_captured` |
+| `T3a-110` | `p_none()` | §7.4-17 子表 UPDATE 一律阻擋 | `P7B01` | `a7bt_items_update_blocked` | `T4-M-a7bt_items_update_blocked` |
+| `T3a-111` | `p_none()` | §7.4-17 子表 DELETE 一律阻擋 | `P7B01` | `a7bt_items_delete_blocked` | `T4-M-a7bt_items_delete_blocked` |
+| `T3a-112` | `p_none()` | §7.4-19 主表 DELETE 一律阻擋(owner 身分) | `P7B01` | `a7bt_jobs_delete_blocked` | `T4-M-a7bt_jobs_delete_blocked` |
+| `T3a-113` | `p_none()` | §7.4-19 TRUNCATE 兩表同一句(先清 pending deferred) | `P7B01` | `a7bt_jobs_truncate_blocked` | `T4-M-a7bt_jobs_truncate_blocked` |
+| `T3a-114` | `p_none()` | §7.4-19 TRUNCATE 主表 CASCADE | `P7B01` | `a7bt_jobs_truncate_blocked` | `T4-M-a7bt_jobs_truncate_blocked` |
+| `T3a-115` | `p_none()` | §7.4-19 單獨 TRUNCATE 子表 | `P7B01` | `a7bt_items_truncate_blocked` | `T4-M-a7bt_items_truncate_blocked` |
+| `T3a-116` | `p_none()` | U1:同一取消的同一世代重複建 | `23505` | `orj_cancellation_generation_key` | `T4-M-orj_cancellation_generation_key` |
+| `T3a-117` | `p_replica()` | §7.4-20 U2:break-glass 下同一取消出現第二個未結案 job | `23505` | `orj_one_current_per_cancellation_idx` | `T4-M-orj_one_current_per_cancellation_idx` |
+| `T3a-118` | `p_fx2()` | §7.4-20 U3:另一張取消單重用同一筆 TapPay 交易(rec_trade_id) | `23505` | `orj_one_current_per_rec_trade_idx` | `T4-M-orj_one_current_per_rec_trade_idx` |
+| `T3a-119` | `p_u5()` | §7.4-21 U5:兩個 job 綁同一張帳本 | `23505` | `orj_one_job_per_refund_idx` | `T4-M-orj_one_job_per_refund_idx` |
+| `T3a-120` | `p_addcol()` | §7.4-36 新增一個不在任何 edge 白名單裡的欄,合法 E1 想順手寫它 | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
 
 #### 7.2.1b 錢面負測矩陣(T3b;同樣由 `scripts/a7bt-negative-money.sh` 實跑產生)
 
-**實跑結果:27 條行為負測 + 2 條對照組,`all` 模式(含從零 provision)= 29 案例 / 46 斷言 / 0 FAIL。**
+**實跑結果:27 條行為負測 + 2 條對照組,`all` 模式(含從零 provision)= 29 案例 / 46 斷言 / 0 FAIL(`run` = 45)。**
+🔴 **2026-08-01 更正**:§7.4-34 時區兩跑原本掛一道「台北 < 08:00 就大聲不執行」的前提門檻
+(判別力隨時刻浮動)⇒ 每天有八小時整段測不到。已把 `retry_auth_checked_at` 一起注入成**昨天**的
+固定時刻 ⇒ 判別力與現在幾點無關、門檻拿掉,案例數與斷言數不變(29 / 45)。
 
 🔴 **CHECK 的求值順序不是契約**:同時違反兩條 CHECK 時 PostgreSQL 回哪一個名字沒有保證
 ⇒ D9 每一條都刻意構造成**只違反一條**(例:「非 `retry_authorized` 卻填了證據」用來單獨打
@@ -964,8 +971,8 @@ harness 對整份差集做集合相等斷言(新增守門沒人測 ⇒ 當場轉
 
 🔴 **這張表的能力邊界**:它說明的是「為什麼行為負測打不到那層 CHECK」,**不是**「那層 CHECK 沒有用」。
 🔴🔴 **2026-07-31 T4 突變實測把這件事量化了,而且比原本寫的強**:原文說 CHECK 的價值「在 break-glass」,
-   低估了它。突變 97 個具名物件(每個只拿掉**一條**規則、其餘全開)之後,
-   **39 個案例是被第二層接住的,其中 22 個接住它的正是 `orj_shape_*` 這七條 truth table CHECK**
+   低估了它。突變 102 個具名物件(每個只拿掉**一條**規則、其餘全開)之後,
+   **45 個案例是被第二層接住的,其中 22 個接住它的正是 `orj_shape_*` 這七條 truth table CHECK**
    —— 也就是說**不必到 break-glass**,只要單一 trigger 規則被拿掉或寫錯,CHECK 就已經是實際的接手者。
    ⇒ 兩個方向同時成立:全部守門都在時 trigger 先紅(所以行為負測打不到 CHECK);
      單一 trigger 規則失效時 CHECK 紅(所以它不是死碼)。**這是縱深防禦,不是重複。**
@@ -1102,7 +1109,7 @@ v5 的正向鏈 C **自己就是靜態不可能的**(R5 F6)。**負測證明「�
 
 ### 7.4b T3a 的施工結果與**明文做不到的事**(2026-07-31)
 
-**產物** = `scripts/a7bt-negative-state.sh`(**113 案例 / 141 斷言 / 0 FAIL**)
+**產物** = `scripts/a7bt-negative-state.sh`(**120 案例 / 163 斷言 / 0 FAIL**,2026-08-01)
 + `scripts/a7bt-fixtures.sh`(T2 與 T3a 共用的 harness 原語與 edge 產生器,一份、兩邊 source)。
 
 🔴 **`a7bt-verify.sh`(T2)的重構不是「行為零變更」,精確說法是**:鏈體產生的 SQL **byte 級相同**,
@@ -1167,32 +1174,35 @@ T2 回歸仍 34 PASS / 0 FAIL,但那證明的是「語意不變」,不是「一�
 - 🔴 案例檔**不複製**:直接實跑 T3a 與 T3b、拿它們產生的 `neg-###.sql` 當輸入
   ⇒ 突變測的永遠是當下真正在跑的那些負測
 
-**結果(97 個具名物件 = T1 守門 87 + A7b-M 約束/索引 10,每個跑它專屬的那條負測)**:
+**結果(2026-08-01 折入 Fable R3 後重跑:102 個具名物件 = T1 守門 92 + A7b-M 約束/索引 10,每個跑它專屬的那條負測)**:
 
 | 判定 | 個數 | 意義 |
 |---|---|---|
-| **乾淨轉綠** | **56** | 拿掉它,那筆壞資料就進得去 ⇒ 該守門對該案例**單獨承重** |
-| **被第二層接住** | **39** | 拿掉它之後改紅在另一個具名物件 ⇒ 該守門是**第一失敗點**,但不是唯一防線 |
+| **乾淨轉綠** | **57** | 拿掉它,那筆壞資料就進得去 ⇒ 該守門對該案例**單獨承重** |
+| **被第二層接住** | **45** | 拿掉它之後改紅在另一個具名物件 ⇒ 該守門是**第一失敗點**,但不是唯一防線 |
 | **仍紅在自己** | **0** | 🎉 **沒有任何一條是「刪掉也照樣紅」的死規則** |
 
 🔴 **數字口徑(code-reviewer M4 / M5 抓到我第一版報錯)**:
 - 第一版報「96 個具名守門」= **96 次突變、95 個不同 ID**(`seen` 去重表寫在兩張矩陣的迴圈**裡面**,
   同時出現在 T3a 與 T3b 的 `a7bt_e3b_next_check_not_next_day` 被突變了兩次)。已修。
 - 95 個裡有 **10 個是 A7b-M 的約束與索引**(`orj_*`),不是 T1 的守門
-  ⇒ **T1 具名守門覆蓋 = 85 / 97**。
-- **沒有突變的 12 個** = §7.2.2 的被支配 **7** 個 **+ 「T2 已關」的 5 個等待型閘門。
-  後面那 5 個有 T2 的行為證明,但**同樣沒有承重證明**** —— 第一版只講了前 7 個。
+  ⇒ **T1 具名守門覆蓋(2026-08-01)= 92 / 105**。
+- **沒有突變的 13 個** = §7.2.2 的被支配 **7** 個 **+ 「T2 已關」的 5 個等待型閘門
+  **+ `a7bt_isolation_not_read_committed`**(它的負測必須自己開
+  `BEGIN ISOLATION LEVEL REPEATABLE READ`、走自訂外殼 ⇒ 不在 §7.2 矩陣裡 ⇒ 突變 harness 看不到它)。
+  三者都**沒有承重證明**。
 
-**第二層是誰(39 條的分佈)**:`orj_shape_dead` 6 / `orj_shape_failed` 4 / `orj_shape_completed` 4 /
-`orj_shape_submitted` 3 / `orj_shape_reconciling` 2 / `orj_shape_processing` 2 / `orj_shape_queued` 1
-(**七條 truth table CHECK 合計 22**)、`orj_review_triple_paired` 2 / `orj_correction_triple_paired` 2 /
-`orj_correction_two_person` 1 / `orj_baseline_paired` 1 / `orj_bank_refund_id_key` 1 /
-`orj_one_current_per_cancellation_idx` 1 / `orji_job_fk` 1,其餘 7 條是被**另一條 trigger 規則**接住。
+**第二層是誰(45 條的分佈,2026-08-01 實跑)**:`orj_shape_dead` 6 / `orj_shape_failed` 4 /
+`orj_shape_completed` 4 / `orj_shape_submitted` 3 / `orj_shape_reconciling` 2 / `orj_shape_processing` 2 /
+`orj_shape_queued` 1(**七條 truth table CHECK 合計 22**)、`orj_one_current_per_rec_trade_idx` 3 /
+`orj_review_triple_paired` 2 / `orj_correction_triple_paired` 2 / `orj_correction_two_person` 1 /
+`orj_baseline_paired` 1 / `orj_bank_refund_id_key` 1 / `orj_one_current_per_cancellation_idx` 1 /
+`orj_amount_balances` 1 / `orji_job_fk` 1,其餘 10 條是被**另一條 trigger 規則**接住。
 
 🔴 **明文做不到 / 不得宣稱**:
 - 一格「突變後轉綠」只證明**該守門對該案例**承重,**不證明**它對所有壞資料承重。
 - 同一個 ID 有多條負測時**只跑第一條**(一條足以證明承重)⇒ 不是「每條負測都做過突變」。
-- **12 個 ID 沒有突變**(被支配 7 + T2 已關的等待型閘門 5)⇒ 它們**沒有承重證明**。
+- **13 個 ID 沒有突變**(被支配 7 + T2 已關的等待型閘門 5 + `a7bt_isolation_not_read_committed`)⇒ 它們**沒有承重證明**。
 - 本檔**不含** ACL 64 格 / barrier lock probe / rollback 八步 —— T4-2(`a7bt-acl-rollback-lock.sh`)。
 - 🔴 「被第二層接住」那 40 格**已加上兩道機器斷言**(關卡2 #1):第二層的名字必須是 catalog 裡
   真的存在的具名物件、SQLSTATE 必須落在 `P7B01/23505/23514/23503` 白名單內。
@@ -1201,7 +1211,7 @@ T2 回歸仍 34 PASS / 0 FAIL,但那證明的是「語意不變」,不是「一�
 
 ### 7.4e T4-2 ACL / rollback 八步 / 鎖窗(2026-07-31;`scripts/a7bt-acl-rollback-lock.sh`)
 
-**28 斷言 / 0 FAIL(`run` 模式;`all` 含 provision = 29)。** 產物另含 `scripts/a7bt-rollback.sql`
+**35 斷言 / 0 FAIL(`run` 模式;`all` 含 provision = 36;2026-08-01 折入 Fable R3 F6/F7/F10/F19 後重跑)。** 產物另含 `scripts/a7bt-rollback.sql`
 (§10 的可執行版,**A7b-M + A7b-T 一起**;原本六步,關卡2 後為八步 —— ⓪ 兩把鑰匙的身分閘、⑦ migration ledger)
 與 `scripts/lib/a7bt-barrier-migration.py`(把自帶 COMMIT 的 migration 改成停在 COMMIT 前等放行)。
 

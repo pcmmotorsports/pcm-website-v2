@@ -180,10 +180,10 @@ esac
 out="$(psql "$URL" -v ON_ERROR_STOP=1 -v i_know=DROP_A7B_M_AND_T -v db=postgres -v hostport="$HOSTPORT" -qtA -f "$WORK/rb-dryrun.sql" 2>&1)"
 rc=$?
 steps="$(printf '%s\n' "$out" | sed -n 's/.*A7B-RB|//p' | cut -d'|' -f1 | tr '\n' ',')"
-if [ "$rc" -eq 0 ] && [ "$steps" = "0,1,2,3,4,5,6,7," ]; then
-  ok "rollback 全八步(⓪身分 → ①preflight → ②writer → ③空表 → ④子表 → ⑤主表 → ⑥零殘留 → ⑦ledger)在交易內跑完;① 對**空表**放行 = filter 沒有誤 abort"
+if [ "$rc" -eq 0 ] && [ "$steps" = "0,1,2,3,3b,4,5,6,7," ]; then
+  ok "rollback 全九步(⓪身分 → ①preflight → ②writer → ③空表 → ③b T 是否已套用 → ④子表 → ⑤主表 → ⑥零殘留 → ⑦ledger)在交易內跑完;① 對**空表**放行 = filter 沒有誤 abort"
 else
-  bad "rollback 步序模擬失敗(rc=$rc,走到的步驟=[$steps],預期 0,1,2,3,4,5,6,7,)— $(printf '%s\n' "$out" | grep -m1 ERROR | cut -c1-160)"
+  bad "rollback 步序模擬失敗(rc=$rc,走到的步驟=[$steps],預期 0,1,2,3,3b,4,5,6,7,)— $(printf '%s\n' "$out" | grep -m1 ERROR | cut -c1-160)"
 fi
 
 # 🔴🔴 **關卡2 R2:第 ⑦ 步(刪 migration ledger)原本可以恆真。**
@@ -198,7 +198,7 @@ VALUES ('20260731120000'), ('20260731120100') ON CONFLICT DO NOTHING;
 SQL
 led="$(psql "$URL" -v ON_ERROR_STOP=1 -v i_know=DROP_A7B_M_AND_T -v db=postgres -v hostport="$HOSTPORT" -qtA -f "$WORK/rb-dryrun.sql" 2>&1 | sed -n 's/.*A7B-RB|7|//p' | tail -1)"
 case "$led" in
-  ledger-deleted=2) ok "rollback ⑦:ledger 兩列**真的被刪到**(先種再跑再斷言;拋棄式 cluster 平常走「略過」那一支 ⇒ 不種就等於沒測過)" ;;
+  ledger-deleted=2\|want=2) ok "rollback ⑦:ledger 兩列**真的被刪到**(先種再跑再斷言;拋棄式 cluster 平常走「略過」那一支 ⇒ 不種就等於沒測過)" ;;
   *) bad "rollback ⑦ 沒有刪到 2 列 ledger,實為 [$led] ⇒ 正式站漏刪會讓 db push 不重建兩表且無訊號" ;;
 esac
 # 🔴 負向:少一列時必須 abort(關卡2 R2 要的「DELETE 0/1 不得靜默 commit」)
@@ -208,6 +208,17 @@ case "$led1" in
   *"ledger 應刪掉 2 列"*) ok "rollback ⑦ 負向:ledger 只剩 1 列時當場 abort(版本號打錯 / 少登記都會長這樣)" ;;
   *) bad "rollback ⑦ 負向:ledger 少一列竟然沒有 abort ⇒ schema 與 ledger 會靜默分裂" ;;
 esac
+# 🔴 ⑦ 的 escape 也要雙向驗(Fable R3 F7):帶了 `skip_ledger_count=YES_I_CHECKED`
+#    之後,同一個「少一列」的情境必須降級成 WARNING 而**不是**繼續 abort ——
+#    否則那個 escape 只是註解裡的一句承諾。ledger 現在仍是「少一列」的狀態。
+led2="$(psql "$URL" -v i_know=DROP_A7B_M_AND_T -v db=postgres -v hostport="$HOSTPORT" -v skip_ledger_count=YES_I_CHECKED -qtA -f "$WORK/rb-dryrun.sql" 2>&1 | tr '\n' ' ')"
+case "$led2" in
+  *"明文放行"*) ok "rollback ⑦ escape:帶 skip_ledger_count=YES_I_CHECKED 時降級成 WARNING、回滾得以繼續(半夜真的要退時不會被自己的守門擋死)" ;;
+  *) bad "rollback ⑦ escape 沒有生效 ⇒ ledger 對不上時只能改檔案才退得掉 — $(printf '%s' "$led2" | cut -c1-160)" ;;
+esac
+# 🔴 F19:這個 schema 是本段自己種的。中途 abort 時它會留下來,而下一段的隔離庫是
+#    `CREATE DATABASE … TEMPLATE postgres` ⇒ 會把它一起複製過去 ⇒ 隔離庫的 ⑦ 行為改變。
+#    ⇒ 這一句必須是無條件的收尾,而且下一段開頭再確認一次(不靠「上面沒出錯」這個假設)。
 psql "$URL" -qtA -c "DROP SCHEMA supabase_migrations CASCADE" >/dev/null 2>&1
 
 # 🔴🔴 **關卡2 #21:preflight 原本只測了「放行」那個方向。**
@@ -257,6 +268,9 @@ CDB="a7bt_t4_rb"
 CURL="postgresql://postgres@127.0.0.1:${PORT}/${CDB}"
 ADMIN="postgresql://postgres@127.0.0.1:${PORT}/template1"
 psql "$ADMIN" -qtA -c "DROP DATABASE IF EXISTS $CDB" >/dev/null 2>&1
+# 🔴 F19 續:模板庫裡不得殘留上一段種的 ledger schema(中途 abort 會留下)。
+[ "$(runsql "SELECT count(*) FROM pg_namespace WHERE nspname='supabase_migrations'")" = "0" ] \
+  || die "第 2 段種的 supabase_migrations schema 還在 ⇒ 隔離庫會複製到它、第 3 段的 ⑦ 行為與正式站不同"
 if ! psql "$ADMIN" -v ON_ERROR_STOP=1 -qtA -c "CREATE DATABASE $CDB TEMPLATE postgres" >"$WORK/rb-create.log" 2>&1; then
   bad "建立隔離資料庫失敗 ⇒ 第 3 段**未執行**,不得算過"
 else
@@ -293,6 +307,29 @@ else
   psql "$CURL" -v ON_ERROR_STOP=1 -v i_know=DROP_A7B_M_AND_T -v db="$CDB" -v hostport="$HOSTPORT" -qtA -f "$RB" > "$WORK/rb-real2.log" 2>&1 \
     && psql "$CURL" -v ON_ERROR_STOP=1 -qtA -f "$MIG_M" > "$WORK/rebuild-m2.log" 2>&1 \
     || bad "鎖探針前置(再 rollback 一次 + 重套 M)失敗"
+
+  # ══ 🔴🔴 **F6:「M 已 apply、T 未 apply」下的回滾**(Fable R3 判 NO-GO 的第二條)══════
+  #    正式站**現在**就是這個狀態。原版第 ④ 步第一句 `DROP TRIGGER … ON order_cancellation_items`
+  #    刻意不帶 `IF EXISTS` ⇒ 那支 trigger 根本不存在 ⇒ 42704 ⇒ 同一筆交易全滅
+  #    ⇒ **連 A7b-M 都退不掉**。這一格就是把那個情境真的跑一次。
+  # 🔴 這裡的 M-only 是**真的**跑 A7b-M 那支 migration 得到的(上面那兩句 rollback + 重套 M),
+  #    不是「把 T 的物件手動拆掉」湊出來的 —— 後者證明不了 migration 產生的狀態長什麼樣。
+  # 🔴 必須斷言 `t-applied=NO` 這個 NOTICE:否則「跑完沒錯」也可能是它誤判成 T 還在、
+  #    而那些 DROP 碰巧都成功(那就不是在測 M-only 這條路徑)。
+  mo_out="$(psql "$CURL" -v ON_ERROR_STOP=1 -v i_know=DROP_A7B_M_AND_T -v db="$CDB" -v hostport="$HOSTPORT" -qtA -f "$RB" 2>&1)"
+  mo_rc=$?
+  mo_flag="$(printf '%s\n' "$mo_out" | sed -n 's/.*A7B-RB|3b|//p' | tail -1)"
+  mo_left="$(psql "$CURL" -qtA -c "SELECT (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')) || '/' || (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'pcm\\_a7bt\\_%')")"
+  [ "$mo_flag" = "t-applied=NO" ] \
+    && ok "rollback ③b:M-only 狀態被正確判定為「T 未套用」(這一格若判成 YES,下面的綠是別條路徑的綠)" \
+    || bad "rollback ③b 判定錯誤:M-only 狀態下 t-applied=[$mo_flag]"
+  { [ "$mo_rc" -eq 0 ] && [ "$mo_left" = "0/0" ]; } \
+    && ok "🔴 **F6 關閉**:M 已 apply、T 未 apply 時整包 rollback 跑得完、兩張表真的退掉($mo_left)— 修法前這裡會死在 42704 而連 A7b-M 都退不掉" \
+    || bad "F6 未關:M-only 狀態下 rollback 失敗(rc=$mo_rc,殘留=$mo_left)— $(printf '%s\n' "$mo_out" | grep -m1 ERROR | cut -c1-160)"
+
+  # 復原成 M-only,讓下面的 T1 鎖探針有它需要的前置
+  psql "$CURL" -v ON_ERROR_STOP=1 -qtA -f "$MIG_M" > "$WORK/rebuild-m3.log" 2>&1 \
+    || bad "F6 之後重套 A7b-M 失敗 ⇒ 下面的 T1 鎖探針前置不成立"
 
   rm -f "$WORK/t1-started" "$WORK/t1-go"
   python3 scripts/lib/a7bt-barrier-migration.py "$MIG" "$WORK/t1" > "$WORK/t1-barrier.sql" \
@@ -381,7 +418,7 @@ cmp -s "$WORK/struct-before.snap" "$WORK/struct-after.snap" \
   && ok "結構零漂移:主庫 catalog 一個 byte 都沒變(rollback 真跑只發生在隔離庫)" \
   || bad "結構漂移:主庫被動到了"
 
-[ "$MODE" = "all" ] && count_gate - 33 || count_gate - 32
+[ "$MODE" = "all" ] && count_gate - 36 || count_gate - 35
 
 printf '  PASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -283,6 +283,34 @@ SELECT pg_temp.assert((SELECT count(*) FROM public.staff WHERE id IN ('sean','st
 UPDATE public.orders SET tappay_rec_trade_id = (SELECT rec_trade FROM fx)
  WHERE id = (SELECT order_id FROM fx);
 
+-- 🔴🔴 **fixture 例外三號(2026-08-01 Fable R3 F15,逐字登記在此)**:
+--    實查:本 cluster **31 張訂單的 shipping_fee 全部是 0**(max = 0)⇒ 3.2c 的正向側
+--    永遠是 `0 = 0`、任何「跨工單累計運費」的守門在這份 fixture 上**物理上不可能轉紅**
+--    ⇒ 147 條負測從來沒有在非零運費上跑過,而 F1 的洞正好只活在那裡。
+--    ⇒ 用與 rec_trade 同級的具名注入把該訂單的運費改成非零(隨交易 ROLLBACK、零留痕)。
+-- 🔴 `orders_total_balances` CHECK(total = subtotal + shipping_fee - discount_total)
+--    ⇒ 運費改了 total 必須跟著改,否則注入本身就違憲。UPDATE 的右手邊一律讀**舊值**。
+-- 🔴 **刻意不用 100**(= `shipping_home_fee` 的預設):種子的 `unit_price` 正好是 100,
+--    撞號會讓「運費被當成品項金額」這一族錯配靜默通過。137 讓每一格數字都可歸因。
+-- 🔴🔴 **fixture 例外四號(2026-08-01 Fable R3 F3)**:T1 新增 3.2d「這張訂單必須真的收過錢」。
+--    種子資料裡符合前三個條件的訂單全是 `unpaid`(實查:31 張裡 26 unpaid / 5 paid,
+--    而 5 張 paid 沒有一張有同價手足品項)⇒ 不注入就選不出 fixture。
+--    與 rec_trade / 運費兩次注入同級:具名、單一位置、隨交易 ROLLBACK,
+--    且由 T3a 的「payment_status 改回 unpaid 必須紅在指定 constraint」那條負測承重。
+UPDATE public.orders
+   SET shipping_fee   = 137,
+       total          = total - shipping_fee + 137,
+       payment_status = 'paid'
+ WHERE id = (SELECT order_id FROM fx);
+
+-- fx 的 ship_before 在建表時抓的是注入**前**的值(0)⇒ 必須回頭對齊,
+-- 而且對齊之後要斷言它真的是非零 —— 注入若靜默失敗,整組運費斷言會退化回 `0 = 0`。
+UPDATE fx SET ship_before = (SELECT o.shipping_fee FROM public.orders o WHERE o.id = fx.order_id);
+SELECT pg_temp.assert((SELECT ship_before FROM fx) = 137,
+                      'fixture:運費注入沒生效 ⇒ 所有運費守門會退化成 0 = 0 的假綠');
+SELECT pg_temp.assert((SELECT o.payment_status::text FROM public.orders o, fx WHERE o.id = fx.order_id) = 'paid',
+                      'fixture:payment_status 注入沒生效 ⇒ 3.2d 會擋住整組 fixture');
+
 INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
 SELECT cancellation_id, order_id, 'customer_request', gen_random_uuid(), repeat('a', 64), staff_a FROM fx;
 
@@ -293,9 +321,17 @@ INSERT INTO public.order_refund_jobs
   (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
    refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
    reason, actor, request_id)
+-- 🔴🔴 **job1 刻意把運費整筆退掉**(`after = 0`、`delta = -ship_before`;2026-08-01 F1 折入):
+--    ① 這讓正向鏈**恰好坐在 C8 的邊界上**(累計退運費 = 137 = 訂單實付運費)
+--       ⇒ C8 的比較子若被寫成 `>=`(或上界少算一元),**整條正向鏈與 120 條負測前綴會全紅**,
+--         不需要另外寫一條「邊界不得誤擋」的測試。
+--    ② C8 的負測因此只需要再多退**一元**運費就能違反 ⇒ 判別力最高的那個形狀。
+--    ⚠️ 業務上這是「取消兩件裡的一件卻退全額運費」,偏保守 —— 而 DB **現在就允許**
+--       (`shipping_fee_after` 至今無上界,3.2c 明寫只綁得住 before 那一端)⇒ 這正是 F1 的地基,
+--       fixture 必須長成它,否則守門測不到自己要擋的事。
 SELECT job_id, cancellation_id, order_id,
        rec_trade, rpad('BRFT2', 20, '0'), repeat('b', 64),
-       amount, amount, ship_before, ship_before, 0,
+       amount + ship_before, amount, ship_before, 0, -ship_before,
        '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t2-0001'
   FROM fx;
 
@@ -600,9 +636,11 @@ INSERT INTO public.order_refund_jobs
   (id, cancellation_id, order_id, generation, rec_trade_id, bank_refund_id, payload_hash,
    refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
    reason, actor, request_id)
+-- 🔴 三個運費欄與金額欄必須**逐欄等於前代**(T1 的 3.4 `a7bt_insert_payload_differs_from_predecessor`)
+--    ⇒ 這裡不能寫死 0:寫死 0 只在「訂單運費本來就是 0」時碰巧成立(= F15 那個盲點)。
 SELECT job2_id, cancellation_id, order_id, 2,
        rec_trade, rpad('BRFT2G2', 20, '0'), repeat('b', 64),
-       amount, amount, 0, 0, 0,
+       amount + ship_before, amount, ship_before, 0, -ship_before,
        '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t2-0002'
   FROM fx;
 

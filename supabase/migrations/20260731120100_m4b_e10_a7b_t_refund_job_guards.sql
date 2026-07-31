@@ -294,6 +294,12 @@ BEGIN
   -- ⚠️ **已知後果(實查、必須寫下來)**:正式站 5 筆已付款訂單中有 **2 筆** `tappay_rec_trade_id`
   --    為 NULL(早期人工/測試單)⇒ 那 2 筆**走不了本表的自動退款**。這是 fail-closed 的正確結果
   --    —— 不知道交易編號本來就打不了 Refund API;它們只能走人工 Portal。
+  -- ⚠️ **誠實邊界(Fable R3 F5)**:本條只在 **INSERT 當下**比對一次。
+  --    `orders.tappay_rec_trade_id` 之後被改掉(它沒有不可變守門)、或工單的 `rec_trade_id`
+  --    被改掉(這一半由 UPDATE 白名單擋住:該欄不在任何 edge 的可寫清單裡),
+  --    本條都不會再響。⇒ 「這張工單的交易編號永遠等於訂單的」是**沒有被強制的**;
+  --    被強制的是「建立的那一刻相等」。要升級成前者,得在 `orders` 上另掛不可變 trigger,
+  --    那是別片的表(與 §5.6(b) 帳本那一條同一個處置)。
   IF NOT EXISTS (
        SELECT 1 FROM public.orders o
         WHERE o.id = NEW.order_id
@@ -321,17 +327,53 @@ BEGIN
       USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_insert_shipping_before_not_order_own';
   END IF;
 
+  -- ── 3.2d:這張訂單必須真的收過錢 ────────────────────────────────────────
+  -- 🔴🔴 **Fable R3 F3(2026-08-01 折入)**:整片 A7b-T 原本**一次都沒讀過**
+  --    `orders.payment_status`(grep 零命中)⇒ 一張未付款的訂單照樣建得出退款工單。
+  --    當時擋住它的是一個**推論**:「只有 `confirm_order_payment` 會寫 `tappay_rec_trade_id`,
+  --    而它在同一個 5 欄 UPDATE 裡把 `payment_status` 翻成 paid」
+  --    (`20260611120000:179` 實查屬實)。推論成立,但它跨 migration、沒有任何東西守著它 ——
+  --    哪天有人補一條「後台補填交易編號」的路徑,3.2b 就會放行一張沒收過錢的單。
+  --    ⇒ 把推論換成守門:直接讀真相欄。
+  -- 🔴 **只擋「錢從來沒有全額進來」的兩個狀態**(`unpaid` / `partiallyPaid`),
+  --    `paid` / `partiallyRefunded` / `refunded` 一律放行。**為什麼連 `refunded` 都放行**:
+  --    「全額退完之後還能不能再開工單」取決於第 3 批 worker 何時把狀態翻成 refunded
+  --    (拆成兩筆工單的全額退款,第一筆完成時就可能已經是 refunded)——
+  --    那支程式還不存在,現在把它擋掉是拿沒寫的程式當前提。
+  --    「同一筆錢不得退兩次」由 C7 / C8 / U2 / U3 / D9 baseline 承接,不靠本條。
+  --    ⇒ 這是**刻意的鬆**,登記在此;第 3 批寫 worker 時要回頭決定 `refunded` 該不該收緊。
+  -- ⚠️ **擋不住什麼**:它只證明「這張訂單的付款狀態欄不是那兩個值」,
+  --    不證明 TapPay 那一側真的有一筆可退的款(那是 E2 的 Record API baseline 的事)。
+  IF NOT EXISTS (
+       SELECT 1 FROM public.orders o
+        WHERE o.id = NEW.order_id
+          AND o.payment_status NOT IN ('unpaid', 'partiallyPaid')) THEN
+    RAISE EXCEPTION 'A7b job INSERT:該訂單的 payment_status 表示錢從未全額收進來,不得建立退款工單'
+      USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_insert_order_payment_not_captured';
+  END IF;
+
   -- ── 3.3 後代(generation > 1):必須接在「已授權重試的直接前代」之後 ──
   IF NEW.generation > 1 THEN
     -- 🔴🔴 **世代序列化鎖(關卡2 F2 + Sean 07-31 拍 Q4=A)**:先鎖 cancellation 那一列。
-    --    為什麼不能只靠下面那把「鎖最大世代列」的 FOR UPDATE:
-    --      E14(更正結案)要檢查「本世代尚無後繼」,而在 READ COMMITTED 下,
-    --      **UPDATE 只會重新讀取它自己那一列**(EvalPlanQual),
-    --      trigger 內對**其他列**的查詢仍用舊快照(PostgreSQL 官方明列的
-    --      「updating command 可能看到不一致快照」)⇒ E14 看不到剛被插入的後代。
-    --    ⇒ 兩條路徑必須搶**同一把、且與被查的列無關**的鎖 = cancellation 列本身。
-    --    ⇒ 取得鎖之後的每一個查詢都是新 statement ⇒ READ COMMITTED 下拿到新快照。
-    --    鎖序固定:**先 order_cancellations、後 order_refund_jobs**(避免與 E14 互鎖)。
+    --    原本寫的理由(逐字):「E14 要檢查『本世代尚無後繼』,而 READ COMMITTED 下 UPDATE
+    --    只會重新讀取自己那一列,trigger 內對其他列的查詢仍用舊快照 ⇒ 看不到剛插入的後代
+    --    ⇒ 兩條路徑必須搶同一把、與被查的列無關的鎖」。
+    -- 🔴🔴 **2026-08-01 三輪反事實實跑推翻了「這把鎖是那條競速的防護」這個歸屬**
+    --    (`scripts/a7bt-negative-state.sh` §9b,獨立資料庫 + barrier + md5 證明突變已套上):
+    --      ① 兩把鎖都在 ⇒ E14 紅在 `a7bt_e14_successor_exists`、零孤兒
+    --      ② **只拿掉本行 ⇒ 結果一模一樣**(仍被擋、仍紅在同一條、仍零孤兒)
+    --      ③ 連下面那把「鎖最大世代列」也拿掉 ⇒ E14 成功、**孤兒真的產生**
+    --    ⇒ 承重的是**下面那把 FOR UPDATE**:它鎖的正是 gen(N) 那一列,而 E14 的 UPDATE
+    --      目標也是同一列 ⇒ E14 在取自己的列鎖時就被擋住;解鎖後 trigger 內的查詢是
+    --      **新 statement**,READ COMMITTED 下取得新快照 ⇒ 看得到剛提交的後代。
+    -- ⇒ 本行**不是死碼**(break-glass 下守門被 DISABLE、以及其他未測形狀時它是另一層),
+    --    但**不得再被記成那條競速的防護** —— 那正是本線一直在抓的「功勞記錯層」。
+    -- ⚠️ **已知、未解、已登記**:E14 路徑的實際取鎖順序與本路徑**相反**
+    --    (UPDATE 先鎖 order_refund_jobs 那一列,trigger 才鎖 order_cancellations;
+    --     本路徑則是先 cancellations 後 jobs)⇒ 理論上存在互鎖窗。
+    --    後果是 PostgreSQL 偵測到並中止其中一方(錯誤訊息,不是錢的錯誤)⇒ 不擋本片,
+    --    但第 3 批 worker 片之前要決定 E14 要不要改成先鎖 cancellations。
+    --    ⇒ 「鎖序固定、不會互鎖」這句舊字面**已作廢**,不要再引用。
     PERFORM 1 FROM public.order_cancellations WHERE id = NEW.cancellation_id FOR UPDATE;
 
     -- 鎖住該取消的最大世代列。
@@ -1015,6 +1057,14 @@ BEGIN
     --      本函式永遠不會再被觸發 ⇒ 「退款 ≤ 取消」從此失配而無人發現。
     --    ⇒ 取消明細任何變動,都要把**該訂單所有退款工單**重驗一次
     --      (不只該張取消單 —— C7 是跨取消單的累計,改 A 單會影響 B 單的餘額)。
+    -- ⚠️ **已知後果,刻意接受(Fable R3 F14)**:「所有工單」包含**早已 completed 的歷史工單**,
+    --    而重驗用的是**當下**的 `order_items` / `order_cancellation_items`
+    --    ⇒ 日後任何對 `order_items.quantity` 的合法改動(例如換貨、補開品項),
+    --      會讓一個**新的取消動作**紅在一張早就結清、與這次改動無關的退款單上。
+    --    症狀難懂(錯誤訊息指向舊 job id),但方向是 fail-closed —— 它擋下的那一刻,
+    --    「退款總量 ≤ 客人買的量」這條不變式確實已經不成立了。
+    --    ⇒ 不改成「只驗未結案的工單」:那等於把 ④ 那個洞重新打開(結案後回頭改取消明細)。
+    --    ⇒ 真的撞上時走 break-glass(暫時 DISABLE 本 trigger),不是放寬本條。
     SELECT coalesce(array_agg(j.id), ARRAY[]::uuid[]) INTO v_job_ids
       FROM public.order_refund_jobs j
      WHERE j.order_id = coalesce(NEW.order_id, OLD.order_id);
@@ -1049,8 +1099,31 @@ BEGIN
     --    🔴 **鎖序**:本函式在 DEFERRED 階段執行 ⇒ 一律晚於 BEFORE INSERT 守門的
     --      `order_cancellations … FOR UPDATE`。全套程式碼只有這兩把鎖,順序恆為
     --      「cancellations 列鎖 → 本 advisory 鎖」⇒ 不構成互鎖環。
+    --    ⚠️ **這段論證的測試覆蓋要說清楚(Fable R3 F12)**:本片**每一條負測**都用
+    --      `SET CONSTRAINTS ALL IMMEDIATE` 把 DEFERRED 逼到交易中段跑
+    --      ⇒ 那些案例跑的取鎖順序與正式站(COMMIT 時才跑)**不同**,證明不了上面這句。
+    --      真正跑在正式站順序上的只有 §7.4-6 / §9b 那幾輪併發(它們的 session 直接 COMMIT、
+    --      沒有 SET CONSTRAINTS)⇒ 「不構成互鎖環」目前的證據只有那幾個形狀,不是全稱。
+    --    ⚠️ 本 PERFORM 在 FOREACH 迴圈內(Fable R3 F13):同一筆交易重複取同一把 advisory
+    --      鎖是**可重入計數**、不是等待,語意無誤;維持迴圈內是為了讓 order_id 由該 job 決定。
     --    ⚠️ 擋不住什麼:別的 session 若不經本 trigger 寫入(replica 模式 / 直接改 catalog),
     --      這把鎖與其餘所有守門一樣無效 —— 那是 owner 權限層的威脅模型,不在此處。
+    -- 🔴🔴 **隔離級 fail-closed 閘(Fable R3 F11;2026-08-01 折入)**:
+    --    上面那整段論證的**前提**是 READ COMMITTED —— 取得 advisory 鎖之後的每一個查詢
+    --    都是新 statement、因此拿到新快照,才看得見對手剛提交的列。
+    --    在 REPEATABLE READ / SERIALIZABLE 下,整筆交易共用**一個**快照
+    --    ⇒ 拿到鎖也看不見對手 ⇒ 兩邊各自加總都合法、落地後總和超額,
+    --      而 advisory 鎖會讓這件事**看起來**被保護著 = 最糟的組合。
+    --    ⇒ 前提不成立就當場轉紅,不在未驗證的隔離級下宣稱自己有序列化。
+    -- 🔴 SERIALIZABLE 其實有 SSI、理論上更安全,但本片**沒有任何測試跑在那個隔離級**,
+    --    而「沒被測過的更安全」不是可以拿來放行的理由 ⇒ 一併擋,由呼叫端顯式改用 READ COMMITTED。
+    IF current_setting('transaction_isolation') <> 'read committed' THEN
+      RAISE EXCEPTION
+        'A7b 主從一致:本函式的序列化論證只在 READ COMMITTED 下成立,當下隔離級是 %',
+        current_setting('transaction_isolation')
+        USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_isolation_not_read_committed';
+    END IF;
+
     PERFORM pg_advisory_xact_lock(hashtext('a7bt_order:' || v_job.order_id::text));
 
     -- ── C1:每個 job 至少一列明細 ──
@@ -1192,6 +1265,12 @@ BEGIN
     -- 🔴 **為什麼不能讀 A1 的 `order_item_quantity_summary`**:那是 A4a **惰性建立**的衍生快取,
     --    列不存在時 `COALESCE(…,0)` 會把「我不知道」翻譯成 0 ⇒ 守門靜默誤擋或誤放。
     --    `order_items.quantity` 是真相表、NOT NULL,直接讀它。
+    -- 🔴 **這條上界的可變性(Fable R3 F4)**:`order_items.quantity` **不是不可變的**,
+    --    本 repo 沒有任何守門禁止它被 UPDATE。它被改小的那一刻,已結清的退款單就會
+    --    「回頭違反」本條 —— 由第 11 支反向 trigger 在下一次取消動作時抓到(見該處註解)。
+    --    ⚠️ **A1 即將在員工專用表放一份去正規化的 `quantity` 副本**(複合 FK 釘死)——
+    --    本條**永遠讀真相表 `order_items`,不得改讀那份副本**:副本是衍生資料,
+    --    守門讀衍生資料就會回到「快取缺失被 COALESCE 翻譯成 0」那一族的靜默放行。
     --
     -- 🔴 **世代不得重複計算**:gen1→gen2→… 是**同一筆錢的重試**,不是追加退款
     --    (後代 item set 必須逐列等於前代,見下方那條)。全部加起來會把一次重試算成兩次退款
@@ -1224,6 +1303,59 @@ BEGIN
         'A7b 主從一致:job % 讓某品項的**跨取消單累計**退款件數超過客人下單件數(C7)', v_job_id
         USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c7_cumulative_exceeds_cancelled';
     END LOOP;
+
+    -- ── C8:**跨取消單累計**退掉的運費,不得超過訂單實付的運費 ──────────────
+    -- 🔴🔴 **Fable R3 F1(2026-08-01 折入):C7 只夾件數,運費那一軸完全沒有上界。**
+    --    而 3.2c 是**強制**的:每一張取消單的工單都必須宣告
+    --    `shipping_fee_before = orders.shipping_fee`,而那個欄位**不會因為退過款而遞減**
+    --    ⇒ 第一張取消單把運費退到 0(合法)、第二張取消單再宣告一次同樣的原始運費、
+    --      再退到 0(每一格都合法)⇒ **同一筆運費退兩次**。
+    --    Fable 實測輸出逐字:「合計退款 400 / 其中運費 200,而實付運費只有 100」。
+    --    🔴 我的 3.2c 不只沒擋住這件事,**它讓這件事變成強制的** —— 綁 before 那一端
+    --      的代價就是每張取消單都會重報完整原始運費。單筆綁定不能代替跨筆累計。
+    --
+    -- 🔴 **為什麼單筆守門湊不出這一條**(= 為什麼它不是 no-op):
+    --    單一工單能退掉的運費 = `before - after` ≤ `before` = `orders.shipping_fee`
+    --    (3.2c 綁死 before、`shipping_fee_after >= 0` 是 A7b-M 的 CHECK)
+    --    ⇒ **一筆工單物理上不可能單獨違反本條**,負測必須用「≥ 2 張取消單」構造。
+    --    這正是「寫不出讓它單獨轉紅的負測就先懷疑是 no-op」那條判準的反面:
+    --    本條寫得出來(T3a 有專屬案例),所以它不是空氣。
+    --
+    -- 🔴 **上界是 `orders.shipping_fee`(客人實付的運費),不是「累計宣告的 before」**:
+    --    後者是每張取消單各報一次的同一個數字,拿它當上界等於沒有上界(與 C7 第一版
+    --    寫成「累計退款 ≤ 累計取消」是同一個錯誤形狀)。
+    --
+    -- 🔴 **世代不得重複計算**:與 C7 同 —— gen1→gen2 是同一筆錢的重試,且 3.4 強制
+    --    後代的三個運費欄逐欄等於前代 ⇒ 全部加總會把一次重試算成兩次退運費。
+    --    ⇒ 每張 cancellation 只取世代最大的那一列(`DISTINCT ON`)。
+    --
+    -- 🔴 **用 NOT EXISTS 而不是先把上界撈進變數再比**:訂單不存在時(FK 理論上保證不會,
+    --    但守門不建立在「別條約束一定在」之上)`v > NULL` 整式為 NULL ⇒ IF 不成立 ⇒
+    --    **靜默放行**。`NOT EXISTS` 在同一個情況下為 true ⇒ 轉紅 = fail-closed。
+    --    (同一族 NULL 陷阱本片已踩過數次,3.2b 的註解有逐字記錄。)
+    --
+    -- ⚠️ **擋不住什麼(誠實邊界)**:
+    --    ① 只夾**總量**,不判斷「這張取消單該不該退運費」——「退掉品項之後運費應該是多少」
+    --       要重算滿額門檻與配送方式,那是 A4a / 第 3 批的事,`shipping_fee_after`
+    --       至今仍只有代數約束(3.2c 的註解已明寫「不得宣稱已綁 after」)。
+    --    ② `shipping_delta` 為正(退品項後反而不再免運、運費上升)時本條會**減少**累計,
+    --       那是要的語意 = 「淨退回客人的運費」;而「反向多收」的方向由每筆
+    --       `refund_amount > 0` 承接,不在本條。
+    --    ③ 與 C7 一樣:錢有沒有真的出去不在本條的視野裡(那是 D7 + D9 baseline)。
+    IF NOT EXISTS (
+         SELECT 1
+           FROM public.orders o
+          WHERE o.id = v_job.order_id
+            AND (SELECT coalesce(sum(-latest.shipping_delta), 0)
+                   FROM (SELECT DISTINCT ON (j.cancellation_id) j.shipping_delta
+                           FROM public.order_refund_jobs j
+                          WHERE j.order_id = v_job.order_id
+                          ORDER BY j.cancellation_id, j.generation DESC) latest
+                ) <= o.shipping_fee) THEN
+      RAISE EXCEPTION
+        'A7b 主從一致:job % 讓**跨取消單累計**退掉的運費超過訂單實付運費(C8)', v_job_id
+        USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c8_cumulative_shipping_exceeds_order';
+    END IF;
 
     -- ── 後代 item set 必須與直接前代完全相同(plan §5.1-5)──
     -- 🔴 雙向無差集,不是只比 count:同樣的列數、不同的品項組合會通過 count 比對。
@@ -1712,9 +1844,9 @@ BEGIN
         ('pcm_a7bt_block_write',             'c98400dc1a4ee2e5683269e3926dbb81'),
         ('pcm_a7bt_block_truncate',          '5560a7dac9d1d5e8f9e9559c83893a9f'),
         ('pcm_a7bt_allowed_delta',           '1d28b7f83b078e2de23175f8c618f141'),
-        ('pcm_a7bt_jobs_before_insert',      '9771e2a26b012737b8df69406cb20617'),
+        ('pcm_a7bt_jobs_before_insert',      '3c23bdd26f7873352e11ef37d06736c6'),
         ('pcm_a7bt_jobs_before_update',      '6ce43f7499742d2e2ceb4c780f439560'),
-        ('pcm_a7bt_assert_job_consistent',   '690329ffe790b71a51b0d730c16bd3fc'),
+        ('pcm_a7bt_assert_job_consistent',   'b92b043474f40bb85257f5e42bf464ad'),
         ('pcm_a7bt_assert_job_ledger_equal', '276e7dc4d4de51932dca8bef74469c02')
       ) AS e(proname, md5)
   LOOP
