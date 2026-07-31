@@ -25,8 +25,11 @@
 //
 // 併發與快取:
 //   - `FACET_CONCURRENCY` 分批,避免 108 條同時開佔滿 PostgREST 連線、與真實商品查詢互搶。
-//   - 包 `unstable_cache`(同 `getCatalogPageCached` 慣例、900s、tag 'catalog')⇒ 同一台車
-//     **全站共用一份**,不是每位訪客各打 108 次。
+//   - 包 `unstable_cache`(同 `getCatalogPageCached` 慣例、900s、tag 'catalog')。
+//     🔴 **`unstable_cache` 不是 single-flight**(codex 關卡2 C3):同一個冷 key 同時來三個 request
+//     會三個都 miss、三個都進 callback ⇒ 瞬間 324 次 RPC。原本檔頭寫的「同一台車全站共用一份、
+//     不是每位訪客各打 108 次」**只在第一次跑完之後才成立**,已補 `inFlight` map 做 process 內
+//     single-flight;跨 process/instance 仍各一份(誠實邊界,不宣稱全站唯一)。
 //   - 任一支查詢失敗 → throw ⇒ **不進快取**(對齊 products.ts 既有紀律:一次瞬時 DB 錯誤
 //     不該把壞結果鎖 15 分鐘);外層 `fetchVehicleFacetCounts` catch 回 `null`,
 //     UI 退回「不顯示件數」= #306 之前的現況,不會顯示錯的數字。
@@ -140,6 +143,36 @@ async function mapWithLimit<T, R>(
  * 佔一個 fan-out 名額執行;滿了直接 throw(不排隊 —— 排隊只會把壓力變成延遲)。
  * 檢查與 +1 之間沒有 await ⇒ 單執行緒下不會有兩個請求同時通過檢查。
  */
+/**
+ * 單一 facet 查詢的逾時上限(毫秒)。
+ *
+ * 🔴 存在理由 = **保證名額一定歸還**(codex 關卡2 C6):`activeFanouts` 是 process 內可變狀態,
+ *   若某支 RPC 永遠不 settle,`finally` 永遠不跑 ⇒ 名額被永久佔住 ⇒ 該 process 之後**全部** 503。
+ *   DB 端雖有 statement_timeout,但那擋不住連線層卡住。
+ *   ⚠️ 這道 timeout **不會取消已經發出去的查詢**(supabase-js 需另接 `AbortSignal`,未做);
+ *   它保證的只有「本地不再等、名額歸還」,不是「DB 端也停了」——不得誇大。
+ */
+const FACET_QUERY_TIMEOUT_MS = 8000;
+
+function withTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`facet 查詢逾時 ${FACET_QUERY_TIMEOUT_MS}ms:${label}`)),
+      FACET_QUERY_TIMEOUT_MS,
+    );
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 async function withFanoutSlot<T>(run: () => Promise<T>): Promise<T> {
   if (activeFanouts >= MAX_CONCURRENT_FANOUTS) {
     throw new Error(
@@ -160,20 +193,23 @@ async function countOne(
   vehicle: FacetVehicle,
   dimension: { category?: string; brandSlug?: string },
 ): Promise<number> {
-  const { data, error } = await client.rpc('search_catalog_by_vehicle', {
-    p_brand: vehicle.brand,
-    p_model: vehicle.model ?? null,
-    p_year: vehicle.year ?? null,
-    p_offset: 0,
-    p_limit: 1,
-    p_sort: 'recommend',
-    p_category: dimension.category ?? null,
-    // 🔴 判 `!== undefined` 而非真假值:空字串的 brand slug 若退成 `null`,RPC 會**完全不過濾品牌**
-    //    ⇒ 把整台車的總件數當成那個品牌的件數(fail-open 的錯誤方向)。
-    p_brand_slugs: dimension.brandSlug !== undefined ? [dimension.brandSlug] : null,
-    p_price_min: null,
-    p_price_max: null,
-  });
+  const { data, error } = await withTimeout(
+    client.rpc('search_catalog_by_vehicle', {
+      p_brand: vehicle.brand,
+      p_model: vehicle.model ?? null,
+      p_year: vehicle.year ?? null,
+      p_offset: 0,
+      p_limit: 1,
+      p_sort: 'recommend',
+      p_category: dimension.category ?? null,
+      // 🔴 判 `!== undefined` 而非真假值:空字串的 brand slug 若退成 `null`,RPC 會**完全不過濾品牌**
+      //    ⇒ 把整台車的總件數當成那個品牌的件數(fail-open 的錯誤方向)。
+      p_brand_slugs: dimension.brandSlug !== undefined ? [dimension.brandSlug] : null,
+      p_price_min: null,
+      p_price_max: null,
+    }),
+    dimension.category ?? dimension.brandSlug ?? '(未指定維度)',
+  );
   if (error) throw new Error(error.message);
   const rows = data ?? [];
   if (rows.length === 0) return 0;
@@ -245,17 +281,35 @@ const getVehicleFacetCountsCached = unstable_cache(
  * 正式取數入口。失敗回 `null` —— 呼叫端(route handler → client)據此退回
  * 「選了車就不顯示件數」的現況,**絕不用全站總數頂替**(那正是 #306 要修掉的誤導)。
  */
+/** process 內 single-flight:同一組參數同時來多個 request 只跑一次(codex C3)。 */
+const inFlight = new Map<string, Promise<VehicleFacetCounts>>();
+
 export async function fetchVehicleFacetCounts(
   vehicle: FacetVehicle,
   categoryKeys: readonly string[],
   brandSlugs: readonly string[],
 ): Promise<VehicleFacetCounts | null> {
+  const serializedVehicle = JSON.stringify([
+    vehicle.brand,
+    vehicle.model ?? null,
+    vehicle.year ?? null,
+  ]);
+  const serializedCategoryKeys = JSON.stringify(categoryKeys);
+  const serializedBrandSlugs = JSON.stringify(brandSlugs);
+  const key = `${serializedVehicle}|${serializedCategoryKeys}|${serializedBrandSlugs}`;
   try {
-    return await getVehicleFacetCountsCached(
-      JSON.stringify([vehicle.brand, vehicle.model ?? null, vehicle.year ?? null]),
-      JSON.stringify(categoryKeys),
-      JSON.stringify(brandSlugs),
-    );
+    let pending = inFlight.get(key);
+    if (!pending) {
+      pending = getVehicleFacetCountsCached(
+        serializedVehicle,
+        serializedCategoryKeys,
+        serializedBrandSlugs,
+      ).finally(() => {
+        inFlight.delete(key);
+      });
+      inFlight.set(key, pending);
+    }
+    return await pending;
   } catch (err) {
     console.error('[fetchVehicleFacetCounts] search_catalog_by_vehicle facet fan-out failed:', err);
     return null;

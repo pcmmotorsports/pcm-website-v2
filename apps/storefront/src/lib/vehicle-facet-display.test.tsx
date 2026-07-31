@@ -125,6 +125,47 @@ describe('useVehicleFacetCounts', () => {
     await waitFor(() => expect(result.current).toEqual(COUNTS));
   });
 
+  it('🔴 A 車的 json() 在切到 B 之後才 resolve → 不得寫到 B 車上(abort 擋不住已完成的 promise)', async () => {
+    // codex 關卡2 C2:abort **不保證**撤銷「已經進入完成序列」的 promise。
+    // 原測試只用「永不 resolve 的 fetch」⇒ 這種交錯永遠測不到。
+    const A = { categories: { a: 1 }, brands: {} };
+    const B = { categories: { b: 2 }, brands: {} };
+    let resolveAJson: ((v: unknown) => void) | undefined;
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: true,
+        json: () =>
+          new Promise((resolve) => {
+            resolveAJson = resolve;
+          }),
+      }),
+    );
+    fetchMock.mockImplementationOnce(() => Promise.resolve({ ok: true, json: async () => B }));
+
+    const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
+      initialProps: { slug: 'a-car' },
+    });
+    rerender({ slug: 'b-car' });
+    await waitFor(() => expect(result.current).toEqual(B));
+
+    // A 的 json() 現在才回來(它的 .then 仍會執行)
+    resolveAJson?.(A);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(result.current).toEqual(B); // 🔴 不得被 A 蓋掉
+  });
+
+  it('換車那一幀不得掛著上一台車的數字(setState 發生在 render 之後)', async () => {
+    const A = { categories: { a: 1 }, brands: {} };
+    fetchMock.mockResolvedValue({ ok: true, json: async () => A });
+    const { result, rerender } = renderHook(({ slug }) => useVehicleFacetCounts(slug), {
+      initialProps: { slug: 'a-car' },
+    });
+    await waitFor(() => expect(result.current).toEqual(A));
+    fetchMock.mockReturnValue(new Promise(() => {}));
+    rerender({ slug: 'b-car' });
+    expect(result.current).toBeNull();
+  });
+
   it('換車時 abort 掉前一個請求(慢回應不得覆蓋新車的數字)', async () => {
     const signals: AbortSignal[] = [];
     fetchMock.mockImplementation((_url: string, init: { signal: AbortSignal }) => {

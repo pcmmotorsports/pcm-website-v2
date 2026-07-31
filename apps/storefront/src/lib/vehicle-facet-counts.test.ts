@@ -251,6 +251,25 @@ describe('fetchVehicleFacetCounts(快取包裝 + fan-out 閘)', () => {
     expect(cacheDeclarations.at(-1)?.options).toMatchObject({ revalidate: 900, tags: ['catalog'] });
   });
 
+  it('🔴 同一台車同時來多個請求 → 只跑一次 fan-out(unstable_cache 不是 single-flight)', async () => {
+    // codex 關卡2 C3:同一個冷 key 同時來三個 request,三個都 miss、都進 callback
+    // ⇒ 瞬間 324 次 RPC、第四位客人直接 503。原本的併發測試刻意用**不同** key,測不到這件事。
+    let release: (() => void) | undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    rpc.mockImplementation(() => blocked.then(() => ({ data: [{ item: {}, total: 1 }], error: null })));
+
+    const same = () => fetchVehicleFacetCounts({ brand: 'SAME' }, ['a', 'b'], ['c']);
+    const all = [same(), same(), same()];
+    release?.();
+    const results = await Promise.all(all);
+
+    expect(results.every((r) => r !== null)).toBe(true);
+    // 三個請求 × 3 個 facet = 9 次;single-flight 之下只該有 3 次
+    expect(rpc.mock.calls.length).toBe(3);
+  });
+
   it('同時進行的 fan-out 超過上限 → 拒絕(回 null 讓 route 回 503),名額用完會歸還', async () => {
     let release: (() => void) | undefined;
     const blocked = new Promise<void>((resolve) => {

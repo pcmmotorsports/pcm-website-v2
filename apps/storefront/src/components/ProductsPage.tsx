@@ -50,7 +50,7 @@ import { HomeFooter } from './HomeFooter';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { FilterSide } from './FilterSide';
 import { ProductsMobileControls } from './ProductsMobileControls';
-import { useVehicleFacetCounts, makeFacetCountResolver } from '@/lib/vehicle-facet-display';
+import { useFacetCountResolver } from '@/lib/vehicle-facet-display';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
@@ -232,19 +232,10 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // V-1a:第三參數=還原窗口守衛對照表(與 useDeepLinkRestore 同源;memo 穩定 identity 免 effect 空轉)
   const restoreSources = useMemo(() => ({ categories, productBrands: brands }), [categories, brands]);
   useCatalogFilterUrlSync(cascade, extras, restoreSources);
-  // #306-b:選好車就把「這台車的各分類 / 各品牌件數」抓回來(Sean Q3=A 桌機手機同一套)。
-  // 🔴 輸入取 URL 的 ?vehicle= 而非 cascade:商品列表的件數就是 server 依同一個字串算的
-  //    ⇒ 面板數字與點進去的件數才有結構性保證(詳 lib/vehicle-facet-display.tsx 檔頭)。
-  const vehicleSlug = searchParams.get('vehicle');
-  const facetCounts = useVehicleFacetCounts(vehicleSlug);
-  // 🔴 審查 M1:「有沒有車」也必須看 URL,**不能看 cascade.vehicle** —— 後者是 post-hydration
-  //    才由 useDeepLinkRestore 還原的。深連結 / 首頁選車進站時,SSR 與整段 hydration 期間
-  //    cascade 還是空的,用它判斷會先閃一次全站數(2130 配 198 件列表)= #306 的病灶本身。
-  //    resolver 在這裡建一次、下傳兩端,兩個面板不各自判斷(免得又長出第二套時間軸)。
-  const countOf = useMemo(
-    () => makeFacetCountResolver(vehicleSlug !== null, facetCounts),
-    [vehicleSlug, facetCounts],
-  );
+  // #306:URL → 件數 → resolver(整條在 lib/vehicle-facet-display 的 useFacetCountResolver;
+  //   抽出去的理由 = 鐵則 6,本檔曾一度到 405 行)。輸入只認 URL、不看 cascade:後者要等
+  //   hydration 才還原,用它判斷會在深連結進站時先閃一次全站數。
+  const countOf = useFacetCountResolver(searchParams);
 
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。

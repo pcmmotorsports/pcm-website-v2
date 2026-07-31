@@ -92,8 +92,12 @@ describe('GET /api/catalog/facet-counts', () => {
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error });
     expect(res.headers.get('Cache-Control')).toBe('no-store');
-    // 🔴 節流的重點不是回 400,是「沒有打到 DB」
+    // 🔴 節流的重點不是回 400,是「沒有打到 DB」——**每一個來源都要斷言**。
+    //    原本只斷言 fetchVehicleFacetCounts(codex 關卡2 C5:測試名寫「完全不查 DB」但只驗了一支,
+    //    而分類與品牌其實在驗證前就被並行讀掉了、品牌那支當時還沒有快取)。
     expect(fetchVehicleFacetCounts).not.toHaveBeenCalled();
+    expect(fetchCategories).not.toHaveBeenCalled();
+    expect(fetchCatalogBrandTaxonomy).not.toHaveBeenCalled();
   });
 
   it('取數失敗 → 503,不回任何數字讓 client 頂替', async () => {

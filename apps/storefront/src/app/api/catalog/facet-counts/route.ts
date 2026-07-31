@@ -58,31 +58,23 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'invalid_vehicle' }, { status: 400, headers: NO_STORE });
   }
 
-  // 🔴 這三支「看起來」都自己 catch 掉了,但它們的 `createSupabaseAnonClient()` 寫在 try **外面**
-  //    (`products.ts` 的 fetchCatalogBrandTaxonomy / fetchProductsByVehicle)⇒ 環境變數缺漏時
-  //    是**未捕捉的 throw**,會直接變成 500、繞過下面那道 503 守門。2026-07-31 在沒有憑證的
-  //    worktree 實跑到:`Error: NEXT_PUBLIC_SUPABASE_URL not set` → 本 route 回 500。
-  //    ⇒ 這裡自己再包一層,任何形式的上游失敗都收斂成同一個 503(client 只認 2xx,行為一致)。
-  let taxonomies;
+  // 🔴 **先只讀車輛字典、驗完三道白名單,才去讀分類與品牌**(codex 關卡2 C5):
+  //    原本三支並行讀 ⇒ 任何「形狀合法但不存在」的車款都能反覆觸發全站品牌聚合,
+  //    白名單擋得住 fan-out、擋不住這兩支。
+  // 🔴 這幾支「看起來」都自己 catch 掉了,但它們的 `createSupabaseAnonClient()` 寫在 try **外面**
+  //    (`products.ts`)⇒ 環境變數缺漏時是**未捕捉的 throw**、直接 500、繞過 503 守門
+  //    (2026-07-31 在沒有憑證的 worktree 實跑到 `NEXT_PUBLIC_SUPABASE_URL not set`)。
+  let motoBrands: Awaited<ReturnType<typeof fetchVehicleTaxonomy>>;
   try {
-    taxonomies = await Promise.all([
-      fetchVehicleTaxonomy(),
-      fetchCategories(),
-      fetchCatalogBrandTaxonomy(),
-    ]);
+    motoBrands = await fetchVehicleTaxonomy();
   } catch (err) {
-    console.error('[facet-counts] 上游 taxonomy 讀取 throw:', err);
+    console.error('[facet-counts] 車輛字典讀取 throw:', err);
     return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
   }
-  const [motoBrands, categories, brands] = taxonomies;
-  // 🔴 吞錯回 `[]` 的那一半:空陣列必須當「查不到」處理,而且要排在白名單比對**之前**:
-  //    否則車輛字典失敗會被回報成 400 unknown_vehicle(永久錯誤語意),client 不知道該重試。
-  if (motoBrands.length === 0 || categories.length === 0 || brands.length === 0) {
-    console.error('[facet-counts] 上游 taxonomy 為空(視為讀取失敗):', {
-      motoBrands: motoBrands.length,
-      categories: categories.length,
-      brands: brands.length,
-    });
+  // 空陣列 = 這次讀不到(三支上游都吞錯回 `[]`),必須排在白名單比對**之前**:
+  // 否則會被回報成 400 unknown_vehicle(永久錯誤語意)、client 不知道該重試。
+  if (motoBrands.length === 0) {
+    console.error('[facet-counts] 車輛字典為空(視為讀取失敗)');
     return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
   }
 
@@ -108,6 +100,22 @@ export async function GET(request: Request) {
     if (vehicle.year === undefined || !years.includes(vehicle.year)) {
       return NextResponse.json({ error: 'unknown_year' }, { status: 400, headers: NO_STORE });
     }
+  }
+
+  // 車輛確定合法之後,才讀分類與品牌(兩者都是全站聚合、都已包 900s + catalog tag)
+  let categories, brands;
+  try {
+    [categories, brands] = await Promise.all([fetchCategories(), fetchCatalogBrandTaxonomy()]);
+  } catch (err) {
+    console.error('[facet-counts] 分類 / 品牌 taxonomy 讀取 throw:', err);
+    return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
+  }
+  if (categories.length === 0 || brands.length === 0) {
+    console.error('[facet-counts] 分類 / 品牌 taxonomy 為空(視為讀取失敗):', {
+      categories: categories.length,
+      brands: brands.length,
+    });
+    return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
   }
 
   const counts = await fetchVehicleFacetCounts(
