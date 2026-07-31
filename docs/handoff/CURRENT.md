@@ -66,16 +66,19 @@
 > ⚠️ 誠實邊界:本機 PG17.10 非 Supabase、`auth.uid()` 是 shim;`create_order` 的 fixture 是造的 = **煙霧測試**。
 > **零 TapPay 接觸面、零金額欄位改動。**
 >
-> 🛑 **A7b 現況(2026-07-31 早上)—— 接手入口 = `docs/handoff/2026-07-31-a7b-refund-jobs-handoff.md`**
-> plan **v2** 已 commit(依 Sean 四拍板 + 關卡1 R1 的約 35 條全折入);
-> **關卡1 R2 仍 FAIL(18 must-fix + 4 nit)**,findings 逐字 = `docs/reviews/2026-07-31-e10-a7b-k1r2-codex.md`。
-> ✅ **Sean 2026-07-31 早上拍板:繼續折(A 案)**,不縮範圍、不擱置;並拍板**換新視窗接手**。
-> 🔴 **R2 最重的一條 = 我的修法讓合法路徑變成不可能**:原子消耗要求前代「已結案」才可消耗,
-> 而我同時規定「已結案不准再改」⇒ 那個消耗動作被自己的守門擋下 ⇒ **合法的第二次退款開不了**。
-> 🔴 另外兩條我自己認的:**又用了 locale-dependent 的字元範圍 `[0-9a-f]`**(#305 的同款寫法);
-> **master plan 只在 row 25 前面加更正、尾巴舊字面還在**(結案 token CAS、四道唯一性、DAG 仍單一 A7b)
-> ⇒ 今晚第二次犯「只改碰到的行」。
-> **下一步**:①把 R2 落檔(已完成)②重新設計原子消耗 ③折其餘 17 條 ④**R3 換角度或換模型**。
+> 🛑 **A7b 現況(2026-07-31 下午)—— 接手入口 = `docs/specs/2026-07-31-e10-a7b-refund-jobs-plan.md` **v3**;
+> 早上那份 handoff(`docs/handoff/2026-07-31-a7b-refund-jobs-handoff.md`)的「下一步 1-3」已全部做完、僅剩第 4 步**
+> plan **v3** 已 commit:關卡1 **R1(35 must-fix)+ R2(18 must-fix + 4 nit)全折入,駁回 0、改採不同修法 1**。
+> findings 逐字:R1 = `docs/reviews/2026-07-31-e10-a7b-k1-codex.md`、R2 = `…-k1r2-codex.md`。
+> ✅ **Sean 2026-07-31 早上拍板:繼續折(A 案)**,不縮範圍、不擱置。
+> 🔴 **R2 最重的一條(原子消耗死結)的解法與 codex 建議不同** —— v3 §3.3:
+> **`retry_consumed_at` 欄整個刪除**。它是「後繼列存在」的抄本,零額外防護
+> (U1 + 直接前代規則已嚴格蘊含「一代最多一個後繼」),而戳它必須 UPDATE 一列已複核的 dead
+> ⇒ 與「已複核 dead 永久凍結」互斥。codex 建議的 AFTER INSERT 補丁能繞開死結,
+> 但代價是打破那條不變式、換來零額外防護。
+> 🔴 **v3 另有 D2-D5 四個設計改動推翻 master row 25 既有字面**(見 v3 §0b)—— **需 Sean 知情,擋 apply 不擋寫 code**。
+> ✅ **master plan 本輪逐字重寫**(DAG / 軸矩陣 / row 25 尾巴的 token CAS 與唯一性計數),不靠段首「以下作廢」覆蓋。
+> **下一步**:①②③已完成 → ④ **關卡1 R3:換角度 + 換模型**(Sean 紀律:第 3 輪起同模型會在同一框架內找更細的問題)。
 >
 > ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
 
