@@ -15,6 +15,7 @@ import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-stat
 import { MOCK_MOTO_BRANDS } from '../data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '../data/mock-categories';
 import { MOCK_BRANDS } from '../data/mock-brands';
+import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 
 const data: FilterDrawerData = {
   motoBrands: MOCK_MOTO_BRANDS,
@@ -29,14 +30,21 @@ function Harness({
   resultCount = 128,
   scope,
   initialTab,
+  vehicle,
+  facetCounts,
 }: {
   open: boolean;
   onClose?: () => void;
   resultCount?: number;
   scope?: 'all' | 'category' | 'product';
   initialTab?: 'vehicle' | 'category' | 'brand' | 'price' | 'color' | 'other';
+  vehicle?: boolean;
+  facetCounts?: VehicleFacetCounts | null;
 }) {
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const [base, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const cascade = vehicle
+    ? { ...base, vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } }
+    : base;
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   return (
     <FilterDrawer
@@ -50,6 +58,7 @@ function Harness({
       dispatch={dispatch}
       extras={extras}
       setExtras={setExtras}
+      facetCounts={facetCounts ?? null}
     />
   );
 }
@@ -155,5 +164,45 @@ describe('FilterDrawer scope(ADR-0007 責任分離)', () => {
     // 面板標題字面須是分類、不是「篩選條件」(否則客人以為按了會清掉全部)
     expect(screen.getByText('選擇商品分類')).toBeTruthy();
     expect(screen.queryByText('篩選條件')).toBeNull();
+  });
+});
+
+// #306:件數跟著所選車款走(手機抽屜側;桌機側欄的對應測試在 FilterSide.test.tsx)。
+describe('FilterDrawer 件數(手機抽屜)', () => {
+  const counts = (c: HTMLElement) => c.querySelectorAll('.fd-row-count').length;
+
+  it('未選車 → 分類件數照常顯示', () => {
+    const { container } = render(<Harness open scope="category" />);
+    expect(counts(container)).toBeGreaterThan(0);
+  });
+
+  it('已選車但件數還沒回來 → 不顯示(不得用全站數頂替)', () => {
+    const { container } = render(<Harness open scope="category" vehicle />);
+    expect(counts(container)).toBe(0);
+    expect(container.querySelectorAll('.fd-row').length).toBeGreaterThan(0);
+  });
+
+  it('已選車且件數回來了 → 顯示真實件數,0 件灰掉且點不下去', () => {
+    const first = data.categories[0]!;
+    const second = data.categories[1]!;
+    const { container } = render(
+      <Harness
+        open
+        scope="category"
+        vehicle
+        facetCounts={{ categories: { [first.name]: 9, [second.name]: 0 }, brands: {} }}
+      />,
+    );
+    const shown = Array.from(container.querySelectorAll('.fd-row-count')).map((el) => el.textContent);
+    expect(shown).toContain('9');
+    expect(shown).not.toContain(String(first.count));
+
+    const rowOf = (name: string) =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>('.fd-row')).find((el) =>
+        el.textContent?.includes(name),
+      );
+    expect(rowOf(first.name)?.disabled).toBe(false);
+    expect(rowOf(second.name)?.disabled).toBe(true);
+    expect(rowOf(second.name)?.className).toContain('is-empty');
   });
 });

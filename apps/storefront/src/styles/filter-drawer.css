@@ -201,6 +201,15 @@
 .fd-row.is-active svg { color: var(--c-text); }
 .fd-row-count { font-size: 12px; color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 
+/* #306 Sean Q2=A:所選車款在這個分類 / 品牌 0 件 → 灰掉且點不下去(手機側,同 filter-side.css)。 */
+.fd-row.is-empty,
+.fd-cbx.is-empty {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.fd-row.is-empty:hover,
+.fd-cbx.is-empty:hover { background: transparent; }
+
 .fd-search {
   display: flex;
   align-items: center;

@@ -14,6 +14,7 @@ import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-stat
 import { MOCK_MOTO_BRANDS } from '../data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '../data/mock-categories';
 import { MOCK_BRANDS } from '../data/mock-brands';
+import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 
 const data: FilterSideData = {
   motoBrands: MOCK_MOTO_BRANDS,
@@ -22,7 +23,15 @@ const data: FilterSideData = {
 };
 
 // controlled FilterSide 的宿主模擬 — 持 cascade reducer + extras state。
-function Harness({ hideVehicle, vehicle }: { hideVehicle?: boolean; vehicle?: boolean }) {
+function Harness({
+  hideVehicle,
+  vehicle,
+  facetCounts,
+}: {
+  hideVehicle?: boolean;
+  vehicle?: boolean;
+  facetCounts?: VehicleFacetCounts | null;
+}) {
   const [base, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   // 已選車態:直接組出 cascade(不依賴 UI 流程,測的是「有車 vs 沒車」這一個變數)
   const cascade = vehicle ? { ...base, vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } } : base;
@@ -30,6 +39,7 @@ function Harness({ hideVehicle, vehicle }: { hideVehicle?: boolean; vehicle?: bo
   return (
     <FilterSide
       data={data}
+      facetCounts={facetCounts ?? null}
       hideVehicle={hideVehicle}
       cascade={cascade}
       dispatch={dispatch}
@@ -146,11 +156,9 @@ describe('FilterSide', () => {
   });
 });
 
-// Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,那都不要」+「包含桌機也是」。
-// 分類件數(`listCategories()`)與品牌件數(`catalog_brand_counts()`)都不吃車輛參數 ⇒ 選車後是錯的。
-// 🔴 兩個方向都測:未選車必須**還在**(全站數=實際數),選車後必須**全部消失**。
-//    只測一半的話「乾脆全部拿掉」也會是綠的。
-describe('FilterSide 件數在選車後隱藏(桌機側欄)', () => {
+// #306:件數跟著所選車款走。三態都要測,只測一半的話「乾脆全部拿掉」也會是綠的:
+//   ①未選車 = 全站數照常顯示 ②選了車但件數還沒回來 = 不顯示(不給錯的)③件數回來了 = 真實件數。
+describe('FilterSide 件數(桌機側欄)', () => {
   const counts = (c: HTMLElement) =>
     c.querySelectorAll('.fs-tree-count, .fs-cbx-count').length;
 
@@ -160,12 +168,58 @@ describe('FilterSide 件數在選車後隱藏(桌機側欄)', () => {
     expect(counts(container)).toBeGreaterThan(0);
   });
 
-  it('已選車 → 分類與品牌件數一律不顯示(項目本身仍在)', () => {
+  it('已選車但件數還沒回來 → 一律不顯示(項目本身仍在;不得用全站數頂替)', () => {
     const { container } = render(<Harness vehicle />);
     fireEvent.click(screen.getByText('品牌'));
     expect(counts(container)).toBe(0);
     // 只拿掉數字、不拿掉可選項
     expect(container.querySelectorAll('.fs-tree-row').length).toBeGreaterThan(0);
     expect(container.querySelectorAll('.fs-cbx-row').length).toBeGreaterThan(0);
+  });
+
+  it('已選車且件數回來了 → 顯示該車真實件數,0 件灰掉且點不下去', () => {
+    const first = MOCK_CATEGORIES[0]!;
+    const second = MOCK_CATEGORIES[1]!;
+    const brand = MOCK_BRANDS[0]!;
+    const { container } = render(
+      <Harness
+        vehicle
+        facetCounts={{
+          categories: { [first.name]: 7, [second.name]: 0 },
+          brands: { [brand.id]: 0 },
+        }}
+      />,
+    );
+    fireEvent.click(screen.getByText('品牌'));
+
+    // 🔴 顯示的是車款件數,不是 server 帶下來的全站數
+    const shown = Array.from(container.querySelectorAll('.fs-tree-count')).map((el) => el.textContent);
+    expect(shown).toContain('7');
+    expect(shown).not.toContain(String(first.count));
+
+    const rowOf = (name: string) =>
+      Array.from(container.querySelectorAll<HTMLButtonElement>('.fs-tree-row')).find(
+        (el) => el.textContent?.includes(name),
+      );
+    expect(rowOf(first.name)?.disabled).toBe(false);
+    // 0 件 → 灰掉且停用(Sean Q2=A:點進去只會是空頁)
+    expect(rowOf(second.name)?.disabled).toBe(true);
+    expect(rowOf(second.name)?.className).toContain('is-empty');
+
+    const brandRow = Array.from(container.querySelectorAll('.fs-cbx-row')).find((el) =>
+      el.textContent?.includes(brand.name),
+    );
+    expect(brandRow?.className).toContain('is-empty');
+    expect(brandRow?.querySelector<HTMLInputElement>('input')?.disabled).toBe(true);
+  });
+
+  it('件數回來了但沒有這個分類的 key → 不顯示,不得當成 0 件灰掉', () => {
+    const first = MOCK_CATEGORIES[0]!;
+    const { container } = render(<Harness vehicle facetCounts={{ categories: {}, brands: {} }} />);
+    const rowOf = Array.from(container.querySelectorAll<HTMLButtonElement>('.fs-tree-row')).find(
+      (el) => el.textContent?.includes(first.name),
+    );
+    expect(counts(container)).toBe(0);
+    expect(rowOf?.disabled).toBe(false); // 「算不出來」≠「沒有商品」
   });
 });

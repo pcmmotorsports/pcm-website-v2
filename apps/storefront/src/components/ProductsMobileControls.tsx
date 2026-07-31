@@ -25,6 +25,7 @@ import { SORT_OPTIONS, sortLabel } from '@/lib/sort-options';
 import type { ProductExtraFilters } from './filter-state';
 import type { FilterTopData } from './FilterTop';
 import { FilterDrawer } from './FilterDrawer';
+import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 import { MobileVehicleSheet } from './MobileVehicleSheet';
 import type { GarageChipItem } from './GarageChips';
 
@@ -40,6 +41,7 @@ export function ProductsMobileControls({
   resultCount,
   sort,
   setSort,
+  facetCounts = null,
 }: {
   data: FilterTopData;
   cascade: CascadeFilterState;
@@ -51,6 +53,8 @@ export function ProductsMobileControls({
   resultCount: number;
   sort: string;
   setSort: (value: string) => void;
+  /** #306:已選車款的各分類 / 各品牌件數;穿透給兩個 scope 的 FilterDrawer。 */
+  facetCounts?: VehicleFacetCounts | null;
 }) {
   const [panel, setPanel] = useState<Panel>(null);
   const closePanel = () => setPanel(null);
@@ -164,6 +168,7 @@ export function ProductsMobileControls({
           只是各自收在自己的 scope 裡 —— 不另建第二套分類樹或品牌清單。 */}
       {panel === 'category' && (
         <FilterDrawer
+          facetCounts={facetCounts}
           open
           onClose={closePanel}
           scope="category"
@@ -180,6 +185,7 @@ export function ProductsMobileControls({
 
       {panel === 'filter' && (
         <FilterDrawer
+          facetCounts={facetCounts}
           open
           onClose={closePanel}
           scope="product"
