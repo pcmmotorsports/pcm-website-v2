@@ -23,7 +23,15 @@
 > 合併後三綠 + `pnpm test` **3471 passed + 1 todo**;#306-a 突變 **19/19** 各紅在指定斷言。
 >
 > 🔴 **審查**:#306-a code-reviewer(opus)**FAIL 7 must-fix + 11 nit、全折入駁回 0**;
-> **#306-b 未跑 code-reviewer**(知情缺口,要補審對象 = `git show 5867546`)。
+> **#306-b 亦已補跑 = FAIL 3 must-fix + 9 nit、全折入駁回 0**(修法 `fded9bc`,合併後 3482 passed)。
+> 🔴 **M1 是客人可見的真 bug**:件數的兩個輸入分屬不同時間軸(`hasVehicle` 讀 cascade =
+> post-hydration 才還原、件數讀 URL)⇒ 深連結/首頁選車進站時 SSR 與整段 hydration 期間
+> **先閃一次全站數**(2130 配 198 件列表)。**先前的瀏覽器實測全是「等數字回來之後」才讀、
+> 從沒看過第一幀** ⇒ 修法把 resolver 收斂到 ProductsPage 建立一次(只認 URL)再下傳;
+> 證據 = SSR HTML 對照(未選車 19037 + `[2130,…]` / 選了車 198 + `[]`)。
+> 🔴 **M2**:已選中的分類 0 件時取消不掉(品牌有 `!checked` 例外、分類漏了)⇒ 已同構修正。
+> 🔴 **突變第一輪有 2 條是新測試自己假綠**(拿件數 3 的列去測 `count === 0` 分支 ⇒ 恆假)
+> ⇒ 改成注入已選中的 cascade。**同型教訓第三次。**
 > 🔴 **突變第一輪 3 條是 harness 自己假綠**(sed 樣式失配 ⇒ 沒套用卻報「沒抓到」)⇒ 已補自檢。
 > 🔴 **我自己寫錯一條註解已更正**:「allSettled 是為了避免 unhandled rejection」實測不成立
 > (`Promise.all` 本來就會對每個 promise 掛處理器);真正理由是**收乾淨**。
