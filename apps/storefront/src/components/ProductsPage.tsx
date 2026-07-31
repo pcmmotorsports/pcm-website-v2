@@ -50,7 +50,7 @@ import { HomeFooter } from './HomeFooter';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { FilterSide } from './FilterSide';
 import { ProductsMobileControls } from './ProductsMobileControls';
-import { useVehicleFacetCounts } from '@/lib/vehicle-facet-display';
+import { useVehicleFacetCounts, makeFacetCountResolver } from '@/lib/vehicle-facet-display';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
@@ -235,7 +235,16 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // #306-b:選好車就把「這台車的各分類 / 各品牌件數」抓回來(Sean Q3=A 桌機手機同一套)。
   // 🔴 輸入取 URL 的 ?vehicle= 而非 cascade:商品列表的件數就是 server 依同一個字串算的
   //    ⇒ 面板數字與點進去的件數才有結構性保證(詳 lib/vehicle-facet-display.tsx 檔頭)。
-  const facetCounts = useVehicleFacetCounts(searchParams.get('vehicle'));
+  const vehicleSlug = searchParams.get('vehicle');
+  const facetCounts = useVehicleFacetCounts(vehicleSlug);
+  // 🔴 審查 M1:「有沒有車」也必須看 URL,**不能看 cascade.vehicle** —— 後者是 post-hydration
+  //    才由 useDeepLinkRestore 還原的。深連結 / 首頁選車進站時,SSR 與整段 hydration 期間
+  //    cascade 還是空的,用它判斷會先閃一次全站數(2130 配 198 件列表)= #306 的病灶本身。
+  //    resolver 在這裡建一次、下傳兩端,兩個面板不各自判斷(免得又長出第二套時間軸)。
+  const countOf = useMemo(
+    () => makeFacetCountResolver(vehicleSlug !== null, facetCounts),
+    [vehicleSlug, facetCounts],
+  );
 
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。
@@ -278,7 +287,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           .cft-bar 在手機是 display:none,放進去會被一起關掉 = 手機沒有任何選車入口。
           守門 = ProductsPage.test.tsx「手機入口不在 .cft-bar 內」。 */}
       <ProductsMobileControls
-        facetCounts={facetCounts}
+        countOf={countOf}
         data={data}
         cascade={cascade}
         dispatch={dispatch}
@@ -301,7 +310,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             C3(接線 plan):解除 hideBrand → 品牌側欄現身(吃 buildBrandTaxonomy 動態衍生、只列有真商品品牌;
             現況單一 RPM CARBON、多品牌上架後自動長出)。 */}
         <FilterSide
-          facetCounts={facetCounts}
+          countOf={countOf}
           data={data}
           hideVehicle
           hideColor

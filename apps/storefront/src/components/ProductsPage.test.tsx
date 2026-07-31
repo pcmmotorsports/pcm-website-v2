@@ -292,3 +292,60 @@ describe('ProductsPage Q4-S5 category/brand 深連結', () => {
     expect(screen.queryByText('駐車架部品1號')).toBeNull();
   });
 });
+
+// #306-b 接線層守門(審查 M3):在本片之前,ProductsPage 傳給 FilterSide / ProductsMobileControls
+// 的四行 `countOf={countOf}` **任意刪掉都不會紅** —— 三千多條測試裡沒有任何 ProductsPage 級斷言。
+// 正中「文字層測試抓不到接線錯但長得完全正確」那條教訓,故補這一組。
+describe('ProductsPage × #306 件數接線', () => {
+  const COUNTS = { categories: { 碳纖維部品: 7 }, brands: {} };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    hoisted.search = new URLSearchParams();
+  });
+
+  it('URL 有車 → 打 facet-counts,拿回來的數字同時出現在桌機側欄與手機抽屜', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => COUNTS });
+    vi.stubGlobal('fetch', fetchMock);
+    hoisted.search = new URLSearchParams('vehicle=yamaha:mt-09:2021');
+
+    const { container } = render(
+      <ProductsPage products={FIXTURE} total={198} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    await screen.findByText('7');
+
+    expect(fetchMock.mock.calls[0]?.[0]).toContain('/api/catalog/facet-counts?vehicle=');
+    // 桌機側欄拿到了(server 帶下來的全站數 2 必須被換掉)
+    const sideCounts = Array.from(container.querySelectorAll('.fs-tree-count')).map((el) => el.textContent);
+    expect(sideCounts).toContain('7');
+    expect(sideCounts).not.toContain('2');
+    // 手機抽屜也拿到了(同一顆 resolver 下傳兩端,不是各自算)
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+    const drawerCounts = Array.from(container.querySelectorAll('.fd-row-count')).map((el) => el.textContent);
+    expect(drawerCounts).toContain('7');
+  });
+
+  it('🔴 URL 有車但件數還沒回來 → 兩端都不顯示,絕不先閃一次全站數(SSR / hydration 窗口)', () => {
+    // 永不 resolve = 停在「還沒回來」那一幀
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})));
+    hoisted.search = new URLSearchParams('vehicle=yamaha:mt-09:2021');
+
+    const { container } = render(
+      <ProductsPage products={FIXTURE} total={198} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    // cascade.vehicle 此刻仍是 null(還原是 post-hydration effect),但 URL 有車
+    // ⇒ 若用 cascade 判斷就會顯示全站數 2 = #306 的病灶本身
+    expect(container.querySelectorAll('.fs-tree-count').length).toBe(0);
+  });
+
+  it('URL 沒車 → 不打 facet-counts,照常顯示 server 帶下來的全站數', () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { container } = render(
+      <ProductsPage products={FIXTURE} total={2} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(Array.from(container.querySelectorAll('.fs-tree-count')).map((el) => el.textContent)).toContain('2');
+  });
+});

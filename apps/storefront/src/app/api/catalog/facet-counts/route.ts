@@ -63,9 +63,9 @@ export async function GET(request: Request) {
   //    是**未捕捉的 throw**,會直接變成 500、繞過下面那道 503 守門。2026-07-31 在沒有憑證的
   //    worktree 實跑到:`Error: NEXT_PUBLIC_SUPABASE_URL not set` → 本 route 回 500。
   //    ⇒ 這裡自己再包一層,任何形式的上游失敗都收斂成同一個 503(client 只認 2xx,行為一致)。
-  let motoBrands, categories, brands;
+  let taxonomies;
   try {
-    [motoBrands, categories, brands] = await Promise.all([
+    taxonomies = await Promise.all([
       fetchVehicleTaxonomy(),
       fetchCategories(),
       fetchCatalogBrandTaxonomy(),
@@ -74,6 +74,7 @@ export async function GET(request: Request) {
     console.error('[facet-counts] 上游 taxonomy 讀取 throw:', err);
     return NextResponse.json({ error: 'taxonomy_unavailable' }, { status: 503, headers: NO_STORE });
   }
+  const [motoBrands, categories, brands] = taxonomies;
   // 🔴 吞錯回 `[]` 的那一半:空陣列必須當「查不到」處理,而且要排在白名單比對**之前**:
   //    否則車輛字典失敗會被回報成 400 unknown_vehicle(永久錯誤語意),client 不知道該重試。
   if (motoBrands.length === 0 || categories.length === 0 || brands.length === 0) {

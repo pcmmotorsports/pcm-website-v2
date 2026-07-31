@@ -15,7 +15,7 @@ import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-stat
 import { MOCK_MOTO_BRANDS } from '../data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '../data/mock-categories';
 import { MOCK_BRANDS } from '../data/mock-brands';
-import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
+import { makeFacetCountResolver, type VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 
 const data: FilterDrawerData = {
   motoBrands: MOCK_MOTO_BRANDS,
@@ -32,6 +32,7 @@ function Harness({
   initialTab,
   vehicle,
   facetCounts,
+  selectedCategory,
 }: {
   open: boolean;
   onClose?: () => void;
@@ -40,11 +41,15 @@ function Harness({
   initialTab?: 'vehicle' | 'category' | 'brand' | 'price' | 'color' | 'other';
   vehicle?: boolean;
   facetCounts?: VehicleFacetCounts | null;
+  /** 直接注入「已選中的分類」——用點擊模擬會進到子類視圖、量不到同一顆按鈕。 */
+  selectedCategory?: { mainId: string; main: string };
 }) {
   const [base, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  const cascade = vehicle
-    ? { ...base, vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } }
-    : base;
+  const cascade = {
+    ...base,
+    ...(vehicle ? { vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } } : {}),
+    ...(selectedCategory ? { category: selectedCategory } : {}),
+  };
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   return (
     <FilterDrawer
@@ -58,7 +63,7 @@ function Harness({
       dispatch={dispatch}
       extras={extras}
       setExtras={setExtras}
-      facetCounts={facetCounts ?? null}
+      countOf={makeFacetCountResolver(Boolean(vehicle), facetCounts ?? null)}
     />
   );
 }
@@ -204,5 +209,38 @@ describe('FilterDrawer 件數(手機抽屜)', () => {
     expect(rowOf(first.name)?.disabled).toBe(false);
     expect(rowOf(second.name)?.disabled).toBe(true);
     expect(rowOf(second.name)?.className).toContain('is-empty');
+  });
+});
+
+describe('FilterDrawer 0 件但已選中 → 留活口', () => {
+  const rowOf = (root: HTMLElement, name: string) =>
+    Array.from(root.querySelectorAll<HTMLButtonElement>('.fd-row')).find((el) =>
+      el.textContent?.includes(name),
+    )!;
+
+  it('0 件且未選中 → 灰掉且停用', () => {
+    const first = data.categories[0]!;
+    const { container } = render(
+      <Harness open scope="category" vehicle facetCounts={{ categories: { [first.name]: 0 }, brands: {} }} />,
+    );
+    expect(rowOf(container, first.name).disabled).toBe(true);
+    expect(rowOf(container, first.name).className).toContain('is-empty');
+  });
+
+  it('🔴 0 件但**已選中** → 必須留活口(手機抽屜是全屏遮罩,取消不掉就卡死)', () => {
+    const first = data.categories[0]!;
+    const { container } = render(
+      <Harness
+        open
+        scope="category"
+        vehicle
+        selectedCategory={{ mainId: first.id, main: first.name }}
+        facetCounts={{ categories: { [first.name]: 0 }, brands: {} }}
+      />,
+    );
+    const row = rowOf(container, first.name);
+    expect(row.disabled).toBe(false);
+    expect(row.className).not.toContain('is-empty');
+    expect(row.className).toContain('is-active');
   });
 });
