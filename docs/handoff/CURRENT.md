@@ -76,9 +76,17 @@
 > (U1 + 直接前代規則已嚴格蘊含「一代最多一個後繼」),而戳它必須 UPDATE 一列已複核的 dead
 > ⇒ 與「已複核 dead 永久凍結」互斥。codex 建議的 AFTER INSERT 補丁能繞開死結,
 > 但代價是打破那條不變式、換來零額外防護。
-> 🔴 **v3 另有 D2-D5 四個設計改動推翻 master row 25 既有字面**(見 v3 §0b)—— **需 Sean 知情,擋 apply 不擋寫 code**。
-> ✅ **master plan 本輪逐字重寫**(DAG / 軸矩陣 / row 25 尾巴的 token CAS 與唯一性計數),不靠段首「以下作廢」覆蓋。
-> **下一步**:①②③已完成 → ④ **關卡1 R3:換角度 + 換模型**(Sean 紀律:第 3 輪起同模型會在同一框架內找更細的問題)。
+> 🔴 **R3(換模型 Fable、換四個角度)= FAIL,11 must-fix + 3 nit,v4 折入 14/14**
+> (逐字 `docs/reviews/2026-07-31-e10-a7b-k1r3-fable.md`)。三輪合計 **64 must-fix + 12 nit**。
+> 🔴🔴 **R3 抓到的設計層 BLOCKER(前兩輪完全沒碰到)**:§3.3 那個證明**機械上成立,但問題選錯** ——
+> 它保證「一代一後繼」,**不保證「同一筆錢只退一次」**。一個**已被 TapPay 受理**的退款進 dead 後
+> 若被結成「授權重試」,下一代帶**全新 `bank_refund_id`**,TapPay 冪等鍵**不會擋** ⇒ 全合法路徑退兩次。
+> ⇒ **D7**:`retry_authorized` 鎖死在 `dead_reason='retry_exhausted'`(承重論證 = 該死因蘊含「六次全是明確失敗」⇒ 零金額出去)。
+> 🔴 **R3 的 11 條有 4 條是 v3 修 R2 時自己開的新洞**(E6 / E3b / E2b 三處**靜態死鎖** —— 合法路徑物理上走不通),
+> 而 v3 的 24 負測 + 2 正向**全綠**、抓不到其中任何一條 ⇒ v4 §7.4 新增**正向鏈 C/D**。
+> ✅ **master plan 每輪逐字重寫**(DAG / 軸矩陣 / row 25 尾巴),不靠段首「以下作廢」覆蓋。
+> **下一步**:① **Sean 答 v4 §14 三題**(D1-D8 採用 / break-glass 形式 / generation 上限)
+> ② 關卡1 **R4 換角度**(R3 的 WOULD-CHANGE-MY-VERDICT 四項已全部做到 ⇒ 建議回 codex 驗回歸,或再換第三個角度)。
 >
 > ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
 
