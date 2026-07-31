@@ -39,6 +39,12 @@ import {
 } from './filter-state';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
+import {
+  makeFacetCountResolver,
+  type FacetCountResolver,
+  type VehicleFacetCounts,
+} from '@/lib/vehicle-facet-display';
+import { CategoryTree } from './FilterSideCategoryTree';
 import type { MockBrand } from '@/data/mock-brands';
 
 export type FilterSideData = {
@@ -126,122 +132,31 @@ function VehicleTree({
   );
 }
 
-function CategoryTree({
-  categories,
-  category,
-  dispatch,
-  showCounts,
-}: {
-  categories: MockCategory[];
-  category: CategorySelection | null;
-  dispatch: Dispatch<CascadeFilterAction>;
-  /** 選了車時為 false —— 這些件數是全站數、不隨車款變(理由見 FilterSide 呼叫端註解)。 */
-  showCounts: boolean;
-}) {
-  const [expanded, setExpanded] = useState<string | null>(category?.mainId ?? null);
-  // Sean 2026-07-12 UX 調整②:點大類後把該分類區塊捲到側欄頂端,讓展開的子類有空間、
-  //   不再被側欄底部切掉(只捲 .fs-side 內部、不動整頁視窗;rAF 等展開 render 後再量位置)。
-  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollCategoryToTop = (id: string) => {
-    requestAnimationFrame(() => {
-      const el = rowRefs.current.get(id);
-      const container = el?.closest<HTMLElement>('.fs-side');
-      if (!el || !container || typeof container.scrollBy !== 'function') return;
-      const delta = el.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      container.scrollBy({ top: delta, behavior: 'smooth' });
-    });
-  };
-  return (
-    <div className="fs-tree">
-      {categories.map((c) => {
-        // Sean 2026-07-12 UX 調整①(授權 override design/#212 的獨立「全部」列):
-        //   點大類 = 直接篩「該大類全部」+ 展開子類(有的話);切到不同大類只需一次點擊。
-        //   要看子類再點子類;再點「已選且展開」的同一大類 → 取消 + 收合(toggle)。
-        const hasChildren = c.children.length > 0;
-        const isMainActive = category?.mainId === c.id && !category?.subId;
-        return (
-          <div
-            key={c.id}
-            ref={(el) => {
-              if (el) rowRefs.current.set(c.id, el);
-              else rowRefs.current.delete(c.id);
-            }}>
-            <button
-              className={`fs-tree-row fs-tree-l1 ${isMainActive ? 'is-active' : ''}`}
-              onClick={() => {
-                if (isMainActive) {
-                  // 再點已選的同一大類(顯示全部中)→ 取消篩選 + 收合
-                  dispatch(clearCategory());
-                  setExpanded(null);
-                } else {
-                  // 點大類 → 篩該大類全部;有子類則同步展開並把區塊捲進視野(切別類自動收合舊的)
-                  dispatch(selectCategoryMain(c.id, c.name));
-                  if (hasChildren) {
-                    setExpanded(c.id);
-                    scrollCategoryToTop(c.id);
-                  } else {
-                    setExpanded(null);
-                  }
-                }
-              }}>
-              {/* chevron:僅 hasChildren 才有展開語意(旋轉);childless 固定右指作 affordance,視覺細節 Sean 調 */}
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"
-                style={{ transform: hasChildren && expanded === c.id ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>
-                <path d="m9 18 6-6-6-6" />
-              </svg>
-              <span>{c.name}</span>
-              {showCounts && <span className="fs-tree-count">{c.count}</span>}
-            </button>
-            {expanded === c.id && hasChildren && (
-              <>
-                {c.children.map((s) => {
-                  const isActive = category?.subId === s.id;
-                  return (
-                    <button key={s.id}
-                      className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''}`}
-                      onClick={() => {
-                        if (isActive) {
-                          dispatch(clearCategory());
-                        } else {
-                          dispatch(selectCategoryMain(c.id, c.name));
-                          dispatch(selectCategorySub(s.id, s.name));
-                        }
-                      }}>
-                      <span>{s.name}</span>
-                      {showCounts && <span className="fs-tree-count">{s.count}</span>}
-                    </button>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function CheckboxList({
   items,
   selected,
   onToggle,
-  showCounts = true,
+  countOf,
 }: {
   items: { id: string; name: string; count?: number }[];
   selected: string[];
   onToggle: (id: string) => void;
-  showCounts?: boolean;
+  /** #306:未給 = 沿用各 item 自帶的 count(非品牌用途的呼叫端行為不變)。 */
+  countOf?: FacetCountResolver;
 }) {
   return (
     <div className="fs-cbx-list">
       {items.map((it) => {
         const checked = selected.includes(it.id);
+        const count = countOf ? countOf('brands', it.id, it.count) : it.count ?? null;
+        // 0 件的品牌一樣灰掉且點不下去(勾了只會得到空頁);已勾選的維持可操作、否則取消不掉。
+        const empty = count === 0 && !checked;
         return (
-          <label key={it.id} className={`fs-cbx-row ${checked ? 'is-checked' : ''}`}>
-            <input type="checkbox" checked={checked} onChange={() => onToggle(it.id)} />
+          <label key={it.id} className={`fs-cbx-row ${checked ? 'is-checked' : ''} ${empty ? 'is-empty' : ''}`}>
+            <input type="checkbox" checked={checked} disabled={empty} onChange={() => onToggle(it.id)} />
             <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
             <span className="fs-cbx-name">{it.name}</span>
-            {showCounts && it.count != null && <span className="fs-cbx-count">{it.count}</span>}
+            {count !== null && <span className="fs-cbx-count">{count}</span>}
           </label>
         );
       })}
@@ -295,6 +210,7 @@ export function FilterSide({
   dispatch,
   extras,
   setExtras,
+  facetCounts = null,
 }: {
   data: FilterSideData;
   hideVehicle?: boolean;
@@ -307,16 +223,15 @@ export function FilterSide({
   /** #220-B1:toUIProduct isNew/isSale 全 false、新品/特價 toggle no-op → 隱藏。僅現貨另由 #161 /
    *  SHOW_IN_STOCK_FILTER=false 關著(非本旗標控);新品/特價 + 僅現貨皆空時「其他」段整段隱藏避空殼。 */
   hidePromoFlags?: boolean;
+  /** #306:已選車款的各分類 / 各品牌件數;null = 沒選車、還沒回來、或算不出來。 */
+  facetCounts?: VehicleFacetCounts | null;
 } & CascadeControlledProps & ExtrasControlledProps) {
-  // 🔴 選了車就不顯示任何件數(Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,
-  //    那都不要」+「包含桌機也是」)。
-  //    根因:分類件數來自 `listCategories()`(`products_public` head:true exact count)、品牌件數
-  //    來自 `catalog_brand_counts()` RPC —— **兩者都不吃車輛參數**(`lib/products.ts:410-431` 等)
-  //    ⇒ 全站總數、選了車也不會變。實測:選到 198 件商品的車,分類仍顯示 2130/1824/1076。
-  //    ⇒ 選車後這些數字是錯的,寧可不給也不給錯的;未選車時全站數=實際數、照常顯示。
-  //    🟡 這是**過渡**:Sean 逐字「我最希望還是可以即刻算出來」⇒ backlog #306 做完「按車款即時
-  //    計數」後,此處應改回顯示**真實件數**,而不是繼續隱藏。
-  const showCounts = cascade.vehicle === null;
+  // #306-b:件數改成「跟著所選車款走」(Sean 逐字「我最希望還是可以即刻算出來」+「包含桌機也是」)。
+  //    ~~舊行為 = 選了車就把件數整個藏起來~~ —— 那只是「不給錯的」,不是他要的「給對的」。
+  //    現在:未選車 = 全站數(server props、零額外查詢);選了車 = `facetCounts` 的真實件數;
+  //    還沒回來或算不出來 = 不顯示(fail-safe,絕不用全站數頂替)。0 件由 `countOf` 回 0、
+  //    在 CategoryTree / CheckboxList 灰掉且停用(Sean Q2=A)。
+  const countOf = makeFacetCountResolver(cascade.vehicle !== null, facetCounts);
 
   const clearAllFilters = () => {
     dispatch(clearAll());
@@ -342,7 +257,7 @@ export function FilterSide({
             categories={data.categories}
             category={cascade.category}
             dispatch={dispatch}
-            showCounts={showCounts}
+            countOf={countOf}
           />
         </Accordion>
       )}
@@ -356,7 +271,7 @@ export function FilterSide({
             <input placeholder="搜尋品牌" />
           </div>
           <CheckboxList
-            showCounts={showCounts}
+            countOf={countOf}
             items={data.brands}
             selected={cascade.brands}
             onToggle={(id) => dispatch(toggleBrand(id))}

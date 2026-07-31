@@ -101,6 +101,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* #306 Sean Q2=A:所選車款在這個分類 0 件 → 灰掉且點不下去(點進去只會是空頁)。
+   `disabled` 已擋住點擊,這裡只負責看得出來「不是我沒點到,是真的沒有」。 */
+.fs-tree-row.is-empty,
+.fs-cbx-row.is-empty {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.fs-tree-row.is-empty:hover,
+.fs-cbx-row.is-empty:hover { background: transparent; }
+
 /* Brand search */
 .fs-brand-search {
   display: flex;

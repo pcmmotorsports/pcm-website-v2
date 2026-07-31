@@ -50,6 +50,7 @@ import { HomeFooter } from './HomeFooter';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { FilterSide } from './FilterSide';
 import { ProductsMobileControls } from './ProductsMobileControls';
+import { useVehicleFacetCounts } from '@/lib/vehicle-facet-display';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
@@ -231,6 +232,10 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // V-1a:第三參數=還原窗口守衛對照表(與 useDeepLinkRestore 同源;memo 穩定 identity 免 effect 空轉)
   const restoreSources = useMemo(() => ({ categories, productBrands: brands }), [categories, brands]);
   useCatalogFilterUrlSync(cascade, extras, restoreSources);
+  // #306-b:選好車就把「這台車的各分類 / 各品牌件數」抓回來(Sean Q3=A 桌機手機同一套)。
+  // 🔴 輸入取 URL 的 ?vehicle= 而非 cascade:商品列表的件數就是 server 依同一個字串算的
+  //    ⇒ 面板數字與點進去的件數才有結構性保證(詳 lib/vehicle-facet-display.tsx 檔頭)。
+  const facetCounts = useVehicleFacetCounts(searchParams.get('vehicle'));
 
   // P4:products 已是 server 依 URL 篩選、排序、分頁的當頁資料；禁止再在 client 對當頁二次篩選，
   // 否則會把 total/page 語意拆成兩套而造成漏項。
@@ -273,6 +278,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
           .cft-bar 在手機是 display:none,放進去會被一起關掉 = 手機沒有任何選車入口。
           守門 = ProductsPage.test.tsx「手機入口不在 .cft-bar 內」。 */}
       <ProductsMobileControls
+        facetCounts={facetCounts}
         data={data}
         cascade={cascade}
         dispatch={dispatch}
@@ -295,6 +301,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
             C3(接線 plan):解除 hideBrand → 品牌側欄現身(吃 buildBrandTaxonomy 動態衍生、只列有真商品品牌;
             現況單一 RPM CARBON、多品牌上架後自動長出)。 */}
         <FilterSide
+          facetCounts={facetCounts}
           data={data}
           hideVehicle
           hideColor

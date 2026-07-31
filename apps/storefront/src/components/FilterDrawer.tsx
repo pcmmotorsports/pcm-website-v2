@@ -51,7 +51,13 @@ import {
 } from './filter-state';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
+import {
+  makeFacetCountResolver,
+  facetCategoryKey,
+  type VehicleFacetCounts,
+} from '@/lib/vehicle-facet-display';
 import { FilterDrawerVehicleTab } from './FilterDrawerVehicleTab';
+import { FilterDrawerCategoryTab } from './FilterDrawerCategoryTab';
 import type { MockBrand } from '@/data/mock-brands';
 import type { GarageChipItem } from './GarageChips';
 
@@ -112,6 +118,7 @@ export function FilterDrawer({
   extras,
   setExtras,
   garage = [],
+  facetCounts = null,
 }: {
   open: boolean;
   onClose: () => void;
@@ -130,6 +137,8 @@ export function FilterDrawer({
   hideColor?: boolean;
   /** #220-B1:toUIProduct isNew/isSale 全 false → 隱藏新品/特價(與 #161 關著的現貨皆空時整 tab 隱藏) */
   hidePromoFlags?: boolean;
+  /** #306:已選車款的各分類 / 各品牌件數;null = 沒選車、還沒回來、或算不出來。 */
+  facetCounts?: VehicleFacetCounts | null;
 } & CascadeControlledProps & ExtrasControlledProps) {
   const [tab, setTab] = useState<DrawerTab>(
     initialTab ?? (scope === 'category' ? 'category' : scope === 'product' ? 'brand' : 'vehicle'),
@@ -174,14 +183,10 @@ export function FilterDrawer({
       : []),
   ];
   // ADR-0007:scope 白名單過濾。scope 內只剩 1 個 tab 時不渲染 tab 列(單一責任面板)。
-  // 🔴 選了車就不顯示任何件數(Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,
-  //    那都不要」;起因是他指出「品牌右側不要出現該品牌數量,因為這樣會誤會以為有這麼多商品」)。
-  //    根因:分類數來自 `listCategories()`(`products_public` head:true exact count)、品牌數來自
-  //    `catalog_brand_counts()` RPC —— **兩者都不吃任何車輛參數**(`lib/products.ts`)⇒ 全站總數、
-  //    選了車也不會變。實測:選到 198 件商品的車,分類仍顯示 2130/1824/1076。
-  //    ⇒ 選車後這些數字是**錯的**,寧可不給也不給錯的(未選車時全站數=實際數、照常顯示)。
-  //    backlog #306 要做「按車款即時計數」;做完後這裡應改為顯示真實件數,而不是繼續隱藏。
-  const showCounts = cascade.vehicle === null;
+  // #306-b:件數跟著所選車款走(Sean 逐字「我最希望還是可以即刻算出來」)。
+  //    未選車 = 全站數(server props);選了車 = 該車真實件數;還沒回來/算不出來 = 不顯示。
+  //    ~~舊行為 = 選了車就整個藏起來~~(那只是「不給錯的」、不是「給對的」)。
+  const countOf = makeFacetCountResolver(cascade.vehicle !== null, facetCounts);
   const scopeTabs = SCOPE_TABS[scope];
   const tabs = scopeTabs === null ? allTabs : allTabs.filter((t) => scopeTabs.includes(t.id));
   // 🔴 渲染哪個 panel 一律由 `tabs` 決定:`tab` state 若落在 scope 之外(例:預設值 'brand'
@@ -256,60 +261,14 @@ export function FilterDrawer({
             )}
 
             {activeTab === 'category' && (
-              <div className="fd-veh">
-                {!catMain ? (
-                  <>
-                    <div className="fd-step-label">選擇大分類</div>
-                    {data.categories.map((c) => {
-                      // Sean 2026-07-13:點大類 = 直接篩「該大類全部」(即時套用);有子類則進入細項視圖細分,
-                      //   取消原「進入後才有的『全部 {大類}』列」。切不同大類一次點擊即切換。
-                      const isMainActive = cascade.category?.mainId === c.id;
-                      const hasChildren = c.children.length > 0;
-                      return (
-                        <button key={c.id} className={`fd-row ${isMainActive ? 'is-active' : ''}`}
-                          onClick={() => {
-                            dispatch(selectCategoryMain(c.id, c.name));
-                            if (hasChildren) setCatMain(c);
-                          }}>
-                          <span>{c.name}</span>
-                          {showCounts && <span className="fd-row-count">{c.count}</span>}
-                          {hasChildren && (
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6" /></svg>
-                          )}
-                        </button>
-                      );
-                    })}
-                  </>
-                ) : (
-                  <>
-                    <button className="fd-back" onClick={() => setCatMain(null)}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6" /></svg>
-                      {catMain.name}
-                    </button>
-                    <div className="fd-step-label">選擇細項</div>
-                    {/* 「全部 {大類}」列已移除:進入本視圖前點大類時即已篩全部(Sean 2026-07-13)。 */}
-                    {catMain.children.map((s) => {
-                      const active = cascade.category?.subId === s.id;
-                      return (
-                        <button key={s.id}
-                          className={`fd-row ${active ? 'is-active' : ''}`}
-                          onClick={() => {
-                            if (active) {
-                              dispatch(clearCategory());
-                            } else {
-                              dispatch(selectCategoryMain(catMain.id, catMain.name));
-                              dispatch(selectCategorySub(s.id, s.name));
-                            }
-                          }}>
-                          <span>{s.name}</span>
-                          {showCounts && <span className="fd-row-count">{s.count}</span>}
-                          {active && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M20 6 9 17l-5-5" /></svg>}
-                        </button>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
+              <FilterDrawerCategoryTab
+                categories={data.categories}
+                cascade={cascade}
+                dispatch={dispatch}
+                countOf={countOf}
+                catMain={catMain}
+                setCatMain={setCatMain}
+              />
             )}
 
             {activeTab === 'brand' && (
@@ -320,12 +279,15 @@ export function FilterDrawer({
                 </div>
                 {data.brands.map((b) => {
                   const checked = cascade.brands.includes(b.id);
+                  const brandCount = countOf('brands', b.id, b.count);
+                  // 已勾選的維持可操作,否則取消不掉
+                  const empty = brandCount === 0 && !checked;
                   return (
-                    <label key={b.id} className={`fd-cbx ${checked ? 'is-checked' : ''}`}>
-                      <input type="checkbox" checked={checked} onChange={() => dispatch(toggleBrand(b.id))} />
+                    <label key={b.id} className={`fd-cbx ${checked ? 'is-checked' : ''} ${empty ? 'is-empty' : ''}`}>
+                      <input type="checkbox" checked={checked} disabled={empty} onChange={() => dispatch(toggleBrand(b.id))} />
                       <span className="ft-cbx"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3"><path d="M20 6 9 17l-5-5" /></svg></span>
                       <span className="fd-cbx-name">{b.name}</span>
-                      {showCounts && <span className="fd-row-count">{b.count}</span>}
+                      {brandCount !== null && <span className="fd-row-count">{brandCount}</span>}
                     </label>
                   );
                 })}

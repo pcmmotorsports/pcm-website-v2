@@ -118,6 +118,16 @@ describe('GET /api/catalog/facet-counts', () => {
     expect(fetchVehicleFacetCounts).not.toHaveBeenCalled();
   });
 
+  // 🔴 2026-07-31 實跑抓到:`fetchCatalogBrandTaxonomy` 的 `createSupabaseAnonClient()` 寫在 try
+  //    **外面** ⇒ 環境變數缺漏時是未捕捉的 throw、直接 500、繞過上面那道 503 守門。
+  it('上游 taxonomy 直接 throw(不是回空陣列)→ 一樣收斂成 503,不得變成 500', async () => {
+    fetchCatalogBrandTaxonomy.mockRejectedValue(new Error('NEXT_PUBLIC_SUPABASE_URL not set'));
+    const res = await get('?vehicle=kawasaki:zx10r:2024');
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: 'taxonomy_unavailable' });
+    expect(fetchVehicleFacetCounts).not.toHaveBeenCalled();
+  });
+
   it('分類名含 LIKE 萬用字元 → 該分類不進 facet key(算得出來但點不進去,比沒數字更糟)', async () => {
     fetchCategories.mockResolvedValue([
       { id: 'c1', name: '正常分類', count: 5, children: [] },
