@@ -60,6 +60,9 @@ const CATEGORIES: MockCategory[] = [
 ];
 
 beforeAll(() => {
+  // jsdom 的 window.scrollTo 是 not-implemented stub(會噴 virtual console error)。
+  // 翻頁與「篩選/排序 → 捲回頁首」都會呼叫它 → 換成 no-op;要斷言的測試自己 stubGlobal。
+  window.scrollTo = () => {};
   // jsdom 不實作 matchMedia、Header useEffect 會呼叫 → 補最小 stub
   window.matchMedia = window.matchMedia || ((query: string) => ({
     matches: false,
@@ -393,6 +396,13 @@ describe('ProductsPage 篩選後捲回頁首', () => {
     render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     fireEvent.click(screen.getByText('品牌', { selector: '.fs-section-title' }));
     fireEvent.click(screen.getByText('RPM CARBON', { selector: '.fs-cbx-row span' }));
+    expect(scrollSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+
+  it('換排序 → 捲回頁首(Sean 2026-07-31 拍板 A:排序也算「篩選動作確認」)', () => {
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    fireEvent.change(screen.getByDisplayValue('推薦排序'), { target: { value: 'price-asc' } });
+    expect(screen.getByDisplayValue('價格低到高')).toBeDefined(); // 排序真的換了
     expect(scrollSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
   });
 

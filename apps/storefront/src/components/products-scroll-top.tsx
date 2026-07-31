@@ -43,16 +43,21 @@ function onlyPriceRangeChanged(prev: ProductExtraFilters, next: ProductExtraFilt
 }
 
 /**
- * 把宿主的 rawDispatch / setExtrasRaw 包成「使用者改篩選 → 捲回頁首」的版本。
+ * 把宿主的 rawDispatch / setExtrasRaw / setSortRaw 包成「使用者改篩選 → 捲回頁首」的版本。
  * 只把包裝版傳給篩選 UI;URL 還原等程式路徑仍用未包裝的原版。
+ *
+ * 排序(sort)同樣捲頁 = Sean 2026-07-31 拍板 A(「整個篩選動作確認後都要跳到網頁上方」,
+ * 排序換了商品順序整批換掉、與篩選同義);每頁筆數不在此列,它由 changePage 那條既有路徑收。
  */
 export function useFilterScrollTop(
   rawDispatch: Dispatch<CascadeFilterAction>,
   setExtrasRaw: Dispatch<SetStateAction<ProductExtraFilters>>,
   extras: ProductExtraFilters,
+  setSortRaw: Dispatch<SetStateAction<string>>,
 ): {
   dispatch: Dispatch<CascadeFilterAction>;
   setExtras: Dispatch<SetStateAction<ProductExtraFilters>>;
+  setSort: Dispatch<SetStateAction<string>>;
 } {
   const dispatch = useCallback(
     (action: CascadeFilterAction) => {
@@ -72,5 +77,13 @@ export function useFilterScrollTop(
     [setExtrasRaw, extras],
   );
 
-  return { dispatch, setExtras };
+  const setSort = useCallback(
+    (value: SetStateAction<string>) => {
+      setSortRaw(value);
+      scrollCatalogToTop();
+    },
+    [setSortRaw],
+  );
+
+  return { dispatch, setExtras, setSort };
 }
