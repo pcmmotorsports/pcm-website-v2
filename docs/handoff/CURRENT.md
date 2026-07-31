@@ -161,10 +161,22 @@
 > 七支 FK 的 `confdeltype` 全寫死 RESTRICT / 🔴 **鎖 manifest**(真正擋結帳的是子表 FK 對 `order_items`
 > 的 `SHARE ROW EXCLUSIVE`,不是 dormant gate;`lock_timeout` 不保護結帳等待)/
 > `pg_depend` preflight 移到 DROP 之前並加 filter / **M/T 三方狀態矩陣填出八格**。
-> 🔴 **F3/F6 未折入**(完整 DDL manifest 與 fixture 生成器輸入 = 「把 SQL 用中文再寫一遍」)
-> ⇒ **v7 §14 Q5 = 流程題待 Sean**:直接進實作(SQL 即規格 + 結構斷言釘死)vs 再補一輪紙上規格。
-> ✅ **Sean 已答**:Q4=A(修正版 D9)/ Q2=B(D11 更正 RPC)/ Q3=A(上限 20)/ Q1=A。
-> **下一步**:**Sean 答 §14 Q5** ⇒ 決定進實作或再補一輪規格。
+> ✅ **Sean 已答全部五題**:Q1=A(D1-D8)/ Q2=B(D11 更正 RPC + 兩人簽核)/ Q3=A(上限 20)/
+> Q4=A(修正版 D9;🔴 這題答了兩次 —— 第一次是根據我講錯的描述答的)/ **Q5=A(直接進實作,SQL 即規格)**。
+>
+> 🎉 **A7b-M(建表片)已寫完並在本機 PG17.10 實跑通過** ——
+> `supabase/migrations/20260731120000_m4b_e10_a7b_m_refund_jobs.sql`(兩表 + 36 條 CHECK +
+> 五道唯一性 + 七支 FK + 6 索引 + ACL/RLS + COMMENT 合約 + dormant gate + 檔內結構驗收)。
+> 驗證 `scripts/a7bm-verify.sh` **20 PASS / 0 FAIL**:疊在全部既有 migration 之上套用成功 /
+> **dormant gate 雙向已證**(gate 在 ⇒ 紅在 gate;gate 拿掉 ⇒ 同一筆通過全部 36 條 CHECK、
+> 改紅在 `orj_cancellation_fk`,**同時證明複合 FK 接對了**)/ **7 條結構突變各紅在指定斷言** +
+> 兩組對照組 + harness 自我測試。三綠(typecheck / lint)已跑。
+> 🔴 **接手入口 = `docs/handoff/2026-07-31-a7b-m-handoff.md`**(含 A7b-M **做不到什麼**的清單)。
+> 🔴 **commit 硬前置 = codex 關卡2 未確認**(鐵則 12:錢 + DB 結構),指令在該交接檔 §3。
+> 🔴 **施工時實跑推翻規格兩處**(plan v7 已回寫):`NOT VALID` 在 `CREATE TABLE` **不生效**;
+> 「約束存在」不等於「它擋得住」(gate 改 `CHECK (true)` 仍存在)⇒ 改逐字比對 constraintdef。
+> **下一步**:①確認 codex 關卡2 + 折 findings + commit(含 STATUS 七欄)②**A7b-T**:
+> 十支 trigger(manifest = plan §5.0)+ 移除 dormant gate + exact-one classifier + §7.2 約 90 格矩陣。
 >
 > ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
 

@@ -73,10 +73,22 @@
 | **A7b-T** | T | **移除 dormant gate** + **十支**守門 trigger(manifest 見 §5.0)+ 行為探針 + 突變 harness | `20260731120100` |
 
 ### 1.1 dormant gate(D4)
+
+🔴 **施工時本機實跑更正(2026-07-31;本節原寫 `ALTER TABLE … NOT VALID`)**:
+**`NOT VALID` 在 `CREATE TABLE` 的 table constraint 上不生效** —— PostgreSQL 只在
+`ALTER TABLE … ADD CONSTRAINT` 認它,建出來的約束 `convalidated = true`;
+我原本那條「必須是 NOT VALID」的結構斷言**當場轉紅**(那正是它該做的事)。
+**修法 = 拿掉 `NOT VALID`,不是改成 `ALTER TABLE`**:表與約束**同生** ⇒ 恆為空表
+⇒ `NOT VALID` 唯一的作用(略過既有列全表掃描)在這裡**沒有任何行為差異**;
+留著等於宣稱一個不存在的效果 = 本片六輪一直在抓的那個病。
+
 ```sql
-ALTER TABLE public.order_refund_jobs
-  ADD CONSTRAINT order_refund_jobs_dormant_until_triggers CHECK (false) NOT VALID;
+-- 隨 CREATE TABLE 一起宣告(**不是** ALTER TABLE):
+CONSTRAINT order_refund_jobs_dormant_until_triggers CHECK (false)
 ```
+🔴 **驗收不得只驗「約束存在」** —— 改成 `CHECK (true)` 仍然存在、而 gate 當場失效
+⇒ 必須**逐字比對 `pg_get_constraintdef` = `CHECK (false)`**
+(已實作於 `20260731120000` §5.7,且 `scripts/a7bm-verify.sh` 有突變證明它會轉紅)。
 A7b-T 在**所有守門安裝並通過結構驗收之後、同一交易的最後一步** `DROP CONSTRAINT`。
 T 失敗 ⇒ 整支回滾 ⇒ **表存在但寫不進去**。驗收:**兩個方向都要測**。
 
@@ -825,7 +837,7 @@ R5 抓到:v5 宣稱這是強制交付物,**卻沒有對自己跑過**(模板留�
   | 步驟 | 鎖到哪張表 | lock mode | 會不會擋結帳 |
   |---|---|---|---|
   | `CREATE TABLE` 兩表 | 只有新表 | — | 否 |
-  | `ADD CONSTRAINT … CHECK (false) NOT VALID` | 只有 `order_refund_jobs` | `ACCESS EXCLUSIVE` | **否**(表尚未有任何 reader/writer) |
+  | dormant gate `CHECK (false)`(隨 `CREATE TABLE` 宣告,見 §1.1)| 只有 `order_refund_jobs` | — | **否**(與表同生,無額外鎖) |
   | A7b-T 的 `DROP CONSTRAINT`(移除 gate) | 只有 `order_refund_jobs` | `ACCESS EXCLUSIVE` | **否**(gate 期間表恆空、無 writer) |
   | 🔴 **子表 FK → `order_items (order_id, id)`** | **`order_items`(被引用表)** | **`SHARE ROW EXCLUSIVE`** | 🔴🔴 **會** —— 與 `create_order` 的 `INSERT`(`ROW EXCLUSIVE`)**互相衝突** |
   | `FK → order_cancellations / staff / order_refunds` | 各被引用表 | `SHARE ROW EXCLUSIVE` | 視該表是否在結帳路徑上 |
