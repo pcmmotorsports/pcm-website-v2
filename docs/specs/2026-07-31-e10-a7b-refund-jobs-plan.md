@@ -492,7 +492,15 @@ v6 的「六支」是**我自己的字面不一致**,而 §7.1 要斷言 `tgtype
 | 7 | `a7bt_items_block_update` | items | BEFORE | UPDATE | ROW | — | `pcm_a7bt_block_write()` |
 | 8 | `a7bt_items_block_delete_guard` | items | BEFORE | DELETE | ROW | — | `pcm_a7bt_block_write()` |
 | 9 | `a7bt_items_block_truncate` | items | BEFORE | TRUNCATE | **STATEMENT** | — | `pcm_a7bt_block_truncate()` |
-| 10 | `a7bt_items_after_insdel_consistency` | items | AFTER | **INSERT OR DELETE** | ROW | **DEFERRABLE INITIALLY DEFERRED** | `pcm_a7bt_assert_job_consistent()` |
+| 10 | `a7bt_items_after_insdel_consistency` | items | AFTER | **INSERT OR UPDATE OR DELETE** | ROW | **DEFERRABLE INITIALLY DEFERRED** | `pcm_a7bt_assert_job_consistent()` |
+
+🔴 **v7 更正(2026-07-31,關卡2 F5;Sean 拍 Q3=A)**:第 10 支原寫 `INSERT OR DELETE`(tgtype 13)。
+矛盾在於:保留 DELETE 分支的理由是「破窗期間第 8 支被 DISABLE 時這一支還在」,
+而 **UPDATE 的處境完全一樣**(平常被第 7 支 `a7bt_items_block_update` 永久擋住)。
+只 DISABLE 第 7 支就能改 `quantity` / `line_amount`,而 **C2/C3/C4 與「後代 item set 相等」
+都不會排隊檢查** ⇒ 失衡可提交。⇒ 三個事件一致才是完整的第二層,**tgtype 13 → 29**。
+🔴 連帶:`pcm_a7bt_assert_job_consistent()` 對子表 UPDATE 必須驗 **`OLD.job_id` 與 `NEW.job_id` 兩者**
+(明細從 job A 改掛到 B 時只驗 B 會讓 A 靜默失衡;`20260730140000:161-162` 的既有教訓)。
 
 🔴 **第 8 支與第 10 支的關係要講清楚,不是重複**:第 8 支是**永久阻擋**(BEFORE DELETE 無條件 `RAISE`);
 第 10 支的 DELETE 事件是 constraint trigger 的**必要形狀**(照 `20260725130100:180-186` 的既有教訓 ——
@@ -739,8 +747,14 @@ v5 的正向鏈 C **自己就是靜態不可能的**(R5 F6)。**負測證明「�
     🔴 兩條都必須是**真的構造得出來**的形狀,不是宣告;構造不出來就明文說明為什麼
 36. 🔴 **deny-by-default**(R6 F2):在測試 DB 對 `order_refund_jobs` 加一個不在 manifest 的欄,
     **結構斷言必須轉紅**(這條同時證明 manifest 沒有被繞過)
-37. 🔴 **完成介面**(R6 F7):service_role 直接 `INSERT INTO order_refunds` → 必 `42501`;
-    `complete_refund_job()` 單交易成功;中途 `RAISE` 後 **ledger 與 job 皆無殘留**
+37. 🔴 **完成介面**(R6 F7)—— 🔴 **v7 更正(2026-07-31):本條原本整條列在 A7b-T 驗收,
+    但其中兩項屬第 3 批,本片測不了。已切成兩半:**
+    - **本片(A7b-T)必做**:service_role 直接 `INSERT INTO order_refunds` → 必 `42501`。
+      純 ACL 斷言,不需要任何新函式 ⇒ 現在就構造得出來。
+    - **⛔ 第 3 批 worker 片(不在本片驗收內)**:`complete_refund_job()` 單交易成功(`W-R9-COMPLETE-1`)/
+      中途 `RAISE` 後 ledger 與 job 皆無殘留(`W-R9-COMPLETE-2`)。
+      🔴 該函式由 §6 R9 列為**第 3 批的具名合約**、本片不建立
+      ⇒ 在 A7b-T 的 harness 裡放這兩條等於測一個不存在的函式,只會產生假紅或被靜默跳過。
 
 ### 7.5 靜態可達性矩陣(**強制交付物;v6 已填完,R5 F9**)
 
@@ -829,7 +843,19 @@ R5 抓到:v5 宣稱這是強制交付物,**卻沒有對自己跑過**(模板留�
   3. 驗兩表為空,非空則**備份後停下 raise Sean**(不得靜默續行)
   4. `DROP TRIGGER` 子表四支 → `DROP TABLE order_refund_job_items` **`RESTRICT`**(明寫,不靠預設)
   5. `DROP TRIGGER` parent 六支 → `DROP TABLE order_refund_jobs` **`RESTRICT`**
-  6. `DROP FUNCTION` 全部函式(逐一具名,**含 §5.0 manifest 的 5 支**)
+  6. `DROP FUNCTION` 全部函式(逐一具名,**共 7 支**:6 支 trigger 函式 + 1 支白名單 helper)
+     🔴 **v7 二次更正(2026-07-31,關卡2 F9)**:本步原寫「5 支」,我第一次改成「6 支」仍不完整。
+     實作另有一支**非 trigger** 的 helper `public.pcm_a7bt_allowed_delta(text)`
+     (逐 edge 的 allowed-delta 白名單,單一真相)—— 它不在 §5.0 的 trigger manifest 裡,
+     所以照 manifest 列 rollback 會**漏掉它**,重建 M/T 時會先撞「已有同名函式」而失敗。
+     ⇒ rollback 的依據改為「**本片建立的所有函式**」,不是「trigger manifest」。
+     §5.0 的十支 trigger 去重後是 **6 支** trigger 函式 ——
+     `pcm_a7bt_jobs_before_insert` / `pcm_a7bt_jobs_before_update` / `pcm_a7bt_block_write`(三支共用)/
+     `pcm_a7bt_block_truncate`(兩支共用)/ `pcm_a7bt_assert_job_consistent`(兩支共用)/
+     `pcm_a7bt_assert_job_ledger_equal`;**第 7 支 = `pcm_a7bt_allowed_delta(text)`**。
+     **照舊字面寫 rollback 會漏 drop 一到兩支。**
+     ⇒ 驗收:§7.2 的函式指紋必須逐支列名且**集合相等 = 7 支**,不得只寫死數字。
+     (已實作於 `20260731120100` §9.4:`md5(prosrc)` 逐支比對 + `count = 7` + 完整 ACL allowlist。)
   🔴 只允許在第一個 writer 之前;之後只能 forward repair,**列為第 3 批 worker 片的 DoD 硬前置**
 
 - 🔴🔴 **鎖 manifest 與結帳併發探針(R6 F9;v6 只有 timeout,沒有逐物件鎖清單)**
