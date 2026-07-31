@@ -927,8 +927,13 @@ harness 對整份差集做集合相等斷言(新增守門沒人測 ⇒ 當場轉
 | `dead` | E5b / E12 的規則 + review 三欄鐵律(E13)+ `corrected_*`(E14) | `T3a-056`~`T3a-063`(E5b)、`T3a-076`~`T3a-081`(E12)、`T3a-082`~`T3a-092`(E13/E14) |
 
 🔴 **這張表的能力邊界**:它說明的是「為什麼行為負測打不到那層 CHECK」,**不是**「那層 CHECK 沒有用」。
-   CHECK 的價值在 **break-glass**(owner 把 trigger `DISABLE` 的那一刻)—— 那時它是唯一還活著的一層,
-   而**那個情境本片只用 `T3a-108`(U2)示範過一次**,沒有逐格證明。⇒ 進 §8 誠實邊界。
+🔴🔴 **2026-07-31 T4 突變實測把這件事量化了,而且比原本寫的強**:原文說 CHECK 的價值「在 break-glass」,
+   低估了它。突變 96 個具名守門(每個只拿掉**一條**規則、其餘全開)之後,
+   **39 個案例是被第二層接住的,其中 22 個接住它的正是 `orj_shape_*` 這七條 truth table CHECK**
+   —— 也就是說**不必到 break-glass**,只要單一 trigger 規則被拿掉或寫錯,CHECK 就已經是實際的接手者。
+   ⇒ 兩個方向同時成立:全部守門都在時 trigger 先紅(所以行為負測打不到 CHECK);
+     單一 trigger 規則失效時 CHECK 紅(所以它不是死碼)。**這是縱深防禦,不是重複。**
+   逐格分佈見 §7.4d。
 
 🔴 **truth table 覆蓋的原始要求**(「每一個 R 格與 N 格各一條負測」)**因此被本片正式改寫**為上述形式;
 若 Sean 或審查者認為必須逐格行為負測,那就必須先接受「每一條都紅在 trigger 而非 CHECK」= 假覆蓋。
@@ -1110,6 +1115,42 @@ T2 回歸仍 34 PASS / 0 FAIL,但那證明的是「語意不變」,不是「一�
 - **金額三欄與運費兩欄無法只動一格**(理由見 §7.2.1b),以成組負測覆蓋。
 - **全綠不代表守門有承重** —— 突變歸 T4。
 - 零 TapPay 接觸;本機 PG17.10 非 Supabase。
+
+### 7.4d T4-1 突變證明(2026-07-31;`scripts/a7bt-mutation.sh`)
+
+**這一塊回答的是 T3a / T3b 明文回答不了的那個問題**:負測全綠證明「壞資料現在進不去」,
+證明不了「拿掉守門就會進得去」—— 一條**永遠執行不到的死碼**在負測裡與一條承重的守門長得一模一樣。
+
+**做法**(逐類定義,不是「隨便改一下」):
+- 函式內的具名 `RAISE` ⇒ 把**那一整句 RAISE 換成 `NULL;`** 後 `CREATE OR REPLACE`(其餘守門不動)
+- 共用 `pcm_a7bt_block_write/truncate` 的五支(具名 ID 走 `TG_ARGV`)⇒ 改函式會一次殺三支 ⇒ **DROP 那一支 trigger**
+- CHECK / UNIQUE 約束 ⇒ `ALTER TABLE … DROP CONSTRAINT`;partial unique 索引 ⇒ `DROP INDEX`
+- 突變與那條負測**在同一個交易裡**,交易最後 `ROLLBACK` ⇒ 零留痕(收尾另比結構指紋)
+- 🔴 每個突變後面都跟一句**自檢**(函式指紋必須改變 / 物件必須消失),否則當場 `RAISE`
+  —— #306 的教訓:sed 樣式失配時「突變沒套上」會被誤報成「沒抓到」
+- 🔴 案例檔**不複製**:直接實跑 T3a 與 T3b、拿它們產生的 `neg-###.sql` 當輸入
+  ⇒ 突變測的永遠是當下真正在跑的那些負測
+
+**結果(96 個具名守門,每個跑它專屬的那條負測)**:
+
+| 判定 | 個數 | 意義 |
+|---|---|---|
+| **乾淨轉綠** | **57** | 拿掉它,那筆壞資料就進得去 ⇒ 該守門對該案例**單獨承重** |
+| **被第二層接住** | **39** | 拿掉它之後改紅在另一個具名物件 ⇒ 該守門是**第一失敗點**,但不是唯一防線 |
+| **仍紅在自己** | **0** | 🎉 **沒有任何一條是「刪掉也照樣紅」的死規則** |
+
+**第二層是誰(39 條的分佈)**:`orj_shape_dead` 6 / `orj_shape_failed` 4 / `orj_shape_completed` 4 /
+`orj_shape_submitted` 3 / `orj_shape_reconciling` 2 / `orj_shape_processing` 2 / `orj_shape_queued` 1
+(**七條 truth table CHECK 合計 22**)、`orj_review_triple_paired` 2 / `orj_correction_triple_paired` 2 /
+`orj_correction_two_person` 1 / `orj_baseline_paired` 1 / `orj_bank_refund_id_key` 1 /
+`orj_one_current_per_cancellation_idx` 1 / `orji_job_fk` 1,其餘 7 條是被**另一條 trigger 規則**接住。
+
+🔴 **明文做不到 / 不得宣稱**:
+- 一格「突變後轉綠」只證明**該守門對該案例**承重,**不證明**它對所有壞資料承重。
+- 同一個 ID 有多條負測時**只跑第一條**(一條足以證明承重)⇒ 不是「每條負測都做過突變」。
+- **被支配的那 7 個 ID 沒有突變**(它們本來就沒有行為負測可跑,見 §7.2.2)。
+- 本檔**不含** ACL 32 格 / barrier lock probe / rollback 六步 —— T4 其餘三塊。
+- 本機 PG17.10 非 Supabase。
 
 ### 7.5 靜態可達性矩陣(**強制交付物;v6 已填完,R5 F9**)
 
