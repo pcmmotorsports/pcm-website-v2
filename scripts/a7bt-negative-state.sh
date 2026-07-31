@@ -19,7 +19,7 @@
 #            19 / 20 / 21 / 23 / 24 / 26 / 28 / 29 / 30 / 31 / 32 / 33 / 35 / 36 / 37
 #   留給 T3b:8(跨表 bank id)/ 16(job↔ledger 十一欄 + item set + NULL-safe)/
 #            22(dormant gate 雙向)/ 25(D7)/ 27(D9 全套)/ 34(時區兩跑)
-#   留給 T4:突變 harness、ACL 32 格、barrier lock probe、rollback 六步隔離庫實跑
+#   留給 T4:突變 harness、ACL 64 格、barrier lock probe、rollback 八步隔離庫實跑
 #
 # ── 🔴 這支腳本**不**證明什麼(誠實邊界,不得在任何地方宣稱超出)─────────
 #   · 不證明守門「涵蓋所有壞資料」—— 只證明**列出來的那些**各自紅在指定 ID。
@@ -219,13 +219,13 @@ case_green "已 stamped 的 processing 走合法 E4" p_stamped <<'SQL'
    WHERE id = (SELECT job_id FROM fx);
 SQL
 
-case_green "合法的第二張取消單 + 明細(deferred 全部當場檢查通過)" p_fx2 <<'SQL'
+case_green "合法的第二張取消單 + 明細(deferred 全部當場檢查通過)" p_fx2_completed <<'SQL'
   INSERT INTO public.order_refund_jobs
     (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECC2', 20, '0'), rpad('BRFC2', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFC2', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '對照組', staff_a, 'req-ctl' FROM fx;
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
@@ -253,7 +253,7 @@ case_green "已授權重試的前代之後開合法 gen2(含子表與 deferred �
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, 2,
-         rpad('RECT2', 20, '0'), rpad('BRFCTL2', 20, '0'), repeat('b', 64),
+         rec_trade, rpad('BRFCTL2', 20, '0'), repeat('b', 64),
          amount, amount, 0, 0, 0,
          '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-ctl-g2' FROM fx;
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
@@ -273,7 +273,7 @@ case_red "§7.4-1 直接 INSERT 一列 status='completed' 的假完成單" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id, status)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECN1', 20, '0'), rpad('BRFN1', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFN1', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '假完成單', staff_a, 'req-n1', 'completed' FROM fx;
 SQL
 
@@ -284,7 +284,7 @@ case_red "INSERT 帶既往狀態(reviewed_at 非 NULL)" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id, reviewed_at)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECN2', 20, '0'), rpad('BRFN2', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFN2', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '帶既往狀態', staff_a, 'req-n2', now() FROM fx;
 SQL
 
@@ -295,7 +295,7 @@ case_red "INSERT 計數器非起始值(retry_count=3)" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id, retry_count)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECN3', 20, '0'), rpad('BRFN3', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFN3', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '計數器非零', staff_a, 'req-n3', 3 FROM fx;
 SQL
 
@@ -306,7 +306,7 @@ cat <<SQL
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, ${3:-2},
-         rpad('RECT2', 20, '0'), rpad('${1:?}', 20, '0'), repeat('b', 64),
+         rec_trade, rpad('${1:?}', 20, '0'), repeat('b', 64),
          amount, amount, 0, 0, 0,
          '${2:-客人要求取消(A7b-T T2 正向鏈)}', staff_a, 'req-t3a-g2' FROM fx;
 SQL
@@ -334,7 +334,7 @@ case_red "§7.4-5 拿 gen1 的舊授權開 gen3(gen2 還活著)" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job3_id, cancellation_id, order_id, 3,
-         rpad('RECT2', 20, '0'), rpad('BRFG3', 20, '0'), repeat('b', 64),
+         rec_trade, rpad('BRFG3', 20, '0'), repeat('b', 64),
          amount, amount, 0, 0, 0,
          '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t3a-g3' FROM fx;
 SQL
@@ -346,7 +346,7 @@ case_red "跳號:只有 gen1 已授權卻直接開 gen3" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, 3,
-         rpad('RECT2', 20, '0'), rpad('BRFG3B', 20, '0'), repeat('b', 64),
+         rec_trade, rpad('BRFG3B', 20, '0'), repeat('b', 64),
          amount, amount, 0, 0, 0,
          '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t3a-g3b' FROM fx;
 SQL
@@ -358,7 +358,7 @@ case_red "§7.4-7 該取消一列 job 都沒有卻開 gen2(NOT FOUND fail-closed
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id, 2,
-         rpad('RECN7', 20, '0'), rpad('BRFN7', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFN7', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '無前代', staff_a, 'req-n7' FROM fx;
 SQL
 
@@ -374,6 +374,11 @@ SQL
 
 case_red "§7.4-9c 後代 item set 與前代不同(換成同單同價的另一個品項)" \
          "a7bt_successor_item_set_differs" p_dead_auth <<SQL
+  -- 🔴 先讓這張取消單也取消 order_item2 —— 否則 C5(明細品項必須真的被取消)會**先**紅,
+  --    這條就變成在測 C5 而不是在測「後代 item set 必須等於前代」。
+  --    取消兩個品項、只退其中一個 = 合法形狀(退少不違反任何不變式)。
+  INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)
+  SELECT cancellation_id, order_id, order_item2_id, qty FROM fx;
 $(sql_gen2_variant 'BRFG2E')
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job2_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
@@ -1056,26 +1061,60 @@ cat <<SQL
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECC3', 20, '0'), rpad('BRFC3', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFC3', 20, '0'), repeat('c', 64),
          ${1:-amount}, ${1:-amount}, 0, 0, 0, '子表負測', staff_a, 'req-c3' FROM fx;
 SQL
 }
 
-case_red "§7.4-17 C1:有 header、零明細" "a7bt_c1_job_has_no_items" p_fx2 <<SQL
+case_red "§7.4-17 C1:有 header、零明細" "a7bt_c1_job_has_no_items" p_fx2_completed <<SQL
 $(sql_job3_header)
   EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
 SQL
 
 case_red "§7.4-17 C2:Σ line_amount ≠ items_amount" \
-         "a7bt_c2_items_amount_mismatch" p_fx2 <<SQL
+         "a7bt_c2_items_amount_mismatch" p_fx2_completed <<SQL
 $(sql_job3_header 'amount + 1')
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
   EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
 SQL
 
+# 🔴 C5 / C6 = 關卡2 #24 的錢面漏洞(Sean 07-31 拍板「檢查放資料庫」)。
+#    修正前的實測攻擊:cancellation2 只取消 order_item2 一件,job3 卻列 2 件(或列別的品項),
+#    C1-C4 全過、帳本配得平、一路走到 completed ⇒ 退的錢超過取消的錢。
+case_red "§7.4-17 C5:退款明細的品項不在該取消單的取消明細內" \
+         "a7bt_c5_item_not_cancelled" p_fx2_completed <<SQL
+  -- 🔴 **構造上的兩難,寫下來免得下一個人又踩**:前面那筆 completed 工單已經退掉
+  --    order_item 1 件,而該品項客人只買 1 件 ⇒ 任何再退它一次的工單都會**先紅在 C7**
+  --    (實測過)。⇒ 本案例改用 order_item2 當「被退的品項」,並把 cancellation2 的
+  --    取消明細換成 order_item ⇒ 「退的品項不在自己那張取消單裡」成立,
+  --    而兩個品項的累計退款都仍在下單量之內 ⇒ **只有 C5 會紅**。
+  UPDATE public.order_cancellation_items
+     SET order_item_id = (SELECT order_item_id FROM fx)
+   WHERE cancellation_id = (SELECT cancellation2_id FROM fx);
+$(sql_job3_header)
+  -- cancellation2 現在只取消了 order_item;這裡卻拿 order_item2 來退。
+  INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
+  SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
+case_red "§7.4-17 C6:退款件數超過該取消單的取消件數" \
+         "a7bt_c6_quantity_exceeds_cancelled" p_fx2_completed <<SQL
+$(sql_job3_header 'amount * 2')
+  -- cancellation2 對 order_item2 只取消 1 件,這裡退 2 件。
+  INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
+  SELECT job3_id, order_id, order_item2_id, 2, unit_price, amount * 2 FROM fx;
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
+# 🔴 C3 的負測必須先把取消量放寬到 5 —— 否則 C6(排在 C3 前面、且更緊)會先紅,
+#    這條就變成「測到別條規則」的假綠。`cancelled_quantity` 依 `20260730130000:215-219` 無上限,
+#    所以「取消 5 件、原單只有 1 件」是一個資料庫允許存在的合法形狀 ⇒ C3 仍可獨立到達。
 case_red "§7.4-17 C3:退的數量超過原品項" \
-         "a7bt_c3_quantity_exceeds_order_item" p_fx2 <<SQL
+         "a7bt_c3_quantity_exceeds_order_item" p_fx2_completed <<SQL
+  UPDATE public.order_cancellation_items SET cancelled_quantity = 5
+   WHERE cancellation_id = (SELECT cancellation2_id FROM fx);
 $(sql_job3_header 'amount * 2')
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job3_id, order_id, order_item2_id, 2, unit_price, amount * 2 FROM fx;
@@ -1083,11 +1122,86 @@ $(sql_job3_header 'amount * 2')
 SQL
 
 case_red "§7.4-17 C4:單價不等於訂單快照" \
-         "a7bt_c4_unit_price_mismatch" p_fx2 <<SQL
+         "a7bt_c4_unit_price_mismatch" p_fx2_completed <<SQL
 $(sql_job3_header 'amount + 1')
   INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
   SELECT job3_id, order_id, order_item2_id, qty, unit_price + 1, amount + 1 FROM fx;
   EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
+# ══ 🔴🔴 四條錢面守門(2026-07-31 關卡2 R2;Sean 拍 A「四條全關」)══════════════
+#    這四條都是「守門不存在時,錢會出錯」而不是「狀態機走錯路」——
+#    但它們的落點在 INSERT 守門與主從一致 trigger,與 T3a 同一組外殼,故留在本檔。
+
+case_red "§7.4-17b C7:同一品項跨取消單的累計退款件數超過客人下單件數" \
+         "a7bt_c7_cumulative_exceeds_cancelled" p_fx2_completed <<SQL
+  -- 前一筆 completed 工單已退掉 order_item 1 件(cancellation1 取消 1 件)。
+  -- 讓 cancellation2 也取消**同一個品項** 1 件、再退 1 件:
+  --   C5 過(該品項在 cancellation2 的明細裡)、C6 過(1 <= 1)、
+  --   「累計退款 <= 累計取消」也過(2 <= 2)—— 這正是我第一版寫錯的上界。
+  -- 但客人只買了 1 件 ⇒ 累計退 2 件 > 下單 1 件 ⇒ **只有 C7 抓得到**。
+  INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)
+  SELECT cancellation2_id, order_id, order_item_id, qty FROM fx;
+$(sql_job3_header)
+  INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
+  SELECT job3_id, order_id, order_item_id, qty, unit_price, amount FROM fx;
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
+case_red "§7.4-17b 反向 trigger:工單建立後刪掉取消明細,必須當場被抓" \
+         "a7bt_c5_item_not_cancelled" p_none <<'SQL'
+  -- 🔴 沒有掛在 order_cancellation_items 上的第 11 支 trigger,這一格會**完全沒有反應**:
+  --    工單那一側沒有任何列被改動 ⇒ C5/C6/C7 一次都不會排隊。
+  -- 🔴 先補一列別的品項:A7-t 的 presence trigger 要求取消單至少一列明細,
+  --    整張刪光會先紅在它(且 CONSTRAINT_NAME 為空)⇒ 測不到本片的東西。
+  INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)
+  SELECT cancellation_id, order_id, order_item2_id, qty FROM fx;
+  DELETE FROM public.order_cancellation_items
+   WHERE cancellation_id = (SELECT cancellation_id FROM fx)
+     AND order_item_id   = (SELECT order_item_id FROM fx);
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
+case_red "§7.4-17b 反向 trigger:工單建立後把取消明細改掛別的品項,必須當場被抓" \
+         "a7bt_c5_item_not_cancelled" p_none <<'SQL'
+  -- 只擋 DELETE 不夠:把 5 改成 1 一樣繞過。先放寬再調小,證明 UPDATE 分支也承重。
+  -- 🔴 不要另外去 UPDATE 退款明細來「觸發重驗」—— 那會先紅在 a7bt_items_update_blocked
+  --    (實測過)。第 11 支 trigger 的重點正是:**只動取消明細**就要重驗。
+  --    先把工單的退款件數合法地墊高到 3(取消量同步放寬),再把取消量調回 1。
+  -- 🔴 「調小 cancelled_quantity」在現有種子資料上**構造不出違反**：
+  --    工單只退 1 件，而 cancelled_quantity 的 CHECK 是 > 0 ⇒ 最小只能到 1，1 <= 1 永遠合法。
+  --    硬寫一條「調 3 再調回 1」的案例會**恆綠**（實測過，那就是假的覆蓋）。
+  --    ⇒ 改用同樣走 UPDATE 分支、但真的會違反的形狀：**把取消明細換成另一個品項**
+  --      ⇒ 工單退的那個品項從此不在取消明細裡 ⇒ C5。
+  UPDATE public.order_cancellation_items
+     SET order_item_id = (SELECT order_item2_id FROM fx)
+   WHERE cancellation_id = (SELECT cancellation_id FROM fx);
+  EXECUTE 'SET CONSTRAINTS ALL IMMEDIATE';
+SQL
+
+case_red "§7.4-17b rec_trade_id 不是這張訂單自己的交易(退到別人的卡)" \
+         "a7bt_insert_rec_trade_not_order_own" p_fx2_completed <<'SQL'
+  -- 🔴 只動 rec_trade_id 一格:其餘全部照 fx 的合法值,確保紅在指定的那一條。
+  INSERT INTO public.order_refund_jobs
+    (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
+     refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
+     reason, actor, request_id)
+  SELECT job3_id, cancellation2_id, order_id,
+         rpad('RECOTHERORDER', 20, '0'), rpad('BRFOTHER', 20, '0'), repeat('c', 64),
+         amount, amount, ship_before, ship_before, 0,
+         '交易編號綁訂單負測', staff_a, 'req-rec' FROM fx;
+SQL
+
+case_red "§7.4-17b shipping_fee_before 不等於訂單當下的運費(運費快照憑空捏造)" \
+         "a7bt_insert_shipping_before_not_order_own" p_fx2_completed <<SQL
+  INSERT INTO public.order_refund_jobs
+    (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
+     refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
+     reason, actor, request_id)
+  SELECT job3_id, cancellation2_id, order_id,
+         rec_trade, rpad('BRFSHIP', 20, '0'), repeat('c', 64),
+         amount, amount, ship_before + 100000, ship_before, -100000,
+         '運費快照負測', staff_a, 'req-ship' FROM fx;
 SQL
 
 case_red "§7.4-17 子表 UPDATE 一律阻擋" "a7bt_items_update_blocked" p_none <<'SQL'
@@ -1139,7 +1253,7 @@ case_red "U1:同一取消的同一世代重複建" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id,
-         rpad('RECU1', 20, '0'), rpad('BRFU1', 20, '0'), repeat('b', 64),
+         rec_trade, rpad('BRFU1', 20, '0'), repeat('b', 64),
          amount, amount, 0, 0, 0, '同世代重複建', staff_a, 'req-u1' FROM fx;
 SQL
 
@@ -1156,7 +1270,7 @@ case_red "§7.4-20 U2:break-glass 下同一取消出現第二個未結案 job" \
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job2_id, cancellation_id, order_id, 2,
-         rpad('RECU2', 20, '0'), rpad('BRFU2', 20, '0'), repeat('b', 64),
+         rec_trade, rpad('BRFU2', 20, '0'), repeat('b', 64),
          amount, amount, 0, 0, 0, '第二個未結案', staff_a, 'req-u2' FROM fx;
 SQL
 
@@ -1167,7 +1281,7 @@ case_red "§7.4-20 U3:另一張取消單重用同一筆 TapPay 交易(rec_trade_
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECT2', 20, '0'), rpad('BRFU3', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFU3', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '同一筆交易兩個 job', staff_a, 'req-u3' FROM fx;
 SQL
 
@@ -1180,7 +1294,7 @@ INSERT INTO public.order_refund_jobs
    refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
    reason, actor, request_id)
 SELECT job3_id, cancellation2_id, order_id,
-       rpad('RECU5', 20, '0'), rpad('BRFU5', 20, '0'), repeat('c', 64),
+       rec_trade, rpad('BRFU5', 20, '0'), repeat('c', 64),
        amount, amount, 0, 0, 0, 'U5 第二個 job', staff_a, 'req-u5' FROM fx;
 INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
 SELECT job3_id, order_id, order_item2_id, qty, unit_price, amount FROM fx;
@@ -1519,6 +1633,8 @@ snapshot "$STRUCT_SQL" "$WORK/struct-after.snap" "跑完全部負測後結構快
 cmp -s "$WORK/struct-before.snap" "$WORK/struct-after.snap" \
   && ok "結構零漂移:跑完全部負測(含 ADD COLUMN 與 replica 模式探針)後 catalog 一個 byte 都沒變" \
   || bad "結構漂移:跑完之後 catalog 被動到了"
+
+[ "$MODE" = "all" ] && count_gate 118 146 || count_gate 118 145
 
 printf '  §7.2 一對一矩陣(實跑產生,可直接貼進 plan):%s\n' "$WORK/matrix.tsv"
 printf '  負測案例 %d 條  PASS=%d  FAIL=%d\n' "$CASE_N" "$PASS" "$FAIL"

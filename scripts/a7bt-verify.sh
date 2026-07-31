@@ -20,13 +20,19 @@
 #        每一步都斷言「落在 §3.1 宣告的那個 status」,任一步跑不過**當場中止**
 #     ④ §7.4 的**七條正向鏈 A-G** 全部跑通(含 gen2、D11 更正鏈、三種 resolution)
 #     ⑤ 六道「等待型閘門」不是 fail-open:把時間注入拿掉,各自紅在**指定的** constraint
-#     ⑥ **「後端程式直寫」這條路確實不可達**(第 7 段;Sean 2026-07-31 拍 Q1=D)——
+#     ⑥ **「後端程式直寫」的兩半,結論不同 —— 不要混講**(第 7 段;Sean 2026-07-31 拍 Q1=D):
+#        🔴 **UPDATE 與鎖列這一半:不可達**(42501,合約斷言)。
+#        🔴 **gen1 的 INSERT 這一半:service_role 現在就做得到**(探針 ③ 實測,header+明細+DEFERRED 全過)
+#           —— A7b-M `:504-506` 明文 GRANT 了 INSERT。⇒ 「第 3 批前沒有 writer」是**慣例、非資料庫強制**。
+#        關卡2 R2 抓到本檔原本把這兩半寫成同一句「全部必須 42501」,而探針 ③ 又把 INSERT 成功判成綠 ——
+#        兩個互斥的契約同時 PASS。現在兩半各自有自己的斷言與自己的字面。
+#        ⇒ 舊字面「後端程式直寫這條路確實不可達」**作廢**,改為下列兩行:
 #        上面①-⑤全部以 owner(postgres)身分跑,那正是 SECURITY DEFINER RPC 內部的身分;
 #        第 7 段反過來以 `service_role` 實跑同樣的動作,**斷言它必須失敗於 42501**。
 #        ⇒ 這一段是**合約測試**,不是缺陷報告:哪天有人把權限放寬、直寫又通了,它會轉紅。
 #   🔴 **不證明**:
 #     · 行為負測(哪一條規則實際擋得住哪一筆壞資料)= T3a / T3b
-#     · 突變證明、ACL 32 格、barrier lock probe、rollback 六步實跑 = T4
+#     · 突變證明、ACL 64 格、barrier lock probe、rollback 八步實跑 = T4
 #     · job↔ledger 十一欄「**不等時擋下**」—— 本片的帳本列是從 job 複製出來的,
 #       只證明「相等時放行(含 tappay_refund_id 兩邊皆 NULL 的 NULL-safe 格)」
 #     · 正式站行為(本機 PG17.10 非 Supabase、C locale ≠ en_US.UTF-8)
@@ -492,6 +498,50 @@ BEGIN
   RESET ROLE;
 END
 $r$;
+
+-- ③ 🔴🔴 **關卡2 #9/#10**:①② 測的都是 UPDATE 與鎖列 —— 那是「已存在的工單」那一側。
+--    **gen1 的 INSERT 從來沒被測過**,而 A7b-M `:504-506` 明明白白 GRANT 了
+--    `INSERT ON order_refund_jobs` 與 `INSERT ON order_refund_job_items` 給 service_role。
+--    ⇒ 「第 3 批之前沒有 writer」如果是靠這裡沒人寫,那是**慣例**,不是資料庫強制的事實。
+--    本探針把它變成一條會轉紅的合約:結果**必須**與下面 case 分支釘死的字面相符。
+-- 🔴 不能用 fx 這張 TEMP TABLE —— service_role 對它是 42501(實測),
+--    那個錯會冒充成「INSERT 被擋住了」= 假的好消息。全部走 public 表。
+DO $r$
+DECLARE v_oid uuid; v_iid uuid; v_p int; v_ship int;
+        v_rec text := rpad('RGEN1', 20, '0');
+        v_cid uuid := gen_random_uuid(); v_jid uuid := gen_random_uuid();
+BEGIN
+  SELECT oi.order_id, oi.id, oi.unit_price, o.shipping_fee INTO v_oid, v_iid, v_p, v_ship
+    FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id
+   WHERE oi.unit_price > 0 AND oi.quantity >= 1
+   ORDER BY oi.order_id, oi.id LIMIT 1;
+  -- 🔴 本探針自己另建一張取消單 ⇒ 也要滿足 T1 新增的兩道綁定守門
+  --    (rec_trade_id = orders.tappay_rec_trade_id、shipping_fee_before = orders.shipping_fee)。
+  --    這一行以 **owner** 身分跑,不影響下面「service_role 能不能建工單」那個待測問題。
+  UPDATE public.orders SET tappay_rec_trade_id = v_rec WHERE id = v_oid;
+  INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
+  VALUES (v_cid, v_oid, 'customer_request', gen_random_uuid(), repeat('a', 64), 'sean');
+  INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)
+  VALUES (v_cid, v_oid, v_iid, 1);
+  BEGIN
+    SET LOCAL ROLE service_role;
+    INSERT INTO public.order_refund_jobs
+      (id, cancellation_id, order_id, rec_trade_id, bank_refund_id, payload_hash,
+       refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
+       reason, actor, request_id)
+    VALUES (v_jid, v_cid, v_oid, v_rec, rpad('BGEN1', 20, '0'), repeat('b', 64),
+            v_p, v_p, v_ship, v_ship, 0, 'gen1 直寫探針', 'sean', 'req-gen1-probe');
+    INSERT INTO public.order_refund_job_items (job_id, order_id, order_item_id, quantity, unit_price, line_amount)
+    VALUES (v_jid, v_oid, v_iid, 1, v_p, v_p);
+    -- DEFERRED 的 C1-C6 / 帳本比對都要在這一行才會跑;沒有它只證明了 BEFORE 那半邊。
+    SET CONSTRAINTS ALL IMMEDIATE;
+    RAISE NOTICE 'T2-ROLE|GEN1|OK';
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'T2-ROLE|GEN1|% %', SQLSTATE, left(SQLERRM, 70);
+  END;
+  RESET ROLE;
+END
+$r$;
 ROLLBACK;
 SQL
 } > "$WORK/role-fidelity.sql"
@@ -508,6 +558,12 @@ case "$r_lk" in
   42501*) ok "契約:service_role 直接鎖 order_cancellations 列必失敗於 42501(${r_lk#42501 })" ;;
   OK)     bad "契約破了:service_role **鎖得住 order_cancellations 列** ⇒ 取消真相表對後端程式開了寫入面" ;;
   *)      bad "契約:service_role 鎖 order_cancellations 應失敗於 42501,實為 [$r_lk]" ;;
+esac
+r_g1="$(printf '%s\n' "$out" | sed -n 's/.*T2-ROLE|GEN1|//p' | head -1)"
+case "$r_g1" in
+  OK) ok "🔴 **已知且刻意的缺口**(關卡2 #9/#10、本探針實測):service_role **建得出一整筆 gen1 退款工單**(header + 明細 + DEFERRED 全過)⇒ 「第 3 批之前沒有 writer」是慣例、**不是資料庫強制的事實**;收回這兩個 INSERT GRANT 是第 3 批前置(plan §6)" ;;
+  42501*) bad "契約漂移:gen1 直寫**現在被擋住了**(42501)⇒ 有人收回了 INSERT GRANT。這是好事,但 plan §6 的第 3 批前置與 rollback 前提都要跟著改字面,不能默默漂" ;;
+  *)  bad "gen1 直寫探針結果無法判讀:[$r_g1] ⇒ 探針本身可能沒跑到(不是「沒有缺口」)" ;;
 esac
 
 # ══════════════════════════════════════════════════════════════
@@ -536,6 +592,10 @@ snapshot "$STRUCT_SQL" "$WORK/struct-after.snap" "跑完全部鏈後結構快照
 cmp -s "$WORK/struct-before.snap" "$WORK/struct-after.snap" \
   && ok "結構零漂移:跑完七條鏈 + 六道注入承重證明 + 角色保真探針後 catalog 一個 byte 都沒變" \
   || bad "結構漂移:跑完之後 catalog 被動到了"
+
+# 🔴 數量閘(關卡2 #5):本檔沒有 case 計數器,只釘斷言總數。
+#    `all` 模式多一條 provision 的 ok ⇒ 兩個模式各自釘死。
+[ "$MODE" = "all" ] && count_gate - 36 || count_gate - 35
 
 printf '  PASS=%d  FAIL=%d\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

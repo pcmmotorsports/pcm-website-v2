@@ -14,8 +14,8 @@
 #   §7.4-27 D9 全套(證據成對/必填、隔日閘、fail-closed、未來時間、D9d、D9c)
 #   §7.4-34 時區兩跑(UTC 與 Asia/Taipei 各跑一次,結果必須相同)
 #
-#   T3a(狀態機面)已完成 = `scripts/a7bt-negative-state.sh`;T4 = 突變 / ACL 32 格 /
-#   barrier lock probe / rollback 六步。**三片相加涵蓋 §7.4 全部 37 條**(§7.2.0)。
+#   T3a(狀態機面)已完成 = `scripts/a7bt-negative-state.sh`;T4 = 突變 / ACL 64 格 /
+#   barrier lock probe / rollback 八步。**三片相加涵蓋 §7.4 全部 37 條**(§7.2.0)。
 #
 # ── 🔴 這支腳本**不**證明什麼(誠實邊界)───────────────────────────────
 #   · 不證明守門「涵蓋所有錢面壞資料」—— 只證明列出來的那些各自紅在指定 ID。
@@ -83,7 +83,7 @@ INSERT INTO public.order_refund_jobs
    refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
    reason, actor, request_id)
 SELECT job2_id, cancellation_id, order_id, 2,
-       rpad('RECT2', 20, '0'), rpad('BRFT3BG2', 20, '0'), repeat('b', 64),
+       rec_trade, rpad('BRFT3BG2', 20, '0'), repeat('b', 64),
        amount, amount, 0, 0, 0,
        '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t3b-g2'
   FROM fx;
@@ -234,7 +234,7 @@ case_red "§7.4-8 用一個已存在於 order_refunds 的 bank_refund_id 開新 
      refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
      reason, actor, request_id)
   SELECT job3_id, cancellation2_id, order_id,
-         rpad('RECX8', 20, '0'), rpad('BRFXT3B', 20, '0'), repeat('c', 64),
+         rec_trade, rpad('BRFXT3B', 20, '0'), repeat('c', 64),
          amount, amount, 0, 0, 0, '跨表重用', staff_a, 'req-x8' FROM fx;
 SQL
 
@@ -677,6 +677,8 @@ snapshot "$STRUCT_SQL" "$WORK/struct-after.snap" "跑完全部負測後結構快
 cmp -s "$WORK/struct-before.snap" "$WORK/struct-after.snap" \
   && ok "結構零漂移:跑完全部錢面負測後 catalog 一個 byte 都沒變" \
   || bad "結構漂移:跑完之後 catalog 被動到了"
+
+[ "$MODE" = "all" ] && count_gate 29 46 || count_gate 29 45
 
 printf '  §7.2 矩陣(實跑產生):%s\n' "$WORK/matrix.tsv"
 printf '  負測案例 %d 條  PASS=%d  FAIL=%d\n' "$CASE_N" "$PASS" "$FAIL"

@@ -23,6 +23,31 @@ URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 PASS=0; FAIL=0
 ok()  { printf '  ✅ %s\n' "$1"; PASS=$((PASS+1)); }
 bad() { printf '  🔴 %s\n' "$1"; FAIL=$((FAIL+1)); }
+
+# ══ 數量閘(關卡2 #3-#7)═════════════════════════════════════════════════════
+# 🔴🔴 為什麼要有這個:五支 harness 原本都只**列印**「N 條案例 / M 條斷言」。
+#    刪掉一條案例、或某段檢查整段沒跑到,`FAIL` 仍是 0、退出碼仍是 0
+#    ⇒ **驗證面縮水的唯一症狀就是那行數字變小,而沒有任何東西在看它**。
+#    尤其危險的形狀:刪掉的案例與別條共用同一個守門 ID ⇒ 連「ID 覆蓋率集合相等」都照樣過。
+# 🔴 本函式**刻意不呼叫 ok/bad** —— 它們會動 PASS,而 PASS 正是被比對的量。
+# count_gate <預期案例數|-> <預期通過斷言數>
+count_gate() {
+  local ec="$1" ea="$2"
+  if [ "$ec" != "-" ] && [ "$CASE_N" != "$ec" ]; then
+    printf '  🔴 數量閘:負測案例 %s 條,預期 %s ⇒ 有案例被刪掉或沒跑到\n' "$CASE_N" "$ec"
+    FAIL=$((FAIL+1))
+  fi
+  if [ "$PASS" != "$ea" ]; then
+    printf '  🔴 數量閘:通過斷言 %s 條,預期 %s ⇒ 有斷言被刪掉、沒跑到,或新增了沒登記的斷言\n' "$PASS" "$ea"
+    FAIL=$((FAIL+1))
+  else
+    if [ "$ec" = "-" ]; then
+      printf '  ✅ 數量閘:通過斷言 %s 條,與釘死值相符(本檔無 case 計數器)\n' "$PASS"
+    else
+      printf '  ✅ 數量閘:案例 %s 條 / 通過斷言 %s 條,與釘死值相符\n' "$CASE_N" "$PASS"
+    fi
+  fi
+}
 log() { echo "== $* =="; }
 die() { printf '  🔴🔴 當場中止:%s\n' "$1"; exit 1; }
 
@@ -82,10 +107,60 @@ STRUCT_SQL="SELECT md5(concat(
     WHERE n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')),
   (SELECT coalesce(string_agg(indexdef, E'\n' ORDER BY indexdef), '')
      FROM pg_indexes WHERE schemaname = 'public' AND tablename IN ('order_refund_jobs','order_refund_job_items')),
-  (SELECT coalesce(string_agg(a.attname || '|' || format_type(a.atttypid, a.atttypmod) || '|' || a.attnotnull::text
-            || '|' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-'), E'\n' ORDER BY a.attnum), '')
-     FROM pg_attribute a LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
-    WHERE a.attrelid = 'public.order_refund_jobs'::regclass AND a.attnum > 0 AND NOT a.attisdropped)))"
+  -- 🔴 表級 ACL 也要進指紋(code-reviewer N6):只放 proacl 的話,`relacl` 被改到指紋看不見,
+  --    而「catalog 一個 byte 都沒變」那句話會涵蓋不到權限。
+  (SELECT coalesce(string_agg(c.relname || '|' || coalesce(c.relacl::text, '(null)') || '|'
+            || c.relrowsecurity::text || '|' || c.relforcerowsecurity::text, E'\n' ORDER BY c.relname), '')
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')),
+  -- 🔴🔴 欄位定義原本**只收 parent**(關卡2 #11):`order_refund_job_items` 的欄位型別、
+  --    NOT NULL、DEFAULT 全部在指紋外 ⇒ 子表被 ALTER 之後,「一個 byte 都沒變」仍會印出來。
+  --    ⇒ 兩張表一起收,順序由 relname + attnum 決定。
+  (SELECT coalesce(string_agg(c.relname || '.' || a.attname || '|' || format_type(a.atttypid, a.atttypmod)
+            || '|' || a.attnotnull::text || '|' || coalesce(pg_get_expr(d.adbin, d.adrelid), '-'),
+            E'\n' ORDER BY c.relname, a.attnum), '')
+     FROM pg_attribute a
+     JOIN pg_class c ON c.oid = a.attrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+    WHERE n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')
+      AND a.attnum > 0 AND NOT a.attisdropped),
+  -- 🔴 RLS policy(關卡2 #11):兩張表是 zero-policy,而「零」正是要被守住的狀態 ——
+  --    偷偷 CREATE POLICY 讓 anon 讀得到,relrowsecurity 仍是 true、指紋原本毫無感覺。
+  (SELECT coalesce(string_agg(c.relname || '.' || pol.polname || '|' || pol.polcmd::text || '|'
+            || coalesce(pg_get_expr(pol.polqual, pol.polrelid), '-') || '|'
+            || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '-') || '|'
+            || pol.polpermissive::text || '|'
+            || coalesce(array_to_string(ARRAY(SELECT pg_get_userbyid(r) FROM unnest(pol.polroles) r ORDER BY 1), ','), 'PUBLIC'),
+            E'\n' ORDER BY c.relname, pol.polname),
+            '(zero-policy)')
+     FROM pg_policy pol JOIN pg_class c ON c.oid = pol.polrelid JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')),
+  -- 🔴 表 owner(關卡2 #11):owner 換人 = 表級 ACL 與 RLS bypass 的前提整個變了。
+  (SELECT coalesce(string_agg(c.relname || '|' || pg_get_userbyid(c.relowner), E'\n' ORDER BY c.relname), '')
+     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')),
+  -- 🔴 COMMENT 合約(關卡2 #11):本片刻意把「這道防護擋不住什麼」寫在物件上,
+  --    那些字被刪掉 = 合約消失,而它不在任何其他斷言的視野裡。
+  (SELECT coalesce(string_agg(c.relname || coalesce('.' || a.attname, '') || '|' || md5(des.description),
+            E'\n' ORDER BY c.relname, coalesce(a.attnum, 0)), '')
+     FROM pg_description des
+     JOIN pg_class c ON c.oid = des.objoid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+     LEFT JOIN pg_attribute a ON a.attrelid = des.objoid AND a.attnum = des.objsubid AND des.objsubid > 0
+    -- 🔴 關卡2 R2：必須鎖 classoid。pg_description 是**跨目錄**的（表、欄、約束、trigger…），
+    --    只 join pg_class.oid 會因為 OID 在不同目錄之間重複而收到別的物件的描述，
+    --    同時**漏掉約束層的 COMMENT**（那是 pg_constraint 那一支）。
+    WHERE des.classoid = 'pg_class'::regclass
+      AND n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items')),
+  -- 約束層 COMMENT 另收一支（本片把「這道約束擋不住什麼」寫在約束上）
+  (SELECT coalesce(string_agg(k.conname || '|' || md5(des.description), E'\n' ORDER BY k.conname), '')
+     FROM pg_description des
+     JOIN pg_constraint k ON k.oid = des.objoid
+     JOIN pg_class c ON c.oid = k.conrelid
+     JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE des.classoid = 'pg_constraint'::regclass
+      AND n.nspname = 'public' AND c.relname IN ('order_refund_jobs','order_refund_job_items'))))"
 
 # ══════════════════════════════════════════════════════════════
 # SQL 片段產生器(全部用 quoted heredoc:零 shell 展開、零引號地獄)
@@ -173,8 +248,15 @@ SELECT oi.order_id,
        gen_random_uuid() AS job3_id,
        gen_random_uuid() AS led_id,
        'sean'::text      AS staff_a,
-       'staff_1'::text   AS staff_b
+       'staff_1'::text   AS staff_b,
+       -- 🔴 全套 harness 的**唯一**交易編號來源。一張訂單只有一筆刷卡 ⇒ 該訂單的每一筆
+       --    退款工單都必須帶同一個值(這正是新守門要求的);想測「不同編號」的負測
+       --    請顯式寫別的字面,不要另開第二個「正確值」。
+       rpad('RECT2', 20, '0')::text AS rec_trade,
+       -- 🔴 運費快照的權威來源 = 訂單自己的 shipping_fee(新守門 3.2c 綁定它)
+       o.shipping_fee    AS ship_before
   FROM public.order_items oi
+  JOIN public.orders o ON o.id = oi.order_id
   JOIN public.order_items sib
     ON sib.order_id = oi.order_id
    AND sib.id <> oi.id
@@ -190,6 +272,17 @@ SELECT pg_temp.assert((SELECT count(*) FROM fx) = 1,
 SELECT pg_temp.assert((SELECT count(*) FROM public.staff WHERE id IN ('sean','staff_1')) = 2,
                       'fixture:staff 種子缺 sean / staff_1(E14 的兩人簽核需要兩個不同 staff.id)');
 
+-- 🔴🔴 **fixture 例外二號(2026-07-31 關卡2 R2 之後新增,逐字登記在此)**:
+--    T1 新增了「`rec_trade_id` 必須等於 `orders.tappay_rec_trade_id`」的綁定守門
+--    (擋「退到別人的卡」)。實查:種子資料裡**沒有任何一張訂單同時符合
+--    『有同價手足品項』與『tappay_rec_trade_id 非空』** ⇒ 不注入就選不出 fixture。
+--    ⇒ 在交易內把該訂單的交易編號設成 fx.rec_trade(隨交易 ROLLBACK,零留痕)。
+--    這與 `pg_temp.advance()` 的時間注入同級 = 具名、單一位置、有承重證明
+--    (T3a 的「rec_trade_id 不等於訂單自己的」負測會紅在指定 constraint)。
+--    🔴 **不得改成「守門去讀 fx」** —— 那就變成測試遷就被測物。
+UPDATE public.orders SET tappay_rec_trade_id = (SELECT rec_trade FROM fx)
+ WHERE id = (SELECT order_id FROM fx);
+
 INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
 SELECT cancellation_id, order_id, 'customer_request', gen_random_uuid(), repeat('a', 64), staff_a FROM fx;
 
@@ -201,8 +294,8 @@ INSERT INTO public.order_refund_jobs
    refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
    reason, actor, request_id)
 SELECT job_id, cancellation_id, order_id,
-       rpad('RECT2', 20, '0'), rpad('BRFT2', 20, '0'), repeat('b', 64),
-       amount, amount, 0, 0, 0,
+       rec_trade, rpad('BRFT2', 20, '0'), repeat('b', 64),
+       amount, amount, ship_before, ship_before, 0,
        '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t2-0001'
   FROM fx;
 
@@ -508,7 +601,7 @@ INSERT INTO public.order_refund_jobs
    refund_amount, items_amount, shipping_fee_before, shipping_fee_after, shipping_delta,
    reason, actor, request_id)
 SELECT job2_id, cancellation_id, order_id, 2,
-       rpad('RECT2', 20, '0'), rpad('BRFT2G2', 20, '0'), repeat('b', 64),
+       rec_trade, rpad('BRFT2G2', 20, '0'), repeat('b', 64),
        amount, amount, 0, 0, 0,
        '客人要求取消(A7b-T T2 正向鏈)', staff_a, 'req-t2-0002'
   FROM fx;

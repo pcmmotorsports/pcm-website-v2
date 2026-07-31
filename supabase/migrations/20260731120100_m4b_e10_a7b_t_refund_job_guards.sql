@@ -283,6 +283,44 @@ BEGIN
       USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_insert_bank_id_crosstable_reuse';
   END IF;
 
+  -- ── 3.2b:`rec_trade_id` 必須就是**這張訂單自己的**那筆 TapPay 交易 ──────────
+  -- 🔴🔴 **關卡2 R2 #3(Sean 07-31 拍 A:四條錢面守門全關)**:
+  --    原本 `rec_trade_id` 只有 A7b-M 的形狀 CHECK(長度/字元),**沒有任何東西把它綁到訂單**
+  --    ⇒ 一張完全合法的取消單,配上**別張訂單**的 `rec_trade_id`,可以一路走到 completed
+  --    ⇒ **退到別人的卡上**。這不是「金額算錯」,是「退錯人」,比超額退款更難補救。
+  -- 權威來源 = `orders.tappay_rec_trade_id`(結帳寫入)。
+  -- 🔴 為什麼連 `IS NOT NULL` 也要求:該欄可為 NULL,而 `NEW.rec_trade_id = NULL` 整式為 NULL
+  --    ⇒ 天真寫法會**靜默放行**(本片第 N 次踩同一族 NULL 陷阱)。
+  -- ⚠️ **已知後果(實查、必須寫下來)**:正式站 5 筆已付款訂單中有 **2 筆** `tappay_rec_trade_id`
+  --    為 NULL(早期人工/測試單)⇒ 那 2 筆**走不了本表的自動退款**。這是 fail-closed 的正確結果
+  --    —— 不知道交易編號本來就打不了 Refund API;它們只能走人工 Portal。
+  IF NOT EXISTS (
+       SELECT 1 FROM public.orders o
+        WHERE o.id = NEW.order_id
+          AND o.tappay_rec_trade_id IS NOT NULL
+          AND o.tappay_rec_trade_id = NEW.rec_trade_id) THEN
+    RAISE EXCEPTION 'A7b job INSERT:rec_trade_id 與該訂單的 orders.tappay_rec_trade_id 不符(或該訂單根本沒有交易編號)'
+      USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_insert_rec_trade_not_order_own';
+  END IF;
+
+  -- ── 3.2c:運費快照的「退款前」值必須就是訂單當下的運費 ────────────────────
+  -- 🔴🔴 **關卡2 R2 #4**:三個運費欄原本只有**代數自洽**
+  --    (`shipping_delta = shipping_fee_after - shipping_fee_before`,A7b-M 的 CHECK)
+  --    ⇒ 商品退 100、運費寫 100000 → 0,`shipping_delta = -100000`,式子成立、
+  --      `refund_amount` 對得起來、帳本也配得平 ⇒ **總退款 100100 穿過全部守門**。
+  --    代數自洽只保證三個數字彼此不矛盾,**完全不保證它們與訂單事實有關**。
+  -- 權威來源 = `orders.shipping_fee`(NOT NULL,實查)。
+  -- ⚠️ **只綁得住 `before` 這一端**:`shipping_fee_after`(退掉品項後應收多少運費)需要
+  --    重算滿額門檻與配送方式,那是 A4a/第 3 批的事 ⇒ 它目前仍只有代數約束,**不得宣稱已綁**。
+  IF NOT EXISTS (
+       SELECT 1 FROM public.orders o
+        WHERE o.id = NEW.order_id
+          AND o.shipping_fee = NEW.shipping_fee_before) THEN
+    RAISE EXCEPTION 'A7b job INSERT:shipping_fee_before(%)不等於該訂單當下的 orders.shipping_fee',
+      NEW.shipping_fee_before
+      USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_insert_shipping_before_not_order_own';
+  END IF;
+
   -- ── 3.3 後代(generation > 1):必須接在「已授權重試的直接前代」之後 ──
   IF NEW.generation > 1 THEN
     -- 🔴🔴 **世代序列化鎖(關卡2 F2 + Sean 07-31 拍 Q4=A)**:先鎖 cancellation 那一列。
@@ -971,7 +1009,19 @@ DECLARE
   v_bad     integer;
   v_prev_id uuid;
 BEGIN
-  IF TG_TABLE_NAME = 'order_refund_jobs' THEN
+  IF TG_TABLE_NAME = 'order_cancellation_items' THEN
+    -- 🔴🔴 **反向觸發(關卡2 R2 #5;Sean 07-31 拍 A)**:C5/C6/C7 原本只掛在 job 側
+    --    ⇒ 工單通過檢查之後,回頭**刪掉或調小** `order_cancellation_items`,
+    --      本函式永遠不會再被觸發 ⇒ 「退款 ≤ 取消」從此失配而無人發現。
+    --    ⇒ 取消明細任何變動,都要把**該訂單所有退款工單**重驗一次
+    --      (不只該張取消單 —— C7 是跨取消單的累計,改 A 單會影響 B 單的餘額)。
+    SELECT coalesce(array_agg(j.id), ARRAY[]::uuid[]) INTO v_job_ids
+      FROM public.order_refund_jobs j
+     WHERE j.order_id = coalesce(NEW.order_id, OLD.order_id);
+    IF array_length(v_job_ids, 1) IS NULL THEN
+      RETURN NULL;  -- 該訂單還沒有任何退款工單 ⇒ 無不變式可驗
+    END IF;
+  ELSIF TG_TABLE_NAME = 'order_refund_jobs' THEN
     v_job_ids := ARRAY[NEW.id];
   ELSIF TG_OP = 'DELETE' THEN
     v_job_ids := ARRAY[OLD.job_id];
@@ -988,6 +1038,20 @@ BEGIN
     -- header 已不存在 ⇒ 無不變式可驗。
     -- (現行設計下 DELETE 被永久擋住 ⇒ 走不到;保留是為了讓本函式不依賴那個擋。)
     CONTINUE WHEN NOT FOUND;
+
+    -- ── 🔴🔴 每張訂單一把序列化鎖(關卡2 R2;同時清掉 plan §4.3「併發合約債 2」)──
+    --    C2 / C7 都是 **count/sum 型的 DEFERRED 檢查**,而聚合檢查在快照隔離下天生有洞:
+    --    兩筆交易各自看不到對方未提交的列 ⇒ **各自的加總都合法、落地後總和超額**。
+    --    這種洞用「再加一條 CHECK」補不掉(CHECK 只看單列),只能靠序列化。
+    --    ⇒ 用 advisory xact lock 而不是 `SELECT … FOR UPDATE`:
+    --      ①不必對 `orders` 或 `order_items` 取真實列鎖 ⇒ 不會擋到結帳
+    --      ②交易結束自動釋放,無殘留
+    --    🔴 **鎖序**:本函式在 DEFERRED 階段執行 ⇒ 一律晚於 BEFORE INSERT 守門的
+    --      `order_cancellations … FOR UPDATE`。全套程式碼只有這兩把鎖,順序恆為
+    --      「cancellations 列鎖 → 本 advisory 鎖」⇒ 不構成互鎖環。
+    --    ⚠️ 擋不住什麼:別的 session 若不經本 trigger 寫入(replica 模式 / 直接改 catalog),
+    --      這把鎖與其餘所有守門一樣無效 —— 那是 owner 權限層的威脅模型,不在此處。
+    PERFORM pg_advisory_xact_lock(hashtext('a7bt_order:' || v_job.order_id::text));
 
     -- ── C1:每個 job 至少一列明細 ──
     -- 🔴 關聯條件不可省:誤寫成全表 count 時,只要別的 job 有明細,空 job 就會過關。
@@ -1013,6 +1077,71 @@ BEGIN
         USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c2_items_amount_mismatch';
     END IF;
 
+    -- ── C5 / C6:退款明細必須落在「這張取消單真的取消掉的東西」之內 ──────────
+    -- 🔴🔴 **關卡2 #24 抓到的錢面漏洞**(Sean 07-31 拍板「放資料庫」):
+    --    C3/C4 只把 job item 對 `order_items`(= 這張訂單有這個品項、數量沒超過原始下單量),
+    --    **完全沒有比對 `order_cancellation_items`** ⇒ 取消 A 品項、退款單卻列 B 品項,
+    --    或取消 1 件卻退 2 件,一路配得出平衡的帳本並走到 completed。
+    --    實測攻擊輸出(修正前):「取消量=1 件 / 退款 job 明細=2 件,items_amount=200」。
+    --
+    -- 🔴 **為什麼比對真相表、不比對 A1 的摘要欄**:`order_item_quantity_summary` 是 A4a
+    --    **惰性建立**的衍生快取 ⇒ 快取列不存在時 `COALESCE(...,0)` 會把「我不知道」翻譯成
+    --    「取消 0 件」,守門要嘛全擋(誤傷)要嘛靜默放行。守門一律回真相表。
+    --
+    -- 🔴 **為什麼是逐筆比、不是加總比**(我一度以為要寫成累計):同一張 cancellation 底下
+    --    ①`orj_cancellation_generation_key UNIQUE (cancellation_id, generation)` 擋掉「兩張並存的 gen1」
+    --    ②後代的 item set 必須逐列等於直接前代(本函式下方那條)
+    --    ⇒ **一張取消單的退款明細集合只會有一種**,不可能被拆成兩筆各自合法、加起來超額。
+    --    「分次退款」在本資料模型裡 = 兩張各自有自己取消明細的 cancellation,各自受本條夾住。
+    --
+    -- ⚠️ **本條擋不住什麼(誠實邊界)**:
+    --    ① 只夾「退款 ≤ 取消」。「取消量本身合不合理(Σ cancelled ≤ 下單量)」是 A1/A4a 那一層的事,
+    --       且 `cancelled_quantity` 依 `20260730130000:215-219` **刻意無上限**。
+    --    ② 只夾件數與品項,不夾金額 —— 金額由 C4(單價=訂單快照)× C6(件數)× C2(Σ=items_amount)
+    --       三條合成;單獨刪掉任何一條都會留下一個可超額的方向。
+    --    ③ gen1 完成後、以新 cancellation 重跑一次的雙退風險由 U2/U3 + D9c baseline 承接,不在本條。
+    --    ④ 🔴 **本支只掛在 job 側**(與 §5.6(b) 的 job↔ledger 同一個形狀、同一個誠實邊界):
+    --       job 與明細都寫好、C5/C6 通過並提交之後,若有人回頭**刪掉或調小**
+    --       `order_cancellation_items` 的列,本函式**永遠不會再被觸發** ⇒ 從此失配而無人發現。
+    --       現況可達性:`order_cancellation_items` 對 service_role **只有 SELECT**
+    --       (`20260730130000:267-268`)⇒ 只有 owner / SECURITY DEFINER 走得到,與 ④ 同級。
+    --       ⇒ 要真的關掉,得在 `order_cancellation_items` 上再掛一支反向 trigger;
+    --       那與 Sean 07-31 Q2=A 對 ledger 那條的處置一致 = **登記為已知邊界,不在本片做**。
+    --
+    -- 🔴 **順序不可與 C3/C4 對調**:C6 嚴格緊於 C3(cancelled 通常 ≤ ordered),放後面的話
+    --    在「取消 1 件、下單 1 件」這個最常見的形狀上,C6 的負測**物理上構造不出來**
+    --    (要 ji.quantity 同時 > cancelled(1) 且 ≤ ordered(1))⇒ 等於加了一條無法被證明的規則。
+    --    C3 仍可獨立到達(cancelled_quantity 無上限 ⇒ cancelled=5 > ordered=1 時 C6 過、C3 紅)。
+    SELECT count(*) INTO v_bad
+      FROM public.order_refund_job_items ji
+     WHERE ji.job_id = v_job_id
+       AND NOT EXISTS (
+             SELECT 1
+               FROM public.order_cancellation_items ci
+              WHERE ci.cancellation_id = v_job.cancellation_id
+                AND ci.order_item_id   = ji.order_item_id);
+
+    IF v_bad > 0 THEN
+      RAISE EXCEPTION 'A7b 主從一致:job % 有 % 列明細的品項不在該取消單的取消明細內(C5)', v_job_id, v_bad
+        USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c5_item_not_cancelled';
+    END IF;
+
+    -- 🔴 JOIN 的 1:1 由 `order_cancellation_items` 的 (cancellation_id, order_item_id) 唯一鍵保證。
+    --    萬一那道唯一鍵被拿掉而出現兩列,本條會對**每一列**各比一次
+    --    ⇒ 只要有任何一列的取消量小於退款量就轉紅 = fail-closed,不是靜默放行。
+    SELECT count(*) INTO v_bad
+      FROM public.order_refund_job_items ji
+      JOIN public.order_cancellation_items ci
+        ON ci.cancellation_id = v_job.cancellation_id
+       AND ci.order_item_id   = ji.order_item_id
+     WHERE ji.job_id = v_job_id
+       AND ji.quantity > ci.cancelled_quantity;
+
+    IF v_bad > 0 THEN
+      RAISE EXCEPTION 'A7b 主從一致:job % 有 % 列明細的退款件數超過該取消單的取消件數(C6)', v_job_id, v_bad
+        USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c6_quantity_exceeds_cancelled';
+    END IF;
+
     -- ── C3 / C4:數量不得超過原品項、單價必須等於訂單快照 ──
     SELECT count(*) INTO v_bad
       FROM public.order_refund_job_items ji
@@ -1035,6 +1164,66 @@ BEGIN
       RAISE EXCEPTION 'A7b 主從一致:job % 有 % 列明細的單價不等於訂單快照(C4)', v_job_id, v_bad
         USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c4_unit_price_mismatch';
     END IF;
+
+    -- 🔴 **C7 放在 C3/C4 之後（施工時被自己的負測抓到）**：它是最寬的那一條界，
+    --    放前面會把 C5 與 C3 的負測整個蓋掉（實測：兩條都變成紅在 C7）
+    --    ⇒ 那兩條就沒在測自己。
+    --    通則：**越寬的守門排越後面**，否則窄守門的負測物理上構造不出來。
+    -- ── C7:同一品項的**跨取消單累計**退款件數,不得超過客人買的件數 ───────────
+    -- 🔴🔴 **這條推翻了我自己在 C5/C6 註解裡寫的「逐筆比就夠、不需累計」**
+    --    (關卡2 R2 #1+#6 抓到,我另寫攻擊腳本親自複驗成立,輸出逐字:
+    --     「品項原始下單量 = 1 件,單價 = 100 / 兩張取消單、兩筆退款工單全部建立成功、
+    --       C1-C6 全過 / 該品項下單 1 件,但退款工單合計要退 2 件、金額 200」)。
+    --    我原本的推論只證明了「**同一張**取消單內拆不成兩筆」,漏掉的是:
+    --    **同一個品項可以被兩張不同的取消單各取消一次**(「分次取消」是規格刻意允許的,
+    --    `order_cancellation_items` 的唯一鍵只管同一張取消單內不重複、跨次不受限),
+    --    於是兩筆退款工單各自看都完全合法 ⇒ 同一件商品的錢退兩次。
+    --
+    -- 🔴🔴 **上界是 `order_items.quantity`(客人買了幾件),不是「累計取消件數」。**
+    --    我第一版寫成「累計退款 ≤ 累計取消」,**那是 no-op** —— 施工時被自己的負測抓到
+    --    (那條負測物理上構造不出來)。原因:C6 已經保證每張取消單各自不超額,
+    --    對不同取消單求和之後不等式自動成立 ⇒ C7 被 C6 嚴格蘊含、永遠不會紅。
+    --    而我原本那個攻擊腳本真正違反的是「**退的件數超過客人買的件數**」:
+    --    同一個只買 1 件的品項被兩張取消單各取消 1 件,兩筆工單各退 1 件 ——
+    --    每一格都合法,合計退了 2 件。**取消量的加總本身沒有上界,拿它當上界等於沒有上界。**
+    -- 🔴 **與「取消量刻意無上限」不衝突**(`20260730130000:215-219`):那條講的是
+    --    `cancelled_quantity` 相對**採購量**可以更大(還沒跟上游下單就被客人取消)。
+    --    本條約束的是**退款件數**相對**客人下單件數** —— 錢的上界只能是客人付過的那些件。
+    -- 🔴 **為什麼不能讀 A1 的 `order_item_quantity_summary`**:那是 A4a **惰性建立**的衍生快取,
+    --    列不存在時 `COALESCE(…,0)` 會把「我不知道」翻譯成 0 ⇒ 守門靜默誤擋或誤放。
+    --    `order_items.quantity` 是真相表、NOT NULL,直接讀它。
+    --
+    -- 🔴 **世代不得重複計算**:gen1→gen2→… 是**同一筆錢的重試**,不是追加退款
+    --    (後代 item set 必須逐列等於前代,見下方那條)。全部加起來會把一次重試算成兩次退款
+    --    ⇒ 合法的重試會被自己擋死。⇒ 每張 cancellation **只取世代最大的那一列**。
+    --    `DISTINCT ON` 在插入 gen2 的交易裡會選到 gen2、排除 gen1,正是要的語意。
+    -- ⚠️ **擋不住什麼**:一筆 `dead` 但錢實際已出去的工單 + 一次人工授權重試 = 同一筆錢兩次,
+    --    那條由 D7 + D9 的 baseline 比對承接,**不在本條**(本條看的是件數,不是錢有沒有真的出去)。
+    FOR v_bad IN
+      SELECT 1
+        FROM (SELECT DISTINCT ji.order_item_id AS oid
+                FROM public.order_refund_job_items ji
+               WHERE ji.job_id = v_job_id) touched
+       WHERE (
+              SELECT coalesce(sum(ji2.quantity), 0)
+                FROM public.order_refund_job_items ji2
+                JOIN (SELECT DISTINCT ON (j.cancellation_id) j.id
+                        FROM public.order_refund_jobs j
+                       WHERE j.order_id = v_job.order_id
+                       ORDER BY j.cancellation_id, j.generation DESC) latest
+                  ON latest.id = ji2.job_id
+               WHERE ji2.order_item_id = touched.oid
+             ) > (
+              SELECT oi.quantity
+                FROM public.order_items oi
+               WHERE oi.id = touched.oid
+             )
+       LIMIT 1
+    LOOP
+      RAISE EXCEPTION
+        'A7b 主從一致:job % 讓某品項的**跨取消單累計**退款件數超過客人下單件數(C7)', v_job_id
+        USING ERRCODE = 'P7B01', CONSTRAINT = 'a7bt_c7_cumulative_exceeds_cancelled';
+    END LOOP;
 
     -- ── 後代 item set 必須與直接前代完全相同(plan §5.1-5)──
     -- 🔴 雙向無差集,不是只比 count:同樣的列數、不同的品項組合會通過 count 比對。
@@ -1274,6 +1463,20 @@ CREATE CONSTRAINT TRIGGER a7bt_items_after_insdel_consistency
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION public.pcm_a7bt_assert_job_consistent();
 
+-- ── 第 11 支:掛在**取消明細**上的反向 trigger(關卡2 R2 #5;Sean 07-31 拍 A)──────
+-- 🔴🔴 為什麼需要它:C5/C6/C7 全部只掛在退款工單那一側。工單通過檢查、交易提交之後,
+--    有人回頭 **DELETE 或調小** `order_cancellation_items.cancelled_quantity`,
+--    上面三條**一次都不會再被觸發** ⇒ 「退款 ≤ 取消」從此失配,而系統沒有任何地方會發現。
+--    這與 §5.6(b) job↔ledger「只掛單側」是同一個病;那一條 Sean 拍板接受為邊界,
+--    **這一條拍板要關掉** —— 差別在於它守的是「退款金額上界」本身,不是事後對帳。
+-- 🔴 這是本片唯一掛在**別片的表**(A7-t 的 `order_cancellation_items`)上的 trigger
+--    ⇒ rollback 必須連它一起 DROP(`scripts/a7bt-rollback.sql` 第 ④ 步已列名)。
+-- 🔴 也必須含 UPDATE:只擋 DELETE 的話,把 `cancelled_quantity` 從 5 改成 1 照樣繞過。
+CREATE CONSTRAINT TRIGGER a7bt_cancel_items_after_change_consistency
+  AFTER INSERT OR UPDATE OR DELETE ON public.order_cancellation_items
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION public.pcm_a7bt_assert_job_consistent();
+
 -- ══ 9. 結構驗收(fail-closed;必須在移除 gate 之前全過)══════════════════════
 -- 🔴🔴 本段被 codex 關卡 2 打了 10 條 must-fix,全部同一個病:**驗收自己會假綠**。
 --    「數總數」「驗同名存在」「只驗 FK 存在」「只比 relname/proname」
@@ -1321,7 +1524,9 @@ BEGIN
         ('a7bt_items_block_update',            'order_refund_job_items', 'CREATE TRIGGER a7bt_items_block_update BEFORE UPDATE ON public.order_refund_job_items FOR EACH ROW EXECUTE FUNCTION pcm_a7bt_block_write(''a7bt_items_update_blocked'')|enabled=O'),
         ('a7bt_items_block_delete_guard',      'order_refund_job_items', 'CREATE TRIGGER a7bt_items_block_delete_guard BEFORE DELETE ON public.order_refund_job_items FOR EACH ROW EXECUTE FUNCTION pcm_a7bt_block_write(''a7bt_items_delete_blocked'')|enabled=O'),
         ('a7bt_items_block_truncate',          'order_refund_job_items', 'CREATE TRIGGER a7bt_items_block_truncate BEFORE TRUNCATE ON public.order_refund_job_items FOR EACH STATEMENT EXECUTE FUNCTION pcm_a7bt_block_truncate(''a7bt_items_truncate_blocked'')|enabled=O'),
-        ('a7bt_items_after_insdel_consistency','order_refund_job_items', 'CREATE CONSTRAINT TRIGGER a7bt_items_after_insdel_consistency AFTER INSERT OR DELETE OR UPDATE ON public.order_refund_job_items DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pcm_a7bt_assert_job_consistent()|enabled=O')
+        ('a7bt_items_after_insdel_consistency','order_refund_job_items', 'CREATE CONSTRAINT TRIGGER a7bt_items_after_insdel_consistency AFTER INSERT OR DELETE OR UPDATE ON public.order_refund_job_items DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pcm_a7bt_assert_job_consistent()|enabled=O'),
+        -- 第 11 支:掛在 A7-t 的取消明細表上(關卡2 R2 #5)
+        ('a7bt_cancel_items_after_change_consistency','order_cancellation_items', 'CREATE CONSTRAINT TRIGGER a7bt_cancel_items_after_change_consistency AFTER INSERT OR DELETE OR UPDATE ON public.order_cancellation_items DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION pcm_a7bt_assert_job_consistent()|enabled=O')
       ) AS e(tgname, relname, def)
   LOOP
     IF v_actual IS DISTINCT FROM v_expect THEN
@@ -1339,6 +1544,23 @@ BEGIN
      AND NOT t.tgisinternal;
   IF v_cnt <> 10 THEN
     RAISE EXCEPTION 'A7b-T 驗收失敗(9.1)— 兩表的非內部 trigger 應為 10 支,實為 %', v_cnt;
+  END IF;
+
+  -- 🔴 第 11 支在 A7-t 的 `order_cancellation_items` 上,不在上面那個 count 的範圍內
+  --    ⇒ 必須單獨釘死。同時釘「本片只在該表加這一支」——
+  --    A7-t 自己有 2 支(presence + truncate 攔截,`20260730140000:284`),加本片這支 = 3。
+  SELECT count(*) INTO v_cnt
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace tn ON tn.oid = c.relnamespace
+   WHERE tn.nspname = 'public'
+     AND c.relname = 'order_cancellation_items'
+     AND NOT t.tgisinternal;
+  IF v_cnt <> 3 THEN
+    RAISE EXCEPTION
+      'A7b-T 驗收失敗(9.1)— order_cancellation_items 的非內部 trigger 應為 3 支'
+      '(A7-t 的 presence + truncate 攔截,加本片的 a7bt_cancel_items_after_change_consistency),實為 %',
+      v_cnt;
   END IF;
 
   -- 🔴 綁定的函式必須都在 **public** schema。
@@ -1490,9 +1712,9 @@ BEGIN
         ('pcm_a7bt_block_write',             'c98400dc1a4ee2e5683269e3926dbb81'),
         ('pcm_a7bt_block_truncate',          '5560a7dac9d1d5e8f9e9559c83893a9f'),
         ('pcm_a7bt_allowed_delta',           '1d28b7f83b078e2de23175f8c618f141'),
-        ('pcm_a7bt_jobs_before_insert',      '667875ef084d4f0b130817c5ff8d6f2e'),
+        ('pcm_a7bt_jobs_before_insert',      '9771e2a26b012737b8df69406cb20617'),
         ('pcm_a7bt_jobs_before_update',      '6ce43f7499742d2e2ceb4c780f439560'),
-        ('pcm_a7bt_assert_job_consistent',   '04a247b662142d93f8635c133f63a16c'),
+        ('pcm_a7bt_assert_job_consistent',   '690329ffe790b71a51b0d730c16bd3fc'),
         ('pcm_a7bt_assert_job_ledger_equal', '276e7dc4d4de51932dca8bef74469c02')
       ) AS e(proname, md5)
   LOOP
