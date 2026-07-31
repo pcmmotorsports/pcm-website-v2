@@ -1,9 +1,10 @@
-# E10 第 1 批 · A7b「退款工作表 + 狀態機合約」片級 plan **v6**
+# E10 第 1 批 · A7b「退款工作表 + 狀態機合約」片級 plan **v7**
 
-> 🔴 **關卡1 五輪皆 FAIL,全部已折入本檔**:
-> **R1** codex xhigh 35+5 · **R2** codex xhigh 18+4 · **R3** Fable 11+3 · **R4** codex xhigh 7 · **R5** Fable 11+2
-> 逐字 = `docs/reviews/2026-07-31-e10-a7b-k1{,r2,r3-fable,r4,r5-fable}.md`
-> 合計 **82 must-fix + 14 nit**,折入 82/82、駁回 0、改採不同修法 1(§13)。
+> 🔴 **關卡1 六輪皆 FAIL,全部已折入本檔**:
+> **R1** codex 35+5 · **R2** codex 18+4 · **R3** Fable 11+3 · **R4** codex 7 · **R5** Fable 11+2 · **R6** codex 11
+> 逐字 = `docs/reviews/2026-07-31-e10-a7b-k1{,r2,r3-fable,r4,r5-fable,r6-codex}.md`
+> 合計 **93 must-fix + 14 nit**,折入 **91/93**、駁回 0、改採不同修法 1、
+> **2 條(R6 F3/F6)= 精確層,由 migration 本身關閉 ⇒ §14 Q5 待 Sean 決定流程**(§13)。
 > 真權威 = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` §5.1 row 25(每輪逐字重寫)。
 > 決策全文 = memory `project_m4b-a7b-refund-jobs-decisions`。
 > 片型 = **高風險片**(鐵則 12 ①錢 + ③DB 結構)。
@@ -69,7 +70,7 @@
 | 片 | 型 | 交付 | 版本號 |
 |---|---|---|---|
 | **A7b-M** | M | 兩表、所有 CHECK、五道唯一性、索引、完整 ACL、COMMENT 合約、**dormant gate** | `20260731120000` |
-| **A7b-T** | T | **移除 dormant gate** + 六支守門 trigger + 行為探針 + 突變 harness | `20260731120100` |
+| **A7b-T** | T | **移除 dormant gate** + **十支**守門 trigger(manifest 見 §5.0)+ 行為探針 + 突變 harness | `20260731120100` |
 
 ### 1.1 dormant gate(D4)
 ```sql
@@ -300,6 +301,18 @@ service_role only、SECURITY DEFINER、鎖列後重驗、rowcount 必為 1、同
 - `rec_trade_id` text NOT NULL,CHECK `char_length BETWEEN 1 AND 20`
   🔴 **不加字元集 CHECK**:v2 寫的 `[A-Za-z0-9_-]` **沒有 TapPay 官方依據**(官方只寫 String(20)),
   可能拒絕合法外部 ID = 一筆該退的錢永遠進不了系統。只擋控制碼 / 前後空白 / 空字串。
+  🔴 **表達式寫死、不留給實作者發揮(R6 F5)**:v6 只寫「控制碼 / 前後空白」四個字,
+  一個人會用 `btrim`、另一個人會用 locale-dependent 的 `[[:space:]]`,而 TAB / DEL / 全形空白
+  在兩版會得到不同結果,**各自挑兩個測例仍可全綠**。⇒ 逐碼位定死:
+  ```sql
+  CHECK (rec_trade_id <> ''
+     AND rec_trade_id !~ '[\x00-\x1F\x7F]'                      -- ASCII 控制碼 + DEL
+     AND left(rec_trade_id,1)  !~ '[ \t\r\n 　]'       -- 前綴空白(含 NBSP / 全形)
+     AND right(rec_trade_id,1) !~ '[ \t\r\n 　]')      -- 後綴空白
+  ```
+  🔴 **刻意不涵蓋的**:U+2000-200A 等其他 Unicode 空白、U+00AD / U+2800 / U+3164 三個
+  「渲染全白但不屬空白類」的碼位 —— **明文認列不擋**(對外部 ID 過度嚴格的代價是拒收合法交易)。
+  測試向量必須逐碼位列出上述**每一個**字元,不得由實作者自行挑。
   施工前對既有 `payment_charge_attempts.rec_trade_id` 做字元集 read-back,寫進 COMMENT 當**觀察紀錄**,**不升格為 CHECK**。
 - `bank_refund_id` text NOT NULL,同上規則
 - `payload_hash` text NOT NULL CHECK `~ '^[0123456789abcdef]{64}$'`
@@ -337,6 +350,12 @@ service_role only、SECURITY DEFINER、鎖列後重驗、rowcount 必為 1、同
   `retry_auth_recorded_refunded` integer / `retry_auth_checked_at` timestamptz(D9a)
 - 🔴 **更正(D11)**:`corrected_at` timestamptz / `corrected_by`(**FK → `staff(id)`**)/ `correction_reason` text
 - `refund_id` uuid FK → `order_refunds(id)` / `created_at` / `updated_at`
+
+🔴 **所有 FK 的 referential action 一律寫死 `ON DELETE RESTRICT`(R6 F8;v6 有三支沒指定)**:
+`reviewed_by` / `corrected_by` / `refund_id` 三支在 v6 未指定 ⇒ 實作者可能寫成 `CASCADE`(**刪 staff 連 job 一起刪掉**)、
+`SET NULL`(**清掉稽核人**,而 review 三欄的成對 CHECK 會讓它在別的地方才意外失敗)或預設 `NO ACTION`。
+⇒ **七支 FK 全部 `RESTRICT`**:`(cancellation_id, order_id)` / `actor` / `reviewed_by` / `corrected_by` /
+`refund_id` / 子表兩支。**`confdeltype` 逐支納入 §7 結構驗收**(只驗「FK 存在」不夠)。
 
 ### 4.2 `order_refund_job_items`(Q4=B)
 
@@ -443,7 +462,33 @@ owner 必須是 `postgres`,列入 §7.1 指紋斷言。
 
 ---
 
-## §5 A7b-T:六支守門
+## §5 A7b-T:**十支**守門
+
+### 5.0 trigger manifest(**R6 F4**:v6 全檔寫「六支」、rollback 卻列 parent 六 + child 四 = **十支**)
+
+v6 的「六支」是**我自己的字面不一致**,而 §7.1 要斷言 `tgtype`(事件 bitmap)⇒
+**沒有這張表就產不出預期值**。逐支具名,施工與驗收都以本表為準:
+
+| # | trigger 名 | 表 | timing | 事件 | ROW/STMT | deferrable | 函式 |
+|---|---|---|---|---|---|---|---|
+| 1 | `a7bt_jobs_before_insert` | jobs | BEFORE | INSERT | ROW | — | `pcm_a7bt_jobs_before_insert()` |
+| 2 | `a7bt_jobs_before_update` | jobs | BEFORE | UPDATE | ROW | — | `pcm_a7bt_jobs_before_update()` |
+| 3 | `a7bt_jobs_block_delete` | jobs | BEFORE | DELETE | ROW | — | `pcm_a7bt_block_write()` |
+| 4 | `a7bt_jobs_block_truncate` | jobs | BEFORE | TRUNCATE | **STATEMENT** | — | `pcm_a7bt_block_truncate()` |
+| 5 | `a7bt_jobs_after_ins_consistency` | jobs | AFTER | INSERT | ROW | **DEFERRABLE INITIALLY DEFERRED** | `pcm_a7bt_assert_job_consistent()` |
+| 6 | `a7bt_jobs_after_insupd_ledger` | jobs | AFTER | **INSERT OR UPDATE** | ROW | **DEFERRABLE INITIALLY DEFERRED** | `pcm_a7bt_assert_job_ledger_equal()` |
+| 7 | `a7bt_items_block_update` | items | BEFORE | UPDATE | ROW | — | `pcm_a7bt_block_write()` |
+| 8 | `a7bt_items_block_delete_guard` | items | BEFORE | DELETE | ROW | — | `pcm_a7bt_block_write()` |
+| 9 | `a7bt_items_block_truncate` | items | BEFORE | TRUNCATE | **STATEMENT** | — | `pcm_a7bt_block_truncate()` |
+| 10 | `a7bt_items_after_insdel_consistency` | items | AFTER | **INSERT OR DELETE** | ROW | **DEFERRABLE INITIALLY DEFERRED** | `pcm_a7bt_assert_job_consistent()` |
+
+🔴 **第 8 支與第 10 支的關係要講清楚,不是重複**:第 8 支是**永久阻擋**(BEFORE DELETE 無條件 `RAISE`);
+第 10 支的 DELETE 事件是 constraint trigger 的**必要形狀**(照 `20260725130100:180-186` 的既有教訓 ——
+子表那支必須含 DELETE,否則刪明細後合計失衡不會觸發)。
+現行設計下第 8 支讓第 10 支的 DELETE 分支**永遠不會被觸發** ⇒ **依「不留無法獨立證明的東西」紀律,
+該分支必須在 §7.2 標為結構字面驗證**(它的價值在 break-glass 期間第 8 支被 DISABLE 時)。
+🔴 `pcm_a7bt_block_write()` 被三支共用 ⇒ `RAISE` 必須帶**各自不同的 `CONSTRAINT` 具名 ID**
+(靠 `TG_ARGV` 或 `TG_TABLE_NAME` + `TG_OP` 分辨),否則負測分不出紅在哪一支。
 
 ### 5.1 `BEFORE INSERT`
 1. **所有世代一律**:`status` 必須 `'queued'`;lease 三欄、`refund_call_attempted_at`、`last_refund_call_at`、
@@ -464,7 +509,15 @@ owner 必須是 `postgres`,列入 §7.1 指紋斷言。
 ⇒ **拿掉鎖不會產生第二次退款,拿掉 U1 會**;併發負測必須斷言 **U1 的 constraint 名**。
 
 ### 5.2 `BEFORE UPDATE`
-1. `OLD.status → NEW.status` 必須命中 §3.1 的 **16 條 edge 之一**,含全部額外條件
+1. 🔴🔴 **exact-one classifier(R6 F1;v6 只寫「必須命中之一」= 沒有規定怎麼判)**:
+   16 條 edge 各自寫成一個**具名 boolean predicate**,先算 `match_count`,
+   **`= 1` 才執行;`= 0` 與 `> 1` 各自 `RAISE` 且用不同的具名 ID**。
+   🔴 **不得用 `IF / ELSIF` 首條命中** —— E2 / E2b / E3 三條都是 `processing → processing`、
+   E13 / E14 都是 `dead → dead`,分支順序會直接改變結果,而且「重疊」與「零命中」會被靜默吞掉。
+   (E13/E14 靠 `OLD.reviewed_at IS NULL` vs `IS NOT NULL` 本身互斥;E2/E2b/E3 靠
+   「哪些欄產生 delta」互斥 —— 這一點必須由 predicate **明文表達**,不能靠實作者理解。)
+   ⇒ 驗收:§7.4 必須有**「同時滿足兩條 edge 的列」**與**「一條都不滿足的列」**兩組負測,
+   各自斷言指定的 `a7bt_edge_ambiguous` / `a7bt_edge_unmatched`。
 2. **終態不可轉出**:`completed` 之後任何欄位都不准改
 3. **`dead` 只允許 E13 / E14**;E13 需 `OLD.reviewed_at IS NULL`、E14 需 `OLD.reviewed_at IS NOT NULL`
    且 `OLD.corrected_at IS NULL` ⇒ **兩者互斥、且各自一次性**
@@ -474,6 +527,14 @@ owner 必須是 `postgres`,列入 §7.1 指紋斷言。
    `reviewed_at`/`reviewed_by`(一旦非 NULL,**E14 也不得改**)/ `corrected_*` 三欄(一旦非 NULL)
    —— `refund_call_attempted_at` 與 `last_refund_call_at` 有自己的規則(§3.0);
    D9 兩證據欄由 E13 首寫、E14 可改一次
+   🔴🔴 **「其餘欄不得改」必須可機械產生(R6 F2;v6 這句話出現很多次卻沒定義「其餘」)**:
+   ⇒ **建立全欄位 canonical manifest**(一份、單一真相),每條 edge 只寫它的 **allowed-delta 白名單**;
+   守門實作 = `全欄位 − 該 edge 白名單` 逐欄 `IS NOT DISTINCT FROM OLD`。
+   🔴 **deny-by-default**:未列入任何白名單的欄(**含未來新增的欄**)一律禁止改動。
+   ⇒ 沒有這條會出現兩種壞法,而且方向相反:一版漏比 `last_refund_call_at`(**放行竄改**)、
+   另一版把自動欄 `updated_at` 也列為不可變(**合法 edge 永遠失敗**)。
+   ⇒ `status` 與 `updated_at` 是**每條 edge 都在白名單內**的自動欄,必須在 manifest 明列、不得靠慣例。
+   ⇒ 驗收:§7.2 加一格「manifest 的欄位集合 = `pg_attribute` 實際欄位集合」,**新增欄卻沒進 manifest 必轉紅**
 5. **計數器逐 edge 寫死**:`retry_count` 只在 E5/E5b `+1`;`check_fail_count` 只在 E10 歸 0 或 `+1`、
    只在 E12 `+1` 到 6;**其餘 edge 一律不得改動兩者**
 6. 🔴 **`tappay_refund_id` 首寫獨佔**:除 E4 外一律 `IS NOT DISTINCT FROM OLD`(D10)
@@ -525,7 +586,7 @@ ID 命名 = `a7bt_<edge 或規則>`。
 
 | 規格 | 狀態 | 驗收落點 |
 |---|---|---|
-| R9 baseline + job↔ledger 等值 | ✅ 關閉 | T-E2/T-E4;等值 = §7.4-16 |
+| R9 baseline + job↔ledger 等值 | 🟡 **半關閉(R6 F7 降級)** | 等值斷言本片關閉(T-E2/T-E4 + §7.4-16)。🔴 **但「怎麼原子完成」本片沒有落點**:service_role 對 job 有 UPDATE、對 `order_refunds` **只有 SELECT**(`20260725130100:312-325` 親驗)⇒ worker **不可能**自己直接 INSERT ledger(必吃 `42501`);若拆成兩次 RPC,**兩次交易之間 crash 會留下單邊完成**。⇒ **現在就立第三批的具名合約**:`public.complete_refund_job(p_job_id uuid, p_claim_token uuid, p_tappay_refund_id text)` = **SECURITY DEFINER**、service_role only、**同一交易**內建立 `order_refunds`(`status='confirmed'`、`confirmed_at`)+ `order_refund_items` + 走 E9 回填 `refund_id`;🔴 **不得用「放寬 ledger 表權限」代替**(那會讓 worker 能繞過本合約直接寫帳)。ID `W-R9-COMPLETE-1`(單交易成功)/`-2`(中途 RAISE 後 ledger 與 job 皆無殘留)/`-3`(service_role 直接 INSERT ledger 必 `42501`) |
 | R10 `reconciling` 獨立相位 | ✅ 關閉 | 「`reconciling → processing` 必拒」 |
 | R11 `failed` 不在 `submitted` 之後 | ✅ 關閉 | 「`submitted → failed` 必拒」 |
 | R12 reclaim + `check_fail_count` 入 schema | ✅ 關閉 | T-E11;CHECK 0-6 |
@@ -566,7 +627,16 @@ harness 自我測試(故意弄壞快照 SQL 必須當場中止,`:138-144`)/ 結�
 - 🔴 `processing.tappay_refund_id = N` 這格在 trigger 全開時被 D10 支配 ⇒ 同樣標**結構字面驗證**,
   並在 COMMENT 註明「它的價值在 break-glass 期間」(§4.4)。
 
-**其餘必覆蓋**:三個計數器上下界 ×6;兩個 ID 長度上下界 ×4、控制碼 ×2、空白 ×2;`payload_hash` ×3;
+🔴 **R6 新增的結構斷言(v6 全部沒有)**:
+- **欄位 manifest**:`pg_attribute` + `pg_attrdef` 逐欄比對 name / type / notnull / default,
+  **且 manifest 的欄位集合必須等於實際集合**(多一欄少一欄都轉紅)⇒ 同時關閉 §5.2-4 的 deny-by-default(F2)
+- **七支 FK 的 `confdeltype` 逐支斷言 = `'r'`(RESTRICT)**(F8;只驗「FK 存在」不夠)
+- **十支 trigger manifest**(§5.0)逐支斷言 name / `tgrelid` / `tgtype`(**含 timing + 事件 bitmap + ROW/STMT**)/
+  `tgdeferrable` / `tginitdeferred` / `tgfoid`(F4)
+- **鎖探針**:migration 執行期間並行跑 `create_order` INSERT,量交易總時長 = 持鎖窗上限(F9;§10)
+- **rollback preflight 實跑**:在隔離 DB 上真的跑一次六步、驗 `pg_depend` filter 不會誤 abort 空表(F10)
+
+**其餘必覆蓋**:三個計數器上下界 ×6;兩個 ID 長度上下界 ×4、**控制碼與空白逐碼位**(§4.1 的向量,不得自行挑);`payload_hash` ×3;
 baseline 成對 ×3;金額 ×3;**D9a 成對 ×2 + 必填 ×2 + D9b ×3(當天/隔日/`last` 為 NULL)+ D9d ×2**;
 **D11 的 E14 五條**;五道唯一性 ×5;兩道複合 FK ×2;三支 staff FK ×3;
 **16 條 edge** × 每條至少一格額外條件;§5.6(a) C1-C4 ×4;
@@ -652,6 +722,13 @@ v5 的正向鏈 C **自己就是靜態不可能的**(R5 F6)。**負測證明「�
 34. 🔴 **時區**(R5 F3):把 session `TimeZone` 設成 `UTC` 與 `Asia/Taipei` 各跑一次 D9b 的邊界案例,
     **兩次結果必須相同** —— 若實作用了 `date_trunc('day', ts)` 而非 `AT TIME ZONE 'Asia/Taipei'`,
     這條會轉紅。E3b / E4 的隔日基準同樣各跑兩次
+35. 🔴 **exact-one classifier**(R6 F1):**同時滿足兩條 edge 的列** → 拒於 `a7bt_edge_ambiguous`;
+    **一條都不滿足的列** → 拒於 `a7bt_edge_unmatched`。
+    🔴 兩條都必須是**真的構造得出來**的形狀,不是宣告;構造不出來就明文說明為什麼
+36. 🔴 **deny-by-default**(R6 F2):在測試 DB 對 `order_refund_jobs` 加一個不在 manifest 的欄,
+    **結構斷言必須轉紅**(這條同時證明 manifest 沒有被繞過)
+37. 🔴 **完成介面**(R6 F7):service_role 直接 `INSERT INTO order_refunds` → 必 `42501`;
+    `complete_refund_job()` 單交易成功;中途 `RAISE` 後 **ledger 與 job 皆無殘留**
 
 ### 7.5 靜態可達性矩陣(**強制交付物;v6 已填完,R5 F9**)
 
@@ -729,15 +806,58 @@ R5 抓到:v5 宣稱這是強制交付物,**卻沒有對自己跑過**(模板留�
 ## §10 Migration 骨架 / rollback / rollout
 - 兩支皆:顯式 `BEGIN;` + `SET LOCAL lock_timeout='5s'` + `statement_timeout='60s'` + `COMMIT;`(D0-1 拍板)
 - 結尾各自 fail-closed 結構驗收 DO block,斷言帶機器可辨識 ID
-- 🔴 **rollback 順序寫死**(先 DROP parent 會被 child FK 擋):
-  ①停 writer ②驗兩表為空,非空則**備份後停下 raise Sean**(不得靜默續行)
-  ③`DROP TRIGGER` 子表四支 → `DROP TABLE order_refund_job_items`(**不加 CASCADE**)
-  ④`DROP TRIGGER` parent 六支 → `DROP TABLE order_refund_jobs`(**不加 CASCADE**)
-  ⑤`DROP FUNCTION` 全部函式(逐一具名)⑥前置 `pg_depend` 依賴 preflight,非空即 abort
+- 🔴 **rollback 順序寫死**(先 DROP parent 會被 child FK 擋)。**R6 F10:v6 把 `pg_depend` preflight
+  排在第 ⑥ 步 —— 那時東西早就 DROP 完了,等於沒有 preflight。順序已更正:**
+  1. **`pg_depend` preflight**(**在任何 DROP 之前**):查兩表與全部函式的**外部**依賴。
+     🔴 **必須給 filter,不能「非空即 abort」** —— 空表本來就有一堆 **internal** 依賴
+     (PK/UNIQUE 的 index、CHECK constraint、FK、trigger、`pg_type` 的 composite type、DEFAULT 的 sequence),
+     不 filter 會**永遠 abort**。判定 = `deptype = 'n'`(normal)且 `refobjid` 不屬於本片建立的物件集合;
+     預期 internal 依賴集合**逐項列出**當白名單,出現白名單外的即 abort。
+  2. 停 writer(第 3 批之前 = 無 writer)
+  3. 驗兩表為空,非空則**備份後停下 raise Sean**(不得靜默續行)
+  4. `DROP TRIGGER` 子表四支 → `DROP TABLE order_refund_job_items` **`RESTRICT`**(明寫,不靠預設)
+  5. `DROP TRIGGER` parent 六支 → `DROP TABLE order_refund_jobs` **`RESTRICT`**
+  6. `DROP FUNCTION` 全部函式(逐一具名,**含 §5.0 manifest 的 5 支**)
   🔴 只允許在第一個 writer 之前;之後只能 forward repair,**列為第 3 批 worker 片的 DoD 硬前置**
-- **rollout**:A7-t 單獨 apply → read-back → A1 → read-back → 本兩片**接續**;
-  `db push` 前先 `--dry-run`;失敗時做 **ledger / schema / 資料三方狀態矩陣**;
-  🔴 **A7b-M 成功但 A7b-T 失敗 = 已知可能狀態**,由 dormant gate 承接
+
+- 🔴🔴 **鎖 manifest 與結帳併發探針(R6 F9;v6 只有 timeout,沒有逐物件鎖清單)**
+
+  | 步驟 | 鎖到哪張表 | lock mode | 會不會擋結帳 |
+  |---|---|---|---|
+  | `CREATE TABLE` 兩表 | 只有新表 | — | 否 |
+  | `ADD CONSTRAINT … CHECK (false) NOT VALID` | 只有 `order_refund_jobs` | `ACCESS EXCLUSIVE` | **否**(表尚未有任何 reader/writer) |
+  | A7b-T 的 `DROP CONSTRAINT`(移除 gate) | 只有 `order_refund_jobs` | `ACCESS EXCLUSIVE` | **否**(gate 期間表恆空、無 writer) |
+  | 🔴 **子表 FK → `order_items (order_id, id)`** | **`order_items`(被引用表)** | **`SHARE ROW EXCLUSIVE`** | 🔴🔴 **會** —— 與 `create_order` 的 `INSERT`(`ROW EXCLUSIVE`)**互相衝突** |
+  | `FK → order_cancellations / staff / order_refunds` | 各被引用表 | `SHARE ROW EXCLUSIVE` | 視該表是否在結帳路徑上 |
+
+  🔴 **真正的風險不是 dormant gate,是建 FK 時對 `order_items` 的鎖** ——
+  v6 誤以為 timeout 就夠了。**`lock_timeout` 只保護 migration 自己等不到鎖時放棄,
+  不保護「結帳交易在等 migration 放鎖」** ⇒ migration 一旦拿到鎖,結帳會卡到它 COMMIT。
+  ⇒ **驗收必須沿用 A1 的 barrier lock probe**:migration 執行期間並行跑 `create_order` INSERT,
+  量**交易總時長 = 持鎖窗上限**(不是「有沒有觀察到阻塞」——
+  memory `feedback_race-test-without-barrier-proves-nothing`:沒觀察到不能反推持鎖多短)。
+  ⇒ 挑離峰 apply;超過可接受上限則拆片(先建表、FK 另一支 migration 走 `NOT VALID` + `VALIDATE`)。
+
+- **rollout**:A7-t 單獨 apply → read-back → A1 → read-back → 本兩片**接續**;`db push` 前先 `--dry-run`。
+
+  🔴🔴 **M/T 三方狀態矩陣(R6 F11:v6 只有名字、沒有格子)**。
+  三個維度:**①migration ledger**(`supabase_migrations.schema_migrations` 有無該版本)
+  **②schema 事實**(物件是否存在 + §7.1 指紋)**③dormant gate 是否還在 + 兩表 row count**。
+  🔴 **「ledger」在本檔有兩個意思,不可混用**:此處指 **migration 版本登記表**,
+  **不是** `order_refunds` 業務帳本。
+
+  | # | migration ledger | schema 事實 | gate / 資料 | 判定與下一步 |
+  |---|---|---|---|---|
+  | 1 | M 無 | M 物件無 | — | 乾淨,**可重跑 M** |
+  | 2 | 🔴 **M 無** | **M 物件在** | gate 在、兩表空 | **SQL 已 COMMIT 但登記失敗** ⇒ **禁止重跑**(非冪等 `CREATE` 會撞)⇒ **只補登 ledger** |
+  | 3 | M 有 | M 物件在 | gate 在、兩表空 | 正常中間態,**可續跑 T** |
+  | 4 | M 有 | M 物件在 | 🔴 **gate 在,但表非空** | **不可能狀態** ⇒ 立即停機 raise Sean(gate 在就寫不進去) |
+  | 5 | T 無 | T 物件無 | gate 在 | **可重跑 T** |
+  | 6 | 🔴 **T 無** | **T 物件在、gate 已移除** | 兩表空 | **最危險**:守門已生效但沒登記 ⇒ **禁止重跑**、**只補登 ledger**;補登前不得放 writer 進來 |
+  | 7 | T 有 | T 物件在、gate 已移除 | 兩表空 | **完成** |
+  | 8 | 任一 | 指紋與 §7.1 不符 | — | **forward repair**,不得 rollback、不得重跑 |
+
+  🔴 **A7b-M 成功但 A7b-T 失敗 = 情境 3**,由 dormant gate 承接,**不是異常**。
 
 ## §11 索引具名落點
 
@@ -764,6 +884,22 @@ R5 抓到:v5 宣稱這是強制交付物,**卻沒有對自己跑過**(模板留�
 | R3 | **Fable** | 假設審查 / 災難日 / 修法回歸 / 測試假綠 | FAIL 11+3 | **4 / 11** |
 | R4 | codex xhigh | v3→v4 diff 的靜態可達性與宣稱稽核 | FAIL 7 | **5 / 7** |
 | R5 | **Fable** | D9 是不是第三層名過其實 / v5 回歸 / §7.5 是不是真機制 / §8 完整性 | FAIL 11+2 | **3 / 11** |
+| R6 | codex xhigh | **實作者視角 + 跨片介面**(沒參與過討論的人寫不寫得出 SQL / 親開五支既有 migration 逐條核 / 鎖與回滾實務) | FAIL 11 | 1 / 11(F4 六支 vs 十支) |
+
+**R6 的正向核對結果(被證實成立的部分,同樣要記錄)**:親開五支既有 migration 後確認 ——
+`order_cancellations (id, order_id)` 唯一約束存在且欄序正確 / `order_refunds (id, order_id)` 與
+`order_items (order_id, id)` 皆存在 / `staff.id` 是 `text PRIMARY KEY`、三支 job staff FK 型別吻合 /
+**job↔ledger 的 11 欄全部存在、型別相容**、無「規格以為存在但帳本沒有」的欄 /
+規格引用的既有行號與名稱**未找到錯置** / 最新 `create_order` 不讀寫本片新表、**無 runtime 路徑衝突**。
+另兩點 PostgreSQL 語法核可:§4.4 的 truth table **每格都只依同一列 ⇒ 可落成單一 `CASE CHECK`**;
+§5.6(a) 的 `AFTER INSERT` / `AFTER INSERT OR DELETE` constraint trigger **語法成立**。
+
+🔴 **R6 的 F3 / F6 未折入,原因寫在下面 §14 Q5**(不是漏掉、不是駁回):
+- **F3** 要求 plan 內附**完整 `CREATE TABLE` DDL manifest**(逐欄 name/type/null/default/check)
+- **F6** 要求 §7.5 rule 4 的 fixture **生成器輸入**(每條 edge 的 machine-readable old row / patch /
+  支援列 / 時鐘策略 / 完整 post-row)
+⇒ 兩者都是「把 SQL 用中文再寫一遍」。**它們是真缺口**(兩個人會寫出兩種東西),
+但關閉方式有兩條路,**流程層的選擇屬 Sean**。
 
 - **駁回 0**;**改採不同修法 1**(R2 #2 → D1,§3.3;R3 已對該證明的三個前提逐一攻擊,兩個擊破失敗)。
 - 🔴 **R3 F5 → R4 F5 → R5 F1 是同一個病的三層**,每一層都是「防護被命名成超出它的實際能力」。
@@ -773,7 +909,31 @@ R5 抓到:v5 宣稱這是強制交付物,**卻沒有對自己跑過**(模板留�
 
 ## §14 給 Sean 的決策題
 
-Q1(D1-D8)= **A**;Q2(結案更正)= **B ⇒ D11**;Q3(generation 上限)= **A,維持 20**。以上已落檔。
+Q1(D1-D8)= **A**;Q2(結案更正)= **B ⇒ D11**;Q3(generation 上限)= **A,維持 20**;
+Q4(D9,以更正後的描述重問)= **A**。以上四題已落檔。
+
+```
+🔴 Q5(新;R6 F3/F6 —— 這是流程題,不是技術題):
+
+第六輪審查說:這份規格「設計已經完整,但精確度還不夠讓一個沒參與過討論的人
+直接寫出 SQL」。缺的兩樣東西是:
+  ①完整的建表語法(每一欄的名稱、型別、能不能空、預設值)
+  ②測試腳本要怎麼自動生出每條路徑的測試資料
+
+問題是:這兩樣東西寫進規格書,等於「先用中文寫一遍 SQL,再用 SQL 寫一遍」。
+
+你要:
+
+A: A(直接進實作:我開始寫 migration,那份 SQL 本身就是規格;
+      同時在測試裡加一組結構斷言,把「SQL 有沒有偏離規格」釘死
+      —— 少一欄多一欄、FK 行為不對、trigger 數量或事件不對,測試就轉紅)
+      ⇒ 不再多一輪紙上作業。省下的時間拿去把測試寫厚。  ← 我推薦
+
+   | B(先把完整建表語法與測試資料規格補進規格書,再審一輪,然後實作等於抄)
+      ⇒ 多一輪紙上作業(估 1-2 小時 + 一輪審查),換「實作階段幾乎不可能寫錯」。
+
+   | C(先照 A 走,但實作完 migration 之後、寫測試之前,先讓你看一次建表語法)
+```
 
 ```
 🔴 Q4 需要重新確認 —— 你上次選 A,但我當時給你的描述是誇大的。

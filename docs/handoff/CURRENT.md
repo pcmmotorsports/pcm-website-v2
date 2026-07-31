@@ -150,8 +150,21 @@
 > ✅ Sean 07-31 下午拍板:**Q2=B(D11 正式更正 RPC + 兩人簽核)/ Q3=A(generation 上限 20)**;
 > 🔴 **推翻我的前提**:訂單量 = **每月 100-300 筆**(非年 1-300)⇒ 「例外交工程師手動處理」在此量級不是方案。
 > ✅ **R5 確認 v5 的 truth-table 級差集已全部歸零**;自捅比例 8/18 → 4/11 → 5/7 → **3/11**。
-> **下一步**:① **Sean 重答 v6 §14 Q4**(修正版 D9 / 最保守 B / 三天閘 C)
-> ② 關卡1 **R6**:再換角度(R5 的 WOULD-CHANGE-MY-VERDICT 五項已全部做到)。
+> 🔴 **R6(codex,實作者視角 + 跨片介面)= FAIL,11 must-fix,v7 折入 9/11**
+> (逐字 `docs/reviews/2026-07-31-e10-a7b-k1r6-codex.md`)。六輪合計 **93 must-fix + 14 nit**。
+> ✅ **R6 順帶把跨片介面全核過**:五支既有 migration 親開逐條比對,
+> 三個被引用唯一約束都在、`staff.id` 型別吻合、**job↔ledger 11 欄全部存在**、引用行號未錯置、
+> `create_order` 無 runtime 衝突;`CASE CHECK` 與 constraint trigger 語法皆核可。
+> 🔴 折入的設計層七條:**exact-one edge classifier**(禁 `IF/ELSIF` 首條命中)/ **全欄位 manifest + deny-by-default** /
+> **trigger 六支更正為十支**(parent 6 + child 4;v6 是我自己的字面不一致)/ 控制碼空白逐碼位 /
+> 🔴 **E9 缺原子完成介面**(service_role 對 ledger 只有 SELECT ⇒ 必須立第三批 `complete_refund_job()` SECURITY DEFINER 合約)/
+> 七支 FK 的 `confdeltype` 全寫死 RESTRICT / 🔴 **鎖 manifest**(真正擋結帳的是子表 FK 對 `order_items`
+> 的 `SHARE ROW EXCLUSIVE`,不是 dormant gate;`lock_timeout` 不保護結帳等待)/
+> `pg_depend` preflight 移到 DROP 之前並加 filter / **M/T 三方狀態矩陣填出八格**。
+> 🔴 **F3/F6 未折入**(完整 DDL manifest 與 fixture 生成器輸入 = 「把 SQL 用中文再寫一遍」)
+> ⇒ **v7 §14 Q5 = 流程題待 Sean**:直接進實作(SQL 即規格 + 結構斷言釘死)vs 再補一輪紙上規格。
+> ✅ **Sean 已答**:Q4=A(修正版 D9)/ Q2=B(D11 更正 RPC)/ Q3=A(上限 20)/ Q1=A。
+> **下一步**:**Sean 答 §14 Q5** ⇒ 決定進實作或再補一輪規格。
 >
 > ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
 
