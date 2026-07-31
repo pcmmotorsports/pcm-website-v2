@@ -28,6 +28,18 @@ export function priceBoundsForLabel(label: string | null): readonly [number, num
 
 type SearchParamsLike = Pick<URLSearchParams, 'get' | 'getAll'>;
 
+/**
+ * `?category=` 可接受的字面白名單(單一定義點)。
+ *
+ * 🔴 #306:facet 取數端(`api/catalog/facet-counts`)與點擊後的列表端必須用**同一道**白名單 ——
+ *   否則會出現「面板算得出數字、但點進去那個 `?category=` 被這裡靜默丟掉 ⇒ 看到未過濾的整頁」。
+ *   `%` 與 `_` 另有第二個理由:RPC 的 rollup 比對是 `category_raw LIKE p_category || ' · %'`,
+ *   分類名裡的 LIKE 萬用字元會讓件數**多算**。
+ */
+export function isSafeCategoryValue(value: string): boolean {
+  return value.length <= 120 && !/[\u0000-\u001f%_]/.test(value);
+}
+
 const SAFE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SAFE_VEHICLE = /^[a-z0-9]+(?:-[a-z0-9]+)*(?::[a-z0-9]+(?:-[a-z0-9]+)*){0,2}$/;
 
@@ -65,10 +77,7 @@ export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery 
     new Set(searchParams.getAll('pbrand').filter((slug) => SAFE_SLUG.test(slug))),
   ).sort();
   const categoryValue = searchParams.get('category');
-  const category =
-    categoryValue && categoryValue.length <= 120 && !/[\u0000-\u001f%_]/.test(categoryValue)
-      ? categoryValue
-      : undefined;
+  const category = categoryValue && isSafeCategoryValue(categoryValue) ? categoryValue : undefined;
   const sliderMin = parseNonNegativeInteger(searchParams.get('pmin'));
   const sliderMax = parseNonNegativeInteger(searchParams.get('pmax'));
   const labelBounds = priceBoundsForLabel(searchParams.get('price'));

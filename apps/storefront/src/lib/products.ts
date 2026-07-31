@@ -114,7 +114,10 @@ function hashIdToNumber(s: string): number {
  *     空目錄快取 15 分鐘)
  *   - 同掛 'catalog' tag:日後同步完可 revalidateTag('catalog') 主動失效(本批未接)
  */
-const CATALOG_REVALIDATE_SECONDS = 900;
+// #306:vehicle-facet-counts.ts 共用同一個秒數 ⇒ export、不各自寫死一份。
+//   🔴 共用秒數**不等於**兩份快取同時新鮮(兩個獨立時鐘、起算點不同 ⇒ 面板說 3 件、
+//   點進去 5 件的窗仍存在,上限 = 本秒數)。真正能讓兩者一起失效的是共用的 tag 'catalog'。
+export const CATALOG_REVALIDATE_SECONDS = 900;
 
 export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
   // 急件2 止血(2026-07-15):domain fitments=jsonb 直透、motoBrand/modelCode 實際可為 null
