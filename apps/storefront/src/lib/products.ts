@@ -409,10 +409,32 @@ type CatalogBrandCountClient = {
   }>;
 };
 
-/** P4:品牌側欄獨立使用全站聚合，避免從當頁 25 筆商品誤算 count。 */
+/**
+ * P4:品牌側欄獨立使用全站聚合，避免從當頁 25 筆商品誤算 count。
+ *
+ * 🔴 #306 補快取(codex 關卡2 C5):本函式原本**沒有** `unstable_cache`,而 `/api/catalog/facet-counts`
+ *   每次請求都會呼叫它 ⇒ 即使 facet 件數命中 900s 快取,每位訪客仍會打一次全站品牌聚合
+ *   ⇒ 「熱請求零 DB」不成立。改與 `getCategoryTreeCached` 同慣例(900s + `catalog` tag)。
+ *   失敗 throw 不進快取(在快取外 catch 回 `[]`,維持既有 fail-safe 行為)。
+ */
+const getCatalogBrandTaxonomyCached = unstable_cache(
+  async (): Promise<MockBrand[]> => queryCatalogBrandTaxonomy(),
+  ['catalog-brand-taxonomy-v1'],
+  { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
+);
+
 export async function fetchCatalogBrandTaxonomy(): Promise<MockBrand[]> {
-  const client = createSupabaseAnonClient() as unknown as CatalogBrandCountClient;
   try {
+    return await getCatalogBrandTaxonomyCached();
+  } catch (err) {
+    console.error('[fetchCatalogBrandTaxonomy] catalog_brand_counts failed:', err);
+    return [];
+  }
+}
+
+async function queryCatalogBrandTaxonomy(): Promise<MockBrand[]> {
+  const client = createSupabaseAnonClient() as unknown as CatalogBrandCountClient;
+  {
     const { data, error } = await client.rpc('catalog_brand_counts');
     if (error) throw error;
     return (data ?? []).map((row) => {
@@ -430,9 +452,6 @@ export async function fetchCatalogBrandTaxonomy(): Promise<MockBrand[]> {
         ...(meta?.heroText ? { heroText: meta.heroText } : {}),
       };
     });
-  } catch (err) {
-    console.error('[fetchCatalogBrandTaxonomy] catalog_brand_counts failed:', err);
-    return [];
   }
 }
 

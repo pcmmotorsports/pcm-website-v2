@@ -7,15 +7,25 @@
 //    `apps/storefront/**/*.tsx`,含 hook 的檔要 `.tsx` 才受 rules-of-hooks / exhaustive-deps 保護
 //    (對齊 `components/products-url-state.tsx` 檔頭同一條理由)。
 //
-// 🔴 車輛以 **URL 的 `?vehicle=` slug** 為輸入,不從 cascade state 自己再組一次 slug:
-//    商品列表的件數就是 server 依同一個 URL 算出來的 ⇒ 用同一個字串當輸入,
-//    「面板數字」與「點進去的件數」才有結構性保證,而不是靠兩套邏輯抄得一樣。
+// 🔴 車輛以 **URL** 為輸入,不從 cascade state 自己再組一次:商品列表的件數就是 server 依同一個
+//    URL 算出來的 ⇒ 用同一個來源,兩個數字才不會分屬兩個時間軸。
 //    (`useVehicleUrlSync` 走 `router.replace` ⇒ `useSearchParams()` 會跟著更新。)
-//    副作用:長版書籤 `?brand=&model=` 沒有 `?vehicle=` ⇒ 拿不到件數 ⇒ 退回不顯示(fail-safe)。
+//
+// 🔴 **長版書籤 `?brand=&model=` 必須一起認**(codex 關卡2 C1、已自行查證):
+//    server 端 `products/page.tsx:60` 把長版**當車**、商品列表是該車的;若這裡只讀 `?vehicle=`
+//    就會判定「沒車」⇒ **顯示全站數**(不是「不顯示」)= #306 的病灶本身。
+//    改用既有的 `vehicleUrlParam()`(短版直出、長版合成),長版合成出的字串會被 route 的形狀
+//    白名單擋下 ⇒ 件數拿不到 ⇒ 不顯示,這才是要的 fail-safe。
+//
+// 🔴 **「面板數字 = 點進去的件數」只在沒有其他篩選時成立**(codex C1 / Claude n3):
+//    facet 刻意只吃「車輛 + 該面板自己那一維」(Sean 拍板的語意),而列表會再疊已選分類 /
+//    品牌 / 價格 ⇒ 已勾品牌時,某分類顯示 39、點下去可能更少甚至 0。
+//    **不得宣稱兩者恆等**;0 件停用只能保證「這台車在這個分類真的沒有」,不能保證點下去非空。
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { CATEGORY_PATH_SEP } from '@/components/products-filter-logic';
+import { vehicleUrlParam, type SearchParamsLike } from '@/lib/vehicle-url';
 
 export type VehicleFacetCounts = {
   categories: Record<string, number>;
@@ -67,24 +77,51 @@ function isVehicleFacetCounts(value: unknown): value is VehicleFacetCounts {
  * 🔴 非 2xx / 網路失敗 / abort 一律維持 `null` ⇒ 面板不顯示件數 = #306 之前的現況(fail-safe)。
  */
 export function useVehicleFacetCounts(vehicleSlug: string | null): VehicleFacetCounts | null {
-  const [counts, setCounts] = useState<VehicleFacetCounts | null>(null);
+  // 🔴 state 連同「這份數字是哪一台車的」一起存(codex 關卡2 C2):
+  //    abort **不保證**撤銷「已經進入完成序列」的 promise —— A 車的 `res.json()` 若已 resolve、
+  //    它的 `.then` 仍可能在切到 B 車之後才執行 ⇒ A 的數字被寫到 B 車上,而且 B 若隨後 503
+  //    就會**永久**掛著 A 的數字。只靠 abort 擋不住,必須在寫入前核對 owner。
+  const [state, setState] = useState<{ slug: string; counts: VehicleFacetCounts } | null>(null);
 
   useEffect(() => {
-    setCounts(null);
-    if (!vehicleSlug) return;
+    if (!vehicleSlug) {
+      setState(null);
+      return;
+    }
     const controller = new AbortController();
+    let active = true; // cleanup 先失效、再 abort(兩道獨立防線)
     fetch(`/api/catalog/facet-counts?vehicle=${encodeURIComponent(vehicleSlug)}`, {
       signal: controller.signal,
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: unknown) => {
-        if (isVehicleFacetCounts(data)) setCounts(data);
+        if (active && isVehicleFacetCounts(data)) setState({ slug: vehicleSlug, counts: data });
       })
       .catch(() => {
         // abort(換車)或網路失敗 ⇒ 什麼都不做,維持不顯示件數
       });
-    return () => controller.abort();
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [vehicleSlug]);
 
-  return counts;
+  // 🔴 render 期就比對 owner:換車那一幀 state 還是舊車的(setState 在 effect 裡、發生在 render 之後)
+  //    ⇒ 直接讀 state 會有一幀掛著上一台車的數字(codex C2 的第二半)。
+  return state !== null && state.slug === vehicleSlug ? state.counts : null;
+}
+
+/**
+ * #306 給 `/products` 用的單一入口:URL → 件數 → resolver。
+ *
+ * 🔴 抽成 hook 而非留在 ProductsPage(codex 關卡2 C7):`ProductsPage.tsx` 已達 **405 行**、
+ *    踩到鐵則 6 的 400 上限(我在 commit body 寫的 396 是上一版事實、加料後沒重數 = 字面漂移)。
+ */
+export function useFacetCountResolver(searchParams: SearchParamsLike): FacetCountResolver {
+  const vehicleSlug = vehicleUrlParam(searchParams);
+  const counts = useVehicleFacetCounts(vehicleSlug);
+  return useMemo(
+    () => makeFacetCountResolver(vehicleSlug !== null, counts),
+    [vehicleSlug, counts],
+  );
 }

@@ -338,6 +338,19 @@ describe('ProductsPage × #306 件數接線', () => {
     expect(container.querySelectorAll('.fs-tree-count').length).toBe(0);
   });
 
+  it('🔴 長版書籤 ?brand=&model= 也算車 → 不得退回全站數(codex 關卡2 C1)', () => {
+    // server 端 products/page.tsx:60 把長版**當車**、商品列表是該車的;
+    // 若這裡只讀 ?vehicle= 就會判定「沒車」⇒ 顯示全站數 = #306 的病灶本身。
+    // 長版合成出的字串會被 route 的形狀白名單擋下 ⇒ 件數拿不到 ⇒ 不顯示,這才是要的 fail-safe。
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({}) }));
+    hoisted.search = new URLSearchParams('brand=Yamaha&model=MT-09');
+
+    const { container } = render(
+      <ProductsPage products={FIXTURE} total={198} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    expect(container.querySelectorAll('.fs-tree-count').length).toBe(0);
+  });
+
   it('URL 沒車 → 不打 facet-counts,照常顯示 server 帶下來的全站數', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
