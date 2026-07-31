@@ -1,6 +1,8 @@
 # A7b-T 交接檔(2026-07-31 深夜)
 
-> **狀態:code 收工、未 commit、未 apply、未 push。** 下一個 session 直接從「§1 現在該做什麼」開始。
+> **狀態:已 commit `07b8e58`(未 apply、未 push;未推 1 個 commit)。**
+> 🔴 **但 Fable R3 在 commit 之後才回、判 NO-GO** ⇒ 那一版是「五支 harness 全綠」的快照,
+>    **不是「審查收斂」的快照**。下一個 session 直接從「§1 現在該做什麼」開始。
 > 上游交接檔 = `docs/handoff/2026-07-31-a7b-m-handoff.md`(A7b-M,已 apply 正式站)。
 > 規格權威 = `docs/specs/2026-07-31-e10-a7b-refund-jobs-plan.md`(v7 + 本輪回寫)。
 
@@ -8,11 +10,29 @@
 
 ## §1 現在該做什麼(依序)
 
-1. **讀 Fable 第 3 輪 findings**(本 session 收工前送審,結果見 §6;若 §6 標「未回」= 下個 session 要自己重跑)。
-2. **折完 §5 的未關項**,最重的是 **E14 ↔ gen2 競速沒有測試**。
-3. 五支 harness 全綠 + 三綠 → **commit**(精準 pathspec;本 repo 另有並行 session,禁 `git add .` / `-A` / `--amend`)。
-4. **不 push、不 apply** —— apply 是 Sean 手動 `db push`,且必須在審查收斂之後。
-5. TapPay:sandbox 交易 `D202607314b3cIL` 排定 **2026-08-01 18:00(台北)** 請款,
+> 🔴🔴 **Fable 第 3 輪已回:NO-GO,20 條(8 must-fix + 12 nit)。逐條在 §6b。**
+> 它自己下 SQL 做實驗,抓到的東西前兩輪 codex 完全沒碰到。**下面三條是新視窗的第一件事。**
+
+1. **F1 — 運費會被退兩次(錢面,最重)**。C7 只夾「件數」,而我新加的 3.2c **強制**每一張取消單的
+   工單都宣告 `shipping_fee_before = orders.shipping_fee`,那個欄位不會因退款遞減
+   ⇒ 兩張取消單各自「合法地」把運費退到 0。Fable 實測「合計退款 400 / 其中運費 200,實付運費 100」。
+   🔴 **我的 3.2c 不只沒擋住,它讓這件事變成強制的。** 修法方向 = 對運費也要有跨工單累計上界
+   (`Σ(-shipping_delta) ≤ orders.shipping_fee`),做法與 C7 同型。
+2. **F6 — rollback 在「今天的正式站狀態」下跑不動**。第 ④ 步 `DROP TRIGGER
+   a7bt_cancel_items_after_change_consistency ON order_cancellation_items` 沒帶 `IF EXISTS`
+   (刻意不帶,理由見檔內),但**正式站現在是 M 已 apply、T 未 apply** ⇒ 那支 trigger 不存在
+   ⇒ 整包死在 42704、**連 A7b-M 都退不掉**。Fable 實跑驗證過。
+3. **F15 — 現行 fixture 結構上看不見 F1**。fixture 選到的訂單是 `payment_status=unpaid`、
+   `shipping_fee=0`(而全 cluster 三筆 paid 訂單的運費也都是 0)⇒ 3.2c 的正向側永遠是 `0 = 0`,
+   118+29 條負測**從未在非零運費上跑過**。修 F1 之前要先讓 fixture 挑(或注入)`shipping_fee > 0`。
+
+4. **折完 §5 + §6b 其餘項**,其中 **E14 ↔ gen2 競速沒有測試** 仍在。
+5. 五支 harness 全綠 + 三綠 → **commit**(精準 pathspec;本 repo 另有並行 session,
+   禁 `git add .` / `-A` / `--amend`)。
+6. **F2 需要 Sean 拍板**:「同一張訂單同時只能有一筆在途退款工單」是綁定 `rec_trade_id` 的必然結果,
+   可接受嗎?(TapPay 隔日生效 ⇒ 第二張取消單至少要等一天才排得進來。)
+7. **不 push、不 apply** —— apply 是 Sean 手動 `db push`,且必須在審查收斂之後。
+8. TapPay:sandbox 交易 `D202607314b3cIL` 排定 **2026-08-01 18:00(台北)** 請款,
    之後跑 `scratchpad/tappay_probe.py` 的第 ③-⑥ 步驗「多次部分退款」(見 §4)。
 
 ---
@@ -112,7 +132,38 @@ repo 的 `docs/reference/tappay-reference.md` 寫「退款隔日才真正生效�
 |---|---|---|
 | K2 R1 | codex `gpt-5.6-sol` xhigh | **NO-GO**,28 must-fix + 3 nit。最重 = 退款可超過取消量(#24) |
 | K2 R2 | codex `gpt-5.6-sol` xhigh | **NO-GO**,22 must-fix + 12 nit。最重 = 推翻我的「不需累計」+ rollback 身分閘沒有 `ON_ERROR_STOP` 等於虛設(兩條我都親自複驗成立) |
-| R3 | **Fable**(換模型換角度:假設審查 / 災難當天可用性 / 修法回歸 / 新斷言自己的假綠) | **見 STATUS「最後更新」欄** |
+| R3 | **Fable**(換模型換角度:假設審查 / 災難當天可用性 / 修法回歸 / 新斷言自己的假綠) | **NO-GO**,8 must-fix + 12 nit,見 §6b |
+
+### §6b Fable R3 findings(逐條;`commit 07b8e58` 之後才回,**尚未折入**)
+
+**must-fix**
+| # | 位置 | 一句話 |
+|---|---|---|
+| F1 | `20260731120100:315-322` / `:1202-1226` | **運費無累計上界**,而 3.2c 強制每張取消單重報完整原始運費 ⇒ 運費退兩次(實測 100 → 退 200) |
+| F2 | `:297-304` × `20260731120000:439-441` | 綁 `rec_trade_id` 讓 U3 語意升級成「同訂單同時只能一筆在途退款」;plan §631 沒寫、表 COMMENT 也沒寫 ⇒ **需 Sean 拍板是否接受** |
+| F3 | `:297-304` | 整支 T **一次都沒讀 `orders.payment_status`**(grep 零命中)⇒ 未付款 / 已 refunded 的訂單照樣建得出退款工單;現在靠「只有 `confirm_order_payment` 會寫 rec_trade」這個**推論**擋 |
+| F6 | `a7bt-rollback.sql:278` | 見 §1 第 2 點 |
+| F7 | `a7bt-rollback.sql:344-348` | ⑦ 要求 ledger 恰刪 2 列否則 abort,**唯一沒有 escape 的一步**(⓪ 有兩把鑰匙、① 有 `skip_text_scan`)⇒ 半夜擋死自己只能改檔 |
+| F11 | `:1042-1054` | advisory lock 的正確性依賴 READ COMMITTED 但沒有隔離級 fail-closed 閘;**C7 的併發洞現在其實是被 U3 擋掉的,不是被 advisory lock** ⇒ plan 把功勞記錯層 |
+| F12 | `:1049-1051` | 「無鎖環」論證的前提是 advisory 只在 DEFERRED 階段取得,但每條負測都 `SET CONSTRAINTS ALL IMMEDIATE` ⇒ **測試跑的鎖序與正式站不同,那個論證沒有任何測試覆蓋** |
+| F14 | `:1012-1023` + `:1475` | 第 11 支 trigger 讓取消流程與退款流程共用序列化鎖,且會拿**當下**資料重驗**歷史 completed 工單** ⇒ 日後合法改動 `order_items` 會讓新的取消動作紅在早已結清的退款單上 |
+| F15 | `a7bt-fixtures.sh:258-268` | 見 §1 第 3 點 |
+
+**nit**:F4(C7 上界 `order_items.quantity` 的不可變性沒寫進註解,而 A1 即將放一份去正規化副本)/
+F5(`rec_trade_id` 只在 INSERT 檢一次,誠實邊界沒寫)/ F8(兩把鑰匙的 `\gset` 在 `BEGIN` 之外,
+走 Supavisor transaction pooling 可能不是同一條 backend,**疑似、附驗法**)/ F9(第二把鑰匙的期望值
+呼叫者事前不知道,而錯誤訊息把正確答案原樣印出來 ⇒ 實質只多一次重跑)/ F10(③ 的 `LOCK TABLE`
+沒把 `order_cancellation_items` 算進去,而 ④ 第一句要對它取 ACCESS EXCLUSIVE)/ F13(advisory lock
+放在迴圈內重複取)/ F16(trigger 類突變只涵蓋五支 `TG_ARGV`,**第 11 支等六支沒有專屬 mutant**)/
+F17(`seen` 去重讓 `a7bt_c5_item_not_cancelled` 的三條案例只有第一條被突變)/ F18(plan↔實跑 diff
+的 SQLSTATE 欄兩邊是**同一個推導函數**的輸出,不構成獨立第二來源)/ F19(共用 cluster 上
+`DROP SCHEMA supabase_migrations CASCADE` 的中止殘留)/ F20(`count_gate` 自述比實際能力大 ——
+「刪一條案例 + 加一條無關斷言」淨值不變即可穿過,真正擋住的是 `CASE_N` 與逐列 diff)。
+
+🔴 **我對 F1 的複驗程度(誠實標註)**:推論鏈四步我逐步驗過(completed 不在 U3 索引內、
+3.2c 強制兩筆同值、`shipping_delta` 只受 `after >= 0` 限制、無跨工單運費加總),
+且「completed 之後再開一筆」在 T3a 案例 099/100/103 已實跑;
+**但「兩筆一起跑出 200」那一格是 Fable 跑出來的,我自己那版捷徑被狀態機擋掉、沒跑成。**
 
 🔴 **紀律偏差要記下來**:R2 送審之後我又動過 migration(只加註解 + 指紋常數)——
 違反 `feedback_freeze-artifact-before-adversarial-review`。實質內容未變,但 R2 讀到的不是最終檔。
