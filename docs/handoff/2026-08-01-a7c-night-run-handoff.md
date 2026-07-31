@@ -17,6 +17,18 @@ cd /Users/sean_1/pcm-website-v2 && bash scripts/a7c-preflight.sh
 - 工作樹有兩個**別線的** untracked 目錄:`apps/storefront/src/app/dev-preview/mobile-catalog-ux/`、`docs/superpowers/`
   → **不要碰、不要提交、不要跑 `busboy-end`**(它會掃進去)
 
+### 🔴 A7b-T 已從 migrations 目錄移除(Sean 2026-08-01 拍 A)
+
+`20260731120100_m4b_e10_a7b_t_refund_job_guards.sql`(2062 行)原本躺在目錄裡卻沒登記在
+正式站 ledger ⇒ 任何一次 `db push` 都會把它套上正式站。**已 `git rm`。**
+
+- 取回 = `git show e851730:supabase/migrations/20260731120100_m4b_e10_a7b_t_refund_job_guards.sql`
+  (親驗 2062 行完整)。**要參考舊設計就用這個指令讀,不要把檔案放回 migrations 目錄。**
+- ⚠️ **連帶**:`scripts/a7bt-*.sh` 五支 harness 與 `a7bt-rollback.sql` 的 T 側分支從此指向
+  不存在的檔、**跑起來會失敗**。這是預期的(A7b-T 線已停),檔案留著當紀錄與形狀參考。
+- ✅ `db push` 現在是乾淨的:migrations 目錄最新 = `20260731120000` = 正式站 ledger 最後一筆。
+  **你新增的 A7c migration 會是唯一的未 apply 檔** —— `a7c-preflight.sh` 第 6 項應該只列出它。
+
 ---
 
 ## §1 Sean 拍板全集(2026-08-01 凌晨;**不得重問、不得自行推翻**)
