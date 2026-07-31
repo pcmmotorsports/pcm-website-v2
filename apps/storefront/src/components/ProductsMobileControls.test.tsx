@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
 import { ProductsMobileControls } from './ProductsMobileControls';
+import { makeFacetCountResolver, type VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
 import type { FilterTopData } from './FilterTop';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
@@ -35,7 +36,16 @@ const BRANDS: MockBrand[] = [
 
 const data: FilterTopData = { motoBrands: MOTO_BRANDS, categories: CATEGORIES, brands: BRANDS };
 
-function Harness({ sort = 'recommend', setSort = vi.fn() }: { sort?: string; setSort?: (v: string) => void }) {
+function Harness({
+  sort = 'recommend',
+  setSort = vi.fn(),
+  facetCounts,
+}: {
+  sort?: string;
+  setSort?: (v: string) => void;
+  /** #306:宿主(ProductsPage)算好的件數;不傳 = 沒接 #306 取數。 */
+  facetCounts?: VehicleFacetCounts | null;
+}) {
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   return (
@@ -48,6 +58,7 @@ function Harness({ sort = 'recommend', setSort = vi.fn() }: { sort?: string; set
       resultCount={161}
       sort={sort}
       setSort={setSort}
+      countOf={facetCounts !== undefined ? makeFacetCountResolver(true, facetCounts) : undefined}
     />
   );
 }
@@ -124,26 +135,38 @@ describe('ProductsMobileControls(ADR-0007 手機三入口)', () => {
   });
 
   // Sean 2026-07-30:選了車之後,品牌右邊的數字是全站總數(`catalog_brand_counts()` 不吃
-  // 車輛參數)⇒ 會讓客人以為那個品牌有那麼多可選。選車後隱藏;未選車時它是對的、照常顯示。
-  // Sean 2026-07-30 逐字:「如果無法跟該選擇車款即時算出來數量,那都不要」。
-  // 分類數與品牌數都來自不吃車輛參數的查詢 ⇒ 選車後是錯的(實測:198 件的車,分類仍顯示 2130)。
-  // 🔴 這條兩個方向都測:未選車必須**還在**(全站數=實際數、不無故拿掉既有資訊),
-  //    選車後必須**全部消失**。只測一半的話,「乾脆全部拿掉」也會是綠的。
+  // #306:件數跟著所選車款走(~~舊契約:選車後一律隱藏~~ 已被 #306-b 取代 —— 隱藏只是
+  //   「不給錯的」,Sean 要的是「給對的」)。本元件只負責**把宿主算好的 countOf 穿透下去**,
+  //   自己不判斷有沒有車(理由見 FilterSide 的 countOf prop 註解:審查 M1 的兩條時間軸)。
+  // 🔴 三個方向都測,只測一半的話「乾脆全部拿掉」也會是綠的。
   it.each([
     ['品牌/價格面板', /品牌\/價格/, 'RPM CARBON'],
     ['類別面板', '類別', '碳纖維部品'],
-  ])('%s:未選車顯示件數、選車後一律不顯示', (_label, entry, sampleRow) => {
-    const { container, unmount } = render(<Harness />);
-
+  ])('%s:未接 #306 取數 → 沿用 server 全站數', (_label, entry, _sampleRow) => {
+    const { container } = render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: entry }));
     expect(container.querySelectorAll('.fd-row-count').length).toBeGreaterThan(0);
-    unmount();
+  });
 
-    render(<Harness />);
+  it.each([
+    ['品牌/價格面板', /品牌\/價格/, 'RPM CARBON'],
+    ['類別面板', '類別', '碳纖維部品'],
+  ])('%s:選了車但件數還沒回來 → 一律不顯示(項目本身仍在)', (_label, entry, sampleRow) => {
+    const { container } = render(<Harness facetCounts={null} />);
     applyVehicle();
     fireEvent.click(screen.getByRole('button', { name: entry }));
-    expect(screen.getByText(sampleRow)).toBeTruthy(); // 項目本身仍在、只是沒數字
-    expect(document.querySelectorAll('.fd-row-count')).toHaveLength(0);
+    expect(screen.getByText(sampleRow)).toBeTruthy();
+    expect(container.querySelectorAll('.fd-row-count')).toHaveLength(0);
+  });
+
+  it('件數回來了 → 穿透到抽屜、顯示真實件數(拔掉 countOf 這條就會紅)', () => {
+    const { container } = render(
+      <Harness facetCounts={{ categories: { 碳纖維部品: 7 }, brands: {} }} />,
+    );
+    applyVehicle();
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+    const shown = Array.from(container.querySelectorAll('.fd-row-count')).map((el) => el.textContent);
+    expect(shown).toContain('7');
   });
 
   it('排序入口列出排序選項、選定回報值(非字面)', () => {

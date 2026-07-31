@@ -39,13 +39,12 @@ import {
 } from './filter-state';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
-import {
-  makeFacetCountResolver,
-  type FacetCountResolver,
-  type VehicleFacetCounts,
-} from '@/lib/vehicle-facet-display';
+import { makeFacetCountResolver, type FacetCountResolver } from '@/lib/vehicle-facet-display';
 import { CategoryTree } from './FilterSideCategoryTree';
 import type { MockBrand } from '@/data/mock-brands';
+
+/** 未接 #306 取數時的預設:只用 server 帶下來的全站數(= #306 之前的行為)。 */
+const SERVER_COUNTS_ONLY = makeFacetCountResolver(false, null);
 
 export type FilterSideData = {
   motoBrands: MockMotoBrand[];
@@ -150,7 +149,8 @@ function CheckboxList({
         const checked = selected.includes(it.id);
         const count = countOf ? countOf('brands', it.id, it.count) : it.count ?? null;
         // 0 件的品牌一樣灰掉且點不下去(勾了只會得到空頁);已勾選的維持可操作、否則取消不掉。
-        const empty = count === 0 && !checked;
+        // 🔴 未傳 countOf 時完全不套用(泛用元件的預設行為不因 #306 而變)。
+        const empty = countOf != null && count === 0 && !checked;
         return (
           <label key={it.id} className={`fs-cbx-row ${checked ? 'is-checked' : ''} ${empty ? 'is-empty' : ''}`}>
             <input type="checkbox" checked={checked} disabled={empty} onChange={() => onToggle(it.id)} />
@@ -210,7 +210,7 @@ export function FilterSide({
   dispatch,
   extras,
   setExtras,
-  facetCounts = null,
+  countOf = SERVER_COUNTS_ONLY,
 }: {
   data: FilterSideData;
   hideVehicle?: boolean;
@@ -223,16 +223,17 @@ export function FilterSide({
   /** #220-B1:toUIProduct isNew/isSale 全 false、新品/特價 toggle no-op → 隱藏。僅現貨另由 #161 /
    *  SHOW_IN_STOCK_FILTER=false 關著(非本旗標控);新品/特價 + 僅現貨皆空時「其他」段整段隱藏避空殼。 */
   hidePromoFlags?: boolean;
-  /** #306:已選車款的各分類 / 各品牌件數;null = 沒選車、還沒回來、或算不出來。 */
-  facetCounts?: VehicleFacetCounts | null;
+  /**
+   * #306:每一格件數的解析器。**由宿主(ProductsPage)建立並下傳** —— 不在這裡自己用
+   * `cascade.vehicle` 判斷有沒有車。
+   * 🔴 理由(審查 M1):件數的輸入是 URL 的 `?vehicle=`,而 `cascade.vehicle` 是
+   * post-hydration 才由 `useDeepLinkRestore` 還原的 ⇒ 兩者分屬不同時間軸。
+   * 深連結/首頁選車進站時,SSR 與整段 hydration 期間 `cascade.vehicle` 還是 null,
+   * 若在這裡自己判斷就會**先閃一次全站數**(2130 配 198 件列表)= #306 的病灶本身。
+   * 未傳 = 只用 server 帶下來的全站數(dev-preview 等掛載點行為不變)。
+   */
+  countOf?: FacetCountResolver;
 } & CascadeControlledProps & ExtrasControlledProps) {
-  // #306-b:件數改成「跟著所選車款走」(Sean 逐字「我最希望還是可以即刻算出來」+「包含桌機也是」)。
-  //    ~~舊行為 = 選了車就把件數整個藏起來~~ —— 那只是「不給錯的」,不是他要的「給對的」。
-  //    現在:未選車 = 全站數(server props、零額外查詢);選了車 = `facetCounts` 的真實件數;
-  //    還沒回來或算不出來 = 不顯示(fail-safe,絕不用全站數頂替)。0 件由 `countOf` 回 0、
-  //    在 CategoryTree / CheckboxList 灰掉且停用(Sean Q2=A)。
-  const countOf = makeFacetCountResolver(cascade.vehicle !== null, facetCounts);
-
   const clearAllFilters = () => {
     dispatch(clearAll());
     setExtras(makeInitialExtraFilters());

@@ -52,7 +52,8 @@ export function CategoryTree({
         const isMainActive = category?.mainId === c.id && !category?.subId;
         // #306 Sean Q2=A:這台車在這個分類 0 件 → 灰掉且點不下去(點進去只會看到空頁)。
         const mainCount = countOf('categories', facetCategoryKey(c.name), c.count);
-        const mainEmpty = mainCount === 0;
+        // 🔴 已選中的維持可操作,否則客人取消不掉 ⇒ 商品列表空白且無出路(與品牌的 !checked 同構)。
+        const mainEmpty = mainCount === 0 && !isMainActive;
         return (
           <div
             key={c.id}
@@ -92,7 +93,7 @@ export function CategoryTree({
                 {c.children.map((s) => {
                   const isActive = category?.subId === s.id;
                   const subCount = countOf('categories', facetCategoryKey(c.name, s.name), s.count);
-                  const subEmpty = subCount === 0;
+                  const subEmpty = subCount === 0 && !isActive;
                   return (
                     <button key={s.id}
                       className={`fs-tree-row fs-tree-l2 ${isActive ? 'is-active' : ''} ${subEmpty ? 'is-empty' : ''}`}

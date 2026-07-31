@@ -69,12 +69,11 @@ let activeFanouts = 0;
 
 export type FacetVehicle = { brand: string; model?: string; year?: number };
 
-export type VehicleFacetCounts = {
-  /** key = 傳給 RPC 的 p_category 字面(大類 = 大類名;子類 = `大類 · 子類`)。 */
-  categories: Record<string, number>;
-  /** key = 商品品牌 slug(= `catalog_brand_counts()` 的 slug、UI 的 brand.id)。 */
-  brands: Record<string, number>;
-};
+// 🔴 型別單一定義點在 client 側的 `vehicle-facet-display`(審查 n5):兩邊各宣告一份的話,
+//    server 改了形狀 client 不會紅、只剩 runtime guard。`import type` 會被 TS 完全抹掉
+//    ⇒ 不會把 React / client 模組拖進 server bundle,也不會反向拖 `server-only`。
+export type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
+import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 
 type FacetRpcClient = {
   rpc(

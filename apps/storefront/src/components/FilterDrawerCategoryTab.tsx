@@ -46,10 +46,12 @@ export function FilterDrawerCategoryTab({
                           const hasChildren = c.children.length > 0;
                           // #306 Q2=A:這台車在這個分類 0 件 → 灰掉且點不下去
                           const mainCount = countOf('categories', facetCategoryKey(c.name), c.count);
+                          // 🔴 已選中的維持可操作:取消不掉會卡死(手機抽屜是全屏遮罩、ActiveChips 在它底下)
+                          const mainEmpty = mainCount === 0 && !isMainActive;
                           return (
                             <button key={c.id}
-                              className={`fd-row ${isMainActive ? 'is-active' : ''} ${mainCount === 0 ? 'is-empty' : ''}`}
-                              disabled={mainCount === 0}
+                              className={`fd-row ${isMainActive ? 'is-active' : ''} ${mainEmpty ? 'is-empty' : ''}`}
+                              disabled={mainEmpty}
                               onClick={() => {
                                 dispatch(selectCategoryMain(c.id, c.name));
                                 if (hasChildren) setCatMain(c);
@@ -80,8 +82,8 @@ export function FilterDrawerCategoryTab({
                           );
                           return (
                             <button key={s.id}
-                              className={`fd-row ${active ? 'is-active' : ''} ${subCount === 0 ? 'is-empty' : ''}`}
-                              disabled={subCount === 0}
+                              className={`fd-row ${active ? 'is-active' : ''} ${subCount === 0 && !active ? 'is-empty' : ''}`}
+                              disabled={subCount === 0 && !active}
                               onClick={() => {
                                 if (active) {
                                   dispatch(clearCategory());

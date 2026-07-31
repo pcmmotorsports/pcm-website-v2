@@ -14,7 +14,7 @@ import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-stat
 import { MOCK_MOTO_BRANDS } from '../data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '../data/mock-categories';
 import { MOCK_BRANDS } from '../data/mock-brands';
-import type { VehicleFacetCounts } from '@/lib/vehicle-facet-display';
+import { makeFacetCountResolver, type VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 
 const data: FilterSideData = {
   motoBrands: MOCK_MOTO_BRANDS,
@@ -27,19 +27,30 @@ function Harness({
   hideVehicle,
   vehicle,
   facetCounts,
+  selectedCategory,
+  selectedBrands,
 }: {
   hideVehicle?: boolean;
   vehicle?: boolean;
   facetCounts?: VehicleFacetCounts | null;
+  /** 🔴 直接注入「已選中」的狀態:0 件的列是 disabled 的,用點擊**永遠到不了**這個組合
+   *  (2026-07-31 突變測試抓到:原本用「件數 3 的列點一下」測,`&& !isMainActive` 拿掉仍全綠)。 */
+  selectedCategory?: { mainId: string; main: string };
+  selectedBrands?: string[];
 }) {
   const [base, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   // 已選車態:直接組出 cascade(不依賴 UI 流程,測的是「有車 vs 沒車」這一個變數)
-  const cascade = vehicle ? { ...base, vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } } : base;
+  const cascade = {
+    ...base,
+    ...(vehicle ? { vehicle: { brand: 'Yamaha', model: 'MT-09 SP', year: 2022 } } : {}),
+    ...(selectedCategory ? { category: selectedCategory } : {}),
+    ...(selectedBrands ? { brands: selectedBrands } : {}),
+  };
   const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   return (
     <FilterSide
       data={data}
-      facetCounts={facetCounts ?? null}
+      countOf={makeFacetCountResolver(Boolean(vehicle), facetCounts ?? null)}
       hideVehicle={hideVehicle}
       cascade={cascade}
       dispatch={dispatch}
@@ -211,6 +222,75 @@ describe('FilterSide 件數(桌機側欄)', () => {
     );
     expect(brandRow?.className).toContain('is-empty');
     expect(brandRow?.querySelector<HTMLInputElement>('input')?.disabled).toBe(true);
+  });
+
+  it('0 件的分類一旦被選中就必須留活口(否則取消不掉、列表空白又沒出路)', () => {
+    const target = MOCK_CATEGORIES[1]!;
+    const counts = { categories: { [target.name]: 0 }, brands: {} };
+
+    const { container } = render(<Harness vehicle facetCounts={counts} />);
+    const rowOf = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll<HTMLButtonElement>('.fs-tree-l1')).find((el) =>
+        el.textContent?.includes(target.name),
+      )!;
+    expect(rowOf(container).disabled).toBe(true); // 未選中 ⇒ 灰掉
+    expect(rowOf(container).className).toContain('is-empty');
+
+    // 🔴 同樣 0 件、但已經選中它(等同「選好分類之後才換車」)⇒ 必須留活口
+    const { container: c2 } = render(
+      <Harness
+        vehicle
+        facetCounts={counts}
+        selectedCategory={{ mainId: target.id, main: target.name }}
+      />,
+    );
+    expect(rowOf(c2).disabled).toBe(false);
+    expect(rowOf(c2).className).not.toContain('is-empty');
+  });
+
+  it('已勾選的品牌即使 0 件也不得停用(否則取消不掉)', () => {
+    const brand = MOCK_BRANDS[0]!;
+    const counts = { categories: {}, brands: { [brand.id]: 0 } };
+    const boxOf = (root: HTMLElement) =>
+      Array.from(root.querySelectorAll('.fs-cbx-row'))
+        .find((el) => el.textContent?.includes(brand.name))
+        ?.querySelector<HTMLInputElement>('input');
+
+    const { container } = render(<Harness vehicle facetCounts={counts} />);
+    fireEvent.click(screen.getByText('品牌'));
+    expect(boxOf(container)?.disabled).toBe(true); // 未勾 ⇒ 停用
+
+    // 🔴 同樣 0 件、但已經勾著(選好品牌之後才換車)⇒ 必須留活口,否則取消不掉
+    const { container: c2 } = render(
+      <Harness vehicle facetCounts={counts} selectedBrands={[brand.id]} />,
+    );
+    fireEvent.click(screen.getAllByText('品牌')[1]!);
+    expect(boxOf(c2)?.checked).toBe(true);
+    expect(boxOf(c2)?.disabled).toBe(false);
+  });
+
+  it('子類的 facet key 用「大類 · 子類」—— 參數對調就會拿到大類的數字', () => {
+    const parent = MOCK_CATEGORIES.find((c) => c.children.length > 0);
+    if (!parent) return; // 真分類為單層時本條自動略過
+    const child = parent.children[0]!;
+    const { container } = render(
+      <Harness
+        vehicle
+        facetCounts={{
+          categories: { [parent.name]: 9, [`${parent.name} · ${child.name}`]: 4 },
+          brands: {},
+        }}
+      />,
+    );
+    fireEvent.click(
+      Array.from(container.querySelectorAll<HTMLButtonElement>('.fs-tree-l1')).find((el) =>
+        el.textContent?.includes(parent.name),
+      )!,
+    );
+    const sub = Array.from(container.querySelectorAll('.fs-tree-l2')).find((el) =>
+      el.textContent?.includes(child.name),
+    );
+    expect(sub?.querySelector('.fs-tree-count')?.textContent).toBe('4');
   });
 
   it('件數回來了但沒有這個分類的 key → 不顯示,不得當成 0 件灰掉', () => {

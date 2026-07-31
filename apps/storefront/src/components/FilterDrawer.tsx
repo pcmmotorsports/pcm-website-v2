@@ -51,11 +51,10 @@ import {
 } from './filter-state';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { MockCategory } from '@/data/mock-categories';
-import {
-  makeFacetCountResolver,
-  facetCategoryKey,
-  type VehicleFacetCounts,
-} from '@/lib/vehicle-facet-display';
+import { makeFacetCountResolver, type FacetCountResolver } from '@/lib/vehicle-facet-display';
+
+/** 未接 #306 取數時的預設:只用 server 帶下來的全站數(= #306 之前的行為)。 */
+const SERVER_COUNTS_ONLY = makeFacetCountResolver(false, null);
 import { FilterDrawerVehicleTab } from './FilterDrawerVehicleTab';
 import { FilterDrawerCategoryTab } from './FilterDrawerCategoryTab';
 import type { MockBrand } from '@/data/mock-brands';
@@ -118,7 +117,7 @@ export function FilterDrawer({
   extras,
   setExtras,
   garage = [],
-  facetCounts = null,
+  countOf = SERVER_COUNTS_ONLY,
 }: {
   open: boolean;
   onClose: () => void;
@@ -137,8 +136,8 @@ export function FilterDrawer({
   hideColor?: boolean;
   /** #220-B1:toUIProduct isNew/isSale 全 false → 隱藏新品/特價(與 #161 關著的現貨皆空時整 tab 隱藏) */
   hidePromoFlags?: boolean;
-  /** #306:已選車款的各分類 / 各品牌件數;null = 沒選車、還沒回來、或算不出來。 */
-  facetCounts?: VehicleFacetCounts | null;
+  /** #306:件數解析器,由宿主建立下傳(理由見 FilterSide 同名 prop 的註解 —— 審查 M1)。 */
+  countOf?: FacetCountResolver;
 } & CascadeControlledProps & ExtrasControlledProps) {
   const [tab, setTab] = useState<DrawerTab>(
     initialTab ?? (scope === 'category' ? 'category' : scope === 'product' ? 'brand' : 'vehicle'),
@@ -183,10 +182,6 @@ export function FilterDrawer({
       : []),
   ];
   // ADR-0007:scope 白名單過濾。scope 內只剩 1 個 tab 時不渲染 tab 列(單一責任面板)。
-  // #306-b:件數跟著所選車款走(Sean 逐字「我最希望還是可以即刻算出來」)。
-  //    未選車 = 全站數(server props);選了車 = 該車真實件數;還沒回來/算不出來 = 不顯示。
-  //    ~~舊行為 = 選了車就整個藏起來~~(那只是「不給錯的」、不是「給對的」)。
-  const countOf = makeFacetCountResolver(cascade.vehicle !== null, facetCounts);
   const scopeTabs = SCOPE_TABS[scope];
   const tabs = scopeTabs === null ? allTabs : allTabs.filter((t) => scopeTabs.includes(t.id));
   // 🔴 渲染哪個 panel 一律由 `tabs` 決定:`tab` state 若落在 scope 之外(例:預設值 'brand'
@@ -282,6 +277,7 @@ export function FilterDrawer({
                   const brandCount = countOf('brands', b.id, b.count);
                   // 已勾選的維持可操作,否則取消不掉
                   const empty = brandCount === 0 && !checked;
+
                   return (
                     <label key={b.id} className={`fd-cbx ${checked ? 'is-checked' : ''} ${empty ? 'is-empty' : ''}`}>
                       <input type="checkbox" checked={checked} disabled={empty} onChange={() => dispatch(toggleBrand(b.id))} />
