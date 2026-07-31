@@ -1,5 +1,12 @@
 export const CATALOG_SORT_VALUES = ['recommend', 'price-asc', 'price-desc'] as const;
 export const CATALOG_PER_PAGE_VALUES = [25, 50, 75, 100] as const;
+/**
+ * 每頁筆數預設(Sean 2026-07-31:25 → 50)。
+ * 🔴 單一定義點:client 的 `products-url-state.DEFAULT_PER_PAGE` 也讀這個常數 ——
+ *    兩邊各寫一個數字時,沒帶 `?per=` 的網址會變成「server 給 25 筆、client 以為一頁 50 筆」
+ *    ⇒ 總頁數與「顯示第 X-Y 筆」全錯。
+ */
+export const CATALOG_DEFAULT_PER_PAGE = 50;
 
 export type CatalogSort = (typeof CATALOG_SORT_VALUES)[number];
 
@@ -65,10 +72,10 @@ function parseNonNegativeInteger(raw: string | null): number | undefined {
  */
 export function parseCatalogQuery(searchParams: SearchParamsLike): CatalogQuery {
   const page = parsePositiveInteger(searchParams.get('page'), 1);
-  const requestedPerPage = parsePositiveInteger(searchParams.get('per'), 25);
+  const requestedPerPage = parsePositiveInteger(searchParams.get('per'), CATALOG_DEFAULT_PER_PAGE);
   const perPage = (CATALOG_PER_PAGE_VALUES as readonly number[]).includes(requestedPerPage)
     ? requestedPerPage
-    : 25;
+    : CATALOG_DEFAULT_PER_PAGE;
   const requestedSort = searchParams.get('sort');
   const sort = (CATALOG_SORT_VALUES as readonly string[]).includes(requestedSort ?? '')
     ? (requestedSort as CatalogSort)

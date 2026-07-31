@@ -27,12 +27,15 @@ import { clearVehicleContext, writeVehicleContext } from '@/lib/vehicle-context'
 // 🔴 R3:SearchParamsLike + parseVehicleFromUrl 抽到無 hooks 的 @/lib/vehicle-url(供詳情頁 Server
 //   Component 共用、本檔含 hooks 不可被 server import);本檔 re-export parseVehicleFromUrl 保 back-compat。
 import { parseVehicleFromUrl, type SearchParamsLike } from '@/lib/vehicle-url';
+import { CATALOG_DEFAULT_PER_PAGE } from '@/lib/catalog-query';
 export { parseVehicleFromUrl };
 
 export const SORT_VALUES = ['recommend', 'new', 'price-asc', 'price-desc', 'sale'] as const; // = SortBar <option>
 export const PER_PAGE_VALUES = [25, 50, 75, 100] as const; // = Pagination #pp-perpage <option>
 export const DEFAULT_SORT = 'recommend';
-export const DEFAULT_PER_PAGE = 25;
+// 🔴 預設每頁筆數與 server 端(lib/catalog-query.parseCatalogQuery)必須是同一個數字,
+//    故直接讀那邊的常數、不在這裡再寫一次(見該檔 CATALOG_DEFAULT_PER_PAGE 註解)。
+export const DEFAULT_PER_PAGE: number = CATALOG_DEFAULT_PER_PAGE;
 
 // SearchParamsLike + parseVehicleFromUrl 已抽到 @/lib/vehicle-url(見檔頭 import;server 共用);
 // 本檔內部消費者(useBrowseUrlState 等)與外部(詳情頁 route)皆吃同一份、id 空間一致。

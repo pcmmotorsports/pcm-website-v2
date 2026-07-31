@@ -29,7 +29,7 @@ describe('parseCatalogQuery', () => {
     const result = parseCatalogQuery(params('sort=price-asc'));
     expect(result).toEqual({
       page: 1,
-      perPage: 25,
+      perPage: 50,
       sort: 'price-asc',
       brandSlugs: [],
     });
@@ -53,7 +53,7 @@ describe('parseCatalogQuery', () => {
       ),
     ).toEqual({
       page: 1,
-      perPage: 25,
+      perPage: 50,
       sort: 'recommend',
       brandSlugs: ['gb-racing'],
     });

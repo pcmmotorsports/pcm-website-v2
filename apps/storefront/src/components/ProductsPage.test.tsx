@@ -199,12 +199,14 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
     hoisted.search = new URLSearchParams('page=-3&sort=bogus&per=999');
     render(<ProductsPage products={MANY.slice(0, 25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     expect(screen.getByDisplayValue('推薦排序')).toBeDefined(); // sort 白名單外 → recommend
-    expect(screen.getByDisplayValue('25')).toBeDefined(); // per 白名單外 → 25
+    expect(screen.getByDisplayValue('50')).toBeDefined(); // per 白名單外 → 預設 50(Sean 2026-07-31 由 25 改)
     expect(screen.getByText('碳纖維部品1號')).toBeDefined(); // page<1 → 第 1 頁(getByText:absent 即 throw)
   });
 
   it('should still reset to page 1 when user changes sort (mount-guard 不得吃掉真重置)', () => {
-    hoisted.search = new URLSearchParams('page=2');
+    // 🔴 per=25 必須顯式帶:預設改 50 後,30 件只有 1 頁 ⇒ page=2 會被 currentPage 夾成 1,
+    //    這條測試就會在「重置根本沒發生」的情況下照樣綠(假綠)。
+    hoisted.search = new URLSearchParams('page=2&per=25');
     render(<ProductsPage products={MANY.slice(25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
     expect(screen.getByText('碳纖維部品30號')).toBeDefined();
     // P4：排序變更會發出 server navigation；本次 props 仍是目前頁，不能在 client 偽造下一頁。
@@ -214,9 +216,10 @@ describe('ProductsPage #6 browse-state URL round-trip', () => {
   });
 
   it('should sync non-default state back into the URL (replaceState 自癒/分享)', () => {
+    // total=60:預設每頁 50 ⇒ 共 2 頁,page=2 才是真的存在的頁(否則被夾成 1、per 那條斷言會假綠)
     hoisted.search = new URLSearchParams('page=2&sort=price-asc');
-    render(<ProductsPage products={MANY.slice(25)} total={30} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
-    // URL 同步 effect:非預設值寫回 jsdom URL(page=2、sort=price-asc;per=25 預設不寫)
+    render(<ProductsPage products={MANY.slice(25)} total={60} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    // URL 同步 effect:非預設值寫回 jsdom URL(page=2、sort=price-asc;per=50 預設不寫)
     expect(window.location.search).toContain('page=2');
     expect(window.location.search).toContain('sort=price-asc');
     expect(window.location.search).not.toContain('per=');
@@ -288,7 +291,8 @@ describe('ProductsPage Q4-S5 category/brand 深連結', () => {
       ...FIXTURE[0]!, id: i + 1, slug: `gb-fixture-${i + 1}`, brand: 'GB RACING',
       name: `駐車架部品${i + 1}號`, category: '駐車架',
     }));
-    hoisted.search = new URLSearchParams('category=駐車架&page=2');
+    // 🔴 per=25 顯式帶(同上一條理由):預設改 50 後 30 件只剩 1 頁,page=2 會被夾成 1 ⇒ 假綠
+    hoisted.search = new URLSearchParams('category=駐車架&page=2&per=25');
     render(<ProductsPage products={MANY_STAND.slice(25)} total={30} error={false} categories={TWO_CATEGORIES} motoBrands={MOTO_BRANDS} />);
     // 30 件同分類、每頁 25 → 第 2 頁只有 26-30 號;mount 的 category dispatch 不得把 page 打回 1
     expect(screen.getByText('駐車架部品30號')).toBeDefined();
