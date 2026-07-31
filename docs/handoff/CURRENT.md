@@ -85,8 +85,19 @@
 > 🔴 **R3 的 11 條有 4 條是 v3 修 R2 時自己開的新洞**(E6 / E3b / E2b 三處**靜態死鎖** —— 合法路徑物理上走不通),
 > 而 v3 的 24 負測 + 2 正向**全綠**、抓不到其中任何一條 ⇒ v4 §7.4 新增**正向鏈 C/D**。
 > ✅ **master plan 每輪逐字重寫**(DAG / 軸矩陣 / row 25 尾巴),不靠段首「以下作廢」覆蓋。
-> **下一步**:① **Sean 答 v4 §14 三題**(D1-D8 採用 / break-glass 形式 / generation 上限)
-> ② 關卡1 **R4 換角度**(R3 的 WOULD-CHANGE-MY-VERDICT 四項已全部做到 ⇒ 建議回 codex 驗回歸,或再換第三個角度)。
+> 🔴 **R4(codex,只打 v3→v4 diff 的靜態可達性與宣稱稽核)= FAIL,7 must-fix,v5 折入 7/7**
+> (逐字 `docs/reviews/2026-07-31-e10-a7b-k1r4-codex.md`)。四輪合計 **71 must-fix + 12 nit**。
+> 🔴🔴 **R4 打掉的是 v4 的「宣稱」不只是條文**:v4 說「`retry_exhausted` 蘊含六次全明確失敗 ⇒ 零金額移動」,
+> **那是把 worker 紀律講成 DB 層證明**(TapPay 已受理 + worker 逾時 + worker 誤寫 E5 ⇒ 合法拿到該死因)
+> ⇒ **D7 降級為必要條件**,補 **D9**(授權必填 Record 證據 / **隔日閘** / 下一代 baseline 必須吻合)。
+> 🔴 v4 另一句錯話已更正:「沒有任何路徑會重送同一筆 Refund」是錯的 ——
+> **自動重試就是拿同一個 `bank_refund_id` 重送最多 6 次、完全依賴 TapPay 冪等性,而 PCM 從未實測**
+> ⇒ 第 3 批 sandbox hard release gate。
+> 🔴 **自捅復發第五次**(8/18 → 4/11 → 5/7)且**每次同一類**:改 truth table 或 edge 後某條 edge
+> **靜態不可能**(v4 的 E1/E5/E12 三條)⇒ 合法路徑死掉、錢卡住,而**負測全綠**。
+> ⇒ v5 §7.5 依機制優先律新增**強制交付物「靜態可達性矩陣」** + 要求 harness **機器化實跑每條 edge**。
+> **下一步**:① **Sean 答 v5 §14**(Q2 break-glass / Q3 generation 上限 / 🔴 **Q4 D9 三選一**;Q1 已拍 A)
+> ② 關卡1 **R5**:再換角度(建議 Fable 打「D9 的三條規則會不會又是一個名字大於實力的防護」)。
 >
 > ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
 
