@@ -566,6 +566,7 @@ SQL
 # expect_red <sql 檔> <預期 constraint> <說明> [預期 SQLSTATE]
 # 🔴 第 4 個參數省略時**不檢查** SQLSTATE(T2 沿用舊形狀);T3a 一律帶。
 REDSTATE=""
+LAST_RED_OK=""
 expect_red() {
   local out actual state
   out="$(psql "$URL" -v ON_ERROR_STOP=1 -qtA -f "$1" 2>&1)"
@@ -573,11 +574,61 @@ expect_red() {
   actual="$(printf '%s\n' "$out" | sed -n 's/.*T2-RED|//p' | tail -1)"
   state="$(printf '%s\n' "$out" | sed -n 's/.*T2-REDSTATE|//p' | tail -1)"
   REDSTATE="$state"
+  # 🔴 `LAST_RED_OK` 讓 case_red 只在**真的紅對了**的時候才把 ID 記進覆蓋率
+  #    —— 記期望值的話,覆蓋率只證明「有跑過」,不證明「紅對了」。
   if [ "$actual" != "$2" ]; then
+    LAST_RED_OK=no
     bad "$3 ⇒ 預期紅在 $2,實為 [$actual]"
   elif [ -n "${4:-}" ] && [ "$state" != "$4" ]; then
+    LAST_RED_OK=no
     bad "$3 ⇒ 紅在 $2 但 SQLSTATE 是 [$state],預期 $4"
   else
+    LAST_RED_OK=yes
     ok "$3 ⇒ 紅在 $2${4:+(SQLSTATE $4)}"
   fi
+}
+
+# ══════════════════════════════════════════════════════════════
+# 負測案例機器(T3a 狀態機負測 / T3b 錢面負測共用)
+# ══════════════════════════════════════════════════════════════
+# 呼叫端要先設好 `WORK`,並在開跑前 `: > "$WORK/matrix.tsv"`。
+CASE_N=0
+SEEN_IDS=""
+
+# case_red <標籤> <預期 CONSTRAINT_NAME> <prefix 函式名> ;  stdin = 壞資料那一步
+#   prefix 函式負責「用合法 edge 把列推到該狀態」;stdin 的 SQL 被包進
+#   「必須紅在指定 constraint」的 DO 外殼(plpgsql,所以只能放 INSERT/UPDATE/DELETE/
+#    TRUNCATE/PERFORM/EXECUTE,不能放裸 SELECT)。
+#   🔴 SQLSTATE 也一併斷言:T1 的自訂碼是 `P7B01`,索引/CHECK 違反是 `23505` / `23514`。
+#      只比 constraint 名的話,同名守門哪天從 trigger 搬成 CHECK(或反過來)測試不會有感覺。
+case_red() {
+  local label="$1" want="$2" prefix="$3" state
+  case "$want" in
+    a7bt_*) state=P7B01 ;;
+    orj_retry_auth_*|orj_shape_*|orj_review_triple_paired|orj_baseline_paired \
+      |orj_correction_*|orj_*_allowlist|orj_*_range|order_refund*_check|*_balances) state=23514 ;;
+    *_fk)   state=23503 ;;
+    *) state=23505 ;;
+  esac
+  CASE_N=$((CASE_N + 1))
+  local f
+  f="$WORK/neg-$(printf '%03d' "$CASE_N").sql"
+  { sql_head; "$prefix"; red_wrap_head; cat; red_wrap_tail; } > "$f"
+  expect_red "$f" "$want" "$(printf '%03d' "$CASE_N") $label" "$state"
+  [ "$LAST_RED_OK" = yes ] && SEEN_IDS="$SEEN_IDS $want"
+  # 🔴 §7.2 的一對一矩陣**由這裡的實跑產生**,不是人手抄一份:
+  #    抄的那份會漂移,而漂移的方向永遠是「文件比程式樂觀」。
+  printf '%s\t%s\t%s\t%s\t%s\n' \
+    "$(printf '%03d' "$CASE_N")" "$want" "$state" "$prefix" "$label" >> "$WORK/matrix.tsv"
+}
+
+# case_green <標籤> <prefix 函式名> ; stdin = 一個**合法**動作
+#   對照組:同一個外殼下必須**不紅**。沒有它,「全部都紅」可能只是外殼壞了。
+case_green() {
+  local label="$1" prefix="$2"
+  CASE_N=$((CASE_N + 1))
+  local f
+  f="$WORK/neg-$(printf '%03d' "$CASE_N").sql"
+  { sql_head; "$prefix"; red_wrap_head; cat; red_wrap_tail; } > "$f"
+  expect_red "$f" "(未觸發:竟然成功)" "$(printf '%03d' "$CASE_N") 對照組:$label"
 }

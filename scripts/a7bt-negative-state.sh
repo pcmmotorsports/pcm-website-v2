@@ -60,40 +60,7 @@ MIG="supabase/migrations/20260731120100_m4b_e10_a7b_t_refund_job_guards.sql"
 # ══════════════════════════════════════════════════════════════
 # 負測案例機器
 # ══════════════════════════════════════════════════════════════
-CASE_N=0
-SEEN_IDS=""
-
-# case_red <標籤> <預期 CONSTRAINT_NAME> <prefix 函式名> ;  stdin = 壞資料那一步
-#   prefix 函式負責「用合法 edge 把列推到該狀態」;stdin 的 SQL 被包進
-#   「必須紅在指定 constraint」的 DO 外殼(plpgsql,所以只能放 INSERT/UPDATE/DELETE/
-#    TRUNCATE/PERFORM/EXECUTE,不能放裸 SELECT)。
-#   🔴 SQLSTATE 也一併斷言:T1 的自訂碼是 `P7B01`,索引違反是 `23505`。
-#      只比 constraint 名的話,同名守門哪天從 trigger 搬成 CHECK(或反過來)測試不會有感覺。
-case_red() {
-  local label="$1" want="$2" prefix="$3" state
-  case "$want" in a7bt_*) state=P7B01 ;; *) state=23505 ;; esac
-  CASE_N=$((CASE_N + 1))
-  local f
-  f="$WORK/neg-$(printf '%03d' "$CASE_N").sql"
-  { sql_head; "$prefix"; red_wrap_head; cat; red_wrap_tail; } > "$f"
-  expect_red "$f" "$want" "$(printf '%03d' "$CASE_N") $label" "$state"
-  SEEN_IDS="$SEEN_IDS $want"
-  # 🔴 plan §7.2 的一對一矩陣**由這裡的實跑產生**,不是人手抄一份:
-  #    抄的那份會漂移,而漂移的方向永遠是「文件比程式樂觀」。
-  printf '%s\t%s\t%s\t%s\t%s\n' \
-    "$(printf '%03d' "$CASE_N")" "$want" "$state" "$prefix" "$label" >> "$WORK/matrix.tsv"
-}
-
-# case_green <標籤> <prefix 函式名> ; stdin = 一個**合法**動作
-#   對照組:同一個外殼下必須**不紅**。沒有它,「全部都紅」可能只是外殼壞了。
-case_green() {
-  local label="$1" prefix="$2"
-  CASE_N=$((CASE_N + 1))
-  local f
-  f="$WORK/neg-$(printf '%03d' "$CASE_N").sql"
-  { sql_head; "$prefix"; red_wrap_head; cat; red_wrap_tail; } > "$f"
-  expect_red "$f" "(未觸發:竟然成功)" "$(printf '%03d' "$CASE_N") 對照組:$label"
-}
+# 🔴 `case_red` / `case_green` 已搬進 scripts/a7bt-fixtures.sh(T3b 用同一組形狀)。
 
 # ══════════════════════════════════════════════════════════════
 # fixture 前綴(全部由**合法 edge** 組成;唯一例外是共用的時間注入)
