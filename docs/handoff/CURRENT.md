@@ -66,15 +66,17 @@
 > ⚠️ 誠實邊界:本機 PG17.10 非 Supabase、`auth.uid()` 是 shim;`create_order` 的 fixture 是造的 = **煙霧測試**。
 > **零 TapPay 接觸面、零金額欄位改動。**
 >
-> 🛑 **A7b 現況(2026-07-31 清晨)**:plan v1 已寫、**codex 關卡1 判 FAIL(約 35 must-fix + 5 nit)、不可施工**。
-> findings 逐字 = `docs/reviews/2026-07-31-e10-a7b-k1-codex.md`;plan 頂端已標記。
-> 🔴 四條會直接造成「退第二次錢」:只有 `BEFORE UPDATE` ⇒ 可直接 INSERT 成 `completed` 繞過狀態機 /
-> `reviewed_at` 可單獨寫 ⇒ 兩道 partial unique 失效 / 三道唯一性只擋同時不擋先後 /
-> 表級 ACL 擋不住 owner 的 DELETE·TRUNCATE。**三題待 Sean 拍板才能寫 v2**(plan §11)。
+> 🛑 **A7b 現況(2026-07-31 早上)—— 接手入口 = `docs/handoff/2026-07-31-a7b-refund-jobs-handoff.md`**
+> plan **v2** 已 commit(依 Sean 四拍板 + 關卡1 R1 的約 35 條全折入);
+> **關卡1 R2 仍 FAIL(18 must-fix + 4 nit)**,findings 逐字 = `docs/reviews/2026-07-31-e10-a7b-k1r2-codex.md`。
+> ✅ **Sean 2026-07-31 早上拍板:繼續折(A 案)**,不縮範圍、不擱置;並拍板**換新視窗接手**。
+> 🔴 **R2 最重的一條 = 我的修法讓合法路徑變成不可能**:原子消耗要求前代「已結案」才可消耗,
+> 而我同時規定「已結案不准再改」⇒ 那個消耗動作被自己的守門擋下 ⇒ **合法的第二次退款開不了**。
+> 🔴 另外兩條我自己認的:**又用了 locale-dependent 的字元範圍 `[0-9a-f]`**(#305 的同款寫法);
+> **master plan 只在 row 25 前面加更正、尾巴舊字面還在**(結案 token CAS、四道唯一性、DAG 仍單一 A7b)
+> ⇒ 今晚第二次犯「只改碰到的行」。
+> **下一步**:①把 R2 落檔(已完成)②重新設計原子消耗 ③折其餘 17 條 ④**R3 換角度或換模型**。
 >
-> 🔴 **下一步**:①**A7b plan v2**(需先答 §11 三題)
-> ②**Sean 待答:A1 的 apply 路線 A/B**(ledger 停在 A7 ⇒ `db push` 會依序套 A7-t 再套 A1、
-> 兩支各自一個交易,A1 失敗會留半批;runbook 在 plan §3.4)。
 > ⚠️ 工作樹另有並行 session 的 `dev-preview/mobile-catalog-ux` 與 `docs/superpowers/`,本線全程未觸碰。
 
 > 🎉 **2026-07-30 深夜:A7-t「取消帳本主從一致 trigger」code 收工 —— `54cbc64`、未 apply、未 push。**
