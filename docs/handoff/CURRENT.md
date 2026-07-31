@@ -1,5 +1,42 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉 **2026-07-31:backlog #306「選車後即時計數」端到端完成 —— 已合回 `dev`、Sean 肉眼驗收通過、未 push、零 DB。**
+> 接手入口 = `docs/handoff/2026-07-31-306-catalog-facet-counts-handoff.md`。
+> commit = `3b490e1`(#306-a 取數層)+ `5867546`(#306-b 接線層)+ `c6c6030`(交接檔),`--no-ff` 合回。
+>
+> 🔴 **本線在獨立 worktree `/Users/sean_1/pcm-website-v2-306` / 分支 `catalog-facet-counts` 施工**
+> —— Sean 指示兩個 session 同 repo 一直互撞。**同一個資料夾 `git checkout -b` 不會隔離**
+> (兩邊共用工作目錄與 git index,切分支會把對方 HEAD 一起帶走),只有 `git worktree` 才行;
+> 這個 repo 本來就有兩條線在用。合併當下對方無 staged 內容、檔案零重疊,其未提交的
+> A7b plan 未被觸碰。
+>
+> **做了什麼**:選車後分類/品牌的數字從「全站總數」改成「這台車的真實件數」,**0 件灰掉且點不下去**;
+> 桌機側欄與手機抽屜同一套。零 migration(沿用既有 RPC `search_catalog_by_vehicle` fan-out)。
+> 🔴 **查詢數是 108 不是 plan 寫的 15**(92 分類 key = 15 大類 + 77 子類,加 16 品牌)。
+> 🔴 **取數輸入用 URL 的 `?vehicle=` 而非 cascade state** ⇒ 面板數字與點進去的件數有**結構性**保證。
+> 🔴 **「沒有這個 key」≠「0 件」**(可能是被分類白名單濾掉的)⇒ 顯示 null 而非灰掉。
+>
+> ✅ **真瀏覽器實測**(前提斷言先建立 = CSS chunk 200 且逐字含新規則):桌機 15 大類
+> 13/6/**39**/6/3/4/27/6/15/**0**/15/31/33/**0**/**0**、**加總 198 = `pp-count` 198**;
+> **點「拉桿與把手 39」→ 頁面真的變 39 件商品**;手機 390 逐格相同、點 0 件列 URL 完全沒變;
+> 未選車回歸 2130/1076/1824 與 19037。**進頁面到數字出現 2948/2205/1666/998ms**(四台全新車款)、熱 ~0.19s。
+> 合併後三綠 + `pnpm test` **3471 passed + 1 todo**;#306-a 突變 **19/19** 各紅在指定斷言。
+>
+> 🔴 **審查**:#306-a code-reviewer(opus)**FAIL 7 must-fix + 11 nit、全折入駁回 0**;
+> **#306-b 未跑 code-reviewer**(知情缺口,要補審對象 = `git show 5867546`)。
+> 🔴 **突變第一輪 3 條是 harness 自己假綠**(sed 樣式失配 ⇒ 沒套用卻報「沒抓到」)⇒ 已補自檢。
+> 🔴 **我自己寫錯一條註解已更正**:「allSettled 是為了避免 unhandled rejection」實測不成立
+> (`Promise.all` 本來就會對每個 promise 掛處理器);真正理由是**收乾淨**。
+> 🔴 **在沒有憑證的 worktree 實跑抓到既有漏洞**:`fetchCatalogBrandTaxonomy` /
+> `fetchProductsByVehicle` 的 `createSupabaseAnonClient()` 寫在 `try` **外面**(`lib/products.ts`)
+> ⇒ env 缺漏時未捕捉 throw、整頁 500;已在 facet route 收斂成 503,**`products.ts` 未改**。
+>
+> 🟡 **殘餘風險(Sean 拍 Q5=A 先觀察,不等於已解決)**:`/api/catalog/facet-counts` 是公開端點、
+> 一次冷請求 108 條查詢;三道白名單擋的是 key 空間**不擋速率**(車輛字典本來就整份送到瀏覽器、可枚舉),
+> `MAX_CONCURRENT_FANOUTS=3` 是 **per-process**、非全站上限。對外開賣前應重新評估。
+> 🟡 worktree 用完可 `git worktree remove /Users/sean_1/pcm-website-v2-306`(Sean 決定;
+> 內含的 `.env.local` 是 symlink、移除不影響主工作樹)。
+
 > 🎉 **2026-07-31 凌晨:E10 第 1 批 A1「訂單品項數量摘要」code 收工 —— 未 apply、未 push。**
 > 片級 plan = `docs/specs/2026-07-30-e10-a1-order-item-summary-columns-plan.md`(**v2**,v1 已作廢)。
 > 產物 = migration `20260730150000`(新表 `public.order_item_quantity_summary` +
