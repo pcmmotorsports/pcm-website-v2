@@ -65,6 +65,7 @@ import {
   useDeepLinkRestore,
   useVehicleUrlSync,
 } from './products-url-state';
+import { useFilterScrollTop } from './products-scroll-top';
 import type { FilterTopData } from './FilterTop';
 import type { MockCategory } from '@/data/mock-categories';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
@@ -192,8 +193,11 @@ function SortBar({
 export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [] }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
-  const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
+  const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
+  const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
+  // Sean 2026-07-31:篩選動作確認後一律回頁首(詳 products-scroll-top.tsx;
+  // 🔴 只有篩選 UI 吃包裝版,URL 還原走下方 useDeepLinkRestore 的 rawDispatch、不捲頁)
+  const { dispatch, setExtras } = useFilterScrollTop(rawDispatch, setExtrasRaw, extras);
   const { sort, setSort, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
   const [gridCols, setGridCols] = useState(0); // 0=自動欄數(卡片固定寬、寬螢幕自動加欄);3/4/5=手動鎖定。顯示偏好、不進 URL(#6)
   // #6:URL 還原 vehicle 的 mount dispatch 與「篩選變動重置頁碼」的協調旗標(見 vehicle effect 註解)
@@ -221,7 +225,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
     motoBrands,
     categories,
     productBrands: brands,
-    dispatch,
+    dispatch: rawDispatch,
     skipPageResetOnce: urlVehicleInitRef,
     brandAppliedOnce: urlBrandInitRef,
   });

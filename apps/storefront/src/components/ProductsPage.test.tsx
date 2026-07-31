@@ -10,7 +10,7 @@
 //   本 smoke 傳小 MockProduct[] fixture(非 MOCK_PRODUCTS)、不依真 DB;另驗 error 旗標 → 載入失敗態。
 
 import { StrictMode, type ReactElement } from 'react';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
 
 // #6:mock 改可變(vi.hoisted)——URL 還原測試需逐測換 searchParams;預設空參數(舊測試行為不變)。
@@ -360,5 +360,58 @@ describe('ProductsPage × #306 件數接線', () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(Array.from(container.querySelectorAll('.fs-tree-count')).map((el) => el.textContent)).toContain('2');
+  });
+});
+
+// Sean 2026-07-31 回報:選好車 → 點「類別」→ 選商品分類,人在頁面下方時篩完仍停在原位
+// (看到的是頁尾),要自己往上滑。修法 = 篩選動作包一層捲回頁首(products-scroll-top.tsx)。
+describe('ProductsPage 篩選後捲回頁首', () => {
+  let scrollSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    scrollSpy = vi.fn();
+    vi.stubGlobal('scrollTo', scrollSpy); // jsdom 的 window.scrollTo 是 not-implemented stub
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    hoisted.search = new URLSearchParams();
+  });
+
+  it('手機「類別」抽屜選分類 → 捲回頁首(Sean 回報的那條路徑)', () => {
+    const { container } = render(
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: '類別' }));
+    const row = container.querySelector('.fd-row') as HTMLElement;
+    expect(row.textContent).toContain('碳纖維部品'); // 點的真的是分類列、不是別的按鈕
+    fireEvent.click(row);
+    expect(scrollSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+
+  it('桌機側欄選品牌 → 捲回頁首(同一顆包裝 dispatch,不是只補手機那條路)', () => {
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    fireEvent.click(screen.getByText('品牌', { selector: '.fs-section-title' }));
+    fireEvent.click(screen.getByText('RPM CARBON', { selector: '.fs-cbx-row span' }));
+    expect(scrollSpy).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+
+  it('🔴 深連結還原不得捲頁(商品頁按上一頁回來,瀏覽器剛還原的捲動位置不能被打掉)', () => {
+    // 還原走的是未包裝的 rawDispatch;若哪天改成 effect 監看篩選值,這條會紅。
+    hoisted.search = new URLSearchParams('category=碳纖維部品');
+    render(<ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />);
+    expect(screen.getByText('碳纖維部品', { selector: '.pp-title' })).toBeDefined(); // 還原真的跑了
+    expect(scrollSpy).not.toHaveBeenCalled();
+  });
+
+  it('🔴 價格雙滑桿拖曳中不得捲頁(每動一格更新一次,捲頁會把畫面從手底下拉走)', () => {
+    const { container } = render(
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />,
+    );
+    fireEvent.click(screen.getByText('價格範圍', { selector: '.fs-section-title' })); // accordion 預設收合
+    const slider = container.querySelector('.fs-price-track input[type="range"]') as HTMLInputElement;
+    fireEvent.change(slider, { target: { value: '20000' } });
+    expect(container.querySelector('.fs-price-readout')?.textContent).toContain('20,000'); // 值真的變了
+    expect(scrollSpy).not.toHaveBeenCalled();
   });
 });
