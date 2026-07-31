@@ -34,6 +34,16 @@
 | **Q2(下午)** | **B**:結案選錯 = **DB 內正式更正 RPC + 兩人簽核** | **D11**(§3.6)。🔴 推翻理由見下 |
 | **Q3(下午)** | **A**:`generation` 上限維持 **20** | §4.1 |
 | **Q4(下午)** | **A**:採用 D9 | 🔴🔴 **但 A 的描述已被 R5 證明誇大 ⇒ §14 需重新確認** |
+| **Q1(T2 後)** | **D**:退款工作表的寫入**一律走 owner 的 SECURITY DEFINER RPC**;「service_role 直寫」**明文作廢** | 🔴 **改寫 §4.5 與 T1 表 COMMENT 的字面**;§6 R9/R16/R16b 三支 RPC 之外,**worker 機械步驟(E1/E2/E2b/E3/E3b/E4/E5/E5b/E6/E8/E10/E11)也要有對應 RPC = 第 3 批新增工作**;**收回 service_role 對 `order_refund_jobs` 的 INSERT/UPDATE GRANT = 第 3 批前置**(本片不動) |
+| **Q2(T2 後)** | **A**:T1 的修補**不補跑 codex**、併入 T4 一起審,現在先 commit | T1 未 apply、要等 T4 審完才上正式站 ⇒ 無未經審查的東西碰到真資料 |
+
+🔴🔴 **Q1(T2 後)的觸發事實(T2 實跑,非推論)**:plan §4.5 給了 service_role `INSERT, UPDATE`,
+但**直寫在物理上本來就走不通** —— ①`BEFORE UPDATE` 守門內對 `pcm_a7bt_allowed_delta` 是**巢狀函式呼叫**、
+以 `current_user` 檢查 EXECUTE,而 T1 已把它從 service_role 收回 ⇒ **每一筆 UPDATE 都 42501**;
+②開新世代的 INSERT 守門與 E14 的 `PERFORM … FOR UPDATE` 需要 `order_cancellations` 的 **UPDATE 權限**,
+service_role 只有 SELECT ⇒ 42501。
+⇒ 原設計是**一半直寫、一半 RPC 的混合**,而混合的那一半根本不成立;D 只是把 §6 已經指定的做法做完。
+⇒ **`scripts/a7bt-verify.sh` 第 7 段已把這兩條翻成合約斷言**(直寫必 42501;哪天又通了會轉紅)。
 
 🔴🔴 **一個被推翻的前提(必須記住)**:我對 Q2 推薦 C(「先手動處理」),依據是「訂單量一年 1-300 筆」。
 **Sean 逐字更正:「訂單一個月 100-300 筆,一年下來數量驚人」** ⇒ 年量 **1200-3600**。
@@ -460,6 +470,12 @@ GRANT SELECT, INSERT, UPDATE ON public.order_refund_jobs TO service_role;
 ALTER TABLE public.order_refund_jobs ENABLE ROW LEVEL SECURITY;   -- zero-policy
 ```
 子表同上但**僅 `SELECT, INSERT`**。
+
+🔴🔴 **Sean 2026-07-31 拍 Q1=D 之後,上面那組 GRANT 的意義已經改變(字面必須連帶讀這一段)**:
+`UPDATE` 這一項**不代表「後端程式可以直接更新本表」** —— T2 實跑證明直寫必 42501
+(守門內對 `pcm_a7bt_allowed_delta` 的巢狀呼叫以 `current_user` 檢查 EXECUTE)。
+寫入路徑**一律走 owner 的 `SECURITY DEFINER` RPC**,與 orders / order_cancellations /
+order_refunds 三張表一致。**收回這兩個 GRANT** 讓直寫在表層就失敗 = **第 3 批前置**,A7b 三片都不動。
 
 🔴 **驗收必須是完整八格矩陣**(PG17)× `anon / authenticated / service_role / PUBLIC`。
 - **PG17 的第八種權限 `MAINTAIN`**:授出去之後 `has_table_privilege(…,'SELECT')` **仍為 false**

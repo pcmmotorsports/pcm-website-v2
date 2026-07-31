@@ -408,75 +408,85 @@ BEGIN
   -- 🔴 判別式只放**辨別用的最小條件**(把這條 edge 與其他 15 條分開的那些)。
   --    其餘規則一律放到下面的逐 edge 驗證,並各自帶具名 ID
   --    —— 否則負測會全部紅在 a7bt_edge_unmatched,分不出是哪一條規則擋下的。
+  --
+  -- 🔴🔴 **`'E1'::text` 的顯式轉型不可省(2026-07-31 T2 正向鏈實跑抓到、本檔原本 16 處全錯)**:
+  --    `text[] || 'E1'` 的右運算元是 **unknown 型**,PostgreSQL 會優先解析成
+  --    `anyarray || anyarray` 而不是 `anyarray || anyelement`
+  --    ⇒ 執行期報 `malformed array literal: "E1"`(實測:`ARRAY[]::text[] || 'E1'` 直接炸)。
+  --    後果是**整個狀態機死掉** —— 任何一筆 UPDATE 都在第一條判別式當場拋錯,16 條 edge 全不可達。
+  --    🔴 **T1 自己的結構驗收看不到它**:plpgsql 函式本體只在**執行時**才解析,
+  --       而 T1 全程零 UPDATE(dormant gate 在 M 期間擋住所有寫入、T 本身只做 DDL)
+  --       ⇒ 這正是 plan §7.4「負測證明不了『好的走得通』」那條紀律要抓的東西,
+  --         而它是被**正向鏈的第一步**抓到的。
 
   IF OLD.status = 'queued' AND NEW.status = 'processing' THEN
-    v_match := v_match || 'E1';
+    v_match := v_match || 'E1'::text;
   END IF;
 
   -- E2 / E2b / E3 同為 processing→processing,靠「哪些欄產生 delta」互斥。
   -- 🔴 這一點必須由判別式**明文表達**,不能靠實作者理解(plan §5.2-1)。
   IF OLD.status = 'processing' AND NEW.status = 'processing'
      AND OLD.refunded_before IS NULL AND NEW.refunded_before IS NOT NULL THEN
-    v_match := v_match || 'E2';
+    v_match := v_match || 'E2'::text;
   END IF;
 
   IF OLD.status = 'processing' AND NEW.status = 'processing'
      AND OLD.refund_call_attempted_at IS NULL AND NEW.refund_call_attempted_at IS NOT NULL THEN
-    v_match := v_match || 'E2b';
+    v_match := v_match || 'E2b'::text;
   END IF;
 
   IF OLD.status = 'processing' AND NEW.status = 'processing'
      AND NEW.claim_token IS DISTINCT FROM OLD.claim_token THEN
-    v_match := v_match || 'E3';
+    v_match := v_match || 'E3'::text;
   END IF;
 
   IF OLD.status = 'processing' AND NEW.status = 'reconciling' THEN
-    v_match := v_match || 'E3b';
+    v_match := v_match || 'E3b'::text;
   END IF;
 
   IF OLD.status = 'processing' AND NEW.status = 'submitted' THEN
-    v_match := v_match || 'E4';
+    v_match := v_match || 'E4'::text;
   END IF;
 
   IF OLD.status = 'processing' AND NEW.status = 'failed' THEN
-    v_match := v_match || 'E5';
+    v_match := v_match || 'E5'::text;
   END IF;
 
   IF OLD.status = 'processing' AND NEW.status = 'dead' THEN
-    v_match := v_match || 'E5b';
+    v_match := v_match || 'E5b'::text;
   END IF;
 
   IF OLD.status = 'failed' AND NEW.status = 'queued' THEN
-    v_match := v_match || 'E6';
+    v_match := v_match || 'E6'::text;
   END IF;
 
   IF OLD.status = 'submitted' AND NEW.status = 'reconciling' THEN
-    v_match := v_match || 'E8';
+    v_match := v_match || 'E8'::text;
   END IF;
 
   IF OLD.status = 'reconciling' AND NEW.status = 'completed' THEN
-    v_match := v_match || 'E9';
+    v_match := v_match || 'E9'::text;
   END IF;
 
   IF OLD.status = 'reconciling' AND NEW.status = 'submitted' THEN
-    v_match := v_match || 'E10';
+    v_match := v_match || 'E10'::text;
   END IF;
 
   IF OLD.status = 'reconciling' AND NEW.status = 'reconciling' THEN
-    v_match := v_match || 'E11';
+    v_match := v_match || 'E11'::text;
   END IF;
 
   IF OLD.status = 'reconciling' AND NEW.status = 'dead' THEN
-    v_match := v_match || 'E12';
+    v_match := v_match || 'E12'::text;
   END IF;
 
   -- E13 / E14 同為 dead→dead,靠 OLD.reviewed_at 本身互斥。
   IF OLD.status = 'dead' AND NEW.status = 'dead' AND OLD.reviewed_at IS NULL THEN
-    v_match := v_match || 'E13';
+    v_match := v_match || 'E13'::text;
   END IF;
 
   IF OLD.status = 'dead' AND NEW.status = 'dead' AND OLD.reviewed_at IS NOT NULL THEN
-    v_match := v_match || 'E14';
+    v_match := v_match || 'E14'::text;
   END IF;
 
   -- ── 4.2 exact-one ─────────────────────────────────────────────────────
@@ -1202,6 +1212,15 @@ CREATE TRIGGER a7bt_jobs_block_delete
 --      ① `TRUNCATE public.order_refund_jobs CASCADE`
 --      ② `TRUNCATE public.order_refund_jobs, public.order_refund_job_items`
 --    ⇒ T3b / T4 的負測**必須用這兩種之一**,並且突變(刪掉本 trigger)必須讓它轉紅。
+-- 🔴🔴 **T2 追加實測(2026-07-31),照上面兩種形狀寫仍可能假綠**:交易內只要還有
+--    **pending 的 DEFERRED trigger 事件**(= 任何剛插完 job/明細的 fixture 還沒
+--    `SET CONSTRAINTS ALL IMMEDIATE`),`TRUNCATE jobs, items` 會先死在
+--    **`55006 cannot TRUNCATE … because it has pending trigger events`**,
+--    而該錯誤的 `CONSTRAINT_NAME` 是**空的** ⇒ 「斷言紅在 a7bt_jobs_truncate_blocked」的負測
+--    會拿到空字串、而把本 trigger 整支刪掉結果完全一樣 = 測不到任何東西。
+--    ⇒ T3b / T4 的 TRUNCATE 負測**必須先把 fixture 的 deferred 事件清乾淨**
+--      (先 `SET CONSTRAINTS ALL IMMEDIATE`,或在沒有 pending 事件的空表上跑);
+--      實測空表時才會如預期紅在 `P7B01 / a7bt_jobs_truncate_blocked`。
 CREATE TRIGGER a7bt_jobs_block_truncate
   BEFORE TRUNCATE ON public.order_refund_jobs
   FOR EACH STATEMENT EXECUTE FUNCTION public.pcm_a7bt_block_truncate('a7bt_jobs_truncate_blocked');
@@ -1463,7 +1482,7 @@ BEGIN
         ('pcm_a7bt_block_truncate',          '5560a7dac9d1d5e8f9e9559c83893a9f'),
         ('pcm_a7bt_allowed_delta',           '1d28b7f83b078e2de23175f8c618f141'),
         ('pcm_a7bt_jobs_before_insert',      '4dded30e2afd3a1a8527db659f289620'),
-        ('pcm_a7bt_jobs_before_update',      '9754fdc4ba79e46ef215b4f2d39e5525'),
+        ('pcm_a7bt_jobs_before_update',      '6ce43f7499742d2e2ceb4c780f439560'),
         ('pcm_a7bt_assert_job_consistent',   '04a247b662142d93f8635c133f63a16c'),
         ('pcm_a7bt_assert_job_ledger_equal', '276e7dc4d4de51932dca8bef74469c02')
       ) AS e(proname, md5)
@@ -1675,6 +1694,6 @@ $$;
 
 -- 🔴 COMMENT 更新:A7b-M 的表註解寫著「守門全在 A7b-T」,那句話從這一刻起是過去式。
 COMMENT ON TABLE public.order_refund_jobs IS
-  'M-4b A7b 卡片退款工作表(一次要退的錢 = 一列)。TapPay 退款隔日生效 ⇒ 送出與確認之間需可持久化、可重入、可對帳的中間狀態。狀態機七態、16 條 edge 的守門由 A7b-T(20260731120100)的十支 trigger 強制,dormant gate 已於該片移除。🔴 **寫入路徑的事實**:service_role **可以直接 INSERT / UPDATE 本表** —— 直寫並非不可達,守門靠 trigger 不靠表級權限。🔴 **trigger 看不到的事**(全部是第 3 批 worker 的 DoD 硬前置,不得當成本表已有的防護):TapPay 是否真的成功、baseline 與 D9 證據是否真的來自 Record API、worker 的 token CAS、「逾時不得寫任何東西」的紀律(這條是 D7 失效的唯一入口)、TapPay 對同一 bank_refund_id 重送的實際行為(PCM 從未實測)。🔴 corrected_by <> reviewed_by 只保證兩個 staff.id,不保證兩個人。🔴 **job↔ledger 等值只掛在本表側**:job 完成並比對通過後,若有人去改 order_refunds 的欄位(例如 reason 改成另一個合法值),本表的 trigger 永遠不會再被觸發 ⇒ 十一欄從此不相等而無人發現。要擋住它必須在 order_refunds 上另掛 trigger(RF2a 的表),Sean 2026-07-31 拍板不跨過去 ⇒ 列為本片管不到的事,不得算成已有的防護。🔴 **開新世代重退的餘額比對只在 E2 取樣一次**:E2 到 E2b(真正發出退款呼叫)之間若前代退款才入帳,兩道都會通過。DB 層要再比一次需要 worker 帶入當下 Record 讀數 ⇒ 本表尚無該欄位,屬未落地的獨立待辦;在它落地前這是 worker 紀律 + 第 3 批 sandbox 實測關卡。';
+  'M-4b A7b 卡片退款工作表(一次要退的錢 = 一列)。TapPay 退款隔日生效 ⇒ 送出與確認之間需可持久化、可重入、可對帳的中間狀態。狀態機七態、16 條 edge 的守門由 A7b-T(20260731120100)的十支 trigger 強制,dormant gate 已於該片移除。🔴 **寫入路徑(Sean 2026-07-31 拍 Q1=D,推翻本檔原本的字面)**:寫入**一律走 owner 的 SECURITY DEFINER RPC**(plan §6 已具名 complete_refund_job / admin_resolve_dead_refund_job / admin_correct_dead_refund_resolution,worker 機械步驟的數支由第 3 批補齊),與 orders / order_cancellations / order_refunds 三張表一致。**「service_role 直接 UPDATE 本表」實測不可達**:BEFORE UPDATE 守門內對 pcm_a7bt_allowed_delta 是巢狀函式呼叫、以 current_user 檢查 EXECUTE ⇒ service_role 一律 42501;開新世代與 E14 另因 order_cancellations 的 FOR UPDATE 需要 UPDATE 權限而 42501(兩者皆由 scripts/a7bt-verify.sh 第 7 段當**合約**斷言,直寫哪天又通了會轉紅)。⚠️ **本片未收回那兩個 GRANT** —— service_role 對本表仍持有 INSERT/UPDATE(A7b-M 給的),`INSERT` 實測仍會成功(gen1 建單走得到);收回 GRANT 讓直寫在表層就失敗 = 第 3 批的前置,不在本片。守門靠 trigger、不靠表級權限這句仍然成立。🔴 **trigger 看不到的事**(全部是第 3 批 worker 的 DoD 硬前置,不得當成本表已有的防護):TapPay 是否真的成功、baseline 與 D9 證據是否真的來自 Record API、worker 的 token CAS、「逾時不得寫任何東西」的紀律(這條是 D7 失效的唯一入口)、TapPay 對同一 bank_refund_id 重送的實際行為(PCM 從未實測)。🔴 corrected_by <> reviewed_by 只保證兩個 staff.id,不保證兩個人。🔴 **job↔ledger 等值只掛在本表側**:job 完成並比對通過後,若有人去改 order_refunds 的欄位(例如 reason 改成另一個合法值),本表的 trigger 永遠不會再被觸發 ⇒ 十一欄從此不相等而無人發現。要擋住它必須在 order_refunds 上另掛 trigger(RF2a 的表),Sean 2026-07-31 拍板不跨過去 ⇒ 列為本片管不到的事,不得算成已有的防護。🔴 **開新世代重退的餘額比對只在 E2 取樣一次**:E2 到 E2b(真正發出退款呼叫)之間若前代退款才入帳,兩道都會通過。DB 層要再比一次需要 worker 帶入當下 Record 讀數 ⇒ 本表尚無該欄位,屬未落地的獨立待辦;在它落地前這是 worker 紀律 + 第 3 批 sandbox 實測關卡。';
 
 COMMIT;
