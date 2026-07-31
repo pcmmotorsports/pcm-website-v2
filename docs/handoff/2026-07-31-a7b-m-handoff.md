@@ -37,12 +37,14 @@
 兩表 + 36 條 CHECK + 五道唯一性 + 七支 FK + 6 個索引 + ACL/RLS + COMMENT 合約 + dormant gate
 + 檔內 fail-closed 結構驗收 DO block。**M 型:零 trigger、零 DB 函式。**
 
-### 2.3 驗證:`scripts/a7bm-verify.sh` —— 本機 **20 PASS / 0 FAIL**(`all` 模式從零 provision)
+### 2.3 驗證:`scripts/a7bm-verify.sh` —— 本機 **24 PASS / 0 FAIL**(`all` 模式從零 provision)
 - migration 疊在**全部既有 migration 之上**套用成功、檔內結構驗收全過
 - **dormant gate 雙向已證**:gate 在 ⇒ 一筆「所有 CHECK 都合法」的 INSERT 紅在
   `order_refund_jobs_dormant_until_triggers`;gate 拿掉 ⇒ **同一筆通過全部 36 條 CHECK**、
   改紅在 `orj_cancellation_fk`(**同時證明複合 FK 真的接對了**)
-- **7 條結構突變各自紅在指定斷言** + 兩組零突變對照組
+- **11 條結構突變各自紅在指定斷言** + 兩組零突變對照組
+  (含四條**專打關卡2 指名的假綠路徑**:`refund_amount` 改 bigint / **D9d 改成恆真但字面全留** /
+   U1 欄組改成 `(order_id, generation)` / 刪掉一個排程索引)
 - harness 自我測試(故意弄壞快照 SQL 必須當場中止)
 
 ### 2.4 Sean 今天的拍板(全文 = memory `project_m4b-a7b-refund-jobs-decisions`)
@@ -121,12 +123,13 @@ codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort="xhigh" \
 **接手時不得宣稱本片已證明下列任何一項:**
 
 1. **狀態機行為完全沒被證明** —— 七態 16 條 edge 的守門全在 A7b-T。本片是 M 型、零 trigger。
-2. **錢面四條(D7 / D9a / D9b / D9d)只被證明「字面存在」,沒被證明「承重」。**
-   🔴 若把它們改成**恆真但字面仍在**(例 `CHECK (true OR <原條件>)`),
-   migration 內的 `position()` 字面斷言**仍然全綠**。
-   唯一能證明的方式是**行為負測**,而 A7b-M 期間 **dormant gate 擋住所有 INSERT**
-   ⇒ **本片物理上做不到** ⇒ 明文歸屬 A7b-T 的 §7.2。
-   (這一條寫在 `scripts/a7bm-verify.sh` 第 4 步的註解裡。)
+2. **錢面四條(D7 / D9a / D9b / D9d)只被證明「定義沒被悄悄改掉」,沒被證明「承重」。**
+   🔴 **關卡2 折入後已改善但沒有解決**:新增的**約束指紋**會抓到「恆真但字面仍留」
+   (`CHECK (true OR …)`)—— 有突變證明它轉紅。**但指紋只說得出「有東西變了」,
+   說不出「這條規則實際上還擋不擋得住錢」**。
+   後者唯一的證明方式是**行為負測**(塞一筆該被它擋下的列),
+   而 A7b-M 期間 **dormant gate 擋住所有 INSERT** ⇒ **本片物理上做不到**
+   ⇒ 明文歸屬 A7b-T 的 §7.2。(同一段話寫在 `scripts/a7bm-verify.sh` 第 4 步的註解裡。)
 3. **36 條 CHECK 只被證明「一筆合法 queued 列會通過全部」**(gate 雙向測的方向②),
    **沒有逐條負向證據**。
 4. **本機 PG17.10 非 Supabase**;C locale ≠ 正式站 locale;`auth.uid()` 是 shim。
@@ -183,11 +186,11 @@ memory `feedback_control-named-beyond-its-actual-power` 已擴充。
 ```bash
 cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status --porcelain && git log --oneline -3
 ```
-預期:branch=`dev`;工作樹有本片三個新/改檔 + 別線的兩個未追蹤資料夾
+預期:branch=`dev`、HEAD 有 A7b-M 那筆;工作樹**只剩**別線的兩個未追蹤資料夾
 (`apps/storefront/src/app/dev-preview/mobile-catalog-ux/`、`docs/superpowers/`)—— **那兩個不要碰**。
 
 **重跑驗證**(需先確認 54329 埠沒有別的 cluster 佔用;有的話先 `pg_ctl -D <舊 pgdata> stop -m fast`):
 ```bash
 scripts/a7bm-verify.sh all /tmp/a7bmv
 ```
-預期:**PASS=20 FAIL=0**。
+預期:**PASS=24 FAIL=0**。
