@@ -22,8 +22,19 @@
 > 未選車回歸 2130/1076/1824 與 19037。**進頁面到數字出現 2948/2205/1666/998ms**(四台全新車款)、熱 ~0.19s。
 > 合併後三綠 + `pnpm test` **3471 passed + 1 todo**;#306-a 突變 **19/19** 各紅在指定斷言。
 >
-> 🔴 **審查**:#306-a code-reviewer(opus)**FAIL 7 must-fix + 11 nit、全折入駁回 0**;
-> **#306-b 亦已補跑 = FAIL 3 must-fix + 9 nit、全折入駁回 0**(修法 `fded9bc`,合併後 3482 passed)。
+> 🔴 **審查三輪、18 條 must-fix 全折入、駁回 0**:#306-a code-reviewer(opus)**7 must-fix + 11 nit**
+> → #306-b code-reviewer **3 must-fix + 9 nit**(`fded9bc`)→ **codex 關卡2 換模型 8 must-fix**
+> (`bce75b1`;Sean 拍板補跑,`-m gpt-5.6-sol -s read-only`、跑前後零留痕已驗)。
+> 🔴 **codex 那 8 條與前兩輪 Claude 審查零重疊** —— 換模型的價值實錘。其中兩條是**我自己判斷錯**:
+> ①**長版書籤 `?brand=&model=` 會復發全站數**(server 端把長版當車、取數只讀 `?vehicle=`)——
+> 我原本在交接檔寫「退回不顯示(fail-safe)」是**錯的**;已改用既有 `vehicleUrlParam()`,
+> 實測合成字串被形狀白名單擋下回 400 ⇒ 不顯示。
+> ②**`docs/design-storefront-manifest.yaml` 未同步 = 違反 `slice-checkpoint` 強制 gate**,
+> 而**前一輪 Claude 審查者回報「本 repo 無 storefront manifest」、我沒查證就接受**(該檔 297KB)。
+> 已更 ProductsPage 條目;驗證器 broken **35→35**(全屬既有)、path token 252→258 全解析、commit 可達 25/25。
+> 其餘六條:hook 無 owner guard / `unstable_cache` **不是 single-flight** /
+> **品牌 taxonomy 根本沒快取**(熱請求 **~190ms → 3.4ms**)/ 車輛驗證前就讀分類品牌 /
+> fan-out slot 不保證歸還(加 8s 逾時)/ **ProductsPage 405 行破鐵則 6**。
 > 🔴 **M1 是客人可見的真 bug**:件數的兩個輸入分屬不同時間軸(`hasVehicle` 讀 cascade =
 > post-hydration 才還原、件數讀 URL)⇒ 深連結/首頁選車進站時 SSR 與整段 hydration 期間
 > **先閃一次全站數**(2130 配 198 件列表)。**先前的瀏覽器實測全是「等數字回來之後」才讀、
@@ -32,6 +43,9 @@
 > 🔴 **M2**:已選中的分類 0 件時取消不掉(品牌有 `!checked` 例外、分類漏了)⇒ 已同構修正。
 > 🔴 **突變第一輪有 2 條是新測試自己假綠**(拿件數 3 的列去測 `count === 0` 分支 ⇒ 恆假)
 > ⇒ 改成注入已選中的 cascade。**同型教訓第三次。**
+> 🔴 **codex 輪的突變第一輪也有 1 條全綠**(長版 URL 修法零覆蓋)⇒ 補測試才轉紅。
+> ✅ **最終驗證**:三綠 + `pnpm test` **281 檔 3486 passed + 1 todo**;突變 5/5 各紅在指定斷言;
+> SSR 第一幀三種 URL 逐一比對;真瀏覽器桌機加總 198 = `pp-count` 198;熱 3.4ms / 冷 1.54s。
 > 🔴 **突變第一輪 3 條是 harness 自己假綠**(sed 樣式失配 ⇒ 沒套用卻報「沒抓到」)⇒ 已補自檢。
 > 🔴 **我自己寫錯一條註解已更正**:「allSettled 是為了避免 unhandled rejection」實測不成立
 > (`Promise.all` 本來就會對每個 promise 掛處理器);真正理由是**收乾淨**。
