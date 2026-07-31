@@ -297,11 +297,20 @@ BEGIN
     PERFORM 1 FROM public.order_cancellations WHERE id = NEW.cancellation_id FOR UPDATE;
 
     -- 鎖住該取消的最大世代列。
-    -- 🔴🔴 併發正確性的真正來源是 **U1**,不是這把鎖(plan §5.1 末段):
-    --    FOR UPDATE 讓後者等待,但後者解鎖後**不會重跑 ORDER BY**
-    --    ⇒ 仍以 gen1 為「最大世代」通過本段守門,最後紅在 U1 的 23505。
-    --    ⇒ **拿掉 U1 會產生第二次退款,拿掉這把鎖不會。**
-    --      併發負測因此必須斷言 U1 的 constraint 名,不是本函式的自訂碼。
+    -- 🔴🔴 **本段原本的註解在 2026-07-31 T3a 併發實跑下被推翻,已更正。**
+    --    舊文(逐字):「併發正確性的真正來源是 U1,不是這把鎖……最後紅在 U1 的 23505;
+    --    拿掉 U1 會產生第二次退款,拿掉這把鎖不會;併發負測必須斷言 U1 的 constraint 名。」
+    --    那段話寫於上面那把 cancellation 列鎖(關卡2 F2 / Sean 拍 Q4=A)加進來**之前**。
+    -- **實測**(`scripts/a7bt-negative-state.sh` §7.4-6,獨立資料庫 + barrier):
+    --    後者先被擋在上面 `PERFORM … order_cancellations … FOR UPDATE` 這**一個獨立 statement**;
+    --    解鎖後下面這個 SELECT 是新 statement,READ COMMITTED 下取得**新快照**、看得到剛提交的後代
+    --    ⇒ 紅在 `a7bt_insert_not_direct_successor`,**不是** U1 的 23505。
+    --    「解鎖後不會重跑 ORDER BY」講的是同一 statement 內的 EvalPlanQual,已不是實際路徑。
+    -- 🔴 **反事實已就地驗證**:把 U1 整條 DROP 再跑同一個競賽,後者**仍**紅在
+    --    `a7bt_insert_not_direct_successor`、gen2 仍恰一列 ⇒ 舊文「拿掉 U1 會產生第二次退款」
+    --    在這個競賽形狀下不成立。⚠️ 但**不表示 U1 可以拿掉** —— 守門被 DISABLE 的 break-glass
+    --    情境下它是唯一還在的一層(§7.4-20 的 U2 負測就是那個情境)。
+    --    其餘競賽形狀(前者 abort、後者先到)未測。
     SELECT * INTO v_prev
       FROM public.order_refund_jobs
      WHERE cancellation_id = NEW.cancellation_id
@@ -1481,7 +1490,7 @@ BEGIN
         ('pcm_a7bt_block_write',             'c98400dc1a4ee2e5683269e3926dbb81'),
         ('pcm_a7bt_block_truncate',          '5560a7dac9d1d5e8f9e9559c83893a9f'),
         ('pcm_a7bt_allowed_delta',           '1d28b7f83b078e2de23175f8c618f141'),
-        ('pcm_a7bt_jobs_before_insert',      '4dded30e2afd3a1a8527db659f289620'),
+        ('pcm_a7bt_jobs_before_insert',      '667875ef084d4f0b130817c5ff8d6f2e'),
         ('pcm_a7bt_jobs_before_update',      '6ce43f7499742d2e2ceb4c780f439560'),
         ('pcm_a7bt_assert_job_consistent',   '04a247b662142d93f8635c133f63a16c'),
         ('pcm_a7bt_assert_job_ledger_equal', '276e7dc4d4de51932dca8bef74469c02')

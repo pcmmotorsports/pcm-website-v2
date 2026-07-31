@@ -540,9 +540,23 @@ v6 的「六支」是**我自己的字面不一致**,而 §7.1 要斷言 `tgtype
    `created_at` / `updated_at`)。**逐欄比對一律 `IS NOT DISTINCT FROM`。**
 5. **子表 item set 相等** ⇒ §5.6(a) 在交易結束時比對。
 
-🔴 **併發正確性的真正來源是 U1,不是那把鎖**:`FOR UPDATE` 讓後者等待,但後者解鎖後**不會重跑 `ORDER BY`**
-⇒ 仍以 gen1 為「最大世代」通過守門,最後**紅在 U1 的 `23505`**。
-⇒ **拿掉鎖不會產生第二次退款,拿掉 U1 會**;併發負測必須斷言 **U1 的 constraint 名**。
+🔴🔴 **這一段的原文在 2026-07-31 T3a 實跑下被推翻,已更正(舊文保留在下方註記)。**
+**實測**(`a7bt-negative-state.sh` §7.4-6,獨立資料庫 + barrier,兩輪各跑一次):
+後者(session B)**不是**紅在 U1,而是紅在 **`a7bt_insert_not_direct_successor`(`P7B01`)**。
+原因是關卡2 F2 / Sean 拍 Q4=A 之後,守門的**第一個動作**已改成
+`PERFORM … order_cancellations … FOR UPDATE` —— B 被擋在那**一個獨立的 statement** 上;
+解鎖後 trigger 內的下一個 statement 在 READ COMMITTED 取得**新快照**,看得到 A 剛提交的 gen2。
+⇒ 原文「後者解鎖後不會重跑 `ORDER BY`」講的是**同一個 statement 內**的 EvalPlanQual,
+   在加了那把 cancellation 鎖之後**不再是 B 實際走的路徑**。
+🔴 **反事實已就地驗證,不是推論**:把 `orj_cancellation_generation_key`(U1)整條 `DROP` 再跑一次,
+   **B 仍紅在 `a7bt_insert_not_direct_successor`、gen2 仍恰一列**
+   ⇒ 原文「**拿掉 U1 會產生第二次退款**」在這個競賽形狀下**不成立**。
+⇒ 更正後的說法:**在這個形狀下承重的是那把 cancellation 列鎖 + 解鎖後的重讀,U1 是後備。**
+   ⚠️ **只跑了一個競賽形狀**(A 與 B 同時 INSERT gen2、A 先取得鎖並提交)。
+   其餘形狀(A 取得鎖後 abort、B 先到、三方以上)**未測** ⇒ 「U1 是後備」這句的證據基礎只有這一個形狀。
+   ⚠️ 這**不表示** U1 可以拿掉 —— break-glass(守門被 `DISABLE`)時它是唯一還在的一層,
+   而那正是 §7.4-20 的 U2 負測所示範的情境。
+⇒ 併發負測因此斷言 **`a7bt_insert_not_direct_successor`**,並額外斷言「gen2 恰一列」。
 
 ### 5.2 `BEFORE UPDATE`
 1. 🔴🔴 **exact-one classifier(R6 F1;v6 只寫「必須命中之一」= 沒有規定怎麼判)**:
@@ -650,11 +664,216 @@ harness 自我測試(故意弄壞快照 SQL 必須當場中止,`:138-144`)/ 結�
 
 ### 7.2 一對一矩陣(逐格填,六欄固定)
 
+#### 7.2.0 T3a / T3b / T4 分界(2026-07-31 T3a 施工時劃定)
+
+🔴 **Sean Q1=A 只說「T3a 狀態機負測 + T3b 錢面負測」,逐字分界沒有規格** ⇒ 由 T3a 劃線並登記於此。
+判準 = **這條規則擋的是「狀態機走錯路」還是「錢的金額 / 憑證對不上」**。
+三片相加涵蓋 §7.4 全部 37 條,**零孤兒**(下表逐條列名,漏一條就會在這裡看得出來):
+
+| 片 | §7.4 條號 | 內容 |
+|---|---|---|
+| **T3a**(本片,已完成) | 1 / 2-5 / 6 / 7 / 9 / 10-11 / 12 / 13 / 14 / 15 / 17 / 18 / 19 / 20 / 21 / 23 / 24 / 26 / 28 / 29 / 30 / 31 / 32 / 33 / 35 / 36 / 37 | INSERT 守門、classifier、16 條 edge 的額外條件、子表四不變式、DELETE/TRUNCATE、四道唯一性、deny-by-default、寫入路徑 42501、併發重開 gen2 |
+| **T3b** | 8 / 16 / 22 / 25 / 27 / 34 | 跨表 bank id、job↔ledger 十一欄 + item set + NULL-safe、dormant gate 雙向、D7、D9 全套(含 D9c)、時區兩跑 |
+| **T4** | —— | 突變 harness、ACL 32 格、barrier lock probe、rollback 六步隔離庫實跑 |
+| **⛔ 第 3 批 worker 片(不屬 A7b-T)** | 37 的另一半 | `complete_refund_job()` 單交易成功(`W-R9-COMPLETE-1`)/ 中途 `RAISE` 後 ledger 與 job 皆無殘留(`W-R9-COMPLETE-2`)—— 該函式本片不建立,放進 A7b-T 的 harness 只會產生假紅或被靜默跳過(§7.4-37 已逐字寫明) |
+
+🔴 **「零孤兒」的精確措辭**:§7.4 的 37 條裡,**36 條整條**由 T3a/T3b 承接;
+第 37 條**被切成兩半** —— 前半(service_role 直寫帳本必 `42501`)在 T3a(`T3a-###` 之外的獨立斷言),
+後半在第 3 批。上表最後一列就是為了不讓那半條變成孤兒。
+
+🔴 **T2 已經關掉的不要重測**:六道「等待型閘門」(`a7bt_e1_not_due_yet` / `a7bt_e3_lease_not_expired` /
+`a7bt_e3b_lease_not_expired` / `a7bt_e8_not_due_yet` / `a7bt_e11_lease_not_expired` /
+`orj_retry_auth_next_day_gate`)由 `a7bt-verify.sh` 第 6 段的**注入承重證明**關閉 ——
+那一段本身就是負測形狀(拿掉時間注入 ⇒ 各自紅在指定 constraint)。
+
+#### 7.2.1 行為負測矩陣(**由 `scripts/a7bt-negative-state.sh` 實跑產生,不是人手抄的**)
+
+🔴 產生方式 = harness 每跑完一條負測就寫一行到 `<workdir>/matrix.tsv`,本表由它轉成 markdown。
+   **抄一份會漂移,而漂移方向永遠是「文件比程式樂觀」** —— 這正是 v5 留空表被抓的那個病的變體。
+   🔴 **精確程度(不要說過頭)**:六欄裡**四欄**(案例編號 / 負向資料 / SQLSTATE / CONSTRAINT_NAME)
+   來自 `matrix.tsv` = 實跑事實;**「正向前提」與「對應 mutant」兩欄是人手寫的**
+   (前者是 prefix 函式名的中文展開、後者是 T4 的待辦命名)。
+   ⚠️ 目前**沒有機器守著「本表 == matrix.tsv」** —— 那道 gate 歸 T4。
+🔴 第 1 欄是**可追溯到實跑的案例編號**(`T3a-###` = harness 的第幾條,對應 `<workdir>/neg-###.sql`)。
+   本片的「約束 ID」與「CONSTRAINT_NAME」在字面上是同一個字串 —— 那是 T1 §5.5 刻意做的
+   round-trip(`USING ERRCODE='P7B01', CONSTRAINT='<具名 ID>'`),不是重複欄位。
+🔴 `對應 mutant` 的命名規約:`T4-M-<ID>` = **把該具名 `RAISE` 的判斷式改成恆假**(索引類 = DROP 該索引)
+   ⇒ 該列必須從紅轉綠。**T4 尚未執行;本欄現在是待辦清單,不是已完成的證據。**
+🔴 SQLSTATE 也逐條斷言:`P7B01` = T1 的自訂碼,`23505` = 索引違反。只比名字的話,
+   同一個守門哪天從 trigger 搬成 CHECK(或反過來)測試不會有感覺。
+   ⚠️ **期望值是從 ID 前綴推導的**(`a7bt_*` ⇒ `P7B01`,其餘 ⇒ `23505`),不是逐條獨立指定
+   ⇒ 它偵測得到「搬家」,偵測不到「同族內換了另一個自訂碼」。
+
+**實跑結果:105 條行為負測,全部紅在指定的 CONSTRAINT_NAME 且 SQLSTATE 相符;
+另有 6 條對照組(合法動作在同一個外殼下必須不紅,涵蓋 E1 / E4 / 第二張取消單 / E13 / E14 / gen2)。
+合計 111 案例 / 139 斷言 / 0 FAIL(`all` 模式,含從零 provision)。**
+
 | 約束/守門 ID | 正向前提 | 負向資料(只動一格) | 預期 SQLSTATE | 預期 CONSTRAINT_NAME | 對應 mutant |
 |---|---|---|---|---|---|
+| `T3a-007` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-1 直接 INSERT 一列 status='completed' 的假完成單 | `P7B01` | `a7bt_insert_must_be_queued` | `T4-M-a7bt_insert_must_be_queued` |
+| `T3a-008` | sql_head + 第二張取消單(乾淨、零 job) | INSERT 帶既往狀態(reviewed_at 非 NULL) | `P7B01` | `a7bt_insert_history_must_be_null` | `T4-M-a7bt_insert_history_must_be_null` |
+| `T3a-009` | sql_head + 第二張取消單(乾淨、零 job) | INSERT 計數器非起始值(retry_count=3) | `P7B01` | `a7bt_insert_counters_must_be_initial` | `T4-M-a7bt_insert_counters_must_be_initial` |
+| `T3a-010` | queued(sql_head 建好的合法新單) | §7.4-2 前代還是 queued 就開 gen2 | `P7B01` | `a7bt_insert_predecessor_not_dead` | `T4-M-a7bt_insert_predecessor_not_dead` |
+| `T3a-011` | …→dead→E13 external_refund_confirmed | §7.4-3 前代結成 external_refund_confirmed 仍開 gen2 | `P7B01` | `a7bt_insert_predecessor_not_authorized` | `T4-M-a7bt_insert_predecessor_not_authorized` |
+| `T3a-012` | …→dead→E13 over_refund_writeoff | §7.4-4 前代結成 over_refund_writeoff 仍開 gen2 | `P7B01` | `a7bt_insert_predecessor_not_authorized` | `T4-M-a7bt_insert_predecessor_not_authorized` |
+| `T3a-013` | …→dead→E13 retry_authorized→INSERT gen2→E1→E2 | §7.4-5 拿 gen1 的舊授權開 gen3(gen2 還活著) | `P7B01` | `a7bt_insert_predecessor_not_dead` | `T4-M-a7bt_insert_predecessor_not_dead` |
+| `T3a-014` | …→dead→E13 retry_authorized | 跳號:只有 gen1 已授權卻直接開 gen3 | `P7B01` | `a7bt_insert_not_direct_successor` | `T4-M-a7bt_insert_not_direct_successor` |
+| `T3a-015` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-7 該取消一列 job 都沒有卻開 gen2(NOT FOUND fail-closed) | `P7B01` | `a7bt_insert_no_predecessor` | `T4-M-a7bt_insert_no_predecessor` |
+| `T3a-016` | …→dead→E13 retry_authorized | §7.4-9a 後代 payload 與前代不同(reason 被改) | `P7B01` | `a7bt_insert_payload_differs_from_predecessor` | `T4-M-a7bt_insert_payload_differs_from_predecessor` |
+| `T3a-017` | …→dead→E13 retry_authorized | §7.4-9b 後代重用前代的 bank_refund_id(世代重試不靠冪等鍵) | `P7B01` | `a7bt_insert_successor_reuses_bank_id` | `T4-M-a7bt_insert_successor_reuses_bank_id` |
+| `T3a-018` | …→dead→E13 retry_authorized | §7.4-9c 後代 item set 與前代不同(換成同單同價的另一個品項) | `P7B01` | `a7bt_successor_item_set_differs` | `T4-M-a7bt_successor_item_set_differs` |
+| `T3a-019` | queued(sql_head 建好的合法新單) | §7.4-35b 一條 edge 都不滿足的 UPDATE(queued→queued、零 delta) | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-020` | …→E4 → submitted | §7.4-10 submitted → processing | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-021` | …→E3b → reconciling | §7.4-10 reconciling → processing(R10:永不回 processing) | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-022` | …→E4 → submitted | §7.4-11 submitted → failed(R11:failed 不在 submitted 之後) | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-023` | …→E4 → submitted | §7.4-11 submitted → dead | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-024` | …→E3b→E9 → completed(帳本已建) | §7.4-11 completed 轉出(終態不可轉出) | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-025` | 重試迴圈 6 輪 → E5b → dead / retry_exhausted / 未複核 | §7.4-11 dead → queued | `P7B01` | `a7bt_edge_unmatched` | `T4-M-a7bt_edge_unmatched` |
+| `T3a-026` | E1 → processing | §7.4-35a 同時滿足兩條 edge(E2 與 E2b 一次做完) | `P7B01` | `a7bt_edge_ambiguous` | `T4-M-a7bt_edge_ambiguous` |
+| `T3a-027` | queued(sql_head 建好的合法新單) | E1 沒寫 claim_token | `P7B01` | `a7bt_e1_claim_token_shape` | `T4-M-a7bt_e1_claim_token_shape` |
+| `T3a-028` | queued(sql_head 建好的合法新單) | §7.4-28 E1 lease 錨點給過去 | `P7B01` | `a7bt_e1_lease_anchor` | `T4-M-a7bt_e1_lease_anchor` |
+| `T3a-029` | queued(sql_head 建好的合法新單) | §7.4-28 E1 lease 錨點給未來 | `P7B01` | `a7bt_e1_lease_anchor` | `T4-M-a7bt_e1_lease_anchor` |
+| `T3a-030` | …→E5→E6 + 時間注入 ⇒ backoff 已到期的 queued | §7.4-28 E1 claim 後不清 next_retry_at | `P7B01` | `a7bt_e1_next_retry_not_cleared` | `T4-M-a7bt_e1_next_retry_not_cleared` |
+| `T3a-031` | E1 → processing | E2 baseline 只寫一半(refunded_target 仍 NULL) | `P7B01` | `a7bt_e2_baseline_not_paired` | `T4-M-a7bt_e2_baseline_not_paired` |
+| `T3a-032` | E1 → processing | §7.4-13a 沒 baseline 就戳呼叫記號 | `P7B01` | `a7bt_e2b_baseline_required` | `T4-M-a7bt_e2b_baseline_required` |
+| `T3a-033` | E1→E2 → processing(baseline 已成對) | E2b 的 attempted 不等於 now() | `P7B01` | `a7bt_e2b_attempted_must_be_now` | `T4-M-a7bt_e2b_attempted_must_be_now` |
+| `T3a-034` | E1→E2 → processing(baseline 已成對) | §7.4-31a E2b 把 last_refund_call_at 留成 NULL | `P7B01` | `a7bt_e2b_last_call_must_be_now` | `T4-M-a7bt_e2b_last_call_must_be_now` |
+| `T3a-035` | E1→E2 → processing(baseline 已成對) | §7.4-31b E2b 把 last_refund_call_at 往回寫 | `P7B01` | `a7bt_e2b_last_call_must_be_now` | `T4-M-a7bt_e2b_last_call_must_be_now` |
+| `T3a-036` | E1→E2→E2b → processing(已戳呼叫記號) | §7.4-26 E2b 以外的 edge 想改 attempted(E4 順手改) | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-037` | E1→E2→E2b → processing(已戳呼叫記號) | §7.4-31c E2b 以外的 edge 想清掉 last_refund_call_at(E4 順手清) | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-038` | E1→E2→E2b + 時間注入 ⇒ lease 已過期 | §7.4-14 已有呼叫記號的 lease 過期列走 E3 重領回 processing | `P7B01` | `a7bt_e3_attempted_must_be_null` | `T4-M-a7bt_e3_attempted_must_be_null` |
+| `T3a-039` | E1→E2 + 時間注入 ⇒ lease 過期、未戳記 | E3 重領時 lease 錨點沒重設 | `P7B01` | `a7bt_e3_lease_anchor` | `T4-M-a7bt_e3_lease_anchor` |
+| `T3a-040` | E1→E2 + 時間注入 ⇒ lease 過期、未戳記 | 沒有呼叫記號卻走 E3b 進 reconciling | `P7B01` | `a7bt_e3b_attempted_required` | `T4-M-a7bt_e3b_attempted_required` |
+| `T3a-041` | E1→E2→E2b + 時間注入 ⇒ lease 已過期 | E3b 的 next_check_at 沒跨台北日界(用 now() ⇒ 台北日期必相同) | `P7B01` | `a7bt_e3b_next_check_not_next_day` | `T4-M-a7bt_e3b_next_check_not_next_day` |
+| `T3a-042` | E1→E2→E2b + 時間注入 ⇒ lease 已過期 | E3b 的 lease 錨點沒重設 | `P7B01` | `a7bt_e3b_lease_anchor` | `T4-M-a7bt_e3b_lease_anchor` |
+| `T3a-043` | E1→E2→E2b + 時間注入 ⇒ lease 已過期 | E3b 沒換新 claim_token(舊 worker 的 token 仍有效) | `P7B01` | `a7bt_e3b_claim_token_not_new` | `T4-M-a7bt_e3b_claim_token_not_new` |
+| `T3a-044` | E1 → processing | 沒 baseline 就宣告送出成功 | `P7B01` | `a7bt_e4_baseline_required` | `T4-M-a7bt_e4_baseline_required` |
+| `T3a-045` | E1→E2 → processing(baseline 已成對) | §7.4-13b 沒戳呼叫記號就 processing → submitted | `P7B01` | `a7bt_e4_attempted_required` | `T4-M-a7bt_e4_attempted_required` |
+| `T3a-046` | E1→E2→E2b → processing(已戳呼叫記號) | E4 沒寫 tappay_refund_id(唯一可首寫的 edge 卻不寫) | `P7B01` | `a7bt_e4_tappay_id_first_write` | `T4-M-a7bt_e4_tappay_id_first_write` |
+| `T3a-047` | E1→E2→E2b → processing(已戳呼叫記號) | E4 沒清 lease 三欄 | `P7B01` | `a7bt_e4_lease_not_cleared` | `T4-M-a7bt_e4_lease_not_cleared` |
+| `T3a-048` | E1→E2→E2b → processing(已戳呼叫記號) | E4 的 next_check_at 沒跨台北日界(用 now() ⇒ 台北日期必相同) | `P7B01` | `a7bt_e4_next_check_not_next_day` | `T4-M-a7bt_e4_next_check_not_next_day` |
+| `T3a-049` | E1→E2 → processing(baseline 已成對) | §7.4-32a 沒呼叫記號的 processing 記成明確失敗(D12) | `P7B01` | `a7bt_e5_attempted_required` | `T4-M-a7bt_e5_attempted_required` |
+| `T3a-050` | E1→E2→E2b → processing(已戳呼叫記號) | E5 的 failed_reason 是視覺空字串(全形空白 + TAB) | `P7B01` | `a7bt_e5_failed_reason_blank` | `T4-M-a7bt_e5_failed_reason_blank` |
+| `T3a-051` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | §7.4-15 retry_count 已經 5 還走 E5(第六次必須走 E5b) | `P7B01` | `a7bt_e5_retry_count_step` | `T4-M-a7bt_e5_retry_count_step` |
+| `T3a-052` | E1→E2→E2b → processing(已戳呼叫記號) | E5 沒清 lease 三欄 | `P7B01` | `a7bt_e5_lease_not_cleared` | `T4-M-a7bt_e5_lease_not_cleared` |
+| `T3a-053` | E1→E2→E2b → processing(已戳呼叫記號) | §7.4-24 E5 不清 refund_call_attempted_at | `P7B01` | `a7bt_e5_attempted_not_cleared` | `T4-M-a7bt_e5_attempted_not_cleared` |
+| `T3a-054` | E1→E2→E2b → processing(已戳呼叫記號) | §7.4-18 E5 的 backoff 倍率錯(第一次失敗卻只等 4 分鐘) | `P7B01` | `a7bt_e5_backoff_formula` | `T4-M-a7bt_e5_backoff_formula` |
+| `T3a-055` | E1→E2→E2b + **注入 created_at 為昨天**(本檔唯一一次) | §7.4-18 E5 的 backoff 基準用 created_at 而不是 now()(created_at 已注入為昨天) | `P7B01` | `a7bt_e5_backoff_formula` | `T4-M-a7bt_e5_backoff_formula` |
+| `T3a-056` | E1→E2 → processing(baseline 已成對) | §7.4-32b 沒呼叫記號的 processing 直接判 dead(D12) | `P7B01` | `a7bt_e5b_attempted_required` | `T4-M-a7bt_e5b_attempted_required` |
+| `T3a-057` | E1→E2→E2b → processing(已戳呼叫記號) | E5b 的 retry_count 不是 6(第一次失敗就判死) | `P7B01` | `a7bt_e5b_retry_count_must_be_six` | `T4-M-a7bt_e5b_retry_count_must_be_six` |
+| `T3a-058` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | E5b 的 dead_reason 不是 retry_exhausted(偽裝成超退) | `P7B01` | `a7bt_e5b_dead_reason` | `T4-M-a7bt_e5b_dead_reason` |
+| `T3a-059` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | E5b 沒標 manual_review_required(死了卻沒人被叫醒) | `P7B01` | `a7bt_e5b_manual_review_required` | `T4-M-a7bt_e5b_manual_review_required` |
+| `T3a-060` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | E5b 的 failed_reason 是視覺空字串 | `P7B01` | `a7bt_e5b_failed_reason_blank` | `T4-M-a7bt_e5b_failed_reason_blank` |
+| `T3a-061` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | E5b 沒清 lease 三欄 | `P7B01` | `a7bt_e5b_lease_not_cleared` | `T4-M-a7bt_e5b_lease_not_cleared` |
+| `T3a-062` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | E5b 不清 refund_call_attempted_at | `P7B01` | `a7bt_e5b_attempted_not_cleared` | `T4-M-a7bt_e5b_attempted_not_cleared` |
+| `T3a-063` | 重試迴圈 5 輪 → E1→E2b ⇒ retry_count=5 的 processing | E5b 沒清 next_retry_at(dead 不該再排重試) | `P7B01` | `a7bt_e5b_next_retry_not_cleared` | `T4-M-a7bt_e5b_next_retry_not_cleared` |
+| `T3a-064` | …→E5 → failed | §7.4-23a E6 回佇列卻不清 failed_reason | `P7B01` | `a7bt_e6_failed_reason_not_cleared` | `T4-M-a7bt_e6_failed_reason_not_cleared` |
+| `T3a-065` | …→E5 → failed | §7.4-23b E6 順手重算 next_retry_at(只准保留) | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-066` | …→E4 + 時間注入 ⇒ next_check 已到期 | E8 沒換新 claim_token | `P7B01` | `a7bt_e8_claim_token_not_new` | `T4-M-a7bt_e8_claim_token_not_new` |
+| `T3a-067` | …→E4 + 時間注入 ⇒ next_check 已到期 | E8 的 lease 錨點錯 | `P7B01` | `a7bt_e8_lease_anchor` | `T4-M-a7bt_e8_lease_anchor` |
+| `T3a-068` | …→E3b → reconciling | E9 沒寫 refund_id | `P7B01` | `a7bt_e9_refund_id_first_write` | `T4-M-a7bt_e9_refund_id_first_write` |
+| `T3a-069` | …→E3b → reconciling | E9 沒清 next_check_at | `P7B01` | `a7bt_e9_next_check_not_cleared` | `T4-M-a7bt_e9_next_check_not_cleared` |
+| `T3a-070` | …→E3b → reconciling | E9 沒清 lease 三欄 | `P7B01` | `a7bt_e9_lease_not_cleared` | `T4-M-a7bt_e9_lease_not_cleared` |
+| `T3a-071` | …→E3b → reconciling | E10 沒把 next_check_at 往後推 | `P7B01` | `a7bt_e10_next_check_not_advanced` | `T4-M-a7bt_e10_next_check_not_advanced` |
+| `T3a-072` | …→E3b → reconciling | E10 沒清 lease 三欄 | `P7B01` | `a7bt_e10_lease_not_cleared` | `T4-M-a7bt_e10_lease_not_cleared` |
+| `T3a-073` | …→E3b → reconciling | E10 的 check_fail_count 一次跳 2 | `P7B01` | `a7bt_e10_check_fail_count_step` | `T4-M-a7bt_e10_check_fail_count_step` |
+| `T3a-074` | …→E3b + 時間注入 ⇒ lease 已過期 | E11 沒換新 claim_token | `P7B01` | `a7bt_e11_claim_token_not_new` | `T4-M-a7bt_e11_claim_token_not_new` |
+| `T3a-075` | …→E3b + 時間注入 ⇒ lease 已過期 | E11 的 lease 錨點錯 | `P7B01` | `a7bt_e11_lease_anchor` | `T4-M-a7bt_e11_lease_anchor` |
+| `T3a-076` | …→E3b → reconciling | §7.4-30 E12 不清 next_check_at | `P7B01` | `a7bt_e12_next_check_not_cleared` | `T4-M-a7bt_e12_next_check_not_cleared` |
+| `T3a-077` | …→E3b → reconciling | E12 沒清 lease 三欄 | `P7B01` | `a7bt_e12_lease_not_cleared` | `T4-M-a7bt_e12_lease_not_cleared` |
+| `T3a-078` | …→E3b → reconciling | E12 沒標 manual_review_required | `P7B01` | `a7bt_e12_manual_review_required` | `T4-M-a7bt_e12_manual_review_required` |
+| `T3a-079` | …→E3b → reconciling | E12 的 dead_reason 用了 retry_exhausted(那是 E5b 專用) | `P7B01` | `a7bt_e12_dead_reason` | `T4-M-a7bt_e12_dead_reason` |
+| `T3a-080` | …→E3b → reconciling | E12(over_refunded)順手動了 check_fail_count | `P7B01` | `a7bt_e12_over_refunded_counter_changed` | `T4-M-a7bt_e12_over_refunded_counter_changed` |
+| `T3a-081` | …→E3b → reconciling | E12(reconcile_exhausted)但 check_fail_count 不是 6 | `P7B01` | `a7bt_e12_exhausted_counter_step` | `T4-M-a7bt_e12_exhausted_counter_step` |
+| `T3a-082` | 重試迴圈 6 輪 → E5b → dead / retry_exhausted / 未複核 | §7.4-12a 只寫 reviewed_at(U2/U3 的 partial 條件會當場失效) | `P7B01` | `a7bt_e13_review_triple_incomplete` | `T4-M-a7bt_e13_review_triple_incomplete` |
+| `T3a-083` | 重試迴圈 6 輪 → E5b → dead / retry_exhausted / 未複核 | E13 順手改 dead_reason | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-084` | …→dead→E13 external_refund_confirmed | §7.4-12b 已結案的 dead 再走一次 E13(改寫結案人) | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-085` | 重試迴圈 6 輪 → E5b → dead / retry_exhausted / 未複核 | §7.4-33a 還沒結案就想走 E14 更正 | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-086` | …→dead→E13 ext→E14 已更正一次 | §7.4-33b 第二次 E14(第二道 CAS) | `P7B01` | `a7bt_e14_already_corrected` | `T4-M-a7bt_e14_already_corrected` |
+| `T3a-087` | …→dead→E13 external_refund_confirmed | §7.4-33c 更正人 = 原結案人(兩人簽核被繞過) | `P7B01` | `a7bt_e14_same_person` | `T4-M-a7bt_e14_same_person` |
+| `T3a-088` | …→dead→E13 retry_authorized→INSERT gen2→E1→E2 | §7.4-33d 已有後繼列仍走 E14(會產生孤兒授權) | `P7B01` | `a7bt_e14_successor_exists` | `T4-M-a7bt_e14_successor_exists` |
+| `T3a-089` | …→dead→E13 external_refund_confirmed | §7.4-33e E14 改動原結案人(稽核痕跡被抹掉) | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-090` | …→dead→E13 external_refund_confirmed | §7.4-33f correction_reason 是視覺空字串 | `P7B01` | `a7bt_e14_correction_reason_blank` | `T4-M-a7bt_e14_correction_reason_blank` |
+| `T3a-091` | …→dead→E13 external_refund_confirmed | E14 的 corrected 三欄不齊(只寫 corrected_at) | `P7B01` | `a7bt_e14_correction_triple_incomplete` | `T4-M-a7bt_e14_correction_triple_incomplete` |
+| `T3a-092` | …→dead→E13 external_refund_confirmed | E14 的 corrected_at 是未來時間 | `P7B01` | `a7bt_e14_corrected_at_in_future` | `T4-M-a7bt_e14_corrected_at_in_future` |
+| `T3a-093` | …→E4 + 時間注入 ⇒ next_check 已到期 | §7.4-29 E8 偷寫 tappay_refund_id | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-094` | …→E3b → reconciling | §7.4-29 E10 偷寫 tappay_refund_id | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-095` | …→E3b + 時間注入 ⇒ lease 已過期 | §7.4-29 E11 偷寫 tappay_refund_id | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-096` | …→E3b → reconciling | §7.4-29 E9 偷寫 tappay_refund_id | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
+| `T3a-097` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-17 C1:有 header、零明細 | `P7B01` | `a7bt_c1_job_has_no_items` | `T4-M-a7bt_c1_job_has_no_items` |
+| `T3a-098` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-17 C2:Σ line_amount ≠ items_amount | `P7B01` | `a7bt_c2_items_amount_mismatch` | `T4-M-a7bt_c2_items_amount_mismatch` |
+| `T3a-099` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-17 C3:退的數量超過原品項 | `P7B01` | `a7bt_c3_quantity_exceeds_order_item` | `T4-M-a7bt_c3_quantity_exceeds_order_item` |
+| `T3a-100` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-17 C4:單價不等於訂單快照 | `P7B01` | `a7bt_c4_unit_price_mismatch` | `T4-M-a7bt_c4_unit_price_mismatch` |
+| `T3a-101` | queued(sql_head 建好的合法新單) | §7.4-17 子表 UPDATE 一律阻擋 | `P7B01` | `a7bt_items_update_blocked` | `T4-M-a7bt_items_update_blocked` |
+| `T3a-102` | queued(sql_head 建好的合法新單) | §7.4-17 子表 DELETE 一律阻擋 | `P7B01` | `a7bt_items_delete_blocked` | `T4-M-a7bt_items_delete_blocked` |
+| `T3a-103` | queued(sql_head 建好的合法新單) | §7.4-19 主表 DELETE 一律阻擋(owner 身分) | `P7B01` | `a7bt_jobs_delete_blocked` | `T4-M-a7bt_jobs_delete_blocked` |
+| `T3a-104` | queued(sql_head 建好的合法新單) | §7.4-19 TRUNCATE 兩表同一句(先清 pending deferred) | `P7B01` | `a7bt_jobs_truncate_blocked` | `T4-M-a7bt_jobs_truncate_blocked` |
+| `T3a-105` | queued(sql_head 建好的合法新單) | §7.4-19 TRUNCATE 主表 CASCADE | `P7B01` | `a7bt_jobs_truncate_blocked` | `T4-M-a7bt_jobs_truncate_blocked` |
+| `T3a-106` | queued(sql_head 建好的合法新單) | §7.4-19 單獨 TRUNCATE 子表 | `P7B01` | `a7bt_items_truncate_blocked` | `T4-M-a7bt_items_truncate_blocked` |
+| `T3a-107` | queued(sql_head 建好的合法新單) | U1:同一取消的同一世代重複建 | `23505` | `orj_cancellation_generation_key` | `T4-M-orj_cancellation_generation_key`(DROP 該索引) |
+| `T3a-108` | sql_head + `session_replication_role = replica`(**模擬 break-glass**) | §7.4-20 U2:break-glass 下同一取消出現第二個未結案 job | `23505` | `orj_one_current_per_cancellation_idx` | `T4-M-orj_one_current_per_cancellation_idx`(DROP 該索引) |
+| `T3a-109` | sql_head + 第二張取消單(乾淨、零 job) | §7.4-20 U3:另一張取消單重用同一筆 TapPay 交易(rec_trade_id) | `23505` | `orj_one_current_per_rec_trade_idx` | `T4-M-orj_one_current_per_rec_trade_idx`(DROP 該索引) |
+| `T3a-110` | job1 completed 綁帳本 L;第二張取消單的 job 走到 reconciling | §7.4-21 U5:兩個 job 綁同一張帳本 | `23505` | `orj_one_job_per_refund_idx` | `T4-M-orj_one_job_per_refund_idx`(DROP 該索引) |
+| `T3a-111` | sql_head + `SET CONSTRAINTS ALL IMMEDIATE` + `ADD COLUMN zzz_t3a_probe` | §7.4-36 新增一個不在任何 edge 白名單裡的欄,合法 E1 想順手寫它 | `P7B01` | `a7bt_immutable_column_changed` | `T4-M-a7bt_immutable_column_changed` |
 
-🔴 **truth table 覆蓋 = 全格,不取樣**(約 90 格)⇒ **每一個 R 格與 N 格各一條負測**;
-確實無法獨立構造的格必須**逐格列出理由**。
+#### 7.2.2 被支配、行為上構造不出來的具名守門(逐條理由;**不假裝它被驗過**)
+
+🔴 harness 對這份清單做**集合相等**斷言(不是只印出來):T1 新增一支守門而沒人測 ⇒ 當場轉紅。
+   T1 共 **97** 個具名守門 ID,本片行為覆蓋 **78** 個,差集 **19** 個歸屬如下。
+   🔴 **97 不是 92**(code-reviewer M1/M2 抓到、我親驗成立):`pcm_a7bt_block_write` /
+   `pcm_a7bt_block_truncate` 三支共用一個函式,具名 ID 是經 `TG_ARGV[0]` 從 `CREATE TRIGGER`
+   傳進去的 ⇒ 只抓 `CONSTRAINT = '...'` 的抽取式看不到那 5 個(jobs/items 的 delete/truncate/update
+   阻擋)。舊寫法會讓「日後再掛一支 `block_write('a7bt_新守門')`」**分母看不到、差集不變、PASS 照樣 0 FAIL**
+   —— 正是這段自稱要擋掉的靜默截斷。harness 已補第二條抽取式,並加一道
+   「`COVERED` 必須是 `ALL_IDS` 的子集」斷言(數字互相矛盾時當場轉紅)。
+
+| 具名 ID | 為什麼構造不出來(或誰已經關掉它) |
+|---|---|
+| `a7bt_e1_not_due_yet` / `a7bt_e3_lease_not_expired` / `a7bt_e3b_lease_not_expired` / `a7bt_e8_not_due_yet` / `a7bt_e11_lease_not_expired` | **T2 已關閉**(`a7bt-verify.sh` 第 6 段的六道注入承重證明) |
+| `a7bt_e13_checked_at_in_future` / `a7bt_e14_checked_at_in_future` | **T3b**(§7.4-27 D9 全套) |
+| `a7bt_e2_no_predecessor_for_d9c` / `a7bt_e2_d9c_baseline_mismatch` | **T3b**(§7.4-27 的 D9c) |
+| `a7bt_insert_bank_id_crosstable_reuse` | **T3b**(§7.4-8 跨表 bank id) |
+| `a7bt_ledger_missing` / `a7bt_ledger_not_confirmed` / `a7bt_ledger_column_mismatch` / `a7bt_ledger_item_set_differs` | **T3b**(§7.4-16 job↔ledger) |
+| `a7bt_e1_attempted_must_be_null` | **被支配**:E1 的起點是 `queued`,而 `queued` 的 `refund_call_attempted_at` 由 INSERT 守門(`a7bt_insert_history_must_be_null`)與 `orj_shape_queued` 兩層強制為 NULL ⇒ `OLD` 恆為 NULL |
+| `a7bt_e2_attempted_must_be_null` | **被支配**:`attempted_at` 只能由 E2b 寫,而 E2b 要求 baseline 已非 NULL;E2 的判別式要求 baseline 仍為 NULL ⇒ 兩者互斥 |
+| `a7bt_e2b_last_call_not_monotonic` | **被支配**:同一條 edge 內 `a7bt_e2b_last_call_must_be_now` 先要求 `NEW = now()`;要讓「往回改」成立需要 `OLD > now()`,而該欄只由 E2b 寫成當時的 `now()` ⇒ 不可能在未來 |
+| `a7bt_e6_retry_count_changed` | **被支配**:`retry_count` 不在 E6 的 allowed-delta 白名單 ⇒ §4.3 的 `a7bt_immutable_column_changed` 先紅(已由 `T3a-065` 覆蓋) |
+| `a7bt_successor_no_predecessor` | **被支配**:它在 DEFERRED 一致性 trigger 裡;「gen>1 卻無直接前代」在 INSERT 守門就被 `a7bt_insert_no_predecessor` / `a7bt_insert_not_direct_successor` 擋掉(`T3a-015` / `T3a-014`)。破窗(守門被 DISABLE)時 constraint trigger 也一起停 ⇒ 本片無可達形狀 |
+
+⇒ 上表最後五條**只有結構層覆蓋**(它們的本體含在 T1 §9.4 的 `md5(prosrc)` 指紋裡,harness 每跑一次都比對)。
+**它們是不是死碼,只有 T4 的突變能回答** —— 本片不宣稱它們有承重。
+
+#### 7.2.3 truth table 的 91 格:全部歸「結構字面驗證」,逐格理由如下
+
+🔴 **格式選擇要先講清楚**:plan 原文要求「每一個 R 格與 N 格各一條負測」。實作時逐格檢查的結論是
+   —— **在十支守門全開的情況下,91 格沒有任何一格能讓 `orj_shape_*` 這層 CHECK 成為第一失敗點**。
+   理由是機械的:任何要造出「違反 truth table 的列」的路徑,不是 INSERT(先撞 §5.1 的三條 INSERT 守門),
+   就是 UPDATE(先撞 §5.2 的 classifier 或 allowed-delta 白名單)。
+   ⇒ 若硬寫 91 條行為負測,**每一條都會紅在 trigger 的具名 ID,而不是紅在那個 CHECK**
+   —— 那是 plan §7.2 明文禁止的**假覆蓋**(「刪掉該 CHECK 仍會紅」)。
+   ⇒ 依同一節的「被嚴格支配的約束要標出來」紀律,91 格**整批**改為結構字面驗證,
+   並在下表逐格說明「支配者是誰」。
+
+**結構字面驗證的關閉點**(已實跑,不是宣稱):`a7bt-negative-state.sh` 從 T1 檔案抽出
+`b2612ec8…` / **52 條**這兩個常數,對庫裡重算 `pg_get_constraintdef` 的集合指紋並比對。
+七條 `orj_shape_*` 全在這 52 條裡 ⇒ 任何一格被悄悄放寬(含改成 `CHECK (true)`)都會轉紅。
+
+| status(13 格/列) | 支配者 | 行為層的替代證據 |
+|---|---|---|
+| `queued` | INSERT:`a7bt_insert_must_be_queued` + `a7bt_insert_history_must_be_null` + `a7bt_insert_counters_must_be_initial`;UPDATE 進入 queued 只有 E6,白名單僅 `status`/`updated_at`/`failed_reason` | `T3a-007/008/009`(三條 INSERT 守門)、`T3a-064`/`T3a-083`(E6) |
+| `processing` | E1/E2/E2b/E3 的白名單 + 逐 edge 規則;`tappay_refund_id` 的 `N` 格由 D10(白名單只有 E4 列它)支配 | `T3a-027`~`T3a-039`(E1/E2/E2b/E3)、`T3a-093`~`T3a-096`(tappay 首寫獨佔) |
+| `submitted` | E4 的逐 edge 規則(lease 清空 / `next_check` 隔日 / `attempted` 必填) | `T3a-044`~`T3a-048` |
+| `reconciling` | E3b / E8 / E10 / E11 的白名單與規則 | `T3a-040`~`T3a-043`(E3b)、`T3a-066/067`(E8)、`T3a-071`~`T3a-075`(E10/E11) |
+| `completed` | E9 的規則(refund_id 首寫 / 清 lease / 清 next_check);終態不可轉出由 classifier 支配 | `T3a-024`(轉出必拒)、`T3a-068`~`T3a-070`(E9) |
+| `failed` | E5 的規則(清 lease / 清 attempted / backoff 公式 / `retry_count` 上界) | `T3a-049`~`T3a-055`(E5,含 backoff 兩條) |
+| `dead` | E5b / E12 的規則 + review 三欄鐵律(E13)+ `corrected_*`(E14) | `T3a-056`~`T3a-063`(E5b)、`T3a-076`~`T3a-081`(E12)、`T3a-082`~`T3a-092`(E13/E14) |
+
+🔴 **這張表的能力邊界**:它說明的是「為什麼行為負測打不到那層 CHECK」,**不是**「那層 CHECK 沒有用」。
+   CHECK 的價值在 **break-glass**(owner 把 trigger `DISABLE` 的那一刻)—— 那時它是唯一還活著的一層,
+   而**那個情境本片只用 `T3a-108`(U2)示範過一次**,沒有逐格證明。⇒ 進 §8 誠實邊界。
+
+🔴 **truth table 覆蓋的原始要求**(「每一個 R 格與 N 格各一條負測」)**因此被本片正式改寫**為上述形式;
+若 Sean 或審查者認為必須逐格行為負測,那就必須先接受「每一條都紅在 trigger 而非 CHECK」= 假覆蓋。
 
 🔴 **被嚴格支配的約束要標出來,不假裝它被驗過**(R4 F7 的紀律,本輪多兩處):
 - D7 的「`dead_reason` 為 NULL 而 `resolution='retry_authorized'`」格 ⇒ truth table 已先禁止
@@ -720,7 +939,11 @@ v5 的正向鏈 C **自己就是靜態不可能的**(R5 F6)。**負測證明「�
 **負測**(略去與 v5 相同者,以下為全集要點)
 1. `INSERT status='completed'`(其餘全合法)→ 拒
 2-5. `generation=2` 前代不是 dead / `external_refund_confirmed` / `over_refund_writeoff` / **舊授權隔代重用開 gen3** → 拒
-6. **兩 session 併發重開 gen2** → 後者**必紅於 U1 的 `23505`**;斷言恰一成功、gen2 恰一列
+6. **兩 session 併發重開 gen2** → 斷言恰一成功、gen2 恰一列。
+   🔴 **v7 更正(T3a 實跑)**:後者紅在 **`a7bt_insert_not_direct_successor`(`P7B01`)**,不是 U1 的 `23505`
+   —— 完整理由與「DROP 掉 U1 之後仍然如此」的反事實見 §5.1 末段。
+   🔴 barrier 不可省:必須**實際觀察到**後者在等鎖才讓前者 commit,沒觀察到判 FAIL
+   (`feedback_race-test-without-barrier-proves-nothing`)。
 7. `generation=2` 而該 cancellation 零列 → 拒(`NOT FOUND` fail-closed)
 8. `INSERT` 已存在於 `order_refunds.bank_refund_id` 的值 → 拒
 9. 後代 payload 逐欄不同 / 子表 item set 不同 → 拒
@@ -732,7 +955,13 @@ v5 的正向鏈 C **自己就是靜態不可能的**(R5 F6)。**負測證明「�
 15. `retry_count=5` 的 `processing` 走 E5 → 拒
 16. **job↔ledger 等值** ×11 + item set ×3 + 🔴 **NULL-safe 專測**(job 側 NULL、ledger 側非 NULL → **必拒**)
 17. 子表四條不變式 + 子表 UPDATE / DELETE → 皆拒
-18. **E5 的 backoff 基準**用 `created_at` 或 `OLD.updated_at` → 拒
+18. **E5 的 backoff 基準**用 `created_at` 或 `OLD.updated_at` → 拒。
+    🔴 **v7 更正(T3a 首跑實測,那條負測竟然通過)**:fixture 的 job 就在同一交易內 INSERT,
+    `created_at` 的 DEFAULT 是 `now()` = transaction_timestamp ⇒ `created_at + 5min`
+    與 `now() + 5min` **是同一個值**,`updated_at` 同理 ⇒ **這條負測在單一交易內不是 mutant**。
+    這是 T2 抓到的「`now()` 在單一交易內恆定」那一族的第二例,§7.4 的時間注入例外清單再度不完整。
+    ⇒ 修法 = 拆成兩條:①倍率錯(`now() + 4min`,不需注入)②**具名的一次性注入**
+    ——只把 `created_at` 往回移一天(共用的 `pg_temp.advance()` 刻意不含它)。
 19. **DELETE / TRUNCATE 一律拒,含 owner 身分**(兩表)
 20. 未複核的 dead 仍擋得住同 cancellation / 同 rec_trade_id 的新 job(U2/U3 分開構造)
 21. 兩個 job 指向同一 `refund_id` → 拒(U5)
@@ -771,6 +1000,33 @@ v5 的正向鏈 C **自己就是靜態不可能的**(R5 F6)。**負測證明「�
       中途 `RAISE` 後 ledger 與 job 皆無殘留(`W-R9-COMPLETE-2`)。
       🔴 該函式由 §6 R9 列為**第 3 批的具名合約**、本片不建立
       ⇒ 在 A7b-T 的 harness 裡放這兩條等於測一個不存在的函式,只會產生假紅或被靜默跳過。
+
+### 7.4b T3a 的施工結果與**明文做不到的事**(2026-07-31)
+
+**產物** = `scripts/a7bt-negative-state.sh`(**111 案例 / 139 斷言 / 0 FAIL**)
++ `scripts/a7bt-fixtures.sh`(T2 與 T3a 共用的 harness 原語與 edge 產生器,一份、兩邊 source)。
+
+🔴 **`a7bt-verify.sh`(T2)的重構不是「行為零變更」,精確說法是**:鏈體產生的 SQL **byte 級相同**,
+但 `sql_head` 的 fixture 選單多了「同訂單需有另一個同單價品項」這個條件
+⇒ **T2 實際選到的是另一張訂單**(T3a 的後代 item set 負測需要那個替換品)。
+T2 回歸仍 34 PASS / 0 FAIL,但那證明的是「語意不變」,不是「一個 byte 都沒動」。
+
+**做到的**:105 條行為負測各自紅在**指定的** `CONSTRAINT_NAME` **且** SQLSTATE 相符;
+6 條對照組(合法動作在同一外殼下必須不紅);四道 harness 自我測試 + 一道身分閘;
+具名 ID 覆蓋率**集合相等**斷言(97 個守門 ID,行為覆蓋 78,差集 19 逐條有歸屬,
+且另有一道「覆蓋集合必須是 ID 全集的子集」斷言擋分母不完整);
+零留痕(六張表跑完仍 0 列)+ 結構零漂移(catalog 一個 byte 未變)。
+
+🔴 **明文做不到 / 不得宣稱**:
+- **本片全綠不代表守門有承重。** 它證明的是「這些壞資料現在進不去」,不是「拿掉守門就會進得去」
+  —— 後者是**突變**,歸 T4。§7.2.1 的「對應 mutant」欄現在是**待辦清單**,不是已完成的證據。
+- **§7.2.2 最後五條只有結構層覆蓋**(含在 T1 §9.4 的 `md5(prosrc)` 指紋裡)。
+  它們是不是死碼,只有 T4 的突變能回答。
+- **truth table 的 91 格沒有任何行為負測**(理由見 §7.2.3),只有結構字面驗證。
+  那七條 `orj_shape_*` 的價值在 break-glass,而 break-glass 情境本片只示範了一次(`T3a-108`)。
+- **併發只測了一個形狀**(兩 session 同時重開 gen2)。其餘併發面(§4.3 的兩條合約債)不在本片。
+- 本機 PG17.10 非 Supabase;C locale ≠ 正式站 `en_US.UTF-8`。
+- **T1 仍未 apply 到正式站**,本片零正式站接觸。
 
 ### 7.5 靜態可達性矩陣(**強制交付物;v6 已填完,R5 F9**)
 
