@@ -1567,6 +1567,15 @@ BEGIN
   --    T 會照樣全綠、照樣拆閘門 ⇒ 「結案金額必須等於本代 baseline」那道錢面守門已死,
   --    而表從此可寫。⇒ 拆閘門的前提是「我要守的東西還在」。
   -- 🔴 指紋**排除 dormant gate 本身**(它馬上要被拆掉)⇒ 拆前拆後同一個值,T4 可直接沿用。
+  -- 🔴🔴 **也必須排除 `contype = 't'`(正式站 read-back 當場抓到、2026-07-31)**:
+  --    `CREATE CONSTRAINT TRIGGER` 會在 `pg_constraint` 留下 contype='t' 的列
+  --    ⇒ 本片自己建的三支 constraint trigger 會被算進來。
+  --    我原本的常數(`718e86eb…` / 55 條)就是這樣算出來的 —— 斷言仍會通過,
+  --    但它量的是「**M + 本片**」,而註解與錯誤訊息卻寫「A7b-M 的約束」= **字面與事實不符**,
+  --    正是本線一直在抓的那個病(防護被命名成不同於它實際量到的東西)。
+  --    ⇒ 排除後 = **52 條 / b2612ec8…**,且已與**正式站實測值逐字元相同**
+  --      (正式站當時只套到 A7b-M、沒有本片 ⇒ 那是純粹的 M 指紋,構成跨環境交叉驗證)。
+  --    本片自己的三支 constraint trigger 由 §9.1 的 trigger manifest 負責,不重複計。
   SELECT md5(string_agg(sig, E'\n' ORDER BY sig)) INTO v_actual FROM (
     SELECT c.relname || '.' || con.conname || '=' || pg_get_constraintdef(con.oid) AS sig
       FROM pg_constraint con
@@ -1574,11 +1583,12 @@ BEGIN
       JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'public'
        AND c.relname IN ('order_refund_jobs', 'order_refund_job_items')
+       AND con.contype <> 't'
        AND con.conname <> 'order_refund_jobs_dormant_until_triggers'
   ) s;
-  IF v_actual IS DISTINCT FROM '718e86eb8cbbadd9cbe3eca59b2af5e6' THEN
+  IF v_actual IS DISTINCT FROM 'b2612ec86908e886269d73e687108a63' THEN
     RAISE EXCEPTION
-      'A7b-T 驗收失敗(9.6)— A7b-M 的約束集合指紋不符:期望 718e86eb8cbbadd9cbe3eca59b2af5e6,實際 %。'
+      'A7b-T 驗收失敗(9.6)— A7b-M 的約束集合指紋不符:期望 b2612ec86908e886269d73e687108a63,實際 %。'
       '⇒ M 的約束在 M 與 T 之間被改動過,**不得拆除 dormant gate**。', v_actual;
   END IF;
 
@@ -1588,9 +1598,11 @@ BEGIN
     JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'public'
      AND c.relname IN ('order_refund_jobs', 'order_refund_job_items')
+     AND con.contype <> 't'
      AND con.conname <> 'order_refund_jobs_dormant_until_triggers';
-  IF v_cnt <> 55 THEN
-    RAISE EXCEPTION 'A7b-T 驗收失敗(9.6)— A7b-M 的約束應為 55 條(不含 gate),實為 %', v_cnt;
+  IF v_cnt <> 52 THEN
+    RAISE EXCEPTION
+      'A7b-T 驗收失敗(9.6)— A7b-M 的約束應為 52 條(不含 gate、不含 constraint trigger),實為 %', v_cnt;
   END IF;
 
   SELECT md5(string_agg(indexdef, E'\n' ORDER BY indexdef)) INTO v_actual
