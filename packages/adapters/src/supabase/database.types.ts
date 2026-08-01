@@ -5,7 +5,9 @@
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
-//   ⚠️ 實測 2026-08-01:即使用 --project-id,CLI 仍會先 parse .env.local ⇒ 重 gen 前仍須暫時把 .env.local 移開、跑完放回。
+//   ✅ 實測 2026-08-01:`gen types --project-id` **不受 .env.local 影響**(在 .env.local 原位的
+//     情況下退出碼 0)。需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
+//     (本檔一度誤記成「即使 --project-id 也會被擋」—— 那是因為當時預先移開才跑、根本沒測過,已更正。)
 // 反映 LIVE prod schema(2026-08-01 重 gen:A7c 退款帳本改記金額已 apply —— order_refunds
 //   **移除** items_amount / shipping_fee_before / shipping_fee_after / shipping_delta 四欄、
 //   **新增** rec_trade_id(NOT NULL);order_refund_items 已凍結、無寫入端。
