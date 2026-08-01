@@ -5,15 +5,16 @@
 
 ---
 
-## §0 一句話現況
+## §0 一句話現況(2026-08-01 晚更新)
 
-**S1a + S1b 兩片皆 code 收工並已推上 `dev`;🔴 兩支 migration 都還沒 apply 到正式站。**
-下一片 = **S2**(`admin_upsert_supplier` owner RPC)。
+**S1a + S1b 已 apply 到正式站、型別已重 gen;S2 owner RPC 已 code 收工並 commit,🔴 未 apply、未 push。**
+下一片 = **S3a**(讀模型 `listSuppliers`)。
 
 ```bash
 cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --oneline -3 && git status --porcelain
 ```
-預期:branch=`dev`、HEAD = S1b(`3af433d`)、工作樹乾淨。
+預期:branch=`dev`、HEAD = S2(`e21a0b6`)、工作樹乾淨、**未推 1 筆**。
+(hash 若不符,以 `git log` 當場結果為準 —— 本檔不寫死可達性,見 STATUS「最近 3 commit」欄的政策。)
 
 🔴 **另有一個視窗在做前台(`apps/storefront/src/**`)。** 我的領域 =
 `supabase/migrations/` / `scripts/` / `docs/specs/2026-08-01-e10-supplier-*`。
@@ -24,8 +25,11 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --onelin
 
 ## §1 🔴 開新視窗第一件事:重排今晚的提醒
 
-**今晚 22:04 的 TapPay 探測 cron 是 session-only —— 上一個視窗關掉就死了,這是第二次。**
-新視窗開起來**立刻**用 `CronCreate` 重排(one-shot、當天 22:04),內容:
+**今晚 22:04 的 TapPay 探測 cron 是 session-only —— 上一個視窗關掉就死了。**
+✅ **2026-08-01 晚已在本視窗重排**(one-shot `4 22 1 8 *`)。
+🔴 **但它一樣綁在這個視窗上** —— 本視窗若在 22:04 前關掉,**下一個視窗仍要再排一次**。
+這是第三次因為同一個原因重排;`CronCreate` 沒有持久化選項(工具自陳 session-only、不寫磁碟)。
+內容(逐字):
 
 > TapPay sandbox 部分退款探測,交易 `D202607314b3cIL`(2026-08-01 18:00 送批):
 > 1. `python3 scripts/tappay-sandbox-refund-probe.py plan`(零 API 呼叫)
@@ -44,8 +48,21 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --onelin
 
 | 片 | commit | 狀態 |
 |---|---|---|
-| **S1a** 供應商主檔 + 26 家 seed + 不可刪除 | `b5d918d` | 已 push、**未 apply** |
-| **S1b** 採購表供應商欄改 FK | `3af433d` | 已 push、**未 apply** |
+| **S1a** 供應商主檔 + 26 家 seed + 不可刪除 | `b5d918d` | 已 push、**已 apply**(08-01 傍晚) |
+| **S1b** 採購表供應商欄改 FK | `3af433d` | 已 push、**已 apply**(08-01 傍晚) |
+| 型別重 gen + 貼回三處人工校正 | `ff1347e` | 已 push |
+| **S2** `admin_upsert_supplier` owner RPC | `e21a0b6` | **未 push、未 apply** |
+
+**S2 做的事**:`suppliers` 的**寫入路徑到本片才存在**(S1a 對 service_role 只開 SELECT
+⇒ 在此之前那張表沒有任何 app 層寫得進去的方法)。一支 `SECURITY DEFINER` owner RPC 吃三種動作:
+`p_supplier_id` 為 NULL = 新增;有值時 `p_label` / `p_is_active` 各自 NULL = 該欄不動。
+回固定碼 `CREATED / UPDATED / NO_CHANGE / NOT_FOUND / DUPLICATE_LABEL`;同交易寫 `admin_audit_log`。
+驗證 harness = `scripts/s2-verify.sh`(**77 PASS / 0 FAIL**)。
+
+**S2 的審查**:三輪、共 **42 條**、逐條親驗全成立、**駁回 0**、已全折 ——
+R1 Claude opus `code-reviewer` FAIL 13(逐行正確性)→ R2 codex `gpt-5.6-sol` xhigh NO-GO 18
+(結構與宣稱判別力)→ R3 Fable `adversarial-reviewer` FAIL 11(換角度質疑框架本身)。
+🔴 **三輪 findings 幾乎零重疊** —— 每輪都打在前一輪看不到的層,**直到 R3 才收斂**。
 
 **S1b 做的事**:`order_item_procurement` 的 `supplier_name` + `supplier_canonical_key`
 → **`supplier_id` uuid FK → `suppliers(id)`**(ON DELETE / ON UPDATE 皆 RESTRICT);
@@ -70,14 +87,25 @@ business key 換軸為 `(order_item_id, supplier_id)`(**約束名 `order_item_pr
 
 ## §3 下一步(依序)
 
-1. **S2** — `admin_upsert_supplier` owner RPC(新增 / 改名 / 切停用 + 同交易 audit)。
-   驗收見片級 plan §5-11~13:`SECURITY DEFINER` + `SET search_path` + `REVOKE ALL FROM PUBLIC`
-   + 只 GRANT service_role / 稽核原子性(成功多一列、失敗零留痕)/ 輸入白名單(不得改 id、不得寫時間欄)。
-   🔴 **S2 不需要先 apply** —— 它是新 RPC、不動既有形狀。
-2. **apply**(Sean 手動 `supabase db push`;跑前必須先移開 `.env.local`,跑完還原)。
-   實務上排在 S2 之後、S3a 之前最順(S3a/S3b 的驗收需要真資料)。
-3. **S3a** 讀模型 + server action(`listSuppliers`:預設只回 `is_active=true`、`ORDER BY label`)。
-4. **S3b** `/settings/suppliers` 設定頁(列表字母序 + 新增 typeahead + 改名 + 停用開關)。
+1. **S3a** 讀模型 + server action(`listSuppliers`:預設只回 `is_active=true`、`ORDER BY label`)。
+   🔴 驗收 14 明文要求「拿掉 active 過濾**必須有測試轉紅**」——只證明 inactive 列 JOIN 得到不算數。
+   🔴 S3a **只做讀**;寫入呼叫端在 S3b(R3 更正片界,plan §5-11b)。
+2. **apply**(Sean 手動 `supabase db push`;跑前移開 `.env.local`、跑完還原)。
+   🔴 **push 之前先跑這行 preflight**(S2 的「零欄級 ACL」閘是第一次對正式站執行,S1b 只查過採購表):
+   ```sql
+   SELECT count(*) FROM pg_attribute
+    WHERE attrelid='public.suppliers'::regclass AND NOT attisdropped AND attacl IS NOT NULL;
+   ```
+   預期 **0**;非 0 先查是誰授的,不要直接 push。
+   🔴 **apply 後必重 gen 型別**(新增一支 RPC ⇒ `Functions` 區塊會變)+ 貼回 `create_order.Args`
+   三處人工校正,**以 typecheck 轉綠為證**。這是 **S3b 的硬前置**(S3b 要 typed `.rpc()`)。
+3. **S3b** `/settings/suppliers` 設定頁(列表字母序 + 新增 typeahead + 改名 + 停用開關)。
+   🔴 **S3b 揹三條 S2 交下來的契約債,全在 plan §6**:
+   ① 改名/停用 action **必須斷言回傳碼 ∈ `{UPDATED, NO_CHANGE}`** —— 收到 `CREATED` 表示呼叫端
+   把 id 弄丟了,會靜默多一筆**刪不掉**的垃圾列且零錯誤(R3 實測)
+   ② 撞到**已停用**的同名供應商也回 `DUPLICATE_LABEL`,而 `listSuppliers` 預設不回停用的
+   ⇒ 需要「顯示停用同名 + 一鍵重新啟用」的出口,否則是 UI 死路
+   ③ 逐檔 ≤400 行(鐵則 6),附 file manifest。
 
 ---
 
@@ -92,6 +120,28 @@ business key 換軸為 `(order_item_id, supplier_id)`(**約束名 `order_item_pr
    「必填但可為 null」)⇒ 重 gen 後必須貼回,**以 typecheck 轉綠為證**。這坑已復發過一次。
 3. **apply 之前不得宣稱型別已對齊**。現況安全的理由 = 全樹只有 `packages/adapters/src/supabase/database.types.ts`
    一個檔提到 `order_item_procurement`、**零 app code 消費**(本線實 grep 確認,非轉述)。
+
+---
+
+## §5b 🔴 S2 的誠實邊界(2026-08-01 晚新增)
+
+- 🔴 **併發完全沒測**:`FOR UPDATE` 只有**文字層**斷言(prosrc 裡那個字還在)。
+  拿掉它,77 條裡除了那一條之外**一條都不會紅**。兩個員工同時改同一家 ⇒ lost update
+  + 稽核鏈斷。要真的關掉需要兩連線 + barrier 的併發 harness(`a7bt` 那套形狀)。**本片未做,已 raise 給 Sean。**
+- 🔴 **近似重複三種形狀都不擋**:內部空白 / **大小寫**(`akoso` 與 `AKOSO` 並存是實測)/ 標點。
+  防線一律是 S3b 的 typeahead(人眼)。**這是「已知不擋」清單,不是窮舉。**
+- 🔴 **稽核 `actor` 不是經過驗證的身分** —— `apps/admin/src/lib/session/actor.ts:6-7` 逐字
+  「以 cookie 承載、內容來自使用者自行選擇……**不是**登入 / 授權邊界」。
+  S2 保證的是「稽核列一定有一個非空 actor 字串」,不是「那個字串是真的操作者」。真身分屬 E8-B。
+- 🔴 **稽核不能反過來當「真的有寫入」的證據**:service_role 對 `admin_audit_log` 有 INSERT
+  ⇒ 同一把 service key 可不碰 `suppliers` 就寫一列假稽核。既有權限模型、非 S2 引入。
+- 🔴 **全部 ACL / SET ROLE 結論跑在 `scripts/d1-supabase-shim.sql` 手造的角色圖上**
+  (三角色皆 NOLOGIN、零 membership、**沒有 PostgREST 那一層**)⇒ 證的是「PG 角色層擋得住」,
+  **不等於**「拿 anon key 打 `/rest/v1/rpc/` 擋得住」。
+- 🔴 `[[:cntrl:]]` 隨 `lc_ctype` 變 ⇒ 本機 C locale 的控制字元結論**不外推**正式站(#305 同族)。
+- 🟡 **相鄰缺口不修**:S1a 對兩支 trigger 函式的 `REVOKE` 沒涵蓋 anon/authenticated/service_role
+  (**無可利用性** —— trigger 函式直呼必炸 `can only be called as triggers`),
+  修它要動已 apply 物件的 ACL = 另一支 migration 的決定,不夾帶。
 
 ---
 
@@ -130,6 +180,32 @@ business key 換軸為 `(order_item_id, supplier_id)`(**約束名 `order_item_pr
    攤平後與普通 SELECT **字串完全相同**。
 6. **codex 背景跑必加 `< /dev/null`**(hook 已擋);判活看**輸出有沒有長**,不是 `pgrep`。
    本次兩輪各 938s / 595s,都有 `tokens used` 完成標記。
-7. **送審 = 凍結**。本 session 違反過一次(codex 審查中我改了受審檔的檔尾),已還原後才續。
+7. **送審 = 凍結**。S1b session 違反過一次(codex 審查中改了受審檔的檔尾),已還原後才續。
+   S2 這輪三次送審全程未動受審檔。
+
+### S2 這片新增的坑(2026-08-01 晚)
+
+8. **表級 ACL 攤平看不到欄級 GRANT** —— `pg_class.relacl` **只存表級授權**,欄級在
+   `pg_attribute.attacl`。實測 `GRANT UPDATE (is_active) ON suppliers TO service_role` 之後,
+   一條寫得很細的表級斷言(八權限 + `is_grantable` + PUBLIC 單查)**照樣全綠**,
+   而 service_role 已經可以直接停用供應商、零稽核。
+   ⇒ 「某表對某角色只該有 X 權限」這種守門**一定要兩條**。落檔 = memory
+   `reference_pg-table-acl-flatten-blind-to-column-grants`。
+   🔴 附帶教訓:`s1a-verify.sh` **本來就有**這條,但 S2 自己的 harness 沒抄過去 ——
+   **兄弟 harness 有的斷言不會自動繼承**。
+9. **靠參數 NULL 分流的 upsert RPC 會靜默降級** —— `p_supplier_id` 掉成 NULL 的改名回 `CREATED`、
+   多一筆刪不掉的垃圾列、零錯誤。訊號在回傳碼裡,**但沒有人去看它就等於沒有**。
+   落檔 = memory `feedback_null-dispatch-rpc-silently-downgrades`;🔴 **A5a 是同一個 upsert 形狀,
+   開工時先決定要不要拆兩支**。
+10. **兩條修法組合出第三個問題** —— 關卡2 要我「補 actor 長度/控制字元檢查」與「寫入前剝空白」,
+    兩條各自都對,合起來變成「先驗**原值**、後剝空白」⇒ 同一支函式裡 label / note / actor
+    **三種順序**,而 cookie 帶一個尾隨 CR 就整包拒收。R3 才抓到。
+    ⇒ **逐條折 findings 之後要回頭看「這幾條改動彼此有沒有打架」**,不是折完就算。
+11. **自我測試不能抄一份簡化版** —— `mutate_fn` 的三道自檢原本在 §0 有一份自己的複本,
+    而複本的檢查順序與本尊不同 ⇒ 證明的是複本會發火。已抽成 `mut_block()` 唯一一份、
+    §0 與 §C 共用,並重排順序讓三道**各自都有「只有它會發火」的形狀**。
+12. **codex 的沙箱連不上 localhost DB** —— 這輪 codex 明說「TCP 與 Unix socket 均被唯讀沙箱拒絕,
+    故未重跑 77/0」⇒ 它的 18 條全是 source-level 推論。**主對話必須逐條親驗**
+    (本輪親驗結果:全部成立、駁回 0,但那是驗過才知道的)。Fable 那輪反而連得上、自己重跑了。
 
 — END —
