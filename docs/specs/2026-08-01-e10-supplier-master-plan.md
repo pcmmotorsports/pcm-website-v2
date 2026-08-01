@@ -16,7 +16,7 @@
 | 2 | 「那就變成無法刪除就好,只可以修改名稱。」 | 可新增 / 可改名 / **不可刪除** |
 | 3 | 停用開關 = A | `is_active`;停用不出現在新單選單、舊紀錄照常顯示 |
 | 4 | 「就先這 26 個」 | seed 見 §11(**已確認完整**) |
-| 5 | 「名單排序依照字母順序」 | 選單與設定頁一律 `ORDER BY label` |
+| 5 | 「名單排序依照字母順序」 | ~~選單與設定頁一律 `ORDER BY label`~~ 🔴 **2026-08-01 深夜拍板 B 取代**:排序改在 **JS** 用 `new Intl.Collator('zh-TW')`,**不下 SQL `ORDER BY`**(理由與後果見 §5-15 / D2 的 superseded 註記;實測 zh-TW = 中文在拉丁前、中文按筆畫) |
 | 6 | 「名單欄位可以打字快速帶入名單候選」 | 選單 = **typeahead 候選過濾**,非純下拉 |
 | 7 | **Q1=A** 改名後歷史採購顯示**新名字** | **不存名稱快照**;代價見 §6 |
 | 8 | **Q2=A** 停用旗標先做 | 明知 A10b 之前無人消費,見 §6 |
@@ -120,7 +120,7 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 | **S1a** | M | `suppliers` 表 + 3 道不可刪除 + ACL/RLS + touch trigger + **seed 26 家** + 檔內結構驗收 + `scripts/s1a-verify.sh` |
 | **S1b** | M | `order_item_procurement` 改形狀 + 索引 + **COMMENT 兩方向驗收** + `scripts/s1b-verify.sh`。🔴 **不含型別重 gen** —— 它由正式站 schema 產生、apply 前物理上做不了,改列 apply runbook(見 §5-10;關卡2 R2 抓本欄與 §5-10 直接矛盾) |
 | **S2** | R | `admin_upsert_supplier` owner RPC(新增/改名/切停用)+ 同交易 audit |
-| **S3a** | A | 讀模型 + server action(`listSuppliers` 含 active 過濾與 `ORDER BY label`) |
+| **S3a** | A | 讀模型 + 業務層(`listSuppliers` 含 active 過濾與排序)。🔴 **`ORDER BY label` 已被 2026-08-01 深夜 Sean 拍板 B 取代 = 排序改在 JS 用釘死的 `Intl.Collator('zh-TW')`**(見 §5-15 / D2 的 superseded 註記)。另:本片**沒有 server action 檔** —— §5-11b 已把呼叫端更正到 S3b,Next 的讀由 server component 直呼(對照 `app/settings/staff/page.tsx:27`) |
 | **S3b** | U | `/settings/suppliers` 頁:列表(字母序)+ 新增(typeahead 候選)+ 改名 + 停用開關 |
 
 🔴 **v1 的 S1 同時含新表 + 改既有表 + ACL + 驗收 + harness + mutants + 型別重 gen,
@@ -212,7 +212,14 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 **S3a/S3b**
 14. `listSuppliers` **預設只回 `is_active=true`**;🔴 **突變:拿掉該過濾必須有測試轉紅**
     (K1:v1 的 criterion 7 只證明 inactive 列 JOIN 得到,**拿掉選單過濾仍全綠** = 沒測到停用的核心承諾)。
-15. 排序:`ORDER BY label`,測試含**中英混排**向量(阿毅物流 / AKOSO / Webike TW)釘住實際順序。
+15. ~~排序:`ORDER BY label`~~ **superseded 2026-08-01 深夜 Sean 拍板 B**:排序改在 **JS** 用
+    釘死的 `new Intl.Collator('zh-TW')` 做,**不下 SQL `ORDER BY`**。理由:DB 排序取決於連線
+    collation(本機 C locale ≠ 正式站 `en_US.UTF-8`),而查詢層測試是 mock 的 ⇒ 原字面的
+    「釘住實際順序」在 SQL 方案下是**空測**。落檔 memory `project_m4b-supplier-master-decisions`。
+    測試仍含**中英混排**向量釘住實際順序,且輸入刻意亂序、期望與 JS 預設 `.sort()` 不同。
+    🔴 **S3b 不得把向量縮回原字面那三個**(阿毅物流 / AKOSO / Webike TW)—— 它們只含**一個**
+    中文詞,**分不出筆畫序與拼音序**;S3a 實作時補了 `安豐達` / `陳蔚仁` 才有判別力
+    (實測 zh-TW 與 zh-CN 拼音會給出不同順序)。已實作於 `apps/admin/src/lib/supplier.test.ts`。
 16. typeahead:輸入 `Webike` ⇒ 候選恰 3 筆;輸入不存在字串 ⇒ 零候選且**不得**變成自由文字新增。
 17. S3b file manifest 逐檔 ≤400 行(鐵則 6)。
 
@@ -280,9 +287,22 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 
 **D2 — 排序 collation**:`ORDER BY label` 在中英混排時的順序由 collation 決定
 (正式站 `en_US.UTF-8`:拉丁 A-Z 在前、中文在後)。
-**建議照 DB 預設、不特別指定**,並由驗收 15 用實際向量**釘住當下行為** ——
-這樣哪天 collation 變了會轉紅而不是靜默改順序。
-🟡 若 Sean 要中文照筆畫或注音排,需另指定 ICU collation,屬 S3b 的可調項、不影響 schema。
+~~**建議照 DB 預設、不特別指定**~~ / ~~屬 S3b 的可調項~~
+🔴 **superseded 2026-08-01 深夜 Sean 拍板 B(已於 S3a 實作,不是待辦)**:排序不交給 DB,
+改在 **JS** 用釘死的 `new Intl.Collator('zh-TW')`。原建議的致命點 = 「由驗收 15 釘住當下行為」
+在 SQL 方案下**做不到** —— 查詢層測試是 mock 的,假 client 回什麼順序就是什麼順序。
+**實測後果**:zh-TW = **中文排在拉丁前面、中文之間按筆畫**
+(`安豐達 / 老吳精品 / 阿毅物流 / 陳蔚仁 / 豪元國際 / AKOSO / E PLOT / Webike TW / WRS s.r.l`),
+與本節原本描述的「拉丁 A-Z 在前、中文在後」**相反**。
+🟡 殘餘風險:`Intl.Collator` 在 ICU 不完整的 runtime 會**靜默**退回別的 locale。
+症狀只是順序變醜、**不影響寫入、無資料風險**;admin 全走 Node runtime 且 `engines: node >=22`
+(官方 build 一律 full-icu),但**正式站 runtime 未實測**。測試側有 `resolvedOptions().locale` 前提斷言。
+🔴 兩處字面收窄(關卡2):①退回的**未必是 root** —— 能確定的只有「不是 zh-TW 的完整定序資料」。
+②CI 釘 Node 22 但**部署端沒釘同一 major**(`package.json` engines 是寬鬆 semver)⇒ 就算兩邊都 full-ICU,
+**ICU/CLDR 版本仍可能不同**,排序有可能在測試全綠的情況下於正式站漂移。
+🔴 **為什麼不加 runtime 哨兵**:關卡2 建議 module 初始化跑 sentinel pair、不符只 `console.warn`。
+不採用 —— **沒有人在看的 warn 不是防護**(memory `feedback_control-named-beyond-its-actual-power`),
+加了反而讓人以為漂移會被偵測到。真要關這個缺口得有人看的告警管道,屬另一片的決定。
 
 ---
 
