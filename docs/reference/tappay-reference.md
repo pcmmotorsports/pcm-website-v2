@@ -107,6 +107,47 @@ PCM **已自寫實作**(`packages/adapters/src/tappay/TapPayChargeAdapter.ts`)�
   - 🔴 **退款「隔日」才真正生效** → 須用 Portal 或 Record API 覆核;**對帳/sweeper 邏輯若假設退款即時生效會踩雷**。
   - 銀行請款有時間限制,退款前應先確認交易狀態、避開請款處理中的時間窗。
   - Sandbox 可測(同一套 partner_key/merchant_id)。
+#### 2.3a ✅ Sandbox 實測結論(2026-08-01 深夜,交易 `D202607314b3cIL`,本金 6 元)
+
+**不是讀文件推論,是逐發打 API 打出來的**;腳本 `scripts/tappay-sandbox-refund-probe.py`。
+
+| # | 動作 | API 回應 | 交易狀態變化 |
+|---|---|---|---|
+| 0 | `query` | `is_captured=True` / `record_status=1 (OK)` | `amount=6` `refunded_amount=0` |
+| 1 | `refund 1` | `status=0 Success` | `record_status`→**2 (PARTIALREFUNDED)**、`amount=5`、`refunded=1` |
+| 2 | `refund 1` | `status=0 Success`、`refund_id=DR20260801bHUZv8` | `amount=4`、`refunded=2` |
+| 3 | `refund 5`(剩 4 ⇒ 超額) | **`status=10051`** `'Out of range : amount (refund amount must be less than or equal to remained amount)'` | **完全沒動**(`amount=4`、`refunded=2`) |
+
+- ✅ **API 支援「多次」部分退款** —— 同一筆交易可反覆呼叫 refund,每次各自回一個 `refund_id`,
+  `refunded_amount` 累加、`amount` 遞減,`record_status` 停在 `2 (PARTIALREFUNDED)`。
+- ✅ **超額退款會被 API 擋下**,錯誤碼 **`10051`**,且是**乾淨拒絕、零副作用**(狀態一格都沒變)。
+- 🔴 **`is_captured=false` 時不要送部分退款**(必回 `10024`)。本次是等請款完成才測的。
+- 🔴🔴 **邊界:這只證明「單發超額」被擋,不證明「併發重複退」被擋。**
+  兩條連線各送一筆「各自都在剩餘額度內、加起來超過」的退款,API 會不會兩發都成功 —— **本次沒測**。
+  ⇒ 凡以「TapPay 會幫我們擋超退」為前提的設計,只在**序列**呼叫下成立。
+  (同款教訓見 memory `feedback_race-test-without-barrier-proves-nothing` 與 S2-C 併發 harness。)
+
+##### 🔴🔴 本次測試自身踩到的事故(**同一筆交易被兩個 agent 同時退款**)
+
+**同一個 22:04 的 one-shot cron 被排在兩個視窗**(`44b7ba58` 與 `e4739b3a`),兩邊都真的送出退款。
+
+| 誰 | 動作 | 直接證據 |
+|---|---|---|
+| 本視窗 | `query`(`refunded=0`)→ `refund 1` → `refund 1` → `refund 5`(被 `10051` 拒) | 逐發 API 回應,`refunded_amount` 0→1→2 |
+| 另一視窗 | 看到 `refunded=2` 後仍繼續打,並用「剩 2 送 3」測超額(同樣 `10051`) | 對方 memory `feedback_duplicate-cron-double-fires-external-writes` |
+| **對不上** | 交易最終 `refunded_amount=4`;本視窗確定只退 2,對方自陳退 1 ⇒ **1 元無法歸屬** | 事後 `query` |
+
+🔴 **本視窗的三發是乾淨的**(對方是在我 `refunded=2` 之後才動作),故上表的 API 結論成立;
+但「六元交易被兩輪吃掉四元、1 元不知道是誰打的」這件事**與結論的可信度無關,是流程事故**。
+🟡 意外收穫(**不抵銷錯誤**):兩輪在**不同邊界值**各自撞到 `10051`(剩 4 送 5、剩 2 送 3),
+等於獨立重複驗證 ⇒ 「超額被擋」比單次觀察硬。**但那是撞出來的,不是設計的。**
+🔴 **規則**:cron / 排程的**內容**若含對外部系統的寫入(退款、寄信、下單、部署),
+**重排不再是免費的**。排程可以冪等,**動作不冪等**。平行視窗時這種排程只留一份、並在交接檔
+寫明「由哪個視窗持有」。動手前先 query 現況並與交接檔宣稱比對,**不符就停**。
+落檔 memory `feedback_duplicate-cron-double-fires-external-writes`。
+- 🔴 **Portal 畫面不是 API 的證據**(兩個方向都成立):按鈕消失不代表 API 會拒,
+  按鈕可按也不代表 API 會過。上表每一格都是 API 原文回應。
+
 - **PCM 對照**:`TapPayChargeAdapter.refund()` 目前 `throw new Error('TapPay refund 未實作(Phase 2)')`(約 `TapPayChargeAdapter.ts:211-213`)。此組規格即該補的目標介面。🔴 現況退款走 **Sean 手動 Portal + 手動改本地 `orders.payment_status`**(07-17 拍板);S6 只寫 SOP、不自動化(見上位 plan §5 S6)。實作 `refund()` 時務必 sandbox 先測「全額」與「部分」兩路徑 + 處理「隔日生效」。
 
 ### 2.4 Backend Notify(webhook)— `backend_notify_url`(已核對,PCM 做法方向正確)
