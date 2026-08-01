@@ -7,6 +7,8 @@
 
 ## §0 一句話現況(2026-08-01 晚更新)
 
+✅ **`S2-C` 併發 harness 已收工**(`scripts/s2c-concurrency.sh`、**36 PASS / 0 FAIL**、零 migration 改動、**未 push**)⇒ **下一片 = S3a**(§3-1)。詳見 §3-0。
+
 **S1a + S1b + S2 三片皆已 apply 到正式站、型別已重 gen(ledger 尾筆 = `20260801160000`)。**
 🔴 **型別檔的人工校正從「三處」變成「兩個函式共七處」** —— `admin_upsert_supplier` 的
 `p_supplier_id` / `p_label` / `p_is_active` / `p_note` 四個參數必須補 `| null`
@@ -30,9 +32,11 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --onelin
 ## §1 🔴 開新視窗第一件事:重排今晚的提醒
 
 **今晚 22:04 的 TapPay 探測 cron 是 session-only —— 上一個視窗關掉就死了。**
-✅ **2026-08-01 晚已在本視窗重排**(one-shot `4 22 1 8 *`)。
-🔴 **但它一樣綁在這個視窗上** —— 本視窗若在 22:04 前關掉,**下一個視窗仍要再排一次**。
-這是第三次因為同一個原因重排;`CronCreate` 沒有持久化選項(工具自陳 session-only、不寫磁碟)。
+✅ **2026-08-01 深夜已在「S2-C 這個視窗」再次重排**(one-shot `4 22 1 8 *`,job id `44b7ba58`)。
+🔴 **但它一樣綁在那個視窗上** —— 該視窗若在 22:04 前關掉,**下一個視窗仍要再排一次**。
+這是**第四次**因為同一個原因重排;`CronCreate` 沒有持久化選項(工具自陳 session-only、不寫磁碟)。
+🔴 **不要靠「上一份交接檔說已經排好了」就跳過這步** —— 那句話只在寫它的視窗還活著時為真。
+開視窗第一件事永遠是「重排一次」,重複排的成本遠低於漏排。
 內容(逐字):
 
 > TapPay sandbox 部分退款探測,交易 `D202607314b3cIL`(2026-08-01 18:00 送批):
@@ -56,7 +60,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --onelin
 | **S1b** 採購表供應商欄改 FK | `3af433d` | 已 push、**已 apply**(08-01 傍晚) |
 | 型別重 gen + 貼回三處人工校正 | `ff1347e` | 已 push |
 | **S2** `admin_upsert_supplier` owner RPC | `e21a0b6` | 已 push、**已 apply**(08-01 晚) |
-| S2 apply 後重 gen 型別 + 第四類人工校正 | `bd2add4` | 已 commit |
+| S2 apply 後重 gen 型別 + 第四類人工校正 | `bd2add4` | 已 push |
+| **S2-C** 併發 harness(`scripts/s2c-concurrency.sh`) | 本片 | **已 commit、未 push**;零 migration 改動 ⇒ 無需 apply |
 
 **S2 做的事**:`suppliers` 的**寫入路徑到本片才存在**(S1a 對 service_role 只開 SELECT
 ⇒ 在此之前那張表沒有任何 app 層寫得進去的方法)。一支 `SECURITY DEFINER` owner RPC 吃三種動作:
@@ -92,7 +97,44 @@ business key 換軸為 `(order_item_id, supplier_id)`(**約束名 `order_item_pr
 
 ## §3 下一步(依序)
 
-### §3-0 🆕 `S2-C` 併發 harness(**下一片**;Sean 2026-08-01 晚拍 B「現在就補」)
+### §3-0 ✅ `S2-C` 併發 harness —— **已收工**(2026-08-01 深夜;規格原文保留在本節下半備查)
+
+**產物** = `scripts/s2c-concurrency.sh`(533 行、**36 PASS / 0 FAIL**、零 migration 改動、未 push)。
+**跑法**:`bash scripts/s2c-concurrency.sh /tmp/s2-work`。🔴 **必須序列跑**(§B 的突變是 committed DDL,
+突變視窗內 `s2-verify.sh` 會真的讀到被改壞的函式)。
+
+🔴 **規格的格1 照字面做出來沒有判別力,已改設計**:就算拿掉 `FOR UPDATE`,只要 B 改的是**不同**的值,
+它的 `UPDATE … WHERE id=X` 照樣卡在 A 的列鎖上 ⇒「B 會不會卡住」量到的是 UPDATE 的鎖。
+改成 **情境①「B 把名字改回原值 L0」** 才分岔:拿掉後 B 讀 stale → 判等 → **`NO_CHANGE` 在任何寫入前返回**
+⇒ 不卡、零稽核列、A 的 L1 留在列上 = **改名遺失**。
+
+🆕 **情境②(R3 換模型指出、當場補的,不是規格裡的)**:A 改名**並停用**、B 改成第三個值 L2 時,
+**回傳碼與端狀態 label 在突變前後完全一樣**,判別力只剩兩處 —— 實測突變後
+①稽核 `before` 記成 A 改之前的舊值 = **偽造歷史**(比缺一列更毒)
+②`coalesce(p_is_active, v_before.is_active)` 吃到 stale 值 ⇒ **把 A 剛停用的供應商靜默翻回啟用**。
+
+🔴 **證據結構(不得說滿)**:情境① 突變翻面的是 **1 個根因(B 讀到 stale 快照)+ 4 個相關症狀**,
+不是 4 個獨立證據 —— `NO_CHANGE` ⇒ 提早返回 ⇒ 不卡 + 稽核 INSERT 走不到 + 沒人寫回 L0,全是單向推出的。
+情境② 才提供**另一族**症狀(偽造稽核 / 停用被翻回)。
+
+🔴 **沒測什麼(全綠不等於「併發已測過」,清單逐條在腳本檔頭)**:新增路徑的撞名競速
+(migration `:223`「含與並行 session 撞名」那句宣稱**至今沒有任何測試背書**)/ 跨家撞 label /
+停用 vs 改名交錯 / **PostgREST + service_role 那一層**(harness 以 owner 直連;正式站被擋的 B
+可能吃角色層 `statement_timeout` 直接炸 `57014` 到 UI,而不是這裡看到的「等待然後成功」)。
+
+**審查**:三輪、**14 條 must-fix**、逐條親驗 **13 條成立 / 駁回 1 條**、已全折 ——
+R1 Claude opus `code-reviewer` **FAIL 5**(全在失敗與中斷路徑)→ R2 codex `gpt-5.6-sol` xhigh
+**NO-GO 8**(探針 fail-closed 與宣稱判別力)→ R3 Fable `adversarial-reviewer` **FAIL 1**
+(格2b 是兩個 `q()` 互比 ⇒ 連線層錯誤時兩邊字串相同、沒讀到資料也會綠)。
+**駁回的那條** = codex 說「所有 psql 都沒加 `-X`」,實查 13 處全部都有(經 `-tAX` / `-qtAX` 帶入)。
+
+**中斷安全(實測,非推論)**:突變視窗內送 **SIGHUP** 與 **SIGTERM** 各一次 ⇒ 皆 exit **130**、
+函式 md5 還原、DB 零殘留;中斷後緊接著重跑仍 36/0。
+**零污染**:`s1a → s1b → s2 → s1a` = **41 / 47 / 77 / 41**,與本片前基準逐一相符。
+
+---
+
+<details><summary>原規格(2026-08-01 晚寫、已完成,備查)</summary>
 
 **要證的事**:`admin_upsert_supplier` 裡的 `SELECT … FOR UPDATE` **真的把同一家的並行改動序列化**。
 現況只有**文字層**斷言(`prosrc` 裡那個字還在)—— 拿掉 `FOR UPDATE`,S2 的 77 條裡
@@ -119,7 +161,11 @@ PUBLIC 斷言順序兩個附帶坑)、`reference_bash-background-kill-and-mutati
 **片型**:高風險片(鐵則 12 ②權限的延伸驗證)⇒ 收工前照樣走 code-reviewer + codex 關卡2。
 **估時**:15-45 分鐘寫 + 審查另計。**零 migration 改動**(只加 harness)⇒ 不影響 apply 順序。
 
+</details>
+
 ---
+
+### §3-1 **下一片 = S3a**
 
 1. **S3a** 讀模型 + server action(`listSuppliers`:預設只回 `is_active=true`、`ORDER BY label`)。
    🔴 驗收 14 明文要求「拿掉 active 過濾**必須有測試轉紅**」——只證明 inactive 列 JOIN 得到不算數。
@@ -159,9 +205,11 @@ PUBLIC 斷言順序兩個附帶坑)、`reference_bash-background-kill-and-mutati
 
 ## §5b 🔴 S2 的誠實邊界(2026-08-01 晚新增)
 
-- 🔴 **併發完全沒測**:`FOR UPDATE` 只有**文字層**斷言(prosrc 裡那個字還在)。
-  拿掉它,77 條裡除了那一條之外**一條都不會紅**。兩個員工同時改同一家 ⇒ lost update
-  + 稽核鏈斷。要真的關掉需要兩連線 + barrier 的併發 harness(`a7bt` 那套形狀)。**本片未做,已 raise 給 Sean。**
+- ✅ ~~**併發完全沒測**~~ **已由 S2-C 關掉(§3-0)** —— `scripts/s2c-concurrency.sh` 36/0:
+  「同一家的改名 vs 改名」現在拿掉 `FOR UPDATE` 會有 7 條斷言轉紅(改名遺失 / 稽核鏈斷 /
+  偽造稽核 / 停用被翻回)。🔴 **但只關掉這一個家族** —— 新增撞名競速、跨家撞 label、
+  停用vs改名交錯、PostgREST + service_role 那一層**仍然沒測**(harness 以 owner 直連)。
+  ⇒ **不得對外說「併發已經測過了」**,只能說「同一家改名的序列化已被證明承重」。
 - 🔴 **近似重複三種形狀都不擋**:內部空白 / **大小寫**(`akoso` 與 `AKOSO` 並存是實測)/ 標點。
   防線一律是 S3b 的 typeahead(人眼)。**這是「已知不擋」清單,不是窮舉。**
 - 🔴 **稽核 `actor` 不是經過驗證的身分** —— `apps/admin/src/lib/session/actor.ts:6-7` 逐字
@@ -241,5 +289,36 @@ PUBLIC 斷言順序兩個附帶坑)、`reference_bash-background-kill-and-mutati
 12. **codex 的沙箱連不上 localhost DB** —— 這輪 codex 明說「TCP 與 Unix socket 均被唯讀沙箱拒絕,
     故未重跑 77/0」⇒ 它的 18 條全是 source-level 推論。**主對話必須逐條親驗**
     (本輪親驗結果:全部成立、駁回 0,但那是驗過才知道的)。Fable 那輪反而連得上、自己重跑了。
+
+### S2-C 這片新增的坑(2026-08-01 深夜)
+
+13. **「B 會不會卡住」量到的可能是別的鎖** —— 規格要求「拿掉 `FOR UPDATE` ⇒ B 不再被擋」,
+    但 B 的 `UPDATE … WHERE id=X` 本身就會卡在 A 的列鎖上 ⇒ 照字面做出來那格**突變後不會轉紅**。
+    要讓 `FOR UPDATE` 現形,得讓 B 走到**不需要 UPDATE 的那條路**(改回原值 ⇒ 判等 ⇒ `NO_CHANGE`)。
+    ⇒ **併發守門的負測,要先問「拿掉它之後,還有沒有別的東西提供同樣的觀察」。**
+14. **同一個根因的多個症狀不是多個證據** —— 情境① 的四條斷言(不卡 / `NO_CHANGE` / 零稽核列 /
+    端狀態留 L1)全部由「B 讀到 stale 快照」單向推出。四條全紅只證明了**一件事**。
+    要真的加證據面,得換情境(本片補的情境② 才是另一族症狀)。
+15. **表面訊號全正常的那個變體,壞得比較兇** —— A 改名+停用、B 改第三個值時,
+    突變前後**回傳碼與端狀態 label 完全相同**,只有稽核 `before` 與 `is_active` 會變。
+    症狀 = **偽造的稽核歷史**(宣稱從 L0 改成 L2,而那一刻真值是 L1)+ **停用被靜默翻回啟用**。
+    ⇒ **挑負測情境時,先找「壞了也看不出來」的那個,不是「壞了最明顯」的那個。**
+16. **還原路徑靜默失敗 = harness 污染兄弟 harness 卻全綠** —— `q()` 對 boolean 回 `t`,
+    拼進還原 SQL 變成 `is_active = t`(不存在的欄位)⇒ 整個還原交易中止,
+    而我把 psql 輸出丟進 `/dev/null` ⇒ 沒有任何訊號。**還原是零留痕的承重點,不得靜默。**
+17. **只掛 `trap … EXIT` 擋不住信號** —— 未被 trap 的 SIGTERM/SIGINT/SIGHUP 會讓 shell 直接死、
+    **EXIT trap 根本不執行** ⇒ committed DDL 的突變視窗內被 kill 就把壞函式留在庫裡。
+    而且第一版修完之後**中斷跑仍回報 exit 0**(trap 進來時 `$?` 是最後一句指令的狀態、不是信號)。
+    修法 = `trap 'SIGNALLED=1; exit 130' INT TERM HUP` + `trap cleanup EXIT`,**且實測三種信號**。
+18. **探針的 fail-closed 紀律要套到「每一個讀值」,不只讀計數** —— 我把計數探針做成
+    「非純數字回 -1」,卻漏了格2b 那兩個**讀值互比**:`q()` 併 stderr ⇒ 連線層錯誤不含查詢字面
+    ⇒ 兩邊拿到**完全相同**的錯誤字串 ⇒ 相等成立、沒讀到任何資料也全綠(R3 抓)。
+    修法 = 兩邊各自對**字面值**斷言,不要互比。**「各修各的、合起來留縫」的典型。**
+19. **只問「有沒有在等鎖」會被第三方代打** —— `pg_locks` 裡任何一把未授予的鎖都能讓那格變綠。
+    用 `pg_blocking_pids()` 把「擋住 B 的**就是 A**」釘死(codex 抓)。
+20. **codex 沙箱連不上 localhost DB,這次又一次成立** —— 它 8 條 must-fix 全是 source-level 推論,
+    親驗後 **7 條成立、1 條錯**(它說「所有 psql 都沒加 `-X`」,實查 13 處全部都有)。
+    ⇒ 同 §6-12:**主對話必須逐條親驗,連「聽起來很具體」的那種也要**。
+    對照組:Fable 連得上、自己實跑了三組攻擊實驗,結論精準得多。
 
 — END —
