@@ -7,7 +7,11 @@
 
 ## §0 一句話現況(2026-08-01 晚更新)
 
-**S1a + S1b 已 apply 到正式站、型別已重 gen;S2 owner RPC 已 code 收工並 commit,🔴 未 apply、未 push。**
+**S1a + S1b + S2 三片皆已 apply 到正式站、型別已重 gen(ledger 尾筆 = `20260801160000`)。**
+🔴 **型別檔的人工校正從「三處」變成「兩個函式共七處」** —— `admin_upsert_supplier` 的
+`p_supplier_id` / `p_label` / `p_is_active` / `p_note` 四個參數必須補 `| null`
+(這支函式的分流機制就是「NULL = 該欄不動」,而 PostgREST 表達不了「必填但可為 null」)。
+`p_actor` / `p_request_id` **不補**(函式內 fail-closed 拒收 NULL)。詳見型別檔檔頭。
 🆕 **下一片 = `S2-C` 併發 harness**(Sean 2026-08-01 晚拍 **B**「現在就補」;規格見 §3-0)。其後才是 S3a。
 
 ```bash
@@ -51,7 +55,8 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --onelin
 | **S1a** 供應商主檔 + 26 家 seed + 不可刪除 | `b5d918d` | 已 push、**已 apply**(08-01 傍晚) |
 | **S1b** 採購表供應商欄改 FK | `3af433d` | 已 push、**已 apply**(08-01 傍晚) |
 | 型別重 gen + 貼回三處人工校正 | `ff1347e` | 已 push |
-| **S2** `admin_upsert_supplier` owner RPC | `e21a0b6` | **未 push、未 apply** |
+| **S2** `admin_upsert_supplier` owner RPC | `e21a0b6` | 已 push、**已 apply**(08-01 晚) |
+| S2 apply 後重 gen 型別 + 第四類人工校正 | `bd2add4` | 已 commit |
 
 **S2 做的事**:`suppliers` 的**寫入路徑到本片才存在**(S1a 對 service_role 只開 SELECT
 ⇒ 在此之前那張表沒有任何 app 層寫得進去的方法)。一支 `SECURITY DEFINER` owner RPC 吃三種動作:
