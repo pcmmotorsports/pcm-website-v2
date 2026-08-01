@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   RPC_WHITESPACE_CHARS,
   SUPPLIER_ID_FIELD,
+  boundSupplierQuery,
   SUPPLIER_IS_ACTIVE_FIELD,
   SUPPLIER_LABEL_FIELD,
   parseSupplierActiveForm,
@@ -262,5 +263,37 @@ describe('parseSupplierActiveForm', () => {
         form({ [SUPPLIER_ID_FIELD]: 'nope', [SUPPLIER_IS_ACTIVE_FIELD]: 'true' }),
       ),
     ).toEqual({ ok: false });
+  });
+});
+
+// ── S3b-2:`?q=` 定位字串的收斂(驗收 4 後半的判別力來源)──────────────
+// 🔴 **為什麼測在這裡而不是測在 action**:action 走的是真解析器,label 恆 ≤100
+//    ⇒ 「>100 不帶 q」那條在**寫入側構造不出來**,從 action 打進去只會得到一條恆真的斷言
+//    (memory `feedback_unconstructible-negative-test-means-noop-guard`)。
+//    上限真正會觸發的地方是 S3b-3 **讀** URL 的那一側,那裡的輸入是任意字串。
+describe('boundSupplierQuery', () => {
+  it('should reject null and anything blank under the RPC whitespace set', () => {
+    expect(boundSupplierQuery(null)).toBeNull();
+    expect(boundSupplierQuery('')).toBeNull();
+    expect(boundSupplierQuery(ZWSP + IDEOGRAPHIC_SPACE + NBSP)).toBeNull();
+  });
+
+  it('should strip surrounding whitespace but keep the inner text intact', () => {
+    expect(boundSupplierQuery(`${NBSP} Webike TW ${ZWSP}`)).toBe('Webike TW');
+  });
+
+  it('should accept exactly the label limit and reject one past it', () => {
+    expect(boundSupplierQuery('a'.repeat(100))).toBe('a'.repeat(100));
+    expect(boundSupplierQuery('a'.repeat(101))).toBeNull();
+  });
+
+  // 🔴 用 code point 數、不是 `.length`:100 個星文字元的 `.length` 是 200。
+  //    若改用 `.length`,這條會轉紅 —— 而且會與 normalizeLabel 的尺不一致
+  //    (那個名字通得過解析、卻拿不到 q,撞名時定位靜默失效)。
+  it('should count code points, not UTF-16 units', () => {
+    const astral = '𝔄'.repeat(100);
+    expect([...astral]).toHaveLength(100);
+    expect(astral.length).toBe(200);
+    expect(boundSupplierQuery(astral)).toBe(astral);
   });
 });

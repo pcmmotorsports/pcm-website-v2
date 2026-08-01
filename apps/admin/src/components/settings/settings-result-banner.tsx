@@ -32,7 +32,14 @@ export function SettingsResultBanner({
   messages?: SettingsResultMessages;
 }) {
   if (!code) return null;
-  const msg = messages[code];
+  // 🔴 **必須用 hasOwn 查表,不能直接索引**(S3b-2 的 banner 測試抓到):
+  //    `code` 來自 URL 的 `?r=`,是任意字串。`messages['__proto__']` / `['constructor']`
+  //    / `['toString']` 會取到**原型鏈上的屬性**且為 truthy ⇒ 下一行的 `if (!msg)` 放行
+  //    ⇒ 畫出一個 `class="… undefined"` 的空框(`msg.text` 是 undefined ⇒ 不會注入文字,
+  //    但守門的名字與它的實際能力不符)。目前呼叫端 = `settings/staff/page.tsx:42` 與
+  //    `settings/order-statuses/page.tsx:40` **兩頁**(suppliers 那頁 S3b-3 才建),兩頁都中。
+  //    回歸守門 = `lib/supplier-result-messages.test.tsx` 的未知碼那組。
+  const msg = Object.hasOwn(messages, code) ? messages[code] : undefined;
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>

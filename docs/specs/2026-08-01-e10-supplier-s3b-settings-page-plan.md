@@ -129,7 +129,12 @@ RPC 對非法輸入是 `RAISE EXCEPTION`(空 label / >100 字 / 控制字元 / �
 解析器在 server 端先擋同一組規則,讓那些 RAISE 在正常操作下不可達;真冒出來的 DB error ⇒ `error` + 安全記錄。
 
 🔴 剝空白要用 **31 字元 Unicode 全集**(`20260801160000:115-121`),不能只用 JS `.trim()`
-(JS 不剝 U+200B / U+180E / U+FEFF)⇒ 否則純 U+200B 的名字會通過解析、到 RPC 才炸成 `error`(其實該是 `invalid`)。
+(JS 不剝 U+200B / U+180E / U+200C / U+200D / U+2060 / U+0085)⇒ 否則純 U+200B 的名字會通過解析、到 RPC 才炸成 `error`(其實該是 `invalid`)。
+🔴 **本行原本把 `U+FEFF` 列進「JS 不剝」是錯的**(Node v22.22.3 實測:`.trim()` **會**剝 U+FEFF,連同 U+00A0/U+1680/U+2028/U+3000)。
+同一個錯字面在 S3b-1 已於 `supplier-form.test.ts:56` 更正過,**這裡當時沒跟著改** —— codex 關卡2 R2 抓到,屬
+`feedback_claimed-sync-but-only-patched-touched-lines` 同型(只改了手碰到的那幾行)。
+🟡 **另一處同族未改**:`apps/admin/src/lib/customers/wallet-form.ts:66` 的註解也寫「FEFF 不算」——
+那是 M-4a 的檔、其 code 行為正確(顯式先剝再 trim,不依賴這個判斷),本片**不順手改別片的檔**,列進早報讓 Sean 決定。
 🔴 **`[K1-M6]` v1 宣稱了規則卻沒有對應驗收向量** ⇒ v2 §5 補三條負向向量 + 各配突變。
 
 ### 3.5 停用同名的出口(契約債②)

@@ -131,6 +131,32 @@ function parseSupplierId(form: FormLike): string | null {
   return id !== null && UUID_RE.test(id) ? id : null;
 }
 
+/**
+ * 把任意字串收斂成可放進 `?q=` 的**定位字串**:剝空白 → 空字串或超過 label 上限一律回 `null`。
+ *
+ * 🔴 **兩側共用一個上限,這是它存在的理由**:
+ *   · **寫入側**(`supplier-actions.ts` 撞名時帶 `?q=`):輸入是**已經解析過**的 label
+ *     ⇒ 恆 ≤100 ⇒ **上限那一條在這一側永遠不會觸發**。
+ *   · **讀取側**(S3b-3 頁面讀 `?q=`):輸入是 URL 上的**任意**字串 ⇒ 上限在那一側才真的會擋,
+ *     那也是 plan §3.5「不讓 URL 變成任意長度輸入面」真正指的地方。
+ * ⇒ 誠實邊界:**不要**因為 action 測試裡有一條「>100 不帶 q」就宣稱寫入側擋住了什麼。
+ *   該條的判別力來自對本函式的直接單元測試,不是來自走 action 那條路
+ *   (memory `feedback_unconstructible-negative-test-means-noop-guard`)。
+ * 🔴 長度用 **code point** 數,與 `normalizeLabel` 同一把尺;用 `.length` 會讓含 surrogate pair
+ *   的名稱在兩邊得到不同答案。
+ * 🔴 **它只 bound 空白與長度,不鏡像 label 的控制字元規則**(`normalizeLabel` 才有)——
+ *   名字不要讀成「把 q 清乾淨了」。讀取側(S3b-3)吃的是 URL 任意字串,`?q=` 仍可能帶
+ *   控制字元或 U+202E 這類方向覆寫字 ⇒ **那一側必須把 q 當純過濾字串用、永不渲染成文字**
+ *   (plan §3.5 的字面要求,不是本函式提供的保證)。
+ */
+export function boundSupplierQuery(raw: string | null): string | null {
+  if (raw === null) return null;
+  const value = rpcTrim(raw);
+  if (value === '') return null;
+  if ([...value].length > SUPPLIER_LABEL_MAX) return null;
+  return value;
+}
+
 export type SupplierCreateParse = { ok: true; label: string } | { ok: false };
 
 /** 新增:只吃 label。🔴 回傳結構裡**沒有** id —— 新增路徑物理上餵不出 id。 */
@@ -155,7 +181,15 @@ export type SupplierActiveParse =
   | { ok: true; id: string; isActive: boolean }
   | { ok: false };
 
-/** 切換啟用狀態:id + 明確的 'true'/'false'。缺欄位或其他字面一律拒(不做寬鬆解讀)。 */
+/**
+ * 切換啟用狀態:id + 明確的 'true'/'false'。缺欄位或其他字面一律拒(不做寬鬆解讀)。
+ *
+ * 🔴 **對 S3b-3 的契約(Fable R3 抓:這個約束沒寫在 code 裡)**:送出這個欄位的控制項
+ *    **不能用原生 `<input type="checkbox">`** —— 原生 checkbox 勾選時送 `'on'`、未勾選時
+ *    **整個欄位缺席**,兩種都會被這裡判 `ok:false` ⇒ 每次切換都拿到 `invalid`。
+ *    正確做法 = 照 `staff-edit-row.tsx` 的形狀,用 `<input type="hidden">` 帶
+ *    `String(!current)`,一個按鈕送一個明確方向。
+ */
 export function parseSupplierActiveForm(form: FormLike): SupplierActiveParse {
   const id = parseSupplierId(form);
   const active = asString(form.get(SUPPLIER_IS_ACTIVE_FIELD));

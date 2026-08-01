@@ -19,7 +19,13 @@ const TONE = {
 
 export function ResultBanner({ code }: { code: string | undefined }) {
   if (!code) return null;
-  const msg = MESSAGES[code];
+  // 🔴 **必須用 hasOwn 查表,不能直接索引**(S3b-2 的 code review 抓到的同型缺陷):
+  //    `code` 來自頁面的 `searchParams.r`,是任意字串。`MESSAGES['__proto__']` /
+  //    `['constructor']` / `['toString']` 取到的是**原型鏈上的屬性**且為 truthy
+  //    ⇒ 下一行的 `if (!msg)` 放行 ⇒ 畫出一個 `class="… undefined"` 的空框。
+  //    本元件被 orders 列表 / 訂單詳情 / 客戶詳情三頁使用。
+  //    姊妹元件 `settings/settings-result-banner.tsx` 同時修同一處。
+  const msg = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>
