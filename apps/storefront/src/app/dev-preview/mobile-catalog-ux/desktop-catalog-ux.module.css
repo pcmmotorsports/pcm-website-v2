@@ -1,0 +1,627 @@
+.page {
+  --ink: #17191c;
+  --muted: #6b7078;
+  --line: #dedfe1;
+  --soft: #f5f5f3;
+  --paper: #fff;
+  --accent: #d81920;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    linear-gradient(90deg, rgba(23, 25, 28, 0.018) 1px, transparent 1px) 0 0 / 46px 46px,
+    #efefed;
+  font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+}
+
+.page button,
+.page input,
+.page select {
+  font: inherit;
+}
+
+.page button {
+  color: inherit;
+  cursor: pointer;
+}
+
+.header {
+  background: rgba(255, 255, 255, 0.97);
+  border-bottom: 1px solid var(--line);
+}
+
+.headerInner {
+  width: min(calc(100% - 64px), 1180px);
+  height: 70px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 270px 1fr 160px;
+  align-items: center;
+  gap: 20px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  color: var(--accent);
+  font-size: 29px;
+  font-weight: 950;
+  font-style: italic;
+  letter-spacing: -0.08em;
+}
+
+.logo span {
+  max-width: 92px;
+  padding-left: 12px;
+  color: var(--ink);
+  border-left: 1px solid var(--line);
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: 0.08em;
+  line-height: 1.35;
+}
+
+.header nav {
+  height: 100%;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  gap: 32px;
+}
+
+.header nav button {
+  position: relative;
+  padding: 0 2px;
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.header nav .navActive::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  background: var(--accent);
+}
+
+.headerTools {
+  justify-self: end;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+
+.shell {
+  width: min(calc(100% - 64px), 1180px);
+  margin: 0 auto;
+  padding: 38px 0 72px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+
+.titleRow span,
+.vehicleHeading > div > span {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.titleRow h1 {
+  margin: 4px 0 0;
+  font-size: 34px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.titleRow p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.vehicleWorkspace {
+  margin-bottom: 24px;
+  padding: 22px 24px 20px;
+  background: var(--paper);
+  border: 1px solid #d6d7d9;
+  box-shadow: 0 8px 28px rgba(17, 20, 24, 0.045);
+}
+
+.vehicleHeading {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: end;
+  gap: 22px;
+  margin-bottom: 17px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+}
+
+.vehicleHeading h2 {
+  margin: 2px 0 0;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.vehicleHeading p {
+  margin: 0 0 1px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.vehicleStatus {
+  align-self: center;
+  padding: 8px 11px;
+  color: var(--accent);
+  background: #fff6f5;
+  border: 1px solid #efcbc8;
+  font-size: 12px;
+}
+
+.vehiclePicker {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 90px;
+  align-items: end;
+  gap: 16px;
+}
+
+.pickerLabel {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.garageButtons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.garageButtons button {
+  min-width: 0;
+  min-height: 55px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  padding: 8px 9px;
+  text-align: left;
+  background: #fff7f6;
+  border: 1px solid #efc9c6;
+}
+
+.garageButtons strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.garageButtons small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: 1.05fr 1.35fr 0.72fr;
+  gap: 9px;
+}
+
+.field {
+  position: relative;
+  min-width: 0;
+}
+
+.field > span {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.inputShell {
+  height: 55px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  background: #fff;
+  border: 1px solid #cfd1d4;
+}
+
+.inputShell:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(216, 25, 32, 0.08);
+}
+
+.inputShell input {
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.inputShell input::placeholder {
+  color: #a2a5aa;
+  font-weight: 500;
+}
+
+.inputShell input:disabled {
+  background: #f7f7f6;
+  cursor: not-allowed;
+}
+
+.inputShell button {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-size: 17px;
+}
+
+.inputShell button:disabled {
+  color: #b9bbc0;
+  cursor: not-allowed;
+}
+
+.optionList {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 20;
+  width: 100%;
+  max-height: 214px;
+  overflow-y: auto;
+  padding: 5px;
+  background: #fff;
+  border: 1px solid #cfd1d4;
+  box-shadow: 0 14px 30px rgba(16, 19, 22, 0.13);
+}
+
+.optionList button {
+  width: 100%;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #eeeeec;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.optionList button:hover {
+  color: var(--accent);
+  background: #fff7f6;
+}
+
+.optionList p {
+  margin: 0;
+  padding: 12px 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.vehicleActions {
+  min-height: 55px;
+  display: grid;
+  align-content: center;
+}
+
+.vehicleActions button {
+  min-height: 26px;
+  padding: 2px 0;
+  color: var(--muted);
+  text-align: right;
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.vehicleActions .applyVehicle {
+  min-height: 31px;
+  padding: 5px 9px;
+  color: #fff;
+  text-align: center;
+  background: var(--accent);
+}
+
+.vehicleActions .applyVehicle:disabled {
+  color: #a6a8ac;
+  background: #ededed;
+  cursor: not-allowed;
+}
+
+.vehicleActions button:disabled:not(.applyVehicle) {
+  color: #b5b7bb;
+  cursor: default;
+}
+
+.catalogLayout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+.sidebar {
+  background: #fff;
+  border: 1px solid #d8d9db;
+}
+
+.sidebar section {
+  padding: 17px 17px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sidebar section:last-child {
+  border-bottom: 0;
+}
+
+.sidebarHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sidebarHeading h2 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.sidebarHeading > span {
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.categoryList,
+.filterList,
+.priceList {
+  display: grid;
+}
+
+.categoryList button {
+  min-height: 35px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 4px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.categoryList button strong {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.categoryList button[aria-pressed="true"] {
+  color: var(--ink);
+  background: #fff5f4;
+  font-weight: 800;
+}
+
+.filterList button,
+.priceList button {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 17px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 3px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+}
+
+.filterList i,
+.priceList i {
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #c8cacf;
+  font-style: normal;
+}
+
+.filterList button[aria-pressed="true"] i,
+.priceList button[aria-pressed="true"] i {
+  background: var(--ink);
+  border-color: var(--ink);
+}
+
+.filterList button[aria-pressed="true"] i::after,
+.priceList button[aria-pressed="true"] i::after {
+  content: "✓";
+  color: #fff;
+  font-size: 9px;
+}
+
+.results {
+  min-width: 0;
+  padding: 0 0 40px;
+}
+
+.resultBar {
+  min-height: 53px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 7px 0 11px;
+  border-bottom: 1px solid #cfd1d4;
+  margin-bottom: 14px;
+}
+
+.resultBar > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.resultBar strong {
+  font-size: 15px;
+}
+
+.resultBar > div span {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.resultBar label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.resultBar select {
+  min-width: 130px;
+  height: 39px;
+  padding: 0 34px 0 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid #cfd1d4;
+  font-size: 12px;
+}
+
+.productGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 15px;
+}
+
+.productCard {
+  min-width: 0;
+  background: #fff;
+  border: 1px solid #dedfe1;
+  transition: transform 0.16s, box-shadow 0.16s;
+}
+
+.productCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(17, 20, 24, 0.08);
+}
+
+.productImage {
+  position: relative;
+  aspect-ratio: 1.18 / 1;
+  display: grid;
+  place-items: center;
+  color: #a7aaaf;
+  background: linear-gradient(145deg, #f7f7f6, #e8e9ea);
+  border-bottom: 1px solid #e2e3e4;
+}
+
+.productImage > span {
+  font-size: 42px;
+  font-weight: 200;
+}
+
+.productImage button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.88);
+  border: 0;
+  border-radius: 50%;
+  font-size: 19px;
+}
+
+.productCard > p,
+.productCard > h3,
+.productCard > strong {
+  margin-right: 14px;
+  margin-left: 14px;
+}
+
+.productCard > p {
+  margin-top: 12px;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+}
+
+.productCard > h3 {
+  min-height: 40px;
+  margin-top: 0;
+  margin-bottom: 9px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.productCard > strong {
+  display: block;
+  margin-bottom: 15px;
+  color: var(--accent);
+  font-size: 14px;
+}
+
+@media (max-width: 1120px) {
+  .headerInner,
+  .shell {
+    width: min(calc(100% - 40px), 1180px);
+  }
+
+  .headerInner {
+    grid-template-columns: 220px 1fr 110px;
+  }
+
+  .header nav {
+    gap: 18px;
+  }
+
+  .vehiclePicker {
+    grid-template-columns: 170px minmax(0, 1fr) 82px;
+    gap: 10px;
+  }
+
+  .catalogLayout {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page *,
+  .page *::before,
+  .page *::after {
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
+}
