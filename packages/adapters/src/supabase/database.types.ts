@@ -1,11 +1,16 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體 `create_order.Args` 內另有兩處手動校正
+//   (p_client_ip / p_client_ua / p_notification_email 的 `| null`)。PostgREST 產生器表達不了
+//   「必填但可為 null」⇒ 漏貼會讓**金流建單路徑**型別紅。2026-08-01 實際又被沖掉一次。
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
-// 反映 LIVE prod schema(2026-07-29 重 gen:M-4b E10 第 1 批 D0/A2/A3 已 apply —— orders.legacy_display_id
-//   + order_item_procurement / order_item_procurement_receipts / order_notes 三張新表;同時補回 07-13 之後
-//   累積未同步的 migration(RF2a-0 運費凍結、order_refunds、email_outbox、staff 等))。
-// ⚠️ 本次重 gen 移除了 products_public / products_list_public / product_variants_public 三個 view 的
+//   ⚠️ 實測 2026-08-01:即使用 --project-id,CLI 仍會先 parse .env.local ⇒ 重 gen 前仍須暫時把 .env.local 移開、跑完放回。
+// 反映 LIVE prod schema(2026-08-01 重 gen:A7c 退款帳本改記金額已 apply —— order_refunds
+//   **移除** items_amount / shipping_fee_before / shipping_fee_after / shipping_delta 四欄、
+//   **新增** rec_trade_id(NOT NULL);order_refund_items 已凍結、無寫入端。
+//   前次基準 = 2026-07-29 M-4b E10 第 1 批 D0/A2/A3)。
+// ⚠️ 2026-07-29 那次重 gen 移除了 products_public / products_list_public / product_variants_public 三個 view 的
 //   Insert / Update 型別(CLI 依 view 可更新性判定)。已實查:三者的消費端全是 .select() 讀路徑,
 //   寫入一律走 base products 表(SupabaseProductAdapter 註解逐字「save 走 base products 表」)⇒ 移除無影響,
 //   由 typecheck 把關。若日後真要寫 view,先確認 view 可更新性再處理,勿手動補型別。
@@ -416,6 +421,96 @@ export type Database = {
         }
         Relationships: []
       }
+      order_cancellation_items: {
+        Row: {
+          cancellation_id: string
+          cancelled_quantity: number
+          created_at: string
+          id: string
+          order_id: string
+          order_item_id: string
+        }
+        Insert: {
+          cancellation_id: string
+          cancelled_quantity: number
+          created_at?: string
+          id?: string
+          order_id: string
+          order_item_id: string
+        }
+        Update: {
+          cancellation_id?: string
+          cancelled_quantity?: number
+          created_at?: string
+          id?: string
+          order_id?: string
+          order_item_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_cancellation_items_cancellation_fk"
+            columns: ["cancellation_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_cancellations"
+            referencedColumns: ["id", "order_id"]
+          },
+          {
+            foreignKeyName: "order_cancellation_items_order_item_fk"
+            columns: ["order_id", "order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["order_id", "id"]
+          },
+        ]
+      }
+      order_cancellations: {
+        Row: {
+          actor: string
+          created_at: string
+          id: string
+          idempotency_key: string
+          order_id: string
+          payload_hash: string
+          reason_code: string
+          reason_detail: string | null
+        }
+        Insert: {
+          actor: string
+          created_at?: string
+          id?: string
+          idempotency_key: string
+          order_id: string
+          payload_hash: string
+          reason_code: string
+          reason_detail?: string | null
+        }
+        Update: {
+          actor?: string
+          created_at?: string
+          id?: string
+          idempotency_key?: string
+          order_id?: string
+          payload_hash?: string
+          reason_code?: string
+          reason_detail?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_cancellations_actor_fkey"
+            columns: ["actor"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_cancellations_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_item_procurement: {
         Row: {
           allocated_quantity: number
@@ -513,6 +608,38 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "order_item_procurement"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_item_quantity_summary: {
+        Row: {
+          cancelled_quantity: number
+          instock_quantity: number
+          order_item_id: string
+          ordered_quantity: number
+          quantity: number
+        }
+        Insert: {
+          cancelled_quantity?: number
+          instock_quantity?: number
+          order_item_id: string
+          ordered_quantity?: number
+          quantity: number
+        }
+        Update: {
+          cancelled_quantity?: number
+          instock_quantity?: number
+          order_item_id?: string
+          ordered_quantity?: number
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_quantity_summary_item_fk"
+            columns: ["order_item_id", "quantity"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id", "quantity"]
           },
         ]
       }
@@ -724,6 +851,222 @@ export type Database = {
           },
         ]
       }
+      order_refund_job_items: {
+        Row: {
+          id: string
+          job_id: string
+          line_amount: number
+          order_id: string
+          order_item_id: string
+          quantity: number
+          unit_price: number
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          line_amount: number
+          order_id: string
+          order_item_id: string
+          quantity: number
+          unit_price: number
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          line_amount?: number
+          order_id?: string
+          order_item_id?: string
+          quantity?: number
+          unit_price?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orji_item_fk"
+            columns: ["order_id", "order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["order_id", "id"]
+          },
+          {
+            foreignKeyName: "orji_job_fk"
+            columns: ["job_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_refund_jobs"
+            referencedColumns: ["id", "order_id"]
+          },
+        ]
+      }
+      order_refund_jobs: {
+        Row: {
+          actor: string
+          bank_refund_id: string
+          cancellation_id: string
+          check_fail_count: number
+          claim_expires_at: string | null
+          claim_token: string | null
+          claimed_at: string | null
+          corrected_at: string | null
+          corrected_by: string | null
+          correction_reason: string | null
+          created_at: string
+          dead_reason: string | null
+          failed_reason: string | null
+          generation: number
+          id: string
+          items_amount: number
+          last_refund_call_at: string | null
+          manual_review_required: boolean
+          next_check_at: string | null
+          next_retry_at: string | null
+          order_id: string
+          payload_hash: string
+          reason: string
+          rec_trade_id: string
+          refund_amount: number
+          refund_call_attempted_at: string | null
+          refund_id: string | null
+          refunded_before: number | null
+          refunded_target: number | null
+          request_id: string
+          resolution: string | null
+          retry_auth_checked_at: string | null
+          retry_auth_recorded_refunded: number | null
+          retry_count: number
+          reviewed_at: string | null
+          reviewed_by: string | null
+          shipping_delta: number
+          shipping_fee_after: number
+          shipping_fee_before: number
+          status: string
+          tappay_refund_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          actor: string
+          bank_refund_id: string
+          cancellation_id: string
+          check_fail_count?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          claimed_at?: string | null
+          corrected_at?: string | null
+          corrected_by?: string | null
+          correction_reason?: string | null
+          created_at?: string
+          dead_reason?: string | null
+          failed_reason?: string | null
+          generation?: number
+          id?: string
+          items_amount: number
+          last_refund_call_at?: string | null
+          manual_review_required?: boolean
+          next_check_at?: string | null
+          next_retry_at?: string | null
+          order_id: string
+          payload_hash: string
+          reason: string
+          rec_trade_id: string
+          refund_amount: number
+          refund_call_attempted_at?: string | null
+          refund_id?: string | null
+          refunded_before?: number | null
+          refunded_target?: number | null
+          request_id: string
+          resolution?: string | null
+          retry_auth_checked_at?: string | null
+          retry_auth_recorded_refunded?: number | null
+          retry_count?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          shipping_delta: number
+          shipping_fee_after: number
+          shipping_fee_before: number
+          status?: string
+          tappay_refund_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actor?: string
+          bank_refund_id?: string
+          cancellation_id?: string
+          check_fail_count?: number
+          claim_expires_at?: string | null
+          claim_token?: string | null
+          claimed_at?: string | null
+          corrected_at?: string | null
+          corrected_by?: string | null
+          correction_reason?: string | null
+          created_at?: string
+          dead_reason?: string | null
+          failed_reason?: string | null
+          generation?: number
+          id?: string
+          items_amount?: number
+          last_refund_call_at?: string | null
+          manual_review_required?: boolean
+          next_check_at?: string | null
+          next_retry_at?: string | null
+          order_id?: string
+          payload_hash?: string
+          reason?: string
+          rec_trade_id?: string
+          refund_amount?: number
+          refund_call_attempted_at?: string | null
+          refund_id?: string | null
+          refunded_before?: number | null
+          refunded_target?: number | null
+          request_id?: string
+          resolution?: string | null
+          retry_auth_checked_at?: string | null
+          retry_auth_recorded_refunded?: number | null
+          retry_count?: number
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          shipping_delta?: number
+          shipping_fee_after?: number
+          shipping_fee_before?: number
+          status?: string
+          tappay_refund_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orj_actor_fk"
+            columns: ["actor"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orj_cancellation_fk"
+            columns: ["cancellation_id", "order_id"]
+            isOneToOne: false
+            referencedRelation: "order_cancellations"
+            referencedColumns: ["id", "order_id"]
+          },
+          {
+            foreignKeyName: "orj_corrected_by_fk"
+            columns: ["corrected_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orj_refund_fk"
+            columns: ["refund_id"]
+            isOneToOne: false
+            referencedRelation: "order_refunds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orj_reviewed_by_fk"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_refunds: {
         Row: {
           actor: string
@@ -732,14 +1075,11 @@ export type Database = {
           created_at: string
           failed_reason: string | null
           id: string
-          items_amount: number
           order_id: string
           reason: string
+          rec_trade_id: string
           refund_amount: number
           request_id: string
-          shipping_delta: number
-          shipping_fee_after: number
-          shipping_fee_before: number
           status: string
           tappay_refund_id: string | null
         }
@@ -750,14 +1090,11 @@ export type Database = {
           created_at?: string
           failed_reason?: string | null
           id?: string
-          items_amount: number
           order_id: string
           reason: string
+          rec_trade_id: string
           refund_amount: number
           request_id: string
-          shipping_delta: number
-          shipping_fee_after: number
-          shipping_fee_before: number
           status: string
           tappay_refund_id?: string | null
         }
@@ -768,14 +1105,11 @@ export type Database = {
           created_at?: string
           failed_reason?: string | null
           id?: string
-          items_amount?: number
           order_id?: string
           reason?: string
+          rec_trade_id?: string
           refund_amount?: number
           request_id?: string
-          shipping_delta?: number
-          shipping_fee_after?: number
-          shipping_fee_before?: number
           status?: string
           tappay_refund_id?: string | null
         }
@@ -1918,6 +2252,8 @@ export type Database = {
           // 三個 text 參數在 DDL 都吃得下 NULL,但 PostgREST 的型別產生器**表達不了
           // 「必填但可為 null」**,一律型別化為非 null string ⇒ 不校正的話金流建單路徑會型別紅。
           // p_client_ip / p_client_ua = #241 best-effort PII(RPC 端 left 截斷、註解明寫可 NULL)。
+          // ⚠️ 2026-08-01 A7c 重 gen 時再次被沖掉、已重貼。**檔頭的「重貼」提醒只提到中文檔頭,
+          //    本體裡的這兩處手動校正同樣要重貼** —— 忘了就是金流建單路徑型別紅。
           p_client_ip: string | null
           p_client_ua: string | null
           p_invoice: Json
@@ -1998,6 +2334,11 @@ export type Database = {
           p_reason_code: string
           p_rec_trade_id: string
         }
+        Returns: number
+      }
+      pcm_generate_display_id: { Args: never; Returns: string }
+      pcm_order_refundable_remaining: {
+        Args: { p_order_id: string }
         Returns: number
       }
       pfe_staging_reset: { Args: never; Returns: number }
