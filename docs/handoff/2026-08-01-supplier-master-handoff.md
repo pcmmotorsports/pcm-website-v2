@@ -8,7 +8,7 @@
 ## §0 一句話現況(2026-08-01 晚更新)
 
 **S1a + S1b 已 apply 到正式站、型別已重 gen;S2 owner RPC 已 code 收工並 commit,🔴 未 apply、未 push。**
-下一片 = **S3a**(讀模型 `listSuppliers`)。
+🆕 **下一片 = `S2-C` 併發 harness**(Sean 2026-08-01 晚拍 **B**「現在就補」;規格見 §3-0)。其後才是 S3a。
 
 ```bash
 cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --oneline -3 && git status --porcelain
@@ -86,6 +86,35 @@ business key 換軸為 `(order_item_id, supplier_id)`(**約束名 `order_item_pr
 ---
 
 ## §3 下一步(依序)
+
+### §3-0 🆕 `S2-C` 併發 harness(**下一片**;Sean 2026-08-01 晚拍 B「現在就補」)
+
+**要證的事**:`admin_upsert_supplier` 裡的 `SELECT … FOR UPDATE` **真的把同一家的並行改動序列化**。
+現況只有**文字層**斷言(`prosrc` 裡那個字還在)—— 拿掉 `FOR UPDATE`,S2 的 77 條裡
+**除了那一條之外一條都不會紅**,而兩個員工同時改同一家會 lost update + 稽核 before/after 鏈斷。
+
+**三格**(產物建議 = `scripts/s2c-concurrency.sh`,別塞回 `s2-verify.sh`,那支已 700+ 行):
+
+1. **擋得住**:連線 A `BEGIN` → 呼叫 RPC 改 X → **不 commit**;連線 B 對**同一家** X 呼叫 RPC
+   → 必須**卡住**(不是失敗、是等)。A commit 後 B 才動。
+2. **無 lost update**:B 解鎖後讀到的 `before` 必須是 **A 改完的新值**,不是 A 改之前的舊值;
+   兩筆稽核的 `before/after` 首尾相接(A.after = B.before)。
+3. **突變**:拿掉 `FOR UPDATE`(`CREATE OR REPLACE` + ROLLBACK,沿用 `s2-verify.sh` 的 `mut_block()`)
+   ⇒ 第 1 格不再卡住、第 2 格讀到 stale before、鏈斷 ⇒ **兩格都必須轉紅**。沒有這格就沒證到承重。
+
+🔴 **必須用 barrier,不准用 sleep/賽跑** —— memory `feedback_race-test-without-barrier-proves-nothing`
+逐字:「沒有 barrier 的競賽測試綠了不代表任何事」。可重用的形狀 = `scripts/lib/a7bt-barrier-migration.py`
+與 `scripts/a7bt-acl-rollback-lock.sh` 的鎖探針(那支的教訓:**「沒探到」若靜靜算過就是永久假綠**,
+判準要正向看到 `PROBE-OK` 之類的字面,不能只看「沒出錯」)。
+
+🔴 **開工前先讀**:memory `feedback_race-test-without-barrier-proves-nothing`(含 PG17 `MAINTAIN` 與
+PUBLIC 斷言順序兩個附帶坑)、`reference_bash-background-kill-and-mutation-restore-traps`
+(`kill -9 $!` 可能殺到子 shell;突變還原**別用** `git checkout`)。
+
+**片型**:高風險片(鐵則 12 ②權限的延伸驗證)⇒ 收工前照樣走 code-reviewer + codex 關卡2。
+**估時**:15-45 分鐘寫 + 審查另計。**零 migration 改動**(只加 harness)⇒ 不影響 apply 順序。
+
+---
 
 1. **S3a** 讀模型 + server action(`listSuppliers`:預設只回 `is_active=true`、`ORDER BY label`)。
    🔴 驗收 14 明文要求「拿掉 active 過濾**必須有測試轉紅**」——只證明 inactive 列 JOIN 得到不算數。
