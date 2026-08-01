@@ -1,119 +1,135 @@
-# 供應商主檔線 — 交接檔(2026-08-01 下午)
+# 供應商主檔線 — 交接檔(2026-08-01 傍晚改寫)
 
-> **接手入口。開工前整份讀完。** 前身 = `docs/handoff/2026-08-01-a7c-applied-handoff.md`(A7c 線,已完成)。
+> **接手入口。開工前整份讀完。** 前身版本(下午、S1a 之前)已被本檔取代;
+> 更前身 = `docs/handoff/2026-08-01-a7c-applied-handoff.md`(A7c 線,已完成)。
 
 ---
 
 ## §0 一句話現況
 
-**供應商主檔 plan v2 已寫完、等 Sean 批准;code 一行都還沒寫。** 未推 commit 3 筆、工作樹乾淨。
-今晚 22:00 後仍有一件獨立的事要做:**TapPay sandbox 部分退款探測**(見 §5,與本線無關、不互相擋)。
+**S1a + S1b 兩片皆 code 收工並已推上 `dev`;🔴 兩支 migration 都還沒 apply 到正式站。**
+下一片 = **S2**(`admin_upsert_supplier` owner RPC)。
 
 ```bash
-cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --oneline -4 && git status --porcelain
+cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git log --oneline -3 && git status --porcelain
 ```
-預期:branch=`dev`、HEAD 三筆為本日 docs commit、**工作樹乾淨**。
+預期:branch=`dev`、HEAD = S1b(`3af433d`)、工作樹乾淨。
+
+🔴 **另有一個視窗在做前台(`apps/storefront/src/**`)。** 我的領域 =
+`supabase/migrations/` / `scripts/` / `docs/specs/2026-08-01-e10-supplier-*`。
+**`STATUS.md` 與 `docs/handoff/CURRENT.md` 是唯一真衝突點,改之前先問 Sean。**
+一律 `git add <精確路徑>`,禁 `git add .` / `-A`;`--amend` 前先 `git log -1` 確認 HEAD 是自己那筆。
 
 ---
 
-## §1 這條線今天發生了什麼(順序很重要)
+## §1 🔴 開新視窗第一件事:重排今晚的提醒
 
-1. **完成地圖產出**(`6a1e95d`)——27 項逐項盤點,結論:**能用的只有 2 項、從 07-26 到今天沒變**;
-   已拆片 43 / 未拆區塊 13 / 零規劃領域 5。地圖 = `docs/specs/2026-08-01-admin-completion-map.md`。
-2. **依 DAG 起手 A5b**(供應商名稱正規化 SQL 函式)⇒ **三輪對抗審查全 NO-GO、共 37 must-fix**
-   (codex R1 14 → codex R2 13 → **Fable R3 換模型換角度 10**),逐條親驗全成立、駁回 0。
-   🔴 **函式本體三輪都沒被打破;37 條全部打在 plan 文件上。**
-3. **Sean 拍板換路**(`ec98b25`):供應商改「**主檔 + 下拉選單**」⇒ **A5b 與 A5c 砍掉**,
-   **並明確推翻 07-27 Q2=B「E12 供應商主檔這期不做」**(本次確認、非假設)。
-4. **供應商主檔 plan v1 → codex 關卡1 NO-GO(約 30 must-fix)→ 本 v2**。
+**今晚 22:04 的 TapPay 探測 cron 是 session-only —— 上一個視窗關掉就死了,這是第二次。**
+新視窗開起來**立刻**用 `CronCreate` 重排(one-shot、當天 22:04),內容:
+
+> TapPay sandbox 部分退款探測,交易 `D202607314b3cIL`(2026-08-01 18:00 送批):
+> 1. `python3 scripts/tappay-sandbox-refund-probe.py plan`(零 API 呼叫)
+> 2. `python3 scripts/tappay-sandbox-refund-probe.py query`(唯讀)
+> 🔴 **第 2 步若 `is_captured` 仍是 false 就停下回報**,不繞過、不改腳本
+>    (未請款做部分退款必回 `10024`,測了沒意義)
+> 3. 只有 `is_captured=true` 才跑 `python3 scripts/tappay-sandbox-refund-probe.py refund 10`
+>
+> 要回答:①API 支不支援多次部分退款 ②超額退款會不會被 API 拒。
+> 🔴 Portal 按鈕消失只證明**介面**擋住、不證明 API 會拒,而 API 才是我們要走的路。
+> 金鑰在 `.env.tappay-sandbox`,**值絕不貼進對話**。細節見 `2026-08-01-a7c-applied-handoff.md` §3。
 
 ---
 
-## §2 🔴 Sean 今天的全部拍板(逐字,施工必須逐條對照)
+## §2 已完成(可驗證的事實,不是宣稱)
 
-| # | 逐字 | 落到哪 |
+| 片 | commit | 狀態 |
 |---|---|---|
-| 1 | 「A 下拉選單,供應商還可以自行再增加到下拉選單」 | 主檔 + 選單 |
-| 2 | 「那就變成無法刪除就好,只可以修改名稱。」 | 可新增 / 可改名 / **不可刪除** |
-| 3 | 停用開關 = **A** | `is_active` |
-| 4 | 「就先這 26 個」 | plan §11 seed |
-| 5 | 「名單排序依照字母順序」 | `ORDER BY label` |
-| 6 | 「名單欄位可以打字快速帶入名單候選」 | typeahead |
-| 7 | **Q1=A** 改名後歷史顯示新名字 | 不存快照 |
-| 8 | **Q2=A** 停用旗標先做 | 明知暫時無人消費 |
+| **S1a** 供應商主檔 + 26 家 seed + 不可刪除 | `b5d918d` | 已 push、**未 apply** |
+| **S1b** 採購表供應商欄改 FK | `3af433d` | 已 push、**未 apply** |
 
-另兩則同日拍板(工作模式,不屬本線但同 session):**Q1=A 照原訂做 E10 第 1 批關鍵片**、
-**Q2=A 夜跑吃機械片**(九碼退場六片;**明知它們做完 27 項驗收表一格都不會動**)。
-落檔 = memory `project_m4b-supplier-master-decisions` / `project_workmode-0801-nightrun-decisions`。
+**S1b 做的事**:`order_item_procurement` 的 `supplier_name` + `supplier_canonical_key`
+→ **`supplier_id` uuid FK → `suppliers(id)`**(ON DELETE / ON UPDATE 皆 RESTRICT);
+business key 換軸為 `(order_item_id, supplier_id)`(**約束名 `order_item_procurement_business_key` 不變**);
+補回 `(supplier_id)` 索引;三段 COMMENT 同步;A2 `:123-126` 的合約債①明文結案。
+
+**驗證數字**(本機 PG17.10、C locale、`d1t2-rehearsal.sh provision` 從零套完全部 migration):
+
+| 輪次 | 結果 |
+|---|---|
+| s1a | **41 PASS / 0** |
+| s1b | **47 PASS / 0** |
+| s1a **再跑一次** | **41 PASS / 0** ← 這輪才是「s1b 不污染兄弟 harness」的證據 |
+| 把 S1b 檔移開、重放成**只有 S1a** 的庫 | **40 PASS / 0**,走單片模式分支 |
+| 三綠 | typecheck 0 / lint 0(未動 `.ts/.tsx` ⇒ 不需 build) |
+
+**六道 fail-closed 閘已對正式站唯讀實查全部通過**:索引定義對稱差 0 / 無繼承子表 /
+無欄級 ACL / ACL 攤平恰 `service_role:SELECT:false` / 兩表 0 列
+⇒ **`db push` 不會被自己的閘誤擋**。
 
 ---
 
 ## §3 下一步(依序)
 
-1. 🔴 **Sean 批准 plan v2**(命中鐵則 8:動 schema + 跨 3+ 檔)—— **未批准前不得動 code**。
-   plan = `docs/specs/2026-08-01-e10-supplier-master-plan.md`。
-2. **關卡1 R2**:v1 是 NO-GO、v2 折入約 30 條 ⇒ 依輪次紀律要跑 R2 確認。
-   🔴 **下次跑 codex 記得帶 `-c service_tier="fast"`**(排隊優先權,不降品質;
-   本 session 沒帶、且 42 天前那則紀錄是 CLI 0.128.0 的,**新版是否仍有效尚未驗證**)。
-3. 依 plan §4 施工 **S1a → S1b → S2 → S3a → S3b** 五片。
+1. **S2** — `admin_upsert_supplier` owner RPC(新增 / 改名 / 切停用 + 同交易 audit)。
+   驗收見片級 plan §5-11~13:`SECURITY DEFINER` + `SET search_path` + `REVOKE ALL FROM PUBLIC`
+   + 只 GRANT service_role / 稽核原子性(成功多一列、失敗零留痕)/ 輸入白名單(不得改 id、不得寫時間欄)。
+   🔴 **S2 不需要先 apply** —— 它是新 RPC、不動既有形狀。
+2. **apply**(Sean 手動 `supabase db push`;跑前必須先移開 `.env.local`,跑完還原)。
+   實務上排在 S2 之後、S3a 之前最順(S3a/S3b 的驗收需要真資料)。
+3. **S3a** 讀模型 + server action(`listSuppliers`:預設只回 `is_active=true`、`ORDER BY label`)。
+4. **S3b** `/settings/suppliers` 設定頁(列表字母序 + 新增 typeahead + 改名 + 停用開關)。
 
 ---
 
-## §4 🔴 接手必須知道的坑(今天實際踩到的)
+## §4 🔴 apply 時必須知道的三件事
 
-### 4.1 codex 背景跑會靜默卡死 —— 已做成機制
-`codex exec` 未加 `< /dev/null` 時**卡死 47 分鐘、CPU 0%、輸出 1 行**,
-外觀與「正在深度思考」完全相同。該坑 memory 已記兩次、**今天是第 3 次復發**,
-且兩次都連帶對 Sean 做出「審查正在跑」的不實回報。
-⇒ **PreToolUse 門禁已掛**(`~/.claude/hooks/require-codex-stdin-guard.js`,Sean 拍板 A)。
-🔴 **比修法更重要**:背景工作「活著」看**產出有沒有長**,不是 `pgrep` 有沒有命中。
-等待迴圈至少要偵測三種結局:出判定 / 程序消失 / **輸出連續 N 分鐘零成長**。
-
-### 4.2 審查期間不得改被審物件
-今天違反一次(R2 送審後改了 plan 一個行號),已自陳於 A5b plan 檔頭。
-同款 07-31 才發生過。**送審 = 凍結。**
-
-### 4.3 我今天犯的「字面 vs 事實」四次(全部由審查抓出)
-1. 引 A7c 交接檔的「兩表 0 列」當**採購表**的證據 —— 那是退款帳本的數字。
-2. 說「repo 已有 15 家供應商名冊」—— `scripts/supplier-config.ts` 是**爬蟲管線設定檔**,
-   那 15 家是**改裝品牌**。**我從審查員 finding 直接轉述、沒自己開檔確認。**
-3. 說「只有 2 個檔引用 canonical key」—— grep **排除了 `.md`** 卻下通則結論,實際至少 8 處。
-4. 說「S3 讓完成地圖第 26 項變綠」—— 第 26 項是「員工各自帳號與權限」,**引用錯項**。
-
-⇒ **通則:限縮搜尋範圍時,結論範圍必須跟著限縮;引用任何檔案前先開來看它是什麼。**
-
-### 4.4 Fable R3 抓到的那條(codex 兩輪都沒看到的層次)
-我為修 R2「漏改三行 A7b-T」而設計的「四行機械換成 A7c + `grep -c=0` 驗收」
-**會製造假句並抹掉一筆 Sean 拍板紀錄** —— master `:248` 說「A7b-T 移除 dormant CHECK」,
-而 A7c migration `:51` 逐字說它**不動**休眠閘。⇒ **修法比漏更糟。**
-🔴 **那批 master 修正交還退款線語意改寫,不屬供應商片。**
+1. **會一次套兩支**。正式站 ledger 最後一筆 = `20260801120000`(A7c);目錄裡有
+   `20260801140000`(S1a)+ `20260801150000`(S1b)**兩支未登記** ⇒ `db push` 依序套兩支、
+   **各自一個交易**(CLI 正常行為,不是整批回滾)。兩支都有 fail-closed 前置閘,
+   順序錯或半批狀態會**當場擋下而不是寫壞資料**。
+2. **apply 後必做型別重 gen**,而且 🔴 **重 gen 會沖掉 `create_order.Args` 內的三處人工校正**
+   (`p_client_ip` / `p_client_ua` / `p_notification_email` 的 `| null`,PostgREST 表達不了
+   「必填但可為 null」)⇒ 重 gen 後必須貼回,**以 typecheck 轉綠為證**。這坑已復發過一次。
+3. **apply 之前不得宣稱型別已對齊**。現況安全的理由 = 全樹只有 `packages/adapters/src/supabase/database.types.ts`
+   一個檔提到 `order_item_procurement`、**零 app code 消費**(本線實 grep 確認,非轉述)。
 
 ---
 
-## §5 今晚 22:00 後(獨立於本線,不互相擋)
+## §5 🔴 誠實邊界(不得對外說滿)
 
-**TapPay sandbox 部分退款探測** —— 交易 `D202607314b3cIL`,今天 18:00 送批。
-
-```bash
-python3 scripts/tappay-sandbox-refund-probe.py plan     # 先看順序,零 API 呼叫
-python3 scripts/tappay-sandbox-refund-probe.py query    # 唯讀,確認 is_captured=true
-python3 scripts/tappay-sandbox-refund-probe.py refund 10
-```
-🔴 **query 若 `is_captured` 仍是 false 就停** —— 未請款做部分退款必回 `10024`,測了沒意義。
-回答兩個 PCM 從未測過的問題:API 支不支援多次部分退款 / 超額退款會不會被 API 拒。
-🔴 Portal 按鈕消失只證明介面擋住、**不證明 API 會拒**,而 API 才是我們要走的路。
-細節見 `docs/handoff/2026-08-01-a7c-applied-handoff.md` §3。
+- **沒跑第三輪換模型**。關卡2 跑了 **codex `gpt-5.6-sol` xhigh 兩輪**(鐵則 12 按字面滿足),
+  但 codex 只設定一個模型,Fable / adversarial-reviewer 那條路依規則需 **Sean 指名**才動用
+  ⇒ **兩輪同模型的共同盲點未被覆蓋**。兩輪都明說 DDL 未被擊破。
+- **COMMENT 的驗收是 presence gate 不是語意守門** —— 把整段理由反過來寫、關鍵字還在就會全綠。
+- **rollback 只在採購表 0 列時成立**;一旦 S2/A5a 開始寫入就**不可照抄**
+  (舊兩個 NOT NULL 文字欄沒有值可以補;下游要逆序先撤 S3b → S3a → S2)。
+- **`docs/handoff/CURRENT.md` 仍是過期的**(還寫「code 零行、等批准」)。Sean 拍板本輪只動 STATUS,
+  避免與並行 session 撞車 ⇒ 留給前台那輪或下一個 session 補。
+- **本機 C locale ≠ 正式站 `en_US.UTF-8`**(#305);字母排序屬 S3a/S3b,本線尚未測。
+- **`MEMORY.md` 已 25.6 KB、超過 24.4 KB 讀取上限**(STATUS 上次記錄 22.6 KB)。
+  撤條目需 Sean 拍板,未自行處理。
 
 ---
 
-## §6 沒做的事(明說)
+## §6 這條線今天踩到、值得後人對照的坑
 
-- **供應商主檔 code 零行**。plan v2 未經關卡1 R2、未經 Sean 批准。
-- **A5b plan v3 標作廢但保留**:§2 的 14 條 PG/Unicode 實測與形狀無關、可重用
-  (新主檔若要對 label 做任何歸一,同一批坑會再出現)。
-- **完成地圖 §3 的單片成本估算已知偏低** —— A5b 是我判定最輕的一片,實際三輪審查 37 條後整片作廢;
-  「30-40 分鐘」只算實作沒算審查。已在 STATUS 標註,待第一片走完完整流程再修。
-- **未跑 `busboy-end`**(工作樹狀況見 §0)。
-- **未 push**(3 筆待 Sean 手動推)。
+1. **新 FK 會把既有守門降級成「觀察不到」** —— S1b 的 FK 讓 `TRUNCATE suppliers` 在 S1a 的
+   `BEFORE TRUNCATE` trigger **之前**就被 PG 擋掉(`0A000`);刪供應商則相反(trigger 先炸 `P0001`,
+   FK 的 `23503` 要停用 trigger 才看得到)⇒ **plan 原本要求的 `23503` 物理上不可達**,已更正。
+   兩支 harness 都已改成兩層各自驗。落檔 = memory
+   `feedback_new-fk-can-demote-an-existing-guard-to-unobservable`。
+2. **harness 不得污染兄弟 harness** —— s1b 的一次合法改名把 `updated_at` 推進,
+   害 s1a 的 touch 突變格轉紅。收尾要跑 **A → B → A 再一次**才證得了零污染。
+3. **關卡2 兩輪 35 條,零條打在 DDL 上** —— 全部打在驗收判別力與文件同步。
+   同款形狀今天出現第二次(A5b 是 37 條全打在 plan)。
+   最丟臉的一條:我寫的「約束集合比對」只有一半(只擋多的、不擋少的),
+   而 S1a 的 commit body **當天上午才自稱修掉同一個錯**。
+4. **`indexrelid::regclass::text` 隨 search_path 變化**(實測:public 不在路徑時輸出帶 `public.` 前綴)
+   ⇒ 拿它當結構閘的比較基準會在正式站誤擋。`pg_get_indexdef()` 實測與 search_path 無關,用它。
+5. **`aclexplode` 不帶 `is_grantable` 等於漏一個洞** —— 實測 `GRANT SELECT … WITH GRANT OPTION`
+   攤平後與普通 SELECT **字串完全相同**。
+6. **codex 背景跑必加 `< /dev/null`**(hook 已擋);判活看**輸出有沒有長**,不是 `pgrep`。
+   本次兩輪各 938s / 595s,都有 `tokens used` 完成標記。
+7. **送審 = 凍結**。本 session 違反過一次(codex 審查中我改了受審檔的檔尾),已還原後才續。
 
 — END —
