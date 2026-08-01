@@ -181,8 +181,33 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 
 **S2**
 11. RPC 是 `SECURITY DEFINER` + `SET search_path` + `REVOKE ALL FROM PUBLIC` + **只 GRANT service_role**。
-12. **稽核原子性**:RPC 成功 ⇒ `admin_audit_log` 同交易多一列;RPC 中途失敗 ⇒ **零留痕**(交易模擬)。
+    🆕 **另加三條(S2 施工/審查逼出來的)**:①函式 owner 必須等於 `suppliers` 的 owner
+    (攤平 ACL 時 owner 那列被排掉 ⇒ 它是唯一沒被釘住的欄位,而 SECURITY DEFINER 的全部語意
+    就是「以 owner 身分跑」)②函式 owner 必須對 `admin_audit_log` 有 INSERT(否則 apply 全綠、
+    上線第一次呼叫才 42501)③**`suppliers` 必須零欄級 ACL** —— `relacl` 只放表級授權,
+    做一次 `GRANT UPDATE (is_active) … TO service_role` 表級攤平**完全看不到**(實測),
+    而 service_role 從此可直接停用供應商、零稽核。
+11b. 🔴 **apply 之後必須重 gen `database.types.ts`**(關卡2 #16):S2 新增一支 RPC ⇒
+    `Functions` 區塊會變,而該檔由**正式站** schema 產生 ⇒ apply 前做不了。
+    重 gen 後必須貼回 `create_order.Args` 的三處人工校正(`p_client_ip` / `p_client_ua` /
+    `p_notification_email` 的 `| null`),**以 typecheck 轉綠為證**。
+    🔴 **片界更正(R3 #N10)**:`admin_upsert_supplier` 的**呼叫端在 S3b**(設定頁的
+    新增/改名/停用 action),不是 S3a —— S3a 依 §4 只做讀模型 `listSuppliers`。
+    ⇒ 重 gen 是 **apply 之後的固定步驟**,而**第一個真的需要它的片是 S3b**。
+    ~~原字面「S3a 要用 typed `.rpc('admin_upsert_supplier')`」~~ 與 §4 的片界分岔,已更正。
+11c. 🔴 **apply preflight(R3 #N8)**:11 的第三條(`suppliers` 零欄級 ACL)是**第一次**
+    對正式站執行的檢查(S1b 的欄級 ACL preflight 只查了採購表)⇒ `db push` 之前先跑:
+    `SELECT count(*) FROM pg_attribute WHERE attrelid='public.suppliers'::regclass
+     AND NOT attisdropped AND attacl IS NOT NULL;` 預期 **0**;非 0 先查是誰授的,不要直接 push。
+12. **稽核原子性**:RPC 回 **`CREATED` 或 `UPDATED`** ⇒ `admin_audit_log` 同交易恰多一列;
+    🔴 **回 `NO_CHANGE` / `NOT_FOUND` / `DUPLICATE_LABEL` 是正常業務結果、必須零稽核**
+    (關卡2 #15 抓:原字面「RPC 成功 ⇒ audit +1」會把這三種也算成要寫稽核)。
+    RPC 中途失敗 ⇒ **零留痕**,且**三個方向都要測**(關卡2 #7):
+    ①主資料寫入失敗 ⇒ 零稽核 ②稽核寫入失敗 ⇒ 已寫的主資料不留 ③稽核寫完之後才失敗 ⇒ 兩邊一起不留。
+    ~~「稽核寫完之後才失敗構造不出來」~~ 已被推翻(把 audit 之後的 `RETURN` 突變成 `RAISE` 即可)。
 13. 輸入白名單:不得改 `id`、不得寫時間欄。
+    🔴 **判別力界線**(關卡2 #9):參數簽章(結構)+ 前後值相等(行為)合起來證的是
+    「這些欄的**值**沒有被改動」,**不是**「函式的 SET 清單裡沒有它們」。
 
 **S3a/S3b**
 14. `listSuppliers` **預設只回 `is_active=true`**;🔴 **突變:拿掉該過濾必須有測試轉紅**
@@ -191,7 +216,18 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 16. typeahead:輸入 `Webike` ⇒ 候選恰 3 筆;輸入不存在字串 ⇒ 零候選且**不得**變成自由文字新增。
 17. S3b file manifest 逐檔 ≤400 行(鐵則 6)。
 
-**全片**:突變證明(每條具名守門破壞後對應負測必須轉綠)+ 零留痕 + 三綠(S3 動 `.tsx` ⇒ 含 build)。
+**全片**:突變證明 + 零留痕 + 三綠(S3 動 `.tsx` ⇒ 含 build)。
+🔴 **突變證明的範圍要講準**(關卡2 #14 抓 —— 原字面「每條具名守門破壞後對應負測必須轉綠」
+是**全稱宣稱**,而 S2 的 harness §D 自己就列了做不到的那些,兩處直接打架):
+
+- **行為可觀察**的具名守門 ⇒ 必須有突變格,且攻擊向量只被那一條擋住。
+- **被別道嚴格蘊含**的(例:S2 的 `label` 必填被 S1a 的 CHECK 蘊含、`actor` 必填被
+  `admin_audit_log` 的 NOT NULL 蘊含)⇒ **構造不出只紅它的向量**,不得硬寫假覆蓋;
+  逐條列進 harness 的「沒有突變證明」節並寫明被誰蘊含。
+- **純結構**的(簽章 / ACL / owner / 回傳型別 / SECURITY DEFINER / search_path)⇒ 由結構斷言
+  搭配 migration 檔內 fail-closed 閘涵蓋,同樣逐條列進該節。
+
+⇒ **驗收條件是「那一節存在且逐條有理由」,不是「突變數 = 守門數」。**
 
 ---
 
@@ -206,6 +242,30 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
   ⇒ **等價債重現、非消滅**,已寫進 §8-4 的 A5a 契約債。
 - **不做相似名稱機器比對**。`Eazi-Grip` 與 `Eazi Grip` 若被建成兩家,系統不阻止、不提醒;
   防線是拍板 6 的 typeahead(人眼)+ `label` UNIQUE(擋完全相同)。
+  🆕 **S2 施工實測補一種形狀**:`label` UNIQUE **區分大小寫** ⇒ `akoso` 與 `AKOSO` 也會並存
+  (實跑 `admin_upsert_supplier(NULL,'akoso',…)` 在已有 `AKOSO` 的庫回 `CREATED`)。
+  ⇒ 已知不擋的形狀共三種:**內部空白 / 大小寫 / 標點**。**這是清單不是窮舉** ——
+  任何「機器會幫我抓重複」的預期在本線都不成立。
+- 🔴🔴 **S2 R3 抓到的最重一條契約債(交給 S3b)**:`p_supplier_id` 為 NULL = 新增,這是
+  「一支函式靠參數 NULL 分流三種動作」的固有代價 —— **一個改名請求若因呼叫端 bug 弄丟 id,
+  會靜默降級成新增**。實測 `admin_upsert_supplier(NULL,'AKOSO 改名後',…)` 回 `CREATED`、
+  26→27 家、原本那家原封不動 ⇒ **多一筆永久垃圾列(供應商不可刪除)+ 改名沒發生 + 零錯誤**。
+  ⇒ **S3b 的改名 / 停用 action 必須斷言回傳碼 ∈ `{UPDATED, NO_CHANGE}`,收到 `CREATED` 當成呼叫端 bug
+  報錯,不得視為成功。** 訊號本來就在回傳碼裡,缺的是有人去看它。
+  🔴 根治法 = 拆成 create / update 兩支 RPC(型別層分流、弄丟 id 就是編譯錯),
+  但那要動已定的片界、需重提 plan ⇒ **S2 不做**;斷言回傳碼是夠用的便宜解。
+  harness 的 `B12c` 已把「目前沒有守門」這個行為釘住 —— 哪天真的加了守門,那一格會轉紅提醒改本節。
+- 🆕 **S2 審查發現的新契約債(交給 S3a/S3b,不在 S2 解)**:`admin_upsert_supplier` 撞到
+  **已停用**的同名供應商時,回的一樣是 `DUPLICATE_LABEL`;而驗收 14 定 `listSuppliers`
+  **預設只回 `is_active=true`** ⇒ 員工會看到「這家已存在」但 typeahead 裡找不到它、
+  也無從改名或重新啟用 = **UI 死路**。
+  ⇒ **S3b 必須有一條「顯示已停用的同名候選 + 一鍵重新啟用」的出口**,否則這是死角。
+  S2 不擴大回傳碼去解它(那要動 S3a/S3b 的資料合約)。
+- 🟡 **S2 審查順手查到的相鄰缺口(不屬本線任何一片、登記備查)**:S1a(`20260801140000`)
+  對兩支 trigger 函式只 `REVOKE ALL … FROM PUBLIC`、**沒涵蓋 anon/authenticated/service_role**,
+  而環境的 `ALTER DEFAULT PRIVILEGES` 會把 EXECUTE 補回給那三個角色。
+  **無可利用性**(trigger 函式直呼必炸 `can only be called as triggers`),但寫法與 S2 不一致。
+  修它 = 動已 apply 物件的 ACL = 另一支 migration 的決定,**不夾帶進 S2**。
   🔴 **不得宣稱「任何機器名稱處理都不值得」**(K1 抓 v1 此句過度概括)——
   A5b 那 37 條打在 plan 上、函式本體未被擊破;**成立的結論只有「在本片這個形狀下不需要」**。
 - **id 是 uuid** ⇒ 沒有「打錯字只能重建」的問題;label 可改所以顯示面永遠可補救。
