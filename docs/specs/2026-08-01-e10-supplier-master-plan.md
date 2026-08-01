@@ -62,7 +62,7 @@ CREATE TABLE public.suppliers (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT suppliers_label_nonempty   CHECK (pg_catalog.btrim(label) <> ''),
-  CONSTRAINT suppliers_label_normalized CHECK (label = pg_catalog.btrim(label)),
+  CONSTRAINT suppliers_label_trimmed CHECK (label = pg_catalog.btrim(label)),
   CONSTRAINT suppliers_label_unique     UNIQUE (label)
 );
 ```
@@ -77,8 +77,12 @@ suppliers 零既有資料、id 只是 FK 被參照端、**沒有任何人需要�
 uuid 之後更是如此。UNIQUE 是「不可分辨的兩個選項」的唯一機器防線。
 🔴 **`label = btrim(label)` CHECK**:Sean 原訊息裡 **`RaceSeats ` 帶尾隨空白**(逐字)。
 只擋「純空白」會讓 `'RaceSeats '` 與 `'RaceSeats'` 並存 ⇒ CHECK 強制寫入端先 trim。
-🟡 **分寸**:只做 trim + 內部連續空白收斂 = **「肉眼看起來完全一樣」**;
-**不做** NFKC/collation 那套「看起來像」的猜測(A5b 已作廢)。
+🟡 **分寸**:**只做 `btrim`(前後空白)**;**不做** NFKC/collation 那套「看起來像」的猜測(A5b 已作廢)。
+🔴 ~~「內部連續空白收斂」~~ **撤回(關卡2 R2)**:那句話沒有任何承接者 —— schema 只有 `btrim`,
+S2 契約與驗收也都沒有它。**實測 `'Eazi  Grip'`(中間兩個空白)現在插得進去**,
+與 `'Eazi Grip'` 會並存為兩家。這是**已知缺口、不是隱藏 bug**:防線是 S3b 新增畫面的 typeahead
+(打「Eazi」會同時列出兩筆給人眼看)。日後若要真的收斂,必須另開一支 migration 加 CHECK,
+並先決定既有列怎麼處理 —— **不得在文件裡先宣稱它已經成立**。
 
 **不可刪除的三道**(🔴 K1:v1 只有 FK,**擋不住刪除尚未被引用的列**):
 1. 不給 `service_role` DELETE / TRUNCATE 權。
@@ -114,7 +118,7 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 | 片 | 型 | 內容 |
 |---|---|---|
 | **S1a** | M | `suppliers` 表 + 3 道不可刪除 + ACL/RLS + touch trigger + **seed 26 家** + 檔內結構驗收 + `scripts/s1a-verify.sh` |
-| **S1b** | M | `order_item_procurement` 改形狀 + 索引 + **兩處 active COMMENT 更正** + **型別重 gen** + `scripts/s1b-verify.sh` |
+| **S1b** | M | `order_item_procurement` 改形狀 + 索引 + **COMMENT 兩方向驗收** + `scripts/s1b-verify.sh`。🔴 **不含型別重 gen** —— 它由正式站 schema 產生、apply 前物理上做不了,改列 apply runbook(見 §5-10;關卡2 R2 抓本欄與 §5-10 直接矛盾) |
 | **S2** | R | `admin_upsert_supplier` owner RPC(新增/改名/切停用)+ 同交易 audit |
 | **S3a** | A | 讀模型 + server action(`listSuppliers` 含 active 過濾與 `ORDER BY label`) |
 | **S3b** | U | `/settings/suppliers` 頁:列表(字母序)+ 新增(typeahead 候選)+ 改名 + 停用開關 |
@@ -133,26 +137,47 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
 ## §5 驗收條件(每條指名向量;🔴 v1 的驗收幾乎全在 S1,刪掉 S2/S3 仍全綠)
 
 **S1a**
-1. 恰 5 欄逐欄比對;恰 3 個具名約束、零未驗證約束。
+1. 恰 5 欄逐欄比對;具名約束集合恰為 `{suppliers_pkey, suppliers_label_nonempty,
+   suppliers_label_trimmed, suppliers_label_unique}`(**4 個**、雙向集合相等)、零未驗證約束。
+   🔴 ~~「恰 3 個具名約束」~~ 作廢:那個數字漏算 PK,與已 commit 的 S1a 實作(4 個)分岔
+   (關卡2 #3 抓;**驗收的真權威分岔比實作寫錯更危險** —— 它會讓後續片照錯的數字寫斷言)。
 2. RLS true + zero policy。
 3. **ACL:先斷言 `relacl IS NOT NULL`**(`a7bt-acl-rollback-lock.sh:129` 記載 IS NULL 曾是假綠),
    再驗 grantee 集合恰 `{owner, service_role}`;service_role **恰只有 SELECT**
    (有 INSERT/UPDATE/DELETE/TRUNCATE 任一即紅)。**PG17 八種權限全查含 `MAINTAIN`**。
 4. **不可刪除三道各自獨立負測**:①service_role DELETE → `42501`
-   ②owner DELETE 未被引用的列 → **BEFORE DELETE trigger 的具名錯誤**
-   ③owner DELETE 已被引用的列 → `23503`。**三條缺一不可**(K1:v1 只有 FK 那道)。
-5. `label` 負測:純空白 → `suppliers_label_nonempty` / 帶尾隨空白 → `suppliers_label_normalized` /
-   重複 label → `suppliers_label_unique`。
+   ②owner DELETE 未被引用的列 → **BEFORE DELETE trigger 的具名錯誤**(`P0001`)
+   ③owner DELETE 已被引用的列 → 🔴 **正常狀態下得到的是 `P0001` 不是 `23503`** ——
+   S1a 的 `BEFORE DELETE` trigger 無條件先炸,FK 永遠輪不到 ⇒ **原條件物理上不可達**
+   (關卡2 #4;S1b 施工時獨立實測確認)。改為:**停用該 trigger 後** DELETE 已被引用的列 → `23503`,
+   並在報告裡註明「FK RESTRICT 是縱深防禦第二層,不是可獨立觀察的第一道」。
+   同理 TRUNCATE 在 S1b 之後也變兩層(第一層 = 下游 FK `0A000`,第二層 = trigger `P0001`)。
+5. `label` 負測:純空白 → `suppliers_label_nonempty` / 帶尾隨空白 → `suppliers_label_trimmed` /
+   重複 label → `suppliers_label_unique`。(~~`suppliers_label_normalized`~~ 是 v2 寫錯的名字,
+   已 commit 的 S1a 用的是 `_trimmed`;關卡2 #3。)
+5b. `is_active` 的 **DEFAULT 必須是 true** 且 seed 26 家全部 `is_active=true`
+   —— 只驗欄數的話,把 DEFAULT 改成 false 會讓 26 家全停用、選單永遠是空的,而驗收照樣全綠(關卡2 #7)。
 6. seed:**恰 26 列**、逐字比對 §11 清單、且**全部 `label = btrim(label)`**。
 
 **S1b**
 7. 舊兩欄不存在;`supplier_id` NOT NULL;FK `confdeltype='r'` 且 `confupdtype='r'`;
    `order_item_procurement_business_key` 的 constraintdef 逐字為新定義;`(supplier_id)` 索引存在。
 8. 負測:插不存在的 `supplier_id` → `23503`;同 `(order_item_id, supplier_id)` 插兩次 → `23505`。
-9. **兩處 active COMMENT 已更正**(A2 的 COLUMN COMMENT + A1 `20260730150000:170-174`)——
-   逐字 grep,舊字面零殘留。
-10. **型別重 gen 且三處人工校正未被沖掉**(`create_order.Args` 的 `p_client_ip`/`p_client_ua`/
-    `p_notification_email` 的 `| null`)—— 這是已知會復發的坑,typecheck 綠即為證。
+9. **COMMENT 兩個方向都要驗**:①禁字方向 —— `canonical` / `supplier_name` 在表與各欄註解零殘留
+   (A2 的 COLUMN COMMENT 隨欄 DROP 自動消失;A1 `20260730150000:170-174` 的 TABLE COMMENT 要整段改寫)
+   ②**必要內容方向** —— 表註解必須同時保留 A1 的 `order_item_quantity_summary` 更正與本片說明,
+   `supplier_id` 欄註解與 business key 約束註解必須存在且各自載明它負責記住的債。
+   🔴 只驗禁字的話,把三段 COMMENT 全部省略不下、舊註解原封留著,驗收仍會全綠(關卡2 #14)。
+   🔴 查 `pg_description` 必須帶 `classoid`(鍵是 `(objoid, classoid, objsubid)`;關卡2 #15)。
+10. 🔴 **型別重 gen 不屬 S1b,改列為 apply 後的獨立步驟**(關卡2 #5 抓出 plan 與實作打架):
+    `database.types.ts` 由**正式站** schema 產生 ⇒ 在 Sean `db push` 之前物理上做不了。
+    ⇒ S1b 的 DoD **不含**重 gen;它與「貼回 `create_order.Args` 的三處人工校正
+    (`p_client_ip`/`p_client_ua`/`p_notification_email` 的 `| null`)」一起,
+    列進 apply runbook,以 typecheck 轉綠為證。
+    **在重 gen 之前不得宣稱型別已對齊**(現況安全的理由:全樹只有 `database.types.ts`
+    一個檔提到 `order_item_procurement`、零 app code 消費 —— 本片實 grep 確認)。
+10b. **相依物前置閘**:DROP 之前必須斷言採購表的索引集合、無繼承子表、無欄級 ACL
+    —— `DROP COLUMN` 會靜默連帶刪索引並遞迴子表,事後的結構驗收看不出「消失的只有我打算刪的」(關卡2 #11)。
 
 **S2**
 11. RPC 是 `SECURITY DEFINER` + `SET search_path` + `REVOKE ALL FROM PUBLIC` + **只 GRANT service_role**。

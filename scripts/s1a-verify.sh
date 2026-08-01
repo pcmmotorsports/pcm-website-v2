@@ -38,7 +38,9 @@ expect_red() {
   local label="$1" want_txt="$2" want_state="$3" sql="$4" out rc state
   out="$(psql "$URL" -v ON_ERROR_STOP=1 -tAX -c "$sql" 2>&1)"; rc=$?
   if [ $rc -eq 0 ]; then bad "$label — 竟然成功了(期望被擋)"; return; fi
-  state="$(psql "$URL" -tAX -c "\set VERBOSITY verbose" -c "$sql" 2>&1 | sed -n 's/^ERROR:.*SQLSTATE:[[:space:]]*\([0-9A-Z]*\).*/\1/p' | head -1)"
+  # 🔴 2026-08-01(S1b)修:verbose 的格式是 `ERROR:  23505: 訊息`,不是 `SQLSTATE: 23505`
+  #    ⇒ 原 pattern 從未命中,整組 SQLSTATE 判定其實只有下面的 fallback 一條腿在撐。
+  state="$(psql "$URL" -tAX -c "\set VERBOSITY verbose" -c "$sql" 2>&1 | sed -n 's/^ERROR:[[:space:]]*\([0-9A-Z]\{5\}\):.*/\1/p' | head -1)"
   [ -n "$state" ] || state="$(psql "$URL" -tAX <<SQL 2>&1 | tr -d ' \n'
 DO \$\$ BEGIN
   BEGIN $sql; EXCEPTION WHEN OTHERS THEN RAISE NOTICE '%', SQLSTATE; END;
@@ -70,6 +72,30 @@ case "$o" in *"division by zero"*) : ;; *) st_ok=0 ;; esac
 [ "$st_ok" = "1" ] && ok "自我測試:壞 SQL 判紅、好 SQL 判綠、錯誤訊息取得正確" \
   || { echo "🔴 harness 自我測試失敗 — 後面結果不可信"; exit 1; }
 
+# 🔴 SQLSTATE 兩條取得路徑各自證明可用(關卡2 #9):原本主路徑是死 pattern、
+#    整套靠 fallback 撐,而「兩條都在」與「只剩一條」在 PASS 數上長得一模一樣。
+sqlstate_primary="$(psql "$URL" -tAX -c "\set VERBOSITY verbose" -c "SELECT 1/0;" 2>&1 | sed -n 's/^ERROR:[[:space:]]*\([0-9A-Z]\{5\}\):.*/\1/p' | head -1)"
+[ "$sqlstate_primary" = "22012" ] && ok "自我測試:SQLSTATE 主路徑(verbose 解析)可用" \
+  || bad "SQLSTATE 主路徑失效 — 取得 [$sqlstate_primary],整組 SQLSTATE 判定只剩 fallback 一條腿"
+sqlstate_fallback="$(psql "$URL" -tAX <<'SQL' 2>&1 | tr -d ' \n'
+DO $$ BEGIN
+  BEGIN SELECT 1/0; EXCEPTION WHEN OTHERS THEN RAISE NOTICE '%', SQLSTATE; END;
+END $$;
+SQL
+)"
+case "$sqlstate_fallback" in *22012*) ok "自我測試:SQLSTATE fallback 路徑可用" ;;
+  *) bad "SQLSTATE fallback 失效 — 取得 [$sqlstate_fallback]" ;; esac
+
+# 🔴 片界宣告(關卡2 #6):S1b 之後 suppliers 多了一個下游 FK,
+#    「不可 TRUNCATE / 不可 DELETE」變成兩層。本 harness 依 S1b 是否已套走不同斷言,
+#    但**不靜默略過任何一邊** —— 走哪一支會印出來,而且兩支各自都有斷言。
+# 🔴 關卡2 R2:conname 不是全庫唯一,必須綁 conrelid,否則別表同名約束會讓片界判錯(假紅)
+if [ "$(q "SELECT count(*) FROM pg_constraint WHERE conname='order_item_procurement_supplier_id_fkey' AND conrelid=to_regclass('public.order_item_procurement')")" = "1" ]; then
+  S1B_APPLIED=1; ok "片界:偵測到 S1b 已套(下游 FK 存在)⇒ 走兩層斷言"
+else
+  S1B_APPLIED=0; ok "片界:S1b 尚未套(下游 FK 不存在)⇒ 走單層斷言(S1a 獨立驗證模式)"
+fi
+
 echo "== A. 結構與 ACL =="
 [ "$(q "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='suppliers'")" = "5" ] \
   && ok "恰 5 欄" || bad "欄數不符"
@@ -83,11 +109,27 @@ echo "== A. 結構與 ACL =="
   && ok "三支 trigger 啟用" || bad "trigger 數或啟用態不符"
 [ "$(q "SELECT relacl IS NOT NULL FROM pg_class WHERE oid='public.suppliers'::regclass")" = "t" ] \
   && ok "relacl 非 NULL(否則整組 ACL 斷言是假綠)" || bad "relacl 為 NULL"
-[ "$(q "SELECT has_table_privilege('service_role','public.suppliers','SELECT')")" = "t" ] && ok "service_role 有 SELECT" || bad "service_role 缺 SELECT"
-[ "$(q "SELECT has_table_privilege('service_role','public.suppliers','INSERT') OR has_table_privilege('service_role','public.suppliers','UPDATE') OR has_table_privilege('service_role','public.suppliers','DELETE') OR has_table_privilege('service_role','public.suppliers','TRUNCATE')")" = "f" ] \
-  && ok "service_role 只有 SELECT" || bad "service_role 權限過寬"
+# 🔴 關卡2 #8:原本只點名 4 種權限 + service_role 一個角色 ⇒ 授 REFERENCES / TRIGGER /
+#    PG17 新增的 MAINTAIN、或授給任何自訂角色,全部會靜默通過。
+#    改成整張 ACL 攤平後與期望集合逐字比對(排除 owner 那一列)。
+# 🔴 關卡2 R2:①帶 is_grantable(實測 WITH GRANT OPTION 攤平後字串完全相同)
+#              ②owner 用 OID 比,不用渲染後的名字(需引號的角色名會比不中)
+ACL_SQL="SELECT coalesce(string_agg(g||':'||p||':'||gr, ', ' ORDER BY g, p), '<無>') FROM (SELECT pg_get_userbyid(a.grantee) AS g, a.privilege_type AS p, a.is_grantable::text AS gr FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a WHERE c.oid='public.suppliers'::regclass AND a.grantee <> c.relowner) x"
+[ "$(q "$ACL_SQL")" = "service_role:SELECT:false" ] \
+  && ok "ACL 攤平比對:非 owner 授權恰為 service_role:SELECT:false(八種權限全查、不可轉授)" \
+  || bad "ACL 攤平比對不符 — 實為 $(q "$ACL_SQL")"
+[ "$(q "SELECT count(*) FROM pg_class c CROSS JOIN LATERAL aclexplode(c.relacl) a WHERE c.oid='public.suppliers'::regclass AND a.grantee=0")" = "0" ] \
+  && ok "PUBLIC 零授權(grantee=0 單獨查,它不會出現在角色名比對裡)" || bad "PUBLIC 有授權"
+[ "$(q "SELECT count(*) FROM pg_attribute WHERE attrelid='public.suppliers'::regclass AND NOT attisdropped AND attacl IS NOT NULL")" = "0" ] \
+  && ok "零欄級 ACL(表級收斂了、欄級照樣能開後門)" || bad "有欄位帶欄級 ACL"
 [ "$(q "SELECT has_table_privilege('anon','public.suppliers','SELECT') OR has_table_privilege('authenticated','public.suppliers','SELECT')")" = "f" ] \
   && ok "client 三角色讀不到" || bad "client 角色能讀"
+# 🔴 關卡2 #7:原本只驗欄數,沒有人驗 is_active 的 DEFAULT。
+#    把 DEFAULT 改成 false ⇒ seed 26 家全部停用、未來選單一片空白,而整套仍全綠。
+[ "$(q "SELECT pg_get_expr(adbin, adrelid) FROM pg_attrdef d JOIN pg_attribute a ON a.attrelid=d.adrelid AND a.attnum=d.adnum WHERE d.adrelid='public.suppliers'::regclass AND a.attname='is_active'")" = "true" ] \
+  && ok "is_active DEFAULT 為 true(不是 false ⇒ 新增的供應商預設可用)" || bad "is_active DEFAULT 不是 true"
+[ "$(q "SELECT count(*) FROM public.suppliers WHERE is_active")" = "26" ] \
+  && ok "seed 26 家全部 is_active=true(全停用的話選單會是空的)" || bad "有 seed 供應商不是啟用狀態"
 
 # 🔴 seed 內容比對,不只列數(關卡2 #6:只驗 26 列 ⇒ 把 AKOSO 換成任意名稱仍通過)
 # 🔴 用**集合對稱差**而非排序後字串:排序結果依 collation 而定,手寫一份等於再造一個
@@ -112,7 +154,33 @@ expect_red "空字串 label(只打 nonempty)" "suppliers_label_nonempty" "23514"
 expect_red "尾隨空白 label(只打 trimmed)" "suppliers_label_trimmed"  "23514" "INSERT INTO public.suppliers(label) VALUES ('AKOSO ')"
 expect_red "重複 label"                    "suppliers_label_unique"   "23505" "INSERT INTO public.suppliers(label) VALUES ('AKOSO')"
 expect_red "owner 直接 DELETE"             "不可刪除"                  "P0001" "DELETE FROM public.suppliers WHERE label='AKOSO'"
-expect_red "owner TRUNCATE"                "不可刪除"                  "P0001" "TRUNCATE public.suppliers"
+# 🔴 2026-08-01 S1b 之後 TRUNCATE 變成兩層,原本那條單層斷言已不成立(實測):
+#    下游 order_item_procurement.supplier_id 的 FK 讓 PG 在 **BEFORE TRUNCATE trigger 之前**
+#    就拒絕(0A000)⇒ suppliers_no_truncate 在正常狀態下**物理上觀察不到**。
+#    它不是死碼(下面第二層實測 P0001),但**不得**再被記成「TRUNCATE 的第一道防線」。
+if [ "$S1B_APPLIED" = "1" ]; then
+  expect_red "owner TRUNCATE(第一層 = 下游 FK)" "cannot truncate a table referenced in a foreign key constraint" "0A000" \
+    "TRUNCATE public.suppliers"
+  # 🔴 關卡2 #10:手寫 case 原本只比訊息片段卻記成 P0001 ⇒ 同訊息配錯 SQLSTATE 照樣 PASS。
+  #    改用 DO 包住取真 SQLSTATE,訊息與碼**兩者都比**。
+  o="$(psql "$URL" -tAX <<SQL 2>&1
+BEGIN;
+ALTER TABLE public.order_item_procurement DROP CONSTRAINT order_item_procurement_supplier_id_fkey;
+DO \$probe\$ BEGIN
+  BEGIN TRUNCATE public.suppliers; RAISE NOTICE 'PROBE-GREEN';
+  EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'PROBE-RED %|%', SQLSTATE, SQLERRM; END;
+END \$probe\$;
+ROLLBACK;
+SQL
+)"
+  case "$o" in
+    *"PROBE-RED P0001|供應商不可刪除"*) ok "拿掉下游 FK 後,suppliers_no_truncate 接手擋下(P0001 + 訊息皆比對)= 第二層承重" ;;
+    *) bad "第二層 TRUNCATE 斷言不符 —— 實際:$(printf '%s' "$o" | grep PROBE | head -1)" ;;
+  esac
+else
+  # S1a 單片模式:沒有下游 FK,trigger 就是第一層,直接觀察得到
+  expect_red "owner TRUNCATE(單片模式 = trigger 為第一層)" "不可刪除" "P0001" "TRUNCATE public.suppliers"
+fi
 # 🔴 service_role 的「不可刪」要真的用該身分測,不能只看權限表(關卡2 #7)
 expect_red "service_role DELETE(真 SET ROLE)" "permission denied" "42501" \
   "SET LOCAL ROLE service_role; DELETE FROM public.suppliers WHERE label='AKOSO'"
@@ -157,11 +225,28 @@ mutate "label_unique"   "ALTER TABLE public.suppliers DROP CONSTRAINT suppliers_
                         "INSERT INTO public.suppliers(label) VALUES ('AKOSO');"
 mutate "no_delete"      "DROP TRIGGER suppliers_no_delete ON public.suppliers;" \
                         "DELETE FROM public.suppliers WHERE label='AKOSO';"
-mutate "no_truncate"    "DROP TRIGGER suppliers_no_truncate ON public.suppliers;" \
+# 🔴 S1b 之後這個突變必須連下游 FK 一起拿掉,否則 TRUNCATE 永遠紅在 FK(0A000),
+#    整格會被誤判成「no_truncate 是死碼」。突變的對象仍只有一條守門,FK 是為了把它露出來。
+if [ "$S1B_APPLIED" = "1" ]; then
+  mutate "no_truncate"  "ALTER TABLE public.order_item_procurement DROP CONSTRAINT order_item_procurement_supplier_id_fkey;
+                         DROP TRIGGER suppliers_no_truncate ON public.suppliers;" \
                         "TRUNCATE public.suppliers;"
+else
+  mutate "no_truncate"  "DROP TRIGGER suppliers_no_truncate ON public.suppliers;" \
+                        "TRUNCATE public.suppliers;"
+fi
+# 🔴 判準改成「updated_at 有沒有被推進」,不是「updated_at > created_at」——
+#    後者假設目標列從未被改過,任何前面的測試(或別支 harness)動過它就會靜默誤判。
+#    2026-08-01 實際踩到:s1b-verify 對 AKOSO 做了一次合法改名 ⇒ 這格轉紅。
 mutate "touch_updated"  "DROP TRIGGER suppliers_touch_updated_at ON public.suppliers;" \
-                        "UPDATE public.suppliers SET label='AKOSO2' WHERE label='AKOSO';
-                         DO \$\$ BEGIN IF (SELECT updated_at > created_at FROM public.suppliers WHERE label='AKOSO2') THEN RAISE EXCEPTION 'trigger 還在'; END IF; END \$\$;"
+                        "CREATE TEMP TABLE _tu_before ON COMMIT DROP AS SELECT updated_at FROM public.suppliers WHERE label='AKOSO';
+                         UPDATE public.suppliers SET label='AKOSO2' WHERE label='AKOSO';
+                         DO \$\$ BEGIN
+                           IF (SELECT updated_at FROM public.suppliers WHERE label='AKOSO2')
+                              IS DISTINCT FROM (SELECT updated_at FROM _tu_before) THEN
+                             RAISE EXCEPTION 'trigger 還在:updated_at 被推進了';
+                           END IF;
+                         END \$\$;"
 mutate "service_role_acl" "GRANT DELETE ON public.suppliers TO service_role; DROP TRIGGER suppliers_no_delete ON public.suppliers;" \
                         "SET LOCAL ROLE service_role; DELETE FROM public.suppliers WHERE label='AKOSO';"
 
