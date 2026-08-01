@@ -1,5 +1,37 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎉 **2026-08-01:A7c 退款帳本改記金額 —— 已 commit、已 push、已 apply 到正式站、型別已重 gen。**
+> 接手入口 = `docs/handoff/2026-08-01-a7c-applied-handoff.md`;細節報告 = 同目錄 `-night-run-report.md`。
+> commit = `44c8ee2`(A7c)+ `2e0aaa7`(重 gen 型別),**都已 push**;工作樹乾淨、0 未推。
+>
+> **Sean 08-01 早拍三題(都依照建議)**:Q1=A 帳本改「記金額」、改形狀摺進同一支 migration /
+> Q2=A 已結案填錯先不做更正出口 / Q3=A 轉 failed 前的對帳只寫營運鐵律不設守門。
+>
+> 🔴 **正式站已變更**:`order_refunds` **移除** items_amount / shipping_fee_before /
+> shipping_fee_after / shipping_delta 四欄、**新增** rec_trade_id(NOT NULL);
+> `order_refund_items` 已凍結(無寫入端)。apply 後 MCP 唯讀實查:舊欄 0 個、
+> rec_trade_id NOT NULL=true、5 支 A7c trigger origin 啟用、兩表 0 列。
+> ⚠️ 改形狀是破壞性的,rollback 只能重建結構、無法還原資料(apply 當下兩表為空,無資料損失)。
+>
+> **成果**:14 道守門全部經突變證明承重、0 死規則;21 條負測全部斷言指定的 CONSTRAINT_NAME;
+> 43 項全綠。**四輪審查 findings 彼此零重疊**(R1 Claude FAIL 11 → R2 codex NO-GO 16 →
+> R3 Fable 換角度 FAIL 3 → R4 codex 聚焦改形狀 NO-GO 3+2),全部折入。
+> 🔴 **其中六條是測試自己在騙自己**(突變判準把「被別道擋下」記成承重、oracle 抓錯兇手、
+> 敏感度測試走了說謊路徑、INSERT 負測讓既有不變式從未執行、負測多帶一欄被別道接住、
+> 刪空表時 BEFORE ROW trigger 不觸發)⇒ harness 已改三態判準。
+>
+> 🔴 **唯一會真的退兩次錢的路(拍板⑤ 擋不到)**:退款已執行但沒記到對帳碼 → 轉 failed →
+> 剩餘可退額回升 → 再退一次,而兩次部分退款累計仍在原刷卡額內 ⇒ TapPay 不會攔。
+> ⇒ **營運鐵律:轉 failed 前必先用 Record API 對帳。**
+>
+> **下一步**:①**今晚 22:00 後** sandbox API 退款實測(腳本已備 `scripts/tappay-sandbox-refund-probe.py`;
+> 回答「API 支不支援多次部分退」與「超額退款 API 會不會拒」—— Portal 按鈕消失只證明介面擋住)
+> ②`TapPayChargeAdapter.refund()` 實作 + 後台按鈕(最高風險段、單獨一片單獨審)。
+>
+> **未解題**:匯款訂單無法登記退款 / partiallyPaid 也被擋 / 帳本不能容納事後補登的 Portal 退款 /
+> 重複扣款那天退第二筆交易物理上無法登記(#301 最在乎的情境)。
+
+
 > 🎉 **2026-07-31:backlog #306「選車後即時計數」端到端完成 —— 已合回 `dev`、Sean 肉眼驗收通過、未 push、零 DB。**
 > 接手入口 = `docs/handoff/2026-07-31-306-catalog-facet-counts-handoff.md`。
 > commit = `3b490e1`(#306-a 取數層)+ `5867546`(#306-b 接線層)+ `c6c6030`(交接檔),`--no-ff` 合回。
