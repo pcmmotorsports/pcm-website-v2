@@ -1,5 +1,11 @@
 // supplier-form.ts — M-4b E10 S3b-1:供應商設定頁 server action 的純表單解析器(無 IO / 無 Next 依賴)。
 //
+// 🔴🔴 **本檔會被 client 端 import,不得引入 `server-only` 或任何 server 專用模組。**
+//    (S3b-3a 起 `supplier-candidates.ts` 用了本檔的 `rpcTrim`,而 candidates 會被
+//     `'use client'` 的 typeahead 元件呼叫。)哪天有人在這裡加 `import 'server-only'`
+//    或 import repository / adapters,那支 client 元件會在建置或執行期直接炸。
+//    本檔目前零 import、零 IO、零敏感值 ⇒ 進 client bundle 只多 31 個碼位與幾支 parser。
+//
 // 🔴 本檔鏡像的是 `admin_upsert_supplier`(`20260801160000`)的 **label 與 id 規則,不是它的全部輸入驗證**。
 //    (R1 抓:原字面「是 RPC 輸入驗證的鏡像」說滿了。)逐條講清楚:
 //      ✅ **有鏡像**:label 的剝空白字元集 / 判空 / 長度上限 / 控制字元 / 驗證順序。

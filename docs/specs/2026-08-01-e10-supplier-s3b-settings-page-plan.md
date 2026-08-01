@@ -191,6 +191,41 @@ v1 的 15 檔 / 約 1,555 行不是一片。**流程題,依 memory `feedback_dec
 🔴 **`supplier-repository.test.ts` 369 行,已進入 >300 硬警戒區**(鐵則 6)。
 S3b-2 若要往這支加測試 ⇒ **先拆**(建議把寫入面測試獨立成 `supplier-write.test.ts`),不要撐到 400 才處理。
 
+### S3b-2 manifest — ✅ **已收工**(`4833cae`;行數為當場 `wc -l` 實測)
+
+| 檔 | 新/改 | 基準 | **實測** | ≤400 |
+|---|---|---|---|---|
+| `lib/supplier-actions.ts` | 新 | — | **295** | ✅ |
+| `lib/supplier-actions.test.ts` | 新 | — | **393** | ⚠️ 距上限 7 行 |
+| `lib/supplier-actions-redirect.test.ts` | 新(**拆檔二**) | — | **228** | ✅ |
+| `lib/supplier-result-messages.ts` | 新 | — | **63** | ✅ |
+| `lib/supplier-result-messages.test.tsx` | 新 | — | **85** | ✅ |
+| `lib/supplier-write.test.ts` | 新(**拆檔一**) | — | **305** | ✅ |
+| `lib/supplier-repository.test.ts` | 改 | 369 | **94** | ✅ |
+| `lib/supplier-form.ts` | 改 | 166 | **200** | ✅ |
+| `lib/supplier-form.test.ts` | 改 | 266 | **299** | ✅ |
+| `components/settings/settings-result-banner.tsx` | 改(**計畫外**) | 40 | **49** | ✅ |
+| `components/orders/result-banner.tsx` | 改(**計畫外**) | 29 | **35** | ✅ |
+| `components/orders/result-banner.test.tsx` | 新(**計畫外**) | — | **43** | ✅ |
+
+🔴 **兩處計畫外改動的理由與待補批**見 STATUS「Sean 待決策」欄 2026-08-02 條。
+
+### S3b-3a manifest — ✅ **已收工**(純函式層;S3b-3 的 UI 元件仍未動工)
+
+| 檔 | 新/改 | 基準 | **實測** | ≤400 |
+|---|---|---|---|---|
+| `lib/supplier.ts` | 改 | 32 | **71** | ✅ |
+| `lib/supplier.test.ts` | 改 | **105** | **237** | ✅ |
+| `lib/supplier-candidates.ts` | 新 | — | **56** | ✅ |
+| `lib/supplier-candidates.test.ts` | 新 | — | **106** | ✅ |
+
+🔴 **拆出 S3b-3a 的授權來源要講準**:§4 預先授權的是「超過 ~700 行或最大檔逼近 400 ⇒ 候選過濾獨立成 S3b-4」,
+而**實際觸發是時間**(夜跑 06:30 不足以做完 UI 面 + 完整審查),順手把共用排序也一起拉出來
+⇒ 這是**鐵則 4**(15-45 分鐘可中斷)的授權,**不是 §4 那條**。不得寫成「照 §4 拆的」。
+✅ 驗收 16a-16g 已收;**16h(元件層釘住真的接到那支純函式)留 S3b-3**。
+🔴 **16h 要一併釘順序,不能只釘數量**:候選來源必須是 `listSuppliersForSettings()` 的輸出;
+若 UI 片直接餵 `listSupplierRows()` 的原始列,候選順序會變成 DB 回傳順序而 16h 看不見。
+
 🔴 `[K1-n1]` v1 的基準行數兩處寫錯(`supplier.ts` 32 非 33、`supplier-repository.test.ts` 90 非 ~130),
 已用 `wc -l` 實測回填。
 🔴 **預估全面偏低(最大偏差 `supplier-repository.ts` +60%)** —— R1 must-fix #4 抓到本欄未回填。

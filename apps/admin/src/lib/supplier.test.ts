@@ -4,7 +4,11 @@ const { listSupplierRows } = vi.hoisted(() => ({ listSupplierRows: vi.fn() }));
 
 vi.mock('./supplier-repository', () => ({ listSupplierRows }));
 
-import { listSuppliers } from './supplier';
+import {
+  listSuppliers,
+  listSuppliersForSettings,
+  sortSuppliersByLabel,
+} from './supplier';
 
 const id = (n: number) => `${n}${n}${n}${n}${n}${n}${n}${n}-${n}${n}${n}${n}-${n}${n}${n}${n}-${n}${n}${n}${n}-${n}${n}${n}${n}${n}${n}${n}${n}${n}${n}${n}${n}`;
 
@@ -101,5 +105,133 @@ describe('listSuppliers', () => {
     listSupplierRows.mockRejectedValue(dbError);
 
     await expect(listSuppliers()).rejects.toBe(dbError);
+  });
+});
+
+// ── S3b-3a:共用排序的單一來源(plan §3.2 / `[K1-M10]`)──────────────
+// 🔴 **兩條路各自的「結果順序」測試證明不了單一來源** —— 兩邊各 `new Intl.Collator('zh-TW')`
+//    會讓兩條測試同時綠,而它們排的是兩份可以各自漂移的規則。
+//    單一來源要靠**兩條性質不同**的斷言合起來釘:①行為層(下面兩支各自的向量)
+//    ②結構層(整個 apps/admin/src 的非測試碼裡 collator 恰 1 處)。
+describe('sortSuppliersByLabel', () => {
+  it('should apply the same pinned zh-TW order to any row shape', () => {
+    const rows = [
+      { label: 'Webike TW' },
+      { label: '阿毅物流' },
+      { label: 'AKOSO' },
+      { label: '陳蔚仁' },
+      { label: 'WRS s.r.l' },
+      { label: '安豐達' },
+    ];
+
+    expect(sortSuppliersByLabel(rows).map((r) => r.label)).toEqual([
+      '安豐達',
+      '阿毅物流',
+      '陳蔚仁',
+      'AKOSO',
+      'Webike TW',
+      'WRS s.r.l',
+    ]);
+  });
+
+  // 🔴 collator 對「只差零寬字元」的兩個 label 回 0(親測 node v22)⇒ 沒有 tiebreak 的話
+  //    這兩列的相對順序 = 輸入順序 = DB 回傳順序 = 跨請求不穩定,員工每次重整看到不同排法。
+  //    而「內部零寬字造成的實質重複」正是本線明文不擋的情形 ⇒ 這種列真的會存在。
+  //    兩個方向的輸入都必須得到**同一個**輸出,才證得了全序。
+  it('should be a total order even when the collator calls two labels equal', () => {
+    const zwsp = String.fromCharCode(0x200b);
+    const plain = 'AKOSO';
+    const shadowed = `AKOSO${zwsp}`;
+
+    expect(new Intl.Collator('zh-TW').compare(plain, shadowed)).toBe(0); // 前提
+
+    const forward = sortSuppliersByLabel([{ label: plain }, { label: shadowed }]);
+    const backward = sortSuppliersByLabel([{ label: shadowed }, { label: plain }]);
+
+    expect(forward.map((r) => r.label)).toEqual(backward.map((r) => r.label));
+  });
+
+  // 🔴 不就地排序:呼叫端拿到的若是同一個陣列,server component 的資料就會被下游改動。
+  it('should not sort the caller array in place', () => {
+    const rows = [{ label: 'Webike TW' }, { label: '安豐達' }];
+    const before = rows.map((r) => r.label);
+
+    sortSuppliersByLabel(rows);
+
+    expect(rows.map((r) => r.label)).toEqual(before);
+  });
+});
+
+describe('listSuppliersForSettings', () => {
+  // 🔴 與 listSuppliers 的**唯一**差別:停用的列必須回得來。
+  //    少了它,Sean Q2=A「撞名時定位到那一列讓員工自己按啟用」在畫面上做不到 ——
+  //    因為那一列根本不在清單裡。
+  it('should keep inactive suppliers and sort them with the shared order', async () => {
+    listSupplierRows.mockResolvedValue([
+      { id: id(1), label: 'Webike TW', is_active: true },
+      { id: id(2), label: '安豐達', is_active: false },
+      { id: id(3), label: 'AKOSO', is_active: true },
+    ]);
+
+    await expect(listSuppliersForSettings()).resolves.toEqual([
+      { id: id(2), label: '安豐達', is_active: false },
+      { id: id(3), label: 'AKOSO', is_active: true },
+      { id: id(1), label: 'Webike TW', is_active: true },
+    ]);
+  });
+
+  it('should propagate database errors instead of returning an empty list', async () => {
+    const dbError = new Error('database unavailable');
+    listSupplierRows.mockRejectedValue(dbError);
+
+    await expect(listSuppliersForSettings()).rejects.toBe(dbError);
+  });
+});
+
+// ── 結構層:collator 只准有一份 ──────────────────────────────────────
+// 🔴 **誠實邊界(plan §3.2 已寫)**:這是**文字層**斷言。它保證「多出第二個 collator 建構
+//    會被看見」,**不保證**「所有排序都經過 sortSuppliersByLabel」——
+//    有人用 `.localeCompare()` 或不帶 `new` 的 `Intl.Collator(...)` 另排一次,本條看不見;
+//    掃描範圍也只有 `apps/admin/src`(`packages/ui` 不在內)。
+//    那些缺口由 code review 與各消費端自己的順序向量涵蓋,不是無縫。
+// 🔴 排除測試檔是必要的:本檔上面那條 precondition 測試自己就建了一個 collator。
+describe('排序來源唯一性(結構層)', () => {
+  it('should construct a collator exactly once across non-test admin source', async () => {
+    const { readdir, readFile } = await import('node:fs/promises');
+    const srcRoot = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
+    const entries = await readdir(srcRoot, {
+      recursive: true,
+      withFileTypes: true,
+    });
+
+    const scanned: string[] = [];
+    let constructions = 0;
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!/\.(ts|tsx)$/.test(entry.name)) continue;
+      if (/\.(test|spec)\.tsx?$/.test(entry.name)) continue;
+      const absolute = `${entry.parentPath}/${entry.name}`;
+      const relative = absolute.slice(srcRoot.length + 1);
+      scanned.push(relative);
+      const source = await readFile(absolute, 'utf8');
+      // 🔴 數的是**建構次數**不是命中的檔案數(R1 must-fix):在 supplier.ts **同一檔內**
+      //    再建第二把(最可能的落點,就在第一把旁邊)⇒ 檔案數仍是 1、舊寫法全綠。
+      //    帶左括號才算,避免把註解裡提到 `new Intl.Collator` 的文字算進去。
+      constructions += source.split('new Intl.Collator(').length - 1;
+    }
+
+    // 🔴 前提斷言 A:掃描真的走遍全樹,不是只掃到 lib/ 那棵子樹
+    //    (R1 抓:`lib` 單獨就有 43 個非測試檔,用「檔數 > 50」當前提擋不住只掃 src 一半)。
+    //    釘一個**離 lib 很遠**的已知檔,漏掃時這條先紅。
+    expect(scanned).toContain('app/settings/staff/page.tsx');
+    expect(scanned).toContain('components/settings/settings-result-banner.tsx');
+    // 前提斷言 B:collator 就在它該在的那個檔(比對相對路徑,不是 basename ——
+    //    R1 抓:比 basename 的話,搬到另一個也叫 supplier.ts 的檔照樣綠)。
+    const owner = scanned.filter((relative) =>
+      relative === 'lib/supplier.ts',
+    );
+    expect(owner).toHaveLength(1);
+
+    expect(constructions).toBe(1);
   });
 });
