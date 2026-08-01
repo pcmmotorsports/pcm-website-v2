@@ -1,8 +1,25 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🏪 **2026-08-01 下午:供應商主檔 plan v2 已寫完、等 Sean 批准;code 零行。**
-> **接手入口 = `docs/handoff/2026-08-01-supplier-master-handoff.md`**(含今天全部拍板逐字 + 四次「字面 vs 事實」自陳)。
-> 未推 commit 3 筆、工作樹乾淨。
+> 🏪 **2026-08-01 深夜:供應商主檔線資料層 + 讀模型已完成 —— S1a / S1b / S2 已 apply 正式站,S2-C 併發 harness 與 S3a 讀模型已 commit。下一片 = S3b 設定頁。**
+> **接手入口 = `docs/handoff/2026-08-01-supplier-master-handoff.md`**(含今天全部拍板逐字 + 每片的誠實邊界)。
+> 工作樹乾淨;**未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準**(本檔不寫死,舊版寫死的「3 筆」已證實會過期)。
+>
+> 🔴 **S3b 開工前務必知道兩件與舊字面相反的事**(spec 三處已補 superseded 註記):
+> ①**排序不交給 DB** —— Sean 深夜拍板 **B**:JS 端釘死 `new Intl.Collator('zh-TW')`。
+> **實測 zh-TW = 中文排在拉丁前面、中文之間按筆畫**,與 plan D2 原文「拉丁 A-Z 在前」**相反**。
+> ②**S3a 沒有 server action 檔** —— 讀由 server component 直呼 repository;寫入呼叫端才在 S3b。
+> 🔴 S3b 的列表要顯示停用列 ⇒ 吃 `listSupplierRows()`;**排序要抽共用函式,不要複製 collator**。
+>
+> 🔴🔴 **今晚事故(已落檔,機制已改)**:同一個 22:04 one-shot cron 被排在**兩個視窗**,
+> **兩個 agent 都真的對同一筆 sandbox 交易送出退款**,六元被吃掉四元、**1 元無法歸屬**。
+> 起因是本檔姊妹檔 §1 舊版寫的「重複排的成本遠低於漏排」—— 那句對**排程**成立、對**排程的內容**不成立。
+> **新規則**:含對外寫入(退款/寄信/下單/部署)的排程**同一時間只准一份**、交接檔要寫明**由哪個視窗持有**、
+> 其他視窗只讀不打;執行前先 query 現況與交接檔比對,**不符 = 停,不是調參數繼續**。
+> 落檔 memory `feedback_duplicate-cron-double-fires-external-writes`。
+>
+> ⚠️ **本檔曾長期過期**(舊版宣稱「plan 已寫完等批准、code 零行、未推 3 筆」,四句皆已不成立)。
+> 它在 `CLAUDE.md` 是**每 session 必讀**檔 ⇒ 過期的代價是下一個 session 整個誤判。
+> **收工時若動了 code,本檔與 STATUS 一起更新,不要只更 STATUS。**
 >
 > **今天的主線是一條換路**:依 DAG 起手 A5b(供應商名稱正規化函式)→ **三輪對抗審查全 NO-GO、37 must-fix**
 > (codex R1 14 → codex R2 13 → **Fable R3 換模型換角度 10**,逐條親驗全成立、駁回 0)
@@ -15,14 +32,20 @@
 > **Q2=A 停用旗標先做**(明知 A10b 之前無人消費)。
 > 🎯 **名單本身推翻了機器猜同的價值**:Webike TW/JP/EU 是三筆,相似度比對會建議合併 —— **而合併是錯的**。
 >
-> **下一步依序三閘**:①Sean 批准 plan(鐵則 8)②關卡1 R2(v1 是 NO-GO)③才動 code,五片 S1a-S3b。
+> ~~**下一步依序三閘**:①Sean 批准 plan ②關卡1 R2 ③才動 code,五片 S1a-S3b。~~
+> ✅ **三閘皆已通過、五片做掉四片**:S1a / S1b / S2 已 apply 正式站,S2-C(併發 harness)+ S3a(讀模型)已 commit。**剩 S3b。**
 >
 > 🔒 **同日機制**:codex stdin 門禁已掛(`~/.claude/hooks/require-codex-stdin-guard.js`,Sean 拍板 A)——
 > 起因是 `codex exec` 未加 `< /dev/null` **卡死 47 分鐘、CPU 0%、輸出 1 行**,該坑 memory 記過兩次、
 > **今天第 3 次復發**且再次連帶不實回報。閘有單元 11/11 + 突變兩條轉紅 + 實跑擋下。
 > 🔴 **判準比修法重要**:背景工作活著看**產出有沒有長**,不是 `pgrep` 有沒有命中。
 >
-> ⏰ **今晚 22:00 後(獨立於本線)**:TapPay sandbox 部分退款探測,見交接檔 §5。
+> ✅ ~~**今晚 22:00 後**:TapPay sandbox 部分退款探測~~ **已完成收案,不要再排那個 cron。**
+> 兩題都有答案(逐發打 API,非讀文件推論;全文見 `docs/reference/tappay-reference.md` §2.3a):
+> ①**API 支援多次部分退款**(各自獨立 `refund_id`)②**超額退款被 `10051` 擋且狀態零變動**
+> ⇒ A7c「防超退交給 TapPay、不該我們做」的拍板前提**獲得實證**。
+> 🔴 **只證明「單發超額」被擋,沒證明「併發重複退」被擋** —— 兩條連線各送一筆各自在額度內、
+> 加起來超過的退款會怎樣,**未測**。凡以「TapPay 會擋超退」為前提的設計只在**序列**呼叫下成立。
 
 
 > 🗺️ **2026-08-01 中午:後台完成地圖已產出 —— `docs/specs/2026-08-01-admin-completion-map.md`。零 code、零 DB、純讀盤點。**
