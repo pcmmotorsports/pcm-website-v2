@@ -1,17 +1,19 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體 `create_order.Args` 內另有兩處手動校正
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體 `create_order.Args` 內另有三處手動校正
 //   (p_client_ip / p_client_ua / p_notification_email 的 `| null`)。PostgREST 產生器表達不了
-//   「必填但可為 null」⇒ 漏貼會讓**金流建單路徑**型別紅。2026-08-01 實際又被沖掉一次。
+//   「必填但可為 null」⇒ 漏貼會讓**金流建單路徑**型別紅。2026-08-01 已被沖掉兩次(A7c、S1b)。
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
-//   ✅ 實測 2026-08-01:`gen types --project-id` **不受 .env.local 影響**(在 .env.local 原位的
+//   ✅ 實測 2026-08-01(兩次):`gen types --project-id` **不受 .env.local 影響**(在 .env.local 原位的
 //     情況下退出碼 0)。需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
 //     (本檔一度誤記成「即使 --project-id 也會被擋」—— 那是因為當時預先移開才跑、根本沒測過,已更正。)
-// 反映 LIVE prod schema(2026-08-01 重 gen:A7c 退款帳本改記金額已 apply —— order_refunds
-//   **移除** items_amount / shipping_fee_before / shipping_fee_after / shipping_delta 四欄、
-//   **新增** rec_trade_id(NOT NULL);order_refund_items 已凍結、無寫入端。
-//   前次基準 = 2026-07-29 M-4b E10 第 1 批 D0/A2/A3)。
+// 反映 LIVE prod schema(2026-08-01 傍晚重 gen:M-4b E10 **S1a + S1b 已 apply** ——
+//   **新增** public.suppliers 供應商主檔(26 家 seed、可新增可改名**不可刪除**、停用走 is_active);
+//   order_item_procurement **移除** supplier_name / supplier_canonical_key 兩個文字欄、
+//   **新增** supplier_id uuid FK -> suppliers(id) ON DELETE/UPDATE RESTRICT,
+//   business key 換軸為 (order_item_id, supplier_id)、約束名不變。
+//   前次基準 = 2026-08-01 早 A7c 退款帳本改記金額)。
 // ⚠️ 2026-07-29 那次重 gen 移除了 products_public / products_list_public / product_variants_public 三個 view 的
 //   Insert / Update 型別(CLI 依 view 可更新性判定)。已實查:三者的消費端全是 .select() 讀路徑,
 //   寫入一律走 base products 表(SupabaseProductAdapter 註解逐字「save 走 base products 表」)⇒ 移除無影響,
@@ -527,8 +529,7 @@ export type Database = {
           reply_status: string
           status_changed_at: string | null
           submitted_at: string | null
-          supplier_canonical_key: string
-          supplier_name: string
+          supplier_id: string
           supplier_order_no: string | null
         }
         Insert: {
@@ -544,8 +545,7 @@ export type Database = {
           reply_status?: string
           status_changed_at?: string | null
           submitted_at?: string | null
-          supplier_canonical_key: string
-          supplier_name: string
+          supplier_id: string
           supplier_order_no?: string | null
         }
         Update: {
@@ -561,8 +561,7 @@ export type Database = {
           reply_status?: string
           status_changed_at?: string | null
           submitted_at?: string | null
-          supplier_canonical_key?: string
-          supplier_name?: string
+          supplier_id?: string
           supplier_order_no?: string | null
         }
         Relationships: [
@@ -571,6 +570,13 @@ export type Database = {
             columns: ["order_item_id"]
             isOneToOne: false
             referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_item_procurement_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
             referencedColumns: ["id"]
           },
         ]
@@ -1993,6 +1999,30 @@ export type Database = {
         }
         Relationships: []
       }
+      suppliers: {
+        Row: {
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       customer_wallet_balance_check: {
@@ -2254,8 +2284,8 @@ export type Database = {
           // 三個 text 參數在 DDL 都吃得下 NULL,但 PostgREST 的型別產生器**表達不了
           // 「必填但可為 null」**,一律型別化為非 null string ⇒ 不校正的話金流建單路徑會型別紅。
           // p_client_ip / p_client_ua = #241 best-effort PII(RPC 端 left 截斷、註解明寫可 NULL)。
-          // ⚠️ 2026-08-01 A7c 重 gen 時再次被沖掉、已重貼。**檔頭的「重貼」提醒只提到中文檔頭,
-          //    本體裡的這兩處手動校正同樣要重貼** —— 忘了就是金流建單路徑型別紅。
+          // ⚠️ 2026-08-01 被沖掉兩次(早上 A7c、傍晚 S1b)、都已重貼。**檔頭的「重貼」提醒只提到
+          //    中文檔頭,本體裡的這三處手動校正同樣要重貼** —— 忘了就是金流建單路徑型別紅。
           p_client_ip: string | null
           p_client_ua: string | null
           p_invoice: Json
