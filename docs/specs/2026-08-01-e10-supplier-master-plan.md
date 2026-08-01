@@ -220,7 +220,15 @@ RLS enable + zero policy;`updated_at` touch trigger 照 staff。
     🔴 **S3b 不得把向量縮回原字面那三個**(阿毅物流 / AKOSO / Webike TW)—— 它們只含**一個**
     中文詞,**分不出筆畫序與拼音序**;S3a 實作時補了 `安豐達` / `陳蔚仁` 才有判別力
     (實測 zh-TW 與 zh-CN 拼音會給出不同順序)。已實作於 `apps/admin/src/lib/supplier.test.ts`。
-16. typeahead:輸入 `Webike` ⇒ 候選恰 3 筆;輸入不存在字串 ⇒ 零候選且**不得**變成自由文字新增。
+16. typeahead:輸入 `Webike` ⇒ 候選恰 3 筆;~~輸入不存在字串 ⇒ 零候選且**不得**變成自由文字新增~~。
+    🔴 **後半句 superseded 2026-08-01 深夜 Sean 拍板 Q2=A** —— 它與**拍板 1**「供應商可自行再增加到下拉選單」
+    直接矛盾:設定頁存在的意義就是「打一個還不存在的名字把它建進去」,禁自由文字等於砍掉本頁核心功能。
+    ⇒ **後半句移交 A10b(採購表單的供應商選單)** —— 那裡才必須從主檔挑、不得自由文字。
+    S3b 只保留前半句:**候選是提醒、不是關卡**;員工無視提示照樣送得出去(那正是拍板 1 的字面)。
+    🔴 **前半句的測法 = Sean 同日拍板 Q1=B**:自寫過濾純函式(非原生 `<datalist>`)——
+    datalist 由**瀏覽器**比對,規則各家不同且單元測試釘不住「恰 3 筆」⇒ 那條驗收在 A 案下是空測。
+    落檔 memory `project_m4b-supplier-master-decisions`;片級落點 =
+    `docs/specs/2026-08-01-e10-supplier-s3b-settings-page-plan.md` §5(S3b-3)。
 17. S3b file manifest 逐檔 ≤400 行(鐵則 6)。
 
 **全片**:突變證明 + 零留痕 + 三綠(S3 動 `.tsx` ⇒ 含 build)。
