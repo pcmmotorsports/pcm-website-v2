@@ -1,5 +1,37 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎯 **接手包:下一片 = `A9a-1` 訂單明細 notes 讀模型(Sean 2026-08-02 深夜拍板 A,新視窗接手)**
+>
+> **權威 = `docs/specs/2026-08-02-e10-notes-line-plan.md` v4 §5**(關卡1 四輪 + 關卡2 一輪收斂,68+19 條全折)。
+> **硬前提已滿足**:A6 已 apply 正式站、型別已重 gen(`admin_append_order_note` 在 `database.types.ts`,
+> 十處手動校正已重貼)⇒ typed `.rpc()` 不會型別紅。**A9a-1 本身不呼叫 RPC**(它是讀路徑),
+> 但下一片 A9d2-1 會。
+>
+> **要做什麼**(標準片 / L1 / 鐵則 8 已併本 plan 批准 / 鐵則 12 六類**不觸發**):
+> ① `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:92` 的 `ADMIN_ORDER_DETAIL_SELECT` 加 notes 投影
+>   (raw 欄位:id / note_type / body / channel / occurred_at / author / corrects_note_id / created_at)
+> ② 型別 + mapper(`mapSupabaseAdminOrderDetailRowToDetail`,呼叫點在 `:319-331` 的 `findAdminOrderDetail`)
+> ③ 🔴 **U6 語意在 mapper 做集合運算,不進 PostgREST 投影**(關卡1 [50]:PostgREST **不支援**投影內
+>   `NOT EXISTS` 子查詢,硬塞會 runtime 400;本片零 migration、不開 view/RPC):
+>   `correctedIds = Set(notes.map(n => n.corrects_note_id).filter(Boolean))`、
+>   `notified = notes.some(n => n.note_type === 'customer_notified' && !correctedIds.has(n.id))`
+> ④ 🔴 **排序合約**(關卡1 [51]):mapper 輸出依 `created_at` **ASC**、同時間 tie-break `id` 字典序
+>   (PostgREST 內嵌列順序不保證);**同時間向量要進驗收**。
+>
+> **驗收硬條件**:
+> · **雙向**負測(A3 `20260729030000:176-177` 明文):更正**前**斷言算 **1**、更正**後**才斷言算 **0**
+>   —— 只測後者的話「永遠回 0」的壞查詢照樣全綠(A3 探針自己犯過)。
+> · 明細投影有 **byte-equal 守門**:`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:636-640`
+>   (🔴 `:249-260` 是**列表**投影,不要改錯)。
+> · 🔴 **F9 未確認事項**:PostgREST 是否會截斷 embedded rows(max-rows)**沒查過** —— 截斷會讓 U6 的
+>   `notified` 靜默算錯 ⇒ 驗收要實測 embed 列數上限並記錄,不得假設「投影會回全部 notes」。
+> · 動共用 adapter ⇒ 收工跑**完整** `pnpm test`(memory `feedback_run-full-vitest-after-shared-component-change`)。
+> · **本片不宣稱 A9a 完成** —— 母 plan `:385` 的 A9a = notes **+ procurement**;`A9a-2` 明文留給採購線、片號不重用。
+>
+> **紀律**:Sean **Q2=A 一片一片來** —— 收工停下回報、等他確認才做 A9d2-1,**不得自行併片**。
+> 不 push(Sean 手動推)。標準片 ⇒ 走 SOP 全 9 步但關卡1 可跳(僅高風險片跑)、關卡2 走 code-reviewer。
+
+
 > 🎉 **2026-08-02 深夜(最新):`A6` 已 apply 正式站、型別已重 gen —— 備註「寫得進去」端到端完成。**
 > Sean 手動 `db push`(先 `--dry-run` 確認清單恰一支;正式站印出 `A6 結構驗收全數通過`)。
 > **apply 前 preflight 13 項 + apply 後 read-back 17 項全符**(ledger 尾 `20260802150000`、函式 ACL
