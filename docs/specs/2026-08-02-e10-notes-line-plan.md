@@ -1,36 +1,56 @@
-# M-4b E10 備註線 plan **v2** — `A6 → A9a-1 → A9d2 → A10a`
+# M-4b E10 備註線 plan **v3** — `A6 → A9a-1 → A9d2-1 → A10a`
 
-> **狀態:關卡1 R1 = NO-GO(35 條:27 must-fix + 8 nit)已全部折入,待跑 R2。零行 code、零 migration。**
+> **狀態:關卡1 R1 = NO-GO(35 條)已折入 v2;R2 = NO-GO(9 條假修 + 新增 23 條)已折入本版 v3,待跑 R3(換模型 Fable)。零行 code、零 migration。**
 > 依據 = Sean 2026-08-02 拍板 A(線)+ Q1=**A 寫同交易稽核**(重問後)+ Q2=A 一片一片來。
-> R1 findings 逐字 = `docs/reviews/2026-08-02-e10-a6-k1-codex.md`。
+> R1 findings 逐字 = `docs/reviews/2026-08-02-e10-a6-k1-codex.md`;R2 = `…-k1r2-codex.md`。
 > 母 plan = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` row 33(A6)/ 38(A9a)/ **42(A9d2)** / 56(A10a)。
 
 ---
 
-## §0 v1 → v2 的四個結構性更正(全部來自 R1,親驗成立、駁回 0)
+## §0 v1 → v2 的四個結構性更正(來自 R1;R2 折入稽核判定其中 9 條為假修,重做見 §0.5)
 
 | # | v1 錯在哪 | v2 |
 |---|---|---|
-| **[1]** | 說這條線 **3 片**,漏掉 `A9d2`(server actions:note / cancel) | **4 片**;寫入呼叫端是 A9d2 不是 A10a |
-| **[2]** | 把「只做 notes 投影」叫 A9a,而母 plan `:385` 的 A9a = **notes + procurement** | 改名 **A9a-1**;`A9a-2`(procurement 投影)明文留給採購線,**片號不重用** |
+| **[1]** | 說這條線 **3 片**,漏掉 `A9d2`(server actions) | 4 片;寫入呼叫端是 A9d2 不是 A10a(v3 再更正為 **A9d2-1**,見 [49]) |
+| **[2]** | 把「只做 notes 投影」叫 A9a,而母 plan `:385` 的 A9a = **notes + procurement** | 改名 **A9a-1**;`A9a-2` 明文留給採購線,片號不重用 |
 | **[4][5][6]** | 「`order_notes` 無 `updated_at` ⇒ append-only 由形狀保證 ⇒ 自己就是稽核帳本」 | **這句話是錯的**,見 §3.1;Q1 已重問、Sean 改拍 **A =寫同交易稽核** |
-| **[10][11][23]** | 完全沒接到 A3 指名交給 A6 的**三條契約債** | 全數進 §4.2 規格與 §7 驗收 |
+| **[10][11][23]** | 完全沒接到 A3 指名交給 A6 的三條契約債 | 全數進 §4.2 規格與 §7 驗收 |
 
-🔴 **v1 那句 append-only 錯話曾成為 Sean Q1 拍板的前提** ⇒ 已重問並重拍。
+🔴 v1 那句 append-only 錯話曾成為 Sean Q1 拍板的前提 ⇒ 已重問並重拍。
 病根與機制 = memory `feedback_assert-scope-only-after-reading-source-file`(CLAUDE.md 自檢清單已加一條)。
+
+## §0.5 v2 → v3:R2 的 9 條假修重做 + 23 條新 findings 落點
+
+**假修重做(重做 = 換修法,不是在被點名那行加字):**
+
+| # | v2 假修在哪(R2 判定) | v3 真修 |
+|---|---|---|
+| **[8]** | request_id 只寫進另一張表,無冪等、無 note 關聯 | 🆕 固定碼 `DUPLICATE_REQUEST`(§4.2 步11)+ audit `after` 記 `note_id`(§4.3);誠實邊界:跨單併發重送不擋(§4.3) |
+| **[9]** | 自稱「完整約束」仍漏 PK/default/created_at | §3.3 改為**建表檔 `:41-158` 逐條轉錄**,含 PK/default/NOT NULL/索引,並區分 constraint 與 partial unique index |
+| **[12]** | 十二碼非窮盡,合法輸入落到 raw exception | §4.2 改為**逐參數值域切割的全域映射**;🆕 `OCCURRED_AT_OUT_OF_RANGE`;RAISE 面明文限縮為 actor/request_id 兩參數;residual DB error 逐條附「經 RPC 不可達」論證(§4.2.1) |
+| **[13]** | 步8 內「跨單且已被更正」無子序 | §4.2 步12 子序明文:同單查無(含跨單)→ `CORRECTS_NOT_FOUND` **先於** `ALREADY_CORRECTED`;附對抗向量(manifest C 區子序格) |
+| **[16]** | 「上限」無數值無單位 = 無 oracle | `BODY_TOO_LONG` = `char_length(p_body) > 4000`(Unicode 碼位、量原文、零寬字計入);邊界向量 4000/4001(§4.2 步9) |
+| **[19]** | 表 ACL 只寫「完整 allowlist」無逐字 | §7.3 逐字釘:表 relacl 攤平恰 `service_role:SELECT:is_grantable=false` 一列、其餘全零(含 [53]) |
+| **[23]** | 只禁多列 VALUES/INSERT SELECT,堵不住兩句單列/迴圈/動態 SQL | 結構面改**計數**(兩表 INSERT 各恰 1 次出現 + 零 EXECUTE/LOOP/多列 VALUES/INSERT…SELECT)+ **承重改行為面**:APPENDED 兩表各**恰 +1**(manifest E 區 + D-1);環不可達論證見 §4.4 |
+| **[24]** | 沒逐字要求成功時兩表各恰 +1 | §7.2-2 改「**恰好 +1**」逐字;失敗 13 碼兩表**恰 +0** |
+| **[27]** | G1-G24 合併重複、無逐格突變 | §7.1 重建為 **61 格有限互斥 manifest**(8 分區,每格 = 一守門 = 一突變 = 一指定紅點;含 [44][45][47][48]) |
+
+**新增 23 條落點**:[36]→§4.2(OUT_OF_RANGE)/ [37]→§4.2 步12 / [38]→§4.4-4(死守門移除)/ [39]→§4.2 步10(FOR UPDATE 序列化)/ [40]→§4.3(audit 失敗必整筆 rollback + 負測 D-7)/ [41]→§4.3(body_sha256)/ [42]→§4.3(note_id + DUPLICATE_REQUEST)/ [43]→同[16] / [44][45]→§7.1 C 區 / [46]→§7.1 E 區 / [47]→§7.1 D 區 / [48]→§7.1 B 區七碼位 / [49]→全文改 A9d2-1 / [50]→§5(mapper 集合運算)/ [51]→§5(排序合約)/ [52]→§4.3(ACL 理由更正)/ [53]→§7.3 / [54]→§3.3 / [55][56]→§9 / [57]→§7.5(十處校正)/ [58]→§11(親驗 7 條)。
 
 ---
 
 ## §1 線的組成(4 片,Q2=A:每片收工停下回報再往下)
 
 ```
-A6 (R, 高風險)  → A9a-1 (A) → A9d2 (A, 高風險) → A10a (U, 需肉眼)
-owner RPC          notes 讀模型    note server action   明細頁時間軸 + U6
+A6 (R, 高風險)  → A9a-1 (A) → A9d2-1 (A, 高風險) → A10a (U, 需肉眼)
+owner RPC          notes 讀模型    note server action    明細頁時間軸 + U6
 ```
 
 **目標** = 27 項驗收第 **3** 項「訂單寫備註」🟡 → ✅(7/26 以來第一項轉綠)。
-🔴 **[3] 更正**:只有 **A9a-2**(procurement 投影)與 A10b 屬採購線;**A10a 不是採購線的必經工作**,
-v1 說「A9a 與 A10a 都是兩條線共用」是錯的。共用的僅為 A9a 這個**片號底下的讀模型檔案**。
+🔴 **[3] 更正**:只有 **A9a-2**(procurement 投影)與 A10b 屬採購線;A10a 不是採購線的必經工作。
+🔴 **[49] 更正**:母 plan `:389` row 42 的 A9d2 = **note + cancel 兩支 action**。本線只做 note 那支
+⇒ 片號改 **A9d2-1**;**A9d2-2(cancel action)明文留給取消線,片號不重用、本線收工不得宣稱 A9d2 完成**。
+母 plan row 42 的拆分註記列為本線收工 DoD(同 [2] 的處理方式)。
 
 ---
 
@@ -40,7 +60,7 @@ v1 說「A9a 與 A10a 都是兩條線共用」是錯的。共用的僅為 A9a �
 |---|---|---|---|---|
 | **A6** | L1 | **高風險** | ✅ 動 API | ✅ **②權限 + ③DB 結構** ⇒ 關卡1 + 關卡2 |
 | **A9a-1** | L1 | 標準片 | ⚠️ 動 `packages/adapters` 共用投影 ⇒ 併本 plan 批 | ❌ 六類逐條不觸發 |
-| **A9d2** | L1 | **高風險** | ✅ | ✅ **命中②權限**(server action = 授權邊界)⇒ 關卡2 必跑。**[1] 抓到 v1 把它藏進 A10a 並標「不觸發」** |
+| **A9d2-1** | L1 | **高風險** | ✅ | ✅ **命中②權限**(server action = 授權邊界)⇒ 關卡2 必跑 |
 | **A10a** | L3 內容(後台 CRUD,合規) | 標準片 + **需肉眼** | ❌ | ❌ |
 
 ---
@@ -57,49 +77,71 @@ v1 說「A9a 與 A10a 都是兩條線共用」是錯的。共用的僅為 A9a �
 > 另一個誠實邊界:表層 ACL…擋不住**日後某支 SECURITY DEFINER RPC 誤把本表內容授給 authenticated**。
 
 ⇒ **[5][6] 成立**:`order_notes` **不是**可自證的稽核帳本。
-⇒ **這正是 Q1=A(寫同交易 `admin_audit_log`)的真正理由** —— 不是「合約說要」,
-而是**兩張表分開才需要兩次竄改**,單一表的 append-only 在 owner 層是零強度。
-⚠️ **仍不得說滿**:owner 同樣能改 `admin_audit_log`。稽核降低的是**單點竄改**,不是「不可竄改」。
+⇒ **這正是 Q1=A(寫同交易 `admin_audit_log`)的真正理由**:兩張表分開才需要兩次竄改。
+⚠️ 仍不得說滿:owner 同樣能改 `admin_audit_log`。稽核降低的是**單點竄改**,不是「不可竄改」。
+🆕 **[41]**:「兩表竄改」宣稱要成立,audit 必須記**內容指紋**而不只長度(同長度替換只動一表即無痕)⇒ §4.3 記 `body_sha256`。
 
-### 3.2 A3 指名交給 A6 的三條契約債(v1 一條都沒接到)
+### 3.2 A3 指名交給 A6 的三條契約債
 
 | # | 出處 | 交辦 |
 |---|---|---|
-| **D1** | `:102-103` | 「不得晚於現在」**擋不進 CHECK**(`now()` 非 IMMUTABLE)⇒ **那條是 A6 owner RPC 的責任**。CHECK 只擋 infinity 與 1900 年 |
-| **D2** | `:92-99` | body **不宣稱窮盡**:`U+2800` 盲文空白 / `U+3164` Hangul filler / `U+00AD` 軟連字號既不在 translate 清單也不屬 `[[:space:]]` ⇒ **照樣入得了庫**;「最後一道歸 **A6 writer(正規化 + 拒收)**」 |
-| **D3** | `:186-195` | **更正鏈可以成環**(Fable 抓 + 正式站交易模擬確認)：單一多列 `INSERT … VALUES (a,…corrects=b),(b,…corrects=a)` 兩列互指,FK/partial unique/`corrects_not_self` **都不擋** ⇒ **「A6 一次只准 INSERT 一列」(禁多列 VALUES、禁 `INSERT…SELECT` 回多列)必須寫成驗收條件** |
+| **D1** | `:102-104` | 「不得晚於現在」**擋不進 CHECK**(`now()` 非 IMMUTABLE)⇒ A6 owner RPC 的責任。CHECK 只擋 infinity 與界外年份(`:106-109`) |
+| **D2** | `:90-100` | body **不宣稱窮盡**:`U+2800` / `U+3164` / `U+00AD` 既不在 translate 清單也不屬 `[[:space:]]` ⇒ 照樣入得了庫;最後一道歸 **A6 writer(正規化 + 拒收)** |
+| **D3** | `:186-196` | 更正鏈可以成環(單一多列 `INSERT…VALUES` 兩列互指,FK 於 statement 結束才驗)⇒ **A6 一次只准 INSERT 一列**必須寫成驗收條件(v3 修法見 §4.4-1) |
 
-### 3.3 完整約束清單(**[9]** 補回 v1 漏掉的三道)
+### 3.3 完整約束清單(**[9][54] 重做**:建表檔 `:41-158` 逐條轉錄;「約束」與「索引」分列)
+
+**欄位與行內預設**(`:41-68`):
+
+| 欄 | 定義 | 行號 |
+|---|---|---|
+| `id` | `uuid PRIMARY KEY DEFAULT gen_random_uuid()` | `:42` |
+| `order_id` | `uuid NOT NULL REFERENCES orders(id) ON DELETE RESTRICT` | `:50` |
+| `note_type` / `body` | `text NOT NULL` | `:52-53` |
+| `channel` / `occurred_at` | nullable(配對規則管) | `:56-57` |
+| `author` | `text NOT NULL` | `:62` |
+| `corrects_note_id` | `uuid` nullable | `:66` |
+| `created_at` | `timestamptz NOT NULL DEFAULT now()` | `:68` |
+
+**表級約束**(`:72-131`):
 
 ```
-note_type   ∈ {internal, contact_log, customer_notified}                    NOT NULL
-body        NOT NULL + translate(body, U&'\200B\200C\200D\FEFF','') ~ '[^[:space:]]'
-channel     ∈ {line, phone, email, in_person, other} 或 NULL
-occurred_at 2020 < x < 2100 或 NULL          ← 上界「不晚於現在」= A6 責任(D1)
-author      ~ '^[a-z0-9_]{1,64}$'                                            NOT NULL
-配對規則    internal ⇒ channel 與 occurred_at 皆 NULL;非 internal ⇒ 皆 NOT NULL
-🆕 corrects_not_self          CHECK (corrects_note_id IS DISTINCT FROM id)
-🆕 UNIQUE (id, order_id)      ← 複合 FK 的被參照鍵
-🆕 order_notes_corrects_note_id_key   partial UNIQUE (corrects_note_id) WHERE NOT NULL
-                              ⇒ 一筆最多只能被更正一次(`:154-158`)
-corrects FK (corrects_note_id, order_id) → (id, order_id)  ⇒ 更正鏈不得跨單
-order_id FK → orders(id) ON DELETE RESTRICT
+order_notes_id_order_id_key        UNIQUE (id, order_id)                        :72
+order_notes_corrects_same_order_fk FK (corrects_note_id, order_id)
+                                   → (id, order_id) ON DELETE RESTRICT          :79-81
+order_notes_corrects_not_self      CHECK (corrects_note_id IS DISTINCT FROM id) :84-85
+order_notes_type_check             note_type ∈ {internal, contact_log,
+                                   customer_notified}                            :87-88
+order_notes_body_nonempty          translate(body, 200B/200C/200D/FEFF,'')
+                                   ~ '[^[:space:]]'                              :99-100
+order_notes_occurred_at_sane       NULL 或 (> 2020-01-01 AND < 2100-01-01)      :105-109
+order_notes_author_nonempty        author ~ '^[a-z0-9_]{1,64}$'                  :111-112
+order_notes_contact_fields_required 非 internal ⇒ channel 與 occurred_at NOT NULL :116-120
+order_notes_internal_fields_absent internal ⇒ 兩者皆 NULL                        :123-127
+order_notes_channel_check          channel NULL 或 ∈ 五值                        :129-130
 ```
 
-### 3.4 U6 告知義務的查詢合約(`:160-185`,**[34][35]** 來源)
+**索引**(`:146-158`;partial unique 是 **index 不是 constraint**,[54]):
 
-- **不得**寫 `EXISTS(… note_type='customer_notified')` —— 會把**已被更正的誤選**算成已履行。
-  正確形狀必須帶 `AND NOT EXISTS (SELECT 1 FROM order_notes c WHERE c.corrects_note_id = n.id)`。
-- 🔴 **負測必須兩個方向**:更正前斷言算 **1**、更正後才斷言算 **0**。
-  只測後者的話,**一個「永遠回 0」的壞查詢照樣全綠**(A3 探針自己犯過這個錯)。
-- 🔴 **更正不可撤回**:`NOT EXISTS` 只看【直接指向】,`A ← B ← C` 裡 C 更正 B **不會**讓 A 復活;
-  partial unique 也不准對 A 再掛第二筆更正 ⇒ **唯一正解是重登一筆新的 `customer_notified`**。
-  **這句要進 A10a 的 UI 文案**,不能讓員工以為「更正的更正」會還原。
-- 時間軸:被指向的列標成「已更正」,**不是不顯示**。
+```
+order_notes_order_id_created_at_idx  (order_id, created_at DESC)                :146-147
+order_notes_notified_idx             partial WHERE note_type='customer_notified' :150-152
+order_notes_corrects_note_id_key     UNIQUE INDEX (corrects_note_id)
+                                     WHERE NOT NULL ⇒ 一筆最多被更正一次         :156-158
+```
+
+### 3.4 U6 告知義務的查詢合約(`:160-196`,**[34][35]** 來源)
+
+- **不得**寫 `EXISTS(… note_type='customer_notified')`;正確語意 = 排除「已被直接指向」的列
+  (SQL 形狀 `:164-169`;A9a-1 的 mapper 等價實作見 §5)。
+- 🔴 負測必須兩個方向:更正前斷言算 **1**、更正後才斷言算 **0**(`:176-177`;A3 探針自己犯過只測後者)。
+- 🔴 **更正不可撤回**(`:179-184`):`A ← B ← C` 裡 C 更正 B 不會讓 A 復活;唯一正解 = 重登一筆新的
+  `customer_notified`。**這句要進 A10a 的 UI 文案。**
+- 時間軸:被指向的列標成「已更正」,不是不顯示(`:171-172`)。
 
 ---
 
-## §4 A6 規格(v2)
+## §4 A6 規格(v3)
 
 檔 = `supabase/migrations/<ts>_m4b_e10_a6_admin_append_order_note.sql`
 形狀樣板 = `20260801160000_m4b_e10_s2_admin_upsert_supplier.sql`。
@@ -110,59 +152,120 @@ order_id FK → orders(id) ON DELETE RESTRICT
 admin_append_order_note(
   p_order_id uuid, p_note_type text, p_body text,
   p_channel text, p_occurred_at timestamptz,
-  p_corrects_note_id uuid,          -- 🆕 [7]:不收它,更正鏈在唯一核准路徑上不可達
+  p_corrects_note_id uuid,
   p_actor text, p_request_id text
 ) RETURNS text
 ```
-- **[17]** 檔案外殼照樣板:`BEGIN` / `SET LOCAL lock_timeout='5s'` / `SET LOCAL statement_timeout` / `COMMIT`,**並進 §7 驗收**。
-- **[18]** `COMMENT ON FUNCTION` 合約(固定碼、權限、輸入語意、誠實邊界)**列為產物與驗收**。
+- **[17]** 檔案外殼照樣板:`BEGIN` / `SET LOCAL lock_timeout='5s'` / `SET LOCAL statement_timeout` / `COMMIT`,進 §7 驗收(G 區)。
+- **[18]** `COMMENT ON FUNCTION` 合約(固定碼、權限、輸入語意、誠實邊界)列為產物與驗收(G 區)。
 
-### 4.2 輸入守門(執行順序即優先序,**[13]** 要求明文定序)
+### 4.2 輸入守門(**[12][13][36][37][39] 重做**:全域映射 + 明文全序)
 
-**檢查一律照下列順序,先命中先回傳**(順序是正確性的一部分,見 memory `feedback_race-test-without-barrier-proves-nothing` 同型教訓):
+**檢查一律照下列順序,先命中先回傳;順序本身是驗收對象**(manifest C 區:相鄰對逐對突變):
 
-1. `actor` / `request_id`:先剝空白 → 非空 → 長度 → 控制字元(**[15]** 照樣板 `:137-179`,失敗一律 `RAISE`,非固定碼)
-2. `p_order_id IS NULL` → `INVALID_INPUT`
-3. `note_type` 不在三值 → `INVALID_TYPE`
-4. `channel` 非 NULL 且不在五值 → `INVALID_CHANNEL`
-5. **配對規則**:`internal` 帶任一 → `INTERNAL_FIELDS_FORBIDDEN`;非 internal 缺任一 → `CONTACT_FIELDS_REQUIRED`
-6. **D1** `occurred_at > now()` → `OCCURRED_AT_IN_FUTURE`
-7. **D2** body 正規化後為空 → `INVALID_BODY`;body 長度 > 上限 → `BODY_TOO_LONG`(**[16]**)
-8. `corrects_note_id` 非 NULL 且(不存在 / 不同單 / 已被更正過)→ `CORRECTS_NOT_FOUND` / `ALREADY_CORRECTED`
-9. 鎖序 + 存在性:`SELECT 1 FROM orders WHERE id=p_order_id FOR SHARE`(**[14]**)→ 無 → `ORDER_NOT_FOUND`
-10. **單列** INSERT(**D3**)+ 同交易 `admin_audit_log` INSERT(**Q1=A**)→ `APPENDED`
+| 步 | 檢查 | 命中 → 回傳 |
+|---|---|---|
+| 1 | `actor` / `request_id`:先剝空白 → 非空 → 長度 ≤200 → 零控制字元(照樣板 `:137-179`,**先剝後驗**) | **RAISE**(caller-bug 面,非固定碼;本 RPC 唯二的 RAISE 參數) |
+| 2 | `p_order_id IS NULL` | `INVALID_INPUT` |
+| 3 | `p_note_type` NULL 或不在三值 | `INVALID_TYPE` |
+| 4 | `p_channel` 非 NULL 且不在五值 | `INVALID_CHANNEL` |
+| 5 | 配對規則:internal 帶任一 → `INTERNAL_FIELDS_FORBIDDEN`;非 internal 缺任一 → `CONTACT_FIELDS_REQUIRED` | 左列 |
+| 6 | 🆕 **[36]** `p_occurred_at` 非 NULL 且 NOT(`> 2020-01-01` AND `< 2100-01-01`)(鏡像 `:106-109`,含 ±infinity) | `OCCURRED_AT_OUT_OF_RANGE` |
+| 7 | **D1** `p_occurred_at > now()` | `OCCURRED_AT_IN_FUTURE` |
+| 8 | **D2** `p_body` NULL 或正規化後為空(正規化定義見下) | `INVALID_BODY` |
+| 9 | **[16][43]** `pg_catalog.char_length(p_body) > 4000` | `BODY_TOO_LONG` |
+| 10 | 🆕 **[39]** 鎖單:`SELECT 1 FROM orders WHERE id = p_order_id FOR UPDATE`(**FOR UPDATE 非 FOR SHARE**:同單 append 全序列化,是步 11/12 pre-check 免競態的前提)→ 查無 | `ORDER_NOT_FOUND` |
+| 11 | 🆕 **[8][42]** `EXISTS(SELECT 1 FROM admin_audit_log WHERE action='order_note.append' AND request_id = v_req)`(走既有索引 `20260712210000:78`;owner 可讀該表 —— `:85` 的 REVOKE 清單不含 owner) | `DUPLICATE_REQUEST` |
+| 12 | `p_corrects_note_id` 非 NULL 時,子序 **[13][37]**:①`SELECT … FROM order_notes WHERE id = p_corrects AND order_id = p_order_id` 查無(**不存在與跨單同碼** —— 查詢自帶 order_id 條件,跨單天然查無)→ `CORRECTS_NOT_FOUND`;②已被更正(`EXISTS(corrects_note_id = p_corrects)`)→ `ALREADY_CORRECTED` | 左列 |
+| 13 | **單列 INSERT**(§4.4)+ 同交易 audit INSERT(§4.3) | `APPENDED` |
 
-**回傳碼全集**(**[12]** 要求窮盡):
+**回傳碼全集 = 14 碼**([12] 窮盡):
 `APPENDED / ORDER_NOT_FOUND / INVALID_INPUT / INVALID_TYPE / INVALID_CHANNEL /
-CONTACT_FIELDS_REQUIRED / INTERNAL_FIELDS_FORBIDDEN / OCCURRED_AT_IN_FUTURE /
-INVALID_BODY / BODY_TOO_LONG / CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
+CONTACT_FIELDS_REQUIRED / INTERNAL_FIELDS_FORBIDDEN / OCCURRED_AT_OUT_OF_RANGE /
+OCCURRED_AT_IN_FUTURE / INVALID_BODY / BODY_TOO_LONG / DUPLICATE_REQUEST /
+CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
 
-- **[14]** FK 例外只捕捉**具名** `order_notes_order_id_fkey` 並映射 `ORDER_NOT_FOUND`;其餘 23503 往上拋。
-- **D2 正規化定義**:剝 `[[:space:]]` + 四種零寬 + `U+2800` / `U+3164` / `U+00AD` 後判空;**入庫存正規化前的原文**(顯示保真),判空用正規化後的值。
+**BODY_TOO_LONG 的 oracle**([16][43]):上限 = **4000**,單位 = **Unicode 碼位**(`char_length` 語意、非 byte),
+量測對象 = **原文 `p_body`**(零寬字計入)。邊界向量:4000 → 通過;4001 → `BODY_TOO_LONG`。
+量級依據:LINE 單則訊息上限 5000 字,4000 夠貼整段聯絡摘要;此值是輸入衛生上限、非業務規則,實作不繞 Sean。
 
-### 4.3 同交易稽核(Q1=A)
+**D2 正規化定義**:剝 `[[:space:]]` + `U+200B/200C/200D/FEFF` + `U+2800/U+3164/U+00AD` 後判空
+(**[48]**:四種零寬也必須是 A6 自己的清單,不能只靠 DB CHECK —— A6 漏掉它們時錯誤會從 `INVALID_BODY`
+降級成 raw `23514`,manifest B 區逐碼位釘住);**入庫存原文**(顯示保真),判空用正規化後的值。
 
-寫 `admin_audit_log`:`actor` / `action='order_note.append'` / `target='order:<id>'` /
-`before=NULL` / `after`(note_type / channel / occurred_at / corrects_note_id;**不含 body 全文**,只記長度)/
-`request_id` / `source_app='admin'`。
-🔴 **不記 body 全文的理由**:備註含 PII 與內部評語,稽核表的 ACL 與 `order_notes` 不同(`admin_audit_log` 對 service_role 開 INSERT)
-⇒ 全文進去等於把內部備註複製到一張權限較鬆的表。**[8]** 的 `request_id` 落點由此解決。
+### 4.2.1 窮盡論證與 residual DB error([12] 重做的證明義務)
 
-### 4.4 本片刻意不做
+逐參數值域切割:`p_order_id`(NULL→2;查無→10;存在→續)、`p_note_type`(NULL/界外→3;三值→續)、
+`p_channel`(界外→4;NULL/五值→5 配對)、`p_occurred_at`(NULL→5 配對;界外→6;未來→7;合法→續)、
+`p_body`(NULL/全空白→8;>4000→9;合法→續)、`p_corrects_note_id`(NULL→跳過;非 NULL→12)、
+`p_actor`/`p_request_id`(→1 RAISE)。⇒ **任一輸入組合必落在 14 碼或步 1 RAISE,無第三種出口。**
 
-1. **不做刪除 / UPDATE** —— 唯一寫入動作是單列 INSERT。
-2. **不加 append-only trigger** —— 屬 T 型片(A3 `:24` 已定性),且 owner 可停用它 ⇒ 真正的縱深是 §4.3 的兩表分離。**明文登記為未關閉的洞**,不是忽略。
-3. **不解決 owner/superuser 竄改** —— 物理上做不到(見 §3.1)。
+**residual DB constraint 逐條「經 RPC 不可達」論證**(縱深、不捕捉、裸拋 = bug 訊號):
+
+| DB 約束 | 不可達理由 |
+|---|---|
+| `order_notes_type_check` / `channel_check` / `body_nonempty` / `occurred_at_sane` / `author_nonempty` / 配對兩條 | 步 3-9 + 步 1(author=actor 剝驗後寫入)先攔;A6 清單 ⊇ DB 清單 |
+| `order_id` FK 23503 | 步 10 FOR UPDATE 已鎖住存在的單;RESTRICT + 列鎖使並行 DELETE 必等待且事後失敗(見 §4.4-4) |
+| corrects 複合 FK 23503 | 步 12① 同單存在檢查在鎖內,同單寫入已序列化 |
+| partial unique 23505 | 步 12② 在鎖內且 corrects 目標必同單(複合 FK)⇒ 併發更正被步 10 序列化(**[39] 的修法**) |
+| `corrects_not_self` | 新列 id 由 `gen_random_uuid()` 生成,與既有 id 碰撞機率忽略;縱深 |
+
+### 4.3 同交易稽核(Q1=A;**[40][41][42][47][52] 重做**)
+
+寫 `admin_audit_log`(欄位合約 `20260712210000:43-62`):
+`actor=v_actor` / `action='order_note.append'` / `target='order:<id>'` / `before=NULL` /
+`after` = **`note_id`(🆕[42])** / `note_type` / `channel` / `occurred_at` / `corrects_note_id` /
+**`body_sha256`(🆕[41]:`encode(sha256(convert_to(body,'UTF8')),'hex')`)** / `body_length` /
+`request_id=v_req` / `source_app='admin'`。
+
+- **[40] audit INSERT 不得包在任何 EXCEPTION handler 內**:失敗必往上拋 ⇒ 整筆 rollback,note 不落地。
+  負測(manifest D-7):harness 對 audit 表加 `CHECK (action <> 'order_note.append') NOT VALID` 暫時約束
+  → 呼叫 RPC → 斷言炸 + `order_notes` 恰 +0 → 撤約束。
+- **[41]** 不記 body 全文、記 sha256+length:同長度替換只改 `order_notes` 一表即 hash 不符 = 可證。
+  誠實邊界:偵測仍需有人比對(稽核檢視器未來 slice),本片提供的是**可比對的證據**、非自動告警。
+- **[52] 不記全文的理由更正**:audit 對 service_role 現況**只有 INSERT、無 SELECT**(`20260712210000:85-89`,
+  SELECT 留給未來稽核檢視器 slice 顯式 GRANT)⇒ 真正的理由是 **PII 最小化 + 未來讀取面會開**
+  (檢視器上線後全文會曝露給該表全部讀者),不是「ACL 較鬆」。
+- **[8][42] 冪等的誠實邊界**:`DUPLICATE_REQUEST`(步 11)在**同單**重送下是免競態的(步 10 序列化);
+  **跨單併發重送不擋**(兩張單鎖不同列;audit 表無 `(action, request_id)` unique —— 加它要動已 apply
+  共用表 = 另一片的決定)。量級 100-300 單/月 + 呼叫端 request_id 對單生成 ⇒ 登記為已知洞、非忽略。
+
+### 4.4 單列紀律與刻意不做
+
+1. **D3 / [23][46] 重做**:結構斷言改**計數** —— 函式本體 `INSERT INTO public.order_notes` **恰 1 次**出現、
+   `INSERT INTO public.admin_audit_log` 恰 1 次、零 `EXECUTE`(動態 SQL)、零 `LOOP`、零多列 VALUES、
+   零 `INSERT…SELECT`(manifest E 區)。**承重的是行為面**:`APPENDED` ⇒ 兩表各**恰 +1**(D-1;
+   文字層擋不住所有變體,memory `feedback_text-level-tests-cannot-catch-runtime-wiring`)。
+   **環不可達論證**:成環需單一 statement 插 ≥2 互指列(`:186-196`);序列單列 INSERT 下
+   `a←b` 與 `b←a` 必有一筆在對方不存在時送出 → FK 23503 ⇒ 恰-1-INSERT 紀律成立即環不可達。
+2. **不做刪除 / UPDATE** —— 唯一寫入動作是單列 INSERT。
+3. **不加 append-only trigger** —— 屬 T 型片(A3 `:24`),owner 可停用它 ⇒ 真正的縱深是 §4.3 兩表分離。明文登記為未關閉的洞。
+4. 🆕 **[38] 死守門移除**:v2 的「具名 FK catch 映射 `ORDER_NOT_FOUND`」**刪除** —— 步 10 FOR UPDATE 之後,
+   並行 DELETE 只能等待、且 commit 後撞 RESTRICT 失敗的是 DELETE 不是本 INSERT ⇒ 該 catch 靜態不可達,
+   拿掉不會轉紅 = 死 guard(memory `feedback_unconstructible-negative-test-means-noop-guard`)。
+   23503 一律裸拋(§4.2.1 已證不可達,拋出即 bug 訊號)。
+5. **不解決 owner/superuser 竄改** —— 物理上做不到(§3.1)。
 
 ---
 
-## §5 A9a-1 / A9d2 / A10a
+## §5 A9a-1 / A9d2-1 / A10a
 
-- **A9a-1** — `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT` 加 notes 投影 + 型別 + mapper。
-  🔴 **[33] 行號更正**:明細投影的 byte-equal 守門在 `SupabaseOrderAdapter.test.ts:636-640`(v1 誤寫 `:249-260`,那是**列表**投影)。
-  🔴 **[34]** 驗收含 §3.4 的 `NOT EXISTS` 形狀 + **雙向**負測(更正前算 1 / 更正後算 0)。
-  🔴 **[2]** 本片**不宣稱 A9a 完成**;`A9a-2` procurement 投影明文留給採購線。
-- **A9d2** — note server action(高風險:授權邊界)。照 `staff-actions.ts` / `supplier-actions.ts` 形狀:授權閘 → 純解析器 → repository → PRG。**必須斷言回傳碼**,收到未知碼當呼叫端 bug(memory `feedback_null-dispatch-rpc-silently-downgrades` 同型)。
+- **A9a-1** — `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT`(`:92`)
+  加 notes 投影 + 型別 + mapper。
+  🔴 **[50] 重做:U6 語意搬到 mapper 做集合運算,不進 PostgREST 投影** —— PostgREST 不支援投影內
+  `NOT EXISTS` 子查詢(塞進去 runtime 400)、也不開 view/RPC(零 migration)。實作:投影帶 raw notes 欄
+  (id / note_type / body / channel / occurred_at / author / corrects_note_id / created_at),mapper 端
+  `correctedIds = Set(notes.map(n => n.corrects_note_id).filter(Boolean))`,
+  `notified = notes.some(n => n.note_type === 'customer_notified' && !correctedIds.has(n.id))`
+  —— 與 §3.4 SQL 形狀**語意等價**(都只排除「被直接指向」的列);SQL 形狀合約保留給未來 SQL 端消費者(母 plan `:716`)。
+  🔴 **[34]** 驗收含**雙向**負測(更正前算 1 / 更正後算 0),打在 mapper 測試層。
+  🔴 **[51] 排序合約**:mapper 輸出依 `created_at` **ASC**、同時間 tie-break `id` 字典序(PostgREST 內嵌列
+  順序不保證);同時間向量進驗收。
+  🔴 明細投影 byte-equal 守門在 `SupabaseOrderAdapter.test.ts:636-640`(**[33]**;`:249-260` 是列表投影)。
+  🔴 **[2]** 本片不宣稱 A9a 完成;A9a-2 明文留給採購線。
+- **A9d2-1** — note server action(高風險:授權邊界)。照 `staff-actions.ts` / `supplier-actions.ts` 形狀:
+  授權閘 → 純解析器 → repository → PRG。**必須斷言回傳碼 ∈ 14 碼全集**,收到未知碼當呼叫端 bug
+  (memory `feedback_null-dispatch-rpc-silently-downgrades`)。**[49]**:cancel action = A9d2-2,不在本線。
 - **A10a** — `apps/admin/src/app/orders/[id]/page.tsx`(現 76 行)+ 新元件。時間軸 + U6 結構化欄位;
   🔴 **[35]** 必含「**更正不可撤回**」文案 + 走鏈帶 **visited 集合與深度上限**(環是實測可達的,不得假設鏈會終止)。
 
@@ -172,81 +275,91 @@ INVALID_BODY / BODY_TOO_LONG / CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
 
 | # | 風險 | 處置 |
 |---|---|---|
-| R1 | owner / superuser 可改 `order_notes` **與** `admin_audit_log` | §3.1 誠實邊界;稽核降低單點竄改、非不可竄改。**不得對外說「備註不可竄改」** |
+| R1 | owner / superuser 可改 `order_notes` **與** `admin_audit_log` | §3.1;稽核降低單點竄改、非不可竄改。不得對外說「備註不可竄改」 |
 | R2 | A9a-1 動共用 adapter | 純加法、不碰 list 投影與 storefront;收工跑**完整** `pnpm test` |
-| R3 | `author` 來自自選 picker cookie、**非驗證身分**(E8-B 未做) | 保證「有一個合法 author 字串」,**非**「那是真的操作者」 |
+| R3 | `author` 來自自選 picker cookie、非驗證身分(E8-B 未做) | 保證「有一個合法 author 字串」,非「那是真的操作者」 |
 | R4 | 本機 `.env.local` 用 `SUPABASE_SECRET_KEY`、程式讀 `SUPABASE_SERVICE_ROLE_KEY` | A6 驗證走本機 PG17 從零 provision,不依賴 `.env.local` |
-| R5 | **[21]** type re-gen 需 production apply 後 | DoD 拆兩段,見 §7 |
-| R6 | **[22]** re-gen 會把 `p_channel` / `p_occurred_at` / `p_corrects_note_id` 產成非 nullable | **手動 `\| null` 校正三處**,與 `create_order` / `admin_upsert_supplier` 同型(既有校正已達七處) |
+| R5 | **[21]** type re-gen 需 production apply 後 | DoD 拆兩段,見 §7.5 |
+| R6 | **[22][57]** re-gen 把 nullable 參數產成非 nullable、且沖掉既有校正 | 重 gen 後重貼 = 既有**七處**(口徑 = `database.types.ts:2-6` 檔頭)+ 本片新增 `p_channel` / `p_occurred_at` / `p_corrects_note_id` 三處 = **共十處**;檔頭口徑同步改十處,列為 apply-DoD 產物 |
+| 🆕 R7 | 步 10 FOR UPDATE 與其他鎖 `orders` 列的 RPC(取消/退款線)並發 | 單一列鎖、鎖前零其他鎖 ⇒ 無鎖序倒置;代價 = 同單 append 序列化(量級可忽略) |
 
 ---
 
 ## §7 驗收條件
 
-### 7.1 guard / mutant manifest(**[27]** 要求先列有限清單,不得自我指涉)
+### 7.1 guard / mutant manifest(**[27][44][45][47][48] 重做**:61 格、8 分區、有限互斥;每格 = 一守門 = 一突變 = 一指定紅點)
 
-| G# | 守門 | 指定紅點 |
-|---|---|---|
-| G1-G12 | §4.2 十二個回傳碼各自的判斷 | 各自的行為測試 |
-| G13 | 檢查**順序**(把 order 存在性移到 type 檢查前 ⇒ 無單 + 爛 type 回錯碼) | 順序測試 |
-| G14 | 單列 INSERT(D3) | 結構斷言:函式本體零多列 VALUES / 零 `INSERT…SELECT` |
-| G15 | 同交易稽核 | 拿掉 ⇒ 稽核列數不變的斷言轉紅 |
-| G16 | D2 正規化(三個非 `[[:space:]]` 碼位) | 三條各自向量 |
-| G17 | D1 未來時間 | 明天的 `occurred_at` |
-| G18 | 具名 FK 捕捉 | 並行 DELETE 情境 |
-| G19-G24 | ACL 六格(見 7.3) | 各自 |
+**格數 = 61 為機器可數的加總(14+7+11+8+6+9+3+3);`a6-verify.sh` 釘死此數,增減守門必先改本表。**
 
-**每格拿掉一次、各紅在指定斷言;基準線先驗證為綠才跑突變**(memory:S3b-1 踩過「基準線本來就紅」整輪作廢)。
+| 區 | 格 | 內容 | 突變 → 指定紅點 |
+|---|---|---|---|
+| **A 行為碼** | 14 | 14 碼各一條行為測試(每碼一個最小命中向量) | 拿掉該碼的檢查 → 該碼向量回錯結果(APPENDED 格 = 函式縮成無條件 `RETURN 'APPENDED'` → 逐欄驗轉紅,[28] 的反例即此格) |
+| **B 正規化碼位** | 7 | `200B/200C/200D/FEFF/2800/3164/00AD` 各一「僅含該碼位」向量斷言 `INVALID_BODY` | 從 A6 清單移除該碼位 → 前四種紅在「錯誤降級成 raw 23514」、後三種紅在「回 APPENDED」([48]) |
+| **C 順序** | 11 | §4.2 **檢查步 2→12**(11 個檢查)相鄰對 **10 格** + 步 12 子序 1 格([37]:跨單且已被更正 → `CORRECTS_NOT_FOUND`);每格一個**同時命中兩檢查**的向量,斷言前碼勝 | 交換該對順序 → 該向量回後碼([45]:全序逐對,非單一抽樣) |
+| **D 稽核** | 8 | ①APPENDED 兩表各**恰 +1** ②action ③target ④after 必含 note_id+body_sha256+body_length+四欄([47])⑤request_id=剝後值 ⑥source_app ⑦**audit 失敗整筆 rollback**([40],NOT VALID 暫時約束負測)⑧13 失敗碼兩表**恰 +0** | ①拿掉 audit INSERT ②-⑥逐欄改錯值 ⑦包 EXCEPTION 吞掉 ⑧任一失敗路徑先寫後回錯 → 各自斷言紅 |
+| **E 單列結構** | 6 | `INSERT INTO order_notes` 恰 1 次 / audit INSERT 恰 1 次 / 零多列 VALUES / 零 `INSERT…SELECT` / 零 `EXECUTE` / 零 `LOOP`([23][46]) | 各自違反 → 計數斷言紅(行為承重在 D-①) |
+| **F ACL/結構** | 9 | `proacl IS NOT NULL` 前置 / owner = `order_notes` 表 owner / owner 對 audit 有 INSERT / 函式 ACL 恰 `service_role:EXECUTE:is_grantable=false` / PUBLIC+anon+authenticated 零授權 / 表 relacl 恰 `service_role:SELECT:is_grantable=false`([19][53])/ 欄級 attacl 全 NULL / RLS on + 零 policy / SECURITY DEFINER + `search_path=public, pg_temp` + 簽章逐字 | 各自破壞(GRANT 多授/OWNER TO/改 search_path…)→ 各自斷言紅 |
+| **G 外殼** | 3 | `lock_timeout` / `statement_timeout` 存在([17])/ `COMMENT ON FUNCTION` 含 14 碼清單([18]) | 移除 → 存在性斷言紅 |
+| **H harness 自檢** | 3 | 釘總案例數 / **0 SKIP** / fixture order 存在性 fail-closed([26]) | 清空 fixture / 加 skip → harness 自己紅 |
 
-### 7.2 行為(**[24][25][26]**)
+**每格拿掉一次、各紅在指定斷言;基準線先驗證為綠才跑突變**(S3b-1 教訓);
+還原用檔案備份非 `git checkout`,每格還原後比對備份(既有紀律)。
 
-1. 十二碼**各一條**行為測試。
-2. **[24]** `APPENDED` 逐欄驗(body / author / channel / occurred_at / created_at / corrects_note_id);**其餘十一碼各斷言 `order_notes` 與 `admin_audit_log` 列數皆零增**。
+### 7.2 行為(**[24][25]**)
+
+1. A 區 14 碼各一條(見 7.1)。
+2. **[24]** `APPENDED` 逐欄驗(body 原文 / author=剝後 actor / channel / occurred_at / created_at / corrects_note_id)
+   **且兩表各恰 +1**;其餘 13 碼**兩表各恰 +0**(逐字「恰」,非「≥」「零增」的模糊寫法)。
 3. **[25]** 配對規則**四向**:internal 帶 channel / internal 帶 occurred_at / 非 internal 缺 channel / 非 internal 缺 occurred_at。
-4. **[26]** `scripts/a6-verify.sh` 釘**預期案例數**、**0 SKIP**、且 fixture order 存在性先 fail-closed 斷言。
+4. **[26]** `scripts/a6-verify.sh` 釘預期案例數、0 SKIP、fixture order 存在性先 fail-closed 斷言(H 區)。
 
-### 7.3 結構與 ACL(**[19][20]**)
+### 7.3 結構與 ACL(F 區的逐字版,**[19][20][53]**)
 
-5. SECURITY DEFINER / `search_path=public, pg_temp` / 簽章逐字 / `proacl IS NOT NULL` **前置** / **owner = `order_notes` 表 owner** / owner 對 `admin_audit_log` 有 INSERT。
-6. 函式 ACL 恰 `service_role:EXECUTE:**is_grantable=false**`;**PUBLIC / anon / authenticated 零授權**。
-7. `order_notes` 表級 ACL **完整 allowlist 比對**(非只查 `service_role=r`)+ 欄級 ACL=0 + **RLS on** + **zero policy**。
+5. SECURITY DEFINER / `search_path=public, pg_temp` / 簽章逐字 / `proacl IS NOT NULL` 前置 /
+   owner = `order_notes` 表 owner / owner 對 `admin_audit_log` 有 INSERT(樣板 `:346-363` / `:421-439`)。
+6. 函式 ACL 攤平(含 `is_grantable`)恰 `service_role:EXECUTE:is_grantable=false` 一列;PUBLIC / anon / authenticated 零授權。
+7. `order_notes` 表 relacl 攤平(含 `is_grantable`)恰 `service_role:SELECT:is_grantable=false` 一列、其餘 grantee 全零
+   + 欄級 attacl 全 NULL + RLS on + 零 policy(逐字,與函式 ACL 同精度)。
 8. **[17]** apply 外殼的 `lock_timeout` / `statement_timeout` 存在性。
-9. **[18]** `COMMENT ON FUNCTION` 存在且含固定碼清單。
+9. **[18]** `COMMENT ON FUNCTION` 存在且含 14 碼清單。
 
 ### 7.4 誠實驗收(**[28][29][30]** — 這三條不得單獨當守門證據)
 
 10. 「從零套用成功」只證明可執行;「三綠」不讀 SQL 行為;「審查已跑」是流程證據。
-    ⇒ **三者皆列為必要條件,明文標示各自的判別力為零**,承重的是 7.1-7.3。
+    三者皆列為必要條件、明文標示各自判別力為零;承重的是 7.1-7.3。
 
-### 7.5 apply(**[21]** DoD 拆兩段)
+### 7.5 apply(**[21][57]** DoD 拆兩段)
 
-- **code-DoD**(本片 commit 前):7.1-7.4 全綠 + 關卡1 R2 GO + 關卡2 + 三綠。
-- **apply-DoD**(**Sean 批准後另行執行**):`db push` → ledger read-back → **type re-gen + §6-R6 三處手動校正** → typecheck 實際重編。
-  🔴 **A6 的 commit 不以 apply 為前提**;未 apply 前 A9a-1 / A9d2 不得開工(typed `.rpc()` 會型別紅)。
+- **code-DoD**(本片 commit 前):7.1-7.4 全綠 + 關卡1 GO + 關卡2 + 三綠。
+- **apply-DoD**(**Sean 批准後另行執行**):`db push` → ledger read-back → type re-gen →
+  **重貼共十處手動校正**(既有七處口徑 = `database.types.ts:2-6`;新三處 = §6-R6)→
+  檔頭口徑改十處 → typecheck **實際重編** exit 0。
+  🔴 A6 的 commit 不以 apply 為前提;未 apply 前 A9a-1 / A9d2-1 不得開工(typed `.rpc()` 會型別紅)。
 
 ---
 
 ## §8 rollback(**[31][32]**)
 
-- 🔴 **[31] 更正 v1 的錯誤宣稱**:「零資料影響」只在 `order_notes` **仍為 0 列時**成立。
-  A6 的用途就是持續 INSERT ⇒ **員工開始寫備註之後,DROP 函式不會回到 A6 前的狀態**:
-  既有列、以及它們對 `orders` 的 `ON DELETE RESTRICT` 引用**都會留著**(會擋住刪單)。
-  ⇒ 正確說法 = **「migration 可逆,營運效果不可逆」**。
-- **[32]** rollback 走**另立較新的 down migration**(不改已 apply 的檔),且**撤除順序固定**:
-  `A10a → A9d2 → A9a-1 → 最後才 DROP A6`。先 DROP 會讓線上 action 呼叫不存在的 RPC。
+- 🔴 **[31]**:「零資料影響」只在 `order_notes` 仍為 0 列時成立。員工開始寫備註之後,DROP 函式不會回到
+  A6 前的狀態(既有列 + `ON DELETE RESTRICT` 引用都會留著、會擋刪單)⇒ **「migration 可逆,營運效果不可逆」**。
+- **[32]** rollback 走另立較新的 down migration(不改已 apply 檔),撤除順序固定:
+  `A10a → A9d2-1 → A9a-1 → 最後才 DROP A6`。先 DROP 會讓線上 action 呼叫不存在的 RPC。
 
 ---
 
-## §9 偵察 pass(檔案:行號)
+## §9 偵察 pass(檔案:行號;**[55][56] 補全**)
 
-- A3 契約:`20260729030000_m4b_e10_a3_order_notes.sql:21-27 / 88-99 / 100-105 / 150-195`
-- 樣板:`20260801160000_m4b_e10_s2_admin_upsert_supplier.sql:84-87 / 137-179 / 302-311 / 365-391 / 447-458`
-- 母 plan:`2026-07-28-e10-order-closure-master-plan-v2.md:385(A9a) / 389(A9d2) / 716(U6 稽核)`
-- 既有稽核合約:`2026-07-25-admin-backend-rebuild-spec.md:373-376`(§2.3-2「所有新後台寫入照抄」)
-- 明細投影守門:`packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:636-640`
+- A3 契約:`20260729030000_m4b_e10_a3_order_notes.sql` **`:21-27`(append-only)/ `:41-158`(全部欄位、約束、索引 —— §3.3 逐條轉錄的來源)/ `:90-100`(body)/ `:102-109`(occurred_at 含 CHECK 本體)/ `:111-131`(author、配對、channel)/ `:160-196`(U6 合約 + 成環)**
+- 樣板:`20260801160000_m4b_e10_s2_admin_upsert_supplier.sql:84-87 / 137-179 / 302-311 / **346-363**(proacl 前置 + owner 對齊)/ 365-391 / **421-439**(audit 欄位 + owner INSERT 能力)/ 447-458`
+- audit 表:`20260712210000_m4a_admin_audit_log.sql:43-62`(欄位與約束)/ `:78`(request_id 索引)/ `:82-89`(ACL:service_role 僅 INSERT)
+- 母 plan:`2026-07-28-e10-order-closure-master-plan-v2.md:385(A9a) / 389(A9d2 = note+cancel 兩支) / 716(U6 稽核)`
+- 既有稽核合約:`2026-07-25-admin-backend-rebuild-spec.md:373-376`
+- 明細投影:`SupabaseOrderAdapter.ts:92`(投影常數)/ `SupabaseOrderAdapter.test.ts:636-640`(byte-equal 守門)
+- 型別校正口徑:`packages/adapters/src/supabase/database.types.ts:2-6`
 - memory:`project_m4b-notes-line-decisions` / `feedback_assert-scope-only-after-reading-source-file` /
   `feedback_null-dispatch-rpc-silently-downgrades` / `feedback_run-full-vitest-after-shared-component-change` /
-  `reference_supabase-service-role-execute-default-grant`
+  `reference_supabase-service-role-execute-default-grant` / `feedback_unconstructible-negative-test-means-noop-guard` /
+  `feedback_text-level-tests-cannot-catch-runtime-wiring`
 - **graphify 連動面**:動手前跑,結果補進本節。
 
 ---
@@ -254,11 +367,14 @@ INVALID_BODY / BODY_TOO_LONG / CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
 ## §10 Sean 拍板
 
 - **線** = A(備註線),未採採購線 7 片 / 只做守門 trigger / 另指定。
-- **Q1 = A 寫同交易 `admin_audit_log`**(🔴 **重問後的答案**;第一次答 A「不寫」是根據我錯誤的 append-only 論證)。
-- **Q2 = A 一片一片來** —— 每片收工停下回報,Sean 確認再往下。**不得自行併片。**
+- **Q1 = A 寫同交易 `admin_audit_log`**(🔴 重問後的答案;第一次答「不寫」是根據我錯誤的 append-only 論證)。
+- **Q2 = A 一片一片來** —— 每片收工停下回報,Sean 確認再往下。不得自行併片。
 - **模型/機制** = A 主模型維持 Opus + 上機制(未採換 Fable)。
 
-## §11 R1 折入對照
+## §11 折入紀錄
 
-35 條全折(27 must-fix + 8 nit),駁回 **0**。逐條落點見 §0 表與各節標註的 `[編號]`。
-親驗 6 條(`[1][4][5][6][10][23][33]`)—— 全部開原始檔逐字確認成立。
+- **R1**:35 條全折(27 must-fix + 8 nit),駁回 0。親驗 **7 條**(`[1][4][5][6][10][23][33]`)—— 全部開原始檔逐字確認成立(**[58]** 更正:v2 誤寫 6 條)。
+- **R2**:折入稽核 26 真修 / **9 假修全部重做**(§0.5 表);新增 23 條(18 must-fix + 5 nit)全折,駁回 0。
+  v3 親驗 = 本輪全部引用行號逐一開檔核對(A3 `:41-158` / audit `:43-89` / 樣板三段 / adapter `:92,:319-331` / 母 plan `:389` / types `:1-30`)。
+- 下一輪 = **R3 換模型換角度(Fable)**,依 `~/.claude/rules/00-work-rules.md` §5 輪次紀律。
+  判停條件:findings 開始重複前輪或同層打轉 = 方向問題 → 整理決策題給 Sean(R1→R2 已對照:未重複、未打轉)。
