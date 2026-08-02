@@ -1,25 +1,13 @@
 // order-display.ts — 會員訂單列表「顯示層」工具(M-3 OrdersTab / OverviewTab 共用)
 //
 // L1/L2 文案 + 純顯示格式化,放 app(UI)層;domain OrderListItem 攜原始資料(ISO 日期 + 雙軸 enum),
-// 由此處轉成畫面字串。狀態文案為 Sean 2026-06-20 拍板定稿(Q2=A),非待決。
+// 由此處轉成畫面字串。非 paid 文案為 Sean 2026-06-20 拍板定稿(Q2=A);paid 分支自 2026-08-03 依
+// E10 master plan v2 §5.1 row47(Q12=B + R7)固定「處理中」(理由見 orderStatusLabel JSDoc)。
 
 import type { PaymentStatus, FulfillmentStatus } from '@pcm/domain';
 
 /**
- * 已付款(paid)時的出貨階段 → 中文(Q2=A 逐字)。
- * 抽成 Record 確保 4 個 FulfillmentStatus 全覆蓋(漏 key → 編譯期紅)。
- */
-const PAID_FULFILLMENT_LABEL: Record<FulfillmentStatus, string> = {
-  notOrdered: '已付款 訂單處理中',
-  ordered: '訂單處理中',
-  inStock: '備貨完成‧待出貨',
-  shipped: '商品寄出',
-};
-
-/**
- * orderStatusLabel:付款 × 出貨雙軸 → 單一中文狀態字串(Sean 2026-06-20 拍板 Q2=A;2026-06-21 微調:
- * paid+notOrdered「處理中」→「已付款 訂單處理中」消歧義〔避免誤讀成「付款處理中」〕、ordered→「訂單處理中」、
- * shipped→「商品寄出」)。
+ * orderStatusLabel:付款 × 出貨雙軸 → 單一中文狀態字串。
  *
  * | payment | fulfillment | 顯示 |
  * |---|---|---|
@@ -27,10 +15,14 @@ const PAID_FULFILLMENT_LABEL: Record<FulfillmentStatus, string> = {
  * | unpaid | (任意) | 待付款 |
  * | partiallyPaid | (任意) | 付款確認中 |
  * | partiallyRefunded | (任意) | 已退部分 |
- * | paid | notOrdered | 已付款 訂單處理中 |
- * | paid | ordered | 訂單處理中 |
- * | paid | inStock | 備貨完成‧待出貨 |
- * | paid | shipped | 商品寄出 |
+ * | paid | (任意) | 處理中 |
+ *
+ * 🔴 A9f(E10 master plan v2 §5.1 row47、Q12=B + R7):paid 原依 `PAID_FULFILLMENT_LABEL[fulfillment]`
+ * 細分出貨階段,但 `fulfillment_status` 是 stale 出貨軸(admin 端已停止維護、顯示端 A9e 下架)⇒
+ * 第 1 批 paid 一律固定「處理中」、不再讀出貨軸;**其餘四值沿用 2026-06-20 Q2=A 拍板文案、一字不動**。
+ * 簽章保留雙參數(消費端 OrdersTab/OverviewTab 零改動;`fulfillmentStatus` 契約收縮 = A9s 片、
+ * 依 DAG 在本片之後 —— 先砍型別會讓仍在讀的 TSX 編譯斷)。
+ * 🔴 contract 債:第 2 批接回包裹真相(master plan §5.2)後,paid 顯示由包裹投影重建。
  *
  * 🔴 `partiallyRefunded`(M-3 RF2a)比照 `refunded`/`unpaid`/`partiallyPaid`:**付款軸壓過出貨軸**、
  * 不細分 fulfillment。誠實限制:部分退款後訂單仍有保留品項在跑出貨流程,單一「已退部分」字串
@@ -38,13 +30,12 @@ const PAID_FULFILLMENT_LABEL: Record<FulfillmentStatus, string> = {
  *
  * exhaustive:switch 覆蓋全 5 PaymentStatus + `never` 守門(新增 enum 值未處理 → 編譯期紅);
  * `partiallyPaid` 顯式回「付款確認中」、絕不 fall-through 成空字串(codex M1)。
- * 終態用「商品寄出」;design mock 的「已完成」無後台對應狀態(fulfillment 終態僅 shipped)→ 不產「已完成」。
  *
  * TODO(L2→L3 升級):狀態文案未來移後台 CMS;現 hardcode 為拍板定稿值。
  */
 export function orderStatusLabel(
   payment: PaymentStatus,
-  fulfillment: FulfillmentStatus,
+  _fulfillment: FulfillmentStatus,
 ): string {
   switch (payment) {
     case 'refunded':
@@ -56,7 +47,7 @@ export function orderStatusLabel(
     case 'partiallyRefunded':
       return '已退部分';
     case 'paid':
-      return PAID_FULFILLMENT_LABEL[fulfillment];
+      return '處理中';
     default: {
       const _exhaustive: never = payment;
       return _exhaustive;

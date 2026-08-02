@@ -2,7 +2,7 @@
 //
 // - orderStatusLabel:20 組 exhaustive(5 payment × 4 fulfillment 全列)逐一斷言中文(codex N1);
 //   明確鎖 partiallyPaid→「付款確認中」、refunded→「已退款」、partiallyRefunded→「已退部分」、
-//   paid+shipped→「商品寄出」、絕不空字串。
+//   paid→(任意 fulfillment)「處理中」(A9f row47:stale 出貨軸下架、第 1 批固定文案)、絕不空字串。
 // - formatOrderDate:ISO → YYYY-MM-DD(Asia/Taipei、含跨日 UTC 邊界)。
 
 import { describe, it, expect } from 'vitest';
@@ -29,10 +29,12 @@ const STATUS_CASES: Array<[PaymentStatus, FulfillmentStatus, string]> = [
   ['partiallyRefunded', 'ordered', '已退部分'],
   ['partiallyRefunded', 'inStock', '已退部分'],
   ['partiallyRefunded', 'shipped', '已退部分'],
-  ['paid', 'notOrdered', '已付款 訂單處理中'],
-  ['paid', 'ordered', '訂單處理中'],
-  ['paid', 'inStock', '備貨完成‧待出貨'],
-  ['paid', 'shipped', '商品寄出'],
+  // 🔴 A9f(E10 master plan v2 §5.1 row47):paid 一律「處理中」、不再細分 stale 出貨軸;
+  //    四列仍全列(釘「任意 fulfillment 皆同值」,漏一列 = 出貨軸悄悄回來也抓得到)。
+  ['paid', 'notOrdered', '處理中'],
+  ['paid', 'ordered', '處理中'],
+  ['paid', 'inStock', '處理中'],
+  ['paid', 'shipped', '處理中'],
 ];
 
 describe('orderStatusLabel(20 組 exhaustive 雙軸映射、Q2=A)', () => {
@@ -47,7 +49,7 @@ describe('orderStatusLabel(20 組 exhaustive 雙軸映射、Q2=A)', () => {
   it('關鍵狀態鎖定 + 絕不回空字串', () => {
     expect(orderStatusLabel('partiallyPaid', 'notOrdered')).toBe('付款確認中');
     expect(orderStatusLabel('refunded', 'shipped')).toBe('已退款');
-    expect(orderStatusLabel('paid', 'shipped')).toBe('商品寄出');
+    expect(orderStatusLabel('paid', 'shipped')).toBe('處理中'); // A9f:paid 不再顯出貨階段
     for (const [payment, fulfillment] of STATUS_CASES) {
       expect(orderStatusLabel(payment, fulfillment)).not.toBe('');
     }
