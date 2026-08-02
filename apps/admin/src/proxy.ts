@@ -22,6 +22,15 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   //    現拓樸=Vercel 直入、無內部代理會帶合法 x-request-id → 唯一 inbound 來源是 client 自帶;
   //    沿用會讓持 session 者指定/重複 request_id 汙染稽核關聯(actor 已自報,request_id 是稽核鏈
   //    僅剩硬關聯、必須 server 權威)。忽略 request.headers 的同名值。
+  //
+  // 🔴 **已知例外(M-4b E10 A9d2-1,Sean 2026-08-02 拍板 Q2=C;本檔行為不變)**:
+  //    `order_note.append` 這條路寫進 `admin_audit_log.request_id` 的**不是**本行產的 id,
+  //    而是表單帶回的一次性 token —— 因為 A6 的冪等鍵就是 `p_request_id`,而本行「每個 HTTP
+  //    request 一組新 id」會讓雙擊產生兩筆**刪不掉**的備註(`order_notes` append-only)。
+  //    token 由 **server 在渲染表單時**產生(不是瀏覽器自造)⇒ 正常路徑仍是 server 權威;
+  //    誠實代價:持 session 者繞過畫面直接 POST 仍可自選/重複那個值,殘餘防線 = A6 的查驗式冪等
+  //    (同單 + body_sha256 不符即 RAISE)。該路徑的 log 兩個 id 都記,可對得回來。
+  //    詳 `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md` §4/§9。
   const requestId = generateRequestId();
 
   const { pathname } = request.nextUrl;

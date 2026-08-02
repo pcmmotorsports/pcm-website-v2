@@ -1,6 +1,32 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> ✅ **`A9a-1` 已收工(2026-08-02 深夜)** —— 下方那份接手包已執行完畢,**下一片 = `A9d2-1`,等 Sean 確認才開工**(Q2=A 一片一片來)。
+> ✅ **`A9d2-1` 訂單備註寫入 action 已收工(2026-08-02 深夜)** —— **下一片 = `A10a`(明細頁 UI),等 Sean 確認才開工**(Q2=A 一片一片來)。
+>
+> **狀態**:零 migration、**未 push**;三綠全綠、完整套件 297 檔 3765 passed + 1 todo、突變 16 格全紅。
+> 產物 = `lib/orders/note-action-state.ts` / `note-form.ts` / `note-repository.ts` / `note-actions.ts` + 三支測試
+> + `components/orders/result-banner.tsx` 加一個成功碼(+ smoke test)+ `proxy.ts` **只加註解**。
+> 片級 plan(權威)= `docs/specs/2026-08-02-e10-a9d2-1-note-action-plan.md`(關卡1 三輪 + 關卡2 兩輪全折)。
+>
+> 🔴 **A10a 開工前必讀 plan §8 的 7 條契約債**,最硬的三條:
+> ①**表單必須帶 `requestToken` hidden input**,值 = `state.requestToken ?? generateNoteRequestToken()`。
+>   **不得**重用 `lib/request-id.ts` 的 `generateRequestId()`(它回 `req_<uuid>`、過不了驗證器)。
+>   🔴 **失敗時必須沿用 state 帶回的那一把** —— 換新的 = 在「可能已寫入」的 `error` 路上製造第二筆刪不掉的備註。
+> ②**`occurredAt` 必須送帶時區偏移的 ISO**(`Z` 也算);送 `datetime-local` 原始值會被拒。
+>   理由:server 跑 UTC,不帶偏移會把台北 14:30 存成台北 22:30 —— 而那是 U6 告知義務的證據時間。
+> ③**表單用 `useActionState` 接**(Sean Q1=A:失敗回 state 保留輸入、成功才 redirect);
+>   `customerNotified` 是 `boolean | null`,**`null` 要顯示「無法判定」**,不得 `?? false`(A9a-1 交下來的)。
+>
+> 🔴 **不得說滿**:①`appendOrderNoteAction` **全 repo 零呼叫端** ⇒ 員工按不到、**27 項驗收貢獻仍是 0**
+> ②測試**全是 mock**,證的是「14 碼契約接對了」,**不是** RPC 在正式站的行為;本片**零真環境驗證**
+> ③冪等只擋「同一把 token 重送」,擋不住「重新載入頁面再寫一次」④`actor` 仍是自選 cookie(E8-B)。
+>
+> 🔴 **鐵則 12 字面未滿足(需 Sean 知情)**:高風險片規定 codex 對抗審查,**codex 兩次皆無產出**
+> (逾時 / exit 0 零 finding)⇒ 停試,改 Fable 三輪(關卡1)+ opus code-reviewer 兩輪(關卡2)替代。
+> 跑前後 `git status --porcelain` 零留痕。審查者評估實際新增權限暴露面為 0,但**那是替代不是原規定**。
+
+---
+
+> 🗄️ **(前一片)✅ `A9a-1` 已收工(2026-08-02 深夜)** —— 下方那份接手包已執行完畢,**下一片 = `A9d2-1`,等 Sean 確認才開工**(Q2=A 一片一片來)。
 >
 > **本片實際做的**(零 migration、未 push):`ADMIN_ORDER_DETAIL_SELECT` 加 `order_notes(...)` 內嵌 +
 > 新檔 `packages/adapters/src/supabase/mappers/order-notes.ts`(U6 集合運算 / 三層全序排序 / 截斷偵測)+

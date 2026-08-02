@@ -1,3 +1,7 @@
+// 相對 import(非 @/):vitest 的 `@` alias 指向 storefront(見 `lib/session/actor.ts` 註解)
+// ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
+import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
 
@@ -9,6 +13,11 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
   denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
   not_found: { text: '找不到對象資料(可能已被移除),未儲存。', tone: 'warn' },
   error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
+  // 🔴 M-4b E10 A9d2-1:備註**只有成功**會走 redirect 到這裡 —— 失敗一律回 action state
+  //    (Sean 拍板 Q1=A:保留員工打的內容)⇒ 這裡**不該**出現 note 的任何失敗碼。
+  //    `APPENDED` 與 `DUPLICATE_REQUEST` **共用這一則**:後者意謂「這個請求已寫入過且經查驗」,
+  //    對員工就是同一件事(母 plan v4 §5 F3:顯示成別的會誘發他換一把 token 重送 = 製造重複備註)。
+  [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
 };
 
 const TONE = {
