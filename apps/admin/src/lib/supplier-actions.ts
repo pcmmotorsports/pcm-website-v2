@@ -227,7 +227,13 @@ export async function renameSupplierAction(formData: FormData): Promise<void> {
   // ④ PRG redirect。
   revalidatePath(SETTINGS_PATH);
   if (result === 'DUPLICATE_LABEL') {
-    redirectWith('duplicate', locateQuery(parsed.label));
+    // 🔴 **改名撞名用自己的碼,不能沿用新增那則**(Fable R4 must-fix 2):
+    //    ①那則的字面是「沒有**新增**」,在改名路徑上是錯的
+    //    ②`?q=` 帶的是**新名字** ⇒ 清單篩到的是「佔用那個名字的別家」,
+    //      而**被改名的那一家仍叫舊名字、會從畫面上消失**
+    //      ⇒ 員工看到自己打的名字躺在表格裡,會讀成「改名成功了」。
+    //    定位本身仍有價值(看得到是誰佔用),但文案必須講清楚那不是你要改的那一家。
+    redirectWith('duplicate_rename', locateQuery(parsed.label));
   }
   redirectWith(updateResultCode(result));
 }

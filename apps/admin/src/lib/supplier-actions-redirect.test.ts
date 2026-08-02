@@ -150,10 +150,15 @@ describe('supplier actions — 撞名定位', () => {
     expect([...params.keys()]).toEqual(['r', 'q']); // 恰兩個參數,沒有被塞進第三個
   });
 
-  it('should also locate on a rename that clashes with an existing name', async () => {
+  it('should use the rename-specific duplicate code, not the create one', async () => {
+    // 🔴🔴 **兩條路的結果碼必須分開**(Fable R4 must-fix 2):
+    //    新增那則的字面是「沒有**新增**」,在改名路徑上是錯的;而且 `?q=` 帶的是
+    //    **新名字** ⇒ 清單篩到「佔用那個名字的別家」,**被改名的那一家(仍是舊名字)
+    //    從畫面上消失** ⇒ 員工看到自己打的名字躺在表格裡,會讀成「改名成功了」。
+    //    這條把「兩路共用同一個碼」釘死成會轉紅的事。
     const url = await redirectUrlOf(renameSupplierAction(renameForm('Webike JP')));
 
-    expect(url).toBe(`${PATH}?r=duplicate&q=Webike%20JP`);
+    expect(url).toBe(`${PATH}?r=duplicate_rename&q=Webike%20JP`);
     expect(mocks.revalidatePath).toHaveBeenCalledWith(PATH);
     // 🔴 codex K2 R2 nit:撞名分支若額外再打一次 repository,redirect 仍正確 ⇒ 全綠。
     //    改名撞名時**只能有那一次 update、且絕不能走到新增**(否則就是替員工建了他沒要的那家)。

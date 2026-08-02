@@ -63,8 +63,12 @@ export function parseWalletAdjustForm(form: FormLike): WalletAdjustParseResult {
 
   const note = (asString(form.get(WALLET_NOTE_FIELD)) ?? '').trim();
   if (note === '' || note.length > WALLET_NOTE_MAX) return { ok: false };
-  // 零寬字防(codex F2 縱深):JS trim() 已吃 NBSP/全形空白,但零寬(U+200B/200C/200D/FEFF)不算
+  // 零寬字防(codex F2 縱深):JS trim() 已吃 NBSP/全形空白/U+FEFF,但零寬(U+200B/200C/200D)不算
   // whitespace → 「看似空白」備註在此擋;語意權威=RPC v_ws 集(migration 20260716210000)。
+  // 🔴 原註解把 U+FEFF 一起列進「trim() 不吃」是**錯的**(node v22.22.3 實測:`'﻿'.trim() === ''`
+  //    為 true;200B/200C/200D 為 false)。**本行 code 的行為不受影響** —— 它顯式先 replace 再 trim,
+  //    從不依賴那個判斷。2026-08-02 Sean 拍板 Q2=A 順手更正;同一個錯字面在 supplier 線
+  //    (`supplier-form.test.ts:56`、S3b plan `:137`)已各自更正過。
   if (note.replace(/[\u200B\u200C\u200D\uFEFF]/g, '').trim() === '') return { ok: false };
 
   return {

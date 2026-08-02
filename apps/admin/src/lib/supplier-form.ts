@@ -75,8 +75,19 @@ const RPC_WHITESPACE_SET = new Set<number>(RPC_WHITESPACE_CODEPOINTS);
  */
 const CONTROL_CHAR_RE = /\p{Cc}/u;
 
-/** RPC 的 `v_label_max`(`20260801160000:126`)。 */
-const SUPPLIER_LABEL_MAX = 100;
+/**
+ * RPC 的 `v_label_max`(`20260801160000:126`)。
+ * 🔴 S3b-3 起 export:新增/改名輸入框的 `maxLength` 要吃同一個數字,否則 UI 允許打 120 字、
+ *    解析器判 `invalid`,員工看到的是「格式不正確」而不是「打太長了」。
+ *    **`maxLength` 不是驗證**(貼上、輸入法組字、竄改 DOM 都繞得過)——
+ *    它只是讓正常操作打不出超長的名字;真正的閘仍是 `normalizeLabel`。
+ * 🔴 **兩邊數的單位不同,不是同一把尺**(R1 nit 抓到上一句說滿了):HTML `maxLength`
+ *    數 **UTF-16 單位**,`normalizeLabel` 數 **code point**(`[...label].length`)
+ *    ⇒ 一個由 100 個星文字元(emoji 等,各佔 2 個 UTF-16 單位)組成的合法名稱,
+ *    在輸入框裡打得完第 50 個、**第 51 個就打不進去**(codex K2 nit:原文寫「第 50 個被擋」差一個)。方向是**保守的**(UI 比解析器嚴),
+ *    不會產生「打得進去卻被判 invalid」的反例,但也不得說成「同一把尺」。
+ */
+export const SUPPLIER_LABEL_MAX = 100;
 
 /** 只認正規形式的 uuid;產生端是 PG 的 `gen_random_uuid()`,不需要容忍其他寫法。 */
 const UUID_RE =

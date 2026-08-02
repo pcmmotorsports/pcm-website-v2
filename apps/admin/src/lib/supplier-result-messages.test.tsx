@@ -73,6 +73,31 @@ describe('SUPPLIER_RESULT_MESSAGES', () => {
     //    反面排除「自動」。
     expect(text).toContain('按該列的');
     expect(text).not.toContain('自動');
+    // 🔴 codex K2 must-fix 1:banner 只看得到 `?r=`,看不到定位有沒有成功
+    //    (沒帶 `q` / `q` 命中 0 筆 / 名單載入失敗時都沒有定位這回事)
+    //    ⇒ 文案**不得**宣稱清單已經定位好了。那句話由 `page.tsx` 的 `locating` 分支負責,
+    //    它是唯一看得到結果的地方。
+    expect(text).not.toContain('已定位');
+  });
+
+  // 🔴🔴 改名撞名那則:員工最可能的誤讀是「我的改名成功了」(Fable R4 must-fix 2)——
+  //    清單被篩到**佔用那個名字的別家**,而他要改的那一家仍叫舊名字、從畫面上消失了。
+  //    ⇒ 文案必須三件事都講:①沒成功 ②篩到的不是你要改的那家 ③怎麼找回它。
+  it('should tell the employee the rename did NOT happen and what the filtered row is', () => {
+    const { text } = SUPPLIER_RESULT_MESSAGES.duplicate_rename;
+
+    expect(text).toContain('改名沒有成功');
+    expect(text).toContain('不是你要改名的那一家');
+    expect(text).toContain('顯示全部');
+    // 🔴 反面:不得沿用新增那則的字面,那句話在改名路徑上是錯的。
+    expect(text).not.toContain('沒有新增');
+  });
+
+  it('should keep the create-path and rename-path duplicate messages distinct', () => {
+    // 少了這條,把兩則寫成同一段文字仍會通過上面每一條(它們各自只看自己那則)。
+    expect(SUPPLIER_RESULT_MESSAGES.duplicate_rename.text).not.toBe(
+      SUPPLIER_RESULT_MESSAGES.duplicate.text,
+    );
   });
 
   // 🔴 bug 的文案必須叫他**停手**,不是「再試一次」——

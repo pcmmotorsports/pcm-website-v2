@@ -1,8 +1,19 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🏪 **2026-08-01 深夜:供應商主檔線資料層 + 讀模型已完成 —— S1a / S1b / S2 已 apply 正式站,S2-C 併發 harness 與 S3a 讀模型已 commit。下一片 = S3b 設定頁。**
-> **接手入口 = `docs/handoff/2026-08-01-supplier-master-handoff.md`**(含今天全部拍板逐字 + 每片的誠實邊界)。
-> 工作樹乾淨;**未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準**(本檔不寫死,舊版寫死的「3 筆」已證實會過期)。
+> 🏪 **2026-08-02 白天:供應商主檔線 `S3b` 全線收工(S3b-1 / -2 / -3a / -3 四片)——
+> `/settings/suppliers` 設定頁已可用。S1a / S1b / S2 早已 apply 正式站。**
+> **接手入口 = `docs/handoff/2026-08-01-supplier-master-handoff.md`**(拍板逐字 + 每片誠實邊界)
+> 與片級 plan `docs/specs/2026-08-01-e10-supplier-s3b-settings-page-plan.md` **v3**(§4 四片 manifest)。
+> **未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準**(本檔不寫死,舊版寫死的「3 筆」已證實會過期)。
+>
+> 🔴🔴 **下一步的第一件事不是寫 code,是 Sean 推 + 部署後在正式站做寫入驗收**(Sean 08-02 拍板 B):
+> 按「停用 → 再啟用回來」「改名 → 再改回原名」各一次、**絕不按新增**(供應商不可刪除)。
+> **本機做不到** —— `ADMIN_DEV_BYPASS=1` 繞得過 proxy 登入閘與 Origin 檢查,
+> **繞不過 `authorizeAdminMutation` 的 `verifySession(cookie)`**(`session/authorize.ts:29-30`,那道沒有 dev 逃生口)
+> ⇒ 本機按下去一律 `?r=denied`。⇒ **在那次驗收完成前,不得說「供應商設定頁已端到端驗證」**;
+> 停用 / 改名 / 新增三條寫入路徑目前**只有 mock 背書**。
+> 🔴 另一個跨片事實:本機 `.env.local` 用新命名 `SUPABASE_SECRET_KEY`,而程式讀舊名
+> `SUPABASE_SERVICE_ROLE_KEY` ⇒ **整個本機開發環境長期連不上 DB**(不只這一片)。
 >
 > 🔴 **S3b 開工前務必知道兩件與舊字面相反的事**(spec 三處已補 superseded 註記):
 > ①**排序不交給 DB** —— Sean 深夜拍板 **B**:JS 端釘死 `new Intl.Collator('zh-TW')`。

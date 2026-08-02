@@ -15,7 +15,16 @@
 > 🔴 **v1 三處字面被實查推翻**(§8 假零 / 基準行數 / 真瀏覽器驗收的寫入面),詳 §10。
 >
 > ✅ **Sean 2026-08-01 深夜批准(逐字「開始」),三題已拍板** ⇒ 鐵則 8 已滿足。
-> **S3b-1 已收工**(見 §4 manifest 與 §5 驗收);S3b-2 / S3b-3 尚未動工。
+> **S3b-1 / S3b-2 / S3b-3a 已收工並 push**(`d7fe3b9` / `4833cae` / `a56f930`;hash 當場 `git log` 驗)。
+> **S3b-3(UI 元件面)= 2026-08-02 白天實作完成、審查已收斂(R5 Fable 確認輪 GO)、尚未 commit。**
+> 審查鏈:R1 opus `code-reviewer` FAIL 8+10 → R2 codex xhigh NO-GO 5+10 → R3 codex 第二輪 NO-GO 2+6
+> → **R4 Fable 換角度 NO-GO 2**(前三輪一條都沒碰到的層)→ **R5 Fable 確認輪 GO 0**。
+> 共 **17 must-fix + 26 nit**,逐條主對話親驗、**駁回 0**、全數折入。
+> 🔴 **本行我改錯過兩次,兩次都是同一個毛病**:
+> ①codex 關卡2 **第一輪之前**就寫成「全部已收工」,而那輪判 **NO-GO(5 must-fix + 10 nit)**;
+> ②修完後又寫成「已收工」,而**第二輪仍是 NO-GO(2 must-fix + 6 nit)**。
+> ⇒ **片級狀態只准在「審查收斂 + 三綠 + 突變重跑 + 已 commit」之後才改**,不是實作寫完就改。
+> 接手者若在那兩個時點讀本檔,會拿到一個假的完成狀態。
 > 🔴 K2 抓到本檔曾同時宣稱「未批准、零行 code」與「S3b-1 已收工」—— 那是我更新 §4 時沒回頭改檔頭。
 > **改片級狀態時檔頭、§4、§7 三處要一起改**,這是 `feedback_claimed-sync-but-only-patched-touched-lines` 的同型。
 
@@ -30,7 +39,7 @@
 | 鐵則 8 | **命中** | 跨 3+ 檔 ⇒ **本 plan 等 Sean 批准才動 code**。 |
 | 鐵則 4 | 🔴 **v1 破了,v2 拆片** | v1 = 15 檔 / 約 1,555 行 ⇒ 15-45 分鐘不成立(`[K1-M1]`)。**拆成三片**,見 §4。 |
 | 鐵則 6 | 適用 | 逐檔 ≤400 行。 |
-| SOP | **全 9 步 ×3** | 每片各跑 code-reviewer + codex 關卡2,**不降級**。 |
+| SOP | **全 9 步 ×4** | 實際拆成四片(S3b-1 / -2 / -3a / -3);每片各跑 code-reviewer + codex 關卡2,**不降級**。原字面「×3」寫於拆片當下,S3b-3a 是後來按鐵則 4 再拆出來的(codex K2 R2 nit)。 |
 | DB | **零 migration** | 唯一寫入路是既有的 `admin_upsert_supplier`。 |
 
 **硬前置(逐條標明查法與強度)**
@@ -226,6 +235,51 @@ S3b-2 若要往這支加測試 ⇒ **先拆**(建議把寫入面測試獨立成 
 🔴 **16h 要一併釘順序,不能只釘數量**:候選來源必須是 `listSuppliersForSettings()` 的輸出;
 若 UI 片直接餵 `listSupplierRows()` 的原始列,候選順序會變成 DB 回傳順序而 16h 看不見。
 
+### S3b-3 manifest — ✅ **已收工**(UI 元件面;行數為當場 `wc -l` 實測)
+
+| 檔 | 新/改 | 基準 | **實測** | ≤400 |
+|---|---|---|---|---|
+| `app/settings/suppliers/page.tsx` | 新 | — | **121** | ✅ |
+| `app/settings/suppliers/page.test.tsx` | 新(**產物表外**) | — | **323** | ⚠️ >300 警戒 |
+| `components/settings/supplier-table.tsx` | 新 | — | **66** | ✅ |
+| `components/settings/supplier-table.test.tsx` | 新 | — | **351** | ⚠️ **>300 硬警戒** |
+| `components/settings/supplier-edit-row.tsx` | 新 | — | **94** | ✅ |
+| `components/settings/supplier-create-form.tsx` | 新 | — | **45** | ✅ |
+| `components/settings/supplier-label-input.tsx` | 新(**產物表外**) | — | **110** | ✅ |
+| `components/layout/app-sidebar.tsx` | 改 | 79 | **80** | ✅ |
+| `components/layout/app-sidebar.test.ts` | 新(**產物表外**) | — | **74** | ✅ |
+| `lib/supplier-form.ts` | 改 | 206 | **217** | ✅ |
+| `lib/supplier-result-messages.ts` | 改(**S3b-2 的檔**) | 63 | **69** | ✅ |
+| `lib/supplier-result-messages.test.tsx` | 改(**S3b-2 的檔**) | 85 | **90** | ✅ |
+| `components/settings/settings-result-banner.tsx` | 改(**只改註解**) | 49 | **50** | ✅ |
+| `lib/customers/wallet-form.ts` | 改(**片外、Sean Q2=A 授權**) | — | 只改註解 | ✅ |
+
+🔴 **後三個是 S3b-2 已 commit 的檔,本片改動它們的理由**:
+`supplier-result-messages.ts` 的 `duplicate` 文案原本寫「下方清單**已定位**到那一家」——
+codex 關卡2 抓到那是**對員工說謊**:banner 只看得到 `?r=`,看不到定位有沒有成功
+(`?r=duplicate` 沒帶 `q` / `q` 指的那家剛被改名而命中 0 筆 / 整份名單載入失敗,
+三條路都沒有定位這回事)。定位成功與否只有**頁面**看得到 ⇒ 那句話搬去 `page.tsx` 的
+`locating` 分支,文案退回只講「這個名字已存在 + 該怎麼辦」。
+`settings-result-banner.tsx` 只改註解(呼叫端從兩頁變三頁)。
+
+🔴 **三個產物表外的檔,理由逐條**(不得寫成「照 §4 做的」):
+
+1. `supplier-label-input.tsx` —— §4 的產物表把 typeahead 算在 `supplier-create-form.tsx` 裡。
+   實作時拆成「server form 外框 + client island」,**對齊 repo 既有慣例**
+   (`tier-edit-submit.tsx` / `wallet-adjust-submit.tsx` 都是這個形狀)⇒ server action
+   不必被 client 模組 import,client 邊界只多一個 `useState` 與一支純函式。
+2. `page.test.tsx` —— `[K1-M7]`(loadFailed 不渲染新增表單)是**頁面層**行為,元件測試碰不到。
+3. `app-sidebar.test.ts` —— `[K1-M9]` 要求「sidebar 少了連結要有測試轉紅」。
+
+🔴 **`app-sidebar.test.ts` 是文字層 regex 斷言,不是渲染測試(誠實邊界)**:
+`ui/sidebar.tsx` 有 **9 個 `@/` import** 並繼續往下連鎖,而 vitest 的 `@` alias 指向
+**`apps/storefront/src`**(`vitest.config.ts:28`,admin 沒有自己的 alias)⇒ 渲染路線 resolve 不到。
+⇒ 擋得住「那一行被刪、href 打錯、label 改掉」;**擋不住**「`<Link>` 沒接上 / 路徑對但 404 /
+active 判斷錯 / 整段 `.map()` 被刪」—— 那四種由 D3=B 真機驗收覆蓋。
+
+🔴 **同一個 alias 事實讓 `page.tsx` 刻意不用 `@/` import**:`settings/staff/page.tsx` 用 `@/`
+⇒ 它的頁面層行為**至今零測試**,而 `[K1-M7]` 那個缺陷正是因此沒被任何測試抓到。
+
 🔴 `[K1-n1]` v1 的基準行數兩處寫錯(`supplier.ts` 32 非 33、`supplier-repository.test.ts` 90 非 ~130),
 已用 `wc -l` 實測回填。
 🔴 **預估全面偏低(最大偏差 `supplier-repository.ts` +60%)** —— R1 must-fix #4 抓到本欄未回填。
@@ -293,7 +347,7 @@ S3b-2 / S3b-3 的預估要照這個係數重估,**不要沿用原數字**(否則
 
 - **`is_active` 仍無下游消費者**。本片讓員工按得到停用開關,但停用**不會改變任何其他畫面的行為**
   —— 真正消費它的是 A10b(採購表單選單),尚未做。⇒ 不得說「停用功能已生效」。
-- 🔴 **`[K1-M16]` 改名會追溯改寫所有歷史採購的顯示名**(母 plan §6:243-245,Sean Q1=A 知情選擇):
+- 🔴 **`[K1-M16]` 改名會追溯改寫所有歷史採購的顯示名**(母 plan §6:251-253,Sean Q1=A 知情選擇):
   三月向「老吳精品」下的單,八月改名後會顯示新名字。**不存下單當時的名稱快照。**
   ⇒ **S3b-3 的改名表單旁必須有一行員工看得到的小字**講這件事,不能只寫在 plan 裡。
 - 🔴 **`[K1-M4]` 不做逐列授權、不做樂觀鎖**:合法 UUID ≠ 正確目標;竄改 hidden input 或 stale 頁面
@@ -333,7 +387,15 @@ S3b-2 / S3b-3 的預估要照這個係數重估,**不要沿用原數字**(否則
 ⇒ **同型教訓第二次**(前一次 = A7b 的 Q4 也是根據被誇大的描述答的)。
 逐字與理由全文 = memory `project_m4b-supplier-master-decisions`。
 
-**尚待 Sean:批准本 plan v3 + 三片拆法**(鐵則 8)。批准前零行 code。
+~~**尚待 Sean:批准本 plan v3 + 三片拆法**(鐵則 8)。批准前零行 code。~~
+✅ **已批准**(2026-08-01 深夜,逐字「開始」)⇒ 四片(S3b-1 / -2 / -3a / -3)皆已在批准後動工並收工。
+
+### 🆕 Sean 2026-08-02 白天兩拍板(S3b-3 開工前)
+
+| 題 | 拍板 | 落點 |
+|---|---|---|
+| **Q1** 兩支共用 result-banner 的原型鏈修正(隨 `4833cae` 已上線、不在產物表、鐵則 8 灰區)要留還是退 | **B 退回** —— 另開一筆還原 commit 等 Sean 手動推 | 不併入 S3b-3;🔴 退回後受影響頁面**從 5 個變 6 個**(本片新增的 suppliers 頁也會帶著同一個缺陷),已當場回報 |
+| **Q2** `lib/customers/wallet-form.ts:66` 註解的 `U+FEFF` 錯字面 | **A 順手改** —— 併進 S3b-3 的 commit | 已改;node v22.22.3 實測 `'﻿'.trim() === ''` 為 **true**、`200B/200C/200D` 為 **false** |
 
 ---
 
@@ -348,14 +410,15 @@ S3b-2 / S3b-3 的預估要照這個係數重估,**不要沿用原數字**(否則
 | memory `feedback_null-dispatch-rpc-silently-downgrades` | A5a 同形狀;逐字記載根治法 = 型別層分流 | ⇒ §3.3 的兩支包裝函式;A5a 可沿用 |
 | memory `feedback_text-level-tests-cannot-catch-runtime-wiring` | 直接適用 | ⇒ §3.2 的結構斷言不得單獨當證據;真瀏覽器見 D3 |
 | memory `feedback_control-named-beyond-its-actual-power` | 直接適用 | ⇒ §3.3 三層能力表逐層寫「擋不住什麼」 |
-| Vitest `beforeEach` 陷阱 | `supplier.test.ts:16` 已寫大括號 | 新測試檔一律大括號 body;repo 另 4 處**不順手改**(Sean 未拍板) |
+| Vitest `beforeEach` 陷阱 | `supplier.test.ts:20` 已寫大括號(`:16` 是說明註解,codex K2 R2 nit) | 新測試檔一律大括號 body;repo 另 4 處**不順手改**(Sean 未拍板) |
 
 ---
 
 ## §9 rollback
 
 零 migration ⇒ `git revert` 即完全還原 code。
-唯一不可逆 = 上線後員工建立的供應商列(§6)。三片依序 revert(S3b-3 → -2 → -1)。
+唯一不可逆 = 上線後員工建立的供應商列(§6)。**四片**依序 revert(S3b-3 → **-3a** → -2 → -1)。
+🔴 原字面漏了 S3b-3a(`a56f930`,已獨立提交)—— 它是後來按鐵則 4 拆出來的第四片(codex K2 R2 nit)。
 
 ---
 
@@ -367,4 +430,4 @@ S3b-2 / S3b-3 的預估要照這個係數重估,**不要沿用原數字**(否則
 3. **§5-18 真瀏覽器驗收** —— 寫成「新增一家 → 改名 → 停用」而沒問「這打到哪個資料庫」。
    實查 root `.env.local` 命中正式站 ref ⇒ 照做會在正式站留下不可刪除的測試資料。
 
-— END v2 —
+— END v3 —
