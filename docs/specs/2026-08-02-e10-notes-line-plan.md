@@ -156,7 +156,7 @@ order_notes_corrects_note_id_key     UNIQUE INDEX (corrects_note_id)
 
 ---
 
-## §4 A6 規格(v3)
+## §4 A6 規格(v4)
 
 檔 = `supabase/migrations/<ts>_m4b_e10_a6_admin_append_order_note.sql`
 形狀樣板 = `20260801160000_m4b_e10_s2_admin_upsert_supplier.sql`。
@@ -416,4 +416,7 @@ CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
   R3 另核過未列 finding 的面:鎖序全 migration 掃描無環、C 區 10 相鄰對逐對可構造、B 區紅點歸屬正確、
   PostgREST embed 可行(orders←order_notes 單支 FK 無歧義)、audit request_id 索引形狀吻合;
   `sha256()` 與 `NOT VALID` enforce 標「官方文件、未實測」→ 本機 harness 首跑即驗。
-- 判停條件對照:R3 未重複前輪、未同層打轉 ⇒ 續折正確。下一輪 = **R4 確認輪(Fable,確認 10 條折入是否屬實、是否折出新洞)**。
+- 判停條件對照:R3 未重複前輪、未同層打轉 ⇒ 續折正確。
+- **R4 確認輪(Fable,同審查者續脈絡)= GO,0 must-fix**:逐條核 F1-F10 **10/10 真修**(親開 v4 現檔、非讀 §0.6 自述);
+  機器覆算格數 63 / 突變數 74 與分區加總相符;v3→v4 diff 新洞掃描僅 1 條 nit(§4 標題版本標籤,已修)。
+  ⇒ **關卡1 收斂(四輪獨立條目 = R1 35 + R2 新增 23 + R3 10 = 68,全折、駁回 0;R2 另判 R1 的 9 條為假修、已全部重做 —— 不重複計數)。零行 code、零 migration。**

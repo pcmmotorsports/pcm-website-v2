@@ -1,5 +1,14 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🎯 **2026-08-02 深夜(最新):備註線 `A6 → A9a-1 → A9d2-1 → A10a` 關卡1 收斂。**
+> plan **v4** = 唯一權威(`docs/specs/2026-08-02-e10-notes-line-plan.md`);
+> 四輪審查(codex R1/R2 + Fable R3/R4)獨立條目 68 全折、駁回 0,R4 = **GO 0 must-fix**。
+> **零行 code、零 migration;未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準。**
+> 執行 agent = Claude(執行模式);**下一步 = 等 Sean 確認後開工 A6**(Q2=A 一片一片來;
+> plan 經 68 條折入已實質改版,開工前 Sean 過目 v4 §0.5/§0.6)。
+> 三個自決項(Sean 可推翻):body 上限 4000 碼位 / occurred_at 5 分鐘時鐘寬限 /
+> `DUPLICATE_REQUEST` 對員工按成功處理。詳 STATUS「最後更新」第一段。
+
 > 🏪 **2026-08-02 白天:供應商主檔線 `S3b` 全線收工(S3b-1 / -2 / -3a / -3 四片)——
 > `/settings/suppliers` 設定頁已可用。S1a / S1b / S2 早已 apply 正式站。**
 > **接手入口 = `docs/handoff/2026-08-01-supplier-master-handoff.md`**(拍板逐字 + 每片誠實邊界)
