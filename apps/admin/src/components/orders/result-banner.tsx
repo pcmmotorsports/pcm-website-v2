@@ -19,13 +19,19 @@ const TONE = {
 
 export function ResultBanner({ code }: { code: string | undefined }) {
   if (!code) return null;
-  // 🔴 **必須用 hasOwn 查表,不能直接索引**(S3b-2 的 code review 抓到的同型缺陷):
-  //    `code` 來自頁面的 `searchParams.r`,是任意字串。`MESSAGES['__proto__']` /
-  //    `['constructor']` / `['toString']` 取到的是**原型鏈上的屬性**且為 truthy
-  //    ⇒ 下一行的 `if (!msg)` 放行 ⇒ 畫出一個 `class="… undefined"` 的空框。
-  //    本元件被 orders 列表 / 訂單詳情 / 客戶詳情三頁使用。
-  //    姊妹元件 `settings/settings-result-banner.tsx` 同時修同一處。
-  const msg = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
+  // 🔴🔴 **已知缺陷,Sean 2026-08-02 拍板 B 刻意退回、不是沒發現**:
+  //    `code` 來自頁面的 `searchParams.r`,是**任意字串**。直接索引時
+  //    `MESSAGES['__proto__']` / `['constructor']` / `['toString']` 取到的是
+  //    **原型鏈上的屬性**且為 truthy ⇒ 下一行的 `if (!msg)` 這道守門形同虛設
+  //    ⇒ 畫出一個 `class="… undefined"` 的空框。
+  //    **無注入風險**(`msg.text` 是 undefined ⇒ React 不渲染任何文字),
+  //    純粹是「守門的名字大於它的實際能力」。
+  //    修法是 `Object.hasOwn(MESSAGES, code)`,S3b-2(`4833cae`)曾修過並已上線,
+  //    Sean 08-02 拍板退回 —— 理由是它不在該片的產物表內、屬鐵則 8「動共用元件」灰區。
+  //    ⇒ 受影響頁面 **6 個**:orders 列表 / 訂單詳情 / 客戶詳情(本元件)
+  //      + staff / order-statuses / suppliers(姊妹元件 `settings-result-banner.tsx`)。
+  //    要再修的話,兩支要一起、並且走 plan。
+  const msg = MESSAGES[code];
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>

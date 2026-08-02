@@ -32,15 +32,19 @@ export function SettingsResultBanner({
   messages?: SettingsResultMessages;
 }) {
   if (!code) return null;
-  // 🔴 **必須用 hasOwn 查表,不能直接索引**(S3b-2 的 banner 測試抓到):
-  //    `code` 來自 URL 的 `?r=`,是任意字串。`messages['__proto__']` / `['constructor']`
-  //    / `['toString']` 會取到**原型鏈上的屬性**且為 truthy ⇒ 下一行的 `if (!msg)` 放行
-  //    ⇒ 畫出一個 `class="… undefined"` 的空框(`msg.text` 是 undefined ⇒ 不會注入文字,
-  //    但守門的名字與它的實際能力不符)。呼叫端 = `settings/staff/page.tsx`、
-  //    `settings/order-statuses/page.tsx`,以及 S3b-3 起的 `settings/suppliers/page.tsx`
-  //    **三頁**(原註解寫「兩頁、suppliers 未來才建」已過期,codex K2 nit)。
-  //    回歸守門 = `lib/supplier-result-messages.test.tsx` 的未知碼那組。
-  const msg = Object.hasOwn(messages, code) ? messages[code] : undefined;
+  // 🔴🔴 **已知缺陷,Sean 2026-08-02 拍板 B 刻意退回、不是沒發現**:
+  //    `code` 來自 URL 的 `?r=`,是**任意字串**。直接索引時 `messages['__proto__']` /
+  //    `['constructor']` / `['toString']` 會取到**原型鏈上的屬性**且為 truthy
+  //    ⇒ 下一行的 `if (!msg)` 這道守門形同虛設 ⇒ 畫出一個 `class="… undefined"` 的空框
+  //    (`msg.text` 是 undefined ⇒ **不會注入任何文字**,純粹是「守門的名字大於它的能力」)。
+  //    修法是 `Object.hasOwn(messages, code)`,S3b-2(`4833cae`)曾修過並已上線,
+  //    Sean 08-02 拍板退回 —— 理由是它不在該片的產物表內、屬鐵則 8「動共用元件」灰區。
+  //    ⇒ 受影響頁面 **6 個**:staff / order-statuses / **suppliers**(本元件)
+  //      + orders 列表 / 訂單詳情 / 客戶詳情(姊妹元件 `orders/result-banner.tsx`)。
+  //    🔴 退回時 `lib/supplier-result-messages.test.tsx` 的三個原型鏈向量也一起拿掉了 ——
+  //    留著會轉紅,而把它們改成「期望畫出空框」等於用測試把缺陷釘成規格。
+  //    要再修的話,兩支元件要一起、並且走 plan。
+  const msg = messages[code];
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>

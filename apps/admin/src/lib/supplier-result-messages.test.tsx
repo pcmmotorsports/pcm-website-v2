@@ -39,7 +39,11 @@ describe('SUPPLIER_RESULT_MESSAGES', () => {
 
   // ── 驗收 7:未知的 ?r= 值 ⇒ 什麼都不顯示 ─────────────────────────
   // 🔴 `?r=` 是 URL 上的**任意**字串,不是我們的碼表 ⇒ 這條的輸入面是真的、不是假想的。
-  it.each(['nope', 'audit_failed', '__proto__', 'constructor', 'toString'])(
+  // 🔴 **原型鏈那三個向量(`__proto__` / `constructor` / `toString`)已移除** ——
+  //    Sean 2026-08-02 拍板 B 退回了 `settings-result-banner.tsx` 的 `Object.hasOwn` 修法,
+  //    留著它們會轉紅,而把期望值改成「會畫出一個空框」等於**用測試把缺陷釘成規格**。
+  //    ⇒ 該缺陷的完整描述留在 `settings-result-banner.tsx` 的註解裡(含受影響的 6 個頁面)。
+  it.each(['nope', 'audit_failed'])(
     'should render nothing for the unknown result code %s',
     (code) => {
       const { container } = render(
