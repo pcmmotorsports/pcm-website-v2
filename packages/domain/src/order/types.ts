@@ -388,6 +388,42 @@ export type AdminOrderDetailItem = {
 };
 
 /**
+ * 備註型別(M-4b E10 A9a-1;`order_notes_type_check`
+ * `supabase/migrations/20260729030000_m4b_e10_a3_order_notes.sql:87-88` 三值)。
+ */
+export type AdminOrderNoteType = 'internal' | 'contact_log' | 'customer_notified';
+
+/**
+ * 聯絡管道(同上檔 `order_notes_channel_check` `:129-130` 五值;internal 恆 null —— 配對規則
+ * CHECK `:116-127` 強制「非 internal ⇒ channel/occurredAt 皆非 null、internal ⇒ 皆 null」)。
+ */
+export type AdminOrderNoteChannel = 'line' | 'phone' | 'email' | 'in_person' | 'other';
+
+/**
+ * AdminOrderNote: 訂單備註/聯絡紀錄單列(M-4b E10 A9a-1;append-only 表的讀投影)。
+ *
+ * 🔴 `corrected` = 「本列被**別的列直接指向**」(`corrects_note_id` 指到我)⇒ 時間軸標「已更正」、
+ * **不是不顯示**(建表檔 `:171-172` 合約)。U6 告知義務只認未被更正的 `customer_notified`。
+ * 🔴 **更正不可撤回**(`:179-184`):`A ← B ← C` 裡 C 更正 B **不會**讓 A 復活(只看直接指向)。
+ * ⚠️ `author` 現階段是自陳身分(picker cookie、非驗證身分;E8-B 前不得當「真的是誰寫的」)。
+ */
+export type AdminOrderNote = {
+  id: string;
+  noteType: AdminOrderNoteType;
+  body: string;
+  /** internal 恆 null;contact_log / customer_notified 必有值(DB 配對規則 CHECK) */
+  channel: AdminOrderNoteChannel | null;
+  /** 聯絡實際發生時間(同上;與 createdAt 分離 —— 補登時兩者不同) */
+  occurredAt: string | null;
+  author: string;
+  /** 非 null = 本列是用來更正它指到的那一筆 */
+  correctsNoteId: string | null;
+  createdAt: string;
+  /** 本列已被更正(被別列直接指向);一筆最多被更正一次(partial unique `:156-158`) */
+  corrected: boolean;
+};
+
+/**
  * AdminOrderDetail: 後台訂單明細讀模型(M-4a Slice B;/orders/[id] 明細頁、admin-only)。
  *
  * 🔴 PII 邊界(設計檔 2026-07-13):明細**才**攜 客戶姓名/電話/email + 收件快照(姓名/電話/地址)——
@@ -438,6 +474,26 @@ export type AdminOrderDetail = {
   /** 樂觀鎖版本(M-4a Slice C;明細頁表單 hidden 帶此值當寫入條件) */
   version: number;
   items: AdminOrderDetailItem[];
+  /**
+   * 備註/聯絡紀錄時間軸(M-4b E10 A9a-1)。排序 = `createdAt` ASC,三層全序:
+   * 毫秒 → 同毫秒比時間字面(`Date.parse` 只到毫秒、DB 是微秒)→ `id` 字典序。
+   * 🔴 排序合約的權威實作與前提在 `mappers/order-notes.ts` 的 `compareNotes`,改那裡要同步改這裡。
+   */
+  notes: AdminOrderNote[];
+  /**
+   * U6 告知義務:本單有「未被更正的 `customer_notified`」。
+   * 🔴 **不得**寫成「有 customer_notified」—— 被更正掉的誤選要排除(建表檔 `:160-177` 合約)。
+   * 🔴 **`null` = 無法判定**(時間軸被截斷,見 `notesTruncated`):兩個方向都可能錯,顯示端必須
+   * 說「無法判定」而**不得**當 false 用。型別留 null 是為了讓 TS 逼消費端處理,不是靠註解提醒。
+   */
+  customerNotified: boolean | null;
+  /**
+   * 🔴 notes 觸及請求端上限(`ORDER_NOTES_EMBED_LIMIT`)⇒ 時間軸**不完整**、`customerNotified` 為 null。
+   * 背景:PostgREST `max-rows` 對內嵌列同樣生效(2026-08-02 production 實測 = 1000:
+   * `brands?select=id,products(id)&id=eq.05be10ec-1581-4ff8-b01f-a437eefcf35b` 的 4566 筆子列只回 1000)
+   * ⇒ adapter 改為自己夾一個更低的上限,讓邊界與專案設定脫鉤(理由與殘餘風險見 `mappers/order-notes.ts`)。
+   */
+  notesTruncated: boolean;
 };
 
 /**

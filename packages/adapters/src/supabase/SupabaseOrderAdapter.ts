@@ -30,6 +30,7 @@ import {
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
 } from './mappers/order';
+import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
 
 /**
  * orders 摘要投影白名單(account OrdersTab / Overview 最近訂單)。
@@ -88,9 +89,18 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * tier_at_checkout。order_items 內嵌成交價欄(unit_price / line_total)=該單實際賣價、非經銷價表;
  * product_snapshot = create_order 寫入的 {sku, spec, title}、無價格欄(mapper 防禦容缺)。
  * module-level `export const` → SupabaseOrderAdapter.test.ts byte-equal + forbidden-token 守門。
+ *
+ * 🔴 M-4b E10 A9a-1 加 `order_notes(...)` 內嵌(備註時間軸 + U6 告知義務)。這條字串**只列欄位**;
+ * 另外三件事分工如下(`mappers/order-notes.ts` 檔頭有完整理由):①U6 的 `NOT EXISTS` 語意在
+ * **mapper**(PostgREST 投影不支援子查詢,實測回 400 `PGRST100`)②排序在 **mapper**(內嵌列順序
+ * 不保證)③筆數上限與取哪些列在**查詢鏈**(`findAdminOrderDetail` 的 `.limit()` + `.order()`),
+ * 截斷偵測則由 mapper 依該上限判定。
+ * 🔴 `order_notes` 是**內部資料**(含內部備註),只走 service_role;建表檔
+ * `20260729030000_m4b_e10_a3_order_notes.sql:17-19` 明文「一個 byte 都不能放 orders」
+ * (orders 對登入客人整表開放 SELECT)⇒ 本欄位組**絕不可**被搬進 storefront 的任何投影。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version)';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -315,12 +325,19 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    * - 投影 `ADMIN_ORDER_DETAIL_SELECT`(明細專用白名單:含 PII、零成本/經銷/rec_trade_id);
    * - `.maybeSingle()`:查無 → null(caller 404、不 throw);error → 裸 throw(caller 退錯誤態);
    * - embed cast 同 list 慣例(customers many-to-one 生成型別不穩、以 runtime 真相 cast + mapper 正規化)。
+   * - 🔴 A9a-1:`order_notes` 顯式夾 `ORDER_NOTES_EMBED_LIMIT`(嚴格低於實測的伺服器 `max-rows`)——
+   *   讓「截斷邊界」由我們的常數擁有、與專案設定脫鉤;理由與殘餘風險見 `mappers/order-notes.ts`。
+   *   🔴 **配一條 `.order()` 是必要的、不是排版**:只給 limit 而不給序,PostgREST 回**哪** 200 筆
+   *   未定義、跨請求可能是不同子集(審查 R2 nit4)。取 `created_at` **DESC** = 截斷時保留**最新**那批
+   *   (時間軸顯示前由 mapper 重新排成 ASC;未截斷時本序無影響)。
    */
   async findAdminOrderDetail(id: string): Promise<AdminOrderDetail | null> {
     const { data, error } = await this.supabase
       .from('orders')
       .select(ADMIN_ORDER_DETAIL_SELECT)
       .eq('id', id)
+      .order('created_at', { referencedTable: 'order_notes', ascending: false })
+      .limit(ORDER_NOTES_EMBED_LIMIT, { referencedTable: 'order_notes' })
       .maybeSingle();
     if (error) {
       throw error;

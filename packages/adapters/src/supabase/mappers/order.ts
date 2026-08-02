@@ -15,6 +15,10 @@ import type {
 } from '@pcm/domain';
 import { toMoneyAmount } from '@pcm/domain';
 import type { Database } from '../database.types';
+import {
+  mapSupabaseOrderNoteRowsToProjection,
+  type SupabaseOrderNoteRow,
+} from './order-notes';
 
 /**
  * @module @pcm/adapters/supabase/mappers/order — domain PlaceOrderInput → create_order RPC 入參(wire)
@@ -347,6 +351,12 @@ export type SupabaseAdminOrderDetailRow = Pick<
     workflow_status: string | null; // M-4a D-2:per-item 狀態(NULL=未設定)
     version: number; // M-4a D-2:per-item 樂觀鎖
   }[];
+  /**
+   * M-4b E10 A9a-1:備註/聯絡紀錄內嵌列(順序不保證、筆數被請求端上限夾住 → 兩者都在 mapper 處理)。
+   * 🔴 optional + nullable 是**刻意的**:投影退版或舊 row 會整個沒有這個鍵,mapper 端 `?? []` 承接;
+   * 宣告成必填會讓型別對呼叫端說謊(實際餵得進 undefined、且有守門測試在測)。
+   */
+  order_notes?: SupabaseOrderNoteRow[] | null;
 };
 
 /** jsonb 防禦取 string 欄:非物件/非字串/空字串 → null(DB 腐壞不炸頁、誠實顯示缺)。 */
@@ -384,6 +394,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
   row: SupabaseAdminOrderDetailRow,
 ): AdminOrderDetail {
   const customer = row.customers == null ? null : Array.isArray(row.customers) ? row.customers[0] : row.customers;
+  // M-4b E10 A9a-1:排序 + U6 告知義務都在 mapper(PostgREST 不保證內嵌列順序、投影不支援子查詢)
+  const notesProjection = mapSupabaseOrderNoteRowsToProjection(row.order_notes ?? []);
   return {
     id: row.id,
     displayId: row.display_id,
@@ -439,5 +451,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         version: item.version, // per-item 改狀態表單樂觀鎖
       }),
     ),
+    notes: notesProjection.notes,
+    customerNotified: notesProjection.customerNotified,
+    notesTruncated: notesProjection.notesTruncated,
   };
 }

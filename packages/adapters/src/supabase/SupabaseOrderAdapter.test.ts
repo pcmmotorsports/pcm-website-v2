@@ -18,6 +18,7 @@ import {
   ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED,
   ADMIN_ORDER_DETAIL_SELECT,
 } from './SupabaseOrderAdapter';
+import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -588,10 +589,12 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
 // mock from('orders').select(ADMIN_ORDER_DETAIL_SELECT).eq('id', id).maybeSingle()。
 function makeDetailClient(result: { data: unknown; error: unknown }) {
   const maybeSingle = vi.fn().mockResolvedValue(result);
-  const eq = vi.fn().mockReturnValue({ maybeSingle });
+  const limit = vi.fn().mockReturnValue({ maybeSingle });
+  const order = vi.fn().mockReturnValue({ limit });
+  const eq = vi.fn().mockReturnValue({ order });
   const select = vi.fn().mockReturnValue({ eq });
   const from = vi.fn().mockReturnValue({ select });
-  return { client: { from } as unknown as SupabaseClient, from, select, eq, maybeSingle };
+  return { client: { from } as unknown as SupabaseClient, from, select, eq, order, limit, maybeSingle };
 }
 
 const DETAIL_ROW = {
@@ -630,13 +633,44 @@ const DETAIL_ROW = {
       version: 4,
     },
   ],
+  // A9a-1:備註內嵌(此處刻意給「時序倒著、且有一筆更正」的形狀 —— 排序與 U6 都在 mapper)
+  order_notes: [
+    {
+      id: 'n-2',
+      note_type: 'internal',
+      body: '客人說先不要出',
+      channel: null,
+      occurred_at: null,
+      author: 'sean',
+      corrects_note_id: 'n-1',
+      created_at: '2026-04-15T12:00:00+00:00',
+    },
+    {
+      id: 'n-1',
+      note_type: 'customer_notified',
+      body: '已用 LINE 告知缺貨',
+      channel: 'line',
+      occurred_at: '2026-04-15T10:30:00+00:00',
+      author: 'sean',
+      corrects_note_id: null,
+      created_at: '2026-04-15T11:00:00+00:00',
+    },
+  ],
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version)',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)',
     );
+  });
+
+  // 🔴 A9a-1:order_notes 只該出現在**明細**投影(內部備註;建表檔 :17-19「一個 byte 都不能放 orders」,
+  // 而 orders 對登入客人整表開放 SELECT)。列表投影漏進去 = 內部備註走上客人看得到的那條路。
+  it('🔴 order_notes 只在明細投影、不得滲入列表投影', () => {
+    expect(ADMIN_ORDER_DETAIL_SELECT).toContain('order_notes(');
+    expect(ADMIN_ORDER_LIST_SELECT).not.toContain('order_notes');
+    expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).not.toContain('order_notes');
   });
 
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
@@ -657,12 +691,20 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     }
   });
 
-  it('查詢鏈 orders / select(明細白名單) / eq(id) / maybeSingle;row → AdminOrderDetail(jsonb 防禦解析)', async () => {
-    const { client, from, select, eq } = makeDetailClient({ data: DETAIL_ROW, error: null });
+  // 🔴 A9a-1:`.limit(n, { referencedTable })` 是截斷偵測的**承重** —— 沒送出這個上限,邊界就回到
+  //    伺服器 max-rows(專案設定、程式釘不住)手上,而 mapper 的 `notesTruncated` 會恆 false。
+  //    配套的 `.order(created_at DESC)` 同樣是承重:少了它,截斷時回哪 200 筆未定義(審查 R2 nit4)。
+  it('查詢鏈 orders / select(明細白名單) / eq(id) / order+limit(order_notes) / maybeSingle;row → AdminOrderDetail(jsonb 防禦解析)', async () => {
+    const { client, from, select, eq, order, limit } = makeDetailClient({ data: DETAIL_ROW, error: null });
     const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
     expect(from).toHaveBeenCalledWith('orders');
     expect(select).toHaveBeenCalledWith(ADMIN_ORDER_DETAIL_SELECT);
     expect(eq).toHaveBeenCalledWith('id', 'o1');
+    expect(order).toHaveBeenCalledWith('created_at', {
+      referencedTable: 'order_notes',
+      ascending: false,
+    });
+    expect(limit).toHaveBeenCalledWith(ORDER_NOTES_EMBED_LIMIT, { referencedTable: 'order_notes' });
     expect(res).toEqual({
       id: 'o1',
       displayId: 'PCM-2099-0001',
@@ -700,6 +742,33 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
           version: 4,
         },
       ],
+      // A9a-1:時間軸依 createdAt ASC 重排(投影給的是倒序);n-1 被 n-2 直接指向 ⇒ 已更正
+      notes: [
+        {
+          id: 'n-1',
+          noteType: 'customer_notified',
+          body: '已用 LINE 告知缺貨',
+          channel: 'line',
+          occurredAt: '2026-04-15T10:30:00+00:00',
+          author: 'sean',
+          correctsNoteId: null,
+          createdAt: '2026-04-15T11:00:00+00:00',
+          corrected: true,
+        },
+        {
+          id: 'n-2',
+          noteType: 'internal',
+          body: '客人說先不要出',
+          channel: null,
+          occurredAt: null,
+          author: 'sean',
+          correctsNoteId: 'n-1',
+          createdAt: '2026-04-15T12:00:00+00:00',
+          corrected: false,
+        },
+      ],
+      customerNotified: false, // 唯一那筆 customer_notified 已被更正 ⇒ 告知義務不算履行
+      notesTruncated: false,
     });
   });
 
@@ -722,6 +791,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
             version: 1,
           },
         ],
+        order_notes: undefined, // A9a-1:內嵌鍵整個缺(舊 row / 投影退版)→ 空時間軸、不 throw
       },
       error: null,
     });
@@ -730,6 +800,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(res?.customer).toEqual({ name: null, email: null, phone: null });
     expect(res?.invoiceRequest.type).toBeNull();
     expect(res?.items[0]).toMatchObject({ title: null, spec: null });
+    expect(res?.notes).toEqual([]);
+    expect(res?.customerNotified).toBe(false);
+    expect(res?.notesTruncated).toBe(false);
   });
 
   it('invoice_status 意外值(DB CHECK 外)→ fail-safe narrow 成 not_issued、發票紀錄帶值直送', async () => {

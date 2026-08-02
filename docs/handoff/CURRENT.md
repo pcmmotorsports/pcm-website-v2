@@ -1,5 +1,37 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> ✅ **`A9a-1` 已收工(2026-08-02 深夜)** —— 下方那份接手包已執行完畢,**下一片 = `A9d2-1`,等 Sean 確認才開工**(Q2=A 一片一片來)。
+>
+> **本片實際做的**(零 migration、未 push):`ADMIN_ORDER_DETAIL_SELECT` 加 `order_notes(...)` 內嵌 +
+> 新檔 `packages/adapters/src/supabase/mappers/order-notes.ts`(U6 集合運算 / 三層全序排序 / 截斷偵測)+
+> domain `AdminOrderNote` 型別 + `AdminOrderDetail` 三個新欄。三綠全綠、完整套件 **293 檔 3722 passed + 1 todo**、
+> **突變 18 格全紅**、審查兩輪 13 條逐條親驗全折(R1 FAIL 2+9 → R2 **PASS**、新 5 nit 一次清完)。
+>
+> 🔴 **接手包裡的 F9「未確認」已結案,而且答案改變了設計**:PostgREST `max-rows` **對內嵌列同樣生效**
+> (production 實測 = **1000**:某 brand 4566 個 products 只回 1000、`limit=2000` 被夾成 1000)⇒
+> 不是「記錄一下」就算,而是 adapter 改成**自己送** `order_notes.limit=200` + `order_notes.order=created_at.desc`,
+> 讓截斷邊界由我們的常數擁有;觸及上限時 `customerNotified` 回 **`null`(無法判定)**、型別 `boolean | null`。
+> ⇒ **A10a 必須把 `null` 顯示成「無法判定」,不得 `?? false` 當成「未告知」。**
+>
+> 🔴 **A9d2-1 開工前必知**:①高風險片(授權邊界)②必須斷言回傳碼 ∈ 14 碼全集
+> ③**`DUPLICATE_REQUEST` 按成功處理**(顯示成錯誤會誘發員工換 request_id 重送 = 製造重複備註)
+> ④三類映射逐碼在 plan v4 §5 F3。
+>
+> 🔴 **不得說滿**:①`notes` / `customerNotified` / `notesTruncated` **全樹零消費端** ⇒ 員工還是看不到備註、
+> **27 項驗收貢獻仍是 0** ②測試全是 mock;真環境只證了「投影回 200 且內嵌鍵存在」,**正式站 `order_notes` 0 列**
+> ⇒ 沒有任何一筆真資料流經這條路 ③截斷路徑真環境從未發生過 ④本片**不宣稱 A9a 完成**(A9a = notes + procurement,
+> `A9a-2` 留給採購線)。
+>
+> ⚠️ **本 session 的一個操作事故(請 Sean 知情)**:我為了取 Supabase URL 曾對 `.env.local` 跑 `source`,
+> 該檔第 11 行有非 ASCII 變數名 parse 失敗 ⇒ **zsh 把該行的一段內容印進了本 session 的終端輸出**
+> (看起來是 `TAPPAY_NOTIFY_PATH_SECRET` 的值)。**沒有寫入任何檔案、沒有進 git、沒有離開本機**,
+> 但那個值已出現在對話記錄裡 ⇒ **建議輪換 `TAPPAY_NOTIFY_PATH_SECRET`**。之後改用
+> `grep -m1 '^KEY=' .env.local | cut -d= -f2-` 逐個取值(不 source)。這是 lessons `§12-6/12-8` 那條的同族踩法。
+
+---
+
+> 🗄️ **以下為 A9a-1 的原始接手包(已執行完畢,保留備查)**
+>
 > 🎯 **接手包:下一片 = `A9a-1` 訂單明細 notes 讀模型(Sean 2026-08-02 深夜拍板 A,新視窗接手)**
 >
 > **權威 = `docs/specs/2026-08-02-e10-notes-line-plan.md` v4 §5**(關卡1 四輪 + 關卡2 一輪收斂,68+19 條全折)。

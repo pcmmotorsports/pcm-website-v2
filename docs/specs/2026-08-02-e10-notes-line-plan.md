@@ -266,7 +266,7 @@ CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
 
 ## §5 A9a-1 / A9d2-1 / A10a
 
-- **A9a-1** — `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT`(`:92`)
+- **A9a-1** — `packages/adapters/src/supabase/SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT`(A9a-1 施工後 `:100`;施工前 `:92`)
   加 notes 投影 + 型別 + mapper。
   🔴 **[50] 重做:U6 語意搬到 mapper 做集合運算,不進 PostgREST 投影** —— PostgREST 不支援投影內
   `NOT EXISTS` 子查詢(塞進去 runtime 400)、也不開 view/RPC(零 migration)。實作:投影帶 raw notes 欄
@@ -275,11 +275,25 @@ CORRECTS_NOT_FOUND / ALREADY_CORRECTED`
   `notified = notes.some(n => n.note_type === 'customer_notified' && !correctedIds.has(n.id))`
   —— 與 §3.4 SQL 形狀**語意等價**(都只排除「被直接指向」的列);SQL 形狀合約保留給未來 SQL 端消費者(母 plan `:716`)。
   🔴 **[34]** 驗收含**雙向**負測(更正前算 1 / 更正後算 0),打在 mapper 測試層。
-  🔴 **[51] 排序合約**:mapper 輸出依 `created_at` **ASC**、同時間 tie-break `id` 字典序(PostgREST 內嵌列
-  順序不保證);同時間向量進驗收。
-  🔴 明細投影 byte-equal 守門在 `SupabaseOrderAdapter.test.ts:636-640`(**[33]**;`:249-260` 是列表投影)。
-  🆕 **F9 誠實邊界**:mapper 等價的隱含前提 = 投影回該單**全部** notes;PostgREST max-rows 是否截斷
-  embedded rows **未確認** ⇒ A9a-1 驗收加一條:實測 embed 列數上限並記錄(截斷會讓 U6 `notified` 靜默算錯)。
+  🔴 **[51] 排序合約**:mapper 輸出依 `created_at` **ASC**(PostgREST 內嵌列順序不保證);tie-break
+  **實作後為三層**(施工時發現 `Date.parse` 只解析到毫秒、而 `created_at` 是微秒精度):
+  毫秒 → **同毫秒比時間字面** → `id` 字典序。~~原字面「同時間 tie-break `id`」~~ 少了中間那層,
+  會讓同毫秒寫入的更正列排到被更正列前面。三種向量(同毫秒不同微秒 / 時間字面全同 / 跨偏移)都進驗收。
+  🔴 明細投影 byte-equal 守門在 `SupabaseOrderAdapter.test.ts`(A9a-1 施工後 `:661-665`;施工前 `:636-640`;**[33]**;`:249-260` 是列表投影)。
+  ✅ **F9 已實測結案(2026-08-02 A9a-1 施工當場,對 production 唯讀實跑)**:
+  ① **max-rows 對內嵌列同樣生效、值 = 1000** ——
+  `GET /rest/v1/brands?select=id,products(id)&id=eq.05be10ec-1581-4ff8-b01f-a437eefcf35b`
+  該 brand 有 **4566** 個 products 卻只回 **1000**;顯式 `products.limit=2000` 被夾成 1000、`limit=5` 給 5
+  ⇒ **是上限不是預設**,請求端調不高。
+  ② 因此 mapper 等價的前提(投影回該單全部 notes)**確實會被打破** ⇒ 處置不是「記錄了事」:
+  adapter 改為顯式送 `order_notes.limit = ORDER_NOTES_EMBED_LIMIT`(**200**,嚴格低於伺服器上限)
+  ⇒ 截斷邊界由**我們的常數**擁有、與專案設定脫鉤(否則 Sean 哪天把 max-rows 調低,判定會恆 false 靜默失效);
+  觸及該值時 `notesTruncated=true` 且 **`customerNotified` 回 `null`(無法判定)而非 false** ——
+  型別上 `boolean | null` 逼 A10a 處理,不靠註解提醒。
+  ⚠️ **殘餘(不宣稱涵蓋)**:若 max-rows 被設到低於 200,截斷發生在更低的數字上而本判定看不見
+  (要治本得改成第二支帶 `count: 'exact'` 的查詢 = 每次明細多一次往返,本片未做)。
+  ③ 併帶實測 **[50] 的前提**:把 `NOT EXISTS` 子查詢塞進 `select=` 對 production 回
+  **HTTP 400 `PGRST100` failed to parse select parameter** ⇒「PostgREST 投影不支援子查詢」由推論升為實證。
   🔴 **[2]** 本片不宣稱 A9a 完成;A9a-2 明文留給採購線。
 - **A9d2-1** — note server action(高風險:授權邊界)。照 `staff-actions.ts` / `supplier-actions.ts` 形狀:
   授權閘 → 純解析器 → repository → PRG。**必須斷言回傳碼 ∈ 14 碼全集**,收到未知碼當呼叫端 bug
@@ -393,7 +407,7 @@ harness 現在同時釘 `EXPECTED_CELL=64` / `EXPECTED_MUT=73` / `EXPECTED_TOTAL
 - audit 表:`20260712210000_m4a_admin_audit_log.sql:43-62`(欄位與約束)/ `:78`(request_id 索引)/ `:82-89`(ACL:service_role 僅 INSERT)
 - 母 plan:`2026-07-28-e10-order-closure-master-plan-v2.md:385(A9a) / 389(A9d2 = note+cancel 兩支) / 716(U6 稽核)`
 - 既有稽核合約:`2026-07-25-admin-backend-rebuild-spec.md:373-376`
-- 明細投影:`SupabaseOrderAdapter.ts:92`(投影常數)/ `SupabaseOrderAdapter.test.ts:636-640`(byte-equal 守門)
+- 明細投影:`SupabaseOrderAdapter.ts:100`(投影常數;施工前 `:92`)/ `SupabaseOrderAdapter.test.ts:661-665`(byte-equal 守門;施工前 `:636-640`)
 - 型別校正口徑:`packages/adapters/src/supabase/database.types.ts:2-6`
 - memory:`project_m4b-notes-line-decisions` / `feedback_assert-scope-only-after-reading-source-file` /
   `feedback_null-dispatch-rpc-silently-downgrades` / `feedback_run-full-vitest-after-shared-component-change` /
