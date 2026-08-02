@@ -89,7 +89,9 @@
 2. R3 過 → 實作 8 檔 → 三綠 + 全套測試 → 關卡2 codex 審 diff → commit(body 寫零呼叫端 + 未證清單)。
 3. sandbox 硬閘 probe(§7-3)= **接線片(讓任何人呼叫 refund())前的硬前置**,不是本 adapter 片的前置。
 
-## 6. 等 Sean 拍的決策題
+## 6. 決策題(✅ 08-03 早 Sean 已拍板:**Q1=A / Q2=A / Q3=A**;拍板落檔 memory
+`project_m3-refund-adapter-gate1-0803-decisions`;工作於同 session 續行 —— plan v4 + 關卡1 R3
+換角度〔fable 主審 + codex 覆核〕後實作。以下保留原題供脈絡)
 
 ```text
 Q1(方向):refund 第一片下一步?
