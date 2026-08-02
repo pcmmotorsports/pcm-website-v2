@@ -113,7 +113,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 快速自檢清單
 
-**slice 開工前**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS)☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD)☐ 標片型(輕量/標準/高風險;輕量片=三綠+smoke test 直達 commit)☐ 判鐵則 8 重大改動(是則先提 plan 等批)☐ 涉錢/權限/schema·migration·大量寫入/平台設定/對外發送/共用元件行為任一 → 逐字過鐵則 12 六類清單(硬清單、不憑自評)☐ 規劃前偵察 pass(標準片以上;掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節)☐ 估時 15-45 分鐘(超出拆)。
+**slice 開工前**:☐ 起手檢查綠(branch=dev/樹乾淨/HEAD 對齊 STATUS)☐ 讀 STATUS「下一步」確認範圍 ☐ 動 design → grep 真權威字面 ☐ 標 L1/L2/L3(L3 立即停寫 PRD)☐ 標片型(輕量/標準/高風險;輕量片=三綠+smoke test 直達 commit)☐ 判鐵則 8 重大改動(是則先提 plan 等批)☐ 涉錢/權限/schema·migration·大量寫入/平台設定/對外發送/共用元件行為任一 → 逐字過鐵則 12 六類清單(硬清單、不憑自評)☐ 規劃前偵察 pass(標準片以上;掃 backlog/STATUS/specs/memory/lessons + graphify 連動面、plan 附相關紀錄節)☐ **報片數/片界前先開母 plan §5.0 DAG 看上游;報 schema 行為前先開建表 migration 讀註解(契約債與交辦寫在那裡,查 `information_schema` 看不到);兩者在報告裡都要附 `檔案:行號`,附不出來=沒查**(2026-08-02 Sean 拍板 A;同日四次講錯片數/事實、其中一次污染了 Sean 的拍板;詳 memory `feedback_assert-scope-only-after-reading-source-file`)☐ 估時 15-45 分鐘(超出拆)。
 **slice 結束前**:☐ 肉眼驗(「肉眼驗✅」是 Sean 專屬用詞、Claude 只能寫程式驗)☐ 三綠(動 .ts/.tsx 加 build、不 disable/skip)☐ 命中鐵則 12 → codex CLI 對抗審查已跑(不產 Packet、07-21 拍板)、未 push ☐ 動前台元件 → 補/更新 smoke test(`*.test.tsx`)☐ commit 字面vs事實一致、偏離寫 body ☐ 精準 add ☐ commit 格式對 ☐ STATUS 7 欄更新(同 commit)☐ 收尾對帳(Sean 拍板逐條 vs 已落檔;漏的補寫成 memory `project_*.md`、含決定/理由/連動、不只 commit body)☐ busboy-end ☐ 不 push。(`/pcm-roadmap` 與 `/graphify --update` 不隨每 slice:milestone 收尾或每日收工跑一次即可;07-10 拍板)
 
 ## 突發狀況
