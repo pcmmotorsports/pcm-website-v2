@@ -6,8 +6,13 @@
 > 與片級 plan `docs/specs/2026-08-01-e10-supplier-s3b-settings-page-plan.md` **v3**(§4 四片 manifest)。
 > **未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準**(本檔不寫死,舊版寫死的「3 筆」已證實會過期)。
 >
-> 🔴🔴 **下一步的第一件事不是寫 code,是 Sean 推 + 部署後在正式站做寫入驗收**(Sean 08-02 拍板 B):
-> 按「停用 → 再啟用回來」「改名 → 再改回原名」各一次、**絕不按新增**(供應商不可刪除)。
+> ✅ **Sean 已於 2026-08-02 白天推上去,admin 正式站已部署**(`f4d79ec` + revert `6204f91`)。
+> 🔴🔴 **但寫入驗收的結果沒有被觀察到,下一步的第一件事就是補它**(Sean 08-02 拍板 B):
+> 進正式站 `/settings/suppliers`,按「停用 → 再啟用回來」「改名 → 再改回原名」各一次、
+> **絕不按新增**(供應商不可刪除)。**基準值** = `陳蔚仁` /
+> `b5cd92aa-1866-408a-a56a-06ad7c47d512` / 操作前 `is_active=true`(本 session 從正式站撈的)。
+> 🔴 **Sean 推完只回了「ok! 完成」就換視窗,沒有逐步回報值,我也沒撈到還原證據**
+> ⇒ **不得把它讀成「已驗收」**;停用 / 改名 / 新增三條寫入路徑目前**只有 mock 背書**。
 > **本機做不到** —— `ADMIN_DEV_BYPASS=1` 繞得過 proxy 登入閘與 Origin 檢查,
 > **繞不過 `authorizeAdminMutation` 的 `verifySession(cookie)`**(`session/authorize.ts:29-30`,那道沒有 dev 逃生口)
 > ⇒ 本機按下去一律 `?r=denied`。⇒ **在那次驗收完成前,不得說「供應商設定頁已端到端驗證」**;
