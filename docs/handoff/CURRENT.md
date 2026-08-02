@@ -7,16 +7,30 @@
 > **未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準**(本檔不寫死,舊版寫死的「3 筆」已證實會過期)。
 >
 > ✅ **Sean 已於 2026-08-02 白天推上去,admin 正式站已部署**(`f4d79ec` + revert `6204f91`)。
-> 🔴🔴 **但寫入驗收的結果沒有被觀察到,下一步的第一件事就是補它**(Sean 08-02 拍板 B):
-> 進正式站 `/settings/suppliers`,按「停用 → 再啟用回來」「改名 → 再改回原名」各一次、
-> **絕不按新增**(供應商不可刪除)。**基準值** = `陳蔚仁` /
-> `b5cd92aa-1866-408a-a56a-06ad7c47d512` / 操作前 `is_active=true`(本 session 從正式站撈的)。
-> 🔴 **Sean 推完只回了「ok! 完成」就換視窗,沒有逐步回報值,我也沒撈到還原證據**
-> ⇒ **不得把它讀成「已驗收」**;停用 / 改名 / 新增三條寫入路徑目前**只有 mock 背書**。
-> **本機做不到** —— `ADMIN_DEV_BYPASS=1` 繞得過 proxy 登入閘與 Origin 檢查,
-> **繞不過 `authorizeAdminMutation` 的 `verifySession(cookie)`**(`session/authorize.ts:29-30`,那道沒有 dev 逃生口)
-> ⇒ 本機按下去一律 `?r=denied`。⇒ **在那次驗收完成前,不得說「供應商設定頁已端到端驗證」**;
-> 停用 / 改名 / 新增三條寫入路徑目前**只有 mock 背書**。
+> ✅ **2026-08-02 晚已補驗完成 —— 寫入驗收「已被觀察到」,停用/啟用 + 改名兩條路端到端成立。**
+> 🔴 **但不是我按的,也不是照原規格的方法取證** —— 我按不了:`agent-browser` 開
+> `/settings/suppliers` 被導去 `quote.pcmmotorsports.com/api/sso/authorize`、回 `{"error":"未登入"}`,
+> 登入要 Sean 的憑證(quote 站還有 2FA)⇒ **原規格「我進站按 + 前後撈值」物理上做不到**,
+> 改成**唯讀取證正式站稽核表**。這是「改變測法」,依 Sean 08-01 拍板已據實揭露、非默默替換。
+> **證據 = `public.admin_audit_log` 四筆**,全 `actor='sean'` / `source_app='admin'` /
+> `target='supplier:b5cd92aa-1866-408a-a56a-06ad7c47d512'`(UTC):
+> `08:14:20` 停用 true→false → `08:14:36` 啟用 false→true →
+> `08:14:50` 改名 `陳蔚仁`→`陳蔚仁 測試` → `08:14:56` 改回 →`陳蔚仁`。
+> **⇒ Sean 那句「ok! 完成」是字面屬實的,他真的四個動作都按了、也真的還原了。**
+> **還原完整**:現況 `label='陳蔚仁'` / `is_active=true` = 操作前基準值。
+> **兩個獨立來源互證**:①稽核鏈 before/after 逐筆首尾銜接
+> ②`suppliers` 26 列、`updated_at <> created_at` **恰 1 列**,且該列 `updated_at`
+> = `2026-08-02 08:14:56.217071+00` **與末筆稽核逐微秒相同** ⇒ 同一交易、且**無繞過稽核的靜默寫入**。
+> **連帶證成**:真環境授權閘 `authorizeAdminMutation` 放行(失敗會 `r=denied` 且 RPC 零呼叫)
+> → owner RPC `admin_upsert_supplier` → `suppliers` + 稽核同交易。
+> 🔴 **仍不得說滿的三件**:①**新增那條路仍只有 mock 背書**(D3=B 明令絕不按;26 列未增 = 他確實沒按)
+> ②稽核只證 **DB 層效果、沒證畫面**(result banner / `?r=` / 清單重排)——
+> 那半只有 Sean 的「ok! 完成」,**而那句話沒說他看了什麼**
+> ③`actor='sean'` 來自自選 picker cookie、**非驗證身分**(E8-B)⇒ 證的是「有個非空 actor」。
+> ⇒ **現在可以說「供應商設定頁的停用/啟用與改名已在正式站端到端驗證」,新增仍不可說。**
+> (背景保留:本機做不到的原因 = `ADMIN_DEV_BYPASS=1` 繞得過 proxy 登入閘與 Origin 檢查,
+> **繞不過 `authorizeAdminMutation` 的 `verifySession(cookie)`**(`session/authorize.ts:29-30`,無 dev 逃生口)
+> ⇒ 本機按下去一律 `?r=denied`。)
 > 🔴 另一個跨片事實:本機 `.env.local` 用新命名 `SUPABASE_SECRET_KEY`,而程式讀舊名
 > `SUPABASE_SERVICE_ROLE_KEY` ⇒ **整個本機開發環境長期連不上 DB**(不只這一片)。
 >
