@@ -71,10 +71,28 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 - 付款完導回客人:`<NEXT_PUBLIC_SITE_URL>/checkout/callback?order=<訂單id>`
 - 後端通知(webhook):`<NEXT_PUBLIC_SITE_URL>/api/checkout/tappay-notify/<TAPPAY_NOTIFY_PATH_SECRET>`
 
-⚠️ **誠實揭示**:因為是每筆交易隨請求送出,理論上不需要另外在 TapPay 後台登記;
-但先前規劃(S4)寫過「TapPay 後台登記 notify URL」——**我無法從程式碼確認 TapPay 端是否另有網域白名單要求**。
-→ 拿 merchant 時**順便問 TapPay 客服**:「backend_notify_url 隨交易帶,是否還需在後台登記網域?」
-若需要,登記上面第二條(⚠️ 那串含 secret,登記等於把 secret 存在 TapPay 後台)。
+✅ **此題已結案(Sean 2026-08-02 拍板 A:沒有在 TapPay 後台登記過)** ——
+`backend_notify_url` 隨每筆交易送出即可,**TapPay 後台沒有這串網址的副本**。
+⇒ **連動(輪換 `TAPPAY_NOTIFY_PATH_SECRET` 時適用)**:換 secret **只需**改 Vercel env + redeploy,
+**不必動 TapPay 後台**;也代表那串 secret 沒有存在 TapPay 那邊的第二份。
+~~舊字面:我無法從程式碼確認 TapPay 端是否另有網域白名單要求 → 拿 merchant 時順便問客服~~(已由 Sean 回答)。
+
+### 🔁 輪換 `TAPPAY_NOTIFY_PATH_SECRET` 的步驟(2026-08-02 實跑過一次、可重用)
+
+1. 產新值:`node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`(43 字元、合規)。
+2. Vercel storefront 正式站專案改該 env(**有設的每個環境都要改**:Production / Preview / Development)。
+3. 🔴 **必須 redeploy** —— 改 env 不會套用到已在跑的部署。
+4. 本機 `.env.local` 同步(只有本機要跑 3DS 才需要)。
+5. 驗證(三道都要過,`$S` = 新值):
+   - 格式:長度 ≥32 且 `^[A-Za-z0-9_-]+$` —— **不合格會讓 3DS preflight throw ⇒ 整個結帳掛掉、零扣款**(fail-closed)。
+   - `curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/api/checkout/tappay-notify/$S"` → 預期 **200**
+     (空 body 走「廉價 drop」、不寫 DB);**500 = 部署上的值不合格**(結帳已壞,立刻回滾)。
+   - 同上但換一串亂數 → 預期 **404**。
+   - 🔴 **200 只證明「本機與正式站同一串」,不證明「換過了」** ⇒ 還要比對現值 ≠ 舊值。
+6. **窗口風險**:換的瞬間,已送出、客人還在 OTP 頁的交易會回呼舊網址 → 404。
+   **不掉錢** —— 成交權威在 settleCharge 的 Record API(route 檔頭逐字),webhook 只是快路徑,
+   最終保證是 `pcm-settle-sweep`(**實查 2026-08-02:每 2 分一次、前 2 小時 60/60 succeeded**)。
+   客人那條導回網址不含 secret、完全不受影響。⇒ 建議挑沒人結帳的時段換。
 
 ## 步驟 4:開 1 元商品(並藏好)
 
