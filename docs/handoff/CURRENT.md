@@ -1,6 +1,17 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🧱 **2026-08-02 深夜(最新):`A6` owner RPC **code 收工** —— 已 commit、**未 apply**、未 push。**
+> 🎉 **2026-08-02 深夜(最新):`A6` 已 apply 正式站、型別已重 gen —— 備註「寫得進去」端到端完成。**
+> Sean 手動 `db push`(先 `--dry-run` 確認清單恰一支;正式站印出 `A6 結構驗收全數通過`)。
+> **apply 前 preflight 13 項 + apply 後 read-back 17 項全符**(ledger 尾 `20260802150000`、函式 ACL
+> 恰 `service_role:EXECUTE:false`、client 零授權、**函式 owner = audit 表 owner**、RETURN 字面恰 14)。
+> **型別校正從七處 → 十處**(新增 A6 的 `p_channel`/`p_occurred_at`/`p_corrects_note_id`;
+> internal note **必須**三個都傳 NULL)—— 判別力已實測:拿掉三處各紅一條 TS2322,還原後 byte-identical。
+> 🔴 **我第一版 `db push` 指令給錯 flag(`--project-ref` 不存在)** —— 當場報 usage、零副作用;
+> 正確形 = `--linked`(預設)且**先 dry-run**。指令要給 Sean 前先確認 flag 存在,別憑印象。
+> 🔴 **下一步 = A9a-1 讀模型**(Q2=A 等 Sean 確認)。**A6 目前零呼叫端**(`apps/admin` 對
+> `admin_append_order_note` 零命中)⇒ 員工按不到、**27 項驗收貢獻仍為 0**。誠實邊界見 STATUS 首段。
+
+> 🧱 **2026-08-02 深夜(施工紀錄):`A6` owner RPC code 收工。**
 > 產物 = `supabase/migrations/20260802150000_m4b_e10_a6_admin_append_order_note.sql` + `scripts/a6-verify.sh`。
 > 驗證 = 本機 PG17 從零 provision 通過 / harness **157 PASS 0 FAIL 0 SKIP**(格 64 / 突變 73,三計數器釘死)/
 > 73 突變各紅在指定斷言 / 兄弟序列 a6→s2(77/0)→s1a(41/0)→a6(157/0)零污染 / 三綠 0/0。

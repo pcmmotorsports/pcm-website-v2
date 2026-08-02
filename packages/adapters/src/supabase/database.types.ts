@@ -1,23 +1,29 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**兩個函式、共七處**手動校正:
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三個函式、共十處**手動校正:
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
+//   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
 //   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」,一律型別化為非 null。
-//   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁(S3b)型別紅。
-//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在。
+//   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
+//   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK)。
+//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處。
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
-//   ✅ 實測 2026-08-01(三次):`gen types --project-id` **不受 .env.local 影響**(在 .env.local 原位的
-//     情況下退出碼 0)。需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(2026-08-01 晚重 gen:M-4b E10 **S2 已 apply** ——
-//   **新增** public.admin_upsert_supplier(uuid, text, boolean, text, text, text) → text
-//   = 供應商主檔的**唯一寫入路徑**(SECURITY DEFINER owner RPC;suppliers 對 service_role 只開 SELECT
-//   且零欄級 ACL)。一支吃三種動作:p_supplier_id 為 NULL = 新增;有值時 p_label / p_is_active
-//   各自 NULL = 該欄不動。回固定碼 CREATED / UPDATED / NO_CHANGE / NOT_FOUND / DUPLICATE_LABEL。
-//   🔴 呼叫端契約債:改名/停用必須斷言回傳碼 ∈ {UPDATED, NO_CHANGE} —— 收到 CREATED 代表 id 被弄丟、
-//   已靜默新增一筆刪不掉的垃圾列(詳 docs/specs/2026-08-01-e10-supplier-master-plan.md §6)。
-//   前次基準 = 2026-08-01 傍晚 S1a + S1b)。
+//   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
+//     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
+// 反映 LIVE prod schema(2026-08-02 深夜重 gen:M-4b E10 **A6 已 apply** ——
+//   **新增** public.admin_append_order_note(uuid, text, text, text, timestamptz, uuid, text, text) → text
+//   = 訂單備註的**唯一寫入路徑**(SECURITY DEFINER owner RPC;order_notes 對 service_role 只開 SELECT、
+//   RLS on 零 policy)。唯一動作 = 單列 INSERT + 同交易 admin_audit_log(action=order_note.append)。
+//   回 14 固定碼:APPENDED / ORDER_NOT_FOUND / INVALID_INPUT / INVALID_TYPE / INVALID_CHANNEL /
+//   CONTACT_FIELDS_REQUIRED / INTERNAL_FIELDS_FORBIDDEN / OCCURRED_AT_OUT_OF_RANGE /
+//   OCCURRED_AT_IN_FUTURE / INVALID_BODY / BODY_TOO_LONG / DUPLICATE_REQUEST /
+//   CORRECTS_NOT_FOUND / ALREADY_CORRECTED。
+//   🔴 呼叫端契約債(A9d2-1):必須斷言回傳碼 ∈ 14 碼全集,未知碼 = 呼叫端 bug;
+//   **DUPLICATE_REQUEST 要按成功處理**(它意謂該 request 已寫入過且經查驗),顯示成錯誤會誘發員工
+//   換 request_id 重送 = 製造重複備註(plan v4 F3)。
+//   前次基準 = 2026-08-01 晚 S2)。
 // ⚠️ 2026-07-29 那次重 gen 移除了 products_public / products_list_public / product_variants_public 三個 view 的
 //   Insert / Update 型別(CLI 依 view 可更新性判定)。已實查:三者的消費端全是 .select() 讀路徑,
 //   寫入一律走 base products 表(SupabaseProductAdapter 註解逐字「save 走 base products 表」)⇒ 移除無影響,
@@ -2197,6 +2203,24 @@ export type Database = {
         }
         Returns: string
       }
+      admin_append_order_note: {
+        Args: {
+          // 🔴 手動校正(重 gen 後需重貼)—— internal 這個 note_type **必須**三個都傳 NULL
+          //   (order_notes 的 internal_fields_absent CHECK 強制),而 PostgREST 的型別產生器
+          //   表達不了「必填但可為 null」⇒ 全被型別化為非 null string,呼叫端第一次寫 internal
+          //   備註就型別紅。p_actor / p_request_id **不補** —— 函式裡 fail-closed 拒收 NULL。
+          //   p_order_id / p_note_type / p_body 也不補 —— 傳 NULL 只會拿到固定錯誤碼,不是合法用法。
+          p_actor: string
+          p_body: string
+          p_channel: string | null
+          p_corrects_note_id: string | null
+          p_note_type: string
+          p_occurred_at: string | null
+          p_order_id: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       admin_set_customer_tier: {
         Args: {
           p_actor: string
@@ -2241,9 +2265,6 @@ export type Database = {
           p_request_id: string
           p_supplier_id: string | null
         }
-        // 固定碼:'CREATED' | 'UPDATED' | 'NO_CHANGE' | 'NOT_FOUND' | 'DUPLICATE_LABEL'
-        // 🔴 產生器只給得出 string;呼叫端要自己收窄,且**改名/停用必須斷言 ∈ {UPDATED, NO_CHANGE}**
-        //   (收到 CREATED = id 被弄丟、已靜默多一筆刪不掉的垃圾列;plan §6 的契約債)。
         Returns: string
       }
       begin_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
@@ -2298,8 +2319,6 @@ export type Database = {
       }
       create_order: {
         Args: {
-          p_address_id: string
-          p_cart_session_id: string
           // 🔴 手動校正(重 gen 後需重貼)—— 2026-07-29 production 實查函式簽章逐字:
           //   create_order(p_lines jsonb, p_address_id uuid, p_shipping_method text, p_invoice jsonb,
           //                p_cart_session_id uuid, p_terms_version text, p_client_ip text,
@@ -2307,14 +2326,13 @@ export type Database = {
           // 三個 text 參數在 DDL 都吃得下 NULL,但 PostgREST 的型別產生器**表達不了
           // 「必填但可為 null」**,一律型別化為非 null string ⇒ 不校正的話金流建單路徑會型別紅。
           // p_client_ip / p_client_ua = #241 best-effort PII(RPC 端 left 截斷、註解明寫可 NULL)。
-          // ⚠️ 2026-08-01 被沖掉三次(早上 A7c、傍晚 S1b、晚上 S2)、都已重貼。
+          // ⚠️ 2026-08-01 被沖掉三次(A7c、S1b、S2)、2026-08-02 A6 第四次,都已重貼。
+          p_address_id: string
+          p_cart_session_id: string
           p_client_ip: string | null
           p_client_ua: string | null
           p_invoice: Json
           p_lines: Json
-          // 🔴 手動校正(同上):B-2 第 9 參,DDL `DEFAULT NULL::text`。呼叫端(mappers/order.ts
-          //   CreateOrderRpcArgs)在 B-3 flag-on 時只傳 `null` 當形狀 marker,canonical 真值等 B-4
-          //   才擴型 ⇒ 這裡必須收得下 null,否則 mapper 對不上。
           p_notification_email?: string | null
           p_shipping_method: string
           p_terms_version: string
