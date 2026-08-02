@@ -1,6 +1,17 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🎯 **2026-08-02 深夜(最新):備註線 `A6 → A9a-1 → A9d2-1 → A10a` 關卡1 收斂。**
+> 🧱 **2026-08-02 深夜(最新):`A6` owner RPC **code 收工** —— 已 commit、**未 apply**、未 push。**
+> 產物 = `supabase/migrations/20260802150000_m4b_e10_a6_admin_append_order_note.sql` + `scripts/a6-verify.sh`。
+> 驗證 = 本機 PG17 從零 provision 通過 / harness **157 PASS 0 FAIL 0 SKIP**(格 64 / 突變 73,三計數器釘死)/
+> 73 突變各紅在指定斷言 / 兄弟序列 a6→s2(77/0)→s1a(41/0)→a6(157/0)零污染 / 三綠 0/0。
+> 🔴 關卡2 codex xhigh **NO-GO 12+7,駁回 0 全折**(逐字 `docs/reviews/2026-08-02-e10-a6-k2-codex.md`)——
+> 最重:**冪等碼可被偽造稽核騙成功**(service_role 對 audit 有 INSERT)⇒ 改查驗式冪等、否則 RAISE;
+> **`has_table_privilege` 證不了 zero-policy RLS 能不能讀寫** ⇒ 補 owner 對齊 + FORCE RLS off 兩道。
+> 🔴 **下一步 = 等 Sean 確認後開 A9a-1**(Q2=A);**A6 的 apply 是 Sean 的動作**(apply-DoD 見 plan §7.5:
+> `db push` → ledger read-back → 重 gen 型別 → **重貼共十處手動校正** → typecheck 實際重編)。
+> 🔴 未 apply 前 A9a-1/A9d2-1 不得開工(typed `.rpc()` 會型別紅)。誠實邊界見 STATUS 首段。
+
+> 🎯 **2026-08-02 深夜:備註線 `A6 → A9a-1 → A9d2-1 → A10a` 關卡1 收斂。**
 > plan **v4** = 唯一權威(`docs/specs/2026-08-02-e10-notes-line-plan.md`);
 > 四輪審查(codex R1/R2 + Fable R3/R4)獨立條目 68 全折、駁回 0,R4 = **GO 0 must-fix**。
 > **零行 code、零 migration;未推 commit 數以當場 `git rev-list --count origin/dev..HEAD` 為準。**
