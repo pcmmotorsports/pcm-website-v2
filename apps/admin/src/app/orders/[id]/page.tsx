@@ -14,6 +14,27 @@ import { ResultBanner } from '@/components/orders/result-banner';
 // 🔴 PII:客人姓名/電話/email+收件快照只在本頁(明細專用白名單、service_role、登入閘後);列表不帶。
 export const dynamic = 'force-dynamic';
 
+// 🔴 M-3 RW2b:退款 server action(RW2c)由本頁的表單送出 ⇒ 那個 POST 走的是**本 route segment**
+//    的函式時限,不是 action 檔自己的。顯式釘死、不吃平台預設:
+//    · adapter 的 refund fetch 有 30s 硬逾時(`REFUND_DEFAULT_TIMEOUT_MS`,
+//      `packages/adapters/src/tappay/TapPayChargeAdapter.ts:63`),平台時限一旦低於它,
+//      每一次慢回應都會被砍在 fetch 中途 = 錢可能已動、帳本停在 processing
+//      (plan v3.2 §3 表:throw 其他 → 不 finalize、留 processing;「不得自動重發」的字面在
+//      `packages/ports/src/ITapPayAdapter.ts:116`)—— 那是最貴的一種失敗。
+//    · 預算 = 授權 + server 重讀訂單 + G0 baseline Record 查詢 + initiate RPC + **30s 退款** +
+//      finalize RPC(plan v3.2 §1 RW2c 的動作序列)。plan 只要求「≥45s」;取 **60** 是因為 45 扣掉
+//      30s 退款後只剩十幾秒給其餘五步,而 60 在本 repo 已有實際部署過的前例
+//      (`apps/storefront/src/app/api/cron/email-sweep/route.ts:47`)。代價誠實說:多出來的時限只有在
+//      「真的跑很久」時才會被用掉並計費 —— 而那正是我們要它撐住的那一次。
+//    ⚠️ **契約債(RW2c 必還)**:`recordQuery` 預設**無**逾時(`packages/ports/src/ITapPayAdapter.ts:97-100`)
+//      ⇒ action 呼叫它時必須自帶 `AbortSignal.timeout(≤10s)`。要講精確:Record **無限 hang** 時會被砍在
+//      Record 上(那反而安全 —— 錢沒動、帳本沒列);真正危險的是 Record **慢但有回應**,把餘額吃到
+//      不足 30s,退款才送出就被砍 —— 那一刀落在 fetch 中途,正是本行想擋的結局。
+//    ⚠️ RW2c/RW2d 若把退款入口移到別的 route(獨立 route handler / 別的頁),那條 route 也要帶
+//      同一個 maxDuration;本行只保護本 segment(釘死它的斷言在
+//      `apps/admin/src/lib/payment/composition-tappay-wiring.test.ts` 最後一格)。
+export const maxDuration = 60;
+
 export default async function OrderDetailPage({
   params,
   searchParams,

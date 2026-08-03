@@ -147,7 +147,91 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
   全綠。關卡2:code-reviewer PASS+3nit 全清 / codex PASS+2nit(措辭已修;AGENTS.md scope
   白名單與實務漂移=動規則檔需 Sean、僅記錄)。
 - **下一片=RW2b**(admin composition + env 配對 fail-closed + route maxDuration ≥45s):
-  🟡 admin Vercel `TAPPAY_*` env 未查證(Sean dashboard;不擋 dev 實作)。
+  🟡 admin Vercel `TAPPAY_*` env 未查證(Sean dashboard;不擋 dev 實作)。→ **已收工,見 §3e**。
+
+## 3e. RW2b 收工(08-03 深夜第二個視窗;夜跑 Q1=A 指派的兩片之一)
+
+**前置兩步(主視窗指令,順序固定)**
+
+- `git merge --ff-only dev` ✅ `32f6b75 → 1b8f842`(A4a/RW1a/A5a 三支 migration 皆已 apply 正式站)。
+- **regen types** ✅(`a55fc55`):`gen types --project-id`;body diff = **純新增**
+  `admin_upsert_item_procurement`(11 參數)→ text、**零移除**(無 07-29 式 view 型別靜默消失);
+  **十處手動校正逐字重貼**(python 斷言各恰一處)。⚠️ A5a 的 Args **五處可為 NULL 刻意不補**
+  (`p_contact_channel / p_submitted_at / p_supplier_order_no / p_exception_reason /
+  p_expected_arrival_date`;migration `:228-291` 逐欄實查)—— 理由=呼叫端 A10b 尚不存在,
+  現在補不受 typecheck 守護、只多一筆重 gen 必掉的手工債;**A10b 開工時補上並把檔頭「共十處」改十五處**。
+  typecheck 8/8 真重編 + scripts tsconfig 綠(🔴 本 worktree root 無 hoist 的 `tsc`,
+  走 `packages/adapters/node_modules/.bin/tsc`;`pnpm typecheck` 尾端那行 `tsc: command not found`
+  是這個環境事實、**不是**本片造成)。
+
+**產物(1 commit;`apps/admin/src/lib/payment/` 新目錄)**
+
+| 檔 | 是什麼 |
+|---|---|
+| `composition.ts`(133 行,鐵則 6 綠) | 後台唯一 TapPay 注入點:`getTapPayAdapter()` + `tapPayEnvPairingViolation()` + `PROD_SUPABASE_HOST` |
+| `composition.test.ts` | 行為測試:配對矩陣、端點來源、fail-closed 十格(每格斷言 **adapter 未被建構**) |
+| `composition-tappay-wiring.test.ts` | 結構守門:展開注入/import 來源唯一/動態 env 讀法/配對排在建構前/admin 全樹三格掃描/`maxDuration ≥45` |
+| `app/orders/[id]/page.tsx` | 只加 `export const maxDuration = 60` + 論證註解 |
+
+**三個設計要點(踩過才知道的)**
+
+1. **環境配對斷言 = TapPay env ↔ 帳本 DB(`NEXT_PUBLIC_SUPABASE_URL`)必須同一側**,規則寫死不做成 env
+   (判準交給 env,設錯 env 那刻判準也一起錯)。擋兩種誤配對:`production × 非正式帳本`(真錢動了、
+   正式站零紀錄)/ `sandbox × 正式帳本`(正式訂單佔 single-flight 與可退額度、客人的錢一毛沒退)。
+2. 🔴🔴 **env 必須用動態 `process.env[name]` 讀**(關卡2 codex C1):Next 會把**靜態**
+   `process.env.NEXT_PUBLIC_*` 在 build 時內聯,而真正決定帳本去處的 `createSupabaseServiceClient()`
+   是動態讀(`packages/adapters/src/supabase/client.ts:25-27`)⇒ 混用 = **守門量到的值和它要保護的值
+   不是同一顆**。單元測試**看不到** build-time 內聯(vitest 只改 runtime env),只能靠結構斷言頂住。
+3. **`maxDuration` 取 60 不是 45**(plan 只要求 ≥45):45 扣掉 adapter 的 30s 退款硬逾時後只剩十幾秒
+   給授權/重讀/Record/兩次 RPC;60 在本 repo 有實際部署過的前例
+   (`apps/storefront/src/app/api/cron/email-sweep/route.ts:47`)。**一手證據**=build 產物
+   `apps/admin/.next/server/functions-config-manifest.json` 內 `"/orders/[id]": {"maxDuration": 60}`。
+
+**🔴 契約債(RW2c 必還)**
+
+- `recordQuery` **預設無逾時**(`packages/ports/src/ITapPayAdapter.ts:97-100`)⇒ action 必須自帶
+  `AbortSignal.timeout(≤10s)`。精確講:Record **無限 hang** 會被砍在 Record 上(反而安全:錢沒動、
+  帳本沒列);危險的是 Record **慢但有回應**、把餘額吃到不足 30s,退款送出後才被砍在 fetch 中途。
+- 退款入口若不放在 `orders/[id]`(另開 route handler),**那條 route 也要帶同一個 `maxDuration`**;
+  本片的斷言只釘得住這一個 segment。
+- `getTapPayAdapter()` 回的是 `AdminRefundTapPay = Pick<TapPayChargeAdapter,'refund'|'recordQuery'>`
+  (窄型別可塞替身;⚠️ **只是型別層**,runtime 仍是完整 adapter)。
+
+**審查兩線(高風險片不降級;跑前後 `git status --porcelain` 逐字比對零留痕)**
+
+- **code-reviewer(opus)R1 = FAIL 4 must-fix + 7 nit**,全部親驗屬實、全折:
+  ①註解引用了不存在的 `page.test.ts` ②`new TapPayChargeAdapter` 純字串守門被 alias import 繞過
+  ③`process.env.TAPPAY_` 漏 bracket/解構寫法 ④**`https://<正式host>./` 尾點 FQDN 繞過整道配對斷言**。
+  外加 nit:45→60(採納)、`Pick` 取代具體類別(採納)、import 來源兩條分開斷言(採納)。
+- **codex `gpt-5.6-sol` R1 = FAIL 13 must-fix + 2 nit** → 折入 → **R2 窄複審 = FAIL 3 must-fix** → 再折入:
+  R2-1 `http://.` 剝完尾點 host 變空 ⇒ sandbox 側整個放行(**我自己在 R1 折入時捅出來的洞** ——
+  當時憑「協定 allowlist 蘊含 host 非空」刪掉了空 host 檢查,那個蘊含只對**原始** hostname 成立);
+  R2-2 wrapper 取名 `*.test.ts` 就整個消失在掃描外(豁免清單改成列舉本目錄三支檔);
+  R2-3 幌子 import 放**行尾註解**可騙過來源斷言(改成數 import 行、數量必須恰 1)。
+- **不修、改成縮小宣稱的三條**(codex C5/C6/C9/C10/C12):`Pick` 只是型別層 / source-text 掃描擋不住
+  刻意規避(字串拼接、computed property、把 wrapper 藏進 `packages/`)。檔內逐字寫成
+  「**攔回歸,不攔對手**」。判斷理由=把宣稱縮到實際能力,而不是為了讓宣稱成立去疊 runtime wrapper。
+
+**⚠️ 需要主視窗/Sean 知情的一條(不是我能自己拍的)**
+
+> **關卡2 停在「R2=FAIL 已全折入,但沒有第三輪確認」。** plan §6 與 SOP ⑦ 寫的是「每片硬上限 2 輪、
+> round2 仍 FAIL 停下 raise Sean」;而 07-29 Sean 口頭推翻上限、改成「還在抓到真 finding 就繼續,
+> **第 3 輪起必須換角度換模型**」。本片兩條規則指向同一個動作:**停**。
+> 我的判斷=不自己再開同模型第三輪(R2 三條全在同一層:守門切片邊界 + URL 解析邊界),
+> 改成把每條修法各配一個**會殺死它的突變**(下方 27 格)後停手。
+> **要不要在 RW2c 開工前補一輪 Fable 換角度審 RW2b,請主視窗/Sean 決定。**
+
+**驗證(數字皆為實跑輸出)**
+
+- 三綠:typecheck **8/8**、lint **10/10**、admin build 綠、scripts tsconfig 綠;
+  完整 vitest **304 檔 3866 passed + 1 todo**(RW2a 收工時為 302/3840)。
+- **突變 27 格、逐格轉紅、還原後全綠**(腳本留在 scratchpad、不入 repo)。涵蓋:配對兩方向各自失守 /
+  拿掉 throw / 斷言搬到建構後 / `hostname`→`host` / 尾點 FQDN 後門 / 協定 allowlist / 剝點後空 host 與
+  **檢查順序** / PROD host 改成別的 ref / 靜態 env 讀法回歸 / partnerKey↔merchantId 對調 / 空字串 env /
+  端點改 inline 字面 / admin 自建 endpoints 複本(值對調)+ 幌子 import 放整行註解與行尾註解 /
+  別的 admin 檔用 alias import·bracket·解構·大寫端點·`*.test.ts` 命名規避 / `maxDuration` 降值與註解掉。
+- 🔴 **誠實邊界**:本片**零真環境驗證**(沒打過 TapPay、沒連過 Supabase);`getTapPayAdapter()`
+  **全 repo 零呼叫端** ⇒ 對 27 項驗收貢獻 **0**;admin Vercel 的 `TAPPAY_*` 仍未查證(Sean,死線 RW2d 前)。
 
 ## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 
@@ -175,8 +259,10 @@ T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前�
 
 ## 5. 沒做什麼(誠實邊界)
 
-- ~~零實作 code~~ **已過期**(本節寫於拍板前):Sean 拍板後 RW1a/RW1b/RW2a 皆已實作收工,
-  見 §3b/§3c/§3d;RW2b 起未動工。
+- ~~零實作 code~~ **已過期**(本節寫於拍板前):Sean 拍板後 RW1a/RW1b/RW2a/**RW2b** 皆已實作收工,
+  見 §3b/§3c/§3d/**§3e**;**RW2c 起未動工**(錢面片留白天、建議 Fable)。
+- RW2b **零真環境驗證**、`getTapPayAdapter()` 全 repo 零呼叫端 ⇒ 對 27 項驗收貢獻 0;
+  關卡2 停在 **R2=FAIL 已折入、無第三輪確認**(§3e 末段,需主視窗/Sean 決定要不要補 Fable 一輪)。
 - probe 的併發結論是 **n=1 單次取樣**;「已請款後的部分退併發」未測(非必要:S5 single-flight
   已在 DB 端擋同單並行)。
 - adapter JSDoc 兩處「語意未證」字面(`types.ts` refundAmount / TAPPAY_REFUND_STATUS 同鍵重試)已被
@@ -197,3 +283,11 @@ T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前�
 - 改:`scripts/a7c-verify.sh`(RW1a 新欄對帳 13 處 + PORT env 覆寫;§3c)
 - memory(不在 repo):`reference_tappay-refund-api-multiple-partial-and-overrefund` 補 ⑤ 段、
   frontmatter description 更新;`MEMORY.md` 對應行改寫。
+
+**RW2b 追加(§3e)**
+
+- 改:`packages/adapters/src/supabase/database.types.ts`(A5a 重 gen + 十處手動校正重貼;`a55fc55`)
+- 新:`apps/admin/src/lib/payment/composition.ts` / `composition.test.ts` / `composition-tappay-wiring.test.ts`
+- 改:`apps/admin/src/app/orders/[id]/page.tsx`(`export const maxDuration = 60` + 論證註解)
+- 改:`docs/handoff/2026-08-03-day-refund-wire.md`(本檔 §3e/§5/§6)
+- memory(不在 repo):新增 `reference_nextjs-public-env-static-read-inlined-at-build`;`MEMORY.md` 加一行。
