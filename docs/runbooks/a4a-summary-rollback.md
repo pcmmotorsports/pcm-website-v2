@@ -7,13 +7,38 @@
 
 ## 步驟 ①:停寫停守門
 
-今日(A4a 收工時點)三張來源表對所有應用 role **零寫 GRANT**、無 writer RPC ⇒ 本步 = no-op。
-🔴 **契約(plan §11 債⑦)**:A5a 上線片必須回寫本節為具體 SQL,形如:
+🔀 **2026-08-03 已回寫**(A5a migration 已寫成、**尚未 apply 正式站**;本節寫的是 A5a 落地之後的程序),
+契約(A4a plan §11 債⑦)結案。A5a 上線後採購側就有一支 writer RPC;
+到貨明細(`order_item_procurement_receipts`)與取消側(`order_cancellation_items`)仍為零寫 GRANT、無 writer。
+
+🔴 **(1) 與 (2) 必須是兩次獨立執行、中間確定已提交** —— 若整段被包在同一個交易裡(Dashboard SQL editor
+把多句當一個交易送出時就會這樣),REVOKE 在提交前對其他連線不生效:那段期間新的 RPC 呼叫照樣進得來,
+而它們的 `xact_start` 會**晚於** `revoke_at` ⇒ 正好被 (3) 的條件漏掉。⇒ 先單獨跑 (1)、確認回到非交易狀態,
+再跑 (2)。(Dashboard 是否把多句包成單一交易,repo 內未實測 ⇒ 一律當成會包。)
 
 ```sql
--- A5a 上線後的停寫(佔位;A5a 片負責把函式簽章填對):
--- REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(...) FROM service_role;
+-- (1) 停掉 service_role 應用路徑的唯一寫入口(A5a)。**單獨執行、確認已提交後再做下一步。**
+REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) FROM service_role;
 ```
+
+```sql
+-- (2) 另一次執行:記下停寫時點(下一步 drain 的錨;此刻 (1) 已對所有連線生效)
+SELECT now() AS revoke_at;   -- ← 把回傳值填進 (3)
+
+-- (3) 🔴 drain:REVOKE 只擋「新的」呼叫,已經通過 EXECUTE 檢查、正在跑或還沒 COMMIT 的交易
+--     照樣會寫進去。反覆跑到回 0 為止(或等到最長交易 timeout)。
+--     ⚠️ 不可改用 `query ILIKE '%admin_upsert_item_procurement%'`:①會命中這句自己
+--        ②呼叫完 RPC 後改跑別的 SQL、尚未 COMMIT 的交易查不到 —— 兩種都會給出「已淨空」的假象。
+SELECT count(*) FROM pg_stat_activity
+ WHERE pid <> pg_backend_pid()
+   AND xact_start IS NOT NULL
+   AND xact_start < TIMESTAMPTZ '<填 (2) 的 revoke_at>';
+```
+
+⚠️ **停寫後的殘餘寫入面(誠實列全,口徑對齊 S2 `20260801160000:303-306`)**:owner 手動 SQL、pg_cron job、
+任何持 owner 憑證的服務 —— 三者都不受 REVOKE 影響。本步驟保證的是「**service_role 應用路徑**已停」,
+不是「沒有任何東西能寫」。災難日若對帳持續飄移,先查這三個面,不要假設停寫失敗。
 
 ## 步驟 ②:保存快照 + 對帳(分流,不 abort;🔀 codex K2-R2-2:三形狀 —— 值分歧/缺列/received drift)
 
@@ -121,9 +146,26 @@ END $s5$;
 COMMIT;  -- ②④⑤ 同一交易至此收尾;上面 DO 若 RAISE 則整段回滾、trigger 不會停在半路
 ```
 
-⚠️ 誠實界(R3 nit):⑤ 的子集檢查按品項/採購列**成員**判定、不比形狀 —— 已留檔品項若在 ④ 窗口內新增**另一形狀**分歧會滑過;承重在 ①停寫(現況三表零寫 GRANT 下不可達)。**A5a 回寫 ① 時必須重看本條**。
+⚠️ 誠實界(R3 nit;🔀 2026-08-03 A5a 回寫時重看):⑤ 的子集檢查按品項/採購列**成員**判定、不比形狀
+—— 已留檔品項若在 ④ 窗口內新增**另一形狀**分歧會滑過。承重原本是「三表零寫 GRANT ⇒ 窗口內不可能有新寫入」;
+A5a 上線後那句**不再成立**,承重改為 ①的 **REVOKE + drain 已跑完**:drain 回 0 之後 service_role 路徑
+確實沒有新交易能寫,但 owner / pg_cron / 持 owner 憑證的服務仍在能力範圍內(見 ① 的殘餘寫入面)。
+⇒ 災難日若 ④ 窗口內對帳結果與 ② 留檔對不上,先查那三個面,不要當成 ⑤ 的邏輯錯。
 
 ## 步驟 ⑥(選擇性):續走 A1 全回滾(依賴已清零才合法)
+
+🔴 **重建之後必須把 A5a 的寫入權還回去**(關卡2 MF2):步驟① 的 REVOKE 不會被 forward 重放
+A1/A4a 的動作抵銷 —— 重建完成、對帳綠之後若忘了這一句,採購寫入會**永久停擺**而系統看起來一切正常
+(員工按儲存只會收到權限錯誤,沒有任何告警)。
+
+```sql
+GRANT EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) TO service_role;
+-- 驗:應回 t
+SELECT has_function_privilege('service_role',
+  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)', 'EXECUTE');
+```
+
 
 ```sql
 -- 前置:步驟③(a) 重跑 = 0;③(b) 清單無其他消費端。
