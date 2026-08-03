@@ -2,7 +2,7 @@
 //
 // storefront 唯一注入金流 server-only adapter(TapPay charge / PaymentConfirmer / ChargeAttempt 雙軌複合)的
 // 「受控單檔」:charge action(②-③e)只 import 本檔三個 factory、不直接碰 @pcm/adapters/server。
-// - eslint.config.js L110-126 禁整個 apps/storefront/**/*.{ts,tsx} import @pcm/adapters/server;本檔以
+// - eslint.config.js L137-152 禁整個 apps/storefront/**/*.{ts,tsx} import @pcm/adapters/server;本檔以
 //   inline eslint-disable + 意圖註解開「受控小門」(比 files-override 更可審、code-reviewer 在 import 點即見例外)。
 // - 結構守門 = eslint 擋全部 storefront import、只剩本檔顯式 disable;pg 只在 @pcm/adapters/server subpath、
 //   不污染 root barrel(@pcm/adapters)的 tree-shaking(lib/products.ts 零 pg)。
@@ -29,7 +29,7 @@ import {
   type PreflightReleaseSiblingDeps,
   type CheckAnomalyAlertsDeps,
 } from '@pcm/use-cases';
-// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)
+// eslint-disable-next-line no-restricted-imports -- 受控例外:composition root 注入金流 server-only adapter;TapPayChargeAdapter 持 Partner Key、PaymentConfirmer/PgChargeAttempt/PgWebhookInbox/PgPollSettleThrottle 持 PAYMENT_CONFIRMER_DB_URL raw DB credential、皆 server-only 不進 client bundle(pg 亦只在 @pcm/adapters/server subpath)+ tapPayUrlsFor(純 URL 常數、無 secret、跟隨唯一消費面;RW2a)
 import {
   TapPayChargeAdapter,
   PaymentConfirmerAdapter,
@@ -43,9 +43,9 @@ import {
   PgAnomalyAlertReaderAdapter,
   LineAlertNotifierAdapter,
   EmailAlertNotifierAdapter,
+  tapPayUrlsFor,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
-import { tapPayUrlsFor } from './tappay-endpoints';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 lib/auth/line.ts + supabase/server.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
@@ -61,9 +61,10 @@ function requireEnv(name: string): string {
  * 建 ITapPayAdapter(TapPayChargeAdapter + server-only Partner Key)。
  * `TAPPAY_ENV` fail-closed 只接 'sandbox'|'production'(防誤打誤中 prod);Partner Key/Merchant ID server-only。
  *
- * 🔴 三端點 URL 移到 `./tappay-endpoints`(純模組、可單元測試)並以**物件展開**注入(M-3 退款線
- * 第一片;codex 關卡1 R2#8/R3):舊 inline map 寫法下「sandbox/production 對調」「欄位錯接」全套
- * 測試照綠;現在字面由 tappay-endpoints.test.ts 全 URL 釘死、欄位錯接在型別層不可能。
+ * 🔴 三端點 URL 住在 `@pcm/adapters/server` 的 tapPayUrlsFor(RW2a 搬入;storefront/admin 兩個
+ * composition 共用同一 env→host 綁定點)並以**物件展開**注入(codex 關卡1 R2#8/R3):舊 inline map
+ * 寫法下「sandbox/production 對調」「欄位錯接」全套測試照綠;現在字面由 adapters 的
+ * endpoints.test.ts 全 URL 釘死、本檔接線由 composition-tappay-wiring.test.ts 守、錯接在型別層不可能。
  */
 export function getTapPayAdapter(): ITapPayAdapter {
   const env = requireEnv('TAPPAY_ENV');

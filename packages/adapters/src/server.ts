@@ -34,6 +34,9 @@ export { SupabaseAuthAdapter } from './supabase/SupabaseAuthAdapter';
 // 絕不進 client bundle;pay-by-prime sandbox/prod by env)。composition root 唯一受控注入點(eslint no-restricted-imports
 // 擋全部 storefront import、只剩 composition root inline-disable = 結構守門)。
 export { TapPayChargeAdapter, type TapPayChargeConfig } from './tappay/TapPayChargeAdapter';
+// RW2a:三端點 URL 純常數與 adapter 同住(storefront 與 admin 兩個 composition 共用同一個
+// env→host 綁定點;純 URL 無 secret,掛 server subpath 是「跟著唯一消費面走」不是機密性要求)。
+export { tapPayUrlsFor, type TapPayEnv } from './tappay/endpoints';
 
 // M-3 階段②-②b:PaymentConfirmerAdapter 走 server-only subpath(持 PAYMENT_CONFIRMER_DB_URL raw DB
 // credential、敏感度 ≥ service_role;pg 走 Supabase session pooler + 完整 CA 驗證)。pg 只在本 subpath

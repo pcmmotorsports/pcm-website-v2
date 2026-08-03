@@ -131,6 +131,24 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
   RW1a 新欄再疊一層;屬 A7b-T 線(order_refund_jobs)的 harness 對帳,**未修**(54329 被佔、
   未實跑證實;報主視窗排片)。
 
+## 3d. apply 後三步(Sean 晚間指令:ff 併 dev → regen types → RW2a;順序固定、已全數完成)
+
+- **ff 併 dev** ✅:refund-wire → `f781416`(A4a `20260803140000` + RW1a `20260803150000` 皆已
+  apply 正式站、主視窗 read-back 全符)。
+- **regen types** ✅(`7160be6`):`gen types --project-id`(不讀 .env.local);diff 健檢=41 行
+  純新增零移除(兩支退款 RPC + order_refunds 新欄全進);**十處手動校正逐字重貼**(python 斷言
+  10/10);檔頭 LIVE 基準段更至 08-03 + 前瞻註記(RW2c 要補退款 RPC Args 五處 `| null`);
+  typecheck 真重編 8/8(3 task 非 cache)。
+- **RW2a** ✅(`79cb4f2`):tappay endpoints 搬 `packages/adapters/src/tappay/endpoints.ts`
+  (功能本體逐字等值=codex SHA 比對;出口 @pcm/adapters/server 與 ChargeAdapter 同 subpath;
+  root 零曝露)。測試三格拆兩家:URL 兩格隨模組、composition 接線守門留 storefront 並補釘
+  import 來源;scripts/d1-tappay-client.test.ts import 隨遷(首輪 grep 沒掃 scripts 漏抓、
+  全套測試抓回 —— 查無斷言 grep 全樹再確認)。回歸:pnpm test 302/302(3840)+ tc/lint/build
+  全綠。關卡2:code-reviewer PASS+3nit 全清 / codex PASS+2nit(措辭已修;AGENTS.md scope
+  白名單與實務漂移=動規則檔需 Sean、僅記錄)。
+- **下一片=RW2b**(admin composition + env 配對 fail-closed + route maxDuration ≥45s):
+  🟡 admin Vercel `TAPPAY_*` env 未查證(Sean dashboard;不擋 dev 實作)。
+
 ## 4. 🟡 今晚殘項(單視窗持有、不掛 cron;素材 T2=`D202608034SFpuL`)
 
 T2 今日 11:10 建立(AUTH)→ 依中信批次今晚 18:00 送批、約 20:00 可確認請款。請款後兩發:

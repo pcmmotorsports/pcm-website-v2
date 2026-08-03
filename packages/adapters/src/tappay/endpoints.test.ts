@@ -1,16 +1,15 @@
-// tappay-endpoints.test.ts — env↔host↔path 全字面釘死(M-3 退款線第一片)
+// endpoints.test.ts — env↔host↔path 全字面釘死(RW2a 隨模組搬入:URL 兩格原樣、第三格拆留 storefront)
 //
 // 🔴 斷言「完整 URL 字串」而非拆開驗 host/path(codex 關卡1 R3):一次涵蓋三種失效 ——
 // ①sandbox/production 值對調(正式站退款打進 sandbox=客戶收不到錢而帳面全對)
 // ②欄位錯接(refund 接到 query URL)③https 被降成 http(partner key 明文外送)。
 // 字面權威 = docs/reference/tappay-reference.md §2(:77)+ §2.3(:97)逐字。
-
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
+// ⚠️ 原第三格(composition 接線守門)沒搬 —— 它守的是 storefront 的 composition.ts 原始碼,
+// 留在 apps/storefront/src/lib/payment/composition-tappay-wiring.test.ts(本套件搆不到 apps)。
 
 import { describe, it, expect } from 'vitest';
 
-import { tapPayUrlsFor } from './tappay-endpoints';
+import { tapPayUrlsFor } from './endpoints';
 
 describe('tapPayUrlsFor — 三端點完整字面(對調/錯接/降協定即紅)', () => {
   it('sandbox:三 URL 完整字面', () => {
@@ -27,14 +26,5 @@ describe('tapPayUrlsFor — 三端點完整字面(對調/錯接/降協定即紅)
       recordQueryUrl: 'https://prod.tappaysdk.com/tpc/transaction/query',
       refundUrl: 'https://prod.tappaysdk.com/tpc/transaction/refund',
     });
-  });
-
-  it('🔴 composition.ts 本體真的走 tapPayUrlsFor:含展開注入、零 tappaysdk 字面(防 inline 回歸;codex 關卡2)', () => {
-    // 值比對(上兩格)證不了 composition 有用這個模組 —— 若有人把 composition 改回 inline URL
-    // 字面(繞過本模組),上兩格照綠。本格直接觀察 composition 源碼:必須展開注入、
-    // 且不得再出現任何 tappaysdk 端點字面(單一來源=本模組)。
-    const src = readFileSync(path.join(__dirname, 'composition.ts'), 'utf8');
-    expect(src).toMatch(/\.\.\.tapPayUrlsFor\(env\)/);
-    expect(src).not.toMatch(/tappaysdk\.com/);
   });
 });

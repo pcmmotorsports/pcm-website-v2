@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { tapPayUrlsFor } from '../apps/storefront/src/lib/payment/tappay-endpoints';
+import { tapPayUrlsFor } from '../packages/adapters/src/tappay/endpoints';
 
 import {
   assertStrictRecordWire,
@@ -50,12 +50,13 @@ describe('buildD1TapPayConfig', () => {
   });
 });
 
-describe('endpoint 字面單一事實(防與 storefront 漂移)', () => {
-  // 2026-08-03 退款線第一片:URL 字面自 composition.ts 移到 tappay-endpoints 純模組(單一來源),
-  // 本守門改為 import 比對模組回傳值。🔴 誠實邊界(codex 關卡2):本格只證「scripts 與 endpoints
-  // 模組一致」,證不了「composition 真的用該模組」—— 那半由 tappay-endpoints.test.ts 的
-  // composition 源碼守門(展開注入 + 零 tappaysdk 字面)承接,兩格合起來才等價於舊 regex 守門。
-  it('與 apps/storefront tappay-endpoints 的 production Record URL 逐字一致', () => {
+describe('endpoint 字面單一事實(防與 endpoints 模組漂移)', () => {
+  // 2026-08-03 退款線第一片:URL 字面自 composition.ts 移到 tappay-endpoints 純模組(單一來源);
+  // RW2a 該模組再搬入 @pcm/adapters(packages/adapters/src/tappay/endpoints.ts,storefront/admin
+  // 共用),本 import 隨遷。🔴 誠實邊界(codex 關卡2):本格只證「scripts 與 endpoints
+  // 模組一致」,證不了「composition 真的用該模組」—— 那半由 storefront 的
+  // composition-tappay-wiring.test.ts 源碼守門(展開注入 + 零 tappaysdk 字面)承接。
+  it('與 @pcm/adapters endpoints 的 production Record URL 逐字一致', () => {
     expect(tapPayUrlsFor('production').recordQueryUrl).toBe(PROD_RECORD_QUERY_URL);
   });
 });
