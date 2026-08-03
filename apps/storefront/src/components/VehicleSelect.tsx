@@ -32,6 +32,11 @@ type ComboProps = {
    *  「有沒有在打字」⇒ 零命中提示只能長在這裡。不傳=不渲染(既有三個掛載點行為零變動);
    *  手機選車面板必須傳(取代 FilterDrawerVehicleTab 的「查無符合的…」出口、不得回歸)。 */
   emptyHint?: string;
+  /** A2(2026-08-03):`/products?pick=vehicle` 落地開燈用 —— 掛載時把游標停在本欄。
+   *  🔴 只給桌機選車列的廠牌欄用,且由呼叫端閘在「非手機」;手機的開燈是自動開選車面板。
+   *  .cft-bar 是 sticky top:69px(filter-cascade.css:4-7)⇒ focus 當下就在視野內,
+   *  不需要另外 scrollIntoView。 */
+  autoFocus?: boolean;
 };
 
 // V-1c++:車庫「新增車輛」表單重用同一 combobox 原型(打字過濾/鍵盤/唯一精確命中),
@@ -51,6 +56,7 @@ function Combo({
   variant,
   slotLabel,
   emptyHint,
+  autoFocus,
 }: ComboProps) {
   const [text, setText] = useState<string | null>(null); // null=未編輯(顯 value)
   const [open, setOpen] = useState(false);
@@ -141,6 +147,7 @@ function Combo({
         value={shown}
         placeholder={placeholder}
         disabled={disabled}
+        autoFocus={autoFocus}
         onFocus={() => {
           setOpen(true);
           setHi(-1); // 未導航態:Enter 走 commit、不誤選首項(R1 minor)

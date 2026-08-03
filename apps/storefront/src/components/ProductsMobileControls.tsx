@@ -42,6 +42,7 @@ export function ProductsMobileControls({
   sort,
   setSort,
   countOf,
+  openVehicleOnMount = false,
 }: {
   data: FilterTopData;
   cascade: CascadeFilterState;
@@ -55,8 +56,17 @@ export function ProductsMobileControls({
   setSort: (value: string) => void;
   /** #306:件數解析器,由 ProductsPage 建立、穿透給兩個 scope 的 FilterDrawer。 */
   countOf?: FacetCountResolver;
+  /** A2(2026-08-03):`?pick=vehicle` 手機開燈 —— 掛載時直接把選車面板打開。
+   *  🔴 由 ProductsPage 閘在「server UA 判定為手機」,**不可只看 URL**:
+   *  本元件在桌機也會 mount(只是被 .pmc-root{display:none} 藏起來),而
+   *  MobileVehicleSheet 開啟時會 `document.body.style.overflow='hidden'`
+   *  (MobileVehicleSheet.tsx:78-84)—— 那條 effect 不管 CSS 可見性照跑,
+   *  所以純看 URL 會讓桌機客人進到一個「看不到面板、卻整頁捲不動」的死狀態。 */
+  openVehicleOnMount?: boolean;
 }) {
-  const [panel, setPanel] = useState<Panel>(null);
+  // 🔴 initializer 而非 effect:effect 版會在客人手動關掉面板後、下一次 re-render 又把它打開
+  //    (同一個理由讓 MobileVehicleSheet.tsx:72-75 的草稿也選了 initializer)。
+  const [panel, setPanel] = useState<Panel>(openVehicleOnMount ? 'vehicle' : null);
   const closePanel = () => setPanel(null);
 
   const vehicle = cascade.vehicle;

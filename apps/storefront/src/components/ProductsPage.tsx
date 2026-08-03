@@ -51,6 +51,7 @@ import { CascadeFilterTop } from './CascadeFilterTop';
 import { FilterSide } from './FilterSide';
 import { ProductsMobileControls } from './ProductsMobileControls';
 import { useFacetCountResolver } from '@/lib/vehicle-facet-display';
+import { useServerMobile } from '@/contexts/MobileContext';
 import { ProductCard } from './ProductCard';
 import { ActiveChips } from './ActiveChips';
 import { Pagination } from './Pagination';
@@ -193,6 +194,24 @@ function SortBar({
 export function ProductsPage({ products, total, error, categories, brands: serverBrands, motoBrands, garage = [] }: ProductsPageProps) {
   // searchParams 先取(#6:page/sort/perPage lazy init 讀 URL;server render 與 client 首繪同源、零 hydration 分歧)
   const searchParams = useSearchParams();
+  // ── A2(2026-08-03):`?pick=vehicle` 落地開燈(Sean 拍 B 案「同落地 + 開燈」)──
+  // 入口 = Header「依車輛搜尋」(非首頁時)與 MobileTabBar「找車」。
+  // 🔴 `pick` **不是篩選條件**,刻意不進 cascade 狀態機:useDeepLinkRestore 與
+  //    useCatalogFilterUrlSync 都不認識它。後者只改寫 pbrand/category/price/pmin/pmax
+  //    五軸、其餘 key 原樣拷貝(products-url-state.tsx 內 #289 那段的安全前提),
+  //    所以 `pick` 會留在網址上 —— 語意 = 「這次進站要開燈」,刻意不再多送一次
+  //    router.replace 去換一個沒人在看的乾淨網址。
+  // 🔴 桌機 / 手機必須**分流**,不能兩邊都吃同一個布林:
+  //    桌機 = 聚焦 .cft-bar 的廠牌欄;手機 = 自動開 MobileVehicleSheet。
+  //    兩棵樹在任何裝置上都會 mount(只是被 CSS 各自藏起來),而選車面板一開就會
+  //    `document.body.style.overflow='hidden'` ⇒ 桌機若誤走手機那支,會得到
+  //    「看不到面板、整頁卻捲不動」。分流的依據用 layout SSR 的 UA(與 CSS 的
+  //    [data-mobile="true"] 同源),Provider 外(單元測試)退化為桌機 = 不開面板。
+  // ⚠️ 已知落差(可接受、非缺陷):桌機瀏覽器把視窗縮到 ≤1024px 時,CSS 顯示的是手機控制列,
+  //    但 UA 仍是桌機 ⇒ 兩邊的開燈都不會發生(桌機那支的目標欄位此時 display:none、
+  //    focus 是 no-op)。結果是「沒開燈」而不是「壞掉」,方向 fail-safe。
+  const isMobileUA = useServerMobile() ?? false;
+  const pickVehicle = searchParams.get('pick') === 'vehicle';
   const [cascade, rawDispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
   const [extras, setExtrasRaw] = useState<ProductExtraFilters>(makeInitialExtraFilters);
   const { sort, setSort: setSortRaw, page, setPage, perPage, setPerPage } = useBrowseUrlState(searchParams);
@@ -276,6 +295,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         cascade={cascade}
         dispatch={dispatch}
         garage={garage}
+        autoFocusBrand={pickVehicle && !isMobileUA}
       />
 
       {/* 手機控制列(≥1025px 由 CSS 關閉)。刻意**不**放進 .cft-bar 內:
@@ -292,6 +312,7 @@ export function ProductsPage({ products, total, error, categories, brands: serve
         resultCount={resultCount}
         sort={sort}
         setSort={setSort}
+        openVehicleOnMount={pickVehicle && isMobileUA}
       />
 
       <div className="pp-layout has-side" data-filter-style="cascade">
