@@ -36,7 +36,7 @@ export const NOTE_CHANNEL_LABEL: Record<AdminOrderNoteChannel, string> = {
 
 /**
  * 更正不可撤回的告知文案(契約 C2:建表檔 `:179-184`;線 plan `:153-154` 明文「這句要進 A10a 的
- * UI 文案」)。🔴 字面待 Sean 潤稿;語意三件事不可刪:①不可撤回 ②更正的更正不會讓最早那筆復活
+ * UI 文案」)。字面已定稿(Sean 2026-08-03 拍 A 照現字面);改字面前先問 Sean,語意三件事不可刪:①不可撤回 ②更正的更正不會讓最早那筆復活
  * ③誤更正有效告知的唯一還原路徑 = 重登一筆新的「已告知客人」紀錄。
  */
 export const CORRECTION_IRREVOCABLE_NOTICE =

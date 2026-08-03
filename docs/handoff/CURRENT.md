@@ -21,8 +21,8 @@
 >
 > **你(指揮)的工作**:①轉發兩窗決策題給 Sean(他醒著、prose code block)②收割=先驗後併:worktree
 > `status --porcelain` 乾淨 + `git log dev..分支` 逐 commit 讀 diff + **獨立重跑其驗證**(高風險不採信自報數字;
-> A2b1 收割前例=STATUS 08-03 早段)→ `--no-ff` 併回 → STATUS 收帳同 commit ③備註線**文案定稿**待辦
-> (全字面暫定;A10a-3 plan §5 步 6)④勿碰兩窗 worktree 檔案;git index 撞車教訓=memory
+> A2b1 收割前例=STATUS 08-03 早段)→ `--no-ff` 併回 → STATUS 收帳同 commit ③~~備註線文案定稿~~ ✅ 已拍
+> (**08-03 Sean 拍 A:全部照現字面定稿**;落檔 = A10a-3 plan §5 步 6 + `note-timeline.ts` 註解)④勿碰兩窗 worktree 檔案;git index 撞車教訓=memory
 > `feedback_concurrent-session-git-index-contamination`。
 >
 > **其餘殘餘**:A2b2 S5 = 契約債⑥內建提醒(A4a 落地後應翻紅);MEMORY.md 索引近上限(瘦身需 Sean 拍板);
