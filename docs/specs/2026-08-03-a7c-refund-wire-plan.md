@@ -48,7 +48,7 @@
 - S2 `record_refunded_before bigint NOT NULL CHECK (record_refunded_before >= 0)`(Record baseline;來源見 G0)。
 - S3 `provider_refund_id_evidence text`(accepted 當下寫;守門=**N2 折入**:INSERT 必 NULL(併入 P7C08 家族)、write-once 僅 NULL→`^\S{1,64}$`、不得改/清空;confirmed 且 S3 非空時必須 `tappay_refund_id = S3`(同次一致);recovery 結案時 S3 可為 NULL(靠 Record 差額+Portal 真碼)。
 - S4 `request_id` 全域 UNIQUE index。
-- S5 `UNIQUE (order_id) WHERE status='processing'`(single-flight;RPC 內 `EXCEPTION WHEN unique_violation` → 具名碼 `REFUND_IN_FLIGHT` RAISE,action 映「已有退款處理中」— 不落成未指定錯誤)。
+- S5 `UNIQUE (order_id) WHERE status='processing'`(single-flight;RPC 內 `EXCEPTION WHEN unique_violation` → **固定回傳碼 `REFUND_IN_FLIGHT`**,action 映「已有退款處理中」— 不落成未指定錯誤。~~具名 RAISE~~ 改回傳碼=A6 house 慣例:業務態=回傳碼、caller bug=RAISE;RW1a 關卡2 codex MF7 拍齊、兩套字面收斂為此)。
 - S6 `status` CHECK 加 `deferred`(終態)+ 狀態機 trigger 同步(processing→confirmed|failed|deferred)+ **`pcm_order_refundable_remaining` WHERE 改 `status IN ('processing','confirmed')`**(codex N1;COMMENT+harness 格同步;deferred=已證零動錢,不佔額度)。**fable N8:COMMENT 必載明** allowlist 寫法讓「未來新增狀態」預設不佔額度(與原 `<> 'failed'` 方向相反=顯示面 fail-open),新增狀態時必須回訪本函式。
 - S7 `failed_detail text CHECK (failed_detail IS NULL OR char_length(failed_detail) <= 500)`(人工/診斷文字;`failed_reason` 改承 machine code,allowlist 見 G6)。
 
@@ -68,7 +68,7 @@
   恢復結案沿用 finalize action(outcome 已可辨識)。零 PII、無自由文字、body 全文不得出現。
 - G10 ACL:SECURITY DEFINER+search_path 釘死+owner=表 owner+REVOKE PUBLIC/anon/authenticated+僅 service_role EXECUTE+檔內自我斷言(A6 `:322-348` 全套含 FORCE RLS 檢查)。
 - G11 輸入衛生(F18 折入,實際值):`p_reason` trim 非空 ≤200 字、拒控制字元(`~ '[[:cntrl:]]'` 拒;⚠️ lc_ctype 差異=本機結論不外推正式站,harness 標註)/ `p_actor` trim 非空 ≤64 / `p_request_id` UUID v4 regex `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` / `p_failed_detail` ≤500 / S3 evidence `^\S{1,64}$`。
-- G12(**Q1=A 拍板**)initiate 前置:`payment_status = 'refunded'` → RAISE 具名碼 `REFUND_LEDGER_FULL`(帳本已滿、硬擋)。既有 P7C02 白名單(INSERT trigger 層)刻意放行 refunded **不動**(已 apply 守門;其註解 `:238-240` 逐字「取決於尚未存在的程式」— 本 RPC 就是那個程式,擋在 RPC 層)。UI 同步隱藏入口。
+- G12(**Q1=A 拍板**)initiate 前置:`payment_status = 'refunded'` → **固定回傳碼 `REFUND_LEDGER_FULL`**(帳本已滿、硬擋;~~RAISE~~ 改回傳碼同 S5 註記)。**檢查順序:G4 冪等查驗必須先於 G12**(否則全額退 confirmed 後同 token 重播會被 LEDGER_FULL 遮蔽、拿不到 DUPLICATE;RW1a 關卡2 codex MF4)。既有 P7C02 白名單(INSERT trigger 層)刻意放行 refunded **不動**(已 apply 守門;其註解 `:238-240` 逐字「取決於尚未存在的程式」— 本 RPC 就是那個程式,擋在 RPC 層)。UI 同步隱藏入口。
 
 **丙、app 層(縱深,不計守門)**:authorize+server 重讀;UI 防雙擊=降噪(權威 S5);accepted 同 request 立即 finalize=縮窗(權威 S3+RW4);錯誤分派鐵律=只認 NotSentError 與三態,**其他 throw(含 6002/10050)不 finalize、留 processing、不自動重發**(`types.ts:177-179`)。
 

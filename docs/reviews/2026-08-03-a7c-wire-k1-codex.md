@@ -245,3 +245,46 @@ S5 本身的金錢安全方向成立：
 - N8 remaining 改 allowlist 後未來新增狀態預設不佔額度(顯示面 fail-open 方向),COMMENT 應載明。【nit】
 - 擊不破的點(節錄):G8×P7C02 鎖交錯無死結環;rejected→failed 釋額後找不到只信本地帳本的錢路;refunded 自轉移不可達;delta 合併格在 F1 修掉後無漏錢路徑;S3×P7C07/08/10×P7C09 逐分支對過無新縫。
 - 是否可繼續:需修正(F1-F5 修完即可開工 RW1a,無需回 Sean 重拍 — 均不觸動 §5 五拍板字面)。
+
+## R3 窄確認紀錄(補登;關卡2 codex nit 指出漏記)
+
+- 審者=adversarial-reviewer(model:fable、同一 agent 續 context);對象=plan v3.2(git `525e46f`)。
+- 結果=**PASS**:F1-F5 逐條判「已關」(F1 缺欄負測由 §4-1 既有判定碼 harness 覆蓋、另 delta 算術 fail-closed;F2 G0 ②④;F3/F4 REFUND_UI_ENABLED 機制;F5 交錯格改寫逐字同修法);N1-N8 零漏折。
+- 一條字面 vs 事實備註:宣稱「RW4 缺欄負測新格」實為既有格覆蓋 —— RW1b 補顯式格。
+
+## 關卡2 R1(RW1a migration 20260803150000;staged diff)
+
+### code-reviewer(opus)= FAIL:1 Critical + 4 Important + 8 Minor(摘錄)
+
+- C1 P7C11 已被 `a7c_refund_items_frozen`(20260801120000:404)佔用=同碼雙門;且 plan 字面=「併入 P7C08 家族」→ 改 P7C08(P7C03 一碼雙名同例)。
+- I1 `GET DIAGNOSTICS ROW_COUNT` 隔著賦值才讀=非文件保證 → 每 UPDATE 緊接 `RETURNING INTO`+`v_after.id IS NULL` 判定。
+- I2 G8 未斷言出發態(unpaid/partiallyPaid 可被翻)→ 來源態 allowlist。
+- I3 P7C13 hold 列語意需明文(Portal DR 碼=wire refund_id 同一識別空間;probe P1/L 實證同值)。
+- I4 「DO 未實跑」宣稱 → **駁回**(54331 from-zero 實跑+smoke 有據);「未 apply 正式站」揭示照折進 commit body。
+- Minor×8:brid regex 死規則刪除/原文承重註解濃縮回填/COMMENT 補第七稽核值/CAS 訊息用鎖後現況/負值 record_amount 改 RAISE/三支被覆寫函式 ACL 收斂斷言/檔頭引文逐字化/btrim 註記。全折。
+
+### codex `gpt-5.6-sol` = FAIL:7 must-fix + 5 nit(摘錄;零留痕已比對)
+
+- MF1 🔴 hold 列可被二次 finalize 標成零動錢終態 → 釋放 S5+remaining → 再 initiate=雙退路徑;鎖前預讀列過期 → P7C15 trigger + RPC 5a + 鎖後重讀 FOR UPDATE。
+- MF2 recovered_confirmed 憑格式合法 DR 碼即可憑空 confirm → 恢復出口加「異常列閘」(processing 超 30 分 OR 證據非空;鏡像 RW4 清單條件)。
+- MF3 audit 從參數組非事實、reason 寫自由文字 → 全改 RETURNING 實際列值、audit.reason=NULL。
+- MF4 G4 排在 G12 後 → refunded 後同 token 重播被 LEDGER_FULL 遮蔽 → G4 移到鎖單後第一步(smoke G2 實證 DUPLICATE|confirmed)。
+- MF5 G8 缺來源態 allowlist(=code-reviewer I2)→ 折。
+- MF6 trigger 綁定/啟用/覆寫前 prosrc 漂移全未驗 → 前置 0d/0e + 驗收 11j/11k。
+- MF7 plan 字面「具名 RAISE」vs 實作回傳碼兩套並存 → plan §2 S5/G12 字面修訂為固定回傳碼(A6 house 慣例)。
+- nit×5:search_path 樣式(全庫一致、記誠實邊界不單片破例)/前置文案三處(兩表/恰三值/enum regtype)→ 折/R3 窄確認漏記 → 本段補登/「唯二路」限定 service_role 路徑+P7C01 訊息補 deferred → 折。
+
+### R1 後修法驗證(第二輪 from-zero)
+
+- 54331 重 provision 全套綠(檔內驗收 NOTICE 含 P7C15/trigger 綁定)+ smoke v2 十六路全符
+  (新增 G2/I2/J2 三路直測 MF4/MF2/MF1 修法)+ typecheck/lint 綠。
+
+## 關卡2 R2(窄複審;兩線皆 PASS)
+
+- **codex `gpt-5.6-sol` = PASS**:MF1-MF7 + nit×5 逐條判「已關」(MF1:P7C15+5a+鎖後重讀三層;
+  MF2:異常列閘無繞法、created_at DB 產且不可變;MF4:重播矩陣無新縫);新致命=未見;
+  staged blob 與工作檔雜湊一致。零留痕已比對。
+- **code-reviewer(opus)= PASS**:C1/I1-I4/M1-M8 全關(I1 修法「比建議更強」、I3「超出要求」;
+  I4 撤回並接受駁回)。殘 2 nit 已即修:11k 先擋 `proacl IS NULL`(aclexplode(NULL) 假綠格)、
+  檔頭引文行號 :314→:315。
+- nit 修正後第三輪 from-zero 重放綠(檔內驗收 NOTICE 全過)、54331 已 teardown。

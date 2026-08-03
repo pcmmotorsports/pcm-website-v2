@@ -72,6 +72,27 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
 - **輪數上限 2 已滿(CLAUDE.md ③)⇒ 不跑 R3、停等 Sean**;第 3 輪按 00-work-rules §5 必須
   換模型換角度 ⇒ 處置本身列為 plan §5 Q5(A=Fable R3 審 v3 後開工/B=Sean 直接拍跳 R3)。
 
+## 3b. RW1a 已實作收工(Sean 拍板後同視窗續行;Q5=A 前置=Fable R3 窄確認 PASS 已滿足)
+
+- **產物**:`supabase/migrations/20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql`(~1050 行:
+  S1-S7 schema 增補〔kind/Record baseline/S3 證據欄/request_id UNIQUE/single-flight partial
+  unique/deferred 第四態/failed_detail〕+ 三支既有函式改版〔狀態機+兩守門;原門行為逐字保留,
+  新增 P7C12-P7C15〕+ remaining 函式改版 + `admin_initiate_order_refund`/`admin_finalize_order_refund`
+  兩支 owner RPC〔A6 全套形狀〕+ 檔內 fail-closed 驗收)。**未 apply 正式站、未 db push**。
+- **驗證**:本機 PG17 from-zero 全套 migration 重放**三輪綠**(54331 拋棄式、與視窗①的 54329
+  隔離、已 teardown)+ 行為 smoke 十六路全符(冪等重放/重播穿透 LEDGER_FULL 拿 DUPLICATE/
+  single-flight/deferred 釋額換鍵/金額不符 hold/hold 列零動錢出口擋下/恢復閘/Portal 真碼恢復/
+  翻轉兩級/audit 帳目+reason 全 NULL)+ typecheck 8/8 lint 10/10(純 .sql 片)。
+- **關卡2(鐵則 12①②③)**:code-reviewer(opus)R1 FAIL 1C+4I+8M + codex `gpt-5.6-sol` R1
+  FAIL 7MF+5nit → 逐條親驗全折(駁回 1 條有據)→ **R2 兩線皆 PASS**。最重修法:P7C15 關
+  「hold 列→零動錢終態→釋鎖再退」雙退路徑、G4 冪等移到一切業務前置之前、audit 全改 RETURNING
+  實際列值、恢復出口加異常列閘。三輪逐字=`docs/reviews/2026-08-03-a7c-wire-k1-codex.md`。
+- ⚠️ 兩份審查是**同 diff 平行開線**(SOP ⑥⑦ 我並行跑了;lesson 說擇一 —— 實況:重疊僅 2 條、
+  互補為主,但下片照 SOP 序跑、不再並行)。
+- **下一步**:⛔ 硬停點 = Sean `db push`(dry-run 應恰一支 20260803150000)→ read-back →
+  regen types(+十處手動校正)→ typecheck → 才開 RW2a。RW1b harness(格+突變+交錯 barrier)
+  在停點前後皆可做,建議先做完再 apply。
+
 ## 4. 🟡 今晚殘項(單視窗持有、不掛 cron;素材 T2=`D202608034SFpuL`)
 
 T2 今日 11:10 建立(AUTH)→ 依中信批次今晚 18:00 送批、約 20:00 可確認請款。請款後兩發:
