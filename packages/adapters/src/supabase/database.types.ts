@@ -12,7 +12,14 @@
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(2026-08-03 晚重 gen:**A4a(20260803140000)+ RW1a(20260803150000)已 apply** ——
+// 反映 LIVE prod schema(2026-08-03 深夜第二次重 gen〔RW2b 開工前〕:**A4a(20260803140000)+
+//   RW1a(20260803150000)+ A5a(20260803160000)三支皆已 apply** ——
+//   **新增** public.admin_upsert_item_procurement(11 參數) → text(A5a 採購 upsert owner RPC)。
+//   ⚠️ 其 Args 五處**尚未**補 `| null`(p_contact_channel / p_submitted_at / p_supplier_order_no /
+//   p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、正規化後肉眼全空亦收斂成
+//   NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。**理由:呼叫端(A10b 採購表單)尚未存在
+//   ⇒ 現在補不會被 typecheck 守住、只會多一處重 gen 必掉的手工債**;A10b 開工時補上並把檔頭「共十處」改十五處。
+//   承前 RW1a ——
 //   **新增** public.admin_initiate_order_refund(8 參數) → jsonb / public.admin_finalize_order_refund(7 參數) → jsonb
 //   = order_refunds 的唯二 service_role 寫入路徑(SECDEF owner RPC)。initiate 回 8 固定碼、finalize 回
 //   3 固定碼 + outcome 6 碼(碼全集與重播/hold 契約詳兩函式 DB COMMENT;呼叫端必斷言 ∈ 全集)。
@@ -2294,6 +2301,22 @@ export type Database = {
           p_order_id: string
           p_patch: Json
           p_request_id: string
+        }
+        Returns: string
+      }
+      admin_upsert_item_procurement: {
+        Args: {
+          p_actor: string
+          p_allocated_quantity: number
+          p_contact_channel: string
+          p_exception_reason: string
+          p_expected_arrival_date: string
+          p_order_item_id: string
+          p_reply_status: string
+          p_request_id: string
+          p_submitted_at: string
+          p_supplier_id: string
+          p_supplier_order_no: string
         }
         Returns: string
       }
