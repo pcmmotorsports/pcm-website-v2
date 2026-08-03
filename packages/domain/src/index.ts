@@ -90,6 +90,9 @@ export type {
 export type { PaymentConfirmErrorCode } from './payment/errors';
 export { PaymentConfirmError } from './payment/errors';
 
+// M-3 退款線第一片:refund 契約 runtime 值(barrel 為 export type * ⇒ 值必須顯式;比照 AuthError)
+export { TAPPAY_REFUND_STATUS, TapPayRefundNotSentError } from './payment/types';
+
 // payment 3DS-5a bank_transaction_id 產生器(純函式;5b initiate use-case charge 前產唯一對帳鍵)
 export { generateBankTransactionId } from './payment/bank-transaction-id';
 

@@ -69,8 +69,8 @@ describe('OrdersTab(M-3 真訂單清單)', () => {
     // 金額(整數 Money toLocaleString)
     expect(screen.getByText('NT$ 12,345')).toBeTruthy();
     expect(screen.getByText('NT$ 980')).toBeTruthy();
-    // 狀態中文(雙軸映射):paid+shipped → 商品寄出;unpaid → 待付款
-    expect(screen.getByText('商品寄出')).toBeTruthy();
+    // 狀態中文:paid → A9f row47 固定「處理中」(不再細分出貨軸);unpaid → 待付款
+    expect(screen.getByText('處理中')).toBeTruthy();
     expect(screen.getByText('待付款')).toBeTruthy();
     // 有單時不顯空狀態
     expect(container.querySelector('.acc-empty')).toBeNull();

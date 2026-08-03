@@ -1,5 +1,48 @@
 import { describe, it, expect } from 'vitest';
-import { parseTapPayRecordResponse, parseTapPayResponse } from './wire';
+import { parseTapPayRecordResponse, parseTapPayRefundResponse, parseTapPayResponse } from './wire';
+
+// ── M-3 退款線第一片:parseTapPayRefundResponse(Refund API 白名單)────────────────────────────
+//
+// 🔴 證據邊界(比照下方 #301 紀律):sandbox probe 保存過值的只有 status / msg / refund_id
+//   (`DR20260801bHUZv8`);**`refund_amount` 的值是合成的**(probe 未保存、語意「本次 vs 累計」未證)。
+//   `bank_result_msg`(自由文字)刻意不解析 —— 斷言它不出現在解析結果。
+
+describe('parseTapPayRefundResponse — Refund API 白名單(退款線第一片)', () => {
+  it('受理回應:六欄白名單解析;bank_result_msg 刻意不解析、不出現在結果', () => {
+    const res = parseTapPayRefundResponse({
+      status: 0,
+      msg: 'Success',
+      refund_id: 'DR20260801bHUZv8', // probe 實測值
+      refund_amount: 300, // 🔴 合成值(probe 未保存;語意未證)
+      is_captured: false,
+      bank_result_code: '00',
+      bank_result_msg: 'free-text-not-parsed',
+    });
+    expect(res).toEqual({
+      status: 0,
+      msg: 'Success',
+      refundId: 'DR20260801bHUZv8',
+      refundAmount: 300,
+      isCaptured: false,
+      bankResultCode: '00',
+    });
+    expect(JSON.stringify(res)).not.toContain('free-text-not-parsed');
+    // is_captured=false 保真(typeof boolean、非 truthy 掉成 undefined)
+    expect(res.isCaptured).toBe(false);
+  });
+
+  it('status 非 number → throw;非物件 → throw(格式異常=unknown-state)', () => {
+    expect(() => parseTapPayRefundResponse({ msg: 'x' })).toThrow(/缺 status/);
+    expect(() => parseTapPayRefundResponse('nope')).toThrow(/非物件/);
+  });
+
+  it('refund_amount / refund_id 非預期型別 → undefined(防禦性;格式異常裁決留 adapter)', () => {
+    const res = parseTapPayRefundResponse({ status: 0, refund_id: 123, refund_amount: '300' });
+    expect(res.refundId).toBeUndefined();
+    expect(res.refundAmount).toBeUndefined();
+    expect(res.msg).toBe('');
+  });
+});
 
 // ── M-3 3DS-5a:parseTapPayResponse 新增 payment_url / bank_transaction_id 白名單解析(向後相容)──
 

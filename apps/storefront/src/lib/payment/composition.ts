@@ -45,6 +45,7 @@ import {
   EmailAlertNotifierAdapter,
 } from '@pcm/adapters/server';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { tapPayUrlsFor } from './tappay-endpoints';
 
 /** 讀必要 env、缺則 throw(fail fast、對齊 lib/auth/line.ts + supabase/server.ts requireEnv 模式)。 */
 function requireEnv(name: string): string {
@@ -56,21 +57,13 @@ function requireEnv(name: string): string {
   return value;
 }
 
-/** TapPay pay-by-prime endpoint(by TAPPAY_ENV;官方 WebFetch docs.tappaysdk.com 核實)。 */
-const PAY_BY_PRIME_URL = {
-  sandbox: 'https://sandbox.tappaysdk.com/tpc/payment/pay-by-prime',
-  production: 'https://prod.tappaysdk.com/tpc/payment/pay-by-prime',
-} as const;
-
-/** TapPay Record API(交易紀錄反查)endpoint(by TAPPAY_ENV;官方 WebFetch docs.tappaysdk.com 核實;3DS-1a)。 */
-const RECORD_QUERY_URL = {
-  sandbox: 'https://sandbox.tappaysdk.com/tpc/transaction/query',
-  production: 'https://prod.tappaysdk.com/tpc/transaction/query',
-} as const;
-
 /**
  * 建 ITapPayAdapter(TapPayChargeAdapter + server-only Partner Key)。
  * `TAPPAY_ENV` fail-closed 只接 'sandbox'|'production'(防誤打誤中 prod);Partner Key/Merchant ID server-only。
+ *
+ * 🔴 三端點 URL 移到 `./tappay-endpoints`(純模組、可單元測試)並以**物件展開**注入(M-3 退款線
+ * 第一片;codex 關卡1 R2#8/R3):舊 inline map 寫法下「sandbox/production 對調」「欄位錯接」全套
+ * 測試照綠;現在字面由 tappay-endpoints.test.ts 全 URL 釘死、欄位錯接在型別層不可能。
  */
 export function getTapPayAdapter(): ITapPayAdapter {
   const env = requireEnv('TAPPAY_ENV');
@@ -80,8 +73,7 @@ export function getTapPayAdapter(): ITapPayAdapter {
   return new TapPayChargeAdapter({
     partnerKey: requireEnv('TAPPAY_PARTNER_KEY'),
     merchantId: requireEnv('TAPPAY_MERCHANT_ID'),
-    payByPrimeUrl: PAY_BY_PRIME_URL[env],
-    recordQueryUrl: RECORD_QUERY_URL[env],
+    ...tapPayUrlsFor(env),
   });
 }
 
