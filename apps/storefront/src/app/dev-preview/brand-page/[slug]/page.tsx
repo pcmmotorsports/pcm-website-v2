@@ -11,6 +11,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import { BrandPageHeader } from '@/components/brand/BrandPageHeader';
+import { BrandPageAbout } from '@/components/brand/BrandPageAbout';
 
 export const metadata = { robots: { index: false } };
 
@@ -27,6 +28,7 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
   return (
     <div className="bp-page">
       <BrandPageHeader brand={brand} />
+      <BrandPageAbout brand={brand} />
       <nav style={{ padding: '24px 40px', fontFamily: 'var(--f-mono)', fontSize: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ color: 'var(--c-text-3)' }}>預覽切換:</span>
         {BRAND_CONTENT.map((b) => (
