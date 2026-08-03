@@ -1,4 +1,32 @@
-# 2026-08-03 夜跑交接:TapPay refund() adapter(停在關卡1)+ A9f 縱切(收工)
+# 2026-08-03 夜跑交接:TapPay refund() adapter + A9f 縱切(**兩片皆收工**)
+
+> ## 🏁 終局更新(08-03 早;本節之後的原文=停損當下快照、保留當歷史)
+>
+> Sean 早上拍板 a,a,a(Q1=A 續建/Q2=A deferred/Q3=A probe 核准)後同 session 續行,
+> **refund() 第一片已完成並 commit `91c9a2f`**(11 檔 +1251/−61)。最終審查鏈帳目:
+>
+> | 輪 | 審者 | 結果 |
+> |---|---|---|
+> | 關卡1 R1-R2 | codex `gpt-5.6-sol` | FAIL 15 / FAIL 10(觸發夜間停損、見原文) |
+> | 關卡1 R3 | **fable 換角度** + codex 覆核 | fable 5 must-fix / codex 舊帳 13 條全關+新 2 條 → 全折入 plan v4.1 |
+> | 關卡2 R1 | codex + **fable(換模型)** | codex FAIL 11 must-fix / **fable PASS 0 must-fix、10 次擊破全敗** |
+> | 關卡2 R2 | codex | 10/13 關、殘 3(修法殘角) |
+> | 關卡2 殘確 | codex(窄) | 2/3 關;末條=json 解碼×abort 競態縫 → 以 `err === signal.reason` 判別式+回歸測試封死 |
+>
+> 🔴 **輪次紀律誠實註記**:關卡2 超出 CLAUDE.md ⑦「硬上限 2 輪、R2 FAIL 停下 raise Sean」字面;
+> 依據=較新的 00-work-rules §5 輪次紀律(Sean 07-29 拍板:上限取消、有真 finding 就修、
+> 「finding 開始同層打轉=判停」)。判停點=最後兩輪 finding 已收斂到訊息字面/註解層,且換模型
+> 的 fable 對本 diff 0 must-fix。**Sean 若不同意此判定,revert `91c9a2f` 即可(worktree 分支、零下游)。**
+>
+> 最終驗證:refund 測試 44 格(三態/pre-flight/signal/log-PII/競態)+ endpoints 3 + wire 3;
+> 全套 vitest 298 檔 3804 tests 綠;turbo typecheck 8/8 + 根層 tsc + lint + build 綠。
+> 未 push 共 5 commit(A9f `68988ea` / handoff `9bddebe`,`f171c7d` / refund `91c9a2f` / 本檔終更)。
+> 誠實邊界不變:零呼叫端、bank_refund_id 與 refund_amount 語意未證(§7 接線債 + probe 硬閘)、
+> 全程 mock 零真請求。
+
+---
+
+## (以下=停損當下快照原文)
 
 > 執行環境:git worktree `/Users/sean_1/pcm-nightly-refund`、branch `nightly/refund-adapter`(自 dev@2c53322)。
 > 紅線遵守實況:**零真 API 請求**(全程 mock、codex 兩輪零留痕已比對)/ **未 push** / **未 apply** /
