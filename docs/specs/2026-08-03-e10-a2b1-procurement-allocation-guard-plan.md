@@ -197,3 +197,19 @@ A. 【推薦】授權把 row 28 與 A4a row 的字面改成「守門互斥靠 pa
 B. 保留原字面、只在 A2b1 migration 註解記差異(字面與實作長期不一致 —— 不推薦)
 
 **各題翻非推薦選項的連動面(Fable R3 F8;拍板時參考)**:Q1=B ⇒ 改閘條件一行 + B9b 期望改「40001 或成功」+ 文件同步 / Q1=C ⇒ 砍 B9 全組 + M4/M12 + §3.4(不推薦)/ Q2=B ⇒ trigger 選項改 `NOT DEFERRABLE` + 砍 B13 三態 / Q2=C ⇒ `INITIALLY DEFERRED` + B13 重寫 + A5a 錯誤歸因設計重談(不推薦)/ Q3=B ⇒ 閘與 skip 對調 + B9c 期望翻面 + M12 改向 / Q4=B ⇒ 零 code 影響、純文件債。任一題翻案 = harness 計數器重釘 + 重跑全綠,估 30-60 分鐘。
+
+---
+
+## §10 A2b2 片級 plan(master plan row 29 `:371`;標準片 —— 鐵則 12 六類逐字比對全不命中:零 migration、零 .ts、純本機 harness)
+
+**目標**:把 A2b1 的鎖從「B12 觀測 + 結構錨」升級成**兩 session 行為證明**,並把 row 29 的兩條負測落實為可重跑 harness = `scripts/a2b2-concurrency-probe.sh`(FIFO 雙 session + `pg_stat_activity`/`pg_blocking_pids` barrier,照 `s2c-concurrency.sh`/`a7t-concurrency-probe.sh` 原語;連同一個 provisioned workdir、七道身分閘 —— marker/datadir/db 名/RC/lc_messages/trigger 在位/函式未突變;code-reviewer MF1 更正 v5 初稿的「三重」字面)。
+
+| 情境 | 內容 | 期望 |
+|---|---|---|
+| S1 競態關閉 | A 開 txn INSERT 3(P5);B 併發 INSERT 3 → 先斷言 B 被擋且 `pg_blocking_pids(B)` 恰為 A(判別力:擋的就是 A);A COMMIT → B 的守門在鎖後重讀 → `P2B01`;終態恰 A 的 3 | row 29「assert 守門擋下」本體 |
+| S2 邊界放行 | 同交錯但 A=2、B=3(合計恰滿)→ B 等鎖後放行 | 序列化不誤殺 |
+| S3 消融 | committed 拿掉 NKU(M1 同法、同還原機制)→ 重跑 S1 同交錯 → **兩筆都過、終態 6 > 5 超量真的發生** → 還原後重跑 S1 → 又紅 | 「無鎖版本必須先被證明會壞」;等長同形消融 |
+| S4 跨 session delta | A **committed** 取消 2 → B 新 txn INSERT 4 → `P2B01`;INSERT 3 → 過 | row 29「先取消再加購必須 RAISE」的跨 session 版(A2b1 B4 只證同 txn 可見性) |
+| S5 契約債⑥實證 | A 開 txn INSERT 取消 2(未 commit);B INSERT 5 → 過並 commit(守門看不到未提交取消);A COMMIT → 終態 alloc 5 > 3 | 把 migration 契約債⑥的窗口**證為真**(A4a 掛同鎖後本情境應翻紅 = 內建提醒) |
+
+驗收:探針全綠、每情境結束零殘留(committed 列逐一清除 + 計數回基準)、中斷安全(INT/TERM exit + EXIT trap 還原 mutant 與 fixture)、三綠(零 .ts ⇒ typecheck/lint)、code-reviewer 過。誠實邊界:S3 是唯一 committed 函式突變(跨 session 可見性所需);S5 證的是「洞存在」不是「洞被擋」;PostgREST 層不在本 harness。

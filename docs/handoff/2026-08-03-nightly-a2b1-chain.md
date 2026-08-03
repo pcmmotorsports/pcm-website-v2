@@ -67,3 +67,14 @@ Q4: A|B     (授權修訂 master plan row 28/A4a 鎖序字面;推薦 A)
 - **關卡2 兩線序跑**(紀錄 = `docs/reviews/2026-08-03-e10-a2b1-k1-codex.md` 尾兩節):opus code-reviewer R1 FAIL(3+5)→ 全折 → codex `gpt-5.6-sol` xhigh R1 NO-GO(9+8,逐條親驗駁回 0)→ 全折(M12 雙重假綠、M1 還原旗序、trap 不 exit、break-glass 單交易化、count_gate 共用實作、六錨全序斷言等)→ 修畢全鏈重跑如上 → codex R2 確認輪(結果同檔尾)。
 - 🔴 **請主視窗同步 CURRENT.md:369**(codex K2 N16):「A2b1/A8a2 都已寫死『摘要缺失 fail-closed』」的字面已被 Q4=A 的 master plan `:369` 修訂推翻(該子句撤下、負測意圖由 B8 承接);本視窗依紅線不動 CURRENT。
 - **apply-DoD(等 Sean)**:本 migration 未 apply、未 push;apply = Sean `db push`(先 `--dry-run` 確認清單恰 `20260803130000` 一支);apply 後 read-back 至少:trigger 存在 + tgtype=21 + tgdeferrable/enabled=O、函式 proconfig 兩項、ACL owner-only、`database.types.ts` 重 gen 預期零 diff(trigger 不改表形狀)。
+
+---
+
+# 終章:A2b2 競態負測片收工(2026-08-03 早)
+
+- **產物**:`scripts/a2b2-concurrency-probe.sh`(FIFO 雙 session + `pg_blocking_pids` 判別力 barrier)+ plan §10。
+- **五情境全綠(36/0,CELL=5、MUT=1)**:S1 競態關閉(B 被 A 擋、A commit 後 B 紅 P2B01)/ S2 邊界放行不誤殺 / S3 消融(committed 拿掉 NKU ⇒ 同交錯兩筆都過、終態 6>5 超量真的發生;還原後同交錯又紅 —— 鎖被證明是承重的,補上 codex K1 R1-2 的缺口)/ S4 跨 session delta(committed 取消 2 ⇒ 開 4 紅、開 3 過 = row 29 第二條字面)/ S5 契約債⑥窗口實證(A 未提交取消 + B 滿額過 ⇒ 超量態成立;**A4a 對取消側掛同鎖後 S5 應翻紅 = 內建提醒**,場景內另有守門活著對照格)。
+- **審查**:opus code-reviewer R1 FAIL(3+9)→ 全折(見 review 檔尾節);標準片、不跑 codex 關卡2。兄弟回歸:探針前後 a2b1-verify 皆 69/0。
+- **log(session 存續期,已親抽,重開機即失)**:`/tmp/a2b2-probe-final.log`、`/tmp/a2b2-sibling-a2b1.log`;此後以本檔與 review 檔數字為準。
+- **鏈狀態**:`A2b1 ✅ → A2b2 ✅ → A4a(解鎖、未動)→ A4b → A5a`。A4a 開工時三件既定事項:①對 `order_cancellation_items`/`order_item_procurement_receipts`/`order_item_procurement` 掛 trigger 且鎖原語同 NKU(master plan A4a row 已改)②關閉契約債⑥後把 S5 期望翻紅 ③A1 §9 的回滾程序演練是 A4a DoD 硬前置(master plan `:373-377`)。
+- **harness 環境備註**:/tmp/a2b1-work 的 postmaster 在背景任務結束時會被收割;重啟要帶 `LC_ALL=C`(macOS locale 坑,d1t2 檔頭記載)。
