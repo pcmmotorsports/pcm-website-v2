@@ -9,7 +9,8 @@
 // 業務 override(鐵則 1 例外類別 2 = 技術實作差異、非視覺偏離):
 // - design 用 currentPage prop + onNav callback(in-app state machine)→ storefront 用 Next routing
 //   (usePathname() + <Link href>)
-// - 「找車」tab href 暫指 '#' + aria-disabled(fold backlog #195、/vehicle-search 路由未建)
+// - 「找車」tab → <Link href='/products?pick=vehicle'>(2026-08-03 Sean 拍 B 案「同落地+開燈」;
+//   ~~原 '#' + aria-disabled、fold backlog #195 等 /vehicle-search 路由~~ → **不必新路由**、#195 結案)
 // - 「購物車」tab → <Link href='/cart'>(M-3-S2-b2-d 建 /cart route、#194 resolved;原 '#' + aria-disabled
 //   為 /cart 未建時的暫頂、本片解除)
 // - hidden 判定:pathname.startsWith('/products/') 且 segments.length >= 2(對應 /products/[slug]、
@@ -27,7 +28,6 @@ type Tab = {
   href: string;
   matches: (pathname: string) => boolean;
   icon: ReactNode;
-  disabled?: boolean;
 };
 
 const TABS: Tab[] = [
@@ -60,9 +60,15 @@ const TABS: Tab[] = [
   {
     id: 'vehicle-search',
     label: '找車',
-    href: '#',
+    // 2026-08-03 Sean 拍 B 案:接 /products?pick=vehicle 解除停用,**不必新路由**(backlog #195 結案)。
+    // 落地開燈語意與 Header「依車輛搜尋」同一條(手機在這裡=自動開 MobileVehicleSheet)。
+    href: '/products?pick=vehicle',
+    // 🔴 維持恆不 active,不要改成「?pick=vehicle 時亮起」:usePathname() 拿不到 query,
+    //    要判斷就得在本元件用 useSearchParams();而本元件掛在 app/layout.tsx 的 root layout、
+    //    外層沒有 Suspense 邊界 ⇒ 會讓**全站每一頁**掉進 client-side rendering bailout。
+    //    代價遠大於「這顆 tab 會不會反白」。落在 /products?pick=vehicle 時亮的是「商品」tab
+    //    (下方 catalog 的 matches 收 p.startsWith('/products')),可接受。
     matches: () => false,
-    disabled: true,
     icon: (
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
         <circle cx="6" cy="17" r="3" />
@@ -109,20 +115,8 @@ export function MobileTabBar() {
       {TABS.map((t) => {
         const active = t.matches(pathname);
         const cls = `mobile-tabbar-btn ${active ? 'is-active' : ''}`;
-        if (t.disabled) {
-          return (
-            <span
-              key={t.id}
-              className={cls}
-              aria-disabled="true"
-              aria-label={`${t.label}(尚未開放)`}
-            >
-              <span className="mobile-tabbar-dot" />
-              {t.icon}
-              <span className="lbl">{t.label}</span>
-            </span>
-          );
-        }
+        // 2026-08-03:disabled 分支(<span aria-disabled>)整段移除 —— 找車是它最後一個使用者,
+        // 解除停用後 5 個 tab 全是真連結。守門 = MobileTabBar.test.tsx「零 aria-disabled」。
         return (
           <Link key={t.id} href={t.href} className={cls}>
             <span className="mobile-tabbar-dot" />

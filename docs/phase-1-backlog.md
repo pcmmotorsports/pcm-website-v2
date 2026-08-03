@@ -5134,10 +5134,15 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-05-28 / #192 codex k1 FIX-2
 - **相關:** Header.tsx L27-31 NAV_ROUTE_MAP / MobileTabBar.tsx cart tab disabled / design CartPage.jsx
 
-### #195. ⏳ /vehicle-search 路由建立(MobileTabBar 找車 tab disabled 解除)
+### #195. ✅ ~~/vehicle-search 路由建立~~(MobileTabBar 找車 tab disabled 解除)
 
-- **狀態:** ⏳ 待執行
-- **優先級:** 🟡 低(M-1-15 或 Phase 2 處理)
+- **狀態:** ✅ 完成 2026-08-03(片 A1;**沒有建 `/vehicle-search` 路由** —— Sean 08-03 拍 B 案
+  「同落地+開燈」:找車 tab 改連 `/products?pick=vehicle`,落地即開燈〔桌機聚焦廠牌欄、
+  手機自動開 MobileVehicleSheet〕。本條的「依賴:Sean 拍板 hash anchor 還是獨立路由」由此回答,
+  而且**兩個都不是** —— 是第三條路,比原估的 15-60 分鐘更省、也不留一條只為了 tab 而存在的路由。
+  同片一併移除 `MobileTabBar.tsx` 整個 `disabled` 分支〔找車是它最後一個使用者〕。
+  計畫 = `docs/specs/2026-08-03-vehicle-picker-unification-wire-plan.md` §5.2)
+- **優先級:** ~~🟡 低(M-1-15 或 Phase 2 處理)~~
 - **問題:**
   - storefront `/vehicle-search` 路由未建,#192 搬 MobileTabBar 時找車 tab 必 disabled
   - design App.jsx L170 MobileTabBar 第 3 tab 是 `vehicle-search`

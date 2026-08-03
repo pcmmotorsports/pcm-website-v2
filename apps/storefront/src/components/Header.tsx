@@ -95,7 +95,16 @@ export function Header({
 
   const navItems = [
     { id: 'catalog', label: '商品目錄', href: '/products' },
-    { id: 'vehicle', label: '依車輛搜尋', href: '/#vehicle-finder' },
+    // 2026-08-03 Sean 拍 B 案「同落地 + 開燈」:首頁維持錨點(finder 就在同一頁、捲過去即可),
+    // 其他頁改連 /products?pick=vehicle —— 落地即開燈(桌機聚焦廠牌欄、手機自動開選車面板)。
+    // 與上一列「商品目錄」(/products 乾淨落地)以此區分:一個是逛、一個是開始選車。
+    // 🔴 currentPage 預設為 'products'(見上方 props 解構),所以沒帶 currentPage 的掛載點
+    //    一律走 ?pick=vehicle;只有 app/page.tsx 傳 currentPage="home"。
+    {
+      id: 'vehicle',
+      label: '依車輛搜尋',
+      href: currentPage === 'home' ? '/#vehicle-finder' : '/products?pick=vehicle',
+    },
     // 🔴 品牌頁留 Phase 2、先指商品目錄:沿用 HomeFooter「品牌專區」已套用的 Q4-S5 拍板
     //   (該次只改了頁尾、Header 漏改 → `/brands` route 不存在、客人按了吃 404)。
     //   design-reference 無 BrandPage 元件,故非 design 偏離、是 route adaptation 的第二個消費端補齊。

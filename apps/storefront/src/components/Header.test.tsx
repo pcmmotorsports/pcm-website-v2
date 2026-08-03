@@ -92,7 +92,9 @@ describe('Header', () => {
 
       expect(actual).toEqual([
         ['商品目錄', '/products'],
-        ['依車輛搜尋', '/#vehicle-finder'],
+        // 🔴 2026-08-03 Sean 拍 B 案「同落地+開燈」:非首頁一律 /products?pick=vehicle。
+        //    本 case 沒帶 currentPage ⇒ 吃預設 'products' ⇒ 走這一支。首頁那一支見下一條測試。
+        ['依車輛搜尋', '/products?pick=vehicle'],
         ['品牌', '/products'], // 🔴 Phase 2 才有品牌頁;先對齊頁尾、不得改回 /brands
         ['新品', '/products?filter=new'],
         ['特價', '/products?filter=sale'],
@@ -101,6 +103,18 @@ describe('Header', () => {
       ]);
       // 明確斷言:不得有任何導覽項目再指向 /brands
       expect(actual.some(([, href]) => href === '/brands')).toBe(false);
+    });
+
+    // 🔴 這條與上一條是**同一個 navItem 的兩個分支**,必須成對存在:
+    //    只留上面那條,有人把三元運算子拿掉、寫死 ?pick=vehicle 也會全綠 ——
+    //    而那會讓首頁的「依車輛搜尋」離開首頁再繞回目錄,可是 finder 就在同一頁下面。
+    it('currentPage="home" 時「依車輛搜尋」維持同頁錨點 /#vehicle-finder', () => {
+      const { container } = renderWithCart(<Header isMobile={false} currentPage="home" />);
+      const nav = container.querySelector('.pcm-nav') ?? container.querySelector('nav');
+      const vehicleLink = Array.from(nav?.querySelectorAll('a') ?? []).find(
+        (a) => a.textContent?.trim() === '依車輛搜尋',
+      );
+      expect(vehicleLink?.getAttribute('href')).toBe('/#vehicle-finder');
     });
   });
 

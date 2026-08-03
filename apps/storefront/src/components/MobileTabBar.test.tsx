@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 //
 // MobileTabBar smoke test — #192 前台 regression 安全網。
-// 驗「render 5 tab 不報錯」+「pathname-based active / hidden 行為」+「disabled tab 用 <span>」。
+// 驗「render 5 tab 不報錯」+「pathname-based active / hidden 行為」+「5 tab 全是真連結」。
+// (2026-08-03:原「disabled tab 用 <span>」一條隨找車解除停用改寫;disabled 分支已從元件移除。)
 // usePathname 走 per-test vi.mock(每 case 重寫 hoisted pathname)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
@@ -67,12 +68,20 @@ describe('MobileTabBar', () => {
     expect(accountTab?.className).toContain('is-active');
   });
 
-  it('找車 tab disabled(<span aria-disabled="true">、非 <a>);購物車 #194 已解除', () => {
+  it('找車 tab 連 /products?pick=vehicle(2026-08-03 B 案解除停用、backlog #195 結案)', () => {
     const { container } = renderAt('/');
-    // M-3-S2-b2-d 起只剩「找車」disabled(/cart route 已建、購物車 tab 解除 disabled、#194 resolved)
-    const disabledSpans = container.querySelectorAll<HTMLSpanElement>('span[aria-disabled="true"]');
-    expect(disabledSpans.length).toBe(1);
-    expect(disabledSpans[0]?.getAttribute('aria-label')).toBe('找車(尚未開放)');
+    const vehicleTab = container.querySelector('a[href="/products?pick=vehicle"]');
+    expect(vehicleTab).toBeTruthy();
+    expect(vehicleTab?.textContent).toContain('找車');
+  });
+
+  it('5 個 tab 全是真連結:零 aria-disabled、零 href="#"', () => {
+    // 🔴 一條擋兩種回歸:①有人把某個 tab 改回 disabled stub(整個 disabled 分支已於 08-03 移除)
+    //    ②有人用 href='#' 當佔位 —— 點了會跳頁首,看起來像壞掉而不是「還沒開放」。
+    const { container } = renderAt('/');
+    expect(container.querySelectorAll('[aria-disabled="true"]').length).toBe(0);
+    expect(container.querySelectorAll('a[href="#"]').length).toBe(0);
+    expect(container.querySelectorAll('nav.mobile-tabbar > a').length).toBe(5);
   });
 
   it('購物車 tab 為 <Link href="/cart">(#194 resolved、非 disabled span)', () => {
