@@ -1,12 +1,16 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三個函式、共十處**手動校正:
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**四個函式、共十五處**手動校正:
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
 //   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
+//   ④ `admin_upsert_item_procurement.Args` **五處**(p_contact_channel / p_submitted_at / p_supplier_order_no /
+//      p_exception_reason / p_expected_arrival_date 的 `| null`;2026-08-04 A10b 起 —— A5a 落地時刻意不補,
+//      補了也沒有呼叫端會被 typecheck 守住;A10b 是第一個呼叫端,補在這一刻才有保護力)
 //   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」,一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
-//   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK)。
-//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處。
+//   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
+//   漏貼 ④ = A10b 採購表單只要有任一選填欄留空就型別紅(全量 payload、空欄就是送 NULL)。
+//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處;2026-08-04 A10b 起共十五處。
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
@@ -15,10 +19,10 @@
 // 反映 LIVE prod schema(2026-08-03 深夜第二次重 gen〔RW2b 開工前〕:**A4a(20260803140000)+
 //   RW1a(20260803150000)+ A5a(20260803160000)三支皆已 apply** ——
 //   **新增** public.admin_upsert_item_procurement(11 參數) → text(A5a 採購 upsert owner RPC)。
-//   ⚠️ 其 Args 五處**尚未**補 `| null`(p_contact_channel / p_submitted_at / p_supplier_order_no /
-//   p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、正規化後肉眼全空亦收斂成
-//   NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。**理由:呼叫端(A10b 採購表單)尚未存在
-//   ⇒ 現在補不會被 typecheck 守住、只會多一處重 gen 必掉的手工債**;A10b 開工時補上並把檔頭「共十處」改十五處。
+//   ✅ 其 Args 五處**已於 2026-08-04 A10b 開工時補上** `| null`(p_contact_channel / p_submitted_at /
+//   p_supplier_order_no / p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、
+//   正規化後肉眼全空亦收斂成 NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。
+//   當初刻意延後的理由 = 呼叫端不存在時補了也沒有 typecheck 會守住;A10b 就是第一個呼叫端。檔頭計數已改十五處。
 //   承前 RW1a ——
 //   **新增** public.admin_initiate_order_refund(8 參數) → jsonb / public.admin_finalize_order_refund(7 參數) → jsonb
 //   = order_refunds 的唯二 service_role 寫入路徑(SECDEF owner RPC)。initiate 回 8 固定碼、finalize 回
@@ -27,7 +31,7 @@
 //   + status 第四值 deferred + request_id 全域 UNIQUE + single-flight partial unique;
 //   pcm_order_refundable_remaining 改 allowlist(processing+confirmed 佔額)。A4a = 數量摘要重算線(trigger 網)。
 //   ⚠️ RW2c 接線時兩支退款 RPC 的 Args 需同型補 `| null`(initiate:p_amount / p_record_amount;
-//   finalize:p_tappay_refund_id / p_refund_amount_wire / p_failed_detail)—— 屆時檔頭「共十處」計數同步改。
+//   finalize:p_tappay_refund_id / p_refund_amount_wire / p_failed_detail)—— 屆時檔頭計數要從**十五處**改二十處。
 //   (承前基準 2026-08-02 A6,其契約債註記保留如下 ——
 //   **新增** public.admin_append_order_note(uuid, text, text, text, timestamptz, uuid, text, text) → text
 //   = 訂單備註的**唯一寫入路徑**(SECURITY DEFINER owner RPC;order_notes 對 service_role 只開 SELECT、
@@ -2306,17 +2310,24 @@ export type Database = {
       }
       admin_upsert_item_procurement: {
         Args: {
+          // 🔴 手動校正(重 gen 後需重貼;2026-08-04 A10b 開工補上 —— 呼叫端到此才存在)。
+          //   本函式是**全量 payload、非 patch**(migration `20260803160000:19-24`):選填欄送 NULL
+          //   = 該欄寫成 NULL。這五個參數在函式裡逐一 `IS NOT NULL` 才驗(`:228-289`),NULL 合法。
+          //   PostgREST 的型別產生器表達不了「必填但可為 null」⇒ 全被型別化為非 null,
+          //   呼叫端第一次傳 null 就型別紅。校正 = 五個真的可為 NULL 的參數補 `| null`。
+          //   其餘六個**不補** —— p_actor / p_request_id / p_order_item_id / p_supplier_id /
+          //   p_allocated_quantity / p_reply_status 在函式裡 fail-closed 拒收 NULL,型別非 null 是對的。
           p_actor: string
           p_allocated_quantity: number
-          p_contact_channel: string
-          p_exception_reason: string
-          p_expected_arrival_date: string
+          p_contact_channel: string | null
+          p_exception_reason: string | null
+          p_expected_arrival_date: string | null
           p_order_item_id: string
           p_reply_status: string
           p_request_id: string
-          p_submitted_at: string
+          p_submitted_at: string | null
           p_supplier_id: string
-          p_supplier_order_no: string
+          p_supplier_order_no: string | null
         }
         Returns: string
       }

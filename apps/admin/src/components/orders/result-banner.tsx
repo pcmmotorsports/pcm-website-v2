@@ -1,6 +1,11 @@
 // 相對 import(非 @/):vitest 的 `@` alias 指向 storefront(見 `lib/session/actor.ts` 註解)
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import {
+  PROCUREMENT_CREATED_RESULT_CODE,
+  PROCUREMENT_NO_CHANGE_RESULT_CODE,
+  PROCUREMENT_UPDATED_RESULT_CODE,
+} from '../../lib/orders/procurement-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -18,6 +23,16 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
   //    `APPENDED` 與 `DUPLICATE_REQUEST` **共用這一則**:後者意謂「這個請求已寫入過且經查驗」,
   //    對員工就是同一件事(母 plan v4 §5 F3:顯示成別的會誘發他換一把 token 重送 = 製造重複備註)。
   [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
+  // 🔴 M-4b E10 A10b:採購同樣**只有成功**會走 redirect(失敗回 action state、保留輸入)。
+  //    三個成功碼**刻意不共用一則** —— 員工要看得出「這次到底有沒有改到東西」:
+  //    `NO_CHANGE` 意謂「送出的內容與現況完全相同、零寫入」(A5a `:300-322`),
+  //    若與「已更新」說同一句話,他會以為改成功了而不再檢查。
+  [PROCUREMENT_CREATED_RESULT_CODE]: { text: '已新增這筆採購。', tone: 'ok' },
+  [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '已更新這筆採購。', tone: 'ok' },
+  [PROCUREMENT_NO_CHANGE_RESULT_CODE]: {
+    text: '沒有變更(送出的內容與目前的採購紀錄完全相同)。',
+    tone: 'ok',
+  },
 };
 
 const TONE = {
