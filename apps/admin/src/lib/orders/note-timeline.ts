@@ -86,6 +86,15 @@ function formatNoteInstant(iso: string): string {
 }
 
 /**
+ * 更正入口啟用規則(契約 C5:partial unique ⇒ 一筆最多被更正一次)的**唯一定義點**。
+ * 時間軸 `canCorrect` 與表單側 `resolveCorrectTarget` 都走這裡(A10a-3 R2-N1:
+ * 兩處各寫 `!corrected` 會在規則擴充時分岔成「入口 disable、表單卻進得了更正模式」)。
+ */
+export function canCorrectNote(note: Pick<AdminOrderNote, 'corrected'>): boolean {
+  return !note.corrected;
+}
+
+/**
  * 時間軸投影。`corrected` 以 domain 值為權威、不在此重推導(mapper 已算過;重推導 = 第二真相源,
  * 且會把「本列是更正者」與「本列被更正」兩個方向搞混 —— 那是兩件事)。
  */
@@ -113,7 +122,7 @@ export function buildNoteTimeline(
       body: note.body,
       corrected: note.corrected,
       correctedBySeq: note.corrected ? (correctorSeqByTargetId.get(note.id) ?? null) : null,
-      canCorrect: !note.corrected,
+      canCorrect: canCorrectNote(note),
       corrects:
         note.correctsNoteId === null
           ? null

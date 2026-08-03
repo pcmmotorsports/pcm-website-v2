@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { AdminOrderDetail } from '@pcm/domain';
 import {
   buildNoteTimeline,
@@ -17,7 +18,7 @@ const NOTIFIED_BADGE: Record<'notified' | 'not_notified' | 'unknown', string> = 
   unknown: 'bg-amber-100 text-amber-700',
 };
 
-function EntryRow({ entry }: { entry: NoteTimelineEntry }) {
+function EntryRow({ entry, orderId }: { entry: NoteTimelineEntry; orderId: string }) {
   return (
     <li className={`border-t py-3 text-sm first:border-t-0 ${entry.corrected ? 'opacity-60' : ''}`}>
       <div className='text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-xs'>
@@ -41,6 +42,25 @@ function EntryRow({ entry }: { entry: NoteTimelineEntry }) {
             {entry.corrects.targetSeq !== null ? `#${entry.corrects.targetSeq}` : '不在已載入範圍'}
           </span>
         )}
+        {/* A10a-3 更正入口(債⑥):一筆最多被更正一次 ⇒ canCorrect=false 列 disable
+            (同列的「已更正」badge 說明原因);canCorrect 規則單一真相在 lib(C5)。 */}
+        {entry.canCorrect ? (
+          <Link
+            href={`/orders/${orderId}?correct=${entry.id}#note-compose`}
+            className='text-foreground ml-auto font-medium underline'
+          >
+            更正
+          </Link>
+        ) : (
+          <button
+            type='button'
+            disabled
+            title='已被更正,一筆只能更正一次'
+            className='ml-auto cursor-not-allowed opacity-50'
+          >
+            更正
+          </button>
+        )}
       </div>
       {/* body 逐字渲染(React 天然 escape);pre-wrap 保留員工打的換行 */}
       <p className='mt-1 whitespace-pre-wrap break-words'>{entry.body}</p>
@@ -50,8 +70,11 @@ function EntryRow({ entry }: { entry: NoteTimelineEntry }) {
 
 export function NotesTimeline({
   detail,
+  orderId,
 }: {
   detail: Pick<AdminOrderDetail, 'notes' | 'notesTruncated' | 'customerNotified'>;
+  /** 更正入口 Link 用(`?correct=<id>`;A10a-3) */
+  orderId: string;
 }) {
   const view = buildNoteTimeline(detail);
   const notified = describeCustomerNotified(detail.customerNotified);
@@ -84,7 +107,7 @@ export function NotesTimeline({
       ) : (
         <ul>
           {newestFirst.map((entry) => (
-            <EntryRow key={entry.id} entry={entry} />
+            <EntryRow key={entry.id} entry={entry} orderId={orderId} />
           ))}
         </ul>
       )}

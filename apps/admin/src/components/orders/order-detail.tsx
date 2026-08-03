@@ -15,10 +15,13 @@ import {
   shippingMethodLabel,
   formatOrderDateTime,
 } from '../../lib/orders/order-detail-view';
+import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
+import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
 import { WorkflowStatusBadge } from './workflow-status-badge';
 import { ItemWorkflowStatusCell } from './item-workflow-status-cell';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
+import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
 // D-2:狀態=per-item(品項表逐列 ItemWorkflowStatusCell 改;header badge=items 彙總、
@@ -147,18 +150,46 @@ function ItemsTable({
   );
 }
 
+/**
+ * A10a-3:`?correct=<id>` → 表單更正模式的目標(含原型別 = MF1 radio 初值;節錄 40 字供辨認)。
+ * 解析不到(不在已載入集合 —— 截斷後的書籤/返回、或已被更正 —— 並行 session 先更正了)
+ * → 回 null,呼叫端**必須**顯示警告、不得靜默當一般新增(MF2);
+ * RPC 端 `ALREADY_CORRECTED` / `CORRECTS_NOT_FOUND` 為第二道。
+ */
+function resolveCorrectTarget(
+  detail: AdminOrderDetail,
+  correctNoteId: string | null,
+): CorrectTarget | null {
+  if (correctNoteId === null) return null;
+  const index = detail.notes.findIndex((note) => note.id === correctNoteId);
+  const note = index === -1 ? undefined : detail.notes[index];
+  if (!note || !canCorrectNote(note)) return null;
+  const chars = [...note.body];
+  return {
+    id: note.id,
+    seq: index + 1,
+    noteType: note.noteType,
+    typeLabel: NOTE_TYPE_LABEL[note.noteType],
+    excerpt: chars.length > 40 ? `${chars.slice(0, 40).join('')}…` : note.body,
+  };
+}
+
 export function OrderDetail({
   detail,
   statusOptions,
+  correctNoteId = null,
 }: {
   detail: AdminOrderDetail;
   statusOptions: OrderStatusOption[];
+  /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
+  correctNoteId?: string | null;
 }) {
   const optionsByCode = indexOrderStatusOptions(statusOptions);
   const activeOptions = statusOptions.filter((o) => o.isActive);
   const cancelled = detail.cancelledAt !== null;
   // D-2:header 整單狀態=items 彙總(全同→該色、混合→「多狀態」;orders.workflow_status 停寫不讀)。
   const summary = summarizeOrderItemWorkflow(detail.items.map((i) => i.workflowStatus));
+  const correctTarget = resolveCorrectTarget(detail, correctNoteId);
 
   return (
     <div className='space-y-4'>
@@ -246,8 +277,17 @@ export function OrderDetail({
 
       <ItemsTable detail={detail} optionsByCode={optionsByCode} activeOptions={activeOptions} />
 
-      {/* A10a-2:備註時間軸(唯讀;表單 = A10a-3) */}
-      <NotesTimeline detail={detail} />
+      {/* A10a-2/-3:備註時間軸 + 表單。token 在本 server component 渲染期產(Q2=C;
+          頁層 force-dynamic、此處零快取層 —— 契約債①的「不得落快取層」就是指這一行)。
+          key 綁更正目標:進出更正模式必 remount ⇒ noteType 初值恆新鮮(MF1)。 */}
+      <NotesTimeline detail={detail} orderId={detail.id} />
+      <NoteComposeForm
+        key={correctTarget?.id ?? 'compose-new'}
+        orderId={detail.id}
+        serverToken={generateNoteRequestToken()}
+        correctTarget={correctTarget}
+        correctionMissing={correctNoteId !== null && correctTarget === null}
+      />
     </div>
   );
 }

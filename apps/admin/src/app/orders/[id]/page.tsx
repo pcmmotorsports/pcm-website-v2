@@ -6,6 +6,7 @@ import {
   getAdminOrderStatusOptionsRepository,
 } from '@/lib/orders/order-repository';
 import { isOrderId } from '@/lib/orders/order-detail-view';
+import { isUuid } from '@/lib/orders/note-action-state';
 import { OrderDetail } from '@/components/orders/order-detail';
 import { ResultBanner } from '@/components/orders/result-banner';
 
@@ -23,6 +24,11 @@ export default async function OrderDetailPage({
   const { id } = await params;
   const rawSearch = await searchParams;
   const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
+  // A10a-3:更正模式目標(uuid 形狀閘;非 uuid 視同沒帶,不透傳)
+  const correctNoteId =
+    typeof rawSearch.correct === 'string' && isUuid(rawSearch.correct)
+      ? rawSearch.correct
+      : null;
   // id 形狀守門:非 UUID 直接 404、不打 DB(路由參數不透傳查詢)。
   if (!isOrderId(id)) {
     notFound();
@@ -69,7 +75,7 @@ export default async function OrderDetailPage({
           訂單明細載入失敗,請稍後再試或聯絡系統維護。
         </div>
       ) : (
-        <OrderDetail detail={detail} statusOptions={statusOptions} />
+        <OrderDetail detail={detail} statusOptions={statusOptions} correctNoteId={correctNoteId} />
       )}
     </div>
   );

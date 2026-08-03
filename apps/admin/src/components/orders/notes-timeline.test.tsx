@@ -23,7 +23,7 @@ const note = (over: Partial<AdminOrderNote> & Pick<AdminOrderNote, 'id'>): Admin
 describe('NotesTimeline — A10a-2', () => {
   it('空清單:顯示尚無備註 + 尚未告知客人', () => {
     const { container } = render(
-      <NotesTimeline detail={{ notes: [], notesTruncated: false, customerNotified: false }} />,
+      <NotesTimeline orderId='3f2f2c1e-0000-4000-8000-000000000001' detail={{ notes: [], notesTruncated: false, customerNotified: false }} />,
     );
     expect(container.textContent).toContain('尚無備註');
     expect(container.textContent).toContain('尚未告知客人');
@@ -31,7 +31,7 @@ describe('NotesTimeline — A10a-2', () => {
 
   it('新在上:輸入 ASC(#1 舊、#2 新),渲染順序 #2 在前;seq 不隨顯示方向變', () => {
     const { container } = render(
-      <NotesTimeline
+      <NotesTimeline orderId='3f2f2c1e-0000-4000-8000-000000000001'
         detail={{
           notes: [
             note({ id: 'old', body: '舊備註', createdAt: '2026-08-01T00:00:00+00:00' }),
@@ -50,7 +50,7 @@ describe('NotesTimeline — A10a-2', () => {
 
   it('更正雙向標記 + 已告知客人 badge:被更正列標「已更正(由 #2)」、更正列標「更正 → #1」', () => {
     const { container } = render(
-      <NotesTimeline
+      <NotesTimeline orderId='3f2f2c1e-0000-4000-8000-000000000001'
         detail={{
           notes: [
             note({ id: 'a', noteType: 'customer_notified', channel: 'phone', occurredAt: '2026-08-01T02:00:00+00:00', corrected: true }),
@@ -69,7 +69,7 @@ describe('NotesTimeline — A10a-2', () => {
 
   it('截斷:customerNotified=null 顯示無法判定 + 載入上限警示(不得顯示成尚未告知)', () => {
     const { container } = render(
-      <NotesTimeline
+      <NotesTimeline orderId='3f2f2c1e-0000-4000-8000-000000000001'
         detail={{
           notes: [note({ id: 'n1' })],
           notesTruncated: true,
@@ -82,9 +82,31 @@ describe('NotesTimeline — A10a-2', () => {
     expect(container.textContent).not.toContain('尚未告知客人');
   });
 
-  it('更正目標不在已載入範圍:顯示誠實字面而非 #undefined', () => {
+  it('[A10a-3] 更正入口:canCorrect 列 = Link 帶 ?correct=<id>;corrected 列 = disabled 非連結', () => {
     const { container } = render(
       <NotesTimeline
+        orderId='3f2f2c1e-0000-4000-8000-000000000001'
+        detail={{
+          notes: [note({ id: 'was-fixed', corrected: true }), note({ id: 'fixable' })],
+          notesTruncated: false,
+          customerNotified: false,
+        }}
+      />,
+    );
+    const links = [...container.querySelectorAll('a')].filter((a) => a.textContent === '更正');
+    expect(links).toHaveLength(1);
+    expect(links[0]!.getAttribute('href')).toBe(
+      '/orders/3f2f2c1e-0000-4000-8000-000000000001?correct=fixable#note-compose',
+    );
+    const disabled = [...container.querySelectorAll('button[disabled]')].filter(
+      (b) => b.textContent === '更正',
+    );
+    expect(disabled).toHaveLength(1);
+  });
+
+  it('更正目標不在已載入範圍:顯示誠實字面而非 #undefined', () => {
+    const { container } = render(
+      <NotesTimeline orderId='3f2f2c1e-0000-4000-8000-000000000001'
         detail={{
           notes: [note({ id: 'c', correctsNoteId: 'ghost' })],
           notesTruncated: true,
