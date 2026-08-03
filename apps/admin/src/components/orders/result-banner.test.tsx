@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
 import { ResultBanner } from './result-banner';
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 
 // M-4b E10 A9d2-1:本片只加一個成功碼 ⇒ 本檔只測那一格 + 既有行為不被打壞。
 //
@@ -18,6 +19,14 @@ describe('ResultBanner — A9d2-1 新增的備註成功碼', () => {
   it('備註成功碼渲染得出文字(action 與本元件共用同一個常數)', () => {
     const { container } = render(<ResultBanner code={NOTE_ADDED_RESULT_CODE} />);
     expect(container.textContent).toContain('備註已新增');
+    expect(container.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  // M-3 RW2c:退款成功碼(關卡2 兩線同抓:漏掛/空白/tone 錯都不會有別的守門紅)。
+  it('退款成功碼渲染得出文字,且措辭守「受理 ≠ 已入帳」口徑(plan §3 第一列)', () => {
+    const { container } = render(<ResultBanner code={REFUND_SUBMITTED_RESULT_CODE} />);
+    expect(container.textContent).toContain('退款已送出');
+    expect(container.textContent).toContain('受理不等於已入帳');
     expect(container.querySelector('[role="status"]')).not.toBeNull();
   });
 

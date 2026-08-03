@@ -1,6 +1,7 @@
 // 相對 import(非 @/):vitest 的 `@` alias 指向 storefront(見 `lib/session/actor.ts` 註解)
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -18,6 +19,13 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
   //    `APPENDED` 與 `DUPLICATE_REQUEST` **共用這一則**:後者意謂「這個請求已寫入過且經查驗」,
   //    對員工就是同一件事(母 plan v4 §5 F3:顯示成別的會誘發他換一把 token 重送 = 製造重複備註)。
   [NOTE_ADDED_RESULT_CODE]: { text: '備註已新增。', tone: 'ok' },
+  // 🔴 M-3 RW2c:退款也只有成功走 redirect(失敗全回 action state,同備註片 Q1=A 慣例)。
+  //    措辭鐵律:confirmed = TapPay **受理** ≠ 已入帳(入帳以對帳為準;plan §3 第一列)。
+  //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
+  [REFUND_SUBMITTED_RESULT_CODE]: {
+    text: '退款已送出,TapPay 已受理。受理不等於已入帳,入帳以之後的對帳為準。',
+    tone: 'ok',
+  },
 };
 
 const TONE = {

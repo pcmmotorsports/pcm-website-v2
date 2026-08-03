@@ -28,7 +28,12 @@ vi.mock('@pcm/adapters/server', async () => {
 });
 
 import { tapPayUrlsFor } from '@pcm/adapters/server';
-import { PROD_SUPABASE_HOST, getTapPayAdapter, tapPayEnvPairingViolation } from './composition';
+import {
+  PROD_SUPABASE_HOST,
+  TapPayConfigError,
+  getTapPayAdapter,
+  tapPayEnvPairingViolation,
+} from './composition';
 
 // M-3 RW2b:admin 付款 composition。
 // 🔴 誠實邊界:本檔全是行為單元測試 —— 證的是「配對斷言真的擋得住 / 三端點真的來自
@@ -191,6 +196,9 @@ describe('getTapPayAdapter — fail-closed', () => {
     it(`🔴 ${name} → throw 且 adapter 未被建構`, () => {
       setEnv(patch);
       expect(() => getTapPayAdapter()).toThrow(message);
+      // 🔴 RW2c 前置債(Fable R3 N4):設定錯必須是**具名** TapPayConfigError —— 裸 Error 會讓
+      //    退款 action 把「找管理者補 env」呈現成「請重試」,值班按到天亮也不會好。
+      expect(() => getTapPayAdapter()).toThrow(TapPayConfigError);
       expect(mocks.ctor).not.toHaveBeenCalled();
     });
   }
@@ -198,6 +206,7 @@ describe('getTapPayAdapter — fail-closed', () => {
   it('空字串 env 視同缺(TapPay 拿空 partner key 只會在 API 那端才炸)', () => {
     setEnv({ TAPPAY_PARTNER_KEY: '' });
     expect(() => getTapPayAdapter()).toThrow(/TAPPAY_PARTNER_KEY/);
+    expect(() => getTapPayAdapter()).toThrow(TapPayConfigError);
     expect(mocks.ctor).not.toHaveBeenCalled();
   });
 });

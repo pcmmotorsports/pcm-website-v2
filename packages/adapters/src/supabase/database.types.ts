@@ -1,12 +1,15 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**三個函式、共十處**手動校正:
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**五個函式、共十五處**手動校正:
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
 //   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
+//   ④ `admin_initiate_order_refund.Args` **兩處**(p_amount / p_record_amount 的 `| null`;2026-08-04 RW2c 起)
+//   ⑤ `admin_finalize_order_refund.Args` **三處**(p_tappay_refund_id / p_refund_amount_wire / p_failed_detail 的 `| null`;同 RW2c)
 //   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」,一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
-//   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK)。
-//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處。
+//   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
+//   漏貼 ④⑤ = 退款線 RW2c repository 型別紅(kind/outcome 互斥矩陣的「必須傳 NULL」全紅)。
+//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處;2026-08-04 RW2c 起共十五處。
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
@@ -18,7 +21,7 @@
 //   ⚠️ 其 Args 五處**尚未**補 `| null`(p_contact_channel / p_submitted_at / p_supplier_order_no /
 //   p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、正規化後肉眼全空亦收斂成
 //   NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。**理由:呼叫端(A10b 採購表單)尚未存在
-//   ⇒ 現在補不會被 typecheck 守住、只會多一處重 gen 必掉的手工債**;A10b 開工時補上並把檔頭「共十處」改十五處。
+//   ⇒ 現在補不會被 typecheck 守住、只會多一處重 gen 必掉的手工債**;A10b 開工時補上並把檔頭「共十五處」改二十處。
 //   承前 RW1a ——
 //   **新增** public.admin_initiate_order_refund(8 參數) → jsonb / public.admin_finalize_order_refund(7 參數) → jsonb
 //   = order_refunds 的唯二 service_role 寫入路徑(SECDEF owner RPC)。initiate 回 8 固定碼、finalize 回
@@ -26,8 +29,7 @@
 //   order_refunds 增四欄(kind / record_refunded_before / provider_refund_id_evidence / failed_detail)
 //   + status 第四值 deferred + request_id 全域 UNIQUE + single-flight partial unique;
 //   pcm_order_refundable_remaining 改 allowlist(processing+confirmed 佔額)。A4a = 數量摘要重算線(trigger 網)。
-//   ⚠️ RW2c 接線時兩支退款 RPC 的 Args 需同型補 `| null`(initiate:p_amount / p_record_amount;
-//   finalize:p_tappay_refund_id / p_refund_amount_wire / p_failed_detail)—— 屆時檔頭「共十處」計數同步改。
+//   ✅ RW2c(2026-08-04)已補兩支退款 RPC 的 Args `| null` 五處(= 上方 ④⑤;計數已改十五處)。
 //   (承前基準 2026-08-02 A6,其契約債註記保留如下 ——
 //   **新增** public.admin_append_order_note(uuid, text, text, text, timestamptz, uuid, text, text) → text
 //   = 訂單備註的**唯一寫入路徑**(SECURITY DEFINER owner RPC;order_notes 對 service_role 只開 SELECT、
@@ -2250,25 +2252,32 @@ export type Database = {
         Returns: string
       }
       admin_finalize_order_refund: {
+        // 🔴 手動校正三處(重 gen 後需重貼;RW2c)—— outcome 參數矩陣**強制**互斥:
+        //   accepted 必帶 tappay_refund_id + refund_amount_wire、其餘必 NULL;
+        //   manual_failed 必帶 failed_detail(migration 20260803150000 步 2 逐條)⇒
+        //   非 null 型別會讓合法的「必須傳 NULL」呼叫直接型別紅。
         Args: {
           p_actor: string
-          p_failed_detail: string
+          p_failed_detail: string | null
           p_outcome: string
-          p_refund_amount_wire: number
+          p_refund_amount_wire: number | null
           p_refund_id: string
           p_request_id: string
-          p_tappay_refund_id: string
+          p_tappay_refund_id: string | null
         }
         Returns: Json
       }
       admin_initiate_order_refund: {
+        // 🔴 手動校正兩處(重 gen 後需重貼;RW2c)—— kind/金額**強制**互斥(RPC 步 2):
+        //   partial 必帶 amount、record_amount 必 NULL;full 相反。p_record_refunded_before
+        //   不補 —— RPC fail-closed 拒 NULL(G0 baseline 缺值時 action 已 abort、不得傳 0 充數)。
         Args: {
           p_actor: string
-          p_amount: number
+          p_amount: number | null
           p_kind: string
           p_order_id: string
           p_reason: string
-          p_record_amount: number
+          p_record_amount: number | null
           p_record_refunded_before: number
           p_request_id: string
         }

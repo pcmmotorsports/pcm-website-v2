@@ -22,6 +22,21 @@ import { TapPayChargeAdapter, tapPayUrlsFor, type TapPayEnv } from '@pcm/adapter
 //   跟它要保護的東西不是同一顆(關卡2 codex C1)。要比對,就得跟被比對者用同一個機制讀。
 
 /**
+ * TapPay 環境設定錯誤(RW2c 前置債 = Fable R3 N4):env 缺漏 / 值非法 / 環境配對不成立。
+ *
+ * 🔴 **為什麼要具名 class**:這一類錯誤「值班重按到天亮也不會好」—— 要找管理者補 env,
+ * 與 transient(網路/DB 瞬時失敗、可重試)在 action 眼裡若同為裸 `Error`,
+ * 退款 action 會把它呈現成「退款失敗請重試」= 把員工困在死路。
+ * action 以 `instanceof` 分流:本 class → 「找管理者檢查環境設定」;其餘 → 各自語意。
+ */
+export class TapPayConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TapPayConfigError';
+  }
+}
+
+/**
  * 正式站帳本 DB 的 host(Supabase project ref `bmpnplmnldofgaohnaok`;非機密、repo 內既有多處字面,
  * 例如 `packages/adapters/src/supabase/database.types.ts:11` 的重 gen 命令)。
  *
@@ -90,7 +105,7 @@ function requireEnv(name: string): string {
   // eslint-disable-next-line no-restricted-syntax -- 受控例外:本檔 server-only(L1 import 'server-only')、不進 client bundle;且**刻意**要動態讀 —— 靜態讀會被 Next build-time 內聯,與帳本 client 的 runtime 讀值分岔(檔頭 🔴🔴;backlog #182 同款受控例外見 adapters/supabase/client.ts:25-27)
   const value = process.env[name];
   if (!value) {
-    throw new Error(`缺少必要環境變數:${name}`);
+    throw new TapPayConfigError(`缺少必要環境變數:${name}`);
   }
   return value;
 }
@@ -119,12 +134,14 @@ export function getTapPayAdapter(): AdminRefundTapPay {
   // 但那是「災難當天才發現、看訊息也看不出差在哪」的摩擦,順手救(Fable R3 N5)。
   const env = requireEnv('TAPPAY_ENV').trim();
   if (env !== 'sandbox' && env !== 'production') {
-    throw new Error(`TAPPAY_ENV 須為 'sandbox' 或 'production'(got '${env}')`);
+    throw new TapPayConfigError(`TAPPAY_ENV 須為 'sandbox' 或 'production'(got '${env}')`);
   }
 
   const violation = tapPayEnvPairingViolation(env, requireEnv('NEXT_PUBLIC_SUPABASE_URL'));
   if (violation) {
-    throw new Error(`TapPay 環境與帳本 DB 配對不成立、拒絕建立退款用 adapter:${violation}`);
+    throw new TapPayConfigError(
+      `TapPay 環境與帳本 DB 配對不成立、拒絕建立退款用 adapter:${violation}`,
+    );
   }
 
   return new TapPayChargeAdapter({
