@@ -67,11 +67,26 @@ describe('BrandPageHeader · 橫幅', () => {
     ).toBe('');
   });
 
-  it('band logo 用 bandLogo 欄、alt 帶品牌名', () => {
+  it('band logo 用 bandLogo 欄、alt = 純品牌名(設計稿 :1642 的 esc(brand.name))', () => {
     const { container } = render(<BrandPageHeader brand={akrapovic} />);
     const logo = container.querySelector<HTMLImageElement>('.bp-band-logo img');
     expect(logo?.getAttribute('src')).toBe(`/brand-assets/${akrapovic.bandLogo}`);
-    expect(logo?.getAttribute('alt')).toContain(akrapovic.name);
+    // 🔴 用 toBe 不用 toContain:原本寫「X 標誌」時 toContain 照樣綠,
+    //    偏離設計字面而測試看不見(關卡2 MF3)。
+    expect(logo?.getAttribute('alt')).toBe(akrapovic.name);
+  });
+
+  it('🔴 三個設計稿字面屬性都在(漏了不會讓任何測試變紅,只會讓 LCP/CLS 變差)', () => {
+    // 關卡2 MF3:eager/decoding 來自 brand-page.html:1633-1634,width/height 來自 :1642。
+    // 這種漏搬是「畫面一模一樣、指標變差」——單元測試不驗就永遠沒人發現。
+    const { container } = render(<BrandPageHeader brand={akrapovic} />);
+    const photo = container.querySelector<HTMLImageElement>('.bp-band-photo');
+    expect(photo?.getAttribute('loading')).toBe('eager'); // 首屏 LCP,不可 lazy
+    expect(photo?.getAttribute('decoding')).toBe('async');
+    const logo = container.querySelector<HTMLImageElement>('.bp-band-logo img');
+    // width/height 給的是 intrinsic aspect ratio(CSS 已改寬度),沒有就 CLS
+    expect(logo?.getAttribute('width')).toBe('380');
+    expect(logo?.getAttribute('height')).toBe('92');
   });
 
   it('lede 走 BrandRichText(標記變成元素,不是印在畫面上)', () => {

@@ -14,10 +14,21 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
-const CSS = readFileSync(
+const CSS_RAW = readFileSync(
   resolve(dirname(fileURLToPath(import.meta.url)), 'brand-page.css'),
   'utf8',
 );
+
+/**
+ * 🔴 剝掉 `/* … *\/` 註解後再做任何結構斷言。
+ *
+ * 為什麼:本檔的註解**大量引用選擇器名稱**(那是刻意的,坑要寫在坑旁邊)。
+ * 直接對原文做 indexOf / 正規式,命中的可能是註解裡的那串字而不是真的規則 ——
+ * 實測就發生過:「no-photo 必須排在 @media 之後」那條第一版量到的是舊位置留下的
+ * 一句「`.bp-band.no-photo::after` 不在這裡」的說明文字,於是斷言在規則已經搬對之後
+ * **仍然紅**。反過來也一樣危險:規則被整段註解掉,而測試照樣綠。
+ */
+const CSS = CSS_RAW.replace(/\/\*[\s\S]*?\*\//g, '');
 
 /** 取某個 @media 區塊的內容(大括號配對計數,不是抓到第一個 `}` 就停)。 */
 function mediaBlock(query: string): string {
@@ -51,6 +62,22 @@ describe('品牌頁 CSS · 窄螢幕橫幅', () => {
     expect(narrow).toContain('.bp-band.bp-band::after');
     // 反面:同一區塊裡不得出現只寫一個 class 的版本(那就是被蓋掉的那種寫法)
     expect(/(^|[^.\w])\.bp-band::after/.test(narrow)).toBe(false);
+  });
+
+  it('🔴 no-photo 那段必須排在 ≤960 的 @media **之後**(同權重靠順序決勝)', () => {
+    // ⚠️ 這條是關卡2 抓到的漏洞:上一條只驗「單/雙 class」那一軸,
+    //    對「兩段的先後」零斷言 —— 所以順序寫反了它照樣全綠,
+    //    而順序寫反的後果跟少寫一個 class 一樣嚴重(窄螢幕的 no-photo 品牌變整條平黑),
+    //    只是從另一個方向壞掉。
+    // 設計稿的順序:brand-page.html 的 @media 在 :883、no-photo 在 :952。
+    const mediaIndex = CSS.indexOf('@media (max-width: 960px)');
+    const noPhotoIndex = CSS.indexOf('.bp-band.no-photo::after');
+    expect(mediaIndex, '找不到 ≤960 的 @media').toBeGreaterThan(-1);
+    expect(noPhotoIndex, '找不到 .bp-band.no-photo::after').toBeGreaterThan(-1);
+    expect(
+      noPhotoIndex,
+      'no-photo 規則跑到 @media 前面了 ⇒ 窄螢幕的無照片品牌會吃到「照片版」漸層 = 整條平黑',
+    ).toBeGreaterThan(mediaIndex);
   });
 
   it('照片高度與 inner 的 padding-top 綁在一起(220 / 246)', () => {
