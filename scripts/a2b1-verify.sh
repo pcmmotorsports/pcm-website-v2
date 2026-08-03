@@ -49,6 +49,8 @@ esac
 [ "$(q "SELECT current_database()")" = "postgres" ] || { echo "🔴 database 名不符;拒跑"; exit 1; }
 ISO="$(q "SHOW default_transaction_isolation")"
 [ "$ISO" = "read committed" ] || { echo "🔴 default_transaction_isolation=$ISO;本 harness 的 RC 格會失義;拒跑"; exit 1; }
+[ "$(q "SELECT tgenabled FROM pg_trigger WHERE tgname='order_item_procurement_summary_recompute_zc' AND NOT tgisinternal")" = "O" ] \
+  || { echo "🔴 A4a zc trigger 非 enabled O(上一輪 M1 中斷殘留?);先 ENABLE 再跑(codex K2-5)"; exit 1; }
 LCM="$(q "SHOW lc_messages")"
 [ "$LCM" = "C" ] || { echo "🔴 lc_messages=$LCM 非 C;紅色判定 grep 依賴英文 ERROR 前綴會靜默失義;拒跑"; exit 1; }
 
@@ -202,6 +204,7 @@ MUTATED=0
 ORIGDEF_FILE="$WORK/a2b1-fn-orig.sql"
 cleanup_all() {
   close1 2>/dev/null || true
+  psql "$URL" -tAX -c "ALTER TABLE public.order_item_procurement ENABLE TRIGGER order_item_procurement_summary_recompute_zc" >/dev/null 2>&1 || true
   if [ "$MUTATED" = "1" ] && [ -s "$ORIGDEF_FILE" ]; then
     psql "$URL" -qX -v ON_ERROR_STOP=1 -f "$ORIGDEF_FILE" >/dev/null 2>&1
     if [ -n "${FNDEF_MD5_BEFORE:-}" ] \
@@ -399,10 +402,11 @@ END
 \$a2b1b7\$;"
 
 # B8 摘要竄改雙向(C1 負測字面;殺 M2)
+# 🔀 2026-08-03 A4a 修訂(Sean Q1=A;a4a plan §7):摘要列已由 A4a trigger 自動建立
+#    ⇒ 原「INSERT 假列」撞 23505;竄改改走 UPDATE(斷言不變:守門讀真相、不受竄改影響)。
 case_ok "[B8] 摘要說 0 而真相取消 2 → 仍擋;摘要說 5 而真相 0 → 仍放" \
 "$CANCEL_2_TWO_HEADERS
-INSERT INTO public.order_item_quantity_summary (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity)
-VALUES ('$ITEM5', 5, 0, 0, 0);
+UPDATE public.order_item_quantity_summary SET cancelled_quantity = 0 WHERE order_item_id = '$ITEM5';
 DO \$a2b1b8\$
 BEGIN
   BEGIN
@@ -434,8 +438,12 @@ q "DELETE FROM public.order_item_procurement WHERE order_item_id='$ITEM5' AND su
   && ok "[B9c] committed 設置列已清、回基準" || bad "[B9c] 殘留未清"
 
 # B10 bigint 路徑(兩列 int 上限取消、跨兩 header;殺 M5)
+# 🔀 2026-08-03 A4a 修訂(Sean Q1=A):int-max 取消在 A4a 世界首筆即紅 23514(CHECK 網)
+#    ⇒ cell 內停用 A4a 取消 trigger 塑形(BEGIN…ROLLBACK 零留痕);攻擊面(採購 INSERT)
+#    guard 依名稱序先於 A4a 重算發火 ⇒ 22003/P2B01 判定原樣 —— 本格兼作名稱序行為 pin。
 case_ok "[B10] 取消合計 4294967294(跨兩 header)後開 1 → 紅在 P2B01 非 22003" \
-"INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
+"ALTER TABLE public.order_cancellation_items DISABLE TRIGGER order_cancellation_items_summary_recompute_ac;
+INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
 VALUES ('aaaaaaaa-0000-0000-0000-0000000000b1'::uuid, '$ORDER_ID', 'customer_request', gen_random_uuid(), encode(sha256('a2b1-max1'::bytea),'hex'), '$STAFF');
 INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)
 VALUES ('aaaaaaaa-0000-0000-0000-0000000000b1'::uuid, '$ORDER_ID', '$ITEM5', 2147483647);
@@ -475,9 +483,12 @@ PROBE_OK="$(q "SELECT quantity FROM public.order_items WHERE id='$ITEM5' FOR NO 
   || bad "[B12b] 對照組失敗($PROBE_OK)"
 
 # B13 DID 三態(Q2=A)
+# 🔀 2026-08-03 A4a 修訂(Sean Q1=A;a4a migration 契約債②):「先超後補」自 A4a 起
+#    必須同時 defer 兩名(guard + 重算)—— 只 defer guard 會先紅在 oiqs C4(23514)。
+#    這不是測試技巧,是未來 writer 的真實生產契約。
 o="$(psql "$URL" -v ON_ERROR_STOP=1 -tAX <<SQL 2>&1
 BEGIN;
-SET CONSTRAINTS $TGNAME DEFERRED;
+SET CONSTRAINTS $TGNAME, order_item_procurement_summary_recompute_zc DEFERRED;
 INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',6);
 UPDATE public.order_item_procurement SET allocated_quantity = 4 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
 COMMIT;
@@ -495,7 +506,7 @@ fi
 o="$(psql "$URL" -v ON_ERROR_STOP=1 -tAX <<SQL 2>&1
 \\set VERBOSITY verbose
 BEGIN;
-SET CONSTRAINTS $TGNAME DEFERRED;
+SET CONSTRAINTS $TGNAME, order_item_procurement_summary_recompute_zc DEFERRED;
 INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',6);
 COMMIT;
 SQL
@@ -507,9 +518,9 @@ SQL
 o="$(psql "$URL" -v ON_ERROR_STOP=1 -tAX <<SQL 2>&1
 \\set VERBOSITY verbose
 BEGIN;
-SET CONSTRAINTS $TGNAME DEFERRED;
+SET CONSTRAINTS $TGNAME, order_item_procurement_summary_recompute_zc DEFERRED;
 INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',6);
-SET CONSTRAINTS $TGNAME IMMEDIATE;
+SET CONSTRAINTS $TGNAME, order_item_procurement_summary_recompute_zc IMMEDIATE;
 ROLLBACK;
 SQL
 )"
@@ -519,25 +530,44 @@ SQL
 echo
 echo "== C. 突變(13;每格 = mutant 下行為翻面被觀察到)=="
 # M2 讀快取(真相 2、快取缺列 ⇒ mutant 放行 4)
-mutate_fn "M2 cancelled 改讀摘要表 ⇒ B8 翻面" \
+# 🔀 2026-08-03 A4a 修訂:摘要被 A4a 維護正確 ⇒ mutant 讀快取讀到真值、原格不翻面;
+#    setup 先竄改快取(cancelled 2→0)⇒ mutant 讀假值放行 4 = 翻面可觀察(斷言意圖不變)。
+mutate_fn "M2 cancelled 改讀摘要表 ⇒ B8 翻面(讀到被竄改的快取)" \
 "FROM public.order_cancellation_items c" "FROM public.order_item_quantity_summary c" \
-"$CANCEL_2_TWO_HEADERS" \
+"$CANCEL_2_TWO_HEADERS
+UPDATE public.order_item_quantity_summary SET cancelled_quantity = 0 WHERE order_item_id = '$ITEM5';" \
 "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',4);" 1
 # M3 去 cancelled 項
 mutate_fn "M3 公式去 − v_cancelled ⇒ B4 翻面" \
 "IF v_alloc > v_qty - v_cancelled THEN" "IF v_alloc > v_qty THEN" \
 "$CANCEL_2_TWO_HEADERS" \
 "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',4);" 1
-# M4 隔離閘弄死(條件恆假)⇒ RR INSERT 放行
-mutate_fn "M4 拿掉隔離閘 ⇒ B9a 翻面" \
+# M4 隔離閘弄死(條件恆假)⇒ RR INSERT 的第一響應者換人
+# 🔀 2026-08-03 A4a 修訂:mutant 下 A4a 的閘仍以同 SQLSTATE 接手 ⇒ 翻面證據 = tag 位移
+#    (a2b1_isolation_read_committed_only → a4a_iso_rc_procurement)。
+mutate_fn "M4 拿掉隔離閘 ⇒ B9a 翻面(P2B02 tag 位移到 a4a = a2b1 閘已死)" \
 "<> 'read committed'" "<> pg_catalog.current_setting('transaction_isolation')" \
 "" \
-"INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',1);" 1 \
+"DO \$a2b1m4\$
+DECLARE v_con text;
+BEGIN
+  BEGIN
+    INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',1);
+    RAISE EXCEPTION 'M4:RR 下竟全通(A4a 的閘也沒接手?)';
+  EXCEPTION WHEN SQLSTATE 'P2B02' THEN
+    GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
+    IF v_con IS DISTINCT FROM 'a4a_iso_rc_procurement' THEN
+      RAISE EXCEPTION 'M4:tag 未位移(仍 %)= 突變沒生效', v_con;
+    END IF;
+  END;
+END
+\$a2b1m4\$;" 1 \
 "BEGIN ISOLATION LEVEL REPEATABLE READ;"
 # M5 變數窄化 ⇒ B10 紅在 22003
 mutate_fn "M5 v_cancelled 窄化 integer ⇒ B10 改紅 22003" \
 "v_cancelled bigint" "v_cancelled integer" \
-"INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
+"ALTER TABLE public.order_cancellation_items DISABLE TRIGGER order_cancellation_items_summary_recompute_ac;
+INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
 VALUES ('aaaaaaaa-0000-0000-0000-0000000000c1'::uuid, '$ORDER_ID', 'customer_request', gen_random_uuid(), encode(sha256('a2b1-m5a'::bytea),'hex'), '$STAFF');
 INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity)
 VALUES ('aaaaaaaa-0000-0000-0000-0000000000c1'::uuid, '$ORDER_ID', '$ITEM5', 2147483647);
@@ -556,12 +586,29 @@ BEGIN
   END;
 END
 \$a2b1m5\$;" 1
-# M6 skip 全放(砍調升判斷)⇒ 超量態調升放行
-mutate_fn "M6 skip 砍調升判斷 ⇒ B5 調升翻面" \
+# M6 skip 全放(砍調升判斷)⇒ 超量態調升不再被 guard 擋
+# 🔀 2026-08-03 A4a 修訂(codex R2-7 加嚴):mutant 下第二張網(oiqs C4)以 23514 精確接手
+#    = guard 讓位的唯一合法形狀;語法錯/ACL 錯不會被誤判成翻面。
+mutate_fn "M6 skip 砍調升判斷 ⇒ B5 調升翻面(紅移到 23514/oiqs C4)" \
 "AND NEW.allocated_quantity <= OLD.allocated_quantity THEN" "THEN" \
 "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',5);
 $CANCEL_2_TWO_HEADERS" \
-"UPDATE public.order_item_procurement SET allocated_quantity = 6 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';" 1
+"DO \$a2b1m6\$
+DECLARE v_con text;
+BEGIN
+  BEGIN
+    UPDATE public.order_item_procurement SET allocated_quantity = 6 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
+    RAISE EXCEPTION 'M6:超量調升竟全通(第二張網也沒接手?)';
+  EXCEPTION
+    WHEN SQLSTATE 'P2B01' THEN RAISE EXCEPTION 'M6:仍紅在 P2B01 = 突變沒生效';
+    WHEN SQLSTATE '23514' THEN
+      GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
+      IF v_con IS DISTINCT FROM 'oiqs_ordered_le_quantity' THEN
+        RAISE EXCEPTION 'M6:紅在別的 CHECK(%)非 C4', v_con;
+      END IF;
+  END;
+END
+\$a2b1m6\$;" 1
 # M6b <= 改 < ⇒ 超量態 metadata UPDATE 被誤擋
 mutate_fn "M6b skip <= 改 < ⇒ B5d 翻面(metadata 被誤擋)" \
 "NEW.allocated_quantity <= OLD.allocated_quantity" "NEW.allocated_quantity < OLD.allocated_quantity" \
@@ -620,11 +667,26 @@ BEGIN
   END;
 END
 \$a2b1m10\$;" 1
-# M11 quantity 常數化 5 ⇒ P3 的 4 被放行
-mutate_fn "M11 quantity 常數化 5 ⇒ B3b 翻面" \
+# M11 quantity 常數化 5 ⇒ P3 的 4 不再被 guard 擋(🔀 A4a 修訂:C4 以 23514 精確接手)
+mutate_fn "M11 quantity 常數化 5 ⇒ B3b 翻面(紅移到 23514/oiqs C4)" \
 "SELECT oi.quantity INTO v_qty" "SELECT 5 INTO v_qty" \
 "" \
-"INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM3','$S1',4);" 1
+"DO \$a2b1m11\$
+DECLARE v_con text;
+BEGIN
+  BEGIN
+    INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM3','$S1',4);
+    RAISE EXCEPTION 'M11:P3 超量竟全通(第二張網也沒接手?)';
+  EXCEPTION
+    WHEN SQLSTATE 'P2B01' THEN RAISE EXCEPTION 'M11:仍紅在 P2B01 = 突變沒生效';
+    WHEN SQLSTATE '23514' THEN
+      GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
+      IF v_con IS DISTINCT FROM 'oiqs_ordered_le_quantity' THEN
+        RAISE EXCEPTION 'M11:紅在別的 CHECK(%)非 C4', v_con;
+      END IF;
+  END;
+END
+\$a2b1m11\$;" 1
 # M12 閘縮成 INSERT-only(= 閘不蓋 skip 路徑)⇒ RR 調降 UPDATE 放行
 # 🔴 committed setup 必須驗到位(codex K2 MF2:靜默失敗 ⇒ 零列 UPDATE 不觸發 trigger、
 #    NULL 判斷不發火 = 雙重假綠)
@@ -636,12 +698,18 @@ mutate_fn "M12 閘縮 INSERT-only ⇒ B9c 翻面(RR 調降放行)" \
 "IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN" \
 "IF TG_OP = 'INSERT' AND pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN" \
 "" \
-"UPDATE public.order_item_procurement SET allocated_quantity = 2 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
-DO \$a2b1m12\$
-DECLARE v integer;
+"DO \$a2b1m12\$
+DECLARE v_con text;
 BEGIN
-  SELECT allocated_quantity INTO v FROM public.order_item_procurement WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
-  IF v IS DISTINCT FROM 2 THEN RAISE EXCEPTION 'M12:調降沒生效(v=%)', COALESCE(v::text,'NULL'); END IF;
+  BEGIN
+    UPDATE public.order_item_procurement SET allocated_quantity = 2 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
+    RAISE EXCEPTION 'M12:RR 調降竟全通(A4a 的閘也沒接手?)';
+  EXCEPTION WHEN SQLSTATE 'P2B02' THEN
+    GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
+    IF v_con IS DISTINCT FROM 'a4a_iso_rc_procurement' THEN
+      RAISE EXCEPTION 'M12:tag 未位移(仍 %)= 突變沒生效(a2b1 閘仍蓋 UPDATE)', v_con;
+    END IF;
+  END;
 END
 \$a2b1m12\$;" 1 \
 "BEGIN ISOLATION LEVEL REPEATABLE READ;"
@@ -659,13 +727,28 @@ CREATE CONSTRAINT TRIGGER $TGNAME
   FOR EACH ROW EXECUTE FUNCTION public.pcm_a2b1_procurement_allocation_guard();
 INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',5);
 $CANCEL_2_TWO_HEADERS
-UPDATE public.order_item_procurement SET allocated_quantity = 6 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
+DO \$a2b1m9\$
+DECLARE v_con text;
+BEGIN
+  BEGIN
+    UPDATE public.order_item_procurement SET allocated_quantity = 6 WHERE order_item_id='$ITEM5' AND supplier_id='$S1';
+    RAISE EXCEPTION 'M9:超量調升竟全通(第二張網也沒接手?)';
+  EXCEPTION
+    WHEN SQLSTATE 'P2B01' THEN RAISE EXCEPTION 'M9:仍紅在 P2B01 = 突變沒生效';
+    WHEN SQLSTATE '23514' THEN
+      GET STACKED DIAGNOSTICS v_con = CONSTRAINT_NAME;
+      IF v_con IS DISTINCT FROM 'oiqs_ordered_le_quantity' THEN
+        RAISE EXCEPTION 'M9:紅在別的 CHECK(%)非 C4', v_con;
+      END IF;
+  END;
+END
+\$a2b1m9\$;
 ROLLBACK;
 SQL
 )"
 rc=$?
 MUT=$((MUT+1))
-[ $rc -eq 0 ] && ok "突變 M9 trigger 砍 UPDATE 事件 ⇒ 調升放行(翻面)" \
+[ $rc -eq 0 ] && ok "突變 M9 trigger 砍 UPDATE 事件 ⇒ 調升翻面(🔀 A4a 修訂:紅移到 23514/oiqs C4)" \
   || bad "突變 M9 ⇒ $(printf '%s' "$o" | grep -m1 ERROR | cut -c1-160)"
 # M9 是唯一 DDL 突變 ⇒ 事後重驗 trigger 形狀(與函式 md5 那道對稱;code-reviewer N4)
 [ "$(q "SELECT (tgtype & 1)<>0 AND (tgtype & 2)=0 AND (tgtype & 4)<>0 AND (tgtype & 8)=0 AND (tgtype & 16)<>0 AND (tgtype & 32)=0 AND tgdeferrable AND NOT tginitdeferred FROM pg_trigger WHERE tgname='$TGNAME' AND NOT tgisinternal")" = "t" ] \
@@ -689,15 +772,20 @@ END $m1$;
 SQL
 )"
 if [ $? -eq 0 ]; then
+  # 🔀 2026-08-03 A4a 修訂(codex R1-11 同族):A4a 重算 trigger 也鎖同一把 parent NKU
+  #    ⇒ 不隔離它的話,guard 的鎖消失也觀察不到(鎖被兄弟機制供給 = 假紅)。
+  #    committed DISABLE(跨連線可見)、觀察後 ENABLE,收尾斷言 enabled 復歸。
+  q "ALTER TABLE public.order_item_procurement DISABLE TRIGGER order_item_procurement_summary_recompute_zc" >/dev/null
   open1
   sa "BEGIN;"
   sa "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',1);"
   PROBE_M1="$(q "SELECT quantity FROM public.order_items WHERE id='$ITEM5' FOR NO KEY UPDATE NOWAIT")"
   MUT=$((MUT+1))
-  [ "$PROBE_M1" = "5" ] && ok "突變 M1 拿掉 NKU ⇒ B12 探針翻面(NOWAIT 竟成功 = 鎖不在了)" \
+  [ "$PROBE_M1" = "5" ] && ok "突變 M1 拿掉 NKU ⇒ B12 探針翻面(NOWAIT 竟成功 = 鎖不在了;A4a zc 已隔離)" \
     || bad "突變 M1 ⇒ 探針仍被擋($PROBE_M1)= 鎖被別的機制提供?"
   sa "ROLLBACK;"
   close1
+  q "ALTER TABLE public.order_item_procurement ENABLE TRIGGER order_item_procurement_summary_recompute_zc" >/dev/null
 else
   MUT=$((MUT+1))
   bad "突變 M1 套用失敗 — $(printf '%s' "$o" | grep -m1 ERROR | cut -c1-160)"
@@ -706,9 +794,10 @@ fi
 psql "$URL" -qX -v ON_ERROR_STOP=1 -f "$ORIGDEF_FILE" >/dev/null 2>&1
 RESTORE_RC=$?
 FNDEF_MD5_RESTORED="$(q "SELECT md5(pg_get_functiondef('$FNSIG'::regprocedure))")"
-if [ "$RESTORE_RC" -eq 0 ] && [ "$FNDEF_MD5_RESTORED" = "$FNDEF_MD5_BEFORE" ]; then
+if [ "$RESTORE_RC" -eq 0 ] && [ "$FNDEF_MD5_RESTORED" = "$FNDEF_MD5_BEFORE" ] \
+   && [ "$(q "SELECT tgenabled FROM pg_trigger WHERE tgname='order_item_procurement_summary_recompute_zc' AND NOT tgisinternal")" = "O" ]; then
   MUTATED=0
-  ok "[M1-restore] 函式已還原(rc=0)且 md5 = 基準"
+  ok "[M1-restore] 函式已還原(rc=0)且 md5 = 基準;A4a zc trigger enabled 復歸 O"
 else
   bad "[M1-restore] 還原失敗(rc=$RESTORE_RC md5=$FNDEF_MD5_RESTORED)—— MUTATED 旗未降,EXIT trap 會再試"
 fi

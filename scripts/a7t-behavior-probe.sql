@@ -36,6 +36,25 @@
 
 \set ON_ERROR_STOP on
 
+-- 🔀 codex 關卡2 K2-6:端點閘 —— 白名單標記表/cluster 檢查擋不住「被標記過的遠端 DB」;
+-- 本檔只准打本機拋棄式 harness(port 54329、loopback 或 unix socket)。
+DO $$
+BEGIN
+  IF current_setting('port')::int <> 54329
+     OR (inet_server_addr() IS NOT NULL AND host(inet_server_addr()) NOT IN ('127.0.0.1','::1')) THEN
+    RAISE EXCEPTION '拒絕執行:僅允許本機 harness(port 54329/loopback),實際 port=% addr=%',
+      current_setting('port'), COALESCE(host(inet_server_addr()), 'unix-socket');
+  END IF;
+  -- 🔀 codex K2-R2-3:listener 位址證不了用戶端在本機(SSH tunnel 可繞)⇒ 加 server 端實檢:
+  -- d1t2 provision 的 ownership marker(.d1t2-harness)就放在 pgdata 上一層,拿它當硬證據。
+  -- 誠實界:tunnel 到「完整 d1t2 provision 的遠端複本」仍會過 —— 那本身就是 harness,可接受。
+  BEGIN
+    PERFORM pg_stat_file(current_setting('data_directory') || '/../.d1t2-harness');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION '拒絕執行:data_directory 上層無 .d1t2-harness marker —— 這不是 d1t2 provision 的拋棄式庫';
+  END;
+END $$;
+
 BEGIN;
 
 SET LOCAL lock_timeout = '5s';
@@ -72,6 +91,9 @@ DECLARE
   v_state    text;
 BEGIN
   -- ══ fixture ═══════════════════════════════════════════════════════════════
+  -- 🔀 2026-08-03 A4a 修訂(Sean Q2=A 同形,codex R2-5):品項 qty 2/1/1 → 全 100 ——
+  --    A4a 通電 oiqs CHECK 網後,跨案例累積的取消量(a1 可達 3+)會撞 cancelled ≤ quantity;
+  --    各案例斷言不動、只放大 fixture 頭寸(判別力不受影響:本檔測 presence/RESTRICT,與量無關)。
   -- 借用既有客戶與員工(customer_user_id / actor 都是 NOT NULL + FK)。
   -- 這是本檔對環境的唯一依賴,且是可斷言的硬前提,**不是**可略過的分支。
   SELECT user_id INTO v_cust FROM public.customers ORDER BY user_id LIMIT 1;
@@ -114,7 +136,7 @@ BEGIN
   VALUES (v_order_a, 'A7T-SKU-1',
           jsonb_build_object('title', 'A7-t 商品 1', 'sku', 'A7T-SKU-1',
                              'spec', jsonb_build_object('color', 'black')),
-          2, 1000, 2000)
+          100, 1000, 100000)
   RETURNING id INTO v_item_a1;
 
   INSERT INTO public.order_items
@@ -122,7 +144,7 @@ BEGIN
   VALUES (v_order_a, 'A7T-SKU-2',
           jsonb_build_object('title', 'A7-t 商品 2', 'sku', 'A7T-SKU-2',
                              'spec', jsonb_build_object('color', 'red')),
-          1, 1000, 1000)
+          100, 1000, 100000)
   RETURNING id INTO v_item_a2;
 
   INSERT INTO public.order_items
@@ -130,7 +152,7 @@ BEGIN
   VALUES (v_order_b, 'A7T-SKU-3',
           jsonb_build_object('title', 'A7-t 商品 3', 'sku', 'A7T-SKU-3',
                              'spec', jsonb_build_object('color', 'blue')),
-          1, 500, 500)
+          100, 500, 50000)
   RETURNING id INTO v_item_b1;
 
   RAISE NOTICE 'A7T fixture 就緒(2 單 / 3 品項 / actor=%)', v_actor;

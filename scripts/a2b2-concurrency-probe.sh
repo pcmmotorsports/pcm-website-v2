@@ -6,7 +6,9 @@
 # 形狀:FIFO 雙 session(a7t :110-132 原語)+ pg_blocking_pids 判別力(s2c :44-45 教訓:
 #   「有沒有在等鎖」會被第三方代打,必須綁定「擋住 B 的就是 A」)。
 # 情境:S1 競態關閉 / S2 邊界放行 / S3 消融(唯一 committed 函式突變,同 a2b1 M1 還原機制)
-#       / S4 跨 session delta / S5 契約債⑥窗口實證(證洞存在,A4a 關閉後本格應翻紅)。
+#       / S4 跨 session delta / S5 🔀(2026-08-03 A4a 落地,Sean Q1=A)契約債⑥已關閉:
+#       原「窗口實證」期望翻紅 —— 取消寫入自 A4a 起取 parent NKU ⇒ B 被擋、超量態不再可達;
+#       S3 消融腿並 committed DISABLE A4a zc trigger(它鎖同一把 parent,不隔離 = 鎖消失也觀察不到)。
 # 零留痕:committed 列逐情境清除 + 收尾四表計數回基準 + 函式 md5 比對。
 set -uo pipefail
 
@@ -16,7 +18,7 @@ AURL="${URL}?application_name=a2b2_sess_a"
 BURL="${URL}?application_name=a2b2_sess_b"
 FNSIG="public.pcm_a2b1_procurement_allocation_guard()"
 PASS=0; FAIL=0; MUT=0; CELL=0
-EXPECTED_TOTAL=36
+EXPECTED_TOTAL=37
 EXPECTED_CELL=5
 EXPECTED_MUT=1
 # (code-reviewer N4:本檔無任何 SKIP 來源 ⇒ SKIP 計數與其閘為恆真死重,整組移除、不抄樣板)
@@ -39,6 +41,8 @@ case "$DATADIR" in "$WORK"/*) : ;; *) echo "🔴 data_directory=$DATADIR 不在 
   || { echo "🔴 A2b1 trigger 不在(migration 未套?);拒跑"; exit 1; }
 [ "$(q "SELECT strpos(pg_get_functiondef('$FNSIG'::regprocedure),'FOR NO KEY UPDATE') > 0")" = "t" ] \
   || { echo "🔴 守門函式缺 NKU 錨 —— 上一輪 crash 的 mutant 殘留?先還原再跑(N10 明確訊息)"; exit 1; }
+[ "$(q "SELECT tgenabled FROM pg_trigger WHERE tgname='order_item_procurement_summary_recompute_zc' AND NOT tgisinternal")" = "O" ] \
+  || { echo "🔴 A4a zc trigger 非 enabled O(上一輪 S3 中斷殘留?);先 ENABLE 再跑 —— 起跑閘不由測試自行洗白(codex K2-5)"; exit 1; }
 
 # ── FIFO 雙 session ─────────────────────────────────────────
 PA=""; PB=""
@@ -99,6 +103,7 @@ MUTATED=0
 ORIGDEF_FILE="$WORK/a2b2-fn-orig.sql"
 cleanup_all() {
   close2 2>/dev/null || true
+  psql "$URL" -tAX -c "ALTER TABLE public.order_item_procurement ENABLE TRIGGER order_item_procurement_summary_recompute_zc" >/dev/null 2>&1 || true
   if [ "$MUTATED" = "1" ] && [ -s "$ORIGDEF_FILE" ]; then
     psql "$URL" -qX -v ON_ERROR_STOP=1 -f "$ORIGDEF_FILE" >/dev/null 2>&1
     if [ -n "${FNMD5_0:-}" ] && [ "$(q "SELECT md5(pg_get_functiondef('$FNSIG'::regprocedure))")" = "$FNMD5_0" ]; then
@@ -214,6 +219,8 @@ SQL
 if [ $? -eq 0 ]; then
   MUT=$((MUT+1))
   ok "[S3] mutant 已套(NKU 移除;唯一 committed 突變)"
+  # 🔀 A4a 連動:zc trigger 鎖同一把 parent ⇒ 消融腿必須隔離它(committed、跨 session 可見)
+  q "ALTER TABLE public.order_item_procurement DISABLE TRIGGER order_item_procurement_summary_recompute_zc" >/dev/null
   # 🔴 等長同形消融(code-reviewer MF2/MF3):與 run_race 完全同交錯 —— A 開 txn 插 3、
   #    B raw 併發插 3、A 最後才 COMMIT;差別只在斷言方向:短窗 barrier 必須「等不到」
   #    (= barrier 斷言在無鎖版真的會失敗、非恆真),且 B 在 A 交易仍開著時就完成。
@@ -247,11 +254,13 @@ else
   bad "[S3](消融觀察未執行)"
   bad "[S3](清理檢查未執行)"
 fi
+q "ALTER TABLE public.order_item_procurement ENABLE TRIGGER order_item_procurement_summary_recompute_zc" >/dev/null
 psql "$URL" -qX -v ON_ERROR_STOP=1 -f "$ORIGDEF_FILE" >/dev/null 2>&1
 RC=$?
-if [ "$RC" -eq 0 ] && [ "$(q "SELECT md5(pg_get_functiondef('$FNSIG'::regprocedure))")" = "$FNMD5_0" ]; then
+if [ "$RC" -eq 0 ] && [ "$(q "SELECT md5(pg_get_functiondef('$FNSIG'::regprocedure))")" = "$FNMD5_0" ] \
+   && [ "$(q "SELECT tgenabled FROM pg_trigger WHERE tgname='order_item_procurement_summary_recompute_zc' AND NOT tgisinternal")" = "O" ]; then
   MUTATED=0
-  ok "[S3] 還原完成(rc=0、md5 = 基準)"
+  ok "[S3] 還原完成(rc=0、md5 = 基準;A4a zc trigger enabled 復歸 O)"
 else
   bad "[S3] 還原失敗(rc=$RC)—— 旗未降,EXIT trap 會再試"
 fi
@@ -285,28 +294,33 @@ psql "$URL" -v ON_ERROR_STOP=1 -qtAX -c "BEGIN" -c "DELETE FROM public.order_ite
   && ok "[S4] 已清(proc + 取消兩表)" || bad "[S4] 清理失敗"
 
 echo
-echo "== S5 契約債⑥窗口實證:A 未提交取消 2、B 滿額 5 過 ⇒ A commit 後超量態成立 =="
+echo "== S5 🔀 契約債⑥已關閉(A4a):A 未提交取消 2 ⇒ B 滿額 5 被 A 擋、A commit 後 B 紅 P2B01 =="
+# 原版(2026-08-03 凌晨)證「窗口存在」:B 放行、終態超量。A4a 對 order_cancellation_items
+# 掛同一把 parent NKU 後,窗口物理關閉 —— 本格期望翻紅 = nightly handoff 終章既定事項②兌現。
 cell 1
 open2
 sa "BEGIN;"
 sa "INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor) VALUES ('bbbbbbbb-0000-0000-0000-0000000000b2'::uuid, '$ORDER_ID', 'customer_request', gen_random_uuid(), encode(sha256('a2b2-s5'::bytea),'hex'), '$STAFF');"
 sa "INSERT INTO public.order_cancellation_items (cancellation_id, order_id, order_item_id, cancelled_quantity) VALUES ('bbbbbbbb-0000-0000-0000-0000000000b2'::uuid, '$ORDER_ID', '$ITEM', 2);"
 outb_mark
-sb "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM','$SB',5);"
-if outb_since | grep -q 'INSERT 0 1'; then
-  ok "[S5] B 滿額 5 放行(守門看不到 A 未提交的取消 —— 窗口存在)"
-else
-  bad "[S5] B 竟被擋:$(outb_since | grep -m1 ERROR | cut -c1-140)"
-fi
+sb_raw "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM','$SB',5);"
+wait_blocked_by b a && ok "[S5] B 被 A 擋住且 pg_blocking_pids(B) 恰含 A(取消側的鎖 = A4a 關窗的那把)" \
+  || bad "[S5] B 沒有被 A 擋住(契約債⑥竟仍開著?)"
 sa "COMMIT;"
+wait_idle b
 close2
-[ "$(q "SELECT (sum(p.allocated_quantity) > (SELECT oi.quantity FROM public.order_items oi WHERE oi.id='$ITEM') - (SELECT COALESCE(sum(c.cancelled_quantity),0) FROM public.order_cancellation_items c WHERE c.order_item_id='$ITEM')) FROM public.order_item_procurement p WHERE p.order_item_id='$ITEM'")" = "t" ] \
-  && ok "[S5] 終態 alloc > quantity − cancelled(從 order_items 實讀、非硬編字面 —— N11)—— 契約債⑥為真;A4a 掛同鎖後本格應翻紅(內建提醒)" \
-  || bad "[S5] 終態不符(窗口沒重現?)"
-ST5="$(sqlstate_of "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM','$SA',1)")"
+if outb_since | grep -q 'P2B01' && outb_since | grep -q 'A2b1 超量'; then
+  ok "[S5] A commit 後 B 紅在 P2B01(鎖後重讀看到取消 2 ⇒ 5 > 5−2)"
+else
+  bad "[S5] B 未紅在 P2B01:$(outb_since | grep -m1 -E 'ERROR|INSERT' | cut -c1-140)"
+fi
+[ "$(q "SELECT count(*) FROM public.order_item_procurement WHERE order_item_id='$ITEM'")" = "0" ] \
+  && ok "[S5] 終態零採購列 —— 超量態不再可達(原版的超量終態已不可構造)" \
+  || bad "[S5] 終態竟有採購列(窗口沒關死?)"
+ST5="$(sqlstate_of "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM','$SA',4)")"
 [ "$ST5" = "P2B01" ] \
-  && ok "[S5] 場景內對照:超量態再 +1 必紅 P2B01(守門在本情境仍活著 —— N5;S5 全綠不靠守門死掉)" \
-  || bad "[S5] 對照失敗:守門沒攔 +1(state=$ST5)"
+  && ok "[S5] 場景內對照:committed 取消 2 之後開 4 必紅 P2B01(守門活著、delta 正確)" \
+  || bad "[S5] 對照失敗:開 4 沒被攔(state=$ST5)"
 psql "$URL" -v ON_ERROR_STOP=1 -qtAX -c "BEGIN" -c "DELETE FROM public.order_item_procurement WHERE order_item_id='$ITEM'" -c "DELETE FROM public.order_cancellation_items WHERE order_item_id='$ITEM'" -c "DELETE FROM public.order_cancellations WHERE order_id='$ORDER_ID'" -c "COMMIT" >/dev/null 2>&1 \
   && ok "[S5] 已清" || bad "[S5] 清理失敗"
 
@@ -325,8 +339,8 @@ echo
 echo "== 誠實邊界 =="
 echo "   🔴 收尾 md5 只蓋 pg_get_functiondef、不含 proacl/proowner(S3 用 CREATE OR REPLACE 保留
       ACL 故低風險);ACL/owner 的完整重驗分工給兄弟序列的 a2b1-verify(A5/A6/A10 格)—— N9 挑明。"
-echo "   🔴 S5 證的是「洞存在」不是「洞被擋」—— 契約債⑥的關閉點在 A4a;A4a 落地後 S5 應翻紅,"
-echo "      屆時本格期望要反轉(這是內建提醒、不是缺陷)。"
+echo "   🔀 S5 已於 2026-08-03 隨 A4a 落地翻紅:現在證的是「洞被 A4a 的取消側 NKU 關閉」;"
+echo "      原「窗口存在」版本保留在 git 歷史(nightly a2b1-chain 交接檔終章)。"
 echo "   🔴 S3 是唯一 committed 函式突變;還原以 md5 比對、trap 兜底。"
 echo "   🔴 本 harness 在 shim 角色圖 + 本機 PG17;PostgREST 層與正式站 runtime 不在證明範圍。"
 echo

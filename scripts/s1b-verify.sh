@@ -84,8 +84,41 @@ case "$sqlstate_fallback" in *22012*) ok "自我測試:SQLSTATE fallback 路徑�
   *) bad "SQLSTATE fallback 失效 — 取得 [$sqlstate_fallback]" ;; esac
 
 # fixture:真實 order_item + 兩家供應商(不是自己造假 FK 目標)
-ITEM="$(q "SELECT id FROM public.order_items ORDER BY id LIMIT 1")"
-ITEM2="$(q "SELECT id FROM public.order_items ORDER BY id OFFSET 1 LIMIT 1")"
+# 🔀 2026-08-03 A2b1/A4a 連動修訂(a4a plan §7 同族;家族序跑抓到的既有債):
+#    d1t2 seed 的 41 筆品項全部 quantity=1 ⇒ A2b1 守門(08-03 落地)讓「拆兩家 1+1」與
+#    business_key 突變攻擊(同對重插)都被 P2B01 先擋 —— 本檔自 08-01 寫成時無守門、從未列入
+#    a2b1 家族名單所以沒被發現。修法 = 自建 qty=5 的真實品項(仍是真 FK 目標)、trap 清除。
+ORDERS_BASE="$(q "SELECT count(*) FROM public.orders")"
+psql "$URL" -v ON_ERROR_STOP=1 -tAX >/dev/null 2>&1 <<'S1BFX'
+DO $fx$
+DECLARE v_cust uuid; v_order uuid;
+BEGIN
+  SELECT user_id INTO v_cust FROM public.customers ORDER BY user_id LIMIT 1;
+  IF v_cust IS NULL THEN RAISE EXCEPTION 'fixture 失敗:customers 為空'; END IF;
+  IF EXISTS (SELECT 1 FROM public.orders WHERE display_id='PCM-9993-0001') THEN
+    RAISE EXCEPTION 'fixture 失敗:PCM-9993-0001 已存在';
+  END IF;
+  INSERT INTO public.orders (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+                             subtotal, shipping_fee, total, shipping_method, invoice)
+  VALUES ('PCM-9993-0001', v_cust,
+          jsonb_build_object('name','S1b 探針','phone','0900000000','line','測試地址'),
+          'general'::public.member_tier, 0, 0, 0, 'store', jsonb_build_object('type','personal'))
+  RETURNING id INTO v_order;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order, 'S1B-P5A', '{"title":"s1b a","sku":"S1B-P5A","spec":{}}'::jsonb, 5, 0, 0);
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order, 'S1B-P5B', '{"title":"s1b b","sku":"S1B-P5B","spec":{}}'::jsonb, 5, 0, 0);
+END $fx$;
+S1BFX
+[ $? -eq 0 ] || { echo "🔴 s1b fixture 建立失敗;拒跑"; exit 1; }
+s1b_cleanup() {
+  psql "$URL" -tAX -c "DELETE FROM public.order_item_procurement WHERE order_item_id IN (SELECT id FROM public.order_items WHERE variant_sku LIKE 'S1B-%')" >/dev/null 2>&1 || true
+  psql "$URL" -tAX -c "DELETE FROM public.order_item_quantity_summary WHERE order_item_id IN (SELECT id FROM public.order_items WHERE variant_sku LIKE 'S1B-%')" >/dev/null 2>&1 || true
+  psql "$URL" -tAX -c "DELETE FROM public.orders WHERE display_id='PCM-9993-0001'" >/dev/null 2>&1 || echo "🔴 s1b cleanup:fixture 訂單殘留" >&2
+}
+trap s1b_cleanup EXIT
+ITEM="$(q "SELECT id FROM public.order_items WHERE variant_sku='S1B-P5A'")"
+ITEM2="$(q "SELECT id FROM public.order_items WHERE variant_sku='S1B-P5B'")"
 SUP="$(q "SELECT id FROM public.suppliers WHERE label='AKOSO'")"
 SUP2="$(q "SELECT id FROM public.suppliers WHERE label='PROTI'")"
 for v in "$ITEM:order_item" "$ITEM2:order_item2" "$SUP:AKOSO" "$SUP2:PROTI"; do
@@ -94,7 +127,7 @@ for v in "$ITEM:order_item" "$ITEM2:order_item2" "$SUP:AKOSO" "$SUP2:PROTI"; do
   esac
 done
 [ "$(q "SELECT count(*) FROM public.order_item_procurement")" = "0" ] \
-  && ok "起始狀態:採購表 0 列" || { echo "🔴 採購表非空,負測會被前一輪殘留污染;拒跑"; exit 1; }
+  && ok "起始狀態:採購表 0 列(fixture 品項 qty=5 ×2 自建)" || { echo "🔴 採購表非空,負測會被前一輪殘留污染;拒跑"; exit 1; }
 
 echo "== A. 結構與回歸 =="
 [ "$(q "SELECT count(*) FROM pg_attribute WHERE attrelid='public.order_item_procurement'::regclass AND NOT attisdropped AND attname IN ('supplier_name','supplier_canonical_key')")" = "0" ] \
@@ -295,6 +328,15 @@ echo "      拒收停用供應商是 A5a 寫入 RPC 的契約(尚未實作)。"
 echo "   🔴 本片零 writer:採購表至今沒有任何 INSERT 路徑(service_role 只有 SELECT、A5a RPC 未建)"
 echo "      ⇒ 本 harness 是以 owner 身分直插來測形狀,不是在測真實寫入流程。"
 echo "   🔴 本機 C locale ≠ 正式站 en_US.UTF-8(#305);database.types.ts 重 gen 需 apply 後才做得了。"
+echo
+echo "== 收尾:顯式清理 + 基準斷言(codex K2-7:trap 失敗不得靜默 exit 0)=="
+s1b_cleanup
+trap - EXIT
+[ "$(q "SELECT count(*) FROM public.orders")" = "$ORDERS_BASE" ] \
+  && [ "$(q "SELECT count(*) FROM public.order_items WHERE variant_sku LIKE 'S1B-%'")" = "0" ] \
+  && [ "$(q "SELECT count(*) FROM public.order_item_procurement")" = "0" ] \
+  && ok "零殘留:orders 回基準($ORDERS_BASE)、S1B fixture 品項 0、採購表 0" \
+  || bad "殘留:fixture 清理不完整(orders=$(q "SELECT count(*) FROM public.orders") 基準=$ORDERS_BASE)"
 echo
 echo "== 結果:PASS=$PASS FAIL=$FAIL =="
 [ "$FAIL" -eq 0 ] || exit 1

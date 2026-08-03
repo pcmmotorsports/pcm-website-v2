@@ -39,6 +39,25 @@
 
 \set ON_ERROR_STOP on
 
+-- 🔀 codex 關卡2 K2-6:端點閘 —— 白名單標記表/cluster 檢查擋不住「被標記過的遠端 DB」;
+-- 本檔只准打本機拋棄式 harness(port 54329、loopback 或 unix socket)。
+DO $$
+BEGIN
+  IF current_setting('port')::int <> 54329
+     OR (inet_server_addr() IS NOT NULL AND host(inet_server_addr()) NOT IN ('127.0.0.1','::1')) THEN
+    RAISE EXCEPTION '拒絕執行:僅允許本機 harness(port 54329/loopback),實際 port=% addr=%',
+      current_setting('port'), COALESCE(host(inet_server_addr()), 'unix-socket');
+  END IF;
+  -- 🔀 codex K2-R2-3:listener 位址證不了用戶端在本機(SSH tunnel 可繞)⇒ 加 server 端實檢:
+  -- d1t2 provision 的 ownership marker(.d1t2-harness)就放在 pgdata 上一層,拿它當硬證據。
+  -- 誠實界:tunnel 到「完整 d1t2 provision 的遠端複本」仍會過 —— 那本身就是 harness,可接受。
+  BEGIN
+    PERFORM pg_stat_file(current_setting('data_directory') || '/../.d1t2-harness');
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION '拒絕執行:data_directory 上層無 .d1t2-harness marker —— 這不是 d1t2 provision 的拋棄式庫';
+  END;
+END $$;
+
 -- ══ 閘 -1:環境閘(fail-closed;Fable R3 F7 + R4 N4)═══════════════════════════
 -- 🔴 閘必須在**本檔內**,不能只做在 shell wrapper —— 否則任何人 `psql -f` 直接跑就繞過了(R4 N4)。
 -- 🔴 雙輸入(沿用 D1a0 的守門形狀):
@@ -209,12 +228,15 @@ BEGIN
           2, 1000, 2000)
   RETURNING id INTO v_item_a1;
 
+  -- 🔀 2026-08-03 A4a 修訂(Sean Q2=A):qty 1 → 1000001 —— A4a 通電 oiqs CHECK 網後,
+  --    探針 25 的 1000000 必須落在品項數量之內(斷言原文不動、反 clamp 判別力保留);
+  --    「超量取消被擋」的行為證明移到探針 32(真打);單價/金額歸零以滿足 line_balances CHECK。
   INSERT INTO public.order_items
     (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
   VALUES (v_order_a, 'A7-SKU-2',
           jsonb_build_object('title', 'A7 探針商品 2', 'sku', 'A7-SKU-2',
                              'spec', jsonb_build_object('color', 'red')),
-          1, 1000, 1000)
+          1000001, 0, 0)
   RETURNING id INTO v_item_a2;
 
   INSERT INTO public.order_items
@@ -534,24 +556,29 @@ BEGIN
     v_pass := v_pass + 1;
   END;
 
-  -- ══ 探針 32:誠實負測 —— 本片**還沒鎖**跨列不變式 ═══════════════════════════
-  -- 🔴 這條證明的是「A7 確實還沒有任何東西自動維護計數器」,不是「已經鎖好了」。
-  --    A1 / A4a 落地後,本條必須改成「斷言計數器被重算 / 超量被擋」(A4a 的驗收條件)。
-  --    現況:order_items 上連 cancelled_quantity 這個欄都還不存在。
+  -- ══ 探針 32:🔀 2026-08-03 依 A4a 重寫(本條自帶的預告兌現;Sean Q2=A + codex R2 加嚴)═══
+  -- 原版證「超量取消寫得進去 = 本片未鎖跨列不變式」;A4a 通電 A1 CHECK 網後該狀態不可構造
+  -- ⇒ 翻面成**真打**:超量取消必須被 23514/oiqs 精確擋下(只改敘述不算證明)。
+  -- 前半(order_items 無 cancelled_quantity 欄)仍為真:A1 v2 落點是獨立摘要表、不是 order_items。
   SELECT count(*) INTO v_cnt FROM pg_attribute
    WHERE attrelid = 'public.order_items'::regclass
      AND attname = 'cancelled_quantity' AND attnum > 0 AND NOT attisdropped;
   IF v_cnt <> 0 THEN
-    RAISE EXCEPTION '探針 32 失敗:order_items.cancelled_quantity 已存在 —— A1 已落地,本條探針與探針 25 的語意都必須依 A4a 重寫,不得沿用';
+    RAISE EXCEPTION '探針 32 失敗:order_items.cancelled_quantity 竟存在(A1 v2 落點是 order_item_quantity_summary,不是 order_items)';
   END IF;
-  -- 已寫入的取消量合計 > 品項數量,而且**沒有任何東西擋它**(這正是債 ② 的實況)
-  SELECT sum(cancelled_quantity) INTO v_qty FROM public.order_cancellation_items
-   WHERE order_item_id = v_item_a2;
-  IF v_qty IS NULL OR v_qty <= (SELECT quantity FROM public.order_items WHERE id = v_item_a2) THEN
-    RAISE EXCEPTION '探針 32 失敗:預期能寫入超過品項數量的取消量(證明本片未鎖跨列不變式),實 sum=%',
-      COALESCE(v_qty::text, '(NULL)');
-  END IF;
-  v_pass := v_pass + 1;
+  -- 真打:a2 已累積 1000000,再取消 2 會跨過 quantity=1000001 ⇒ A4a 重算 → oiqs CHECK 擋
+  BEGIN
+    INSERT INTO public.order_cancellation_items
+      (cancellation_id, order_id, order_item_id, cancelled_quantity)
+    VALUES (v_canc_a, v_order_a, v_item_a2, 2);
+    RAISE EXCEPTION '探針 32 失敗:超量取消竟放行(A4a 的上界沒通電?)';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS v_cname = CONSTRAINT_NAME;
+    IF v_cname <> 'oiqs_cancelled_le_quantity' THEN
+      RAISE EXCEPTION '探針 32 失敗:被非預期 CHECK 擋下 [%](預期 oiqs_cancelled_le_quantity)', v_cname;
+    END IF;
+    v_pass := v_pass + 1;
+  END;
 
   -- ══ 探針 33:零殘留(交易外由 wrapper 再驗一次)══════════════════════════════
   -- 本探針在交易內只能驗「合成的東西都在預期的位置」;真正的零殘留由結尾 ROLLBACK 保證,
