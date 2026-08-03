@@ -28,17 +28,11 @@
 > 兩窗紅線:不 push / 不動 STATUS·CURRENT / 不 apply / 不碰 `.env*`(`grep -m1` 取單顆,**絕不 source**)/
 > git add 精準 / codex `-m gpt-5.6-sol -s read-only` 背景加 `< /dev/null`。
 >
-> 🧭 **主視窗 checkpoint(08-03 23:2x,壓縮前落檔)**:
-> · **在途三窗**(全部只等收割、無待答決策題):視窗A=RW2b @ `pcm-refund-wire`(型別重產已先收割
->   `28cdab8`;🔴 它做完 RW2b 必須停、RW2c 留白天)/ 視窗B=A9a-2 採購讀模型 @ `pcm-a4a-chain` /
->   視窗C=**首頁改版線(今晚新開)** @ `pcm-website-v2-home`(branch `home-redesign`,已 ff 補上落後的
->   90 commit;任務=D 段接線+A 段選車引擎 **兩份計畫、零 code**;設計權威在 Open Design
->   `pcm-home-redesign/` 專案;計畫內必含「design-reference submodule vs Open Design 誰是真權威」一題給 Sean 拍)。
-> · **哨兵=三分支版**(a4a-chain / refund-wire / home-redesign;隨 session 死、壓縮後若事件停了要重 arm)。
-> · **獨立重驗工法(今日實證)**:隔離 worktree(detach 在被審 commit)→ sed 港口 54329/54331→**54333**
->   → 跑 harness;**turbo cache hit ≠ 獨立驗證**(hit=採信對方的跑,必 `--force` 真編譯);worktree 要先
->   `pnpm install --frozen-lockfile`(root .bin 缺 tsc=既有缺口,scripts tsc 回主樹跑);收割=`--no-ff`
->   併回+STATUS 收帳,merge body 載明驗了什麼。
+> 🧭 **主視窗 checkpoint(08-04 01:4x 刷新;主視窗=Fable 5[1m]+high)**:
+> · **在途三窗**:視窗A=**RW2c 退款 server action**(Fable+xhigh,/clear 後新棒;🔴 做完必停、RW2d sandbox 真退需主視窗收割後另行放行)/ 視窗B=A10b 採購表單 UI(片號含 A9d1 procurement 半=授權邊界高風險、關卡2 不降級;A5a 五處 nullable Args 補齊是它的開工前置)/ 視窗C=D2 品牌頁版型(D1a/D1b 已收割;資產拍 A 進 git、獨立 commit;samco band 截圖列 Sean 必看)。
+> · **今晚已收割併推**(dev 乾淨零未推):首頁線 A1+A2+D 計畫補記+D1a+D1b / 視窗B A9a-2 / 視窗A RW2b+nit 片(主視窗代跑 Fable R3=PASS 0MF/5nit)。TAPPAY_* 三顆 Sean 已補進 pcm-admin(CLI read-back 在列)⇒ RW2d 前置解除。
+> · **哨兵兩座、隨 session 死要重 arm**:①三分支 ref 盯 commit ②信箱盯 `/Users/sean_1/pcm-mailbox/*-Q.md`(協定=README.md;已往返 A-01/A-02/B-01/C-01/C-02)。
+> · **獨立重驗工法**:併回主樹後 `turbo typecheck --force` + 完整 `pnpm test` 對數字(**cache hit≠獨立驗證**);數字不同要能逐項調和(基底差=哪些片);資料搬運類自跑 byte 比對(D1b 前例);DB 類=54333 隔離 provision(54329/54331 是施工窗的,別動)。
 > · **A5a 五處 nullable Args 刻意未補**=A10b 開工前置(詳 STATUS Blocker)。
 >
 > ⚠️ **今日新增的兩條操作事實**:①`supabase db push` **不需搬走 `.env.local`** 也跑得動(今日實測 dry-run 與正式
