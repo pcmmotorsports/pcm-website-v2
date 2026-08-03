@@ -288,3 +288,62 @@ S5 本身的金錢安全方向成立：
   I4 撤回並接受駁回)。殘 2 nit 已即修:11k 先擋 `proacl IS NULL`(aclexplode(NULL) 假綠格)、
   檔頭引文行號 :314→:315。
 - nit 修正後第三輪 from-zero 重放綠(檔內驗收 NOTICE 全過)、54331 已 teardown。
+
+---
+
+# RW1b(harness 片)關卡2 紀錄(2026-08-03 傍晚;staged=scripts/a7c-rw1b-verify.sh 新檔 + scripts/a7c-verify.sh 對帳)
+
+> 片型=🔴(全線高風險不降級);SOP 序列跑(code-reviewer → codex,不平行 —— RW1a 的偏離已改正)。
+> 兩輪駁回 0 條。修後 from-zero all 實跑 57/57 全綠 exit 0(run5/run6 兩輪一致)。
+
+## code-reviewer(opus)R1 = FAIL:3 must-fix + 8 nit(全折)
+
+- **MF1** barrier「B 在 A commit 前零輸出」`[ ! -s outb ]` 恆真(psql 導檔 block-buffered)⇒ 刪格、
+  EXPECT_PASS 58/56→57/55;「B 未返回」由 wait_blocked_by 蘊含。
+- **MF2** 檔頭誠實邊界引用不存在的案例 id「J2」⇒ 改 c20(誠實邊界段自己要誠實)。
+- **MF3** commit subject 79>72 ⇒ 縮為「test(scripts): RW1b 退款 RPC harness 全套 + a7c-verify 對帳新欄 [M-3]」(len=61 實測)。
+- nit×8:c08=歸因非承重(措辭改+登記未消融)/三世界線標未實測推論+G1 未單獨消融/wait_idle 陳舊態
+  ⇒ finalize 步改 query 錨定/run 模式 §6 冪等守門/突變段補 ON_ERROR_STOP+rc 獨立訊息/EXIT trap
+  收屍+kill -0/STATUS 7 欄=worktree 慣例主視窗補(不動)/檔案模式改 644。
+- 查過無虞面(節錄):count gate 四數字自己重數全中;c50/c51 稽核數對 migration 逐路徑重數全中;
+  fixture 三釘=可執行斷言;兄弟補欄 11 處無漏且不造成恆真;A→B→A 選單一致;a7bt-* 直寫舊形狀
+  在 20260801120000 已失效=非本片遺漏。
+
+## codex `gpt-5.6-sol` R1 = FAIL:4 must-fix + 3 nit(全折)
+
+- **MF1** workdir 閘 `/tmp/?*` 被「/tmp//」穿過(? 可匹配 /)⇒ all 模式 `rm -rf /tmp//`;且
+  ownership 驗證前就對任意 pgdata 執行 stop ⇒ 改:existence+marker 才准 stop/rm + 直屬子目錄閘。
+- **MF2** c50 outcome 只數 distinct=7(錯字 outcome 也湊得滿)⇒ 改與七值全集 array 逐字相等。
+- **MF3** finalize 四道獨立衛生(actor regex/request regex/壞 DR 碼/負數 wire)無負測 ⇒ 補 c56-c59、
+  EXPECT_CELLS 55→59。
+- **MF4** barrier substring grep(NOT_FINALIZED 也放行)⇒ `grep -qx` 整行精確 + 兩輸出檔零 ERROR。
+- nit×3:mode allowlist(all|run 之外 exit 2)/突變宣稱收窄(15 具名+2 消融;RPC 內守門未消融、
+  G4 同 token 真併發與 5b 正向未測=載明)/pg_blocking_pids 加 cardinality=1(「恰含」字面成立)。
+
+## codex R2(窄複審)= 6/7 已關;MF1 再擊破一次 → 修 → 實測收案
+
+- R2 判 MF2/MF3/MF4+nit×3 已關;**MF1 未關**:`/tmp/<symlink>/` 尾斜線讓 `[ -L ]` 循鏈判 false
+  ⇒ 仍可對別的 marked cluster stop。
+- 修法:**先剝光尾斜線**(-L 才看 symlink 本體)→ -L → `/tmp/?*` → `/tmp/*/*` 拒多層與連續斜線
+  → 拒 `..` → basename 閘。
+- **收案證據=實測負路徑**(可反駁預測:六種構造必 die,全中):`/tmp//`(剝完=/tmp,macOS /tmp
+  本身是 symlink ⇒ die)、`/tmp/link/`、`/tmp/link`、`/tmp/a/b`、`/tmp/../etc`、`/tmp/.`;
+  正向 `/tmp/rw1b/`(尾斜線真目錄)通過閘。修後 from-zero all 57/57 exit 0。
+- MF1 的第三輪確認交由 code-reviewer R2(異模型窄確認)覆核,不再開 codex R3
+  (R2 其餘 6 條已關、剩餘問題已由實跑負路徑收案;輪次紀律=有用才加輪)。
+
+## code-reviewer(opus)R2 窄確認 = PASS(鏈收斂)
+
+- 你方 R1 3MF+8nit 逐條判已關(EXPECT_PASS 57/55 由其逐 ok 站點手算獨立核對、非口頭調數);
+  codex R1 4MF+3nit 判已關;codex R2 的 MF1 再擊破判已關 —— 並自行加測五個方向
+  (//tmp/x、/、//、含換行路徑、/tmp/*)全穿不過;`$WORK` 全檔帶引號=glob 不展開(grep 驗證)。
+- 新 Minor 2 條已即修:handoff §3c「~800 行」→ 1480 行(wc -l);「run/all 一致=可重現」字面
+  過期 → 改為 all 兩輪為準 + run=55 折入後無實跑證據(靜態手算)誠實標註。
+- 新 nit 已即修 1 條:run 分支不再先 mkdir 後 die(缺 marker 直接死、不留空殼)。
+  不動 2 條(kill -0 判別力弱但方向對;sa BEGIN/COMMIT 的 wait_idle 陳舊態無害)。
+- 殘餘登記(非本片修):WORK 含引號/空白可注入 pg_ctl -o 字串=呼叫者自傷面、非跨使用者邊界;
+  workdir 閘 TOCTOU:rm -rf 對頂層 symlink 只刪連結本身、破壞面有限。
+- commit 訊息判 ✅(61 字元;scope=scripts 屬既有慣例外延)。
+
+> 收工數字:from-zero all 57/57 全綠 exit 0(修後兩輪一致);行為格 59、負測 17(n00 對照+16)、
+> 突變+消融 17(乾淨承重 17/17)。

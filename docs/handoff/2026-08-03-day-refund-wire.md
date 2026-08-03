@@ -93,6 +93,44 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
   regen types(+十處手動校正)→ typecheck → 才開 RW2a。RW1b harness(格+突變+交錯 barrier)
   在停點前後皆可做,建議先做完再 apply。
 
+## 3c. RW1b harness 收工(主視窗收割 RW1a 後續行;plan §1 RW1b 列全項落地)
+
+- **產物**:`scripts/a7c-rw1b-verify.sh`(新,1480 行;port **54331**、與視窗①的 54329 全程隔離)
+  九段:from-zero provision(initdb PG17+shim+全套 migrations 重放+d1t2 seed)→ 兄弟 A
+  (`a7c-verify.sh` 全套)→ **59 行為格**(兩 RPC 全部固定回傳碼/RAISE 面、fixture 三釘防恆真
+  可執行斷言化、deferred×failed_consistency 相容格、稽核鍵形+筆數+hold 第七值、G8 單調與來源態
+  allowlist、隔離閘)→ **16 直寫負測+n00 對照組**(紅對 constraint+SQLSTATE)→ **15 逐守門突變加
+  2 版本回退消融**(NOOP 自檢;消融=狀態機 deferred 邊、remaining allowlist,各自帶新綠舊紅
+  判別對)→ 結構指紋零漂移 → **G8×G12 barrier 交錯**(FIFO 雙 session+`pg_blocking_pids` 綁定
+  blocker;三世界線判別:LEDGER_FULL=正確/IN_FLIGHT=沒等鎖/INITIATED=舊快照)→ 兄弟 A'
+  (**A→B→A 閉環**)+行為格第二輪 → **rollback 實跑**(REVOKE+DROP RPC×2+DROP INDEX×2 →
+  帳本/稽核零觸碰+舊守門 P7C04 健在 → ROLLBACK 指紋回基準)→ 留存清點+數量閘
+  (57 all/55 run;code-reviewer R1 MF1 刪一恆真格後)。
+- **兄弟對帳(本片重要發現)**:RW1a 的兩個 NOT NULL 新欄把 `a7c-verify.sh` 的全部
+  `order_refunds` INSERT 打紅(佈 seed 即 23502)——A→B→A 正是抓這個。已對帳 13 處
+  (PORT env 覆寫 + 每個 INSERT 補 `kind='partial', record_refunded_before=0`),對帳後
+  兄弟兩輪(A/A')43 ✅ 全綠。
+- **驗證**:54331 from-zero `all` 修前 58/58、兩線 R1 折入後 **57/57 全綠 exit 0 兩輪一致**
+  (刪的那格=「B 零輸出」恆真格)。⚠️ `run=55` 那條路徑折入 §6 冪等守門後**無實跑證據**
+  (跑過 §6 的 cluster 會被守門擋=設計如此;數字由 R2 靜態手算核對)—— 折入前 run 實跑過
+  56/56 一致,可重現宣稱以 `all` 兩輪為準。
+  三綠:turbo typecheck 8/8 + `tsc -p tsconfig.scripts.json` 綠(⚠️ worktree root
+  `node_modules/.bin` 缺 tsc=環境既有缺口,用 pnpm store 的 typescript@5.9.3 補跑;主樹不缺)
+  加 lint 0;未動 .ts/.tsx 免 build。
+- **關卡2(全線高風險不降級;照 SOP 序列、不平行)**:code-reviewer(opus)R1 FAIL
+  3MF+8nit(最重=「B 零輸出」恆真格 + 誠實邊界段引用了不存在的案例 id)→ 全折 →
+  codex `gpt-5.6-sol` R1 FAIL 4MF+3nit(最重=`/tmp//` 穿過 workdir 閘 ⇒ `rm -rf /tmp//`;
+  outcome 值域只數 7 不比集合;finalize 四道獨立衛生無負測;barrier substring grep)→ 全折
+  (c56-c59 補格、55→59)→ 兩線 R2 窄複審(見下)。兩輪駁回 0 條。
+- **誠實邊界**(檔頭同款字面):本機 PG 非 Supabase;RPC 內 5a/G5 不做文字手術消融(觀察各自
+  可歸因:5a=RPC 訊息 vs P7C15=trigger constraint 名、由 c20/n14 兩兩獨立釘;G5=「CAS 失敗」
+  訊息 c08);併發只做 plan 指定的 G8×G12 一種(兩 finalize 同單=S5 下物理不可達,fable F5);
+  barrier 段刻意留存 3 張 harness 訂單+1 列 confirmed+2 筆稽核(§9 清點釘死)。
+- **待辦登記(不在本片)**:A7b-T harness 家族(`a7bt-fixtures.sh` 的 `sql_ledger_and_e9`)
+  直寫 `order_refunds` status='confirmed' 且無新欄 —— 推斷自 20260801120000(P7C01)起已紅、
+  RW1a 新欄再疊一層;屬 A7b-T 線(order_refund_jobs)的 harness 對帳,**未修**(54329 被佔、
+  未實跑證實;報主視窗排片)。
+
 ## 4. 🟡 今晚殘項(單視窗持有、不掛 cron;素材 T2=`D202608034SFpuL`)
 
 T2 今日 11:10 建立(AUTH)→ 依中信批次今晚 18:00 送批、約 20:00 可確認請款。請款後兩發:
@@ -126,5 +164,8 @@ python3 scripts/tappay-sandbox-refund-probe2.py refund D202608034SFpuL 1 pcm-nig
 - 新:`docs/reviews/2026-08-03-a7c-wire-k1-codex.md`(兩輪 findings 逐字)
 - 新:`docs/handoff/2026-08-03-day-refund-wire.md`(本檔)
 - 改:`docs/reference/tappay-reference.md`(§2.3a 兩處過期字面加指標;新增 §2.3b)
+- 新:`supabase/migrations/20260803150000_m3_a7c_rw1a_refund_write_rpcs.sql`(RW1a;未 apply)
+- 新:`scripts/a7c-rw1b-verify.sh`(RW1b harness;§3c)
+- 改:`scripts/a7c-verify.sh`(RW1a 新欄對帳 13 處 + PORT env 覆寫;§3c)
 - memory(不在 repo):`reference_tappay-refund-api-multiple-partial-and-overrefund` 補 ⑤ 段、
   frontmatter description 更新;`MEMORY.md` 對應行改寫。
