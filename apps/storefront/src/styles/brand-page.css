@@ -1,0 +1,174 @@
+/* brand-page.css — 品牌介紹頁版型(D2b 起;2026-08-04)
+ *
+ * 字面搬自 Open Design `pcm-home-redesign/brand-page.html` 的 <style>
+ * (麵包屑 593-601、橫幅 604-641、事實列 643-657;RWD 見檔尾)。
+ * 鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B:本線 design 真權威在 Open Design。
+ *
+ * 🔴 本檔只含 D2b 做到的三段(crumb / band / facts)。
+ *    about / why / craft / timeline / cats / others 與動效層由 D2c-D2e 逐片補進來,
+ *    不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class 先躺在 repo 裡,
+ *    誰也說不出哪些是活的。
+ */
+
+/* ══ 設計色票(scoped,不是 :root)══════════════════════════════════
+ * 🔴 為什麼要 scope:`--c-red` 在正式站 tokens.css 已存在且**值不同** ——
+ *    正式站 #dc2626(紅),設計稿 #f26722(熔橘)。熔橘是新首頁那套
+ *    「唯一動作色」的基礎(README 配色三條規則),但整站換色是 D5 首頁重排的事。
+ *    在 :root 改掉會讓現有每一頁的按鈕/價格當場變色 —— 那是還沒被批准的視覺改動。
+ *    所以先掛在 .bp-page 上,品牌頁吃設計色票、其餘頁面零影響。
+ *    D5 把整站換到熔橘那天,這一段直接刪掉、改吃 :root 即可。
+ *
+ * 其餘幾個是正式站 tokens.css 沒有的(--c-graphite / --c-ember-ink /
+ * --c-border-control / --c-sunken / --f-serif / --ease),一併帶在這裡。
+ * 有同名但值略異的(--c-text #121214 vs #0a0a0a、--c-border #e5e5e7 vs #e4e4e7)
+ * 也一起覆蓋,免得同一頁混用兩套灰。
+ */
+.bp-page {
+  --c-graphite: #202225;
+  --c-border: #e5e5e7;
+  --c-border-control: #909093;
+  --c-sunken: #f3f3f4;
+  --c-text: #121214;
+  --c-text-2: #52545a;
+  --c-text-3: #6e6e73;
+  --c-red: #f26722;
+  --c-ember-ink: #c4470c;
+  --c-red-dark: #a53a08;
+  --f-serif: "Noto Serif TC", "Cormorant Garamond", Georgia, serif;
+  /* 動效層的曲線。整段動效層(含四個時長 token)由 D2e 原封搬進來;
+     這裡先帶曲線是因為 crumb/cta 的 transition 現在就用得到。 */
+  --ease: cubic-bezier(.2, 0, 0, 1);
+
+  background: var(--c-surface);
+  color: var(--c-text);
+}
+
+/* ══ 麵包屑 ═══════════════════════════════════════════════════════ */
+.bp-crumb { border-bottom: 1px solid var(--c-border); }
+.bp-crumb-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 13px; padding-bottom: 13px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--c-text-3);
+}
+.bp-crumb-inner a { transition: color .15s var(--ease); }
+.bp-crumb-inner a:hover { color: var(--c-ember-ink); }
+.bp-crumb-sep { opacity: .4; }
+.bp-crumb-cur { color: var(--c-text); font-weight: 500; }
+
+/* ══ 品牌橫幅 ═════════════════════════════════════════════════════ */
+.bp-band { background: var(--c-graphite); color: #fff; position: relative; overflow: hidden; isolation: isolate; }
+.bp-band-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 84px; padding-bottom: 76px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 64px; align-items: center;
+  position: relative; z-index: 2;
+}
+.bp-eyebrow {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: .15em; text-transform: uppercase;
+  color: var(--c-red); display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+}
+.bp-eyebrow::before { content: ""; width: 22px; height: 1px; background: currentColor; flex: none; }
+.bp-title { font-size: clamp(38px, 6vw, 72px); line-height: 1.0; letter-spacing: -.03em; font-weight: 700; margin: 0 0 20px; }
+.bp-lede { font-size: 17px; line-height: 1.72; color: rgba(255, 255, 255, .8); max-width: 42ch; margin: 0 0 32px; }
+.bp-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.bp-cta {
+  display: inline-flex; align-items: center; gap: 10px; background: var(--c-red); color: #fff;
+  font-size: 14px; font-weight: 600; padding: 14px 24px;
+  transition: background .15s var(--ease), transform .1s var(--ease);
+}
+.bp-cta:hover { background: #ff7c3c; }
+.bp-cta:active { transform: translateY(1px); }
+.bp-cta b { font-family: var(--f-mono); font-weight: 500; font-size: 13px; opacity: .86; }
+.bp-cta-ghost {
+  display: inline-flex; align-items: center; gap: 10px; color: #fff;
+  border: 1px solid rgba(255, 255, 255, .3); font-size: 14px; font-weight: 500; padding: 13px 22px;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+.bp-cta-ghost:hover { border-color: rgba(255, 255, 255, .6); background: rgba(255, 255, 255, .06); }
+
+/* logo 沿用品牌牆那組深色場資產,不另外做圖。
+   --logo-align 是 per-brand 旋鈕:照片主體(人臉/車頭)剛好落在 logo 那格時,
+   個別品牌可以把 logo 推到 start(靠上)避開,預設仍是置中。 */
+.bp-band-logo { display: flex; align-items: center; justify-content: flex-end; align-self: var(--logo-align, center); }
+.bp-band-logo img { width: 100%; max-width: 340px; height: auto; opacity: 1; }
+
+/* 橫幅照鋪滿整條帶,左側壓暗幕保住文字可讀性。
+   🔴 沒有照片的品牌**不建 <img> 節點**(元件端負責),這條帶會自動退回純石墨底。 */
+.bp-band-photo {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  object-position: var(--band-focus, center); z-index: 0;
+}
+.bp-band::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(100deg, #202225 0%, #202225 30%, rgba(32, 34, 37, .90) 52%,
+    rgba(32, 34, 37, .58) 68%, rgba(32, 34, 37, .30) 84%, rgba(32, 34, 37, .72) 100%);
+}
+/* 只有壓在照片上時才需要投影;純色底上加投影會顯髒 */
+.bp-band:not(.no-photo) .bp-band-logo img { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, .6)); }
+
+/* 沒有官方授權橫幅照的品牌:退回純石墨底(版面不變),補一道極淡的熔橘暈。
+   純平色會讓那幾家看起來像沒做完,這一道只有 .20 的透明度,不搶字。 */
+.bp-band.no-photo::after {
+  background:
+    radial-gradient(96% 128% at 84% 12%, rgba(242, 103, 34, .20), transparent 52%),
+    radial-gradient(70% 90% at 8% 96%, rgba(255, 255, 255, .045), transparent 60%);
+}
+
+/* ══ 事實列 ═══════════════════════════════════════════════════════ */
+.bp-facts { border-bottom: 1px solid var(--c-border); }
+.bp-facts-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: repeat(var(--fact-n, 4), minmax(0, 1fr));
+}
+.bp-fact { padding-top: 26px; padding-bottom: 26px; padding-right: 24px; border-left: 1px solid var(--c-border); }
+.bp-fact:first-child { border-left: 0; padding-left: 0; }
+.bp-fact:not(:first-child) { padding-left: 24px; }
+.bp-fact dt {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+  font-weight: 600; color: var(--c-text-2); margin-bottom: 8px;
+}
+.bp-fact dd { margin: 0; font-size: 16px; line-height: 1.4; font-weight: 600; letter-spacing: -.005em; }
+/* 小註 —— 非必填,沒有就不要放(同構商品頁 N°02 的信任狀四格)。 */
+.bp-fact-s { display: block; margin-top: 8px; font-size: 13px; line-height: 1.6; font-weight: 400; color: var(--c-text-3); }
+
+/* ══ RWD ══════════════════════════════════════════════════════════
+ * 只收 D2b 這三段的規則;≤1180 那一檔全是 about/aside/others/grid 的事,
+ * 與本片無關,留給 D2c-D2e。
+ */
+@media (max-width: 960px) {
+  .bp-band-inner { grid-template-columns: 1fr; gap: 36px; align-items: start; }
+  .bp-band-logo { justify-content: flex-start; }
+  /* 照片回來之後 logo 不必獨自扛識別,收回 190px(250px 是「不放照片」那版的設定,
+     兩個都大會互相搶)。🔴 下限別低於 180px:細線描邊的 mark 會糊成一團。 */
+  .bp-band-logo img { max-width: 190px; }
+  /* 窄螢幕:照片改成上方一條 220px 固定高橫幅,文字壓在底下的實色上。
+     不讓照片鋪滿是量出來的 —— 窄螢幕帶子是直的(約 0.63),橫式照片鋪滿會被裁成
+     細長條、只看得到 25% 的寬度。220px × 滿版寬 ≈ 1.8:1,跟這批官方照原生比例接近。
+     🔴 漸層停點用 px 不用 %:帶子高度會隨文案長度變,用 % 文案長一點就跟照片對不齊。
+     🔴 選擇器寫**兩個 class** 是為了壓過 `.bp-band.no-photo::after` 的 0-2-0 權重
+        —— 少寫一個,窄螢幕會變回全黑。 */
+  .bp-band .bp-band-photo { height: 220px; bottom: auto; object-position: var(--band-focus-narrow, center 42%); }
+  .bp-band.bp-band::after {
+    background:
+      radial-gradient(130% 40% at 88% 2%, rgba(242, 103, 34, .14), transparent 62%),
+      linear-gradient(180deg, rgba(32, 34, 37, .10) 0px, rgba(32, 34, 37, .26) 128px,
+        rgba(32, 34, 37, .88) 196px, #202225 226px, #202225 100%);
+  }
+  .bp-band-inner { padding-top: 246px; padding-bottom: 46px; }
+  /* 單欄之後標籤孤零零貼左邊很像沒排版 ⇒ 事實欄置中(About 正文另有規則、維持靠左)。 */
+  .bp-fact { text-align: center; }
+  .bp-facts-inner { grid-template-columns: repeat(2, 1fr); }
+  .bp-fact:nth-child(3) { border-left: 0; padding-left: 0; }
+  .bp-fact:nth-child(n+3) { border-top: 1px solid var(--c-border); }
+}
+
+@media (max-width: 620px) {
+  .bp-facts-inner { grid-template-columns: 1fr; }
+  .bp-fact { border-left: 0; padding-left: 0; padding-right: 0; }
+  .bp-fact:not(:first-child) { padding-left: 0; border-top: 1px solid var(--c-border); }
+  .bp-actions { flex-direction: column; align-items: stretch; }
+  .bp-cta, .bp-cta-ghost { justify-content: center; }
+}
