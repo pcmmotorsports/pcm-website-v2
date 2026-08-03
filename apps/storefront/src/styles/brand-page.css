@@ -26,15 +26,11 @@
 .bp-page {
   --c-graphite: #202225;
   --c-border: #e5e5e7;
-  --c-border-control: #909093;
-  --c-sunken: #f3f3f4;
   --c-text: #121214;
   --c-text-2: #52545a;
   --c-text-3: #6e6e73;
   --c-red: #f26722;
   --c-ember-ink: #c4470c;
-  --c-red-dark: #a53a08;
-  --f-serif: "Noto Serif TC", "Cormorant Garamond", Georgia, serif;
   /* 動效層的曲線。整段動效層(含四個時長 token)由 D2e 原封搬進來;
      這裡先帶曲線是因為 crumb/cta 的 transition 現在就用得到。 */
   --ease: cubic-bezier(.2, 0, 0, 1);
@@ -42,6 +38,9 @@
   background: var(--c-surface);
   color: var(--c-text);
 }
+/* ⚠️ 只放**本檔真的用到**的變數。--c-border-control / --c-sunken / --c-red-dark /
+   --f-serif 分別是 .bp-chip / .bp-aside-card / CTA active / .bp-pull 要用的,
+   由 D2c-D2e 帶著各自的規則一起進來 —— 對齊本檔開頭「不放沒有對應元件的東西」那條。 */
 
 /* ══ 麵包屑 ═══════════════════════════════════════════════════════ */
 .bp-crumb { border-bottom: 1px solid var(--c-border); }
@@ -57,7 +56,10 @@
 .bp-crumb-cur { color: var(--c-text); font-weight: 500; }
 
 /* ══ 品牌橫幅 ═════════════════════════════════════════════════════ */
-.bp-band { background: var(--c-graphite); color: #fff; position: relative; overflow: hidden; isolation: isolate; }
+/* 🔴 fallback 不是裝飾:`--c-graphite` 只存在於 .bp-page 這個 scope,
+   而本元件是 fragment、scope 由外層路由掛。D3 漏掛的話 var() 無值 ⇒ background 失效
+   ⇒ 白底配這一段寫死的 color:#fff = 整條看不見。一個 fallback 換掉那個失敗模式。 */
+.bp-band { background: var(--c-graphite, #202225); color: #fff; position: relative; overflow: hidden; isolation: isolate; }
 .bp-band-inner {
   max-width: 1440px; margin: 0 auto;
   padding-top: 84px; padding-bottom: 76px;
@@ -108,13 +110,8 @@
 /* 只有壓在照片上時才需要投影;純色底上加投影會顯髒 */
 .bp-band:not(.no-photo) .bp-band-logo img { filter: drop-shadow(0 2px 14px rgba(0, 0, 0, .6)); }
 
-/* 沒有官方授權橫幅照的品牌:退回純石墨底(版面不變),補一道極淡的熔橘暈。
-   純平色會讓那幾家看起來像沒做完,這一道只有 .20 的透明度,不搶字。 */
-.bp-band.no-photo::after {
-  background:
-    radial-gradient(96% 128% at 84% 12%, rgba(242, 103, 34, .20), transparent 52%),
-    radial-gradient(70% 90% at 8% 96%, rgba(255, 255, 255, .045), transparent 60%);
-}
+/* ⚠️ `.bp-band.no-photo::after` **不在這裡** —— 它必須排在 ≤960 的 @media 之後,
+   見檔尾。原因寫在那一段的註解裡(同權重靠順序決勝)。 */
 
 /* ══ 事實列 ═══════════════════════════════════════════════════════ */
 .bp-facts { border-bottom: 1px solid var(--c-border); }
@@ -171,4 +168,23 @@
   .bp-fact:not(:first-child) { padding-left: 0; border-top: 1px solid var(--c-border); }
   .bp-actions { flex-direction: column; align-items: stretch; }
   .bp-cta, .bp-cta-ghost { justify-content: center; }
+}
+
+/* ══ 沒有官方授權橫幅照的品牌 ═════════════════════════════════════
+ * 退回純石墨底(版面不變),補一道極淡的熔橘暈:純平色會讓那幾家看起來像沒做完,
+ * 這一道只有 .20 的透明度,不搶字。
+ *
+ * 🔴🔴 **這一段的位置就是它的行為**,不能為了「跟橫幅那段放一起比較好讀」而搬上去。
+ *    它與 ≤960 裡的 `.bp-band.bp-band::after` 同為 0-2-0 權重 ⇒ 勝負**只看順序**。
+ *    放在 @media 之前的話:窄螢幕的 no-photo 品牌會吃到「照片版」那組
+ *    linear-gradient(它假設上方有一張 220px 的照片)疊在純石墨上 = 整條平黑,
+ *    正是雙 class 那條註解在防的畫面 —— 只是換成從另一個方向壞掉。
+ *    設計稿的順序就是這樣:brand-page.html 的 @media 在 :883、本段在 :952。
+ *    ⚠️ 20 家目前全部都有橫幅照 ⇒ 這條路在正式資料下**不可達**,壞了也沒人會發現。
+ *       守門 = brand-page.test.ts 的「相對順序」那條(不是只驗字串存在,是驗 index 大小)。
+ */
+.bp-band.no-photo::after {
+  background:
+    radial-gradient(96% 128% at 84% 12%, rgba(242, 103, 34, .20), transparent 52%),
+    radial-gradient(70% 90% at 8% 96%, rgba(255, 255, 255, .045), transparent 60%);
 }

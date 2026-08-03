@@ -6,7 +6,9 @@
 //
 // 三段放同一支的理由:它們共用「橫幅的照片/無照片」這一個狀態
 // —— `.bp-band` 的 `no-photo` class 決定幕的漸層,而事實列緊貼橫幅底線。
-// 拆成三支會讓那個狀態要往下傳兩層。整支 ~140 行,遠低於鐵則 6 的 400。
+// 拆成三支會讓那個狀態要往下傳兩層。體積遠低於鐵則 6 的 400 行上限。
+// (原註解與 commit body 寫過三種不同的行數 118/119/~140 —— 自我指涉的行數會隨每次
+//  編輯過期,索性不寫數字,要知道跑 `wc -l` 就好。)
 
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
@@ -67,10 +69,15 @@ export function BrandPageHeader({ brand }: { brand: BrandContent }) {
           (README「品牌介紹頁的橫幅」逐字)。`no-photo` 讓幕退回純石墨底 + 一道極淡熔橘暈。 */}
       <section className={`bp-band${hasPhoto ? '' : ' no-photo'}`} style={bandStyle}>
         {brand.band && (
+          // loading="eager" + decoding="async" 是設計稿字面(brand-page.html:1633-1634)。
+          // 🔴 不是可有可無的優化:這張是首屏 LCP 元素。少了 eager,它會排在非首屏資源
+          //    後面才開始下載 —— 而且這個漏搬**不會讓任何測試變紅**,只會讓 LCP 變差。
           <img
             className="bp-band-photo"
             src={brandAsset(brand.band.src)}
             alt={brand.band.alt}
+            loading="eager"
+            decoding="async"
           />
         )}
         <div className="bp-band-inner">
@@ -92,7 +99,19 @@ export function BrandPageHeader({ brand }: { brand: BrandContent }) {
             </div>
           </div>
           <div className="bp-band-logo" style={logoStyle}>
-            <img src={brandAsset(brand.bandLogo)} alt={`${brand.name} 標誌`} />
+            {/* width/height 是設計稿字面(brand-page.html:1642)。CSS 已把寬度改成
+                width:100%;max-width:340px,所以這兩個屬性不決定最終尺寸 ——
+                它們給的是 **intrinsic aspect ratio**,讓瀏覽器在圖載完前就保留正確高度。
+                拿掉的話 logo 那格在載入瞬間高度為 0、載完撐開 = CLS。
+                🔴 alt 照設計稿用純品牌名(原本我寫成「X 標誌」= 未列入偏離清單的自作主張)。
+                   ⚠️ 這會與上方 h1 的品牌名對報讀器重複播報一次;設計稿如此,本片不自行改,
+                      要改成 alt="" 屬 a11y 決策、另片處理。 */}
+            <img
+              src={brandAsset(brand.bandLogo)}
+              alt={brand.name}
+              width={380}
+              height={92}
+            />
           </div>
         </div>
       </section>
