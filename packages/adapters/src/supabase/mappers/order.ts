@@ -19,6 +19,10 @@ import {
   mapSupabaseOrderNoteRowsToProjection,
   type SupabaseOrderNoteRow,
 } from './order-notes';
+import {
+  mapSupabaseProcurementRowsToProjection,
+  type SupabaseOrderItemProcurementRow,
+} from './order-procurement';
 
 /**
  * @module @pcm/adapters/supabase/mappers/order — domain PlaceOrderInput → create_order RPC 入參(wire)
@@ -307,6 +311,20 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
 // ── 讀路徑(admin 明細):orders row + 內嵌 customers / order_items → AdminOrderDetail(M-4a Slice B)──
 
 /**
+ * 內嵌 `order_items` 的請求上限(A9a-2 補;關卡2 codex MF2)。
+ *
+ * 🔴 **為什麼現在才需要**:A9a-1 起明細就沒給 `order_items` 上限,邊界一直握在伺服器 `max-rows`
+ * (production 實測 1000)手上。A9a-2 在品項底下掛了 per-item 的 `procurementTruncated` ——
+ * 而**品項自己被切掉時,那個旗標連同品項一起消失**,呼叫端看到的每個旗標都還是 false。
+ * ⇒ 邊界必須由我們的常數擁有,觸及時翻成 `AdminOrderDetail.itemsTruncated`。
+ *
+ * 值 = 200:PCM 一張單的品項數是個位數到數十(月 100-300 單、代購零件),200 給了一個數量級餘裕,
+ * 又**嚴格低於**實測的伺服器上限。⚠️ 若專案 `max-rows` 日後被設到低於本值,截斷會發生在那個更低的
+ * 數字上而本判定看不見(同 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 的殘餘風險,治本要 `count: 'exact'`)。
+ */
+export const ORDER_ITEMS_EMBED_LIMIT = 200;
+
+/**
  * admin 明細讀 row 型別 —— derive 自生成 Database Row(對齊 SupabaseAdminOrderRow 慣例)。
  * 只取 `ADMIN_ORDER_DETAIL_SELECT` 投影欄。🔴 PII 欄(shipping_address_snapshot / invoice /
  * customers email·phone)只在明細投影;仍零成本欄、零 tappay_rec_trade_id。
@@ -350,6 +368,11 @@ export type SupabaseAdminOrderDetailRow = Pick<
     product_snapshot: unknown; // jsonb;{sku,spec,title} 由 create_order 寫入,防禦解析
     workflow_status: string | null; // M-4a D-2:per-item 狀態(NULL=未設定)
     version: number; // M-4a D-2:per-item 樂觀鎖
+    /**
+     * M-4b E10 A9a-2:採購內嵌列(順序不保證、筆數被請求端上限夾住 → 兩者都在 mapper 處理)。
+     * 🔴 optional + nullable 的理由同 `order_notes`:投影退版或舊 row 會整個沒有這個鍵。
+     */
+    order_item_procurement?: SupabaseOrderItemProcurementRow[] | null;
   }[];
   /**
    * M-4b E10 A9a-1:備註/聯絡紀錄內嵌列(順序不保證、筆數被請求端上限夾住 → 兩者都在 mapper 處理)。
@@ -438,8 +461,14 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     cancelledAt: row.cancelled_at,
     cancelledReason: row.cancelled_reason,
     version: row.version, // M-4a Slice C:明細頁改單表單帶此值當樂觀鎖條件
-    items: row.order_items.map(
-      (item): AdminOrderDetailItem => ({
+    items: row.order_items.map((item): AdminOrderDetailItem => {
+      // M-4b E10 A9a-2:排序與「清單可信嗎」都在 mapper(PostgREST 不保證內嵌列順序)。
+      // 🔴 **不加 `?? []`**:缺鍵與空陣列在下游是兩件事(前者不可信、後者是真的沒訂過貨),
+      //    由 mapper 分辨、翻成 `procurementTruncated`(關卡2 codex MF1)。
+      const procurementProjection = mapSupabaseProcurementRowsToProjection(
+        item.order_item_procurement,
+      );
+      return {
         id: item.id,
         variantSku: item.variant_sku,
         title: pickString(item.product_snapshot, 'title'),
@@ -449,10 +478,15 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
         workflowStatus: item.workflow_status, // M-4a D-2:per-item 真相
         version: item.version, // per-item 改狀態表單樂觀鎖
-      }),
-    ),
+        procurements: procurementProjection.procurements,
+        procurementTruncated: procurementProjection.procurementTruncated,
+      };
+    }),
     notes: notesProjection.notes,
     customerNotified: notesProjection.customerNotified,
     notesTruncated: notesProjection.notesTruncated,
+    // 🔴 A9a-2:品項自己被切掉時,per-item 的 procurementTruncated 會連同品項一起消失
+    //    ⇒ 這一層的旗標是它的前提,兩者要一起讀(關卡2 codex MF2)。
+    itemsTruncated: row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT,
   };
 }

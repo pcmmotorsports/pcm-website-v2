@@ -1,5 +1,6 @@
 import type { AdminOrderNote, AdminOrderNoteChannel, AdminOrderNoteType } from '@pcm/domain';
 import type { Database } from '../database.types';
+import { compareByCreatedAtThenId } from './created-at-order';
 
 /**
  * @module @pcm/adapters/supabase/mappers/order-notes — `order_notes` 內嵌列 → domain 備註時間軸
@@ -14,7 +15,7 @@ import type { Database } from '../database.types';
  * 複合 FK `:79-81` 強制更正列與被更正列同單 ⇒ 未截斷時「同單全部 notes」就足夠,不需掃全表。
  *
  * 🔴 **排序自己做**(plan v4 §5 [51]):PostgREST **不保證**內嵌列順序 ⇒ 這裡釘死
- * `createdAt` ASC + 全序 tie-break(見 `compareNotes`)。
+ * `createdAt` ASC + 全序 tie-break(實作 = `created-at-order.ts` 的 `compareByCreatedAtThenId`,A9a-2 起共用)。
  */
 
 /**
@@ -51,30 +52,12 @@ export type AdminOrderNotesProjection = {
 };
 
 /**
- * 全序比較:`created_at` 由舊到新;同時間依序以「時間字面」→「id」tie-break。
- *
- * 🔴 三層都有各自的理由,少一層就有真的排錯:
- * ① `Date.parse` 而非字串比較 —— timestamptz 字面帶時區偏移,字典序在跨偏移時排錯。
- * ② 同毫秒再比字面 —— **`Date.parse` 只解析到毫秒,而 `created_at` 是微秒精度**(實測
- *    `.123456` 與 `.123999` 解析結果相同)⇒ 少了這層,同毫秒的兩列會落到 id(uuid)亂序,
- *    更正列可能排在被更正列**前面**。
- *    ⚠️ **這層成立的前提 = 同一回應內所有列的時區偏移一致**(PostgREST 對同一次請求的同一張表
- *    回同一個偏移);偏移若混用,字典序會排錯 —— 實測反例 `18:00:00.123456+08:00` 與
- *    `10:00:00.123999+00:00` 同毫秒,字典序把後者排前面而它其實較晚。~~原本寫「同毫秒代表偏移相同」
- *    是錯的~~(審查 R2 nit2 抓到、已實跑證偽)。**毫秒層(①)不受此限**,錯的上限是次毫秒排序。
- * ③ 最後才 id —— 解析不出來的值(DB 腐壞)排在最後、彼此再以 id 定序。
- * **不回 NaN**,否則 `Array.sort` 的結果由實作決定 = 前面宣稱的「全序」不成立。
+ * 全序比較 —— 🔴 **實作已於 A9a-2 抽到 `created-at-order.ts`**:A9a-2 的採購時間軸需要
+ * 一模一樣的三層邏輯,而抄第二份會各自漂移、且漂移的症狀(次毫秒排錯)不會有任何測試轉紅。
+ * 三層的理由、以及「同毫秒比字面」那層的前提(同一回應偏移一致)全部搬到該檔 docstring;
+ * 行為一字未改(本檔既有排序測試即回歸證據)。
  */
-function compareNotes(a: SupabaseOrderNoteRow, b: SupabaseOrderNoteRow): number {
-  const ta = Date.parse(a.created_at);
-  const tb = Date.parse(b.created_at);
-  const aBad = Number.isNaN(ta);
-  const bBad = Number.isNaN(tb);
-  if (aBad !== bBad) return aBad ? 1 : -1;
-  if (!aBad && ta !== tb) return ta - tb;
-  if (!aBad && a.created_at !== b.created_at) return a.created_at < b.created_at ? -1 : 1;
-  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
-}
+const compareNotes = compareByCreatedAtThenId;
 
 /**
  * `order_notes` 內嵌列 → 時間軸 + U6 告知義務。

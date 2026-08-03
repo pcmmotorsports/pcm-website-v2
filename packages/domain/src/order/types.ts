@@ -362,6 +362,74 @@ export type AdminOrderWorkflowPatch = {
 export type AdminOrderWorkflowResult = 'UPDATED' | 'CONFLICT' | 'NOOP';
 
 /**
+ * 供應商回覆狀態(M-4b E10 A9a-2;`order_item_procurement_reply_status_check`
+ * `supabase/migrations/20260729020000_m4b_e10_a2_order_item_procurement.sql:86-87` 五值)。
+ * no_reply 未回 / confirmed 已確認 / price_changed 改價 / out_of_stock 缺貨 / partial 部分出貨。
+ */
+export type AdminProcurementReplyStatus =
+  | 'no_reply'
+  | 'confirmed'
+  | 'price_changed'
+  | 'out_of_stock'
+  | 'partial';
+
+/**
+ * AdminOrderItemProcurement: 單一品項的**一筆採購**(M-4b E10 A9a-2;`order_item_procurement` 讀投影)。
+ * 一個品項可以有多筆 = 拆給多家供應商(建表檔 `:13` 的 1:N 理由)。
+ *
+ * 🔴 **內部資料,絕不對客**:供應商身分、單號、異常原因一個 byte 都不能走上客人看得到的投影
+ * (建表檔 `:16-18`;`orders`/`order_items` 對登入客人整表開放 SELECT)。本型別只走 admin service_role 路徑。
+ * 🔴 **全欄都在,是刻意的**:A5a 是**全量 payload**(非 patch),選填欄送 NULL = 寫成 NULL
+ * ⇒ 呼叫端契約 = 表單必「全欄 hydrate 自最新列、先讀後送」
+ * (`20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql:20-24`)。少投影一欄 = A10b 表單
+ * 會用 undefined 覆蓋掉那一欄的既有值。
+ */
+export type AdminOrderItemProcurement = {
+  /** 採購列 id(order_item_procurement.id) */
+  id: string;
+  /** 供應商 id(NOT NULL FK → suppliers.id;A5a upsert 業務鍵的另一半,A10b 送這個值) */
+  supplierId: string;
+  /**
+   * 供應商顯示名(join suppliers.label;本表**不存**供應商名稱文字,S1b 換軸後唯一顯示來源)。
+   * 🔴 `null` = **內嵌沒回來**(投影退版 / 權限變動),不是「這家沒有名字」——
+   * `suppliers.label` 是 NOT NULL + UNIQUE。顯示端必須誠實顯示缺、不得當空字串。
+   */
+  supplierLabel: string | null;
+  /**
+   * 供應商是否仍啟用(join suppliers.is_active)。`null` = 內嵌沒回來 = **不知道**。
+   * 🔴 停用的供應商**照常出現在既有採購列**(S1b `:183`:本鍵不阻止採購指向已停用者);
+   * 被擋的只有 A5a 的「新建」與「調升 allocated」(Sean 2026-08-03 晚拍 Q1=A)。
+   * ⇒ A10b 用它顯示「此供應商已停用」提示,**不得**用它把整列藏起來;`null` 時不得靜默當 true。
+   */
+  supplierIsActive: boolean | null;
+  /** 這筆採購負責幾件(DB CHECK 1..100000) */
+  allocatedQuantity: number;
+  /**
+   * 這筆採購實際到貨幾件(累計;DB CHECK 0..allocated)。
+   * 🔴 真相來源 = `order_item_procurement_receipts` 逐批明細的 SUM,由 A4a 重算 trigger 維護
+   * (建表檔 `:118-119`)。本讀模型**不投影逐批明細**(批次到貨 UI 排第 2 批);要顯示「哪一批何時到」
+   * 得另外加投影,不能拿本欄硬湊。
+   */
+  receivedQuantity: number;
+  replyStatus: AdminProcurementReplyStatus;
+  /** 聯絡管道(自由文字;DB 只擋空白) */
+  contactChannel: string | null;
+  /** 送出採購的時間 */
+  submittedAt: string | null;
+  /** 供應商單號(DB 擋前後空白與零寬字元 —— A9b2 的跨單搜尋靠等值比對) */
+  supplierOrderNo: string | null;
+  /** 採購異常原因(U6「為什麼要等」的內部依據;🔴 對客告知另走 order_notes) */
+  exceptionReason: string | null;
+  /** 預計到貨日(date,無時間部分) */
+  expectedArrivalDate: string | null;
+  /** 首次送出時間(A5a 只在首寫時填) */
+  firstOrderedAt: string | null;
+  /** 最後一次更新時間(A5a 每次更新填) */
+  statusChangedAt: string | null;
+  createdAt: string;
+};
+
+/**
  * AdminOrderDetailItem: 後台訂單明細單一品項(M-4a Slice B;order_items 投影)。
  *
  * `title`/`spec` 來自 `product_snapshot` jsonb(create_order RPC 寫入 {sku,spec,title};防禦容缺 → null)。
@@ -385,6 +453,24 @@ export type AdminOrderDetailItem = {
   workflowStatus: string | null;
   /** 樂觀鎖版本(per-item 改狀態表單 hidden;M-4a D-2) */
   version: number;
+  /**
+   * 本品項的採購列(M-4b E10 A9a-2)。排序 = `createdAt` ASC,三層全序
+   * (權威實作 = `mappers/created-at-order.ts` 的 `compareByCreatedAtThenId`)。
+   * 沒訂過貨 = 空陣列(**不是** null)。
+   */
+  procurements: AdminOrderItemProcurement[];
+  /**
+   * 🔴 `procurements` **可能不完整**(fail-closed;兩個來源):
+   * ①觸及請求端上限 `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT`(剛好等於上限時分不出「就這麼多」與
+   *   「被切了」⇒ 一律當可能不完整)②內嵌鍵整個沒回來(投影退版)。
+   * 背景同 A9a-1 的 `notesTruncated`:PostgREST `max-rows` 對內嵌列同樣生效(production 實測 1000)
+   * ⇒ adapter 自己夾一個更低的上限,讓邊界與專案設定脫鉤。
+   * 🔴 **A10b(寫入端)必讀**:true 時**不得送出採購表單** —— A5a 是全量 payload,
+   * 拿一份不可信的 hydrate 去送 = 用空白/舊值覆蓋真實採購事實。畫面要說「讀取不完整、請重新整理」。
+   * 🔴 顯示端也不得把它當完整的 —— 「這個品項總共訂了幾件」在不完整時算不出來
+   * (三軸數量的權威是 `order_item_quantity_summary`、由 A4a trigger 維護,**不是**把本清單加總)。
+   */
+  procurementTruncated: boolean;
 };
 
 /**
@@ -477,7 +563,8 @@ export type AdminOrderDetail = {
   /**
    * 備註/聯絡紀錄時間軸(M-4b E10 A9a-1)。排序 = `createdAt` ASC,三層全序:
    * 毫秒 → 同毫秒比時間字面(`Date.parse` 只到毫秒、DB 是微秒)→ `id` 字典序。
-   * 🔴 排序合約的權威實作與前提在 `mappers/order-notes.ts` 的 `compareNotes`,改那裡要同步改這裡。
+   * 🔴 排序合約的權威實作與前提在 `mappers/created-at-order.ts` 的 `compareByCreatedAtThenId`
+   * (A9a-2 起與採購時間軸共用;`order-notes.ts` 的 `compareNotes` 只是它的別名),改那裡要同步改這裡。
    */
   notes: AdminOrderNote[];
   /**
@@ -494,6 +581,12 @@ export type AdminOrderDetail = {
    * ⇒ adapter 改為自己夾一個更低的上限,讓邊界與專案設定脫鉤(理由與殘餘風險見 `mappers/order-notes.ts`)。
    */
   notesTruncated: boolean;
+  /**
+   * 🔴 `items` 觸及請求端上限(`ORDER_ITEMS_EMBED_LIMIT`)⇒ 品項清單**可能不完整**(A9a-2 補)。
+   * 它是 `AdminOrderDetailItem.procurementTruncated` 的**前提**:品項自己被切掉時,那個 per-item
+   * 旗標會連同品項一起消失、呼叫端看到的每個旗標都還是 false ⇒ 兩個要一起讀。
+   */
+  itemsTruncated: boolean;
 };
 
 /**
