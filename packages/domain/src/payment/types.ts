@@ -121,8 +121,9 @@ export const TAPPAY_REFUND_STATUS = {
   /**
    * 未請款交易不能部分退款;sandbox 四次實證乾淨拒絕。語意=「**還不能做**」非「失敗」
    * (A7b-T 拍板逐字;Sean 08-03 Q2=A 拆獨立 deferred 態)。請款完成後可重試同一退款意圖,
-   * 🔴 惟「同一 bankRefundId 重試」的 TapPay 行為未實證(probe 已核准未跑、Q3=A)——
-   * 接線片前不得依賴同鍵重試,是否換鍵由帳本層決定。
+   * 🔴 已實證(2026-08-03 probe;`docs/reference/tappay-reference.md` §2.3b P6/P6a):
+   * 10024 會**消耗** bankRefundId,且鍵消耗**恆久**(跨請款不重置、無 TTL)——
+   * 同鍵重試必撞 6002 ⇒ 重試**必須換新鍵**(rotation-always;A7c 帳本層=新 initiate 新列新鍵)。
    */
   NOT_CAPTURED_PARTIAL: 10024,
 } as const;
@@ -132,7 +133,8 @@ export const TAPPAY_REFUND_STATUS = {
  *
  * 🔴 語意=「**確定未送出、TapPay 零接觸**」,呼叫端可修正輸入後安全重試;
  * **其他一切 throw(transport / HTTP / 逾時 / 格式異常 / 未實證回應碼)= unknown-state,
- * 絕不得自動重發**(bank_refund_id 冪等未實證 ⇒ 盲目重發 = 可能同一筆退兩次)。
+ * 絕不得自動重發**(2026-08-03 probe 實證:同鍵重發必 6002=at-most-once 可依賴;
+ * 危險的是**換鍵**重發 —— 那就是同一筆錢退兩次)。
  * 兩類錯誤以型別區分(instanceof),不脆弱比對 message 字面(鏡像 NotOwnedError 慣例)。
  */
 export class TapPayRefundNotSentError extends Error {
@@ -154,7 +156,8 @@ export class TapPayRefundNotSentError extends Error {
  *
  * `bankRefundId` 必填 = 呼叫前 durable 歸屬鍵:呼叫端(A7c 帳本)必先把它寫進
  * `order_refunds` processing 列**再**呼叫 —— 它是崩潰視窗內 TapPay 端真退款的唯一歸屬線索。
- * 🔴 它**不是**冪等保證(TapPay 端「不可重複」行為未實測);格式 `^[A-Za-z0-9_-]{1,20}$`
+ * 🔴 冪等面已實證(2026-08-03 probe):同鍵重送必 6002(鍵消耗恆久、無 TTL)⇒ at-most-once
+ * 可依賴;惟 6002 本身≠錢沒動過的證明,對帳仍走 Record。格式 `^[A-Za-z0-9_-]{1,20}$`
  * (TapPay String 20 + 帳本 CHECK 1-20;UUID 36 字放不下、不要傳 job/row id)。
  */
 export type TapPayRefundPayload =
@@ -167,12 +170,13 @@ export type TapPayRefundPayload =
  * - `accepted`(wire status===0):TapPay **受理**。🔴 accepted ≠ 錢已到帳 —— 生效權威 =
  *   Record API(record_status 2/3 + refunded_amount)/ Portal;營運口徑「部分退隔日、全額當日」。
  *   `refundId` 供帳本轉 confirmed 那次 UPDATE 寫入(P7C10:processing 期間禁填)。
- *   🔴 `refundAmount` 語意未證(本次退款額 vs 累計已退額;官方無 gloss、probe 未保存其值)
- *   ⇒ **不得用於帳本累加或剩餘可退額推算**;回應無 currency 欄 ⇒ 單位無回應層驗證,
- *   呼叫端以自家訂單幣別為準(Phase 1 全 TWD)。
+ *   🔴 `refundAmount` = **本次退款額**(2026-08-03 probe 實證:部分退 1 元回 `refund_amount=1`
+ *   =§2.3b P6b;全額退回當下剩餘額=P4)⇒ 可用於帳本 G7 fail-closed 金額比對;
+ *   **仍不得當累計已退**(累計權威=Record 的 `refunded_amount`)。回應無 currency 欄 ⇒
+ *   單位無回應層驗證,呼叫端以自家訂單幣別為準(Phase 1 全 TWD)。
  * - `deferred`(=10024、**僅 kind='partial' 可達**):「還不能做」,請款完成後可重試同一意圖
- *   (同鍵重試行為未實證,見 TAPPAY_REFUND_STATUS JSDoc)。獨立態 ⇒ 呼叫端 switch 天然分流、
- *   不可能誤標「失敗」而重退。
+ *   (🔴 同鍵重試已實證必撞 6002=鍵已被消耗,**必換新鍵**;見 TAPPAY_REFUND_STATUS JSDoc)。
+ *   獨立態 ⇒ 呼叫端 switch 天然分流、不可能誤標「失敗」而重退。
  * - `rejected`(=10051、**僅 kind='partial' 可達**):超額,對帳後人工判。
  * - 「狀態未知」**不設結果值**:逾時 / HTTP 非 2xx / transport / 格式異常 / 未實證碼
  *   (含 kind='full' 的任何非 0 碼)一律 throw;呼叫端收非 TapPayRefundNotSentError 的
@@ -182,7 +186,7 @@ export type TapPayRefundResult =
   | {
       status: 'accepted';
       refundId: string;
-      /** wire `refund_amount` 原值(int)。🔴 語意未證、不得入帳本推算(見上)。 */
+      /** wire `refund_amount` 原值(int)= **本次退款額**(probe 實證,見上);G7 比對用、不得當累計。 */
       refundAmount: MoneyAmount;
       /** wire `is_captured`(選填、audit 用)。 */
       isCaptured?: boolean;

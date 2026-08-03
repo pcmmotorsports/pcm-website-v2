@@ -128,11 +128,17 @@ describe('admin 受控單檔(composition 以外不得自己接 TapPay)', () => {
     expect(scan(/TapPayChargeAdapter/i)).toEqual([]);
   });
 
-  it('🔴 全 admin 只有 composition.ts 出現 TAPPAY_ 字樣(繞過本檔 = 繞過環境配對斷言)', () => {
+  it('🔴 全 admin 只有 composition.ts 出現大寫 TAPPAY_ 字樣(繞過本檔 = 繞過環境配對斷言)', () => {
     // storefront 靠 eslint no-restricted-imports 擋整個 app 直連 @pcm/adapters/server;
     // admin 沒有那條規則(它本來就該用 server subpath)⇒ 用這格頂住同一件事的要害:
     // 誰自己讀 TAPPAY_ENV / PARTNER_KEY,誰就能建出一個沒過配對斷言的 adapter。
-    expect(scan(/TAPPAY_/i)).toEqual([]);
+    // 🔴 RW2c 起改 **case-sensitive**(原 /TAPPAY_/i):process.env 查找是大小寫敏感的,
+    //    要讀到那三顆 env 就必須寫出**全大寫** `TAPPAY_` 字面 ⇒ 對本格宣稱的威脅模型
+    //    (攔回歸、不攔刻意對手)攔截力未減;
+    //    而退款路徑的合法 DB 識別字(`p_tappay_refund_id` / `tappay_rec_trade_id`)是小寫、
+    //    與 env 無關,不該被本格逼成含糊命名或整檔豁免(豁免才是真的縮驗證面)。
+    //    `'tappay_env'.toUpperCase()` 式組字 = 刻意規避,本檔檔頭已明示「攔回歸,不攔對手」。
+    expect(scan(/TAPPAY_/)).toEqual([]);
   });
 
   it('🔴 全 admin 零 tappaysdk 端點字面(自己 fetch TapPay = 繞過所有守門)', () => {
