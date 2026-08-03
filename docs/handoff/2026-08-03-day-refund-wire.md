@@ -10,10 +10,12 @@
    同鍵重送被 `6002` 乾淨拒絕(**但 10024 拒絕也消耗鍵** ⇒ deferred 重試必須換鍵)、
    **同單併發重複退被 TapPay 序列化**(輸家 `10050`、無雙退;n=1)。外加 `refund_amount`=本次額定案。
    全文權威=`docs/reference/tappay-reference.md` **§2.3b**(逐發先預測後驗);memory 已同步。
-2. **段② A7c 接線線 plan v3 已寫**:`docs/specs/2026-08-03-a7c-refund-wire-plan.md`
-   (RW1a-RW4 拆片+⛔apply 硬停點 / S1-S7 schema 增補+G0-G11 守門 / 三態接點總表 /
-   接線債三條處置 / 決策題 Q1-Q5 + 三定案)。關卡1 兩輪 FAIL 全折入,見 §3。
-   **零實作 code —— 停在等 Sean 拍 Q1-Q5。**
+2. **段② A7c 接線線 plan v3.1**:`docs/specs/2026-08-03-a7c-refund-wire-plan.md`
+   (RW1a-RW4 拆片+⛔apply 硬停點 / S1-S7 schema 增補+G0-G12 守門 / 三態接點總表 /
+   接線債三條處置)。關卡1 兩輪 FAIL 全折入,見 §3。
+   ✅ **Sean 已拍板(08-03 下午,逐字「a,a,a,B,a」)**:refunded 硬擋/現行授權+確認碼/
+   恢復走 Portal 真碼/**Q4=B 全額+部分一次做**/Q5=A Fable R3 換角度 PASS 才開工 RW1a。
+   拍板落檔=plan §5 + memory `project_m3-a7c-wire-plan-0803-decisions`。
 3. 🟡 **今晚殘項一條**(見 §4):T2 交易今晚 18:00 送批請款,20:00 後補兩發驗證(消耗鍵/新鍵)。
 
 ## 1. 段① probe:做了什麼(腳本 `scripts/tappay-sandbox-refund-probe2.py`,v1 原樣未動)

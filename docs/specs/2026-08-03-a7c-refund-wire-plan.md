@@ -1,4 +1,4 @@
-# A7c 退款接線線 plan v3(2026-08-03 施工視窗②;關卡1 R1 FAIL 28 條全折 → R2 FAIL 8 未關+3 新條再折;輪數上限 2 已滿、停等 Sean)
+# A7c 退款接線線 plan v3.1(2026-08-03;✅ Sean 已拍板 Q1=A/Q2=A/Q3=A/**Q4=B**/Q5=A + 三定案默認;Q4=B 重排拆片已折入;下一步=Fable R3 換角度、PASS 才開工 RW1a)
 
 > 目標 = 完成地圖 27 項**第 17 項「退款操作」**最後一塊「後台退款按鈕 + 讀模型」
 > (`docs/specs/2026-08-01-admin-completion-map.md:70`、`:119-128`;§4 現行線、不在 §5.1 的 40 片內)。
@@ -32,9 +32,9 @@
 | **⛔ 硬停點** | Sean `db push` → read-back → regen types(+十處手動校正)→ typecheck;未過不得開 RW2 | Sean |
 | **RW2a** | `tappay-endpoints` 搬 `packages/adapters/src/tappay/endpoints.ts` + exports + storefront 改 import + 全套回歸(測試同搬) | 🔴 12① |
 | **RW2b** | admin composition + env 配對 fail-closed 斷言 | 🔴 |
-| **RW2c** | `initiateRefundAction`(全額退):authorize → server 重讀訂單 → **adapter.recordQuery 取 baseline**(見 §2 G0)→ RPC initiate → `refund()` → RPC finalize;mock 單元測試含五路錯誤分派 | 🔴 12①② |
-| **RW2d** | 訂單詳情「全額退款」入口(確認框=Q2-A)+ sandbox 端到端(local supabase 造 order fixture 綁 sandbox `tappay_rec_trade_id` 過 P7C03;環境配對斷言先行;真退一發 ≤6 元) | 🔴 12① |
-| **RW3** | 部分退(金額欄)+ deferred/rejected 呈現 + 讀模型「帳本未登記額(不含 Portal 場外)」 | 🔴 12① |
+| **RW2c** | `initiateRefundAction`(**全額+部分兩 kind,Q4=B**):authorize+確認碼驗證(Q2=A)→ server 重讀訂單(含 Q1=A refunded 硬擋)→ **adapter.recordQuery 取 baseline**(§2 G0)→ RPC initiate → `refund()` → RPC finalize;mock 單元測試含五路錯誤分派+deferred 分派。⚠️ Q4=B 已知代價:片超 45 分就地再拆(action 骨架/kind 分支),不砍測試 | 🔴 12①② |
+| **RW2d** | 訂單詳情退款入口(**全額按鈕+部分金額欄**,Q4=B;確認框=輸入訂單號末 4 碼、server 端驗=Q2=A)+ sandbox 端到端:**全額一發必跑**(local supabase 造 order fixture 綁 sandbox `tappay_rec_trade_id` 過 P7C03;環境配對斷言先行;≤6 元);**部分一發**=需已請款交易(用今晚請款完成的 T2 或新建隔日補),未跑完前部分退入口不對 Sean 宣告可用 | 🔴 12① |
+| **RW3** | deferred/rejected 結果呈現 + 讀模型「帳本未登記額(不含 Portal 場外)」+ 異常清單頁入口(RW4 前置 UI) | 🔴 12① |
 | **RW4** | 恢復與覆核片(規格=§4-1,已可施工):異常清單頁(processing 超 30 分)+ 對帳判定(app 層,判定碼表)+ 人工結案走 finalize 復用(recovery outcomes)+ RF8 併 refundId 存在性;harness=每判定碼一正一負 | 🔴 12① |
 
 不做:worker(拍板⑥)/ 防超退(拍板⑤)/ 品項層(拍板③)/ A8\* 取消線 / 動錢 cron。
@@ -66,6 +66,7 @@
   恢復結案沿用 finalize action(outcome 已可辨識)。零 PII、無自由文字、body 全文不得出現。
 - G10 ACL:SECURITY DEFINER+search_path 釘死+owner=表 owner+REVOKE PUBLIC/anon/authenticated+僅 service_role EXECUTE+檔內自我斷言(A6 `:322-348` 全套含 FORCE RLS 檢查)。
 - G11 輸入衛生(F18 折入,實際值):`p_reason` trim 非空 ≤200 字、拒控制字元(`~ '[[:cntrl:]]'` 拒;⚠️ lc_ctype 差異=本機結論不外推正式站,harness 標註)/ `p_actor` trim 非空 ≤64 / `p_request_id` UUID v4 regex `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` / `p_failed_detail` ≤500 / S3 evidence `^\S{1,64}$`。
+- G12(**Q1=A 拍板**)initiate 前置:`payment_status = 'refunded'` → RAISE 具名碼 `REFUND_LEDGER_FULL`(帳本已滿、硬擋)。既有 P7C02 白名單(INSERT trigger 層)刻意放行 refunded **不動**(已 apply 守門;其註解 `:238-240` 逐字「取決於尚未存在的程式」— 本 RPC 就是那個程式,擋在 RPC 層)。UI 同步隱藏入口。
 
 **丙、app 層(縱深,不計守門)**:authorize+server 重讀;UI 防雙擊=降噪(權威 S5);accepted 同 request 立即 finalize=縮窗(權威 S3+RW4);錯誤分派鐵律=只認 NotSentError 與三態,**其他 throw(含 6002/10050)不 finalize、留 processing、不自動重發**(`types.ts:177-179`)。
 
@@ -93,35 +94,14 @@
 2. **同單雙擊雙退**:S5(DB 權威、跨請求持久)+ G4 重播矩陣 + `REFUND_IN_FLIGHT` 具名映射;UI=降噪。R2 專項確認:同 request_id 重播不撞 S5、異 request_id 被 S5 擋=無雙退窗。
 3. **probe**:✅ 收案;🟡 今晚殘項矩陣(§2.3b-6):消耗鍵=`6002`→維持結論/`0`→鍵註冊有 TTL、重估並 raise、**RW2c 前不得開工**;新鍵=`0`→正向鏈補完/非 0→逐字記錄再判。兩發未跑完前 RW2d 不開工;RW1a/1b 不受擋。
 
-## §5 決策題(Sean;prose code block 一次批)
+## §5 拍板紀錄(✅ Sean 2026-08-03 下午,逐字「a,a,a,B,a」;原五題全文見 git 前版 `53ff069`)
 
-```text
-Q1(payment_status='refunded' 的訂單能否再發起):
-A. RPC+UI 硬擋(帳本已滿;場外情形本來就在 Portal 處理)(推薦)
-B. 允許發起+強警示(依賴 TapPay 10051 擋超退)
-
-Q2(退款授權級別;現況=共用 SSO+自報 actor cookie):
-A. 接受現行授權+確認框(輸入訂單號末 4 碼防手滑);audit 標註 actor=自報、真身分等 E8-B
-   (推薦;與儲值金 override 同級)
-B. 退款 UI 等 E8-B 完成才開(第 17 項驗收繼續紅)
-
-Q3(RW4 恢復結案形狀):
-A. Record 差額判定 + 人工從 Portal 取真 DR 碼 → recovered_confirmed(P7C09 不鬆綁、零偽造;
-   代價=恢復含一步人工;月 100-300 單可承受)(推薦)
-B. 鬆綁 P7C09 允許無對帳碼結案(動已 apply 守門=另一支高風險 migration)
-
-Q4(RW2c/2d 縱切範圍):
-A. 全額退先行,部分退=RW3(推薦;第一刀最小、當日可肉眼驗)
-B. 全額+部分一次做(審查面翻倍、片必超時)
-
-Q5(關卡1 收斂處置;R1+R2 兩輪上限已滿、R2 的 8 條未關+3 新條已全折入本 v3):
-A. 依 00-work-rules「第 3 輪換模型換角度」:派 adversarial-reviewer(model:fable)R3 審 v3,
-   PASS 才開工 RW1a(推薦;錢+schema 片、上次 R3 換 Fable 抓到過穿透兩輪的 BLOCKER)
-B. 你讀本檔直接拍,跳 R3 開工 RW1a(每片關卡2 照跑不降級)
-
-另:三個定案(deferred 獨立態 / single-flight=partial unique / 同單單一 processing)
-寫在 §0,是既有拍板的直接推論;有異議請一併說。
-```
+- **Q1=A**:`refunded` 訂單 RPC+UI 硬擋再發起(→G12)。
+- **Q2=A**:接受現行授權+確認框(訂單號末 4 碼、server 端驗);audit 標 actor=自報、真身分等 E8-B(→RW2c/2d)。
+- **Q3=A**:恢復=Record 差額判定+人工 Portal 取真 DR 碼 → `recovered_confirmed`;P7C09 不鬆綁(→§4-1)。
+- **Q4=B**:全額+部分**一次做**(RW2c/2d 已重排;已知代價=片可能超時,超時就地再拆、不砍測試;部分退 E2E 受請款時序限制,未跑完前不宣告可用)。
+- **Q5=A**:Fable(adversarial-reviewer)R3 換角度審本檔,**PASS 才開工 RW1a**。
+- 三定案(deferred 獨立態 / single-flight=partial unique / 同單單一 processing)未被異議=生效。
 
 ## §6 驗收與 rollback(同 v2 增補)
 
