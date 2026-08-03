@@ -122,10 +122,8 @@ PCM **已自寫實作**(`packages/adapters/src/tappay/TapPayChargeAdapter.ts`)�
   `refunded_amount` 累加、`amount` 遞減,`record_status` 停在 `2 (PARTIALREFUNDED)`。
 - ✅ **超額退款會被 API 擋下**,錯誤碼 **`10051`**,且是**乾淨拒絕、零副作用**(狀態一格都沒變)。
 - 🔴 **`is_captured=false` 時不要送部分退款**(必回 `10024`)。本次是等請款完成才測的。
-- 🔴🔴 **邊界:這只證明「單發超額」被擋,不證明「併發重複退」被擋。**
-  兩條連線各送一筆「各自都在剩餘額度內、加起來超過」的退款,API 會不會兩發都成功 —— **本次沒測**。
-  ⇒ 凡以「TapPay 會幫我們擋超退」為前提的設計,只在**序列**呼叫下成立。
-  (同款教訓見 memory `feedback_race-test-without-barrier-proves-nothing` 與 S2-C 併發 harness。)
+- ~~🔴🔴 **邊界:這只證明「單發超額」被擋,不證明「併發重複退」被擋。**~~
+  **2026-08-03 已補測(§2.3b P4):barrier 併發全額×2,一發成功一發 `10050` 拒、無雙退(n=1)。**
 
 ##### 🔴🔴 本次測試自身踩到的事故(**同一筆交易被兩個 agent 同時退款**)
 
@@ -147,6 +145,37 @@ PCM **已自寫實作**(`packages/adapters/src/tappay/TapPayChargeAdapter.ts`)�
 落檔 memory `feedback_duplicate-cron-double-fires-external-writes`。
 - 🔴 **Portal 畫面不是 API 的證據**(兩個方向都成立):按鈕消失不代表 API 會拒,
   按鈕可按也不代表 API 會過。上表每一格都是 API 原文回應。
+
+#### 2.3b ✅ Sandbox 硬閘 probe(2026-08-03 日間;Sean Q3=A 核准;腳本 `scripts/tappay-sandbox-refund-probe2.py`)
+
+補證 08-01 遺留的「未證、設計不得依賴」清單:`bank_refund_id` 冪等語意、併發重複退、
+`refund_amount` 語意。每發**先寫預測再打**;交易 = 舊 `D202607314b3cIL`(T1,剩 2 元)+
+官方 sandbox 測試 prime 新建 `D202608034SFpuL`(T2,6 元)/ `D20260803QkAvlo`(T3,6 元)。
+
+| # | 交易 | 動作 | API 回應 | 定案 |
+|---|---|---|---|---|
+| P1 | T1(已請款) | 部分退 1,鍵 `pcm-p1_20260803aaaaa`(恰 20 字、小寫+數字+`-`+`_`) | `0 Success`、`refund_id=DR202608039iw1lT`、**`refund_amount=1`** | 格式/20 字上界接受;**`refund_amount`=「本次退款額」非累計**(累計會是 5) |
+| P2 | T1 | 同鍵再退 1 | **`6002 'Duplicate bank_refund_id'`**、零副作用 | **TapPay 強制同鍵唯一、乾淨拒絕** |
+| P2b | T2(未請款) | 拿 P1 已用鍵退 1 | 同 `6002`(不是 10024) | 唯一性=**商戶全域**;重複鍵檢查**先於**請款狀態檢查 |
+| P3 | T2 | 新鍵 `pcm-p3-20260803` 退 1 | `10024`,**回應帶 `refund_id=DR20260803PvpSL9`**、零副作用 | 被拒的嘗試在 TapPay 端被配了退款編號 |
+| P3b | T2 | P3 同鍵立即重試 | **`6002`** | 🔴🔴 **10024 拒絕也消耗鍵** ⇒ deferred 後重試**必須換鍵** |
+| P5a | T1(剩 1) | 新鍵 `pcm-p5-over` 超額退 2 | `10051`、零副作用、**回應無 `refund_id`** | 10051 在管線更早處被擋 |
+| P5b | T1 | P5a 同鍵退 1 | `0 Success`;T1 累計 6/6、`record_status 2→3` | **10051 不消耗鍵**(與 10024 不對稱);「剛好退完剩餘額」可行(補 08-01 🟡);**部分退累計到 0 時 record_status 轉 3 (REFUNDED)** |
+| P4 | T3(未請款) | **barrier 併發**全額退×2、異鍵 | 一發 `0`(`refund_amount=6`)、一發 **`10050 'Out of range : amount'`**;事後 `refunded=6` 非 12 | **併發重複退被序列化、無雙退**(⚠️ n=1 單次取樣);全額退撞「已無可退」= `10050`(≠10051) |
+
+**設計結論(A7c 接線片消費)**:
+
+1. 🔴 **`6002` ≠「錢動過」** —— 只證明「這把鍵曾有嘗試送達 TapPay」(可能被受理、也可能被 10024 拒)。
+   崩潰恢復收到 `6002` **必須走 Record API 比 `refunded_amount` 差額對帳**,不得假設成功、不得換鍵盲重送。
+2. 🔴 **換鍵政策一律「每次嘗試都配新鍵」** —— 10024 消耗鍵、10051 不消耗,不對稱;依賴「哪類拒絕
+   消耗鍵」的細節太脆,rotation-always 在兩種情形下都安全。
+3. `refund_amount` 語意已定案=本次額(adapter JSDoc「語意未證」字面待接線片同步改)。
+4. `6002`/`10050` 均不在 adapter allowlist ⇒ 現行 `refund()` 一律 throw(unknown-state)——
+   對 6002 這是**正確的 fail-closed**(理由見 1);接線片不得為它們開自動分流。
+5. 官方 sandbox 固定測試 prime 可直接建 AUTH 交易(`charge` 模式),probe 不再依賴既有交易餘額。
+6. 🟡 **今晚殘項**(T2 於 08-03 18:00 送批、20:00 後請款完成):①P3 消耗鍵請款後重試 → 預期 `6002`
+   恆久(若 `0` = 鍵註冊會過期,更嚴重、要重估)②新鍵部分退 1 → 預期 `0`(補「deferred→請款→
+   換鍵重試」正向鏈)。單視窗持有、不掛 cron。
 
 - **PCM 對照**:`TapPayChargeAdapter.refund()` 目前 `throw new Error('TapPay refund 未實作(Phase 2)')`(約 `TapPayChargeAdapter.ts:211-213`)。此組規格即該補的目標介面。🔴 現況退款走 **Sean 手動 Portal + 手動改本地 `orders.payment_status`**(07-17 拍板);S6 只寫 SOP、不自動化(見上位 plan §5 S6)。實作 `refund()` 時務必 sandbox 先測「全額」與「部分」兩路徑 + 處理「隔日生效」。
 
