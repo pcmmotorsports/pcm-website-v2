@@ -110,7 +110,7 @@
 | N°03 部品分類 | `CategoryGrid.tsx`(70 行) | 改結構 | 12 格,第 12 格「全部分類」跳 `/products`(不另做分類目錄頁);色碼**綁分類 id 不綁排序位置**(`README.md` §8:名次會變) |
 | N°04 服務宣言 | `HomeStatement.tsx`(49 行) | 改位置 + 改字面 | 由原 N°05 上移;🔴 brief 問題 5:現況寫「8 大品牌正式代理」而品牌牆列 17 家 → **數字必須對齊到 20**(或改成不報數) |
 | N°05 本月聚焦 | `FeatureEditorial.tsx`(59 行) | 改位置 + 資料驅動 | 由原 N°04 下移;20 家全部預設做好、每 3 天輪播;**每筆 fact 三個欄位都要用**(標籤/值/說明句;`README.md`:說明句 08-03 才補回來) |
-| N°06 授權代理 | `BrandIndex.tsx`(46 行) | **重寫** | 現況是純文字牆吃 `MOCK_BRANDS`(實查 **18 筆**),設計是 **20 家 grid 5 欄 logo 磚牆**;底色 `--ed-c-paper-2` 淺灰白;連結由 `/products?brand=${b.id}` 改成品牌介紹頁(§3) |
+| N°06 授權代理 | `BrandIndex.tsx`(46 行) | **重寫** | 現況是純文字牆吃 `MOCK_BRANDS`(實查 **17 筆**;主視窗收割時勘誤,原稿誤計 interface 的 `id: string;` 行成 18),設計是 **20 家 grid 5 欄 logo 磚牆**;底色 `--ed-c-paper-2` 淺灰白;連結由 `/products?brand=${b.id}` 改成品牌介紹頁(§3) |
 | 頁尾 | `HomeFooter.tsx`(70 行) | 改配色 + 動態年份 | 回 graphite `#202225` + `pcm-stacked-*-on-dark` logo;`© 2026` 改 `new Date().getFullYear()`;留白 52/40/22 **維持不動**(Sean 08-03 看過拍板) |
 
 ### 🔴 首頁的三個非改不可的細節(照抄會出錯)
@@ -204,7 +204,7 @@
 
 | 測試檔 | 鎖住什麼 | D 的哪一片會弄紅 |
 |---|---|---|
-| `components/BrandIndex.test.tsx` | N°06 純文字牆結構 + `MOCK_BRANDS` 18 筆 | D5(改成 20 家 logo 磚牆) |
+| `components/BrandIndex.test.tsx` | N°06 純文字牆結構 + `MOCK_BRANDS` 17 筆 | D5(改成 20 家 logo 磚牆) |
 | `components/HomeHero.test.tsx` | 現況單張 hero 結構 | D6 |
 | `components/CategoryGrid.test.tsx` | 8 磁磚結構 | D5(改 12 格) |
 | `components/HomeSelect.test.tsx` | N°04 `New Arrivals · 最新商品` 字面 | D5(區塊改 N°02 + 條件標題) |
