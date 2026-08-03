@@ -30,20 +30,48 @@ const CSS_RAW = readFileSync(
  */
 const CSS = CSS_RAW.replace(/\/\*[\s\S]*?\*\//g, '');
 
-/** 取某個 @media 區塊的內容(大括號配對計數,不是抓到第一個 `}` 就停)。 */
+describe('品牌頁 CSS · 檔案本身沒壞', () => {
+  it('🔴 註解符號成對(未閉合的 /* 會讓瀏覽器吞掉後半個檔,而剝註解的守門照樣全綠)', () => {
+    // 主視窗 C-05-A nit-1:上面那個 strip 正規式碰到未閉合的 `/*` 就從該處起不匹配,
+    // 於是 CSS 常數保留了原文 ⇒ 順序/存在性斷言全部照樣綠。
+    // 但真正的瀏覽器會把 `/*` 之後直到檔尾都當成註解 —— 包含 no-photo 規則本體。
+    // ⇒ 「守門全綠、頁面壞掉」。這一條先確認檔案本身是完整的,其餘斷言才有意義。
+    const open = CSS_RAW.match(/\/\*/g)?.length ?? 0;
+    const close = CSS_RAW.match(/\*\//g)?.length ?? 0;
+    expect(open, `/* 有 ${open} 個、*/ 有 ${close} 個 — 註解沒閉合`).toBe(close);
+    expect(open).toBeGreaterThan(0); // 前提:這個檔本來就有註解,數到 0 代表 regex 壞了
+  });
+});
+
+/**
+ * 取某個 @media 查詢的**全部**區塊內容(串接),大括號配對計數、不是抓到第一個 `}` 就停。
+ *
+ * 🔴 為什麼要收「全部」而不是第一塊:同一個查詢會出現不只一次。
+ *    D2c-2 就會再帶一個 `@media (min-width:961px)`(brand-page.html:998-999 的
+ *    `.bp-about-inner.has-portrait-media`)。只取第一塊的話,第二塊零覆蓋 ——
+ *    而那正是「規則明明在檔裡、守門卻看不到」的假綠形狀。
+ */
 function mediaBlock(query: string): string {
-  const start = CSS.indexOf(`@media ${query}`);
-  if (start === -1) return '';
-  const open = CSS.indexOf('{', start);
-  let depth = 0;
-  for (let i = open; i < CSS.length; i++) {
-    if (CSS[i] === '{') depth++;
-    else if (CSS[i] === '}') {
-      depth--;
-      if (depth === 0) return CSS.slice(open + 1, i);
+  const blocks: string[] = [];
+  let from = 0;
+  for (;;) {
+    const start = CSS.indexOf(`@media ${query}`, from);
+    if (start === -1) break;
+    const open = CSS.indexOf('{', start);
+    let depth = 0;
+    let end = -1;
+    for (let i = open; i < CSS.length; i++) {
+      if (CSS[i] === '{') depth++;
+      else if (CSS[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i; break; }
+      }
     }
+    if (end === -1) break;
+    blocks.push(CSS.slice(open + 1, end));
+    from = end + 1;
   }
-  return '';
+  return blocks.join('\n');
 }
 
 describe('品牌頁 CSS · 窄螢幕橫幅', () => {
@@ -112,6 +140,41 @@ describe('品牌頁 CSS · 色票 scope', () => {
     const scope = CSS.slice(CSS.indexOf('.bp-page {'), CSS.indexOf('}', CSS.indexOf('.bp-page {')));
     expect(scope).toContain('--c-red: #f26722');
     expect(scope).toContain('--c-graphite: #202225');
+  });
+});
+
+describe('品牌頁 CSS · About 欄線(D2c-1)', () => {
+  it('🔴 no-aside 的欄寬規則必須包在 min-width: 961px 裡', () => {
+    // `.bp-about-inner.no-aside` 是 0-2-0,而 ≤960 的單欄規則 `.bp-about-inner` 只有 0-1-0。
+    // 不設限的話它會蓋過單欄規則 ⇒ 手機版標籤與正文變左右並排(設計稿 :960 逐字警告)。
+    const wide = mediaBlock('(min-width: 961px)');
+    expect(wide, '找不到 min-width:961 區塊').toContain('.bp-about-inner.no-aside');
+    // 反面:同一條選擇器不得出現在任何 @media 之外(那就等於無條件生效)
+    const outsideMedia = CSS.replace(/@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+    expect(outsideMedia).not.toContain('.bp-about-inner.no-aside');
+  });
+
+  it('🔴 ≤960 必須把 .bp-aside 的 grid-column 收回 auto', () => {
+    // ≤1180 把 aside 釘在第 2 欄;≤960 容器已收成單欄,忘了收回 auto 會生出隱式欄位
+    // ⇒ 正文被擠成 242px 的細長條(設計稿 §4b 記載的實際事故,用 getComputedStyle 才量到)。
+    const narrow = mediaBlock('(max-width: 960px)');
+    expect(narrow).toMatch(/\.bp-aside\s*\{[^}]*grid-column:\s*auto/);
+    // 前提斷言:≤1180 真的有把它釘在第 2 欄,否則上面那條在守一個不存在的問題
+    expect(mediaBlock('(max-width: 1180px)')).toMatch(/\.bp-aside\s*\{[^}]*grid-column:\s*2/);
+  });
+
+  it('手機置中的例外:About 正文不得被列入置中清單', () => {
+    // 中文長段落置中會兩邊都毛毛的、每行起點對不齊
+    // (brand-page-integration.md §4b:204-208:可讀性不是品味)。
+    const narrow = mediaBlock('(max-width: 960px)');
+    // 前提斷言:置中規則**真的存在**。原本只驗 narrow 含 `.bp-sec-label` 這串字 ——
+    // 但 `.bp-sec-label::after` 也含那串,把整條置中刪掉測試照樣綠(審查 nit)。
+    expect(narrow).toMatch(/\.bp-sec-label\s*\{[^}]*text-align:\s*center/);
+    // 反面①:正文自己不得被置中
+    expect(narrow).not.toMatch(/\.bp-body[^{]*\{[^}]*text-align:\s*center/);
+    // 反面②:也不得靠**繼承**把正文吃掉 —— 置中掛在祖先(.bp-about-inner / .bp-about)
+    //   一樣會讓中文長段落置中,而反面①抓不到(審查 nit)。
+    expect(narrow).not.toMatch(/\.bp-about(-inner)?\s*\{[^}]*text-align:\s*center/);
   });
 });
 

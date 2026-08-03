@@ -8119,3 +8119,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 ```
 
 — END —
+
+---
+
+### #308. 🔊 品牌頁 band logo 的 alt 與 h1 重複 — 讀屏客人每頁聽兩次品牌名
+
+- **狀態:** ⏳ 待執行
+- **優先級:** 🟢 觀察(a11y 體驗,非阻斷)
+- **問題:**
+  - `BrandPageHeader.tsx` 的 band logo `alt={brand.name}`,而同一個橫幅裡的
+    `<h1 className="bp-title">` 也是 `{brand.name}` ⇒ 螢幕閱讀器會連續播報兩次品牌名。
+  - 這是**照設計稿搬**的結果:`brand-page.html:1642` 的 `alt="${esc(brand.name)}"`。
+    設計稿是純前端 demo、沒有 a11y 稽核,鐵則 1 要求字面直接搬,所以 D2b 沒有自行偏離。
+- **觸發事件:**
+  - 2026-08-04 / D2b 關卡2(信箱 C-04-A MF3)修正時發現;C-05-A nit-2 要求開編號。
+- **預期解法:**
+  - logo 在這裡是**裝飾**(品牌名已由 h1 承擔語意)⇒ 正解多半是 `alt=""`。
+  - 🔴 但那是**偏離設計稿字面**,依鐵則 1 要先確認:走 Sean 拍板,或由設計側在
+    Open Design 的 `brand-page.html` 改掉再搬過來(後者較乾淨,不必開鐵則 1 的口)。
+  - 同類檢查:`.bp-aside-card img` 的 alt 走資料的 `aside.alt`(有實質描述),沒有這個問題。
+- **不修會痛在:**
+  - 擴充性:20 家品牌頁 × 每頁重複一次;之後 D4 品牌總覽頁若沿用同一個 logo 元件會擴散。
+  - 可維護性:現在只落在 commit body 與程式碼註解裡,沒有編號就不會進任何盤點。
+  - bug 可追蹤性:用讀屏的客人不會回報「聽到兩次」,只會覺得這站囉嗦 —— 零訊號的缺陷。
+- **估時:** 10 分鐘(改一個字)+ 拍板往返
+- **依賴:** 鐵則 1 偏離的拍板路徑(Sean 或設計側)
+- **發現於:** 2026-08-04 / D2b 關卡2 折入
+- **相關:** `apps/storefront/src/components/brand/BrandPageHeader.tsx`(logo alt)/
+  Open Design `pcm-home-redesign/brand-page.html:1642` / 信箱 C-04-A MF3、C-05-A nit-2
