@@ -29,8 +29,10 @@ import {
   type CreateOrderRpcResult,
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
+  ORDER_ITEMS_EMBED_LIMIT,
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
+import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement';
 
 /**
  * orders 摘要投影白名單(account OrdersTab / Overview 最近訂單)。
@@ -98,9 +100,34 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * 🔴 `order_notes` 是**內部資料**(含內部備註),只走 service_role;建表檔
  * `20260729030000_m4b_e10_a3_order_notes.sql:17-19` 明文「一個 byte 都不能放 orders」
  * (orders 對登入客人整表開放 SELECT)⇒ 本欄位組**絕不可**被搬進 storefront 的任何投影。
+ *
+ * 🔴 M-4b E10 A9a-2 在 `order_items` 底下加兩層內嵌:`order_item_procurement(… suppliers(…))`
+ * (採購讀模型;master plan `:385` row 38 的採購那半,下游 = A10b `:404` row 57 的採購表單)。
+ * 分工同 A9a-1:這條字串只列欄位,排序與截斷判定在 `mappers/order-procurement.ts`、
+ * 筆數上限在查詢鏈。
+ * 🔴 **同一條紅線**:採購真相表也是 service_role only —— 建表檔
+ * `20260729020000_m4b_e10_a2_order_item_procurement.sql:16-18` 明文供應商名稱 / 單號 / 異常原因
+ * 「一個 byte 都不能進 orders / order_items」(對代購生意而言,洩漏上游 = 客人可以繞過 PCM)
+ * ⇒ 本欄位組**絕不可**被搬進 storefront 的任何投影;守門測試同時盯三條列表投影。
+ * 🔴 `suppliers` 只取 `label` / `is_active`(顯示名 + 停用提示):S1b 起本表不存供應商名稱文字,
+ * 顯示名一律 JOIN(`20260801150000_m4b_e10_s1b_procurement_supplier_fk.sql:159-161`)。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active))), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)';
+
+/**
+ * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
+ *
+ * 🔴 **實測過才寫死**(2026-08-03 對 production 唯讀實跑、公開表 + publishable key,可證偽做法):
+ * `brands?select=id,products(id,product_variants(id))&limit=1&products.limit=3` 三個 product 的
+ * variants 數 = `[1, 8, 1]`;**加上** `&products.product_variants.limit=1` 後變 `[1, 1, 1]`
+ * ⇒ 兩層深的路徑確實被套用(不是「剛好都只有一個 variant」)。同法驗 order:
+ * `products.product_variants.order=id.asc` vs `.desc` 在那個 8 變體的 product 上回不同 id。
+ * supabase-js 端只是字串前綴(`postgrest-js@2.105.3` `src/PostgrestTransformBuilder.ts:336`
+ * `${referencedTable}.order` / `:455` `${referencedTable}.limit`)⇒ 傳這個帶點的路徑,
+ * 送出的正是上面實測過的 wire 形狀。
+ */
+const PROCUREMENT_EMBED_PATH = 'order_items.order_item_procurement';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -330,6 +357,17 @@ export class SupabaseOrderAdapter implements IOrderRepository {
    *   🔴 **配一條 `.order()` 是必要的、不是排版**:只給 limit 而不給序,PostgREST 回**哪** 200 筆
    *   未定義、跨請求可能是不同子集(審查 R2 nit4)。取 `created_at` **DESC** = 截斷時保留**最新**那批
    *   (時間軸顯示前由 mapper 重新排成 ASC;未截斷時本序無影響)。
+   * - 🔴 A9a-2:採購內嵌列**同樣**自己送 order + limit,理由與 A9a-1 逐字相同(伺服器 `max-rows`
+   *   對內嵌列生效、內嵌順序不保證)。差別只在它多一層 —— 路徑常數 `PROCUREMENT_EMBED_PATH`
+   *   的 docstring 附「兩層深路徑真的生效」的 production 可證偽實測。
+   * - 🔴 **每個內嵌都配 `id` 次鍵**(關卡2 codex MF4;同本檔列表分頁 `.order('id')` 的既有理由):
+   *   `created_at` 單鍵在**截斷邊界**有並列時,伺服器回哪一筆未定義 —— mapper 的 tie-break 只能排
+   *   已經拿到的列,救不回被切掉的那筆。次鍵讓「切在哪」變成確定的。
+   *   🔴 A9a-1 的 `order_notes` 少了這道,本片一併補(同一個根因,只修我這半 = 留一半的洞)。
+   * - 🔴 **`order_items` 這層自己也要上限**(關卡2 codex MF2):沒有它,外層被伺服器 `max-rows`
+   *   截斷時整個品項連同採購列一起消失,而 per-item 的 `procurementTruncated` **看不到**
+   *   (它只看得到自己那層)。⇒ 送 `ORDER_ITEMS_EMBED_LIMIT` + `id` 序,並把觸及上限翻成
+   *   `AdminOrderDetail.itemsTruncated`。
    */
   async findAdminOrderDetail(id: string): Promise<AdminOrderDetail | null> {
     const { data, error } = await this.supabase
@@ -337,7 +375,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       .select(ADMIN_ORDER_DETAIL_SELECT)
       .eq('id', id)
       .order('created_at', { referencedTable: 'order_notes', ascending: false })
+      .order('id', { referencedTable: 'order_notes', ascending: false })
       .limit(ORDER_NOTES_EMBED_LIMIT, { referencedTable: 'order_notes' })
+      .order('created_at', { referencedTable: PROCUREMENT_EMBED_PATH, ascending: false })
+      .order('id', { referencedTable: PROCUREMENT_EMBED_PATH, ascending: false })
+      .limit(ORDER_ITEM_PROCUREMENT_EMBED_LIMIT, { referencedTable: PROCUREMENT_EMBED_PATH })
+      .order('id', { referencedTable: 'order_items', ascending: true })
+      .limit(ORDER_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
       .maybeSingle();
     if (error) {
       throw error;

@@ -18,7 +18,10 @@ import {
   ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED,
   ADMIN_ORDER_DETAIL_SELECT,
 } from './SupabaseOrderAdapter';
+import * as adapterModule from './SupabaseOrderAdapter';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
+import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement';
+import { ORDER_ITEMS_EMBED_LIMIT } from './mappers/order';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -587,11 +590,17 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
 
 // ── findAdminOrderDetail:後台訂單明細(M-4a Slice B、明細專用 PII 白名單)──
 // mock from('orders').select(ADMIN_ORDER_DETAIL_SELECT).eq('id', id).maybeSingle()。
+// 🔴 A9a-2 起 order/limit 各**兩對**(order_notes 一對、order_items.order_item_procurement 一對)
+//    ⇒ mock 不能再寫死「order 之後只會有一個 limit」的線性鏈,改成可無限鏈接的同一個物件
+//    (寫死鏈長的話,少送一對 order/limit 也一樣全綠 = 承重測試量不到東西)。
 function makeDetailClient(result: { data: unknown; error: unknown }) {
   const maybeSingle = vi.fn().mockResolvedValue(result);
-  const limit = vi.fn().mockReturnValue({ maybeSingle });
-  const order = vi.fn().mockReturnValue({ limit });
-  const eq = vi.fn().mockReturnValue({ order });
+  const chain: Record<string, unknown> = { maybeSingle };
+  const limit = vi.fn().mockReturnValue(chain);
+  const order = vi.fn().mockReturnValue(chain);
+  chain.limit = limit;
+  chain.order = order;
+  const eq = vi.fn().mockReturnValue(chain);
   const select = vi.fn().mockReturnValue({ eq });
   const from = vi.fn().mockReturnValue({ select });
   return { client: { from } as unknown as SupabaseClient, from, select, eq, order, limit, maybeSingle };
@@ -631,6 +640,41 @@ const DETAIL_ROW = {
       product_snapshot: { sku: 'BMS-13OEM-G-F', spec: { finish: 'Glossy' }, title: '下導流' },
       workflow_status: 'received_unconfirmed', // D-2 per-item 真相
       version: 4,
+      // A9a-2:採購內嵌(同樣刻意給倒序 + 一筆已停用供應商 —— 排序在 mapper、停用照常顯示)
+      order_item_procurement: [
+        {
+          id: 'p-2',
+          supplier_id: 'sup-b',
+          allocated_quantity: 1,
+          received_quantity: 0,
+          reply_status: 'out_of_stock',
+          contact_channel: 'LINE',
+          submitted_at: '2026-04-16T02:00:00+00:00',
+          supplier_order_no: null,
+          exception_reason: '原廠缺料',
+          expected_arrival_date: '2026-05-30',
+          first_ordered_at: '2026-04-16T02:00:00+00:00',
+          status_changed_at: '2026-04-16T03:00:00+00:00',
+          created_at: '2026-04-16T02:00:00+00:00',
+          suppliers: { label: 'Webike JP', is_active: false }, // 停用:既有列照常顯示(S1b :183)
+        },
+        {
+          id: 'p-1',
+          supplier_id: 'sup-a',
+          allocated_quantity: 1,
+          received_quantity: 1,
+          reply_status: 'confirmed',
+          contact_channel: 'email',
+          submitted_at: '2026-04-15T02:00:00+00:00',
+          supplier_order_no: 'SO-123',
+          exception_reason: null,
+          expected_arrival_date: null,
+          first_ordered_at: '2026-04-15T02:00:00+00:00',
+          status_changed_at: null,
+          created_at: '2026-04-15T02:00:00+00:00',
+          suppliers: [{ label: 'RPM Carbon', is_active: true }], // 陣列形(embed 推斷不穩)也要吃得下
+        },
+      ],
     },
   ],
   // A9a-1:備註內嵌(此處刻意給「時序倒著、且有一筆更正」的形狀 —— 排序與 U6 都在 mapper)
@@ -659,9 +703,9 @@ const DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active))), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)',
     );
   });
 
@@ -671,6 +715,39 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(ADMIN_ORDER_DETAIL_SELECT).toContain('order_notes(');
     expect(ADMIN_ORDER_LIST_SELECT).not.toContain('order_notes');
     expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).not.toContain('order_notes');
+  });
+
+  // 🔴 A9a-2:採購真相表(供應商身分 / 單號 / 異常原因)同屬 service_role only —— 建表檔
+  //    20260729020000:16-18「一個 byte 都不能進 orders / order_items」。三條列表投影都要盯:
+  //    **ORDER_LIST_SELECT 是 storefront 那條**(authenticated client、客人自己的訂單列表),
+  //    它漏進去就是把上游供應商直接送到客人的瀏覽器 = 客人可以繞過 PCM。
+  it('🔴 採購/供應商欄只在明細投影、不得滲入任何列表投影(含 storefront 的 ORDER_LIST_SELECT)', () => {
+    expect(ADMIN_ORDER_DETAIL_SELECT).toContain('order_item_procurement(');
+    expect(ADMIN_ORDER_DETAIL_SELECT).toContain('suppliers(');
+
+    // 🔴 關卡2 codex nit3:**不逐一列常數名** —— 手寫清單只擋得住今天已經存在的那三條,
+    //    日後在本檔加第四條投影常數(例如出貨列表)不會有任何測試轉紅。改成從 module 反射
+    //    取出**所有** `*_SELECT` 字串匯出,扣掉明細那條,其餘一律不准出現採購/供應商 token。
+    //    (仍擋不住「別的檔案自己寫 inline select」—— 那面沒有守門、誠實記在 handoff。)
+    //    ⚠️ 用 `includes('SELECT')` 而不是 `endsWith('_SELECT')`:後者會漏掉
+    //    `ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`(施工當場被下面那條前提斷言抓到)——
+    //    「用命名 pattern 收集守門對象」本身就是一個會漏的假設,所以下面那條前提斷言是必要的。
+    const otherSelects = Object.entries(adapterModule).filter(
+      ([name, value]) =>
+        name.includes('SELECT') && typeof value === 'string' && name !== 'ADMIN_ORDER_DETAIL_SELECT',
+    );
+    // 🔴 前提斷言:反射真的抓到**全部**該抓的(抓到 0 條 = 下面整個迴圈空轉 = 恆真守門;
+    //    抓到 2 條 = 有一條投影沒被守到)。日後新增投影常數,這條會先紅、逼人來看一眼。
+    expect(otherSelects.map(([name]) => name).sort()).toEqual([
+      'ADMIN_ORDER_LIST_SELECT',
+      'ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED',
+      'ORDER_LIST_SELECT',
+    ]);
+    for (const [name, value] of otherSelects) {
+      for (const token of ['order_item_procurement', 'supplier', 'exception_reason']) {
+        expect(`${name}:${value}`).not.toContain(token);
+      }
+    }
   });
 
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
@@ -705,6 +782,26 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       ascending: false,
     });
     expect(limit).toHaveBeenCalledWith(ORDER_NOTES_EMBED_LIMIT, { referencedTable: 'order_notes' });
+    // 🔴 A9a-2:兩層深的路徑字面就是承重 —— 拼錯(例如漏了 `order_items.` 前綴)PostgREST 會**靜默忽略**
+    //    那個參數,limit 不生效 ⇒ 截斷判定恆 false。路徑的 production 實測見 adapter 的常數 docstring。
+    expect(order).toHaveBeenCalledWith('created_at', {
+      referencedTable: 'order_items.order_item_procurement',
+      ascending: false,
+    });
+    expect(limit).toHaveBeenCalledWith(ORDER_ITEM_PROCUREMENT_EMBED_LIMIT, {
+      referencedTable: 'order_items.order_item_procurement',
+    });
+    // 🔴 關卡2 codex MF4:`created_at` 單鍵在**截斷邊界**有並列時,回哪一筆未定義 ——
+    //    mapper 的 tie-break 只排得了已經拿到的列,救不回被切掉的那筆。兩個內嵌都要次鍵。
+    expect(order).toHaveBeenCalledWith('id', { referencedTable: 'order_notes', ascending: false });
+    expect(order).toHaveBeenCalledWith('id', {
+      referencedTable: 'order_items.order_item_procurement',
+      ascending: false,
+    });
+    // 🔴 關卡2 codex MF2:order_items 自己也要上限 —— 沒有它,品項被伺服器 max-rows 切掉時
+    //    per-item 的 procurementTruncated 會連同品項一起消失、旗標全是 false。
+    expect(order).toHaveBeenCalledWith('id', { referencedTable: 'order_items', ascending: true });
+    expect(limit).toHaveBeenCalledWith(ORDER_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' });
     expect(res).toEqual({
       id: 'o1',
       displayId: 'PCM-2099-0001',
@@ -740,6 +837,44 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
           lineTotal: { amount: 5000, currency: 'TWD' },
           workflowStatus: 'received_unconfirmed',
           version: 4,
+          // A9a-2:採購列依 createdAt ASC 重排(投影給的是倒序);兩種 embed 形狀都正規化成同一形
+          procurements: [
+            {
+              id: 'p-1',
+              supplierId: 'sup-a',
+              supplierLabel: 'RPM Carbon', // 陣列形 embed
+              supplierIsActive: true,
+              allocatedQuantity: 1,
+              receivedQuantity: 1,
+              replyStatus: 'confirmed',
+              contactChannel: 'email',
+              submittedAt: '2026-04-15T02:00:00+00:00',
+              supplierOrderNo: 'SO-123',
+              exceptionReason: null,
+              expectedArrivalDate: null,
+              firstOrderedAt: '2026-04-15T02:00:00+00:00',
+              statusChangedAt: null,
+              createdAt: '2026-04-15T02:00:00+00:00',
+            },
+            {
+              id: 'p-2',
+              supplierId: 'sup-b',
+              supplierLabel: 'Webike JP',
+              supplierIsActive: false, // 停用的供應商:既有採購列照常回、不藏(S1b :183)
+              allocatedQuantity: 1,
+              receivedQuantity: 0,
+              replyStatus: 'out_of_stock',
+              contactChannel: 'LINE',
+              submittedAt: '2026-04-16T02:00:00+00:00',
+              supplierOrderNo: null,
+              exceptionReason: '原廠缺料',
+              expectedArrivalDate: '2026-05-30',
+              firstOrderedAt: '2026-04-16T02:00:00+00:00',
+              statusChangedAt: '2026-04-16T03:00:00+00:00',
+              createdAt: '2026-04-16T02:00:00+00:00',
+            },
+          ],
+          procurementTruncated: false,
         },
       ],
       // A9a-1:時間軸依 createdAt ASC 重排(投影給的是倒序);n-1 被 n-2 直接指向 ⇒ 已更正
@@ -769,6 +904,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       ],
       customerNotified: false, // 唯一那筆 customer_notified 已被更正 ⇒ 告知義務不算履行
       notesTruncated: false,
+      itemsTruncated: false,
     });
   });
 
@@ -803,6 +939,47 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     expect(res?.notes).toEqual([]);
     expect(res?.customerNotified).toBe(false);
     expect(res?.notesTruncated).toBe(false);
+    // 🔴 A9a-2 + 關卡2 codex MF1:採購內嵌鍵整個缺(投影退版)→ 空清單、不 throw,
+    //    但 **procurementTruncated = true**(「沒問到」不等於「答案是零筆」;A10b 據此拒絕送出表單)。
+    expect(res?.items[0]?.procurements).toEqual([]);
+    expect(res?.items[0]?.procurementTruncated).toBe(true);
+  });
+
+  // 🔴 關卡2 codex MF2 的**方向二**:施工當場的突變 M12(把 itemsTruncated 寫死成 false)
+  //    原本 111 案全綠 —— 代表那個旗標當時沒有任何斷言在量它。這條補上。
+  it('🔴 品項數觸及 ORDER_ITEMS_EMBED_LIMIT ⇒ itemsTruncated = true(per-item 旗標的前提)', async () => {
+    const manyItems = Array.from({ length: ORDER_ITEMS_EMBED_LIMIT }, (_, i) => ({
+      id: `oi-${i}`,
+      variant_sku: `SKU-${i}`,
+      quantity: 1,
+      unit_price: 100,
+      line_total: 100,
+      product_snapshot: null,
+      workflow_status: null,
+      version: 1,
+      order_item_procurement: [],
+    }));
+    const { client } = makeDetailClient({
+      data: { ...DETAIL_ROW, order_items: manyItems },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(res?.itemsTruncated).toBe(true);
+    // 對照:每個品項自己的採購旗標仍是 false —— 正是「per-item 旗標看不見外層截斷」那個坑
+    expect(res?.items.every((i) => i.procurementTruncated === false)).toBe(true);
+  });
+
+  // 🔴 關卡2 R2 nit:上面那條的 fixture 是 `Array.from({ length: 常數 })` —— **fixture 跟著常數縮**,
+  //    把上限改成 5 測試照樣綠,而真實的 200 品項訂單會被默默截斷(旗標對、資料少)。
+  //    ⇒ 常數本身要有跟 fixture **脫鉤**的下界斷言。
+  //    🔴 下界是**設計下界、不是量測值**:PCM 沒有量過單張訂單的品項數上限、也沒量過單一品項的採購筆數。
+  //    調到低於這裡 = 有意識縮小「能完整顯示的訂單規模」,必須有人先來改這條斷言、不能順手改常數。
+  it('🔴 兩個 embed 上限有下界(防「連同 fixture 一起調小」的假綠;設計下界非量測值)', () => {
+    expect(ORDER_ITEMS_EMBED_LIMIT).toBeGreaterThanOrEqual(100);
+    expect(ORDER_ITEM_PROCUREMENT_EMBED_LIMIT).toBeGreaterThanOrEqual(20);
+    // 上界仍是 2026-08-02 那次量測的伺服器 max-rows(嚴格低於才有意義)
+    expect(ORDER_ITEMS_EMBED_LIMIT).toBeLessThan(1000);
+    expect(ORDER_ITEM_PROCUREMENT_EMBED_LIMIT).toBeLessThan(1000);
   });
 
   it('invoice_status 意外值(DB CHECK 外)→ fail-safe narrow 成 not_issued、發票紀錄帶值直送', async () => {
