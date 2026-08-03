@@ -28,7 +28,9 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 WORK="${1:-/tmp/a7c-work}"
-PORT=54329
+# RW1b(2026-08-03)起可用 A7C_VERIFY_PORT 指到別的拋棄式 cluster:
+# 54329 是 d1t2 家族約定 port,但平行施工視窗會佔用它;RW1b 的 A→B→A 以 54331 跑本檔。
+PORT="${A7C_VERIFY_PORT:-54329}"
 MIG="supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql"
 export LC_ALL=C
 
@@ -108,11 +110,13 @@ SQL
 ok "fixture 已佈設並自檢通過(實收 ${FX_TOTAL} = 品項 ${FX_SUB} + 運費 ${FX_SHIP} − 折扣 ${FX_DISC})"
 
 # 共用:一筆合法帳本列(改形狀後只有 header、沒有明細)
+# RW1a(20260803150000)加了兩個 NOT NULL 欄 kind / record_refunded_before ⇒ 本檔所有
+# INSERT 同步補值('partial', 0 —— 本檔的守門都不讀這兩欄,值只需合法;RW1b 對帳)。
 read -r -d '' SEED_LEDGER <<SQL || true
 INSERT INTO order_refunds (id, order_id, bank_refund_id, rec_trade_id, refund_amount,
-  status, reason, actor, request_id)
+  status, reason, actor, request_id, kind, record_refunded_before)
 VALUES ('${RID}','${FIXTURE_ORDER}','BRID-SEED-01','REC_A7C_FIXTURE', ${FX_TOTAL},
-  'processing','負測前提','tester','req-seed');
+  'processing','負測前提','tester','req-seed','partial',0);
 SQL
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -159,7 +163,7 @@ ROLLBACK;
 SQL
 }
 
-INS_COLS="(id, order_id, bank_refund_id, rec_trade_id, refund_amount, status, reason, actor, request_id"
+INS_COLS="(id, order_id, bank_refund_id, rec_trade_id, refund_amount, status, reason, actor, request_id, kind, record_refunded_before"
 
 # ── INSERT 類 ────────────────────────────────────────────────────────────────
 # 🔴 這條**刻意不帶 tappay_refund_id**:帶了的話,突變掉本守門之後會被
@@ -170,43 +174,43 @@ INS_COLS="(id, order_id, bank_refund_id, rec_trade_id, refund_amount, status, re
 emit_neg a7c_insert_status_must_be_processing a7c_insert_status_must_be_processing no \
 "INSERT INTO order_refunds ${INS_COLS}, confirmed_at)
  VALUES ('a7c00000-0000-4000-8000-000000000101','${FIXTURE_ORDER}','BRID-N1','REC_A7C_FIXTURE', ${FX_TOTAL},
-   'confirmed','負測','tester','req-n1', now());"
+   'confirmed','負測','tester','req-n1','partial',0, now());"
 
 # 🔴 期望的擋點是**白名單的 NULL 分支**,不是專屬守門。原本有一道 a7c_insert_order_not_found,
 #    突變實測證明被本道嚴格蘊含(死規則)⇒ 已移除。本案例留著釘住「移除後仍進不來」。
 emit_neg a7c_insert_order_missing a7c_insert_order_payment_not_captured no \
 "INSERT INTO order_refunds ${INS_COLS})
  VALUES ('a7c00000-0000-4000-8000-000000000102','00000000-dead-4000-8000-000000000000','BRID-N2','REC_A7C_FIXTURE', ${FX_TOTAL},
-   'processing','負測','tester','req-n2');"
+   'processing','負測','tester','req-n2','partial',0);"
 
 emit_neg a7c_insert_order_payment_not_captured a7c_insert_order_payment_not_captured no \
 "UPDATE orders SET payment_status='unpaid' WHERE id='${FIXTURE_ORDER}';
    INSERT INTO order_refunds ${INS_COLS})
    VALUES ('a7c00000-0000-4000-8000-000000000103','${FIXTURE_ORDER}','BRID-N3','REC_A7C_FIXTURE', ${FX_TOTAL},
-     'processing','負測','tester','req-n3');"
+     'processing','負測','tester','req-n3','partial',0);"
 
 emit_neg a7c_insert_order_has_no_rec_trade_id a7c_insert_order_has_no_rec_trade_id no \
 "UPDATE orders SET tappay_rec_trade_id=NULL WHERE id='${FIXTURE_ORDER}';
    INSERT INTO order_refunds ${INS_COLS})
    VALUES ('a7c00000-0000-4000-8000-000000000104','${FIXTURE_ORDER}','BRID-N4','REC_A7C_FIXTURE', ${FX_TOTAL},
-     'processing','負測','tester','req-n4');"
+     'processing','負測','tester','req-n4','partial',0);"
 
 emit_neg a7c_insert_rec_trade_id_mismatch a7c_insert_rec_trade_id_mismatch no \
 "INSERT INTO order_refunds ${INS_COLS})
  VALUES ('a7c00000-0000-4000-8000-000000000105','${FIXTURE_ORDER}','BRID-N5','REC_SOMEONE_ELSE', ${FX_TOTAL},
-   'processing','負測','tester','req-n5');"
+   'processing','負測','tester','req-n5','partial',0);"
 
 # 🔴 INSERT 時預塞假對帳碼 —— write-once 的繞道(實測過:結案時值沒變動 ⇒ 守門不觸發)
 emit_neg a7c_insert_settlement_fields_must_be_empty a7c_insert_settlement_fields_must_be_empty no \
 "INSERT INTO order_refunds ${INS_COLS}, tappay_refund_id)
  VALUES ('a7c00000-0000-4000-8000-000000000106','${FIXTURE_ORDER}','BRID-N6','REC_A7C_FIXTURE', ${FX_TOTAL},
-   'processing','負測','tester','req-n6','DR-FAKE-INSERTED');"
+   'processing','負測','tester','req-n6','partial',0,'DR-FAKE-INSERTED');"
 
 # 🔴 NULL 不會被 trigger 的 `<>` 攔下(NULL <> 'x' 求值為 NULL)⇒ 由欄位 NOT NULL 接住
 emit_neg a7c_rec_trade_id_not_null SQLSTATE:23502 no \
 "INSERT INTO order_refunds ${INS_COLS})
  VALUES ('a7c00000-0000-4000-8000-000000000107','${FIXTURE_ORDER}','BRID-N7', NULL, ${FX_TOTAL},
-   'processing','負測','tester','req-n7');"
+   'processing','負測','tester','req-n7','partial',0);"
 
 # ── UPDATE 類 ────────────────────────────────────────────────────────────────
 emit_neg a7c_update_money_columns_immutable a7c_update_money_columns_immutable yes \
@@ -270,12 +274,12 @@ emit_neg a7c_refund_items_frozen_update a7c_refund_items_frozen yes \
 emit_neg order_refunds_refund_amount_check order_refunds_refund_amount_check no \
 "INSERT INTO order_refunds ${INS_COLS})
  VALUES ('a7c00000-0000-4000-8000-000000000301','${FIXTURE_ORDER}','BRID-ZERO','REC_A7C_FIXTURE', 0,
-   'processing','零元','tester','req-zero');"
+   'processing','零元','tester','req-zero','partial',0);"
 
 emit_neg order_refunds_refund_amount_negative order_refunds_refund_amount_check no \
 "INSERT INTO order_refunds ${INS_COLS})
  VALUES ('a7c00000-0000-4000-8000-000000000302','${FIXTURE_ORDER}','BRID-NEG','REC_A7C_FIXTURE', -500,
-   'processing','負數','tester','req-neg');"
+   'processing','負數','tester','req-neg','partial',0);"
 
 log "1/5 負測($(ls "$NEGDIR" | wc -l | tr -d ' ') 條)"
 for f in "$NEGDIR"/neg-*.sql; do
@@ -337,9 +341,9 @@ fi
 if out="$(psql "$URL" -qtA -v ON_ERROR_STOP=1 <<SQL 2>&1
 BEGIN;
 INSERT INTO order_refunds (id, order_id, bank_refund_id, rec_trade_id, refund_amount,
-  status, reason, actor, request_id)
+  status, reason, actor, request_id, kind, record_refunded_before)
 VALUES ('a7c00000-0000-4000-8000-000000000201','${FIXTURE_ORDER}','BRID-300','REC_A7C_FIXTURE', 300,
-  'processing','自由金額','tester','req-300');
+  'processing','自由金額','tester','req-300','partial',0);
 SELECT public.pcm_order_refundable_remaining('${FIXTURE_ORDER}');
 ROLLBACK;
 SQL
