@@ -22,7 +22,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 鐵則 1-12(每個 slice 必遵守;編號固定、外部大量按編號引用、**絕不重新編號**)
 
-1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。
+1. **design 直接搬、不翻譯** — design-reference 是真權威、storefront 對齊 design 不反向遷就;寫前台元件前**必先 grep design-reference 字面、不憑記憶**;slice 指令禁用「翻譯/對齊/重寫」字眼;不畫預覽 HTML、不憑想像描述視覺。**例外(2026-08-03 Sean 拍 Q1=B)**:首頁改版+選車統一線的真權威 = Open Design `pcm-home-redesign` 目錄(位置見 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md` 檔頭);submodule `components/HomePage.jsx` 為過期假稿、不得引用(檔頭註記由該線開工片補)。
 2. **後台對應 design** — Medusa schema 對應 design 已定義的資料結構;design `data/products.js` mock 是合約、後台實作合約。
 3. **前後台同步、不分階段** — 每 slice:**動前台 → 補對應後台 → 肉眼驗 → 修連動 → commit**;禁「前台全做、後台後補」。
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
