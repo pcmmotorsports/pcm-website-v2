@@ -28,6 +28,19 @@
 > 兩窗紅線:不 push / 不動 STATUS·CURRENT / 不 apply / 不碰 `.env*`(`grep -m1` 取單顆,**絕不 source**)/
 > git add 精準 / codex `-m gpt-5.6-sol -s read-only` 背景加 `< /dev/null`。
 >
+> 🧭 **主視窗 checkpoint(08-03 23:2x,壓縮前落檔)**:
+> · **在途三窗**(全部只等收割、無待答決策題):視窗A=RW2b @ `pcm-refund-wire`(型別重產已先收割
+>   `28cdab8`;🔴 它做完 RW2b 必須停、RW2c 留白天)/ 視窗B=A9a-2 採購讀模型 @ `pcm-a4a-chain` /
+>   視窗C=**首頁改版線(今晚新開)** @ `pcm-website-v2-home`(branch `home-redesign`,已 ff 補上落後的
+>   90 commit;任務=D 段接線+A 段選車引擎 **兩份計畫、零 code**;設計權威在 Open Design
+>   `pcm-home-redesign/` 專案;計畫內必含「design-reference submodule vs Open Design 誰是真權威」一題給 Sean 拍)。
+> · **哨兵=三分支版**(a4a-chain / refund-wire / home-redesign;隨 session 死、壓縮後若事件停了要重 arm)。
+> · **獨立重驗工法(今日實證)**:隔離 worktree(detach 在被審 commit)→ sed 港口 54329/54331→**54333**
+>   → 跑 harness;**turbo cache hit ≠ 獨立驗證**(hit=採信對方的跑,必 `--force` 真編譯);worktree 要先
+>   `pnpm install --frozen-lockfile`(root .bin 缺 tsc=既有缺口,scripts tsc 回主樹跑);收割=`--no-ff`
+>   併回+STATUS 收帳,merge body 載明驗了什麼。
+> · **A5a 五處 nullable Args 刻意未補**=A10b 開工前置(詳 STATUS Blocker)。
+>
 > ⚠️ **今日新增的兩條操作事實**:①`supabase db push` **不需搬走 `.env.local`** 也跑得動(今日實測 dry-run 與正式
 > apply 皆成功;舊 runbook 的「先 mv」步驟非必要,且搬 `.env*` 會被 permissions 擋)②Fable 額度會用盡(今日
 > 22:1x 撞牆、約 40 分鐘恢復),**若某片走到第 3 輪換模型而 Fable 不可用,那輪要等,不得用第二個 Opus 頂替**。
