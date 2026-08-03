@@ -115,7 +115,9 @@ export type AdminRefundTapPay = Pick<TapPayChargeAdapter, 'refund' | 'recordQuer
  * 配對不成立時連 adapter 都不存在,不靠呼叫端記得先驗。
  */
 export function getTapPayAdapter(): AdminRefundTapPay {
-  const env = requireEnv('TAPPAY_ENV');
+  // `.trim()`:Vercel dashboard 貼值很容易帶到尾隨空白 —— 方向上仍是 fail-closed(擋掉而非放行),
+  // 但那是「災難當天才發現、看訊息也看不出差在哪」的摩擦,順手救(Fable R3 N5)。
+  const env = requireEnv('TAPPAY_ENV').trim();
   if (env !== 'sandbox' && env !== 'production') {
     throw new Error(`TAPPAY_ENV 須為 'sandbox' 或 'production'(got '${env}')`);
   }
