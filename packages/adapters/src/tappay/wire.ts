@@ -198,3 +198,52 @@ function parseTapPayRecordWire(raw: unknown): TapPayRecordWire {
     timeMillis: typeof r.time === 'number' ? r.time : undefined,
   };
 }
+
+// ── M-3 退款線第一片:Refund API(/tpc/transaction/refund)wire 型別 + 防禦性解析 ──────────────
+//
+// 官方欄位(reference.md §2.3:103 逐字):resp `{ status(0=成功), msg, refund_id,
+//   refund_amount(int,非 TWD ×100), is_captured(bool), bank_result_code(String 40),
+//   bank_result_msg(String 300) }`。
+// 🔴 證據邊界(比照上方 #301 紀律):sandbox 實測保存過值的只有 status / msg / refund_id
+//   (`DR20260801bHUZv8`);**`refund_amount` 的值從未被保存 ⇒ 其語意(本次退款額 vs 累計已退額)
+//   未證**,消費端不得據此推算帳本(#301 refunded_amount 同型教訓)。
+// 🔴 `bank_result_msg`(自由文字)**刻意不解析** —— 只留 rawResponse、絕不入 log;
+//   `bank_result_code`(結果碼)才進白名單。
+
+/** TapPay Refund API 回應 wire(白名單欄;snake→camel narrow)。 */
+export type TapPayRefundResponseWire = {
+  /** 0 = 受理;非 0 = 錯誤碼(10051 超額 / 10024 未請款部分退 等)。 */
+  status: number;
+  msg: string;
+  /** 受理才有;每次退款各自一個。 */
+  refundId?: string;
+  /** 受理才有。🔴 語意未證(本次 vs 累計),見檔區註解。 */
+  refundAmount?: number;
+  isCaptured?: boolean;
+  /** 銀行端結果碼(非自由文字)。 */
+  bankResultCode?: string;
+};
+
+/**
+ * 防禦性解析 TapPay Refund API JSON 回應 → narrow `TapPayRefundResponseWire`。
+ *
+ * `status` 非 number(或非物件)→ throw(adapter 視為格式異常 = unknown-state、絕不重發)。
+ * `is_captured` 用 typeof boolean(非 truthy):false 必須保真、不得掉成 undefined。
+ */
+export function parseTapPayRefundResponse(raw: unknown): TapPayRefundResponseWire {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('TapPay Refund 回應格式異常(非物件)');
+  }
+  const r = raw as Record<string, unknown>;
+  if (typeof r.status !== 'number') {
+    throw new Error('TapPay Refund 回應缺 status');
+  }
+  return {
+    status: r.status,
+    msg: typeof r.msg === 'string' ? r.msg : '',
+    refundId: typeof r.refund_id === 'string' ? r.refund_id : undefined,
+    refundAmount: typeof r.refund_amount === 'number' ? r.refund_amount : undefined,
+    isCaptured: typeof r.is_captured === 'boolean' ? r.is_captured : undefined,
+    bankResultCode: typeof r.bank_result_code === 'string' ? r.bank_result_code : undefined,
+  };
+}

@@ -3,10 +3,9 @@
  * 🔴 本檔在純 node(vitest node 環境)import 受測模組 = 「node 可載入」的實證
  * (TapPayChargeAdapter 因 server-only 在這裡 import 會直接炸;這正是要獨立 client 的原因)。
  */
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
-
 import { describe, expect, it } from 'vitest';
+
+import { tapPayUrlsFor } from '../apps/storefront/src/lib/payment/tappay-endpoints';
 
 import {
   assertStrictRecordWire,
@@ -51,14 +50,13 @@ describe('buildD1TapPayConfig', () => {
   });
 });
 
-describe('endpoint 字面單一事實(防與 composition.ts 漂移)', () => {
-  it('與 apps/storefront composition.ts 的 production Record URL 逐字一致', () => {
-    const src = readFileSync(
-      path.join(__dirname, '../apps/storefront/src/lib/payment/composition.ts'),
-      'utf8',
-    );
-    const m = src.match(/production:\s*'([^']+\/tpc\/transaction\/query)'/);
-    expect(m?.[1]).toBe(PROD_RECORD_QUERY_URL);
+describe('endpoint 字面單一事實(防與 storefront 漂移)', () => {
+  // 2026-08-03 退款線第一片:URL 字面自 composition.ts 移到 tappay-endpoints 純模組(單一來源),
+  // 本守門改為 import 比對模組回傳值。🔴 誠實邊界(codex 關卡2):本格只證「scripts 與 endpoints
+  // 模組一致」,證不了「composition 真的用該模組」—— 那半由 tappay-endpoints.test.ts 的
+  // composition 源碼守門(展開注入 + 零 tappaysdk 字面)承接,兩格合起來才等價於舊 regex 守門。
+  it('與 apps/storefront tappay-endpoints 的 production Record URL 逐字一致', () => {
+    expect(tapPayUrlsFor('production').recordQueryUrl).toBe(PROD_RECORD_QUERY_URL);
   });
 });
 

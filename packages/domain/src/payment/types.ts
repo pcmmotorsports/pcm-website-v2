@@ -109,24 +109,103 @@ export type TapPayInitiationResult = {
 };
 
 /**
- * TapPayRefundPayload: refund use-case 輸入。
+ * TapPay Refund API 已實證「乾淨拒絕、零副作用」的錯誤碼(M-3 退款線第一片)。
  *
- * `amount` 不填表示全額退、填表示部分退。
+ * 🔴 新增碼必須先有 sandbox 實證;且**現有實證全是 kind='partial' 情境**(2026-08-01 兩個獨立
+ * probe session:10051 兩組邊界 / 10024 連退四次全擋、狀態零變化)—— `kind='full'` 撞任何非 0 碼
+ * = 未實證組合,adapter 一律 throw(unknown-state)、不回結果態。
  */
-export type TapPayRefundPayload = {
-  transactionId: string;
-  amount?: Money;
-};
+export const TAPPAY_REFUND_STATUS = {
+  /** 部分退超額(> 剩餘可退額);sandbox 實證乾淨拒絕。→ 對帳(Record API)後人工判。 */
+  OUT_OF_RANGE_AMOUNT: 10051,
+  /**
+   * 未請款交易不能部分退款;sandbox 四次實證乾淨拒絕。語意=「**還不能做**」非「失敗」
+   * (A7b-T 拍板逐字;Sean 08-03 Q2=A 拆獨立 deferred 態)。請款完成後可重試同一退款意圖,
+   * 🔴 惟「同一 bankRefundId 重試」的 TapPay 行為未實證(probe 已核准未跑、Q3=A)——
+   * 接線片前不得依賴同鍵重試,是否換鍵由帳本層決定。
+   */
+  NOT_CAPTURED_PARTIAL: 10024,
+} as const;
 
 /**
- * TapPayRefundResult: refund use-case 結果。
+ * TapPayRefundNotSentError:refund pre-flight 拒絕(輸入違規)。
+ *
+ * 🔴 語意=「**確定未送出、TapPay 零接觸**」,呼叫端可修正輸入後安全重試;
+ * **其他一切 throw(transport / HTTP / 逾時 / 格式異常 / 未實證回應碼)= unknown-state,
+ * 絕不得自動重發**(bank_refund_id 冪等未實證 ⇒ 盲目重發 = 可能同一筆退兩次)。
+ * 兩類錯誤以型別區分(instanceof),不脆弱比對 message 字面(鏡像 NotOwnedError 慣例)。
  */
-export type TapPayRefundResult = {
-  status: ChargeStatus;
-  refundId: string;
-  /** 原始回應、audit 用 */
-  rawResponse: unknown;
-};
+export class TapPayRefundNotSentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TapPayRefundNotSentError';
+  }
+}
+
+/**
+ * TapPayRefundPayload: refund 輸入(discriminated union)。
+ *
+ * 🔴 全額退必須顯式 `kind:'full'` —— 「漏帶 amount 滑成全額退」的路徑在型別層即不存在
+ * (undefined 滑入、truthy 誤判、discriminant 打錯字均由 adapter runtime 守門以
+ * `TapPayRefundNotSentError` 拒絕,fetch 零呼叫)。
+ * 🔴 `kind:'full'` 不得帶 amount 欄(runtime 亦擋:JS 呼叫端 discriminant 寫錯時 amount 被
+ * 靜默忽略=意外全額退)。kind='full' 的 wire 行為已 sandbox 實測(不受未請款限制、即時生效;
+ * 營運口徑仍「全額當日、部分隔日」、不拿實測放寬)。
+ *
+ * `bankRefundId` 必填 = 呼叫前 durable 歸屬鍵:呼叫端(A7c 帳本)必先把它寫進
+ * `order_refunds` processing 列**再**呼叫 —— 它是崩潰視窗內 TapPay 端真退款的唯一歸屬線索。
+ * 🔴 它**不是**冪等保證(TapPay 端「不可重複」行為未實測);格式 `^[A-Za-z0-9_-]{1,20}$`
+ * (TapPay String 20 + 帳本 CHECK 1-20;UUID 36 字放不下、不要傳 job/row id)。
+ */
+export type TapPayRefundPayload =
+  | { kind: 'full'; transactionId: string; bankRefundId: string }
+  | { kind: 'partial'; transactionId: string; amount: Money; bankRefundId: string };
+
+/**
+ * TapPayRefundResult: refund 結果(三態;Sean 08-03 Q2=A)。
+ *
+ * - `accepted`(wire status===0):TapPay **受理**。🔴 accepted ≠ 錢已到帳 —— 生效權威 =
+ *   Record API(record_status 2/3 + refunded_amount)/ Portal;營運口徑「部分退隔日、全額當日」。
+ *   `refundId` 供帳本轉 confirmed 那次 UPDATE 寫入(P7C10:processing 期間禁填)。
+ *   🔴 `refundAmount` 語意未證(本次退款額 vs 累計已退額;官方無 gloss、probe 未保存其值)
+ *   ⇒ **不得用於帳本累加或剩餘可退額推算**;回應無 currency 欄 ⇒ 單位無回應層驗證,
+ *   呼叫端以自家訂單幣別為準(Phase 1 全 TWD)。
+ * - `deferred`(=10024、**僅 kind='partial' 可達**):「還不能做」,請款完成後可重試同一意圖
+ *   (同鍵重試行為未實證,見 TAPPAY_REFUND_STATUS JSDoc)。獨立態 ⇒ 呼叫端 switch 天然分流、
+ *   不可能誤標「失敗」而重退。
+ * - `rejected`(=10051、**僅 kind='partial' 可達**):超額,對帳後人工判。
+ * - 「狀態未知」**不設結果值**:逾時 / HTTP 非 2xx / transport / 格式異常 / 未實證碼
+ *   (含 kind='full' 的任何非 0 碼)一律 throw;呼叫端收非 TapPayRefundNotSentError 的
+ *   throw 絕不得自動重發。
+ */
+export type TapPayRefundResult =
+  | {
+      status: 'accepted';
+      refundId: string;
+      /** wire `refund_amount` 原值(int)。🔴 語意未證、不得入帳本推算(見上)。 */
+      refundAmount: MoneyAmount;
+      /** wire `is_captured`(選填、audit 用)。 */
+      isCaptured?: boolean;
+      /** 回送呼叫端的 bankRefundId(帳本 join 便利、非 wire 回欄)。 */
+      bankRefundId: string;
+      /** 原始回應、audit 用 */
+      rawResponse: unknown;
+    }
+  | {
+      status: 'deferred';
+      wireStatus: typeof TAPPAY_REFUND_STATUS.NOT_CAPTURED_PARTIAL;
+      msg: string;
+      /** wire `bank_result_code`(銀行端結果碼、非自由文字)。 */
+      bankResultCode?: string;
+      rawResponse: unknown;
+    }
+  | {
+      status: 'rejected';
+      wireStatus: typeof TAPPAY_REFUND_STATUS.OUT_OF_RANGE_AMOUNT;
+      msg: string;
+      bankResultCode?: string;
+      rawResponse: unknown;
+    };
 
 // ── M-3 3DS-1a:Record API 反查型別(對帳 settleCharge 用、adapter 解析、不下裁決) ──────────────
 
