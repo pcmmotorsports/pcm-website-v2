@@ -365,8 +365,11 @@
 > 🔴🔴 **R3 換角度抓到一條設計層的**(前兩輪逐行看 diff 看不到):**我把一個非權威快取寫成了守門依據**。
 > 摘要表是惰性建立的 ⇒ 真相已有取消 2、摘要列還沒建時,`COALESCE(…,0)` 會讓 A2b1 以為取消 0、
 > 放行加開採購 ⇒ 最終 `ordered=2/cancelled=2` **通過全部七條 CHECK 卻是錯的狀態**。
-> ⇒ master plan 已改成:**守門一律鎖 parent 後回真相表重算,`COALESCE` 只准用在顯示路徑**,
-> 並對「真相非零但摘要缺失」fail-closed。**A2b1 / A8a2 兩列都已寫死。**
+> ⇒ master plan 已改成:**守門一律鎖 parent 後回真相表重算,`COALESCE` 只准用在顯示路徑**。
+> ~~並對「真相非零但摘要缺失」fail-closed;A2b1/A8a2 兩列都已寫死~~ 🔄 **08-03 Q4=A 修訂**:
+> 守門直讀真相表之後,「摘要缺失 fail-closed」子句**語意落空、已自 master plan `:369` 撤下**,
+> 其負測意圖由 A2b1 harness 的 B8 格承接(字面修訂 commit 在 `nightly/a2b1-chain` 待併回 dev;
+> 本行同步 = codex K2 N16 對主視窗的交辦)。
 > R3 另抓到:**A4a 的 trigger 清單漏了真正的到貨來源 `order_item_procurement_receipts`**
 > (只掛採購表的話,「只 INSERT 一筆到貨明細」不會觸發任何重算 ⇒ `instock` 永遠 0);
 > **§9 的回滾在 A4a 之後不可執行** ⇒ 已變成 A4a 的 DoD 硬前置;
