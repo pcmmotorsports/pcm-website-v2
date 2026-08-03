@@ -167,6 +167,36 @@ video(youtube/vimeo/file) img caption title rows d source`
 
 ### 5.2 版型(D2)
 
+#### D2 的五片切分(2026-08-04 補;讀過 `brand-page.html` 版面骨架後定)
+
+`brand-page.html` = 2111 行(`<style>` 佔 11-1315,body 骨架 1349-1535)。整頁九個區塊,
+一片做完會遠超鐵則 4 的 45 分鐘,故拆:
+
+| 片 | 內容 | 對應設計稿 | 狀態 |
+|---|---|---|---|
+| **D2a** | `BrandRichText` 渲染元件(D1a parser 的消費端) | — | ✅ `8df6325` |
+| D2b | 麵包屑 + 品牌橫幅 + 四則事實 | `.bp-crumb` `.bp-band` `.bp-facts`(1349-1385) | ⏳ |
+| D2c | About + 右欄影片/產品照 | `.bp-about` `.bp-media`(1386-1411) | ⏳ |
+| D2d | Why(highlights+stats)+ Craft + Timeline | `.bp-why` `.bp-craft` `.bp-time`(1412-1446) | ⏳ |
+| D2e | 代表分類 chips + 品牌磚牆 + 動效層 | `.bp-cats` `.bp-others`(1447-1535)+ CSS 792 起的動效層整段 | ⏳ |
+
+- 「商品」區(`.bp-products`)**不在 D2** —— 它用既有 `ProductCard`,屬 D3 接線。
+- 動效層(CSS 792 行起)**整段原封搬、不要拆散**(§6);放 D2e 是因為它跨全部區塊,
+  最後一片搬才不會邊做邊改。
+- 每片都要 1440 / 390 兩斷點真機驗;**samco 的 band 截圖列入 D2b 的必看清單**
+  (C-01-A Q3-1:設計側最終確認就靠 Sean 肉眼那關)。
+
+#### 🔴 資產落地(2026-08-04,信箱 C-01-A Q1=A)
+
+- 佈局**保留 Open Design 原樣**,複製到 `apps/storefront/public/brand-assets/assets/...`,
+  資料層 117 條路徑**一字不改**(渲染時前綴 `/brand-assets/`)。
+  理由:D1b 是求值產生、與來源 byte-identical,改寫路徑會毀掉可重產性;
+  而 `public/brands/` 那套慣例本來就隨 D8 退場。
+- 已複製 **137 檔 / 38.1 MB**(資料引用的 117 檔 + 磚牆用的 `brands-trim/` 20 檔)。
+- ⛔ **維持 untracked、不得 `git add`**,直到 Sean 對「38 MB 二進位進 git」拍板
+  (C-01-Q Q2 = 需 Sean,主視窗已轉問;拍板結果會落 `C-02-A.md`)。
+  拍板前 `git status` 會有一行 `?? apps/storefront/public/brand-assets/`,是預期的。
+
 `brand-page-integration.md` §5 逐條量出來的欄線,整頁共用一組 `200px | 1fr`,**不要只改其中一區**:
 
 ```
