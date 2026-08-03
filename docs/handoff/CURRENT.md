@@ -6,12 +6,9 @@
 > 全收工、**Sean 正式站驗收通過 ⇒ 27 項第 3 項轉綠(7/26 以來第一項)**;細節=STATUS「最後更新」前四條。
 > **dev 本地未推 commit 數當場跑 `git rev-list --count origin/dev..HEAD` 取得,不信本檔數字**;Sean 手動推。
 >
-> **今日計畫(Sean 拍板中,12h 額度衝刺、55% Fable+week)**:兩個平行施工視窗 + 你當指揮。
-> 舊主視窗已把兩題丟給 Sean、**答案可能在你 session 開場時已有或未有,先問清再放行**:
-> ```
-> Q1(視窗分工): A) ①A4a→A4b + ②refund probe+接線plan(推薦) B) 只開視窗① C) 其他
-> Q2(refund 視窗權限): A) probe 真打 sandbox + 接線只出 plan 停關卡1(推薦) B) probe 只跑 C) 接線批完直接寫
-> ```
+> **今日計畫(12h 額度衝刺、55% Fable+week)**:兩個平行施工視窗 + 你當指揮。
+> ✅ **Sean 08-03 午已拍:Q1=A(①A4a→A4b + ②refund probe+接線plan)/ Q2=A(probe 真打 sandbox、
+> 接線只出 plan 停關卡1)** —— 兩窗照下方模板放行,不用重問。
 > 視窗①模板(A4a→A4b 鏈;worktree `a4a-chain` @ `/Users/sean_1/pcm-a4a-chain`,fable[1m]):
 > 任務=E10 A4a 重算 trigger(高風險)→A4b 競態負測;必讀 `docs/handoff/2026-08-03-nightly-a2b1-chain.md` 終章
 > (A4a 三件既定事項:①三表掛 trigger 鎖原語同 NKU ②關債⑥後把 a2b2 S5 期望翻紅 ③A1 §9 回滾演練=DoD 硬前置)
