@@ -18,6 +18,7 @@ import {
 import { WorkflowStatusBadge } from './workflow-status-badge';
 import { ItemWorkflowStatusCell } from './item-workflow-status-cell';
 import { OrderEditForm } from './order-edit-form';
+import { NotesTimeline } from './notes-timeline';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
 // D-2:狀態=per-item(品項表逐列 ItemWorkflowStatusCell 改;header badge=items 彙總、
@@ -244,6 +245,9 @@ export function OrderDetail({
       <OrderEditForm detail={detail} />
 
       <ItemsTable detail={detail} optionsByCode={optionsByCode} activeOptions={activeOptions} />
+
+      {/* A10a-2:備註時間軸(唯讀;表單 = A10a-3) */}
+      <NotesTimeline detail={detail} />
     </div>
   );
 }
