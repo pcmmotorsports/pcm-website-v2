@@ -12,7 +12,16 @@
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(2026-08-02 深夜重 gen:M-4b E10 **A6 已 apply** ——
+// 反映 LIVE prod schema(2026-08-03 晚重 gen:**A4a(20260803140000)+ RW1a(20260803150000)已 apply** ——
+//   **新增** public.admin_initiate_order_refund(8 參數) → jsonb / public.admin_finalize_order_refund(7 參數) → jsonb
+//   = order_refunds 的唯二 service_role 寫入路徑(SECDEF owner RPC)。initiate 回 8 固定碼、finalize 回
+//   3 固定碼 + outcome 6 碼(碼全集與重播/hold 契約詳兩函式 DB COMMENT;呼叫端必斷言 ∈ 全集)。
+//   order_refunds 增四欄(kind / record_refunded_before / provider_refund_id_evidence / failed_detail)
+//   + status 第四值 deferred + request_id 全域 UNIQUE + single-flight partial unique;
+//   pcm_order_refundable_remaining 改 allowlist(processing+confirmed 佔額)。A4a = 數量摘要重算線(trigger 網)。
+//   ⚠️ RW2c 接線時兩支退款 RPC 的 Args 需同型補 `| null`(initiate:p_amount / p_record_amount;
+//   finalize:p_tappay_refund_id / p_refund_amount_wire / p_failed_detail)—— 屆時檔頭「共十處」計數同步改。
+//   (承前基準 2026-08-02 A6,其契約債註記保留如下 ——
 //   **新增** public.admin_append_order_note(uuid, text, text, text, timestamptz, uuid, text, text) → text
 //   = 訂單備註的**唯一寫入路徑**(SECURITY DEFINER owner RPC;order_notes 對 service_role 只開 SELECT、
 //   RLS on 零 policy)。唯一動作 = 單列 INSERT + 同交易 admin_audit_log(action=order_note.append)。
@@ -23,7 +32,7 @@
 //   🔴 呼叫端契約債(A9d2-1):必須斷言回傳碼 ∈ 14 碼全集,未知碼 = 呼叫端 bug;
 //   **DUPLICATE_REQUEST 要按成功處理**(它意謂該 request 已寫入過且經查驗),顯示成錯誤會誘發員工
 //   換 request_id 重送 = 製造重複備註(plan v4 F3)。
-//   前次基準 = 2026-08-01 晚 S2)。
+//   前次基準鏈 = 2026-08-02 A6 ← 2026-08-01 晚 S2)。
 // ⚠️ 2026-07-29 那次重 gen 移除了 products_public / products_list_public / product_variants_public 三個 view 的
 //   Insert / Update 型別(CLI 依 view 可更新性判定)。已實查:三者的消費端全是 .select() 讀路徑,
 //   寫入一律走 base products 表(SupabaseProductAdapter 註解逐字「save 走 base products 表」)⇒ 移除無影響,
@@ -1091,11 +1100,15 @@ export type Database = {
           bank_refund_id: string
           confirmed_at: string | null
           created_at: string
+          failed_detail: string | null
           failed_reason: string | null
           id: string
+          kind: string
           order_id: string
+          provider_refund_id_evidence: string | null
           reason: string
           rec_trade_id: string
+          record_refunded_before: number
           refund_amount: number
           request_id: string
           status: string
@@ -1106,11 +1119,15 @@ export type Database = {
           bank_refund_id: string
           confirmed_at?: string | null
           created_at?: string
+          failed_detail?: string | null
           failed_reason?: string | null
           id?: string
+          kind: string
           order_id: string
+          provider_refund_id_evidence?: string | null
           reason: string
           rec_trade_id: string
+          record_refunded_before: number
           refund_amount: number
           request_id: string
           status: string
@@ -1121,11 +1138,15 @@ export type Database = {
           bank_refund_id?: string
           confirmed_at?: string | null
           created_at?: string
+          failed_detail?: string | null
           failed_reason?: string | null
           id?: string
+          kind?: string
           order_id?: string
+          provider_refund_id_evidence?: string | null
           reason?: string
           rec_trade_id?: string
+          record_refunded_before?: number
           refund_amount?: number
           request_id?: string
           status?: string
@@ -2221,6 +2242,31 @@ export type Database = {
         }
         Returns: string
       }
+      admin_finalize_order_refund: {
+        Args: {
+          p_actor: string
+          p_failed_detail: string
+          p_outcome: string
+          p_refund_amount_wire: number
+          p_refund_id: string
+          p_request_id: string
+          p_tappay_refund_id: string
+        }
+        Returns: Json
+      }
+      admin_initiate_order_refund: {
+        Args: {
+          p_actor: string
+          p_amount: number
+          p_kind: string
+          p_order_id: string
+          p_reason: string
+          p_record_amount: number
+          p_record_refunded_before: number
+          p_request_id: string
+        }
+        Returns: Json
+      }
       admin_set_customer_tier: {
         Args: {
           p_actor: string
@@ -2407,6 +2453,10 @@ export type Database = {
           p_rec_trade_id: string
         }
         Returns: number
+      }
+      pcm_a4a_recompute_order_item_summary: {
+        Args: { p_order_item_id: string }
+        Returns: undefined
       }
       pcm_generate_display_id: { Args: never; Returns: string }
       pcm_order_refundable_remaining: {
