@@ -39,10 +39,14 @@ export function CascadeFilterTop({
   cascade,
   dispatch,
   garage = [],
+  autoFocusBrand = false,
 }: {
   data: FilterTopData;
   /** V-1e:登入會員愛車 chips(未登入/讀取失敗=[]、「我的愛車」鈕不顯示) */
   garage?: GarageChipItem[];
+  /** A2(2026-08-03):`?pick=vehicle` 桌機開燈 —— 掛載時把游標停在廠牌欄。
+   *  由 ProductsPage 閘在「非手機」(手機的開燈是自動開 MobileVehicleSheet、不是聚焦這裡)。 */
+  autoFocusBrand?: boolean;
 } & CascadeControlledProps) {
   const vehicle = cascade.vehicle;
   const currentBrand = vehicle
@@ -91,6 +95,7 @@ export function CascadeFilterTop({
             onPick={(name) => dispatch(selectVehicleBrand(name))}
             onClear={() => dispatch(clearVehicle())}
             variant="catalog"
+            autoFocus={autoFocusBrand}
           />
           <VehicleCombo
             label="選擇車型"

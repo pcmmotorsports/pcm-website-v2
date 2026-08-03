@@ -34,6 +34,8 @@ import type { MockProduct } from '../data/mock-products';
 import type { MockCategory } from '../data/mock-categories';
 import type { MockMotoBrand } from '../data/mock-moto-brands';
 import { CartProvider } from '../contexts/CartContext';
+// A2:?pick=vehicle 的桌機/手機分流吃 layout SSR UA(與 CSS 的 [data-mobile] 同源)
+import { MobileProvider } from '../contexts/MobileContext';
 
 // S1:車輛下拉清單改 server prop(fetchVehicleTaxonomy);本 smoke 不測車輛下拉、傳空清單
 const MOTO_BRANDS: MockMotoBrand[] = [];
@@ -131,6 +133,75 @@ describe('ProductsPage', () => {
     expect(bar).not.toBeNull();
     expect(mobile).not.toBeNull();
     expect(bar?.contains(mobile as Node)).toBe(false);
+  });
+
+  // ── A2(2026-08-03):?pick=vehicle 落地開燈 ──────────────────────────────
+  // Sean 拍 B 案「同落地 + 開燈」:Header「依車輛搜尋」與 MobileTabBar「找車」都導到
+  // /products?pick=vehicle;桌機聚焦廠牌欄、手機自動開選車面板。
+  describe('?pick=vehicle 落地開燈(A2)', () => {
+    const renderWith = (ui: ReactElement, mobile?: boolean) =>
+      rtlRender(ui, {
+        wrapper: ({ children }) =>
+          mobile === undefined ? (
+            <CartProvider>{children}</CartProvider>
+          ) : (
+            <MobileProvider value={mobile}>
+              <CartProvider>{children}</CartProvider>
+            </MobileProvider>
+          ),
+      });
+    const page = () => (
+      <ProductsPage products={FIXTURE} error={false} categories={CATEGORIES} motoBrands={MOTO_BRANDS} />
+    );
+    const sheet = () => screen.queryByRole('dialog', { name: '選擇適用車輛' });
+
+    it('桌機 + ?pick=vehicle → 廠牌欄拿到 focus', () => {
+      hoisted.search = new URLSearchParams('pick=vehicle');
+      renderWith(page(), false);
+      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '選擇品牌' }));
+    });
+
+    // 🔴 這條是本片最重要的一條,擋的是「純看 URL 開面板」會造成的桌機死狀態:
+    //    ProductsMobileControls 在桌機**照樣 mount**(只是 .pmc-root{display:none}),
+    //    而 MobileVehicleSheet 一開就 document.body.style.overflow='hidden'
+    //    —— 那條 effect 不管 CSS 可見性。所以桌機若誤走手機那支,客人會看到
+    //    「沒有面板、卻整頁捲不動」。jsdom 不套 media query,只驗「有沒有開」抓不到,
+    //    必須連 body.overflow 一起斷言。
+    it('桌機 + ?pick=vehicle → 不開手機選車面板、不鎖 body 捲動', () => {
+      hoisted.search = new URLSearchParams('pick=vehicle');
+      renderWith(page(), false);
+      expect(sheet()).toBeNull();
+      expect(document.body.style.overflow).not.toBe('hidden');
+    });
+
+    it('手機 + ?pick=vehicle → 自動開選車面板', () => {
+      hoisted.search = new URLSearchParams('pick=vehicle');
+      renderWith(page(), true);
+      expect(sheet()).not.toBeNull();
+    });
+
+    it('手機 + ?pick=vehicle → 廠牌欄不搶 focus(手機的開燈是開面板、不是聚焦桌機那條列)', () => {
+      hoisted.search = new URLSearchParams('pick=vehicle');
+      renderWith(page(), true);
+      // 桌機選車列的廠牌欄(.cft-bar 內)不得被 autoFocus 抓走 —— 面板內另有自己的欄位。
+      const barBrand = document
+        .querySelector('.cft-bar')
+        ?.querySelector('input[aria-label="選擇品牌"]');
+      expect(barBrand).not.toBeNull();
+      expect(document.activeElement).not.toBe(barBrand);
+    });
+
+    it('無 pick 參數 → 兩邊都不開燈(既有行為零變動)', () => {
+      renderWith(page(), true);
+      expect(sheet()).toBeNull();
+      expect(document.body.style.overflow).not.toBe('hidden');
+    });
+
+    it('pick 值不是 vehicle → 不開燈(只認精確值、不做前綴比對)', () => {
+      hoisted.search = new URLSearchParams('pick=vehicles');
+      renderWith(page(), true);
+      expect(sheet()).toBeNull();
+    });
   });
 
   it('should show the load-error state when error flag is set (#220 Q2=A)', () => {
