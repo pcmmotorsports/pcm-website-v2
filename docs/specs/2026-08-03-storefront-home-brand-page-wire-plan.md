@@ -134,6 +134,28 @@
 `brand.name` / `brand.origin` / `brand.lede` / `fact.founded` `fact.origin` `fact.material` `fact.racing`
 / `brand.about`(**中文段落必須單行**,換行會渲染成看得見的空格)/ `brand.categories`(由後台實際分佈決定)
 
+#### 🔴 D1 開檔後實查補記(2026-08-03,A2 收工前;**原稿沒寫到,而它會決定 D2 的做法**)
+
+`brand-content-data.js` 實測 **1188 行 / 20 家**,頂層鍵全集:
+`slug name country origin lede slogan band(src/alt/focus/portrait/poster) bandLogo logoScale
+facts categories about(lead/pull/tail) craft(cards/items) aside highlights stats timeline
+video(youtube/vimeo/file) img caption title rows d source`
+
+**內容欄位帶 HTML 標籤,不是純文字**:實測 `<strong>` **168 處**、`<br>` **98 處**,
+分佈於 `lede`(20)`slogan`(20)`about.lead`(40)`about.pull`(20)`about.tail`(20)
+`title`(53)`caption`(11)。所以 D1 不是「JS 物件改寫成 TS 物件」那麼單純:
+
+| 選項 | 代價 |
+|---|---|
+| a) 保留 HTML 字串 + `dangerouslySetInnerHTML` | 最省;但把一個 XSS 形狀的 API 帶進前台元件。內容目前全是我們自己寫死的(L2 hardcode),風險在**未來**接後台 CRUD(backlog #271)時有人把可編輯內容餵進同一個欄位 |
+| b) 資料層拆成結構(`lead: [{ text, strong? }]` 之類)+ 元件渲染 | 型別安全、之後接 CRUD 不必回頭改;但 1188 行內容要逐段拆,體積遠超一片 |
+| c) 保留字串 + 一支只認 `<strong>` / `<br>` 的極小 parser(白名單、不是 HTML 解析) | 中間值:不引入 `dangerouslySetInnerHTML`,轉換成本低,白名單以外一律當純文字 |
+
+→ **D1 開工第一件事就定這一題**(推薦 **c**:讓「未來接 CRUD」不必回頭重做,
+成本只比 a 多一支約 20 行純函式 + 它的單元測試)。
+🔴 這題**不需要 Sean 拍板**(實作手法,不改產品行為也不改視覺輸出),
+但要寫進 D1 的 commit body —— 它決定了 backlog #271 未來的接法。
+
 - **件數欄不要搬** —— 設計稿已移除 `data-live="count"`(Sean 2026-08-02:快照數字一定跟後台對不起來)。
 - 三組 logo 資產各 20 檔、用途不同、**不要拿錯**:`brands-trim/`(磚牆與其他品牌)/ `brands-dark/`(深色橫幅大 logo)/ `brands/`(原始檔、目前無人引用)。
 
