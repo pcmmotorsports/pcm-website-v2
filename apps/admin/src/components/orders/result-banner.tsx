@@ -1,6 +1,11 @@
 // 相對 import(非 @/):vitest 的 `@` alias 指向 storefront(見 `lib/session/actor.ts` 註解)
 // ⇒ 用 `@/` 會讓本元件在測試環境解析失敗。
 import { NOTE_ADDED_RESULT_CODE } from '../../lib/orders/note-action-state';
+import {
+  PROCUREMENT_CREATED_RESULT_CODE,
+  PROCUREMENT_NO_CHANGE_RESULT_CODE,
+  PROCUREMENT_UPDATED_RESULT_CODE,
+} from '../../lib/orders/procurement-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
@@ -24,6 +29,16 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
   [REFUND_SUBMITTED_RESULT_CODE]: {
     text: '退款已送出,TapPay 已受理。受理不等於已入帳,入帳以之後的對帳為準。',
+    tone: 'ok',
+  },
+  // 🔴 M-4b E10 A10b:採購同樣**只有成功**會走 redirect(失敗回 action state、保留輸入)。
+  //    三個成功碼**刻意不共用一則** —— 員工要看得出「這次到底有沒有改到東西」:
+  //    `NO_CHANGE` 意謂「送出的內容與現況完全相同、零寫入」(A5a `:300-322`),
+  //    若與「已更新」說同一句話,他會以為改成功了而不再檢查。
+  [PROCUREMENT_CREATED_RESULT_CODE]: { text: '已新增這筆採購。', tone: 'ok' },
+  [PROCUREMENT_UPDATED_RESULT_CODE]: { text: '已更新這筆採購。', tone: 'ok' },
+  [PROCUREMENT_NO_CHANGE_RESULT_CODE]: {
+    text: '沒有變更(送出的內容與目前的採購紀錄完全相同)。',
     tone: 'ok',
   },
 };

@@ -22,6 +22,8 @@ import { ItemWorkflowStatusCell } from './item-workflow-status-cell';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
+import { ItemProcurementSection } from './item-procurement-section';
+import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
 // D-2:狀態=per-item(品項表逐列 ItemWorkflowStatusCell 改;header badge=items 彙總、
@@ -178,11 +180,17 @@ export function OrderDetail({
   detail,
   statusOptions,
   correctNoteId = null,
+  suppliers = [],
+  suppliersFailed = false,
 }: {
   detail: AdminOrderDetail;
   statusOptions: OrderStatusOption[];
   /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
   correctNoteId?: string | null;
+  /** A10b:S3a 供應商選單(啟用中、zh-TW 排序) */
+  suppliers?: readonly SupplierOption[];
+  /** A10b:供應商清單載入失敗(不靜默;見 item-procurement-section) */
+  suppliersFailed?: boolean;
 }) {
   const optionsByCode = indexOrderStatusOptions(statusOptions);
   const activeOptions = statusOptions.filter((o) => o.isActive);
@@ -276,6 +284,13 @@ export function OrderDetail({
       <OrderEditForm detail={detail} />
 
       <ItemsTable detail={detail} optionsByCode={optionsByCode} activeOptions={activeOptions} />
+
+      {/* A10b:採購區塊(逐品項清單 + upsert 表單)。🔴 內部資料、admin-only。 */}
+      <ItemProcurementSection
+        detail={detail}
+        suppliers={suppliers}
+        suppliersFailed={suppliersFailed}
+      />
 
       {/* A10a-2/-3:備註時間軸 + 表單。token 在本 server component 渲染期產(Q2=C;
           頁層 force-dynamic、此處零快取層 —— 契約債①的「不得落快取層」就是指這一行)。
