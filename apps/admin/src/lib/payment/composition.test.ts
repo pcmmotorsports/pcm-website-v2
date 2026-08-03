@@ -147,6 +147,16 @@ describe('getTapPayAdapter — 端點來源', () => {
     });
   });
 
+  it('TAPPAY_ENV 帶尾隨空白仍認得(Vercel dashboard 貼值常帶;Fable R3 N5)', () => {
+    setEnv({ TAPPAY_ENV: ' sandbox\n' });
+    getTapPayAdapter();
+    expect(mocks.ctor).toHaveBeenCalledWith({
+      partnerKey: 'partner_TESTKEY',
+      merchantId: 'PCM_TEST_MERCHANT',
+      ...tapPayUrlsFor('sandbox'),
+    });
+  });
+
   it('production:三端點逐欄等於 tapPayUrlsFor("production")', () => {
     setEnv({ TAPPAY_ENV: 'production', NEXT_PUBLIC_SUPABASE_URL: PROD_URL });
     getTapPayAdapter();
@@ -171,6 +181,8 @@ describe('getTapPayAdapter — fail-closed', () => {
     ['TAPPAY_ENV 缺', { TAPPAY_ENV: undefined }, /TAPPAY_ENV/],
     ['NEXT_PUBLIC_SUPABASE_URL 缺', { NEXT_PUBLIC_SUPABASE_URL: undefined }, /NEXT_PUBLIC_SUPABASE_URL/],
     ['NEXT_PUBLIC_SUPABASE_URL 非法', { NEXT_PUBLIC_SUPABASE_URL: 'nope' }, /配對不成立/],
+    // 端到端補一格(Fable R3 N1:原本只有純函式層測得到剝點後空 host,factory 層沒有觀察)。
+    ['NEXT_PUBLIC_SUPABASE_URL 剝完尾點沒 host', { NEXT_PUBLIC_SUPABASE_URL: 'http://.' }, /配對不成立/],
     ['TAPPAY_PARTNER_KEY 缺', { TAPPAY_PARTNER_KEY: undefined }, /TAPPAY_PARTNER_KEY/],
     ['TAPPAY_MERCHANT_ID 缺', { TAPPAY_MERCHANT_ID: undefined }, /TAPPAY_MERCHANT_ID/],
   ];

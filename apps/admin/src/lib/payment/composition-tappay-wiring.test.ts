@@ -19,6 +19,7 @@ import { describe, it, expect } from 'vitest';
 // 對「這幾格到底攔得住什麼」的唯一誠實說法:攔回歸,不攔對手。
 
 const ADMIN_SRC = path.join(__dirname, '..', '..');
+const ADMIN_ROOT = path.join(ADMIN_SRC, '..');
 const COMPOSITION = path.join(__dirname, 'composition.ts');
 
 /**
@@ -40,6 +41,17 @@ function listSourceFiles(root: string): string[] {
   return readdirSync(root, { recursive: true, encoding: 'utf8' })
     .filter((rel) => /\.(m|c)?[jt]sx?$/.test(rel))
     .map((rel) => path.join(root, rel));
+}
+
+/**
+ * `apps/admin` 根層的**設定檔**(`next.config.ts` / `vercel.json` / `postcss.config.mjs` …)。
+ * 🔴 掃描根停在 `src/` 就等於宣稱「admin 全樹」卻看不見這些檔(Fable R3 N2)。
+ * 刻意用**非遞迴** readdir:遞迴走 `apps/admin` 會一路爬進 `node_modules`/`.next`(數萬檔、無意義)。
+ */
+function listAdminRootConfigs(): string[] {
+  return readdirSync(ADMIN_ROOT, { withFileTypes: true })
+    .filter((e) => e.isFile() && /\.((m|c)?[jt]sx?|json)$/.test(e.name))
+    .map((e) => path.join(ADMIN_ROOT, e.name));
 }
 
 const SELF_EXEMPT = new Set([
@@ -67,6 +79,21 @@ describe('admin composition ↔ tapPayUrlsFor 接線(防 inline 回歸)', () => 
     expect(tapPayUrlImports[0]).toMatch(/from '@pcm\/adapters\/server';$/);
   });
 
+  it('🔴 composition 的 import 來源恰為兩個(server-only + @pcm/adapters/server)', () => {
+    // 🔴 上面那格是**行**層級的,擋不住把兩個 import 擠在同一行(Fable R3 N3):
+    //    `import {tapPayUrlsFor} from './copy'; import {X} from '@pcm/adapters/server';`
+    //    這一行照樣「以 import 開頭、含 tapPayUrlsFor、以正牌來源結尾」。
+    // 改數**模組來源集合**就與行的排版無關:任何本地複本(相對路徑或 `@/lib/payment/...` 別名)
+    //    都會讓集合多出第三個元素 —— 這格一次封掉整族「自建第二份正確值」的繞法。
+    const specifiers = new Set<string>(
+      [
+        ...[...code.matchAll(/\bfrom\s+'([^']+)'/g)],
+        ...[...code.matchAll(/^\s*import\s+'([^']+)'/gm)],
+      ].map((m) => m[1] ?? ''),
+    );
+    expect([...specifiers].sort()).toEqual(['@pcm/adapters/server', 'server-only']);
+  });
+
   it('🔴🔴 env 一律動態 `process.env[name]` 讀、零靜態 `process.env.X`', () => {
     // 這格守的是「守門量的東西 = 它要保護的東西」(關卡2 codex C1):
     // 靜態 `process.env.NEXT_PUBLIC_SUPABASE_URL` 會被 Next 在 build 時內聯成字面,
@@ -86,7 +113,9 @@ describe('admin composition ↔ tapPayUrlsFor 接線(防 inline 回歸)', () => 
 });
 
 describe('admin 受控單檔(composition 以外不得自己接 TapPay)', () => {
-  const others = listSourceFiles(ADMIN_SRC).filter((f) => !SELF_EXEMPT.has(f));
+  const others = [...listSourceFiles(ADMIN_SRC), ...listAdminRootConfigs()].filter(
+    (f) => !SELF_EXEMPT.has(f),
+  );
 
   // 🔴 三格都用「識別字出現與否」而不是某個呼叫寫法:寫法可以換(`import { X as Y }` 後 `new Y()`、
   //    `process.env['TAPPAY_ENV']`、解構 `const { TAPPAY_ENV } = process.env`),識別字換不掉

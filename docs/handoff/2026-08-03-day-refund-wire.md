@@ -147,7 +147,7 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
   全綠。關卡2:code-reviewer PASS+3nit 全清 / codex PASS+2nit(措辭已修;AGENTS.md scope
   白名單與實務漂移=動規則檔需 Sean、僅記錄)。
 - **下一片=RW2b**(admin composition + env 配對 fail-closed + route maxDuration ≥45s):
-  🟡 admin Vercel `TAPPAY_*` env 未查證(Sean dashboard;不擋 dev 實作)。→ **已收工,見 §3e**。
+  → **已收工,見 §3e**(admin Vercel `TAPPAY_*` 已查證 = 未設定,見 §5)。
 
 ## 3e. RW2b 收工(08-03 深夜第二個視窗;夜跑 Q1=A 指派的兩片之一)
 
@@ -212,26 +212,44 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
   刻意規避(字串拼接、computed property、把 wrapper 藏進 `packages/`)。檔內逐字寫成
   「**攔回歸,不攔對手**」。判斷理由=把宣稱縮到實際能力,而不是為了讓宣稱成立去疊 runtime wrapper。
 
-**⚠️ 需要主視窗/Sean 知情的一條(不是我能自己拍的)**
+**R3 = Fable 換角度(主視窗派、fresh context 唯讀)= ✅ PASS,0 must-fix / 5 nit**
 
-> **關卡2 停在「R2=FAIL 已全折入,但沒有第三輪確認」。** plan §6 與 SOP ⑦ 寫的是「每片硬上限 2 輪、
-> round2 仍 FAIL 停下 raise Sean」;而 07-29 Sean 口頭推翻上限、改成「還在抓到真 finding 就繼續,
-> **第 3 輪起必須換角度換模型**」。本片兩條規則指向同一個動作:**停**。
-> 我的判斷=不自己再開同模型第三輪(R2 三條全在同一層:守門切片邊界 + URL 解析邊界),
-> 改成把每條修法各配一個**會殺死它的突變**(下方 27 格)後停手。
-> **要不要在 RW2c 開工前補一輪 Fable 換角度審 RW2b,請主視窗/Sean 決定。**
+信箱往返 `pcm-mailbox/A-01-Q.md` ↔ `A-01-A.md`(2026-08-04 00:2x-00:5x)。我原本停在「R2=FAIL 全折入、
+無第三輪確認」並把「要不要補一輪」交出去(plan §6 硬上限 2 輪 + 07-29「第 3 輪起換模型」同時指向停,
+而 Fable 是明文留給白天 RW2c 的資源、我不自己動);**主視窗答 C 並已代跑**。R3 的關鍵驗證(逐字轉錄):
+
+- **代理變數選得對**:親驗 admin 唯一寫庫管道 `createSupabaseServiceClient` 讀同一顆
+  `NEXT_PUBLIC_SUPABASE_URL`、**同機制**(`packages/adapters/src/supabase/client.ts:24-26,60-63`),全樹無第二變體。
+- **URL 正規化邊界**:R3 自己 Node 實測 8 種(`%2E` 編碼 / userinfo / 雙尾點 / 大小寫混合 / IPv6 …),全被守門抓住。
+- **災難當天可用性**:守門無 env 逃生閥;false positive 最便宜的解 = 修 env 根因(繞過要改 code+deploy)。未擊破。
+- **「三條不修、改宣稱」不是縮驗證面**:拿掉守門後 `mocks.ctor` 必被呼叫 = 那個觀察由守門獨佔供給、有判別力。
+
+5 nit 處置:**N1/N2/N3/N5 已清**(見下);**N4 不清、轉成 RW2c 前置債**。
+
+- N1 「fail-closed 十格」原本實數 9 ⇒ 補第 10 格(`http://.` 在 factory 層的端到端觀察,原本只有純函式層測得到)。
+- N2 掃描根停在 `apps/admin/src` 卻宣稱「admin 全樹」⇒ 加掃 `apps/admin` **根層設定檔**
+  (`next.config.ts`/`vercel.json`/`postcss.config.mjs`;刻意非遞迴,遞迴會爬進 `node_modules`)。
+- N3 單行雙 import 可騙過行尾錨定的來源計數 ⇒ 加一格「composition 的 **import 來源集合**恰為
+  `{server-only, @pcm/adapters/server}`」—— 與排版無關,一次封掉整族「自建第二份正確值」的繞法。
+- N5 `TAPPAY_ENV` 比對前 `.trim()`(Vercel dashboard 貼值常帶尾隨空白;方向仍 fail-closed,救的是摩擦)。
+
+**🔴 RW2c 前置債(Fable R3 N4,本片刻意不修)**
+
+> `getTapPayAdapter()` 拋的是**裸 `Error`** ⇒ 「設定錯(要找 Sean 補 env)」與「transient 失敗
+> (可重試)」在 action 眼裡同形狀,會誘導 RW2c 把前者呈現成「退款失敗請重試」——
+> 而那是值班按到天亮也不會好的一類。**RW2c 開工片要給具名 error class 或訊息前綴碼分流。**
 
 **驗證(數字皆為實跑輸出)**
 
 - 三綠:typecheck **8/8**、lint **10/10**、admin build 綠、scripts tsconfig 綠;
-  完整 vitest **304 檔 3866 passed + 1 todo**(RW2a 收工時為 302/3840)。
-- **突變 27 格、逐格轉紅、還原後全綠**(腳本留在 scratchpad、不入 repo)。涵蓋:配對兩方向各自失守 /
+  完整 vitest **304 檔 3869 passed + 1 todo**(RW2a 收工時為 302/3840;本樹無 A9a-2 ⇒ 與 dev 上的數字有差,主視窗已調和)。
+- **突變 30 格、逐格轉紅、還原後全綠**(腳本留在 scratchpad、不入 repo)。涵蓋:配對兩方向各自失守 /
   拿掉 throw / 斷言搬到建構後 / `hostname`→`host` / 尾點 FQDN 後門 / 協定 allowlist / 剝點後空 host 與
   **檢查順序** / PROD host 改成別的 ref / 靜態 env 讀法回歸 / partnerKey↔merchantId 對調 / 空字串 env /
   端點改 inline 字面 / admin 自建 endpoints 複本(值對調)+ 幌子 import 放整行註解與行尾註解 /
   別的 admin 檔用 alias import·bracket·解構·大寫端點·`*.test.ts` 命名規避 / `maxDuration` 降值與註解掉。
 - 🔴 **誠實邊界**:本片**零真環境驗證**(沒打過 TapPay、沒連過 Supabase);`getTapPayAdapter()`
-  **全 repo 零呼叫端** ⇒ 對 27 項驗收貢獻 **0**;admin Vercel 的 `TAPPAY_*` 仍未查證(Sean,死線 RW2d 前)。
+  **全 repo 零呼叫端** ⇒ 對 27 項驗收貢獻 **0**。
 
 ## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 
@@ -267,7 +285,10 @@ T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前�
   已在 DB 端擋同單並行)。
 - adapter JSDoc 兩處「語意未證」字面(`types.ts` refundAmount / TAPPAY_REFUND_STATUS 同鍵重試)已被
   本日 probe 推翻,**未改 code**(worktree 紀律:文件與 memory 先行,JSDoc 隨 RW1/RW2 實作片一併改,plan §0 已列)。
-- admin Vercel 的 `TAPPAY_*` env 未查證(需 Sean 開 dashboard;plan §0 標未確認)。
+- ~~admin Vercel 的 `TAPPAY_*` env 未查證~~ **已查證 = 未設定**(2026-08-04 主視窗用 Vercel CLI 唯讀實查
+  `pcm-admin` 專案 env 全清單 6 筆:`ADMIN_E10_ORDER_NUMBER_SEARCH` / `SUPABASE_SERVICE_ROLE_KEY` /
+  `NEXT_PUBLIC_SUPABASE_URL` / `PCM_SSO_EXCHANGE_SECRET` / `PCM_QUOTE_SSO_BASE` / `ADMIN_SESSION_SECRET`,
+  **`TAPPAY_*` 零筆**)。⇒ 補值是 **Sean 的動作**(或 Sean 授權 CLI 加),死線 = RW2d 開工前。
 - MEMORY.md 索引 21.4KB 逼近上限,hook 要求壓到 17.1KB —— 撤條目需 Sean 拍板
   (`reference_memory-index-trim-ceiling`),本視窗只壓了自己新增的一行,**待 Sean 決定瘦身**。
 
