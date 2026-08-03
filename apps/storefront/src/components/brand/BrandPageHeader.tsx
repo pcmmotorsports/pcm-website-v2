@@ -1,0 +1,119 @@
+// BrandPageHeader.tsx — 品牌介紹頁的上三段:麵包屑 / 品牌橫幅 / 四則事實(D2b;2026-08-04)
+//
+// 版面字面全部搬自 Open Design `pcm-home-redesign/brand-page.html`
+// (骨架 1349-1385、CSS 593-660 與 869-960 的 RWD 段;鐵則 1 例外 = Sean 08-03 拍 Q1=B,
+//  本線 design 真權威在 OD、不是 design-reference submodule)。
+//
+// 三段放同一支的理由:它們共用「橫幅的照片/無照片」這一個狀態
+// —— `.bp-band` 的 `no-photo` class 決定幕的漸層,而事實列緊貼橫幅底線。
+// 拆成三支會讓那個狀態要往下傳兩層。整支 ~140 行,遠低於鐵則 6 的 400。
+
+import Link from 'next/link';
+import type { CSSProperties } from 'react';
+// bp-* 樣式非全域(同 ProductPage.tsx 對 product-page.css 的處理)⇒ 用到的元件自帶,
+// 否則裸奔(dev-preview/brands/[slug]/page.tsx 檔頭踩過這個坑)。D3 建路由後可上移到 route。
+import '@/styles/brand-page.css';
+import type { BrandContent } from '@/data/brand-content-types';
+import { BrandRichText } from '@/components/BrandRichText';
+
+/** 設計側資產保留 OD 的扁平佈局(信箱 C-01-A Q1=A),渲染時補這個前綴。 */
+const ASSET_BASE = '/brand-assets/';
+export const brandAsset = (path: string): string => `${ASSET_BASE}${path}`;
+
+/** 商品目錄(依品牌篩選)。與設計稿 `brand-content-data.js:1187` 的 PCM_catalogueUrl 同式。 */
+export const brandCatalogueUrl = (slug: string): string =>
+  `/products?pbrand=${encodeURIComponent(slug)}`;
+
+/**
+ * 「只看我的車能裝的」= 品牌篩選 + 落地就把選車打開。
+ *
+ * 🔴 設計稿寫的是 `{catalogue}#finder`(brand-page.html:1648),但**正式站沒有這個錨點**
+ *    —— `#vehicle-finder` 只存在於首頁,`/products` 的選車入口是桌機 CascadeFilterTop
+ *    與手機 MobileVehicleSheet。對應到正式站的正確寫法是 A2 建的 `?pick=vehicle`
+ *    (桌機聚焦廠牌欄 / 手機自動開選車面板)。
+ *    這是 route adaptation、不是 design 偏離 —— 同 Header「品牌」navItem 當初把
+ *    不存在的 `/brands` 改指 `/products` 的處理(Header.tsx 該列註解)。
+ */
+export const brandVehiclePickUrl = (slug: string): string =>
+  `${brandCatalogueUrl(slug)}&pick=vehicle`;
+
+export function BrandPageHeader({ brand }: { brand: BrandContent }) {
+  const hasPhoto = brand.band !== undefined;
+
+  // per-brand 旋鈕走 CSS 變數,與設計稿的 JS 同款(brand-page.html:1635/1638/1847):
+  //   --band-focus 裁切焦點 / --logo-align 個別品牌把 logo 推開照片主體 / --fact-n 事實欄數
+  const bandStyle: CSSProperties = brand.band
+    ? ({ '--band-focus': brand.band.focus } as CSSProperties)
+    : {};
+  const logoStyle: CSSProperties = brand.band?.align
+    ? ({ '--logo-align': brand.band.align } as CSSProperties)
+    : {};
+  const factsStyle = { '--fact-n': brand.facts.length } as CSSProperties;
+
+  return (
+    <>
+      <nav className="bp-crumb" aria-label="麵包屑">
+        <div className="bp-crumb-inner">
+          <Link href="/">首頁</Link>
+          <span className="bp-crumb-sep" aria-hidden="true">/</span>
+          <Link href="/brands">品牌專區</Link>
+          <span className="bp-crumb-sep" aria-hidden="true">/</span>
+          <span className="bp-crumb-cur">{brand.name}</span>
+        </div>
+      </nav>
+
+      {/* 🔴 沒有橫幅照的品牌**根本不建 <img> 節點**,不是用 hidden 藏
+          —— 全站 reset 的 `img{display:block}` 會蓋掉 hidden,結果是上一家的照片留在畫面上
+          (README「品牌介紹頁的橫幅」逐字)。`no-photo` 讓幕退回純石墨底 + 一道極淡熔橘暈。 */}
+      <section className={`bp-band${hasPhoto ? '' : ' no-photo'}`} style={bandStyle}>
+        {brand.band && (
+          <img
+            className="bp-band-photo"
+            src={brandAsset(brand.band.src)}
+            alt={brand.band.alt}
+          />
+        )}
+        <div className="bp-band-inner">
+          <div>
+            <div className="bp-eyebrow">{brand.origin}</div>
+            <h1 className="bp-title">{brand.name}</h1>
+            {/* lede 帶白名單標記 ⇒ 一律過 BrandRichText,絕不直接內插 */}
+            <BrandRichText as="p" className="bp-lede">
+              {brand.lede}
+            </BrandRichText>
+            <div className="bp-actions">
+              <Link className="bp-cta" href={brandCatalogueUrl(brand.slug)}>
+                <span>逛全部商品</span>
+                <span aria-hidden="true">→</span>
+              </Link>
+              <Link className="bp-cta-ghost" href={brandVehiclePickUrl(brand.slug)}>
+                <span>只看我的車能裝的</span>
+              </Link>
+            </div>
+          </div>
+          <div className="bp-band-logo" style={logoStyle}>
+            <img src={brandAsset(brand.bandLogo)} alt={`${brand.name} 標誌`} />
+          </div>
+        </div>
+      </section>
+
+      {/* 事實列:欄數 = facts 筆數(3 或 4)。查不到的欄位是整格拿掉、不是填「官方未載明」
+          ⇒ 3 欄是合法狀態(brand-content-data.js 檔頭的文案硬規則)。
+          🔴 facts 是純文字、**不過 BrandRichText** —— 設計稿的 JS 對它走 esc()
+          (brand-page.html:1848-1849),實測 20 家 74 列零標記(D1b 已驗)。 */}
+      <section className="bp-facts">
+        <dl className="bp-facts-inner" style={factsStyle}>
+          {brand.facts.map(([label, value, note]) => (
+            <div className="bp-fact" key={label}>
+              <dt>{label}</dt>
+              <dd>
+                {value}
+                {note ? <span className="bp-fact-s">{note}</span> : null}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+    </>
+  );
+}
