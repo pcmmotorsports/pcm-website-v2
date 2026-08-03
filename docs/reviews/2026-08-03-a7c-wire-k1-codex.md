@@ -1,0 +1,229 @@
+# 2026-08-03 A7c 退款接線線 plan — codex 關卡1 兩輪 findings 逐字
+
+> 審者 = codex exec -m gpt-5.6-sol -s read-only(兩輪皆前後 git status 零留痕)。
+> R1 對象 = plan v1、R2 對象 = plan v2;折入結果 = plan v3(同檔)。完整 session log 在視窗② scratchpad(揮發)。
+
+## R1 = FAIL(22 must-fix + 6 nit;親驗駁回 0)
+
+FAIL
+
+- must-fix — §2 G3（[plan:49](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:49)）用帳本 remaining 阻擋超額，直接推翻「DB 不做防超退」拍板；且帳本看不到 Portal 手動退款，數值不是正式可退額。[七拍板:46](/Users/sean_1/pcm-refund-wire/docs/handoff/2026-08-01-a7c-night-run-handoff.md:46)、[migration:47](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:47)、[remaining 註解:437](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:437)。修法：移除上限守門，或新增明確決策題請 Sean 正式推翻原拍板。
+
+- must-fix — §3 deferred 映射（[plan:69](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:69)）把 `deferred` 寫成 `failed`，違反契約「不是 failure、不得讓 caller 誤判後重退」；failed 又會被 remaining 排除，可能立即開放第二筆退款。[types.ts:173](/Users/sean_1/pcm-refund-wire/packages/domain/src/payment/types.ts:173)、[remaining:457](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:457)、[10024 證據:160](/Users/sean_1/pcm-refund-wire/docs/reference/tappay-reference.md:160)。修法：新增可持久化的 `deferred` 狀態及轉移規則，並規定同一嘗試不重送、重新查驗後才可建立新 key。
+
+- must-fix — §3 accepted mismatch（[plan:68](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:68)）已拿到真 `refundId` 卻保持 processing；P7C10 禁止 processing 保存該 ID，因此唯一直接證據會遺失。[adapter:389](/Users/sean_1/pcm-refund-wire/packages/adapters/src/tappay/TapPayChargeAdapter.ts:389)、[P7C10:342](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:342)。修法：在回應前用獨立 evidence/attempt 欄位或表保存 `refundId`、回傳金額與時間；不能只靠 log 或日後 Record。
+
+- must-fix — §3 unknown throw／§4 接線債 1（[plan:72](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:72)、[plan:76](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:76)）所稱「Record aggregate diff」無法執行：目前沒有在送出前持久化 `refunded_before`，Record 契約也只有聚合資料，不能把差額可靠歸因到這一筆退款。[TradeRecord:238](/Users/sean_1/pcm-refund-wire/packages/domain/src/payment/types.ts:238)、[接線債:143](/Users/sean_1/pcm-refund-wire/docs/handoff/2026-08-03-nightly-refund-adapter.md:143)。修法：送出前同交易保存 Record baseline、目標金額與查驗版本；定義 Record 不可用、多人並發及 Portal 介入時的停止規則。
+
+- must-fix — §3 full 比對（[plan:68](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:68)）寫「full 比 remaining」會踩時序陷阱：initiate 插入 processing 後，remaining 已扣掉該筆，full 很可能讀成 0。[remaining:457](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:457)。修法：一律比對 initiate 回傳／帳本凍結的 `refund_amount`；若需要 pre-insert remaining，必須另存 snapshot，禁止 finalize 時重算。
+
+- nit — §3 accepted→confirmed（[plan:68](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:68)）不一定映錯，但 plan 未定義 `confirmed` 是「TapPay 接受請求」還是「款項已退入消費者端」；契約明說 accepted 不代表已入帳。[types.ts:167](/Users/sean_1/pcm-refund-wire/packages/domain/src/payment/types.ts:167)。修法：把資料語意、UI 用詞及 RF8 後續查驗責任寫死，避免後台顯示「退款完成」。
+
+- must-fix — §2 G7（[plan:53](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:53)）要求驗證 `(order_id, kind, amount)`，但帳本根本沒有 `kind` 欄位，無法驗證 full/partial 指紋。[ledger schema:80](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260725130100_m3_rf2a2_order_refunds_ledger.sql:80)。修法：把 `kind` 持久化並納入 immutable guard，不能用會隨帳本變動的 remaining 反推。
+
+- must-fix — §2 G7 的 token 可跨訂單重用：`request_id` 只有 nonblank，沒有 UNIQUE；proxy 也明記 session holder 可自行選擇／重用 token。[ledger:96](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260725130100_m3_rf2a2_order_refunds_ledger.sql:96)、[proxy.ts:31](/Users/sean_1/pcm-refund-wire/apps/admin/src/proxy.ts:31)。修法：新增全域 action-token 唯一鍵，RPC 必須以 token 找既有列再逐欄比對指紋；明定重播遇到 processing、confirmed、deferred、failed 各自回什麼。
+
+- must-fix — §4 接線債 2（[plan:77](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:77)）聲稱 G1＋UI pending 可防雙擊，但 G1 的 row lock 在 initiate 結束就釋放；若 Q1 選 advisory-lock 方案，第二次點擊仍可再建 processing。[plan Q1:83](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:83)。修法：使用可跨 HTTP／網路等待期存在的 partial unique constraint 或明確 lease；UI 只能降噪，不能列為金流守門。
+
+- must-fix — §2 G10（[plan:56](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:56)）兩段式 `SUM >= total ? refunded : partiallyRefunded` 會在 failed/deferred/not-sent 且 SUM=0 時把 paid 訂單翻成 partiallyRefunded，也可能把原本 `refunded` 降級。[state-machine:18](/Users/sean_1/pcm-refund-wire/packages/domain/src/order/state-machine.ts:18)、[P7C02:232](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:232)。修法：failed 類結果不得改 payment status；confirmed 才做單調轉移，且必須處理 0／partial／full 三態並禁止 refunded 降級。
+
+- must-fix — G10 的並發正確性尚未成為可實作規格。要讓等待中的第二個 finalize 看見第一筆 committed SUM，必須在 `READ COMMITTED` 下先鎖 order，再 CAS refund，最後用新 statement 算 SUM；反過來先鎖 refund 會破壞既有 order→refund 鎖順序，Repeatable Read 也可能看不到新 commit。[plan:56](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:56)、[既有 order lock:218](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:218)。修法：把精確 SQL 順序與 isolation assertion 寫進 plan/harness，測兩個 finalize 交錯與失敗 rollback。
+
+- must-fix — Q1 A/B（[plan:83](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:83)）不是可互換選項：A 保證跨請求只有一筆 processing；B 的 transaction advisory lock 只保護 initiate 當下，plan 自己也承認不擋 residual processing。修法：將「是否允許多筆 processing」獨立成業務決策；若答案是不允許，B 應刪除或改成持久 lease。
+
+- must-fix — 缺少「已是 refunded 的訂單能否再從系統退款」決策。P7C02 特意允許 `refunded`，但 domain state machine 把 refunded 視為 terminal；本地帳本又可能不知道 Portal 歷史退款。[P7C02:238](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:238)、[state-machine:38](/Users/sean_1/pcm-refund-wire/packages/domain/src/order/state-machine.ts:38)。修法：新增決策題，選擇硬擋、先查 Record 後允許，或明確的人工覆核流程。
+
+- must-fix — §2 G11（[plan:60](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:60)）把 session、Origin、actor 稱為「三道授權」不成立：目前是共用 SSO，actor cookie 是使用者自行選的署名，不是身分或退款權限。[authorize.ts:12](/Users/sean_1/pcm-refund-wire/apps/admin/src/lib/session/authorize.ts:12)、[actor.ts:5](/Users/sean_1/pcm-refund-wire/apps/admin/src/lib/session/actor.ts:5)、[session.ts:11](/Users/sean_1/pcm-refund-wire/apps/admin/src/lib/session/session.ts:11)。修法：拍板退款 capability／角色或 step-up 驗證；未完成個人身分前，audit 不得宣稱 actor 是已驗證操作者。
+
+- must-fix — §2 G8/G9（[plan:54](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:54)）只寫「同交易 audit」與 refund-table owner，不足以驗證 initiate、finalize、recovery 都可原子寫入 audit table；SECURITY DEFINER owner 還必須具備 audit table/RLS 所需權限。[A6 owner/ACL 查驗:322](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260802150000_m4b_e10_a6_admin_append_order_note.sql:322)、[owner 相等要求:348](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260802150000_m4b_e10_a6_admin_append_order_note.sql:348)。修法：逐 RPC 定義 audit action/payload，並複製 A6 的 owner、ACL、RLS、FORCE RLS 與 rollback harness。
+
+- nit — 守門清單把既有條件重複算成新門：G3 的 `amount>0` 已由 CHECK 保證，G6 的 confirmed refund ID 已有 P7C09，failed nonblank reason 也已有 CHECK。[ledger:94](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260725130100_m3_rf2a2_order_refunds_ledger.sql:94)、[ledger:124](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260725130100_m3_rf2a2_order_refunds_ledger.sql:124)、[P7C09:332](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:332)。修法：標成「沿用既有門」，不要灌大新增守門數量。
+
+- must-fix — G6 的 outcome allowlist 含字面 `<其他>`（[plan:52](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:52)），不是可執行規格。修法：列出固定 machine codes，未知值統一映射單一 `unexpected_adapter_error`；人工文字另放受長度限制的 detail 欄。
+
+- must-fix — RPC 輸入守門缺少 `reason`、actor、request token 的長度、格式與控制字元限制；現有 schema 對這些文字欄位幾乎只有 nonblank。[ledger:90](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260725130100_m3_rf2a2_order_refunds_ledger.sql:90)。修法：比照 owner RPC 先例加入固定上限、trim 後 nonblank、actor 格式、UUID/token 格式及拒絕控制字元的 harness。
+
+- must-fix — RW1→RW2 缺少實際可跨越的 apply checkpoint。RW1 明訂不 apply（[plan:37](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:37)），但 RW2 要讓 typed `SupabaseClient<Database>` 呼叫新 RPC；未 apply＋重生 types 時 RPC 不存在於型別。[client.ts:60](/Users/sean_1/pcm-refund-wire/packages/adapters/src/supabase/client.ts:60)、[database.types.ts:2194](/Users/sean_1/pcm-refund-wire/packages/adapters/src/supabase/database.types.ts:2194)。修法：RW1 後新增 Sean apply→production read-back→regen types→typecheck 的硬停點，通過才開 RW2。
+
+- must-fix — RW2（[plan:38](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:38)）同時搬 endpoint、改 package export、storefront composition、admin composition、action、按鈕與 sandbox E2E，明顯不是 15–45 分鐘 slice。搬檔還會打破目前讀取 sibling `composition.ts` 的測試與 adapters export surface。[endpoint test:32](/Users/sean_1/pcm-refund-wire/apps/storefront/src/lib/payment/tappay-endpoints.test.ts:32)、[package exports:8](/Users/sean_1/pcm-refund-wire/packages/adapters/package.json:8)、[slice 規則](/Users/sean_1/pcm-refund-wire/AGENTS.md:29)。修法：至少拆成 shared endpoint/export、storefront 回歸、admin composition、action、full-only UI、sandbox E2E 六片。
+
+- must-fix — RW2 sandbox E2E（[plan:106](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:106)）拿 probe 自建 TapPay 交易，卻沒有建立 `orders` 中相同 `tappay_rec_trade_id` 的測試訂單；P7C03 會直接拒絕。更未證明 dev admin 的 Supabase 與 TapPay merchant/environment 成對。[P7C03:248](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:248)、[probe 前提:149](/Users/sean_1/pcm-refund-wire/docs/reference/tappay-reference.md:149)。修法：提供可回收的 PCM 訂單 fixture，先核對 DB、merchant、gateway mode，再限制金額執行；環境不一致必須 fail closed。
+
+- must-fix — Q2/Q4 無法產生合規拆片。Q2-B 把 full+partial 一次做完更超時；Q4-A 自己承認 harness 需多 1–2 小時，Q4-B 則在錢＋schema 高風險工作刪減負向測試。[plan Q2:89](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:89)、[plan Q4:98](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:98)。修法：安全案例不設可刪選項，改成必跑但拆成多個 15–45 分鐘 harness slices。
+
+- must-fix — Q3 sentinel（[plan:93](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:93)）不可行：`RECOVERED+日期` 同日多筆會撞 `tappay_refund_id` UNIQUE；即使沒撞，P7C07 write-once 也讓日後真 ID 無法補回。[ledger unique:133](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260725130100_m3_rf2a2_order_refunds_ledger.sql:133)、[P7C07:322](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:322)。修法：真 provider ID 與 recovery evidence 分欄；沒有真 ID 時不得偽造 `tappay_refund_id`。
+
+- must-fix — RW4／接線債 1（[plan:40](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:40)）沒有定義掃描條件、等待多久、Record 差額算法、誰可人工關帳、失敗後如何告警及驗收案例，卻在 rollback 稱為「純流程/SOP」（[plan:108](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:108)）。修法：承認它需要 schema/RPC/evidence 支援，另立 recovery slice 與可重現 harness；不能到動工後才問要不要 RPC。
+
+- must-fix — RW3 將帳本函式結果顯示成「剩餘可退」（[plan:39](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:39)），違反 migration 註解：該值不含 Portal，不能當真正 refundable remaining。[migration:437](/Users/sean_1/pcm-refund-wire/supabase/migrations/20260801120000_m4b_e10_a7c_refund_ledger_guards.sql:437)。修法：改標「系統帳本未登記金額」，或先以 Record 查驗後才提供可退款額。
+
+- must-fix — probe 的 `refund_amount` 結論已被 plan 當正式契約（[plan:18](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:18)），但 domain JSDoc 仍寫語意未知；證據只是 sandbox 的有限樣本。[types.ts:170](/Users/sean_1/pcm-refund-wire/packages/domain/src/payment/types.ts:170)、[probe:157](/Users/sean_1/pcm-refund-wire/docs/reference/tappay-reference.md:157)。修法：把它表述為「sandbox 已觀測 invariant」，保留 mismatch fail-closed，並在 RW1 同步契約註解與測試，不能拿來推論正式環境帳務已完成。
+
+- nit — n=1 併發 probe 本身沒有被過度外推：plan 有保留「只能當 signal、仍需 DB 序列化」；但驗收不得把它列為並發安全證明。[plan:19](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:19)、[probe n=1:164](/Users/sean_1/pcm-refund-wire/docs/reference/tappay-reference.md:164)。修法：正式安全證據只認 RPC 交錯 harness。
+
+- nit — §4 接線債 3（[plan:78](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:78)）雖設成 hard gate，卻沒有寫 residual probe 的預期輸出、失敗停止條件及不同結果如何改 retry/recovery 政策。[reference:168](/Users/sean_1/pcm-refund-wire/docs/reference/tappay-reference.md:168)。修法：補成 yes/no 驗收矩陣，未得到結論時不得開 UI。
+
+- nit — G13（[plan:61](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:61)）只是縮短雙擊視窗，不是安全守門，也不解決重送、換分頁或直接呼叫 action。修法：移到 UX mitigation，守門清單只保留 server/DB 可強制的 invariant。
+
+- must-fix — rollback（[plan:108](/Users/sean_1/pcm-refund-wire/docs/specs/2026-08-03-a7c-refund-wire-plan.md:108)）以「整份 migration/table 重建」為退路，真實帳本列出現後不可接受。修法：逐物件提供 forward rollback：先停 UI、撤 GRANT、移除新 RPC/index/trigger，保留所有退款列與 audit；不可重建或丟棄帳本。
+
+## R2 = FAIL(F1-F28:20 關 8 未關;新增 N1-N3)
+
+**結論：FAIL。** R1 的 28 條中，**20 條已關、8 條未關**。未關的是 F2、F4、F5、F12、F15、F17、F18、F24；另有 3 個 v2 新增的 must-fix。
+
+### F1–F28 關閉判定
+
+| Finding | 判定 | 理由與行號 |
+|---|---|---|
+| F1 | 已關 | 已刪除 remaining 上限，只驗正整數，明訂不設上界、超額交 TapPay 10051。`plan:26,62` |
+| F2 | **未關** | `plan:15` 已記「獨立 deferred 態」，但 Q1-B 仍允許把 deferred 記成 failed。把違反既定語意的方案留作選項，不算修正。`plan:57,82,96-100` |
+| F3 | 已關 | 新增獨立 S3 evidence 欄，可在 processing 寫入；accepted mismatch 不再丟失 refundId。`plan:54,66,80-81,89`。但 S3 自身又有新守門缺口，見 N2。 |
+| F4 | **未關** | 加了 baseline 欄，卻沒有可執行資料流。RW1a 的 initiate 是 PostgreSQL RPC，現有 Record API 是 TypeScript adapter；DB RPC 不會自己打 TapPay。RW2c 又寫成「RPC initiate→refund」，沒有「先 recordQuery→驗唯一紀錄→把 baseline 傳入 RPC」的步驟或參數。`plan:37,42,53`；`packages/ports/src/ITapPayAdapter.ts:58-61` |
+| F5 | **未關** | 比對對象已改成凍結的列值，避開 insert 後 remaining=0；但「全額退」沒有金額輸入，也未定義凍結 `refund_amount` 要如何算出。缺少例如 `originalAmount - refundedBefore` 的權威公式，問題只是往前移。`plan:42,53,62,66` |
+| F6 | 已關 | 明確定義 confirmed = TapPay 受理，不等於款項已入帳，並寫出全額／部分退款的營運口徑。`plan:80` |
+| F7 | 已關 | S1 正式新增 `kind`，G4 指紋改為引用實際存在的欄位。`plan:52,63` |
+| F8 | 已關 | S4 新增全域 `request_id` UNIQUE，跨單重用會被 G4 指紋比對拒絕。`plan:55,63` |
+| F9 | 已關 | 改用 DB partial unique 作 single-flight，明確刪除 advisory lock 方案；UI 只作降噪。`plan:56,73,90` |
+| F10 | 已關 | payment status 只在 confirmed 分支翻轉；failed、deferred、not_sent 均零觸碰，且 refunded 不降級。`plan:67,80-85` |
+| F11 | 已關 | 已規定同交易精確順序：鎖 order→CAS 本列→新 statement SUM confirmed→翻轉。`plan:67` |
+| F12 | **未關** | 兩個不等價方案仍並列：A 保留 deferred 語意，B 把它塞進 failed。這不是可互換的儲存選擇，且 B 與 `plan:15` 的既定語意衝突。`plan:57,82,96-100` |
+| F13 | 已關 | 新增 Q2，明確要求 Sean 決定 refunded 訂單是否可再發起。`plan:102-105` |
+| F14 | 已關 | 已揭露 actor 是自報、非真實身分驗證，並用 Q3 決定接受現況或等 E8-B。`plan:31,72,106-109` |
+| F15 | **未關** | G9 只寫「逐 RPC 定義 action+payload 白名單」，本文沒有實際 action 字串、before/after/payload 欄位集合及 recovery audit 內容。仍是要求施工者日後再定義。`plan:68` |
+| F16 | 已關 | 新增／沿用／app 縱深已分區；沿用的 P7C09、failed CHECK 明訂不計新守門，app 層也不計。`plan:49,65,71` |
+| F17 | **未關** | machine codes 已列出，但 `detail` 欄沒有出現在 S1–S6 或既有 schema；而 `unexpected_adapter_error` 說要進 finalize，`plan:74` 又規定所有其他 throw 不 finalize、留 processing，兩條互相衝突。`plan:51-57,65,74`；既有表只有 `failed_reason`：`20260725130100...sql:96-103` |
+| F18 | **未關** | 已補「長度上限／控制字元／token 格式」方向，但沒有 reason、actor、request_id、detail 的實際上限與完整 CHECK／regex；S3 evidence 也沒有非空、trim、長度規格。仍無法直接產生 migration 與負測。`plan:54,61-65` |
+| F19 | 已關 | RW1 apply→read-back→regen types→typecheck 已設成硬停點，未過不得開 RW2。`plan:39,125` |
+| F20 | 已關 | RW2 已拆成 a–d；搬檔的測試、exports、storefront import 波及也有列出。`plan:40-43` |
+| F21 | 已關 | RW2d 已要求建立合法 order fixture、填入 sandbox `tappay_rec_trade_id` 通過 P7C03，並驗證 local Supabase 與 sandbox TapPay 配對。`plan:43` |
+| F22 | 已關 | 新 Q2、Q4 都是兩個互斥選項，並標推薦與代價。`plan:102-114` |
+| F23 | 已關 | sentinel 路線已移除；Q4-A 改用 Portal 取得真 DR 碼，不撞 UNIQUE／P7C07。`plan:111-114` |
+| F24 | **未關** | RW4 已從一句 SOP 擴寫，但仍缺 T 的值、具體入口／RPC 簽章、「Portal 介入痕跡」的可機械判定、Record 多筆／查無／欄位缺失規則及可生成的 harness 格。加上 F4 baseline 流程不可執行，RW4 尚不是完整規格。`plan:45,89` |
+| F25 | 已關 | UI 改稱「帳本未登記額」，明確不宣稱是真實剩餘可退額。`plan:44,83` |
+| F26 | 已關 | `refund_amount` 只標為 sandbox 觀測，禁止外推正式帳務；正式接線只作相等比對，失配 fail-closed。`plan:18,22,66,80-81` |
+| F27 | 已關 | 兩個今晚殘項已有成功／失敗分支及各自 stop rule。`plan:91` |
+| F28 | 已關 | rollback 改為逐物件 forward rollback；有真退款列後不重建表、不刪帳本與 audit。`plan:127` |
+
+### v2 新問題
+
+1. **N1 — deferred 宣稱釋出額度，但既有 remaining 函式仍會扣除 deferred。**
+
+   v2 說 deferred 是終態、額度釋出並可開新列：`plan:57,82`。但既有函式使用：
+
+   `WHERE r.status <> 'failed'`
+
+   因此新 `deferred` 仍被 SUM，RW3 的「帳本未登記額」會持續少算；S5 已允許新 processing 列後，更會同時扣到舊 deferred 與新列。`20260801120000...sql:450-467`
+
+   Q1=A 時必須同步把函式與 COMMENT／harness 改成只計 `processing|confirmed`。
+
+2. **N2 — S3 與 P7C08/P7C07/P7C10 沒直接相撞，但也沒有真正受到它們保護。**
+
+   - P7C08 只擋 INSERT 預填 `tappay_refund_id`：`20260801120000...sql:262-269`
+   - P7C07 只保護 `tappay_refund_id/confirmed_at`：`:322-330`
+   - P7C10 只禁止 processing 期間填 `tappay_refund_id`：`:342-348`
+
+   所以 processing 寫 S3 在結構上可行；confirmed 同次把 `tappay_refund_id` 由 NULL 寫成值，也符合 P7C07/P7C09/P7C10。
+
+   但 v2 只有「write-once」文字，沒有規定：
+
+   - INSERT 時 S3 必須為 NULL。
+   - 僅允許 NULL→合法非空值，之後不可改／清空。
+   - confirmed 時 S3 與 `tappay_refund_id` 必須一致，包含 RW4 recovery 同次補齊。
+
+   因此答案是：**可相容，但目前規格未形成完整守門。**
+
+3. **N3 — G6 新增了不存在的資料形狀與不可達 outcome。**
+
+   `detail` 欄未列入 schema；`unexpected_adapter_error` 又被 `plan:74` 的「其他 throw 不 finalize」規則排除。這會讓 migration、RPC 回傳碼及 UI 無法從同一規格生成。`plan:51-57,65,74`
+
+### S5 與 G4 專項結論
+
+S5 本身的金錢安全方向成立：
+
+- processing 列唯一；failed／deferred／confirmed 不在 partial index，能與新 processing 列並存。
+- 同一 `request_id` 重播應先由 G4 查到原列，不重新 INSERT，因此不撞 S5。
+- 不同 `request_id` 在既有 processing 尚存時會被 S5 擋下，沒有雙退窗口。
+
+仍有一個非漏錢但需補規格的角落：不同 request 命中 S5 時，G4 沒有定義如何把該 index 的 `23505` 穩定轉成「已有退款處理中」；目前只會落成未指定的 RPC 錯誤。更嚴重的是 Q1=A 的 deferred 雖會釋放 S5，卻不會釋放既有 remaining 函式的顯示額度，即 N1。
+
+本輪全程唯讀；working tree 狀態前後一致，未修改任何檔案。
+tokens used
+219,179
+**結論：FAIL。** R1 的 28 條中，**20 條已關、8 條未關**。未關的是 F2、F4、F5、F12、F15、F17、F18、F24；另有 3 個 v2 新增的 must-fix。
+
+### F1–F28 關閉判定
+
+| Finding | 判定 | 理由與行號 |
+|---|---|---|
+| F1 | 已關 | 已刪除 remaining 上限，只驗正整數，明訂不設上界、超額交 TapPay 10051。`plan:26,62` |
+| F2 | **未關** | `plan:15` 已記「獨立 deferred 態」，但 Q1-B 仍允許把 deferred 記成 failed。把違反既定語意的方案留作選項，不算修正。`plan:57,82,96-100` |
+| F3 | 已關 | 新增獨立 S3 evidence 欄，可在 processing 寫入；accepted mismatch 不再丟失 refundId。`plan:54,66,80-81,89`。但 S3 自身又有新守門缺口，見 N2。 |
+| F4 | **未關** | 加了 baseline 欄，卻沒有可執行資料流。RW1a 的 initiate 是 PostgreSQL RPC，現有 Record API 是 TypeScript adapter；DB RPC 不會自己打 TapPay。RW2c 又寫成「RPC initiate→refund」，沒有「先 recordQuery→驗唯一紀錄→把 baseline 傳入 RPC」的步驟或參數。`plan:37,42,53`；`packages/ports/src/ITapPayAdapter.ts:58-61` |
+| F5 | **未關** | 比對對象已改成凍結的列值，避開 insert 後 remaining=0；但「全額退」沒有金額輸入，也未定義凍結 `refund_amount` 要如何算出。缺少例如 `originalAmount - refundedBefore` 的權威公式，問題只是往前移。`plan:42,53,62,66` |
+| F6 | 已關 | 明確定義 confirmed = TapPay 受理，不等於款項已入帳，並寫出全額／部分退款的營運口徑。`plan:80` |
+| F7 | 已關 | S1 正式新增 `kind`，G4 指紋改為引用實際存在的欄位。`plan:52,63` |
+| F8 | 已關 | S4 新增全域 `request_id` UNIQUE，跨單重用會被 G4 指紋比對拒絕。`plan:55,63` |
+| F9 | 已關 | 改用 DB partial unique 作 single-flight，明確刪除 advisory lock 方案；UI 只作降噪。`plan:56,73,90` |
+| F10 | 已關 | payment status 只在 confirmed 分支翻轉；failed、deferred、not_sent 均零觸碰，且 refunded 不降級。`plan:67,80-85` |
+| F11 | 已關 | 已規定同交易精確順序：鎖 order→CAS 本列→新 statement SUM confirmed→翻轉。`plan:67` |
+| F12 | **未關** | 兩個不等價方案仍並列：A 保留 deferred 語意，B 把它塞進 failed。這不是可互換的儲存選擇，且 B 與 `plan:15` 的既定語意衝突。`plan:57,82,96-100` |
+| F13 | 已關 | 新增 Q2，明確要求 Sean 決定 refunded 訂單是否可再發起。`plan:102-105` |
+| F14 | 已關 | 已揭露 actor 是自報、非真實身分驗證，並用 Q3 決定接受現況或等 E8-B。`plan:31,72,106-109` |
+| F15 | **未關** | G9 只寫「逐 RPC 定義 action+payload 白名單」，本文沒有實際 action 字串、before/after/payload 欄位集合及 recovery audit 內容。仍是要求施工者日後再定義。`plan:68` |
+| F16 | 已關 | 新增／沿用／app 縱深已分區；沿用的 P7C09、failed CHECK 明訂不計新守門，app 層也不計。`plan:49,65,71` |
+| F17 | **未關** | machine codes 已列出，但 `detail` 欄沒有出現在 S1–S6 或既有 schema；而 `unexpected_adapter_error` 說要進 finalize，`plan:74` 又規定所有其他 throw 不 finalize、留 processing，兩條互相衝突。`plan:51-57,65,74`；既有表只有 `failed_reason`：`20260725130100...sql:96-103` |
+| F18 | **未關** | 已補「長度上限／控制字元／token 格式」方向，但沒有 reason、actor、request_id、detail 的實際上限與完整 CHECK／regex；S3 evidence 也沒有非空、trim、長度規格。仍無法直接產生 migration 與負測。`plan:54,61-65` |
+| F19 | 已關 | RW1 apply→read-back→regen types→typecheck 已設成硬停點，未過不得開 RW2。`plan:39,125` |
+| F20 | 已關 | RW2 已拆成 a–d；搬檔的測試、exports、storefront import 波及也有列出。`plan:40-43` |
+| F21 | 已關 | RW2d 已要求建立合法 order fixture、填入 sandbox `tappay_rec_trade_id` 通過 P7C03，並驗證 local Supabase 與 sandbox TapPay 配對。`plan:43` |
+| F22 | 已關 | 新 Q2、Q4 都是兩個互斥選項，並標推薦與代價。`plan:102-114` |
+| F23 | 已關 | sentinel 路線已移除；Q4-A 改用 Portal 取得真 DR 碼，不撞 UNIQUE／P7C07。`plan:111-114` |
+| F24 | **未關** | RW4 已從一句 SOP 擴寫，但仍缺 T 的值、具體入口／RPC 簽章、「Portal 介入痕跡」的可機械判定、Record 多筆／查無／欄位缺失規則及可生成的 harness 格。加上 F4 baseline 流程不可執行，RW4 尚不是完整規格。`plan:45,89` |
+| F25 | 已關 | UI 改稱「帳本未登記額」，明確不宣稱是真實剩餘可退額。`plan:44,83` |
+| F26 | 已關 | `refund_amount` 只標為 sandbox 觀測，禁止外推正式帳務；正式接線只作相等比對，失配 fail-closed。`plan:18,22,66,80-81` |
+| F27 | 已關 | 兩個今晚殘項已有成功／失敗分支及各自 stop rule。`plan:91` |
+| F28 | 已關 | rollback 改為逐物件 forward rollback；有真退款列後不重建表、不刪帳本與 audit。`plan:127` |
+
+### v2 新問題
+
+1. **N1 — deferred 宣稱釋出額度，但既有 remaining 函式仍會扣除 deferred。**
+
+   v2 說 deferred 是終態、額度釋出並可開新列：`plan:57,82`。但既有函式使用：
+
+   `WHERE r.status <> 'failed'`
+
+   因此新 `deferred` 仍被 SUM，RW3 的「帳本未登記額」會持續少算；S5 已允許新 processing 列後，更會同時扣到舊 deferred 與新列。`20260801120000...sql:450-467`
+
+   Q1=A 時必須同步把函式與 COMMENT／harness 改成只計 `processing|confirmed`。
+
+2. **N2 — S3 與 P7C08/P7C07/P7C10 沒直接相撞，但也沒有真正受到它們保護。**
+
+   - P7C08 只擋 INSERT 預填 `tappay_refund_id`：`20260801120000...sql:262-269`
+   - P7C07 只保護 `tappay_refund_id/confirmed_at`：`:322-330`
+   - P7C10 只禁止 processing 期間填 `tappay_refund_id`：`:342-348`
+
+   所以 processing 寫 S3 在結構上可行；confirmed 同次把 `tappay_refund_id` 由 NULL 寫成值，也符合 P7C07/P7C09/P7C10。
+
+   但 v2 只有「write-once」文字，沒有規定：
+
+   - INSERT 時 S3 必須為 NULL。
+   - 僅允許 NULL→合法非空值，之後不可改／清空。
+   - confirmed 時 S3 與 `tappay_refund_id` 必須一致，包含 RW4 recovery 同次補齊。
+
+   因此答案是：**可相容，但目前規格未形成完整守門。**
+
+3. **N3 — G6 新增了不存在的資料形狀與不可達 outcome。**
+
+   `detail` 欄未列入 schema；`unexpected_adapter_error` 又被 `plan:74` 的「其他 throw 不 finalize」規則排除。這會讓 migration、RPC 回傳碼及 UI 無法從同一規格生成。`plan:51-57,65,74`
+
+### S5 與 G4 專項結論
+
+S5 本身的金錢安全方向成立：
+
+- processing 列唯一；failed／deferred／confirmed 不在 partial index，能與新 processing 列並存。
+- 同一 `request_id` 重播應先由 G4 查到原列，不重新 INSERT，因此不撞 S5。
+- 不同 `request_id` 在既有 processing 尚存時會被 S5 擋下，沒有雙退窗口。
+
+仍有一個非漏錢但需補規格的角落：不同 request 命中 S5 時，G4 沒有定義如何把該 index 的 `23505` 穩定轉成「已有退款處理中」；目前只會落成未指定的 RPC 錯誤。更嚴重的是 Q1=A 的 deferred 雖會釋放 S5，卻不會釋放既有 remaining 函式的顯示額度，即 N1。
+
+本輪全程唯讀；working tree 狀態前後一致，未修改任何檔案。
