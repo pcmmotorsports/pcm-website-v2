@@ -54,3 +54,16 @@ Q4: A|B     (授權修訂 master plan row 28/A4a 鎖序字面;推薦 A)
 3. 實作照 plan §3-§5;harness provision 前先處理 port 54329(昨晚 a6 postmaster 還在跑,`pg_ctl -D /tmp/a6-work/pgdata stop` 後再 provision 新 workdir)。
 4. Q4=A 的話順手修 master plan row 28/A4a 字面(同 commit 或緊鄰 commit)。
 5. worktree 併回由主視窗決定;本分支只有 docs commit、不 push。
+
+---
+
+# 早上續章(2026-08-03;Sean 拍板「依照建議」= Q1-Q4=A 後)
+
+> ⚠️ 上文「沒做什麼」節的「零 migration code、兩檔不存在」「master plan 字面尚未修訂」**自本節起已不成立**(code-reviewer R1 MF3 抓假字面,補此節更正;凌晨字面保留為歷史)。
+
+- **拍板落檔**:plan §9 註記 Q1-Q4=A + master plan row 28/A4a/`:369` 三處字面修訂(Q4=A)+ memory `project_m4b-a2b1-guard-decisions`。
+- **已實作**:`supabase/migrations/20260803130000_m4b_e10_a2b1_procurement_allocation_guard.sql`(守門函式 + constraint trigger + 檔內結構驗收)+ `scripts/a2b1-verify.sh`。
+- **已驗**(最終版全鏈,證據 log:`/tmp/a2b1-provision4.log` / `/tmp/a2b1-verify3.log` / `/tmp/a2b1-sibling-a6.log` / `/tmp/a2b1-verify4.log`):from-zero provision 套完全部 migration、檔內 DO 驗收過;harness **69/0/0**(CELL=25、MUT=13,含 M1 committed 跨連線突變);兄弟序列 a2b1(69/0)→a6(157/0)→a2b1(69/0)零污染;三綠(turbo 8/8 + 根層 scripts tsc 直呼 5.9.3 零錯 + lint 0;worktree 根層缺 .bin/tsc 是主樹歷史安裝殘跡,非本片造成)。
+- **關卡2 兩線序跑**(紀錄 = `docs/reviews/2026-08-03-e10-a2b1-k1-codex.md` 尾兩節):opus code-reviewer R1 FAIL(3+5)→ 全折 → codex `gpt-5.6-sol` xhigh R1 NO-GO(9+8,逐條親驗駁回 0)→ 全折(M12 雙重假綠、M1 還原旗序、trap 不 exit、break-glass 單交易化、count_gate 共用實作、六錨全序斷言等)→ 修畢全鏈重跑如上 → codex R2 確認輪(結果同檔尾)。
+- 🔴 **請主視窗同步 CURRENT.md:369**(codex K2 N16):「A2b1/A8a2 都已寫死『摘要缺失 fail-closed』」的字面已被 Q4=A 的 master plan `:369` 修訂推翻(該子句撤下、負測意圖由 B8 承接);本視窗依紅線不動 CURRENT。
+- **apply-DoD(等 Sean)**:本 migration 未 apply、未 push;apply = Sean `db push`(先 `--dry-run` 確認清單恰 `20260803130000` 一支);apply 後 read-back 至少:trigger 存在 + tgtype=21 + tgdeferrable/enabled=O、函式 proconfig 兩項、ACL owner-only、`database.types.ts` 重 gen 預期零 diff(trigger 不改表形狀)。

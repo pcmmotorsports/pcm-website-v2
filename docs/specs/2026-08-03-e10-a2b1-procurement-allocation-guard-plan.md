@@ -1,7 +1,8 @@
 # A2b1 片級 plan:`order_item_procurement` 跨列總量守門 constraint trigger
 
-> **v4 · 2026-08-03 凌晨 —— 🛑 本片今晚停在 plan 層、零實作。**
-> 關卡1 三輪:codex `gpt-5.6-sol` xhigh R1 = NO-GO(12 must-fix + 8 nit,親驗駁回 0)→ 折入升 v2 → R2 = NO-GO(處置稽核 13 真修 / 5 部分 / 1 假修;新增 5 must-fix + 7 nit)→ **R3 換模型 Fable 換角度(框架層)= NO-GO(2 must-fix + 3 consider + 3 nit,全部加法、設計不動)**,已全折入本 v4。
+> **v5 · 2026-08-03 早 —— ✅ Sean 拍板 Q1-Q4=A(「依照建議」)後本片已實作**:migration `20260803130000` + `scripts/a2b1-verify.sh`(**69**/0/0、CELL=25、MUT=13、兄弟序列零污染;69 = 關卡2 折入後含 M12-setup 與 M9-restore 兩檢查)+ master plan 三處字面修訂(Q4=A)皆已落地;凌晨版字面「停在 plan 層、零實作」自此僅為歷史紀錄(code-reviewer R1 MF2 抓假字面,升版更正)。關卡2 = opus code-reviewer FAIL(3+5)→ 全折 → codex 審 diff(見 review 檔)。
+> ~~**v4 · 2026-08-03 凌晨 —— 🛑 本片今晚停在 plan 層、零實作。**~~(當時為真)
+> 關卡1 三輪:codex `gpt-5.6-sol` xhigh R1 = NO-GO(12 must-fix + 8 nit,親驗駁回 0)→ 折入升 v2 → R2 = NO-GO(處置稽核 13 真修 / 5 部分 / 1 假修;新增 5 must-fix + 7 nit)→ **R3 換模型 Fable 換角度(框架層)= NO-GO(2 must-fix + 3 consider + 3 nit,全部加法、設計不動)**,已全折入(當時 v4、現行 v5)。
 > R2 殘留的兩條 must-fix(R2-1/R2-2 = R1-6/R1-8 原樣重現)本質是「**須 Sean 事前拍板的交易契約**」,夜間無法收斂 ⇒ 依夜跑指令「關卡1 兩輪不收斂 → 停、寫 handoff 等早上」**判停**。四題決策題 = §9(**apply 硬前置**)。R3 正向結果:trigger(非 RPC)守門落點被獨立確認成立(表對全 role 零寫 GRANT = trigger 是地板)、M1-M11 突變無「他機制供觀察」假綠形狀、A2b2/A4a 依 v3 介面可做。
 > findings 逐字與逐條處置 = `docs/reviews/2026-08-03-e10-a2b1-k1-codex.md`;收工交接 = `docs/handoff/2026-08-03-nightly-a2b1-chain.md`。
 > 片型 **T / 高風險片**(鐵則 12③;completion-map `:106,115`)。授權:Sean 08-03 Q1=A 三線夜跑(STATUS.md:10)。
@@ -27,7 +28,7 @@
 | # | 契約 | 來源 |
 |---|---|---|
 | C1 | 守門不得讀 `order_item_quantity_summary`;鎖 parent 後回真相表重算;負測必含「刪掉/竄改摘要列後守門仍正確」 | master plan `:363-370`;A1 row `:361` |
-| C2 | **鎖序契約的實況(R2-3 更正)**:row 28 字面「鎖序固定 order_items → order_item_procurement」對 AFTER trigger **物理上做不到** —— DML 先鎖 procurement tuple、trigger 才鎖 parent。本片把 C2 重述為:「**守門互斥靠 parent 列鎖序列化;跨物件取鎖順序的紀律屬 writer**」。⚠️ master plan row 28 與 A4a row `:372` 的鎖序字面需要 Sean 確認修訂(早上議程,今晚不動 master plan) | master plan `:363,:372`;R2-3 |
+| C2 | **鎖序契約的實況(R2-3 更正)**:row 28 字面「鎖序固定 order_items → order_item_procurement」對 AFTER trigger **物理上做不到** —— DML 先鎖 procurement tuple、trigger 才鎖 parent。本片把 C2 重述為:「**守門互斥靠 parent 列鎖序列化;跨物件取鎖順序的紀律屬 writer**」。✅ master plan row 28 與 A4a row 的鎖序字面已依 Q4=A 於 08-03 早修訂完成(同 worktree diff) | master plan `:363,:372`;R2-3 |
 | C3 | 表現行形狀 = `supplier_id uuid NOT NULL` FK;business key `UNIQUE (order_item_id, supplier_id)` | S1b `20260801150000:137-143` |
 | C4 | `cancelled_quantity` 只有 `> 0`、刻意無上限;同品項跨 header 累積 | A7 `20260730130000:215-223,241-244` |
 | C5 | `order_items.quantity` 只有 `> 0`、無上限 ⇒ 守門算術全程 bigint 變數 | `20260604120000:146`;§5.1c `:466-468` |
@@ -37,7 +38,7 @@
 | C9 | **(R2-8 更正我的假字面)**`order_items` 既有 writer:`admin_update_order_item_workflow` 會 `FOR UPDATE` 鎖列(`20260716130000:101`)再 UPDATE `workflow_status/version/updated_at`(`:138-142`)—— **零 quantity writer** 仍成立(SET 清單字面寫死),但守門 NKU 會與它短暫互斥(FOR UPDATE vs NKU 衝突;皆單列鎖、無環) | `20260716130000:101,138-142` |
 | C10 | 函式慣例:裸 `CREATE` 禁 `OR REPLACE` + 完整 ACL allowlist(owner 外零 grantee),不只 named REVOKE | A7-t `:138-142,388-404` |
 
-## §3 設計(v3 = 早上開工的基準;§9 四題拍板後才可實作)
+## §3 設計(✅ 已依 §9 拍板實作;本節 = 實作依據)
 
 ### 3.1 觸發物形狀
 
@@ -71,6 +72,8 @@ CREATE CONSTRAINT TRIGGER order_item_procurement_allocation_guard_ac
    USING CONSTRAINT = 'a2b1_allocation_within_orderable'(訊息帶三數字)
 ```
 
+(實作補記,code-reviewer N7:隔離閘的 CONSTRAINT tag = `a2b1_isolation_read_committed_only`,harness 對它精確斷言。)
+
 - **③ `FOR NO KEY UPDATE`(R1-1 實測折入)**:FK RI 檢查同 statement 先對 parent 取 `FOR KEY SHARE`;兩筆併發 INSERT 各持 KEY SHARE 再升 `FOR UPDATE` = 鎖升級死結(本機 PG17.10 實跑 `40P01 … while locking tuple in "order_items"`);NKU 與 KEY SHARE 相容、guard 間互斥,同實驗零死結。**措辭更正(R2-7)**:NKU 不是「與 FOR UPDATE 等強」,是「**足夠的衝突集合**」—— 擋 SHARE/NKU/FOR UPDATE 與一般 UPDATE/DELETE 列鎖、不擋純 SELECT 與 KEY SHARE,恰好夠 guard 互斥又不撞 RI。
 - bigint(R1-9):危險在**變數宣告**不在表達式(`SUM(integer)` 本回 bigint);M5 = 窄化 `v_cancelled` 為 integer(B10 以 22003 轉紅)。誠實列界(R1-14):bigint 累加器理論可溢位(需 9.2×10^13 列滿額,物理不可達),只宣稱「無 int 中間值」。
 - ERRCODE 沿 A7c 慣例(`20260801120000:215`)。**等鎖逾時與 NOWAIT 的 SQLSTATE 都是 `55P03`**(R2-5 更正 v2 的 55P04 錯字面;lock_timeout 觸發訊息 = `canceling statement due to lock timeout`,已實測)。
@@ -101,14 +104,14 @@ NKU 序列化只在 READ COMMITTED 健全 —— 本機 PG17.10 兩 session 實�
 
 - DDL:`CREATE CONSTRAINT TRIGGER` 只鎖 `order_item_procurement`(0 列表);不碰 `order_items` DDL 鎖。
 - 死結分析:①同 parent 併發 INSERT 的 RI 死結已由 NKU 消除(實測)②A5a 單列 upsert 交易無環 ③**多列 writer 的死結面(R2-4 更正)**:排序鍵必須是**完整 business key `(order_item_id, supplier_id)`** —— 只按 order_item_id 排,同 parent 兩 supplier 列反向更新仍可在 **procurement tuple 鎖**上互鎖(與 trigger 無關的一般多列 UPDATE 死結);contract line 寫進 migration 註解 ④既有 workflow RPC(C9)與守門 NKU 短暫互斥、皆單列 order_items 鎖、無環。PG 偵測到的死結 = abort 一方,fail-closed 可重試。
-- 誠實邊界:①owner/superuser `DISABLE TRIGGER`、`session_replication_role=replica`(`tgenabled='O'`)可繞 —— A7-t 同天花板 ②**閘的不對稱矩陣(R2-11)**:隔離閘只作用於有觸發 guard 的 row event —— RR 下調降 UPDATE 被拒,但 DELETE(未掛 trigger)與零列 UPDATE 不觸發、照常成功 ③減量方向不守 ④`order_items.quantity` 改小不觸發重驗(零 quantity writer,C9;第 3 批改單片決定,contract 債)⑤第 2 批 `shipped_quantity` 連動未寫死(master plan `:452` 未點名 A2b1)⇒ contract 債 ⑥27 項驗收貢獻 = 0 ⑦端到端競態行為證明 = A2b2;本片 B12 的 55P03 只證「存在與 NKU 衝突的列鎖」非精確模式(R2-9),與結構錨合起來殺 M1。
+- 誠實邊界:①owner/superuser `DISABLE TRIGGER`、`session_replication_role=replica`(`tgenabled='O'`)可繞 —— A7-t 同天花板 ②**閘的不對稱矩陣(R2-11)**:隔離閘只作用於有觸發 guard 的 row event —— RR 下調降 UPDATE 被拒,但 DELETE(未掛 trigger)與零列 UPDATE 不觸發、照常成功 ③減量方向不守 ④`order_items.quantity` 改小不觸發重驗(零 quantity writer,C9;第 3 批改單片決定,contract 債)⑤第 2 批 `shipped_quantity` 連動未寫死(master plan `:452` 未點名 A2b1)⇒ contract 債 ⑥27 項驗收貢獻 = 0 ⑦端到端競態行為證明 = A2b2;本片 B12 的 55P03 只證「存在與 NKU 衝突的列鎖」非精確模式(R2-9),與結構錨合起來殺 M1 ⑧**取消側寫入不受本守門序列化(code-reviewer R1 MF1)**:取消表零 trigger、不取 order_items 鎖 ⇒「取消先 commit、採購檢查在其 commit 前」的交錯滑過 delta 守門;今日零實害(取消表零應用寫權、A8a1/A8a2 未建);關閉點 = A4a 對 `order_cancellation_items` 掛同一把 NKU(已入 migration 契約債⑥)。
 
 ### 3.9 break-glass:誤攔當天的合法出路(Fable R3 F2;A7b D8 同形教訓)
 
-守門因 bug 或資料不一致而**錯誤地**擋住合法採購的那一天,合法出路必須事先寫死、不能當天發明(migration 註解明文 + handoff 揭露):
-①執行者 = owner(postgres;Sean 經 dashboard SQL editor)②程序 = `ALTER TABLE public.order_item_procurement DISABLE TRIGGER order_item_procurement_allocation_guard_ac;` → 修正資料 → `ENABLE TRIGGER` → 對受影響品項以守門公式**手動重驗**(SUM 兩真相表)③事後對帳 = 停用期間的寫入逐列列出、與 P2B01 訊息裡的三數字比對、結果記入當日 handoff。**這不是繞過授權**:能執行的人本來就在天花板之上(3.8①);把程序寫死是為了災難日不用臨場拼 SQL。
+守門因 bug 或資料不一致而**錯誤地**擋住合法採購的那一天,合法出路必須事先寫死、不能當天發明:
+①執行者 = owner(postgres;Sean 經 dashboard SQL editor)②程序 = **整段包在單一交易**(codex K2 MF6/R2-3:分段執行時中途失敗 = trigger 永久停用):`BEGIN;` → `DISABLE TRIGGER` → 修正資料 → `ENABLE TRIGGER` → 重驗 DO(對受影響品項以守門公式重算,違反即 RAISE ⇒ 整段回滾、trigger 不會停著)→ `COMMIT;` —— **可直接複製的完整 SQL 在 migration 檔頭,以那份為準**③事後對帳 = 停用視窗內寫入逐列列出、記入當日 handoff。**這不是繞過授權**:能執行的人本來就在天花板之上(3.8①)。
 
-## §4 產物(實作階段;今晚零產出)
+## §4 產物(✅ 08-03 早已產出)
 
 | 檔 | 內容 |
 |---|---|
@@ -120,10 +123,10 @@ NKU 序列化只在 READ COMMITTED 健全 —— 本機 PG17.10 兩 session 實�
 ## §5 harness 設計
 
 - Provision 重用 `scripts/d1t2-rehearsal.sh provision <workdir>`;身分閘三重照 a6(`a6-verify.sh:45-52`)。
-- 判定原語照 a6 實檔:`case_ok`(:55)/`expect_red`(:67)/`mut_block`(:82,DB 內取代 + 三重 preflight);每案 `BEGIN…ROLLBACK`;harness 自檢先過。
+- 判定原語照 a6 實檔:`case_ok`(:55)/`expect_red`(:67)/`mut_block`(:82,DB 內取代 + 三重 preflight);每案 `BEGIN…ROLLBACK`;harness 自檢先過。(實作補記,codex K2 N17:紅格原語實名 `expect_guard` —— `expect_red` 的加嚴變體,DO 內精確斷言 SQLSTATE + CONSTRAINT_NAME。)
 - 三計數器收尾三道獨立閘;SKIP=0。
 - fixture:雙 parent 異質 quantity(P5=5、P3=3);取消向量 2 = 1+1 跨兩 header;EXIT/INT/TERM trap。
-- B12 用第二連線(FIFO + `pg_locks` 輪詢 barrier,照 s2c 原語)。
+- B12 用第二連線(FIFO;barrier = 輪詢 `pg_stat_activity.state` 至 idle-in-txn,照 a7t `:119-132` 原語 —— codex K2 N12 更正 v4 的 pg_locks 字面)。
 - 兄弟序列:`a2b1 → a6 → a2b1` 計數逐一相同、a6 維持 157/0。
 
 ### 5.1 行為 cells(v3)
@@ -163,13 +166,15 @@ M1 拿掉 NKU 鎖(B12+結構錨)/ M2 cancelled 改讀摘要(B8)/ M3 去 `− v_c
 ## §7 rollback 與 contract 債
 
 - down migration:`DROP TRIGGER …; DROP FUNCTION …`;下游 = A2b2/A4a/A4b/A5a(A5a 上線後單獨回滾 = 失去守門,必須同停)。名單對齊 A2 `20260729020000:670-675`。
-- contract 債(migration 註解明文):①第 2 批 `shipped_quantity` 重審公式 ②第 3 批改單決定 quantity 縮小處置 ③A4a/A8a2 鎖原語同用 NKU ④多列 writer 按**完整 business key `(order_item_id, supplier_id)`** 排序,**且 deferred 交易跨 statement 的 parent 觸達順序同受此約束**(Fable R3 F4:defer 把取鎖點移到 COMMIT、排序契約只約束單 statement 的話,兩筆反向多 statement deferred 交易仍可互鎖;後果 = 40P01 fail-closed 可重試,同級揭露)⑤master plan row 28/A4a 鎖序字面修訂(C2 實況),**修訂範圍含 `:369`「真相非零但摘要列缺失 fail-closed」子句**(Fable R3 F7:直讀真相表變體使該子句語意落空,其負測意圖已由 B8 承接)⑥**死配額列膨脹 SUM(Fable R3 F3,真產品劇本)**:供應商回 `out_of_stock` 後改派第二家,原列 `allocated ≥ 1` 禁歸零、A5a 只 upsert 無 delete ⇒ 守門把死列照算、誤攔改派;方向是過度攔截(fail-closed)非放行,自然家 = 第 3 批採購退貨線(master plan `:452`「差額由第 3 批處理」),**在那之前 A10b/A12b 的 UI 文案要能解釋這種攔截**。
+- contract 債(migration 註解明文):①第 2 批 `shipped_quantity` 重審公式 ②第 3 批改單決定 quantity 縮小處置 ③A4a/A8a2 鎖原語同用 NKU ④多列 writer 按**完整 business key `(order_item_id, supplier_id)`** 排序,**且 deferred 交易跨 statement 的 parent 觸達順序同受此約束**(Fable R3 F4:defer 把取鎖點移到 COMMIT、排序契約只約束單 statement 的話,兩筆反向多 statement deferred 交易仍可互鎖;後果 = 40P01 fail-closed 可重試,同級揭露)⑤✅(08-03 早已完成)master plan row 28/A4a 鎖序字面修訂(C2 實況),**修訂範圍含 `:369`「真相非零但摘要列缺失 fail-closed」子句**(Fable R3 F7:直讀真相表變體使該子句語意落空,其負測意圖已由 B8 承接)⑥**死配額列膨脹 SUM(Fable R3 F3,真產品劇本)**:供應商回 `out_of_stock` 後改派第二家,原列 `allocated ≥ 1` 禁歸零、A5a 只 upsert 無 delete ⇒ 守門把死列照算、誤攔改派;方向是過度攔截(fail-closed)非放行,自然家 = 第 3 批採購退貨線(master plan `:452`「差額由第 3 批處理」),**在那之前 A10b/A12b 的 UI 文案要能解釋這種攔截**。
 
 ## §8 已定的非決策項(實作紀律,不待拍板)
 
 防衛枝不列守門計數(§3.6)/ `tgenabled='O'` 沿 A7-t 慣例(replica 邊界揭露於 §3.8)/ 裸 CREATE + 完整 ACL allowlist(C10)/ 函式級 lock_timeout 5s(範圍誠實 §3.5)。
 
 ## §9 🔴 四題決策題(= 關卡1 收斂條件 = **實作與 apply 的硬前置**;R2-1/R2-2)
+
+> ✅ **2026-08-03 Sean 拍板:「依照建議」= Q1=A / Q2=A / Q3=A / Q4=A** ⇒ 關卡1 收斂、實作解鎖(以下保留原題與選項備查;連動 = master plan row 28/A4a 字面同日修訂)。
 
 > 給 Sean 的白話:這張守門網有四個「網眼要開多緊」的選擇。我全部先選了**最緊**的版本寫進 plan(都可便宜翻案),但 codex 兩輪都堅持:這四題是資料庫對外行為的契約,要你拍了才算數。**你拍完之前,這片不寫任何 code。**
 
