@@ -1,6 +1,39 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> ✅ **`A9d2-1` 訂單備註寫入 action 已收工(2026-08-02 深夜)** —— **下一片 = `A10a`(明細頁 UI),等 Sean 確認才開工**(Q2=A 一片一片來)。
+> 🎛️ **2026-08-03 午:主視窗交接(指揮棒移交)—— 你(讀本節者)= 新主視窗,角色是「指揮」不下場實作。**
+>
+> **現況一句話**:三線夜跑全數收割併回且 A2b1 migration 已 apply 正式站;備註線(A6→A9d2-1→A10a-1/2/3)
+> 全收工、**Sean 正式站驗收通過 ⇒ 27 項第 3 項轉綠(7/26 以來第一項)**;細節=STATUS「最後更新」前四條。
+> **dev 本地未推 commit 數當場跑 `git rev-list --count origin/dev..HEAD` 取得,不信本檔數字**;Sean 手動推。
+>
+> **今日計畫(Sean 拍板中,12h 額度衝刺、55% Fable+week)**:兩個平行施工視窗 + 你當指揮。
+> 舊主視窗已把兩題丟給 Sean、**答案可能在你 session 開場時已有或未有,先問清再放行**:
+> ```
+> Q1(視窗分工): A) ①A4a→A4b + ②refund probe+接線plan(推薦) B) 只開視窗① C) 其他
+> Q2(refund 視窗權限): A) probe 真打 sandbox + 接線只出 plan 停關卡1(推薦) B) probe 只跑 C) 接線批完直接寫
+> ```
+> 視窗①模板(A4a→A4b 鏈;worktree `a4a-chain` @ `/Users/sean_1/pcm-a4a-chain`,fable[1m]):
+> 任務=E10 A4a 重算 trigger(高風險)→A4b 競態負測;必讀 `docs/handoff/2026-08-03-nightly-a2b1-chain.md` 終章
+> (A4a 三件既定事項:①三表掛 trigger 鎖原語同 NKU ②關債⑥後把 a2b2 S5 期望翻紅 ③A1 §9 回滾演練=DoD 硬前置)
+> + master plan §5.0/§5.1 A4a row + a2b1 plan(harness 形狀照抄;d1t2 provision 帶 LC_ALL=C、port 54329 查殘留)。
+> 視窗②模板(refund 線;worktree `refund-wire` @ `/Users/sean_1/pcm-refund-wire`,fable[1m]):
+> 任務=①sandbox probe(Q3=A 已核准;補證 bank_refund_id 冪等+併發重複退;只打 sandbox、1-6 元、先預測後驗)
+> ②A7c 接線第一片**只出 plan**(接線債三條=`docs/handoff/2026-08-03-nightly-refund-adapter.md` §7)關卡1 後停。
+> 兩窗共同紅線:不 push/不動 STATUS·CURRENT(主視窗管)/不 apply·不 db push/不碰 .env*(grep 取單顆)/
+> git add 精準/codex `-m gpt-5.6-sol -s read-only` 背景加 `< /dev/null`/收工各寫 `docs/handoff/2026-08-03-day-*.md`。
+>
+> **你(指揮)的工作**:①轉發兩窗決策題給 Sean(他醒著、prose code block)②收割=先驗後併:worktree
+> `status --porcelain` 乾淨 + `git log dev..分支` 逐 commit 讀 diff + **獨立重跑其驗證**(高風險不採信自報數字;
+> A2b1 收割前例=STATUS 08-03 早段)→ `--no-ff` 併回 → STATUS 收帳同 commit ③備註線**文案定稿**待辦
+> (全字面暫定;A10a-3 plan §5 步 6)④勿碰兩窗 worktree 檔案;git index 撞車教訓=memory
+> `feedback_concurrent-session-git-index-contamination`。
+>
+> **其餘殘餘**:A2b2 S5 = 契約債⑥內建提醒(A4a 落地後應翻紅);MEMORY.md 索引近上限(瘦身需 Sean 拍板);
+> 舊夜跑 worktree 已清(nightly/* 分支標籤保留)。本節以下 = 歷史 handoff 疊層,按需讀。
+
+---
+
+> 🗄️ ✅ **`A9d2-1` 訂單備註寫入 action 已收工(2026-08-02 深夜)** —— **下一片 = `A10a`(明細頁 UI),等 Sean 確認才開工**(Q2=A 一片一片來)。
 >
 > **狀態**:零 migration、**未 push**;三綠全綠、完整套件 297 檔 3765 passed + 1 todo、突變 16 格全紅。
 > 產物 = `lib/orders/note-action-state.ts` / `note-form.ts` / `note-repository.ts` / `note-actions.ts` + 三支測試
