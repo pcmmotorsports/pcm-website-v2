@@ -1,5 +1,39 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🌙 **2026-08-03 深夜:今日全線收工結算(主視窗寫;接手者先讀本節,以下舊節按需)。**
+>
+> **現況一句話**:今天三條線全部推進並收割完畢,**三支 migration 已 apply 正式站、dev 已推**
+> (`origin/dev` = `9596942`;ledger 尾 = `20260803160000`)。**兩個施工視窗任務皆清空、可關閉。**
+>
+> **今日成果(全部經主視窗獨立重驗,非採信自報)**:
+> ①**退款線 A7c**:plan v3.2(關卡1 三輪 + Sean 五拍板 `a,a,a,B,a` + Fable R3)→ **RW1a** 寫入 RPC 對
+>   (`20260803150000`,已 apply)→ **RW1b** harness 57/57 → **RW2a** endpoints 搬 `@pcm/adapters/server`
+>   → **TapPay probe 全案收案**(§2.3b;🔴 鍵消耗恆久無 TTL ⇒ rotation-always 必要;反面=at-most-once 可依賴)。
+> ②**採購線**:**A4a**(重算 trigger,`20260803140000`)+ **A4b**(競態負測)+ **A5a**(upsert owner RPC,
+>   `20260803160000`)—— 三片皆已 apply,read-back 全符。
+> ③**備註線**:文案定稿(Sean 拍 A 照現字面);27 項第 3 項已於今日轉綠。
+> ④**MEMORY.md 瘦身**:32.2 → 30.0 KB,11 條移入 `MEMORY-archive-index.md`(**檔案原地未動、可 recall**)。
+>
+> **下一步(Sean 08-03 深夜拍 Q1=A:夜跑兩片)**:
+> · **RW2b**(admin composition + env fail-closed + `maxDuration` ≥45s)@ worktree `/Users/sean_1/pcm-refund-wire`
+> · **A9a-2**(採購讀模型,master plan row 38 的另一半)@ worktree `/Users/sean_1/pcm-a4a-chain`
+> · 兩片皆 **Opus 5 / effort high**(Fable 留給白天的 RW2c);**兩片對 27 項驗收貢獻為 0 —— 夜跑=清路不是推數字**。
+> · **留給白天(需清醒判斷或 Sean 在線)**:**RW2c**(錢面 server action,Q4=B 全額+部分一次做;建議 Fable/xhigh)
+>   / **RW2d**(sandbox E2E;**開工前要 Sean 查 admin Vercel 的 `TAPPAY_*` 環境變數**)/ **A10b**(採購表單 UI,
+>   27 項第 5/6/7 靠它轉綠、含 UI 決策)。
+>
+> **主視窗職責(不變)**:轉發決策題(prose code block)/ 收割=先驗後併(worktree 乾淨 → 逐 commit 讀 diff →
+> **獨立重跑其驗證**,高風險片一律隔離 worktree + 拋棄式 PG17,**用 54333 避開兩窗的 54329/54331**)→ `--no-ff`
+> 併回 → STATUS 收帳同 commit。**哨兵隨 session 死,新主視窗務必重 arm**(Monitor 盯兩分支 ref)。
+> 兩窗紅線:不 push / 不動 STATUS·CURRENT / 不 apply / 不碰 `.env*`(`grep -m1` 取單顆,**絕不 source**)/
+> git add 精準 / codex `-m gpt-5.6-sol -s read-only` 背景加 `< /dev/null`。
+>
+> ⚠️ **今日新增的兩條操作事實**:①`supabase db push` **不需搬走 `.env.local`** 也跑得動(今日實測 dry-run 與正式
+> apply 皆成功;舊 runbook 的「先 mv」步驟非必要,且搬 `.env*` 會被 permissions 擋)②Fable 額度會用盡(今日
+> 22:1x 撞牆、約 40 分鐘恢復),**若某片走到第 3 輪換模型而 Fable 不可用,那輪要等,不得用第二個 Opus 頂替**。
+>
+> --- 以下為 2026-08-03 午的舊交接節(三線計畫已全數完成,保留備查)---
+>
 > 🎛️ **2026-08-03 午:主視窗交接(指揮棒移交)—— 你(讀本節者)= 新主視窗,角色是「指揮」不下場實作。**
 >
 > **現況一句話**:三線夜跑全數收割併回且 A2b1 migration 已 apply 正式站;備註線(A6→A9d2-1→A10a-1/2/3)
