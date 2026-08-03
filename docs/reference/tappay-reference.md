@@ -162,6 +162,9 @@ PCM **已自寫實作**(`packages/adapters/src/tappay/TapPayChargeAdapter.ts`)�
 | P5a | T1(剩 1) | 新鍵 `pcm-p5-over` 超額退 2 | `10051`、零副作用、**回應無 `refund_id`** | 10051 在管線更早處被擋 |
 | P5b | T1 | P5a 同鍵退 1 | `0 Success`;T1 累計 6/6、`record_status 2→3` | **10051 不消耗鍵**(與 10024 不對稱);「剛好退完剩餘額」可行(補 08-01 🟡);**部分退累計到 0 時 record_status 轉 3 (REFUNDED)** |
 | P4 | T3(未請款) | **barrier 併發**全額退×2、異鍵 | 一發 `0`(`refund_amount=6`)、一發 **`10050 'Out of range : amount'`**;事後 `refunded=6` 非 12 | **併發重複退被序列化、無雙退**(⚠️ n=1 單次取樣);全額退撞「已無可退」= `10050`(≠10051) |
+| **P6** | T2(**已請款**;08-03 20:0x 實測) | 先 `query` 確認 | `record_status=1(OK)`、`is_captured=True`、`amount=6`、`refunded_amount=0` | 18:00 送批 → 20:00 後確認請款成立(中信批次時點,**sandbox 觀測值**、非正式商戶承諾) |
+| **P6a** | T2(已請款) | **P3 的消耗鍵** `pcm-p3-20260803` 退 1 | **`6002`**;前後 `refunded_amount` 皆 0 | 🔴🔴 **鍵消耗恆久、跨「請款」狀態變化不重置**(無 TTL)⇒ 結論 2 的 rotation-always 是**必要**而非保守;at-most-once 防線可依賴 |
+| **P6b** | T2(已請款) | **新鍵** `pcm-night-fresh1` 退 1 | `0 Success`、`refund_id=DR20260803gvcV5i`、`refund_amount=1`;事後 `record_status 1→2(PARTIALREFUNDED)`、`amount 6→5`、`refunded_amount 0→1` | **「deferred→請款→換鍵重試」正向鏈端到端閉合**;`amount`=剩餘可退額(G3 全額凍結額來源)、`refunded_amount`=累計(S2 baseline / RW4 差額判定來源),兩者在真資料上同時驗證 |
 
 **設計結論(A7c 接線片消費)**:
 
@@ -169,13 +172,21 @@ PCM **已自寫實作**(`packages/adapters/src/tappay/TapPayChargeAdapter.ts`)�
    崩潰恢復收到 `6002` **必須走 Record API 比 `refunded_amount` 差額對帳**,不得假設成功、不得換鍵盲重送。
 2. 🔴 **換鍵政策一律「每次嘗試都配新鍵」** —— 10024 消耗鍵、10051 不消耗,不對稱;依賴「哪類拒絕
    消耗鍵」的細節太脆,rotation-always 在兩種情形下都安全。
+   **✅ P6a 強化(08-03 晚)**:被 10024 消耗的鍵在該交易**請款完成後**重試仍是 `6002` ——
+   鍵消耗**恆久、無 TTL、不隨交易狀態重置**。⇒ ①rotation-always 從「保守選擇」升格為**必要**
+   (不換鍵的重試必然撞 6002、且 6002 依結論 1 要走對帳=昂貴);②反面是好消息:
+   `bank_refund_id` 的 at-most-once 性質**可被設計依賴**(RW1a G2 一列一鍵的前提成立)。
 3. `refund_amount` 語意已定案=本次額(adapter JSDoc「語意未證」字面待接線片同步改)。
 4. `6002`/`10050` 均不在 adapter allowlist ⇒ 現行 `refund()` 一律 throw(unknown-state)——
    對 6002 這是**正確的 fail-closed**(理由見 1);接線片不得為它們開自動分流。
 5. 官方 sandbox 固定測試 prime 可直接建 AUTH 交易(`charge` 模式),probe 不再依賴既有交易餘額。
-6. 🟡 **今晚殘項**(T2 於 08-03 18:00 送批、20:00 後請款完成):①P3 消耗鍵請款後重試 → 預期 `6002`
-   恆久(若 `0` = 鍵註冊會過期,更嚴重、要重估)②新鍵部分退 1 → 預期 `0`(補「deferred→請款→
-   換鍵重試」正向鏈)。單視窗持有、不掛 cron。
+6. ✅ **殘項已收案(08-03 20:0x;P6/P6a/P6b)** —— 兩發**預測全中**、零意外:消耗鍵請款後仍
+   `6002`(結論 2 已強化)、新鍵退 1 成功(正向鏈閉合)。**probe 全案結束**,「未證、設計不得依賴」
+   清單清空;`refund()` 三態契約與 RW1a 帳本設計的每一條 TapPay 側前提皆有實測支撐。
+7. 🟡 **仍未證(登記,勿當已知)**:①正式商戶(非 sandbox)的請款時點與批次行為 —— P6 的
+   「18:00 送批/20:00 可退」是 sandbox 觀測,**不得寫進 UI 文案**(plan §3 fable N5 同此);
+   ②併發仍是 n=1 單次取樣(P4),不當防線、只當 signal;③已請款交易的**併發部分退**未測
+   (非必要:S5 single-flight 在 DB 端已擋同單並行)。
 
 - **PCM 對照**:`TapPayChargeAdapter.refund()` 目前 `throw new Error('TapPay refund 未實作(Phase 2)')`(約 `TapPayChargeAdapter.ts:211-213`)。此組規格即該補的目標介面。🔴 現況退款走 **Sean 手動 Portal + 手動改本地 `orders.payment_status`**(07-17 拍板);S6 只寫 SOP、不自動化(見上位 plan §5 S6)。實作 `refund()` 時務必 sandbox 先測「全額」與「部分」兩路徑 + 處理「隔日生效」。
 

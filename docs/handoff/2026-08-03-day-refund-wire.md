@@ -149,26 +149,36 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
 - **下一片=RW2b**(admin composition + env 配對 fail-closed + route maxDuration ≥45s):
   🟡 admin Vercel `TAPPAY_*` env 未查證(Sean dashboard;不擋 dev 實作)。
 
-## 4. 🟡 今晚殘項(單視窗持有、不掛 cron;素材 T2=`D202608034SFpuL`)
+## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 
-T2 今日 11:10 建立(AUTH)→ 依中信批次今晚 18:00 送批、約 20:00 可確認請款。請款後兩發:
+T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前預測已登記於本節前版**
+(git `b85527e` 可查),逐發對照:
 
-```bash
-cd /Users/sean_1/pcm-refund-wire
-python3 scripts/tappay-sandbox-refund-probe2.py query D202608034SFpuL
-python3 scripts/tappay-sandbox-refund-probe2.py refund D202608034SFpuL 1 pcm-p3-20260803
-python3 scripts/tappay-sandbox-refund-probe2.py refund D202608034SFpuL 1 pcm-night-fresh1
-```
+| 發 | 動作 | 預測 | 實測 | |
+|---|---|---|---|---|
+| 1 | `query D202608034SFpuL` | `is_captured=True` | `record_status=1(OK)`、`is_captured=True`、`amount=6`、`refunded_amount=0` | ✅ |
+| 2 | 消耗鍵 `pcm-p3-20260803` 退 1 | **`6002` 恆久** | `6002`;前後 `refunded_amount` 皆 0 | ✅ |
+| 3 | 新鍵 `pcm-night-fresh1` 退 1 | `0`、`refund_amount=1` | `0 Success`、`refund_id=DR20260803gvcV5i`、`refund_amount=1`;事後 `record_status 1→2(PARTIALREFUNDED)`、`amount 6→5`、`refunded_amount 0→1` | ✅ |
 
-- 第 1 發前置:`is_captured=True` 才繼續(False=還沒請款,晚點再來)。
-- 第 2 發(消耗鍵 `pcm-p3-20260803`)預測:**`6002` 恆久**;若 `status=0` = 鍵註冊會隨請款重置
-  ⇒ 比預期嚴重(at-most-once 防線有 TTL),要回頭改 §2.3b 結論 5 並 raise。
-- 第 3 發(新鍵)預測:`status=0`、`refund_amount=1` ⇒ 補完「deferred→請款→換鍵重試」正向鏈。
+**收穫兩條(已寫入 `docs/reference/tappay-reference.md` §2.3b P6/P6a/P6b + 結論 2 強化、結論 6/7 改寫)**:
+
+1. 🔴 **鍵消耗恆久、跨「請款」狀態變化不重置(無 TTL)** —— 第 2 發是本次最重要的一格:
+   它同時證了兩件事 ①rotation-always 從「保守選擇」升格為**必要**(不換鍵重試必撞 6002,
+   而 6002 依結論 1 要走昂貴對帳)②**at-most-once 可被設計依賴** ⇒ RW1a G2「一列一鍵」的
+   前提成立。若這發回 `0`,§2.3b 結論 5 要重寫且 RW2c 得停工 —— 沒有發生。
+2. ✅ **「deferred→請款→換鍵重試」正向鏈端到端閉合**;且 `amount`(剩餘可退,G3 全額凍結額
+   來源)與 `refunded_amount`(累計,S2 baseline / RW4 差額判定來源)**在同一筆真資料上同時
+   驗證**:6→5 與 0→1 各自對上,兩個語意不再靠推論。
+
+**probe 全案結束**,08-01 遺留的「未證、設計不得依賴」清單清空。仍未證者見 §2.3b 結論 7
+(正式商戶請款時點 = sandbox 觀測不外推、不寫進 UI 文案;併發 n=1 只當 signal)。
 
 ## 5. 沒做什麼(誠實邊界)
 
-- **零實作 code**:`apps/admin`、`packages/*` 一行未動;RW1-RW4 全部未動工、等 Sean 拍板。
-- probe 的併發結論是 **n=1 單次取樣**;「已請款後的部分退併發」未測(今晚 T2 請款後若 Sean 要可加測,非必要)。
+- ~~零實作 code~~ **已過期**(本節寫於拍板前):Sean 拍板後 RW1a/RW1b/RW2a 皆已實作收工,
+  見 §3b/§3c/§3d;RW2b 起未動工。
+- probe 的併發結論是 **n=1 單次取樣**;「已請款後的部分退併發」未測(非必要:S5 single-flight
+  已在 DB 端擋同單並行)。
 - adapter JSDoc 兩處「語意未證」字面(`types.ts` refundAmount / TAPPAY_REFUND_STATUS 同鍵重試)已被
   本日 probe 推翻,**未改 code**(worktree 紀律:文件與 memory 先行,JSDoc 隨 RW1/RW2 實作片一併改,plan §0 已列)。
 - admin Vercel 的 `TAPPAY_*` env 未查證(需 Sean 開 dashboard;plan §0 標未確認)。
