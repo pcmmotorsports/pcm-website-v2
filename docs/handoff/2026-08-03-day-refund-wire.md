@@ -251,6 +251,33 @@ RW1 `order_refunds` 寫入 RPC 對(initiate/finalize;RF2b 缺口實查確認=ACL
 - 🔴 **誠實邊界**:本片**零真環境驗證**(沒打過 TapPay、沒連過 Supabase);`getTapPayAdapter()`
   **全 repo 零呼叫端** ⇒ 對 27 項驗收貢獻 **0**。
 
+## 3f. RW2c 收工(08-04 深夜;refund-wire 視窗、Fable+xhigh;commit `d5da676`)
+
+**產物**(細節=commit body;`apps/admin/src/lib/payment/` 五新檔+五測試檔):
+`initiateRefundAction`(Q4=B 全額+部分一次做)+ 純解析器 + G0 baseline 檢查 +
+兩支 owner RPC repository(判別聯合封互斥)+ N4 債已還(`TapPayConfigError`)+
+database.types 五處 `| null`(計數 10→15)+ domain JSDoc probe 實證更新(§5 那條債已還)+
+result-banner `refund_submitted` + wiring `TAPPAY_` 掃描改 case-sensitive(理由見 commit)。
+
+**設計要點**:①unknown-state(含 resolve 出非三態)一律不 finalize、列留 processing;
+②token 三去向集中 `FRESH_TOKEN_CODES`(deferred/rejected/not_sent 換新鍵=S4 已消耗;
+其餘原樣帶回=G4 重播可認);③`REFUND_UI_ENABLED` 由 **action 端**驗(恰 `'1'` 才開、預設 off)
+——RW2d 的按鈕只是同一旗標的顯示面;④DUPLICATE processing **不重打** refund()(wire 發過
+沒有無從得知,交 S5+RW4)。
+
+**審查**:關卡2 雙線不降級 —— code-reviewer(opus)R1 FAIL 4MF+5m / codex `gpt-5.6-sol`
+R1 FAIL 2MF+2nit(**裸 else 第四態 fail-open 兩線同抓**=若未修,合約漂移時會 finalize 成
+rejected+換新 token=雙退窗)→ 全折 → R2 雙線 PASS、nit 全清、codex 兩輪零留痕已比對。
+
+**三綠**:typecheck 8/8+scripts 綠 / lint 10/10 / admin build 綠 / 全套 vitest 312 檔
+4046 passed+1 todo。
+
+**🔴 RW2d 前置(給主視窗/Sean)**:①admin Vercel `TAPPAY_*` 三顆仍未設(§5;Sean 動作)
+②dev 驗證要 `REFUND_UI_ENABLED=1`(env、不入 repo)③RW2d 表單契約債:切到全額退必清空金額欄
+(解析器 fail-closed 拒「full 帶金額」)、token 用 `state.requestToken ?? generateRefundRequestToken()`、
+欄位名/常數從 `refund-action-state.ts` import。
+**誠實邊界**:action 零呼叫端、零真環境驗證,對 27 項驗收貢獻仍為 0;sandbox 真退=RW2d。
+
 ## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 
 T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前預測已登記於本節前版**
