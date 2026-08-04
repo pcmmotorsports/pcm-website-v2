@@ -24,6 +24,14 @@ vi.mock('@/components/Header', () => ({
     return <div data-stub="site-header" />;
   },
 }));
+// 🔴 商品區的撈法**必須** mock(D3b),兩個理由:
+//   ① `lib/brand-products` → `lib/products` → `server-only`,在 vitest 裡載入即 throw。
+//   ② 不 mock 的話這支測試會打真 DB ⇒ 目錄資料一變就紅、而且 CI 沒有連線。
+//   真資料那一面由 `lib/brand-products.test.ts` 與真瀏覽器量測負責,分工不重疊。
+const { brandProductsRef } = vi.hoisted(() => ({ brandProductsRef: { current: [] as unknown[] } }));
+vi.mock('@/lib/brand-products', () => ({
+  fetchBrandTopProducts: () => Promise.resolve(brandProductsRef.current),
+}));
 
 import BrandPage, { generateMetadata, generateStaticParams } from './page';
 import { BRAND_CONTENT } from '@/data/brand-content';
@@ -31,7 +39,26 @@ import { brandRichTextToPlain, parseBrandRichText } from '@/lib/brand-rich-text'
 
 afterEach(() => {
   vi.clearAllMocks();
+  brandProductsRef.current = [];
 });
+
+/** D3b:最小的商品 DTO —— 只需要 `ProductCard` 讀得到的欄。 */
+const productFixture = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({
+    id: i + 1,
+    slug: `p-${i + 1}`,
+    brand: 'AKRAPOVIČ',
+    name: `商品 ${i + 1}`,
+    fits: 'Yamaha MT-09',
+    price: 1000 + i,
+    origPrice: null,
+    isNew: false,
+    isSale: false,
+    inStock: true,
+    category: '排氣系統',
+    color: 'silver',
+    imgTone: 'neutral',
+  }));
 
 /** React 的 SSR 逸出集合(`renderToStaticMarkup` 會做的那五個);中文本身不逸出。 */
 const escapeHtml = (text: string): string =>
@@ -153,5 +180,26 @@ describe('/brands/[slug] · 輸出的 HTML', () => {
     const html = await markupFor(BRAND_CONTENT[0]!.slug);
     expect(html).toContain('<main class="bp-page">');
     expect(html.match(/<main[\s>]/g) ?? [], '一頁只能有一個 main').toHaveLength(1);
+  });
+});
+
+describe('/brands/[slug] · 商品區接線(D3b)', () => {
+  it('🔴 有商品 → route 輸出含商品區與該品牌的「查看全部」網址', async () => {
+    brandProductsRef.current = productFixture(5);
+    const html = await markupFor('akrapovic');
+    expect(html).toContain('class="bp-products"');
+    expect(html).toContain('/products?pbrand=akrapovic');
+    // 卡片是既有元件、不是設計稿的骨架槽
+    expect(html.match(/class="pcard"/g) ?? []).toHaveLength(5);
+    expect(html).not.toContain('bp-slot');
+  });
+
+  it('🔴 0 筆 → 整區不出現(20 家裡實測 5 家會走這條:dbk/gilles/kineo/rizoma/wrs)', async () => {
+    brandProductsRef.current = [];
+    const html = await markupFor('rizoma');
+    expect(html, '0 筆時商品區仍在 ⇒ 客人看到一排空格').not.toContain('class="bp-products"');
+    // 但頁面其餘部分照常 —— 不能因為沒商品就把整頁弄壞
+    expect(html).toContain('class="bp-page"');
+    expect(html).toContain('RIZOMA');
   });
 });

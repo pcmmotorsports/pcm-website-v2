@@ -38,15 +38,24 @@
 
 import '@/styles/brand-page.css';
 import type { BrandContent } from '@/data/brand-content-types';
+import type { MockProduct } from '@/data/mock-products';
 import { BrandPageHeader } from '@/components/brand/BrandPageHeader';
 import { BrandPageAbout } from '@/components/brand/BrandPageAbout';
 import { BrandPageWhy } from '@/components/brand/BrandPageWhy';
 import { BrandPageCraft } from '@/components/brand/BrandPageCraft';
 import { BrandPageTimeline } from '@/components/brand/BrandPageTimeline';
 import { BrandPageCategories } from '@/components/brand/BrandPageCategories';
+import { BrandPageProducts } from '@/components/brand/BrandPageProducts';
 import { BrandPageBrandWall } from '@/components/brand/BrandPageBrandWall';
 
-export function BrandPageRoot({ brand }: { brand: BrandContent }) {
+/**
+ * `products` 由**呼叫端撈好傳進來**(`lib/brand-products.fetchBrandTopProducts`),本元件保持同步。
+ * 🔴 理由不是風格:async server component 進不了 @testing-library 的 `render`,
+ *    而本元件是整頁大綱與 `.bp-page` scope 兩道守門唯一的渲染入口 —— 讓它變 async
+ *    等於把那兩道守門一起弄不能跑。撈資料本來也是 route 的責任(Next.js 慣例分工)。
+ * 空陣列 = 該品牌目前零商品(20 家裡實測 5 家)⇒ `BrandPageProducts` 自己整區不渲染。
+ */
+export function BrandPageRoot({ brand, products }: { brand: BrandContent; products: MockProduct[] }) {
   return (
     <main className="bp-page">
       <BrandPageHeader brand={brand} />
@@ -56,7 +65,8 @@ export function BrandPageRoot({ brand }: { brand: BrandContent }) {
       {/* timeline 只有 2 家有(akrapovic / gb-racing)⇒ 條件渲染,同 About 的影片右欄 */}
       {brand.timeline && <BrandPageTimeline timeline={brand.timeline} />}
       <BrandPageCategories brand={brand} />
-      {/* ⚠️ 分類與磚牆之間還缺商品區 `.bp-products`(設計稿骨架 :1470-1489)—— 屬 D3b 接線,不是漏掉。 */}
+      {/* 商品區位置 = 設計稿骨架 `:1470-1489`(分類與磚牆之間)。0 筆時本元件回 null。 */}
+      <BrandPageProducts brand={brand} products={products} />
       <BrandPageBrandWall currentSlug={brand.slug} />
     </main>
   );

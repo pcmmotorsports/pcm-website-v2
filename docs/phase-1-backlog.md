@@ -8435,7 +8435,47 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #315. 🔇 品牌頁分類 chip 對不上正式目錄的分類名時,會靜默退回「不篩選」
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🔶 **已實測、兩軸的結論與原本預期不同;待 Sean 拍板**(2026-08-04 / D3b)
+  - 量測方法:production build + 真 DB(`next start`),真瀏覽器逐條開網址讀最終 URL、卡片數與 active chips。
+  - **分類軸:12 個名稱有 11 個命中正式 taxonomy 的「大類」;`輪框與傳動` 兩層都查無。**
+    正式 taxonomy 實查 15 個大類 / 75 個子類,`輪框與傳動` 不在其中(最接近的 `腳踏後移與傳動` 是另一回事)。
+    🔴 **而且「查無」在與有效 `pbrand` 併用時是靜默的,實測**:
+    `/products?pbrand=akrapovic&category=輪框與傳動` → 網址被 **client 端改寫成**
+    `/products?pbrand=akrapovic`、顯示該品牌**全部 648 件**、chips 只剩品牌那顆、零錯誤訊息
+    (= 本條原本描述的症狀,確認為真)。
+    對照:單獨 `/products?category=輪框與傳動` → 0 件 + 空狀態(看得見)。
+    差別在 `useCatalogFilterUrlSync` 會把 cascade 狀態寫回網址,而未命中的 category 沒進 cascade。
+  - **品牌軸:20 個 slug 有 5 個在目錄零商品 —— `dbk` / `gilles` / `kineo` / `rizoma` / `wrs`**
+    (`catalog_brand_counts` 實回 16 家,含一個 `pcm` 測試品牌)。
+    🔴 **這一半也是靜默的,而且症狀完全符合本條原文。**(⚠️ 我在 D3b 第一版寫成「不是靜默的」,
+    那是**錯的** —— 只看了冷載入的第一畫面就下結論;關卡2 R1 指出後實測推翻。以此版為準。)
+    實測(production build + 真 DB,1440):
+      · `/products?pbrand=dbk` **冷載入** → 網址不變、0 張卡(看起來像「這家沒商品」)。
+      · **接著動任何一個篩選**(實測改排序下拉)→ 網址變成 **`?sort=new`**、`pbrand` **整個不見**、
+        列表跳成**全站目錄 50 張**。客人以為還在看 DBK,看到的是全站商品。
+      · 對照組 `/products?pbrand=akrapovic`(有商品)同樣操作 → `?pbrand=akrapovic&sort=new`、
+        品牌**留著**。⇒ 差別就在「slug 在不在 `fetchCatalogBrandTaxonomy()` 回的 16 家裡」。
+    機制:`products-url-state.tsx:98` 的 `parseBrandFiltersFromUrl` 會把不在表裡的 slug 濾掉,
+    該結果同時餵 `:249` 的 `restorable` 判斷;首輪有 `initialized` 守衛擋著,所以冷載入那次沒事,
+    第二次往返就被 `useCatalogFilterUrlSync` 寫回一個沒有 `pbrand` 的網址。
+    ⚠️ **上面的數字全部量在 production build**;`next dev` 的 StrictMode 第二次 invoke
+    **會繞過那道首輪守衛**(`products-url-state.tsx:210-212` 逐字)⇒ dev 下冷載入當場就掉,
+    看起來比 production 更早壞。重現時先確認自己跑的是哪一種,別因此誤判整段分析。
+    （點分類 chip、瀏覽器上一頁走的是同一段程式碼,結局相同 —— 都被「動任何一個篩選」涵蓋。)
+    ⇒ **與分類軸是同一條機制、同一段程式碼**,只差在觸發時機。
+    ⚠️ 原文寫的來源 `buildBrandTaxonomy(products)` 不是這條路徑實際吃的東西 ——
+    `/products` 傳的是 `fetchCatalogBrandTaxonomy()`(server RPC 全站聚合);兩者對「零商品品牌」的
+    結論相同(都不在表裡),但引用要更正。
+  - **今天客人碰得到的實害**:那 5 家的品牌頁,橫幅兩顆 CTA(`brandCatalogueUrl` / `brandVehiclePickUrl`)
+    與磚牆點進去先是**空目錄**,**再動一下篩選就變成全站目錄**(上一段實測)。`輪框與傳動` 那條靜默失效**今天碰不到** —— 它只掛在 KINEO,
+    而 KINEO 正好是 0 商品 ⇒ 那條 chip 進去先撞空目錄。**KINEO 一旦上架商品,它就會變成靜默失效。**
+  - **D3b 已做的**:商品區 0 筆整區不渲染(不留空骨架、不自編文案);
+    `lib/brand-products.test.ts` 釘住設計側的 20 slug + 12 分類名清單(改動時會紅、提示重新比對)。
+  - 🔴 **還沒做、需要拍板的兩題**(見 D3b 收工信 `C-29-STOP`):
+    ①那 5 家零商品品牌的品牌頁怎麼處理 ②`輪框與傳動` 這個對不上的分類名怎麼處理。
+  - 🔴 **「設計側清單 vs 真目錄」目前沒有機制**:單元測試沒有 DB 連線,抄成 fixture 只會變成
+    會過期的假真相。要變成機制得先有能連 DB 的 CI job。這是已知能力邊界、不是漏做。
+- ~~**狀態:** ⏳ 待執行~~
 - **分流:** P1-before-launch
 - **優先級:** 🟠 上線前(客人按了以為篩了,其實沒有)
 - **問題:**

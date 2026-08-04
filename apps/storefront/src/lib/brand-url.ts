@@ -6,6 +6,7 @@
 // D3 建 `/brands/[slug]` route 時也會用到 `brandIntroUrl`,同樣不該去 import 一個元件。
 //
 // 三個都是純字串函式、零依賴 ⇒ server / client 兩邊都能用。
+// D3b 起檔尾多一個常數 `BRAND_PRODUCT_SLOTS`,落點理由寫在它自己的 doc(同樣是為了零依賴)。
 
 /**
  * 商品目錄(依品牌篩選,可再帶一個分類)。與設計稿 `brand-content-data.js:1187` 的
@@ -58,3 +59,18 @@ export const brandVehiclePickUrl = (slug: string): string =>
  *    與既有 `ProductBreadcrumb.tsx:57,60` 都指它,屬 **D3c**(=計畫 §8.2 的 D4)。
  */
 export const brandIntroUrl = (slug: string): string => `/brands/${encodeURIComponent(slug)}`;
+
+/**
+ * 品牌介紹頁商品區的格數(D3b)。設計稿 `brand-page.html:727` 的 `.bp-grid` 是 `repeat(5, 1fr)`、
+ * 骨架也畫 5 個槽(`:1481-1485`)⇒ 這個 5 同時是「撈幾筆」與「排幾欄」。
+ *
+ * 🔴 **為什麼放這支檔**:它要同時被 `lib/brand-products.ts`(server,會 import `server-only`)
+ *    與 jsdom 測試 import。放在前者的話,測試一 import 就把 `server-only` 拖進 client 環境、
+ *    整支測試載入即爆(實測 `This module cannot be imported from a Client Component module.`)。
+ *    本檔本來就是「零依賴、品牌專屬、server/client 兩邊都能用」的落點,不必為它另開一支檔
+ *    (關卡2 R1 nit 7)。
+ * ⚠️ 窄螢幕是**隱藏**多出來的格(≤1180 剩 3、≤620 剩 2),不是換行 ⇒ 撈的筆數固定 5、
+ *    由 CSS 決定看得到幾個。改這個數字要**同時**改 `styles/brand-page.css` 的 `.bp-grid` 欄數
+ *    與那兩條 `:nth-child`(`styles/brand-page.test.ts` 有字面守門會轉紅提醒)。
+ */
+export const BRAND_PRODUCT_SLOTS = 5;

@@ -10,22 +10,27 @@
  *    ⇒ 那是設計稿自己的死規則,搬過來只會多一條永遠不生效的 CSS。
  *
  * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media
- *    + D2d 的 why / craft / timeline + D2e-1 的 cats / others + D2e-2 的動效層。
- *    **D2e-2 之後,設計稿裡還沒搬進本檔的只剩三類,而且三類都是刻意的**(不是待辦):
- *      ① 商品區 `.bp-products` / `.bp-slot` / `.bp-grid` / `.bp-bar` / `.bp-prod-head`
- *         (設計稿 :714-740 等)—— 用既有 `ProductCard.tsx`,屬 D3 接線
+ *    + D2d 的 why / craft / timeline + D2e-1 的 cats / others + D2e-2 的動效層
+ *    + **D3b 的 products**。
+ *    **D3b 之後,設計稿裡還沒搬進本檔的只剩兩類,而且兩類都是刻意的**(不是待辦):
+ *      ~~① 商品區~~ ✅ **D3b 已搬**(欄線 + 標題列 + 兩段 RWD 欄數 + 箭頭過渡)。
+ *         🔴 但**只搬一半是刻意的**:`.bp-slot` / `.bp-slot-img` / `.bp-slot-info` / `.bp-bar*`
+ *         (設計稿 :731-741)是**骨架槽**,設計稿自己的註解(:1468-1469)逐字說那一區
+ *         「直接用既有的商品列表元件」⇒ 卡片外觀吃 `product-card.css` 的 `.pcard`,永不進本檔。
  *      ② 捲動揭示 `.js-reveal` 那一族(:821-825 + JS :2033-2071)—— Sean 08-04 拍板 C,
  *         先不做、上線後重議(backlog #316)
  *      ③ 全域 reduced-motion(:461-465)—— `*`+`!important` 影響全站 = 鐵則 8;
  *         Sean 08-04 拍板 Q1=B 改走 scope 版,全站級記 backlog #318
+ *      (編號沿用不重排:外部與 commit 有按編號引用。)
  *    ⇒ **就「品牌頁專屬的 `.bp-*` 段落」而言,「本檔還缺什麼」自此有明確答案**,
  *      不要再往裡面貼「以防萬一」的段落。
  *    ⚠️ **這句只涵蓋 `.bp-*`**(關卡2 R1 更正:我原本寫成無限定的「還沒搬進本檔的只剩三類」)。
  *      設計稿的 `<style>` 還有 `.vfm-*`(選車面板,:1198-1306,自帶 reduce 區塊 :1303)、
  *      `.pcm-header` / `.mobile-tabbar` / `.ed-*` 等**站台層**的段落 —— 它們不屬本檔、
  *      也不在上面那三類裡,是**別條線**的東西(選車統一線 / 既有站台元件),不要拿這句去停止追查。
- *    ⚠️ `.bp-products` / `.bp-prod-head` / `.bp-grid` / `.bp-slot` / `.bp-bar`(設計稿 :714-740)
- *       **不屬本檔** —— 那一區用既有 `ProductCard.tsx`,屬 D3 接線(計畫 §5.2 逐字)。
+ *    ⚠️ `.bp-slot` / `.bp-bar`(設計稿 :731-741)**不屬本檔、也永遠不會屬本檔** ——
+ *       那是設計稿的骨架槽,正式站那一區用既有 `ProductCard.tsx`(計畫 :180)。
+ *       `.bp-products` / `.bp-products-inner` / `.bp-prod-head` / `.bp-grid` 已由 D3b 搬入。
  *
  * 🔴 **反方向:本檔有兩處是設計稿沒有的**(D2f;Sean 2026-08-04 拍 A 的四條繼承瑕疵修正)——
  *    上面那句講的是「設計稿有而本檔沒搬」,這裡是「本檔有而設計稿沒有」,兩張清單別混:
@@ -76,6 +81,19 @@
      不符 WCAG 1.4.11(非文字對比 3:1)。#909093 = 3.18:1,是還不顯重的最淺安全值。
      🔴 順手改成 --c-border(「跟其他線一致」)= 直接打掉一條 AA,與 --c-ember-ink 同族的坑。 */
   --c-border-control: #909093;
+
+  /* 🔴 **`--ed-c-ink` 必須在這裡補一份**(D3b 關卡2 R2 must-fix 2):
+   *    商品區的「查看全部」用站台層的 `.ed-link`(`home.css:36-40`),而它的
+   *    `color` 與 `border-bottom` 都吃 `--ed-c-ink` —— 那個 token **全 repo 只宣告一次**,
+   *    在 `home.css:8` 的 `.ed-page` 規則內。本頁**刻意不掛 `.ed-page`**
+   *    (理由見 `app/brands/[slug]/page.tsx` 的 wrapper 註解)⇒ var 代換失敗
+   *    ⇒ `border-bottom` 整條 IACVT、`border-bottom-style` 退回 `none`
+   *    ⇒ **底線整條消失,而規則明明在、CSS 文字守門全綠**
+   *    (`feedback_css-visibility-review-verify-cascade-not-just-rule-present` 那一族:
+   *     規則拿得到 ≠ token 拿得到)。
+   *    值取 `--c-text`(#121214)而不是 `.ed-page` 的 #0a0a0a:本檔抬頭已經為了
+   *    「同一頁不混用兩套灰」把 `--c-text` 覆蓋成 #121214,這裡沿用同一個決定。 */
+  --ed-c-ink: var(--c-text);
 
   background: var(--c-surface);
   color: var(--c-text);
@@ -570,6 +588,38 @@
 .bp-chip[data-cat="10"] { box-shadow: inset 3px 0 0 var(--cat-10); }
 .bp-chip[data-cat="11"] { box-shadow: inset 3px 0 0 var(--cat-11); }
 
+/* ══ 商品區(D3b;設計稿 :717-727)════════════════════════════════
+ * 位置照設計稿:分類與磚牆之間。
+ *
+ * 🔴 **只搬「欄線 + 標題列」,不搬卡片外觀** —— 設計稿那 5 個 `.bp-slot` 是骨架槽,
+ *    它自己的註解(:1468-1469)逐字寫「正式頁面這一區直接用既有的商品列表元件」
+ *    ⇒ `.bp-slot` / `.bp-slot-img` / `.bp-slot-info` / `.bp-bar*`(設計稿 :731-741)**刻意不搬**,
+ *    卡片外觀吃既有的 `product-card.css`(`.pcard`,全域 import via layout.tsx)。
+ * ⚠️ `.bp-prod-head p`(設計稿 :725)也不搬:骨架 :1474-1477 只有 `<h2>`,設計稿裡它本來就
+ *    沒有消費端 = 死規則,同 `.bp-film-cap` 的處理(見本檔檔頭)。
+ * 🔴 `.ed-link` / `.ed-link-sm` / `.ed-link-arrow` **不在本檔**:它們是站台層的東西、
+ *    已在 `home.css:31-49`,而 `home.css` 由 `layout.tsx` 全域 import ⇒ **規則**本頁拿得到。
+ *    🔴 但它們吃的 **token `--ed-c-ink` 拿不到**(只宣告在 `.ed-page` 內)⇒ 已在上面的
+ *    `.bp-page` 色票區補一份,理由寫在那裡。規則在 ≠ 生效。
+ *    本檔只補 `.bp-prod-head` 底下那兩條位置覆寫(設計稿 :726 與動效層 :858)。
+ */
+.bp-products { border-bottom: 1px solid var(--c-border); }
+/* 和 About / Categories 共用同一組欄線 —— 原本這兩區是滿版,
+   整頁看起來一段縮排一段滿版,像歪一邊。(設計稿 :718-719 逐字) */
+.bp-products-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 56px; padding-bottom: 60px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
+}
+.bp-prod-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 24px; margin-bottom: 28px;
+}
+.bp-prod-head h2 { font-size: 22px; letter-spacing: -.01em; font-weight: 600; margin: 0; }
+.bp-prod-head .ed-link { flex: none; white-space: nowrap; }
+.bp-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+
 /* ══ 品牌磚牆(D2e-1)═════════════════════════════════════════════
  * 位置理由同上。
  * 🔴 這是與首頁磚牆**不同的元件、不同的排法**(計畫 §5.2 逐字):
@@ -669,9 +719,8 @@
  *      **依 Sean 拍板、非我自行仲裁**。程式已備、記在 backlog #316。
  *   ② `--dur-reveal`(:804)—— 只有 `.js-reveal.is-in` 用它,①不做 ⇒ 這個 token 沒有消費端。
  *      (同 `--c-red-dark` 的處理:只放本檔真的用到的變數。)
- *   ③ `.bp-prod-head .ed-link-arrow`(:856)與 reduced-motion 裡的
- *      `.bp-prod-head .ed-link:hover .ed-link-arrow`(:865)—— `.bp-prod-head` 屬 D3 商品區、
- *      本檔沒有那個 class,搬過來就是兩條永遠不生效的死規則。
+ *   ~~③ `.bp-prod-head .ed-link-arrow` 與 reduced-motion 那條~~ ✅ **D3b 已補**
+ *      —— 當時不搬的理由是「本檔沒有 `.bp-prod-head` 這個 class」,商品區落地後前提消失。
  *
  * ⚠️ **申報偏離(兩處,均已由主視窗/Sean 裁示)**
  *   · 設計稿 :855 逐字是 `transition:color var(--dur-hover) var(--var(--ease))` ——
@@ -749,6 +798,9 @@
 }
 /* 🔴 設計稿 :855 這裡寫的是 `var(--var(--ease))` = 打字錯誤(見本段抬頭的偏離申報)。 */
 .bp-others-name { transition: color var(--dur-hover) var(--ease); }
+/* 商品區「查看全部」的箭頭(D3b;設計稿 :858)。位移本身由 `home.css:48` 的
+   `.ed-link:hover .ed-link-arrow` 提供,本條只給它一個**品牌頁節奏**的過渡時間。 */
+.bp-prod-head .ed-link-arrow { transition: transform var(--dur-hover) var(--ease); }
 
 /* ── 減少動態:位移與縮放全拿掉,元素直接就定位 ──────────────────
  * 設計稿 :860-866。**這一層是有 scope 的**(沒有 `*`、沒有 `!important`)⇒ 影響面只有品牌頁。
@@ -775,11 +827,15 @@
   /* D2c-2 影片淡入(Sean 拍板 Q1=B 的那一條)。用 `animation: none` 整條拿掉,
      不用「把時間縮到 0」那種寫法 —— 理由同上面 `both` 那段(delay 期間仍會隱形 + 無單位 0 不合法)。 */
   .bp-film-frame > iframe, .bp-film-frame > video { animation: none; }
+  /* 商品區箭頭的 hover 位移(D3b;設計稿 :867)。位移來源在 `home.css:48`,那是站台層、
+     不歸本檔管 ⇒ 這裡用同樣有 scope 的選擇器把它在品牌頁上關掉。 */
+  .bp-prod-head .ed-link:hover .ed-link-arrow { transform: none; }
 }
 
 /* ══ RWD ══════════════════════════════════════════════════════════
- * 只收**已落地段落**的規則。`.bp-grid` / `.bp-slot`(設計稿 :880-881、:936-937)
- * 屬 D3 的商品區,不在本檔。
+ * 只收**已落地段落**的規則。
+ * ✅ D3b:`.bp-grid` 的欄數規則(設計稿 :882-883、:931-932)已補;
+ *    `.bp-slot` 那半條**不搬**(骨架槽 class,正式站用 `ProductCard`)—— 見商品區那段的說明。
  */
 @media (max-width: 1180px) {
   /* ⚠️ 這裡以前是 repeat(2,1fr),但 aside 永遠只有一張卡 —— 第二欄是空的,
@@ -794,6 +850,23 @@
   .bp-media { grid-column: 2; margin-top: 14px; }
   /* 磚牆 5 欄 → 4 欄(D2e-1)。gap 仍是 12px ⇒ 4 欄扣掉 3 道 gap = 36px。 */
   .bp-others-list a { flex-basis: calc((100% - 36px) / 4); }
+  /* 商品區 5 欄 → 3 欄(D3b;設計稿 :882-883)。
+     🔴 **少顯示,不是換行**:第 4、5 張直接不顯示,否則會多長出一排、把磚牆推下去。
+     🔴 **選擇器改名**(申報偏離):設計稿寫 `.bp-grid .bp-slot:nth-child(n+4)`,`.bp-slot`
+        是它自己的骨架槽 class ⇒ 正式站要改寫。宣告一字未動。
+     🔴 **為什麼要並列兩個選擇器**:`ProductCard` 有 `href` 時外面包一層 `<Link>`,而那層是
+        **inline style** `display: contents`(`ProductCard.tsx:248`)—— inline style 贏過任何
+        樣式表規則,所以只寫 `.bp-grid > :nth-child(n+4){display:none}` 對它**完全無效**;
+        真正佔住格子的是裡面的 `.pcard`。
+        但只寫 `… .pcard` 又把修法綁死在「一定有包一層」上:`href` 是 optional
+        (`ProductCard.tsx:169`),不傳的時候 `.pcard` 就是直接子代、後代選擇器落空
+        ⇒ 窄螢幕又變回 5 張,而且**兩支測試都會照樣綠**(關卡2 R1 must-fix 2)。
+        ⇒ 兩種 DOM 形狀各給一條,不對子元素長什麼樣做假設。
+        ⚠️ 這個坑**文字層守門看不到**:規則在檔案裡、選擇器形狀也對,測試照樣綠 ——
+        D3b 第一版就是這樣過的,是真瀏覽器量出「1180 應該剩 3 張卻看到 5 張」才抓到。 */
+  .bp-grid { grid-template-columns: repeat(3, 1fr); }
+  .bp-grid > :nth-child(n + 4),
+  .bp-grid > :nth-child(n + 4) .pcard { display: none; }
 }
 
 /* 直式影片在手機與平板走滿版 —— 2026-08-03 Sean:「直版影片在手機跟平板上可以盡量放大滿版」。
@@ -894,7 +967,9 @@
   /* 🔴 D2e-1 把 cats / others **加進同一條列表**,理由同上一段:設計稿 :906 本來就是
      一條把 about/cats/products/others/craft 全列進去的選擇器列表。 */
   .bp-why-inner, .bp-craft-inner, .bp-time-inner,
-  .bp-cats-inner, .bp-others-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  /* 🔴 D3b 把 products **加進同一條列表**,理由同上兩段:設計稿 :908 那條列表本來就
+     把 about / cats / **products** / others / craft 五個全列進去(本檔前一版的註解已預告)。 */
+  .bp-cats-inner, .bp-others-inner, .bp-products-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .bp-why h2, .bp-time h2 { text-align: center; max-width: none; }
   .bp-why-lead { text-align: center; margin-left: auto; margin-right: auto; }
   .bp-why-grid { grid-template-columns: minmax(0, 1fr); }
@@ -912,11 +987,14 @@
      這裡只有一條、沒有那個問題)。第一版把標題也顯式列進來 = 純冗餘,關卡2 nit 打掉;
      真要防的「標題哪天又換成別的元素」由 `BrandPageAbout.test.tsx` 的 tagName 斷言守。 */
   .bp-aside-card p { text-align: center; }
-  /* 磚牆與 chips 的手機置中(D2e-1)。設計稿 :919 是 `.bp-prod-head,.bp-others h2` 一條 ——
-     `.bp-prod-head` 屬 D3 的商品區、本檔沒有那個 class ⇒ 只搬 `.bp-others h2` 這半條。
+  /* 磚牆與 chips 的手機置中(D2e-1)。設計稿 :921 是 `.bp-prod-head,.bp-others h2` 一條 ——
+     D2e-1 當時本檔沒有 `.bp-prod-head`,只搬了 `.bp-others h2` 這半條;**D3b 把另一半補回來**,
+     還原成設計稿的同一條列表。
      ⚠️ 這與「About 正文維持靠左」那條例外不衝突:h2 是三個字的標題、chips 是短標籤,
         不是中文長段落。 */
-  .bp-others h2 { text-align: center; }
+  .bp-prod-head, .bp-others h2 { text-align: center; }
+  /* 設計稿 :922 獨立一條(標題列從 flex-end 收成置中)。 */
+  .bp-prod-head { align-items: center; }
   .bp-chips { justify-content: center; }
   /* ⚠️ 與 ≤1180 那條**值完全相同**(設計稿 :879 與 :912 各寫了一次)。逐字搬、不自行合併:
      ≤1180 已涵蓋 ≤960 ⇒ 這條在 cascade 上是 no-op,但它是設計稿的字面,
@@ -934,6 +1012,16 @@
   .bp-body p { line-height: 1.8; margin-bottom: 26px; }
   .bp-pull { font-size: 19px; margin: 28px 0; }
   .bp-aside { grid-template-columns: 1fr; }
+  /* 商品區 3 欄 → 2 欄(D3b;設計稿 :931-932)。選擇器改名理由同 ≤1180 那段。 */
+  .bp-grid { grid-template-columns: repeat(2, 1fr); }
+  .bp-grid > :nth-child(n + 3),
+  .bp-grid > :nth-child(n + 3) .pcard { display: none; }
+  /* 🔴 設計稿在 ≤620 對 `.bp-prod-head` 寫了**兩條**(:939 與 :949),而且後面那條把
+     前面的 `align-items` 蓋掉。逐字搬、不自行合併成一條 —— 合併就是「翻譯」,
+     而且哪天上面那條被改,兩者的先後關係就是設計稿要表達的東西。
+     :949 的原註解逐字:「窄欄裡 flex 會把『查看全部』壓成一行一個字」。 */
+  .bp-prod-head { align-items: center; text-align: center; }
+  .bp-prod-head { flex-direction: column; align-items: flex-start; gap: 14px; }
   /* 數字條再收成單欄(D2d-1)。左右 padding 收回 0,否則單欄下數字會離左緣一段。
      🔴 **最後一行是刻意偏離設計稿字面**(:1183-1185 沒有)—— Sean 2026-08-04 拍 A(backlog #310)。
         ≤1024 的 `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:0}` 在這裡

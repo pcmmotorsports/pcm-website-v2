@@ -5,7 +5,8 @@
 // 這頁的 `<title>` / description / OG 是它自己的,B 案(掛在目錄頁上)拿不到。
 //
 // 版面全部在 `components/brand/BrandPageRoot.tsx`(組裝點 + `.bp-page` 色票 scope,見該檔檔頭);
-// 本檔只負責四件事:404、metadata、站台 `<Header>` / `<HomeFooter>` 的殼、頁尾的 per-brand 標語。
+// 本檔只負責五件事:404、metadata、站台 `<Header>` / `<HomeFooter>` 的殼、頁尾的 per-brand 標語、
+// 以及**撈商品區的資料**(D3b;撈完傳進 `BrandPageRoot`,讓它保持同步 —— 理由見該檔那段 doc)。
 // 站台殼是設計稿本來就有的(`pcm-home-redesign/brand-page.html:1327` 站台 header /
 // `:1506` 站台 footer),不是這裡自己加的。
 //
@@ -13,19 +14,16 @@
 //    (`Header.tsx:104-107` 逐字:只有 `app/page.tsx` 傳 `currentPage="home"`)。品牌頁不是首頁,
 //    這是對的分支;`Header.test.tsx` 那組對照表守的也是這一支。
 //
-// **本片刻意沒做的四件事**(全部有主;不是漏掉,但也不要當成「已經有了」):
+// **本片刻意沒做的三件事**(全部有主;不是漏掉,但也不要當成「已經有了」):
 //
-// ⚠️ ① **商品區** —— 設計稿骨架 `:1470-1489` 的 `.bp-products` 用既有 `ProductCard`。計畫
-//      `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:180` 寫的是「屬 **D3** 接線」;
-//      本棒把 D3 拆成 D3a/D3b/D3c ⇒ 落在 **D3b**(D3b 這個編號是本棒切的、不是計畫的字面)。
-// ⚠️ ② **`/brands` 總覽頁** —— 麵包屑第二段(`BrandPageHeader.tsx:46`)與磚牆都指得到它,
+// ⚠️ ① **`/brands` 總覽頁** —— 麵包屑第二段(`BrandPageHeader.tsx:46`)與磚牆都指得到它,
 //      但那條 route 屬 **D3c**(=計畫 §8.2 的 D4)。D3a 落地後 `/brands/<slug>` 這一半先活。
-// 🔴 ③ **`#314` 的 redirect 沒做** —— backlog `docs/phase-1-backlog.md:8395-8396` 逐字要求
+// 🔴 ② **`#314` 的 redirect 沒做** —— backlog `docs/phase-1-backlog.md:8395-8396` 逐字要求
 //      「D3 建 `app/brands/[slug]/page.tsx` 時,**同片**在 `/products` 側加 redirect」。
 //      本片建了那個檔卻沒附 redirect,**是刻意延到 D3c**(信箱 C-25-Q Q1 → C-26-A 核可:
 //      hash 永遠不送到 server ⇒ 只能做 client 側,與 `/brands` 總覽同片收比較完整)。
 //      在 D3c 落地前,`/products?pbrand=X#brand-about` 仍會停在商品目錄頁首、零錯誤訊息。
-// ⚠️ ④ **`/brands/<slug>` 不在 `sitemap.xml` 裡** —— `app/sitemap.ts:22-24` 只列靜態路徑 + 商品
+// ⚠️ ③ **`/brands/<slug>` 不在 `sitemap.xml` 裡** —— `app/sitemap.ts:22-24` 只列靜態路徑 + 商品
 //      handle。A 案選它的理由就是 SEO,少了地圖等於少一半 ⇒ 與 `/brands` 同片(D3c)一起補。
 
 import type { Metadata } from 'next';
@@ -37,6 +35,7 @@ import { BrandPageRoot } from '@/components/brand/BrandPageRoot';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import { brandRichTextToPlain } from '@/lib/brand-rich-text';
 import { brandAsset } from '@/lib/brand-asset';
+import { fetchBrandTopProducts } from '@/lib/brand-products';
 import { resolveSiteUrl } from '@/lib/site-url';
 
 type Props = { params: Promise<{ slug: string }> };
@@ -100,6 +99,9 @@ export default async function BrandPage({ params }: Props) {
   const { slug } = await params;
   const brand = findBrand(slug);
   if (!brand) notFound();
+  // 🔴 撈在 `notFound()` **之後**:未知 slug 不該去打一次 RPC(而且 `brand` 為 null 時
+  //    也組不出篩選鍵)。0 筆(實測 5 家)⇒ 商品區整區不渲染,不是錯誤。
+  const products = await fetchBrandTopProducts(brand.slug);
 
   return (
     // `data-screen-label` = 設計稿 `:1325` 外層 `.ed-page` 上的字面(全站慣例:`app/page.tsx:93`
@@ -115,7 +117,7 @@ export default async function BrandPage({ params }: Props) {
     //    版面標記(`app/page.tsx:93` 的 "Home" 之類都是固定字面),頁面身分由 `<title>` 表達。
     <div data-screen-label="品牌頁">
       <Header />
-      <BrandPageRoot brand={brand} />
+      <BrandPageRoot brand={brand} products={products} />
       {/* 頁尾標語 = 這家品牌自己那一句(設計稿 `:1510-1512` 註解 + `:2029` 灌值)。
           `slogan` 是 BrandRichString、實際含 `<br>` ⇒ 走 BrandRichText;不給 `as`
           回 Fragment ⇒ DOM 與設計稿的 `<p class="ed-footer-tagline">…</p>` 逐節點相同。 */}

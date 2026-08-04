@@ -750,11 +750,19 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
     expect(narrow).toMatch(/\.bp-others h2\s*\{[^}]*text-align:\s*center/);
   });
 
-  it('🔴 D3 的商品區 class 不得混進本檔(.bp-products / .bp-slot 用的是既有 ProductCard)', () => {
-    // 計畫 §5.2 逐字:那五張灰卡只是佔位、正式站直接用 ProductCard。
-    // 順手把設計稿 :714-740 一起搬進來 = 讓一批永遠沒有元件的 class 躺在 repo 裡。
-    for (const dead of ['.bp-products', '.bp-prod-head', '.bp-slot', '.bp-bar', '.bp-grid']) {
+  // 🔴 **D3b 更新:這條原本擋的是整組商品區 class,前提已經改變。**
+  //    D2e-1 寫它的時候商品區還沒有元件 ⇒ 搬進來就是一批沒有消費端的死 class。
+  //    D3b 落地後 `.bp-products` / `.bp-prod-head` / `.bp-grid` **都有元件了**
+  //    (`BrandPageProducts.tsx`),真正永遠不該進本檔的只剩**骨架槽**那兩族。
+  //    清單縮小、不是整條刪掉 —— 刪掉的話「有人把假卡片外觀也搬進來」就沒有東西擋了。
+  it('🔴 設計稿的骨架槽 class 永遠不得混進本檔(那五張灰卡是佔位、正式站用 ProductCard)', () => {
+    // 設計稿 :1468-1469 逐字:「正式頁面這一區直接用既有的商品列表元件,不是新做的」。
+    for (const dead of ['.bp-slot', '.bp-bar']) {
       expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
+    }
+    // 反面前提:已落地的那三個**必須在**,否則上面那句「清單縮小」是在描述一個不存在的狀態。
+    for (const live of ['.bp-products', '.bp-prod-head', '.bp-grid']) {
+      expect(CSS, `${live} 不見了 ⇒ D3b 的商品區樣式被整段拿掉`).toContain(live);
     }
   });
 });
@@ -912,13 +920,15 @@ describe('品牌頁 CSS · 動效層(D2e-2)', () => {
     }
   });
 
-  it('🔴 捲動揭示與 D3 商品區的動效**都不得**混進來', () => {
-    // 捲動揭示 = Sean 2026-08-04 拍板 C(先不做,backlog #316);
-    // `.bp-prod-head` = D3 商品區,本檔沒有那個 class ⇒ 搬過來就是死規則。
+  // 🔴 **D3b 更新:`.bp-prod-head` / `ed-link-arrow` 從黑名單移出。**
+  //    原本的理由逐字是「本檔沒有那個 class ⇒ 搬過來就是死規則」—— 商品區落地後前提消失,
+  //    那兩條動效規則現在有真的消費端(設計稿 :858 與 reduce 區塊 :867,見商品區那個 describe)。
+  //    捲動揭示那半條**維持不動**:Sean 2026-08-04 拍板 C 先不做(backlog #316)。
+  it('🔴 捲動揭示的東西不得混進來(Sean 拍板 C、backlog #316)', () => {
     // ⚠️ `is-in` 不能裸著比對(關卡2 R1 nit):未來任何 `is-inline` / `is-inactive` 都會誤紅。
     //    改成帶 class 邊界的 `.is-in`,後面不得再接識別字元。
     expect(CSS, '捲動揭示的 .is-in 混進來了').not.toMatch(/\.is-in(?![-\w])/);
-    for (const dead of ['.js-reveal', 'data-reveal-delay', '.bp-prod-head', 'ed-link-arrow']) {
+    for (const dead of ['.js-reveal', 'data-reveal-delay']) {
       expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
     }
   });
@@ -965,5 +975,119 @@ describe('品牌頁 CSS · 事實列欄數', () => {
   it('欄數吃 --fact-n(3 或 4 都要成立),不是寫死 4', () => {
     expect(CSS).toContain('repeat(var(--fact-n, 4)');
     expect(CSS).not.toMatch(/\.bp-facts-inner\s*\{[^}]*grid-template-columns:\s*repeat\(4/);
+  });
+});
+
+// ── 商品區(D3b)────────────────────────────────────────────────
+// 🔴 這一段守的是**兩件在瀏覽器以外看不見的事**:
+//   ① 窄螢幕是「少顯示幾格」不是「換行成兩排」—— 換行的話磚牆會被推下去,而版面測試、
+//      三綠、元件測試全部不會紅(元件永遠渲染 5 張,是 CSS 決定看得到幾張)。
+//   ② 設計稿那組**骨架槽**(`.bp-slot` / `.bp-bar`)永遠不該進本檔:它們是假卡片的外觀,
+//      搬進來會蓋在真 `ProductCard` 上,或更糟 —— 靜靜地誰也沒蓋到、變成一坨死規則。
+// 🔴 **D3b 實錘:註解提早關閉,而本檔全部的守門照樣綠。**
+//    我在 ≤960 那段寫了 `about/cats/**products**/others` —— `**products**/` 裡的 `*/`
+//    直接把該則註解關掉,後面半句中文變成 CSS 規則空間裡的垃圾。
+//    `next build` 當場紅(`Parsing CSS source code failed / Unexpected token Delim('/')`),
+//    但**這支測試全綠** —— 因為 `CSS` 是用同一套非貪婪的 `/\*[\s\S]*?\*/` 剝註解,
+//    它在那個提早的 `*/` 停下、剝掉的範圍與瀏覽器/打包器認定的一模一樣,於是雙方一起被騙。
+//    ⚠️ 而且 CSS-only 的片按鐵則 11 **不必跑 build**(只有動 .ts/.tsx 才跑)⇒ 這一類壞法
+//       有機會整片溜過去。故補這條不變式當機制。
+//    不變式:本檔所有中文都在註解裡 ⇒ **剝掉註解之後不該剩任何中文**。
+//    (真要在 CSS 值裡寫中文的那天〔例如 `content: "…"`〕,這條要改成排除 content 值,
+//     而不是刪掉它。)
+describe('品牌頁 CSS · 註解沒有提早關閉(D3b)', () => {
+  it('🔴 剝掉註解之後零中文 —— 有中文殘留 = 某則註解的 `*/` 提早出現', () => {
+    const leaked = CSS.match(/[\u4e00-\u9fff]+/g) ?? [];
+    expect(leaked, `這些中文掉進規則空間了:${leaked.slice(0, 3).join(' / ')}`).toHaveLength(0);
+  });
+
+  it('🔴 前提:本檔真的有大量中文註解(否則上一條是拿空的比空的)', () => {
+    expect((CSS_RAW.match(/[\u4e00-\u9fff]/g) ?? []).length).toBeGreaterThan(2000);
+  });
+});
+
+describe('品牌頁 CSS · 商品區(D3b)', () => {
+  const rules = cssRules();
+  const gridRules = rules.filter((r) => r.selector.split(',').map((s) => s.trim()).includes('.bp-grid'));
+
+  it('🔴 前提:`.bp-grid` 三個斷點各有一條欄數規則(基礎 / ≤1180 / ≤620)', () => {
+    // 沒有這條,下面「欄數對」可能只是因為某個斷點根本沒寫規則 ⇒ 恆真。
+    const at = gridRules.map((r) => r.at.join('|'));
+    expect(at).toHaveLength(3);
+    expect(at.filter((a) => a === '')).toHaveLength(1); // 基礎規則(不在任何 @media 內)
+    expect(at.some((a) => a.includes('1180'))).toBe(true);
+    expect(at.some((a) => a.includes('620'))).toBe(true);
+  });
+
+  it('🔴 欄數 5 → 3 → 2(設計稿 :727 / :882 / :931)', () => {
+    const colsAt = (needle: string) =>
+      gridRules.find((r) => (needle === '' ? r.at.length === 0 : r.at.join('|').includes(needle)))
+        ?.body.match(/grid-template-columns\s*:\s*repeat\(\s*(\d+)/)?.[1];
+    expect(colsAt('')).toBe('5');
+    expect(colsAt('1180')).toBe('3');
+    expect(colsAt('620')).toBe('2');
+  });
+
+  it('🔴 多出來的格是 `display:none`,不是讓它換行', () => {
+    // 選擇器用 `> :nth-child()`(申報偏離):設計稿寫 `.bp-grid .bp-slot:nth-child(...)`,
+    // 而正式站的子元素是 ProductCard 的 `.pcard` ⇒ 寫 `.bp-slot` 那兩條永遠不生效。
+    const hidden = rules.filter(
+      (r) => /^\.bp-grid\s*>\s*:nth-child\(/.test(r.selector) && /display\s*:\s*none/.test(r.body),
+    );
+    // 🔴 選擇器**必須以 `.pcard` 結尾**:`ProductCard` 的 `<Link>` 帶 inline style
+    //    `display: contents`(`ProductCard.tsx:248`),inline style 贏過樣式表 ⇒ 直接關那個
+    //    子元素是沒有用的。D3b 第一版就是這樣、而且**本檔當時全綠** —— 文字層守門看得到
+    //    「規則在不在」,看不到「規則有沒有真的生效」。這條只是把已知的修法釘住,
+    //    真正的驗證是真瀏覽器量可見張數(見 C-29-STOP 的量測)。
+    for (const r of hidden) {
+      const parts = r.selector.split(',').map((x) => x.trim());
+      // 兩種 DOM 形狀各要有一條:①直接子代(ProductCard 不傳 href 時)②包一層 Link 時的 .pcard
+      expect(parts.some((x) => /:nth-child\([^)]*\)$/.test(x)), `${r.selector} 缺「直接子代」那條`).toBe(true);
+      expect(parts.some((x) => /\.pcard$/.test(x)), `${r.selector} 缺「.pcard」那條`).toBe(true);
+    }
+    expect(hidden).toHaveLength(2);
+    const byBreakpoint = Object.fromEntries(
+      hidden.map((r) => [r.at.join('|').match(/(\d+)px/)?.[1], r.selector]),
+    );
+    // ≤1180 剩 3 欄 ⇒ 藏第 4 個起;≤620 剩 2 欄 ⇒ 藏第 3 個起。數字錯開就是多一排或少一張。
+    expect(byBreakpoint['1180']).toContain('n + 4');
+    expect(byBreakpoint['620']).toContain('n + 3');
+  });
+
+  it('🔴 骨架槽的 class 一條都沒搬(設計稿 :730-740 刻意不搬)', () => {
+    for (const dead of ['.bp-slot', '.bp-slot-img', '.bp-slot-info', '.bp-bar']) {
+      expect(
+        rules.some((r) => r.selector.includes(dead)),
+        `${dead} 出現在 brand-page.css ⇒ 有人把設計稿的假卡片外觀也搬進來了`,
+      ).toBe(false);
+    }
+  });
+
+  it('🔴 `.bp-products-inner` 有進 ≤960 那條共用的收單欄列表(不是自己另開一條)', () => {
+    // 另開一條的話同權重靠順序決勝,五個區塊的收欄就不再保證一起發生(檔內 :890 記過這條)。
+    const shared = rules.find(
+      (r) => r.at.join('|').includes('960') && r.selector.includes('.bp-products-inner'),
+    );
+    expect(shared, '≤960 找不到含 .bp-products-inner 的規則').toBeDefined();
+    expect(shared!.selector).toContain('.bp-cats-inner');
+    expect(shared!.selector).toContain('.bp-others-inner');
+    expect(shared!.body).toMatch(/grid-template-columns\s*:\s*minmax\(0,\s*1fr\)/);
+  });
+
+  // 🔴 關卡2 R2 must-fix 2:`.ed-link` 的 `color` 與 `border-bottom` 都吃 `--ed-c-ink`,
+  //    而那個 token 只宣告在 `home.css:8` 的 `.ed-page` 內 —— 本頁刻意不掛 `.ed-page`
+  //    ⇒ 沒補的話 `border-bottom` 整條 IACVT、底線消失,而**所有 CSS 文字守門照樣綠**
+  //    (它們看得到「規則在不在」,看不到「token 有沒有值」)。
+  it('🔴 `.bp-page` 有補 `--ed-c-ink`(否則「查看全部」的底線會整條消失)', () => {
+    const scope = rules.filter((r) => r.selector.split(',').map((x) => x.trim()).includes('.bp-page'));
+    expect(scope.length, '找不到 .bp-page 的色票區').toBeGreaterThan(0);
+    expect(
+      scope.some((r) => /--ed-c-ink\s*:/.test(r.body)),
+      '.bp-page 沒宣告 --ed-c-ink ⇒ .ed-link 的 border-bottom 會退回 none',
+    ).toBe(true);
+  });
+
+  it('箭頭的 hover 位移在 reduced-motion 下被關掉(設計稿 :867)', () => {
+    expect(neutralisedIn(rules, '.bp-prod-head .ed-link:hover .ed-link-arrow', 'transform')).toBe(true);
   });
 });
