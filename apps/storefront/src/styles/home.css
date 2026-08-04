@@ -598,7 +598,11 @@
   color: var(--ed-c-ink);
 }
 /* 🔴 **本區對 design 真權威的申報偏離台帳**(鐵則 1 可追性;形式照 `brand-page.css` 檔頭)
- *    —— design `design-reference/styles/home.css` 對應區塊的三處差異,都是 D3c-2 依
+ *    ⚠️ **「真權威」在本線指的是 Open Design `pcm-home-redesign`**(Sean 2026-08-03 拍 Q1=B,
+ *       鐵則 1 的明文例外)—— 下面拿 `design-reference/styles/home.css` 當比對基準,是因為
+ *       首頁那一段的現況出自它、且 OD 尚未覆蓋這一區;**D5 首頁重排時基準要換成 OD**,
+ *       不要把這張台帳讀成「design-reference 仍是首頁的真權威」(關卡2 R2 nit)。
+ *    —— 與 `design-reference/styles/home.css` 對應區塊的三處差異,都是 D3c-2 依
  *    Sean 2026-08-04 拍板(信箱 `C-31-A`)新增,**設計稿零命中**:
  *      · `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)`(兩處;宣告一字未動,
  *        純選擇器改名 —— 列現在可能是 `<a>` 也可能是 `<span>`)

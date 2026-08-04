@@ -22,11 +22,11 @@ import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import { BRAND_CONTENT } from '@/data/brand-content';
 // bp-* 樣式與 `.bp-page` scope 由 `BrandPageRoot.tsx` 一併提供(D3a 收斂;理由見該檔檔頭)。
-import { brandAsset } from '@/lib/brand-asset';
+// 🔴 `brandTrimLogo` D3c-3 搬去 `lib/brand-asset.ts`(第二個消費端 = `/brands` 總覽卡片出現)。
+//    刻意**不留 re-export**:兩個出口會讓下一個人不知道該從哪裡拿,而全 repo 只有本檔
+//    與自己的測試在用,改 import 是兩行的事。
+import { brandTrimLogo } from '@/lib/brand-asset';
 import { brandIntroUrl } from '@/lib/brand-url';
-
-/** 磚牆 logo 的資產路徑。與 `bandLogo`(brands-dark/)是不同資料夾,不要拿錯。 */
-export const brandTrimLogo = (slug: string): string => brandAsset(`assets/brands-trim/${slug}.png`);
 
 /**
  * `availableSlugs` = 目錄裡真的有商品的品牌(`lib/brand-products.fetchBrandsWithProducts`)。

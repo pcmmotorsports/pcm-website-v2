@@ -14,7 +14,9 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
-import { BrandPageBrandWall, brandTrimLogo } from './BrandPageBrandWall';
+import { BrandPageBrandWall } from './BrandPageBrandWall';
+// D3c-3 起 `brandTrimLogo` 住在 `lib/brand-asset.ts`(第二個消費端 = `/brands` 總覽卡片)。
+import { brandTrimLogo } from '@/lib/brand-asset';
 import { BRAND_CONTENT } from '@/data/brand-content';
 
 afterEach(cleanup);
