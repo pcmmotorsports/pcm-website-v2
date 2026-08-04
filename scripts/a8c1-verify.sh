@@ -128,11 +128,11 @@ fi
 # ── §5.3⑥ 三支 COMMENT post-oracle + begin COMMENT ──────────────
 cmtmd5() { q "SELECT md5(obj_description('$1'::regprocedure, 'pg_proc'))"; }
 # 🔴 md5 pin 全文(codex 關卡2:子字串比對抓不到倒寫與錯字)
-[ "$(cmtmd5 'public.begin_charge_attempt(uuid)')" = "95569ce8d85dc38c0e95acf6e204d5d6" ] \
+[ "$(cmtmd5 'public.begin_charge_attempt(uuid)')" = "98c8a894083415fd5f8139a906c230bb" ] \
   && ok "COMMENT begin=新字面(md5 pin)" || bad "COMMENT begin md5 不符"
 [ "$(cmtmd5 'public.mark_charge_attempt_failed(uuid,uuid)')" = "2015836900b9ecb5d017cdd9e85a3469" ] \
   && ok "COMMENT mark_failed=新字面(md5 pin)" || bad "COMMENT mark_failed md5 不符"
-[ "$(cmtmd5 'public.mark_charge_attempt_charged(uuid,uuid,text)')" = "821aa6cb7feafeccd7509085e2433ffa" ] \
+[ "$(cmtmd5 'public.mark_charge_attempt_charged(uuid,uuid,text)')" = "4e9b1776adb202fd0a4d927734ddf23b" ] \
   && ok "COMMENT mark_charged=新字面(md5 pin)" || bad "COMMENT mark_charged md5 不符"
 [ "$(cmtmd5 'public.close_released_attempt(uuid,text)')" = "921aff9a38368d3c512ac69cb71fe0e1" ] \
   && ok "COMMENT close_released=新字面(md5 pin)" || bad "COMMENT close_released md5 不符"
