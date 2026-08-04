@@ -7,7 +7,7 @@
 
 ## 步驟 ①:停寫停守門
 
-🔀 **2026-08-03 已回寫**(A5a migration 已寫成、**尚未 apply 正式站**;本節寫的是 A5a 落地之後的程序),
+🔀 **2026-08-03 已回寫**(A5a migration 已寫成;**2026-08-03 已 apply 正式站**——本行 2026-08-04 A8a1 片更新,來源=`docs/handoff/CURRENT.md:5-6`(ledger 尾=`20260803160000`)與 `:12-13`(「三片皆已 apply,read-back 全符」);⚠️ STATUS.md 08-03 晚段寫的 ledger 尾=`20260803150000` 是 A5a apply **前**的快照、不含 A5a,勿引;本節寫的是 A5a 落地之後的程序),
 契約(A4a plan §11 債⑦)結案。A5a 上線後採購側就有一支 writer RPC;
 到貨明細(`order_item_procurement_receipts`)與取消側(`order_cancellation_items`)仍為零寫 GRANT、無 writer。
 
@@ -33,7 +33,9 @@ SELECT now() AS revoke_at;   -- ← 把回傳值填進 (3)
 SELECT count(*) FROM pg_stat_activity
  WHERE pid <> pg_backend_pid()
    AND xact_start IS NOT NULL
-   AND xact_start < TIMESTAMPTZ '<填 (2) 的 revoke_at>';
+   AND xact_start <= TIMESTAMPTZ '<填 (2) 的 revoke_at>';
+-- v3(A8a1 關卡2 折入):<= 不是 <——xact_start 恰等於 revoke_at 的交易(同一時戳精度)
+-- 是「REVOKE 生效前已通過檢查」的可能成員,安全邊界必須含等號。
 ```
 
 ⚠️ **停寫後的殘餘寫入面(誠實列全,口徑對齊 S2 `20260801160000:303-306`)**:owner 手動 SQL、pg_cron job、
@@ -41,6 +43,10 @@ SELECT count(*) FROM pg_stat_activity
 不是「沒有任何東西能寫」。災難日若對帳持續飄移,先查這三個面,不要假設停寫失敗。
 
 ## 步驟 ②:保存快照 + 對帳(分流,不 abort;🔀 codex K2-R2-2:三形狀 —— 值分歧/缺列/received drift)
+
+> 🔴 **v3(A8a1 關卡2 折入):②→⑤ 的 BEGIN…COMMIT 跨四個步驟,必須同一連線同一 SQL editor
+> 分頁依序貼入執行、中途不換頁不斷線**;換連線=快照靜默回滾、④⑤ 的「同一交易」宣稱失效。
+> 中途斷線就從 ② 重來(CTAS 未 COMMIT 會自動消失、無殘留)。
 
 ```sql
 BEGIN;
@@ -72,6 +78,16 @@ CREATE TABLE public.a4a_rollback_received_drift AS
          COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r WHERE r.procurement_id=p.id),0) AS truth_received
     FROM public.order_item_procurement p
    WHERE p.received_quantity IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r WHERE r.procurement_id=p.id),0);
+
+-- v3(A8a1 關卡2 折入):三張證據表 escape 兩件套(ENABLE RLS+REVOKE;owner 直讀,故不 GRANT
+-- ——與 a7-rollback 的「三件套」(含 GRANT SELECT 供 ACL 斷言形狀)刻意不同,勿照字面找第三件)
+-- —— CTAS 預設繼承 default privileges,
+-- 內部採購/取消數字不得進 PostgREST 曝露面;owner(postgres)直讀不受影響。
+ALTER TABLE public.a4a_rollback_snapshot        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.a4a_rollback_divergence      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.a4a_rollback_received_drift  ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.a4a_rollback_snapshot, public.a4a_rollback_divergence,
+  public.a4a_rollback_received_drift FROM PUBLIC, anon, authenticated, service_role;
 
 SELECT (SELECT count(*) FROM public.a4a_rollback_divergence) AS divergence_rows,
        (SELECT count(*) FROM public.a4a_rollback_received_drift) AS received_drift_rows;
@@ -157,15 +173,8 @@ A5a 上線後那句**不再成立**,承重改為 ①的 **REVOKE + drain 已跑�
 🔴 **重建之後必須把 A5a 的寫入權還回去**(關卡2 MF2):步驟① 的 REVOKE 不會被 forward 重放
 A1/A4a 的動作抵銷 —— 重建完成、對帳綠之後若忘了這一句,採購寫入會**永久停擺**而系統看起來一切正常
 (員工按儲存只會收到權限錯誤,沒有任何告警)。
-
-```sql
-GRANT EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
-  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) TO service_role;
--- 驗:應回 t
-SELECT has_function_privilege('service_role',
-  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)', 'EXECUTE');
-```
-
+⚠️ **v3 時點釘死;v3b(codex R2)連版面也釘:GRANT 的 SQL 不放本步、實體移到最後的步驟 ⑦**
+——照文件順序操作的人不會在防線已拆/摘要表已 DROP 時提早恢復 writer。
 
 ```sql
 -- 前置:步驟③(a) 重跑 = 0;③(b) 清單無其他消費端。
@@ -177,3 +186,17 @@ COMMIT;
 
 **Forward 重建**(任一時點):依序重放 A1(`20260730150000`)與 A4a(`20260803140000`)migration 檔 → A4a backfill 由真相重算 → 快照/divergence/received_drift 三表事後 `DROP TABLE` 歸檔或清除。
 🔴 **A1 重放的已知蓋寫(2026-08-03 家族序跑實錘)**:A1 `:170` 會 `COMMENT ON TABLE order_item_procurement`,把 **S1b 之後修訂的表註解蓋回 A1 版** ⇒ forward 前先快照 `obj_description`、重放後還原(演練腳本已內建);未來任何晚於 A1 且動過相同物件註解/屬性的 migration 同受此約束。
+
+## 步驟 ⑦(最後一步;前提=⑥ 的 forward 重建完成+對帳綠):A5a 回權
+
+前提逐條 yes 才跑:☐ A1+A4a 已重放 ☐ backfill 對帳綠 ☐ 三張證據表已處置。
+(⚠️ v4 互指:若走的是 **a7 全回滾**(取消表已 DROP)⇒ A4a 永無法重放、本步前提**永不可滿足**
+——回權改走 `2026-07-30-a7-rollback.md` 步 8 的 a7 專屬前提,勿在此卡死。)
+
+```sql
+GRANT EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) TO service_role;
+-- 驗:應回 t
+SELECT has_function_privilege('service_role',
+  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)', 'EXECUTE');
+```
