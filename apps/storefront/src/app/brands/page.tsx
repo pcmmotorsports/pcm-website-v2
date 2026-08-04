@@ -2,7 +2,7 @@
 //
 // 這條 route 自 D2b 起就被三個地方指著、但一直不存在(= 死連結):品牌頁麵包屑第二段、
 // 站台 Header 的「品牌」navItem、頁尾「品牌專區」。本片先把 route 生出來,
-// **三個消費端的收口與 sitemap 在下一片**(見檔尾「刻意沒做」)。
+// **sitemap 已於 D3c-4 補、三個消費端的收口仍未做**(見檔尾「刻意沒做」)。
 //
 // 版面全部在 `components/brand/BrandDirectoryRoot.tsx`(組裝點 + `.bd-page` 色票 scope);
 // 本檔只負責 metadata、站台殼、以及撈「哪幾家有商品」。與 `app/brands/[slug]/page.tsx` 同型。
@@ -66,11 +66,15 @@ export default async function BrandDirectoryPage() {
   );
 }
 
-// **本片刻意沒做的四件事**(全部有主;不是漏掉)
-// ⚠️ ① 三個消費端仍指著舊目的地或不會 highlight:`BrandPageHeader.tsx` 的麵包屑、
-//      站台 `Header` 的「品牌」navItem(目前指 `/products`)、`HomeFooter` 的「品牌專區」。
-//      ⇒ 下一片(D3c-4)一起收,連同 `Header` 的 `currentPage` 要不要加第三種(動共用元件)。
+// **仍未做的三件事**(全部有主;不是漏掉。⚠️ 這張清單每次有人動到相關檔案就要回頭改 ——
+//  D3c-4 的關卡2 R1 就是抓到它整段過期)
+// 🔴 ① **三個消費端仍指著舊目的地**:`BrandPageHeader.tsx` 的麵包屑、站台 `Header` 的「品牌」
+//      navItem(仍指 `/products`)、`HomeFooter` 的「品牌專區」(仍指 `/products`)。
+//      ⇒ **現況是 `/brands` 進了 sitemap、站內卻幾乎沒有入口**(D3c-4 R1 點名)。屬 D3c-5;
+//      拆出去的理由是 Header 那顆改 href 會動到**全站每一頁**的導覽目的地 + `Header.test.tsx`
+//      的對照表,值得自己一片自己驗。本片已做的只有 `currentPage="brands"` 的 highlight。
 // 🔴 ② `#314` 的 client redirect(`/products?pbrand=X#brand-about` → `/brands/<slug>`)仍未做。
-// ⚠️ ③ `/brands` 與 `/brands/<slug>` 都還不在 `sitemap.xml`(`app/sitemap.ts`)。
+// ✅ ③ ~~`/brands` 與 `/brands/<slug>` 不在 `sitemap.xml`~~ **D3c-4 已補**(總覽進
+//      `STATIC_SITEMAP_PATHS`、20 個介紹頁由 `buildSitemapEntries` 的 `brandSlugs` 產生)。
 // ⚠️ ④ 設計稿 hero 那面 logo 牆在**視窗很矮**時會被 `.bd-hero-inner` 的內容擠出可視範圍嗎 ——
 //      設計稿沒有處理,本片照搬、未加保護;真瀏覽器實測記在收工信。

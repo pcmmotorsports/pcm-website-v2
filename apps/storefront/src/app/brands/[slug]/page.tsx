@@ -23,8 +23,9 @@
 //      本片建了那個檔卻沒附 redirect,**是刻意延到 D3c**(信箱 C-25-Q Q1 → C-26-A 核可:
 //      hash 永遠不送到 server ⇒ 只能做 client 側,與 `/brands` 總覽同片收比較完整)。
 //      在 D3c 落地前,`/products?pbrand=X#brand-about` 仍會停在商品目錄頁首、零錯誤訊息。
-// ⚠️ ③ **`/brands/<slug>` 不在 `sitemap.xml` 裡** —— `app/sitemap.ts:22-24` 只列靜態路徑 + 商品
-//      handle。A 案選它的理由就是 SEO,少了地圖等於少一半 ⇒ 與 `/brands` 同片(D3c)一起補。
+// ✅ ③ ~~`/brands/<slug>` 不在 `sitemap.xml` 裡~~ **D3c-4 已補**:`lib/seo.ts` 的
+//      `buildSitemapEntries` 多一個必填的 `brandSlugs`,20 頁全部進地圖(含目錄零商品那 5 家 ——
+//      泛白的是入口、不是頁面本身)。`/brands` 總覽也一併進了 `STATIC_SITEMAP_PATHS`。
 
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';

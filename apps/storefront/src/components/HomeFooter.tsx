@@ -3,7 +3,10 @@
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 7 條):
-//   'catalog' → /products / 'brands' → /products(Q4-S5 修 404、品牌專區頁留 Phase 2)
+//   'catalog' → /products / 'brands' → /products
+//   🔴 **'brands' 這條的理由已過期、但刻意還沒改**(D3c-4 關卡2 R1 must-fix 3):
+//      當年寫「Q4-S5 修 404、品牌專區頁留 Phase 2」,而 `/brands` **已於 D3c-3 落地**、
+//      D3c-4 也進了 sitemap。改指 `/brands` 屬 **D3c-5**(與 Header 那顆同一片一起驗)。
 //   'new' → /products?filter=new / 'sale' → /products?filter=sale(🔴 ?filter= 全站未接、backlog)
 //   'install' → /install / 'stores' → /stores(🔴 路由不存在=404、backlog)/ 'shipping' → /info/shipping
 // social 3 條:M-1-06 #136 曾因無真連結改 <button disabled> 宣告未上線 → 2026-07-03 Sean 拍 Q2=A
