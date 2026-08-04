@@ -550,7 +550,15 @@
 .ed-brand-list li {
   border-bottom: 1px solid var(--ed-c-rule);
 }
-.ed-brand-list a {
+/* 🔴 選擇器是 `> li > :is(a, span)` 而不是 `a`(D3c-2):目錄零商品的品牌那幾列渲染成
+   `<span>`(見 `BrandIndex.tsx`),沿用 `a` 的話那幾列會整個沒有 grid = 五格擠成一行文字。
+   🔴🔴 **一定要是子選擇器**:寫成後代的 `.ed-brand-list :is(a, span)` 會把**列內每一個
+      `<span>`**(編號 / 名稱 / 標語 / 國別 / 那句只給報讀器的話)也一起套上 `display: grid`
+      與 26px padding —— 整排版面當場爆掉。這是本片第一版真的寫錯、動手時抓到的。
+   ⚠️ 只有**版面**這一條改成兩型別;下面的 `a:hover` 一族**刻意維持只給 `<a>`** ——
+      不可點的列本來就不該有 hover 回饋。特異度 (0,1,2) 仍輸給 `a:hover` 的 (0,2,1),
+      hover 位移不受影響。 */
+.ed-brand-list > li > :is(a, span) {
   display: grid;
   grid-template-columns: 56px 1fr 1fr 80px 40px;
   align-items: center;
@@ -589,8 +597,54 @@
   transform: translateX(6px);
   color: var(--ed-c-ink);
 }
+/* 🔴 **本區對 design 真權威的申報偏離台帳**(鐵則 1 可追性;形式照 `brand-page.css` 檔頭)
+ *    —— design `design-reference/styles/home.css` 對應區塊的三處差異,都是 D3c-2 依
+ *    Sean 2026-08-04 拍板(信箱 `C-31-A`)新增,**設計稿零命中**:
+ *      · `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)`(兩處;宣告一字未動,
+ *        純選擇器改名 —— 列現在可能是 `<a>` 也可能是 `<span>`)
+ *      · `.is-empty` 三條(泛白狀態,設計稿完全沒有這個狀態)
+ *      · `.ed-sr-only`(只給報讀器的文字,設計稿零命中)
+ *    ⇒ 這三處是 repo 先行、設計稿還沒跟進。**回寫債併記 backlog #322**(第二批)。
+ *
+ * ── 目錄零商品的品牌:泛白、不可點(D3c-2;Sean 2026-08-04 拍板 `C-31-A`,
+ *    主視窗 `C-33-A` 裁示首頁比照品牌頁磚牆一致執行)────────────────────────
+ * 🔴 **「不可點」的語意由元件做**(那幾列渲染成 `<span>` 不是 `<a>`,見 `BrandIndex.tsx`);
+ *    本段只負責**看起來也不可點**。只做視覺不做語意 = 鍵盤與報讀器仍到得了,那是最糟的組合。
+ *
+ * 🔴🔴 **同一批元素上還有誰在寫同一個屬性**(D3c-1 連兩個真視覺缺陷都是漏了這一步:
+ *    改一族選擇器的權重卻沒回頭看它的競爭者)——本段動的三個屬性逐一列過:
+ *      · `color`:`.ed-brand-name` / `-tag` / `-country` / `-num` 都是 (0,1,0),
+ *        本段 `.ed-brand-list .is-empty .ed-brand-*` = (0,3,0) ⇒ 穩勝、與順序無關。
+ *      · `color` 的另一個競爭者 `.ed-brand-list a:hover .ed-brand-arrow` = (0,3,1),
+ *        **但它綁 `a`、而泛白列是 `<span>`** ⇒ 永遠不同時匹配、不可能反轉。
+ *      · `cursor`:全檔本區零其他宣告。
+ *    ⇒ 本段刻意用「同前綴 + 多一個 class」的形狀(嚴格更高),不是靠順序 ——
+ *      這是 D3c-1 那兩次的修正動作,不是同款寫法。 */
+.ed-brand-list .is-empty { cursor: default; }
+.ed-brand-list .is-empty .ed-brand-name { color: var(--ed-c-ink-mute); }
+.ed-brand-list .is-empty .ed-brand-tag,
+.ed-brand-list .is-empty .ed-brand-country { opacity: .6; }
+
+/* 只給報讀器的文字。名字帶 `ed-` 前綴、不叫 `.sr-only` —— 理由與 `brand-page.css` 的
+   `.bp-sr-only` 同一條(2026-08-04 實查:站台級的 `.sr-only` 目前不存在,要放哪、
+   用哪個實作是 D5 整站語彙的事,不由單一頁面開先例)。宣告與那支逐字相同。
+   ⚠️ `position:absolute` ⇒ 它**不是 grid item**、不占第五軌,所以泛白列少畫箭頭
+      不會被這一句補回來(兩件事互不影響)。 */
+.ed-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 900px) {
-  .ed-brand-list a {
+  /* 🔴 這條也要吃 `<span>`:只寫 `a` 的話泛白那幾列在手機上仍套桌機的五軌
+     (`56px 1fr 1fr 80px 40px`)⇒ 同一份清單兩種欄寬、而且沒有任何測試看得到。
+     形狀與上面那條**必須一致**(同為 `> li > :is(a, span)`)—— 理由同上。 */
+  .ed-brand-list > li > :is(a, span) {
     grid-template-columns: 36px 1fr 32px;
     gap: 12px;
     padding: 20px 4px;

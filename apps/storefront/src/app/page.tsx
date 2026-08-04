@@ -24,6 +24,7 @@ import { HomeStatement } from '@/components/HomeStatement';
 import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
+import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { resolveTierFromRequest } from '@/lib/tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
@@ -59,7 +60,15 @@ export default async function HomePage({
   //   側欄的 fetchCategories→buildCategoryTree,只列有商品分類、深連結 ?category=<真分類名> 必命中過濾)
   // - garage(V-1c):登入會員愛車 chips(RLS vehicles_*_own 守自己 row;未登入/讀取失敗
   //   → [] chips 整排不顯示、頁面不 500;本頁已 force-dynamic+讀 cookies=零額外快取語意變更)
-  const [featured, motoBrands, categories, garage] = await Promise.all([
+  // - brandsWithProducts(D3c-2):目錄零商品的品牌在 BrandIndex 那一排泛白且不可點
+  //   (Sean 拍板 `C-31-A`,主視窗 `C-33-A` 裁示首頁比照品牌頁磚牆)。
+  //   🔴 撈取失敗回**空集合**=全部當成沒商品(fail-closed,`brand-products.ts` 那支自己保證)
+  //   ⇒ 本頁不需要另包 try/catch;反過來(失敗全放行)會在 DB 一抖時把空入口全放出去。
+  //   ⚠️ 資料源 `fetchCatalogBrandTaxonomy` 與 `/products` 側欄**共用** `unstable_cache`
+  //   鍵(`catalog-brand-taxonomy-v1`,900s + tag `catalog`)⇒ 熱路徑零額外 DB round-trip、
+  //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 15 分鐘
+  //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:115`)。
+  const [featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
     fetchFeaturedProducts(),
     fetchVehicleTaxonomy(),
     fetchCategories(),
@@ -87,6 +96,8 @@ export default async function HomePage({
         return [];
       }
     })(),
+    // ⚠️ 位置就是行為:這一項必須排在上面那個 IIFE **之後**,才對得上解構的第 5 個名字。
+    fetchBrandsWithProducts(),
   ]);
 
   return (
@@ -98,7 +109,7 @@ export default async function HomePage({
       <CategoryGrid categories={categories} />
       <HomeSelect featured={featured} />
       <HomeStatement />
-      <BrandIndex />
+      <BrandIndex availableSlugs={brandsWithProducts} />
       <HomeFooter />
     </div>
   );
