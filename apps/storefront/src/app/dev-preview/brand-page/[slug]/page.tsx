@@ -5,7 +5,9 @@
 //    ——而版面的問題(裁切焦點跑掉、幕壓不住字、窄螢幕變全黑)單元測試看不見。
 //    dev-preview/* 整族本來就掛 backlog #147「M-6 前移除」,D8 一併帶走。
 //
-// 目前掛到 D2d-2(麵包屑 / 橫幅 / 事實列 / About + 右欄 / Why / Craft / 年表);D2e 往下接分類與磚牆。
+// 目前掛到 D2e-1(麵包屑 / 橫幅 / 事實列 / About + 右欄 / Why / Craft / 年表 / 分類 / 磚牆)。
+// ⚠️ 分類與磚牆之間**還缺一段商品區**(`.bp-products`,設計稿骨架 :1460-1482)——
+//    它用既有 ProductCard、屬 D3 接線,不是漏掉。D2e-2 只補動效層、不補區塊。
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -15,6 +17,8 @@ import { BrandPageAbout } from '@/components/brand/BrandPageAbout';
 import { BrandPageWhy } from '@/components/brand/BrandPageWhy';
 import { BrandPageCraft } from '@/components/brand/BrandPageCraft';
 import { BrandPageTimeline } from '@/components/brand/BrandPageTimeline';
+import { BrandPageCategories } from '@/components/brand/BrandPageCategories';
+import { BrandPageBrandWall } from '@/components/brand/BrandPageBrandWall';
 
 export const metadata = { robots: { index: false } };
 
@@ -36,6 +40,8 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
       <BrandPageCraft brand={brand} />
       {/* timeline 只有 2 家有(akrapovic / gb-racing)⇒ 條件渲染,同 About 的影片右欄 */}
       {brand.timeline && <BrandPageTimeline timeline={brand.timeline} />}
+      <BrandPageCategories brand={brand} />
+      <BrandPageBrandWall currentSlug={slug} />
       <nav style={{ padding: '24px 40px', fontFamily: 'var(--f-mono)', fontSize: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <span style={{ color: 'var(--c-text-3)' }}>預覽切換:</span>
         {BRAND_CONTENT.map((b) => (

@@ -20,23 +20,9 @@ import { BrandRichText } from '@/components/BrandRichText';
 // 資產前綴 D2c-2 移到 `@/lib/brand-asset`(理由見該檔:client 元件 BrandPageMedia 也要用,
 // 留在本檔會把整支 Header 拖進 client bundle)。
 import { brandAsset } from '@/lib/brand-asset';
-
-/** 商品目錄(依品牌篩選)。與設計稿 `brand-content-data.js:1187` 的 PCM_catalogueUrl 同式。 */
-export const brandCatalogueUrl = (slug: string): string =>
-  `/products?pbrand=${encodeURIComponent(slug)}`;
-
-/**
- * 「只看我的車能裝的」= 品牌篩選 + 落地就把選車打開。
- *
- * 🔴 設計稿寫的是 `{catalogue}#finder`(brand-page.html:1648),但**正式站沒有這個錨點**
- *    —— `#vehicle-finder` 只存在於首頁,`/products` 的選車入口是桌機 CascadeFilterTop
- *    與手機 MobileVehicleSheet。對應到正式站的正確寫法是 A2 建的 `?pick=vehicle`
- *    (桌機聚焦廠牌欄 / 手機自動開選車面板)。
- *    這是 route adaptation、不是 design 偏離 —— 同 Header「品牌」navItem 當初把
- *    不存在的 `/brands` 改指 `/products` 的處理(Header.tsx 該列註解)。
- */
-export const brandVehiclePickUrl = (slug: string): string =>
-  `${brandCatalogueUrl(slug)}&pick=vehicle`;
+// 三個網址 helper D2e-1 移到 `@/lib/brand-url`(理由見該檔:分類 chips 與品牌磚牆是第二、
+// 第三個消費端,留在本檔會讓它們為了一行字串函式 import 整支 Header)。
+import { brandCatalogueUrl, brandVehiclePickUrl } from '@/lib/brand-url';
 
 export function BrandPageHeader({ brand }: { brand: BrandContent }) {
   const hasPhoto = brand.band !== undefined;

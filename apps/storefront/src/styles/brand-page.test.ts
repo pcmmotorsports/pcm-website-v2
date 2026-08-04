@@ -80,6 +80,34 @@ function mediaBlock(query: string): string {
   return blocks.join('\n');
 }
 
+/**
+ * 收**全部** `.bp-page {` 區塊的內容(串接)。D2e-1 讓本檔有兩塊(色票 + 分類色碼),
+ * 沿用既有那套 `indexOf('.bp-page {')` 只會拿到第一塊。
+ * 🔴 用大括號配對計數,不是抓第一個 `}` 就停 —— 理由同上面的 mediaBlock()。
+ */
+function bpPageScopes(): string {
+  const blocks: string[] = [];
+  let from = 0;
+  for (;;) {
+    const start = CSS.indexOf('.bp-page {', from);
+    if (start === -1) break;
+    const open = CSS.indexOf('{', start);
+    let depth = 0;
+    let end = -1;
+    for (let i = open; i < CSS.length; i++) {
+      if (CSS[i] === '{') depth++;
+      else if (CSS[i] === '}') {
+        depth--;
+        if (depth === 0) { end = i; break; }
+      }
+    }
+    if (end === -1) break;
+    blocks.push(CSS.slice(open + 1, end));
+    from = end + 1;
+  }
+  return blocks.join('\n');
+}
+
 describe('品牌頁 CSS · 窄螢幕橫幅', () => {
   const narrow = mediaBlock('(max-width: 960px)');
 
@@ -154,7 +182,10 @@ describe('品牌頁 CSS · 色票 scope', () => {
     // 寫進 :root 會讓現有每一頁的按鈕/價格當場變色 = 未經批准的全站視覺改動。
     expect(CSS).toContain('.bp-page {');
     expect(CSS).not.toMatch(/^\s*:root\s*\{/m);
-    const scope = CSS.slice(CSS.indexOf('.bp-page {'), CSS.indexOf('}', CSS.indexOf('.bp-page {')));
+    // 🔴 D2e-1 起本檔有**兩塊** `.bp-page {`(色票 + 分類色碼)⇒ 改用 bpPageScopes()。
+    //    原本的 `slice(indexOf(...), indexOf('}', ...))` 只取第一塊:今天不假綠,
+    //    但色票塊哪天被排到第二塊就會假紅(R2 nit)。
+    const scope = bpPageScopes();
     expect(scope).toContain('--c-red: #f26722');
     expect(scope).toContain('--c-graphite: #202225');
   });
@@ -436,6 +467,159 @@ describe('品牌頁 CSS · Craft 與年表(D2d-2)', () => {
     // 單欄下上下相鄰的面板要更多呼吸 ⇒ ≤960 那條要贏 ⇒ 必須排在 ≤1024 之後
     expect(CSS.indexOf('@media (max-width: 960px) {'))
       .toBeGreaterThan(CSS.indexOf('@media (max-width: 1024px) {'));
+  });
+});
+
+describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
+  it('🔴 chip 邊框用 --c-border-control 不是 --c-border(1.26:1 過不了 WCAG 1.4.11)', () => {
+    // 分隔線用的 #e5e5e7 對白底只有 1.26:1;當它是「這是可點的東西」的唯一視覺線索時
+    // 需要 3:1(非文字對比)。#909093 = 3.18:1。順手「跟其他線一致」= 打掉一條 AA,
+    // 與 .bp-why-num 的 --c-ember-ink 同族的坑。
+    // 🔴 一定要帶 fallback:正式站 tokens.css 沒有 --c-border-control(實查 0 命中)
+    //    ⇒ D3 漏掛 .bp-page 時整條 border 作廢、chip 變一行沒框的字(WCAG 1.4.11 的唯一線索)。
+    expect(CSS).toMatch(/\.bp-chip\s*\{[^}]*border:\s*1px solid var\(--c-border-control, #909093\)/);
+    expect(bpPageScopes(), '--c-border-control 沒帶進 .bp-page scope').toContain('--c-border-control: #909093');
+  });
+
+  it('🔴 chip hover 必須比靜止態更深(指回 --c-border-strong 是反方向的)', () => {
+    // 設計稿 :699-700 逐字記著這個修正:--c-border-strong 是 1.48:1,
+    // 比靜止態的 --c-border-control(3.18:1)還淺 —— 滑上去反而變弱。
+    expect(CSS).toMatch(/\.bp-chip:hover\s*\{[^}]*border-color:\s*var\(--c-text-3\)/);
+    expect(CSS).not.toMatch(/\.bp-chip:hover\s*\{[^}]*border-color:\s*var\(--c-border/);
+  });
+
+  it('🔴 預設 chip 有左側色塊(colorIndex 0 的 2 筆靠它,拿掉會比別人少一條線)', () => {
+    expect(CSS).toMatch(/\.bp-chip\s*\{[^}]*box-shadow:\s*inset 3px 0 0 var\(--cat-8\)/);
+    // 11 個色碼規則要齊(缺哪個,那個分類的 chip 會靜默退回中性灰)
+    for (let i = 1; i <= 11; i++) {
+      expect(CSS, `缺 [data-cat="${i}"]`)
+        .toMatch(new RegExp(`\\.bp-chip\\[data-cat="${i}"\\]\\s*\\{[^}]*var\\(--cat-${i}\\)`));
+    }
+    // 對應的 11 個 token 也要在 **.bp-page 這個 scope 裡**(規則在、變數不在 = 整條
+    // box-shadow 失效;掛到別的選擇器上則是掛在錯的地方 ⇒ 只在該選擇器底下才有色)。
+    // 🔴 用 bpPageScopes() 收**全部** `.bp-page {` 區塊:本檔有兩塊(色票 + 分類色碼),
+    //    只取第一塊會讓這 11 條恆紅、只對整份 CSS 比對又會讓「搬到別的選擇器」照樣綠(R1 nit)。
+    const scopes = bpPageScopes();
+    expect(scopes.length, '一個 .bp-page 區塊都沒抓到 ⇒ 下面 11 條會恆紅').toBeGreaterThan(0);
+    for (let i = 1; i <= 11; i++) {
+      expect(scopes, `--cat-${i} 不在 .bp-page scope 裡`).toMatch(new RegExp(`--cat-${i}:\\s*#[0-9a-f]{6}`));
+    }
+    // 反面:不得出現 [data-cat="0"] —— 元件端刻意不輸出 0,補了這條會讓那 2 筆突然變色
+    expect(CSS).not.toContain('[data-cat="0"]');
+  });
+
+  it('🔴 磚牆是 flex-wrap 不是 grid(家數變動時 grid 最後一列會靠左留破口)', () => {
+    expect(CSS).toMatch(/\.bp-others-list\s*\{[^}]*display:\s*flex/);
+    expect(CSS).toMatch(/\.bp-others-list\s*\{[^}]*justify-content:\s*center/);
+    expect(CSS).not.toMatch(/\.bp-others-list\s*\{[^}]*display:\s*grid/);
+  });
+
+  it('🔴 logo 固定框 + 逐家 --logo-scale(20 檔長寬比 1.32-8.0 差 6 倍,兩層都不能省)', () => {
+    expect(CSS).toMatch(/\.bp-others-logo\s*\{[^}]*height:\s*58px/);
+    expect(CSS).toMatch(/\.bp-others-logo img\s*\{[^}]*object-fit:\s*contain/);
+    expect(CSS).toMatch(/\.bp-others-logo img\s*\{[^}]*transform:\s*scale\(var\(--logo-scale, 1\)\)/);
+    // 灰階三件組:少任何一個,淺 logo(EVOTECH / EXTREME)就會比別家輕
+    expect(CSS).toMatch(/\.bp-others-logo img\s*\{[^}]*filter:\s*grayscale\(1\) brightness\(\.45\) contrast\(1\.08\)/);
+    // 品牌名固定兩行高:不固定的話同一列的磚不一樣高、基線對不齊
+    expect(CSS).toMatch(/\.bp-others-name\s*\{[^}]*min-height:\s*32px/);
+  });
+
+  it('🔴 欄數與 gap 的算式綁在一起(只改一個,最後一列會多擠一格或開一個洞)', () => {
+    // 基礎 5 欄:gap 12 × 4 道 = 48
+    expect(CSS).toMatch(/\.bp-others-list a\s*\{[^}]*flex:\s*0 1 calc\(\(100% - 48px\) \/ 5\)/);
+    expect(CSS).toMatch(/\.bp-others-list\s*\{[^}]*gap:\s*12px/);
+    // ≤1180 與 ≤960 都是 4 欄(gap 仍 12 ⇒ 3 道 = 36)
+    for (const q of ['(max-width: 1180px)', '(max-width: 960px)']) {
+      expect(mediaBlock(q), `${q} 缺 4 欄規則`)
+        .toMatch(/\.bp-others-list a\s*\{[^}]*flex-basis:\s*calc\(\(100% - 36px\) \/ 4\)/);
+    }
+    // ≤620 收 3 欄,gap 同時收到 10 ⇒ 2 道 = 20;logo 框與品牌名也一起收
+    const small = mediaBlock('(max-width: 620px)');
+    expect(small).toMatch(/\.bp-others-list\s*\{[^}]*gap:\s*10px/);
+    expect(small).toMatch(/\.bp-others-list a\s*\{[^}]*flex-basis:\s*calc\(\(100% - 20px\) \/ 3\)/);
+    expect(small).toMatch(/\.bp-others-logo\s*\{[^}]*height:\s*46px/);
+    expect(small).toMatch(/\.bp-others-name\s*\{[^}]*min-height:\s*30px/);
+  });
+
+  it('🔴 長品牌名要 overflow-wrap: anywhere(break-word 在 min-content 階段不生效,欄數照爆)', () => {
+    // 手機 3 欄時「EVOTECH PERFORMANCE」「EXTREME COMPONENTS」的 min-content 寬度會超過
+    // 1/3 的 flex-basis,那一列被擠成 2 格、中間開一個洞(設計稿 :1307-1314)。
+    expect(CSS).toMatch(/\.bp-others-name\s*\{[^}]*overflow-wrap:\s*anywhere/);
+    expect(CSS).not.toMatch(/\.bp-others-name\s*\{[^}]*overflow-wrap:\s*break-word/);
+    expect(CSS).toMatch(/\.bp-others-list a\s*\{[^}]*min-width:\s*0/);
+  });
+
+  it('🔴 is-cur 那磚的兩處 var(--c-graphite) 帶 fallback,且是「標記」不是「移除」', () => {
+    // 上面「每一處 var(--c-graphite) 都要帶 fallback」那條已經逐處數過;這裡確認
+    // is-cur 這條規則本身存在 —— 元件把當前品牌留在清單裡,靠的就是它被看得見。
+    expect(CSS).toMatch(/\.bp-others-list a\.is-cur\s*\{[^}]*border-color:\s*var\(--c-graphite, #202225\)/);
+    expect(CSS).toMatch(/\.bp-others-list a\.is-cur\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--c-graphite, #202225\)/);
+    expect(CSS).toMatch(/\.bp-others-list a\.is-cur img\s*\{[^}]*filter:\s*none/);
+  });
+
+  it('🔴 cats / others 的基礎規則必須排在**所有 max-width 區塊**之前(追加在後面會靜默失效)', () => {
+    // 與 D2d-2 那條同款,只是換成本片的 class。設計稿 :906 把 about/cats/products/
+    // others/craft 收單欄寫成一條列表 ⇒ 基礎規則排到後面就會把收欄蓋掉。
+    // 🔴 R1 補:除了兩個 `-inner`,**磚本身的四條基礎規則**也靠順序 —— 它們與
+    //    ≤1180/≤960/≤620 裡的同名規則同權重(都是 0-1-0 / 0-2-0),整段搬到檔尾的話
+    //    三個斷點的欄數/框高/字級全部失效(手機退回 5 欄),而所有「存在性」斷言照樣綠。
+    // 🔴 用「規則本體的特徵宣告」定位,**不是** `indexOf('.bp-others-list a {')` ——
+    //    同一個選擇器在 ≤1180 / ≤960 / ≤620 各出現一次,而 ≤1180 那塊排在 ≤960 之前
+    //    ⇒ 純字串 indexOf 會在基礎規則被搬到檔尾時命中 ≤1180 那一塊、照樣通過。
+    //    (這正是「斷言量錯東西」的形狀:量到的是另一條同名規則。)
+    // 🔴🔴 邊界用**第一個 `@media (max-width:`**,不是 ≤960(R2 must-fix)——
+    //    `.bp-others-list a` 的第一個覆寫在 **≤1180**,拿 ≤960 當界時,把基礎規則搬到
+    //    「≤1180 之後、≤960 之前」那 1594 字元的空隙裡,1180-961px 會退回 5 欄而守門照樣綠。
+    //    六條的覆寫全在 max-width 區塊 ⇒ 基礎規則必須排在**所有** max-width 之前。
+    //    ⚠️ 不能用「第一個 @media」:檔內更早有 `@media (min-width: 961px)`(D2c-1 的 .no-aside),
+    //       那一塊本來就允許排在這些基礎規則之前。
+    const media = Math.min(
+      ...[...CSS.matchAll(/@media \(max-width:/g)].map((m) => m.index!),
+    );
+    expect(Number.isFinite(media), '一個 max-width 區塊都沒有 ⇒ 下面六條在守空氣').toBe(true);
+    const bases: [string, RegExp][] = [
+      ['.bp-cats-inner', /\.bp-cats-inner\s*\{[^}]*grid-template-columns:\s*200px minmax\(0, 1fr\)/],
+      ['.bp-others-inner', /\.bp-others-inner\s*\{[^}]*grid-template-columns:\s*200px minmax\(0, 1fr\)/],
+      // gap 12 ← ≤620 收 10
+      ['.bp-others-list', /\.bp-others-list\s*\{[^}]*display:\s*flex/],
+      // flex 0 1 …/5 ← ≤1180 與 ≤960 收 /4、≤620 收 /3(媒體查詢裡用的是 flex-basis)
+      ['.bp-others-list a', /\.bp-others-list a\s*\{[^}]*flex:\s*0 1 calc/],
+      // 框高 58 ← ≤620 收 46
+      ['.bp-others-logo', /\.bp-others-logo\s*\{[^}]*height:\s*58px/],
+      // 字級 12 / 兩行高 32 ← ≤620 收 11 / 30(檔尾那條只有 overflow-wrap)
+      ['.bp-others-name', /\.bp-others-name\s*\{[^}]*font-family/],
+    ];
+    for (const [sel, re] of bases) {
+      const at = CSS.search(re);
+      expect(at, `找不到 ${sel} 的基礎規則(特徵宣告被改掉或整條搬走)`).toBeGreaterThan(-1);
+      expect(
+        at,
+        `${sel} 的基礎規則排到第一個 max-width 區塊後面了 ⇒ 它覆蓋的斷點會被基礎規則蓋回去`,
+      ).toBeLessThan(media);
+    }
+  });
+
+  it('🔴 ≤960 的收欄把 cats / others 併進**同一條**選擇器列表(不是各自另開一條)', () => {
+    // 另開的話同權重靠順序決勝,五區的收欄會在不同時機發生;設計稿 :906 本來就是一條列表。
+    const narrow = mediaBlock('(max-width: 960px)');
+    const rule = narrow.match(/([^{};]*\.bp-others-inner[^{]*)\{([^}]*)\}/);
+    expect(rule, '找不到含 .bp-others-inner 的 ≤960 規則').not.toBeNull();
+    const [, selector, body] = rule!;
+    for (const s of ['.bp-why-inner', '.bp-craft-inner', '.bp-time-inner', '.bp-cats-inner', '.bp-others-inner']) {
+      expect(selector, `${s} 不在同一條選擇器列表裡`).toContain(s);
+    }
+    expect(body).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+    // 手機置中:chips 與磚牆標題(About 正文的例外不受影響,那條已有獨立守門)
+    expect(narrow).toMatch(/\.bp-chips\s*\{[^}]*justify-content:\s*center/);
+    expect(narrow).toMatch(/\.bp-others h2\s*\{[^}]*text-align:\s*center/);
+  });
+
+  it('🔴 D3 的商品區 class 不得混進本檔(.bp-products / .bp-slot 用的是既有 ProductCard)', () => {
+    // 計畫 §5.2 逐字:那五張灰卡只是佔位、正式站直接用 ProductCard。
+    // 順手把設計稿 :714-740 一起搬進來 = 讓一批永遠沒有元件的 class 躺在 repo 裡。
+    for (const dead of ['.bp-products', '.bp-prod-head', '.bp-slot', '.bp-bar', '.bp-grid']) {
+      expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
+    }
   });
 });
 
