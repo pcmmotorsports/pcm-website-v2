@@ -26,7 +26,7 @@
 //     與分類軸是同一條機制(`products-url-state.tsx:98` → `:249` restorable →
 //     `useCatalogFilterUrlSync` 寫回),只差首輪 `initialized` 守衛讓冷載入那次逃過。
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import { brandCatalogueUrl, brandIntroUrl } from '@/lib/brand-url';
 import { isSafeCategoryValue, parseCatalogQuery } from '@/lib/catalog-query';
@@ -99,5 +99,84 @@ describe('#315 設計側契約 · 分類名(category 軸)', () => {
     expect(owners.map((b) => b.slug)).toEqual(['kineo']);
     // 而且那是它唯一的分類 ⇒ 改掉它等於改掉 KINEO 品牌頁上唯一的分類入口。
     expect(owners[0]!.categories).toHaveLength(1);
+  });
+});
+
+// ── fetchBrandTopProducts / fetchBrandsWithProducts 本體(D3c-1;R3 Fable consider F1)────
+// 🔴 為什麼補這段:`app/brands/[slug]/page.test.tsx` 把**整個 `@/lib/brand-products` 模組**
+//    mock 掉(它會拖 `server-only` 進 vitest),於是這兩支函式本身**一行都沒被測到** ——
+//    傳給 RPC 的參數形狀寫錯、error 分支回錯東西,兩邊都不會紅。這裡只 mock 它的下游
+//    `@/lib/products`,讓函式本體真的跑一次。
+describe('fetchBrandTopProducts / fetchBrandsWithProducts 本體', () => {
+  // 🔴 `doUnmock` 放 afterEach、不放各條 it 的結尾(關卡2 R1 nit 8):
+  //    斷言先炸的話 it 內的清理不會執行 ⇒ mock 漏到後續測試 = harness 自己假綠的預備形狀。
+  //    ⚠️ 關卡2 R2 must-fix 3:本函式**原本是空的** —— 註解宣稱做了、實際零行。已補實。
+  //    `resetModules` 一定要跟著 `doUnmock`:不重置的話下一次 `import` 拿到的是快取裡
+  //    那份「已經綁著 mock」的模組實例,unmock 等於沒發生。
+  afterEach(() => {
+    vi.doUnmock('@/lib/products');
+    vi.resetModules();
+  });
+
+  it('🔴 傳給 fetchCatalogPage 的 query 形狀(perPage 必須等於格數、只帶該品牌)', async () => {
+    const calls: unknown[] = [];
+    vi.doMock('@/lib/products', () => ({
+      fetchCatalogPage: (q: unknown) => {
+        calls.push(q);
+        return Promise.resolve({ products: [{ id: 1 }], total: 1, error: false });
+      },
+      fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
+    }));
+    vi.resetModules();
+    const { fetchBrandTopProducts } = await import('@/lib/brand-products');
+    const { BRAND_PRODUCT_SLOTS } = await import('@/lib/brand-url');
+
+    const out = await fetchBrandTopProducts('akrapovic');
+    expect(out).toHaveLength(1);
+    expect(calls[0]).toEqual({
+      page: 1,
+      perPage: BRAND_PRODUCT_SLOTS,
+      sort: 'recommend',
+      brandSlugs: ['akrapovic'],
+    });
+  });
+
+  it('🔴 撈取失敗 → 回空陣列(呼叫端據此整區不渲染,不能讓錯誤變成一排空骨架)', async () => {
+    vi.doMock('@/lib/products', () => ({
+      fetchCatalogPage: () => Promise.resolve({ products: [{ id: 9 }], total: 1, error: true }),
+      fetchCatalogBrandTaxonomy: () => Promise.resolve([]),
+    }));
+    vi.resetModules();
+    const { fetchBrandTopProducts } = await import('@/lib/brand-products');
+    // 🔴 刻意讓 mock 同時回「有一筆商品」與 `error: true` —— 只看 products 長度的實作會漏掉
+    //    這個組合(RPC 失敗時上游是回空陣列 + error,但守門不該依賴那個巧合)。
+    expect(await fetchBrandTopProducts('akrapovic')).toEqual([]);
+  });
+
+  it('🔴 fetchBrandsWithProducts 只收 count > 0 的品牌(0 件的不算「有商品」)', async () => {
+    vi.doMock('@/lib/products', () => ({
+      fetchCatalogPage: () => Promise.resolve({ products: [], total: 0, error: false }),
+      fetchCatalogBrandTaxonomy: () =>
+        Promise.resolve([
+          { id: 'akrapovic', name: 'A', count: 648 },
+          { id: 'ghost', name: 'G', count: 0 },
+        ]),
+    }));
+    vi.resetModules();
+    const { fetchBrandsWithProducts } = await import('@/lib/brand-products');
+    const set = await fetchBrandsWithProducts();
+    expect([...set]).toEqual(['akrapovic']);
+    expect(set.has('ghost'), 'count 0 的品牌被當成有商品 ⇒ 磚會變成可點的空入口').toBe(false);
+  });
+
+  // 🔴 **afterEach 自己的負測**(關卡2 R2 must-fix 3 的第二半):上面那個清理函式原本是**空的**,
+  //    而註解宣稱它在做事 —— 空與不空,前面每一條都照樣綠。這一條讓它有判別力。
+  //    原理 = `@/lib/products` 檔頭有 `import 'server-only'`,在 vitest 的 node 環境下
+  //    **真的 import 會炸**(實測訊息:`This module cannot be imported from a Client Component
+  //    module.`)。所以:清理成功 ⇒ 這裡拿到真模組 ⇒ 炸;清理失敗 ⇒ 拿到上一條留下的替身
+  //    ⇒ 不炸 ⇒ 本條紅。**這也是為什麼上面每一條都得自己 doMock**。
+  //    ⚠️ 位置就是行為:本條必須排在**最後**(它驗的是「前一條的殘留」)。
+  it('🔴 afterEach 真的把 `@/lib/products` 的 mock 拆乾淨了(空的清理函式會讓本條紅)', async () => {
+    await expect(import('@/lib/products')).rejects.toThrow(/cannot be imported from a Client Component/);
   });
 });

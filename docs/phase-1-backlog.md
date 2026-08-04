@@ -8735,6 +8735,42 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   WebKit 官方 <https://webkit.org/blog/6784/new-video-policies-for-ios/> /
   #319(materya 影片那條偏離)/ memory `reference_pcm-mobile-device-verify-dev-vs-prod`
 
+### #322. 🔁 storefront 對 Open Design 的回寫債(第二批):D3b / D3c-1 的四處偏離只在 repo
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2-after-launch(不影響客人,影響的是「設計稿還能不能當真權威」)
+- **優先級:** 🟡 D5 開工前(D5 要重排首頁、會大量讀 OD;那時兩邊不一致最容易誤判)
+- **問題:**
+  - #319 是**第一批**(D2f 五處)、已於 2026-08-04 回寫完成並結案。
+    **本條是第二批** —— D3b 與 D3c-1 又長出四處 repo 先行、OD 未跟進的偏離:
+    1. **D3b · 選擇器改名**:設計稿的窄螢幕隱藏規則寫 `.bp-grid .bp-slot:nth-child(n+4)`,
+       正式站的子元素是 `ProductCard`(`.pcard`)且外面包一層 inline `display:contents` 的
+       `<Link>` ⇒ 改成 `.bp-grid > :nth-child(n+4), .bp-grid > :nth-child(n+4) .pcard`。
+       **宣告一字未動**,只是選擇器對得上正式站的 DOM。
+    2. **D3b · `.bp-page` 補一份 `--ed-c-ink`**:設計稿靠外層 `.ed-page` 提供這個 token,
+       正式站的品牌頁**刻意不掛 `.ed-page`**(它在 storefront 是首頁專屬的 token 作用域)
+       ⇒ 不補的話「查看全部」的底線整條消失。
+    3. **D3c-1 · 選擇器改名**:`.bp-others-list a` → `.bp-others-list > *`(9 條),
+       因為磚現在可能是 `<a>` 也可能是 `<span>`;`.is-cur` 三條用 `:is(a, span)` 保住特異度。
+    4. 🔴 **D3c-1 · `.is-empty` 三條規則 —— 設計稿完全沒有這個狀態**。
+       依 **Sean 2026-08-04 拍板**(信箱 `C-31-A`):目錄零商品的品牌,磚要泛白且不可點。
+  - `apps/storefront/src/styles/brand-page.css` 檔頭的「反方向清單」已同步列出這四處
+    (第一批那句「兩邊現在一致」只涵蓋 D2f,不要讀成整個檔的現況)。
+- **觸發事件:** 2026-08-04 / D3c-1 關卡2 R1 must-fix 4 —— 我在 commit body 與兩處程式註解
+  都寫「OD 回寫債照 #319 前例併記」,但 #319 當時**已經結案**,等於這筆債沒有任何落點。
+- **預期解法:** 與 #319 同樣的做法:把四處改動回寫進 OD 的 `brand-page.html`,
+  回寫後在 `brand-page.css` 檔頭把第二張清單改成「已回寫」。
+  ⚠️ 第 4 項(`.is-empty`)回寫時要一併把「哪些品牌泛白」這個**狀態的存在**告訴設計側 ——
+  它不是樣式細節,是一個 OD 目前沒畫過的頁面狀態。
+- **不修會痛在:**
+  - 可維護性:D5 重排首頁時會大量讀 OD;兩邊不一致會讓「設計稿怎麼寫的」這個問題答錯。
+  - bug 可追蹤性:下一個人照 OD 重新產生任何東西,這四處會被靜默蓋掉(#319 踩過同一個坑)。
+- **估時:** 30 分鐘(四處都有精確位置)
+- **依賴:** 無(可獨立做);建議與 D5 開工前的 OD 對帳一起
+- **發現於:** 2026-08-04 / D3c-1 關卡2 R1
+- **相關:** #319(第一批,已結案)/ `apps/storefront/src/styles/brand-page.css` 檔頭兩張清單 /
+  信箱 `C-31-A`(Sean 拍板原文)
+
 ### #321. 🔒 mark 家族三支金流 RPC 鎖序統一 orders-first — begin×genesis 的已知死結面根治路
 
 - **狀態:** ⏳ 待執行

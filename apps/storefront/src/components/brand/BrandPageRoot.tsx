@@ -55,7 +55,16 @@ import { BrandPageBrandWall } from '@/components/brand/BrandPageBrandWall';
  *    等於把那兩道守門一起弄不能跑。撈資料本來也是 route 的責任(Next.js 慣例分工)。
  * 空陣列 = 該品牌目前零商品(20 家裡實測 5 家)⇒ `BrandPageProducts` 自己整區不渲染。
  */
-export function BrandPageRoot({ brand, products }: { brand: BrandContent; products: MockProduct[] }) {
+export function BrandPageRoot({
+  brand,
+  products,
+  availableSlugs,
+}: {
+  brand: BrandContent;
+  products: MockProduct[];
+  /** 目錄裡真的有商品的品牌 slug —— 磚牆用它決定哪幾磚泛白不可點(Sean 08-04 拍板)。 */
+  availableSlugs: ReadonlySet<string>;
+}) {
   return (
     <main className="bp-page">
       <BrandPageHeader brand={brand} />
@@ -67,7 +76,7 @@ export function BrandPageRoot({ brand, products }: { brand: BrandContent; produc
       <BrandPageCategories brand={brand} />
       {/* 商品區位置 = 設計稿骨架 `:1470-1489`(分類與磚牆之間)。0 筆時本元件回 null。 */}
       <BrandPageProducts brand={brand} products={products} />
-      <BrandPageBrandWall currentSlug={brand.slug} />
+      <BrandPageBrandWall currentSlug={brand.slug} availableSlugs={availableSlugs} />
     </main>
   );
 }

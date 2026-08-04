@@ -35,7 +35,7 @@ import { BrandPageRoot } from '@/components/brand/BrandPageRoot';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import { brandRichTextToPlain } from '@/lib/brand-rich-text';
 import { brandAsset } from '@/lib/brand-asset';
-import { fetchBrandTopProducts } from '@/lib/brand-products';
+import { fetchBrandTopProducts, fetchBrandsWithProducts } from '@/lib/brand-products';
 import { resolveSiteUrl } from '@/lib/site-url';
 
 type Props = { params: Promise<{ slug: string }> };
@@ -101,7 +101,10 @@ export default async function BrandPage({ params }: Props) {
   if (!brand) notFound();
   // 🔴 撈在 `notFound()` **之後**:未知 slug 不該去打一次 RPC(而且 `brand` 為 null 時
   //    也組不出篩選鍵)。0 筆(實測 5 家)⇒ 商品區整區不渲染,不是錯誤。
-  const products = await fetchBrandTopProducts(brand.slug);
+  const [products, availableSlugs] = await Promise.all([
+    fetchBrandTopProducts(brand.slug),
+    fetchBrandsWithProducts(),
+  ]);
 
   return (
     // `data-screen-label` = 設計稿 `:1325` 外層 `.ed-page` 上的字面(全站慣例:`app/page.tsx:93`
@@ -117,7 +120,7 @@ export default async function BrandPage({ params }: Props) {
     //    版面標記(`app/page.tsx:93` 的 "Home" 之類都是固定字面),頁面身分由 `<title>` 表達。
     <div data-screen-label="品牌頁">
       <Header />
-      <BrandPageRoot brand={brand} products={products} />
+      <BrandPageRoot brand={brand} products={products} availableSlugs={availableSlugs} />
       {/* 頁尾標語 = 這家品牌自己那一句(設計稿 `:1510-1512` 註解 + `:2029` 灌值)。
           `slogan` 是 BrandRichString、實際含 `<br>` ⇒ 走 BrandRichText;不給 `as`
           回 Fragment ⇒ DOM 與設計稿的 `<p class="ed-footer-tagline">…</p>` 逐節點相同。 */}

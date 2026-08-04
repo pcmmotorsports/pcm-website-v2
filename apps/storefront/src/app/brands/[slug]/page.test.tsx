@@ -28,9 +28,14 @@ vi.mock('@/components/Header', () => ({
 //   ① `lib/brand-products` → `lib/products` → `server-only`,在 vitest 裡載入即 throw。
 //   ② 不 mock 的話這支測試會打真 DB ⇒ 目錄資料一變就紅、而且 CI 沒有連線。
 //   真資料那一面由 `lib/brand-products.test.ts` 與真瀏覽器量測負責,分工不重疊。
-const { brandProductsRef } = vi.hoisted(() => ({ brandProductsRef: { current: [] as unknown[] } }));
+const { brandProductsRef, availableRef } = vi.hoisted(() => ({
+  brandProductsRef: { current: [] as unknown[] },
+  // D3c-1:磚牆要知道哪些品牌有商品;預設 20 家全有(既有 case 的前提不變)。
+  availableRef: { current: null as ReadonlySet<string> | null },
+}));
 vi.mock('@/lib/brand-products', () => ({
   fetchBrandTopProducts: () => Promise.resolve(brandProductsRef.current),
+  fetchBrandsWithProducts: () => Promise.resolve(availableRef.current ?? new Set()),
 }));
 
 import BrandPage, { generateMetadata, generateStaticParams } from './page';
@@ -40,6 +45,7 @@ import { brandRichTextToPlain, parseBrandRichText } from '@/lib/brand-rich-text'
 afterEach(() => {
   vi.clearAllMocks();
   brandProductsRef.current = [];
+  availableRef.current = null;
 });
 
 /** D3b:最小的商品 DTO —— 只需要 `ProductCard` 讀得到的欄。 */
@@ -69,8 +75,13 @@ const escapeHtml = (text: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#x27;');
 
+const ALL_AVAILABLE: ReadonlySet<string> = new Set(BRAND_CONTENT.map((b) => b.slug));
+
 const params = (slug: string) => Promise.resolve({ slug });
-const markupFor = async (slug: string) => renderToStaticMarkup(await BrandPage({ params: params(slug) }));
+const markupFor = async (slug: string) => {
+  if (availableRef.current === null) availableRef.current = ALL_AVAILABLE;
+  return renderToStaticMarkup(await BrandPage({ params: params(slug) }));
+};
 
 describe('/brands/[slug] · 前提', () => {
   it('🔴 20 家真資料;`slogan` 每家都非空(頁尾標語的資料來源,空的話下面那條會恆真)', () => {
@@ -201,5 +212,17 @@ describe('/brands/[slug] · 商品區接線(D3b)', () => {
     // 但頁面其餘部分照常 —— 不能因為沒商品就把整頁弄壞
     expect(html).toContain('class="bp-page"');
     expect(html).toContain('RIZOMA');
+  });
+});
+
+describe('/brands/[slug] · 零商品品牌的磚泛白不可點(D3c-1;Sean 08-04 拍板)', () => {
+  it('🔴 route 真的把「哪些品牌有商品」接到磚牆上', async () => {
+    availableRef.current = new Set(BRAND_CONTENT.map((b) => b.slug).filter((s) => s !== 'rizoma'));
+    const html = await markupFor('akrapovic');
+    // rizoma 那一磚渲染成 span.is-empty、且整份 HTML 不該再有指向它的品牌頁連結
+    expect(html).toContain('is-empty');
+    expect(html, 'rizoma 仍有 /brands/rizoma 連結 ⇒ 拍板沒生效').not.toContain('href="/brands/rizoma"');
+    // 對照:有商品的那些照舊是連結
+    expect(html).toContain('href="/brands/bonamici"');
   });
 });

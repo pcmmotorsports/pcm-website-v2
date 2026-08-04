@@ -28,7 +28,25 @@ import { brandIntroUrl } from '@/lib/brand-url';
 /** 磚牆 logo 的資產路徑。與 `bandLogo`(brands-dark/)是不同資料夾,不要拿錯。 */
 export const brandTrimLogo = (slug: string): string => brandAsset(`assets/brands-trim/${slug}.png`);
 
-export function BrandPageBrandWall({ currentSlug }: { currentSlug: string }) {
+/**
+ * `availableSlugs` = 目錄裡真的有商品的品牌(`lib/brand-products.fetchBrandsWithProducts`)。
+ *
+ * 🔴 **Sean 2026-08-04 拍板**(信箱 `C-31-A`):20 家品牌頁全部上線,但**目錄零商品的那幾家,
+ *    磚要泛白、而且不可點**(語意與視覺都不可點),等有商品再恢復。
+ *    ⇒ 那幾磚渲染成 `<span>` 而不是 `<Link>`:**不是**「`<a>` 拿掉 href」也不是
+ *    「加 aria-disabled」——沒有 href 的 `<a>` 仍會被部分報讀器唸成連結,而 `aria-disabled`
+ *    只改語意、鍵盤還是走得到。`<span>` 兩邊一次做完。
+ * 🔴 **這是設計稿沒有的狀態**(OD 只畫可點的磚)⇒ 鐵則 1 的申報偏離,依 Sean 拍板;
+ *    OD 回寫債照 #319 前例併記。
+ * ⚠️ 空集合 = 全部泛白(`fetchBrandsWithProducts` 失敗時的 fail-closed 行為,見該函式 doc)。
+ */
+export function BrandPageBrandWall({
+  currentSlug,
+  availableSlugs,
+}: {
+  currentSlug: string;
+  availableSlugs: ReadonlySet<string>;
+}) {
   return (
     <section className="bp-others">
       <div className="bp-others-inner">
@@ -40,17 +58,17 @@ export function BrandPageBrandWall({ currentSlug }: { currentSlug: string }) {
           <div className="bp-others-list">
             {BRAND_CONTENT.map((item) => {
               const isCurrent = item.slug === currentSlug;
-              return (
+              // 目錄零商品 ⇒ 泛白且不可點(Sean 拍板)。當前這一家即使零商品也仍標 is-cur,
+              // 否則客人在磚牆上找不到「我現在在哪」。
+              const isEmpty = !availableSlugs.has(item.slug);
+              const className = [isCurrent ? 'is-cur' : null, isEmpty ? 'is-empty' : null]
+                .filter(Boolean)
+                .join(' ') || undefined;
+              const inner = (
                 // 🔴 當前品牌**不從清單拿掉**(組裝 :2024-2026):加 is-cur + aria-current="page"。
                 //    拿掉的話 ①客人在磚牆上找不到「我現在在哪一家」②20 家變 19 家,
                 //    最後一列的 justify-content:center 會整排偏移。
-                <Link
-                  key={item.slug}
-                  className={isCurrent ? 'is-cur' : undefined}
-                  aria-current={isCurrent ? 'page' : undefined}
-                  href={brandIntroUrl(item.slug)}
-                  title={item.name}
-                >
+                <>
                   {/* --logo-scale = 逐家光學校正(實測 7 家非 1、範圍 0.88-1.08)。
                       🔴 設計稿 :2025 只在 `logoScale !== 1` 時才輸出這個 style ——
                          照做,不要無條件寫 `--logo-scale: 1`:CSS 端的 `var(--logo-scale, 1)`
@@ -72,7 +90,30 @@ export function BrandPageBrandWall({ currentSlug }: { currentSlug: string }) {
                            alt 與 h1 重複,`docs/phase-1-backlog.md:8125`)是同一個題目、一起解。 */}
                     <img src={brandTrimLogo(item.slug)} alt={item.name} loading="lazy" />
                   </span>
-                  <span className="bp-others-name">{item.name}</span>
+                  <span className="bp-others-name">
+                    {item.name}
+                    {/* 🔴 不可點的磚要說「為什麼」(關卡2 R1 nit 7):那 5 家從連結清單裡
+                        靜默消失,報讀器使用者只會覺得少了幾家。`.bp-sr-only` 是本頁既有的
+                        語意載體(年表的「關鍵事件:」在用,#312)。 */}
+                    {isEmpty && <span className="bp-sr-only">(暫無商品)</span>}
+                  </span>
+                </>
+              );
+              // 🔴 `title` 只給可點的那些:不可點的磚給 title 會讓滑鼠停留跳出一個
+              //    看起來像連結提示的浮動框,與「不可點」的訊息互相打架。
+              return isEmpty ? (
+                <span key={item.slug} className={className} aria-current={isCurrent ? 'page' : undefined}>
+                  {inner}
+                </span>
+              ) : (
+                <Link
+                  key={item.slug}
+                  className={className}
+                  aria-current={isCurrent ? 'page' : undefined}
+                  href={brandIntroUrl(item.slug)}
+                  title={item.name}
+                >
+                  {inner}
                 </Link>
               );
             })}
