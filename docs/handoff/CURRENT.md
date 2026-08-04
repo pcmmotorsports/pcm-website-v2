@@ -28,6 +28,9 @@
 > `reference_mailbox-dual-sentinel-shared-seen-swallows-mail`);**每次收割前後全量 `ls` 信箱對編號序**
 > (A→16、C→55;缺號=被吞,直接讀)③看門狗——施工窗掛信箱輪詢時工作樹零異動=正常態,誤報先實查再信。
 > 回信雙份發(同號-A+下一號-A);凡信箱拍板落一份進 repo。
+> 🔴 **施工窗寫完 STOP/Q 信後必掛輪詢迴圈等回信**(30-60s 輪一次、盯預期編號檔名)——Claude session
+> 不會自己醒,沒掛迴圈=主視窗的回信永遠沒人讀、整條管線停擺(08-05 新 C 窗實錘:退修信擱置 90 分)。
+> 主視窗發信後若對方 90 分鐘無反應,先查它有無輪詢、再請 Sean 戳窗。
 >
 > **收割工法(不變+兩補)**:押住等 STOP → 窄複驗/R2 確認輪(R1 FAIL 必有確認輪;紀錄面 MF 可主視窗
 > 窄確認、行為面 MF 開 fresh reviewer)→ merge --no-ff → `turbo typecheck lint --force`+完整 `pnpm test`
