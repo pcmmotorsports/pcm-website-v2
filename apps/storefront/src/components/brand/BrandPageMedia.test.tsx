@@ -272,6 +272,8 @@ describe('BrandPageMedia · 12 家實資料', () => {
 
 // ── #311 標題階層(關卡2 R2 補):本區在 About 右欄裡,**不得帶任何標題元素** ──────
 // 12 家走這條分流。整頁大綱的不變式清單見 `BrandPageHeader.test.tsx` 檔尾那段。
+// 🔴 D3a 起另有 `BrandPageRoot.test.tsx` 直接 render 整頁驗大綱(它的前提斷言明確要求
+//    Media 與產品照卡兩條分流都有樣本 —— 關卡2 R2 的洞就是本檔這條分流當時零守門)。
 describe('BrandPageMedia · 標題階層(#311)', () => {
   it('🔴 不得出現任何標題元素(未播 / 播放中 / 退路面板三態都要)', () => {
     for (const [name, node] of [

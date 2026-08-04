@@ -19,7 +19,6 @@
 // —— 與 Craft 的 `rows[].d`(不 esc)相反,這是同一片裡的第二組「方向相反」。
 
 import type { BrandTimeline } from '@/data/brand-content-types';
-import '@/styles/brand-page.css';
 
 export function BrandPageTimeline({ timeline }: { timeline: BrandTimeline }) {
   return (

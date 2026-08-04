@@ -149,6 +149,7 @@ describe('BrandPageCategories · 網址與跳脫', () => {
 });
 
 // 整頁大綱的不變式清單與推導見 `BrandPageHeader.test.tsx` 檔尾那段(關卡2 R2 補齊 7 支)。
+// 🔴 D3a 起另有 `BrandPageRoot.test.tsx` 直接 render 整頁驗大綱,不再只靠這七支局部不變式。
 describe('BrandPageCategories · 標題階層(#311)', () => {
   it('🔴 不得出現任何標題元素(chips 區的區塊標籤是 .bp-sec-label 不是標題)', () => {
     const { container } = render(<BrandPageCategories brand={BRAND_CONTENT[0]!} />);

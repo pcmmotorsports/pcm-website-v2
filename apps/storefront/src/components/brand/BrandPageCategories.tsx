@@ -14,8 +14,7 @@
 
 import Link from 'next/link';
 import type { BrandContent } from '@/data/brand-content-types';
-// bp-* 樣式非全域(同 BrandPageHeader 檔頭的理由)⇒ 用到的元件自帶。
-import '@/styles/brand-page.css';
+// bp-* 樣式與 `.bp-page` scope 由 `BrandPageRoot.tsx` 一併提供(D3a 收斂;理由見該檔檔頭)。
 import { brandCatalogueUrl } from '@/lib/brand-url';
 
 export function BrandPageCategories({ brand }: { brand: BrandContent }) {

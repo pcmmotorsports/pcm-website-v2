@@ -28,7 +28,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { BrandVideo } from '@/data/brand-content-types';
 import { brandAsset } from '@/lib/brand-asset';
-import '@/styles/brand-page.css';
 
 /** 播放器載不出來的判定窗(設計稿 :1948 的 4000ms)。 */
 const BLOCKED_TIMEOUT_MS = 4000;

@@ -33,7 +33,7 @@ describe('brandCatalogueUrl', () => {
 });
 
 describe('brandIntroUrl', () => {
-  it('🔴 → /brands/<slug>(計畫 §3 A 案;D3 落地前是死連結,同麵包屑的 /brands)', () => {
+  it('🔴 → /brands/<slug>(計畫 §3 A 案;route 自 D3a 起存在,/brands 總覽仍待 D3c)', () => {
     // 🔴 對照基準 = `brand-page.html:1606` 的 `intro()`(= `/products?pbrand=X#brand-about`),
     //    **不是** `brand-content-data.js:1188` 的 `PCM_introUrl`(該函式在設計稿內零引用)。
     //    理由全文在 `lib/brand-url.ts` 那條 doc,一處全文、這裡不重抄。
