@@ -7,6 +7,10 @@ import {
   PROCUREMENT_UPDATED_RESULT_CODE,
 } from '../../lib/orders/procurement-action-state';
 import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-state';
+import {
+  REFUND_MARKED_FAILED_RESULT_CODE,
+  REFUND_RECOVERED_RESULT_CODE,
+} from '../../lib/payment/refund-recovery-state';
 
 // result-banner.tsx — 改單 PRG 結果提示(M-4a Slice C;server action redirect 帶 ?r=<code> 後顯示)。
 // server-render;code 由頁面從 searchParams.r 讀入。未知/缺 → 不顯示。
@@ -29,6 +33,16 @@ const MESSAGES: Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }> 
   //    `DUPLICATE_REQUEST`(前次已 confirmed)共用本則 —— 對員工是同一件事。
   [REFUND_SUBMITTED_RESULT_CODE]: {
     text: '退款已送出,TapPay 已受理。受理不等於已入帳,入帳以之後的對帳為準。',
+    tone: 'ok',
+  },
+  // 🔴 M-3 RW4:人工結案兩碼(同樣只有成功走 redirect;失敗全回 action state)。
+  //    兩碼刻意不共用 —— 「錢沒動、已作廢」與「錢已退、登記完成」是相反的事實。
+  [REFUND_MARKED_FAILED_RESULT_CODE]: {
+    text: '已標記失敗結案:對帳確認這筆退款的錢沒有動。若仍需退款,請回訂單頁重新發起。',
+    tone: 'ok',
+  },
+  [REFUND_RECOVERED_RESULT_CODE]: {
+    text: '已恢復結案:這筆退款以 Portal 退款編號登記為完成,訂單付款狀態已同步。',
     tone: 'ok',
   },
   // 🔴 M-4b E10 A10b:採購同樣**只有成功**會走 redirect(失敗回 action state、保留輸入)。
@@ -60,7 +74,8 @@ export function ResultBanner({ code }: { code: string | undefined }) {
   //    純粹是「守門的名字大於它的實際能力」。
   //    修法是 `Object.hasOwn(MESSAGES, code)`,S3b-2(`4833cae`)曾修過並已上線,
   //    Sean 08-02 拍板退回 —— 理由是它不在該片的產物表內、屬鐵則 8「動共用元件」灰區。
-  //    ⇒ 受影響頁面 **6 個**:orders 列表 / 訂單詳情 / 客戶詳情(本元件)
+  //    ⇒ 受影響頁面 **7 個**:orders 列表 / 訂單詳情 / 客戶詳情 / 退款異常清單(本元件;
+  //      第 7 個=M-3 RW4 新增,爆炸半徑數字同步更新 —— 這行是那份 plan 的輸入)
   //      + staff / order-statuses / suppliers(姊妹元件 `settings-result-banner.tsx`)。
   //    要再修的話,兩支要一起、並且走 plan。
   const msg = MESSAGES[code];

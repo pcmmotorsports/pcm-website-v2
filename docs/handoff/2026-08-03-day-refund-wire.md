@@ -428,6 +428,39 @@ vitest **331 檔 4398+1 todo** / **RW3 突變 19 格逐格轉紅+還原位元一
 RPC(manual_failed/recovered_confirmed)+清單頁操作;本片刻意零按鈕。⑤負值未登記額顯示
 為對帳異常=**顯示層**;負值的根因(超額登記)DB 不擋=拍板⑤既有邊界,RW4 對帳收。
 
+## 3i. RW4 收工(08-04;refund-wire 視窗、Fable+xhigh;A-07-A 指派續行)
+
+**內容(plan §1 RW4 列 + §4-1;純 app 層、零 migration)**:
+
+- 判定碼表 `refund-judgment.ts`(純函式、**七碼**、每碼一正一負):delta=0 且無證據→not_executed(開「標記失敗」)/ delta=登記額且無其他在途→executed(開 Portal 真碼恢復)/ **delta=0 但有受理證據→evidence_contradiction(停+純人工;opus M1 折入)** / delta_mismatch、other_in_flight、record_shape_bad、record_state_bad=停+告警。判定式=S2 欄 COMMENT 逐字(`20260803150000:177`)。
+- 🔴 判定 allowlist={0,1,2,3} 與 G0 {0,1,2} **刻意分岔**:3=REFUNDED 是全額退到底的正常終點,擋掉=卡列永遠結不了案(兩檔檔頭互註;E2E 真列實吃 3)。
+- 兩支 action(`refund-recovery-actions.ts`):judge(唯讀,回讀數+RF8 結論)/ resolve(**送出當下重判**、不信畫面舊判定);閘序=便宜先跑(opus R2 N3):授權→解析→帳本重讀+入口鏡像(30 分或證據;created_at 不可解析=擋)→確認碼(mark;訂單號末 4 碼、大小寫不敏感、server 驗=opus C3/N1)/證據 P7C13 鏡像(recover)→Record 重判→判定閘→finalize。
+- 恢復流程**不吃**退款發起旗標(死巷防止;閘=authorize+入口鏡像+三閘+RPC 5b/G5)。judge 無 server 節流=已知邊界(檔頭明記)。
+- finalize 出口收斂四分流:RAISE→rejected(確定回滾)/ **回應解析失敗→`RefundFinalizeParseError` 子型別→finalize_unknown(codex R2 MF:交易已 commit、「沒寫入」會是假話)** / **23 類 SQLSTATE→rejected(必回滾=確定零寫入;E2E 實錘 23505=抄錯 Portal 編號撞 `tappay_refund_id` UNIQUE)** / 其他→finalize_unknown(codex R1 MF:「結果不明、可能已完成」,不宣稱沒完成)。statusAfter 語意斷言(manual_failed 必回 failed)。
+- `finalizeRecoveryOrderRefund`(refund-repository;恢復判別聯合與同步四碼分型、型別層互斥)+ `refund-recovery-read.ts`(對帳窄讀:rec/baseline/證據/母單編號 embed+兄弟列三讀數;**非終態反面計數**=opus C4、超 500=IntegrityError 停手)。
+- 清單頁每列掛 `refund-exception-resolve.tsx`;結案按鈕只在對應判定成立後渲染;**finalize_unknown 凍結整格**(舊判定+按鈕全消失、只剩告警);PRG 兩碼進 result-banner(受影響頁面數 6→7 同步=opus M2)。
+- RF8 併 refundId 存在性:judge 回 ledgerConfirmedSum+confirmedMissingRefundId(>0=紅色告警)+**ledgerMatchesRecord(期望和含本列=opus C1;讀數不可信→不下結論)**。
+
+**審查鏈(關卡2 雙線不降級;全程 porcelain 零留痕比對)**:
+
+- opus R1=FAIL(2MF+4C+4nit):M1 evidence 矛盾零鏡像=二退窗 / M2 banner 爆炸半徑 6→7 / C1 RF8 假警報方向相反 / C2 交叉負測缺 / C3 標記失敗一鍵零摩擦 / C4 在途計數白名單 fail-open / 4 nit。
+- codex R1=FAIL(1MF+3nit):MF=finalize 途中斷線被說成「沒有完成可再試」。
+- 全折 → **opus R2=PASS(0MF+4nit)**:R1 九項逐條 CLOSED、23 類 pre-commit 保證獨立證明(非 DEFERRABLE UNIQUE+RPC 無 EXCEPTION handler);N4=判定依賴 Record 即時性(plan 已拍板前提、列給 Sean 知情)。
+- **codex R2=FAIL(1MF+2nit)**:🔴 MF=`RefundCallerBugError` 混型 —— RAISE(確定回滾)與「交易成功後回應解析失敗(其實已寫入)」共用型別,後者被說成「沒寫入」=字面與事實相反 → 子型別分流修。
+- 全折 → **codex R3=PASS(0MF+1nit 測試補斷言,已折)**。駁回 0;唯一互駁點=23 類映射,codex 質疑、opus 獨立證成立、codex R3 收口。
+
+**驗證(末輪全折後)**:tc 8/8+scripts / lint 10/10 / admin build 綠;vitest 336 檔 **4487 passed + 1 todo**;突變 **32/32 轉紅+還原位元一致**(`rw4-mutations.py`:M1 矛盾閘/C3 確認碼(含大小寫)/C4 計數/C1 期望和/MF 降級/23 類/Parse 分流/凍結/交叉閘/兩格 oracle 防禦)。
+
+**真機 E2E(local PG17+PostgREST 14.16+proxy+真 sandbox Record;零新退款、只打唯讀 Record 查詢;修後全鏈重跑)**:
+
+1. evidence_contradiction:證據列+delta 0 → 矛盾訊息+零結案按鈕(M1 閘真機生效)✅
+2. recover:executed+RF8 不一致告警同畫面(構造數據刻意不一致=C1 告警路實吃)→ 結案 confirmed+audit recovered_confirmed ✅;**中途實錘 23505**(借用已入帳 DR 碼撞 UNIQUE)→ 由此折入 23 類精準映射
+3. mark_failed(滯留 30 分無證據列;**時間軸入口這次有真機證據**,補 §3h 殘項③):錯確認碼→confirm_mismatch 零寫入→對碼→PRG+failed+manual_failed detail 兩讀數+audit ✅
+4. denied 真機路(session cookie 掉時 judge 回 denied)✅ 順帶實吃
+   修前三鏈(含真碼 `DR20260803gvcV5i` recover、390 全鏈)紀錄仍在;**修後行為為準**(修前 mark_failed 走的 evidence 列在修後=矛盾列、不再開按鈕)。截圖 rw4-\*.png(scratchpad rw2d-e2e/)。收案後帳本零 processing 殘留、基建已拆(資料留 /tmp/rw2d)。
+
+**殘項/邊界(誠實)**:①390 判定面板在表格橫向捲動容器內,讀數要橫捲才看得全 —— 進 Sean 肉眼定稿題;修後確認碼欄無 390 截圖(樣式與 DR 欄同款;修前 390 全鏈截圖在)。②not_exception_yet 的 UI 態無 E2E(單測+突變覆蓋;RPC 5b 同擋)。③E2E 走 dev server(prod origin allowlist 擋 server action=RW2d 同界);production build 綠、無 prod 截圖。④🔓 **旗標開啟前置(RW4 收工 且 部分退 E2E 綠)至此雙半皆備**;開旗標=部署 env=Sean 拍板+動作,A-07-A 明示「旗標繼續不開」→ 未動。⑤hold 列金額不符(真 G7-hold)→ delta_mismatch 純人工=刻意(登記額≠實退額時機器結案兩個方向都寫錯帳)。⑥opus N4:「delta=0 ⇒ 零動錢」依賴 Record 即時反映(sandbox 實測支持;正式站若有延遲窗,無證據崩潰列可能被判 not_executed)=plan 已拍板前提,列給 Sean 知情。⑦opus 未確認項:自架 PostgREST 若 max-rows<501 會讓兄弟列截斷守門恆真;Supabase 預設 1000(RW3 codex MF1 同源事實)、成立。
+
 ## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 
 T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前預測已登記於本節前版**
