@@ -45,6 +45,23 @@ describe('HomeFooter', () => {
     expect(screen.getByLabelText('聯絡客服(尚未上線)')).toBeDefined();
   });
 
+  // 🔴 D3c-5:「購物」那欄四個目的地原本**零守門** —— 本片把「品牌專區」從 `/products`
+  //    改回 `/brands`(D3c-3 那條 route 落地後,當年指 /products 的前提消失),
+  //    而**改之前跑全套是全綠的**:也就是說改錯方向同樣不會有人知道。
+  //    形狀對齊 `Header.test.tsx` 的導覽對照表 —— 那兩顆現在是同一個目的地,要一起鎖。
+  it('🔴「購物」欄四個連結的目的地(品牌專區 = 已落地的 /brands)', () => {
+    render(<HomeFooter />);
+    const expected: [string, string][] = [
+      ['商品目錄', '/products'],
+      ['品牌專區', '/brands'],
+      ['新品上架', '/products?filter=new'],
+      ['特價專區', '/products?filter=sale'],
+    ];
+    for (const [label, href] of expected) {
+      expect(screen.getByText(label).closest('a')?.getAttribute('href'), label).toBe(href);
+    }
+  });
+
   // 🔴 D3a 加了 optional `tagline`(品牌頁的頁尾標語每家不同,設計稿
   //    `pcm-home-redesign/brand-page.html:1510-1512` 註解 + `:2029` 灌值)。這兩條是成對的:
   //    只留下面那條的話,有人把預設值刪掉、讓首頁頁尾標語變空也會全綠。

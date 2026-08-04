@@ -8378,7 +8378,20 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #314. 🔗 品牌介紹頁走 A 案新 route,但設計稿字面連結 `?pbrand=X#brand-about` 沒有 redirect
 
-- **狀態:** 🔶 部分完成(2026-08-04 / D3a `5763934`)—— **兩條驗收前置已結、redirect 本體改歸 D3c**
+- **狀態:** ✅ **已完成(2026-08-05 / D3c-5)** —— redirect 本體落地,A 案的配套債還清。
+  - ✅ **redirect 本體 = `components/brand/BrandAboutRedirect.tsx`**(client;掛在 `app/products/page.tsx`)。
+    決策邏輯抽成純函式 `resolveBrandAboutTarget(search, hash)` 以便單測;行為邊界逐條寫在該檔檔頭。
+    🔴 **只能 client 側**:設計稿契約帶 hash,而 **hash 不送到 server** —— server 看到的
+    `/products?pbrand=X` 是一個完全合法的目錄篩選網址,在那裡 redirect 會把正常用法一起劫走。
+    (D3a 實查、信箱 C-25-Q Q1 → C-26-A 核可。)
+  - **2026-08-05 真瀏覽器實測**(production build + 真 DB):
+    `?pbrand=akrapovic#brand-about` → `/brands/akrapovic`;`?pbrand=kineo#brand-about`(目錄零商品
+    那 5 家之一)→ `/brands/kineo` 且頁面完整(8 區塊、0 破圖、只有商品區不渲染);
+    **無 hash 的 `?pbrand=akrapovic` 留在目錄頁**;查無 slug 與原型鏈字串都不動作;
+    `replace` 不是 `push`(`/brands` → hash 網址 → 上一頁 ⇒ 回到 `/brands`,不會被彈回中間網址)。
+  - ⚠️ **已知代價**:`/products` 是 `force-dynamic` ⇒ 轉走前會有一次商品目錄閃現。
+    這是 client 側方案的固有代價,核可時已知。
+- ~~**狀態:** 🔶 部分完成(2026-08-04 / D3a `5763934`)—— **兩條驗收前置已結、redirect 本體改歸 D3c**~~
   - ✅ **route 本體已建**:`app/brands/[slug]/page.tsx`(20 家全活;`/brands/<slug>` 不再是 404)。
   - ✅ **前置一「帶站台 Header 重量六寬度」已做**:1440/1180/961/960/620/390 真瀏覽器 + production
     build 全量 —— overflowX 皆 0、Header sticky `z-index:50` 且麵包屑起點恰在其底線(零重疊)、

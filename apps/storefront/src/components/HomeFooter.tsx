@@ -3,10 +3,8 @@
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 7 條):
-//   'catalog' → /products / 'brands' → /products
-//   🔴 **'brands' 這條的理由已過期、但刻意還沒改**(D3c-4 關卡2 R1 must-fix 3):
-//      當年寫「Q4-S5 修 404、品牌專區頁留 Phase 2」,而 `/brands` **已於 D3c-3 落地**、
-//      D3c-4 也進了 sitemap。改指 `/brands` 屬 **D3c-5**(與 Header 那顆同一片一起驗)。
+//   'catalog' → /products / 'brands' → **/brands**(D3c-5 改回;當年 Q4-S5 指 /products 的理由是
+//      「品牌專區頁留 Phase 2、route 不存在」,那個前提在 D3c-3 落地時消失)
 //   'new' → /products?filter=new / 'sale' → /products?filter=sale(🔴 ?filter= 全站未接、backlog)
 //   'install' → /install / 'stores' → /stores(🔴 路由不存在=404、backlog)/ 'shipping' → /info/shipping
 // social 3 條:M-1-06 #136 曾因無真連結改 <button disabled> 宣告未上線 → 2026-07-03 Sean 拍 Q2=A
@@ -52,7 +50,7 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
           <div>
             <div className="ed-mono ed-footer-h">購物</div>
             <Link href="/products">商品目錄</Link>
-            <Link href="/products">品牌專區</Link>
+            <Link href="/brands">品牌專區</Link>
             <Link href="/products?filter=new">新品上架</Link>
             <Link href="/products?filter=sale">特價專區</Link>
           </div>
