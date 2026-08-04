@@ -24,6 +24,13 @@ const SLUGS = BRAND_CONTENT.map((b) => b.slug);
 // 加上 scale 的兩端(materya 1.08 / kineo 0.88)。抽樣驗收挑這幾家。
 const EXTREMES = ['materya', 'motogadget', 'extreme', 'k-speed', 'kineo'];
 
+/**
+ * D3c-1:磚牆多了 `availableSlugs`(目錄裡真的有商品的品牌)。既有這些 case 全部餵
+ * **20 家都有商品**,好讓它們維持原本的前提(每一磚都是連結)——
+ * 「有幾磚不可點」那條路徑另有專門的 describe 在檔尾。
+ */
+const ALL_SLUGS: ReadonlySet<string> = new Set(BRAND_CONTENT.map((b) => b.slug));
+
 describe('BrandPageBrandWall · 前提(資料形狀)', () => {
   it('🔴 20 家、slug 不重複、logoScale 恰 7 家非 1(範圍 0.88-1.08)', () => {
     expect(SLUGS).toHaveLength(20);
@@ -40,7 +47,7 @@ describe('BrandPageBrandWall · 前提(資料形狀)', () => {
 
 describe('BrandPageBrandWall · 版型', () => {
   it('🔴 整條巢狀鏈正向斷言(無 class 的 wrapper 拿掉會讓 h2 與磚牆各自變 grid item)', () => {
-    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" />);
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={ALL_SLUGS} />);
     expect(container.querySelector('.bp-others > .bp-others-inner')).not.toBeNull();
     expect(container.querySelectorAll('.bp-others-inner > *')).toHaveLength(2);
     expect(container.querySelector('.bp-others-inner > .bp-sec-label')?.textContent).toBe('Brands');
@@ -50,7 +57,7 @@ describe('BrandPageBrandWall · 版型', () => {
 
   it('🔴 每一家當作當前品牌時,磚都還是 20 塊(不把自己濾掉)', () => {
     for (const slug of SLUGS) {
-      const { container } = render(<BrandPageBrandWall currentSlug={slug} />);
+      const { container } = render(<BrandPageBrandWall currentSlug={slug} availableSlugs={ALL_SLUGS} />);
       expect(container.querySelectorAll('.bp-others-list > a'), slug).toHaveLength(20);
       cleanup();
     }
@@ -58,7 +65,7 @@ describe('BrandPageBrandWall · 版型', () => {
 
   it('🔴 恰一塊掛 is-cur + aria-current="page",且就是當前那家', () => {
     for (const slug of SLUGS) {
-      const { container } = render(<BrandPageBrandWall currentSlug={slug} />);
+      const { container } = render(<BrandPageBrandWall currentSlug={slug} availableSlugs={ALL_SLUGS} />);
       const cur = [...container.querySelectorAll('.is-cur')];
       expect(cur, slug).toHaveLength(1);
       expect(cur[0]!.getAttribute('aria-current'), slug).toBe('page');
@@ -71,14 +78,14 @@ describe('BrandPageBrandWall · 版型', () => {
 
   it('slug 不在名單裡時,20 塊全部不標記(不是丟錯或標到第一家)', () => {
     // D3 的路由會先 notFound,所以這條路在正式站走不到 —— 但元件自己不該假設呼叫端擋過。
-    const { container } = render(<BrandPageBrandWall currentSlug="不存在的品牌" />);
+    const { container } = render(<BrandPageBrandWall currentSlug="不存在的品牌" availableSlugs={ALL_SLUGS} />);
     expect(container.querySelectorAll('.bp-others-list > a')).toHaveLength(20);
     expect(container.querySelectorAll('.is-cur')).toHaveLength(0);
     expect(container.querySelectorAll('[aria-current]')).toHaveLength(0);
   });
 
   it('磚裡只有 logo 與品牌名兩格(Sean 2026-08-02 否掉短描述)', () => {
-    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" />);
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={ALL_SLUGS} />);
     for (const a of container.querySelectorAll('.bp-others-list > a')) {
       expect(a.children).toHaveLength(2);
       expect(a.children[0]!.className).toBe('bp-others-logo');
@@ -89,7 +96,7 @@ describe('BrandPageBrandWall · 版型', () => {
 
 describe('BrandPageBrandWall · logo', () => {
   it('🔴 路徑是 brands-trim/(不是 brands-dark/ 也不是 brands/),alt = 品牌名,lazy', () => {
-    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" />);
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={ALL_SLUGS} />);
     const imgs = [...container.querySelectorAll('img')];
     expect(imgs).toHaveLength(20);
     imgs.forEach((img, i) => {
@@ -104,7 +111,7 @@ describe('BrandPageBrandWall · logo', () => {
   });
 
   it('🔴 --logo-scale 只在非 1 那 7 家輸出(無條件輸出 = 13 家多一個沒作用的 inline style)', () => {
-    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" />);
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={ALL_SLUGS} />);
     const frames = [...container.querySelectorAll<HTMLElement>('.bp-others-logo')];
     frames.forEach((el, i) => {
       const b = BRAND_CONTENT[i]!;
@@ -118,7 +125,7 @@ describe('BrandPageBrandWall · logo', () => {
 
   it('驗收抽樣的極端值逐家點名(materya 1.08 / kineo 0.88 / k-speed 與 motogadget 無 scale)', () => {
     // C-16-STOP 的抽樣清單。真機驗收看的是這幾磚,測試先把 DOM 這一半釘死。
-    const { container } = render(<BrandPageBrandWall currentSlug="materya" />);
+    const { container } = render(<BrandPageBrandWall currentSlug="materya" availableSlugs={ALL_SLUGS} />);
     const byIndex = new Map(BRAND_CONTENT.map((b, i) => [b.slug, i]));
     const frames = [...container.querySelectorAll<HTMLElement>('.bp-others-logo')];
     for (const slug of EXTREMES) {
@@ -135,11 +142,87 @@ describe('BrandPageBrandWall · logo', () => {
 // 🔴 D3a 起另有 `BrandPageRoot.test.tsx` 直接 render 整頁驗大綱,不再只靠這七支局部不變式。
 describe('BrandPageBrandWall · 標題階層(#311)', () => {
   it('🔴 第一個標題是 h2、其餘只到 h3', () => {
-    const { container } = render(<BrandPageBrandWall currentSlug={SLUGS[0]!} />);
+    const { container } = render(<BrandPageBrandWall currentSlug={SLUGS[0]!} availableSlugs={ALL_SLUGS} />);
     const levels = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')]
       .map((h) => Number(h.tagName[1]));
     expect(levels.length, '前提:真的有標題可驗').toBeGreaterThan(0);
     expect(levels[0], '本區第一個標題必須是 h2').toBe(2);
     expect(levels.filter((l) => l !== 2 && l !== 3), '只准出現 h2 與 h3').toEqual([]);
+  });
+});
+
+// ── 目錄零商品的品牌:泛白且不可點(D3c-1;Sean 2026-08-04 拍板,信箱 C-31-A)────────
+// 🔴 這一族守的是「**語意上**也不可點」,不只是看起來灰。只做視覺不做語意 = 鍵盤與報讀器
+//    仍然到得了那 5 個空入口,是最糟的組合。
+//    ⚠️ 用詞:「空入口」不是「死連結」(關卡2 R2 nit 1)—— `/brands/<slug>` 那 5 頁**會正常
+//    渲染**,壞的是進去零商品、CTA 再動一下篩選就滑成全站目錄。
+describe('BrandPageBrandWall · 零商品品牌泛白不可點', () => {
+  const EMPTY = new Set(['dbk', 'gilles', 'kineo', 'rizoma', 'wrs']);
+  const AVAILABLE: ReadonlySet<string> = new Set(SLUGS.filter((s) => !EMPTY.has(s)));
+
+  it('🔴 前提:那 5 個 slug 真的在 20 家裡(名單打錯的話整個 describe 會恆真)', () => {
+    for (const slug of EMPTY) expect(SLUGS, `${slug} 不在 BRAND_CONTENT 裡`).toContain(slug);
+    expect(AVAILABLE.size).toBe(SLUGS.length - EMPTY.size);
+  });
+
+  it('🔴 不可點的磚帶一句只給報讀器的說明(否則那 5 家只是靜默消失)', () => {
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={AVAILABLE} />);
+    const notes = [...container.querySelectorAll('.bp-others-list > .is-empty .bp-sr-only')];
+    expect(notes).toHaveLength(EMPTY.size);
+    for (const n of notes) expect(n.textContent).toBe('(暫無商品)');
+    // 反面:可點的磚不該有這句
+    expect(container.querySelectorAll('.bp-others-list > a .bp-sr-only')).toHaveLength(0);
+  });
+
+  it('🔴 沒商品的那幾磚不是連結(不是「`<a>` 少了 href」,是根本不渲染成 `<a>`)', () => {
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={AVAILABLE} />);
+    const tiles = [...container.querySelectorAll('.bp-others-list > *')];
+    expect(tiles).toHaveLength(SLUGS.length);
+    const empties = tiles.filter((t) => t.classList.contains('is-empty'));
+    expect(empties).toHaveLength(EMPTY.size);
+    for (const el of empties) {
+      expect(el.tagName, '零商品的磚仍是 <a> ⇒ 鍵盤與報讀器還是走得到一個沒東西可看的入口').toBe('SPAN');
+      expect(el.getAttribute('href'), '不該有 href').toBeNull();
+      // title 也不給:滑鼠停留跳出連結提示會與「不可點」互相打架
+      expect(el.getAttribute('title')).toBeNull();
+    }
+  });
+
+  it('🔴 有商品的那 15 磚照舊是連結、指向自己的品牌頁', () => {
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={AVAILABLE} />);
+    const links = [...container.querySelectorAll('.bp-others-list > a')];
+    expect(links).toHaveLength(SLUGS.length - EMPTY.size);
+    for (const a of links) {
+      expect(a.getAttribute('href')).toMatch(/^\/brands\/[a-z0-9-]+$/);
+      expect(a.classList.contains('is-empty')).toBe(false);
+    }
+  });
+
+  it('🔴 客人正在看的就是那 5 家之一時,`is-cur` 與 `is-empty` 兩個狀態並存', () => {
+    // 不能因為它沒商品就在磚牆上失去「你在這裡」—— 那正是磚牆存在的理由。
+    const { container } = render(<BrandPageBrandWall currentSlug="rizoma" availableSlugs={AVAILABLE} />);
+    const cur = container.querySelector('[aria-current="page"]')!;
+    expect(cur.tagName).toBe('SPAN');
+    expect(cur.classList.contains('is-cur')).toBe(true);
+    expect(cur.classList.contains('is-empty')).toBe(true);
+  });
+
+  it('🔴 空集合(撈取失敗的 fail-closed 路徑)⇒ 20 磚全部不可點、零 `<a>`', () => {
+    // 反過來設計(失敗時全部放行)會在 DB 一抖時把 5 個空入口全放出去,
+    // 那正是本次要修掉的東西 —— 這條把方向釘住。
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={new Set()} />);
+    expect(container.querySelectorAll('.bp-others-list > a')).toHaveLength(0);
+    expect(container.querySelectorAll('.bp-others-list > span.is-empty')).toHaveLength(SLUGS.length);
+  });
+
+  it('每一磚不論可不可點,logo 與品牌名都還在(泛白不是隱藏)', () => {
+    const { container } = render(<BrandPageBrandWall currentSlug="akrapovic" availableSlugs={AVAILABLE} />);
+    const tiles = [...container.querySelectorAll('.bp-others-list > *')];
+    // 前提:沒有這一行,磚全沒渲染時下面的迴圈跑 0 圈、照樣綠(關卡2 R1 nit 9)。
+    expect(tiles).toHaveLength(SLUGS.length);
+    for (const tile of tiles) {
+      expect(tile.querySelector('.bp-others-logo img')).not.toBeNull();
+      expect(tile.querySelector('.bp-others-name')?.textContent).toBeTruthy();
+    }
   });
 });

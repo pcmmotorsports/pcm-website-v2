@@ -57,6 +57,9 @@ const PRODUCTS: MockProduct[] = Array.from({ length: BRAND_PRODUCT_SLOTS }, (_, 
   imgTone: 'neutral',
 }));
 
+/** D3c-1:磚牆需要「哪些品牌有商品」;這些 case 一律餵全 20 家(不可點那條路徑另有專測)。 */
+const ALL_SLUGS: ReadonlySet<string> = new Set(BRAND_CONTENT.map((b) => b.slug));
+
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** 遞迴列出 `src/**` 下的 .ts / .tsx / .css(排除產物目錄)。 */
@@ -166,7 +169,7 @@ describe('BrandPageRoot · CSS import 的單一落點(關卡2 R1 must-fix 1)', (
 describe('BrandPageRoot · `.bp-page` scope(#314 的 `.bp-page` scope 前置)', () => {
   it('🔴 根節點帶 `.bp-page`,而且是 `<main>` —— 20 家逐一驗', () => {
     for (const brand of BRAND_CONTENT) {
-      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} />);
+      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
       const root = container.firstElementChild;
       expect(root, `${brand.slug}:BrandPageRoot 沒有渲染出任何元素`).not.toBeNull();
       expect(
@@ -188,7 +191,7 @@ describe('BrandPageRoot · `.bp-page` scope(#314 的 `.bp-page` scope 前置)', 
   //    ——我原本寫成「只宣告自訂屬性」,那是假的)。兩塊拿到的是同一組值 ⇒ 相鄰兩塊背景與文字色
   //    相同、看不出接縫;它們是**兄弟不是巢狀**,所以也沒有值被覆寫的問題。正式 route 只有一個。
   it('🔴 本元件自己不巢狀第二個 `.bp-page`(巢狀會讓 scope 內的 fallback 判斷不可推理)', () => {
-    const { container } = render(<BrandPageRoot brand={BRAND_CONTENT[0]!} products={PRODUCTS} />);
+    const { container } = render(<BrandPageRoot brand={BRAND_CONTENT[0]!} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
     expect(container.querySelectorAll('.bp-page')).toHaveLength(1);
   });
 });
@@ -209,7 +212,7 @@ describe('BrandPageRoot · 整頁標題大綱(#311)', () => {
 
   it('🔴 20 家全部:首個標題是 h1、其後不跳級', () => {
     for (const brand of BRAND_CONTENT) {
-      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} />);
+      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
       const levels = outlineOf(container);
       expect(firstOutlineBreak(levels), `${brand.slug} 的大綱 [${levels.join(',')}]`).toBeNull();
       cleanup();
@@ -218,7 +221,7 @@ describe('BrandPageRoot · 整頁標題大綱(#311)', () => {
 
   it('🔴 恰一個 h1、內容 = 品牌名(多一個 h1 = 兩份大綱,螢幕閱讀器會當成兩篇文章)', () => {
     for (const brand of BRAND_CONTENT) {
-      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} />);
+      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
       const h1s = [...container.querySelectorAll('h1')];
       expect(h1s.map((h) => h.textContent), brand.slug).toEqual([brand.name]);
       cleanup();
@@ -227,7 +230,7 @@ describe('BrandPageRoot · 整頁標題大綱(#311)', () => {
 
   it('🔴 標題只用到 h1-h3(h4 以下沒有對應的設計稿層級 ⇒ 出現就是有人自己加的)', () => {
     for (const brand of BRAND_CONTENT) {
-      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} />);
+      const { container } = render(<BrandPageRoot brand={brand} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
       const used = [...new Set(outlineOf(container))].sort((a, b) => a - b);
       // 🔴 用「集合相等」而不是 arrayContaining(關卡2 R1 nit 6:後者對 h4 完全不設限、
       //    整條斷言的重量全壓在下一行,等於白寫)。h3 是選填(有些品牌沒有第三層)。
@@ -242,7 +245,7 @@ describe('BrandPageRoot · 商品區(D3b)', () => {
   const AKRAPOVIC = BRAND_CONTENT.find((b) => b.slug === 'akrapovic')!;
 
   it('🔴 0 筆 → 整區不渲染(不留空骨架、也不自己編一句「目前沒有商品」)', () => {
-    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={[]} />);
+    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={[]} availableSlugs={ALL_SLUGS} />);
     expect(container.querySelector('.bp-products'), '0 筆時商品區仍在 ⇒ 客人看到一排空格').toBeNull();
     expect(container.querySelector('.bp-grid')).toBeNull();
     // 🔴 這條路徑**真的會走到**:2026-08-04 實測 20 家裡有 5 家在目錄中是 0 筆
@@ -250,7 +253,7 @@ describe('BrandPageRoot · 商品區(D3b)', () => {
   });
 
   it(`🔴 有商品 → 渲染 ${BRAND_PRODUCT_SLOTS} 張既有 ProductCard(不是設計稿的骨架槽)`, () => {
-    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} />);
+    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
     expect(container.querySelectorAll('.bp-grid > *')).toHaveLength(BRAND_PRODUCT_SLOTS);
     // 卡片必須是既有元件的 `.pcard`(設計稿 :1468-1469 逐字:「直接用既有的商品列表元件」)
     expect(container.querySelectorAll('.pcard')).toHaveLength(BRAND_PRODUCT_SLOTS);
@@ -267,7 +270,7 @@ describe('BrandPageRoot · 商品區(D3b)', () => {
   });
 
   it('標題是 h2「熱門商品」(設計稿 :1476);區塊落在分類與磚牆之間(設計稿 :1470-1489)', () => {
-    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} />);
+    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
     const head = container.querySelector('.bp-prod-head h2')!;
     expect(head.textContent).toBe('熱門商品');
     // 位置:用 compareDocumentPosition 驗真實順序,不是靠我在測試裡自己排一次
@@ -278,7 +281,7 @@ describe('BrandPageRoot · 商品區(D3b)', () => {
   });
 
   it('🔴「查看全部」指向該品牌的目錄網址(設計稿 :2028 的 `catalogue(brand.slug)`)', () => {
-    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} />);
+    const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
     const link = container.querySelector('.bp-prod-head a')!;
     expect(link.getAttribute('href')).toBe('/products?pbrand=akrapovic');
     expect(link.textContent).toContain('查看全部');

@@ -16,7 +16,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import { BrandPageRoot } from '@/components/brand/BrandPageRoot';
-import { fetchBrandTopProducts } from '@/lib/brand-products';
+import { fetchBrandTopProducts, fetchBrandsWithProducts } from '@/lib/brand-products';
 
 export const metadata = { robots: { index: false } };
 
@@ -30,11 +30,14 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
   if (!Object.hasOwn(BRAND_BY_SLUG, slug)) notFound();
   const brand = BRAND_BY_SLUG[slug]!;
   // D3b:商品區走與正式 route 同一支撈法(同一份排序與筆數;預覽看到的就是正式站會有的)
-  const products = await fetchBrandTopProducts(slug);
+  const [products, availableSlugs] = await Promise.all([
+    fetchBrandTopProducts(slug),
+    fetchBrandsWithProducts(),
+  ]);
 
   return (
     <>
-      <BrandPageRoot brand={brand} products={products} />
+      <BrandPageRoot brand={brand} products={products} availableSlugs={availableSlugs} />
       {/* 切換列自帶 `.bp-page`:它用的 `--f-mono` / `--c-ember-ink` / `--c-text-3` 都是
           scoped 色票,放在 BrandPageRoot 外面就吃不到(這正是 #314 講的沉默降級)。 */}
       <div className="bp-page">

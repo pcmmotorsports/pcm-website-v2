@@ -38,8 +38,21 @@
  *      · ≤620 的 `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:1px…}`(#310)
  *    另有一處是**選擇器改名**:`.bp-aside-card h3` → `.bp-aside-card .bp-aside-title`(#311),
  *    宣告一字未動 ⇒ 視覺零改變。三處的逐條理由寫在各自位置。
- *    ✅ 三處已於 2026-08-04 回寫 OD 設計稿(#319 結案、Sean 拍 Q2=A)—— 兩邊現在一致,
- *      這張「反方向清單」留著是給讀者對歷史:它們是 repo 先行、設計稿跟進,不是搬運遺漏。
+ *    ✅ 那三處已於 2026-08-04 回寫 OD 設計稿(#319 結案、Sean 拍 Q2=A)。
+ *    ⚠️ **數字對不上不是錯的**(關卡2 R2 nit 2):#319 標題寫「D2f **五處**」= 整片的偏離總數,
+ *       含 `brand-content-data.js` 的 materya 影片等**非 CSS** 的兩處;這裡的「三處」只是
+ *       其中**落在本檔**的那一段。兩個數字併排讀時別當成其中一邊漏記。
+ *
+ * 🔴 **D3b / D3c-1 又長出四處,而且尚未回寫 OD**(backlog **#322**;上面那句「兩邊現在一致」
+ *    只涵蓋 D2f 的三處,不要讀成整個檔的現況):
+ *      · **D3b** `.bp-grid > :nth-child(n+4)` / `(n+3)` 的**選擇器改名**(設計稿寫 `.bp-slot`,
+ *        正式站的子元素是 `ProductCard`;宣告一字未動)
+ *      · **D3b** `.bp-page` 補一份 `--ed-c-ink`(設計稿靠 `.ed-page` 提供,本頁刻意不掛它)
+ *      · **D3c-1** `.bp-others-list > *` 這一族的**選擇器改名**(磚現在可能是 `<a>` 也可能是
+ *        `<span>`;`.is-cur` 用 `:is(a, span)` 保住特異度)
+ *      · **D3c-1** `.bp-others-list > :is(a, span).is-empty` 三條 —— **設計稿完全沒有這個狀態**,
+ *        依 Sean 2026-08-04 拍板(信箱 C-31-A)新增
+ *    ⇒ 這四處是 repo 先行、設計稿**還沒**跟進。動這個檔前兩張清單都要看。
  */
 
 /* ══ 設計色票(scoped,不是 :root)══════════════════════════════════
@@ -638,7 +651,7 @@
    🔴 flex 不用 grid(設計稿 :748-749 逐字):家數變動時(17→20→…)grid 的最後一列會靠左
       留破口;flex + justify-content:center 讓最後一列自己置中,加到 20 家也不用重算欄數。 */
 .bp-others-list { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
-.bp-others-list a {
+.bp-others-list > * {
   flex: 0 1 calc((100% - 48px) / 5);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   /* 磚壓成橫向比例:接近正方形時 40px 的 mark 撐不滿,看起來就是空的 */
@@ -696,18 +709,53 @@
    ⚠️ 同一個失敗模式在本區還會拿掉 `background: var(--c-sunken)`(tokens.css 也沒有它)
       ⇒ 當前品牌那一磚會退化成「和其他 19 磚幾乎一樣」,只剩 `filter: none` 與粗體字名
       這兩個較弱的訊號。這裡不補 --c-sunken 的 fallback,理由同 .bp-chip 那段。 */
-.bp-others-list a.is-cur {
+/* 🔴 **選擇器寫 `:is(a, span)` 不是 `*`,是為了特異度**(關卡2 R1 must-fix 1):
+   `> *.is-cur` = (0,2,0),**輸給** `.bp-others-list a:hover` = (0,2,1)
+   ⇒ 滑鼠移到「你在這一頁」那磚上,石墨邊框與 inset 環會被 hover 的外投影整條取代
+   (20 家有 15 家碰得到)。原本 `a.is-cur` 就是 (0,2,1)、與 hover 同權重靠順序贏;
+   `:is()` 取引數中最高者(型別選擇器)⇒ (0,2,1) 還原,同時仍涵蓋 span 磚。
+   ⚠️ 真瀏覽器量過:改前 hover 後 border 掉成 `--c-border-strong`、inset 環消失。 */
+.bp-others-list > :is(a, span).is-cur {
   border-color: var(--c-graphite, #202225); background: var(--c-sunken);
   box-shadow: inset 0 0 0 1px var(--c-graphite, #202225);
 }
-.bp-others-list a.is-cur img { filter: none; }
-.bp-others-list a.is-cur .bp-others-name { color: var(--c-text); font-weight: 600; }
+.bp-others-list > :is(a, span).is-cur img { filter: none; }
+.bp-others-list > :is(a, span).is-cur .bp-others-name { color: var(--c-text); font-weight: 600; }
+
+/* ── 目錄零商品的品牌:泛白、不可點(Sean 2026-08-04 拍板,信箱 `C-31-A`)──────────
+ * 🔴 **設計稿沒有這個狀態**(OD 只畫可點的磚)⇒ 鐵則 1 的申報偏離、依 Sean 拍板;
+ *    OD 回寫債照 #319 前例併記。
+ * 🔴 「不可點」的**語意**由元件做(那幾磚渲染成 `<span>` 而不是 `<a>`,見
+ *    `BrandPageBrandWall.tsx` 那段 doc);本段只負責**看起來也不可點** ——
+ *    只做視覺不做語意的話,鍵盤與報讀器仍然到得了,那才是最糟的組合。
+ * ⚠️ 為什麼不用 `opacity` 整塊調淡:磚有白底,`opacity` 會讓底下的頁面底色透上來、
+ *    邊框也一起變淡 ⇒ 看起來像沒載完,而不是「這家暫時沒東西」。
+ *    改成只把 logo 再去飽和一階 + 名字轉淡,邊框與白底維持 ⇒ 磚還在、只是「暗掉」。
+ * ⚠️ `cursor: default` 是給滑鼠的第三個訊號(語意 + 視覺 + 游標);`<span>` 本來就沒有
+ *    `pointer`,寫出來是為了擋住哪天有人在上層加 `cursor: pointer`。
+ * 🔴🔴 **選擇器必須與上面 `.is-cur` 那族「同階」(都寫 `> :is(a, span)`)** ——
+ *    關卡2 R2 must-fix 1:本段第一版寫 `> *.is-empty`(0,2,1),而 `.is-cur` 那族因為要壓
+ *    `a:hover` 已升到 `> :is(a, span)`(0,2,2)⇒ **`.is-cur` 反過來壓過 `.is-empty`**。
+ *    症狀 = 那 5 家看自己的品牌頁時,當前那磚的 logo 變回全彩、名字變回深色,
+ *    只剩 `opacity: .55` 還在(Sean 的泛白拍板在這 5 頁失效一半),而所有測試照樣綠。
+ *    同階之後**順序才決勝**,而本段排在 `.is-cur` 之後 ⇒ 見下方那段的說明。
+ *    守門 = `brand-page.test.ts` 那條「兩族前綴必須同形、且 .is-empty 排在後面」。 */
+.bp-others-list > :is(a, span).is-empty { cursor: default; }
+.bp-others-list > :is(a, span).is-empty img { filter: grayscale(1) brightness(.78) contrast(.92); opacity: .55; }
+.bp-others-list > :is(a, span).is-empty .bp-others-name { color: var(--c-text-3); }
+/* 🔴 當前品牌**同時**是零商品時(例如客人正在看 /brands/rizoma):兩族現在**同權重**
+ *    (0,2,1 / 0,2,2),`.is-empty` 排在後面 ⇒ 兩處真正衝突的宣告(logo 的 `filter`、
+ *    名字的 `color`)由本段勝出 = 泛白照樣看得到。
+ *    `.is-cur` 專屬的那些(邊框、底色、inset 環、`font-weight: 600`)本段一條都沒碰
+ *    ⇒ 「你在這裡」的訊號同時保留。**這是靠順序、不是靠各管各的** ——
+ *    把本段搬到 `.is-cur` 前面,泛白就會被 `filter: none` 整條吃掉(R2 must-fix 2 更正:
+ *    原註解寫「兩個狀態各管各的,不互相取消」,在同權重下那句話是假的)。 */
 
 /* ══ 動效層(D2e-2;設計稿 :792-866)════════════════════════════════
  * 只做兩處:①橫幅入場 ②互動回饋統一。一律只動 transform / opacity(不觸發 layout / 不重排)。
  *
  * 🔴🔴 **位置就是行為**:本段的互動 transition 會**覆寫**上面基礎規則裡同名的那幾條
- *    (`.bp-cta` / `.bp-cta-ghost` / `.bp-chip` / `.bp-others-list a` / `.bp-others-name`)——
+ *    (`.bp-cta` / `.bp-cta-ghost` / `.bp-chip` / `.bp-others-list > *` / `.bp-others-name`)——
  *    選擇器完全相同、權重相同 ⇒ **只靠順序決勝**。搬到基礎規則前面的話,
  *    整頁又會退回 .15s / .18s / .2s / .3s 四種時長混用(設計稿 :837 逐字記的原始問題),
  *    而且畫面「看起來還是會動」、沒有任何測試會紅。設計稿的順序也是這樣(基礎 :593-790、本段 :792)。
@@ -786,7 +834,7 @@
 }
 .bp-chip:hover { transform: translateY(-1px); }
 .bp-chip:active { transform: translateY(0); transition-duration: var(--dur-press); }
-.bp-others-list a {
+.bp-others-list > * {
   transition: border-color var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease),
     transform var(--dur-hover) var(--ease), background var(--dur-hover) var(--ease);
 }
@@ -849,7 +897,7 @@
         ⇒ 下面 ≤960 的 `grid-column: auto` **只靠順序**勝出,兩個區塊的先後不能對調。 */
   .bp-media { grid-column: 2; margin-top: 14px; }
   /* 磚牆 5 欄 → 4 欄(D2e-1)。gap 仍是 12px ⇒ 4 欄扣掉 3 道 gap = 36px。 */
-  .bp-others-list a { flex-basis: calc((100% - 36px) / 4); }
+  .bp-others-list > * { flex-basis: calc((100% - 36px) / 4); }
   /* 商品區 5 欄 → 3 欄(D3b;設計稿 :882-883)。
      🔴 **少顯示,不是換行**:第 4、5 張直接不顯示,否則會多長出一排、把磚牆推下去。
      🔴 **選擇器改名**(申報偏離):設計稿寫 `.bp-grid .bp-slot:nth-child(n+4)`,`.bp-slot`
@@ -999,7 +1047,7 @@
   /* ⚠️ 與 ≤1180 那條**值完全相同**(設計稿 :879 與 :912 各寫了一次)。逐字搬、不自行合併:
      ≤1180 已涵蓋 ≤960 ⇒ 這條在 cascade 上是 no-op,但它是設計稿的字面,
      而且哪天 ≤1180 那條改了欄數,這條就是 ≤960 的獨立宣告。 */
-  .bp-others-list a { flex-basis: calc((100% - 36px) / 4); }
+  .bp-others-list > * { flex-basis: calc((100% - 36px) / 4); }
   .bp-fact { text-align: center; }
   .bp-facts-inner { grid-template-columns: repeat(2, 1fr); }
   .bp-fact:nth-child(3) { border-left: 0; padding-left: 0; }
@@ -1051,7 +1099,7 @@
      🔴 gap 與 flex-basis 的算式**綁在一起**:只改其中一個,最後一列會多擠一格或開一個洞。
      logo 框 58 → 46px、品牌名兩行高 32 → 30px:窄欄下 58px 的框會讓一磚高到吃掉半個螢幕。 */
   .bp-others-list { gap: 10px; }
-  .bp-others-list a { flex-basis: calc((100% - 20px) / 3); padding: 20px 10px 17px; gap: 12px; }
+  .bp-others-list > * { flex-basis: calc((100% - 20px) / 3); padding: 20px 10px 17px; gap: 12px; }
   .bp-others-logo { height: 46px; }
   .bp-others-name { font-size: 11px; min-height: 30px; }
   .bp-facts-inner { grid-template-columns: 1fr; }
@@ -1110,5 +1158,5 @@
  *    RWD 改的是 flex-basis / font-size / min-height)⇒ 順序在這裡不是行為的一部分,
  *    與上面 no-photo 那段不同,不需要為它設順序守門。
  */
-.bp-others-list a { min-width: 0; }
+.bp-others-list > * { min-width: 0; }
 .bp-others-name { overflow-wrap: anywhere; }

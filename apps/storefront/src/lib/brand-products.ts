@@ -20,7 +20,7 @@
 //    (memory `reference_next16-unstable-cache-force-dynamic-2mb`)。
 
 import type { MockProduct } from '@/data/mock-products';
-import { fetchCatalogPage } from '@/lib/products';
+import { fetchCatalogPage, fetchCatalogBrandTaxonomy } from '@/lib/products';
 import { BRAND_PRODUCT_SLOTS } from '@/lib/brand-url';
 
 
@@ -40,4 +40,28 @@ export async function fetchBrandTopProducts(brandSlug: string): Promise<MockProd
   });
   if (error) return [];
   return products;
+}
+
+/**
+ * 目錄裡**真的有商品**的品牌 slug 集合。
+ *
+ * 用途 = Sean 2026-08-04 拍板(信箱 `C-31-A`,取代 #315 Q1 的三選項):20 家品牌頁全部上線,
+ * 但**目錄零商品的那幾家,磚牆與總覽卡要泛白且不可點** —— 判斷「哪幾家」就靠這支。
+ *
+ * 🔴 **由真資料衍生、不寫死名單**(拍板備註逐字建議):商品一上架,那家的磚下次 render
+ *    就自動恢復可點;寫死名單的話得有人記得回來改,而「記得」正是本專案一直在輸的東西。
+ * 🔴 資料源 `catalog_brand_counts` 與 `/products` 側欄**同一支**(`fetchCatalogBrandTaxonomy`)
+ *    ⇒ 品牌頁的「可不可點」與目錄的「篩不篩得到」不會各自漂移。
+ *    2026-08-04 實測回 16 家(含一個 `pcm` 測試品牌);20 家品牌頁裡有 5 家不在其中:
+ *    `dbk` / `gilles` / `kineo` / `rizoma` / `wrs`。
+ *
+ * ⚠️ **失敗時回空集合 = 全部當成「沒有商品」**(fail-closed)。
+ *    反過來(失敗時全部放行)會讓 DB 一抖就把 5 個**空入口**放出去,而那正是本次要修掉的東西;
+ *    ⚠️ 用詞:那 5 磚指向的 `/brands/<slug>` **會正常渲染、不是 404**(關卡2 R1/R2 nit 更正
+ *    ——「死連結」是錯的字);壞的是進去之後零商品、而頁上兩顆 CTA 再動一下篩選就滑成全站目錄。
+ *    失敗時全部泛白雖然難看,但**不會把客人送到錯的頁面**。這是刻意的方向選擇,不是省事。
+ */
+export async function fetchBrandsWithProducts(): Promise<ReadonlySet<string>> {
+  const brands = await fetchCatalogBrandTaxonomy();
+  return new Set(brands.filter((b) => b.count > 0).map((b) => b.id));
 }

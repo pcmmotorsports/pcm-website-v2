@@ -662,17 +662,17 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
 
   it('🔴 欄數與 gap 的算式綁在一起(只改一個,最後一列會多擠一格或開一個洞)', () => {
     // 基礎 5 欄:gap 12 × 4 道 = 48
-    expect(CSS).toMatch(/\.bp-others-list a\s*\{[^}]*flex:\s*0 1 calc\(\(100% - 48px\) \/ 5\)/);
+    expect(CSS).toMatch(/\.bp-others-list > \*\s*\{[^}]*flex:\s*0 1 calc\(\(100% - 48px\) \/ 5\)/);
     expect(CSS).toMatch(/\.bp-others-list\s*\{[^}]*gap:\s*12px/);
     // ≤1180 與 ≤960 都是 4 欄(gap 仍 12 ⇒ 3 道 = 36)
     for (const q of ['(max-width: 1180px)', '(max-width: 960px)']) {
       expect(mediaBlock(q), `${q} 缺 4 欄規則`)
-        .toMatch(/\.bp-others-list a\s*\{[^}]*flex-basis:\s*calc\(\(100% - 36px\) \/ 4\)/);
+        .toMatch(/\.bp-others-list > \*\s*\{[^}]*flex-basis:\s*calc\(\(100% - 36px\) \/ 4\)/);
     }
     // ≤620 收 3 欄,gap 同時收到 10 ⇒ 2 道 = 20;logo 框與品牌名也一起收
     const small = mediaBlock('(max-width: 620px)');
     expect(small).toMatch(/\.bp-others-list\s*\{[^}]*gap:\s*10px/);
-    expect(small).toMatch(/\.bp-others-list a\s*\{[^}]*flex-basis:\s*calc\(\(100% - 20px\) \/ 3\)/);
+    expect(small).toMatch(/\.bp-others-list > \*\s*\{[^}]*flex-basis:\s*calc\(\(100% - 20px\) \/ 3\)/);
     expect(small).toMatch(/\.bp-others-logo\s*\{[^}]*height:\s*46px/);
     expect(small).toMatch(/\.bp-others-name\s*\{[^}]*min-height:\s*30px/);
   });
@@ -682,15 +682,15 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
     // 1/3 的 flex-basis,那一列被擠成 2 格、中間開一個洞(設計稿 :1307-1314)。
     expect(CSS).toMatch(/\.bp-others-name\s*\{[^}]*overflow-wrap:\s*anywhere/);
     expect(CSS).not.toMatch(/\.bp-others-name\s*\{[^}]*overflow-wrap:\s*break-word/);
-    expect(CSS).toMatch(/\.bp-others-list a\s*\{[^}]*min-width:\s*0/);
+    expect(CSS).toMatch(/\.bp-others-list > \*\s*\{[^}]*min-width:\s*0/);
   });
 
   it('🔴 is-cur 那磚的兩處 var(--c-graphite) 帶 fallback,且是「標記」不是「移除」', () => {
     // 上面「每一處 var(--c-graphite) 都要帶 fallback」那條已經逐處數過;這裡確認
     // is-cur 這條規則本身存在 —— 元件把當前品牌留在清單裡,靠的就是它被看得見。
-    expect(CSS).toMatch(/\.bp-others-list a\.is-cur\s*\{[^}]*border-color:\s*var\(--c-graphite, #202225\)/);
-    expect(CSS).toMatch(/\.bp-others-list a\.is-cur\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--c-graphite, #202225\)/);
-    expect(CSS).toMatch(/\.bp-others-list a\.is-cur img\s*\{[^}]*filter:\s*none/);
+    expect(CSS).toMatch(/\.bp-others-list > :is\(a, span\)\.is-cur\s*\{[^}]*border-color:\s*var\(--c-graphite, #202225\)/);
+    expect(CSS).toMatch(/\.bp-others-list > :is\(a, span\)\.is-cur\s*\{[^}]*box-shadow:\s*inset 0 0 0 1px var\(--c-graphite, #202225\)/);
+    expect(CSS).toMatch(/\.bp-others-list > :is\(a, span\)\.is-cur img\s*\{[^}]*filter:\s*none/);
   });
 
   it('🔴 cats / others 的基礎規則必須排在**所有 max-width 區塊**之前(追加在後面會靜默失效)', () => {
@@ -704,7 +704,7 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
     //    ⇒ 純字串 indexOf 會在基礎規則被搬到檔尾時命中 ≤1180 那一塊、照樣通過。
     //    (這正是「斷言量錯東西」的形狀:量到的是另一條同名規則。)
     // 🔴🔴 邊界用**第一個 `@media (max-width:`**,不是 ≤960(R2 must-fix)——
-    //    `.bp-others-list a` 的第一個覆寫在 **≤1180**,拿 ≤960 當界時,把基礎規則搬到
+    //    `.bp-others-list > *` 的第一個覆寫在 **≤1180**,拿 ≤960 當界時,把基礎規則搬到
     //    「≤1180 之後、≤960 之前」那 1594 字元的空隙裡,1180-961px 會退回 5 欄而守門照樣綠。
     //    六條的覆寫全在 max-width 區塊 ⇒ 基礎規則必須排在**所有** max-width 之前。
     //    ⚠️ 不能用「第一個 @media」:檔內更早有 `@media (min-width: 961px)`(D2c-1 的 .no-aside),
@@ -719,7 +719,7 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
       // gap 12 ← ≤620 收 10
       ['.bp-others-list', /\.bp-others-list\s*\{[^}]*display:\s*flex/],
       // flex 0 1 …/5 ← ≤1180 與 ≤960 收 /4、≤620 收 /3(媒體查詢裡用的是 flex-basis)
-      ['.bp-others-list a', /\.bp-others-list a\s*\{[^}]*flex:\s*0 1 calc/],
+      ['.bp-others-list > *', /\.bp-others-list > \*\s*\{[^}]*flex:\s*0 1 calc/],
       // 框高 58 ← ≤620 收 46
       ['.bp-others-logo', /\.bp-others-logo\s*\{[^}]*height:\s*58px/],
       // 字級 12 / 兩行高 32 ← ≤620 收 11 / 30(檔尾那條只有 overflow-wrap)
@@ -777,9 +777,9 @@ describe('品牌頁 CSS · 動效層(D2e-2)', () => {
       ['.bp-chip',
         /\.bp-chip\s*\{[^}]*transition:\s*border-color \.15s/,
         /\.bp-chip\s*\{[^}]*transition:\s*border-color var\(--dur-hover\)/],
-      ['.bp-others-list a',
-        /\.bp-others-list a\s*\{[^}]*transition:\s*border-color \.18s/,
-        /\.bp-others-list a\s*\{[^}]*transition:\s*border-color var\(--dur-hover\)/],
+      ['.bp-others-list > *',
+        /\.bp-others-list > \*\s*\{[^}]*transition:\s*border-color \.18s/,
+        /\.bp-others-list > \*\s*\{[^}]*transition:\s*border-color var\(--dur-hover\)/],
       ['.bp-others-name',
         /\.bp-others-name\s*\{[^}]*transition:\s*color \.18s/,
         /\.bp-others-name\s*\{[^}]*transition:\s*color var\(--dur-hover\)/],
@@ -1084,6 +1084,74 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
     expect(
       scope.some((r) => /--ed-c-ink\s*:/.test(r.body)),
       '.bp-page 沒宣告 --ed-c-ink ⇒ .ed-link 的 border-bottom 會退回 none',
+    ).toBe(true);
+  });
+
+  // 🔴 **合約的另一半**(R3 Fable consider F2):上一條釘的是「`.bp-page` 有宣告 `--ed-c-ink`」,
+  //    但那份宣告存在的**唯一理由**是 `home.css` 的 `.ed-link` 會去讀它。哪天 D5/D7 重排頁尾時
+  //    把 `.ed-link` 改成別的 token,我補的那份宣告就變成無人消費的死碼、而沒有東西會說一聲。
+  //    這條讀 `home.css` 原始碼、把消費端釘住:兩邊任一改動都會紅。
+  it('🔴 `home.css` 的 `.ed-link` 確實消費 `--ed-c-ink`(否則 .bp-page 那份宣告就成死碼)', () => {
+    const home = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'home.css'), 'utf8');
+    const rule = home.match(/\.ed-link\s*\{[^}]*\}/);
+    expect(rule, 'home.css 找不到 .ed-link 規則').not.toBeNull();
+    expect(rule![0], '.ed-link 不再讀 --ed-c-ink ⇒ brand-page.css 那份宣告可以刪了').toContain(
+      'var(--ed-c-ink)',
+    );
+  });
+
+  // 🔴 關卡2 R1 must-fix 1:`.is-cur` 的選擇器必須維持 (0,2,1) 才壓得過 `a:hover` 的 (0,2,1)+順序。
+  //    寫成 `> *.is-cur`(0,2,0)的話,hover 當前品牌那磚會把石墨邊框與 inset 環整組吃掉,
+  //    而所有測試照樣綠(這是真瀏覽器 hover 前後對照才量到的)。
+  it('🔴 `.is-cur` 用 `:is(a, span)` 保住特異度,不是 `> *`', () => {
+    const cur = rules.filter((r) => r.selector.includes('.is-cur') && r.selector.includes('bp-others-list'));
+    expect(cur.length, '找不到 is-cur 規則').toBeGreaterThanOrEqual(3);
+    for (const r of cur) {
+      expect(r.selector, `${r.selector} 用了 > * ⇒ 特異度掉一階、會輸給 a:hover`).not.toMatch(/>\s*\*\.is-cur/);
+      expect(r.selector).toContain(':is(a, span)');
+    }
+  });
+
+  // 🔴 關卡2 R1 must-fix 3:拍板的「泛白」那一半原本零守門 —— 整段刪掉,4631 測仍全綠、
+  //    磚看起來與可點磚一模一樣,但語意上仍不可點 = 對客人最糟的組合。
+  it('🔴 `.is-empty` 三條都在(泛白那一半的守門)', () => {
+    const empty = rules.filter((r) => r.selector.includes('.is-empty'));
+    expect(empty.length, '.is-empty 規則不見了 ⇒ 零商品的磚會長得跟可點的一模一樣').toBe(3);
+    const body = empty.map((r) => r.body).join(' ');
+    expect(body, 'logo 沒有去飽和').toMatch(/filter\s*:\s*grayscale\(1\)/);
+    expect(body, 'logo 沒有轉淡').toMatch(/opacity\s*:\s*\.55/);
+    expect(body, '品牌名沒有轉淡').toMatch(/color\s*:\s*var\(--c-text-3\)/);
+    expect(body, '游標沒有改掉').toMatch(/cursor\s*:\s*default/);
+  });
+
+  // 🔴 關卡2 R2 must-fix 1:上面兩條各自只數「規則在不在」,對**兩族之間的勝負反轉全盲**。
+  //    實錘:`.is-cur` 為了壓 `a:hover` 升成 `> :is(a, span)`(img 那條 = 0,2,2),而 `.is-empty`
+  //    還留在 `> *`(0,2,1)⇒ `.is-cur` 反過來壓過 `.is-empty`,那 5 家看自己的品牌頁時
+  //    logo 變回全彩、名字變回深色,只剩 opacity 還在 —— 4645 測全綠。
+  //    ⇒ 這條釘的是「同階 + 順序」這個真正決勝的東西,不是任一族自己的形狀。
+  //    ⚠️ **它擋不住什麼**:比的是選擇器**字面前綴**,不是算出來的特異度。兩族同時改成
+  //       另一種同形寫法(例如都用 `> a`)仍會過,但那樣勝負關係不變 —— 反轉才是要擋的。
+  it('🔴 `.is-cur` 與 `.is-empty` 兩族選擇器同階,且 `.is-empty` 排在後面(順序決勝)', () => {
+    const PREFIX = '.bp-others-list > :is(a, span)';
+    const idx = (cls: string) =>
+      rules.reduce<number[]>((acc, r, i) => {
+        if (r.selector.includes(cls) && r.selector.includes('bp-others-list')) acc.push(i);
+        return acc;
+      }, []);
+    const cur = idx('.is-cur');
+    const empty = idx('.is-empty');
+    expect(cur.length, '找不到 is-cur 規則').toBe(3);
+    expect(empty.length, '找不到 is-empty 規則').toBe(3);
+    for (const i of [...cur, ...empty]) {
+      expect(
+        rules[i]!.selector.startsWith(PREFIX),
+        `${rules[i]!.selector} 前綴與另一族不同階 ⇒ 兩族勝負會反轉(泛白或當前磚其一失效)`,
+      ).toBe(true);
+    }
+    // 同階之後就只剩順序:`.is-empty` 的每一條都必須排在**所有** `.is-cur` 之後。
+    expect(
+      Math.min(...empty) > Math.max(...cur),
+      '.is-empty 被搬到 .is-cur 前面 ⇒ 泛白會被 `filter: none` 整條吃掉',
     ).toBe(true);
   });
 
