@@ -46,11 +46,11 @@ type GarageChipsBase = {
   garage: GarageChipItem[];
   motoBrands: MockMotoBrand[];
   /** top=桌機 CascadeFilterTop 旁;drawer=手機 FilterDrawer 車輛 tab 內;
-   *  sheet=ADR-0007 手機選車面板頂部(無 toggle、卡片直接展開、一點即套用)。
-   *  🔴 設計稿 §B 的「行內密度」(首頁 / PDP §7 / 購物車)是 A10 才接上來的第四種,
-   *     連同它的 CSS 與「恆展開、無 toggle」語意一起在那片加 ——
-   *     這裡先不放沒有消費端的值(放了會是個沒 CSS、又會被 toggle 藏起來的半成品)。 */
-  variant: 'top' | 'drawer' | 'sheet';
+   *  sheet=ADR-0007 手機選車面板頂部(無 toggle、卡片直接展開、一點即套用);
+   *  inline=A10 設計稿 §B 行內密度(首頁 finder / PDP §7 / 購物車)。
+   *  🔴 inline 與 sheet 同樣**恆展開、無 toggle** —— 三個掛載點原本的自刻 chips 就是恆顯示,
+   *     若讓它走 toggle,等於把本來看得到的愛車藏起來 = 使用者可見退化。 */
+  variant: 'top' | 'drawer' | 'sheet' | 'inline';
   /** 套用成功後通知宿主(ADR-0007 手機決定 2:點愛車 = 直接套用並關閉選車面板)。 */
   onApplied?: () => void;
 };
@@ -76,7 +76,8 @@ export function GarageChips({
 }: GarageChipsProps) {
   const [open, setOpen] = useState(false);
   // sheet 變體(ADR-0007):Sean 拍板「面板頂部**先顯示**我的愛車卡片」⇒ 恆展開、無 toggle。
-  const alwaysOpen = variant === 'sheet';
+  // inline 變體(A10):首頁/PDP/購物車三處原本的自刻 chips 本來就恆顯示,同樣不套 toggle。
+  const alwaysOpen = variant === 'sheet' || variant === 'inline';
   const [suggest, setSuggest] = useState<{
     query: string;
     entries: string[];

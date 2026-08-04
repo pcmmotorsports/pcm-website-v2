@@ -180,11 +180,33 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
     expect(screen.queryByText('我的愛車')).toBeNull();
   });
 
+  // A10:首頁自刻的 chips 退場,改用全站唯一的 GarageChips(行內密度)。
+  // 🔴 沒有這條,把 GarageChips 換回自刻 JSX 之後,上面每一條行為測試都照樣綠
+  //    ——「4 份收斂成 1 份」這件事本身完全沒有守門。
+  it('用的是統一的 GarageChips 行內密度,不是首頁自刻的那份', () => {
+    const { container } = render(
+      <VehicleFinder
+        motoBrands={BRANDS}
+        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021', dictBrandName: null, dictModelName: null, isPrimary: false }]}
+      />,
+    );
+    // class 家族收斂:.ed-finder-garage* / .ed-finder-suggest* 全數退場、換 .cat-garage*
+    expect(container.querySelector('.cat-garage--inline')).not.toBeNull();
+    expect(container.querySelector('.cat-garage-chip')).not.toBeNull();
+    expect(container.querySelector('.ed-finder-garage')).toBeNull();
+    expect(container.querySelector('.ed-finder-garage-chip')).toBeNull();
+    expect(container.querySelector('.ed-finder-suggest')).toBeNull();
+    // 行內密度=恆展開、無 toggle(自刻版本來就是恆顯示,不得被 toggle 藏起來=可見退化)
+    expect(container.querySelector('.cat-garage-toggle')).toBeNull();
+    expect(screen.getByText('2021 mt-09 sp')).toBeTruthy(); // 無需點開
+    expect(screen.getByText('點一下直接套用')).toBeTruthy(); // A 表條 6 副註
+  });
+
   it('唯一精確命中(車型名、含年份合法)→ 直接套用三欄', () => {
     render(
       <VehicleFinder
         motoBrands={BRANDS}
-        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021', dictBrandName: null, dictModelName: null }]}
+        garage={[{ id: 'g1', name: 'mt-09 sp', year: '2021', dictBrandName: null, dictModelName: null, isPrimary: false }]}
       />,
     );
     fireEvent.click(screen.getByText('2021 mt-09 sp'));
@@ -195,7 +217,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
 
   it('多命中(MT-0 substring 命中兩車型、非精確)→ 展開建議清單、點選才套用', () => {
     render(
-      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g2', name: 'MT-0', year: '', dictBrandName: null, dictModelName: null }]} />,
+      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g2', name: 'MT-0', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]} />,
     );
     fireEvent.click(screen.getByText('MT-0'));
     expect(combo('選擇廠牌').value).toBe(''); // 不自動套用
@@ -212,7 +234,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
       <VehicleFinder
         motoBrands={BRANDS}
         garage={[
-          { id: 'g4', name: '我的通勤車', year: '2021', dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP' },
+          { id: 'g4', name: '我的通勤車', year: '2021', dictBrandName: 'Yamaha', dictModelName: 'MT-09 SP', isPrimary: false },
         ]}
       />,
     );
@@ -227,7 +249,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
       <VehicleFinder
         motoBrands={BRANDS}
         garage={[
-          { id: 'g5', name: '我的紅色小車', year: '', dictBrandName: 'Yamaha', dictModelName: '已下架車型' },
+          { id: 'g5', name: '我的紅色小車', year: '', dictBrandName: 'Yamaha', dictModelName: '已下架車型', isPrimary: false },
         ]}
       />,
     );
@@ -238,7 +260,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
 
   it('零命中(純自由文字)→ 顯「無法對應」提示、不套用不猜', () => {
     render(
-      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g3', name: '我的紅色小車', year: '', dictBrandName: null, dictModelName: null }]} />,
+      <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g3', name: '我的紅色小車', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]} />,
     );
     fireEvent.click(screen.getByText('我的紅色小車'));
     expect(screen.getByText(/無法對應/)).toBeTruthy();

@@ -751,41 +751,20 @@
   .ed-footer-cols { grid-template-columns: 1fr 1fr; gap: 32px; }
 }
 
-/* ── V-1c 我的愛車 chips + 建議清單(登入會員;沿 ed-finder token)── */
-.ed-finder-garage,
-.ed-finder-suggest {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-.ed-finder-garage-label,
-.ed-finder-suggest-label {
-  font-size: 12.5px;
-  color: var(--ed-c-ink-mute);
-}
-.ed-finder-garage-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--ed-c-ink);
-  background: transparent;
-  border: 1px solid var(--ed-c-rule);
-  border-radius: 999px;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.ed-finder-garage-chip:hover { border-color: var(--ed-c-ink); }
-.ed-finder-garage-chip { white-space: nowrap; } /* chip 內文字不折行(V-2d②:名稱長時整顆滑、不撐高) */
+/* ── A10:首頁自刻的 `.ed-finder-garage*` / `.ed-finder-suggest*` 家族**已退場** ──
+   改用全站唯一的 GarageChips(`.cat-garage--inline`,樣式在 filter-cascade.css)。
+   設計稿 §B 逐字:「chips 膠囊 = 現行 .cat-garage-chip 樣式,升為唯一 class 家族;
+   首頁自刻的 .ed-finder-garage-chip 退場」。
+   `.cat-garage-chip` 用的是全域 tokens.css 的 --c-* 色票(layout.tsx 全站載入),
+   首頁 finder 的 b-dock 是白底 ⇒ 與目錄同形同色,不需要在首頁另開一套。
 
-/* V-2d②(Sean 07-15 真機:「我的愛車會被推到下一行」爆版):≤900px(finder 既有手機斷點)
-   愛車列改單行橫向捲動條——label 與 chips 恆同一行、超寬滑動看;建議清單(.ed-finder-suggest)
-   維持 wrap(明選清單要一次看全、非同病)。 */
+   🔴 唯一**不能弄丟**的是下面這段:V-2d②(Sean 2026-07-15 真機回報「我的愛車會被推到下一行」
+   爆版)的 ≤900px 橫向捲動修正。它跟著搬到新 class ——
+   ⚠️ 但掛的對象變了:舊版 label 與 chips 是**同一列**,所以規則掛在整個 `.ed-finder-garage`;
+   新版 heading(我的愛車 + 副註)自成一列、chips 在下一列 ⇒ 規則只掛 chips 那一列
+   (`.cat-garage-chips`),heading 不參與捲動。負 margin 的 gutter 出血照舊。 */
 @media (max-width: 900px) {
-  .ed-finder-garage {
+  .ed-finder .cat-garage--inline .cat-garage-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -793,10 +772,15 @@
     margin-right: calc(var(--ed-gutter) * -1);
     padding-right: var(--ed-gutter); /* 右緣露半顆=可滑 affordance、沿用 gutter */
   }
-  .ed-finder-garage::-webkit-scrollbar { display: none; }
-  .ed-finder-garage-label { flex: 0 0 auto; white-space: nowrap; }
-  .ed-finder-garage-chip { flex: 0 0 auto; }
+  .ed-finder .cat-garage--inline .cat-garage-chips::-webkit-scrollbar { display: none; }
+  /* nowrap 不在這裡 —— 它是**全斷點**的,寫在 filter-cascade.css 的
+     `.cat-garage--inline .cat-garage-chip`(只放這裡的話桌機長車名照樣折行撐高)。 */
+  .ed-finder .cat-garage--inline .cat-garage-chip { flex: 0 0 auto; }
+  /* 建議清單維持 wrap(明選清單要一次看全、與愛車列非同病;V-2d② 原註逐字保留) */
 }
+/* 行內密度在首頁 finder 內的間距:原 `.ed-finder-garage` 有 margin-bottom:12px,
+   換 class 後由此接手(GarageChips 本身不帶外距,免得四個掛載點互相牽動)。 */
+.ed-finder .cat-garage--inline { margin-bottom: 12px; }
 
 /* ── V-1c 視覺回歸修(Sean 回饋「首頁欄位很醜」):combobox 在 finder 變體沿 design
    .ed-finder-slot select 外觀(無框線/透明底/同字級/右側 chevron),版型回 slot 結構 ── */

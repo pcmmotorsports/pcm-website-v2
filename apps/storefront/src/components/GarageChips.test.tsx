@@ -237,6 +237,18 @@ describe('GarageChips — A9 onApply 出口與統一字面', () => {
     expect(screen.queryByText('MT-0')).toBeNull(); // 面板收起(膠囊不再顯示)
   });
 
+  // A10 行內密度(首頁 / PDP §7 / 購物車):三處原本的自刻 chips 都是恆顯示 ⇒ inline 不得套 toggle,
+  // 否則等於把客人本來看得到的愛車藏起來 = 可見退化。
+  it('inline 變體恆展開、無 toggle(不得把本來看得到的愛車藏進 toggle)', () => {
+    const { container } = render(
+      <GarageChips garage={[CHIP]} motoBrands={BRANDS} onApply={vi.fn()} variant="inline" />,
+    );
+    expect(container.querySelector('.cat-garage--inline')).not.toBeNull();
+    expect(container.querySelector('.cat-garage-toggle')).toBeNull();
+    expect(screen.getByText('2021 mt-09 sp')).toBeTruthy(); // 無需點開
+    expect(screen.getByText('點一下直接套用')).toBeTruthy();
+  });
+
   it('sheet 變體維持恆展開 + 副註(ADR-0007 現狀不動)', () => {
     render(
       <GarageChips garage={[CHIP]} motoBrands={BRANDS} dispatch={vi.fn()} variant="sheet" />,

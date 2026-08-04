@@ -292,6 +292,14 @@
   transition: border-color 0.15s, background 0.15s;
 }
 .cat-garage-chip:hover { border-color: var(--c-text); background: var(--c-surface-2); }
+/* A10 行內密度(首頁 finder / PDP §7 / 購物車):chip 內文字不折行。
+   🔴 這是 V-2d②(Sean 2026-07-15 真機回報「我的愛車會被推到下一行」爆版)的另一半 ——
+   舊 `.ed-finder-garage-chip` 把 nowrap 寫成**全斷點基礎規則**;只補在 ≤900px 的話,
+   桌機長車名照樣在 chip 內折行撐高 = 原症狀在 >900px 重現。車名是自由文字、無長度上限
+   (`packages/schemas/src/index.ts` 的 name 只有 `min(1)`)⇒ 可達,不是理論。
+   ⚠️ **只給 inline**:設計稿 §B 的 `.cat-chip`(行內密度)有 nowrap、`.sheet-chip`(卡片密度)沒有
+   —— 手機面板是 2 欄 grid + min-height,靠折行才排得下,全域套上去會撐爆格子。 */
+.cat-garage--inline .cat-garage-chip { white-space: nowrap; }
 
 /* 桌機:dropdown 面板(絕對定位、不撐開 sticky bar) */
 .cat-garage--top .cat-garage-panel {

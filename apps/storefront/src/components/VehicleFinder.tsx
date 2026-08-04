@@ -7,7 +7,8 @@
 // V-1c(2026-07-15;Sean Q4 全站統一元件+愛車快選):
 // - 三層原生 select → VehicleSelect 可打字 combobox(共用核心;typeahead=design 零先例
 //   Sean 口述授權=manifest business_override typeaheadVehicleSelect;.ed-finder 佈局字面不動)。
-// - 登入會員多一排「我的愛車」chips(garage props 由首頁 server 傳入;RLS own 資料、僅
+// - 登入會員多一排「我的愛車」chips(A10 起=全站唯一的 GarageChips 行內密度;garage props
+//   由首頁 server 傳入;RLS own 資料、僅
 //   name/year 顯示字面、無 PII 面):點擊=正規化後與字典精確比對——唯一命中直接套用;
 //   多/零命中展開建議清單讓客人明選(REQUIRED-2;車庫 name=自由文字、零模糊零 AI 猜=車種鐵律)。
 // - 搜尋 push 前寫 vehicle-context(sessionStorage 鏡;URL 恆第一真相、V-2 消費)。
@@ -19,9 +20,8 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
-import type { CustomerVehicle } from '@pcm/domain';
 import { VehicleSelect } from './VehicleSelect';
-import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
+import { GarageChips, type GarageChipItem } from './GarageChips';
 import { writeVehicleContext } from '@/lib/vehicle-context';
 
 type VehicleSel = { brand: string; model?: string; year?: number } | null;
@@ -31,17 +31,14 @@ export function VehicleFinder({
   garage = [],
 }: {
   motoBrands: MockMotoBrand[];
-  /** 登入會員車庫(未登入/讀取失敗=[]、整排 chips 不顯示) */
-  garage?: Pick<CustomerVehicle, 'id' | 'name' | 'year' | 'dictBrandName' | 'dictModelName'>[];
+  /** 登入會員車庫(未登入/讀取失敗=[]、整排 chips 不顯示)。
+   *  A10:型別改用 `GarageChipItem`(GarageChips 的單一定義)—— 原本這裡自己少列了 `isPrimary`,
+   *  而 `app/page.tsx:91` 的投影其實一直都有傳。窄的是型別、不是資料。 */
+  garage?: GarageChipItem[];
 }) {
   const router = useRouter();
   const [vehicle, setVehicle] = useState<VehicleSel>(null);
-  /** 愛車 chip 多/零命中時的建議清單(null=收合;元素=字典 label 字面;garageYear 供明選後同閘門帶入) */
-  const [suggest, setSuggest] = useState<{
-    query: string;
-    entries: string[];
-    garageYear?: number;
-  } | null>(null);
+  // A10:建議清單的 state 與決策腦呼叫已搬進 GarageChips(全站單一份),本檔不再自持。
 
   const brandObj = vehicle ? motoBrands.find((b) => b.name === vehicle.brand) : undefined;
   const modelObj =
@@ -50,23 +47,6 @@ export function VehicleFinder({
   // 原本 = 必須選到車型,該車型有年份時還必須選年份 —— 首頁比目錄嚴,是本次統一要收掉的其中一種亂。
   // 車型/年份改為「有選才附加進 URL 段」,見下方送出處。
   const ready = !!brandObj;
-
-  const onGarageChip = (g: {
-    name: string;
-    year: string;
-    dictBrandName: string | null;
-    dictModelName: string | null;
-  }) => {
-    // 決策腦抽 lib/garage-chip(V-1e 型錄鈕共用同一顆);dict 快路徑→精確命中→建議清單、
-    // year 閘門皆收在純函式內(值班台 nit-1:回傳 year 恆已通過閘門的 number|undefined)。
-    const result = resolveGarageChip(motoBrands, g);
-    if (result.kind === 'apply') {
-      setVehicle({ brand: result.brand, model: result.model, year: result.year });
-      setSuggest(null);
-    } else {
-      setSuggest({ query: result.query, entries: result.entries, garageYear: result.garageYear });
-    }
-  };
 
   return (
     <section id="vehicle-finder" className="ed-finder">
@@ -80,53 +60,16 @@ export function VehicleFinder({
               (A 表條 5)。新字面同時把 Q4=A 的門檻講清楚。逗號沿全形 ，(Sean Q2=A)。 */}
           <div className="ed-finder-hint">選廠牌即可搜尋，選到車型、年份更精準</div>
         </div>
-        {garage.length > 0 && (
-          <div className="ed-finder-garage">
-            <span className="ed-finder-garage-label">我的愛車</span>
-            {garage.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                className="ed-finder-garage-chip"
-                onClick={() => onGarageChip(g)}
-              >
-                {[g.year, g.name].filter(Boolean).join(' ')}
-              </button>
-            ))}
-          </div>
-        )}
-        {suggest && (
-          <div className="ed-finder-suggest" role="listbox" aria-label="車款建議清單">
-            {suggest.entries.length > 0 ? (
-              <>
-                <span className="ed-finder-suggest-label">「{suggest.query}」可能是:</span>
-                {suggest.entries.map((label) => (
-                  <button
-                    key={label}
-                    type="button"
-                    className="ed-finder-garage-chip"
-                    role="option"
-                    aria-selected={false}
-                    onClick={() => {
-                      // 明選後車庫年份同閘門帶入(四位數字+在字典年份內才帶);共用 lib 決策腦
-                      const applied = resolveSuggestionLabel(motoBrands, label, suggest.garageYear);
-                      if (applied) {
-                        setVehicle({ brand: applied.brand, model: applied.model, year: applied.year });
-                        setSuggest(null);
-                      }
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </>
-            ) : (
-              <span className="ed-finder-suggest-label">
-                無法對應「{suggest.query}」到車款字典,請從下方選單選擇
-              </span>
-            )}
-          </div>
-        )}
+        {/* A10:自刻的 chips + 建議清單退場,換全站唯一的 GarageChips(行內密度)。
+            首頁是 local `useState`、沒有 cascade reducer ⇒ 走 A9 加的 `onApply` 出口(spec §4-1)。
+            決策腦(resolveGarageChip / resolveSuggestionLabel)與年份閘門一併搬進元件內,
+            本檔不再自己呼叫 —— 那正是「不得複製第二份」要消滅的東西。 */}
+        <GarageChips
+          garage={garage}
+          motoBrands={motoBrands}
+          variant="inline"
+          onApply={(a) => setVehicle({ brand: a.brand, model: a.model, year: a.year })}
+        />
         <div className="ed-finder-bar">
           <VehicleSelect
             variant="finder"
