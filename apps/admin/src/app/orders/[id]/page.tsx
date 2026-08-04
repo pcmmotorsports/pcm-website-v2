@@ -8,6 +8,7 @@ import {
 } from '../../../lib/orders/order-repository';
 import { isOrderId } from '../../../lib/orders/order-detail-view';
 import { isUuid } from '../../../lib/orders/note-action-state';
+import { isRefundUiEnabled } from '../../../lib/payment/refund-ui-flag';
 import { listSuppliers } from '../../../lib/supplier';
 import { OrderDetail } from '../../../components/orders/order-detail';
 import { ResultBanner } from '../../../components/orders/result-banner';
@@ -120,6 +121,7 @@ export default async function OrderDetailPage({
           correctNoteId={correctNoteId}
           suppliers={suppliers}
           suppliersFailed={suppliersFailed}
+          refundEnabled={isRefundUiEnabled()}
         />
       )}
     </div>

@@ -166,7 +166,8 @@ export type RefundActionState =
       status: 'failed';
       code: RefundFailureCode;
       message: string;
-      /** 🔴 員工輸入原樣帶回(denied/disabled 例外:授權閘在讀表單之前,拿不到)。 */
+      /** 🔴 員工輸入原樣帶回。唯一空殼例外=denied(授權閘在讀表單之前);disabled 的
+       *  carryBack 在旗標閘之前已讀到表單 ⇒ 帶的是真輸入(RW2d R1 N3 更正本行過期字面)。 */
       input: RefundFormInput;
       /** 🔴 去向依 FRESH_TOKEN_CODES(檔頭三種去向)。 */
       requestToken: string;

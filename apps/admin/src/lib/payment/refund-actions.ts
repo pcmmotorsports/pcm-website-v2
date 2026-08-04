@@ -9,6 +9,7 @@ import { authorizeAdminMutation } from '../session/authorize';
 import { TapPayConfigError, getTapPayAdapter } from './composition';
 import { REFUND_RECORD_QUERY_TIMEOUT_MS, checkRecordBaseline } from './refund-baseline';
 import { parseRefundForm } from './refund-form';
+import { isRefundUiEnabled } from './refund-ui-flag';
 import {
   EMPTY_REFUND_INPUT,
   REFUND_AMOUNT_FIELD,
@@ -53,16 +54,6 @@ function detailPath(orderId: string): string {
 }
 
 /**
- * 退款入口啟用旗標(plan §1 RW2d;fable F3/F4「機制不靠口頭」)。
- * 🔴 **action 自己也要驗**,不只藏按鈕 —— 「UI 不顯示」擋不住直接 POST action
- *    (A1 片同型教訓:可見性看伺服端閘,不看畫面)。預設 off、恰 '1' 才開。
- * server-only 環境變數、非 NEXT_PUBLIC ⇒ 靜態讀=runtime 值,無 build-time 內聯問題。
- */
-function refundUiEnabled(): boolean {
-  return process.env.REFUND_UI_ENABLED === '1';
-}
-
-/**
  * 碼位安全截斷(給 failed_detail 用):`.slice()` 按 UTF-16 units 切,切在 surrogate pair
  * 中間會產生 lone surrogate → JSON 序列化成不成對的 \uD800 → PG 端直接炸;
  * 按碼位切則永遠是合法字串,且碼位數 ≤ RPC 的 char_length 上限語意一致。
@@ -71,7 +62,8 @@ function clipCodepoints(value: string, max: number): string {
   return [...value].slice(0, max).join('');
 }
 
-/** 失敗時帶回的員工輸入(Q1=A;denied/disabled 前拿不到=已知例外)。 */
+/** 失敗時帶回的員工輸入(Q1=A)。唯一空殼例外=denied(授權閘在讀表單之前);
+ *  disabled 在 carryBack 之後才判 ⇒ 帶的是真輸入(RW2d 關卡2 nit 更正舊字面)。 */
 function carryBack(formData: FormData): RefundFormInput & { requestToken: string } {
   const read = (field: string): string => {
     const value = formData.get(field);
@@ -107,8 +99,10 @@ export async function initiateRefundAction(
     confirmCode: carried.confirmCode,
   };
 
-  // ② 啟用旗標(server 閘;RW2d 的按鈕只是同一旗標的顯示面)。
-  if (!refundUiEnabled()) return refundFailure('disabled', input, carried.requestToken);
+  // ② 啟用旗標(server 閘;RW2d 的按鈕只是同一旗標的顯示面,兩端讀同一函式 —— 見 refund-ui-flag.ts)。
+  //    🔴 **action 自己也要驗**,不只藏按鈕 —— 「UI 不顯示」擋不住直接 POST action
+  //    (A1 片同型教訓:可見性看伺服端閘,不看畫面)。
+  if (!isRefundUiEnabled()) return refundFailure('disabled', input, carried.requestToken);
 
   // ③ 解析(純形狀;業務判定單一真相在 RPC)。
   const parsed = parseRefundForm(formData);
