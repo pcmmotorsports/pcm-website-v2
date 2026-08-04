@@ -29,7 +29,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 4. **Slice 15-45 分鐘可中斷** — 體積 15-45 分鐘可完成 + Sean 可肉眼驗;超過 → 拆。
 5. **CSS + TSX 同元件單一 slice** — 雙檔聯動、預設單一 slice 完成、不拆。
 6. **檔案大小硬上限** — 元件檔 **>400 行必拆**、>300 行硬警戒;Hook 檔 >200 行 → 評估拆分、不拆須於 commit body 寫理由。(OD worktree 檔大小用 `git show <sha>:<path>|wc -l`、別讀主樹版。)
-7. **Orchestrator 永久禁用** — 複雜「實作」工作單一 session 順序執行(例外:Sean 親口要的有界 research/審查多代理;Claude Code 端「讀取/驗證/審查/機械批次套用·docs/制度檔工程(限主對話已驗證模式、diff 回核;2026-07-06 拍板)」的委派授權見其 `~/.claude/rules/00-work-rules.md` §1,你審到此類委派時知悉為合規、非鐵則 7 違反)。
+7. **多代理實作需批准** — 實作預設單一 session 順序執行;模型自評多代理派工更合適時,**先向 Sean 提案**(拆法、各代理範圍、怎麼驗收)、批准才派,不得自行啟動(2026-08-04 放寬自原「永久禁用」)。Claude Code 端「讀取/驗證/審查/機械批次套用・docs/制度檔工程(限主對話已驗證模式、diff 回核)」的委派授權見其 `~/.claude/rules/00-work-rules.md` §1,不需另批;你審到此類委派時知悉為合規、非鐵則 7 違反。
 8. **重大改動前先提 plan 等批准** — 「重大」=任一:跨 3+ 檔 / 動 schema·API·共用元件 / 動 next.config·vercel.json·Medusa config·Prisma schema / 影響部署或資料遷移。Plan 含:**要改什麼、為什麼、預期影響面、rollback**。Sean 批准才執行。
 9. **內容分級 L1/L2/L3 強制前置** — L1(年 0-1 次)hardcode 可;L2(季 1-3 次)hardcode+TODO+backlog;L3(週多次)**必後台 CRUD、發現立即停、寫 PRD 後再動**。任何 slice 前先標;**頻率拿不準 → 預設當 L3 停下問 Sean、不硬標 L2**。
 10. **三視角檢查** — 每技術決策過:擴充性 / 可維護性 / bug 可追蹤性。backlog 條目必寫「不修未來會痛在哪」、禁寫「待 Sean 決定」空泛句。
@@ -136,7 +136,7 @@ cd /Users/sean_1/pcm-website-v2 && git branch --show-current && git status && gi
 
 ## 突發狀況
 
-**發現 Claude Code 在做這些 → 點出**:把 design「翻譯成 Tailwind 風格」/ 為「保留既有 storefront 結構」改 design 內容 / 憑記憶描述 design·畫預覽 HTML / 把 9 大藍圖 schema 加進 Phase 1 / 一個 slice 跨 3+ 檔卻未提 plan(鐵則 8)/ 想用 Orchestrator(除非 Sean 明確要的有界 research·審查多代理、鐵則 7 例外)/ 即將自動 push。
+**發現 Claude Code 在做這些 → 點出**:把 design「翻譯成 Tailwind 風格」/ 為「保留既有 storefront 結構」改 design 內容 / 憑記憶描述 design·畫預覽 HTML / 把 9 大藍圖 schema 加進 Phase 1 / 一個 slice 跨 3+ 檔卻未提 plan(鐵則 8)/ 未經 Sean 批准啟動多代理實作(鐵則 7)/ 即將自動 push。
 
 **Sean 訊息常見回應**:「OK 繼續」→ 直接執行下一步不再確認;「等等/停」→ 立刻停、不執行任何工具呼叫、等下一步;「看不懂/白話一點/畫個圖」→ 視覺化+比喻+multi-select;「[User dismissed…]」→ 不繼續、等 Sean 主動講;Sean 拋新方向(可能與舊拍板衝突)→ 確認是否推翻舊拍板、不假設、不直接照新方向衝。
 
