@@ -28,12 +28,13 @@
 > 兩窗紅線:不 push / 不動 STATUS·CURRENT / 不 apply / 不碰 `.env*`(`grep -m1` 取單顆,**絕不 source**)/
 > git add 精準 / codex `-m gpt-5.6-sol -s read-only` 背景加 `< /dev/null`。
 >
-> 🧭 **主視窗 checkpoint(08-04 01:4x 刷新;主視窗=Fable 5[1m]+high)**:
-> · **在途三窗**:視窗A=**RW2c 退款 server action**(Fable+xhigh,/clear 後新棒;🔴 做完必停、RW2d sandbox 真退需主視窗收割後另行放行)/ 視窗B=A10b 採購表單 UI(片號含 A9d1 procurement 半=授權邊界高風險、關卡2 不降級;A5a 五處 nullable Args 補齊是它的開工前置)/ 視窗C=D2 品牌頁版型(D1a/D1b 已收割;資產拍 A 進 git、獨立 commit;samco band 截圖列 Sean 必看)。
-> · **今晚已收割併推**(dev 乾淨零未推):首頁線 A1+A2+D 計畫補記+D1a+D1b / 視窗B A9a-2 / 視窗A RW2b+nit 片(主視窗代跑 Fable R3=PASS 0MF/5nit)。TAPPAY_* 三顆 Sean 已補進 pcm-admin(CLI read-back 在列)⇒ RW2d 前置解除。
-> · **哨兵兩座、隨 session 死要重 arm**:①三分支 ref 盯 commit ②信箱盯 `/Users/sean_1/pcm-mailbox/*-Q.md`(協定=README.md;已往返 A-01/A-02/B-01/C-01/C-02)。
-> · **獨立重驗工法**:併回主樹後 `turbo typecheck --force` + 完整 `pnpm test` 對數字(**cache hit≠獨立驗證**);數字不同要能逐項調和(基底差=哪些片);資料搬運類自跑 byte 比對(D1b 前例);DB 類=54333 隔離 provision(54329/54331 是施工窗的,別動)。
-> · **A5a 五處 nullable Args 刻意未補**=A10b 開工前置(詳 STATUS Blocker)。
+> 🧭 **主視窗 checkpoint(08-04 13:0x 壓縮前刷新;主視窗=Fable 5[1m]+high)**:
+> · **在途**:視窗A=RW3 施工中(Fable+xhigh,剛 /compact;RW2c/RW2d 已收割,sandbox 兩發 TapPay Record 對帳全符)/ 視窗C=D2e-1 磚牆+chips 施工中(新棒,開工包=pcm-mailbox/C-16-STOP.md;D2c-2/D2d-1/D2d-2/需求書已收割)/ 視窗B=結案。
+> · **今日拍板**(全在 memory `project_home-redesign-wire-decisions` + STATUS):#313 rizoma 直式影片=B 版面支援(設計側 OD 先改、程式片後接、未排程)/ 捲動揭示=C 先不做上線後議 / 需求書入庫=主視窗裁 A / D2d 拆片成立。C 線積壓待 Sean 批次拍板:#308/#310/#311/#312(D2e 收完一次問)。
+> · **匯合點**:A 交 RW3 → 收割 → 剩 RW4 → Sean 開 REFUND_UI_ENABLED;C 收完 D2e → Sean 品牌頁正式肉眼驗(samco 橫幅必看)。
+> · **哨兵三座、隨 session 死要重 arm**:①分支 ref(a4a-chain/refund-wire/home-redesign)②信箱(盯 /Users/sean_1/pcm-mailbox 非 README 非 -A 新檔;協定=README+三補訂:commit 前查信箱/STOP 必寫/STOP 必掛等待迴圈;編號 A→05、B→04、C→16)③看門狗 v4(commit/信箱/基線 /tmp/pcm-baseline-*/工作樹檔案四訊號、90 分全靜默才報;停放旗標 /tmp/pcm-parked-*,B 停放中)。
+> · **收割工法**:merge 進主樹 → `turbo typecheck --force` + 完整 `pnpm test` 對數字(必可精確調和,差額=基底差)→ 錢面另打外部帳本對帳(TapPay Record 前例)→ STATUS 收帳 → push(Sean 對本線已持續授權)。撞衫解併前例=result-banner 聯集+types 檔頭合帳(現況=六函式二十處,機器剝註解數)。
+> · dev 乾淨零未推;全套 330 檔/4387 綠(D2d-2 後)。
 >
 > ⚠️ **今日新增的兩條操作事實**:①`supabase db push` **不需搬走 `.env.local`** 也跑得動(今日實測 dry-run 與正式
 > apply 皆成功;舊 runbook 的「先 mv」步驟非必要,且搬 `.env*` 會被 permissions 擋)②Fable 額度會用盡(今日
