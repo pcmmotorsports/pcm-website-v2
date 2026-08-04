@@ -40,6 +40,10 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
     render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
     expect(screen.getByText('輸入你的車輛')).toBeDefined();
     expect(screen.getByText('搜尋部品')).toBeDefined();
+    // A8:hint 走 A 表定版。舊字面賣了一個不存在的能力(選車輸入裡沒有「引擎代號」欄),
+    // 且該字面原本零守門 —— 改回去照樣全綠。
+    expect(screen.getByText('選廠牌即可搜尋，選到車型、年份更精準')).toBeDefined();
+    expect(screen.queryByText('精準匹配車款、年份、引擎代號')).toBeNull();
   });
 
   it('視覺回歸鎖(Sean 07-15「欄位很醜」):design slot 版型=三個 ed-finder-slot+小標籤', () => {
@@ -95,11 +99,67 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
     expect(mockPush).toHaveBeenCalledWith(
       `/products?${new URLSearchParams({ vehicle: `${brand.id}:${model.id}:${year}` }).toString()}`,
     );
+    // 🔴 名稱字面欄(brandName/modelName)是 V-2a REQUIRED-3 的 additive 欄,購物車自動帶車
+    //    (lib/search-vehicle.ts)兩欄都要齊才帶 —— 少一欄就靜默不帶車、零測試會紅。
+    //    這裡的正向對照同時讓 brand-only 那條的 `modelName 應為 undefined` 不再是恆真斷言。
     expect(readVehicleContext(window.sessionStorage)).toMatchObject({
       brandId: brand.id,
       modelId: model.id,
       year,
+      brandName: brand.name,
+      modelName: model.name,
+      label: `${brand.name} ${model.name} ${year}`,
     });
+  });
+
+  // ── A8 / Sean 08-03 拍 Q4=A:首頁門檻放寬到「選廠牌即可搜」(與目錄一致)──
+  // 改動前:必須選到車型、該車型有年份時還必須選年份,否則送出鈕 disabled。
+
+  it('Q4=A:只選廠牌 → 送出鈕即亮、push 單段 ?vehicle=brandId、鏡不帶 modelId/year', () => {
+    render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
+    const brand = MOCK_MOTO_BRANDS[0]!;
+    pickByTyping('選擇廠牌', brand.name);
+
+    const go = screen.getByText('搜尋部品').closest('button')!;
+    expect(go.hasAttribute('disabled')).toBe(false); // 門檻:選了廠牌就可送出
+
+    fireEvent.click(go);
+    // 🔴 整串字面斷言:`?vehicle=brandId:year` 是不存在的格式,只比「有沒有 brandId」抓不到那個錯
+    expect(mockPush).toHaveBeenCalledWith(
+      `/products?${new URLSearchParams({ vehicle: brand.id }).toString()}`,
+    );
+
+    const mirror = readVehicleContext(window.sessionStorage);
+    expect(mirror).toMatchObject({ brandId: brand.id, brandName: brand.name });
+    // brand-only ⇒ 鏡的車型/年份欄必須是「沒有」,不得殘留上一次或塞進假值
+    expect(mirror?.modelId).toBeUndefined();
+    expect(mirror?.year).toBeUndefined();
+    expect(mirror?.modelName).toBeUndefined();
+    expect(mirror?.label).toBe(brand.name);
+  });
+
+  it('Q4=A:選了廠牌+車型但不選年份 → push 兩段、鏡不帶 year(有年份的車型也一樣)', () => {
+    render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
+    const brand = MOCK_MOTO_BRANDS[0]!;
+    const model = brand.models[0]!;
+    expect(model.years.length).toBeGreaterThan(0); // 前提:這是「有年份可選卻不選」,不是無年份車型
+
+    pickByTyping('選擇廠牌', brand.name);
+    pickByTyping('選擇車型', model.name);
+    fireEvent.click(screen.getByText('搜尋部品').closest('button')!);
+
+    expect(mockPush).toHaveBeenCalledWith(
+      `/products?${new URLSearchParams({ vehicle: `${brand.id}:${model.id}` }).toString()}`,
+    );
+    expect(readVehicleContext(window.sessionStorage)?.year).toBeUndefined();
+  });
+
+  it('Q4=A 邊界:什麼都沒選 → 送出鈕仍 disabled(門檻放寬不等於取消門檻)', () => {
+    render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
+    const go = screen.getByText('搜尋部品').closest('button')!;
+    expect(go.hasAttribute('disabled')).toBe(true);
+    fireEvent.click(go);
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });
 

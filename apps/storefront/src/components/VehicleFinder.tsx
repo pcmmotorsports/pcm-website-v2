@@ -46,8 +46,10 @@ export function VehicleFinder({
   const brandObj = vehicle ? motoBrands.find((b) => b.name === vehicle.brand) : undefined;
   const modelObj =
     vehicle?.model != null ? brandObj?.models.find((m) => m.name === vehicle.model) : undefined;
-  const modelHasYears = (modelObj?.years.length ?? 0) > 0;
-  const ready = !!brandObj && !!modelObj && (modelHasYears ? vehicle?.year != null : true);
+  // A8 / Sean 08-03 拍 Q4=A:送出門檻放寬到「選廠牌即可搜」(與目錄一致)。
+  // 原本 = 必須選到車型,該車型有年份時還必須選年份 —— 首頁比目錄嚴,是本次統一要收掉的其中一種亂。
+  // 車型/年份改為「有選才附加進 URL 段」,見下方送出處。
+  const ready = !!brandObj;
 
   const onGarageChip = (g: {
     name: string;
@@ -74,7 +76,9 @@ export function VehicleFinder({
             <span className="ed-mono">01 ·</span>
             <span>輸入你的車輛</span>
           </div>
-          <div className="ed-finder-hint">精準匹配車款、年份、引擎代號</div>
+          {/* A8:舊字面「精準匹配車款、年份、引擎代號」是超賣 —— 選車輸入裡根本沒有引擎代號那一欄
+              (A 表條 5)。新字面同時把 Q4=A 的門檻講清楚。逗號沿全形 ，(Sean Q2=A)。 */}
+          <div className="ed-finder-hint">選廠牌即可搜尋，選到車型、年份更精準</div>
         </div>
         {garage.length > 0 && (
           <div className="ed-finder-garage">
@@ -141,18 +145,37 @@ export function VehicleFinder({
             className={`ed-finder-go ${ready ? 'is-ready' : ''}`}
             disabled={!ready}
             onClick={() => {
-              if (!brandObj || !modelObj) return;
-              const parts = [brandObj.id, modelObj.id];
-              if (vehicle?.year != null) parts.push(String(vehicle.year));
+              if (!brandObj) return;
+              // 🔴 A8:年份**只有在有 model 時**才能 push —— `?vehicle=brandId:year` 是不存在的格式,
+              //    parseVehicleFromUrl 會把第二段當 modelId 解析(spec §4-4:brand-only 只走單段短版)。
+              // ⚠️ 誠實註記:這層巢狀是**防禦性**的,今天沒有測試蓋得住它 —— 「有 brand+year 但無 model」
+              //    在現行 UI 不可構造。承重的是本檔 `onPickYear`(無 model 時直接不寫 year)**那一道最硬**,
+              //    年份欄的 disabled 只是第二層;另有 onPickModel/onClearModel 換層丟 year、
+              //    愛車 chip 的 resolveApply 恆帶 model。拿掉巢狀全套照樣全綠(2026-08-05 實測突變)。
+              //    保留的理由 = 它守的是「URL 段數語意」這條跨檔契約,而維持它的那些前提**散在別處**;
+              //    哪天上面任一道被放寬,這裡就是唯一還站著的那道。
+              // ⚠️ 照抄參考版時**刻意沒抄**的一行:`useVehicleUrlSync` 另有
+              //    `if (vehicle.model != null && !modelObj) return;`(選了車型卻對不到 taxonomy 就整個不動)。
+              //    本檔的 model 值只可能來自剛剛那份 motoBrands 的選單,對不到 taxonomy 不可達;
+              //    那支 hook 的 vehicle 來自 URL/reducer(外部輸入)才需要這道。
+              const parts = [brandObj.id];
+              if (modelObj) {
+                parts.push(modelObj.id);
+                if (vehicle?.year != null) parts.push(String(vehicle.year));
+              }
               // context 鏡寫(V-2 消費;URL 恆第一真相)。V-2a REQUIRED-3:additive 名稱字面欄
               // (brandName/modelName)供購物車自動帶入組 CartItem kind:'dict';此處本手握字典名稱。
+              // 🔴 條件帶入的形狀**逐字照抄** products-url-state.tsx 的 useVehicleUrlSync(已寫對的那份),
+              //    不自己想:brand-only 也寫鏡(鏡跟 URL、消費端名稱不齊自然零猜)。
               writeVehicleContext({
                 brandId: brandObj.id,
-                modelId: modelObj.id,
-                year: vehicle?.year,
-                label: [brandObj.name, modelObj.name, vehicle?.year].filter(Boolean).join(' '),
+                modelId: modelObj?.id,
+                year: modelObj != null && vehicle?.year != null ? vehicle.year : undefined,
+                label: [brandObj.name, modelObj?.name, modelObj != null ? vehicle?.year : undefined]
+                  .filter((s) => s != null)
+                  .join(' '),
                 brandName: brandObj.name,
-                modelName: modelObj.name,
+                modelName: modelObj?.name,
               });
               const params = new URLSearchParams({ vehicle: parts.join(':') });
               router.push(`/products?${params.toString()}`);
