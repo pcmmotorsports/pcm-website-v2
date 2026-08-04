@@ -25,6 +25,10 @@ import { ADMIN_INPUT_CLASS, AdminFormField } from '../shared/admin-form';
 // 逐債落點 = docs/specs/2026-08-03-e10-a10a-3-note-compose-form-plan.md §2)。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
 //
+// ⚠️ 本檔的 bfcache「client 換鍵」是**備註專屬**設計,退款側(refund-section.tsx)刻意相反
+//    (絕不 client 換鍵):備註多一筆可用更正修、換鍵防的是 C9 死巷;退款多一筆是錢,
+//    舊鍵撞 G4 才是重送保護(RW2d codex MF1)。要「統一兩支」前先讀兩邊檔頭論證。
+//
 // 🔴 token 三態(債①/④,順序即優先序):
 //   失敗 state 帶回的那把(R2-2:error 分支 = RPC 可能已 commit,換新把 = 第二筆永久備註)
 //   > bfcache 還原後 client 重產的那把(債④:沿用已成功的舊把會撞 C9「內容不符」RAISE)

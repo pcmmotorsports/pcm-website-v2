@@ -278,6 +278,94 @@ rejected+換新 token=雙退窗)→ 全折 → R2 雙線 PASS、nit 全清、cod
 欄位名/常數從 `refund-action-state.ts` import。
 **誠實邊界**:action 零呼叫端、零真環境驗證,對 27 項驗收貢獻仍為 0;sandbox 真退=RW2d。
 
+## 3g. RW2d 收工(08-04;refund-wire 視窗、Fable+xhigh)
+
+**產物(repo)**:退款入口 UI 全鏈接上 —— `refund-ui-flag.ts`(新;旗標單一判準,action 閘與顯示面
+讀同一函式)/ `refund-section.tsx`(新 client 表單:kind radio+部分金額欄+確認碼+單行原因)
+/ `order-detail.tsx` 掛載(顯示閘=旗標 && paymentChannel='tappay' && {paid,partiallyRefunded})
+/ `page.tsx` 下傳 `isRefundUiEnabled()` / 測試三檔(section 12 格+refund-wiring 8 格+procurement-wiring 補 mock)。
+
+**設計要點**:
+1. RW2c 三條表單契約債全還:①「full 不帶 amount」用**不渲染**實作(FormData 結構上無鍵;
+   autofill/表單還原無欄可塞)②token 兩態=失敗 state 那把 > serverToken(**無任何 client
+   產鍵路徑**;初版曾有 bfcache 重產、被 codex MF1 打掉,見要點 4)③欄位名/常數全 import 零字面。
+2. 退款原因用**單行 input** 非 textarea:解析器與 RPC 都拒控制字元(含換行)——textarea 按
+   Enter = 保證 invalid 的形狀,結構上不給輸入。
+3. `refund-ui-flag.ts` **刻意不掛 server-only**(檔頭論證):旗標非機密、client 誤用=恆 false=
+   fail-closed;掛了會讓 jsdom 頁層測試(含既有 procurement-wiring)整族解析失敗。
+4. 🔴🔴 **bfcache 絕不 client 換鍵**(codex R1 MF1,推翻我抄備註片的初版):退款的重送保護
+   **就是**舊 token 撞 G4(同指紋=DUPLICATE 誠實回報、變指紋=RAISE 叫他重新整理,皆零動錢);
+   換新鍵=舊表單變全新請求=餘額夠就真雙退。改 pageshow persisted → `router.refresh()`
+   (procurement 同慣例;順帶把「狀態過期」窗口縮掉),新鍵唯一來源=server 渲染。
+   備註片的換鍵**不必跟改**(備註無雙退面,其換鍵防的是 C9 內容不符;兩檔檔頭已互寫指標)。
+   ⚠️ token 不是唯一防線、別這樣轉述(opus R2 措辭訂正):員工 F5 後手動重打=合法新請求,
+   真正擋第二次的是 S5 單單一 processing + 步 5 refunded/LEDGER_FULL;換鍵移除關掉的是
+   「舊表單**靜默**變全新請求」那條。
+5. pending 全鎖 `<fieldset disabled>`(codex R1 MF2):送出後 FormData 已被捕捉在跑,
+   欄位再可編輯=「眼前值」與「正在動的錢」分岔(看著 500、實退 100)。
+
+**sandbox E2E(Sean 放行:≤6 元、恰全額+部分兩發)——兩發都跑了、全鏈綠**:
+- 基建:本機**無 docker** ⇒ 「local supabase」以 **PG17(port 54332,RW1b provision 邏輯:
+  initdb+shim+全套 migrations+d1t2 seed)+ brew PostgREST 14.16(54333)+ /rest/v1 前綴剝除
+  proxy(54334)** 等效實現;admin dev server 送出(Origin localhost 需 ADMIN_DEV_BYPASS;
+  production build 的 Origin 白名單只收正式網域=設計)。session cookie 以同 HMAC 規格自鑄、
+  actor=staff seed `sean`。憑證 grep 單顆取自 `.env.tappay-sandbox`,不 source、不印值。
+- 環境配對:TAPPAY_ENV=sandbox × 帳本 127.0.0.1(非正式 host)⇒ 放行;機制斷言在
+  `getTapPayAdapter()` 每次送出都跑(RW2b 產物)。
+- **第 1 發(全額)**:新建 sandbox AUTH 交易 `D20260804iWNwcM`(2 元,probe2 charge 模式)
+  綁 fixture 單 PCM-2026-0001 → UI 送出 → PRG `?r=refund_submitted` banner ✅ →
+  帳本列 `full/confirmed/2`、wire refund_id 有、actor=sean、稽核 2 筆 → TapPay Record
+  `amount 2→0、record_status→3`。⚠️ orders 翻成 `partiallyRefunded` 非 `refunded` =
+  **fixture 假象非 bug**:G8 判準=SUM(confirmed) ≥ orders.total(migration `:812`),
+  fixture 訂單 total≠2 元交易額;正式流 charge=total 不會分岔。
+- **第 2 發(部分)**:T2 `D202608034SFpuL`(已請款、剩 5)綁 PCM-2026-0002 → UI 部分退 1 →
+  banner ✅ → 帳本列 `partial/confirmed/1`、`record_refunded_before=1`(G0 baseline 正確吃到
+  T2 既有 1 元)→ TapPay `refunded_amount 1→2、amount 5→4`。
+- **加碼(零動錢)**:注入已消耗鍵重放同指紋 → G4 `DUPLICATE_REQUEST`(confirmed)→ 視同成功
+  redirect、帳本 count 不變 —— DUPLICATE 路第一次有真 E2E 證據。
+- 動錢合計 **3 元、恰兩發**;E2E 腳本/截圖/porcelain 留 scratchpad(`rw2d-e2e/`),不入 repo。
+- ⚠️ 誠實邊界(opus R2):兩發跑在**審查折入前**;折入後動到送出路徑的是 fieldset,
+  由 [3]/[4] FormData 完整性測試+390 真機版面覆蓋,**未**再燒錢重跑(額度=恰兩發)。
+
+**真機(production build,`next start`)**:1440 與 390 截圖皆正常(紅框危險區、欄位堆疊);
+kind 切換互動實測(部分→金額欄現、全額→消失)。`__Host-` cookie 在 localhost 可設,登入閘真跑。
+
+**審查(關卡2 雙線不降級)**:
+- code-reviewer(opus)R1 = **FAIL 1 must-fix + 9 nit**,全折:MF1=頁層 token/order_id 斷言
+  撈到**備註表單**的同名欄位(DOM 排前)=假綠 ⇒ 改錨定 kind radio 所在 form + 補「兩次 render
+  換鍵」格(m15 突變閉環)。nit:N1 bfcache 黏住(初版修法後被 codex MF1 汰換)/N3 state 檔
+  過期字面(修)/N4 型別釘 enum/N5 channel 顯示閘/N6 缺格(補 `[7b]` disabled 回填+頁層
+  換鍵格;Math.random fallback 格隨換鍵機制整個移除而不再適用)/N7 confirm 欄
+  autoCapitalize/N8 行號 530-532/N9 order-detail >300 警戒(理由見 commit body)。
+  N2(成功 redirect 後失敗 state 殘留)= **真瀏覽器驗證不發生**:redirect 導航後元件重掛,
+  無 alert 殘留、token 全新、kind 重置(上面 DUPLICATE 加碼那發同時就是這個實驗)。
+  ⚠️ opus R1 的 N1 修法(seenServerToken 機制)後被 codex MF1 整個汰換 —— 見下。
+- codex `gpt-5.6-sol` R1 = **FAIL 2 must-fix + 3 nit**,全折(第 1 輪跑到 10 分鐘牆被砍、
+  零留痕已比對;第 2 輪背景跑完 ~25 分、費 25 萬 tokens、九檔雜湊鎖定審):
+  **MF1=bfcache client 換鍵是雙退窗**(設計要點 4;兩個 reviewer 對同一段 code 一個給 nit
+  一個抓到本質 —— 換模型換角度的實錘再 +1);**MF2=pending 欄位可編輯**(設計要點 5);
+  nit=action 檔過期字面(修)/旗標單一判準無結構 oracle(補格+突變 m16)/pre-hydration
+  宣稱過強(軟化為「未實測」)。R2 雙線窄複審:見下行補記。
+- **R2 雙線窄複審**:opus(續 context)= 程式碼面 **0 must-fix**、R1+codex 兩 MF 全數確認折入,
+  獨立重跑全套 vitest 326/4316 吻合;唯一 must-fix=handoff 一行過期字面(token 鏈仍寫 bfcache
+  重產)+5 文字面 nit —— 全清(本檔本節即成品)。codex R2 = **PASS**(5 項皆已解、
+  refresh 空窗重送安全性它自己對過 migration G4 三出口、零新 must-fix;2 nit 與 opus 重疊、已清)。
+  雙輪 codex 前後 porcelain 零留痕已比對。
+- note-compose-form 的 bfcacheToken 黏住(opus N1 同型)——別片的檔,登記不修;其「換鍵」
+  設計本身**不必**跟著退款改(上面設計要點 4 末句的論證)。
+
+**驗證數字(實跑,折入後末輪)**:typecheck 8/8+scripts tsc 綠 / lint 10/10 / admin build 綠 /
+全套 vitest **326 檔 4316 passed + 1 todo** / **突變 16 格逐格轉紅、還原位元一致**(腳本留 scratchpad)/
+fieldset 版面 390 真機再驗零變化。
+
+**殘項/邊界**:①`REFUND_UI_ENABLED` 仍不得開 —— 開啟前置=RW4 收工 且 部分退 E2E 綠;
+部分退 E2E 本片已綠,**RW4 未動** ⇒ 前置只剩一半;旗標未進任何會部署的設定(全 repo grep
+只在 code/test/docs)。②admin Vercel `TAPPAY_*` 三顆仍未設(§5,Sean 動作)。③E2E 基建
+非 docker supabase stack(誠實邊界如上);PostgREST 版本(14.16)≠ Supabase 雲端版,錯誤碼
+映射同層但未逐版比對。④無 JS(hydration 前)送出=只做得了全額、server 閘全數照常,未實測。
+⑤送出中離站再 bfcache 還原,若 isPending 被還原成 true ⇒ fieldset 恆鎖到手動重新整理
+(opus R2 登記、未實測;方向 fail-closed,`router.refresh()` 不重置 client state)。
+
 ## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 
 T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前預測已登記於本節前版**
@@ -339,3 +427,10 @@ T2 今日 11:10 建立(AUTH)→ 18:00 送批 → 20:0x 確認請款。**發前�
 - 改:`apps/admin/src/app/orders/[id]/page.tsx`(`export const maxDuration = 60` + 論證註解)
 - 改:`docs/handoff/2026-08-03-day-refund-wire.md`(本檔 §3e/§5/§6)
 - memory(不在 repo):新增 `reference_nextjs-public-env-static-read-inlined-at-build`;`MEMORY.md` 加一行。
+
+**RW2d 追加(§3g)**
+
+- 新:`apps/admin/src/lib/payment/refund-ui-flag.ts` / `apps/admin/src/components/orders/refund-section.tsx`(+`.test.tsx`)/ `apps/admin/src/app/orders/[id]/refund-wiring.test.tsx`
+- 改:`refund-actions.ts`(旗標抽 import+字面訂正)/ `refund-action-state.ts`(註解訂正)/
+  `order-detail.tsx`(掛載+顯示閘)/ `page.tsx`(旗標下傳)/ `procurement-wiring.test.tsx`(補 mock)/
+  `note-compose-form.tsx`(換鍵設計反向指標註解)/ 本檔 §3g

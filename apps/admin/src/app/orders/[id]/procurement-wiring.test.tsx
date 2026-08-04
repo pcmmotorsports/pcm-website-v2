@@ -28,6 +28,9 @@ vi.mock('../../../lib/orders/order-actions', () => ({
   updateOrderWorkflowAction: vi.fn(),
   updateOrderItemWorkflowAction: vi.fn(),
 }));
+// M-3 RW2d:order-detail 掛了退款入口 ⇒ 頁面圖多了 refund-actions(→ authorize → staff-repository
+// → server-only),同上一條註的理由必須 mock。
+vi.mock('../../../lib/payment/refund-actions', () => ({ initiateRefundAction: vi.fn() }));
 
 const mocks = vi.hoisted(() => ({
   findAdminOrderDetail: vi.fn(),

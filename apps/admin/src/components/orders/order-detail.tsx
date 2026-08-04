@@ -23,6 +23,8 @@ import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemProcurementSection } from './item-procurement-section';
+import { RefundSection } from './refund-section';
+import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
@@ -30,6 +32,15 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 // 全同→該色/混合→多狀態;orders.workflow_status 停寫不讀)。
 // 🔴 PII 邊界:本頁顯示客人姓名/電話/email+收件快照(admin-only、service_role、明細專用白名單);
 // 仍零成本/經銷價(品項單價=該單成交價)、零 tappay_rec_trade_id。
+
+// M-3 RW2d:退款入口的**顯示層**狀態閘(權威在 RPC 步 5 白名單 `20260803150000:530-532`:
+// paid/partiallyRefunded 可退、refunded 回 LEDGER_FULL、其餘 NOT_REFUNDABLE)——
+// 這裡只決定「入口值不值得渲染」,判錯的後果 = 員工按了拿到 action 的具名失敗訊息,不是繞過。
+// 型別釘 enum(R1 N4):日後 payment status 改名時這裡編譯紅,而不是入口靜默消失。
+const REFUND_ENTRY_STATUSES: readonly AdminOrderDetail['paymentStatus'][] = [
+  'paid',
+  'partiallyRefunded',
+];
 
 const CARD = 'rounded-lg border bg-card p-4 text-card-foreground';
 const CARD_TITLE = 'text-muted-foreground mb-3 text-xs font-medium';
@@ -182,6 +193,7 @@ export function OrderDetail({
   correctNoteId = null,
   suppliers = [],
   suppliersFailed = false,
+  refundEnabled = false,
 }: {
   detail: AdminOrderDetail;
   statusOptions: OrderStatusOption[];
@@ -191,6 +203,8 @@ export function OrderDetail({
   suppliers?: readonly SupplierOption[];
   /** A10b:供應商清單載入失敗(不靜默;見 item-procurement-section) */
   suppliersFailed?: boolean;
+  /** M-3 RW2d:退款入口旗標(頁層讀 `isRefundUiEnabled()` 下傳;預設 off)。 */
+  refundEnabled?: boolean;
 }) {
   const optionsByCode = indexOrderStatusOptions(statusOptions);
   const activeOptions = statusOptions.filter((o) => o.isActive);
@@ -303,6 +317,17 @@ export function OrderDetail({
         correctTarget={correctTarget}
         correctionMissing={correctNoteId !== null && correctTarget === null}
       />
+
+      {/* M-3 RW2d:退款入口(危險操作沉底)。旗標 && 顯示層狀態閘 && tappay 管道才渲染;
+          token 同備註片慣例 = server component 渲染期產(頁層 force-dynamic、零快取層)。
+          channel 閘(R1 N5)=顯示層:轉帳/現金單不該看到「線上退款(TapPay)」紅框;
+          已知代價 = 若歷史資料 channel 記錯而 rec_trade_id 其實存在,入口會隱藏(fail-closed,
+          修資料即恢復)—— 真權威仍是 action 步 ④ 的 rec_trade_id 檢查與 RPC。 */}
+      {refundEnabled &&
+        detail.paymentChannel === 'tappay' &&
+        REFUND_ENTRY_STATUSES.includes(detail.paymentStatus) && (
+          <RefundSection orderId={detail.id} serverToken={generateRefundRequestToken()} />
+        )}
     </div>
   );
 }
