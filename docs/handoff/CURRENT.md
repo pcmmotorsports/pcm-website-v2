@@ -28,13 +28,13 @@
 > 兩窗紅線:不 push / 不動 STATUS·CURRENT / 不 apply / 不碰 `.env*`(`grep -m1` 取單顆,**絕不 source**)/
 > git add 精準 / codex `-m gpt-5.6-sol -s read-only` 背景加 `< /dev/null`。
 >
-> 🧭 **主視窗 checkpoint(08-04 13:0x 壓縮前刷新;主視窗=Fable 5[1m]+high)**:
-> · **在途**:視窗A=RW3 施工中(Fable+xhigh,剛 /compact;RW2c/RW2d 已收割,sandbox 兩發 TapPay Record 對帳全符)/ 視窗C=D2e-1 磚牆+chips 施工中(新棒,開工包=pcm-mailbox/C-16-STOP.md;D2c-2/D2d-1/D2d-2/需求書已收割)/ 視窗B=結案。
-> · **今日拍板**(全在 memory `project_home-redesign-wire-decisions` + STATUS):#313 rizoma 直式影片=B 版面支援(設計側 OD 先改、程式片後接、未排程)/ 捲動揭示=C 先不做上線後議 / 需求書入庫=主視窗裁 A / D2d 拆片成立。C 線積壓待 Sean 批次拍板:#308/#310/#311/#312(D2e 收完一次問)。
-> · **匯合點**:A 交 RW3 → 收割 → 剩 RW4 → Sean 開 REFUND_UI_ENABLED;C 收完 D2e → Sean 品牌頁正式肉眼驗(samco 橫幅必看)。
-> · **哨兵三座、隨 session 死要重 arm**:①分支 ref(a4a-chain/refund-wire/home-redesign)②信箱(盯 /Users/sean_1/pcm-mailbox 非 README 非 -A 新檔;協定=README+三補訂:commit 前查信箱/STOP 必寫/STOP 必掛等待迴圈;編號 A→05、B→04、C→16)③看門狗 v4(commit/信箱/基線 /tmp/pcm-baseline-*/工作樹檔案四訊號、90 分全靜默才報;停放旗標 /tmp/pcm-parked-*,B 停放中)。
-> · **收割工法**:merge 進主樹 → `turbo typecheck --force` + 完整 `pnpm test` 對數字(必可精確調和,差額=基底差)→ 錢面另打外部帳本對帳(TapPay Record 前例)→ STATUS 收帳 → push(Sean 對本線已持續授權)。撞衫解併前例=result-banner 聯集+types 檔頭合帳(現況=六函式二十處,機器剝註解數)。
-> · dev 乾淨零未推;全套 330 檔/4387 綠(D2d-2 後)。
+> 🧭 **主視窗 checkpoint(08-04 深夜壓縮前刷新;主視窗=Fable 5[1m]+high)**:
+> · **在途**:視窗A=A8a1 施工中(取消線 3/4;本體煙霧綠、待組 migration `20260804180000`+harness+關卡2;A8c1/A8c2 已收割且 **Sean 已 apply 正式站、read-back 全符** begin=f621a562/confirm=6423848f;⛔A8a1+A8a2 同批 apply 鐵律)/ 視窗C=修 D3c-1 R2 退件中(3 must-fix:is-cur/is-empty 特異度反轉+空 afterEach+註解寫反,詳 C-33-A;修完 amend 寫 C-35-STOP,主視窗窄複驗後收)/ B 停放。
+> · **今日拍板**(全落 memory):#315 Q1=混合案(5 家零商品磚泛白不可點、頁全上、連結不連、真資料衍生)/ Q2=A KINEO 輪框與傳動改最接近正式分類名(落 D3c-2)/ Q3=A 上 commit 前 reviewer hook(**待實作**,設計=不誤擋 docs/merge)/ A8 死結 Q1=A(倖存者證明=order_lock_idx 述詞)/ #319 OD 回寫已完成、#320 iOS 有聲結案 / A 窗 backlog 撞號改 #321。
+> · **匯合點**:A 交 A8a1+A8a2 → 同批 apply(前置檢查照 A8c 前例主視窗先跑)→ 取消線全結=27 項第 19 項;C 修完 D3c-1 → D3c-2(=D4:/brands 總覽+收口+redirect+sitemap+BrandIndex 5 家泛白+KINEO chip 改名+F1/F2)→ D3 全結 → Sean 品牌頁肉眼驗。之後:③A-engine → ④D5-D7 首頁重排 → ⑤D8。
+> · **哨兵三座、隨 session 死要重 arm**:①分支 ref ②信箱(編號 A→14、C→34;**回信雙份發同號-A 與下一號-A** 防編號落空;凡信箱拍板要落一份進 repo)③看門狗 v4(四訊號 90 分;/tmp/pcm-parked-* 停放,B 停放中)。C 窗慣性=先 commit 後審再 amend(兩次)⇒ **收割見 commit 先查審查段,沒有就押住等 STOP**;R2/R3 缺輪由主視窗開 fresh agent 補(前例=D3b R3 Fable PASS、D3c-1 R2 opus FAIL 退修)。
+> · **收割工法**:merge → `turbo typecheck --force`+完整 `pnpm test` 數字精確調和 → 錢面自建拋棄庫重跑 harness(d1t2-rehearsal provision 短路徑 /tmp/xxx、A8C?_VERIFY_PORT 指埠;38/38+32/32 前例)+TapPay Record 外部帳本 → STATUS 收帳 → push(持續授權)。
+> · dev 乾淨零未推(`f961462`);全套 344 檔 4620 綠(D3b 後;D3c-1 未併)。伺服器 3000=production build(D2f 版)。
 >
 > ⚠️ **今日新增的兩條操作事實**:①`supabase db push` **不需搬走 `.env.local`** 也跑得動(今日實測 dry-run 與正式
 > apply 皆成功;舊 runbook 的「先 mv」步驟非必要,且搬 `.env*` 會被 permissions 擋)②Fable 額度會用盡(今日
