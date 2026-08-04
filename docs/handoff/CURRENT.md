@@ -1,5 +1,41 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🪟 **2026-08-05 凌晨:換窗 checkpoint(主視窗寫;新主視窗先讀本節,舊節按需)。**
+>
+> **現況一句話**:**D3 路由接線全結**(D3a→D3c-5 七片全收割入 dev、已推 `c920f69`)、**取消線 3/4**
+> (A8c1/A8c2 已 apply 正式站;A8a1 已收割、⛔與 A8a2 同批 apply;**A 窗施工 A8a2 中**)、
+> 退款線全結等旗標。dev 乾淨零未推;全套 **350 檔 4696 綠 + 1 todo**。
+>
+> **在途與收官**:視窗A(refund-wire worktree)=A8a2 品項部分取消施工中,收工寫 A-17-STOP;
+> 收割走錢面全工法(拋棄庫 d1t2 provision 短路徑 + `A8A2_VERIFY_PORT` 指埠;A8a1 前例=45/45)。
+> 視窗C(home-redesign worktree)=**D3 收官、任務清空可關**;下一棒 ③A-engine 選車內臟=**新視窗新線**
+> (計畫=`docs/specs/2026-08-03-vehicle-picker-unification-wire-plan.md`,A1/A2 已落地、剩 A-engine 段)。
+>
+> **08-04/05 拍板全集(全落 memory)**:鐵則 7 放寬=多代理實作提案批准制(Sean 親改 CLAUDE.md,
+> AGENTS/00-work-rules 已同步)/ 規則三層閱讀法入 CLAUDE.md / KINEO Q3=A `懸吊與車架 · 輪圈`+Q4=A 字面照顯示
+> +Q5=A 泛白卡留白(全落地 D3c-4)/ Q6=A 記憶索引撤 14 條入備查索引 / reviewer gate hook 上線
+> (`a713867`:含 code 的 commit 需標記檔首行=當下 HEAD;寫法在 `.husky/reviewer-gate.sh` 檔頭;
+> 施工窗 amend 前要重寫標記)。
+>
+> **匯合點(依序)**:①A8a2 收割 → `20260804180000`+A8a2 同批進 apply 佇列(現況=120000→150000 兩支)
+> → Sean 親跑 db push(**不需搬 .env.local**)→ 主視窗前置檢查+read-back 照 A8c 前例 → 取消線全結=27 項第 19 項
+> ②Sean 品牌頁肉眼驗(清單在 STATUS「Sean 待決策」;要點=samco 橫幅/泛白卡對比度 3.35:1/2.32:1 取捨/
+> materya 影片/KINEO chip 字面/首頁與 /brands 各入口)③REFUND_UI_ENABLED 開啟=Sean 拍板+部署(前置全備)
+> ④首頁線 ③A-engine → ④D5-D7 → ⑤D8。
+>
+> **哨兵重 arm 須知(新主視窗必做)**:①分支 ref Monitor ②信箱 Monitor——🔴 **單座、不共用 seen 檔**
+> (08-05 實錘:雙座共用 seen 吞掉 A-14-STOP、主視窗誤判 A 窗死亡 90 分;memory
+> `reference_mailbox-dual-sentinel-shared-seen-swallows-mail`);**每次收割前後全量 `ls` 信箱對編號序**
+> (A→16、C→55;缺號=被吞,直接讀)③看門狗——施工窗掛信箱輪詢時工作樹零異動=正常態,誤報先實查再信。
+> 回信雙份發(同號-A+下一號-A);凡信箱拍板落一份進 repo。
+>
+> **收割工法(不變+兩補)**:押住等 STOP → 窄複驗/R2 確認輪(R1 FAIL 必有確認輪;紀錄面 MF 可主視窗
+> 窄確認、行為面 MF 開 fresh reviewer)→ merge --no-ff → `turbo typecheck lint --force`+完整 `pnpm test`
+> 數字精確調和(**完整輸出留檔、不 tail**)→ 錢面加拋棄庫重跑 harness+TapPay Record → STATUS 收帳 → push(持續授權)。
+> 補①:收割代修小字面有 #321/`25303e5` 前例(不退第三輪,親量數字為據、commit body 寫明)。
+> 補②:主視窗自己 commit 含 code 檔要先寫 gate 標記。
+
+
 > 🌙 **2026-08-03 深夜:今日全線收工結算(主視窗寫;接手者先讀本節,以下舊節按需)。**
 >
 > **現況一句話**:今天三條線全部推進並收割完畢,**三支 migration 已 apply 正式站、dev 已推**
