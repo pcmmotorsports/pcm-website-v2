@@ -8868,3 +8868,36 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   各附回歸格 + 鐵則 12① 對抗審查;A8c1 的 L3/L4 格屆時翻 oracle(零 40P01)。
 - **出處:** A8c1 plan §3.7/§3.8(`docs/specs/2026-08-04-e10-a8c1-begin-cancel-guard-plan.md`)、
   信箱 A-09-Q/A-09-A、codex 關卡1 R1 MF4/MF5 + 主對話實測裁決。
+### #323. 🔀 「清車+清分類」同一波會產生兩發 router.replace,後發的把先清掉的軸寫回去
+
+- **狀態:** ⏳ 待執行(A7 發現、**非 A7 引入**)
+- **分流:** 待 Sean 排(手機端 2026-07-30 起就是這個行為,桌機 A7 之後跟上)
+- **優先級:** 🟠 客人看得到一次錯誤結果閃爍 + 多一次 RSC 往返;會自癒、零資料風險
+- **問題:**
+  - `ProductsPage.tsx` 依序掛 `useVehicleUrlSync` 與 `useCatalogFilterUrlSync`;兩支都用
+    `new URLSearchParams(window.location.search)` **現讀 URL**、只改寫自己那幾軸、其餘原樣拷貝,
+    然後各自 `router.replace`。
+  - Next 的 `router.replace` **不同步更新 `window.location`**(走 `startTransition` + app-router
+    自己的 effect),所以同一次 flush 裡兩支讀到的是**同一份舊 URL**、後發的整份蓋掉先發的。
+  - **實測(2026-08-05,拋棄式 probe,renderHook 直呼兩支 hook、router 為 spy)**:
+    起點 `?vehicle=yamaha&category=排氣系統`,一次把 vehicle 與 category 同時清空 ⇒
+    `REPLACE CALLS = [["/products?category=%E6%8E%92%E6%B0%A3%E7%B3%BB%E7%B5%B1"], ["/products?vehicle=yamaha"]]`
+    —— **終態 `?vehicle=yamaha`:分類清掉了、車卻被寫回來**,與 Q3=A 意圖相反。
+  - ⚠️ probe 要先讓兩支 hook 的 `initialized` / `pendingRestoreRef` 安定(多 rerender 一輪)才重現;
+    只跑兩輪會被 catalog hook 的「還原窗口」early return 吞掉 = harness 假象、不是產品行為。
+  - 自癒路徑:server 回新 props → `motoBrands` 換 identity → `useVehicleUrlSync` 再跑一輪把 vehicle 刪掉。
+    代價 = 一次用舊條件的錯誤查詢結果閃過去。
+- **觸發點(兩處,同一根因)**:`ProductsMobileControls.tsx` 的 `clearVehicleAndCategory`(2026-07-30 起就在)、
+  `CascadeFilterTop.tsx` 的「清除車輛」(A7 / Q3=A 之後)。**單獨清一軸不受影響**(只有一發 replace)。
+- **不修未來會痛在哪:**
+  - 任何「一次動兩軸以上」的新操作都會踩到同一顆,而且**測試看不到**:
+    `products-url-state.hooks.test.tsx` 的 router 是純 spy、不動 `window.location`,
+    兩支 hook 也從沒被放在同一個 harness 裡一起跑過 —— 這層縫天生在守門之外。
+  - 每多一支 URL 同步 hook,「誰最後 replace 誰贏」的組合面就多一格,且沒有任何機制強制宣告寫入軸。
+- **修法(排程時,擇一)**:
+  - (a) 兩支合併成單一 URL 同步點(所有軸一次算完再一發 replace)—— 根治,但動 `products-url-state.tsx`
+    這支有 #287/#288 歷史的高風險檔,要獨立片 + 對抗審查。
+  - (b) 共用一個「本波待寫 URL」的 ref 當單一真相,兩支都讀它而非 `window.location.search` —— 較小,
+    但仍是雙寫、只是把競態從 URL 搬到 ref。
+  - 兩案都必須先補一支「兩支 hook 同 harness」的守門,否則修完沒有東西證明修好了。
+- **出處:** A7 code-reviewer R1 must-fix(opus, fresh context)+ 主對話獨立 probe 重現(2026-08-05)。

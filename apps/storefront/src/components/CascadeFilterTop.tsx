@@ -33,6 +33,7 @@ import {
   selectVehicleModel,
   selectVehicleYear,
   clearVehicle,
+  clearCategory,
 } from '@pcm/ui';
 import type { CascadeControlledProps } from './filter-state';
 import type { FilterTopData } from './FilterTop';
@@ -134,8 +135,21 @@ export function CascadeFilterTop({
           {/* V-1e:「我的愛車」鈕(登入會員才顯示、點開展膠囊、套用=dispatch 進同一 cascade)。
               ADR-0007 桌機決定 4:位置與中性配色不動。 */}
           <GarageChips garage={garage} motoBrands={data.motoBrands} dispatch={dispatch} variant="top" />
+          {/* A7 / Sean 08-03 拍 Q3=A:桌機「清除車輛」= 清車 + 清分類,與手機一致
+              (參考實作 ProductsMobileControls.tsx 的 clearVehicleAndCategory)。鈕字面不變。
+              🔴 這是**唯一**改到的清除語意。上方廠牌欄的 onClear 是 combobox 單欄清空
+              (「輸入操作」,設計稿 §D 清除矩陣明列不在其中),不得順手一起改。 */}
           {vehicle && (
-            <button className="cft-clear" onClick={() => dispatch(clearVehicle())} aria-label="清除車輛篩選">清除車輛</button>
+            <button
+              className="cft-clear"
+              onClick={() => {
+                dispatch(clearVehicle());
+                dispatch(clearCategory());
+              }}
+              aria-label="清除車輛篩選"
+            >
+              清除車輛
+            </button>
           )}
         </div>
       </div>

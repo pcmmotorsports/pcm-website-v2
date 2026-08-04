@@ -15,7 +15,7 @@
 import { useReducer } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
+import { cascadeFilterReducer, makeInitialCascadeState, selectCategoryMain, toggleBrand } from '@pcm/ui';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { MOCK_MOTO_BRANDS } from '../data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '../data/mock-categories';
@@ -34,9 +34,25 @@ const GARAGE: GarageChipItem[] = [
 ];
 
 // controlled CascadeFilterTop 的宿主模擬 — 持 cascade reducer。
+// A7:`CascadeFilterTop` 本身不渲染分類 UI ⇒ 「清除車輛有沒有連分類一起清」在元件外部
+// 觀察不到。故 Harness 多吐一個唯讀探針把 cascade.category 攤到 DOM(只給測試看、不進 production)。
 function Harness({ garage = [] }: { garage?: GarageChipItem[] }) {
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  return <CascadeFilterTop data={data} cascade={cascade} dispatch={dispatch} garage={garage} />;
+  return (
+    <>
+      <CascadeFilterTop data={data} cascade={cascade} dispatch={dispatch} garage={garage} />
+      <div data-testid="probe-category">{cascade.category?.main ?? '(無分類)'}</div>
+      {/* 🔴 商品品牌也要攤出來:少了它,把 production 改成 `clearAll()` 兩條測試照樣全綠,
+          而設計稿 §D 清除矩陣的第一列作用範圍**不含** pbrand。 */}
+      <div data-testid="probe-brands">{cascade.brands.join(',') || '(無品牌)'}</div>
+      <button type="button" onClick={() => dispatch(selectCategoryMain('m1', '排氣系統'))}>
+        測試用:選分類
+      </button>
+      <button type="button" onClick={() => dispatch(toggleBrand('akrapovic'))}>
+        測試用:選商品品牌
+      </button>
+    </>
+  );
 }
 
 // 選到 YAMAHA / YZF-R1(字典內有五個年份 2020-2024)= 年份排序斷言的資料前提。
@@ -72,6 +88,43 @@ describe('CascadeFilterTop', () => {
     fireEvent.blur(brandInput);
     expect(screen.getByText('清除車輛')).toBeDefined();
     expect((brandInput as HTMLInputElement).value).toBe(firstBrand.name);
+  });
+
+  // A7 / Sean 08-03 拍 Q3=A:桌機「清除車輛」= 清車 **+ 清分類**(對齊手機,原本只清車)。
+  // 🔴 前提斷言不可省:先真的選一個分類、先斷言它在,清完才斷言它沒了 ——
+  //    少了前提,`category === null` 在一開始就成立,拿掉 clearCategory() 照樣全綠。
+  it('清除車輛同時清掉分類(Q3=A;鈕字面不變)', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByText('測試用:選分類'));
+    fireEvent.click(screen.getByText('測試用:選商品品牌'));
+    expect(screen.getByTestId('probe-category').textContent).toBe('排氣系統');
+    expect(screen.getByTestId('probe-brands').textContent).toBe('akrapovic');
+
+    pickYamahaR1();
+    const clear = screen.getByText('清除車輛');
+    fireEvent.click(clear);
+
+    expect(screen.getByTestId('probe-category').textContent).toBe('(無分類)');
+    expect(screen.queryByText('清除車輛')).toBeNull(); // 車也清掉了 ⇒ 鈕自己收起來
+    // 🔴 作用範圍上界:設計稿 §D 矩陣第一列只含「車輛 + 分類」,商品品牌**不在內**。
+    //    少了這條,把 production 換成 `clearAll()` 上面三條照樣全綠。
+    expect(screen.getByTestId('probe-brands').textContent).toBe('akrapovic');
+  });
+
+  // 🔴 廠牌欄 combobox 的「清空」是輸入操作、不是「清除車輛」(設計稿 §D 清除矩陣明列),
+  //    它**不得**連坐分類。這條擋的是「順手把兩個 onClear 一起改」。
+  it('廠牌欄清空只清車、不動分類(combobox 單欄清空不在清除矩陣裡)', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByText('測試用:選分類'));
+    pickYamahaR1();
+    expect(screen.getByTestId('probe-category').textContent).toBe('排氣系統');
+
+    const brandInput = screen.getByPlaceholderText('選擇或輸入廠牌');
+    fireEvent.change(brandInput, { target: { value: '' } });
+    fireEvent.blur(brandInput);
+
+    expect(screen.getByTestId('probe-category').textContent).toBe('排氣系統'); // 分類留著
+    expect(screen.queryByText('清除車輛')).toBeNull(); // 車清掉了
   });
 
   // ADR-0007 桌機決定 2:三欄皆可輸入搜尋、也可展開捲動點選(正式預設、非 preview query)。
