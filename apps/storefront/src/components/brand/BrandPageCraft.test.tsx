@@ -102,12 +102,16 @@ describe('🔴 BrandPageCraft · 影片列 vs 圖片列', () => {
     expect(video?.getAttribute('preload')).toBe('none');
     expect(video?.hasAttribute('autoplay'), '自動播會讓兩支同時跑').toBe(false);
     expect(video?.hasAttribute('playsinline')).toBe(true);
-    // 封面走 poster(不是另建一個 <img>),名稱掛 aria-label + title(報讀器只念得到這兩個)
+    // 封面走 poster(不是另建一個 <img>),名稱掛 aria-label(報讀器對 <video> 只念得到它)
     const row = withVideoRow.craft.rows.find((r) => r.video)!;
     expect(video?.getAttribute('poster')).toBe(`/brand-assets/${row.img}`);
     expect(video?.getAttribute('src')).toBe(`/brand-assets/${row.video}`);
     expect(video?.getAttribute('aria-label')).toBe(row.alt);
-    expect(video?.getAttribute('title')).toBe(row.alt);
+    // 🔴 `title` **刻意不掛**(#312 第二條;設計稿 :1999 兩個都給同一個字串)——
+    //    同字串時部分輔具會先念 name 再念 description = 同一句聽兩次。
+    //    ⚠️ 這條與上一行是一組:只留這條的話,把 aria-label 也刪掉會全綠而影片變無名元素;
+    //       只留上一行的話,把 title 加回去也全綠。
+    expect(video?.hasAttribute('title'), 'title 與 aria-label 同字串 ⇒ 只留一個').toBe(false);
   });
 
   it('影片列不建 <img>、圖片列不建 <video>(同一格只放一個)', () => {
@@ -171,5 +175,32 @@ describe('BrandPageCraft · 20 家實資料', () => {
     // 前提斷言:不是 0(分流沒生效那條會空過)也不是全部
     expect(videoRows).toBe(BRAND_CONTENT.reduce((n, b) => n + b.craft.rows.filter((r) => r.video).length, 0));
     expect(videoRows).toBeGreaterThan(0);
+  });
+});
+
+// ── #311 標題階層:整頁大綱的守門拆成「每支元件各自的局部不變式」 ──────────────
+// 🔴 為什麼不寫一支「渲染整頁再驗大綱」的測試(關卡2 nit 8 指出這個缺口):
+//    正式路由要到 D3 才有,現在唯一的組裝點是 dev-preview 那支 server component;
+//    在測試裡「照同樣順序自己排一次」= 守門與真實頁面會各自漂移,綠了也不代表頁面對。
+//    改成**頁面上的每一支**元件各自保證(`dev-preview/brand-page/[slug]/page.tsx:37-44` 共 7 支):
+//      · Header 恰一個 h1 且無其他標題
+//      · About 零標題 —— **兩條右欄分流都要驗**(產品照卡 8 家 / 影片 12 家)
+//      · Media / Categories 零標題
+//      · Why · Craft · Timeline · BrandWall 第一個標題是 h2、最深只到 h3
+//    序列 = [1] ++ [] ++ B ++ B ++ B? ++ [] ++ B,每個 B 首項=2 且 ⊆ {2,3}
+//    ⇒ 1→2 是 +1、{2,3} 內部只有 +1 或下降 ⇒ 無跳級,且**與組裝順序無關**。
+//    🔴 關卡2 R2 抓到第一版只守了 5 支:About 的斷言只跑 `asideOnly`(8 家),
+//       另外 12 家走的是 `BrandPageMedia`,而它與 Categories / BrandWall 三支**零守門**
+//       ⇒ 在 Media 裡加一個 <h3> 圖說,h1 直接接 h3、5 條測試全綠。
+
+describe('BrandPageCraft · 標題階層(#311)', () => {
+  it('🔴 第一個標題是 h2、其餘只到 h3', () => {
+    const { container } = render(<BrandPageCraft brand={imageOnly} />);
+    const levels = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+      .map((h) => Number(h.tagName[1]));
+    expect(levels.length, '前提:真的有標題可驗').toBeGreaterThan(0);
+    expect(levels[0], '本區第一個標題必須是 h2').toBe(2);
+    expect(levels.filter((l) => l !== 2 && l !== 3), '只准出現 h2 與 h3').toEqual([]);
+    expect(levels.includes(3), '步驟標題必須是 h3').toBe(true);
   });
 });

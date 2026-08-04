@@ -21,6 +21,15 @@
 //    · 🔴 Kineo 的齒盤說法**與官網相反是刻意的**:官網 FAQ 寫「原廠齒盤可沿用」,
 //      Sean 2026-08-03 更正為「Kineo 隨輪組供應專用齒盤」。不要照官網改回去。
 //
+// 🔴🔴 **本檔已有一處手改、與來源不同步**(2026-08-04 / D2f;backlog #319):
+//    `materya` 的 `video` 區塊(→ About 右欄從產品照換成直式影片)是 **Sean 2026-08-04
+//    指定的素材**(IG reel DVeM7gWDB3F),Open Design 的 `brand-content-data.js` 側**尚未回寫**。
+//    ⇒ **照上面的指令重新產生會把它整塊刪掉,而且不會有任何測試變紅**
+//      —— `brand-assets.test.ts` 只驗「資料引用的檔案存在」,不驗「這筆資料還在」。
+//    ⇒ 重新產生前先做兩件事之一:①先把 video 區塊回寫進 OD 來源(乾淨解、#319 要的)
+//      ②產生後手動把這一塊貼回來,並確認 `materya-reel.mp4` / `reel-poster.jpg` 兩個資產仍在。
+//    守門 = `brand-content.test.ts` 的「materya 的 About 右欄影片還在」那條(#319 一起加的)。
+//
 // L2 內容分級(鐵則 9、backlog #271):四則事實與兩段介紹目前 hardcode、無後台 CRUD。
 
 import type { BrandContent } from './brand-content-types';
@@ -1975,6 +1984,15 @@ export const BRAND_CONTENT: BrandContent[] = [
       "alt": "MATERYA 車型專用風鏡",
       "title": "風鏡 Flyscreen",
       "note": "車型專用,型錄按車款與年式分開。"
+    },
+    "video": {
+      "file": "assets/brand-video/materya-reel.mp4",
+      "portrait": true,
+      "poster": "assets/brands-prod/materya/reel-poster.jpg",
+      "source": "https://www.instagram.com/reel/DVeM7gWDB3F/",
+      "sourceLabel": "看官方 IG 原貼文",
+      "title": "MATERYA 碳纖維風鏡",
+      "caption": "官方 IG · 碳纖維風鏡裝車"
     },
     "highlights": {
       "title": "為什麼是 MATERYA",

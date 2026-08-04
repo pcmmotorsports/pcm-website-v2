@@ -55,7 +55,12 @@ describe('BrandPageTimeline · 版型', () => {
     expect(items).toHaveLength(sample.items.length);
     const first = items[0]!;
     expect(first.querySelector('.bp-time-y')?.textContent).toBe(sample.items[0]!.y);
-    expect(first.querySelector('.bp-time-body > h3')?.textContent).toBe(sample.items[0]!.t);
+    // 🔴 用 endsWith 不用 toBe:#312 之後,標 key 的列在 h3 開頭多一個只給報讀器的
+    //    `.bp-sr-only`(視覺上不存在)⇒ 那幾列的 textContent 帶前綴。
+    //    可見文字仍必須是資料原字串收尾、且不得被改寫。
+    //    (用 endsWith 不用 new RegExp:標題是資料字串,帶正規式特殊字元就會誤判。)
+    expect(first.querySelector('.bp-time-body > h3')?.textContent?.endsWith(sample.items[0]!.t))
+      .toBe(true);
   });
 
   it('🔴 is-key 恰掛在標 key 的那幾列(每條都標 = 等於沒標)', () => {
@@ -68,6 +73,30 @@ describe('BrandPageTimeline · 版型', () => {
     const keyed = items.filter((el) => el.classList.contains('is-key')).length;
     expect(keyed).toBeGreaterThan(0);
     expect(keyed).toBeLessThan(items.length);
+  });
+
+  it('🔴 is-key 同時要有**語意**標記,不能只有顏色(#312 / WCAG 1.4.1)', () => {
+    // `is-key` 在視覺上只有顏色差異(圓點白→橘、年份半透明→全白;手機只有年份變色)
+    // ⇒ 用讀屏的人拿到 13 條完全一樣的年表,設計上想強調的那 4 條在語意層不存在。
+    // 這是資訊遺失、不是冗贅(設計稿 :2011 沒有這個 span;Sean 08-04 拍 A)。
+    const { container } = render(<BrandPageTimeline timeline={sample} />);
+    const items = [...container.querySelectorAll('.bp-time-item')];
+    let marked = 0;
+    items.forEach((el, i) => {
+      // 🔴 查 `h3 > .bp-sr-only` 不是 `.bp-time-item .bp-sr-only`:標記搬到 h3 外面
+      //    (例如掛在 .bp-time-y 旁)時,用標題跳讀的人照樣聽不到 —— 而寬鬆的選擇器全綠。
+      const marker = el.querySelector('.bp-time-body > h3 > .bp-sr-only');
+      const isKey = sample.items[i]!.key === true;
+      expect(Boolean(marker), `第 ${i} 列:標記與 is-key 必須同進同退`).toBe(isKey);
+      if (marker) {
+        marked += 1;
+        // 空的 span 對報讀器等於沒有 ⇒ 內容必須真的有字。
+        expect((marker.textContent ?? '').trim().length, `第 ${i} 列的標記是空的`)
+          .toBeGreaterThan(0);
+      }
+    });
+    // 前提斷言:上面那圈真的驗到了東西(0 條標記時 forEach 仍會逐條 toBe(false) 全過)
+    expect(marked, '標記數必須等於 key 列數').toBe(sample.items.filter((i) => i.key).length);
   });
 
   it('🔴 沒有 d 的列不建 <p>(合成 fixture:現有 26 列全都有 d ⇒ 真資料走不到)', () => {
@@ -107,5 +136,32 @@ describe('BrandPageTimeline · 版型', () => {
       expect(shown.includes('&'), `${brand.slug} 畫面殘留 &`).toBe(false);
       cleanup();
     }
+  });
+});
+
+// ── #311 標題階層:整頁大綱的守門拆成「每支元件各自的局部不變式」 ──────────────
+// 🔴 為什麼不寫一支「渲染整頁再驗大綱」的測試(關卡2 nit 8 指出這個缺口):
+//    正式路由要到 D3 才有,現在唯一的組裝點是 dev-preview 那支 server component;
+//    在測試裡「照同樣順序自己排一次」= 守門與真實頁面會各自漂移,綠了也不代表頁面對。
+//    改成**頁面上的每一支**元件各自保證(`dev-preview/brand-page/[slug]/page.tsx:37-44` 共 7 支):
+//      · Header 恰一個 h1 且無其他標題
+//      · About 零標題 —— **兩條右欄分流都要驗**(產品照卡 8 家 / 影片 12 家)
+//      · Media / Categories 零標題
+//      · Why · Craft · Timeline · BrandWall 第一個標題是 h2、最深只到 h3
+//    序列 = [1] ++ [] ++ B ++ B ++ B? ++ [] ++ B,每個 B 首項=2 且 ⊆ {2,3}
+//    ⇒ 1→2 是 +1、{2,3} 內部只有 +1 或下降 ⇒ 無跳級,且**與組裝順序無關**。
+//    🔴 關卡2 R2 抓到第一版只守了 5 支:About 的斷言只跑 `asideOnly`(8 家),
+//       另外 12 家走的是 `BrandPageMedia`,而它與 Categories / BrandWall 三支**零守門**
+//       ⇒ 在 Media 裡加一個 <h3> 圖說,h1 直接接 h3、5 條測試全綠。
+
+describe('BrandPageTimeline · 標題階層(#311)', () => {
+  it('🔴 第一個標題是 h2、其餘只到 h3', () => {
+    const { container } = render(<BrandPageTimeline timeline={sample} />);
+    const levels = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+      .map((h) => Number(h.tagName[1]));
+    expect(levels.length, '前提:真的有標題可驗').toBeGreaterThan(0);
+    expect(levels[0], '本區第一個標題必須是 h2').toBe(2);
+    expect(levels.filter((l) => l !== 2 && l !== 3), '只准出現 h2 與 h3').toEqual([]);
+    expect(levels.includes(3), '每列標題必須是 h3').toBe(true);
   });
 });

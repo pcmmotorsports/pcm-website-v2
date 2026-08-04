@@ -47,8 +47,13 @@ export function BrandPageCraft({ brand }: { brand: BrandContent }) {
                       playsInline
                       preload="none"
                       // 圖說掛在元素上:報讀器對 <video> 只念得到 aria-label / title。
+                      // 🔴 **只留 aria-label、不掛 title**,刻意偏離設計稿字面(:1999 兩個都給
+                      //    同一個字串)—— Sean 2026-08-04 拍 A(backlog #312 第二條)。
+                      //    兩個同字串時,部分輔具會先念 name(aria-label)再念 description(title)
+                      //    = 同一句聽兩次。留 aria-label 的理由:它是顯式的無障礙名稱契約,
+                      //    title 的行為(是否被當 description、是否顯示 tooltip)各家不一。
+                      //    ⚠️ 代價 = 滑鼠停留不再有 tooltip;那本來就不是設計稿要的功能。
                       aria-label={row.alt || row.t}
-                      title={row.alt || row.t}
                       style={row.focus ? ({ objectPosition: row.focus } as CSSProperties) : undefined}
                     />
                   ) : (

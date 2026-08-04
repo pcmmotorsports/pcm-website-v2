@@ -4,9 +4,9 @@
 //
 // 這一支守的四件事,每一件壞掉都是「畫面看起來完全正常」的形狀:
 //   ① 沒按過封面就先掛 iframe ⇒ 每個看品牌頁的人都被送去 YouTube 一次(隱私 + 那塊會變全黑)
-//   ② 來源分流走錯家 ⇒ vimeo 只有 1 家、file 4 家,真資料的判別力薄,靠合成 fixture 補
+//   ② 來源分流走錯家 ⇒ vimeo 只有 1 家、file 5 家,真資料的判別力薄,靠合成 fixture 補
 //   ③ 4 秒退路對 `<video>` 也生效 ⇒ 載得慢的自架影片會被誤判成「被擋下」而整塊換掉
-//   ④ 外開連結的優先序寫反 ⇒ 4 家自架片會連到 `youtube.com/watch?v=undefined`
+//   ④ 外開連結的優先序寫反 ⇒ 5 家自架片會連到 `youtube.com/watch?v=undefined`
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
@@ -225,7 +225,7 @@ describe('BrandPageMedia · 圖說與外開連結', () => {
   });
 
   it('🔴 三種來源都沒有 → 連結整個不建(不是印一個 ?v=undefined 的死連結)', () => {
-    // 設計稿 :1890 的 else 分支無條件組 youtube watch 網址;真資料 11 家都有來源
+    // 設計稿 :1890 的 else 分支無條件組 youtube watch 網址;真資料 12 家都有來源
     // ⇒ 不可達,判別力同樣由 fixture 提供。圖說本身仍要在(space-between 的左格)。
     const video: BrandVideo = {
       poster: fileVideo.poster, title: '無來源', caption: '無來源',
@@ -257,14 +257,32 @@ describe('BrandPageMedia · 直式影片', () => {
   });
 });
 
-describe('BrandPageMedia · 11 家實資料', () => {
+describe('BrandPageMedia · 12 家實資料', () => {
   it('每家都渲染得出封面 + 圖說,且封面圖路徑指得到資產', () => {
-    expect(videos.length, '前提:實測 11 家有影片').toBe(11);
+    expect(videos.length, '前提:實測 12 家有影片').toBe(12);
     for (const video of videos) {
       const { container } = render(<BrandPageMedia video={video} />);
       expect(container.querySelector('.bp-film-poster img')?.getAttribute('src'), video.title)
         .toBe(`/brand-assets/${video.poster}`);
       expect(container.querySelector('.bp-media-cap a'), video.title).not.toBeNull();
+      cleanup();
+    }
+  });
+});
+
+// ── #311 標題階層(關卡2 R2 補):本區在 About 右欄裡,**不得帶任何標題元素** ──────
+// 12 家走這條分流。整頁大綱的不變式清單見 `BrandPageHeader.test.tsx` 檔尾那段。
+describe('BrandPageMedia · 標題階層(#311)', () => {
+  it('🔴 不得出現任何標題元素(未播 / 播放中 / 退路面板三態都要)', () => {
+    for (const [name, node] of [
+      ['未播', <BrandPageMedia video={fileVideo} />],
+      ['直式', <BrandPageMedia video={{ ...fileVideo, portrait: true }} />],
+    ] as const) {
+      const { container } = render(node);
+      expect(
+        container.querySelectorAll('h1, h2, h3, h4, h5, h6').length,
+        `${name}:圖說要用 <span>/<p>,不能順手升級成標題`,
+      ).toBe(0);
       cleanup();
     }
   });

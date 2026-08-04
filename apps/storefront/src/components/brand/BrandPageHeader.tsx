@@ -88,12 +88,13 @@ export function BrandPageHeader({ brand }: { brand: BrandContent }) {
                 width:100%;max-width:340px,所以這兩個屬性不決定最終尺寸 ——
                 它們給的是 **intrinsic aspect ratio**,讓瀏覽器在圖載完前就保留正確高度。
                 拿掉的話 logo 那格在載入瞬間高度為 0、載完撐開 = CLS。
-                🔴 alt 照設計稿用純品牌名(原本我寫成「X 標誌」= 未列入偏離清單的自作主張)。
-                   ⚠️ 這會與上方 h1 的品牌名對報讀器重複播報一次;設計稿如此,本片不自行改。
-                      改成 alt="" 屬偏離設計字面 = 鐵則 1 要走拍板 ⇒ **backlog #308**。 */}
+                🔴 **`alt=""` 是刻意偏離設計稿字面**(:1642 是 `alt="${esc(brand.name)}"`)——
+                   Sean 2026-08-04 拍 A(backlog #308)。品牌名已由上方 h1 承擔語意,
+                   logo 在這裡是裝飾;照設計稿寫品牌名會讓報讀器每頁把品牌名唸兩次。
+                   ⚠️ 空字串是**有意義的**:拿掉整個 alt 屬性會讓報讀器改唸檔名,不等價。 */}
             <img
               src={brandAsset(brand.bandLogo)}
-              alt={brand.name}
+              alt=""
               width={380}
               height={92}
             />

@@ -26,6 +26,14 @@
  *      也不在上面那三類裡,是**別條線**的東西(選車統一線 / 既有站台元件),不要拿這句去停止追查。
  *    ⚠️ `.bp-products` / `.bp-prod-head` / `.bp-grid` / `.bp-slot` / `.bp-bar`(設計稿 :714-740)
  *       **不屬本檔** —— 那一區用既有 `ProductCard.tsx`,屬 D3 接線(計畫 §5.2 逐字)。
+ *
+ * 🔴 **反方向:本檔有兩處是設計稿沒有的**(D2f;Sean 2026-08-04 拍 A 的四條繼承瑕疵修正)——
+ *    上面那句講的是「設計稿有而本檔沒搬」,這裡是「本檔有而設計稿沒有」,兩張清單別混:
+ *      · `.bp-sr-only`(#312 年表關鍵事件的語意載體)—— 設計稿零命中
+ *      · ≤620 的 `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:1px…}`(#310)
+ *    另有一處是**選擇器改名**:`.bp-aside-card h3` → `.bp-aside-card .bp-aside-title`(#311),
+ *    宣告一字未動 ⇒ 視覺零改變。三處的逐條理由寫在各自位置。
+ *    ⚠️ **OD 設計稿側未同步** = 已知留債(backlog #319),不要拿設計稿字面來「修正」這三處。
  */
 
 /* ══ 設計色票(scoped,不是 :root)══════════════════════════════════
@@ -88,6 +96,31 @@
 }
 /* ⚠️ 只放**本檔真的用到**的變數。--c-red-dark(設計稿 :30,CTA active)整份 brand-page.html
    的規則裡零引用 ⇒ 不帶進來,對齊本檔開頭「不放沒有對應元件的東西」那條。 */
+
+/* ══ 只給報讀器的文字 ═════════════════════════════════════════════
+ * 設計稿**沒有**這個 class(整份 brand-page.html 零命中)—— 它是 #312 修法的載體:
+ * 年表的 `is-key` 在視覺上只有顏色差異,要補一個看不見但唸得到的標記。
+ *
+ * 🔴 名字刻意帶 `bp-` 前綴、不叫 `.sr-only`:本站目前**沒有**站台級的 `.sr-only`
+ *    (2026-08-04 grep `apps/storefront/src` + `packages/ui/src` 零命中)。本檔雖然
+ *    每個品牌頁元件都 import,但它是普通 stylesheet、不是 CSS Module ⇒ 在這裡寫
+ *    裸 `.sr-only` 等於替全站宣告了一個全域工具 class,而站台級要放哪(tokens.css?
+ *    packages/ui?)、用哪個實作,是 D5 整站語彙的事、不該由品牌頁單方面開先例
+ *    (同 --c-red 走 scope 的理由)。哪天站台級的建好了,把本段刪掉改吃它即可。
+ *
+ * 為什麼是這一套宣告而不是 `display:none` / `visibility:hidden`:那兩個會讓報讀器
+ * 一起看不到 = 完全沒效果。clip-path + 1px + overflow:hidden 是「視覺上不存在、
+ * 無障礙樹上仍在」的標準寫法。`white-space:nowrap` 防的是 1px 寬容器把字擠成直排
+ * 後某些瀏覽器仍計算出可觀高度。 */
+.bp-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ══ 麵包屑 ═══════════════════════════════════════════════════════ */
 .bp-crumb { border-bottom: 1px solid var(--c-border); }
@@ -202,12 +235,19 @@
   width: 100%; aspect-ratio: 4/3; object-fit: cover; display: block;
   background: var(--c-sunken); border: 1px solid var(--c-border);
 }
-.bp-aside-card h3 { font-size: 14px; font-weight: 600; line-height: 1.4; margin: 12px 0 5px; color: var(--c-text); }
-.bp-aside-card p { font-size: 13px; line-height: 1.65; color: var(--c-text-3); margin: 0; }
+/* 🔴 選擇器是 `.bp-aside-title` 不是 `h3`(設計稿 :1964 是 h3)—— 元件端 #311 把它
+   改成 `<p>`(理由寫在 BrandPageAbout.tsx 對應位置),**視覺一字不動**:
+   `<p>` 的 UA 預設 margin 由這裡的 `margin` 蓋掉、字級字重照舊寫死。
+   ⚠️ 兩處都要改:這條與 ≤960 的 `text-align:center` 那條(改一邊 = 手機置中失效)。 */
+.bp-aside-card .bp-aside-title { font-size: 14px; font-weight: 600; line-height: 1.4; margin: 12px 0 5px; color: var(--c-text); }
+/* 🔴 `:not(.bp-aside-title)` 也是 #311 帶出來的:標題改成 `<p>` 之後這張卡裡有**兩個** `<p>`,
+   裸的 `.bp-aside-card p` 會同時命中標題。目前靠特異度(0-2-0 > 0-1-1)仍是上一條贏,
+   但那是「剛好贏」;寫死排除讓兩條規則各自只管一個節點,不必每次改動都重算特異度。 */
+.bp-aside-card p:not(.bp-aside-title) { font-size: 13px; line-height: 1.65; color: var(--c-text-3); margin: 0; }
 
 /* ══ About 右欄的影片(D2c-2)══════════════════════════════════════
  * 2026-08-02 Sean:官方 Company Film 取代原本的「鈦合金排氣尾段」產品照卡。
- * 有 video 就放影片、沒有才退回上面的 .bp-aside 產品照(實測 11 家有片 / 9 家走產品照)。
+ * 有 video 就放影片、沒有才退回上面的 .bp-aside 產品照(實測 12 家有片 / 8 家走產品照;D2f 加入 materya 後重數)。
  */
 .bp-media { align-self: start; }
 /* 封面 7:3 而不是 16:9 —— 16:9 在這個欄寬比正文高 75px、2:1 還高 43px;
@@ -866,7 +906,11 @@
      —— 真正讓標題置中的是同一條的 text-align。 */
   .bp-craft-head { justify-content: center; text-align: center; }
   .bp-craft-panel p { max-width: none; }
-  .bp-aside-card h3, .bp-aside-card p { text-align: center; }
+  /* ⚠️ 這條**維持設計稿的單一選擇器**、不跟著 #311 改名:`.bp-aside-title` 現在就是一個 `<p>`,
+     `.bp-aside-card p` 本來就命中它(基礎規則那邊要寫 `:not()`,是因為那兩條會互相蓋;
+     這裡只有一條、沒有那個問題)。第一版把標題也顯式列進來 = 純冗餘,關卡2 nit 打掉;
+     真要防的「標題哪天又換成別的元素」由 `BrandPageAbout.test.tsx` 的 tagName 斷言守。 */
+  .bp-aside-card p { text-align: center; }
   /* 磚牆與 chips 的手機置中(D2e-1)。設計稿 :919 是 `.bp-prod-head,.bp-others h2` 一條 ——
      `.bp-prod-head` 屬 D3 的商品區、本檔沒有那個 class ⇒ 只搬 `.bp-others h2` 這半條。
      ⚠️ 這與「About 正文維持靠左」那條例外不衝突:h2 是三個字的標題、chips 是短標籤,
@@ -890,15 +934,17 @@
   .bp-pull { font-size: 19px; margin: 28px 0; }
   .bp-aside { grid-template-columns: 1fr; }
   /* 數字條再收成單欄(D2d-1)。左右 padding 收回 0,否則單欄下數字會離左緣一段。
-     🔴 **已知缺陷、逐字搬設計稿的結果、未自行偏離**(關卡2 M3;backlog #310):
-        本區塊沒有還原 `border-bottom`,而 ≤1024 的
-        `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:0}` 在這裡仍然命中
-        (max-width:1024 涵蓋 620)⇒ **4 個數字的 8 家在單欄下第 3、4 格之間少一條分隔線**。
-        390 實測:data-n=4 → 底線 [1px,1px,0px,0px];data-n=3 → [1px,1px,0px](3 個那 6 家正確)。
-        設計稿 :1183-1185 同一個洞 ⇒ 補一條 = 偏離設計字面 = 鐵則 1 走拍板路徑,本片不自行改。 */
+     🔴 **最後一行是刻意偏離設計稿字面**(:1183-1185 沒有)—— Sean 2026-08-04 拍 A(backlog #310)。
+        ≤1024 的 `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:0}` 在這裡
+        **仍然命中**(max-width:1024 涵蓋 620),而它守的是**兩欄版**的「最後一列有兩格」;
+        單欄下最後一列只有最後一格 ⇒ 那條在這裡把第 3 格的線也收掉了
+        ⇒ 4 個數字的 8 家在手機上第 3、4 格黏成一團。
+        390 實測(修前):data-n=4 → 底線 [1px,1px,0px,0px];data-n=3 → [1px,1px,0px]
+        (3 個數字那 6 家本來就對,所以這一行只能動 `[data-n="4"]`、不能寫成無條件還原)。 */
   .bp-nums { grid-template-columns: minmax(0, 1fr); }
   .bp-num { border-right: 0; padding-left: 0; padding-right: 0; }
   .bp-num:first-child { padding-left: 0; }
+  .bp-nums[data-n="4"] .bp-num:nth-last-child(2) { border-bottom: 1px solid var(--c-border); }
   /* 年表手機版(D2d-2):年份挪到標題上方、左邊那條時間軸線收掉
      —— 92px 的年份欄在窄螢幕吃掉太多寬度(設計稿 :1186-1192)。
      🔴 軸線收掉之後圓點也要 `display:none`:它是 `left:-4.5px` 定位在那條線上的,

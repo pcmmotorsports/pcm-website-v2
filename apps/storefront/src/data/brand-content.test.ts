@@ -73,6 +73,22 @@ describe('品牌內容 · 版面會被打壞的那些數字', () => {
     }
   });
 
+  it('🔴 materya 的 About 右欄影片還在(手改處、重新產生會被靜默刪掉)', () => {
+    // 本檔是**機器產生**的(檔頭有重新產生的指令),而 materya 這筆 video 是
+    // Sean 2026-08-04 指定的素材、Open Design 來源側尚未回寫(backlog #319)。
+    // ⇒ 照檔頭重跑產生器會把它整塊刪掉,而**沒有任何既有測試會紅**:
+    //   `brand-assets.test.ts` 只驗「資料引用的檔案存在」,少一筆引用它不會知道;
+    //   下面那條 video 互斥性對「沒有 video」是 `continue` 直接跳過。
+    const materya = BRAND_CONTENT.find((b) => b.slug === 'materya');
+    expect(materya, '前提:materya 這家還在').toBeDefined();
+    expect(materya!.video?.file).toBe('assets/brand-video/materya-reel.mp4');
+    expect(materya!.video?.poster).toBe('assets/brands-prod/materya/reel-poster.jpg');
+    // 直式(720×1280 實測)—— 掉了這個旗標,9:16 的片會被塞進 16:9 寬欄裁掉(#313 同款壞法)
+    expect(materya!.video?.portrait, '直式旗標掉了 ⇒ 影片會被裁成一條橫帶').toBe(true);
+    // aside 刻意保留當退路資料(有 video 時 BrandPageAbout 就不渲染產品照卡)
+    expect(materya!.aside).toBeDefined();
+  });
+
   it('🔴 video 恰有一個來源(youtube / vimeo / file 三選一、互斥)', () => {
     // 型別上是三個選填欄(D1a 檔頭寫明刻意不做 discriminated union:
     // 做成 union 會逼 D1b 改寫資料形狀,而改寫就有走樣風險)⇒ 互斥性由這裡守。

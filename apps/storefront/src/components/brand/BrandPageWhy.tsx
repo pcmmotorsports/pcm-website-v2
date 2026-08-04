@@ -38,8 +38,13 @@ export function BrandPageWhy({ brand }: { brand: BrandContent }) {
             {highlights.cards.map((card, i) => (
               <article className="bp-why-card" key={card.t}>
                 {/* 編號補零到兩位(設計稿 :1976 的 padStart)—— 01 02 03 04 是等寬字的
-                    視覺對齊,寫成 1 2 3 4 會讓左緣參差。 */}
-                <span className="bp-why-num">{String(i + 1).padStart(2, '0')}</span>
+                    視覺對齊,寫成 1 2 3 4 會讓左緣參差。
+                    🔴 `aria-hidden` 是刻意偏離設計稿字面(:1976 沒有)—— Sean 2026-08-04
+                       拍 A(backlog #308 同族第二處)。序號是上一行註解自己講的**視覺對齊**,
+                       不帶資訊;留著會讓報讀器在每張卡標題前多唸一次「零一」「零二」。 */}
+                <span className="bp-why-num" aria-hidden="true">
+                  {String(i + 1).padStart(2, '0')}
+                </span>
                 <h3>{card.t}</h3>
                 {/* d 帶白名單標記(20 家共 59 張卡有)⇒ 過 BrandRichText,絕不直接內插 */}
                 <BrandRichText as="p">{card.d}</BrandRichText>

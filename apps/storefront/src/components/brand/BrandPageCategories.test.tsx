@@ -147,3 +147,11 @@ describe('BrandPageCategories · 網址與跳脫', () => {
     }
   });
 });
+
+// 整頁大綱的不變式清單與推導見 `BrandPageHeader.test.tsx` 檔尾那段(關卡2 R2 補齊 7 支)。
+describe('BrandPageCategories · 標題階層(#311)', () => {
+  it('🔴 不得出現任何標題元素(chips 區的區塊標籤是 .bp-sec-label 不是標題)', () => {
+    const { container } = render(<BrandPageCategories brand={BRAND_CONTENT[0]!} />);
+    expect(container.querySelectorAll('h1, h2, h3, h4, h5, h6').length).toBe(0);
+  });
+});

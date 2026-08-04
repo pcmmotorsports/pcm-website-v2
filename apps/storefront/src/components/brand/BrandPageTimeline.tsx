@@ -39,7 +39,17 @@ export function BrandPageTimeline({ timeline }: { timeline: BrandTimeline }) {
               >
                 <div className="bp-time-y">{item.y}</div>
                 <div className="bp-time-body">
-                  <h3>{item.t}</h3>
+                  <h3>
+                    {/* 🔴 刻意偏離設計稿字面(:2011 沒有這個 span)—— Sean 2026-08-04
+                        拍 A(backlog #312 第一條)。`is-key` 在視覺上**只有顏色差異**
+                        (圓點白→橘、年份半透明→全白;手機版只有年份變色)⇒ 用讀屏的人
+                        拿到的是 13 條長得一模一樣的年表,設計上想強調的那 4 條在語意層
+                        完全不存在。這是真的資訊遺失,也過不了 WCAG 1.4.1「不能只用顏色傳達」。
+                        放在 h3 **裡面**而不是外面:標題導覽會把它一起唸出來
+                        (放外面時用標題跳讀的人照樣聽不到)。視覺零改動。 */}
+                    {item.key && <span className="bp-sr-only">關鍵事件:</span>}
+                    {item.t}
+                  </h3>
                   {/* d **不是選填、是可為空字串**(型別上必填,同 `about.pull` 的慣例;
                       關卡2 R3 更正我原本寫的「選填」)。空字串時整個 <p> 不建、不是建一個空的。
                       現有 2 家 26 列全都有值。 */}

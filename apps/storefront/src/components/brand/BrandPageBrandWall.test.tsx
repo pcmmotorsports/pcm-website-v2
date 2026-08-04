@@ -130,3 +130,15 @@ describe('BrandPageBrandWall · logo', () => {
     }
   });
 });
+
+// 整頁大綱的不變式清單與推導見 `BrandPageHeader.test.tsx` 檔尾那段(關卡2 R2 補齊 7 支)。
+describe('BrandPageBrandWall · 標題階層(#311)', () => {
+  it('🔴 第一個標題是 h2、其餘只到 h3', () => {
+    const { container } = render(<BrandPageBrandWall currentSlug={SLUGS[0]!} />);
+    const levels = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+      .map((h) => Number(h.tagName[1]));
+    expect(levels.length, '前提:真的有標題可驗').toBeGreaterThan(0);
+    expect(levels[0], '本區第一個標題必須是 h2').toBe(2);
+    expect(levels.filter((l) => l !== 2 && l !== 3), '只准出現 h2 與 h3').toEqual([]);
+  });
+});

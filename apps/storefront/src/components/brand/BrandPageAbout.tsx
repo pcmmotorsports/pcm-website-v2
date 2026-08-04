@@ -8,8 +8,8 @@
 //    有官方影片 → 放影片(`BrandPageMedia`,client 元件、點擊才掛 iframe);
 //    沒有才退回產品照卡;兩者皆無 → 整列收成兩欄、正文吃回右邊那格。
 //
-// ⚠️ 實測分布(2026-08-04):20 家全部有 aside,其中 11 家同時有 video
-//    ⇒ **真正看得到產品照卡的只有 9 家**;而「兩者皆無」的兩欄退化態在現有資料下**不可達**。
+// ⚠️ 實測分布(2026-08-04,D2f 加入 materya 影片後重數):20 家全部有 aside,其中 12 家同時有 video
+//    ⇒ **真正看得到產品照卡的只有 8 家**;而「兩者皆無」的兩欄退化態在現有資料下**不可達**。
 //    不可達 ≠ 不會壞:D3 之後若有人新增一家沒圖沒片的品牌,那條路才第一次被走到。
 //    守門靠測試(本片)與 CSS 文字層(brand-page.test.ts),不能靠肉眼看。
 
@@ -25,7 +25,7 @@ export function BrandPageAbout({ brand }: { brand: BrandContent }) {
 
   // D2c-2 已把影片接上 ⇒ 右欄「這一刻」有東西的條件回到設計稿最終狀態(:1966-1968:
   // 產品照與影片兩條路都 remove no-aside)。D2c-1 期間這裡刻意只認 showAside,
-  // 因為當時影片元件還沒有 —— 那 11 家會保留三軌卻只有兩個子元素、第三軌 629px 死白。
+  // 因為當時影片元件還沒有 —— 那 12 家會保留三軌卻只有兩個子元素、第三軌 629px 死白。
   const hasRightColumn = showAside || brand.video !== undefined;
 
   // 直式影片(3:4 / 9:16)整列欄寬要重配,否則會被塞進給 16:9 用的寬欄裡變細長條
@@ -56,7 +56,16 @@ export function BrandPageAbout({ brand }: { brand: BrandContent }) {
               {/* 產品照在正文右側、不是首屏 ⇒ lazy(設計稿 :1964 逐字)。
                   與橫幅照的 eager 是刻意相反的:那張是 LCP,這張不是。 */}
               <img src={brandAsset(brand.aside.src)} alt={brand.aside.alt} loading="lazy" />
-              <h3>{brand.aside.title}</h3>
+              {/* 🔴 **不是 `<h3>`,刻意偏離設計稿字面**(:1964 是 h3)—— Sean 2026-08-04
+                  拍 A(backlog #311)。整頁的文件序是 h1(品牌名)→ 這裡 → Why 的 h2,
+                  留成 h3 會①從 h1 直接跳到 h3 ②讓它排在自己「應該屬於」的 h2 之前
+                  ⇒ 用標題導覽的人拿到一份對不上內容的大綱。
+                  三個候選解裡選這個的理由:這格是**產品照的圖說**、不是文件章節
+                  (另兩個候選是補一個視覺隱藏的 h2、或整頁降級重排 —— 前者會與同區塊
+                   已存在的視覺標籤 `.bp-sec-label` "About" 對報讀器重複,正是 #308 在修的毛病)。
+                  ⇒ 改完的大綱:h1 → h2 Why → h3 卡片 → h2 Craft → h2 Timeline。
+                  視覺零改動:CSS 選擇器同步改成 `.bp-aside-title`,字級字重一字不動。 */}
+              <p className="bp-aside-title">{brand.aside.title}</p>
               {/* note 帶標記(設計稿 :1964 對它**不** esc)⇒ 過 BrandRichText。
                   ⚠️ 全站唯一帶標記的 aside.note 是 lightech 的「PUSH &amp; PULL」,
                      而 lightech **有 video** ⇒ 它的產品照卡在正式資料下永不渲染

@@ -8124,9 +8124,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #308. 🔊 品牌頁 band logo 的 alt 與 h1 重複 — 讀屏客人每頁聽兩次品牌名
 
-- **狀態:** ⏳ 待執行
-- **分流:** P2-later
-- **優先級:** 🟢 觀察(a11y 體驗,非阻斷)
+- **狀態:** ✅ **已完成(2026-08-04 / D2f;Sean 拍 A = 程式側直接修、不等設計側回寫)**
+- **修法:** 兩處都改。①`BrandPageHeader.tsx` 的 band logo → `alt=""`(空字串,不是拿掉屬性 ——
+  拿掉會讓報讀器改唸檔名、不等價)②`BrandPageWhy.tsx` 的 `.bp-why-num` → `aria-hidden="true"`。
+  守門:`BrandPageHeader.test.tsx`(alt='' + 屬性仍在 + 同頁 h1 真的還唸得到品牌名,三條各擋一種退化)、
+  `BrandPageWhy.test.tsx`(四張卡逐個驗,不用 querySelectorAll().length —— 只有第一張掛到時它也非零)。
+  突變 4 個全轉紅(改回品牌名 / 拿掉 alt / 拿掉 aria-hidden / 只有第一張掛到)。
+- **分流:** ✅ 已結案(原 P2-later)
+- **優先級:** ✅ 已結案(原 🟢 觀察(a11y 體驗,非阻斷))
 - **問題:**
   - `BrandPageHeader.tsx` 的 band logo `alt={brand.name}`,而同一個橫幅裡的
     `<h1 className="bp-title">` 也是 `{brand.name}` ⇒ 螢幕閱讀器會連續播報兩次品牌名。
@@ -8188,9 +8193,19 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #310. 📏 品牌頁數字條:手機單欄下,四個數字的品牌少一條分隔線
 
-- **狀態:** ⏳ 待執行
-- **分流:** P2-later
-- **優先級:** 🟢 觀察(視覺瑕疵,非阻斷)
+- **狀態:** ✅ **已完成(2026-08-04 / D2f;Sean 拍 A = 程式側直接修、不等設計側回寫)**
+- **修法:** ≤620 區塊補一行
+  `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:1px solid var(--c-border)}`。
+  真瀏覽器 390 實測:data-n=4 由 `[1,1,0,0]` → **`[1,1,1,0]`**;data-n=3 維持 `[1,1,0]` 未受影響;
+  1000px 兩欄版維持 `[1,1,0,0]` 未受影響。守門在 `brand-page.test.ts`,除正面斷言外還有三條:
+  ①≤620 的還原規則必須**恰 1 條、且 selector 必含 `[data-n="4"]`**(否則 3 個數字那 6 家會多一條線)
+  ②值不得是 0 ③順序必須排在 ≤1024 那條收線之後(同權重靠先後決勝)。
+  🔴 這條反面斷言我連錯兩次、兩次都是「量錯東西」:第一版用 `(?!…)` lookahead,而 `[data-n="4"]` 在
+  `nth-last-child(2)` **前面** ⇒ 往後看的 lookahead 永遠幫不上忙、對自己那條正確規則誤紅;
+  改用大括號走訪器後仍寫成「不含 `[data-n=`」⇒ **放行 `[data-n="3"]` 版本**(關卡2 nit 抓到)
+  ⇒ 第三版改成正面條件「必含 `[data-n="4"]`」,並補一個突變「還原線改掛 data-n=3」證明它會紅。
+- **分流:** ✅ 已結案(原 P2-later)
+- **優先級:** ✅ 已結案(原 🟢 觀察(視覺瑕疵,非阻斷))
 - **問題:**
   - `brand-page.css` 的 ≤620 區塊把數字條收成單欄,但**沒有還原 `.bp-num` 的 `border-bottom`**;
     而 ≤1024 的 `.bp-nums[data-n="4"] .bp-num:nth-last-child(2) { border-bottom: 0 }`
@@ -8219,9 +8234,30 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #311. 🔢 品牌介紹頁的標題階層跳級:h1 → h3 → h2
 
-- **狀態:** ⏳ 待執行
-- **分流:** P2-later
-- **優先級:** 🟢 觀察(a11y 體驗,非阻斷)
+- **狀態:** ✅ **已完成(2026-08-04 / D2f;Sean 拍 A = 程式側直接修、不等設計側回寫)**
+- **修法:** 選**候選①**(產品照卡標題改非標題元素):`<h3>` → `<p className="bp-aside-title">`,
+  CSS 選擇器同步 `.bp-aside-card h3` → `.bp-aside-card .bp-aside-title`(宣告一字未動)。
+  **選它的理由**:那一格是產品照的圖說、不是文件章節,改成非標題在語意上更正確、也是最小 diff;
+  候選②(補視覺隱藏的 h2)會與同區塊已存在的視覺標籤 `.bp-sec-label` "About" 對報讀器重複播報,
+  正是 #308 在修的毛病;候選③(整頁降級重排)動最多檔而收穫相同。
+  真瀏覽器實測大綱:`h1 KINEO → h2 為什麼是 Kineo → h3×4 → h2 經典的樣子 → h3×4`,跳級消失;
+  標題樣式量到 14px/600/19.6px/#121214/margin 12px 0 5px = 與原 h3 規則逐項相同 ⇒ 視覺零改動。
+  ⚠️ 連帶:這張卡現在有**兩個** `<p>`,基礎規則改成 `.bp-aside-card p:not(.bp-aside-title)`
+  (原本靠特異度 0-2-0 > 0-1-1 剛好贏,寫死排除免得日後重算)。
+  守門:About 區整段不得有任何 `h1-h6` + `.bp-aside-title` 的 tagName 必須是 P(缺一都會假綠)。
+  🔴 **整頁大綱本身沒有單一守門**(關卡2 nit):正式路由要 D3 才有,現在唯一組裝點是 dev-preview 的
+  server component;在測試裡照同樣順序自己排一次 = 守門與真頁各自漂移。改成**局部不變式**,
+  涵蓋 `page.tsx:37-44` 的**全部 7 支**:Header 恰一 h1 且無其他標題 / About(**兩條右欄分流都驗**)
+  與 Media、Categories 零標題 / Why·Craft·Timeline·BrandWall 首個標題是 h2 且只准 h2+h3。
+  序列 = `[1] ++ [] ++ B ++ B ++ B? ++ [] ++ B`,每個 B 首項=2 且 ⊆ {2,3} ⇒ 無跳級、**與組裝順序無關**。
+  🔴 **第一版只守 5 支、而且 About 只驗了 8 家那條分流**(關卡2 R2 抓到):另外 12 家走
+  `BrandPageMedia`(materya 從本片起也在裡面),在它裡面加一個 `<h3>` 圖說就是 h1→h3、而測試全綠。
+  七個對應突變(Why h2→h3 / Craft h2→h1 / Timeline h3→h4 / Header 多一個 h2 /
+  Media 加 h3 ×2 條路 / Categories 加 h4 / BrandWall h2→h3)全轉紅。
+  **D3 接上正式路由後仍值得補一支真的整頁大綱測試** —— 局部不變式擋得住「某支自己壞掉」,
+  擋不住「新增第 8 支元件而沒人給它不變式」。
+- **分流:** ✅ 已結案(原 P2-later)
+- **優先級:** ✅ 已結案(原 🟢 觀察(a11y 體驗,非阻斷))
 - **問題:**
   - 目前品牌頁的文件序是:`BrandPageHeader.tsx` 的 `<h1>`(品牌名)→
     `BrandPageAbout.tsx` 產品照卡的 `<h3>` → `BrandPageWhy.tsx` 的 `<h2>` → 四張卡的 `<h3>`。
@@ -8251,9 +8287,20 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #312. 🔊 品牌頁年表的「關鍵事件」對讀屏使用者完全不存在
 
-- **狀態:** ⏳ 待執行
-- **分流:** P2-later
-- **優先級:** 🟢 觀察(a11y 資訊遺失,非阻斷)
+- **狀態:** ✅ **已完成(2026-08-04 / D2f;Sean 拍 A = 程式側直接修、不等設計側回寫)**
+- **修法:** 年表 = key 列在 `<h3>` **裡面**補 `<span class="bp-sr-only">關鍵事件:</span>`
+  (放 h3 外面的話,用標題跳讀的人照樣聽不到 —— 守門有對應突變)。影片列 = 拿掉 `title`、留 `aria-label`。
+  `.sr-only` 落點:**`brand-page.css` 裡的 `.bp-sr-only`**(帶 `bp-` 前綴)——
+  本站站台級的 `.sr-only` 不存在(grep `apps/storefront/src` + `packages/ui/src` 零命中),
+  而本檔是普通 stylesheet 不是 CSS Module ⇒ 在這裡寫裸 `.sr-only` 等於替全站宣告一個全域工具 class,
+  那是 D5 整站語彙的事(同 `--c-red` 走 scope 的理由)。**站台級 `.sr-only` 仍未建 = 留待 D5**。
+  真瀏覽器實測:標記盒 1×1、`position:absolute` + `clip-path:inset(50%)` + `overflow:hidden`
+  且 `visibility:visible`(= 看不見但唸得到);key 列與一般列的 h3 左緣同為 441px、可見寬同為 959px
+  ⇒ 視覺零位移。守門含反面:不得出現 `display:none` / `visibility:hidden` / `font-size:0`;
+  另用走訪器驗 `.bp-sr-only` **恰 1 條、且不包在任何 `@media` 裡**(關卡2 nit:規則被搬進斷點區塊、
+  或多出第二條蓋回去,那組宣告斷言全部照樣綠)。兩個對應突變都轉紅。
+- **分流:** ✅ 已結案(原 P2-later)
+- **優先級:** ✅ 已結案(原 🟢 觀察(a11y 資訊遺失,非阻斷))
 - **問題:**
   - `BrandPageTimeline.tsx` 的 `is-key` 標記「這是該品牌真正的轉折點」,但它**只有顏色差異**:
     桌機是圓點由白轉橘 + 年份由半透明轉全白;手機只有年份由白轉橘。
@@ -8531,3 +8578,96 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   `apps/storefront/src/styles/tokens.css`(A 案的落點)/
   Open Design `pcm-home-redesign/brand-page.html:461-465` 與 `:860-866` /
   信箱 `C-19-A.md`(拍板)與 `C-20-Q.md`(我的前提更正)/ #312 第三條(原本在追這件事)
+
+---
+
+### #319. 🔁 storefront 對 Open Design 的**回寫債**:D2f 五處偏離只在 repo、設計稿側未同步
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2-later
+- **優先級:** 🟠 上線前(其中 materya 影片那條會**被重新產生靜默刪掉**,不是純潔癖)
+- **問題:**
+  - 2026-08-04 / D2f 一片裡有五處內容/程式與 Open Design `pcm-home-redesign` **不再一致**,
+    全部是 Sean 當天拍板要的、全部只落在 repo 這一側:
+    | # | 偏離 | repo 位置 | OD 來源 |
+    |---|---|---|---|
+    | 1 | **materya 換影片**(About 右欄產品照 → 直式 IG reel) | `data/brand-content.ts` 的 materya `video` | `brand-content-data.js` |
+    | 2 | band logo `alt=""`(#308) | `BrandPageHeader.tsx` | `brand-page.html:1642` |
+    | 3 | `.bp-why-num` `aria-hidden`(#308) | `BrandPageWhy.tsx` | `brand-page.html:1976` |
+    | 4 | ≤620 數字條補分隔線(#310) | `styles/brand-page.css` | `brand-page.html:1183-1185` |
+    | 5 | 產品照卡標題改 `<p>`(#311)+ 年表 sr-only、craft 去 `title`(#312) | 四支元件 + CSS | `:1964` / `:2011` / `:1999` |
+  - ⚠️ 連帶:`data/brand-content-types.ts` 檔頭的求值統計(video 11→12、file 4→5、source 4→5)
+    也跟著只在 repo 這側更新 —— 拿 OD 求值仍會得到舊的三個數字。
+  - 🔴 **第 1 條有真正的資料遺失風險,其餘四條只是「設計稿還留著舊寫法」**:
+    `brand-content.ts` 檔頭寫明【機器產生】並附重新產生指令,**照著重跑會把 materya 的
+    `video` 整塊刪掉**,而在 D2f 之前沒有任何測試會紅 —— `brand-assets.test.ts` 只驗
+    「資料引用的檔案存在」,少一筆引用它不會知道;video 互斥性那條對「沒有 video」是
+    `continue` 直接跳過。**D2f 已補一條守門**(`brand-content.test.ts` 的
+    「materya 的 About 右欄影片還在」),但守門只會讓你**知道**被刪了,不會幫你把它加回去。
+- **觸發事件:**
+  - 2026-08-04 / D2f。Sean 指定素材(IG reel `DVeM7gWDB3F`,720×1280 直式 72 秒含聲音)
+    + 拍 A「四條繼承瑕疵程式側直接修」,兩件事都明說 OD 側未同步 = 已知留債。
+- **預期解法:**
+  - A. **把五處回寫進 OD 來源**(乾淨解):`brand-content-data.js` 補 materya 的 `video`、
+    `brand-page.html` 改那四處。之後 `brand-content.ts` 可以無顧慮重新產生。
+  - B. 只回寫第 1 條(資料),其餘四條留在 repo 當「storefront 比設計稿新」的常態。
+  - 🔴 兩案都要決定**誰有權改 OD**(設計側是 Design session 的地盤,分工上 Claude Code 不做視覺設計;
+    但這五處都不是視覺決定 —— 四條是 a11y/CSS 修正、一條是 Sean 指定的素材)⇒ 走 Sean 拍板。
+- **不修會痛在:**
+  - 擴充性:D3 之後只要有人照檔頭重新產生 `brand-content.ts`,materya 的影片就沒了;
+    而每多一次這種手改,回寫成本就再高一層(現在是 5 處,還數得完)。
+  - 可維護性:「OD 是真權威」(鐵則 1 例外、Sean 08-03 拍 Q1=B)與「repo 才是最新」並存,
+    下一棒 grep 設計稿字面時會拿到舊寫法、以為 repo 搬錯了 —— 兩邊的檔頭都已加註記,但註記不是機制。
+  - bug 可追蹤性:第 1 條被刪掉時客人看到的是「右欄變回一張靜態產品照」,沒有人會回報。
+- **估時:** A 案 30-40 分鐘(含 OD 側逐處驗)/ B 案 10 分鐘
+- **依賴:** Sean 拍板(誰改 OD)
+- **發現於:** 2026-08-04 / D2f
+- **相關:** `apps/storefront/src/data/brand-content.ts`(檔頭 🔴🔴 那段記了同一件事)/
+  `apps/storefront/src/data/brand-content.test.ts`(materya 影片守門)/
+  `apps/storefront/src/styles/brand-page.css`(檔頭「反方向」那段列了 CSS 側三處)/
+  #308(**:8125 那條 band logo alt**,不是 :8070 的採購 typeahead —— 本檔有兩個 #308)、
+  #310、#311、#312(四條偏離的本體)/
+  Open Design `pcm-home-redesign/brand-content-data.js` 與 `brand-page.html`
+
+---
+
+### #320. 🔇 品牌頁影片「點播有聲」在 iOS Safari 可能不成立(React 掛載晚於手勢)
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟠 上線前(**Sean 會拿自己的手機驗,而這正是最可能失敗的裝置**)
+- **問題:**
+  - `BrandPageMedia.tsx` 的播放流程 = 點封面 → `setPlaying(true)` → React 重繪 →
+    `<video autoPlay>`(**不設 muted**)才掛進 DOM。元件註解寫「自動播有聲之所以不會被
+    瀏覽器拒,是因為掛載必定發生在使用者點下封面之後(同一個手勢鏈)」。
+  - 🔴 **那句對 iOS Safari 不成立**。WebKit 官方逐字:「when we say that an action must have
+    happened "as a result of a user gesture", we mean that the JavaScript which resulted in the
+    call to `video.play()` … must have **directly** resulted from a handler」
+    ⇒ 要求**同步**發生在手勢處理器裡。React 的 state 更新讓 `<video>` 在**之後**的
+    渲染工作才進 DOM,手勢額度可能已經不在。
+  - ⇒ 客人按了封面,可能得到**靜音播放**或**根本不播**。桌機 Chromium 實測是好的
+    (2026-08-04 / D2f:`muted=false`、`webkitAudioDecodedByteCount>0`)——
+    **但那證不了 iOS**,兩者的政策不同。
+  - **影響 5 家自架片品牌**(cnc-racing / front3d / gilles / lightech / materya),
+    不是 materya 一家;materya 是 D2f 新加入的第 5 家。
+- **觸發事件:**
+  - 2026-08-04 / D2f 關卡2 R3(換角度:真實使用者與執行面)。**前兩輪都沒看到這一面**
+    —— 它們打的是字面正確性與守門判別力,而這條是「桌機綠、客人的手機上壞掉」。
+- **預期解法(需驗證,不是三選一那種):**
+  - A. 在 click handler 裡**同步**呼叫 `play()`:改成播放器常駐(隱藏)、點擊時 `ref.current.play()`,
+    而不是點擊後才建元素。🔴 但這與設計稿記載的「點了才掛播放器」行為(D2c-2 為了修
+    Sean 2026-08-02 回報的「youtube 影片點不開」而搬的)直接衝突 —— **自架 mp4 與
+    第三方 iframe 可以分開處理**,前者沒有跨網域框架被擋的問題。
+  - B. 接受靜音起播 + 讓客人自己按喇叭(`controls` 已經在)。最省事、但不符 Sean 的驗收條件。
+  - 🔴 **兩案都必須在真的 iOS 裝置上驗過才算數** —— 這條的成因就是「在錯的裝置上量」。
+- **不修會痛在:**
+  - 擴充性:每多一家自架片品牌就多一個中招點;D3 上正式路由後是 20 家品牌頁的常態入口。
+  - 可維護性:元件註解目前**寫著一個錯的理由**(「同一個手勢鏈」),下一個人會照著信。
+  - bug 可追蹤性:客人不會回報「影片沒聲音」,只會以為這支影片本來就沒聲音。
+- **估時:** A 案 40 分鐘 + 真機驗;B 案 10 分鐘
+- **依賴:** 一台真的 iPhone(Sean 的手機即可)
+- **發現於:** 2026-08-04 / D2f 關卡2 R3
+- **相關:** `apps/storefront/src/components/brand/BrandPageMedia.tsx:155-171`(`BrandFilmPlayer` 的
+  `video.file` 分支 + `:157-160` 那段寫錯理由的註解)/
+  WebKit 官方 <https://webkit.org/blog/6784/new-video-policies-for-ios/> /
+  #319(materya 影片那條偏離)/ memory `reference_pcm-mobile-device-verify-dev-vs-prod`

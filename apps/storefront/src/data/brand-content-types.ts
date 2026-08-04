@@ -9,7 +9,9 @@
 //    必填 / 選填的依據是「20 家裡出現幾次」,不是「文件說它重要」:
 //      band 20 · bandLogo 20 · logoScale 20 · facts 20 · about 20 · aside 20
 //      highlights 20 · craft 20 · categories 20 · focus 20 · slogan 20
-//      stats 14 · video 11 · timeline 2
+//      stats 14 · video 12 · timeline 2
+//    ⚠️ video 由 11 → 12 是 2026-08-04 / D2f **手動**加了 materya 的影片(Sean 指定素材);
+//       Open Design 來源側尚未回寫 ⇒ 拿 OD 求值會得到 11(backlog #319)。
 //    ⚠️ 先前用 grep 數 `video:` 得到 13 是**錯的** —— craft.rows 裡也有 `video` 鍵。
 //       這就是形狀要用求值取、不要用 grep 數的理由。
 //
@@ -116,7 +118,7 @@ export type BrandCraftRow = {
 export type BrandCraft = { title: string; rows: BrandCraftRow[] };
 
 /**
- * 品牌影片。來源三選一、互斥:`youtube`(6)/ `file`(4)/ `vimeo`(1)。
+ * 品牌影片。來源三選一、互斥:`youtube`(6)/ `file`(5)/ `vimeo`(1)。
  * 🔴 型別刻意**不**做成 discriminated union:資料是設計側手寫的物件字面,
  *    做成 union 會讓 D1b 的搬運被迫改寫資料形狀,而改寫就有走樣的風險。
  *    「恰好一個來源」由 D1b 的 harness 斷言守(見該片測試),不是由型別守。
@@ -132,7 +134,7 @@ export type BrandVideo = {
   caption: string;
   /** 直式影片,≤1180 會跨滿整列走滿版(BRAND-PAGE-HANDOFF §4.3)。 */
   portrait?: true;
-  /** 原始出處連結 + 連結字面(實測 4 家有)。 */
+  /** 原始出處連結 + 連結字面(實測 5 家有)。 */
   source?: string;
   sourceLabel?: string;
 };

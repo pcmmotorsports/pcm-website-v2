@@ -390,6 +390,88 @@ describe('品牌頁 CSS · Why 與數字條(D2d-1)', () => {
       .toMatch(/\.bp-nums\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
   });
 
+  it('🔴 ≤620 單欄要把 data-n=4 第 3 格的底線**還回來**(#310)', () => {
+    // ≤1024 的 `[data-n="4"] .bp-num:nth-last-child(2){border-bottom:0}` 守的是**兩欄版**
+    // 的「最後一列有兩格」;它在 ≤620 仍然命中(max-width:1024 涵蓋 620),而單欄下最後
+    // 一列只有最後一格 ⇒ 4 個數字的 8 家在手機上第 3、4 格黏成一團(390 實測修前
+    // data-n=4 → [1px,1px,0px,0px];data-n=3 → [1px,1px,0px] 本來就對)。
+    const small = mediaBlock('(max-width: 620px)');
+    expect(small, '找不到 ≤620 區塊').toContain('.bp-nums');
+    expect(small).toMatch(
+      /\.bp-nums\[data-n="4"\] \.bp-num:nth-last-child\(2\)\s*\{[^}]*border-bottom:\s*1px solid var\(--c-border\)/,
+    );
+    // 🔴 兩條反面缺一不可,各擋一種「看起來修好了但沒修好」:
+    //   ① 還原規則不得寫成無條件(拿掉 [data-n="4"] ⇒ 3 個數字那 6 家的第 2 格會多一條線,
+    //      而正面那條照樣綠 —— 它只查有沒有那個選擇器,不查有沒有多出別的)。
+    //      🔴 用走訪器逐條看 selector,不用 `(?!…)` lookahead:`[data-n="4"]` 在
+    //         `nth-last-child(2)` **前面**,往後看的 lookahead 永遠幫不上忙
+    //         —— 第一版就是這樣寫的,而它對自己那條正確的規則誤紅。
+    //      🔴 用**正面**條件(必須含 `[data-n="4"]`),不是「不含 `[data-n=`」——
+    //         後者放行 `[data-n="3"] .bp-num:nth-last-child(2){border-bottom:1px}`,
+    //         而那正是註解說不能做的那件事(3 個數字的 6 家會多一條線)。關卡2 nit。
+    const restorers = cssRules().filter(
+      (r) =>
+        r.at.some((a) => a.includes('max-width: 620px')) &&
+        r.selector.includes('nth-last-child(2)') &&
+        /border-bottom:\s*1px/.test(r.body),
+    );
+    expect(restorers.length, '前提:≤620 真的有一條還原規則').toBe(1);
+    expect(
+      restorers.filter((r) => !r.selector.includes('[data-n="4"]')).map((r) => r.selector),
+      '單欄還原只能掛在 data-n=4 上',
+    ).toEqual([]);
+    //   ② 順序:同權重 (0,3,1),≤620 必須排在 ≤1024 之後才蓋得掉(上一條測 ≤1024 在前,
+    //      這裡直接量「還原那一行」自己的位置,免得有人把它搬進別的區塊)
+    const restore = CSS.indexOf('.bp-nums[data-n="4"] .bp-num:nth-last-child(2) { border-bottom: 1px');
+    const zeroed = CSS.indexOf('.bp-nums[data-n="4"] .bp-num:nth-last-child(2) { border-bottom: 0');
+    expect(restore, '找不到還原那一行(格式被改過就會抓不到,請一起更新這條)').toBeGreaterThan(-1);
+    expect(zeroed, '找不到 ≤1024 收線那一行').toBeGreaterThan(-1);
+    expect(restore, '還原那一行排到收線那一行前面了 ⇒ 同權重下被蓋回 0').toBeGreaterThan(zeroed);
+  });
+
+  it('🔴 .bp-sr-only 真的是「看不見但唸得到」(#312 年表關鍵事件的載體)', () => {
+    // display:none / visibility:hidden 會讓報讀器一起看不到 = 完全沒效果 ——
+    // 而元件測試只查 `.bp-sr-only` 這個 class 在不在,對「它其實把內容也藏掉了」全盲。
+    // 🔴 先用走訪器確認「**恰一條、且不在任何 @media 裡**」:規則被搬進斷點區塊、
+    //    或多出第二條把它蓋回去,下面那組宣告斷言全部照樣綠(關卡2 nit)。
+    //    🔴 用 `selector.includes` 不是逐段完全相等(關卡2 R2 殘留):完全相等只擋得住
+    //       「第二條同名規則」,而 `.bp-time-body h3 .bp-sr-only{position:static}` 這種
+    //       **更具體的覆寫**特異度更高、選擇器不相等 ⇒ 不入計數,而字就此變成看得見。
+    const srRules = cssRules().filter((r) => r.selector.includes('.bp-sr-only'));
+    expect(
+      srRules.map((r) => r.selector),
+      '整份只能有一條規則碰 .bp-sr-only(含更具體的覆寫)',
+    ).toEqual(['.bp-sr-only']);
+    expect(srRules[0]!.at, '.bp-sr-only 不得包在 @media 裡(斷點外就失效)').toEqual([]);
+    const rule = CSS.match(/\.bp-sr-only\s*\{([^}]*)\}/);
+    expect(rule, '找不到 .bp-sr-only 規則').not.toBeNull();
+    const body = rule![1]!;
+    expect(body).toMatch(/position:\s*absolute/);
+    expect(body).toMatch(/width:\s*1px/);
+    expect(body).toMatch(/height:\s*1px/);
+    expect(body).toMatch(/overflow:\s*hidden/);
+    expect(body).toMatch(/clip-path:\s*inset\(50%\)/);
+    // 🔴 反面:這三個任一出現都會把內容從無障礙樹上一起拿掉
+    expect(body, 'display:none 會讓報讀器也讀不到').not.toMatch(/display:\s*none/);
+    expect(body, 'visibility:hidden 會讓報讀器也讀不到').not.toMatch(/visibility:\s*hidden/);
+    expect(body, 'font-size:0 會讓部分報讀器跳過').not.toMatch(/font-size:\s*0/);
+  });
+
+  it('🔴 產品照卡標題吃 .bp-aside-title(#311 改成 <p> 後,舊的 h3 選擇器會靜默失效)', () => {
+    // 元件端把 `<h3>` 換成 `<p class="bp-aside-title">`;CSS 若還寫 `.bp-aside-card h3`,
+    // 三綠全綠、元件測試全綠,只有真站上那行字會掉回 UA 預設的 16px 黑字。
+    expect(CSS).toMatch(/\.bp-aside-card \.bp-aside-title\s*\{[^}]*font-size:\s*14px/);
+    expect(CSS, '整份不得再有指向 h3 的產品照卡規則').not.toMatch(/\.bp-aside-card h3/);
+    // ≤960 的置中那條**不需要**跟著改名:標題現在是 `<p>`,`.bp-aside-card p` 本來就命中它。
+    // (第一版在這裡多要求一個 `.bp-aside-title`,而那是冗餘 —— 關卡2 nit 打掉;
+    //  對應的突變「≤960 置中只留 p」其實視覺零改變,是個假突變。)
+    // 🔴 `\s*\{` 不是 `[^{]*\{`(關卡2 R2 新 finding):後者會**一起吃掉後綴**,
+    //    `.bp-aside-card p:not(.bp-aside-title){text-align:center}`(= 標題在 ≤960 不再置中)
+    //    與 `.bp-aside-card p em{…}` 兩種都照樣通過 —— 正好是這條要防的事情的鏡像。
+    expect(mediaBlock('(max-width: 960px)'))
+      .toMatch(/\.bp-aside-card p\s*\{[^}]*text-align:\s*center/);
+  });
+
   it('🔴 卡片編號用 --c-ember-ink 不是 --c-red(白底上的熔橘過不了 AA)', () => {
     // 白底 #f26722 只有 3.12:1,11px 小字要 4.5:1;ember-ink 是同色系深階 4.94:1。
     // 深色底的年表(D2d-2)才仍用 --c-red(5.12:1)—— 順手「統一色票」會直接打掉一條 AA。

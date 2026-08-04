@@ -71,13 +71,20 @@ describe('BrandPageHeader · 橫幅', () => {
     ).toBe('');
   });
 
-  it('band logo 用 bandLogo 欄、alt = 純品牌名(設計稿 :1642 的 esc(brand.name))', () => {
+  it('🔴 band logo 用 bandLogo 欄、alt 是**空字串**(#308:與 h1 重複播報)', () => {
     const { container } = render(<BrandPageHeader brand={akrapovic} />);
     const logo = container.querySelector<HTMLImageElement>('.bp-band-logo img');
     expect(logo?.getAttribute('src')).toBe(`/brand-assets/${akrapovic.bandLogo}`);
-    // 🔴 用 toBe 不用 toContain:原本寫「X 標誌」時 toContain 照樣綠,
-    //    偏離設計字面而測試看不見(關卡2 MF3)。
-    expect(logo?.getAttribute('alt')).toBe(akrapovic.name);
+    // 設計稿 :1642 是 `alt="${esc(brand.name)}"`;Sean 2026-08-04 拍 A 偏離成 alt=""
+    // (品牌名已由同一個橫幅裡的 h1 承擔 ⇒ 報讀器會連續唸兩次品牌名)。
+    // 🔴 三條缺一不可,各擋不同的退化:
+    //   ① toBe('') 擋「改回品牌名」
+    //   ② hasAttribute 擋「整個 alt 拿掉」—— 那**不等價**(報讀器改唸檔名),
+    //      而 getAttribute 對它回 null,單靠 ① 的訊息會說不清是哪一種壞法
+    //   ③ 同頁真的還有一個唸得到品牌名的東西 —— 否則 alt="" 是把資訊刪掉、不是去重
+    expect(logo?.getAttribute('alt')).toBe('');
+    expect(logo?.hasAttribute('alt'), 'alt 屬性本身必須在(拿掉 ≠ alt="")').toBe(true);
+    expect(container.querySelector('h1.bp-title')?.textContent).toBe(akrapovic.name);
   });
 
   it('🔴 三個設計稿字面屬性都在(漏了不會讓任何測試變紅,只會讓 LCP/CLS 變差)', () => {
@@ -179,5 +186,29 @@ describe('BrandPageHeader · 20 家全部渲染', () => {
       }
       cleanup();
     }
+  });
+});
+
+// ── #311 標題階層:整頁大綱的守門拆成「每支元件各自的局部不變式」 ──────────────
+// 🔴 為什麼不寫一支「渲染整頁再驗大綱」的測試(關卡2 nit 8 指出這個缺口):
+//    正式路由要到 D3 才有,現在唯一的組裝點是 dev-preview 那支 server component;
+//    在測試裡「照同樣順序自己排一次」= 守門與真實頁面會各自漂移,綠了也不代表頁面對。
+//    改成**頁面上的每一支**元件各自保證(`dev-preview/brand-page/[slug]/page.tsx:37-44` 共 7 支):
+//      · Header 恰一個 h1 且無其他標題
+//      · About 零標題 —— **兩條右欄分流都要驗**(產品照卡 8 家 / 影片 12 家)
+//      · Media / Categories 零標題
+//      · Why · Craft · Timeline · BrandWall 第一個標題是 h2、最深只到 h3
+//    序列 = [1] ++ [] ++ B ++ B ++ B? ++ [] ++ B,每個 B 首項=2 且 ⊆ {2,3}
+//    ⇒ 1→2 是 +1、{2,3} 內部只有 +1 或下降 ⇒ 無跳級,且**與組裝順序無關**。
+//    🔴 關卡2 R2 抓到第一版只守了 5 支:About 的斷言只跑 `asideOnly`(8 家),
+//       另外 12 家走的是 `BrandPageMedia`,而它與 Categories / BrandWall 三支**零守門**
+//       ⇒ 在 Media 裡加一個 <h3> 圖說,h1 直接接 h3、5 條測試全綠。
+
+describe('BrandPageHeader · 標題階層(#311)', () => {
+  it('🔴 恰一個 h1(品牌名),且本區不得出現任何其他標題元素', () => {
+    const { container } = render(<BrandPageHeader brand={akrapovic} />);
+    const hs = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')];
+    expect(hs.map((h) => h.tagName)).toEqual(['H1']);
+    expect(hs[0]!.textContent).toBe(akrapovic.name);
   });
 });

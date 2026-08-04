@@ -57,6 +57,19 @@ describe('BrandPageWhy · 卡片', () => {
     expect(nums).toEqual(['01', '02', '03', '04']);
   });
 
+  it('🔴 編號對報讀器隱藏(#308 同族:它是視覺對齊、不帶資訊)', () => {
+    // 元件註解自己講的:01 02 03 04 是等寬字的**視覺對齊**。留著會讓報讀器在
+    // 每張卡標題前多唸一次「零一」「零二」(設計稿 :1976 沒有 aria-hidden;Sean 08-04 拍 A)。
+    const { container } = render(<BrandPageWhy brand={withStats} />);
+    const nums = [...container.querySelectorAll('.bp-why-num')];
+    expect(nums.length, '前提:真的有編號可驗').toBe(4);
+    // 🔴 逐個驗、不用 querySelectorAll('[aria-hidden]').length —— 後者在「只有第一張掛到」
+    //    時也會是非零;而漏掛的那幾張就是會被唸出來的那幾張。
+    for (const [i, n] of nums.entries()) {
+      expect(n.getAttribute('aria-hidden'), `第 ${i + 1} 張卡的編號`).toBe('true');
+    }
+  });
+
   it('🔴 整條巢狀鏈都要正向斷言 —— 它們扛的是格線與斷點,而 jsdom 不算 grid', () => {
     // 關卡2 M2:原本只驗 `.bp-why-grid` 存在 ⇒ 把**無 class 的那層 wrapper**整層刪掉,
     // 元件測試與 CSS 測試會全綠(CSS 測試只讀原文)—— 而少了那層,h2/lead/卡片/數字條
@@ -160,5 +173,32 @@ describe('BrandPageWhy · 20 家實資料', () => {
     expect(shown).toBeLessThan(BRAND_CONTENT.length);
     // 實測分佈:14 家有、其中 6 家只有 3 個數字(3 個那組正是 data-n 分流的理由)
     expect(BRAND_CONTENT.filter((b) => b.stats?.items.length === 3).length).toBeGreaterThan(0);
+  });
+});
+
+// ── #311 標題階層:整頁大綱的守門拆成「每支元件各自的局部不變式」 ──────────────
+// 🔴 為什麼不寫一支「渲染整頁再驗大綱」的測試(關卡2 nit 8 指出這個缺口):
+//    正式路由要到 D3 才有,現在唯一的組裝點是 dev-preview 那支 server component;
+//    在測試裡「照同樣順序自己排一次」= 守門與真實頁面會各自漂移,綠了也不代表頁面對。
+//    改成**頁面上的每一支**元件各自保證(`dev-preview/brand-page/[slug]/page.tsx:37-44` 共 7 支):
+//      · Header 恰一個 h1 且無其他標題
+//      · About 零標題 —— **兩條右欄分流都要驗**(產品照卡 8 家 / 影片 12 家)
+//      · Media / Categories 零標題
+//      · Why · Craft · Timeline · BrandWall 第一個標題是 h2、最深只到 h3
+//    序列 = [1] ++ [] ++ B ++ B ++ B? ++ [] ++ B,每個 B 首項=2 且 ⊆ {2,3}
+//    ⇒ 1→2 是 +1、{2,3} 內部只有 +1 或下降 ⇒ 無跳級,且**與組裝順序無關**。
+//    🔴 關卡2 R2 抓到第一版只守了 5 支:About 的斷言只跑 `asideOnly`(8 家),
+//       另外 12 家走的是 `BrandPageMedia`,而它與 Categories / BrandWall 三支**零守門**
+//       ⇒ 在 Media 裡加一個 <h3> 圖說,h1 直接接 h3、5 條測試全綠。
+
+describe('BrandPageWhy · 標題階層(#311)', () => {
+  it('🔴 第一個標題是 h2、其餘只到 h3(多一階或跳級都會讓整頁大綱壞掉)', () => {
+    const { container } = render(<BrandPageWhy brand={withStats} />);
+    const levels = [...container.querySelectorAll('h1, h2, h3, h4, h5, h6')]
+      .map((h) => Number(h.tagName[1]));
+    expect(levels.length, '前提:真的有標題可驗').toBeGreaterThan(0);
+    expect(levels[0], '本區第一個標題必須是 h2').toBe(2);
+    expect(levels.filter((l) => l !== 2 && l !== 3), '只准出現 h2 與 h3').toEqual([]);
+    expect(levels.includes(3), '卡片標題必須是 h3').toBe(true);
   });
 });

@@ -9,8 +9,8 @@
 //    2026-08-02 Sean 回報「youtube 影片在我們這個畫面點不開」,自動掛 iframe 在
 //    擋第三方框架的環境下會蓋掉本地封面變全黑。封面圖是本站資產,一定顯示得出來。
 //
-// 實測 11 家有影片:youtube 6 / file 4 / vimeo 1;其中 3 家 portrait(cnc-racing /
-// front3d / lightech)。四種來源分流的判別力**不是**由真資料提供 —— vimeo 只有一家、
+// 實測 12 家有影片:youtube 6 / file 5 / vimeo 1;其中 4 家 portrait(cnc-racing /
+// front3d / lightech / materya)。四種來源分流的判別力**不是**由真資料提供 —— vimeo 只有一家、
 // `mutedOnly` 零家(見下方註解)—— 由測試的合成 fixture 提供。
 //
 // 🔴 對設計稿字面的四處偏離(逐條理由寫在對應位置,這裡只列清單):
@@ -19,7 +19,7 @@
 //   ③ 退路面板的連結用 `rel="noopener noreferrer"`,設計稿 :1945 只有 `noopener`
 //      (與同檔圖說連結 :1406 的寫法對齊;noreferrer 只多擋一個 referrer 外洩,不改行為)
 //   ④ 影片 id 過 `encodeURIComponent`(設計稿只在 watch 網址用、embed 網址沒用);
-//      對 11 家的合法 id 是 identity,純粹讓「哪天有人貼進奇怪字元」不會拼出壞網址
+//      對 12 家的合法 id 是 identity,純粹讓「哪天有人貼進奇怪字元」不會拼出壞網址
 // (CSS 側另有兩處,寫在 `styles/brand-page.css`:`.bp-film-cap` 死規則未搬、
 //  播放鈕的 `:focus-visible` 負 offset。)
 
@@ -37,7 +37,7 @@ const BLOCKED_TIMEOUT_MS = 4000;
  * 圖說右邊的外開連結(設計稿 :1882-1894)。
  *
  * 🔴 設計稿的 else 分支無條件用 `brand.video.youtube` 組 watch 網址 ——
- *    三種來源都沒有的資料會生出 `?v=undefined` 的死連結。實測 11 家都有來源
+ *    三種來源都沒有的資料會生出 `?v=undefined` 的死連結。實測 12 家都有來源
  *    ⇒ 那條路不可達;這裡回 `null` 讓連結整個不建(= 設計稿骨架 :1406 的 `hidden` 初始態),
  *    而不是把死連結印給客人。這是補設計稿的邊界、不是改它的行為。
  */
@@ -93,7 +93,7 @@ export function BrandPageMedia({ video }: { video: BrandVideo }) {
                 ⚠️ 這裡**不能**宣稱「一定有連結」:`isIframe = !video.file`,所以三種來源
                    全空的資料也會走 iframe 這條、而 watchLink() 對它回 null ⇒ 退路面板只剩
                    一行文案、沒有出口。那是 watchLink 的 null 分支自己造出來的形狀
-                   (真資料 11 家皆有來源 ⇒ 不可達;判別力由測試 fixture 提供)。 */}
+                   (真資料 12 家皆有來源 ⇒ 不可達;判別力由測試 fixture 提供)。 */}
             {link && (
               <a href={link.href} target="_blank" rel="noopener noreferrer">
                 在新分頁開啟影片 →
@@ -156,8 +156,14 @@ function BrandFilmPlayer({
     // 自架檔案:不經第三方,擋掉第三方框架的環境也放得動。
     // 🔴 設計稿寫 `el.muted = !!brand.video.mutedOnly`,而 `mutedOnly` 在 20 家資料裡
     //    **零次出現**(D1a 的型別是求值量出來的,所以也沒有這個欄位)⇒ `!!undefined`
-    //    恆為 false ⇒ 這裡不設 muted 與設計稿等價。自動播有聲之所以不會被瀏覽器拒,
-    //    是因為掛載必定發生在使用者點下封面之後(同一個手勢鏈)。
+    //    恆為 false ⇒ 這裡不設 muted 與設計稿等價。
+    // 🔴🔴 **原註解寫「掛載必定發生在點擊之後(同一個手勢鏈)⇒ 自動播有聲不會被拒」——
+    //    那句對 iOS Safari 是錯的**(2026-08-04 / D2f 關卡2 R3 更正;backlog #320)。
+    //    WebKit 官方逐字要求 `play()` 必須 **directly** 由手勢處理器觸發 = **同步**;
+    //    而這裡是 `setPlaying(true)` → React 重繪 → `<video>` 才進 DOM,晚於手勢。
+    //    ⇒ iOS 上可能靜音播放或不播。桌機 Chromium 實測有聲(`muted=false` +
+    //      `webkitAudioDecodedByteCount>0`)**證不了 iOS**,兩者政策不同。
+    //    影響 5 家自架片品牌,不只 materya。修法與真機驗證在 #320。
     return (
       <video
         src={brandAsset(video.file)}

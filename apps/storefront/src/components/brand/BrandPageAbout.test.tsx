@@ -16,7 +16,7 @@ import type { BrandContent } from '@/data/brand-content-types';
 
 afterEach(cleanup);
 
-/** 有 aside 沒 video 的真品牌(9 家之一);找不到就讓測試自己講話,不要 fallback 成別的形狀。 */
+/** 有 aside 沒 video 的真品牌(8 家之一);找不到就讓測試自己講話,不要 fallback 成別的形狀。 */
 const asideOnly = BRAND_CONTENT.find((b) => !b.video && b.aside) as BrandContent;
 const withVideo = BRAND_CONTENT.find((b) => b.video) as BrandContent;
 
@@ -68,7 +68,7 @@ describe('🔴 BrandPageAbout · 右欄一次只放一個東西', () => {
   });
 
   it('🔴 有 video 時放影片、**不**渲染產品照(即使 aside 也有資料)', () => {
-    // 實測 11 家 video+aside 都有 ⇒ 這條路是常態不是邊界。
+    // 實測 12 家 video+aside 都有 ⇒ 這條路是常態不是邊界。
     // 少了這個分流,右欄會同時冒出影片與產品照兩個東西。
     expect(withVideo.aside, '前提:挑到的樣本 aside 也要有,否則這條測不到東西').toBeDefined();
     const { container } = render(<BrandPageAbout brand={withVideo} />);
@@ -119,7 +119,10 @@ describe('BrandPageAbout · 產品照卡', () => {
       aside: { ...asideOnly.aside!, note: 'PUSH &amp; PULL' },
     };
     const { container } = render(<BrandPageAbout brand={brand} />);
-    expect(container.querySelector('.bp-aside-card p')?.textContent).toBe('PUSH & PULL');
+    // 🔴 `:not(.bp-aside-title)`:#311 把標題改成 `<p>` 之後這張卡裡有兩個 `<p>`,
+    //    裸的 `.bp-aside-card p` 會先撈到標題(實測回傳的是 aside.title 的字)。
+    expect(container.querySelector('.bp-aside-card p:not(.bp-aside-title)')?.textContent)
+      .toBe('PUSH & PULL');
   });
 
   it('title 是純文字(設計稿對它走 esc())', () => {
@@ -128,7 +131,35 @@ describe('BrandPageAbout · 產品照卡', () => {
       aside: { ...asideOnly.aside!, title: '<strong>標</strong>' },
     };
     const { container } = render(<BrandPageAbout brand={brand} />);
-    expect(container.querySelector('.bp-aside-card h3')?.querySelectorAll('strong')).toHaveLength(0);
+    const title = container.querySelector('.bp-aside-card .bp-aside-title');
+    expect(title, '前提:標題節點真的在(選擇器改名後這條最容易空過)').not.toBeNull();
+    expect(title?.querySelectorAll('strong')).toHaveLength(0);
+    expect(title?.textContent).toBe('<strong>標</strong>');
+  });
+
+  it('🔴 產品照卡的標題**不是標題元素**(#311:h1 → h3 → h2 跳級)', () => {
+    // 整頁文件序 = h1(品牌名,Header)→ 這一格 → h2(Why)。留成 h3 的話
+    // ①從 h1 直接跳到 h3 ②它排在自己「應該屬於」的 h2 之前
+    // ⇒ 用標題導覽的人拿到一份對不上內容的大綱(設計稿 :1964 是 h3;Sean 08-04 拍 A)。
+    const { container } = render(<BrandPageAbout brand={asideOnly} />);
+    // 🔴 兩條缺一不可:只查 h3 的話,改成 h2/h4 照樣全綠(還是標題、階層照樣壞);
+    //    只查 .bp-aside-title 的話,`<h3 class="bp-aside-title">` 也全綠。
+    expect(
+      container.querySelectorAll('h1, h2, h3, h4, h5, h6').length,
+      'About 區整段不得有任何標題元素',
+    ).toBe(0);
+    expect(container.querySelector('.bp-aside-title')?.tagName).toBe('P');
+    cleanup();
+    // 🔴 **右欄有兩條分流,兩條都要驗**(關卡2 R2 must-fix):上面那個樣本是「產品照卡」那條,
+    //    只涵蓋 8 家;另外 12 家走 `BrandPageMedia`(materya 從 D2f 起也在裡面)。
+    //    只驗一條的話,在 Media 裡加一個 <h3> 圖說 ⇒ h1 直接接 h3、而這條測試全綠。
+    const withVideoRender = render(<BrandPageAbout brand={withVideo} />);
+    expect(withVideoRender.container.querySelector('.bp-media'), '前提:真的走到影片那條分流')
+      .not.toBeNull();
+    expect(
+      withVideoRender.container.querySelectorAll('h1, h2, h3, h4, h5, h6').length,
+      '影片分流下 About 區同樣不得有任何標題元素',
+    ).toBe(0);
   });
 });
 
