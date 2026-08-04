@@ -41,11 +41,11 @@ function Harness({ garage = [] }: { garage?: GarageChipItem[] }) {
 
 // 選到 YAMAHA / YZF-R1(字典內有五個年份 2020-2024)= 年份排序斷言的資料前提。
 function pickYamahaR1() {
-  const brandInput = screen.getByPlaceholderText('搜尋或選擇廠牌');
+  const brandInput = screen.getByPlaceholderText('選擇或輸入廠牌');
   fireEvent.change(brandInput, { target: { value: 'YAMAHA' } });
   fireEvent.blur(brandInput);
 
-  const modelInput = screen.getByPlaceholderText('搜尋或選擇車型');
+  const modelInput = screen.getByPlaceholderText('選擇或輸入車型');
   fireEvent.change(modelInput, { target: { value: 'YZF-R1' } });
   fireEvent.blur(modelInput);
 }
@@ -81,10 +81,10 @@ describe('CascadeFilterTop', () => {
 
     expect(screen.getByText('選擇適用車輛')).toBeDefined();
     expect(screen.getByText('可直接選擇，也可輸入搜尋')).toBeDefined();
-    expect(screen.getByPlaceholderText('搜尋或選擇廠牌')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入廠牌')).toBeDefined();
     // 尚未選廠牌 ⇒ 車型欄是跨層直搜態(Sean 2026-07-30:桌機也要能直接輸入車款)
-    expect(screen.getByPlaceholderText('搜尋或選擇車型，例:R6')).toBeDefined();
-    expect(screen.getByPlaceholderText('搜尋或選擇年份')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入車型，例:R6')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入年份')).toBeDefined();
     // 舊字面已退場(留著=兩套並存、正式站會出現沒人維護的分支)
     expect(screen.queryByText('確認適用車款')).toBeNull();
     expect(screen.queryByText('先選車，只顯示裝得上的零件')).toBeNull();
@@ -96,7 +96,7 @@ describe('CascadeFilterTop', () => {
     render(<Harness />);
     pickYamahaR1();
 
-    fireEvent.focus(screen.getByPlaceholderText('搜尋或選擇年份'));
+    fireEvent.focus(screen.getByPlaceholderText('選擇或輸入年份'));
     const yearOptions = screen.getAllByRole('option').map((option) => option.textContent);
     expect(yearOptions).toEqual(['2024', '2023', '2022', '2021', '2020']);
   });
@@ -119,7 +119,7 @@ describe('CascadeFilterTop', () => {
   it('lets the desktop model field search across brands before a brand is picked', () => {
     render(<Harness />);
 
-    const modelInput = screen.getByPlaceholderText('搜尋或選擇車型，例:R6');
+    const modelInput = screen.getByPlaceholderText('選擇或輸入車型，例:R6');
     expect((modelInput as HTMLInputElement).disabled).toBe(false); // 不再需要先選廠牌
 
     fireEvent.change(modelInput, { target: { value: 'YZF-R1' } });
@@ -128,17 +128,33 @@ describe('CascadeFilterTop', () => {
     fireEvent.mouseDown(option);
 
     // 廠牌欄被一併補上、車型欄落在字典字面
-    expect((screen.getByPlaceholderText('搜尋或選擇廠牌') as HTMLInputElement).value).toBe('YAMAHA');
+    expect((screen.getByPlaceholderText('選擇或輸入廠牌') as HTMLInputElement).value).toBe('YAMAHA');
     expect(screen.getByDisplayValue('YZF-R1')).toBeDefined();
     expect(screen.getByText('清除車輛')).toBeDefined();
   });
 
   it('shows a no-match hint instead of a silent empty list on the desktop model field', () => {
     render(<Harness />);
-    fireEvent.change(screen.getByPlaceholderText('搜尋或選擇車型，例:R6'), {
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入車型，例:R6'), {
       target: { value: 'zzzz' },
     });
     expect(screen.getByText('查無符合的車款，請調整關鍵字')).toBeDefined();
+  });
+
+  // A4(選車引擎統一 B′):A 表要求三欄 emptyHint 同式,原本只有車型欄有 ⇒ 廠牌/年份兩欄補齊。
+  // 沒有這條,兩個新 prop 拿掉後整支測試照樣全綠(零命中時只是靜靜地不出清單)。
+  it('廠牌與年份欄零命中同樣出提示(A 表:三欄同式)', () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入廠牌'), { target: { value: 'zzzz' } });
+    expect(screen.getByText('查無符合的廠牌，請調整關鍵字')).toBeDefined();
+
+    // 年份欄要先選到有年份的車型才不是 disabled(disabled 欄不顯提示)
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入廠牌'), { target: { value: 'YAMAHA' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'YAMAHA' }));
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入車型'), { target: { value: 'YZF-R1' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'YZF-R1' }));
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入年份'), { target: { value: '1999' } });
+    expect(screen.getByText('查無符合的年份，請調整關鍵字')).toBeDefined();
   });
 
   // 收工條件(交接檔 Slice B):`vehicle-ui=preview` 只能是開發過渡、不得留正式語意。
@@ -152,7 +168,7 @@ describe('CascadeFilterTop', () => {
     expect(container.querySelector('.cft-bar--vehicle-preview')).toBeNull();
     // 帶參數時的字面 = 正式字面(不是另一套分支)
     expect(screen.getByText('選擇適用車輛')).toBeDefined();
-    expect(screen.getByPlaceholderText('搜尋或選擇廠牌')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入廠牌')).toBeDefined();
     expect(screen.queryByText('確認適用車款')).toBeNull();
   });
 

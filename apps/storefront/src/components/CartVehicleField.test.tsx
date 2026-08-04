@@ -42,14 +42,14 @@ describe('CartVehicleField', () => {
   it('無值 → 顯「+ 選擇車款」;點開進編輯', () => {
     render(<CartVehicleField label="這件給哪台車" value={undefined} onChange={vi.fn()} motoBrands={BRANDS} />);
     fireEvent.click(screen.getByText('+ 選擇車款'));
-    expect(screen.getByRole('combobox', { name: '選擇品牌' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: '選擇廠牌' })).toBeTruthy();
   });
 
   it('三層 picker:選品牌+車型 → onChange kind:dict source:picker(選車型即帶入、年份可後補)', () => {
     const onChange = vi.fn();
     render(<CartVehicleField label="x" value={undefined} onChange={onChange} motoBrands={BRANDS} />);
     fireEvent.click(screen.getByText('+ 選擇車款'));
-    pick('選擇品牌', 'Yamaha');
+    pick('選擇廠牌', 'Yamaha');
     pick('選擇車型', 'MT-09 SP');
     expect(onChange).toHaveBeenLastCalledWith({ kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: undefined, source: 'picker' });
     pick('選擇年份', '2021');

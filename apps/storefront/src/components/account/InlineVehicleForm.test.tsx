@@ -52,10 +52,19 @@ function pickByTyping(label: string, text: string) {
 }
 
 describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
+  // A6(選車引擎統一 B′):欄標與 aria 走 A 表「廠牌」;placeholder 由範例值(YAMAHA / YZF-R6)
+  // 換成提示字 —— 範例值長得像已填好的值。原本這兩個 placeholder 零守門,改回去照樣全綠。
+  it('A 表字面:欄標=廠牌、placeholder=提示字而非範例值', () => {
+    renderForm({ vehicleBrands: BRANDS });
+    expect(screen.getByText('廠牌')).toBeTruthy();
+    expect(combo('選擇廠牌').placeholder).toBe('選擇或輸入廠牌');
+    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型');
+  });
+
   it('預設 dict 模式:品牌/車型雙下拉;選品牌解鎖車型;送出=標準字面「品牌 車型」', async () => {
     const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
     expect(combo('選擇車型').disabled).toBe(true);
-    pickByTyping('選擇品牌', 'Yamaha');
+    pickByTyping('選擇廠牌', 'Yamaha');
     expect(combo('選擇車型').disabled).toBe(false);
     pickByTyping('選擇車型', 'YZF-R6');
     fireEvent.click(screen.getByText('儲存'));
@@ -65,21 +74,21 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
 
   it('聚焦品牌 → 展開完整清單(可捲、無截斷);換品牌 → 車型連動清空', () => {
     renderForm({ vehicleBrands: BRANDS });
-    fireEvent.focus(combo('選擇品牌'));
+    fireEvent.focus(combo('選擇廠牌'));
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Yamaha',
       'Kawasaki',
     ]);
-    pickByTyping('選擇品牌', 'Yamaha');
+    pickByTyping('選擇廠牌', 'Yamaha');
     pickByTyping('選擇車型', 'YZF-R6');
-    pickByTyping('選擇品牌', 'Kawasaki');
+    pickByTyping('選擇廠牌', 'Kawasaki');
     expect(combo('選擇車型').value).toBe('');
   });
 
   it('dict 模式未選齊 → 送出擋下顯欄位錯、不打 server', () => {
     const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
     fireEvent.click(screen.getByText('儲存'));
-    expect(screen.getByText(/請選擇品牌與車型/)).toBeTruthy();
+    expect(screen.getByText(/請選擇廠牌與車型/)).toBeTruthy();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -96,7 +105,7 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
 
   it('V-1d:dict 模式送出=帶名稱字面對;free 模式送出=雙 null(REQUIRED-1 覆蓋殘留)', async () => {
     const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
-    pickByTyping('選擇品牌', 'Yamaha');
+    pickByTyping('選擇廠牌', 'Yamaha');
     pickByTyping('選擇車型', 'YZF-R6');
     fireEvent.click(screen.getByText('儲存'));
     await vi.waitFor(() => expect(onSubmit).toHaveBeenCalled());
@@ -111,7 +120,7 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
       vehicleBrands: BRANDS,
       veh: { id: 'v1', name: 'Yamaha YZF-R1', dictBrandName: 'Yamaha', dictModelName: 'YZF-R1' },
     });
-    expect(combo('選擇品牌').value).toBe('Yamaha'); // dict 欄優先回填
+    expect(combo('選擇廠牌').value).toBe('Yamaha'); // dict 欄優先回填
     fireEvent.click(screen.getByText(/改用自行輸入/));
     fireEvent.change(screen.getByPlaceholderText('YAMAHA YZF-R6'), {
       target: { value: '我的改裝 R1' },
@@ -132,13 +141,13 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
       target: { value: 'Kawasaki Z900' },
     });
     fireEvent.click(screen.getByText(/改用清單選車/));
-    expect(combo('選擇品牌').value).toBe('Kawasaki');
+    expect(combo('選擇廠牌').value).toBe('Kawasaki');
     expect(combo('選擇車型').value).toBe('Z900');
   });
 
   it('編輯模式:name=字典標準字面 → dict 回填雙下拉;自由文字 → 進自行輸入模式', () => {
     renderForm({ vehicleBrands: BRANDS, veh: { id: 'v1', name: 'Yamaha YZF-R1' } });
-    expect(combo('選擇品牌').value).toBe('Yamaha');
+    expect(combo('選擇廠牌').value).toBe('Yamaha');
     expect(combo('選擇車型').value).toBe('YZF-R1');
     cleanup();
     renderForm({ vehicleBrands: BRANDS, veh: { id: 'v2', name: '我的紅色小車' } });
@@ -151,6 +160,6 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     renderForm();
     expect(screen.getByPlaceholderText('YAMAHA YZF-R6')).toBeTruthy();
     expect(screen.queryByText(/改用清單選車/)).toBeNull();
-    expect(screen.queryByRole('combobox', { name: '選擇品牌' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: '選擇廠牌' })).toBeNull();
   });
 });

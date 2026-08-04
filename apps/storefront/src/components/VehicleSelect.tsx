@@ -6,6 +6,11 @@
 // 候選恆字典字面、零猜)。視覺沿 .cft-select token(.vsc- 樣式、filter-cascade.css)。
 // 🔴 typeahead=design-reference 零先例、Sean 口述授權行為偏離(視覺對齊);controlled by
 // 外部 vehicle 值(reducer/context)=鏡像天然成立、無本地鏡像 effect。
+// A3(2026-08-05,選車引擎統一 B′):三欄字面照 OD `vehicle-picker-design.html` A 表定版 ——
+//   aria label「選擇廠牌/車型/年份」、placeholder「選擇或輸入 X」、finder slot 標「· 可不選」。
+//   🔴 finder 變體原本三欄 placeholder 都是 `—`(設計稿 C2 Before/After 兩張圖皆如此畫),
+//   A 表標題逐字寫「實作端逐字照抄」⇒ 以 A 表為準,`—` 退場(A 計畫 §2.1 註)。
+//   本檔一改擴散到四個掛載點(首頁 finder / PDP §7 / 購物車 / 帳號表單)。
 
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
@@ -25,7 +30,7 @@ type ComboProps = {
   /** 掛載點外殼(V-1c 視覺回歸修):'catalog'=cft token 小框;'finder'=design ed-finder-slot
    *  (標籤+無框線);'form'=裸 input、樣式交掛載表單的 CSS(V-1c++ 車庫表單字典雙下拉) */
   variant: 'catalog' | 'finder' | 'form';
-  /** finder 變體的 slot 標籤字面(design:品牌/車型/年份) */
+  /** finder 變體的 slot 標籤字面(A3 統一後 = 廠牌 / 車型 · 可不選 / 年份 · 可不選) */
   slotLabel?: string;
   /** ADR-0007:打了字但零命中時的提示字面。
    *  🔴 為何是這裡而不是呼叫端:查詢字串是本元件的 local state(`text`),呼叫端看不到
@@ -232,36 +237,36 @@ export function VehicleSelect({
   return (
     <>
       <Combo
-        label="選擇品牌"
+        label="選擇廠牌"
         value={vehicle?.brand ?? null}
         options={motoBrands.map((b) => b.name)}
-        placeholder={variant === 'finder' ? '—' : '品牌'}
+        placeholder="選擇或輸入廠牌"
         onPick={onPickBrand}
         onClear={onClearBrand}
         variant={variant}
-        slotLabel="品牌"
+        slotLabel="廠牌"
       />
       <Combo
         label="選擇車型"
         value={vehicle?.model ?? null}
         options={models.map((m) => m.name)}
         disabled={!vehicle}
-        placeholder={variant === 'finder' ? '—' : '車型'}
+        placeholder="選擇或輸入車型"
         onPick={onPickModel}
         onClear={onClearModel}
         variant={variant}
-        slotLabel="車型"
+        slotLabel="車型 · 可不選"
       />
       <Combo
         label="選擇年份"
         value={vehicle?.year != null ? String(vehicle.year) : null}
         options={years.map((y) => String(y))}
         disabled={!vehicle || vehicle.model == null || modelNoYears}
-        placeholder={modelNoYears ? '不限年份' : variant === 'finder' ? '—' : '年份'}
+        placeholder={modelNoYears ? '不限年份' : '選擇或輸入年份'}
         onPick={(name) => onPickYear(Number(name))}
         onClear={onClearYear}
         variant={variant}
-        slotLabel="年份"
+        slotLabel="年份 · 可不選"
       />
     </>
   );

@@ -47,7 +47,13 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
     const slots = container.querySelectorAll('.ed-finder-bar .ed-finder-slot');
     expect(slots).toHaveLength(3);
     const labels = [...container.querySelectorAll('.ed-finder-slot-label')].map((e) => e.textContent);
-    expect(labels).toEqual(['品牌', '車型', '年份']);
+    // A3(選車引擎統一 B′):slot 標籤照 OD A 表 —— 車=廠牌;車型/年份標「· 可不選」
+    expect(labels).toEqual(['廠牌', '車型 · 可不選', '年份 · 可不選']);
+    // 🔴 finder 變體的 placeholder:A3 前是三個 `—`(設計稿 C2 兩張圖皆如此畫),改採 A 表定版。
+    //    這是本批**唯一改到首頁首屏可見字面**的地方,沒有這行斷言就完全沒有守門(改回去全綠)。
+    expect([...container.querySelectorAll<HTMLInputElement>('.ed-finder-slot .vsc-input--finder')]
+      .map((e) => e.placeholder))
+      .toEqual(['選擇或輸入廠牌', '選擇或輸入車型', '選擇或輸入年份']);
     expect(container.querySelector('.ed-finder-slot .vsc-input--finder')).toBeTruthy();
     expect(container.querySelector('.ed-finder-bar .cft-select')).toBeNull(); // 型錄樣式不得滲入首頁
   });
@@ -55,7 +61,7 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
   it('打字選品牌 → 車型欄解鎖並可打字選定', () => {
     render(<VehicleFinder motoBrands={MOCK_MOTO_BRANDS} />);
     const brand = MOCK_MOTO_BRANDS[0]!;
-    pickByTyping('選擇品牌', brand.name);
+    pickByTyping('選擇廠牌', brand.name);
     expect(combo('選擇車型').disabled).toBe(false);
     pickByTyping('選擇車型', brand.models[0]!.name);
     expect(combo('選擇車型').value).toBe(brand.models[0]!.name);
@@ -66,7 +72,7 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
       { id: 'ducati', name: 'Ducati', models: [{ id: 'monster', name: 'Monster', years: [] }] },
     ];
     render(<VehicleFinder motoBrands={noYearBrands} />);
-    pickByTyping('選擇品牌', 'Ducati');
+    pickByTyping('選擇廠牌', 'Ducati');
     pickByTyping('選擇車型', 'Monster');
     expect(combo('選擇年份').placeholder).toBe('不限年份');
     const go = screen.getByText('搜尋部品').closest('button')!;
@@ -82,7 +88,7 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
     const brand = MOCK_MOTO_BRANDS[0]!;
     const model = brand.models[0]!;
     const year = model.years[0]!;
-    pickByTyping('選擇品牌', brand.name);
+    pickByTyping('選擇廠牌', brand.name);
     pickByTyping('選擇車型', model.name);
     pickByTyping('選擇年份', String(year));
     fireEvent.click(screen.getByText('搜尋部品').closest('button')!);
@@ -122,7 +128,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
       />,
     );
     fireEvent.click(screen.getByText('2021 mt-09 sp'));
-    expect(combo('選擇品牌').value).toBe('Yamaha');
+    expect(combo('選擇廠牌').value).toBe('Yamaha');
     expect(combo('選擇車型').value).toBe('MT-09 SP');
     expect(combo('選擇年份').value).toBe('2021');
   });
@@ -132,12 +138,12 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
       <VehicleFinder motoBrands={BRANDS} garage={[{ id: 'g2', name: 'MT-0', year: '', dictBrandName: null, dictModelName: null }]} />,
     );
     fireEvent.click(screen.getByText('MT-0'));
-    expect(combo('選擇品牌').value).toBe(''); // 不自動套用
+    expect(combo('選擇廠牌').value).toBe(''); // 不自動套用
     expect(screen.getByText(/可能是/)).toBeTruthy();
     const options = screen.getAllByRole('option');
     expect(options).toHaveLength(2); // Yamaha MT-09 SP / Yamaha MT-09(字典字面)
     fireEvent.click(screen.getByRole('option', { name: 'Yamaha MT-09' }));
-    expect(combo('選擇品牌').value).toBe('Yamaha');
+    expect(combo('選擇廠牌').value).toBe('Yamaha');
     expect(combo('選擇車型').value).toBe('MT-09');
   });
 
@@ -151,7 +157,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
       />,
     );
     fireEvent.click(screen.getByText('2021 我的通勤車'));
-    expect(combo('選擇品牌').value).toBe('Yamaha');
+    expect(combo('選擇廠牌').value).toBe('Yamaha');
     expect(combo('選擇車型').value).toBe('MT-09 SP');
     expect(combo('選擇年份').value).toBe('2021');
   });
@@ -167,7 +173,7 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
     );
     fireEvent.click(screen.getByText('我的紅色小車'));
     expect(screen.getByText(/無法對應/)).toBeTruthy(); // name 零命中 → 提示、不套用
-    expect(combo('選擇品牌').value).toBe('');
+    expect(combo('選擇廠牌').value).toBe('');
   });
 
   it('零命中(純自由文字)→ 顯「無法對應」提示、不套用不猜', () => {
@@ -176,6 +182,6 @@ describe('VehicleFinder — 愛車 chips(REQUIRED-2:唯一精確命中/建議清
     );
     fireEvent.click(screen.getByText('我的紅色小車'));
     expect(screen.getByText(/無法對應/)).toBeTruthy();
-    expect(combo('選擇品牌').value).toBe('');
+    expect(combo('選擇廠牌').value).toBe('');
   });
 });

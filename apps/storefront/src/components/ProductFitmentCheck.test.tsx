@@ -63,7 +63,7 @@ describe('ProductFitmentCheck（§7）', () => {
   it('無 context → 現選入口(確認是否適用你的車)', () => {
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
     expect(screen.getByText('確認是否適用你的車')).toBeTruthy();
-    expect(screen.getByRole('combobox', { name: '選擇品牌' })).toBeTruthy();
+    expect(screen.getByRole('combobox', { name: '選擇廠牌' })).toBeTruthy();
   });
 
   it('愛車快選 dict 命中 → 套用並比對(✓)', () => {
@@ -108,7 +108,7 @@ describe('ProductFitmentCheck（§7）', () => {
     expect(picker.classList.contains('pfc-picker-open')).toBe(false);
     fireEvent.click(screen.getByText('選擇車款,確認是否適用'));
     expect(container.querySelector('.pfc-picker')!.classList.contains('pfc-picker-open')).toBe(true);
-    expect(screen.getByRole('combobox', { name: '選擇品牌' })).toBeTruthy(); // 選單仍在(桌機恆顯)
+    expect(screen.getByRole('combobox', { name: '選擇廠牌' })).toBeTruthy(); // 選單仍在(桌機恆顯)
   });
 
   it('V-2c:urlVehicle brand-only → 不判定(現選入口、零猜)、鏡同步蓋掉過期鏡', () => {

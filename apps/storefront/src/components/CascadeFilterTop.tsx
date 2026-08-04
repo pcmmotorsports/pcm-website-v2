@@ -1,5 +1,11 @@
 // CascadeFilterTop.tsx — 車款 cascade 選擇列(V-1b 起=可打字 combobox 版)
-// 桌機:sticky bar、品牌 / 車型 / 年份 三欄搜尋式 VehicleCombo(typeahead)。
+// 桌機:sticky bar、廠牌 / 車型 / 年份 三欄搜尋式 VehicleCombo(typeahead)。
+// A4(2026-08-05,選車引擎統一 B′):字面照 OD `vehicle-picker-design.html` A 表 ——「搜尋或選擇」
+//   全改「選擇或輸入」、aria「選擇品牌」→「選擇廠牌」;廠牌/年份兩欄補上原本只有車型欄有的
+//   emptyHint(A 表要求三欄同式)。逗號沿全形 ，= Sean 08-03 拍 Q2=A(照正式站現顯示)。
+//   🔴 年份欄**不加**「可不選」標示:設計稿 C1 After 圖三欄皆無 label 元素,加了就是動版面
+//   (C1 逐字「版面、欄寬、放大鏡、我的愛車位置全不動」+ spec §1a 絕不碰)。「可不選」的載體
+//   在有欄標的兩處:首頁 finder slot 標(A3)與手機面板 mvs-field-label(既有)。
 // 手機:本列整條由 CSS 關掉(≤1024px 與 [data-mobile="true"] 兩條路徑),
 //       手機選車入口 = ProductsMobileControls + MobileVehicleSheet(ADR-0007)。
 //
@@ -88,10 +94,11 @@ export function CascadeFilterTop({
             <small className="cft-picker-hint">可直接選擇，也可輸入搜尋</small>
           </span>
           <VehicleCombo
-            label="選擇品牌"
+            label="選擇廠牌"
             value={vehicle?.brand ?? null}
             options={data.motoBrands.map((brand) => brand.name)}
-            placeholder="搜尋或選擇廠牌"
+            placeholder="選擇或輸入廠牌"
+            emptyHint="查無符合的廠牌，請調整關鍵字"
             onPick={(name) => dispatch(selectVehicleBrand(name))}
             onClear={() => dispatch(clearVehicle())}
             variant="catalog"
@@ -101,7 +108,7 @@ export function CascadeFilterTop({
             label="選擇車型"
             value={vehicle?.model ?? null}
             options={modelOptions}
-            placeholder={crossLayer ? '搜尋或選擇車型，例:R6' : '搜尋或選擇車型'}
+            placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
             emptyHint={crossLayer ? '查無符合的車款，請調整關鍵字' : '查無符合的車型，請調整關鍵字'}
             onPick={pickModel}
             onClear={() => {
@@ -114,7 +121,8 @@ export function CascadeFilterTop({
             value={vehicle?.year != null ? String(vehicle.year) : null}
             options={years.map(String)}
             disabled={!vehicle || vehicle.model == null || modelHasNoYears}
-            placeholder={modelHasNoYears ? '不限年份' : '搜尋或選擇年份'}
+            placeholder={modelHasNoYears ? '不限年份' : '選擇或輸入年份'}
+            emptyHint="查無符合的年份，請調整關鍵字"
             onPick={(year) => dispatch(selectVehicleYear(Number(year)))}
             onClear={() => {
               if (vehicle?.model != null) dispatch(selectVehicleModel(vehicle.model));
