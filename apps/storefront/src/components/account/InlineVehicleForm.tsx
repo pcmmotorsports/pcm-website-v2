@@ -114,7 +114,7 @@ export function InlineVehicleForm({
     e.preventDefault();
     // dict 模式組字 guard(client 端 UI 組合、非 server 規則複驗):品牌車型都選了才有名稱可組。
     if (mode === 'dict' && (brandName === null || modelName === null)) {
-      setFieldErrors({ name: '請選擇廠牌與車型,或改用自行輸入' });
+      setFieldErrors({ name: '請選擇廠牌與車型，或改用自行輸入' });
       setFormError(null);
       return;
     }

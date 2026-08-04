@@ -88,7 +88,9 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
   it('dict 模式未選齊 → 送出擋下顯欄位錯、不打 server', () => {
     const { onSubmit } = renderForm({ vehicleBrands: BRANDS });
     fireEvent.click(screen.getByText('儲存'));
-    expect(screen.getByText(/請選擇廠牌與車型/)).toBeTruthy();
+    // R2(I2):逗號同批改全形 —— 用**整串字面**斷言,原本的 /請選擇廠牌與車型/ 正規式
+    //   剛好不含逗號 ⇒ 改回半形照樣綠(這正是這條要擋的)。
+    expect(screen.getByText('請選擇廠牌與車型，或改用自行輸入')).toBeTruthy();
     expect(onSubmit).not.toHaveBeenCalled();
   });
 

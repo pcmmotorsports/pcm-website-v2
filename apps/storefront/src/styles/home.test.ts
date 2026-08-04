@@ -148,6 +148,13 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
       expect(narrow, `${sel} 的規則沒有鎖在 .ed-finder 底下`)
         .toMatch(new RegExp(`\\.ed-finder\\s+\\.cat-garage--inline\\s+${esc}`));
     }
+    // R2 追加(scope 收緊):**@media 外**那條外距規則同樣承重 —— 少了 `.ed-finder` 前綴,
+    // PDP §7(自己已有 .pfc-picker 的 10px)與購物車(.cvf-edit 的 gap:10px)會被多疊一層 12px。
+    // 上面的迴圈只掃 ≤900px 區塊、掃不到它。
+    expect(CSS, '行內密度的外距規則沒有鎖在 .ed-finder 底下 ⇒ 會潑到 PDP 與購物車')
+      .toMatch(/\.ed-finder\s+\.cat-garage--inline\s*\{[^}]*margin-bottom/);
+    expect(CSS, '出現了無 scope 的 .cat-garage--inline 外距規則')
+      .not.toMatch(/(^|\})\s*\.cat-garage--inline\s*\{[^}]*margin-bottom/m);
   });
 
   // 🔴 nowrap 必須是**全斷點**基礎規則,不能只活在 ≤900px:

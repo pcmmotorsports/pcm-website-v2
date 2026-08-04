@@ -8908,6 +8908,15 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - (b) 共用一個「本波待寫 URL」的 ref 當單一真相,兩支都讀它而非 `window.location.search` —— 較小,
     但仍是雙寫、只是把競態從 URL 搬到 ref。
   - 兩案都必須先補一支「兩支 hook 同 harness」的守門,否則修完沒有東西證明修好了。
+  - 🔴 **那支守門的硬前提(R2-I6;不寫進去就是複製一次害本線翻車的同型假象)**:
+    守門**必須能觀察到「props identity 換手後的第二輪 effect」**。
+    理由=本條的兩次 probe 都用 `renderHook` 直呼兩支 hook,那裡 `motoBrands` identity 恆定
+    ⇒ `useVehicleUrlSync` 不會再跑第二輪 ⇒ 停在壞值,於是**兩個獨立來源都推出了錯的終態**
+    (真站上 server 回新 props 就補正了,終態其實乾淨)。
+    ⇒ 只斷言「第一發 replace 寫了什麼」= 重現 harness 假象,不是產品行為。
+    最低要求:①每輪 rerender 要換一個新的 `motoBrands` 參考(模擬 server 回新 props)
+    ②斷言對象是**寫入序列 + 終態**兩者,不是單一發 ③修好的判準是「壞的那一發不再出現」,
+    而不是「終態是乾淨的」—— 終態現在就已經是乾淨的,拿它當判準會直接假綠。
 - **出處:** A7 code-reviewer R1 must-fix(opus, fresh context)+ 主對話獨立 probe 重現(2026-08-05)。
 - 🔴 **編號沿革**:本條原開為 #323,與主視窗 `4386624` 的 #323(子分類篩選膠囊雙顆)撞號 ⇒
   依主視窗 C-58-A 指示改為 **#324**。`2ccbadb`(A7)的 commit body 內仍寫 #323、不 amend,
