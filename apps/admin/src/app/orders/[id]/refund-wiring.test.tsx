@@ -37,6 +37,14 @@ const mocks = vi.hoisted(() => ({
   findAdminOrderDetail: vi.fn(),
   listOrderStatusOptions: vi.fn(),
   listSuppliers: vi.fn(),
+  listOrderRefunds: vi.fn(),
+  getLedgerUnregisteredAmount: vi.fn(),
+}));
+// M-3 RW3:page 直接 import refund-read(→ server-only)⇒ 必 mock;
+// 本檔另有帳本顯示鏈的接線格,mock 給 hoisted 的可控版本。
+vi.mock('../../../lib/payment/refund-read', () => ({
+  listOrderRefunds: mocks.listOrderRefunds,
+  getLedgerUnregisteredAmount: mocks.getLedgerUnregisteredAmount,
 }));
 vi.mock('../../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ findAdminOrderDetail: mocks.findAdminOrderDetail }),
@@ -95,6 +103,8 @@ beforeEach(() => {
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
   mocks.listOrderStatusOptions.mockResolvedValue([]);
   mocks.listSuppliers.mockResolvedValue([]);
+  mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
+  mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);
   vi.spyOn(console, 'error').mockImplementation(() => {});
   savedFlag = process.env.REFUND_UI_ENABLED;
 });
@@ -210,6 +220,116 @@ describe('/orders/[id] — RW2d 退款入口顯示鏈', () => {
       );
       cleanup();
     }
+  });
+
+  it('🔴 RW3 帳本顯示鏈:listOrderRefunds 的列真的傳到帳本區塊(旗標關著也要顯示——既成事實不吃旗標)', async () => {
+    delete process.env.REFUND_UI_ENABLED;
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{
+        id: 'r-1',
+        kind: 'partial',
+        status: 'confirmed',
+        refundAmount: 777,
+        reason: '缺貨退款',
+        actor: 'sean',
+        createdAt: '2026-08-04T03:00:00+00:00',
+        failedReason: null,
+        failedDetail: null,
+        providerEvidence: null,
+      }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(877);
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('退款紀錄');
+    // 'NT$ 777' 全字面:fixture displayId='ABC123' 會讓裸 '123' 恆真(opus R1 nit、撞號教訓)。
+    expect(container.textContent).toContain('NT$ 777');
+    expect(container.textContent).toContain('帳本未登記額');
+    expect(container.textContent).toContain('877');
+    // 🔴 codex MF5:mock 不看參數,A 單顯 B 單帳本這類錯接只有參數斷言抓得到。
+    expect(mocks.listOrderRefunds.mock.calls[0]).toEqual([ORDER]);
+    expect(mocks.getLedgerUnregisteredAmount.mock.calls[0]).toEqual([ORDER]);
+    // 旗標關 ⇒ 發起入口不得因帳本列存在而出現(兩件事各自的閘)。
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 RW3 帳本讀取失敗 → 顯警告 + 發起入口 fail-closed(codex MF2:看不見帳本現況=盲飛,旗標開著也不准按)', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('退款帳本載入失敗');
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 RW3 未登記額為負 → 對帳異常態 + 發起入口 fail-closed(codex R2/opus R2b 同抓:文字寫勿再發起、按鈕不得亮著)', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{
+        id: 'r-1', kind: 'partial', status: 'confirmed', refundAmount: 777,
+        reason: 'x', actor: 'sean', createdAt: '2026-08-04T03:00:00+00:00',
+        failedReason: null, failedDetail: null, providerEvidence: null,
+      }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockResolvedValue(-1000);
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('對帳異常');
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  it('🔴 RW3 未登記額讀取失敗 → 錯誤態(非查無)+ 發起入口 fail-closed(codex MF2)', async () => {
+    process.env.REFUND_UI_ENABLED = '1';
+    mocks.listOrderRefunds.mockResolvedValue({
+      rows: [{
+        id: 'r-1', kind: 'partial', status: 'confirmed', refundAmount: 777,
+        reason: 'x', actor: 'sean', createdAt: '2026-08-04T03:00:00+00:00',
+        failedReason: null, failedDetail: null, providerEvidence: null,
+      }],
+      truncated: false,
+    });
+    mocks.getLedgerUnregisteredAmount.mockRejectedValue(new Error('boom'));
+    const { container } = await renderPage();
+    expect(container.textContent).toContain('讀取失敗');
+    expect(container.textContent).not.toContain('查無');
+    expect(hasRefundEntry(container)).toBe(false);
+  });
+
+  /** admin src 全樹走訪:回傳「內容命中 predicate」的非測試 .ts/.tsx 相對路徑。 */
+  function scanSources(predicate: (content: string) => boolean): string[] {
+    const root = join(__dirname, '../../..');
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) {
+          walk(full);
+        } else if (
+          /\.(ts|tsx)$/.test(name) &&
+          !/\.test\.(ts|tsx)$/.test(name) &&
+          predicate(readFileSync(full, 'utf8'))
+        ) {
+          hits.push(full.slice(root.length + 1));
+        }
+      }
+    };
+    walk(root);
+    return hits.sort();
+  }
+
+  // ⚠️ 兩個 oracle 的誠實邊界(codex R1 nit;RW2b「攔回歸,不攔對手」同款):文字掃描擋不住
+  //    刻意規避(字串拼接 '剩餘'+'可退'、computed env key、字串搬到 apps/admin/src 外再 import、
+  //    藏進 *.test.* 命名)。它們的工作是讓「無意的回歸」轉紅,不是對抗惡意提交。
+  it('🔴 RW3 措辭 oracle(F25 全域面):「還能退/剩餘可退」剝註解後只准出現在 refund-section(TapPay 端語意的 UI 字串);帳本數字被任何檔標成可退額,這格就紅', () => {
+    // 先剝註解(app-sidebar.test.ts stripComments 同款理由):規則註解本身會引用禁語,
+    // oracle 管的是**會渲染/會入庫的字串面**,不是講規則的字。
+    const strip = (s: string) =>
+      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/[^\n]*/g, '');
+    const hits = scanSources((content) => /還能退|剩餘可退/.test(strip(content)));
+    expect(hits).toEqual([
+      // 唯一合法命中:退款表單的 TapPay 端字面(「全額退款以 TapPay 端剩餘可退額為準」等,
+      // 語意=TapPay 剩餘額,正確用法;opus R1 對抗面清空紀錄)。
+      'components/orders/refund-section.tsx',
+    ]);
   });
 
   it('🔴 結構性 oracle(codex R1 nit):REFUND_UI_ENABLED 字面在 admin 非測試源碼恰兩處(flag 模組+refund-section 純註解),env 讀取恰 flag 模組一處(任一消費端改回自己比字面這格就紅)', () => {

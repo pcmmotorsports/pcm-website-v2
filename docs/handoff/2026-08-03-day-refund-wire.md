@@ -360,11 +360,73 @@ fieldset 版面 390 真機再驗零變化。
 
 **殘項/邊界**:①`REFUND_UI_ENABLED` 仍不得開 —— 開啟前置=RW4 收工 且 部分退 E2E 綠;
 部分退 E2E 本片已綠,**RW4 未動** ⇒ 前置只剩一半;旗標未進任何會部署的設定(全 repo grep
-只在 code/test/docs)。②admin Vercel `TAPPAY_*` 三顆仍未設(§5,Sean 動作)。③E2E 基建
+只在 code/test/docs)。②~~admin Vercel `TAPPAY_*` 三顆仍未設~~ **已設**(Sean 08-04 04:1x 補
+Preview+Production 三顆,主視窗 CLI read-back;A-05-A 更正,§5 該行同過時)。③E2E 基建
 非 docker supabase stack(誠實邊界如上);PostgREST 版本(14.16)≠ Supabase 雲端版,錯誤碼
 映射同層但未逐版比對。④無 JS(hydration 前)送出=只做得了全額、server 閘全數照常,未實測。
 ⑤送出中離站再 bfcache 還原,若 isPending 被還原成 true ⇒ fieldset 恆鎖到手動重新整理
 (opus R2 登記、未實測;方向 fail-closed,`router.refresh()` 不重置 client state)。
+
+## 3h. RW3 收工(08-04;refund-wire 視窗、Fable+xhigh;A-05-A 指派續行)
+
+**產物(repo)**:退款帳本「看得見」的三件套 ——
+`refund-ledger-view.ts`(純層:狀態/失敗碼字面、`isRefundException`、30 分常數單一真相)/
+`refund-read.ts`(三讀:單訂單帳本列、帳本未登記額=走 DB 函式 `pcm_order_refundable_remaining`
+不在 app 重算、異常清單=plan §4-1 判準)/ 訂單頁 `refund-ledger-section.tsx`(deferred/rejected
+結果持久可見;processing 異常列帶 ⚠ 連結)/ `/orders/refund-exceptions` 清單頁(RW4 前置 UI、
+刻意零操作按鈕)/ sidebar「退款異常」入口 / 測試五檔+兩支 wiring 補格。
+
+**設計要點**:
+1. 🔴 措辭鐵律(關卡1 F25)機制化:UI 只稱「**帳本未登記額**」;負向格(元件+頁)+
+   **全域措辭 oracle**(剝註解掃 admin src,「還能退/剩餘可退」只准 refund-section 的
+   TapPay 端字串)+ 突變 n01/n12 閉環。
+2. 帳本顯示**不吃**退款入口旗標:帳本列是既成事實,processing 滯留列藏起來=值班盲區;
+   讀失敗不靜默(區塊顯「勿在此期間發起退款」、頁層獨立容錯)。
+3. 異常判準兩處共用一個常數與一份 predicate 語意(DB 查詢 or() ↔ 列級 isRefundException);
+   evidence 非空=G7-hold 不等 30 分(fable N4)。
+4. 投影紀律:rec_trade_id/request_id/bank_refund_id/tappay_refund_id/confirmed_at 全不進
+   顯示查詢(零消費欄不留、RW4 對帳另開專用讀)。
+
+**真機(prod build+local 真 PostgREST)**:E2E 基建重啟(PG17 54332+PostgREST 14.16+shim),
+用守門**允許**的 evidence write-once UPDATE 造 G7-hold 列(`created_at` 回填被 INSERT 守門
+`:275` 強制 now() 蓋掉=設計如此,**30 分滯留顯示路徑僅單測覆蓋**=誠實邊界)——
+訂單頁帳本區(未登記額 997=1000−3 ✔、⚠ 異常連結)、異常清單頁 1440/390(真 display_id=
+embed 回物件、`or()` 整串被真 PostgREST 接受 —— 命中的是 evidence 那支;**ISO 支=parse
+通過而已,命中語意見殘項③**,opus R2 口徑訂正)、sidebar 入口,截圖 scratchpad
+`rw2d-e2e/rw3-*.png`。仍註:PostgREST 14.16 ≠ Supabase 雲端版。
+
+**審查(關卡2 雙線不降級)**:
+- code-reviewer(opus)R1 = **FAIL 1 must-fix + 9 nit** 全折:MF=異常查詢押三個未驗 PostgREST
+  語法賭注(embed 空格已刪對齊 house 字面;or()/ISO 其實已被上述真機段實證,審查時 handoff
+  未載=我方紀錄債)。nit:恆真 '123' 撞號修 777 / 零消費欄剔除 / 第三個 30 改常數推導 /
+  措辭全域 oracle / Object.hasOwn(原型鏈同型事故)/ 353 行警戒入 commit body。
+- opus R2 = **PASS 0MF**(逐條核折入、獨立重放 oracle 判別力、自跑 vitest 吻合;1 新 nit=
+  本檔口徑半格已收斂)。
+- codex `gpt-5.6-sol` R1 = **FAIL 6 must-fix + 5 nit**,全折:
+  **MF1=「無 .limit=誠實無截斷」被事實推翻**(Supabase PostgREST `max-rows=1000` 靜默截斷
+  —— opus R1 判「可留」、codex 拿平台事實打掉,換模型的價值再 +1)⇒ 兩讀改
+  {rows, truncated}(N+1 判斷、上限 100/200)、兩頁截斷警示;**MF2=讀失敗不 fail-closed**
+  ⇒ page 雙旗標、發起入口閘加 `!refundsFailed && !refundUnregisteredFailed`、未登記額四態
+  (讀失敗=紅色態≠查無);**MF3=未登記額可為負**(帳本登記可超過訂單總額)⇒ 負值顯
+  「對帳異常」紅色態不當普通金額;MF4=mock 不裁切投影 ⇒ REQUIRED_COLUMNS 10 欄正向釘死;
+  MF5=wiring 未斷言參數(A 單顯 B 單帳本抓不到)⇒ 補;MF6=exceptions repo 層 error 格 ⇒ 補。
+  nit:oracle 繞法誠實邊界註記(攔回歸不攔對手)/恰 30 分邊界格/app 時鐘 vs DB now() 註解/
+  0 值格(`||` 回歸防護)。
+- **第二輪雙線**:opus R2b = PASS(0MF+3nit:負值也要關入口/REQUIRED_COLUMNS 子字串恆真
+  兩欄/零列×失敗不變式註記);codex R2 = FAIL(2)(**與 opus 完全收斂**:同抓子字串恆真+
+  負值入口)→ 三修全折(tokens 精確比對/入口閘加負值條件+wiring 格+突變 n19/不變式註記)
+  → **codex R3 = PASS**(逐條實核、含「拿掉 id/reason 必紅」判別力自驗、零新副作用)。
+  三輪 codex porcelain 零留痕皆比對。
+
+**驗證數字(實跑,全折入後末輪)**:tc 8/8+scripts / lint 10/10 / build 綠 /
+vitest **331 檔 4398+1 todo** / **RW3 突變 19 格逐格轉紅+還原位元一致**(rw3-mutations.py)。
+
+**殘項/邊界**:①措辭相鄰面=帳本區顯數字、退款表單寫「不得超過剩餘可退額」不帶數字 ——
+值班可能拿前者當後者上界;免責句已緩解,**進 Sean 肉眼定稿題**。②~~無 .limit=誠實無截斷~~
+**已推翻**(codex MF1):顯式上限 100/200+truncated 旗標+兩頁警示。③30 分滯留的**顯示**
+路徑無真機證據(created_at 不可回填=稽核設計);單測+突變覆蓋。④RW4 仍缺:人工結案
+RPC(manual_failed/recovered_confirmed)+清單頁操作;本片刻意零按鈕。⑤負值未登記額顯示
+為對帳異常=**顯示層**;負值的根因(超額登記)DB 不擋=拍板⑤既有邊界,RW4 對帳收。
 
 ## 4. ✅ 今晚殘項已收案(08-03 20:0x 實跑;預測三發全中、零意外)
 

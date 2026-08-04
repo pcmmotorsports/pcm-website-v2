@@ -24,7 +24,9 @@ import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
 import { ItemProcurementSection } from './item-procurement-section';
 import { RefundSection } from './refund-section';
+import { RefundLedgerSection } from './refund-ledger-section';
 import { generateRefundRequestToken } from '../../lib/payment/refund-action-state';
+import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
@@ -194,6 +196,11 @@ export function OrderDetail({
   suppliers = [],
   suppliersFailed = false,
   refundEnabled = false,
+  refunds = [],
+  refundsFailed = false,
+  refundsTruncated = false,
+  refundUnregisteredAmount = null,
+  refundUnregisteredFailed = false,
 }: {
   detail: AdminOrderDetail;
   statusOptions: OrderStatusOption[];
@@ -205,6 +212,16 @@ export function OrderDetail({
   suppliersFailed?: boolean;
   /** M-3 RW2d:退款入口旗標(頁層讀 `isRefundUiEnabled()` 下傳;預設 off)。 */
   refundEnabled?: boolean;
+  /** M-3 RW3:退款帳本列(頁層讀;顯示不吃旗標 —— 既成事實必須可見)。 */
+  refunds?: readonly OrderRefundRow[];
+  /** M-3 RW3:帳本讀取失敗(區塊顯警告 + 發起入口 fail-closed,codex MF2)。 */
+  refundsFailed?: boolean;
+  /** M-3 RW3:帳本列被上限截斷(codex MF1)。 */
+  refundsTruncated?: boolean;
+  /** M-3 RW3:`pcm_order_refundable_remaining`(措辭鐵律=「帳本未登記額」)。 */
+  refundUnregisteredAmount?: number | null;
+  /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
+  refundUnregisteredFailed?: boolean;
 }) {
   const optionsByCode = indexOrderStatusOptions(statusOptions);
   const activeOptions = statusOptions.filter((o) => o.isActive);
@@ -318,12 +335,30 @@ export function OrderDetail({
         correctionMissing={correctNoteId !== null && correctTarget === null}
       />
 
+      {/* M-3 RW3:退款帳本呈現(唯讀、不吃旗標;零列且未失敗時區塊自回 null)。
+          nowMs 在 server render 期取 —— 列級「滯留逾閾」判定的現在時刻。 */}
+      <RefundLedgerSection
+        rows={refunds}
+        unregisteredAmount={refundUnregisteredAmount}
+        unregisteredFailed={refundUnregisteredFailed}
+        rowsTruncated={refundsTruncated}
+        loadFailed={refundsFailed}
+        nowMs={Date.now()}
+      />
+
       {/* M-3 RW2d:退款入口(危險操作沉底)。旗標 && 顯示層狀態閘 && tappay 管道才渲染;
           token 同備註片慣例 = server component 渲染期產(頁層 force-dynamic、零快取層)。
           channel 閘(R1 N5)=顯示層:轉帳/現金單不該看到「線上退款(TapPay)」紅框;
           已知代價 = 若歷史資料 channel 記錯而 rec_trade_id 其實存在,入口會隱藏(fail-closed,
-          修資料即恢復)—— 真權威仍是 action 步 ④ 的 rec_trade_id 檢查與 RPC。 */}
+          修資料即恢復)—— 真權威仍是 action 步 ④ 的 rec_trade_id 檢查與 RPC。
+          🔴 帳本健康閘(codex MF2 + R2/opus R2b 負值補格):帳本列或未登記額讀不到、
+          或未登記額為**負**(帳本登記已超過訂單總額=對帳異常,區塊明寫「勿再發起」)
+          ⇒ 入口 fail-closed —— 同一頁「文字叫你別按、按鈕還亮著」就是自打嘴巴。
+          負值下錢仍安全(S5 single-flight 擋下一發),關的是矛盾畫面。 */}
       {refundEnabled &&
+        !refundsFailed &&
+        !refundUnregisteredFailed &&
+        !(refundUnregisteredAmount !== null && refundUnregisteredAmount < 0) &&
         detail.paymentChannel === 'tappay' &&
         REFUND_ENTRY_STATUSES.includes(detail.paymentStatus) && (
           <RefundSection orderId={detail.id} serverToken={generateRefundRequestToken()} />
