@@ -9,7 +9,7 @@
 > **在途與收官**:視窗A(refund-wire worktree)=A8a2 品項部分取消施工中,收工寫 A-17-STOP;
 > 收割走錢面全工法(拋棄庫 d1t2 provision 短路徑 + `A8A2_VERIFY_PORT` 指埠;A8a1 前例=45/45)。
 > 視窗C(home-redesign worktree)=**D3 收官、任務清空可關**;下一棒 ③A-engine 選車內臟=**新視窗新線**
-> (計畫=`docs/specs/2026-08-03-vehicle-picker-unification-wire-plan.md`,A1/A2 已落地、剩 A-engine 段)。
+> (計畫=`docs/specs/2026-08-03-vehicle-picker-unification-wire-plan.md`,A1/A2 已落地、剩 A-engine 段;**+backlog #323 子分類膠囊雙顆(Q8=A,08-05 肉眼驗回饋)排本線早期片**)。
 >
 > **08-04/05 拍板全集(全落 memory)**:鐵則 7 放寬=多代理實作提案批准制(Sean 親改 CLAUDE.md,
 > AGENTS/00-work-rules 已同步)/ 規則三層閱讀法入 CLAUDE.md / KINEO Q3=A `懸吊與車架 · 輪圈`+Q4=A 字面照顯示
