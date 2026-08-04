@@ -1,7 +1,7 @@
 // brand-content.ts — 品牌介紹頁內容資料(20 家)【機器產生,不要手改】
 //
 // 🔴 本檔由設計側唯一資料來源**求值產生**,不是手抄的:
-//    來源 = Open Design `pcm-home-redesign/brand-content-data.js`(1188 行、window.PCM_BRANDS)
+//    來源 = Open Design `pcm-home-redesign/brand-content-data.js`(1202 行、window.PCM_BRANDS;2026-08-04 materya video 回寫後行數)
 //    鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B(本線真權威在 Open Design、不是 design-reference submodule)
 //
 // 重新產生(來源改動後):
@@ -21,14 +21,13 @@
 //    · 🔴 Kineo 的齒盤說法**與官網相反是刻意的**:官網 FAQ 寫「原廠齒盤可沿用」,
 //      Sean 2026-08-03 更正為「Kineo 隨輪組供應專用齒盤」。不要照官網改回去。
 //
-// 🔴🔴 **本檔已有一處手改、與來源不同步**(2026-08-04 / D2f;backlog #319):
-//    `materya` 的 `video` 區塊(→ About 右欄從產品照換成直式影片)是 **Sean 2026-08-04
-//    指定的素材**(IG reel DVeM7gWDB3F),Open Design 的 `brand-content-data.js` 側**尚未回寫**。
-//    ⇒ **照上面的指令重新產生會把它整塊刪掉,而且不會有任何測試變紅**
-//      —— `brand-assets.test.ts` 只驗「資料引用的檔案存在」,不驗「這筆資料還在」。
-//    ⇒ 重新產生前先做兩件事之一:①先把 video 區塊回寫進 OD 來源(乾淨解、#319 要的)
-//      ②產生後手動把這一塊貼回來,並確認 `materya-reel.mp4` / `reel-poster.jpg` 兩個資產仍在。
-//    守門 = `brand-content.test.ts` 的「materya 的 About 右欄影片還在」那條(#319 一起加的)。
+// ✅ **materya `video` 區塊已回寫 OD 來源、兩邊一致**(2026-08-04 主視窗執行,Sean 拍 #319 Q2=A):
+//    D2f 當天這裡曾是「手改、與來源不同步」——重新產生會把 Sean 指定的影片(IG reel DVeM7gWDB3F)
+//    整塊刪掉而零測試變紅。回寫後已實跑上面的產生指令驗證:輸出含 materya video、與本檔逐字同。
+//    ⚠️ mp4/poster 實體檔只在本 repo(`public/brand-assets/…`),OD 專案側沒放檔案 ⇒
+//      OD 預覽該格播不動是正常的;資料契約以 `brand-content-data.js` 為準。
+//    守門 = `brand-content.test.ts` 的「materya 的 About 右欄影片還在」那條**保留當回歸**
+//      (它擋的是「有人改 OD 來源把這筆刪了再重新產生」的路)。
 //
 // L2 內容分級(鐵則 9、backlog #271):四則事實與兩段介紹目前 hardcode、無後台 CRUD。
 
