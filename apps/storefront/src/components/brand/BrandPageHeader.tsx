@@ -17,10 +17,9 @@ import type { CSSProperties } from 'react';
 import '@/styles/brand-page.css';
 import type { BrandContent } from '@/data/brand-content-types';
 import { BrandRichText } from '@/components/BrandRichText';
-
-/** 設計側資產保留 OD 的扁平佈局(信箱 C-01-A Q1=A),渲染時補這個前綴。 */
-const ASSET_BASE = '/brand-assets/';
-export const brandAsset = (path: string): string => `${ASSET_BASE}${path}`;
+// 資產前綴 D2c-2 移到 `@/lib/brand-asset`(理由見該檔:client 元件 BrandPageMedia 也要用,
+// 留在本檔會把整支 Header 拖進 client bundle)。
+import { brandAsset } from '@/lib/brand-asset';
 
 /** 商品目錄(依品牌篩選)。與設計稿 `brand-content-data.js:1187` 的 PCM_catalogueUrl 同式。 */
 export const brandCatalogueUrl = (slug: string): string =>

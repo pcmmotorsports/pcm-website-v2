@@ -5,7 +5,7 @@
 //    ——而版面的問題(裁切焦點跑掉、幕壓不住字、窄螢幕變全黑)單元測試看不見。
 //    dev-preview/* 整族本來就掛 backlog #147「M-6 前移除」,D8 一併帶走。
 //
-// 目前只掛 D2b 的三段(麵包屑 / 橫幅 / 事實列);D2c-D2e 各自往下接。
+// 目前掛到 D2c(麵包屑 / 橫幅 / 事實列 / About + 右欄影片或產品照);D2d-D2e 各自往下接。
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';

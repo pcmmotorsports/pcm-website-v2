@@ -1,13 +1,12 @@
-// BrandPageAbout.tsx — 品牌介紹頁的 About 區(D2c-1;2026-08-04)
+// BrandPageAbout.tsx — 品牌介紹頁的 About 區(D2c-1 正文+產品照 / D2c-2 影片右欄;2026-08-04)
 //
 // 字面搬自 Open Design `pcm-home-redesign/brand-page.html`
-// (骨架 :1386-1411、組裝邏輯 :1851-1854 與 :1958-1968、CSS :659-688 與 :961)。
+// (骨架 :1386-1411、組裝邏輯 :1851-1854 與 :1958-1969、CSS :659-688 與 :961)。
 // 鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B(本線真權威在 OD)。
 //
 // 🔴 右欄「一次只放一個東西」(設計稿 :1958 逐字):
-//    有官方影片 → 放影片;沒有才退回產品照卡;兩者皆無 → 整列收成兩欄、正文吃回右邊那格。
-//    **影片右欄是 D2c-2**(要 client 元件 + 點擊才掛 iframe)。本片只做產品照那條路,
-//    並把「有影片時不渲染產品照」的分流先立起來 —— 否則 D2c-2 接上去時會兩個都出現。
+//    有官方影片 → 放影片(`BrandPageMedia`,client 元件、點擊才掛 iframe);
+//    沒有才退回產品照卡;兩者皆無 → 整列收成兩欄、正文吃回右邊那格。
 //
 // ⚠️ 實測分布(2026-08-04):20 家全部有 aside,其中 11 家同時有 video
 //    ⇒ **真正看得到產品照卡的只有 9 家**;而「兩者皆無」的兩欄退化態在現有資料下**不可達**。
@@ -16,24 +15,30 @@
 
 import type { BrandContent } from '@/data/brand-content-types';
 import { BrandRichText } from '@/components/BrandRichText';
-import { brandAsset } from './BrandPageHeader';
+import { BrandPageMedia } from './BrandPageMedia';
+import { brandAsset } from '@/lib/brand-asset';
 import '@/styles/brand-page.css';
 
 export function BrandPageAbout({ brand }: { brand: BrandContent }) {
-  // 右欄分流:影片優先,其次產品照。影片本體 D2c-2 接;本片只負責「有影片就不放產品照」。
+  // 右欄分流:影片優先,其次產品照(設計稿 :1960 的 `!brand.video && brand.aside`)。
   const showAside = !brand.video && brand.aside !== undefined;
 
-  // 🔴 `no-aside` 反映的是「右欄**這一刻**有沒有東西」,不是「最終會不會有東西」。
-  //    設計稿最終狀態下,有 video 的品牌右欄放影片、不掛 no-aside(:1967-1968);
-  //    但 **D2c-1 還沒有影片元件** —— 這時就照最終狀態不掛的話,那 11 家會保留
-  //    `200px .8fr minmax(420px,1.2fr)` 三軌卻只有兩個子元素:正文被壓進 .8fr、
-  //    第三軌整片空(1440 實測約 629px 死白)。每一片都要在它自己落地的當下是對的。
-  //    ⇒ D2c-2 加上影片渲染時,這一行同步改成 `showAside || brand.video !== undefined`。
-  const hasRightColumn = showAside;
+  // D2c-2 已把影片接上 ⇒ 右欄「這一刻」有東西的條件回到設計稿最終狀態(:1966-1968:
+  // 產品照與影片兩條路都 remove no-aside)。D2c-1 期間這裡刻意只認 showAside,
+  // 因為當時影片元件還沒有 —— 那 11 家會保留三軌卻只有兩個子元素、第三軌 629px 死白。
+  const hasRightColumn = showAside || brand.video !== undefined;
+
+  // 直式影片(3:4 / 9:16)整列欄寬要重配,否則會被塞進給 16:9 用的寬欄裡變細長條
+  // (設計稿 :1878-1881 把 class 掛在 inner 上,不是掛在影片自己身上)。
+  const innerClass = [
+    'bp-about-inner',
+    hasRightColumn ? '' : 'no-aside',
+    brand.video?.portrait ? 'has-portrait-media' : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <section className="bp-about">
-      <div className={`bp-about-inner${hasRightColumn ? '' : ' no-aside'}`}>
+      <div className={innerClass}>
         <div className="bp-sec-label">About</div>
         <div className="bp-body">
           {/* lead / tail 帶白名單標記(設計稿 :1852/:1854 **不 esc**)⇒ 過 BrandRichText */}
@@ -43,6 +48,8 @@ export function BrandPageAbout({ brand }: { brand: BrandContent }) {
           {brand.about.pull ? <p className="bp-pull">{brand.about.pull}</p> : null}
           <BrandRichText as="p">{brand.about.tail}</BrandRichText>
         </div>
+        {/* 右欄一次只放一個東西:有官方影片就放影片(D2c-2),沒有才退回下面的產品照卡。 */}
+        {brand.video && <BrandPageMedia video={brand.video} />}
         {showAside && brand.aside && (
           <aside className="bp-aside">
             <div className="bp-aside-card">
