@@ -8531,3 +8531,37 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   `apps/storefront/src/styles/tokens.css`(A 案的落點)/
   Open Design `pcm-home-redesign/brand-page.html:461-465` 與 `:860-866` /
   信箱 `C-19-A.md`(拍板)與 `C-20-Q.md`(我的前提更正)/ #312 第三條(原本在追這件事)
+
+### #319. 🔒 mark 家族三支金流 RPC 鎖序統一 orders-first — begin×genesis 的已知死結面根治路
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2-after-launch(Sean 2026-08-04 拍板 Q1=A:A8c1 照 row 34 上線、本題立 backlog 待排程)
+- **優先級:** 🟡 罕見、自癒、零錢風險 —— 但屬「環的組合面」結構債
+- **問題:**
+  - A8c1 讓 `begin_charge_attempt` 成為第一個「持 `orders` FOR UPDATE、後觸 `payment_charge_attempts`」的函式,
+    打破 r1c3 檔頭(`20260624120010:24-27`)自陳的全庫不變式「無 order→attempt 反向鎖序 ⇒ 無死結」。
+  - **實測(2026-08-04,真 RPC、拋棄式 PG17,腳本收編於 `scripts/a8c1-verify.sh` L3/L4 格)**:
+    · `mark_charge_attempt_failed` × begin = **只阻塞、零 40P01**(它的 UPDATE 在 orders 鎖後;
+      begin 的 `ON CONFLICT DO NOTHING` 對 lock-only pending 列不等待);`close_released_attempt` 同構。
+    · `mark_charge_attempt_charged` released→charged genesis × begin = **真死結 40P01**
+      (genesis 先 UPDATE→charged 產生投機索引項、再等 orders KEY SHARE;begin 持 orders 等投機項=環)。
+  - 觸發前提=同一張單同秒「late-success 對帳收斂」×「客人重試結帳」;後果=PG 1s 偵測、
+    **單方 victim** 原子回滾(通用錯誤、fail-closed)、重試即癒;量級 100-300 單/月下罕見。
+  - **零新增錢風險的證明(2026-08-04 v3 更正,非「雙方回滾」)**:`payment_charge_attempts_order_lock_idx`
+    述詞含 `released` ⇒ genesis 當 victim 回滾後 released 列仍佔鎖索引 ⇒ 倖存 begin 的 arbiter
+    必 conflict ⇒ `order_locked`、開不出收款路徑;begin 當 victim=通用錯誤。兩向零新增終態。
+- **隱含不變式(R3-N4,2026-08-04 逐支親驗成立、未來會靜默失效)**:「倖存 begin 必 order_locked」
+  依賴「所有把列移出 `order_lock_idx` 述詞的轉移(mark_failed pending→failed、close released→failed)
+  都先取 orders FOR UPDATE」——家族未來若新增**不鎖 orders 的退出轉移**,A8c1 migration 寫進三支
+  COMMENT 的死結面描述會被靜默證偽,零測試翻紅。
+- **不修未來會痛在哪:**
+  - 每新增一支「orders-先」持鎖者(A8c2/A8a1/A8a2 都是)或 attempt 側新的投機索引寫入路徑,
+    環的組合面就**再長一格**,而每格都要靠人記得跑一次死結分析——漏掉的那格不會在測試綠燈裡現形,
+    只會在正式站深夜以 40P01 出現在結帳路徑。
+  - 已知死結面存在期間,r1c3/mark_failed/r1b1c 的「無死結」舊字面已由 A8c1 migration 更正 COMMENT;
+    但**新加入者沒有機制強制宣告自己的鎖序**,不變式只剩文件約定。
+- **修法(排程時)**:`mark_charge_attempt_failed` / `mark_charge_attempt_charged` / `close_released_attempt`
+  三支同批翻「orders FOR UPDATE 第一動作」(只翻一支會在家族內開新反向環——2026-08-04 分析);
+  各附回歸格 + 鐵則 12① 對抗審查;A8c1 的 L3/L4 格屆時翻 oracle(零 40P01)。
+- **出處:** A8c1 plan §3.7/§3.8(`docs/specs/2026-08-04-e10-a8c1-begin-cancel-guard-plan.md`)、
+  信箱 A-09-Q/A-09-A、codex 關卡1 R1 MF4/MF5 + 主對話實測裁決。
