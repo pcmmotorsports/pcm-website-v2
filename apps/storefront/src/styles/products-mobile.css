@@ -232,15 +232,26 @@
   padding-bottom: 18px;
   border-bottom: 1px solid var(--c-border);
 }
+/* A9:`.cat-garage-heading` 原本是 sheet 專屬、但寫成**無 scope 的全域規則**(當時全站只有
+   sheet 會渲染它,所以看不出差別)。副註推廣到四個掛載點之後,top/drawer 的面板也會渲染它
+   ⇒ 不分家就會把手機的卡片密度(17px/850 + space-between)套到桌機面板上。
+   設計稿 §B 逐字分成兩種密度:
+     行內密度(首頁 / PDP §7 / 購物車 / **桌機面板**)= `align-items:baseline; gap:10px`、
+       span `14px/700`、**無** space-between、**無** margin-bottom(靠外層 gap)
+     卡片密度(手機面板頂部)= 17px/850 + space-between + margin-bottom:10px
+   ⇒ 基礎 = 行內密度,卡片密度收進 `.cat-garage--sheet` 底下。 */
 .cat-garage-heading {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 10px;
+}
+.cat-garage-heading span { font-size: 14px; font-weight: 700; }
+.cat-garage-heading small { color: var(--c-text-3); font-size: 12px; }
+.cat-garage--sheet .cat-garage-heading {
+  justify-content: space-between;
   margin-bottom: 10px;
 }
-.cat-garage-heading span { font-size: 17px; font-weight: 850; }
-.cat-garage-heading small { color: var(--c-text-3); font-size: 12px; }
+.cat-garage--sheet .cat-garage-heading span { font-size: 17px; font-weight: 850; }
 .cat-garage--sheet .cat-garage-chips {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -11,6 +11,13 @@
 // 桌機掛 CascadeFilterTop(.cft-right)、手機掛 FilterDrawerVehicleTab;同一元件、外殼依 variant
 //   變形(值班台 plan verdict:統一=共用核心、外殼依掛載點變形)。
 // 🔴 未登入/讀取失敗 → garage=[] → 整個鈕不顯示(garage.length>0 閘,兩掛載點皆守)。
+//
+// A9(2026-08-05,選車引擎統一 B′):升為**全站唯一** chips 元件(A 表條 6:4 份 JSX → 1 份)。
+//   ① 加互斥的 `onApply` 出口 —— 首頁/PDP/購物車沒有 cascade reducer,不是 drop-in(spec §4-1)。
+//   ② 副註「點一下直接套用」推廣到四個掛載點(原本只有手機面板有)。
+//   ③ 零命中句三版收一版、不再寫「上方/下方」。
+//   🔴 `resolveGarageChip` / `resolveSuggestionLabel` 的決策腦與年份閘門**完全不動**
+//      (spec §1c:不得複製第二份)。
 
 import { useState } from 'react';
 import type { Dispatch } from 'react';
@@ -35,22 +42,38 @@ export type GarageChipItem = Pick<
   'id' | 'name' | 'year' | 'dictBrandName' | 'dictModelName' | 'isPrimary'
 >;
 
+type GarageChipsBase = {
+  garage: GarageChipItem[];
+  motoBrands: MockMotoBrand[];
+  /** top=桌機 CascadeFilterTop 旁;drawer=手機 FilterDrawer 車輛 tab 內;
+   *  sheet=ADR-0007 手機選車面板頂部(無 toggle、卡片直接展開、一點即套用)。
+   *  🔴 設計稿 §B 的「行內密度」(首頁 / PDP §7 / 購物車)是 A10 才接上來的第四種,
+   *     連同它的 CSS 與「恆展開、無 toggle」語意一起在那片加 ——
+   *     這裡先不放沒有消費端的值(放了會是個沒 CSS、又會被 toggle 藏起來的半成品)。 */
+  variant: 'top' | 'drawer' | 'sheet';
+  /** 套用成功後通知宿主(ADR-0007 手機決定 2:點愛車 = 直接套用並關閉選車面板)。 */
+  onApplied?: () => void;
+};
+
+/** A9(spec §4-1 點名的最大一顆地雷):目錄兩處吃 cascade `dispatch`,首頁/PDP/購物車不是 ——
+ *  首頁是 local `useState`、PDP 走 `commit()`、購物車走 `commitDict()`。所以出口做成**互斥**的
+ *  兩種:給 `dispatch`(維持現行三連發,目錄兩處零改動)或給 `onApply`(自己決定怎麼套用)。
+ *  🔴 互斥寫在型別上、不是寫在註解裡 —— `onApply?: never` 讓「兩個都傳」當場編譯錯,
+ *     否則這條約束只是一句沒有守門的話。 */
+type GarageChipsProps = GarageChipsBase &
+  (
+    | { dispatch: Dispatch<CascadeFilterAction>; onApply?: never }
+    | { dispatch?: never; onApply: (apply: GarageChipApply) => void }
+  );
+
 export function GarageChips({
   garage,
   motoBrands,
   dispatch,
   variant,
   onApplied,
-}: {
-  garage: GarageChipItem[];
-  motoBrands: MockMotoBrand[];
-  dispatch: Dispatch<CascadeFilterAction>;
-  /** top=桌機 CascadeFilterTop 旁;drawer=手機 FilterDrawer 車輛 tab 內;
-   *  sheet=ADR-0007 手機選車面板頂部(無 toggle、卡片直接展開、一點即套用) */
-  variant: 'top' | 'drawer' | 'sheet';
-  /** 套用成功後通知宿主(ADR-0007 手機決定 2:點愛車 = 直接套用並關閉選車面板)。 */
-  onApplied?: () => void;
-}) {
+  onApply,
+}: GarageChipsProps) {
   const [open, setOpen] = useState(false);
   // sheet 變體(ADR-0007):Sean 拍板「面板頂部**先顯示**我的愛車卡片」⇒ 恆展開、無 toggle。
   const alwaysOpen = variant === 'sheet';
@@ -63,12 +86,19 @@ export function GarageChips({
   // 未登入/讀取失敗 → 整個鈕不顯示(閘與首頁 VehicleFinder 一致)。
   if (garage.length === 0) return null;
 
-  const applyToCascade = (a: GarageChipApply) => {
-    // brand→model→year 三連發(reducer 順序處理、前一 dispatch 已立 state;與 CascadeFilterTop/
-    // FilterDrawerVehicleTab 既有三連發同款)。year 缺(閘門未過)不 dispatch=不限年份。
-    dispatch(selectVehicleBrand(a.brand));
-    dispatch(selectVehicleModel(a.model));
-    if (a.year !== undefined) dispatch(selectVehicleYear(a.year));
+  const applyResolved = (a: GarageChipApply) => {
+    if (onApply) {
+      // 宿主自己的套用出口(首頁 setVehicle / PDP commit / 購物車 commitDict)。
+      // 🔴 走這條就**完全不 dispatch** —— 那些宿主根本沒有 cascade reducer。
+      onApply(a);
+    } else {
+      // brand→model→year 三連發(reducer 順序處理、前一 dispatch 已立 state;與 CascadeFilterTop/
+      // FilterDrawerVehicleTab 既有三連發同款)。year 缺(閘門未過)不 dispatch=不限年份。
+      // 型別上 dispatch 與 onApply 互斥 ⇒ 走到這裡 dispatch 必存在。
+      dispatch!(selectVehicleBrand(a.brand));
+      dispatch!(selectVehicleModel(a.model));
+      if (a.year !== undefined) dispatch!(selectVehicleYear(a.year));
+    }
     setOpen(false);
     setSuggest(null);
     onApplied?.();
@@ -77,7 +107,7 @@ export function GarageChips({
   const onChip = (g: GarageChipItem) => {
     const result = resolveGarageChip(motoBrands, g);
     if (result.kind === 'apply') {
-      applyToCascade(result);
+      applyResolved(result);
     } else {
       setSuggest({ query: result.query, entries: result.entries, garageYear: result.garageYear });
     }
@@ -85,7 +115,7 @@ export function GarageChips({
 
   const onPickSuggestion = (label: string, garageYear: number | undefined) => {
     const applied = resolveSuggestionLabel(motoBrands, label, garageYear);
-    if (applied) applyToCascade(applied);
+    if (applied) applyResolved(applied);
   };
 
   return (
@@ -113,6 +143,15 @@ export function GarageChips({
       )}
       {(open || alwaysOpen) && (
         <div className="cat-garage-panel">
+          {/* A9(A 表條 6):副註「點一下直接套用」原本只有手機面板有,推廣到四個掛載點。
+              toggle 變體的鈕本身是收合入口(字面不動),副註掛在展開後的面板頂 ——
+              設計稿 §B 的「行內密度(首頁 / PDP §7 / 購物車 / 桌機面板)」就是這個位置。 */}
+          {!alwaysOpen && (
+            <div className="cat-garage-heading">
+              <span>我的愛車</span>
+              <small>點一下直接套用</small>
+            </div>
+          )}
           <div className="cat-garage-chips">
             {garage.map((g) => (
               <button
@@ -145,7 +184,10 @@ export function GarageChips({
                 </>
               ) : (
                 <span className="cat-garage-suggest-label">
-                  無法對應「{suggest.query}」到車款字典,請用上方車款選單選擇
+                  {/* A9(A 表條 7):零命中句原本三版並存 —— 目錄「請用上方車款選單選擇」、
+                      首頁「請從下方選單選擇」、PDP「請用下方選單選擇」。三版收一版,
+                      且不再寫「上方/下方」(同一句話要掛在四個位置不同的掛載點上)。 */}
+                  無法對應「{suggest.query}」到車款字典，請改用車款選單選擇
                 </span>
               )}
             </div>
