@@ -12,7 +12,11 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
-import { BrandPageHeader, brandCatalogueUrl, brandVehiclePickUrl } from './BrandPageHeader';
+import { BrandPageHeader } from './BrandPageHeader';
+// 三個 helper D2e-1 移到 `@/lib/brand-url`;純字串行為的守門一起搬去 `lib/brand-url.test.ts`,
+// 本檔只留「這兩顆 CTA 真的指到那個網址」這一半(那是元件的責任、不是函式的)。
+// ⚠️ 本檔**不 import 那三個 helper** —— 兩顆 CTA 的期望值刻意寫成字面字串:
+//    用 helper 組期望值的話,helper 改壞時兩邊一起變、這兩條就永遠不會紅(R2 nit 順手補記)。
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import type { BrandContent } from '@/data/brand-content-types';
 
@@ -117,10 +121,6 @@ describe('🔴 BrandPageHeader · 兩顆 CTA 的目的地', () => {
     expect(href).not.toContain('#finder');
   });
 
-  it('slug 有做 encodeURIComponent(未來出現需跳脫字元時不會壞掉)', () => {
-    expect(brandCatalogueUrl('a b')).toBe('/products?pbrand=a%20b');
-    expect(brandVehiclePickUrl('a b')).toBe('/products?pbrand=a%20b&pick=vehicle');
-  });
 });
 
 describe('BrandPageHeader · 事實列', () => {

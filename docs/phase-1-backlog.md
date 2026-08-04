@@ -8326,3 +8326,145 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   `apps/storefront/src/data/brand-content.ts`(rizoma craft rows)/
   Open Design `pcm-home-redesign/brand-page.html:1124`(上游同一個版位)/
   #312(同族:設計稿繼承的缺陷走拍板)
+
+### #314. 🔗 品牌介紹頁走 A 案新 route,但設計稿字面連結 `?pbrand=X#brand-about` 沒有 redirect
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟠 上線前(客人按了會落在錯的頁面,而且沒有錯誤訊息)
+- **問題:**
+  - 設計稿的網址契約是 `/products?pbrand=X#brand-about`(`brand-page.html:1604-1606` 的
+    `intro()` 逐字,`:1605` 註解自稱「正式站的網址契約」;`prototype-router.js:25-34` 也照這條走)。
+  - 接線計畫 §3 推薦 **A 案** = 新 route `/brands/<slug>` + **對舊字面加一條 `redirect()`**
+    (`docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:88` 逐字)。
+  - D2e-1 的磚牆已經改指 `/brands/<slug>`(`lib/brand-url.ts` 的 `brandIntroUrl`),
+    但 **redirect 那一半沒做**,而且 D3 開 route 前 `/brands/<slug>` 本身也還是 404。
+  - 🔴 沒有 redirect 的症狀:`?pbrand=X#brand-about` 會落在**商品目錄**、`#brand-about`
+    沒有對應錨點 ⇒ 停在頁首。畫面「有東西」、零錯誤,只是不是客人要的那一頁。
+- **觸發事件:** 2026-08-04 / D2e-1 關卡2 R1 must-fix(我原本把對照基準寫成
+  `brand-content-data.js:1188` 的 `PCM_introUrl` —— 那個函式在設計稿裡**零引用**)。
+- **預期解法:** D3 建 `app/brands/[slug]/page.tsx` 時,同片在 `/products` 側加
+  `?pbrand=X` + `#brand-about` 的 redirect(hash 不會送到 server ⇒ 需要 client 側或改用 query)。
+  🔴 **「hash 收不到」這件事本身要先確認做得到**,做不到就是回頭改計畫 §3 的 A 案,不是硬幹。
+- **🔴 D3 的兩條驗收前置(D2e-1 關卡2 R3 補;不寫下來 D3 會照抄「已驗過」而漏掉):**
+  - **帶站台 Header 重量六寬度**:D2b-D2e 的真瀏覽器量測全部跑在
+    `dev-preview/brand-page/[slug]` 這個**沒有 `<Header>` 的裸頁**上(Header 在本 repo 是
+    逐頁掛的,見 `app/page.tsx`;root layout 只有 MobileTabBar)。D3 加上 sticky Header 後,
+    首屏高度、`#brand-about` 之類錨點的落點、z-index 疊層**全部是未量測狀態**。
+  - **`.bp-page` scope 上機制、不靠人記**:整頁色票(`--cat-*` / `--c-sunken` / 全套灰階)
+    都掛在 `.bp-page`,而那個 class 由路由**手掛**;漏掛時只有兩處有 fallback(`--c-graphite`
+    與 chip 的 `--c-border-control`),其餘整組沉默降級、沒有任何東西會紅。
+    ⇒ 機制優先律:抽一個 `BrandPageRoot` wrapper 讓 scope 跟元件走,或補一條 route-level
+    斷言「route 輸出的 HTML 含 `.bp-page`」。
+- **不修會痛在:**
+  - 擴充性:設計稿與原型的連結全部走那個字面,D4 品牌總覽頁也會產同款連結。
+  - bug 可追蹤性:落錯頁沒有任何訊號 —— 三綠、CSS 守門、元件測試全部看不到。
+- **估時:** 20 分鐘(含確認 hash 的處理方式)
+- **依賴:** D3(route 本體)
+- **發現於:** 2026-08-04 / D2e-1 關卡2 R1
+- **相關:** `apps/storefront/src/lib/brand-url.ts`(`brandIntroUrl`)/
+  `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md` §3 /
+  Open Design `pcm-home-redesign/brand-page.html:1606`
+
+### #315. 🔇 品牌頁分類 chip 對不上正式目錄的分類名時,會靜默退回「不篩選」
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟠 上線前(客人按了以為篩了,其實沒有)
+- **問題:**
+  - D2e-1 的 chip 產 `/products?pbrand=X&category=<分類名>`(設計稿 `brand-content-data.js:1187`
+    的 `PCM_catalogueUrl` 同式),讀取端是 `components/products-url-state.tsx:63-79`。
+  - 🔴 `parseCategoryFromUrl` 對 catalog taxonomy 走 `c.name === raw || c.id === raw`,
+    **比對不到就 `return null`** ⇒ 整個 category 軸靜默消失,客人看到的是
+    「該品牌全部商品」,**和沒按 chip 長得一模一樣**、零錯誤訊息。
+  - 設計側的 12 個分類名(`brand-content.ts` 共 52 筆)**與正式目錄 taxonomy 對不對得上,
+    截至 D2e-1 未驗** —— D2e-1 只保證網址形狀正確(`lib/brand-url.test.ts` 有守)。
+  - 🔴🔴 **`pbrand` 那一半是同一個病、而且更容易中**(D2e-1 關卡2 R3 換角度抓到,
+    我原本只釘了 category 軸):`components/products-url-state.tsx:98` 的
+    `parseBrandFiltersFromUrl` 把 pbrand 過濾成
+    `requested.filter((slug) => productBrands.some((b) => b.id === slug))`,
+    而 `productBrands` 來自 `lib/brand-taxonomy.ts:27` 的 `buildBrandTaxonomy(products)`
+    —— **由「目前目錄裡真的有商品」的品牌衍生**(`:30-42` 逐筆分組,零商品的品牌根本不進表)。
+    ⇒ 20 家裡任何一家在目錄還沒有商品時,`pbrand` 被**整個丟掉**、只剩 category
+    ⇒ 客人在 Akrapovic 品牌頁按「排氣系統」chip,看到的是**全品牌**的排氣商品(含競品),
+    而且畫面上完全沒有「品牌篩選被丟掉了」的訊號。
+    ⚠️ 這一半連橫幅那兩顆 CTA(`brandCatalogueUrl` / `brandVehiclePickUrl`,D2b 就上線了)
+       也一起中 —— 不是 D2e-1 新引入的,是本片讓它多了 52 個入口。
+- **觸發事件:** 2026-08-04 / D2e-1 關卡2 R1(審查指出「零改動」的說法沒有涵蓋 miss 的失敗模式)。
+- **預期解法(兩個軸都要做,只做一半等於沒做):**
+  - **category 軸**:D3 接線時逐一比對 12 個名稱 vs 正式 taxonomy,對不上的走「改資料」
+    還是「加對照表」由 Sean 拍;補一條測試:12 個名稱都能命中(對不上時**測試紅**、不是畫面靜默)。
+  - **pbrand 軸**:同樣補一條測試 —— **20 個 slug 全部要在 `buildBrandTaxonomy` 的輸出裡命中**;
+    對不上的(= 目錄裡還沒有商品的品牌)要拍板:是先不掛那家的品牌頁、還是讓 `pbrand`
+    在 miss 時走 fail-visible(顯示「這個品牌目前沒有商品」)而不是靜默丟掉。
+  - 🔴 兩條測試都要跑在**真目錄資料**上,不是 mock —— 用 mock 的話兩邊永遠對得上、守門恆綠。
+- **不修會痛在:**
+  - 可維護性:分類表改名時沒有任何東西會紅,chip 會一批一批默默失效。
+  - bug 可追蹤性:失敗長得和成功一樣,只有逐個點過才發現。
+- **估時:** 45 分鐘(兩個軸的比對 + 兩條守門);要改資料另計
+- **依賴:** D3
+- **發現於:** 2026-08-04 / D2e-1 關卡2 R1(category 軸)+ R3 換模型換角度(pbrand 軸)
+- **相關:** `apps/storefront/src/lib/brand-url.ts`(`brandCatalogueUrl`)/
+  `apps/storefront/src/components/products-url-state.tsx:63-79` /
+  `apps/storefront/src/data/brand-content.ts`(52 筆 categories)/
+  `apps/storefront/src/lib/brand-taxonomy.ts:27-42`(pbrand 那半邊的根源)/ #287(`?pbrand=` 未消歧)
+
+### #316. 🎞️ 品牌頁的「捲動揭示」設計稿寫好了但刻意不搬 — 上線後 Sean 逛過再決定
+
+- **狀態:** ⏳ 待決定(**已拍板延後,不是漏掉**)
+- **分流:** P2-after-launch
+- **優先級:** 🟡 上線後(純體感,不影響任何功能)
+- **問題:**
+  - 設計稿**自己前後矛盾**:動效層抬頭 `brand-page.html:794` 逐字寫「**刻意不做捲動揭示**
+    —— 這頁是購物動線、內容密,揭示動畫只會延後閱讀」;但同一份檔案
+    `:821-825` 有 `.js-reveal` / `.is-in` / 三段 `data-reveal-delay` 的 CSS、
+    `:2033-2047` 有整段 IntersectionObserver,涵蓋**七個群組**
+    (`#bp-facts` / `#bp-about-inner` / `#bp-why .bp-why-card` / `#bp-craft .bp-craft-panel` /
+    `#bp-time` / `#bp-cats` / `#bp-others`)。
+  - **Sean 2026-08-04 拍板 = C:先不做,上線後實際逛過再決定加不加。**
+    ⇒ 矛盾按抬頭解,七群組的 CSS/JS 不搬;D2e-2 的動效層只做「橫幅入場 + 互動回饋」兩段。
+- **觸發事件:** 2026-08-04 / D2e 開工前偵察(視窗 C 發現矛盾 → 信箱 C-16-STOP → Sean 拍 C)。
+- **預期解法:** 上線後 Sean 逛過真站再回來決定。要做的話程式已備:
+  設計稿 `:821-825`(CSS)+ `:2033-2047`(JS,一次性 observer、`prefers-reduced-motion`
+  或無 IntersectionObserver 時完全不介入),七群組裡有五個屬已落地的 D2b/D2c/D2d 區塊
+  ⇒ 要在那些元件上加 class + 一支 client 元件,**影響面是整頁**。
+- **不修會痛在:**
+  - 不修不痛(這就是拍板延後的理由);但**紀錄不留會痛** —— 設計稿裡那段程式碼會被
+    下一個人當成「漏搬」而重新翻案,或反過來被當成死碼刪掉。
+- **估時:** 要做的話約 40 分鐘(七群組 + reduced-motion 兩層 + 守門)
+- **依賴:** 上線 + Sean 實際逛過
+- **發現於:** 2026-08-04 / D2e 偵察;Sean 同日拍板 C
+- **相關:** Open Design `pcm-home-redesign/brand-page.html:794`(抬頭)與 `:821-825` / `:2033-2047`(程式)/
+  `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md` §5.2 動效層那段 /
+  信箱 `C-16-STOP.md` ③ 與 `C-15-A.md` 第 2 板
+
+### #317. 📏 品牌磚牆在 ≤620:長品牌名撐到三行,那幾列的磚比別列高、而且會斷在字中間
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2-after-launch
+- **優先級:** 🟡 上線後(純視覺,不影響點擊與內容)
+- **問題:**
+  - 390 實測(2026-08-04,production build):20 磚分 7 列,列高 **127 / 128 / 143 三種**。
+    143 的兩列各含一個三行名字:`DBK SPECIAL PARTS`、`EVOTECH PERFORMANCE`。
+    (同一列內是齊高的 —— flex 預設 `align-items: stretch`;差的是列與列之間。)
+  - 同時 `overflow-wrap: anywhere`(設計稿 `:1314`)會把 `PERFORMANCE` 斷成
+    `PERFORMANC` + `E` —— 一個字母孤零零占一行。
+  - 🔴 **兩個都是設計稿自己的行為**:`.bp-others-name` 在 ≤620 是 `min-height:30px`(= 兩行),
+    三行名字必然超過;而 `anywhere` 是設計稿刻意選的(`break-word` 在 min-content 計算階段
+    不生效 ⇒ 3 欄會直接爆成 2 欄 + 一個洞,那個更難看)。改任何一邊都是偏離設計字面 = 鐵則 1。
+- **觸發事件:** 2026-08-04 / D2e-1 真瀏覽器量測(390 逐磚量 `getBoundingClientRect`)。
+- **預期解法(需 Sean 拍板,三選一):**
+  - A. **接受**(現況;上游設計稿同樣如此)
+  - B. `.bp-others-name` 在 ≤620 改成固定三行高(`min-height:46px`)⇒ 全部列等高,代價是短名字底下多一行空白
+  - C. 縮字級或加 `hyphens` / 改用 `word-break: keep-all` + 縮 `letter-spacing` ⇒ 讓長名字塞得進兩行
+- **不修會痛在:**
+  - 可維護性:新增品牌時名字一長就會多一種列高,沒有任何守門會提醒。
+  - 擴充性:首頁磚牆(`.b-brand-wall`,grid 5 欄)是另一套排法,同一個字串在那邊的斷點不同 ⇒ 兩邊要分開判。
+- **估時:** B 案 5 分鐘 / C 案 15 分鐘(都要重量 390 與 620 兩個寬度)
+- **依賴:** Sean 拍板(視覺品味)
+- **發現於:** 2026-08-04 / D2e-1
+- **相關:** `apps/storefront/src/styles/brand-page.css`(≤620 的 `.bp-others-name`)/
+  Open Design `pcm-home-redesign/brand-page.html:941` 與 `:1314` /
+  #308(**指 `docs/phase-1-backlog.md:8125` 那條「品牌頁 band logo alt 與 h1 重複」——
+  `#308` 是撞號的編號,`:8070` 另有一條採購 typeahead**)、#310、#311、#312、#313
+  (同族:設計稿繼承的 a11y/視覺缺陷走拍板)

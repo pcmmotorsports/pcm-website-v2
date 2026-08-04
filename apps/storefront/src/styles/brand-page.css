@@ -10,9 +10,11 @@
  *    ⇒ 那是設計稿自己的死規則,搬過來只會多一條永遠不生效的 CSS。
  *
  * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media
- *    + D2d 的 why / craft / timeline。cats / others 與動效層由 D2e 逐片補進來,
- *    不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class 先躺在 repo 裡,
- *    誰也說不出哪些是活的。
+ *    + D2d 的 why / craft / timeline + D2e-1 的 cats / others。動效層(設計稿 :792-870)
+ *    由 D2e-2 補進來,不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class
+ *    先躺在 repo 裡,誰也說不出哪些是活的。
+ *    ⚠️ `.bp-products` / `.bp-prod-head` / `.bp-grid` / `.bp-slot` / `.bp-bar`(設計稿 :714-740)
+ *       **不屬本檔** —— 那一區用既有 `ProductCard.tsx`,屬 D3 接線(計畫 §5.2 逐字)。
  */
 
 /* ══ 設計色票(scoped,不是 :root)══════════════════════════════════
@@ -49,13 +51,32 @@
   /* 動效層的曲線。整段動效層(含四個時長 token)由 D2e 原封搬進來;
      這裡先帶曲線是因為 crumb/cta 的 transition 現在就用得到。 */
   --ease: cubic-bezier(.2, 0, 0, 1);
+  /* D2e-1:分類 chip 的邊框。設計稿 :24-27 逐字說明它為什麼**不能**用 --c-border ——
+     分隔線用的 #e5e5e7 對白底只有 1.26:1,當它是「這是可點的東西」的唯一視覺線索時
+     不符 WCAG 1.4.11(非文字對比 3:1)。#909093 = 3.18:1,是還不顯重的最淺安全值。
+     🔴 順手改成 --c-border(「跟其他線一致」)= 直接打掉一條 AA,與 --c-ember-ink 同族的坑。 */
+  --c-border-control: #909093;
 
   background: var(--c-surface);
   color: var(--c-text);
 }
-/* ⚠️ 只放**本檔真的用到**的變數。--c-border-control(.bp-chip)與
-   --c-red-dark(CTA active)由 D2d/D2e 帶著各自的規則一起進來
-   —— 對齊本檔開頭「不放沒有對應元件的東西」那條。 */
+
+/* ══ 分類色碼(D2e-1;設計稿 :36-39)═══════════════════════════════
+ * 綁的是**分類 id 不是排序位置**(README §8:名次會變,綁位置排名一變顏色就跳)。
+ * 🔴 值域 0-11 但實測 52 筆只用到 11 個值(**缺 2**),且 **0 = 不掛 data-cat、
+ *    吃 .bp-chip 預設的 --cat-8 中性灰**(設計稿 :2016-2018 的組裝逐字)。
+ *    ⇒ `--cat-2` 在正式資料下不可達;仍照設計字面搬,因為它是分類 id 的對照表、
+ *      不是「這頁用得到的顏色清單」——哪天那個分類進了某家品牌就要有色。
+ * 🔴 正式站 tokens.css **沒有**任何 --cat-*(2026-08-04 grep 實查零命中)⇒ 無同名衝突;
+ *    仍掛 .bp-page scope,理由同上面的色票那段(整站語彙由 D5 統一,不在這裡開先例)。
+ */
+.bp-page {
+  --cat-1: #9aa3ab; --cat-2: #7a6552; --cat-3: #232629; --cat-4: #5c6656;
+  --cat-5: #2f6ea8; --cat-6: #9c7f43; --cat-7: #3f7d80; --cat-8: #6e6e73;
+  --cat-9: #545a63; --cat-10: #7a5347; --cat-11: #6a5f86;
+}
+/* ⚠️ 只放**本檔真的用到**的變數。--c-red-dark(設計稿 :30,CTA active)整份 brand-page.html
+   的規則裡零引用 ⇒ 不帶進來,對齊本檔開頭「不放沒有對應元件的東西」那條。 */
 
 /* ══ 麵包屑 ═══════════════════════════════════════════════════════ */
 .bp-crumb { border-bottom: 1px solid var(--c-border); }
@@ -449,9 +470,137 @@
 .bp-time-body h3 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 5px; }
 .bp-time-body p { font-size: 14px; line-height: 1.75; color: rgba(255, 255, 255, .62); margin: 0; }
 
+/* ══ 代表分類 chips(D2e-1)═══════════════════════════════════════
+ * 位置理由同 Why / Craft:基礎規則必須排在下面 ≤960 收單欄那個區塊**之前**(同權重靠順序)。
+ */
+.bp-cats { border-bottom: 1px solid var(--c-border); }
+.bp-cats-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 52px; padding-bottom: 52px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
+}
+/* 每家 1 到 7 個(實測 52 筆 / 20 家:1個6家、2個4家、3個7家、4個1家、6個1家、7個1家)
+   ⇒ 版面要能吃「單一 chip」到「七個」,flex-wrap 而不是固定欄數的 grid。 */
+.bp-chips { display: flex; flex-wrap: wrap; gap: 10px; }
+/* 🔴 預設那條左側色塊吃 `--cat-8`(中性灰),不是「沒有色塊」——
+   colorIndex 0 的分類(實測 2 筆)不掛 data-cat,靠這條吃預設值。
+   拿掉它的話那 2 個 chip 會比其他 chip 少一條 3px 的左邊條、高度看起來也不一樣。 */
+/* 🔴 `--c-border-control` 帶 fallback,理由與本檔幾處 `--c-graphite` 同款但更嚴重:
+   正式站 `styles/tokens.css` **沒有**這個變數(2026-08-04 grep 實查 0 命中;`--cat-*`
+   與 `--c-sunken` 同樣沒有)⇒ D3 漏掛 `.bp-page` 時 var() 無值、整條 `border` 宣告作廢
+   (invalid at computed-value time),chip 變成一行沒有框的字 —— 而這個框正是
+   「這是可點的東西」的**唯一**視覺線索(WCAG 1.4.11)。
+   ⚠️ **只補這一條**:`--cat-*` 失效時 `[data-cat]` 的覆寫也一起作廢(左邊那條 3px 色塊消失),
+      `--c-sunken` 失效只影響 hover 與選中的底色 —— 兩者都是裝飾降級、不是可及性失敗。
+      逐條補 fallback = 每個色值在檔內存兩份、改一份忘一份,代價高於它擋掉的東西。
+      (R1 更正:我原本只說「is-cur 那磚看起來和其他 19 磚一樣」= 低報了範圍。） */
+.bp-chip {
+  display: inline-flex; align-items: center; border: 1px solid var(--c-border-control, #909093);
+  padding: 11px 17px; font-size: 14px; font-weight: 500; box-shadow: inset 3px 0 0 var(--cat-8);
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+/* 🔴 hover 一定要比靜止態**更深**(設計稿 :699-700 逐字):原本指向 --c-border-strong(1.48:1),
+   比新的靜止態 --c-border-control(3.18:1)還淺 —— 滑上去反而變弱,方向是反的。 */
+.bp-chip:hover { border-color: var(--c-text-3); background: var(--c-sunken); }
+.bp-chip[data-cat="1"] { box-shadow: inset 3px 0 0 var(--cat-1); }
+.bp-chip[data-cat="2"] { box-shadow: inset 3px 0 0 var(--cat-2); }
+.bp-chip[data-cat="3"] { box-shadow: inset 3px 0 0 var(--cat-3); }
+.bp-chip[data-cat="4"] { box-shadow: inset 3px 0 0 var(--cat-4); }
+.bp-chip[data-cat="5"] { box-shadow: inset 3px 0 0 var(--cat-5); }
+.bp-chip[data-cat="6"] { box-shadow: inset 3px 0 0 var(--cat-6); }
+.bp-chip[data-cat="7"] { box-shadow: inset 3px 0 0 var(--cat-7); }
+.bp-chip[data-cat="8"] { box-shadow: inset 3px 0 0 var(--cat-8); }
+.bp-chip[data-cat="9"] { box-shadow: inset 3px 0 0 var(--cat-9); }
+.bp-chip[data-cat="10"] { box-shadow: inset 3px 0 0 var(--cat-10); }
+.bp-chip[data-cat="11"] { box-shadow: inset 3px 0 0 var(--cat-11); }
+
+/* ══ 品牌磚牆(D2e-1)═════════════════════════════════════════════
+ * 位置理由同上。
+ * 🔴 這是與首頁磚牆**不同的元件、不同的排法**(計畫 §5.2 逐字):
+ *    首頁 `.b-brand-wall` = grid 5 欄(≤1200→4、≤700→2);本區 `.bp-others-list`
+ *    = flex-wrap(≤1180→4、≤620→3)。不要把兩邊「統一」。
+ */
+.bp-others-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 52px; padding-bottom: 60px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
+}
+.bp-others h2 { font-size: 15px; font-weight: 600; margin: 0 0 18px; }
+/* logo 牆 —— 原本 17 個等寬字方框,客人認得出圖不見得認得出字。
+   平常灰階,滑過才上色浮起:20 家一起上色會變調色盤。
+   🔴 flex 不用 grid(設計稿 :748-749 逐字):家數變動時(17→20→…)grid 的最後一列會靠左
+      留破口;flex + justify-content:center 讓最後一列自己置中,加到 20 家也不用重算欄數。 */
+.bp-others-list { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
+.bp-others-list a {
+  flex: 0 1 calc((100% - 48px) / 5);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  /* 磚壓成橫向比例:接近正方形時 40px 的 mark 撐不滿,看起來就是空的 */
+  gap: 15px; padding: 26px 14px 20px;
+  /* 邊框刻意比全站的 --c-border 更淡:20 個外框並排會跟 logo 搶注意力,
+     退成一層極淡的容器就好,分組靠的是對齊不是框線。
+     ⚠️ 這裡與 .bp-chip 的 --c-border-control 不衝突:磚是整塊可點的大面積 + 內含 logo 與
+        品牌名,不靠框線宣告「可點」;chip 只有一行字,框線是它唯一的可點線索。 */
+  border: 1px solid color-mix(in srgb, var(--c-border) 62%, #fff);
+  background: #fff;
+  transition: border-color .18s var(--ease), box-shadow .18s var(--ease),
+    transform .18s var(--ease), background .18s var(--ease);
+}
+/* logo 框 —— 固定高度的容器,每個 mark 在裡面置中。
+   為什麼要框:單純鎖 img 高度只鎖到「圖檔邊界」,但各家 PNG 內建的透明留白不一樣,
+   結果 mark 在磚裡的實際位置與大小都會跑掉。給一個固定框、mark 在框內 contain 置中,
+   位置才會 20 家完全一致。
+   58px 是「圖已改用 assets/brands-trim/(透明邊裁乾淨)」之後的值,整格都給 mark。
+   🔴 實測 20 檔的長寬比從 **1.32(k-speed)到 8.0(materya)差 6 倍** ——
+      固定框 + 逐家 --logo-scale 就是為了吃下這個差距,不是可以簡化掉的兩層保險。 */
+.bp-others-logo { height: 58px; width: 100%; display: flex; align-items: center; justify-content: center; }
+/* --logo-scale 是 per-brand 的光學校正旋鈕(預設 1;實測 7 家非 1、範圍 0.88-1.08)。
+   contain 是幾何對齊,不是視覺對齊:粗實心的字標(GILLES/front3d/WRS)在同樣高度下
+   看起來就是比細線稿(CNC/GB Racing/RPM)重。逐家微調才會像同一套系統
+   ⇒ **新增品牌要目視加一次,不是套公式**(計畫 §5.2 逐字)。
+   brightness(.45) 同理處理明度:只影響中間調,純黑乘任何值還是純黑,
+   所以深 logo 不受影響、淺 logo(EVOTECH 六角紋、EXTREME 細線)被拉到同一個重量。 */
+.bp-others-logo img {
+  max-height: 100%; max-width: 92%; width: auto; height: auto; object-fit: contain;
+  transform: scale(var(--logo-scale, 1));
+  filter: grayscale(1) brightness(.45) contrast(1.08);
+  transition: filter .22s var(--ease);
+}
+/* 品牌名固定兩行高 —— 有的一行有的兩行(DBK SPECIAL PARTS / EVOTECH PERFORMANCE),
+   不固定的話同一列的磚會不一樣高、基線對不齊。
+   內容整組垂直置中,名字下面才不會空一塊。 */
+.bp-others-name {
+  font-family: var(--f-mono); font-size: 12px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--c-text-2); line-height: 1.4; text-align: center;
+  min-height: 32px; display: flex; align-items: flex-start; justify-content: center;
+  transition: color .18s var(--ease);
+}
+.bp-others-list a:hover {
+  border-color: var(--c-border-strong); transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(32, 34, 37, .10);
+}
+.bp-others-list a:hover img { filter: none; }
+.bp-others-list a:hover .bp-others-name { color: var(--c-text); }
+/* 當前品牌那一磚:**不從清單拿掉**,加框加底色標出來(設計稿 :2026 的 is-cur + aria-current)。
+   拿掉的話客人在磚牆上找不到「我現在在哪一家」,而且 20 家會變 19 家、最後一列的置中會跳。 */
+/* 🔴 fallback 同 .bp-band / .bp-craft-media(本檔上面那幾條):`--c-graphite` 只活在
+   `.bp-page` 這個 scope,而元件是 fragment、scope 由外層路由掛。D3 漏掛時 var() 無值
+   ⇒ border-color 與 box-shadow 兩條**整條宣告失效**,而且沒有任何測試會紅
+   (守門 = brand-page.test.ts 逐處數 fallback 那條)。
+   ⚠️ 同一個失敗模式在本區還會拿掉 `background: var(--c-sunken)`(tokens.css 也沒有它)
+      ⇒ 當前品牌那一磚會退化成「和其他 19 磚幾乎一樣」,只剩 `filter: none` 與粗體字名
+      這兩個較弱的訊號。這裡不補 --c-sunken 的 fallback,理由同 .bp-chip 那段。 */
+.bp-others-list a.is-cur {
+  border-color: var(--c-graphite, #202225); background: var(--c-sunken);
+  box-shadow: inset 0 0 0 1px var(--c-graphite, #202225);
+}
+.bp-others-list a.is-cur img { filter: none; }
+.bp-others-list a.is-cur .bp-others-name { color: var(--c-text); font-weight: 600; }
+
 /* ══ RWD ══════════════════════════════════════════════════════════
- * 只收**已落地段落**的規則。≤1180 目前只有 about/aside 那兩條(D2c-1 帶進來的);
- * others/grid 的部分留給 D2d-D2e。
+ * 只收**已落地段落**的規則。`.bp-grid` / `.bp-slot`(設計稿 :880-881、:936-937)
+ * 屬 D3 的商品區,不在本檔。
  */
 @media (max-width: 1180px) {
   /* ⚠️ 這裡以前是 repeat(2,1fr),但 aside 永遠只有一張卡 —— 第二欄是空的,
@@ -464,6 +613,8 @@
      🔴 這條在 ≤960 也仍然命中(max-width:1180 涵蓋它)且同為 0-1-0
         ⇒ 下面 ≤960 的 `grid-column: auto` **只靠順序**勝出,兩個區塊的先後不能對調。 */
   .bp-media { grid-column: 2; margin-top: 14px; }
+  /* 磚牆 5 欄 → 4 欄(D2e-1)。gap 仍是 12px ⇒ 4 欄扣掉 3 道 gap = 36px。 */
+  .bp-others-list a { flex-basis: calc((100% - 36px) / 4); }
 }
 
 /* 直式影片在手機與平板走滿版 —— 2026-08-03 Sean:「直版影片在手機跟平板上可以盡量放大滿版」。
@@ -561,7 +712,10 @@
   /* 🔴 D2d-2 把 craft/time **加進這兩條既有的選擇器列表**,不是在後面另開一條 ——
      另開的話同權重靠順序,誰在後面誰贏,而三區的收欄本來就該一起發生
      (設計稿 :1173-1174 就是一條列表)。這條耦合是 D2d 拆片時唯一的真耦合。 */
-  .bp-why-inner, .bp-craft-inner, .bp-time-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  /* 🔴 D2e-1 把 cats / others **加進同一條列表**,理由同上一段:設計稿 :906 本來就是
+     一條把 about/cats/products/others/craft 全列進去的選擇器列表。 */
+  .bp-why-inner, .bp-craft-inner, .bp-time-inner,
+  .bp-cats-inner, .bp-others-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .bp-why h2, .bp-time h2 { text-align: center; max-width: none; }
   .bp-why-lead { text-align: center; margin-left: auto; margin-right: auto; }
   .bp-why-grid { grid-template-columns: minmax(0, 1fr); }
@@ -575,6 +729,16 @@
   .bp-craft-head { justify-content: center; text-align: center; }
   .bp-craft-panel p { max-width: none; }
   .bp-aside-card h3, .bp-aside-card p { text-align: center; }
+  /* 磚牆與 chips 的手機置中(D2e-1)。設計稿 :919 是 `.bp-prod-head,.bp-others h2` 一條 ——
+     `.bp-prod-head` 屬 D3 的商品區、本檔沒有那個 class ⇒ 只搬 `.bp-others h2` 這半條。
+     ⚠️ 這與「About 正文維持靠左」那條例外不衝突:h2 是三個字的標題、chips 是短標籤,
+        不是中文長段落。 */
+  .bp-others h2 { text-align: center; }
+  .bp-chips { justify-content: center; }
+  /* ⚠️ 與 ≤1180 那條**值完全相同**(設計稿 :879 與 :912 各寫了一次)。逐字搬、不自行合併:
+     ≤1180 已涵蓋 ≤960 ⇒ 這條在 cascade 上是 no-op,但它是設計稿的字面,
+     而且哪天 ≤1180 那條改了欄數,這條就是 ≤960 的獨立宣告。 */
+  .bp-others-list a { flex-basis: calc((100% - 36px) / 4); }
   .bp-fact { text-align: center; }
   .bp-facts-inner { grid-template-columns: repeat(2, 1fr); }
   .bp-fact:nth-child(3) { border-left: 0; padding-left: 0; }
@@ -610,6 +774,13 @@
   .bp-time-body { padding-left: 0; border-left: 0; }
   .bp-time-body::before { display: none; }
   .bp-time-y { color: var(--c-red); font-weight: 600; }
+  /* 磚牆收成 3 欄(D2e-1)。gap 同時從 12 收到 10 ⇒ 3 欄扣 2 道 gap = 20px。
+     🔴 gap 與 flex-basis 的算式**綁在一起**:只改其中一個,最後一列會多擠一格或開一個洞。
+     logo 框 58 → 46px、品牌名兩行高 32 → 30px:窄欄下 58px 的框會讓一磚高到吃掉半個螢幕。 */
+  .bp-others-list { gap: 10px; }
+  .bp-others-list a { flex-basis: calc((100% - 20px) / 3); padding: 20px 10px 17px; gap: 12px; }
+  .bp-others-logo { height: 46px; }
+  .bp-others-name { font-size: 11px; min-height: 30px; }
   .bp-facts-inner { grid-template-columns: 1fr; }
   .bp-fact { border-left: 0; padding-left: 0; padding-right: 0; }
   .bp-fact:not(:first-child) { padding-left: 0; border-top: 1px solid var(--c-border); }
@@ -621,11 +792,18 @@
  * 🔴 必須排在 `.bp-craft-panel:hover .bp-craft-media img` 基礎規則**之後** ——
  *    兩條選擇器完全相同(權重 0-3-1:兩個 class + 一個 `:hover` 虛擬類 + 一個元素),
  *    靠順序決勝。(關卡2 R2 更正:原本寫 0-2-1、漏算了 `:hover`。)
- * 🔴 本檔另一條動畫 `@keyframes bp-media-in`(D2c-2 的影片淡入)**目前沒有**對應的
- *    reduced-motion 保護。設計稿是有的 —— `brand-page.html:461-464` 的全域
- *    `*,*::before,*::after{…animation-duration:.01ms!important}` 管得到它 —— **是我們沒搬**。
- *    (關卡2 更正:我原本寫成「設計稿也沒涵蓋」,那是錯的、會讓 D2e 直接跳過這個缺口。)
- *    不在本片搬的理由 = `*` + `!important` 的影響面遠超品牌頁,屬 D2e 動效層的範圍。 */
+ * 🔴 **本檔沒有 reduced-motion 保護的動態清單**(逐條列,不要只列改動到的那一條 ——
+ *    「只補改動到的行」是本 repo 復發 9+ 次的形狀):
+ *      · `@keyframes bp-media-in`(D2c-2 影片淡入)
+ *      · `.bp-others-list a:hover { transform: translateY(-3px) }`(D2e-1 磚牆懸浮)
+ *      · `.bp-others-list a` / `.bp-others-logo img` / `.bp-others-name` / `.bp-chip` 的
+ *        五條 transition(D2e-1;純色彩/邊框過渡,對前庭敏感者的風險遠低於上面兩條位移)
+ *    設計稿**是有保護的** —— `brand-page.html:461-464` 的全域
+ *    `*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}`
+ *    管得到全部 —— **是我們沒搬**。(D2c-2 關卡2 更正過一次:我原本寫成「設計稿也沒涵蓋」。)
+ *    不搬的理由 = `*` + `!important` 的影響面遠超品牌頁(鐵則 8)。
+ *    🔴 **落點由 D2e-2 連同動效層一起提 plan 給 Sean 批**(Sean 08-04 C-15-A 指定);
+ *       backlog #312 第三條在追這件事。 */
 @media (prefers-reduced-motion: reduce) {
   .bp-craft-panel:hover .bp-craft-media img { transform: none; }
 }
@@ -648,3 +826,16 @@
     radial-gradient(96% 128% at 84% 12%, rgba(242, 103, 34, .20), transparent 52%),
     radial-gradient(70% 90% at 8% 96%, rgba(255, 255, 255, .045), transparent 60%);
 }
+
+/* ══ 磚牆:長品牌名不要撐破欄數(D2e-1;設計稿 :1307-1314)═════════
+ * 手機 3 欄時,「EVOTECH PERFORMANCE」「EXTREME COMPONENTS」的 min-content 寬度
+ * 會超過 1/3 的 flex-basis,那一列被擠成 2 格、中間開一個洞。
+ * 🔴 要用 `anywhere` 不是 `break-word` —— 只有 anywhere 會把換行機會算進 min-content 計算,
+ *    `break-word` 在內在尺寸計算階段不生效,欄數一樣會爆(設計稿逐字)。
+ * 位置照設計稿放在整份 <style> 的最尾端(它的 @media 在 :883、本段在 :1307)。
+ * ⚠️ 但這兩條與任何 @media 內的規則都**不衝突**(改的是 min-width / overflow-wrap,
+ *    RWD 改的是 flex-basis / font-size / min-height)⇒ 順序在這裡不是行為的一部分,
+ *    與上面 no-photo 那段不同,不需要為它設順序守門。
+ */
+.bp-others-list a { min-width: 0; }
+.bp-others-name { overflow-wrap: anywhere; }
