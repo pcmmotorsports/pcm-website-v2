@@ -86,17 +86,9 @@
   flex-direction: column;
   gap: 10px;
 }
-.cvf-garage,
-.cvf-suggest {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.cvf-garage-label {
-  font-size: 12.5px;
-  color: var(--c-text-2);
-}
+/* A10c:`.cvf-garage` / `.cvf-suggest` / `.cvf-garage-label` 已隨自刻 chips 一起退場
+   (換全站唯一的 GarageChips 行內密度)。`.cvf-edit` 本身是 column flex + gap:10px,
+   所以這裡不需要再補外距 —— 與首頁/PDP 不同,那兩處的容器沒有 gap。 */
 .cvf-picker {
   display: flex;
   flex-wrap: wrap;

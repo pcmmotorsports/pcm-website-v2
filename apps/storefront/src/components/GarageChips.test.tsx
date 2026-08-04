@@ -257,6 +257,28 @@ describe('GarageChips — A9 onApply 出口與統一字面', () => {
     expect(screen.getByText('2021 mt-09 sp')).toBeTruthy(); // 無需點開
   });
 
+  // A10c:購物車的零命中不是一句話、是一個動作(以自由輸入記下)⇒ 宿主可接管那一格。
+  it('有傳 renderNoMatch → 零命中改由宿主渲染,共用預設句**完全不出現**', () => {
+    const renderNoMatch = vi.fn((q: string) => <button type="button">記下「{q}」</button>);
+    render(
+      <GarageChips
+        garage={[{ ...CHIP, name: '阿嬤的野狼', year: '' }]}
+        motoBrands={BRANDS}
+        onApply={vi.fn()}
+        renderNoMatch={renderNoMatch}
+        variant="inline"
+      />,
+    );
+    fireEvent.click(screen.getByText('阿嬤的野狼'));
+
+    expect(renderNoMatch).toHaveBeenCalledWith('阿嬤的野狼'); // 收到的是車庫車名原字面
+    expect(screen.getByText('記下「阿嬤的野狼」')).toBeTruthy();
+    // 🔴 「取代」不是「並存」—— 少了這行,預設句跟著一起出來也照樣綠
+    expect(screen.queryByText(/請改用車款選單選擇/)).toBeNull();
+    // 零命中時容器內沒有任何 option ⇒ 不得還宣稱自己是 listbox
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
   // A 表條 7:零命中句三版收一版,且不再寫「上方/下方」——同一句要掛在四個位置不同的掛載點。
   it('零命中句=A 表定版,且不含方位詞', () => {
     render(

@@ -16,10 +16,9 @@ import type { UIFitment } from '@/data/mock-products';
 import { checkFitment, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
 import { readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 import { slugify } from '@/lib/vehicle-taxonomy';
-import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
 import { vehicleLabel } from '@/lib/vehicle-match';
 import { VehicleSelect } from './VehicleSelect';
-import type { GarageChipItem } from './GarageChips';
+import { GarageChips, type GarageChipItem } from './GarageChips';
 
 /** context/picker 選定的車款(顯示名 + slug + 年;供比對與顯示) */
 type Chosen = { brandName: string; modelName: string; year?: number };
@@ -99,7 +98,7 @@ export function ProductFitmentCheck({
   );
   const [editing, setEditing] = useState(false);
   const [sel, setSel] = useState<{ brand: string; model?: string; year?: number } | null>(null);
-  const [suggest, setSuggest] = useState<{ entries: string[]; garageYear: number | undefined } | null>(null);
+  // A10b:建議清單 state 與決策腦呼叫已搬進 GarageChips(全站單一份),本檔不再自持。
   // V-2d③(Sean 07-15 真機:「手機放直的很不好看」):手機預設收合=單顆入口鈕+愛車 chips 在前,
   // 點開才展三層選單(CSS ≤1023px 生效;桌機恆展開、.pfc-expand 不顯)。§7 判定/文案四態零動、只動殼。
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -159,7 +158,6 @@ export function ProductFitmentCheck({
   const commit = (c: Chosen) => {
     setChosen(c);
     setEditing(false);
-    setSuggest(null);
     setSel(null);
     setPickerOpen(false); // 下次進 picker(更改以外路徑)回收合預設
 
@@ -180,12 +178,6 @@ export function ProductFitmentCheck({
     // 誤傳會清掉剛選的車;guard 對齊 vehicleUrlParamFor 檔頭契約)。
     const param = vehicleUrlParamFor(c, motoBrands);
     if (param) onPersistVehicle?.(param);
-  };
-
-  const onGarageChip = (g: GarageChipItem) => {
-    const r = resolveGarageChip(motoBrands, g);
-    if (r.kind === 'apply') commit({ brandName: r.brand, modelName: r.model, year: r.year });
-    else setSuggest({ entries: r.entries, garageYear: r.garageYear });
   };
 
   const status: FitmentCheckStatus | null = chosen ? checkFitment(fitments, toCheckVehicle(chosen)) : null;
@@ -219,7 +211,7 @@ export function ProductFitmentCheck({
             )}
           </div>
           {/* 更改車款=明確要改 → 直接展開選單(V-2d③ 收合入口只擋首見的高牆) */}
-          <button type="button" className="pfc-link" onClick={() => { setSel(null); setSuggest(null); setPickerOpen(true); setEditing(true); }}>更改車款</button>
+          <button type="button" className="pfc-link" onClick={() => { setSel(null); setPickerOpen(true); setEditing(true); }}>更改車款</button>
         </div>
       ) : (
         <div className={`pfc-picker${pickerOpen ? ' pfc-picker-open' : ''}`}>
@@ -228,33 +220,16 @@ export function ProductFitmentCheck({
           {urlInvalid && (
             <p className="pfc-sub pfc-invalid" role="status">先前的車款連結已失效,請重新選擇你的車。</p>
           )}
-          {garage.length > 0 && (
-            <div className="pfc-garage">
-              <span className="pfc-garage-label">我的愛車</span>
-              {garage.map((g) => (
-                <button key={g.id} type="button" className="cat-garage-chip" onClick={() => onGarageChip(g)}>
-                  {[g.year, g.name].filter(Boolean).join(' ')}
-                </button>
-              ))}
-            </div>
-          )}
-          {suggest && (
-            <div className="pfc-garage" role="listbox" aria-label="車款建議清單">
-              {suggest.entries.length > 0 ? (
-                suggest.entries.map((label) => (
-                  <button key={label} type="button" className="cat-garage-chip" role="option" aria-selected={false}
-                    onClick={() => {
-                      const a = resolveSuggestionLabel(motoBrands, label, suggest.garageYear);
-                      if (a) commit({ brandName: a.brand, modelName: a.model, year: a.year });
-                    }}>
-                    {label}
-                  </button>
-                ))
-              ) : (
-                <span className="pfc-sub">無法對應此車款,請用下方選單選擇</span>
-              )}
-            </div>
-          )}
+          {/* A10b:自刻的 chips + 建議清單退場,換全站唯一的 GarageChips(設計稿 C4 After 行內密度)。
+              PDP 沒有 cascade reducer、走 `commit()` ⇒ 用 A9 的互斥 `onApply` 出口。
+              🔴 只換 chips 這一區;上面 :196-223 的四態判定文案逐字不動(§7 正確性紅線:
+                 錯誤的 ✓ 比空白更糟),`先前的車款連結已失效` 三態提示也留在原地。 */}
+          <GarageChips
+            garage={garage}
+            motoBrands={motoBrands}
+            variant="inline"
+            onApply={(a) => commit({ brandName: a.brand, modelName: a.model, year: a.year })}
+          />
           {/* V-2d③ 手機收合入口(≤1023px 未展開才顯、桌機 CSS 藏);點開展下方三層選單 */}
           <button type="button" className="pfc-expand" onClick={() => setPickerOpen(true)}>
             選擇車款,確認是否適用

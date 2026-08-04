@@ -11,9 +11,8 @@ import { useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CartItemVehicle } from '@/contexts/CartContext';
 import type { UIFitment } from '@/data/mock-products';
-import type { GarageChipItem } from './GarageChips';
+import { GarageChips, type GarageChipItem } from './GarageChips';
 import { VehicleSelect } from './VehicleSelect';
-import { resolveGarageChip, resolveSuggestionLabel } from '@/lib/garage-chip';
 import { checkFitment, type FitmentCheckStatus } from '@/lib/fitment-match';
 // V-2h/MF-6:formatCartVehicle 抽到無依賴 lib(供結帳商品複查免拉整個 client 元件;U2a 起消費端 =
 // CheckoutStep2ReviewSections);此處 re-export 保 back-compat。
@@ -73,7 +72,7 @@ export function CartVehicleField({
   // picker 本地選態(brand→model→year;model 選定即 commit kind:'dict')
   const [sel, setSel] = useState<LocalSel>(null);
   const [freetext, setFreetext] = useState('');
-  const [suggest, setSuggest] = useState<{ entries: string[]; garageYear: number | undefined; raw: string } | null>(null);
+  // A10c:建議清單 state 與決策腦呼叫已搬進 GarageChips(全站單一份),本檔不再自持。
 
   const commitDict = (
     brand: string,
@@ -89,32 +88,11 @@ export function CartVehicleField({
     if (value?.kind === 'dict') setSel({ brand: value.brand, model: value.model, year: value.year });
     else setSel(null);
     setFreetext(value?.kind === 'free' ? value.raw : '');
-    setSuggest(null);
     setEditing(true);
   };
 
   const done = () => {
     setEditing(false);
-    setSuggest(null);
-  };
-
-  const onGarageChip = (g: GarageChipItem) => {
-    const r = resolveGarageChip(motoBrands, g);
-    if (r.kind === 'apply') {
-      commitDict(r.brand, r.model, r.year, 'garage');
-      done();
-    } else {
-      // 多/零命中:多=建議清單明選;零=提供「以自由輸入記下」(honor 車庫車、不猜 dict)
-      setSuggest({ entries: r.entries, garageYear: r.garageYear, raw: g.name });
-    }
-  };
-
-  const onPickSuggestion = (label2: string, garageYear: number | undefined) => {
-    const applied = resolveSuggestionLabel(motoBrands, label2, garageYear);
-    if (applied) {
-      commitDict(applied.brand, applied.model, applied.year, 'garage');
-      done();
-    }
   };
 
   const submitFreetext = () => {
@@ -141,36 +119,26 @@ export function CartVehicleField({
         </div>
       ) : editing ? (
         <div className="cvf-edit">
-          {garage.length > 0 && (
-            <div className="cvf-garage">
-              <span className="cvf-garage-label">我的愛車</span>
-              {garage.map((g) => (
-                <button key={g.id} type="button" className="cat-garage-chip" onClick={() => onGarageChip(g)}>
-                  {[g.year, g.name].filter(Boolean).join(' ')}
-                </button>
-              ))}
-            </div>
-          )}
-          {suggest && (
-            <div className="cvf-suggest" role="listbox" aria-label="車款建議清單">
-              {suggest.entries.length > 0 ? (
-                <>
-                  <span className="cvf-note">「{suggest.raw}」可能是:</span>
-                  {suggest.entries.map((s) => (
-                    <button key={s} type="button" className="cat-garage-chip" role="option" aria-selected={false}
-                      onClick={() => onPickSuggestion(s, suggest.garageYear)}>
-                      {s}
-                    </button>
-                  ))}
-                </>
-              ) : (
-                <button type="button" className="cvf-link"
-                  onClick={() => { onChange({ kind: 'free', raw: suggest.raw, source: 'garage' }); done(); }}>
-                  以自由輸入記下「{suggest.raw}」(下單後人工確認)
-                </button>
-              )}
-            </div>
-          )}
+          {/* A10c:自刻的 chips + 建議清單退場,換全站唯一的 GarageChips(設計稿 C5 行內密度)。
+              購物車走 `commitDict()`、沒有 cascade reducer ⇒ 用 A9 的互斥 `onApply` 出口。
+              🔴 但「以自由輸入記下」那顆**留在本檔**(計畫 §2.7 紅字):它是購物車專屬的零命中出口,
+                 把對不到字典的車庫車照原樣記進 CartItem(kind:'free')。GarageChips 沒有「自由輸入」
+                 這個概念,所以走 `renderNoMatch` 由宿主渲染 —— 共用元件不該認得購物車的資料模型。 */}
+          <GarageChips
+            garage={garage}
+            motoBrands={motoBrands}
+            variant="inline"
+            onApply={(a) => {
+              commitDict(a.brand, a.model, a.year, 'garage');
+              done();
+            }}
+            renderNoMatch={(raw) => (
+              <button type="button" className="cvf-link"
+                onClick={() => { onChange({ kind: 'free', raw, source: 'garage' }); done(); }}>
+                以自由輸入記下「{raw}」(下單後人工確認)
+              </button>
+            )}
+          />
           <div className="cvf-picker">
             <VehicleSelect
               motoBrands={motoBrands}

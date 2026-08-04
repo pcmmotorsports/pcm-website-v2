@@ -20,7 +20,7 @@
 //      (spec §1c:不得複製第二份)。
 
 import { useState } from 'react';
-import type { Dispatch } from 'react';
+import type { Dispatch, ReactNode } from 'react';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -53,6 +53,13 @@ type GarageChipsBase = {
   variant: 'top' | 'drawer' | 'sheet' | 'inline';
   /** 套用成功後通知宿主(ADR-0007 手機決定 2:點愛車 = 直接套用並關閉選車面板)。 */
   onApplied?: () => void;
+  /** A10c:零命中時改由宿主渲染出口(收到的是車庫車名原字面 = `resolveGarageChip` 的 query)。
+   *  🔴 為什麼要這個口:購物車的零命中**不是一句話、是一個動作** ——
+   *     「以自由輸入記下『X』(下單後人工確認)」把對不到字典的車庫車照原樣記進 CartItem。
+   *     那是購物車語境專屬的能力(計畫 §2.7 紅字:這顆留在 CartVehicleField),
+   *     GarageChips 沒有「自由輸入」這個概念,硬塞進來就是把購物車的資料模型漏進共用元件。
+   *  不傳 = 出 A 表定版的那句話(首頁 / PDP / 目錄三處)。 */
+  renderNoMatch?: (query: string) => ReactNode;
 };
 
 /** A9(spec §4-1 點名的最大一顆地雷):目錄兩處吃 cascade `dispatch`,首頁/PDP/購物車不是 ——
@@ -73,6 +80,7 @@ export function GarageChips({
   variant,
   onApplied,
   onApply,
+  renderNoMatch,
 }: GarageChipsProps) {
   const [open, setOpen] = useState(false);
   // sheet 變體(ADR-0007):Sean 拍板「面板頂部**先顯示**我的愛車卡片」⇒ 恆展開、無 toggle。
@@ -166,7 +174,15 @@ export function GarageChips({
             ))}
           </div>
           {suggest && (
-            <div className="cat-garage-suggest" role="listbox" aria-label="車款建議清單">
+            /* 🔴 零命中時容器內一個 `option` 都沒有 ⇒ 不掛 listbox role
+                (掛了就是對報讀器宣稱「這裡有選項清單」然後給空的;
+                 購物車的零命中出口是一顆按鈕,放進空 listbox 更糟)。 */
+            <div
+              className="cat-garage-suggest"
+              {...(suggest.entries.length > 0
+                ? { role: 'listbox' as const, 'aria-label': '車款建議清單' }
+                : {})}
+            >
               {suggest.entries.length > 0 ? (
                 <>
                   <span className="cat-garage-suggest-label">「{suggest.query}」可能是:</span>
@@ -184,12 +200,16 @@ export function GarageChips({
                   ))}
                 </>
               ) : (
-                <span className="cat-garage-suggest-label">
-                  {/* A9(A 表條 7):零命中句原本三版並存 —— 目錄「請用上方車款選單選擇」、
-                      首頁「請從下方選單選擇」、PDP「請用下方選單選擇」。三版收一版,
-                      且不再寫「上方/下方」(同一句話要掛在四個位置不同的掛載點上)。 */}
-                  無法對應「{suggest.query}」到車款字典，請改用車款選單選擇
-                </span>
+                renderNoMatch ? (
+                  renderNoMatch(suggest.query)
+                ) : (
+                  <span className="cat-garage-suggest-label">
+                    {/* A9(A 表條 7):零命中句原本三版並存 —— 目錄「請用上方車款選單選擇」、
+                        首頁「請從下方選單選擇」、PDP「請用下方選單選擇」。三版收一版,
+                        且不再寫「上方/下方」(同一句話要掛在四個位置不同的掛載點上)。 */}
+                    無法對應「{suggest.query}」到車款字典，請改用車款選單選擇
+                  </span>
+                )
               )}
             </div>
           )}

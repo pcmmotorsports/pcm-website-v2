@@ -78,6 +78,43 @@ describe('ProductFitmentCheck（§7）', () => {
     expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
   });
 
+  // A10b:PDP 自刻 chips 退場,換全站唯一的 GarageChips(設計稿 C4 After 行內密度)。
+  // 🔴 沒有這條,把它換回自刻 JSX 上面那條行為測試照樣綠 ——「4 份收斂成 1 份」本身沒有守門。
+  it('用的是統一的 GarageChips 行內密度,不是 PDP 自刻的那份', () => {
+    const { container } = render(
+      <ProductFitmentCheck
+        fitments={FITMENTS}
+        motoBrands={BRANDS}
+        garage={[{ id: 'g1', name: 'MT-09', year: '2022', dictBrandName: 'YAMAHA', dictModelName: 'MT-09', isPrimary: false }]}
+      />,
+    );
+    expect(container.querySelector('.cat-garage--inline')).not.toBeNull();
+    expect(container.querySelector('.pfc-garage')).toBeNull(); // 自刻家族退場
+    expect(container.querySelector('.cat-garage-toggle')).toBeNull(); // 行內密度恆展開
+    expect(screen.getByText('點一下直接套用')).toBeTruthy(); // A 表條 6 副註推廣到此
+  });
+
+  // 🔴 §7 正確性紅線:換 chips 殼時最容易順手把整段重寫。
+  //    ⚠️ 測試名只講它真的驗到的:**match 一態 + 壞連結提示**。
+  //    其餘三態的正面守門在本檔上方三條既有測試(no-match `:48` / qualified `:56` / match `:41`)。
+  //    🔴 `undetermined`(「已記下你的車款」)**全檔零正面守門,而且是刻意的** ——
+  //    `checkFitment` 只在 `kind:'free'` 或 brandName/modelName 不齊時回它
+  //    (`lib/fitment-match.ts:35,37`),而本元件的 `chosen` 恆是 `kind:'dict'` + 兩個非空字典字面
+  //    (四個賦值點:URL 解析、鏡讀入、URL 變更、commit —— 全部走 truthy 守門或字典選項)
+  //    ⇒ 這一態在本元件**不可構造**,那段 JSX 是防禦性渲染。
+  //    2026-08-05 實測:把「已記下你的車款」改成別的字,全套 storefront 測試照樣全綠。
+  //    **不為它補測試**(構造不出來的測試只能靠 cast 造假狀態);寫在這裡讓下一個人不必重新推。
+  it('換殼後 match 態文案與壞連結提示逐字仍在(§7 紅線)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.getByText('更改車款')).toBeTruthy();
+    cleanup();
+
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle="invalid" />);
+    expect(screen.getByText('先前的車款連結已失效,請重新選擇你的車。')).toBeTruthy();
+  });
+
   it('無 fitments → 整段不渲染', () => {
     const { container } = render(<ProductFitmentCheck fitments={[]} motoBrands={BRANDS} />);
     expect(container.firstChild).toBeNull();

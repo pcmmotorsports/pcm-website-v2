@@ -89,6 +89,28 @@ describe('CartVehicleField', () => {
     expect(onChange).toHaveBeenCalledWith({ kind: 'free', raw: '阿嬤的野狼', source: 'garage' });
   });
 
+  // A10c:購物車自刻 chips 退場,換全站唯一的 GarageChips(設計稿 C5 行內密度)。
+  // 🔴 沒有這條,把它換回自刻 JSX 上面兩條行為測試照樣綠 ——「4 份收斂成 1 份」本身沒有守門。
+  it('用的是統一的 GarageChips 行內密度,但零命中出口仍是購物車自己那顆', () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <CartVehicleField label="x" value={undefined} onChange={onChange} motoBrands={BRANDS}
+        garage={[{ id: 'g9', name: '阿嬤的野狼', year: '', dictBrandName: null, dictModelName: null, isPrimary: false }]} />,
+    );
+    fireEvent.click(screen.getByText('+ 選擇車款'));
+
+    expect(container.querySelector('.cat-garage--inline')).not.toBeNull();
+    expect(container.querySelector('.cvf-garage')).toBeNull(); // 自刻家族退場
+    expect(container.querySelector('.cvf-suggest')).toBeNull();
+    expect(container.querySelector('.cat-garage-toggle')).toBeNull(); // 行內密度恆展開
+
+    // 🔴 計畫 §2.7 紅字:零命中走購物車專屬出口(renderNoMatch),
+    //    **不得**被共用元件那句「請改用車款選單選擇」取代 —— 那會讓「記下阿嬤的野狼」這個能力消失。
+    fireEvent.click(screen.getByText('阿嬤的野狼'));
+    expect(screen.getByText(/以自由輸入記下/)).toBeTruthy();
+    expect(screen.queryByText(/請改用車款選單選擇/)).toBeNull();
+  });
+
   it('現值顯示 + 清除 → onChange(null)', () => {
     const onChange = vi.fn();
     render(<CartVehicleField label="x" value={{ kind: 'dict', brand: 'Yamaha', model: 'MT-09', year: 2021, source: 'search' }} onChange={onChange} motoBrands={BRANDS} />);
