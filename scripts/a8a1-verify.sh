@@ -3,6 +3,9 @@
 # A8a1 驗證 harness:admin_cancel_order 整單取消核心
 # ============================================================
 # plan = docs/specs/2026-08-04-e10-a8a1-full-cancel-plan.md(v3)§4/§5
+# 🔴 繼任註記(2026-08-05 A8a2):20260805100000 apply 後函式換 6 參版 ⇒ 本檔身分閘
+#   合法失效(md5 pin=A8a1 5 參版)——那不是壞掉,是部署態前進;改跑 scripts/a8a2-verify.sh
+#   (全繼承 36 格+部分取消 16 格)。本檔保留=A8a1-only 部署態(同批中斷態)的驗證器。
 # 用法:provision(d1t2 家族 54331 副本、A8c1+A8c2+A8a1 已套)後 scripts/a8a1-verify.sh /tmp/a8c-work
 # 形狀=a8c2-verify.sh 全套慣例(身分閘/COMMENT md5 pin/前置閘負向格/剝殼格/preflight/
 # 十二表零留痕/計數閘/committed 例外各自清理)。
