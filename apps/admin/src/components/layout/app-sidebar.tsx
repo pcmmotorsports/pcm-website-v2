@@ -23,6 +23,9 @@ type NavItem = { key: string; label: string; icon: Icon; href?: string };
 const NAV_ITEMS: readonly NavItem[] = [
   { key: 'overview', label: '總覽', icon: Icons.dashboard, href: '/' },
   { key: 'orders', label: '訂單', icon: Icons.billing, href: '/orders' },
+  // M-3 RW3:退款異常清單(RW4 值班入口)。href 在 /orders 底下 ⇒ 進本頁時「訂單」同時
+  // 呈 active(prefix 語意既有行為)—— 同屬訂單域,雙亮可接受、不為此改 active 邏輯。
+  { key: 'refund-exceptions', label: '退款異常', icon: Icons.warning, href: '/orders/refund-exceptions' },
   { key: 'customers', label: '客戶', icon: Icons.user, href: '/customers' },
   { key: 'staff', label: '員工管理', icon: Icons.teams, href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: Icons.post, href: '/settings/suppliers' },

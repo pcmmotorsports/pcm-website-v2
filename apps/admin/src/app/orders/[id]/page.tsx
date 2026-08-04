@@ -9,6 +9,11 @@ import {
 import { isOrderId } from '../../../lib/orders/order-detail-view';
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { isRefundUiEnabled } from '../../../lib/payment/refund-ui-flag';
+import {
+  getLedgerUnregisteredAmount,
+  listOrderRefunds,
+  type OrderRefundRow,
+} from '../../../lib/payment/refund-read';
 import { listSuppliers } from '../../../lib/supplier';
 import { OrderDetail } from '../../../components/orders/order-detail';
 import { ResultBanner } from '../../../components/orders/result-banner';
@@ -72,11 +77,21 @@ export default async function OrderDetailPage({
   let suppliers: SupplierOption[] = [];
   let suppliersFailed = false;
   let loadFailed = false;
-  const [detailSettled, optionsSettled, suppliersSettled] = await Promise.allSettled([
-    (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
-    (async () => getAdminOrderStatusOptionsRepository().listOrderStatusOptions())(),
-    (async () => listSuppliers())(),
-  ]);
+  // M-3 RW3:退款帳本(獨立容錯,不靜默 —— 藏掉 processing 滯留列比整頁掛掉更糟)。
+  // 🔴 兩種讀取健康各自成旗標(codex MF2):任一失敗 ⇒ 退款發起入口 fail-closed
+  //    (order-detail 掛載閘),不只顯示警告 —— 看不見帳本現況時放人按退款=盲飛。
+  let refunds: OrderRefundRow[] = [];
+  let refundsFailed = false;
+  let refundsTruncated = false;
+  let refundUnregisteredAmount: number | null = null;
+  let refundUnregisteredFailed = false;
+  const [detailSettled, optionsSettled, suppliersSettled, refundsSettled] =
+    await Promise.allSettled([
+      (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
+      (async () => getAdminOrderStatusOptionsRepository().listOrderStatusOptions())(),
+      (async () => listSuppliers())(),
+      (async () => listOrderRefunds(id))(),
+    ]);
   if (detailSettled.status === 'fulfilled') {
     detail = detailSettled.value;
   } else {
@@ -93,6 +108,23 @@ export default async function OrderDetailPage({
   } else {
     console.error('[admin/orders/:id] 供應商清單載入失敗(採購選單只剩既有供應商)', suppliersSettled.reason);
     suppliersFailed = true;
+  }
+  if (refundsSettled.status === 'fulfilled') {
+    refunds = refundsSettled.value.rows;
+    refundsTruncated = refundsSettled.value.truncated;
+    // 有帳本列才查未登記額(零列時該數=訂單總額,無資訊、省一趟)。
+    if (refunds.length > 0) {
+      try {
+        refundUnregisteredAmount = await getLedgerUnregisteredAmount(id);
+      } catch (error) {
+        // 🔴 失敗≠查無(codex MF2):壓成 null 會顯示成普通「查無」被照著操作。
+        console.error('[admin/orders/:id] 帳本未登記額查詢失敗(顯錯誤態+入口 fail-closed)', error);
+        refundUnregisteredFailed = true;
+      }
+    }
+  } else {
+    console.error('[admin/orders/:id] 退款帳本載入失敗(區塊顯示警告、入口 fail-closed)', refundsSettled.reason);
+    refundsFailed = true;
   }
 
   if (!loadFailed && detail === null) {
@@ -122,6 +154,11 @@ export default async function OrderDetailPage({
           suppliers={suppliers}
           suppliersFailed={suppliersFailed}
           refundEnabled={isRefundUiEnabled()}
+          refunds={refunds}
+          refundsFailed={refundsFailed}
+          refundsTruncated={refundsTruncated}
+          refundUnregisteredAmount={refundUnregisteredAmount}
+          refundUnregisteredFailed={refundUnregisteredFailed}
         />
       )}
     </div>

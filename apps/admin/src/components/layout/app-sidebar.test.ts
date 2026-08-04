@@ -86,6 +86,7 @@ describe('AppSidebar 導覽項', () => {
     expect(navEntries()).toEqual([
       ['總覽', '/'],
       ['訂單', '/orders'],
+      ['退款異常', '/orders/refund-exceptions'],
       ['客戶', '/customers'],
       ['員工管理', '/settings/staff'],
       ['供應商', '/settings/suppliers'],
