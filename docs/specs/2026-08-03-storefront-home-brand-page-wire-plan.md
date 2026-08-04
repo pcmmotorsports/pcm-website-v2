@@ -197,7 +197,14 @@ video(youtube/vimeo/file) img caption title rows d source`
   (C-01-Q Q2 = 需 Sean,主視窗已轉問;拍板結果會落 `C-02-A.md`)。
   拍板前 `git status` 會有一行 `?? apps/storefront/public/brand-assets/`,是預期的。
 
-`brand-page-integration.md` §5 逐條量出來的欄線,整頁共用一組 `200px | 1fr`,**不要只改其中一區**:
+各區塊的欄線,整頁共用一組 `200px | 1fr`,**不要只改其中一區**:
+
+> 🔴🔴 **2026-08-04 D2d-2 更正:下表原本抄自 `brand-page-integration.md` §5,而那份的 craft 那一列是錯的。**
+> 本表已改為對 `brand-page.html` 的 `<style>` 逐條求值(九列全數重驗,只有 craft 一列不同,另補上漏列的 `.bp-time-inner`)。
+> **完整考據(版本史證據 + 為什麼不能用檔案 mtime 當判準)寫在 `apps/storefront/src/styles/brand-page.css`
+> 的 `.bp-craft-inner` 規則正上方,一處全文;這裡只留結論。**
+> 一句話:設計稿自 v0011(08-02 16:44)起連續 19 版都是 `200px minmax(0,1fr)`,
+> 而 integration.md 成文那一刻(08-03 17:52)它已經是 200px 超過 25 小時 ⇒ 那一列從寫下當天就是錯的。
 
 ```
 .bp-band           橫幅(滿版,照片 + 由左到右暗幕)
@@ -207,7 +214,8 @@ video(youtube/vimeo/file) img caption title rows d source`
 .bp-cats-inner     200px | minmax(0,1fr)
 .bp-products-inner 200px | minmax(0,1fr)   ← 內容再包一層 div
 .bp-others-inner   200px | minmax(0,1fr)   ← 內容再包一層 div
-.bp-craft-inner    minmax(0,1fr)           ← 刻意不吃標籤欄
+.bp-craft-inner    200px | minmax(0,1fr)   ← 🔴 2026-08-04 更正,它**也吃**標籤欄
+.bp-time-inner     200px | minmax(0,1fr)   ← 原表漏列,D2d-2 補
 ```
 
 斷點 **≤1180**(About 收第三欄)/ **≤960**(全收單欄)。

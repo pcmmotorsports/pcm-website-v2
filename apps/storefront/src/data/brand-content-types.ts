@@ -49,7 +49,14 @@ export type BrandAside = {
   note: BrandRichString;
 };
 
-/** 兩段介紹 + pull quote。schema 註解:pull 湊不出來就留空字串(不是省略)。 */
+/**
+ * 兩段介紹 + pull quote。schema 註解:pull 湊不出來就留空字串(不是省略)。
+ * 🔴 `pull` **實際上是純文字**(設計稿 `brand-page.html:1853` 對它走 `esc()`,與同物件的
+ *    lead/tail 相反),`BrandPageAbout.tsx` 也是直接內插、不過 parseBrandRichText。
+ *    這裡沒有把它改成 `string`,是因為 D2c-1 的元件註解與測試已經把這個相反關係釘死;
+ *    但**別把 BrandRichString 當成「這欄一定走 rich 路徑」的合約** —— 它只是「可能有標記」。
+ *    (同族:`highlights.lead` 見下、`timeline.d` 已改成 string。D2d-2 關卡2 R2 補記。)
+ */
 export type BrandAbout = {
   lead: BrandRichString;
   pull: BrandRichString;
@@ -61,6 +68,10 @@ export type BrandHighlightCard = { t: string; d: BrandRichString };
 
 export type BrandHighlights = {
   title: string;
+  /**
+   * 🔴 **實際上是純文字**:設計稿 `:1974` 對它走 `textContent`,與同物件 `cards[].d`
+   * (`:1977` 直接內插)相反;`BrandPageWhy.tsx` 也是直接內插。理由同 `BrandAbout.pull`。
+   */
   lead: BrandRichString;
   cards: BrandHighlightCard[];
 };
@@ -74,8 +85,14 @@ export type BrandStatItem = { n: string; l: string; s: string; plus?: boolean };
 
 export type BrandStats = { items: BrandStatItem[] };
 
-/** 年表的一列。`key` 只出現 true(= 這列要強調);實測 26 列中 8 列有。 */
-export type BrandTimelineItem = { y: string; t: string; d: BrandRichString; key?: true };
+/**
+ * 年表的一列。`key` 只出現 true(= 這列要強調);實測 26 列中 8 列有。
+ * 🔴 `d` **不是** `BrandRichString`(D2d-2 關卡2 更正):設計稿 `brand-page.html:2012` 對它走
+ *    `esc()`,與同一頁 craft 的 `rows[].d`(不 esc)相反 ⇒ 它是純文字、渲染端**不過**
+ *    parseBrandRichText。標成 BrandRichString 會與本檔 :19-21 的合約(「這個別名存在就是為了
+ *    讓漏轉的地方看得見」)自相矛盾 —— 而元件是對的、型別是錯的。實測 26 列零標記。
+ */
+export type BrandTimelineItem = { y: string; t: string; d: string; key?: true };
 
 export type BrandTimeline = { title: string; items: BrandTimelineItem[] };
 

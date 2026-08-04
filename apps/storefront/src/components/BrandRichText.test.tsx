@@ -80,6 +80,12 @@ describe('🔴 BrandRichText · 白名單外的東西不得變成元素', () => 
 describe('🔴 BrandRichText · 對 20 家真資料實跑', () => {
   // 上面那些是構造出來的案例。這一組拿**真的會上線的字**跑一遍 ——
   // 構造案例證明「這支擋得住攻擊形狀」,這一組證明「它沒把正常內容弄壞」。
+  //
+  // ⚠️ 名字叫 richFields,但下面**有三個欄位在正式渲染時是純文字**、不走 BrandRichText:
+  //    `highlights.lead`(設計稿 :1974 走 textContent)、`about.pull`(:1853 走 esc)、
+  //    `timeline.items[].d`(:2012 走 esc)。它們留在這裡是**多餵 parser 一些真字串**,
+  //    不是在主張它們會經過這條路徑 —— 別把這份清單當成「哪些欄位是 rich」的合約。
+  //    真正的合約在各元件與 `data/brand-content-types.ts`(D2d-2 關卡2 補記)。
   const richFields = (): string[] =>
     BRAND_CONTENT.flatMap((b) => [
       b.lede,

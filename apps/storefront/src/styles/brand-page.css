@@ -2,7 +2,7 @@
  *
  * 字面搬自 Open Design `pcm-home-redesign/brand-page.html` 的 <style>
  * (麵包屑 593-601、橫幅 604-641、事實列 643-657、About 659-688 + :961、
- *  影片右欄 977-1037 + 1055-1072、Why 1074-1106;RWD 見檔尾)。
+ *  影片右欄 977-1037 + 1055-1072、Why 1074-1106、Craft 1108-1132、年表 1134-1156;RWD 見檔尾)。
  * 鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B:本線 design 真權威在 Open Design。
  *
  * ⚠️ 設計稿 :1182 的 `.bp-film-cap{padding-bottom:14px}`(≤620)**刻意未搬**:
@@ -10,7 +10,7 @@
  *    ⇒ 那是設計稿自己的死規則,搬過來只會多一條永遠不生效的 CSS。
  *
  * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media
- *    + D2d-1 的 why。craft / timeline / cats / others 與動效層由 D2d-2 與 D2e 逐片補進來,
+ *    + D2d 的 why / craft / timeline。cats / others 與動效層由 D2e 逐片補進來,
  *    不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class 先躺在 repo 裡,
  *    誰也說不出哪些是活的。
  */
@@ -200,9 +200,13 @@
   position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
 }
 /* 影片掛上來時的淡入 —— 只動 opacity 與 scale,320ms,與全站同一條 --ease。
-   ⚠️ 延後債:本檔目前零 `prefers-reduced-motion`,而設計稿的 reduced-motion 區塊
-      (brand-page.html:860-866)**也沒有涵蓋這條動畫** ⇒ 搬過來也擋不住它。
-      D2e 帶整段動效層進來時,這一條要一起補進 reduced-motion 清單。 */
+   🔴 **本檔目前沒有任何規則擋得住這條動畫**(D2d-2 新增的 reduced-motion 區塊只管 craft 的 hover)。
+      ⚠️ 更正(關卡2 打掉我原本的說法):設計稿**有**涵蓋它 —— `brand-page.html:461-464` 是一條
+         全域的 `*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}`,
+         它管得到 `bp-media-in`。**是我們沒搬,不是設計稿沒有。**
+      未在本片搬的理由:那是 `*` 選擇器 + `!important`,而本檔的 CSS 在 Next 是全域的
+      ⇒ 影響面遠超品牌頁,屬 D2e 整段動效層的範圍。
+      🔴 **D2e 搬動效層時必須帶上 :461-464 那條**,否則這個 a11y 缺口會一直留著。 */
 @keyframes bp-media-in { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: none; } }
 .bp-film-frame > iframe, .bp-film-frame > video { animation: bp-media-in 320ms var(--ease) both; }
 .bp-film-frame video { object-fit: cover; background: #000; }
@@ -328,6 +332,123 @@
 .bp-num-l { font-size: 13px; font-weight: 600; margin-top: 9px; }
 .bp-num-s { font-size: 12px; line-height: 1.55; color: var(--c-text-3); margin-top: 4px; }
 
+/* ══ Craft:製程步驟兩欄大圖(D2d-2)══════════════════════════════
+ * 位置理由同 Why:基礎規則必須排在下面 ≤960 收單欄那個區塊之前(同權重靠順序)。
+ */
+.bp-craft { border-bottom: 1px solid var(--c-border); background: var(--c-sunken); }
+/* 🔴🔴 **這一條有三份文件互相矛盾,吃 200px 標籤欄是查證後的結論,不是順手抄的**:
+     · `brand-page.html:1110-1114`(**採用**)= `200px minmax(0,1fr)`,附一句
+       「2026-08-02 Sean『下方整個文字也要跟這邊對齊』:原本這區是滿版、沒有 200px 標籤欄,
+        整頁只有它一區的左邊界不一樣 ⇒ 補回同一條欄線」
+     · `brand-page-integration.md:230` = `minmax(0,1fr)  ← 這一區刻意不吃標籤欄`
+     · 本 repo 計畫 `docs/specs/2026-08-03-…-wire-plan.md` §5.2 欄線表 = 抄自上面那份 integration
+     · 🔴 **第四份**:設計稿**自己的段落抬頭** `brand-page.html:1108` 仍寫
+       「Craft:滿版兩欄大圖(**刻意不用 200px 縮排**、也不做圖文並排)」—— 就在規則上方兩行,
+       grep「craft」第一個命中的就是它。抬頭沒跟著 08-02 的修正更新 = 設計稿內部的過期註解。
+   判準 = **成品優先 + 版本史**,不是檔案 mtime:
+     · OD 的 `.file-versions/7a14b2060d1bf7252757a6f8/`(brand-page.html 的版本快照)顯示
+       這條規則自 **v0011(08-02 16:44)起連續 19 版**都是 `200px minmax(0,1fr)`
+       ⇒ integration.md 寫成的那一刻(08-03 17:52),設計稿已經是 200px 超過 25 小時
+       ⇒ **它從寫下的當天就是錯的,不是「舊的」**。
+     · html 是 Sean 實際看過的成品,integration 是伴隨文件。
+   ⚠️🔴 **不要用「mtime 誰新」當判準**(我第一版就是這樣寫的,關卡2 打掉):
+      OD 存檔是批次的 —— 四個 html 的 mtime 落在 `20:31:10 / :15 / :20 / :25`,15 秒內同時重寫,
+      量到的是存檔動作不是內容編輯;而且把它套到**規則**層(最後一次真正變動 = 08-02 16:44)
+      會得出「integration 比較新」= 相反的結論。值採用對了,依據曾經是錯的。
+   ⚠️ 我在 C-11-STOP 交接給主視窗時寫的是 integration 那個版本(「刻意不吃標籤欄」)——
+      **那句是錯的**,計畫 §5.2 的欄線表已在本片同步更正(九列全數重驗 + 補上漏列的 .bp-time-inner)。 */
+.bp-craft-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 60px; padding-bottom: 64px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
+}
+.bp-craft-head { margin-bottom: 26px; }
+.bp-craft-head h2 {
+  font-size: clamp(24px, 2.8vw, 34px); line-height: 1.12; letter-spacing: -.025em;
+  font-weight: 700; margin: 0;
+}
+.bp-craft-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 34px; }
+.bp-craft-panel { display: flex; flex-direction: column; }
+/* fallback 同 .bp-band / .bp-film-frame:`--c-graphite` 只活在 .bp-page 這個 scope。 */
+.bp-craft-media { overflow: hidden; background: var(--c-graphite, #202225); margin-bottom: 20px; }
+/* 16:9 的由來:設計稿 :1121-1123 說「**這兩張**都是影片截圖(1397×781 / 2404×1347,
+   本來就是 16:9)」—— 原本用 5:4 會把兩側裁掉、把官方燒在畫面裡的工序字幕切一半
+   (Sean 2026-08-02 指出)。
+   🔴 **那句話的範圍只有 akrapovic 那兩張,不是整批**(關卡2 R3 換角度抓到:我第一版把
+      「這兩張」抄成「這批」= 把單點事實膨脹成對 42 列的宣稱)。
+      實測 20 家 42 列:**只有 5 列在 16:9 的 ±5% 內**,其餘 37 列靠 `object-fit:cover`
+      置中裁切 + 逐列的 `focus` 調焦點(而 focus 只設了 5 列)。偏離最極端的幾列:
+      extreme 1600×504(3.18)/ motogadget 1600×571(2.80)/ front3d 1000×1500(0.67)/
+      rizoma video-fashion 900×1600(0.56)。
+      ⇒ 這條規則仍照設計稿搬,但**別再拿「資產本來就是 16:9」當理由** —— 它不成立。
+      1440 實測「原圖有多少比例看得到」(cover 裁切後):front3d 兩張各 **38%**、
+      rpm-carbon craft-fitted / k-speed craft-metal 各 42%、k-speed craft-sketch 49%、
+      gilles catalogue 48%、extreme craft-carbon 56%、motogadget 兩張各 63%。
+      🔴 裁得好不好是**視覺品味 = Sean 拍板**,不是程式問題;`focus` 就是為此準備的旋鈕
+         (42 列只設了 5 列)。這裡只負責把數字留下來,讓要調的人知道從哪幾家調起。 */
+.bp-craft-media img, .bp-craft-media video {
+  width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block;
+  transition: transform 1.1s var(--ease);
+}
+.bp-craft-panel:hover .bp-craft-media img { transform: scale(1.03); }
+/* 🔴 影片列**不做** hover 放大 —— 原生控制列會跟著被縮放,按鈕位置會跑掉。
+   所以上面那條 hover 只寫 img、不是 `img, video`(順手補齊 = 直接弄壞控制列)。 */
+.bp-craft-media video { background: #000; }
+.bp-craft-step {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em;
+  color: var(--c-text-3); margin-bottom: 9px;
+}
+.bp-craft-panel h3 { font-size: 21px; font-weight: 700; letter-spacing: -.015em; margin: 0 0 11px; }
+.bp-craft-panel p { font-size: 15px; line-height: 1.85; color: var(--c-text-2); margin: 0; max-width: 46ch; }
+
+/* ══ 年表(深色場;整頁唯一的深色重量放在這裡)(D2d-2)═══════════
+ * 設計稿把深色重量從中段的數字帶移到後段的年表,整頁節奏 =「動→白→白→白→深」(:970-974)。
+ * ⚠️ :974 那行列的順序(橫幅→影片→事實→Why→Craft→About→年表)**自己已經過期** ——
+ *    影片帶 08-02 就移進 About 右欄了,骨架 :1371-1445 的實際順序是
+ *    band→facts→about→why→craft→time。引它只取「深色重量放在最後」這個意思,
+ *    順序以骨架為準(同 200px 那條的判準:成品優先於伴隨敘述)。
+ */
+.bp-time { background: var(--c-graphite, #202225); color: #fff; }
+.bp-time-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 60px; padding-bottom: 64px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
+}
+/* 🔴 這兩條是深色場的必要覆寫,不是裝飾:共用的 `.bp-sec-label` 是深色字 + 深色短線,
+   直接放進深底 = 黑字配黑線、整格看不見。漏搬不會有任何測試變紅(除了下面的文字層守門)。 */
+.bp-time .bp-sec-label { color: #fff; }
+.bp-time .bp-sec-label::after { background: var(--c-red); opacity: 1; }
+.bp-time h2 {
+  font-size: clamp(24px, 2.8vw, 34px); line-height: 1.12; letter-spacing: -.025em;
+  font-weight: 700; margin: 0 0 32px; max-width: 24ch;
+}
+.bp-time-list { display: grid; }
+.bp-time-item {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 26px;
+  padding: 0 0 24px; position: relative;
+}
+.bp-time-item:last-child { padding-bottom: 0; }
+.bp-time-y {
+  font-family: var(--f-mono); font-size: 13px; font-weight: 500; letter-spacing: .04em;
+  color: rgba(255, 255, 255, .46); padding-top: 2px; white-space: nowrap;
+}
+.bp-time-body { position: relative; padding-left: 26px; border-left: 1px solid rgba(255, 255, 255, .18); }
+/* 最後一列的直線收成透明(不是刪掉)—— 刪掉的話 padding-left 會跟著失去依據、
+   最後一列的圓點與文字會往左跳 26px。 */
+.bp-time-item:last-child .bp-time-body { border-left-color: transparent; }
+.bp-time-body::before {
+  content: ""; position: absolute; left: -4.5px; top: 6px; width: 8px; height: 8px;
+  background: rgba(255, 255, 255, .34);
+}
+/* 🔴 深色底才用 --c-red(5.12:1);白底一律 --c-ember-ink(Why 的卡片編號那條)。
+   兩邊順手「統一色票」都會踩到對比:白底的熔橘只有 3.12:1。 */
+.bp-time-item.is-key .bp-time-body::before { background: var(--c-red); }
+.bp-time-item.is-key .bp-time-y { color: #fff; font-weight: 600; }
+.bp-time-body h3 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 5px; }
+.bp-time-body p { font-size: 14px; line-height: 1.75; color: rgba(255, 255, 255, .62); margin: 0; }
+
 /* ══ RWD ══════════════════════════════════════════════════════════
  * 只收**已落地段落**的規則。≤1180 目前只有 about/aside 那兩條(D2c-1 帶進來的);
  * others/grid 的部分留給 D2d-D2e。
@@ -387,6 +508,8 @@
    因為數字格的內容寬度(數字 + 標籤 + 小註)撐不到 1180 才需要收。
    🔴 這一塊必須排在下面 ≤620 之前:兩者同權重,≤620 要收成單欄就得排在後面贏。 */
 @media (max-width: 1024px) {
+  /* 兩欄面板在這個寬度下要收緊一點(設計稿 :1159);≤960 收成單欄時會再放回 34px。 */
+  .bp-craft-grid { gap: 26px; }
   .bp-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .bp-num { padding-left: 20px; border-bottom: 1px solid var(--c-border); }
   .bp-num:first-child { padding-left: 20px; }
@@ -435,10 +558,22 @@
   /* Why 收單欄(D2d-1)。⚠️ 這裡的置中與 About 正文那條例外**不衝突**:
      why 的 h2/lead 是標題與一句話,不是長段落;設計稿 :1173-1175 逐字就是置中。
      (D2d-2 搬 craft/time 時 `.bp-craft-inner` / `.bp-time-inner` 也加進這一條。) */
-  .bp-why-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .bp-why h2 { text-align: center; max-width: none; }
+  /* 🔴 D2d-2 把 craft/time **加進這兩條既有的選擇器列表**,不是在後面另開一條 ——
+     另開的話同權重靠順序,誰在後面誰贏,而三區的收欄本來就該一起發生
+     (設計稿 :1173-1174 就是一條列表)。這條耦合是 D2d 拆片時唯一的真耦合。 */
+  .bp-why-inner, .bp-craft-inner, .bp-time-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .bp-why h2, .bp-time h2 { text-align: center; max-width: none; }
   .bp-why-lead { text-align: center; margin-left: auto; margin-right: auto; }
   .bp-why-grid { grid-template-columns: minmax(0, 1fr); }
+  /* Craft 收單欄(D2d-2)。gap 維持 34px —— 設計稿 :1177 在收欄的同時把 ≤1024 那條
+     縮到 26px 的 gap **改回** 34px:單欄下上下相鄰的兩個面板需要更多呼吸,
+     不是左右並排時的緊湊。順序上本區塊在 ≤1024 之後,所以蓋得過去。 */
+  .bp-craft-grid { grid-template-columns: minmax(0, 1fr); gap: 34px; }
+  /* ⚠️ `justify-content` 在這裡是**空操作**:`.bp-craft-head` 不是 flex/grid 容器
+     (基礎規則只有 margin-bottom)。設計稿 :1178 就這樣寫,逐字搬、不自行清理
+     —— 真正讓標題置中的是同一條的 text-align。 */
+  .bp-craft-head { justify-content: center; text-align: center; }
+  .bp-craft-panel p { max-width: none; }
   .bp-aside-card h3, .bp-aside-card p { text-align: center; }
   .bp-fact { text-align: center; }
   .bp-facts-inner { grid-template-columns: repeat(2, 1fr); }
@@ -462,11 +597,37 @@
   .bp-nums { grid-template-columns: minmax(0, 1fr); }
   .bp-num { border-right: 0; padding-left: 0; padding-right: 0; }
   .bp-num:first-child { padding-left: 0; }
+  /* 年表手機版(D2d-2):年份挪到標題上方、左邊那條時間軸線收掉
+     —— 92px 的年份欄在窄螢幕吃掉太多寬度(設計稿 :1186-1192)。
+     🔴 軸線收掉之後圓點也要 `display:none`:它是 `left:-4.5px` 定位在那條線上的,
+        線沒了圓點會孤零零掛在文字左邊界外。
+     🔴 年份改吃 `--c-red` 是**深色底**才成立的(5.12:1);這一格仍在深色場裡。 */
+  .bp-time-item {
+    grid-template-columns: minmax(0, 1fr); gap: 6px;
+    padding-bottom: 20px; margin-bottom: 20px; border-bottom: 1px solid rgba(255, 255, 255, .16);
+  }
+  .bp-time-item:last-child { border-bottom: 0; margin-bottom: 0; }
+  .bp-time-body { padding-left: 0; border-left: 0; }
+  .bp-time-body::before { display: none; }
+  .bp-time-y { color: var(--c-red); font-weight: 600; }
   .bp-facts-inner { grid-template-columns: 1fr; }
   .bp-fact { border-left: 0; padding-left: 0; padding-right: 0; }
   .bp-fact:not(:first-child) { padding-left: 0; border-top: 1px solid var(--c-border); }
   .bp-actions { flex-direction: column; align-items: stretch; }
   .bp-cta, .bp-cta-ghost { justify-content: center; }
+}
+
+/* 使用者要求減少動態時,關掉 Craft 面板的 hover 放大(設計稿 :1194-1196)。
+ * 🔴 必須排在 `.bp-craft-panel:hover .bp-craft-media img` 基礎規則**之後** ——
+ *    兩條選擇器完全相同(權重 0-3-1:兩個 class + 一個 `:hover` 虛擬類 + 一個元素),
+ *    靠順序決勝。(關卡2 R2 更正:原本寫 0-2-1、漏算了 `:hover`。)
+ * 🔴 本檔另一條動畫 `@keyframes bp-media-in`(D2c-2 的影片淡入)**目前沒有**對應的
+ *    reduced-motion 保護。設計稿是有的 —— `brand-page.html:461-464` 的全域
+ *    `*,*::before,*::after{…animation-duration:.01ms!important}` 管得到它 —— **是我們沒搬**。
+ *    (關卡2 更正:我原本寫成「設計稿也沒涵蓋」,那是錯的、會讓 D2e 直接跳過這個缺口。)
+ *    不在本片搬的理由 = `*` + `!important` 的影響面遠超品牌頁,屬 D2e 動效層的範圍。 */
+@media (prefers-reduced-motion: reduce) {
+  .bp-craft-panel:hover .bp-craft-media img { transform: none; }
 }
 
 /* ══ 沒有官方授權橫幅照的品牌 ═════════════════════════════════════
