@@ -321,8 +321,121 @@ describe('品牌頁 CSS · Why 與數字條(D2d-1)', () => {
     // —— 但那個前提本身要被守住,否則手機版會退回 200px 兩欄。
     expect(CSS.indexOf('.bp-why-inner {'))
       .toBeLessThan(CSS.indexOf('@media (max-width: 960px) {'));
+    // ⚠️ D2d-2 把收欄併成 `.bp-why-inner, .bp-craft-inner, .bp-time-inner` 一條列表
+    //    ⇒ 這裡不能再比對「`.bp-why-inner {`」的單選擇器形狀(D2d-2 當場轉紅過)。
+    //    收欄本身是否成立由上面那條與 D2d-2 的 three-in-one 那條共同守。
     expect(mediaBlock('(max-width: 960px)'))
-      .toMatch(/\.bp-why-inner\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+      .toMatch(/\.bp-why-inner[^{]*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+});
+
+describe('品牌頁 CSS · Craft 與年表(D2d-2)', () => {
+  it('🔴 .bp-craft-inner 吃 200px 標籤欄(三份文件互相矛盾,以設計稿為準)', () => {
+    // 🔴 判準與完整考據(三份文件互相矛盾 + 版本史 + 為什麼不能用 mtime)寫在
+    //    `brand-page.css` 那條規則正上方,**一處全文**;這裡不重抄(00-work-rules §4:
+    //    同一教訓不寫兩處全文)。一句話版:設計稿自 v0011(08-02 16:44)起連續 19 版都是
+    //    `200px`,而 integration.md 與計畫 §5.2 那一列從寫下當天就是錯的。
+    expect(CSS).toMatch(/\.bp-craft-inner\s*\{[^}]*grid-template-columns:\s*200px minmax\(0, 1fr\)/);
+  });
+
+  it('🔴 hover 放大只套 img、不套 video(原生控制列會跟著縮放、按鈕位置會跑掉)', () => {
+    expect(CSS).toMatch(/\.bp-craft-panel:hover \.bp-craft-media img\s*\{[^}]*transform:\s*scale/);
+    // 反面:同一條選擇器不得把 video 一起列進去(順手補齊 = 直接弄壞控制列)
+    expect(CSS).not.toMatch(/\.bp-craft-panel:hover[^{]*video[^{]*\{[^}]*transform:\s*scale/);
+    // reduced-motion 要關掉它,且必須排在基礎規則之後(選擇器相同、權重 0-3-1、靠順序)
+    const reduce = mediaBlock('(prefers-reduced-motion: reduce)');
+    expect(reduce, '找不到 reduced-motion 區塊').toContain('.bp-craft-media img');
+    expect(reduce).toMatch(/transform:\s*none/);
+    expect(CSS.indexOf('@media (prefers-reduced-motion: reduce) {'))
+      .toBeGreaterThan(CSS.indexOf('.bp-craft-panel:hover .bp-craft-media img'));
+  });
+
+  it('🔴 深色場的兩條標籤覆寫必須在(漏了就是深底黑字 + 看不見的黑短線)', () => {
+    // `.bp-sec-label` 是共用的深色字 + 深色短線,直接放進 .bp-time 的石墨底 = 整格看不見。
+    // 元件測試看不到這個(jsdom 不算 cascade),只能靠文字層守。
+    expect(CSS).toMatch(/\.bp-time \.bp-sec-label\s*\{[^}]*color:\s*#fff/);
+    expect(CSS).toMatch(/\.bp-time \.bp-sec-label::after\s*\{[^}]*background:\s*var\(--c-red\)/);
+    // opacity 也要還原:共用規則把短線壓到 .85,深底上會更糊
+    expect(CSS).toMatch(/\.bp-time \.bp-sec-label::after\s*\{[^}]*opacity:\s*1/);
+  });
+
+  it('🔴 年表用 --c-red、Why 的卡片編號用 --c-ember-ink —— 兩邊不得互換', () => {
+    // 深色底 --c-red 是 5.12:1;白底只有 3.12:1(Why 那條守門的反面)。
+    expect(CSS).toMatch(/\.bp-time-item\.is-key \.bp-time-body::before\s*\{[^}]*background:\s*var\(--c-red\)/);
+    expect(CSS).toMatch(/\.bp-why-num\s*\{[^}]*color:\s*var\(--c-ember-ink\)/);
+  });
+
+  it('🔴 ≤960 的收欄是**一條**選擇器列表,three-in-one(不是各自另開一條)', () => {
+    // 另開的話同權重靠順序決勝,三區的收欄會在不同時機發生。
+    // ⚠️ **不綁順序**:設計稿 :1173 寫的是 why→time→craft,照它重排不該紅(關卡2 R2 nit)。
+    //    只要三者在同一條選擇器列表裡、且那條列表設了單欄即可。
+    const narrow = mediaBlock('(max-width: 960px)');
+    const rule = narrow.match(/([^{};]*\.bp-craft-inner[^{]*)\{([^}]*)\}/);
+    expect(rule, '找不到含 .bp-craft-inner 的 ≤960 規則').not.toBeNull();
+    const [, selector, body] = rule!;
+    for (const s of ['.bp-why-inner', '.bp-craft-inner', '.bp-time-inner']) {
+      expect(selector, `${s} 不在同一條選擇器列表裡`).toContain(s);
+    }
+    expect(body).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+
+  it('🔴 craft / time 的基礎規則必須排在 ≤960 之前(設計稿實測「768/390 左邊界跑掉」)', () => {
+    // 關卡2 R2:`brand-page.css` 檔內明文宣告了這個要求,設計稿 :1171-1172 還記著實際事故,
+    // 但守門只有 `.bp-why-inner` 那一條 ⇒ D2e 在檔尾追加基礎規則就會靜默重現。
+    const media = CSS.indexOf('@media (max-width: 960px) {');
+    for (const sel of ['.bp-craft-inner {', '.bp-time-inner {', '.bp-why-inner {']) {
+      const at = CSS.indexOf(sel);
+      expect(at, `找不到 ${sel} 的基礎規則`).toBeGreaterThan(-1);
+      expect(at, `${sel} 的基礎規則排到 ≤960 後面了 ⇒ 同權重下會把收欄蓋掉`).toBeLessThan(media);
+    }
+  });
+
+  it('🔴 手機年表:軸線收掉時圓點也要收(否則圓點掛在文字左邊界外)', () => {
+    const small = mediaBlock('(max-width: 620px)');
+    expect(small).toMatch(/\.bp-time-body\s*\{[^}]*border-left:\s*0/);
+    // 圓點是 left:-4.5px 定位在那條線上的 ⇒ 線沒了它必須一起 display:none
+    expect(small).toMatch(/\.bp-time-body::before\s*\{[^}]*display:\s*none/);
+    // 前提斷言:桌機版真的有那條線與那個圓點,否則上面兩條在守不存在的東西
+    expect(CSS).toMatch(/\.bp-time-body\s*\{[^}]*border-left:\s*1px solid/);
+    expect(CSS).toMatch(/\.bp-time-body::before\s*\{[^}]*left:\s*-4\.5px/);
+  });
+
+  it('🔴 Craft 媒體 16:9 —— 這是 Sean 08-02 的拍板,不是預設值', () => {
+    // 5:4 會把兩側裁掉、切掉官方燒在畫面裡的工序字幕(設計稿 :1121-1123 記的事故)。
+    // 沒有這條守門的話改回 5:4 是全綠的(關卡2 nit:同檔已為色票拍板設守門,標準要一致)。
+    expect(CSS).toMatch(/\.bp-craft-media img,\s*\.bp-craft-media video\s*\{[^}]*aspect-ratio:\s*16\/9/);
+  });
+
+  it('🔴 Craft 的下沉底色不得拿掉(整頁節奏靠它與前後白區分開)', () => {
+    expect(CSS).toMatch(/\.bp-craft\s*\{[^}]*background:\s*var\(--c-sunken\)/);
+  });
+
+  it('🔴 年表最後一列的軸線是「轉透明」不是「刪掉」', () => {
+    // border-left:0 會讓 border-box 少 1px、padding-left 失去依據
+    // ⇒ 最後一列的文字往左跳。順手「簡化」成 0 是三綠全綠的(關卡2 nit)。
+    expect(CSS).toMatch(/\.bp-time-item:last-child \.bp-time-body\s*\{[^}]*border-left-color:\s*transparent/);
+    expect(CSS).not.toMatch(/\.bp-time-item:last-child \.bp-time-body\s*\{[^}]*border-left:\s*0/);
+  });
+
+  it('🔴 ≤620 的年份紅字必須輸給 is-key 的白字(選擇器權重寫死在字面裡)', () => {
+    // 設計稿 :1154(`.bp-time-item.is-key .bp-time-y` = 三個 class = **0-3-0**)恆勝
+    // :1192(`.bp-time-y` = 0-1-0)⇒ 手機上 key 列仍是白字、只有非 key 變橘。
+    // (關卡2 R2 更正:原本把它寫成 0-2-0,少數了一個 class;結論不變、字面要對。)
+    // 有人把 ≤620 那條寫成 `.bp-time-item .bp-time-y`(0-2-0)⇒ 全部變橘、強調關係消失,
+    // 而畫面「看起來還是有顏色」、沒有任何測試會紅。
+    const small = mediaBlock('(max-width: 620px)');
+    expect(small).toMatch(/(^|\n)\s*\.bp-time-y\s*\{[^}]*color:\s*var\(--c-red\)/);
+    expect(small, '≤620 不得用更高權重的選擇器蓋過 is-key').not.toMatch(/\.bp-time-item[^,{]*\.bp-time-y\s*\{/);
+    // 前提斷言:基礎規則真的有那條 0-3-0 的 is-key 白字
+    expect(CSS).toMatch(/\.bp-time-item\.is-key \.bp-time-y\s*\{[^}]*color:\s*#fff/);
+  });
+
+  it('Craft 的 gap 在 ≤1024 收到 26、≤960 放回 34(順序不能對調)', () => {
+    expect(mediaBlock('(max-width: 1024px)')).toMatch(/\.bp-craft-grid\s*\{[^}]*gap:\s*26px/);
+    expect(mediaBlock('(max-width: 960px)')).toMatch(/\.bp-craft-grid\s*\{[^}]*gap:\s*34px/);
+    // 單欄下上下相鄰的面板要更多呼吸 ⇒ ≤960 那條要贏 ⇒ 必須排在 ≤1024 之後
+    expect(CSS.indexOf('@media (max-width: 960px) {'))
+      .toBeGreaterThan(CSS.indexOf('@media (max-width: 1024px) {'));
   });
 });
 

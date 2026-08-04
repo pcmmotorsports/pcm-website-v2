@@ -8246,3 +8246,83 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **發現於:** 2026-08-04 / D2d-1 關卡2 折入
 - **相關:** `apps/storefront/src/components/brand/BrandPageHeader.tsx`(h1)/ `BrandPageAbout.tsx`(h3)/
   `BrandPageWhy.tsx`(h2 + h3)/ #308、#309、#310(同族:設計稿繼承的 a11y/視覺缺陷走拍板)
+
+---
+
+### #312. 🔊 品牌頁年表的「關鍵事件」對讀屏使用者完全不存在
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2-later
+- **優先級:** 🟢 觀察(a11y 資訊遺失,非阻斷)
+- **問題:**
+  - `BrandPageTimeline.tsx` 的 `is-key` 標記「這是該品牌真正的轉折點」,但它**只有顏色差異**:
+    桌機是圓點由白轉橘 + 年份由半透明轉全白;手機只有年份由白轉橘。
+  - ⇒ 用讀屏的人拿到的是 13 條完全一樣的年表,**設計上想強調的那 4 條在語意層不存在**。
+    這是真的資訊遺失(不是冗贅),也過不了「不能只用顏色傳達資訊」那條(WCAG 1.4.1)。
+  - 同批還有一條較輕的:`BrandPageCraft.tsx` 影片列的 `aria-label` 與 `title` 是**同一個字串**,
+    部分輔具會先念 name 再念 description = 同一句聽兩次(設計稿 `brand-page.html:1999` 逐字如此)。
+- **觸發事件:**
+  - 2026-08-04 / D2d-2 關卡2(code-reviewer 對 Q5 的回答)。兩條都是照設計稿搬的結果。
+- **預期解法:**
+  - 年表:給 key 列一個視覺隱藏的語意標記(`<span class="sr-only">關鍵事件</span>`)或
+    改用 `<strong>` 包年份;兩者都不動視覺。
+  - 影片列:`title` 與 `aria-label` 擇一(留 `aria-label`、拿掉 `title`,或反之)。
+  - 🔴 兩者都**偏離設計稿字面**,依鐵則 1 走拍板:Sean 拍板,或設計側先在 Open Design 改再搬過來。
+  - 🔴 本站目前**沒有 `.sr-only` 這個共用 class** —— 要一起決定放哪(tokens.css 或各頁 CSS)。
+- **不修會痛在:**
+  - 擴充性:年表目前只有 2 家(akrapovic / gb-racing),但每新增一家有年表的品牌就多一份;
+    `is-key` 這個「只用顏色」的模式若被 D2e 的其他區塊沿用會擴散。
+  - 可維護性:現在只落在 commit body 與程式碼註解,沒有編號就不會進任何盤點。
+  - bug 可追蹤性:讀屏使用者不會回報「我沒聽到重點」—— 他們根本不知道有重點。
+- **估時:** 20 分鐘(含 sr-only 的落點決定)+ 拍板往返
+- **依賴:** 鐵則 1 偏離的拍板路徑 / `.sr-only` 共用 class 的落點
+- **發現於:** 2026-08-04 / D2d-2 關卡2 折入
+  - **第三條(2026-08-04 / D2d-2 關卡2 R2 加入)**:設計稿 `brand-page.html:461-464` 有一條
+    **全域** reduced-motion(`*,*::before,*::after{transition-duration:.01ms!important;
+    animation-duration:.01ms!important}`),**本 repo 未搬** ⇒ D2c-2 的影片淡入 `bp-media-in`
+    目前不受 reduced-motion 保護。
+    🔴 不在品牌頁的 CSS 裡搬:`brand-page.css` 被元件 import = Next 全域 CSS,
+       `*` + `!important` 一進來就對**全站每一頁**生效 = 替所有頁面決定 reduced-motion 行為
+       (鐵則 8「動共用資產」)。正解八成是搬進 `styles/tokens.css` / 全域 reset 當一個獨立決定。
+    ⚠️ 這一條原本只活在 `brand-page.css` 的註解裡、沒有編號 —— D2e 範圍一變它就消失。
+- **相關:** `apps/storefront/src/components/brand/BrandPageTimeline.tsx`(is-key)/
+  `BrandPageCraft.tsx`(影片列 aria-label + title)/ Open Design `pcm-home-redesign/brand-page.html:1999`、`:2011`/
+  #308、#309、#310、#311(同族:設計稿繼承的 a11y/視覺缺陷走拍板)
+
+---
+
+### #313. 🎬 RIZOMA 的直式製程影片被 16:9 版位裁掉三分之二
+
+- **狀態:** ⏳ 待執行
+- **分流:** P1-before-launch
+- **優先級:** 🟠 上線前(客人看得到、而且是按下播放才發生)
+- **問題:**
+  - `brand-content.ts` 的 rizoma craft row 2「02 — The Look」用
+    `assets/brand-video/rizoma-fashion.mp4`,實測 **720×1280(9:16 直式)**,
+    封面 `video-fashion.jpg` 900×1600 同樣直式。
+  - 版位是 `brand-page.css` 的 `.bp-craft-media video { aspect-ratio: 16/9; object-fit: cover }`
+    ⇒ 直式內容塞進橫式裁切框,可見面積 = (9/16) ÷ (16/9) ≈ **31.6%**,只剩畫面中間一條橫帶。
+  - 🔴 **靜態封面看起來沒事**(裁出來的橫帶像是刻意構圖),`preload="none"` 之下不點播就看不出來
+    ⇒ 真瀏覽器驗證看過 rizoma 但沒有人按下播放,所以沒被發現。
+  - 另一支 `rizoma-scrambler.mp4` 是 1280×720 橫式,沒有這個問題。
+- **觸發事件:**
+  - 2026-08-04 / D2d-2 關卡2 **R3 換模型換角度**(前兩輪都在「字面搬對了嗎」那一層,
+    這條是量資產像素才現形的)。設計稿 `brand-page.html` 自己也是同一個版位,**上游同樣有這個問題**。
+- **預期解法(三選一,需 Sean 拍板):**
+  - A. **換素材**:向 rizoma 取一支橫式的形象影片替換(最乾淨,不動任何 code)
+  - B. **設計側加直式版位**:比照 About 右欄影片那套 `is-portrait`(3:4 → 9:16 + 欄寬重配),
+    由設計側先在 Open Design 補進 craft 面板,再搬過來
+  - C. **接受裁切**:那一格改放 `rizoma-scrambler.mp4` 的同款橫式素材,或直接拿掉那一列
+    (craft 步數必須偶數 ⇒ 拿掉一列要連帶處理成 2 步)
+  - 🔴 三個都是**產品/素材決定**,不是實作選擇 ⇒ 不由 Claude 拍。
+- **不修會痛在:**
+  - 擴充性:未來任何一家用 IG Reel 當製程素材都會踩到同一格;craft 目前沒有直式分支。
+  - 可維護性:CSS 註解已寫明「42 列裡只有 5 列是 16:9」,但版位只有一種比例。
+  - bug 可追蹤性:**它只在有人按下播放時才發生** —— 靜態截圖、三綠、突變、CSS 守門全部看不到。
+- **估時:** A 案 = 取得素材的時間;B 案 = 設計側 + 一片實作約 40 分鐘;C 案 = 15 分鐘
+- **依賴:** Sean 拍板(素材/產品決定)
+- **發現於:** 2026-08-04 / D2d-2 關卡2 R3(Fable 換角度)
+- **相關:** `apps/storefront/src/styles/brand-page.css`(`.bp-craft-media video`)/
+  `apps/storefront/src/data/brand-content.ts`(rizoma craft rows)/
+  Open Design `pcm-home-redesign/brand-page.html:1124`(上游同一個版位)/
+  #312(同族:設計稿繼承的缺陷走拍板)
