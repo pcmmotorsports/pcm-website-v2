@@ -52,6 +52,20 @@ export class RefundCallerBugError extends Error {
 }
 
 /**
+ * 🔴 finalize 的「回應解析失敗」專屬子型別(RW4 關卡2 codex R2 must-fix):
+ * RPC RAISE=交易**確定回滾**(零寫入);但走到回應解析才炸=RPC 已成功、交易**已 commit**、
+ * 只是回傳形狀不可信 —— 兩者的員工指示相反(前者「沒寫入」/後者「可能已完成、先確認現況」),
+ * 共用一個型別會讓呼叫端把已寫入說成沒寫入。子類化保持既有 `instanceof RefundCallerBugError`
+ * 行為不變(同步路徑零行為差),恢復 action 先驗子型別。
+ */
+export class RefundFinalizeParseError extends RefundCallerBugError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RefundFinalizeParseError';
+  }
+}
+
+/**
  * 🔴 RPC 的 RAISE → `RefundCallerBugError`(A9d2-1 F4 同型判別)。
  *
  * 本呼叫路徑上的 RAISE 面:①兩 RPC 步 1-2 的輸入/互斥面(P0001)②G4 同鍵指紋不符 /
@@ -255,33 +269,97 @@ export type FinalizeOrderRefundOutcome =
   | { result: 'HELD_AMOUNT_MISMATCH'; statusAfter: string; paymentStatusAfter: string }
   | { result: 'REFUND_NOT_FOUND' };
 
+/**
+ * 🔴 RW4 恢復出口專用判別聯合(鏡像 RPC 步 2 矩陣的恢復半邊):
+ * recovered_confirmed 必帶 Portal 真 DR 碼(P7C09/P7C13 由 DB 收口);
+ * manual_failed 必帶含 Record 證據數字的 failed_detail。
+ * 與 `FinalizeOrderRefundArgs`(同步四碼)刻意分型 —— 同步 action 拿不到恢復碼、
+ * 恢復 action 拿不到同步碼,「記得別傳」不是防護,型別才是。
+ */
+export type RecoveryFinalizeArgs = {
+  refundId: string;
+  actor: string;
+  requestId: string;
+} & (
+  | { outcome: 'recovered_confirmed'; tappayRefundId: string; failedDetail: null }
+  | { outcome: 'manual_failed'; tappayRefundId: null; failedDetail: string }
+);
+
 /** 結案。unknown-state **沒有對應 outcome** —— 呼叫端不得為它呼本函式(列留 processing 走 RW4)。 */
 export async function finalizeOrderRefund(
   args: FinalizeOrderRefundArgs,
 ): Promise<FinalizeOrderRefundOutcome> {
+  return callFinalizeRpc({
+    refundId: args.refundId,
+    outcome: args.outcome,
+    tappayRefundId: args.tappayRefundId,
+    refundAmountWire: args.refundAmountWire,
+    failedDetail: args.failedDetail,
+    actor: args.actor,
+    requestId: args.requestId,
+  });
+}
+
+/** RW4 人工結案(判定閘在 action 端:送出當下重判、判定不符不得呼到這裡)。 */
+export async function finalizeRecoveryOrderRefund(
+  args: RecoveryFinalizeArgs,
+): Promise<FinalizeOrderRefundOutcome> {
+  return callFinalizeRpc({
+    refundId: args.refundId,
+    outcome: args.outcome,
+    tappayRefundId: args.tappayRefundId,
+    // 恢復路徑不帶 wire 金額(RPC 步 2:accepted 以外帶了就 RAISE)。
+    refundAmountWire: null,
+    failedDetail: args.failedDetail,
+    actor: args.actor,
+    requestId: args.requestId,
+  });
+}
+
+/** 兩個出口共用的唯一 wire 點(參數矩陣已由上面兩個判別聯合各自釘死)。 */
+async function callFinalizeRpc(params: {
+  refundId: string;
+  outcome: string;
+  tappayRefundId: string | null;
+  refundAmountWire: number | null;
+  failedDetail: string | null;
+  actor: string;
+  requestId: string;
+}): Promise<FinalizeOrderRefundOutcome> {
   const fn = 'admin_finalize_order_refund';
   const { data, error } = await createSupabaseServiceClient().rpc(fn, {
-    p_refund_id: args.refundId,
-    p_outcome: args.outcome,
-    p_tappay_refund_id: args.tappayRefundId,
-    p_refund_amount_wire: args.refundAmountWire,
-    p_failed_detail: args.failedDetail,
-    p_actor: args.actor,
-    p_request_id: args.requestId,
+    p_refund_id: params.refundId,
+    p_outcome: params.outcome,
+    p_tappay_refund_id: params.tappayRefundId,
+    p_refund_amount_wire: params.refundAmountWire,
+    p_failed_detail: params.failedDetail,
+    p_actor: params.actor,
+    p_request_id: params.requestId,
   });
   if (error) {
     if (isRpcRaise(error)) throw toCallerBug(fn, error);
     throw error;
   }
-  const row = asRecord(fn, data);
-  const result = row.result;
-  if (typeof result !== 'string' || !(FINALIZE_RESULT_CODES as readonly string[]).includes(result)) {
-    throw new RefundCallerBugError(`${fn} 回傳非預期碼:${JSON.stringify(result)}`);
+  // 🔴 自此交易已 commit —— 解析失敗一律升為 RefundFinalizeParseError(見 class 註解)。
+  try {
+    const row = asRecord(fn, data);
+    const result = row.result;
+    if (
+      typeof result !== 'string' ||
+      !(FINALIZE_RESULT_CODES as readonly string[]).includes(result)
+    ) {
+      throw new RefundCallerBugError(`${fn} 回傳非預期碼:${JSON.stringify(result)}`);
+    }
+    if (result === 'REFUND_NOT_FOUND') return { result };
+    return {
+      result: result as 'FINALIZED' | 'HELD_AMOUNT_MISMATCH',
+      statusAfter: requireString(fn, row, 'status_after'),
+      paymentStatusAfter: requireString(fn, row, 'payment_status_after'),
+    };
+  } catch (parseError) {
+    if (parseError instanceof RefundCallerBugError) {
+      throw new RefundFinalizeParseError(parseError.message);
+    }
+    throw parseError;
   }
-  if (result === 'REFUND_NOT_FOUND') return { result };
-  return {
-    result: result as 'FINALIZED' | 'HELD_AMOUNT_MISMATCH',
-    statusAfter: requireString(fn, row, 'status_after'),
-    paymentStatusAfter: requireString(fn, row, 'payment_status_after'),
-  };
 }

@@ -24,7 +24,9 @@ import {
   FINALIZE_RESULT_CODES,
   INITIATE_RESULT_CODES,
   RefundCallerBugError,
+  RefundFinalizeParseError,
   finalizeOrderRefund,
+  finalizeRecoveryOrderRefund,
   findOrderForRefund,
   initiateOrderRefund,
 } from './refund-repository';
@@ -243,5 +245,92 @@ describe('finalizeOrderRefund — 參數與收斂', () => {
     await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
     mocks.rpc.mockResolvedValue({ data: { result: 'DONE' }, error: null });
     await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toBeInstanceOf(RefundCallerBugError);
+  });
+
+  it('🔴 型別分岔(codex R2 MF):解析失敗=RefundFinalizeParseError(交易已 commit);RAISE=父類非子類(確定回滾)—— 兩者員工指示相反,型別必須分得開', async () => {
+    mocks.rpc.mockResolvedValue({ data: { result: 'FINALIZED' }, error: null });
+    await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toBeInstanceOf(
+      RefundFinalizeParseError,
+    );
+    mocks.rpc.mockResolvedValue({ data: { result: 'DONE' }, error: null });
+    await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toBeInstanceOf(
+      RefundFinalizeParseError,
+    );
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'RAISE' } });
+    await expect(finalizeOrderRefund(FINALIZE_ARGS)).rejects.toSatisfy(
+      (e) => e instanceof RefundCallerBugError && !(e instanceof RefundFinalizeParseError),
+    );
+  });
+});
+
+describe('finalizeRecoveryOrderRefund — RW4 恢復出口(參數矩陣鏡像 RPC 步 2 恢復半邊)', () => {
+  it('recovered_confirmed:帶 Portal 真 DR 碼、wire 金額必 null(帶了 RPC 會 RAISE)', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: { result: 'FINALIZED', status_after: 'confirmed', payment_status_after: 'partiallyRefunded' },
+      error: null,
+    });
+    await expect(
+      finalizeRecoveryOrderRefund({
+        refundId: REFUND_ID,
+        outcome: 'recovered_confirmed',
+        tappayRefundId: 'DR20260803gvcV5i',
+        failedDetail: null,
+        actor: 'sean',
+        requestId: TOKEN,
+      }),
+    ).resolves.toEqual({
+      result: 'FINALIZED',
+      statusAfter: 'confirmed',
+      paymentStatusAfter: 'partiallyRefunded',
+    });
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith('admin_finalize_order_refund', {
+      p_refund_id: REFUND_ID,
+      p_outcome: 'recovered_confirmed',
+      p_tappay_refund_id: 'DR20260803gvcV5i',
+      p_refund_amount_wire: null,
+      p_failed_detail: null,
+      p_actor: 'sean',
+      p_request_id: TOKEN,
+    });
+  });
+
+  it('manual_failed:帶 Record 證據數字的 failed_detail、對帳碼必 null', async () => {
+    mocks.rpc.mockResolvedValue({
+      data: { result: 'FINALIZED', status_after: 'failed', payment_status_after: 'paid' },
+      error: null,
+    });
+    await expect(
+      finalizeRecoveryOrderRefund({
+        refundId: REFUND_ID,
+        outcome: 'manual_failed',
+        tappayRefundId: null,
+        failedDetail: 'Record 對帳:baseline=100;現值=100;差額=0',
+        actor: 'sean',
+        requestId: TOKEN,
+      }),
+    ).resolves.toMatchObject({ result: 'FINALIZED', statusAfter: 'failed' });
+    expect(mocks.rpc).toHaveBeenCalledExactlyOnceWith('admin_finalize_order_refund', {
+      p_refund_id: REFUND_ID,
+      p_outcome: 'manual_failed',
+      p_tappay_refund_id: null,
+      p_refund_amount_wire: null,
+      p_failed_detail: 'Record 對帳:baseline=100;現值=100;差額=0',
+      p_actor: 'sean',
+      p_request_id: TOKEN,
+    });
+  });
+
+  it('🔴 RAISE(含 G5 CAS 失敗=已被結案)→ RefundCallerBugError(呼叫端映「停手+重新整理」,不是 error 重試)', async () => {
+    mocks.rpc.mockResolvedValue({ data: null, error: { code: 'P0001', message: 'CAS 失敗' } });
+    await expect(
+      finalizeRecoveryOrderRefund({
+        refundId: REFUND_ID,
+        outcome: 'manual_failed',
+        tappayRefundId: null,
+        failedDetail: 'x',
+        actor: 'sean',
+        requestId: TOKEN,
+      }),
+    ).rejects.toBeInstanceOf(RefundCallerBugError);
   });
 });

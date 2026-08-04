@@ -1,24 +1,35 @@
+import React from 'react';
 import Link from 'next/link';
+import { RefundExceptionResolve } from '../../../components/orders/refund-exception-resolve';
+import { ResultBanner } from '../../../components/orders/result-banner';
 import { formatOrderAmount } from '../../../lib/orders/order-list-view';
 import { formatOrderDateTime } from '../../../lib/orders/order-detail-view';
+import { generateRefundRequestToken } from '../../../lib/payment/refund-action-state';
 import { listRefundExceptions } from '../../../lib/payment/refund-read';
 import {
   REFUND_EXCEPTION_STALL_MS,
   refundStatusLabel,
 } from '../../../lib/payment/refund-ledger-view';
 
-// /orders/refund-exceptions — M-3 A7c RW3:退款異常清單(RW4 前置 UI;唯讀)。
+// /orders/refund-exceptions — M-3 A7c RW3 清單 + RW4 操作(對帳判定/人工結案)。
 // 🔴 中文字面全部暫定、待 Sean 肉眼定稿(結構鎖、字不鎖)。
 //
 // 清單判準 = plan §4-1 逐字:processing 且(滯留 >30 分 或 已有 TapPay 受理證據)。
 // 證據列(G7-hold)= 當下已知異常、不等 30 分(fable N4)。
-// 🔴 本頁只「看」:人工結案(標記失敗 / Portal 真碼恢復)= RW4 的具名流程,
-//    這裡刻意零操作按鈕 —— 沒有對帳依據的按鈕比沒有按鈕更危險。
+// 🔴 RW4 起每列掛具名結案流程(refund-exception-resolve.tsx):按鈕只在「對帳判定」
+//    成立後出現,且結案 action 送出當下會重新對帳過判定閘 —— 沒有對帳依據的按鈕
+//    仍然不存在,只是「依據」從人工查改成了流程內建。
 // 🔴 靜態 route 優先於 /orders/[id] 動態段(Next 慣例);[id] 頁另有 isOrderId 閘。
 
 export const dynamic = 'force-dynamic';
 
-export default async function RefundExceptionsPage() {
+export default async function RefundExceptionsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const rawSearch = await searchParams;
+  const resultCode = typeof rawSearch.r === 'string' ? rawSearch.r : undefined;
   let rows: Awaited<ReturnType<typeof listRefundExceptions>>['rows'] = [];
   let truncated = false;
   let loadFailed = false;
@@ -43,9 +54,12 @@ export default async function RefundExceptionsPage() {
           處理中且滯留超過 {REFUND_EXCEPTION_STALL_MS / 60_000} 分鐘、或 TapPay
           已受理但帳本尚未結案的退款。
           這些單<span className='font-medium'>勿重複發起退款</span>;
-          結案(人工對帳後標記)流程尚未上線,先以 TapPay Record/Portal 對帳並通知系統維護。
+          請先按「執行對帳判定」,依判定結果結案(標記失敗/恢復結案),
+          判定不明時停手並通知系統維護。
         </p>
       </div>
+
+      <ResultBanner code={resultCode} />
 
       {/* codex MF1:平台 max-rows 會靜默截斷,顯式上限+可見旗標;舊的排前=被截的是較新的 */}
       {truncated && (
@@ -78,35 +92,47 @@ export default async function RefundExceptionsPage() {
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className='border-t'>
-                  <td className={`${TD} whitespace-nowrap`}>
-                    <Link href={`/orders/${row.orderId}`} className='font-medium underline'>
-                      {row.orderDisplayId}
-                    </Link>
-                  </td>
-                  <td className={`${TD} whitespace-nowrap`}>
-                    {formatOrderDateTime(row.createdAt)}
-                  </td>
-                  <td className={`${TD} whitespace-nowrap`}>
-                    {row.kind === 'full' ? '全額' : '部分'}
-                  </td>
-                  <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
-                    NT$ {formatOrderAmount(row.refundAmount)}
-                  </td>
-                  <td className={TD}>{refundStatusLabel(row.status)}</td>
-                  <td className={TD}>
-                    {row.providerEvidence !== null ? (
-                      <span className='text-destructive font-medium'>
-                        有(TapPay 已受理,優先處理)
-                      </span>
-                    ) : (
-                      <span className='text-muted-foreground'>無(滯留逾時)</span>
-                    )}
-                  </td>
-                  <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
-                    {row.actor}
-                  </td>
-                </tr>
+                // 每列兩 <tr>:資料列 + 操作列(colSpan 全寬;fragment key 掛在資料列上即可)
+                <React.Fragment key={row.id}>
+                  <tr className='border-t'>
+                    <td className={`${TD} whitespace-nowrap`}>
+                      <Link href={`/orders/${row.orderId}`} className='font-medium underline'>
+                        {row.orderDisplayId}
+                      </Link>
+                    </td>
+                    <td className={`${TD} whitespace-nowrap`}>
+                      {formatOrderDateTime(row.createdAt)}
+                    </td>
+                    <td className={`${TD} whitespace-nowrap`}>
+                      {row.kind === 'full' ? '全額' : '部分'}
+                    </td>
+                    <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
+                      NT$ {formatOrderAmount(row.refundAmount)}
+                    </td>
+                    <td className={TD}>{refundStatusLabel(row.status)}</td>
+                    <td className={TD}>
+                      {row.providerEvidence !== null ? (
+                        <span className='text-destructive font-medium'>
+                          有(TapPay 已受理,優先處理)
+                        </span>
+                      ) : (
+                        <span className='text-muted-foreground'>無(滯留逾時)</span>
+                      )}
+                    </td>
+                    <td className={`${TD} text-muted-foreground whitespace-nowrap text-xs`}>
+                      {row.actor}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colSpan={7} className='px-3 pt-0 pb-3'>
+                      {/* token=渲染期產、每列一把(force-dynamic 零快取;refund-action-state.ts:41-43)。 */}
+                      <RefundExceptionResolve
+                        refundId={row.id}
+                        serverToken={generateRefundRequestToken()}
+                      />
+                    </td>
+                  </tr>
+                </React.Fragment>
               ))}
             </tbody>
           </table>
