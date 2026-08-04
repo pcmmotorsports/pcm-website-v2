@@ -166,6 +166,10 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(CASCADE, 'filter-cascade.css 找不到 inline 家族的 nowrap')
       .toMatch(/\.cat-garage--inline\s+\.cat-garage-chip\s*\{[^}]*white-space\s*:\s*nowrap/);
     // 卡片密度(手機面板 2 欄 grid + min-height)靠折行才排得下 ⇒ 不得被全域套上
+    // ⚠️ 已知洞(R3 nit,文字層固定洞族、刻意不補):這條負向式抓不到**選擇器串接走私** ——
+    //    `.cat-garage-chip,\n.foo { white-space: nowrap }` 這種寫法,`^\.cat-garage-chip` 後面
+    //    接的是逗號不是 `{`,正規式不命中而規則照樣全域生效。要真的堵死需要 CSS 走訪器
+    //    (products-mobile.test.ts 的 mediaBlock 那種等級);此處風險低、留註解讓下一個人知道邊界在哪。
     expect(CASCADE, 'nowrap 被寫成 .cat-garage-chip 全域基礎規則會撐爆手機面板的 2 欄格子')
       .not.toMatch(/^\.cat-garage-chip\s*\{[^}]*white-space\s*:\s*nowrap/m);
   });

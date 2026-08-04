@@ -56,7 +56,10 @@ describe('ProductFitmentCheck（§7）', () => {
   it('context dict 年份未定 + 受限 fitment → qualified(禁 bare ✓)', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09' });
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
-    expect(screen.getByText(/有年份限制/)).toBeTruthy();
+    // 🔴 R3-F2:用**整串含逗號**的字面斷言。原本的 /有年份限制/ 正規式切在逗號後面 ⇒
+    //   有人把這句「補成全形」照樣全綠,而它屬計畫 §2.6 明列凍結、不得動的既有文案。
+    //   (與 R2-I2 帳號那條同型切口:不是沒測試,是測試切在逗號旁邊。)
+    expect(screen.getByText('此商品適用 YAMAHA MT-09,但有年份限制')).toBeTruthy();
     expect(screen.getByText(/請確認你的年份/)).toBeTruthy();
   });
 
