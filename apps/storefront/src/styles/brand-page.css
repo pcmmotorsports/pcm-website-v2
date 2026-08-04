@@ -1,10 +1,15 @@
 /* brand-page.css — 品牌介紹頁版型(D2b 起;2026-08-04)
  *
  * 字面搬自 Open Design `pcm-home-redesign/brand-page.html` 的 <style>
- * (麵包屑 593-601、橫幅 604-641、事實列 643-657、About 659-688 + :961;RWD 見檔尾)。
+ * (麵包屑 593-601、橫幅 604-641、事實列 643-657、About 659-688 + :961、
+ *  影片右欄 977-1037 + 1055-1072;RWD 見檔尾)。
  * 鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B:本線 design 真權威在 Open Design。
  *
- * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c-1 的 about。
+ * ⚠️ 設計稿 :1182 的 `.bp-film-cap{padding-bottom:14px}`(≤620)**刻意未搬**:
+ *    整份設計稿只有那一處提到 `.bp-film-cap`,骨架用的是 `.bp-media-cap`(:1404)
+ *    ⇒ 那是設計稿自己的死規則,搬過來只會多一條永遠不生效的 CSS。
+ *
+ * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media。
  *    why / craft / timeline / cats / others 與動效層由 D2d-D2e 逐片補進來,
  *    不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class 先躺在 repo 裡,
  *    誰也說不出哪些是活的。
@@ -36,6 +41,10 @@
      捕獲階段 error handler)**未搬**,所以真的載失敗時仍是瀏覽器的破圖 icon 疊在這個底上。
      .bp-band 同樣未搬,屬跨片延後、D2e 一起處理。 */
   --c-sunken: #f3f3f4;
+  /* D2c-2:.bp-media-cap a 的底線。正式站 tokens.css 有同名但值略異(#d4d4d8)且
+     `[data-theme="dark"]` 會把它翻成 #3f3f46 —— 品牌頁整頁是設計稿的亮色場,
+     跟著翻會讓圖說底線在深模式下變成一條看不見的深灰。與 --c-border 同樣的處理。 */
+  --c-border-strong: #d3d4d6;
   --f-serif: "Noto Serif TC", "Cormorant Garamond", Georgia, serif; /* D2c-1:.bp-pull */
   /* 動效層的曲線。整段動效層(含四個時長 token)由 D2e 原封搬進來;
      這裡先帶曲線是因為 crumb/cta 的 transition 現在就用得到。 */
@@ -164,6 +173,87 @@
 .bp-aside-card h3 { font-size: 14px; font-weight: 600; line-height: 1.4; margin: 12px 0 5px; color: var(--c-text); }
 .bp-aside-card p { font-size: 13px; line-height: 1.65; color: var(--c-text-3); margin: 0; }
 
+/* ══ About 右欄的影片(D2c-2)══════════════════════════════════════
+ * 2026-08-02 Sean:官方 Company Film 取代原本的「鈦合金排氣尾段」產品照卡。
+ * 有 video 就放影片、沒有才退回上面的 .bp-aside 產品照(實測 11 家有片 / 9 家走產品照)。
+ */
+.bp-media { align-self: start; }
+/* 封面 7:3 而不是 16:9 —— 16:9 在這個欄寬比正文高 75px、2:1 還高 43px;
+   7:3 把差距收到 10px 內(Sean 2026-08-02 要求影片高度貼齊正文欄)。
+   封面 object-fit:cover 裁掉上下、不變形;iframe 會有極輕微的上下黑邊。
+   🔴 比例在按下的瞬間**直接換、不做 transition**:aspect-ratio 是佈局屬性,
+      過渡那 0.3 秒會讓底下整頁跟著位移。淡入交給下面的 keyframes(只動 opacity/transform)。 */
+.bp-film-frame { position: relative; overflow: hidden; background: var(--c-graphite, #202225); aspect-ratio: 7/3; }
+/* 按下播放後展成 16:9 —— 封面用 7:3 是為了貼齊正文高度,影片本身不該被裁掉上下。 */
+.bp-film-frame.is-playing { aspect-ratio: 16/9; }
+/* 直式影片(IG Reel):封面 3:4、播放展 9:16。欄寬同步收窄,否則 9:16 放在給 16:9
+   用的寬欄裡會高到把整列撐爛(欄寬規則見下面兩個 @media)。 */
+.bp-film-frame.is-portrait { aspect-ratio: 3/4; }
+.bp-film-frame.is-portrait.is-playing { aspect-ratio: 9/16; }
+/* 🔴 欄寬規則一定要包在 min-width 裡(理由同 .no-aside):`.bp-about-inner.has-portrait-media`
+   是 0-2-0,不設限會蓋過 ≤960 的單欄規則 `.bp-about-inner`(0-1-0)
+   ⇒ 手機版標籤與正文變左右並排(設計稿 :996-997 逐字警告、規則在 :998-1000)。 */
+@media (min-width: 1181px) {
+  .bp-about-inner.has-portrait-media { grid-template-columns: 200px minmax(0, 1.4fr) minmax(240px, .6fr); }
+}
+.bp-film-frame iframe, .bp-film-frame video, .bp-film-poster {
+  position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+}
+/* 影片掛上來時的淡入 —— 只動 opacity 與 scale,320ms,與全站同一條 --ease。
+   ⚠️ 延後債:本檔目前零 `prefers-reduced-motion`,而設計稿的 reduced-motion 區塊
+      (brand-page.html:860-866)**也沒有涵蓋這條動畫** ⇒ 搬過來也擋不住它。
+      D2e 帶整段動效層進來時,這一條要一起補進 reduced-motion 清單。 */
+@keyframes bp-media-in { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: none; } }
+.bp-film-frame > iframe, .bp-film-frame > video { animation: bp-media-in 320ms var(--ease) both; }
+.bp-film-frame video { object-fit: cover; background: #000; }
+.bp-film-poster { padding: 0; background: transparent; cursor: pointer; display: block; }
+/* 🔴 焦點框有**兩個**坑,兩個都會讓鍵盤使用者完全看不到焦點(WCAG 2.4.7),
+   而且兩個都對滑鼠使用者零症狀、截圖也看不出來:
+   ① 位置:按鈕 `inset: 0` 的邊框盒恰等於 .bp-film-frame 的 padding 盒(實測 1440 下
+      兩者都是 629x269),而框是 `overflow: hidden` ⇒ 全站 tokens.css:157-160 的
+      `outline-offset: 2px` 把整圈畫在裁切區外 ⇒ 一條線都不會出現。
+   ② 顏色:全站焦點色是 `var(--c-text)`(近黑),而這個框裡永遠是深色影片封面
+      ⇒ 就算改成負 offset 畫進來了,黑框壓在深色照片上還是看不見(第一版真機截圖坐實)。
+   兩處都照設計稿自己的語彙修,不是另發明一套:負 offset 見 `.ed-finder-slot:focus-within`
+   (brand-page.html:156);深色區塊換成 `--c-red` 見 :53-54(hero / statement / footer
+   那批深底區塊逐字就是 `outline-color:var(--c-red)`)。 */
+.bp-film-poster:focus-visible { outline-color: var(--c-red, #f26722); outline-offset: -3px; }
+.bp-film-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bp-film-play {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 3;
+  width: 58px; height: 58px; border-radius: 50%; background: rgba(18, 18, 20, .62);
+  backdrop-filter: blur(4px); border: 1px solid rgba(255, 255, 255, .5);
+  display: grid; place-items: center; pointer-events: none;
+  transition: background .18s, border-color .18s;
+}
+.bp-film-poster:hover .bp-film-play { background: var(--c-red); border-color: var(--c-red); }
+.bp-film-play svg { margin-left: 3px; }
+/* 播放器被網路或瀏覽器擋掉時的說明面板(4 秒沒 load 就換上;元件端負責判定)。
+   🔴 fallback 同 `.bp-band` 那條(見本檔上面的註解):`--c-graphite` 只存在於 .bp-page 這個
+      scope,D3 接線漏掛的話 var() 無值 ⇒ 透明底配這裡寫死的 `color:#fff` = 這段字全看不見,
+      而它出現的時機正好是「影片已經壞了」—— 兩件事疊在一起客人會對著空白框。 */
+.bp-film-blocked {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; padding: 24px; text-align: center;
+  background: var(--c-graphite, #202225); color: #fff;
+}
+.bp-film-blocked p { margin: 0; font-size: 14px; line-height: 1.7; color: rgba(255, 255, 255, .78); }
+.bp-film-blocked a {
+  color: #fff; font-size: 14px; font-weight: 600;
+  border-bottom: 1px solid rgba(255, 255, 255, .5); padding-bottom: 2px;
+}
+.bp-media-cap {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin-top: 12px;
+}
+.bp-media-cap span { font-size: 13px; font-weight: 600; color: var(--c-text); }
+.bp-media-cap a {
+  font-size: 13px; color: var(--c-text-3); border-bottom: 1px solid var(--c-border-strong);
+  padding-bottom: 2px; transition: color .15s, border-color .15s;
+  min-height: 24px; display: inline-flex; align-items: center;
+}
+.bp-media-cap a:hover { color: var(--c-ember-ink); border-bottom-color: var(--c-ember-ink); }
+
 /* ══ 事實列 ═══════════════════════════════════════════════════════ */
 .bp-facts { border-bottom: 1px solid var(--c-border); }
 .bp-facts-inner {
@@ -193,6 +283,48 @@
   .bp-about-inner { grid-template-columns: 200px minmax(0, 1fr); }
   .bp-aside { grid-column: 2; grid-template-columns: minmax(0, 1fr); gap: 20px; margin-top: 18px; }
   .bp-aside-card img { aspect-ratio: 16/9; }
+  /* 影片欄同理:不釘回第 2 欄的話會掉進 200px 的標籤欄、被壓成 200px 寬。
+     🔴 這條在 ≤960 也仍然命中(max-width:1180 涵蓋它)且同為 0-1-0
+        ⇒ 下面 ≤960 的 `grid-column: auto` **只靠順序**勝出,兩個區塊的先後不能對調。 */
+  .bp-media { grid-column: 2; margin-top: 14px; }
+}
+
+/* 直式影片在手機與平板走滿版 —— 2026-08-03 Sean:「直版影片在手機跟平板上可以盡量放大滿版」。
+ * 前一版手機收在 300px、平板擠在 220px 的第三欄,直式片在兩邊都小到沒有存在感。
+ *
+ * 🔴 滿版一定要配高度上限:9:16 全寬在 820 寬的平板上會長到 1,450px、比整個螢幕還高,
+ *    使用者得捲兩屏才看得完一支影片。這裡反過來用 svh 去夾「寬度」——
+ *    播放時 46svh 寬 ⇒ 高度 ≈ 82svh,影片最多佔螢幕八成高,底下一定還看得到東西。
+ * 🔴 置中用 margin-left:50% + translateX(-50%),**不要用負 margin** ——
+ *    寬度被 svh 夾住時,負 margin 會把整塊推到左邊、不再置中。
+ * 🔴 滿版寬度用「容器寬 + 左右 padding」算,**不要用 100vw** ——
+ *    100vw 含捲軸寬,桌機把視窗拉窄時會多出那幾 px,整頁跟著長出橫向捲軸。
+ * 🔴 min() 裡混了 svh,舊瀏覽器整條 width 會失效 ⇒ 前面那行 vh 版本是墊底、不是重複。
+ * (設計稿 :1001-1025 逐字。)
+ */
+@media (max-width: 1180px) {
+  .bp-media:has(.bp-film-frame.is-portrait) {
+    width: min(calc(100% + var(--shell-x) * 2), 58vh);
+    width: min(calc(100% + var(--shell-x) * 2), 58svh);
+    max-width: none;
+    margin-left: 50%; transform: translateX(-50%);
+  }
+  .bp-media:has(.bp-film-frame.is-portrait.is-playing) {
+    width: min(calc(100% + var(--shell-x) * 2), 46vh);
+    width: min(calc(100% + var(--shell-x) * 2), 46svh);
+  }
+  /* 圖說跟著滿版就會貼到螢幕邊緣,把左右 padding 補回來 */
+  .bp-media:has(.bp-film-frame.is-portrait) .bp-media-cap {
+    padding-left: var(--shell-x); padding-right: var(--shell-x);
+  }
+}
+
+/* 平板(961-1180):影片要滿版就不能再待在窄欄裡,得跨滿整列(含標籤欄)。
+   2026-08-02 那版把它釘在第 3 欄(220px)是為了不讓版面裂成上下兩塊;
+   改走滿版後它本來就自成一段,跨列反而是對的。標籤欄放回 200px。 */
+@media (min-width: 961px) and (max-width: 1180px) {
+  .bp-about-inner.has-portrait-media { grid-template-columns: 200px minmax(0, 1fr); gap: 48px; }
+  .bp-about-inner.has-portrait-media .bp-media { grid-column: 1 / -1; margin-top: 32px; }
 }
 
 @media (max-width: 960px) {
@@ -220,6 +352,9 @@
      單欄容器會為它生出一個隱式欄位 —— 結果標籤與正文變左右並排、正文被擠成
      242px 的細長條(brand-page-integration.md §4b:199 用 getComputedStyle 量出 `45.7px 242.27px` 才抓到)。 */
   .bp-aside { grid-column: auto; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-top: 14px; }
+  /* 影片欄同樣要收回 auto,且理由與 .bp-aside 一字不差(≤1180 把它釘在第 2 欄)。
+     🔴 兩條都是 0-1-0 ⇒ 勝負只看順序,本區塊必須排在 ≤1180 之後。 */
+  .bp-media { grid-column: auto; }
   /* 單欄之後標籤孤零零貼左邊很像沒排版 ⇒ 標籤/事實欄/圖說一律置中。
      ⚠️ **唯一例外:About 正文維持靠左** —— 中文長段落置中會兩邊都毛毛的、
         每行起點對不齊,讀的人會一直找行首。這是可讀性不是品味(brand-page-integration.md §4b:204-208 逐字)。 */

@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 //
-// BrandPageAbout smoke test — D2c-1(2026-08-04)
+// BrandPageAbout smoke test — D2c-1 + D2c-2(2026-08-04)
 //
-// 這一區最容易靜默壞掉的三件事,下面每一組各對一件:
+// 這一區最容易靜默壞掉的四件事,下面每一組各對一件:
 //   ① 右欄同時出現影片與產品照(設計稿逐字「右欄一次只放一個東西」)
-//      —— D2c-2 接上影片那天才會現形,而那時沒人會回頭看這一片
 //   ② pull 誤走 BrandRichText(設計稿對它走 esc(),與 lead/tail 相反)
 //   ③ no-aside class 掛錯 ⇒ 欄數不對,但 jsdom 不算 grid,元件測試一律綠
+//   ④ has-portrait-media 掛錯層 ⇒ 直式影片的三條欄寬規則全部不生效(同樣看不出來)
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render } from '@testing-library/react';
@@ -67,18 +67,33 @@ describe('🔴 BrandPageAbout · 右欄一次只放一個東西', () => {
     expect(container.querySelector('.bp-about-inner')?.classList.contains('no-aside')).toBe(false);
   });
 
-  it('🔴 有 video 時**不**渲染產品照(即使 aside 也有資料)', () => {
+  it('🔴 有 video 時放影片、**不**渲染產品照(即使 aside 也有資料)', () => {
     // 實測 11 家 video+aside 都有 ⇒ 這條路是常態不是邊界。
-    // 少了這個分流,D2c-2 接上影片那天右欄會同時冒出兩個東西。
+    // 少了這個分流,右欄會同時冒出影片與產品照兩個東西。
     expect(withVideo.aside, '前提:挑到的樣本 aside 也要有,否則這條測不到東西').toBeDefined();
     const { container } = render(<BrandPageAbout brand={withVideo} />);
     expect(container.querySelector('.bp-aside-card')).toBeNull();
     expect(container.querySelector('.bp-aside')).toBeNull();
-    // 🔴 **D2c-1 這一刻**右欄真的空著(影片元件還沒接)⇒ 要掛 no-aside、收成兩欄。
-    //    不掛的話這 11 家會保留三軌卻只有兩個子元素,正文被壓進 .8fr、第三軌整片空。
-    //    ⚠️ D2c-2 接上影片後這裡要翻面(改成 toBe(false))—— 那是預期中的同步改動,
-    //       不是回歸。設計稿最終狀態見 :1967-1968(有 video 也 remove no-aside)。
-    expect(container.querySelector('.bp-about-inner')?.classList.contains('no-aside')).toBe(true);
+    expect(container.querySelector('.bp-media')).not.toBeNull();
+    // 🔴 D2c-2 的翻面點:D2c-1 期間這裡是 toBe(true)(當時右欄真的空著、要收成兩欄)。
+    //    影片接上後右欄有東西了 ⇒ 回到設計稿最終狀態 :1966-1968(兩條路都 remove no-aside)。
+    expect(container.querySelector('.bp-about-inner')?.classList.contains('no-aside')).toBe(false);
+  });
+
+  it('🔴 直式影片才在 inner 掛 has-portrait-media(整列欄寬要重配)', () => {
+    // class 掛在 inner 不是掛在影片自己身上(設計稿 :1878-1881)——
+    // 掛錯地方的話 CSS 那三條欄寬規則全部不生效,而畫面在 jsdom 看不出差別。
+    const portrait: BrandContent = { ...withVideo, video: { ...withVideo.video!, portrait: true } };
+    const { container: p } = render(<BrandPageAbout brand={portrait} />);
+    expect(p.querySelector('.bp-about-inner')?.classList.contains('has-portrait-media')).toBe(true);
+    cleanup();
+    // 反面:橫式影片不得掛(掛了會讓 6 家 16:9 的影片吃到 240px 的窄欄)
+    const landscape: BrandContent = {
+      ...withVideo,
+      video: { ...withVideo.video!, portrait: undefined },
+    };
+    const { container: l } = render(<BrandPageAbout brand={landscape} />);
+    expect(l.querySelector('.bp-about-inner')?.classList.contains('has-portrait-media')).toBe(false);
   });
 
   it('🔴 兩者皆無 → 掛 no-aside(收成兩欄;現有 20 家資料走不到這條路)', () => {
@@ -129,18 +144,27 @@ describe('BrandPageAbout · 20 家實資料', () => {
     }
   });
 
-  it('產品照卡恰出現在「有 aside 且無 video」的那幾家(實測 9 家)', () => {
-    let shown = 0;
+  it('產品照卡與影片恰好互補、兩者相加剛好 20 家', () => {
+    let card = 0;
+    let media = 0;
     for (const brand of BRAND_CONTENT) {
       const { container } = render(<BrandPageAbout brand={brand} />);
-      const has = container.querySelector('.bp-aside-card') !== null;
-      expect(has, brand.slug).toBe(!brand.video && brand.aside !== undefined);
-      if (has) shown++;
+      const hasCard = container.querySelector('.bp-aside-card') !== null;
+      const hasMedia = container.querySelector('.bp-media') !== null;
+      expect(hasCard, brand.slug).toBe(!brand.video && brand.aside !== undefined);
+      expect(hasMedia, brand.slug).toBe(brand.video !== undefined);
+      // 🔴 右欄一次只放一個東西 —— 逐家斷言,不是只看總數對得起來
+      expect(hasCard && hasMedia, `${brand.slug} 右欄同時出現產品照與影片`).toBe(false);
+      if (hasCard) card++;
+      if (hasMedia) media++;
       cleanup();
     }
-    // 前提斷言:不是 0 也不是 20 —— 兩個極端都代表分流沒生效而上面那條會空過
-    expect(shown).toBe(BRAND_CONTENT.filter((b) => !b.video && b.aside).length);
-    expect(shown).toBeGreaterThan(0);
-    expect(shown).toBeLessThan(BRAND_CONTENT.length);
+    // 前提斷言:兩邊都不是 0 也不是 20 —— 任一極端都代表分流沒生效而上面那些會空過
+    expect(card).toBe(BRAND_CONTENT.filter((b) => !b.video && b.aside).length);
+    expect(media).toBe(BRAND_CONTENT.filter((b) => b.video).length);
+    expect(card).toBeGreaterThan(0);
+    expect(media).toBeGreaterThan(0);
+    // 20 家全部有 aside(D1a 實測)⇒ 兩條路加起來必須剛好蓋滿,不能有人兩邊都落空
+    expect(card + media).toBe(BRAND_CONTENT.length);
   });
 });

@@ -1,4 +1,4 @@
-// brand-page.test.ts — 品牌頁 CSS 的文字層守門(D2b;2026-08-04)
+// brand-page.test.ts — 品牌頁 CSS 的文字層守門(D2b / D2c-1 / D2c-2;2026-08-04)
 //
 // 對齊 `styles/products-mobile.test.ts` 的既有慣例:有些 CSS 性質**只在特定資料或
 // 特定視窗下才看得見**,jsdom 不套 media query、也不算 CSS 權重,元件測試一律綠。
@@ -46,16 +46,22 @@ describe('品牌頁 CSS · 檔案本身沒壞', () => {
 /**
  * 取某個 @media 查詢的**全部**區塊內容(串接),大括號配對計數、不是抓到第一個 `}` 就停。
  *
- * 🔴 為什麼要收「全部」而不是第一塊:同一個查詢會出現不只一次。
- *    D2c-2 就會再帶一個 `@media (min-width:961px)`(brand-page.html:998-999 的
- *    `.bp-about-inner.has-portrait-media`)。只取第一塊的話,第二塊零覆蓋 ——
- *    而那正是「規則明明在檔裡、守門卻看不到」的假綠形狀。
+ * 🔴 為什麼要收「全部」而不是第一塊:同一個查詢會出現不只一次 ——
+ *    D2c-2 就讓 `(max-width: 1180px)` 變成兩塊(欄位釘死 + 直式片滿版)。
+ *    只取第一塊的話,第二塊零覆蓋 —— 那正是「規則明明在檔裡、守門卻看不到」的假綠形狀。
+ *    ⚠️ D2c-1 的原註解把這個例子寫成「D2c-2 會再帶一個 `@media (min-width:961px)`」,
+ *       實際帶進來的是 `(min-width:1181px)` 與 `(min-width:961px) and (max-width:1180px)`
+ *       —— 後者反而是上面那條前綴比對修正在防的東西。已依實際落地更正。
  */
 function mediaBlock(query: string): string {
   const blocks: string[] = [];
   let from = 0;
   for (;;) {
-    const start = CSS.indexOf(`@media ${query}`, from);
+    // 🔴 比對到 `{` 為止,不是前綴比對:D2c-2 帶進 `@media (min-width: 961px) and
+    //    (max-width: 1180px)`,而 `(min-width: 961px)` 是它的前綴。前綴比對會把那一塊
+    //    也算進 `(min-width: 961px)` 的結果 ⇒ 有人把 `.no-aside` 搬進「961-1180」那塊
+    //    (>1180 當場失效)守門照樣綠。這是這支檔案在防的同一種假綠,只是從查詢那一端進來。
+    const start = CSS.indexOf(`@media ${query} {`, from);
     if (start === -1) break;
     const open = CSS.indexOf('{', start);
     let depth = 0;
@@ -131,6 +137,17 @@ describe('品牌頁 CSS · 窄螢幕橫幅', () => {
   });
 });
 
+describe('品牌頁 CSS · 深底元件的 fallback', () => {
+  it('🔴 每一處 var(--c-graphite) 都要帶 fallback(scope 漏掛 ⇒ 深底配白字變全白)', () => {
+    // `--c-graphite` 只存在於 `.bp-page` 這個 scope,而這些元件是 fragment、scope 由外層路由掛。
+    // D3 接線漏掛的話 var() 無值 ⇒ 背景失效、配上寫死的 color:#fff = 整塊看不見。
+    // 一個 fallback 換掉那個失敗模式;逐處數,不是只驗「有一處有」。
+    const uses = CSS.match(/var\(--c-graphite[^)]*\)/g) ?? [];
+    expect(uses.length, '一處都沒有 ⇒ 這條在守一個不存在的東西').toBeGreaterThan(0);
+    for (const u of uses) expect(u, `${u} 少了 fallback`).toContain(',');
+  });
+});
+
 describe('品牌頁 CSS · 色票 scope', () => {
   it('🔴 設計色票掛在 .bp-page,不是 :root', () => {
     // --c-red 在正式站 tokens.css 已存在且值不同(#dc2626 vs 設計的熔橘 #f26722)。
@@ -175,6 +192,77 @@ describe('品牌頁 CSS · About 欄線(D2c-1)', () => {
     // 反面②:也不得靠**繼承**把正文吃掉 —— 置中掛在祖先(.bp-about-inner / .bp-about)
     //   一樣會讓中文長段落置中,而反面①抓不到(審查 nit)。
     expect(narrow).not.toMatch(/\.bp-about(-inner)?\s*\{[^}]*text-align:\s*center/);
+  });
+});
+
+describe('品牌頁 CSS · 影片右欄(D2c-2)', () => {
+  it('🔴 has-portrait-media 的欄寬規則必須包在 min-width 裡', () => {
+    // 與 .no-aside 同一個陷阱:`.bp-about-inner.has-portrait-media` 是 0-2-0,
+    // ≤960 的單欄規則 `.bp-about-inner` 只有 0-1-0 ⇒ 不設限會蓋過它,
+    // 手機版標籤與正文變左右並排(設計稿 :996-997 逐字警告)。
+    const outsideMedia = CSS.replace(/@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+    expect(outsideMedia).not.toContain('.bp-about-inner.has-portrait-media');
+    // 正面:>1180 收窄第三欄、961-1180 跨滿整列,兩塊都要在(少一塊 = 那個區間失效)
+    expect(mediaBlock('(min-width: 1181px)')).toContain('.bp-about-inner.has-portrait-media');
+    expect(mediaBlock('(min-width: 961px) and (max-width: 1180px)'))
+      .toMatch(/\.bp-about-inner\.has-portrait-media \.bp-media\s*\{[^}]*grid-column:\s*1 \/ -1/);
+  });
+
+  it('🔴 ≤960 必須把 .bp-media 的 grid-column 收回 auto,且排在 ≤1180 之後', () => {
+    // ≤1180 把影片欄釘在第 2 欄,而該查詢在 ≤960 同樣命中;兩條都是 0-1-0
+    // ⇒ 勝負只看順序。順序反了 ⇒ 單欄容器為它生出隱式欄位,正文被擠成細長條
+    //   (與 .bp-aside 在 §4b 記載的實際事故同一個形狀)。
+    expect(mediaBlock('(max-width: 960px)')).toMatch(/\.bp-media\s*\{[^}]*grid-column:\s*auto/);
+    // 前提斷言:≤1180 真的有把它釘在第 2 欄,否則上面那條在守一個不存在的問題
+    expect(mediaBlock('(max-width: 1180px)')).toMatch(/\.bp-media\s*\{[^}]*grid-column:\s*2/);
+    // 順序:同權重靠先後決勝(這一條抓的是「兩個 @media 區塊被對調」)。
+    // 🔴 比的是「真的寫著 grid-column: 2 的那一塊」的位置,不是第一塊 ——
+    //    本片讓 (max-width: 1180px) 變成兩塊,拿第一塊比會被繞過去:
+    //    把 `.bp-media{grid-column:2}` 搬進第二塊、第二塊再移到 ≤960 之後,
+    //    mediaBlock() 串接後仍含那串字、indexOf 仍指向第一塊 ⇒ 全綠而 cascade 已壞(關卡2 nit)。
+    const pinIndex = CSS.search(/\.bp-media\s*\{[^}]*grid-column:\s*2/);
+    const autoIndex = CSS.search(/\.bp-media\s*\{[^}]*grid-column:\s*auto/);
+    expect(pinIndex, '找不到把 .bp-media 釘在第 2 欄的規則').toBeGreaterThan(-1);
+    expect(autoIndex, '≤960 收回 auto 的規則必須排在釘死那條之後').toBeGreaterThan(pinIndex);
+  });
+
+  it('🔴 直式片滿版的三個坑:100vw / 負 margin / svh 沒有 vh 墊底', () => {
+    const tablet = mediaBlock('(max-width: 1180px)');
+    expect(tablet).toContain('.bp-media:has(.bp-film-frame.is-portrait)');
+    expect(tablet).not.toContain('100vw');
+    // 置中用 margin-left:50% + translateX(-50%);負 margin 在寬度被 svh 夾住時會偏左
+    expect(tablet).toContain('margin-left: 50%');
+    // 縮寫也要擋:`margin: 0 0 0 -50%` 與 `margin-left: -50%` 是同一個坑(關卡2 nit)
+    expect(tablet).not.toMatch(/margin(-left)?:[^;}]*-\d/);
+    // svh 版本前面必須留一行 vh 墊底:舊瀏覽器不認 svh,整條 width 會失效
+    expect(tablet).toMatch(/58vh\)[\s\S]{0,80}58svh\)/);
+    expect(tablet).toMatch(/46vh\)[\s\S]{0,80}46svh\)/);
+  });
+
+  it('🔴 播放鈕的焦點框:負 offset(不被裁)+ 換成 --c-red(黑框壓在深色封面上看不見)', () => {
+    // 兩條都沒有畫面症狀 —— 滑鼠使用者永遠看不到,截圖也看不出「本來該有一圈」。
+    // ②是真機截圖抓到的:第一版只修了 offset,結果近黑的框畫在深色影片封面上仍然無效。
+    const rule = CSS.match(/\.bp-film-poster:focus-visible\s*\{([^}]*)\}/)?.[1];
+    expect(rule, '找不到 .bp-film-poster:focus-visible').toBeDefined();
+    const offset = rule?.match(/outline-offset:\s*(-?[\d.]+)px/)?.[1];
+    expect(Number(offset), '正的 offset 會被 overflow:hidden 整圈裁掉').toBeLessThan(0);
+    expect(rule, '焦點色沒換 ⇒ 吃全站的 --c-text(近黑),壓在深色封面上等於沒有')
+      .toMatch(/outline-color:\s*var\(--c-red/);
+    // 前提斷言:①框真的是 overflow:hidden ②按鈕真的是 inset:0(撐滿整個框)
+    //   —— 少了任一個,上面兩條都在守一個不存在的問題。
+    expect(CSS).toMatch(/\.bp-film-frame\s*\{[^}]*overflow:\s*hidden/);
+    expect(CSS).toMatch(/\.bp-film-poster[^{]*\{[^}]*inset:\s*0/);
+  });
+
+  it('封面 7:3 / 播放 16:9 / 直式 3:4 → 9:16 四個比例齊全', () => {
+    // 少任何一個都是「畫面正常但比例不對」:封面用 16:9 會比正文高 75px、
+    // 直式片展成 16:9 會被裁掉上下(設計稿 :981-995 逐字量過)。
+    expect(CSS).toMatch(/\.bp-film-frame\s*\{[^}]*aspect-ratio:\s*7\/3/);
+    expect(CSS).toMatch(/\.bp-film-frame\.is-playing\s*\{[^}]*aspect-ratio:\s*16\/9/);
+    expect(CSS).toMatch(/\.bp-film-frame\.is-portrait\s*\{[^}]*aspect-ratio:\s*3\/4/);
+    expect(CSS).toMatch(/\.bp-film-frame\.is-portrait\.is-playing\s*\{[^}]*aspect-ratio:\s*9\/16/);
+    // 反面:比例不得走 transition —— aspect-ratio 是佈局屬性,過渡會讓底下整頁位移
+    expect(CSS).not.toMatch(/transition:[^;}]*aspect-ratio/);
   });
 });
 
