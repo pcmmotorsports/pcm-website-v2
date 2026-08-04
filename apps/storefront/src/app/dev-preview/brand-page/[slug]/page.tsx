@@ -10,12 +10,13 @@
 //    ②`robots.index=false`。⇒ **真瀏覽器驗收要在 `/brands/<slug>` 上做**,不是這裡
 //    (backlog #314:D2b-D2f 全部量在這個沒有 Header 的裸頁上,首屏高度與 z-index 疊層是未量狀態)。
 //
-// ⚠️ 分類與磚牆之間還缺商品區(`.bp-products`)—— 屬 D3b 接線,不是漏掉;缺什麼以 `BrandPageRoot` 為準。
+// ⚠️ 缺什麼一律以 `BrandPageRoot` 為準(D3b 已補上商品區;本頁與正式 route 共用同一個組裝點)。
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
 import { BrandPageRoot } from '@/components/brand/BrandPageRoot';
+import { fetchBrandTopProducts } from '@/lib/brand-products';
 
 export const metadata = { robots: { index: false } };
 
@@ -28,10 +29,12 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
   // Object.hasOwn:擋 constructor/__proto__ 等原型鏈 key(對齊 dev-preview/brands/[slug] 既有慣例)
   if (!Object.hasOwn(BRAND_BY_SLUG, slug)) notFound();
   const brand = BRAND_BY_SLUG[slug]!;
+  // D3b:商品區走與正式 route 同一支撈法(同一份排序與筆數;預覽看到的就是正式站會有的)
+  const products = await fetchBrandTopProducts(slug);
 
   return (
     <>
-      <BrandPageRoot brand={brand} />
+      <BrandPageRoot brand={brand} products={products} />
       {/* 切換列自帶 `.bp-page`:它用的 `--f-mono` / `--c-ember-ink` / `--c-text-3` 都是
           scoped 色票,放在 BrandPageRoot 外面就吃不到(這正是 #314 講的沉默降級)。 */}
       <div className="bp-page">
