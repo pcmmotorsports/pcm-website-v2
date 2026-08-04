@@ -1,1 +1,6 @@
+if [ -f .husky/reviewer-gate.sh ]; then
+  sh .husky/reviewer-gate.sh
+else
+  echo '⚠ .husky/reviewer-gate.sh 不見了、reviewer gate 未執行(照樣放行、留此痕跡)' >&2
+fi
 pnpm exec lint-staged
