@@ -19,8 +19,11 @@
 //    + tag `catalog`,而 `revalidateTag('catalog')` 同檔 :115 逐字「本批未接」)
 //    ⇒ 某家品牌一上架商品後,首頁那一列**最長 15 分鐘後**才會變回可點。
 //    🔴 反過來的那半我實查後與審查者的推測**不同**:撈取失敗**不會**被快取住 ——
-//    catch 在 `unstable_cache` 外面(同檔 :417 逐字「失敗 throw 不進快取」)
+//    `fetchCatalogBrandTaxonomy` 的 try/catch 包在 `getCatalogBrandTaxonomyCached` **外面**
+//    (該函式的 doc 逐字寫「失敗 throw 不進快取(在快取外 catch 回 `[]`)」)
 //    ⇒ fail-closed 的全泛白只影響那一次請求,不是 15 分鐘。
+//    ⚠️ 這裡刻意引**函式名與那句話**、不引行號(關卡2 R2 nit:上一版寫 `:417`、實為 `:418`)
+//       —— 同 MF1 的修法,別人一插註解行號就過期。
 //
 // 🔴 **實查(不沿用上一棒的說法,2026-08-04 親自比對兩份資料 + 真目錄)**:
 //    · `MOCK_BRANDS` 17 家的 id **全部**都是 `BRAND_CONTENT` 20 家 slug 的子集

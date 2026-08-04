@@ -1,0 +1,401 @@
+/* brand-directory.css — `/brands` 品牌總覽頁(D3c-3;2026-08-05)
+ *
+ * 字面搬自 Open Design `pcm-home-redesign/brand-directory.html`(`<style>` :61-90、
+ * 骨架 :120-137、組裝 :170-182)。鐵則 1 例外 = Sean 2026-08-03 拍 Q1=B(本線真權威在 OD)。
+ *
+ * ══ 申報偏離(三類,逐條理由)═══════════════════════════════════════════
+ *
+ * 🔴 **① 全部 class 加 `bd-` 前綴**(選擇器改名、宣告一字未動;同 #311 的處理)。
+ *    設計稿用的是 `.wrap` / `.grid` / `.brand` / `.eyebrow` / `.outro` / `.directory`
+ *    這種**極通用**的裸 class —— 在原型裡沒問題(單檔單頁),但正式站的 CSS 是
+ *    **全域 stylesheet**、不是 CSS Module。2026-08-05 實查:這 7 個名字目前在
+ *    `apps/storefront/src/styles` 底下的每一支 CSS **零命中**,所以現在搬進來不會當場撞;
+ *    (這句刻意不寫成 glob —— 那個寫法本身含有一個註解起始符號,會讓下面那條
+ *     「註解符號成對」的守門誤紅。它是字面計數、fail-closed,不是誤判成綠。)
+ *    但留著等於在全站語彙裡插一顆 `.grid` —— 下一個人加 `.grid` 時會踩到一組
+ *    只在 `/brands` 才載入的規則,而且**兩邊都不會有測試紅**。
+ *    ⇒ 一律前綴。對照表寫在下面每一段的標題。
+ *
+ * 🔴 **② 色票 scope 在 `.bd-page`、不進 `:root`** —— 理由與 `brand-page.css` 檔頭那段
+ *    **完全相同**(`--c-red` / `--ember` 在正式站 `tokens.css` 已存在且值不同,改 `:root`
+ *    會讓現有每一頁當場變色)。`.bd-page` 這個 class 與本檔的 import 一起綁在
+ *    `BrandDirectoryRoot.tsx` 上 ⇒ 「漏掛 scope」從「要記得」變成「做不到」。
+ *
+ * ⛔ **③ 刻意不搬(兩處,不是漏)**
+ *    · 設計稿 `<style>` 裡的**站台 chrome**(`.pcm-header` / `.ed-footer` / `.ed-mono` 等,
+ *      :15-60)—— 正式站用既有的 `<Header>` / `<HomeFooter>` 元件,那一段在原型裡
+ *      只是為了讓單檔能獨立預覽。設計稿自己的註解(:17)也寫「正式站會收斂成同一個
+ *      React 元件」。
+ *    · 設計稿 `:13` 的**全域 reset**(`*{box-sizing}` / `html,body` / `a` / `ul`)—— 站台
+ *      `tokens.css` 已經有等價的那幾條,**唯二例外已補進本檔**:`ul` reset 補在 `.bd-grid`
+ *      上(見那段的 🔴)、`:focus-visible` 的焦點環補在 `.bd-page` scope 內
+ *      (關卡2 R1 must-fix 1 + nit:兩條漏搬本來都沒申報,補上並各自寫理由)。
+ *    · `.intro` 那一族(:61、:80 後半)—— **設計稿自己的骨架沒有用到它**
+ *      (整份 `brand-directory.html` 的 markup 零 `class="intro"`),是改版留下的死規則。
+ *      搬進來會變成本檔第一條沒有消費端的規則。
+ *
+ * ⚠️ **OD 回寫債**:上面 ① 的前綴與 ③ 的兩處不搬,都是 repo 先行 ⇒ 併記 backlog #322。
+ */
+
+/* ══ 色票(scoped,不是 :root;理由見檔頭 ②)══════════════════════════
+ * 只帶本檔真的用到的:設計稿 `:root`(:12)另有 `--sans` / `--max` 之類,
+ * 正式站 `tokens.css` 已有等價物或本檔用不到的,一律不重複宣告。 */
+.bd-page {
+  --bd-ink: #121214;
+  --bd-soft: #3f4046;
+  --bd-mute: #6e6e73;
+  --bd-rule: #e5e5e7;
+  --bd-paper: #fff;
+  --bd-paper-2: #f6f6f7;
+  --bd-ember: #f26722;
+  --bd-ember-ink: #c4470c;
+  --bd-graphite: #202225;
+  --bd-max: 1440px;
+  --bd-gutter: 40px;
+  --bd-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* 🔴 焦點環(設計稿 :13 的 `:focus-visible{outline:2px solid var(--ember-ink);outline-offset:3px}`)
+   —— storefront 沒有全域的 `:focus-visible` 樣式,不補的話本頁 40 個入口的鍵盤焦點環退回
+   瀏覽器預設(在石墨底的 hero 上尤其看不清)。**scope 在 `.bd-page` 內**、不寫全域:
+   全站焦點樣式屬 D5 整站語彙,不由單一頁面開先例(同色票 scope 的理由)。 */
+.bd-page :focus-visible {
+  outline: 2px solid var(--bd-ember-ink);
+  outline-offset: 3px;
+}
+
+/* `.wrap` → `.bd-wrap`(設計稿 :14) */
+.bd-wrap {
+  width: min(100%, var(--bd-max));
+  margin: 0 auto;
+  padding-inline: var(--bd-gutter);
+}
+
+/* ══ Hero:20 家 logo 牆(設計稿 :63-79)═════════════════════════════ */
+.bd-hero {
+  position: relative;
+  background: var(--bd-graphite);
+  color: #fff;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* 牆刻意比容器寬,左右出血 —— 切齊邊緣會讀成一張表格,出血才讀成「還有更多」。
+   欄數寫死 10 不用 auto-fill:20 家要能被欄數整除,不然最後一排會缺一角,
+   那個缺口看起來像「沒做完」而不是「排不下」。10×2 / 5×4 / 4×5 都整除。
+   (以上兩段是設計稿 :65-67 的註解逐字。)
+   🔴 所以**這面牆的家數與欄數是綁在一起的**:哪天品牌不是 20 家,
+      這裡的 10 / 5 / 4 三個欄數要一起重算 —— 守門在 `brand-directory.test.ts`。 */
+.bd-hero-wall {
+  position: absolute;
+  inset: 0 -4%;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  align-content: center;
+  gap: 34px 38px;
+  padding: 30px 26px;
+  opacity: .88;
+}
+.bd-hero-wall i {
+  display: block;
+  height: 38px;
+  background: center/contain no-repeat;
+}
+/* 壓暗幕:左側重(標題在那)、右側留亮讓 logo 讀得到 */
+.bd-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(88% 120% at 92% 8%, rgba(242, 103, 34, .16), transparent 54%),
+    linear-gradient(100deg, #202225 0%, rgba(32, 34, 37, .94) 30%, rgba(32, 34, 37, .40) 62%, rgba(32, 34, 37, .72) 100%);
+}
+.bd-hero-inner {
+  position: relative;
+  z-index: 2;
+  padding-top: 78px;
+  padding-bottom: 72px;
+}
+/* `.eyebrow` → `.bd-eyebrow`(設計稿 :80) */
+.bd-eyebrow {
+  font-family: var(--bd-mono);
+  font-size: 11px;
+  letter-spacing: .14em;
+  color: var(--bd-mute);
+  margin: 0 0 14px;
+}
+.bd-hero .bd-eyebrow { color: var(--bd-ember); }
+.bd-hero h1 {
+  font-size: clamp(34px, 4.6vw, 60px);
+  line-height: 1.0;
+  letter-spacing: -.035em;
+  margin: 0 0 16px;
+}
+.bd-hero-lede {
+  font-size: 17px;
+  line-height: 1.7;
+  color: rgba(255, 255, 255, .82);
+  max-width: 34ch;
+  margin: 0 0 12px;
+}
+.bd-hero-note {
+  font-size: 13px;
+  color: rgba(255, 255, 255, .56);
+  margin: 0;
+}
+
+/* ══ 品牌格子(設計稿 :81)══════════════════════════════════════════
+ * `.directory` → `.bd-directory` / `.directory-head` → `.bd-directory-head`
+ * `.grid` → `.bd-grid` / `.brand` → `.bd-brand` / `.brand-*` → `.bd-brand-*` */
+.bd-directory {
+  padding: 0 0 68px;
+  background: var(--bd-paper-2);
+}
+.bd-directory-head {
+  padding: 23px 0 20px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 18px;
+}
+.bd-directory-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.bd-directory-head span {
+  font-family: var(--bd-mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  color: var(--bd-mute);
+}
+/* 🔴 **`ul` reset 要自己補**(關卡2 R1 must-fix 1;實測確認):設計稿靠 `:13` 的**全域**
+   `ul{margin:0;padding:0;list-style:none}`,而 storefront **全樹沒有任何 `ul` reset**
+   (`tokens.css` 只 reset `*` / `html,body` / `button` / `input` / `a`,也沒有 Tailwind preflight)
+   ⇒ 不補的話瀏覽器預設當場生效:實測 `padding-inline-start: 40px`(整片格子右移 40px、
+   與 `border-left` 之間空一條)、`margin-block: 16px`、`list-style-type: disc`。
+   ⚠️ **這件事我量欄數、量卡高、量 overflowX 全部看不到** —— 欄數與卡高一點都沒變。
+   既有先例:`home.css` 的 `.ed-brand-list`(同樣是 `<ul>`)逐字補了同樣三行。
+   補在 `.bd-grid` 上、不補全域 `ul` —— 全域 reset 是站台語彙,不由單一頁面開先例。 */
+.bd-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--bd-rule);
+  border-left: 1px solid var(--bd-rule);
+  background: var(--bd-paper-2);
+}
+.bd-grid li {
+  border-right: 1px solid var(--bd-rule);
+  border-bottom: 1px solid var(--bd-rule);
+  min-width: 0;
+}
+.bd-brand {
+  display: grid;
+  grid-template-rows: 1fr 44px;
+  min-height: 176px;
+  position: relative;
+  overflow: hidden;
+  transition: background-color .18s;
+}
+/* 🔴 **`:has(a:hover)` 不是 `:hover`**(關卡2 R2 must-fix A/B):卡是 `<article>`,
+   泛白卡裡面兩格是 `<span>` ⇒ 裸 `:hover` 對它照樣命中,滑過一張**不可點**的卡
+   底色會翻白 = 給了「可以點」的回饋(真瀏覽器實測:transparent → rgb(255,255,255))。
+   綁到 `a` 之後泛白卡根本不進這條規則,不必再寫 `.is-empty` 覆寫。
+   形狀與下面熔橘頂線那條(本來就寫 `:has(a:hover)`)一致 —— 同一張卡的兩個回饋
+   本來就該同進同出。 */
+.bd-brand:has(a:hover) { background: var(--bd-paper); }
+.bd-brand::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--bd-ember);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform .3s cubic-bezier(.16, 1, .3, 1);
+}
+.bd-brand:has(a:hover)::after,
+.bd-brand:has(a:focus-visible)::after { transform: scaleX(1); }
+/* 🔴 `.bd-brand-about` / `.bd-brand-products` 兩格在**泛白列會是 `<span>`** ⇒ 兩型別都要吃。
+   形狀刻意寫成「同前綴 + 多一個 class」的 `.is-empty` 覆寫(見下面那段),
+   不是同階靠順序 —— D3c-1 在磚牆上就是靠順序而翻過車。 */
+.bd-brand-about {
+  display: grid;
+  grid-template-rows: auto 54px auto;
+  gap: 8px;
+  min-height: 132px;
+  padding: 13px 16px 10px;
+}
+.bd-brand-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-family: var(--bd-mono);
+  font-size: 11px;
+  letter-spacing: .06em;
+  color: var(--bd-mute);
+}
+/* --logo-scale 是 per-brand 的光學校正旋鈕。
+   🔴 **值來自 `data/brand-directory-scale.ts`,不是 `BrandContent.logoScale`**
+      (關卡2 R1 must-fix 3 更正:本行原本寫「與品牌頁磚牆同一份資料」—— 那是**錯的**,
+      而且照著它去改成沿用的話,20 家有 19 家的 logo 目視大小會全錯)。
+      兩份是各自的光學校正:磚牆 58px/92%、這裡 54px/86%,底色也不同。 */
+.bd-brand-logo {
+  width: 86%;
+  height: 54px;
+  justify-self: center;
+  align-self: center;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  transform: scale(var(--logo-scale, 1));
+  transform-origin: center;
+}
+.bd-brand-about-label {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: var(--bd-soft);
+  font-size: 12px;
+}
+/* 🔴 `a.` 前綴同上:泛白卡的這一格是 `<span>`,不綁型別的話它也會吃到 hover 變色。
+   ⚠️ 而且這兩條原本與 `.bd-brand.is-empty .bd-brand-about-label` **同為 (0,3,0)**、
+      靠順序才沒出事(R2 must-fix B 實錘:把 `.is-empty` 那段移到這裡之前 ⇒ 10/10 全綠
+      = 那個順序零守門)。綁型別之後兩者永遠不會同時命中,順序不再是承重牆。 */
+a.bd-brand-about:hover .bd-brand-about-label,
+a.bd-brand-about:focus-visible .bd-brand-about-label { color: var(--bd-ember-ink); }
+.bd-brand-products {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 44px;
+  border-top: 1px solid var(--bd-rule);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bd-ink);
+}
+/* `a.` 前綴同上:泛白卡的下半格是 `<span>`,不綁型別會跟著翻白(真瀏覽器實測過)。 */
+a.bd-brand-products:hover,
+a.bd-brand-products:focus-visible { background: var(--bd-paper); color: var(--bd-ember-ink); }
+
+/* ══ 目錄零商品的品牌:泛白、不可點 ═══════════════════════════════════
+ * Sean 2026-08-04 拍板(信箱 `C-31-A`)+ 主視窗 `C-39-A` 裁示總覽頁沿用同一份
+ * `fetchBrandsWithProducts()`。**設計稿完全沒有這個狀態** ⇒ 申報偏離、依拍板。
+ *
+ * 🔴 **兩個入口一起泛白**(不是只泛白「查看商品」那一格):
+ *    D3c-1 的品牌頁磚牆,磚本身指的就是**品牌介紹頁**,而拍板把那些磚泛白了
+ *    ⇒ 一致執行 = 這裡兩格都不可點。只泛白下面那格的話,同一個品牌在磚牆上點不進去、
+ *    在總覽頁卻點得進去,客人會覺得站台自己講話不算話。
+ *    ⚠️ 這是**我依既有拍板做的一致性推論**,不是 Sean 逐字講過「總覽頁兩格都要」——
+ *       已在收工信標出來,要改成「只泛白查看商品」是一行的事。
+ *
+ * 🔴🔴 **改權重前先列競爭者** —— 本段第一版的這張清單**三處都寫錯了**
+ *    (關卡2 R2 must-fix B 逐條打掉,以下是更正後的事實):
+ *      · ❌ 原本漏了 `.bd-brand:hover`(本檔上面那條,現已改成 `:has(a:hover)`)。
+ *      · ❌ 原本把 `.bd-brand-about:hover .bd-brand-about-label` 算成 (0,2,0),
+ *        **實為 (0,3,0)** —— 與本段的 `.bd-brand.is-empty .bd-brand-about-label`
+ *        **同分**,當時是**靠順序**才沒出事,而那個順序**零守門**
+ *        (R2 實跑:把本段移到那條之前 ⇒ 10/10 全綠)。
+ *      · ❌ 原本寫「hover 那兩條綁 `a`」——**當時根本沒綁**。那句話是從
+ *        `brand-page.css` 搬過來的(那邊寫的是 `a:hover`、所以成立),搬過來沒重驗。
+ *        裸 `:hover` 對 `<span>` 照樣命中,真瀏覽器實測泛白卡 hover 底色會翻白。
+ *
+ *    ⇒ **修法不是調權重,是把三條 hover/focus 綁到 `a` 上**(見上面各自的註解):
+ *      泛白卡的兩格是 `<span>`,綁型別之後它們**根本不會進那些規則**,
+ *      本段就不必跟它們比大小、也不靠順序。剩下的競爭者只有
+ *      `.bd-brand-about-label` / `.bd-brand-products` / `.bd-brand-top` 三條 (0,1,0),
+ *      本段一律 (0,3,0) 起跳且多一個 class ⇒ 這一半才是真的「嚴格更高」。
+ *    🔴 教訓(本線同族第四次,形狀又變了):**互動 pseudo-class 先問「它綁在誰身上、
+ *      `<span>` 會不會也命中」**,不要只算權重;而且**修法自己也要上守門**。 */
+.bd-brand.is-empty { cursor: default; }
+.bd-brand.is-empty .bd-brand-logo { filter: grayscale(1) brightness(.78) contrast(.92); opacity: .55; }
+.bd-brand.is-empty .bd-brand-about-label,
+.bd-brand.is-empty .bd-brand-products { color: var(--bd-mute); }
+.bd-brand.is-empty .bd-brand-top { opacity: .6; }
+/* 泛白的卡不給那條熔橘頂線 —— 那是「可以點」的回饋。 */
+.bd-brand.is-empty::after { content: none; }
+
+/* 只給報讀器的文字。名字帶 `bd-` 前綴、不叫 `.sr-only` —— 理由同 `brand-page.css`
+   的 `.bp-sr-only` 與 `home.css` 的 `.ed-sr-only`(站台級的還不存在)。
+   ⚠️ 這已經是**第三份**逐字相同的實作 ⇒ backlog #322 記著「D5 前收斂到 tokens.css」。 */
+.bd-sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ══ 收尾(設計稿 :82)`.outro` → `.bd-outro` / `.catalogue-link` → `.bd-catalogue-link` */
+.bd-outro {
+  padding: 34px 0 56px;
+  background: var(--bd-paper);
+}
+.bd-outro-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  border-top: 1px solid var(--bd-ink);
+  padding-top: 17px;
+}
+.bd-outro p {
+  font-size: 13px;
+  color: var(--bd-mute);
+  margin: 0;
+}
+.bd-catalogue-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--bd-ink);
+  border-bottom: 1px solid var(--bd-ink);
+  padding-bottom: 5px;
+  white-space: nowrap;
+}
+/* `a.` 前綴:這一顆今天一定是 `<a>`,綁型別純粹是為了讓本檔**每一條** hover 形狀一致 ——
+   守門因此不必養一份「這條可以例外」的清單(例外清單自己就是下一個洞)。 */
+a.bd-catalogue-link:hover { color: var(--bd-ember-ink); border-color: var(--bd-ember-ink); }
+
+/* ══ RWD(設計稿 :62 / :83-90)════════════════════════════════════════
+ * 🔴 **順序就是行為**:同一個選擇器的兩條 `max-width` 同權重 ⇒ 靠順序決勝。
+ *    `.bd-hero-wall` 的 ≤900 必須排在 ≤1100 **之後**(否則手機吃回 5 欄)、
+ *    `.bd-grid` 的 ≤700 必須排在 ≤1200 之後。守門在 `brand-directory.test.ts`。
+ *    ⚠️ 本檔是**由寬到窄**重排過的,**不是**設計稿的相對順序(關卡2 R1 nit 更正:
+ *       設計稿把 1100 那條寫在 :62、1200 那條寫在 :83,順序相反)。
+ *       行為無差(兩者選擇器不重疊、不互相覆寫),但別把這裡讀成「照搬順序」。 */
+@media (max-width: 1200px) {
+  .bd-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1100px) {
+  .bd-hero-wall { grid-template-columns: repeat(5, 1fr); }
+}
+@media (max-width: 900px) {
+  .bd-page { --bd-gutter: 20px; }
+  .bd-hero-inner { padding-top: 52px; padding-bottom: 48px; }
+  .bd-hero-wall { grid-template-columns: repeat(4, 1fr); gap: 24px 22px; opacity: .5; }
+  .bd-hero-wall i { height: 26px; }
+  /* 窄螢幕沒有「左邊」可以壓 —— 幕改成整片偏重,只留右上角的熔橘暈 */
+  .bd-hero::after {
+    background: radial-gradient(120% 58% at 90% 4%, rgba(242, 103, 34, .18), transparent 56%),
+      linear-gradient(180deg, rgba(32, 34, 37, .9) 0%, rgba(32, 34, 37, .82) 62%, rgba(32, 34, 37, .94) 100%);
+  }
+  .bd-hero h1 { font-size: 34px; }
+  .bd-directory { padding-bottom: 48px; }
+  .bd-brand { min-height: 172px; }
+  .bd-brand-about { padding: 13px 14px 10px; }
+}
+@media (max-width: 700px) {
+  .bd-grid { grid-template-columns: 1fr 1fr; }
+  .bd-brand { min-height: 174px; }
+  .bd-brand-about { grid-template-rows: auto 50px auto; padding: 12px 13px 10px; }
+  .bd-brand-logo { height: 50px; width: 90%; }
+  .bd-outro-inner { align-items: flex-start; flex-direction: column; }
+}

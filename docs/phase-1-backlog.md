@@ -8752,7 +8752,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   WebKit 官方 <https://webkit.org/blog/6784/new-video-policies-for-ios/> /
   #319(materya 影片那條偏離)/ memory `reference_pcm-mobile-device-verify-dev-vs-prod`
 
-### #322. 🔁 storefront 對 Open Design 的回寫債(第二批):D3b / D3c-1 / D3c-2 的偏離只在 repo
+### #322. 🔁 storefront 對 Open Design 的回寫債(第二批):D3b / D3c-1 / D3c-2 / D3c-3 的偏離只在 repo
 
 - **狀態:** ⏳ 待執行
 - **分流:** P2-after-launch(不影響客人,影響的是「設計稿還能不能當真權威」)
@@ -8775,23 +8775,35 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
        主視窗 `C-33-A` 裁示):`.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)`(兩處、
        宣告一字未動)/ `.is-empty` 三條 / `.ed-sr-only` 一條。**設計稿三者皆零命中。**
        ⇒ 本條的範圍因此**從 `brand-page.html` 擴到 `home.css` 對應的 OD 來源**。
-  - 兩支 CSS 的檔頭都已同步列出自己那份清單:`brand-page.css`(四處;第一批那句
-    「兩邊現在一致」只涵蓋 D2f、不要讀成整個檔的現況)、`home.css`(三處)。
+    6. **D3c-3 · `/brands` 總覽頁(`brand-directory.css`)的四類偏離**——
+       ① **全部 class 加 `bd-` 前綴**:設計稿用 `.wrap` / `.grid` / `.brand` / `.eyebrow` /
+       `.outro` / `.directory` 這種極通用的裸名,在原型的單檔單頁沒問題,搬進正式站的
+       **全域 stylesheet** 等於在全站語彙裡插一顆 `.grid`(宣告一字未動)。
+       ② **兩個入口改指 `/brands/<slug>`**:設計稿 `aboutHref` 是原型時期的
+       `/products?pbrand=X#brand-about`,本線已拍 A 案。
+       ③ **家數字面改由資料求值**(設計稿寫死「20 家」「20 BRANDS」)。
+       ④ **設計稿全域 reset 只補了兩條、且改成 scope**:`ul` reset 補在 `.bd-grid` 上、
+       `:focus-visible` 焦點環補在 `.bd-page` 內(設計稿是全域)。
+       ⛔ 另有**兩處刻意不搬**(不是偏離、但回寫時要一起講):站台 chrome（正式站用既有
+       `<Header>` / `<HomeFooter>`)、`.intro` 那一族(設計稿自己的 markup 零命中、是改版死碼)。
+  - 三支 CSS 的檔頭都已同步列出自己那份清單:`brand-page.css`(四處;第一批那句
+    「兩邊現在一致」只涵蓋 D2f、不要讀成整個檔的現況)、`home.css`(三處)、
+    `brand-directory.css`(四類偏離 + 兩處刻意不搬)。
   - ⚠️ **順帶記一筆不同性質的債(D3c-2 關卡2 R1 nit)**:`.ed-sr-only` 與 `.bp-sr-only`
-    現在是**兩份逐字相同**的 sr-only 實作,而兩支的註解都寫「站台級要放哪不該由單一頁面
+    現在是**三份逐字相同**的 sr-only 實作(`.bp-sr-only` / `.ed-sr-only` / `.bd-sr-only`),而三支的註解都寫「站台級要放哪不該由單一頁面
     開先例」—— 出現第二份的當下,那個理由本身已被推翻。**乾淨解 = D5 前在 `tokens.css`
-    放一支站台級 `.sr-only`、兩邊改吃它**(三處刪除、零新增)。放這裡是因為它與回寫債
+    放一支站台級 `.sr-only`、三邊改吃它**(三處刪除、零新增)。放這裡是因為它與回寫債
     同一批被翻出來;真要做時可獨立成片,不必等 OD 回寫。
 - **觸發事件:** 2026-08-04 / D3c-1 關卡2 R1 must-fix 4 —— 我在 commit body 與兩處程式註解
   都寫「OD 回寫債照 #319 前例併記」,但 #319 當時**已經結案**,等於這筆債沒有任何落點。
 - **預期解法:** 與 #319 同樣的做法:把 1-4 回寫進 OD 的 `brand-page.html`、把 5 回寫進
-  首頁對應的 OD 來源,回寫後把兩支 CSS 檔頭的清單各自改成「已回寫」。
+  首頁對應的 OD 來源,回寫後把三支 CSS 檔頭的清單各自改成「已回寫」。
   ⚠️ 第 4 項(`.is-empty`)回寫時要一併把「哪些品牌泛白」這個**狀態的存在**告訴設計側 ——
   它不是樣式細節,是一個 OD 目前沒畫過的頁面狀態。
 - **不修會痛在:**
   - 可維護性:D5 重排首頁時會大量讀 OD;兩邊不一致會讓「設計稿怎麼寫的」這個問題答錯。
   - bug 可追蹤性:下一個人照 OD 重新產生任何東西,這四處會被靜默蓋掉(#319 踩過同一個坑)。
-- **估時:** 45 分鐘(五項都有精確位置;第 5 項多一個 OD 來源檔)
+- **估時:** 60 分鐘(六項都有精確位置;第 5 / 6 項各多一個 OD 來源檔)
 - **依賴:** 無(可獨立做);建議與 D5 開工前的 OD 對帳一起
 - **發現於:** 2026-08-04 / D3c-1 關卡2 R1
 - **相關:** #319(第一批,已結案)/ `apps/storefront/src/styles/brand-page.css` 檔頭兩張清單 /

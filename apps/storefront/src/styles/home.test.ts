@@ -80,11 +80,14 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   });
 
   it('🔴 兩條裡有一條在 `@media (max-width: 900px)` 內(手機欄寬 jsdom 完全看不到)', () => {
-    const narrow = mediaBlock('(max-width: 900px)');
+    // 🔴 與上一條同樣要**正規化空白再比**(關卡2 R2 nit:R1 那次只補進上一條,
+    //    這條還留著含空白的逐字比對 ⇒ 把 ≤900 那條排版成 `:is(a,span)` 會誤紅)。
+    const narrow = mediaBlock('(max-width: 900px)').replace(/\s+/g, ' ').replace(/,\s*/g, ', ');
     expect(narrow.length, '找不到 ≤900 區塊').toBeGreaterThan(0);
     expect(narrow, '≤900 區塊裡的品牌清單規則不是兩型別子選擇器').toContain(
       '.ed-brand-list > li > :is(a, span)',
     );
+    // 宣告這一半用 `\s*`(正規化只收斂了空白數量,沒有替我補上冒號後的空格)。
     expect(narrow).toMatch(/grid-template-columns:\s*36px/);
   });
 
