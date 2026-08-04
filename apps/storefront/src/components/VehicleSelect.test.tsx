@@ -51,9 +51,20 @@ function combo(label: string) {
 }
 
 describe('VehicleSelect', () => {
+  // A3(選車引擎統一 B′)字面守門:aria label 與 placeholder 逐字鎖 OD `vehicle-picker-design.html`
+  // A 表定版。這支測試是本次「廠牌 / 選擇或輸入 X」統一唯一的直接證據 —— 少了它,字面被改回去全綠。
+  it('A 表字面:aria=選擇廠牌/車型/年份、placeholder=選擇或輸入 X', () => {
+    render(<Harness />);
+    expect(combo('選擇廠牌').placeholder).toBe('選擇或輸入廠牌');
+    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型');
+    expect(combo('選擇年份').placeholder).toBe('選擇或輸入年份');
+    // 「品牌」保留給零件品牌,選車三欄不得再出現
+    expect(screen.queryByRole('combobox', { name: '選擇品牌' })).toBeNull();
+  });
+
   it('打字 prefix 過濾+點選=選定;下層解鎖', () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     expect(combo('選擇車型').disabled).toBe(true);
     fireEvent.change(brand, { target: { value: 'ya' } });
     fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
@@ -63,7 +74,7 @@ describe('VehicleSelect', () => {
 
   it('blur 唯一精確命中自動套用(全形/大小寫正規化);非唯一 → 還原不猜', () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     fireEvent.change(brand, { target: { value: 'ＹＡＭＡＨＡ' } });
     fireEvent.blur(brand);
     expect(brand.value).toBe('Yamaha');
@@ -75,7 +86,7 @@ describe('VehicleSelect', () => {
 
   it('鍵盤 ArrowDown+Enter 選 highlight 項;年份選定', () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     fireEvent.change(brand, { target: { value: 'yamaha' } });
     fireEvent.blur(brand);
     const model = combo('選擇車型');
@@ -92,7 +103,7 @@ describe('VehicleSelect', () => {
 
   it('V-2h/nit-8:完整 combobox ARIA——開列表 aria-controls 指 listbox、方向鍵導航更新 aria-activedescendant', () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     fireEvent.focus(brand);
     const listboxId = brand.getAttribute('aria-controls');
     expect(listboxId).toBeTruthy();
@@ -105,7 +116,7 @@ describe('VehicleSelect', () => {
 
   it('focus 未導航直接 Enter=不誤選首項;重選同值不 wipe 下層(R1 must-fix)', () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     fireEvent.focus(brand);
     fireEvent.keyDown(brand, { key: 'Enter' }); // hi=-1 → commit(text null)=no-op
     expect(brand.value).toBe('');
@@ -123,7 +134,7 @@ describe('VehicleSelect', () => {
 
   it('清空 brand 欄 commit=全清;無年份車型 → 年份欄 disabled 顯「不限年份」', () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     fireEvent.change(brand, { target: { value: 'kawasaki' } });
     fireEvent.blur(brand);
     const model = combo('選擇車型');
@@ -140,7 +151,7 @@ describe('VehicleSelect', () => {
 
   it('V-2d④:點選選定後主動 blur 收鍵盤(rAF 後);鍵盤 Enter 選定不 blur=桌機流不變', async () => {
     render(<Harness />);
-    const brand = combo('選擇品牌');
+    const brand = combo('選擇廠牌');
     brand.focus();
     fireEvent.change(brand, { target: { value: 'ya' } });
     fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));

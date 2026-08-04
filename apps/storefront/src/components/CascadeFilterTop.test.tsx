@@ -15,7 +15,7 @@
 import { useReducer } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
+import { cascadeFilterReducer, makeInitialCascadeState, selectCategoryMain, toggleBrand } from '@pcm/ui';
 import { CascadeFilterTop } from './CascadeFilterTop';
 import { MOCK_MOTO_BRANDS } from '../data/mock-moto-brands';
 import { MOCK_CATEGORIES } from '../data/mock-categories';
@@ -34,18 +34,34 @@ const GARAGE: GarageChipItem[] = [
 ];
 
 // controlled CascadeFilterTop 的宿主模擬 — 持 cascade reducer。
+// A7:`CascadeFilterTop` 本身不渲染分類 UI ⇒ 「清除車輛有沒有連分類一起清」在元件外部
+// 觀察不到。故 Harness 多吐一個唯讀探針把 cascade.category 攤到 DOM(只給測試看、不進 production)。
 function Harness({ garage = [] }: { garage?: GarageChipItem[] }) {
   const [cascade, dispatch] = useReducer(cascadeFilterReducer, undefined, makeInitialCascadeState);
-  return <CascadeFilterTop data={data} cascade={cascade} dispatch={dispatch} garage={garage} />;
+  return (
+    <>
+      <CascadeFilterTop data={data} cascade={cascade} dispatch={dispatch} garage={garage} />
+      <div data-testid="probe-category">{cascade.category?.main ?? '(無分類)'}</div>
+      {/* 🔴 商品品牌也要攤出來:少了它,把 production 改成 `clearAll()` 兩條測試照樣全綠,
+          而設計稿 §D 清除矩陣的第一列作用範圍**不含** pbrand。 */}
+      <div data-testid="probe-brands">{cascade.brands.join(',') || '(無品牌)'}</div>
+      <button type="button" onClick={() => dispatch(selectCategoryMain('m1', '排氣系統'))}>
+        測試用:選分類
+      </button>
+      <button type="button" onClick={() => dispatch(toggleBrand('akrapovic'))}>
+        測試用:選商品品牌
+      </button>
+    </>
+  );
 }
 
 // 選到 YAMAHA / YZF-R1(字典內有五個年份 2020-2024)= 年份排序斷言的資料前提。
 function pickYamahaR1() {
-  const brandInput = screen.getByPlaceholderText('搜尋或選擇廠牌');
+  const brandInput = screen.getByPlaceholderText('選擇或輸入廠牌');
   fireEvent.change(brandInput, { target: { value: 'YAMAHA' } });
   fireEvent.blur(brandInput);
 
-  const modelInput = screen.getByPlaceholderText('搜尋或選擇車型');
+  const modelInput = screen.getByPlaceholderText('選擇或輸入車型');
   fireEvent.change(modelInput, { target: { value: 'YZF-R1' } });
   fireEvent.blur(modelInput);
 }
@@ -74,6 +90,43 @@ describe('CascadeFilterTop', () => {
     expect((brandInput as HTMLInputElement).value).toBe(firstBrand.name);
   });
 
+  // A7 / Sean 08-03 拍 Q3=A:桌機「清除車輛」= 清車 **+ 清分類**(對齊手機,原本只清車)。
+  // 🔴 前提斷言不可省:先真的選一個分類、先斷言它在,清完才斷言它沒了 ——
+  //    少了前提,`category === null` 在一開始就成立,拿掉 clearCategory() 照樣全綠。
+  it('清除車輛同時清掉分類(Q3=A;鈕字面不變)', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByText('測試用:選分類'));
+    fireEvent.click(screen.getByText('測試用:選商品品牌'));
+    expect(screen.getByTestId('probe-category').textContent).toBe('排氣系統');
+    expect(screen.getByTestId('probe-brands').textContent).toBe('akrapovic');
+
+    pickYamahaR1();
+    const clear = screen.getByText('清除車輛');
+    fireEvent.click(clear);
+
+    expect(screen.getByTestId('probe-category').textContent).toBe('(無分類)');
+    expect(screen.queryByText('清除車輛')).toBeNull(); // 車也清掉了 ⇒ 鈕自己收起來
+    // 🔴 作用範圍上界:設計稿 §D 矩陣第一列只含「車輛 + 分類」,商品品牌**不在內**。
+    //    少了這條,把 production 換成 `clearAll()` 上面三條照樣全綠。
+    expect(screen.getByTestId('probe-brands').textContent).toBe('akrapovic');
+  });
+
+  // 🔴 廠牌欄 combobox 的「清空」是輸入操作、不是「清除車輛」(設計稿 §D 清除矩陣明列),
+  //    它**不得**連坐分類。這條擋的是「順手把兩個 onClear 一起改」。
+  it('廠牌欄清空只清車、不動分類(combobox 單欄清空不在清除矩陣裡)', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByText('測試用:選分類'));
+    pickYamahaR1();
+    expect(screen.getByTestId('probe-category').textContent).toBe('排氣系統');
+
+    const brandInput = screen.getByPlaceholderText('選擇或輸入廠牌');
+    fireEvent.change(brandInput, { target: { value: '' } });
+    fireEvent.blur(brandInput);
+
+    expect(screen.getByTestId('probe-category').textContent).toBe('排氣系統'); // 分類留著
+    expect(screen.queryByText('清除車輛')).toBeNull(); // 車清掉了
+  });
+
   // ADR-0007 桌機決定 2:三欄皆可輸入搜尋、也可展開捲動點選(正式預設、非 preview query)。
   it('ships the searchable three-field picker on the plain /products URL', () => {
     window.history.replaceState({}, '', '/products');
@@ -81,10 +134,10 @@ describe('CascadeFilterTop', () => {
 
     expect(screen.getByText('選擇適用車輛')).toBeDefined();
     expect(screen.getByText('可直接選擇，也可輸入搜尋')).toBeDefined();
-    expect(screen.getByPlaceholderText('搜尋或選擇廠牌')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入廠牌')).toBeDefined();
     // 尚未選廠牌 ⇒ 車型欄是跨層直搜態(Sean 2026-07-30:桌機也要能直接輸入車款)
-    expect(screen.getByPlaceholderText('搜尋或選擇車型，例:R6')).toBeDefined();
-    expect(screen.getByPlaceholderText('搜尋或選擇年份')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入車型，例:R6')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入年份')).toBeDefined();
     // 舊字面已退場(留著=兩套並存、正式站會出現沒人維護的分支)
     expect(screen.queryByText('確認適用車款')).toBeNull();
     expect(screen.queryByText('先選車，只顯示裝得上的零件')).toBeNull();
@@ -96,7 +149,7 @@ describe('CascadeFilterTop', () => {
     render(<Harness />);
     pickYamahaR1();
 
-    fireEvent.focus(screen.getByPlaceholderText('搜尋或選擇年份'));
+    fireEvent.focus(screen.getByPlaceholderText('選擇或輸入年份'));
     const yearOptions = screen.getAllByRole('option').map((option) => option.textContent);
     expect(yearOptions).toEqual(['2024', '2023', '2022', '2021', '2020']);
   });
@@ -119,7 +172,7 @@ describe('CascadeFilterTop', () => {
   it('lets the desktop model field search across brands before a brand is picked', () => {
     render(<Harness />);
 
-    const modelInput = screen.getByPlaceholderText('搜尋或選擇車型，例:R6');
+    const modelInput = screen.getByPlaceholderText('選擇或輸入車型，例:R6');
     expect((modelInput as HTMLInputElement).disabled).toBe(false); // 不再需要先選廠牌
 
     fireEvent.change(modelInput, { target: { value: 'YZF-R1' } });
@@ -128,17 +181,33 @@ describe('CascadeFilterTop', () => {
     fireEvent.mouseDown(option);
 
     // 廠牌欄被一併補上、車型欄落在字典字面
-    expect((screen.getByPlaceholderText('搜尋或選擇廠牌') as HTMLInputElement).value).toBe('YAMAHA');
+    expect((screen.getByPlaceholderText('選擇或輸入廠牌') as HTMLInputElement).value).toBe('YAMAHA');
     expect(screen.getByDisplayValue('YZF-R1')).toBeDefined();
     expect(screen.getByText('清除車輛')).toBeDefined();
   });
 
   it('shows a no-match hint instead of a silent empty list on the desktop model field', () => {
     render(<Harness />);
-    fireEvent.change(screen.getByPlaceholderText('搜尋或選擇車型，例:R6'), {
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入車型，例:R6'), {
       target: { value: 'zzzz' },
     });
     expect(screen.getByText('查無符合的車款，請調整關鍵字')).toBeDefined();
+  });
+
+  // A4(選車引擎統一 B′):A 表要求三欄 emptyHint 同式,原本只有車型欄有 ⇒ 廠牌/年份兩欄補齊。
+  // 沒有這條,兩個新 prop 拿掉後整支測試照樣全綠(零命中時只是靜靜地不出清單)。
+  it('廠牌與年份欄零命中同樣出提示(A 表:三欄同式)', () => {
+    render(<Harness />);
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入廠牌'), { target: { value: 'zzzz' } });
+    expect(screen.getByText('查無符合的廠牌，請調整關鍵字')).toBeDefined();
+
+    // 年份欄要先選到有年份的車型才不是 disabled(disabled 欄不顯提示)
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入廠牌'), { target: { value: 'YAMAHA' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'YAMAHA' }));
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入車型'), { target: { value: 'YZF-R1' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'YZF-R1' }));
+    fireEvent.change(screen.getByPlaceholderText('選擇或輸入年份'), { target: { value: '1999' } });
+    expect(screen.getByText('查無符合的年份，請調整關鍵字')).toBeDefined();
   });
 
   // 收工條件(交接檔 Slice B):`vehicle-ui=preview` 只能是開發過渡、不得留正式語意。
@@ -152,7 +221,7 @@ describe('CascadeFilterTop', () => {
     expect(container.querySelector('.cft-bar--vehicle-preview')).toBeNull();
     // 帶參數時的字面 = 正式字面(不是另一套分支)
     expect(screen.getByText('選擇適用車輛')).toBeDefined();
-    expect(screen.getByPlaceholderText('搜尋或選擇廠牌')).toBeDefined();
+    expect(screen.getByPlaceholderText('選擇或輸入廠牌')).toBeDefined();
     expect(screen.queryByText('確認適用車款')).toBeNull();
   });
 

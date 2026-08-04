@@ -9,6 +9,19 @@
 //  ② 滿版視覺:搜尋欄+愛車鈕收進置頂 .fd-veh-top 群組(留白/inset、非整排跨頁)。
 //  ③ 鍵盤跳動:.fd-veh-top sticky top:0(聚焦時搜尋欄不被推走、鍵盤不遮輸入),結果在下方捲動。
 // tap 逐層 drill 語意與 V-1b2 逐行同(換層自動清查詢);抽出副作用(切 tab/關抽屜重置回品牌層)不變。
+// A5(2026-08-05,選車引擎統一 B′):**只改字面、零行為變更**——步驟標「選擇品牌」→「選擇廠牌」
+//   (A 表:車=廠牌、零件才叫品牌)、四處「查無符合的…」半形逗號改全形 ，(Sean 08-03 拍 Q2=A)。
+//   R2 追加:`:102` 搜尋欄 placeholder「打字找車，例:」的逗號同批改全形(主視窗裁定 Q2=A
+//   的通則作用於**選車 UI 字面**,不只 emptyHint)。
+//   ⚠️ A5 當時本檔頭寫過「本檔是全站唯一還在用半形的那支」—— **那句是假的**(R2 抓到):
+//   同批就還有 `account/InlineVehicleForm.tsx` 的組字 guard 錯誤訊息,本檔自己也還有這顆 placeholder。
+//   改成可驗的事實句:**截至 2026-08-05 A-engine 收尾,A 表所轄的統一字面已全數使用全形 ，**。
+//   🔴 例外**不逐句枚舉**(R3-F2:我上一版枚舉「只有兩句」就漏了第三句「…,但有年份限制」,
+//   枚舉再寫一次還是會漏)——例外的定義是**範圍**不是清單:
+//   **計畫 §2.6 表列標「不變」的 `ProductFitmentCheck.tsx` 既有文案,一律維持原標點**。
+//   它們不屬 A 表統一範圍、是既有文案被計畫凍結;要改要先動計畫,不是照這裡的檔頭補全形。
+//   ADR-0007 之後手機選車主入口是 MobileVehicleSheet,但本檔仍實際掛載
+//   (`FilterDrawer.tsx:250`)⇒ 不改就是漏一個入口。
 
 import { useState } from 'react';
 import {
@@ -95,7 +108,7 @@ export function FilterDrawerVehicleTab({
           type="search"
           inputMode="search"
           className="fd-veh-search"
-          placeholder="打字找車,例:R6、MT-09、Panigale"
+          placeholder="打字找車，例:R6、MT-09、Panigale"
           aria-label="打字快速找車"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -114,12 +127,12 @@ export function FilterDrawerVehicleTab({
               </button>
             ))}
             {crossResults.length === 0 && (
-              <div className="fd-veh-empty">查無符合的車款,請調整關鍵字</div>
+              <div className="fd-veh-empty">查無符合的車款，請調整關鍵字</div>
             )}
           </>
         ) : !vehBrand ? (
           <>
-            <div className="fd-step-label">選擇品牌</div>
+            <div className="fd-step-label">選擇廠牌</div>
             {brands.map((b) => (
               <button key={b.id} className="fd-row"
                 onClick={() => { setVehBrand(b); setQuery(''); }}>
@@ -127,7 +140,7 @@ export function FilterDrawerVehicleTab({
                 {chevron}
               </button>
             ))}
-            {brands.length === 0 && <div className="fd-veh-empty">查無符合的品牌,請調整關鍵字</div>}
+            {brands.length === 0 && <div className="fd-veh-empty">查無符合的廠牌，請調整關鍵字</div>}
           </>
         ) : !vehModel ? (
           <>
@@ -143,7 +156,7 @@ export function FilterDrawerVehicleTab({
                 {chevron}
               </button>
             ))}
-            {models.length === 0 && <div className="fd-veh-empty">查無符合的車型,請調整關鍵字</div>}
+            {models.length === 0 && <div className="fd-veh-empty">查無符合的車型，請調整關鍵字</div>}
           </>
         ) : (
           <>
@@ -176,7 +189,7 @@ export function FilterDrawerVehicleTab({
                     )}
                   </button>
                 ))}
-                {years.length === 0 && <div className="fd-veh-empty">查無符合的年份,請調整關鍵字</div>}
+                {years.length === 0 && <div className="fd-veh-empty">查無符合的年份，請調整關鍵字</div>}
               </>
             )}
           </>

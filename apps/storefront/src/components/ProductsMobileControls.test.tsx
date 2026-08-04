@@ -66,13 +66,13 @@ function Harness({
 /** 走完整選車流程(工具列 → 選車面板 → 套用),回到「已選車」狀態。 */
 function applyVehicle() {
   fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
-  const brand = screen.getByLabelText('廠牌') as HTMLInputElement;
+  const brand = screen.getByLabelText('選擇廠牌') as HTMLInputElement;
   fireEvent.change(brand, { target: { value: 'Yamaha' } });
   fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
-  const model = screen.getByLabelText('車型') as HTMLInputElement;
+  const model = screen.getByLabelText('選擇車型') as HTMLInputElement;
   fireEvent.change(model, { target: { value: 'MT-09 SP' } });
   fireEvent.mouseDown(screen.getByRole('option', { name: 'MT-09 SP' }));
-  const year = screen.getByLabelText('年份') as HTMLInputElement;
+  const year = screen.getByLabelText('選擇年份') as HTMLInputElement;
   fireEvent.change(year, { target: { value: '2022' } });
   fireEvent.mouseDown(screen.getByRole('option', { name: '2022' }));
   fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
@@ -104,7 +104,7 @@ describe('ProductsMobileControls(ADR-0007 手機三入口)', () => {
     expect(screen.getByText('拉桿與把手')).toBeTruthy();
     // 分類面板不該混進選車
     expect(screen.queryByText('選擇車款')).toBeNull();
-    expect(screen.queryByLabelText('廠牌')).toBeNull();
+    expect(screen.queryByLabelText('選擇廠牌')).toBeNull();
   });
 
   // ② 商品篩選只處理商品條件。
@@ -115,7 +115,7 @@ describe('ProductsMobileControls(ADR-0007 手機三入口)', () => {
     expect(screen.getByText('RPM CARBON')).toBeTruthy(); // 品牌
     expect(screen.getByText('價格')).toBeTruthy();
     expect(screen.queryByText('選擇車款')).toBeNull();
-    expect(screen.queryByLabelText('廠牌')).toBeNull();
+    expect(screen.queryByLabelText('選擇廠牌')).toBeNull();
     expect(screen.queryByText('僅顯示現貨')).toBeNull();
   });
 
@@ -199,7 +199,7 @@ describe('ProductsMobileControls(ADR-0007 手機三入口)', () => {
     render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
     expect(screen.getByText('選擇適用車輛')).toBeTruthy();
-    expect(screen.getByLabelText('廠牌')).toBeTruthy();
+    expect(screen.getByLabelText('選擇廠牌')).toBeTruthy();
   });
 
   // 🔴 Sean 2026-07-30 第二輪真機回饋:「最上面這一群在手機版本上車種資訊過剩」。

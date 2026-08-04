@@ -67,6 +67,27 @@ describe('FilterDrawerVehicleTab（V-1f）', () => {
   it('跨層直搜查無 → 提示', () => {
     render(<Harness />);
     fireEvent.change(screen.getByLabelText('打字快速找車'), { target: { value: 'zzz' } });
-    expect(screen.getByText('查無符合的車款,請調整關鍵字')).toBeTruthy();
+    expect(screen.getByText('查無符合的車款，請調整關鍵字')).toBeTruthy();
+  });
+
+  // A5(選車引擎統一 B′):步驟標原本還寫「選擇品牌」,三處空清單提示原本零守門
+  // —— 改回半形/品牌照樣全綠。(Sean 08-03 拍 Q2=A 全形 ，)
+  // ⚠️ A5 原註寫「本檔是全站唯一還用半形的入口」是**假的**(R2 抓到):同批還有
+  //    `account/InlineVehicleForm.tsx:117`,本檔自己的搜尋欄 placeholder 也還是半形。已一起改。
+  it('A 表字面:步驟標=選擇廠牌、三層空清單提示皆全形逗號', () => {
+    render(<Harness />);
+    expect(screen.getByText('選擇廠牌')).toBeTruthy();
+    expect(screen.queryByText('選擇品牌')).toBeNull();
+    // R2(I2):搜尋欄 placeholder 的逗號同批改全形(主視窗裁定 Q2=A 作用於選車 UI 字面)
+    expect(
+      (screen.getByLabelText('打字快速找車') as HTMLInputElement).placeholder,
+    ).toBe('打字找車，例:R6、MT-09、Panigale');
+
+    const search = screen.getByLabelText('打字快速找車') as HTMLInputElement;
+    // 廠牌層:tap drill 模式下清單由 brands 過濾,打字會走跨層直搜 ⇒ 用 Harness 的空字典驗不到,
+    // 改驗車型層與年份層(drill 進去後清單為空的兩個真實出口)。
+    fireEvent.click(screen.getByText('Kawasaki')); // 無車型
+    expect(screen.getByText('查無符合的車型，請調整關鍵字')).toBeTruthy();
+    expect(search.value).toBe('');
   });
 });

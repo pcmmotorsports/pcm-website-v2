@@ -114,7 +114,7 @@ export function InlineVehicleForm({
     e.preventDefault();
     // dict 模式組字 guard(client 端 UI 組合、非 server 規則複驗):品牌車型都選了才有名稱可組。
     if (mode === 'dict' && (brandName === null || modelName === null)) {
-      setFieldErrors({ name: '請選擇品牌與車型,或改用自行輸入' });
+      setFieldErrors({ name: '請選擇廠牌與車型，或改用自行輸入' });
       setFormError(null);
       return;
     }
@@ -164,15 +164,17 @@ export function InlineVehicleForm({
 
       {mode === 'dict' ? (
         <>
-          {/* V-1c++:品牌/車型=與首頁同一 combobox 原型(VehicleCombo variant="form"、裸 input
-              吃 account.css 表單樣式);清單可捲、無截斷;換品牌 → 車型連動清空。 */}
+          {/* V-1c++:廠牌/車型=與首頁同一 combobox 原型(VehicleCombo variant="form"、裸 input
+              吃 account.css 表單樣式);清單可捲、無截斷;換廠牌 → 車型連動清空。
+              A6(2026-08-05):欄標與 aria 走 A 表「廠牌」;placeholder 由範例值(YAMAHA / YZF-R6)
+              換成 A 表提示字 —— 範例值長得像已填好的值,是本次統一要收掉的其中一種亂。 */}
           <label>
-            <span>品牌</span>
+            <span>廠牌</span>
             <VehicleCombo
-              label="選擇品牌"
+              label="選擇廠牌"
               value={brandName}
               options={vehicleBrands.map((b) => b.name)}
-              placeholder="YAMAHA"
+              placeholder="選擇或輸入廠牌"
               variant="form"
               onPick={(n) => {
                 setBrandName(n);
@@ -191,7 +193,7 @@ export function InlineVehicleForm({
               value={modelName}
               options={modelOptions}
               disabled={brandName === null}
-              placeholder="YZF-R6"
+              placeholder="選擇或輸入車型"
               variant="form"
               onPick={(n) => setModelName(n)}
               onClear={() => setModelName(null)}
@@ -239,7 +241,7 @@ export function InlineVehicleForm({
                 setFieldErrors({});
               }}
             >
-              改用清單選車(品牌/車型)
+              改用清單選車(廠牌/車型)
             </button>
           )}
         </>

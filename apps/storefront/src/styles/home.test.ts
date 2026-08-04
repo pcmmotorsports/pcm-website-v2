@@ -128,4 +128,55 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(body).toMatch(/position\s*:\s*absolute/);
     expect(body).toMatch(/clip-path\s*:\s*inset\(50%\)/);
   });
+
+  // ── A10:首頁自刻的愛車 chips 家族退場、換全站唯一的 GarageChips ──
+  // 🔴 這條守的是「搬家時把行為弄丟」那一族。V-2d② 是 Sean 2026-07-15 真機回報的爆版
+  //    (「我的愛車會被推到下一行」),修法是 ≤900px 改單行橫向捲動。換 class 時最容易發生的事
+  //    就是規則留在舊 selector 上、新 selector 沒人套 ⇒ CSS 還在、對誰都不生效,jsdom 全綠。
+  it('🔴 V-2d② 的 ≤900px 橫向捲動修正有跟著搬到 .cat-garage--inline(不是留在退場的舊 class)', () => {
+    const narrow = mediaBlock('(max-width: 900px)');
+    expect(narrow, '≤900px 區塊裡找不到愛車列的捲動規則')
+      .toMatch(/\.cat-garage--inline\s+\.cat-garage-chips\s*\{[^}]*overflow-x\s*:\s*auto/);
+    expect(narrow, '沒有 flex-wrap:nowrap 就還是會換行 = 修正等於沒搬')
+      .toMatch(/\.cat-garage--inline\s+\.cat-garage-chips\s*\{[^}]*flex-wrap\s*:\s*nowrap/);
+    expect(narrow, 'chip 要 flex:0 0 auto 才不會被壓扁')
+      .toMatch(/\.cat-garage--inline\s+\.cat-garage-chip\s*\{[^}]*flex\s*:\s*0 0 auto/);
+    // 🔴 scope 是承重的:home.css 由 layout.tsx **全域** import,少了 `.ed-finder ` 前綴,
+    //    A10b/A10c 把 inline 掛上 PDP §7 與購物車之後,這段捲動與 gutter 出血會潑到那兩處去。
+    for (const sel of ['.cat-garage-chips', '.cat-garage-chip']) {
+      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      expect(narrow, `${sel} 的規則沒有鎖在 .ed-finder 底下`)
+        .toMatch(new RegExp(`\\.ed-finder\\s+\\.cat-garage--inline\\s+${esc}`));
+    }
+    // R2 追加(scope 收緊):**@media 外**那條外距規則同樣承重 —— 少了 `.ed-finder` 前綴,
+    // PDP §7(自己已有 .pfc-picker 的 10px)與購物車(.cvf-edit 的 gap:10px)會被多疊一層 12px。
+    // 上面的迴圈只掃 ≤900px 區塊、掃不到它。
+    expect(CSS, '行內密度的外距規則沒有鎖在 .ed-finder 底下 ⇒ 會潑到 PDP 與購物車')
+      .toMatch(/\.ed-finder\s+\.cat-garage--inline\s*\{[^}]*margin-bottom/);
+    expect(CSS, '出現了無 scope 的 .cat-garage--inline 外距規則')
+      .not.toMatch(/(^|\})\s*\.cat-garage--inline\s*\{[^}]*margin-bottom/m);
+  });
+
+  // 🔴 nowrap 必須是**全斷點**基礎規則,不能只活在 ≤900px:
+  //    舊 `.ed-finder-garage-chip` 就是全斷點,只補窄螢幕 = 桌機長車名照樣折行撐高(V-2d② 原症狀)。
+  //    ⚠️ 它刻意**不在** home.css,而在 filter-cascade.css 的 inline 家族規則 —— 故在那支檔驗。
+  it('🔴 行內密度 chip 的 white-space:nowrap 是全斷點基礎規則(不得只在 ≤900px 內)', () => {
+    const CASCADE = readFileSync(new URL('./filter-cascade.css', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(CASCADE, 'filter-cascade.css 找不到 inline 家族的 nowrap')
+      .toMatch(/\.cat-garage--inline\s+\.cat-garage-chip\s*\{[^}]*white-space\s*:\s*nowrap/);
+    // 卡片密度(手機面板 2 欄 grid + min-height)靠折行才排得下 ⇒ 不得被全域套上
+    // ⚠️ 已知洞(R3 nit,文字層固定洞族、刻意不補):這條負向式抓不到**選擇器串接走私** ——
+    //    `.cat-garage-chip,\n.foo { white-space: nowrap }` 這種寫法,`^\.cat-garage-chip` 後面
+    //    接的是逗號不是 `{`,正規式不命中而規則照樣全域生效。要真的堵死需要 CSS 走訪器
+    //    (products-mobile.test.ts 的 mediaBlock 那種等級);此處風險低、留註解讓下一個人知道邊界在哪。
+    expect(CASCADE, 'nowrap 被寫成 .cat-garage-chip 全域基礎規則會撐爆手機面板的 2 欄格子')
+      .not.toMatch(/^\.cat-garage-chip\s*\{[^}]*white-space\s*:\s*nowrap/m);
+  });
+
+  it('🔴 舊的 .ed-finder-garage* / .ed-finder-suggest* 家族已全數退場(不得兩套並存)', () => {
+    // 留著=下一個人不知道該改哪一套,且首頁會有兩份互相打架的 chip 樣式
+    expect(CSS).not.toMatch(/\.ed-finder-garage/);
+    expect(CSS).not.toMatch(/\.ed-finder-suggest/);
+  });
 });

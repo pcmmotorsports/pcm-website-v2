@@ -158,3 +158,31 @@ describe('手機控制列只在手機出現(products-mobile.css)', () => {
     expect(MOBILE).toMatch(/\.mvs-field\s+input\s*\{[^}]*font-size:\s*1[6-9]px/);
   });
 });
+
+// ── A9(選車引擎統一 B′):GarageChips 副註推廣到四個掛載點之後的密度分家 ──
+// 🔴 為什麼這條非有不可:`.cat-garage-heading` 原本是**無 scope 的全域規則**,而當時全站
+//    只有 sheet 會渲染它 ⇒ 「它其實是卡片密度專用」這件事從來沒被寫下來,也沒有守門。
+//    副註推廣之後 top/drawer 也會渲染它,不分家就是把手機的 17px/850 套到桌機面板上。
+//    元件測試對這個**完全盲**(jsdom 不套 CSS、13 條 GarageChips 測試全綠)。
+describe('GarageChips 副註的兩種密度(設計稿 §B)', () => {
+  const headingBase = MOBILE.match(/\.cat-garage-heading\s*\{[^}]*\}/)?.[0] ?? '';
+  const headingSheet =
+    MOBILE.match(/\.cat-garage--sheet\s+\.cat-garage-heading\s*\{[^}]*\}/)?.[0] ?? '';
+
+  it('基礎規則=行內密度:span 14px/700、不得有 space-between 或 margin-bottom', () => {
+    expect(headingBase).not.toBe('');
+    expect(MOBILE).toMatch(/\.cat-garage-heading\s+span\s*\{[^}]*font-size:\s*14px/);
+    expect(MOBILE).toMatch(/\.cat-garage-heading\s+span\s*\{[^}]*font-weight:\s*700/);
+    // 這兩條若留在基礎規則上,桌機/抽屜面板就會吃到卡片密度的排版
+    expect(headingBase).not.toMatch(/justify-content:\s*space-between/);
+    expect(headingBase).not.toMatch(/margin-bottom/);
+  });
+
+  it('卡片密度必須 scope 在 .cat-garage--sheet 底下(手機面板現狀不得退化)', () => {
+    expect(headingSheet).toMatch(/justify-content:\s*space-between/);
+    expect(headingSheet).toMatch(/margin-bottom:\s*10px/);
+    expect(MOBILE).toMatch(
+      /\.cat-garage--sheet\s+\.cat-garage-heading\s+span\s*\{[^}]*font-size:\s*17px/,
+    );
+  });
+});

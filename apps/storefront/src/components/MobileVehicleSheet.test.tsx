@@ -60,9 +60,9 @@ function renderSheet({
   return { ...utils, dispatch, onClose };
 }
 
-const brandField = () => screen.getByLabelText('廠牌') as HTMLInputElement;
-const modelField = () => screen.getByLabelText('車型') as HTMLInputElement;
-const yearField = () => screen.getByLabelText('年份') as HTMLInputElement;
+const brandField = () => screen.getByLabelText('選擇廠牌') as HTMLInputElement;
+const modelField = () => screen.getByLabelText('選擇車型') as HTMLInputElement;
+const yearField = () => screen.getByLabelText('選擇年份') as HTMLInputElement;
 
 /** combobox 的選定路徑 = 打字 → 點選項(與桌機 VehicleCombo 同一顆引擎)。 */
 function pickOption(input: HTMLInputElement, typed: string, optionLabel: string) {

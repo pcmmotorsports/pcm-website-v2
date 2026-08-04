@@ -158,7 +158,7 @@ describe('ProductsPage', () => {
     it('桌機 + ?pick=vehicle → 廠牌欄拿到 focus', () => {
       hoisted.search = new URLSearchParams('pick=vehicle');
       renderWith(page(), false);
-      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '選擇品牌' }));
+      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: '選擇廠牌' }));
     });
 
     // 🔴 這條是本片最重要的一條,擋的是「純看 URL 開面板」會造成的桌機死狀態:
@@ -186,7 +186,7 @@ describe('ProductsPage', () => {
       // 桌機選車列的廠牌欄(.cft-bar 內)不得被 autoFocus 抓走 —— 面板內另有自己的欄位。
       const barBrand = document
         .querySelector('.cft-bar')
-        ?.querySelector('input[aria-label="選擇品牌"]');
+        ?.querySelector('input[aria-label="選擇廠牌"]');
       expect(barBrand).not.toBeNull();
       expect(document.activeElement).not.toBe(barBrand);
     });

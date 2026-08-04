@@ -19,6 +19,12 @@
 //      🔴 這是本檔唯一與預覽 mock 不同的互動:預覽的車型欄在未選廠牌時是 disabled,
 //      照搬會讓 Sean 07-15 自己提的「打 r6 直達」在手機上消失。
 //   ② 無年份車型出口 —— 年份欄顯示「不限年份」、可直接套用(不 dispatch year)。
+//
+// A5(2026-08-05,選車引擎統一 B′):本檔是 A 表的**原型**,改動最小 ——
+//   aria label 由裸名詞改成「選擇廠牌/車型/年份」(A 表:aria 統一「選擇 X」),
+//   廠牌欄 emptyHint 的「品牌」殘留改「廠牌」。可見欄標(廠牌 / 車型 · 可不選)與
+//   placeholder、跨層直搜、無年份出口**逐字不動** —— 全站規範就是照它寫的。
+//   🔴 :170 那顆「清除」= 只清草稿(spec §4-2),不得被「清除車輛」的統一文案吃掉。
 
 import { useEffect, useState, type Dispatch, type FocusEvent } from 'react';
 import {
@@ -174,11 +180,11 @@ export function MobileVehicleSheet({
           <div className="mvs-field">
             <span className="mvs-field-label">廠牌</span>
             <VehicleCombo
-              label="廠牌"
+              label="選擇廠牌"
               value={draft.brand}
               options={motoBrands.map((brand) => brand.name)}
               placeholder="選擇或輸入廠牌"
-              emptyHint="查無符合的品牌，請調整關鍵字"
+              emptyHint="查無符合的廠牌，請調整關鍵字"
               onPick={(name) => setDraft({ brand: name, model: null, year: null })}
               onClear={() => setDraft(EMPTY_DRAFT)}
               variant="form"
@@ -188,7 +194,7 @@ export function MobileVehicleSheet({
           <div className="mvs-field">
             <span className="mvs-field-label">車型<small>可不選</small></span>
             <VehicleCombo
-              label="車型"
+              label="選擇車型"
               value={draft.model}
               options={modelOptions}
               placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
@@ -202,7 +208,7 @@ export function MobileVehicleSheet({
           <div className="mvs-field">
             <span className="mvs-field-label">年份<small>可不選</small></span>
             <VehicleCombo
-              label="年份"
+              label="選擇年份"
               value={draft.year != null ? String(draft.year) : null}
               options={years.map(String)}
               disabled={draft.model === null || modelHasNoYears}
