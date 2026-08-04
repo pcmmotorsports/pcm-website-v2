@@ -108,6 +108,60 @@ function bpPageScopes(): string {
   return blocks.join('\n');
 }
 
+/**
+ * 把 CSS 拆成 { 選擇器, 宣告區, 所在的 at-rule 堆疊 } —— 大括號配對走訪,不是正規式。
+ *
+ * 🔴 **為什麼不用正規式**(D2e-2 關卡2 R2 一口氣打掉四個洞,全部出在同一族 `[^}]*` 寫法):
+ *   · `animation:\s*[a-zA-Z]` 要求值的第一個字元是字母 ⇒ `animation: 620ms … bp-rise`
+ *     這種 **duration-first 的 shorthand 靜默通過**(而那是最常見的寫法)
+ *   · `[^}]*` 跨得過內層 `{` ⇒ **任何 @media 內的動畫完全隱形**,捕獲到的是 `@media (…)` 本身
+ *   · `CSS.split(mediaBlock(...)).join('')` 想切掉 reduce 區塊 —— 但 mediaBlock() 回傳的是
+ *     **兩塊串接**、那個字串在 CSS 裡並不存在 ⇒ split 是 **no-op**(實測 24730 === 24730),
+ *     於是「區塊外」其實包含區塊本身 ⇒ reduce 裡的規則自我滿足
+ *   · `transform:\s*(?!none)` 的 `\s*` 會回溯成零寬 ⇒ lookahead 看到空格而非 `none`
+ *     ⇒ **`transform: none` 也被當成位移**
+ *   走訪器一次把這四個洞全部關掉,而且之後新增的守門不必再各自防一遍。
+ */
+type CssRule = { selector: string; body: string; at: string[] };
+
+function cssRules(): CssRule[] {
+  const out: CssRule[] = [];
+  const stack: string[] = [];
+  let i = 0;
+  let buf = '';
+  while (i < CSS.length) {
+    const ch = CSS[i];
+    if (ch === '{') {
+      const prelude = buf.trim();
+      buf = '';
+      if (prelude.startsWith('@')) { stack.push(prelude); i++; continue; }
+      let depth = 1;
+      let j = i + 1;
+      while (j < CSS.length && depth > 0) {
+        if (CSS[j] === '{') depth++;
+        else if (CSS[j] === '}') depth--;
+        j++;
+      }
+      out.push({ selector: prelude, body: CSS.slice(i + 1, j - 1), at: [...stack] });
+      i = j;
+      continue;
+    }
+    if (ch === '}') { stack.pop(); buf = ''; i++; continue; }
+    buf += ch;
+    i++;
+  }
+  return out;
+}
+
+const inReduce = (r: CssRule) => r.at.some((a) => a.includes('prefers-reduced-motion'));
+/** 該選擇器在 reduce 區塊裡有沒有被真的「關掉」(不是只出現過)。 */
+function neutralisedIn(rules: CssRule[], selector: string, prop: 'animation' | 'transform'): boolean {
+  return rules.filter(inReduce).some(
+    (r) => r.selector.split(',').map((x) => x.trim()).includes(selector)
+      && new RegExp(`${prop}\\s*:\\s*none`).test(r.body),
+  );
+}
+
 describe('品牌頁 CSS · 窄螢幕橫幅', () => {
   const narrow = mediaBlock('(max-width: 960px)');
 
@@ -620,6 +674,208 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
     for (const dead of ['.bp-products', '.bp-prod-head', '.bp-slot', '.bp-bar', '.bp-grid']) {
       expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
     }
+  });
+});
+
+describe('品牌頁 CSS · 動效層(D2e-2)', () => {
+  it('🔴 互動 transition 必須排在基礎規則**之後**(選擇器相同、靠順序決勝)', () => {
+    // 搬到前面的話整頁退回 .15s/.18s/.2s/.3s 四種時長混用(設計稿 :837 記的原始問題),
+    // 而畫面「看起來還是會動」、沒有任何測試會紅。
+    // 🔴 兩邊都用「規則本體的特徵宣告」定位,不是選擇器字串 —— 同一個選擇器在檔內出現兩次,
+    //    純 indexOf 兩次都會命中第一個(= 基礎規則)⇒ 恆真、零判別力。
+    const pairs: [string, RegExp, RegExp][] = [
+      ['.bp-chip',
+        /\.bp-chip\s*\{[^}]*transition:\s*border-color \.15s/,
+        /\.bp-chip\s*\{[^}]*transition:\s*border-color var\(--dur-hover\)/],
+      ['.bp-others-list a',
+        /\.bp-others-list a\s*\{[^}]*transition:\s*border-color \.18s/,
+        /\.bp-others-list a\s*\{[^}]*transition:\s*border-color var\(--dur-hover\)/],
+      ['.bp-others-name',
+        /\.bp-others-name\s*\{[^}]*transition:\s*color \.18s/,
+        /\.bp-others-name\s*\{[^}]*transition:\s*color var\(--dur-hover\)/],
+      ['.bp-cta',
+        /\.bp-cta\s*\{[^}]*transition:\s*background \.15s/,
+        /\.bp-cta\s*\{[^}]*transition:\s*background var\(--dur-hover\)/],
+      // 關卡2 R1 nit 補:原本漏了這兩條,而它們與上面四條是同一個失效模式
+      ['.bp-cta-ghost',
+        /\.bp-cta-ghost\s*\{[^}]*transition:\s*border-color \.15s/,
+        /\.bp-cta-ghost\s*\{[^}]*transition:\s*border-color var\(--dur-hover\)/],
+      // ⚠️ 這一組**不是**同選擇器覆寫:基礎是 `.bp-others-logo img`(0-1-1)、
+      //    動效層是 `.bp-others-list a img`(0-1-2)⇒ 靠權重贏。順序仍要對(可讀性),
+      //    但即使順序反了畫面也不會壞 —— 這條記錄的是「兩者不同」這件事本身。
+      ['.bp-others-list a img',
+        /\.bp-others-logo img\s*\{[^}]*transition:\s*filter \.22s/,
+        /\.bp-others-list a img\s*\{[^}]*transition:\s*filter var\(--dur-hover\)/],
+    ];
+    for (const [sel, baseRe, animRe] of pairs) {
+      const base = CSS.search(baseRe);
+      const anim = CSS.search(animRe);
+      expect(base, `找不到 ${sel} 的基礎 transition`).toBeGreaterThan(-1);
+      expect(anim, `找不到 ${sel} 的動效層 transition`).toBeGreaterThan(-1);
+      expect(anim, `${sel} 的動效層版本排到基礎規則前面了 ⇒ 時長會退回混用`).toBeGreaterThan(base);
+    }
+  });
+
+  it('🔴 三個時長 token 在 .bp-page scope 裡,不是 :root(設計稿放 :root = 必要偏離)', () => {
+    const scopes = bpPageScopes();
+    for (const t of ['--dur-press: 110ms', '--dur-hover: 200ms', '--dur-enter: 620ms']) {
+      expect(scopes, `${t} 不在 .bp-page scope 裡`).toContain(t);
+    }
+    // --ease 是**曲線不是時長**,由 D2b 帶進第一塊色票,動效層不重複宣告
+    // (重複不會壞,但值會有兩個來源)。⚠️ 原標題把它湊成「四個時長」= 字面不實(關卡2 R3 nit)。
+    expect(scopes).toContain('--ease: cubic-bezier(.2, 0, 0, 1)');
+    expect((CSS.match(/--ease:\s*cubic-bezier/g) ?? []).length, '--ease 宣告了不只一次').toBe(1);
+    // 🔴 --dur-reveal **不得**出現:捲動揭示 Sean 拍板 C 不做 ⇒ 它沒有消費端
+    expect(CSS, '--dur-reveal 沒有消費端(捲動揭示不做)').not.toContain('--dur-reveal');
+  });
+
+  it('🔴 橫幅入場用 both + reduced-motion 用 animation:none(不是 duration:0)', () => {
+    // `both` 讓 from{opacity:0} 在 delay 期間就生效(少了它文字會先閃完整版再跳回起點);
+    // 反面代價 = 關掉時必須整條 animation 拿掉,不能只把時間縮到 0。兩個理由:
+    //   ① backwards fill 只押 **delay 期間** ⇒ 縮短 duration 不影響 delay,
+    //      五段仍會各自隱形 60/130/200/270/340ms 才閃出來
+    //      (關卡2 R1 更正:我原本寫「內容永遠停在 opacity:0、整個橫幅變空白」= 誇大)
+    //   ② 無單位的 `0` 對 `<time>` 不合法,整條宣告會被丟掉、連降級都不會發生
+    expect(CSS).toMatch(/@keyframes bp-rise \{ from \{ opacity: 0/);
+    expect(CSS).toMatch(/@keyframes bp-settle \{ from \{ transform: scale\(1\.045\)/);
+    expect(CSS).toMatch(/\.bp-band-photo \{ animation: bp-settle 1100ms var\(--ease\) both/);
+    expect(CSS).toMatch(/animation: bp-rise var\(--dur-enter\) var\(--ease\) both/);
+    const reduce = mediaBlock('(prefers-reduced-motion: reduce)');
+    expect(reduce).toMatch(/\.bp-band-photo[^{]*\{\s*animation: none/);
+    // 反面:不得用 duration:0 / .01ms 那種「保留 fill-mode」的關法
+    expect(reduce).not.toMatch(/animation-duration:\s*(0|\.01ms)/);
+  });
+
+  it('🔴 五段入場的 delay 必須遞增(全部同時動 = 沒有層次,而畫面「有動」看不出錯)', () => {
+    const want: [string, number][] = [
+      ['.bp-eyebrow', 60], ['.bp-title', 130], ['.bp-lede', 200],
+      ['.bp-actions', 270], ['.bp-band-logo', 340],
+    ];
+    let prev = -1;
+    for (const [sel, ms] of want) {
+      // ⚠️ 不綁死單空格排版(關卡2 R1 nit:prettier 換行就假紅)
+      const m = CSS.match(new RegExp(`\\${sel}\\s*\\{\\s*animation-delay:\\s*(\\d+)ms`));
+      expect(m, `找不到 ${sel} 的 animation-delay`).not.toBeNull();
+      expect(Number(m![1]), `${sel} 的 delay 不是設計稿的值`).toBe(ms);
+      expect(Number(m![1]), `${sel} 的 delay 沒有比前一段大`).toBeGreaterThan(prev);
+      prev = Number(m![1]);
+    }
+    // 照片跑得比文字久,才會是「畫面先安頓、字再落下」(1100ms vs --dur-enter 620ms)
+    expect(CSS).toContain('--dur-enter: 620ms');
+  });
+
+  it('🔴 reduced-motion 逐條點名,四類位移一個都不能漏', () => {
+    // 這一層是**點名制**(沒有 `*` 選擇器)⇒ 漏掉哪一條,哪一條就完全沒保護,
+    // 而且開了「減少動態」的人看不到錯誤、只會覺得網站還在動。
+    const reduce = mediaBlock('(prefers-reduced-motion: reduce)');
+    expect(reduce.length, '找不到 reduced-motion 區塊').toBeGreaterThan(100);
+    for (const sel of [
+      '.bp-band-photo', '.bp-eyebrow', '.bp-title', '.bp-lede', '.bp-actions', '.bp-band-logo',
+      '.bp-chip:hover', '.bp-chip:active', '.bp-others-list a:hover', '.bp-others-list a:active',
+      '.bp-cta:active', '.bp-cta-ghost:active',
+      '.bp-craft-panel:hover .bp-craft-media img',
+      '.bp-film-frame > iframe', '.bp-film-frame > video',
+    ]) {
+      expect(reduce, `${sel} 沒有被 reduced-motion 點到`).toContain(sel);
+    }
+  });
+
+  it('🔴 每一條 animation 都要在 reduced-motion 裡被關掉(反向守門)', () => {
+    // 上面那條驗的是「這 15 個選擇器有被點到」——清單寫死 ⇒ 新增動畫時它不會紅。
+    // 這一條反過來從**動畫宣告本身**出發,所以新增才會被抓到。
+    // 🔴 走訪器版(關卡2 R2 重寫):`@media` 內、duration-first shorthand、
+    //    `animation-name` longhand 全部涵蓋;`@keyframes` 內的 from/to 不算規則。
+    // 🔴 而且驗的是「**真的被關掉**」不只是「選擇器出現在 reduce 裡」——
+    //    原本寫 `.bp-title { color: red }` 進 reduce 就能讓守門變綠(關卡2 R2 N-3)。
+    const rules = cssRules();
+    const animated = rules.filter(
+      (r) => !inReduce(r)
+        && !r.at.some((a) => a.startsWith('@keyframes'))
+        && /animation(-name)?\s*:/.test(r.body)
+        && !/animation(-name)?\s*:\s*none\b/.test(r.body),
+    );
+    expect(animated.length, '一條 animation 都沒抓到 ⇒ 這條在守空氣').toBeGreaterThan(0);
+    for (const rule of animated) {
+      for (const one of rule.selector.split(',').map((x) => x.trim()).filter(Boolean)) {
+        expect(
+          neutralisedIn(rules, one, 'animation'),
+          `${one} 有 animation,但 reduced-motion 沒有把它關成 animation: none`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('🔴 每一條 hover/active/focus 的位移也要被關掉(補 animation 那條的盲區)', () => {
+    // 關卡2 R1 指出:animation 那條看不到 transform 過渡,而本檔的動態主要就是它。
+    // 🔴 刻意**只看互動狀態選擇器**:靜態定位用的 transform(`.bp-film-play` 的
+    //    `translate(-50%,-50%)`、`.bp-media` 直式滿版的 `translateX(-50%)`)不是動態,
+    //    把它們一起要求進 reduced-motion 會逼出錯誤的修法(關掉它們版面就歪了)。
+    // ⚠️ **已知盲區**(關卡2 R2 N-2,誠實列出而不是假裝涵蓋):狀態 class 上的位移
+    //    (`.is-open` 那種)不在本條範圍內 —— 它與靜態 transform 在字面上分不開。
+    const rules = cssRules();
+    const moving = rules.filter(
+      (r) => !inReduce(r)
+        && /:(hover|active|focus|focus-visible)/.test(r.selector)
+        && /(^|[;\s])transform\s*:/.test(r.body)
+        && !/(^|[;\s])transform\s*:\s*none\b/.test(r.body),
+    );
+    expect(moving.length, '一條互動位移都沒抓到 ⇒ 這條在守空氣').toBeGreaterThan(0);
+    for (const rule of moving) {
+      for (const one of rule.selector.split(',').map((x) => x.trim()).filter(Boolean)) {
+        expect(
+          neutralisedIn(rules, one, 'transform'),
+          `${one} 有位移,但 reduced-motion 沒有把它關成 transform: none`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it('🔴 捲動揭示與 D3 商品區的動效**都不得**混進來', () => {
+    // 捲動揭示 = Sean 2026-08-04 拍板 C(先不做,backlog #316);
+    // `.bp-prod-head` = D3 商品區,本檔沒有那個 class ⇒ 搬過來就是死規則。
+    // ⚠️ `is-in` 不能裸著比對(關卡2 R1 nit):未來任何 `is-inline` / `is-inactive` 都會誤紅。
+    //    改成帶 class 邊界的 `.is-in`,後面不得再接識別字元。
+    expect(CSS, '捲動揭示的 .is-in 混進來了').not.toMatch(/\.is-in(?![-\w])/);
+    for (const dead of ['.js-reveal', 'data-reveal-delay', '.bp-prod-head', 'ed-link-arrow']) {
+      expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
+    }
+  });
+
+  it('🔴 全域的 `*` + !important 那層**不得**進本檔(影響全站 = 鐵則 8;Sean 拍板 Q1=B)', () => {
+    // 設計稿 :461-465 有一條全域版,搬進來會蓋掉全站每一頁的 transition。
+    // Sean 2026-08-04 拍 B:改用 scope 版、只作用在品牌頁;全站級記 backlog #318。
+    expect(CSS).not.toMatch(/\*\s*,\s*\*::before/);
+    expect(CSS, '本檔不得出現 !important').not.toContain('!important');
+  });
+
+  it('🔴 設計稿 :855 的 var(--var(--ease)) 打字錯誤已修(照搬會讓整條宣告被丟掉)', () => {
+    // `var(--var(--ease))` 不是合法的自訂屬性名 ⇒ 瀏覽器丟掉整條 transition,
+    // 磚牆品牌名 hover 變成直接跳色。主視窗已裁:那是打字錯誤、不是設計決定。
+    expect(CSS, '把設計稿的打字錯誤照搬進來了').not.toContain('var(--var(');
+    expect(CSS).toMatch(/\.bp-others-name \{\s*transition: color var\(--dur-hover\) var\(--ease\);/);
+  });
+});
+
+describe('品牌頁 CSS · var() 語法(D2e-2 關卡2 R3 C2 的輕量版)', () => {
+  it('🔴 每個 var( 都要是合法的自訂屬性引用 —— 巢狀寫錯會讓整條宣告被瀏覽器丟掉', () => {
+    // 🔴 這一整類失效**本檔既有的守門在設計上都看不到**(關卡2 R3 指出的方法論盲區):
+    //    原文字串斷言只比對「字面與設計稿一致」,而一條**字面一致但語法非法**的宣告
+    //    會被瀏覽器整條丟棄、測試照樣全綠。
+    //    活例就在本片:設計稿 :855 的 `var(--var(--ease))` —— 若當初照鐵則 1 逐字搬,
+    //    「與設計稿一致」的斷言會 PASS,瀏覽器卻丟掉整條 transition(hover 變直接跳色)。
+    //    **那次是人眼抓到的,不是測試。** 這條把它變成機制(機制優先律)。
+    // ⚠️ 這是 R3 建議的 parse-pass 的輕量版:不引入 postcss(它在本 repo 只是傳遞相依,
+    //    測試直接 import 會綁到一個沒人宣告的版本),只守「var() 的形狀」這一軸 ——
+    //    涵蓋面小於完整 parser,但零相依、零維護,且正好蓋住已經真的發生過的那一種。
+    const uses = CSS.match(/var\(/g) ?? [];
+    expect(uses.length, '一個 var() 都沒有 ⇒ 這條在守空氣').toBeGreaterThan(0);
+    // 合法形狀:var(--name) 或 var(--name, fallback)
+    const wellFormed = CSS.match(/var\(\s*--[a-zA-Z0-9_-]+\s*[,)]/g) ?? [];
+    expect(
+      wellFormed.length,
+      `有 ${uses.length - wellFormed.length} 處 var( 不是合法的自訂屬性引用` +
+        '(最常見:把 var(--x) 巢狀寫成 var(--var(--x)))',
+    ).toBe(uses.length);
   });
 });
 

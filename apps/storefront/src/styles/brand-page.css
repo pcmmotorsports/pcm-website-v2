@@ -10,9 +10,20 @@
  *    ⇒ 那是設計稿自己的死規則,搬過來只會多一條永遠不生效的 CSS。
  *
  * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media
- *    + D2d 的 why / craft / timeline + D2e-1 的 cats / others。動效層(設計稿 :792-870)
- *    由 D2e-2 補進來,不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class
- *    先躺在 repo 裡,誰也說不出哪些是活的。
+ *    + D2d 的 why / craft / timeline + D2e-1 的 cats / others + D2e-2 的動效層。
+ *    **D2e-2 之後,設計稿裡還沒搬進本檔的只剩三類,而且三類都是刻意的**(不是待辦):
+ *      ① 商品區 `.bp-products` / `.bp-slot` / `.bp-grid` / `.bp-bar` / `.bp-prod-head`
+ *         (設計稿 :714-740 等)—— 用既有 `ProductCard.tsx`,屬 D3 接線
+ *      ② 捲動揭示 `.js-reveal` 那一族(:821-825 + JS :2033-2071)—— Sean 08-04 拍板 C,
+ *         先不做、上線後重議(backlog #316)
+ *      ③ 全域 reduced-motion(:461-465)—— `*`+`!important` 影響全站 = 鐵則 8;
+ *         Sean 08-04 拍板 Q1=B 改走 scope 版,全站級記 backlog #318
+ *    ⇒ **就「品牌頁專屬的 `.bp-*` 段落」而言,「本檔還缺什麼」自此有明確答案**,
+ *      不要再往裡面貼「以防萬一」的段落。
+ *    ⚠️ **這句只涵蓋 `.bp-*`**(關卡2 R1 更正:我原本寫成無限定的「還沒搬進本檔的只剩三類」)。
+ *      設計稿的 `<style>` 還有 `.vfm-*`(選車面板,:1198-1306,自帶 reduce 區塊 :1303)、
+ *      `.pcm-header` / `.mobile-tabbar` / `.ed-*` 等**站台層**的段落 —— 它們不屬本檔、
+ *      也不在上面那三類裡,是**別條線**的東西(選車統一線 / 既有站台元件),不要拿這句去停止追查。
  *    ⚠️ `.bp-products` / `.bp-prod-head` / `.bp-grid` / `.bp-slot` / `.bp-bar`(設計稿 :714-740)
  *       **不屬本檔** —— 那一區用既有 `ProductCard.tsx`,屬 D3 接線(計畫 §5.2 逐字)。
  */
@@ -221,13 +232,16 @@
   position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
 }
 /* 影片掛上來時的淡入 —— 只動 opacity 與 scale,320ms,與全站同一條 --ease。
-   🔴 **本檔目前沒有任何規則擋得住這條動畫**(D2d-2 新增的 reduced-motion 區塊只管 craft 的 hover)。
-      ⚠️ 更正(關卡2 打掉我原本的說法):設計稿**有**涵蓋它 —— `brand-page.html:461-464` 是一條
-         全域的 `*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}`,
-         它管得到 `bp-media-in`。**是我們沒搬,不是設計稿沒有。**
-      未在本片搬的理由:那是 `*` 選擇器 + `!important`,而本檔的 CSS 在 Next 是全域的
-      ⇒ 影響面遠超品牌頁,屬 D2e 整段動效層的範圍。
-      🔴 **D2e 搬動效層時必須帶上 :461-464 那條**,否則這個 a11y 缺口會一直留著。 */
+   ✅ **D2e-2 已補上 reduced-motion 保護**(見下面動效層那段的 @media 區塊裡的
+      `.bp-film-frame > iframe, .bp-film-frame > video { animation: none }`)。
+      ⚠️ 這一條的來歷值得留著:設計稿的動效層自帶的那層 reduced-motion(:860-866)是**逐條點名**的,
+         它**沒有點到** `bp-media-in` ⇒ 設計稿裡管得到這條的只有全域的
+         `*,*::before,*::after{…animation-duration:.01ms!important}`(brand-page.html:461-465)。
+         而全域那條 `*`+`!important` 進本檔 = 影響全站每一頁 = 鐵則 8。
+      🔴 **Sean 2026-08-04 拍板 Q1=B**:改用一條有 scope 的規則、只作用在品牌頁;
+         全站級的那條記成 backlog **#318**。
+      ⚠️ 我在 D2c-2 寫過「本檔目前沒有任何規則擋得住這條動畫」——**那句自 D2e-2 起不再成立**,
+         已就地更正(舊字面留在 git 歷史即可,不要讓它繼續躺在檔案裡誤導人)。 */
 @keyframes bp-media-in { from { opacity: 0; transform: scale(1.02); } to { opacity: 1; transform: none; } }
 .bp-film-frame > iframe, .bp-film-frame > video { animation: bp-media-in 320ms var(--ease) both; }
 .bp-film-frame video { object-fit: cover; background: #000; }
@@ -598,6 +612,130 @@
 .bp-others-list a.is-cur img { filter: none; }
 .bp-others-list a.is-cur .bp-others-name { color: var(--c-text); font-weight: 600; }
 
+/* ══ 動效層(D2e-2;設計稿 :792-866)════════════════════════════════
+ * 只做兩處:①橫幅入場 ②互動回饋統一。一律只動 transform / opacity(不觸發 layout / 不重排)。
+ *
+ * 🔴🔴 **位置就是行為**:本段的互動 transition 會**覆寫**上面基礎規則裡同名的那幾條
+ *    (`.bp-cta` / `.bp-cta-ghost` / `.bp-chip` / `.bp-others-list a` / `.bp-others-name`)——
+ *    選擇器完全相同、權重相同 ⇒ **只靠順序決勝**。搬到基礎規則前面的話,
+ *    整頁又會退回 .15s / .18s / .2s / .3s 四種時長混用(設計稿 :837 逐字記的原始問題),
+ *    而且畫面「看起來還是會動」、沒有任何測試會紅。設計稿的順序也是這樣(基礎 :593-790、本段 :792)。
+ *
+ * ⛔ **刻意不搬(三處,不是漏)**
+ *   ① 捲動揭示 `.js-reveal` 那一族(設計稿 :821-825 CSS + :2033-2071 JS,共七個群組)——
+ *      **Sean 2026-08-04 拍板 C:先不做,上線後實際逛過再決定**(信箱 C-15-A 第 2 板)。
+ *      設計稿抬頭 :794 自己也寫「刻意不做捲動揭示」,程式與抬頭矛盾按抬頭解 =
+ *      **依 Sean 拍板、非我自行仲裁**。程式已備、記在 backlog #316。
+ *   ② `--dur-reveal`(:804)—— 只有 `.js-reveal.is-in` 用它,①不做 ⇒ 這個 token 沒有消費端。
+ *      (同 `--c-red-dark` 的處理:只放本檔真的用到的變數。)
+ *   ③ `.bp-prod-head .ed-link-arrow`(:856)與 reduced-motion 裡的
+ *      `.bp-prod-head .ed-link:hover .ed-link-arrow`(:865)—— `.bp-prod-head` 屬 D3 商品區、
+ *      本檔沒有那個 class,搬過來就是兩條永遠不生效的死規則。
+ *
+ * ⚠️ **申報偏離(兩處,均已由主視窗/Sean 裁示)**
+ *   · 設計稿 :855 逐字是 `transition:color var(--dur-hover) var(--var(--ease))` ——
+ *     `var(--var(--ease))` **不是合法的自訂屬性名**,整條 transition 宣告會被瀏覽器丟掉
+ *     (磚牆品牌名 hover 是直接跳色不是漸變)。**修成 `var(--ease)`**;主視窗已裁:
+ *     那是打字錯誤、不是設計決定。
+ *   · `--dur-*` 設計稿放 `:root`,本檔放 `.bp-page` —— 本 repo 的色票一律 scope 在
+ *     `.bp-page`(`brand-page.test.ts` 有一條守門斷言檔內不得出現 `:root`)。必要偏離。
+ *     ⚠️ 設計稿 `:root` 裡有**四個** `--dur-*`,本檔實搬**三個** —— `--dur-reveal` 被上面 ⛔②
+ *        刻意砍掉(沒有消費端)。原本這裡寫「四個」與 ⛔② 自相矛盾(關卡2 R3 nit)。
+ */
+
+/* ⚠️ 這是本檔第三塊 `.bp-page`(色票 / 分類色碼 / 動效時長)。測試用 `bpPageScopes()`
+   收全部區塊,不要用 `indexOf('.bp-page {')` —— 那只會拿到第一塊。 */
+.bp-page {
+  /* 前傾曲線 `--ease` 已由 D2b 帶進第一塊色票(crumb/cta 當時就用得到),這裡不重複宣告。 */
+  --dur-press: 110ms;   /* 按下去的當下 —— 慢了就變成「卡一下」 */
+  --dur-hover: 200ms;   /* 滑過的狀態切換 */
+  --dur-enter: 620ms;   /* 首屏一次性的開場 */
+}
+
+/* ── ① 橫幅入場 ────────────────────────────────────────────────
+   照片從 1.045 收回 1,五段內容依序升起。照片跑得比文字久(1100ms vs 620ms),
+   才會是「畫面先安頓、字再落下」的層次,不是全部一起動。
+   純 CSS animation,沒有 observer 或 timer 要清 ⇒ 元件端零改動,本片是純 CSS 片。
+   🔴 `both` 的 fill-mode 不是可選的:`from{opacity:0}` 在 delay 期間(60-340ms)就要生效,
+      少了它文字會先閃一下完整版再跳回起點。
+      反面代價 = 下面 reduced-motion 那層必須寫 `animation: none`(整條拿掉),
+      **不能**改成 `animation-duration: 0` 之類「只把時間縮到 0」的寫法。兩個理由:
+        ① `both` 的 backwards fill 只在 **delay 期間**押住 `from` ⇒ 縮短 duration 不影響 delay,
+           五段內容仍會各自隱形 60/130/200/270/340ms 才閃出來(**不是永久空白**,
+           是「延遲後才閃出來」—— 關卡2 R1 更正我原本寫的「整個橫幅變空白」,那句誇大了)。
+        ② 無單位的 `0` 對 `<time>` 本來就不合法,整條宣告會被丟掉、連降級都不會發生。
+      ⇒ `animation: none` 把 fill-mode 一起拿掉,才是真的「直接就定位」。 */
+@keyframes bp-settle { from { transform: scale(1.045); } to { transform: scale(1); } }
+@keyframes bp-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+.bp-band-photo { animation: bp-settle 1100ms var(--ease) both; }
+.bp-eyebrow, .bp-title, .bp-lede, .bp-actions, .bp-band-logo {
+  animation: bp-rise var(--dur-enter) var(--ease) both;
+}
+.bp-eyebrow { animation-delay: 60ms; }
+.bp-title { animation-delay: 130ms; }
+.bp-lede { animation-delay: 200ms; }
+.bp-actions { animation-delay: 270ms; }
+.bp-band-logo { animation-delay: 340ms; }
+
+/* ── ② 互動回饋統一 ────────────────────────────────────────────
+   原本 .15s / .18s / .2s / .3s 四種時長混用(從三份來源檔各自帶進來的),
+   同一頁滑過去手感不一致。凡是使用者真的會碰的元素,統一同一組曲線。
+   按下用 110ms:按壓回饋要即時。 */
+.bp-cta {
+  transition: background var(--dur-hover) var(--ease), transform var(--dur-press) var(--ease);
+}
+.bp-cta-ghost {
+  transition: border-color var(--dur-hover) var(--ease), background var(--dur-hover) var(--ease),
+    transform var(--dur-press) var(--ease);
+}
+.bp-cta-ghost:active { transform: translateY(1px); }
+.bp-chip {
+  transition: border-color var(--dur-hover) var(--ease), background var(--dur-hover) var(--ease),
+    transform var(--dur-hover) var(--ease);
+}
+.bp-chip:hover { transform: translateY(-1px); }
+.bp-chip:active { transform: translateY(0); transition-duration: var(--dur-press); }
+.bp-others-list a {
+  transition: border-color var(--dur-hover) var(--ease), box-shadow var(--dur-hover) var(--ease),
+    transform var(--dur-hover) var(--ease), background var(--dur-hover) var(--ease);
+}
+.bp-others-list a:active { transform: translateY(0); transition-duration: var(--dur-press); }
+/* ⚠️ 這條的選擇器是 `.bp-others-list a img`(0-1-2),與基礎規則的 `.bp-others-logo img`
+   (0-1-1)**不同** ⇒ 靠權重贏、不是靠順序。設計稿如此,不要「順手統一成同一個選擇器」。 */
+.bp-others-list a img {
+  transition: filter var(--dur-hover) var(--ease), opacity var(--dur-hover) var(--ease);
+}
+/* 🔴 設計稿 :855 這裡寫的是 `var(--var(--ease))` = 打字錯誤(見本段抬頭的偏離申報)。 */
+.bp-others-name { transition: color var(--dur-hover) var(--ease); }
+
+/* ── 減少動態:位移與縮放全拿掉,元素直接就定位 ──────────────────
+ * 設計稿 :860-866。**這一層是有 scope 的**(沒有 `*`、沒有 `!important`)⇒ 影響面只有品牌頁。
+ * 顏色/邊框的狀態切換保留 —— 拿掉的話狀態就沒有任何訊號了(設計稿逐字)。
+ *
+ * ⚠️ 設計稿另有**第二層**:`brand-page.html:461-465` 的全域區塊,內含兩條 ——
+ *    `:462` `*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}`
+ *    與 `:464` `.js-reveal{opacity:1;transform:none}`(捲動揭示的雙保險;本檔不搬 `.js-reveal`
+ *    ⇒ 後者對本檔無對象。關卡2 R2 N-5:原本只寫了 `*` 那條,「逐條核過」的字面要完整)。
+ *    那層**沒搬**(`*` + `!important` 進本檔 = 影響全站每一頁 = 鐵則 8)。
+ *    🔴 兩層的差別逐條核過,搬完本段之後**真正還缺保護的只剩 D2c-2 的影片淡入**
+ *       `@keyframes bp-media-in`(本段沒點到它,只有全域那層管得到)⇒ 下面補一條有 scope 的。
+ *    ⚠️ 順帶記錄設計稿自身的張力:上面那句「顏色/邊框保留」在設計稿裡其實會被全域那層的
+ *       `!important` 壓掉(淨效果是全部瞬間)。本檔不搬全域層 ⇒ 顏色過渡是真的保留了,
+ *       比設計稿的淨效果更貼近它自己寫的意圖。
+ * 🔴 **Sean 2026-08-04 拍板 Q1=B**:影片淡入的保護只作用在品牌頁、不動 `tokens.css`。
+ *    全站級的那條記成 backlog #318(方向對、但屬獨立題目,影響面要自己一次拍板)。 */
+@media (prefers-reduced-motion: reduce) {
+  .bp-band-photo, .bp-eyebrow, .bp-title, .bp-lede, .bp-actions, .bp-band-logo {
+    animation: none;
+  }
+  .bp-chip:hover, .bp-chip:active, .bp-others-list a:hover, .bp-others-list a:active,
+  .bp-cta:active, .bp-cta-ghost:active { transform: none; }
+  /* D2c-2 影片淡入(Sean 拍板 Q1=B 的那一條)。用 `animation: none` 整條拿掉,
+     不用「把時間縮到 0」那種寫法 —— 理由同上面 `both` 那段(delay 期間仍會隱形 + 無單位 0 不合法)。 */
+  .bp-film-frame > iframe, .bp-film-frame > video { animation: none; }
+}
+
 /* ══ RWD ══════════════════════════════════════════════════════════
  * 只收**已落地段落**的規則。`.bp-grid` / `.bp-slot`(設計稿 :880-881、:936-937)
  * 屬 D3 的商品區,不在本檔。
@@ -792,18 +930,18 @@
  * 🔴 必須排在 `.bp-craft-panel:hover .bp-craft-media img` 基礎規則**之後** ——
  *    兩條選擇器完全相同(權重 0-3-1:兩個 class + 一個 `:hover` 虛擬類 + 一個元素),
  *    靠順序決勝。(關卡2 R2 更正:原本寫 0-2-1、漏算了 `:hover`。)
- * 🔴 **本檔沒有 reduced-motion 保護的動態清單**(逐條列,不要只列改動到的那一條 ——
- *    「只補改動到的行」是本 repo 復發 9+ 次的形狀):
- *      · `@keyframes bp-media-in`(D2c-2 影片淡入)
- *      · `.bp-others-list a:hover { transform: translateY(-3px) }`(D2e-1 磚牆懸浮)
- *      · `.bp-others-list a` / `.bp-others-logo img` / `.bp-others-name` / `.bp-chip` 的
- *        五條 transition(D2e-1;純色彩/邊框過渡,對前庭敏感者的風險遠低於上面兩條位移)
- *    設計稿**是有保護的** —— `brand-page.html:461-464` 的全域
- *    `*,*::before,*::after{transition-duration:.01ms!important;animation-duration:.01ms!important}`
- *    管得到全部 —— **是我們沒搬**。(D2c-2 關卡2 更正過一次:我原本寫成「設計稿也沒涵蓋」。)
- *    不搬的理由 = `*` + `!important` 的影響面遠超品牌頁(鐵則 8)。
- *    🔴 **落點由 D2e-2 連同動效層一起提 plan 給 Sean 批**(Sean 08-04 C-15-A 指定);
- *       backlog #312 第三條在追這件事。 */
+ * ⚠️ **D2e-2 更正:我在 D2e-1 於此列了一份「本檔沒有 reduced-motion 保護的動態清單」,
+ *    那份清單自 D2e-2 起已經全部有保護,留著會誤導。** 現況(逐條核過):
+ *      · 橫幅入場 / chip 與磚的 hover·active 位移 → 動效層自帶的 scope 版那層(本檔上方)
+ *      · `@keyframes bp-media-in`(影片淡入)→ 同一個 @media 區塊裡的 `.bp-film-frame > …`
+ *        (Sean 08-04 拍板 Q1=B)
+ *      · craft 面板的 hover 放大 → 就是本區塊這一條
+ *    ⇒ **本檔已無「有動畫但沒保護」的項目**。
+ * 🔴 仍然沒搬的是設計稿的**全域**那層(`brand-page.html:461-465` 的 `*`+`!important`):
+ *    它會蓋掉全站每一條 transition ⇒ 屬獨立題目、記 backlog **#318**,不是這條線的債。
+ *    ⚠️ 我在 D2e-1 把這件事寫成「D2e-2 要連同動效層提 plan 給 Sean 批」——**前提是錯的**:
+ *       當時我以為全域那層是唯一保護,實查後動效層自帶 scope 版、覆蓋絕大多數
+ *       (信箱 C-20-Q 的更正),題目因此縮小成「只剩影片淡入」,Sean 才拍 B。 */
 @media (prefers-reduced-motion: reduce) {
   .bp-craft-panel:hover .bp-craft-media img { transform: none; }
 }

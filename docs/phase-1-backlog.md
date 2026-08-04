@@ -8277,15 +8277,17 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 20 分鐘(含 sr-only 的落點決定)+ 拍板往返
 - **依賴:** 鐵則 1 偏離的拍板路徑 / `.sr-only` 共用 class 的落點
 - **發現於:** 2026-08-04 / D2d-2 關卡2 折入
-  - **第三條(2026-08-04 / D2d-2 關卡2 R2 加入)**:設計稿 `brand-page.html:461-464` 有一條
-    **全域** reduced-motion(`*,*::before,*::after{transition-duration:.01ms!important;
-    animation-duration:.01ms!important}`),**本 repo 未搬** ⇒ D2c-2 的影片淡入 `bp-media-in`
-    目前不受 reduced-motion 保護。
-    🔴 不在品牌頁的 CSS 裡搬:`brand-page.css` 被元件 import = Next 全域 CSS,
-       `*` + `!important` 一進來就對**全站每一頁**生效 = 替所有頁面決定 reduced-motion 行為
-       (鐵則 8「動共用資產」)。正解八成是搬進 `styles/tokens.css` / 全域 reset 當一個獨立決定。
-    ⚠️ 這一條原本只活在 `brand-page.css` 的註解裡、沒有編號 —— D2e 範圍一變它就消失。
-- **相關:** `apps/storefront/src/components/brand/BrandPageTimeline.tsx`(is-key)/
+  - ~~**第三條(2026-08-04 / D2d-2 關卡2 R2 加入)**:影片淡入 `bp-media-in` 不受 reduced-motion 保護~~
+    ✅ **已於 2026-08-04 / D2e-2 解決,本條作廢**:Sean 拍板 **Q1=B**,
+    `brand-page.css` 的動效層區塊補了一條有 scope 的
+    `.bp-film-frame > iframe, .bp-film-frame > video { animation: none }`
+    (真瀏覽器實測:開啟 reduced-motion 後 `animation-name: none` + opacity 1;
+     對照組未開時同一支影片 `bp-media-in` 0.32s 在跑 ⇒ 那條規則確實有作用)。
+    ⚠️ 原文寫的行號 `:461-464` 也不對,實查是 **`:461-465`**。
+    🔴 **剩下的那一半(全站級的 `*`+`!important`)移到 `#318` 追**,不要在這條裡繼續追
+    —— 這條的主題是「年表的關鍵事件對讀屏不存在」,reduced-motion 只是當時借掛的。
+- **相關:** #318(第三條移交過去的全站級 reduced-motion)/
+  `apps/storefront/src/components/brand/BrandPageTimeline.tsx`(is-key)/
   `BrandPageCraft.tsx`(影片列 aria-label + title)/ Open Design `pcm-home-redesign/brand-page.html:1999`、`:2011`/
   #308、#309、#310、#311(同族:設計稿繼承的 a11y/視覺缺陷走拍板)
 
@@ -8418,14 +8420,14 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - 設計稿**自己前後矛盾**:動效層抬頭 `brand-page.html:794` 逐字寫「**刻意不做捲動揭示**
     —— 這頁是購物動線、內容密,揭示動畫只會延後閱讀」;但同一份檔案
     `:821-825` 有 `.js-reveal` / `.is-in` / 三段 `data-reveal-delay` 的 CSS、
-    `:2033-2047` 有整段 IntersectionObserver,涵蓋**七個群組**
+    `:2033-2071` 有整段 IntersectionObserver,涵蓋**七個群組**
     (`#bp-facts` / `#bp-about-inner` / `#bp-why .bp-why-card` / `#bp-craft .bp-craft-panel` /
     `#bp-time` / `#bp-cats` / `#bp-others`)。
   - **Sean 2026-08-04 拍板 = C:先不做,上線後實際逛過再決定加不加。**
     ⇒ 矛盾按抬頭解,七群組的 CSS/JS 不搬;D2e-2 的動效層只做「橫幅入場 + 互動回饋」兩段。
 - **觸發事件:** 2026-08-04 / D2e 開工前偵察(視窗 C 發現矛盾 → 信箱 C-16-STOP → Sean 拍 C)。
 - **預期解法:** 上線後 Sean 逛過真站再回來決定。要做的話程式已備:
-  設計稿 `:821-825`(CSS)+ `:2033-2047`(JS,一次性 observer、`prefers-reduced-motion`
+  設計稿 `:821-825`(CSS)+ `:2033-2071`(JS,一次性 observer、`prefers-reduced-motion`
   或無 IntersectionObserver 時完全不介入),七群組裡有五個屬已落地的 D2b/D2c/D2d 區塊
   ⇒ 要在那些元件上加 class + 一支 client 元件,**影響面是整頁**。
 - **不修會痛在:**
@@ -8434,7 +8436,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 要做的話約 40 分鐘(七群組 + reduced-motion 兩層 + 守門)
 - **依賴:** 上線 + Sean 實際逛過
 - **發現於:** 2026-08-04 / D2e 偵察;Sean 同日拍板 C
-- **相關:** Open Design `pcm-home-redesign/brand-page.html:794`(抬頭)與 `:821-825` / `:2033-2047`(程式)/
+- **相關:** Open Design `pcm-home-redesign/brand-page.html:794`(抬頭)與 `:821-825` / `:2033-2071`(程式)/
   `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md` §5.2 動效層那段 /
   信箱 `C-16-STOP.md` ③ 與 `C-15-A.md` 第 2 板
 
@@ -8468,3 +8470,64 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   #308(**指 `docs/phase-1-backlog.md:8125` 那條「品牌頁 band logo alt 與 h1 重複」——
   `#308` 是撞號的編號,`:8070` 另有一條採購 typeahead**)、#310、#311、#312、#313
   (同族:設計稿繼承的 a11y/視覺缺陷走拍板)
+
+### #318. ♿ 全站級的 `prefers-reduced-motion` 沒有統一 — home / filter-drawer 的動畫零保護
+
+- **狀態:** ⏳ 待執行
+- **分流:** P2-after-launch
+- **優先級:** 🟡 上線後(對前庭敏感的使用者是真的不舒服,但不影響功能與交易)
+- **問題:**
+  - 設計稿有**兩層** `prefers-reduced-motion`:
+    ① 動效層自帶的 scope 版(`brand-page.html:860-866`,逐條點名 `.bp-*`)
+    ② **全域版**(`:461-465`)`*,*::before,*::after{transition-duration:.01ms!important;
+      animation-duration:.01ms!important}`
+  - D2e-2 搬了 ①,並依 **Sean 2026-08-04 拍板 Q1=B** 補了一條 scope 版的影片淡入保護
+    (`brand-page.css` 的 `.bp-film-frame > iframe, .bp-film-frame > video { animation: none }`)
+    ⇒ **品牌頁自己已經沒有缺口**。
+  - ❌ 但 ② **沒搬**,而全站的 reduced-motion 是**逐檔各做各的、沒有統一**。
+    🔴 **實查(2026-08-04;方法 = 用 `brand-page.test.ts` 那支 `cssRules()` 走訪器對
+       `apps/storefront/src/styles/*.css` 全掃,不是 grep 印象)**:
+      · **有** scope 版 reduce 區塊:`checkout.css` / `product-page.css` / `products-page.css` / `brand-page.css`
+      · **零 reduce 但有動態**(缺口,5 支):
+        `home.css`(animation 1 + 互動位移 5)/ `filter-drawer.css`(animation 5)/
+        `cart.css`(位移 2)/ `line-cta.css`(位移 2)/ `product-card.css`(位移 2)
+    ⚠️ 這條的範圍我改過**兩次**,兩次都是往「比我說的大」的方向:
+       · 第一版「品牌頁以外**完全沒有任何**保護」= 錯(關卡2 R1 打掉;lessons §13:
+         下「X 未覆蓋」的斷言前必 grep)
+       · 第二版只點 `home.css` / `filter-drawer.css` = **仍然太窄**,因為我當時只篩 `@keyframes`,
+         而**互動位移才是主要的動效軸**(關卡2 R2 打掉,那正是本片自己剛學到的教訓)
+    ⚠️ 關卡2 R2 報的是 7 支(多算 `filter-cascade` / `filter-side` / `header` / `pages-shipping`)——
+       **那四支我逐檔看過,是 `translate(-50%)` 這類靜態置中、不是動態**,關掉反而會讓版面歪掉。
+       這裡採 5 支;判準 = 「互動狀態選擇器(`:hover`/`:active`/`:focus`)上的 transform」與
+       「非 `@keyframes` 內的 animation 宣告」,與本片守門用的是同一把尺。
+  - 🔴 不搬 ② 的理由 = `*` + `!important` 會蓋掉**全站每一條** transition 與 animation,
+    影響面遠超任何單一片的範圍(鐵則 8),值得它自己一次拍板。
+- **觸發事件:**
+  - 2026-08-04 / D2e-2。⚠️ 我一度把這題說成「全域那層是唯一保護、所以非搬不可」,
+    **那個前提是錯的**(信箱 `C-20-Q.md` 的更正):實查後動效層自帶的 scope 版已覆蓋絕大多數,
+    真正的缺口只剩影片淡入一條。題目縮小之後 Sean 才拍 B。
+  - 順帶記錄設計稿自身的張力:動效層那層的註解寫「顏色/邊框的狀態切換**保留**」,
+    但全域那層的 `!important` 會把顏色過渡也壓成瞬間 ⇒ 設計稿裡兩層並存的淨效果是全部瞬間。
+    要做 ② 的時候得先決定要哪一種語意,**不能兩層照搬了事**。
+- **預期解法(需 Sean 拍板,影響面大):**
+  - A. 把 ② 放進 `styles/tokens.css`,全站一次到位(最正確;但要逐頁看過有沒有哪個動畫
+    被關掉之後反而變得難懂 —— 例如「載入中」的轉圈、抽屜開合的方向感)
+  - B. 只補那 5 支缺口(各補一個 scope 版區塊),其餘維持逐檔各做 ——
+    工最少,但「全站語意一致」這件事仍然沒人負責;而且判準要跟著寫下來,
+    否則下一個人又會只看 `@keyframes`、漏掉互動位移(本條自己踩過兩次)
+  - 🔴 兩案都要先回答「顏色過渡要不要一起關」那一題(見上面的張力)。
+- **不修會痛在:**
+  - 擴充性:每新增一個動畫就多一個沒保護的點,而且沒有任何守門會提醒
+    (品牌頁有 `brand-page.test.ts` 的反向守門,**其他頁沒有** ——
+     而且那條守門自己也只涵蓋 `animation`,不涵蓋 transform 過渡,見該檔註解)。
+  - 可維護性:同一件事將來會在 N 個檔案裡各做一次,語意還可能不一致。
+  - bug 可追蹤性:開了「減少動態」的使用者不會回報「網站還在動」,只會覺得不舒服然後離開。
+- **估時:** A 案 30 分鐘 + 逐頁目視;B 案視頁數
+- **依賴:** Sean 拍板
+- **發現於:** 2026-08-04 / D2e-2(Sean 同日拍板 Q1=B,把品牌頁那半邊收掉)
+- **相關:** `apps/storefront/src/styles/brand-page.css`(動效層那段的 @media 區塊)/
+  `apps/storefront/src/styles/home.css` / `filter-drawer.css` / `cart.css` / `line-cta.css` /
+  `product-card.css`(5 支缺口)/ `brand-page.test.ts` 的 `cssRules()`(掃描方法可直接重用)/
+  `apps/storefront/src/styles/tokens.css`(A 案的落點)/
+  Open Design `pcm-home-redesign/brand-page.html:461-465` 與 `:860-866` /
+  信箱 `C-19-A.md`(拍板)與 `C-20-Q.md`(我的前提更正)/ #312 第三條(原本在追這件事)
