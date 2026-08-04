@@ -8378,7 +8378,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #314. 🔗 品牌介紹頁走 A 案新 route,但設計稿字面連結 `?pbrand=X#brand-about` 沒有 redirect
 
-- **狀態:** ⏳ 待執行
+- **狀態:** 🔶 部分完成(2026-08-04 / D3a `5763934`)—— **兩條驗收前置已結、redirect 本體改歸 D3c**
+  - ✅ **route 本體已建**:`app/brands/[slug]/page.tsx`(20 家全活;`/brands/<slug>` 不再是 404)。
+  - ✅ **前置一「帶站台 Header 重量六寬度」已做**:1440/1180/961/960/620/390 真瀏覽器 + production
+    build 全量 —— overflowX 皆 0、Header sticky `z-index:50` 且麵包屑起點恰在其底線(零重疊)、
+    `.bp-page` 內**零**元素 `z-index>=50` 或 fixed/sticky、捲動後 Header 仍在最上層。
+    底部 70px 是全域 `body padding-bottom`(`/products` 同值),非品牌頁引入。
+  - ✅ **前置二「`.bp-page` scope 上機制」已做**:本條逐字建議的 `BrandPageRoot` wrapper 已抽
+    (`components/brand/BrandPageRoot.tsx`),八支 `bp-*` 元件的 CSS import 一併收斂進去 ⇒
+    拿得到樣式就一定有 scope。另補一條**讀原始碼**的守門釘住「只有這一支 import」兩個方向。
+  - 🔴 **redirect 本體仍未做,歸屬 D3c**(=接線計畫 §8.2 的 D4,與 `/brands` 總覽頁同片):
+    D3a 實查確認**hash 永遠不會送到 server**(HTTP fragment 不進請求),而 server 只看得到
+    `/products?pbrand=X` —— 那個字面同時是合法的目錄品牌篩選(`lib/catalog-query.ts:84`)⇒
+    **server 端無法分辨**,只能做 client 側。本條原本要求「同片」完成,**改為延後是 2026-08-04
+    視窗 C↔主視窗信箱 `C-25-Q` Q1 → `C-26-A` 的核可**(理由:client 側 15 行、不碰
+    `products-url-state.tsx` 這個 #287/#288/#289 的現場,與 `/brands` 同片收比較完整)。
+    ⚠️ 在 D3c 落地前,`/products?pbrand=X#brand-about` 仍會停在商品目錄頁首、零錯誤訊息。
+  - 🔴 **D3c 順帶要補**:`/brands/<slug>` 目前**不在 `sitemap.xml`**(`app/sitemap.ts:22-24` 只列
+    靜態路徑 + 商品 handle)。A 案選它的理由就是 SEO,少了地圖等於少一半。
+- ~~**狀態:** ⏳ 待執行~~
 - **分流:** P1-before-launch
 - **優先級:** 🟠 上線前(客人按了會落在錯的頁面,而且沒有錯誤訊息)
 - **問題:**

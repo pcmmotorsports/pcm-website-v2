@@ -44,4 +44,23 @@ describe('HomeFooter', () => {
     // 聯絡客服仍 disabled(拍板範圍外)
     expect(screen.getByLabelText('聯絡客服(尚未上線)')).toBeDefined();
   });
+
+  // 🔴 D3a 加了 optional `tagline`(品牌頁的頁尾標語每家不同,設計稿
+  //    `pcm-home-redesign/brand-page.html:1510-1512` 註解 + `:2029` 灌值)。這兩條是成對的:
+  //    只留下面那條的話,有人把預設值刪掉、讓首頁頁尾標語變空也會全綠。
+  it('🔴 不給 tagline 時,首頁那句預設標語字面完全不變', () => {
+    const { container } = render(<HomeFooter />);
+    const p = container.querySelector('.ed-footer-tagline')!;
+    expect(p.textContent).toContain('改裝不只是升級配件,');
+    expect(p.textContent).toContain('是風格與態度的延伸。');
+    // 換行是設計字面的一部分(兩句分兩行),不是可有可無的空白
+    expect(p.querySelectorAll('br')).toHaveLength(1);
+  });
+
+  it('🔴 給 tagline 時取代預設值(不是疊加 —— 疊加會變成兩句話同時出現)', () => {
+    const { container } = render(<HomeFooter tagline={<>先把金屬做好。</>} />);
+    const p = container.querySelector('.ed-footer-tagline')!;
+    expect(p.textContent).toBe('先把金屬做好。');
+    expect(p.textContent).not.toContain('改裝不只是升級配件');
+  });
 });

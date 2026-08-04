@@ -132,6 +132,7 @@ describe('BrandPageBrandWall · logo', () => {
 });
 
 // 整頁大綱的不變式清單與推導見 `BrandPageHeader.test.tsx` 檔尾那段(關卡2 R2 補齊 7 支)。
+// 🔴 D3a 起另有 `BrandPageRoot.test.tsx` 直接 render 整頁驗大綱,不再只靠這七支局部不變式。
 describe('BrandPageBrandWall · 標題階層(#311)', () => {
   it('🔴 第一個標題是 h2、其餘只到 h3', () => {
     const { container } = render(<BrandPageBrandWall currentSlug={SLUGS[0]!} />);

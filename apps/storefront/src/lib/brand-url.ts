@@ -47,10 +47,14 @@ export const brandVehiclePickUrl = (slug: string): string =>
  *        它「是正式站的網址契約」。計畫 §3(spec:84)也是這樣寫的。
  *
  * 本函式回 `/brands/<slug>` = 計畫 §3 推薦的 **A 案**(新 route + 舊字面靠 redirect 保住)。
- * 🔴 **A 案有一條配套債本片沒做**:計畫 §3 逐字要求 `/products?pbrand=X#brand-about` 加一條
+ * 🔴 **A 案有一條配套債還沒還**:計畫 §3 逐字要求 `/products?pbrand=X#brand-about` 加一條
  *    `redirect()`,否則設計稿字面連結(以及任何已經散出去的舊連結)會落在商品目錄、
- *    `#brand-about` 沒有錨點 = 停在頁首。**那條 redirect 屬 D3**,見 backlog #314。
- * 🔴 **D3 落地前 `/brands/<slug>` 是死連結**,與 D2b 的麵包屑 `/brands`
- *    及既有 `ProductBreadcrumb.tsx:57,60` 同一批。D3 若改採 §3 的 B 案,改這一個函式即可。
+ *    `#brand-about` 沒有錨點 = 停在頁首。見 backlog #314。
+ *    **D3a 實查結論:hash 永遠不送到 server ⇒ 那條 redirect 只能做 client 側**,已排進 D3c
+ *    (信箱 C-25-Q Q1 → C-26-A 核可;#314 的「狀態」欄同步記了這個歸屬)。
+ * ✅ **`/brands/<slug>` 自 D3a 起是活的**(`app/brands/[slug]/page.tsx`)—— 本行原本寫
+ *    「D3 落地前是死連結」,那個前提已消失(關卡2 R2 must-fix 6)。
+ * 🔴 **但 `/brands` 總覽本身仍是死連結**:D2b 的麵包屑第二段(`BrandPageHeader.tsx:46`)
+ *    與既有 `ProductBreadcrumb.tsx:57,60` 都指它,屬 **D3c**(=計畫 §8.2 的 D4)。
  */
 export const brandIntroUrl = (slug: string): string => `/brands/${encodeURIComponent(slug)}`;

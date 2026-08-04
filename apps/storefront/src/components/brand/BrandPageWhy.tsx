@@ -17,7 +17,6 @@
 import type { CSSProperties } from 'react';
 import type { BrandContent } from '@/data/brand-content-types';
 import { BrandRichText } from '@/components/BrandRichText';
-import '@/styles/brand-page.css';
 
 export function BrandPageWhy({ brand }: { brand: BrandContent }) {
   const { highlights, stats } = brand;

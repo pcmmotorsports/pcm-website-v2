@@ -18,7 +18,6 @@ import type { CSSProperties } from 'react';
 import type { BrandContent } from '@/data/brand-content-types';
 import { BrandRichText } from '@/components/BrandRichText';
 import { brandAsset } from '@/lib/brand-asset';
-import '@/styles/brand-page.css';
 
 export function BrandPageCraft({ brand }: { brand: BrandContent }) {
   return (

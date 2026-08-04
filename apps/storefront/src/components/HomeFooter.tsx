@@ -16,18 +16,28 @@
 // (design 自身即佔位、非真資料)→ 改接 lib/site-config 真值(Sean 2026-06-21 親自提供的
 // SSoT:CONTACT_PHONE_DISPLAY / TAX_ID);版面字面不動、僅資料更正。
 
+// D3a(2026-08-04):加 optional `tagline` —— 設計稿的頁尾標語**每頁不同**
+// (`pcm-home-redesign/brand-page.html:1510-1512` 逐字:「首頁講品牌態度、品牌總覽講選部品、
+//  這一頁講『這家品牌』—— 20 家各一句」;灌值在 `:2029` `$('bp-footer-slogan').innerHTML = brand.slogan`)。
+// 不給 prop 時字面完全不變(首頁與其餘既有掛載點零影響、`HomeFooter.test.tsx` 有守)。
+
+import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { CONTACT_PHONE_DISPLAY, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
 
-export function HomeFooter() {
+export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
   return (
     <footer className="ed-footer">
       <div className="ed-footer-inner">
         <div className="ed-footer-brand">
           <div className="ed-footer-logo">PCM MOTORSPORTS</div>
           <p className="ed-footer-tagline">
-            改裝不只是升級配件,<br/>
-            是風格與態度的延伸。
+            {tagline ?? (
+              <>
+                改裝不只是升級配件,<br/>
+                是風格與態度的延伸。
+              </>
+            )}
           </p>
           <div className="ed-footer-social">
             <a href={SOCIAL_URLS.facebook} target="_blank" rel="noopener noreferrer">Facebook</a>

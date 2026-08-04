@@ -12,9 +12,9 @@
 
 import Link from 'next/link';
 import type { CSSProperties } from 'react';
-// bp-* 樣式非全域(同 ProductPage.tsx 對 product-page.css 的處理)⇒ 用到的元件自帶,
-// 否則裸奔(dev-preview/brands/[slug]/page.tsx 檔頭踩過這個坑)。D3 建路由後可上移到 route。
-import '@/styles/brand-page.css';
+// 🔴 D3a:`import '@/styles/brand-page.css'` 已收斂到 `BrandPageRoot.tsx` —— 樣式與 `.bp-page`
+//    色票 scope 綁在同一支,漏掛 scope 從「要記得」變成「做不到」(#314 的 `.bp-page` scope 前置)。
+//    ⇒ 本元件必須掛在 `BrandPageRoot` 底下,單獨 render 會裸奔(理由見該檔檔頭)。
 import type { BrandContent } from '@/data/brand-content-types';
 import { BrandRichText } from '@/components/BrandRichText';
 // 資產前綴 D2c-2 移到 `@/lib/brand-asset`(理由見該檔:client 元件 BrandPageMedia 也要用,

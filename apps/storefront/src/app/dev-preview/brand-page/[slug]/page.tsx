@@ -1,24 +1,21 @@
 // app/dev-preview/brand-page/[slug]/page.tsx — 品牌介紹頁版型預覽(D2b;2026-08-04)
 //
-// 🔴 **臨時驗證頁,不是正式路由。** 正式的 /brands/[slug] 由 D3 建。
-//    存在理由:D2b-D2e 是逐片長出來的版型,沒有一個能開的網址就只能靠單元測試
-//    ——而版面的問題(裁切焦點跑掉、幕壓不住字、窄螢幕變全黑)單元測試看不見。
-//    dev-preview/* 整族本來就掛 backlog #147「M-6 前移除」,D8 一併帶走。
+// 🔴 **臨時驗證頁,不是正式路由。正式的 `/brands/[slug]` 已於 D3a 建好。**
+//    原本的存在理由(「沒有一個能開的網址就只能靠單元測試」)自 D3a 起已消失。
+//    現在只剩一個用途:**底部那排 20 家一鍵切換**,量六寬度時省掉手打網址。
+//    ⇒ 版面本體改掛 `BrandPageRoot`(與正式 route 同一個組裝點,不會各自漂移);
+//      本頁待 D8 隨 dev-preview/* 整族退場(backlog #147「M-6 前移除」)。
 //
-// 目前掛到 D2e-1(麵包屑 / 橫幅 / 事實列 / About + 右欄 / Why / Craft / 年表 / 分類 / 磚牆)。
-// ⚠️ 分類與磚牆之間**還缺一段商品區**(`.bp-products`,設計稿骨架 :1460-1482)——
-//    它用既有 ProductCard、屬 D3 接線,不是漏掉。D2e-2 只補動效層、不補區塊。
+// ⚠️ 與正式 route 的兩處刻意差異:①不掛站台 `<Header>` / `<HomeFooter>`(裸頁,量版面用)
+//    ②`robots.index=false`。⇒ **真瀏覽器驗收要在 `/brands/<slug>` 上做**,不是這裡
+//    (backlog #314:D2b-D2f 全部量在這個沒有 Header 的裸頁上,首屏高度與 z-index 疊層是未量狀態)。
+//
+// ⚠️ 分類與磚牆之間還缺商品區(`.bp-products`)—— 屬 D3b 接線,不是漏掉;缺什麼以 `BrandPageRoot` 為準。
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { BRAND_BY_SLUG, BRAND_CONTENT } from '@/data/brand-content';
-import { BrandPageHeader } from '@/components/brand/BrandPageHeader';
-import { BrandPageAbout } from '@/components/brand/BrandPageAbout';
-import { BrandPageWhy } from '@/components/brand/BrandPageWhy';
-import { BrandPageCraft } from '@/components/brand/BrandPageCraft';
-import { BrandPageTimeline } from '@/components/brand/BrandPageTimeline';
-import { BrandPageCategories } from '@/components/brand/BrandPageCategories';
-import { BrandPageBrandWall } from '@/components/brand/BrandPageBrandWall';
+import { BrandPageRoot } from '@/components/brand/BrandPageRoot';
 
 export const metadata = { robots: { index: false } };
 
@@ -33,27 +30,24 @@ export default async function BrandPagePreview({ params }: { params: Promise<{ s
   const brand = BRAND_BY_SLUG[slug]!;
 
   return (
-    <div className="bp-page">
-      <BrandPageHeader brand={brand} />
-      <BrandPageAbout brand={brand} />
-      <BrandPageWhy brand={brand} />
-      <BrandPageCraft brand={brand} />
-      {/* timeline 只有 2 家有(akrapovic / gb-racing)⇒ 條件渲染,同 About 的影片右欄 */}
-      {brand.timeline && <BrandPageTimeline timeline={brand.timeline} />}
-      <BrandPageCategories brand={brand} />
-      <BrandPageBrandWall currentSlug={slug} />
-      <nav style={{ padding: '24px 40px', fontFamily: 'var(--f-mono)', fontSize: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ color: 'var(--c-text-3)' }}>預覽切換:</span>
-        {BRAND_CONTENT.map((b) => (
-          <Link
-            key={b.slug}
-            href={`/dev-preview/brand-page/${b.slug}`}
-            style={{ color: b.slug === slug ? 'var(--c-ember-ink)' : 'var(--c-text-3)' }}
-          >
-            {b.slug}
-          </Link>
-        ))}
-      </nav>
-    </div>
+    <>
+      <BrandPageRoot brand={brand} />
+      {/* 切換列自帶 `.bp-page`:它用的 `--f-mono` / `--c-ember-ink` / `--c-text-3` 都是
+          scoped 色票,放在 BrandPageRoot 外面就吃不到(這正是 #314 講的沉默降級)。 */}
+      <div className="bp-page">
+        <nav style={{ padding: '24px 40px', fontFamily: 'var(--f-mono)', fontSize: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--c-text-3)' }}>預覽切換:</span>
+          {BRAND_CONTENT.map((b) => (
+            <Link
+              key={b.slug}
+              href={`/dev-preview/brand-page/${b.slug}`}
+              style={{ color: b.slug === slug ? 'var(--c-ember-ink)' : 'var(--c-text-3)' }}
+            >
+              {b.slug}
+            </Link>
+          ))}
+        </nav>
+      </div>
+    </>
   );
 }

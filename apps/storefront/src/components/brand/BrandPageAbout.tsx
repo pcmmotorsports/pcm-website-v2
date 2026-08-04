@@ -17,7 +17,6 @@ import type { BrandContent } from '@/data/brand-content-types';
 import { BrandRichText } from '@/components/BrandRichText';
 import { BrandPageMedia } from './BrandPageMedia';
 import { brandAsset } from '@/lib/brand-asset';
-import '@/styles/brand-page.css';
 
 export function BrandPageAbout({ brand }: { brand: BrandContent }) {
   // 右欄分流:影片優先,其次產品照(設計稿 :1960 的 `!brand.video && brand.aside`)。
