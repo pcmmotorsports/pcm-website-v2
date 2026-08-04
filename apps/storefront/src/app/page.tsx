@@ -105,10 +105,17 @@ export default async function HomePage({
       <Header currentPage="home" />
       <HomeHero />
       <VehicleFinder motoBrands={motoBrands} garage={garage} />
-      <FeatureEditorial />
-      <CategoryGrid categories={categories} />
+      {/* D5a(2026-08-05):區塊順序改照 OD `README.md`「區塊順序(第 7 步之後)」定案 ——
+          N°01 Hero+選車器 / N°02 最新商品 / N°03 部品分類 / N°04 服務宣言(深) /
+          N°05 本月聚焦 / N°06 授權代理(淺灰白) / 頁尾(深)。
+          節奏 = 白/白/深/白/淺灰白/深,**沒有任何兩塊深色相鄰**(README 第 7 步「深色減重」的結論)。
+          實際只動兩個位置:最新商品由第 5 上移、本月聚焦由第 3 下移。
+          🔴 編號是**位置標記不是內容 id**(README 逐字)⇒ 聚焦與服務對調後編號跟著位置走。
+          守門 = `app/page.test.tsx`(本片新建;在那之前首頁順序**零守門、改了不會紅**)。 */}
       <HomeSelect featured={featured} />
+      <CategoryGrid categories={categories} />
       <HomeStatement />
+      <FeatureEditorial />
       <BrandIndex availableSlugs={brandsWithProducts} />
       <HomeFooter />
     </div>

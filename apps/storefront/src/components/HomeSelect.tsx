@@ -1,5 +1,5 @@
 // HomeSelect.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬(M-1-04-mini-slice 修:25d3a2a L210 加 ProductCard tier prop、storefront 走 server-side tier 預算 tierLabel conceptually equivalent)
-// (N°04 · New Arrivals · 最新商品〔M-4a 前菜 D 授權覆蓋 design「The Selection · 編輯精選」〕、4 ProductCard、main-d 真資料接入點)
+// (N°02 · New Arrivals · 最新商品〔M-4a 前菜 D 授權覆蓋 design「The Selection · 編輯精選」〕、4 ProductCard、main-d 真資料接入點)
 //
 // d1 階段:用 MOCK_PRODUCTS.slice(0, 4) 對齊 design 字面 window.PCM_DATA.products.slice(0, 4)
 // d2 階段:props.featured 真資料(server-side fetch from SupabaseProductAdapter.listByCategory('碳纖維部品'))
@@ -7,6 +7,9 @@
 //          MOCK_PRODUCTS import 移除、empty / error UI 字面 Sean 2026-05-09 拍板新增
 //
 // 'use client':本元件用 ProductCard(client component);導航走 href(Next.js Link、SEO 真 anchor)
+//   🔴 D5a(2026-08-05)編號重標:OD `README.md`「區塊順序(第 7 步之後)」逐字
+//      「編號是位置標記不是內容 id,所以聚焦與服務對調後編號跟著位置走」⇒ 本檔編號隨新位置改。
+//      權威字面 = OD `direction-b-layout-01-graphite-ember.html:755`。
 'use client';
 
 import Link from 'next/link';
@@ -35,7 +38,7 @@ export function HomeSelect({ featured }: HomeSelectProps) {
     <section className="ed-select">
       <div className="ed-section-head">
         <div className="ed-section-label">
-          <span className="ed-mono">N°04</span>
+          <span className="ed-mono">N°02</span>
           {/* M-4a 前菜 D:授權覆蓋 design 文案「The Selection · 編輯精選」→「New Arrivals · 最新商品」
               (Sean 2026-07-12 go;本區資料已改最新商品〔created_at 遞減〕、標籤對齊語意 + 既有「查看所有新品」CTA;
               design-reference 未同步、此為業務 override、勿調回,同全站灰字調深(0de825e)override 精神) */}

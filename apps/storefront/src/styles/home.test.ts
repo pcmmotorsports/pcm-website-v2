@@ -59,6 +59,37 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(open).toBeGreaterThan(0);
   });
 
+  // 🔴 D5a 實錘:上面那條「數量成對」**擋不住註解提早關閉**。
+  //    我在註解裡寫了 `白/**淺灰白**/深` —— 那串同時含一個 `/*` 和一個 `*/`,
+  //    數量照樣配平、上面那條全綠,但 CSS 解析器在 `**/` 就把註解關掉了,後面的中文變成 CSS 內容
+  //    ⇒ **Turbopack build 直接 parse 失敗**(typecheck / lint / 全套 vitest 當時全綠,
+  //    只有 build 紅 = 鐵則 11 要求 build 的理由)。
+  //
+  //    判別法:`/*` 的出現次數,必須等於「非貪婪比對出來的完整註解區塊數」。
+  //    註解**內部**多出一個 `/*`(提早關閉必然伴隨這個)會讓前者多、後者少 ⇒ 不相等。
+  //    ⚠️ 這條刻意**不看中文** —— 第一版寫成「剝註解後不得殘留中文」,
+  //    R1 實證它兩頭都不對:①合法的 `content: "中文"` 會被誤判 ②純 ASCII 的洩漏
+  //    (`graphite/**paper-2**/dark`)完全抓不到。本版對兩種洩漏都會紅、且不碰 content。
+  //    ⚠️ 仍擋不住:字串值裡合法出現 `/*`(例如 `content: "a/*b"`)會誤判 —— 本檔無此用法。
+  //    真正的全族守門是 build 本身(lightningcss);本 repo 的 lightningcss 只能用
+  //    版本釘死的 `.pnpm/lightningcss@1.32.0/...` 深路徑取得,Next 一升版就會為錯的理由變紅,故不採。
+  it('🔴 註解沒有提早關閉(註解內出現 /* 或 */ 會讓後面的說明文字漏進 CSS)', () => {
+    const opens = RAW.match(/\/\*/g)?.length ?? 0;
+    const closes = RAW.match(/\*\//g)?.length ?? 0;
+    const blocks = RAW.match(/\/\*[\s\S]*?\*\//g)?.length ?? 0;
+    // 註解內多一個 `/*`(例如 `白/**淺灰白**/深`)⇒ opens 多於 blocks
+    expect(
+      opens,
+      `/* 出現 ${opens} 次,但只湊得出 ${blocks} 個完整註解區塊 ⇒ 有註解提早關閉`,
+    ).toBe(blocks);
+    // 🔴 R2 補:註解內多一個**單獨的** `*/`(例如 `白*/深`)⇒ opens 與 blocks 仍然相等、
+    //    上面那行照樣綠,只有 closes 會多出來。兩行合起來才蓋住整族。
+    expect(
+      closes,
+      `*/ 出現 ${closes} 次,但只湊得出 ${blocks} 個完整註解區塊 ⇒ 有註解提早關閉`,
+    ).toBe(blocks);
+  });
+
   // 🔴 這條守兩件事,兩件都是「壞了也沒有任何其他測試會紅」:
   //    ① 退回只寫 `a` ⇒ 泛白那幾列整個沒有 grid(五格擠成一行)。
   //    ② 寫成**後代**選擇器 `.ed-brand-list :is(a, span)` ⇒ 列內每一個 `<span>`
@@ -178,5 +209,32 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     // 留著=下一個人不知道該改哪一套,且首頁會有兩份互相打架的 chip 樣式
     expect(CSS).not.toMatch(/\.ed-finder-garage/);
     expect(CSS).not.toMatch(/\.ed-finder-suggest/);
+  });
+
+  // ── D5a:區塊底色(節奏 白/白/深/白/淺灰白/深)──
+  // 🔴 這兩條與 `app/page.test.tsx` 的順序守門是**一組**:順序對、底色錯,節奏一樣是壞的
+  //    (README 第 7 步「深色減重」處理的就是「深色堆在下半」而不是「順序不對」)。
+  //    jsdom 完全看不到底色 ⇒ 只有文字層 + 真瀏覽器 computed 值抓得到。
+  it('🔴 N°04 服務宣言 = 石墨 #202225(不是重排前的純黑 #0a0a0a)', () => {
+    const rule = CSS.match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .ed-statement 規則').not.toBe('');
+    expect(rule, '服務宣言不是石墨 #202225').toMatch(/background:\s*#202225/);
+    expect(rule, '還留著重排前的純黑').not.toMatch(/background:\s*#0a0a0a/);
+  });
+
+  it('🔴 N°06 授權代理 = 淺灰白 --ed-c-paper-2(不是純白)', () => {
+    const rule = CSS.match(/\.ed-brands\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .ed-brands 規則').not.toBe('');
+    expect(rule, '授權代理不是淺灰白').toMatch(/background:\s*var\(--ed-c-paper-2\)/);
+    // 前提:這個 token 真的有定義,否則 var() 會 fallback 成透明 = 看起來像白、守門卻綠
+    expect(CSS, '--ed-c-paper-2 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-paper-2:\s*#[0-9a-f]{3,8}/i);
+  });
+
+  // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
+  //    這條擋的是「順手把三塊深色一起改掉」——那會讓 D7 變成沒東西可做、而且跳過 D7 自己的驗收。
+  it('🔴 頁尾仍是重排前的 #0a0a0a(回石墨是 D7 的事,D5a 不得順手改)', () => {
+    const rule = CSS.match(/\.ed-footer\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .ed-footer 規則').not.toBe('');
+    expect(rule, '頁尾被提前改成石墨了 ⇒ 跨了 D5a/D7 的片界').toMatch(/background:\s*#0a0a0a/);
   });
 });

@@ -333,8 +333,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/BrandIndex.tsx"
       css: "apps/storefront/src/styles/home.css"  # .ed-brands / .ed-brand-* 家族
-      last_modified_commit: "f08a4c1"  # 記可達祖先(=D3c-5 的父 commit;#180 案 A)
-      last_modified_date: "2026-08-05 [D3c-5 品牌入口全站收口]:表頭「品牌專區」href `/products` → **`/brands`**。🔴 這顆是關卡2 R1 抓到的**漏網**——交接單寫「三個消費端」,照著收就漏了它,結果首頁上同一個『品牌專區』標籤出現兩次、指到兩個地方(表頭 /products、頁尾 /brands);而 `BrandIndex.test.tsx` 有一條**主動鎖住舊值**、註解還寫「不再指向不存在的 /brands」⇒ 全套 4695 綠對這個矛盾完全無感,**那條測試正是在保護錯的那一半**。已改 href + 改寫該測試。⚠️ 每一列的 `?brand=<slug>` **維持不動**(那是『看這個品牌的商品』、不是『看品牌介紹』,兩者不同意圖;品牌介紹的入口是 /brands 總覽的卡片)。前:2026-08-04 [D3c-2 零商品品牌泛白不可點]:收 `availableSlugs` prop,目錄零商品的品牌那幾列渲染成 `<span>`(不是拿掉 href 的 `<a>`、也不是 aria-disabled)、不畫箭頭、加一句只給報讀器的「(暫無商品)」;`home.css` 版面選擇器 `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)` 兩處(子選擇器,寫成後代會讓列內每個 span 都吃到 grid)。前:2026-07-05 [Q4-S5]:品牌連結 /brands*→/products?brand=(當時路由不存在=404)"
+      last_modified_commit: "0ce3a12"  # 記可達祖先=D5a 的父 commit(#180 案 A);前錨 f08a4c1=D3c-5 父 commit
+      last_modified_date: "2026-08-05 [D5a 首頁區塊重排連動;**只動 CSS 底色、本元件 .tsx 零改動**]:`.ed-brands` 底色由 `var(--ed-c-paper)`(白)改 `var(--ed-c-paper-2)`(淺灰白)—— OD README 表逐字「08-02 改淺,原色 logo 可讀性」,這一格是節奏「白 白 深 白 淺灰白 深」的倒數第二塊、用來把頁尾那塊深色墊出來。⚠️ 本條目的 20 家 logo 磚牆重寫是 **D5f**,尚未做;現況仍是吃 MOCK_BRANDS(17 筆)的純文字牆。前:2026-08-05 [D3c-5 品牌入口全站收口]:表頭「品牌專區」href `/products` → **`/brands`**。🔴 這顆是關卡2 R1 抓到的**漏網**——交接單寫「三個消費端」,照著收就漏了它,結果首頁上同一個『品牌專區』標籤出現兩次、指到兩個地方(表頭 /products、頁尾 /brands);而 `BrandIndex.test.tsx` 有一條**主動鎖住舊值**、註解還寫「不再指向不存在的 /brands」⇒ 全套 4695 綠對這個矛盾完全無感,**那條測試正是在保護錯的那一半**。已改 href + 改寫該測試。⚠️ 每一列的 `?brand=<slug>` **維持不動**(那是『看這個品牌的商品』、不是『看品牌介紹』,兩者不同意圖;品牌介紹的入口是 /brands 總覽的卡片)。前:2026-08-04 [D3c-2 零商品品牌泛白不可點]:收 `availableSlugs` prop,目錄零商品的品牌那幾列渲染成 `<span>`(不是拿掉 href 的 `<a>`、也不是 aria-disabled)、不畫箭頭、加一句只給報讀器的「(暫無商品)」;`home.css` 版面選擇器 `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)` 兩處(子選擇器,寫成後代會讓列內每個 span 都吃到 grid)。前:2026-07-05 [Q4-S5]:品牌連結 /brands*→/products?brand=(當時路由不存在=404)"
     design:
       component: "design-reference/components/HomePage.jsx"  # N°06 Authorized brands 段
       css: "design-reference/styles/home.css"
@@ -1362,14 +1362,35 @@ components:
         plan: "#195 完成後解除 disabled、tab 走 <Link href='/vehicle-search'>"
       # cartRoute drift 已於 M-3-S2-b2-d resolved(/cart route 建、見 business_overrides.cartTabEnabled)
 
+  HomeStatement:
+    last_modified_commit: "0ce3a12"  # 記可達祖先=D5a 的父 commit(#180 案 A);首建本條(此前僅在候選列表)
+    last_modified_date: "2026-08-05 [D5a 首頁區塊重排;本條目為 D5a 補建 —— 本元件此前只在 `:1394` 的候選列表裡、沒有正式條目,而 D5a 觸到它(manifest 規範:觸到就建條目)]:①位置由第 6 上移到 **N°04**(OD README「區塊順序(第 7 步之後)」定案:服務宣言原 N°05、與本月聚焦對調)②版面編號字面 `N°05 · Service` → `N°04 · Service`(權威 = OD direction-b-layout-01-graphite-ember.html:908;README 逐字「編號是位置標記不是內容 id」)③底色 `#0a0a0a` → **石墨 `#202225`**(direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值)。⚠️ 元件內部文案與結構零改動 —— 其中「8 大品牌正式代理」的家數對齊是 **D5d**,卡 Sean 的 Q1(母計畫 §10 標為廣告不實風險,家數是事實題)。"
+    design:
+      component: "design-reference/components/HomePage.jsx (ed-statement / N°05 Service section)"
+      css: "design-reference/styles/home.css (.ed-statement 家族)"
+    related_storefront:
+      - "apps/storefront/src/app/page.tsx"  # 區塊順序的唯一組合點(D5a 重排)
+      - "apps/storefront/src/styles/home.css"  # .ed-statement 底色(D5a 改石墨)
+    business_overrides: []
+
+  FeatureEditorial:
+    last_modified_commit: "0ce3a12"  # 記可達祖先=D5a 的父 commit(#180 案 A);首建本條(此前僅在候選列表)
+    last_modified_date: "2026-08-05 [D5a 首頁區塊重排;本條目為 D5a 補建,理由同 HomeStatement]:①位置由第 3 下移到 **N°05**(與服務宣言對調)②版面編號字面 `N°02` → `N°05`(權威 = OD direction-b-layout-01-graphite-ember.html:943)。⚠️ 元件內容零改動 —— 現況仍是**硬編 RIZOMA**、三組 fact 是「標籤+值」兩欄(OD README 要的第三欄「說明句」尚未有);改成 20 家資料驅動、每 3 天輪播是 **D5e**,卡 Sean 的 Q4。"
+    design:
+      component: "design-reference/components/HomePage.jsx (ed-feature / N°02 This month section)"
+      css: "design-reference/styles/home.css (.ed-feature 家族)"
+    related_storefront:
+      - "apps/storefront/src/app/page.tsx"  # 區塊順序的唯一組合點(D5a 重排)
+    business_overrides: []
+
   HomeSelect:
-    last_modified_commit: "e9ab418"  # 記可達祖先(=e9ab418);首建本條(此前僅候選列表)、#5b 修真改見 git log
-    last_modified_date: "2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
+    last_modified_commit: "0ce3a12"  # 記可達祖先=D5a 的父 commit(#180 案 A);前錨 e9ab418=#5b 修
+    last_modified_date: "2026-08-05 [D5a 首頁區塊重排連動]:本區塊由第 5 個位置上移到 **N°02**(OD README「區塊順序(第 7 步之後)」定案),版面編號字面 `N°04` → `N°02`(權威 = OD direction-b-layout-01-graphite-ember.html:755)。🔴 README 逐字「編號是**位置標記不是內容 id**」⇒ 編號跟著位置走。元件內部結構與資料流零改動。前:2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
     design:
       component: "design-reference/components/HomePage.jsx (L197-212 ed-select / The Selection · 編輯精選 section)"
       css: "design-reference/styles/home.css (L457-470 .ed-select / .ed-select-grid)"
     related_storefront:
-      - "apps/storefront/src/components/HomeSelect.tsx"  # N°04 編輯精選、4 ProductCard、server-side featured 真資料接入
+      - "apps/storefront/src/components/HomeSelect.tsx"  # N°02 最新商品(D5a 重排後;原 N°04 編輯精選)、4 ProductCard、server-side featured 真資料接入
       - "apps/storefront/src/components/HomeSelect.test.tsx"  # smoke test(三分支 + #5b slug href regression guard)
     business_overrides:
       - field: "productNavByHandle"
