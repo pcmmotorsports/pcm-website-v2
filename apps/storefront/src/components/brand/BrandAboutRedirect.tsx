@@ -47,8 +47,9 @@
 // 🔴🔴 **合法 slug 由 server 用 prop 傳下來,本檔不 import `BRAND_CONTENT`**(關卡2 R2 must-fix C):
 //    第一版直接 `import { BRAND_BY_SLUG } from '@/data/brand-content'` —— 那支是 2704 行、
 //    含 20 家全部文案的資料檔,而本元件是 **client**;於是**整份品牌全文被打包進 `/products`
-//    的 client bundle**,只為了驗 20 個 slug。我自己用 build 產物量到:`/products` 首載
-//    多一個 **49,656 bytes** 的 chunk(裡面找得到 KINEO 的「手工鍛造鋼絲輪框」那句文案)。
+//    的 client bundle**,只為了驗 20 個 slug。build 產物實測(修前/修後各重建):含品牌
+//    全文的 chunk **105,164 bytes**、修法後 `/products` 首載 **-83,650 bytes** 歸零命中
+//    (主視窗收割時以四句 brand-content 專屬長句 grep 全部首載 chunk 驗證)。
 //    ⇒ 改成由 `app/products/page.tsx`(server component)算好 slug 陣列傳進來:
 //      **單一真相仍是 `BRAND_CONTENT`**(不另立一份會漂移的名單),而 client 只拿到 20 個短字串。
 

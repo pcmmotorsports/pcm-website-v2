@@ -16,7 +16,7 @@ import { ProductsPage } from '@/components/ProductsPage';
 import { BrandAboutRedirect } from '@/components/brand/BrandAboutRedirect';
 // 🔴 這支在**本檔(server component)**被 import 是刻意的:合法 slug 由 server 算好傳下去,
 //    `BrandAboutRedirect` 自己不 import 它 —— 否則 2704 行的品牌全文會進 client bundle
-//    (關卡2 R2 must-fix C 實測:`/products` 首載多 49,656 bytes)。
+//    (關卡2 R2 must-fix C 實測:含品牌全文的 chunk 105,164 bytes、修法後 /products 首載 -83,650 bytes)。
 import { BRAND_CONTENT } from '@/data/brand-content';
 import {
   fetchCatalogPage,
