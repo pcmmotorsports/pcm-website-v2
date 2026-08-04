@@ -76,13 +76,14 @@ describe('Header', () => {
     expect(screen.getByLabelText('購物車')).toBeDefined();
   });
 
-  // 🔴 導覽列連結目的地守門(2026-07-22):Header 的「品牌」原本指向不存在的 /brands,
-  //   客人按了吃 404 —— 頁尾「品牌專區」早已依 Q4-S5 拍板改指 /products,Header 是漏改的第二個消費端。
-  //   本測試把整組 href 鎖住,任何人改動導覽目的地都會當場轉紅、必須是刻意的。
+  // 🔴 導覽列連結目的地守門。本測試把整組 href 鎖住,任何人改動導覽目的地都會當場轉紅、
+  //   必須是刻意的。
+  //   沿革:2026-07-22 因為 `/brands` route 不存在(客人按了吃 404)把「品牌」改指 `/products`;
+  //   **D3c-3 那條 route 落地、D3c-4 進了 sitemap ⇒ D3c-5 改回 `/brands`**,前提消失。
   //   ⚠️ /install 與 /stores 目前**仍是已知死連結**(backlog #269、待 Sean 定內容),
   //      刻意鎖住現況以免被誤讀成「已修好」;#269 收斂時本測試會轉紅,那是預期的提醒。
-  describe('導覽列連結目的地 (2026-07-22 品牌死連結修正 + #269 現況鎖)', () => {
-    it('每個導覽項目的 href 與預期一致,且「品牌」不再指向不存在的 /brands', () => {
+  describe('導覽列連結目的地 (D3c-5 品牌改指 /brands + #269 現況鎖)', () => {
+    it('每個導覽項目的 href 與預期一致,「品牌」指向已落地的 /brands', () => {
       const { container } = renderWithCart(<Header isMobile={false} />);
       const nav = container.querySelector('.pcm-nav') ?? container.querySelector('nav');
       const actual = Array.from(nav?.querySelectorAll('a') ?? []).map((a) => [
@@ -95,14 +96,16 @@ describe('Header', () => {
         // 🔴 2026-08-03 Sean 拍 B 案「同落地+開燈」:非首頁一律 /products?pick=vehicle。
         //    本 case 沒帶 currentPage ⇒ 吃預設 'products' ⇒ 走這一支。首頁那一支見下一條測試。
         ['依車輛搜尋', '/products?pick=vehicle'],
-        ['品牌', '/products'], // 🔴 Phase 2 才有品牌頁;先對齊頁尾、不得改回 /brands
+        ['品牌', '/brands'], // ✅ D3c-3 落地、D3c-5 接回;與頁尾「品牌專區」同一個目的地
         ['新品', '/products?filter=new'],
         ['特價', '/products?filter=sale'],
         ['安裝預約', '/install'], // ⚠️ 已知死連結 = backlog #269
         ['合作店家', '/stores'], // ⚠️ 已知死連結 = backlog #269
       ]);
-      // 明確斷言:不得有任何導覽項目再指向 /brands
-      expect(actual.some(([, href]) => href === '/brands')).toBe(false);
+      // ⚠️ 這裡**刻意不再補一條「/brands 恰好出現一次」的反面斷言**(關卡2 R1 nit):
+      //    上面那個整表 `toEqual` 已經嚴格蘊含它 —— 多寫一條看起來更保險、實際零判別力,
+      //    而零判別力的斷言會讓人以為這一面被守著。真正該擔心的「有人改回 /products」
+      //    由整表那條負責。
     });
 
     // 🔴 這條與上一條是**同一個 navItem 的兩個分支**,必須成對存在:

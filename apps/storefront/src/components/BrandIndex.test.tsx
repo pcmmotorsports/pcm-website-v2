@@ -11,6 +11,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { BrandIndex } from './BrandIndex';
+// 🔴 真的 import 頁尾來比對(見下面那條的理由:兩邊各寫硬字面 = 只改一邊也全綠)。
+import { HomeFooter } from './HomeFooter';
 import { MOCK_BRANDS } from '../data/mock-brands';
 
 afterEach(cleanup);
@@ -25,13 +27,28 @@ describe('BrandIndex', () => {
     expect(screen.getByText(MOCK_BRANDS[0]!.name)).toBeDefined();
   });
 
-  it('Q4-S5:品牌連結導 /products?brand=<slug>(修 /brands 404;= parseBrandFilterFromUrl 比對鍵)', () => {
+  it('品牌列導 /products?brand=<slug>(= parseBrandFilterFromUrl 的比對鍵)', () => {
     render(<BrandIndex availableSlugs={ALL} />);
     const first = MOCK_BRANDS[0]!;
     const link = screen.getByText(first.name).closest('a');
+    // 每一列 = 「看這個品牌的**商品**」⇒ 維持 `?brand=`,不是品牌介紹頁。
     expect(link?.getAttribute('href')).toBe(`/products?brand=${first.id}`);
-    // 「品牌專區」表頭連結不再指向不存在的 /brands
-    expect(screen.getByText('品牌專區').closest('a')?.getAttribute('href')).toBe('/products');
+  });
+
+  // 🔴 關卡2 R1 must-fix 1/2(D3c-5):這條原本**主動鎖住舊值**(`/products`)、註解還寫
+  //    「不再指向不存在的 /brands」—— 而那個前提在 D3c-3 就消失了。
+  //    結果:首頁上「品牌專區」出現兩次(本元件表頭 + `HomeFooter`)、指到**兩個不同的地方**,
+  //    而全套 4695 綠對這個矛盾完全無感,因為這條測試正是在保護錯的那一半。
+  //    ⚠️ 測試名說「與頁尾同一個目的地」就要**真的去比頁尾**,不能兩邊各寫一次硬字面
+  //    (關卡2 R2 nit:各寫硬字面時,有人只改一邊仍然兩條都綠 —— 那正是本次缺陷的形狀)。
+  it('🔴 表頭「品牌專區」與頁尾同名連結**同一個**目的地(= 已落地的 /brands)', () => {
+    const { unmount } = render(<BrandIndex availableSlugs={ALL} />);
+    const indexHref = screen.getByText('品牌專區').closest('a')?.getAttribute('href');
+    unmount();
+    render(<HomeFooter />);
+    const footerHref = screen.getByText('品牌專區').closest('a')?.getAttribute('href');
+    expect(indexHref, '表頭與頁尾的「品牌專區」指到不同地方').toBe(footerHref);
+    expect(indexHref).toBe('/brands');
   });
 });
 

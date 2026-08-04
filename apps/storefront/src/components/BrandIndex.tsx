@@ -4,10 +4,13 @@
 // design 用 window.PCM_DATA.brands → 改 import { MOCK_BRANDS }
 //
 // M-1-04 刀 1b2:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
-// onNav target 對映(本檔):'brands' → /products / 'brand-detail'+brandId → /products?brand=${b.id}
-// 🔴 Q4-S5(2026-07-05):原 link `/brands` 與 `/brands/${id}` 路由不存在 → 404;改導 /products?brand=<slug>
-//   (b.id=品牌 slug=buildBrandTaxonomy 衍生 id;有商品品牌→過濾該品牌、無商品品牌→fail-safe 顯全部、
-//   不再 404)。品牌專屬頁(/brands/[slug])留 Phase 2(#205 系列)。
+// onNav target 對映(本檔):'brands' → **/brands** / 'brand-detail'+brandId → /products?brand=${b.id}
+// 沿革:Q4-S5(2026-07-05)因為 `/brands` 與 `/brands/${id}` 路由不存在(404)才改導
+//   `/products?brand=<slug>`。**那個前提已消失** —— `/brands` 於 D3c-3 落地、`/brands/<slug>` 於
+//   D3a 落地、兩者 D3c-4 都進了 sitemap。
+//   ⇒ **D3c-5 只把表頭那顆「品牌專區」改回 `/brands`**;下面每一列的 `?brand=<slug>` 維持不動,
+//     因為那是「看這個品牌的**商品**」、不是「看品牌介紹」,兩者是不同的意圖(品牌介紹頁的入口
+//     是 `/brands` 總覽的卡片)。改動這一半屬 D5 首頁重排的範圍。
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 //
 // ── D3c-2(2026-08-04):目錄零商品的品牌**泛白且不可點** ────────────────────────
@@ -51,7 +54,11 @@ export function BrandIndex({ availableSlugs }: { availableSlugs: ReadonlySet<str
           <span className="ed-mono">N°06</span>
           <span>Authorized brands · 授權代理</span>
         </div>
-        <Link href="/products" className="ed-link ed-link-sm">
+        {/* ✅ D3c-5 改回 `/brands`(關卡2 R1 must-fix 1 抓到的**真缺陷**):
+            這一顆與 `HomeFooter` 的「品牌專區」**同一頁、同一個標籤**,本片原本只收了
+            Header 與頁尾兩顆,漏了它 ⇒ 首頁上同名連結會指到兩個地方。
+            交接單上的「三個消費端」是**當時**的清單,不是全樹事實 —— 動這種東西要 grep 標籤字面。 */}
+        <Link href="/brands" className="ed-link ed-link-sm">
           <span>品牌專區</span>
           <span className="ed-link-arrow" aria-hidden="true">→</span>
         </Link>

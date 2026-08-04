@@ -48,15 +48,25 @@ export const brandVehiclePickUrl = (slug: string): string =>
  *        它「是正式站的網址契約」。計畫 §3(spec:84)也是這樣寫的。
  *
  * 本函式回 `/brands/<slug>` = 計畫 §3 推薦的 **A 案**(新 route + 舊字面靠 redirect 保住)。
- * 🔴 **A 案有一條配套債還沒還**:計畫 §3 逐字要求 `/products?pbrand=X#brand-about` 加一條
- *    `redirect()`,否則設計稿字面連結(以及任何已經散出去的舊連結)會落在商品目錄、
- *    `#brand-about` 沒有錨點 = 停在頁首。見 backlog #314。
- *    **D3a 實查結論:hash 永遠不送到 server ⇒ 那條 redirect 只能做 client 側**,已排進 D3c
- *    (信箱 C-25-Q Q1 → C-26-A 核可;#314 的「狀態」欄同步記了這個歸屬)。
+ * ✅ **A 案的配套債(#314)已於 D3c-5 還清**:計畫 §3 逐字要求 `/products?pbrand=X#brand-about`
+ *    要轉去品牌介紹頁,否則設計稿字面連結(以及任何已經散出去的舊連結)會落在商品目錄、
+ *    `#brand-about` 沒有錨點 = 停在頁首。
+ *    **D3a 實查結論:hash 永遠不送到 server ⇒ 只能做 client 側**(信箱 C-25-Q Q1 → C-26-A 核可)
+ *    ⇒ 實作在 `components/brand/BrandAboutRedirect.tsx`,行為邊界逐條寫在該檔檔頭。
  * ✅ **`/brands/<slug>` 自 D3a 起是活的**(`app/brands/[slug]/page.tsx`)—— 本行原本寫
  *    「D3 落地前是死連結」,那個前提已消失(關卡2 R2 must-fix 6)。
- * 🔴 **但 `/brands` 總覽本身仍是死連結**:D2b 的麵包屑第二段(`BrandPageHeader.tsx:46`)
- *    與既有 `ProductBreadcrumb.tsx:57,60` 都指它,屬 **D3c**(=計畫 §8.2 的 D4)。
+ * ✅ **`/brands` 總覽自 D3c-3 起也是活的**(`app/brands/page.tsx`)—— 本行原本寫「仍是死連結」,
+ *    那個前提也已消失。
+ *    · `BrandPageHeader.tsx` 的麵包屑第二段本來就指 `/brands`,route 落地後**不改一行就活了**
+ *      (D3c-5 真瀏覽器實測點得進去)。
+ *    ⚠️ **但 `ProductBreadcrumb.tsx` 的 `from=brand` 分支不算**(關卡2 R1 must-fix 更正:
+ *      我原本把兩支一起宣稱「自動活了」):它的 href 字面是對的,可是全 `src` **零產生端**
+ *      —— 沒有任何地方產出 `?from=brand&sourceId=<slug>` 的商品頁連結(唯一命中是它自己的
+ *      測試),品牌頁的商品卡走的是乾淨的 `/products/<slug>`。**字面對 ≠ 有人走得到**。
+ *      ⚠️ 精確一點(關卡2 R2 nit):那個分支**不是不可達** —— 手打或外部連結帶上
+ *      `?from=brand&sourceId=akrapovic` 就會走到(它讀的是 `useSearchParams`);
+ *      不可達的是「站內有東西產生它」。兩者差在「壞了誰會發現」:今天沒有人會。
+ *      「品牌頁點進商品後麵包屑要不要帶品牌來源」是另一個題目,不在本線範圍。
  */
 export const brandIntroUrl = (slug: string): string => `/brands/${encodeURIComponent(slug)}`;
 

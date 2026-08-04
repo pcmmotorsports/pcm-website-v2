@@ -14,15 +14,13 @@
 //    (`Header.tsx:104-107` 逐字:只有 `app/page.tsx` 傳 `currentPage="home"`)。品牌頁不是首頁,
 //    這是對的分支;`Header.test.tsx` 那組對照表守的也是這一支。
 //
-// **本片刻意沒做的三件事**(全部有主;不是漏掉,但也不要當成「已經有了」):
+// **D3a 當時刻意沒做的三件事,到 D3c-5 已全部補完**(保留條目是為了讓沿革查得到):
 //
-// ⚠️ ① **`/brands` 總覽頁** —— 麵包屑第二段(`BrandPageHeader.tsx:46`)與磚牆都指得到它,
-//      但那條 route 屬 **D3c**(=計畫 §8.2 的 D4)。D3a 落地後 `/brands/<slug>` 這一半先活。
-// 🔴 ② **`#314` 的 redirect 沒做** —— backlog `docs/phase-1-backlog.md:8395-8396` 逐字要求
-//      「D3 建 `app/brands/[slug]/page.tsx` 時,**同片**在 `/products` 側加 redirect」。
-//      本片建了那個檔卻沒附 redirect,**是刻意延到 D3c**(信箱 C-25-Q Q1 → C-26-A 核可:
-//      hash 永遠不送到 server ⇒ 只能做 client 側,與 `/brands` 總覽同片收比較完整)。
-//      在 D3c 落地前,`/products?pbrand=X#brand-about` 仍會停在商品目錄頁首、零錯誤訊息。
+// ✅ ① ~~`/brands` 總覽頁~~ **D3c-3 已落地**(`app/brands/page.tsx`)—— 麵包屑第二段與磚牆
+//      指的就是它。D3a 落地時先活的是 `/brands/<slug>` 這一半。
+// ✅ ② ~~`#314` 的 redirect 沒做~~ **D3c-5 已補**:`components/brand/BrandAboutRedirect.tsx`
+//      掛在 `app/products/page.tsx`。當初延後的理由(hash 永遠不送到 server ⇒ 只能 client 側)
+//      仍然成立、寫在那支的檔頭;信箱 C-25-Q Q1 → C-26-A 核可的是「延到 D3c 做」,不是不做。
 // ✅ ③ ~~`/brands/<slug>` 不在 `sitemap.xml` 裡~~ **D3c-4 已補**:`lib/seo.ts` 的
 //      `buildSitemapEntries` 多一個必填的 `brandSlugs`,20 頁全部進地圖(含目錄零商品那 5 家 ——
 //      泛白的是入口、不是頁面本身)。`/brands` 總覽也一併進了 `STATIC_SITEMAP_PATHS`。

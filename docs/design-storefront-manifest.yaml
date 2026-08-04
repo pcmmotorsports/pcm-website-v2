@@ -277,8 +277,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/HomeFooter.tsx"
       css: "apps/storefront/src/styles/home.css"  # .ed-footer* 家族、全域 import via layout.tsx
-      last_modified_commit: "b2fa9af"  # 記可達祖先(=D3a 父 commit);本 slice 真改見 git log [D3a]:加 optional `tagline` prop。前 "ba11135"(=Q4-S5 父 commit=V1 生命週期補強);Q4-S5 真改:品牌專區連結 /brands→/products(修 404、路由不存在;route-migration drift、非視覺結構改);/install /stores ?filter=new|sale 死連結記 backlog #269 未動。前 [P0-C-b1]:門市營業時間 20:00→19:00(Sean 全站同步)
-      last_modified_date: "2026-08-04 [D3a 品牌頁正式 route]:加 optional `tagline` prop —— 設計稿的頁尾標語**每頁不同**(Open Design `pcm-home-redesign/brand-page.html:1510-1512` 註解逐字「首頁講品牌態度、品牌總覽講選部品、這一頁講『這家品牌』—— 20 家各一句」;灌值在 `:2029`)。不給 prop 時字面完全不變(首頁與其餘既有掛載點零影響),兩條成對測試守住(只留「有給 prop 就取代」那條的話,有人刪掉預設值讓首頁標語變空也全綠)。🔴 **頁尾「品牌專區」連結仍指 `/products`** —— `/brands` 總覽頁屬 D3c(=接線計畫的 D4),那一片會把它、Header 導覽列、`ProductBreadcrumb` 三個消費端一起改回 `/brands`。前:2026-07-24 [#291 法律頁實作]:頁尾「服務」欄新增 `/terms`、`/privacy` 兩個 <Link>(法律頁須從任何頁可達、不能只在結帳/註冊才找得到);零 CSS、零其他變更。前:2026-07-05 [Q4-S5 品牌專區死連結修]:「品牌專區」<Link href> /brands→/products(路由不存在=404;品牌專屬頁留 Phase 2);同 slice BrandIndex/FeatureEditorial 品牌連結 /brands*→/products?brand=(見 ProductsPage 條目、二者未追蹤)。前:2026-07-03 (Q2=A social 接真:三顆社群 button disabled〔#136〕→ 回 design <a> 結構 + SOCIAL_URLS 真連結 + _blank/noopener、聯絡客服仍 disabled;home.css 順刪 #136 殘留死選擇器「, .ed-footer-social button」。前次 A4:門市電話/統編佔位 → site-config 真值〔0930-531-867 / 90003020〕、HomeFooter.test 防回歸斷言)"
+      last_modified_commit: "f08a4c1"  # 記可達祖先(=D3c-5 的父 commit;#180 案 A);本 slice 真改見 git log [D3a]:加 optional `tagline` prop。前 "ba11135"(=Q4-S5 父 commit=V1 生命週期補強);Q4-S5 真改:品牌專區連結 /brands→/products(修 404、路由不存在;route-migration drift、非視覺結構改);/install /stores ?filter=new|sale 死連結記 backlog #269 未動。前 [P0-C-b1]:門市營業時間 20:00→19:00(Sean 全站同步)
+      last_modified_date: "2026-08-04 [D3a 品牌頁正式 route]:加 optional `tagline` prop —— 設計稿的頁尾標語**每頁不同**(Open Design `pcm-home-redesign/brand-page.html:1510-1512` 註解逐字「首頁講品牌態度、品牌總覽講選部品、這一頁講『這家品牌』—— 20 家各一句」;灌值在 `:2029`)。不給 prop 時字面完全不變(首頁與其餘既有掛載點零影響),兩條成對測試守住(只留「有給 prop 就取代」那條的話,有人刪掉預設值讓首頁標語變空也全綠)。✅ **頁尾「品牌專區」已於 D3c-5 改回 `/brands`**(`/brands` 總覽頁 D3c-3 落地)。⚠️ 上一版這裡寫「D3c 會把它、Header、`ProductBreadcrumb` 三個消費端一起改」——**那張名單第三顆是錯的**:實際的第三顆是 `BrandIndex` 表頭那顆同名連結(D3c-5 關卡2 R1 抓到的漏網),而 `ProductBreadcrumb` 的 `from=brand` 分支 href 字面本來就對、且全 `src` 零產生端(字面對 ≠ 走得到)。同片新增「購物欄四個目的地」守門(改前那四個目的地零測試)。前:2026-07-24 [#291 法律頁實作]:頁尾「服務」欄新增 `/terms`、`/privacy` 兩個 <Link>(法律頁須從任何頁可達、不能只在結帳/註冊才找得到);零 CSS、零其他變更。前:2026-07-05 [Q4-S5 品牌專區死連結修]:「品牌專區」<Link href> /brands→/products(路由不存在=404;品牌專屬頁留 Phase 2);同 slice BrandIndex/FeatureEditorial 品牌連結 /brands*→/products?brand=(見 ProductsPage 條目、二者未追蹤)。前:2026-07-03 (Q2=A social 接真:三顆社群 button disabled〔#136〕→ 回 design <a> 結構 + SOCIAL_URLS 真連結 + _blank/noopener、聯絡客服仍 disabled;home.css 順刪 #136 殘留死選擇器「, .ed-footer-social button」。前次 A4:門市電話/統編佔位 → site-config 真值〔0930-531-867 / 90003020〕、HomeFooter.test 防回歸斷言)"
     design:
       component: "design-reference/components/HomePage.jsx"  # SiteFooter 在 design 是 HomePage 內元素(L327/L333 佔位)
       css: "design-reference/styles/home.css"
@@ -299,6 +299,27 @@ components:
         decision_source: "Sean 2026-07-03 決策批次 Q2=A(三個都接真連結)"
         backlog: "#248"
         reason: "真連結已存 site-config(Sean 2026-06-21 提供)、disabled 佔位的前提(無真連結)已不成立"
+    open_drifts: []
+
+  BrandIndex:
+    storefront:
+      component: "apps/storefront/src/components/BrandIndex.tsx"
+      css: "apps/storefront/src/styles/home.css"  # .ed-brands / .ed-brand-* 家族
+      last_modified_commit: "f08a4c1"  # 記可達祖先(=D3c-5 的父 commit;#180 案 A)
+      last_modified_date: "2026-08-05 [D3c-5 品牌入口全站收口]:表頭「品牌專區」href `/products` → **`/brands`**。🔴 這顆是關卡2 R1 抓到的**漏網**——交接單寫「三個消費端」,照著收就漏了它,結果首頁上同一個『品牌專區』標籤出現兩次、指到兩個地方(表頭 /products、頁尾 /brands);而 `BrandIndex.test.tsx` 有一條**主動鎖住舊值**、註解還寫「不再指向不存在的 /brands」⇒ 全套 4695 綠對這個矛盾完全無感,**那條測試正是在保護錯的那一半**。已改 href + 改寫該測試。⚠️ 每一列的 `?brand=<slug>` **維持不動**(那是『看這個品牌的商品』、不是『看品牌介紹』,兩者不同意圖;品牌介紹的入口是 /brands 總覽的卡片)。前:2026-08-04 [D3c-2 零商品品牌泛白不可點]:收 `availableSlugs` prop,目錄零商品的品牌那幾列渲染成 `<span>`(不是拿掉 href 的 `<a>`、也不是 aria-disabled)、不畫箭頭、加一句只給報讀器的「(暫無商品)」;`home.css` 版面選擇器 `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)` 兩處(子選擇器,寫成後代會讓列內每個 span 都吃到 grid)。前:2026-07-05 [Q4-S5]:品牌連結 /brands*→/products?brand=(當時路由不存在=404)"
+    design:
+      component: "design-reference/components/HomePage.jsx"  # N°06 Authorized brands 段
+      css: "design-reference/styles/home.css"
+    business_overrides:
+      - field: "emptyCatalogBrands"
+        design_value: "design 每一列都是可點連結,沒有『這家目前沒商品』這個狀態"
+        storefront_value: "目錄零商品的品牌泛白且**語意上也不可點**(渲染成 `<span>`);判斷來源 `lib/brand-products.fetchBrandsWithProducts()` 由 `catalog_brand_counts` 衍生、**不寫死名單**,商品一上架自動恢復(最長延遲 15 分鐘 = `unstable_cache` 900s)。撈取失敗 fail-closed(全部當成沒商品)"
+        decided_at: "2026-08-04"
+        decision_source: "Sean 2026-08-04 拍板(信箱 C-31-A);主視窗 C-33-A 裁示首頁比照品牌頁磚牆一致執行"
+        backlog: "#315"
+        reason: "那幾家的入口點進去先是空目錄、再動一下篩選就變成全站商品(客人以為還在看那個品牌)"
+    related_storefront:
+      - "apps/storefront/src/data/mock-brands.ts"  # ⚠️ 靜態 17 家、已過期:真目錄 16 家裡有 3 家(akrapovic/ebc/k-speed)不在其中 ⇒ 首頁少列 3 個有商品的品牌。屬 D5 首頁重排
     open_drifts: []
 
   InfoShippingPage:
@@ -841,8 +862,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/Header.tsx"
       css: "apps/storefront/src/styles/header.css"
-      last_modified_commit: "8a3852e"  # 記可達祖先(=M-3 U2b 8a3852e、本片開工時 HEAD;非直接父、避 amend orphan);本次真改見 git log:導覽列「品牌」死連結修正
-      last_modified_date: "2026-07-22 (導覽列「品牌」死連結修正:href 由不存在的 /brands 改為 /products。🔴 **非新拍板、是漏改的第二個消費端**——HomeFooter「品牌專區」早已依 Q4-S5 拍板改指 /products〔`HomeFooter.tsx` 檔頭註解:『brands → /products(Q4-S5 修 404、品牌專區頁留 Phase 2)』〕,該次只改頁尾、Header 漏改,客人按上方導覽列「品牌」會吃 404。design-reference 無 BrandPage 元件 → 非 design 偏離,屬既有 routingAdaptation drift 的落實。新增 Header.test.tsx 導覽守門:鎖住全部 7 個 href 字面 + 明確斷言不得再出現 /brands;突變實測(改回 /brands)當場轉紅。⚠️ /install 與 /stores **仍是已知死連結**(backlog #269、待 Sean 定內容),測試刻意鎖住現況以免被誤讀成已修好。前:2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
+      last_modified_commit: "f08a4c1"  # 記可達祖先(=D3c-5 的父 commit;#180 案 A:不可記本片自己的 hash,amend 後會變 orphan);本次真改見 git log [D3c-5]:導覽列「品牌」改指已落地的 /brands
+      last_modified_date: "2026-08-05 [D3c-5 品牌入口全站收口]:導覽列「品牌」href `/products` → **`/brands`**。🔴 **這是把 2026-07-22 那次的前提翻回來** —— 當時改指 /products 的理由是「`/brands` route 不存在、客人按了吃 404」,而那條 route 已於 **D3c-3** 落地、**D3c-4** 進 sitemap ⇒ 前提消失。`Header.test.tsx` 的導覽對照表同片改(整表 7 個 href 的 `toEqual`;⚠️ 原本那條「明確斷言不得再出現 /brands」**已刪除** —— 它在前提消失後會從守門變成共犯)。同片一併改的還有 `HomeFooter`「品牌專區」與 `BrandIndex` 表頭「品牌專區」,首頁三個入口現在同一個目的地。⚠️ /install 與 /stores **仍是已知死連結**(backlog #269、待 Sean 定內容),測試刻意鎖住現況。前:2026-07-22 (導覽列「品牌」死連結修正:href 由不存在的 /brands 改為 /products;非新拍板、是漏改的第二個消費端)。前:2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
     design:
       component: "design-reference/components/Header.jsx"
       css: "design-reference/styles/header.css"

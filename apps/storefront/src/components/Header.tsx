@@ -105,13 +105,11 @@ export function Header({
       label: '依車輛搜尋',
       href: currentPage === 'home' ? '/#vehicle-finder' : '/products?pick=vehicle',
     },
-    // 🔴 **這一顆的 href 已經過期,但刻意還沒改**(D3c-4 關卡2 R1 must-fix 3 點名):
-    //   當年(Q4-S5)指 `/products` 的理由是「`/brands` route 不存在、客人按了吃 404」——
-    //   **那個前提在 D3c-3 就消失了**(`app/brands/page.tsx` 已落地),D3c-4 還把它進了 sitemap。
-    //   改成 `/brands` 屬 **D3c-5**:它動到**全站每一頁**的導覽目的地 + `Header.test.tsx`
-    //   的導覽對照表,值得自己一片自己驗(理由同 `app/brands/page.tsx` 檔尾那張清單)。
-    //   ⚠️ 在那之前 `/brands` 是「進了地圖、站內卻幾乎沒有入口」的狀態 —— 已知、有主、不是漏掉。
-    { id: 'brands', label: '品牌', href: '/products' },
+    // ✅ **D3c-5 改回 `/brands`**(這一顆的歷史:Q4-S5 當年指 `/products`,理由是
+    //   「`/brands` route 不存在、客人按了吃 404」;那個前提在 D3c-3 落地時就消失了)。
+    //   ⚠️ 這是**全站每一頁**的導覽目的地 ⇒ `Header.test.tsx` 的導覽對照表同片改、
+    //      並實際點過(不只改字面)。
+    { id: 'brands', label: '品牌', href: '/brands' },
     { id: 'new', label: '新品', href: '/products?filter=new' },
     { id: 'sale', label: '特價', href: '/products?filter=sale', sale: true },
     { id: 'install', label: '安裝預約', href: '/install' },

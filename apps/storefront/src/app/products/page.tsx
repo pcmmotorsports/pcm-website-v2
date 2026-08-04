@@ -13,6 +13,11 @@
 
 import type { Metadata } from 'next';
 import { ProductsPage } from '@/components/ProductsPage';
+import { BrandAboutRedirect } from '@/components/brand/BrandAboutRedirect';
+// 🔴 這支在**本檔(server component)**被 import 是刻意的:合法 slug 由 server 算好傳下去,
+//    `BrandAboutRedirect` 自己不 import 它 —— 否則 2704 行的品牌全文會進 client bundle
+//    (關卡2 R2 must-fix C 實測:`/products` 首載多 49,656 bytes)。
+import { BRAND_CONTENT } from '@/data/brand-content';
 import {
   fetchCatalogPage,
   fetchCatalogBrandTaxonomy,
@@ -98,14 +103,20 @@ export default async function ProductsRoute({ searchParams }: Props) {
   // P4:只回當頁公開 card DTO + total；車款仍走 direct + inherited RPC 語意。
   const { products, total, error } = await fetchCatalogPage(catalogQuery, vehicle);
   return (
-    <ProductsPage
-      products={products}
-      total={total}
-      error={error}
-      categories={categories}
-      brands={brands}
-      motoBrands={motoBrands}
-      garage={garage}
-    />
+    <>
+      {/* backlog #314:設計稿的品牌介紹連結字面是 `/products?pbrand=X#brand-about`,而
+          **hash 不會送到 server** ⇒ 只能在瀏覽器裡認出來、轉去 `/brands/<slug>`。
+          無 hash 的 `?pbrand=X` 是正常的目錄篩選、一個字都不碰(行為邊界寫在該元件檔頭)。 */}
+      <BrandAboutRedirect knownSlugs={BRAND_CONTENT.map((b) => b.slug)} />
+      <ProductsPage
+        products={products}
+        total={total}
+        error={error}
+        categories={categories}
+        brands={brands}
+        motoBrands={motoBrands}
+        garage={garage}
+      />
+    </>
   );
 }
