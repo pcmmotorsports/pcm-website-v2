@@ -1,9 +1,12 @@
 // HomeStatement.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
-// (N°05 · Service · 黑色 slab、原廠授權 / 合作店家安裝 / 終身技術諮詢 三 col)
+// (N°04 · Service · 黑色 slab、原廠授權 / 合作店家安裝 / 終身技術諮詢 三 col)
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 2 條):'install' → /install / 'stores' → /stores
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
+//   🔴 D5a(2026-08-05)編號重標:OD `README.md`「區塊順序(第 7 步之後)」逐字
+//      「編號是位置標記不是內容 id,所以聚焦與服務對調後編號跟著位置走」⇒ 本檔編號隨新位置改。
+//      權威字面 = OD `direction-b-layout-01-graphite-ember.html:908`。
 
 import Link from 'next/link';
 
@@ -11,7 +14,7 @@ export function HomeStatement() {
   return (
     <section className="ed-statement">
       <div className="ed-statement-inner">
-        <div className="ed-mono ed-statement-tag">N°05 · Service</div>
+        <div className="ed-mono ed-statement-tag">N°04 · Service</div>
         <h2 className="ed-statement-h">
           下單之後,<br/>
           <em>真正的服務才開始。</em>

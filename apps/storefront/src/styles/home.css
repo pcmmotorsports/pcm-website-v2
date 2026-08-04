@@ -472,8 +472,11 @@
 /* ============================================================
    06 · STATEMENT (black slab with service story)
    ============================================================ */
+/* D5a(2026-08-05):N°04 服務宣言由 `#0a0a0a` 改**石墨 `#202225`**(OD README「區塊順序」表)。
+   石墨是 direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值。
+   ⚠️ 頁尾也要回石墨,但那是 **D7**,本片不動(母計畫 §1 切片表)。 */
 .ed-statement {
-  background: #0a0a0a;
+  background: #202225;
   color: #fff;
   padding: 140px 0;
 }
@@ -536,9 +539,14 @@
 /* ============================================================
    07 · BRAND INDEX (typographic list, hovers to underline)
    ============================================================ */
+/* D5a:N°06 授權代理由白改淺灰白 —— 用 **token `--ed-c-paper-2`**(OD README 表只寫 token 名、不寫 hex;
+   現值 `#f7f7f8`,OD 稿 direction-b 的對應色為 `#f6f6f7`、差一階 —— 本片不動該 token,
+   要不要收斂由 Sean 定)。表逐字:
+   「08-02 改淺,原色 logo 可讀性」)。這一格是節奏「白 白 深 白 淺灰白 深」的倒數第二塊,
+   用來把頁尾那塊深色墊出來、避免整頁收尾三連白。 */
 .ed-brands {
   padding: 100px 0 120px;
-  background: var(--ed-c-paper);
+  background: var(--ed-c-paper-2);
 }
 .ed-brand-list {
   max-width: var(--ed-max);

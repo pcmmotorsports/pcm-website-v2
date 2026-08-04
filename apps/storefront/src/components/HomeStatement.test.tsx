@@ -13,7 +13,7 @@ afterEach(cleanup);
 describe('HomeStatement', () => {
   it('should render the service statement section without crashing', () => {
     render(<HomeStatement />);
-    expect(screen.getByText('N°05 · Service')).toBeDefined();
+    expect(screen.getByText('N°04 · Service')).toBeDefined(); // D5a:編號隨位置(原 N°05)
     expect(screen.getByText('原廠授權')).toBeDefined();
   });
 });

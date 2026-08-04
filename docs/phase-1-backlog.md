@@ -6729,15 +6729,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **優先級:** 🟡 低
 - **問題:**
   - Q4-S5(2026-07-05)修首頁「分類卡無過濾 + 品牌牆 404」時順帶掃出**其餘死連結**(本輪 scope 外、未動):
-    - `/install`(HomeFooter 安裝預約)、`/stores`(HomeFooter 合作店家)→ 路由不存在 = 404。
-    - `?filter=new`(HomeHero/HomeSelect/HomeFooter 新品上架)、`?filter=sale`(特價專區)→ 全站無人讀 `?filter=`(products-url-state 只讀 sort)→ 點了無效果。
+    - `/install`、`/stores` → 路由不存在 = 404。
+    - `?filter=new` / `?filter=sale` → 全站無人讀 `?filter=`(products-url-state 只讀 sort)→ 點了無效果。
+  - 🔴 **2026-08-05 D5a 重數,原本的出處清單漏了兩個元件**(原寫「`/install`(HomeFooter)、
+    `/stores`(HomeFooter)」「`?filter=new`(HomeHero/HomeSelect/HomeFooter)」,並自稱「本條已列全」——
+    **那句是假的**)。首頁服役 HTML 精確 `href="..."` 比對(production build,**已排除 RSC flight payload
+    的重複字串** —— 直接數原始出現次數會多算,`?filter=new` 原始 7 次但真 href 只有 4 次):
+
+    | 連結 | 首頁實際 href 數 | 出處 |
+    |---|---|---|
+    | `/install` | **3** | `Header.tsx:115` / `HomeStatement.tsx:40` / `HomeFooter.tsx:59` |
+    | `/stores` | **3** | `Header.tsx:116` / `HomeStatement.tsx:44` / `HomeFooter.tsx:60` |
+    | `/products?filter=new` | **4** | `Header.tsx:113` / `HomeHero.tsx:29` / `HomeSelect.tsx:47` / `HomeFooter.tsx:54` |
+    | `/products?filter=sale` | **2** | `Header.tsx:114` / `HomeFooter.tsx:55` |
+
+    ⚠️ `Header` 是**全站**共用 ⇒ 那兩顆不只首頁有,每一頁都有;修法要一起算進去。
+    另 `ProductBreadcrumb.tsx:63,65` 也產 `?filter=` 連結(商品頁麵包屑),不在首頁但同一條契約債。
 - **觸發事件:** 上線前完整首頁點擊審(或 Sean 指定)。多品牌上線後瀏覽量增、踩到機率上升。
 - **預期解法:**
   - `/install`、`/stores`:建對應資訊頁(仿 `/info/shipping`)或暫移除連結(需 Sean 定內容)。
   - `?filter=new|sale`:products-url-state 加 `?filter=` 解析 → 對映 SortBar 'new'/'sale' 或 isNew/isSale extra filter(與 sort/vehicle/category/brand 入站 idiom 一致)。
 - **不修會痛在:**
   - 擴充性:未接的 `?filter=` 是半成品 URL 契約,新頁面沿用會複製壞連結。
-  - 可維護性:死連結散落多元件,愈晚修愈難盤點(本條已列全)。
+  - 可維護性:死連結散落多元件,愈晚修愈難盤點 —— **本條 2026-07-05 自稱「已列全」但實際漏了 Header 與 HomeStatement**,正是這個風險的實例。
   - bug 可追蹤性:客人回報「點了沒反應/404」時無單一出處對照。
 - **估時:** ?filter 接線 ~20min;/install /stores 視內容頁範圍(需 Sean 定)。
 - **發現於:** 2026-07-05 / Q4-S5 首頁死連結修復(recon §5)。
