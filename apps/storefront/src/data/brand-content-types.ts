@@ -65,7 +65,11 @@ export type BrandHighlights = {
   cards: BrandHighlightCard[];
 };
 
-/** 數字牆的一格。`plus` = 值後面要不要加「+」(實測 50 格中 10 格有,其餘無)。 */
+/**
+ * 數字牆的一格。`plus` = 值後面要不要加「+」。
+ * 實測 50 格中 **10 格帶這個鍵、但其中 rpm-carbon 那格是 `false`** ⇒ 真正會畫 `<sup>+</sup>` 的是 9 格。
+ * (原註解只寫「10 格有」,D2d-1 關卡2 N5 更正 —— 有鍵 ≠ 為真。)
+ */
 export type BrandStatItem = { n: string; l: string; s: string; plus?: boolean };
 
 export type BrandStats = { items: BrandStatItem[] };

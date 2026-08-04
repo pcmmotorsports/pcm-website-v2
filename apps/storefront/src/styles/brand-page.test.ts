@@ -266,6 +266,66 @@ describe('品牌頁 CSS · 影片右欄(D2c-2)', () => {
   });
 });
 
+describe('品牌頁 CSS · Why 與數字條(D2d-1)', () => {
+  it('🔴 數字條欄數吃 --num-n(寫死 4 會讓只有 3 個數字的 6 家多一格空白 + 斷掉的分隔線)', () => {
+    expect(CSS).toContain('repeat(var(--num-n, 4)');
+    expect(CSS).not.toMatch(/\.bp-nums\s*\{[^}]*grid-template-columns:\s*repeat\(4/);
+  });
+
+  it('🔴 ≤1024 兩欄版的「最後一列」要依 data-n 分流,不是寫死最後兩個', () => {
+    // 4 個排 2×2 時最後一列是第 3、4 個;3 個排成 2+1 時只有第 3 個。
+    // 寫死 `-n+2` 的話 3 個數字的第 2 格會提早收掉底線 → 第一列變成半條線
+    // (設計稿 :1164-1168 逐字)。這只在那 6 家 × ≤1024 才看得到。
+    const mid = mediaBlock('(max-width: 1024px)');
+    expect(mid, '找不到 ≤1024 區塊').toContain('.bp-nums');
+    expect(mid).toMatch(/\.bp-num:last-child\s*\{[^}]*border-bottom:\s*0/);
+    expect(mid).toMatch(/\.bp-nums\[data-n="4"\] \.bp-num:nth-last-child\(2\)/);
+    // 反面:不得退回寫死的 -n+2 版本
+    expect(mid).not.toContain('-n+2');
+    // 兩欄下右緣那條:偶數格必須收掉右線,否則第 2、4 格右邊各多一條懸空的線(關卡2 N1)
+    expect(mid).toMatch(/\.bp-num:nth-child\(2n\)\s*\{[^}]*border-right:\s*0/);
+  });
+
+  it('數字條與卡片之間那條分隔線(.bp-nums 的 border-top)必須在', () => {
+    // 關卡2 N1:整條 border-top 刪掉時 32 條測試全綠 —— 它是「卡片區」與「數字區」之間
+    // 唯一的視覺分界,沒有它兩塊會黏成一團。用 --c-border-strong(比卡片格線深一階)。
+    expect(CSS).toMatch(/\.bp-nums\s*\{[^}]*border-top:\s*1px solid var\(--c-border-strong\)/);
+  });
+
+  it('🔴 ≤1024 必須排在 ≤620 之前(同權重靠順序;反了手機收不成單欄)', () => {
+    // 前提斷言:兩塊都真的存在。少了這兩行,≤1024 被整段刪掉時 indexOf 回 -1,
+    // 而「620 的位置 > -1」恆真 ⇒ 這條會空過(關卡2 R2 nit)。
+    const mid = CSS.indexOf('@media (max-width: 1024px) {');
+    const small = CSS.indexOf('@media (max-width: 620px) {');
+    expect(mid, '找不到 ≤1024 區塊').toBeGreaterThan(-1);
+    expect(small, '找不到 ≤620 區塊').toBeGreaterThan(-1);
+    expect(small).toBeGreaterThan(mid);
+    // 前提斷言:≤620 真的有把數字條收成單欄,否則上面那條在守一個不存在的問題
+    expect(mediaBlock('(max-width: 620px)'))
+      .toMatch(/\.bp-nums\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+
+  it('🔴 卡片編號用 --c-ember-ink 不是 --c-red(白底上的熔橘過不了 AA)', () => {
+    // 白底 #f26722 只有 3.12:1,11px 小字要 4.5:1;ember-ink 是同色系深階 4.94:1。
+    // 深色底的年表(D2d-2)才仍用 --c-red(5.12:1)—— 順手「統一色票」會直接打掉一條 AA。
+    // 🔴 用 `[^}]*` 不是 `[\s\S]*?` —— 後者會越過 `}` 一路找到別條規則裡的 ember-ink
+    //    (`.bp-num-n sup` 就有)⇒ 把 .bp-why-num 的顏色改壞了測試照樣全綠(關卡2 M1 實測)。
+    //    反面那條同理:跨規則比對會在 D2d-2 帶進 `.bp-time-y{color:var(--c-red)}` 時誤紅。
+    expect(CSS).toMatch(/\.bp-why-num\s*\{[^}]*color:\s*var\(--c-ember-ink\)/);
+    expect(CSS).not.toMatch(/\.bp-why-num\s*\{[^}]*color:\s*var\(--c-red/);
+  });
+
+  it('🔴 Why 的基礎規則必須排在 ≤960 收單欄之前(同權重靠順序)', () => {
+    // 設計稿為了這件事特地開了第二個 ≤960 區塊(:1171-1173,它的 why/craft/time
+    // 基礎規則排在第一個 ≤960 之後)。本檔把基礎規則全放在 RWD 之前,所以不需要第二塊
+    // —— 但那個前提本身要被守住,否則手機版會退回 200px 兩欄。
+    expect(CSS.indexOf('.bp-why-inner {'))
+      .toBeLessThan(CSS.indexOf('@media (max-width: 960px) {'));
+    expect(mediaBlock('(max-width: 960px)'))
+      .toMatch(/\.bp-why-inner\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+  });
+});
+
 describe('品牌頁 CSS · 事實列欄數', () => {
   it('欄數吃 --fact-n(3 或 4 都要成立),不是寫死 4', () => {
     expect(CSS).toContain('repeat(var(--fact-n, 4)');

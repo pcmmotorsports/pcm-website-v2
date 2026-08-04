@@ -2,15 +2,15 @@
  *
  * 字面搬自 Open Design `pcm-home-redesign/brand-page.html` 的 <style>
  * (麵包屑 593-601、橫幅 604-641、事實列 643-657、About 659-688 + :961、
- *  影片右欄 977-1037 + 1055-1072;RWD 見檔尾)。
+ *  影片右欄 977-1037 + 1055-1072、Why 1074-1106;RWD 見檔尾)。
  * 鐵則 1 例外 = 2026-08-03 Sean 拍 Q1=B:本線 design 真權威在 Open Design。
  *
  * ⚠️ 設計稿 :1182 的 `.bp-film-cap{padding-bottom:14px}`(≤620)**刻意未搬**:
  *    整份設計稿只有那一處提到 `.bp-film-cap`,骨架用的是 `.bp-media-cap`(:1404)
  *    ⇒ 那是設計稿自己的死規則,搬過來只會多一條永遠不生效的 CSS。
  *
- * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media。
- *    why / craft / timeline / cats / others 與動效層由 D2d-D2e 逐片補進來,
+ * 🔴 本檔只含**已經有對應元件**的段落:D2b 的 crumb / band / facts + D2c 的 about / media
+ *    + D2d-1 的 why。craft / timeline / cats / others 與動效層由 D2d-2 與 D2e 逐片補進來,
  *    不要一次把整份 1304 行貼進來 —— 那會讓還沒有對應元件的 class 先躺在 repo 裡,
  *    誰也說不出哪些是活的。
  */
@@ -272,6 +272,62 @@
 /* 小註 —— 非必填,沒有就不要放(同構商品頁 N°02 的信任狀四格)。 */
 .bp-fact-s { display: block; margin-top: 8px; font-size: 13px; line-height: 1.6; font-weight: 400; color: var(--c-text-3); }
 
+/* ══ Why:差異點卡 + 底部數字條(D2d-1)═══════════════════════════
+ * 🔴 這一段的**位置**是它的行為之一:`.bp-why-inner` 的基礎規則必須排在下面
+ *    ≤960 收單欄那個區塊**之前**。同權重(都是 0-1-0)靠順序決勝,寫反了手機版
+ *    會退回 `200px minmax(0,1fr)` 兩欄 —— 設計稿為了這件事在 :1171-1173 特地開了
+ *    第二個 ≤960 區塊(它的 why/craft/time 基礎規則排在第一個 ≤960 之後)。
+ *    本檔的排法讓所有基礎規則都在 RWD 之前,所以不需要第二個區塊;D2d-2 搬 craft 時
+ *    照這個排法即可,**不要**連設計稿那個「第二個 ≤960 區塊」一起搬進來。
+ */
+.bp-why { border-bottom: 1px solid var(--c-border); }
+.bp-why-inner {
+  max-width: 1440px; margin: 0 auto;
+  padding-top: 56px; padding-bottom: 60px;
+  padding-left: var(--shell-x); padding-right: var(--shell-x);
+  display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
+}
+.bp-why h2 {
+  font-size: clamp(22px, 2.4vw, 30px); line-height: 1.15; letter-spacing: -.02em;
+  font-weight: 700; margin: 0 0 14px;
+}
+.bp-why-lead { font-size: 16px; line-height: 1.85; color: var(--c-text-2); margin: 0 0 30px; max-width: 60ch; }
+.bp-why-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--c-border); border-left: 1px solid var(--c-border);
+}
+.bp-why-card {
+  padding: 24px 26px 26px;
+  border-right: 1px solid var(--c-border); border-bottom: 1px solid var(--c-border);
+}
+/* 🔴 這裡用 `--c-ember-ink` 不是 `--c-red`,而且是可讀性不是品味:
+   白底上的熔橘 #f26722 只有 3.12:1,11px 小字過不了 AA 的 4.5:1;
+   ember-ink 是同色系深階(4.94:1)。深色底的年表(D2d-2)才仍用 --c-red(5.12:1)。
+   (設計稿 :1086-1087 逐字。)順手「統一成 --c-red」= 直接打掉一條 AA。 */
+.bp-why-num {
+  font-family: var(--f-mono); font-size: 11px; letter-spacing: .14em; color: var(--c-ember-ink);
+  display: block; margin-bottom: 12px;
+}
+.bp-why-card h3 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; margin: 0 0 9px; }
+.bp-why-card p { font-size: 14px; line-height: 1.8; color: var(--c-text-2); margin: 0; }
+.bp-why-card strong { color: var(--c-text); font-weight: 600; }
+/* 數字條:接在卡片下面的一條,不再自己占一整段深色帶(2026-08-02 併過來的)。
+   🔴 欄數吃 `--num-n`、不寫死 4:20 家裡有 6 家只有 3 個數字
+      (cnc-racing / eazi-grip / extreme / motogadget / rpm-carbon / wrs),
+      寫死 4 欄時第 4 格是空的,而且 `:last-child` 落在第 3 格 → 右邊多一條斷掉的分隔線。
+      作法與事實列的 --fact-n 一致,由元件設定。 */
+.bp-nums {
+  display: grid; grid-template-columns: repeat(var(--num-n, 4), minmax(0, 1fr));
+  margin-top: 28px; border-top: 1px solid var(--c-border-strong);
+}
+.bp-num { padding: 20px 20px 0; border-right: 1px solid var(--c-border); }
+.bp-num:last-child { border-right: 0; }
+.bp-num:first-child { padding-left: 0; }
+.bp-num-n { font-size: clamp(24px, 2.6vw, 32px); line-height: 1; letter-spacing: -.03em; font-weight: 700; }
+.bp-num-n sup { font-size: .48em; font-weight: 600; vertical-align: super; margin-left: 2px; color: var(--c-ember-ink); }
+.bp-num-l { font-size: 13px; font-weight: 600; margin-top: 9px; }
+.bp-num-s { font-size: 12px; line-height: 1.55; color: var(--c-text-3); margin-top: 4px; }
+
 /* ══ RWD ══════════════════════════════════════════════════════════
  * 只收**已落地段落**的規則。≤1180 目前只有 about/aside 那兩條(D2c-1 帶進來的);
  * others/grid 的部分留給 D2d-D2e。
@@ -327,6 +383,22 @@
   .bp-about-inner.has-portrait-media .bp-media { grid-column: 1 / -1; margin-top: 32px; }
 }
 
+/* 數字條收成兩欄(D2d-1)。斷點是 1024,與其他區塊的 1180/960 都不同 —— 設計稿 :1158 就這樣,
+   因為數字格的內容寬度(數字 + 標籤 + 小註)撐不到 1180 才需要收。
+   🔴 這一塊必須排在下面 ≤620 之前:兩者同權重,≤620 要收成單欄就得排在後面贏。 */
+@media (max-width: 1024px) {
+  .bp-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bp-num { padding-left: 20px; border-bottom: 1px solid var(--c-border); }
+  .bp-num:first-child { padding-left: 20px; }
+  .bp-num:nth-child(2n) { border-right: 0; }
+  /* 🔴 「最後一列」不是固定的最後兩個:4 個排 2×2 時最後一列是第 3、4 個;
+     3 個排成 2+1 時最後一列只有第 3 個。寫死 `-n+2` 的話,3 個數字的第 2 格
+     會提早收掉底線 → 第一列變成半條線。⇒ 依 data-n 分開處理(設計稿 :1164-1168)。
+     這也是元件端 `--num-n` 與 `data-n` 兩個都要設的原因。 */
+  .bp-num:last-child { border-bottom: 0; }
+  .bp-nums[data-n="4"] .bp-num:nth-last-child(2) { border-bottom: 0; }
+}
+
 @media (max-width: 960px) {
   .bp-band-inner { grid-template-columns: 1fr; gap: 36px; align-items: start; }
   .bp-band-logo { justify-content: flex-start; }
@@ -360,6 +432,13 @@
         每行起點對不齊,讀的人會一直找行首。這是可讀性不是品味(brand-page-integration.md §4b:204-208 逐字)。 */
   .bp-sec-label { padding-top: 0; text-align: center; }
   .bp-sec-label::after { margin-left: auto; margin-right: auto; }
+  /* Why 收單欄(D2d-1)。⚠️ 這裡的置中與 About 正文那條例外**不衝突**:
+     why 的 h2/lead 是標題與一句話,不是長段落;設計稿 :1173-1175 逐字就是置中。
+     (D2d-2 搬 craft/time 時 `.bp-craft-inner` / `.bp-time-inner` 也加進這一條。) */
+  .bp-why-inner { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .bp-why h2 { text-align: center; max-width: none; }
+  .bp-why-lead { text-align: center; margin-left: auto; margin-right: auto; }
+  .bp-why-grid { grid-template-columns: minmax(0, 1fr); }
   .bp-aside-card h3, .bp-aside-card p { text-align: center; }
   .bp-fact { text-align: center; }
   .bp-facts-inner { grid-template-columns: repeat(2, 1fr); }
@@ -373,6 +452,16 @@
   .bp-body p { line-height: 1.8; margin-bottom: 26px; }
   .bp-pull { font-size: 19px; margin: 28px 0; }
   .bp-aside { grid-template-columns: 1fr; }
+  /* 數字條再收成單欄(D2d-1)。左右 padding 收回 0,否則單欄下數字會離左緣一段。
+     🔴 **已知缺陷、逐字搬設計稿的結果、未自行偏離**(關卡2 M3;backlog #310):
+        本區塊沒有還原 `border-bottom`,而 ≤1024 的
+        `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:0}` 在這裡仍然命中
+        (max-width:1024 涵蓋 620)⇒ **4 個數字的 8 家在單欄下第 3、4 格之間少一條分隔線**。
+        390 實測:data-n=4 → 底線 [1px,1px,0px,0px];data-n=3 → [1px,1px,0px](3 個那 6 家正確)。
+        設計稿 :1183-1185 同一個洞 ⇒ 補一條 = 偏離設計字面 = 鐵則 1 走拍板路徑,本片不自行改。 */
+  .bp-nums { grid-template-columns: minmax(0, 1fr); }
+  .bp-num { border-right: 0; padding-left: 0; padding-right: 0; }
+  .bp-num:first-child { padding-left: 0; }
   .bp-facts-inner { grid-template-columns: 1fr; }
   .bp-fact { border-left: 0; padding-left: 0; padding-right: 0; }
   .bp-fact:not(:first-child) { padding-left: 0; border-top: 1px solid var(--c-border); }
