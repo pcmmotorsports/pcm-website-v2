@@ -74,6 +74,23 @@
 | | 27 | ✅ 改文字錨 | §0.3 |
 | | 28 | ✅ 刪掉重跑格的回滾推論 | §4 項 10 |
 
+### 0.6 🛑 R2 FAIL 凍結公告(2026-08-06;**本檔不得用來開工**)
+
+關卡1 **R2 = FAIL / 16 條 must-fix**(去重後),報告 `docs/reviews/2026-08-06-b2-s2a-k1-codex-r2.md`。
+**兩輪用盡 ⇒ 停,不開 R3;R2 findings 刻意不折入**(方向題沒拍板前折了會白折)。
+
+🔴 **v2 已知壞掉、不得照抄的四處(全是 v2 自己的修法引進的)**:
+
+| 位置 | 病 |
+|---|---|
+| §3.4 的 `LOCK TABLE … IN SHARE MODE` | 與合法 writer **鎖序相反**(writer 先 `shipment_items` 再 `shipments`;本片先 `shipments` 再等 `shipment_items`)⇒ **真 `40P01` 死結面** |
+| §3.4 的 `lock_timeout = '5s'` | 它限制「**我**等多久」,不限制「拿到鎖之後別人被擋多久」;且 code block **漏了 `statement_timeout`** |
+| §3.7 的 `rg 'S2a apply 說明'` oracle | **該字串就寫在本 plan 自己身上** ⇒ `CURRENT.md` 沒更新也會綠,**恆綠、零判別力** |
+| §2.1 的鐵則 11 DoD | 宣稱兩項全綠,§8 卻承認會 `command not found` ⇒ **把「必跑命令紅了仍繼續」寫進了 plan** |
+
+另有一條**方向題**已升級成 Sean 的決策題:**plan 該不該寫「必須先做才量得到的數字」**
+(鎖窗秒數 / harness 計數 / 實際估時)—— 詳 R2 報告末節與收工 STOP。
+
 ---
 
 ## §1 三條 CHECK 與蘊含
