@@ -1,6 +1,36 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🪟🪟🪟 **2026-08-05 夜:第四輪換窗 checkpoint(主視窗寫;新主視窗只讀本節,舊節按需)。**
+> 🪟🪟🪟🪟 **2026-08-06 凌晨:第五輪換窗 checkpoint(夜跑三窗版;新主視窗只讀本節,舊節按需)。**
+>
+> **你是誰**:pcm-website-v2 主視窗(指揮/收割/裁決,不下場實作)。三條夜跑線經信箱
+> `/Users/sean_1/pcm-mailbox/` 溝通(**先讀 README.md 全文,含補訂 1-7**;🔴 補訂 6=掃信箱用
+> `ls -t` 全看 mtime、絕不用號段最大號)。dev=`d426338` 已推、乾淨、**364 檔 5148 綠+1 todo**。
+>
+> **今晚三窗(全新開、派工單全在信箱)**
+> | 線 | worktree/分支 | 派工單 | 內容 |
+> |---|---|---|---|
+> | **D** | `pcm-site-redesign` | `D-113-A`+`D-114-A` | 重設計批1→批4 連跑(批5 checkout 禁);每批 STOP 不掛等待直接續;目標=Sean 早上看整站 |
+> | **B** | `pcm-a4a-chain` | `B-130-A` | S2 前置:兩個未確認件實跑+S2 plan 起草+關卡1;**不動 migration 實作** |
+> | **E**(新線) | `pcm-refund-wire`/`nine-code-retire`(自建分支) | `E-101-A` | 九碼退場 A9w1→A9w4c 硬序;4a/4b 高風險 codex 不降級;**清路不算進度** |
+>
+> **收割工法不變**:押住等 STOP(夜間=批次收割,施工窗 STOP 後自續不等 ACK)→ R1 FAIL 必有確認輪
+> (紀錄面=主視窗窄確認、行為面=fresh reviewer、第 3 輪起換模型換角度)→ `merge --no-ff` →
+> `turbo typecheck lint build --force` + 全套 `pnpm test` 精確調和(完整輸出留檔 scratchpad)→
+> 錢面加拋棄庫重跑(埠避開 54329/54331)→ STATUS 七欄收帳同 commit → push 持續授權。
+> 審查一律以 SHA 從主 repo `git show` 讀(工作樹是活的);派審前後留意唯讀違約(sha256 前例)。
+>
+> **開工儀式**:①讀本節+信箱 README ②重 arm 兩哨兵:信箱哨兵=`touch` 基準檔後
+> `find -newermt/-newer` 迴圈(絕不用號段 max);分支哨兵=盯 `a4a-chain`/`site-redesign`/
+> **`nine-code-retire`** 三分支 HEAD ③全量 `ls -t` 信箱補讀 ④等 STOP 收割。
+>
+> **等 Sean 的**:①⛔ **B2 出貨線三支 apply**(`20260805170000→170100→170200` 同批順序強制,
+> 前置全解除;Sean 說「排」→ 主視窗先跑唯讀前置檢查再給指令)②0c 肉眼驗截圖
+> (詳情頁+由黑變橘兩點,路徑在 `D-113-A` ③)③三筆資料(店家名單/工時費率/首頁家數)=暫無、佔位維持。
+>
+> **今夜已結**(詳 STATUS 最後更新前七條):A 取消線 Phase 1 全結(片 4+片 5,A 窗關)/
+> B 出貨線 S1 三顆 160/0 三方確認入 dev(B2 apply 佇列)/ D 第0批 0a/0b/0c 全結(對比度 Sean 拍 A 落 memory)。
+> 拍板全落檔:#8=B、項37=B、D5c=A 動態(Sean 逐字「真實分類 15 個」)、PREMIUM=C、對比度=A。
+> **決策題=prose code block A|B|C 轉 Sean、不走 UI;拍板即落 memory;字面 vs 事實高於一切。**
 >
 > **你是誰**:pcm-website-v2 主視窗(指揮/收割/裁決,不下場實作)。**四條施工線**經信箱
 > `/Users/sean_1/pcm-mailbox/` 溝通(**先讀該目錄 README.md 全文**,含補訂 1-5;號段:主視窗 `<代號>-1xx-A`、
