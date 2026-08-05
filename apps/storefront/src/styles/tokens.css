@@ -16,8 +16,10 @@
      = `.pcm-header-inner` 上下 padding + 最高子元素 `.pcm-icon-btn` + `.pcm-header` 下框線 1px。
      桌機 14+44+14+1 = 73;≤1079 的 padding 是 12(header.css 的 @media)⇒ 12+44+12+1 = 69。
      🔴 **為什麼要有這顆**:R2-3 把 `.pcm-icon-btn` 由 40 改 44,頁首就從 69 長到 73 ——
-        而全站有六支 CSS 把「頁首高度」寫成字面 `69px` / `64px` 當 sticky 偏移
-        (選車列、`.pp-head`、`.fs-side`、`.ft-bar`、`.ft-overlay`、手機控制列)。
+        而全站有 **5 支 CSS、12 條規則、14 個宣告**把「頁首高度」寫成字面 `69px` / `64px`
+        當 sticky 偏移(`.pp-head` 五個變體、`.cft-bar`、`.ft-bar` ×2、`.ft-overlay`、
+        `.fs-side` 兩個變體、`.pmc-sticky`)。
+        (初稿寫「六支」是**沒數就寫**;實數法 = `grep -c 'var(--shell-header-h)'` 那五支檔。)
         實測:改 44 之後捲動時頁首(z-index 50)蓋住選車列(z-index 40)**4px**、
         `.pp-head` 再疊 1px,而 typecheck / lint / 全套測試**全綠**、沒有任何東西會說一聲。
         ⇒ 改成單一來源:要調頁首高只改這裡,消費端一律 `var(--shell-header-h)` 或
@@ -80,14 +82,13 @@
      ⇒ 補定義之後後兩者是「由黑變橘」的**可見變化**,不是「紅換橘」。
      值 = `products-list-handoff.md` R1-1 逐字「`--c-accent`(經銷 pill 與經銷價)→ **#c4470c**」。 */
   --c-accent: #c4470c;
-  /* 🔶 0c / Sean 待決策(`D-105-A` Q1 = C 案)。
-     `tier.css` 的 `.tier-badge-premium` 吃的是**會員等級身分標記**,依上面規則①不該吃動作色;
-     而設計端對它**未表態**(OD `pcm-account.css:154` 明寫「真站是 `<TierBadge>` 元件、本稿只畫版位」)。
-     ⇒ 本 token 把**現值原封釘住** = 這一片對它**零視覺變更**,不是做決定、是把「還沒決定」
-        用程式碼誠實表達出來。
-     ⏳ **暫行:PREMIUM 的最終色待 Sean 拍板**;拍板前不要「順手」讓它跟著動作色走
-        (那會讓身分標記與 CTA 同色),也不要改墨黑(會與 `tier-badge-store` 撞成同款、
-        客人與員工分不出等級)。 */
+  /* 🔶 **Sean 2026-08-05 拍板定案 = C 案:身分色不跟動作色走**(`D-112-A` ①;
+     原 `D-105-A` Q1 的暫行值就此轉正,不再是「待拍板」)。
+     `tier.css` 的 `.tier-badge-premium` 吃的是**會員等級身分標記**,依上面規則①不吃動作色;
+     設計端對它未表態(OD `pcm-account.css:154` 明寫「真站是 `<TierBadge>` 元件、本稿只畫版位」),
+     Sean 直接拍了維持現紅 `#dc2626`。
+     🔴 不要「順手」讓它跟著動作色走(那會讓身分標記與 CTA 同色、牴觸規則①),
+        也不要改墨黑(會與 `tier-badge-store` 撞成同款、客人與員工分不出等級)。 */
   --c-tier-premium: #dc2626;
 
   /* Accent — RPM 碳纖質感金色點綴(OD-1)。

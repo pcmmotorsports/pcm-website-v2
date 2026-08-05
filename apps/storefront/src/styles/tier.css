@@ -31,9 +31,9 @@
   color: var(--c-text-inverse);
 }
 .tier-badge-premium {
-  /* 🔶 0c(`D-105-A` Q1 = C 案):會員等級是**身分標記**不是動作,依 tokens.css 規則①
-     不吃動作色。改吃 `--c-tier-premium`(值 = 原本的 `#dc2626`)⇒ 本片對這顆**零視覺變更**。
-     ⏳ 最終色待 Sean 拍板,拍板前不要改回 `var(--c-red)`。 */
+  /* 🔶 會員等級是**身分標記**不是動作,依 tokens.css 規則①不吃動作色。
+     **Sean 2026-08-05 拍板定案 C 案**(`D-112-A` ①):維持現紅 `#dc2626`、身分色不跟動作色走
+     —— 原 `D-105-A` Q1 的暫行值就此轉正。不要改回 `var(--c-red)`。 */
   background: var(--c-tier-premium);
   color: #ffffff;
   font-family: var(--f-mono);
