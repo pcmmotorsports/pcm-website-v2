@@ -62,7 +62,7 @@ export function isCancelRequestToken(value: string): boolean {
  *   (`rejected` 也可能是 hash 不符 = 前一次其實成功了)②就地改值 + 同 token 必撞 hash。
  *   ⚠️ **精確版**(關卡2 兩輪各修一次;不要把「四支都可能已 commit」當事實寫到別處):
  *   - 真的可能已 commit 的是 `rejected`(可能是 hash 不符 = 前一次其實成功了)、`error`(未知),
- *     以及 🔴 **`bug` 的「payload 形狀不符」那一支**(A9d2-2b 關卡2 R4 補:plan §4.3 表
+ *     以及 🔴 **`bug` 的「payload 形狀不符」那一支**(A9d2-2b 關卡2 R4 補:plan §4.2 表
  *     `docs/specs/2026-08-05-e10-cancel-ui-wire-plan.md:239` 明列它屬 `bug`,而它是
  *     **RPC 成功回傳之後** client 端形狀驗證才失敗 ⇒ 交易**已經 commit 了**。
  *     本段前一版只列五個 SQL/PostgREST 碼就下「`bug` 不可能已 commit」的結論,**漏了這一支**)。
