@@ -1,13 +1,10 @@
-import type { AdminOrderDetail, OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderDetail, AdminOrderItemQuantitySummary } from '@pcm/domain';
 import {
   PAYMENT_STATUS_LABEL,
   FULFILLMENT_STATUS_LABEL,
   ORDER_SOURCE_LABEL,
   PAYMENT_CHANNEL_LABEL,
   formatOrderAmount,
-  workflowStatusBadge,
-  indexOrderStatusOptions,
-  summarizeOrderItemWorkflow,
 } from '../../lib/orders/order-list-view';
 import {
   INVOICE_STATUS_LABEL,
@@ -17,8 +14,6 @@ import {
 } from '../../lib/orders/order-detail-view';
 import { generateNoteRequestToken } from '../../lib/orders/note-action-state';
 import { NOTE_TYPE_LABEL, canCorrectNote } from '../../lib/orders/note-timeline';
-import { WorkflowStatusBadge } from './workflow-status-badge';
-import { ItemWorkflowStatusCell } from './item-workflow-status-cell';
 import { OrderEditForm } from './order-edit-form';
 import { NotesTimeline } from './notes-timeline';
 import { NoteComposeForm, type CorrectTarget } from './note-compose-form';
@@ -30,8 +25,11 @@ import type { OrderRefundRow } from '../../lib/payment/refund-read';
 import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 
 // M-4a Slice B:訂單明細(server-render、唯讀;狀態/出貨/發票的「改」= Slice C 寫入片)。
-// D-2:狀態=per-item(品項表逐列 ItemWorkflowStatusCell 改;header badge=items 彙總、
-// 全同→該色/混合→多狀態;orders.workflow_status 停寫不讀)。
+// M-4b E10 A9w1(P3 九碼退場):本頁的九碼**全部下架** —— 品項列的 `ItemWorkflowStatusCell`
+// 與 header 的整單彙總 badge(`summarizeOrderItemWorkflow` + `workflowStatusBadge`)一併移除,
+// 品項列改顯示 A9g-1 三軸數量摘要;`statusOptions` prop 隨之消失(頁層不再讀狀態詞彙)。
+// 列表側的九碼 cell **不在本片**(隨 A11a-c 重建自然退場;母 plan
+// `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md:416` row 50 逐字)。
 // 🔴 PII 邊界:本頁顯示客人姓名/電話/email+收件快照(admin-only、service_role、明細專用白名單);
 // 仍零成本/經銷價(品項單價=該單成交價)、零 tappay_rec_trade_id。
 
@@ -58,15 +56,48 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function ItemsTable({
-  detail,
-  optionsByCode,
-  activeOptions,
-}: {
-  detail: AdminOrderDetail;
-  optionsByCode: ReadonlyMap<string, OrderStatusOption>;
-  activeOptions: OrderStatusOption[];
-}) {
+/**
+ * A9w1:品項列的三軸顯示(取代九碼 `ItemWorkflowStatusCell`)。
+ *
+ * 資料源 = A9g-1 的 `quantitySummary`(`order_item_quantity_summary` 衍生快取,A4a trigger 維護)。
+ * 🔴 `null` 的意思是「不知道」,**不是**「都是 0」(`packages/domain/src/order/types.ts:477-501` 逐字:
+ *    品項從未被採購也從未被取消時根本沒有那一列)⇒ 這裡顯示「數量資料尚未就緒」、**不補 0**。
+ *    純顯示補 0 的最壞後果只是少顯示資訊,但同一個 `?? 0` 一旦被抄進取消流程就會放行超量取消
+ *    ⇒ 這一格從一開始就不留那個寫法可抄。
+ * 🔴 **出貨軸本片不畫**:`shipped_quantity` 目前不存在,是第 2 批包裹模型的契約債
+ *    (`types.ts:530-532` 逐字「現況 `shipped` 欄不存在 ⇒ 完整式**退化**」)⇒ 畫一個恆為
+ *    em-dash 的出貨欄等於假裝有這個軸。母 plan `:426` row 60(A11b)才是出貨軸唯讀灰的去處。
+ */
+function ItemAxisCell({ summary }: { summary: AdminOrderItemQuantitySummary | null }) {
+  // 型別是 `| null`,但這裡刻意用 falsy 判斷:投影退版時這一欄會是 `undefined`,
+  // 而「讀不到就 fail-closed」的立場對兩種缺值都成立(補 0 才是要防的那個寫法)。
+  if (!summary) {
+    return <span className='text-muted-foreground text-xs'>數量資料尚未就緒</span>;
+  }
+  return (
+    <div className='text-xs leading-5'>
+      <div>
+        訂貨{' '}
+        <span className='tabular-nums'>
+          {summary.orderedQuantity}/{summary.quantity}
+        </span>
+      </div>
+      <div>
+        到貨{' '}
+        <span className='tabular-nums'>
+          {summary.instockQuantity}/{summary.quantity}
+        </span>
+      </div>
+      {summary.cancelledQuantity > 0 && (
+        <div className='text-destructive'>
+          已取消 <span className='tabular-nums'>{summary.cancelledQuantity}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ItemsTable({ detail }: { detail: AdminOrderDetail }) {
   const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
   const TD = 'px-3 py-2 text-sm align-top';
   return (
@@ -79,7 +110,8 @@ function ItemsTable({
             <th className={`${TH} text-right`}>數量</th>
             <th className={`${TH} text-right`}>單價</th>
             <th className={`${TH} text-right`}>小計</th>
-            <th className={TH}>商品狀態</th>
+            {/* 取消那一列只在 >0 時出現(0 件取消是常態、每列印一個 0 是噪音),欄名仍列出來 */}
+            <th className={TH}>訂貨 · 到貨 · 取消</th>
           </tr>
         </thead>
         <tbody>
@@ -105,17 +137,9 @@ function ItemsTable({
               <td className={`${TD} text-right tabular-nums whitespace-nowrap`}>
                 NT$ {formatOrderAmount(item.lineTotal.amount)}
               </td>
-              {/* D-2:per-item 狀態逐列改(item 層樂觀鎖;PRG 回明細頁) */}
+              {/* A9w1:九碼下拉退場 → 三軸數量(唯讀;訂貨的「改」在下方採購區塊 A10b) */}
               <td className={`${TD} whitespace-nowrap`}>
-                <ItemWorkflowStatusCell
-                  itemId={item.id}
-                  workflowStatus={item.workflowStatus}
-                  version={item.version}
-                  returnTo={`/orders/${detail.id}`}
-                  optionsByCode={optionsByCode}
-                  activeOptions={activeOptions}
-                  paymentStatus={detail.paymentStatus}
-                />
+                <ItemAxisCell summary={item.quantitySummary} />
               </td>
             </tr>
           ))}
@@ -191,7 +215,6 @@ function resolveCorrectTarget(
 
 export function OrderDetail({
   detail,
-  statusOptions,
   correctNoteId = null,
   suppliers = [],
   suppliersFailed = false,
@@ -203,7 +226,6 @@ export function OrderDetail({
   refundUnregisteredFailed = false,
 }: {
   detail: AdminOrderDetail;
-  statusOptions: OrderStatusOption[];
   /** A10a-3:`?correct` searchParam(頁層過 uuid 閘後下傳) */
   correctNoteId?: string | null;
   /** A10b:S3a 供應商選單(啟用中、zh-TW 排序) */
@@ -223,24 +245,15 @@ export function OrderDetail({
   /** M-3 RW3:未登記額讀取失敗(顯錯誤態≠查無 + 發起入口 fail-closed,codex MF2)。 */
   refundUnregisteredFailed?: boolean;
 }) {
-  const optionsByCode = indexOrderStatusOptions(statusOptions);
-  const activeOptions = statusOptions.filter((o) => o.isActive);
   const cancelled = detail.cancelledAt !== null;
-  // D-2:header 整單狀態=items 彙總(全同→該色、混合→「多狀態」;orders.workflow_status 停寫不讀)。
-  const summary = summarizeOrderItemWorkflow(detail.items.map((i) => i.workflowStatus));
   const correctTarget = resolveCorrectTarget(detail, correctNoteId);
 
   return (
     <div className='space-y-4'>
       <div className='flex flex-wrap items-center gap-3'>
         <h1 className='text-2xl font-semibold'>{detail.displayId}</h1>
-        {summary.kind === 'mixed' ? (
-          <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
-            多狀態
-          </span>
-        ) : (
-          <WorkflowStatusBadge badge={workflowStatusBadge(summary.code, optionsByCode)} />
-        )}
+        {/* A9w1:整單九碼彙總 badge 退場。付款軸(三軸的訂單層)在下方「付款」卡的付款狀態,
+            訂貨/到貨在品項列 —— 不另補一顆彙總 badge,那正是九碼被退場的東西。 */}
         {cancelled && (
           <span className='bg-destructive/10 text-destructive inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
             已取消
@@ -314,7 +327,7 @@ export function OrderDetail({
 
       <OrderEditForm detail={detail} />
 
-      <ItemsTable detail={detail} optionsByCode={optionsByCode} activeOptions={activeOptions} />
+      <ItemsTable detail={detail} />
 
       {/* A10b:採購區塊(逐品項清單 + upsert 表單)。🔴 內部資料、admin-only。 */}
       <ItemProcurementSection

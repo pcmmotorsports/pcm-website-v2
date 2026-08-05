@@ -1,11 +1,8 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import type { AdminOrderDetail, OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderDetail } from '@pcm/domain';
 import type { SupplierOption } from '../../../lib/orders/procurement-suppliers';
-import {
-  getAdminOrderRepository,
-  getAdminOrderStatusOptionsRepository,
-} from '../../../lib/orders/order-repository';
+import { getAdminOrderRepository } from '../../../lib/orders/order-repository';
 import { isOrderId } from '../../../lib/orders/order-detail-view';
 import { isUuid } from '../../../lib/orders/note-action-state';
 import { isRefundUiEnabled } from '../../../lib/payment/refund-ui-flag';
@@ -68,12 +65,13 @@ export default async function OrderDetailPage({
   }
 
   // 🔴 防禦:讀取失敗 → 錯誤態 200(不 500、DB error 不外洩);查無 → 404。
-  // 明細與狀態詞彙分開容錯(詞彙壞 → badge 降級中性灰,明細仍可看;同列表頁慣例)。
-  // A10b:供應商選單(S3a)與明細、狀態詞彙三者**各自容錯** —— 供應商壞掉不該讓整頁看不了,
+  // A9w1:狀態詞彙(`listOrderStatusOptions`)那一路**整條移除** —— 它在本頁的唯一用途是
+  // 九碼 badge / 下拉的詞彙,兩者已下架 ⇒ 再讀就是每次進明細頁多打一次 DB 卻沒人用。
+  // 列表頁 `apps/admin/src/app/orders/page.tsx` 仍讀(那邊的九碼 cell 隨 A11a-c 退場)。
+  // A10b:供應商選單(S3a)與明細兩者**各自容錯** —— 供應商壞掉不該讓整頁看不了,
   // 但也**不得靜默**:空選單會讓員工以為「這家不存在」而去建重複的供應商,而供應商不可刪除
   // (`lib/supplier.ts:22-26` 逐字)⇒ 傳 `suppliersFailed` 下去顯示。
   let detail: AdminOrderDetail | null = null;
-  let statusOptions: OrderStatusOption[] = [];
   let suppliers: SupplierOption[] = [];
   let suppliersFailed = false;
   let loadFailed = false;
@@ -85,23 +83,16 @@ export default async function OrderDetailPage({
   let refundsTruncated = false;
   let refundUnregisteredAmount: number | null = null;
   let refundUnregisteredFailed = false;
-  const [detailSettled, optionsSettled, suppliersSettled, refundsSettled] =
-    await Promise.allSettled([
-      (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
-      (async () => getAdminOrderStatusOptionsRepository().listOrderStatusOptions())(),
-      (async () => listSuppliers())(),
-      (async () => listOrderRefunds(id))(),
-    ]);
+  const [detailSettled, suppliersSettled, refundsSettled] = await Promise.allSettled([
+    (async () => getAdminOrderRepository().findAdminOrderDetail(id))(),
+    (async () => listSuppliers())(),
+    (async () => listOrderRefunds(id))(),
+  ]);
   if (detailSettled.status === 'fulfilled') {
     detail = detailSettled.value;
   } else {
     console.error('[admin/orders/:id] 訂單明細載入失敗', detailSettled.reason);
     loadFailed = true;
-  }
-  if (optionsSettled.status === 'fulfilled') {
-    statusOptions = optionsSettled.value;
-  } else {
-    console.error('[admin/orders/:id] 訂單狀態詞彙載入失敗(badge 降級中性灰)', optionsSettled.reason);
   }
   if (suppliersSettled.status === 'fulfilled') {
     suppliers = suppliersSettled.value;
@@ -149,7 +140,6 @@ export default async function OrderDetailPage({
       ) : (
         <OrderDetail
           detail={detail}
-          statusOptions={statusOptions}
           correctNoteId={correctNoteId}
           suppliers={suppliers}
           suppliersFailed={suppliersFailed}
