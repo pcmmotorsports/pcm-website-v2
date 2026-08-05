@@ -710,10 +710,15 @@ const DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
+    // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
+    //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
+    //    人只會看到一長串字串;這條讓「哪一顆該在、哪一顆不該在」直接寫成兩行可讀的斷言。
+    expect(ADMIN_ORDER_DETAIL_SELECT).toContain('actor, idempotency_key, created_at');
+    expect(ADMIN_ORDER_DETAIL_SELECT).not.toContain('payload_hash');
   });
 
   // 🔴 A9a-1:order_notes 只該出現在**明細**投影(內部備註;建表檔 :17-19「一個 byte 都不能放 orders」,
@@ -823,6 +828,45 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
   it('🔴 扣款嘗試**永久**不得滲入 storefront 投影(客人不該看到自己的扣款重試軌跡)', () => {
     for (const token of ['payment_charge_attempts', 'rec_trade_id', 'bank_transaction_id']) {
       expect(`ORDER_LIST_SELECT:${ORDER_LIST_SELECT}`).not.toContain(token);
+    }
+  });
+
+  // 🔴 A9d2-2b(Fable 關卡2 F1):兄弟三表(採購 / 三軸 / 扣款)都有具名 token 守門,**取消歷程這組沒有** ——
+  //    而本片剛把 adapter docstring 的宣稱擴到了新加的 `idempotency_key`(「永不得進三條 storefront 投影,
+  //    守門測試逐條盯」)。那句話當時是假的:唯一會紅的只有 byte-equal,而它在別人合法改列表投影時
+  //    本來就要跟著改 ⇒ 取消內嵌搭順風車混進去,零測試轉紅。
+  //    `scripts/storefront-projection-leak-guard.test.ts` 也接不住:它只掃 `apps/storefront/src`,
+  //    而這些投影常數住在 `packages/adapters` —— **在那道守門的掃描根之外**。
+  // ⚠️ **本條蓋到哪為止**(關卡2 codex R2 must-fix,收窄我原本寫的「明細以外的**任何**投影」):
+  //    反射只收得到本 module 名稱含 `SELECT` 的**具名常數**。本檔已經有一個漏網實例 ——
+  //    `findTotal` 的 inline `.select('total')`(`SupabaseOrderAdapter.ts:254`,storefront 打得到)。
+  //    ⚠️ 精確說(關卡2 R4 nit 收窄):沒人看得見的是**掃描根之外**的 inline select ——
+  //    `apps/storefront/src` 裡手寫的 inline select,leak-guard 掃原始碼全文時看得見。
+  //    落在 `packages/` 的這一面**誠實留著**(同 A9a-2 / 三軸兩條既有的邊界字面)。
+  // 🔴 欄名 token 不是恆真的冗餘(codex R2 nit 的反面):禁掉兩個表名只擋得住「內嵌那兩張表」,
+  //    擋不住日後有人開一個 `cancellation_history` 之類的 view 再投影同名欄 —— 那條字面裡沒有表名。
+  // 🔴 **不收 `actor`**(codex R2 nit):它是跨稽核表的通用欄名,未來合法的 `order_refund_jobs(actor)`
+  //    這種 admin 投影會被誤紅 —— 誤紅的守門會被下一個人關掉,而不是修好。
+  it('🔴 取消歷程(含 idempotency_key)**永久**不得滲入本檔具名的另外三條投影常數', () => {
+    const otherSelects = Object.entries(adapterModule).filter(
+      ([name, value]) =>
+        name.includes('SELECT') && typeof value === 'string' && name !== 'ADMIN_ORDER_DETAIL_SELECT',
+    );
+    // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
+    expect(otherSelects.map(([name]) => name).sort()).toEqual([
+      'ADMIN_ORDER_LIST_SELECT',
+      'ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED',
+      'ORDER_LIST_SELECT',
+    ]);
+    for (const [name, value] of otherSelects) {
+      for (const token of [
+        'order_cancellations',
+        'order_cancellation_items',
+        'idempotency_key',
+        'payload_hash',
+      ]) {
+        expect(`${name}:${value}`).not.toContain(token);
+      }
     }
   });
 
@@ -1050,6 +1094,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
             reason_code: 'out_of_stock',
             reason_detail: null,
             actor: 'sean',
+            idempotency_key: '9f8e7d6c-5b4a-4392-8172-0a1b2c3d4e5f',
             created_at: '2026-08-05T11:00:00.000000+00:00',
             order_cancellation_items: [
               { id: 'cxi-1', order_item_id: 'oi-1', cancelled_quantity: 1 },
@@ -1067,6 +1112,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
         reasonCode: 'out_of_stock',
         reasonDetail: null,
         actor: 'sean',
+        // 🔴 A9d2-2b:這顆要一路從 row 流到 DTO —— 它是員工手上的 token 與歷程列唯一對得上的鍵。
+        //    `toEqual` 是全等比對 ⇒ 接線漏掉這欄本條就紅(不是「多了也算過」的子集比對)。
+        idempotencyKey: '9f8e7d6c-5b4a-4392-8172-0a1b2c3d4e5f',
         createdAt: '2026-08-05T11:00:00.000000+00:00',
         items: [{ id: 'cxi-1', orderItemId: 'oi-1', cancelledQuantity: 1 }],
         itemsTruncated: false,

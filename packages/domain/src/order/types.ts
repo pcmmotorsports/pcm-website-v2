@@ -619,6 +619,31 @@ export type AdminOrderCancellation = {
   reasonDetail: string | null;
   /** 操作者 staff id。🔴 內部資料,**永不得**進 storefront 投影 */
   actor: string;
+  /**
+   * 這次取消的冪等鍵(`order_cancellations.idempotency_key`,uuid NOT NULL,
+   * 建表檔 `20260730130000_m4b_e10_a7_order_cancellations.sql:86`)。
+   *
+   * 🔴 **片 3 當時判定它是內部機制、刻意未投影;依 `A-203-STOP` ③ 主視窗裁示 A 改判**
+   * (裁示本體不在 repo 內,在視窗信箱:`/Users/sean_1/pcm-mailbox/A-109-A.md` §①③,
+   *  問題面在 `/Users/sean_1/pcm-mailbox/A-203-STOP.md` ③;其餘引用本裁示處只寫代號):
+   * 取消表單一開啟,員工手上就握著這顆 token(A9d2-2a `cancel-action-state.ts` 的 **`requestToken`**
+   * ——欄位真名是 `requestToken`,不是 `idempotencyToken`;由
+   * `generateCancelRequestToken()` 鑄出,**接線尚未存在**:片 5 的 repository 才會把它
+   * 當 `p_idempotency_key` 送進 `admin_cancel_order`)
+   * ⇒ 它的「內部性」在**有那個畫面**之後已經不成立。缺了它,員工重新整理看歷程時
+   * **手上的 token 與歷程列對不起來** —— 併發或舊紀錄會被誤認成本次
+   * ⇒ 可能重複取消,或該補的沒補。這是災難當天唯一能一眼對上的鍵。
+   * 🔴 **「災難當天」精確指哪幾支**(關卡2 R3 → R4 兩次更正):真的可能已 commit 卻回失敗的是
+   * `rejected`(hash 不符 = 前一次其實成功了)、`error`(未知),以及 `bug` 的
+   * **「payload 形狀不符」**那一支(RPC 成功回傳之後才驗失敗 ⇒ 已 commit)。
+   * `retry` 與 `bug` 的其餘五碼全部中止交易或根本沒進到函式 ——
+   * 逐支依據見 `apps/admin/src/lib/orders/cancel-action-state.ts:64-70`,別繞過那段自己歸納。
+   *
+   * 🔴 **進得了後台不代表進得了 storefront**:同表的 `payload_hash` 照舊不投影,
+   * 而本欄對客投影**永遠**不得出現 —— 守門在 `scripts/storefront-projection-leak-guard.test.ts`
+   * (表名 + 欄名兩層)。
+   */
+  idempotencyKey: string;
   createdAt: string;
   /**
    * 🔴 **`null` = 沒讀到**(內嵌鍵沒回來 / 回了空陣列)—— 不是「這次取消沒動到品項」。

@@ -12,6 +12,7 @@ function row(over: Partial<SupabaseOrderCancellationRow> = {}): SupabaseOrderCan
     reason_code: 'customer_request',
     reason_detail: null,
     actor: 'sean',
+    idempotency_key: '3c1d5a7b-9e02-4f68-b4a1-d2e3f4a5b6c7',
     created_at: '2026-08-05T10:00:00.000000+00:00',
     order_cancellation_items: [
       { id: 'ci-1', order_item_id: 'oi-1', cancelled_quantity: 2 },
@@ -37,15 +38,22 @@ describe('mapSupabaseOrderCancellationRowsToProjection — A9g-3 取消歷程', 
     expect(res.cancellationsTruncated).toBe(false);
   });
 
-  it('逐欄映射(snake → camel),不帶 idempotency_key / payload_hash', () => {
+  // 🔴 A9d2-2b:改判的只有 `idempotency_key` 一顆,`payload_hash` 照舊不投影
+  //    ⇒ fixture 刻意餵一顆假 `payload_hash` 當誘餌,`toEqual` 全等比對會在它被順手映射進去時轉紅
+  //    (「只加一欄」這件事本身要被守住,不能只靠人記得)。
+  it('逐欄映射(snake → camel):帶 idempotencyKey、仍不帶 payload_hash', () => {
     const res = mapSupabaseOrderCancellationRowsToProjection([
-      row({ reason_code: 'other', reason_detail: '客人改買別款' }),
+      {
+        ...row({ reason_code: 'other', reason_detail: '客人改買別款' }),
+        payload_hash: 'deadbeef'.repeat(8),
+      } as SupabaseOrderCancellationRow,
     ]);
     expect(res.cancellations?.[0]).toEqual({
       id: 'c-1',
       reasonCode: 'other',
       reasonDetail: '客人改買別款',
       actor: 'sean',
+      idempotencyKey: '3c1d5a7b-9e02-4f68-b4a1-d2e3f4a5b6c7',
       createdAt: '2026-08-05T10:00:00.000000+00:00',
       items: [{ id: 'ci-1', orderItemId: 'oi-1', cancelledQuantity: 2 }],
       itemsTruncated: false,
