@@ -145,13 +145,27 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * (三態契約詳 `AdminOrderDetail.chargeAttemptGate`)。
  *
  * 🔴 M-4b E10 A9g-3 再加 `order_cancellations(… order_cancellation_items(…))` 取消歷程(兩層內嵌)。
- * 🔴 **不取** `idempotency_key` / `payload_hash`(`20260730130000:86, :93`)—— 那是 A8a1/A8a2
- * 冪等機制的內部狀態,顯示層用不到;`order_id` 亦不取(父列即該單)。
- * 🔴 `actor` = staff id = **內部資料**:進得了本投影(後台要顯示誰取消的),
- * 但**永不得**進三條 storefront 投影 —— 守門測試逐條盯(見 `SupabaseOrderAdapter.test.ts`)。
+ * 🔴 **A9d2-2b 起加取 `idempotency_key`**(`20260730130000:86`)—— 片 3(A9g-3)當時判定它是
+ * A8a1/A8a2 的內部冪等狀態、刻意不取;依 `A-203-STOP` ③ 主視窗裁示 A **改判**:
+ * 員工開啟取消表單時手上就握著這顆 token,災難當天它是唯一能把「我送出的那次」與歷程列
+ * 一眼對上的鍵(完整理由見 `AdminOrderCancellation.idempotencyKey`)。
+ * 🔴 **`payload_hash` 照舊不取**(`:93`)—— 那顆對員工不可讀、也對不了帳;`order_id` 亦不取(父列即該單)。
+ * 🔴 `actor` = staff id、`idempotency_key` = 內部冪等機制:兩者都進得了本投影(後台要對帳),
+ * 但**永不得**進另外三條投影。⚠️ **兩者的守門強度不同、不要混為一談**(code-reviewer 抓到我
+ * 原本把它們綁成同一句):
+ * - `idempotency_key`:反射式 token 守門(`SupabaseOrderAdapter.test.ts`,只蓋本檔的**具名**
+ *   `*_SELECT` 常數)+ leak-guard 的表名層與欄名層,共三道。
+ * - `actor`:**只有** byte-equal 與 leak-guard 的表名層。欄名層與反射式都**刻意不收**它 ——
+ *   它是跨稽核表的通用欄名,收了會讓未來合法的 `order_refund_jobs(actor)` 誤紅。
+ *   ⇒ 「合法更新某條投影常數 + 同步改它的 byte-equal 期望值」這個情境對 `actor` **零測試轉紅**,
+ *   靠的是那張表本身進不了對客投影(表名層)。這個不對稱是選的,不是漏的。
+ * ⚠️ **inline `.select()` 的盲區是有方向的**(關卡2 codex R2 提出、R3 收窄):
+ * 反射式那道只看得到**具名常數**,對任何 inline select 全盲(本檔 `findTotal` `:254` 就是一例);
+ * leak-guard 那道掃的是原始碼**全文**,所以 storefront 裡手寫的 inline select **它看得見**——
+ * 它的盲區是掃描根之外(`packages/`)。⇒ 真正沒人看得見的只有「掃描根外的 inline select」。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。

@@ -10,10 +10,13 @@ import { compareByCreatedAtThenId } from './created-at-order';
  * @module @pcm/adapters/supabase/mappers/order-cancellations — `order_cancellations`
  *   (含兩層內嵌 `order_cancellation_items`)→ domain 取消歷程(M-4b E10 A9g-3)。
  *
- * 🔴 **投影只取顯示需要的欄**:本表另有 `idempotency_key` 與 `payload_hash`
- * (`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:86, :93`)——
- * 那是 A8a1/A8a2 冪等機制的內部狀態,顯示層一個字都用不到,取了只是白給的面。
- * `order_id` 也不取(父列就是該單)。
+ * 🔴 **投影取顯示與對帳需要的欄**:`payload_hash`
+ * (`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:93`)不取 ——
+ * 那顆對員工不可讀、對不了帳,取了只是白給的面;`order_id` 也不取(父列就是該單)。
+ * 🔴 **`idempotency_key`(`:86`)A9d2-2b 起取**:片 3 當時與 `payload_hash` 同列為「內部機制」
+ * 刻意不取,依 `A-203-STOP` ③ 主視窗裁示 A 改判 —— 員工開表單時手上就握著這顆 token,
+ * 它是災難當天唯一能把「我送出的那次」與歷程列對上的鍵
+ * (完整理由見 `AdminOrderCancellation.idempotencyKey`;對客投影仍**永遠**不得有它)。
  *
  * 🔴 **排序自己做**:PostgREST **不保證**內嵌列順序 ⇒ 這裡釘死 `createdAt` ASC + 全序 tie-break,
  * 實作沿用 `created-at-order.ts` 的 `compareByCreatedAtThenId`(與 notes / 採購時間軸同一支)。
@@ -49,7 +52,7 @@ export type SupabaseOrderCancellationItemRow = Pick<
 
 export type SupabaseOrderCancellationRow = Pick<
   Database['public']['Tables']['order_cancellations']['Row'],
-  'id' | 'reason_code' | 'reason_detail' | 'actor' | 'created_at'
+  'id' | 'reason_code' | 'reason_detail' | 'actor' | 'idempotency_key' | 'created_at'
 > & {
   /**
    * 🔴 optional + nullable 理由同 `SupabaseAdminOrderDetailRow.order_notes`:
@@ -130,6 +133,7 @@ export function mapSupabaseOrderCancellationRowsToProjection(
           reasonCode: row.reason_code as AdminOrderCancellationReasonCode,
           reasonDetail: row.reason_detail,
           actor: row.actor,
+          idempotencyKey: row.idempotency_key,
           createdAt: row.created_at,
           items,
           itemsTruncated,

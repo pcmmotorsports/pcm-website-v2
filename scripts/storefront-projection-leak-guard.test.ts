@@ -24,6 +24,10 @@ import { describe, expect, it } from 'vitest';
  *   (原本連 `*` 開頭也跳,關卡2 R2 收窄成只跳 `//` —— 見下方 filter 的理由。)
  *
  * ⚠️ **這道守門攔不住什麼**:
+ * - 🔴 **`packages/` 裡的投影常數**(A9d2-2b / Fable 關卡2 F1 補記):本檔的掃描根寫死
+ *   `apps/storefront/src/`,而客人真正吃到的 `ORDER_LIST_SELECT` 住在 `packages/adapters` ——
+ *   **在掃描根之外**。那一面由 `SupabaseOrderAdapter.test.ts` 的反射式 token 守門負責
+ *   (採購 / 三軸 / 扣款 / 取消歷程各一條)。**別把本檔當成那一面的防線。**
  * - 動態組出來的表名(字串拼接)。
  * - 經由 admin 端 API 把資料轉手送到 storefront 的路徑(那是另一個面,不是投影層)。
  * - 表名以外的洩漏(例如把 admin 讀模型整包 serialize 進客人頁面)。
@@ -55,6 +59,26 @@ const SERVICE_ROLE_ONLY_TABLES = [
   // 取消歷程 + 明細(帶 actor=staff id、idempotency_key、payload_hash)—— `20260730130000:200-203`、`:265-268`
   'order_cancellations',
   'order_cancellation_items',
+] as const;
+
+/**
+ * 🔴 **欄名層(A9d2-2b 加)**:`idempotency_key` 從「內部機制、不投影」改判成後台投影欄
+ * (`A-203-STOP` ③ 主視窗裁示 A;`AdminOrderCancellation.idempotencyKey`)——
+ * **它進得了後台,不代表進得了 storefront**。上面的表名層擋得住「storefront 直接查那張表」,
+ * 擋不住「有人把後台讀模型的這顆欄手抄/轉手進客人頁面」(型別上它現在是合法的 domain 欄)。
+ * ⇒ 這一層盯**欄名字面本身**,snake 與 camel 兩種形狀都盯(mapper 兩邊都出現過)。
+ *
+ * ⚠️ **本層的誤報天花板**(本檔上面那段「盯表名不盯欄名」的理由仍然成立,這是**刻意的例外**):
+ * 下面三個字面在 storefront 裡今天都是 **0 命中**(2026-08-05 實查),所以不會製造噪音。
+ * 🔴 但若日後 storefront 真的需要**自己的**冪等鍵(例如結帳重送防護 —— 現行走的是
+ * `cart_session_id`、不叫這個名字),正解是**把那顆改名或把本層收窄到取消歷程的形狀**,
+ * **不是刪掉本層**:刪掉等於把 A9g 那條路重新打開。
+ */
+const CANCELLATION_INTERNAL_COLUMNS = [
+  'idempotency_key',
+  'idempotencyKey',
+  // 同表另一顆內部欄,連後台都不投影 ⇒ 出現在 storefront 只可能是抄錯或轉手。
+  'payload_hash',
 ] as const;
 
 const STOREFRONT_SRC = fileURLToPath(new URL('../apps/storefront/src/', import.meta.url));
@@ -94,6 +118,16 @@ describe('storefront 投影洩漏守門(service-role-only 表)', () => {
     it(`🔴 storefront 原始碼不得出現 ${table}`, () => {
       const offenders = files.filter((f) => f.source.includes(table)).map((f) => f.path);
       expect(offenders, `${table} 出現在 storefront ⇒ 客人可能讀得到營運內部資料`).toEqual([]);
+    });
+  }
+
+  for (const column of CANCELLATION_INTERNAL_COLUMNS) {
+    it(`🔴 storefront 原始碼不得出現 ${column}(取消歷程的內部冪等欄)`, () => {
+      const offenders = files.filter((f) => f.source.includes(column)).map((f) => f.path);
+      expect(
+        offenders,
+        `${column} 出現在 storefront ⇒ 內部冪等機制走上了對客的路`,
+      ).toEqual([]);
     });
   }
 });
