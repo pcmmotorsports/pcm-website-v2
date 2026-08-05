@@ -13,11 +13,6 @@ vi.mock('next/navigation', () => ({
 }));
 
 const PROPS = {
-  workflowOptions: [
-    { value: 'paid_wait', label: '已收未定' },
-    { value: 'shipped_done', label: '出貨完成' },
-    { value: 'unset', label: '未設定' },
-  ],
   paymentOptions: [{ value: 'paid', label: '已付款' }],
   fulfillmentOptions: [{ value: 'shipped', label: '已出貨' }],
   sourceOptions: [
@@ -25,7 +20,7 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { wf: [], pay: '', ful: '', src: [], ch: [], no: '' },
+  initial: { pay: '', ful: '', src: [], ch: [], no: '' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -42,44 +37,51 @@ function openPanel(getAllByRole: ReturnType<typeof render>['getAllByRole'], inde
 }
 
 describe('OrderFilterControls — MF-1 連勾不丟值(props 凍結窗內)', () => {
+  // 🔴 A9w2:這一組原本拿「商品狀態」軸當載具,而那個軸隨九碼退場已下架。
+  //    被測的行為(多勾選軸的連勾競態、被超越回音不採用)**仍然活著**於來源/管道兩軸
+  //    ⇒ 改用來源軸重寫,不是刪掉 —— 刪掉會讓 MF-1 那條修復從此無人看守。
+  //    移除後觸發鈕只剩 [來源, 管道](單選軸無 button)⇒ index 0=來源、1=管道。
   it('同軸快速連勾兩項 → 第二次 replace 帶兩值、兩 checkbox 皆勾(無回彈)', () => {
     const r = render(<OrderFilterControls {...PROPS} />);
     openPanel(r.getAllByRole, 0);
-    fireEvent.click(r.getByLabelText('已收未定'));
-    fireEvent.click(r.getByLabelText('出貨完成'));
+    fireEvent.click(r.getByLabelText('網站'));
+    fireEvent.click(r.getByLabelText('LINE'));
     expect(replace).toHaveBeenLastCalledWith(
-      '/orders?workflow_status=paid_wait&workflow_status=shipped_done',
+      '/orders?order_source=web&order_source=manual_line',
       { scroll: false },
     );
-    expect((r.getByLabelText('已收未定') as HTMLInputElement).checked).toBe(true);
-    expect((r.getByLabelText('出貨完成') as HTMLInputElement).checked).toBe(true);
+    expect((r.getByLabelText('網站') as HTMLInputElement).checked).toBe(true);
+    expect((r.getByLabelText('LINE') as HTMLInputElement).checked).toBe(true);
   });
 
-  it('跨軸交錯(商品狀態→付款單選→來源)→ 最終 replace 三軸俱在、URL 無 page/r', () => {
+  it('跨軸交錯(來源→付款單選→管道)→ 最終 replace 三軸俱在、URL 無 page/r', () => {
     const r = render(<OrderFilterControls {...PROPS} />);
     openPanel(r.getAllByRole, 0);
-    fireEvent.click(r.getByLabelText('已收未定'));
-    fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
-    openPanel(r.getAllByRole, 1); // buttons=[商品狀態, 來源, 管道] 觸發鈕(單選軸無 button)→ index 1=來源
     fireEvent.click(r.getByLabelText('網站'));
+    fireEvent.change(r.getByLabelText('付款狀態'), { target: { value: 'paid' } });
+    openPanel(r.getAllByRole, 1);
+    fireEvent.click(r.getByLabelText('線上刷卡'));
     expect(replace).toHaveBeenLastCalledWith(
-      '/orders?workflow_status=paid_wait&payment_status=paid&order_source=web',
+      '/orders?payment_status=paid&order_source=web&payment_channel=tappay',
       { scroll: false },
     );
   });
 
   it('取消勾選 → 該值移除;全清 → 乾淨 /orders', () => {
     const r = render(
-      <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, wf: ['paid_wait'] }} />,
+      <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, src: ['web'] }} />,
     );
     openPanel(r.getAllByRole, 0);
-    fireEvent.click(r.getByLabelText('已收未定'));
+    fireEvent.click(r.getByLabelText('網站'));
     expect(replace).toHaveBeenLastCalledWith('/orders', { scroll: false });
   });
 
   it('已勾數 badge:未勾顯「全部」、勾 2 顯 2', () => {
     const r = render(
-      <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, wf: ['paid_wait', 'unset'] }} />,
+      <OrderFilterControls
+        {...PROPS}
+        initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }}
+      />,
     );
     expect(nthButton(r.getAllByRole, 0).textContent).toContain('2');
     r.unmount();
@@ -90,33 +92,27 @@ describe('OrderFilterControls — MF-1 連勾不丟值(props 凍結窗內)', () 
   it('nit-1:push 後餵舊回音 props → state 不回退;最終收斂回音 → 採用(no-op)', () => {
     const r = render(<OrderFilterControls {...PROPS} />);
     openPanel(r.getAllByRole, 0);
-    fireEvent.click(r.getByLabelText('已收未定'));
-    fireEvent.click(r.getByLabelText('出貨完成'));
+    fireEvent.click(r.getByLabelText('網站'));
+    fireEvent.click(r.getByLabelText('LINE'));
     // 被超越舊導航的 RSC 仍被 commit=舊回音(只含第一勾)→ 不採、B 不掉勾
-    r.rerender(
-      <OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, wf: ['paid_wait'] }} />,
-    );
-    expect((r.getByLabelText('出貨完成') as HTMLInputElement).checked).toBe(true);
+    r.rerender(<OrderFilterControls {...PROPS} initial={{ ...PROPS.initial, src: ['web'] }} />);
+    expect((r.getByLabelText('LINE') as HTMLInputElement).checked).toBe(true);
     // 最終推送的收斂回音 → 採用(內容相同=no-op)
     r.rerender(
       <OrderFilterControls
         {...PROPS}
-        initial={{ ...PROPS.initial, wf: ['paid_wait', 'shipped_done'] }}
+        initial={{ ...PROPS.initial, src: ['web', 'manual_line'] }}
       />,
     );
-    expect((r.getByLabelText('已收未定') as HTMLInputElement).checked).toBe(true);
-    expect((r.getByLabelText('出貨完成') as HTMLInputElement).checked).toBe(true);
+    expect((r.getByLabelText('網站') as HTMLInputElement).checked).toBe(true);
+    expect((r.getByLabelText('LINE') as HTMLInputElement).checked).toBe(true);
   });
 
-  it('unset 哨兵直通 URL(未設定可與 code 混勾)', () => {
+  it('🔴 A9w2:商品狀態軸真的不見了(下架後不得再渲染那個面板)', () => {
     const r = render(<OrderFilterControls {...PROPS} />);
-    openPanel(r.getAllByRole, 0);
-    fireEvent.click(r.getByLabelText('未設定'));
-    fireEvent.click(r.getByLabelText('已收未定'));
-    expect(replace).toHaveBeenLastCalledWith(
-      '/orders?workflow_status=unset&workflow_status=paid_wait',
-      { scroll: false },
-    );
+    expect(r.queryByText('商品狀態')).toBeNull();
+    // 觸發鈕只剩兩顆多勾選軸(來源 / 管道);多一顆 = 有人把九碼軸掛回來了。
+    expect(r.getAllByRole('button').length).toBe(2);
   });
 });
 

@@ -29,7 +29,10 @@ const NAV_ITEMS: readonly NavItem[] = [
   { key: 'customers', label: '客戶', icon: Icons.user, href: '/customers' },
   { key: 'staff', label: '員工管理', icon: Icons.teams, href: '/settings/staff' },
   { key: 'suppliers', label: '供應商', icon: Icons.post, href: '/settings/suppliers' },
-  { key: 'settings', label: '設定', icon: Icons.settings, href: '/settings/order-statuses' },
+  // M-4b E10 A9w2:唯一去處 `/settings/order-statuses`(九碼狀態詞彙 CRUD)已隨九碼退場下架。
+  // 照本檔既有慣例(檔頭:href 缺 = 尚未接頁面、渲染不可點 button 避免 404)拿掉 href,
+  // 保留這一格等日後真的有「設定」頁再接;整項刪掉是另一個決定,不在退場片的範圍。
+  { key: 'settings', label: '設定', icon: Icons.settings },
 ];
 
 /** 目前路徑是否命中此 nav('/' 精確;其餘含子路徑)。 */

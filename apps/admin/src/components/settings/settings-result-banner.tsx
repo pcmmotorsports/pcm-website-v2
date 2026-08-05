@@ -39,8 +39,10 @@ export function SettingsResultBanner({
   //    (`msg.text` 是 undefined ⇒ **不會注入任何文字**,純粹是「守門的名字大於它的能力」)。
   //    修法是 `Object.hasOwn(messages, code)`,S3b-2(`4833cae`)曾修過並已上線,
   //    Sean 08-02 拍板退回 —— 理由是它不在該片的產物表內、屬鐵則 8「動共用元件」灰區。
-  //    ⇒ 受影響頁面 **6 個**:staff / order-statuses / **suppliers**(本元件)
-  //      + orders 列表 / 訂單詳情 / 客戶詳情(姊妹元件 `orders/result-banner.tsx`)。
+  //    ⇒ 受影響頁面 **6 個**(A9w2 起:原 7 個,`order-statuses` 隨九碼退場已下架;
+  //      數字為實測 import 端 —— 本元件 2 頁 + 姊妹元件 4 頁):
+  //      staff / **suppliers**(本元件)
+  //      + orders 列表 / 訂單詳情 / 客戶詳情 / 退款異常清單(姊妹元件 `orders/result-banner.tsx`)。
   //    🔴 退回時 `lib/supplier-result-messages.test.tsx` 的三個原型鏈向量也一起拿掉了 ——
   //    留著會轉紅,而把它們改成「期望畫出空框」等於用測試把缺陷釘成規格。
   //    要再修的話,兩支元件要一起、並且走 plan。

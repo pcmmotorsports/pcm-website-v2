@@ -13,7 +13,9 @@ import { OrdersTable } from '@/components/orders/orders-table';
 import { ResultBanner } from '@/components/orders/result-banner';
 import { ListPagination } from '@/components/shared/list-pagination';
 
-// M-4a 後台訂單列表(server component、workflow_status 主狀態+雙軸次要篩選、server 端分頁)。
+// M-4a 後台訂單列表(server component、篩選 + server 端分頁)。
+// A9w2:原本的主狀態軸 `workflow_status` 已隨九碼退場下架 ⇒ 篩選 = 付款/出貨(單選)+
+// 來源/管道(多勾選)+ 單號搜尋(flag);列表的九碼 cell 仍在,隨 A11a-c 退場。
 // 讀 searchParams → 動態渲染;force-dynamic 確保不被靜態預渲染(避免 build 期執行 DB 查詢)。
 export const dynamic = 'force-dynamic';
 
@@ -38,7 +40,8 @@ export default async function OrdersPage({
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
   //    server log 留鑑識,不把 DB error 原文冒到瀏覽器(避免洩漏)。
   //    訂單與狀態詞彙**分開容錯**:orders 失敗 = 整頁錯誤態;order_status_options 失敗 = 降級
-  //    (badge 兜中性灰顯示 code、篩選下拉只剩「未設定」)、列表仍可用 —— 詞彙表壞不該擋營運看單。
+  //    (badge 兜中性灰顯示 code)、列表仍可用 —— 詞彙表壞不該擋營運看單。
+  //    A9w2:詞彙的**唯一**去處自此只剩列表的九碼 cell(篩選列已下架),隨 A11a-c 一起退場。
   let result: Paginated<AdminOrderSummary> | null = null;
   let statusOptions: OrderStatusOption[] = [];
   let loadFailed = false;
@@ -75,11 +78,7 @@ export default async function OrdersPage({
       </div>
 
       <ResultBanner code={resultCode} />
-      <OrderFilterBar
-        filter={filter}
-        statusOptions={statusOptions}
-        orderNumberSearchEnabled={orderNumberSearchEnabled}
-      />
+      <OrderFilterBar filter={filter} orderNumberSearchEnabled={orderNumberSearchEnabled} />
 
       {loadFailed ? (
         <div className='border-destructive/30 bg-destructive/5 text-destructive rounded-lg border p-6 text-sm'>
@@ -90,7 +89,6 @@ export default async function OrdersPage({
           <OrdersTable
             orders={orders}
             statusOptions={statusOptions}
-            itemStatusFiltered={filter.workflowStatuses !== undefined}
             returnTo={buildOrderListHref(filter, page)}
           />
           <ListPagination
