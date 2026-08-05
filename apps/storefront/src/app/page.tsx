@@ -13,7 +13,9 @@
 // = MockProduct[] + error flag)、priceByTier server-side strip 在 lib/products.ts toUIProduct 落實。
 // 真實狀態:Supabase products 表 0 row(M-1-16 種子前)、HomeSelect 必走 Q-empty=b 分支。
 
+import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
+import { resolveSiteUrl } from '@/lib/site-url';
 import { Header } from '@/components/Header';
 import { HomeHero } from '@/components/HomeHero';
 import { VehicleFinder } from '@/components/VehicleFinder';
@@ -26,7 +28,7 @@ import { HomeFooter } from '@/components/HomeFooter';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { BRAND_CONTENT } from '@/data/brand-content';
-import { BRAND_FOCUS, BRAND_FOCUS_PIN } from '@/data/brand-focus';
+import { BRAND_FOCUS } from '@/data/brand-focus';
 import { resolveBrandFocus } from '@/lib/brand-focus';
 import { resolveTierFromRequest } from '@/lib/tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
@@ -38,6 +40,20 @@ import { getVehicleRepo } from '@/lib/auth/composition';
 // Production Vercel deploy 時 env 從 dashboard 注入、build/runtime 都 OK。
 // 未來考慮 ISR(`export const revalidate = N`)平衡 latency vs 即時性、待 M-1-XX trigger。
 export const dynamic = 'force-dynamic';
+
+// D5e-2(R1 nit):`?focus=<slug>` 讓首頁多出 20 種可被索引的網址變體,內容幾乎相同
+// ⇒ 宣告 canonical 指回站台首頁,把權重收斂到同一個入口、避免被當成重複內容。
+// 🔴 **未設 `NEXT_PUBLIC_SITE_URL` 的 production 一律不發 canonical**(R2 F3:第一版無條件發,
+//    與既有慣例不一致)。理由照 `lib/site-url.ts` 檔頭逐字:prod 未設時 `metadataBase` 缺席,
+//    相對 canonical 會落到框架預設基底 ⇒ **可能讓 Google 索引到 localhost**,寧缺勿錯。
+//    形狀與 `app/brands/[slug]/page.tsx` 那顆一致(有 base 才發、絕對網址)。
+// 🔴 只加 `alternates`、**不碰 `title`/`openGraph`**:`layout.tsx` 檔頭記過
+//    「Next metadata 對 `openGraph` 是 shallow merge,頁級自帶會整組取代站台級」
+//    ⇒ 這裡多寫一個 `openGraph` 會把站台級那組整包蓋掉。
+const siteBase = resolveSiteUrl();
+export const metadata: Metadata = {
+  ...(siteBase ? { alternates: { canonical: siteBase } } : {}),
+};
 
 export default async function HomePage({
   searchParams,
@@ -112,11 +128,18 @@ export default async function HomePage({
   //    `revalidate` 必須 < 一天,否則會卡在某一期。
   //    (不引行號:R1 must-fix —— 第一版寫 `:37`/`:36`,實為 `:40`/`:39`。R2 補正:那兩個數字
   //     在寫下的當下可能是對的,是被本片自己加的 3 行 import 推移掉的 —— 這正是不引行號的理由。)
+  // D5e-2:`BRAND_FOCUS_PIN` 已移除(20 家文案齊了,輪播真的轉起來),改用網址預覽
+  // `?focus=<slug>`(OD handoff §八逐字建議「用 search param 而不是寫死,方便 Sean 自己驗」)。
+  // 🔴 這顆**只是換一家顯示、不寫入任何東西**,而且 slug 打錯時 `resolveBrandFocus` 退回輪播、
+  //    不是讓版位消失 ⇒ 對外開著沒有風險面,不必加旗標。
+  // ⚠️ 同名參數重複(`?focus=a&focus=b`)時 Next 給的是陣列 ⇒ 只認字串、其餘一律當沒給,
+  //    不取 `[0]`(那會讓「餵一個陣列進來」變成一條沒人測過的路徑)。
+  const focusOverride = typeof params.focus === 'string' ? params.focus : undefined;
   const focus = resolveBrandFocus({
     brands: BRAND_CONTENT,
     overlays: BRAND_FOCUS,
     now: new Date(),
-    override: BRAND_FOCUS_PIN,
+    override: focusOverride,
   });
 
   return (
