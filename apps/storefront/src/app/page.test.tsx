@@ -63,6 +63,10 @@ vi.mock('next/navigation', () => ({
 //    `usePathname()` 的真值,這裡照樣綠。本支只負責**區塊順序與版面編號**,導航面由各元件自己的
 //    測試(如 `VehicleFinder.test.tsx` 用 per-file mock 斷言 push 的 URL)與真瀏覽器負責。
 
+import { BRAND_CONTENT } from '@/data/brand-content';
+import { BRAND_FOCUS, BRAND_FOCUS_PIN } from '@/data/brand-focus';
+import { resolveBrandFocus } from '@/lib/brand-focus';
+
 const { default: HomePage } = await import('./page');
 
 async function homeHtml(): Promise<string> {
@@ -161,6 +165,43 @@ describe('首頁 · 區塊順序(D5a)', () => {
       html.replace(EXEMPT, ''),
       '首頁出現了家數宣稱 ⇒ 無可查證來源、屬廣告不實風險,要先問 Sean(Q1=B 是「不報數」)',
     ).not.toMatch(/[0-9０-９]+\s*[多餘]?\s*[大家個]/);
+  });
+
+  // 🔴 D5e-1 R2 must-fix:本月聚焦的**呼叫點**(`page.tsx` 那顆 `resolveBrandFocus({...})`)
+  //    全 repo 只有一個,而它以前零斷言覆蓋。具體失敗情境:把 `override: BRAND_FOCUS_PIN`
+  //    刪掉、或 `overlays` 誤傳 `{}` ⇒ 首頁改顯 AKRAPOVIČ、標題退成品牌名、`photo` 變 null
+  //    ⇒ **整個媒體欄不渲染**(版位少一半),而 `lib/brand-focus.test.ts` 全綠(它自己傳參數)、
+  //    上面那條「八個 section」也全綠(少的是 section **內部**的媒體欄,不是 section 本身)。
+  //    ⇒ 這條驗的是「頁面真的把 PIN 與 overlays 接進去了」。
+  it('🔴 本月聚焦的接線正確:頁面吃到的 = 同一顆 resolveBrandFocus 算出來的(含覆蓋層)', async () => {
+    const html = await homeHtml();
+    // 🔴 期望值**用同一顆決策函式現算**,不寫死 `RIZOMA` / `工藝之鏡`(R3 F3):
+    //    寫死的話,D5e-2 把 PIN 改成 undefined 之後這支會變成**每 3 天自己轉紅**的時鐘依賴斷言,
+    //    而急著修的人多半會把它弱化成「有 ed-feature 就好」= 這條就白寫了。
+    //    現算之後,這條驗的是「頁面真的把 PIN 與 overlays 接進去了」,與今天是第幾期無關。
+    const expected = resolveBrandFocus({
+      brands: BRAND_CONTENT,
+      overlays: BRAND_FOCUS,
+      now: new Date(),
+      override: BRAND_FOCUS_PIN,
+    })!;
+    // 🔴 切界要收到下一個 section 為止(R3 F5):切到文件尾會把 BrandIndex 圈進來,
+    //    而 `BrandIndex` 每一列也是 `/products?brand=<slug>` ⇒ 那家一有商品,CTA 那條斷言
+    //    就會改由 BrandIndex 滿足、對本元件失去判別力。
+    const start = html.indexOf('class="ed-feature"');
+    const end = html.indexOf('class="ed-brands"');
+    expect(start, '找不到 ed-feature 區塊').toBeGreaterThanOrEqual(0);
+    expect(end, '找不到 ed-brands(切界抓不到下界)').toBeGreaterThan(start);
+    const section = html.slice(start, end);
+    expect(section.length, '切出來的區塊短得不像一個 section').toBeGreaterThan(200);
+
+    expect(section, '標題沒有帶當期品牌名 ⇒ PIN 沒接上').toContain(`${expected.name}.`);
+    expect(section, 'CTA 沒指向當期品牌').toContain(`/products?brand=${expected.slug}`);
+    // 🔴 覆蓋層真的被吃到:退回 fallback 的話 title 會等於品牌名
+    expect(expected.title, '前提:當期這一家真的有 overlay(否則下一條零判別力)').not.toBe(expected.name);
+    expect(section, '標題退化成品牌名 ⇒ overlays 沒接上').toContain(expected.title);
+    // 🔴 媒體欄要在:photo 解不出來時整欄不渲染,而那正是接線錯的主要症狀
+    expect(section, '媒體欄不見了 ⇒ photo 解不出來(overlays 沒接上?)').toContain('ed-feature-media');
   });
 
   it('🔴 兩塊深色不相鄰(README「配色的三條規則」的節奏前提)', async () => {

@@ -15,6 +15,7 @@ import { existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { BRAND_CONTENT } from './brand-content';
+import { BRAND_FOCUS } from './brand-focus';
 
 const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../public/brand-assets');
 
@@ -30,6 +31,11 @@ function referencedAssetPaths(): string[] {
     if (value && typeof value === 'object') Object.values(value).forEach(walk);
   };
   walk(BRAND_CONTENT);
+  // 🔴 D5e-1 R3 F2:首頁 N°05 的覆蓋層也放資產路徑(`photo`),而它不在 BRAND_CONTENT 裡
+  //    ⇒ 少了這一行,D5e-2 把 OD 那 20 家搬進來時,**實查有 9 家的 photo 檔在 repo 不存在**,
+  //    會是 9 張破圖而三綠全過(本檔檔頭逐字:「破圖不會讓任何流程紅,只會讓客人看到」)。
+  //    今天 BRAND_FOCUS 只有一條 https 絕對網址、不被 `startsWith('assets/')` 收 ⇒ 路徑集合不變。
+  walk(BRAND_FOCUS);
   return [...found].sort();
 }
 
