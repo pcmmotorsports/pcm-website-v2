@@ -395,6 +395,53 @@
 }
 .ed-feature-caption .ed-mono { color: var(--ed-c-ink-mute); }
 
+/* ══ 捲動進場(D5g;OD `N05-FOCUS-HANDOFF.md` §6-4)═══════════════════════
+   🔴 **原本是「render 完就加 class」= 頁面一載入就跑。** N°05 在整頁最下面,
+      從頁首滑到那裡動畫早就結束 —— 等於做了等於沒做。這是 2026-08-05 修掉的**真 bug**,
+      **不要退回載入即觸發的寫法**。現在由 `HomeReveal.tsx` 的 IntersectionObserver 掛 `.is-in`。
+
+   🔴 起始隱藏狀態一律掛在 `body.js-reveal` 底下,而那個 class **只在「有 IO 且未開減少動效」
+      時才由 JS 加**(見 `HomeReveal.tsx` ①)⇒ **JS 掛掉整頁維持全可見**,
+      不會因為動畫壞掉而看不到內容。這是本段最重要的一條,改動前先想清楚。
+
+   幅度 34px / 0.7s 是**刻意的**(OD 逐字):第一版做 18px / 0.55s,捲動時幾乎察覺不到,
+   Sean 反映「還是沒看到動畫」。**細膩到看不見的動畫等於沒做** —— 不要「順手」調小。
+   曲線沿用本頁既有的 cubic-bezier(.2,.8,.2,1),不新增第二條。 */
+.js-reveal [data-reveal][data-reveal-armed] { opacity: 0; transform: translateY(34px); }
+.js-reveal [data-reveal][data-reveal-armed].is-in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+              transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* N°05 兩欄分開進場:照片比文字晚 140ms(OD 逐字)。
+   ⚠️ 掛在兩個**內欄**而不是 `.ed-feature` 本身 —— 整塊一起淡入的話錯開就沒有意義了。 */
+.js-reveal .ed-feature[data-reveal-armed] .ed-feature-side,
+.js-reveal .ed-feature[data-reveal-armed] .ed-feature-media { opacity: 0; transform: translateY(34px); }
+.js-reveal .ed-feature[data-reveal-armed].is-in .ed-feature-side,
+.js-reveal .ed-feature[data-reveal-armed].is-in .ed-feature-media {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+              transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.js-reveal .ed-feature[data-reveal-armed].is-in .ed-feature-media { transition-delay: 0.14s; }
+
+/* 🔴 減少動效:**位移對前庭障礙使用者是生理不適,不是喜好問題**(OD 逐字)——
+   起始隱藏狀態整組拿掉、內容直接就位。
+   ⚠️ 這是**雙保險**:`HomeReveal.tsx` 那邊本來就不會掛 `js-reveal`,但兩道各自獨立
+      (JS 那道若被改壞,這道仍然保證內容看得見)。`!important` 是必要的 —— 它要贏過
+      上面那兩組同樣具體的規則。 */
+@media (prefers-reduced-motion: reduce) {
+  .js-reveal [data-reveal][data-reveal-armed],
+  .js-reveal .ed-feature[data-reveal-armed] .ed-feature-side,
+  .js-reveal .ed-feature[data-reveal-armed] .ed-feature-media {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
 /* 🔴🔴 **D5e-2b 刻意未搬:OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版調整**(R1 Important:
    省略要留字面,不能只留在 commit body)。那一節為中文重調了六個值,本片**一個都沒動**:
 
