@@ -21,8 +21,9 @@
  *    本檔**根本沒有** `--c-red` 或 `--ember` —— 它照自己 `:14-17` 的「一律前綴」規則,
  *    色票是 `:52 --bd-ember: #f26722` 與 `:53 --bd-ember-ink: #c4470c`。
  *    ⇒ 這裡從來就沒有「與站台 token 撞名」的問題,scope 的理由純粹是前綴紀律本身。
- *    (0c 之後站台 `--c-red` 也已是熔橘 `#f26722`、與 `--bd-ember` 同值,但那是兩顆不同名的 token。)`.bd-page` 這個 class 與本檔的 import 一起綁在
- *    `BrandDirectoryRoot.tsx` 上 ⇒ 「漏掛 scope」從「要記得」變成「做不到」。
+ *    (0c 之後站台 `--c-red` 也已是熔橘 `#f26722`、與 `--bd-ember` 同值,但那是兩顆不同名的 token。)
+ *    另外,`.bd-page` 這個 class 與本檔的 import 一起綁在 `BrandDirectoryRoot.tsx` 上
+ *    ⇒ 「漏掛 scope」從「要記得」變成「做不到」。
  *
  * ⛔ **③ 刻意不搬(兩處,不是漏)**
  *    · 設計稿 `<style>` 裡的**站台 chrome**(`.pcm-header` / `.ed-footer` / `.ed-mono` 等,

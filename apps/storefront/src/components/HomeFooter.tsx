@@ -9,7 +9,9 @@
 //   'catalog' → /products / 'brands' → **/brands**(D3c-5 改回;當年 Q4-S5 指 /products 的理由是
 //      「品牌專區頁留 Phase 2、route 不存在」,那個前提在 D3c-3 落地時消失)
 //   'new' → /products?filter=new / 'sale' → /products?filter=sale(🔴 ?filter= 全站未接、backlog)
-//   'install' → /install / 'stores' → /stores(🔴 路由不存在=404、backlog)/ 'shipping' → /info/shipping
+//   'install' → /install / 'stores' → /stores(🔶 2026-08-06 第2批已建這兩條路由、掛「新功能即將上線」
+//      ⇒ 原註解的「路由不存在=404」已失效;backlog #269 的 `/install` `/stores` 那半已解)
+//      / 'shipping' → /info/shipping
 // social 3 條:M-1-06 #136 曾因無真連結改 <button disabled> 宣告未上線 → 2026-07-03 Sean 拍 Q2=A
 //   接 site-config SOCIAL_URLS 真連結、回到 design <a> 結構(design L303-305 href="#" 佔位 → 真 URL、
 //   外連加 target="_blank" rel="noopener noreferrer");#136 該段 supersede。

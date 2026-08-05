@@ -58,15 +58,52 @@ export type AccountStats = { tier: MemberTier; walletBalance: number; orderCount
 // g-4a:profile 三欄(form 用 string、空值 ''、不用 null;page.tsx 已 null→'' 還原)
 export type AccountProfile = { name: string; phone: string; birthday: string };
 
-// 7 tab 字面對齊 design AccountPages.jsx L447-453(id / label / icon)。
+// 7 tab 的 id / label 字面對齊 design AccountPages.jsx L447-453,**本批未動**。
+// 🔶 第4批 R1 9-2(Sean 2026-08-05「優化整體字體、圖示、比例」):
+//    icon 由幾何字元 `◉ □ ◈ ♡ ◎ ▸ ✎` 改 **inline SVG**,規格與殼(header / mobile-tabbar)
+//    完全一致:`viewBox="0 0 24 24"` / `fill="none"` / `stroke="currentColor"` /
+//    `stroke-width="1.6"` / `stroke-linecap="round"` / 顯示 18×18。
+//    🔴 幾何字元的問題不是「不好看」而是**每個字元的字體覆蓋率與基線都不同** ——
+//    `◈` `▸` 這種在部分系統字體裡沒有、會 fallback 到別支字體或顯示成豆腐,
+//    而且七顆的視覺大小完全不一致(`♡` 明顯比 `□` 大一圈)。
+//    path 字面逐字搬自設計稿 `account-page.html:139-145`;`vehicles` 與 tabbar「找車」、
+//    `profile` 與 header 會員鈕是**同一支** path(刻意的,不要各畫各的)。
 const NAV = [
-  { id: 'overview', label: '總覽', icon: '◉' },
-  { id: 'orders', label: '訂單記錄', icon: '□' },
-  { id: 'wallet', label: '儲值金', icon: '◈' },
-  { id: 'favorites', label: '收藏清單', icon: '♡' },
-  { id: 'vehicles', label: '我的愛車', icon: '◎' },
-  { id: 'address', label: '收件地址', icon: '▸' },
-  { id: 'profile', label: '個人資料', icon: '✎' },
+  {
+    id: 'overview',
+    label: '總覽',
+    path: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
+  },
+  {
+    id: 'orders',
+    label: '訂單記錄',
+    path: '<path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+  },
+  {
+    id: 'wallet',
+    label: '儲值金',
+    path: '<rect x="2" y="6" width="20" height="13" rx="1"/><path d="M2 10h20"/><path d="M16 15h3"/>',
+  },
+  {
+    id: 'favorites',
+    label: '收藏清單',
+    path: '<path d="M12 20.5 4.2 13a4.6 4.6 0 0 1 6.5-6.5l1.3 1.3 1.3-1.3A4.6 4.6 0 0 1 19.8 13z"/>',
+  },
+  {
+    id: 'vehicles',
+    label: '我的愛車',
+    path: '<path d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5"/>',
+  },
+  {
+    id: 'address',
+    label: '收件地址',
+    path: '<path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11z"/><circle cx="12" cy="10" r="2.6"/>',
+  },
+  {
+    id: 'profile',
+    label: '個人資料',
+    path: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
+  },
 ] as const;
 
 type TabId = (typeof NAV)[number]['id'];
@@ -125,7 +162,21 @@ export function AccountView({ user, stats, featured, profile, addresses, vehicle
                 className={tab === t.id ? 'is-active' : ''}
                 onClick={() => setTab(t.id)}
               >
-                <span className="acc-nav-icon">{t.icon}</span>
+                {/* 🔶 R1 9-2:`dangerouslySetInnerHTML` 用在**本檔內寫死的常數**上,
+                    沒有任何使用者輸入路徑(`NAV` 是 `as const`、不從 props / DB 來)。
+                    這是為了不用把七顆 icon 各拆成一個元件;`aria-hidden` 因為旁邊
+                    `.acc-nav-label` 已經有文字,圖示對讀屏是純裝飾。 */}
+                <span className="acc-nav-icon" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    dangerouslySetInnerHTML={{ __html: t.path }}
+                  />
+                </span>
                 <span>{t.label}</span>
               </button>
             ))}

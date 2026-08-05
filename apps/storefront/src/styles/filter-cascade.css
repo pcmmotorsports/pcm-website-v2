@@ -14,8 +14,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 10px var(--shell-x);
+  gap: 24px; /* 🔶 第3批 R1-3:16 → 24 */
+  padding: 12px var(--shell-x); /* 🔶 第3批 R1-3:列直距 10 → 12(配 44px 欄位) */
   /* 🔶 R2-1(2026-08-05):選車列=殼三件套之一 ⇒ 1440 置中,與頁首左右緣切齊。
      ⚠️ 商品列表主體(products-page.css:4)維持吃 --shell-max 拉滿——設計端明文只收殼。 */
   max-width: var(--shell-bar-max);
@@ -24,9 +24,14 @@
 .cft-cascade {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px; /* 🔶 第3批 R1-3:8 → 10 */
   /* ADR-0007:標題 + 三欄同一列(桌機;≤1023px 整條 .cft-bar 關閉、不需 wrap 退路) */
   flex-wrap: nowrap;
+  /* 🔴 第3批 R1-3:這兩條是「吃掉右側死空間」的關鍵 —— 沒有 `flex: 1 1 auto`,
+     `.cft-cascade` 只會撐到內容寬,裡面三欄的 `flex: 1 1 0` 就沒有多餘空間可分。
+     `min-width: 0` 讓它在窄螢幕收得下去(flex item 預設 min-width:auto 收不動)。 */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .cft-label {
   /* 2026-07-11 #1-A(Sean 拍 A):車款選擇器改招呼式清楚標題 — 去 mono/uppercase、黑字粗體;
@@ -49,10 +54,12 @@
    表單的殼,不加作用域會把放大鏡與 184px 固定寬潑到那兩個掛載點。
    ~~.cft-helper「先選車，只顯示裝得上的零件」~~ 已隨提示句取代、渲染端與樣式一併移除。 */
 .cft-picker-title {
+  /* 🔶 第3批 R1-3:標題與提示由**同行 baseline** 改**上下兩行**(與 44px 欄位配重)。 */
   display: inline-flex;
-  align-items: baseline;
-  gap: 9px;
-  margin-right: 4px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-right: 8px;
   white-space: nowrap;
 }
 .cft-picker-title .cft-label {
@@ -77,23 +84,36 @@
   background: center / 14px 14px no-repeat
     url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='1.8' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-4-4'/></svg>");
 }
+/* 🔶 第3批 R1-3(Sean 2026-08-05 **看稿圈圖親自解鎖** B′ C1「版面、欄寬不動」,僅限本列;
+   逐字回饋「比例不好、欄位格子不好看」)。字面 / 動線 / 即選即套 / 放大鏡全部不動。
+   欄位由**固定 184px** 改成**彈性等寬**:1440 下三欄把右側死空間吃掉,窄螢幕自己縮到 150。 */
+.cft-cascade .vsc {
+  flex: 1 1 0;
+  min-width: 150px;
+  max-width: 236px;
+}
 .cft-cascade .vsc-input {
-  width: 184px;
-  min-width: 184px;
-  padding-left: 34px;
+  /* 🔴 `width: 100%` + `min-width: 0` 兩個都要:`.vsc-input` 在 `filter-cascade.css` 別處
+     有 `min-width: 132px`,不歸零的話 flex 收縮會被那個下限卡住、三欄在窄螢幕不等寬。 */
+  width: 100%;
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px 0 34px;
+  font-size: 15px;
+  border-color: var(--c-border-strong);
 }
 .cft-cascade .vsc-input:disabled + .vsc-list,
 .cft-cascade .vsc:has(.vsc-input:disabled)::before {
   opacity: 0.28;
 }
 
-/* 1025-1220px:提示句收起、欄寬縮到 156px(選車列仍單列不換行、不擠壓成小方框) */
-@media (max-width: 1220px) and (min-width: 1024px) {
+/* 1025-1280px:提示句收起(選車列仍單列不換行)。
+   🔶 第3批 R1-3:斷點 1220 → **1280**(標題改成上下兩行後佔的橫向空間變少、但直向變高,
+   提示句要早一點收起來才不會把三欄擠扁)。
+   🔴 原本這裡還有一組「欄寬縮到 156px」的覆寫,**隨彈性欄位一併移除** ——
+   `flex: 1 1 0` + `min-width: 150px` 已經自己處理了收縮,再寫死 156 反而會蓋掉彈性。 */
+@media (max-width: 1280px) and (min-width: 1024px) {
   .cft-picker-hint { display: none; }
-  .cft-cascade .vsc-input {
-    width: 156px;
-    min-width: 156px;
-  }
 }
 .cft-select {
   font-size: 16px;
@@ -257,6 +277,11 @@
    用全站 --c-* token(非 home 的 .ed-page 作用域 --ed-c-*、避免型錄無定義破色)。
    ============================================================ */
 .cat-garage { position: relative; }
+/* 🔶 第3批 R1-3:選車列裡的愛車鈕加大到 9px 14px 與 44px 欄位配重。
+   ⚠️ **只 scope 在 `.cft-right` 內**:`.cat-garage-toggle` 全域還有別的掛載點
+   (手機面板、購物車車款欄),那些不在本次圈圖範圍。 */
+.cft-right .cat-garage-toggle { padding: 9px 14px; }
+
 .cat-garage-toggle {
   display: inline-flex;
   align-items: center;
@@ -281,7 +306,7 @@
   align-items: center;
   gap: 8px;
 }
-.cat-garage-suggest-label { width: 100%; font-size: 12.5px; color: var(--c-text-2); }
+.cat-garage-suggest-label { width: 100%; font-size: 13px /* 🔶 第3批:12.5 → 13(整數化) */; color: var(--c-text-2); }
 .cat-garage-chip {
   display: inline-flex;
   align-items: center;

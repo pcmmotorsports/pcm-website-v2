@@ -33,6 +33,29 @@ function mediaBlock(css: string, header: string): string {
   return '';
 }
 
+/**
+ * 從**指定位置**開始切一個大括號區塊(給有重複 header 的情況用)。
+ * 🔴 上面的 `mediaBlock` 用 `css.indexOf(header)` 找起點 ⇒ **同字面的 header 只認得第一個**。
+ *    `filter-cascade.css` 現有兩個一模一樣的 `@media (max-width: 1023px)`(`.ft-bar` 那個
+ *    與 `.vsc-input` 手機覆寫那個)⇒ 對第二個區塊完全盲。
+ *    這個洞是 2026-08-06 第3批收窄手機守門時引進的,由 code-reviewer **實測突變證實**:
+ *    把壓縮配方塞進第二個 1023 區塊,收窄後的守門**全綠**(原本整檔掃的版本會紅)。
+ *    而那個區塊正是歷史上放手機 `.vsc-input` 覆寫的地方 = 壓縮配方最可能回歸的位置。
+ */
+function blockAt(css: string, headerStart: number): string {
+  const open = css.indexOf('{', headerStart);
+  if (open < 0) return '';
+  let depth = 0;
+  for (let i = open; i < css.length; i += 1) {
+    if (css[i] === '{') depth += 1;
+    else if (css[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return css.slice(open + 1, i);
+    }
+  }
+  return '';
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ADR-0007 的硬邊界之一(交接檔 Slice B 逐字):
 //   「不得讓桌機 markup/CSS 在手機寬度形成三個被壓縮的橫向輸入框」
@@ -104,8 +127,48 @@ describe('手機不得出現被壓縮的桌機三欄選車列(ADR-0007)', () => 
     expect(RESPONSIVE).not.toMatch(/\.cft-cascade/);
   });
 
-  it('filter-cascade.css:不再有把選車欄壓成三欄併排的手機規則', () => {
-    expect(CASCADE).not.toMatch(/\.cft-cascade\s+\.vsc\s*\{[^}]*flex:\s*1/);
+  // 🔶 **2026-08-06 第3批:這條的判準收窄了,不是放寬。**
+  //    原本掃「整支 `filter-cascade.css` 裡任何 `.cft-cascade .vsc { flex: 1 }`」。
+  //    R1-3(Sean 看稿**圈圖親自解鎖** B′ C1)把**桌機**選車欄由固定 184px 改成
+  //    `flex: 1 1 0`,於是這條紅了 —— 但它守的不變量是
+  //    **「不得讓桌機 markup/CSS 在手機寬度形成三個被壓縮的橫向輸入框」**,
+  //    而那條桌機規則在手機上根本不可達(`.cft-bar` 在 ≤1023px 與 `[data-mobile]` 兩路
+  //    都 `display: none`,上面兩條斷言正在守著)。
+  //    ⇒ 原斷言是拿「整檔出現過」當「手機會生效」的**代理**,那個代理在 R1-3 之後失真了。
+  //    改成畫在不變量真正的面上:**任何手機寬度的 @media 區塊內**都不得出現這個配方。
+  //    這比原版**更強** —— 原版只認 `flex: 1`,新版任何 flex 寫法(`flex: 1 1 0` /
+  //    `flex-grow`)在手機段裡都會紅。
+  it('filter-cascade.css:手機寬度的任何 @media 內都不得把選車欄壓成三欄併排', () => {
+    // 掃出所有「上限 <= 1024px」的 @media header(不只 1023 那個 —— 壓縮配方可以掛在任何斷點)。
+    // 🔴 **用 `m.index` 從真實位置切,不要拿 header 字串再 `indexOf` 一次** ——
+    //    同字面的 header 有兩個以上時,`indexOf` 會把它們全部解析成第一個那塊。
+    const mobile = [...CASCADE.matchAll(/@media[^{]*max-width:\s*(\d+)px[^{]*/g)].filter(
+      (m) => Number(m[1]) <= 1024,
+    );
+    expect(mobile.length, 'filter-cascade.css 一個手機斷點都找不到 ⇒ 本條前提已失效').toBeGreaterThan(0);
+    // 前提:確認我們真的切出了「相異」的區塊數 —— 這條就是 M1 那個洞的直接守門。
+    const segs = mobile.map((m) => blockAt(CASCADE, m.index));
+    expect(new Set(segs).size, `${mobile.length} 個手機斷點只切出 ${new Set(segs).size} 個相異區塊 ⇒ 切片又退回 indexOf 了`)
+      .toBe(new Set(mobile.map((m) => m.index)).size);
+    segs.forEach((seg, i) => {
+      const where = `手機段 #${i + 1}(${mobile[i]?.[0].trim()})`;
+      expect(seg, `${where} 內出現了選車欄的 flex 壓縮配方`).not.toMatch(
+        /\.cft-cascade\s+\.vsc[^{]*\{[^}]*flex/,
+      );
+      expect(seg, `${where} 內出現了 .cft-select 的縮字級`).not.toMatch(/\.cft-select/);
+    });
+  });
+
+  // ⚠️ 這條與上方 `:56-60` / `:96-98` 兩條**是同一件事的重述**(regex 一模一樣),
+  //    留著是為了讓「收窄後的判準靠什麼成立」看得見 —— **它不是新增的保護面**,
+  //    報告裡不要當成多守到一層(code-reviewer N7 點名)。
+  it('前提(重述,非新增保護面)— 桌機選車列在手機兩路都關掉', () => {
+    expect(mediaBlock(CASCADE, MOBILE_MAX), '手機 @media 沒關掉 .cft-bar').toMatch(
+      /\.cft-bar\s*\{[^}]*display:\s*none/,
+    );
+    expect(CASCADE, '[data-mobile] 那一路沒關掉 .cft-bar').toMatch(
+      /\[data-mobile="true"\]\s+\.cft-bar\s*\{[^}]*display:\s*none/,
+    );
   });
 });
 
