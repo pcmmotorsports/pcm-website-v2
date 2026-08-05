@@ -209,10 +209,17 @@ COMMENT 逐字(`:493`):**「業務拒絕=通用訊息;輸入類=具體訊息」*
 ③ cancelled === true(RPC 只在成功路徑 RETURN,false 不是它的產物)
 ④ typeof cancellation_id === 'string' 且過 isUuid
 ⑤ typeof idempotent === 'boolean' && typeof closed === 'boolean'
-任一不符 → OrderCancelCallerBugError
+任一不符 → 回傳 `{ok:false, code:'bug'}`(~~拋 OrderCancelCallerBugError~~,2026-08-05 更新見下)
 ```
 
 ②的「恰等」而非「包含」是刻意的:RPC 日後加鍵要**轉紅讓人來看**,不是靜默忽略。
+
+> 🔄 **2026-08-05 更新(依 A-207-STOP ③(c),主視窗裁 plan 改、code 不動;收割確認輪 Fable 推演背書)**:
+> 形狀漂移改**回傳** `{ok:false, code:'bug'}` 而非拋例外。理由:形狀驗證發生在 RPC **成功 RETURN 之後**
+> ⇒ 交易已 commit;若拋例外而 action 未包 try,未處理 throw 會進 error boundary,員工唯一出路=整頁重載
+> ⇒ server 重鑄新 token,原 token 與凍結 state 俱失 ⇒ 換鍵重送部分取消**會真的再扣一次**。
+> 員工看到的行為與原設計完全相同(同訊息、同凍結)。要改回拋例外必須連 action 的 try 一起改
+> (`cancel-repository.ts` 檔頭有同款申報)。
 
 ### 4.2 失敗碼聯集與訊息表(K1-12:v1 把這段推給 mail,無法施工;此處定案)
 
@@ -256,6 +263,7 @@ COMMENT 逐字(`:493`):**「業務拒絕=通用訊息;輸入類=具體訊息」*
 | `22003` | 數值溢位 | `bug` |
 | `42501` | ACL 被撤(權限不足) | `bug`(部署面) |
 | `PGRST202` | **簽章漂移 / 找不到函式**(PostgREST schema cache;**不是** 42501 —— 關卡2 更正 v2 把兩者混為一談) | `bug`(部署面) |
+| `23505` | 部分取消 header INSERT(`20260805100000:428`)冒得出;建表檔逐字「任何 23505=真異常 fail-loud」(`20260804180000:20-21`) | `bug`(2026-08-05 補格,依 A-207-STOP ③(c) 主視窗裁定;原表無此格、落 fallback 會誤歸 `error`) |
 
 ---
 
