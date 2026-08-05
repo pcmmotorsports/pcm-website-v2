@@ -29,12 +29,16 @@ export function HomeStatement() {
           <div className="ed-statement-col">
             <div className="ed-mono ed-statement-col-num">01</div>
             <h3>原廠授權</h3>
-            {/* 🔴 D5d(2026-08-05,Sean 拍板 Q1=B「不報數」):這一句**刻意偏離 design 字面**
-                (design 稿寫「17 家品牌正式代理。」)—— 依據、實查數字與字面取捨全部寫在
-                `docs/design-storefront-manifest.yaml` 的
-                `HomeStatement.business_overrides.brandCountClaimRemoved`,**那裡是唯一權威**。
+            {/* 🔴 2026-08-05 文案片(Sean 拍板 Q1=B「不報數」+ Q3 改向):這一句**刻意偏離
+                design 字面**(design 稿寫「17 家品牌正式代理。每件商品附原廠序號與保固卡,…」)
+                —— 依據、實查數字與字面取捨全部寫在 `docs/design-storefront-manifest.yaml` 的
+                `HomeStatement.business_overrides.brandCountClaimRemoved`,**那裡是唯一權威**
+                (欄位名比內容窄 = D5d 留下的,刻意不改名;該欄現含三處偏離)。
                 ⚠️ 不要在這裡再抄一份:R2 F10 逐字指出兩份敘述會各自漂移(這一版的 OD 行號
-                就是那樣過期的)。守門在 `HomeStatement.test.tsx`。 */}
+                就是那樣過期的)。
+                🔴 守門**兩層**(R2 nit:這裡原本只寫元件層,而不變量是「**首頁**不做這些宣稱」):
+                元件層 `HomeStatement.test.tsx`(訊息指得出是哪一格)+ 頁面層 `app/page.test.tsx`
+                (掃整頁 HTML **含 attribute**;D5f 給 BrandIndex 的 logo `alt` 繞得過元件層)。 */}
             <p>全站皆為原廠正品,部分品牌正式代理、部分平行輸入,杜絕仿品風險。</p>
           </div>
           <div className="ed-statement-col">

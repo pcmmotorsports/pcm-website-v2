@@ -301,7 +301,8 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   //    ① 原本 `opacity: 1`,註解宣稱「對齊 design」——**那句是假的**,兩份 OD 稿都用降透明度。
   //    ② Q6 把 placeholder 轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差
   //       ⇒ 停用的 affordance 等於沒了(那是 Q6 揭示、Sean 據以拍板的副作用)。
-  //    ③ 現在取設計稿 `vehicle-picker-design.html:128` 的 `.45`
+  //    ③ 現在取設計稿的 `.45` —— OD `vehicle-picker-design.html` 逐字
+  //      `.vsc-input-demo:disabled { opacity: 0.45; }`(不引行號、用 grep 找字串)
   //      (**不是**站台層 `.vsc-input:disabled` 的 `0.55`,也不是回到 `1`)。
   //    ⇒ 只要有人把它改回 1 或改成 0.55,這條就紅。
   it('🔴 finder 停用態 opacity = 0.45(設計稿值;不得回到 1、也不是站台層的 0.55)', () => {
@@ -316,11 +317,31 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(rules.map((r) => r.selector), 'finder 停用態規則不是預期的兩條').toHaveLength(2);
     const main = rules.find((r) => !r.selector.includes('::placeholder'));
     expect(main, '找不到 :disabled 本體規則').toBeDefined();
-    expect(main!.body, '停用態沒有壓淡').toMatch(/opacity:\s*0?\.45/);
-    // 🔴 負向兩條各自承重:`1` 是「回到看不出停用」那個舊值,`0.55` 是站台層預設
-    //    —— 兩個都是「有人以為在修 bug」時最可能填進去的值。
-    expect(main!.body, '停用態被改回 opacity:1 ⇒ 又看不出停用了').not.toMatch(/opacity:\s*1\s*[;}]/);
-    expect(main!.body, '停用態退回站台層的 0.55 ⇒ 不是設計稿的值').not.toMatch(/opacity:\s*0?\.55/);
+    // 🔴 量的是**生效值**,不是「本文裡有沒有出現某個字串」(R2 nit)。
+    //    原本寫成一條正向 `.45` + 兩條負向(`1` / `0.55`)的字串比對,有一族固定的洞:
+    //    `opacity: 1 !important` 與 `opacity: 1.0` 兩者都繞得過 `/opacity:\s*1\s*[;}]/`
+    //    (前者 `1` 後面接的是空白+`!`,後者接的是 `.`)⇒ 正向的 `.45` 還在、負向不紅 = 假綠。
+    //    改成取**同一條規則裡最後一個 `opacity` 宣告**(單一 rule 內後者覆蓋前者),
+    //    一條斷言同時涵蓋「改回 1」「退回 0.55」「加 !important 蓋掉」「重複宣告」四種改法。
+    //    🔴 `!important` **必須一起模擬**,不能只取「最後一條」:實測過 ——
+    //    在 `.45` 那行**之前**插一條 `opacity: 1 !important`,瀏覽器生效值是 `1`
+    //    (important 蓋過非 important、與順序無關),而「取最後一條」會讀到 `.45` = **假綠**。
+    //    這正是本條要補的那個洞,拿「取最後一條」去補會原地踏步。
+    // ⚠️ 它擋不住什麼:①`@media` 內的覆寫仍全盲(同上面那則邊界)。
+    //    ②同 importance 的多條走 source order,跨 rule 的 specificity 不在本條射程
+    //    (上面已釘死「這個選擇器只有兩條規則」,多一條就先紅在那裡)。
+    const decls = [...main!.body.matchAll(/opacity:\s*([0-9]*\.?[0-9]+)\s*(!important)?/g)].map(
+      (m) => ({ value: Number(m[1]), important: Boolean(m[2]) }),
+    );
+    expect(decls, '這條規則裡一個 opacity 宣告都沒有 ⇒ 停用態沒有壓淡').not.toHaveLength(0);
+    // 生效值 = 有 important 就取最後一條 important,否則取最後一條。
+    const importants = decls.filter((d) => d.important);
+    const effective = (importants.length ? importants : decls).at(-1)!.value;
+    expect(
+      effective,
+      `finder 停用態生效 opacity = ${effective},應為設計稿的 0.45`
+        + '(1 = 又看不出停用了;0.55 = 退回站台層預設,不是設計稿的值)',
+    ).toBe(0.45);
   });
 
   // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
