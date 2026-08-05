@@ -552,11 +552,90 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     });
   });
 
-  // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
-  //    這條擋的是「順手把三塊深色一起改掉」——那會讓 D7 變成沒東西可做、而且跳過 D7 自己的驗收。
-  it('🔴 頁尾仍是重排前的 #0a0a0a(回石墨是 D7 的事,D5a 不得順手改)', () => {
-    const rule = CSS.match(/\.ed-footer\s*\{[^}]*\}/)?.[0] ?? '';
-    expect(rule, '找不到 .ed-footer 規則').not.toBe('');
-    expect(rule, '頁尾被提前改成石墨了 ⇒ 跨了 D5a/D7 的片界').toMatch(/background:\s*#0a0a0a/);
+  // ── D7 頁尾(2026-08-05,由第0批 0b 執行;主視窗 `D-107-A` 裁 A 案「0b 吸收整個 D7」)──
+  //
+  // 這裡原本是一條**反向**片界守門:「頁尾仍是重排前的 `#0a0a0a`(回石墨是 D7 的事,D5a 不得順手改)」。
+  // 它的意圖是「D7 不得被順手跳過自己的驗收」—— 現在 D7 是**帶著自己的驗收在執行**,意圖已滿足,
+  // 故翻成正向。理由一併改掉、不留過期字面(`D-107-A` ②1 明文要求;
+  // memory `feedback_claimed-sync-but-only-patched-touched-lines` 同族)。
+  describe('D7 頁尾回深 + 殼寬(真權威:direction-b 定案稿 = pcm-shell.css,兩份值相同)', () => {
+    it('🔴 頁尾底色 = 石墨 #202225(不是重排前的純黑 #0a0a0a)', () => {
+      const rule = CSS.match(/\.ed-footer\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-footer 規則').not.toBe('');
+      expect(rule, '頁尾底色不是石墨').toMatch(/background:\s*#202225/);
+      // 反面:退回純黑就是 D7 被回滾了,而深底 logo 放純黑上「看起來只是深一點」、沒人會發現。
+      expect(rule, '頁尾退回重排前的 #0a0a0a').not.toMatch(/#0a0a0a/);
+    });
+
+    it('🔴 留白 52 / 40 / 22(Sean 2026-08-03 看過拍板的三個值)', () => {
+      const footer = CSS.match(/\.ed-footer\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(footer, '.ed-footer padding-top 不是 52px').toMatch(/padding:\s*52px 0 0/);
+      const inner = CSS.match(/\.ed-footer-inner\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(inner, '.ed-footer-inner padding-bottom 不是 40px').toMatch(/padding-bottom:\s*40px/);
+      const base = CSS.match(/\.ed-footer-base\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(base, '.ed-footer-base padding 不是 22px').toMatch(/padding:\s*22px/);
+    });
+
+    // 🔴 `D-107-A` ②3 指名要釘的那條。R2-1 的兩條 max-width 是靠「改 `.ed-footer` 上的
+    //    `--ed-max` 一行、兩條同時到位」達成的 —— 那個省事寫法的**前提**是兩條都真的還在吃
+    //    `var(--ed-max)`。哪天有人把其中一條改成寫死值(或改吃別顆),`--ed-max` 那行看起來
+    //    還是對的、`.ed-footer` 的斷言照樣綠,而那一條實際上已經脫鉤。前提要自己被釘住。
+    it('🔴 --ed-max 指向殼寬,且 inner 與 base 兩條都真的吃得到它(一行帶兩條的前提)', () => {
+      const footer = CSS.match(/\.ed-footer\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(footer, '--ed-max 沒指向 --shell-bar-max ⇒ 頁尾沒收 1440')
+        .toMatch(/--ed-max:\s*var\(--shell-bar-max\)/);
+      for (const sel of ['.ed-footer-inner', '.ed-footer-base']) {
+        const rule = CSS.match(new RegExp(`\\${sel}\\s*\\{[^}]*\\}`))?.[0] ?? '';
+        expect(rule, `找不到 ${sel} 規則`).not.toBe('');
+        expect(rule, `${sel} 沒吃 var(--ed-max) ⇒ 它與 --ed-max 那一行已脫鉤`)
+          .toMatch(/max-width:\s*var\(--ed-max\)/);
+      }
+    });
+
+    it('🔴 頁尾 logo 是 56px 的圖檔,且 .ed-footer-logo 不再帶文字字級', () => {
+      const wrap = CSS.match(/\.ed-footer-logo\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(wrap, '找不到 .ed-footer-logo 規則').not.toBe('');
+      expect(wrap, '.ed-footer-logo 仍帶 font-size ⇒ logo 退回文字了').not.toMatch(/font-size/);
+      const img = CSS.match(/\.ed-footer-logo img\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(img, '找不到 .ed-footer-logo img 規則').not.toBe('');
+      expect(img, '頁尾 logo 高不是 56px').toMatch(/height:\s*56px/);
+      expect(img, '頁尾 logo 寬不是 auto ⇒ 比例會被拉歪').toMatch(/width:\s*auto/);
+    });
+
+    // §4-4:1079 以下原本只有 `@media (max-width: 900px)` 那段、而它不調字級 ⇒ iPad 吃桌機值。
+    it('🔴 頁尾平板段(600-1079px)存在且把字級放大', () => {
+      const t = mediaBlock('(min-width: 600px) and (max-width: 1079px)');
+      expect(t, '找不到頁尾平板段').not.toBe('');
+      // 🔴 值要綁在**自己的選擇器**上。只斷言「區塊裡有 15px、有 14px」的話,
+      //    兩組值對調(tagline 變 14、social 變 15)照樣全綠 —— 那是「量錯東西」的典型形狀。
+      const rule = (sel: string) => t.match(new RegExp(`[^{}]*\\${sel}[^{}]*\\{[^}]*\\}`))?.[0] ?? '';
+      const links = rule('.ed-footer-tagline');
+      expect(links, '平板段沒涵蓋 .ed-footer-tagline').not.toBe('');
+      expect(links, 'tagline / 連結那組字級不是 15px').toMatch(/font-size:\s*15px/);
+      expect(links, '平板段那組沒同時涵蓋頁尾連結').toMatch(/\.ed-footer-cols a/);
+      const social = rule('.ed-footer-social');
+      expect(social, '平板段沒涵蓋 .ed-footer-social').not.toBe('');
+      expect(social, 'social 字級不是 14px').toMatch(/font-size:\s*14px/);
+    });
+
+    // 設計端 §4-3「字級只用整數 px」。守門面畫在**整個頁尾家族**、不是只有我改到的那一行
+    //(只釘手碰過的行 = 下一顆半像素進來時零阻力)。
+    // ⚠️ 刻意**不**擴到整支 `home.css`:實查另有兩處半像素 `.ed-link-sm`(`home.css:62`)與
+    //    `.ed-finder-hint`(`:228`),它們是首頁本體的元件、不屬「殼」⇒ 不在 R2-3 授權範圍
+    //    (派工單:首頁是已定案上線的自包含稿,本輪只動殼與兩處文案)。這是**明說的縮範圍**,
+    //    不是漏掉;要一起收要另外一片。
+    it('🔴 頁尾家族沒有任何半像素字級,且連結是整數 14px(設計端 §4-3)', () => {
+      const footerRules = CSS.match(/[^{}]*\.ed-footer[^{}]*\{[^}]*\}/g) ?? [];
+      // 門檻取實測值 19 的下限 18:寫 8 的話刪掉 11 條頁尾規則仍不紅 —— 那只證明「迴圈非空」,
+      // 不證明「掃過整族」。前提本身也要有判別力。
+      expect(footerRules.length, '頁尾規則數掉到 18 以下 ⇒ 有一整批規則被刪了,這個迴圈已掃不到它們')
+        .toBeGreaterThanOrEqual(18);
+      for (const r of footerRules) {
+        expect(r, `頁尾家族出現半像素字級:${r.slice(0, 60)}`).not.toMatch(/font-size:\s*\d+\.\d+px/);
+      }
+      const links = CSS.match(/\.ed-footer-cols a,[\s\S]*?\}/)?.[0] ?? '';
+      expect(links, '找不到 .ed-footer-cols 連結規則').not.toBe('');
+      expect(links, '頁尾連結字級不是 14px').toMatch(/font-size:\s*14px/);
+    });
   });
 });

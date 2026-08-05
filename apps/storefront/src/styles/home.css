@@ -674,7 +674,8 @@
    ============================================================ */
 /* D5a(2026-08-05):N°04 服務宣言由 `#0a0a0a` 改**石墨 `#202225`**(OD README「區塊順序」表)。
    石墨是 direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值。
-   ⚠️ 頁尾也要回石墨,但那是 **D7**,本片不動(母計畫 §1 切片表)。 */
+   ⚠️ 頁尾也要回石墨 —— 那是 **D7**,D5a 當下不動;**D7 已於 2026-08-05 第0批 0b 落地**
+      (主視窗 `D-107-A` 裁 A 案),見本檔「08 · FOOTER」段。 */
 .ed-statement {
   background: #202225;
   color: #fff;
@@ -868,13 +869,27 @@
 /* ============================================================
    08 · FOOTER (quiet, editorial)
    ============================================================ */
+/* 🔶 D7「頁尾回深 + 版權年份動態」由第0批 0b 執行(主視窗 `D-107-A` 裁 A 案:0b 吸收整個 D7,
+   首頁線 D7 標結案)。原因=Sean 給 0b 的清單裡已含 D7 三件中的兩件(bicolor logo、版權列),
+   拆兩片會讓頁尾停在「石墨稿的 logo 配純黑的底」半套狀態,而且同一段要被改兩次。
+   真權威兩份:`direction-b-layout-01-graphite-ember.html:577-597`(定案首頁,**本檔跟這份**)
+   與 `pcm-shell.css:89-107`(重設計線共用殼)。桌機值兩份逐字相同;
+   🔴 **≤900 那段兩份不同**,不要照抄錯邊:`pcm-shell.css:104,106` 另給了
+   `.ed-footer-inner{padding:0 20px 28px}` 與 `.ed-footer-base{padding:22px 20px}`,
+   direction-b 的 ≤900 只調 grid 與 gap、留白照舊。本檔跟 direction-b —— 理由:
+   ①本檔服務的就是首頁,定案稿是它的直接權威 ②母計畫
+   `2026-08-03-storefront-home-brand-page-wire-plan.md:114` 逐字「留白 52/40/22 **維持不動**
+   (Sean 08-03 看過拍板)」,把 ≤900 的 40 改成 28 就是動了那組留白。
+   ③左右 20px 這件事本檔已由 `--ed-gutter` 在 ≤900 提供,結果相同。 */
 .ed-footer {
-  background: #0a0a0a;
+  background: #202225; /* 石墨;原 #0a0a0a 純黑是重排前的舊值(同 D5a 對 N°04 的更正) */
   color: #fff;
-  padding: 96px 0 0;
+  padding: 52px 0 0;
   /* self-contained defaults so footer works outside .ed-page wrapper */
-  /* 2026-07-11 撐滿改版:footer 跟 header/頂部列/商品頁一起撐滿對齊(吃全站共用 token) */
-  --ed-max: var(--shell-max);
+  /* 🔶 R2-1(2026-08-05):殼三件套改 1440 置中。頁尾兩條 max-width(`.ed-footer-inner`
+     與 `.ed-footer-base`)**都吃 `--ed-max`** ⇒ 改這一行就兩條同時到位。
+     🔴 那個「一行帶兩條」的前提(兩條都真的吃得到)由 `home.test.ts` 釘住,不是靠註解宣稱。 */
+  --ed-max: var(--shell-bar-max);
   --ed-gutter: var(--shell-x);
 }
 @media (max-width: 900px) { .ed-footer { --ed-gutter: 20px; } }
@@ -883,21 +898,25 @@
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   display: grid;
-  grid-template-columns: 1.2fr 2fr;
-  gap: 80px;
-  padding-bottom: 72px;
+  grid-template-columns: minmax(190px, .8fr) 2.2fr;
+  gap: clamp(28px, 3.4vw, 56px);
+  padding-bottom: 40px;
 }
+/* R2-3:頁尾 logo = `pcm-stacked-bicolor-on-dark.png` 56px(堆疊版;頁首用緊湊版)。
+   原本這裡的字級/字重/字距是給文字 logo 用的,換圖後全部無作用 ⇒ 一併移除、不留死宣告。 */
 .ed-footer-logo {
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  margin-bottom: 24px;
+  margin-bottom: 14px;
+}
+.ed-footer-logo img {
+  height: 56px;
+  width: auto;
+  display: block;
 }
 .ed-footer-tagline {
   font-size: 14px;
   line-height: 1.7;
   color: rgba(255,255,255,0.6);
-  margin: 0 0 32px;
+  margin: 0 0 16px;
 }
 .ed-footer-social {
   display: flex;
@@ -924,19 +943,19 @@
 .ed-footer-cols {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 48px;
+  gap: 36px;
 }
 .ed-footer-h {
   color: rgba(255,255,255,0.5);
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 .ed-footer-cols a,
 .ed-footer-cols p,
 .ed-footer-cols button {
   display: block;
-  font-size: 13.5px;
+  font-size: 14px; /* R2-3 / 設計端 §4-3「字級只用整數 px」:13.5 併整數 */
   color: rgba(255,255,255,0.75);
-  margin-bottom: 10px;
+  margin: 0 0 10px;
   line-height: 1.6;
   transition: color 0.15s;
 }
@@ -945,7 +964,7 @@
 .ed-footer-base {
   max-width: var(--ed-max);
   margin: 0 auto;
-  padding: 24px var(--ed-gutter);
+  padding: 22px var(--ed-gutter);
   border-top: 1px solid rgba(255,255,255,0.1);
   display: flex;
   justify-content: space-between;
@@ -955,8 +974,21 @@
 }
 
 @media (max-width: 900px) {
-  .ed-footer-inner { grid-template-columns: 1fr; gap: 48px; }
-  .ed-footer-cols { grid-template-columns: 1fr 1fr; gap: 32px; }
+  .ed-footer-inner { grid-template-columns: 1fr; gap: 26px; }
+  .ed-footer-cols { grid-template-columns: 1fr 1fr; gap: 24px; }
+}
+
+/* 🔶 §4-4 平板段(600-1079px;第0批 0b)—— 值照 OD `pcm-shell.css:129-130`。
+   本檔頁尾在 1079 以下只有一組值(`@media (max-width: 900px)` 那段只調欄數與 gap、不調字級)
+   ⇒ iPad 直接吃桌機的 14px/13px。設計端 `DESIGN-HANDOFF-2026-08-05.md:130-133` 明訂補平板段。
+   🔴 這裡不需要像 `mobile-tabbar.css` 那樣寫雙選擇器:頁尾這一族**沒有 `html[data-mobile]` 兜底**
+      (實查 `home.css` 全檔零 `data-mobile`),裸選擇器 + 序在後即穩勝。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .ed-footer-tagline,
+  .ed-footer-cols a,
+  .ed-footer-cols p,
+  .ed-footer-cols button { font-size: 15px; }
+  .ed-footer-social { font-size: 14px; }
 }
 
 /* ── A10:首頁自刻的 `.ed-finder-garage*` / `.ed-finder-suggest*` 家族**已退場** ──

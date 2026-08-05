@@ -1088,8 +1088,9 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
   });
 
   // 🔴 **合約的另一半**(R3 Fable consider F2):上一條釘的是「`.bp-page` 有宣告 `--ed-c-ink`」,
-  //    但那份宣告存在的**唯一理由**是 `home.css` 的 `.ed-link` 會去讀它。哪天 D5/D7 重排頁尾時
+  //    但那份宣告存在的**唯一理由**是 `home.css` 的 `.ed-link` 會去讀它。哪天有人重排頁尾時
   //    把 `.ed-link` 改成別的 token,我補的那份宣告就變成無人消費的死碼、而沒有東西會說一聲。
+  //    (D5/D7 已於 2026-08-05 落地,兩者都沒碰 `.ed-link` ⇒ 本條合約至今成立。)
   //    這條讀 `home.css` 原始碼、把消費端釘住:兩邊任一改動都會紅。
   it('🔴 `home.css` 的 `.ed-link` 確實消費 `--ed-c-ink`(否則 .bp-page 那份宣告就成死碼)', () => {
     const home = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'home.css'), 'utf8');

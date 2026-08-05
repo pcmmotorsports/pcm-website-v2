@@ -1,7 +1,7 @@
 /* Filter Top Bar — Uniqlo style */
 .ft-bar {
   position: sticky;
-  top: 69px;
+  top: var(--shell-header-h);
   z-index: 30;
   background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
@@ -75,7 +75,7 @@
 .ft-overlay {
   position: fixed;
   inset: 0;
-  top: 69px;
+  top: var(--shell-header-h);
   background: rgba(0,0,0,0.08);
   z-index: 20;
 }

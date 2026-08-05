@@ -133,7 +133,14 @@ describe('手機控制列只在手機出現(products-mobile.css)', () => {
     // sticky 只能在父層 box 內移動;.pmc-root 若是 block,它的高度剛好等於這條列
     // ⇒ 移動空間 0 ⇒ 一捲就跟著滑掉(第一版就是這樣壞的)。
     expect(MOBILE).toMatch(/\.pmc-sticky\s*\{[^}]*position:\s*sticky/);
-    expect(MOBILE).toMatch(/\.pmc-sticky\s*\{[^}]*top:\s*64px/);
+    // 🔴 這條原本斷言 `top: 64px`。**期望值是被改過的,理由不是「為了讓驗收過」**:
+    //    64 這個數字從一開始就不等於手機頁首的實高(實量 65),而第0批 0b 把 `.pcm-icon-btn`
+    //    由 40 改 44 之後手機頁首變成 69px ⇒ 差 5px、工具列會被頁首壓住。
+    //    修法是把「頁首多高」收成單一來源 `--shell-header-h`(tokens.css,桌機 73 / ≤1079 為 69),
+    //    所以這裡改成斷言「有吃那顆 token」而不是斷言某個字面數字 ——
+    //    字面數字正是上一次讓它悄悄失準的原因。實際值的正確性由 `shell-detail.test.ts` 的
+    //    「73/69 的算式成分還在」那條前提斷言守,兩邊合起來才是完整合約。
+    expect(MOBILE).toMatch(/\.pmc-sticky\s*\{[^}]*top:\s*var\(--shell-header-h\)/);
     const mobile = mediaBlock(MOBILE, MOBILE_MAX);
     expect(mobile).toMatch(/\.pmc-root\s*\{[^}]*display:\s*contents/);
     // 大塊車輛資訊不得是 sticky(它要捲走;否則黏頂高度會吃掉手機近 1/4 畫面)
@@ -142,7 +149,7 @@ describe('手機控制列只在手機出現(products-mobile.css)', () => {
   });
 
   it('頁面標題在手機不黏頂(修掉 cascade bar 退場後留下的 56px 幽靈偏移)', () => {
-    // products-page.css 的手機規則是 `top: 120px = 64 header + 56 cascade bar`,
+    // products-page.css 的手機規則是 `top: calc(var(--shell-header-h) + 56px)`(0b 之前寫死 120 = 64 header + 56 cascade bar),
     // 而手機的 cascade bar 已整條關閉 ⇒ 不覆蓋成 static 就會「標題卡畫面中間 + 上方空一條」。
     const mobile = mediaBlock(MOBILE, MOBILE_MAX);
     expect(mobile).toMatch(

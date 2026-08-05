@@ -69,7 +69,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   // 標題字面 = 設計稿 `brand-page.html:1615` 的 `document.title` 逐字(全形直豎線、非半形 |)。
   // ⚠️ 站名寫法與既有頁面(`— PCM Motorsports`)不同 —— 那是設計稿自己的字面,
-  //    全站統一屬 D5/D7 首頁與頁尾重排的範圍,這裡不擅自翻譯(鐵則 1)。
+  //    全站統一**仍未做**:D5/D7 已於 2026-08-05 落地、但兩者都只動版面與配色、沒碰站名寫法
+  //    ⇒ 這件事現在歸全站重設計線(`docs/handoff/2026-08-05-site-redesign-line.md`),
+  //    這裡照舊不擅自翻譯(鐵則 1)。
   const title = `${brand.name} 品牌介紹｜PCM MOTOR PARTS LTD.`;
   // description ← 品牌自己的 lede(真內容、不是編的);lede 是 BrandRichString ⇒ 走 plain 轉換,
   // 否則 `<strong>` 之類的標記會原封進 meta。
