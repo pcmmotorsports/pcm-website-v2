@@ -209,6 +209,19 @@ CREATE TABLE public.order_item_quantity_summary (
 
 ### 4.2 契約債:第 2 批必須回頭改
 `shipped_quantity` 在第 1 批不存在 ⇒ 完整式 `cancelled <= quantity - shipped` 退化為 C6。
+
+> ~~追註 2026-08-05:此式已由 B2 線 v4 更正 —— 正確的表級不變式是
+> `cancelled + shipped <= quantity`(取代 C6),**不是** `instock + cancelled + shipped <= quantity`
+> (那會與 instock 重複計數);`shipped <= instock` 改走出貨側守門、不進摘要表 CHECK
+> (receipts 可刪 ⇒ instock 非單調,寫成表 CHECK 會讓無關的摘要列變非法)。~~
+>
+> 🔴 **追註二 2026-08-05 晚(K1 R3 後;上面那則追註本身已作廢)**:
+> ①「改走出貨側守門」的理由**事實錯誤**(F6)—— A4a 重算是 **row-level、只重算受影響的那個品項**
+> (`20260803140000:277-296`)⇒ **不存在「無關的摘要列」**。
+> ②「`cancelled + shipped <= quantity` 是表級不變式」也不成立(F3)—— 它掛在**衍生摘要表**上,
+> break-glass `DISABLE TRIGGER`(`20260803140000:82-121`)期間比對的是過時值。
+> ⇒ **本契約債怎麼清償 = 重新開放、尚未定案**;B2 線已停損為只交付兩張表,本債整批延後。
+> 見 `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1。**原文與追註一皆保留為當時紀錄,未竄改。**
 第 2 批建包裹模型的**同一片**必須:① 加 `shipped_quantity` ② 納入 C6/C7 ③ 同步改 A8a1/A8a2 可取消量守門。
 🔴 落點 = migration COMMENT **+ master plan §5.1 A8a1/A8a2 兩列**(只寫 COMMENT = 沒有強制力,見 §0)。
 
