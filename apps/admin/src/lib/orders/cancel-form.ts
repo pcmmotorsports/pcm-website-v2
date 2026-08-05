@@ -155,9 +155,9 @@ export function parseOrderCancelForm(form: CancelFormLike): CancelParse {
   const reasonCode = reasonCodeRaw as CancelReasonCode;
 
   // 🔴 型別分流(不是「有填就送」):`other` 必須有非空白說明、其餘**必須送 null**。
-  //    用「有填就送」會讓非 other 帶著空字串撞 `非 other 不得填說明`(`:143-145`)。
+  //    用「有填就送」會讓非 other 帶著空字串撞 `非 other 不得填說明`(`:141-142`)。
   //    空白判定用 `rpcTrim` 不用 `.trim()`:`.trim()` 不剝 U+200B / U+2060 等零寬字,
-  //    而 RPC 會剝(`:136-140`)⇒ 純零寬字的說明在 `.trim()` 下是「非空」、會漏到 RPC 才被擋。
+  //    而 RPC 會剝(`:134-138`)⇒ 純零寬字的說明在 `.trim()` 下是「非空」、會漏到 RPC 才被擋。
   const detailRaw = readString(form, CANCEL_REASON_DETAIL_FIELD);
   let reasonDetail: string | null = null;
   if (reasonCode === 'other') {

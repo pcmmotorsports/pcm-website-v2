@@ -263,6 +263,4 @@ describe('parseOrderCancelForm — A9d2-2a 純解析器', () => {
     expect(() => parseOrderCancelForm(withFile)).not.toThrow();
     expect(parseOrderCancelForm(withFile).ok).toBe(false);
   });
-
-
 });
