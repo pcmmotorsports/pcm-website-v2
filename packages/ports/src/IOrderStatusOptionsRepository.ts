@@ -1,4 +1,4 @@
-import type { OrderStatusOption, OrderStatusOptionUpdate } from '@pcm/domain';
+import type { OrderStatusOption } from '@pcm/domain';
 
 /**
  * IOrderStatusOptionsRepository: 後台訂單處理狀態詞彙(order_status_options)讀取 port(M-4a Slice A)。
@@ -9,7 +9,7 @@ import type { OrderStatusOption, OrderStatusOptionUpdate } from '@pcm/domain';
  * (listByCustomer / listSummariesByCustomer 等零接觸)。
  *
  * admin-only:實作走 service_role(order_status_options 對 anon/authenticated 全鎖、RLS zero-policy)。
- * M-4a Slice D-3 設定 UI 擴 `updateOrderStatusOption`(編輯既有);新增(create)留 D-3b。
+ * M-4b E10 A9w4c 起**唯讀**:設定 UI 與其 writer 已隨九碼退場(A9w2 / A9w4b)。
  */
 export interface IOrderStatusOptionsRepository {
   /**
@@ -20,19 +20,8 @@ export interface IOrderStatusOptionsRepository {
    */
   listOrderStatusOptions(): Promise<OrderStatusOption[]>;
 
-  /**
-   * 更新既有狀態選項(M-4a Slice D-3 設定頁編輯;code 為鍵、不可改)。
-   * 🔴 只改 label/color/text_color/sort_order/is_active(DB column-level grant 已收窄;code/created_at 凍結)。
-   * 回 'UPDATED'(命中)/ 'NOT_FOUND'(code 不存在)。停用走 isActive=false(soft-delete)。
-   */
-  updateOrderStatusOption(
-    code: string,
-    update: OrderStatusOptionUpdate,
-  ): Promise<'UPDATED' | 'NOT_FOUND'>;
-
-  /**
-   * 新增狀態選項(M-4a Slice D-3c 設定頁;code 由呼叫端提供=中性 slug)。
-   * 回 'CREATED'(成功)/ 'DUPLICATE'(code 已存在、PK 衝突)。RESERVED_CODES+DB CHECK 雙層擋非法/保留字。
-   */
-  createOrderStatusOption(input: OrderStatusOption): Promise<'CREATED' | 'DUPLICATE'>;
+  // M-4b E10 A9w4c(前半):`updateOrderStatusOption` / `createOrderStatusOption` 兩支寫入方法已移除
+  // ——它們的 server action 與設定頁在 A9w2/A9w4b 下架後成為零呼叫端。本 port 自此**唯讀**。
+  // 🔴 DB 端 service_role 的 INSERT/UPDATE 寫權仍在,撤權屬 A9v(母 plan `:428` row 62)
+  //    ⇒ 這裡是「應用層拿不到寫入介面」,不等於「資料庫寫不進去」。
 }
