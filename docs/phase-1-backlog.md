@@ -8992,3 +8992,45 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   (現在紅的位置與突變內容無關)。
 - **不修會痛在哪**:A7 那批的突變證據**現在是空的** —— 未來任何人引用「a7 突變 N 組全紅」
   當作守門有判別力的依據都會是假的;而對照組同時紅,正是它自己在喊「harness 壞了」。
+
+### #328. 🕳️ A9a-1 notes 投影 `?? []` fail-open — 投影退版時畫面會說「時間軸完整、未告知客人」
+
+- **狀態:** ⏳ 待執行(A 窗片 3 R3 審查發現既有問題;2026-08-05 主視窗立案)
+- **現況**:`packages/adapters/src/supabase/mappers/order.ts:609` 的 `row.order_notes ?? []`
+  把「select 投影缺鍵(根本沒讀到)」翻成「讀到了、真的零筆」⇒
+  `mapSupabaseOrderNoteRowsToProjection([])` 回 `notesTruncated=false`、`customerNotified=false`(實測)。
+  同函式下一行的 cancellations **刻意不加** `?? []`(缺鍵→`null`=「沒讀到」),兩行語意不一致;
+  `:612-617` 註解已如實記載本條(R3 抓到原註解宣稱安全的理由是假的)。
+- **修法**:notes 改走 cancellations 同款 fail-closed(缺鍵→`null`,UI 顯示「讀取失敗」而非空時間軸);
+  要自己一片 + 自己的審查(A9g-3 明文不順手改),動 mapper 需同步 U6 告知義務的消費點與測試。
+- **不修會痛在哪**:`ADMIN_ORDER_DETAIL_SELECT` 哪天退版漏掉 `order_notes` 內嵌 —— 無測試轉紅、
+  無畫面錯誤,員工看到的是「時間軸完整、未告知客人」,U6 告知義務判斷建立在假資料上
+  (該補告知的不會補)。與 memory「守門絕不可讀惰性衍生快取」的 fail-open 同族。
+
+### #329. 🕳️ 洩漏守門「受守表清單」是手維護的 meta 閘 — 新 service-role-only 表忘登記不會紅
+
+- **狀態:** ⏳ 待執行(主視窗 R3 指出真實失效路徑=B2 新表忘登記;2026-08-05 立案)
+- **現況**:`scripts/storefront-projection-leak-guard.test.ts:46` 的 `SERVICE_ROLE_ONLY_TABLES`
+  六張表為手工列舉。守門只證「清單內的表沒出現在 storefront 原始碼」,**不證「清單=全部
+  service-role-only 表」**。最近的真實案例:B2 出貨線三支 migration(shipments / shipment_items,
+  含 `hct_request_id`/`hct_raw_response` 送單證據)apply 後若忘登記,守門對它們全盲且全綠。
+- **候選解**:補 meta 閘 —— 掃 `supabase/migrations/` 的「RLS enable + 零 policy + 只授 service_role」
+  pattern 產出應守清單,與 `SERVICE_ROLE_ONLY_TABLES` 比對,缺一張紅一張。文字層掃描有已知洞族
+  (memory `feedback_text-level-guard-blind-to-invalid-syntax`),可接受 —— 它只是 meta 閘,
+  主守門(字面掃描 + runtime 42501 + eslint `/server` 邊界)仍在。
+- **不修會痛在哪**:下一張內部表上線時「有沒有被守」取決於施工者記不記得登記;忘了=該表
+  對 storefront 洩漏**零防護且零訊號**,而清單的存在反而給所有人「已有守門」的假安心。
+
+### #330. 🎲 `note-compose-form.test.tsx` [5] confirm 閘非決定性紅 — C-204-STOP §五那條「無法指認的 1 紅」已捕捉到名字
+
+- **狀態:** ⏳ 待執行(2026-08-05 主視窗收割 D 0a 時全套首跑 1 紅捕獲;單檔 3 次綠、全套重跑綠)
+- **簽名(完整 log 在收割留檔)**:`apps/admin/src/components/orders/note-compose-form.test.tsx:118`
+  `confirmSpy.mock.calls.length` 得 3 期望 2,而 `:117` `actionMock` 恰 2 次先通過
+  ⇒ 第三發 submit(rerender 成非更正模式後)走了**更正模式的舊 handler**(confirm 被多問一次、
+  回 true 後 action 照發)——兩個計數合起來只有這一種走法。
+- **假說(未證實)**:第二發 submit 的 form action 在 React 19 transition 內仍 in-flight 時
+  `rerender()`,props 提交與第三發 submit 的先後在高負載下翻轉。修法方向=第三發前先等
+  transition 安定(不是改期望值);修完要在負載下重現原紅(如 `--threads` 滿載重複跑)證明修的是根因。
+- **不修會痛在哪**:全套「N 綠」是收割對帳的唯一依據(同族=`WalletTab` 缺 `afterEach(cleanup)`,
+  `ec4d629` 已修);這條每隔幾輪隨機紅一次,每次都要人工重跑判定「flaky 還是真壞」,
+  且它蓋掉的可能是同檔真回歸。C-204-STOP §五那筆懸案到此指認、不再是幽靈。
