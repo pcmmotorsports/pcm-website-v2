@@ -14,7 +14,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a4a-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 AURL="${URL}?application_name=a4a_sess_a"
 HELPER="public.pcm_a4a_recompute_order_item_summary(uuid)"
 FN_GUARD="public.pcm_a4a_received_quantity_guard()"

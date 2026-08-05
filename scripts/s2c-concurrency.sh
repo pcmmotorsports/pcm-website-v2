@@ -62,7 +62,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/s2-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 FNSIG="public.admin_upsert_supplier(uuid,text,boolean,text,text,text)"
 TARGET='FOWLER'                 # 只出現在 s1a-verify.sh:137 的 seed 名單斷言裡,無 harness 拿它當工作對象
                                 # (AKOSO 被 s1a 的 touch 突變格用掉、PROTI 被 s1b/s2 用掉)

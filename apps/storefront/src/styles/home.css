@@ -12,6 +12,19 @@
   --ed-c-paper: #ffffff;
   --ed-c-paper-2: #f7f7f8;
   --ed-c-accent: #b91c1c;
+  /* ── 動作色 · 熔橘拆三顆(D5e-2b;OD `:root` 的 `--c-red`/`--c-ember-ink`/`--c-red-dark`)──
+     🔴 **刻意用 `--ed-c-*` 自己的名字、且 scope 在 `.ed-page` 不進 `:root`**:
+        正式站 `tokens.css` 已經有 `--c-red`(`#dc2626` 緋紅)與 `--c-red-dark`,
+        **與 OD 的熔橘 `#f26722` 不同色**;把 OD 的值寫進 `:root` 會讓現有每一頁當場變色,
+        直接引用站台那顆則會畫出「有顏色但不是拍板那顆」的按鈕。
+        同款處置與理由見 `brand-directory.css` 檔頭 ②(那支也踩過同一顆)。
+     ⚠️ 這三顆是 Sean 2026-08-05 拍板保留的(handoff §十一),**不要順手改**。 */
+  --ed-c-action: #f26722;
+  --ed-c-action-hover: #c4470c;
+  --ed-c-action-active: #a53a08;
+  /* 控制項邊界專用線(OD `--c-border-control`):比 `--ed-c-rule` 深,對白底 3.18:1。
+     用在「這條線本身就是可點的唯一訊號」的地方(見 `.ed-feature-jump a::after`)。 */
+  --ed-c-rule-control: #909093;
 }
 @media (max-width: 900px) { .ed-page { --ed-gutter: 20px; } }
 
@@ -367,6 +380,11 @@
 .ed-feature-caption {
   position: absolute;
   bottom: 20px; left: 20px;
+  /* 🔴 `right: auto` + `max-width` 是 OD §6-3 那條「貼一角、不要橫跨整張圖」的完整形狀
+     (R2 F10:本片原本只搬了手機半邊、桌機這條漏了,而 manifest 卻宣稱 §6-3 已做)。
+     OD `.b-feature-cap` 桌機字面 = `right:auto; max-width:calc(100% - 32px)`(左右各 16px)。 */
+  right: auto;
+  max-width: calc(100% - 40px);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -377,11 +395,193 @@
 }
 .ed-feature-caption .ed-mono { color: var(--ed-c-ink-mute); }
 
+/* ══ 捲動進場(D5g;OD `N05-FOCUS-HANDOFF.md` §6-4)═══════════════════════
+   🔴 **原本是「render 完就加 class」= 頁面一載入就跑。** N°05 在整頁最下面,
+      從頁首滑到那裡動畫早就結束 —— 等於做了等於沒做。這是 2026-08-05 修掉的**真 bug**,
+      **不要退回載入即觸發的寫法**。現在由 `HomeReveal.tsx` 的 IntersectionObserver 掛 `.is-in`。
+
+   🔴 起始隱藏狀態一律掛在 `body.js-reveal` 底下,而那個 class **只在「有 IO 且未開減少動效」
+      時才由 JS 加**(見 `HomeReveal.tsx` ①)⇒ **JS 掛掉整頁維持全可見**,
+      不會因為動畫壞掉而看不到內容。這是本段最重要的一條,改動前先想清楚。
+
+   幅度 34px / 0.7s 是**刻意的**(OD 逐字):第一版做 18px / 0.55s,捲動時幾乎察覺不到,
+   Sean 反映「還是沒看到動畫」。**細膩到看不見的動畫等於沒做** —— 不要「順手」調小。
+   曲線沿用本頁既有的 cubic-bezier(.2,.8,.2,1),不新增第二條。 */
+.js-reveal [data-reveal][data-reveal-armed] { opacity: 0; transform: translateY(34px); }
+.js-reveal [data-reveal][data-reveal-armed].is-in {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+              transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* N°05 兩欄分開進場:照片比文字晚 140ms(OD 逐字)。
+   ⚠️ 掛在兩個**內欄**而不是 `.ed-feature` 本身 —— 整塊一起淡入的話錯開就沒有意義了。 */
+.js-reveal .ed-feature[data-reveal-armed] .ed-feature-side,
+.js-reveal .ed-feature[data-reveal-armed] .ed-feature-media { opacity: 0; transform: translateY(34px); }
+.js-reveal .ed-feature[data-reveal-armed].is-in .ed-feature-side,
+.js-reveal .ed-feature[data-reveal-armed].is-in .ed-feature-media {
+  opacity: 1;
+  transform: none;
+  transition: opacity 0.7s cubic-bezier(0.2, 0.8, 0.2, 1),
+              transform 0.7s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.js-reveal .ed-feature[data-reveal-armed].is-in .ed-feature-media { transition-delay: 0.14s; }
+
+/* 🔴 減少動效:**位移對前庭障礙使用者是生理不適,不是喜好問題**(OD 逐字)——
+   起始隱藏狀態整組拿掉、內容直接就位。
+   ⚠️ 這是**雙保險**:`HomeReveal.tsx` 那邊本來就不會掛 `js-reveal`,但兩道各自獨立
+      (JS 那道若被改壞,這道仍然保證內容看得見)。`!important` 是必要的 —— 它要贏過
+      上面那兩組同樣具體的規則。 */
+@media (prefers-reduced-motion: reduce) {
+  .js-reveal [data-reveal][data-reveal-armed],
+  .js-reveal .ed-feature[data-reveal-armed] .ed-feature-side,
+  .js-reveal .ed-feature[data-reveal-armed] .ed-feature-media {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* 🔴🔴 **D5e-2b 刻意未搬:OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版調整**(R1 Important:
+   省略要留字面,不能只留在 commit body)。那一節為中文重調了六個值,本片**一個都沒動**:
+
+     `.ed-feature-title`   line-height 0.98 → 1.2    (1.02 是給單行英文大標的,中文折兩行會黏住)
+     `.ed-feature-title`   letter-spacing -.02em → -.01em (負字距是收拉丁字母用的,套方塊字會互相擠)
+     `.ed-feature-title`   加 `text-wrap: balance`    (避免第二行只吊三個字)
+     `.ed-feature-body`    max-width 34ch → 30em     (`ch` 是拉丁字元寬,中文會折成細長條)
+     `.ed-feature-body`    line-height 1.75 → 1.85   (中文沒有字母上下伸展,行距要再開)
+
+   ⚠️ **為什麼這現在比 D5e-1 時更要緊**:D5e-2 之前這個版位只有 RIZOMA 一家佔位,
+      現在跑的是 20 家**真的中文鉤子**(最長「騎了十年賽車,受不了市售腳踏,乾脆自己做。」
+      在 clamp 上界會折成兩到三行)⇒ 標題行距 0.98 的黏行問題是真的會被看到,不是理論。
+   ⇒ **不是漏掉,是片界**:C-109-A 派的 D5e-2b 是「動線改版四項」,排版屬 §6-1 另一組。
+      本片不動的理由是那五個值會改變整個版位的視覺重量,**該讓 Sean 肉眼驗一次**,
+      不適合夾在動線片裡順手改掉。⇒ 已寫進 manifest 條目 + 回報主視窗排片。 */
+
+/* ── D5e-2b 動線區(OD `.b-feature-actions` 家族)────────────────────────
+   一行兩區:實心主按鈕 = 去讀品牌故事;右半整排 = 去逛這家的商品。
+   中間那條線是分區訊號,`aria-hidden` 因為它對讀屏沒有意義
+   —— 讀屏拿到的是「連結」與「導覽」兩個不同的語意群組。 */
+.ed-feature-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* 主要動作。填色是「這是按鈕」最強的訊號。
+   🔴 **用熔橘不是墨色**(OD §6-2 逐字:石墨是場與墨、熔橘才是動作色)。
+      色值走本檔自己的 `--ed-c-action*`(定義在 `.ed-page`)、**不是** `var(--c-red)`:
+      正式站 `tokens.css` 的 `--c-red` 是 `#dc2626`(緋紅),與 OD 的 `#f26722`(熔橘)
+      **不同色**;而 Sean 2026-08-05 拍板保留的是熔橘那顆(handoff §十一)。
+      直接寫 `var(--c-red)` 會靜默畫出一顆緋紅按鈕 —— 看起來有顏色、但不是拍板那顆。
+      scope 在 `.ed-page` 不進 `:root` 的理由與 `brand-directory.css` 檔頭 ② 完全相同。
+   ⚠️ 白字對熔橘預設態 **3.12:1**,不到小字 4.5:1 門檻(hover 4.94 / 按下 6.54 都過)。
+      這是 **Sean 看過三個替代方案後拍板保留的殘餘風險**(handoff §十一、C-104-A 六不做 ⑤)
+      ⇒ **不要「順手修正」這個顏色**,要改必須他重新拍板。 */
+.ed-feature-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 20px;
+  background: var(--ed-c-action);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 3px 10px rgba(0,0,0,0.10);
+  transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ed-feature-primary:hover {
+  background: var(--ed-c-action-hover);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.20), 0 6px 16px rgba(0,0,0,0.12);
+}
+.ed-feature-primary:active {
+  background: var(--ed-c-action-active);
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.20);
+}
+.ed-feature-primary .ed-link-arrow { transition: transform 0.3s ease; }
+.ed-feature-primary:hover .ed-link-arrow { transform: translateX(3px); }
+
+.ed-feature-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 44px;
+  background: var(--ed-c-rule);
+  margin: 0 2px;
+}
+
+/* 次要動作:**無框的底線連結列,不是盒子**(OD §6-2 逐字)。
+   這個版位的語言是編輯式的 —— 上面的資料條就是靠上下兩條細線分隔、沒有任何框。
+   分類做成一排盒子 = 在同一塊版面裡混進應用程式 UI 的語彙,兩種語言打架;
+   而且分類名 5-7 字不等,盒子長短參差像標籤雲。
+   ⚠️ 可點高度靠 `min-height` 撐,**不是靠 padding 畫框** —— 視覺上看不到盒子,
+      但觸控範圍仍達標(桌機 36px / 手機 44px)。 */
+.ed-feature-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 24px;
+  margin: 0;
+  flex: 1 1 300px;
+}
+.ed-feature-jump a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  color: var(--ed-c-ink-soft);
+  transition: color 0.15s ease;
+}
+/* 🔴 底線色取 **OD `:root` 的 `--c-border-control` `#909093`**(對白底 3.18:1),
+   **不是** OD 這條規則字面寫的 `--c-border-strong`(`#d3d4d6`,約 1.4:1)。
+   理由 = handoff §十一逐字:那份稿自己指出「當邊框是**可點的唯一線索**時不符
+   WCAG 1.4.11(需 3:1)」,並要求「真站 `home.css` 請一併確認」——
+   這排連結在靜止態的可點訊號就是這條底線。⇒ 這是**申報偏離 OD 字面、依 OD 自己的註記修正**,
+   已列 Sean 肉眼驗(嫌太重就把這一顆值調淡,只有這一行)。
+   ⚠️ 不用站台 `--c-border-strong`:那顆在 `[data-theme=dark]` 會翻成 `#3f3f46`,
+      而 `.ed-*` 調色盤刻意固定亮色(本檔全檔零 `prefers-color-scheme`/`data-theme`)。 */
+.ed-feature-jump a::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 7px;
+  height: 1px;
+  background: var(--ed-c-rule-control);
+  transition: background-color 0.15s ease;
+}
+.ed-feature-jump a:hover { color: var(--ed-c-ink); }
+.ed-feature-jump a:hover::after { background: var(--ed-c-action-hover); }
+.ed-feature-jump a:active { color: var(--ed-c-action-hover); }
+/* 「全部商品」是領頭:文字轉墨黑、字重加一階、底線跟著轉墨黑。 */
+.ed-feature-jump a.is-all { color: var(--ed-c-ink); font-weight: 600; }
+.ed-feature-jump a.is-all::after { background: var(--ed-c-ink); }
+
 @media (max-width: 1000px) {
   .ed-feature { padding: 80px 0; }
   .ed-feature-inner { grid-template-columns: 1fr; gap: 40px; }
   .ed-feature-side { padding-right: 0; order: 2; }
   .ed-feature-media { order: 1; aspect-ratio: 4/5; }
+}
+
+/* 手機:兩區改成上下疊。垂直分隔線轉整行水平線 —— 分區訊號留著、只換方向。
+   主按鈕拉滿整行(拇指最好按的形狀),分類列高度提到 44px 符合行動觸控目標。 */
+@media (max-width: 640px) {
+  /* 🔴 `max-width` 不可省(R1 Important):沒有它,長一點的 origin 會把圖說撐成
+     橫跨整張圖的一條帶子 —— 正是 OD §6-3 要修掉的那個形狀。OD `.b-feature-cap`
+     手機段字面就是 `calc(100% - 24px)`(左右各 12px)。 */
+  .ed-feature-caption { bottom: 12px; left: 12px; padding: 7px 11px; max-width: calc(100% - 24px); }
+  /* 手機隱藏圖說的 mono 小標:照片本來就窄,疊在上面的字要讓位給產地。 */
+  .ed-feature-caption .ed-mono { display: none; }
+  .ed-feature-actions { flex-direction: column; align-items: stretch; gap: 14px; }
+  .ed-feature-primary { justify-content: center; min-height: 48px; font-size: 15px; }
+  .ed-feature-divider { align-self: auto; width: auto; height: 1px; min-height: 0; margin: 0; }
+  .ed-feature-jump { flex: 1 1 auto; gap: 0 22px; }
+  .ed-feature-jump a { min-height: 44px; font-size: 15px; }
+  .ed-feature-jump a::after { bottom: 11px; }
 }
 
 /* ============================================================
@@ -820,15 +1020,28 @@
 .ed-finder-slot .vsc-input--finder:disabled {
   color: var(--ed-c-ink-mute);
   cursor: not-allowed;
-  /* 蓋掉站台層 .vsc-input:disabled 的 0.55(僅變 color/cursor、chevron 維持 ink)。
-     🔴 字面更正(Q6 R1 nit):原註解寫「對齊 design」,但 OD 兩份稿都不支持這個 1 ——
-     `vehicle-picker-design.html:128` 是 `:disabled { opacity: .45 }`;direction-b 的 dock 用
-     `<select>` 沒有 disabled 態,全檔唯一的 `:disabled` 是 `.b-select-arrow:disabled`
-     輪播箭頭 `opacity: .35`(direction-b 那份稿仍在被改、不引行號;vehicle-picker-design
-     那份自 08-03 起未動,行號仍有效)。
-     ⇒ 兩份稿都用**降透明度**表示停用,這個 1 是本 repo 的自訂、不是 design 搬來的。
-     Q6 把 placeholder 也轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差 —— 見 commit body。 */
-  opacity: 1;
+  /* 🔴 Q5(Sean 拍板 A,2026-08-05):**照設計稿壓淡** —— 這次是真的對齊了。
+     沿革(三段,不要再繞回去):
+       ① 這裡原本寫 `opacity: 1`,註解宣稱「對齊 design」—— **那句是假的**,
+          OD 兩份稿都不支持:`vehicle-picker-design.html` 逐字
+          `.vsc-input-demo:disabled { opacity: 0.45; }`(不引行號、用 grep 找字串 ——
+          本檔同族規矩,那份稿仍在被改;2026-08-05 實查該行在 `:128`,寫下即可能過期),
+          direction-b 的 dock 用 `<select>` 沒有 disabled 態、全檔唯一的 `:disabled`
+          是 `.b-select-arrow:disabled` 輪播箭頭 `opacity: .35`。兩份稿**都用降透明度**表示停用。
+       ② Q6 把 placeholder 由純黑轉成 ink-mute 之後,「啟用但還沒選」與「停用」
+          變成**只剩滑鼠 cursor 有差**(placeholder 同色、opacity 同為 1、chevron 同為黑)
+          ⇒ 停用的 affordance 等於沒了。這是 Q6 揭示、Sean 據以拍板的那條副作用。
+       ③ 現在取設計稿的 `.45`(不是站台層 `.vsc-input:disabled` 的 0.55)。
+     ⚠️ 連帶:整個 input 變半透明 ⇒ **chevron 與 placeholder 也跟著淡**,不再「維持 ink」。
+     🔴 **這一點設計稿查無支持,是本 repo 的推論**(R1 抓到我又寫了一次「未經支持的外推」——
+        與本片正在修的那句世仇同族):OD picker 那顆 disabled input **根本沒有 chevron**,
+        direction-b 那顆帶 chevron 的 `.ed-finder-slot select` **沒有 disabled 態**
+        ⇒ 「整格 .45」屬實,「設計稿就長這樣」**沒有來源**。留這個行為是因為
+        「整個控制項一起淡」本來就是 disabled 的通用語彙,不是因為稿上有。
+     ⚠️ 對比代價已量:`#71717a` @0.45 疊白底 ≈ `rgb(191,191,195)`,對白底 ≈ **1.83:1**
+        (改前 4.83:1)。WCAG 對停用控制項無強制要求,但停用欄的 placeholder
+        (「請先選擇車型」)是**有資訊量**的字 ⇒ **列 Sean 肉眼驗**。 */
+  opacity: 0.45;
 }
 .ed-finder-slot .vsc-input--finder:disabled::placeholder { color: var(--ed-c-ink-mute); }
 /* V-2d④:首頁 finder 輸入框手機 ≥16px 防 iOS 聚焦縮放(<16px 聚焦即 zoom+pan)。

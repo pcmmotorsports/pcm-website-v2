@@ -121,9 +121,9 @@ fi
 #    這裡要求它存在、且連上去的確實是本機 54329 的拋棄式 cluster,否則停下。
 [ -f "$WORK/.d1t2-harness" ] \
   || die "身分閘:$WORK 沒有 .d1t2-harness 標記 ⇒ 這不是 d1t2 provision 出來的拋棄式 cluster,拒絕執行"
-[ "$(runsql "SELECT current_setting('port') || '|' || current_database()")" = "54329|postgres" ] \
-  || die "身分閘:連到的不是 127.0.0.1:54329 的拋棄式 postgres 庫,拒絕執行"
-ok "身分閘:workdir 帶 d1t2 標記、連線確為本機 54329 拋棄式 cluster"
+[ "$(runsql "SELECT current_setting('port') || '|' || current_database()")" = "${PORT}|postgres" ] \
+  || die "身分閘:連到的不是 127.0.0.1:$PORT 的拋棄式 postgres 庫,拒絕執行"
+ok "身分閘:workdir 帶 d1t2 標記、連線確為本機 $PORT 拋棄式 cluster"
 
 : > "$WORK/steps.log"
 : > "$WORK/matrix.tsv"

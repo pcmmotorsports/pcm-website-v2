@@ -77,8 +77,8 @@ fi
 
 [ -f "$WORK/.d1t2-harness" ] \
   || die "身分閘:$WORK 沒有 .d1t2-harness 標記,拒絕執行"
-[ "$(runsql "SELECT current_setting('port') || '|' || current_database()")" = "54329|postgres" ] \
-  || die "身分閘:連到的不是本機 54329 拋棄式 cluster,拒絕執行"
+[ "$(runsql "SELECT current_setting('port') || '|' || current_database()")" = "${PORT}|postgres" ] \
+  || die "身分閘:連到的不是本機 $PORT 拋棄式 cluster,拒絕執行"
 ok "身分閘通過"
 
 snapshot "$STRUCT_SQL" "$WORK/struct-before.snap" "突變前結構快照"

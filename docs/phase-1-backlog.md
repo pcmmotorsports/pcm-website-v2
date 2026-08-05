@@ -8947,3 +8947,48 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - 🔴 **編號沿革**:本條原開為 #323,與主視窗 `4386624` 的 #323(子分類篩選膠囊雙顆)撞號 ⇒
   依主視窗 C-58-A 指示改為 **#324**。`2ccbadb`(A7)的 commit body 內仍寫 #323、不 amend,
   收割時由主視窗在 STATUS 註記勘誤。之後一律引用 #324。
+
+### #325. 📏 PostgREST `max-rows` 漂移偵測 — 全 repo 內嵌 limit 截斷判定的共同前提
+
+- **狀態:** ⏳ 待執行(A 窗片 2 R3 Fable 明確要求立案;2026-08-05)
+- **現況**:所有讀模型的內嵌截斷判定(取 N+1 筆、回傳 ≥N+1 ⇒ truncated)都隱含前提
+  「伺服器端 `max-rows` ≥ 我們的常數」。Supabase PostgREST 預設 max-rows 遠大於現用常數,
+  但它是 dashboard 可調的伺服器設定 —— 被調低到常數以下時,回傳筆數永遠小於 N+1,
+  截斷判定**判不出截斷**(A9g-2 的在途扣款閘會誤回 `'clear'`)。
+- **範圍**:非單片問題 —— notes / items / procurement / charge_attempts 每個 embed limit 都一樣;
+  單元測試對伺服器設定全盲(mock 層看不到)。
+- **候選解**:啟動時或健檢端點對一張已知 >N 列的表做一次真 probe(取 N+1 驗回傳筆數),
+  不符即 fail-closed 告警;或把 max-rows 現值納入 read-back/runbook 檢查清單。
+- **不修會痛在哪**:一次 dashboard 調整(可能為了別的效能原因)會讓全站「資料不完整」的
+  防護靜默失效 —— 員工看到的是「正常、無在途扣款」而不是「讀取不完整」,
+  與「把不知道偽裝成正常值」同族,且無任何測試會轉紅。
+
+### #326. 🧰 worktree / 乾淨環境跑 root `pnpm typecheck` 必紅 — root 未宣告 typescript
+
+- **狀態:** ⏳ 待執行(A 窗片 2 發現;2026-08-05;動 root package.json=鐵則 12④ 受審面)
+- **現況**:root script `tsc -p tsconfig.scripts.json --noEmit` 依賴 root `node_modules/.bin/tsc`,
+  但 root `package.json` 未宣告 typescript;主庫能跑是因為殘留 2026-07-13 的舊 binary。
+  worktree `pnpm install --frozen-lockfile` 回「Already up to date」不會補 ⇒ 任何乾淨 install
+  環境(含未來 CI)跑 root typecheck 都紅在最後一步。
+- **workaround(A 窗片 2 實用中)**:改呼叫 `./packages/adapters/node_modules/.bin/tsc`,
+  該步真的有跑、非跳過。
+- **正解**:root devDependencies 顯式宣告 typescript(版本對齊各 package)——
+  動 package.json+lockfile 屬鐵則 12④ 受審面,需 codex 對抗審查,獨立小片處理。
+- **不修會痛在哪**:哪天主庫 node_modules 重建(升 node、清快取、換機),三綠的 typecheck
+  一半(scripts 面)直接紅;CI 一接上就會撞;各 worktree 現在就得各自帶 workaround,
+  同一步驟三個環境三種跑法=數字對帳的隱形分歧源。
+
+### #327. 🧪 `a7-verify.sh` 突變段既有缺陷 — 所有突變都「紅」在同一個不相關的閘,對照組也紅
+
+- **狀態:** ⏳ 待執行(B 窗 2026-08-05 `PORT=54376` 複驗時露出;**非 PORT 修法造成**)
+- **現況**:`scripts/a7-verify.sh:106-108` 的突變路徑抽出第 2 個 `DO` 區塊(**正好是 DML 閘**)
+  並且**不傳** `-v a7_allow_dml=yes-throwaway-db` / `-v a7_expect_cluster`;而乾淨對照跑(`:110`)有傳
+  ⇒ 每一條突變都紅在「閘 -1 失敗:缺 -v a7_allow_dml」,**而且對照組也紅**。
+  ⇒ **整個突變段目前證明不了任何事**:所有突變「被偵測到」的理由都不是它們被偵測到。
+- **歸因(B 窗先假設是 PORT 修法造成、再自己證偽)**:`ed00be7` 對該檔 diff 只有兩行(port 比較式),
+  前後 `DO` 區塊數皆為 4 ⇒ 假設證偽。真因是既有的參數傳遞不對稱;PORT 修法只是把它從
+  「死在 port 閘」推進到「死在 DML 閘」,**讓既有缺陷露出來**。
+- **修法**:突變路徑補傳與對照組相同的 `-v` 參數;修完要證明「突變真的紅在它該紅的斷言」
+  (現在紅的位置與突變內容無關)。
+- **不修會痛在哪**:A7 那批的突變證據**現在是空的** —— 未來任何人引用「a7 突變 N 組全紅」
+  當作守門有判別力的依據都會是假的;而對照組同時紅,正是它自己在喊「harness 壞了」。

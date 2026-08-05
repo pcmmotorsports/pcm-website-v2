@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BrandContent } from '@/data/brand-content-types';
 import { BRAND_CONTENT } from '@/data/brand-content';
-import { BRAND_FOCUS, BRAND_FOCUS_PIN, type BrandFocusOverlay } from '@/data/brand-focus';
+import { BRAND_FOCUS, type BrandFocusOverlay } from '@/data/brand-focus';
 import {
   FOCUS_ROTATION_DAYS,
   FOCUS_ROTATION_START,
@@ -37,6 +37,9 @@ function brand(slug: string, order: number, enabled = true): BrandContent {
       ['F3', `${slug}-v3`, '小註三'],
       ['F4', `${slug}-v4`, '小註四'],
     ],
+    // D5e-2b:動線列的分類名。**逐家不同**(帶 slug)⇒ 「分類硬編成某一家」這種錯
+    // 會在斷言裡看得出來;若這裡填共用的固定值,那條守門就會被 fixture 碰巧值架空。
+    categories: [[`${slug}-分類一`, 3], [`${slug}-分類二`, 5]],
     focus: { enabled, order },
   } as unknown as BrandContent;
 }
@@ -212,15 +215,7 @@ describe('resolveBrandFocus — 決定當期顯示什麼', () => {
 // (那支只數 section 在不在,不看是哪一家)。R1 實測 `override: undefined` 今天會落在
 // AKRAPOVIČ 且 photo=null ⇒ 這條沒有的話,PIN 打錯字的症狀是「首頁少半個版位」。
 // ══════════════════════════════════════════════════════════════════════════
-describe('🔴 生產接線(真的 BRAND_CONTENT + BRAND_FOCUS + BRAND_FOCUS_PIN)', () => {
-  it('PIN 指到的 slug 真的存在於 BRAND_CONTENT(打錯字會靜默換一家)', () => {
-    if (BRAND_FOCUS_PIN === undefined) return; // D5e-2 拿掉 PIN 之後這條自然放行
-    expect(
-      BRAND_CONTENT.map((b) => b.slug),
-      `BRAND_FOCUS_PIN='${BRAND_FOCUS_PIN}' 不在 BRAND_CONTENT 裡 ⇒ 會靜默退回輪播`,
-    ).toContain(BRAND_FOCUS_PIN);
-  });
-
+describe('🔴 生產接線(真的 BRAND_CONTENT + BRAND_FOCUS,無 PIN)', () => {
   it('BRAND_FOCUS 的每一個鍵都是真 slug(鍵打錯 = 那家永遠吃不到覆蓋層)', () => {
     const slugs = new Set(BRAND_CONTENT.map((b) => b.slug));
     for (const key of Object.keys(BRAND_FOCUS)) {
@@ -229,15 +224,13 @@ describe('🔴 生產接線(真的 BRAND_CONTENT + BRAND_FOCUS + BRAND_FOCUS_PIN
   });
 
   it('🔴 用真資料解出來的當期版位,每一欄都有東西(不是退化成 fallback)', () => {
+    // D5e-2:PIN 已移除 ⇒ 這裡不給 override,量的是**真正會顯示給客人的那一家**。
     const r = resolveBrandFocus({
       brands: BRAND_CONTENT,
       overlays: BRAND_FOCUS,
       now: new Date('2026-08-05T04:00:00Z'),
-      override: BRAND_FOCUS_PIN,
     });
     expect(r, '真資料解不出當期品牌').not.toBeNull();
-    // PIN 期間必須就是被 PIN 的那一家
-    if (BRAND_FOCUS_PIN) expect(r!.slug).toBe(BRAND_FOCUS_PIN);
     // 🔴 標題不得等於品牌名 —— 相等就代表「沒吃到 overlay、退回 fallback 了」
     expect(r!.title, '標題退化成品牌名 ⇒ 覆蓋層沒被吃到(鍵打錯?)').not.toBe(r!.name);
     expect(r!.body.length).toBeGreaterThan(10);
@@ -280,11 +273,12 @@ describe('🔴 生產接線(真的 BRAND_CONTENT + BRAND_FOCUS + BRAND_FOCUS_PIN
 //    ⇒ 那家輪到時標題退成品牌名、`photo` 變 null 整個媒體欄不渲染,**連續三天**,
 //    而全套測試照樣全綠。這一段就是把那個坑從註解變成守門。
 //
-//    ⚠️ **它會自己上膛**:photo / title 那兩格用 `BRAND_FOCUS_PIN === undefined` 包著 ——
-//    D5e-2 拿掉 PIN 的那一刻自動生效,不需要下一棒記得回來加測試(機制優先律)。
-//    非 overlay 的那幾格(facts / lede / origin)今天就驗,因為它們吃的是 `BRAND_CONTENT`。
+//    ✅ **那個「自己上膛」的機制已經生效**:D5e-1 把 photo / title 兩格用
+//    `BRAND_FOCUS_PIN === undefined` 包著,D5e-2 拿掉 PIN 的那一刻條件自動消失
+//    ⇒ 現在是**無條件**要求 20 家每一家都有 overlay。不需要下一棒記得回來加測試(機制優先律)。
+//    非 overlay 的那幾格(facts / lede / origin)吃的是 `BRAND_CONTENT`,一直都在驗。
 // ══════════════════════════════════════════════════════════════════════════
-describe('🔴 輪播池裡的每一家都要能撐起版位(D5e-2 的防呆,PIN 拿掉即自動上膛)', () => {
+describe('🔴 輪播池裡的每一家都要能撐起版位(D5e-2 已上膛:20 家逐一驗,非抽樣)', () => {
   const pool = BRAND_CONTENT.filter((b) => b.focus?.enabled);
   const now = new Date('2026-08-05T04:00:00Z');
 
@@ -310,11 +304,10 @@ describe('🔴 輪播池裡的每一家都要能撐起版位(D5e-2 的防呆,PIN
         expect(label.length, `${b.slug} 有空的事實標籤`).toBeGreaterThan(0);
         expect(value.length, `${b.slug} 有空的事實值`).toBeGreaterThan(0);
       }
-      // 🔴 這兩格要 overlay 才有 ⇒ D5e-2 拿掉 PIN 之後才要求(現在只有 rizoma 有 overlay)
-      if (BRAND_FOCUS_PIN === undefined) {
-        expect(r!.title, `${b.slug} 的標題退化成品牌名 ⇒ 這一家的 overlay 漏填了`).not.toBe(r!.name);
-        expect(r!.photo, `${b.slug} 沒有照片 ⇒ 輪到它那三天媒體欄整欄不會渲染`).not.toBeNull();
-      }
+      // 🔴 這兩格要 overlay 才有。D5e-1 用 `if (BRAND_FOCUS_PIN === undefined)` 包著讓它「自己上膛」,
+      //    **D5e-2 已拿掉 PIN ⇒ 條件消失、改成無條件要求**(20 家 overlay 全到齊了)。
+      expect(r!.title, `${b.slug} 的標題退化成品牌名 ⇒ 這一家的 overlay 漏填了`).not.toBe(r!.name);
+      expect(r!.photo, `${b.slug} 沒有照片 ⇒ 輪到它那三天媒體欄整欄不會渲染`).not.toBeNull();
     });
   }
 });

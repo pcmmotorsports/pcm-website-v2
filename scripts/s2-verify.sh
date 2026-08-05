@@ -13,7 +13,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/s2-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 FNSIG="public.admin_upsert_supplier(uuid,text,boolean,text,text,text)"
 PASS=0; FAIL=0
 

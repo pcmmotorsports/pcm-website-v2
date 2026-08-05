@@ -16,7 +16,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a5a-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 AURL="${URL}?application_name=a5a_sess_a"
 FN="public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)"
 MIGFILE="supabase/migrations/20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql"

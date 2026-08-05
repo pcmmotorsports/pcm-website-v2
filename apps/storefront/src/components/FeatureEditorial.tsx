@@ -2,18 +2,19 @@
 // (N°05 · This month · 本月聚焦)
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
-// onNav target 對映(本檔 1 條):'brand-detail' → 商品目錄篩該品牌。
-//   🔴 **D5e-1 更正兩處過期字面**(R1 must-fix,原文與同檔程式碼相反):
-//      ①原寫「brandId='rizoma'(硬寫死)」—— 本片正是把硬寫死拆掉,現在吃 `focus.slug`。
-//      ②原寫「/brands/rizoma 路由不存在=404」—— **那個前提已消失**:`/brands/<slug>` 於 D3a 落地、
-//        `/brands` 總覽於 D3c-3 落地(同 `BrandIndex.tsx` 檔頭記過的同一件事)。
-//      ⇒ 現在連 `/products?brand=<slug>` 是**沿用既有行為、不是因為路由不存在**。
-//      ⚠️ 這一顆用的是 legacy key `?brand=`,而新網址契約是 `?pbrand=`
-//        (`products-url-state.tsx` 逐字:「新網址一律輸出不會和車款衝突的 `?pbrand=`」)。
-//        🔴 **R2 更正:我原本寫的理由「換 key 會牽動 vehicle 長版 fallback」是錯的** ——
-//           那條 legacy 讀取是為舊書籤而留,改**本呼叫點的輸出**不會動到它。
-//           真正的理由只是**本片刻意不動 CTA 的網址**(D5e-1 的範圍是「殼 + 輪播」,
-//           改動線屬 D5e-2;OD handoff §三另指主按鈕應為 `/brands/<slug>`)。不編理由。
+// onNav target 對映(本檔 1 條):'brand-detail' → **品牌介紹頁**(D5e-2b 起;原為商品目錄篩該品牌)。
+//   🔴 **D5e-2b 全面更新本段**(R2 F1:改完動線後,這裡整段與程式碼**相反**還留著)。
+//      現況(以程式碼為準,下面每一句都對得上 diff):
+//      ①主按鈕 = `brandIntroUrl(focus.slug)` → **`/brands/<slug>`**(不再是 `/products?brand=`)。
+//        `/brands/<slug>` 於 D3a 落地、`/brands` 總覽於 D3c-3 落地,實測三家皆 200。
+//      ②分類列 = `brandCatalogueUrl(focus.slug[, category])` → **`?pbrand=`**(新契約),
+//        `?category=` 收分類名稱。**本元件已無任何 legacy `?brand=`**(守門在
+//        `FeatureEditorial.test.tsx` 的「本元件不得再出現 legacy ?brand=」那條)。
+//      ⚠️ **但首頁整頁還有 legacy `?brand=`**:`BrandIndex.tsx` 那 17 條尚未改
+//        (handoff §三 地雷 1 逐字「2026-08-05 Sean 拍板:這次一起修」)——
+//        那是 **D5f 磚牆片**的範圍(主視窗 C-104-A §三 #4 明列),**不是本片漏掉**。
+//        🔴 已申報:見 manifest FeatureEditorial 條目與 C-202-STOP。
+//      ~~原寫「現在連 /products?brand= 是沿用既有行為」「本片刻意不動 CTA 的網址」~~ = D5e-1 的字面,已作廢。
 // 'use client' 移除原因:此元件無 useState / useEffect / onClick / window. / hover、純展示
 //   🔴 D5a(2026-08-05)編號重標:OD `README.md`「區塊順序(第 7 步之後)」逐字
 //      「編號是位置標記不是內容 id,所以聚焦與服務對調後編號跟著位置走」⇒ 本檔編號隨新位置改。
@@ -42,6 +43,7 @@
 
 import Link from 'next/link';
 import { BrandRichText } from '@/components/BrandRichText';
+import { brandCatalogueUrl, brandIntroUrl } from '@/lib/brand-url';
 import type { ResolvedBrandFocus } from '@/lib/brand-focus';
 
 export function FeatureEditorial({ focus }: { focus: ResolvedBrandFocus }) {
@@ -72,10 +74,36 @@ export function FeatureEditorial({ focus }: { focus: ResolvedBrandFocus }) {
               </div>
             ))}
           </div>
-          <Link href={`/products?brand=${encodeURIComponent(focus.slug)}`} className="ed-link ed-link-dark">
-            <span>探索 {focus.name}</span>
-            <span className="ed-link-arrow" aria-hidden="true">→</span>
-          </Link>
+          {/* ── D5e-2b 動線改版(OD `N05-FOCUS-HANDOFF.md` §三 + §6-2)──────────────
+              一行兩區:實心主按鈕 = 去讀品牌故事;右半整排 = 去逛這家的商品。
+              🔴 **取代了 D5e-1 那顆「探索 <品牌名>」的 `ed-link`**,同時還掉兩筆債:
+                 ①目的地由 `/products?brand=`(legacy key)改成 `/brands/<slug>` 品牌介紹頁
+                   —— handoff §三的契約,且該 route 自 D3a 起是活的。
+                 ②「查看商品」不再是獨立一條連結,折進右邊分類列當領頭的「全部商品」
+                   —— 右半整排都通往 `/products`,語意一致而且少一行文字(OD 逐字)。
+              🔴 網址一律走 `lib/brand-url.ts` 的兩支,**不在這裡自己拼字串**:
+                 那支是全站品牌網址的單一出處(品牌頁、磚牆、D3 route 都用它),
+                 自己拼會讓「哪天要改 key」變成得記得改好幾處。 */}
+          <div className="ed-feature-actions">
+            <Link href={brandIntroUrl(focus.slug)} className="ed-feature-primary">
+              <span>品牌介紹</span>
+              <span className="ed-link-arrow" aria-hidden="true">→</span>
+            </Link>
+            {/* 分區訊號。`aria-hidden` 因為它對讀屏沒有意義 —— 讀屏拿到的是
+                「連結」與「導覽」兩個不同的語意群組(OD 逐字)。 */}
+            <span className="ed-feature-divider" aria-hidden="true" />
+            <nav className="ed-feature-jump" aria-label={`${focus.name} 的商品分類`}>
+              <Link className="is-all" href={brandCatalogueUrl(focus.slug)}>全部商品</Link>
+              {/* 分類名同時是顯示文字與 `?category=` 的值(讀取端吃名稱,理由見
+                  `ResolvedBrandFocus.categories` 的註解)。`brandCatalogueUrl` 內部已經
+                  `encodeURIComponent`,這裡**不要再 encode 一次**(會變成 %25XX 的雙重編碼)。 */}
+              {focus.categories.map((category) => (
+                <Link key={category} href={brandCatalogueUrl(focus.slug, category)}>
+                  {category}
+                </Link>
+              ))}
+            </nav>
+          </div>
         </aside>
         {/* 🔴 `photo` 可能是 `null`(overlay 沒有那一家)⇒ 整個媒體欄不建,不是建一個壞掉的
             `<img src="">`。OD 的順位是 focus.photo → brand.band → logo 牌;後兩段屬 D5e-2

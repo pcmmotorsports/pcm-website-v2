@@ -48,7 +48,7 @@ export function BrandIndex({ availableSlugs }: { availableSlugs: ReadonlySet<str
   const brands = MOCK_BRANDS;
 
   return (
-    <section className="ed-brands">
+    <section data-reveal className="ed-brands">
       <div className="ed-section-head">
         <div className="ed-section-label">
           <span className="ed-mono">N°06</span>

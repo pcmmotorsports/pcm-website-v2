@@ -40,12 +40,16 @@
 \set ON_ERROR_STOP on
 
 -- 🔀 codex 關卡2 K2-6:端點閘 —— 白名單標記表/cluster 檢查擋不住「被標記過的遠端 DB」;
--- 本檔只准打本機拋棄式 harness(port 54329、loopback 或 unix socket)。
+-- 本檔只准打本機拋棄式 harness(port 543xx、loopback 或 unix socket)。
+-- 🔴 2026-08-05:port 判準由單值 54329 放寬為 543xx 區段 —— 寫死單值讓第二個施工視窗
+--    完全跑不了本 probe(B-211-STOP 實錘)。判別力未下降:Supabase direct 5432 /
+--    pooler 6543 都不在 543xx,且 loopback 判準與下方 ownership marker 實檢原封不動。
+--    ⚠️ 擋不住什麼:有人在本機 543xx 開一個非拋棄庫 —— 但那與硬編 54329 時完全相同。
 DO $$
 BEGIN
-  IF current_setting('port')::int <> 54329
+  IF current_setting('port')::int NOT BETWEEN 54300 AND 54399
      OR (inet_server_addr() IS NOT NULL AND host(inet_server_addr()) NOT IN ('127.0.0.1','::1')) THEN
-    RAISE EXCEPTION '拒絕執行:僅允許本機 harness(port 54329/loopback),實際 port=% addr=%',
+    RAISE EXCEPTION '拒絕執行:僅允許本機拋棄庫 harness(port 543xx/loopback),實際 port=% addr=%',
       current_setting('port'), COALESCE(host(inet_server_addr()), 'unix-socket');
   END IF;
   -- 🔀 codex K2-R2-3:listener 位址證不了用戶端在本機(SSH tunnel 可繞)⇒ 加 server 端實檢:

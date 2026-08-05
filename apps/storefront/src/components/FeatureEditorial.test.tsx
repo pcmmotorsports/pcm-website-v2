@@ -26,6 +26,7 @@ const focus: ResolvedBrandFocus = {
     ['SINCE', '2000'],
     ['CRAFT', 'CNC · Anodized'],
   ],
+  categories: ['外觀與後視鏡', '拉桿與把手', '懸吊與車架 · 輪圈'],
   photo: 'https://example.test/rizoma.jpg',
 };
 
@@ -64,11 +65,73 @@ describe('FeatureEditorial', () => {
     expect(h2?.querySelector('em')?.textContent).toBe('工藝之鏡');
   });
 
-  it('🔴 CTA 連到當期品牌、文字帶當期品牌名(硬編 rizoma 的話換一家就錯)', () => {
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 D5e-2b 動線改版:一顆 `ed-link` → 「實心主按鈕 + 分隔線 + 分類導覽列」。
+  //    這一組守的是**三種各自無聲的接線錯**:
+  //      ①主按鈕退回 legacy `/products?brand=`(D5e-1 的舊目的地)—— 頁面看起來完全正常。
+  //      ②分類列硬編成某一家的分類 —— 輪到別家時連結指向錯的分類,畫面照樣好看。
+  //      ③分類名沒被 encode —— 含 `·` 與空白的分類名(「懸吊與車架 · 輪圈」)會產出壞網址。
+  // ══════════════════════════════════════════════════════════════════════════
+  it('🔴 主按鈕連到品牌介紹頁 /brands/<slug>,不是 legacy 的 /products?brand=', () => {
     const { container } = render(<FeatureEditorial focus={{ ...focus, slug: 'k-speed', name: 'K-SPEED' }} />);
-    const link = container.querySelector('a[href*="brand="]');
-    expect(link?.getAttribute('href')).toBe('/products?brand=k-speed');
-    expect(link?.textContent).toContain('探索 K-SPEED');
+    const primary = container.querySelector('a.ed-feature-primary');
+    expect(primary?.getAttribute('href'), '主按鈕沒指向品牌介紹頁').toBe('/brands/k-speed');
+    expect(primary?.textContent).toContain('品牌介紹');
+  });
+
+  // 🔴 測試名只能宣稱**本元件**(R2 F2:原名寫「全站不得再出現」,但本支只 render 這一顆元件,
+  //    而實跑 `curl localhost/` 首頁**仍有 17 條** `href="/products?brand=..."`(來自 `BrandIndex.tsx`,
+  //    屬 D5f 範圍)⇒ 那個名字是**測試名 > 斷言**,正是 memory `feedback_claim-scope-exceeds-fact-three-shapes`
+  //    記的三種形狀之一。名字縮回它真正量得到的範圍。
+  it('🔴 **本元件**不得再出現 legacy 的 ?brand=(首頁其餘處屬 D5f,見檔頭)', () => {
+    const { container } = render(<FeatureEditorial focus={focus} />);
+    const hrefs = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs.length, '一條連結都沒有 ⇒ 下面的負向斷言恆真').toBeGreaterThan(3);
+    // 錨在 `?brand=` / `&brand=`:`pbrand=` 不得誤命中(所以帶上前置的分隔符)。
+    expect(
+      hrefs.filter((h) => /[?&]brand=/.test(h)),
+      'legacy ?brand= 又出現了 ⇒ 與 pbrand 新契約分岔、且與選車的 brand 撞同一個字',
+    ).toEqual([]);
+  });
+
+  it('🔴 分類列:領頭是「全部商品」(is-all)、其餘逐一對應當期品牌的分類', () => {
+    const { container } = render(<FeatureEditorial focus={{ ...focus, slug: 'k-speed', name: 'K-SPEED' }} />);
+    const links = [...container.querySelectorAll('.ed-feature-jump a')];
+    // 1 條領頭 + 3 條分類。數量對不上 = 少畫或多畫。
+    expect(links, '分類列的連結數不對').toHaveLength(1 + focus.categories.length);
+
+    const all = links[0]!;
+    expect(all.className, '領頭那條沒有 is-all ⇒ 墨黑底線那組樣式不會套上').toContain('is-all');
+    expect(all.getAttribute('href')).toBe('/products?pbrand=k-speed');
+    expect(all.textContent).toBe('全部商品');
+
+    // 🔴 逐一比對,不抽樣:硬編某一家的分類就會在這裡紅。
+    for (const [idx, category] of focus.categories.entries()) {
+      const link = links[idx + 1]!;
+      expect(link.textContent, `第 ${idx + 1} 個分類的文字不對`).toBe(category);
+      expect(link.getAttribute('href'), `分類「${category}」的網址不對`).toBe(
+        `/products?pbrand=k-speed&category=${encodeURIComponent(category)}`,
+      );
+    }
+  });
+
+  it('🔴 含 `·` 與空白的分類名要被 encode(壞網址在畫面上看不出來)', () => {
+    const { container } = render(<FeatureEditorial focus={focus} />);
+    const href = [...container.querySelectorAll('.ed-feature-jump a')]
+      .map((a) => a.getAttribute('href') ?? '')
+      .find((h) => h.includes('category='))!;
+    // 「懸吊與車架 · 輪圈」那條:空白與 `·` 都必須是百分號編碼,且不得雙重編碼(%25)。
+    const encoded = encodeURIComponent('懸吊與車架 · 輪圈');
+    const all = [...container.querySelectorAll('.ed-feature-jump a')].map((a) => a.getAttribute('href') ?? '');
+    expect(all.some((h) => h.endsWith(`category=${encoded}`)), '分類名沒被正確 encode').toBe(true);
+    expect(href, '出現雙重編碼 ⇒ 有人在元件端又 encode 了一次').not.toContain('%25');
+  });
+
+  it('分隔線對讀屏隱藏(它是視覺分區訊號,不是內容)', () => {
+    const { container } = render(<FeatureEditorial focus={focus} />);
+    const divider = container.querySelector('.ed-feature-divider');
+    expect(divider, '分隔線不見了').not.toBeNull();
+    expect(divider?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('圖說吃 caption(產地),圖的 alt 吃品牌名', () => {

@@ -296,6 +296,262 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(CSS, '--ed-c-ink-mute 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-ink-mute:\s*#[0-9a-f]{3,8}/i);
   });
 
+  // ── Q5:finder 停用態壓淡(Sean 拍板 A,2026-08-05) ──
+  // 🔴 這條守的是一個**來回過兩次**的值,所以要釘死:
+  //    ① 原本 `opacity: 1`,註解宣稱「對齊 design」——**那句是假的**,兩份 OD 稿都用降透明度。
+  //    ② Q6 把 placeholder 轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差
+  //       ⇒ 停用的 affordance 等於沒了(那是 Q6 揭示、Sean 據以拍板的副作用)。
+  //    ③ 現在取設計稿的 `.45` —— OD `vehicle-picker-design.html` 逐字
+  //      `.vsc-input-demo:disabled { opacity: 0.45; }`(不引行號、用 grep 找字串)
+  //      (**不是**站台層 `.vsc-input:disabled` 的 `0.55`,也不是回到 `1`)。
+  //    ⇒ 只要有人把它改回 1 或改成 0.55,這條就紅。
+  it('🔴 finder 停用態 opacity = 0.45(設計稿值;不得回到 1、也不是站台層的 0.55)', () => {
+    const rules = [
+      ...topLevelCss().matchAll(
+        /([^{}]*vsc-input--finder:disabled[^{}]*)\{([^}]*)\}/g,
+      ),
+    ].map((m) => ({ selector: m[1]!.trim().replace(/\s+/g, ' '), body: m[2]! }));
+    // 2 條 = 本體 + `::placeholder`。多出第三條 ⇒ 有人加了覆寫,要回來看它是不是把值改回去。
+    // ⚠️ 邊界(R1 nit):`topLevelCss()` 已剝掉所有 `@media` 區塊 ⇒ 這條對**斷點內的覆寫全盲**
+    //    (有人在 `@media` 裡把 opacity 改回 1,這裡照樣綠)。本檔 `:53-57` 記過這個洞的反向。
+    expect(rules.map((r) => r.selector), 'finder 停用態規則不是預期的兩條').toHaveLength(2);
+    const main = rules.find((r) => !r.selector.includes('::placeholder'));
+    expect(main, '找不到 :disabled 本體規則').toBeDefined();
+    // 🔴 量的是**生效值**,不是「本文裡有沒有出現某個字串」(R2 nit)。
+    //    原本寫成一條正向 `.45` + 兩條負向(`1` / `0.55`)的字串比對,有一族固定的洞:
+    //    `opacity: 1 !important` 與 `opacity: 1.0` 兩者都繞得過 `/opacity:\s*1\s*[;}]/`
+    //    (前者 `1` 後面接的是空白+`!`,後者接的是 `.`)⇒ 正向的 `.45` 還在、負向不紅 = 假綠。
+    //    改成取**同一條規則裡最後一個 `opacity` 宣告**(單一 rule 內後者覆蓋前者),
+    //    一條斷言同時涵蓋「改回 1」「退回 0.55」「加 !important 蓋掉」「重複宣告」四種改法。
+    //    🔴 `!important` **必須一起模擬**,不能只取「最後一條」:實測過 ——
+    //    在 `.45` 那行**之前**插一條 `opacity: 1 !important`,瀏覽器生效值是 `1`
+    //    (important 蓋過非 important、與順序無關),而「取最後一條」會讀到 `.45` = **假綠**。
+    //    這正是本條要補的那個洞,拿「取最後一條」去補會原地踏步。
+    // ⚠️ 它擋不住什麼:①`@media` 內的覆寫仍全盲(同上面那則邊界)。
+    //    ②同 importance 的多條走 source order,跨 rule 的 specificity 不在本條射程
+    //    (上面已釘死「這個選擇器只有兩條規則」,多一條就先紅在那裡)。
+    const decls = [...main!.body.matchAll(/opacity:\s*([0-9]*\.?[0-9]+)\s*(!important)?/g)].map(
+      (m) => ({ value: Number(m[1]), important: Boolean(m[2]) }),
+    );
+    expect(decls, '這條規則裡一個 opacity 宣告都沒有 ⇒ 停用態沒有壓淡').not.toHaveLength(0);
+    // 生效值 = 有 important 就取最後一條 important,否則取最後一條。
+    const importants = decls.filter((d) => d.important);
+    const effective = (importants.length ? importants : decls).at(-1)!.value;
+    expect(
+      effective,
+      `finder 停用態生效 opacity = ${effective},應為設計稿的 0.45`
+        + '(1 = 又看不出停用了;0.55 = 退回站台層預設,不是設計稿的值)',
+    ).toBe(0.45);
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 D5e-2b 動線區。這一組守的是**兩個很容易被「順手修正」掉的決定**:
+  //    ①主按鈕的熔橘 —— 對比 3.12:1 不到門檻,是 Sean 看過三個替代方案後**拍板保留**的
+  //      殘餘風險(handoff §十一 + C-104-A 六不做 ⑤)。下一個看到對比警告的人很可能
+  //      「順手」把它改深或改成墨色,而畫面看起來只會變好、不會有任何測試紅。
+  //    ②分類列是**無框底線**不是盒子(OD §6-2 逐字)。加個 border 看起來也很正常。
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 D5e-2b 動線區(主按鈕熔橘 + 分類無框底線)', () => {
+    /**
+     * 取某個選擇器的**全部**同選擇器區塊(串接)。
+     *
+     * 🔴 **第一版只取第一個匹配,而那是真的假綠**(R2 F5,M10-c 實測):
+     *    在檔案後面**追加**一條 `.ed-feature-primary{background:var(--ed-c-ink)}`,
+     *    CSS 後到者勝 ⇒ 按鈕真的變墨色,而只看第一個區塊的守門 **30 條全綠**
+     *    —— 那正是這組守門自稱要擋的那件事。
+     *    ⇒ 改成掃全部匹配並串接:任何後置覆寫都會進到被斷言的字串裡,
+     *      「不得出現墨色」那種負向斷言因此才真的擋得住。
+     */
+    const ruleBlocks = (selector: string): string[] => {
+      const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(?:^|\\})\\s*${esc}\\s*\\{([^}]*)\\}`, 'g');
+      return [...topLevelCss().matchAll(re)].map((m) => m[1]!);
+    };
+    const rule = (selector: string): string => ruleBlocks(selector).join('\n');
+
+    it('🔴 主按鈕填的是熔橘動作色,不是墨色、也不是站台的緋紅 --c-red', () => {
+      const body = rule('.ed-feature-primary');
+      expect(body, '找不到 .ed-feature-primary 規則').not.toBe('');
+      // 走本檔自己的 token。🔴 `var(--c-red)` 在正式站是 #dc2626 緋紅、不是 OD 的熔橘
+      // ⇒ 直接引用站台那顆會靜默畫錯色,這條把它擋住。
+      expect(body, '主按鈕沒有填熔橘動作色').toMatch(/background:\s*var\(--ed-c-action\)/);
+      expect(body, '主按鈕改用站台的 --c-red(緋紅 #dc2626)⇒ 不是 Sean 拍板那顆熔橘').not.toMatch(
+        /background:\s*var\(--c-red/,
+      );
+      expect(body, '主按鈕被改成墨色 ⇒ 違反「熔橘才是動作色」(OD §6-2)').not.toMatch(
+        /background:\s*var\(--ed-c-ink\)/,
+      );
+      // 觸控目標:桌機 44px(手機那段在 @media 內,由下一條守)
+      expect(body, '主按鈕高度不足 44px').toMatch(/min-height:\s*44px/);
+      // 🔴 **文字色也要釘住**(R1 實測突變:改成 `#000` 之後本檔與元件測試**全綠**)。
+      //    這不是假想的改法 —— 白字對熔橘 3.12:1 不到門檻,下一個看到對比警告的人
+      //    最自然的動作就是「把字改成黑的」,而畫面只會變好看。
+      //    handoff §十一 明令那顆是 Sean 看過墨黑版之後**拍板保留白字**的,不得順手改。
+      expect(body, '主按鈕的白字被改掉了 ⇒ 那是 Sean 拍板保留的,要改必須他重新拍板').toMatch(
+        /color:\s*#fff\b/,
+      );
+    });
+
+    it('🔴 熔橘三顆的值就是設計稿的值(改深一階也算改,要 Sean 重新拍板)', () => {
+      const page = rule('.ed-page');
+      expect(page, '找不到 .ed-page 色票').not.toBe('');
+      expect(page, '熔橘填色值被改動').toMatch(/--ed-c-action:\s*#f26722/);
+      expect(page, 'hover 值被改動').toMatch(/--ed-c-action-hover:\s*#c4470c/);
+      expect(page, 'active 值被改動').toMatch(/--ed-c-action-active:\s*#a53a08/);
+    });
+
+    it('🔴 分類列是無框底線式:有 ::after 細線、且本體不得有 border', () => {
+      const link = rule('.ed-feature-jump a');
+      expect(link, '找不到 .ed-feature-jump a 規則').not.toBe('');
+      // 盒子化的症狀就是本體長出 border ——「無框」是這個版位的語言(OD §6-2)。
+      expect(link, '分類連結長出邊框 ⇒ 被做成盒子了,與資料條的細線語言打架').not.toMatch(/(^|[;\s])border/);
+      expect(link, '分類連結的觸控高度不足').toMatch(/min-height:\s*36px/);
+      // 🔴 `position: relative` 是**承重宣告**,不是排版習慣(R2 F6,M10-a 實測):
+      //    底線是絕對定位的 `::after`,少了這行它會改用最近的定位祖先為基準
+      //    ⇒ 實測 `::after` 寬度由 56.56px 變成 **1440px**,一條橫貫整個視窗的線,
+      //      而當時 41 條全綠。看起來「只是刪一行沒用的宣告」,畫面卻整個壞掉。
+      expect(link, '少了 position: relative ⇒ 底線會以外層為基準、橫貫整個視窗').toMatch(
+        /position:\s*relative/,
+      );
+      const after = topLevelCss().match(/\.ed-feature-jump a::after\s*\{([^}]*)\}/)?.[1] ?? '';
+      expect(after, '找不到底線 ::after').not.toBe('');
+      // 🔴 底線色 = 控制項邊界線(3.18:1),不是一般分隔線 --ed-c-rule(#e4e4e7,約 1.3:1)。
+      //    這條線是靜止態唯一的「可點」訊號,handoff §十一 指名要確認它。
+      expect(after, '底線改用一般分隔線色 ⇒ 對白底約 1.3:1,可點訊號看不見').toMatch(
+        /background:\s*var\(--ed-c-rule-control\)/,
+      );
+      // 🔴 **`content` 也要斷言**(R1 實測突變:改成 `content: none` 底線整條消失、現有守門全綠)。
+      //    偽元素沒有 `content` 就根本不生成 ⇒ 上面那條「背景色對不對」問的是一個
+      //    **不存在的東西**的顏色,恆綠。這是「量錯東西」那一族:顏色對 ≠ 線畫得出來。
+      expect(after, '底線的 content 不是空字串 ⇒ 偽元素不生成、整條底線消失').toMatch(
+        /content:\s*""/,
+      );
+      expect(after, '底線高度不見了').toMatch(/height:\s*1px/);
+    });
+
+    it('🔴 圖說桌機也要 right:auto + max-width(不只手機;R2 F10 抓到只搬了半邊)', () => {
+      const cap = rule('.ed-feature-caption');
+      expect(cap, '找不到 .ed-feature-caption 規則').not.toBe('');
+      expect(cap, '桌機圖說少了 right:auto ⇒ 會被拉成左右釘住的橫幅').toMatch(/right:\s*auto/);
+      expect(cap, '桌機圖說少了 max-width ⇒ OD §6-3 的規格被丟掉').toMatch(/max-width:\s*calc\(/);
+    });
+
+    it('🔴「全部商品」是領頭:墨黑底線 + 字重 600(與其餘分類有別)', () => {
+      const isAll = rule('.ed-feature-jump a.is-all');
+      expect(isAll, '找不到 is-all 規則').not.toBe('');
+      expect(isAll, '領頭沒有加重字重').toMatch(/font-weight:\s*600/);
+    });
+
+    it('🔴 手機:主按鈕拉滿整行 48px、分類列 44px(行動觸控目標)', () => {
+      const mobile = mediaBlock('(max-width: 640px)');
+      expect(mobile, '找不到 640px 斷點').not.toBe('');
+      expect(mobile, '手機主按鈕沒拉高到 48px').toMatch(/\.ed-feature-primary\s*\{[^}]*min-height:\s*48px/);
+      expect(mobile, '手機分類列沒拉高到 44px').toMatch(/\.ed-feature-jump a\s*\{[^}]*min-height:\s*44px/);
+      // 🔴 圖說的 `max-width` = OD §6-3「貼一角、不要橫跨整張圖」的規格。
+      //    ⚠️ **誠實標註射程**(R2 F7):這條是**規格釘住**,不是行為守門 ——
+      //    實測 390px 下把它拿掉,圖說寬度 200.75px → 200.75px、**零變化**,
+      //    因為今天最長的 origin(samco「英國 · 南威爾斯 Pontyclun · 自 1990」= 28 字;
+      //    我原本註解寫「最長約 19 字」是錯的)在這個字級下本來就撐不到上限。
+      //    ⇒ 它擋的是「有人把 OD 這條規格順手刪掉」,不是「今天畫面會壞」。
+      //      真的要讓它有行為判別力,得等 origin 變長或字級變大 —— 屆時它會自己開始生效。
+      expect(mobile, '手機圖說少了 max-width ⇒ 長產地會把它撐成橫跨整張圖的帶子').toMatch(
+        /\.ed-feature-caption\s*\{[^}]*max-width:\s*calc\(100% - 24px\)/,
+      );
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 D5g 捲動進場。這一組守的是**「動畫壞掉時內容還看不看得見」**,不是好不好看。
+  //    起始隱藏一律掛在 `.js-reveal` 底下 —— 少了那個前綴,五個區塊會在**所有**情況下
+  //    永久 `opacity:0`(JS 沒跑到也一樣),而元件測試全綠、內容也還在 DOM 裡。
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 D5g 捲動進場(起始隱藏必須掛在 .js-reveal 底下)', () => {
+    it('🔴 隱藏規則一定帶 `.js-reveal` 前綴(裸選擇器 = JS 沒跑到就整頁空白)', () => {
+      const css = topLevelCss();
+      // 找出所有「把 data-reveal 或 N°05 兩欄設成 opacity:0」的規則,逐條檢查前綴。
+      const hiding = [...css.matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .map((m) => m[1]!.trim().replace(/\s+/g, ' '))
+        .filter((sel) => /data-reveal|ed-feature-side|ed-feature-media/.test(sel));
+      expect(hiding.length, '找不到任何起始隱藏規則 ⇒ 下面的迴圈是空跑').toBeGreaterThanOrEqual(2);
+      for (const sel of hiding) {
+        expect(
+          sel.includes('.js-reveal'),
+          `「${sel}」沒有 .js-reveal 前綴 ⇒ JS 掛掉 / 不支援 IO / 開了減少動效時,`
+            + '這些區塊會永久隱形,而所有測試照樣綠。',
+        ).toBe(true);
+      }
+    });
+
+    // 🔴 R1 找到的第九種假綠:給起始隱藏那兩個屬性加上 `!important`,
+    //    `vitest` **34/34 全綠**,但真瀏覽器實測 `is-in` 加上了、`opacity` 仍卡在 0
+    //    —— 因為 `.is-in` 那條沒有 `!important`,永遠贏不了同選擇器的 `!important`。
+    //    ⇒ 五個區塊永久看不到內容。文字層守門對 cascade 勝負是盲的,這條把它釘住。
+    it('🔴 起始隱藏規則不得帶 !important(reveal 那條沒有,帶了就永遠贏不回來)', () => {
+      const hiding = [...topLevelCss().matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .filter((m) => /data-reveal|ed-feature-side|ed-feature-media/.test(m[1]!));
+      expect(hiding.length, '找不到起始隱藏規則 ⇒ 這條是空跑').toBeGreaterThanOrEqual(2);
+      for (const m of hiding) {
+        expect(
+          /!important/.test(m[2]!),
+          `「${m[1]!.trim()}」的起始隱藏帶了 !important ⇒ .is-in 那條(無 !important)`
+            + '永遠蓋不過去,區塊會永久看不見,而所有文字層守門照樣綠。',
+        ).toBe(false);
+      }
+    });
+
+    // 🔴 R2 F2:藏是全域、掀是逐個 ⇒ 晚到 DOM 的元素永久隱形。修法是 CSS 只藏「已上膛」的,
+    //    這條把那個修法釘住 —— 拿掉屬性選擇器就退回全域藏光的舊行為。
+    it('🔴 起始隱藏只作用於已上膛(data-reveal-armed)的元素,不是全域藏光', () => {
+      const hiding = [...topLevelCss().matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .map((m) => m[1]!.trim().replace(/\s+/g, ' '))
+        .filter((sel) => /data-reveal|ed-feature-side|ed-feature-media/.test(sel));
+      expect(hiding.length, '找不到起始隱藏規則 ⇒ 這條是空跑').toBeGreaterThanOrEqual(2);
+      for (const sel of hiding) {
+        expect(
+          sel.includes('[data-reveal-armed]'),
+          `「${sel}」沒有限定已上膛的元素 ⇒ mount 之後才進 DOM 的區塊會被藏住,`
+            + '而沒有人會來掀它(observer 只認 mount 當下的快照)= 永久 opacity:0。',
+        ).toBe(true);
+      }
+    });
+
+    it('🔴 幅度與時長是設計稿的值(34px / 0.7s;調小到看不見等於沒做)', () => {
+      const css = topLevelCss();
+      expect(css, '位移幅度不是 34px').toMatch(/\.js-reveal \[data-reveal\][^{]*\{[^}]*translateY\(34px\)/);
+      expect(css, '進場時長不是 0.7s').toMatch(/\.js-reveal \[data-reveal\][^{]*\.is-in\s*\{[^}]*0\.7s/);
+      // 曲線沿用本頁既有那條,不新增第二條。
+      expect(css, '進場曲線不是設計稿那條').toMatch(/cubic-bezier\(0\.2, 0\.8, 0\.2, 1\)/);
+    });
+
+    it('🔴 N°05 照片比文字晚 140ms(兩欄分開進場,不是整塊一起淡入)', () => {
+      const css = topLevelCss();
+      expect(css, 'N°05 媒體欄少了 140ms 延遲 ⇒ 兩欄同時進場、錯開就沒意義了').toMatch(
+        /\.js-reveal \.ed-feature[^{]*\.is-in \.ed-feature-media\s*\{[^}]*transition-delay:\s*0\.14s/,
+      );
+    });
+
+    it('🔴 Hero 不掛進場(它在首屏,載入當下就該可讀)', () => {
+      // `.ed-hero` 不得出現在任何起始隱藏規則裡。
+      const hiding = [...topLevelCss().matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .map((m) => m[1]!.trim())
+        .filter((sel) => sel.includes('.js-reveal'));
+      // 🔴 前提斷言(R2 nit):`hiding` 為空時下面的迴圈是空跑、恆綠 ——
+      //    而「把起始隱藏整組搬進某個 @media」正好會讓它變空(`topLevelCss()` 掃不到)。
+      expect(hiding.length, '找不到任何起始隱藏規則 ⇒ 下面的迴圈是空跑').toBeGreaterThanOrEqual(2);
+      for (const sel of hiding) {
+        expect(sel.includes('ed-hero'), `Hero 被掛上進場了(${sel})⇒ 首屏延遲可讀`).toBe(false);
+      }
+    });
+
+    it('🔴 減少動效那道雙保險還在(位移是生理不適,不是喜好)', () => {
+      const reduce = mediaBlock('(prefers-reduced-motion: reduce)');
+      expect(reduce, '找不到 prefers-reduced-motion 區塊').not.toBe('');
+      expect(reduce, '減少動效沒有把起始隱藏解除').toMatch(/opacity:\s*1\s*!important/);
+      expect(reduce, '減少動效沒有把位移歸零').toMatch(/transform:\s*none\s*!important/);
+      expect(reduce, '減少動效那組沒有涵蓋 data-reveal').toMatch(/\[data-reveal\]/);
+    });
+  });
+
   // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
   //    這條擋的是「順手把三塊深色一起改掉」——那會讓 D7 變成沒東西可做、而且跳過 D7 自己的驗收。
   it('🔴 頁尾仍是重排前的 #0a0a0a(回石墨是 D7 的事,D5a 不得順手改)', () => {

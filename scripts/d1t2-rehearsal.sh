@@ -23,7 +23,7 @@ set -euo pipefail
 #    repo 根 ⇒ 這行會再 cd 一次、落到 repo 上一層(從 scripts/ 裡呼叫 d1t3 時實測重現)。
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-PORT=54329
+PORT="${PORT:-54329}"
 PGBIN="$(dirname "$(command -v initdb)")"
 # macOS + zh_TW locale 會讓 postmaster 啟動即死(multithreaded during startup);全程 C locale。
 export LC_ALL=C
