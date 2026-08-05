@@ -1,5 +1,14 @@
 # E10 第 1 批 · A1「訂單品項數量摘要」片級 plan **v2**
 
+> 🏁 **2026-08-06 終案標記 —— 本檔「本契約債怎麼清償 = 重新開放、尚未定案」那句已失效**
+> (**刻意不給行號**,行號會位移;文字錨 = `**本契約債怎麼清償 = 重新開放、尚未定案**`,`grep -n` 可定位)
+> Sean 2026-08-05 拍板 **Q1=A / Q2=A**,清償方式定案為:①加 `shipped_quantity` 欄
+> ②新增 C9 `oiqs_shipped_le_instock` + C6′ `cancelled + shipped ≤ quantity`(標冗餘)、**C7 不動**
+> ③**可取消量守門公式不改**(`shipped ⊆ instock`,減 shipped = 重複扣)。
+> ⇒ A1 契約債原文的三項裡**只做兩項**,第三項刻意不做。
+> 出處:`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10 + memory `project_m4b-b2-shipments-db-decisions`。
+> 施工歸屬 = `docs/specs/2026-08-06-e10-b2-s2-shipped-summary-plan.md`(B2-S2)。原文保留、未竄改。
+
 > 🔴 **v1 已作廢**(設計 = 在 `order_items` 加三欄)。作廢原因見 §0。
 > 真權威 = `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` §5.1 row 26 + §5.1c + §1 原則 2/3/4,
 > **但 §5.1 row 26 的落點字面已被 Sean 2026-07-31 拍板推翻**(見 §0),master plan 需同步改。

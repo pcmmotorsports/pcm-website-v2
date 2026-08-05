@@ -281,9 +281,13 @@ COMMENT 逐字(`:493`):**「業務拒絕=通用訊息;輸入類=具體訊息」*
 - 鐵則 8:跨 3+ 檔且動共用讀模型 ⇒ 已提 plan 等批(本檔)。
 - 🔴 **rollback 只能逆 DAG 回退**(K1-16 更正 v1 的「每片可獨立 revert」):
   後片 import 前片的型別與 action,單獨 revert 前片會編譯壞。回退序 = 片 5→4→3→2→1→0。
-- 🔴 **`shipped_quantity` 合約債**(K1-15;母 plan `:384` 逐字,對本線有約束力):
-  第 2 批建包裹模型時,**同一片**要把可取消量改成 `quantity − instock − cancelled − shipped`
-  ⇒ 屆時 **A9g 投影與 UI 上限同步要改**,不是只有第 3 批才動。現況 `shipped` 欄不存在 ⇒ 完整式退化,**不是不需要**。
+- 🏁 **`shipped_quantity` 合約債 —— 2026-08-05 Sean 拍板 Q1=A/Q2=A 終案:可取消量公式不改。**
+  ~~(K1-15;母 plan `:384` 逐字)第 2 批建包裹模型時,同一片要把可取消量改成
+  `quantity − instock − cancelled − shipped`,屆時 A9g 投影與 UI 上限同步要改~~
+  🔴 **該字面已作廢**:Sean 08-05 拍「出貨必先到貨、無直送」⇒ `shipped ⊆ instock` ⇒ 再減一次是**重複扣**。
+  ⇒ **可取消量永久維持 `quantity − instock − cancelled`;A9g 投影與 UI 上限本線零改動。**
+  `shipped ≤ instock` 改由摘要表 CHECK `oiqs_shipped_le_instock`(C9)承重(S2 片)。
+  出處:memory `project_m4b-b2-shipments-db-decisions`、`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10。
 - 紅線:不 push、不動 STATUS/CURRENT、不 apply migration、不碰 `.env*`、`git add` 精準路徑。
 
 ## §7 誠實邊界(不做的事,具名承接)

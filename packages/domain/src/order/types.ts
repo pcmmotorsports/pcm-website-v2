@@ -524,9 +524,14 @@ export type AdminOrderItemQuantitySummary = {
    * 每個顯示端各算一遍、各錯一種。**但權威永遠是 RPC**:本值取自惰性快取,且讀取與送出之間
    * 單子可能已被別人動過 ⇒ 只可當輸入上限與顯示用,**不可用來宣稱「一定取消得掉」**。
    *
-   * 🔴 **`shipped_quantity` 契約債**(母 plan `:384` row 37 立,對本欄有約束力):第 2 批建包裹模型時
-   * 要在**同一片**把本式改成 `quantity − instock − cancelled − shipped`。現況 `shipped` 欄不存在
-   * ⇒ 完整式**退化**,不是不需要。
+   * 🏁 **`shipped_quantity` 契約債 —— 2026-08-05 Sean 拍板 Q1=A/Q2=A 終案:本式不改。**
+   * ~~母 plan `:384` row 37 原立「第 2 批要把本式改成 `quantity − instock − cancelled − shipped`」~~
+   * 🔴 **那個字面是錯的**:Sean 2026-08-05 拍板「出貨必先到貨、無直送」⇒ `shipped ⊆ instock`
+   * ⇒ 已出貨的量**本來就含在 `instock` 裡**,再減一次 shipped = **重複扣**,會把可取消量算得比實際少。
+   * ⇒ **本欄公式永久維持 `quantity − instock − cancelled`**;`shipped ≤ instock` 改由摘要表
+   * CHECK `oiqs_shipped_le_instock`(C9)承重,出貨 RPC 只做訊息層前緣拒絕。
+   * 出處:memory `project_m4b-b2-shipments-db-decisions`(08-05 追加段)、
+   * `docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10(Q1=A/Q2=A)。
    *
    * 🔴🔴 **A13a 必讀:`cancellableQuantity > 0` 不等於「這張單可以取消」**。
    * 它只回答「**這個品項**還有幾件在數量上可取消」,完全不含 A8a2 的**單層**閘:
