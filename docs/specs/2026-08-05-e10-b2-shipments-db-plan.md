@@ -530,14 +530,14 @@ public.shipment_items                                                   ── S
     **預期不受影響**(本批只新建兩張表、零觸碰既有物件),但**要跑出來、不靠推論**。
 35. **突變矩陣**:**有配靶的那些**斷言各有專屬突變、**只紅自己那條**;消融**等長同形**。
     🔴 **v5.4 措辭更正(codex K2-R2 must-fix 12,兩輪才收斂)**:v5.3 原文寫「**每條**斷言各有專屬突變」,
-    那句與事實不符 —— 三支 harness 合計 **154 條 PASS**,而突變靶只有 **15 個**。
+    那句與事實不符 —— 三支 harness 合計 **157 條 PASS**,而突變靶只有 **17 個**。
     **有配靶的**(15 個,清單見下)= 鎖原語、DEFERRED 與重讀現況、X8 凍結集逐欄(含 carrier_note 與
     `OR OLD.deleted_at`)、fixture 合法性、回查 oracle、A3 的 COALESCE、`pcm_b2_is_blank`、
     X5 專屬格、TRUNCATE 歸因、a1 的索引定義。
     🔴 **明文列出「沒有配靶」的**(不要讓讀者以為都有):欄數與約束名稱集合、trigger 名稱集合、
     ACL/RLS 矩陣、`expect_constraint` 的歸因斷言、S1b 兩個索引的定義全等 ——
     它們靠的是 catalog 全等比對(改壞就不等),不是消融證明。
-    ⇒ 🔴 **154 條全綠 ≠ 完整 mutation coverage,兩者不得互相代言**(這正是本批重工的起因)。
+    ⇒ 🔴 **157 條全綠 ≠ 完整 mutation coverage,兩者不得互相代言**(這正是本批重工的起因)。
     🔴 **本輪指定的四個突變靶**(R3-Fable 打出來的,必須各自被抓到):
     ①X1 改 IMMEDIATE → 項 31 紅 ②X1 函式改成信 `NEW` → 項 32 紅
     ③X8 條件砍掉 `OR OLD.deleted_at IS NOT NULL` → 項 11b 紅
@@ -556,6 +556,9 @@ public.shipment_items                                                   ── S
     v5.4 另新增的實作層靶:**⑧**X5 專屬格 **⑨**TRUNCATE 歸因 **⑩**`pcm_b2_is_blank` 退回 `btrim`
     **⑪**索引改建在錯欄位 **⑫**`expect_landed` 的回查 oracle(守門改 `RETURN NULL`)
     **⑬**carrier_note 移出 X8 凍結集 **⑭**拿掉 touch trigger **⑮**fixture 退回「零品項已出貨」。
+    v5.4-c(`B-126-A`)再加兩靶:**⑯**同名 trigger 改掛 `BEFORE INSERT`(tgtype 19→7)⇒ 前置閘的三元組必紅;
+    **⑰**SECDEF 加第三段 GUC(`statement_timeout`)⇒ **全陣列比對紅、舊的 `proconfig[1]` 比對不紅**
+    —— 靶⑰ 同時是「新舊兩種寫法判別力差」的直接證據。
 36. 三片 harness 在 `d1t2-rehearsal.sh provision` 拋棄庫實跑。
 37. **三個 cut point 故障注入**:逐一模擬「前 N 支成功、第 N+1 支失敗」,每種答出
     ①ledger 應有哪幾筆 ②schema 實況 ③續跑命令 ④是否安全。
@@ -726,7 +729,7 @@ S2 加欄之後,這一步仍會 drop 掉 6 欄的表、由 A1 重建成 5 欄再
 
 | 項 | 內容 |
 |---|---|
-| **主防線** | **S1a-2 / S1b** 每支開頭 `DO $$` **forward-only 前置閘** pin 上一支的產物(🔴 v5.4 改:**具名集合 + 事件面 + `tgenabled='O'` 雙向**比對,不得只數數量 —— 純計數對「改名」「換事件面」隱形,codex K2 #14),不符即 `RAISE`、拒重跑 |
+| **主防線** | **S1a-2 / S1b** 每支開頭 `DO $$` **forward-only 前置閘** pin 上一支的產物(🔴 v5.4 改:具名集合 + `tgenabled` 雙向比對,不得只數數量 —— 純計數對「改名」隱形,codex K2 #14)。🔴🔴 **v5.4-c 更正(`B-126-A`)**:v5.4 這句寫「**+ 事件面**」= **宣稱 > 事實** —— 實作的聚合鍵當時只有 `tgname:tgenabled`,**tgtype 根本沒進去**,同名 trigger 改掛 BEFORE/AFTER 或換事件面照樣全綠(codex K2-R1 must-fix 8,已親驗)。現已把聚合鍵擴成 **`tgname:tgenabled:tgtype`** 四處全改,並配突變靶⑯(改成 `BEFORE INSERT` ⇒ tgtype 19→7 ⇒ 閘必紅)⇒ **這句話現在才變成真的**。不符即 `RAISE`、拒重跑 |
 | **主防線之例外(v5.4 明文,codex K2 nit 4)** | 🔴 **S1a-1 沒有、也不需要 `DO $gate$`**:它是本批第一支,**沒有上一支的產物可 pin**;它的 forward-only 保護由 `CREATE TABLE public.shipments` 自身的 **`42P07 duplicate_table`** 承擔(重跑必紅、且紅在 BEGIN 之後 ⇒ 整支回滾)。v5.3 §8 原文寫「**每支**開頭」= 宣稱 > 事實(S1a-1 實查 `DO $gate$` 命中數 = 0)⇒ 本列即該宣稱的更正,**不是補一支多餘的閘** |
 | **cut point ①** | S1a-1 成功、S1a-2 失敗 = `shipments` 在但**可變性未鎖**;零 writer、零品項表 ⇒ **安全** |
 | **cut point ②** | S1a-2 成功、S1b 失敗 = **只有 `shipments`**,**可變性守門完整、但 X1 尚未存在**(X1 在 S1b)⇒ 此中間態「已寄出必有品項」不生效。**仍安全,因為零 writer、零品項表**(沒有任何路徑能造出一張有品項的包裹)。🔴 v5.1 修字面:原文寫「守門完整」= 宣稱 > 事實 |

@@ -247,6 +247,27 @@ S1A2_FNS="'pcm_b2_shipments_frozen_after_ship','pcm_b2_shipments_immutable_guard
   && ok "本片四支皆非 SECURITY DEFINER(它們不讀別的表 ⇒ 掛了只是多一個 owner 權限入口)" \
   || bad "本片有函式掛了不必要的 SECDEF"
 
+log "7/6 🔴 前置閘的聚合鍵含 tgtype(`B-126-A` 解除令折入)"
+# 🔴 migration 的前置閘原本只 pin `tgname:tgenabled` ⇒ 同名 trigger 改掛 BEFORE/AFTER 或換事件面、
+#    保持啟用,閘照樣綠。v5.4-c 補上 tgtype;本節在 harness 端做同樣的雙向比對 + 突變靶⑯。
+TRIGSET="$(qs "SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname)::text
+  FROM pg_trigger WHERE tgrelid='public.shipments'::regclass AND NOT tgisinternal")"
+[ "$TRIGSET" = "{shipments_block_delete_bd:O:11,shipments_block_truncate_bt:O:34,shipments_frozen_after_ship_bu:O:19,shipments_immutable_guard_bu:O:19,shipments_items_presence_ac:O:21,shipments_touch_updated_at_bu:O:19,shipments_write_once_bu:O:19}" ] \
+  && ok "🔴 shipments 七支 trigger 的 名稱:啟用:事件面 三元組全等(改事件面會紅,不只改名會紅)" \
+  || bad "trigger 三元組不符:$TRIGSET"
+
+# 靶⑯:同名 trigger 改成 BEFORE INSERT 重建 ⇒ tgtype 由 19 變 7,上面那條必須紅。
+MUT="$(q "BEGIN;
+  DROP TRIGGER shipments_touch_updated_at_bu ON public.shipments;
+  CREATE TRIGGER shipments_touch_updated_at_bu BEFORE INSERT ON public.shipments
+    FOR EACH ROW EXECUTE FUNCTION public.pcm_b2_shipments_touch_updated_at();
+  SELECT 'MUT16=' || (tgtype::text) FROM pg_trigger
+   WHERE tgrelid='public.shipments'::regclass AND tgname='shipments_touch_updated_at_bu';
+ROLLBACK;")"
+echo "$MUT" | grep -q 'MUT16=7' \
+  && ok "突變靶⑯:同名 trigger 改掛 BEFORE INSERT 後 tgtype 由 19 變 7 ⇒ 補上 tgtype 的聚合鍵抓得到(舊的 名稱:啟用 兩元組完全隱形)" \
+  || bad "突變靶⑯ 沒重現:$(echo "$MUT" | grep MUT16 | head -1)"
+
 log "F 突變矩陣:靶⑤ 守門改 RETURN NULL(plan §4 項 35)"
 MUT="$(q "BEGIN;
   CREATE OR REPLACE FUNCTION public.pcm_b2_shipments_write_once() RETURNS trigger

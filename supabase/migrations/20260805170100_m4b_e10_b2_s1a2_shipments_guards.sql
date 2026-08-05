@@ -68,10 +68,13 @@ BEGIN
   END IF;
 
   -- S1a-1 交付的 trigger 全集 + 啟用狀態(名稱與 tgenabled 一起釘)
-  SELECT array_agg(tgname || ':' || tgenabled::text ORDER BY tgname) INTO v_actual
+    -- 🔴 v5.4-c(`B-126-A` 主視窗解除「三片不再改」令,僅此兩條):聚合鍵補 **tgtype**。
+  --    只 pin `tgname:tgenabled` 的話,同名 trigger 改掛 BEFORE/AFTER 或換事件面、保持啟用,
+  --    這道閘照樣綠 —— 而前置閘正是保護不可逆 apply 的那道,它的宣稱必須等於它的能力。
+  SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname) INTO v_actual
     FROM pg_catalog.pg_trigger
    WHERE tgrelid = 'public.shipments'::regclass AND NOT tgisinternal;
-  IF v_actual IS DISTINCT FROM ARRAY['shipments_block_delete_bd:O','shipments_block_truncate_bt:O'] THEN
+  IF v_actual IS DISTINCT FROM ARRAY['shipments_block_delete_bd:O:11','shipments_block_truncate_bt:O:34'] THEN
     RAISE EXCEPTION 'S1a-2 前置閘:S1a-1 的 trigger 集合/啟用狀態不符 — 實際 = %;拒繼續', v_actual;
   END IF;
 
@@ -230,13 +233,16 @@ DECLARE
   v_pair     text[];
 BEGIN
   -- 本片 4 支 + S1a-1 的 2 支 = 6 支,具名雙向 + 啟用狀態
-  SELECT array_agg(tgname || ':' || tgenabled::text ORDER BY tgname) INTO v_actual
+    -- 🔴 v5.4-c(`B-126-A` 主視窗解除「三片不再改」令,僅此兩條):聚合鍵補 **tgtype**。
+  --    只 pin `tgname:tgenabled` 的話,同名 trigger 改掛 BEFORE/AFTER 或換事件面、保持啟用,
+  --    這道閘照樣綠 —— 而前置閘正是保護不可逆 apply 的那道,它的宣稱必須等於它的能力。
+  SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname) INTO v_actual
     FROM pg_catalog.pg_trigger
    WHERE tgrelid = 'public.shipments'::regclass AND NOT tgisinternal;
   IF v_actual IS DISTINCT FROM ARRAY[
-       'shipments_block_delete_bd:O','shipments_block_truncate_bt:O',
-       'shipments_frozen_after_ship_bu:O','shipments_immutable_guard_bu:O',
-       'shipments_touch_updated_at_bu:O','shipments_write_once_bu:O'] THEN
+       'shipments_block_delete_bd:O:11','shipments_block_truncate_bt:O:34',
+       'shipments_frozen_after_ship_bu:O:19','shipments_immutable_guard_bu:O:19',
+       'shipments_touch_updated_at_bu:O:19','shipments_write_once_bu:O:19'] THEN
     RAISE EXCEPTION 'S1a-2 驗收失敗 — shipments trigger 集合/啟用狀態不符,實際 = %;拒繼續', v_actual;
   END IF;
 

@@ -334,6 +334,21 @@ expect_sqlstate 23514 "$MKDRAFT
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM1A',0);" \
   "quantity=0 被擋(CHECK 有在工作,不只是存在)"
 
+# 🔴 靶⑰(`B-126-A` 解除令折入):給 SECDEF 函式加**第三段** GUC ⇒ 全陣列比對必須紅,
+#    而舊寫法(migration 只比 `proconfig[1]`)完全隱形。本靶同時證明新舊兩種寫法的判別力差。
+MUT="$(q "BEGIN;
+  ALTER FUNCTION public.pcm_b2_shipment_items_parent_guard() SET statement_timeout = '9s';
+  SELECT 'MUT17_FULL=' || (array_to_string(proconfig,';') IS DISTINCT FROM 'search_path=public, pg_temp;lock_timeout=5s')::text
+    FROM pg_proc WHERE oid='public.pcm_b2_shipment_items_parent_guard()'::regprocedure;
+  SELECT 'MUT17_OLD=' || (proconfig[1] IS DISTINCT FROM 'search_path=public, pg_temp')::text
+    FROM pg_proc WHERE oid='public.pcm_b2_shipment_items_parent_guard()'::regprocedure;
+ROLLBACK;")"
+if echo "$MUT" | grep -q 'MUT17_FULL=true' && echo "$MUT" | grep -q 'MUT17_OLD=false'; then
+  ok "🔴 突變靶⑰:加第三段 GUC(statement_timeout)後,**全陣列比對紅了、舊的 proconfig[1] 比對不紅** ⇒ B-126-A 那條修法有真實判別力,不是措辭調整"
+else
+  bad "突變靶⑰ 沒重現(期望 FULL=true / OLD=false):$(echo "$MUT" | grep MUT17 | tr '\n' ' ')"
+fi
+
 log "F 突變矩陣(靶①②⑥;plan §4 項 35)"
 MUT="$(q "BEGIN;
   DROP TRIGGER shipments_items_presence_ac ON public.shipments;

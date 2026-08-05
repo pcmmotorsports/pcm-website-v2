@@ -26,13 +26,16 @@ DECLARE
   v_actual text[];
   v_bad    integer;
 BEGIN
-  SELECT array_agg(tgname || ':' || tgenabled::text ORDER BY tgname) INTO v_actual
+    -- 🔴 v5.4-c(`B-126-A` 主視窗解除「三片不再改」令,僅此兩條):聚合鍵補 **tgtype**。
+  --    只 pin `tgname:tgenabled` 的話,同名 trigger 改掛 BEFORE/AFTER 或換事件面、保持啟用,
+  --    這道閘照樣綠 —— 而前置閘正是保護不可逆 apply 的那道,它的宣稱必須等於它的能力。
+  SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname) INTO v_actual
     FROM pg_catalog.pg_trigger
    WHERE tgrelid = 'public.shipments'::regclass AND NOT tgisinternal;
   IF v_actual IS DISTINCT FROM ARRAY[
-       'shipments_block_delete_bd:O','shipments_block_truncate_bt:O',
-       'shipments_frozen_after_ship_bu:O','shipments_immutable_guard_bu:O',
-       'shipments_touch_updated_at_bu:O','shipments_write_once_bu:O'] THEN
+       'shipments_block_delete_bd:O:11','shipments_block_truncate_bt:O:34',
+       'shipments_frozen_after_ship_bu:O:19','shipments_immutable_guard_bu:O:19',
+       'shipments_touch_updated_at_bu:O:19','shipments_write_once_bu:O:19'] THEN
     RAISE EXCEPTION 'S1b 前置閘:shipments 的 trigger 集合/啟用狀態不符(應為 S1a-1+S1a-2 的 6 支全啟用),實際 = %;拒繼續', v_actual;
   END IF;
 
@@ -317,12 +320,15 @@ BEGIN
   END LOOP;
 
   -- ⑤ 品項表 4 支 trigger,具名 + 啟用狀態雙向
-  SELECT array_agg(tgname || ':' || tgenabled::text ORDER BY tgname) INTO v_actual
+    -- 🔴 v5.4-c(`B-126-A` 主視窗解除「三片不再改」令,僅此兩條):聚合鍵補 **tgtype**。
+  --    只 pin `tgname:tgenabled` 的話,同名 trigger 改掛 BEFORE/AFTER 或換事件面、保持啟用,
+  --    這道閘照樣綠 —— 而前置閘正是保護不可逆 apply 的那道,它的宣稱必須等於它的能力。
+  SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname) INTO v_actual
     FROM pg_catalog.pg_trigger
    WHERE tgrelid = 'public.shipment_items'::regclass AND NOT tgisinternal;
   IF v_actual IS DISTINCT FROM ARRAY[
-       'shipment_items_block_delete_bd:O','shipment_items_block_truncate_bt:O',
-       'shipment_items_block_update_bu:O','shipment_items_parent_guard_ac:O'] THEN
+       'shipment_items_block_delete_bd:O:11','shipment_items_block_truncate_bt:O:34',
+       'shipment_items_block_update_bu:O:19','shipment_items_parent_guard_ac:O:5'] THEN
     RAISE EXCEPTION 'S1b 驗收失敗 — shipment_items trigger 集合/啟用狀態不符,實際 = %;拒繼續', v_actual;
   END IF;
 
@@ -398,10 +404,11 @@ BEGIN
 
   -- ⑫ 🔴 三支函式面合約:regprocedure 為鍵,owner / prosecdef / proconfig 逐字 / 零非 owner grantee
   SELECT relowner INTO v_owner FROM pg_catalog.pg_class WHERE oid = 'public.shipment_items'::regclass;
+  -- 🔴 v5.4-c(`B-126-A`):第三欄改成**整個 proconfig 陣列**(以 `;` 串接),不再只是 search_path 那一段。
   FOREACH v_name IN ARRAY ARRAY[
       'public.pcm_b2_shipment_items_append_only()|f|search_path=pg_catalog, public',
-      'public.pcm_b2_shipment_items_parent_guard()|t|search_path=public, pg_temp',
-      'public.pcm_b2_shipments_items_presence()|t|search_path=public, pg_temp'] LOOP
+      'public.pcm_b2_shipment_items_parent_guard()|t|search_path=public, pg_temp;lock_timeout=5s',
+      'public.pcm_b2_shipments_items_presence()|t|search_path=public, pg_temp;lock_timeout=5s'] LOOP
     v_pair := string_to_array(v_name, '|');
     IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc WHERE oid = v_pair[1]::regprocedure) THEN
       RAISE EXCEPTION 'S1b 驗收失敗 — 函式 % 不存在;拒繼續', v_pair[1];
@@ -413,10 +420,13 @@ BEGIN
     IF (SELECT prosecdef FROM pg_catalog.pg_proc WHERE oid = v_pair[1]::regprocedure) <> (v_pair[2] = 't') THEN
       RAISE EXCEPTION 'S1b 驗收失敗 — % 的 SECURITY DEFINER 狀態不符(期望 %);拒繼續', v_pair[1], v_pair[2];
     END IF;
-    -- proconfig:第一段必須逐字相符(SECDEF 兩支另有 lock_timeout,單獨驗)
-    IF (SELECT proconfig[1] FROM pg_catalog.pg_proc WHERE oid = v_pair[1]::regprocedure)
+    -- 🔴 v5.4-c(`B-126-A` 解除令,僅此兩條):**整個 proconfig 陣列逐字全等**,不再只比 `proconfig[1]`。
+    --    只比第一段的話,第三段以後的設定(誰哪天加 `statement_timeout`)**完全隱形**;
+    --    而 plan §4 項 18 本來就要求 proconfig 逐字 ⇒ 這條屬「實作沒做到既有規格」,連範圍問題都不是。
+    --    下方 ⑬ 的 lock_timeout 單獨驗**保留**(全陣列比對已涵蓋,但那條的錯誤訊息更好讀)。
+    IF (SELECT array_to_string(proconfig, ';') FROM pg_catalog.pg_proc WHERE oid = v_pair[1]::regprocedure)
        IS DISTINCT FROM v_pair[3] THEN
-      RAISE EXCEPTION 'S1b 驗收失敗 — % 的 search_path 應恰為 %,實 %;拒繼續',
+      RAISE EXCEPTION 'S1b 驗收失敗 — % 的 proconfig 應恰為 {%},實 %;拒繼續',
         v_pair[1], v_pair[3], (SELECT proconfig FROM pg_catalog.pg_proc WHERE oid = v_pair[1]::regprocedure);
     END IF;
     SELECT count(*) INTO v_cnt
