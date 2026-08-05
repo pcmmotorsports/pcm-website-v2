@@ -4,7 +4,7 @@
 // 驗「render 不報錯」(純展示 server component、無互動)。
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { HomeFooter } from './HomeFooter';
 
@@ -13,7 +13,7 @@ afterEach(cleanup);
 describe('HomeFooter', () => {
   it('should render the footer without crashing', () => {
     render(<HomeFooter />);
-    expect(screen.getByText('PCM MOTORSPORTS')).toBeDefined();
+    expect(screen.getByAltText('PCM MOTOR PARTS')).toBeDefined();
     expect(screen.getByText('商品目錄')).toBeDefined();
   });
 
@@ -21,9 +21,54 @@ describe('HomeFooter', () => {
     render(<HomeFooter />);
     // 真值來自 lib/site-config SSoT(Sean 2026-06-21 提供);防回歸 design 佔位 02-2998-xxxx / xxxxxxxx
     expect(screen.getByText('0930-531-867')).toBeDefined();
-    expect(screen.getByText('統編 · 90003020')).toBeDefined();
+    // D7(2026-08-05):字面由「統編 · 90003020」改成 OD 全站頁尾逐字的「統一編號 90003020」。
+    expect(screen.getByText('統一編號 90003020')).toBeDefined();
     expect(screen.queryByText(/2998/)).toBeNull();
     expect(screen.queryByText(/xxxxxxxx/)).toBeNull();
+  });
+
+  // 🔴 D7 版權列與 logo 守門。這兩件事原本是被上面兩條 smoke 的 `getByText('PCM MOTORSPORTS')`
+  //    與「統編 · 」字面**偶然**守住的;D7 把兩者都換掉之後,若不補這組,
+  //    「年份寫死回 2026」「羅馬數字復活」「logo 指到 on-light 版(深底配深字=看不見)」
+  //    全部不會有任何測試轉紅。
+  describe('D7 版權列與頁尾 logo', () => {
+    it('🔴 版權列 = 「© {當年} PCM MOTOR PARTS LTD. 版權所有」', () => {
+      render(<HomeFooter />);
+      expect(screen.getByText(`© ${new Date().getFullYear()} PCM MOTOR PARTS LTD. 版權所有`)).toBeDefined();
+      // 反面:羅馬數字寫法 R2-3 明文作廢。
+      expect(screen.queryByText(/MMXXVI/), '羅馬數字版權列復活了').toBeNull();
+    });
+
+    // 🔴 上一條**證不了「年份是算出來的」**:今年就是 2026,把 `new Date().getFullYear()`
+    //    寫死成 `2026` 那條照樣全綠 —— 而那正是 R2-3「年份程式產生」要防的東西,
+    //    症狀要等到跨年才出現(那時沒有人在看這支測試)。
+    //    ⇒ 唯一分得出來的做法是**把系統時間搬走**,看渲染出來的年份跟不跟。
+    it('🔴 年份真的跟著系統時間走(把時鐘撥到 2031,版權列就該是 2031)', () => {
+      // shouldAdvanceTime:本 describe 目前沒有 findBy*/waitFor,但假時鐘會讓它們永久卡死;
+      // 帶上這個旗標讓時間照常前進,只有「現在幾點」被替換 —— 日後有人加非同步斷言不會踩雷。
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        vi.setSystemTime(new Date('2031-06-15T00:00:00Z'));
+        render(<HomeFooter />);
+        expect(screen.getByText('© 2031 PCM MOTOR PARTS LTD. 版權所有'), '年份被寫死了').toBeDefined();
+        expect(screen.queryByText(/© 2026/), '撥到 2031 卻還印 2026 ⇒ 年份是寫死的').toBeNull();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('🔴 頁尾 logo = stacked-bicolor-**on-dark**(深底頁尾放 on-light 版等於看不見)', () => {
+      const { container } = render(<HomeFooter />);
+      const img = container.querySelector('.ed-footer-logo img');
+      expect(img, '頁尾 logo 沒有 <img>(退回文字了?)').not.toBeNull();
+      expect(img!.getAttribute('src')).toBe('/pcm-stacked-bicolor-on-dark.png');
+      expect(img!.getAttribute('alt')).toBe('PCM MOTOR PARTS');
+      // 反面:on-light / compact / master 三種都不該出現在深底頁尾。
+      expect(img!.getAttribute('src'), '頁尾用到了非 stacked-on-dark 的變體')
+        .not.toMatch(/on-light|compact|master|italian/);
+      expect(img!.getAttribute('width'), '缺 width ⇒ 沒有 aspect-ratio 佔位').toBe('1384');
+      expect(img!.getAttribute('height'), '缺 height ⇒ 沒有 aspect-ratio 佔位').toBe('902');
+    });
   });
 
   it('should render live social links from site-config (Q2=A、#136 supersede)', () => {

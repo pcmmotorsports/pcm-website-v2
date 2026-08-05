@@ -18,18 +18,20 @@
 
 .pp-head {
   position: sticky;
-  top: 69px;
+  top: var(--shell-header-h);
   z-index: 25;
   background: var(--c-surface);
   padding: 12px 0 8px;
   margin: 0;
   border-bottom: 1px solid var(--c-border);
 }
+/* 頁首 + 該模式自己那條 bar 的高度。bar 高度維持原本的量測值(58 / 64),
+   變動的只有頁首那一項 —— 它現在吃 --shell-header-h(0b:40→44 讓頁首由 69 長到 73)。 */
 .pp-layout[data-filter-style="top"] .pp-head {
-  top: 127px;
+  top: calc(var(--shell-header-h) + 58px);
 }
 .pp-layout[data-filter-style="cascade"] .pp-head {
-  top: 132px; /* 2026-07-11:車款列字放大+加高後 bar 由 52→63px、bottom=132(量測值) */
+  top: calc(var(--shell-header-h) + 64px); /* 車款列實量 64px(含上下框線) */
 }
 /* Title row: title left, breadcrumb right */
 .pp-head-row {
@@ -300,10 +302,10 @@
   .pp-page-num, .pp-page-arrow { min-width: 30px; height: 30px; font-size: 12px; }
   /* cascade 模式 head 也要跟著偏移 */
   .pp-layout[data-filter-style="cascade"] .pp-head {
-    top: 120px; /* 64 mobile header + 56 cascade bar */
+    top: calc(var(--shell-header-h) + 56px); /* 手機頁首 + cascade bar 56 */
   }
   .pp-layout[data-filter-style="top"] .pp-head {
-    top: 120px;
+    top: calc(var(--shell-header-h) + 56px);
   }
 }
 

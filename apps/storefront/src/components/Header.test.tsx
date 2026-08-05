@@ -66,14 +66,70 @@ function renderWithCart(ui: ReactElement) {
 describe('Header', () => {
   it('should render the desktop header without crashing', () => {
     renderWithCart(<Header isMobile={false} />);
-    expect(screen.getByText('PCM MOTORSPORTS')).toBeDefined();
+    expect(screen.getByAltText('PCM MOTOR PARTS')).toBeDefined();
     expect(screen.getByText('商品目錄')).toBeDefined();
   });
 
   it('should render the mobile header without crashing', () => {
     renderWithCart(<Header isMobile />);
-    expect(screen.getByText('PCM')).toBeDefined();
+    expect(screen.getByAltText('PCM MOTOR PARTS')).toBeDefined();
     expect(screen.getByLabelText('購物車')).toBeDefined();
+  });
+
+  // 🔴 0b 之前,「手機分支真的長得跟桌機不一樣」是靠上面兩條各自的 `getByText('PCM')` /
+  //    `getByText('PCM MOTORSPORTS')` 偶然守住的 —— 那是**唯一**只在單一分支成立的字面。
+  //    logo 換成同一張圖之後兩條的斷言在兩個分支都成立 ⇒ `isMobile` 三元寫反、
+  //    或手機誤渲染桌機那棵樹,全檔仍會全綠。這條把兩棵樹的差別本身釘住。
+  describe('兩個 DOM 分支不得長成同一棵', () => {
+    it('桌機有導覽列與搜尋框、沒有手機專屬結構', () => {
+      const { container } = renderWithCart(<Header isMobile={false} />);
+      expect(container.querySelector('.pcm-nav'), '桌機少了導覽列').not.toBeNull();
+      expect(container.querySelector('.pcm-search'), '桌機少了搜尋框').not.toBeNull();
+      expect(screen.queryByLabelText('會員'), '桌機少了會員鈕').not.toBeNull();
+    });
+
+    it('手機沒有導覽列與搜尋框(有的話=誤渲染桌機那棵樹)', () => {
+      const { container } = renderWithCart(<Header isMobile />);
+      expect(container.querySelector('.pcm-nav'), '手機出現桌機導覽列 ⇒ isMobile 分支寫反了').toBeNull();
+      expect(container.querySelector('.pcm-search'), '手機出現桌機搜尋框').toBeNull();
+      expect(screen.queryByLabelText('會員'), '手機不該有會員鈕(手機走 TabBar)').toBeNull();
+      expect(screen.getByLabelText('搜尋商品'), '手機少了搜尋鈕').toBeDefined();
+    });
+  });
+
+  it('🔴 R2-3:桌機搜尋框有 aria-label「搜尋」(這欄沒有 <label>,少了它報讀器念不到)', () => {
+    renderWithCart(<Header isMobile={false} />);
+    const input = screen.getByLabelText('搜尋');
+    expect(input.getAttribute('placeholder')).toBe('搜尋商品 / 車款 / 品牌...');
+  });
+
+  // 🔴 R2-3(第0批 0b)頁首 logo 守門。
+  //   原本「logo 存在」是被上面兩條 smoke 的 `getByText('PCM MOTORSPORTS')` / `getByText('PCM')`
+  //   偶然守住的 —— 換成圖檔後那兩個字面消失。不補這組的話,「圖檔路徑打錯 / 兩個 DOM 分支各指一張圖 /
+  //   誤用 master 或 stacked 變體」全部不會有任何測試轉紅(破圖不會讓任何流程變紅,
+  //   同 `BrandPageCraft.test.tsx:9` 那條教訓)。
+  //   桌機與手機**必須是同一張** compact 變體:R2-3 表列頁首只給一個值,而真站 Header 是兩個
+  //   DOM 分支 ⇒ 分支各改各的正是最容易漂的地方,所以兩個分支各跑一次同一組斷言。
+  describe('頁首 logo(R2-3:compact-bicolor-on-light、桌機與手機同一張)', () => {
+    for (const [name, isMobile] of [['桌機', false], ['手機', true]] as const) {
+      it(`${name}分支:logo 是 compact-bicolor-on-light、包在連回首頁的 .pcm-logo 裡`, () => {
+        const { container } = renderWithCart(<Header isMobile={isMobile} />);
+        const link = container.querySelector('a.pcm-logo');
+        expect(link, '.pcm-logo 連結不見了').not.toBeNull();
+        expect(link!.getAttribute('href')).toBe('/');
+        const img = link!.querySelector('img');
+        expect(img, 'logo 沒有 <img>(退回文字了?)').not.toBeNull();
+        expect(img!.getAttribute('src')).toBe('/pcm-compact-bicolor-on-light.png');
+        expect(img!.getAttribute('alt')).toBe('PCM MOTOR PARTS');
+        // 反面:堆疊版與單色 master / italian 版都不得出現在頁首
+        //(R2-3 逐字:「原商品頁誤用 master 版」——那次就是換錯變體、沒人看得出來)。
+        expect(img!.getAttribute('src'), '頁首用到了非 compact-bicolor 的變體')
+          .not.toMatch(/stacked|master|italian/);
+        // 寬高屬性要在,否則圖載入前那 34px 會塌成 0 高、整條頁首跳一下(CLS)。
+        expect(img!.getAttribute('width'), '缺 width ⇒ 沒有 aspect-ratio 佔位').toBe('1259');
+        expect(img!.getAttribute('height'), '缺 height ⇒ 沒有 aspect-ratio 佔位').toBe('656');
+      });
+    }
   });
 
   // 🔴 導覽列連結目的地守門。本測試把整組 href 鎖住,任何人改動導覽目的地都會當場轉紅、

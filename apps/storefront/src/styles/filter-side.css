@@ -5,15 +5,15 @@
   padding: 0 0 40px;
   border-right: 1px solid var(--c-border);
   position: sticky;
-  top: 69px;
+  top: var(--shell-header-h);
   align-self: flex-start;
-  height: calc(100vh - 69px);
+  height: calc(100vh - var(--shell-header-h));
   overflow-y: auto;
 }
 /* cascade 模式：偏移 header + cascade bar */
 .pp-layout[data-filter-style="cascade"] .fs-side {
-  top: 132px;
-  height: calc(100vh - 132px);
+  top: calc(var(--shell-header-h) + 64px);
+  height: calc(100vh - var(--shell-header-h) - 64px);
 }
 .fs-side-head {
   display: flex;

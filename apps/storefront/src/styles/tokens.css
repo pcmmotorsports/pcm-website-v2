@@ -8,9 +8,21 @@
   /* 🔶 全站重設計 R2-1(2026-08-05 Sean 拍板):**部分**推翻 7/11「全站撐滿」——
      殼三件套(頁首 / 選車列 / 頁尾)改 1440px 置中,商品列表主體維持拉滿(吃 --shell-max)。
      故兩顆並存、不是取代:吃哪一顆 = 該元素是不是殼。
-     消費點(本片):header.css .pcm-header-inner、filter-cascade.css .cft-inner。
-     ⏳ 頁尾 home.css .ed-footer-inner / .ed-footer-base 待 C 窗收割後補(D-201-Q Q3)。 */
+     消費點:header.css .pcm-header-inner、filter-cascade.css .cft-inner、
+     home.css .ed-footer-inner / .ed-footer-base(後兩者透過 .ed-footer 的 --ed-max 轉一手;
+     0b 已補齊,原 D-201-Q Q3 的等待條件解除)。 */
   --shell-bar-max: 1440px;
+  /* 🔶 頁首總高(第0批 0b 新增,2026-08-05)。
+     = `.pcm-header-inner` 上下 padding + 最高子元素 `.pcm-icon-btn` + `.pcm-header` 下框線 1px。
+     桌機 14+44+14+1 = 73;≤1079 的 padding 是 12(header.css 的 @media)⇒ 12+44+12+1 = 69。
+     🔴 **為什麼要有這顆**:R2-3 把 `.pcm-icon-btn` 由 40 改 44,頁首就從 69 長到 73 ——
+        而全站有六支 CSS 把「頁首高度」寫成字面 `69px` / `64px` 當 sticky 偏移
+        (選車列、`.pp-head`、`.fs-side`、`.ft-bar`、`.ft-overlay`、手機控制列)。
+        實測:改 44 之後捲動時頁首(z-index 50)蓋住選車列(z-index 40)**4px**、
+        `.pp-head` 再疊 1px,而 typecheck / lint / 全套測試**全綠**、沒有任何東西會說一聲。
+        ⇒ 改成單一來源:要調頁首高只改這裡,消費端一律 `var(--shell-header-h)` 或
+        `calc(var(--shell-header-h) + <該列自己的高度>)`。守門 = `styles/shell-detail.test.ts`。 */
+  --shell-header-h: 73px;
   /* 內容頁(商品詳情/結帳/物流)寬上限:滿版頁首頁尾下,內文/圖/表單給舒服可讀寬、
      寬螢幕不撐爆(詳情大圖糊、表單欄位過寬)。與 --shell-* 分離=內容頁本就不該全撐滿。 */
   --content-max: 1600px;
@@ -163,6 +175,13 @@ a { color: inherit; text-decoration: none; }
       rgba(255,255,255,0.03) 10px 20px
     ),
     var(--c-surface-2);
+}
+
+/* 🔶 頁首總高的手機/平板值(第0批 0b)。斷點與 `header.css` 那條 padding 的 @media **必須同值**
+   —— 那條把 padding 由 14 收成 12 ⇒ 12+44+12+1 = 69。兩處斷點不同步的話這顆就會在中間那段說謊,
+   而說謊的症狀只有「捲動時 sticky 差幾像素」、沒有任何測試會紅。守門把兩處斷點鎖在一起。 */
+@media (max-width: 1079px) {
+  :root { --shell-header-h: 69px; }
 }
 
 /* Focus ring */

@@ -106,3 +106,34 @@ html[data-mobile="true"] body {
 .mobile-tabbar.is-hidden {
   display: none;
 }
+
+/* ── 🔶 R2-3 / §4-4 平板段(600-1079px;第0批 0b,2026-08-05)──────────────────
+ * 設計端 `DESIGN-HANDOFF-2026-08-05.md:130-133` 逐字:斷點是「桌機 → 平板 600-1079 → 手機 ≤599」,
+ * 而本檔原本只有「桌機 / 非桌機」兩段 ⇒ 1024px 的 iPad 直接吃到為 390px 手機寫的 10px 分頁標籤。
+ * 值照 OD `pcm-shell.css:124-128`。
+ *
+ * 🔴 **選擇器為什麼要寫兩份**(照 OD 原字面抄會整段變成 no-op):
+ *   本檔上面那組 `html[data-mobile="true"]` 兜底的權重是 (0,2,1) / body 那條 (0,1,2),
+ *   而 OD 稿裡平板段寫的是裸 `.mobile-tabbar`(0,1,0)與裸 `body`(0,0,1)。
+ *   **`@media` 不加權重** ⇒ 兜底那組會把平板值蓋回 64px / 70px。
+ *   而 `app/layout.tsx:84` 的 UA 判斷是 `/iPhone|Android|Mobile/i`,**Android 平板 UA 含 `Android`**
+ *   ⇒ `data-mobile="true"` + viewport 落在 600-1079 = 正好是這段要救的機型,會 100% 失效。
+ *   故兩條各寫成「裸選擇器 + 兜底選擇器」的選擇器清單:與兜底同權重、且序在後 ⇒ 穩勝。
+ *   `.mobile-tabbar-btn` 不需要(全檔只有一處宣告、沒有 data-mobile 競爭者)。
+ *
+ * 刻意沒抄 OD 的 `.mobile-tabbar-btn svg { width:22px; height:22px }`:
+ *   真站五顆 icon 本來就是 22(`MobileTabBar.tsx:40,52,73,87,99`)⇒ 對真站是 no-op。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .mobile-tabbar,
+  html[data-mobile="true"] .mobile-tabbar {
+    height: 68px;
+  }
+  .mobile-tabbar-btn {
+    font-size: 12px;
+    gap: 4px;
+  }
+  body,
+  html[data-mobile="true"] body {
+    padding-bottom: calc(74px + env(safe-area-inset-bottom));
+  }
+}

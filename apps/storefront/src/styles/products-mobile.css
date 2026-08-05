@@ -33,7 +33,9 @@
    background 都會被忽略)—— 視覺一律掛在 .pmc-vehicle / .pmc-sticky 上。 */
 .pmc-sticky {
   position: sticky;
-  top: 64px; /* = 手機 header 高度(header.css sticky top:0、高 64-65px) */
+  top: var(--shell-header-h); /* = 手機頁首高度(tokens.css --shell-header-h;≤1079 為 69px)
+                                 原本寫死 64 —— 那個值在 0b 之前就已經比實測的 65 少 1px,
+                                 0b 把按鈕加到 44 之後差 5px。改吃 token 一次解決。 */
   z-index: 40;
   background: var(--c-surface);
   border-bottom: 1px solid var(--c-border);
@@ -429,7 +431,7 @@
   .pmc-root { display: contents; }
 
   /* 🔴 修 Sean 2026-07-30 真機回報的「車款卡中間 + 上方一個空格」:
-     products-page.css 的手機規則是 `.pp-head { top: 120px }`,註解逐字寫
+     products-page.css 的手機規則是 `.pp-head { top: calc(頁首高 + 56px) }`(0b 之前寫死 `120px`),註解逐字寫
      `/* 64 mobile header + 56 cascade bar *​/` —— 而 ADR-0007 已把手機的 cascade bar
      整條關掉 ⇒ 那 56px 變成**幽靈偏移**:標題黏在畫面中央、上方空出一條。
      手機的黏頂責任已由 .pmc-sticky(精簡車輛列 + 三入口)承擔,頁面標題不需要也不應該

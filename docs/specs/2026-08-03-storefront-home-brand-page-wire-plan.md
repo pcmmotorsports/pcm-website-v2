@@ -28,7 +28,7 @@
 | D4 | 品牌總覽頁 `/brands`(20 家磚牆 + 深色 logo 牆 hero) | 新 route |
 | D5 | 首頁區塊重排(順序 + 份量;§4 對照表) | 改 `app/page.tsx` + 各 section |
 | D6 | 首頁 hero 四張輪播 + `next/image` 化 | 改 `HomeHero.tsx` + 資產 |
-| D7 | 頁尾回深 + 版權年份動態 | 改 `HomeFooter.tsx` |
+| D7 | 頁尾回深 + 版權年份動態 | 改 `HomeFooter.tsx` ✅ **已完成 2026-08-05**,由全站重設計線第0批 0b 執行(主視窗 `D-107-A` 裁 A 案:0b 已被指派 D7 三件中的兩件,拆兩片會讓頁尾停在半套狀態)|
 | D8 | 15 支 `*Showcase.tsx` 退場 | 刪檔 + 改 `dev-preview` 引用 |
 
 ### 不做(明確排除)
@@ -111,7 +111,7 @@
 | N°04 服務宣言 | `HomeStatement.tsx`(49 行) | 改位置 + 改字面 | 由原 N°05 上移;🔴 brief 問題 5:現況寫「8 大品牌正式代理」而品牌牆列 17 家 → **數字必須對齊到 20**(或改成不報數) |
 | N°05 本月聚焦 | `FeatureEditorial.tsx`(59 行) | 改位置 + 資料驅動 | 由原 N°04 下移;20 家全部預設做好、每 3 天輪播;**每筆 fact 三個欄位都要用**(標籤/值/說明句;`README.md`:說明句 08-03 才補回來) |
 | N°06 授權代理 | `BrandIndex.tsx`(46 行) | **重寫** | 現況是純文字牆吃 `MOCK_BRANDS`(實查 **17 筆**;主視窗收割時勘誤,原稿誤計 interface 的 `id: string;` 行成 18),設計是 **20 家 grid 5 欄 logo 磚牆**;底色 `--ed-c-paper-2` 淺灰白;連結由 `/products?brand=${b.id}` 改成品牌介紹頁(§3) |
-| 頁尾 | `HomeFooter.tsx`(70 行) | 改配色 + 動態年份 | 回 graphite `#202225` + `pcm-stacked-*-on-dark` logo;`© 2026` 改 `new Date().getFullYear()`;留白 52/40/22 **維持不動**(Sean 08-03 看過拍板) |
+| 頁尾 | `HomeFooter.tsx`(70 行) | 改配色 + 動態年份 | 回 graphite `#202225` + `pcm-stacked-*-on-dark` logo;`© 2026` 改 `new Date().getFullYear()`;留白 52/40/22 **維持不動**(Sean 08-03 看過拍板)<br>✅ **已完成 2026-08-05(0b)**;⚠️ repo 內原字面是 `© MMXXVI` 不是 `© 2026`(見 d5 計畫 §「頁尾不是 © 2026」),已一併作廢 |
 
 ### 🔴 首頁的三個非改不可的細節(照抄會出錯)
 
@@ -270,7 +270,7 @@ video(youtube/vimeo/file) img caption title rows d source`
 | `components/HomeSelect.test.tsx` | N°04 `New Arrivals · 最新商品` 字面 | D5(區塊改 N°02 + 條件標題) |
 | `components/HomeStatement.test.tsx` | 「8 大品牌」等宣言字面 | D5(數字對齊 20) |
 | `components/FeatureEditorial.test.tsx` | 單一品牌長文結構 | D5(改資料驅動輪播) |
-| `components/HomeFooter.test.tsx` | 頁尾三欄 + `© 2026` | D7 |
+| `components/HomeFooter.test.tsx` | 頁尾三欄 + 版權列 | D7 ✅ 已完成(0b);守門已補年份動態、logo 變體、統編字面 |
 | `components/Header.test.tsx:85-105` | **完整 nav href 對照表**,含 `['品牌', '/products']` 與「不得有任何導覽項目再指向 `/brands`」的明確斷言 | 🔴 D4:`/brands` 一旦建好,這條斷言的前提就消失了,**必須同 commit 改**,且要把註解 `// 🔴 Phase 2 才有品牌頁` 一起更新 |
 | 14 支 `*Showcase.test.tsx` | 各家 showcase 結構 | D8(整批隨元件刪除) |
 | `app/dev-preview/brands/[slug]` 的引用 | `SHOWCASES` 11 家對照表 | D8(元件刪掉 → 這支要嘛跟著退場〔backlog #147 本來就要 M-6 前移除〕,要嘛改指新元件) |
@@ -334,7 +334,7 @@ video(youtube/vimeo/file) img caption title rows d source`
 ① A-nav（Header 條件 href + MobileTabBar 找車 + ?pick=vehicle 落地）   ← 先做,最小、與 D 幾乎不交集
 ② D1 → D2 → D3 → D4（品牌線,完全不碰首頁檔）                          ← 與 A 內臟片零交集,可與 ③ 並行分片但不同 commit
 ③ A-engine（選車器內臟統一:字面 + 兩個行為變更 + GarageChips 收斂）    ← 必須排在 D5 之前
-④ D5 → D6 → D7（首頁重排,含 VehicleFinder 換殼）                       ← 吃 ③ 的成果,只動殼不動內臟
+④ D5 → D6 → D7（首頁重排,含 VehicleFinder 換殼）                       ← 吃 ③ 的成果,只動殼不動內臟；**D7 已於 08-05 由 0b 完成**
 ⑤ D8（Showcase 退場)                                                    ← 最後,依賴 D2 元件已上線
 ```
 

@@ -3,7 +3,7 @@
    ============================================================ */
 .cft-bar {
   position: sticky;
-  top: 69px;
+  top: var(--shell-header-h);
   z-index: 40;
   background: var(--c-surface);
   border-top: 1px solid var(--c-border);
@@ -153,7 +153,9 @@
   .cft-bar { display: none; }
 }
 @media (max-width: 1023px) {
-  .ft-bar { top: 64px; }
+  /* 這條原本寫死 64(手機頁首高)——改吃 token 後與桌機那條同值,留著只是不改動這支檔的
+     斷點結構;token 在 ≤1079 本來就是 69,所以這條現在是同義覆寫、不是不同值。 */
+  .ft-bar { top: var(--shell-header-h); }
 }
 /* dev-preview 強制手機殼(不在 media query 內、桌機寬度也會生效)走同一條關法 */
 [data-mobile="true"] .cft-bar { display: none; }

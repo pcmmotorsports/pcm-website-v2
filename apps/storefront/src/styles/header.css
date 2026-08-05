@@ -41,18 +41,25 @@
   gap: 8px;
 }
 
+/* 🔶 R2-3(2026-08-05):logo 由文字改品牌圖檔(OD `pcm-shell.css:59-60` 逐字)。
+   34px = 緊湊版(compact)的設計高度;堆疊版(stacked)在 34px 會擠成一團,故頁首只用 compact。 */
 .pcm-logo {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--c-text);
+  display: flex;
+  align-items: center;
+}
+.pcm-logo img {
+  height: 34px;
+  width: auto;
+  display: block;
 }
 .pcm-nav {
   display: flex;
   gap: 22px;
 }
 .pcm-nav-item {
-  font-size: 13.5px;
+  /* 🔶 R2-3(2026-08-05):13.5px → 14px。設計端 §4-3「字級只用整數 px」+ 對齊首頁 14px
+     (OD `pcm-shell.css:62` 逐字帶同一句理由)。 */
+  font-size: 14px;
   font-weight: 500;
   color: var(--c-text-2);
   padding: 6px 0;
@@ -100,9 +107,12 @@
 }
 .pcm-search input::placeholder { color: var(--c-text-3); }
 
+/* 🔶 R2-3(2026-08-05):40×40 → 44×44。
+   44px = iOS / WCAG 2.1 的最小觸控目標(OD `pcm-shell.css:72-73` 逐字帶同一句理由;
+   Sean 2026-08-05「太小不好點擊」)。圖示本身維持 20px / stroke 1.6(R2-3 表列),只長按鈕的可點面積。 */
 .pcm-icon-btn {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -110,6 +120,15 @@
   position: relative;
   transition: background 0.15s;
 }
+/* 🔶 R2-3 連動:圖示 22px(OD `pcm-shell.css:74` 與定案首頁 `direction-b…:101` 兩份逐字同值)。
+   ⚠️ **設計端自相矛盾**:`products-list-handoff.md:215` 的 R2-3 表列寫「會員/購物車 icon = 首頁同款
+      20px/stroke 1.6」,但它說的「首頁」(`direction-b…:101,763-764`)實際就是 **22px**
+      ⇒ 那句話的**理由**(首頁同款)與它給的**數字**(20px)互相打架。
+      以 CSS 兩份為準:`pcm-shell.css` 檔頭自稱「全站殼的單一來源」,而 direction-b 是定案稿。
+      commit body 已註明這個判斷。
+   放在 CSS 而不是只改 markup 屬性:markup 有四個掛載點(桌機/手機 × 會員/購物車/搜尋),
+   CSS 一條全收 —— 下一個新增的圖示不會又漏。 */
+.pcm-icon-btn svg { width: 22px; height: 22px; }
 .pcm-icon-btn:hover { background: var(--c-surface-2); }
 
 /* 快速 hover 提示:取代慢的原生 title(延遲 0.15s、僅 hover 裝置)。data-tip 可複用於任何按鈕。 */
@@ -137,7 +156,9 @@
 }
 .pcm-cart-dot {
   position: absolute;
-  top: 6px; right: 6px;
+  /* 🔶 R2-3 連動:按鈕由 40 長到 44 ⇒ 角落偏移照 OD `pcm-shell.css:81` 收回 4px
+     (6px 是配 40px 按鈕的值;沿用會讓數字點相對圖示外移 4px)。 */
+  top: 4px; right: 4px;
   min-width: 18px;
   height: 18px;
   padding: 0 5px;

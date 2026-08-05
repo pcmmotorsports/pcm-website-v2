@@ -25,6 +25,16 @@ import { useCart } from '@/contexts/CartContext';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
 
+// 🔶 R2-3(2026-08-05,第0批 0b):頁首 logo 由文字改品牌圖檔。
+// 真權威 = OD `pcm-home-redesign/products-list-page.html:380` 逐字
+// (`<a class="pcm-logo" href="/" aria-label="PCM MOTOR PARTS 首頁"><img src="assets/brand/pcm-compact-bicolor-on-light.png" alt="PCM MOTOR PARTS"></a>`)
+// + `products-list-handoff.md:212`「頁首 logo = pcm-compact-bicolor-on-light.png 34px(原商品頁誤用 master 版)」。
+// 🔴 w/h 寫**原生像素**(1259×656,`sips` 實量)不是顯示尺寸:瀏覽器只拿它算 aspect-ratio 佔位、
+//    實際高度由 `header.css` `.pcm-logo img { height:34px; width:auto }` 決定。寫 65×34 也不會錯,
+//    但原生值才是「這張圖真的長這樣」的事實,換圖時不會忘記同步。
+// 走原生 <img> 不走 next/image:對齊 storefront 既有慣例(`BonamiciShowcase.tsx:10` 註解逐字)。
+const HEADER_LOGO = { src: '/pcm-compact-bicolor-on-light.png', w: 1259, h: 656 } as const;
+
 const NAV_ROUTE_MAP: Record<string, string> = {
   cart: '/cart',
   // 'account' 刻意不入此表:g-1b 起改「條件路由」(見 handleNav)— 已登入→/account、未登入→/login
@@ -136,14 +146,16 @@ export function Header({
         {isMobile ? (
           <>
             <button className="pcm-icon-btn" aria-label="搜尋商品" data-tip="搜尋" onClick={() => openSearch()}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                 <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
               </svg>
             </button>
-            <Link href="/" className="pcm-logo">PCM</Link>
+            <Link href="/" className="pcm-logo" aria-label="PCM MOTOR PARTS 首頁">
+              <img src={HEADER_LOGO.src} width={HEADER_LOGO.w} height={HEADER_LOGO.h} alt="PCM MOTOR PARTS" />
+            </Link>
             <div className="pcm-header-right">
               <button className="pcm-icon-btn pcm-cart" aria-label="購物車" data-tip="購物車" onClick={(e) => handleNav(e, 'cart')}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
                 </svg>
@@ -154,7 +166,9 @@ export function Header({
         ) : (
           <>
             <div className="pcm-header-left">
-              <Link href="/" className="pcm-logo">PCM MOTORSPORTS</Link>
+              <Link href="/" className="pcm-logo" aria-label="PCM MOTOR PARTS 首頁">
+                <img src={HEADER_LOGO.src} width={HEADER_LOGO.w} height={HEADER_LOGO.h} alt="PCM MOTOR PARTS" />
+              </Link>
               <nav className="pcm-nav">
                 {navItems.map(item => (
                   <Link key={item.id}
@@ -168,10 +182,14 @@ export function Header({
             <div className="pcm-header-right">
               <div className={`pcm-search ${searchQuery ? 'is-focus' : ''}`}
                    onClick={() => openSearch(searchQuery)}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
                 </svg>
                 <input
+                  /* R2-3 表列「搜尋框 = placeholder『搜尋商品 / 車款 / 品牌...』+ aria-label『搜尋』」。
+                     placeholder 本來就對,少的是 aria-label —— 這欄沒有 <label>,報讀器原本只念得到
+                     placeholder(且部分瀏覽器在有值時不念)⇒ 補上不是樣式偏好,是可及性。 */
+                  aria-label="搜尋"
                   placeholder="搜尋商品 / 車款 / 品牌..."
                   value={searchQuery}
                   readOnly
@@ -180,13 +198,13 @@ export function Header({
                 />
               </div>
               <button className="pcm-icon-btn" aria-label="會員" data-tip="會員" onClick={(e) => handleNav(e, 'account')}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
                   <circle cx="12" cy="7" r="4"/>
                 </svg>
               </button>
               <button className="pcm-icon-btn pcm-cart" aria-label="購物車" data-tip="購物車" onClick={(e) => handleNav(e, 'cart')}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
                   <path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
                   <path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/>
                 </svg>

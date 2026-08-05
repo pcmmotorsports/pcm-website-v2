@@ -1,5 +1,8 @@
-// HomeFooter.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
-// (© MMXXVI · PCM MOTOR PARTS LTD.、新莊化成路 736 巷 18 號)
+// HomeFooter.tsx — 字面原從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
+// (新莊化成路 736 巷 18 號)
+// ⚠️ 版權列原字面 `© MMXXVI · PCM MOTOR PARTS LTD.` 已於 2026-08-05 D7 作廢(見下方 D7 段);
+//    本檔真權威也已改成 Open Design `pcm-home-redesign`(CLAUDE.md 鐵則 1 明文例外),
+//    submodule 那份是過期假稿、不得回頭引用。
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
 // onNav target 對映(本檔 7 條):
@@ -22,16 +25,33 @@
 //  這一頁講『這家品牌』—— 20 家各一句」;灌值在 `:2029` `$('bp-footer-slogan').innerHTML = brand.slogan`)。
 // 不給 prop 時字面完全不變(首頁與其餘既有掛載點零影響、`HomeFooter.test.tsx` 有守)。
 
+
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { CONTACT_PHONE_DISPLAY, SOCIAL_URLS, TAX_ID } from '@/lib/site-config';
+
+// 🔶 D7「頁尾回深 + 版權年份動態」(2026-08-05,由第0批 0b 執行;主視窗 `D-107-A` 裁 A 案)。
+// 真權威 = 母計畫 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:114` 逐字:
+//   「回 graphite `#202225` + `pcm-stacked-*-on-dark` logo;`© 2026` 改 `new Date().getFullYear()`;
+//    留白 52/40/22 **維持不動**(Sean 08-03 看過拍板)」。
+// 版權列字面 = OD 全站頁尾逐字(`products-list-page.html:599-600`、`brand-directory.html:166-167`
+//   等 10 支稿一致):「© {年份} PCM MOTOR PARTS LTD. 版權所有」+「統一編號 90003020」。
+//   R2-3 表列明訂「MMXXVI 羅馬數字寫法作廢」、年份程式產生。
+// 🔴 年份用 server 端 `new Date().getFullYear()`(不是 client script):本元件是 server component,
+//    OD 稿用 `<script>` 只是靜態 HTML 沒有別的辦法。副作用=靜態預渲染的頁面年份釘在 build 當下,
+//    跨年要重新部署才會更新 —— 這是可接受的(全站每年都會部署),換 client 反而多一顆 hydration 風險。
+// 🔴 統編走 `lib/site-config.ts` 的 `TAX_ID`(Sean 2026-06-21 提供的 SSoT),不寫死字面;
+//    實查 `site-config.ts:18` = `'90003020'`,與 OD 稿字面相同。
+const FOOTER_LOGO = { src: '/pcm-stacked-bicolor-on-dark.png', w: 1384, h: 902 } as const;
 
 export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
   return (
     <footer className="ed-footer">
       <div className="ed-footer-inner">
         <div className="ed-footer-brand">
-          <div className="ed-footer-logo">PCM MOTORSPORTS</div>
+          <div className="ed-footer-logo">
+            <img src={FOOTER_LOGO.src} width={FOOTER_LOGO.w} height={FOOTER_LOGO.h} alt="PCM MOTOR PARTS" />
+          </div>
           <p className="ed-footer-tagline">
             {tagline ?? (
               <>
@@ -73,8 +93,8 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
         </div>
       </div>
       <div className="ed-footer-base">
-        <span className="ed-mono">© MMXXVI · PCM MOTOR PARTS LTD.</span>
-        <span className="ed-mono">統編 · {TAX_ID}</span>
+        <span className="ed-mono">© {new Date().getFullYear()} PCM MOTOR PARTS LTD. 版權所有</span>
+        <span className="ed-mono">統一編號 {TAX_ID}</span>
       </div>
     </footer>
   );
