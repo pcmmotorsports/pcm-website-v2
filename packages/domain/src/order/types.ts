@@ -577,6 +577,70 @@ export type AdminOrderNote = {
 };
 
 /**
+ * 取消原因七值 allowlist(M-4b E10 A9g-3)。
+ *
+ * 🔴 權威 = 建表 CHECK 的字面(`supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql:131-139`,
+ * Sean 2026-07-28 拍 Q18「照這份」),**不是**這裡的 union —— 這裡只是它的 TS 複本。
+ * ⚠️ mapper 用 `as` 轉型(慣例逐字同 `AdminOrderNoteType`,`mappers/order-notes.ts:80`)
+ * ⇒ 若 DB 端日後加值,**型別會說謊**、顯示端拿到不在 union 裡的字串。
+ * ⇒ 把 code 對到中文標籤的那張表(片 4)**必須容忍未知值**,不得寫成只認這七個的 `Record` 直接索引
+ * (那會畫出空白;同族坑見 memory `reference_js-index-lookup-hits-prototype-chain`)。
+ */
+export type AdminOrderCancellationReasonCode =
+  | 'customer_request'
+  | 'out_of_stock'
+  | 'long_leadtime'
+  | 'price_change'
+  | 'duplicate_order'
+  | 'internal_error'
+  | 'other';
+
+/** 一次取消裡被取消的單一品項(M-4b E10 A9g-3)。 */
+export type AdminOrderCancellationItem = {
+  id: string;
+  /**
+   * 對應 `AdminOrderDetailItem.id`。**兩道**複合 FK 合力強制「明細品項 ∈ header 的訂單」
+   * (建表檔 `20260730130000:233-238`;單靠兩個獨立單欄 FK 做不到 —— A 的 header 掛 B 的品項時
+   * 兩個單欄 FK 各自都合法)。
+   */
+  orderItemId: string;
+  /** DB CHECK 保證 > 0、**無上限**(建表檔 `:246-247`;上限來自跨列不變式,不在本表) */
+  cancelledQuantity: number;
+};
+
+/**
+ * 一次取消事件(M-4b E10 A9g-3)。整單取消與部分取消都是這張表的一列;
+ * 同一張單可以有多列(部分取消可分次累積)。
+ */
+export type AdminOrderCancellation = {
+  id: string;
+  reasonCode: AdminOrderCancellationReasonCode;
+  /** `other` 必有值、其餘恆 null(建表檔 `:157-166` 的配對 CHECK) */
+  reasonDetail: string | null;
+  /** 操作者 staff id。🔴 內部資料,**永不得**進 storefront 投影 */
+  actor: string;
+  createdAt: string;
+  /**
+   * 🔴 **`null` = 沒讀到**(內嵌鍵沒回來 / 回了空陣列)—— 不是「這次取消沒動到品項」。
+   * 後者在 DB 端不存在:A8a1 逐品項寫入後有筆數守
+   * (`20260804180000_m4b_e10_a8a1_admin_cancel_order.sql:231-240`)、A8a2 全零增量拒。
+   * ⇒ 型別逼消費端先處理 `null`,不能直接 `.map()` 畫成「這次取消沒有品項」。
+   * 慣例與同型別的 `AdminOrderDetailItem.quantitySummary` / `customerNotified` 一致。
+   */
+  items: AdminOrderCancellationItem[] | null;
+  /**
+   * 🔴 **只表示「觸及請求上限 `ORDER_CANCELLATION_ITEMS_EMBED_LIMIT`」**(R3 M2 拆分後語意收窄):
+   * `items` 非 null 但本旗標 true = 讀到了、但看到的是子集。
+   * 「沒讀到」不再擠進本旗標,它由 `items === null` 表達 —— 兩者對員工的意義不同:
+   * 前者重新整理沒用(資料就是這麼多),後者是部署/程式問題。
+   *
+   * 🔴 它與外層 `cancellationsTruncated` 是**前提關係**:外層被截掉的那些取消列,
+   * 連同它們的這個旗標一起消失、看得到的每個都還是 false ⇒ 兩個要一起讀。
+   */
+  itemsTruncated: boolean;
+};
+
+/**
  * AdminOrderDetail: 後台訂單明細讀模型(M-4a Slice B;/orders/[id] 明細頁、admin-only)。
  *
  * 🔴 PII 邊界(設計檔 2026-07-13):明細**才**攜 客戶姓名/電話/email + 收件快照(姓名/電話/地址)——
@@ -690,6 +754,48 @@ export type AdminOrderDetail = {
    *   = 假裝「沒有在途扣款」。該情境由 `scripts/a9g2-charge-attempts-grant-guard.test.ts` 守。
    */
   chargeAttemptGate: 'clear' | 'blocked' | 'unknown';
+  /**
+   * 取消歷程(M-4b E10 A9g-3)。排序 = `createdAt` ASC 三層全序,與 `notes` 共用
+   * `mappers/created-at-order.ts` 的 `compareByCreatedAtThenId`。
+   *
+   * 🔴 **`null` = 沒讀到**(內嵌鍵沒回來 / client 讀不到那兩張表),**不是**「這張單沒被取消過」。
+   * 真的沒取消過是 `[]`。R3 打掉原本的兩 boolean 形狀:`[]` + `truncated=true` 讓呼叫端可以只寫
+   * `detail.cancellations.map(render)`,投影退版時就靜默畫成「本單從未取消」而 TS 零報錯 ——
+   * 那與 `chargeAttemptGate` 那條(兩 boolean 可半讀)是同一個形狀,而同一個型別裡已經有兩處
+   * 用 `X | null` 表達「不知道」(`quantitySummary`、`customerNotified`)⇒ 照 house idiom 收斂。
+   *
+   * ⇒ **呼叫端怎麼用才對**(三個東西各管一件事,不要混):
+   *   ① `cancellations === null` → 說「取消歷程讀取失敗」,**不要**畫空清單;
+   *   ② `cancellations.length === 0` → 說「本單沒有取消紀錄」(這是真事實);
+   *   ③ 有內容 → 畫清單;`cancellationsTruncated === true` 再加一句「只顯示最近 N 筆」;
+   *      逐列另看 `items === null`(該列品項沒讀到)與 `itemsTruncated`(該列品項只顯示子集)。
+   *
+   * 🔴🔴 **不要拿這份歷程加總算「已取消幾件」** —— 權威是
+   * `AdminOrderDetailItem.quantitySummary.cancelledQuantity`(A9g-1,由 A4a 重算 trigger 維護)。
+   * 本清單會被截斷、每列的 `items` 也會被截斷或讀不到,兩層任一被切,加總就會**少算**,
+   * 而少算的方向是「看起來還能取消更多」= 動到錢的方向。
+   * 這份資料的用途只有一個:**給員工看發生過什麼**。
+   */
+  cancellations: AdminOrderCancellation[] | null;
+  /**
+   * 🔴 **只表示「觸及請求端上限 `ORDER_CANCELLATIONS_EMBED_LIMIT`」**(R3 M2 拆分後語意收窄):
+   * `cancellations` 非 null 但本旗標 true = 讀到了、但看到的是**最新的 N 筆**、更舊的沒回來。
+   * 「沒讀到」不再擠進本旗標,它由 `cancellations === null` 表達。
+   * ⚠️ 兩者刻意分開的理由 = **員工能做的事不同**:觸及上限時重新整理沒用(資料就是這麼多、
+   *   要往前翻得等分頁那一片);讀不到時是部署/程式問題,重新整理才可能有救。
+   *   壓成一個 boolean 會讓畫面對前者給出一條永遠不會消失的「請重新整理」(R3 C2)。
+   * 🔴 授權面的精確說法(R1 nit 6):兩張表 `REVOKE ALL` 後只 `GRANT SELECT TO service_role`
+   * (`20260730130000:202-203`、`:267-268`)⇒ 零 grant 的角色讀會 **42501 直接 throw**,不是靜默回空。
+   * **靜默回空的前提是「被授了 SELECT 但不 BYPASSRLS」**(RLS enable 零 policy `:200`、`:265`),
+   * 那條路由 `scripts/a9g2-charge-attempts-grant-guard.test.ts` 守(A9g-3 起已含這兩張表)。
+   *
+   * 🔴 與 orders 層 `cancelledAt` / `cancelledReason` 的關係(R1 nit 12):兩者是**不同軸**——
+   * 那兩欄只在**整單關閉**時才寫(A8a1 / A8a2 累積到全量時),而本歷程**每次取消都有一列**。
+   * ⇒ 「`cancelledAt` 是 null 但 `cancellations` 非空」= 部分取消,**正常**、不是矛盾;
+   *   反過來「`cancelledAt` 有值但 `cancellations` 是 `[]`」= 資料矛盾(該單關過但零歷程列),
+   *   不是截斷也不是沒讀到 —— 那是要回報的異常,不要靜默當成沒取消過。
+   */
+  cancellationsTruncated: boolean;
 };
 
 /**

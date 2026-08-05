@@ -34,6 +34,10 @@ import {
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
 import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement';
+import {
+  ORDER_CANCELLATIONS_EMBED_LIMIT,
+  ORDER_CANCELLATION_ITEMS_EMBED_LIMIT,
+} from './mappers/order-cancellations';
 
 /**
  * orders 摘要投影白名單(account OrdersTab / Overview 最近訂單)。
@@ -139,9 +143,15 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * 🔴 截斷語意與其他內嵌**不同、更嚴**:看到的是子集時不能說「沒有在途扣款」
  * ⇒ 缺鍵或觸及上限一律翻成 `'unknown'`,呼叫端 fail-closed
  * (三態契約詳 `AdminOrderDetail.chargeAttemptGate`)。
+ *
+ * 🔴 M-4b E10 A9g-3 再加 `order_cancellations(… order_cancellation_items(…))` 取消歷程(兩層內嵌)。
+ * 🔴 **不取** `idempotency_key` / `payload_hash`(`20260730130000:86, :93`)—— 那是 A8a1/A8a2
+ * 冪等機制的內部狀態,顯示層用不到;`order_id` 亦不取(父列即該單)。
+ * 🔴 `actor` = staff id = **內部資料**:進得了本投影(後台要顯示誰取消的),
+ * 但**永不得**進三條 storefront 投影 —— 守門測試逐條盯(見 `SupabaseOrderAdapter.test.ts`)。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status)';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
@@ -156,6 +166,11 @@ export const ADMIN_ORDER_DETAIL_SELECT =
  * 送出的正是上面實測過的 wire 形狀。
  */
 const PROCUREMENT_EMBED_PATH = 'order_items.order_item_procurement';
+
+/**
+ * 取消歷程的兩層深內嵌路徑(A9g-3;形狀與依據逐字同 `PROCUREMENT_EMBED_PATH`)。
+ */
+const CANCELLATION_ITEMS_EMBED_PATH = 'order_cancellations.order_cancellation_items';
 
 /**
  * SupabaseOrderAdapter:Supabase 真實 IOrderRepository 實作(M-3-S2-b2-b2)。
@@ -416,6 +431,18 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       .order('id', { referencedTable: 'payment_charge_attempts', ascending: false })
       .limit(PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT, {
         referencedTable: 'payment_charge_attempts',
+      })
+      // 🔴 A9g-3 取消歷程:order + id 次鍵 + limit(理由逐字同 order_notes 那組)。
+      //    請求端要 **DESC** = 配上限時留下的是最新的 N 筆;顯示序(ASC)由 mapper 自己排,
+      //    兩者刻意不同、不是筆誤。
+      .order('created_at', { referencedTable: 'order_cancellations', ascending: false })
+      .order('id', { referencedTable: 'order_cancellations', ascending: false })
+      .limit(ORDER_CANCELLATIONS_EMBED_LIMIT, { referencedTable: 'order_cancellations' })
+      // 🔴 兩層深那一層自己也要上限(理由逐字同 order_items × 採購那組):沒有它,
+      //    取消列被伺服器 max-rows 截斷時,per-列的 itemsTruncated 會連同該列一起消失。
+      .order('id', { referencedTable: CANCELLATION_ITEMS_EMBED_PATH, ascending: true })
+      .limit(ORDER_CANCELLATION_ITEMS_EMBED_LIMIT, {
+        referencedTable: CANCELLATION_ITEMS_EMBED_PATH,
       })
       .maybeSingle();
     if (error) {
