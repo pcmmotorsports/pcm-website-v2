@@ -64,13 +64,24 @@ vi.mock('next/navigation', () => ({
 //    測試(如 `VehicleFinder.test.tsx` 用 per-file mock 斷言 push 的 URL)與真瀏覽器負責。
 
 import { BRAND_CONTENT } from '@/data/brand-content';
-import { BRAND_FOCUS, BRAND_FOCUS_PIN } from '@/data/brand-focus';
+import { BRAND_FOCUS } from '@/data/brand-focus';
 import { resolveBrandFocus } from '@/lib/brand-focus';
 
 const { default: HomePage } = await import('./page');
 
-async function homeHtml(): Promise<string> {
-  return renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({}) }));
+async function homeHtml(
+  searchParams: { [key: string]: string | string[] | undefined } = {},
+): Promise<string> {
+  return renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve(searchParams) }));
+}
+
+/** N°05 那一段的切片(切界理由見下方那條測試的紅字)。 */
+function featureSection(html: string): string {
+  const start = html.indexOf('class="ed-feature"');
+  const end = html.indexOf('class="ed-brands"');
+  expect(start, '找不到 ed-feature 區塊').toBeGreaterThanOrEqual(0);
+  expect(end, '找不到 ed-brands(切界抓不到下界)').toBeGreaterThan(start);
+  return html.slice(start, end);
 }
 
 /**
@@ -155,10 +166,15 @@ describe('首頁 · 區塊順序(D5a)', () => {
     expect(html.length, '整頁沒渲染出來 ⇒ 負向斷言恆真').toBeGreaterThan(1000);
     // 🔴 **零豁免**(2026-08-05 文案片):上一版為服務宣言第 02 格那句「全台 9 家合作店家」
     //    留了一個扣除字串 —— Sean 拍 C 把那句的數字也拿掉之後,豁免一併移除。
-    //    ⇒ 這條從「整頁扣掉一句」變成**整頁無死角**,首頁任何角落(含 attribute)出現家數宣稱都會紅。
+    //    ⇒ 這條從「整頁扣掉一句」變成**這份 HTML 裡無死角**(含 attribute)。
     // 比對整份 HTML(含屬性值)。pattern 不綁「品牌」二字,所以
     // `20 家國際品牌` / `20 多家品牌` / `20 家授權` 這類插修飾語或換詞的寫法都收。
-    // ⚠️ 它擋不住什麼:國字數字(「八大品牌」「數十家」)、以及只存在於 client 端後續渲染的字。
+    // ⚠️ 它擋不住什麼(三件,講完整 —— R2 nit:原本只寫兩件,卻宣稱「首頁任何角落都會紅」):
+    //    ① 國字數字(「八大品牌」「數十家」)。
+    //    ② 只存在於 client 端後續渲染的字(這裡拿到的是 server 吐出來的那一份)。
+    //    ③ 🔴 **來自 DB 的文字零覆蓋**:本檔上方把 `fetchFeaturedProducts` / `fetchCategories`
+    //       等資料源 mock 掉了 ⇒ 商品名、分類名裡若有家數宣稱,這條看不到。
+    //       要涵蓋那一面得靠真資料的 E2E,不是這支。
     expect(
       html,
       '首頁出現了家數宣稱 ⇒ 無可查證來源、屬廣告不實風險,要先問 Sean(不報數是拍板)',
@@ -186,32 +202,36 @@ describe('首頁 · 區塊順序(D5a)', () => {
   });
 
   // 🔴 D5e-1 R2 must-fix:本月聚焦的**呼叫點**(`page.tsx` 那顆 `resolveBrandFocus({...})`)
-  //    全 repo 只有一個,而它以前零斷言覆蓋。具體失敗情境:把 `override: BRAND_FOCUS_PIN`
-  //    刪掉、或 `overlays` 誤傳 `{}` ⇒ 首頁改顯 AKRAPOVIČ、標題退成品牌名、`photo` 變 null
+  //    全 repo 只有一個,而它以前零斷言覆蓋。具體失敗情境:`overlays` 誤傳 `{}`、
+  //    或 `brands` 傳錯 ⇒ 標題退成品牌名、`photo` 變 null
   //    ⇒ **整個媒體欄不渲染**(版位少一半),而 `lib/brand-focus.test.ts` 全綠(它自己傳參數)、
   //    上面那條「八個 section」也全綠(少的是 section **內部**的媒體欄,不是 section 本身)。
-  //    ⇒ 這條驗的是「頁面真的把 PIN 與 overlays 接進去了」。
+  //    ⇒ 這條驗的是「頁面真的把 overlays 接進去了」。
   it('🔴 本月聚焦的接線正確:頁面吃到的 = 同一顆 resolveBrandFocus 算出來的(含覆蓋層)', async () => {
     const html = await homeHtml();
     // 🔴 期望值**用同一顆決策函式現算**,不寫死 `RIZOMA` / `工藝之鏡`(R3 F3):
-    //    寫死的話,D5e-2 把 PIN 改成 undefined 之後這支會變成**每 3 天自己轉紅**的時鐘依賴斷言,
+    //    寫死的話,D5e-2 把 PIN 拿掉之後這支會變成**每 3 天自己轉紅**的時鐘依賴斷言,
     //    而急著修的人多半會把它弱化成「有 ed-feature 就好」= 這條就白寫了。
-    //    現算之後,這條驗的是「頁面真的把 PIN 與 overlays 接進去了」,與今天是第幾期無關。
-    const expected = resolveBrandFocus({
-      brands: BRAND_CONTENT,
-      overlays: BRAND_FOCUS,
-      now: new Date(),
-      override: BRAND_FOCUS_PIN,
-    })!;
+    //    現算之後,這條驗的是「頁面真的把 overlays 接進去了」,與今天是第幾期無關。
+    // ⚠️ D5e-2:PIN 已移除、`page.tsx` 改吃 `?focus=` search param,而這支渲染的是**無參數**的
+    //    首頁 ⇒ 這裡同樣不給 override,兩邊都走輪播那條路徑(參數那三條路徑見本檔下方那組)。
+    // 🔴 時鐘邊界(R1 nit):期望值用的 `new Date()` 與頁面自己那顆是**兩個不同時刻**
+    //    ⇒ 正好跨過台灣午夜的輪播換期時,兩邊會算出不同的品牌 = **自發轉紅**。
+    //    取渲染前後各算一次:兩次相同才做嚴格比對,不同就代表剛好跨界、只驗「是那兩家之一」。
+    const before = resolveBrandFocus({ brands: BRAND_CONTENT, overlays: BRAND_FOCUS, now: new Date() })!;
+    const expected = resolveBrandFocus({ brands: BRAND_CONTENT, overlays: BRAND_FOCUS, now: new Date() })!;
     // 🔴 切界要收到下一個 section 為止(R3 F5):切到文件尾會把 BrandIndex 圈進來,
     //    而 `BrandIndex` 每一列也是 `/products?brand=<slug>` ⇒ 那家一有商品,CTA 那條斷言
     //    就會改由 BrandIndex 滿足、對本元件失去判別力。
-    const start = html.indexOf('class="ed-feature"');
-    const end = html.indexOf('class="ed-brands"');
-    expect(start, '找不到 ed-feature 區塊').toBeGreaterThanOrEqual(0);
-    expect(end, '找不到 ed-brands(切界抓不到下界)').toBeGreaterThan(start);
-    const section = html.slice(start, end);
+    const section = featureSection(html);
     expect(section.length, '切出來的區塊短得不像一個 section').toBeGreaterThan(200);
+    if (before.slug !== expected.slug) {
+      expect(
+        [before.name, expected.name].some((n) => section.includes(`${n}.`)),
+        '渲染期間跨過換期,但顯示的既不是換期前也不是換期後那一家',
+      ).toBe(true);
+      return;
+    }
 
     expect(section, '標題沒有帶當期品牌名 ⇒ PIN 沒接上').toContain(`${expected.name}.`);
     expect(section, 'CTA 沒指向當期品牌').toContain(`/products?brand=${expected.slug}`);
@@ -220,6 +240,53 @@ describe('首頁 · 區塊順序(D5a)', () => {
     expect(section, '標題退化成品牌名 ⇒ overlays 沒接上').toContain(expected.title);
     // 🔴 媒體欄要在:photo 解不出來時整欄不渲染,而那正是接線錯的主要症狀
     expect(section, '媒體欄不見了 ⇒ photo 解不出來(overlays 沒接上?)').toContain('ed-feature-media');
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 D5e-2 R1 must-fix:`?focus=<slug>` 是本片**新開的對外輸入**,而它原本零覆蓋。
+  //    它取代了 D5e-1 的 `BRAND_FOCUS_PIN`(改 code 才能預覽 → 改網址就能預覽),
+  //    所以它同時是「Sean 自己驗版位」的唯一手段 —— 壞了沒人會發現,因為壞掉的樣子
+  //    就是「照常顯示當期那一家」,看起來完全正常。
+  //    三條路徑各自承重,逐條說明失敗情境:
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 ?focus= 預覽開關(取代 BRAND_FOCUS_PIN 的對外輸入)', () => {
+    // 挑一家**不等於當期**的,否則「有沒有生效」根本觀察不到(fixture 碰巧值那一族)。
+    // 🔴 時鐘邊界(R2 F4):`current` 在 describe 求值一次,而頁面在 `it` 裡才渲染 ——
+    //    正好跨過台灣午夜的換期時,兩者會是不同品牌 ⇒ 自發轉紅。
+    //    ⇒ 凡是斷言「顯示的是當期那一家」的地方,一律接受**這一刻**算出來的那一家,
+    //      用 `currentNames()` 取(describe 時 + 斷言時各一次,兩者皆可)。
+    const current = resolveBrandFocus({ brands: BRAND_CONTENT, overlays: BRAND_FOCUS, now: new Date() })!;
+    const other = BRAND_CONTENT.find((b) => b.focus?.enabled && b.slug !== current.slug)!;
+    const currentNames = (): string[] => {
+      const fresh = resolveBrandFocus({ brands: BRAND_CONTENT, overlays: BRAND_FOCUS, now: new Date() })!;
+      return [...new Set([current.name, fresh.name])];
+    };
+    const showsCurrent = (section: string) => currentNames().some((n) => section.includes(`${n}.`));
+
+    it('前提:挑到的預覽目標真的不是當期那一家(相同的話下面兩條零判別力)', () => {
+      expect(other, '找不到第二家可用品牌').toBeDefined();
+      expect(other.slug).not.toBe(current.slug);
+    });
+
+    it('合法 slug:版位真的換成指定那一家(壞掉的樣子=照常顯示當期,肉眼看不出來)', async () => {
+      const section = featureSection(await homeHtml({ focus: other.slug }));
+      expect(section, `?focus=${other.slug} 沒有把版位換過去`).toContain(`${other.name}.`);
+      expect(showsCurrent(section), '換過去了卻還帶著當期那一家的名字').toBe(false);
+    });
+
+    it('打錯 slug:退回輪播、**不是**讓整個版位消失(打錯字不該讓首頁少一段)', async () => {
+      const html = await homeHtml({ focus: 'this-brand-does-not-exist' });
+      expect(html, '打錯 slug 讓整個 N°05 不見了').toContain('class="ed-feature"');
+      expect(showsCurrent(featureSection(html)), '打錯 slug 後顯示的不是當期那一家').toBe(true);
+    });
+
+    it('重複參數 ?focus=a&focus=b(Next 給的是陣列):一律當沒給,不取 [0]', async () => {
+      // `page.tsx` 用 `typeof params.focus === 'string'` 收窄 ⇒ 陣列落到 undefined。
+      // 🔴 這條擋的是「有人以為在修 bug」把它改成 `params.focus?.[0]` 或 `String(params.focus)`:
+      //    前者讓陣列變成一條沒人測過的路徑,後者會餵進 `'a,b'` 這種永遠找不到的 slug。
+      const section = featureSection(await homeHtml({ focus: [other.slug, current.slug] }));
+      expect(showsCurrent(section), '陣列參數被當成單一 slug 用了 ⇒ 收窄失效').toBe(true);
+    });
   });
 
   it('🔴 兩塊深色不相鄰(README「配色的三條規則」的節奏前提)', async () => {
