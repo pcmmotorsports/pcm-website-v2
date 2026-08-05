@@ -228,4 +228,11 @@
   .page-hero-title { font-size: 30px; }   /* 桌機 36 / 手機 24 */
   .policy-block p, .policy-block li { font-size: 15px; line-height: 1.85; }
   .shipping-card-num { font-size: 12px; }
+  /* 🔶 Sean 2026-08-06 凌晨拍板 Q1=A(`D-116-A`):平板 FAQ 字級照 `.policy-block p` 的節奏加大。
+     🔴 設計稿寫的是 `.faq-q` / `.faq-a`,那兩個 class 在真站與設計稿四支 HTML 都 **0 命中**
+     (第1批實 grep)⇒ **不搬死規則**,改套在真站的活選擇器上。
+     ⚠️ 選擇器要帶 `.shipping-content` scope:裸 `.faq-item` 會與商品頁 FAQ 互蓋
+     (`pages-shipping.css` 檔頭 🔴 那條的理由,這裡沿用)。 */
+  .shipping-content .faq-item summary { font-size: 16px; } /* 問:桌機 15 → 平板 16 */
+  .shipping-content .faq-item p { font-size: 15px; }       /* 答:桌機 14 → 平板 15 */
 }

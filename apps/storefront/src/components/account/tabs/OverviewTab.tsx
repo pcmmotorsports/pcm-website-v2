@@ -55,8 +55,15 @@ export function OverviewTab({
       <div className="acc-stats">
         <div className="acc-stat">
           <div className="ap-mono">Member tier</div>
+          {/* 🔶 第4批 R1 9-3:徽章由 `md`(28px 高 / 12px)改 `lg`(40px 高 / 14px)。
+              R1 那一列寫的是 `.acc-tier-badge { padding: 7px 14px; font-size: 14px }`,
+              但真站沒有那個 class ——【徽章走 `<TierBadge>` + `tier.css` 的尺寸階】,
+              設計稿 `pcm-account.css:154` 自己也註明「本稿只畫版位」。
+              ⇒ **選擇器不適用,但意圖適用**:理由是「與旁邊 30px 的數字同一列時原本太小」。
+              `tier-badge-lg` 的 40px/14px 正好對上設計稿那組值。
+              (R1 抓到我原本只回答了選擇器問題、把意圖整條漏掉。) */}
           <div className="acc-stat-v acc-stat-tier">
-            <TierBadge tier={stats.tier} size="md" />
+            <TierBadge tier={stats.tier} size="lg" />
           </div>
           <div className="acc-stat-sub">{tierSubLabel(stats.tier)}</div>
         </div>

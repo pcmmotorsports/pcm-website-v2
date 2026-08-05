@@ -143,6 +143,14 @@ describe('第1批 · 平板段(600-1079px)', () => {
       /\.policy-block p,\s*\.policy-block li\s*\{[^}]*font-size:\s*15px[^}]*line-height:\s*1\.85/,
     );
     expect(seg, '平板段沒調編號眉標').toMatch(/\.shipping-card-num\s*\{[^}]*font-size:\s*12px/);
+    // 🔶 Sean 2026-08-06 拍板 Q1=A:FAQ 問 16 / 答 15。**綁選擇器**(我自己 nit N1 的教訓:
+    //    只比 `font-size: 16px` 的話,套錯選擇器照樣綠)。
+    expect(seg, '平板段 FAQ 的「問」沒加大到 16px').toMatch(
+      /\.shipping-content \.faq-item summary\s*\{[^}]*font-size:\s*16px/,
+    );
+    expect(seg, '平板段 FAQ 的「答」沒加大到 15px').toMatch(
+      /\.shipping-content \.faq-item p\s*\{[^}]*font-size:\s*15px/,
+    );
   });
 
   it('🔴 平板段不含 .faq-q / .faq-a —— 那兩個 class 在真站與設計稿都是 0 命中(死規則)', () => {
@@ -152,8 +160,11 @@ describe('第1批 · 平板段(600-1079px)', () => {
     expect(seg, '死規則 .faq-q 被搬進來了').not.toMatch(/\.faq-q\b/);
     expect(seg, '死規則 .faq-a 被搬進來了').not.toMatch(/\.faq-a\b/);
     // 前提:真站的 FAQ 選擇器確實不叫 faq-q/faq-a(哪天真站改名了,上面兩條就失去意義)。
-    expect(SHIPPING, '真站的 FAQ 選擇器不再是 .shipping-content .faq-item ⇒ 上面兩條要重想').toMatch(
-      /\.shipping-content \.faq-item summary/,
+    // 🔴 R1 nit:初版比整檔 ⇒ **被本批在平板段內新增的同一串選擇器自我滿足** ——
+    //    就算桌機的基準規則被改名,這條前提照樣綠。改成只比平板段**以外**的區段。
+    const outsideTablet = SHIPPING.slice(0, SHIPPING.indexOf(TABLET));
+    expect(outsideTablet, '桌機基準的 .shipping-content .faq-item 規則不見了 ⇒ 上面兩條要重想').toMatch(
+      /\.shipping-content \.faq-item summary\s*\{/,
     );
   });
 });

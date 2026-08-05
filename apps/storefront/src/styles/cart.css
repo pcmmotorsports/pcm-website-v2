@@ -82,9 +82,13 @@
 }
 
 .cart-item-brand {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  /* 🔴 第4批:同族的 `"IBM Plex Mono"` bug(該字體全站從未載入)⇒ 改吃 `var(--f-mono)`、
+     字距統一 0.14em(`DESIGN-HANDOFF` §4-3 逐字「已全數改吃 var(--f-mono)、字距統一 0.14em」)。
+     ⚠️ **這一處屬 /cart、第3批就該修的**;第3批我對 cart 只做了針對性 grep、**沒跑結構比對**
+     ⇒ 漏掉。第4批對 auth 跑比對時才連帶抓出來。教訓寫在 `D-216-STOP`。 */
+  font-family: var(--f-mono);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-text-3);
 }

@@ -15,9 +15,16 @@
 }
 
 .ap-mono {
-  font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  /* 🔴 第4批:`"IBM Plex Mono"` 是**真站既有 bug** —— `DESIGN-HANDOFF-2026-08-05.md` §4-3 逐字:
+     「原本多處寫死 `IBM Plex Mono`,但該字體**全站從未載入**,實際 fallback 到系統 generic
+     monospace,與頁尾的 JetBrains Mono 不同臉。已全數改吃 `var(--f-mono)`、字距統一 `0.14em`。
+     **不要改回去。**」
+     實查坐實:`app/layout.tsx` 的 Google Fonts 只載 Antonio / Inter / Noto Sans TC /
+     Noto Serif TC / Cormorant Garamond / **JetBrains Mono** —— 沒有 IBM Plex Mono。
+     ⇒ 這幾處的 mono 眉標一直與頁尾的 mono 不同臉,而畫面上「看起來就是等寬字」、不會有人回報。 */
+  font-family: var(--f-mono);
   font-size: 11px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-text-3);
 }
@@ -48,7 +55,7 @@
 }
 
 .auth-sub {
-  font-size: 13.5px;
+  font-size: 14px; /* 🔶 第4批:13.5 → 14(§4-3 整數化) */
   color: var(--c-text-2);
   margin: 0 0 28px;
 }
@@ -58,7 +65,7 @@
   background: #fdf3ec; /* 🔶 0c:原 #fef2f2 紅50 底 → 熔橘淡底(OD `pcm-auth.css:22` 逐字)*/
   border-left: 2px solid var(--c-red); /* 框線層 = 亮熔橘(OD `pcm-auth.css:22`)*/
   color: var(--c-red-dark); /* 🔶 0c:白底錯誤訊息 = 文字層 ⇒ 深熔橘 */
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第4批:12.5 → 13(§4-3 整數化) */
   margin-bottom: 16px;
 }
 
@@ -69,8 +76,15 @@
 .auth-field > span {
   display: block;
   font-size: 11px;
-  font-family: "IBM Plex Mono", monospace;
-  letter-spacing: 0.12em;
+  /* 🔴 第4批:`"IBM Plex Mono"` 是**真站既有 bug** —— `DESIGN-HANDOFF-2026-08-05.md` §4-3 逐字:
+     「原本多處寫死 `IBM Plex Mono`,但該字體**全站從未載入**,實際 fallback 到系統 generic
+     monospace,與頁尾的 JetBrains Mono 不同臉。已全數改吃 `var(--f-mono)`、字距統一 `0.14em`。
+     **不要改回去。**」
+     實查坐實:`app/layout.tsx` 的 Google Fonts 只載 Antonio / Inter / Noto Sans TC /
+     Noto Serif TC / Cormorant Garamond / **JetBrains Mono** —— 沒有 IBM Plex Mono。
+     ⇒ 這幾處的 mono 眉標一直與頁尾的 mono 不同臉,而畫面上「看起來就是等寬字」、不會有人回報。 */
+  font-family: var(--f-mono);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-text-3);
   margin-bottom: 6px;
@@ -122,13 +136,16 @@
   cursor: pointer;
 }
 .auth-check input { accent-color: var(--c-text); }
+/* 🔶 第4批:設計稿有、真站沒有(交接單沒列)。註冊頁「我同意 服務條款 與 隱私政策」裡那兩個
+   連結原本與周圍灰字同色同樣式 ⇒ **看不出來可以點**。 */
+.auth-check a { color: var(--c-text); text-decoration: underline; text-underline-offset: 3px; }
 
 .auth-check-full {
   margin: 16px 0 20px;
 }
 
 .auth-forgot {
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第4批:12.5 → 13(§4-3 整數化) */
   color: var(--c-text-2);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -138,13 +155,19 @@
 .auth-submit {
   width: 100%;
   padding: 14px;
-  background: var(--c-text);
+  /* 🔶 第4批(`auth-pages-handoff.md` §1-2 + `DESIGN-HANDOFF` §4-1「主 CTA 一律熔橘」):
+     登入 / 建立帳號各是該頁唯一的主 CTA,與 `/cart`「前往結帳」同一條慣例。
+     白字對熔橘 3.12:1 = Sean 知情接受的殘餘風險(見 `tokens.css`),不要「順手修正」。 */
+  background: var(--c-red);
   color: #fff;
   font-size: 14px;
   letter-spacing: 0.02em;
   transition: background 0.2s;
 }
-.auth-submit:hover { background: #000; }
+.auth-submit:hover { background: var(--c-red-dark); }
+/* 🔶 第4批:設計稿 `pcm-auth.css` 有、真站沒有(交接單那三節沒列,結構比對比出來的)。
+   送出中 / 表單未填完時 `<button disabled>` 現在完全沒有視覺回饋 —— 看起來仍是可按的熔橘鈕。 */
+.auth-submit:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .auth-divider {
   display: flex;
@@ -206,6 +229,33 @@
 [data-mobile="true"] .auth-main { padding: 32px 16px 40px; }
 [data-mobile="true"] .auth-card { padding: 28px 22px; }
 [data-mobile="true"] .auth-card h1 { font-size: 26px; }
+
+/* ===== 🔶 平板段(600-1079px)· 第4批搬自設計稿 `pcm-auth.css:65-75` ==========
+   **交接單那三節沒列這一段**(§一 寫於平板盤點之前、已過期);`SITE-MAP.md`「平板斷點
+   (600-1079px)——全站盤點結果」逐字把 `pcm-auth.css` 列為已補檔之一。
+   沒有它的話,600-1079 的平板整段吃到**為手機寫的**上面那組覆寫(卡片內距 28/22、標題 26)。
+
+   🔴 **位置與提權都是被逼出來的,不是照抄設計稿**(設計稿沒有這兩個問題:它是獨立單檔):
+   ① **必須排在 mobile 覆寫之後**。手機那組是 `@media (max-width: 1079px)`、**完整涵蓋**
+      整個平板區間 ⇒ 兩者同 specificity 時**後載勝**。我第一版排在它前面,平板值會被手機值
+      整組蓋掉(而畫面上只是「平板看起來像放大的手機版」,沒有東西會紅)。
+   ② **與 `[data-mobile="true"]` 撞到的三條要提權**。那組 UA 兜底是 (0,2,0)、贏過裸選擇器,
+      **與順序無關**。Android 平板的 UA 含 `Android` ⇒ `layout.tsx` 的 regex 判 `data-mobile=true`
+      ⇒ 不提權的話 Android 平板照樣吃手機值(iPad 的 UA 不含那三個關鍵字、走 @media 這一路)。
+      提權到同 specificity、靠本區塊在後面取勝。這與 `.lo-card` 那組是同一個坑。
+   守門 = `styles/auth-account.test.ts`。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  [data-mobile] .auth-main, .auth-main { padding: 48px 24px 56px; }
+  [data-mobile] .auth-card, .auth-card { padding: 36px 32px; max-width: 480px; }
+  [data-mobile] .auth-card h1, .auth-card h1 { font-size: 29px; }  /* 桌機 32 / 手機 26 */
+  .auth-sub { font-size: 15px; }
+  .auth-field input { font-size: 16px; } /* iOS Safari 聚焦 <16px 會自動放大 */
+  .auth-field > span { font-size: 12px; }
+  .auth-submit { padding: 15px; font-size: 15px; }
+  .auth-social { padding: 13px 16px; font-size: 14px; }
+  .auth-check, .auth-forgot, .auth-foot { font-size: 14px; }
+}
+
 
 /* ===== /logout 登出確認頁(全站重設計 第2批;2026-08-06)=====
    真權威 = OD `logout-page.html` 的 inline `<style>`(該檔 :17-48 逐字搬)。
