@@ -112,6 +112,22 @@ v2 先寫「只准一處」(做不到:oracle 必須獨立算才有判別力),再
 - 抽出後做**正規化**(去空白、去換行、小寫)再取 md5,四份必須全等。
 - **四個獨立突變**:逐一改一處,斷言「同步格紅、且指名是哪一處不同」。
 
+🔴 **自查型 3(oracle 自指恆綠)——本節有這個風險,先堵住**:
+標記字串 `SHIPPED-TRUTH-BEGIN` **也出現在本 plan 自己身上**(就是上面那一行)。
+⇒ 若 harness 用「全樹 grep 找標記」來定位那四處,**會多命中 plan 檔**,
+而且「找到 5 份、其中 1 份不同」會被讀成「同步失敗」或被隨手排除,兩種都壞。
+
+**修法:harness 明列四個檔案路徑,禁止用全樹 grep 決定集合。**
+
+| # | 檔案(寫死) | 段 |
+|---|---|---|
+| 1 | 本片的 migration | helper 函式體 |
+| 2 | `docs/runbooks/a4a-summary-rollback.md` | 初始對帳段 |
+| 3 | `docs/runbooks/a4a-summary-rollback.md` | 收尾重驗段 |
+| 4 | `scripts/a4a-verify.sh` | `ORACLE_SQL` |
+
+**負測**:把 plan 檔也丟進集合 ⇒ 該格必須紅在「集合大小 ≠ 4」,而不是紅在 md5 不等。
+
 ---
 
 ## §2 片界(四片,各 ≤45 分)
@@ -122,6 +138,18 @@ v2 先寫「只准一處」(做不到:oracle 必須獨立算才有判別力),再
 | **S2b-2** | 非 M | `scripts/b2s2b-verify.sh`:行為格 + 兩環境突變 + barrier 併發格 | 否 | 45 分 |
 | **S2b-3** | 非 M | break-glass:runbook 兩段 oracle 四軸化 + 依賴清單/DROP 序/rehearsal + `a4a-verify` 的 `ORACLE_SQL` 四軸化 | 否 | 40 分 |
 | **S2b-4** | 非 M | harness 判別力修復:`a4a-verify`(N8 錨、收尾七函式六 trigger、`proacl` 假綠)+ `a1-verify`(§3.5)+ 三支 S1 harness 新格 | 否 | 45 分 |
+
+### 2.1 鐵則 11 的片級 DoD(自查型 4 命中:v1 **整份沒有**片級三綠 DoD)
+
+| 片 | commit 前必跑 | 預期 |
+|---|---|---|
+| S2b-1 | `pnpm typecheck` / `pnpm lint` / `pnpm build` | 各自全綠 |
+| S2b-2/3/4 | 上述三項 + `bash -n <改到的每支 .sh>` + **實跑該 harness** | `bash -n` RC=0;harness 三計數器**開工前先凍結預期值**,實跑數字逐字相符 |
+
+🔴 **環境事實(不是預先允許紅燈)**:本 worktree 根的 `node_modules/.bin` 沒有 `tsc` / `eslint`
+⇒ `pnpm typecheck` / `pnpm lint` 會在**尾段那兩個非 turbo 步驟**報 `command not found`。
+**處置 = 修環境或用 `node_modules/.pnpm/` 下的實體跑同一檢查並取得 RC=0**,
+**不得**把「那兩步會紅」寫成可接受狀態 —— 小線 R2 抓到 v2 犯過這條(DoD 宣稱全綠、誠實邊界又承認會紅)。
 
 🔴 **封窗**:S2b-1 走小線建立的 **quarantine 目錄**,四片全數 commit 後才 gate commit 移入正式目錄。
 🔴 **S2b-1 一旦進正式目錄,`a4a-verify` 的 N8 靶會壞**(本輪實測,`syntax error`)
@@ -138,6 +166,38 @@ v2 先寫「只准一處」(做不到:oracle 必須獨立算才有判別力),再
 🔴 **`search_path` 維持 `public, pg_temp`、不回改成 `''`**:memory 拍板「新函式一律 `''`,
 a5a 的舊慣例**不回改**」—— helper 是既有函式,本片只加軸,不趁機改它的執行環境。
 **本片新建的那支 trigger 函式用 `SET search_path = ''` + 全限定名**;兩種慣例並存是刻意的,COMMENT 寫明。
+
+### 3.1a 🔴 migration 的 timeout(自查型 2 命中:v1 **完全沒設**)
+
+```sql
+SET LOCAL lock_timeout = '5s';        -- 我等鎖的上限
+SET LOCAL statement_timeout = '60s';  -- 單一語句的上限(backfill 迴圈受它管)
+```
+
+🔴 **語義要寫對,不要重蹈小線 R2 的坑**:
+- `lock_timeout` 限制的是「**本交易等別人多久**」,**不限制**「本交易拿到鎖之後別人被擋多久」。
+- 「別人被擋多久」= **本交易持鎖到 COMMIT 的總時長**,受 `statement_timeout` 與 backfill 迴圈長度支配。
+- ⇒ **承重的是 `statement_timeout` 與「交易總時長上限」,不是 `lock_timeout`。**
+  正式站候選集合今日為 0 列(§0.4)⇒ backfill 是 no-op;非 0 時**必須先量**(§10 攻擊角度 5)。
+
+### 3.1b 🔴 鎖序全圖(自查型 1 命中:v1 只談 trigger 內的 `ORDER BY`,**沒有跨路徑分析**)
+
+小線 R2 的死結就是「新加的鎖與既有 writer 順序相反」。本片雖然沒加新鎖原語,
+但**必須把跨路徑的取鎖順序寫出來**,否則無法宣稱沒有死結面。
+
+| 路徑 | 取鎖順序(實查) |
+|---|---|
+| **P1 加品項**(`INSERT shipment_items`) | S1b parent guard 取 `shipments` 該列 **NKU**;之後只**讀** `order_items`(**不鎖**)|
+| **P2 出貨**(`UPDATE shipments SET shipped_at`) | `UPDATE` 先取 `shipments` 該列鎖 → 本片 trigger → helper 逐一取 `order_items` **NKU**(`ORDER BY order_item_id`)|
+| **P3 取消**(A8a2) | `orders` **FOR UPDATE** → `order_items` NKU |
+| **P4 採購 / 到貨**(A4a 既有四支) | `order_items` NKU |
+
+**結論**:**沒有任何路徑先取 `order_items` 再取 `shipments`** ⇒ 這對表之間**無環**。
+P1 對 `order_items` 是無鎖讀 ⇒ 不入序。
+
+🟡 **誠實邊界(本片證不到的)**:P2 與 P3/P4 會爭同一批 `order_items` NKU。
+P2 內部由 `ORDER BY` 保證升序;**A8a2 多品項時的取鎖順序本片未驗**
+⇒ 若它不是升序,P2×P3 仍可能 `40P01`。**列為 §9 交棒項 6,不宣稱已擋。**
 
 ### 3.2 md5 前置閘(R1 #16 #17 / R2 #13)
 
@@ -313,6 +373,7 @@ trigger 建立**之前**、同交易、逐品項呼叫 helper。**兩段 oracle,
 | 3 | 🔴 **任何放寬 X1 / X3 的片** | §0.3 的前提會倒 ⇒ 必須同批補 `shipment_items` 重算 trigger,否則 `shipped` 靜默算少 |
 | 4 | 🔴 **未來「開放改箱」的片** | §0.2 的四項(trigger + OLD/NEW + U/D 負測 + 多列鎖序) |
 | 5 | Sean apply 之後 | `database.types.ts` 重生 → nullable 校正 → `pnpm typecheck`(與小線 §9 項 1 同一個 checkpoint) |
+| 6 | 🔴 **取消線(A8a2)** | **多品項取消時的 `order_items` 取鎖順序**(§3.1b 的誠實邊界):若非升序,與本片的出貨重算仍可能 `40P01`。**本片證不到,不宣稱已擋** |
 
 ---
 
