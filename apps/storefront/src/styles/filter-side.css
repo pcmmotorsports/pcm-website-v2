@@ -12,8 +12,11 @@
 }
 /* cascade 模式：偏移 header + cascade bar */
 .pp-layout[data-filter-style="cascade"] .fs-side {
-  top: calc(var(--shell-header-h) + 64px);
-  height: calc(100vh - var(--shell-header-h) - 64px);
+  /* 🔶 第3批 R1-3 連動:64 → 70(實量,理由與 `products-page.css` 那條同源)。
+     🔴 這兩處**必須同值** —— 漂開的症狀是側欄與主表頭黏頂的位置差一點,
+     而那不會有任何東西紅。守門 = `styles/products-r1.test.ts` 的「三處同值」那條。 */
+  top: calc(var(--shell-header-h) + 70px);
+  height: calc(100vh - var(--shell-header-h) - 70px);
 }
 .fs-side-head {
   display: flex;
