@@ -25,6 +25,9 @@ import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
+import { BRAND_CONTENT } from '@/data/brand-content';
+import { BRAND_FOCUS, BRAND_FOCUS_PIN } from '@/data/brand-focus';
+import { resolveBrandFocus } from '@/lib/brand-focus';
 import { resolveTierFromRequest } from '@/lib/tier';
 import { createServerSupabaseClient } from '@/lib/supabase/server';
 import { getVehicleRepo } from '@/lib/auth/composition';
@@ -100,6 +103,22 @@ export default async function HomePage({
     fetchBrandsWithProducts(),
   ]);
 
+  // D5e-1:本月聚焦當期是誰。純資料 + 日期,零 IO ⇒ 不進上面的 Promise.all。
+  // 🔴 `new Date()` **只在這裡呼叫一次**,`lib/brand-focus.ts` 內部一律不碰時鐘 ——
+  //    量時間的東西最容易寫成測不動的樣子,把時鐘留在最外層、決策函式收 `now` 參數,
+  //    測試才有辦法給定日期取得定值答案。
+  // 🔴 本頁有 `export const dynamic = 'force-dynamic'`(檔頭那一行)⇒ 每次請求重新求值,
+  //    輪播**不會被 build 凍住**。若日後改 ISR(檔頭註解提過的那個未來選項),
+  //    `revalidate` 必須 < 一天,否則會卡在某一期。
+  //    (不引行號:R1 must-fix —— 第一版寫 `:37`/`:36`,實為 `:40`/`:39`。R2 補正:那兩個數字
+  //     在寫下的當下可能是對的,是被本片自己加的 3 行 import 推移掉的 —— 這正是不引行號的理由。)
+  const focus = resolveBrandFocus({
+    brands: BRAND_CONTENT,
+    overlays: BRAND_FOCUS,
+    now: new Date(),
+    override: BRAND_FOCUS_PIN,
+  });
+
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
       <Header currentPage="home" />
@@ -115,7 +134,11 @@ export default async function HomePage({
       <HomeSelect featured={featured} />
       <CategoryGrid categories={categories} />
       <HomeStatement />
-      <FeatureEditorial />
+      {/* D5e-1:本月聚焦改資料驅動 + 每 3 天輪播。`focus` 為 `null`(可用品牌清單為空)
+          時整段不渲染 —— 版位空著比渲染一個沒有內容的殼好。
+          🔴 這一面有守門接著:`app/page.test.tsx` 的「八個 section 都在」是**前提斷言**,
+             真的變 null 的話那條會紅、不會靜默少一段。 */}
+      {focus && <FeatureEditorial focus={focus} />}
       <BrandIndex availableSlugs={brandsWithProducts} />
       <HomeFooter />
     </div>
