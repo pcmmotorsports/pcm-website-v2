@@ -1,0 +1,274 @@
+/* coming-soon.css — 「即將上線」頁(全站重設計 第2批;2026-08-06)
+ *
+ * 真權威 = OD `pcm-home-redesign/coming-soon.html` 的 inline `<style>` + `coming-soon-handoff.md`。
+ * 用在三條路由:`/coming-soon`(整站版)、`/stores`、`/install`(功能版)。
+ *
+ * 🔴 **色票 scope 在 `.cs-page`、不進 `:root`**(比照 `brand-directory.css` 的前綴紀律):
+ *    設計稿是**完全自包含的單檔**,token 取名 `--ink` / `--line` / `--dim` 這種通用字 ——
+ *    直接放進站台 `:root` 會與全站語彙撞名(而且撞了不會有任何測試紅)。
+ *    `.cs-page` 這個 class 與本檔的消費端綁在同一個元件(`ComingSoon.tsx`)上
+ *    ⇒ 「漏掛 scope」從「要記得」變成「做不到」。
+ *
+ * ⛔ **刻意不搬的兩處(不是漏)**
+ *    ① 設計稿的 `--f-sans` / `--f-mono` —— 真站 `tokens.css:137-138` 已有**同名同值**兩顆,
+ *       再定義一次就是雙源漂移。本檔直接吃站台那兩顆。
+ *    ② 設計稿檔尾的 `<script>`(`?v=` 變體切換 + 動態塞天地 + 移除 noindex meta)——
+ *       交接單 §三 逐字「真站不要照抄這個做法」,改成元件 props + 各 page 的 `metadata`。
+ *       ⇒ 設計稿裡 `.cs-nav, .cs-foot-nav { display: none }` 那條**預設隱藏 + JS 打開**的機制
+ *       在真站不存在:天地由 `page.tsx` 決定要不要渲染,沒渲染就是沒有,不靠 CSS 藏。
+ *
+ * ⚠️ **它擋不住什麼**:本檔只管這頁自己的樣式。「整站版不該有站內導航」那條不變量
+ *    有一半在 `app/layout.tsx`(MobileTabBar 掛在根 layout、會滲進來)——
+ *    那一半由 `MobileTabBar.tsx` 的 hidden 判定 + `styles/coming-soon.test.ts` 守。
+ */
+
+.cs-page {
+  /* 🔴 **必須是純黑**:品牌 logo 牆靠極低透明度浮在底色上,底色只要不是純黑(例如石墨
+     `#202225`),那層若隱若現的灰就會浮出一片濁色。設計端實測踩過,不要「順手」改。 */
+  --cs-ink: #000;
+  --cs-ember: var(--c-red);         /* 全站動作色 = 亮熔橘 #f26722(0c 已換值,吃站台 token) */
+  --cs-ember-ink: var(--c-red-dark); /* 深熔橘 #c4470c */
+  --cs-line: rgba(255, 255, 255, 0.14);
+  --cs-dim: rgba(255, 255, 255, 0.62);
+  --cs-dimmer: rgba(255, 255, 255, 0.42);
+
+  min-height: 100vh;
+  background: var(--cs-ink);
+  color: #fff;
+  font-family: var(--f-sans);
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+}
+.cs-page a { color: inherit; text-decoration: none; }
+
+.cs-mono {
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cs-dimmer);
+}
+
+/* ==== 主區:左文字 / 右 logo 牆 ==== */
+.cs-main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  align-items: center;
+  gap: 40px;
+  /* 🔴 吃 `--shell-bar-max`(1440,與設計稿字面同值)而不是自己寫死:與殼左右緣切齊
+     = `DESIGN-HANDOFF` §4-2「其餘頁面主體吃 --shell-bar-max」。
+     ⚠️ R1 提醒:那顆 token 的語意本來是「殼三件套」,這裡拿它當內容容器寬 ⇒ 之後動殼寬
+     會連帶動到這頁。這是**刻意接受**的(§4-2 就是要它們切齊),守門見 `coming-soon.test.ts`。 */
+  max-width: var(--shell-bar-max);
+  width: 100%;
+  margin: 0 auto;
+  padding: 56px 40px 40px;
+}
+
+.cs-logo { display: block; margin-bottom: 40px; }
+.cs-logo img { height: 62px; width: auto; display: block; }
+
+.cs-title {
+  font-size: clamp(38px, 5.2vw, 68px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 14px 0 0;
+}
+.cs-title em { font-style: normal; color: var(--cs-ember); }
+
+.cs-lede {
+  font-size: clamp(15px, 1.25vw, 17px);
+  line-height: 1.8;
+  color: var(--cs-dim);
+  margin: 22px 0 0;
+  max-width: 46ch;
+}
+
+/* 上線時間版位:目前沒有日期,只說狀態(設計端 §五-1:沒有來源就不編日期) */
+.cs-eta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 26px;
+  padding: 9px 16px;
+  border: 1px solid var(--cs-line);
+  font-size: 13px;
+  color: var(--cs-dim);
+}
+.cs-eta-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--cs-ember);
+  flex-shrink: 0;
+  animation: cs-pulse 2.4s ease-in-out infinite;
+}
+@keyframes cs-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.28; }
+}
+
+.cs-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+.cs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 15px 30px;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transition: background 0.18s, border-color 0.18s, transform 0.18s;
+}
+.cs-btn svg { width: 17px; height: 17px; }
+.cs-btn-primary { background: var(--cs-ember); color: #fff; border: 1px solid var(--cs-ember); }
+.cs-btn-primary:hover { background: var(--cs-ember-ink); border-color: var(--cs-ember-ink); }
+.cs-btn-ghost { border: 1px solid var(--cs-line); color: #fff; }
+.cs-btn-ghost:hover { border-color: rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.05); }
+.cs-btn:active { transform: translateY(1px); }
+
+/* ==== 品牌 LOGO 牆(Sean 2026-08-05:「要隱隱約約的感覺」)====
+   四個手段疊起來才有那個效果,少一個就變成普通的 logo 列:
+   ①極低透明度 ②去彩 ③錯落的呼吸 ④四周遮罩淡出。 */
+.cs-art { position: relative; }
+.cs-wall {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: clamp(14px, 2.2vw, 32px);
+  align-items: center;
+  padding: 8px;
+  /* 四周淡出:讓牆沒有邊界,像是從黑裡浮出來的 */
+  -webkit-mask-image: radial-gradient(ellipse 78% 72% at 50% 48%, #000 32%, rgba(0, 0, 0, 0.55) 62%, transparent 92%);
+  mask-image: radial-gradient(ellipse 78% 72% at 50% 48%, #000 32%, rgba(0, 0, 0, 0.55) 62%, transparent 92%);
+}
+.cs-wall img {
+  width: 100%;
+  height: auto;
+  max-height: 42px;
+  object-fit: contain;
+  display: block;
+  filter: grayscale(1);
+  opacity: 0.14;
+  animation: cs-breathe 14s ease-in-out infinite;
+}
+/* 錯落的節奏:五種延遲交錯排,不讓同一列同時亮起來。
+   加減品牌不用改這裡 —— nth-child(5n+…) 是循環的,第 21 顆自動接回第一種相位。 */
+.cs-wall img:nth-child(5n + 1) { animation-delay: 0s; }
+.cs-wall img:nth-child(5n + 2) { animation-delay: -2.8s; }
+.cs-wall img:nth-child(5n + 3) { animation-delay: -5.6s; }
+.cs-wall img:nth-child(5n + 4) { animation-delay: -8.4s; }
+.cs-wall img:nth-child(5n + 5) { animation-delay: -11.2s; }
+/* 再疊一層列的偏移,避免整欄同步 */
+.cs-wall img:nth-child(n + 6):nth-child(-n + 10) { animation-duration: 16s; }
+.cs-wall img:nth-child(n + 11):nth-child(-n + 15) { animation-duration: 13s; }
+.cs-wall img:nth-child(n + 16) { animation-duration: 17s; }
+
+@keyframes cs-breathe {
+  0%, 100% { opacity: 0.09; }
+  50% { opacity: 0.26; }
+}
+
+/* ==== 底部資訊條 ==== */
+.cs-foot {
+  border-top: 1px solid var(--cs-line);
+  max-width: var(--shell-bar-max);
+  width: 100%;
+  margin: 0 auto;
+  padding: 26px 40px 32px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px;
+}
+.cs-foot-col h2 {
+  font-size: 11px;
+  font-family: var(--f-mono);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--cs-dimmer);
+  font-weight: 500;
+  margin: 0 0 12px;
+}
+.cs-foot-col p { font-size: 14px; line-height: 1.75; color: var(--cs-dim); margin: 0; }
+/* 🔴 **設計稿「天地」段的 CSS 一律不搬**(`.cs-nav*` 深色頂欄 + 頁尾「快速前往」欄)。
+   有天地的變體(`/stores` `/install`)**整個頁尾都不渲染** —— 頁尾由頁面自己的
+   `<HomeFooter>` 提供,見 `ComingSoon.tsx` 的 `!hasNav` 那段。
+   ⚠️ 我第一版搬了 `.cs-foot-nav a` 與 `.cs-has-nav .cs-foot` 四欄格線,那是**跟著錯誤的
+   markup 一起長出來的規則**;markup 改對之後它們是死規則,一併移除,不留「以後可能用到」。
+   `.cs-has-nav` 現在只剩一個作用:主區的上緣留白(頂上已經有 `<Header>`)。 */
+.cs-has-nav .cs-main { padding-top: 40px; }
+/* 🔴 有天地時 `min-height: 100vh` 要拿掉:設計稿把它掛在 `body`(整頁只有它),
+   真站是 `<Header>` + 這個 div + `<HomeFooter>` ⇒ 100vh 會讓內容再短也一定多出一段捲動。
+   整站版維持 100vh(它真的是整頁)。 */
+.cs-has-nav { min-height: 0; }
+
+.cs-social { display: flex; gap: 20px; }
+.cs-social a {
+  font-size: 14px;
+  color: var(--cs-dim);
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.cs-social a:hover { color: #fff; border-color: rgba(255, 255, 255, 0.45); }
+
+.cs-base {
+  max-width: var(--shell-bar-max);
+  width: 100%;
+  margin: 0 auto;
+  padding: 18px 40px 26px;
+  border-top: 1px solid var(--cs-line);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* ==== 平板 ==== */
+@media (max-width: 1079px) {
+  .cs-main { grid-template-columns: 1fr; gap: 8px; padding: 44px 28px 24px; }
+  .cs-art { order: -1; max-width: 640px; margin: 0 auto; }
+  .cs-wall img { max-height: 38px; }
+  .cs-logo { margin-bottom: 28px; }
+  .cs-logo img { height: 54px; }
+  .cs-foot { grid-template-columns: 1fr 1fr; padding: 24px 28px 28px; }
+  .cs-base { padding: 16px 28px 24px; }
+}
+
+/* ==== 手機 ==== */
+@media (max-width: 599px) {
+  .cs-main { padding: 32px 20px 20px; }
+  .cs-has-nav .cs-main { padding-top: 28px; }
+  .cs-logo img { height: 46px; }
+  .cs-title { font-size: 34px; }
+  .cs-wall { grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .cs-wall img { max-height: 30px; }
+  .cs-lede { font-size: 15px; margin-top: 18px; }
+  .cs-actions { margin-top: 28px; }
+  .cs-btn { flex: 1; justify-content: center; padding: 15px 20px; }
+  .cs-foot { grid-template-columns: 1fr; gap: 22px; padding: 22px 20px 24px; }
+  .cs-base { padding: 16px 20px 22px; flex-direction: column; gap: 8px; }
+}
+
+/* 🔴 **整站版底部的 70px 白條**(真瀏覽器實測抓到,不是推測)。
+   `mobile-tabbar.css` 在 ≤1079px 給 `body` 加了 `padding-bottom: calc(70px + safe-area)`,
+   目的是讓 `position: fixed` 的 TabBar 不要蓋住內容。整站版**把 TabBar 藏起來了**
+   (`MobileTabBar.tsx` 的 hidden 判定)⇒ 那段 padding 變成純死空間,
+   而 `.cs-page` 是純黑、`body` 是白 ⇒ 手機上這頁底部會露出一條 70px 的白。
+   (同樣的死空間在 `/products/[slug]` 也有 —— 那頁 TabBar 也是藏的 —— 但那頁是白底,
+    所以「看不出來」。這裡是同一個既有問題第一次變成可見的。已列進 STOP。)
+   ⇒ 條件**與藏 TabBar 的條件完全同源**:沒有天地的那個變體才補這條,
+   `/stores` `/install`(`.cs-has-nav`)有 TabBar、padding 該留著。
+   🔴 **刻意不包 `@media`**(R1 抓到的洞):那段 padding 有**兩個來源** ——
+      `mobile-tabbar.css` 的 `@media (max-width:1079px) body`,以及
+      `html[data-mobile="true"] body`(**沒有 media query、全寬度生效**)。
+      第一版把本條包在 `@media (max-width:1079px)` 裡 ⇒ 手機 UA 但 viewport ≥1080px
+      (Android 平板橫放,`layout.tsx` 的 UA regex 會判 `Mobile`=true)白條原樣回來。
+      拿掉外殼在桌機是 no-op(那裡本來就沒有 padding),但同時涵蓋兩個來源。 */
+body:has(.cs-page:not(.cs-has-nav)) { padding-bottom: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cs-eta-dot { animation: none; }
+  .cs-btn { transition: none; }
+  /* 牆改為靜態的均勻淡光,不呼吸 */
+  .cs-wall img { animation: none; opacity: 0.16; }
+}

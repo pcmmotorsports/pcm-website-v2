@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderStatusOptionsRepository } from '@pcm/ports';
-import type { OrderStatusOption, OrderStatusOptionUpdate } from '@pcm/domain';
+import type { OrderStatusOption } from '@pcm/domain';
 import type { Database } from './database.types';
 
 /**
@@ -42,7 +42,8 @@ function mapOrderStatusOptionRow(row: OrderStatusOptionRow): OrderStatusOption {
  *   只有 admin server 讀得到;composition 層 = apps/admin lib/orders/order-repository.ts);
  * - 回全量(含 inactive;badge 解析停用選項的舊單)、sort_order ASC;
  * - error → 裸 throw(對齊 SupabaseOrderAdapter 慣例;caller〔admin 頁〕try/catch 退錯誤態、頁面不 500);
- * - 寫入:`updateOrderStatusOption`(M-4a Slice D-3 設定頁編輯既有;INSERT/新增留 D-3b)。
+ * - 寫入:**無**(A9w4c 前半起唯讀;原 `updateOrderStatusOption` / `createOrderStatusOption`
+ *   隨九碼狀態設定頁與其 server action 一起退場)。
  */
 export class SupabaseOrderStatusOptionsAdapter implements IOrderStatusOptionsRepository {
   constructor(private readonly supabase: SupabaseClient<Database>) {}
@@ -59,55 +60,6 @@ export class SupabaseOrderStatusOptionsAdapter implements IOrderStatusOptionsRep
     return (data as OrderStatusOptionRow[]).map(mapOrderStatusOptionRow);
   }
 
-  /**
-   * 更新既有狀態選項(M-4a Slice D-3 設定頁;code 為鍵、不可改)。
-   *
-   * 🔴 只 UPDATE {label, color, text_color, sort_order, is_active} —— code/created_at 絕不入 SET
-   * (DB column-level grant 已收窄至此 5 欄、此處為型別+字面縱深)。停用走 is_active=false(soft-delete、非 DELETE)。
-   * `.select()` 回讀在位列(service_role 對本表有 SELECT grant)→ 0 列 = NOT_FOUND(caller 分流)。
-   * error → 裸 throw(對齊慣例;caller server action try/catch 退錯誤碼)。
-   */
-  async updateOrderStatusOption(
-    code: string,
-    update: OrderStatusOptionUpdate,
-  ): Promise<'UPDATED' | 'NOT_FOUND'> {
-    const { data, error } = await this.supabase
-      .from('order_status_options')
-      .update({
-        label: update.label,
-        color: update.color,
-        text_color: update.textColor,
-        sort_order: update.sortOrder,
-        is_active: update.isActive,
-      })
-      .eq('code', code)
-      .select(ORDER_STATUS_OPTIONS_SELECT);
-    if (error) {
-      throw error;
-    }
-    return data && data.length > 0 ? 'UPDATED' : 'NOT_FOUND';
-  }
-
-  /**
-   * 新增狀態選項(M-4a Slice D-3c 設定頁;service_role INSERT grant〔Slice A 20260714120000〕)。
-   *
-   * 🔴 code 由呼叫端提供(中性 slug、非從 label 衍生;RESERVED_CODES〔form 層〕+ DB CHECK 雙層擋非法/保留字)。
-   * INSERT 具名 6 欄、無 created_at(交 DB default);**不鏈 `.select()`**(只需 { error }、不回讀)。
-   * PK 重複(unique_violation 23505)→ 'DUPLICATE'(caller 退友善碼);其他 error → 裸 throw。
-   */
-  async createOrderStatusOption(input: OrderStatusOption): Promise<'CREATED' | 'DUPLICATE'> {
-    const { error } = await this.supabase.from('order_status_options').insert({
-      code: input.code,
-      label: input.label,
-      color: input.color,
-      text_color: input.textColor,
-      sort_order: input.sortOrder,
-      is_active: input.isActive,
-    });
-    if (error) {
-      if (error.code === '23505') return 'DUPLICATE'; // code PK 已存在
-      throw error;
-    }
-    return 'CREATED';
-  }
+  // A9w4c(前半):`updateOrderStatusOption` / `createOrderStatusOption` 兩支已隨 port 一起移除
+  // (呼叫端在 A9w2/A9w4b 下架)。撤 DB 寫權是 A9v 的事,不在本片。
 }

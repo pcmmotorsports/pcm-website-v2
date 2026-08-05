@@ -15,11 +15,10 @@ import type {
   Paginated,
   PaginationParams,
 } from '@pcm/domain';
-import {
-  toMoneyAmount,
-  WORKFLOW_STATUS_CODE_RE,
-  normalizeOrderNumberSearch,
-} from '@pcm/domain';
+// A9w3:`WORKFLOW_STATUS_CODE_RE` 的唯一用途是九碼篩選的字串內插守門,篩選整段已移除
+// ⇒ import 一併收掉。🔴 domain 端的 export 暫留(A9w4c 前半未處置,已立案 backlog #332),但**不是**因為還有人在用 ——
+//    本片後它全 repo 零 consumer;item writer 驗形狀用的是 workflow-form.ts 自己的 local RE。
+import { toMoneyAmount, normalizeOrderNumberSearch } from '@pcm/domain';
 import type { Database, Json } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
@@ -71,19 +70,9 @@ export const ORDER_LIST_SELECT =
 export const ADMIN_ORDER_LIST_SELECT =
   'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))))';
 
-/**
- * admin orders 列表投影 — **item 狀態篩選版**(M-4a D-2;僅 `filter.workflowStatus` 有值時使用)。
- *
- * 與 `ADMIN_ORDER_LIST_SELECT` **唯一差異** = `order_items!inner(...)`:PostgREST 對內嵌資源的
- * filter(`.eq('order_items.workflow_status', code)` / `.is(..., null)`)只濾內嵌列、父列仍全回;
- * `!inner` 讓「無任何品項命中」的訂單整列消失 = 篩選語意「該單至少一品項為此狀態、且只顯示命中品項列」。
- * 🔴 orders.workflow_status 停寫(D-2)→ 篩選**必須**走 item 層,打舊欄=篩到 stale 值。
- * 🔴 鐵則 12 白名單與主常數逐欄相同(測試 byte-equal 斷言兩常數僅差 `!inner`)。
- */
-export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SELECT.replace(
-  'order_items(',
-  'order_items!inner(',
-);
+// M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
+// (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
+// (URL 參數與 UI 皆已不存在)⇒ 留著就是一份沒有呼叫端、卻仍要維護「與主常數逐欄相同」的白名單。
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -165,7 +154,7 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * 它的盲區是掃描根之外(`packages/`)。⇒ 真正沒人看得見的只有「掃描根外的 inline select」。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
@@ -340,27 +329,9 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       return { items: [], total: 0 };
     }
 
-    // workflow 篩選(M-4a D-2 起走 **item 層**;D-1b 起多勾選=各值 OR):orders.workflow_status
-    // 停寫=stale、絕不再打;有篩 → `order_items!inner` 版投影(無命中品項的訂單整列消失、
-    // 命中品項才顯示),filter 打內嵌欄 `order_items.workflow_status`。
-    // 🔴 fail-closed 形狀守門:.or() 是**字串內插**(非參數化)→ code 逐一過 WORKFLOW_STATUS_CODE_RE
-    //   (單一來源 @pcm/domain、對齊 DB CHECK;caller〔admin 解析層〕已守過、此處縱深再驗),
-    //   非法形狀直接剔除(剔完若空=該軸不篩;純 .in/.is 路徑同守、行為一致不分岔)。
-    const wf = filter.workflowStatuses ?? [];
-    // String() 先取原始值再驗(對抗審 F3 硬化:驗的字串=內插的字串、同一 primitive,封 stateful
-    // toString 理論面;URL 進線恆 string、此為縱深)。
-    const wfCodes = wf
-      .filter((c): c is string => typeof c === 'string')
-      .map(String)
-      .filter((c) => WORKFLOW_STATUS_CODE_RE.test(c));
-    const wfHasNull = wf.includes(null);
-    const wfActive = wfCodes.length > 0 || wfHasNull;
     let query = this.supabase
       .from('orders')
-      .select(
-        wfActive ? ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED : ADMIN_ORDER_LIST_SELECT,
-        { count: 'exact' },
-      );
+      .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
     if (orderNumberSearch.kind === 'ok') {
@@ -376,20 +347,6 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     if (filter.paymentChannels?.length) {
       query = query.in('payment_channel', [...filter.paymentChannels]);
     }
-    if (wfActive) {
-      if (wfCodes.length > 0 && wfHasNull) {
-        // code 混勾「未設定」→ 內嵌資源 or(codes IN ∪ IS NULL);code 已過 RE、可安全內插。
-        query = query.or(
-          `workflow_status.in.(${wfCodes.join(',')}),workflow_status.is.null`,
-          { referencedTable: 'order_items' },
-        );
-      } else if (wfCodes.length > 0) {
-        query = query.in('order_items.workflow_status', wfCodes);
-      } else {
-        query = query.is('order_items.workflow_status', null);
-      }
-    }
-
     const { data, error, count } = await query
       .order('created_at', { ascending: false })
       .order('id', { ascending: false }) // 次鍵防同秒單分頁跨頁重複/漏單(Fable D-2 verdict n1)

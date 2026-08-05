@@ -9,7 +9,6 @@ import {
   FULFILLMENT_STATUS_PARAM,
   ORDER_SOURCE_PARAM,
   PAYMENT_CHANNEL_PARAM,
-  WORKFLOW_STATUS_PARAM,
   ORDER_NUMBER_PARAM,
 } from '../../lib/orders/order-list-view';
 import { MultiCheckFilter } from '../shared/multi-check-filter';
@@ -19,15 +18,16 @@ import { AutoApplySelect } from '../shared/auto-apply-select';
 // 🔴 競態設計:各軸值收成**單一 client state、URL 全量由 state 導出**(buildListHref、page 恆回 1、
 //   r 不帶=清 stale banner)——不讀 useSearchParams/window.location 當基底,RSC 往返(數百 ms)中
 //   快速連勾/跨軸交錯也不會用 stale 快照互相蓋寫,checkbox/select 顯示同源自 state=無延遲窗回彈。
-//   前提:/orders 的 query 全集=**六**篩選軸(商品狀態 / 付款 / 出貨 / 來源 / 管道 /
+//   前提:/orders 的 query 全集=**五**篩選軸(付款 / 出貨 / 來源 / 管道 /
 //   **單號搜尋 order_no**,M-4b E10 A10c1 新增)+page+r,無其他要保留的鍵
+//   (A9w2:原第六軸「商品狀態 workflow_status」隨九碼退場已下架 —— state、URL 參數、
+//    MultiCheckFilter 三處同時移除;少移一處都會留下「改別軸就把它丟掉」或「丟不掉」的半殘狀態)
 //   (新增鍵時須進 state 或此處明列 —— 漏了就是「改任一篩選就把該鍵丟掉」的 fail-open)。
 // server prop 追上後以 prev-prop 比對同步(內容已收斂=無感;外部改 URL 走整頁載入=重掛)。
-// 🔴 經銷價紅線:props 只收篩選值/label/enum/order_status_options 策展選項,零價格/tier/PII 序列化。
+// 🔴 經銷價紅線:props 只收篩選值/label/enum,零價格/tier/PII 序列化
+//    (A9w2 起連 `order_status_options` 的策展選項都不收了 —— 九碼軸已下架)。
 
 type FilterState = {
-  /** 商品狀態已勾 URL 值(code 或 'unset' 哨兵) */
-  wf: readonly string[];
   /** '' = 全部 */
   pay: string;
   ful: string;
@@ -46,7 +46,6 @@ function href(state: FilterState): string {
   return buildListHref(
     '/orders',
     [
-      [WORKFLOW_STATUS_PARAM, state.wf],
       [PAYMENT_STATUS_PARAM, state.pay || undefined],
       [FULFILLMENT_STATUS_PARAM, state.ful || undefined],
       [ORDER_SOURCE_PARAM, state.src],
@@ -62,7 +61,6 @@ function toggled(list: readonly string[], value: string): string[] {
 }
 
 export function OrderFilterControls({
-  workflowOptions,
   paymentOptions,
   fulfillmentOptions,
   sourceOptions,
@@ -70,7 +68,6 @@ export function OrderFilterControls({
   initial,
   orderNumberSearchEnabled = false,
 }: {
-  workflowOptions: FilterOption[];
   paymentOptions: FilterOption[];
   fulfillmentOptions: FilterOption[];
   sourceOptions: FilterOption[];
@@ -151,12 +148,6 @@ export function OrderFilterControls({
           </button>
         </form>
       )}
-      <MultiCheckFilter
-        label='商品狀態'
-        options={workflowOptions}
-        selected={state.wf}
-        onToggle={(v) => apply({ ...state, wf: toggled(state.wf, v) })}
-      />
       <AutoApplySelect
         label='付款狀態'
         value={state.pay}

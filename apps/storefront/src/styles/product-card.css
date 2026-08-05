@@ -138,15 +138,17 @@
 .pcard-quick-btn {
   width: 100%;
   padding: 10px;
-  background: rgba(10,10,10,0.88);
-  color: #fff;
+  /* 🔶 第3批 R1-2(Sean 2026-08-05 看稿逐字「黑色看不清楚」):黑底改淺灰底墨字。
+     深色商品照上黑底鈕會整顆糊進圖裡。`backdrop-filter` / 字級 / 字重不動。 */
+  background: rgba(233, 233, 235, 0.94);
+  color: var(--c-text);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.06em;
   backdrop-filter: blur(4px);
   transition: background 0.15s;
 }
-.pcard-quick-btn:hover { background: #000; }
+.pcard-quick-btn:hover { background: rgba(212, 212, 216, 0.96); }
 
 /* ── Info area ── */
 .pcard-info {
@@ -165,7 +167,7 @@
   margin-bottom: 4px;
 }
 .pcard-name {
-  font-size: 13.5px;
+  font-size: 14px; /* 🔶 第3批:13.5 → 14(`DESIGN-HANDOFF` §4-3「字級只用整數 px」;設計稿 .pcard-name 逐字) */
   font-weight: 500;
   line-height: 1.4;
   color: var(--c-text);
@@ -202,7 +204,11 @@
    (熱血點綴;現況無促銷、與 is-sale 同色不衝突,
    未來促銷再以 badge/刪除線區隔)。scoped .pcard、不影響詳情頁 pd-price。 */
 .pcard .price-main { color: var(--c-red-dark); } /* 🔶 0c:白底價格 = 文字層(products-list-handoff R1-1 表列逐字)*/
-/* Font-size variants */
+/* Font-size variants
+   🔴 **第3批實查:這三條是死規則** —— 全樹(`.tsx` / `.ts`)**零處**設定 `data-font-size`,
+   設計稿 `products-list-page.html` 也沒有這個屬性。
+   ⇒ 所以下面那個 `12.5px` **刻意不併整數**:併了會讓人以為它是活的。
+   要嘛整組刪、要嘛接上一個真的字級切換功能 —— 兩者都超出「純換色」的授權,已列進 STOP。 */
 [data-font-size="lg"] .pcard-name { font-size: 15px; }
 [data-font-size="lg"] .pcard-brand { font-size: 11px; }
 [data-font-size="sm"] .pcard-name { font-size: 12.5px; }

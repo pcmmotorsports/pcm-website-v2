@@ -82,9 +82,13 @@
 }
 
 .cart-item-brand {
-  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  /* 🔴 第4批:同族的 `"IBM Plex Mono"` bug(該字體全站從未載入)⇒ 改吃 `var(--f-mono)`、
+     字距統一 0.14em(`DESIGN-HANDOFF` §4-3 逐字「已全數改吃 var(--f-mono)、字距統一 0.14em」)。
+     ⚠️ **這一處屬 /cart、第3批就該修的**;第3批我對 cart 只做了針對性 grep、**沒跑結構比對**
+     ⇒ 漏掉。第4批對 auth 跑比對時才連帶抓出來。教訓寫在 `D-216-STOP`。 */
+  font-family: var(--f-mono);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-text-3);
 }
@@ -100,12 +104,12 @@
 
 .cart-item-variant,
 .cart-item-vehicle {
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第3批:12.5 → 13(`DESIGN-HANDOFF` §4-3「字級只用整數 px」) */
   color: var(--c-text-2);
 }
 /* V-2a2:料號行(每列恆顯、與 PDP 料號對齊;等寬數字好認、稍深字色) */
 .cart-item-sku {
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第3批:12.5 → 13(整數化) */
   color: var(--c-text);
   font-variant-numeric: tabular-nums;
 }
@@ -137,7 +141,7 @@
 }
 
 .cart-item-remove {
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第3批:12.5 → 13(整數化) */
   color: var(--c-text-3);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -186,7 +190,7 @@
   display: flex;
   justify-content: space-between;
   padding: 6px 0;
-  font-size: 13.5px;
+  font-size: 14px; /* 🔶 第3批:13.5 → 14(整數化) */
 }
 .cart-row-hint {
   font-size: 11px;
@@ -214,7 +218,12 @@
 .cart-checkout {
   width: 100%;
   padding: 16px;
-  background: var(--c-text);
+  /* 🔶 第3批(`cart-page-handoff.md` §五,Sean 2026-08-05 選 B):主 CTA 一律熔橘。
+     🔴 **這條與同一份交接單 §一-4 與驗收條件第 3 條(「`.cart-checkout` 仍墨黑、照舊不動」)
+     直接衝突**;派工單 §3-3 已裁定那兩處是**過期字面**(典型「只補到手碰過的行」),
+     以 §五 為準。白字對熔橘 3.12:1 = Sean 知情接受的殘餘風險(見 `tokens.css`),不要「順手修正」。
+     ⚠️ 空車狀態的 `.btn-primary`(繼續購物)**維持墨黑**——設計端 §五 明文,它是導流鈕非結帳主 CTA。 */
+  background: var(--c-red);
   color: #fff;
   font-size: 14px;
   font-weight: 500;
@@ -225,7 +234,7 @@
   gap: 8px;
   transition: background 0.2s;
 }
-.cart-checkout:hover { background: #000; }
+.cart-checkout:hover { background: var(--c-red-dark); }
 .cart-checkout span { transition: transform 0.25s; }
 .cart-checkout:hover span { transform: translateX(4px); }
 

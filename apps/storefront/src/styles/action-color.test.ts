@@ -11,7 +11,7 @@
 //    也看不到對比度。對比度由設計端負責(#c4470c 對白底 4.9:1);cascade 由真瀏覽器量測負責。
 
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -22,30 +22,51 @@ const read = (f: string) => readFileSync(resolve(HERE, f), 'utf8');
 // 手列清單的問題是「今天沒命中的檔明天可能有」—— 而清單不會自己長。
 // 下面的面層斷言(不得殘留緋紅 / 不得冒出第三顆熔橘)必須畫在**整個樣式層**這個面上,
 // 逐點斷言才是列名的(那些需要知道確切選擇器)。
-const FILES = [
-  'tokens.css', 'tier.css', 'auth.css', 'account.css', 'cart.css', 'cart-vehicle.css',
-  'checkout.css', 'error.css', 'filter-cascade.css', 'filter-drawer.css', 'filter-responsive.css',
-  'filter-side.css', 'filter-top.css', 'header.css', 'line-cta.css', 'mobile-tabbar.css',
-  'pages-shipping.css', 'pricing.css', 'product-card.css', 'product-page.css',
-  'products-mobile.css', 'products-page.css',
-] as const;
 // 🔴 **刻意排除三支,不是漏**:`home.css` / `brand-page.css` / `brand-directory.css` 是已定案上線、
 //    **自帶色票**的頁面(`--ed-c-action*` / 自 scope 的 `--c-red` / `--bd-ember*`),0c 明文不動它們
 //    (triage §3-2)。而且排除是**承重的**:`home.css` 的 `--ed-c-action-active: #a53a08` 與
 //    `--c-red-dark` 的距離只有 48 ⇒ 放進來會被「第三顆熔橘」那條誤紅,而它是合法的第三階。
-//    要把那三支收進站台 token 是獨立一片,收的時候這份清單要一起重想。
-type CssFile = (typeof FILES)[number];
+//    要把那三支收進站台 token 是獨立一片,收的時候這份排除清單要一起重想。
+const EXCLUDE = ['home.css', 'brand-page.css', 'brand-directory.css'] as const;
 
-const RAW = Object.fromEntries(FILES.map((f) => [f, read(f)])) as Record<CssFile, string>;
+// D-113-A nit ②:上面那段註解自稱「掃全部」,而原本的實作是手列 22 支字串 ⇒ 字面 vs 事實。
+// 改成真的 `readdirSync`:新增一支 CSS 時面層斷言自動涵蓋它,清單不會過期。
+const FILES = readdirSync(HERE)
+  .filter((f) => f.endsWith('.css') && !(EXCLUDE as readonly string[]).includes(f))
+  .sort();
+type CssFile = string;
+
+// 🔴 手列清單換成掃描,換來一個新的假綠面:**掃到零支也會全綠**。
+//    `it.each([])` 不產生任何測試、`for (const f of FILES)` 零迭代 ⇒ 三條面層斷言一起靜默消失,
+//    而報表上只會少幾個測試數、沒有紅。CSS 被搬到別的目錄、或這支測試檔被移走,都會走到這裡。
+//    下限值 20 = 今天實數 22(25 支 CSS − EXCLUDE 3)留兩支的刪除餘裕,不是精確計數。
+if (FILES.length < 20) {
+  throw new Error(
+    `styles/ 只掃到 ${FILES.length} 支 CSS(預期 20+)⇒ 面層斷言會零迭代靜默全綠。` +
+      `檔案被搬走了,還是這支測試檔換位置了?`,
+  );
+}
+
+const RAW_BY_FILE = Object.fromEntries(FILES.map((f) => [f, read(f)])) as Record<string, string>;
 // 剝註解:本片的註解**逐字引用了 token 名與舊色值**(坑寫在坑旁邊、刻意的),
 // 對原文比對會命中註解而不是規則本體。
-const CSS = Object.fromEntries(
-  FILES.map((f) => [f, RAW[f].replace(/\/\*[\s\S]*?\*\//g, '')]),
-) as Record<CssFile, string>;
+const CSS_BY_FILE = Object.fromEntries(
+  FILES.map((f) => [f, RAW_BY_FILE[f]!.replace(/\/\*[\s\S]*?\*\//g, '')]),
+) as Record<string, string>;
+
+// FILES 改成 readdirSync 之後鍵型是 string ⇒ 索引存取會是 `string | undefined`。
+// 用 fail-closed 取值,不用 `!`:讀不到就是前提失效(檔被刪/改名),該紅而不是往下跑。
+function pick(map: Record<string, string>, f: string): string {
+  const v = map[f];
+  expect(v, `${f} 不在掃描結果裡 ⇒ 本組斷言的前提已失效(檔被刪或改名?)`).toBeTypeOf('string');
+  return v as string;
+}
+const RAW = (f: string) => pick(RAW_BY_FILE, f);
+const CSS = (f: string) => pick(CSS_BY_FILE, f);
 
 /** 取某個選擇器的宣告區塊(平規則;內含巢狀 `{` 一律當前提失效直接紅)。 */
 function block(file: CssFile, selector: string): string {
-  const src = CSS[file];
+  const src = CSS(file);
   const i = src.indexOf(selector);
   expect(i, `${file} 找不到選擇器 ${selector}(被改名或刪了?)`).toBeGreaterThan(-1);
   const open = src.indexOf('{', i);
@@ -60,7 +81,7 @@ function block(file: CssFile, selector: string): string {
 describe('0c 守門 · 檔案本身沒壞', () => {
   it.each(FILES)('%s 的註解符號成對且順序正確', (f) => {
     // CSS 註解不巢狀 ⇒ 註解內文裡的 `/*` 只是文字,只比數量會誤判(products-mobile.css 現成有一個)。
-    const src = RAW[f];
+    const src = RAW(f);
     let open = false;
     for (let i = 0; i < src.length - 1; i++) {
       if (!open && src[i] === '/' && src[i + 1] === '*') { open = true; i++; }
@@ -84,9 +105,9 @@ describe('0c · 五顆 token 的值', () => {
   ];
   it.each(EXPECTED)('%s = %s', (token, value) => {
     // 只看 :root 段(深色模式段獨立覆寫同名 token,值本來就不同)。
-    const i = CSS['tokens.css'].indexOf('[data-theme="dark"]');
+    const i = CSS('tokens.css').indexOf('[data-theme="dark"]');
     expect(i, 'tokens.css 找不到深色段切點 ⇒ 本組斷言的前提已失效').toBeGreaterThan(-1);
-    const root = CSS['tokens.css'].slice(0, i);
+    const root = CSS('tokens.css').slice(0, i);
     expect(root, `:root 段找不到 ${token}: ${value}`).toMatch(new RegExp(`${token}:\\s*${value};`));
   });
 
@@ -94,7 +115,7 @@ describe('0c · 五顆 token 的值', () => {
   //    `--c-red: #f87171`,實查根本沒有 —— 深色段(`tokens.css:151`)**完全沒有覆寫這一族**,
   //    深色模式直接繼承 `:root` 的熔橘。寫下來因為它牽出一件真的要記著的事(見下方 ⏳)。
   it('🔴 深色段仍然不覆寫動作色家族(0c 沒有偷偷替深色模式做決定)', () => {
-    const dark = CSS['tokens.css'].slice(CSS['tokens.css'].indexOf('[data-theme="dark"] {'));
+    const dark = CSS('tokens.css').slice(CSS('tokens.css').indexOf('[data-theme="dark"] {'));
     expect(dark.length, '找不到深色段').toBeGreaterThan(0);
     for (const t of ['--c-red', '--c-red-soft', '--c-red-dark', '--c-accent', '--c-tier-premium']) {
       expect(dark, `深色段開始覆寫 ${t} ⇒ 那是本片範圍外的決定,要單獨評估對比度`)
@@ -143,7 +164,7 @@ describe('0c · 規則② 文字層走深熔橘(白底小字)', () => {
   });
 
   it('🔴 pricing.css 三處白底價格全部吃深熔橘(經銷價另走 --c-accent)', () => {
-    const src = CSS['pricing.css'];
+    const src = CSS('pricing.css');
     // 面層:整支檔不得再有 `color: var(--c-red)`(亮熔橘)—— 這支檔全部都是白底價格文字。
     expect(src, 'pricing.css 出現亮熔橘文字 ⇒ 白底價格對比不足').not.toMatch(
       /color:\s*var\(--c-red[,)]/,
@@ -165,6 +186,19 @@ describe('0c · 規則② 填色 / 框線層留亮熔橘', () => {
   ];
   it.each(FILL_LAYER)('%s 的 %s 維持亮熔橘', (file, selector, re) => {
     expect(block(file, selector), `${selector} 不再是亮熔橘填色/框線`).toMatch(re);
+  });
+
+  // D-113-A nit ①:`.auth-err` 的底色是**寫死的十六進位**,不是 token ⇒ 上面那組 `var(--c-…)`
+  // 的斷言對它完全隱形,改回舊的紅 50 底 `#fef2f2` 不會有任何東西紅。
+  it('🔴 .auth-err 的底色寫死 #fdf3ec(OD 逐字),且沒被退回舊紅底 / 沒被誤接 --c-red-soft', () => {
+    const body = block('auth.css', '.auth-err');
+    expect(body, '.auth-err 的底色不是 OD 逐字的 #fdf3ec').toMatch(/background:\s*#fdf3ec\b/i);
+    // 反面①:退回 0c 之前的紅 50 底。
+    expect(body, '.auth-err 退回舊的緋紅淡底 #fef2f2').not.toMatch(/#fef2f2/i);
+    // 反面②:「順手改成吃 token」不是等價替換 —— `--c-red-soft` 是 #fdeadd,與 OD 指定的
+    // #fdf3ec 差一階。要換成 token 必須先回設計端確認,不是實作可以自己決定的。
+    expect(body, '.auth-err 被改成吃 --c-red-soft ⇒ 底色由 #fdf3ec 靜默變成 #fdeadd')
+      .not.toMatch(/background:\s*var\(--c-red-soft\)/);
   });
 
   it('🔴 /products 骨架進度條吃亮熔橘(0c 之前吃到 --c-accent 的 fallback = 墨黑)', () => {
@@ -208,7 +242,7 @@ describe('0c · 反面 — 舊緋紅與第三顆紅都不得殘留', () => {
     //   ① 原本要求 `rgba(` ⇒ 無 alpha 的 `rgb(220, 38, 38)` 繞得過。
     //   ② 原本**逐行** filter ⇒ 宣告換行寫成 `box-shadow: 0 2px 10px\n  rgba(220, 38, 38, .3);`
     //      也繞得過。改成先把 `--c-tier-premium` 那一條宣告整段挖掉、再對**全文**比對。
-    const src = CSS[f].replace(/--c-tier-premium\s*:[^;]*;/g, '');
+    const src = CSS(f).replace(/--c-tier-premium\s*:[^;]*;/g, '');
     expect(src, `${f} 殘留寫死的緋紅`).not.toMatch(/#dc2626/i);
     expect(src, `${f} 殘留寫死的緋紅 rgb(a)`).not.toMatch(/rgba?\(\s*220\s*,\s*38\s*,\s*38/i);
   });
@@ -217,7 +251,7 @@ describe('0c · 反面 — 舊緋紅與第三顆紅都不得殘留', () => {
     // 0c 之前 `--c-accent` 未定義 ⇒ `var(--c-accent, #c0392b)` 實際渲染的是這顆。
     // 補定義之後它變成取不到的 fallback;值也一併更正,避免留一個會騙人的字面。
     for (const f of FILES) {
-      expect(CSS[f], `${f} 還留著 #c0392b`).not.toMatch(/#c0392b/i);
+      expect(CSS(f), `${f} 還留著 #c0392b`).not.toMatch(/#c0392b/i);
     }
   });
 
@@ -242,8 +276,8 @@ describe('0c · 反面 — 舊緋紅與第三顆紅都不得殘留', () => {
     for (const f of FILES) {
       // 🔴 取樣面要含 `rgb()/rgba()`(複審 nit 7:本片自己就動了五處 rgba,
       //    那正是最可能長出第三顆橘的地方;實測把一處改成 `rgba(232,96,31,.3)` 原本 54 全綠)。
-      const hexes = [...CSS[f].matchAll(/#[0-9a-f]{6}\b/gi)].map((m) => m[0].toLowerCase());
-      const fromRgb = [...CSS[f].matchAll(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/gi)]
+      const hexes = [...CSS(f).matchAll(/#[0-9a-f]{6}\b/gi)].map((m) => m[0].toLowerCase());
+      const fromRgb = [...CSS(f).matchAll(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/gi)]
         .map((m) => '#' + [m[1], m[2], m[3]].map((v) => (+v!).toString(16).padStart(2, '0')).join(''));
       for (const hex of [...hexes, ...fromRgb]) {
         if (EMBERS.includes(hex) || ALSO_OK.includes(hex)) continue;

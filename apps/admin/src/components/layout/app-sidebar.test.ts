@@ -90,8 +90,17 @@ describe('AppSidebar 導覽項', () => {
       ['客戶', '/customers'],
       ['員工管理', '/settings/staff'],
       ['供應商', '/settings/suppliers'],
-      ['設定', '/settings/order-statuses'],
+      // A9w2:「設定」原指 `/settings/order-statuses`(九碼狀態詞彙 CRUD),該頁隨九碼退場已刪
+      // ⇒ 改為無 href 的不可點格;`navEntries()` 的 regex 要求 `href:` 才匹配得到,
+      // 所以它從本清單消失是**預期**的。本檔看守的正是「哪幾項是可點的」。
     ]);
+  });
+
+  it('🔴 A9w2:設定那一格仍在、但不得有 href(頁面已下架,留著 href = 送員工去 404)', () => {
+    // 與上一條互補而非蘊含:上面看守「可點清單」,這條看守「那一格沒被順手刪掉、
+    // 也沒有人把死路徑接回來」—— 只刪頁不改 nav、或只改 nav 不刪頁,各紅一條。
+    expect(SOURCE).toContain("{ key: 'settings', label: '設定', icon: Icons.settings }");
+    expect(SOURCE).not.toContain('/settings/order-statuses');
   });
 
   // 🔴 **刪掉了第二條**(R1 nit):它原本斷言「供應商那項有 href、不是 disabled button」,

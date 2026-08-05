@@ -6723,9 +6723,16 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ---
 
-### #269. 🔗 首頁殘餘死連結:/install /stores + ?filter=new|sale
+### #269. 🔗 首頁殘餘死連結:~~/install /stores~~ + ?filter=new|sale
 
-- **狀態:** ⏳ 待執行
+- **狀態:** ⏳ 待執行(**2026-08-06 部分解除:`/install` `/stores` 已建**)
+- **🔶 2026-08-06 全站重設計第2批解除一半:**
+  - `/install`、`/stores` 兩條路由**已建**(`app/install/page.tsx`、`app/stores/page.tsx`),
+    掛設計端的「新功能即將上線」頁(`ComingSoon` 元件)⇒ 上表 `/install` 3 處、`/stores` 3 處
+    共 6 個連結**全部不再 404**,`Header.tsx` 那兩顆(全站每頁都有)也一併活了。
+  - 🔴 **本條剩下的範圍 = 只有 `?filter=new|sale`**(4 + 2 = 6 個連結,仍點了無效果)。
+  - ⚠️ 這兩頁目前是「即將上線」佔位,不是完整的店家 / 安裝頁 —— 完整稿(`stores-page.html`、
+    `install-page.html`)設計端保留著,等 Sean 給店家名單與工時費率才切回(見該兩支 page 檔頭)。
 - **優先級:** 🟡 低
 - **問題:**
   - Q4-S5(2026-07-05)修首頁「分類卡無過濾 + 品牌牆 404」時順帶掃出**其餘死連結**(本輪 scope 外、未動):
@@ -9045,3 +9052,28 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   不必獨立成片。
 - **不修會痛在哪**:與 0b 修掉的那五支同病:下次任何人動頁首高(logo 換尺寸、padding 調整),
   三綠+全套測試對「側欄被頁首蓋住幾 px」全盲,只有真瀏覽器看得到——0b 這次就是這樣撞出來的。
+
+### #332. 🧹 九碼退場殘餘死碼收尾片 — 三筆「無主」死碼集中收,走 plan
+
+- **狀態:** ⏳ 待執行(2026-08-06 E 線收割時立案;A11 全鏈完成後排)
+- **內容(三筆,一片收完)**:
+  ① `packages/domain/src/order/types.ts` 的 `WORKFLOW_STATUS_CODE_RE` export——A9w3 起全 repo 零
+  consumer,A9w4c 前半明文未處置(兩處註解已改指本條);合併它與 `workflow-form.ts` 的同字面
+  local RE 一併評。
+  ② `settings-result-banner.tsx` 的預設 `MESSAGES`(order-statuses CRUD 詞彙)——A9w2 刪掉唯一
+  吃預設值的頁面後成死碼;codex A9w4b 關卡2 R2 已同意降 nit 收此處。
+  ③ 兩支 result-banner 的 `Object.hasOwn` 修法(memory `reference_js-index-lookup-hits-prototype-chain`)
+  ——Sean 2026-08-02 拍板 B 逐字「要再修的話,兩支元件要一起、並且走 plan」;`messages` 是否轉必填
+  (props 介面改動=鐵則 12⑥)在該 plan 一起裁。
+- **不修會痛在哪**:死詞彙是「看起來有守門」的假安心(下個人以為預設文案有人維護);
+  `__proto__` 族查詢參數在五個頁面仍畫得出空 banner 框;零 consumer export 誘導未來誤用。
+
+### #333. 📐 TabBar 讓位 padding 與「藏 TabBar」不同步 — 藏的頁面底部留 70px 死空間
+
+- **狀態:** ⏳ 待執行(2026-08-06 D 批2 R1 點名;動殼=鐵則 12⑥ 候選,獨立小片)
+- **現況**:`mobile-tabbar.css` 給 body 加固定讓位 padding;`/coming-soon` 已用頁內覆寫修掉露白,
+  但 `/products/[slug]` 同樣藏 TabBar、同樣有 70px 空捲動(白底看不出來、實際存在)。
+- **修法(D 批2 R1 建議)**:藏 TabBar 時同步在 `html`/`body` 標旗標,讓位 padding 吃同一個條件
+  ——一處守門取代逐頁覆寫;動 `MobileTabBar.tsx`+殼層 CSS,走標準片+完整 pnpm test。
+- **不修會痛在哪**:每新增一個藏 TabBar 的頁面就重演一次「底部神祕空白」,深色頁直接露白條,
+  三綠與單元測試全盲、只有真瀏覽器看得到。

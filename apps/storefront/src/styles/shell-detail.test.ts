@@ -217,16 +217,25 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
   //    ⚠️ 所以這條**不宣稱**「64 是對的」,它只釘一件釘得住的事:
   //       兩個吃 cascade bar 的地方**必須用同一個數字**。它們漂開的症狀是
   //       「側欄與標題的黏頂位置差一點」,而那不會有任何東西紅。
-  //    64 的正確性靠真瀏覽器實量(0b 收工實測 `.cft-bar` height = 64、bottom 137 = `.pp-head` top)。
+  //    這個數字的正確性靠真瀏覽器實量。
+  //    🔶 **2026-08-06 第3批:64 → 70**。R1-3 把選車欄位改成 44px 高、列直距 10→12
+  //       ⇒ 列本身變高。**這不是「為了讓測試過而改期望值」** —— 是被測的東西真的變了,
+  //       而且新值同樣是**實量**的:真瀏覽器 `.cft-bar` height = 70、bottom = 143、
+  //       兩處 sticky top = 143(頁首 73 + 列 70),重疊 = 0。
+  //       ⚠️ 設計稿寫的是 139,那是它自己的頁首 69 + 70;真站頁首是 73 ⇒ **不能照抄設計稿的總和**。
+  const CASCADE_BAR_H = '70'; // 實量;改這裡之前先在真瀏覽器重量一次 `.cft-bar` 的 height
   it('🔴 cascade bar 的高度在兩個消費點必須同值(文字層釘不住它對不對,但釘得住它一致)', () => {
     const offsets = [
       ...(CSS['products-page.css'].match(/calc\(var\(--shell-header-h\) \+ (\d+)px\)/g) ?? []),
       ...(CSS['filter-side.css'].match(/var\(--shell-header-h\)[^;]*?(\d+)px/g) ?? []),
     ];
     const cascade = new Set(
-      offsets.map((o) => o.match(/(\d+)px/)?.[1]).filter((n) => n === '64'),
+      offsets.map((o) => o.match(/(\d+)px/)?.[1]).filter((n) => n === CASCADE_BAR_H),
     );
-    expect(cascade.has('64'), '找不到任何 + 64px 的 cascade 偏移 ⇒ 本條的前提已失效').toBe(true);
+    expect(
+      cascade.has(CASCADE_BAR_H),
+      `找不到任何 + ${CASCADE_BAR_H}px 的 cascade 偏移 ⇒ 本條的前提已失效(列高又變了?先重量再改這個常數)`,
+    ).toBe(true);
     // 反面:`filter-side.css` 的 top 與 height 必須用同一個數字,否則側欄高度與位置對不上。
     const side = CSS['filter-side.css'];
     const sideTop = side.match(/top:\s*calc\(var\(--shell-header-h\) \+ (\d+)px\)/)?.[1];

@@ -39,14 +39,10 @@ vi.mock('../../../lib/payment/refund-read', () => ({
 
 const mocks = vi.hoisted(() => ({
   findAdminOrderDetail: vi.fn(),
-  listOrderStatusOptions: vi.fn(),
   listSuppliers: vi.fn(),
 }));
 vi.mock('../../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ findAdminOrderDetail: mocks.findAdminOrderDetail }),
-  getAdminOrderStatusOptionsRepository: () => ({
-    listOrderStatusOptions: mocks.listOrderStatusOptions,
-  }),
 }));
 // 🔴 只換掉 `listSuppliers`,`sortSuppliersByLabel` 用**真的**那一把 ——
 //    選單順序是這條測試的一部分,mock 掉排序等於在測 mock。
@@ -98,8 +94,6 @@ function detail(): AdminOrderDetail {
         quantity: 2,
         unitPrice: { amount: 50, currency: 'TWD' },
         lineTotal: { amount: 100, currency: 'TWD' },
-        workflowStatus: null,
-        version: 1,
         procurements: [],
         procurementTruncated: false,
       },
@@ -114,7 +108,6 @@ function detail(): AdminOrderDetail {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
-  mocks.listOrderStatusOptions.mockResolvedValue([]);
   mocks.listSuppliers.mockResolvedValue([{ id: SUPPLIER, label: 'RPM Carbon' }]);
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });

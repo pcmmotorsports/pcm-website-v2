@@ -59,6 +59,11 @@ const SERVICE_ROLE_ONLY_TABLES = [
   // 取消歷程 + 明細(帶 actor=staff id、idempotency_key、payload_hash)—— `20260730130000:200-203`、`:265-268`
   'order_cancellations',
   'order_cancellation_items',
+  // 出貨包裹 + 明細(帶 hct_request_id / hct_raw_response = 新竹送單證據、收件快照)——
+  // `20260805170000`/`20260805170200`,2026-08-06 apply 正式站當日補登記(backlog #329 點名的
+  // 失效路徑:新表忘登記=零防護零訊號;#329 的 migration 掃描 meta 閘仍待做)
+  'shipments',
+  'shipment_items',
 ] as const;
 
 /**

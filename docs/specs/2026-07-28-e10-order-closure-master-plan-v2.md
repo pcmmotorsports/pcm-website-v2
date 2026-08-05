@@ -287,6 +287,11 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
          ↓   ← 🔴 R6:順序不可反 —— 先砍型別欄位會讓仍在讀的 TSX 編譯斷,逐片三綠失效
        A9w1/A9w2 (U: 九碼明細頁+週邊下架) → A9w3 (A: 投影收縮)
          → A9w4a/A9w4b/A9w4c (A: writer chain 三拆, R18)
+         🔴 2026-08-06 改序(主視窗裁定,E-204-STOP→E-103-A):**A9w4a 與 A9w4c 的 item 半片
+         延後至 A11a 之後**(與 A9v 同段)。理由=A9w4a 要拆的 `updateOrderItemWorkflowAction`
+         唯一活消費端是列表九碼 cell(`orders-table.tsx` ← `item-workflow-status-cell.tsx`),
+         而 row 50 拍板該 cell「隨 A11a-c 自然退場、不另開片」⇒ 原序照字面做必編譯斷。
+         A9w1/A9w2/A9w3/A9w4b/A9w4c 前半已於 2026-08-06 落地(4a/4b=平行手足,見 :315 停寫序)。
          ↓
        A10a/A10b/A10c2/A11a-c (U 主建設前段)
          ↓
@@ -333,7 +338,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 退款工作 | **A7b-M + A7b-T**(兩表 schema + 六支守門 trigger,第 1 批先建,合約定死;**排在 A1 之後**) | **全在第 3 批**:A8b(同交易 enqueue)+ worker(狀態機照 A7b) | A9g + dead-review 讀模型(第 3 批) | A13b + **dead 結案畫面(第 3 批,R17 補)** | (併入 19 的第 3 批部分) |
 | 收款帳本(第 3 批) | `order_payments` schema(R15 補域列 —— 原漏) | **發布序寫死:schema → live writer(`confirm_order_payment` 擴充,含上線前已 paid 單的 replay upsert 負測)→ idempotent backfill(歷史)→ readers → A8b 分流** —— 切換窗口不漏記新卡款 | 對帳讀模型(第 3 批拆片) | U3 四格 UI | **15, 16**(第 3 批) |
 | 列表投影 | — | — | A9c(admin 加法)/ **A9s(storefront 收縮)/ A9r(admin 收縮)**——兩者皆在 A9e/A9f **之後** | A9e / A9f / A11a-c | **1(部分)** |
-| P3 九碼退場(R17 補列) | A9v(REVOKE item RPC + **撤 status-options 寫權** + 欄凍結;**鏈末**) | 停寫序:A9w4a(item writer)/ A9w4b(status-options writer)→ A9w4c(contract)→ A9v REVOKE | A9w3(投影/型別收縮) | A9w1(明細頁)/ A9w2(篩選·URL·status-options CRUD 下架)/ 列表 cell 隨 A11a-c 退場 | —(P3 是退場、無 27 項綠燈;驗收 = 全 consumer 零引用 grep) |
+| P3 九碼退場(R17 補列) | A9v(REVOKE item RPC + **撤 status-options 寫權** + 欄凍結;**鏈末**) | 停寫序:A9w4a(item writer)/ A9w4b(status-options writer)→ A9w4c(contract)→ A9v REVOKE(斜線=**平行手足**,4b 可先落地;2026-08-06 追認,E-205-STOP→E-104-A) | A9w3(投影/型別收縮) | A9w1(明細頁)/ A9w2(篩選·URL·status-options CRUD 下架)/ 列表 cell 隨 A11a-c 退場 | —(P3 是退場、無 27 項綠燈;驗收 = 全 consumer 零引用 grep) |
 | 編號 | D0 | D1a0-D1c(runbook ×14)/ N3a / N3b / N3c | **A9b1**(display_id + legacy 命中) | **A10c1 單號搜尋**(🔴 R6:D1 前置,驗過舊號命中才准 D1) | — |
 
 **閉環檢查**:每個綠燈的整條鏈都在同一批;第 1 批不依賴包裹、不依賴帳本、不依賴 N3a(D1 用寫死映射,§8.4)。
@@ -437,9 +442,9 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 50 | **A9w1** | U | 🔴 **九碼明細頁下架**(P3 退場;R16 拆:原 A9w 全塞一片超時):明細頁 `ItemWorkflowStatusCell` 移除、品項列改三軸顯示(消費 A9a/A9c 投影)。列表側的九碼 cell **隨 A11a-c 重建自然退場**、不另開片 | — |
 | 51 | **A9w2** | U | 🔴 **九碼週邊 UI 下架**:九碼篩選與 URL 參數、`order_status_options` 狀態設定 CRUD 頁(九碼的管理入口)**一併下架**(R18 刪「或標唯讀」殘字 —— A9w4 已拍死單一路徑 = 下架) | — |
 | 52 | **A9w3** | A | 🔴 **九碼契約收縮**:adapter 投影 / mapper / 型別 / 消費端測試移除 `workflow_status`(admin 側;在 A9w1/A9w2 之後) | — |
-| 53 | **A9w4a** | A | 🔴 **九碼 item writer 拆除**(R18 拆三:原 A9w4 全鏈一片超時):item-workflow 的 server action 與 form parser 具名移除;**高風險(server action 授權邊界)** | — |
+| 53 | **A9w4a** | A | 🔴 **九碼 item writer 拆除**(R18 拆三:原 A9w4 全鏈一片超時):item-workflow 的 server action 與 form parser 具名移除;**高風險(server action 授權邊界)**。🔴 2026-08-06 改序:**延後至 A11a 之後**(消費端=列表 cell 到 A11a 才消失;E-204-STOP→E-103-A,詳 §5.0 DAG 註記) | — |
 | 54 | **A9w4b** | A | 🔴 **九碼 status-options writer 拆除**:`status-option-actions` / `status-option-form` 具名移除(狀態設定的寫入端);**高風險(server action 授權邊界)** | — |
-| 55 | **A9w4c** | A | 🔴 **九碼 contract / exports 收縮**:port、adapter 呼叫端、barrel exports、殘留型別與測試清除。在 A9w4a/A9w4b 之後 | — |
+| 55 | **A9w4c** | A | 🔴 **九碼 contract / exports 收縮**:port、adapter 呼叫端、barrel exports、殘留型別與測試清除。在 A9w4a/A9w4b 之後。🔴 2026-08-06 拆半:**status-options 半片已落地(`e27f815`)**;item 半片隨 A9w4a 延後至 A11a 之後 | — |
 | 56 | **A10a** | U | 明細頁:內部備註 + 聯絡紀錄時間軸;🔴 **含 U6「已告知客人」的結構化欄位**(時間 / 管道 / 摘要)寫入與讀回 | **3** |
 | 57 | **A10b** | U | 明細頁:逐品項採購表單(含分配數量、到貨數量、異常原因、**供應商下拉選單**)。🔀 **2026-08-01 改**:~~相似值警告~~ 隨 A5c 作廢;供應商改為從主檔選(`S3a` 的讀模型供料、字母序、typeahead),**不再是自由文字**。🔴 本片是 `suppliers.is_active` 的**第一個真實消費端** —— ~~停用的供應商不得出現在這個選單裡~~ 🔀 **2026-08-04 A10b 施工時修正為:停用的供應商不出現在選單,**除非本品項已經有一列採購指向它**。理由 = S1b `:183` 明文業務鍵不阻止採購指向已停用者,而 Sean 2026-08-03 晚拍 Q1=A 只擋「新建」與「調升 allocated」、**事實記錄欄照常可更新**(A5a `:326`)⇒ 照原字面把它從選單拿掉,那一列就**永遠改不了**了。選單仍標記「(已停用)」、A5a 為第二道。原字面早於 08-03 那次拍板,非推翻拍板。🟡 同 row 的 **typeahead 未實作**(A10b 用純 `<select>` + zh-TW 字母序)。**Sean 2026-08-04 拍板 A:這期不做,需求移入具名 backlog `#308`**(`docs/phase-1-backlog.md`;含「不修未來會痛在哪 = 供應商成長到 50+ 家時純下拉難找,現況 26 家可用」)—— 需求有家、不是被施工端註記關掉(在此之前 `is_active` 是無作用旗標) | **5, 6, 7**(🔴 R5 抓:第 7 項 = **A10a+A10b 聯合驗收** —— 告知紀錄在 A10a、異常原因在 A10b,兩片皆完成才綠) |
 | 58 | **A10c2** | U | 依供應商單號搜尋畫面(消費 A9b2) | — |

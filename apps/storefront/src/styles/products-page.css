@@ -31,7 +31,11 @@
   top: calc(var(--shell-header-h) + 58px);
 }
 .pp-layout[data-filter-style="cascade"] .pp-head {
-  top: calc(var(--shell-header-h) + 64px); /* 車款列實量 64px(含上下框線) */
+  /* 🔶 第3批 R1-3 連動:車款列由實量 64px 長到 **70px**(欄位 44px 高 + 直距 12px 上下 + 兩條框線)。
+     🔴 **70 是真瀏覽器實量的**(`.cft-bar` getBoundingClientRect().height = 70),
+     不是照抄設計稿的 139 —— 設計稿的頁首是 69px、真站是 73px(`--shell-header-h`),
+     照抄那個總和會差 4px。0b 立的規矩:偏移只寫「頁首 token + 該列自己的實量高」。 */
+  top: calc(var(--shell-header-h) + 70px);
 }
 /* Title row: title left, breadcrumb right */
 .pp-head-row {
@@ -217,8 +221,15 @@
   border-top: 1px solid var(--c-border);
   flex-wrap: wrap;
 }
+/* 🔴 第3批:`var(--font-sans)` / `var(--font-mono)` 是**真站既有 typo**,與第1批 `/info/shipping`
+   的 `.shipping-card-num` 同一族。那兩顆別名只定義在 `product-page.css:16,18` 的 **`.pd-page`
+   scope 內**(商品詳情頁),本檔的選擇器在 `/products` 列表頁上、取不到。
+   ⚠️ 而且這裡比第1批更嚴重:它們是 **`font:` 簡寫**,變數解不出來時**整條宣告被丟棄** ——
+   連 `13px` / `12px` 的字級與 `/1` 的行高一起沒了。真瀏覽器實測:壞的那條 computed
+   `font-size: 16px` / `line-height: normal`(繼承 body),好的是 `13px` / `13px`。
+   ⇒ 分頁列的字一直比設計值大 3px、行高也不對。設計稿 `products-list-page.html` 已全數寫 `--f-*`。 */
 .pp-pagination-info {
-  font: 12px/1 var(--font-mono, monospace);
+  font: 12px/1 var(--f-mono, monospace);
   color: var(--c-text-3);
   letter-spacing: 0.05em;
 }
@@ -242,7 +253,7 @@
   background: transparent;
   border: 1px solid transparent;
   color: var(--c-text-2);
-  font: 13px/1 var(--font-sans);
+  font: 13px/1 var(--f-sans);
   cursor: pointer;
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
@@ -280,7 +291,7 @@
   background: transparent;
   border: 1px solid var(--c-border);
   padding: 6px 28px 6px 10px;
-  font: 13px/1 var(--font-sans);
+  font: 13px/1 var(--f-sans);
   color: var(--c-text);
   cursor: pointer;
   appearance: none;

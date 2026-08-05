@@ -35,7 +35,6 @@ vi.mock('../../../lib/payment/refund-actions', () => ({ initiateRefundAction: vi
 
 const mocks = vi.hoisted(() => ({
   findAdminOrderDetail: vi.fn(),
-  listOrderStatusOptions: vi.fn(),
   listSuppliers: vi.fn(),
   listOrderRefunds: vi.fn(),
   getLedgerUnregisteredAmount: vi.fn(),
@@ -48,9 +47,6 @@ vi.mock('../../../lib/payment/refund-read', () => ({
 }));
 vi.mock('../../../lib/orders/order-repository', () => ({
   getAdminOrderRepository: () => ({ findAdminOrderDetail: mocks.findAdminOrderDetail }),
-  getAdminOrderStatusOptionsRepository: () => ({
-    listOrderStatusOptions: mocks.listOrderStatusOptions,
-  }),
 }));
 vi.mock('../../../lib/supplier', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../lib/supplier')>();
@@ -101,7 +97,6 @@ let savedFlag: string | undefined;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.findAdminOrderDetail.mockResolvedValue(detail());
-  mocks.listOrderStatusOptions.mockResolvedValue([]);
   mocks.listSuppliers.mockResolvedValue([]);
   mocks.listOrderRefunds.mockResolvedValue({ rows: [], truncated: false });
   mocks.getLedgerUnregisteredAmount.mockResolvedValue(null);

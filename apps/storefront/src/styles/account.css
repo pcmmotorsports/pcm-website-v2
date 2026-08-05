@@ -23,18 +23,23 @@
 
 /* ============ ACCOUNT 殼 ============ */
 .acc-main {
-  max-width: 1200px;
+  /* 🔶 第4批 R1 9-3(**本輪最大的一筆**):主體由 1200 改吃 `--shell-bar-max`(1440)、
+     左右內距改吃 `--shell-x` ⇒ 內容左右緣與頁首 logo、頁尾版權列切齊同一條垂直線。
+     原本主體比殼窄 240px、而且左右 padding 也與殼不同 ⇒ 整頁內容視覺懸空。
+     (Sean 2026-08-05「優化整體字體、圖示、比例」本輪口頭授權 = 拍了 1440,
+      推翻交接單 §八-2「1200 vs 1440 需拍板」。) */
+  max-width: var(--shell-bar-max);
   margin: 0 auto;
-  padding: 40px 32px 80px;
+  padding: 40px var(--shell-x) 80px;
 }
 
 .acc-head {
   display: grid;
-  grid-template-columns: 80px 1fr auto;
-  gap: 20px;
+  grid-template-columns: 72px 1fr auto; /* 🔶 R1 9-3:頭像實際只有 72px,80 會讓文字塊左緣多出 8px 錯位 */
+  gap: 24px; /* 🔶 R1 9-3 */
   align-items: center;
   padding-bottom: 32px;
-  margin-bottom: 32px;
+  margin-bottom: 36px; /* 🔶 R1 9-3 */
   border-bottom: 1px solid var(--c-border);
 }
 .acc-avatar {
@@ -48,10 +53,12 @@
   font-weight: 600;
 }
 .acc-head h1 {
-  font-size: 36px;
+  /* 🔶 R1 9-3:36 → 32 + 行高。原本與 `.acc-stat-v` 同為 36px ⇒ 頁面主標沒有層級。 */
+  font-size: 32px;
+  line-height: 1.25;
   font-weight: 600;
   letter-spacing: -0.02em;
-  margin: 4px 0;
+  margin: 5px 0 3px; /* 🔶 R1 9-3(R1 抓到我漏改) */
 }
 .acc-email {
   font-size: 13px;
@@ -60,7 +67,7 @@
 .acc-logout {
   padding: 10px 18px;
   border: 1px solid var(--c-border);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--c-text-2);
   background: var(--c-surface);
   transition: all 0.15s;
@@ -72,8 +79,8 @@
 
 .acc-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
-  gap: 48px;
+  grid-template-columns: 236px minmax(0, 1fr); /* 🔶 R1 9-3:版寬 1200→1440 後側欄同比放大 */
+  gap: 56px; /* 🔶 R1 9-3(R1 抓到我漏改這行) */
   align-items: start;
 }
 
@@ -92,22 +99,33 @@
   text-align: left;
   background: transparent;
   color: var(--c-text-2);
-  font-size: 13.5px;
+  font-size: 14px; /* 🔶 第4批 §三-2:13.5 → 14(整數化;順帶對齊殼 nav 的 14px) */
   border-bottom: 1px solid var(--c-border);
   transition: all 0.15s;
 }
 .acc-nav button:last-child { border-bottom: 0; }
 .acc-nav button:hover { color: var(--c-text); background: var(--c-surface-2); }
 .acc-nav button.is-active {
-  color: var(--c-text);
+  /* 🔶 R1 nit:原本寫了兩次 `color`(第一次 `--c-text` 被第二次 `#fff` 蓋掉、是死宣告)。
+     交接單 §八-3 明文「等價清理、要不要收由網站端決定」⇒ 本批既然大改這條規則的鄰居,順手收掉。 */
   background: var(--c-text);
   color: #fff;
 }
+/* 🔶 第4批 R1 9-2:由「置中的 13px 字元」改成 18×18 的 flex 容器(裡面是 inline SVG)。
+   顏色分三階:預設最淺、hover 中間、`.is-active`(黑底)半透明白 —— **不是純白也不是灰**。 */
 .acc-nav-icon {
-  font-size: 13px;
-  width: 14px;
-  text-align: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-3);
+  transition: color 0.15s; /* 🔶 R1 nit:與 `.acc-nav button` 自己的 transition 同步 */
 }
+.acc-nav-icon svg { width: 18px; height: 18px; display: block; }
+.acc-nav button:hover .acc-nav-icon { color: var(--c-text-2); }
+.acc-nav button.is-active .acc-nav-icon { color: rgba(255, 255, 255, 0.75); }
 
 .acc-body { min-width: 0; }
 
@@ -136,16 +154,28 @@
 }
 .acc-stat {
   background: var(--c-surface);
-  padding: 24px;
+  /* 🔶 R1 9-3:三格原本高矮不一(tier 那格只有 badge、數字格是大字)⇒ 等高 + 副標貼底。 */
+  padding: 22px 24px 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 132px;
 }
 .acc-stat-v {
-  font-size: 36px;
+  /* 🔶 R1 9-3:`margin-bottom: auto` = 三格副標一律貼齊卡片底、基線對齊。 */
+  font-size: 30px;
+  line-height: 1.15;
   font-weight: 600;
   letter-spacing: -0.02em;
-  margin: 6px 0 4px;
+  margin: 10px 0 auto;
+  padding-bottom: 10px;
 }
+/* 🔶 R1 nit:`.acc-stat-tier` 在真站**零規則**(`OverviewTab.tsx` 有用、CSS 沒定義)
+   ⇒ 該格是 `display: block` + 繼承 `.acc-stat-v` 的 30px/1.15 行高,徽章的垂直位置
+   與另外兩格的數字對不齊(9-4 驗收 #6「三格副標底線對齊」的邊緣)。設計稿 `pcm-account.css:155` 有。 */
+.acc-stat-tier { display: flex; align-items: center; }
+
 .acc-stat-sub {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--c-text-3);
 }
 
@@ -168,7 +198,7 @@
 }
 .acc-section-head a,
 .acc-add {
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第4批 §三-4:12.5 → 13(整數化) */
   color: var(--c-text-2);
   background: transparent;
   text-decoration: underline;
@@ -200,18 +230,19 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 0;
+  padding: 18px 0; /* 🔶 R1 9-3:列高與新字級同比 */
+  gap: 24px;
   border-bottom: 1px solid var(--c-border);
 }
 .acc-order:last-child { border-bottom: 0; }
 .acc-order-id {
-  font-size: 12px;
+  font-size: 13px; /* 🔶 R1 9-3:訂單編號是識別碼,相對右側總額原本太弱 */
   color: var(--c-text);
 }
 .acc-order-meta {
-  font-size: 12px;
+  font-size: 13px; /* 🔶 R1 9-3 */
   color: var(--c-text-3);
-  margin-top: 4px;
+  margin-top: 5px;
 }
 .acc-order-r {
   text-align: right;
@@ -221,15 +252,18 @@
   gap: 2px;
 }
 .acc-order-total {
-  font-size: 15px;
+  font-size: 16px; /* 🔶 R1 9-3 */
+  letter-spacing: -0.01em;
   font-weight: 600;
 }
 .acc-order-status {
   font-size: 11px;
-  padding: 2px 8px;
+  /* 🔶 R1 9-3:純 `--c-surface-2` 底在近似灰的頁面上讀不出是狀態標 ⇒ 補框線。 */
+  padding: 3px 9px;
+  border: 1px solid var(--c-border);
   background: var(--c-surface-2);
   color: var(--c-text-2);
-  margin-top: 4px;
+  margin-top: 6px; /* 🔶 R1 9-3(R1 抓到我漏改) */
 }
 .acc-order-detail {
   font-size: 12px;
@@ -268,14 +302,15 @@
 }
 .acc-rec-img .pcard-gallery { height: 100%; }
 .acc-rec-name {
-  font-size: 12.5px;
-  line-height: 1.4;
-  min-height: 34px;
+  /* 🔶 R1 9-3:版寬放大後卡片變寬,商品名同比放大並對齊殼 nav 的 14px(順帶併整數)。 */
+  font-size: 14px;
+  line-height: 1.45;
+  min-height: 40px;
 }
 .acc-rec-price {
-  font-size: 12px;
+  font-size: 13px; /* 🔶 R1 9-3 */
   color: var(--c-text-2);
-  margin-top: 4px;
+  margin-top: 5px;
 }
 
 /* acc-empty:對齊 design L994-1000,用於 g-2 訂單 / 推薦空狀態(g-3~g-7 後續 tab 共用) */
@@ -306,8 +341,15 @@
 }
 .acc-profile span {
   font-size: 11px;
-  font-family: "IBM Plex Mono", monospace;
-  letter-spacing: 0.12em;
+  /* 🔴 第4批:`"IBM Plex Mono"` 是**真站既有 bug** —— `DESIGN-HANDOFF-2026-08-05.md` §4-3 逐字:
+     「原本多處寫死 `IBM Plex Mono`,但該字體**全站從未載入**,實際 fallback 到系統 generic
+     monospace,與頁尾的 JetBrains Mono 不同臉。已全數改吃 `var(--f-mono)`、字距統一 `0.14em`。
+     **不要改回去。**」
+     實查坐實:`app/layout.tsx` 的 Google Fonts 只載 Antonio / Inter / Noto Sans TC /
+     Noto Serif TC / Cormorant Garamond / **JetBrains Mono** —— 沒有 IBM Plex Mono。
+     ⇒ 這幾處的 mono 眉標一直與頁尾的 mono 不同臉,而畫面上「看起來就是等寬字」、不會有人回報。 */
+  font-family: var(--f-mono);
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-text-3);
 }
@@ -361,7 +403,7 @@
   margin: 8px 0 6px;
 }
 .acc-bike-meta {
-  font-size: 12.5px;
+  font-size: 13px;
   opacity: 0.72; /* 2026-07-09 可讀性:白字@深卡 0.6→0.72(此卡深底白字、非 token 灰,調 opacity 而非改色) */
 }
 .acc-bike-stats {
@@ -485,9 +527,12 @@
   gap: 6px;
 }
 .acc-inline-form-inner label > span {
+  /* 🔶 第4批 R1 9-1 F3:原本走內文 sans、與同一張表單裡其他 mono 欄位標不同臉。
+     補 `var(--f-mono)`、字重 600→500、字距 0.1→0.14em(與 F1/F2 同一條規則)。 */
   font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+  font-family: var(--f-mono);
+  font-weight: 500;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--c-text-3, #71717a);
 }
@@ -604,7 +649,7 @@
  */
 @media (max-width: 1079px) {
   .acc-main { padding: 24px 16px 40px; }
-  .acc-head { grid-template-columns: 56px 1fr; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
+  .acc-head { grid-template-columns: 52px 1fr; /* 🔶 R1 9-3:頭像實際 52px(同桌機 80→72 的錯位問題;R1 抓到我漏改) */ gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
   .acc-avatar { width: 52px; height: 52px; font-size: 20px; }
   .acc-head h1 { font-size: 22px; word-break: break-word; }
   .acc-head-actions { grid-column: 1 / -1; }
@@ -624,16 +669,32 @@
     border-bottom: 0;
     border-right: 0;
     white-space: nowrap;
-    font-size: 12.5px;
+    font-size: 13px; /* 🔶 第4批 §三-5:12.5 → 13(整數化) */
   }
   .acc-nav button.is-active {
     background: transparent;
     color: var(--c-text);
     border-bottom: 2px solid var(--c-text);
   }
+  /* 🔴🔴 **本批新造的 regression,R1 抓到** —— 桌機的 `.is-active` 是**黑底**,所以圖示用
+     半透明白;但 ≤1079px 的 `.is-active` 是**透明底 + 底部黑線**(見上方),白圖示畫在
+     `--c-bg: #ffffff` 上 = **直接隱形**。改圖示之前那七顆是字元、繼承 button 的 `--c-text`,
+     所以看得見;我把顏色階搬進來時只想到桌機。
+     ⚠️ 設計稿 `pcm-account.css:630-633` **逐字記載過這個 bug**(「Sean 截圖裡『總覽』沒有圖示
+     就是這個」),但它的修法是把手機 active 改成**黑底**(整條導覽改成 2 欄網格)——
+     **那個手機導覽改版不在交接單 §三 / §九 的任何一列**,真站現況是橫捲列。
+     ⇒ 這裡採**對準真站實況**的最小修法:透明底 ⇒ 圖示跟著文字走墨色。
+     設計稿那條「手機導覽改網格」已列進 STOP 給設計端。 */
+  .acc-nav button.is-active .acc-nav-icon { color: var(--c-text); }
+
   /* overview / orders tab mobile(對齊 design L909-911)*/
   .acc-stats { grid-template-columns: 1fr; }
-  .acc-stat-v { font-size: 26px; }
+  /* 🔴 **R1 抓到**:桌機這批新加了 `.acc-stat { min-height: 132px }` 與
+     `.acc-stat-v { margin-bottom: auto }`(三格等高 + 副標貼底)。手機是**單欄**、
+     沒有「三格要等高」的問題 ⇒ 不解除的話每張卡被硬撐到 132px、副標被 `auto` 推到卡底,
+     一張多出約 60px 空白。R1 9-3 最後一列與 9-4 驗收 #10「stat 單欄不留多餘空白」逐字要求。 */
+  .acc-stat { min-height: 0; padding: 18px 18px 16px; }
+  .acc-stat-v { font-size: 26px; margin: 8px 0 0; padding-bottom: 6px; }
   .acc-rec { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* V-2f:minmax(0,…) 讓 track 收縮=修 375px 概覽推薦品第二欄溢出(同 .pp-grid) */
   /* vehicles tab mobile(g-6a、對齊 design L913-914)*/
   .acc-bikes { grid-template-columns: 1fr; }
@@ -645,7 +706,7 @@
 
 /* [既有] [data-mobile="true"] 兜底(dev-preview 強制模式 / SSR UA hint) */
 [data-mobile="true"] .acc-main { padding: 24px 16px 40px; }
-[data-mobile="true"] .acc-head { grid-template-columns: 56px 1fr; gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
+[data-mobile="true"] .acc-head { grid-template-columns: 52px 1fr; /* 🔶 R1 9-3:頭像實際 52px(同桌機 80→72 的錯位問題;R1 抓到我漏改) */ gap: 14px; padding-bottom: 20px; margin-bottom: 20px; }
 [data-mobile="true"] .acc-avatar { width: 52px; height: 52px; font-size: 20px; }
 [data-mobile="true"] .acc-head h1 { font-size: 22px; word-break: break-word; }
 [data-mobile="true"] .acc-head-actions { grid-column: 1 / -1; }
@@ -665,16 +726,20 @@
   border-bottom: 0;
   border-right: 0;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 13px; /* 🔶 第4批 §三-5:12.5 → 13(整數化;[data-mobile] 兜底那一路) */
 }
 [data-mobile="true"] .acc-nav button.is-active {
   background: transparent;
   color: var(--c-text);
   border-bottom: 2px solid var(--c-text);
 }
+/* 同 MF1,`[data-mobile]` 兜底那一路(0,2,0 ⇒ 也贏過全域那條)。 */
+[data-mobile="true"] .acc-nav button.is-active .acc-nav-icon { color: var(--c-text); }
 /* overview / orders tab mobile(對齊 design L909-911)*/
 [data-mobile="true"] .acc-stats { grid-template-columns: 1fr; }
-[data-mobile="true"] .acc-stat-v { font-size: 26px; }
+/* 同 MF7,`[data-mobile]` 兜底那一路。 */
+[data-mobile="true"] .acc-stat { min-height: 0; padding: 18px 18px 16px; }
+[data-mobile="true"] .acc-stat-v { font-size: 26px; margin: 8px 0 0; padding-bottom: 6px; }
 [data-mobile="true"] .acc-rec { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* V-2f:同 minmax(0,…) 修概覽推薦品溢出 */
 /* vehicles tab mobile(g-6a、對齊 design L913-914)*/
 [data-mobile="true"] .acc-bikes { grid-template-columns: 1fr; }
@@ -682,3 +747,45 @@
 /* profile tab mobile(g-4b、對齊 design L915-916)*/
 [data-mobile="true"] .acc-profile { grid-template-columns: 1fr; }
 [data-mobile="true"] .acc-profile .auth-submit { grid-column: 1; }
+
+/* ── 🔶 平板(600-1079px)· 第4批搬自設計稿 `pcm-account.css:648-681` ─────────────
+   **交接單 §三 / §九 都沒列這一段**;`SITE-MAP.md`「平板斷點」與 `DESIGN-HANDOFF §4-4`
+   兩處都把 `pcm-account.css` 與 `pcm-auth.css` **並列**在「已補平板段的檔案」——
+   我用那句話補了 auth,同一句話裡的 account 卻漏了(R1 抓到)。
+   沒有它的話 1024px 的 iPad 整頁吃到為 390px 寫的手機值(h1 22px、stat 26px、nav 13px),
+   Sean 2026-08-05 逐字指出過「平板字體比例都太小」。
+   🔴 位置與提權的理由同 `auth.css` 的平板段:必須排在上面那組 `@media (max-width: 1079px)`
+   **之後**(它完整涵蓋平板區間、同 specificity 後載勝),且與 `[data-mobile="true"]`(0,2,0)
+   撞到的選擇器要提權。守門 = `styles/auth-account.test.ts`。
+   ⚠️ **刻意不搬設計稿的 `.acc-nav` 4 欄網格那 6 條**:真站的手機/平板導覽是**橫捲列**
+   (`overflow-x: auto` + 透明底 active),設計稿把它整條改成網格 —— 那是版位改版、
+   不在交接單任何一列,已列進 STOP 給設計端。這裡只搬「字級與版位被手機值壓過頭」那部分。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  [data-mobile] .acc-main, .acc-main { padding: 32px 28px 56px; }
+  [data-mobile] .acc-head, .acc-head { grid-template-columns: 64px 1fr auto; gap: 20px; padding-bottom: 26px; margin-bottom: 28px; }
+  [data-mobile] .acc-avatar, .acc-avatar { width: 64px; height: 64px; font-size: 24px; }
+  [data-mobile] .acc-head h1, .acc-head h1 { font-size: 28px; }      /* 手機值 22px */
+  [data-mobile] .acc-head-actions, .acc-head-actions { grid-column: auto; } /* 平板寬度夠,登出鈕回到同一列 */
+  .acc-email { font-size: 14px; }
+
+  [data-mobile] .acc-nav button, .acc-nav button { font-size: 15px; min-height: 52px; }
+  .acc-nav-icon, .acc-nav-icon svg { width: 19px; height: 19px; }
+
+  [data-mobile] .acc-stats, .acc-stats { grid-template-columns: repeat(3, 1fr); }
+  [data-mobile] .acc-stat, .acc-stat { min-height: 124px; padding: 20px; }
+  [data-mobile] .acc-stat-v, .acc-stat-v { font-size: 28px; margin: 10px 0 auto; padding-bottom: 10px; } /* 手機值 26px;三欄回來 ⇒ 貼底規則跟著回來 */
+  .acc-stat-sub { font-size: 13px; }
+  .acc-section-head h2 { font-size: 19px; }
+  .acc-order-id, .acc-order-meta { font-size: 14px; }
+  .acc-order-total { font-size: 17px; }
+  [data-mobile] .acc-rec, .acc-rec { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; } /* 4 張一行;2 欄會讓商品圖大到失衡 */
+  .acc-rec-name { font-size: 14px; min-height: 40px; }
+  .acc-rec-price { font-size: 14px; }
+  [data-mobile] .acc-bikes, .acc-bikes { grid-template-columns: 1fr 1fr; }
+  [data-mobile] .acc-bike h3, .acc-bike h3 { font-size: 20px; }      /* 手機值 18px */
+  .acc-bike-meta { font-size: 14px; }
+  .acc-addr-name { font-size: 17px; }
+  .acc-addr-phone, .acc-addr-line { font-size: 14px; }
+  [data-mobile] .acc-profile, .acc-profile { grid-template-columns: 1fr 1fr; }
+  .acc-profile input, .acc-inline-form-inner input:not([type="checkbox"]) { font-size: 16px; }
+}
