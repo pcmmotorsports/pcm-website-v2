@@ -1,4 +1,23 @@
-# E10 第 2 批 · B2-S2:`shipped` 進摘要 片級 plan **v2(關卡1 R1 25 must-fix + 2 nit 全折入)**
+# E10 第 2 批 · B2-S2:`shipped` 進摘要 片級 plan **v2 —— 🛑 已作廢**
+
+> # 🛑 **本檔已作廢(2026-08-06,Sean 拍板 Q3=A)——不得用來開工,僅供素材與審查軌跡查考。**
+>
+> **取代者 = 兩份新 plan**:
+> - **小線** `docs/specs/2026-08-06-e10-b2-s2a-summary-columns-plan.md`
+>   = 摘要表加欄 + C8/C9/C6′ + quarantine 機制設計。
+> - **大線**(重算接線 + harness/runbook 連動)—— 檔名待起草。
+>
+> **作廢理由**:本檔關卡1 兩輪皆 FAIL(R1 25 must-fix + 2 nit、R2 22 must-fix 且 14 條標
+> 「R1 未真正修復」),兩輪硬上限用盡。判讀 = **不是審查鬼打牆,是我把體積過大的一件事
+> 塞進一份 plan**;Sean 2026-08-06 拍 Q3=A 拆兩線,各寫各的 plan、各自跑新的兩輪額度。
+>
+> **另外兩題的拍板連動**:
+> - **Q1=A**:`shipment_items` 那支重算 trigger **整塊移出** —— 小線大線都不含,
+>   隨未來「開放改箱」的片一起做(理由見本檔 §3.3a:它今天沒有唯一契約)。
+> - **Q2=A**:封窗改用 **quarantine 目錄**物理閘(本檔 §2 的純文字封窗被 R2 #3 打掉)。
+>
+> 審查軌跡:`docs/reviews/2026-08-06-b2-s2-k1-codex-r1.md` / `-r2.md`。
+> 實跑證據(仍有效、兩份新 plan 共用):`docs/reviews/2026-08-06-b2-s2-precheck-runs.md`。
 
 > 狀態:**R1 已折入,待 R2 確認;不得開工**。上游 = `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md`(v5.4,S1 三片,**已 apply 正式站**)。
 > 承接 v5 §7.1 交棒條款 + `docs/specs/2026-08-05-shipped-enforcement-analysis.md` 的 Sean Q1=A / Q2=A 拍板。
