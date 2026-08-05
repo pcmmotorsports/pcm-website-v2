@@ -326,6 +326,30 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
 export const ORDER_ITEMS_EMBED_LIMIT = 200;
 
 /**
+ * 內嵌 `payment_charge_attempts` 的請求上限(M-4b E10 A9g-2)。
+ *
+ * 🔴 50 的理由:單張訂單的扣款嘗試實務上是個位數(一次結帳一筆、失敗重試再一筆);
+ * 50 遠高於任何合理值,又低於伺服器 `max-rows`(production 實測 1000)——
+ * 讓截斷邊界由我們的常數擁有(理由同 `ORDER_NOTES_EMBED_LIMIT`)。
+ * 🔴 **「與專案設定脫鉤」只在 `max-rows > 50` 時成立**(關卡2 codex MF3 更正原本說太滿的字面):
+ * 若日後把 `max-rows` 調到 50 以下,伺服器會先截斷、回傳筆數永遠 < 50 ⇒ 本檔判不出截斷、
+ * 閘會靜默變 `'clear'`。單元測試看不見伺服器設定 ⇒ 只能由常數的範圍守門
+ * (`order.test.ts` 的 `toBeLessThan(1000)` 那組)+ 本段字面把前提釘住。
+ * 🔴 觸及上限時**不是**「就這 50 筆」而是「可能被切了」⇒ 閘翻成 `'unknown'`、呼叫端 fail-closed
+ * (見 `AdminOrderDetail.chargeAttemptGate`)。
+ */
+export const PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT = 50;
+
+/**
+ * A8a2 判定「在途扣款」的字面(`20260805100000:362` 逐字 `a.status <> 'failed'`)。
+ *
+ * 🔴 語意是**否定式**:任何**不等於** `failed` 的狀態都算在途,而不是列舉在途狀態的白名單。
+ * 這樣 DB 端日後新增狀態值時,呼叫端會自動偏保守(當成在途、不給取消),
+ * 而不是漏判成「可取消」—— 後者是動到錢的方向。
+ */
+export const CHARGE_ATTEMPT_TERMINAL_FAILED = 'failed';
+
+/**
  * admin 明細讀 row 型別 —— derive 自生成 Database Row(對齊 SupabaseAdminOrderRow 慣例)。
  * 只取 `ADMIN_ORDER_DETAIL_SELECT` 投影欄。🔴 PII 欄(shipping_address_snapshot / invoice /
  * customers email·phone)只在明細投影;仍零成本欄、零 tappay_rec_trade_id。
@@ -408,6 +432,13 @@ export type SupabaseAdminOrderDetailRow = Pick<
    * 宣告成必填會讓型別對呼叫端說謊(實際餵得進 undefined、且有守門測試在測)。
    */
   order_notes?: SupabaseOrderNoteRow[] | null;
+  /**
+   * M-4b E10 A9g-2:扣款嘗試內嵌。🔴 **只取 `status` 一欄** —— 本表帶大量金流敏感欄
+   * (`rec_trade_id` / `bank_transaction_id` / `fallback_token_hash`),取消 UI 只需要
+   * 「有沒有非 failed 的」這個布林事實,多取一個欄都是白給的洩漏面。
+   * 🔴 optional + nullable 理由同 `order_notes`:投影退版會整個沒有這個鍵。
+   */
+  payment_charge_attempts?: { status: string }[] | { status: string } | null;
 };
 
 /**
@@ -469,6 +500,64 @@ function mapQuantitySummary(
     cancelledQuantity: cancelled_quantity,
     cancellableQuantity: quantity - instock_quantity - cancelled_quantity,
   };
+}
+
+/**
+ * 扣款嘗試內嵌 → 取消 UI 的在途扣款閘三態(M-4b E10 A9g-2)。
+ *
+ * 🔴🔴 **「沒讀到」必須翻成 `'unknown'`,不能翻成「沒有在途扣款」** —— 本函式存在的唯一理由。
+ * 缺鍵(投影退版)與 null 都代表「不知道」;把它當成零筆 = 畫面放行取消、送出必被 A8a2 拒,
+ * 而那是動到錢的路徑。
+ *
+ * 🔴 判定序:**`'blocked'` 壓過 `'unknown'`** —— 已經看到一筆在途的,清單完不完整都不影響結論
+ * (兩者都不給按,但文案不同,不能互相吃掉)。
+ *
+ * 🔴 判定用**否定式** `!== 'failed'`(逐字對齊 `20260805100000:362` 的 `a.status <> 'failed'`),
+ * 不是列舉在途白名單:`status` CHECK 現為四值 pending/charged/failed/released
+ * (`20260624120000:45-46`),DB 端日後新增值時否定式會自動偏保守(當成在途、不給取消),
+ * 白名單則會漏判成「可取消」—— 後者是動到錢的方向。
+ *
+ * 🔴 **陣列與單物件都吃**(R1 F3;與同檔 `mapQuantitySummary` 同一條紀律)。
+ * ⚠️ **原本寫的理由是錯的,關卡2 codex nit1 打掉**:我寫「partial UNIQUE index
+ * `(order_id) WHERE status IN ('pending','charged','released')`(`20260624120000:62-64`)
+ * 可能讓 PostgREST 判成 to-one」—— **不成立**,同一單可以有任意多筆 `failed`,
+ * partial index 蓋不住整條關聯。生成型別也逐字寫著 `isOneToOne: false`
+ * (`database.types.ts:1456-1458`)⇒ **規則上必為陣列**。
+ * 仍然兩種都吃的理由只剩一條(與 `mapQuantitySummary` 同):那是規則推導、**不是實測到的 wire 回應**,
+ * 而賭錯的代價不對稱 —— 只認陣列卻回物件時 `.some` 直接 TypeError = 整個明細頁炸掉。
+ * 一行正規化買一個不會炸的下限,留著;但它是**防禦**,不是「DB 會這樣送」的宣稱。
+ *
+ * 🔴 **本閘只在 service_role 之下成立**(R1 F1)。本表三道授權事實:RLS enable + 零 policy
+ * (`20260612150000:115`)、`REVOKE ALL FROM PUBLIC, anon, authenticated`(`:118`)、
+ * **全庫唯一一筆 SELECT 授給 service_role**(`:121`;2026-08-05 grep 全 migrations 只此一筆)。
+ * ⇒ 今天真正擋住外人的是「**沒有 grant**」,不是 RLS:
+ *   ①service_role(BYPASSRLS + SELECT)⇒ 讀得到,本閘才有意義;
+ *   ②anon/authenticated(零 grant)⇒ 請求被拒或內嵌鍵不回來,兩條都落在 fail-closed
+ *     (前者 adapter throw、後者缺鍵 → `'unknown'`);
+ *   ③🔴 **日後若把 SELECT 授給任何不 BYPASSRLS 的角色** ⇒ 零 policy 讓它讀到空陣列、**不報錯**
+ *     ⇒ 本閘變 `'clear'` = 假裝「沒有在途扣款」。本片唯一一條真 fail-open 只會從這裡出生
+ *     ⇒ 已上機制守門 `scripts/a9g2-charge-attempts-grant-guard.test.ts`(關卡2 codex MF2:
+ *       只寫註解攔不住,新增 grant 的那筆 migration 必須當場紅)。
+ * ⇒ `ADMIN_ORDER_DETAIL_SELECT` **只准 service_role client 使用**。
+ *
+ * 🔴 `>=` 而非「取 limit+1 再 `>`」(關卡2 codex nit2,**評估後不改**):恰好 50 筆會被判成
+ * `'unknown'`、該單在 UI 上永遠不給取消。方向是 fail-closed、且扣款嘗試實務上個位數;
+ * 換成 limit+1 要讓本檔的邊界語意與 `ORDER_ITEMS_EMBED_LIMIT` 等兄弟常數分家,不划算。
+ */
+function mapChargeAttemptGate(
+  attempts?: { status: string }[] | { status: string } | null,
+): 'clear' | 'blocked' | 'unknown' {
+  // 缺鍵(投影退版)/ null = 不知道 ⇒ fail-closed。
+  if (!attempts) return 'unknown';
+  // 🔴 單物件 = **我們沒預期的形狀**(規則上必為陣列,見上)⇒ 它證明不了「沒有其他在途筆」。
+  //    看到非 failed 就 `'blocked'`;是 failed 也只能回 `'unknown'`,**絕不回 `'clear'`**
+  //    (關卡2 R2 codex MF1:原本把它當成「長度 1 的完整清單」⇒ 只有一筆 failed 時會誤放行)。
+  if (!Array.isArray(attempts)) {
+    return attempts.status !== CHARGE_ATTEMPT_TERMINAL_FAILED ? 'blocked' : 'unknown';
+  }
+  // 看到在途的就結案:清單完不完整都改不了「必被 A8a2 拒」。
+  if (attempts.some((a) => a.status !== CHARGE_ATTEMPT_TERMINAL_FAILED)) return 'blocked';
+  return attempts.length >= PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT ? 'unknown' : 'clear';
 }
 
 /** jsonb 防禦取 string 欄:非物件/非字串/空字串 → null(DB 腐壞不炸頁、誠實顯示缺)。 */
@@ -578,5 +667,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     // 🔴 A9a-2:品項自己被切掉時,per-item 的 procurementTruncated 會連同品項一起消失
     //    ⇒ 這一層的旗標是它的前提,兩者要一起讀(關卡2 codex MF2)。
     itemsTruncated: row.order_items.length >= ORDER_ITEMS_EMBED_LIMIT,
+    // 🔴 A9g-2:**不加 `?? []`** —— 缺鍵(投影退版)在這裡不是「零筆嘗試」而是「不知道」,
+    //    必須翻成 `'unknown'` 走 fail-closed,不能靜默變成「沒有在途扣款 ⇒ 可以取消」。
+    chargeAttemptGate: mapChargeAttemptGate(row.payment_charge_attempts),
   };
 }

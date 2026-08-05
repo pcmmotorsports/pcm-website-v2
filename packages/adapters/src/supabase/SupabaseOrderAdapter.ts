@@ -30,6 +30,7 @@ import {
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
   ORDER_ITEMS_EMBED_LIMIT,
+  PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
 import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement';
@@ -127,9 +128,20 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * 逐字為 `false` ⇒ 指向 to-many = 陣列。**但那是規則推導、不是實測到的 wire 回應**
  * ⇒ mapper 兩種形狀都吃、不賭邊(理由詳 `mapQuantitySummary` docstring)。
  * 0 筆 = A4a 還沒建那一列 = **「不知道」而非「都是 0」**,翻成 `quantitySummary: null`、下游 fail-closed。
+ *
+ * 🔴 M-4b E10 A9g-2 在 orders 層加 `payment_charge_attempts(status)` 內嵌。
+ * 用途 = 取消 UI 的**單層**閘:A8a2 只在 `payment_status='unpaid'` **且**該單扣款嘗試全為終態
+ * `failed`(或零筆)時才放行(`20260805100000:360-364`,判定字面逐字 `status <> 'failed'`)。
+ * 只看 `payment_status` 會漏掉「已扣款但尚未回填」的單 ⇒ 畫面給按、送出必拒。
+ * 🔴 **只取 `status` 一欄**:本表帶 `rec_trade_id` / `bank_transaction_id` / `fallback_token_hash`
+ * 等金流識別碼,而本投影的既有紅線就寫著「零 tappay_rec_trade_id」——
+ * 取消 UI 只需要「有沒有非 failed 的」這一個事實,多取任何一欄都是白給的洩漏面。
+ * 🔴 截斷語意與其他內嵌**不同、更嚴**:看到的是子集時不能說「沒有在途扣款」
+ * ⇒ 缺鍵或觸及上限一律翻成 `'unknown'`,呼叫端 fail-closed
+ * (三態契約詳 `AdminOrderDetail.chargeAttemptGate`)。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status)';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。
@@ -398,6 +410,13 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       .limit(ORDER_ITEM_PROCUREMENT_EMBED_LIMIT, { referencedTable: PROCUREMENT_EMBED_PATH })
       .order('id', { referencedTable: 'order_items', ascending: true })
       .limit(ORDER_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' })
+      // 🔴 A9g-2:扣款嘗試同樣要 order + id 次鍵 + limit(理由逐字同 order_notes 那組:
+      //    只給 limit 不給序 ⇒ 伺服器回哪 N 筆未定義、跨請求可能是不同子集)。
+      .order('created_at', { referencedTable: 'payment_charge_attempts', ascending: false })
+      .order('id', { referencedTable: 'payment_charge_attempts', ascending: false })
+      .limit(PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT, {
+        referencedTable: 'payment_charge_attempts',
+      })
       .maybeSingle();
     if (error) {
       throw error;
