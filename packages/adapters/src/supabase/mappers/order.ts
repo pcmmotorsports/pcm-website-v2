@@ -24,6 +24,10 @@ import {
   mapSupabaseProcurementRowsToProjection,
   type SupabaseOrderItemProcurementRow,
 } from './order-procurement';
+import {
+  mapSupabaseOrderCancellationRowsToProjection,
+  type SupabaseOrderCancellationRow,
+} from './order-cancellations';
 
 /**
  * @module @pcm/adapters/supabase/mappers/order — domain PlaceOrderInput → create_order RPC 入參(wire)
@@ -439,6 +443,12 @@ export type SupabaseAdminOrderDetailRow = Pick<
    * 🔴 optional + nullable 理由同 `order_notes`:投影退版會整個沒有這個鍵。
    */
   payment_charge_attempts?: { status: string }[] | { status: string } | null;
+  /**
+   * M-4b E10 A9g-3:取消歷程內嵌(含兩層 `order_cancellation_items`)。
+   * 🔴 optional + nullable 理由同 `order_notes`:投影退版會整個沒有這個鍵,
+   * 而「沒讀到」與「這張單沒被取消過」必須分得出來(見 `AdminOrderDetail.cancellationsTruncated`)。
+   */
+  order_cancellations?: SupabaseOrderCancellationRow[] | null;
 };
 
 /**
@@ -597,6 +607,17 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
   const customer = row.customers == null ? null : Array.isArray(row.customers) ? row.customers[0] : row.customers;
   // M-4b E10 A9a-1:排序 + U6 告知義務都在 mapper(PostgREST 不保證內嵌列順序、投影不支援子查詢)
   const notesProjection = mapSupabaseOrderNoteRowsToProjection(row.order_notes ?? []);
+  // 🔴 A9g-3:**不加 `?? []`**(與上一行刻意不同)—— 缺鍵必須原樣傳進 mapper,才翻得成
+  //    `cancellations: null`(= 沒讀到)。加了 `?? []` 就會變成「讀到了、真的沒取消過」。
+  // ⚠️ R3 抓到我原本寫的理由是**假的**:我寫「notes 缺鍵時 customerNotified 另有 null 表達無法判定」,
+  //    但上一行的 `?? []` 讓 notes 缺鍵走成 `rows=[]` ⇒ `notesTruncated=false`、`customerNotified=false`
+  //    (實測 `mapSupabaseOrderNoteRowsToProjection([])` 回 `{false, false}`)。
+  //    ⇒ A9a-1 在投影退版時其實會說「時間軸完整、未告知客人」= 既有 fail-open。
+  //    **那不是本片引入的,本片也不順手改**(動 notes 的 fail-closed 語意要自己一片 + 自己的審查);
+  //    但既然發現了就不能留一句宣稱它安全的註解 ⇒ 已回報主視窗立 backlog。
+  const cancellationProjection = mapSupabaseOrderCancellationRowsToProjection(
+    row.order_cancellations,
+  );
   return {
     id: row.id,
     displayId: row.display_id,
@@ -670,5 +691,11 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     // 🔴 A9g-2:**不加 `?? []`** —— 缺鍵(投影退版)在這裡不是「零筆嘗試」而是「不知道」,
     //    必須翻成 `'unknown'` 走 fail-closed,不能靜默變成「沒有在途扣款 ⇒ 可以取消」。
     chargeAttemptGate: mapChargeAttemptGate(row.payment_charge_attempts),
+    // 🔴 A9g-3:同樣**不加 `?? []`** —— 缺鍵是「沒讀到」不是「沒被取消過」,
+    //    由 mapper 翻成 cancellationsTruncated=true(見該函式 docstring)。
+    // 🔴 **逐欄取出、不用 spread**(R1 nit 10;慣例同上面 notes 那組):spread 放在物件字面最後一格時,
+    //    投影型別日後多一個與上方同名的鍵會**靜默覆蓋**已賦的值,且 spread 不受 excess property check 保護。
+    cancellations: cancellationProjection.cancellations,
+    cancellationsTruncated: cancellationProjection.cancellationsTruncated,
   };
 }

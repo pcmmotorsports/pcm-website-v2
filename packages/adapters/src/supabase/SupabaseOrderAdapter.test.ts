@@ -25,6 +25,10 @@ import {
   ORDER_ITEMS_EMBED_LIMIT,
   PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './mappers/order';
+import {
+  ORDER_CANCELLATIONS_EMBED_LIMIT,
+  ORDER_CANCELLATION_ITEMS_EMBED_LIMIT,
+} from './mappers/order-cancellations';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -706,9 +710,9 @@ const DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status))', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status)',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
   });
 
@@ -889,6 +893,28 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       .filter(([, opts]) => opts?.referencedTable === 'payment_charge_attempts')
       .map(([column]) => column);
     expect(attemptOrderKeys).toEqual(['created_at', 'id']);
+    // 🔴 A9g-3:取消歷程兩層都要 order + limit。母 plan row 3 驗收逐字要求
+    //    「`.order()` + limit + `id` 次鍵 + `truncated` 旗標」—— 少任一個,
+    //    伺服器回哪 N 筆未定義、跨請求可能是不同子集,而截斷旗標會恆 false。
+    // 🔴 R1 must-fix:原本只取 column、丟掉 opts.ascending ⇒ **把兩行翻成 ascending: true 也全綠**,
+    //    而截斷時留下的會變成「最舊 100 筆」而不是最新的。方向與次序都要被釘住。
+    const cancellationOrders = order.mock.calls
+      .filter(([, opts]) => opts?.referencedTable === 'order_cancellations')
+      .map(([column, opts]) => [column, opts?.ascending]);
+    expect(cancellationOrders).toEqual([
+      ['created_at', false],
+      ['id', false],
+    ]);
+    expect(limit).toHaveBeenCalledWith(ORDER_CANCELLATIONS_EMBED_LIMIT, {
+      referencedTable: 'order_cancellations',
+    });
+    expect(order).toHaveBeenCalledWith('id', {
+      referencedTable: 'order_cancellations.order_cancellation_items',
+      ascending: true,
+    });
+    expect(limit).toHaveBeenCalledWith(ORDER_CANCELLATION_ITEMS_EMBED_LIMIT, {
+      referencedTable: 'order_cancellations.order_cancellation_items',
+    });
     expect(limit).toHaveBeenCalledWith(PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT, {
       referencedTable: 'payment_charge_attempts',
     });
@@ -1002,7 +1028,50 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       // 🔴 A9g-2:本 fixture 沒有 payment_charge_attempts 鍵 ⇒ 缺鍵 = 不知道 = `'unknown'`,
       //    **不是** `'clear'`。三態的用意就是讓「沒讀到」沒辦法長得跟「沒有在途扣款」一樣。
       chargeAttemptGate: 'unknown',
+      // 🔴 A9g-3:本 fixture 沒有 order_cancellations 鍵 ⇒ `null`(= 沒讀到),**不是** `[]`。
+      //    `[]` 是「這張單真的沒被取消過」;兩者若同形,呼叫端 `.map()` 就會把讀取失敗
+      //    靜默畫成「本單從未取消」(R3 M2)。
+      cancellations: null,
+      cancellationsTruncated: false,
     });
+  });
+
+  // 🔴 關卡2 must-fix:上面那條(以及所有既有 fixture)都**沒有** order_cancellations 鍵 ⇒
+  //    把接線改成永遠傳 undefined(例如 `mapSupabaseOrderCancellationRowsToProjection(undefined)`),
+  //    查到的歷程會全被丟掉,而 adapter 與 mapper 測試**照樣全綠**。
+  //    ⇒ 需要一條「真的有資料」的正向案例,證明 row 上的內嵌真的流到 DTO。
+  it('🔴 內嵌有取消歷程時,真的流進 DTO(接線若改成永遠傳 undefined,本條紅)', async () => {
+    const { client } = makeDetailClient({
+      data: {
+        ...DETAIL_ROW,
+        order_cancellations: [
+          {
+            id: 'cx-1',
+            reason_code: 'out_of_stock',
+            reason_detail: null,
+            actor: 'sean',
+            created_at: '2026-08-05T11:00:00.000000+00:00',
+            order_cancellation_items: [
+              { id: 'cxi-1', order_item_id: 'oi-1', cancelled_quantity: 1 },
+            ],
+          },
+        ],
+      },
+      error: null,
+    });
+    const res = await new SupabaseOrderAdapter(client).findAdminOrderDetail('o1');
+    expect(res?.cancellationsTruncated).toBe(false);
+    expect(res?.cancellations).toEqual([
+      {
+        id: 'cx-1',
+        reasonCode: 'out_of_stock',
+        reasonDetail: null,
+        actor: 'sean',
+        createdAt: '2026-08-05T11:00:00.000000+00:00',
+        items: [{ id: 'cxi-1', orderItemId: 'oi-1', cancelledQuantity: 1 }],
+        itemsTruncated: false,
+      },
+    ]);
   });
 
   it('jsonb 腐壞防禦:snapshot 非物件 / spec 缺 / invoice null → 各欄 null、不 throw', async () => {
