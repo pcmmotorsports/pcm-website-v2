@@ -1,5 +1,26 @@
 # M-4b E10 訂單閉環總規劃 **v2**(2026-07-28 重寫)
 
+> 🏁 **2026-08-06 終案標記 —— `shipped` 強制點已定案,本檔多處「未定案」字面失效**
+> Sean 2026-08-05 拍板 **Q1=A / Q2=A**:`shipped ≤ instock` 的承重強制點 = 摘要表 CHECK
+> `oiqs_shipped_le_instock`(C9),由 A4a row-level 重算維護;C6′ 照落地並標冗餘;
+> **可取消量公式不減 shipped**(`shipped ⊆ instock`,減了是重複扣);出貨 RPC 只做訊息層。
+> 出處:`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10 + memory `project_m4b-b2-shipments-db-decisions`。
+> 施工歸屬 = `docs/specs/2026-08-06-e10-b2-s2-shipped-summary-plan.md`(B2-S2)。
+> 🔴 **本檔以下各處的「重新開放 / 尚未定案 / 兩代結論全數作廢」字面,自 2026-08-05 起全部失效、
+> 不得據以施工**。**刻意只給文字錨、不給行號** —— 本檔每次增修行號都會位移,
+> 行號式清單必然過期(codex K1-R2 #17 抓過同型)。用 `grep -n` 找下列字串即可定位,**共 5 處**:
+>
+> | # | 文字錨(可直接 grep) | 位置線索 |
+> |---|---|---|
+> | 1 | `2026-08-05 K1 R3 後狀態:本題重新開放、尚未定案` | §5.1 row 26 段 |
+> | 2 | `整題已重新開放、尚未定案` | §5.1 row 36(A8a1)末段 |
+> | 3 | `兩代結論全數作廢、本題重新開放尚未定案` | §5.1 之後的更正段 |
+> | 4 | `已兩度被推翻且**本題重新開放、尚未定案**` | 「已出貨禁取消」格末段 |
+> | 5 | `2026-08-05 K1 R3 後狀態:本題重新開放、尚未定案` | §5.2 項 3 段(與 #1 同字串、第二次出現) |
+>
+> §5.2 項 2 DoD ① 已就地結清(grep `shipped` 的強制點 = 2026-08-05 Sean 拍板)。
+> 原文一律保留為當時紀錄、未竄改(可追溯性優先)。
+
 > **狀態:** # ✅ **Sean 已最終批准(2026-07-29 凌晨,拍 A)— 施工中**。批准附帶指示:**過夜自跑只做「不需 Sean 批准」的部分**(D1c apply、production db push、任何 push/deploy 一律留到早上);主模型 Opus、Codex 寫機械片、Fable+Codex 審查。
 > **取代:** `docs/specs/2026-07-27-e10-order-closure-master-plan.md` v1 —— v1 經 codex 關卡1 **FAIL、67 條 findings(62 must-fix + 5 nit)**,判定重寫非修補。逐條裁定 = `docs/reviews/2026-07-28-e10-k1-findings-triage.md`(駁回 0 條)
 > **驗收唯一標準:** `docs/specs/2026-07-25-admin-backend-rebuild-spec.md` §1「員工的一天」27 項
@@ -552,7 +573,13 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 1. `shipments` + `shipment_items` 模型(U1;🔴 ~~Q16=A 同一位客人 + 同一份收件資料~~ → **Q1=B(2026-08-05)只守「同一位客人」**,DB 層 trigger 擋;收件逐字比對**不做**;**soft delete、永不硬刪**)
 2. 出貨 owner RPC(`shipment_reference` 由 N3a 產生、重試在本層;✅ **Q19=A(Sean 2026-07-28):P1 後綴正式作廢、不加 `-1/-2`** —— reference 本身全表唯一已足)
    🔴 **本片的 DoD(2026-08-05 B2 DB 地基批交棒,**五條**;不是建議、是驗收條件)**:
-   ① **`shipped` 的強制點在哪一層 = 尚未定案,本片開工前必須重新分析**。
+   ① 🏁 **`shipped` 的強制點 = 2026-08-05 Sean 拍板 Q1=A/Q2=A 已定案,本條 DoD 結清。**
+      **終案** = 摘要表 CHECK `oiqs_shipped_le_instock`(C9)承重 + 出貨 RPC 訊息層 + break-glass oracle 四軸;
+      C6′(`cancelled + shipped ≤ quantity`)照落地並標冗餘;**可取消量公式不減 shipped**。
+      施工歸屬 = B2-S2 片(`docs/specs/2026-08-06-e10-b2-s2-shipped-summary-plan.md`)。
+      出處:`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10 + memory `project_m4b-b2-shipments-db-decisions`。
+      🔴 **下方「尚未定案 / 重新開放 / 必須重新分析」的字面自 2026-08-05 起全部失效,不得據以施工。**
+      ~~`shipped` 的強制點在哪一層 = 尚未定案,本片開工前必須重新分析~~
       ~~B2 批刻意不做成摘要表 CHECK(理由:receipts 可刪、會讓無關的摘要列變非法)~~
       🔴 **該理由已於 K1 R3 被證偽**:receipts 重算 trigger 是 **row-level、只重算受影響的那個品項**
       (`20260803140000:258-287` 親驗)⇒ **不存在「無關的摘要列」**;被打紅的正是該品項本身,

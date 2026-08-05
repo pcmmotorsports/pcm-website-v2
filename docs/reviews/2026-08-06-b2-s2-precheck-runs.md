@@ -170,6 +170,33 @@ scripts/a4a-verify.sh:17  URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/po
 
 ---
 
+## §3.3 🪧 地雷牌:`a1-verify` 與 `a4a-verify` 共用預設 port 54329(backlog 候選)
+
+> `B-132-A` ③ 要求:今晚**不改腳本**(那是 S2c 片的事),先把地雷插牌。
+
+```
+scripts/a1-verify.sh:35   PORT="${PORT:-54329}"
+scripts/a4a-verify.sh:17  URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
+```
+
+**症狀(S2 落地後才會出現,今天不會)**:同一台機器上依預設值先跑 `a1-verify` 再跑 `a4a-verify`,
+第二支會踩到 §2.3 的斷裂態 ⇒ **34/31**,而且 31 紅裡 30 條的成因**不在 a4a-verify 自己身上**。
+診斷者若沒跑 §3 的三組對照,會把它讀成「S2 把 A4a 打壞了」而去改 S2 —— **改錯地方**。
+
+**同 port 家族實查**(`grep -rn 'PORT=' scripts/*.sh`):
+`a1-verify` / `a7-verify` / `a7bm-verify` / `a7c-preflight` / `a7t-verify` / `a1-lock-probe` /
+`d1t2-rehearsal` / `a7bt-fixtures` / `a4a-verify` **預設皆 54329**;
+`a8a1/a8a2/a8c1/a8c2-verify` 走 54331;`a7t-concurrency-probe`=54332、`b2s1-concurrency-probe`=54333。
+
+**候選修法(三選一,S2c-3 片決定;今晚不做)**
+1. `a1-verify` 收尾把庫還原(§2.3 的處置,S2 plan §7.3)—— 治本,但選檔規則已被 R2 證明會誤選。
+2. 讓 `a1-verify` 用專屬 port(改預設值)—— 最小,但只是把兩支隔開、不解決「留下斷裂態」本身。
+3. 兩者都做。
+
+🔴 **無論選哪個,都要先有一格「跑完後直呼 helper 必須成功」的活體斷言**,否則修了也沒人知道有沒有生效。
+
+---
+
 ## §4 誠實邊界
 
 - 量的是**「S2 形狀替身」**,不是真 S2。結論效力範圍 = 任何「加欄 + 改寫 helper」形狀的 S2;

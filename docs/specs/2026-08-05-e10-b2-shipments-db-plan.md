@@ -1,5 +1,16 @@
 # E10 第 2 批 · 出貨模型 DB 地基 片級 plan **v5.4(停損版 + 兩輪審查 + 施工前自檢 + 關卡2 findings 重工折入)**
 
+> 🏁 **2026-08-06 終案標記 —— 本檔的「shipped 強制點未定案」字面已失效**
+> Sean 2026-08-05 拍板 **Q1=A / Q2=A**:承重 = 摘要表 CHECK `oiqs_shipped_le_instock`(C9);
+> 出貨 writer RPC **只做訊息層前緣拒絕、不是正確性來源**;可取消量公式**不減 shipped**。
+> 出處:`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10 + memory `project_m4b-b2-shipments-db-decisions`。
+> 🔴 **失效字面(刻意只給文字錨、不給行號** —— 行號會隨增修位移,清單必然過期;
+> 用 `grep -n` 定位,**共 3 處**):
+> ①`這題**還沒有被正確分析過**` ②`本題狀態 = **重新開放、尚未定案**`
+> ③`「shipped 該在哪一層被強制」= 未定案`
+> —— 那份獨立分析**已完成**且已拍板。§7 表的項 2 與項 6 已就地改述(該表內 grep `🏁`)。
+> 原文保留為當時紀錄、未竄改。後續施工 = `docs/specs/2026-08-06-e10-b2-s2-shipped-summary-plan.md`。
+
 > **狀態:兩輪 Fable 審查都跑完、findings 全數折入。**
 > **卡在 §5.1 的兩題(Q-a / Q-b)等 Sean 拍板** —— 這兩題會改變 X1 的實作形狀,**拍板前不得開工**。
 > - **判定輪**(Fable):**FAIL / 13 must-fix / 7 nit** → 報告 `docs/reviews/2026-08-05-b2-v5-fable-r3.md`
@@ -676,11 +687,11 @@ v4 §7 的 10 處已完成;主視窗另已清 MP 三處汙染字面(`:283`/`:466
 | # | 落在 | 內容 |
 |---|---|---|
 | 1 | MP §5.2 項 2 DoD | 🔴 **S2 那片開工第一件事 = 實跑 `scripts/a1-verify.sh`,依實跑結果決定同批要改什麼**(F5 的動作保留、理由改寫,見下方 🔴 更正) |
-| 2 | MP §5.2 項 2 DoD | `shipped ≤ instock` 的**強制點**由出貨 writer RPC 承接;**該片開工前必須先有那份獨立分析的結論** |
+| 2 | MP §5.2 項 2 DoD | 🏁 **2026-08-05 Sean 拍板 Q1=A 已定案,本條改述**:`shipped ≤ instock` 的**承重強制點 = 摘要表 CHECK `oiqs_shipped_le_instock`(C9)**,由 A4a row-level 重算維護;出貨 writer RPC **只做訊息層前緣拒絕、不是正確性來源**。~~強制點由出貨 writer RPC 承接~~。獨立分析已完成(`docs/specs/2026-08-05-shipped-enforcement-analysis.md` §10),此前置條件已滿足;施工歸屬 = B2-S2 片 |
 | 3 | MP §5.2 項 2 DoD | 三組併發 barrier 負測(2×unvoid / INSERT×unvoid / cancel×unvoid)+ 冪等重放 oracle —— 本批造不出來(零 writer),**標 inconclusive,不假裝補** |
 | 4 | MP §5.2 / E4 段 | `order_shipped` 的 `dedup_key`「該批穩定識別」(`20260717020000:301`/`:349`)⇒ **候選 = `shipment_reference`**(本批交付);E4 落地時不必另發明識別 |
 | 5 | MP §5.2 / E4 段 | 🔴 **通知 fail-closed 要求**:`order_shipped` 模板落地時,`tracking_number IS NULL` 只可能是 `carrier_code='other'`(A8 保證)⇒ 模板必須分流,**不得寄出「已出貨但無單號」的通用信** |
-| 6 | MP 第 2 批段 | 本批**只交付兩張表**;摘要整合、C6/C7、契約債清償**全數延到下一線**,且「shipped 該在哪一層被強制」**未定案** |
+| 6 | MP 第 2 批段 | 本批**只交付兩張表**;摘要整合、C6/C7、契約債清償**全數延到下一線**。🏁 ~~且「shipped 該在哪一層被強制」未定案~~ **該題已於 2026-08-05 由 Sean 拍板 Q1=A/Q2=A 定案**(C9 承重),下一線 = B2-S2 片 |
 | 9 | MP §5.2 項 3(出貨輸入 UI)DoD | ✅ **Sean 2026-08-05 拍 Q-a=C 的產物**:出貨畫面要有**「照這箱內容開一張新的」按鈕**(裝箱打錯量的唯一補救;DB 端刻意不放寬 ⇒ **這個按鈕是該情境的完整解,不是加值功能**)。行為 = 讀原箱品項 → 開新箱帶入同樣品項與收件資料 → 原箱走作廢(留 `void_reason`)。**本批不做,但不得在 UI 片被當成 nice-to-have 砍掉。** |
 | 8 | 回寫 `scripts/a6-verify.sh` + `s1a-verify.sh` | 🔴 **「RLS 斷言要有判別力」的可複製做法**(v5.3;施工前自檢實測):那兩支把「正式站 owner 是否 superuser/BYPASSRLS」列為**未驗**(`a6-verify.sh:1425-1428`、`s1a-verify.sh:264`),但實測顯示只要在 harness 內 `CREATE ROLE … NOSUPERUSER NOBYPASSRLS` + `ALTER TABLE/FUNCTION … OWNER TO`,該族斷言就從恆真變成有紅有綠。**本片是第一個有做法的,不要讓它只留在本片。** |
 | 10 | MP §5.2 項 2 DoD | 🔴 **多列 INSERT 的鎖序交棒(v5.4 新增,codex K2 nit 5)**:parent guard 是 `FOR EACH ROW`,一句 `INSERT … VALUES (…),(…)` 會**依輸入列序**逐一對不同 `shipment_id` 取 `FOR NO KEY UPDATE` ⇒ 兩個交易以**相反順序**併箱多張包裹時仍可能真 `40P01`。本批**造不出來也不宣稱擋得住**(零 writer)。⇒ writer RPC 片必須二選一:**①每交易只處理單一 `shipment`**;或 **②同交易多箱時先 `ORDER BY shipment_id` 再插入**,並配 `40P01` 重試。**不得假設「guard 用了 NKU 就沒有死結面」** |
