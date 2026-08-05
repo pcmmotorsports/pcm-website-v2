@@ -94,8 +94,6 @@ function detail(): AdminOrderDetail {
         quantity: 2,
         unitPrice: { amount: 50, currency: 'TWD' },
         lineTotal: { amount: 100, currency: 'TWD' },
-        workflowStatus: null,
-        version: 1,
         procurements: [],
         procurementTruncated: false,
       },

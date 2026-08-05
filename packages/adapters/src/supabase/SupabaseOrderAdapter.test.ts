@@ -10,12 +10,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
-import type { PlaceOrderInput } from '@pcm/domain';
+import type { AdminOrderFilter, PlaceOrderInput } from '@pcm/domain';
 import {
   SupabaseOrderAdapter,
   ORDER_LIST_SELECT,
   ADMIN_ORDER_LIST_SELECT,
-  ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED,
   ADMIN_ORDER_DETAIL_SELECT,
 } from './SupabaseOrderAdapter';
 import * as adapterModule from './SupabaseOrderAdapter';
@@ -239,7 +238,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
   const or = vi.fn(); // D-1b code 混勾「未設定」→ 內嵌資源 .or
   const builder = { eq, is, in: inFn, or, order };
   eq.mockReturnValue(builder); // query = query.eq(...) 保持可鏈
-  is.mockReturnValue(builder); // query = query.is(...) 保持可鏈(workflow_status IS NULL)
+  is.mockReturnValue(builder); // query = query.is(...) 保持可鏈(A9w3 後只服務負向斷言)
   inFn.mockReturnValue(builder);
   or.mockReturnValue(builder);
   const select = vi.fn().mockReturnValue(builder);
@@ -264,12 +263,8 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     );
   });
 
-  it('🔴 D-2:item 狀態篩選版投影與主常數唯一差異 = order_items!inner(白名單逐欄相同)', () => {
-    expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).toBe(
-      ADMIN_ORDER_LIST_SELECT.replace('order_items(', 'order_items!inner('),
-    );
-    expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).toContain('order_items!inner(');
-  });
+  // A9w3:原本這裡有一條「篩選版投影(order_items!inner)與主常數逐欄相同」的 byte-equal 守門。
+  // 該常數的唯一用途是九碼篩選,篩選在 A9w2 下架、下推在本片移除 ⇒ 常數與守門一併退場。
 
   // 🔴 M-4a Slice D-1a 有意識鬆綁(依據 docs/specs/2026-07-15-m4a-order-list-redesign-slice-d-plan.md §0 經銷價護欄①):
   //「每商品一列」需 tier_at_checkout(會員等級)+ order_items 成交價(unit_price/line_total)+ product_snapshot(品名)
@@ -292,7 +287,6 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     ];
     for (const token of forbidden) {
       expect(ADMIN_ORDER_LIST_SELECT).not.toContain(token);
-      expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).not.toContain(token); // 篩選版同鎖
     }
   });
 
@@ -307,7 +301,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
   // ⚠️ 誠實邊界(Codex R1 nit-2):本測試 mock 只驗 wire 參數(投影常數/filter 下推)與 mapper 形狀,
   // **不模擬 PostgREST !inner 的實際過濾**(fixture 刻意含一筆不符篩選的 null 品項=順驗 mapper 容缺;
   // 真 PostgREST「只回命中品項、count 以父單計」= Sean 部署後開站實測驗收點,列晨報)。
-  it('查詢鏈 orders / select(item 篩選版,{count:exact}) / 五軸下推(workflow 打 order_items.workflow_status;D-1b 多勾選軸走 in)/ order(created_at desc) / range;row → AdminOrderSummary', async () => {
+  it('查詢鏈 orders / select(主投影,{count:exact}) / 四軸下推(D-1b 多勾選軸走 in)/ order(created_at desc) / range;row → AdminOrderSummary', async () => {
     const { client, from, select, eq, in: inFn, order, range } = makeAdminListClient({
       data: [
         {
@@ -361,25 +355,20 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
         fulfillmentStatus: 'notOrdered',
         orderSources: ['web'],
         paymentChannels: ['tappay'],
-        workflowStatuses: ['received_confirmed'],
       },
       { limit: 20, offset: 40 },
     );
 
     expect(from).toHaveBeenCalledWith('orders');
-    // 🔴 D-2:workflow 有篩 → 用 !inner 版投影(無命中品項的訂單整列消失)
-    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
-      count: 'exact',
-    });
-    // 五軸篩選各下推一次 DB where(非前端過濾);雙軸單值 .eq、多勾選軸 .in(D-1b);
-    // workflow 打 **item 層** 欄(orders 層停寫=stale、不打)
+    // A9w3:九碼篩選退場後投影恆為主常數(不再有 !inner 版)。
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    // 四軸篩選各下推一次 DB where(非前端過濾);雙軸單值 .eq、多勾選軸 .in(D-1b)。
     expect(eq).toHaveBeenCalledWith('payment_status', 'paid');
     expect(eq).toHaveBeenCalledWith('fulfillment_status', 'notOrdered');
     expect(inFn).toHaveBeenCalledWith('order_source', ['web']);
     expect(inFn).toHaveBeenCalledWith('payment_channel', ['tappay']);
-    expect(inFn).toHaveBeenCalledWith('order_items.workflow_status', ['received_confirmed']);
     expect(eq).toHaveBeenCalledTimes(2);
-    expect(inFn).toHaveBeenCalledTimes(3);
+    expect(inFn).toHaveBeenCalledTimes(2);
     expect(order).toHaveBeenNthCalledWith(1, 'created_at', { ascending: false });
     expect(order).toHaveBeenNthCalledWith(2, 'id', { ascending: false }); // n1 次鍵:同秒單分頁穩定
     expect(range).toHaveBeenCalledWith(40, 59); // offset 40、limit 20 → [40, 59] 含端
@@ -430,76 +419,25 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
     });
   });
 
-  it('workflowStatuses=[null](「未設定」篩選)→ !inner 投影 + is(order_items.workflow_status, null);undefined → 主投影、filter 皆不呼', async () => {
-    const { client, select, eq, is } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { workflowStatuses: [null] },
-      { limit: 20 },
-    );
-    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
-      count: 'exact',
-    });
-    expect(is).toHaveBeenCalledWith('order_items.workflow_status', null);
-    expect(eq).not.toHaveBeenCalled();
-
-    const second = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(second.client).listOrderSummariesForAdmin({}, { limit: 20 });
-    expect(second.select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    expect(second.is).not.toHaveBeenCalled();
-    expect(second.eq).not.toHaveBeenCalled();
-  });
-
-  it('🔴 D-1b:code 混勾「未設定」→ 內嵌資源 or(in ∪ is.null、referencedTable=order_items);純多 code → in', async () => {
+  it('🔴 A9w3:硬塞 workflowStatuses 也不得下推、不得換投影(九碼篩選已退場)', async () => {
+    // 🔴 型別上這個欄位已經不存在(A9w3 從 `AdminOrderFilter` 移除)⇒ 只能繞型別塞。
+    //    這正是要量的事:舊呼叫端(或反序列化回來的舊 URL 狀態)把它帶進來時,
+    //    adapter 必須**完全無視**,而不是靜默走回 !inner 投影或內嵌欄下推。
+    //    原本這裡是三條測試(未設定哨兵 / code 混勾 or / 非法形狀 fail-closed),
+    //    隨下推整段移除;留這一條當「不得復活」的守門。
     const { client, select, or, is, in: inFn } = makeAdminListClient({
       data: [],
       error: null,
       count: 0,
     });
     await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { workflowStatuses: ['paid_wait', null, 'shipped_done'] },
+      { workflowStatuses: ['paid_wait', null] } as AdminOrderFilter,
       { limit: 20 },
     );
-    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
-      count: 'exact',
-    });
-    expect(or).toHaveBeenCalledWith(
-      'workflow_status.in.(paid_wait,shipped_done),workflow_status.is.null',
-      { referencedTable: 'order_items' },
-    );
+    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    expect(or).not.toHaveBeenCalled();
     expect(is).not.toHaveBeenCalled();
     expect(inFn).not.toHaveBeenCalled();
-
-    const second = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(second.client).listOrderSummariesForAdmin(
-      { workflowStatuses: ['paid_wait', 'shipped_done'] },
-      { limit: 20 },
-    );
-    expect(second.in).toHaveBeenCalledWith('order_items.workflow_status', [
-      'paid_wait',
-      'shipped_done',
-    ]);
-    expect(second.or).not.toHaveBeenCalled();
-  });
-
-  it('🔴 D-1b fail-closed:非法形狀 code(大寫/符號=潛在 .or 內插注入)在 adapter 層剔除;全剔+無 null → 該軸不篩(主投影)', async () => {
-    const { client, or } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { workflowStatuses: ['ok_code', 'BAD,inject.is.null', null] },
-      { limit: 20 },
-    );
-    expect(or).toHaveBeenCalledWith('workflow_status.in.(ok_code),workflow_status.is.null', {
-      referencedTable: 'order_items',
-    });
-
-    const second = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(second.client).listOrderSummariesForAdmin(
-      { workflowStatuses: ['BAD,inject.is.null'] },
-      { limit: 20 },
-    );
-    expect(second.select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
-    expect(second.or).not.toHaveBeenCalled();
-    expect(second.in).not.toHaveBeenCalled();
-    expect(second.is).not.toHaveBeenCalled();
   });
 
   it('無篩選 → 完全不下推 eq(全表);offset 預設 0 → range(0, limit-1)', async () => {
@@ -645,7 +583,9 @@ const DETAIL_ROW = {
       unit_price: 2500,
       line_total: 5000,
       product_snapshot: { sku: 'BMS-13OEM-G-F', spec: { finish: 'Glossy' }, title: '下導流' },
-      workflow_status: 'received_unconfirmed', // D-2 per-item 真相
+      // 🔴 A9w3 起這兩欄**已不在明細投影裡**,fixture 刻意仍餵 —— 量的是「就算 DB 回了,
+      //    mapper 也不得把它們映射出去」(對照下方 `toEqual` 的精確比對)。
+      workflow_status: 'received_unconfirmed',
       version: 4,
       // A9a-2:採購內嵌(同樣刻意給倒序 + 一筆已停用供應商 —— 排序在 mapper、停用照常顯示)
       order_item_procurement: [
@@ -710,9 +650,9 @@ const DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出;🔴 A9w3 起 order_items 的 workflow_status+version 亦退出(明細頁九碼下拉已下架);A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status);A9g-3 加 order_cancellations 兩層內嵌;A9d2-2b 取消歷程加 idempotency_key、payload_hash 仍不取)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status), order_cancellations(id, reason_code, reason_detail, actor, idempotency_key, created_at, order_cancellation_items(id, order_item_id, cancelled_quantity))',
     );
     // 🔴 A9d2-2b:`idempotency_key` 進來了、`payload_hash` **沒有**,而且兩者當初是同一句話裡的
     //    「內部機制」—— 只改判其中一顆是刻意的。byte-equal 那條把兩者一起釘住,但它紅的時候
@@ -726,7 +666,6 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
   it('🔴 order_notes 只在明細投影、不得滲入列表投影', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toContain('order_notes(');
     expect(ADMIN_ORDER_LIST_SELECT).not.toContain('order_notes');
-    expect(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED).not.toContain('order_notes');
   });
 
   // 🔴 A9a-2:採購真相表(供應商身分 / 單號 / 異常原因)同屬 service_role only —— 建表檔
@@ -741,8 +680,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     //    日後在本檔加第四條投影常數(例如出貨列表)不會有任何測試轉紅。改成從 module 反射
     //    取出**所有** `*_SELECT` 字串匯出,扣掉明細那條,其餘一律不准出現採購/供應商 token。
     //    (仍擋不住「別的檔案自己寫 inline select」—— 那面沒有守門、誠實記在 handoff。)
-    //    ⚠️ 用 `includes('SELECT')` 而不是 `endsWith('_SELECT')`:後者會漏掉
-    //    `ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`(施工當場被下面那條前提斷言抓到)——
+    //    ⚠️ 用 `includes('SELECT')` 而不是 `endsWith('_SELECT')`:後者曾經會漏掉
+    //    `ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`(該常數已隨 A9w3 退場,字面留作歷史理由
+    //    —— 下一個不以 `_SELECT` 結尾的投影常數會再踩同一個坑)——
     //    「用命名 pattern 收集守門對象」本身就是一個會漏的假設,所以下面那條前提斷言是必要的。
     const otherSelects = Object.entries(adapterModule).filter(
       ([name, value]) =>
@@ -752,7 +692,6 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     //    抓到 2 條 = 有一條投影沒被守到)。日後新增投影常數,這條會先紅、逼人來看一眼。
     expect(otherSelects.map(([name]) => name).sort()).toEqual([
       'ADMIN_ORDER_LIST_SELECT',
-      'ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED',
       'ORDER_LIST_SELECT',
     ]);
     for (const [name, value] of otherSelects) {
@@ -795,10 +734,7 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
         name !== 'ORDER_LIST_SELECT',
     );
     // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
-    expect(adminListSelects.map(([name]) => name).sort()).toEqual([
-      'ADMIN_ORDER_LIST_SELECT',
-      'ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED',
-    ]);
+    expect(adminListSelects.map(([name]) => name).sort()).toEqual(['ADMIN_ORDER_LIST_SELECT']);
     for (const [name, value] of adminListSelects) {
       for (const token of ['order_item_quantity_summary', 'instock_quantity']) {
         expect(`${name}:${value}`).not.toContain(token);
@@ -855,7 +791,6 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
     expect(otherSelects.map(([name]) => name).sort()).toEqual([
       'ADMIN_ORDER_LIST_SELECT',
-      'ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED',
       'ORDER_LIST_SELECT',
     ]);
     for (const [name, value] of otherSelects) {
@@ -996,8 +931,8 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
           quantity: 2,
           unitPrice: { amount: 2500, currency: 'TWD' },
           lineTotal: { amount: 5000, currency: 'TWD' },
-          workflowStatus: 'received_unconfirmed',
-          version: 4,
+          // A9w3:明細品項不再有 workflowStatus / version(九碼下拉已在 A9w1 下架)——
+          // `toEqual` 是精確比對,這兩鍵若被接回投影,本條會立刻紅。
           // A9a-2:採購列依 createdAt ASC 重排(投影給的是倒序);兩種 embed 形狀都正規化成同一形
           procurements: [
             {
@@ -1137,8 +1072,6 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
             unit_price: 100,
             line_total: 100,
             product_snapshot: null,
-            workflow_status: null,
-            version: 1,
           },
         ],
         order_notes: undefined, // A9a-1:內嵌鍵整個缺(舊 row / 投影退版)→ 空時間軸、不 throw
@@ -1169,8 +1102,6 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       unit_price: 100,
       line_total: 100,
       product_snapshot: null,
-      workflow_status: null,
-      version: 1,
       order_item_procurement: [],
     }));
     const { client } = makeDetailClient({
@@ -1453,32 +1384,18 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b1 單號搜尋'
   });
 });
 
-// A9b1 補強(code-reviewer nit):orderNumber + workflowStatuses 併用 = 同一 query 兩次 .or,
-// key 分別是 `or` 與 `order_items.or`(referencedTable 選項)⇒ 不會互相覆蓋。
-describe('SupabaseOrderAdapter — A9b1 單號搜尋 × item 狀態篩選併用', () => {
-  it('兩條 .or 各自帶對的 referencedTable,互不吃掉', async () => {
-    const { client, or, select } = makeAdminListClient({ data: [], error: null, count: 0 });
-    await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'YWP3PC', workflowStatuses: ['ok_code', null] },
-      { limit: 20 },
-    );
-    // item 狀態篩選作用中 → 走 !inner 投影
-    expect(select).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED, {
-      count: 'exact',
-    });
-    // 單號那條:無 referencedTable(打 orders 本表)
-    expect(or).toHaveBeenCalledWith('display_id.eq.YWP3PC,legacy_display_id.eq.YWP3PC');
-    // item 狀態那條:帶 referencedTable
-    expect(or).toHaveBeenCalledWith('workflow_status.in.(ok_code),workflow_status.is.null', {
-      referencedTable: 'order_items',
-    });
-    expect(or).toHaveBeenCalledTimes(2);
-  });
-
+// A9b1 補強(code-reviewer nit)原本測的是「orderNumber + workflowStatuses 併用 = 同一 query
+// 兩次 .or(key 分別是 `or` 與 `order_items.or`)不會互相覆蓋」。
+// 🔴 A9w3 後那個情境**構造不出來**:九碼下推已移除 ⇒ 全 adapter 只剩單號那一條 .or,
+//    「兩條 .or 互相覆蓋」在物理上不可能發生。留著一條假裝在測併用的測試比刪掉更糟
+//    (memory `feedback_unconstructible-negative-test-means-noop-guard`)⇒ 刪那條、留下面這條
+//    (它測的是單號守門本身,與九碼無關)。日後若再出現第二條 referencedTable .or,
+//    這段註解就是「該把併用測試加回來」的觸發點。
+describe('SupabaseOrderAdapter — A9b1 單號搜尋守門', () => {
   it('🔴 單號格式不符時,即使有其他篩選也一律回零筆、完全不查 DB', async () => {
     const { client, from } = makeAdminListClient({ data: [], error: null, count: 5 });
     const res = await new SupabaseOrderAdapter(client).listOrderSummariesForAdmin(
-      { orderNumber: 'BAD!', paymentStatus: 'paid', workflowStatuses: ['ok_code'] },
+      { orderNumber: 'BAD!', paymentStatus: 'paid' },
       { limit: 20 },
     );
     expect(res).toEqual({ items: [], total: 0 });

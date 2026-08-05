@@ -3,7 +3,7 @@
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
-import type { OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderFilter, OrderStatusOption } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
@@ -118,9 +118,13 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
   });
 
   it('🔴 A9w2:即使 filter 上還掛著 workflowStatuses,連結也不得再帶那個鍵', () => {
-    // 型別上 `AdminOrderFilter.workflowStatuses` 要到 A9w3 才收掉 ⇒ 這裡刻意餵一個「還帶著它」
-    // 的 filter:退場後 href 建構若仍讀那個欄位,翻頁與 returnTo 會把死參數一路傳下去。
-    const href = buildOrderListHref({ workflowStatuses: ['shipped_done', null], paymentStatus: 'paid' }, 2);
+    // A9w3 已把該欄從 `AdminOrderFilter` 型別移除 ⇒ 這裡改用繞型別的方式餵。量的事沒變:
+    // 舊呼叫端(或反序列化回來的舊狀態)帶著它時,href 建構不得讀它 —— 否則翻頁與 returnTo
+    // 會把死參數一路傳下去。
+    const href = buildOrderListHref(
+      { workflowStatuses: ['shipped_done', null], paymentStatus: 'paid' } as AdminOrderFilter,
+      2,
+    );
     expect(href).not.toContain('workflow_status');
     expect(href).toContain('payment_status=paid');
   });

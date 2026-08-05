@@ -160,7 +160,8 @@ export function OrdersTable({
   statusOptions: OrderStatusOption[];
   /**
    * item 狀態篩選作用中(!inner 投影、lines 只含命中品項)→ 整單彙總 badge 停顯(不完整資料不彙總)。
-   * 🔴 **A9w2 起恆為 false**:唯一的 producer 是九碼篩選(`filter.workflowStatuses`),已隨本片下架
+   * 🔴 **A9w2 起恆為 false**:唯一的 producer 是九碼篩選(A9w2 下架 UI 與 URL 參數,
+   * A9w3 連 `AdminOrderFilter` 上的欄位本身都收掉)
    * ⇒ 現在沒有任何呼叫端會傳 true。刻意留著不刪,因為整個 `OrdersTable` 的九碼面隨 A11a-c 一起退場,
    * 這片只砍篩選;讀到這行的人不要以為品項狀態篩選還在。
    */

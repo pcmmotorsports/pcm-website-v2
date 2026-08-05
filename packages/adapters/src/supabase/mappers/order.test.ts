@@ -342,8 +342,6 @@ function detailRow(
         unit_price: 200,
         line_total: 1000,
         product_snapshot: null,
-        workflow_status: null,
-        version: 1,
         ...(summary === undefined ? {} : { order_item_quantity_summary: summary }),
       },
     ],

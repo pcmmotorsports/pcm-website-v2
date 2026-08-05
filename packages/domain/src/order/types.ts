@@ -219,16 +219,9 @@ export type AdminOrderFilter = {
   orderSources?: readonly OrderSource[];
   /** 管道多勾選(D-1b;同上)。 */
   paymentChannels?: readonly PaymentChannel[];
-  /**
-   * 商品狀態多勾選(M-4a;D-2 起=**item 層**語意:至少一品項命中的訂單、且只顯示命中品項列
-   * 〔adapter 用 order_items!inner 投影+order_items.workflow_status 下推;orders.workflow_status
-   * 停寫 stale、不再篩〕;D-1b 起多勾選=各值 OR):
-   * - `undefined` / 空陣列 = 不篩;
-   * - 元素 `string` = order_status_options.code(動態詞彙、值域由 DB CHECK slug 格式約束=
-   *   {@link WORKFLOW_STATUS_CODE_RE});
-   * - 元素 `null` =「品項未設定狀態」(order_items.workflow_status IS NULL)可與 code 混勾。
-   */
-  workflowStatuses?: readonly (string | null)[];
+  // M-4b E10 A9w3(九碼契約收縮):`workflowStatuses` 已移除 —— 篩選 UI 與 URL 參數在 A9w2 下架
+  // (零 producer),adapter 的 `order_items!inner` 下推同片一併移除(零 consumer)。
+  // 型別留著會讓「把某個舊 filter 物件塞回去」看起來仍然有效,而實際上不會篩到任何東西。
   /**
    * 訂單編號搜尋(M-4b E10 A9b1):**同時**比對 `display_id` 與 `legacy_display_id`,
    * 讓改號後的舊單號永遠查得到(v2 §5.1 A9b1;D1 改號的開工前置)。
@@ -241,8 +234,13 @@ export type AdminOrderFilter = {
 };
 
 /**
- * workflow_status code 合法形狀(對齊 DB CHECK orders_workflow_status_format;admin 解析層白名單
- * 守門 + adapter `.or()` 字串內插前 fail-closed 再驗的**單一來源**)。
+ * workflow_status code 合法形狀(對齊 DB CHECK orders_workflow_status_format)。
+ *
+ * 🔴 **A9w3 起零 consumer,字面務必別再讀成「單一來源」**:原本唯一的 consumer 是 adapter
+ * `.or()` 字串內插前的 fail-closed 再驗,那整段隨九碼篩選下推在 A9w3 移除。
+ * item writer 那條線驗形狀用的是 `apps/admin/src/lib/orders/workflow-form.ts:29` 的 local
+ * `WF_CODE_RE`(字面相同的**另一份**、從未 import 本常數)⇒ 改這裡不會影響任何守門。
+ * 暫留不刪(去留隨 A9w4c 判);合併那兩份 RE 是另一件事、不在退場片範圍。
  */
 export const WORKFLOW_STATUS_CODE_RE = /^[a-z0-9_]{1,64}$/;
 
@@ -449,10 +447,9 @@ export type AdminOrderDetailItem = {
   unitPrice: Money;
   /** 小計 = 下單當下 server 算的 line_total(不重算) */
   lineTotal: Money;
-  /** per-item 訂單處理狀態(同 AdminOrderLine.workflowStatus 語意;M-4a D-2) */
-  workflowStatus: string | null;
-  /** 樂觀鎖版本(per-item 改狀態表單 hidden;M-4a D-2) */
-  version: number;
+  // M-4b E10 A9w3(九碼契約收縮):`workflowStatus` 與 `version` 已從**明細**品項移除 ——
+  // 兩者的唯一消費端是 A9w1 下架的明細頁九碼下拉(version = 該表單的樂觀鎖 hidden)。
+  // 🔴 **列表**的 `AdminOrderLine` 仍有這兩欄(列表 cell 隨 A11a-c 退場),不要一起砍。
   /**
    * 本品項的採購列(M-4b E10 A9a-2)。排序 = `createdAt` ASC,三層全序
    * (權威實作 = `mappers/created-at-order.ts` 的 `compareByCreatedAtThenId`)。

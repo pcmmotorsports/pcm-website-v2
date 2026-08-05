@@ -131,6 +131,8 @@ async function renderPage() {
 describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
   it('🔴 九碼零殘留:沒有商品狀態下拉、沒有 workflow_status 欄位、沒有整單彙總 badge', async () => {
     // 品項帶著 `workflowStatus: 'shipped_done'` 進來 —— 頁面仍不得把它畫出來。
+    // 🔴 A9w3 後該欄已不在 `AdminOrderDetailItem` 契約裡(投影也不再取),fixture **刻意**留著:
+    //    量的是「即使資料源硬塞這個值進來,畫面也不會冒出九碼」,不是「型別擋住了」。
     mocks.findAdminOrderDetail.mockResolvedValue(detail(SUMMARY));
     const { container, queryByRole, queryByText } = await renderPage();
 
