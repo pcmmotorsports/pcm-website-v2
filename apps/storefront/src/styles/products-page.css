@@ -141,7 +141,14 @@
   display: block;
   width: 38%;
   height: 100%;
-  background: var(--c-accent, var(--c-text));
+  /* 🔶 0c:原本寫 `var(--c-accent, var(--c-text))`,而 `--c-accent` **當時全站未定義**
+     ⇒ 實際渲染的是 fallback `var(--c-text)` **墨黑**。0c 一補定義 `--c-accent: #c4470c`,
+     這條會**由黑變橘**(深熔橘)—— 那是副作用不是決定。
+     改成明寫 `var(--c-red)`:進度條是狀態指示、屬動作色(§4-1),而它是**填色層**
+     ⇒ 該吃亮熔橘不是深熔橘。
+     🔴 **設計端未表態**(OD 只有現站快照 `archive/current-site-snapshot.html` 與 `source/` 鏡像、
+        無此元件的新稿),本判定是依 §4-1 通則外推 ⇒ **已列進 Sean 肉眼驗清單**。 */
+  background: var(--c-red);
   animation: pp-loading-progress 1.4s ease-in-out infinite alternate;
 }
 .pp-loading-filterbar {

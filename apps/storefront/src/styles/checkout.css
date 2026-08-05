@@ -12,7 +12,8 @@
       ⚠️ 本註解刻意不寫出該 selector 與斷點的完整字面 —— 守門測試用它們當 anchor 切片,
       註解裡出現同樣字面會讓測試切到註解、誤判(實際踩過)。
    依後續 sub-slice 增補(避免 dead CSS / 破 token 引用):
-   - e2 增:co-inv-*(發票、注意 design 的 --c-accent 在 storefront tokens 未定義、e2 須對映)
+   - e2 增:co-inv-*(發票;⚠️ 當年 design 的 --c-accent 在 storefront tokens **未定義**、e2 須對映
+     —— 那個前提已於 2026-08-05 第0批 0c 消失:`--c-accent: #c4470c` 已補進 tokens.css)
      + co-pay-* / co-card-*(付款 / 信用卡欄);design checkout.css L149-151 為 orphan 宣告
      (無 selector + 多餘 `}`、design 端 bug)、搬 co-inv 時跳過。
    - e3 增:co-review-* / co-agree / co-btn-pay(確認訂單)。
@@ -140,9 +141,11 @@
 .co-section-head h2 { width: 100%; }
 
 /* Invoice block (e2;搬 design L117-144。
-   design --c-accent 在 tokens 漏定義 → 對映 design 宣告 accent --c-red;
+   ⚠️ 當年「design --c-accent 在 tokens 漏定義 → 對映 accent 為 --c-red」的前提已於
+   2026-08-05 第0批 0c 消失:`--c-accent: #c4470c` 已補定義。本段的兩顆現在各自明寫
+   `--c-red-dark`(文字層)與 `--c-red`(框線層),不再需要「對映」這件事。
    design L140 --font-mono 為 --f-mono typo → 用 --f-mono。) */
-.co-inv-hint { margin-left: auto; font-size: 10px; color: var(--c-red); }
+.co-inv-hint { margin-left: auto; font-size: 10px; color: var(--c-red-dark); } /* 🔶 0c 文字層(OD `pcm-checkout.css:141`)*/
 .co-inv-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
 .co-inv-tab {
   padding: 14px 12px;
@@ -162,7 +165,7 @@
   margin-top: 14px;
   background: transparent;
   border: none;
-  color: var(--c-red);
+  color: var(--c-red-dark); /* 🔶 0c 文字層(OD `pcm-checkout.css:162`)*/
   font-family: var(--f-mono); font-size: 11px; letter-spacing: 0.1em;
   cursor: pointer;
   padding: 0;
@@ -232,7 +235,7 @@
 
 /* B-3 business override:design-reference 沒有通知 Email；沿用既有 auth-field 視覺語言。 */
 .co-notification-email { margin: 18px 0 0; }
-.co-notification-email input[aria-invalid="true"] { border-color: var(--c-red); }
+.co-notification-email input[aria-invalid="true"] { border-color: var(--c-red); } /* 框線層 → 留亮熔橘(OD `pcm-checkout.css:248`)*/
 .co-field-hint {
   display: block;
   margin-top: 7px;
@@ -328,8 +331,8 @@
  * SDK 對 focus 容器注入 .tappay-field-focus、欄位 error 由 TapPayCardFields 加 .tpfield-error)。 */
 .tpfield { height: 44px; width: 100%; padding: 0 14px; border: 1px solid var(--c-border); background: var(--c-bg); transition: border-color 0.15s; }
 .tpfield.tappay-field-focus { border-color: var(--c-text); }
-.tpfield.tpfield-error { border-color: var(--c-red); }
-.co-card-error { font-size: 13px; color: var(--c-red); margin: 0; }
+.tpfield.tpfield-error { border-color: var(--c-red); } /* 框線層 → 留亮熔橘(OD `pcm-checkout.css:353`)*/
+.co-card-error { font-size: 13px; color: var(--c-red-dark); margin: 0; } /* 🔶 0c 文字層(OD `pcm-checkout.css:354`)*/
 
 /* Review blocks + agree (e3a;搬 design L351-403;U2b 起住在 Step 2 的收件摘要與 N°05 確認訂單區) */
 .co-review-block {
@@ -469,7 +472,7 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
 .co-btn-back, .co-btn-next, .co-btn-pay { padding: 14px 24px; }
 .co-btn-pay { min-width: 220px; }
 /* 建單失敗訊息(e3b;design mock 無失敗路徑、storefront 真建單需要) */
-.co-submit-error { color: var(--c-red); font-size: 13px; margin: 0 0 12px; }
+.co-submit-error { color: var(--c-red-dark); font-size: 13px; margin: 0 0 12px; } /* 🔶 0c 文字層(OD `pcm-checkout.css:563` 同族)*/
 
 /* ============ ASIDE / SUMMARY ============ */
 .co-aside { position: sticky; top: 96px; }
@@ -523,7 +526,7 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
   font-family: "Noto Serif TC", serif;
   font-size: 28px;
   font-weight: 500;
-  color: var(--c-red);
+  color: var(--c-red-dark); /* 🔶 0c 價格文字層(OD `pcm-checkout.css:626` 逐字)*/
   font-variant-numeric: tabular-nums;
 }
 
@@ -592,7 +595,7 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
   .co-mobile-buybar-price {
     font-family: "Noto Serif TC", serif;
     font-size: 22px; font-weight: 500;
-    color: var(--c-red);
+    color: var(--c-red-dark); /* 🔶 0c 價格文字層(OD `pcm-checkout.css:697` 逐字)*/
     font-variant-numeric: tabular-nums;
     margin-top: 2px;
   }

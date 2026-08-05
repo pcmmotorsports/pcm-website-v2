@@ -16,9 +16,12 @@
  *    只在 `/brands` 才載入的規則,而且**兩邊都不會有測試紅**。
  *    ⇒ 一律前綴。對照表寫在下面每一段的標題。
  *
- * 🔴 **② 色票 scope 在 `.bd-page`、不進 `:root`** —— 理由與 `brand-page.css` 檔頭那段
- *    **完全相同**(`--c-red` / `--ember` 在正式站 `tokens.css` 已存在且值不同,改 `:root`
- *    會讓現有每一頁當場變色)。`.bd-page` 這個 class 與本檔的 import 一起綁在
+ * 🔴 **② 色票 scope 在 `.bd-page`、不進 `:root`** —— 理由與 `brand-page.css` 檔頭那段同源。
+ *    ⚠️ **本檔的情況與 brand-page.css 不同,不要把那邊的敘述抄過來**(0c 的複審實查更正):
+ *    本檔**根本沒有** `--c-red` 或 `--ember` —— 它照自己 `:14-17` 的「一律前綴」規則,
+ *    色票是 `:52 --bd-ember: #f26722` 與 `:53 --bd-ember-ink: #c4470c`。
+ *    ⇒ 這裡從來就沒有「與站台 token 撞名」的問題,scope 的理由純粹是前綴紀律本身。
+ *    (0c 之後站台 `--c-red` 也已是熔橘 `#f26722`、與 `--bd-ember` 同值,但那是兩顆不同名的 token。)`.bd-page` 這個 class 與本檔的 import 一起綁在
  *    `BrandDirectoryRoot.tsx` 上 ⇒ 「漏掛 scope」從「要記得」變成「做不到」。
  *
  * ⛔ **③ 刻意不搬(兩處,不是漏)**

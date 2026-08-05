@@ -8,7 +8,10 @@
    🔴 但顏色**不照抄預覽的字面值**:預覽自帶 --accent/#fff/--line 等一組 module 內變數,
       而正式站有深色模式([data-theme="dark"] 會改寫 --c-surface/--c-text/--c-border,
       **不會**改寫 --c-red-soft)。照抄 `background:#fff` 這種字面 = 深色模式下白底白字。
-      故一律走全站 token;紅色一律 var(--c-red)(與既有手機 FAB 同一顆紅、不新增第二種紅)。
+      故一律走全站 token;動作色一律 var(--c-red)(與既有手機 FAB 同一顆、不新增第二種)。
+      ⚠️ 2026-08-05 第0批 0c:那顆已由緋紅 `#dc2626` 換成**熔橘** `#f26722`,本檔三處寫死的
+      `rgba(220,38,38,…)` 陰影同批換成 `rgba(242,103,34,…)`(alpha 不變)。「紅」這個字
+      在本檔其餘註解裡是歷史用詞,實際顏色以 token 為準。
 
    ⚠️ 顯示條件收在本檔最下方一區(桌機隱藏 / ≤1024px 顯示 / [data-mobile] 強制顯示),
       守門 = styles/products-mobile.test.ts。
@@ -113,7 +116,7 @@
   border-radius: 12px;
   font-size: 15px;
   font-weight: 800;
-  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.18);
+  box-shadow: 0 8px 18px rgba(242, 103, 34, 0.18);
 }
 
 /* ~~.pmc-vehicle-summary / .pmc-vehicle-text / .pmc-vehicle-actions / .pmc-change /
@@ -308,7 +311,7 @@
 }
 .mvs-field:focus-within {
   border-color: var(--c-red);
-  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.09);
+  box-shadow: 0 0 0 3px rgba(242, 103, 34, 0.09);
 }
 .mvs-field-label {
   display: flex;
@@ -391,7 +394,7 @@
   border-radius: 12px;
   font-size: 16px;
   font-weight: 800;
-  box-shadow: 0 8px 18px rgba(220, 38, 38, 0.18);
+  box-shadow: 0 8px 18px rgba(242, 103, 34, 0.18);
 }
 .mvs-apply:disabled {
   color: var(--c-text-3);

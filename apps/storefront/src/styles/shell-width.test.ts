@@ -139,6 +139,18 @@ describe('殼寬度守門 · 檔案本身沒壞', () => {
       strings.filter((s) => /[{}]/.test(s)),
       `${f} 出現含大括號的字串 ⇒ topLevel()/block() 的深度計數不再可信`,
     ).toEqual([]);
+    // 🔴 同族的第二個洞(0a 補審 R2 nit 2):`topLevel()` 用 `indexOf('@')` 找 at-rule,
+    //    字串或 `url()` 裡的 `@`(例如 `url("a@2x.png")`、`content: "a@b"`)會被當成 at-rule 起點
+    //    ⇒ 從那裡剝到下一個 `}`,把真規則吃掉。方向是**假紅**(選擇器找不到)、不是假綠,
+    //    但誤紅同樣會訓練人忽略守門,所以一併釘成前提。
+    expect(
+      strings.filter((s) => s.includes('@')),
+      `${f} 的字串內出現 @ ⇒ topLevel() 會把它當 at-rule 起點`,
+    ).toEqual([]);
+    expect(
+      CSS[f].match(/url\([^)]*@[^)]*\)/g) ?? [],
+      `${f} 的 url() 內出現 @ ⇒ topLevel() 會把它當 at-rule 起點`,
+    ).toEqual([]);
   });
 });
 
@@ -174,11 +186,24 @@ describe('R2-1 版寬規範 · 殼收 1440 / 主體拉滿(兩面都要釘)', () 
   //    兩者 cascade 都贏、1440+ 列表真的縮水,而上面四條斷言全綠。
   //    ⇒ 反面守門要畫在「這支檔的任何一處都不得出現殼寬 token」這個**面**上。
   //    (實查:`products-page.css` 現況 `--shell-bar-max` 出現 0 次,加這條不會誤紅。)
-  it('🔴 反面(面層)— products-page.css 整支檔任何一處都不得出現 --shell-bar-max', () => {
+  it('🔴 反面(面層)— 沒有任何一支檔可以讓列表主體吃到殼寬', () => {
+    // 🔴 0a 補審 R2 nit 3:上一版只掃 `products-page.css` 一支 —— 但 `.pp-layout` 是**站台級
+    //    class**,任何一支載入中的 CSS 都可以命中它。從別支檔加一條
+    //    `.pp-layout { max-width: var(--shell-bar-max) }` 會照樣收窄主體,而只掃一支的守門全綠。
+    //    ⇒ 面要畫在「不變量成立的那個面」= 全部四支(本檔涵蓋的範圍)都不得同時提到兩者。
     expect(
       CSS['products-page.css'],
       '列表頁 CSS 出現殼寬 token ⇒ 不管掛在哪個選擇器上,主體都可能被收窄',
     ).not.toMatch(/--shell-bar-max/);
+    for (const f of FILES) {
+      if (!CSS[f].includes('.pp-layout')) continue;
+      const rules = CSS[f].match(/[^{}]*\.pp-layout[^{}]*\{[^}]*\}/g) ?? [];
+      for (const r of rules) {
+        expect(r, `${f} 有一條 .pp-layout 規則吃了殼寬:${r.slice(0, 60)}`).not.toMatch(
+          /--shell-bar-max/,
+        );
+      }
+    }
   });
 });
 

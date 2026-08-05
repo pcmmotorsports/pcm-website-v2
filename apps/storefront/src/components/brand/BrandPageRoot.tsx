@@ -4,8 +4,9 @@
 //    「`.bp-page` scope 上機制、不靠人記」那條前置(`docs/phase-1-backlog.md:8403`)逐字建議的
 //    就是「抽一個 `BrandPageRoot` wrapper 讓 scope 跟元件走」。
 //    整頁色票(熔橘 `--c-red` / `--cat-*` / 全套灰階 / `--f-serif` / `--ease`)都掛在 `.bp-page` 上
-//    —— 那是刻意的,因為 `--c-red` 在正式站 `tokens.css` 已存在且值不同,改 `:root` 會讓現有
-//    每一頁的按鈕與價格當場變色(理由逐字寫在 `styles/brand-page.css` 檔頭)。
+//    —— 那是刻意的。⚠️ **原本的理由(`--c-red` 在正式站值不同、改 `:root` 會讓每一頁當場變色)
+//    已於 2026-08-05 第0批 0c 消失**:站台 `--c-red` 現在就是熔橘 `#f26722`、與本頁同值。
+//    scope 仍留著(同值、不礙事;收斂屬獨立一片),完整說明在 `styles/brand-page.css` 檔頭。
 //    但原本那個 class 由**呼叫端手寫**:漏掛時只有 `--c-graphite` 與 chip 的 `--c-border-control`
 //    兩處有 fallback,其餘整組沉默降級 —— 三綠、CSS 守門、八支元件測試**全部不會紅**。
 //    把 class 與 `brand-page.css` 的 import 綁進同一支元件 ⇒ **拿得到樣式就一定有 scope**,

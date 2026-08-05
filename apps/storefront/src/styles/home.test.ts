@@ -369,13 +369,18 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     };
     const rule = (selector: string): string => ruleBlocks(selector).join('\n');
 
-    it('🔴 主按鈕填的是熔橘動作色,不是墨色、也不是站台的緋紅 --c-red', () => {
+    it('🔴 主按鈕填的是熔橘動作色,不是墨色、也不是站台的 --c-red', () => {
       const body = rule('.ed-feature-primary');
       expect(body, '找不到 .ed-feature-primary 規則').not.toBe('');
-      // 走本檔自己的 token。🔴 `var(--c-red)` 在正式站是 #dc2626 緋紅、不是 OD 的熔橘
-      // ⇒ 直接引用站台那顆會靜默畫錯色,這條把它擋住。
+      // 走本檔自己的 token。
+      // ⚠️ **這條反面斷言的效力在 2026-08-05 第0批 0c 之後變弱了,誠實記下來**:
+      //    0c 之前站台 `--c-red` 是 `#dc2626` 緋紅 ⇒ 誤用站台那顆會**當場畫錯色**,這條擋的是真缺陷。
+      //    0c 之後站台 `--c-red` = `#f26722` = 與 `--ed-c-action` **同值** ⇒ 誤用不再有視覺症狀,
+      //    這條現在守的是**架構分離**(首頁自帶色票、不與站台耦合)而不是顏色正確性。
+      //    仍然留著:`--ed-c-action-active`(`#a53a08`)站台沒有對應顆,整組收斂要一起做、
+      //    而「先偷偷換掉其中一顆」正是最容易發生的走樣。
       expect(body, '主按鈕沒有填熔橘動作色').toMatch(/background:\s*var\(--ed-c-action\)/);
-      expect(body, '主按鈕改用站台的 --c-red(緋紅 #dc2626)⇒ 不是 Sean 拍板那顆熔橘').not.toMatch(
+      expect(body, '主按鈕改用站台的 --c-red ⇒ 首頁色票與站台耦合(0c 後兩者同值、不再有視覺症狀)').not.toMatch(
         /background:\s*var\(--c-red/,
       );
       expect(body, '主按鈕被改成墨色 ⇒ 違反「熔橘才是動作色」(OD §6-2)').not.toMatch(
