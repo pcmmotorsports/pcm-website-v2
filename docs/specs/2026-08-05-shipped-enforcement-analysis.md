@@ -1,5 +1,7 @@
-> ⚠️ **本檔=獨立 Fable 分析輸入(2026-08-05,fresh context、不看 v3/v4 結論),非已拍板設計。**
-> 服務對象=B2 出貨線停損版(v5 兩張表)之後的「shipped 進摘要」那片;該片開工前 Sean 需裁 U1(見文末)。
+> ⚠️ **本檔=獨立 Fable 分析輸入(2026-08-05,fresh context、不看 v3/v4 結論)。**
+> 🏁 **2026-08-05 Sean 已拍板:Q1=A、Q2=A**(§10 照推薦;C9 摘要表 CHECK + 出貨 RPC 訊息層 +
+> oracle 四軸;C6′ 照 v4 落地、標記冗餘。Q1=A 即接受 U1 的兩步更正流程代價)。
+> 服務對象=B2 出貨線停損版(v5 兩張表)之後的「shipped 進摘要」那片,依本拍板施工。
 > 前情=同題三次分析全被證偽(v2 三桶互斥/v3 已蘊含論/主視窗第三案),詳 memory feedback_claim-scope-exceeds-fact-three-shapes 第五形狀。
 
 # 「已出貨不得取消、不得超過已到貨」強制點分析(fresh context 第四輪)
@@ -8,7 +10,7 @@
 > 引用基準:主樹 `/Users/sean_1/pcm-website-v2`(HEAD de2bfe9)+ worktree `/Users/sean_1/pcm-a4a-chain`(B2 plan v4 所在)。
 > 一句話結論:**不變式拆成兩條後,承重的那條是 `shipped ≤ instock`,它應該放在摘要表當
 > CHECK(隨 A4a row-level 重算被評估),而不是只放出貨側 RPC;取消側零改動。**
-> 這與 B2 plan v4(第三次分析)的裁決相反,理由在 §6-§7;最終須 Sean 重裁(§10)。
+> 這與 B2 plan v4(第三次分析)的裁決相反,理由在 §6-§7;已由 Sean 重裁=Q1=A(2026-08-05,§10)。
 
 ---
 
@@ -298,5 +300,8 @@ A. 照 v4 落地、標記冗餘(A1 C1/C6 先例;break-glass 天花板下第二�
 B. 不落地(嚴格 YAGNI;A1 契約債字面改由 C9 + 註解清償)
 推薦:A(改動 v4 最小、契約債字面完整)
 ```
+
+🏁 **2026-08-05 Sean 拍板:Q1=A、Q2=A**(兩題照推薦;落檔 memory
+`project_m4b-b2-shipments-db-decisions`,已通知 B 窗 `B-107-A`)。
 
 —— 完 ——
