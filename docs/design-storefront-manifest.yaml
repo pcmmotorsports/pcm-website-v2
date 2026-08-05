@@ -10,6 +10,16 @@
 #   - design-reference/styles/*.v1.css 標 deprecated_in_design: true(舊版本、storefront 不需對齊)
 #
 # 衝突仲裁:本 manifest > storefront 既有 code、但 business_overrides 段內偏離合法、不誤判
+#   🔴 **兩個 override 抽屜,不要混**(2026-08-05 新增,D5e-1 R3 F4):
+#     · `business_overrides` = **外部權威**授權的偏離(Sean 拍板／plan 批准／對抗審查 verdict／稽核)。
+#       上面那句「段內偏離合法、不誤判」只適用這一段。
+#     · `technical_overrides` = **施工端自己的技術判斷**(未經拍板)。看到它就知道可以質疑。
+#       施工端不得把自己的判斷塞進 business_overrides —— 那等於就地自我合法化,
+#       而審查者被上面那句指示「不要誤判」。首例 = FeatureEditorial 的
+#       focusRotationUsesTaipeiCalendarDay。✅ **Sean 2026-08-05 拍 B 追認分家**(信箱 C-98-A)。
+#   🔴 **新段的仲裁語句(不要讓它長出 business 段那種自我合法化語意)**:
+#     technical_overrides 的授權來源 = **施工端判斷**。審查者應**逐條檢視理由是否成立**,
+#     **不得因其在此段而免審**。上面「段內偏離合法、不誤判」那句**只涵蓋 business_overrides**。
 #
 # 字面 vs 事實:
 #   - last_modified_commit 寫【案 A 記可達祖先】= 前一個已落地 HEAD 可達 commit(通常 = 本 slice 父 commit)、
@@ -1363,8 +1373,11 @@ components:
       # cartRoute drift 已於 M-3-S2-b2-d resolved(/cart route 建、見 business_overrides.cartTabEnabled)
 
   HomeStatement:
-    last_modified_commit: "1d96182"  # 記可達祖先=D5d 的父 commit(#180 案 A)
-    last_modified_date: "2026-08-05 [D5d 品牌家數字面對齊(Sean 拍板 Q1=B 不報數)]:`8 大品牌正式代理。` → `原廠正式代理。`,同段後兩句(「每件商品附原廠序號與保固卡,杜絕仿品風險。」)維持 OD 原文不動。🔴 **本片刻意偏離 design 字面,依據是 Sean 拍板不是疏漏 ⇒ 正式登記在下方 `business_overrides.brandCountClaimRemoved`**(只寫在敘述裡的話,下一個做 design 對齊的人會判成 drift)。OD 逐字「17 家品牌正式代理。」、repo 舊字面「8 大」—— 兩個數字都沒有可查證來源。🔴 **更正 R1 抓到的錯字面**:17 **不是**「有介紹頁的品牌數」——有介紹頁的是 `apps/storefront/src/data/brand-content.ts` 的 `BRAND_CONTENT` **20** 家(實數);17 是 `apps/storefront/src/data/mock-brands.ts` 的 `MOCK_BRANDS`,一份自述會廢、且實查漏掉 3 家有商品品牌的**過期靜態首頁名單**(詳 `BrandIndex.tsx` 檔頭實查段)。兩個數字都不是「正式代理家數」。⚠️ 字面取捨待肉眼驗:Sean 過目的例句是「原廠正式代理,每件附序號與保固卡」,本片只取第一分句逐字、保留原稿後兩句(照抄整句會靜默刪掉「杜絕仿品風險」這個賣點、三欄份量也失衡)。同片加**機制型守門**:只掃第 01 格(避開第 02 格那句刻意未動的「全台 9 家合作店家」而得以放寬 pattern),斷言不得出現「數字+大/家/個」——只鎖新字面擋不住下一個人又填一個數字進去;六組突變親跑全紅,含 R1 證明舊 pattern 會漏的 `20 家國際品牌` / `20 多家品牌` / `20 家原廠正式代理`。⚠️ 同段第二欄「全台 **9 家**合作店家」屬同一族事實宣稱、**本片未動**(Q1 只問品牌家數;OD 稿亦為 9),已列進回報信當候選題。⚠️ 本條敘述**刻意不引 OD 行號**(R1 must-fix:上一版寫 `:922`/`:927`、實為 `:920`/`:926`,且該稿當天仍在被改)——同 `BrandIndex.tsx` 檔頭那條教訓,引逐字字串、用 grep 找。前:2026-08-05 [D5a 首頁區塊重排;本條目為 D5a 補建 —— 本元件此前只在 `:1394` 的候選列表裡、沒有正式條目,而 D5a 觸到它(manifest 規範:觸到就建條目)]:①位置由第 6 上移到 **N°04**(OD README「區塊順序(第 7 步之後)」定案:服務宣言原 N°05、與本月聚焦對調)②版面編號字面 `N°05 · Service` → `N°04 · Service`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `N°04 · Service` 那行;README 逐字「編號是位置標記不是內容 id」)③底色 `#0a0a0a` → **石墨 `#202225`**(direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值)。⚠️ 元件內部文案與結構零改動 —— 其中「8 大品牌正式代理」的家數對齊是 **D5d**,卡 Sean 的 Q1(母計畫 §10 標為廣告不實風險,家數是事實題)。"
+    storefront:
+      component: "apps/storefront/src/components/HomeStatement.tsx"
+      css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-statement 家族
+      last_modified_commit: "1d96182"  # 記可達祖先=D5d 的父 commit(#180 案 A)
+      last_modified_date: "2026-08-05 [D5d 品牌家數字面對齊(Sean 拍板 Q1=B 不報數)]:`8 大品牌正式代理。` → `原廠正式代理。`,同段後兩句(「每件商品附原廠序號與保固卡,杜絕仿品風險。」)維持 OD 原文不動。🔴 **本片刻意偏離 design 字面,依據是 Sean 拍板不是疏漏 ⇒ 正式登記在下方 `business_overrides.brandCountClaimRemoved`**(只寫在敘述裡的話,下一個做 design 對齊的人會判成 drift)。OD 逐字「17 家品牌正式代理。」、repo 舊字面「8 大」—— 兩個數字都沒有可查證來源。🔴 **更正 R1 抓到的錯字面**:17 **不是**「有介紹頁的品牌數」——有介紹頁的是 `apps/storefront/src/data/brand-content.ts` 的 `BRAND_CONTENT` **20** 家(實數);17 是 `apps/storefront/src/data/mock-brands.ts` 的 `MOCK_BRANDS`,一份自述會廢、且實查漏掉 3 家有商品品牌的**過期靜態首頁名單**(詳 `BrandIndex.tsx` 檔頭實查段)。兩個數字都不是「正式代理家數」。⚠️ 字面取捨待肉眼驗:Sean 過目的例句是「原廠正式代理,每件附序號與保固卡」,本片只取第一分句逐字、保留原稿後兩句(照抄整句會靜默刪掉「杜絕仿品風險」這個賣點、三欄份量也失衡)。同片加**機制型守門**:只掃第 01 格(避開第 02 格那句刻意未動的「全台 9 家合作店家」而得以放寬 pattern),斷言不得出現「數字+大/家/個」——只鎖新字面擋不住下一個人又填一個數字進去;六組突變親跑全紅,含 R1 證明舊 pattern 會漏的 `20 家國際品牌` / `20 多家品牌` / `20 家原廠正式代理`。⚠️ 同段第二欄「全台 **9 家**合作店家」屬同一族事實宣稱、**本片未動**(Q1 只問品牌家數;OD 稿亦為 9),已列進回報信當候選題。⚠️ 本條敘述**刻意不引 OD 行號**(R1 must-fix:上一版寫 `:922`/`:927`、實為 `:920`/`:926`,且該稿當天仍在被改)——同 `BrandIndex.tsx` 檔頭那條教訓,引逐字字串、用 grep 找。前:2026-08-05 [D5a 首頁區塊重排;本條目為 D5a 補建 —— 本元件此前只在 `:1394` 的候選列表裡、沒有正式條目,而 D5a 觸到它(manifest 規範:觸到就建條目)]:①位置由第 6 上移到 **N°04**(OD README「區塊順序(第 7 步之後)」定案:服務宣言原 N°05、與本月聚焦對調)②版面編號字面 `N°05 · Service` → `N°04 · Service`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `N°04 · Service` 那行;README 逐字「編號是位置標記不是內容 id」)③底色 `#0a0a0a` → **石墨 `#202225`**(direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值)。⚠️ 元件內部文案與結構零改動 —— 其中「8 大品牌正式代理」的家數對齊是 **D5d**,卡 Sean 的 Q1(母計畫 §10 標為廣告不實風險,家數是事實題)。"
     design:
       # 🔴 本線真權威 = Open Design `pcm-home-redesign/direction-b-layout-01-graphite-ember.html`
       #    的 `.b-statement` 段(鐵則 1 例外,2026-08-03 Sean 拍 Q1=B;位置見
@@ -1387,8 +1400,11 @@ components:
         reason: "🔴 **這是事實題不是文案題**:母計畫 `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:413` 逐字「D1/D5 的『20 家』『N 大品牌』數字必須真」,引 `docs/specs/2026-07-25-site-wide-gap-and-admin-platform-plan.md:105`「上線前確認對外數字真實(廣告不實風險)」。稿上的 17 與 repo 舊值 8 **都查不到來源**:17 = `data/mock-brands.ts` MOCK_BRANDS 的筆數(過期靜態首頁名單,實查漏 3 家有商品品牌),而有介紹頁的其實是 `data/brand-content.ts` BRAND_CONTENT **20** 家 —— 兩者都不等於「正式代理家數」,那個數字只有 Sean 知道。⇒ 施工端不得代填,Sean 選「不報數」;附帶好處=以後增減品牌不用回頭改這句。⚠️ 同段第 02 格「全台 9 家合作店家」屬同一族宣稱、**本片未動**(不在 Q1 範圍),已列為候選題回報。"
 
   FeatureEditorial:
-    last_modified_commit: "7e74914"  # 記可達祖先=D5e-1 的父 commit(#180 案 A)
-    last_modified_date: "2026-08-05 [D5e-1 硬編 → 資料驅動 + 每 3 天輪播(Sean 拍板 Q4=A;主視窗 C-88-A GO)]:元件由「RIZOMA 全部寫死在 JSX」改成吃一顆 `ResolvedBrandFocus`(`lib/brand-focus.ts` 解、`app/page.tsx` 傳)。資料來源 = `data/brand-content.ts` 的 `BRAND_CONTENT`(輪播池、排序、`lede`/`origin`/`facts` 的 fallback)+ 新建的 `data/brand-focus.ts` 覆蓋層(`title`/`photo`/`facts`/選填 `body`,欄位契約逐字照 OD `brand-focus-data.js` 檔頭,D5e-2 搬 20 家時零改形)。輪播規則照 OD 版型的 `brand-focus` IIFE:每 3 天進一格、起算 2026-08-03、`% 家數` 環回、起算日前夾 0。**當期用 `BRAND_FOCUS_PIN='rizoma'` 釘住**(沿用 OD 的 `PCM_BRAND_FOCUS_OVERRIDE` 同款機制;D5e-2 把它改成 `undefined` 輪播就自己轉起來,其餘零改動)—— 20 家文案齊之前讓它轉會轉出 19 家只有 fallback 標題的版位。🔴 **Sean 肉眼驗三顆對客可見的錯內容**(本片原地搬進資料層、依「先固定現內容」不改字,D5e-2 必改;OD `N05-FOCUS-HANDOFF.md` 的「換掉時順便清掉」清單上就有它們):①`SINCE 2000` 年份錯(`BRAND_CONTENT` 與 OD 都是 **2001 年**)②敘述「三十年如一日」錯(2001 創立、2026 年是 **25 年**)③那張圖是 unsplash placeholder CDN、不是 RIZOMA 的照片(外連隨時會壞)。⚠️ **本片唯一可見文案變更**:照片圖說由硬編的「RIZOMA Stealth 後視鏡 · 鋁合金 CNC 削切」改成資料層的 `origin`(RIZOMA=「義大利」),依 OD 契約逐字「圖說只給產地」;原本那句是寫死的產品說明、**輪到別家就是錯的**,正是本片要拆掉的債。已列 Sean 肉眼驗。⚠️ 標題刻意維持「品牌名 + 鉤子」兩行不改眉標(OD 是把品牌名放眉標、本站放標題第一行,兩者都滿足「名字有出現且不由 title 提供」,而維持現狀那版視覺零變動)。⚠️ **CTA 動線與 OD 不同、本片刻意不動**:OD handoff §三指主按鈕應為品牌介紹頁 `/brands/<slug>`,本站沿用既有的 `/products?brand=<slug>`(且 `brand=` 是 legacy key、新契約為 `pbrand=`)—— D5e-1 範圍是「殼 + 輪播」,改動線屬 D5e-2。⚠️ 媒體欄 `photo` 為 null 時**整欄不建**(不是畫 `<img src=\"\">`);OD 的 `brand.band` → logo 牌兩段退路屬 D5e-2。🔴 D5e-2 開工前必讀兩個實查:①OD rizoma 的 `photo` 指 `assets/brands-prod/rizoma/stealth-mirror.jpg`,**該檔在本 repo 不存在**(實查該目錄只有 tank-cap / video-fashion / video-scrambler)②現行這張圖是 unsplash 外部網址(既有債、非本片引入)。前:2026-08-05 [D5a 首頁區塊重排;本條目為 D5a 補建,理由同 HomeStatement]:①位置由第 3 下移到 **N°05**(與服務宣言對調)②版面編號字面 `N°02` → `N°05`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `b-feature-num` 那顆 `N°05`)。⚠️ 元件內容零改動 —— 現況仍是**硬編 RIZOMA**、三組 fact 是「標籤+值」兩欄(OD README 要的第三欄「說明句」尚未有);改成 20 家資料驅動、每 3 天輪播是 **D5e**,卡 Sean 的 Q4。"
+    storefront:
+      component: "apps/storefront/src/components/FeatureEditorial.tsx"
+      css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-feature 家族
+      last_modified_commit: "7e74914"  # 記可達祖先=D5e-1 的父 commit(#180 案 A)
+      last_modified_date: "2026-08-05 [D5e-1 硬編 → 資料驅動 + 每 3 天輪播(Sean 拍板 Q4=A;主視窗 C-88-A GO)]:元件由「RIZOMA 全部寫死在 JSX」改成吃一顆 `ResolvedBrandFocus`(`lib/brand-focus.ts` 解、`app/page.tsx` 傳)。資料來源 = `data/brand-content.ts` 的 `BRAND_CONTENT`(輪播池、排序、`lede`/`origin`/`facts` 的 fallback)+ 新建的 `data/brand-focus.ts` 覆蓋層(`title`/`photo`/`facts`/選填 `body`,欄位契約逐字照 OD `brand-focus-data.js` 檔頭,D5e-2 搬 20 家時零改形)。輪播規則照 OD 版型的 `brand-focus` IIFE:每 3 天進一格、起算 2026-08-03、`% 家數` 環回、起算日前夾 0。**當期用 `BRAND_FOCUS_PIN='rizoma'` 釘住**(沿用 OD 的 `PCM_BRAND_FOCUS_OVERRIDE` 同款機制;D5e-2 把它改成 `undefined` 輪播就自己轉起來,其餘零改動)—— 20 家文案齊之前讓它轉會轉出 19 家只有 fallback 標題的版位。🔴 **Sean 肉眼驗三顆對客可見的錯內容**(本片原地搬進資料層、依「先固定現內容」不改字,D5e-2 必改;OD `N05-FOCUS-HANDOFF.md` 的「換掉時順便清掉」清單上就有它們):①`SINCE 2000` 年份錯(`BRAND_CONTENT` 與 OD 都是 **2001 年**)②敘述「三十年如一日」錯(2001 創立、2026 年是 **25 年**)③那張圖是 unsplash placeholder CDN、不是 RIZOMA 的照片(外連隨時會壞)。⚠️ **本片唯一可見文案變更**:照片圖說由硬編的「RIZOMA Stealth 後視鏡 · 鋁合金 CNC 削切」改成資料層的 `origin`(RIZOMA=「義大利」),依 OD 契約逐字「圖說只給產地」;原本那句是寫死的產品說明、**輪到別家就是錯的**,正是本片要拆掉的債。已列 Sean 肉眼驗。⚠️ 標題刻意維持「品牌名 + 鉤子」兩行不改眉標(OD 是把品牌名放眉標、本站放標題第一行,兩者都滿足「名字有出現且不由 title 提供」,而維持現狀那版視覺零變動)。⚠️ **CTA 動線與 OD 不同、本片刻意不動**:OD handoff §三指主按鈕應為品牌介紹頁 `/brands/<slug>`,本站沿用既有的 `/products?brand=<slug>`(且 `brand=` 是 legacy key、新契約為 `pbrand=`)—— D5e-1 範圍是「殼 + 輪播」,改動線屬 D5e-2。⚠️ 媒體欄 `photo` 為 null 時**整欄不建**(不是畫 `<img src=\"\">`);OD 的 `brand.band` → logo 牌兩段退路屬 D5e-2。🔴 D5e-2 開工前必讀兩個實查:①OD rizoma 的 `photo` 指 `assets/brands-prod/rizoma/stealth-mirror.jpg`,**該檔在本 repo 不存在**(實查該目錄只有 tank-cap / video-fashion / video-scrambler)②現行這張圖是 unsplash 外部網址(既有債、非本片引入)。前:2026-08-05 [D5a 首頁區塊重排;本條目為 D5a 補建,理由同 HomeStatement]:①位置由第 3 下移到 **N°05**(與服務宣言對調)②版面編號字面 `N°02` → `N°05`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `b-feature-num` 那顆 `N°05`)。⚠️ 元件內容零改動 —— 現況仍是**硬編 RIZOMA**、三組 fact 是「標籤+值」兩欄(OD README 要的第三欄「說明句」尚未有);改成 20 家資料驅動、每 3 天輪播是 **D5e**,卡 Sean 的 Q4。"
     design:
       component: "design-reference/components/HomePage.jsx (ed-feature / N°02 This month section)"
       css: "design-reference/styles/home.css (.ed-feature 家族)"
@@ -1396,18 +1412,22 @@ components:
       - "apps/storefront/src/app/page.tsx"  # 區塊順序的唯一組合點(D5a 重排);D5e-1 起也在這裡解出當期 focus
       - "apps/storefront/src/lib/brand-focus.ts"  # D5e-1 新建:輪播決策(純函式、收 now 參數)
       - "apps/storefront/src/data/brand-focus.ts"  # D5e-1 新建:首頁專用覆蓋層(D5e-2 搬 20 家)
-    business_overrides:
+    business_overrides: []
+    technical_overrides:
       - field: "focusRotationUsesTaipeiCalendarDay"
         design_value: "Open Design `pcm-home-redesign/direction-b-layout-01-graphite-ember.html` 的 `brand-focus` IIFE 逐字 `const start = new Date(`${TWEAK_DEFAULTS.focusStartDate}T00:00:00`)` —— 字面**沒有時區後綴** = 依執行環境的本地時區解讀(不引行號:該稿仍在改動中,用 grep 找 `focusStartDate`)"
         storefront_value: "`lib/brand-focus.ts` 的 `taipeiDayNumber()`:用 `toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' })` 取台灣曆日再以 UTC 午夜解析成整數日,起算日同樣以 UTC 午夜解析 ⇒ 兩邊都是純曆日、相減與執行環境時區無關"
         decided_at: "2026-08-05"
-        decision_source: "⚠️ **待 Sean 追認**(D5e-1 R3 F4 提出:現存 32 筆 business_overrides 的 decision_source 全部指向外部權威〔Sean 拍板／plan 批准／對抗審查〕,**本條是第一個施工端自我授權的**;而該段的仲裁語意是「段內偏離合法」⇒ 不該由施工端自行放進同一個抽屜。已列進回報信請 Sean 裁示:追認、或另開 `technical_overrides` 鍵)。施工端技術判斷的理由:設計稿在 Sean 的瀏覽器(UTC+8)跑、正式站 server 跑 UTC,照抄字面會讓輪播在**台灣時間早上 8 點**換人而不是午夜。客人在台灣,換人就該在台灣的午夜。同族坑見 memory `project_m4b-a9d2-1-note-action-decisions`(`datetime-local` 無偏移 + server UTC ⇒ 時間差 8 小時靜默入庫)"
+        decision_source: "**施工端技術判斷**(非 Sean 拍板)—— 故放 `technical_overrides` 而非 `business_overrides`(主視窗 C-96-A ②:先照 B 的形狀做,Sean 裁示 A/C 再改鍵名)。理由:OD 那個字面沒有時區後綴 ⇒ **依執行環境的本地時區解讀**,同一份 code 在不同機器上換人的時刻不一樣。本實作改算「絕對曆日」(顯式 `Asia/Taipei` 取曆日 + 起算日 `T00:00:00Z` 解析)⇒ **對執行環境時區完全免疫**,不論 server 設成什麼,換人一律落在台灣的午夜。客人在台灣。(R3 F6 更正:原本把理由寫成「正式站 server 跑 UTC」—— 那是我沒實測過的部署事實,而且會讓未來的人以為「把 server 設成 Asia/Taipei 就能改回照抄」。)同族坑見 memory `project_m4b-a9d2-1-note-action-decisions`(`datetime-local` 無偏移 + server UTC ⇒ 時間差 8 小時靜默入庫)"
         backlog: "—(無獨立條目;本片內解決)"
         reason: "🔴 **守門本身差點是假的**:開發機實測 `Intl.DateTimeFormat().resolvedOptions().timeZone === 'Asia/Taipei'` ⇒ 在這台機器上把實作裡的 `timeZone` 選項整個拿掉,時區斷言**照樣全綠** —— 也就是「會出事的環境(UTC server)」正好是「測不到的環境」。修法:`brand-focus.test.ts` 開頭 `process.env.TZ = 'UTC'` **並附前提斷言驗證它真的釘上了**(沒釘上就大聲紅,不讓整組斷言默默退化成恆真);釘 UTC 後拿掉 `timeZone` 的突變實測轉紅。屬 memory `feedback_fixture-value-makes-guard-vacuous` 那一族。"
 
   HomeSelect:
-    last_modified_commit: "0ce3a12"  # 記可達祖先=D5a 的父 commit(#180 案 A);前錨 e9ab418=#5b 修
-    last_modified_date: "2026-08-05 [D5a 首頁區塊重排連動]:本區塊由第 5 個位置上移到 **N°02**(OD README「區塊順序(第 7 步之後)」定案),版面編號字面 `N°04` → `N°02`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `b-select-title` 那顆 `N°02`)。🔴 README 逐字「編號是**位置標記不是內容 id**」⇒ 編號跟著位置走。元件內部結構與資料流零改動。前:2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
+    storefront:
+      component: "apps/storefront/src/components/HomeSelect.tsx"
+      css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-select 家族
+      last_modified_commit: "0ce3a12"  # 記可達祖先=D5a 的父 commit(#180 案 A);前錨 e9ab418=#5b 修
+      last_modified_date: "2026-08-05 [D5a 首頁區塊重排連動]:本區塊由第 5 個位置上移到 **N°02**(OD README「區塊順序(第 7 步之後)」定案),版面編號字面 `N°04` → `N°02`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `b-select-title` 那顆 `N°02`)。🔴 README 逐字「編號是**位置標記不是內容 id**」⇒ 編號跟著位置走。元件內部結構與資料流零改動。前:2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
     design:
       component: "design-reference/components/HomePage.jsx (L197-212 ed-select / The Selection · 編輯精選 section)"
       css: "design-reference/styles/home.css (L457-470 .ed-select / .ed-select-grid)"

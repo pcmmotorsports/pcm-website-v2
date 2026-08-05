@@ -280,6 +280,24 @@ function cmdTarget(targetPath, sliceId, componentFilter) {
   });
   lines.push(``);
 
+  // 🔴 `technical_overrides`(2026-08-05 新增,D5e-1 R3 F4):**施工端**的技術性偏離,
+  //    與 `business_overrides`(外部權威授權:Sean 拍板／plan 批准／對抗審查)刻意分兩個抽屜。
+  //    理由:`business_overrides` 的仲裁語意是「段內偏離合法、勿當誤翻譯」——
+  //    施工端若能自行往那裡塞,等於可以就地把任何 design 偏離合法化,而審查者被指示不要誤判。
+  //    ⇒ 分家之後,看到 `technical_overrides` 就知道**這條沒有經過拍板**、可以質疑。
+  //    (鍵名待 Sean 裁示 A/B/C;主視窗 C-96-A ② 指示先照 B 的形狀做。)
+  const techOverrides = entry.technical_overrides || [];
+  lines.push(`🔧 技術 override(施工端判斷、**未經拍板**,可質疑): ${techOverrides.length}`);
+  techOverrides.forEach((o) => {
+    lines.push(`   - ${o.field}`);
+    lines.push(`     design: ${o.design_value}`);
+    lines.push(`     現場: ${o.storefront_value}`);
+    lines.push(`     判斷: ${o.decided_at} ← ${o.decision_source}`);
+    if (o.backlog) lines.push(`     backlog: ${o.backlog}`);
+    if (o.reason) lines.push(`     reason: ${o.reason}`);
+  });
+  lines.push(``);
+
   const drifts = entry.open_drifts || [];
   lines.push(`⚠️  未解決偏離(可能要動 Claude Design / Cowork 寫 PRD): ${drifts.length}`);
   drifts.forEach((d) => {
