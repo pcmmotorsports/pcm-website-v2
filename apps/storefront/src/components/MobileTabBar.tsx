@@ -108,7 +108,16 @@ const TABS: Tab[] = [
 export function MobileTabBar() {
   const pathname = usePathname() || '/';
   const segments = pathname.split('/').filter(Boolean);
-  const hidden = pathname.startsWith('/products/') && segments.length >= 2;
+  // 🔶 第2批新增第二個 hidden 情境:`/coming-soon`(整站上線前的唯一一頁)。
+  //    Sean 2026-08-05 的天地規則是**分兩種**的:`/stores` `/install` 是站內頁要保留天地,
+  //    但整站版**刻意沒有任何站內導航** —— 那時其他頁面都還沒上線,擺連結點了只會 404
+  //    (設計端 `coming-soon-handoff.md` 驗收 #14 明列「這是刻意的,不是漏做」)。
+  //    🔴 那一頁靠「不 import `<Header>`/`<HomeFooter>`」就沒有殼,但 TabBar 掛在**根 layout**、
+  //    頁面 import 不到、擋不掉 ⇒ 唯一能擋的地方就是這裡。
+  //    ⚠️ 只認 `/coming-soon` 這一條**精確路徑**,不用 startsWith:`/stores` `/install` 雖然
+  //    渲染同一個元件,但它們是站內頁、TabBar 要留著。
+  const hidden =
+    (pathname.startsWith('/products/') && segments.length >= 2) || pathname === '/coming-soon';
 
   return (
     <nav className={`mobile-tabbar ${hidden ? 'is-hidden' : ''}`} aria-label="主導航">

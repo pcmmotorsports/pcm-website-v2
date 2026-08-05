@@ -206,3 +206,54 @@
 [data-mobile="true"] .auth-main { padding: 32px 16px 40px; }
 [data-mobile="true"] .auth-card { padding: 28px 22px; }
 [data-mobile="true"] .auth-card h1 { font-size: 26px; }
+
+/* ===== /logout 登出確認頁(全站重設計 第2批;2026-08-06)=====
+   真權威 = OD `logout-page.html` 的 inline `<style>`(該檔 :17-48 逐字搬)。
+   設計端檔頭逐字:「樣式零新增:沿用 `pcm-auth.css` 的 `.auth-card` / `.auth-submit` / `.ap-mono`」
+   ⇒ 只有這一組 `.lo-*` 是新的(置中確認卡的內距與動作列),其餘全部重用本檔既有規則。
+   ⚠️ 設計稿那段的平板 `@media (min-width:600px) and (max-width:1079px)` **只搬 `.lo-*` 這三條**;
+      本檔其餘部分的平板段對齊屬**第4批**(`/login` `/register`)—— `D-113-A` 明文
+      「auth 未對齊 OD 整數化、勿假設已對齊」,不在本批範圍內順手做。 */
+.lo-card { text-align: center; padding: 48px 36px; }
+.lo-icon {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--c-border-strong);
+  color: var(--c-text-2);
+}
+.lo-card h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 10px; }
+.lo-note { font-size: 14px; line-height: 1.7; color: var(--c-text-2); margin: 0 0 28px; }
+.lo-actions { display: flex; flex-direction: column; gap: 10px; }
+.lo-actions .auth-submit { display: block; text-align: center; text-decoration: none; }
+.lo-secondary {
+  display: block;
+  width: 100%;
+  padding: 13px;
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-size: 14px;
+  text-align: center;
+  text-decoration: none;
+  transition: background 0.15s, border-color 0.15s;
+}
+.lo-secondary:hover { background: var(--c-surface-2); border-color: var(--c-text); }
+/* 🔴 響應式這兩段**刻意用 `.auth-card.lo-card`(0,2,0)而不是設計稿的裸 `.lo-card`(0,1,0)**。
+   本檔上面有一組 `[data-mobile="true"] .auth-card`(0,2,0)/ `… h1`(0,2,1)的 UA 兜底,
+   它**贏過裸 `.lo-card`、而且與先後順序無關** ⇒ 照設計稿字面搬,手機上的內距與標題字級
+   會被那組兜底靜默蓋掉(設計稿沒有這個問題:它的 `.lo-*` 在獨立 `<style>` 裡、真站沒有
+   那組 `[data-mobile]` 規則)。提權到同 specificity、靠本區塊在後面取勝。
+   ⇒ 這是**真站既有 cascade 環境造成的必要偏離**,不是改設計。守門在 `styles/coming-soon.test.ts`。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .auth-card.lo-card { padding: 44px 32px; }
+  .auth-card.lo-card h1 { font-size: 26px; }
+  .lo-note { font-size: 15px; }
+}
+@media (max-width: 599px) {
+  .auth-card.lo-card { padding: 32px 22px; }
+  .auth-card.lo-card h1 { font-size: 24px; }
+}

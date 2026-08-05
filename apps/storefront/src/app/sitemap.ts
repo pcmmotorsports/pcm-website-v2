@@ -16,6 +16,12 @@ import { buildSitemapEntries } from '@/lib/seo';
 // D3c-4:品牌總覽與 20 個品牌介紹頁進地圖。來源是**靜態內容檔**(不是 DB)⇒ 不多一次撈。
 import { BRAND_CONTENT } from '@/data/brand-content';
 
+// 🔶 2026-08-06 第2批決定:**`/coming-soon` `/stores` `/install` `/logout` 四條新路由都不進 sitemap。**
+//   `/coming-soon` 與 `/logout` 本來就 `noindex`(見各自 page 的 metadata)。
+//   `/stores` `/install` **刻意可索引**(設計端 `coming-soon-handoff.md` §三:功能版是站內頁、
+//   不該 noindex),但它們現在只是「新功能即將上線」佔位頁、內容極薄 ⇒ 主動送進 sitemap
+//   等於請 Google 優先收錄兩頁沒有內容的頁。**等切回完整的 stores / install 頁再收進來**
+//   (切回點寫在那兩支 page.tsx 的檔頭)。這是一個決定,不是漏掉。
 export const revalidate = 86400; // 1 天
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {

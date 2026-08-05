@@ -62,6 +62,25 @@ describe('MobileTabBar', () => {
     expect(nav?.className).not.toContain('is-hidden');
   });
 
+  // 🔶 第2批(全站重設計):整站上線前的 /coming-soon 刻意沒有任何站內導航
+  //    —— 那時其他頁都還沒上線,擺連結點了只會 404(設計端 `coming-soon-handoff.md` 驗收 #14)。
+  //    這一頁靠「不 import <Header>/<HomeFooter>」就沒有殼,但 TabBar 掛在**根 layout**、
+  //    頁面擋不掉 ⇒ 唯一能擋的地方就是這個元件。
+  it('🔴 /coming-soon → tabbar 隱藏(整站版刻意零站內導航)', () => {
+    const { container } = renderAt('/coming-soon');
+    const nav = container.querySelector('nav.mobile-tabbar');
+    expect(nav?.className).toContain('is-hidden');
+  });
+
+  // 反面:同一個 <ComingSoon> 元件也渲染在 /stores 與 /install 上,但那兩條是**站內頁**,
+  // Sean 2026-08-05 逐字要求保留天地(「不然可能會跳到下一個頁面回不去」)⇒ TabBar 要留著。
+  // 沒有這兩條的話,把上面那條寫成 `startsWith('/co')` 之類的過寬判定不會有任何東西紅。
+  it.each([['/stores'], ['/install']])('%s → tabbar **不**隱藏(站內頁要保留天地)', (path) => {
+    const { container } = renderAt(path);
+    const nav = container.querySelector('nav.mobile-tabbar');
+    expect(nav?.className).not.toContain('is-hidden');
+  });
+
   it('/account → 會員 tab is-active', () => {
     const { container } = renderAt('/account');
     const accountTab = container.querySelector('a[href="/account"]');
