@@ -30,6 +30,8 @@
 #    ⇒ 本支只能在**三片全套**的庫上跑;plan §4 項 37 的三個 cut point(逐片 apply 後續跑)
 #    **本支不涵蓋、也不宣稱涵蓋**,那是另一條獨立驗收。
 set -euo pipefail
+# 🔴 在 cd 之前捕捉本檔絕對路徑:gate_wiring_check 要對原始碼做存在性斷言。
+SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 URL="${1:-${D1_DB_URL:-}}"
@@ -46,43 +48,70 @@ log() { echo; echo "== $* =="; }
 q() { psql "$URL" -v ON_ERROR_STOP=0 -qtA -c "$1" 2>&1 || true; }
 qs() { psql "$URL" -v ON_ERROR_STOP=1 -qtA -c "$1"; }
 
-# ── 🔴🔴 拋棄庫身分閘(v5.4 新增;codex K2-R3 BLOCKER)────────────────────────
-# 本支會 **COMMIT 真資料、停用 trigger、CREATE OR REPLACE 真函式**(barrier 節與突變矩陣),
-# 而原本只檢查「URL 非空」⇒ 誤餵正式站 URL 就會直接寫正式資料與 DDL。
-# 🔴 這個破壞面是 v5.4 才引進的(v5.3 全程 BEGIN/ROLLBACK),閘必須跟著補。
+# ── 🔴🔴 拋棄庫身分閘(v5.4;codex K2-R3 BLOCKER / K2-R4 / Fable F1)──────────────
+# 🔴 本支的破壞面(v5.4-c F2 更正:先前這段是從 b2s1b 複製貼上、字面不對):
+#    本支**全程 BEGIN/ROLLBACK、零 COMMIT** —— 但它仍會在交易內 `CREATE ROLE`、
+#    `CREATE OR REPLACE` 守門函式、`DROP CONSTRAINT`(RLS 判別力格與突變矩陣)。
+#    接錯庫雖然不留痕,那些 DDL 仍會**在該庫上真的跑一遍**;而且三支共用同一份閘、
+#    形狀一致比較好維護 ⇒ 照樣擋。**真正會 COMMIT 的是 `b2s1b`(barrier fixture)。**
+#
 # 三重、fail-closed(照 scripts/a6-verify.sh:45-52 的既有形狀改寫成吃 URL 的版本):
-#   ①連到的 DB 的 data_directory 的上層目錄必須有 `.d1t2-harness` ownership marker
-#     —— 正式站的 data_directory 在本機根本不存在 ⇒ 檢查必失敗、拒跑;
-#   ②host 必須是 127.0.0.1、port 必須落在 543xx(交接檔 §5 的既有範圍閘);
-#   ③database 名必須是 postgres。
-# 🔴 v5.4-b(codex K2-R4 BLOCKER):第一版用 `case "$URL" in *127.0.0.1:543xx/*)` 比對,
-#    那是**子字串**比對 ⇒ 一個 `postgresql://u:p@prod.example.com/db?x=127.0.0.1:54342/y`
-#    照樣命中、閘形同虛設。改成**問伺服器本人**(`inet_server_addr/port`),
-#    URL 長什麼樣不重要,連到誰才重要。
+#   ①位址必須是 127.0.0.1、埠必須落在 543xx ②database 名必須是 postgres
+#   ③`dirname(data_directory)` 底下必須有 `.d1t2-harness` ownership marker
+#     —— 正式站的 data_directory 在本機根本不存在 ⇒ 檢查必失敗、拒跑。
+#
+# 🔴 v5.4-b(codex K2-R4):第一版用 `case "$URL" in *127.0.0.1:543xx/*)` = **子字串**比對,
+#    `postgresql://u:p@prod.example.com/db?x=127.0.0.1:54342/y` 照樣命中 ⇒ 改成問伺服器本人。
+#
+# 🔴🔴 v5.4-c(Fable 確認輪 F1,**must-fix**)—— 判準必須抽成**不連線的純函式**:
+#    前一版的 `gate_selftest` 是拿假 URL 去跑整個 `gate_throwaway_db`,只斷言「rc≠0」。
+#    但假 URL 的非零**來自連線失敗**,不是身分判準 ⇒ **把閘退回子字串比對,selftest 照樣綠**
+#    (正是 K2-R4 那個 bug 的形狀)。「日後有人把閘寫鬆會轉紅」那句話當時 ≠ 事實。
+#    ⇒ 判準抽成 `gate_decide addr port`(零連線、零副作用),selftest **兩向直測**:
+#      壞位址必須被拒、好位址必須被放 —— 兩向都要,只驗單向會被「一律拒絕」的壞實作騙過。
+
+# 純判準:只看 addr/port,不連線、不讀檔、無副作用。回 0=放行 / 非 0=拒絕。
+gate_decide() {
+  case "$1:$2" in
+    127.0.0.1:543[0-9][0-9]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 gate_throwaway_db() {
   local datadir workdir addr port
   addr="$(qs "SELECT COALESCE(host(inet_server_addr()),'<unix-socket>')")"
   port="$(qs "SELECT inet_server_port()")"
-  case "$addr:$port" in
-    127.0.0.1:543[0-9][0-9]) : ;;
-    *) echo "🔴 身分閘:連到的伺服器是 $addr:$port,不是 127.0.0.1 的 543xx 拋棄庫;拒跑"; exit 1 ;;
-  esac
+  gate_decide "$addr" "$port" \
+    || { echo "🔴 身分閘:連到的伺服器是 $addr:$port,不是 127.0.0.1 的 543xx 拋棄庫;拒跑"; exit 1; }
   [ "$(qs "SELECT current_database()")" = "postgres" ] || { echo "🔴 身分閘:database 名不是 postgres;拒跑"; exit 1; }
   datadir="$(qs "SHOW data_directory")"
   workdir="$(dirname "$datadir")"
   [ -f "$workdir/.d1t2-harness" ] || {
     echo "🔴 身分閘:$workdir 沒有 .d1t2-harness ownership marker ⇒ 這不是 d1t2 provision 出來的拋棄庫;拒跑"
-    echo "   (本支會 COMMIT 資料並改函式定義,不接受在非拋棄庫上跑)"
     exit 1; }
 }
 gate_throwaway_db
-# 🔴 v5.4-b(codex K2-R4 B):負向實測必須落成**常駐回歸**,否則日後有人把閘寫鬆,
-#    正常數字照樣全綠、沒有人會知道。本格在 subshell 裡拿假 URL 重跑閘邏輯,期望它拒跑。
+
+# 🔴 兩向直測純判準(零連線 ⇒ 判定的理由只可能來自判準本身)。
+#    回 0 = 自檢通過;1 = 壞位址竟被放行;2 = 好位址竟被拒。
 gate_selftest() {
-  local rc
-  ( URL="postgresql://postgres@prod.example.com:5432/postgres?x=127.0.0.1:54342/y"
-    gate_throwaway_db ) >/dev/null 2>&1 && rc=0 || rc=$?
-  [ "${rc:-0}" -ne 0 ]
+  if gate_decide 10.0.0.1 5432;     then return 1; fi
+  if ! gate_decide 127.0.0.1 54342; then return 2; fi
+  return 0
+}
+
+# 🔴 接線存在性(F1 附帶):`gate_decide`/`gate_throwaway_db` 連同呼叫點**整組被刪掉**時,
+#    subshell 會以 127「command not found」收場 —— 那也是非零,看起來同樣像「被拒」。
+#    ⇒ 直接對**本檔原始碼**斷言:兩個函式都在、閘真的被呼叫、閘真的用了純判準。
+gate_wiring_check() {
+  declare -F gate_decide >/dev/null 2>&1        || return 1
+  declare -F gate_throwaway_db >/dev/null 2>&1  || return 2
+  grep -qE '^gate_throwaway_db$' "$SELF_PATH"   || return 3
+  # 🔴 必須錨定行首縮排的**呼叫**形狀:不加錨點的話,這行 grep 自己的 pattern 字串
+  #    就會被自己比對到 ⇒ 呼叫點被換掉了它照樣綠(本輪消融實測抓到,已修)。
+  grep -qE '^[[:space:]]+gate_decide "\$addr" "\$port"' "$SELF_PATH" || return 4
+  return 0
 }
 
 # 🔴 每一格都包在 BEGIN/ROLLBACK 裡:**成功的正測會留列**,不回滾的話
@@ -130,9 +159,24 @@ ITEM="$(qs "SELECT oi.id FROM public.order_items oi JOIN public.orders o ON o.id
 SNAP="'{\"name\":\"王小明\",\"phone\":\"0900000000\",\"line\":\"lineid\"}'::jsonb"
 
 log "0/6 前提:表在、本片產物齊"
-gate_selftest \
-  && ok "🔴 身分閘自檢:拿一個「主機是正式站、但字串裡藏了 127.0.0.1:54342」的假 URL 餵閘 → 確實被拒跑(閘問的是伺服器本人 inet_server_addr/port,不是 URL 子字串)" \
-  || bad "🔴🔴 身分閘自檢失敗 —— 假 URL 竟然通過!本支會 COMMIT 資料並改函式定義,閘失效 = 可能寫到正式站"
+# 🔴 F3(隨 F1 修法一起改):舊標籤宣稱「閘問的是伺服器本人」,但那格其實只證明了
+#    「假 URL 會讓整支非零」——非零來自連不上,不是身分判準。新標籤只講本格真的證明的事。
+GATE_RC=0; gate_selftest || GATE_RC=$?
+case "$GATE_RC" in
+  0) ok "🔴 身分閘判準**兩向直測**(零連線):壞位址 10.0.0.1:5432 被拒 **且** 好位址 127.0.0.1:54342 被放 ⇒ 判準本身有判別力(把閘改成恆拒或恆放,本格都會紅)" ;;
+  1) bad "🔴🔴 身分閘自檢失敗:壞位址 10.0.0.1:5432 竟被**放行** —— 閘等於不存在" ;;
+  2) bad "🔴🔴 身分閘自檢失敗:好位址 127.0.0.1:54342 竟被**拒絕** —— 閘恆拒,那種實作單向測試看不出來" ;;
+  *) bad "🔴🔴 身分閘自檢異常(rc=$GATE_RC)" ;;
+esac
+WIRE_RC=0; gate_wiring_check || WIRE_RC=$?
+case "$WIRE_RC" in
+  0) ok "🔴 身分閘**接線存在性**:兩支函式都在、閘真的被呼叫、閘真的用了純判準 ⇒ 「整組被刪掉」不會偽裝成「自檢通過」" ;;
+  1) bad "🔴🔴 接線斷了:gate_decide 不存在" ;;
+  2) bad "🔴🔴 接線斷了:gate_throwaway_db 不存在" ;;
+  3) bad "🔴🔴 接線斷了:本檔找不到頂層的 gate_throwaway_db 呼叫 ⇒ 閘定義了但沒被叫" ;;
+  4) bad "🔴🔴 接線斷了:gate_throwaway_db 沒有用 gate_decide ⇒ 判準被繞過,自檢驗的不是實際用的那條路" ;;
+  *) bad "🔴🔴 接線檢查異常(rc=$WIRE_RC)" ;;
+esac
 qs "SELECT 1 FROM pg_class WHERE oid='public.shipments'::regclass" >/dev/null && ok "shipments 存在"
 [ "$(qs "SELECT count(*) FROM pg_attribute WHERE attrelid='public.shipments'::regclass AND attnum>0 AND NOT attisdropped")" = "15" ] \
   && ok "15 欄" || bad "欄數不是 15"

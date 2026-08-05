@@ -530,14 +530,14 @@ public.shipment_items                                                   ── S
     **預期不受影響**(本批只新建兩張表、零觸碰既有物件),但**要跑出來、不靠推論**。
 35. **突變矩陣**:**有配靶的那些**斷言各有專屬突變、**只紅自己那條**;消融**等長同形**。
     🔴 **v5.4 措辭更正(codex K2-R2 must-fix 12,兩輪才收斂)**:v5.3 原文寫「**每條**斷言各有專屬突變」,
-    那句與事實不符 —— 三支 harness 合計 **157 條 PASS**,而突變靶只有 **17 個**。
+    那句與事實不符 —— 三支 harness 合計 **160 條 PASS**,而突變靶只有 **17 個**。
     **有配靶的**(15 個,清單見下)= 鎖原語、DEFERRED 與重讀現況、X8 凍結集逐欄(含 carrier_note 與
     `OR OLD.deleted_at`)、fixture 合法性、回查 oracle、A3 的 COALESCE、`pcm_b2_is_blank`、
     X5 專屬格、TRUNCATE 歸因、a1 的索引定義。
     🔴 **明文列出「沒有配靶」的**(不要讓讀者以為都有):欄數與約束名稱集合、trigger 名稱集合、
     ACL/RLS 矩陣、`expect_constraint` 的歸因斷言、S1b 兩個索引的定義全等 ——
     它們靠的是 catalog 全等比對(改壞就不等),不是消融證明。
-    ⇒ 🔴 **157 條全綠 ≠ 完整 mutation coverage,兩者不得互相代言**(這正是本批重工的起因)。
+    ⇒ 🔴 **160 條全綠 ≠ 完整 mutation coverage,兩者不得互相代言**(這正是本批重工的起因)。
     🔴 **本輪指定的四個突變靶**(R3-Fable 打出來的,必須各自被抓到):
     ①X1 改 IMMEDIATE → 項 31 紅 ②X1 函式改成信 `NEW` → 項 32 紅
     ③X8 條件砍掉 `OR OLD.deleted_at IS NOT NULL` → 項 11b 紅
@@ -559,6 +559,13 @@ public.shipment_items                                                   ── S
     v5.4-c(`B-126-A`)再加兩靶:**⑯**同名 trigger 改掛 `BEFORE INSERT`(tgtype 19→7)⇒ 前置閘的三元組必紅;
     **⑰**SECDEF 加第三段 GUC(`statement_timeout`)⇒ **全陣列比對紅、舊的 `proconfig[1]` 比對不紅**
     —— 靶⑰ 同時是「新舊兩種寫法判別力差」的直接證據。
+    🔴 **v5.4-c 另補:身分閘自身的判別力**(Fable 確認輪 F1,must-fix)。閘的判準抽成
+    不連線的純函式 `gate_decide addr port`,自檢**兩向直測**(壞位址須拒、好位址須放)
+    + `gate_wiring_check` 對原始碼斷言接線存在。四個消融實測全部咬得住:
+    ①`gate_decide` 恆放 ⇒ 自檢紅 ②恆拒 ⇒ 閘直接拒跑(fail-closed、更早)
+    ③刪掉閘的呼叫點 ⇒ 接線格紅 ④閘改成不用純判準(內聯 case)⇒ 接線格紅。
+    🔴 ④ 第一版曾**假綠** —— 接線檢查的 `grep` pattern **比對到自己那行原始碼**;
+    加行首縮排錨點才修好。**斷言拿自己的原始碼當證據,是消融才抓得到的。**
 36. 三片 harness 在 `d1t2-rehearsal.sh provision` 拋棄庫實跑。
 37. **三個 cut point 故障注入**:逐一模擬「前 N 支成功、第 N+1 支失敗」,每種答出
     ①ledger 應有哪幾筆 ②schema 實況 ③續跑命令 ④是否安全。
