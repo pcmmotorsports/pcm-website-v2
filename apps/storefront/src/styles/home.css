@@ -807,11 +807,26 @@
   background-position: right center;
   background-size: 14px;
 }
-.ed-finder-slot .vsc-input--finder::placeholder { color: var(--ed-c-ink); opacity: 1; }
+/* Q6(Sean 拍板 A,2026-08-05):placeholder 原本與「已選好的值」同色(--ed-c-ink 純黑)
+   ⇒ 客人分不出「這欄還沒選」還是「已經選了」。改弱化色。
+   色值來源 = OD `vehicle-picker-design.html:126` `::placeholder { color: var(--c-text-3) }`,
+   而 `--c-text-3` 實查 `tokens.css:24` = `#71717a` = 本檔 `--ed-c-ink-mute`(:10)**同值**。
+   🔴 用 `--ed-c-ink-mute` 而不是直接吃站台層 `--c-text-3`(filter-cascade.css:205 的基礎規則):
+   `--c-text-3` 在 `[data-theme="dark"]` 會變 `#8b8b94`(tokens.css:110),但 `.ed-finder` 底色
+   是硬寫的 `--ed-c-paper` 白、整個 `.ed-*` 調色盤刻意無深色變體 ⇒ 吃站台層 token 會在深色模式
+   把白底上的字變更淡。(實查:repo 目前**沒有**任何切 `data-theme` 的入口 ⇒ 此為防禦、非現況風險;
+   同型判斷已有 `brand-page.css` / `products-mobile.css` 兩處先例。) */
+.ed-finder-slot .vsc-input--finder::placeholder { color: var(--ed-c-ink-mute); opacity: 1; }
 .ed-finder-slot .vsc-input--finder:disabled {
   color: var(--ed-c-ink-mute);
   cursor: not-allowed;
-  opacity: 1; /* 蓋掉 .vsc-input:disabled 的 0.55、對齊 design(僅變 color/cursor、chevron 維持 ink) */
+  /* 蓋掉站台層 .vsc-input:disabled 的 0.55(僅變 color/cursor、chevron 維持 ink)。
+     🔴 字面更正(Q6 R1 nit):原註解寫「對齊 design」,但 OD 兩份稿都不支持這個 1 ——
+     `vehicle-picker-design.html:128` 是 `:disabled { opacity: .45 }`;direction-b 的 dock 用
+     `<select>` 沒有 disabled 態,全檔唯一的 `:disabled` 是 `:228` 輪播箭頭 `opacity: .35`。
+     ⇒ 兩份稿都用**降透明度**表示停用,這個 1 是本 repo 的自訂、不是 design 搬來的。
+     Q6 把 placeholder 也轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差 —— 見 commit body。 */
+  opacity: 1;
 }
 .ed-finder-slot .vsc-input--finder:disabled::placeholder { color: var(--ed-c-ink-mute); }
 /* V-2d④:首頁 finder 輸入框手機 ≥16px 防 iOS 聚焦縮放(<16px 聚焦即 zoom+pan)。

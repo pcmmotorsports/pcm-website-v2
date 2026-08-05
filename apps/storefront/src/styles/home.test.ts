@@ -51,6 +51,35 @@ function mediaBlock(query: string): string {
   return blocks.join('\n');
 }
 
+/**
+ * 去掉所有 `@media` 區塊,只留**全斷點**(最外層)規則。
+ * 🔴 R1 nit:本檔的斷言大多對整份 `CSS` 字串比對 —— 把一條規則整個搬進任一 `@media`,
+ *    字串照樣命中 = **假綠**,而真實行為是「只有那個斷點才生效」(桌機悄悄退回舊值)。
+ *    這與 `mediaBlock()` 是一組:那支問「這條在不在某斷點內」,這支問「這條是不是全斷點」。
+ */
+function topLevelCss(): string {
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const at = CSS.indexOf('@media', i);
+    if (at === -1) return out + CSS.slice(i);
+    out += CSS.slice(i, at);
+    const open = CSS.indexOf('{', at);
+    if (open === -1) return out;
+    let depth = 0;
+    let end = -1;
+    for (let j = open; j < CSS.length; j++) {
+      if (CSS[j] === '{') depth++;
+      else if (CSS[j] === '}') {
+        depth--;
+        if (depth === 0) { end = j; break; }
+      }
+    }
+    if (end === -1) return out;
+    i = end + 1;
+  }
+}
+
 describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   it('🔴 註解符號成對(未閉合的 /* 會讓瀏覽器吞掉後半個檔,而剝註解的守門照樣全綠)', () => {
     const open = RAW.match(/\/\*/g)?.length ?? 0;
@@ -228,6 +257,43 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(rule, '授權代理不是淺灰白').toMatch(/background:\s*var\(--ed-c-paper-2\)/);
     // 前提:這個 token 真的有定義,否則 var() 會 fallback 成透明 = 看起來像白、守門卻綠
     expect(CSS, '--ed-c-paper-2 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-paper-2:\s*#[0-9a-f]{3,8}/i);
+  });
+
+  // ── Q6:finder placeholder 弱化色(Sean 拍板 A) ──
+  // 🔴 這條原本零守門:placeholder 與已選值同色是**看得見**的缺陷,但沒有任何測試會紅
+  //    (jsdom 不算 cascade、元件測試只看 `placeholder` 屬性字面、不看顏色)。
+  it('🔴 finder placeholder = 弱化色 --ed-c-ink-mute(不得回到與已選值同色的 --ed-c-ink)', () => {
+    // 🔴 收**全部**碰到 `vsc-input--finder` 的 `::placeholder` 規則、且只在**全斷點**層找
+    //    (R1 nit 兩條):①`match()` 只取第一條 ⇒ 日後任何一條更具體的後置覆寫
+    //    (例 `.ed-finder .vsc-input--finder::placeholder`)把顏色改回黑,守門照樣綠;
+    //    ②整條搬進 `@media` ⇒ 只有那個斷點生效、桌機退回黑,對全檔字串比對照樣綠。
+    const rules = [
+      ...topLevelCss().matchAll(
+        /([^{}]*vsc-input--finder[^{}]*::placeholder[^{}]*)\{([^}]*)\}/g,
+      ),
+    ].map((m) => ({ selector: m[1]!.trim().replace(/\s+/g, ' '), body: m[2]! }));
+    // 2 條 = 一般態 + `:disabled` 態。多出第三條 ⇒ 有人加了覆寫,必須回來看它是不是把色改回去
+    //(這條會為此假紅一次,是刻意的:比靜默放行好)。
+    expect(
+      rules.map((r) => r.selector),
+      'finder placeholder 規則不是預期的兩條(一般 + :disabled)',
+    ).toHaveLength(2);
+    for (const r of rules) {
+      expect(r.body, `${r.selector} 的 placeholder 不是弱化色`).toMatch(
+        /color:\s*var\(--ed-c-ink-mute\)/,
+      );
+      // 🔴 收尾的 `\)` 是承重的:`var(--ed-c-ink-mute)` 這個字串**包含** `var(--ed-c-ink` 前綴,
+      //    少了右括號的話這條負向斷言會把正確的寫法也判成違規(反向假紅)。
+      //    這條**不**被上面那條蘊含 —— 兩個宣告並存(`…-mute); color: var(--ed-c-ink);`)時
+      //    正向綠、後者在 CSS 勝出、只有這條會紅。該突變已親跑(R1 nit 4 要求的專屬突變)。
+      expect(
+        r.body,
+        `${r.selector} 退回純黑 = 與已選好的值同色、客人分不出選了沒`,
+      ).not.toMatch(/color:\s*var\(--ed-c-ink\)/);
+    }
+    // 前提:token 真的有定義,否則 var() 落空 ⇒ 吃站台層繼承色、守門卻綠(同 --ed-c-paper-2 那條的理由)
+    // ⚠️ 已知邊界(R1 nit,不補):這條只證「檔內某處有定義」,不證它仍掛在 `.ed-page` scope 上。
+    expect(CSS, '--ed-c-ink-mute 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-ink-mute:\s*#[0-9a-f]{3,8}/i);
   });
 
   // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
