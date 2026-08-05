@@ -25,6 +25,7 @@ import { HomeSelect } from '@/components/HomeSelect';
 import { HomeStatement } from '@/components/HomeStatement';
 import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
+import { HomeReveal } from '@/components/HomeReveal';
 import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { BRAND_CONTENT } from '@/data/brand-content';
@@ -164,6 +165,14 @@ export default async function HomePage({
       {focus && <FeatureEditorial focus={focus} />}
       <BrandIndex availableSlugs={brandsWithProducts} />
       <HomeFooter />
+      {/* D5g:捲動進場控制器。**不 render 任何東西、不包住任何 children**(回 null)——
+          **`HomeReveal` 沒有讓任何一塊多轉 client**
+          (handoff §6-4 逐字「不要為此把整個資料渲染改成 client」)。
+          ⚠️ 措辭更正(R2 must-fix):原本這裡寫「五個區塊全部維持 server component」是**假的** ——
+             `HomeSelect.tsx:15` 本來就有 `'use client'`(它用 client component `ProductCard`),
+             與本片無關。R1 那輪我只改了 `HomeReveal.tsx` 與 manifest,**漏了這個呼叫點**。
+          🔴 位置放最後只是慣例;它靠選擇器找元素,與 DOM 順序無關。 */}
+      <HomeReveal />
     </div>
   );
 }

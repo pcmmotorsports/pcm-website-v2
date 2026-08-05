@@ -18,7 +18,7 @@ import Link from 'next/link';
 
 export function HomeStatement() {
   return (
-    <section className="ed-statement">
+    <section data-reveal className="ed-statement">
       <div className="ed-statement-inner">
         <div className="ed-mono ed-statement-tag">N°04 · Service</div>
         <h2 className="ed-statement-h">

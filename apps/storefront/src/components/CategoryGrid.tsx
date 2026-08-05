@@ -36,7 +36,7 @@ export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
   if (cats.length === 0) return null; // 空 → 整段不渲染(不顯假卡/空格)
 
   return (
-    <section className="ed-cats">
+    <section data-reveal className="ed-cats">
       <div className="ed-section-head">
         <div className="ed-section-label">
           <span className="ed-mono">N°03</span>
