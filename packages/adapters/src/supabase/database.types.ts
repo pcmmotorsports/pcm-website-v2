@@ -1,5 +1,7 @@
 // database.types.ts — Supabase 生成型別(勿手改;以下命令重 gen 後此檔含中文檔頭會被沖掉、需重貼本段)。
-// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**六個函式、共二十處**手動校正:
+// 🔴🔴 重 gen 後要重貼的**不只中文檔頭** —— 本體另有**七個函式、共二十一處**手動校正
+//   (🔴 本行是計數的**唯一權威**;下方各段一律寫「見檔頭計數」、不再各自複述數字 ——
+//    2026-08-05 A9d2-2 實查:同一個數字散在四處,改一處漏三處是遲早的事):
 //   ① `create_order.Args` 三處(p_client_ip / p_client_ua / p_notification_email 的 `| null`)
 //   ② `admin_upsert_supplier.Args` 四處(p_supplier_id / p_label / p_is_active / p_note 的 `| null`)
 //   ③ `admin_append_order_note.Args` **三處**(p_channel / p_occurred_at / p_corrects_note_id 的 `| null`;2026-08-02 A6 起)
@@ -8,25 +10,66 @@
 //   ⑥ `admin_upsert_item_procurement.Args` **五處**(p_contact_channel / p_submitted_at / p_supplier_order_no /
 //      p_exception_reason / p_expected_arrival_date 的 `| null`;2026-08-04 A10b 起 —— A5a 落地時刻意不補,
 //      補了也沒有呼叫端會被 typecheck 守住;A10b 是第一個呼叫端,補在這一刻才有保護力)
+//   ⑦ `admin_cancel_order.Args` **一處**(p_reason_detail 的 `| null`;2026-08-05 A9d2-2 起)
+//      —— 🔴 `p_items` **不在校正之列**:生成型別是 `Json`,而本檔 `Json` 聯集本身已含 `null`
+//      (見下方 `export type Json`)⇒ 整單取消送 null 本來就過,再加 `| null` 是重複且誤導。
 //   共同根因:PostgREST 的型別產生器表達不了「必填但可為 null」,一律型別化為非 null。
 //   漏貼 ① = 金流建單路徑型別紅;漏貼 ② = 供應商設定頁型別紅;漏貼 ③ = 備註線 A9d2-1 寫 internal note 時型別紅
 //   (internal 這個型別**必須**三個都傳 NULL —— 那是 order_notes 的配對規則 CHECK);
 //   漏貼 ④⑤ = 退款線 RW2c repository 型別紅(kind/outcome 互斥矩陣的「必須傳 NULL」全紅);
-//   漏貼 ⑥ = A10b 採購表單只要有任一選填欄留空就型別紅(全量 payload、空欄就是送 NULL)。
-//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處;
-//   2026-08-04 RW2c(④⑤)+ A10b(⑥)同夜各補五處、合流後共二十處(主視窗併回時對帳)。
+//   漏貼 ⑥ = A10b 採購表單只要有任一選填欄留空就型別紅(全量 payload、空欄就是送 NULL);
+//   漏貼 ⑦ = 取消線 A9d2-2 repository 型別紅(七個原因碼裡有六個要送 NULL 說明;
+//      嚴格說 btrim 後為空的字串也收,但 null 才是自然寫法 —— 詳見該函式區塊註解)。
+//   2026-08-01 ① 已被沖掉三次(A7c、S1b、S2)、② 自 S2 起存在;2026-08-02 A6 起共十處(**當時**);
+//   2026-08-04 RW2c(④⑤)+ A10b(⑥)同夜各補五處、合流後共二十處(**當時**的數字,主視窗併回時對帳;
+//   現行計數一律以檔頭 :2 為準)。
 // 🔴 重 gen 一律用 --project-id(走 Management API、不讀 .env.local):
 //     supabase gen types typescript --project-id bmpnplmnldofgaohnaok > packages/adapters/src/supabase/database.types.ts
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(2026-08-03 深夜第二次重 gen〔RW2b 開工前〕:**A4a(20260803140000)+
+// 反映 LIVE prod schema(2026-08-05 重 gen〔A9d2-2 開工前,取消線 UI 接線〕:
+//   **A8c1/A8c2/A8a1/A8a2 四片皆已 apply** ——
+//   **新增** public.admin_cancel_order(uuid, uuid, text, text, text, jsonb) → jsonb
+//   = 訂單取消的**唯一寫入路徑**(SECURITY DEFINER owner RPC、search_path=''、lock_timeout=5s、
+//   service_role only)。`p_items` NULL = 整單取消;`p_items` = `[{order_item_id,quantity}…]` = 品項部分取消。
+//   🔴 **它不回固定碼**(與 admin_append_order_note 的 14 碼形狀根本不同):
+//   成功回 jsonb `{cancelled, cancellation_id, idempotent, closed}`(migration `:334-335` 冪等重放 /
+//   `:487-488` 首次 —— 全函式僅此兩處 RETURN、鍵集合相同);**失敗一律 RAISE**,
+//   且 DB COMMENT 逐字「業務拒絕=通用訊息;輸入類=具體訊息」——29 處全吐同一句
+//   `admin_cancel_order: 取消失敗`,刻意不讓呼叫端從文字反推規則。
+//   🔴 **那 29 處不全是「業務拒絕」**(2026-08-05 關卡2 更正):它同時涵蓋 ①真正的業務拒絕
+//   (已付款/已取消/有到貨/超量…)②**冪等 hash 或 actor 不符**(`:206-208`)③**帳本病理**
+//   (`:342-352` 對客欄殘留 / Σci>quantity / 零明細 header)。三者訊息**逐字相同**
+//   ⇒ 連記 log 都分不出來,呼叫端只能一律當「這張單現在不能取消」處理。
+//   🔴 呼叫端契約債(A9d2-2):「斷言回傳碼全集」在這支上的對應物 = **斷言成功 payload 的形狀全集**
+//   (鍵集合恰等 / `cancelled === true` / `cancellation_id` 為 uuid / 另兩者為 boolean),任一不符 = 呼叫端 bug。
+//   🔴🔴 錯誤面**不能只靠 SQLSTATE 分乾淨**(2026-08-05 R1 must-fix 更正本段舊字面「P0001=業務拒絕」):
+//   通用訊息 29 處(內容見上:業務拒絕+hash 不符+帳本病理)與**輸入類 11 處**
+//   (`:117/129/138/142/149/154/159/164/170/174/178`)**都是預設的 P0001**
+//   —— 全函式只有隔離閘 `:112` 顯式帶 `P8C01`。⇒ **P0001 無法由 SQLSTATE 區分「單子不能取消」與「呼叫端送了畸形參數」**。
+//   本線的處置(plan §4.2/§4.3):UI 分支仍**不解析訊息文字**(不綁 migration 中文字面),
+//   P0001 一律顯示通用的「請重新整理確認狀態」;**但 server 端一定要把 `error.message` 記進 log**
+//   (只記 `code` + `message` 前 200 字,**不記 `details`/`hint`** —— PG 的 DETAIL 會把整列內容
+//    送進 Vercel log;寫法照 `apps/admin/src/lib/orders/note-actions.ts:144-152`)
+//   —— 判別器不是被丟掉,是從 UI 分支移到營運可觀測面,否則**輸入類**的呼叫端 bug 會被靜默吞成通用拒絕。
+//   ⚠️ 但要認清它的上限:log 只分得出「具體訊息 vs 通用訊息」,**分不出那 29 處通用訊息彼此**
+//   (hash 不符與真正的業務拒絕逐字相同)⇒ 這是本 RPC 刻意的設計,呼叫端不要假裝分得出來。
+//   其餘碼:`P8C01`(隔離閘)・`42501`(權限被撤)・`PGRST202`(**簽章漂移/找不到函式**,
+//   PostgREST schema cache 面、不是 42501)・`23514`(A4a 重算撞 A1 CHECK)= bug(部署/資料面,重按不會好);
+//   `55P03`(lock_timeout,`:92` 設 5s)・`40P01`(死結)= 可重試。
+//   (`22003` 列在 bug 桶屬防禦性列舉:`:173-174` 在任何 `::integer` 轉型前就用 P0001 擋掉超界 quantity,
+//    p_items 路徑上目前看不出可達點。)
+//   🔴 冪等鍵與 payload **綁定**:`v_hash` 涵蓋 order_id + reason_code + detail + canonical 品項串
+//   (`:195-198`),payload_hash 不符即通用 RAISE(`:206-208`)⇒ 呼叫端**不得**照備註片
+//   「失敗一律原樣帶回同一顆 token」——改值重送必撞 hash。
+//   承前 2026-08-03 深夜第二次重 gen〔RW2b 開工前〕:**A4a(20260803140000)+
 //   RW1a(20260803150000)+ A5a(20260803160000)三支皆已 apply** ——
 //   **新增** public.admin_upsert_item_procurement(11 參數) → text(A5a 採購 upsert owner RPC)。
 //   ✅ 其 Args 五處**已於 2026-08-04 A10b 開工時補上** `| null`(p_contact_channel / p_submitted_at /
 //   p_supplier_order_no / p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、
 //   正規化後肉眼全空亦收斂成 NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。
-//   當初刻意延後的理由 = 呼叫端不存在時補了也沒有 typecheck 會守住;A10b 就是第一個呼叫端。檔頭計數見上(共二十處)。
+//   當初刻意延後的理由 = 呼叫端不存在時補了也沒有 typecheck 會守住;A10b 就是第一個呼叫端。檔頭計數見上。
 //   承前 RW1a ——
 //   **新增** public.admin_initiate_order_refund(8 參數) → jsonb / public.admin_finalize_order_refund(7 參數) → jsonb
 //   = order_refunds 的唯二 service_role 寫入路徑(SECDEF owner RPC)。initiate 回 8 固定碼、finalize 回
@@ -34,7 +77,7 @@
 //   order_refunds 增四欄(kind / record_refunded_before / provider_refund_id_evidence / failed_detail)
 //   + status 第四值 deferred + request_id 全域 UNIQUE + single-flight partial unique;
 //   pcm_order_refundable_remaining 改 allowlist(processing+confirmed 佔額)。A4a = 數量摘要重算線(trigger 網)。
-//   ✅ RW2c(2026-08-04)已補兩支退款 RPC 的 Args `| null` 五處(= 上方 ④⑤;檔頭計數見上,共二十處)。
+//   ✅ RW2c(2026-08-04)已補兩支退款 RPC 的 Args `| null` 五處(= 上方 ④⑤;檔頭計數見上)。
 //   (承前基準 2026-08-02 A6,其契約債註記保留如下 ——
 //   **新增** public.admin_append_order_note(uuid, text, text, text, timestamptz, uuid, text, text) → text
 //   = 訂單備註的**唯一寫入路徑**(SECURITY DEFINER owner RPC;order_notes 對 service_role 只開 SELECT、
@@ -2255,6 +2298,28 @@ export type Database = {
           p_request_id: string
         }
         Returns: string
+      }
+      admin_cancel_order: {
+        // 🔴 手動校正一處(重 gen 後需重貼;A9d2-2)—— `p_reason_detail` 在**非 `other`** 的六個原因碼下
+        //   要嘛送 NULL、要嘛送「btrim 後為空」的字串:migration 20260805100000:131-132 先
+        //   `btrim` 再把 `''` 正規化成 NULL,`:141-142`「非 other 不得填說明」才對**仍非 NULL**的 detail RAISE
+        //   (⚠️ btrim 預設只去一般空白 —— U+00A0 之類仍會留下而觸發 RAISE)。
+        //   ⇒ `null` 是這六碼的自然寫法,非 null 型別會逼呼叫端改送 `''` 這種繞法。
+        //   p_actor / p_order_id / p_idempotency_key / p_reason_code **不補** —— 四者函式內皆 fail-closed
+        //   拒 NULL,傳 NULL 不是合法用法、拿到的只會是錯誤:`:116-118` 冪等鍵、`:128-130` 原因碼、
+        //   `:355` actor(`WHERE s.id = p_actor AND s.is_active` NOT EXISTS → 通用 RAISE)、
+        //   `:191-193` order_id(NOT FOUND → 通用 RAISE)。
+        //   p_items **不補** —— 生成型別 `Json` 的聯集本身已含 `null`(見檔頭 `export type Json`),
+        //   整單取消送 null 本來就過;再加 `| null` 是重複,還會讓後人以為 Json 不含 null。
+        Args: {
+          p_actor: string
+          p_idempotency_key: string
+          p_items?: Json
+          p_order_id: string
+          p_reason_code: string
+          p_reason_detail: string | null
+        }
+        Returns: Json
       }
       admin_finalize_order_refund: {
         // 🔴 手動校正三處(重 gen 後需重貼;RW2c)—— outcome 參數矩陣**強制**互斥:
