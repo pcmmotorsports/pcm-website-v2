@@ -8947,3 +8947,33 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - 🔴 **編號沿革**:本條原開為 #323,與主視窗 `4386624` 的 #323(子分類篩選膠囊雙顆)撞號 ⇒
   依主視窗 C-58-A 指示改為 **#324**。`2ccbadb`(A7)的 commit body 內仍寫 #323、不 amend,
   收割時由主視窗在 STATUS 註記勘誤。之後一律引用 #324。
+
+### #325. 📏 PostgREST `max-rows` 漂移偵測 — 全 repo 內嵌 limit 截斷判定的共同前提
+
+- **狀態:** ⏳ 待執行(A 窗片 2 R3 Fable 明確要求立案;2026-08-05)
+- **現況**:所有讀模型的內嵌截斷判定(取 N+1 筆、回傳 ≥N+1 ⇒ truncated)都隱含前提
+  「伺服器端 `max-rows` ≥ 我們的常數」。Supabase PostgREST 預設 max-rows 遠大於現用常數,
+  但它是 dashboard 可調的伺服器設定 —— 被調低到常數以下時,回傳筆數永遠小於 N+1,
+  截斷判定**判不出截斷**(A9g-2 的在途扣款閘會誤回 `'clear'`)。
+- **範圍**:非單片問題 —— notes / items / procurement / charge_attempts 每個 embed limit 都一樣;
+  單元測試對伺服器設定全盲(mock 層看不到)。
+- **候選解**:啟動時或健檢端點對一張已知 >N 列的表做一次真 probe(取 N+1 驗回傳筆數),
+  不符即 fail-closed 告警;或把 max-rows 現值納入 read-back/runbook 檢查清單。
+- **不修會痛在哪**:一次 dashboard 調整(可能為了別的效能原因)會讓全站「資料不完整」的
+  防護靜默失效 —— 員工看到的是「正常、無在途扣款」而不是「讀取不完整」,
+  與「把不知道偽裝成正常值」同族,且無任何測試會轉紅。
+
+### #326. 🧰 worktree / 乾淨環境跑 root `pnpm typecheck` 必紅 — root 未宣告 typescript
+
+- **狀態:** ⏳ 待執行(A 窗片 2 發現;2026-08-05;動 root package.json=鐵則 12④ 受審面)
+- **現況**:root script `tsc -p tsconfig.scripts.json --noEmit` 依賴 root `node_modules/.bin/tsc`,
+  但 root `package.json` 未宣告 typescript;主庫能跑是因為殘留 2026-07-13 的舊 binary。
+  worktree `pnpm install --frozen-lockfile` 回「Already up to date」不會補 ⇒ 任何乾淨 install
+  環境(含未來 CI)跑 root typecheck 都紅在最後一步。
+- **workaround(A 窗片 2 實用中)**:改呼叫 `./packages/adapters/node_modules/.bin/tsc`,
+  該步真的有跑、非跳過。
+- **正解**:root devDependencies 顯式宣告 typescript(版本對齊各 package)——
+  動 package.json+lockfile 屬鐵則 12④ 受審面,需 codex 對抗審查,獨立小片處理。
+- **不修會痛在哪**:哪天主庫 node_modules 重建(升 node、清快取、換機),三綠的 typecheck
+  一半(scripts 面)直接紅;CI 一接上就會撞;各 worktree 現在就得各自帶 workaround,
+  同一步驟三個環境三種跑法=數字對帳的隱形分歧源。
