@@ -81,6 +81,14 @@
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.2em;
+  /* 🔶 0c:字面不動、但**行為變了** —— `--c-accent` 在 0c 之前全站未定義,這條無 fallback
+     ⇒ 宣告在 computed-value time 失效、繼承 body 的 `--c-text` **墨黑**。
+     0c 補定義之後這個編號眉標會**由黑變深熔橘 `#c4470c`**。
+     設計端 `pcm-content.css:8` 逐字放行:「色 `var(--c-accent)` 在新 token 已是深熔橘 `#c4470c`,
+     **不另外改字面**」⇒ 這是設計端明知且要的結果,不是誤傷。**已列進 Sean 肉眼驗清單**。
+     ⚠️ 上一行的 `var(--font-mono)` 是真站 typo(該 token 只在 `product-page.css:18` 的
+        `.pd-page` scope 內定義、本頁取不到)—— 設計端已標明改 `var(--f-mono)`,
+        但那屬**第1批 `/info/shipping`**、不在 0c 範圍,刻意不動。 */
   color: var(--c-accent);
   margin-bottom: 16px;
 }

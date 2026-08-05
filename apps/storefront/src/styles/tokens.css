@@ -16,8 +16,10 @@
      = `.pcm-header-inner` 上下 padding + 最高子元素 `.pcm-icon-btn` + `.pcm-header` 下框線 1px。
      桌機 14+44+14+1 = 73;≤1079 的 padding 是 12(header.css 的 @media)⇒ 12+44+12+1 = 69。
      🔴 **為什麼要有這顆**:R2-3 把 `.pcm-icon-btn` 由 40 改 44,頁首就從 69 長到 73 ——
-        而全站有六支 CSS 把「頁首高度」寫成字面 `69px` / `64px` 當 sticky 偏移
-        (選車列、`.pp-head`、`.fs-side`、`.ft-bar`、`.ft-overlay`、手機控制列)。
+        而全站有 **5 支 CSS、12 條規則、14 個宣告**把「頁首高度」寫成字面 `69px` / `64px`
+        當 sticky 偏移(`.pp-head` 五個變體、`.cft-bar`、`.ft-bar` ×2、`.ft-overlay`、
+        `.fs-side` 兩個變體、`.pmc-sticky`)。
+        (初稿寫「六支」是**沒數就寫**;實數法 = `grep -c 'var(--shell-header-h)'` 那五支檔。)
         實測:改 44 之後捲動時頁首(z-index 50)蓋住選車列(z-index 40)**4px**、
         `.pp-head` 再疊 1px,而 typecheck / lint / 全套測試**全綠**、沒有任何東西會說一聲。
         ⇒ 改成單一來源:要調頁首高只改這裡,消費端一律 `var(--shell-header-h)` 或
@@ -48,10 +50,46 @@
   --c-text-3: #6e6e73;    /* 原 #71717a */
   --c-text-inverse: #ffffff; /* 原 #fafafa */
 
-  /* Accent — RIZOMA red, reserved */
-  --c-red: #dc2626;
-  --c-red-soft: #fee2e2;
-  --c-red-dark: #991b1b;
+  /* 🔶 全站重設計 第0批 0c(2026-08-05):**動作色由緋紅換熔橘**。
+     原「RIZOMA red, reserved」那組緋紅退場;熔橘 = 首頁 direction-b「graphite ember」定案色票,
+     Sean 2026-08-05 拍板全站統一(設計端 `DESIGN-HANDOFF-2026-08-05.md` §4-1)。
+     🔴 **三條規則寫在這裡,因為每一個消費點都要照它判**:
+       ① **熔橘是動作色、不是身分色** —— 深底白字的身分標記(會員分頁 active、預設地址標、
+          愛車主卡、會員等級徽章)一律維持墨黑或自己的色,不吃這組。
+       ② **文字層深熔橘 / 填色層亮熔橘** —— 白底上的小字(價格、錯誤訊息)吃 `--c-red-dark`
+          `#c4470c`(對白底 **4.94:1**,過 AA);色塊、徽章、框線吃 `--c-red` `#f26722`。
+     🔴 **本次換色帶來的殘餘風險(必須知道,不是可略)**:
+       · **白字對亮熔橘底 = 3.12:1**,由換色前的 `#dc2626` **4.83:1** 掉下來 ⇒ **低於 AA 的 4.5**
+         (只勉強過大字/圖形元件的 3.0)。命中每一個「熔橘底白字」:`product-card.css` `.badge-red`、
+         `header.css` `.pcm-cart-dot`、`filter-drawer.css` `.fd-tab-dot`、
+         `product-page.css` `.pd-add-btn` / `.pd-mbb-cart`、`products-mobile.css` 手機 CTA。
+         這個 3.12 **Sean 已經拍板接受過一次**(首頁按鈕,`home.css` 那段 + handoff §十一),
+         但那次只涵蓋首頁;0c 把它**擴大到全站**,所以在這裡明講、並列進肉眼驗清單。
+       · **熔橘淡底上的深熔橘 = 4.23:1**(`cart-vehicle.css` 的 `.cvf-chip[data-fit='no-match']`,
+         12-13px 小字)⇒ 也低於 AA;換色前那組是 `#991b1b`/`#fee2e2` **6.80:1**。
+         這一族**沒有被本片直接改到**(它吃 token、跟著變),所以特別記在這裡。
+       ⚠️ 兩條都不是「順手可以自己調」的 —— 調任一顆就偏離 Sean 拍板的熔橘。列為待決策。
+       ③ **主 CTA 一律熔橘**(Sean 2026-08-05 選 B)。
+     消費點逐一判定的完整表:`docs/handoff/2026-08-05-site-redesign-red-token-triage.md`。
+     ⚠️ 名字**刻意不改**成 `--c-ember-*`:改名要動全樹 60+ 個消費點與一批守門,
+        風險與收益不成比例,而且會讓「這一片到底改了什麼」變得看不出來。留給後續獨立一片。 */
+  --c-red: #f26722;      /* 原 #dc2626 緋紅 → 亮熔橘(填色層) */
+  --c-red-soft: #fdeadd; /* 原 #fee2e2 紅粉底 → 熔橘淡底(cart-page-handoff §1-1) */
+  --c-red-dark: #c4470c; /* 原 #991b1b 深紅 → 深熔橘(文字層,白底 4.9:1) */
+  /* 🔶 0c 補定義。原本**全站未定義**,三個消費點各自吃 fallback:
+     `pricing.css:28,46` 走 `#c0392b`(第三顆紅)、`pages-shipping.css:84` 無 fallback ⇒
+     宣告在 computed-value time 失效、繼承墨黑、`products-page.css:144` 走 `var(--c-text)` 墨黑。
+     ⇒ 補定義之後後兩者是「由黑變橘」的**可見變化**,不是「紅換橘」。
+     值 = `products-list-handoff.md` R1-1 逐字「`--c-accent`(經銷 pill 與經銷價)→ **#c4470c**」。 */
+  --c-accent: #c4470c;
+  /* 🔶 **Sean 2026-08-05 拍板定案 = C 案:身分色不跟動作色走**(`D-112-A` ①;
+     原 `D-105-A` Q1 的暫行值就此轉正,不再是「待拍板」)。
+     `tier.css` 的 `.tier-badge-premium` 吃的是**會員等級身分標記**,依上面規則①不吃動作色;
+     設計端對它未表態(OD `pcm-account.css:154` 明寫「真站是 `<TierBadge>` 元件、本稿只畫版位」),
+     Sean 直接拍了維持現紅 `#dc2626`。
+     🔴 不要「順手」讓它跟著動作色走(那會讓身分標記與 CTA 同色、牴觸規則①),
+        也不要改墨黑(會與 `tier-badge-store` 撞成同款、客人與員工分不出等級)。 */
+  --c-tier-premium: #dc2626;
 
   /* Accent — RPM 碳纖質感金色點綴(OD-1)。
      字面從 OD product-detail-rpm-template.html :root 直接搬 = #a98a4a;

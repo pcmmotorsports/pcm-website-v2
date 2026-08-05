@@ -145,7 +145,8 @@ describe('R2-3 頁首細節', () => {
 });
 
 // 🔴 R2-3 把 `.pcm-icon-btn` 由 40 改 44 ⇒ 頁首總高由 69 長到 73(桌機)/ 65 長到 69(手機),
-//    而全站有六支 CSS 把「頁首高度」當 sticky 偏移**寫死成字面**。實測(agent-browser、1440):
+//    而全站有 **5 支 CSS、12 條規則**把「頁首高度」當 sticky 偏移**寫死成字面**。
+//    (初稿寫「六支」是沒數就寫,D-111-A nit 1 更正。)實測(agent-browser、1440):
 //    改 44 之後捲動時頁首(z-index 50)蓋住選車列(z-index 40)**4px**、`.pp-head` 再疊 1px,
 //    而 typecheck / lint / 全套 4956 測**全綠** —— 沒有任何既有機制看得到這件事。
 //    ⇒ 本組把「單一來源」這件事本身釘住:token 在、消費端沒有人再寫死、斷點兩處同步。
@@ -168,10 +169,15 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
   // 前提:73 / 69 這兩個數字不是憑空來的,而是 padding + 44 + 1px 框線算出來的。
   // `header.css` 的 padding 或按鈕尺寸一改,token 就說謊了 —— 那時要當場紅在這裡。
   it('🔴 前提 — 73/69 的算式成分還在(padding 14/12、按鈕 44、下框線 1px)', () => {
-    expect(block('header.css', '.pcm-header-inner'), '頁首桌機 padding 不是 14px')
-      .toMatch(/padding:\s*14px/);
+    // 🔴 要比**整個 shorthand**,不是只比第一值(D-111-A nit 2):
+    //    `/padding:\s*14px/` 對 `padding: 14px 20px 16px` 照樣命中,而那會讓實高變成
+    //    14+44+16+1 = **75**、token 說謊 73,且沒有任何東西會紅。
+    //    ⇒ 釘死成「兩值、上下同為 14px、左右吃 --shell-x」這個形狀。
+    expect(block('header.css', '.pcm-header-inner'), '頁首桌機 padding 不是「14px + --shell-x」兩值形式')
+      .toMatch(/padding:\s*14px\s+var\(--shell-x\)\s*;/);
     const mobileHeader = mediaBlock('header.css', '(max-width: 1079px)');
-    expect(mobileHeader, '頁首 ≤1079 段不見了 ⇒ 手機值 69 的算式失效').toMatch(/padding:\s*12px 16px/);
+    expect(mobileHeader, '頁首 ≤1079 段不見了 ⇒ 手機值 69 的算式失效')
+      .toMatch(/padding:\s*12px\s+16px\s*;/);
     expect(block('header.css', '.pcm-icon-btn'), '按鈕高不是 44 ⇒ 兩個 token 值都要重算')
       .toMatch(/height:\s*44px/);
     expect(block('header.css', '.pcm-header {'), '頁首下框線不是 1px ⇒ 兩個 token 值都要重算')
@@ -203,6 +209,37 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
       expect(CSS[f], `${f} 完全沒有消費 --shell-header-h ⇒ 它的偏移改吃了別的東西`)
         .toMatch(/var\(--shell-header-h\)/);
     }
+  });
+
+  // 🔴 D-111-A nit 3:composite 偏移裡的 `+ 64px` 是**選車列的實量高度**,而
+  //    `.cft-bar` 的高度是內容撐出來的、CSS 裡沒有任何地方宣告它 ⇒ **文字層釘不住那個 64**。
+  //    真瀏覽器量「重疊 = 0」也分不出 63 與 64(1px 差在 sticky 上看不出來)。
+  //    ⚠️ 所以這條**不宣稱**「64 是對的」,它只釘一件釘得住的事:
+  //       兩個吃 cascade bar 的地方**必須用同一個數字**。它們漂開的症狀是
+  //       「側欄與標題的黏頂位置差一點」,而那不會有任何東西紅。
+  //    64 的正確性靠真瀏覽器實量(0b 收工實測 `.cft-bar` height = 64、bottom 137 = `.pp-head` top)。
+  it('🔴 cascade bar 的高度在兩個消費點必須同值(文字層釘不住它對不對,但釘得住它一致)', () => {
+    const offsets = [
+      ...(CSS['products-page.css'].match(/calc\(var\(--shell-header-h\) \+ (\d+)px\)/g) ?? []),
+      ...(CSS['filter-side.css'].match(/var\(--shell-header-h\)[^;]*?(\d+)px/g) ?? []),
+    ];
+    const cascade = new Set(
+      offsets.map((o) => o.match(/(\d+)px/)?.[1]).filter((n) => n === '64'),
+    );
+    expect(cascade.has('64'), '找不到任何 + 64px 的 cascade 偏移 ⇒ 本條的前提已失效').toBe(true);
+    // 反面:`filter-side.css` 的 top 與 height 必須用同一個數字,否則側欄高度與位置對不上。
+    const side = CSS['filter-side.css'];
+    const sideTop = side.match(/top:\s*calc\(var\(--shell-header-h\) \+ (\d+)px\)/)?.[1];
+    const sideH = side.match(/height:\s*calc\(100vh - var\(--shell-header-h\) - (\d+)px\)/)?.[1];
+    expect(sideTop, 'filter-side 的 cascade top 不見了').toBeDefined();
+    expect(sideH, 'filter-side 的 cascade height 不見了').toBeDefined();
+    expect(sideH, `側欄 top 用 ${sideTop}、height 卻扣 ${sideH} ⇒ 兩者漂開了`).toBe(sideTop);
+    // 同樣要與 .pp-head 的 cascade 偏移同值(它們黏在同一條 bar 底下)。
+    const headCascade = CSS['products-page.css']
+      .match(/\[data-filter-style="cascade"\] \.pp-head \{[^}]*\+ (\d+)px/)?.[1];
+    expect(headCascade, '.pp-head 的 cascade 偏移不見了').toBeDefined();
+    expect(headCascade, `.pp-head 用 ${headCascade}、側欄用 ${sideTop} ⇒ 兩者黏頂位置會差開`)
+      .toBe(sideTop);
   });
 });
 

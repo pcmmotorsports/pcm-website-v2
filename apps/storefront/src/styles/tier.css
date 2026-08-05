@@ -31,7 +31,10 @@
   color: var(--c-text-inverse);
 }
 .tier-badge-premium {
-  background: var(--c-red);
+  /* 🔶 會員等級是**身分標記**不是動作,依 tokens.css 規則①不吃動作色。
+     **Sean 2026-08-05 拍板定案 C 案**(`D-112-A` ①):維持現紅 `#dc2626`、身分色不跟動作色走
+     —— 原 `D-105-A` Q1 的暫行值就此轉正。不要改回 `var(--c-red)`。 */
+  background: var(--c-tier-premium);
   color: #ffffff;
   font-family: var(--f-mono);
   text-transform: uppercase;

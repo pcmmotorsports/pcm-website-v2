@@ -8,12 +8,17 @@
 > 命令:`grep -rn -e '--c-red' --include='*.css' --include='*.tsx' --include='*.ts' apps/ packages/`
 > ⇒ **112 筆命中**,扣掉 token 定義(4)與註解引用後 **約 60 個真消費點**。
 >
-> 🔴 尚未做的事:**`--c-red` 三顆的值本身還沒改**(第0批 0c)。下面「改為」欄是判定、不是現況。
+> ✅ **2026-08-05:0c 已落地** —— 三顆 token 的值、`--c-accent` 補定義、`--c-tier-premium` 新增、
+> 各消費點的文字層/填色層分階、五處寫死的緋紅 rgba,全部照本檔第三節套用完畢。
+> 下面「判定」欄現在**同時是判定與現況**;守門在 `apps/storefront/src/styles/action-color.test.ts`。
 
 ## 一、Token 定義點(4 筆)
 
-> 🔴 **本節刻意不寫行號、只寫 token 名**(0a 補審 nit #6):初版寫的 `tokens.css:28/29/30`
-> 在**同一顆 commit 內**就被自己推到 40/41/42 —— 行號是這份文件裡最短命的字面。
+> 🔴 **行號的用法在本檔分兩種,不是一律不寫**(0a 補審 nit #6 + R2 nit 1 的更正):
+> · **token 定義表(下方第一張)不寫行號、只寫 token 名** —— 初版寫的 `tokens.css:28/29/30`
+>   在**同一顆 commit 內**就被自己推到 40/41/42。定義點靠名字找,行號只會過期。
+> · **消費點的表(本節第二張與第三節)照寫行號** —— 消費點是「某支檔的某一行」,
+>   沒有行號根本沒法用;它們會過期是已知代價,用法寫在第四節第 3 點(動手前重跑一次 grep)。
 
 | 位置 | 現值 | 判定 |
 |---|---|---|
@@ -48,6 +53,10 @@ R1-1 卻逐字指定深熔橘 `#c4470c`。⇒ 設計端有逐字時**一律以�
 (scope 在 `.pd-page` 系列)⇒ `/info/shipping` 落在該 scope 之外、取不到值,實際 fallback 到系統
 generic monospace。設計端 `pcm-content.css:7,84` 已標明改 `var(--f-mono)`。留給第1批,不在本線改。
 (同 typo 另一處 `products-page.css:212` 寫的是 `var(--font-mono, monospace)`、**有 fallback**,症狀較輕、同批處理。)
+
+附帶二(不屬 0c、屬第1批或帳號線;0c 複審 nit 11):OD `pcm-auth.css:22` 那一行除了色之外
+**還把 `font-size` 由 12.5px 改成 13px**(§4-3 半像素整數化)。0c 是純換色片、只搬了色
+⇒ `auth.css` 的 `.auth-err` 仍是 12.5px。**不要以為 auth 已經對齊 OD 了。**
 
 ## 二、判定總則(設計端 §4-1,總交接單逐字)
 
@@ -90,14 +99,20 @@ generic monospace。設計端 `pcm-content.css:7,84` 已標明改 `var(--f-mono)
 | `header.css:71,72` | `.pcm-nav-sale` 「特價」 | 留 `--c-red` / hover `--c-red-dark` | products-list-handoff §三(殼) |
 | `header.css:143` | `.pcm-cart-dot` 購物車數字點 | 留 `--c-red` | 同上 |
 | `cart-vehicle.css:49,50,51,56` | `.cvf-chip[data-fit='no-match']` | 留熔橘系,底色 → `#fdeadd` | cart-page-handoff §1-1 |
+| ⚠️ 同上的**對比後果**(0c 複審 nit 10 補記) | `.cvf-chip` 13px / `.cvf-mismatch` 12px | 由 `#991b1b`/`#fee2e2` **6.80:1** 降為 `#c4470c`/`#fdeadd` **4.23:1** ⇒ **低於 AA 4.5** | 這一族**本片沒有直接改到**(它吃 token、跟著變)⇒ 特別記著;已寫進 `tokens.css` 的殘餘風險段與肉眼驗清單 |
 | `FilterDrawer.tsx:98`、`FilterSide.tsx:296` | `{ id:'red', name:'紅', hex:'#dc2626' }` | 🔴 **不動** | 那是「紅色商品」的顏色篩選色票,不是品牌色 |
+| `ProductCard.tsx:210` | 收藏愛心 `fill` / `stroke` 走 `var(--c-red)` | 留 `--c-red`(填色層,跟著 token 變、零程式改動) | 🔴 **初版整個漏列**(它在 `.tsx` 的 inline `fill=` / `stroke=` 屬性裡、不在 CSS 檔);0c 重掃時補上 |
 
 ### 3-2 已定案上線、自帶 scope,本線不動
 
 `home.css`(首頁,自有 `--ed-c-action*`)、`brand-page.css`(自 scope `--c-red:#f26722`)、
 `brand-directory.css`。三支的守門測試(`home.test.ts:372-379`、`brand-page.test.ts:235,475,529`)
-**明文斷言它們不吃站台 `--c-red`** —— 全站切換後那些斷言仍成立(negative match),但註解裡
-「站台 `--c-red` 是緋紅」那句會過期,0c 落地時要一併更正字面。
+**明文斷言它們不吃站台 `--c-red`** —— 全站切換後那些斷言仍成立(negative match)。
+✅ **0c 已更正那批註解字面**,並誠實記下一件事:那些反面斷言**在 0c 之後效力變弱** ——
+0c 之前誤用站台那顆會**當場畫錯色**(緋紅 vs 熔橘),之後兩者同值、誤用不再有視覺症狀,
+它們現在守的是**架構分離**而不是顏色正確性。三支的 scope 因此變成冗餘(同值),
+但**移除是另一片**:`brand-page.css` / `brand-directory.css` 的 scope 內還有 `--cat-*` /
+`--ember` / `--f-serif` / `--ease` 等非站台 token,要收要整組一起評估。
 
 ### 3-3 ✅ 三題已裁(`D-105-A`,2026-08-05;原 `D-201-Q` / `D-202-Q`)
 
@@ -114,8 +129,7 @@ generic monospace。設計端 `pcm-content.css:7,84` 已標明改 `var(--f-mono)
 
 1. 三題裁示已在 3-3 落檔 → 直接照第三節表格套 0c,不用重新盤點、也不用再等。
 2. 每改一處,對照該頁交接單的驗收條件逐條 yes/no。
-3. 0c 落地後,`home.css:17,428`、`home.test.ts:375,378`、`brand-page.css:60`、
-   `brand-page.test.ts:235` 那批**註解裡的「站台 `--c-red` = 緋紅 `#dc2626`」會全部過期**
+3. ✅ **0c 已做**:下面這批**註解裡的「站台 `--c-red` = 緋紅 `#dc2626`」全部過期**
    —— 逐條更正字面(memory `feedback_claimed-sync-but-only-patched-touched-lines`:
    這正是「只補到手碰過的行」最常復發的形狀)。
    🔴 **不要照上面那串行號硬套** —— 0b 動過 `home.css`(D7 吸收)之後行號一定漂。

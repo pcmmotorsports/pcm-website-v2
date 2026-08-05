@@ -197,9 +197,11 @@
   border-top: 1px solid var(--c-border);
   margin-top: 8px;
 }
-/* 🔴 方案 A「速度紅線」:卡片價格轉品牌賽車紅(熱血點綴;現況無促銷、與 is-sale 紅不衝突,
+/* 🔴 方案 A「速度紅線」:卡片價格轉品牌動作色(⚠️ 2026-08-05 第0批 0c 之前這裡是**賽車紅**
+   `#dc2626`,0c 之後是**深熔橘** `#c4470c`;下面所有「紅」字是歷史用詞、實際顏色以 token 為準)
+   (熱血點綴;現況無促銷、與 is-sale 同色不衝突,
    未來促銷再以 badge/刪除線區隔)。scoped .pcard、不影響詳情頁 pd-price。 */
-.pcard .price-main { color: var(--c-red); }
+.pcard .price-main { color: var(--c-red-dark); } /* 🔶 0c:白底價格 = 文字層(products-list-handoff R1-1 表列逐字)*/
 /* Font-size variants */
 [data-font-size="lg"] .pcard-name { font-size: 15px; }
 [data-font-size="lg"] .pcard-brand { font-size: 11px; }

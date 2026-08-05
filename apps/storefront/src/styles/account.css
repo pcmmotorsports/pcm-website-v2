@@ -332,7 +332,7 @@
   font-size: 12px;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--c-red);
+  color: var(--c-red-dark); /* 🔶 0c:白底錯誤訊息 = 文字層 ⇒ 深熔橘 */
 }
 
 /* ---- vehicles tab 唯讀列表卡(g-6a、對齊 design account.css L739-781)----
@@ -595,7 +595,7 @@
   font-weight: 400;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--c-red);
+  color: var(--c-red-dark); /* 🔶 0c:白底錯誤訊息 = 文字層 ⇒ 深熔橘 */
 }
 
 /* ---- mobile(對齊 design account.css L881-908 acc-* 殼規則)---- */

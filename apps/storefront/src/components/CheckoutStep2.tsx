@@ -34,6 +34,7 @@
 //   - ATM 轉帳不做(plan §3.2 隱藏)→ 只渲染信用卡單一付款方式(checked readOnly、鏡像 e1 單一配送)。
 //   - 儲值金折抵(design N°05)+ 優惠券(design N°05/06)不做(plan §3.2 + g-7 wallet HOLD #202)。
 //   - design --c-accent / --font-mono 在 tokens 漏定義 / typo → CSS 對映 --c-red / --f-mono(見 checkout.css)。
+//     ⚠️ `--c-accent` 那半已於 2026-08-05 第0批 0c 補定義(`#c4470c`)⇒「漏定義」不再成立。
 //
 // 🔴 殘餘風險(U2b 明示、待手機肉眼驗):`.co-pay` 依 design 為 <label>,點「卡號 / 有效期 / CVV」
 //   文字標籤(非 iframe 本身)時,label activation 可能把焦點交給隱藏的 readOnly radio。

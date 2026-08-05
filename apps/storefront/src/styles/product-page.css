@@ -307,7 +307,7 @@
   letter-spacing: -0.01em;
   color: var(--c-text);
 }
-.pd-price.is-red { color: var(--c-red); }
+.pd-price.is-red { color: var(--c-red-dark); } /* 🔶 0c:白底價格 = 文字層(`D-105-A` Q2 明文唯一另處理的一點)*/
 .pd-price-orig {
   font: 400 14px/1 var(--f-sans);
   color: var(--c-text-2);
@@ -492,7 +492,10 @@
   border-left: 1px solid var(--c-border); border-right: 1px solid var(--c-border);
 }
 
-/* 🔴 加入購物車改品牌賽車紅(Sean 2026-07-08 拍板整頁熱血點綴、override OD §5 黑底):主購買動作 = 紅、
+/* 🔴 加入購物車改品牌動作色(Sean 2026-07-08 拍板整頁熱血點綴、override OD §5 黑底):
+   ⚠️ 2026-08-05 第0批 0c 把那顆由**賽車紅** `#dc2626` 換成**熔橘** `#f26722`(`D-105-A` Q2=A 放行,
+   本頁無設計稿、色票依全站規則外推)。以下「紅」字是歷史用詞,實際顏色以 token 為準。
+   主購買動作 = 動作色、
    立即購買維持描邊次要;#161 永遠可點(無 disabled 態不變)。scoped .pd-add-btn。 */
 .pd-add-btn {
   flex: 1;
@@ -1431,7 +1434,8 @@
 .pd-related-more-link:hover {
   border-color: var(--c-text);
 }
-/* 🔴 N°03 紅色左右導覽箭頭(Sean 2026-07-08:客人不知可左右滑 → 紅箭頭提示)——放標題右上、
+/* 🔴 N°03 動作色左右導覽箭頭(Sean 2026-07-08:客人不知可左右滑 → 有色箭頭提示;
+   ⚠️ 0c 已由賽車紅換熔橘)——放標題右上、
    可捲動才顯、next 初次微動提示、邊界該側 disabled。 */
 .pd-related .pd-section-head {
   max-width: none;
@@ -1456,7 +1460,7 @@
   border: none;
   border-radius: 50%;
   cursor: pointer;
-  box-shadow: 0 2px 10px rgba(220, 38, 38, 0.3);
+  box-shadow: 0 2px 10px rgba(242, 103, 34, 0.3);
   transition: background 0.15s ease, transform 0.1s ease, opacity 0.15s ease;
 }
 .pd-related-nav-btn:hover:not(:disabled) { background: var(--c-red-dark); }
@@ -1488,7 +1492,7 @@
 /* ========= Spec section(#270 中段 B 收合改良)========= */
 /* 🔴 Sean 2026-07-09 肉眼驗 demo 拍板:長頁全展開 + sticky 跳轉列 → 收合手風琴 <details>。
    每段收合、點標題展開(商品介紹預設 open);展開後桌機「主文左 + 面板右」sec-split 填滿寬
-   (解決 Sean「右邊很空」)、手機單欄堆疊;重點紅色點綴面板、規格兩欄、安裝影片大 PDF 小。
+   (解決 Sean「右邊很空」)、手機單欄堆疊;重點動作色點綴面板(0c 後為熔橘)、規格兩欄、安裝影片大 PDF 小。
    內容 byte 不變、僅呈現型態改。取代舊 .pd-jump/.pd-jump-link/.pd-spec-body/舊 .pd-sec(section)。
    SEO/GEO 保留:內容全在 DOM(<details> 收合僅視覺、爬蟲仍讀)、h2 標題常駐 landmark、介紹預設展開。 */
 .pd-spec-section { padding: 26px 0 32px; border-bottom: 1px solid var(--c-border); }
@@ -1671,7 +1675,7 @@
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
   width: 56px; height: 56px; border-radius: 50%; background: var(--c-red);
   display: flex; align-items: center; justify-content: center; z-index: 2;
-  box-shadow: 0 8px 26px rgba(220, 38, 38, 0.5); transition: transform 0.2s, background 0.2s;
+  box-shadow: 0 8px 26px rgba(242, 103, 34, 0.5); transition: transform 0.2s, background 0.2s;
 }
 .pd-res-facade:hover .pd-res-play { transform: translate(-50%, -50%) scale(1.08); }
 .pd-res-tri {

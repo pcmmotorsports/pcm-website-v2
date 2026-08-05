@@ -55,9 +55,9 @@
 
 .auth-err {
   padding: 10px 14px;
-  background: #fef2f2;
-  border-left: 2px solid var(--c-red);
-  color: var(--c-red);
+  background: #fdf3ec; /* 🔶 0c:原 #fef2f2 紅50 底 → 熔橘淡底(OD `pcm-auth.css:22` 逐字)*/
+  border-left: 2px solid var(--c-red); /* 框線層 = 亮熔橘(OD `pcm-auth.css:22`)*/
+  color: var(--c-red-dark); /* 🔶 0c:白底錯誤訊息 = 文字層 ⇒ 深熔橘 */
   font-size: 12.5px;
   margin-bottom: 16px;
 }
@@ -92,7 +92,7 @@
   display: block;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--c-red);
+  color: var(--c-red-dark); /* 🔶 0c:文字層(OD `pcm-auth.css:28`)*/
 }
 /* 欄位內的錯誤 span 同時 match `.auth-field > span`(label 文字樣式:灰色 mono uppercase、
  * specificity 0,1,1 > 0,1,0)→ 紅色會被灰色蓋過(#181 肉眼驗 bug、Sean 報「只見請同意服務條款」)。
@@ -102,7 +102,7 @@
   font-size: 12px;
   letter-spacing: normal;
   text-transform: none;
-  color: var(--c-red);
+  color: var(--c-red-dark); /* 🔶 0c:文字層(OD `pcm-auth.css:30`)*/
   margin-bottom: 0;
 }
 
