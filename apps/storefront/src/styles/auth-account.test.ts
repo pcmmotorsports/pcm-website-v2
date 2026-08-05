@@ -312,7 +312,11 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
     const seg = mediaBlockAt(ACCOUNT, TABLET);
     expect(seg.length, 'account.css 沒有平板段 ⇒ iPad 整頁吃 390px 的手機值').toBeGreaterThan(0);
     expect(seg, '平板段沒把主標從手機的 22px 撈回').toMatch(/\.acc-head h1[^{]*\{[^}]*font-size:\s*28px/);
-    expect(seg, '平板段沒把 stat 數字從手機的 26px 撈回').toMatch(/font-size:\s*28px/);
+    // 🔴 收割確認輪 MF2:不綁選擇器會被上一行的 h1 28px 供給(整條 .acc-stat-v 平板規則刪掉照樣綠,
+    //    突變實測證實)⇒ 綁死 .acc-stat-v 自己那條。
+    expect(seg, '平板段沒把 stat 數字從手機的 26px 撈回').toMatch(
+      /\.acc-stat-v[^{]*\{[^}]*font-size:\s*28px/,
+    );
     // 位置:與 auth 同一條規矩 —— 平板段之後不得再出現涵蓋整個平板區間的手機段。
     const at = ACCOUNT.indexOf(TABLET);
     expect(ACCOUNT.slice(at + TABLET.length), '平板段之後又出現 @media (max-width: 1079px)').not.toMatch(

@@ -266,9 +266,17 @@ describe('第2批 · /logout(建好了但刻意沒接線)', () => {
   it('🔴 這一頁**沒有**去改登出 server action 的 redirect(那是 auth 面、鐵則 12②)', () => {
     // 接線 = 把 `logoutAction` 的 redirect 由 /login 改成 /logout。那是產品決定 + 高風險面,
     // 不歸夜跑窗。這條在「有人順手接了但沒過對抗審查」時會紅。
-    const actions = read('../app/account/actions.ts');
+    // 🔴 收割確認輪 MF1:整檔比對會被檔頭註解的 `redirect('/login')` 字面餵成恆真(改了真碼照樣綠,
+    //    突變實測證實)⇒ 先剝 `//` 行註解、再錨定「行首縮排+分號」的語句形。
+    const actions = read('../app/account/actions.ts')
+      .split('\n')
+      .filter((l) => !/^\s*\/\//.test(l))
+      .join('\n');
     expect(actions, 'logoutAction 的 redirect 被改了 ⇒ 動 auth server action 要先過鐵則 12② 對抗審查').toMatch(
-      /redirect\('\/login'\)/,
+      /^\s*redirect\('\/login'\);/m,
+    );
+    expect(actions, 'redirect 目的地出現 /logout ⇒ 有人接線了、必須先過鐵則 12② 對抗審查').not.toMatch(
+      /^\s*redirect\('\/logout'\);/m,
     );
     // ⚠️ 對整支檔比 `/logoutAction/` 會命中**檔頭註解**(那裡逐字解釋了為什麼沒接線)——
     //    第1批的 nit N8 是同一族的錯。只比 import 陳述,對註解免疫。
