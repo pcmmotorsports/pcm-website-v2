@@ -408,8 +408,6 @@ export type SupabaseAdminOrderDetailRow = Pick<
     unit_price: number;
     line_total: number;
     product_snapshot: unknown; // jsonb;{sku,spec,title} 由 create_order 寫入,防禦解析
-    workflow_status: string | null; // M-4a D-2:per-item 狀態(NULL=未設定)
-    version: number; // M-4a D-2:per-item 樂觀鎖
     /**
      * M-4b E10 A9a-2:採購內嵌列(順序不保證、筆數被請求端上限夾住 → 兩者都在 mapper 處理)。
      * 🔴 optional + nullable 的理由同 `order_notes`:投影退版或舊 row 會整個沒有這個鍵。
@@ -624,7 +622,8 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
     createdAt: row.created_at,
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
-    // (D-2 起不攜 orders.workflow_status:明細「訂單狀態」=顯示端由 items[].workflowStatus 彙總。)
+    // (D-2 起不攜 orders.workflow_status;A9w3 起連 items[].workflow_status 與 items[].version
+    //  都退出明細投影 —— 明細頁的九碼下拉已在 A9w1 下架,那兩欄的唯一用途就是它。)
     orderSource: row.order_source as OrderSource, // DB orders_order_source_check 保證值域
     paymentChannel: row.payment_channel as PaymentChannel, // DB orders_payment_channel_check 保證值域
     paymentMethod: row.payment_method,
@@ -675,8 +674,6 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         quantity: item.quantity,
         unitPrice: { amount: toMoneyAmount(item.unit_price), currency: 'TWD' },
         lineTotal: { amount: toMoneyAmount(item.line_total), currency: 'TWD' },
-        workflowStatus: item.workflow_status, // M-4a D-2:per-item 真相
-        version: item.version, // per-item 改狀態表單樂觀鎖
         procurements: procurementProjection.procurements,
         procurementTruncated: procurementProjection.procurementTruncated,
         quantitySummary: mapQuantitySummary(item.order_item_quantity_summary),

@@ -150,11 +150,11 @@ describe('buildListHref — 連結建構', () => {
     const href = buildListHref(
       '/orders',
       [
-        ['workflow_status', ['paid_wait', 'unset']],
-        ['order_source', []],
+        ['order_source', ['web', 'manual_line']],
+        ['payment_channel', []],
       ],
       1,
     );
-    expect(href).toBe('/orders?workflow_status=paid_wait&workflow_status=unset');
+    expect(href).toBe('/orders?order_source=web&order_source=manual_line');
   });
 });

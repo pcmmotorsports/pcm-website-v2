@@ -13,11 +13,10 @@ import type {
   OrderStatusOption,
   OrderItemVehicleSnapshot,
 } from '@pcm/domain';
-import { WORKFLOW_STATUS_CODE_RE, normalizeOrderNumberSearch } from '@pcm/domain';
+import { normalizeOrderNumberSearch } from '@pcm/domain';
 import {
   pickEnum,
   pickEnumMulti,
-  allValues,
   firstValue,
   parsePage,
   buildListHref,
@@ -32,20 +31,13 @@ export const PAYMENT_STATUS_PARAM = 'payment_status';
 export const FULFILLMENT_STATUS_PARAM = 'fulfillment_status';
 export const ORDER_SOURCE_PARAM = 'order_source';
 export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
-export const WORKFLOW_STATUS_PARAM = 'workflow_status';
+// A9w2(九碼退場):`workflow_status` 查詢鍵、`unset` 哨兵與其解析函式已下架 ——
+// URL 帶 `?workflow_status=…` 自此**被忽略**(白名單只認下列鍵),不再進 `AdminOrderFilter`。
 /**
  * 訂單編號搜尋(M-4b E10 A10c1)。同時比對 `display_id` 與 `legacy_display_id`,
  * 讓 D1 改號後客人手上的舊單號仍查得到(合約 = A9b1)。
  */
 export const ORDER_NUMBER_PARAM = 'order_no';
-
-/**
- * workflow_status 篩選的「未設定」哨兵值(URL `?workflow_status=unset` → filter.workflowStatuses 含 null 元素)。
- * ⚠️ 'unset' 本身是合法 code slug → Slice D 設定 UI 須保留字擋掉,避免真 code 撞哨兵被吞。
- */
-export const WORKFLOW_STATUS_UNSET_VALUE = 'unset';
-
-// workflow_status code 形狀守門:單一來源移 @pcm/domain WORKFLOW_STATUS_CODE_RE(D-1b;adapter .or 內插前同用)。
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
@@ -143,7 +135,7 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
 
 /**
  * 解析 searchParams → { filter(白名單守門後的雙軸+次要), page }。
- * 非法篩選值一律忽略(等同不篩選);多勾選軸(D-1b:商品狀態/來源/管道)收同鍵重複 param、
+ * 非法篩選值一律忽略(等同不篩選);多勾選軸(D-1b:來源/管道)收同鍵重複 param、
  * 逐值守門+去重、全非法/缺 → undefined;page 下界 1(parsePage 共用)。
  */
 export function parseOrderListSearchParams(
@@ -158,7 +150,6 @@ export function parseOrderListSearchParams(
     fulfillmentStatus: pickEnum(raw[FULFILLMENT_STATUS_PARAM], FULFILLMENT_STATUS_VALUES),
     orderSources: pickEnumMulti(raw[ORDER_SOURCE_PARAM], ORDER_SOURCE_VALUES),
     paymentChannels: pickEnumMulti(raw[PAYMENT_CHANNEL_PARAM], PAYMENT_CHANNEL_VALUES),
-    workflowStatuses: parseWorkflowStatusesParam(raw[WORKFLOW_STATUS_PARAM]),
     orderNumber: options?.orderNumberSearchEnabled
       ? parseOrderNumberParam(raw[ORDER_NUMBER_PARAM])
       : undefined,
@@ -184,32 +175,11 @@ function parseOrderNumberParam(raw: string | string[] | undefined): string | und
   return parsed.kind === 'ok' ? parsed.value : parsed.input;
 }
 
-/**
- * workflow_status 多勾選解析(動態詞彙、無靜態 enum 可 pickEnumMulti → 改「形狀守門」):
- * - 逐值:`'unset'` 哨兵 → null(未設定)/ 合法 slug → 原樣(不存在的 code 查回 0 筆、
- *   adapter 端 .or 內插前再驗一次形狀、無注入面)/ 空字串、非法形狀 → 略;
- * - 去重保序、上限 64 值(防手打 URL 塞爆 .or 字串;正常操作=策展選項數十內、不可達);
- * - 全略 / 缺 → undefined(不篩)。
- */
-function parseWorkflowStatusesParam(
-  raw: string | string[] | undefined,
-): (string | null)[] | undefined {
-  const picked: (string | null)[] = [];
-  for (const v of allValues(raw)) {
-    if (picked.length >= 64) break;
-    const parsed =
-      v === WORKFLOW_STATUS_UNSET_VALUE ? null : WORKFLOW_STATUS_CODE_RE.test(v) ? v : undefined;
-    if (parsed !== undefined && !picked.includes(parsed)) picked.push(parsed);
-  }
-  return picked.length > 0 ? picked : undefined;
-}
-
 /** 建 `/orders?...` 連結(分頁 / 篩選保留;page=1 省略);多勾選軸=同鍵重複 param;走共用 buildListHref。 */
 export function buildOrderListHref(filter: AdminOrderFilter, page: number): string {
   return buildListHref(
     '/orders',
     [
-      [WORKFLOW_STATUS_PARAM, workflowStatusSelectedValues(filter.workflowStatuses)],
       [PAYMENT_STATUS_PARAM, filter.paymentStatus],
       [FULFILLMENT_STATUS_PARAM, filter.fulfillmentStatus],
       [ORDER_SOURCE_PARAM, filter.orderSources],
@@ -279,32 +249,6 @@ export function summarizeOrderItemWorkflow(
   const first = codes[0];
   if (first === undefined) return { kind: 'uniform', code: null }; // 空陣列(顯示「未設定」)
   return codes.every((c) => c === first) ? { kind: 'uniform', code: first } : { kind: 'mixed' };
-}
-
-/**
- * 篩選下拉選項:active 選項 +「未設定」哨兵。
- * `current` = 目前 URL 已勾值(D-1b 多勾選):其中「合法但不在 active 清單」的 code(停用選項/
- * 未知 code)各補一項讓勾選有落點 —— 否則面板回顯漏勾、使用者再互動會靜默清掉該篩選。
- */
-export function workflowStatusFilterOptions(
-  options: OrderStatusOption[],
-  current?: readonly (string | null)[],
-): FilterOption[] {
-  const active = options.filter((o) => o.isActive).map((o) => ({ value: o.code, label: o.label }));
-  for (const c of current ?? []) {
-    if (typeof c === 'string' && !active.some((o) => o.value === c)) {
-      const known = options.find((o) => o.code === c);
-      active.push({ value: c, label: known ? `${known.label}(已停用)` : c });
-    }
-  }
-  return [...active, { value: WORKFLOW_STATUS_UNSET_VALUE, label: '未設定' }];
-}
-
-/** filter.workflowStatuses → 已勾 URL/checkbox 值陣列(null→'unset' 哨兵;undefined→[])。 */
-export function workflowStatusSelectedValues(
-  workflowStatuses: readonly (string | null)[] | undefined,
-): string[] {
-  return (workflowStatuses ?? []).map((c) => (c === null ? WORKFLOW_STATUS_UNSET_VALUE : c));
 }
 
 /**

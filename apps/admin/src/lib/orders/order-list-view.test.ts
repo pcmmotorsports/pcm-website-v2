@@ -3,7 +3,7 @@
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
-import type { OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderFilter, OrderStatusOption } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
@@ -19,11 +19,8 @@ import {
   FULFILLMENT_STATUS_VALUES,
   ORDER_SOURCE_VALUES,
   PAYMENT_CHANNEL_VALUES,
-  WORKFLOW_STATUS_UNSET_VALUE,
   workflowStatusBadge,
   indexOrderStatusOptions,
-  workflowStatusFilterOptions,
-  workflowStatusSelectedValues,
   summarizeOrderItemWorkflow,
 } from './order-list-view';
 
@@ -83,35 +80,18 @@ describe('parseOrderListSearchParams — 白名單守門', () => {
   });
 });
 
-describe('parseOrderListSearchParams — workflow_status(動態詞彙、形狀守門;D-1b 多勾選)', () => {
-  it('合法 code slug → 原樣帶入(單值=單元素陣列)', () => {
-    const { filter } = parseOrderListSearchParams({ workflow_status: 'received_confirmed' });
-    expect(filter.workflowStatuses).toEqual(['received_confirmed']);
-  });
-
-  it('unset 哨兵 → null 元素(未設定;可與 code 混勾)', () => {
-    expect(parseOrderListSearchParams({ workflow_status: 'unset' }).filter.workflowStatuses).toEqual(
-      [null],
-    );
-    expect(
-      parseOrderListSearchParams({ workflow_status: ['paid_wait', 'unset'] }).filter
-        .workflowStatuses,
-    ).toEqual(['paid_wait', null]);
-  });
-
-  it('多值:合法值保序去重、非法形狀逐值剔除;全非法/缺 → undefined(不篩、注入不透傳)', () => {
-    expect(
-      parseOrderListSearchParams({ workflow_status: ['a_1', 'HACK', 'a_1', 'b_2'] }).filter
-        .workflowStatuses,
-    ).toEqual(['a_1', 'b_2']);
-    for (const bad of ['HACK', 'a b', 'x; DROP', 'é', 'a'.repeat(65), '']) {
-      expect(
-        parseOrderListSearchParams({ workflow_status: bad }).filter.workflowStatuses,
-      ).toBe(undefined);
-    }
-    expect(
-      parseOrderListSearchParams({ workflow_status: ['HACK', ''] }).filter.workflowStatuses,
-    ).toBe(undefined);
+describe('parseOrderListSearchParams — A9w2 九碼篩選下架', () => {
+  // 🔴 原本這裡有三條「形狀守門」測試(合法 slug / unset 哨兵 / 逐值剔除注入),
+  //    隨 `workflow_status` 查詢鍵下架一併移除。留下這一條是因為**下架不等於自動安全**:
+  //    白名單解析器對未知鍵本來就沉默,萬一有人把解析加回來(或別的鍵誤讀那個 param),
+  //    沒有這條就沒有任何測試看得見。
+  it('🔴 URL 仍帶 ?workflow_status= 時整個被忽略,不得回到 filter 上', () => {
+    const { filter } = parseOrderListSearchParams({
+      workflow_status: ['received_confirmed', 'unset'],
+      payment_status: 'paid',
+    });
+    expect('workflowStatuses' in filter).toBe(false);
+    expect(filter.paymentStatus).toBe('paid'); // 其餘軸不受影響
   });
 });
 
@@ -137,19 +117,20 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
     expect(href).not.toContain('page=');
   });
 
-  it('workflowStatuses:code 原樣、null → unset 哨兵、混勾=重複 param、undefined → 不出現', () => {
-    expect(buildOrderListHref({ workflowStatuses: ['shipped_done'] }, 2)).toContain(
-      'workflow_status=shipped_done',
+  it('🔴 A9w2:即使 filter 上還掛著 workflowStatuses,連結也不得再帶那個鍵', () => {
+    // A9w3 已把該欄從 `AdminOrderFilter` 型別移除 ⇒ 這裡改用繞型別的方式餵。量的事沒變:
+    // 舊呼叫端(或反序列化回來的舊狀態)帶著它時,href 建構不得讀它 —— 否則翻頁與 returnTo
+    // 會把死參數一路傳下去。
+    const href = buildOrderListHref(
+      { workflowStatuses: ['shipped_done', null], paymentStatus: 'paid' } as AdminOrderFilter,
+      2,
     );
-    expect(buildOrderListHref({ workflowStatuses: [null] }, 2)).toContain('workflow_status=unset');
-    expect(buildOrderListHref({ workflowStatuses: ['paid_wait', null] }, 2)).toContain(
-      'workflow_status=paid_wait&workflow_status=unset',
-    );
-    expect(buildOrderListHref({}, 2)).not.toContain('workflow_status');
+    expect(href).not.toContain('workflow_status');
+    expect(href).toContain('payment_status=paid');
   });
 });
 
-// ── workflow_status badge 檢視模型 + 篩選選項(M-4a Slice A)──
+// ── workflow_status badge 檢視模型(M-4a Slice A;篩選選項那組隨 A9w2 下架)──
 
 const OPTIONS: OrderStatusOption[] = [
   { code: 'received_confirmed', label: '已收已定', color: '#FBE4A6', textColor: 'dark', sortOrder: 10, isActive: true },
@@ -190,33 +171,6 @@ describe('workflowStatusBadge — NULL / 命中 / 停用 / 未知 code 兜底', 
       textColor: 'dark',
       known: false,
     });
-  });
-});
-
-describe('workflowStatusFilterOptions / workflowStatusSelectedValues', () => {
-  it('篩選下拉 = active 選項(依傳入序)+ 未設定哨兵殿後;停用選項不入列', () => {
-    expect(workflowStatusFilterOptions(OPTIONS)).toEqual([
-      { value: 'received_confirmed', label: '已收已定' },
-      { value: 'unpaid_shipped', label: '未收出貨' },
-      { value: WORKFLOW_STATUS_UNSET_VALUE, label: '未設定' },
-    ]);
-  });
-
-  it('已勾值含停用/未知 code → 各補回顯項(不靜默清篩選);active code/null → 不加項', () => {
-    const withOrphans = workflowStatusFilterOptions(OPTIONS, ['retired_code', 'ghost_code']);
-    expect(withOrphans).toContainEqual({ value: 'retired_code', label: '停用中(已停用)' });
-    expect(withOrphans).toContainEqual({ value: 'ghost_code', label: 'ghost_code' });
-    expect(workflowStatusFilterOptions(OPTIONS, ['received_confirmed'])).toHaveLength(3);
-    expect(workflowStatusFilterOptions(OPTIONS, [null])).toHaveLength(3);
-  });
-
-  it('selectedValues:undefined → [] / null 元素 → unset / code 原樣保序', () => {
-    expect(workflowStatusSelectedValues(undefined)).toEqual([]);
-    expect(workflowStatusSelectedValues([null])).toEqual([WORKFLOW_STATUS_UNSET_VALUE]);
-    expect(workflowStatusSelectedValues(['shipped_done', null])).toEqual([
-      'shipped_done',
-      WORKFLOW_STATUS_UNSET_VALUE,
-    ]);
   });
 });
 

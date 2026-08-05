@@ -53,8 +53,6 @@ function detail(over: Partial<AdminOrderDetail> = {}): AdminOrderDetail {
         quantity: 4,
         unitPrice: { amount: 100, currency: 'TWD' },
         lineTotal: { amount: 400, currency: 'TWD' },
-        workflowStatus: null,
-        version: 1,
         procurements: [proc()],
         procurementTruncated: false,
       },
