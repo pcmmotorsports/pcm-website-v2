@@ -31,7 +31,7 @@ MODE="${1:?用法: a7-verify.sh all|run <workdir>}"
 WORK="${2:?缺 workdir(必須是短路徑,例 /tmp/a7v)}"
 MIG="supabase/migrations/20260730130000_m4b_e10_a7_order_cancellations.sql"
 PROBE="scripts/a7-behavior-probe.sql"
-PORT=54329
+PORT="${PORT:-54329}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 export LC_ALL=C
 

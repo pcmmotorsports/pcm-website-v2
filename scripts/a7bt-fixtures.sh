@@ -17,7 +17,7 @@
 # 可重複執行的 SQL。證明在兩支 harness 各自的斷言裡。
 # ============================================================
 
-PORT=54329
+PORT="${PORT:-54329}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 
 PASS=0; FAIL=0

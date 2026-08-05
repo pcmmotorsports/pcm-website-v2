@@ -9,7 +9,7 @@
 set -uo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
-PORT=54329
+PORT="${PORT:-54329}"
 FAIL=0
 
 ok()   { printf '  ✅ %s\n' "$1"; }

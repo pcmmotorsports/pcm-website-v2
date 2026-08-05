@@ -37,7 +37,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 WORK="${1:?用法: a1-lock-probe.sh <workdir,例 /tmp/a1v>}"
 MIG="supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql"
-PORT=54329
+PORT="${PORT:-54329}"
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 export LC_ALL=C
 
