@@ -13,7 +13,9 @@
   justify-content: space-between;
   gap: 24px;
   padding: 14px var(--shell-x);
-  max-width: var(--shell-max);
+  /* 🔶 R2-1(2026-08-05):殼三件套改 1440 置中 ⇒ 由 --shell-max(none)換吃 --shell-bar-max。
+     背景與底線仍滿版(那是 .pcm-header 的事),只有 inner 內容收 1440。 */
+  max-width: var(--shell-bar-max);
   margin: 0 auto;
 }
 /* [#192 A1] 手機 viewport @media + 既有 compound selector 兜底

@@ -5,24 +5,36 @@
      要調整全站版寬只改這兩個值。 */
   --shell-max: none;
   --shell-x: 40px;
+  /* 🔶 全站重設計 R2-1(2026-08-05 Sean 拍板):**部分**推翻 7/11「全站撐滿」——
+     殼三件套(頁首 / 選車列 / 頁尾)改 1440px 置中,商品列表主體維持拉滿(吃 --shell-max)。
+     故兩顆並存、不是取代:吃哪一顆 = 該元素是不是殼。
+     消費點(本片):header.css .pcm-header-inner、filter-cascade.css .cft-inner。
+     ⏳ 頁尾 home.css .ed-footer-inner / .ed-footer-base 待 C 窗收割後補(D-201-Q Q3)。 */
+  --shell-bar-max: 1440px;
   /* 內容頁(商品詳情/結帳/物流)寬上限:滿版頁首頁尾下,內文/圖/表單給舒服可讀寬、
      寬螢幕不撐爆(詳情大圖糊、表單欄位過寬)。與 --shell-* 分離=內容頁本就不該全撐滿。 */
   --content-max: 1600px;
 
-  /* Neutral scale (warm-cool neutral, slightly cool) */
-  --c-bg: #fafafa;
+  /* Neutral scale (warm-cool neutral, slightly cool)
+     🔶 全站重設計 R2-2(2026-08-05 Sean「頂端跟 footer 顏色統一」拍板):八顆中性色整組換成
+     首頁新語言值,避免兩套灰打架。這推翻 products-list C 版「中性色全部不動」那句。
+     --c-surface / --c-surface-3 不在換色清單、維持原值;深色模式段獨立覆寫同名 token(見下方
+     [data-theme="dark"]),故本次只動亮色、深色不受波及。 */
+  --c-bg: #ffffff;        /* 原 #fafafa */
   --c-surface: #ffffff;
-  --c-surface-2: #f4f4f5;
+  --c-surface-2: #f3f3f4; /* 原 #f4f4f5 */
   --c-surface-3: #e9e9eb;
-  --c-border: #e4e4e7;
-  --c-border-strong: #d4d4d8;
-  --c-text: #0a0a0a;
-  --c-text-2: #52525b;
-  /* 🔴 Sean 2026-07-09 可讀性拍板:#a1a1aa(對亮底 2.45:1、CJK 難辨識)→ #71717a(4.63:1、過 WCAG AA)。
+  --c-border: #e5e5e7;    /* 原 #e4e4e7 */
+  --c-border-strong: #d3d4d6; /* 原 #d4d4d8 */
+  --c-text: #121214;      /* 原 #0a0a0a */
+  --c-text-2: #52545a;    /* 原 #52525b */
+  /* 🔴 Sean 2026-07-09 可讀性拍板:#a1a1aa(對亮底 2.45:1、CJK 難辨識)→ #71717a(對 #fafafa 4.63:1、過 WCAG AA)。
      偏離 design(OD/design-reference 亦用 #a1a1aa)= Sean 授權覆蓋設計權威(同 #223 標點、業務 override)。
-     全站約 53 處吃此 token 一次改善;裝飾/disabled/佔位維持淡見 keep-light。 */
-  --c-text-3: #71717a;
-  --c-text-inverse: #fafafa;
+     全站約 53 處吃此 token 一次改善;裝飾/disabled/佔位維持淡見 keep-light。
+     🔶 R2-2 續:→ #6e6e73,對新底 #ffffff 實測 5.07:1(高於原組合 4.63:1)⇒ 2026-07-09 那條
+     可讀性拍板不但沒被推翻、還更嚴;設計端字面亦為「更深,仍守 #71717a 可讀性下限」。 */
+  --c-text-3: #6e6e73;    /* 原 #71717a */
+  --c-text-inverse: #ffffff; /* 原 #fafafa */
 
   /* Accent — RIZOMA red, reserved */
   --c-red: #dc2626;

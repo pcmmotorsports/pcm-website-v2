@@ -16,7 +16,9 @@
   justify-content: space-between;
   gap: 16px;
   padding: 10px var(--shell-x);
-  max-width: var(--shell-max);
+  /* 🔶 R2-1(2026-08-05):選車列=殼三件套之一 ⇒ 1440 置中,與頁首左右緣切齊。
+     ⚠️ 商品列表主體(products-page.css:4)維持吃 --shell-max 拉滿——設計端明文只收殼。 */
+  max-width: var(--shell-bar-max);
   margin: 0 auto;
 }
 .cft-cascade {
