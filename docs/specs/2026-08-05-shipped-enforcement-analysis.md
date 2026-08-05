@@ -95,7 +95,12 @@ verify script,break-glass 對 shipped 軸就是真空。這是無論選哪個方
 - 前提:P1 四張真相表事件全有 row trigger(保證:A4a+S2 結構驗收;能改掉:owner DISABLE、
   `session_replication_role=replica`、未來 migration)/ P2 helper 真相直讀+鎖先於 SUM
   (保證:字面錨 `20260803140000:569-607` + S2 md5 前置閘;能改掉:owner 重建函式)/
-  P3 惰性列在首事件建立(shipped>0 必經 shipment_items 事件 ⇒ 必有列)/
+  P3 惰性列在首事件建立(~~shipped>0 必經 shipment_items 事件 ⇒ 必有列~~
+  🔴 **2026-08-05 改述(B-201-STOP ⑥;v5 X3 之下)**:「必有列」結論不變 —— 品項事件在
+  draft 期就建列;但 X3 擋死已寄出包裹再加品項 ⇒ **讓 shipped 升值的是 `shipments.shipped_at`
+  那筆 UPDATE、不是 shipment_items 事件** ⇒ S2 重算必須同時掛
+  `shipments AFTER UPDATE OF shipped_at, deleted_at`,只掛 shipment_items 會讓 shipped
+  恆 0 且零錯誤訊息;已釘進 B2 plan v5 §7.1 交棒)/
   P4 shipped 真相式三處同式(重算、驗證、未來守門;能改掉:任何新片自己重寫 SUM —— F7 是
   這型分歧的現行實例)/ P5 break-glass oracle 含第四軸(F5 現況未含,**必補**)。
 - 評價:一行 SQL,零新機制,雙向都擋(出貨超量、到貨刪到低於出貨),**未來 writer 忘記守門也擋**。
