@@ -1,6 +1,34 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🪟 **2026-08-05 午前:第二輪換窗 checkpoint(主視窗寫;壓縮後先讀本節)。**
+> 🪟🪟 **2026-08-05 午後:第三輪換窗 checkpoint(主視窗寫;新主視窗只讀本節,舊節按需)。**
+>
+> **你是誰**:pcm-website-v2 主視窗(Fable 5[1m]+high;指揮/收割/裁決,不下場實作)。三個施工窗
+> 經信箱 `/Users/sean_1/pcm-mailbox/` 溝通(**先讀該目錄 README.md 全文**,含補訂 1-5;
+> 🔴 補訂 5=號段分家:主視窗發信一律 `<代號>-1xx-A`、施工窗一律 `<代號>-2xx-Q/STOP`,舊號凍結)。
+>
+> **現況一句話**:dev=`de2bfe9` 已推。今日:取消線 4/4 **已 apply 正式站+read-back 全符**(27 項
+> 第 19 項 DB 端就位)→ A 窗轉做取消 UI(Q0=A 只做後端 Phase 1、片 0+1 已收割 `123d044`、片 2-5 續跑中);
+> B 窗出貨線 plan 四輪審查後**執行停損**(只做兩張表 v5;`B-31-A` 我認了三條裁決錯 F6/F4/F3——
+> 裁決也要附前提,教訓在 memory `feedback_claim-scope-exceeds-fact-three-shapes` 第五形狀);
+> C 窗首頁線 Q6/D5d/D5e-1/manifest 分家四批已收割,手上=文案片→D5e-2(20 家+9 張圖)→D5f→D5g
+> →D5c icon chip(派工單=`C-104-A`+`C-106-A`,Sean 交辦全文在裡面)。全套 **352 檔 4802 綠+1 todo**。
+>
+> **Fable 額度**:Sean 另一帳號現在就有(19:00 重置)⇒ 三窗判定輪全配 Fable(`A-32-A`/`B-29-A`/
+> `C-106-A` 已派);主視窗本體=claude-fable-5[1m]。
+> **背景在途**:①獨立 Fable 分析「shipped 該在哪層強制」(三次分析全證偽後 fresh 重做),產物=
+> scratchpad `shipped-enforcement-analysis.md`——新窗開工先 `test -f` 查它寫完沒,寫完轉給 B 窗當
+> v5 之後那片的輸入 ②B 窗自己的 Fable R3 對 v4(停損下只收兩張表層+MP 回寫核對的 findings)。
+> **OD 全站重設計線已開**:交接檔=OD 專案 `SITE-REDESIGN-HANDOFF.md`(11 頁盤點+功能零改邊界),
+> Sean 拿提示詞去 OD 一次設計一頁,交接單回來派 C 窗接(先核 repo 現況再動工=N°05 模式)。
+> **欠著的**:①A 窗測試數對帳已結案(4741=過期觀察值,`A-101-A`)②D5c 分類區=icon chip 6 欄×2 列
+> (Q1=A/Q2=A「跟設計稿一模一樣」)③三顆 RIZOMA 錯內容 Q1=B 併 D5e-2 改。
+>
+> **新主視窗開工儀式**:①讀本節+信箱 README ②重 arm 三哨兵(信箱單座 Q/STOP、三分支 commit、
+> 全量 `ls` 信箱對號段)③查 scratchpad 分析檔在不在 ④等 STOP 信照收割工法跑(押住等 STOP→
+> R1 FAIL 必有確認輪、第 3 輪換模型→merge --no-ff→tc+lint --force+全套精確調和→錢面拋棄庫重跑
+> →STATUS 收帳→push 持續授權)。決策題=prose code block A|B|C 轉 Sean、不走 UI;拍板即落 memory。
+
+> 🪟 **2026-08-05 午前:第二輪換窗 checkpoint(舊,按需讀)。**
 >
 > **現況一句話**:今日已收割入 dev 並推(`origin/dev`=`09a621c`):**取消線 4/4**(⛔兩支
 > `20260804180000→20260805100000` 同批待 Sean `supabase db push`,前置七項主視窗已預跑全綠,
