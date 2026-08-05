@@ -111,9 +111,25 @@ export const ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED = ADMIN_ORDER_LIST_SEL
  * ⇒ 本欄位組**絕不可**被搬進 storefront 的任何投影;守門測試同時盯三條列表投影。
  * 🔴 `suppliers` 只取 `label` / `is_active`(顯示名 + 停用提示):S1b 起本表不存供應商名稱文字,
  * 顯示名一律 JOIN(`20260801150000_m4b_e10_s1b_procurement_supplier_fk.sql:159-161`)。
+ *
+ * 🔴 M-4b E10 A9g-1 在 `order_items` 底下加第二個內嵌:`order_item_quantity_summary(…)`
+ * (三軸數量**衍生快取**;取消 UI 要靠它算「這個品項還能取消幾件」)。
+ * 🔴 **措辭要準**(關卡2 MF4 更正本段原本寫的「真相表」):A1 建表 COMMENT `20260730150000:141`
+ * 逐字「衍生值,非真相 —— 真相在 A2 採購表與 A7 取消明細」;A8a2 的守門也是**從真相明細重算**
+ * (`20260805100000:395-406`),不讀本表的值、只驗它在不在場。叫它「真相表」會誘導後人拿它當守門
+ * 依據,而那正是母 plan `:384` row 37 抓到的坑。本投影讀它**只為了畫面顯示與輸入上限**。
+ * 🔴 **同一條紅線**:本表帶的是營運內部數量事實(已訂/已到貨/已取消),
+ * **絕不可**被搬進 storefront 的任何投影 —— 客人看得到「已向上游訂了幾件」等於看得到採購節奏。
+ * 守門測試用反射盯 `*SELECT*` 匯出、不手寫常數名(見 `SupabaseOrderAdapter.test.ts` 同款);
+ * 該處**刻意拆兩條**:storefront 永不放寬 / admin 列表待 A9c(母 plan `:387` row 40)合法解禁。
+ * 🔴 **形狀**:`order_item_id` 雖是 PRIMARY KEY(邏輯 1:1),但 FK 是複合鍵
+ * `(order_item_id, quantity)`,generated types 的 `order_item_quantity_summary_item_fk.isOneToOne`
+ * 逐字為 `false` ⇒ 指向 to-many = 陣列。**但那是規則推導、不是實測到的 wire 回應**
+ * ⇒ mapper 兩種形狀都吃、不賭邊(理由詳 `mapQuantitySummary` docstring)。
+ * 0 筆 = A4a 還沒建那一列 = **「不知道」而非「都是 0」**,翻成 `quantitySummary: null`、下游 fail-closed。
  */
 export const ADMIN_ORDER_DETAIL_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active))), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)';
+  'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)';
 
 /**
  * 兩層深內嵌資源的路徑(PostgREST `order` / `limit` 參數的前綴;A9a-2)。

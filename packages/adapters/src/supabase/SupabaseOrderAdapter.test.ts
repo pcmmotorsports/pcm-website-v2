@@ -703,9 +703,9 @@ const DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌)', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active))), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)',
     );
   });
 
@@ -748,6 +748,53 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
         expect(`${name}:${value}`).not.toContain(token);
       }
     }
+  });
+
+  // 🔴 A9g-1:三軸數量摘要(已訂/已到貨/已取消)同屬營運內部事實 —— 客人看得到「已向上游訂了幾件」
+  //    等於看得到採購節奏。守門形狀逐字照上面那條 A9a-2(反射取全部投影、不手寫常數名),
+  //    理由相同:手寫清單只擋得住今天存在的那三條,日後新增第四條投影不會有任何測試轉紅。
+  // 🔴 這條**刻意分兩段**(關卡A R1 I-3):三軸欄位對 storefront 與 admin 列表是**不同**的東西。
+  //    master plan `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md:387` row 40(A9c)
+  //    明寫「三軸欄位進 `ADMIN_ORDER_LIST_SELECT`」= 已排定的合法去處。
+  //    若把兩者寫成同一個「全部列表都禁」的迴圈,A9c 當天這條必紅,而**最省事的修法是刪掉整段**
+  //    —— 連 storefront 那半永久性的保護一起陪葬。所以先把「永不放寬」與「待 A9c 解禁」拆開。
+  it('🔴 三軸數量摘要:storefront 投影**永久**零滲入(客人看得到已訂幾件 = 看得到採購節奏)', () => {
+    expect(ADMIN_ORDER_DETAIL_SELECT).toContain('order_item_quantity_summary(');
+
+    // storefront 那條是 authenticated client 打的、回到客人瀏覽器 ⇒ 這段**沒有**未來解禁計畫。
+    for (const token of [
+      'order_item_quantity_summary',
+      'instock_quantity',
+      'ordered_quantity',
+      'cancelled_quantity',
+    ]) {
+      expect(`ORDER_LIST_SELECT:${ORDER_LIST_SELECT}`).not.toContain(token);
+    }
+  });
+
+  it('🟡 三軸數量摘要:admin 列表投影目前也零滲入(**A9c 會合法解禁本條**,見 master plan :387 row 40)', () => {
+    // 🔴 本條與上一條的差別是**壽命**,不是嚴格度:A9c 開工時把這條改掉是預期內的,
+    //    改它的人請只改這條、不要順手把上面 storefront 那條一起拿掉。
+    const adminListSelects = Object.entries(adapterModule).filter(
+      ([name, value]) =>
+        name.includes('SELECT') &&
+        typeof value === 'string' &&
+        name !== 'ADMIN_ORDER_DETAIL_SELECT' &&
+        name !== 'ORDER_LIST_SELECT',
+    );
+    // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
+    expect(adminListSelects.map(([name]) => name).sort()).toEqual([
+      'ADMIN_ORDER_LIST_SELECT',
+      'ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED',
+    ]);
+    for (const [name, value] of adminListSelects) {
+      for (const token of ['order_item_quantity_summary', 'instock_quantity']) {
+        expect(`${name}:${value}`).not.toContain(token);
+      }
+    }
+    // ⚠️ 誠實邊界(同 A9a-2 那條):這兩條守門**只**看得到本檔的投影常數 ——
+    //    別的檔案自己寫 inline `select('…')` 打這張表,這裡完全擋不到。
+    //    2026-08-05 A9g-1 實查 `apps/` + `packages/` 目前無任何 inline select 觸及該表。
   });
 
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
@@ -875,6 +922,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
             },
           ],
           procurementTruncated: false,
+          // 🔴 A9g-1:本 fixture 的品項**沒有** order_item_quantity_summary 鍵
+          //    ⇒ 正好覆蓋「缺鍵 = 不知道」這條 fail-closed 路徑,必須是 null 而不是補 0 的物件。
+          quantitySummary: null,
         },
       ],
       // A9a-1:時間軸依 createdAt ASC 重排(投影給的是倒序);n-1 被 n-2 直接指向 ⇒ 已更正
