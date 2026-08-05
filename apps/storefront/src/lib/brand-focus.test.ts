@@ -37,6 +37,9 @@ function brand(slug: string, order: number, enabled = true): BrandContent {
       ['F3', `${slug}-v3`, '小註三'],
       ['F4', `${slug}-v4`, '小註四'],
     ],
+    // D5e-2b:動線列的分類名。**逐家不同**(帶 slug)⇒ 「分類硬編成某一家」這種錯
+    // 會在斷言裡看得出來;若這裡填共用的固定值,那條守門就會被 fixture 碰巧值架空。
+    categories: [[`${slug}-分類一`, 3], [`${slug}-分類二`, 5]],
     focus: { enabled, order },
   } as unknown as BrandContent;
 }

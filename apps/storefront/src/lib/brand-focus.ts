@@ -75,6 +75,19 @@ export type ResolvedBrandFocus = {
   /** 三則 [標籤, 值]。overlay 沒有就取 `brand.facts` 前三則的前兩欄(小註留在品牌頁)。 */
   facts: readonly (readonly [string, string])[];
   /**
+   * 這家的商品分類**名稱**(D5e-2b 動線列用)。
+   *
+   * 🔴 只取名字、丟掉件數:`brand.categories` 是 `[名稱, 件數]`,而動線列
+   *    (`.ed-feature-jump`)照設計稿只顯示分類名、不報件數 —— 件數是品牌頁那邊的東西。
+   * 🔴 **名稱就是網址參數本身**:`?category=` 的讀取端吃的是分類名稱(raw_path、人類可讀),
+   *    見 `components/products-url-state.tsx` 的 `parseCategoryFromUrl`。
+   *    ⚠️ 比對不到時是**靜默**的(那支 miss 就回 `null`)⇒ 客人會看到「該品牌全部商品」、
+   *       和沒篩選長得一模一樣、零錯誤訊息。這批分類名在正式目錄裡撈不撈得到
+   *       = **既有 backlog #315**(`lib/brand-url.ts` 的 `brandCatalogueUrl` 已記過同一件事),
+   *       非本片新增,本片也沒有讓它變好或變壞。
+   */
+  categories: readonly string[];
+  /**
    * 產品特寫的**可直接餵給 `src` 的網址**;沒有就是 `null`,由元件決定怎麼退。
    *
    * 🔴 這裡會補資產前綴,不要在元件端再補一次(R1 must-fix):OD `brand-focus-data.js`
@@ -127,6 +140,9 @@ export function resolveBrandFocus({
     body: overlay?.body ?? brand.lede,
     caption: brand.origin,
     facts: overlay?.facts ?? brand.facts.slice(0, 3).map(factToPair),
+    // OD 逐字 `brand.categories.map(([name]) => name)`。順序照資料檔、不排序
+    // —— 那個順序是品牌頁那邊維護的,兩處顯示同一批東西時不該各排各的。
+    categories: brand.categories.map(([name]) => name),
     photo: overlay?.photo ? resolvePhotoSrc(overlay.photo) : null,
   };
 }

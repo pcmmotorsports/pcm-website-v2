@@ -234,7 +234,11 @@ describe('首頁 · 區塊順序(D5a)', () => {
     }
 
     expect(section, '標題沒有帶當期品牌名 ⇒ PIN 沒接上').toContain(`${expected.name}.`);
-    expect(section, 'CTA 沒指向當期品牌').toContain(`/products?brand=${expected.slug}`);
+    // D5e-2b:主按鈕目的地由 legacy `/products?brand=` 改成品牌介紹頁 `/brands/<slug>`。
+    // 切界已收到 `ed-brands` 之前 ⇒ 這條不會被 BrandIndex 的同形連結滿足(R3 F5 那個理由)。
+    expect(section, '主按鈕沒指向當期品牌的介紹頁').toContain(`/brands/${expected.slug}`);
+    // 領頭「全部商品」與分類列都掛在同一個當期 slug 上。
+    expect(section, '分類列的領頭沒指向當期品牌').toContain(`/products?pbrand=${expected.slug}`);
     // 🔴 覆蓋層真的被吃到:退回 fallback 的話 title 會等於品牌名
     expect(expected.title, '前提:當期這一家真的有 overlay(否則下一條零判別力)').not.toBe(expected.name);
     expect(section, '標題退化成品牌名 ⇒ overlays 沒接上').toContain(expected.title);

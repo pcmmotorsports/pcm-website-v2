@@ -12,6 +12,19 @@
   --ed-c-paper: #ffffff;
   --ed-c-paper-2: #f7f7f8;
   --ed-c-accent: #b91c1c;
+  /* ── 動作色 · 熔橘拆三顆(D5e-2b;OD `:root` 的 `--c-red`/`--c-ember-ink`/`--c-red-dark`)──
+     🔴 **刻意用 `--ed-c-*` 自己的名字、且 scope 在 `.ed-page` 不進 `:root`**:
+        正式站 `tokens.css` 已經有 `--c-red`(`#dc2626` 緋紅)與 `--c-red-dark`,
+        **與 OD 的熔橘 `#f26722` 不同色**;把 OD 的值寫進 `:root` 會讓現有每一頁當場變色,
+        直接引用站台那顆則會畫出「有顏色但不是拍板那顆」的按鈕。
+        同款處置與理由見 `brand-directory.css` 檔頭 ②(那支也踩過同一顆)。
+     ⚠️ 這三顆是 Sean 2026-08-05 拍板保留的(handoff §十一),**不要順手改**。 */
+  --ed-c-action: #f26722;
+  --ed-c-action-hover: #c4470c;
+  --ed-c-action-active: #a53a08;
+  /* 控制項邊界專用線(OD `--c-border-control`):比 `--ed-c-rule` 深,對白底 3.18:1。
+     用在「這條線本身就是可點的唯一訊號」的地方(見 `.ed-feature-jump a::after`)。 */
+  --ed-c-rule-control: #909093;
 }
 @media (max-width: 900px) { .ed-page { --ed-gutter: 20px; } }
 
@@ -367,6 +380,11 @@
 .ed-feature-caption {
   position: absolute;
   bottom: 20px; left: 20px;
+  /* 🔴 `right: auto` + `max-width` 是 OD §6-3 那條「貼一角、不要橫跨整張圖」的完整形狀
+     (R2 F10:本片原本只搬了手機半邊、桌機這條漏了,而 manifest 卻宣稱 §6-3 已做)。
+     OD `.b-feature-cap` 桌機字面 = `right:auto; max-width:calc(100% - 32px)`(左右各 16px)。 */
+  right: auto;
+  max-width: calc(100% - 40px);
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -377,11 +395,146 @@
 }
 .ed-feature-caption .ed-mono { color: var(--ed-c-ink-mute); }
 
+/* 🔴🔴 **D5e-2b 刻意未搬:OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版調整**(R1 Important:
+   省略要留字面,不能只留在 commit body)。那一節為中文重調了六個值,本片**一個都沒動**:
+
+     `.ed-feature-title`   line-height 0.98 → 1.2    (1.02 是給單行英文大標的,中文折兩行會黏住)
+     `.ed-feature-title`   letter-spacing -.02em → -.01em (負字距是收拉丁字母用的,套方塊字會互相擠)
+     `.ed-feature-title`   加 `text-wrap: balance`    (避免第二行只吊三個字)
+     `.ed-feature-body`    max-width 34ch → 30em     (`ch` 是拉丁字元寬,中文會折成細長條)
+     `.ed-feature-body`    line-height 1.75 → 1.85   (中文沒有字母上下伸展,行距要再開)
+
+   ⚠️ **為什麼這現在比 D5e-1 時更要緊**:D5e-2 之前這個版位只有 RIZOMA 一家佔位,
+      現在跑的是 20 家**真的中文鉤子**(最長「騎了十年賽車,受不了市售腳踏,乾脆自己做。」
+      在 clamp 上界會折成兩到三行)⇒ 標題行距 0.98 的黏行問題是真的會被看到,不是理論。
+   ⇒ **不是漏掉,是片界**:C-109-A 派的 D5e-2b 是「動線改版四項」,排版屬 §6-1 另一組。
+      本片不動的理由是那五個值會改變整個版位的視覺重量,**該讓 Sean 肉眼驗一次**,
+      不適合夾在動線片裡順手改掉。⇒ 已寫進 manifest 條目 + 回報主視窗排片。 */
+
+/* ── D5e-2b 動線區(OD `.b-feature-actions` 家族)────────────────────────
+   一行兩區:實心主按鈕 = 去讀品牌故事;右半整排 = 去逛這家的商品。
+   中間那條線是分區訊號,`aria-hidden` 因為它對讀屏沒有意義
+   —— 讀屏拿到的是「連結」與「導覽」兩個不同的語意群組。 */
+.ed-feature-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* 主要動作。填色是「這是按鈕」最強的訊號。
+   🔴 **用熔橘不是墨色**(OD §6-2 逐字:石墨是場與墨、熔橘才是動作色)。
+      色值走本檔自己的 `--ed-c-action*`(定義在 `.ed-page`)、**不是** `var(--c-red)`:
+      正式站 `tokens.css` 的 `--c-red` 是 `#dc2626`(緋紅),與 OD 的 `#f26722`(熔橘)
+      **不同色**;而 Sean 2026-08-05 拍板保留的是熔橘那顆(handoff §十一)。
+      直接寫 `var(--c-red)` 會靜默畫出一顆緋紅按鈕 —— 看起來有顏色、但不是拍板那顆。
+      scope 在 `.ed-page` 不進 `:root` 的理由與 `brand-directory.css` 檔頭 ② 完全相同。
+   ⚠️ 白字對熔橘預設態 **3.12:1**,不到小字 4.5:1 門檻(hover 4.94 / 按下 6.54 都過)。
+      這是 **Sean 看過三個替代方案後拍板保留的殘餘風險**(handoff §十一、C-104-A 六不做 ⑤)
+      ⇒ **不要「順手修正」這個顏色**,要改必須他重新拍板。 */
+.ed-feature-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 20px;
+  background: var(--ed-c-action);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 3px 10px rgba(0,0,0,0.10);
+  transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.ed-feature-primary:hover {
+  background: var(--ed-c-action-hover);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.20), 0 6px 16px rgba(0,0,0,0.12);
+}
+.ed-feature-primary:active {
+  background: var(--ed-c-action-active);
+  transform: translateY(1px);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.20);
+}
+.ed-feature-primary .ed-link-arrow { transition: transform 0.3s ease; }
+.ed-feature-primary:hover .ed-link-arrow { transform: translateX(3px); }
+
+.ed-feature-divider {
+  align-self: stretch;
+  width: 1px;
+  min-height: 44px;
+  background: var(--ed-c-rule);
+  margin: 0 2px;
+}
+
+/* 次要動作:**無框的底線連結列,不是盒子**(OD §6-2 逐字)。
+   這個版位的語言是編輯式的 —— 上面的資料條就是靠上下兩條細線分隔、沒有任何框。
+   分類做成一排盒子 = 在同一塊版面裡混進應用程式 UI 的語彙,兩種語言打架;
+   而且分類名 5-7 字不等,盒子長短參差像標籤雲。
+   ⚠️ 可點高度靠 `min-height` 撐,**不是靠 padding 畫框** —— 視覺上看不到盒子,
+      但觸控範圍仍達標(桌機 36px / 手機 44px)。 */
+.ed-feature-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 24px;
+  margin: 0;
+  flex: 1 1 300px;
+}
+.ed-feature-jump a {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  font-size: 14px;
+  letter-spacing: 0.01em;
+  color: var(--ed-c-ink-soft);
+  transition: color 0.15s ease;
+}
+/* 🔴 底線色取 **OD `:root` 的 `--c-border-control` `#909093`**(對白底 3.18:1),
+   **不是** OD 這條規則字面寫的 `--c-border-strong`(`#d3d4d6`,約 1.4:1)。
+   理由 = handoff §十一逐字:那份稿自己指出「當邊框是**可點的唯一線索**時不符
+   WCAG 1.4.11(需 3:1)」,並要求「真站 `home.css` 請一併確認」——
+   這排連結在靜止態的可點訊號就是這條底線。⇒ 這是**申報偏離 OD 字面、依 OD 自己的註記修正**,
+   已列 Sean 肉眼驗(嫌太重就把這一顆值調淡,只有這一行)。
+   ⚠️ 不用站台 `--c-border-strong`:那顆在 `[data-theme=dark]` 會翻成 `#3f3f46`,
+      而 `.ed-*` 調色盤刻意固定亮色(本檔全檔零 `prefers-color-scheme`/`data-theme`)。 */
+.ed-feature-jump a::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 7px;
+  height: 1px;
+  background: var(--ed-c-rule-control);
+  transition: background-color 0.15s ease;
+}
+.ed-feature-jump a:hover { color: var(--ed-c-ink); }
+.ed-feature-jump a:hover::after { background: var(--ed-c-action-hover); }
+.ed-feature-jump a:active { color: var(--ed-c-action-hover); }
+/* 「全部商品」是領頭:文字轉墨黑、字重加一階、底線跟著轉墨黑。 */
+.ed-feature-jump a.is-all { color: var(--ed-c-ink); font-weight: 600; }
+.ed-feature-jump a.is-all::after { background: var(--ed-c-ink); }
+
 @media (max-width: 1000px) {
   .ed-feature { padding: 80px 0; }
   .ed-feature-inner { grid-template-columns: 1fr; gap: 40px; }
   .ed-feature-side { padding-right: 0; order: 2; }
   .ed-feature-media { order: 1; aspect-ratio: 4/5; }
+}
+
+/* 手機:兩區改成上下疊。垂直分隔線轉整行水平線 —— 分區訊號留著、只換方向。
+   主按鈕拉滿整行(拇指最好按的形狀),分類列高度提到 44px 符合行動觸控目標。 */
+@media (max-width: 640px) {
+  /* 🔴 `max-width` 不可省(R1 Important):沒有它,長一點的 origin 會把圖說撐成
+     橫跨整張圖的一條帶子 —— 正是 OD §6-3 要修掉的那個形狀。OD `.b-feature-cap`
+     手機段字面就是 `calc(100% - 24px)`(左右各 12px)。 */
+  .ed-feature-caption { bottom: 12px; left: 12px; padding: 7px 11px; max-width: calc(100% - 24px); }
+  /* 手機隱藏圖說的 mono 小標:照片本來就窄,疊在上面的字要讓位給產地。 */
+  .ed-feature-caption .ed-mono { display: none; }
+  .ed-feature-actions { flex-direction: column; align-items: stretch; gap: 14px; }
+  .ed-feature-primary { justify-content: center; min-height: 48px; font-size: 15px; }
+  .ed-feature-divider { align-self: auto; width: auto; height: 1px; min-height: 0; margin: 0; }
+  .ed-feature-jump { flex: 1 1 auto; gap: 0 22px; }
+  .ed-feature-jump a { min-height: 44px; font-size: 15px; }
+  .ed-feature-jump a::after { bottom: 11px; }
 }
 
 /* ============================================================
