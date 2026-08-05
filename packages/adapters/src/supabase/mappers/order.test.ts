@@ -4,9 +4,12 @@ import {
   mapPlaceOrderToCreateOrderArgs,
   mapSupabaseOrderRowToListItem,
   mapSupabaseAdminOrderRowToSummary,
+  mapSupabaseAdminOrderDetailRowToDetail,
   type CreateOrderRpcArgs,
   type SupabaseOrderListRow,
   type SupabaseAdminOrderRow,
+  type SupabaseAdminOrderDetailRow,
+  type SupabaseOrderItemQuantitySummaryRow,
 } from './order';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
@@ -289,6 +292,174 @@ describe('mapSupabaseAdminOrderRowToSummary — V-3b vehicle_snapshot 解析', (
       brand: 'Honda',
       model: 'CB650R',
       source: 'garage',
+    });
+  });
+});
+
+// ── M-4b E10 A9g-1:三軸數量摘要的 fail-closed 轉換 ──
+//
+// 🔴 本組測試的承重點只有一個:**「摘要缺列」不可以被翻成「都是 0」**。
+//    缺列會讓 cancellableQuantity 被算成 quantity(算大)⇒ 畫面放行超量取消、送出必被 A8a2 拒
+//    (母 plan 2026-07-28-e10-order-closure-master-plan-v2.md:384 row 37 逐字記這個坑)。
+//    所以每條負向都刻意只讓「補 0」那種寫法失敗,正向則釘死公式與原欄透傳。
+
+/** 明細 row fixture:只填本組測試會讀到的欄,其餘給最小合法值。 */
+function detailRow(
+  summary?: SupabaseAdminOrderDetailRow['order_items'][number]['order_item_quantity_summary'],
+): SupabaseAdminOrderDetailRow {
+  return {
+    id: 'o1',
+    display_id: 'PCM-2099-0001',
+    created_at: '2026-04-15T00:00:00+00:00',
+    payment_status: 'unpaid',
+    fulfillment_status: 'notOrdered',
+    order_source: 'storefront',
+    // invoice_status(database.types.ts:1268)/ payment_channel(:1273)在 schema 是 NOT NULL string
+    // ⇒ 給最小合法值;本組測試不讀這兩欄。
+    payment_channel: 'none',
+    payment_method: null,
+    paid_at: null,
+    subtotal: 1000,
+    shipping_fee: 0,
+    discount_total: 0,
+    total: 1000,
+    shipping_method: 'home',
+    shipping_address_snapshot: null,
+    invoice: null,
+    invoice_number: null,
+    invoice_amount: null,
+    invoice_status: 'pending',
+    cancelled_at: null,
+    cancelled_reason: null,
+    version: 1,
+    customers: null,
+    order_items: [
+      {
+        id: 'oi1',
+        variant_sku: 'SKU-1',
+        quantity: 5,
+        unit_price: 200,
+        line_total: 1000,
+        product_snapshot: null,
+        workflow_status: null,
+        version: 1,
+        ...(summary === undefined ? {} : { order_item_quantity_summary: summary }),
+      },
+    ],
+  };
+}
+
+describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fail-closed', () => {
+  it('🔴 內嵌鍵整個不存在(投影退版)→ null,不得補 0', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow(undefined));
+    expect(res.items[0]?.quantitySummary).toBeNull();
+  });
+
+  it('🔴🔴 空陣列(A4a 尚未建列)→ null,**不得**變成 {instock:0, cancelled:0, cancellable:quantity}', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow([]));
+    const summary = res.items[0]?.quantitySummary;
+    // 這條就是整片的核心:補 0 的寫法會讓 summary 變成物件、且 cancellable = 5(quantity)。
+    expect(summary).toBeNull();
+    // 釘死「不是那個具體的錯誤形狀」——否則日後有人回傳 0 值物件,上面那條改成 toBeFalsy 也會過。
+    expect(summary?.cancellableQuantity).toBeUndefined();
+  });
+
+  it('🔴 null(內嵌鍵存在但值為 null)→ null', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow(null));
+    expect(res.items[0]?.quantitySummary).toBeNull();
+  });
+
+  it('有列 → 四個原欄逐一透傳,cancellable = quantity − instock − cancelled', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(
+      detailRow([
+        { quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1 },
+      ]),
+    );
+    expect(res.items[0]?.quantitySummary).toEqual({
+      quantity: 5,
+      orderedQuantity: 4,
+      instockQuantity: 2,
+      cancelledQuantity: 1,
+      cancellableQuantity: 2, // 5 − 2 − 1;刻意選四個值互不相等,避免任一擺錯位置仍然過
+    });
+  });
+
+  it('🔴 已到貨 ≠ 整個品項不可取消:買 5 到貨 2 → 仍可取消 3(A8a2 :395-406 的式子)', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(
+      detailRow([
+        { quantity: 5, ordered_quantity: 5, instock_quantity: 2, cancelled_quantity: 0 },
+      ]),
+    );
+    expect(res.items[0]?.quantitySummary?.cancellableQuantity).toBe(3);
+  });
+
+  it('全數到貨 → 可取消 0(邊界,非負)', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(
+      detailRow([
+        { quantity: 5, ordered_quantity: 5, instock_quantity: 5, cancelled_quantity: 0 },
+      ]),
+    );
+    expect(res.items[0]?.quantitySummary?.cancellableQuantity).toBe(0);
+  });
+
+  // 🔴🔴 關卡2 MF2 推翻本測試的前一版:前一版斷言「資料壞掉 → 夾成 cancellable 0」,
+  //    等於把**偽裝**寫成規格 —— 「可取消 0」在畫面上與「全部到貨、本來就不能取消」長得一模一樣,
+  //    員工永遠不會知道資料壞了。正解 = 走與「讀不到」同一個 fail-closed 出口。
+  it('🔴 C7 不變式被違反(instock+cancelled > quantity)→ null,**不得**夾成看起來正常的「可取消 0」', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(
+      detailRow([
+        { quantity: 5, ordered_quantity: 5, instock_quantity: 4, cancelled_quantity: 3 },
+      ]),
+    );
+    expect(res.items[0]?.quantitySummary).toBeNull();
+    // 釘死「不是那個具體的錯誤形狀」:夾成 0 的舊寫法會讓下面這條拿到 0 而不是 undefined。
+    expect(res.items[0]?.quantitySummary?.cancellableQuantity).toBeUndefined();
+  });
+
+  // 🔴 關卡2 MF1:adapter 端是 `as unknown as` 強轉,型別層擋不住畸形內嵌 ——
+  //    `{}` / 缺欄 / 非數 會讓 row truthy 卻算出 NaN,NaN 進表單 max 屬性 = 行為未定義。
+  /** 刻意繞過型別層餵畸形內嵌 —— adapter 端是 `as unknown as`,runtime 真的到得了這裡。 */
+  const malformed = (v: unknown) => v as SupabaseOrderItemQuantitySummaryRow;
+
+  it('🔴 空物件 {} → null(不得回帶 NaN 的物件)', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow(malformed({})));
+    expect(res.items[0]?.quantitySummary).toBeNull();
+  });
+
+  it('🔴 缺欄的單物件 → null', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(detailRow(malformed({ quantity: 5 })));
+    expect(res.items[0]?.quantitySummary).toBeNull();
+  });
+
+  // 🔴🔴 這條刻意打 `ordered_quantity` 而不是 instock/cancelled —— 施工當場的教訓:
+  //    我原本餵 `instock_quantity: '2'`,突變測試顯示它**不會**紅,因為 C7 那道
+  //    (`'2' + 1 = '21' > 5`,字串串接後再比)會先把它擋掉 ⇒ 那條負測量到的是 C7、不是四欄驗證,
+  //    等於沒有獨立判別力(memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
+  //    `ordered_quantity` 既不進 C7 也不進可取消量公式 ⇒ 只有四欄驗證攔得住它。
+  it('🔴 四欄齊全但 ordered_quantity 非數 → null(只有四欄驗證攔得住,C7 碰不到這欄)', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(
+      detailRow(
+        malformed({
+          quantity: 5,
+          ordered_quantity: 'abc',
+          instock_quantity: 2,
+          cancelled_quantity: 1,
+        }),
+      ),
+    );
+    expect(res.items[0]?.quantitySummary).toBeNull();
+  });
+
+  it('🔴 單物件(非陣列)且四欄齊全 → 正常解析(不賭 PostgREST 回哪種形狀)', () => {
+    const res = mapSupabaseAdminOrderDetailRowToDetail(
+      detailRow({ quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1 }),
+    );
+    expect(res.items[0]?.quantitySummary).toEqual({
+      quantity: 5,
+      orderedQuantity: 4,
+      instockQuantity: 2,
+      cancelledQuantity: 1,
+      cancellableQuantity: 2,
     });
   });
 });

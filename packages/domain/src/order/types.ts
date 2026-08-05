@@ -471,6 +471,73 @@ export type AdminOrderDetailItem = {
    * (三軸數量的權威是 `order_item_quantity_summary`、由 A4a trigger 維護,**不是**把本清單加總)。
    */
   procurementTruncated: boolean;
+  /**
+   * 本品項的三軸數量摘要(M-4b E10 A9g-1;上一行講的那個「權威」就是它)。
+   *
+   * 🔴🔴 **`null` 的意思是「不知道」,不是「都是 0」** —— 這是本欄最容易被寫壞的地方。
+   * `order_item_quantity_summary` 由 A4a trigger **惰性建立**:品項從未被採購也從未被取消時
+   * **根本沒有那一列**。呼叫端若寫 `summary?.instockQuantity ?? 0`,就是把「不知道」翻成
+   * 「到貨 0」,而那正好會讓可取消量被算大 ⇒ 畫面允許取消超量、送出必被 RPC 拒。
+   * (母 plan `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md:384` row 37 逐字記這個坑:
+   *  摘要列缺失時 `COALESCE` 成 0 會放行超量取消。)
+   *
+   * ⇒ 契約:**`null` 時一律 fail-closed** —— 顯示「數量資料尚未就緒」並停用該品項的取消,
+   *   不得自行補 0。A8a2 RPC 對「**已到貨或已取消非零**、卻沒有摘要列」RAISE
+   *   (`supabase/migrations/20260805100000_m4b_e10_a8a2_partial_cancel.sql:377-387`);
+   *   ⚠️ 措辭要準(關卡2 nit):那個閘**不含**「只有採購配置(allocated)但尚未到貨」的情況 ——
+   *   它只數 receipts 與 cancellation_items 兩個和。呼叫端仍與它保持同一立場:讀不到就不放行。
+   *
+   * 🔴🔴 **與 A1 建表 COMMENT 的字面衝突,先看這裡再動手**(A9g-1 實查):
+   *   A1(`20260730150000`)的表 COMMENT 與 `order_item_quantity_summary_item_fk` 約束 COMMENT
+   *   逐字寫「無列 = 三個 0,讀取端**必須** LEFT JOIN + COALESCE(…, 0)」,而且**點名 A9c/A11a-c**。
+   *   那是 2026-07-30 的字面,已被 2026-07-31 的 master plan `:384` row 37 部分推翻
+   *   (R3 抓:摘要列缺失時 COALESCE 成 0 會**放行超量取消**)。
+   *   正確口徑是**分用途**(memory `feedback_guard-reads-non-authoritative-cache` 逐字「COALESCE 只准顯示用」):
+   *   - **純顯示**(列表上顯示「已到貨幾件」):補 0 可接受,最壞只是少顯示一點資訊。
+   *   - **任何守門/上限/可否取消的判斷**:**絕不可**補 0,必須 fail-closed。本欄屬後者。
+   *   ⇒ 開 A9c(列表投影加三軸欄)的人:照 A1 字面補 0 只在列表顯示成立,**不要**把同一個
+   *     `?? 0` 帶進取消流程的任何判斷。
+   */
+  quantitySummary: AdminOrderItemQuantitySummary | null;
+};
+
+/**
+ * 品項三軸數量摘要(M-4b E10 A9g-1)——**衍生快取** `order_item_quantity_summary`
+ * (建表 `supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql:79`;
+ * `order_item_id` 為 PRIMARY KEY、值由 A4a trigger 重算並由 CHECK 釘死)。
+ *
+ * 🔴 **不是「真相表」**(關卡2 MF4 更正):A1 表 COMMENT `:141` 逐字「衍生值,非真相 ——
+ * 真相在 A2 採購表與 A7 取消明細」。A8a2 的可取消量守門是**從真相明細重算**
+ * (`20260805100000:395-406`),只驗本表在不在場、不讀它的值。
+ * ⇒ 本型別的用途是**顯示與輸入上限**,不是任何權限或可否取消的判斷依據。
+ */
+export type AdminOrderItemQuantitySummary = {
+  /** 客人買的數量(去正規化欄,由複合 FK 物理保證等於 `order_items.quantity`) */
+  quantity: number;
+  /** 已向供應商訂的數量 */
+  orderedQuantity: number;
+  /** 已到貨數量 */
+  instockQuantity: number;
+  /** 已取消數量(歷次累計) */
+  cancelledQuantity: number;
+  /**
+   * 尚可取消量 = `quantity − instock − cancelled`。
+   *
+   * 🔴 公式逐字對齊 A8a2 的可取消量守門(`20260805100000:395-406`);集中算一次是為了避免
+   * 每個顯示端各算一遍、各錯一種。**但權威永遠是 RPC**:本值取自惰性快取,且讀取與送出之間
+   * 單子可能已被別人動過 ⇒ 只可當輸入上限與顯示用,**不可用來宣稱「一定取消得掉」**。
+   *
+   * 🔴 **`shipped_quantity` 契約債**(母 plan `:384` row 37 立,對本欄有約束力):第 2 批建包裹模型時
+   * 要在**同一片**把本式改成 `quantity − instock − cancelled − shipped`。現況 `shipped` 欄不存在
+   * ⇒ 完整式**退化**,不是不需要。
+   *
+   * 🔴🔴 **A13a 必讀:`cancellableQuantity > 0` 不等於「這張單可以取消」**。
+   * 它只回答「**這個品項**還有幾件在數量上可取消」,完全不含 A8a2 的**單層**閘:
+   * `payment_status <> 'unpaid'`、或存在任何非 `failed` 的 `payment_charge_attempts`
+   * ⇒ 整張單一律拒(`20260805100000:360-364`)。
+   * 畫面的可否取消要**兩層都看**,只看本欄會做出「按鈕亮著、按下去必失敗」的 UI。
+   */
+  cancellableQuantity: number;
 };
 
 /**

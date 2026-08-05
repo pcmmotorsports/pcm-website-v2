@@ -6,6 +6,7 @@ import type {
   OrderInvoice,
   AdminOrderDetail,
   AdminOrderDetailItem,
+  AdminOrderItemQuantitySummary,
   AdminOrderLine,
   AdminOrderSummary,
   OrderItemVehicleSnapshot,
@@ -329,6 +330,19 @@ export const ORDER_ITEMS_EMBED_LIMIT = 200;
  * 只取 `ADMIN_ORDER_DETAIL_SELECT` 投影欄。🔴 PII 欄(shipping_address_snapshot / invoice /
  * customers email·phone)只在明細投影;仍零成本欄、零 tappay_rec_trade_id。
  */
+/**
+ * 三軸數量摘要內嵌 row(M-4b E10 A9g-1)——欄位對齊 `ADMIN_ORDER_DETAIL_SELECT` 內嵌的四欄。
+ *
+ * 🔴 **derive 自生成 Row**(關卡2 MF3 更正):我原本手寫四個 `number`,理由寫成
+ * 「derive 會多帶投影裡沒有的 `order_item_id`」—— 那個理由是**錯的**,`Pick` 本來就只挑指定欄。
+ * 手寫的真正代價是:生成型別哪天把某欄改成 nullable 或換型別,這裡**不會有任何地方轉紅**。
+ * 用 `Pick` 就與 `SupabaseOrderListRow` / `SupabaseAdminOrderDetailRow` 的既有慣例一致。
+ */
+export type SupabaseOrderItemQuantitySummaryRow = Pick<
+  Database['public']['Tables']['order_item_quantity_summary']['Row'],
+  'quantity' | 'ordered_quantity' | 'instock_quantity' | 'cancelled_quantity'
+>;
+
 export type SupabaseAdminOrderDetailRow = Pick<
   Database['public']['Tables']['orders']['Row'],
   | 'id'
@@ -373,6 +387,20 @@ export type SupabaseAdminOrderDetailRow = Pick<
      * 🔴 optional + nullable 的理由同 `order_notes`:投影退版或舊 row 會整個沒有這個鍵。
      */
     order_item_procurement?: SupabaseOrderItemProcurementRow[] | null;
+    /**
+     * M-4b E10 A9g-1:三軸數量摘要內嵌。
+     * 🔴 **陣列或單物件都收**:generated types 的 `isOneToOne: false`(FK 為複合鍵
+     * `(order_item_id, quantity)`,而 `order_item_id` 單獨是 PK)指向 to-many = 陣列,
+     * 但那是規則推導、**不是實測到的 wire 回應** ⇒ 不賭邊(理由詳 `mapQuantitySummary` docstring)。
+     * 🔴 optional + nullable 理由同上面兩個內嵌:投影退版會整個沒有這個鍵。
+     * 🔴 **空陣列與缺鍵在這裡是同一件事**(都代表「讀不到摘要」)——
+     * 與 `order_item_procurement` 不同,那邊空陣列是「真的沒訂過貨」的**事實**;
+     * 這邊 A4a 惰性建列,沒有列只代表**不知道**,不能翻成 0。
+     */
+    order_item_quantity_summary?:
+      | SupabaseOrderItemQuantitySummaryRow[]
+      | SupabaseOrderItemQuantitySummaryRow
+      | null;
   }[];
   /**
    * M-4b E10 A9a-1:備註/聯絡紀錄內嵌列(順序不保證、筆數被請求端上限夾住 → 兩者都在 mapper 處理)。
@@ -381,6 +409,67 @@ export type SupabaseAdminOrderDetailRow = Pick<
    */
   order_notes?: SupabaseOrderNoteRow[] | null;
 };
+
+/**
+ * 三軸數量摘要內嵌(0/1 筆陣列)→ domain(M-4b E10 A9g-1)。
+ *
+ * 🔴🔴 **缺列一律回 `null`,絕不補 0** —— 本函式存在的唯一理由就是守住這件事。
+ * `order_item_quantity_summary` 由 A4a trigger 惰性建立,沒被採購也沒被取消過的品項沒有那一列。
+ * 把缺列當成「到貨 0、取消 0」會讓 `cancellableQuantity` 被算成 `quantity`(算大)
+ * ⇒ 畫面放行超量取消、送出必被 A8a2 拒(母 plan `:384` row 37 逐字記這個坑)。
+ * 缺列時下游看到 `null`,契約是 fail-closed(停用該品項的取消),不是自己補值。
+ *
+ * 🔴 **四欄逐一驗過才算讀到**(關卡2 MF1):`{}` 或缺欄的單物件會讓 `row` truthy 卻算出 `NaN`,
+ * 而 adapter 的 `as unknown as` 強轉讓型別層完全擋不住這條路。⇒ 任一欄不是有限數 = **當作沒讀到**,
+ * 回 `null` 走 fail-closed;不回一個帶 `NaN` 的物件(`NaN` 進表單 max 屬性 = 行為未定義)。
+ *
+ * 🔴🔴 **不變式被違反時也回 `null`,不夾成 0**(關卡2 MF2 推翻本函式的前一版):
+ * C7 `oiqs_instock_cancelled_le_quantity`(A1 `20260730150000:123-124`)保證
+ * `instock + cancelled <= quantity`。前一版用 `Math.max(0, …)` 把違規資料夾成「可取消 0」——
+ * 那**不是防禦,是偽裝**:「可取消 0」在畫面上與「全部到貨了、本來就不能取消」**長得一模一樣**,
+ * 員工永遠不會知道這筆資料壞了。而且我還寫了一條測試把這個行為鎖成規格,等於把偽裝寫進契約。
+ * ⇒ 改成:違反 C7 = 資料已損壞 = **回 `null`**(與「讀不到」同一個 fail-closed 出口,
+ *   下游顯示「數量資料尚未就緒」並停用取消)。與 memory `feedback_guard-reads-non-authoritative-cache`
+ *   同一條精神:不可以把「不知道」或「壞掉」翻譯成一個看起來正常的數字。
+ *
+ * 🔴 **同時吃物件與陣列是刻意的**(R1 I-1):原本只宣告陣列,依據是 generated types 的
+ * `isOneToOne: false`、postgres-meta 的 O2O 判定規則、`postgrest-js` 依該旗標決定回傳形狀 ——
+ * 但這三者是**同一條規則的三個回音**,不是「觀察到的 wire 回應」;而本 repo 對內嵌形狀立過
+ * 「實測過才寫死」的標準(見 `SupabaseOrderAdapter.ts` 兩層深路徑那段 docstring 的 production 實測)。
+ * 在沒真打一次 PostgREST 之前不賭邊:若它其實回物件,只認陣列的寫法會**靜默回 `null`**
+ * = 功能全死而測試全綠(最壞的失敗形狀)。兩種形狀都吃,fail-closed 語意不變。
+ */
+function mapQuantitySummary(
+  rows:
+    | SupabaseOrderItemQuantitySummaryRow[]
+    | SupabaseOrderItemQuantitySummaryRow
+    | null
+    | undefined,
+): AdminOrderItemQuantitySummary | null {
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row) return null; // 🔴 缺鍵/空陣列/null = 不知道。不是 0。
+
+  const { quantity, ordered_quantity, instock_quantity, cancelled_quantity } = row;
+  // 🔴 MF1:四欄逐一驗;`{}` / 缺欄 / 非數 一律當作沒讀到(型別層擋不住,見 docstring)。
+  if (
+    !Number.isFinite(quantity) ||
+    !Number.isFinite(ordered_quantity) ||
+    !Number.isFinite(instock_quantity) ||
+    !Number.isFinite(cancelled_quantity)
+  ) {
+    return null;
+  }
+  // 🔴 MF2:C7 不變式被違反 = 資料已損壞,走同一個 fail-closed 出口,**不夾成 0 假裝正常**。
+  if (instock_quantity + cancelled_quantity > quantity) return null;
+
+  return {
+    quantity,
+    orderedQuantity: ordered_quantity,
+    instockQuantity: instock_quantity,
+    cancelledQuantity: cancelled_quantity,
+    cancellableQuantity: quantity - instock_quantity - cancelled_quantity,
+  };
+}
 
 /** jsonb 防禦取 string 欄:非物件/非字串/空字串 → null(DB 腐壞不炸頁、誠實顯示缺)。 */
 function pickString(obj: unknown, key: string): string | null {
@@ -480,6 +569,7 @@ export function mapSupabaseAdminOrderDetailRowToDetail(
         version: item.version, // per-item 改狀態表單樂觀鎖
         procurements: procurementProjection.procurements,
         procurementTruncated: procurementProjection.procurementTruncated,
+        quantitySummary: mapQuantitySummary(item.order_item_quantity_summary),
       };
     }),
     notes: notesProjection.notes,
