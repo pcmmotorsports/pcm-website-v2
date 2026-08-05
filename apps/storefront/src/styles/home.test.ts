@@ -460,6 +460,98 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     });
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 D5g 捲動進場。這一組守的是**「動畫壞掉時內容還看不看得見」**,不是好不好看。
+  //    起始隱藏一律掛在 `.js-reveal` 底下 —— 少了那個前綴,五個區塊會在**所有**情況下
+  //    永久 `opacity:0`(JS 沒跑到也一樣),而元件測試全綠、內容也還在 DOM 裡。
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 D5g 捲動進場(起始隱藏必須掛在 .js-reveal 底下)', () => {
+    it('🔴 隱藏規則一定帶 `.js-reveal` 前綴(裸選擇器 = JS 沒跑到就整頁空白)', () => {
+      const css = topLevelCss();
+      // 找出所有「把 data-reveal 或 N°05 兩欄設成 opacity:0」的規則,逐條檢查前綴。
+      const hiding = [...css.matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .map((m) => m[1]!.trim().replace(/\s+/g, ' '))
+        .filter((sel) => /data-reveal|ed-feature-side|ed-feature-media/.test(sel));
+      expect(hiding.length, '找不到任何起始隱藏規則 ⇒ 下面的迴圈是空跑').toBeGreaterThanOrEqual(2);
+      for (const sel of hiding) {
+        expect(
+          sel.includes('.js-reveal'),
+          `「${sel}」沒有 .js-reveal 前綴 ⇒ JS 掛掉 / 不支援 IO / 開了減少動效時,`
+            + '這些區塊會永久隱形,而所有測試照樣綠。',
+        ).toBe(true);
+      }
+    });
+
+    // 🔴 R1 找到的第九種假綠:給起始隱藏那兩個屬性加上 `!important`,
+    //    `vitest` **34/34 全綠**,但真瀏覽器實測 `is-in` 加上了、`opacity` 仍卡在 0
+    //    —— 因為 `.is-in` 那條沒有 `!important`,永遠贏不了同選擇器的 `!important`。
+    //    ⇒ 五個區塊永久看不到內容。文字層守門對 cascade 勝負是盲的,這條把它釘住。
+    it('🔴 起始隱藏規則不得帶 !important(reveal 那條沒有,帶了就永遠贏不回來)', () => {
+      const hiding = [...topLevelCss().matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .filter((m) => /data-reveal|ed-feature-side|ed-feature-media/.test(m[1]!));
+      expect(hiding.length, '找不到起始隱藏規則 ⇒ 這條是空跑').toBeGreaterThanOrEqual(2);
+      for (const m of hiding) {
+        expect(
+          /!important/.test(m[2]!),
+          `「${m[1]!.trim()}」的起始隱藏帶了 !important ⇒ .is-in 那條(無 !important)`
+            + '永遠蓋不過去,區塊會永久看不見,而所有文字層守門照樣綠。',
+        ).toBe(false);
+      }
+    });
+
+    // 🔴 R2 F2:藏是全域、掀是逐個 ⇒ 晚到 DOM 的元素永久隱形。修法是 CSS 只藏「已上膛」的,
+    //    這條把那個修法釘住 —— 拿掉屬性選擇器就退回全域藏光的舊行為。
+    it('🔴 起始隱藏只作用於已上膛(data-reveal-armed)的元素,不是全域藏光', () => {
+      const hiding = [...topLevelCss().matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .map((m) => m[1]!.trim().replace(/\s+/g, ' '))
+        .filter((sel) => /data-reveal|ed-feature-side|ed-feature-media/.test(sel));
+      expect(hiding.length, '找不到起始隱藏規則 ⇒ 這條是空跑').toBeGreaterThanOrEqual(2);
+      for (const sel of hiding) {
+        expect(
+          sel.includes('[data-reveal-armed]'),
+          `「${sel}」沒有限定已上膛的元素 ⇒ mount 之後才進 DOM 的區塊會被藏住,`
+            + '而沒有人會來掀它(observer 只認 mount 當下的快照)= 永久 opacity:0。',
+        ).toBe(true);
+      }
+    });
+
+    it('🔴 幅度與時長是設計稿的值(34px / 0.7s;調小到看不見等於沒做)', () => {
+      const css = topLevelCss();
+      expect(css, '位移幅度不是 34px').toMatch(/\.js-reveal \[data-reveal\][^{]*\{[^}]*translateY\(34px\)/);
+      expect(css, '進場時長不是 0.7s').toMatch(/\.js-reveal \[data-reveal\][^{]*\.is-in\s*\{[^}]*0\.7s/);
+      // 曲線沿用本頁既有那條,不新增第二條。
+      expect(css, '進場曲線不是設計稿那條').toMatch(/cubic-bezier\(0\.2, 0\.8, 0\.2, 1\)/);
+    });
+
+    it('🔴 N°05 照片比文字晚 140ms(兩欄分開進場,不是整塊一起淡入)', () => {
+      const css = topLevelCss();
+      expect(css, 'N°05 媒體欄少了 140ms 延遲 ⇒ 兩欄同時進場、錯開就沒意義了').toMatch(
+        /\.js-reveal \.ed-feature[^{]*\.is-in \.ed-feature-media\s*\{[^}]*transition-delay:\s*0\.14s/,
+      );
+    });
+
+    it('🔴 Hero 不掛進場(它在首屏,載入當下就該可讀)', () => {
+      // `.ed-hero` 不得出現在任何起始隱藏規則裡。
+      const hiding = [...topLevelCss().matchAll(/([^{}]*)\{([^}]*opacity:\s*0[^}]*)\}/g)]
+        .map((m) => m[1]!.trim())
+        .filter((sel) => sel.includes('.js-reveal'));
+      // 🔴 前提斷言(R2 nit):`hiding` 為空時下面的迴圈是空跑、恆綠 ——
+      //    而「把起始隱藏整組搬進某個 @media」正好會讓它變空(`topLevelCss()` 掃不到)。
+      expect(hiding.length, '找不到任何起始隱藏規則 ⇒ 下面的迴圈是空跑').toBeGreaterThanOrEqual(2);
+      for (const sel of hiding) {
+        expect(sel.includes('ed-hero'), `Hero 被掛上進場了(${sel})⇒ 首屏延遲可讀`).toBe(false);
+      }
+    });
+
+    it('🔴 減少動效那道雙保險還在(位移是生理不適,不是喜好)', () => {
+      const reduce = mediaBlock('(prefers-reduced-motion: reduce)');
+      expect(reduce, '找不到 prefers-reduced-motion 區塊').not.toBe('');
+      expect(reduce, '減少動效沒有把起始隱藏解除').toMatch(/opacity:\s*1\s*!important/);
+      expect(reduce, '減少動效沒有把位移歸零').toMatch(/transform:\s*none\s*!important/);
+      expect(reduce, '減少動效那組沒有涵蓋 data-reveal').toMatch(/\[data-reveal\]/);
+    });
+  });
+
   // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
   //    這條擋的是「順手把三塊深色一起改掉」——那會讓 D7 變成沒東西可做、而且跳過 D7 自己的驗收。
   it('🔴 頁尾仍是重排前的 #0a0a0a(回石墨是 D7 的事,D5a 不得順手改)', () => {

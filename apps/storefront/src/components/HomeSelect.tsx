@@ -37,7 +37,7 @@ export function HomeSelect({ featured }: HomeSelectProps) {
   const isEmpty = !isError && featured.products.length === 0;
 
   return (
-    <section className="ed-select">
+    <section data-reveal className="ed-select">
       <div className="ed-section-head">
         <div className="ed-section-label">
           <span className="ed-mono">N°02</span>
