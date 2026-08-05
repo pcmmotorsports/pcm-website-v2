@@ -1,5 +1,31 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🪟 **2026-08-05 午前:第二輪換窗 checkpoint(主視窗寫;壓縮後先讀本節)。**
+>
+> **現況一句話**:今日已收割入 dev 並推(`origin/dev`=`09a621c`):**取消線 4/4**(⛔兩支
+> `20260804180000→20260805100000` 同批待 Sean `supabase db push`,前置七項主視窗已預跑全綠,
+> 跑完主視窗 read-back=新函式 md5 `e3f4cbcf…`/COMMENT `6395ffc5…`/pronargs=6/lock_timeout=5s)、
+> **A-engine 選車統一 9 筆**、**D5 計畫+D5a 首頁重排**。全套 **351 檔 4732 綠+1 todo**。
+>
+> **Sean 八題已拍(08-05 上午,全落 memory `project_home-redesign-wire-decisions`)**:
+> Q1=B 不報家數/Q2=A brands-trim/Q3=C 先實測分類數再回題/Q4=A 聚焦完整做(20 家文案=Sean 拿
+> 提示詞去 Open Design 生;C 窗先做輪播殼)/Q5=撤案(D5b 取消)/Q6=A placeholder 弱化色/
+> Q9=B(#324 排程)/Q10=A(錢面片維持單片)。
+>
+> **在途**:C 窗派工=C-84-A(施工序:Q6 輕量片→D5d→D5f→D5c 實測回報→D5e-1;D5c 實測結果
+> 回來要轉 Sean 選 12/8 格);A 窗任務清空(apply 完成後下一片=取消後台 UI 接線,屆時開新窗)。
+> 信箱編號現況:A→19、C→85。
+>
+> **哨兵重 arm(新主視窗必做)**:①分支 ref ②信箱**單座**+每次收割前後全量 `ls` 對編號序
+> (雙座共用 seen 檔會吞信=已實錘兩次)③看門狗(停放檔 /tmp/pcm-parked-{A,B};C 已解除停放)。
+> 施工窗收工必掛輪詢等回信;主視窗發信後 90 分無反應→先查對方有無輪詢再請 Sean 戳窗。
+>
+> **收割工法不變**(押住等 STOP→R1 FAIL 必有確認輪(紀錄面=主視窗窄確認、行為面=fresh reviewer、
+> 第 3 輪換 Fable)→merge --no-ff→tc+lint --force+全套精確調和留檔→錢面拋棄庫重跑→STATUS 收帳
+> →push 持續授權);reviewer gate 標記協定見 `.husky/reviewer-gate.sh` 檔頭;收割代修小字面有
+> `25303e5` 前例;主視窗自己動 code 檔要先寫 gate 標記。
+
+
 > 🪟 **2026-08-05 凌晨:換窗 checkpoint(主視窗寫;新主視窗先讀本節,舊節按需)。**
 >
 > **現況一句話**:**D3 路由接線全結**(D3a→D3c-5 七片全收割入 dev、已推 `c920f69`)、**取消線 3/4**
