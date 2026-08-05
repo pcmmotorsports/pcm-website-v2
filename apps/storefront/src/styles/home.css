@@ -820,15 +820,26 @@
 .ed-finder-slot .vsc-input--finder:disabled {
   color: var(--ed-c-ink-mute);
   cursor: not-allowed;
-  /* 蓋掉站台層 .vsc-input:disabled 的 0.55(僅變 color/cursor、chevron 維持 ink)。
-     🔴 字面更正(Q6 R1 nit):原註解寫「對齊 design」,但 OD 兩份稿都不支持這個 1 ——
-     `vehicle-picker-design.html:128` 是 `:disabled { opacity: .45 }`;direction-b 的 dock 用
-     `<select>` 沒有 disabled 態,全檔唯一的 `:disabled` 是 `.b-select-arrow:disabled`
-     輪播箭頭 `opacity: .35`(direction-b 那份稿仍在被改、不引行號;vehicle-picker-design
-     那份自 08-03 起未動,行號仍有效)。
-     ⇒ 兩份稿都用**降透明度**表示停用,這個 1 是本 repo 的自訂、不是 design 搬來的。
-     Q6 把 placeholder 也轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差 —— 見 commit body。 */
-  opacity: 1;
+  /* 🔴 Q5(Sean 拍板 A,2026-08-05):**照設計稿壓淡** —— 這次是真的對齊了。
+     沿革(三段,不要再繞回去):
+       ① 這裡原本寫 `opacity: 1`,註解宣稱「對齊 design」—— **那句是假的**,
+          OD 兩份稿都不支持:`vehicle-picker-design.html:128` 是 `:disabled { opacity: .45 }`,
+          direction-b 的 dock 用 `<select>` 沒有 disabled 態、全檔唯一的 `:disabled`
+          是 `.b-select-arrow:disabled` 輪播箭頭 `opacity: .35`。兩份稿**都用降透明度**表示停用。
+       ② Q6 把 placeholder 由純黑轉成 ink-mute 之後,「啟用但還沒選」與「停用」
+          變成**只剩滑鼠 cursor 有差**(placeholder 同色、opacity 同為 1、chevron 同為黑)
+          ⇒ 停用的 affordance 等於沒了。這是 Q6 揭示、Sean 據以拍板的那條副作用。
+       ③ 現在取設計稿的 `.45`(不是站台層 `.vsc-input:disabled` 的 0.55)。
+     ⚠️ 連帶:整個 input 變半透明 ⇒ **chevron 與 placeholder 也跟著淡**,不再「維持 ink」。
+     🔴 **這一點設計稿查無支持,是本 repo 的推論**(R1 抓到我又寫了一次「未經支持的外推」——
+        與本片正在修的那句世仇同族):OD picker 那顆 disabled input **根本沒有 chevron**,
+        direction-b 那顆帶 chevron 的 `.ed-finder-slot select` **沒有 disabled 態**
+        ⇒ 「整格 .45」屬實,「設計稿就長這樣」**沒有來源**。留這個行為是因為
+        「整個控制項一起淡」本來就是 disabled 的通用語彙,不是因為稿上有。
+     ⚠️ 對比代價已量:`#71717a` @0.45 疊白底 ≈ `rgb(191,191,195)`,對白底 ≈ **1.83:1**
+        (改前 4.83:1)。WCAG 對停用控制項無強制要求,但停用欄的 placeholder
+        (「請先選擇車型」)是**有資訊量**的字 ⇒ **列 Sean 肉眼驗**。 */
+  opacity: 0.45;
 }
 .ed-finder-slot .vsc-input--finder:disabled::placeholder { color: var(--ed-c-ink-mute); }
 /* V-2d④:首頁 finder 輸入框手機 ≥16px 防 iOS 聚焦縮放(<16px 聚焦即 zoom+pan)。

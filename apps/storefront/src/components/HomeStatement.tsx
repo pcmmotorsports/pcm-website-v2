@@ -1,4 +1,7 @@
-// HomeStatement.tsx — 字面從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
+// HomeStatement.tsx — 版型從 design-reference/components/HomePage.jsx @ 25d3a2a 直接搬
+// ⚠️ **文案已不是「直接搬」**(R1 nit,2026-08-05 更正):三格裡有兩格經 Sean 拍板偏離 design
+//    (第 01 格不報品牌家數 + 永久拿掉保固卡那句、第 02 格不報店家家數)。
+//    登記在 `docs/design-storefront-manifest.yaml` 的 `HomeStatement.business_overrides`。
 // (N°04 · Service · 黑色 slab、原廠授權 / 合作店家安裝 / 終身技術諮詢 三 col)
 //
 // M-1-04 刀 1b1:'use client' → server component + onNav stub → <Link href>(對齊 backlog #116 + recon §7 候選刀 2)
@@ -32,12 +35,15 @@ export function HomeStatement() {
                 `HomeStatement.business_overrides.brandCountClaimRemoved`,**那裡是唯一權威**。
                 ⚠️ 不要在這裡再抄一份:R2 F10 逐字指出兩份敘述會各自漂移(這一版的 OD 行號
                 就是那樣過期的)。守門在 `HomeStatement.test.tsx`。 */}
-            <p>原廠正式代理。每件商品附原廠序號與保固卡,杜絕仿品風險。</p>
+            <p>全站皆為原廠正品,部分品牌正式代理、部分平行輸入,杜絕仿品風險。</p>
           </div>
           <div className="ed-statement-col">
             <div className="ed-mono ed-statement-col-num">02</div>
             <h3>合作店家安裝</h3>
-            <p>全台 9 家合作店家,線上預約、到店直裝。特殊安裝 PCM 工程師親自到府。</p>
+            {/* 🔴 Q4(Sean 拍板 C,2026-08-05):原寫「全台 **9 家** 合作店家」——
+                與第 01 格拿掉的「N 大品牌」是同一族的對外事實宣稱,且同樣查不到來源
+                ⇒ 一併拿掉數字。這也讓頁面層守門的**最後一個豁免消失、變成全面掃描**。 */}
+            <p>全台合作店家,線上預約、到店直裝。特殊安裝 PCM 工程師親自到府。</p>
           </div>
           <div className="ed-statement-col">
             <div className="ed-mono ed-statement-col-num">03</div>

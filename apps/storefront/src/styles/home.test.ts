@@ -296,6 +296,33 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     expect(CSS, '--ed-c-ink-mute 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-ink-mute:\s*#[0-9a-f]{3,8}/i);
   });
 
+  // ── Q5:finder 停用態壓淡(Sean 拍板 A,2026-08-05) ──
+  // 🔴 這條守的是一個**來回過兩次**的值,所以要釘死:
+  //    ① 原本 `opacity: 1`,註解宣稱「對齊 design」——**那句是假的**,兩份 OD 稿都用降透明度。
+  //    ② Q6 把 placeholder 轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差
+  //       ⇒ 停用的 affordance 等於沒了(那是 Q6 揭示、Sean 據以拍板的副作用)。
+  //    ③ 現在取設計稿 `vehicle-picker-design.html:128` 的 `.45`
+  //      (**不是**站台層 `.vsc-input:disabled` 的 `0.55`,也不是回到 `1`)。
+  //    ⇒ 只要有人把它改回 1 或改成 0.55,這條就紅。
+  it('🔴 finder 停用態 opacity = 0.45(設計稿值;不得回到 1、也不是站台層的 0.55)', () => {
+    const rules = [
+      ...topLevelCss().matchAll(
+        /([^{}]*vsc-input--finder:disabled[^{}]*)\{([^}]*)\}/g,
+      ),
+    ].map((m) => ({ selector: m[1]!.trim().replace(/\s+/g, ' '), body: m[2]! }));
+    // 2 條 = 本體 + `::placeholder`。多出第三條 ⇒ 有人加了覆寫,要回來看它是不是把值改回去。
+    // ⚠️ 邊界(R1 nit):`topLevelCss()` 已剝掉所有 `@media` 區塊 ⇒ 這條對**斷點內的覆寫全盲**
+    //    (有人在 `@media` 裡把 opacity 改回 1,這裡照樣綠)。本檔 `:53-57` 記過這個洞的反向。
+    expect(rules.map((r) => r.selector), 'finder 停用態規則不是預期的兩條').toHaveLength(2);
+    const main = rules.find((r) => !r.selector.includes('::placeholder'));
+    expect(main, '找不到 :disabled 本體規則').toBeDefined();
+    expect(main!.body, '停用態沒有壓淡').toMatch(/opacity:\s*0?\.45/);
+    // 🔴 負向兩條各自承重:`1` 是「回到看不出停用」那個舊值,`0.55` 是站台層預設
+    //    —— 兩個都是「有人以為在修 bug」時最可能填進去的值。
+    expect(main!.body, '停用態被改回 opacity:1 ⇒ 又看不出停用了').not.toMatch(/opacity:\s*1\s*[;}]/);
+    expect(main!.body, '停用態退回站台層的 0.55 ⇒ 不是設計稿的值').not.toMatch(/opacity:\s*0?\.55/);
+  });
+
   // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
   //    這條擋的是「順手把三塊深色一起改掉」——那會讓 D7 變成沒東西可做、而且跳過 D7 自己的驗收。
   it('🔴 頁尾仍是重排前的 #0a0a0a(回石墨是 D7 的事,D5a 不得順手改)', () => {
