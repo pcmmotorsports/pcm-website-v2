@@ -13,7 +13,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a2b1-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 AURL="${URL}?application_name=a2b2_sess_a"
 BURL="${URL}?application_name=a2b2_sess_b"
 FNSIG="public.pcm_a2b1_procurement_allocation_guard()"

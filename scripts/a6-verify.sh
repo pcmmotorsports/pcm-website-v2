@@ -23,7 +23,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a6-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 FNSIG="public.admin_append_order_note(uuid,text,text,text,timestamptz,uuid,text,text)"
 MIGFILE="supabase/migrations/20260802150000_m4b_e10_a6_admin_append_order_note.sql"
 PASS=0; FAIL=0; SKIP=0; MUT=0; CELL=0

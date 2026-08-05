@@ -13,7 +13,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a4a-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 A1MIG="supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql"
 A4AMIG="supabase/migrations/20260803140000_m4b_e10_a4a_quantity_summary_recompute.sql"
 PASS=0; FAIL=0

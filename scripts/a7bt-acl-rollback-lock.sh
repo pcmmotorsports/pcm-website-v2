@@ -60,12 +60,12 @@ else
   mkdir -p "$WORK"
 fi
 [ -f "$WORK/.d1t2-harness" ] || die "身分閘:$WORK 沒有 .d1t2-harness 標記,拒絕執行"
-[ "$(runsql "SELECT current_setting('port') || '|' || current_database()")" = "54329|postgres" ] \
-  || die "身分閘:連到的不是本機 54329 拋棄式 cluster,拒絕執行"
+[ "$(runsql "SELECT current_setting('port') || '|' || current_database()")" = "${PORT}|postgres" ] \
+  || die "身分閘:連到的不是本機 $PORT 拋棄式 cluster,拒絕執行"
 ok "身分閘通過"
 HOSTPORT="$(runsql "SELECT coalesce(host(inet_server_addr()), 'local') || ':' || coalesce(inet_server_port()::text, '?')")"
-[ "$HOSTPORT" = "127.0.0.1:54329" ] \
-  || die "身分閘:連線 host:port = $HOSTPORT,不是本機 54329 拋棄式 cluster"
+[ "$HOSTPORT" = "127.0.0.1:${PORT}" ] \
+  || die "身分閘:連線 host:port = $HOSTPORT,不是本機 $PORT 拋棄式 cluster"
 snapshot "$STRUCT_SQL" "$WORK/struct-before.snap" "起始結構快照"
 
 # ══════════════════════════════════════════════════════════════

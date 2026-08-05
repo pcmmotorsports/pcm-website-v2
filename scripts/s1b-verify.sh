@@ -14,7 +14,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/s1b-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 PASS=0; FAIL=0
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }

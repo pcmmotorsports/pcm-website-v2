@@ -15,7 +15,7 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a2b1-work}"
-URL="postgresql://postgres@127.0.0.1:54329/postgres"
+URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 AURL="${URL}?application_name=a2b1_sess_a"
 FNSIG="public.pcm_a2b1_procurement_allocation_guard()"
 MIGFILE="supabase/migrations/20260803130000_m4b_e10_a2b1_procurement_allocation_guard.sql"
