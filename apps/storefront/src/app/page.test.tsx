@@ -136,6 +136,33 @@ describe('首頁 · 區塊順序(D5a)', () => {
     expect(nums, `抓到的編號序列 = ${nums.join(',')}`).toEqual(['01', '02', '03', '04', '05', '06']);
   });
 
+  // 🔴 D5d R3 的盲點修正:Q1=B 的不變量是「**首頁**對外不報品牌家數」,
+  //    但我第一版把守門畫在「HomeStatement 這個元件的 textContent」上 —— 圈畫在
+  //    「看到實例的那個檔」,不是畫在「不變量成立的那個面」。兩個具體後果:
+  //    ① **attribute 全盲**:`alt` / `aria-label` / `title` 裡的家數宣稱報讀器與爬蟲都唸得到,
+  //       一樣是對外宣稱,而 `textContent` 讀不到。D5f(Q2=A 已拍、下一片)要給 BrandIndex
+  //       加 20 顆 logo `<img>`,最自然的寫法就是 `alt="20 家授權品牌"`。
+  //    ② **元件面窄於決策面**:D5e 改 FeatureEditorial、D5f 改 BrandIndex,兩片都在圈外。
+  //    ⇒ 這條掛在**整頁渲染出來的 HTML 字串**上(含 attribute),涵蓋八個 section。
+  //    元件層那條(`HomeStatement.test.tsx`)保留:它會指出是「第 01 格」壞的、訊息更精準。
+  it('🔴 整頁(含 attribute)不得出現未經查證的品牌家數宣稱(Q1=B 不報數;廣告不實風險)', async () => {
+    const html = await homeHtml();
+    // 前提斷言:HTML 真的渲染出來了,否則下面的負向斷言恆真
+    expect(html.length, '整頁沒渲染出來 ⇒ 負向斷言恆真').toBeGreaterThan(1000);
+    // 🔴 唯一豁免 = 服務宣言第 02 格那句「全台 9 家合作店家」——**不在 Sean 被問的 Q1 範圍內**、
+    //    本片刻意未動(施工端不代刪事實宣稱)。這個豁免是承重的:那句字面一改,這條就會為它紅,
+    //    屆時該做的是回頭問 Sean,**不是**把豁免字串跟著改。
+    const EXEMPT = '全台 9 家合作店家';
+    expect(html, `豁免字面「${EXEMPT}」不在了 ⇒ 第 02 格被改過,回頭確認是誰改的`).toContain(EXEMPT);
+    // 比對整份 HTML(含屬性值)。pattern 不綁「品牌」二字,所以
+    // `20 家國際品牌` / `20 多家品牌` / `20 家授權` 這類插修飾語或換詞的寫法都收。
+    // ⚠️ 它擋不住什麼:國字數字(「八大品牌」「數十家」)、以及只存在於 client 端後續渲染的字。
+    expect(
+      html.replace(EXEMPT, ''),
+      '首頁出現了家數宣稱 ⇒ 無可查證來源、屬廣告不實風險,要先問 Sean(Q1=B 是「不報數」)',
+    ).not.toMatch(/[0-9０-９]+\s*[多餘]?\s*[大家個]/);
+  });
+
   it('🔴 兩塊深色不相鄰(README「配色的三條規則」的節奏前提)', async () => {
     const html = await homeHtml();
     const order = renderedOrder(html);

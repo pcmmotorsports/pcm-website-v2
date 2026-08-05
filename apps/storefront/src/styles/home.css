@@ -823,7 +823,9 @@
   /* 蓋掉站台層 .vsc-input:disabled 的 0.55(僅變 color/cursor、chevron 維持 ink)。
      🔴 字面更正(Q6 R1 nit):原註解寫「對齊 design」,但 OD 兩份稿都不支持這個 1 ——
      `vehicle-picker-design.html:128` 是 `:disabled { opacity: .45 }`;direction-b 的 dock 用
-     `<select>` 沒有 disabled 態,全檔唯一的 `:disabled` 是 `:228` 輪播箭頭 `opacity: .35`。
+     `<select>` 沒有 disabled 態,全檔唯一的 `:disabled` 是 `.b-select-arrow:disabled`
+     輪播箭頭 `opacity: .35`(direction-b 那份稿仍在被改、不引行號;vehicle-picker-design
+     那份自 08-03 起未動,行號仍有效)。
      ⇒ 兩份稿都用**降透明度**表示停用,這個 1 是本 repo 的自訂、不是 design 搬來的。
      Q6 把 placeholder 也轉成 ink-mute 之後,「啟用未選」與「停用」只剩 cursor 有差 —— 見 commit body。 */
   opacity: 1;

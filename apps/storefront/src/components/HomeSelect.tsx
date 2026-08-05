@@ -9,7 +9,9 @@
 // 'use client':本元件用 ProductCard(client component);導航走 href(Next.js Link、SEO 真 anchor)
 //   🔴 D5a(2026-08-05)編號重標:OD `README.md`「區塊順序(第 7 步之後)」逐字
 //      「編號是位置標記不是內容 id,所以聚焦與服務對調後編號跟著位置走」⇒ 本檔編號隨新位置改。
-//      權威字面 = OD `direction-b-layout-01-graphite-ember.html:755`。
+//      權威字面 = OD `direction-b-layout-01-graphite-ember.html` 裡的 `b-select-title` 那顆 `N°02`。
+//      🔴 D5d 順手更正(同族):此處原寫的行號實查已漂掉 —— 該稿當天仍在被改。
+//         ⇒ **OD 稿一律不引行號、引逐字字串用 grep 找**;也不補新行號(R3 F4)。
 'use client';
 
 import Link from 'next/link';
