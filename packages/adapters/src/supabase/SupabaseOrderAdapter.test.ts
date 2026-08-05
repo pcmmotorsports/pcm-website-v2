@@ -21,7 +21,10 @@ import {
 import * as adapterModule from './SupabaseOrderAdapter';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
 import { ORDER_ITEM_PROCUREMENT_EMBED_LIMIT } from './mappers/order-procurement';
-import { ORDER_ITEMS_EMBED_LIMIT } from './mappers/order';
+import {
+  ORDER_ITEMS_EMBED_LIMIT,
+  PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
+} from './mappers/order';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
   return {
@@ -703,9 +706,9 @@ const DETAIL_ROW = {
 };
 
 describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 守門', () => {
-  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌)', () => {
+  it('🔴 鐵則 12:ADMIN_ORDER_DETAIL_SELECT byte-equal(明細專用、含 PII;D-2 起 orders 層 workflow_status 退出、order_items 加 id+per-item 狀態+version;A9a-1 加 order_notes 內嵌;A9a-2 加 order_item_procurement(suppliers) 兩層內嵌;A9g-1 加 order_item_quantity_summary 內嵌;A9g-2 加 payment_charge_attempts(status))', () => {
     expect(ADMIN_ORDER_DETAIL_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at)',
+      'id, display_id, created_at, payment_status, fulfillment_status, order_source, payment_channel, payment_method, paid_at, subtotal, shipping_fee, discount_total, total, shipping_method, shipping_address_snapshot, invoice, invoice_number, invoice_amount, invoice_status, cancelled_at, cancelled_reason, version, customers(name, email, phone), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, order_item_procurement(id, supplier_id, allocated_quantity, received_quantity, reply_status, contact_channel, submitted_at, supplier_order_no, exception_reason, expected_arrival_date, first_ordered_at, status_changed_at, created_at, suppliers(label, is_active)), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)), order_notes(id, note_type, body, channel, occurred_at, author, corrects_note_id, created_at), payment_charge_attempts(status)',
     );
   });
 
@@ -797,6 +800,28 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     //    2026-08-05 A9g-1 實查 `apps/` + `packages/` 目前無任何 inline select 觸及該表。
   });
 
+  // 🔴 A9g-2:扣款嘗試表帶 rec_trade_id / bank_transaction_id / fallback_token_hash 等金流識別碼。
+  //    本投影的既有紅線就寫著「零 tappay_rec_trade_id」⇒ 內嵌**只准**帶 status 一欄。
+  it('🔴 payment_charge_attempts 內嵌只取 status,零金流識別碼欄', () => {
+    expect(ADMIN_ORDER_DETAIL_SELECT).toContain('payment_charge_attempts(status)');
+    for (const token of [
+      'rec_trade_id',
+      'bank_transaction_id',
+      'fallback_token_hash',
+      'customer_user_id',
+      'failure_observed_status',
+      'last_settle_error',
+    ]) {
+      expect(ADMIN_ORDER_DETAIL_SELECT).not.toContain(token);
+    }
+  });
+
+  it('🔴 扣款嘗試**永久**不得滲入 storefront 投影(客人不該看到自己的扣款重試軌跡)', () => {
+    for (const token of ['payment_charge_attempts', 'rec_trade_id', 'bank_transaction_id']) {
+      expect(`ORDER_LIST_SELECT:${ORDER_LIST_SELECT}`).not.toContain(token);
+    }
+  });
+
   it('🔴 鐵則 12:明細投影仍零成本/經銷/金流識別欄、無 select("*")(PII 解禁 ≠ 全解禁)', () => {
     const forbidden = [
       '*',
@@ -848,6 +873,25 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     // 🔴 關卡2 codex MF2:order_items 自己也要上限 —— 沒有它,品項被伺服器 max-rows 切掉時
     //    per-item 的 procurementTruncated 會連同品項一起消失、旗標全是 false。
     expect(order).toHaveBeenCalledWith('id', { referencedTable: 'order_items', ascending: true });
+    // 🔴 A9g-2(R1 F2 補):扣款嘗試那三行原本零斷言 —— **刪掉它們整份測試照樣全綠**,
+    //    而 limit 不生效 ⇒ 閘恆 `'clear'` ⇒ 在途扣款閘靜默失效(動到錢的方向)。
+    expect(order).toHaveBeenCalledWith('created_at', {
+      referencedTable: 'payment_charge_attempts',
+      ascending: false,
+    });
+    expect(order).toHaveBeenCalledWith('id', {
+      referencedTable: 'payment_charge_attempts',
+      ascending: false,
+    });
+    // 🔴 關卡2 codex nit4:上面兩條只證「兩個 .order 都呼叫過」,**對調順序仍全綠** ——
+    //    但主排序會從 created_at 變成 id,取到的就不再是「最新 50 筆」。次鍵順序要自己被釘住。
+    const attemptOrderKeys = order.mock.calls
+      .filter(([, opts]) => opts?.referencedTable === 'payment_charge_attempts')
+      .map(([column]) => column);
+    expect(attemptOrderKeys).toEqual(['created_at', 'id']);
+    expect(limit).toHaveBeenCalledWith(PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT, {
+      referencedTable: 'payment_charge_attempts',
+    });
     expect(limit).toHaveBeenCalledWith(ORDER_ITEMS_EMBED_LIMIT, { referencedTable: 'order_items' });
     expect(res).toEqual({
       id: 'o1',
@@ -955,6 +999,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
       customerNotified: false, // 唯一那筆 customer_notified 已被更正 ⇒ 告知義務不算履行
       notesTruncated: false,
       itemsTruncated: false,
+      // 🔴 A9g-2:本 fixture 沒有 payment_charge_attempts 鍵 ⇒ 缺鍵 = 不知道 = `'unknown'`,
+      //    **不是** `'clear'`。三態的用意就是讓「沒讀到」沒辦法長得跟「沒有在途扣款」一樣。
+      chargeAttemptGate: 'unknown',
     });
   });
 

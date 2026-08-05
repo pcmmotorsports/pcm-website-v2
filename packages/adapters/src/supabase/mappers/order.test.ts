@@ -10,6 +10,7 @@ import {
   type SupabaseAdminOrderRow,
   type SupabaseAdminOrderDetailRow,
   type SupabaseOrderItemQuantitySummaryRow,
+  PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT,
 } from './order';
 
 function input(over: Partial<PlaceOrderInput> = {}): PlaceOrderInput {
@@ -461,5 +462,126 @@ describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-1 三軸數量摘要 fa
       cancelledQuantity: 1,
       cancellableQuantity: 2,
     });
+  });
+});
+
+// ── M-4b E10 A9g-2:在途扣款閘的 fail-closed 轉換 ──
+//
+// 🔴 承重點:`'clear'` 是**唯一**能給按的值,而它必須同時滿足「觀察完整」與「全 failed / 零筆」。
+//    「沒讀到」與「只讀到子集」都必須落在 `'unknown'`;把它們翻成 `'clear'`
+//    = 畫面放行、送出必被 A8a2 拒,而那是動到錢的路徑。
+// 🔴 三態(非兩個 boolean)是關卡2 codex MF1 的折入:兩個 boolean 讓呼叫端可以只讀一半,
+//    而「沒讀到」時那一半恰好長得跟「沒有在途」一樣 ⇒ 型別層面就不該給出那個誤用機會。
+
+function detailRowWithAttempts(
+  attempts?: { status: string }[] | null,
+): SupabaseAdminOrderDetailRow {
+  const base = detailRow([
+    { quantity: 5, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0 },
+  ]);
+  return attempts === undefined
+    ? base
+    : ({ ...base, payment_charge_attempts: attempts } as SupabaseAdminOrderDetailRow);
+}
+
+describe('mapSupabaseAdminOrderDetailRowToDetail — A9g-2 在途扣款閘 fail-closed', () => {
+  it("🔴 內嵌鍵不存在(投影退版)→ 'unknown'(不得當成「沒有在途扣款」)", () => {
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts(undefined))
+      .chargeAttemptGate).toBe('unknown');
+  });
+
+  it("🔴 null → 'unknown'", () => {
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts(null))
+      .chargeAttemptGate).toBe('unknown');
+  });
+
+  it("零筆(真的沒扣款過)→ 'clear'(這才是唯一能給按的值)", () => {
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts([]))
+      .chargeAttemptGate).toBe('clear');
+  });
+
+  it("全 failed → 'clear'(A8a2 允許集合:全終態 failed 可取消)", () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([{ status: 'failed' }, { status: 'failed' }]),
+      ).chargeAttemptGate,
+    ).toBe('clear');
+  });
+
+  // 🔴 關卡2 codex MF5:原本只測 `pending` 與一個虛構的未來字串 ⇒ 有人把判定改成
+  //    「只擋這兩個值」的白名單也全綠。DB `status` CHECK 現為四值
+  //    pending/charged/failed/released(`20260624120000:46`)⇒ 三個非 failed 值逐一測。
+  for (const status of ['pending', 'charged', 'released']) {
+    it(`🔴 DB 現有狀態 '${status}' → 'blocked'(即使同單其他筆都 failed)`, () => {
+      expect(
+        mapSupabaseAdminOrderDetailRowToDetail(
+          detailRowWithAttempts([{ status: 'failed' }, { status }, { status: 'failed' }]),
+        ).chargeAttemptGate,
+      ).toBe('blocked');
+    });
+  }
+
+  it("🔴 未知/新增的狀態值 → 一律 'blocked'(否定式判定,不是列舉白名單)", () => {
+    // DB 端日後新增狀態值時,呼叫端要自動偏保守;列舉白名單的寫法會漏判成「可取消」。
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts([{ status: 'some_future_status_nobody_wrote_yet' }]),
+      ).chargeAttemptGate,
+    ).toBe('blocked');
+  });
+
+  it("🔴 觸及上限 → 'unknown'(看到的是子集,不能宣稱沒有在途)", () => {
+    // 看到的 50 筆全是 failed,但第 51 筆可能就是在途的 ⇒ 必須 fail-closed。
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail(
+        detailRowWithAttempts(
+          Array.from({ length: PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT }, () => ({ status: 'failed' })),
+        ),
+      ).chargeAttemptGate,
+    ).toBe('unknown');
+  });
+
+  it("🔴 截斷 + 看到在途 → 'blocked' 壓過 'unknown'(兩種文案不能互相吃掉)", () => {
+    const rows = Array.from({ length: PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT }, () => ({
+      status: 'failed',
+    }));
+    rows[0] = { status: 'pending' };
+    expect(mapSupabaseAdminOrderDetailRowToDetail(detailRowWithAttempts(rows)).chargeAttemptGate)
+      .toBe('blocked');
+  });
+
+  // 🔴 關卡2 codex MF4:上面那條「觸及上限」用同一個常數造資料 ⇒ 把常數改成 1001 也全綠,
+  //    但伺服器 max-rows(production 實測 1000)會先截斷、我們永遠判不出來。
+  //    單元測試看不見伺服器設定,能釘住的只有常數本身落在合理區間(對齊
+  //    `ORDER_NOTES_EMBED_LIMIT` / `ORDER_ITEM_PROCUREMENT_EMBED_LIMIT` 的既有守門形狀)。
+  it('🔴 上限常數必須嚴格小於伺服器 max-rows、且大於 0', () => {
+    expect(PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT).toBeGreaterThan(0);
+    expect(PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT).toBeLessThan(1000);
+  });
+
+  // 🔴 R1 F3 那條防線自己也要被測:上面每一條 fixture 都是陣列 ⇒ **把 `Array.isArray(...)`
+  //    正規化整行拿掉,它們照樣全綠**,「兩種形狀都吃」就只是一句沒被驗過的宣稱
+  //    (真回物件時 `.some` 直接 TypeError = 明細頁炸掉)。
+  //    ⚠️ 這是**防禦**測試:生成型別 `isOneToOne: false`(`database.types.ts:1456-1458`)
+  //    ⇒ 規則上不會發生;留著只因賭錯的代價是整頁炸掉(關卡2 codex nit1 更正原本的錯誤理由)。
+  it('🔴 內嵌回單物件(to-one 形狀)且是在途 → blocked、不炸', () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail({
+        ...detailRowWithAttempts([]),
+        payment_charge_attempts: { status: 'pending' },
+      } as SupabaseAdminOrderDetailRow).chargeAttemptGate,
+    ).toBe('blocked');
+  });
+
+  // 🔴 關卡2 R2 codex MF1:單物件**只有一筆 failed** 時,原本走「長度 1 的完整清單」那條
+  //    ⇒ 回 `'clear'` = 誤放行。這個形狀我們根本沒預期會發生,它證明不了「沒有其他在途筆」
+  //    ⇒ 只能 `'unknown'`。把單物件退回當成完整清單,本條就紅。
+  it("🔴 內嵌回單物件且只有 failed → 'unknown'(非預期形狀證明不了完整,絕不 clear)", () => {
+    expect(
+      mapSupabaseAdminOrderDetailRowToDetail({
+        ...detailRowWithAttempts([]),
+        payment_charge_attempts: { status: 'failed' },
+      } as SupabaseAdminOrderDetailRow).chargeAttemptGate,
+    ).toBe('unknown');
   });
 });

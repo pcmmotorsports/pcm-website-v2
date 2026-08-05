@@ -654,6 +654,42 @@ export type AdminOrderDetail = {
    * 旗標會連同品項一起消失、呼叫端看到的每個旗標都還是 false ⇒ 兩個要一起讀。
    */
   itemsTruncated: boolean;
+  /**
+   * 取消 UI 的**在途扣款閘**(M-4b E10 A9g-2)。三態、不是兩個 boolean —— 理由見下。
+   *
+   * - `'clear'`:**觀察完整**且該單扣款嘗試全為終態 `failed`(或零筆)⇒ 落在 A8a2 允許集合。
+   * - `'blocked'`:**明確觀察到**至少一筆非 `failed` 的扣款嘗試 ⇒ RPC 必拒。
+   * - `'unknown'`:**沒讀到或只讀到子集**(內嵌鍵沒回來 / 觸及 `PAYMENT_CHARGE_ATTEMPTS_EMBED_LIMIT`)
+   *   ⇒ 沒看到的那些**可能就有一筆在途**,不得當成 `'clear'`。
+   *
+   * 🔴 為什麼取消 UI 需要它:A8a2 只在 `payment_status='unpaid'` **且**該單
+   * `payment_charge_attempts` 全為終態 `failed`(或零筆)時才放行
+   * (`supabase/migrations/20260805100000_m4b_e10_a8a2_partial_cancel.sql:360-364`,
+   *  判定字面逐字 `status <> 'failed'`)。
+   * 只看 `paymentStatus === 'unpaid'` 會漏掉「已扣款但尚未回填」的單 ⇒ 畫面給按、送出必拒。
+   *
+   * ⇒ 呼叫端規則:可以顯示取消入口 ⟺ `paymentStatus === 'unpaid'` **且** 本欄 `=== 'clear'`。
+   *   🔴 `'clear'` 是 **advisory、不是保證**(R3 Fable N4):讀到它與員工按下去之間,
+   *   隨時可能新增一筆扣款嘗試。**權威永遠是 A8a2 在交易內的重查**(`20260805100000:362`)——
+   *   所以 RPC 回拒是**正常路徑**、要當一般結果顯示,不是「不該發生」的例外。
+   *   反過來說也成立:本欄判錯的代價封頂在 UX(按鈕誤亮 → 送出被拒),動不到錢。
+   *   `'blocked'` 與 `'unknown'` 都不給按,但**該給員工的文案不同**
+   *   (「有在途扣款」vs「付款狀態讀取不完整,請重新整理」)⇒ 兩者必須分得出來。
+   *
+   * 🔴🔴 **為什麼是三態而不是 `blocking` + `truncated` 兩個 boolean**(關卡2 codex MF1):
+   *   兩個 boolean 的形狀讓呼叫端可以**只讀一半** —— 只讀 `blocking===false` 就放行,
+   *   而「沒讀到」時它恰好也是 `false` ⇒ 把「不知道」靜默翻成「沒有在途扣款」,
+   *   那是**動到錢的路徑**上的 fail-open,且註解攔不住(型別才攔得住)。
+   *   收成一個三態欄位後「半讀」在型別上不存在,而原本要分開的兩種文案仍分得出來。
+   *   這是片 1 那條教訓(不可把「不知道」偽裝成一個看起來正常的值)的同族。
+   *
+   * 🔴 **本欄只在 service_role 之下有意義**:`payment_charge_attempts` 全庫唯一一筆 SELECT 授給
+   *   service_role(`20260612150000:121`),anon/authenticated 零 grant(`:118`)⇒ 它們讀不到、
+   *   落在 fail-closed。真正的 fail-open 只會在**日後把 SELECT 授給不 BYPASSRLS 的角色**時出生:
+   *   RLS enable 零 policy(`:115`)會讓那個角色讀到空陣列、不報錯 ⇒ 本欄變成 `'clear'`
+   *   = 假裝「沒有在途扣款」。該情境由 `scripts/a9g2-charge-attempts-grant-guard.test.ts` 守。
+   */
+  chargeAttemptGate: 'clear' | 'blocked' | 'unknown';
 };
 
 /**
