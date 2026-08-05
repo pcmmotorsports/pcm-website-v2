@@ -1,6 +1,40 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🪟🪟 **2026-08-05 午後:第三輪換窗 checkpoint(主視窗寫;新主視窗只讀本節,舊節按需)。**
+> 🪟🪟🪟 **2026-08-05 夜:第四輪換窗 checkpoint(主視窗寫;新主視窗只讀本節,舊節按需)。**
+>
+> **你是誰**:pcm-website-v2 主視窗(指揮/收割/裁決,不下場實作)。**四條施工線**經信箱
+> `/Users/sean_1/pcm-mailbox/` 溝通(**先讀該目錄 README.md 全文**,含補訂 1-5;號段:主視窗 `<代號>-1xx-A`、
+> 施工窗 `<代號>-2xx-Q/STOP`)。dev=`2dbfe97` 已推、乾淨。
+>
+> **四線現況(2026-08-05 夜)**
+> | 線 | worktree | 在做什麼 | 下一步 |
+> |---|---|---|---|
+> | **A** | `pcm-refund-wire` | 後台取消 UI 片 4(純解析器);片 0-3 已收割 | 片 4→5;片 5 前無硬前置(真 DB probe 已由主視窗做完) |
+> | **B** | `pcm-a4a-chain` | **夜跑接手**:出貨線 S1 三片 26 條 must-fix 重工 | 派工單 `docs/handoff/2026-08-05-night-b2-s1-rework.md`;🔴 **15 個未 commit 產物,絕不可 checkout/stash/reset/clean** |
+> | **C** | `pcm-website-v2-home` | D5g 已 commit `8cf68a9`,**收工即關窗** | 收 STOP → 收割 → 關;三殘片(D5f/D5c/標點片)已移交 D |
+> | **D** | `pcm-site-redesign` | **全站重設計 17 頁,新開線** | 派工單 `docs/handoff/2026-08-05-site-redesign-line.md`;第一片=第0批(色票+殼) |
+>
+> **Sean 今日拍板(全落檔)**:shipped 強制點 Q1=A/Q2=A(C9 摘要表 CHECK)/ 出貨 Q-a=C(DB 維持嚴格+UI 補救鈕)、Q-b=A /
+> 標點遷移=A 全站(已移交 D 窗、範圍要重掃)/ 全站重設計 Q1=A 地基優先六批、Q2=A 開 D 窗吸收 C 殘片。
+> **Q-c 熔橘題自動消解**(總交接單「主 CTA 一律熔橘」= 既有拍板)。
+>
+> **主視窗欠辦(未做完)**:①notes `?? []` fail-open 立案 ②守門受守表清單 meta 閘立案(R3 指真實失效路徑=B2 新表忘登記)
+> ③`WalletTab.test.tsx` 缺 `afterEach(cleanup)` 三行修(非決定性紅、污染全套數字對帳)。
+>
+> **等 Sean 的**:合作店家家數與名單 / 安裝預約工時費率 / 首頁「全台 N 家」實際數字(三筆不擋施工,設計稿已留誠實佔位)。
+>
+> **開工儀式**:①讀本節+信箱 README ②重 arm 兩哨兵(信箱新 Q/STOP、四分支 commit——**D 線的 `site-redesign` 要加進去**)
+> ③全量 `ls` 信箱對號段(現況:A-106/B-122/C-124/D-102 為主視窗發、A-202/B-216/C-202 為施工窗發)
+> ④等 STOP 照收割工法跑(押住等 STOP → R1 FAIL 必有確認輪、第 3 輪換模型 → `merge --no-ff` → `turbo typecheck lint --force`
+> +全套 `pnpm test` 精確調和(完整輸出留檔)→ 錢面加拋棄庫重跑 → STATUS 收帳同 commit → push 持續授權)。
+> **決策題=prose code block A|B|C 轉 Sean、不走 UI;拍板即落 memory。**
+>
+> 🔴 **本輪學到、下一棒要接住的三條**:①**主視窗自己也會「拿單一 pattern 命中當全樹涵蓋的證明」**(PORT 修法第一輪只改 8 支、
+> 漏三族被 B 窗實跑撞出)⇒ 動全樹前先 grep 裸字串建完整清單 ②**收割 code 片要補真 DB/真瀏覽器那一層**——dev=pcm-admin production,
+> push 即上線,單元測試不覆蓋 wire 行為(我補做 PostgREST probe 才發現片 2 的 select 早已上線且從未驗過)
+> ③**施工窗寫完 STOP 沒掛等待迴圈=管線停擺**,已復發三次;主視窗發信後對方無反應先查它有無輪詢、再請 Sean 戳窗。
+
+> 🪟🪟 **2026-08-05 午後:第三輪換窗 checkpoint(舊,按需讀)。**
 >
 > **你是誰**:pcm-website-v2 主視窗(Fable 5[1m]+high;指揮/收割/裁決,不下場實作)。三個施工窗
 > 經信箱 `/Users/sean_1/pcm-mailbox/` 溝通(**先讀該目錄 README.md 全文**,含補訂 1-5;
