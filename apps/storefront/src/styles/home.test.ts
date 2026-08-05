@@ -344,6 +344,122 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
     ).toBe(0.45);
   });
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 D5e-2b 動線區。這一組守的是**兩個很容易被「順手修正」掉的決定**:
+  //    ①主按鈕的熔橘 —— 對比 3.12:1 不到門檻,是 Sean 看過三個替代方案後**拍板保留**的
+  //      殘餘風險(handoff §十一 + C-104-A 六不做 ⑤)。下一個看到對比警告的人很可能
+  //      「順手」把它改深或改成墨色,而畫面看起來只會變好、不會有任何測試紅。
+  //    ②分類列是**無框底線**不是盒子(OD §6-2 逐字)。加個 border 看起來也很正常。
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 D5e-2b 動線區(主按鈕熔橘 + 分類無框底線)', () => {
+    /**
+     * 取某個選擇器的**全部**同選擇器區塊(串接)。
+     *
+     * 🔴 **第一版只取第一個匹配,而那是真的假綠**(R2 F5,M10-c 實測):
+     *    在檔案後面**追加**一條 `.ed-feature-primary{background:var(--ed-c-ink)}`,
+     *    CSS 後到者勝 ⇒ 按鈕真的變墨色,而只看第一個區塊的守門 **30 條全綠**
+     *    —— 那正是這組守門自稱要擋的那件事。
+     *    ⇒ 改成掃全部匹配並串接:任何後置覆寫都會進到被斷言的字串裡,
+     *      「不得出現墨色」那種負向斷言因此才真的擋得住。
+     */
+    const ruleBlocks = (selector: string): string[] => {
+      const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`(?:^|\\})\\s*${esc}\\s*\\{([^}]*)\\}`, 'g');
+      return [...topLevelCss().matchAll(re)].map((m) => m[1]!);
+    };
+    const rule = (selector: string): string => ruleBlocks(selector).join('\n');
+
+    it('🔴 主按鈕填的是熔橘動作色,不是墨色、也不是站台的緋紅 --c-red', () => {
+      const body = rule('.ed-feature-primary');
+      expect(body, '找不到 .ed-feature-primary 規則').not.toBe('');
+      // 走本檔自己的 token。🔴 `var(--c-red)` 在正式站是 #dc2626 緋紅、不是 OD 的熔橘
+      // ⇒ 直接引用站台那顆會靜默畫錯色,這條把它擋住。
+      expect(body, '主按鈕沒有填熔橘動作色').toMatch(/background:\s*var\(--ed-c-action\)/);
+      expect(body, '主按鈕改用站台的 --c-red(緋紅 #dc2626)⇒ 不是 Sean 拍板那顆熔橘').not.toMatch(
+        /background:\s*var\(--c-red/,
+      );
+      expect(body, '主按鈕被改成墨色 ⇒ 違反「熔橘才是動作色」(OD §6-2)').not.toMatch(
+        /background:\s*var\(--ed-c-ink\)/,
+      );
+      // 觸控目標:桌機 44px(手機那段在 @media 內,由下一條守)
+      expect(body, '主按鈕高度不足 44px').toMatch(/min-height:\s*44px/);
+      // 🔴 **文字色也要釘住**(R1 實測突變:改成 `#000` 之後本檔與元件測試**全綠**)。
+      //    這不是假想的改法 —— 白字對熔橘 3.12:1 不到門檻,下一個看到對比警告的人
+      //    最自然的動作就是「把字改成黑的」,而畫面只會變好看。
+      //    handoff §十一 明令那顆是 Sean 看過墨黑版之後**拍板保留白字**的,不得順手改。
+      expect(body, '主按鈕的白字被改掉了 ⇒ 那是 Sean 拍板保留的,要改必須他重新拍板').toMatch(
+        /color:\s*#fff\b/,
+      );
+    });
+
+    it('🔴 熔橘三顆的值就是設計稿的值(改深一階也算改,要 Sean 重新拍板)', () => {
+      const page = rule('.ed-page');
+      expect(page, '找不到 .ed-page 色票').not.toBe('');
+      expect(page, '熔橘填色值被改動').toMatch(/--ed-c-action:\s*#f26722/);
+      expect(page, 'hover 值被改動').toMatch(/--ed-c-action-hover:\s*#c4470c/);
+      expect(page, 'active 值被改動').toMatch(/--ed-c-action-active:\s*#a53a08/);
+    });
+
+    it('🔴 分類列是無框底線式:有 ::after 細線、且本體不得有 border', () => {
+      const link = rule('.ed-feature-jump a');
+      expect(link, '找不到 .ed-feature-jump a 規則').not.toBe('');
+      // 盒子化的症狀就是本體長出 border ——「無框」是這個版位的語言(OD §6-2)。
+      expect(link, '分類連結長出邊框 ⇒ 被做成盒子了,與資料條的細線語言打架').not.toMatch(/(^|[;\s])border/);
+      expect(link, '分類連結的觸控高度不足').toMatch(/min-height:\s*36px/);
+      // 🔴 `position: relative` 是**承重宣告**,不是排版習慣(R2 F6,M10-a 實測):
+      //    底線是絕對定位的 `::after`,少了這行它會改用最近的定位祖先為基準
+      //    ⇒ 實測 `::after` 寬度由 56.56px 變成 **1440px**,一條橫貫整個視窗的線,
+      //      而當時 41 條全綠。看起來「只是刪一行沒用的宣告」,畫面卻整個壞掉。
+      expect(link, '少了 position: relative ⇒ 底線會以外層為基準、橫貫整個視窗').toMatch(
+        /position:\s*relative/,
+      );
+      const after = topLevelCss().match(/\.ed-feature-jump a::after\s*\{([^}]*)\}/)?.[1] ?? '';
+      expect(after, '找不到底線 ::after').not.toBe('');
+      // 🔴 底線色 = 控制項邊界線(3.18:1),不是一般分隔線 --ed-c-rule(#e4e4e7,約 1.3:1)。
+      //    這條線是靜止態唯一的「可點」訊號,handoff §十一 指名要確認它。
+      expect(after, '底線改用一般分隔線色 ⇒ 對白底約 1.3:1,可點訊號看不見').toMatch(
+        /background:\s*var\(--ed-c-rule-control\)/,
+      );
+      // 🔴 **`content` 也要斷言**(R1 實測突變:改成 `content: none` 底線整條消失、現有守門全綠)。
+      //    偽元素沒有 `content` 就根本不生成 ⇒ 上面那條「背景色對不對」問的是一個
+      //    **不存在的東西**的顏色,恆綠。這是「量錯東西」那一族:顏色對 ≠ 線畫得出來。
+      expect(after, '底線的 content 不是空字串 ⇒ 偽元素不生成、整條底線消失').toMatch(
+        /content:\s*""/,
+      );
+      expect(after, '底線高度不見了').toMatch(/height:\s*1px/);
+    });
+
+    it('🔴 圖說桌機也要 right:auto + max-width(不只手機;R2 F10 抓到只搬了半邊)', () => {
+      const cap = rule('.ed-feature-caption');
+      expect(cap, '找不到 .ed-feature-caption 規則').not.toBe('');
+      expect(cap, '桌機圖說少了 right:auto ⇒ 會被拉成左右釘住的橫幅').toMatch(/right:\s*auto/);
+      expect(cap, '桌機圖說少了 max-width ⇒ OD §6-3 的規格被丟掉').toMatch(/max-width:\s*calc\(/);
+    });
+
+    it('🔴「全部商品」是領頭:墨黑底線 + 字重 600(與其餘分類有別)', () => {
+      const isAll = rule('.ed-feature-jump a.is-all');
+      expect(isAll, '找不到 is-all 規則').not.toBe('');
+      expect(isAll, '領頭沒有加重字重').toMatch(/font-weight:\s*600/);
+    });
+
+    it('🔴 手機:主按鈕拉滿整行 48px、分類列 44px(行動觸控目標)', () => {
+      const mobile = mediaBlock('(max-width: 640px)');
+      expect(mobile, '找不到 640px 斷點').not.toBe('');
+      expect(mobile, '手機主按鈕沒拉高到 48px').toMatch(/\.ed-feature-primary\s*\{[^}]*min-height:\s*48px/);
+      expect(mobile, '手機分類列沒拉高到 44px').toMatch(/\.ed-feature-jump a\s*\{[^}]*min-height:\s*44px/);
+      // 🔴 圖說的 `max-width` = OD §6-3「貼一角、不要橫跨整張圖」的規格。
+      //    ⚠️ **誠實標註射程**(R2 F7):這條是**規格釘住**,不是行為守門 ——
+      //    實測 390px 下把它拿掉,圖說寬度 200.75px → 200.75px、**零變化**,
+      //    因為今天最長的 origin(samco「英國 · 南威爾斯 Pontyclun · 自 1990」= 28 字;
+      //    我原本註解寫「最長約 19 字」是錯的)在這個字級下本來就撐不到上限。
+      //    ⇒ 它擋的是「有人把 OD 這條規格順手刪掉」,不是「今天畫面會壞」。
+      //      真的要讓它有行為判別力,得等 origin 變長或字級變大 —— 屆時它會自己開始生效。
+      expect(mobile, '手機圖說少了 max-width ⇒ 長產地會把它撐成橫跨整張圖的帶子').toMatch(
+        /\.ed-feature-caption\s*\{[^}]*max-width:\s*calc\(100% - 24px\)/,
+      );
+    });
+  });
+
   // 🔴 頁尾**還不能**動:回石墨屬 D7(母計畫 §1 切片表)。
   //    這條擋的是「順手把三塊深色一起改掉」——那會讓 D7 變成沒東西可做、而且跳過 D7 自己的驗收。
   it('🔴 頁尾仍是重排前的 #0a0a0a(回石墨是 D7 的事,D5a 不得順手改)', () => {
