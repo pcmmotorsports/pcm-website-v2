@@ -10,7 +10,7 @@
 > | 線 | worktree | 在做什麼 | 下一步 |
 > |---|---|---|---|
 > | **A** | `pcm-refund-wire` | 後台取消 UI 片 4(純解析器);片 0-3 已收割 | 片 4→5;片 5 前無硬前置(真 DB probe 已由主視窗做完) |
-> | **B** | `pcm-a4a-chain` | **夜跑接手**:出貨線 S1 三片 26 條 must-fix 重工 | 派工單 `docs/handoff/2026-08-05-night-b2-s1-rework.md`;🔴 **15 個未 commit 產物,絕不可 checkout/stash/reset/clean** |
+> | **B** | `pcm-a4a-chain` | 夜跑第一輪已跑、**26 條已改完大半** | 🔴 **先讀 `B-217-STOP`(現況已遠超派工單所述)**,再讀派工單。**16 個未 commit 檔、絕不可 checkout/stash/reset/clean**;`b2s1a1-verify.sh` 是**半成品、一次都沒跑過**=下一棒第一件事;兩個拋棄庫還在跑(54341/54342,54342 已套 v5.4 可直接接手) |
 > | **C** | `pcm-website-v2-home` | D5g 已 commit `8cf68a9`,**收工即關窗** | 收 STOP → 收割 → 關;三殘片(D5f/D5c/標點片)已移交 D |
 > | **D** | `pcm-site-redesign` | **全站重設計 17 頁,新開線** | 派工單 `docs/handoff/2026-08-05-site-redesign-line.md`;第一片=第0批(色票+殼) |
 >
@@ -28,6 +28,18 @@
 > ④等 STOP 照收割工法跑(押住等 STOP → R1 FAIL 必有確認輪、第 3 輪換模型 → `merge --no-ff` → `turbo typecheck lint --force`
 > +全套 `pnpm test` 精確調和(完整輸出留檔)→ 錢面加拋棄庫重跑 → STATUS 收帳同 commit → push 持續授權)。
 > **決策題=prose code block A|B|C 轉 Sean、不走 UI;拍板即落 memory。**
+>
+> 🔴 **B 線夜跑第一輪的三個關鍵產出(2026-08-05 夜,詳 `B-217-STOP` + `docs/reviews/2026-08-05-b2-s1-ablation-ledger.md`)**:
+> ①**26 條裡 21 條「未驗」逐條消融實測 = 全部 CONFIRMED、誤判 0**;基線也獨立重跑(40/0、26/0、24/0
+> 與上一棒逐一相符)⇒ **那些綠數字不是假的,問題全在「證明不了什麼」**。最值錢三例:`#25` 把 parent guard 的
+> `FOR NO KEY UPDATE` **整句移除**、整支 harness 仍 24/0 全綠;`#24` A7 正測兩張訂單的收件地址**完全相同**
+> ⇒ 那格宣稱在證「併箱不比地址」實際上構造不出區別;`#3` 八支函式對三角色**全部**有 EXECUTE(比 codex 說的更糟),
+> **但 PG 拒絕直呼 trigger 函式 ⇒ 不可利用**(修法照做,理由是讓檔頭那句 ACL 宣稱變成真的)。
+> ②🔴 **triage 表有一族分類標錯**:`#4/#13/#23/#24/#26` 標成「規格深度」,但 plan §4 早就要求了
+> (項 18/19/33/23/17)⇒ 它們是「**實作沒做到既有規格**」,**派工單第 5 步「先改 plan 再補測」對這五條不適用**
+> (動了反而把已經對的規格改掉)。真正的規格深度**只有 `#25` 一條**。
+> ③`scripts/b2s1-concurrency-probe.sh` **不要 commit**(plan §9 明文不採用、它量的是 S2 那層)
+> ⇒ 最終 commit 仍是 **15 檔但組成不同**(加 ablation-ledger、減 probe),逐一核對再 add。
 >
 > 🔴 **本輪學到、下一棒要接住的三條**:①**主視窗自己也會「拿單一 pattern 命中當全樹涵蓋的證明」**(PORT 修法第一輪只改 8 支、
 > 漏三族被 B 窗實跑撞出)⇒ 動全樹前先 grep 裸字串建完整清單 ②**收割 code 片要補真 DB/真瀏覽器那一層**——dev=pcm-admin production,
