@@ -188,7 +188,7 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 
 | 來源 | 內容 | 落點 |
 |---|---|---|
-| **U1** | 包裹實體,一單多包 **+ 多單併一箱(🔴 Q16=A 縮限:同一位客人 + 同一份收件資料,跨客人不做;R7 nit 補進第一落點,詳 §8.5)**;包裹卡顯示品名/變體/數量/訂單單號/收件人姓名/電話 | 第 2 批 `shipments` + `shipment_items` |
+| **U1** | 包裹實體,一單多包 **+ 多單併一箱(🔴 ~~Q16=A 縮限:同一位客人 + 同一份收件資料~~ → **2026-08-05 Sean 拍 Q1=B 知情推翻後半**:只縮限「**同一位客人**」,收件資料以包裹自己的 `recipient_snapshot` 為準、可與訂單快照不同;跨客人仍不做。詳 §8.5 與 `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §3.1)**;包裹卡顯示品名/變體/數量/訂單單號/收件人姓名/電話 | 第 2 批 `shipments` + `shipment_items` |
 | **U2** | 改單「改全部」(姓名/電話/地址/品項數量);直改極簡、差異寫時間軸;差額只記不動錢;**已裝箱部分鎖定** | 第 3 批 改單線(硬依賴包裹與帳本) |
 | **U3** | 多筆匯款 + 已收累計/應收/差額/處置四格;少款掛催款、溢款強制處置;結清才離開對帳清單 | 第 3 批 `order_payments` |
 | **U4** | 內部通知:即時走 **LINE OA 推播給兩位員工** + **每日彙整 Email**;Chrome 網頁推播不做 | 第 2 批(出貨)起接,第 3 批補齊事件 |
@@ -278,7 +278,10 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
        ← 🔴 R5 前移:shipment_reference 要用它
          ↓
        shipments + shipment_items (同客人限定, Q16=A) → 出貨 RPC/UI/通知/列印 → 前台 #240
-       (order_items.shipped_quantity 此時才加; A8a1/A8a2/A8b 的已出貨禁取消 contract 債同批清;
+       (shipped_quantity 此時才加 —— 🔴 2026-08-05 更正:落點是 order_item_quantity_summary、
+        **不是 order_items**(A1 07-31 已把摘要搬離 order_items);A8a1/A8a2/A8b 的 contract 債同批清
+        —— ~~更正:清償方式 = 只加欄 + 新增 shipped <= instock,C6/C7 與取消公式都不動~~
+        🔴 **2026-08-05 K1 R3 後狀態:本題重新開放、尚未定案** —— 「`shipped` 該在哪一層被強制」的兩次分析都被證偽(第一代「C7 已涵蓋」前提假=instock 非單調;第二代「移出摘要表」前提也假=receipts trigger 是 row-level、只重算受影響品項,不存在「無關的摘要列」,`20260803140000:258-287` 親驗)。⇒ **本行原有的施工字面全部作廢、不得依它施工**;B2 批已依停損只交付兩張表,摘要整合與契約債清償整批延後至下一線重新分析。
         storefront 兩張會員卡片接回包裹真相、移除「處理中」降級 —— A9f 的 contract 債)
 
 第3批  order_payments (最先; A8b 的 partiallyPaid 實收真相靠它, R7)
@@ -380,8 +383,24 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 | 33 | **A6** | R | `admin_append_order_note` owner RPC | — |
 | 34 | **A8c1** | R | 🔴 **金流 begin 側取消守門**(🔴 R9:表序改為守門先於取消,與 §5.0 部署序一致;實查 `confirm_payment` 零 cancelled 檢查):**具名 = `begin_charge_attempt`**(R10 更正起點;🔴 **R11 更正基底版本:最新定義 = `20260613140000:73`(0c)**,非 130000 —— 0c 補了 `needs_settle` 回傳 `existing_bank_transaction_id`,照舊基底 CREATE OR REPLACE 會把它蓋掉。**以 0c 為基底只加鎖與取消守門,附「回傳仍帶 `existing_bank_transaction_id`」回歸測試**)。附**取消併發與全域鎖序負測**—— 先 `FOR UPDATE` 鎖 orders 列 → 存在任何取消紀錄(`cancelled_at` 非空或 `order_cancellations` 任一列)⇒ `RAISE` 拒開卡流程。**動既有金流函式 = 鐵則 12①,必過 codex 關卡2**;附負測 | — |
 | 35 | **A8c2** | R | 🔴 **金流 confirm 側取消守門**:同 A8c1 合約套在 **`confirm_order_payment`**(實名)。附負測 | — |
-| 36 | **A8a1** | R | `admin_cancel_order` **整單取消核心片**(合約 §5.1b / §5.1d):🔴 **鎖序合約:先 `SELECT … FROM orders WHERE id = $1 FOR UPDATE` 再做一切檢查** —— 本片與 A8a2(同一支 RPC 的第二施工片)、A8c1/A8c2 所改的兩支金流 RPC:**三支 RPC、四個施工片、同一鎖序**(R9 更正「五支 RPC」字面)。🔴 **允許集合(R9 再收斂):第 1 批只允許 `payment_status = 'unpaid'` 且該單 `payment_charge_attempts` 全為終態 `failed` 或零筆** —— `refunded` 分支移除(R9 抓恆假字面:真 TapPay 退款單保留 `charged` attempt,永遠過不了後半條;refunded 單要取消 = `RAISE` 走人工);其餘狀態一律 `RAISE`(退款線第 3 批)。冪等鍵 + payload hash、寫 header、對客欄(整單才寫 `orders.cancelled_*`、`other` 用 `reason_detail` 映射)。🔴🔴 **A7 定下的部署約束(Sean 2026-07-30 拍 Q2=A 寫進本列)**:**本片不得單獨發布** —— 必須與 **A8a2 同批**,或本片自己就寫入整單全部品項的 `order_cancellation_items`。理由:A8a1 單獨上線會產生**零明細 header** ⇒ A4a 重算掛在 items 上、看不到整單取消 ⇒ `cancelled_quantity` 恆 0,而 A8c 已因「存在取消紀錄」封鎖該單付款 ⇒ **單子既沒被真正取消、又收不到錢**;且 A8a2 後上線**不會自動修復**已寫下的列。**片級 plan 必須明確選一邊並寫進驗收條件,不得以「讀法待確認」開工**(詳 `docs/specs/2026-07-30-e10-a7-order-cancellations-plan.md` §6.1)。🔴🔴 **shipped_quantity 契約債(A1 2026-07-31 立)**:第 2 批建包裹模型的同一片必須把 `shipped_quantity` 納入 A1 的兩條 CHECK 與本片/A8a2 的可取消量守門(詳 A8a2 列)。🔴 **2026-07-31 連動**:整單取消的可取消量若要讀 `instock`,來源是 `order_item_quantity_summary` 且**列可能不存在** ⇒ 必須 `LEFT JOIN` + `COALESCE(…, 0)`| — |
-| 37 | **A8a2** | R | **品項層部分取消擴充片**(同一支 `admin_cancel_order` 的第二施工片):`order_cancellation_items` 寫入、可取消量守門 `增量 ≤ quantity − instock − cancelled`(Q17=B)、多次部分取消累積至全量時補寫對客欄。🔴🔴 **2026-07-31 連動(R3 抓)**:`instock` / `cancelled` 現在在**惰性建立的非權威快取** `order_item_quantity_summary` ⇒ **可取消量守門不得讀它**(摘要列缺失時 `COALESCE` 成 0 會放行超量取消,而結果仍通過全部 CHECK)。**必須鎖 parent 後從真相表重算**,並對「真相非零但摘要列缺失」fail-closed。負測必含「刪掉摘要列後守門仍正確」。🔴🔴 **shipped_quantity 契約債(A1 2026-07-31 立,對本片有約束力)**:第 2 批建包裹模型時,**同一片**必須 ① 加 `shipped_quantity` ② 把它納入 `oiqs_cancelled_le_quantity` 與 `oiqs_instock_cancelled_le_quantity` 兩條 CHECK ③ 把本片的可取消量守門改成 `增量 ≤ quantity − instock − cancelled − shipped`。現況 `shipped` 欄不存在 ⇒ 完整式退化,**不是不需要**。同 A8a1 鎖序與允許集合;摘要由 A4a trigger 重算。🔴 **誠實邊界**:部分取消後 A8c 會封鎖該單的卡收款 ⇒ 剩餘品項的付款回路(應收重算)= 第 3 批,第 1 批部分取消「安全可用但未閉環」,UI(A13a)明示。🔴 **與 A8a1 的同批約束**:見 A8a1 列的「不得單獨發布」(Sean 2026-07-30 拍 Q2=A)—— 若 A8a1 選擇「自己寫整單 items」,本片仍須與它同批驗收部分取消路徑。  🔴🔴 **合約債(A7-t 2026-07-30 立,對本片有約束力、不是「日後自動生效」)**:**若本片要 DELETE 或 UPDATE `order_cancellation_items` / `order_refund_items` 的既有列,必須先補上「trigger 內鎖 parent」+「隔離級 fail-closed 閘」** —— 否則取消側與退款側的主從一致防護都會靜默失效。依據:`REPEATABLE READ` 下兩交易各刪一列會雙雙放行(本機 PG17.10 實測,證據 harness = `scripts/a7t-concurrency-probe.sh`);**鎖 parent 單獨不足以補**(同一 harness 實測)。現行 append-only 寫法不觸發本條。 | — |
+| 36 | **A8a1** | R | `admin_cancel_order` **整單取消核心片**(合約 §5.1b / §5.1d):🔴 **鎖序合約:先 `SELECT … FROM orders WHERE id = $1 FOR UPDATE` 再做一切檢查** —— 本片與 A8a2(同一支 RPC 的第二施工片)、A8c1/A8c2 所改的兩支金流 RPC:**三支 RPC、四個施工片、同一鎖序**(R9 更正「五支 RPC」字面)。🔴 **允許集合(R9 再收斂):第 1 批只允許 `payment_status = 'unpaid'` 且該單 `payment_charge_attempts` 全為終態 `failed` 或零筆** —— `refunded` 分支移除(R9 抓恆假字面:真 TapPay 退款單保留 `charged` attempt,永遠過不了後半條;refunded 單要取消 = `RAISE` 走人工);其餘狀態一律 `RAISE`(退款線第 3 批)。冪等鍵 + payload hash、寫 header、對客欄(整單才寫 `orders.cancelled_*`、`other` 用 `reason_detail` 映射)。🔴🔴 **A7 定下的部署約束(Sean 2026-07-30 拍 Q2=A 寫進本列)**:**本片不得單獨發布** —— 必須與 **A8a2 同批**,或本片自己就寫入整單全部品項的 `order_cancellation_items`。理由:A8a1 單獨上線會產生**零明細 header** ⇒ A4a 重算掛在 items 上、看不到整單取消 ⇒ `cancelled_quantity` 恆 0,而 A8c 已因「存在取消紀錄」封鎖該單付款 ⇒ **單子既沒被真正取消、又收不到錢**;且 A8a2 後上線**不會自動修復**已寫下的列。**片級 plan 必須明確選一邊並寫進驗收條件,不得以「讀法待確認」開工**(詳 `docs/specs/2026-07-30-e10-a7-order-cancellations-plan.md` §6.1)。🔴🔴 **shipped_quantity 契約債(A1 2026-07-31 立)**:第 2 批建包裹模型的同一片必須把 `shipped_quantity` 納入 ~~A1 的兩條 CHECK~~ **C6 一條**(`cancelled + shipped <= quantity`;**C7 不動**,加 shipped 會與 instock 重複計數)~~與本片/A8a2 的可取消量守門~~ **(RPC 公式不動,由 C6 當表級 backstop)**。🔴 **2026-08-05 兩度更正的來由**:第一次以為「`shipped ⊆ instock` ⇒ 既有 C7 已涵蓋」,但**該推論的隱含前提「instock 單調不減」為假** —— receipts 的重算 trigger 是 `AFTER INSERT OR UPDATE OR DELETE`(`20260803140000:416`)⇒ 刪改到貨紀錄會讓 instock 下降到 shipped 以下,已寄出的件變回可取消。⇒ **~~必須有一條不依賴 instock 的表級不變式 = C6~~**。🔴 **2026-08-05 K1 R3(F3)作廢,本行不得依它施工**:C6′ 是掛在**衍生摘要表**上的 CHECK,而摘要值由 trigger 維護 —— A4a 的 break-glass `DISABLE TRIGGER` 程序(`20260803140000:82-121`)停用期間摘要不再反映真相、CHECK 比對的是過時值 ⇒ 它是「**trigger 通電時才成立的不變式**」,不是表級不變式。**「shipped 該在哪一層被強制」整題已重新開放、尚未定案**(三代分析全被證偽)。詳 A8a2 列與 `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1。🔴 **2026-07-31 連動**:整單取消的可取消量若要讀 `instock`,來源是 `order_item_quantity_summary` 且**列可能不存在** ⇒ 必須 `LEFT JOIN` + `COALESCE(…, 0)`| — |
+| 37 | **A8a2** | R | **品項層部分取消擴充片**(同一支 `admin_cancel_order` 的第二施工片):`order_cancellation_items` 寫入、可取消量守門 `增量 ≤ quantity − instock − cancelled`(Q17=B)、多次部分取消累積至全量時補寫對客欄。🔴🔴 **2026-07-31 連動(R3 抓)**:`instock` / `cancelled` 現在在**惰性建立的非權威快取** `order_item_quantity_summary` ⇒ **可取消量守門不得讀它**(摘要列缺失時 `COALESCE` 成 0 會放行超量取消,而結果仍通過全部 CHECK)。**必須鎖 parent 後從真相表重算**,並對「真相非零但摘要列缺失」fail-closed。負測必含「刪掉摘要列後守門仍正確」。🔴🔴 **shipped_quantity 契約債(A1 2026-07-31 立,對本片有約束力)**:第 2 批建包裹模型時,**同一片**必須 ① 加 `shipped_quantity` ② **把它納入 `oiqs_cancelled_le_quantity`(2026-08-05 二度更正:**本項成立、必須做**;C6 改成 `cancelled + shipped <= quantity`)**;~~與 `oiqs_instock_cancelled_le_quantity`~~ **(C7 不動 —— 加 shipped 會與 instock 重複計數)** ③ ~~把本片的可取消量守門改成 `增量 ≤ quantity − instock − cancelled − shipped`~~
+🔴🔴 **2026-08-05 B2 關卡1 更正:此字面是錯的、且第 2 批不執行**。`shipped ⊆ instock`
+(出貨的貨必先到貨;Sean 08-05 拍板「無直送」)⇒ 已出貨的量**本來就含在 `instock` 裡**,
+再減一次 shipped = **重複扣**,會把可取消量算得比實際少。
+⇒ **正確做法 = 公式維持 `增量 ≤ quantity − instock − cancelled` 不動**(現行 `20260805160000` 未改;
+`20260805100000:395` 該行註解自稱「shipped 退化式」—— 它不是退化式,它就是正確式)。
+🔴 **注意:上面這段是 2026-08-05 的「第一代更正」,它自己也已被二度更正** ——
+當時寫「第 2 批只剩 ①加欄 ②新增 `shipped ≤ instock` CHECK(C6/C7 不動)」,**兩處都錯**:
+~~①`shipped ≤ instock` **不做成表 CHECK**(receipts 可刪 ⇒ instock 非單調 ⇒ 該 CHECK 會讓無關的摘要列變非法),
+改走出貨側守門;②**C6 必須改**成 `cancelled + shipped <= quantity`(唯一不依賴 instock 的表級不變式)。~~
+🔴 **第二代更正本身也已被 K1 R3 推翻(2026-08-05;主視窗清汙染時漏掉本行,B2 視窗補清)**:
+①的理由(F6)**事實錯誤** —— A4a 重算是 **row-level、只重算受影響的那個品項**
+(`20260803140000:277-296` 親讀)⇒ **不存在「無關的摘要列」**;
+②(F3)C6′ 掛在**衍生摘要表**上,break-glass `DISABLE TRIGGER` 期間比對過時值 ⇒
+**不是表級不變式**。⇒ **兩代結論全數作廢、本題重新開放尚未定案,任何一版都不得拿來施工。**
+**現行唯一權威 = `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1**。
+詳 `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1/§2(2026-08-05 停損改版後的段號)。同 A8a1 鎖序與允許集合;摘要由 A4a trigger 重算。🔴 **誠實邊界**:部分取消後 A8c 會封鎖該單的卡收款 ⇒ 剩餘品項的付款回路(應收重算)= 第 3 批,第 1 批部分取消「安全可用但未閉環」,UI(A13a)明示。🔴 **與 A8a1 的同批約束**:見 A8a1 列的「不得單獨發布」(Sean 2026-07-30 拍 Q2=A)—— 若 A8a1 選擇「自己寫整單 items」,本片仍須與它同批驗收部分取消路徑。  🔴🔴 **合約債(A7-t 2026-07-30 立,對本片有約束力、不是「日後自動生效」)**:**若本片要 DELETE 或 UPDATE `order_cancellation_items` / `order_refund_items` 的既有列,必須先補上「trigger 內鎖 parent」+「隔離級 fail-closed 閘」** —— 否則取消側與退款側的主從一致防護都會靜默失效。依據:`REPEATABLE READ` 下兩交易各刪一列會雙雙放行(本機 PG17.10 實測,證據 harness = `scripts/a7t-concurrency-probe.sh`);**鎖 parent 單獨不足以補**(同一 harness 實測)。現行 append-only 寫法不觸發本條。 | — |
 | 38 | **A9a** | A | 讀模型:訂單明細的 notes + procurement 投影、型別、mapper | — |
 | 39 | **A9b2** | A | 跨單搜尋合約:依**供應商單號**命中(讀 `order_item_procurement`)。走 adapter 投影、不開 DB RPC(單號搜尋的另一半 = A9b1,已在 D1 前完成) | — |
 | 40 | **A9c** | A | 列表投影改造:三軸欄位進 `ADMIN_ORDER_LIST_SELECT`。🔴 **純加法片**(R6)—— stale 欄的 UI 下架在 A9e、契約收縮在 A9r | — |
@@ -450,7 +469,7 @@ A9b1 / A9c / A9s / A9r / A9w3 / A9w4c 不算(只動客人可讀表或退場中�
 | 對客欄何時動 | **整單取消**(所有品項剩餘量歸零)⇒ 同交易寫 `orders.cancelled_at` + `cancelled_reason`;**部分取消** ⇒ **兩欄都不動**(訂單還活著)。多次部分取消累積到全量時,**最後那次**才寫這兩欄。`cancelled_quantity` 各欄一律 `> 0` 且 `(cancellation_id, order_item_id)` unique |
 | 內部 vs 對客 | `reason_code`(受控 code,內部)存本表;**對客文字**寫 `orders.cancelled_reason`,兩者由 RPC 同交易寫入。✅ **allowlist 與映射已定案 = §5.1d**(Q18,Sean 2026-07-28 拍「照這份」);未知 code 一律 `RAISE` fail-closed。A7/A8 開工阻擋解除 |
 | 與採購連動 | 取消後 `cancelled_quantity` 上升 ⇒ `ordered_quantity` **不自動下降**(已向供應商下的單不會因客人取消就消失);差額由第 3 批的採購退貨處理。✅ **已到貨後取消 = 不可(Q17=B,Sean 2026-07-28)**:已到貨部分只能走第 3 批退貨流程 ⇒ §5.1c 第四條不變式 `instock + cancelled ≤ quantity` **成立、隨 A1 上 CHECK(2026-07-31 起該 CHECK 在新表 `order_item_quantity_summary` 上,不在 `order_items`)**;A8a2 可取消量守門 `增量 ≤ quantity − instock − cancelled`,違反 `RAISE`;A13a 對已到貨品項顯示「不可取消,需走退貨」。🔴 **R6 的反向守門同步解**:A2b1 的 delta 守門(取消後不得為已取消部分加開採購)與本格互為表裡 |
-| 🔴 已出貨禁取消 | **上一版寫反了**(R4 抓,成立):我寫「包裹真相不存在 ⇒ 無法證明未出貨 ⇒ 不得取消」,但第 1 批**本來就沒有包裹模型** ⇒ 條件恆假、**一件都取消不了**,卻同時宣稱第 19 項變綠。**正確寫法**:第 1 批 `shipped_quantity` 欄**不存在**,出貨這件事在系統裡尚未發生 ⇒ 不變式 `cancelled ≤ quantity − shipped` **退化為 `cancelled ≤ quantity`、恆真**,取消照常運作(Q17=B 的已到貨守門另計,見「與採購連動」格)。🔴 **但這是有期限的正確**:第 2 批建包裹模型時,**同一片**必須把 `shipped_quantity` 加進不變式並改寫本 RPC —— 列為 **A8a1/A8a2/A8b 的 contract 債**,寫進第 2 批的 definition of done,**不是「日後自動生效」** |
+| 🔴 已出貨禁取消 | **上一版寫反了**(R4 抓,成立):我寫「包裹真相不存在 ⇒ 無法證明未出貨 ⇒ 不得取消」,但第 1 批**本來就沒有包裹模型** ⇒ 條件恆假、**一件都取消不了**,卻同時宣稱第 19 項變綠。**正確寫法**:第 1 批 `shipped_quantity` 欄**不存在**,出貨這件事在系統裡尚未發生 ⇒ 取消照常運作(Q17=B 的已到貨守門另計,見「與採購連動」格)。🔴🔴 **2026-08-05 B2 關卡1 更正**:~~不變式 `cancelled ≤ quantity − shipped`~~ 這個「完整式」**本身就寫錯了** —— `shipped ⊆ instock`(Sean 08-05 拍板「出貨必先到貨、無直送」)⇒ 既有的 `instock + cancelled ≤ quantity`(C7)**已經涵蓋**「已出貨不可取消」,不需要獨立的 `− shipped` 項。⇒ **contract 債的實質內容在第 2 批已由既有實作滿足**;第 2 批只需加 ~~`shipped_quantity` 欄 + `shipped ≤ instock` CHECK,**不改 RPC 公式**~~ 🔴 **2026-08-05 K1 R3 作廢(第一代字面;主視窗 08-05 清汙染時漏掉本行,B2 視窗補清)**:`shipped ≤ instock` 做成摘要表 CHECK 是 v2/v3 字面,已兩度被推翻且**本題重新開放、尚未定案**。**不得依本行施工。**詳 `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1 |
 | 🔴 已付款取消 | 🔴 **R7 收斂 + R8 加嚴:第 1 批整個 fail-closed** —— A8a1/A8a2 只允許 **`payment_status = 'unpaid'`**(R9 再收斂:`refunded` 分支是恆假字面已移除)**且該單 `payment_charge_attempts` 全為終態 `failed` 或零筆**(R8:只排 `pending` 仍會取消到已扣款未回填的單),其餘一律 `RAISE`。🔴 **三支 RPC、四個施工片(`admin_cancel_order` 兩片 + `begin_charge_attempt` + `confirm_order_payment`;R10 更正起點實名)統一先 `orders FOR UPDATE` 再檢查**(R8:消「取消與付款各自檢查各自通過」的競態);**部署序 A8c 守門先上、A8a 取消才上**。第 3 批依 §5.0 解鎖線(worker dormant → A8b → UI → enable)開通:enqueue `order_refund_jobs`(狀態機、fencing、`bank_refund_id` 外部冪等、reconcile 基準、`submitted` 隔日確認全在 A7b 合約);金額矩陣在 A8b(§5.3)。🔴 **第 19 項第 1 批 = 部分綠:整單取消閉環;部分取消安全可用但剩餘品項卡付款被守門封鎖(應收重算第 3 批,A13a 明示)** |
 
 #### 5.1c 計數器跨欄不變式(第 1 批版本;**四條全上**)
@@ -530,13 +549,50 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 > **為什麼不現在拆到片**:第 1 批會改變 `order_items` 的形狀與 RPC 慣例,現在拆的片八成要重拆。v1 的 67 條裡有 3 條總結性 must-fix 就是「片太大」——**現在硬拆等於再猜一次**。開批前跑一次拆片 + 關卡1,是比較便宜的路。
 
 0. 🔴 **N3a 共用產號 helper**(R5 前移:`shipment_reference` 要共用它;順序見 §5.0)
-1. `shipments` + `shipment_items` 模型(U1;🔴 **Q16=A 同一位客人 + 同一份收件資料**,DB 層擋;**soft delete、永不硬刪**)
+1. `shipments` + `shipment_items` 模型(U1;🔴 ~~Q16=A 同一位客人 + 同一份收件資料~~ → **Q1=B(2026-08-05)只守「同一位客人」**,DB 層 trigger 擋;收件逐字比對**不做**;**soft delete、永不硬刪**)
 2. 出貨 owner RPC(`shipment_reference` 由 N3a 產生、重試在本層;✅ **Q19=A(Sean 2026-07-28):P1 後綴正式作廢、不加 `-1/-2`** —— reference 本身全表唯一已足)
-2b. 🔴 **A8a1/A8a2/A8b contract 債**(§5.1b):`shipped_quantity` 加進不變式 + 改寫已出貨禁取消檢查 —— **本批 definition of done**
+   🔴 **本片的 DoD(2026-08-05 B2 DB 地基批交棒,**五條**;不是建議、是驗收條件)**:
+   ① **`shipped` 的強制點在哪一層 = 尚未定案,本片開工前必須重新分析**。
+      ~~B2 批刻意不做成摘要表 CHECK(理由:receipts 可刪、會讓無關的摘要列變非法)~~
+      🔴 **該理由已於 K1 R3 被證偽**:receipts 重算 trigger 是 **row-level、只重算受影響的那個品項**
+      (`20260803140000:258-287` 親驗)⇒ **不存在「無關的摘要列」**;被打紅的正是該品項本身,
+      而「已出貨卻把到貨紀錄刪掉」本來就該紅。⇒ 兩個候選(摘要表 CHECK / 出貨側守門)**都還沒被正確比較過**。
+      B2 批交付後這條在 DB 層零強制力 —— **這是已知缺口,不是已裁定的設計**。
+   ② **可取消量守門要不要改成 `quantity − GREATEST(instock, shipped) − cancelled`** ——
+      B2 批裁定「現在不做」(理由:本批 `shipped` 恆為 0、生產環境走不到該情境;
+      為尚不可達的情境去動剛 apply 的取消 RPC 並付 a8a2 五十五格全回歸=時機錯)。
+      **本片本來就要動取消線鄰接面、本來就要跑關卡2 ⇒ 在這裡做是順路。**
+      🔴 **兩案(摘要表 CHECK / 出貨側守門)至今沒有被正確比較過**——三代分析全被證偽,見
+      `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1 的證偽表;
+      ~~信箱 `B-23-Q` 第五節的比較~~ 建立在已證偽的前提上、**不得引用**。
+      本片開工前先取得主視窗另委的獨立分析結論(`B-31-A` ②)。
+   ③ **三組併發 barrier 負測**(2×unvoid / shipment INSERT×unvoid / cancel×unvoid)+ **冪等重放 oracle** ——
+      B2 批造不出來(作廢 writer 不在該批)、已標 inconclusive 不假裝補;**本片必須補齊**。
+   ④ 🔴 **開工第一件事 = 實跑 `scripts/a1-verify.sh`,依實跑結果決定同批要改什麼**。
+      背景:K1 R3 宣稱「摘要加欄後該 harness 保證全紅」,**B2 視窗親讀 harness 後複驗不成立**——
+      它 `drop_a1()` 後**單獨重套 A1**(`scripts/a1-verify.sh:33`/`:113-119`/`:447-454`),
+      結構斷言比對的是「A1 單獨重建出來的 5 欄表」⇒ 加欄不會讓它紅。
+      **未確認**:provision 是否把新 migration 一起套進拋棄庫、行為探針會不會紅。
+      ⇒ **動作保留、理由改成「實跑看結果」,不得寫成已知必紅。**
+   ⑤ 🔴 **`shipment_reference` = `order_shipped` 去重鍵的候選**:outbox 的
+      `dedup_key`「該批穩定識別」至今待定(`20260717020000:301`/`:349`),而 B2 批已交付全表唯一、
+      永不重用的 `shipment_reference` ⇒ E4 落地時**不必另發明識別**。
+2b. 🔴 **A8a1/A8a2/A8b contract 債**(§5.1b):~~`shipped_quantity` 加進不變式 + 改寫已出貨禁取消檢查~~
+    → **2026-08-05 B2 關卡1 更正**:`shipped ⊆ instock`(Sean 拍板無直送)⇒ 既有 C7 已涵蓋「已出貨不可取消」。
+    本批 definition of done = ①加 `order_item_quantity_summary.shipped_quantity` 欄
+    ~~②新增 `oiqs_shipped_le_instock` CHECK ③C6/C7 與 `admin_cancel_order` 公式一字不動~~
+    🔴 **2026-08-05 K1 R3 後狀態:本題重新開放、尚未定案** —— 「`shipped` 該在哪一層被強制」的兩次分析都被證偽(第一代「C7 已涵蓋」前提假=instock 非單調;第二代「移出摘要表」前提也假=receipts trigger 是 row-level、只重算受影響品項,不存在「無關的摘要列」,`20260803140000:258-287` 親驗)。⇒ **本行原有的施工字面全部作廢、不得依它施工**;B2 批已依停損只交付兩張表,摘要整合與契約債清償整批延後至下一線重新分析。
+    詳 `docs/specs/2026-08-05-e10-b2-shipments-db-plan.md` §0.1/§2(2026-08-05 停損改版後的段號)
 3. 出貨輸入 UI + 追蹤連結 + 單號點擊複製(列表出貨軸此時才「活」)
 4. 手機出貨兩步守門(UX §5 #23)
 5. 新竹 API 失敗/重送安全:請求識別值 + 原始回覆 + 三段狀態(UX §4 #17)
 6. 出貨通知給客人(接既有 `email_outbox`,**不另起管道**)
+   🔴 **本片 DoD(2026-08-05 B2 批交棒,F11)**:`order_shipped` 模板落地時**必須分流無單號情形**。
+   依 B2 批的 A8 CHECK,`tracking_number IS NULL` 只可能發生在 `carrier_code='other'`(自取/自送,
+   `carrier_note` 有說明)⇒ **不得寄出「已出貨但無追蹤號」的通用信**。
+   現況(**B2 視窗 2026-08-05 親查**):`order_shipped` 在 DB CHECK allowlist(`20260717020000:315`)
+   **但寄送端無模板、fail-closed `throw`**(`packages/use-cases/src/sweep-email-outbox.ts:113`)
+   ⇒ 今日寄不出去;**風險窗從本片把模板補上那一刻開始**。
 7. 內部通知(U4:LINE OA 推播 + 每日彙整 Email)—— **前置 = 通知矩陣拍板(§8.6 開批閘)+ 兩位員工加 OA 好友取得 userId**
 8. 列印出貨單 / 揀貨單
 9. **前台 #240 訂單詳情頁**(逐包裹單號 + 追蹤連結 + 品項進度)
@@ -795,9 +851,19 @@ Q1=B 之後這個欄位**沒有 writer 在維護**。上一版只排了「移除
 R3 的解法是「表 service_role only + own-order 安全投影」。**R4 指出那還是漏的,成立**:
 同一箱只有**一個快遞單號**與**一份收件快照**,不管投影怎麼切,
 把追蹤號給了 A 客人就等於把「B 客人那箱」的追蹤號也給了他 —— 他查得到整箱的物流狀態。
-而且一箱只能有一份收件人資料,多客人併箱在物理上就矛盾。
+~~而且一箱只能有一份收件人資料,多客人併箱在物理上就矛盾。~~
+🔴 **2026-08-05 B2 K1 R2 反例:後面那句是假論證** —— A、B 兩位客人若都寄到**同一個第三方地址**
+(例如同一間公司行號),一箱 + 一份 snapshot 在物理上完全一致、毫無矛盾。
+⇒ **「跨客人不做」這條限制仍然保留,但理由是隱私/政策**(不讓 A 由物流查詢面看到 B 那箱),
+**不是物理矛盾**。上一句的追蹤號外洩論證才是真正的理由,它單獨就足以支撐這條限制。
 
-⇒ **併箱限制為「同一位客人 + 同一份收件資料」**,不符即**禁止建立該包裹**(DB 層 CHECK / trigger,不只 UI 擋)。
+⇒ ~~**併箱限制為「同一位客人 + 同一份收件資料」**~~
+🔴 **2026-08-05 Sean 拍板 Q1=B,知情推翻本段後半**(選項已標注與 Q16=A 衝突、Sean 仍選 B、未回撤):
+**併箱只限制「同一位客人」**,不符即禁止建立該包裹(DB 層 trigger 擋,不只 UI)。
+收件資料改以包裹自己的 `recipient_snapshot` 為準,**允許與訂單的 `shipping_address_snapshot` 不同**
+(員工出貨當下可改寄送地址)。**已接受的代價**:訂單頁顯示的收件地址不等於實際寄達地址。
+上方 R4 那段「一箱只能有一份收件人資料,多客人併箱在物理上就矛盾」的論證**仍然成立且仍是跨客人不做的理由**;
+被推翻的只是「同客人之間也要逐字相同」這一條。
 ✅ **Sean 2026-07-28 拍 Q16=A 確認要限制**(在得知這縮小了 U1 原始語意、以及「若實務上會把不同客人的貨併箱寄同一地點就會被擋」之後仍選 A)。
 ⇒ **U1「多單併一箱」的最終語意 = 同一位客人的多張訂單併一箱**,跨客人併箱**不做**。
 這是對 07-26 U1 的**範圍縮小、非推翻**:併箱能力仍在,只是限定同客人。
