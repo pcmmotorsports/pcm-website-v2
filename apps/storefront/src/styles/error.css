@@ -68,10 +68,29 @@
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  border: 1px solid var(--c-text);
+  /* 🔶 第1批(設計端 `content-pages-handoff.md` §三-2 + `DESIGN-HANDOFF` §4-1「主 CTA 一律熔橘」)。
+     🔴 **設計端給的理由在真站今天不成立,所以做法不同**:交接單寫「`.btn-primary` 已在購物車
+     那輪換成熔橘底 ⇒ 這裡若留黑框就是橘底配黑框」。但那說的是**設計稿**的購物車;
+     真站 `cart.css:293` 的 `.btn-primary` 仍是 `background: var(--c-text)` **墨黑**
+     (熔橘化屬 /cart 與 /checkout 那兩批)。⇒ 照字面只改框線,做出來是**黑底配橘框**,
+     比兩端都糟。
+     🔴 **也不能直接去改 `.btn-primary`**:它的消費點有 9 個在 `/checkout`
+     (CheckoutStep1/2、MobileBuybar、Success、Redirecting、CartNotice),
+     動它等於今晚重繪金流頁 —— D-114-A 明訂金流頁留白天。
+     ⇒ 底色與框線**一起收進 `.err-btn-primary` 這個 scope**:同為單一 class(specificity 0,1,0)、
+     error.css 在 layout.tsx 的 import 序(:54)晚於 cart.css(:51)⇒ 平手時後載勝。
+     這與本檔上一段既有的作法同源(「design shared 缺的屬性折入 err- scope」)。
+     ⏳ **待 `.btn-primary` 全域熔橘化之後,下面這兩行 background 就變成重複宣告、應刪。**
+        已列進 STOP 的待辦。 */
+  background: var(--c-red);
+  border: 1px solid var(--c-red);
   transition: opacity 0.15s;
 }
-.err-btn-primary:hover { opacity: 0.85; background: var(--c-text); }
+.err-btn-primary:hover {
+  opacity: 0.85;
+  background: var(--c-red-dark);
+  border-color: var(--c-red-dark);
+}
 .err-support {
   margin-top: 40px;
   padding-top: 24px;

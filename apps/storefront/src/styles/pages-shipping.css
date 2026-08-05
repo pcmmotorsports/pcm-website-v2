@@ -23,7 +23,14 @@
   background: var(--c-surface-2);
 }
 .page-hero-inner {
-  max-width: var(--content-max);
+  /* 🔶 第1批:`--content-max`(1600)→ `--shell-bar-max`(1440)。
+     依據 = `DESIGN-HANDOFF-2026-08-05.md` §4-2 逐字「**其餘頁面主體吃 `--shell-bar-max`,
+     與殼左右緣切齊**」(只有商品列表主體維持拉滿),設計稿 `pcm-content.css:13` 的作法是
+     整顆重定義 `:root { --content-max: var(--shell-bar-max) }`。
+     🔴 **我刻意不改那顆 token,改為逐點換**:`--content-max` 另有兩個消費點 ——
+     `checkout.css:26` 與 `product-page.css:22` —— 動 token 會一併改到 `/checkout`,
+     而 D-114-A 明訂金流頁今晚不碰。⇒ 本批只收自己這兩處,token 收斂留給第5批白天一併做。 */
+  max-width: var(--shell-bar-max);
   margin: 0 auto;
   padding: 0 48px;
 }
@@ -42,7 +49,7 @@
 
 /* ==== Shipping(design pages.css L921-1046)==== */
 .shipping-body {
-  max-width: var(--content-max);
+  max-width: var(--shell-bar-max); /* 同 .page-hero-inner,理由見該處 */
   margin: 0 auto;
   padding: 32px 48px 80px;
 }
@@ -78,17 +85,18 @@
   border: 1px solid var(--c-border);
 }
 .shipping-card-num {
-  font-family: var(--font-mono);
+  /* 🔶 第1批:`var(--font-mono)` → `var(--f-mono)`(設計端 `content-pages-handoff.md` §三-1)。
+     原字面是**真站既有 bug**:`--font-mono` 這顆 token 只在 `product-page.css:18` 的 `.pd-page`
+     scope 內定義、本頁取不到 ⇒ 宣告失效、這行 mono 眉標一直是用內文字體在顯示。
+     改對之後 `01` 會變成等寬字(JetBrains Mono)。 */
+  font-family: var(--f-mono);
   font-size: 11px;
   letter-spacing: 0.2em;
   /* 🔶 0c:字面不動、但**行為變了** —— `--c-accent` 在 0c 之前全站未定義,這條無 fallback
      ⇒ 宣告在 computed-value time 失效、繼承 body 的 `--c-text` **墨黑**。
      0c 補定義之後這個編號眉標會**由黑變深熔橘 `#c4470c`**。
      設計端 `pcm-content.css:8` 逐字放行:「色 `var(--c-accent)` 在新 token 已是深熔橘 `#c4470c`,
-     **不另外改字面**」⇒ 這是設計端明知且要的結果,不是誤傷。**已列進 Sean 肉眼驗清單**。
-     ⚠️ 上一行的 `var(--font-mono)` 是真站 typo(該 token 只在 `product-page.css:18` 的
-        `.pd-page` scope 內定義、本頁取不到)—— 設計端已標明改 `var(--f-mono)`,
-        但那屬**第1批 `/info/shipping`**、不在 0c 範圍,刻意不動。 */
+     **不另外改字面**」⇒ 這是設計端明知且要的結果,不是誤傷。**已列進 Sean 肉眼驗清單**。 */
   color: var(--c-accent);
   margin-bottom: 16px;
 }
@@ -132,12 +140,19 @@
   font-weight: 700;
   margin: 0 0 10px;
 }
+/* 🔶 第1批(設計端 `content-pages-handoff.md` §三-3 + §七,**排版變更、非純換色**):
+   原本 `margin: 0` 讓同一個 `.policy-block` 內的多個 `<p>` 完全貼死。單段的區塊看不出來,
+   但隱私政策「七、Cookie 與第三方服務」是三段長文、擠成一整塊;`/info/shipping` 的退換貨分頁
+   同樣是 `RPM_WARRANTY_PARAGRAPHS` 多段渲染(`InfoShippingPage.tsx:92-94`)。
+   設計端推薦 A(照稿加 10px)、稿內已是 A ⇒ 照搬。
+   `:last-child` 歸零 = 段距不會累加到區塊自己的 `padding-bottom: 24px` 上。 */
 .policy-block p {
   font-size: 14px;
   color: var(--c-text-2);
   line-height: 1.7;
-  margin: 0;
+  margin: 0 0 10px;
 }
+.policy-block p:last-child { margin-bottom: 0; }
 .policy-block ul, .policy-block ol {
   margin: 0;
   padding-left: 20px;
@@ -145,6 +160,16 @@
   color: var(--c-text-2);
   line-height: 1.9;
 }
+/* 🔶 第1批:設計稿 `pcm-content.css:144` 有、真站沒有。`.policy-block` 內的 `<strong>` 原本繼承
+   `.policy-block p` 的 `--c-text-2` 灰 ⇒ 粗體只粗不深、強調力道被吃掉一半。
+   **這一條不在交接單 §三 那「3 筆」裡**(§三 寫於平板段之前、已過期),
+   是逐條結構比對設計稿與真站時比出來的。
+   🔴 **生效面只有 `/info/shipping` 的退換貨分頁**(實測 7 個 `<strong>`,來自
+   `data/rpm-policies.ts` 經 `renderRuns` 渲染,含「不適用 7 天鑑賞期」)。
+   `/terms` 與 `/privacy` **一個 `<strong>` 都沒有** —— `LegalDocPage.tsx` 只渲染純字串,
+   設計稿 `terms-page.html` / `privacy-page.html` 同樣 0 命中。
+   (本註解初版寫成「法律頁的粗體」,是**沒查就寫生效面**,已由 R1 抓出更正。) */
+.policy-block strong { color: var(--c-text); }
 
 /* faq 家族 —— .shipping-content scope(見檔頭 🔴;design 原為裸 .faq-item)。
    ⚠️ 另釘死 display/padding/hover 三屬性(design 字面未寫、原依瀏覽器預設):
@@ -190,4 +215,17 @@
   .shipping-body { padding: 24px 16px 60px; }
   .page-hero-inner { padding: 0 14px; }
   .page-hero-title { font-size: 24px; }
+}
+
+/* ── 平板(600-1079px)· 第1批搬自設計稿 `pcm-content.css:308-316` ──────────────
+   上面那個 900px 段是**為手機寫的**,600-900 的平板整段吃到(頁首大標 36→24、內文 14px)。
+   SITE-MAP「平板斷點(600-1079px)——全站盤點結果」逐字列出 `pcm-content.css` 為已補檔之一。
+   ⚠️ **本段刻意排除設計稿裡的 `.faq-q` / `.faq-a` 兩條**:那兩個 class
+   在真站與設計稿四支 HTML 內都是 **0 命中**(實 grep)⇒ 在設計端自己的預覽裡也從未生效。
+   真站的對應選擇器是 `.shipping-content .faq-item summary` / `… p`,但要不要跟著加大
+   是設計端的意圖問題(他們沒真的看過那個效果),我不代為外推 —— 已列進 STOP 待設計端確認。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .page-hero-title { font-size: 30px; }   /* 桌機 36 / 手機 24 */
+  .policy-block p, .policy-block li { font-size: 15px; line-height: 1.85; }
+  .shipping-card-num { font-size: 12px; }
 }
