@@ -290,7 +290,7 @@ S1A2_FNS="'pcm_b2_shipments_frozen_after_ship','pcm_b2_shipments_immutable_guard
   && ok "本片四支皆非 SECURITY DEFINER(它們不讀別的表 ⇒ 掛了只是多一個 owner 權限入口)" \
   || bad "本片有函式掛了不必要的 SECDEF"
 
-log "7/6 🔴 前置閘的聚合鍵含 tgtype(`B-126-A` 解除令折入)"
+log "7/6 🔴 前置閘的聚合鍵含 tgtype(B-126-A 解除令折入)"
 # 🔴 migration 的前置閘原本只 pin `tgname:tgenabled` ⇒ 同名 trigger 改掛 BEFORE/AFTER 或換事件面、
 #    保持啟用,閘照樣綠。v5.4-c 補上 tgtype;本節在 harness 端做同樣的雙向比對 + 突變靶⑯。
 TRIGSET="$(qs "SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname)::text
