@@ -240,7 +240,7 @@ export type AdminOrderFilter = {
  * `.or()` 字串內插前的 fail-closed 再驗,那整段隨九碼篩選下推在 A9w3 移除。
  * item writer 那條線驗形狀用的是 `apps/admin/src/lib/orders/workflow-form.ts:29` 的 local
  * `WF_CODE_RE`(字面相同的**另一份**、從未 import 本常數)⇒ 改這裡不會影響任何守門。
- * 暫留不刪(去留隨 A9w4c 判);合併那兩份 RE 是另一件事、不在退場片範圍。
+ * 暫留不刪(A9w4c 前半未處置 ⇒ 已立案 backlog #332 隨九碼死碼收尾片收);合併那兩份 RE 是另一件事、不在退場片範圍。
  */
 export const WORKFLOW_STATUS_CODE_RE = /^[a-z0-9_]{1,64}$/;
 
@@ -679,7 +679,7 @@ export type AdminOrderDetail = {
   createdAt: string;
   paymentStatus: PaymentStatus;
   fulfillmentStatus: FulfillmentStatus;
-  // (M-4a D-2 起不攜 orders.workflow_status:整單狀態=顯示端由 items[].workflowStatus 彙總。)
+  // (M-4a D-2 起不攜 orders.workflow_status;A9w1/A9w3 起明細鏈九碼全退場,items[].workflowStatus 彙總已拆。)
   orderSource: OrderSource;
   paymentChannel: PaymentChannel;
   /** 金流事實軸(付款成功才有值;null=尚無成功請款) */

@@ -16,7 +16,7 @@ import type {
   PaginationParams,
 } from '@pcm/domain';
 // A9w3:`WORKFLOW_STATUS_CODE_RE` 的唯一用途是九碼篩選的字串內插守門,篩選整段已移除
-// ⇒ import 一併收掉。🔴 domain 端的 export 暫留(去留隨 A9w4c 判),但**不是**因為還有人在用 ——
+// ⇒ import 一併收掉。🔴 domain 端的 export 暫留(A9w4c 前半未處置,已立案 backlog #332),但**不是**因為還有人在用 ——
 //    本片後它全 repo 零 consumer;item writer 驗形狀用的是 workflow-form.ts 自己的 local RE。
 import { toMoneyAmount, normalizeOrderNumberSearch } from '@pcm/domain';
 import type { Database, Json } from './database.types';
