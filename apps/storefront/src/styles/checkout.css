@@ -329,7 +329,11 @@
 
 /* ②-④a TapPay Fields iframe 容器(M-3;鏡像 .auth-field input 視覺、高度固定供 iframe 填滿;
  * SDK 對 focus 容器注入 .tappay-field-focus、欄位 error 由 TapPayCardFields 加 .tpfield-error)。 */
-.tpfield { height: 44px; width: 100%; padding: 0 14px; border: 1px solid var(--c-border); background: var(--c-bg); transition: border-color 0.15s; }
+/* 🔶 第5批 R1 U3:框線由 --c-border 提到 --c-border-strong(OD `pcm-checkout.css:337` 逐字)。
+ * ⚠️ 這**不是**與 .auth-field input 不同步 —— 設計稿自己就是兩個值(`pcm-auth.css:26` 的
+ * 文字框仍是 --c-border)。iframe 容器裡沒有游標也沒有 placeholder,框線淡到看不出「這格要填」,
+ * 刻意畫得比旁邊文字框重。順手把它改回去 = 把 U3 的意圖改掉。 */
+.tpfield { height: 44px; width: 100%; padding: 0 14px; border: 1px solid var(--c-border-strong); background: var(--c-bg); transition: border-color 0.15s; }
 .tpfield.tappay-field-focus { border-color: var(--c-text); }
 .tpfield.tpfield-error { border-color: var(--c-red); } /* 框線層 → 留亮熔橘(OD `pcm-checkout.css:353`)*/
 .co-card-error { font-size: 13px; color: var(--c-red-dark); margin: 0; } /* 🔶 0c 文字層(OD `pcm-checkout.css:354`)*/
@@ -471,6 +475,38 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
 }
 .co-btn-back, .co-btn-next, .co-btn-pay { padding: 14px 24px; }
 .co-btn-pay { min-width: 220px; }
+
+/* 🔶 第5批 · 結帳主 CTA 熔橘(交接單 §五 驗收 #3 逐字:「下一步:發票與付款 →」與
+ * 「確認付款 …」是熔橘底白字)。
+ *
+ * 🔴 為什麼是逐點 scope 而不是把 `cart.css` 的 `.btn-primary` 翻熔橘(設計端的作法):
+ *    `.btn-primary` 全站 10 個消費點,而 `cart-page-handoff.md:87` 逐字
+ *    「空車狀態的 .btn-primary(繼續購物)維持墨黑未動 —— 它是導流鈕非結帳主 CTA;
+ *      **要一起改跟 Sean 說一聲**」,checkout 交接單 §二-8 則要它全域熔橘。
+ *    ⚠️ 精確地說這**不是死結、是「還沒問 Sean」**(R1 F5 更正我原本的寫法):
+ *    購物車那邊留了門,只是要求先問。在問到之前,全域翻等於替他先答。
+ *    這裡只動**有明文依據的四顆**(下一步 / 確認付款 / 手機底欄兩顆共用同一個 class),
+ *    終態三顆與 CheckoutCartNotice 的「繼續購物」留白等 Sean。作法比照第1批 404 的 `.err-btn-primary`。
+ *    ⏳ 連帶:`error.css` 那筆「待 .btn-primary 全域熔橘化後這兩行應刪」的債,因本片的決定**繼續掛著**。
+ *
+ * ⚠️ 這組規則**倚賴一個前提**,已在 checkout.test.ts 釘住,前提消失時要紅不要靜默失效:
+ *    `layout.tsx` 的 import 序 checkout.css 晚於 cart.css —— 兩邊同為 (0,1,0),平手後載勝。
+ *    (白字 `color: #fff` 同樣來自 `.btn-primary`,一併釘住。)
+ *
+ * 🔴 `:disabled` 必須寫在這裡、**不能指望 `.btn-primary`**(R1 F2 抓到我原註解說謊):
+ *    設計稿 `pcm-checkout.css:526` 有 `.btn-primary:disabled { opacity: .5 }`,
+ *    但真站 `cart.css` 那條**從來沒有** —— 全樹 `btn-primary:disabled` 零命中。
+ *    墨黑時代這個缺口只是「看不出不能按」;翻成熔橘(= 全站行動色)之後,
+ *    在付款頁上一顆滿飽和的「確認付款」卻按不下去,誤導更強。照鐵則 1 補齊設計稿字面。 */
+.co-btn-next,
+.co-btn-pay,
+.co-mobile-buybar-btn { background: var(--c-red); transition: background 0.2s; }
+.co-btn-next:hover,
+.co-btn-pay:hover,
+.co-mobile-buybar-btn:hover { background: var(--c-red-dark); }
+.co-btn-next:disabled,
+.co-btn-pay:disabled,
+.co-mobile-buybar-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 /* 建單失敗訊息(e3b;design mock 無失敗路徑、storefront 真建單需要) */
 .co-submit-error { color: var(--c-red-dark); font-size: 13px; margin: 0 0 12px; } /* 🔶 0c 文字層(OD `pcm-checkout.css:563` 同族)*/
 
@@ -557,6 +593,27 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
 /* Mobile buybar (hidden on desktop) */
 .co-mobile-buybar { display: none; }
 
+/* ── 🔶 第5批 · TabBar 讓位 padding 歸零(Sean 2026-08-06 拍板 Q5=A 的另一半)──────
+ * `MobileTabBar` 在 `/checkout*` 已藏,但 `mobile-tabbar.css` 那段 `body` 的讓位 padding
+ * **不會跟著消失** —— 它寫在 body 上、與 TabBar 是否渲染無關 ⇒ 不補這條就是頁尾下方
+ * 一條 70px 的死空間。作法照 `coming-soon.css:267` 已確立的同款 idiom。
+ *
+ * 🔴 **刻意不包 @media**(coming-soon 那輪 R1 抓到的洞,原樣適用):那段 padding 有兩個來源 ——
+ *    `@media (max-width:1079px) body` 與 `html[data-mobile="true"] body`(**無 media、全寬度生效**)。
+ *    包進 @media 只擋得住第一個;手機 UA 但 viewport ≥1080px(Android 平板橫放)白條原樣回來。
+ *    拿掉外殼在桌機是 no-op(那裡本來就沒有 padding)。
+ *
+ * 🔴 **為什麼要寫兩條選擇器**(只寫第一條會在真手機上整條失效):
+ *    `body:has(.co-page)` = (0,1,1),而要蓋掉的 `html[data-mobile="true"] body` = (0,1,2)
+ *    —— **元素數 2 > 1 ⇒ 對方贏**。第二條 (0,2,2) 才穩勝。
+ *    (`coming-soon.css` 那條只寫一份能贏,是因為它多一個 `:not(.cs-has-nav)` 湊到 (0,2,1);
+ *     照抄它的形狀到這裡會靜默失效 —— 這就是「搬來的理由要重驗」。)
+ *
+ * 條件用 `.co-page` 而不是路徑:四個結帳畫面(CheckoutView / Success / Redirecting /
+ * CartNotice)都掛它,與 `MobileTabBar` 的 `startsWith('/checkout')` 涵蓋同一集合。 */
+body:has(.co-page),
+html[data-mobile="true"] body:has(.co-page) { padding-bottom: 0; }
+
 /* ============ RESPONSIVE ============ */
 @media (max-width: 1024px) {
   .co-layout { grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; }
@@ -603,6 +660,29 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
     padding: 14px 24px;
     flex: 0 0 auto;
     min-width: 140px;
+  }
+
+  /* 🔴 R1 F1(Critical,我原本漏掉的):上面那條歸零**歸過頭了**。
+   * `<HomeFooter />` 是 `</main>` 的**後兄弟**(`CheckoutView.tsx:384`)⇒
+   * `.co-main { padding-bottom: 120px }` 保護不到它,而這裡的 buybar 是 `position: fixed`。
+   * 頁尾下方唯一的讓位就是剛被歸零的那條 body padding ⇒ 不補這條,手機結帳頁的版權列
+   * **永久壓在 buybar 底下**、連 iOS 安全區也一併沒了(`.ed-footer-base` 自帶只有 22px)。
+   *
+   * 條件用 `.co-mobile-buybar` 而不是 `.co-page`:四個結帳畫面只有 `CheckoutView` 渲染它,
+   * Success / Redirecting / CartNotice 沒有 buybar ⇒ 那三個維持歸零才對。
+   * 🔴 **寫在既有的手機段內、不另開一個同斷點的 @media**:checkout.test.ts 有兩條舊斷言
+   * 用「這個斷點的 header 字面」`indexOf` 切片,檔內出現第二個同字面 header 會讓它們靜默
+   * 切錯(批3 實際踩過的洞)。本註解也照本檔開頭的規矩不寫出那個字面。
+   * 順序上本段在歸零那組之後 ⇒ 同 specificity 靠序取勝。
+   *
+   * 🔴 **80px 這個數字不是抄來的、是量的**(R2 用真瀏覽器 fixture 量):buybar 實高
+   * 390px 寬 = 71px、620/880px 寬 = 80px(平板段把 padding 加到 14+14、鈕字級 15px)。
+   * 取上界 80。改動前這裡是 `mobile-tabbar.css` 給的 70/74px,寫 70 會比改動前**更薄**。
+   * ⚠️ **已排程的 U4**(手機底欄補一行 `.co-mobile-buybar-sub`)會把 buybar 再推高約 15px
+   * ⇒ 做 U4 時**必須回來重量這個數字**,否則頁尾又被蓋,而測試只釘字面、不會紅。 */
+  body:has(.co-mobile-buybar),
+  html[data-mobile="true"] body:has(.co-mobile-buybar) {
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
   }
 
   /* Hide desktop bottom actions on mobile (replaced by buybar) */
@@ -664,4 +744,49 @@ button.co-success-cta { border: none; cursor: pointer; font-family: inherit; }
 }
 @media (prefers-reduced-motion: reduce) {
   .co-pay-overlay-spinner { animation-duration: 1.6s; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * 第5批 · 平板段(600-1079px)—— 搬 OD `pcm-checkout.css:724-747` 整段
+ *
+ * 🔴 **位置本身就是規格,不要移動它。**
+ *    這段與上面的 1024↓ / 900↓ / 720↓ specificity 完全相同(都是 class 包在 media 裡),
+ *    平手時**只能靠原始碼順序分勝負**。設計稿把它擺在檔尾,於是在 600-720 這一段它會
+ *    **回頭覆蓋** 720↓ 的單欄規則:
+ *      · 720↓ 給 .co-inv-tabs / .co-inv-grid 各 1fr(單欄)
+ *      · 本段給 .co-inv-tabs repeat(3,1fr)、.co-inv-grid 1fr 1fr
+ *      ⇒ 620px 寬時發票三 tab 並排、發票欄位兩欄,720↓ 那兩條只在 <600 才活著。
+ *    把本段移到 720↓ 之前 = 視覺靜默倒退成單欄,而所有逐點值斷言照樣全綠。
+ *    checkout.test.ts 有一條專釘「本段的位置在 720↓ 之後」。
+ *
+ * 🔴 **為什麼 900↓ 不夠**:900↓ 那段是為手機寫的(主標 28、步驟標 12),而 600-900 的平板
+ *    整段吃到它 ⇒ iPad 直向會拿到 390px 的字級。本段把它們撈回中間值。
+ *
+ * ⚠️ **設計稿 28 條裡刻意少搬 2 條**(不是漏):
+ *      · `.co-tp-ph { font-size: 15px }`      —— 稿內 TapPay placeholder 示意,真站是 iframe 自帶
+ *      · `.co-mobile-buybar-sub { font-size: 12px }` —— R1 U4 的「底欄補一行」,markup 還沒做
+ *    兩個 class 在真站 markup 都是 0 命中。搬死規則的症狀是「看起來有守到、實際什麼都沒發生」,
+ *    下一個人會以為已經處理過了(第1批 .faq-q/.faq-a 同型)。U4 做的時候連同 900↓ 那條一起補。
+ * ══════════════════════════════════════════════════════════════════════════ */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .co-main { padding: 24px 28px 120px; }
+  .co-head h1 { font-size: 32px; }          /* 桌機 36 / 手機 28 */
+  .co-step { padding: 16px 18px; }
+  .co-step-label { font-size: 14px; }       /* 手機段壓到 12px */
+  .co-step-num { width: 30px; height: 30px; font-size: 13px; }
+  .co-section-head h2 { font-size: 19px; }
+  .co-addr-name, .co-ship-label, .co-pay-label { font-size: 15px; }
+  .co-addr-line, .co-addr-phone, .co-ship-desc, .co-pay-desc { font-size: 14px; }
+  .co-review-item-name { font-size: 15px; }
+  .co-summary-item, .co-line { font-size: 14px; }
+  .co-inv-tabs { grid-template-columns: repeat(3, 1fr); }
+  .co-inv-grid { grid-template-columns: 1fr 1fr; }
+  .co-card-row { grid-template-columns: 1fr 1fr; }
+  .tpfield { height: 48px; }
+  .co-mobile-buybar { padding: 14px 24px; }
+  .co-mobile-buybar-info .ap-mono { font-size: 11px; }
+  .co-mobile-buybar-price { font-size: 24px; }
+  .co-mobile-buybar-btn { padding: 15px 28px; min-width: 170px; font-size: 15px; }
+  .co-success-title { font-size: 30px; }
+  .co-success-note { font-size: 15px; }
 }
