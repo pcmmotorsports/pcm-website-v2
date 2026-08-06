@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, render } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
 
 import { OrdersTable } from './orders-table';
@@ -15,7 +15,9 @@ afterEach(cleanup);
 //    ⇒ V3(rowSpan)與 V4(金額合併)**在真實資料上根本看不到**,只能靠這裡的假資料覆蓋。
 //    Sean 肉眼驗時看到的是「單品項單一切正常」,**合併格效果他這批看不到** —— 這句話要帶進交棒。
 //
-// 🔴 V6(日期格式 `07/25`)與 V8(付款軸小字)**不在本檔** —— 那兩格屬 A11a-2,本片不預埋。
+// 🔴 **V6 / V8 已於 A11a-2(2026-08-06)補入本檔末**(原本這裡寫「不在本檔、屬 A11a-2」,已過期)。
+//    V6 的**格式真值表**在 `lib/orders/order-list-view.test.ts`(純函式、可注入 `now`);
+//    本檔那條只證**接線**——日期格吃的是 `formatOrderListDate` 而不是 `formatOrderDate`。
 
 const LINE_BASE: Omit<AdminOrderLine, 'id' | 'quantity' | 'lineTotal'> = {
   variantSku: 'SKU-001',
@@ -45,6 +47,8 @@ type OrderOverrides = {
   lines: AdminOrderLine[];
   total?: AdminOrderSummary['total'];
   customerName?: string | null;
+  /** A11a-2 V8:付款軸小字要能逐狀態驗(fixture 預設 `paid`)。 */
+  paymentStatus?: AdminOrderSummary['paymentStatus'];
 };
 
 function order(overrides: OrderOverrides): AdminOrderSummary {
@@ -257,5 +261,65 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
 
     expect(customerCell.textContent).toContain('—');
     expect(customerCell.textContent!.length).toBeGreaterThan(1);
+  });
+});
+
+// ── V8 + V6 接線:A11a-2(付款軸小字 / 列表日期格式;兩者都塞既有格、不加欄)────────────
+describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
+  it('小字與單號在**同一格**(索引 0),且表頭仍是 9 欄、無「付款」欄', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+    // 🔴 同 V7 的理由用**固定索引 0**:訂單編號恆是第一格,不靠「第一個帶 rowspan 的格」推。
+    const idCell = [...container.querySelectorAll('tbody tr td')][0]!;
+
+    // 🔴 「沒有付款欄」由這條 `toEqual` 全額涵蓋。原本多寫的 `not.toContain('付款')` 已刪:它被嚴格蘊含,
+    //    **且**陣列 `toContain` 是整格相等 ⇒ 欄名若叫「付款狀態」它照樣綠(R1 抓到,名實不符)。
+    expect(headers).toEqual(EXPECTED_HEADERS);
+    expect(idCell.textContent).toContain('PCM-0001');
+    // 字面取自 `PAYMENT_STATUS_LABEL.paid`(`order-list-view.ts`)的**真實值**,不是自己編的中文。
+    expect(idCell.textContent).toContain('已付款');
+  });
+
+  it('🔴 待付款上紅、其餘走 muted:兩格正負對照(只驗字面會讓上色整段拿掉仍全綠)', () => {
+    const { container: unpaidBox } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
+    );
+    const unpaidCell = [...unpaidBox.querySelectorAll('tbody tr td')][0]!;
+    // 🔴 `:scope > div` 而非 `div`:單號格今天只有這一顆 div,但 A11a-3 的操作入口很可能加 wrapper,
+    //    那時 `querySelector('div')` 會靜默讀到別的元素、這兩條變成量錯東西(R1 抓到)。
+    const unpaidLabel = unpaidCell.querySelector(':scope > div')!;
+
+    expect(unpaidLabel.textContent).toBe('待付款');
+    expect(unpaidLabel.className).toContain('text-destructive');
+
+    // 反面:`paid` 那格**不得**是 destructive —— 少了這格,「所有狀態一律上紅」也會過。
+    const { container: paidBox } = render(
+      <OrdersTable orders={[order({ lines: [line('l2', 1, 12000)] })]} />,
+    );
+    const paidLabel = [...paidBox.querySelectorAll('tbody tr td')][0]!.querySelector(':scope > div')!;
+
+    expect(paidLabel.textContent).toBe('已付款');
+    expect(paidLabel.className).not.toContain('text-destructive');
+    expect(paidLabel.className).toContain('text-muted-foreground');
+  });
+});
+
+describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrderDate', () => {
+  it('同年 fixture → 日期格為 `08/06`,且**不含**完整 `2026-08-06`', () => {
+    // 🔴 系統時間釘死:同年/跨年是相對當下判斷,不釘的話這條在 2027 年會自己變紅(時間炸彈)。
+    //    fixture `createdAt` = `2026-08-06T02:00:00Z`(台北 2026-08-06)。
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-06T02:00:00Z'));
+    try {
+      const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+      const dateCell = [...container.querySelectorAll('tbody tr td')][1]!;
+
+      // 🔴 原本這下面多寫一條 `.not.toContain('2026-08-06')`,R1 抓到被本條嚴格蘊含 ⇒ 已刪。
+      //    連帶更正我先前的突變報告:突變②(接線改回 `formatOrderDate`)紅的是**整條 it**,
+      //    不是「只紅那一條斷言」—— 兩個斷言在同一條 it 內本來就不可分辨。
+      expect(dateCell.textContent).toBe('08/06');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
