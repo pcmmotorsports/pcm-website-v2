@@ -60,6 +60,8 @@ type OrderOverrides = {
   customerName?: string | null;
   /** A11a-2 V8:付款軸小字要能逐狀態驗(fixture 預設 `paid`)。 */
   paymentStatus?: AdminOrderSummary['paymentStatus'];
+  /** A11a-5 V11:發票欄要能逐三態驗(fixture 預設 `not_issued`)。 */
+  invoiceStatus?: AdminOrderSummary['invoiceStatus'];
 };
 
 function order(overrides: OrderOverrides): AdminOrderSummary {
@@ -82,7 +84,7 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
     //    (memory `feedback_fixture-value-makes-guard-vacuous` 的同族:fixture 值讓斷言失去意義)。
     //    ⇒ cast 已移除,現在 fixture 由 tsc 守門。
     tierAtCheckout: 'general',
-    // A9c:開票紀錄三態(`not_issued` / `issued` / `voided`)。發票欄本身屬 A11a-5,本檔不驗顯示。
+    // A9c:開票紀錄三態(`not_issued` / `issued` / `voided`)。**A11a-5 起 V11 在本檔逐三態驗顯示**。
     invoiceStatus: 'not_issued',
     cancelledAt: null,
     displayPosition: null,
@@ -90,7 +92,7 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
   };
 }
 
-/** 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 收工 = 9 欄)。 */
+/** 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 = 9 欄 → A11a-4 加訂貨 = 10 → **A11a-5 加發票 = 11**)。 */
 const EXPECTED_HEADERS = [
   '訂單編號',
   '日期',
@@ -101,37 +103,45 @@ const EXPECTED_HEADERS = [
   '數量',
   '金額',
   '客戶',
+  '訂貨', // A11a-4(品項層)
+  '發票', // A11a-5(訂單層);出貨/操作仍分屬 A11a-6 與 A13
 ];
 
 // ── V1:欄數 ───────────────────────────────────────────────────────────
 describe('V1 — 表頭欄數與內容欄數一致', () => {
-  // 🔴 期望值**不寫死 13**:13 只有在四個加欄子片(A11a-3/-4/-5/-6)全做完才成立。
-  //    A11a-1 收工是 9(plan §3「收工欄數」欄);寫死 13 會讓中間片永遠過不了驗收。
-  it('表頭恰為 9 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面)', () => {
+  // 🔴 期望值**不寫死**上限:Q5b=A 已把 A11a-3(操作欄)整片移到 A13 ⇒ 本線上限是 **12**(不是 13)。
+  //    每片收工值 = 前一片 +1(plan §3);寫死任何終值都會讓中間片永遠過不了驗收。
+  it('表頭恰為 11 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面;A11a-4/-5 起含訂貨、發票)', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
 
     expect(headers).toEqual(EXPECTED_HEADERS);
   });
 
-  it('單品項單:該列 <td> 數 = 9(訂單層與品項層都在同一列)', () => {
+  it('單品項單:該列 <td> 數 = 11(訂單層與品項層都在同一列)', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const cells = container.querySelectorAll('tbody tr td');
 
-    expect(cells.length).toBe(9);
+    expect(cells.length).toBe(11);
   });
 
-  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 9 + 品項欄數×2', () => {
+  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 11 + 品項欄數×2', () => {
     // 🔴 這條是「表頭與 rowSpan 佔位一致」的真正斷言:訂單層 4 欄(單號/日期/金額合併/客戶)
-    //    只在第一列出現,後兩列各只有 5 個品項欄 ⇒ 總格數 = 9 + 5 + 5。
+    //    訂單層現為 **5** 欄(單號/日期/金額合併/客戶/發票),只在第一列出現;
+    //    後兩列各只有 **6** 個品項欄(品牌/料號/品名/車種/數量 + **A11a-4 訂貨**)。
+    //    A11a-5 的發票欄是**訂單層** ⇒ 只加在第一列、不影響後續列的 6 ⇒ 總格數 = **11** + 6 + 6。
+    // ⚠️ **這條守的是「格數與 rowSpan 佔位」,不是「渲染後落在第幾欄」**(R1 抓到我原本的註解
+    //    宣稱過頭):jsdom **沒有 table layout 引擎**,把 `<th>訂貨</th>` 搬到表頭第一位而 `<td>` 不動,
+    //    這三條照樣全綠。真正保證落點的是 HTML 表格模型 + `shouldMergeAmount` 對多列恆真
+    //    (⇒ 金額與客戶恆 rowSpan ⇒ 訂貨恆落第 10 欄),最終仍要 Sean 肉眼驗。
     const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
     const { container } = render(<OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(3);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(9);
-    expect(rows[1]!.querySelectorAll('td').length).toBe(5);
-    expect(rows[2]!.querySelectorAll('td').length).toBe(5);
+    expect(rows[0]!.querySelectorAll('td').length).toBe(11);
+    expect(rows[1]!.querySelectorAll('td').length).toBe(6);
+    expect(rows[2]!.querySelectorAll('td').length).toBe(6);
   });
 });
 
@@ -160,11 +170,12 @@ describe('V3 — rowSpan 分組', () => {
     const { container } = render(<OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
     const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
 
-    // 訂單層 4 格:單號 / 日期 / 金額(本例合併)/ 客戶
-    expect(spanned.length).toBe(4);
+    // 訂單層 5 格:單號 / 日期 / 金額(本例合併)/ 客戶 / **發票**(A11a-5)
+    expect(spanned.length).toBe(5);
     expect(spanned.every((td) => td.getAttribute('rowspan') === '3')).toBe(true);
     // 🔴 「只渲染一次」要另外釘:rowSpan 值對、但每列都畫一次的話上面那條仍會過
-    //    (它只數帶 rowspan 屬性的格子總數 —— 每列都畫會變 12 而不是 4,所以這條其實已被涵蓋)。
+    //    (它只數帶 rowspan 屬性的格子總數 —— 訂單層現為 **5** 格,每列都畫會變 **15** 而不是 5,
+    //     所以這條其實已被涵蓋。A11a-5 加發票後這兩個數字從 12/4 變成 15/5。)
     //    這裡改釘單號文字在整張表只出現一次,那是「重複渲染」最直接的觀察面。
     expect(container.innerHTML.split('PCM-0001').length - 1).toBe(1);
   });
@@ -174,7 +185,8 @@ describe('V3 — rowSpan 分組', () => {
     const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
 
     // 🔴 先釘數量再釘值:`every` 對空陣列恆真 ⇒ 把 rowSpan 整個拿掉時上一版仍會綠(R1 nit)。
-    expect(spanned.length).toBe(3);
+    //    單品項單金額不合併 ⇒ 訂單層 4 格:單號 / 日期 / 客戶 / **發票**。
+    expect(spanned.length).toBe(4);
     expect(spanned.every((td) => td.getAttribute('rowspan') === '1')).toBe(true);
   });
 });
@@ -196,8 +208,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
 
     expect(container.textContent).toContain('NT$ 12,000');
     expect(container.textContent).not.toContain('NT$ 12,100');
-    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子只剩 3 個(單號/日期/客戶)
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(3);
+    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子剩 4 個(單號/日期/客戶/**發票**)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
   });
 
   it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
@@ -206,7 +218,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     );
 
     expect(container.textContent).toContain('NT$ 36,000');
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+    // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
   });
 
   it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
@@ -218,7 +231,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     expect(container.textContent).toContain('NT$ 25,000');
     // 反面:不得再逐列顯示各列小計
     expect(container.textContent).not.toContain('NT$ 8,000');
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+    // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
   });
 
   it('2 品項 × 其中一列數量 2 → 合併並顯示整單總額', () => {
@@ -228,7 +242,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
     );
 
     expect(container.textContent).toContain('NT$ 29,000');
-    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+    // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
   });
 });
 
@@ -239,7 +254,7 @@ describe('V5 — 空 lines', () => {
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect(rows.length).toBe(1);
-    expect(rows[0]!.querySelectorAll('td').length).toBe(9);
+    expect(rows[0]!.querySelectorAll('td').length).toBe(11); // A11a-4/-5 起含訂貨、發票欄
     expect(container.textContent).toContain('PCM-0001');
     // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
     //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
@@ -279,7 +294,7 @@ describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
 
 // ── V8 + V6 接線:A11a-2(付款軸小字 / 列表日期格式;兩者都塞既有格、不加欄)────────────
 describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
-  it('小字與單號在**同一格**(索引 0),且表頭仍是 9 欄、無「付款」欄', () => {
+  it('小字與單號在**同一格**(索引 0),且表頭仍是 11 欄、無「付款」欄', () => {
     const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
     const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
     // 🔴 同 V7 的理由用**固定索引 0**:訂單編號恆是第一格,不靠「第一個帶 rowspan 的格」推。
@@ -334,5 +349,136 @@ describe('V6 接線 — 日期格吃的是 formatOrderListDate,不是 formatOrde
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── V9:訂貨欄(A11a-4)────────────────────────────────────────────────
+describe('V9 — 訂貨欄接 A9c 的非 nullable 三軸(零 join 由型別層天然成立,本組不另量)', () => {
+  it('逐列顯示 `已訂/買了`,分子分母各自接對線', () => {
+    // 🔴 三個值刻意互不相等(已訂 2 / 買了 5 / 到貨 1):分子分母對調、或分母誤接
+    //    `instockQuantity` / `cancellableQuantity` 都會紅。fixture 預設的 `orderedQuantity: 0`
+    //    在這裡不夠用 —— 0 與任何接錯線的結果太容易巧合相同。
+    // ⚠️ 誠實邊界(R1):`quantitySummary.quantity` 與 `line.quantity` 依 A9c 合約**恆等**
+    //    (複合 FK 物理保證)⇒ 分母若被誤接成 `line.quantity`,本組**抓不到**。那是構造不出的資料,
+    //    不是漏測,但別把這條讀成「分母接哪都會紅」。
+    const l = line('l1', 5, 60000);
+    const withOrdered: AdminOrderLine = {
+      ...l,
+      quantitySummary: { ...l.quantitySummary, orderedQuantity: 2, instockQuantity: 1, cancellableQuantity: 4 },
+    };
+    const { container } = render(<OrdersTable orders={[order({ lines: [withOrdered] })]} />);
+    const cell = [...container.querySelectorAll('tbody tr td')][9]!;
+
+    expect(cell.textContent).toBe('2/5');
+  });
+
+  it('多品項單:訂貨是**品項層**,每列各自一格(不是訂單層 rowSpan)', () => {
+    // 🔴 這條擋「順手把訂貨也寫成 `i === 0 &&` + rowSpan」——那會讓第二個品項的進度消失。
+    const a = line('l1', 3, 12000);
+    const b = line('l2', 4, 8000);
+    const lines: AdminOrderLine[] = [
+      { ...a, quantitySummary: { ...a.quantitySummary, orderedQuantity: 3, cancellableQuantity: 3 } },
+      { ...b, quantitySummary: { ...b.quantitySummary, orderedQuantity: 1, cancellableQuantity: 4 } },
+    ];
+    const { container } = render(
+      <OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
+    );
+    const rows = [...container.querySelectorAll('tbody tr')];
+
+    // 第一列訂貨在索引 9;第二列只有 6 格,訂貨是最後一格。
+    expect([...rows[0]!.querySelectorAll('td')][9]!.textContent).toBe('3/3');
+    expect([...rows[1]!.querySelectorAll('td')][5]!.textContent).toBe('1/4');
+    // 訂貨格**不得**帶 rowspan(帶了就是被寫成訂單層)
+    expect(rows[0]!.querySelectorAll('td')[9]!.hasAttribute('rowspan')).toBe(false);
+  });
+
+  it('佔位列(空 lines)→ 訂貨顯示「—」,不畫出 `0/0`', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [] })]} />);
+    const cell = [...container.querySelectorAll('tbody tr td')][9]!;
+
+    expect(cell.textContent).toBe('—');
+    expect(container.textContent).not.toContain('0/0');
+  });
+});
+
+// 🔴 V9 逐字要求的另一半:「grep 該檔無 `?? 0`」。
+//    **不能只靠型別層** —— `quantitySummary` 雖是非 nullable,`x ?? 0` 在 TS 仍完全合法、不會報錯
+//    (plan 那格寫「型別層由 tsc 保證」其實不成立,只有這條文字守門擋得住)。
+//    量的是原始碼字面,而這正是本條要防的東西:UI 端自己補 0 = 把 A9c 的正規化責任偷渡回顯示層。
+describe('V9 — 原始碼層:本元件不得出現 `?? 0`(正規化責任在 adapter mapper)', () => {
+  it('orders-table.tsx 剝掉註解後零 `?? 0`', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    // 路徑走 `__dirname`(同 app 既有先例 `app/orders/[id]/refund-wiring.test.tsx` 的 `scanSources`)——
+    // 不用 `import.meta.url`:在 jsdom + `.tsx` 下實測擲 `The URL must be of scheme file`。
+    const raw = await readFile(join(__dirname, 'orders-table.tsx'), 'utf8');
+
+    // 🔴 **必須先剝註解**:本檔的註解裡就逐字寫著「UI 端零 `?? 0`」——不剝的話這條守門
+    //    一寫出來就恆紅(第一版真的紅了)。memory `feedback_ui-count-change-check-hardcoded-css-track-counts`
+    //    同族:守門要量的是**程式碼**,不是說明它的那段話。
+    const stripComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+    // 前提斷言 ①:真的讀到那個檔(讀空字串或讀錯檔 → 下面那條恆真)。
+    expect(raw).toContain('export function OrdersTable');
+    // 前提斷言 ②:剝註解**真的有作用**。🔴 用**合成字串**驗、不拿 production 註解當供應者(R1 nit):
+    //    否則哪天有人重寫 `orders-table.tsx` 那段註解,這道前提就會轉**假紅**。
+    expect(stripComments('const a = 1; // x ?? 0\n/* y ?? 0 */')).not.toContain('?? 0');
+
+    expect(stripComments(raw)).not.toContain('?? 0');
+  });
+});
+
+// ── V11 / V11b:發票欄(A11a-5)──────────────────────────────────────────
+describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => {
+  // 🔴 三態逐格驗,**而且 `voided` 不得與 `not_issued` 同字面**(plan V11 逐字的突變靶就是
+  //    「把 `voided` 併進『未開』」)。字面取自 `INVOICE_STATUS_LABEL` 的**真實值**,不是自己編的中文。
+  it.each([
+    ['not_issued', '未開立'],
+    ['issued', '已開立'],
+    ['voided', '已作廢'],
+  ] as const)('%s → 「%s」', (status, label) => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], invoiceStatus: status })]} />,
+    );
+    const cell = [...container.querySelectorAll('tbody tr td')][10]!;
+
+    expect(cell.textContent).toBe(label);
+  });
+
+  // 🔴 原本這裡還有一條「三個字面互不相同(Set size = 3)」,R1 抓到它被上面的 `it.each`
+  //    **嚴格蘊含** —— `it.each` 已把三格釘成三個兩兩相異的字面,Set 那條在它全綠時不可能紅。
+  //    「三者互不相同」的獨立守門改放在常數所在處:`lib/orders/order-list-view.test.ts`。已刪。
+
+  it('發票是**訂單層**:多品項單只渲染一格、帶 rowSpan', () => {
+    // 🔴 擋「順手寫成品項層」——那會讓同一張單的開票狀態在每一列重複、且與訂貨欄混淆。
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
+    const { container } = render(
+      <OrdersTable
+        orders={[order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]}
+      />,
+    );
+    const rows = [...container.querySelectorAll('tbody tr')];
+
+    expect([...rows[0]!.querySelectorAll('td')][10]!.getAttribute('rowspan')).toBe('2');
+    expect(container.innerHTML.split('已開立').length - 1).toBe(1); // 整張表只出現一次
+    expect(rows[1]!.querySelectorAll('td').length).toBe(6); // 後續列不多一格
+  });
+});
+
+describe('V11b — Q2b=A:列表**不顯示**載具別', () => {
+  it('DOM 內零載具別字面(該資料連投影都沒有,不是有資料而選擇不畫)', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+
+    // 🔴 這條的判別力邊界要講清楚:`AdminOrderSummary` **型別上就沒有** carrier/載具欄
+    //    (A9c 沒把 `orders.invoice` jsonb 放進列表投影)⇒ 真正擋住它的是型別層與投影白名單,
+    //    本條只是把「Q2b=A 的拍板結果」釘成可讀的驗收字面。要動它得先動 A9c 的投影。
+    for (const token of ['載具', 'carrier', '統編', '抬頭']) {
+      expect(container.textContent).not.toContain(token);
+    }
+    // 🔴 原本這裡還有一條 `expect('invoice' in order(...)).toBe(false)`,R1 抓到它量的是**本檔自己的
+    //    fixture 字面**、不是型別也不是投影 ⇒ **恆真**,已刪。真正的投影守門在
+    //    `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts`(剝掉 `invoice_status` 再查
+    //    `invoice` token,A9c 有突變證)。
   });
 });

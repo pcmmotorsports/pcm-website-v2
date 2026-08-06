@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
+  INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
   PAYMENT_STATUS_LABEL,
   formatOrderAmount,
@@ -16,10 +17,17 @@ import {
 //    Sean 十題全拍 A)**:九碼三群(整單彙總 badge / per-item 狀態 cell / 表層 props 與衍生)已下架,
 //    這是**列表側最後一個九碼消費端**。同批移除「來源 · 管道」欄(母 plan §5.1a:明細頁已有、
 //    不是每天要看的資訊)、單價與總金額合併為「金額」、會員等級併入客戶格小字。
-//    ⇒ 現為 **9 欄**;訂貨 / 出貨 / 發票 / 操作四欄依 plan 分屬 A11a-4/-6/-5 與 A13,本片不預埋。
+//    ⇒ A11a-1 收工為 **9 欄**;訂貨 / 出貨 / 發票 / 操作四欄依 plan 分屬 A11a-4/-6/-5 與 A13。
 //
 // 🔴 **A11a-2(2026-08-06)**:付款軸小字進訂單編號格、日期改接 `formatOrderListDate`
-//    (同年 `07/25` / 跨年 `2025/06/27`)。**兩者都塞進既有格、欄數仍是 9**(plan `:480` 逐字)。
+//    (同年 `07/25` / 跨年 `2025/06/27`)。**兩者都塞進既有格、該片收工時欄數仍是 9**(plan 逐字)。
+//
+// 🔴 **A11a-4(2026-08-06)**:加「訂貨」欄(**品項層**,逐列 `n/m`)⇒ **現為 10 欄**。
+//    前置 = A9c(三軸進投影 + mapper 正規化成非 nullable)。膠囊與上色屬 A11b、本片只做純文字。
+//
+// 🔴 **A11a-5(2026-08-06)**:加「發票」欄(**訂單層** rowSpan)⇒ **現為 11 欄**。
+//    Sean Q2b=A:**只顯示 `invoice_status` 三態、不顯示載具別** —— 載具別在 `orders.invoice` jsonb
+//    (`carrier`/`type`),拉進列表會破壞「列表投影零 PII」那條邊界,A9c 也刻意沒把它放進投影。
 //
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
 //    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
@@ -132,6 +140,29 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
               </div>
             </td>
           )}
+          {/* 訂貨(A11a-4):**品項層**、逐列顯示 `已訂/買了`。`n/m` 那一段與明細頁 `ItemAxisCell`
+              同源;明細那格另有「訂貨」標籤、到貨列與已取消列,列表只取分數本身。
+              🔴 第 1 批只做 `n/m` 純文字;**膠囊與上色屬 A11b**(母 plan row 60),本片不預埋。
+              🔴 **UI 端零 `?? 0`、零 join**(V9):`quantitySummary` 是 A9c 已正規化的**非 nullable** 型別,
+              缺列補 0 的責任在 adapter mapper。這裡拿到 nullable 就是 A9c 沒做完,退回去、不要在這補。
+              ⚠️ 代價(A9c commit body 與型別 docstring 已記):列表補 0 之後「資料損壞」與「真的還沒訂」
+              長得一樣;明細頁那格才會顯示「數量資料尚未就緒」。**取消入口(A13)不得吃本欄。** */}
+          <td className={`${TD} tabular-nums text-xs`}>
+            {line ? `${line.quantitySummary.orderedQuantity}/${line.quantitySummary.quantity}` : '—'}
+          </td>
+          {/* 發票(A11a-5):**訂單層** rowSpan(開票是整單的事,不是逐品項)。
+              🔴 字面**複用** `INVOICE_STATUS_LABEL` —— 明細頁的「開立狀態」欄用的是同一份。
+              不另抄一份三態中文:兩份字面必然漂,而 V11 要的正是「三態各自可辨識、且 `voided`
+              不與 `not_issued` 同字面」,共用一個 `Record<InvoiceStatus, string>` 讓它**結構上**成立。
+              (A11a-5 把該常數從 `order-detail-view.ts` **搬到** `order-list-view.ts` —— 前者檔頭
+              逐字宣告「列表共用標籤仍在 order-list-view.ts、本檔不重定義」,照那條慣例搬。)
+              🔴 **Q2b=A:不顯示載具別** —— 載具別在 `orders.invoice` jsonb,A9c 刻意沒放進列表投影
+              (零 PII 邊界)⇒ 這裡連拿都拿不到,不是「有資料但選擇不畫」。 */}
+          {i === 0 && (
+            <td className={`${TD} text-xs`} rowSpan={rowSpan}>
+              {INVOICE_STATUS_LABEL[order.invoiceStatus]}
+            </td>
+          )}
         </tr>
       ))}
     </tbody>
@@ -162,6 +193,10 @@ export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
             <th className={`${TH} text-right`}>數量</th>
             <th className={`${TH} text-right`}>金額</th>
             <th className={TH}>客戶</th>
+            {/* A11a-4:訂貨欄(品項層)。plan §1.2 目標欄序 = …客戶 / **訂貨** / 出貨 / 發票 / 操作 */}
+            <th className={TH}>訂貨</th>
+            {/* A11a-5:發票欄(訂單層)。出貨欄(A11a-6)前置在第 2 批,故本表暫時是訂貨→發票相鄰。 */}
+            <th className={TH}>發票</th>
           </tr>
         </thead>
         {orders.map((order) => (

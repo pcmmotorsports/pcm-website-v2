@@ -5,9 +5,9 @@ import {
   ORDER_SOURCE_LABEL,
   PAYMENT_CHANNEL_LABEL,
   formatOrderAmount,
+  INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
 import {
-  INVOICE_STATUS_LABEL,
   invoiceTypeLabel,
   shippingMethodLabel,
   formatOrderDateTime,

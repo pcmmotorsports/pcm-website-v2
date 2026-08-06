@@ -11,6 +11,7 @@ import type {
   PaymentChannel,
   MemberTier,
   OrderItemVehicleSnapshot,
+  InvoiceStatus,
 } from '@pcm/domain';
 import { normalizeOrderNumberSearch } from '@pcm/domain';
 import {
@@ -111,6 +112,21 @@ export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
   general: '一般',
   store: '車行',
   premiumStore: '車行',
+};
+
+/**
+ * 開票紀錄狀態標籤(`orders.invoice_status`;DB CHECK 三值)。
+ *
+ * 🔴 **明細與列表共用**(A11a-5 起):原本住在 `order-detail-view.ts`,但該檔檔頭逐字宣告
+ * 「列表共用標籤(付款/出貨/來源/管道)仍在 `order-list-view.ts`、本檔不重定義」——
+ * 發票欄進列表之後它就成了共用標籤,依那條慣例搬過來。
+ * ⇒ **不要在任何一邊另抄一份三態中文**:A11a plan V11 要的是「三態各自可辨識、且 `voided`
+ * 不與 `not_issued` 同字面」,共用一個 `Record<InvoiceStatus, string>` 讓這件事結構上成立。
+ */
+export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
+  not_issued: '未開立',
+  issued: '已開立',
+  voided: '已作廢',
 };
 
 function toOptions<T extends string>(
