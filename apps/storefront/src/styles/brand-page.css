@@ -919,11 +919,11 @@
      🔴 **選擇器改名**(申報偏離):設計稿寫 `.bp-grid .bp-slot:nth-child(n+4)`,`.bp-slot`
         是它自己的骨架槽 class ⇒ 正式站要改寫。宣告一字未動。
      🔴 **為什麼要並列兩個選擇器**:`ProductCard` 有 `href` 時外面包一層 `<Link>`,而那層是
-        **inline style** `display: contents`(`ProductCard.tsx:248`)—— inline style 贏過任何
+        **inline style** `display: contents`(`ProductCard.tsx 的 display: 'contents' 那行(grep 找、不引行號)`)—— inline style 贏過任何
         樣式表規則,所以只寫 `.bp-grid > :nth-child(n+4){display:none}` 對它**完全無效**;
         真正佔住格子的是裡面的 `.pcard`。
         但只寫 `… .pcard` 又把修法綁死在「一定有包一層」上:`href` 是 optional
-        (`ProductCard.tsx:169`),不傳的時候 `.pcard` 就是直接子代、後代選擇器落空
+        (`ProductCard.tsx 的 href prop(grep href?: string 找、不引行號)`),不傳的時候 `.pcard` 就是直接子代、後代選擇器落空
         ⇒ 窄螢幕又變回 5 張,而且**兩支測試都會照樣綠**(關卡2 R1 must-fix 2)。
         ⇒ 兩種 DOM 形狀各給一條,不對子元素長什麼樣做假設。
         ⚠️ 這個坑**文字層守門看不到**:規則在檔案裡、選擇器形狀也對,測試照樣綠 ——

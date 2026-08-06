@@ -1051,7 +1051,7 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
       (r) => /^\.bp-grid\s*>\s*:nth-child\(/.test(r.selector) && /display\s*:\s*none/.test(r.body),
     );
     // 🔴 選擇器**必須以 `.pcard` 結尾**:`ProductCard` 的 `<Link>` 帶 inline style
-    //    `display: contents`(`ProductCard.tsx:248`),inline style 贏過樣式表 ⇒ 直接關那個
+    //    `display: contents`(`ProductCard.tsx 的 display: 'contents' 那行(grep 找、不引行號)`),inline style 贏過樣式表 ⇒ 直接關那個
     //    子元素是沒有用的。D3b 第一版就是這樣、而且**本檔當時全綠** —— 文字層守門看得到
     //    「規則在不在」,看不到「規則有沒有真的生效」。這條只是把已知的修法釘住,
     //    真正的驗證是真瀏覽器量可見張數(見 C-29-STOP 的量測)。

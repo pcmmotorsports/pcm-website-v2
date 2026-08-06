@@ -375,9 +375,17 @@ describe('商品卡價格顏色 · 必須贏過 pricing.css 的通用預設', ()
 //    影響五個面:首頁最新商品橫捲(HomeSelect)/ 商品列表(ProductsPage)/ 品牌頁熱門商品
 //    (BrandPageProducts)/ 會員中心為你推薦(OverviewTab)/ PDP 相關商品(ProductRelated,由
 //    ProductPage.tsx:206 掛載;R1 抓到前一版漏算此面)——皆共用 .pcard-img-wrap class。
-// 🔴🔴 這條守門只驗「CSS 宣告存在」,不驗「畫面看得到」:`ProductCard.tsx` 的 `.pcard-gallery`
-//    目前蓋住這個宣告、實際可見底色仍是 --c-surface-2(Sean 2026-07-24 拍板 Q1=A)。詳見
-//    `product-card.css` `.pcard-img-wrap` 上方 🔴🔴 死宣告申報,裁定待 Sean。
+// 🔴 這條守門只驗「CSS 宣告存在」,不驗「畫面看得到」——2026-08-07 更正(R1 MF1/MF2/MF3,
+//    上一版這裡的講法有兩處錯):
+//    ①`ProductCard.tsx` 的 `.pcard-gallery` inline background 已跟進改 `#ffffff`(Sean 08-06 拍 A
+//      推翻 07-24 拍板 Q1=A)——但這裡的 `background:#fff` **仍然被 `.pcard-gallery` 完整蓋住**
+//      (該層 width/height:100% + 三分支全不透明),只是兩條真圖路徑現在同色、看不出被蓋。
+//      它是**縱深防禦**(gallery 若改回透明或整條 background 被拿掉才輪到它現形),不是「不再被蓋」;
+//      對「gallery 改成別的不透明色」零保護。
+//    ②`ProductCard.test.tsx` 是 `@vitest-environment jsdom` 的**單元測試**,量的是 React 產出的
+//      inline style **字串**,沒有 cascade/合成/真瀏覽器——**不是畫面實測**。本片沒有任何真瀏覽器
+//      證據(本機三條路由都渲染不出商品卡,見 ProductCard.test.tsx 對應說明),實際外觀待 Sean
+//      在有資料的站上看。
 describe('商品卡圖框 · 白底加框(首頁橫捲 / 商品列表 / 品牌頁 / 會員中心 / PDP 相關商品共用)', () => {
   it('🔴 前提(非獨立防線):.pcard-img-wrap 區塊裡有 background 宣告', () => {
     // R1 nit:這條被下面「background 是 #fff」那條嚴格蘊含(後者成立 ⇒ 本條必成立)、零額外

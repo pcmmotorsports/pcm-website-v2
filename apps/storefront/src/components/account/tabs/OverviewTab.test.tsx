@@ -153,7 +153,7 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     expect(screen.getByText('NT$ 1,200')).toBeTruthy();
     expect(screen.getByText('NT$ 7,800')).toBeTruthy();
     // slug link —— `ProductCard` 是把 `.pcard`(article)包在 `<Link>` 裡
-    // (`ProductCard.tsx:247-250`,`display:contents` 的外層 a)⇒ 從卡片往上找 anchor,
+    // (`ProductCard.tsx 的外層 Link(grep display: 'contents' 找、不引行號)`,`display:contents` 的外層 a)⇒ 從卡片往上找 anchor,
     // 不是直接讀 `.pcard` 的 href(自刻版那時 `.acc-rec-item` 本身就是 a)。
     expect(items[0]!.closest('a')?.getAttribute('href')).toBe('/products/p-1');
   });
