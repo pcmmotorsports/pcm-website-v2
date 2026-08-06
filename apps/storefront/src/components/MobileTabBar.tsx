@@ -116,18 +116,18 @@ export function MobileTabBar() {
   //    頁面 import 不到、擋不掉 ⇒ 唯一能擋的地方就是這裡。
   //    ⚠️ 只認 `/coming-soon` 這一條**精確路徑**,不用 startsWith:`/stores` `/install` 雖然
   //    渲染同一個元件,但它們是站內頁、TabBar 要留著。
-  // 🔶 第5批新增第三個 hidden 情境:`/checkout`(Sean 2026-08-06 拍板 Q5=A)。
+  // 🔶 第5批新增第三個 hidden 情境:`/checkout`(Sean 2026-08-06 拍板 Q5=A,同日 Q6=A 覆核維持)。
   //
-  // 🔴🔴 **拍板前提有誤,已回報、等 Sean 重新裁定(STOP Q6)**:
-  //    我當初在偵察報告裡寫「設計稿 `checkout-page.html` 整頁沒有 TabBar 的 markup(grep 零命中)」,
-  //    **那句是錯的** —— 我用 camelCase `TabBar` 做大小寫敏感 grep,漏掉小寫的 `mobile-tabbar`。
-  //    實際上 `checkout-page.html:123-128` 有完整的五顆 tab,**購物車那顆還是 `is-active`**,
-  //    而且與 `:87` 的 `.co-mobile-buybar` **同時存在** ⇒ 設計端的答案是「buybar 蓋在 TabBar 上」,
-  //    不是「結帳頁不放 TabBar」。Sean 的 Q5=A 是在我給的假前提上拍的。
-  //    ⇒ 這一行**先照拍板留著**,但它是「等重新裁定」的狀態,不是已確立的設計對齊。
+  // 🔴 **理由是產品選擇,與設計稿脫鉤 —— 不要再寫成「設計稿沒有 TabBar」**:
+  //    結帳流程中不給岔出去的入口。
+  //    設計稿 `checkout-page.html:123-128` **其實有**完整五顆 tab、購物車那顆 `is-active`,
+  //    且與 `:87` 的 `.co-mobile-buybar` 同時存在(= 設計端是「buybar 蓋在 TabBar 上」)。
+  //    Q5 當初是在「設計稿沒有 TabBar」這個**假前提**上拍的(我用 camelCase `TabBar` 做
+  //    大小寫敏感 grep、漏掉小寫的 `mobile-tabbar`);更正後重問,Sean 仍維持藏起來。
+  //    ⇒ 本站在這一點上**知情偏離設計稿**,不是對齊。
   //
-  //    保留 A 的獨立理由(與設計稿無關、仍成立):真站 ≤900px 的 `.co-mobile-buybar`
-  //    (z-index 100、fixed bottom)壓在 TabBar(z-index 40)上面,兩條列疊在同一個底部。
+  //    次要理由(仍成立):真站 ≤900px 的 `.co-mobile-buybar`(z-index 100、fixed bottom)
+  //    壓在 TabBar(z-index 40)上面,兩條列疊在同一個底部。
   //    ⚠️ 這裡用 `startsWith` 是**刻意的**,與上面 `/coming-soon` 用精確路徑的理由相反:
   //    `/checkout/callback`(付款返回)渲染的是 `CheckoutSuccess`、同樣掛 `.co-page`,
   //    而 checkout.css 那條讓位 padding 的歸零規則是**以 `.co-page` 為條件**。

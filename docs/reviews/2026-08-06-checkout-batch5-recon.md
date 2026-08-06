@@ -180,6 +180,8 @@ cascade 與這兩條既有斷言的切片邊界。
 > 而且與 `:87` 的 `.co-mobile-buybar` **同時存在於同一頁**。
 > ⇒ 設計端的答案是「**buybar 蓋在 TabBar 上**」,不是「結帳頁不放 TabBar」。
 > Sean 的 **Q5=A 是在這個假前提上拍的**,已回報並重新出題(第5批 STOP 的 Q6)。
+> ✅ **2026-08-06 Q6=A 覆核結果:維持藏起來**,但理由改成產品選擇 ——「結帳流程中不給岔出去的入口」,
+> 與設計稿脫鉤。⇒ 本站在這一點上是**知情偏離設計稿**,不是對齊;程式碼註解已同步改寫。
 > 教訓與 memory `feedback_assert-scope-only-after-reading-source-file` 同型:
 > 斷言「查無」之前,grep 要先窮舉大小寫與命名變體(`TabBar` / `tabbar` / `tab-bar`)。
 
