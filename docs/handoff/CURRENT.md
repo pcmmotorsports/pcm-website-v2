@@ -1,6 +1,18 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> ☀️ **2026-08-06 08:35 主視窗壓縮前 checkpoint(壓縮後/新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md`,本節只記當下狀態)。**
+> 🪟 **2026-08-06 15:40 第六輪主視窗換窗 checkpoint(新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md` 含今日新增:STOP 即掛哨/防撞號/死哨兜底/施工窗小哨樣板尾註 B)。**
+>
+> **現況**:dev=`df6060e` 已推、樹乾淨、全套 **374 檔 5350 綠+1 todo**。白天段連環收割全數落 dev:E 線=#332 全案+A11a-1/2/4/5(列表 11 欄)+A9w4a+A9c;D 線=批5+首頁批 H1-H6+遮蓋修(hero 換裝/磚牆/分類 chip/橫捲全上 3111);B 線=S2a 小線 4 顆(`665934e`/`931ef99`/`26e4963`/`cdf7e89`)🔴 **押在 `a4a-chain` 未併未 apply(Q3=C:S2b 大線全齊才 merge+同批 apply;apply=Sean 手動停點,前置閘=`b2s2a-verify.sh gate`,紅=等 Sean 不設時限)**。
+>
+> **三窗進行中**:**B**=S2b 大線 plan 折 21 條 must-fix+重切片(`B-140-A` 裁定;R2 確認輪後放行)/**D**=取數補半步(D-132 兩頁一起)→ H7 D8 全刪(Q2=C,刪除紀律=consumer 清單+預期 Δ 先寫)→ 車型獨立選 plan(`D-129-A`,鐵則 8 回核)→ H7 收尾補整條 H 線 manifest+**OD 回饋包**(`D-133-A`;與夜跑帶回包合併成 OD 更新提示詞交 Sean)/**E**=A9w4c 後半(`E-119-A`,writer 鏈拆除,codex 不降級)→ 其後 A12a→A12b(要 plan)。
+>
+> **Sean 複驗清單(3111 現役,收割即重 build 重啟)**:①hero 下拉遮蓋修=1600 寬點「廠牌」下拉+手機 390+車型/年份逐一點 ②hero 換裝/磚牆彩色可點/分類 chip/橫捲 ③後台列表 11 欄落點與寬度。**押後不擋**:D5c 兩數字、Q-c 熔橘(見 STATUS 待決策歷史)。
+>
+> **哨兵**:主視窗樣板=`/private/tmp/claude-502/-Users-sean-1-pcm-website-v2/b11b077f-abbd-41b4-977b-a712451eea0b/scratchpad/sentinel/sentinel-v2.sh`(新主視窗可照抄到自己 scratchpad 或直接用;`rearm`→`watch` run_in_background、發信後同一條命令重掛、收尾 ps 自檢)。**新主視窗第一動**:開工儀式→讀本節→全量掃信箱(`ls -lT` 排時間)→重掛哨兵。
+>
+> **等 Sean 的**:零拍板欠帳(本日 20+ 板全落 memory:a11a 檔/home-redesign 檔/b2-shipments 檔/332 檔)。3111 server 由本視窗背景任務持有,換窗後死掉=新視窗重起(`cd apps/storefront && pnpm exec next start -p 3111`,build 產物在)。
+>
+> ☀️ ~~**2026-08-06 08:35 主視窗壓縮前 checkpoint~~(已過期,新節見上)(壓縮後/新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md`,本節只記當下狀態)。**
 >
 > **現況**:dev=`a10ca69` 已推、樹乾淨。夜跑三線**全收割入 dev**(E 九碼 5 片/D 重設計批1-4+三報告/B S2 兩 plan+四輪審查),全套 **369 檔 5238 綠+1 todo**。夜間+晨間 Sean 十二板全落 memory 全執行(見 `project_m4b-b2-shipments-db-decisions` 08-06 兩段、`project_site-redesign-content-pages-decisions`)。
 >
