@@ -5,12 +5,15 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由兩片累積而成,**兩片的範圍分開寫,不要混成一句**:
+# 本檔由**三片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
-#   · **S2b-2b 第一段**(本輪)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 的逐字定義)
+#   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
-#     🔴 2b 依鐵則 4(片 15-45 分)切成兩段;**第二段**做:環境 A(結構)突變矩陣、項19 barrier、
-#     項29 stale-high。切法已報 STOP 由主視窗裁定。
+#     🔴 2b 依鐵則 4 切兩段;**第二段**做:環境 A(結構)突變矩陣、項19 barrier、項29 stale-high。**尚未做。**
+#   · **S2b-3a 後段**(本輪)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 本檔的對照組格)
+#     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
+#       T8 位置集合被「刪一格+重複另一格」、T9 標記被刪)。
+#     3a 前段(四處四軸化 + 標記註解)= commit `ff366bf`,不在本檔。
 #
 # 用法:
 #   PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2s2bv   從零 provision post-S2b 基準庫,再跑全部
@@ -33,8 +36,9 @@
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
 # 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **突變覆蓋是 14 格中的 7 格,不是全部**。逐格清單也印在跑完的結語裡。
-#     **有靶的 7 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20。
+#   ⓐ **突變覆蓋是 15 格中的 8 格,不是全部**。逐格清單也印在跑完的結語裡。
+#     **有靶的 8 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
+#     + **TRUTH-SYNC**(3a 後段的守門靶 **T1-T9**,六塊全覆蓋、兩半各有靶,另含位置集合與標記配對兩發)。
 #     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
 #     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
 #     不是突變。B12 在靶②④ 下紅在本輪新加的「作廢後必須是 0」中途斷言(那是它自己的內容),
@@ -98,14 +102,16 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=14     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證)
-EXPECT_MUT=6       # 突變靶:MUT0 對照 + 靶①②③④⑤(環境 B = 行為;環境 A 結構靶不在本輪,見檔頭 ⓒ)
-EXPECT_TOTAL=25    # 上列 14 + ID-GATE + BASE-POST + PRE-BASE + 6 發突變 + MUT-COUNT + COPIES-DROPPED
+EXPECT_CELL=15     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證 + 同步守門對照組)
+EXPECT_MUT=6       # 行為突變靶:MUT0 對照 + 靶①②③④⑤(環境 B;環境 A 結構靶不在本輪,見檔頭 ⓒ)
+EXPECT_TMUT=9      # 同步守門突變靶:T1-T5 全等半(五個嵌入形塊各一)、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、T8 位置集合、T9 標記被刪
+EXPECT_TOTAL=36    # 15 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 9 守門突變 + TMUT-COUNT + COPIES-DROPPED
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
 B18-x1-commit-rollback B20-helper-live ABLATION \
-MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT COPIES-DROPPED"
+MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
+TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 TMUT-COUNT COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -1003,6 +1009,164 @@ run_mutant "靶⑤-ON CONFLICT 漏 shipped_quantity" "$WORK/mut5.sql" \
 #    停在 collect + 已 DROP 的 mut URL 時,日後在這之後加的任何 cell 會**靜默不計** CELL/PASS。
 ORACLE_MODE="report"; ORACLE_URL="$BASE_URL"
 
+log "6b/8 真相式六塊同步守門(S2b-3a 後段;plan §1.1 v3.1)"
+# 🔴 守門本體在 `scripts/b2s2b-truth-sync.py`(抽取 + 判定,純文字、不碰 DB)。
+#    本段負責:①對照組必須零紅 ②**九發突變逐發只紅指定的紅點集合**(`B-151-A`:兩半各至少一發)。
+# 🔴 突變比對象 = **原檔**(plan §2.2 W5 ②:文件/腳本突變沒有 mut0,也不該剝掉受測 guard)。
+# 🔴 **九發的分配與 plan §5 字面的對應關係(逐條寫,不用「嚴格強於」這種不可查證的講法)**:
+#    plan 字面 = 「五發改本體(逐處一發)+ 一發把述詞改恆等式(**指定打第 5 處 = backfill**)」。
+#    · T1-T5 = plan 的「五發改本體」,逐塊各一發(五個嵌入形區塊)。
+#    · **T7 = plan 指定的那一發**(backfill 塊的述詞改恆等式)—— R1 抓到我上一版把它挪到 helper、
+#      導致 plan 點名的那個縫沒被驗;現在 T6(helper)與 T7(backfill)兩發都在。
+#    · T8 / T9 = plan 沒要求的兩發:位置集合被「刪一格+重複另一格」、標記被刪。
+#      前者是 R1 實測可繞過守門的活洞,後者打的是塊數/配對那條(其餘七發都只打字面)。
+# 🔴 **仍然沒有靶的**:`FROZEN`(凍結表自我一致性)與 `FILE:` 的讀檔失敗路徑。
+#    前者在本片開發中**真的紅過一次**(helper 與 COMMON 碰巧共用一行,見 truth-sync 檔內註解),
+#    但那不是提交在案的突變 ⇒ 不得算進覆蓋率。
+TSYNC="scripts/b2s2b-truth-sync.py"
+TMUT=0
+CELL=$((CELL+1))
+# 🔴 **必須同時看 rc**(R1 must-fix 2 實測):守門 crash(例如檔案含非 UTF-8 位元組)時
+#    stdout 是空的、rc=1 —— 只看「stdout 空」會把 crash 讀成全綠,正是本檔自己列的 fail-closed 紀律④。
+TS_CTL="$(python3 "$TSYNC" . 2>"$WORK/tsync-ctl.err")"; TS_RC=$?
+if [ -z "$TS_CTL" ] && [ "$TS_RC" -eq 0 ]; then
+  ok TRUTH-SYNC "🔴 同步守門對照組:六塊**整塊序列**逐字相符(含順序)+ 凍結表自我一致性(分半原則 5+1 / helper 整塊)+ 位置 key 集合 + 三個檔的 BEGIN/END 配對與塊數"
+else
+  bad "同步守門對照組不通過(rc=$TS_RC):紅點 [$(printf '%s' "$TS_CTL" | tr '\n' ' ')]
+$(head -5 "$WORK/tsync-ctl.err")"
+fi
+
+run_tmut() {   # $1 = 靶名、$2 = 目標檔、$3 = 原字面、$4 = 新字面、$5 = 期望紅點集合、$6 = key
+  local name="$1" f="$2" src="$3" dst="$4" want="$5" key="$6" root="$WORK/tsync-$6" got rc
+  TMUT=$((TMUT+1))
+  rm -rf "$root"; mkdir -p "$root/supabase/migrations" "$root/docs/runbooks" "$root/scripts"
+  cp "$MIG" "$root/$MIG" && cp docs/runbooks/a4a-summary-rollback.md "$root/docs/runbooks/" \
+    && cp scripts/a4a-verify.sh "$root/scripts/" && cp "$TSYNC" "$root/scripts/" \
+    || { bad "$name:複製受守檔失敗"; rm -rf "$root"; return; }
+  SRC="$src" DST="$dst" F="$root/$f" python3 - <<'PY' || { bad "$name:突變產生失敗(錨命中次數不是 1?)"; rm -rf "$root"; return; }
+import io, os
+p = os.environ['F']; src = os.environ['SRC']; dst = os.environ['DST']
+s = io.open(p, encoding='utf-8').read()
+n = s.count(src)
+if n != 1:
+    raise SystemExit('突變錨命中 %d 次(必須恰 1 次):%r' % (n, src[:70]))
+io.open(p, 'w', encoding='utf-8').write(s.replace(src, dst))
+PY
+  cmp -s "$f" "$root/$f"; rc=$?
+  case "$rc" in
+    1) : ;;
+    0) bad "$name:突變檔與原檔**逐字相同** —— 沒改到東西,這一發等於沒跑"; rm -rf "$root"; return ;;
+    *) bad "$name:cmp 讀不到檔(rc=$rc)—— 判紅,不當成「有差異」"; rm -rf "$root"; return ;;
+  esac
+  got="$(python3 "$root/$TSYNC" "$root" 2>"$WORK/tsync-$key.err" | tr '\n' ' ' | sed 's/ *$//')"
+  rm -rf "$root"
+  if [ "$got" = "$want" ]; then ok "$key" "$name ⇒ 紅點逐字相符:[$want]"
+  else bad "$name:紅點集合不符
+     實際 [$got]
+     期望 [$want]
+     診斷:$(head -3 "$WORK/tsync-$key.err" 2>/dev/null | tr '\n' ' ')"; fi
+}
+
+# ── T1-T5:打**全等半**(五個嵌入形區塊各一發)────────────────────────────────
+run_tmut "靶T1-runbook 對帳欄位塊改 JOIN 條件" docs/runbooks/a4a-summary-rollback.md \
+'AS truth_cancelled,
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id' \
+'AS truth_cancelled,
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.id' \
+  "rb-div-col" TMUT-1
+
+run_tmut "靶T2-runbook 對帳 WHERE 塊把 deleted_at 反向" docs/runbooks/a4a-summary-rollback.md \
+'WHERE si.order_item_id = u.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+      ;' \
+'WHERE si.order_item_id = u.order_item_id
+AND sh.deleted_at IS NOT NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+      ;' \
+  "rb-div-where" TMUT-2
+
+run_tmut "靶T3-runbook 步驟⑤塊改加總的欄" docs/runbooks/a4a-summary-rollback.md \
+'       OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)' \
+'       OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.quantity_shipped)' \
+  "rb-step5" TMUT-3
+
+run_tmut "靶T4-a4a-verify 塊漏掉 shipped_at 那行" scripts/a4a-verify.sh \
+'AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END' \
+'AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0) -- 夾帶
+-- SHIPPED-TRUTH-END' \
+  "av-oracle" TMUT-4
+
+run_tmut "靶T5-migration backfill 塊改 FROM 的表" "$MIG" \
+'-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si' \
+'-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items_v2 si' \
+  "backfill" TMUT-5
+
+# ── T6:打 **per-site 半**(helper 塊整塊 per-site、不參與全等半)────────────────
+# 🔴 這一發同時是 plan §5 指定的「述詞改恆等式」形狀:`si.order_item_id = si.order_item_id`
+#    = 加總**全店**出貨。它滿足「存在一條等式」⇒ 只驗「有等式」的寫法對它全盲(plan §1.1 自承的恆真族)。
+run_tmut "靶T6-helper 塊述詞改恆等式(per-site 半)" "$MIG" \
+'   WHERE si.order_item_id = p_order_item_id' \
+'   WHERE si.order_item_id = si.order_item_id' \
+  "helper" TMUT-6
+
+# ── T7:plan §5 **指定打第 5 處**(backfill oracle)的述詞恆等式 ─────────────────
+# 🔴 R1 must-fix 4:我上一版只把恆等式打在 helper,而 plan 逐字指定的是**第 5 處**
+#    (理由:它是「唯一開工才定值的一列」,打已有具體凍結值的處驗不到那個縫)⇒ 補這一發。
+#    T6 與 T7 不重複:一個打 helper 塊、一個打 backfill 塊,是 per-site 半的兩個代表。
+run_tmut "靶T7-backfill 塊述詞改恆等式(plan 指定的第 5 處)" "$MIG" \
+'WHERE si.order_item_id = s.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+         ;' \
+'WHERE si.order_item_id = si.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+         ;' \
+  "backfill" TMUT-7
+
+# ── T8:攻擊守門**自己的位置集合**(R1 must-fix 1 的那一發)────────────────────
+# 🔴 「刪一格 + 重複另一格」——只凍個數時它會全綠(R1 實測過),凍 key 集合才殺得掉。
+#    這一發同時是 plan §1.1 要求的「把別的東西丟進集合 ⇒ 必須紅在集合本身」那個負測的等價形狀。
+run_tmut "靶T8-守門的 SITES 刪一格+重複另一格" scripts/b2s2b-truth-sync.py \
+"    ('rb-step5',      RB,  3, True)," \
+"    ('rb-div-col',    RB,  1, True)," \
+  "SITES" TMUT-8
+
+# ── T9:刪掉一個標記 ⇒ 必須紅在「檔案塊數不符」與「取不到該塊」───────────────
+# 🔴 這一發打的是 `extract_all` 與塊數自斷言那條(其餘八發都打字面比對)。
+run_tmut "靶T9-刪掉 runbook 收尾段的 BEGIN 標記" docs/runbooks/a4a-summary-rollback.md \
+'       OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)' \
+'       OR s.shipped_quantity   IS DISTINCT FROM
+COALESCE((SELECT sum(si.shipped_quantity)' \
+  "FILE:a4a-summary-rollback.md rb-step5" TMUT-9
+
+[ "$TMUT" -eq "$EXPECT_TMUT" ] && ok TMUT-COUNT "同步守門突變靶跑了 $TMUT 發,與凍結值相符" \
+  || bad "同步守門突變靶只跑了 $TMUT 發,期望 $EXPECT_TMUT —— 有靶被刪掉或沒被呼叫"
+
 log "7/8 S2b-1 消融重證(主視窗 B-147-A ③:推論轉觀察)"
 # 🔴 為什麼要這一格:S2b-1 交付時的行為實證第⑤條(停用本 trigger 後 shipped 不再跟動)
 #    是在**修關卡2 findings 之前**的那座拋棄庫上證的;修完的新庫上只重跑了 ①-④,
@@ -1080,8 +1244,8 @@ fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
-echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **7 格**被至少一發突變紅過 ——"
-echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(靶①-⑤ 的紅點集合逐字寫死在上面)。"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **8 格**被至少一發突變紅過 ——"
+echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"
