@@ -8,7 +8,7 @@
 # 形狀照 a2b1-verify.sh:三計數器 + 身分閘五重 + case 全 BEGIN…ROLLBACK 零留痕
 # + DB 內突變(anchor 三重 preflight)。例外(誠實列出、各自帶清理與殘留斷言):
 #   R9b/R9c/R10a/N3/N6b/N6c 需要 committed 狀態;N3 是唯一 committed 函式突變
-#   (跨連線才觀察得到鎖),trap 還原、收尾比對五函式 md5。
+#   (跨連線才觀察得到鎖),trap 還原、收尾比對五函式 md5 + 四 trigger 定義與啟用態(S2b-4a 項 23b)。
 # 🔴 突變格語意 = 「攻擊 SQL 在 mutant 下觀察到行為翻面」則 ok;沒翻面 = 該格紅。
 # ============================================================
 set -uo pipefail
@@ -276,8 +276,34 @@ MD5_PROC="$(q "SELECT md5(pg_get_functiondef('$FN_PROC'::regprocedure))")"
 MD5_RCPT="$(q "SELECT md5(pg_get_functiondef('$FN_RCPT'::regprocedure))")"
 MD5_CANC="$(q "SELECT md5(pg_get_functiondef('$FN_CANC'::regprocedure))")"
 psql "$URL" -tAX -c "SELECT pg_get_functiondef('$HELPER'::regprocedure)" > "$ORIGDEF_FILE" 2>/dev/null
-[ -n "$MD5_HELPER" ] && [ -s "$ORIGDEF_FILE" ] && ok "五函式 md5 基準 + helper 原始定義已存(N3 還原用)" \
-  || bad "md5 基準/原始定義取得失敗"
+
+# 🔴 S2b-4a 項 23b:trigger 定義 + 啟用態的**收尾漂移基準**。
+# 收尾零殘留閘原本只比五支**函式**的 md5,trigger 一支都沒守 —— 而 N7 會在交易內
+# DROP + CREATE 回 $TG_CC。那個 ROLLBACK 哪天沒生效,收尾照樣報全綠。
+# 🔴 這裡刻意**不**重複驗名字/形狀/啟用態:[A1]-[A5](本檔 `grep -n '\[A1\]'` 起算的那五格)
+#    已守過 A1 四支同名唯一、A2 表函式映射、A3 tgtype、A4 deferrability + 全 enabled O、A5 constraint-ness。
+#    🔴 但兩者**不是同一個面**,別當成完全等價:A1-A5 用 **tgname 白名單**取集合,本 SQL 用
+#    **`proname LIKE 'pcm_a4a%'`** 取集合(所以「多出一支掛在 a4a 函式上的 trigger」只有本式看得見);
+#    且 A1-A5 跑在本基準擷取**之後**。本基準職責單一 = 給收尾比「跑前 vs 跑後」,不重做開跑時的結構守門。
+# 🔴 S2b-1 落地後本集合是**五支**(多一支 shipments 的 AFTER UPDATE OF shipped_at 重算 trigger)。
+#    本 SQL 用 `proname LIKE 'pcm_a4a%'` 取集合,新那支若沿用別的前綴就**不會被涵蓋** ——
+#    擴涵蓋面(以及 A1 的「四支」計數)是 S2b-1 的範圍,不是本片。
+# 🔴 `tgenabled` 是 `"char"` 不是 text:少了 ::text 這句會 `operator is not unique` 整句 ERROR,
+#    而 q() 把 stderr 併進 stdout ⇒ 基準與收尾各拿到**同一段錯誤訊息**、比對永遠相等 = 守門恆綠。
+#    2026-08-06 本片實測踩到:全綠但閘是死的,靠「把 bug 放回去」的負測才抓出來。
+TG_DEF_SQL="SELECT coalesce(string_agg(t.tgname||'::'||t.tgenabled::text||'::'||md5(pg_get_triggerdef(t.oid)), '|' ORDER BY t.tgname), '') FROM pg_trigger t
+              JOIN pg_proc p ON p.oid = t.tgfoid
+             WHERE p.proname LIKE 'pcm_a4a%' AND NOT t.tgisinternal"
+TG_DEF0="$(q "$TG_DEF_SQL")"
+# 🔴 fail-closed:不能只驗「非空」—— 錯誤訊息也是非空字串,正是上面那個坑放行的原因。
+#    改驗形狀:恰四段、每段三個欄位、且第一個欄位是預期的 trigger 名。
+#    🔴 形狀只在**基準**這端驗、收尾那端只比字串:不對稱但仍 fail-closed ——
+#    收尾若整句爆掉,拿到的錯誤訊息 ≠ 已驗過形狀的基準 ⇒ 紅。反過來才會漏,而反過來被本式擋掉。
+TG_DEF0_SHAPE="$(printf '%s' "$TG_DEF0" | awk -F'|' '{n=NF; ok=(n==4); for(i=1;i<=n;i++){c=split($i,a,"::"); if(c!=3) ok=0} print (ok?"4x3":"bad:"n)}')"
+[ -n "$MD5_HELPER" ] && [ -s "$ORIGDEF_FILE" ] \
+  && [ "$TG_DEF0_SHAPE" = "4x3" ] && [ "${TG_DEF0%%::*}" = "$TG_CC" ] \
+  && ok "五函式 md5 + 四 trigger 定義基準已取(形狀 4x3 已驗)、helper 原始定義已存(N3 還原用)" \
+  || bad "md5/trigger 基準或原始定義取得失敗 —— trigger 基準形狀 [$TG_DEF0_SHAPE]"
 
 # 常用 SQL 片段
 CANCEL_2="INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
@@ -743,13 +769,29 @@ MUT=$((MUT+1))
 printf '%s' "$o" | grep -q 'A4A_FLIP_OK' && ok "突變 N7 trigger 砍 DELETE 事件 ⇒ 刪取消不回算(R6 翻面)" \
   || bad "突變 N7 — $(printf '%s' "$o" | grep -m1 -E 'ERROR|A4A_' | cut -c1-160)"
 
-# N8 upsert 加 WHERE false ⇒ R5 翻面(更新失效、惰性建列仍在)
-mutate_fn "突變 N8 upsert DO UPDATE 加 WHERE false ⇒ alloc 3→4 摘要凍在 3(R5 翻面)" "$HELPER" \
-"cancelled_quantity = EXCLUDED.cancelled_quantity" "cancelled_quantity = EXCLUDED.cancelled_quantity WHERE false" \
+# N8 upsert 的 ordered 軸被改寫回自值 ⇒ R5 翻面
+# 🔴 S2b-4a 項 23(封窗案 A):舊錨是「在 SET 清單的最後一個元素後面接 WHERE false」,
+#    那個形狀把「cancelled_quantity 必須是最後一欄」寫死成了突變的前提。
+#    S2b-1 四軸化會在它後面追加 shipped_quantity,突變於是產出
+#      cancelled_quantity = EXCLUDED.cancelled_quantity WHERE false, shipped_quantity = ...
+#    ⇒ 42601 syntax_error(2026-08-06 於 port 54357 實測確認)。
+#    🔴 而且**錨仍然命中**,所以 mut_block 的三重 preflight 一個都擋不下來 —— 它壞在下游 EXECUTE。
+#    新錨改成「就地把 ordered 這一軸的 RHS 換成自值」:不依賴欄序、不新增子句,
+#    在三軸現況、以及**手造的四軸版**(probe 內把 shipped_quantity 追加進 SET 清單再套上)
+#    兩個版本上都恰命中 1 次且產出合法 SQL —— 2026-08-06 於 port 54357 實跑。
+#    🔴 誠實界:四軸 helper 此刻**尚不存在**(S2b-1 才建),上句的「四軸版」是 probe 手造的,
+#    不是對真的 S2b-1 產物測的;S2b-1 落地後這一格是它的回歸點。
+# 🔴 判定維持**fail-closed 正向形**(`IF v = 3 THEN 綠 ELSE 炸`),不寫成 `IF v <> 3 THEN 炸`:
+#    摘要列不存在時 v 是 NULL,`NULL <> 3` 求值為 NULL ⇒ IF 不觸發 ⇒ 直接落到 NOTICE = 全綠。
+#    本片一度真的寫成後者,審查抓出、實測確認(對不存在的 id 跑同形 DO 塊會印 A4A_FLIP_OK)。
+#    NULL 另外單獨擋:那才是「helper 整支沒跑」的觀察面。
+mutate_fn "突變 N8 upsert 的 ordered 軸改寫回自值 ⇒ alloc 3→4 摘要凍在 3(R5 翻面)" "$HELPER" \
+"= EXCLUDED.ordered_quantity" "= order_item_quantity_summary.ordered_quantity" \
 "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',3);" \
 "UPDATE public.order_item_procurement SET allocated_quantity=4 WHERE order_item_id='$ITEM5';
 DO \$n8\$ DECLARE v integer; BEGIN
   SELECT ordered_quantity INTO v FROM public.order_item_quantity_summary WHERE order_item_id='$ITEM5';
+  IF v IS NULL THEN RAISE EXCEPTION 'N8:摘要列不存在 —— helper 整支沒跑,不是翻面'; END IF;
   IF v = 3 THEN RAISE NOTICE 'A4A_FLIP_OK'; ELSE RAISE EXCEPTION 'N8:未翻面(v=%)', v; END IF; END \$n8\$;" 1
 
 # N-self 突變機械自檢:錯 anchor 必炸
@@ -808,9 +850,10 @@ echo "== 收尾:零殘留與計數 =="
   && [ "$(q "SELECT md5(pg_get_functiondef('$FN_PROC'::regprocedure))")" = "$MD5_PROC" ] \
   && [ "$(q "SELECT md5(pg_get_functiondef('$FN_RCPT'::regprocedure))")" = "$MD5_RCPT" ] \
   && [ "$(q "SELECT md5(pg_get_functiondef('$FN_CANC'::regprocedure))")" = "$MD5_CANC" ] \
+  && [ "$(q "$TG_DEF_SQL")" = "$TG_DEF0" ] \
   && [ "$(q "$ORACLE_SQL")" = "0" ] \
-  && ok "零殘留:proc 計數復歸、fixture 摘要清空、五函式 md5 = 基準、oracle 0" \
-  || bad "殘留或函式漂移"
+  && ok "零殘留:proc 計數復歸、fixture 摘要清空、五函式 md5 = 基準、四 trigger 定義+啟用態 = 基準、oracle 0" \
+  || bad "殘留或漂移 —— proc計數[$(q "SELECT count(*) FROM public.order_item_procurement")/$PROC_N0] fixture摘要[$(q "SELECT count(*) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$ITEM5','$ITEM3')")] trigger漂移[$([ "$(q "$TG_DEF_SQL")" = "$TG_DEF0" ] && echo no || echo YES)] oracle[$(q "$ORACLE_SQL")]"
 
 echo
 echo "== 結果:PASS=$PASS FAIL=$FAIL SKIP=$SKIP(CELL=$CELL MUT=$MUT)=="
