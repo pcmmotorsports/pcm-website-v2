@@ -4,6 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
 
 import { OrdersTable } from './orders-table';
+import {
+  PAYMENT_STATUS_CAPSULE,
+  PAYMENT_STATUS_LABEL,
+  STATUS_CAPSULE,
+  orderedCapsuleClass,
+} from '../../lib/orders/order-list-view';
 
 afterEach(cleanup);
 
@@ -323,27 +329,185 @@ describe('V8 — 付款軸小字在訂單編號格內,不另立欄', () => {
     expect(idCell.textContent).toContain('已付款');
   });
 
-  it('🔴 待付款上紅、其餘走 muted:兩格正負對照(只驗字面會讓上色整段拿掉仍全綠)', () => {
+  // 🔴 **A11b(2026-08-07)改寫**:付款軸小字改膠囊,結構從 `<div>純文字</div>` 變成
+  //    `<div class="mt-1"><span class="…膠囊…">文字</span></div>` —— 原本 `:scope > div` 直接
+  //    命中文字節點的做法會撲空(className 只剩 `mt-1`),改查 `:scope > div > span`。
+  //    **`paid` 的期望值也跟著改**:A11b 之前 `paid` 走 `text-muted-foreground`(與 `refunded`/
+  //    `partiallyRefunded` 同灰、正是本片要治的訊號塌陷);A11b 之後 `paid` 是 emerald,
+  //    不再是 muted ⇒ 舊的 `toContain('text-muted-foreground')` 若照抄會**假紅**,已改斷言方向。
+  it('🔴 待付款上紅、已付款走綠(emerald):兩格正負對照(只驗字面會讓上色整段拿掉仍全綠)', () => {
     const { container: unpaidBox } = render(
       <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
     );
     const unpaidCell = [...unpaidBox.querySelectorAll('tbody tr td')][0]!;
-    // 🔴 `:scope > div` 而非 `div`:單號格今天只有這一顆 div,但 A11a-3 的操作入口很可能加 wrapper,
-    //    那時 `querySelector('div')` 會靜默讀到別的元素、這兩條變成量錯東西(R1 抓到)。
-    const unpaidLabel = unpaidCell.querySelector(':scope > div')!;
+    const unpaidCapsule = unpaidCell.querySelector(':scope > div > span')!;
 
-    expect(unpaidLabel.textContent).toBe('待付款');
-    expect(unpaidLabel.className).toContain('text-destructive');
+    expect(unpaidCapsule.textContent).toBe('待付款');
+    expect(unpaidCapsule.className).toContain('text-destructive');
 
-    // 反面:`paid` 那格**不得**是 destructive —— 少了這格,「所有狀態一律上紅」也會過。
+    // 反面:`paid` 那格**不得**是 destructive、也**不得**再是 muted 灰(訊號塌陷解除)。
     const { container: paidBox } = render(
       <OrdersTable orders={[order({ lines: [line('l2', 1, 12000)] })]} />,
     );
-    const paidLabel = [...paidBox.querySelectorAll('tbody tr td')][0]!.querySelector(':scope > div')!;
+    const paidCapsule = [...paidBox.querySelectorAll('tbody tr td')][0]!.querySelector(
+      ':scope > div > span',
+    )!;
 
-    expect(paidLabel.textContent).toBe('已付款');
-    expect(paidLabel.className).not.toContain('text-destructive');
-    expect(paidLabel.className).toContain('text-muted-foreground');
+    expect(paidCapsule.textContent).toBe('已付款');
+    expect(paidCapsule.className).not.toContain('text-destructive');
+    expect(paidCapsule.className).not.toContain('text-muted-foreground');
+    expect(paidCapsule.className).toContain('bg-emerald-100');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// A11b(2026-08-07):付款軸與訂貨軸膠囊上色(plan
+// `docs/specs/2026-08-07-e10-a11b-status-capsule-plan.md`)。出貨軸不做(§1)。
+// ─────────────────────────────────────────────────────────────
+
+describe('A11b — 付款軸膠囊配色(五態,§4 表)', () => {
+  it.each([
+    // 🔴 用**完整色 token**(`bg-…`)而非 'emerald' 這種子字串:後者在「色 class 被刪掉、
+    //    但同一串裡還有別的含該字樣的 class」時仍會過(subagent 自陳的弱點,主對話收緊)。
+    //    色階要調(如 amber-100 → amber-50)本來就該是**刻意動測試**的設計決定,不是彈性。
+    ['paid', '已付款', 'bg-emerald-100'],
+    ['unpaid', '待付款', 'bg-destructive/10'],
+    ['partiallyPaid', '付款確認中', 'bg-amber-100'],
+    ['refunded', '已退款', 'bg-muted'],
+    ['partiallyRefunded', '已退部分', 'bg-amber-100'],
+  ] as const)('%s → 文字「%s」、顏色含 %s', (status, label, colorToken) => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
+    );
+    const capsule = [...container.querySelectorAll('table tbody tr td')][0]!.querySelector(
+      ':scope > div > span',
+    )!;
+
+    expect(capsule.textContent).toBe(label);
+    expect(capsule.className).toContain(colorToken);
+    // 每一態都是同一個共用形狀,不是各自另組的 class。
+    expect(capsule.className).toContain(STATUS_CAPSULE);
+    // 🔴 上一行**單獨看是恆真的**:`STATUS_CAPSULE` 若被改成 `''`,`includes('')` 永遠 true
+    //    ⇒ 膠囊的「形狀」在測試層等於沒人釘(階段 C MF3)。補一條硬字面。
+    expect(capsule.className).toContain('rounded-full');
+  });
+
+  // 🔴 這是擋「訊號塌陷回歸」的直接觀察面:`refunded` / `partiallyRefunded` 一旦被改回與
+  // `paid` 同色,這條會紅(§5-1、A11b plan `:46-49` 逐字病灶)。
+  it('🔴 相異色數 ≥ 4,且 refunded/partiallyRefunded/unpaid 皆不與 paid 同色(擋訊號塌陷回歸)', () => {
+    const statuses = ['paid', 'unpaid', 'partiallyPaid', 'refunded', 'partiallyRefunded'] as const;
+    const colors = statuses.map((status) => {
+      const { container } = render(
+        <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: status })]} />,
+      );
+      return [...container.querySelectorAll('table tbody tr td')][0]!.querySelector(
+        ':scope > div > span',
+      )!.className;
+    });
+
+    expect(colors[3]).not.toBe(colors[0]); // refunded ≠ paid
+    expect(colors[4]).not.toBe(colors[0]); // partiallyRefunded ≠ paid
+    expect(colors[1]).not.toBe(colors[0]); // unpaid ≠ paid
+    expect(colors[3]).not.toBe(colors[1]); // refunded ≠ unpaid
+    expect(new Set(colors).size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe('A11b — 訂貨軸膠囊配色(三段完成度 + 邊界,§4 表)', () => {
+  it.each([
+    // 🔴 與付款軸同一條政策:用完整色 token。用 'muted' 的話,把 `bg-muted` 拿掉、只留
+    //    `text-muted-foreground`(= 膠囊變成沒有底色的裸文字,正是本片要治的東西)仍會全綠。
+    [0, 5, 'bg-muted'],
+    [3, 5, 'bg-amber-100'],
+    [5, 5, 'bg-emerald-100'],
+  ] as const)('ordered=%s quantity=%s → 顏色含 %s', (ordered, quantity, colorToken) => {
+    const l = line('l1', quantity, 12000);
+    const withOrdered: AdminOrderLine = {
+      ...l,
+      quantitySummary: { ...l.quantitySummary, orderedQuantity: ordered, cancellableQuantity: quantity - ordered },
+    };
+    const { container } = render(<OrdersTable orders={[order({ lines: [withOrdered] })]} />);
+    const cell = [...container.querySelectorAll('table tbody tr td')][9]!;
+    const capsule = cell.querySelector('span')!;
+
+    expect(capsule.textContent).toBe(`${ordered}/${quantity}`);
+    expect(capsule.className).toContain(colorToken);
+  });
+
+  // 🔴 邊界值(plan §5-2 逐字要求):`ordered === quantity`(齊了、綠)與
+  // `ordered === quantity - 1`(仍差一件、琥珀)—— 這兩格緊鄰,擋 `>=` 誤寫成 `>` 或 `>` 誤寫成 `>=`。
+  it('邊界:ordered === quantity → 綠;ordered === quantity - 1 → 琥珀(非綠)', () => {
+    const quantity = 4;
+    const full = line('l-full', quantity, 12000);
+    const fullOrdered: AdminOrderLine = {
+      ...full,
+      quantitySummary: { ...full.quantitySummary, orderedQuantity: quantity, cancellableQuantity: 0 },
+    };
+    const { container: fullBox } = render(<OrdersTable orders={[order({ lines: [fullOrdered] })]} />);
+    const fullCapsule = [...fullBox.querySelectorAll('table tbody tr td')][9]!.querySelector('span')!;
+
+    expect(fullCapsule.className).toContain('bg-emerald-100');
+    expect(fullCapsule.className).not.toContain('bg-amber-100');
+
+    const near = line('l-near', quantity, 12000);
+    const nearOrdered: AdminOrderLine = {
+      ...near,
+      quantitySummary: { ...near.quantitySummary, orderedQuantity: quantity - 1, cancellableQuantity: 1 },
+    };
+    const { container: nearBox } = render(<OrdersTable orders={[order({ lines: [nearOrdered] })]} />);
+    const nearCapsule = [...nearBox.querySelectorAll('table tbody tr td')][9]!.querySelector('span')!;
+
+    expect(nearCapsule.className).toContain('bg-amber-100');
+    expect(nearCapsule.className).not.toContain('bg-emerald-100');
+  });
+
+  it('佔位列(空 lines):訂貨格仍是純文字「—」,不套膠囊(不是一個可辨識的完成度)', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [] })]} />);
+    const cell = [...container.querySelectorAll('table tbody tr td')][9]!;
+
+    expect(cell.querySelector('span')).toBeNull();
+    expect(cell.textContent).toBe('—');
+  });
+});
+
+describe('A11b — S4:桌機與卡片膠囊 class 字串相等(雙 markup 一致性)', () => {
+  it('付款軸:同一筆 fixture 下,桌機與卡片的膠囊 class 完全相等', () => {
+    const testOrder = order({ lines: [line('l1', 1, 12000)], paymentStatus: 'partiallyRefunded' });
+    const { container } = render(<OrdersTable orders={[testOrder]} />);
+    const expected = `${STATUS_CAPSULE} ${PAYMENT_STATUS_CAPSULE.partiallyRefunded}`;
+
+    // 用文字內容鎖定(而非結構深度):卡片內同一列也有訂貨膠囊,結構選擇器容易撞到錯的那顆。
+    const deskCapsule = [...container.querySelectorAll('table span')].find(
+      (el) => el.textContent === PAYMENT_STATUS_LABEL.partiallyRefunded,
+    )!;
+    const cardCapsule = [...container.querySelectorAll('ul span')].find(
+      (el) => el.textContent === PAYMENT_STATUS_LABEL.partiallyRefunded,
+    )!;
+
+    expect(deskCapsule.className).toBe(expected);
+    expect(cardCapsule.className).toBe(expected);
+    expect(deskCapsule.className).toBe(cardCapsule.className);
+  });
+
+  it('訂貨軸:同一筆 fixture 下,桌機與卡片的膠囊 class 完全相等', () => {
+    const l = line('l1', 5, 12000);
+    const withOrdered: AdminOrderLine = {
+      ...l,
+      quantitySummary: { ...l.quantitySummary, orderedQuantity: 3, cancellableQuantity: 2 },
+    };
+    const { container } = render(<OrdersTable orders={[order({ lines: [withOrdered] })]} />);
+    const expected = `${orderedCapsuleClass(3, 5)} tabular-nums`;
+
+    const deskCapsule = [...container.querySelectorAll('table span')].find(
+      (el) => el.textContent === '3/5',
+    )!;
+    const cardCapsule = [...container.querySelectorAll('ul span')].find(
+      (el) => el.textContent === '3/5',
+    )!;
+
+    expect(deskCapsule.className).toBe(expected);
+    expect(cardCapsule.className).toBe(expected);
+    expect(deskCapsule.className).toBe(cardCapsule.className);
   });
 });
 
@@ -625,7 +789,7 @@ describe('A11c — 手機卡片版', () => {
 
   // 🔴 nit-5:卡片的這兩條分支原本零覆蓋 —— 刪掉 `text-destructive` 三元式或佔位 `[null]`
   //    都不會有任何一格轉紅(桌機有覆蓋、卡片沒有)。補上正負對照。
-  it('付款軸 unpaid 在卡片上紅、paid 不上紅(刪掉三元式這格會紅)', () => {
+  it('付款軸 unpaid 在卡片上紅、paid 不上紅(刪掉付款膠囊的 destructive 配色這格會紅)', () => {
     const { container: unpaid } = render(
       <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
     );

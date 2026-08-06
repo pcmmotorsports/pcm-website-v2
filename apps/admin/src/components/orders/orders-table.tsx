@@ -3,10 +3,13 @@ import type { AdminOrderSummary } from '@pcm/domain';
 import {
   INVOICE_STATUS_LABEL,
   MEMBER_TIER_LABEL,
+  PAYMENT_STATUS_CAPSULE,
   PAYMENT_STATUS_LABEL,
+  STATUS_CAPSULE,
   formatOrderAmount,
   formatOrderItemVehicle,
   formatOrderListDate,
+  orderedCapsuleClass,
 } from '../../lib/orders/order-list-view';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
@@ -50,6 +53,10 @@ import {
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
 //    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
 //    ⇒ 卡片版**同樣零 client 邊界**(純 server component、零 `use*`、零 `'use client'`)。
+//
+// 🔴 **A11b(2026-08-07)**:付款軸與訂貨軸從純文字改膠囊(pill)上色,配色表在 `order-list-view.ts`
+//    (`PAYMENT_STATUS_CAPSULE` / `orderedCapsuleClass`)。**A11b 只落這兩軸,出貨軸不做**
+//    ——沒有資料來源(`AdminOrderItemQuantitySummary` 無 shipped 欄),前置 = A11a-6。
 // V-3b:「年份廠牌車種」= order_items.vehicle_snapshot 逐品項直出、formatOrderItemVehicle 顯示
 //    (dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
@@ -75,6 +82,14 @@ const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
  */
 function shouldMergeAmount(order: AdminOrderSummary): boolean {
   return order.lines.length > 1 || order.lines.some((l) => l.quantity > 1);
+}
+
+/**
+ * 付款軸膠囊 class(A11b S4:桌機與卡片**共用本支**,不各自拼字串 —— 兩份 markup
+ * 拿到的 class 字串因此結構上保證相等,不是靠肉眼對照兩處常數維持一致)。
+ */
+function paymentCapsuleClass(status: AdminOrderSummary['paymentStatus']): string {
+  return `${STATUS_CAPSULE} ${PAYMENT_STATUS_CAPSULE[status]}`;
 }
 
 function OrderGroup({ order }: { order: AdminOrderSummary }) {
@@ -112,12 +127,13 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
                   ③ admin 的網站 token 是 `--destructive`(`globals.css:27` → `:91 --color-destructive`)。
                   ⇒ 照該句的**用意**(用網站 token、不照抄外部 hex)走 admin 自己那顆,不把 `--c-red` 搬進來。
 
-                  🔴 只有 `unpaid` 上紅是照真權威字面(它只點名「待付款」)。`refunded` / `partiallyRefunded`
-                  目前與 `paid` 同灰 = **訊號塌陷**,已列交棒決策題、不在本片自行加色。 */}
-              <div
-                className={`text-xs ${order.paymentStatus === 'unpaid' ? 'text-destructive' : 'text-muted-foreground'}`}
-              >
-                {PAYMENT_STATUS_LABEL[order.paymentStatus]}
+                  🏁 **A11b(2026-08-07)加色**:五態改膠囊,`refunded` / `partiallyRefunded` 不再與
+                  `paid` 同灰(訊號塌陷解除)。配色表 `PAYMENT_STATUS_CAPSULE`(`order-list-view.ts`),
+                  桌機/卡片共用 `paymentCapsuleClass`,同輸入必同 class(S4 一致性)。 */}
+              <div className='mt-1'>
+                <span className={paymentCapsuleClass(order.paymentStatus)}>
+                  {PAYMENT_STATUS_LABEL[order.paymentStatus]}
+                </span>
               </div>
             </td>
           )}
@@ -159,15 +175,24 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
               </div>
             </td>
           )}
-          {/* 訂貨(A11a-4):**品項層**、逐列顯示 `已訂/買了`。`n/m` 那一段與明細頁 `ItemAxisCell`
-              同源;明細那格另有「訂貨」標籤、到貨列與已取消列,列表只取分數本身。
-              🔴 第 1 批只做 `n/m` 純文字;**膠囊與上色屬 A11b**(母 plan row 60),本片不預埋。
+          {/* 訂貨(A11a-4 純文字 → A11b 加膠囊上色):**品項層**、逐列顯示 `已訂/買了`。`n/m` 那一段
+              與明細頁 `ItemAxisCell` 同源;明細那格另有「訂貨」標籤、到貨列與已取消列,列表只取分數本身。
+              🏁 A11b:三段完成度配色(灰/琥珀/綠)由 `orderedCapsuleClass` 算,佔位列(`line` 為 null)
+              維持純文字「—」、不套膠囊(它不是一個可辨識的完成度)。
               🔴 **UI 端零 `?? 0`、零 join**(V9):`quantitySummary` 是 A9c 已正規化的**非 nullable** 型別,
               缺列補 0 的責任在 adapter mapper。這裡拿到 nullable 就是 A9c 沒做完,退回去、不要在這補。
               ⚠️ 代價(A9c commit body 與型別 docstring 已記):列表補 0 之後「資料損壞」與「真的還沒訂」
               長得一樣;明細頁那格才會顯示「數量資料尚未就緒」。**取消入口(A13)不得吃本欄。** */}
-          <td className={`${TD} tabular-nums text-xs`}>
-            {line ? `${line.quantitySummary.orderedQuantity}/${line.quantitySummary.quantity}` : '—'}
+          <td className={TD}>
+            {line ? (
+              <span
+                className={`${orderedCapsuleClass(line.quantitySummary.orderedQuantity, line.quantitySummary.quantity)} tabular-nums`}
+              >
+                {line.quantitySummary.orderedQuantity}/{line.quantitySummary.quantity}
+              </span>
+            ) : (
+              '—'
+            )}
           </td>
           {/* 發票(A11a-5):**訂單層** rowSpan(開票是整單的事,不是逐品項)。
               🔴 字面**複用** `INVOICE_STATUS_LABEL` —— 明細頁的「開立狀態」欄用的是同一份。
@@ -238,9 +263,8 @@ function OrderCard({ order }: { order: AdminOrderSummary }) {
         <span className='px-1.5'>·</span>
         {MEMBER_TIER_LABEL[order.tierAtCheckout]}
         <span className='px-1.5'>·</span>
-        {/* 付款軸:只有 unpaid 上紅,與桌機同一條(`refunded`/`partiallyRefunded` 的訊號塌陷
-            是已列的交棒決策題,不在本片自行加色)。 */}
-        <span className={order.paymentStatus === 'unpaid' ? 'text-destructive' : undefined}>
+        {/* 付款軸(A11b):與桌機同一支 `paymentCapsuleClass`,五態膠囊上色、訊號塌陷解除。 */}
+        <span className={paymentCapsuleClass(order.paymentStatus)}>
           {PAYMENT_STATUS_LABEL[order.paymentStatus]}
         </span>
       </div>
@@ -271,9 +295,16 @@ function OrderCard({ order }: { order: AdminOrderSummary }) {
                 數量 {line ? line.quantity : '—'}
                 <span className='px-1.5'>·</span>
                 訂貨{' '}
-                {line
-                  ? `${line.quantitySummary.orderedQuantity}/${line.quantitySummary.quantity}`
-                  : '—'}
+                {/* A11b:與桌機同一支 `orderedCapsuleClass`,佔位列維持純文字「—」。 */}
+                {line ? (
+                  <span
+                    className={`${orderedCapsuleClass(line.quantitySummary.orderedQuantity, line.quantitySummary.quantity)} tabular-nums`}
+                  >
+                    {line.quantitySummary.orderedQuantity}/{line.quantitySummary.quantity}
+                  </span>
+                ) : (
+                  '—'
+                )}
               </div>
             </li>
           );

@@ -83,6 +83,52 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   partiallyRefunded: '已退部分',
 };
 
+// ── 狀態膠囊配色(M-4b E10 A11b,2026-08-07:訂單列表付款軸/訂貨軸從純文字改膠囊上色)──
+// 出貨軸本片不做(A11b plan §1:`AdminOrderItemQuantitySummary` 無 shipped 欄,前置 = A11a-6)。
+// 形狀逐字元同 `notes-timeline.tsx:89`(含 `font-medium`);`customer-detail-sections.tsx:23` 那族
+// 少一個 `font-medium`、不是同款。Record 驅動配色的先例 =
+// `notes-timeline.tsx:15-19`,語彙 = 綠完成 / 琥珀進行中或要注意 / 灰中性或未開始 / 紅要處理。
+
+/** 共用膠囊形狀。桌機與卡片兩份 markup 都套同一顆 class 常數,不各自組一份字串。 */
+export const STATUS_CAPSULE = 'inline-flex rounded-full px-2 py-0.5 text-xs font-medium';
+
+/**
+ * 付款軸五態配色。**訊號塌陷解除**的精確意思 = `refunded` / `partiallyRefunded` 不再與 `paid`
+ * 同灰(那正是 A11a-1 登記的病)。`unpaid` 沿用既有唯一上紅那態的顏色,顏色本身不變。
+ *
+ * 🔴 **不是「五態兩兩可辨」** —— 本表只有 **4 個色相**,`partiallyPaid` 與 `partiallyRefunded`
+ *    **同為琥珀**(兩者標籤不同、讀得出來,且都屬「未結、要看一下」)。要五色互異得引入
+ *    repo 目前沒有的第 5 色相 = 視覺決定,未經 Sean 拍板不要自己加。
+ */
+export const PAYMENT_STATUS_CAPSULE: Record<PaymentStatus, string> = {
+  paid: 'bg-emerald-100 text-emerald-700',
+  unpaid: 'bg-destructive/10 text-destructive',
+  partiallyPaid: 'bg-amber-100 text-amber-700',
+  refunded: 'bg-muted text-muted-foreground',
+  partiallyRefunded: 'bg-amber-100 text-amber-700',
+};
+
+/**
+ * 訂貨軸完成度配色(依 `orderedQuantity` vs `quantity` 三段):
+ * `ordered === 0` 灰(還沒開始)/ `0 < ordered < quantity` 琥珀(部分)/
+ * `ordered >= quantity` 綠(齊了)。回傳**已組好含 `STATUS_CAPSULE` 的完整 class**,
+ * 呼叫端直接套用、不用自己拼字串(桌機/卡片一致性由此保證)。
+ *
+ * ⚠️ **誠實邊界:兩個分支邊界在可達資料上構造不出來,`>=` 是 fail-safe、不是因為測過** ——
+ *    超訂(`ordered > quantity`)被 A1 的 `oiqs_ordered_le_quantity` CHECK 擋在 DB;
+ *    `quantity === 0` 被 `order_items.quantity > 0` CHECK 擋住。日後那兩道 CHECK 若鬆綁,
+ *    這裡的行為(超訂顯綠 / 0/0 顯灰)要重新評估。
+ */
+export function orderedCapsuleClass(ordered: number, quantity: number): string {
+  const color =
+    ordered === 0
+      ? 'bg-muted text-muted-foreground'
+      : ordered >= quantity
+        ? 'bg-emerald-100 text-emerald-700'
+        : 'bg-amber-100 text-amber-700';
+  return `${STATUS_CAPSULE} ${color}`;
+}
+
 export const FULFILLMENT_STATUS_LABEL: Record<FulfillmentStatus, string> = {
   notOrdered: '未訂貨',
   ordered: '已向廠商訂貨',
