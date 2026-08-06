@@ -188,6 +188,9 @@ export async function upsertItemProcurementAction(
       expectedArrivalDate: parsed.expectedArrivalDate,
       actor: authorization.actorId,
       requestId,
+      // 🔴 單列表單一律 `false`:這張表單**有**那四個欄位 ⇒ 員工清空某欄就該真的清掉。
+      //    改成 true 會讓「清空」靜默失效,而且沒有任何測試會紅(A9h-M plan §3.1)。
+      preserveOptionalFields: false,
     });
   } catch (error) {
     // 🔴 失敗路徑也要 revalidate:`bug` / `error` 兩支都**可能已經寫進去了**

@@ -70,6 +70,10 @@
 //   p_supplier_order_no / p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、
 //   正規化後肉眼全空亦收斂成 NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。
 //   當初刻意延後的理由 = 呼叫端不存在時補了也沒有 typecheck 會守住;A10b 就是第一個呼叫端。檔頭計數見上。
+//   🔴 2026-08-06 A9h-M(`20260806200000`)**尚未 apply、本檔尚未重 gen**:該片把本函式改成
+//   **12 參**(尾端 `p_preserve_optional_fields boolean DEFAULT false`)。此刻先以手寫方式補進
+//   Args(照 DEFAULT 參數該有的可省略形狀)好讓 typecheck 反映真實合約;**apply 後仍須重 gen**
+//   並照檔頭計數重貼校正 —— 本片沒有新增校正項,計數不變。
 //   承前 RW1a ——
 //   **新增** public.admin_initiate_order_refund(8 參數) → jsonb / public.admin_finalize_order_refund(7 參數) → jsonb
 //   = order_refunds 的唯二 service_role 寫入路徑(SECDEF owner RPC)。initiate 回 8 固定碼、finalize 回
@@ -2386,18 +2390,27 @@ export type Database = {
       admin_upsert_item_procurement: {
         Args: {
           // 🔴 手動校正(重 gen 後需重貼;2026-08-04 A10b 開工補上 —— 呼叫端到此才存在)。
-          //   本函式是**全量 payload、非 patch**(migration `20260803160000:19-24`):選填欄送 NULL
-          //   = 該欄寫成 NULL。這五個參數在函式裡逐一 `IS NOT NULL` 才驗(`:228-289`),NULL 合法。
+          //   本函式**在 `p_preserve_optional_fields = false`(預設)下**是全量 payload、非 patch
+          //   (migration `20260803160000:19-24`):選填欄送 NULL = 該欄寫成 NULL。
+          //   🔴 `true` 時(A9h 批次)語意不同 —— submitted_at / supplier_order_no / exception_reason /
+          //   expected_arrival_date 的 NULL **是保留、不是清空**(A9h-M `20260806200000`)。
+          //   這五個參數在函式裡逐一 `IS NOT NULL` 才驗(`:228-289`),NULL 合法。
           //   PostgREST 的型別產生器表達不了「必填但可為 null」⇒ 全被型別化為非 null,
           //   呼叫端第一次傳 null 就型別紅。校正 = 五個真的可為 NULL 的參數補 `| null`。
-          //   其餘六個**不補** —— p_actor / p_request_id / p_order_item_id / p_supplier_id /
+          //   其餘的**不補** —— p_actor / p_request_id / p_order_item_id / p_supplier_id /
           //   p_allocated_quantity / p_reply_status 在函式裡 fail-closed 拒收 NULL,型別非 null 是對的。
+          //   🔴 A9h-M(`20260806200000`)起多一個 p_preserve_optional_fields:它有 DEFAULT false
+          //   ⇒ 型別產生器會把它寫成**可省略**(`?:`)。這裡照抄那個形狀 ⇒ **不是**手動校正、
+          //   重 gen 後無需重貼(檔頭計數不因本片變動)。
+          //   「呼叫端必須明確表態」的守門不在這一層,在 `UpsertItemProcurementArgs`
+          //   (該欄必填)+ repository 測試釘死具名參數恰 12 鍵 —— 漏送會紅在那兩處。
           p_actor: string
           p_allocated_quantity: number
           p_contact_channel: string | null
           p_exception_reason: string | null
           p_expected_arrival_date: string | null
           p_order_item_id: string
+          p_preserve_optional_fields?: boolean
           p_reply_status: string
           p_request_id: string
           p_submitted_at: string | null

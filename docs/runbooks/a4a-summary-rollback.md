@@ -18,8 +18,10 @@
 
 ```sql
 -- (1) 停掉 service_role 應用路徑的唯一寫入口(A5a)。**單獨執行、確認已提交後再做下一步。**
+-- 🔴 簽章 = 12 參(A9h-M 20260806200000 起;末參 p_preserve_optional_fields boolean)。
+--    型別清單少一個 boolean ⇒ 本句當場 undefined function、回滾在唯一需要它的那天卡死。
 REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
-  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) FROM service_role;
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text, boolean) FROM service_role;
 ```
 
 ```sql
@@ -199,9 +201,10 @@ COMMIT;
 ——回權改走 `2026-07-30-a7-rollback.md` 步 8 的 a7 專屬前提,勿在此卡死。)
 
 ```sql
+-- 🔴 簽章 = 12 參(A9h-M 20260806200000 起;末參 p_preserve_optional_fields boolean)。
 GRANT EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
-  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) TO service_role;
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text, boolean) TO service_role;
 -- 驗:應回 t
 SELECT has_function_privilege('service_role',
-  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)', 'EXECUTE');
+  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)', 'EXECUTE');
 ```

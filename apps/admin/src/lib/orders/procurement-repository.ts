@@ -49,7 +49,11 @@ export class ProcurementCallerBugError extends Error {
 
 /**
  * 🔴 **RPC 的 RAISE 面有兩個 SQLSTATE,兩個都當呼叫端 bug**(逐條對照 migration `:32`):
- *   ① `P0001` = actor(`:189-197`)/ request_id(`:200-208`)缺失或非法 + 常數自檢 + 兩圈未收斂的防衛枝。
+ *   ① `P0001` = actor(`:189-197`)/ request_id(`:200-208`)缺失或非法 + 常數自檢 + 兩圈未收斂的防衛枝
+ *      **+ preserve 矛盾意圖**(A9h-M `20260806200000` 步 1p:`preserveOptionalFields: true` 卻同時
+ *      送了 submittedAt / supplierOrderNo / exceptionReason / expectedArrivalDate 任一非 null)。
+ *      🔴 新增這個來源**不需要改下面的判別式**(它只看 `code`)—— 但這行枚舉必須跟上,
+ *      否則它會從「誠實邊界」退化成「過期的宣稱」。
  *   ② `P2B02` = 隔離閘(`:170-175`:非 read committed 拒收)。
  *
  * 🔴 **`P2B01` 刻意不列**:那是 A2b1 的總量守門,A5a 自己 catch 起來翻成 `OVER_ALLOCATION`
@@ -108,6 +112,15 @@ export interface UpsertItemProcurementArgs {
    *    ⇒ 每次送出用新的 HTTP `x-request-id` 是對的,不要照 A6 搬表單 token 過來。
    */
   requestId: string;
+  /**
+   * 🔴 **保留模式**(A9h-M `20260806200000`)。**必填、無預設** —— 每個呼叫端都必須自己表態,
+   *    漏帶是型別紅而不是靜默走 DB 的 `DEFAULT false`。
+   *
+   * `false` = 全量 payload(明細頁單列表單):四個選填欄送什麼就寫什麼、**送 null 就是清空**。
+   * `true`  = 批次(A9h)沒有那四欄的入口 ⇒ 保留該列現值。
+   *    🔴 此時那四欄**必須全部送 null**,否則 RPC 判定矛盾意圖並 RAISE(→ `ProcurementCallerBugError`)。
+   */
+  preserveOptionalFields: boolean;
 }
 
 /**
@@ -116,7 +129,9 @@ export interface UpsertItemProcurementArgs {
  * 🔴 **逐欄具名送、不 spread**:TS 的多餘屬性檢查只作用在物件字面上,spread 會把不該有的欄位
  *    靜默帶進去(`supplier-repository.ts:108-111` 有完整前例)。
  * 🔴 **全量 payload**:每個選填欄都要送(null 也要送),漏送一欄不是「不動它」而是型別紅 ——
- *    這正是 `database.types.ts` 那五處 `| null` 手動校正要保護的東西。
+ *    這正是 `database.types.ts` 那些 `| null` 手動校正要保護的東西。
+ * 🔴 **`preserveOptionalFields: true` 時語意不同**(A9h-M):那四欄的 null **不是清空、是保留**。
+ *    「送 null = 清空」只在 `false` 下成立 —— 這行以前是無條件寫的,現在不是。
  */
 export async function upsertItemProcurement(
   args: UpsertItemProcurementArgs,
@@ -135,6 +150,7 @@ export async function upsertItemProcurement(
       p_expected_arrival_date: args.expectedArrivalDate,
       p_actor: args.actor,
       p_request_id: args.requestId,
+      p_preserve_optional_fields: args.preserveOptionalFields,
     },
   );
 

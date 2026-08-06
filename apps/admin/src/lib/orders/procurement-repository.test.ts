@@ -15,7 +15,8 @@ import {
 } from './procurement-repository';
 
 // M-4b E10 A10b:`admin_upsert_item_procurement` 唯一呼叫端。
-// 合約 = migration 20260803160000(17 固定碼 + 11 參數 + 兩個 RAISE SQLSTATE)。
+// 合約 = migration 20260803160000(17 固定碼 + 兩個 RAISE SQLSTATE)
+//      + A9h-M 20260806200000(參數 11 → **12**,尾端 p_preserve_optional_fields boolean)。
 
 // 大括號 body 是必要的(理由見 supplier.test.ts:17-22:簡潔箭頭會回傳 mock、被當 teardown 呼叫)。
 beforeEach(() => {
@@ -34,6 +35,7 @@ const ARGS = {
   expectedArrivalDate: null,
   actor: 'sean',
   requestId: 'req-1',
+  preserveOptionalFields: false,
 };
 
 describe('upsertItemProcurement — 17 碼合約', () => {
@@ -85,7 +87,7 @@ describe('upsertItemProcurement — RAISE 面', () => {
 });
 
 describe('upsertItemProcurement — wire', () => {
-  it('🔴 逐欄具名送 11 參數(全量 payload;漏一欄 = 那欄被寫成 NULL)', async () => {
+  it('🔴 逐欄具名送 12 參數(全量 payload;漏一欄 = 那欄被寫成 NULL)', async () => {
     rpc.mockResolvedValue({ data: 'CREATED', error: null });
     await upsertItemProcurement({
       ...ARGS,
@@ -110,9 +112,20 @@ describe('upsertItemProcurement — wire', () => {
       p_expected_arrival_date: '2026-09-30',
       p_actor: 'sean',
       p_request_id: 'req-1',
+      p_preserve_optional_fields: false,
     });
-    // 🔴 參數個數釘死 = 11(migration :107-119);多送/少送都會讓 PostgREST 找不到函式多載
-    expect(Object.keys(args as object)).toHaveLength(11);
+    // 🔴 參數個數釘死 = 12(A9h-M migration 20260806200000 的 CREATE FUNCTION 參數清單);
+    //    多送/少送都會讓 PostgREST 找不到函式多載。
+    expect(Object.keys(args as object)).toHaveLength(12);
+  });
+
+  // 🔴 這一格擋的是「旗標被寫死成 false」:上面那格的 ARGS 本來就是 false ⇒ 就算實作把
+  //    args.preserveOptionalFields 換成字面 false,它照樣全綠。必須有一格送 true。
+  it('🔴 preserveOptionalFields: true 要原樣送到 DB(寫死 false 這格會紅)', async () => {
+    rpc.mockResolvedValue({ data: 'UPDATED', error: null });
+    await upsertItemProcurement({ ...ARGS, preserveOptionalFields: true });
+    const [, args] = rpc.mock.calls[0]!;
+    expect((args as Record<string, unknown>).p_preserve_optional_fields).toBe(true);
   });
 
   it('選填欄為 null 時**照樣送出 null**(不是省略 —— 省略 = 該欄不動,語意完全不同)', async () => {
