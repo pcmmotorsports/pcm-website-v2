@@ -65,12 +65,22 @@
  *    那天到了,但**刪除本身是另一片**(0c 明文只換值不動 scope,見 red-token-triage §一);
  *    留著不礙事(同值),要收的話連同 brand-directory.css 一起收。
  *
- * 其餘幾個是正式站 tokens.css 沒有的(--c-graphite / --c-ember-ink /
- * --c-border-control / --c-sunken / --f-serif / --ease),一併帶在這裡。
+ * 其餘幾個原本是正式站 tokens.css 沒有的:--c-ember-ink / --c-border-control /
+ * --c-sunken / --ease 仍然只在這裡帶著。--c-graphite 與 --f-serif 已於 2026-08-06
+ * 升上 tokens.css 的 :root(首頁 N°04 要用)—— 這裡留一份同值定義是 scope 覆寫 +
+ * 縱深防禦(fragment 的 scope 由外層路由掛,不保證一定掛好;兩處同值有分岔守門釘住,
+ * 見 brand-page.test.ts「品牌頁 CSS · tokens.css :root 分岔守門」describe)。
  * 有同名但值略異的(--c-text #121214 vs #0a0a0a、--c-border #e5e5e7 vs #e4e4e7)
  * 也一起覆蓋,免得同一頁混用兩套灰。
  */
 .bp-page {
+  /* 🔶 2026-08-06:--c-graphite 與 --f-serif 同時也定義在 tokens.css 的 :root
+     (升級給首頁 N°04 用)。兩處必須同值,已有分岔守門釘住(見
+     brand-page.test.ts「品牌頁 CSS · tokens.css :root 分岔守門」describe)。
+     這裡保留不刪 —— .bp-page 是 fragment、scope 由外層路由掛,留一份本地定義是
+     縱深防禦(brand-page.test.ts「品牌頁 CSS · 色票 scope」describe 內
+     `expect(scope).toContain('--c-graphite: #202225')` 那條既有守門也釘著這裡必須有這顆;
+     不引行號,行號會漂)。 */
   --c-graphite: #202225;
   --c-border: #e5e5e7;
   --c-text: #121214;
@@ -170,9 +180,10 @@
 .bp-crumb-cur { color: var(--c-text); font-weight: 500; }
 
 /* ══ 品牌橫幅 ═════════════════════════════════════════════════════ */
-/* 🔴 fallback 不是裝飾:`--c-graphite` 只存在於 .bp-page 這個 scope,
-   而本元件是 fragment、scope 由外層路由掛。D3 漏掛的話 var() 無值 ⇒ background 失效
-   ⇒ 白底配這一段寫死的 color:#fff = 整條看不見。一個 fallback 換掉那個失敗模式。 */
+/* 🔴 fallback 不是裝飾:`--c-graphite` 雖也在 tokens.css :root 有一份(2026-08-06 升級),
+   但本元件是 fragment、scope 由外層路由掛,不能保證 `.bp-page` 一定包住它 —— D3 漏掛的話
+   var() 無值 ⇒ background 失效 ⇒ 白底配這一段寫死的 color:#fff = 整條看不見。
+   一個 fallback 換掉那個失敗模式。 */
 .bp-band { background: var(--c-graphite, #202225); color: #fff; position: relative; overflow: hidden; isolation: isolate; }
 .bp-band-inner {
   max-width: 1440px; margin: 0 auto;
@@ -342,9 +353,10 @@
 .bp-film-poster:hover .bp-film-play { background: var(--c-red); border-color: var(--c-red); }
 .bp-film-play svg { margin-left: 3px; }
 /* 播放器被網路或瀏覽器擋掉時的說明面板(4 秒沒 load 就換上;元件端負責判定)。
-   🔴 fallback 同 `.bp-band` 那條(見本檔上面的註解):`--c-graphite` 只存在於 .bp-page 這個
-      scope,D3 接線漏掛的話 var() 無值 ⇒ 透明底配這裡寫死的 `color:#fff` = 這段字全看不見,
-      而它出現的時機正好是「影片已經壞了」—— 兩件事疊在一起客人會對著空白框。 */
+   🔴 fallback 同 `.bp-band` 那條(見本檔上面的註解):`.bp-page` 這份是 scope 覆寫 + 縱深防禦
+      (tokens.css :root 現在也有一份,2026-08-06 升級),D3 接線漏掛的話一樣拿不到值 ⇒
+      透明底配這裡寫死的 `color:#fff` = 這段字全看不見,而它出現的時機正好是「影片已經壞了」——
+      兩件事疊在一起客人會對著空白框。 */
 .bp-film-blocked {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 14px; padding: 24px; text-align: center;
@@ -479,7 +491,8 @@
 }
 .bp-craft-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 34px; }
 .bp-craft-panel { display: flex; flex-direction: column; }
-/* fallback 同 .bp-band / .bp-film-frame:`--c-graphite` 只活在 .bp-page 這個 scope。 */
+/* fallback 同 .bp-band / .bp-film-frame:.bp-page 這份是 scope 覆寫 + 縱深防禦
+   (tokens.css :root 也有一份,2026-08-06 升級),fragment 掛漏時一樣拿不到值。 */
 .bp-craft-media { overflow: hidden; background: var(--c-graphite, #202225); margin-bottom: 20px; }
 /* 16:9 的由來:設計稿 :1121-1123 說「**這兩張**都是影片截圖(1397×781 / 2404×1347,
    本來就是 16:9)」—— 原本用 5:4 會把兩側裁掉、把官方燒在畫面裡的工序字幕切一半
@@ -704,9 +717,10 @@
 .bp-others-list a:hover .bp-others-name { color: var(--c-text); }
 /* 當前品牌那一磚:**不從清單拿掉**,加框加底色標出來(設計稿 :2026 的 is-cur + aria-current)。
    拿掉的話客人在磚牆上找不到「我現在在哪一家」,而且 20 家會變 19 家、最後一列的置中會跳。 */
-/* 🔴 fallback 同 .bp-band / .bp-craft-media(本檔上面那幾條):`--c-graphite` 只活在
-   `.bp-page` 這個 scope,而元件是 fragment、scope 由外層路由掛。D3 漏掛時 var() 無值
-   ⇒ border-color 與 box-shadow 兩條**整條宣告失效**,而且沒有任何測試會紅
+/* 🔴 fallback 同 .bp-band / .bp-craft-media(本檔上面那幾條):`.bp-page` 這份是
+   scope 覆寫 + 縱深防禦(tokens.css :root 現在也有一份 --c-graphite,2026-08-06 升級),
+   而元件是 fragment、scope 由外層路由掛。D3 漏掛時一樣拿不到值 ⇒
+   border-color 與 box-shadow 兩條**整條宣告失效**,而且沒有任何測試會紅
    (守門 = brand-page.test.ts 逐處數 fallback 那條)。
    ⚠️ 同一個失敗模式在本區還會拿掉 `background: var(--c-sunken)`(tokens.css 也沒有它)
       ⇒ 當前品牌那一磚會退化成「和其他 19 磚幾乎一樣」,只剩 `filter: none` 與粗體字名
