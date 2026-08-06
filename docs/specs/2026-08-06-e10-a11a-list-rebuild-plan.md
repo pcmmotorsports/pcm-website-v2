@@ -263,6 +263,7 @@ v1 的 §7 把它寫成 10 欄,**是算錯了一格**(少扣了會員等級那�
    ⇒ 實作採**部分收**:刪掉零 consumer 的 `WorkflowStatusBadge` 元件本體 +
    `order-list-view.ts` 的 `WorkflowStatusBadgeView` / `workflowStatusBadge()`,
    **保留 `BADGE_TEXT_COLOR`**,整檔隨 `workflow-status-select.tsx` 在 A9w4c 後半收。
+   ✅ **2026-08-06 A9w4c 後半已執行:兩檔整檔刪**(select 一刪,`BADGE_TEXT_COLOR` 即零 consumer)。
    ⚠️ 教訓:本表當初只 grep 了「元件名」沒 grep「該檔的其他 export」——
    **一個檔是不是孤兒,要看它所有 export 的 consumer,不是只看最顯眼那個。**
 
@@ -271,6 +272,9 @@ v1 的 §7 把它寫成 10 欄,**是算錯了一格**(少扣了會員等級那�
      `order_item_quantity_summary`,與 `order_status_options` 詞彙無關 ⇒ A11a-4 不需要它)。
    - `listOrderStatusOptions` 讀取鏈(port / adapter / `order-repository.ts` getter)
      ⇒ **裁定歸 A9w4c 後半**,理由:它是九碼**契約面**,而 A9w4c 那片本來就在收契約與 exports;
+     🔴 **2026-08-06 A9w4c 後半實際未做這條** —— 該片工單(`E-119-A`)的範圍是「E-212 標好歸屬的那批」,
+     不含本讀取鏈。實查它現在**已零 production consumer**(`getAdminOrderStatusOptionsRepository`
+     只有定義無呼叫端)⇒ **是一片隨時可開的獨立小片**,已寫進 `E-217-STOP` 交主視窗排。
      放進 A11a-1 會把畫面片撐進 `packages/ports` 與 `packages/adapters`(鐵則 4 體積)。
      **這是「決定了歸誰」不是「還沒決定」** —— H6 要求的結案已達成。
 
@@ -294,10 +298,12 @@ A11a-1(九碼三群下架 = 列表最後一個九碼消費端消失)
    ↓  ← 🔴 這一刻起 `updateOrderItemWorkflowAction` 零 UI 呼叫端
 A9w4a(item writer 拆除:server action + form parser;高風險、codex 不降級)
    ↓
-A9w4c 後半(item 半:`WF_STATUS_FIELD`/`ITEM_ID_FIELD`/`WF_CLEAR_VALUE`/`WF_RECEIVED_UNCONFIRMED`
-   與 `workflow-select-options.ts`、孤兒元件檔一併清;🔴 **2026-08-06 A9w4a 後實剩兩支** ——
-   `workflow-status-select.tsx` / `workflow-status-badge.tsx`,原本第三支
-   `item-workflow-status-cell.tsx` 已由 A9w4a 刪除)
+A9w4c 後半 ✅ **2026-08-06 已完成**(item 半:四常數 + `workflow-select-options.ts` +
+   `workflow-status-select.tsx` + `workflow-status-badge.tsx` 整檔 + port/adapter 的
+   `updateAdminOrderItemWorkflow` 與其 3 條測試,一併清)
+   🔴 **badge 整檔刪**:本表原寫「保留 `BADGE_TEXT_COLOR`」,那是 A11a-1 當時的事實 ——
+   它的唯一 consumer 就是同片刪除的 `workflow-status-select.tsx`,刪完零 consumer ⇒ 整檔可刪。
+   ⚠️ `listOrderStatusOptions` **讀取鏈**(§3.1 也裁定歸本片)**未做** —— 不在該片工單範圍,見 §3.1 註
    ↓
 A9v(REVOKE item RPC + 撤 `order_status_options` service_role 寫權 + ACL 終態斷言;
     前置 = 全 consumer 零引用 grep;`order_items.workflow_status` 欄凍結不 DROP)

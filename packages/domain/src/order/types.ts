@@ -368,7 +368,9 @@ export type InvoiceStatus = 'not_issued' | 'issued' | 'voided';
  * 🔴 型別層**無** payment/fulfillment/金額 total 欄(金流紅線:改單絕不碰金流真相軸)。
  * 🔴 D-2 起型別層**亦無 workflowStatus**(orders.workflow_status 停寫=雙層強制:TS 層關死
  * 〔Codex R1 must-fix 1〕+ DB 層 RPC 白名單收窄、送到即 RAISE〔Fable 關卡1 REQUIRED-2、
- * 20260716130000 §4〕;狀態唯一寫入面=item 層 updateAdminOrderItemWorkflow)。
+ * 20260716130000 §4〕;~~狀態唯一寫入面=item 層 updateAdminOrderItemWorkflow~~ —— 🔴 **A9w4c 後半
+ * (2026-08-06)已把該 port/adapter 方法移除,admin 應用層與 adapter 皆無 workflow_status 寫入面**;
+ * DB 端 RPC 與 EXECUTE 權仍在、撤權歸 A9v)。
  */
 export type AdminOrderWorkflowPatch = {
   shippingMethod?: string;
@@ -867,7 +869,8 @@ export type OrderStatusOption = {
 
 // M-4b E10 A9w4c(前半):`OrderStatusOptionUpdate` 已移除 —— 它的唯二引用是 port 與 adapter 的
 // `updateOrderStatusOption` 簽章,兩者同片退場。`OrderStatusOption`(讀模型)保留:**A11a-1(2026-08-06)後
-// 列表側已零引用**,僅剩 writer 鏈的帶色下拉(`workflow-status-select.tsx`)在用 ⇒ 隨 A9w4c 後半退場。
+// 列表側已零引用**;唯一殘留的 writer 鏈帶色下拉(`workflow-status-select.tsx`)**已於 A9w4c 後半刪除**
+// ⇒ 本型別現在只剩 `order_status_options` 讀取鏈在用,而那條鏈的處置見 A11a plan §3.1(尚未執行)。
 
 /**
  * PlaceOrderVehicle: 品項「給哪台車用」(M-4a V-3a;client → server 線契約、選填)。

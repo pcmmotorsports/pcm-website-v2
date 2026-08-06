@@ -139,9 +139,11 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
 
     expect(queryByRole('combobox', { name: '商品狀態' })).toBeNull();
     // 下拉、hidden 欄位、送出鈕三種形狀都查(換掉 aria-label 還留著表單等於沒退場)。
-    // 🔴 欄名取自 `lib/orders/workflow-form.ts:13,16` 的**真實常數值**(`item_id` / `workflow_status`)——
-    //    (A9w4a 在 `ITEM_ID_FIELD` 上方插了歸屬註 ⇒ 原 `:9,12` 位移成 `:13,16`;同 commit 兩次實查校正)
-    //    R1 抓到這裡原本寫 `wf_status`(常數名不是欄名),那個 selector 全 repo 零命中 = 恆真斷言。
+    // 🔴 下面兩個欄名是 **wire 契約字面**(`item_id` / `workflow_status`),不是任何 TS 常數的名字。
+    //    R1 抓到這裡原本寫 `wf_status`(**常數名不是欄名**),那個 selector 全 repo 零命中 = 恆真斷言。
+    //    ⚠️ 這行的出處指標**被自己腐爛過兩次**:A9w4a 位移(`:9,12`→`:13,16`)、
+    //    A9w4c 後半把 `ITEM_ID_FIELD`/`WF_STATUS_FIELD` **整個刪掉**(那兩個行號現在指到不相干的東西)。
+    //    ⇒ 第三次不再寫行號、也不再指常數:欄名的權威是 **DB 欄與 HTML name 屬性**,literal 就是它本身。
     expect(container.querySelector('select[name="workflow_status"]')).toBeNull();
     expect(container.querySelector('input[name="workflow_status"]')).toBeNull();
     expect(container.querySelector('input[name="item_id"]')).toBeNull();
