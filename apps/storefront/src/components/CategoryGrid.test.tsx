@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 //
-// CategoryGrid smoke test — 前台 regression 安全網。
-// Q4-S5(2026-07-05):改吃真 categories prop、link ?category=<真分類名>(修死連結)。
-// 驗:真分類名渲染 + link 帶正確 category 參數 + 空 categories 不渲染整段。
+// CategoryGrid(首頁 N°03 分類 icon chip 磚面)—— D5c / 首頁對齊批 H3 重寫,2026-08-06。
+//
+// 這支守三族:
+//   ① 說明文字那兩個數字**真的是算出來的**(抄稿上的 11 / 15 會在分類增減那天開始說謊,
+//      而畫面看起來完全正常 —— 這是 Sean 拍板時特別點名的那件事)
+//   ② icon 與色碼綁**分類名**、不綁名次(名次每天都在動)
+//   ③ 沒有 icon 的分類**照樣有入口**(不隱藏、不當機),而且看得出來是哪一顆
+//
+// ⚠️ **它擋不住什麼**:①jsdom 不算 cascade ⇒ 色條/框線/欄數在這裡看不到(那半在
+//    `styles/home.test.ts` 與真瀏覽器);②**這支看不到真目錄** ⇒「真的有分類上榜卻沒 icon」
+//    只有真資料的 E2E 抓得到,本檔只能證「發生時的行為是對的」。
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
@@ -11,32 +19,129 @@ import type { MockCategory } from '../data/mock-categories';
 
 afterEach(cleanup);
 
-const CATS: MockCategory[] = [
-  { id: 'c1', name: '操控部品', count: 84, children: [] },
-  { id: 'c2', name: '碳纖維部品', count: 52, children: [] },
-];
+/** 2026-08-06 實測主樹 3111 真目錄的前 11 名(名稱逐字、順序即當時排名)。 */
+const TOP_11 = [
+  '外觀與後視鏡', '騎士用品與配件', '碳纖維部品', '車身防護與防摔', '拉桿與把手',
+  '精品螺絲與螺帽', '引擎與冷卻', '止滑貼與保護膜', '腳踏後移與傳動', '排氣系統', '燈具與電子',
+] as const;
 
-describe('CategoryGrid', () => {
-  it('renders real categories with working ?category= deep links', () => {
-    render(<CategoryGrid categories={CATS} />);
-    expect(screen.getByText('Categories · 部品分類')).toBeDefined();
-    const link = screen.getByText('操控部品').closest('a');
-    // link 帶真分類名(encodeURIComponent 後、= parseCategoryFromUrl / matchesCategory 比對鍵)
-    expect(link?.getAttribute('href')).toBe(`/products?category=${encodeURIComponent('操控部品')}`);
+/** 未進榜的 4 類(OD 沒有畫 icon 的那些)。 */
+const BELOW_LINE = ['煞車系統', '懸吊與車架', '四輪 ATV/UTV', '服務／其他'] as const;
+
+const mk = (names: readonly string[], base = 3000): MockCategory[] =>
+  names.map((name, i) => ({ id: `id-${i}`, name, count: base - i * 100, children: [] }));
+
+const LIVE_15: MockCategory[] = [...mk(TOP_11), ...mk(BELOW_LINE, 300)];
+
+describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
+  it('🔴 11 顆 chip + 第 12 格「全部分類」,兩顆的目的地都對', () => {
+    const { container } = render(<CategoryGrid categories={LIVE_15} />);
+    const chips = [...container.querySelectorAll('.b-cat-chip')];
+    expect(chips, '不是 11 顆 chip ⇒ 6×2 磚面會缺角或溢位').toHaveLength(11);
+    expect(container.querySelectorAll('.b-cat-more')).toHaveLength(1);
+    // chip 深連結 = 真分類名(products-url-state.parseCategoryFromUrl 的比對鍵)
+    expect(chips[0]!.getAttribute('href')).toBe(`/products?category=${encodeURIComponent(TOP_11[0])}`);
+    expect(container.querySelector('.b-cat-more')?.getAttribute('href')).toBe('/products');
   });
 
-  it('sorts by count desc and caps at 8 cards (保留 design 8 卡格版面)', () => {
-    const many: MockCategory[] = Array.from({ length: 12 }, (_, i) => ({
-      id: `c${i}`, name: `類${i}`, count: i, children: [],
-    }));
-    render(<CategoryGrid categories={many} />);
-    // count 最大者(類11)在、被 cap 掉的最小者(類0)不在
-    expect(screen.getByText('類11')).toBeDefined();
-    expect(screen.queryByText('類0')).toBeNull();
+  it('🔴 說明文字那兩個數字是**算出來的**,不是稿上的 11 / 15', () => {
+    // 15 類 → 前 11 名
+    const { container, unmount } = render(<CategoryGrid categories={LIVE_15} />);
+    expect(container.querySelector('.b-cats-note')?.textContent)
+      .toBe('依件數排序取前 11 名 · 全站共 15 類');
+    unmount();
+    // 🔴 判別力在這裡:只有 6 類時,寫死的版本仍會說「前 11 名 · 全站共 15 類」= 對客人說謊,
+    //    而畫面完全正常、其他測試零紅。
+    const { container: c2 } = render(<CategoryGrid categories={mk(TOP_11.slice(0, 6))} />);
+    expect(c2.querySelector('.b-cats-note')?.textContent)
+      .toBe('依件數排序取前 6 名 · 全站共 6 類');
+    expect(c2.querySelectorAll('.b-cat-chip')).toHaveLength(6);
+    // 「全部分類」那一格不受影響:分類再少,完整清單的入口都要在
+    expect(c2.querySelectorAll('.b-cat-more')).toHaveLength(1);
   });
 
-  it('renders nothing when categories empty (不顯假卡/空格)', () => {
+  it('🔴 依件數遞減取前 11:第 12 名被擠掉、但它不是被刪掉(它在 /products 側欄)', () => {
+    const { container } = render(<CategoryGrid categories={LIVE_15} />);
+    const labels = [...container.querySelectorAll('.b-cat-label')].map((el) => el.textContent ?? '');
+    expect(labels).toHaveLength(11);
+    // 件數最大的在第一顆、第 12 名(BELOW_LINE 的第一個)不在牆上
+    expect(labels[0]!.startsWith(TOP_11[0])).toBe(true);
+    expect(labels.some((t) => t.startsWith(BELOW_LINE[0]))).toBe(false);
+  });
+
+  it('🔴 件數是 server 帶的即時值,原樣渲染(不得補零、不得四捨五入)', () => {
+    const { container } = render(<CategoryGrid categories={[
+      { id: 'a', name: '外觀與後視鏡', count: 2822, children: [] },
+      { id: 'b', name: '排氣系統', count: 7, children: [] },
+    ]} />);
+    const counts = [...container.querySelectorAll('.b-cat-count')].map((el) => el.textContent);
+    // 前一版是 `padStart(3, '0')`(8 卡時代的排版習慣)⇒ 7 會變成 "007"
+    expect(counts).toEqual(['2822', '7']);
+  });
+
+  it('🔴 icon 與色碼綁分類名、不綁名次:同一個分類換名次,`data-cat` 不變', () => {
+    const { container, unmount } = render(<CategoryGrid categories={LIVE_15} />);
+    const byName = (root: ParentNode) =>
+      Object.fromEntries([...root.querySelectorAll('.b-cat-chip')].map((a) => [
+        a.querySelector('.b-cat-label')?.textContent?.replace(/\d+$/, '') ?? '',
+        a.getAttribute('data-cat'),
+      ]));
+    const first = byName(container);
+    unmount();
+    // 把排名整個倒過來
+    const reversed = [...LIVE_15].reverse().map((c, i) => ({ ...c, count: 3000 - i * 100 }));
+    const { container: c2 } = render(<CategoryGrid categories={reversed} />);
+    const second = byName(c2);
+    for (const [name, cat] of Object.entries(first)) {
+      if (second[name] !== undefined) {
+        expect(second[name], `${name} 的色碼跟著名次跑了 ⇒ 同一個分類會在不同天變色`).toBe(cat);
+      }
+    }
+    // 前提斷言:真的有 chip 換過位置,否則上面那圈恆真
+    expect(Object.keys(second).length).toBeGreaterThan(0);
+    expect(Object.keys(second)[0]).not.toBe(Object.keys(first)[0]);
+  });
+
+  it('🔴 OD 畫過的 11 個分類都有 icon 與色碼(表打錯字 = 那一格靜默沒有圖)', () => {
+    const { container } = render(<CategoryGrid categories={mk(TOP_11)} />);
+    const chips = [...container.querySelectorAll('.b-cat-chip')];
+    expect(chips).toHaveLength(11);
+    const cats = chips.map((a) => a.getAttribute('data-cat'));
+    // 11 顆色碼互不重複、且都在 1..11(色碼撞號 = 兩個分類同色)
+    expect(new Set(cats).size, `色碼有重複:${cats.join(',')}`).toBe(11);
+    for (const c of cats) expect(Number(c)).toBeGreaterThanOrEqual(1);
+    for (const c of cats) expect(Number(c)).toBeLessThanOrEqual(11);
+    for (const a of chips) {
+      expect(a.querySelector('.b-cat-icon svg'), 'chip 少了 icon').not.toBeNull();
+      expect(a.classList.contains('b-cat-chip--noicon')).toBe(false);
+    }
+  });
+
+  it('🔴 沒有 icon 的分類:照樣有入口、不當機,而且標記得出來(暫行做法,Sean 未拍板)', () => {
+    // OD 沒畫 icon 的那 4 類,以及未來新增的分類,都會走這條路
+    const { container } = render(<CategoryGrid categories={mk(BELOW_LINE)} />);
+    const chips = [...container.querySelectorAll('.b-cat-chip')];
+    expect(chips, '沒有 icon 的分類被整顆丟掉 ⇒ 客人少了那個入口').toHaveLength(4);
+    for (const a of chips) {
+      expect(a.classList.contains('b-cat-chip--noicon'), '沒有標記 ⇒ 真瀏覽器 / E2E 掃不出來').toBe(true);
+      expect(a.querySelector('.b-cat-icon'), '不該畫一個空的 icon 方塊(看起來像圖沒載出來)').toBeNull();
+      expect(a.getAttribute('data-cat'), '沒有色碼時不該輸出 data-cat').toBeNull();
+      // 入口本身照舊
+      expect(a.getAttribute('href')).toMatch(/^\/products\?category=/);
+    }
+  });
+
+  it('分類為空 → 整段不渲染(不顯假卡 / 空磚面)', () => {
     const { container } = render(<CategoryGrid categories={[]} />);
-    expect(container.querySelector('.ed-cats')).toBeNull();
+    expect(container.querySelector('.b-cats')).toBeNull();
+  });
+
+  it('表頭是 N°03 標題 + 排序說明(OD 表頭右側放的是說明,不是連結)', () => {
+    const { container } = render(<CategoryGrid categories={LIVE_15} />);
+    expect(screen.getByText('Categories · 部品分類')).toBeDefined();
+    expect(container.querySelector('.ed-section-head .b-cats-note')).not.toBeNull();
+    // 「全部分類」只有一個入口(第 12 格),表頭不再另放一顆同義連結
+    expect([...container.querySelectorAll('a')].filter((a) => a.getAttribute('href') === '/products'))
+      .toHaveLength(1);
   });
 });

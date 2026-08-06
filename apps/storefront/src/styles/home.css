@@ -29,6 +29,19 @@
   /* 控制項邊界專用線(OD `--c-border-control`):比 `--ed-c-rule` 深,對白底 3.18:1。
      用在「這條線本身就是可點的唯一訊號」的地方(見 `.ed-feature-jump a::after`)。 */
   --ed-c-rule-control: #909093;
+  /* 沉場(OD `--c-sunken` `#f3f3f4` 逐字):比 `--ed-c-paper-2`(#f7f7f8)深一階。
+     D5f/H3 新增 —— N°03 的 icon 方塊與 chip hover 底都吃它:用 paper-2 的話
+     icon 方塊與白底 chip 幾乎沒有分界,那個方塊就白畫了。 */
+  --ed-c-sunken: #f3f3f4;
+  /* 分類色碼 · **綁分類不綁排序位置**(OD `:35-38` 註解逐字)。
+     🔴 值與 `styles/brand-page.css` 的 `.bp-page` 那份**必須逐字相同**(2026-08-06 實測 11/11 零差異)
+        —— 同一個分類在首頁 chip 與品牌頁 chips 上是同一個顏色,分家 = 客人看到同名分類兩種色。
+        守門在 `styles/home.test.ts`(逐顆比對兩檔),不是靠人記得。
+     ⚠️ 為什麼是第二份而不是抽進 `tokens.css`:那會把頁面級色票升成站台級,屬 #322 的收斂債、
+        不是本片順手做的事;在收斂之前用守門把兩份釘在一起。 */
+  --cat-1: #9aa3ab; --cat-2: #7a6552; --cat-3: #232629; --cat-4: #5c6656;
+  --cat-5: #2f6ea8; --cat-6: #9c7f43; --cat-7: #3f7d80; --cat-8: #6e6e73;
+  --cat-9: #545a63; --cat-10: #7a5347; --cat-11: #6a5f86;
 }
 @media (max-width: 900px) { .ed-page { --ed-gutter: 20px; } }
 
@@ -593,71 +606,172 @@
 }
 
 /* ============================================================
-   04 · CATEGORIES (minimal, type-led tiles)
+   04 · CATEGORIES (N°03 · icon chip 磚面,12 格 = 11 分類 + 全部分類)
    ============================================================ */
-.ed-cats {
-  background: var(--ed-c-paper);
-  padding: 100px 0 120px;
+/* D5c/H3(2026-08-06):8 張 Unsplash 裝飾圖卡(`.ed-cats` / `.ed-cat-grid`)整段退場。
+   字面來源 = OD `direction-b-layout-01-graphite-ember.html` CSS `:275-289`
+   + **統一版面層** `:640-672`。
+   🔴 **統一版面層在本檔折成基礎規則**:OD 那層掛在 `.layout-unified` 上,而 OD 的頁面根
+      `:742` 逐字是 `<div class="ed-page layout-unified">` ⇒ **它就是定案版面、不是變體**。
+      本 repo 沒有那個切換器,照抄一個永遠為真的前綴只會讓下一個人以為還有另一種版面。
+      折疊後的差異逐條列(全部是統一層贏):
+        · `.b-cat-list`:基礎 `flex-wrap` → 統一層 `display:grid` 6 欄 + `gap:0` + 上/左框線
+        · `.b-cat-chip` / `.b-cat-more`:基礎自帶 `border` → 統一層 `border:0` + 右/下框線 + `min-height:64px`
+        · `.b-cat-label`:基礎 `white-space:nowrap` → 統一層 `normal` + `line-height:1.35`
+        · RWD 斷點整組換人:基礎只有 ≤900;統一層是 ≤1400→4 欄、≤900→3 欄、≤640→2 欄
+      ⚠️ 代價:回 OD 對字面時 `:275-289` 單看會覺得好幾條不一樣,要一起看 `:640-672`。
+   ⚠️ token 對照(值不同的都是本檔既有的一階差,不是本片新開的):
+      OD `--c-border`#e5e5e7 → `--ed-c-rule`#e4e4e7 / `--c-text`#121214 → `--ed-c-ink`#0a0a0a;
+      **`--c-text-2`#52545a 直接用站台同名同值那顆**(`tokens.css:44`,R1 更正:第一版換成
+      `--ed-c-ink-soft` 並宣稱是既有一階差,那是錯的);`--c-border-control`#909093 與
+      `--c-sunken`#f3f3f4 兩顆**同值**(後者本片新增 `--ed-c-sunken`)。
+      `.b-cats-note` 與 `.b-cat-count` 的 `--ed-c-ink-mute` 是 OD 自己就寫 `ed-` 前綴那顆、逐字相同。 */
+.b-cats {
+  padding: 44px 0 48px;
   border-top: 1px solid var(--ed-c-rule);
+  background: var(--ed-c-paper);
 }
-.ed-cat-grid {
+.b-cats .ed-section-head {
+  margin-bottom: 20px;
+}
+/* 排序說明放在標題列右側(OD :277 註解:原本墊在標題下面會把整個頁首撐高)。 */
+.b-cats-note {
+  font-size: 13px;
+  color: var(--ed-c-ink-mute);
+  margin: 0;
+}
+/* 12 格 = 11 個分類 + 1 個「全部分類」,桌機 6×2 收成一塊完整磚面、不留破口(OD :639)。 */
+.b-cat-list {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--ed-c-rule);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
   border-top: 1px solid var(--ed-c-rule);
+  border-left: 1px solid var(--ed-c-rule);
+}
+/* 🔴 兩型別一起吃版面規則的理由與品牌磚牆那條不同:這裡兩顆都是 `<a>`,但
+   `.b-cat-more` 是**另一個 class**(不是 `.b-cat-chip` 的修飾) ⇒ 漏掉它,第 12 格
+   會沒有格線與最小高度、磚面右下角塌一塊。OD :644 就是把兩個選擇器並列的。 */
+.b-cat-chip,
+.b-cat-more {
+  min-height: 64px;
+  border: 0;
+  border-right: 1px solid var(--ed-c-rule);
   border-bottom: 1px solid var(--ed-c-rule);
 }
-.ed-cat {
-  display: flex;
-  flex-direction: column;
-  background: var(--ed-c-paper);
-  transition: background 0.2s;
-}
-.ed-cat:hover { background: var(--ed-c-paper-2); }
-.ed-cat-media {
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  background: var(--ed-c-paper-2);
-}
-.ed-cat-media img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  filter: grayscale(0.1);
-  transition: transform 0.7s ease, filter 0.4s;
-}
-.ed-cat:hover .ed-cat-media img {
-  transform: scale(1.04);
-  filter: grayscale(0);
-}
-.ed-cat-foot {
-  padding: 20px 22px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ed-cat-name {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+.b-cat-chip {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
-  font-size: 18px;
-  font-weight: 600;
+  padding: 12px 18px 12px 14px;
+  background: var(--ed-c-paper);
+  transition: border-color 0.15s, background 0.15s;
+}
+.b-cat-chip:hover {
+  background: var(--ed-c-sunken);
+}
+/* 色碼:綁分類、不綁名次(元件端由分類名查表求出 `data-cat`)。
+   ⚠️ 沒有色碼的分類**不輸出 `data-cat`** ⇒ 這一族選擇器整組不命中 = 那顆 chip 沒有色條,
+      不是畫一條透明的。`0` 這個哨兵值刻意沒有對應規則。 */
+.b-cat-chip[data-cat="1"] { box-shadow: inset 3px 0 0 var(--cat-1); }
+.b-cat-chip[data-cat="2"] { box-shadow: inset 3px 0 0 var(--cat-2); }
+.b-cat-chip[data-cat="3"] { box-shadow: inset 3px 0 0 var(--cat-3); }
+.b-cat-chip[data-cat="4"] { box-shadow: inset 3px 0 0 var(--cat-4); }
+.b-cat-chip[data-cat="5"] { box-shadow: inset 3px 0 0 var(--cat-5); }
+.b-cat-chip[data-cat="6"] { box-shadow: inset 3px 0 0 var(--cat-6); }
+.b-cat-chip[data-cat="7"] { box-shadow: inset 3px 0 0 var(--cat-7); }
+.b-cat-chip[data-cat="8"] { box-shadow: inset 3px 0 0 var(--cat-8); }
+.b-cat-chip[data-cat="9"] { box-shadow: inset 3px 0 0 var(--cat-9); }
+.b-cat-chip[data-cat="10"] { box-shadow: inset 3px 0 0 var(--cat-10); }
+.b-cat-chip[data-cat="11"] { box-shadow: inset 3px 0 0 var(--cat-11); }
+.b-cat-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ed-c-sunken);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+/* 🔴 OD 的 icon 規格是**一條全域 `svg{}`**(`:57` 逐字:
+      `fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round`)
+      + `:58` 針對小尺寸把線寬補到 1.75。本 repo **沒有**等價的全域 svg 規則
+      (2026-08-06 實查 styles 目錄下每一支 .css 皆零命中,其他地方的 icon 一律在 JSX 逐支寫 attribute)
+      ⇒ 整條規格要收進這裡,少一項就退回瀏覽器預設。
+   ⚠️ R1 抓到的真缺陷:第一版只搬了 `fill` / `stroke` / `stroke-width`,**漏掉兩個端點屬性**
+      ⇒ 端點退成 `butt`、轉角退成 `miter`:六角螺帽的 6 個尖角、護盾底部的尖、碳纖斜紋與
+      散熱鰭片的線頭全部變方頭。真瀏覽器那道量了 `fill:none` 與線寬、**沒量這兩個** = 量錯東西。 */
+.b-cat-icon svg {
+  width: 17px;
+  height: 17px;
+  /* OD `:283` 用 `var(--c-text-2)`(#52545a)。本 repo `tokens.css:44` 有**同名同值**那顆
+     ⇒ 直接用站台 token,不另造 `--ed-c-*` 分身。
+     ⚠️ R1 更正:第一版寫 `--ed-c-ink-soft`(#3f3f46)並宣稱「本檔既有的一階差」——**不成立**,
+        OD 自己也有 `--ed-c-ink-soft`(#3f4046)卻刻意沒用在這裡,那是換色不是搬字面。
+     ⚠️ `--c-text-2` 在 `[data-theme="dark"]`(opt-in 屬性、storefront 目前不設)下會翻成 #a1a1aa;
+        真要上深色模式時這顆 icon 會跟著走,方向正確。 */
+  color: var(--c-text-2);
+  stroke-width: 1.75;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.b-cat-chip:hover .b-cat-icon svg {
   color: var(--ed-c-ink);
-  letter-spacing: -0.005em;
 }
-.ed-cat-count {
-  color: var(--ed-c-ink-mute);
+/* 統一版面層讓標籤可以換行、不靠 nowrap 硬撐(OD :656-658:6 欄在 1440 以下會把
+   最長的「騎士用品與配件」推出格線)。 */
+.b-cat-label {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: normal;
+  line-height: 1.35;
+  min-width: 0;
 }
-.ed-cat-en {
+.b-cat-count {
+  font-family: var(--f-mono);
+  font-size: 10px;
   color: var(--ed-c-ink-mute);
+  margin-left: 6px;
+}
+.b-cat-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--ed-c-paper);
+  /* OD `:287` 同樣是 `--c-text-2`(理由與上面 icon 描邊那條同一條)。 */
+  color: var(--c-text-2);
+  font-size: 13px;
+  font-weight: 500;
+  transition: border-color 0.15s, color 0.15s;
+}
+.b-cat-more:hover {
+  color: var(--ed-c-ink);
 }
 
-@media (max-width: 1100px) { .ed-cat-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 760px) { .ed-cat-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 1400px) {
+  .b-cat-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .b-cats { padding: 36px 0 40px; }
+  .b-cat-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .b-cat-chip, .b-cat-more { min-height: 60px; }
+  .b-cat-chip { padding: 10px 14px 10px 12px; }
+  .b-cat-icon { width: 24px; height: 24px; }
+  .b-cat-icon svg { width: 15px; height: 15px; }
+  .b-cat-label { font-size: 13px; }
+}
+@media (max-width: 640px) {
+  /* 兩欄 + 件數換行:12 格在手機是 6 列而不是 12 列,件數也不用被截掉(OD :667)。 */
+  .b-cat-list { grid-template-columns: 1fr 1fr; }
+  .b-cat-count { display: block; margin-left: 0; margin-top: 2px; }
+}
 
 /* ============================================================
    05 · SELECT (4 featured products)

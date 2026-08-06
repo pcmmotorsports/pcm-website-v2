@@ -253,6 +253,97 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(body).toMatch(/clip-path\s*:\s*inset\(50%\)/);
   });
 
+  // ── D5c/H3:N°03 分類 icon chip 磚面 ──────────────────────────────────
+  // 🔴 這一族守的是「12 格磚面」的承重值:欄數、格線、色碼。全部是 jsdom 看不到、
+  //    元件測試也看不到的東西(元件只知道 DOM 有沒有那個 class 與 attribute)。
+  it('🔴 磚面欄數 = 6 / ≤1400 → 4 / ≤900 → 3 / ≤640 → 2(12 格要能整除,不然最後一列缺角)', () => {
+    const cols = (css: string) =>
+      css.replace(/\s+/g, ' ').match(/\.b-cat-list\s*\{[^}]*grid-template-columns:\s*([^;}]+)/)?.[1]?.trim();
+    expect(cols(topLevelCss()), '桌機不是 6 欄').toBe('repeat(6, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 1400px)')), '≤1400 不是 4 欄').toBe('repeat(4, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 900px)')), '≤900 不是 3 欄').toBe('repeat(3, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 640px)')), '≤640 不是 2 欄').toBe('1fr 1fr');
+  });
+
+  // 🔴 第 12 格是**另一個 class**(`.b-cat-more`,不是 `.b-cat-chip` 的修飾):
+  //    格線與最小高度那條漏掉它,磚面右下角會塌一塊 —— 而 11 顆 chip 都是好的,
+  //    截圖不看右下角就發現不了。OD :644 也是把兩個選擇器並列的。
+  it('🔴 格線與最小高度同時吃 `.b-cat-chip` 與 `.b-cat-more`(第 12 格不能掉隊)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ')
+      .match(/\.b-cat-chip,\s*\.b-cat-more\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到兩個選擇器並列的框線規則 ⇒ 第 12 格可能沒有格線').not.toBe('');
+    expect(rule, '沒有右框線').toMatch(/border-right:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, '沒有下框線').toMatch(/border-bottom:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, '沒有最小高度 ⇒ 空一點的格子會比鄰居矮').toMatch(/min-height:\s*64px/);
+  });
+
+  // 🔴 色碼:11 條逐一比對,而且**必須綁 `[data-cat="N"]`**。
+  //    退化成 `:nth-child(N)` 是最自然的寫法、也最錯:那會把顏色綁回**名次**,
+  //    OD :927-929 逐字說「名次會變 → 色碼綁分類 id,不能綁位置」。
+  it('🔴 11 條分類色碼綁 `data-cat`、逐條對到自己的 `--cat-N`,且不得改綁位置', () => {
+    const css = topLevelCss().replace(/\s+/g, ' ');
+    for (let n = 1; n <= 11; n += 1) {
+      expect(
+        css,
+        `--cat-${n} 的色條規則不見了或對錯 token`,
+      ).toMatch(new RegExp(`\\.b-cat-chip\\[data-cat="${n}"\\]\\s*\\{[^}]*inset 3px 0 0 var\\(--cat-${n}\\)`));
+    }
+    expect(css, '色碼被改綁位置選擇器 ⇒ 顏色會跟著名次跑').not.toMatch(/\.b-cat-chip:nth-(child|of-type)\([^)]*\)\s*\{[^}]*--cat-/);
+  });
+
+  // 🔴 兩份色票必須逐字相同:同一個分類在首頁 chip 與品牌頁 chips 上是同一個顏色。
+  //    這條是「重複定義」的配套 —— 沒有它,兩邊分家不會有任何訊號。
+  it('🔴 `--cat-1..11` 與 `brand-page.css` 的那份逐顆相同(11/11)', () => {
+    const BP = readFileSync(new URL('./brand-page.css', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    // 🔴 R1 nit:`Object.fromEntries` 對同名 key 靜默取最後一顆 ⇒ 同一檔裡出現兩次 `--cat-3`
+    //    時,長度仍是 11、比到的是後寫的那顆。先擋重複,再比值。
+    const grab = (s: string) => {
+      const hits = [...s.matchAll(/--cat-(\d+):\s*(#[0-9a-fA-F]{3,8})/g)].map((m) => [m[1]!, m[2]!.toLowerCase()] as const);
+      expect(new Set(hits.map((h) => h[0])).size, `色票有重複定義的編號:${hits.map((h) => h[0]).join(',')}`).toBe(hits.length);
+      return Object.fromEntries(hits);
+    };
+    const home = grab(CSS);
+    const brand = grab(BP);
+    // 前提斷言:兩邊都真的有 11 顆,否則下面的比對可能在比兩個空物件
+    expect(Object.keys(home), 'home.css 的色票不是 11 顆').toHaveLength(11);
+    expect(Object.keys(brand), 'brand-page.css 的色票不是 11 顆').toHaveLength(11);
+    expect(home, '兩份分類色票分家 ⇒ 同名分類在首頁與品牌頁會是兩種顏色').toEqual(brand);
+  });
+
+  // 🔴 icon 方塊:底色若退回 `--ed-c-paper-2`(#f7f7f8)會與白底 chip 幾乎沒有分界,
+  //    那個方塊就白畫了;`--ed-c-sunken` 是本片為此新增的一階深色(OD `--c-sunken` 字面)。
+  it('🔴 icon 方塊 28×28、底色是 --ed-c-sunken 且該 token **的值**是 #f3f3f4', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-cat-icon\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-cat-icon 規則').not.toBe('');
+    expect(rule).toMatch(/width:\s*28px/);
+    expect(rule).toMatch(/height:\s*28px/);
+    expect(rule, 'icon 方塊沒有底色 ⇒ 與白底 chip 沒有分界').toMatch(/background:\s*var\(--ed-c-sunken\)/);
+    // 🔴 R1 must-fix:上一版只驗「有定義而且是個 hex」= **恆真族** —— 把 `--ed-c-sunken` 的值
+    //    改成 `#f7f7f8`(正是這條自己命名的那個威脅)選擇器全留、整組照樣全綠。
+    //    值本身就是承重的:比 paper-2 深一階才看得出 icon 方塊的邊界。
+    expect(CSS, '--ed-c-sunken 不是 OD 的 #f3f3f4 ⇒ icon 方塊與白底 chip 沒有分界').toMatch(/--ed-c-sunken:\s*#f3f3f4/i);
+    // 🔴 icon 規格四件(OD :57 的全域 `svg{}` + :58 的線寬)。本 repo 沒有等價全域規則,
+    //    少任何一項都會退回瀏覽器預設:fill 退成黑色實心、端點退成方頭。
+    const svg = topLevelCss().replace(/\s+/g, ' ').match(/\.b-cat-icon svg\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(svg, 'icon 的 svg 沒有 fill:none ⇒ 線圖會變成實心色塊').toMatch(/fill:\s*none/);
+    expect(svg, 'icon 的 svg 沒有 stroke:currentColor ⇒ 線條不會跟著文字色').toMatch(/stroke:\s*currentColor/);
+    expect(svg, '線寬不是 OD :58 的 1.75(小尺寸補視覺重量那顆)').toMatch(/stroke-width:\s*1\.75/);
+    expect(svg, '端點沒有圓頭 ⇒ 六角螺帽 / 護盾的尖角會變方頭(R1 抓到的真缺陷)')
+      .toMatch(/stroke-linecap:\s*round/);
+    expect(svg, '轉角沒有圓角 ⇒ 同上').toMatch(/stroke-linejoin:\s*round/);
+  });
+
+  // 🔴 R1 nit:磚面的**上緣與左緣**格線在 `.b-cat-list` 自己身上(右/下在每一格上)。
+  //    掉了不會有任何測試紅,而畫面是「磚面缺了兩條邊」—— 與「右下角塌一塊」同族的鏡像。
+  it('🔴 磚面的上緣 / 左緣格線在 `.b-cat-list` 上(右下在格子上,四邊要湊得齊)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-cat-list\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-cat-list 規則').not.toBe('');
+    expect(rule, '磚面沒有上緣格線').toMatch(/border-top:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, '磚面沒有左緣格線').toMatch(/border-left:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, 'gap 不是 0 ⇒ 12 格之間會裂開、不是一塊完整磚面').toMatch(/gap:\s*0/);
+  });
+
   // ── A10:首頁自刻的愛車 chips 家族退場、換全站唯一的 GarageChips ──
   // 🔴 這條守的是「搬家時把行為弄丟」那一族。V-2d② 是 Sean 2026-07-15 真機回報的爆版
   //    (「我的愛車會被推到下一行」),修法是 ≤900px 改單行橫向捲動。換 class 時最容易發生的事
