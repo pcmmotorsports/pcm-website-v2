@@ -943,26 +943,42 @@
    石墨是 direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值。
    ⚠️ 頁尾也要回石墨 —— 那是 **D7**,D5a 當下不動;**D7 已於 2026-08-05 第0批 0b 落地**
       (主視窗 `D-107-A` 裁 A 案),見本檔「08 · FOOTER」段。 */
+/* 🔴 N°04 版面壓縮片(2026-08-06):OD `.b-statement` 那段(grep `853px 砍半` 找;稿內舊編號
+   `B-5 · 服務`、以本檔 markup N°04 為準)逐字「853px 砍半」——標題與 CTA 併成同一列(省一整條
+   CTA 行)、整段高度砍約三成。「逐字」只指這句「853px 砍半」引文與本片實際搬動的那些值(padding /
+   `.b-statement-top` / `.b-statement-col-head` 等)——`.ed-statement-h em` 的
+   `rgba(255,255,255,0.62)` 本片未動也未申報,OD 字面其實是 `.64`(與 `--f-serif` 那題一併留給
+   後續片)。`background: #202225` 維持字面(不改 `var(--c-graphite)`):那顆 token 目前只在
+   `.bp-page` scope 定義(`brand-page.css:74`),首頁直接引用會靜默失效,升 token 不在本片範圍。 */
 .ed-statement {
   background: #202225;
   color: #fff;
-  padding: 140px 0;
+  padding: 56px 0 60px;
 }
 .ed-statement-inner {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
 }
+/* 🔴 新容器,標題與 CTA 併同一列(OD `.b-statement-top` 逐字);本檔 `b-` 前綴慣例(同 `.b-stat-icon`)。 */
+.b-statement-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+  flex-wrap: wrap;
+  margin-bottom: 34px;
+}
 .ed-statement-tag {
   color: rgba(255,255,255,0.55);
-  margin-bottom: 32px;
+  margin-bottom: 16px;
 }
 .ed-statement-h {
-  font-size: clamp(40px, 5.2vw, 76px);
-  line-height: 1.02;
+  font-size: clamp(28px, 3.4vw, 44px);
+  line-height: 1.08;
   letter-spacing: -0.02em;
   font-weight: 700;
-  margin: 0 0 80px;
+  margin: 0;
   max-width: 18ch;
 }
 .ed-statement-h em {
@@ -971,19 +987,16 @@
 .ed-statement-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 48px;
-  padding: 48px 0;
+  gap: 36px;
+  padding: 30px 0 4px;
   border-top: 1px solid rgba(255,255,255,0.15);
-  border-bottom: 1px solid rgba(255,255,255,0.15);
-  margin-bottom: 56px;
 }
 /* 🔴 D-136 清尾片(2026-08-06):三顆服務 icon 整組漏搬(`b-stat-icon` 原本全站零命中)。
    值逐字取 OD `direction-b-layout-01-graphite-ember.html` 的 `.b-stat-icon` 與 `.b-stat-icon svg`
    兩條(用 grep `b-stat-icon` 找,不引行號 —— 該稿行號會漂)。
-   ⚠️ 這裡只搬 icon,**不搬 OD 那段「服務砍三成」的版面**(padding / 字級 / `.b-statement-top`
-      標題與 CTA 同列 / `.b-statement-col-head` 編號與 h3 同行都還是站上舊值)——
-      母 plan `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:111` 把 N°04 的範圍
-      寫成「改位置 + 改字面」,版面壓縮不在裡面。已列進 STOP 給主視窗判,不在本片自行擴張。 */
+   ⚠️ 本段落原本只搬 icon、版面壓縮那半列進 STOP 給主視窗判——**N°04 版面壓縮片(同日稍晚)已補完**,
+      padding / 字級 / `.b-statement-top` 標題與 CTA 同列 / `.b-statement-col-head` 編號與 h3
+      同行都已是壓縮後的新值,不再是站上舊值(見上方 `.ed-statement` 與下方兩條新容器)。 */
 .b-stat-icon {
   width: 34px;
   height: 34px;
@@ -1009,31 +1022,51 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+/* 🔴 編號與 h3 併同一行(OD `.b-statement-col-head` 逐字);本檔 `b-` 前綴慣例。 */
+.b-statement-col-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+/* 🔴 OD 抄漏值(核對 `.b-statement-col-num` / `.b-statement-col h3` / `.b-statement-col p` 三條後
+   補上,不在 Sean 給的表裡):`margin-bottom:16px` 是舊直排版面(編號獨佔一行)留下的間距,併同一行後
+   改由 `.b-statement-col-head` 的 `margin-bottom:8px` 接手,原值留著會在編號右側多墊出一截、把段落
+   再往下推 16px。OD 這條只有 color。 */
 .ed-statement-col-num {
   color: rgba(255,255,255,0.4);
-  margin-bottom: 16px;
 }
+/* 🔴 OD 抄漏值(核對 `.b-statement-col h3` 那條後補上):字級 22px→18px、`margin:0 0 14px`→`margin:0`、
+   移除 `letter-spacing:-0.005em`(OD 沒有這條)—— 三欄壓縮後標題與內文比例也要跟著縮小,
+   舊字級配新間距會讓標題明顯過大、和「砍三成」的意圖矛盾。 */
 .ed-statement-col h3 {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
-  margin: 0 0 14px;
-  letter-spacing: -0.005em;
+  margin: 0;
 }
+/* 🔴 OD 抄漏值(核對 `.b-statement-col p` 那條後補上):字級 15px→14px。 */
 .ed-statement-col p {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.65;
   color: rgba(255,255,255,0.7);
   margin: 0;
 }
 .ed-statement-cta {
   display: flex;
-  gap: 40px;
+  gap: 28px;
   flex-wrap: wrap;
   align-items: center;
 }
 @media (max-width: 900px) {
-  .ed-statement { padding: 80px 0; }
-  .ed-statement-grid { grid-template-columns: 1fr; gap: 36px; }
+  .ed-statement { padding: 44px 0 48px; }
+  .b-statement-top { gap: 26px; margin-bottom: 26px; }
+  /* 平板還撐得住三欄(768 時每欄約 233px,OD 原句;本 repo 實算 226.7px —— gutter 20 內容 728px,
+     減 2×24 gap 除 3);原本 900 就壓成單欄,右側空一大片(OD 那段 media query 的註解逐字,
+     grep `每欄約` 找)。 */
+  .ed-statement-grid { gap: 24px; }
+}
+@media (max-width: 700px) {
+  .ed-statement-grid { grid-template-columns: 1fr; gap: 26px; }
 }
 
 /* ============================================================

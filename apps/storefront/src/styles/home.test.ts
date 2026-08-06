@@ -997,4 +997,56 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       expect(Number(offset), `outline-offset 是 ${offset}px(不是負值)⇒ 框畫在格線外`).toBeLessThan(0);
     });
   });
+
+  describe('🔴 N°04 版面壓縮片:N°04 服務版面壓縮(OD `:438-464` 逐字)', () => {
+    it('`.ed-statement` padding 是砍半後的 56px 0 60px,不是舊的 140px 0', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement 規則').not.toBe('');
+      expect(rule, 'padding 還是舊的 140px 0 ⇒ 壓縮沒生效').toMatch(/padding:\s*56px 0 60px/);
+      expect(rule, 'padding 不該再出現舊值 140px').not.toMatch(/140px/);
+    });
+
+    it('`.b-statement-top` 存在且是 flex(標題與 CTA 併同一列)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-statement-top\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .b-statement-top ⇒ 標題與 CTA 還在各自佔一整段').not.toBe('');
+      expect(rule, '不是 flex ⇒ 併不成同一列').toMatch(/display:\s*flex/);
+    });
+
+    it('`.b-statement-col-head` 存在且是 baseline 對齊的 flex(編號與 h3 併同一行)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-statement-col-head\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .b-statement-col-head ⇒ 編號還是獨佔一行').not.toBe('');
+      expect(rule, '沒有 display:flex ⇒ 就算有 align-items:baseline 也不會生效,編號與 h3 各佔一行(本片要修的缺陷本身)').toMatch(/display:\s*flex/);
+      expect(rule, '沒有 align-items:baseline ⇒ 編號與標題文字基線對不齊').toMatch(/align-items:\s*baseline/);
+    });
+
+    it('`.ed-statement-grid` 沒有 border-bottom(OD 只留 border-top)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement-grid\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement-grid 規則').not.toBe('');
+      expect(rule, 'border-bottom 沒刪乾淨 ⇒ 三欄下面多一條不該有的線').not.toMatch(/border-bottom/);
+      expect(rule, 'border-top 不見了 ⇒ OD 這條要留著').toMatch(/border-top:\s*1px solid/);
+    });
+
+    it('單欄斷點在 700、不在 900(平板 768 仍撐三欄)', () => {
+      const at900 = mediaBlock('(max-width: 900px)').replace(/\s+/g, ' ');
+      const at700 = mediaBlock('(max-width: 700px)').replace(/\s+/g, ' ');
+      // 前提斷言(R1 nit):把 `@media (max-width: 900px) {` 手改成 `@media (max-width:900px) {`
+      // (合法 CSS、只是少一個空格)會讓 mediaBlock() 的字面比對落空、回傳空字串,下面的負向
+      // 斷言就會恆真通過。先證明真的抓到了 900 區塊。
+      expect(at900, '900 斷點抓到空字串 ⇒ mediaBlock() 沒抓到區塊,下面的負向斷言恆真').toContain('.ed-statement');
+      // 逐條掃(R1 nit):原本只取第一個 .ed-statement-grid,日後在 900 區塊較後面新增一條
+      // 壓單欄的規則會被漏檢。改用 matchAll 逐條斷言。
+      const gridIn900 = [...at900.matchAll(/\.ed-statement-grid\s*\{[^}]*\}/g)].map((m) => m[0]);
+      const gridIn700 = [...at700.matchAll(/\.ed-statement-grid\s*\{[^}]*\}/g)].map((m) => m[0]);
+      expect(gridIn900.length, '900 斷點裡找不到任何 .ed-statement-grid 規則 ⇒ 下面迴圈是空迴圈,負向斷言恆真').toBeGreaterThan(0);
+      expect(gridIn700.length, '700 斷點裡找不到任何 .ed-statement-grid 規則').toBeGreaterThan(0);
+      for (const rule of gridIn900) {
+        expect(rule, '900 斷點裡 .ed-statement-grid 不該壓成單欄 ⇒ 平板還撐得住三欄')
+          .not.toMatch(/grid-template-columns:\s*1fr\s*;/);
+      }
+      for (const rule of gridIn700) {
+        expect(rule, '700 斷點裡找不到單欄 ⇒ 手機沒有壓成單欄')
+          .toMatch(/grid-template-columns:\s*1fr\s*;/);
+      }
+    });
+  });
 });

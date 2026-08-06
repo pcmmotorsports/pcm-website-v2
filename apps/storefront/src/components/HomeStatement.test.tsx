@@ -106,4 +106,57 @@ describe('HomeStatement', () => {
     //       這一條留著是因為它指得出「是服務宣言那一段壞的」,訊息更精準(R1 must-fix 的處置)。
     expect(whole, '保固卡宣稱又出現了 ⇒ 對平行輸入品不成立,Sean 已拍板永久拿掉').not.toMatch(/保固卡/);
   });
+
+  // 🔴 N°04 版面壓縮片(2026-08-06)R1 MF3:CTA 從 grid 之後搬進 `.b-statement-top`、
+  //    編號+h3 併進 `.b-statement-col-head` 是本片的核心改動,先前零守門——把 TSX 整段
+  //    還原成舊結構、CSS 不動,全套照樣綠、版面壓縮完全失效。這段補四條 DOM 結構斷言釘住。
+  describe('🔴 N°04 版面壓縮片:CTA 併列 + 編號併行的結構守門', () => {
+    it('`.ed-statement-cta` 的祖先鏈上有 `.b-statement-top`(CTA 併進標題那列,不是還留在 grid 之後)', () => {
+      const { container } = render(<HomeStatement />);
+      const cta = container.querySelector('.ed-statement-cta');
+      expect(cta, '找不到 .ed-statement-cta ⇒ CTA 區塊整個不見了').not.toBeNull();
+      expect(
+        cta!.closest('.b-statement-top'),
+        'CTA 的祖先鏈上沒有 .b-statement-top ⇒ CTA 退回舊位置(grid 之後獨立一段)',
+      ).not.toBeNull();
+    });
+
+    it('`.ed-statement-cta` 在整個元件裡只出現 1 次(證明是搬移不是複製)', () => {
+      const { container } = render(<HomeStatement />);
+      const ctas = container.querySelectorAll('.ed-statement-cta');
+      expect(ctas.length, '.ed-statement-cta 不是恰好 1 個 ⇒ 不是單純搬移(複製貼上或漏刪舊的那份)').toBe(1);
+    });
+
+    it('`.b-statement-top` 裡同時有 `.ed-statement-tag` 與 `.ed-statement-cta`(兩者確實同列)', () => {
+      const { container } = render(<HomeStatement />);
+      const top = container.querySelector('.b-statement-top');
+      expect(top, '找不到 .b-statement-top ⇒ 標題與 CTA 還在各自佔一整段').not.toBeNull();
+      expect(
+        top!.querySelector('.ed-statement-tag'),
+        '.b-statement-top 裡沒有 .ed-statement-tag ⇒ 標題那半沒併進來',
+      ).not.toBeNull();
+      expect(
+        top!.querySelector('.ed-statement-cta'),
+        '.b-statement-top 裡沒有 .ed-statement-cta ⇒ CTA 沒併進來、還留在別處',
+      ).not.toBeNull();
+    });
+
+    it('三欄各自都有 `.b-statement-col-head`,裡面同時有 `.ed-statement-col-num` 與 `<h3>`(編號與標題併同一行)', () => {
+      const { container } = render(<HomeStatement />);
+      const cols = [...container.querySelectorAll('.ed-statement-col')];
+      expect(cols.length, '三欄結構本身沒了 ⇒ 下面逐格檢查會是空迴圈').toBe(3);
+      for (const [i, col] of cols.entries()) {
+        const head = col.querySelector('.b-statement-col-head');
+        expect(head, `第 ${i + 1} 格沒有 .b-statement-col-head ⇒ 編號退回獨佔一行的舊結構`).not.toBeNull();
+        expect(
+          head!.querySelector('.ed-statement-col-num'),
+          `第 ${i + 1} 格的 .b-statement-col-head 裡沒有編號 ⇒ 編號沒併進來`,
+        ).not.toBeNull();
+        expect(
+          head!.querySelector('h3'),
+          `第 ${i + 1} 格的 .b-statement-col-head 裡沒有 <h3> ⇒ 標題沒併進來`,
+        ).not.toBeNull();
+      }
+    });
+  });
 });

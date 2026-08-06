@@ -20,11 +20,29 @@ export function HomeStatement() {
   return (
     <section data-reveal className="ed-statement">
       <div className="ed-statement-inner">
-        <div className="ed-mono ed-statement-tag">N°04 · Service</div>
-        <h2 className="ed-statement-h">
-          下單之後,<br/>
-          <em>真正的服務才開始。</em>
-        </h2>
+        {/* 🔴 N°04 版面壓縮片(2026-08-06):OD `.b-statement-top` 那段(grep `b-statement-top` 找)
+            版面壓縮的另一半——標題與 CTA 併成同一列。`b-statement-top` 是新容器(本檔 `b-` 前綴慣例,
+            同 `b-stat-icon`);內層那顆**沒有 class 的裸 `<div>`** 是 OD 同一段內層那顆無 class 的
+            `<div>` 逐字,讓 flex 把「tag+標題」當一個 item 對齊。 */}
+        <div className="b-statement-top">
+          <div>
+            <div className="ed-mono ed-statement-tag">N°04 · Service</div>
+            <h2 className="ed-statement-h">
+              下單之後,<br/>
+              <em>真正的服務才開始。</em>
+            </h2>
+          </div>
+          <div className="ed-statement-cta">
+            <Link href="/install" className="ed-link ed-link-light">
+              <span>預約安裝</span>
+              <span className="ed-link-arrow" aria-hidden="true">→</span>
+            </Link>
+            <Link href="/stores" className="ed-link ed-link-light ed-link-sm">
+              <span>合作店家地圖</span>
+              <span className="ed-link-arrow" aria-hidden="true">→</span>
+            </Link>
+          </div>
+        </div>
         <div className="ed-statement-grid">
           <div className="ed-statement-col">
             {/* 🔴 D-136 清尾片(2026-08-06):三顆 icon 是**整組漏搬**,不是刻意偏離
@@ -42,8 +60,13 @@ export function HomeStatement() {
                 <path d="M8.4 13.4 7.2 21l4.8-2.6L16.8 21l-1.2-7.6"/>
               </svg>
             </span>
-            <div className="ed-mono ed-statement-col-num">01</div>
-            <h3>原廠授權</h3>
+            {/* 🔴 N°04 版面壓縮片:編號與 h3 併同一行(OD `b-statement-col-head` 逐字(grep
+                `b-statement-col-head` 找),`<div>` 改 `<span>`);容器用 `b-statement-col-head`
+                (本檔 `b-` 前綴慣例),class 名 `ed-statement-col-num` 不改。 */}
+            <div className="b-statement-col-head">
+              <span className="ed-mono ed-statement-col-num">01</span>
+              <h3>原廠授權</h3>
+            </div>
             {/* 🔴 2026-08-05 文案片(Sean 拍板 Q1=B「不報數」+ Q3 改向):這一句**刻意偏離
                 design 字面**(design 稿寫「17 家品牌正式代理。每件商品附原廠序號與保固卡,…」)
                 —— 依據、實查數字與字面取捨全部寫在 `docs/design-storefront-manifest.yaml` 的
@@ -62,8 +85,10 @@ export function HomeStatement() {
                 <path d="M20.3 5.4a5.4 5.4 0 0 1-7 7l-7.5 7.5a2 2 0 0 1-2.8-2.8L10.5 9.6a5.4 5.4 0 0 1 7-7l-3.3 3.3 2.8 2.8z"/>
               </svg>
             </span>
-            <div className="ed-mono ed-statement-col-num">02</div>
-            <h3>合作店家安裝</h3>
+            <div className="b-statement-col-head">
+              <span className="ed-mono ed-statement-col-num">02</span>
+              <h3>合作店家安裝</h3>
+            </div>
             {/* 🔴 Q4(Sean 拍板 C,2026-08-05):原寫「全台 **9 家** 合作店家」——
                 與第 01 格拿掉的「N 大品牌」是同一族的對外事實宣稱,且同樣查不到來源
                 ⇒ 一併拿掉數字。這也讓頁面層守門的**最後一個豁免消失、變成全面掃描**。 */}
@@ -76,20 +101,12 @@ export function HomeStatement() {
                 <path d="M9 11h6M9 14h3.5"/>
               </svg>
             </span>
-            <div className="ed-mono ed-statement-col-num">03</div>
-            <h3>終身技術諮詢</h3>
+            <div className="b-statement-col-head">
+              <span className="ed-mono ed-statement-col-num">03</span>
+              <h3>終身技術諮詢</h3>
+            </div>
             <p>LINE 一對一技師諮詢。不只賣你部品,是陪你騎一輩子的夥伴。</p>
           </div>
-        </div>
-        <div className="ed-statement-cta">
-          <Link href="/install" className="ed-link ed-link-light">
-            <span>預約安裝</span>
-            <span className="ed-link-arrow" aria-hidden="true">→</span>
-          </Link>
-          <Link href="/stores" className="ed-link ed-link-light ed-link-sm">
-            <span>合作店家地圖</span>
-            <span className="ed-link-arrow" aria-hidden="true">→</span>
-          </Link>
         </div>
       </div>
     </section>
