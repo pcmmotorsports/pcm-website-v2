@@ -290,7 +290,7 @@
 - 🔀 **E12 供應商主檔:2026-08-01 Sean 拍板拉回這期做,~~07-27 Q2=B「這期不做」已被推翻~~**(本次明確確認、非假設)。形狀 = **主檔表 + 下拉選單**,權限 = **可新增 / 可改名 / 不可刪除**(append-only + rename ⇒ 沒有刪除就沒有「舊採購紀錄指向已刪供應商」的孤兒問題)。⇒ **A5b 與 A5c 砍掉**;`order_item_procurement` 的 `supplier_name` + `supplier_canonical_key` 要改成指向主檔的 FK(**兩表 0 列、零 writer ⇒ 現在改最便宜**)。🔴 **07-27 當初不做的理由與我這次搞混的是同一件事**:`scripts/supplier-config.ts` 是**爬蟲管線設定檔**(檔頭逐字「多供應商上架管線的每家一組參數設定檔」)、那 15 家是**改裝品牌不是下單對象**;正式站實查**零個 supplier 相關表**。落檔 = memory `project_m4b-supplier-master-decisions`。
 
 ## Sean 待決策
-🔶 **2026-08-06 晨 #332-2 兩題(E 線 banner 清理片;plan §6 原文,E 與主視窗均推薦 A/A)**:Q1=兩支 result-banner 原型鏈守門現在修不修(A 修=排獨立片 30-40 分跑 codex/B 續押後)/ Q2=死預設 `MESSAGES` 處置(Q1=A 才答;A 刪+`messages` 轉必填=編譯期擋漏帶/B 刪+預設空/C 留三則通用)。plan=`docs/specs/2026-08-06-result-banner-cleanup-plan.md`。不擋 #332-1。
+✅ **2026-08-06 晨 #332-2 兩題已拍 Q1=A/Q2=A**(原型鏈守門現在修+死 MESSAGES 刪、`messages` 轉必填;落 memory `project_m4b-332-banner-cleanup-decisions`;`E-109-A` 開工,codex 關卡2 不降級)。
 ✅ **2026-08-06 B 窗 S2 三題已拍 Q1=A/Q2=A/Q3=C**(不回頭改 plan 押 diff 關卡/量到的數字落 review 不回填+harness 自斷言格數/migration 停分支不併 dev、quarantine 作廢;落 memory `project_m4b-b2-shipments-db-decisions` 晨段;`B-136-A` 開工)。原題文:
 🛑 ~~**2026-08-06 B 窗 S2 三題(關卡1 兩輪 FAIL 停損,B-223-STOP §⑥ 原文;主視窗與 B 窗均推薦 A/A/A)**~~:Q1=shipment_items 重算 trigger 本片做不做(A 不做只留承重的 shipments 支)/ Q2=「五片全 commit 前不准 apply」怎麼強制(A quarantine 目錄機制)/ Q3=S2 線怎麼走(A 拆兩條線:加欄+CHECK 小線可先行、重算接線+harness 大線另 plan)。拍板前 S2 plan v2 凍結。
 ✅ **2026-08-06 D 線四題已拍 Q1=A/Q2=A/Q3=A/Q4=A**(選車列空白照現況/logout 接線排白天高風險片/白殼黑主區照現況/詳情頁另開批;落 memory `project_site-redesign-content-pages-decisions`)。原題文:
