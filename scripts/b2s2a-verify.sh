@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================
-# B2-S2a 可重現驗證 harness ── 結構段(S2a-2)
+# B2-S2a 可重現驗證 harness ── 結構段(S2a-2)+ 行為段(S2a-3)
 # ============================================================
 # 標的 = supabase/migrations/20260806100000_m4b_e10_b2_s2a_summary_shipped_quantity.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2a-summary-columns-plan.md(v2、已凍結、只當意圖文件)
-# 審查總帳 = docs/reviews/2026-08-06-b2-s2a1-reviews.md
+# 審查總帳 = docs/reviews/2026-08-06-b2-s2a1-reviews.md(migration 片)
+#          + docs/reviews/2026-08-06-b2-s2a2-reviews.md(本 harness 結構段四輪)
 #
 # 用法:
 #   PORT=54355 scripts/b2s2a-verify.sh all /tmp/b2s2av   從零 provision pre-S2a 基準庫,再跑全部
@@ -23,8 +24,15 @@
 #    第 10 格 `C2-oiqs_cancelled_shipped_le_quantity` **不是錨、是 constraintdef 逐字比對**
 #    (Fable R3 F3:上面那段論證沒涵蓋它);它非恆真的理由是 pre-S2a 根本沒有這條約束
 #    ⇒ 沒被建出來時會拿到「(缺漏或未 validated)」而轉紅。但同樣是**閱讀**,不是實跑證據。)
-# 不證明:正式站行為(本機 PG17 非 Supabase);C8/C9 的行為負測與邊界正測(那是 S2a-3);
-#        回滾與故障注入(S2a-4)。
+#      ③(S2a-3 併入後)C8/C9 **真的擋得住**:項5/7 負測各紅在自己的 conname、項4 被擋在具名 ERROR、
+#        項6/7b 正測回查落庫值 —— **這五格才是關於本 migration 的行為證據**;
+#        八個行為突變靶(⑥⑦⑧a⑧b⑧c⑩⑫⑬)各自只讓指定那一格轉紅。
+# 🔴 **項8 不是證據**:它是不碰受測 DB 的純代數 smoke(C9 ∧ C7 ⇒ C6′),
+#    migration 根本沒套也會回 0;保留只因為它一旦非 0、§1 的冗餘論證就作廢。
+# 🔴 **項8 沒有對應突變**(其餘五格都有)。
+# 🔴 **八發不等於八個獨立的改動面**:bmut6/bmut7/bmut12 與結構段的 mut2/mut3/mut1 **逐字相同**,
+#    只是換一組 oracle 跑;真正只在行為段出現的突變是 ⑧a ⑧b ⑧c ⑩ ⑬ 五發。
+# 不證明:正式站行為(本機 PG17 非 Supabase);回滾與故障注入(S2a-4)。
 # 🔴 **也不證明**(Fable R3 F4):migration §4 的三族斷言在本 harness **沒有外部對應格** ——
 #   4b 欄名集合、4e A1 七條定義逐字、4g 摘要表零 trigger。突變環境剝掉 §4 之後那三族零守門。
 #   ⇒ 檔頭「不是靠 DO block 自我背書」指的是**本檔驗的那 17 格**,不是 §4 的全部內容。
@@ -97,11 +105,14 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"   # 只用來 CREA
 # ══ 凍結的期望格數(F2:harness 自斷言,不靠人寫死的結語)═══════════════════
 EXPECT_STRUCT=17   # 一次結構驗收跑幾格(項1 ×1 + 項2 ×3 + 項3 ×1 + 項9 ×12)
 EXPECT_SRC=3       # 項9b:原始碼註解錨 3 條
-EXPECT_MUT=6       # 突變靶:MUT0 對照 + 靶①②③④⑤
+EXPECT_MUT=6       # 結構段突變靶:MUT0 對照 + 靶①②③④⑤
+EXPECT_BEH=6       # 行為段格數:項 4 / 5 / 6 / 7 / 7b(**五格真的碰受測 DB**)+ 項 8(純代數 smoke,不碰 DB)
+EXPECT_BEH_MUT=8   # 行為段突變靶:⑥ ⑦ ⑧a ⑧b ⑧c ⑩ + ⑫⑬(補上原本沒有突變殺得死的 B6 / B7b)
 # 🔴 全跑一輪**應該通過哪些格**(逐 key 凍結,不是只凍結總數;codex 關卡2 R2:
 #    只凍結總數時「刪掉一個具名檢查 + 另一個 ok 重複一次」照樣得到 15 —— 與紅格那條同一個病)。
 EXPECT_PASS_KEYS="ID-GATE PRE-S2A CTL-STRUCT SRC-ANCHOR-1 SRC-ANCHOR-2 SRC-ANCHOR-3 \
-MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT BASE-CLEAN COPIES-DROPPED"
+MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT BASE-CLEAN COPIES-DROPPED \
+BEH-CTL BEH-MUT-6 BEH-MUT-7 BEH-MUT-8a BEH-MUT-8b BEH-MUT-8c BEH-MUT-10 BEH-MUT-12 BEH-MUT-13 BEH-MUT-COUNT"
 
 PASS=0; FAIL=0; MUT=0; STRUCT_RUN=0; SRC_RUN=0
 # 🔴 七物件註解的凍結指紋(**測量值**,2026-08-06 對照組實跑取得)。
@@ -183,7 +194,7 @@ if [ "$MODE" = "all" ]; then
   if psql -X "$BASE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
     die "埠 $PORT 上仍有活著的 postmaster 且不是本 workdir 的 —— 不硬殺別人的,停下"
   fi
-  log "0/6 provision pre-S2a 基準庫(port ${PORT};**排除 ${MIG##*/}**)"
+  log "0/8 provision pre-S2a 基準庫(port ${PORT};**排除 ${MIG##*/}**)"
   rm -rf "$WORK"; mkdir -p "$WORK"; printf '%s\n' "$MARK_SIG" > "$MARK"
   "$PGBIN/initdb" --version | grep -q ' 17\.' || die "PATH 的 initdb 非 PG17"
   psql -X --version | grep -q ' 17\.' || die "PATH 的 psql 非 PG17(協定相容但錯誤字面可能漂)"
@@ -210,6 +221,14 @@ if [ "$MODE" = "all" ]; then
     fi
     psql -X "$BASE_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || die "migration 失敗:$f"
   done
+  # 🔴 行為段(§7)的 fixture 來源:d1t2 seed。放進**基準庫**,讓每份副本都帶著它。
+  #    不影響結構段:seed 不建任何 shipments / shipment_items(前置閘仍看到 0 / 0)。
+  pnpm exec tsx scripts/d1t2-seed.ts > "$WORK/seed.sql" 2>"$WORK/seed.err" \
+    || die "seed 產生失敗(見 $WORK/seed.err)"
+  test -s "$WORK/seed.sql" || die "seed.sql 為空"
+  psql -X "$BASE_URL" -v ON_ERROR_STOP=1 -q -f "$WORK/seed.sql" >/dev/null || die "seed 套用失敗"
+  [ "$(q "$BASE_URL" 'SELECT count(*) FROM public.order_items')" = "41" ] \
+    || die "seed 後 order_items 應為 41 列,實為 $(q "$BASE_URL" 'SELECT count(*) FROM public.order_items')"
   psql -X "$BASE_URL" -qtAc 'SELECT system_identifier FROM pg_control_system()' > "$CIDFILE"
 else
   [ -f "$MARK" ] || die "run 模式需要既有基準庫($WORK 缺 marker);先跑 all"
@@ -237,7 +256,11 @@ ok ID-GATE "身分閘通過(marker 內容 + cluster-id + datadir + locale + serv
   || die "基準庫已經有 shipped_quantity 欄 —— 它不是 pre-S2a,整支 harness 的判別力歸零(見檔頭警語①)"
 [ "$(q "$BASE_URL" "SELECT position('強制點未定案' IN col_description('public.shipment_items'::regclass,(SELECT attnum FROM pg_attribute WHERE attrelid='public.shipment_items'::regclass AND attname='shipped_quantity')))>0")" = "t" ] \
   || die "基準庫的 shipment_items 註解已經不是 S1b 原文 —— pre-S2a 前提不成立(見檔頭警語①)"
-ok PRE-S2A "基準庫確認為乾淨 pre-S2a(無 shipped_quantity 欄 + shipment_items 仍是 S1b 舊註解)"
+# 🔴 run 模式重用舊 base 時,若那座是 seed 之前的版本,行為段會炸在「fixture 缺 order_items」
+#    而不是「base 過期」—— 錯誤訊息指錯方向。在這裡就擋掉。
+[ "$(q "$BASE_URL" 'SELECT count(*) FROM public.order_items')" = "41" ] \
+  || die "基準庫的 order_items 不是 41 列(實 $(q "$BASE_URL" 'SELECT count(*) FROM public.order_items'))—— 這座 base 沒帶 seed 或版本過期,重跑 all"
+ok PRE-S2A "基準庫確認為乾淨 pre-S2a(無 shipped_quantity 欄 + shipment_items 仍是 S1b 舊註解 + seed 41 列)"
 
 # ══ 0e. 🔴 apply 前置閘(Fable R3 F1;本片唯一的「停下問人」判準)═════════════
 # 判準逐字:**apply 當下任一出貨表非 0 → 停、問人。**
@@ -441,7 +464,9 @@ import io, os
 out = os.environ['OUT']; src = os.environ['SRC']; dst = os.environ['DST']
 s = io.open(out, encoding='utf-8').read()
 n = s.count(src)
-assert n == 1, f'突變錨命中 {n} 次(必須恰 1):{src[:60]}'
+# 🔴 同上:不用 assert(PYTHONOPTIMIZE=1 會把它移除,突變就變成「什麼都沒改也算數」)。
+if n != 1:
+    raise SystemExit('🔴 突變錨命中 %d 次(必須恰 1):%s' % (n, src[:60]))
 io.open(out, 'w', encoding='utf-8').write(s.replace(src, dst))
 PY
   fi
@@ -478,7 +503,7 @@ run_mutant() {  # $1 = 靶名、$2 = 突變檔、$3 = **期望紅的格 ID 集�
 }
 
 # ══ 1. 對照組:套真檔,結構 oracle 必須全綠 ═══════════════════════════════════
-log "1/6 對照組:pre-S2a 副本套**真檔**,外部結構 oracle 應全綠"
+log "1/8 對照組:pre-S2a 副本套**真檔**,外部結構 oracle 應全綠"
 fresh_db s2a_ctl; CTL_URL="$FRESH_URL"
 psql -X "$CTL_URL" -v ON_ERROR_STOP=1 -q -f "$MIG" > "$WORK/ctl.log" 2>&1 \
   || die "對照組套真檔就失敗了:$(tail -3 "$WORK/ctl.log")"
@@ -494,7 +519,7 @@ if [ "$CTL_REDS" -eq 0 ]; then ok CTL-STRUCT "對照組結構 oracle $STRUCT_RUN
 else bad "對照組結構 oracle 紅 $CTL_REDS 格 —— 真檔就過不了,後面的突變全部沒有意義"; fi
 
 # ══ 2. 項 9b:原始碼註解錨(catalog 查不到的那三項)═══════════════════════════
-log '2/6 項9b:A1 契約債 ① 清償聲明三項(原始碼註解,obj_description 查不到)'
+log '2/8 項9b:A1 契約債 ① 清償聲明三項(原始碼註解,obj_description 查不到)'
 while IFS='|' read -r label anchor; do
   [ -n "$label" ] || continue
   SRC_RUN=$((SRC_RUN+1))
@@ -511,7 +536,7 @@ EOF
 [ "$SRC_RUN" -eq "$EXPECT_SRC" ] || bad "項9b 只跑了 $SRC_RUN 格,期望 $EXPECT_SRC —— 清單被改短了"
 
 # ══ 3. 突變靶(環境 A;每靶 fresh DB from template)═══════════════════════════
-log "3/6 突變靶:每靶一份乾淨 pre-S2a 副本 + 剝除 §4 + 單一字面改動"
+log "3/8 結構段突變靶:每靶一份乾淨 pre-S2a 副本 + 剝除 §4 + 單一字面改動"
 
 make_mutant "$WORK/mut0.sql" "" ""
 run_mutant "MUT0-只剝不改" "$WORK/mut0.sql" "" "$MIG" 0
@@ -551,12 +576,301 @@ run_mutant "靶⑤-刪掉forward-override那句COMMENT" "$WORK/mut5.sql" \
   "C9a-COL:shipment_items.shipped_quantity C9x-COL:shipment_items.shipped_quantity C9c-fp" "$WORK/mut0.sql" 5
 
 # ══ 4. 收尾:格數自斷言 ═════════════════════════════════════════════════════
-log "4/6 格數自斷言(F2:少跑一格自己紅,不靠人數輸出)"
+# ══ 行為段用的 SQL 產物(在這裡生成,不散在各處)═════════════════════════════
+# 🔴 措辭要準(codex 關卡2):下面四段字面是**寫死在這裡的副本**,不是從 MIG 剖析出來的;
+#    真正的機制是**對 MIG 全檔 count 必須恰 1 次** ⇒ 一旦 migration 改了字面,這裡當場 die。
+#    ⚠️ 它對「MIG 的註解裡剛好也寫了同一段字面」不設防(那會讓 count 變 2、同樣 die,方向安全)。
+MIG="$MIG" OUT="$WORK" python3 - <<'PYGEN' || die "行為段 SQL 產生失敗"
+import io, os
+mig = io.open(os.environ['MIG'], encoding='utf-8').read()
+out = os.environ['OUT']
+C8  = 'ADD CONSTRAINT oiqs_shipped_nonneg CHECK (shipped_quantity >= 0)'
+C9  = 'ADD CONSTRAINT oiqs_shipped_le_instock CHECK (shipped_quantity <= instock_quantity)'
+C6P = ('ADD CONSTRAINT oiqs_cancelled_shipped_le_quantity\n'
+       '    CHECK (cancelled_quantity::bigint + shipped_quantity::bigint <= quantity::bigint)')
+ADD = 'ADD COLUMN shipped_quantity integer NOT NULL DEFAULT 0'
+# 🔴 **不得用 assert 當守門**(codex 關卡2 R2 實證):`PYTHONOPTIMIZE=1`(或 python -O)
+#    會把所有 assert 整句移除 ⇒ 這道字面對帳靜默消失,C8/C6′ 的副本漂移後項4 與靶⑩ 仍可能全綠。
+for frag in (C8, C9, C6P, ADD):
+    n = mig.count(frag)
+    if n != 1:
+        raise SystemExit(
+            '🔴 在 migration 內找不到(或不只一處)這段字面,行為段的 variant 會與正式檔脫節:'
+            '%r 命中 %d 次' % (frag[:50], n))
+
+io.open(out + '/v-addcol.sql', 'w', encoding='utf-8').write(
+    '-- 行為段 temp variant:**只加欄、不加約束**(plan §4 項4)\n'
+    'ALTER TABLE public.order_item_quantity_summary\n  ' + ADD + ';\n')
+io.open(out + '/v-constraints.sql', 'w', encoding='utf-8').write(
+    '-- 行為段 temp variant:**只加三條約束**(字面逐字抽自正式 migration)\n'
+    'ALTER TABLE public.order_item_quantity_summary\n  '
+    + C8 + ',\n  ' + C9 + ',\n  ' + C6P + ';\n')
+# 靶⑩ 用:**同一條約束段但拿掉 C9**。
+# 🔴 舊版靶⑩ 是「不執行約束段、直接 echo NOT-BLOCKED」⇒ 完全繞過量測器,
+#    把量測器改寬時對照組與靶⑩ 會雙綠(code-reviewer R1 抓)。
+#    改成走**同一條路徑**、只是少了 C9 —— 觀察值必須由同一個匹配器產生。
+io.open(out + '/v-constraints-noC9.sql', 'w', encoding='utf-8').write(
+    '-- 靶⑩:只加 C8 與 C6′,**拿掉 C9** ⇒ shipped=3/instock=2 的既有壞列應該活下來\n'
+    'ALTER TABLE public.order_item_quantity_summary\n  '
+    + C8 + ',\n  ' + C6P + ';\n')
+
+BEH = r"""
+-- 行為段 oracle(輸出 `格|觀察值`,由 shell 逐格比對)。全程 BEGIN…ROLLBACK,零殘留。
+BEGIN;
+CREATE TEMP TABLE _r(i int, k text, v text);
+DO $beh$
+DECLARE v_item uuid; st text; cn text; got integer; n bigint;
+  -- 🔴 got 每格前必須重設:SELECT INTO 抓不到列時會**沿用上一格的值**,
+  --    目前兩格期望值恰好不同(2 vs 0)所以會轉紅 —— 那是巧合,不是設計(R1)。
+BEGIN
+  SELECT id INTO v_item FROM public.order_items ORDER BY id LIMIT 1;
+  IF v_item IS NULL THEN RAISE EXCEPTION '行為段 fixture 缺 order_items(基準庫沒 seed?)'; END IF;
+  -- fixture:五值互異 q/o/i/c/s = 10/9/2/4/3;line_total 必須同步(order_items_line_balances)。
+  UPDATE public.order_items SET quantity = 10, line_total = unit_price * 10 WHERE id = v_item;
+
+  -- 項5:C9 只紅它負測
+  BEGIN
+    INSERT INTO public.order_item_quantity_summary
+      (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)
+      VALUES (v_item, 10, 9, 2, 4, 3);
+    INSERT INTO _r VALUES (1, 'B5-c9-neg', 'NOT-BLOCKED');
+    DELETE FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, cn = CONSTRAINT_NAME;
+    INSERT INTO _r VALUES (1, 'B5-c9-neg', st || '/' || COALESCE(cn, '(無 conname)'));
+  END;
+
+  -- 項6:C9 邊界正測 shipped = instock 恰等放行,回查落庫值
+  BEGIN
+    INSERT INTO public.order_item_quantity_summary
+      (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)
+      VALUES (v_item, 10, 9, 2, 4, 2);
+    got := NULL;
+    SELECT shipped_quantity INTO got FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+    INSERT INTO _r VALUES (2, 'B6-c9-boundary', COALESCE(got::text, '(讀不到列)'));
+    DELETE FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+  EXCEPTION WHEN others THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE;
+    INSERT INTO _r VALUES (2, 'B6-c9-boundary', 'REJECTED/' || st);
+  END;
+
+  -- 項7:C8 只紅它負測
+  BEGIN
+    INSERT INTO public.order_item_quantity_summary
+      (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)
+      VALUES (v_item, 10, 9, 2, 4, -1);
+    INSERT INTO _r VALUES (3, 'B7-c8-neg', 'NOT-BLOCKED');
+    DELETE FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, cn = CONSTRAINT_NAME;
+    INSERT INTO _r VALUES (3, 'B7-c8-neg', st || '/' || COALESCE(cn, '(無 conname)'));
+  END;
+
+  -- 項7b:C8 零值正測(v1 只折了一半:只有負測、沒有 0 可以寫進去的正測)
+  BEGIN
+    INSERT INTO public.order_item_quantity_summary
+      (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)
+      VALUES (v_item, 10, 9, 2, 4, 0);
+    got := NULL;
+    SELECT shipped_quantity INTO got FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+    INSERT INTO _r VALUES (4, 'B7b-c8-zero', COALESCE(got::text, '(讀不到列)'));
+    DELETE FROM public.order_item_quantity_summary WHERE order_item_id = v_item;
+  EXCEPTION WHEN others THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE;
+    INSERT INTO _r VALUES (4, 'B7b-c8-zero', 'REJECTED/' || st);
+  END;
+
+  -- 項8:C6' 的代數蘊含在有限域上的 smoke(C9 ∧ C7 ⇒ C6')。
+  -- 🔴🔴 **這一格不碰受測 DB**(R1 抓:兩條前提式是手抄的純算術,migration 根本沒套也會回 0)
+  --    ⇒ 它**不是關於本 migration 的證據**,只是「§1 那句『C6' 是代數冗餘』還成立」的 smoke。
+  --    保留是因為它一旦非 0,§1 的整個論證就作廢;但**不得把它算進行為覆蓋率**。
+  SELECT count(*) INTO n
+    FROM generate_series(0,6) q, generate_series(0,6) i,
+         generate_series(0,6) c, generate_series(0,6) sh
+   WHERE sh <= i                                  -- C9
+     AND i::bigint + c <= q                       -- C7
+     AND NOT (c::bigint + sh <= q);               -- C6' 被違反
+  INSERT INTO _r VALUES (5, 'B8-c6prime-smoke', n::text);
+END
+$beh$;
+SELECT k || '|' || v FROM _r ORDER BY i;
+ROLLBACK;
+"""
+io.open(out + '/beh.sql', 'w', encoding='utf-8').write(BEH)
+PYGEN
+for f in v-addcol v-constraints v-constraints-noC9 beh; do
+  test -s "$WORK/$f.sql" || die "行為段 SQL 產物 $f.sql 為空"
+done
+# 🔴 plan §4 項4 逐字要求:cmp 驗 variant 檔與正式檔確實不同。
+cmp -s "$MIG" "$WORK/v-addcol.sql" && die "v-addcol.sql 與正式檔相同 —— variant 沒生出來"
+cmp -s "$MIG" "$WORK/v-constraints.sql" && die "v-constraints.sql 與正式檔相同 —— variant 沒生出來"
+
+# ══ 行為段(S2a-3):C8 / C9 真的擋得住嗎 ═════════════════════════════════════
+# 🔴 結構段證的是「約束長得對」,行為段證的是「約束真的會擋」。兩者不可互相替代:
+#    定義字面全等但 PG 沒有 enforce(例如 NOT VALID)時,結構段照樣全綠。
+# 🔴 fixture 五值全寫死互異 q/o/i/c/s = 10/9/2/4/3(plan §4 項5):
+#    C4 9≤10 ✅ / C5 2≤9 ✅ / C7 2+4≤10 ✅ / C6′ 4+3≤10 ✅ ⇒ **只違反 C9**(3>2)。
+#    這組值同時讓靶⑧a(shipped≤quantity)⑧b(≤ordered)⑧c(≤cancelled)三個錯式**全部放行** ——
+#    plan v1 的 4/2/1/3 在 ⑧c 會 3>1 仍紅在同一個 conname,那叫**假裝抓到**。
+BEH_RUN=0
+beh_oracle() {   # $1 = URL(已套真檔或突變檔的副本)、$2 = 標籤;設 REDS_IDS、回傳紅格數
+  local U="$1" TAG="$2" reds=0 line k v exp
+  BEH_RUN=0; REDS_IDS=""
+  psql -X "$U" -v ON_ERROR_STOP=1 -qtA -f "$WORK/beh.sql" > "$WORK/beh-$TAG.out" 2>"$WORK/beh-$TAG.err" \
+    || { printf '     ▸ [%s] 行為段 SQL 執行失敗:%s\n' "$TAG" "$(head -1 "$WORK/beh-$TAG.err")"
+         REDS_IDS=" B0-sqlfail"; return 1; }
+  while IFS='|' read -r k v; do
+    [ -n "$k" ] || continue
+    BEH_RUN=$((BEH_RUN+1))
+    case "$k" in
+      B5-c9-neg)        exp='23514/oiqs_shipped_le_instock' ;;
+      B6-c9-boundary)   exp='2' ;;
+      B7-c8-neg)        exp='23514/oiqs_shipped_nonneg' ;;
+      B7b-c8-zero)      exp='0' ;;
+      B8-c6prime-smoke) exp='0' ;;
+      *) printf '     ▸ [%s] 行為段出現未知的格 %s\n' "$TAG" "$k"; REDS_IDS="$REDS_IDS B0-unknown"; reds=$((reds+1)); continue ;;
+    esac
+    if [ "$v" != "$exp" ]; then
+      printf '     ▸ [%s] %s:期望「%s」實為「%s」\n' "$TAG" "$k" "$exp" "$v"
+      REDS_IDS="$REDS_IDS $k"; reds=$((reds+1))
+    fi
+  done < "$WORK/beh-$TAG.out"
+  # 🔴 只驗**列數**會被「拿掉 B8、改塞第二筆合法 B5」騙過:仍是 5 列、八靶紅格集合也不變
+  #    ⇒ 整支可以全綠(codex 關卡2:與紅格那條、PASS 那條同一族的第三次)。改驗 **key 集合**。
+  local gotk expk
+  gotk="$(cut -d'|' -f1 "$WORK/beh-$TAG.out" | sort | tr '\n' ' ' | sed 's/ *$//')"
+  expk="B5-c9-neg B6-c9-boundary B7-c8-neg B7b-c8-zero B8-c6prime-smoke"
+  if [ "$gotk" != "$expk" ]; then
+    printf '     ▸ [%s] 🔴 行為段回傳的格集合不符:\n        實際 [%s]\n        期望 [%s]\n' "$TAG" "$gotk" "$expk"
+    REDS_IDS="$REDS_IDS B0-keyset"; reds=$((reds+1))
+  fi
+  # beh.sql 回的格數 = EXPECT_BEH 減掉項4(項4 在別的環境、由 beh_item4 量)。
+  [ "$BEH_RUN" -eq $((EXPECT_BEH - 1)) ] || {
+    printf '     ▸ [%s] 🔴 行為段只回了 %s 格,期望 %s —— SQL 被改短了\n' "$TAG" "$BEH_RUN" "$((EXPECT_BEH - 1))"
+    REDS_IDS="$REDS_IDS B0-count"; reds=$((reds+1)); }
+  return $reds
+}
+
+# 項 4:**既有列違反 C9 必紅**。正式 migration 同一個 ALTER 加欄+CHECK,照字面構造不出來
+# ⇒ temp variant:先只加欄 → 造 shipped=3/instock=2 的既有列 → **單獨執行約束段**。
+# $1 = 要跑的約束段檔名、$2 = 標籤 → **設全域 I4_OUT**(不用命令替換:`fresh_db` 內含 die,
+#   放進 $( ) 只殺得掉子 shell —— 本檔 fresh_db 上方自己的警告)。
+# 🔴 兩種情境走**完全同一條路徑**,差別只在約束段少了 C9;不再有「直接 echo 結果」的分支。
+I4_OUT=""
+beh_item4() {
+  local cfile="$1" tag="$2" db="s2a_beh4" U out rowleft
+  fresh_db "$db"; U="$FRESH_URL"
+  psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$WORK/v-addcol.sql" >/dev/null 2>&1 \
+    || { I4_OUT="SQLFAIL-addcol"; drop_db "$db"; return; }
+  psql -X "$U" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<'SQL'
+UPDATE public.order_items SET quantity = 10, line_total = unit_price * 10
+ WHERE id = (SELECT id FROM public.order_items ORDER BY id LIMIT 1);
+INSERT INTO public.order_item_quantity_summary
+  (order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity, shipped_quantity)
+SELECT id, 10, 9, 2, 4, 3 FROM public.order_items ORDER BY id LIMIT 1;
+SQL
+  # 🔴 fixture 要驗**值**、不只驗列數(R1):否則哪天 seed 開始建摘要列,拿到別的列還以為對。
+  [ "$(q "$U" "SELECT count(*) FROM public.order_item_quantity_summary WHERE shipped_quantity = 3 AND instock_quantity = 2")" = "1" ] \
+    || { I4_OUT="FIXTURE-MISSING"; drop_db "$db"; return; }
+
+  # 🔴 VERBOSITY=verbose 讓 psql 把 SQLSTATE 印進 ERROR 行 —— 沒有它就只能比名字,
+  #    而 `42710 duplicate_object` 之類的錯誤訊息**同樣含那個約束名**,會被誤認成「成功擋下」(codex 關卡2)。
+  out="$(psql -X "$U" -v ON_ERROR_STOP=1 -v VERBOSITY=verbose -q -f "$WORK/$cfile" 2>&1)"
+  rowleft="$(q "$U" 'SELECT count(*) FROM public.order_item_quantity_summary')"
+  # 🔴 判「被擋」要看 **ERROR 行**,不是整段輸出含不含那個名字(R1):
+  #    psql 語法錯誤會回顯 `LINE 3:   ADD CONSTRAINT oiqs_shipped_le_instock …`,同樣命中 ⇒ 誤判成 BLOCKED。
+  if printf '%s' "$out" | grep -qE 'ERROR: *23514:.*"oiqs_shipped_le_instock"'; then
+    I4_OUT="BLOCKED/23514/oiqs_shipped_le_instock"
+  elif [ -z "$out" ] && [ "$rowleft" = "1" ]; then
+    I4_OUT="NOT-BLOCKED"
+  elif [ -z "$out" ]; then
+    I4_OUT="NOT-BLOCKED-BUT-ROW-GONE($rowleft)"
+  else
+    I4_OUT="OTHER:$(printf '%s' "$out" | grep -m1 'ERROR:' | cut -c1-70)"
+  fi
+  drop_db "$db"
+}
+
+log "4/8 行為段對照組(項 4 / 5 / 6 / 7 / 7b / 8)"
+fresh_db s2a_beh; BEH_URL="$FRESH_URL"
+psql -X "$BEH_URL" -v ON_ERROR_STOP=1 -q -f "$MIG" > "$WORK/beh-apply.log" 2>&1 \
+  || die "行為段對照組套真檔失敗:$(tail -3 "$WORK/beh-apply.log")"
+beh_oracle "$BEH_URL" "行為對照組"; BEH_REDS=$?
+beh_item4 v-constraints.sql 對照; I4="$I4_OUT"
+BEH_TOTAL=$((BEH_RUN + 1))
+[ "$BEH_TOTAL" -eq "$EXPECT_BEH" ] || bad "行為段只跑了 $BEH_TOTAL 格,期望 $EXPECT_BEH"
+if [ "$BEH_REDS" -eq 0 ] && [ "$I4" = "BLOCKED/23514/oiqs_shipped_le_instock" ]; then
+  ok BEH-CTL "行為段 $BEH_TOTAL 格全綠 —— **其中 5 格真的碰受測 DB**(項4 既有壞列被 C9 擋下、項5/7 負測各紅在自己的 conname、項6/7b 正測回查落庫值);項8 是不碰 DB 的代數 smoke=0,不算行為證據"
+else
+  bad "行為段對照組:oracle 紅 $BEH_REDS 格 / 項4 觀察值 = $I4(期望 BLOCKED/23514/oiqs_shipped_le_instock)"
+fi
+drop_db s2a_beh
+
+log "5/8 行為段突變靶(⑥ ⑦ ⑧a ⑧b ⑧c ⑫ ⑬ ⑩ —— 共 8 發)"
+BMUT=0
+run_beh_mutant() {  # $1 = 靶名、$2 = 突變檔、$3 = 期望紅格 ID 集合、$4 = key
+  local name="$1" file="$2" expect="$3" key="$4" db="s2a_bmut" U got exp
+  cmp -s "$WORK/mut0.sql" "$file"; local c=$?
+  case "$c" in 0) bad "行為靶 $name:與 mut0 無差異(取代沒命中)"; BMUT=$((BMUT+1)); return ;;
+                1) : ;; *) bad "行為靶 $name:cmp 讀不到檔(rc=$c)"; BMUT=$((BMUT+1)); return ;; esac
+  fresh_db "$db"; U="$FRESH_URL"
+  if ! psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$file" > "$WORK/bmut-$key.log" 2>&1; then
+    bad "行為靶 $name:apply 就失敗了 — $(tail -1 "$WORK/bmut-$key.log")"; BMUT=$((BMUT+1)); drop_db "$db"; return
+  fi
+  beh_oracle "$U" "$name" >/dev/null
+  got="$(printf '%s\n' $REDS_IDS | sort | tr '\n' ' ' | sed 's/ *$//')"
+  exp="$(printf '%s\n' $expect | sort | tr '\n' ' ' | sed 's/ *$//')"
+  BMUT=$((BMUT+1))
+  if [ "$got" = "$exp" ]; then ok "BEH-MUT-$key" "行為靶 $name:紅在 [$got](逐格相符)"
+  else bad "行為靶 $name:紅在 [$got] 但期望 [$exp]"; fi
+  drop_db "$db"
+}
+
+make_mutant "$WORK/bmut6.sql" \
+  '  ADD CONSTRAINT oiqs_shipped_le_instock CHECK (shipped_quantity <= instock_quantity),
+' ''
+run_beh_mutant "靶⑥-拿掉C9" "$WORK/bmut6.sql" "B5-c9-neg" 6
+
+make_mutant "$WORK/bmut7.sql" \
+  '  ADD CONSTRAINT oiqs_shipped_nonneg CHECK (shipped_quantity >= 0),
+' ''
+run_beh_mutant "靶⑦-拿掉C8" "$WORK/bmut7.sql" "B7-c8-neg" 7
+
+make_mutant "$WORK/bmut8a.sql" \
+  'CHECK (shipped_quantity <= instock_quantity)' 'CHECK (shipped_quantity <= quantity)'
+run_beh_mutant "靶⑧a-C9改成比quantity" "$WORK/bmut8a.sql" "B5-c9-neg" 8a
+
+make_mutant "$WORK/bmut8b.sql" \
+  'CHECK (shipped_quantity <= instock_quantity)' 'CHECK (shipped_quantity <= ordered_quantity)'
+run_beh_mutant "靶⑧b-C9改成比ordered" "$WORK/bmut8b.sql" "B5-c9-neg" 8b
+
+make_mutant "$WORK/bmut8c.sql" \
+  'CHECK (shipped_quantity <= instock_quantity)' 'CHECK (shipped_quantity <= cancelled_quantity)'
+run_beh_mutant "靶⑧c-C9改成比cancelled" "$WORK/bmut8c.sql" "B5-c9-neg" 8c
+
+make_mutant "$WORK/bmut12.sql" \
+  'CHECK (shipped_quantity <= instock_quantity)' 'CHECK (shipped_quantity < instock_quantity)'
+run_beh_mutant "靶⑫-C9收緊成嚴格小於" "$WORK/bmut12.sql" "B6-c9-boundary" 12
+
+make_mutant "$WORK/bmut13.sql" \
+  'CHECK (shipped_quantity >= 0)' 'CHECK (shipped_quantity > 0)'
+run_beh_mutant "靶⑬-C8收緊成嚴格大於" "$WORK/bmut13.sql" "B7b-c8-zero" 13
+
+# 靶⑩:項4 的約束段**拿掉 C9** ⇒ shipped=3/instock=2 的壞列應該活下來。
+beh_item4 v-constraints-noC9.sql 靶⑩; I4M="$I4_OUT"
+BMUT=$((BMUT+1))
+[ "$I4M" = "NOT-BLOCKED" ] && ok BEH-MUT-10 "行為靶⑩-約束段拿掉C9:壞列活下來(NOT-BLOCKED,同一個量測器)⇒ 項4 有判別力" \
+  || bad "行為靶⑩:觀察值 = $I4M(期望 NOT-BLOCKED)"
+
+[ "$BMUT" -eq "$EXPECT_BEH_MUT" ] && ok BEH-MUT-COUNT "行為段突變靶跑滿 $BMUT 個(期望 $EXPECT_BEH_MUT)" \
+  || bad "行為段突變靶只跑了 $BMUT 個,期望 $EXPECT_BEH_MUT"
+
+log "6/8 格數自斷言(F2:少跑一格自己紅,不靠人數輸出)"
 [ "$MUT" -eq "$EXPECT_MUT" ] && ok MUT-COUNT "突變靶跑滿 $MUT 個(期望 $EXPECT_MUT)" \
   || bad "突變靶只跑了 $MUT 個,期望 $EXPECT_MUT —— 清單被改短了"
 
 # ══ 5. 零殘留 ═══════════════════════════════════════════════════════════════
-log "5/6 零殘留:基準庫必須仍是 pre-S2a(所有動作都在副本上)"
+log "7/8 零殘留:基準庫必須仍是 pre-S2a(所有動作都在副本上)"
 [ "$(q "$BASE_URL" "SELECT count(*) FROM pg_attribute WHERE attrelid='${SUMMARY}'::regclass AND attname='shipped_quantity' AND NOT attisdropped")" = "0" ] \
   && ok BASE-CLEAN "基準庫零殘留(仍無 shipped_quantity 欄)" \
   || bad "🔴 基準庫被污染了(長出 shipped_quantity 欄)—— 之後的 run 模式全部不可信"
@@ -564,7 +878,7 @@ LEFT="$(q "$ADMIN_URL" "SELECT COALESCE(string_agg(datname,','),'(無)') FROM pg
 [ "$LEFT" = "(無)" ] && ok COPIES-DROPPED "突變用的副本資料庫已全數清除" || bad "殘留副本資料庫:$LEFT"
 
 # ══ 6. 結語 ═════════════════════════════════════════════════════════════════
-log "6/6 結果"
+log "8/8 結果"
 # 🔴 這道必須排在印摘要**之前**(codex 關卡2 R2:原本先印 FAIL=0 再檢查,
 #    唯一那行計數摘要在失配時仍是假綠,雖然最終 RC=1)。
 GOT_KEYS="$(printf '%s\n' $PASS_KEYS | sort | tr '\n' ' ' | sed 's/ *$//')"
@@ -574,12 +888,12 @@ EXP_KEYS="$(printf '%s\n' $EXPECT_PASS_KEYS | sort | tr '\n' ' ' | sed 's/ *$//'
   echo "   實際 [$GOT_KEYS]"
   echo "   期望 [$EXP_KEYS]"
   FAIL=$((FAIL+1)); }
-printf 'PASS=%s  FAIL=%s  MUT=%s\n' "$PASS" "$FAIL" "$MUT"
+printf 'PASS=%s  FAIL=%s  MUT=%s(結構段) BMUT=%s(行為段) 合計 %s 發\n' \
+  "$PASS" "$FAIL" "$MUT" "$BMUT" "$((MUT + BMUT))"
 # 🔴 沒有這道:整段刪掉身分閘 / pre-S2a 確認 / 零殘留之後,會變成 PASS=14 FAIL=0 照樣 exit 0。
 
 echo "對照組副本 s2a_ctl 保留不刪(可直接連上去看落地後的樣子):"
 echo "  psql postgresql://postgres@127.0.0.1:${PORT}/s2a_ctl"
 echo
-echo "🔴 本支**不涵蓋**:C8/C9 的行為負測與邊界正測(S2a-3)、回滾與故障注入(S2a-4)、"
-echo "   runbook rehearsal 的六欄十 CHECK 驗證(S2a-4)。"
+echo "🔴 本支**不涵蓋**:回滾與故障注入、runbook rehearsal 的六欄十 CHECK 驗證(兩者都在 S2a-4)。"
 [ "$FAIL" -eq 0 ] || exit 1
