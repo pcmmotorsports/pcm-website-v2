@@ -146,10 +146,22 @@ describe('手機不得出現被壓縮的桌機三欄選車列(ADR-0007)', () => 
       (m) => Number(m[1]) <= 1024,
     );
     expect(mobile.length, 'filter-cascade.css 一個手機斷點都找不到 ⇒ 本條前提已失效').toBeGreaterThan(0);
-    // 前提:確認我們真的切出了「相異」的區塊數 —— 這條就是 M1 那個洞的直接守門。
+    // 前提:確認每一段真的是從**它自己那個 header** 切下來的 —— M1 那個洞的直接守門。
+    // 🔴 確認輪 N2:初版比的是「切出來的**內文**有幾種相異」,拿內容當位置的代理。
+    //    兩個手機斷點的內文若剛好相同(例:1023 與 1024 各寫一份一樣的關閉規則),
+    //    切片明明是對的、這條卻會誤紅;而誤紅會逼下一個人放寬它,洞就這樣回來。
+    //    ⚠️ 第一版修法(改比 `indexOf('{', m.index)` 的相異性)**實測是恆真的**:
+    //    那條算式自己就是位置,不管 `segs` 怎麼切都成立 —— 突變(把 segs 改回
+    //    `mediaBlock(CASCADE, m[0])`)照樣全綠。改成直接驗「seg 就長在該起點上」,
+    //    退回 indexOf 時第 2 段會落到第 1 段的內文 ⇒ 當場紅。
     const segs = mobile.map((m) => blockAt(CASCADE, m.index));
-    expect(new Set(segs).size, `${mobile.length} 個手機斷點只切出 ${new Set(segs).size} 個相異區塊 ⇒ 切片又退回 indexOf 了`)
-      .toBe(new Set(mobile.map((m) => m.index)).size);
+    segs.forEach((seg, i) => {
+      const open = CASCADE.indexOf('{', mobile[i]!.index);
+      expect(
+        CASCADE.startsWith(seg, open + 1),
+        `手機段 #${i + 1}(${mobile[i]?.[0].trim()})切到的不是它自己那塊 ⇒ 切片又退回 indexOf 了`,
+      ).toBe(true);
+    });
     segs.forEach((seg, i) => {
       const where = `手機段 #${i + 1}(${mobile[i]?.[0].trim()})`;
       expect(seg, `${where} 內出現了選車欄的 flex 壓縮配方`).not.toMatch(
@@ -157,6 +169,22 @@ describe('手機不得出現被壓縮的桌機三欄選車列(ADR-0007)', () => 
       );
       expect(seg, `${where} 內出現了 .cft-select 的縮字級`).not.toMatch(/\.cft-select/);
     });
+  });
+
+  // 🔴 確認輪 N1:上面那條收窄成「只掃 @media 區塊」之後,`[data-mobile="true"]` 那一路
+  //    **整條掉出掃描面** —— 它不在任何 @media 內(見 `:181` 那行),桌機寬度也生效,
+  //    而它正是 dev-preview 強制手機殼的唯一入口。壓縮配方寫成
+  //    `[data-mobile="true"] .cft-cascade .vsc { flex: 1 }` 的話,上面那條全綠。
+  //    不用「`.cft-bar` 已 display:none 所以不可達」放行:那個推理正是上面收窄時
+  //    **拿來說服自己**的那一個,而「今天不可達」跟「明天不會被改成可達」是兩件事;
+  //    兩路都掃的成本是兩行。
+  it('filter-cascade.css:[data-mobile="true"] 那一路同樣不得出現三欄壓縮配方', () => {
+    expect(CASCADE, '[data-mobile] 那一路出現了選車欄的 flex 壓縮配方').not.toMatch(
+      /\[data-mobile="true"\][^{}]*\.cft-cascade\s+\.vsc[^{}]*\{[^}]*flex/,
+    );
+    expect(CASCADE, '[data-mobile] 那一路出現了 .cft-select 的縮字級').not.toMatch(
+      /\[data-mobile="true"\][^{}]*\.cft-select[^{}]*\{/,
+    );
   });
 
   // ⚠️ 這條與上方 `:56-60` / `:96-98` 兩條**是同一件事的重述**(regex 一模一樣),

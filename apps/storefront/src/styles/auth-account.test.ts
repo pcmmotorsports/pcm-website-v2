@@ -335,4 +335,16 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
       /\.tier-badge-lg\s*\{[^}]*height:\s*40px[^}]*font-size:\s*14px/,
     );
   });
+
+  // 🔴 M6(2026-08-06 cssdiff 補漏,不是突變抓到的 —— 是**結構比對**抓到的)
+  //    第4批當時逐點對照舊稿,結論寫成「.acc-address 容器 design 無規則、不發明」並落成註解。
+  //    對現行真權威(OD `pcm-account.css:392`)那句是錯的:它有 12px 的 column gap。
+  //    症狀=地址卡零間距貼在一起,而所有既有斷言(全是逐點值)對「少了一整條規則」全盲。
+  it('M6 — .acc-address 是 12px column gap 的 flex 欄(OD pcm-account.css:392 直搬)', () => {
+    const body = ACCOUNT.slice(ACCOUNT.indexOf('.acc-address'));
+    expect(ACCOUNT.indexOf('.acc-address'), 'account.css 找不到 .acc-address 容器規則').toBeGreaterThan(-1);
+    expect(body.slice(0, body.indexOf('}')), '.acc-address 不是 column flex + 12px gap ⇒ 地址卡貼在一起').toMatch(
+      /display:\s*flex[\s\S]*flex-direction:\s*column[\s\S]*gap:\s*12px/,
+    );
+  });
 });

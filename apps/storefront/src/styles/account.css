@@ -429,7 +429,16 @@
 /* ---- address tab 唯讀列表卡(g-5a、對齊 design account.css L784-813)----
  * 搬讀清單卡 5 條(.acc-addr / -tag / -name / -phone / -line);
  * .acc-inline-form(L1008+ 表單)g-5b 已搬(見下方 g-5b 段);.acc-addr-actions(L814-824 編輯/刪除鈕)g-5c 已搬(見 .acc-addr-line 下方);
- * .acc-address 容器 design 無規則(plain div block flow)、不發明。 */
+ * ⚠️ 2026-08-06 更正:原註解寫「.acc-address 容器 design 無規則(plain div block flow)、不發明」——
+ * 那句引用的是**舊稿的行號**(design account.css L784-813),對現行真權威已不成立。
+ * 現行 Open Design `pcm-home-redesign/pcm-account.css:392` 逐字有
+ *   `.acc-address { display: flex; flex-direction: column; gap: 12px; }`
+ * ⇒ 少了它,地址卡是 block flow、彼此**零間距貼在一起**。鐵則 1 直搬。 */
+.acc-address {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .acc-addr {
   padding: 20px;
   border: 1px solid var(--c-border);

@@ -218,4 +218,21 @@ describe('🔴 第1批 · 404 主鈕那個 scope 的兩個前提(前提消失要
       'error.css 被排到 cart.css 前面 ⇒ .btn-primary 的墨黑會蓋掉 404 主鈕的熔橘',
     ).toBeGreaterThan(cart);
   });
+
+  // 🔴 確認輪 N3:上一條只比了 cart.css 這**一個**已知的 `.btn-primary` 定義點。
+  //    但真正的不變量是「error.css 之後,沒有任何檔再定義 `.btn-primary`」——
+  //    `.btn-primary` 與 `.err-btn-primary` 同為 (0,1,0),平手時後載勝,
+  //    所以第二個定義點只要出現在 error.css 之後,404 主鈕就靜默變回墨黑,
+  //    而上一條(只看 cart↔error 的相對序)照樣綠。
+  it('前提②b — layout.tsx 裡排在 error.css 之後的檔,都不得再定義 .btn-primary', () => {
+    const err = LAYOUT_CSS_IMPORTS.indexOf('error.css');
+    const after = LAYOUT_CSS_IMPORTS.slice(err + 1);
+    expect(after.length, 'error.css 已是最後一支 CSS ⇒ 本條前提已失效,改守別的').toBeGreaterThan(0);
+    after.forEach((f) => {
+      // `\.btn-primary` 前面帶點 ⇒ 不會誤命中 `.cs-btn-primary` / `.err-btn-primary`;
+      // 後面的 negative lookahead 擋掉 `.btn-primary-ghost` 之類的別的 class。
+      expect(strip(read(f)), `${f} 排在 error.css 之後又定義了 .btn-primary ⇒ 404 主鈕會被蓋回墨黑`)
+        .not.toMatch(/\.btn-primary(?![\w-])/);
+    });
+  });
 });
