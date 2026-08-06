@@ -167,8 +167,9 @@
 
 **Δ 估算(供起草預期值用,實作時以實跑為準)**:
 `#332-2` 檔數 +1(新測試檔);測試數 +11~13 = orders 側 5 向量 + settings 側 5 向量 +
-settings 側已知碼正向 1~3。**基準數字**:`f8ede20` 的 commit message 記「364 檔 5128 綠」
-—— 這是**引用 commit message、不是本輪實跑**;開工時先跑一次 `pnpm test` 取當下真值當基準。
+settings 側已知碼正向 1~3。**基準數字**:~~`f8ede20` 的 commit message 記「364 檔 5128 綠」~~
+**更正(#332-1 收工時實跑)**:`b4b5173` 乾淨樹實跑 = **369 檔 5238 綠 + 1 todo**(舊引用值過期);
+慣例不變 —— 開工時仍先跑一次 `pnpm test` 取當下真值當基準,不引用本行。
 
 🔴 為什麼 M11 單獨列一格:A9w2 就是靠它抓到「依索引切段落順手吃掉兩個不相干 describe」
 (預期 −4、實際 −12),而**三綠全綠、零紅**(memory `feedback_range-delete-silently-eats-neighbors`)。

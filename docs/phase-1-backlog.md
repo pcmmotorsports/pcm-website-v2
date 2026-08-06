@@ -9055,11 +9055,11 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #332. 🧹 九碼退場殘餘死碼收尾片 — 三筆「無主」死碼集中收,走 plan
 
-- **狀態:** ⏳ 待執行(2026-08-06 E 線收割時立案;A11 全鏈完成後排)
-- **內容(三筆,一片收完)**:
-  ① `packages/domain/src/order/types.ts` 的 `WORKFLOW_STATUS_CODE_RE` export——A9w3 起全 repo 零
-  consumer,A9w4c 前半明文未處置(兩處註解已改指本條);合併它與 `workflow-form.ts` 的同字面
-  local RE 一併評。
+- **狀態:** 🔶 部分完成(筆①已清;筆②③=#332-2 等 Sean 拍 plan §6 Q1/Q2)。plan=`docs/specs/2026-08-06-result-banner-cleanup-plan.md`(2026-08-06 落檔;E 裁定三筆均不依賴 A9w4a/c,~~A11 全鏈完成後排~~ 敘事序非依賴序)
+- **內容(三筆,拆 #332-1/#332-2 兩片)**:
+  ① ✅ **已清(`85f12c1`,dev `e635bf5`)**:`WORKFLOW_STATUS_CODE_RE` export 與過期註解純刪 14 行,
+  Δ 對帳 0/0、全樹 grep 剩 2 處歷史敘事註解(=plan M2 預期字面)。~~合併它與 `workflow-form.ts` 的同字面
+  local RE 一併評~~ → plan §2.3 裁定**不合併**(三份 RE 對齊三個不同 DB 契約,且 `workflow-form.ts:29` 已排定隨 A9w4c 後半整檔刪除)。
   ② `settings-result-banner.tsx` 的預設 `MESSAGES`(order-statuses CRUD 詞彙)——A9w2 刪掉唯一
   吃預設值的頁面後成死碼;codex A9w4b 關卡2 R2 已同意降 nit 收此處。
   ③ 兩支 result-banner 的 `Object.hasOwn` 修法(memory `reference_js-index-lookup-hits-prototype-chain`)
