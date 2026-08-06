@@ -137,6 +137,10 @@ SQL
 )"
   local rc=$?
   MUT=$((MUT+1))
+  # 🔴 形狀債(R2 nit,2026-08-06):綠判定是掃**整份 stdout+stderr** 找 A4A_FLIP_OK。
+  # 若哪天某格的 setup/attack/mut_to 字面本身含這個字串,錯誤訊息回顯就會構成假綠。
+  # 現況全格已逐項確認不含(本檔唯一產生該字串的地方是各格自己的 RAISE NOTICE);
+  # 新增格時請確認同一件事,或把判定改成只認最後一行。
   if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'A4A_FLIP_OK'; then ok "$label"
   else bad "$label — $(printf '%s' "$out" | grep -m1 -E 'ERROR|A4A_' | cut -c1-160)"; fi
 }
@@ -785,6 +789,10 @@ printf '%s' "$o" | grep -q 'A4A_FLIP_OK' && ok "突變 N7 trigger 砍 DELETE 事
 #    摘要列不存在時 v 是 NULL,`NULL <> 3` 求值為 NULL ⇒ IF 不觸發 ⇒ 直接落到 NOTICE = 全綠。
 #    本片一度真的寫成後者,審查抓出、實測確認(對不存在的 id 跑同形 DO 塊會印 A4A_FLIP_OK)。
 #    NULL 另外單獨擋:那才是「helper 整支沒跑」的觀察面。
+# 🔴 本格的**配對正向格 = `[R5]`(`grep -n '\[R5\]'`,同一個 $ITEM5、同一句 SET allocated_quantity=4)**。
+#    單看本格無法區分「突變生效」與「zc trigger 對 UPDATE 根本不觸發」——
+#    那個因果基礎由同一 run 的 R5 提供。**刪或改 R5 會靜默抽走本格唯一的因果基礎,而三綠不會變色**
+#    ⇒ 動 R5 的人請一併重估本格(R2 nit,2026-08-06)。
 mutate_fn "突變 N8 upsert 的 ordered 軸改寫回自值 ⇒ alloc 3→4 摘要凍在 3(R5 翻面)" "$HELPER" \
 "= EXCLUDED.ordered_quantity" "= order_item_quantity_summary.ordered_quantity" \
 "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',3);" \
@@ -843,6 +851,15 @@ q "DELETE FROM public.order_item_procurement WHERE order_item_id='$ITEM5'" >/dev
 q "DELETE FROM public.order_item_quantity_summary WHERE order_item_id='$ITEM5'" >/dev/null
 
 echo
+# 🔴 本閘的兩發負測(R2 nit:原本只存在於敘述,重跑者得靠猜)。把下面任一行**貼在本註解正下方**、
+#    跑一次、再刪掉;預期兩發都是「恰紅一條」且 bad 訊息顯示 trigger漂移[YES]:
+#    A(只動啟用態,證 tgenabled 分量):
+#      q "ALTER TABLE public.order_cancellation_items DISABLE TRIGGER $TG_CC" >/dev/null
+#    B(只動定義、啟用態仍 O,證 md5(pg_get_triggerdef) 分量):
+#      q "DROP TRIGGER $TG_CC ON public.order_cancellation_items" >/dev/null
+#      q "CREATE CONSTRAINT TRIGGER $TG_CC AFTER INSERT ON public.order_cancellation_items NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION pcm_a4a_cancellation_summary_recompute()" >/dev/null
+#    🔴 兩發都會**留痕**(committed DDL),跑完必須把 trigger 還原成原定義再繼續用那座庫。
+#    🔴 兩發必須跑在**同一版腳本**上才算等長同形(R2 抓到我第一次沒做到)。
 echo "== 收尾:零殘留與計數 =="
 [ "$(q "SELECT count(*) FROM public.order_item_procurement")" = "$PROC_N0" ] \
   && [ "$(q "SELECT count(*) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$ITEM5','$ITEM3')")" = "0" ] \
