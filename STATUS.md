@@ -7,6 +7,7 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🌙 **2026-08-07 07:45 D 線 D8-b 孤兒刪除收割(−443 行)。** 兩層 consumer 清單(含二階孤兒化檢查:SwatchLightbox/rpm-swatches 有活消費者留下)、357 檔 **5416 綠** −3 檔/−17 條與預登記吻合且前提成立;區間刪除前置驗證第一版誤報後收緊、真擋一次。H 系列+D8 全刪全數完成。D 接 OD 回饋包整理(9 條,manifest 收尾等 R-2 落地後一次收)。
 🌙 **2026-08-07 07:35 D 線 H7 D8 品牌形象區全刪收割(−2933 行)。** 29 檔+dispatcher 刪除、預先登記 Δ 對帳完全一致(360 檔 **5433 綠** −14 檔/−28 條);三支孤兒元件裁 A 一起刪(D8-b 小片);3111 重啟。Sean 肉眼驗=任一商品頁規格分頁下直接接相關商品、無形象區。D 佇列剩:D8-b→R-2(等 Q3)→manifest+OD 回饋包。
 🌙 **2026-08-07 07:20 D 線焦點查修收割。** 真 bug 一顆:卡內收藏/預覽鈕缺 preventDefault ⇒ 點了整頁跳商品頁(3111 端到端實錘),已修+量 defaultPrevented 守門;搜尋 overlay=半成品死 UI(記債)、form variant 焦點靠宿主 CSS(記債)、含空白品牌名撞號 fail-safe 已足補兩守門。374 檔 **5461 綠** Δ=+4 吻合;3111 重啟。⚠️ 新決策題 Q4(車型欄打字未選 blur 行為)入 Sean 待決。
 🌙 **2026-08-07 07:00 D 線排版六值收割。** N°05 中文排版五值上位(行距/字距/balance/1.85/30em,OD 逐字理由)+`text-wrap: pretty` 依 #223 拍板刻意不搬(就地申報防復辟)+@media 復辟守門;374 檔 **5457 綠** Δ=+1 吻合;3111 已重啟。Sean 肉眼驗重點=N°05 標題內文視覺重量、900-1000 平板段內文寬 +36%。D 佇列剩:R-2(等 Q3)→焦點查修→H7→回饋包。
