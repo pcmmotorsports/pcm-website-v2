@@ -7,6 +7,7 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🌙 **2026-08-07 06:05 D 線 finder 窄幅修收割 + B 線 4c 收工(8/9)+ S1 harness 30 紅裁 A 治本。** finder=年份欄 span2 補洞+出血對齊 dock 內距+560 單欄(374 檔 **5456 綠** Δ=+4 吻合;320-1280 五檔零截字,Sean 用原機複看);B 剩 S2b-5+新立 S2b-F(fixture 對齊 C9,三支 S1 全綠=apply preflight 硬條)。⚠️ 既有債:320×568 搜尋鈕被 TabBar 蓋 20px(非本片造成,先記不修)。
 🌙 **2026-08-07 05:15 D 線 R-3 會員中心接 rail 收割 + B 線 4b 收工(7/9)。** R-3=推薦區換 ProductRail、8 筆上限隨版式作廢改全顯 10;374 檔 **5452 綠** Δ=+1 吻合;3111 已重啟;會員中心可見變化多、Sean 肉眼驗照 D-264 §⑥ 清單。B 剩 4c/5 兩片;CURRENT 過期「4+4+2 待決」行已清。D 之 R-2/品牌頁與 E 之 A9b2-A 仍等 Sean 三題(非 ASCII/記憶索引/取數 10)。
 🌙 **2026-08-07 04:40 D 線 R-1 ProductRail 抽件收割(merge)+ B 線 2b 整片結清(6/9,押 a4a-chain 20 顆)。** R-1=首頁零變更(三支守門測試一字未改仍綠)、374 檔 **5451 綠** Δ=+8 吻合;B 項19 裁 C(第三態)+項29 三格全出觀察值+覆蓋帳機制化,B 接 4b。D 之 R-2 等 Sean 取數題、R-3 待放行。
 🌙 **2026-08-07 03:55 D 線會員中心批收割入 dev(`b3b08209`,兩顆)。** 捲動修根因(nearest→start+scroll-margin-top+ref 收斂)、只捲不聚焦(Q1=A)、三處汽車 icon 統一換重機(Q2=A)、格狀頁籤(翻前窗跳線測試);全套 373 檔 **5443 綠** Δ=+23 精確吻合;3111 已重 build 重啟。⚠️ 本批驗收全靠 Sean 手機實點(格狀選單/開表單捲到位/重機 icon/關表單焦點回鈕)。D 接推薦區橫捲統一片。OD 回饋包累積 7 條(批尾整包)。
