@@ -23,9 +23,10 @@ vi.mock('../../../lib/orders/procurement-actions', () => ({
   upsertItemProcurementAction: vi.fn(),
 }));
 vi.mock('../../../lib/orders/note-actions', () => ({ appendOrderNoteAction: vi.fn() }));
+// A9w4a(2026-08-06):`updateOrderItemWorkflowAction` 已從該模組具名移除 ⇒ 本 factory 同步撤掉那把
+// (mock 多回一個真模組沒有的 key = 字面與事實不符,且會讓「action 復活」看起來仍被 mock 蓋住)。
 vi.mock('../../../lib/orders/order-actions', () => ({
   updateOrderWorkflowAction: vi.fn(),
-  updateOrderItemWorkflowAction: vi.fn(),
 }));
 vi.mock('../../../lib/payment/refund-actions', () => ({ initiateRefundAction: vi.fn() }));
 vi.mock('../../../lib/payment/refund-read', () => ({
@@ -138,7 +139,8 @@ describe('/orders/[id] — A9w1 九碼明細頁下架', () => {
 
     expect(queryByRole('combobox', { name: '商品狀態' })).toBeNull();
     // 下拉、hidden 欄位、送出鈕三種形狀都查(換掉 aria-label 還留著表單等於沒退場)。
-    // 🔴 欄名取自 `lib/orders/workflow-form.ts:9,12` 的**真實常數值**(`item_id` / `workflow_status`)——
+    // 🔴 欄名取自 `lib/orders/workflow-form.ts:13,16` 的**真實常數值**(`item_id` / `workflow_status`)——
+    //    (A9w4a 在 `ITEM_ID_FIELD` 上方插了歸屬註 ⇒ 原 `:9,12` 位移成 `:13,16`;同 commit 兩次實查校正)
     //    R1 抓到這裡原本寫 `wf_status`(常數名不是欄名),那個 selector 全 repo 零命中 = 恆真斷言。
     expect(container.querySelector('select[name="workflow_status"]')).toBeNull();
     expect(container.querySelector('input[name="workflow_status"]')).toBeNull();

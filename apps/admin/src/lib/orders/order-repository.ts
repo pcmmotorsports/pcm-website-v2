@@ -26,7 +26,8 @@ export function getAdminOrderRepository(): SupabaseOrderAdapter {
 
 /**
  * 訂單處理狀態詞彙 repo(M-4a Slice A;order_status_options 對 client 全鎖 → 必走 service_role)。
- * 呼叫端(/orders server component)僅用 `listOrderStatusOptions`(具名白名單投影)。
+ * 🔴 **A11a-1(2026-08-06)起零呼叫端** —— 原本唯一的 /orders server component 已不再讀狀態詞彙
+ * (列表九碼 cell 與彙總 badge 下架)。本 getter 隨讀取鏈在 A9w4c 後半收(A11a plan §3.1 裁定)。
  */
 export function getAdminOrderStatusOptionsRepository(): SupabaseOrderStatusOptionsAdapter {
   return new SupabaseOrderStatusOptionsAdapter(createSupabaseServiceClient());

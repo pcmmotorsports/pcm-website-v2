@@ -87,7 +87,7 @@ E0 搜尋 / E1 客戶累計消費 / E2 內容發布合約 / E3 圖片上傳 / E4
 | 1 | 看今天要處理什麼 | ❌ 無待辦檢視 | admin 無 saved views |
 | 2 | 看訂單明細 | ✅ | `order-detail.tsx` 4 卡 |
 | 3 | 訂單寫備註 | ❌ orders 無備註欄 | `pcm-order-inventory.md §1.1` |
-| 4 | 標商品進度 | ⚠️ 逐列下拉、無批次 | `item-workflow-status-cell.tsx` |
+| 4 | 標商品進度 | ❌ **列表入口已於 A11a-1(2026-08-06)下架**;明細頁逐品項採購表單(A10b)仍可用,批次要等 A12b | ~~`item-workflow-status-cell.tsx`~~ → `item-procurement-*`(明細頁) |
 | 5 | 標「已向供應商下單」 | ⚠️ 整單一個、無法只標一項 | `fulfillment_status` 在 orders 表 |
 | 6 | 記供應商單號/預計到貨 | ❌ | 無欄位 |
 | 7 | 缺貨要等 | ❌ 無此狀態 | `fulfillment_status` 4 值 |

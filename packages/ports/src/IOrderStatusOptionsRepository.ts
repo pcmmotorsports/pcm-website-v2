@@ -15,7 +15,7 @@ export interface IOrderStatusOptionsRepository {
   /**
    * 列出全部狀態選項(含 is_active=false;sort_order ASC)。
    *
-   * 回全量而非只 active:列表 badge 要能解析「指向已停用選項」的舊單 label/color(soft-delete
+   * 回全量而非只 active:原因是**列表 badge 要能解析「指向已停用選項」的舊單 label/color**(soft-delete
    * 語意);下拉/篩選 UI 端自行 `filter(isActive)`。詞彙量 = Sean 策展(個位數~十位數),無分頁。
    */
   listOrderStatusOptions(): Promise<OrderStatusOption[]>;

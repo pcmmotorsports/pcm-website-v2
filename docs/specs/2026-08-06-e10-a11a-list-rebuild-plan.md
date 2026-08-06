@@ -1,9 +1,17 @@
 # A11a 訂單列表重建 plan(13 欄骨架 + rowSpan 分組重算)
 
 > **狀態**:**v2**(2026-08-06;v1 起草 → 關卡1 三輪對抗審查 **R1/R2 codex + R3 Fable,共 40 條 must-fix** → 本版折入)。
-> 🔴 **批准狀態:未批准。Sean 尚未拍 Q1-Q8 / Q2b / Q5b 任何一題。**
-> **拍板前可動的只有 `A11a-1` 與 `A11a-2`**(見 §3 的閘門表);其餘子片開工 = 替 Sean 答題。
-> ⚠️ 本檔存在 ≠ 鐵則 8 已過:A11a-1 跨 4-6 檔屬重大改動,**要 Sean 對本 plan 說「批准」才算**。
+> 🏁 **批准狀態:已批准(2026-08-06,`E-114-A`)。Sean 十題全依推薦 —— Q1=A / Q2=A / Q2b=A / Q3=A /
+> Q4=A / Q5=A / Q5b=A / Q6=A / Q7=A / Q8=A**(落檔 memory `project_m4b-a11a-list-rebuild-decisions`)。
+> 鐵則 8 閘已解除。拍板連動的四件事(照本檔自己的機關):
+> ① **Q8=A ⇒ `A11a-1` 與 `A9w4a` 硬綁同一批做完、不得中間收工過夜;§7「A11a-1 後」停點作廢。**
+> ② **Q5b=A ⇒ `A11a-3`(操作欄)整片延後到 A13**(Q4=A 檢視留在編號 + Q5=A 取消鈕不放 = 空欄)。
+> ③ **Q6=A ⇒ 短欄名(商品品牌→品牌、物品名稱→品名、客戶名稱→客戶)併進 `A11a-1` 表頭一次改完。**
+> ④ **Q2b=A ⇒ 同批改母 plan §5.1a `:558` 那列字面**(A 只顯示三態、砍掉「載具別」⇒ 偏離該列原字面,
+>    本檔 §6 自己寫過「選 A 或 C = 同時要改母 plan」,不能只改子 plan)。
+>
+> ✅ **開工前置(§8 第 8 條)已跑,2026-08-06 於 `5ccbe77`**:
+> §1.2 的 13 欄清單 vs 母 plan §5.1a `:542` 現行字面 —— **逐欄一致,內容未腐爛**(H1 這次為真)。
 > **派工**:`E-106-A`(起草)+ `E-110-A`/`E-111-A`(關卡1 與折入)。
 > **基準**:v1 寫於 `dev` = `f8ede20`;**v2 重錨於 `152a2d0`**,所有 `檔案:行號` 於該基準重新親查。
 > **欄位清單唯一權威**:母 plan `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` §5.1a(`:539-570`)。
@@ -96,6 +104,12 @@
 > 「品項列 >1 **或** 任一列 `quantity` >1 就在合併格顯示整單總額」
 
 🔴 v1 只寫了 `quantity > 1` 那半條,會讓**多品項單看不到總額**。本 plan 依更正後的完整條件施工。
+
+🏁 **語意落差已拍板(Sean 2026-08-06 拍 B,`E-115-A`)**:合併態顯示 `order.total`(含運費、扣折扣)、
+非合併態顯示該列 `lineTotal`(不含運費折扣)⇒ **同一個「金額」欄在不同單之間語意不同**。
+Sean **知情接受、維持現狀**,零程式改動。⇒ **後續施工者不得把它當 bug 順手「統一」** ——
+要統一得先重拍(統一到哪一邊、含不含運費折扣,都會動到肉眼驗基準)。
+落地字面在 `apps/admin/src/components/orders/orders-table.tsx` 的 `shouldMergeAmount` docblock。
 
 ### 2.2 🔴 發票欄沒有主(本 plan 發現的缺口)
 
@@ -226,9 +240,28 @@ v1 的 §7 把它寫成 10 欄,**是算錯了一格**(少扣了會員等級那�
 |---|---|---|
 | `workflowStatusBadge` / `WorkflowStatusBadgeView` | `apps/admin/src/lib/orders/order-list-view.ts` | 連同其單元測試 |
 | `summarizeOrderItemWorkflow` / `OrderWorkflowSummary` | 同上 | 連同其單元測試 |
-| `indexOrderStatusOptions` | 同上 | ⚠️ **先 grep**:若 A11a-4 的訂貨欄或別處仍要用狀態詞彙索引,則保留 |
-| `WorkflowStatusBadge` 元件 | `apps/admin/src/components/orders/workflow-status-badge.tsx` | 整檔刪 |
-| `statusOptions` / `listOrderStatusOptions` 讀取鏈 | `app/orders/page.tsx:46,56,65,89-91`;port/adapter | ⚠️ **A11a-4 的訂貨欄若不需要狀態詞彙**才可一起收;不確定就留到 A11a-4 收工再判 |
+| `indexOrderStatusOptions` | 同上 | ✅ **A11a-1 已刪** —— grep 確認除 orders-table 外零 consumer |
+| ~~`WorkflowStatusBadge` 元件~~ | `apps/admin/src/components/orders/workflow-status-badge.tsx` | 🔴 **本表寫錯,實作時打臉** —— 見下 |
+| `statusOptions` / `listOrderStatusOptions` 讀取鏈 | `app/orders/page.tsx`;port/adapter | ✅ **A11a-1 只收 UI 端**(page.tsx 的雙腿 allSettled 收斂成單一 try);**鏈本體歸 A9w4c 後半** —— 見下 |
+
+🔴 **實作回寫(2026-08-06 A11a-1;本表原本有兩處錯,都是 typecheck 打臉才發現的)**
+
+1. **`workflow-status-badge.tsx` 不能整檔刪。** 本表說它零 consumer,實際 grep 到
+   `apps/admin/src/components/orders/workflow-status-select.tsx:5` 仍 `import { BADGE_TEXT_COLOR }`。
+   而 select 是 **writer 鏈**、歸 A9w4a/A9w4c 後半,本片不得刪。
+   ⇒ 實作採**部分收**:刪掉零 consumer 的 `WorkflowStatusBadge` 元件本體 +
+   `order-list-view.ts` 的 `WorkflowStatusBadgeView` / `workflowStatusBadge()`,
+   **保留 `BADGE_TEXT_COLOR`**,整檔隨 `workflow-status-select.tsx` 在 A9w4c 後半收。
+   ⚠️ 教訓:本表當初只 grep 了「元件名」沒 grep「該檔的其他 export」——
+   **一個檔是不是孤兒,要看它所有 export 的 consumer,不是只看最顯眼那個。**
+
+2. **H6 的兩格已結案(不再往後推)**:
+   - `indexOrderStatusOptions` ⇒ **A11a-1 同片刪**(訂貨欄顯示 `n/m` 取自
+     `order_item_quantity_summary`,與 `order_status_options` 詞彙無關 ⇒ A11a-4 不需要它)。
+   - `listOrderStatusOptions` 讀取鏈(port / adapter / `order-repository.ts` getter)
+     ⇒ **裁定歸 A9w4c 後半**,理由:它是九碼**契約面**,而 A9w4c 那片本來就在收契約與 exports;
+     放進 A11a-1 會把畫面片撐進 `packages/ports` 與 `packages/adapters`(鐵則 4 體積)。
+     **這是「決定了歸誰」不是「還沒決定」** —— H6 要求的結案已達成。
 
 🔴 **`item-workflow-status-cell.tsx` / `workflow-status-select.tsx` / `workflow-select-options.ts` 不在本表** ——
 它們是 **writer 鏈**的一部分(cell 內含 `<form action={updateOrderItemWorkflowAction}>`),
@@ -251,7 +284,9 @@ A11a-1(九碼三群下架 = 列表最後一個九碼消費端消失)
 A9w4a(item writer 拆除:server action + form parser;高風險、codex 不降級)
    ↓
 A9w4c 後半(item 半:`WF_STATUS_FIELD`/`ITEM_ID_FIELD`/`WF_CLEAR_VALUE`/`WF_RECEIVED_UNCONFIRMED`
-   與 `workflow-select-options.ts`、三支孤兒元件檔一併清)
+   與 `workflow-select-options.ts`、孤兒元件檔一併清;🔴 **2026-08-06 A9w4a 後實剩兩支** ——
+   `workflow-status-select.tsx` / `workflow-status-badge.tsx`,原本第三支
+   `item-workflow-status-cell.tsx` 已由 A9w4a 刪除)
    ↓
 A9v(REVOKE item RPC + 撤 `order_status_options` service_role 寫權 + ACL 終態斷言;
     前置 = 全 consumer 零引用 grep;`order_items.workflow_status` 欄凍結不 DROP)
@@ -290,7 +325,7 @@ backlog 條目 `docs/phase-1-backlog.md:9056` 已標「三筆全清」。**不�
 | # | 驗收條件 | 怎麼測 | 突變靶(把這個改壞,該格必紅) |
 |---|---|---|---|
 | V1 | 表頭欄數 = **§3 表「收工欄數」欄該片的值**,且每列 `<td>`+rowSpan 佔位與表頭一致 | 元件測試數 `<th>` 與各 `<tr>` 的 `<td>`+rowSpan 佔位;**期望值逐片取自 §3,不寫死 13** | 刪一個 `<th>` 不刪對應 `<td>`;或把期望值改回寫死 13 ⇒ A11a-1 那片必紅 |
-| V2 | **九碼零殘留**:無 `select[name="workflow_status"]`、無 `input[name="item_id"]`、無「存」鈕、無「商品狀態」表頭 | 頁層渲染測試(照 `app/orders/[id]/nine-code-retire.test.tsx` 的形狀) | 把 `ItemWorkflowStatusCell` 掛回 `orders-table` |
+| V2 | **九碼零殘留**:無 `select[name="workflow_status"]`、無 `input[name="item_id"]`、無「存」鈕、無「商品狀態」表頭 | 頁層渲染測試(照 `app/orders/[id]/nine-code-retire.test.tsx` 的形狀) | 把 `ItemWorkflowStatusCell` 掛回 `orders-table`;🔴 **A9w4a 已刪該元件 ⇒ 此突變按字面不可執行**,等價突變改為「在列上手寫 `<input name="item_id">` + `<select name="workflow_status">` + 「存」鈕」 |
 | V3 | **rowSpan 分組正確**:多品項單的訂單層格 `rowSpan = lines.length`,且**只在 `i === 0` 渲染一次** | 假資料 3 品項單,斷言 `rowSpan` 值與該格出現次數 | 把 `rowSpan={rowSpan}` 改成 `rowSpan={1}`;或拿掉 `i === 0` 條件 |
 | V4 | **金額合併規則**:單品項且 `quantity=1` → 顯示該列金額;**多品項 或 任一列 `quantity>1`** → 合併格顯示整單總額 | 四格真值表(1×1 / 1×n / m×1 / m×n) | 把條件寫成只有 `quantity > 1`(= v1 的錯)⇒ m×1 那格必紅 |
 | V5 | 空 `lines` 仍渲染一列佔位、訂單層格不消失 | 餵 `lines: []` | 拿掉 `rows.length > 0 ? … : [null]` 兜底 |

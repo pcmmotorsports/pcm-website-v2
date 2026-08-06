@@ -310,7 +310,7 @@ export type AdminOrderSummary = {
   /** 取消時間 ISO(非 null = 已取消;本片純顯示,取消功能留取消片) */
   cancelledAt: string | null;
   // (M-4a D-2 起本讀模型**不再攜** orders.workflow_status / orders.version:per-item 真相移至
-  //  lines[].workflowStatus/version;整單狀態=顯示端由 lines 彙總〔全同→該值、混合→多狀態〕;
+  //  lines[].workflowStatus/version;~~整單狀態=顯示端由 lines 彙總~~(**A11a-1 已移除該彙總**);
   //  列表 order 層 inline 改單退場 → 不需 orders.version。明細頁改 shipping/invoice 仍用
   //  AdminOrderDetail.version。)
   /**
@@ -834,8 +834,8 @@ export type OrderStatusOption = {
 };
 
 // M-4b E10 A9w4c(前半):`OrderStatusOptionUpdate` 已移除 —— 它的唯二引用是 port 與 adapter 的
-// `updateOrderStatusOption` 簽章,兩者同片退場。`OrderStatusOption`(讀模型)保留:列表的九碼
-// badge 與下拉仍在用,隨 A11a-c 退場。
+// `updateOrderStatusOption` 簽章,兩者同片退場。`OrderStatusOption`(讀模型)保留:**A11a-1(2026-08-06)後
+// 列表側已零引用**,僅剩 writer 鏈的帶色下拉(`workflow-status-select.tsx`)在用 ⇒ 隨 A9w4c 後半退場。
 
 /**
  * PlaceOrderVehicle: 品項「給哪台車用」(M-4a V-3a;client → server 線契約、選填)。

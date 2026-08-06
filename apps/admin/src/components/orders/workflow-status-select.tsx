@@ -9,6 +9,11 @@ import { BADGE_TEXT_COLOR } from './workflow-status-badge';
 // 存前不寫入(仍靠外層 <form action={serverAction}> 的「存」鈕提交)。
 // 🔴 經銷價紅線:本元件只收 code/label/色值(order_status_options 策展資料、本已 server-render 進 DOM)、
 // 零價格/tier/PII 序列化 → 不觸犯「敏感值不進 client bundle」。
+//
+// 🔴 **A9w4a(2026-08-06)後本元件已零 production consumer** —— 唯一使用者
+// `item-workflow-status-cell.tsx` 同片刪除,現僅剩自身 `.test.tsx`。**不是無主死碼**:
+// 依 plan `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §4,本檔與
+// `workflow-status-badge.tsx`、`lib/orders/workflow-select-options.ts` 一併歸 **A9w4c 後半**收。
 
 export function WorkflowStatusSelect({
   name,

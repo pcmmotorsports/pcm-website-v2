@@ -1,26 +1,11 @@
-import type { WorkflowStatusBadgeView } from '../../lib/orders/order-list-view';
+// workflow-status-badge.tsx — 訂單處理狀態帶色 UI 的字色常數(M-4a Slice A 遺留)。
+//
+// 🔴 **A11a-1(2026-08-06)**:本檔原本的 `WorkflowStatusBadge` 元件已隨列表九碼三群下架而零 consumer,
+//    連同 `order-list-view.ts` 的 `WorkflowStatusBadgeView` / `workflowStatusBadge()` 一併移除。
+//    **但整個檔不能刪** —— `BADGE_TEXT_COLOR` 仍被 writer 鏈的 `workflow-status-select.tsx` 使用,
+//    而那條鏈歸 A9w4a / A9w4c 後半,不歸本片(plan §3.1 原本把本檔標成「整檔刪」是**錯的**,
+//    實際 grep 到 `workflow-status-select.tsx:5` 這個 consumer;已回寫 plan)。
+// ⇒ 本檔隨 `workflow-status-select.tsx` 一起在 **A9w4c 後半**收掉。
 
-// workflow-status-badge.tsx — 訂單處理狀態彩色 badge(M-4a Slice A;server-render)。
-// 顏色來自 order_status_options(Sean 策展、DB CHECK 保證 hex 格式)→ 動態值無法用 Tailwind class
-// → known=true 走 inline style;NULL/未知 code(known=false)走中性灰 Tailwind(不編造顏色)。
-
-/** 深底淺字 / 淺底深字的實際字色(near-white / zinc-800;對齊 admin 明亮基調;帶色下拉共用)。 */
+/** 深底淺字 / 淺底深字的實際字色(near-white / zinc-800;對齊 admin 明亮基調;帶色下拉在用)。 */
 export const BADGE_TEXT_COLOR = { light: '#fafafa', dark: '#27272a' } as const;
-
-export function WorkflowStatusBadge({ badge }: { badge: WorkflowStatusBadgeView }) {
-  if (!badge.known) {
-    return (
-      <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'>
-        {badge.label}
-      </span>
-    );
-  }
-  return (
-    <span
-      className='inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium'
-      style={{ backgroundColor: badge.color, color: BADGE_TEXT_COLOR[badge.textColor] }}
-    >
-      {badge.label}
-    </span>
-  );
-}

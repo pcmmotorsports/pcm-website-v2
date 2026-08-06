@@ -3,7 +3,7 @@
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
-import type { AdminOrderFilter, OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderFilter } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
@@ -19,9 +19,6 @@ import {
   FULFILLMENT_STATUS_VALUES,
   ORDER_SOURCE_VALUES,
   PAYMENT_CHANNEL_VALUES,
-  workflowStatusBadge,
-  indexOrderStatusOptions,
-  summarizeOrderItemWorkflow,
 } from './order-list-view';
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
@@ -130,50 +127,6 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
   });
 });
 
-// ── workflow_status badge 檢視模型(M-4a Slice A;篩選選項那組隨 A9w2 下架)──
-
-const OPTIONS: OrderStatusOption[] = [
-  { code: 'received_confirmed', label: '已收已定', color: '#FBE4A6', textColor: 'dark', sortOrder: 10, isActive: true },
-  { code: 'unpaid_shipped', label: '未收出貨', color: '#A52A2A', textColor: 'light', sortOrder: 50, isActive: true },
-  { code: 'retired_code', label: '停用中', color: '#CCCCCC', textColor: 'dark', sortOrder: 99, isActive: false },
-];
-
-describe('workflowStatusBadge — NULL / 命中 / 停用 / 未知 code 兜底', () => {
-  const byCode = indexOrderStatusOptions(OPTIONS);
-
-  it('NULL → 「未設定」中性(known=false)', () => {
-    expect(workflowStatusBadge(null, byCode)).toEqual({
-      label: '未設定',
-      color: '',
-      textColor: 'dark',
-      known: false,
-    });
-  });
-
-  it('命中選項 → DB label/color/textColor(known=true)', () => {
-    expect(workflowStatusBadge('unpaid_shipped', byCode)).toEqual({
-      label: '未收出貨',
-      color: '#A52A2A',
-      textColor: 'light',
-      known: true,
-    });
-  });
-
-  it('停用選項(is_active=false)仍解析 label/color(soft-delete:舊單不變裸 code)', () => {
-    expect(workflowStatusBadge('retired_code', byCode).label).toBe('停用中');
-    expect(workflowStatusBadge('retired_code', byCode).known).toBe(true);
-  });
-
-  it('查無 code → 原樣顯示 code 的中性兜底(誠實、不編造 label)', () => {
-    expect(workflowStatusBadge('ghost_code', byCode)).toEqual({
-      label: 'ghost_code',
-      color: '',
-      textColor: 'dark',
-      known: false,
-    });
-  });
-});
-
 describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
   it('付款狀態', () => {
     for (const v of PAYMENT_STATUS_VALUES) expect(PAYMENT_STATUS_LABEL[v]).toBeTruthy();
@@ -217,29 +170,6 @@ describe('格式化', () => {
 
   it('ORDERS_PAGE_SIZE = 20', () => {
     expect(ORDERS_PAGE_SIZE).toBe(20);
-  });
-});
-
-// ── summarizeOrderItemWorkflow — 整單彙總(M-4a D-2;拍板 Q-A=A 全同→該值、混合→多狀態)──
-
-describe('summarizeOrderItemWorkflow — 整單狀態彙總', () => {
-  it('全同值 → uniform 該值;全 NULL → uniform null(未設定)', () => {
-    expect(summarizeOrderItemWorkflow(['shipped_done', 'shipped_done'])).toEqual({
-      kind: 'uniform',
-      code: 'shipped_done',
-    });
-    expect(summarizeOrderItemWorkflow([null, null])).toEqual({ kind: 'uniform', code: null });
-    expect(summarizeOrderItemWorkflow(['cancelled'])).toEqual({ kind: 'uniform', code: 'cancelled' });
-  });
-
-  it('任一分歧(含 NULL 與 code 混)→ mixed', () => {
-    expect(summarizeOrderItemWorkflow(['shipped_done', 'cancelled'])).toEqual({ kind: 'mixed' });
-    expect(summarizeOrderItemWorkflow(['shipped_done', null])).toEqual({ kind: 'mixed' });
-    expect(summarizeOrderItemWorkflow([null, 'shipped_done', null])).toEqual({ kind: 'mixed' });
-  });
-
-  it('空陣列(理論不發生)→ uniform null 兜底', () => {
-    expect(summarizeOrderItemWorkflow([])).toEqual({ kind: 'uniform', code: null });
   });
 });
 
