@@ -1077,4 +1077,104 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       expect(rule, '還留著硬寫的字面值 ⇒ --f-serif 這顆值的第三份拷貝又漂走了').not.toMatch(/"Noto Serif TC"/);
     });
   });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 N°05 本月聚焦版面壓縮片(2026-08-06;OD 逐字段落標題 `963px 砍半`)。
+  //    本組只釘「版面/尺寸」類的值(padding/grid/字級/meta 條/圖片比例)。
+  //    中文排版六值(標題 line-height/letter-spacing、內文 line-height/max-width)
+  //    是 manifest 記過的「D5e-2b 刻意未搬」組,本片刻意不動 ⇒ 反過來釘住舊值,
+  //    擋的是「有人在做版面壓縮時順手把那組也一起改了」。
+  //    ⚠️ 解除條件:下面 `.ed-feature-title` / `.ed-feature-body` 兩條測試裡釘
+  //    line-height / letter-spacing / max-width 舊值那四條斷言,釘的是「緩辦中」
+  //    的狀態、不是拍板要永久維持——排到中文排版片(OD `N05-FOCUS-HANDOFF.md` §6-1)
+  //    時要跟著一起改成新值,那時看到這四條轉紅是正常訊號,不是要回退改動。
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 N°05 本月聚焦版面壓縮片:963px 砍半(OD 逐字段落標題 `963px 砍半`)', () => {
+    it('`.ed-feature` padding 是砍半後的 52px 0 56px,不是舊的 140px 0;OD 逐字第三條 border-top 也要在', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature 規則').not.toBe('');
+      expect(rule, 'padding 還是舊的直式長文版 140px 0 ⇒ 壓縮沒生效').toMatch(/padding:\s*52px 0 56px/);
+      expect(rule, 'padding 不該再出現舊值 140px').not.toMatch(/140px/);
+      expect(rule, '缺少 OD `.b-feature` 逐字第三條 border-top ⇒ N°05 上緣少一條區塊分隔線').toMatch(/border-top:\s*1px solid var\(--ed-c-rule\)/);
+    });
+
+    it('`.ed-feature-inner` gap 壓成 48px(不是舊的 80px),欄比例維持 OD 統一版面層的 5fr 7fr', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-inner\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-inner 規則').not.toBe('');
+      expect(rule, 'gap 還是舊值 80px').toMatch(/gap:\s*48px/);
+      expect(rule, 'gap 不該再出現舊值 80px').not.toMatch(/80px/);
+      expect(rule, '欄比例不是 OD 統一版面層生效值 5fr 7fr').toMatch(/grid-template-columns:\s*5fr 7fr/);
+    });
+
+    it('`.ed-feature-media` aspect-ratio 是 16/11(不是砍半前的 7/8)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-media\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-media 規則').not.toBe('');
+      expect(rule, 'aspect-ratio 不是 16/11 ⇒ 圖還是直式,沒壓成橫向').toMatch(/aspect-ratio:\s*16\s*\/\s*11/);
+      expect(rule, 'aspect-ratio 不該再出現舊值 7/8').not.toMatch(/7\s*\/\s*8/);
+    });
+
+    it('`.ed-feature-num` / `.ed-feature-kicker` margin-bottom 砍成 12px(不是舊的 18px/22px)', () => {
+      const num = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-num\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(num, '找不到 .ed-feature-num 規則').not.toBe('');
+      expect(num, 'margin-bottom 還是舊值 18px ⇒ 壓縮沒生效').toMatch(/margin-bottom:\s*12px/);
+      const kicker = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-kicker\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(kicker, '找不到 .ed-feature-kicker 規則').not.toBe('');
+      expect(kicker, 'margin-bottom 還是舊值 22px ⇒ 壓縮沒生效').toMatch(/margin-bottom:\s*12px/);
+    });
+
+    it('`.ed-feature-title` 字級與留白砍半(clamp(30px,3.2vw,46px) / margin 0 0 18px),中文排版值刻意維持舊值', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-title\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-title 規則').not.toBe('');
+      expect(rule, 'font-size 還是舊的巨大字級 clamp(48px,5.4vw,80px)').toMatch(/font-size:\s*clamp\(30px,\s*3\.2vw,\s*46px\)/);
+      expect(rule, 'margin 還是舊值 0 0 32px').toMatch(/margin:\s*0 0 18px/);
+      // 🔴 這兩顆刻意不搬(manifest `last_modified_date` 敘述 + `home.css` 🔴🔴 開頭
+      //    那段申報記的「D5e-2b 刻意未搬」中文排版組,非 technical_overrides 那組欄位)——
+      //    有人在做版面壓縮時順手把它們也改掉,等於沒經過 Sean 肉眼驗就動了視覺重量。
+      expect(rule, 'line-height 被順手改動 ⇒ 中文排版值屬待審範圍,不該在本片被動').toMatch(/line-height:\s*0\.98/);
+      expect(rule, 'letter-spacing 被順手改動 ⇒ 同上').toMatch(/letter-spacing:\s*-0\.02em/);
+    });
+
+    it('`.ed-feature-body` 字級與留白砍半(font-size 15px / margin 0 0 24px),中文排版值刻意維持舊值', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-body\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-body 規則').not.toBe('');
+      expect(rule, 'font-size 還是舊值 16px').toMatch(/font-size:\s*15px/);
+      expect(rule, 'margin 還是舊值 0 0 40px').toMatch(/margin:\s*0 0 24px/);
+      expect(rule, 'line-height 被順手改動 ⇒ 中文排版值屬待審範圍,不該在本片被動').toMatch(/line-height:\s*1\.75/);
+      expect(rule, 'max-width 被順手改動 ⇒ 同上').toMatch(/max-width:\s*34ch/);
+    });
+
+    it('`.ed-feature-meta` 從留白較寬的三欄條壓成單行資料條(gap 0 26px / padding 16px 0 / margin-bottom 18px)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-meta\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-meta 規則').not.toBe('');
+      expect(rule, 'gap 沒有壓成單行資料條的 0 26px').toMatch(/gap:\s*0 26px/);
+      expect(rule, 'padding 還是舊值 24px 0').toMatch(/padding:\s*16px 0/);
+      expect(rule, 'margin-bottom 還是舊值 36px').toMatch(/margin-bottom:\s*18px/);
+    });
+
+    it('`.ed-feature-meta-v` 字級提到 15px / 600 / line-height 1.3(OD 逐字)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-meta-v\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-meta-v 規則').not.toBe('');
+      expect(rule, 'font-size 還是舊值 14px').toMatch(/font-size:\s*15px/);
+      expect(rule, 'font-weight 還是舊值 500').toMatch(/font-weight:\s*600/);
+      expect(rule, '沒有補 line-height:1.3').toMatch(/line-height:\s*1\.3/);
+    });
+
+    it('1000px 斷點跟著壓(padding 40px 0 44px / gap 28px / meta 補單欄 / 圖比例 16/10)', () => {
+      const at1000 = mediaBlock('(max-width: 1000px)').replace(/\s+/g, ' ');
+      expect(at1000, '1000 斷點抓到空字串 ⇒ mediaBlock() 沒抓到區塊,下面斷言恆真').toContain('.ed-feature');
+      const feature = at1000.match(/\.ed-feature\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(feature, '1000 斷點找不到 .ed-feature 規則').not.toBe('');
+      expect(feature, 'padding 還是舊值 80px 0').toMatch(/padding:\s*40px 0 44px/);
+      const inner = at1000.match(/\.ed-feature-inner\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(inner, '1000 斷點找不到 .ed-feature-inner 規則').not.toBe('');
+      expect(inner, 'gap 還是舊值 40px').toMatch(/gap:\s*28px/);
+      const meta = at1000.match(/\.ed-feature-meta\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(meta, '1000 斷點缺少 .ed-feature-meta 單欄覆寫 ⇒ 手機/平板資料條還是三欄擠成一團').not.toBe('');
+      expect(meta, '沒有壓成單欄').toMatch(/grid-template-columns:\s*1fr/);
+      expect(meta, 'gap 沒有補 16px').toMatch(/gap:\s*16px/);
+      const media = at1000.match(/\.ed-feature-media\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(media, '1000 斷點找不到 .ed-feature-media 規則').not.toBe('');
+      expect(media, 'aspect-ratio 不是 16/10').toMatch(/aspect-ratio:\s*16\/10/);
+    });
+  });
 });
