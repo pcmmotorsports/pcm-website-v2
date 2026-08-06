@@ -5,14 +5,16 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**七片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**八片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
 #     🔴 2b 依鐵則 4 切段;**第二段**原含三塊 —— 環境 A 矩陣 / 項19 barrier / 項29 stale-high;
 #     再依鐵則 4 拆成三小段,**項19 與項29 仍未做**。
-#   · **S2b-2b 第二段之一**(本輪)= **環境 A(結構)突變矩陣**:外部結構 oracle **十維**
+#   · **S2b-2b 第二段之一**(commit `55afe53`)= **環境 A(結構)突變矩陣**:外部結構 oracle **十維**
 #     + 八發靶(A1-A8)+ 零突變對照 SMUT-0。詳見下方 ⓒ。
+#   · **S2b-2b 第二段之二**(本輪)= **項19 barrier**:三 session 真併發編排(`barrier_oracle`)
+#     + 零突變對照 BMUT-0 + 三發靶(L1 / L2a / L2b)。**標 `inconclusive`**,詳見下方 ⓓ。
 #   · **S2b-3a 後段**(commit `b3340ac`)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 對照組格)
 #     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
 #       T8 位置集合被「刪一格+重複另一格」、T9 標記被刪)。
@@ -74,6 +76,38 @@
 #     **沒做**:列 5/6(oracle = 項19 barrier,見 ⓒ)、**列 7「backfill 漏候選品項」**
 #     (oracle = 項17 差集段,在 migration 檔內;要在 pre 庫上先造出貨資料才構造得出來)、
 #     **列 8/9(五份真相式本體 / 第 5 處述詞改恆等式)** —— 那兩列的 oracle 是項21,認領給 **S2b-3a**。
+#   ⓓ ⚠️ **項19 barrier 已做,但整格標 `inconclusive`**(2b 第二段之二;plan §8.1 第二列,
+#     項19 是該規則**唯一**預先授權的一格)。舉證義務照第三列同一標準,逐條寫在這裡:
+#     · **真路徑嘗試被什麼擋住**:出貨 writer RPC **今天不存在**(plan §9 交棒 1 才建)
+#       ⇒ 兩個 session 的 `UPDATE public.shipments SET shipped_at` 是 **owner 直寫**。
+#     · **它真的證到的**:trigger → helper 的**逐列取鎖順序**、以及「鎖排在讀真相之前」這件事,
+#       在**三個真 session、真 COMMIT、真死結偵測**下的效果(不是模擬、不是單 session 推論)。
+#     · **它證不到的**:①未來那支出貨 RPC 會不會在進 trigger 前先取別的鎖(順序可能與此不同)
+#       ②A8a2 多品項的取鎖順序(plan §9 交棒 6)。**這兩條一律不宣稱已擋。**
+#     🔴 **plan §8.1 有兩條升級條款,一條未觸發、一條<u>成立</u>**:
+#       ①「項19 與**項26 停寫**兩格若**都**只能 inconclusive ⇒ 進 STOP」= **未觸發**
+#         (項26 是真的 DISABLE trigger 後觀察摘要不動、且有 S1/S2/S3 三發靶,不是 inconclusive)。
+#       ②「**若項19 最終是本線唯一的併發證據 ⇒ 進 STOP**」= **成立** —— 項26 是單 session 觀察、
+#         不是併發證據(2026-08-07 R3 抓到我只評估了①)。⇒ 已依規定進 STOP 呈報主視窗。
+#     🔴🔴 **「這一格算不算過」有兩種相衝的讀法,執行者不選邊**(詳 plan §4.19 ⑧):
+#       甲(R3):§8.1 第三列「構造不出來 ⇒ 不算通過」已經給了裁定,再開待裁態是重新標籤 ⇒ 應判紅。
+#       乙(執行者當時):第三列講的是**該格**,而該格構造出來了(L1/L2b 都翻面);
+#         構造不出來的是**其中一發靶** ⇒ 不適用。
+#       現況(離開碼 3、不入 PASS 帳)是兩者的**保守中點**,不是對這題的答案。
+#     🔴 **凍結值是後驗的**(R3 must-fix 3):L2a 的期望空集合與 `EXPECT_INCONC*` 都是先實測後寫下,
+#       **不符 §2.1 片級 DoD 的 W1「開工前先凍結」**;此事同時記在 plan §4.19 ⑦ 與 commit body。
+#     🔴🔴 **本編排完全沒測到的第三個併發面**(R3 must-fix 7,已進 plan §9 交棒 10):
+#       本片 trigger 是 `AFTER … FOR EACH ROW` ⇒ 一句 `UPDATE shipments … WHERE <多列>` 會逐列發火,
+#       **跨 shipment 的取鎖順序 = 該 UPDATE 的列序、無任何排序保證**。兩個這種語句併發即可能真 `40P01`。
+#       本 barrier 每個 session 只更新一列,看不到這一面。**不宣稱已擋。**
+#     🔴 **plan §5 指定的靶 L2a(拿掉 `ORDER BY`)實測翻不了面**,期望紅點是**空集合**:
+#       PG 把 `DISTINCT` 規劃成 `Sort + Unique`(EXPLAIN 實跑),輸出序等同 `ORDER BY order_item_id`;
+#       兩個 session 跑同一支函式 ⇒ 順序只是值集合的函式、兩邊恆等,反序取鎖**構造不出來**。
+#       ⇒ **今天擋住反序取鎖的是 `DISTINCT` 的排序,不是 `ORDER BY` 那幾個字。**
+#       `ORDER BY` 仍留著(把保證寫成明文、且是 `DISTINCT` 哪天被拿掉時的唯一防線),
+#       但**不得宣稱本 harness 守得住它** —— 它現在沒有靶。
+#     🔴 那個空集合**不是 fail-open**:判別力由**同一套編排**下的靶 L2b 背書(連 `DISTINCT` 一起拿掉
+#       ⇒ 真的丟 `40P01`)。沒有 L2b,「L2a 全綠」與「rig 根本抓不到死結」不可分。
 #   ⓒ ✅ **環境 A(結構)突變矩陣已做**(2b 第二段之一):外部結構 oracle **十維** + 五發靶 + 零突變對照。
 #     🔴 **但 plan §5 環境A 的七個靶只做了五個**:
 #     ①「trigger 改 `BEFORE`」**構造不出來** —— PG 文法不接受 `CREATE CONSTRAINT TRIGGER … BEFORE`
@@ -81,7 +115,7 @@
 #       **那打的是 tgconstraint 維、不是 tgtype 維;tgtype 維本輪無靶**。
 #     ②「拿掉閘」與③「閘改 pin `prosrc`」**沒做** —— 它們的 oracle 不是 catalog 事實而是「閘會拒絕」,
 #       照 plan §3.2 要走**雙獨立庫**負測,留給後續。
-#     🔴 **項19 barrier 與項29 stale-high 仍未做**(2b 第二段的另外兩塊)。
+#     🔴 **項29 stale-high 仍未做**(2b 第二段的第三塊);項19 barrier 見 ⓓ。
 #     🔴 **「拿掉閘」「閘改 pin prosrc」兩靶的認領家**(R2 F3:上一版只寫「留給後續」= 活字):
 #       它們要走 plan §3.2 的**雙獨立庫**負測(同一 provision 快照複製兩份、一份 control 一份 mutant),
 #       與本檔「單一 pre 庫複製副本」的骨架不同 ⇒ **認領給 S2b-2b 第二段之四**(項19/項29 之後那一段);
@@ -112,6 +146,8 @@
 #  ④ 拿不到觀察值(空字串)一律判紅 —— fail-closed,不得掉進「等於期望值」的分支。
 # ============================================================
 set -uo pipefail
+# 🔴 自身絕對路徑必須在 cd 之前算好(cd 之後相對路徑就失效了);收尾的自檢要讀本檔原始碼。
+SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 MODE="${1:?用法: b2s2b-verify.sh all|run <workdir>}"
@@ -139,13 +175,21 @@ EXPECT_CELL=22     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c
 EXPECT_SMUT=9      # 環境A 結構突變靶:SMUT-0 零突變對照 + A1 降級成普通 TRIGGER(**不是** BEFORE,那個構造不出)
                    #   / A2 換 tgfoid / A3 tgattr 清空 / A4 search_path 改 public / A5 漏 REVOKE
                    #   / A6 SECURITY INVOKER / A7 DEFERRABLE INITIALLY DEFERRED / A8 多掛 INSERT 事件面(R2 F2 補)
+EXPECT_BMUT=4      # 項19 barrier 靶:BMUT-0 零突變對照 + L1 鎖移到讀之後 + L2a 拿掉 ORDER BY(**實測不翻面**)
+                   #   + L2b 連 DISTINCT 一起拿掉(L2a 空集合的判別力背書)
 EXPECT_MUT=6       # **行為**突變靶:MUT0 對照 + 靶①②③④⑤(環境 B);環境 A 的結構靶另計於 EXPECT_SMUT
 EXPECT_TMUT=16     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
                    #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
                    #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)、
                    #   D1 真相式多加總一欄、D2 把 gate 那句註解掉(3b 第三段)
-EXPECT_TOTAL=60    # 22 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
-                   #   + 6 結構突變(含 SMUT-0)+ SMUT-COUNT + COPIES-DROPPED
+EXPECT_TOTAL=66    # 22 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
+                   #   + 9 結構突變(含 SMUT-0)+ SMUT-COUNT
+                   #   + **3** barrier 突變入 PASS 帳(BMUT-0 / L1 / L2b;**L2a 走待裁、不入帳**)
+                   #   + BMUT-COUNT + BAR-PLAN-SHAPE + SELF-REPORT-BACKTICK + COPIES-DROPPED
+# 🔴 **待裁格的 key 集合另外凍結**(R2 F1):不入 PASS 帳不代表可以消失 ——
+#    沒有這一組,把那一行 run_bmut 整行刪掉會全綠。
+EXPECT_INCONC=1
+EXPECT_INCONC_KEYS="BMUT-L2A-INCONCLUSIVE"
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
@@ -153,8 +197,9 @@ B18-x1-commit-rollback B20-helper-live ABLATION \
 MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
 STRUCT-ORACLE SMUT-0 SMUT-A1 SMUT-A2 SMUT-A3 SMUT-A4 SMUT-A5 SMUT-A6 SMUT-A7 SMUT-A8 SMUT-COUNT \
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
+BMUT-0 BMUT-L1 BMUT-L2B BMUT-COUNT \
 RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
-REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT COPIES-DROPPED"
+REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -164,9 +209,17 @@ REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMU
 MD5_HELPER_4AXIS="4ac2989a58985beae91a491a816086f7"
 
 PASS=0; FAIL=0; CELL=0
+# 🔴🔴 **第三態**(R2 must-fix F1):有一格的通過與否**不歸執行者認定**(plan §4 項19)。
+#    第一版把它記成 ok ⇒ PASS 數、凍結 key 集合、離開碼三個**機器可讀**的面全部說「過了」,
+#    而「未滿足 plan 字面、待裁」只活在 prose —— 往上被引用的一定是前者。
+#    ⇒ 這一格改走 inconc:**不入 PASS 帳**、另外凍結它自己的 key 集合(才不會默默蒸發)、
+#      收尾離開碼 3(0=全過 / 1=有紅 / 3=無紅但有待裁格)。
+#    🔴 這**不是**替主視窗判它紅 —— 是拒絕在裁定之前把它記成過。裁定回來後改一行即可歸位。
+INCONC=0; INCONC_KEYS=""
 PASS_KEYS=""
 ok()  { PASS_KEYS="$PASS_KEYS $1"; printf '  ✅ %s\n' "$2"; PASS=$((PASS+1)); }
 bad() { printf '  🔴 %s\n' "$1"; FAIL=$((FAIL+1)); }
+inconc() { INCONC_KEYS="$INCONC_KEYS $1"; printf '  WAIT %s\n' "$2"; INCONC=$((INCONC+1)); }
 log() { echo; echo "== $* =="; }
 die() { echo "🔴 $*" >&2; exit 1; }
 
@@ -382,7 +435,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut' EXIT
+trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -1214,6 +1267,343 @@ run_smut "靶A8-trigger 多掛 INSERT 事件面(tgtype 17→21)" "$WORK/smut8.sq
 [ "$SMUT" -eq "$EXPECT_SMUT" ] && ok SMUT-COUNT "環境A 結構突變靶跑了 $SMUT 發,與凍結值相符" \
   || bad "環境A 結構突變靶只跑了 $SMUT 發,期望 $EXPECT_SMUT"
 
+# ══ 6g/8:項19 barrier(2b 第二段之二)═════════════════════════════════════════
+# 🔴 這一段是**唯一**真的碰到併發面的地方:三個真 psql session、真 trigger、真取鎖。
+#    它整段活在**突變環境**(pre 副本 + 套上突變版 migration),沒有任何一格跑在 post base ——
+#    因為 barrier 一定要**真 COMMIT** 才有意義,而 commit 進 base 會弄髒後面所有格的基準斷言。
+#    ⇒ 對照組由 `BMUT-0`(只剝 §5、零改動)擔任,catalog 等價由 `SMUT-0` 另外證。
+# 🔴🔴 **本格標 `inconclusive`(plan §8.1 第二列;項19 是該規則<u>唯一</u>預先授權的一格)**:
+#    出貨 writer RPC 今天不存在 ⇒ 兩個 session 的 `UPDATE shipments` 是 **owner 直寫**。
+#    **它證到的**:trigger 內 helper 的逐列取鎖順序、以及「鎖在讀真相之前」這件事,在真併發下的效果。
+#    **它證不到的**:①未來那支出貨 RPC 會不會在進 trigger 前自己先取別的鎖(順序可能與此不同)
+#                    ②A8a2 多品項的取鎖順序(plan §9 交棒 6,本線一律不宣稱)。
+BAR_FIX='
+  SELECT user_id INTO v_cust FROM public.customers ORDER BY user_id LIMIT 1;
+  SELECT id INTO v_sup FROM public.suppliers ORDER BY id LIMIT 1;
+  INSERT INTO public.orders (display_id, customer_user_id, shipping_address_snapshot, tier_at_checkout,
+                             subtotal, shipping_fee, total, shipping_method, invoice)
+  VALUES ("PCM-9993-0001", v_cust, jsonb_build_object("name","barrier","phone","0900000000","line","x"),
+          "general"::public.member_tier, 0, 0, 0, "store", jsonb_build_object("type","personal"))
+  RETURNING id INTO v_order;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-X",jsonb_build_object("title","x","sku","BAR-X","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_a;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-Y",jsonb_build_object("title","y","sku","BAR-Y","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_b;
+  v_lo := LEAST(v_a,v_b); v_hi := GREATEST(v_a,v_b);
+  UPDATE public.order_items SET variant_sku="BAR-A" WHERE id=v_lo;
+  UPDATE public.order_items SET variant_sku="BAR-B" WHERE id=v_hi;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-C",jsonb_build_object("title","c","sku","BAR-C","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_c;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-D",jsonb_build_object("title","d","sku","BAR-D","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_d;
+  INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity)
+  SELECT x, v_sup, 5 FROM unnest(ARRAY[v_lo,v_hi,v_c,v_d]) x;
+  INSERT INTO public.order_item_procurement_receipts (procurement_id, quantity, received_at, received_by)
+  SELECT p.id, 5, now(), "bar" FROM public.order_item_procurement p WHERE p.order_item_id IN (v_lo,v_hi,v_c,v_d);
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ("BCDFGJ",v_cust,"{}"::jsonb || jsonb_build_object("name","a","phone","0900000000","line","x"),"hct") RETURNING id INTO v_p1;
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ("BCDFGK",v_cust,"{}"::jsonb || jsonb_build_object("name","b","phone","0900000000","line","x"),"hct") RETURNING id INTO v_p2;
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ("BCDFGM",v_cust,"{}"::jsonb || jsonb_build_object("name","c","phone","0900000000","line","x"),"hct") RETURNING id INTO v_q1;
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ("BCDFGN",v_cust,"{}"::jsonb || jsonb_build_object("name","d","phone","0900000000","line","x"),"hct") RETURNING id INTO v_q2;
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_p1,v_lo,1),(v_p1,v_hi,1);
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_p2,v_hi,1),(v_p2,v_lo,1);
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_q1,v_c,1),(v_q1,v_d,1);
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_q2,v_c,1),(v_q2,v_d,1);
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-E1",jsonb_build_object("title","e","sku","BAR-E1","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_e;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-E2",jsonb_build_object("title","f","sku","BAR-E2","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_f;
+  INSERT INTO public.order_items (order_id, variant_sku, product_snapshot, quantity, unit_price, line_total)
+  VALUES (v_order,"BAR-E3",jsonb_build_object("title","g","sku","BAR-E3","spec",jsonb_build_object()),9,0,0) RETURNING id INTO v_g;
+  SELECT array_agg(x ORDER BY x) INTO v_sorted FROM unnest(ARRAY[v_e,v_f,v_g]) x;
+  UPDATE public.order_items SET variant_sku="BAR-E" WHERE id=v_sorted[1];
+  UPDATE public.order_items SET variant_sku="BAR-F" WHERE id=v_sorted[2];
+  UPDATE public.order_items SET variant_sku="BAR-G" WHERE id=v_sorted[3];
+  INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity)
+  SELECT x, v_sup, 5 FROM unnest(v_sorted) x;
+  INSERT INTO public.order_item_procurement_receipts (procurement_id, quantity, received_at, received_by)
+  SELECT p.id, 5, now(), "bar" FROM public.order_item_procurement p WHERE p.order_item_id = ANY(v_sorted);
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ("BCDFGP",v_cust,"{}"::jsonb || jsonb_build_object("name","e","phone","0900000000","line","x"),"hct") RETURNING id INTO v_r1;
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ("BCDFGQ",v_cust,"{}"::jsonb || jsonb_build_object("name","f","phone","0900000000","line","x"),"hct") RETURNING id INTO v_r2;
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity)
+  VALUES (v_r1,v_sorted[1],1),(v_r1,v_sorted[2],1),(v_r1,v_sorted[3],1);
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity)
+  VALUES (v_r2,v_sorted[3],1),(v_r2,v_sorted[2],1);'
+BAR_FIX="$(printf '%s' "$BAR_FIX" | tr '"' "'")"
+# 🔴 `BAR-A` / `BAR-B` 是**用 `LEAST/GREATEST` 事後改名**的,不是插入順序決定的:
+#    整個死結構造靠「阻擋者握住<u>迭代序的第一顆</u>」,而迭代序由 uuid 升序決定。
+#    若改成靠插入順序命名,uuid 隨機會讓這一格**時綠時紅**(=沒有 barrier 的競賽測試,memory 明令不算數)。
+# 🔴 `P1 = (lo,hi)` 而 `P2 = (hi,lo)` 是**實體列序**刻意反的:唯一能讓兩個 session 反序取鎖的來源
+#    就是「順序取決於該包裹的實體佈局」。真相式一旦把順序正規化(`DISTINCT` 或 `ORDER BY`),這個反序就消失。
+
+BAR_REDS=""
+bar_nap() { perl -e 'select undef,undef,undef,0.05'; }
+bar_start() {   # $1 = 名稱、$2 = fd 號
+  mkfifo "$BARW/$1.in" || { BAR_REDS="$BAR_REDS BAR-RIGFAIL-$1"; return 1; }
+  psql -X "postgresql://postgres@127.0.0.1:${PORT}/${BARDB}?application_name=bar_$1" \
+       -v ON_ERROR_STOP=0 -v VERBOSITY=verbose -qtA < "$BARW/$1.in" > "$BARW/$1.out" 2>&1 &
+  eval "exec ${2}> $BARW/$1.in"
+}
+bar_mark() {    # $1 = 名稱、$2 = 標記;等不到 ⇒ 紅(fail-closed,絕不當成「大概好了」往下走)
+  local i=0
+  while [ "$i" -lt 300 ]; do
+    grep -qx "$2" "$BARW/$1.out" 2>/dev/null && return 0
+    bar_nap; i=$((i+1))
+  done
+  BAR_REDS="$BAR_REDS BAR-TIMEOUT-$2"; return 1
+}
+# 🔴 這就是「barrier」本體:**不用 sleep 猜**,直接問 PG「這個 session 現在是不是被誰擋住」。
+#    `pg_blocking_pids` 非空 = **它正在等一把別人握著的鎖** —— 這是可觀察的狀態,不是時間上的希望
+#    (memory `feedback_race-test-without-barrier-proves-nothing`)。
+# 🔴 **它不證明「已取到前綴鎖」**(R1 nit 4):等待中的 session 可能一把都還沒取到。
+#    本編排不需要那個更強的性質 —— 死結的決定性來自**放行順序 + FIFO 鎖佇列**,不是前綴假設。
+bar_blocked() { # $1 = 名稱
+  local i=0 who
+  while [ "$i" -lt 200 ]; do
+    who="$(psql -X "$BARU" -qtAc "SELECT coalesce(array_to_string(pg_blocking_pids(pid),','),'') FROM pg_stat_activity WHERE application_name='bar_$1'" 2>/dev/null)"
+    [ -n "$who" ] && return 0
+    bar_nap; i=$((i+1))
+  done
+  BAR_REDS="$BAR_REDS BAR-NOTBLOCKED-$1"; return 1
+}
+bar_shipped() { psql -X "$BARU" -qtAc "SELECT coalesce((SELECT s.shipped_quantity::text FROM ${SUMMARY} s JOIN public.order_items oi ON oi.id=s.order_item_id WHERE oi.variant_sku='$1'),'<none>')" 2>/dev/null; }
+
+barrier_oracle() {   # $1 = 庫名 → 印紅點 key(全綠零輸出)
+  # 🔴 R2 F7:對應 psql 若早死,printf 寫進已關的 fifo 會吃到 SIGPIPE。本函式跑在命令替換的
+  #    **子 shell** 裡,所以父層不受影響。(精確地說:SIG_IGN 會被 exec 出去的 psql 子行程繼承,
+  #    實害低但不是「完全只影響這一段」。)不設它的話整支 harness 被 141 殺掉,連總結行都沒有。
+  #    忽略之後 printf 只是失敗,後續的 bar_mark / bar_blocked 會照常逾時轉紅,診斷指得到人。
+  trap "" PIPE
+  BARDB="$1"; BARU="postgresql://postgres@127.0.0.1:${PORT}/${BARDB}"; BAR_REDS=""
+  BARW="$WORK/bar-$BARDB"; rm -rf "$BARW"; mkdir -p "$BARW"
+  local P1 P2 Q1 Q2 ALO R1 R2 ids
+  ids="$(psql -X "$BARU" -qtAc "SELECT (SELECT id FROM public.shipments WHERE shipment_reference='BCDFGJ')::text||' '||(SELECT id FROM public.shipments WHERE shipment_reference='BCDFGK')::text||' '||(SELECT id FROM public.shipments WHERE shipment_reference='BCDFGM')::text||' '||(SELECT id FROM public.shipments WHERE shipment_reference='BCDFGN')::text||' '||(SELECT id FROM public.order_items WHERE variant_sku='BAR-A')::text||' '||(SELECT id FROM public.shipments WHERE shipment_reference='BCDFGP')::text||' '||(SELECT id FROM public.shipments WHERE shipment_reference='BCDFGQ')::text" 2>/dev/null)"
+  set -- $ids
+  if [ "$#" -ne 7 ]; then printf 'BAR-FIXTURE-MISSING'; return; fi
+  P1="$1"; P2="$2"; Q1="$3"; Q2="$4"; ALO="$5"; R1="$6"; R2="$7"
+
+  # ── 情境 A:兩個包裹含**同一對**品項、實體列序相反 ⇒ 期望「無死結」──────────
+  #    阻擋者 B 先握住迭代序第一顆(BAR-A);S1 卡在它上面,S2 再排到 S1 後面;
+  #    兩者都確認**真的被擋住**之後才放行 B —— 這樣交錯是被觀察到的,不是等來的。
+  # 🔴 R1 nit 5:**不要**寫成「此時 S1 已握有它自己的前綴」—— 在 BAR-A 就是第一顆的形狀下那是空真。
+  #    真正讓 L2b 死結成為決定性的是:B 放行時 **S1 排在 S2 前面**(FIFO),
+  #    而 L2b 的 S2 早已握著 BAR-B ⇒ S1 拿到 BAR-A 後要 BAR-B、S2 要 BAR-A,互卡。
+  # 🔴 R1 nit 9:`bar_start` 失敗(mkfifo)時就地收攤,不要讓後面每個 bar_mark 各空燒 15 秒。
+  bar_start b 7 && bar_start s1 8 && bar_start s2 9 \
+    || { exec 7>&- 8>&- 9>&- 2>/dev/null; printf 'BAR-RIGFAIL'; return; }
+  printf "BEGIN;\nSELECT id FROM public.order_items WHERE id='%s' FOR NO KEY UPDATE;\n\\\\echo B-HOLD\n" "$ALO" >&7
+  bar_mark b B-HOLD
+  printf "BEGIN;\nUPDATE public.shipments SET shipped_at=now(), tracking_number='BARX1' WHERE id='%s';\n\\\\echo S1-DONE\n" "$P1" >&8
+  bar_blocked s1
+  printf "BEGIN;\nUPDATE public.shipments SET shipped_at=now(), tracking_number='BARX2' WHERE id='%s';\n\\\\echo S2-DONE\n" "$P2" >&9
+  bar_blocked s2
+  printf 'COMMIT;\n\\echo B-RELEASED\n' >&7
+  bar_mark b B-RELEASED
+  bar_mark s1 S1-DONE; printf 'COMMIT;\n\\echo S1-C\n' >&8; bar_mark s1 S1-C
+  bar_mark s2 S2-DONE; printf 'COMMIT;\n\\echo S2-C\n' >&9; bar_mark s2 S2-C
+  exec 7>&- 8>&- 9>&-
+  wait 2>/dev/null
+  grep -q '40P01' "$BARW/s1.out" "$BARW/s2.out" 2>/dev/null && BAR_REDS="$BAR_REDS BAR-deadlock"
+  # 🔴 `55P03` 單獨一個 key:helper 的 `lock_timeout=5s` 若因為機器忙而先觸發,觀察值會長得
+  #    很像「摘要沒算對」。分開報,才不會把**測試環境的雜訊**讀成一條 finding。
+  grep -q '55P03' "$BARW/s1.out" "$BARW/s2.out" 2>/dev/null && BAR_REDS="$BAR_REDS BAR-locktimeout"
+  { [ "$(bar_shipped BAR-A)" = "2" ] && [ "$(bar_shipped BAR-B)" = "2" ]; } || BAR_REDS="$BAR_REDS BAR-shipped"
+
+  # ── 情境 B:先寫者**尚未提交**時後寫者進場 ⇒ 期望後寫者在鎖之後才讀真相(不 stale-low)──
+  # 🔴 R2 F5:提前收攤要把**已經開起來的** fd 關掉,否則殘留的背景 psql 還握著連線
+  #    ⇒ drop_db 靜默失敗、下一發報「複製 pre 副本失敗」= 診斷指錯方向。
+  bar_start t1 4 && bar_start t2 5 || { exec 4>&- 5>&- 2>/dev/null; printf 'BAR-RIGFAIL'; return; }
+  printf "BEGIN;\nUPDATE public.shipments SET shipped_at=now(), tracking_number='BARY1' WHERE id='%s';\n\\\\echo T1-DONE\n" "$Q1" >&4
+  bar_mark t1 T1-DONE
+  printf "BEGIN;\nUPDATE public.shipments SET shipped_at=now(), tracking_number='BARY2' WHERE id='%s';\n\\\\echo T2-DONE\n" "$Q2" >&5
+  bar_blocked t2
+  printf 'COMMIT;\n\\echo T1-C\n' >&4; bar_mark t1 T1-C
+  bar_mark t2 T2-DONE; printf 'COMMIT;\n\\echo T2-C\n' >&5; bar_mark t2 T2-C
+  exec 4>&- 5>&-
+  wait 2>/dev/null
+  grep -q '55P03' "$BARW/t1.out" "$BARW/t2.out" 2>/dev/null && BAR_REDS="$BAR_REDS BAR-locktimeout"
+  # 🔴 R1 nit 8:情境 B 若真的死結,只 grep 55P03 會讓它以 `BAR-stale` 的名義紅 —— key 指錯方向。
+  grep -q '40P01' "$BARW/t1.out" "$BARW/t2.out" 2>/dev/null && BAR_REDS="$BAR_REDS BAR-deadlock"
+  { [ "$(bar_shipped BAR-C)" = "2" ] && [ "$(bar_shipped BAR-D)" = "2" ]; } || BAR_REDS="$BAR_REDS BAR-stale"
+
+  # ══ 情境 C:**部分重疊 + 三品項**(R3 must-fix 6)══════════════════════════
+  # 🔴 情境 A 的兩個包裹**品項集合完全相同** ⇒ 任何「順序 = 值集合的函式」都自動兩邊同序,
+  #    那組 fixture **分不出「全域總序」與「只是 per-set 決定性」**。真實出貨更常是部分重疊。
+  # 🔴 形狀刻意選 P={E,F,G} / Q={G,F}(共用 **兩顆**):共用一顆時死結**不可能**成環 ⇒ 那種
+  #    形狀的負測構造不出來、等於沒有判別力。共用兩顆才是能真正翻面的最小形狀。
+  # 🔴 期望值刻意**不全相等**(E=1、F=2、G=2):全部都是 2 時,「數列數」與「加總」會產生同樣的觀察值。
+  bar_start cb 7 && bar_start cs1 8 && bar_start cs2 9 \
+    || { exec 7>&- 8>&- 9>&- 2>/dev/null; printf 'BAR-RIGFAIL'; return; }
+  printf "BEGIN;\nSELECT id FROM public.order_items WHERE variant_sku='BAR-F' FOR NO KEY UPDATE;\n\\\\echo CB-HOLD\n" >&7
+  bar_mark cb CB-HOLD
+  printf "BEGIN;\nUPDATE public.shipments SET shipped_at=now(), tracking_number='BARZ1' WHERE id='%s';\n\\\\echo C1-DONE\n" "$R1" >&8
+  bar_blocked cs1
+  printf "BEGIN;\nUPDATE public.shipments SET shipped_at=now(), tracking_number='BARZ2' WHERE id='%s';\n\\\\echo C2-DONE\n" "$R2" >&9
+  bar_blocked cs2
+  printf 'COMMIT;\n\\echo CB-RELEASED\n' >&7
+  bar_mark cb CB-RELEASED
+  bar_mark cs1 C1-DONE; printf 'COMMIT;\n\\echo C1-C\n' >&8; bar_mark cs1 C1-C
+  bar_mark cs2 C2-DONE; printf 'COMMIT;\n\\echo C2-C\n' >&9; bar_mark cs2 C2-C
+  exec 7>&- 8>&- 9>&-
+  wait 2>/dev/null
+  grep -q '40P01' "$BARW/cs1.out" "$BARW/cs2.out" 2>/dev/null && BAR_REDS="$BAR_REDS BAR-deadlock-partial"
+  grep -q '55P03' "$BARW/cs1.out" "$BARW/cs2.out" 2>/dev/null && BAR_REDS="$BAR_REDS BAR-locktimeout"
+  { [ "$(bar_shipped BAR-E)" = "1" ] && [ "$(bar_shipped BAR-F)" = "2" ] && [ "$(bar_shipped BAR-G)" = "2" ]; } \
+    || BAR_REDS="$BAR_REDS BAR-partial"
+
+  # 🔴 R1 nit 10:fifo 收工清掉(`.out` 留著,失敗時要靠它診斷);`COPIES-DROPPED` 只看 DB,看不到這類殘留。
+  rm -f "$BARW"/*.in
+  # 🔴 R1 nit 11:`sort` 的定序 —— 本檔第 150 行已 `export LC_ALL=C`,凍結的紅點串就是照 C 序寫的,一致。
+  printf '%s' "$(printf '%s' "$BAR_REDS" | tr ' ' '\n' | grep -v '^$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+}
+
+# 🔴 **實測常數**(2026-08-07,PG17 / 本 fixture):`EXPLAIN (COSTS OFF)` 去空白後只取 Unique/Sort 那幾行。
+BAR_PLAN_SHAPE="Unique/->Sort/SortKey:si.order_item_id/|Unique/->Sort/SortKey:order_item_id/"
+BMUT=0
+run_bmut() {   # $1 = 靶名、$2 = 突變檔、$3 = 期望紅點、$4 = key
+  local name="$1" file="$2" want="$3" key="$4" db="b2s2b_bar" got rc
+  BMUT=$((BMUT+1))
+  [ -s "$file" ] || { bad "$name:突變檔不存在或為空"; return; }
+  if [ "$key" != "BMUT-0" ]; then
+    cmp -s "$WORK/mut0.sql" "$file"; rc=$?
+    case "$rc" in
+      1) : ;;
+      0) bad "$name:與 mut0 逐字相同 —— 沒改到東西"; return ;;
+      *) bad "$name:cmp 讀不到檔(rc=$rc)—— 判紅"; return ;;
+    esac
+  fi
+  psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $db" >/dev/null 2>&1
+  psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+    || { sleep 1; psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+         || { bad "$name:複製 pre 副本失敗"; return; }; }
+  if ! psql -X "postgresql://postgres@127.0.0.1:${PORT}/$db" -v ON_ERROR_STOP=1 -q -f "$file" > "$WORK/bmut-$key.log" 2>&1; then
+    bad "$name:突變版 migration 套不上去($(grep -m1 ERROR "$WORK/bmut-$key.log" | cut -c1-90))
+     🔴 套不上去 ≠ 抓到 —— 沒有量到任何 oracle,不得算過"
+    drop_db "$db"; return
+  fi
+  if ! psql -X "postgresql://postgres@127.0.0.1:${PORT}/$db" -v ON_ERROR_STOP=1 -q \
+       -c "DO \$bar\$ DECLARE v_cust uuid; v_order uuid; v_a uuid; v_b uuid; v_lo uuid; v_hi uuid; v_c uuid; v_d uuid; v_sup uuid; v_p1 uuid; v_p2 uuid; v_q1 uuid; v_q2 uuid; v_e uuid; v_f uuid; v_g uuid; v_sorted uuid[]; v_r1 uuid; v_r2 uuid; BEGIN $BAR_FIX END \$bar\$;" \
+       > "$WORK/bmut-fix-$key.log" 2>&1; then
+    bad "$name:barrier fixture 載入失敗($(grep -m1 ERROR "$WORK/bmut-fix-$key.log" | cut -c1-90))"
+    drop_db "$db"; return
+  fi
+  # 🔴 R1 nit 6:整個 L2a 的結論(「拿掉 ORDER BY 不翻面」)壓在**查詢計畫的形狀**上,
+  #    而那本來只是我跑過一次的 EXPLAIN。這裡把它釘成斷言 —— 形狀一變(改用 HashAggregate、
+  #    或未來換 PG 版本 / 列數 / `enable_hashagg`),這一格立刻紅,不會讓那段結論靜默過期。
+  #    只在對照組量:L2b 的受測查詢本來就沒有 `DISTINCT`,形狀本該不同。
+  if [ "$key" = "BMUT-0" ]; then
+    local shape
+    # 🔴 R2 F6:第一版量的是**手寫代理查詢**(字面子查詢),而 plpgsql 裡是
+    #    WHERE si.shipment_id = NEW.id 的**參數化**語句 —— 兩者的 custom / generic 計畫可能分歧。
+    #    ⇒ 兩種都量、兩種都凍:plan_cache_mode = force_generic_plan + PREPARE/EXECUTE 拿 generic 那一份。
+    local sid
+    sid="$(psql -X "postgresql://postgres@127.0.0.1:${PORT}/$db" -qtAc "SELECT id FROM public.shipments WHERE shipment_reference='BCDFGJ'" 2>/dev/null)"
+    shape="$(psql -X "postgresql://postgres@127.0.0.1:${PORT}/$db" -qtAc "EXPLAIN (COSTS OFF) SELECT DISTINCT si.order_item_id FROM public.shipment_items si WHERE si.shipment_id=(SELECT id FROM public.shipments WHERE shipment_reference='BCDFGJ')" 2>/dev/null | tr -d ' ' | grep -E 'Unique|Sort' | tr '\n' '/')"
+    shape="${shape}|$(psql -X "postgresql://postgres@127.0.0.1:${PORT}/$db" -qtA -v sid="$sid" 2>/dev/null <<'PLANSQL' | tr -d ' ' | grep -E 'Unique|Sort' | tr '\n' '/'
+SET plan_cache_mode = force_generic_plan;
+PREPARE bshape(uuid) AS SELECT DISTINCT si.order_item_id FROM public.shipment_items si WHERE si.shipment_id = $1;
+EXPLAIN (COSTS OFF) EXECUTE bshape(:'sid');
+PLANSQL
+)"
+    if [ "$shape" = "$BAR_PLAN_SHAPE" ]; then
+      ok BAR-PLAN-SHAPE "DISTINCT 的查詢計畫仍是 Sort+Unique —— **custom 與 generic 兩種都量**(逐字 [$shape])⇒ 迭代序仍由值決定、兩 session 恆等,靶 L2a 的空集合結論仍成立"
+    else
+      bad "DISTINCT 的查詢計畫變了:實得 [$shape] / 期望 [$BAR_PLAN_SHAPE]
+     🔴 靶 L2a「拿掉 ORDER BY 不翻面」的結論**建立在這個形狀上**,形狀變了就要重測,不得沿用"
+    fi
+  fi
+  got="$(barrier_oracle "$db")"
+  drop_db "$db"
+  if [ "$got" != "$want" ]; then
+    bad "$name:紅點不符 —— 實際 [$got] / 期望 [$want]"
+  elif [ "${key%-INCONCLUSIVE}" != "$key" ]; then
+    inconc "$key" "$name ⇒ 紅點逐字相符:[$want] —— 🔴 **不入 PASS 帳**:plan §4 項19 的翻面條件未滿足,算不算過由主視窗裁定"
+  else
+    ok "$key" "$name ⇒ 紅點逐字相符:[$want]"
+  fi
+}
+
+log "6g/8 項19 barrier(三 session 真併發;**inconclusive** —— 見上方註解)"
+# 🔴 對照組:整組編排在**未改動**的 migration 上必須零紅點。它同時是「rig 還活著」的下限證明。
+run_bmut "BAR0-只剝 §5、零改動(對照組)" "$WORK/mut0.sql" "" BMUT-0
+
+# ── 靶 L1:helper 的 NKU 鎖**移到讀真相之後** ────────────────────────────────
+# 🔴 plan §5 逐字點名這一靶「**必須真的翻面**」——它是小線 S1 消融 #25 的回歸點
+#    (那次拿掉 NKU,整個 harness 全綠 = 那把鎖當時沒有任何東西在看)。
+# 🔴 它為什麼會 stale-low:read committed 下每個 statement 各自取快照。鎖若排在讀之後,
+#    後到的 session 會**先讀到看不見對方未提交出貨的真相**、再去排隊等鎖;等到了才把那個
+#    過期的值寫回去,直接蓋掉先提交者算對的值。鎖排在讀之前,它會先卡住、醒來後重讀 ⇒ 讀到全貌。
+make_mutant_or_die "$WORK/bmut1.sql" \
+'   FOR NO KEY UPDATE;
+  IF NOT FOUND THEN' \
+'   ;
+  IF NOT FOUND THEN'
+BMUT1_TMP="$WORK/bmut1.sql"
+BMUT1_SRC='  -- SHIPPED-TRUTH-END
+'
+BMUT1_DST='  -- SHIPPED-TRUTH-END
+
+  SELECT oi2.quantity INTO v_qty FROM public.order_items oi2
+   WHERE oi2.id = p_order_item_id FOR NO KEY UPDATE;
+'
+# 🔴 這一靶要動**兩處**(拆掉原位的鎖 + 在讀完之後補回同一把鎖),`make_mutant` 只吃一處
+#    ⇒ 第二處在這裡補,並且**同樣要求恰 1 次命中**,錨失效就 die,不允許默默沒改到。
+F="$BMUT1_TMP" SRC="$BMUT1_SRC" DST="$BMUT1_DST" python3 - <<'PY' || die "靶L1 第二處錨失效"
+import io, os
+f = os.environ['F']; s = io.open(f, encoding='utf-8').read()
+src, dst = os.environ['SRC'], os.environ['DST']
+n = s.count(src)
+if n != 1:
+    raise SystemExit('靶L1 第二處錨命中 %d 次(必須恰 1 次)' % n)
+io.open(f, 'w', encoding='utf-8').write(s.replace(src, dst))
+PY
+run_bmut "靶L1-NKU 鎖移到讀真相之後" "$WORK/bmut1.sql" "BAR-partial BAR-shipped BAR-stale" BMUT-L1
+
+# ── 靶 L2a:plan 指定的「迭代拿掉 ORDER BY」──────────────────────────────────
+# 🔴🔴 **實測:這一靶翻不了面,期望紅點是空集合。** 原因是 PG 把 `DISTINCT` 規劃成
+#    `Sort + Unique`(實跑 EXPLAIN:`Unique → Sort(Sort Key: order_item_id) → Bitmap Heap Scan`),
+#    輸出順序與 `ORDER BY order_item_id` 相同;而兩個 session 跑的是**同一支函式**
+#    ⇒ 順序只是值集合的函式,兩邊恆等,反序取鎖構造不出來。
+# 🔴 這個「空集合」**不是 fail-open**,它的判別力由**同一套編排下的靶 L2b** 背書:
+#    L2b 在完全相同的 rig 上真的丟出 `40P01`。沒有 L2b,這一格與「rig 根本抓不到死結」不可分。
+# 🔴🔴 **key 名自己承載事實 + 這一格不入 PASS 帳**(R1 must-fix 2 / R2 must-fix F1):
+#    key 叫 `BMUT-L2A-INCONCLUSIVE`,而且走 `inconc` 不走 `ok` —— 因為機器可讀的那三個面
+#    (離開碼、PASS 數、凍結 key 集合)才是會被往上引用的東西;只把「plan §4 的翻面條件沒被滿足」
+#    寫在 prose 裡等於沒寫,R2 的原話是「rc-only 消費者會在裁定發生前把項19 讀成已過」。
+#    ⇒ 它自己有一組凍結的待裁 key 集合,收尾離開碼 3。**這不是替主視窗判它紅,是拒絕先記成過。**
+# 🔴 因此結論要寫準:**今天擋住反序取鎖的是 `DISTINCT` 的排序,不是 `ORDER BY` 那幾個字。**
+#    `ORDER BY` 仍留著(它把保證寫成明文、且在 `DISTINCT` 哪天被拿掉時才是唯一防線)——
+#    但**不得宣稱本 harness 守得住它**;它現在沒有靶。
+make_mutant_or_die "$WORK/bmut2.sql" \
+'     ORDER BY si.order_item_id
+  LOOP' \
+'  LOOP'
+run_bmut "靶L2a-迭代拿掉 ORDER BY(plan 指定;實測不翻面)" "$WORK/bmut2.sql" "" BMUT-L2A-INCONCLUSIVE
+
+# ── 靶 L2b:連 `DISTINCT` 一起拿掉 ⇒ 順序退化成該包裹的實體列序 ────────────────
+# 🔴 這一靶存在的理由**不是**因為有人會這樣改,而是為了證明「這套 barrier 抓得到反序取鎖」。
+#    沒有它,L2a 的空集合只是一句沒有證據的話。
+make_mutant_or_die "$WORK/bmut3.sql" \
+'    SELECT DISTINCT si.order_item_id
+      FROM public.shipment_items si
+     WHERE si.shipment_id = NEW.id
+     ORDER BY si.order_item_id' \
+'    SELECT si.order_item_id
+      FROM public.shipment_items si
+     WHERE si.shipment_id = NEW.id'
+# 🔴 情境 C(部分重疊 + 三品項)也真的翻面 ⇒ 紅點多了 `BAR-deadlock-partial` 與 `BAR-partial`。
+#    這正是 R3 must-fix 6 要的:反序取鎖的危險**不是**只在「兩包裹品項集合相同」那種人造形狀下才有。
+run_bmut "靶L2b-連 DISTINCT 一起拿掉(rig 判別力背書)" "$WORK/bmut3.sql" "BAR-deadlock BAR-deadlock-partial BAR-partial BAR-shipped" BMUT-L2B
+
+[ "$BMUT" -eq "$EXPECT_BMUT" ] && ok BMUT-COUNT "項19 barrier 靶跑了 $BMUT 發,與凍結值相符" \
+  || bad "項19 barrier 靶只跑了 $BMUT 發,期望 $EXPECT_BMUT"
+
+
 log "6b/8 真相式六塊同步守門(S2b-3a 後段;plan §1.1 v3.1)"
 # 🔴 守門本體在 `scripts/b2s2b-truth-sync.py`(抽取 + 判定,純文字、不碰 DB)。
 #    本段負責:①對照組必須零紅 ②**九發突變逐發只紅指定的紅點集合**(`B-151-A`:兩半各至少一發)。
@@ -1782,7 +2172,7 @@ CELL=$((CELL+1))
 DATASURF_NOW="$(datasurface_check "$MIG" "$RUNBOOK" scripts/a4a-verify.sh 2>"$WORK/ds.err")"
 GATE_NOW="$(gate_shape_check scripts/b2s2a-verify.sh)"
 if [ "$DATASURF_NOW" = "$DATASURF_FROZEN" ] && [ "$GATE_NOW" = "1/1" ]; then
-  ok B28-datasurface "🔴 項28 債③:出貨資料面集合(**表 + 欄**,從 migration / runbook / a4a-verify **三份**真相式副本推導)= [$DATASURF_NOW] 與凍結值逐字相等 ⇒ 本線沒有新增出貨真值面;gate 那兩句**整行字面**(`grep -cxF`)逐字未變"
+  ok B28-datasurface "🔴 項28 債③:出貨資料面集合(**表 + 欄**,從 migration / runbook / a4a-verify **三份**真相式副本推導)= [$DATASURF_NOW] 與凍結值逐字相等 ⇒ 本線沒有新增出貨真值面;gate 那兩句**整行字面**(以 grep -cxF 比對)逐字未變"
 else
   bad "項28:資料面集合 = [$DATASURF_NOW]
      期望 [$DATASURF_FROZEN]
@@ -1924,6 +2314,32 @@ if [ -z "$LEFT" ]; then
 else
   bad "副本庫殘留:[$LEFT] —— 下一輪的 TEMPLATE 複製會踩到它"
 fi
+# 🔴🔴 **機制,不是規則**(機制優先律):本檔自己的報告字串若混進反引號,shell 會把它當**命令替換
+#    執行**,字面被靜默改掉而三綠、PASS 數全部照樣綠 —— 2026-08-07 兩次實錘:
+#    ①結語那行的維名被吃掉、只印出「無靶只剩 」,stderr 冒出 command not found;
+#    ②`B28-datasurface` 的 PASS 訊息把 grep 真的執行掉,印出殘缺字面 + stderr 噴 grep usage。
+# 🔴🔴 **第一版的守門畫在最窄的面(只掃 `echo "`),而第 ② 個違規在 `ok "…"` 行 ⇒ 掃不到,
+#    而且那一格自己還印著「報告字面不會被 shell 靜默改寫」= 恆真的假話。**
+#    (memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`;R1 用活體反例當場打掉。)
+#    ⇒ 不變量是「**任何報告類命令的字串**不得含反引號」,面就畫在那裡:echo / ok / bad / log / die / printf。
+SELF_BT="$(printf '\140')"
+# 🔴 R2 F2:第一版只掃**行首**,而全檔有 89 個 `… && ok …` / `then ok …` 形的非行首呼叫在面外。
+#    面擴到「命令位置」= 行首、或接在 && / || / ; / then / else / do 之後。
+# 🔴 **純註解行要先剔掉**:本檔的註解裡本來就會引用命令片語(例如這一段自己就寫了 && ok),
+#    不剔掉的話守門會把自己的說明文字判成違規 —— 第一版實跑當場中(FAIL=3)。
+#    剔的是「第一個非空白字元是井字號」的整行,不是「含井字號」;行尾註解仍留在面內。
+# 🔴 R3 must-fix 4:第一版的清單漏掉**同一個 commit 剛新增的報告命令 `inconc`** ——
+#    同一片內第二次重犯「面比不變量窄」。清單本身就是那個面,新增報告命令必須同批加進來。
+# 🔴 R3 must-fix 9:`grep -n` 要排在**濾除註解之前**,否則回報的是「濾掉註解後的序號」、
+#    違規時診斷指到錯的行(自己就是報告字面出錯的守門,指錯行特別諷刺)。
+SELF_HITS="$(grep -nE '(^|&&|\|\||;|then|else|do)[[:space:]]*(echo|ok|bad|log|die|printf|inconc)[[:space:]]' "$SELF_PATH" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -F "$SELF_BT" | head -3 | cut -c1-80 | tr '\n' ' ')"
+if [ -n "$SELF_HITS" ]; then
+  bad "本檔有報告行混進反引號 —— 字面會被 shell 當命令替換靜默改寫:$SELF_HITS"
+else
+  # 🔴 宣稱要與實作等寬(R2 F2 打掉的正是「宣稱面 > 實作面」):**只**掃命令位置那一行,
+  #    多行字串的**續行**(例如 bad 訊息第二行)仍在面外 —— 這句話寫在 PASS 訊息裡,不藏在註解。
+  ok SELF-REPORT-BACKTICK "本檔在**命令位置**(行首或接 && / || / ; / then / else / do 之後)的 echo/ok/bad/log/die/printf/inconc 零反引號;**面外三類已寫明**:純註解行、多行字串的續行、以及單引號字串內的反引號(那不會被執行,本守門仍會判紅 = 刻意從嚴)"
+fi
 # 🔴 起跑前是 0/0,收尾也必須是 0/0:BEGIN…ROLLBACK 的格若有哪一格漏了 ROLLBACK,這裡會抓到。
 END_SHIP="$(q "$BASE_URL" 'SELECT count(*) FROM public.shipments')"
 END_ITEM="$(q "$BASE_URL" 'SELECT count(*) FROM public.shipment_items')"
@@ -1946,11 +2362,25 @@ else
 fi
 
 echo
-echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
+# 🔴 R3 must-fix 5:待裁集合等式**必須排在總結行之前** —— 排在後面時,有人把那一格刪掉/換掉,
+#    人讀到的仍是 `FAIL=0`(只有離開碼變 1)。與 R2 F1 要修的是同一族:人可讀面先說了不實的話。
+GOT_INC="$(printf '%s' "$INCONC_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
+EXP_INC="$(printf '%s' "$EXPECT_INCONC_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
+if [ "$GOT_INC" = "$EXP_INC" ] && [ "$INCONC" -eq "$EXPECT_INCONC" ]; then
+  echo "  OK 待裁格集合逐字相符([$GOT_INC];$INCONC 個)—— 它不入 PASS 帳,但也刪不掉"
+else
+  bad "待裁格集合不符:實際 [$GOT_INC]($INCONC 個)/ 期望 [$EXP_INC]($EXPECT_INCONC 個)"
+fi
+echo "PASS=$PASS FAIL=$FAIL INCONCLUSIVE=$INCONC (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
+if [ "$INCONC" -gt 0 ]; then
+  echo "WAIT 待裁格 $INCONC 個(**不計入 PASS**):[$(printf '%s' "$INCONC_KEYS" | sed 's/^ //')]"
+  echo "   項19-barrier:plan §4 項19 的「翻面必出 40P01」**未滿足**(理由見結語與 plan §4.19);"
+  echo "   算不算通過由主視窗裁定,本檔不自行認定。**離開碼 3 = 無紅但有待裁,不是全過。**"
+fi
 echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **12 格**被至少一發突變紅過 ——"
 echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)"
 echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH / TMUT-REH2)+ **B28-datasurface**(靶 D1/D2)"
-echo "   + **STRUCT-ORACLE**(靶 A1-A5 + 零突變對照 SMUT-0)。"
+echo "   + **STRUCT-ORACLE**(靶 A1-A8 + 零突變對照 SMUT-0)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"
@@ -1971,8 +2401,25 @@ echo "     「拿掉閘」「閘改 pin prosrc」兩靶未做(oracle 是「閘�
 echo "   🔴 結構 oracle **十維裡只剩一維無靶**(九維有靶):"
 echo "     ⇒ 有靶 = tgconstraint(A1)/ tgfoid(A2)/ tgattr(A3)/ proconfig(A4)/ grantee0+rolesnone(A5)"
 echo "            / secdef(A6)/ tgdefer(A7)/ tgtype(A8)。"
-echo "       🔴 **無靶只剩 `SA-aclnotnull`** —— 在本 shim 環境下它**構造不出紅**:"
+echo "       🔴 **無靶只剩「SA-aclnotnull」** —— 在本 shim 環境下它**構造不出紅**:"
 echo "         shim 的 ALTER DEFAULT PRIVILEGES 讓新函式出生就有非 NULL 的 proacl。"
 echo "         它**不是裝飾維**,是給 plain-PG(無 default ACL)的環境保險 —— 那裡漏 REVOKE ⇒ proacl 為 NULL。"
-echo "   🔴 **項19 barrier 與項29 stale-high 仍未做**(2b 第二段的另外兩塊)。"
+echo "   ⚠️ **項19 barrier 已做,但整格標 <u>inconclusive</u>**(2b 第二段之二;plan §8.1 第二列):"
+echo "     出貨 writer RPC 今天不存在 ⇒ 兩個 session 的 UPDATE 是 **owner 直寫**。"
+echo "     證到的 = helper 逐列取鎖順序 + 「鎖排在讀真相之前」在真併發下的效果(三 session、真 COMMIT、真死結偵測);"
+echo "     證不到的 = ①未來出貨 RPC 進 trigger 前會不會先取別的鎖 ②A8a2 多品項取鎖順序(plan §9 交棒 6)。"
+echo "   🔴 **plan §5 指定的靶「拿掉 ORDER BY」實測翻不了面**(期望紅點 = 空集合):"
+echo "     PG 把 DISTINCT 規劃成 Sort+Unique,輸出序等同 ORDER BY;兩 session 同一支函式 ⇒ 順序恆等。"
+echo "     ⇒ **今天擋住反序取鎖的是 DISTINCT 的排序,不是 ORDER BY 那幾個字**;ORDER BY 現在**沒有靶**。"
+echo "     該空集合的判別力由**同一套編排**下的靶 L2b 背書(連 DISTINCT 一起拿掉 ⇒ 真的丟 40P01)。"
+echo "   🔴🔴 **plan §4 項19 寫的「翻面必出 40P01,測不出則該格判紅」<u>沒有被滿足</u>** ——"
+echo "     它指定的翻面動作(拿掉 ORDER BY)在本形狀下根本沒有移除排序,不是「被別的鎖序意外救了」。"
+echo "     ⇒ **本格算不算通過 = 主視窗待裁;本檔不自行認定、也不自行改 plan 的驗收字面。**"
+echo "   🔴🔴 **本編排沒測到的第三個併發面**(已進 plan §9 交棒 10):本片 trigger 是 AFTER ROW ⇒"
+echo "     一句 UPDATE shipments WHERE 多列 會逐列發火,**跨 shipment 的取鎖順序 = 該 UPDATE 的列序、無排序保證**;"
+echo "     兩個這種語句併發即可能真 40P01。barrier 每個 session 只改一列,看不到這一面。**不宣稱已擋。**"
+echo "   🔴 barrier 的三個情境:A 兩包裹**品項集合相同**、B 先寫者未提交、C **部分重疊 + 三品項**(靶 L2b 在 A 與 C 都翻面)。"
+echo "   🔴 **項29 stale-high 仍未做**(2b 第二段的第三塊)。"
+# 🔴 離開碼三態:0 = 全過;1 = 有紅;**3 = 無紅但有待裁格**(不得被讀成全過)。
 [ "$FAIL" -eq 0 ] || exit 1
+[ "$INCONC" -eq 0 ] || exit 3
