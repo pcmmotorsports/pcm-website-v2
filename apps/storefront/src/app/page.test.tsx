@@ -92,7 +92,7 @@ const SECTION_CLASS = {
   hero: 'ed-hero',
   finder: 'ed-finder',
   editorial: 'ed-feature',
-  cats: 'ed-cats',
+  cats: 'b-cats',
   select: 'ed-select',
   statement: 'ed-statement',
   brands: 'b-brands',

@@ -64,7 +64,7 @@ function mountTargets(): HTMLElement[] {
     return el;
   };
   return [
-    mk('ed-select', true), mk('ed-cats', true),
+    mk('ed-select', true), mk('b-cats', true),
     mk('ed-statement', true), mk('b-brands', true),
     mk('ed-feature', false),
   ];
