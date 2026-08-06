@@ -342,29 +342,6 @@ describe('ProductPage', () => {
     );
   });
 
-  it('非 RPM(gb-racing)hasSpotlight=true → Spotlight 仍不渲染(brandSlug 第二道守門)', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', hasSpotlight: true };
-    render(<ProductPage product={nonRpm} tier="general" related={[]} />);
-    // 🔴 2026-08-07 H7 更正:原註解寫「BrandShowcase gb-racing → GbRacingShowcase(有 GB 形象區)」
-    //   —— 那條分派鏈已整組刪除。
-    // ⚠️ **而且本條現在是恆真的**:`ProductSpotlight` 原本只由 `BrandShowcase` 分派渲染,
-    //   dispatcher 刪掉之後它**零消費者** ⇒ `.pd-spotlight` 對任何品牌都不會出現,
-    //   這條「非 RPM 不渲染」自然永遠成立、失去判別力。
-    //   **刻意留著不動**:它的去留綁在「三支孤兒元件(ProductHighlights / ProductSwatchWall /
-    //   ProductSpotlight)要不要一起刪」那個決策上 —— 那不在 H7 的授權範圍(規格只列了
-    //   15 支 Showcase + 14 支 test + dispatcher),已列 STOP 給主視窗裁,拍板後同片處理。
-    expect(document.querySelector('.pd-spotlight')).toBeNull();
-    expect(document.getElementById('pd-h-rpm')).toBeNull(); // RPM N°01 亦不顯(GB 用 pd-h-gb01)
-    // 規格區仍在、且在 FAQ 之前(頁面結構完整)
-    expectBefore(
-      document.querySelector('.pd-spec-section'),
-      document.getElementById('pd-h-faq'),
-      '規格區',
-      'FAQ N°04',
-    );
-  });
-
   it('V-2h/MF-4:手機 sticky buybar 加購亦帶車款(讀選車 context、與 ProductInfo 共用 readSearchVehicle)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     window.sessionStorage.setItem(
