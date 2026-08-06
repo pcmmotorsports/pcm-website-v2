@@ -1,7 +1,7 @@
 # A9h-M — A5a 加 preserve 模式(migration 片)plan v3
 
-> **狀態:關卡1 **R1 五條 + R2 兩條** must-fix 全折入。**
-> **⛔ 卡在 §6 兩題(Sean),拍完即可寫 SQL —— R2 明言「修完免 R3」。零行 SQL。**
+> **狀態:🏁 關卡1 兩輪 findings 全折入 + §6 兩題已拍(`E-127-A`)⇒ **可開寫 SQL**。**
+> **R2 明言「修完免 R3」。本檔目前仍零行 SQL。**
 > 依 `E-125-A` ②;上游拍板 = Sean `E-124-A:3`(Q4=A)。
 > **片型 = 高風險片**(鐵則 12②③)⇒ **apply = Sean 手動停點**。
 > 事實親查於 `pcm-refund-wire`;引用一律附 `檔案:行號`。
@@ -95,7 +95,7 @@ p_preserve_optional_fields boolean DEFAULT false
 
 ## §4 連動面(🔴 v1 整節漏掉;R1 F2/F3/F5 全是這一類)
 
-改簽章會打壞三個**寫死 11 參字面**的地方。**三者必須同 commit 連動改**:
+改簽章會打壞一批**寫死 11 參字面**的地方。**全部必須同 commit 連動改**(v2 只找到三處,解除假設 A3 時又挖出三處 ⇒ 見 §4.1):
 
 | # | 檔案:行號 | 現況(親驗) | 不改會怎樣 |
 |---|---|---|---|
@@ -104,7 +104,19 @@ p_preserve_optional_fields boolean DEFAULT false
 | **L3** | `packages/adapters/src/supabase/database.types.ts:2386` | Args 為 11 參;🔴 **regen 會沖掉的人工校正不只本函式** —— 檔頭 `:1-4` 自訂「**計數唯一權威在檔頭、下游不得複述數字**」 | TS 端型別與 DB 不符;regen 後**必須照檔頭計數重貼全部校正**,否則校正靜默消失(R2 consider 3:我 v2 寫「五處」是複述數字、正犯該檔禁止的事) |
 | **L4** | `apps/admin/src/lib/orders/procurement-repository.ts:52` | 該處註解枚舉「`P0001` 來源理論上只有 actor / request_id / 常數自檢 / 防衛枝」 | 🔴 **M4 新增一個 P0001 來源後,這句誠實邊界註解失真**(R2 consider 4;與 M8 同族 = 契約註解沒跟上行為)⇒ 同 commit 補上「preserve 矛盾意圖」那一項 |
 
-⇒ **L1 / L2 / L4 進本片 commit;L3 是 apply 後動作**(regen 需要真 DB),寫進 §7.2 驗收 12。
+### 4.1 🔴 解除假設 A3 時又挖出三個(v3 補;**這就是「不確認不准施工」的價值**)
+
+| # | 檔案:行號 | 現況(親驗) | 不改會怎樣 |
+|---|---|---|---|
+| **L2b** | `docs/runbooks/2026-07-30-a7-rollback.md:96,99` | 🔴 **第二份**回滾 runbook,GRANT + 斷言同款硬編 11 參簽章 | 與 L2 完全相同的失效模式(**災難當天才壞**)。v2 只列了 a4a 那份 ⇒ **漏一半** |
+| **L5** | `apps/admin/src/lib/orders/procurement-repository.ts:124-138` | `rpc()` 逐欄具名送 11 個參數 | 不送新參數 ⇒ 走 DEFAULT `false` = 現行行為(不會壞),**但批次拿不到 preserve** ⇒ A9h-2 無法開工 |
+| **L6** | `apps/admin/src/lib/orders/procurement-repository.test.ts:102-116` | `expect(args).toEqual({…11 鍵…})` **精確比對** + `expect(Object.keys(args)).toHaveLength(11)`(註解逐字「參數個數釘死 = 11」) | 🔴 **測試直接紅** —— 這條是好的守門(它就是為了擋「多送/少送讓 PostgREST 找不到多載」),但**它釘的數字要跟著簽章走** |
+
+**A3 的正向結果**:全 migration 樹**零**其他呼叫端(`grep` 排除本檔後零命中)⇒ DB 內部無連動。
+`packages/domain/src/order/types.ts:407` 只引 migration **檔名與舊行號**當註解、不含簽章 ⇒ 不受影響。
+
+⇒ **本片 commit 要動:L1 / L2 / L2b / L4 / L5 / L6**(六處);
+**L3 是 apply 後動作**(regen 需要真 DB),寫進 §7.2 驗收 12。
 
 ---
 
@@ -132,37 +144,19 @@ p_preserve_optional_fields boolean DEFAULT false
 
 ---
 
-## §6 待定案兩題(同批問;第二題是 R2 must-fix 2)
+## §6 決策 —— 🏁 兩題全拍(`E-127-A`,2026-08-06 Sean),**已無活選項**
 
-```
-Q1:preserve=true 但那四欄任一參數非 NULL(矛盾意圖),RPC 該怎麼回?
-A) RAISE(走既有 caller-bug 面 P0001)—— 最 fail-loud;呼叫端 TS 已有
-   ProcurementCallerBugError 承接(procurement-repository.ts:66 只看 code 不看訊息,自動接住)
-B) 新增第 18 個固定碼(如 PRESERVE_WITH_VALUES)—— 可逐列回報不中斷,但動 17 碼全集
-   ⇒ COMMENT 錨、驗收字面、TS 的 PROCUREMENT_RESULT_CODES 全連動
-A: A|B
+| 題 | 拍板 | 連動 |
+|---|---|---|
+| **Q1** 矛盾意圖(preserve=true + 那四欄任一參數非 NULL)怎麼回 | 🏁 **A:RAISE 走既有 caller-bug 面 `P0001`**,不新增第 18 碼 | M4;TS 端 `procurement-repository.ts:66` 只看 `code` 不看訊息 ⇒ **自動被 `ProcurementCallerBugError` 承接**、無需改判別式(但 `:52` 的來源枚舉註解要補 = §4 L4) |
+| **Q2** 批次「聯絡管道留空」語意 | 🏁 **A:必填** —— A9h-2 的 UI 不准留空 | **DB 層不動、12 參簽章一次定案**;`contact_channel` 不進 preserve 集合(§1.1)**隨之定案**、不再是待議項 |
 
-Q2:批次的「聯絡管道留空」是什麼語意?(🔴 這題不先答,12 參簽章可能白凍結)
-A) 必填 —— A9h-2 的 UI 不准留空,DB 層不動,本片簽章就是最終形狀
-B) 留空 = 各列保留現值 —— 🔴 需要 DB 層第二個旗標 = 第 13 參
-   ⇒ L1/L2/L3 三個連動面全部要再跑一次
-C) 可留空 + 畫面警告 —— 零 DB 改動,但與本檔 §1 自引的裁定
-   「警告不能把資料損失變可接受」自相矛盾
-A: A|B|C
-```
+**Q1=A 的無誤傷證明**(R2 獨立驗證,我保留):批次那四欄無入口、單列一律送 `false`
+⇒ **構造不出合法情境觸發 RAISE**;且批次逐列各自交易,單列 RAISE **不回滾兄弟列**
+⇒ 不存在「一列打錯、整批中止」的面。
 
-**Q1 我推薦 A**:這是**呼叫端 bug、不是業務狀態**(沒有任何合法情境會同時「送值」與「要求保留」),
-而 B 會把編程錯誤混進業務碼集合、還要動 17 碼全集與三處字面錨。
-R2 獨立驗證:批次四欄無入口、單列送 `false` ⇒ **構造不出合法情境觸發 RAISE**;
-且批次逐列各自交易,單列 RAISE **不回滾兄弟列** ⇒ 不存在「整批中止」面。
-
-🔴 **Q2 我推薦 A,而且這題必須在寫 SQL 前答** —— 理由不是設計偏好,是**排序**:
-若日後拍 B,DB 要加第 13 參,`scripts/a5a-verify.sh` / `a4a-summary-rollback.md` /
-`database.types.ts` 三個連動面**全部要再改一次**(§4)。現在問是零邊際成本(反正 Q1 就要問 Sean),
-拍完才寫 SQL 就只做一次。
-**若 Sean 選 C,請明載「這是接受風險」** —— 因為它與本檔 §1 引的 R1 裁定直接衝突。
-
----
+**Q2=A 的連帶**:原本「若拍 B 需第 13 參、六個連動面全部再跑一次」的風險**已解除**。
+🔴 但這條紀律留著:**簽章一旦 apply 就不該再加參數** —— 下次要加,六個連動面(§4/§4.1)全部要再跑。
 
 ## §7 驗收條件(🔴 依 R1 F6 拆兩段時序)
 
@@ -228,7 +222,7 @@ R2 獨立驗證:批次四欄無入口、單列送 `false` ⇒ **構造不出合�
 |---|---|---|
 | A1 | preserve 只需動 UPDATE 分支 | ✅ 已驗:`:383-391` CREATE 分支是新列、無舊值可保留 |
 | A2 | `v_before` 已載入那四欄 | 開 `:330-360` 確認 SELECT 欄位清單(**施工前第一件事**) |
-| A3 | DROP 舊簽章後無其他呼叫端 | ✅ 已查三處硬編(§4 L1/L2/L3);另需 `pg_proc` 實查 + grep 全 migration 樹 |
+| A3 | DROP 舊簽章後無其他呼叫端 | ✅ **已解除(2026-08-06)**:全 migration 樹零其他呼叫端;全樹不限副檔名 grep **又挖出三處**(§4.1 L2b/L5/L6)⇒ 連動面從 3 條變 **6 條**。⚠️ 仍欠 `pg_proc` 實查(需真 DB,排 apply 前) |
 | A4 | 加 DEFAULT 參數後舊呼叫端仍走對分支 | §7.2 驗收 11 的 PostgREST smoke 實打 |
 | A5 | DDL 期間併發呼叫安全 | R1 已查:PG DDL transactional、函式 DDL 不阻塞執行中呼叫 ⇒ **成立** |
 
