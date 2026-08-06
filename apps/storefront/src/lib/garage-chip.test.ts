@@ -75,6 +75,45 @@ describe('resolveGarageChip — REQUIRED-2 精確命中/建議清單', () => {
   });
 });
 
+// 🔴 2026-08-07 焦點查修片:含空白的品牌名讓「品牌 車型」這個字面在**結構上有歧義** ——
+//    `vehicleLabel()` 用一個空白把兩段接起來,反查時無從知道空白是分隔還是品牌名的一部分。
+//    現實資料裡確實有:`MOCK_MOTO_BRANDS` 的 `MV AGUSTA`(grep 字典,8 家裡唯一含空白的)。
+//    ⇒ 主視窗交代「字典有含空白品牌名 = 升級處理」。
+//    **實查結論:不需要改 code** —— `uniqueExactMatch` 只在「命中剛好一筆」時才套用,
+//    撞號(兩筆不同拆法產生同一個 label)會回 null、降級到建議清單讓客人明選 = 零猜。
+//    撞號**不會產生錯誤結果**,只會變成「沒自動套用」。
+//    但那個 fail-safe 是「歧義不變成錯答案」的唯一機制 ⇒ 這裡把它釘住,不讓它哪天被改成「取第一筆」。
+describe('resolveGarageChip — 含空白品牌名的字面歧義(MV AGUSTA 那族)', () => {
+  const AMBIGUOUS: MockMotoBrand[] = [
+    { id: 'mv-agusta', name: 'MV AGUSTA', models: [{ id: 'f3', name: 'F3', years: [2020] }] },
+    // 刻意構造的撞號對手:不同拆法、同一個 `品牌 車型` 字面「MV AGUSTA F3」。
+    { id: 'mv', name: 'MV', models: [{ id: 'agusta-f3', name: 'AGUSTA F3', years: [2020] }] },
+  ];
+
+  it('🔴 兩種拆法產生同一個 label ⇒ 不自動套用、降級建議清單(不是取第一筆)', () => {
+    const r = resolveGarageChip(AMBIGUOUS, {
+      name: 'MV AGUSTA F3',
+      year: '',
+      dictBrandName: null,
+      dictModelName: null,
+    });
+    expect(r.kind, '撞號時自動套用了 ⇒ 有 50% 機率套到錯的車').toBe('suggest');
+    // 兩個候選都要出現在建議裡,客人才選得到對的那個。
+    expect(r.kind === 'suggest' && r.entries.length, '建議清單沒把兩個候選都列出來').toBeGreaterThan(1);
+  });
+
+  it('🔴 沒有撞號對手時,含空白的品牌名照樣自動套用(不因為有空白就一律不敢套)', () => {
+    const ONLY: MockMotoBrand[] = [AMBIGUOUS[0]!];
+    const r = resolveGarageChip(ONLY, {
+      name: 'MV AGUSTA F3',
+      year: '',
+      dictBrandName: null,
+      dictModelName: null,
+    });
+    expect(r.kind, '唯一命中卻沒套用 ⇒ 過度保守,含空白品牌名的客人永遠要多點一次').toBe('apply');
+  });
+});
+
 describe('resolveGarageChip — 年份閘門(值班台 nit-1:回傳 year 恆已通過閘門)', () => {
   it('車庫 year 非四位數字 → year=undefined(零猜)', () => {
     const r = resolveGarageChip(BRANDS, {
