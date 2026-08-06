@@ -22,7 +22,6 @@ import {
   PROC_SUPPLIER_ORDER_NO_FIELD,
   procurementFailure,
   type ProcurementActionState,
-  type ProcurementFailureCode,
   type ProcurementFormValues,
 } from './procurement-action-state';
 import {
@@ -31,6 +30,7 @@ import {
   upsertItemProcurement,
   type ProcurementResultCode,
 } from './procurement-repository';
+import { classifyResult } from './procurement-result';
 import { toTaipeiIso } from './procurement-view';
 
 // M-4b E10 A10b:採購 upsert server action。
@@ -49,37 +49,9 @@ function detailPath(orderId: string): string {
   return `${ORDERS_PATH}/${orderId}`;
 }
 
-/**
- * 17 碼 → 三類語意(逐碼、非代表值)。成功型回 null(呼叫端 redirect),其餘回失敗碼。
- *
- * 🔴 **`NO_CHANGE` 是成功型**:它意謂「送上來的內容與現況完全相同、零寫入」(A5a `:300-322`)。
- *    顯示成錯誤會誘發員工亂改一個欄位再送一次,把「什麼都沒發生」變成一次真的寫入。
- * 🔴 **`SUPPLIER_INACTIVE` 是可改輸入型、不是 bug**:停用是合法的業務狀態
- *    (Sean 2026-08-03 晚 Q1=A:擋新建與調升、放行事實記錄欄更新),員工改選一家或改回原數量就過得去。
- */
-function classifyResult(code: ProcurementResultCode): ProcurementFailureCode | null {
-  switch (code) {
-    case 'CREATED':
-    case 'UPDATED':
-    case 'NO_CHANGE':
-      return null;
-    case 'SUPPLIER_INACTIVE':
-    case 'OVER_ALLOCATION':
-    case 'ALLOCATED_BELOW_RECEIVED':
-    case 'INVALID_ALLOCATED':
-    case 'INVALID_REPLY_STATUS':
-    case 'INVALID_CONTACT_CHANNEL':
-    case 'INVALID_SUPPLIER_ORDER_NO':
-    case 'INVALID_EXCEPTION_REASON':
-    case 'SUBMITTED_AT_OUT_OF_RANGE':
-    case 'SUBMITTED_AT_IN_FUTURE':
-    case 'EXPECTED_ARRIVAL_OUT_OF_RANGE':
-    case 'INVALID_INPUT':
-    case 'ORDER_ITEM_NOT_FOUND':
-    case 'SUPPLIER_NOT_FOUND':
-      return code;
-  }
-}
+// A9h-1(2026-08-06):`classifyResult` 已抽到 `./procurement-result` —— A9h 批次 coordinator
+// 要用同一套語意,兩份 switch 會在加碼時漂移(症狀=同一個碼在單列失敗、在批次成功)。
+// 本檔的呼叫點字面未動。
 
 /** 三個成功碼各自的 PRG 結果碼(員工要看得出「有沒有真的改到東西」)。 */
 function successResultCode(code: 'CREATED' | 'UPDATED' | 'NO_CHANGE'): string {
