@@ -1214,13 +1214,13 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
   // ══════════════════════════════════════════════════════════════════════════
   // 🔴 N°05 本月聚焦版面壓縮片(2026-08-06;OD 逐字段落標題 `963px 砍半`)。
   //    本組只釘「版面/尺寸」類的值(padding/grid/字級/meta 條/圖片比例)。
-  //    中文排版六值(標題 line-height/letter-spacing、內文 line-height/max-width)
-  //    是 manifest 記過的「D5e-2b 刻意未搬」組,本片刻意不動 ⇒ 反過來釘住舊值,
-  //    擋的是「有人在做版面壓縮時順手把那組也一起改了」。
-  //    ⚠️ 解除條件:下面 `.ed-feature-title` / `.ed-feature-body` 兩條測試裡釘
-  //    line-height / letter-spacing / max-width 舊值那四條斷言,釘的是「緩辦中」
-  //    的狀態、不是拍板要永久維持——排到中文排版片(OD `N05-FOCUS-HANDOFF.md` §6-1)
-  //    時要跟著一起改成新值,那時看到這四條轉紅是正常訊號,不是要回退改動。
+  //    🔴 **2026-08-07 更新:中文排版那組的緩辦已解除。**
+  //    本組原本除了版面值,還「反過來釘住」中文排版的**舊**值(標題 line-height/letter-spacing、
+  //    內文 line-height/max-width),擋的是「有人做版面壓縮時順手把那組也改了」;
+  //    抬頭當時寫死解除條件:「排到中文排版片時要跟著改成新值,那時看到轉紅是正常訊號」。
+  //    ⇒ 排版六值片已兌現:下面兩條測試現在釘的是 **OD §6-1 的新值**(共五條斷言,
+  //    含新增的 `text-wrap: balance`),並各加一條「舊值不得復辟」的反面斷言。
+  //    歷史與「為什麼當初刻意不搬」留在 `home.css`(grep `排版六值片`)。
   // ══════════════════════════════════════════════════════════════════════════
   describe('🔴 N°05 本月聚焦版面壓縮片:963px 砍半(OD 逐字段落標題 `963px 砍半`)', () => {
     it('`.ed-feature` padding 是砍半後的 52px 0 56px,不是舊的 140px 0;OD 逐字第三條 border-top 也要在', () => {
@@ -1255,25 +1255,70 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       expect(kicker, 'margin-bottom 還是舊值 22px ⇒ 壓縮沒生效').toMatch(/margin-bottom:\s*12px/);
     });
 
-    it('`.ed-feature-title` 字級與留白砍半(clamp(30px,3.2vw,46px) / margin 0 0 18px),中文排版值刻意維持舊值', () => {
+    it('`.ed-feature-title` 字級與留白砍半(clamp(30px,3.2vw,46px) / margin 0 0 18px)+ 中文排版三值照 OD §6-1(2026-08-07 解除緩辦)', () => {
       const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-title\s*\{[^}]*\}/)?.[0] ?? '';
       expect(rule, '找不到 .ed-feature-title 規則').not.toBe('');
       expect(rule, 'font-size 還是舊的巨大字級 clamp(48px,5.4vw,80px)').toMatch(/font-size:\s*clamp\(30px,\s*3\.2vw,\s*46px\)/);
       expect(rule, 'margin 還是舊值 0 0 32px').toMatch(/margin:\s*0 0 18px/);
-      // 🔴 這兩顆刻意不搬(manifest `last_modified_date` 敘述 + `home.css` 🔴🔴 開頭
-      //    那段申報記的「D5e-2b 刻意未搬」中文排版組,非 technical_overrides 那組欄位)——
-      //    有人在做版面壓縮時順手把它們也改掉,等於沒經過 Sean 肉眼驗就動了視覺重量。
-      expect(rule, 'line-height 被順手改動 ⇒ 中文排版值屬待審範圍,不該在本片被動').toMatch(/line-height:\s*0\.98/);
-      expect(rule, 'letter-spacing 被順手改動 ⇒ 同上').toMatch(/letter-spacing:\s*-0\.02em/);
+      // 🔴 **2026-08-07 翻向**:這兩顆原本釘的是「緩辦中的舊值」(0.98 / -0.02em),
+      //    抬頭寫明「排到中文排版片時要跟著改成新值,那時看到轉紅是正常訊號」——**今天兌現**。
+      //    現在釘的是 OD `N05-FOCUS-HANDOFF.md` §6-1 的新值。歷史留在 `home.css` 那段申報。
+      expect(rule, 'line-height 沒搬到 OD §6-1 的 1.2 ⇒ 中文標題折兩行會黏住').toMatch(/line-height:\s*1\.2/);
+      expect(rule, 'letter-spacing 沒搬到 -0.01em ⇒ 負字距套方塊字會互相擠').toMatch(/letter-spacing:\s*-0\.01em/);
+      expect(rule, '缺 text-wrap: balance ⇒ 第二行可能只吊三個字(§6-1 第三列)').toMatch(/text-wrap:\s*balance/);
+      // 反面:舊值不得復辟(這一族在本 repo 出過「搬一半」的事)。
+      expect(rule, 'line-height 又回到緩辦期的 0.98').not.toMatch(/line-height:\s*0\.98/);
+      expect(rule, 'letter-spacing 又回到緩辦期的 -0.02em').not.toMatch(/letter-spacing:\s*-0\.02em/);
     });
 
-    it('`.ed-feature-body` 字級與留白砍半(font-size 15px / margin 0 0 24px),中文排版值刻意維持舊值', () => {
+    it('`.ed-feature-body` 字級與留白砍半(font-size 15px / margin 0 0 24px)+ 中文排版兩值照 OD §6-1(2026-08-07 解除緩辦)', () => {
       const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-body\s*\{[^}]*\}/)?.[0] ?? '';
       expect(rule, '找不到 .ed-feature-body 規則').not.toBe('');
       expect(rule, 'font-size 還是舊值 16px').toMatch(/font-size:\s*15px/);
       expect(rule, 'margin 還是舊值 0 0 40px').toMatch(/margin:\s*0 0 24px/);
-      expect(rule, 'line-height 被順手改動 ⇒ 中文排版值屬待審範圍,不該在本片被動').toMatch(/line-height:\s*1\.75/);
-      expect(rule, 'max-width 被順手改動 ⇒ 同上').toMatch(/max-width:\s*34ch/);
+      // 🔴 **2026-08-07 翻向**(同上,解除條件兌現)。
+      expect(rule, 'line-height 沒搬到 OD §6-1 的 1.85 ⇒ 中文行距不夠開').toMatch(/line-height:\s*1\.85/);
+      expect(rule, 'max-width 沒搬到 30em ⇒ `ch` 量的是拉丁字元寬,中文會折成細長條').toMatch(/max-width:\s*30em/);
+      // 反面:`ch` 不得回來(這是本組最容易被改回去的一顆 —— 兩者長得都像「30 幾個字」)。
+      expect(rule, 'max-width 又用回 ch 單位 ⇒ 中文下不成比例').not.toMatch(/max-width:\s*[\d.]+ch/);
+    });
+
+    // 🔴 審查抓到的潛在缺口:上面五條全走 `topLevelCss()`(它**刻意剝掉 @media**)
+    //    ⇒ 把 `line-height: 0.98` 塞進某個 `@media` 裡的 `.ed-feature-title`,五條照樣全綠、
+    //    而窄幅就復辟了舊值。這正是本檔開頭記過的假綠形狀(「別用 [\s\S]*? 跨 @media」那條)。
+    //    現況:@media 內零 `.ed-feature-title/-body` 覆寫(已查)⇒ 這條是把現況釘住。
+    it('🔴 中文排版那五顆不得躲進 @media 復辟舊值(五條主斷言都剝掉 @media、看不到那裡)', () => {
+      // 🔴 不能用 `CSS.replace(topLevelCss(), '')` 減掉頂層 —— `topLevelCss()` 回的是**重組後的
+      //    字串**、不是 `CSS` 的字面子字串,`replace` 減不掉,結果會拿基礎規則來比、假紅。
+      //    (我第一版就是這樣,守門紅了才發現紅的是自己。)⇒ 改用大括號走訪器只取 @media 內容。
+      const mediaBodies: string[] = [];
+      for (let k = CSS.indexOf('@media'); k > -1; k = CSS.indexOf('@media', k + 6)) {
+        const open = CSS.indexOf('{', k);
+        if (open < 0) break;
+        let depth = 0;
+        for (let i = open; i < CSS.length; i += 1) {
+          if (CSS[i] === '{') depth += 1;
+          else if (CSS[i] === '}') {
+            depth -= 1;
+            if (depth === 0) { mediaBodies.push(CSS.slice(open + 1, i)); break; }
+          }
+        }
+      }
+      expect(mediaBodies.length, '一個 @media 區塊都沒切出來 ⇒ 本條前提失效').toBeGreaterThan(3);
+      const inMedia = mediaBodies.join('\n');
+      for (const sel of ['.ed-feature-title', '.ed-feature-body']) {
+        const rules = [...inMedia.matchAll(new RegExp(`\\${sel}\\s*\\{([^}]*)\\}`, 'g'))].map((m) => m[1]!);
+        for (const body of rules) {
+          expect(
+            body,
+            `@media 內的 ${sel} 覆寫了 line-height ⇒ 主斷言看不到、窄幅會是另一個值`,
+          ).not.toMatch(/line-height:/);
+          expect(
+            body,
+            `@media 內的 ${sel} 覆寫了 letter-spacing / max-width / text-wrap ⇒ 同上`,
+          ).not.toMatch(/letter-spacing:|max-width:|text-wrap:/);
+        }
+      }
     });
 
     it('`.ed-feature-meta` 從留白較寬的三欄條壓成單行資料條(gap 0 26px / padding 16px 0 / margin-bottom 18px)', () => {
