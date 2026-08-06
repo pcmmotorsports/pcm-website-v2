@@ -82,12 +82,10 @@ describe('MobileTabBar', () => {
   });
 
   // 🔶 第5批(Sean 2026-08-06 拍板 Q5=A):結帳流程不給全站導覽。
-  //    🔴🔴 **拍板前提有誤、等重新裁定(STOP Q6)**:我原本寫「設計稿 checkout-page.html
-  //    整頁沒有 TabBar 的 markup」—— 那是大小寫敏感 grep 造成的假字面。實際上
-  //    `checkout-page.html:123-128` 有完整五顆 tab、購物車那顆 `is-active`,
-  //    且與 `:87` 的 buybar **同時存在**。這幾條測試先照現行拍板釘著,若 Sean 改判要一起翻。
-  //    保留 A 的獨立理由(仍成立):真站 ≤900px 的 `.co-mobile-buybar`(z-index 100)
-  //    壓在 TabBar(z-index 40)上面。
+  //    🔴 **理由是產品選擇、與設計稿脫鉤**(Q6=A 覆核維持):結帳流程中不給岔出去的入口。
+  //    設計稿 `checkout-page.html:123-128` **其實有** TabBar 且與 buybar 同時存在 ——
+  //    Q5 當初是在「設計稿沒有 TabBar」這個假前提上拍的(大小寫敏感 grep 漏掉小寫字面),
+  //    更正後 Sean 仍維持藏起來 ⇒ 本站在這一點上是**知情偏離**,不是對齊。
   //    🔴 `/checkout/callback` 也要藏:它渲染 `CheckoutSuccess`、同樣掛 `.co-page`,
   //    而 checkout.css 那條讓位 padding 歸零規則是以 `.co-page` 為條件 ——
   //    兩邊涵蓋的路徑集合不一致的話,會出現「TabBar 在、底部 padding 卻沒了」

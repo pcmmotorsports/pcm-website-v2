@@ -78,9 +78,9 @@ async function homeHtml(
 /** N°05 那一段的切片(切界理由見下方那條測試的紅字)。 */
 function featureSection(html: string): string {
   const start = html.indexOf('class="ed-feature"');
-  const end = html.indexOf('class="ed-brands"');
+  const end = html.indexOf('class="b-brands"');
   expect(start, '找不到 ed-feature 區塊').toBeGreaterThanOrEqual(0);
-  expect(end, '找不到 ed-brands(切界抓不到下界)').toBeGreaterThan(start);
+  expect(end, '找不到 b-brands(切界抓不到下界)').toBeGreaterThan(start);
   return html.slice(start, end);
 }
 
@@ -95,7 +95,7 @@ const SECTION_CLASS = {
   cats: 'ed-cats',
   select: 'ed-select',
   statement: 'ed-statement',
-  brands: 'ed-brands',
+  brands: 'b-brands',
   footer: 'ed-footer',
 } as const;
 
@@ -235,7 +235,7 @@ describe('首頁 · 區塊順序(D5a)', () => {
 
     expect(section, '標題沒有帶當期品牌名 ⇒ PIN 沒接上').toContain(`${expected.name}.`);
     // D5e-2b:主按鈕目的地由 legacy `/products?brand=` 改成品牌介紹頁 `/brands/<slug>`。
-    // 切界已收到 `ed-brands` 之前 ⇒ 這條不會被 BrandIndex 的同形連結滿足(R3 F5 那個理由)。
+    // 切界已收到 `b-brands` 之前 ⇒ 這條不會被 BrandIndex 的同形連結滿足(R3 F5 那個理由)。
     expect(section, '主按鈕沒指向當期品牌的介紹頁').toContain(`/brands/${expected.slug}`);
     // 領頭「全部商品」與分類列都掛在同一個當期 slug 上。
     expect(section, '分類列的領頭沒指向當期品牌').toContain(`/products?pbrand=${expected.slug}`);

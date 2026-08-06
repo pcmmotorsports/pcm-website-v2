@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve } from 'node:path';
 import { BrandDirectoryRoot } from './BrandDirectoryRoot';
 import { BRAND_CONTENT } from '@/data/brand-content';
-import { BRAND_DIRECTORY_LOGO_SCALE } from '@/data/brand-directory-scale';
+import { BRAND_TRIM_LOGO_SCALE } from '@/data/brand-trim-logo-scale';
 import { brandAsset, brandTrimLogo } from '@/lib/brand-asset';
 
 afterEach(cleanup);
@@ -80,7 +80,7 @@ describe('BrandDirectoryRoot · 結構', () => {
       // 🔴 `toContain` 會被更長的數字滿足(`1` ⊂ `1.18`、`1.1` ⊂ `1.18`;實際 4 家會中)
       //    ⇒ 用「後面不能再接數字或小數點」的邊界(關卡2 R1 nit)。
       expect(logo, `${brand.slug} 的 --logo-scale`).toMatch(
-        new RegExp(`--logo-scale: ${String(BRAND_DIRECTORY_LOGO_SCALE[brand.slug]).replace('.', '\\.')}(?![.\\d])`),
+        new RegExp(`--logo-scale: ${String(BRAND_TRIM_LOGO_SCALE[brand.slug]).replace('.', '\\.')}(?![.\\d])`),
       );
       expect(card.querySelector('.bd-brand-about')!.getAttribute('href')).toBe(`/brands/${brand.slug}`);
       expect(card.querySelector('.bd-brand-products')!.getAttribute('href')).toBe(
@@ -93,12 +93,12 @@ describe('BrandDirectoryRoot · 結構', () => {
   //    (實測 20 家有 19 家的值不一樣);沿用的話畫面看起來「有 scale」但 19 家都是錯的大小,
   //    而上一條那種「有沒有輸出 --logo-scale」的斷言完全看不出來。
   it('🔴 卡片的校正值與品牌頁磚牆的 `logoScale` 是兩份(不是沿用)', () => {
-    const differing = BRAND_CONTENT.filter((b) => BRAND_DIRECTORY_LOGO_SCALE[b.slug] !== b.logoScale);
+    const differing = BRAND_CONTENT.filter((b) => BRAND_TRIM_LOGO_SCALE[b.slug] !== b.logoScale);
     expect(differing.length, '兩份值完全一樣 ⇒ 要嘛有人把總覽改成沿用了、要嘛設計稿改了').toBe(19);
   });
 
   it('🔴 校正表的鍵集合必須與 `BRAND_CONTENT` 完全一致(新增第 21 家漏加會靜默吃預設 1)', () => {
-    expect(Object.keys(BRAND_DIRECTORY_LOGO_SCALE).sort()).toEqual([...SLUGS].sort());
+    expect(Object.keys(BRAND_TRIM_LOGO_SCALE).sort()).toEqual([...SLUGS].sort());
   });
 });
 

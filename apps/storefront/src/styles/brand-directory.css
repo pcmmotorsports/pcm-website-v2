@@ -176,7 +176,7 @@
    ⇒ 不補的話瀏覽器預設當場生效:實測 `padding-inline-start: 40px`(整片格子右移 40px、
    與 `border-left` 之間空一條)、`margin-block: 16px`、`list-style-type: disc`。
    ⚠️ **這件事我量欄數、量卡高、量 overflowX 全部看不到** —— 欄數與卡高一點都沒變。
-   既有先例:`home.css` 的 `.ed-brand-list`(同樣是 `<ul>`)逐字補了同樣三行。
+   既有先例:`home.css` 的 `.b-brand-wall`(同樣是 `<ul>`)也補了同族三行(值不同、動機相同)。
    補在 `.bd-grid` 上、不補全域 `ul` —— 全域 reset 是站台語彙,不由單一頁面開先例。 */
 .bd-grid {
   margin: 0;
@@ -242,7 +242,7 @@
   color: var(--bd-mute);
 }
 /* --logo-scale 是 per-brand 的光學校正旋鈕。
-   🔴 **值來自 `data/brand-directory-scale.ts`,不是 `BrandContent.logoScale`**
+   🔴 **值來自 `data/brand-trim-logo-scale.ts`,不是 `BrandContent.logoScale`**
       (關卡2 R1 must-fix 3 更正:本行原本寫「與品牌頁磚牆同一份資料」—— 那是**錯的**,
       而且照著它去改成沿用的話,20 家有 19 家的 logo 目視大小會全錯)。
       兩份是各自的光學校正:磚牆 58px/92%、這裡 54px/86%,底色也不同。 */

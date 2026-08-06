@@ -12,6 +12,21 @@
 import { describe, expect, it } from 'vitest';
 import { BRAND_CONTENT, BRAND_BY_SLUG } from './brand-content';
 
+/**
+ * 走訪一顆品牌裡所有「會被客人看到」的字串。
+ * 🔴 **視覺前一字**:比對標點時要看的是**渲染後**眼睛看到的前一個字,不是原始字串的前一個 char ——
+ *    `…完成</strong>,廠址…` 的原始前一 char 是 `>`,而客人看到的是「成」。
+ *    R1 抓到:沒剝標記的版本對 53 處實際違規回報 0(見下面兩條的分層守法)。
+ */
+const allStrings = (value: unknown, out: string[] = []): string[] => {
+  if (typeof value === 'string') out.push(value);
+  else if (Array.isArray(value)) for (const v of value) allStrings(v, out);
+  else if (value && typeof value === 'object') for (const v of Object.values(value)) allStrings(v, out);
+  return out;
+};
+
+const stripTags = (s: string) => s.replace(/<[^>]+>/g, '');
+
 describe('品牌內容 · 身分與查表', () => {
   it('20 家', () => {
     expect(BRAND_CONTENT).toHaveLength(20);
@@ -145,13 +160,6 @@ describe('🔴 品牌內容 · 標記白名單(把 D1b 的資料釘在 D1a 的 p
   // parser(lib/brand-rich-text)只認 <strong> / <br>,白名單外一律當純文字顯示。
   // 若哪天有人在內容裡寫了 <em> 或 <a href>,網站不會壞、但畫面上會出現那串標籤原文。
   // 那種 bug 三綠全綠、型別全過、肉眼要逐頁看才找得到 ⇒ 必須在資料層擋。
-  const allStrings = (value: unknown, out: string[] = []): string[] => {
-    if (typeof value === 'string') out.push(value);
-    else if (Array.isArray(value)) for (const v of value) allStrings(v, out);
-    else if (value && typeof value === 'object') for (const v of Object.values(value)) allStrings(v, out);
-    return out;
-  };
-
   it('全部字串裡不得出現白名單以外的標籤', () => {
     const offenders: string[] = [];
     for (const raw of allStrings(BRAND_CONTENT)) {
@@ -181,5 +189,139 @@ describe('🔴 品牌內容 · 標記白名單(把 D1b 的資料釘在 D1a 的 p
       for (const m of raw.matchAll(/&[a-zA-Z#0-9]+;/g)) if (!known.test(m[0])) offenders.push(m[0]);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔶 2026-08-06 標點遷移片(H1)· 本檔由 OD 來源重產,守門三族
+// ══════════════════════════════════════════════════════════════════════════════
+
+
+describe('🔴 標點遷移(Sean 2026-08-05 拍板 A · 全站遷移)', () => {
+  // 判準 = handoff §七逐字:「**前一個字是中文才全形**;英數字後面維持半形」。
+  // 兩個方向都要守:只守單向的話,「英數字後誤用全形」那半會全綠
+  // (`brand-focus-data.test.ts` 的 R1 nit 實測過同一個洞)。
+  //
+  // 🔴 **「前一個字」要看渲染後的,不是原始字串的前一 char**(R1 must-fix)。
+  //    初版直接對原始字串比對 ⇒ `…完成</strong>,廠址…` 的前一 char 是 `>`、不是「成」,
+  //    **當前資料就有 53 處實際違規而它回報 0**。那不是理論缺口:
+  //    gilles 那句渲染後客人讀到的是「…Yamaha 車款上**,**並以此…」。
+  //
+  //    做法:把標記換成**等長**的 NUL(位置不動),往回找第一個可見字,同時記錄
+  //    「有沒有跨過標記」—— 這兩件事決定它落在哪一層。
+  //    🔴 為什麼不直接 stripTags:剝完之後兩層長得一模一樣,分不出來 ——
+  //       實測 48 處會全部落進零容忍那層,baseline 那條就永遠不可能成立。
+  const scanHalfWidthAfterCJK = () => {
+    const plain: string[] = [];
+    const boundary: string[] = [];
+    for (const brand of BRAND_CONTENT) {
+      for (const raw of allStrings(brand)) {
+        const masked = raw.replace(/<[^>]+>/g, (t) => ' '.repeat(t.length));
+        for (const m of masked.matchAll(/[,;:.!?]/g)) {
+          let j = m.index - 1;
+          let crossedTag = false;
+          while (j >= 0 && (masked[j] === ' ' || /\s/.test(masked[j]!))) {
+            if (masked[j] === ' ') crossedTag = true;
+            j -= 1;
+          }
+          if (j < 0) continue;
+          const prev = masked[j]!;
+          const where = `${brand.slug}: 「…${raw.slice(Math.max(0, m.index - 12), m.index + 4)}…」`;
+          // 右括號/右引號是「中文的收尾」,視同中文那一側;它與跨標記同屬邊界族。
+          if (/[）」』】]/.test(prev)) boundary.push(where);
+          else if (/[一-鿿]/.test(prev)) (crossedTag ? boundary : plain).push(where);
+        }
+      }
+    }
+    return { plain, boundary };
+  };
+
+  it('中文後面不得出現半形標點(純內文、沒有標記擋著 ⇒ 零容忍)', () => {
+    // 🔴 掃描器的字元類刻意**不含 `(`**,與 `brand-focus-data.test.ts` 同一個理由:
+    //    一對括號的寬度由**左括號**前面是什麼決定。實例 rpm-carbon
+    //    `DryCarbon(即 PrePreg 預浸布)` —— 左括號前是 `n`(拉丁)⇒ 整對半形是對的,
+    //    但右括號前面是「布」。照「前一字」判右括號,會判出一條**要求把資料改錯**的紅。
+    const { plain } = scanHalfWidthAfterCJK();
+    expect(plain, `有 ${plain.length} 處中文後接半形標點:\n${plain.slice(0, 20).join('\n')}`).toEqual(
+      [],
+    );
+  });
+
+  // 🔴 **這 53 處是已知債、不是「可接受」**(R1 抓到我原本對它們全盲)。
+  //    形狀只有兩種:①隔著 `</strong>`(49 處)②在全形右括號/右引號之後(4 處)——
+  //    都是「機械遷移只看緊鄰前一字」會漏掉的邊界,OD 端那次遷移用的顯然是同款規則。
+  //    ⚠️ **修正點在 OD 來源、不在本檔**(本檔是機器產物);回寫債掛在 #322 旁邊。
+  //    這條把數字釘死:**變多 = 有人新寫了漏網的;變少 = OD 修好了 ⇒ 回來改這個數字並結債**。
+  //    🔴 絕不可為了讓它綠而放寬上面那條零容忍 —— 那是 R4 立即停止訊號。
+  const KNOWN_BOUNDARY_MISSES = 53;
+
+  it(`已知邊界漏網恰 ${KNOWN_BOUNDARY_MISSES} 處(隔著標記或右括號;修正點在 OD 來源)`, () => {
+    const { boundary } = scanHalfWidthAfterCJK();
+    expect(
+      boundary.length,
+      `邊界漏網從 ${KNOWN_BOUNDARY_MISSES} 變成 ${boundary.length} ⇒ 變多=新寫了漏網的(修 OD 資料);`
+        + '變少=OD 端修好了(回來改這個數字、把 #322 旁那筆債結掉)。'
+        + `**不要改上面那條零容忍守門**。\n${boundary.slice(0, 10).join('\n')}`,
+    ).toBe(KNOWN_BOUNDARY_MISSES);
+  });
+
+  it('英數字後面不得誤用全形的「句中」標點(反向那一半)', () => {
+    const offenders: string[] = [];
+    for (const brand of BRAND_CONTENT) {
+      for (const raw of allStrings(brand)) {
+        // 🔴 射程刻意只到「寬度真的由前一個 token 決定」的那幾顆:`，：；（`。
+        //    **不含 `。！？`(句末終止符)、也不含 `、`(列舉頓號)**。
+        //    理由是實測出來的:資料裡有 12 處是「中文句子剛好以拉丁縮寫結尾」
+        //    (`…遠不只 Ducati。`),55 處是「中文句子裡列舉拉丁名」(`Ducati、BMW、Honda`)。
+        //    那些標點屬於**整句中文**,不屬於前面那個 token;照「前一字」判會要求寫成
+        //    `…只做 Ducati.` 與 `Ducati,BMW`,夾在中文段落裡是錯的排版。
+        //    ⇒ 句末終止符與列舉頓號的寬度由**句子的語言**決定,不由前一個字元決定。
+        //    ⚠️ 代價講白:「純英文句子誤用全形 `。、！？`」這一族**目前沒有守門**
+        //       (當前資料不存在該情形 ⇒ 零實害;哪天出現英文段落要回來補)。
+        //    同樣先剝標記,理由見上面那條。
+        for (const m of stripTags(raw).matchAll(/[0-9A-Za-z]\s*[，；：（]/g)) {
+          offenders.push(`${brand.slug}: 「…${m[0]}…」`);
+        }
+      }
+    }
+    expect(
+      offenders,
+      `有 ${offenders.length} 處英數字後誤用全形標點:\n${offenders.slice(0, 20).join('\n')}`,
+    ).toEqual([]);
+  });
+
+  // 前提:遷移真的發生過。上面幾條在「整批資料都沒有中文」時也會綠(空集合恆真),
+  // 這條讓「有人把資料清空/換掉」也會紅。
+  it('前提 — 全形逗號確實大量存在(上面幾條不是在空集合上恆真)', () => {
+    const total = BRAND_CONTENT.flatMap((b) => allStrings(b)).join('').match(/，/g)?.length ?? 0;
+    expect(total, '全形逗號數量異常偏低 ⇒ 遷移被回退,或資料被換掉了').toBeGreaterThan(300);
+  });
+});
+
+describe('🔴 重產會踩掉的兩顆手改(重產的人照這裡對)', () => {
+  // 這兩條的意義:本檔是**機器產生**的,而產生來源與本檔並非完全同步。
+  // 每一顆「本檔有、OD 沒有」的覆寫都必須在這裡有一條,否則下一次重產會靜默弄丟它。
+  it('KINEO 的 categories 是 Sean 拍板的兩層字面,不是 OD 的舊值', () => {
+    const kineo = BRAND_BY_SLUG.kineo;
+    expect(kineo, 'kineo 不見了 ⇒ 下面兩條失去對象').toBeTruthy();
+    // `?? []` 不是放寬:kineo 不見時上一條已經紅了,這裡只是讓型別收斂(TS 不從 expect narrow)。
+    const names = (kineo?.categories ?? []).map((c) => c[0]);
+    expect(names, 'KINEO categories 退回 OD 舊值 ⇒ 分類深連結會靜默不篩選(backlog #315)').toContain(
+      '懸吊與車架 · 輪圈',
+    );
+    expect(names, '舊字面 `輪框與傳動` 又回來了 ⇒ 重產時忘了套回覆寫').not.toContain('輪框與傳動');
+  });
+
+  // wallTagline 是這一片隨 OD 帶進來的新欄位,消費端是還沒做的 D5f 磚牆片。
+  // 沒有消費端的資料最容易在下一次重構被當成死欄位刪掉,所以先釘住。
+  it('20 家都有 wallTagline(D5f 磚牆片的輸入,現在還沒有消費端)', () => {
+    const missing = BRAND_CONTENT.filter((b) => !b.wallTagline?.trim()).map((b) => b.slug);
+    expect(missing, 'wallTagline 缺漏 ⇒ D5f 磚牆那一格會是空的').toEqual([]);
+    // 🔴 R1 nit:只驗非空的話,**兩家對調、或 20 家全改成同一個字**都會綠(實測)。
+    //    這欄沒有消費端可以幫忙抓錯,所以形狀之外還要釘「彼此互異」。
+    expect(
+      new Set(BRAND_CONTENT.map((b) => b.wallTagline)).size,
+      'wallTagline 有重複 ⇒ 磚牆上會出現兩格一模一樣的副標(抄貼錯位的典型症狀)',
+    ).toBe(BRAND_CONTENT.length);
   });
 });

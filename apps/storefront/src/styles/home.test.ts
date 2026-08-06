@@ -80,7 +80,7 @@ function topLevelCss(): string {
   }
 }
 
-describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
+describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () => {
   it('🔴 註解符號成對(未閉合的 /* 會讓瀏覽器吞掉後半個檔,而剝註解的守門照樣全綠)', () => {
     const open = RAW.match(/\/\*/g)?.length ?? 0;
     const close = RAW.match(/\*\//g)?.length ?? 0;
@@ -120,64 +120,128 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   });
 
   // 🔴 這條守兩件事,兩件都是「壞了也沒有任何其他測試會紅」:
-  //    ① 退回只寫 `a` ⇒ 泛白那幾列整個沒有 grid(五格擠成一行)。
-  //    ② 寫成**後代**選擇器 `.ed-brand-list :is(a, span)` ⇒ 列內每一個 `<span>`
-  //       (編號/名稱/標語/國別)也被套上 `display:grid` + 26px padding,整排爆掉。
-  //       ②是本片第一版真的寫錯的形狀,不是假想。
-  it('🔴 品牌清單的版面規則吃 `<a>` 與 `<span>` 兩種,而且是**子**選擇器', () => {
+  //    ① 退回只寫 `a` ⇒ 泛白那幾磚整個沒有 grid(三層塌成一行、min-height 也不生效)。
+  //    ② 寫成**後代**選擇器 `.b-brand-wall :is(a, span)` ⇒ 磚內每一個 `<span>`
+  //       (編號/產地/logo/品類描述)也被套上 `display:grid` + padding,整面牆爆掉。
+  //       ②是 D3c-2 第一版真的寫錯的形狀,不是假想。
+  //    ⚠️ D5f 起錨點從欄寬(`grid-template-columns`)換成**列高**(`grid-template-rows`):
+  //       磚牆的欄數寫在 `.b-brand-wall` 自己身上,磚內版面是三列 —— 沿用舊錨點會零命中而恆綠。
+  it('🔴 品牌磚的版面規則吃 `<a>` 與 `<span>` 兩種,而且是**子**選擇器', () => {
     const layout = [
-      ...CSS.matchAll(/([^{}]*\.ed-brand-list[^{}]*)\{([^}]*grid-template-columns[^}]*)\}/g),
+      ...CSS.matchAll(/([^{}]*\.b-brand-wall[^{}]*)\{([^}]*grid-template-rows[^}]*)\}/g),
       // 🔴 正規化空白再比(關卡2 R1 nit):逐字比 `:is(a, span)` 的話,把 CSS 排版成
       //    `:is(a,span)` 會轉紅 —— 行為零變化的假紅會訓練人忽略這條守門。
     ].map((m) => m[1]!.trim().replace(/\s+/g, ' ').replace(/,\s*/g, ', '));
-    expect(layout.length, '找不到 .ed-brand-list 的欄寬規則').toBe(2); // 基礎 + ≤900
+    expect(layout.length, '找不到 .b-brand-wall 的磚內列高規則').toBe(3); // 基礎 + ≤900 + ≤700
     for (const selector of layout) {
       expect(
         selector,
-        `${selector} 不是 \`> li > :is(a, span)\` ⇒ 泛白列沒有 grid、或列內 span 被誤套`,
-      ).toBe('.ed-brand-list > li > :is(a, span)');
+        `${selector} 不是 \`> li > :is(a, span)\` ⇒ 泛白磚沒有 grid、或磚內 span 被誤套`,
+      ).toBe('.b-brand-wall > li > :is(a, span)');
     }
   });
 
-  it('🔴 兩條裡有一條在 `@media (max-width: 900px)` 內(手機欄寬 jsdom 完全看不到)', () => {
-    // 🔴 與上一條同樣要**正規化空白再比**(關卡2 R2 nit:R1 那次只補進上一條,
-    //    這條還留著含空白的逐字比對 ⇒ 把 ≤900 那條排版成 `:is(a,span)` 會誤紅)。
-    const narrow = mediaBlock('(max-width: 900px)').replace(/\s+/g, ' ').replace(/,\s*/g, ', ');
-    expect(narrow.length, '找不到 ≤900 區塊').toBeGreaterThan(0);
-    expect(narrow, '≤900 區塊裡的品牌清單規則不是兩型別子選擇器').toContain(
-      '.ed-brand-list > li > :is(a, span)',
-    );
-    // 宣告這一半用 `\s*`(正規化只收斂了空白數量,沒有替我補上冒號後的空格)。
-    expect(narrow).toMatch(/grid-template-columns:\s*36px/);
+  it('🔴 三條裡有兩條在窄斷點內(≤900 / ≤700;jsdom 對 media query 完全看不到)', () => {
+    // 🔴 與上一條同樣要**正規化空白再比**(關卡2 R2 nit)。
+    for (const [query, rows] of [
+      ['(max-width: 900px)', /grid-template-rows:\s*auto 52px/],
+      ['(max-width: 700px)', /grid-template-rows:\s*auto 50px/],
+    ] as const) {
+      const narrow = mediaBlock(query).replace(/\s+/g, ' ').replace(/,\s*/g, ', ');
+      expect(narrow.length, `找不到 ${query} 區塊`).toBeGreaterThan(0);
+      expect(narrow, `${query} 區塊裡的磚版面規則不是兩型別子選擇器`).toContain(
+        '.b-brand-wall > li > :is(a, span)',
+      );
+      expect(narrow, `${query} 的磚內列高不對`).toMatch(rows);
+    }
   });
 
-  // 🔴 泛白那一半原本零守門:整段刪掉,元件測試(語意層)仍全綠、列看起來與可點列一模一樣,
+  // 🔴 欄數是這面牆的承重值:20 家 ÷ 5 欄 = 剛好四列、CTA 另起一列跨滿(OD :464/:497)。
+  //    欄數被改掉不會有任何元件測試轉紅,而版面會出現半空的最後一列。
+  it('🔴 磚牆欄數 = 5 / ≤1200 → 4 / ≤700 → 2,且 CTA 磚在每一段都跨滿一列', () => {
+    const cols = (css: string) =>
+      css.replace(/\s+/g, ' ').match(/\.b-brand-wall\s*\{[^}]*grid-template-columns:\s*([^;}]+)/)?.[1]?.trim();
+    expect(cols(topLevelCss()), '桌機欄數不是 5').toBe('repeat(5, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 1200px)')), '≤1200 欄數不是 4').toBe('repeat(4, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 700px)')), '≤700 欄數不是 2').toBe('1fr 1fr');
+    // CTA 跨滿:欄數換了而它沒跟著,最後一列會出現一塊寬度不對的動作磚
+    for (const css of [topLevelCss(), mediaBlock('(max-width: 1200px)'), mediaBlock('(max-width: 700px)')]) {
+      expect(css.replace(/\s+/g, ' '), 'CTA 磚沒有跨滿一列')
+        .toMatch(/\.b-brand-wall li\.is-cta\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    }
+  });
+
+  // 🔴 泛白那一半原本零守門:整段刪掉,元件測試(語意層)仍全綠、磚看起來與可點磚一模一樣,
   //    但語意上不可點 = 對客人最糟的組合(同 brand-page.css `.is-empty` 那條的理由)。
   it('🔴 `.is-empty` 的泛白規則都在,且形狀是「同前綴 + 多一個 class」(嚴格更高、不靠順序)', () => {
     const rules = [...CSS.matchAll(/([^{}]*\.is-empty[^{}]*)\{([^}]*)\}/g)]
       .map((m) => ({ selector: m[1]!.trim(), body: m[2]! }))
-      .filter((r) => r.selector.includes('.ed-brand-list'));
-    expect(rules.length, '.ed-brand-list 的 .is-empty 規則不見了').toBe(3);
+      .filter((r) => r.selector.includes('.b-brand-wall'));
+    expect(rules.length, '.b-brand-wall 的 .is-empty 規則不見了').toBe(4);
     for (const r of rules) {
-      // 每一段(逗號清單要逐段看,不能只看第一段 —— 關卡2 R1 nit:第二段被改成裸
-      // `.is-empty .ed-brand-country` 這種會跨檔洩漏的形狀時,只檢查第一段仍全綠)
-      // 都必須以 `.ed-brand-list .is-empty` 起頭 —— 這個形狀嚴格包含競爭者
-      // (`.ed-brand-name` 等 (0,1,0)),所以勝負與規則順序無關,不會像 D3c-1 那樣反轉。
+      // 每一段(逗號清單要逐段看,不能只看第一段 —— 關卡2 R1 nit:某一段被改成裸
+      // `.is-empty .b-brand-tag` 這種會跨檔洩漏的形狀時,只檢查第一段仍全綠)
+      // 都必須以 `.b-brand-wall .is-empty` 起頭 —— 這個形狀嚴格包含競爭者
+      // (`.b-brand-tag` 等 (0,1,0)),所以勝負與規則順序無關,不會像 D3c-1 那樣反轉。
       for (const part of r.selector.split(',').map((s) => s.trim().replace(/\s+/g, ' '))) {
-        expect(part.startsWith('.ed-brand-list .is-empty'), `${part} 前綴不對`).toBe(true);
+        expect(part.startsWith('.b-brand-wall .is-empty'), `${part} 前綴不對`).toBe(true);
       }
     }
     const body = rules.map((r) => r.body).join(' ');
     expect(body, '游標沒有改掉').toMatch(/cursor\s*:\s*default/);
-    expect(body, '品牌名沒有轉淡').toMatch(/color\s*:\s*var\(--ed-c-ink-mute\)/);
-    // 🔴 標語與國別那條原本零斷言(關卡2 R1 nit:把 `.6` 改成 `1` ⇒ 兩格不再轉淡、
-    //    而 11 條新守門全綠)。這是本支唯一「拿掉之後真缺陷會靜默通過」的洞。
-    expect(body, '標語 / 國別沒有轉淡').toMatch(/opacity\s*:\s*\.6/);
+    // 🔴 逐條都要有斷言:值被改成不生效的那一種(grayscale(0) / opacity 1)是**看得見**的回歸,
+    //    而元件層完全看不到(它只驗語意)。這是「改壞值、保留選擇器」那種突變唯一會紅的地方。
+    expect(body, 'logo 沒有轉灰').toMatch(/filter\s*:\s*grayscale\(1\)/);
+    expect(body, 'logo 沒有降透明度').toMatch(/opacity\s*:\s*\.55/);
+    expect(body, '品類描述沒有轉淡').toMatch(/color\s*:\s*var\(--ed-c-ink-mute\)/);
+    expect(body, '編號 / 產地那一列沒有轉淡').toMatch(/opacity\s*:\s*\.6/);
+  });
+
+  // 🔴 hover 回饋(底色 + 熔橘頂線)**只能綁 `<a>`**:裸 `:hover` 對泛白磚的 `<span>` 照樣命中
+  //    —— `brand-directory.css` 就是這樣翻過車的(真瀏覽器實測泛白卡 hover 底色會翻白)。
+  //    這條同時是上面那族的配套:綁型別之後,`.is-empty` 不必再寫覆寫去搶權重。
+  it('🔴 磚牆的 hover 一族綁 `a`,不得出現吃得到 `<span>` 的裸 `:hover`', () => {
+    // 🔴 R1 F5:掃**整份 CSS**、不是只掃全斷點層 —— 裸 `:hover` 寫進任一 `@media` 一樣會
+    //    讓泛白磚在那個斷點有回饋,而只掃 `topLevelCss()` 的版本對它全綠。
+    const hovers = [...CSS.matchAll(/([^{}]*\.b-brand-wall[^{}]*:hover[^{}]*)\{/g)]
+      .map((m) => m[1]!.trim().replace(/\s+/g, ' '));
+    expect(hovers.length, '磚牆的 hover 規則不見了').toBeGreaterThanOrEqual(3);
+    for (const sel of hovers) {
+      expect(/(^|[\s>])a[.:]?[^\s>]*:hover/.test(sel), `${sel} 的 :hover 沒有綁在 a 上`).toBe(true);
+    }
+  });
+
+  // 🔴 logo 展示格的幾何是**與校正值綁在一起**的:`data/brand-trim-logo-scale.ts` 那 20 個值
+  //    是照「高 54px、寬 86%」目視校出來的,格子一改尺寸,20 家的目視大小就全部不對
+  //    —— 而元件測試只看得到 inline style 的字串,對這件事全盲。
+  it('🔴 logo 展示格 = 高 54px / 寬 86% / contain,且真的吃 `--logo-scale`', () => {
+    const rule = topLevelCss().match(/\.b-brand-logo\s*\{[^}]*\}/)?.[0]?.replace(/\s+/g, ' ') ?? '';
+    expect(rule, '找不到 .b-brand-logo 規則(全斷點層)').not.toBe('');
+    expect(rule, '格高不是 54px').toMatch(/height:\s*54px/);
+    expect(rule, '格寬不是 86%').toMatch(/width:\s*86%/);
+    // `contain` 之外的值(cover)會把 logo 裁掉、而且每一家裁的位置不同
+    expect(rule, 'background-size 不是 contain').toMatch(/background-size:\s*contain/);
+    // 🔴 元件端逐家算出來的 `--logo-scale` 若沒人讀,20 個值就是白寫的(而畫面只是「都一樣大」)
+    expect(rule, '沒有讀 --logo-scale ⇒ 逐家光學校正等於沒接上').toMatch(/transform:\s*scale\(var\(--logo-scale, 1\)\)/);
+  });
+
+  // 🔴 R1 F4:上面那條只讀全斷點層 ⇒ **窄斷點的 logo 尺寸零守門**,把 ≤900 / ≤700 改壞不會紅,
+  //    而那條的訊息卻寫「格子一改尺寸,20 家目視大小全部不對」= 宣稱大於判別力。這條補上兩段。
+  it('🔴 窄斷點的 logo 展示格尺寸照 OD(≤900 = 88%/52px、≤700 = 90%/50px)', () => {
+    for (const [query, w, h] of [
+      ['(max-width: 900px)', /width:\s*88%/, /height:\s*52px/],
+      ['(max-width: 700px)', /width:\s*90%/, /height:\s*50px/],
+    ] as const) {
+      const rule = mediaBlock(query).replace(/\s+/g, ' ').match(/\.b-brand-logo\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, `${query} 裡找不到 .b-brand-logo 規則`).not.toBe('');
+      expect(rule, `${query} 的 logo 格寬不對`).toMatch(w);
+      expect(rule, `${query} 的 logo 格高不對`).toMatch(h);
+    }
   });
 
   // 🔴 收**全部**碰到 `.ed-sr-only` 的規則、不是 `match()` 拿第一條(關卡2 R1 nit;
   //    姊妹檔 `brand-page.test.ts` 逐字記過同一個坑):日後補一條更具體的覆寫
-  //    (例如 `.ed-brand-list .ed-sr-only { position: static }`)會把那句只給報讀器的話
+  //    (例如 `.b-brand-wall .ed-sr-only { position: static }`)會把那句只給報讀器的話
   //    變成畫面上看得見的文字,而只看第一條的守門照樣綠。
   it('🔴 `.ed-sr-only` 是「看不見但唸得到」,不是 display:none / visibility:hidden,且全檔只有一條', () => {
     const all = [...CSS.matchAll(/([^{}]*\.ed-sr-only[^{}]*)\{([^}]*)\}/g)];
@@ -252,8 +316,11 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   });
 
   it('🔴 N°06 授權代理 = 淺灰白 --ed-c-paper-2(不是純白)', () => {
-    const rule = CSS.match(/\.ed-brands\s*\{[^}]*\}/)?.[0] ?? '';
-    expect(rule, '找不到 .ed-brands 規則').not.toBe('');
+    // ⚠️ D5f 把這一區換成磚牆 ⇒ 錨點由 `.ed-brands` 改 `.b-brands`。OD 的**基礎層**這一格
+    //    是 `var(--c-surface)`(純白),淺灰白來自套用層(:695)—— 折成一層時挑錯邊
+    //    正好會退回純白、而「節奏」那條肉眼才看得出來,故這條守的是折疊結果。
+    const rule = CSS.match(/\.b-brands\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-brands 規則').not.toBe('');
     expect(rule, '授權代理不是淺灰白').toMatch(/background:\s*var\(--ed-c-paper-2\)/);
     // 前提:這個 token 真的有定義,否則 var() 會 fallback 成透明 = 看起來像白、守門卻綠
     expect(CSS, '--ed-c-paper-2 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-paper-2:\s*#[0-9a-f]{3,8}/i);
