@@ -89,8 +89,11 @@ function featureSection(html: string): string {
  * 用 class 而不是文字內容當錨 —— 文字會因為 D5b-D5f 的字面統一一直變,class 是結構。
  */
 const SECTION_CLASS = {
-  hero: 'ed-hero',
-  finder: 'ed-finder',
+  // 🔴 H5:選車器 dock 化之後,`finder` **不再是與 hero 並列的 section** ——
+  //    它是 `.b-hero` 裡面的 `.b-dock`。所以它從這張順序表拿掉,改由下面那條
+  //    「dock 必須是 hero 的後代」單獨守;留在表裡的話 `indexOf` 只會證明「dock 出現在 hero 之後」,
+  //    而**巢狀與不巢狀都滿足那個條件** = 搬進去沒有真的被驗到。
+  hero: 'b-hero',
   editorial: 'ed-feature',
   cats: 'b-cats',
   select: 'ed-select',
@@ -113,14 +116,14 @@ function renderedOrder(html: string): string[] {
 }
 
 describe('首頁 · 區塊順序(D5a)', () => {
-  it('🔴 八個 section 全部有渲染出來(少一個 = 下面的順序斷言會變成弱斷言)', async () => {
+  it('🔴 七個 section 全部有渲染出來(少一個 = 下面的順序斷言會變成弱斷言)', async () => {
     const html = await homeHtml();
     const order = renderedOrder(html);
-    // 前提斷言:順序斷言只有在「八個都在」時才有意義。
+    // 前提斷言:順序斷言只有在「七個都在」時才有意義。
     // 少了任何一個,`toEqual` 比的就是一個較短的陣列 —— 那不是「順序對」,是「東西不見了」。
     expect(order, `渲染出來的 section 少了:${
       Object.keys(SECTION_CLASS).filter((k) => !order.includes(k)).join(', ') || '(無)'
-    }`).toHaveLength(8);
+    }`).toHaveLength(7);
   });
 
   it('🔴 順序 = OD README「區塊順序(第 7 步之後)」定案', async () => {
@@ -129,8 +132,7 @@ describe('首頁 · 區塊順序(D5a)', () => {
     //              N°04 服務宣言 / N°05 本月聚焦 / N°06 授權代理 / 頁尾
     // 節奏 = 白/白/深/白/淺灰白/深,沒有任何兩塊深色相鄰。
     expect(renderedOrder(html)).toEqual([
-      'hero',
-      'finder',
+      'hero', // N°01 Hero + 選車器 dock(H5 起 dock 巢狀在 hero 內、不再是獨立 section)
       'select', // N°02 最新商品(D5a 由第 5 上移)
       'cats', // N°03 部品分類
       'statement', // N°04 服務宣言(深)
@@ -146,9 +148,28 @@ describe('首頁 · 區塊順序(D5a)', () => {
   //    這條守的就是「順序搬了、編號沒跟上」——原本**零守門**,所以我改壞了也全綠。
   it('🔴 版面上看得見的 N° 編號 = 單調遞增 01..06(編號跟著位置走,不是跟著內容)', async () => {
     const html = await homeHtml();
-    // 只取 `N°0X` 這種版面編號(finder 自己的 `01 ·` 是另一套、brief 問題 6 的撞號,不在本片範圍)
     const nums = [...html.matchAll(/N°(\d{2})/g)].map((m) => m[1]!);
+    // 🔴 H5 之後 `N°01` 的載體從 hero 的頁腳換成**入口板的表頭**(OD :818 字面),
+    //    但序列本身一個字都沒變 —— R1 抓到第一版把 `01 ·` 舊字面留著、還把「只到 02-06」
+    //    寫進這條守門 = 把一個未申報的偏離鎖進測試裡。
     expect(nums, `抓到的編號序列 = ${nums.join(',')}`).toEqual(['01', '02', '03', '04', '05', '06']);
+    // 01 那一號要在 hero 的 section 內(它是入口板的表頭,不是別處飄來的)
+    const heroStart = html.indexOf('class="b-hero"');
+    expect(html.indexOf('N°01'), 'N°01 不在 hero 裡 ⇒ 入口板表頭的編號掉了').toBeGreaterThan(heroStart);
+  });
+
+  // 🔴 H5 的承重斷言:選車器**真的巢狀在 hero 裡**,不是排在 hero 後面。
+  //    順序表證不了這件事(巢狀與並列都會讓 dock 出現在 hero 之後)⇒ 這條比切界。
+  it('🔴 選車器 dock 是 `.b-hero` 的**後代**(dock 化的唯一硬證據)', async () => {
+    const html = await homeHtml();
+    const heroStart = html.indexOf('class="b-hero"');
+    const heroEnd = html.indexOf('</section>', heroStart);
+    const dock = html.indexOf('class="b-dock"');
+    expect(heroStart, '找不到 .b-hero').toBeGreaterThanOrEqual(0);
+    expect(dock, '找不到 .b-dock ⇒ 選車器沒渲染出來').toBeGreaterThanOrEqual(0);
+    expect(dock > heroStart && dock < heroEnd, 'dock 落在 hero 的 <section> 之外 ⇒ 它只是排在 hero 後面、沒有巢狀進去').toBe(true);
+    // 錨點跟著搬:`Header` 首頁那顆「依車輛搜尋」導 `/#vehicle-finder`,目的地現在是 hero 這個 section
+    expect(html.slice(heroStart - 120, heroStart), 'id="vehicle-finder" 沒有掛在 hero section 上').toContain('id="vehicle-finder"');
   });
 
   // 🔴 D5d R3 的盲點修正:Q1=B 的不變量是「**首頁**對外不報品牌家數」,
