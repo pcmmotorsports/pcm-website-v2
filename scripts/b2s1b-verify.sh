@@ -668,6 +668,43 @@ NOW_DEF="$(qs "SELECT pg_get_functiondef('public.pcm_b2_shipment_items_parent_gu
   && ok "突變靶⑦ 還原檢查:parent guard 定義已逐字還原(pg_get_functiondef 全等;另有 EXIT trap 保底)" \
   || bad "🔴🔴 突變靶⑦ **沒有還原**:parent guard 現在是突變版,DB 已被污染"
 barrier_residue_check 突變版
+
+log "G B2-S2b 回歸格(項 25c;2026-08-07 S2b-4c 加)"
+# 🔴 **這是負向釘死**(Sean Q1=A:重算 trigger **只掛一支**、掛在 `shipments` 上)。
+#    若哪天有人在 `shipment_items` 上也掛一支重算,同一筆出貨會被重算兩次 ——
+#    重算本身冪等所以**不會有人發現**,但鎖序、發火序與 §0.3 的論證全部作廢。
+#    ⇒ 「這裡**沒有**」這件事必須有一格在看,否則它是一個沒有人守的約定。
+# 🔴🔴 **不變量不是「沒有叫 pcm_a4a 的 trigger」,是「這張表的 trigger 集合 = 已知那四支」**
+#    (R1 must-fix 6):用 `proname LIKE 'pcm_a4a%'` 抓,**函式改名或包一層 wrapper 就整條繞過**。
+#    改成凍結**名稱:啟用:事件面**三元組集合 —— 嚴格更強,而且與姊妹檔 `b2s1a2-verify.sh` 的
+#    `TRIGSET` 是同一個寫法(同一個不變量在兩支用同一種量法,不再各發明一種)。
+# 🔴 **本格的面有一角靠別處補**(R2 F3,誠實列):三元組是 `名稱:啟用:事件面`,**不含「指向哪支函式」**
+#    ⇒ 若有人把既有的某一支(例如 `shipment_items_block_update_bu`)**原地重指**到重算函式、
+#      名稱與事件面都不動,本格照綠。那一面由別處蓋:X3 由 `b2s1a2-verify.sh` 的 triggerdef 逐字凍結蓋住;
+#      append-only 三支由 plan 項 12c 交給 `b2s2b-verify.sh` 的 `B12c-*` 格(含函式本體 md5)蓋住。
+#    ⇒ **家族層有補,但這是跨檔依賴** —— 哪天那兩處被拿掉,這一角就沒人看了。
+SI_TRIGSET="$(qs "SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname)::text
+  FROM pg_trigger WHERE tgrelid='public.shipment_items'::regclass AND NOT tgisinternal")"
+[ "$SI_TRIGSET" = "{shipment_items_block_delete_bd:O:11,shipment_items_block_truncate_bt:O:34,shipment_items_block_update_bu:O:19,shipment_items_parent_guard_ac:O:5}" ] \
+  && ok "🔴 項25c:shipment_items 的 trigger 集合逐字 = 已知四支,**沒有**多出重算 trigger(Q1=A「只掛一支、掛在 shipments」的負向釘死;多一支少一支都紅)" \
+  || bad "項25c:shipment_items 的 trigger 集合變了:$SI_TRIGSET
+     🔴 若多出的是重算 trigger,同一筆出貨會被重算兩次 —— 重算冪等所以不會有人發現,但鎖序與發火序的論證作廢"
+
+# 🔴 靶:真的加一支上去 ⇒ 上面那格必須從綠翻紅(證明它在量「有沒有」,不是恆為 0)。
+MUT="$(q "BEGIN;
+  CREATE CONSTRAINT TRIGGER zz_probe_dup_recompute_ac
+    AFTER INSERT ON public.shipment_items
+    NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW
+    EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();
+  SELECT 'MUTANT_SI_N=' || count(*)::text FROM pg_trigger
+   WHERE tgrelid='public.shipment_items'::regclass AND NOT tgisinternal;
+ROLLBACK;")"
+if printf '%s' "$MUT" | grep -q 'MUTANT_SI_N=5'; then
+  ok "項25c 靶:真的加一支上去之後 trigger 集合由四支變五支 ⇒ 上面那格有判別力(不是恆真的裝飾)"
+else
+  bad "項25c 靶沒有重現(加了一支之後 trigger 數竟然不是 5)⇒ 該格可能量錯東西:$(printf '%s' "$MUT" | tail -2 | tr '\n' ' ')"
+fi
+
 echo
 echo "════════ B2 S1b 驗證結果:PASS=$PASS / FAIL=$FAIL ════════"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -434,6 +434,39 @@ ACTUAL_CONS="$(qs "SELECT string_agg(conname,',' ORDER BY conname) FROM pg_const
   && ok "🔴 行為面:public/anon/authenticated/service_role 對八支函式**實際上**都沒有 EXECUTE(不靠 catalog 表示法)" \
   || bad "有角色實際執行得了 B2 函式:$(qs "SELECT string_agg(p.oid::regprocedure::text || '←' || r, ', ') FROM pg_proc p, unnest(ARRAY['public','anon','authenticated','service_role']) r WHERE p.proname LIKE 'pcm_b2_%' AND has_function_privilege(r, p.oid, 'EXECUTE')")"
 
+
+log "G B2-S2b 回歸格(項 25a;2026-08-07 S2b-4c 加)"
+# 🔴 本格的用途 = **S1 這一側的回歸點**:大線 B2-S2b 在 `shipments` 上掛了一支重算 trigger,
+#    它的結構(事件面 / 逐欄 / 是否可延遲 / 指向哪支函式)全部都是本線論證的前提。
+#    哪天有人改了它而只跑 S1 harness,這一格要當場紅。
+TD_SUMMARY_FROZEN='CREATE CONSTRAINT TRIGGER shipments_summary_recompute_ac AFTER UPDATE OF shipped_at, deleted_at ON public.shipments NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION pcm_a4a_shipments_summary_recompute()'
+# 🔴 R2 F2:同一輪在 25b 修過的兩件事要回灌到這裡,不要同片留兩種寫法 ——
+#    ①`coalesce(pg_get_triggerdef(oid),…)` 在**零列**時根本不會求值 ⇒「<不存在>」是死碼、變數變空字串,
+#      「不存在」與「被改成別的」分不出來;改成子查詢形,COALESCE 才吃得到 NULL。
+#    ②加 `tgrelid` 過濾 —— 只用 tgname 時,同名 trigger 掛在別表會回兩列。
+TD_SUMMARY_NOW="$(qs "SELECT coalesce((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.shipments'::regclass AND tgname='shipments_summary_recompute_ac' AND NOT tgisinternal), '<不存在>')")"
+[ "$TD_SUMMARY_NOW" = "$TD_SUMMARY_FROZEN" ] \
+  && ok "🔴 項25a:B2-S2b 的 shipments 重算 trigger 存在且 triggerdef **逐字**相符(事件面 / UPDATE OF 兩欄 / NOT DEFERRABLE / 指向 pcm_a4a_shipments_summary_recompute)" \
+  || bad "項25a:重算 trigger 的 triggerdef 與凍結值不符 — 實得 [$TD_SUMMARY_NOW]"
+
+# 🔴🔴 **plan 指定的靶「改 `tgtype` 成 BEFORE」構造不出來**(2026-08-07 實測,與環境A 矩陣同一件事):
+#    PG 的文法**不接受** `CREATE CONSTRAINT TRIGGER … BEFORE` —— 實跑 `syntax error at or near "BEFORE"`。
+#    ⇒ 換成**打同一個面(tgtype)而且構造得出**的靶:**多掛一個 INSERT 事件面**。
+MUT="$(q "BEGIN;
+  DROP TRIGGER shipments_summary_recompute_ac ON public.shipments;
+  CREATE CONSTRAINT TRIGGER shipments_summary_recompute_ac
+    AFTER INSERT OR UPDATE OF shipped_at, deleted_at ON public.shipments
+    NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW
+    EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();
+  SELECT 'MUTANT_TD=' || pg_get_triggerdef(oid) FROM pg_trigger WHERE tgname='shipments_summary_recompute_ac' AND NOT tgisinternal;
+ROLLBACK;")"
+MUT_TD="$(printf '%s' "$MUT" | sed -n 's/^MUTANT_TD=//p' | head -1)"
+if [ -n "$MUT_TD" ] && [ "$MUT_TD" != "$TD_SUMMARY_FROZEN" ]; then
+  ok "項25a 靶:多掛 INSERT 事件面之後 triggerdef 真的變了 ⇒ 上面那格對 tgtype 有判別力(不是只看名字在不在)"
+else
+  bad "項25a 靶沒有重現(突變後 triggerdef 竟然沒變或抓不到)⇒ 該格可能量錯東西:$(printf '%s' "$MUT" | tail -2 | tr '\n' ' ')"
+fi
+
 echo
 echo "════════ B2 S1a-1 驗證結果:PASS=$PASS / FAIL=$FAIL ════════"
 [ "$FAIL" -eq 0 ] || exit 1

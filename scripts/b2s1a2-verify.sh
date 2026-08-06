@@ -295,8 +295,13 @@ log "7/6 🔴 前置閘的聚合鍵含 tgtype(B-126-A 解除令折入)"
 #    保持啟用,閘照樣綠。v5.4-c 補上 tgtype;本節在 harness 端做同樣的雙向比對 + 突變靶⑯。
 TRIGSET="$(qs "SELECT array_agg(tgname || ':' || tgenabled::text || ':' || tgtype::text ORDER BY tgname)::text
   FROM pg_trigger WHERE tgrelid='public.shipments'::regclass AND NOT tgisinternal")"
-[ "$TRIGSET" = "{shipments_block_delete_bd:O:11,shipments_block_truncate_bt:O:34,shipments_frozen_after_ship_bu:O:19,shipments_immutable_guard_bu:O:19,shipments_items_presence_ac:O:21,shipments_touch_updated_at_bu:O:19,shipments_write_once_bu:O:19}" ] \
-  && ok "🔴 shipments 七支 trigger 的 名稱:啟用:事件面 三元組全等(改事件面會紅,不只改名會紅)" \
+# 🔴🔴 **2026-08-07 B2-S2b-4c 更新:七支 → 八支**。大線 B2-S2b 在 `shipments` 上新增了
+#    `shipments_summary_recompute_ac:O:17`(AFTER UPDATE OF shipped_at, deleted_at)。
+#    🔴 這一格**當時就已經紅了**,而且紅得完全正確 —— 它是這個凍結集**應該**發揮的作用。
+#    我第一版把它跟另外 25 條 C9 的紅混成一句「紅點全是 23514」,是字面 vs 事實偏離(R1 抓到)。
+#    這條的修法只是把新 trigger 加進凍結集(一行字面),**不含 disable/繞過、不需上呈**。
+[ "$TRIGSET" = "{shipments_block_delete_bd:O:11,shipments_block_truncate_bt:O:34,shipments_frozen_after_ship_bu:O:19,shipments_immutable_guard_bu:O:19,shipments_items_presence_ac:O:21,shipments_summary_recompute_ac:O:17,shipments_touch_updated_at_bu:O:19,shipments_write_once_bu:O:19}" ] \
+  && ok "🔴 shipments **八支** trigger 的 名稱:啟用:事件面 三元組全等(改事件面會紅,不只改名會紅;第八支 = B2-S2b 的重算 trigger)" \
   || bad "trigger 三元組不符:$TRIGSET"
 
 # 靶⑯:同名 trigger 改成 BEFORE INSERT 重建 ⇒ tgtype 由 19 變 7,上面那條必須紅。
@@ -413,6 +418,47 @@ MUT="$(q "BEGIN; DO \$\$ DECLARE v_id uuid; BEGIN
 echo "$MUT" | grep -q 'MUT15:P0001' \
   && ok "突變靶⑮:舊的「零品項已出貨」fixture 在強制 deferred 之下真的紅在 X1 ⇒ #15/#16 的 fixture 合法化不是裝飾(v5.3 之下它全程假綠)" \
   || bad "突變靶⑮ 沒重現 — 非法 fixture 竟仍通過?SET CONSTRAINTS 可能沒生效:$(echo "$MUT" | grep MUT15 | head -1)"
+
+
+log "G B2-S2b 回歸格(項 25b;2026-08-07 S2b-4c 加)"
+# 🔴 大線 B2-S2b §0.3 的**前提**是「`shipped` 只可能經由 `UPDATE shipments SET shipped_at` 升值」,
+#    而那個前提整個壓在 **X1 與 X3** 上:X3 擋「對已寄出/已作廢的包裹加品項」、
+#    X1 擋「已離開草稿態卻零品項」⇒ 兩條路都不通,已寄出的包裹只能由 UPDATE 產生。
+#    哪天有人放寬其中一支,大線的 `shipped` 會**靜默永遠算少**,而大線自己的 harness 不會紅
+#    (它掛在 shipments 的 UPDATE 上,看不到 INSERT 那條路)。⇒ 回歸點必須畫在**這裡**。
+# 🔴 **凍結字串一律雙引號**:X1 的 triggerdef 內含 `'draft'::text` —— 用單引號包會被那個單引號
+#    當場切斷,變數只剩前半段 ⇒ 這一格會**永遠紅**而且訊息裡兩邊看起來一模一樣(第一次實跑實錘)。
+TD_X1_FROZEN="CREATE CONSTRAINT TRIGGER shipments_items_presence_ac AFTER INSERT OR UPDATE ON public.shipments DEFERRABLE INITIALLY DEFERRED FOR EACH ROW WHEN (((new.shipped_at IS NOT NULL) OR (new.hct_status <> 'draft'::text))) EXECUTE FUNCTION pcm_b2_shipments_items_presence()"
+TD_X3_FROZEN="CREATE CONSTRAINT TRIGGER shipment_items_parent_guard_ac AFTER INSERT ON public.shipment_items NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION pcm_b2_shipment_items_parent_guard()"
+# 🔴 R1 nit 7:`coalesce(pg_get_triggerdef(oid),…)` 在**零列**時根本不會求值 ⇒ 那個「<不存在>」是死碼、
+#    變數會變成空字串,「不存在」與「被改成別的」分不出來。改成子查詢形,COALESCE 才吃得到 NULL。
+# 🔴 R1 nit 8:加上 `tgrelid` 過濾 —— 只用 tgname 時,同名 trigger 掛在別表會回兩列。
+TD_X1_NOW="$(qs "SELECT coalesce((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.shipments'::regclass AND tgname='shipments_items_presence_ac' AND NOT tgisinternal), '<不存在>')")"
+TD_X3_NOW="$(qs "SELECT coalesce((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.shipment_items'::regclass AND tgname='shipment_items_parent_guard_ac' AND NOT tgisinternal), '<不存在>')")"
+if [ "$TD_X1_NOW" = "$TD_X1_FROZEN" ] && [ "$TD_X3_NOW" = "$TD_X3_FROZEN" ]; then
+  ok "🔴 項25b:X1 / X3 都還在,且 triggerdef **逐字**未被放寬(B2-S2b §0.3 前提的回歸點)"
+else
+  bad "項25b:X1 或 X3 的 triggerdef 變了 — X1 實得 [$TD_X1_NOW] / X3 實得 [$TD_X3_NOW]
+     🔴 放寬其中一支 ⇒ 大線 B2-S2b 的 shipped 會靜默永遠算少,而大線自己的 harness 不會紅"
+fi
+
+# 🔴 靶:拿掉 X3 ⇒ 上面那格必須從綠翻紅(證明它真的在量 X3,不是被 X1 代打)。
+MUT="$(q "BEGIN;
+  DROP TRIGGER shipment_items_parent_guard_ac ON public.shipment_items;
+  SELECT 'MUTANT_X3=' || coalesce((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.shipment_items'::regclass AND tgname='shipment_items_parent_guard_ac' AND NOT tgisinternal), '<不存在>');
+  SELECT 'MUTANT_CELL=' || (
+      coalesce((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.shipments'::regclass AND tgname='shipments_items_presence_ac' AND NOT tgisinternal), '<不存在>') = \$X1\$$TD_X1_FROZEN\$X1\$
+  AND coalesce((SELECT pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.shipment_items'::regclass AND tgname='shipment_items_parent_guard_ac' AND NOT tgisinternal), '<不存在>') = \$X3\$$TD_X3_FROZEN\$X3\$
+  )::text;
+ROLLBACK;")"
+# 🔴 R1 nit 10:證的必須是「**那一格會翻紅**」,不是「觀察會變」⇒ 在突變交易裡把該格的
+#    **複合判斷原樣重跑一次**(X1 AND X3),並要求它的結論從 true 變 false。
+MUT_VERDICT="$(printf '%s' "$MUT" | sed -n 's/^MUTANT_CELL=//p' | head -1)"
+if printf '%s' "$MUT" | grep -q 'MUTANT_X3=<不存在>' && [ "$MUT_VERDICT" = "false" ]; then
+  ok "項25b 靶:拿掉 X3 之後 ①它真的查不到了 ②**該格的複合判斷(X1 AND X3)由 true 翻成 false** ⇒ 那一格對 X3 有判別力(不是只靠 X1 就綠)"
+else
+  bad "項25b 靶沒有重現(拿掉 X3 之後竟然還查得到)⇒ 該格可能量錯東西:$(printf '%s' "$MUT" | tail -2 | tr '\n' ' ')"
+fi
 
 echo
 echo "════════ B2 S1a-2 驗證結果:PASS=$PASS / FAIL=$FAIL ════════"
