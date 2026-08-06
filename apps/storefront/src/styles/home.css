@@ -79,12 +79,16 @@
   gap: 24px;
   margin-bottom: 56px;
 }
+/* `margin: 0` 是 OD `:76` 的字面(那邊的 N°03 / N°06 表頭就是 `<h2>`)——
+   D5f 把 N°06 的表頭改成 `<h2>` 之後,少了它會多出 UA 的標題外距。
+   其餘還是 `<div>` 的區塊不受影響(`<div>` 本來就沒有外距)。 */
 .ed-section-label {
   display: flex;
   align-items: baseline;
   gap: 14px;
   font-size: 15px;
   font-weight: 500;
+  margin: 0;
 }
 .ed-section-label .ed-mono {
   color: var(--ed-c-ink-mute);
@@ -742,111 +746,227 @@
 }
 
 /* ============================================================
-   07 · BRAND INDEX (typographic list, hovers to underline)
+   07 · BRAND WALL (N°06 授權代理:20 家 logo 磚牆)
    ============================================================ */
+/* D5f(2026-08-06):17 家純文字清單 `.ed-brands` / `.ed-brand-list` 整段退場,
+   換成 OD 定案稿的 20 家 logo 磚牆。字面來源 =
+   `direction-b-layout-01-graphite-ember.html` CSS `:459-570`
+   + 「石墨 + 熔橘 · 套用層」`:694-704`。
+   🔴 **兩層在本檔折成一層**(repo 沒有 OD 那個「先畫深色場、再整段改淺」的沿革層)——
+      逐條對照,套用層贏的值直接寫進基礎規則:
+        · `.b-brands` 底色:基礎 `var(--c-surface)`(#ffffff)→ 套用層 `var(--ed-c-paper-2)` ✅ 用後者
+        · `a:hover` 底色:基礎 `var(--ed-c-paper-2)` → 套用層 `var(--ed-c-paper)` ✅ 用後者
+        · `.b-brand-tag` 顏色:基礎 `var(--ed-c-ink)` → 套用層 `var(--ed-c-ink-soft)` ✅ 用後者
+        · CTA 磚底色:基礎 `var(--ed-c-ink)` → 套用層 `var(--c-red)` ✅ 用後者(本檔 = `--ed-c-action`)
+        · 套用層的 `.b-brand-wall a{background-image:none}` 是為了取消深色場的漸層 ——
+          基礎層在本檔就沒有那個宣告,**故不搬**(搬了會覆蓋掉 logo 的 background-image)。
+      ⚠️ 折疊的代價:日後回 OD 對字面時,只讀 `:459-570` 會覺得上面那四處都不一樣。所以列在這裡。
+   ⚠️ token 對照:OD `--c-red` = `#f26722`,本檔用同值的 `--ed-c-action`
+      (理由見本檔 `:16` 那段:`--ed-c-action-active` 站台沒有對應顆)。 */
 /* D5a:N°06 授權代理由白改淺灰白 —— 用 **token `--ed-c-paper-2`**(OD README 表只寫 token 名、不寫 hex;
    現值 `#f7f7f8`,OD 稿 direction-b 的對應色為 `#f6f6f7`、差一階 —— 本片不動該 token,
    要不要收斂由 Sean 定)。表逐字:
    「08-02 改淺,原色 logo 可讀性」)。這一格是節奏「白 白 深 白 淺灰白 深」的倒數第二塊,
    用來把頁尾那塊深色墊出來、避免整頁收尾三連白。 */
-.ed-brands {
-  padding: 100px 0 120px;
+.b-brands {
+  padding: 52px 0 60px;
   background: var(--ed-c-paper-2);
 }
-.ed-brand-list {
+.b-brands .ed-section-head {
+  margin-bottom: 24px;
+}
+/* 20 家固定排成 5 × 4;CTA 另起一列跨滿(OD :467-469 註解逐字)。
+   `list-style: none` 是本檔既有慣例(OD 靠 reset;退場的 `.ed-brand-list` 當初也補了同族三行)。 */
+.b-brand-wall {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   list-style: none;
-  border-top: 1px solid var(--ed-c-rule);
-}
-.ed-brand-list li {
-  border-bottom: 1px solid var(--ed-c-rule);
-}
-/* 🔴 選擇器是 `> li > :is(a, span)` 而不是 `a`(D3c-2):目錄零商品的品牌那幾列渲染成
-   `<span>`(見 `BrandIndex.tsx`),沿用 `a` 的話那幾列會整個沒有 grid = 五格擠成一行文字。
-   🔴🔴 **一定要是子選擇器**:寫成後代的 `.ed-brand-list :is(a, span)` 會把**列內每一個
-      `<span>`**(編號 / 名稱 / 標語 / 國別 / 那句只給報讀器的話)也一起套上 `display: grid`
-      與 26px padding —— 整排版面當場爆掉。這是本片第一版真的寫錯、動手時抓到的。
-   ⚠️ 只有**版面**這一條改成兩型別;下面的 `a:hover` 一族**刻意維持只給 `<a>`** ——
-      不可點的列本來就不該有 hover 回饋。特異度 (0,1,2) 仍輸給 `a:hover` 的 (0,2,1),
-      hover 位移不受影響。 */
-.ed-brand-list > li > :is(a, span) {
   display: grid;
-  grid-template-columns: 56px 1fr 1fr 80px 40px;
-  align-items: center;
-  gap: 24px;
-  padding: 26px 8px;
-  transition: padding 0.25s ease;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--ed-c-rule);
+  border-left: 1px solid var(--ed-c-rule);
 }
-.ed-brand-list a:hover {
-  padding-left: 24px;
-  padding-right: 0;
+.b-brand-wall li {
+  border-right: 1px solid var(--ed-c-rule);
+  border-bottom: 1px solid var(--ed-c-rule);
+  min-width: 0;
 }
-.ed-brand-num {
+/* 一格三層(OD :467-469 註解逐字):① 編號 / 產地 ② 固定高度 Logo 展示區 ③ 品類描述。
+   英文品牌名不再重複顯示,完整名稱留在 `aria-label`。
+   🔴 選擇器是 `> li > :is(a, span)` 而不是 `a`(承 D3c-2 的教訓,本片沿用):目錄零商品的
+      品牌那幾磚渲染成 `<span>`(見 `BrandIndex.tsx`),沿用 `a` 的話那幾磚整個沒有 grid ——
+      三層會塌成一行、而且 `min-height` 也不生效,那一列會比別列矮。
+   🔴🔴 **一定要是子選擇器**:寫成後代的 `.b-brand-wall :is(a, span)` 會把磚內每一個
+      `<span>`(編號 / 產地 / logo / 品類描述 / 那句只給報讀器的話)也套上 `display: grid`
+      與 14px padding ⇒ 整面牆爆掉。D3c-2 第一版真的寫錯過,不是假想。
+   ⚠️ 只有**版面**這一條吃兩型別;`a:hover` 與 `a::after`(熔橘頂線)一族**刻意只給 `<a>`**
+      —— 不可點的磚本來就不該有 hover 回饋,而且綁型別之後泛白磚永遠不進那些規則,
+      不必再寫 `.is-empty` 覆寫去搶權重(同 `brand-directory.css:207` 那條的處理)。 */
+.b-brand-wall > li > :is(a, span) {
+  display: grid;
+  grid-template-rows: auto 54px minmax(38px, auto);
+  gap: 10px;
+  height: 100%;
+  min-height: 158px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.18s;
+}
+.b-brand-wall a:hover {
+  background-color: var(--ed-c-paper);
+}
+/* hover 熔橘細線:沿用商品卡 `.pcard::before` 的同一個語彙(OD :476 註解逐字;
+   OD 基礎層寫 `--c-red`,本檔用同值的 `--ed-c-action`)。 */
+.b-brand-wall a::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--ed-c-action);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.b-brand-wall a:hover::after {
+  transform: scaleX(1);
+}
+/* Logo 展示列。OD 是 `a::before` + 20 條 `data-od-id` 選擇器餵 background-image 與
+   `--logo-scale`(:487-537);本 repo 改成真的 DOM 元素 + inline 兩個值(理由見
+   `BrandIndex.tsx` 檔頭第 2 條)。**幾何與 20 個校正值一字未改** ——
+   校正值住 `data/brand-trim-logo-scale.ts`,與 `/brands` 卡片共用同一份。
+   ⚠️ `--logo-scale` 的預設值 1 寫在這裡的 `var()` 第二引數:元件端漏帶時是「稍微小一點」、
+      不是消失 ⇒ 判別力靠 `BrandIndex.test.tsx` 的鍵集合守門,不是靠肉眼。 */
+.b-brand-logo {
+  grid-row: 2;
+  width: 86%;
+  height: 54px;
+  justify-self: center;
+  align-self: center;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  transform: scale(var(--logo-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+.b-brand-top {
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.b-brand-num,
+.b-brand-country {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   color: var(--ed-c-ink-mute);
 }
-.ed-brand-name {
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--ed-c-ink);
-}
-.ed-brand-tag {
-  font-size: 14px;
+.b-brand-tag {
+  grid-row: 3;
+  align-self: stretch;
+  min-height: 38px;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-top: 1px solid var(--ed-c-rule);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: 0.015em;
   color: var(--ed-c-ink-soft);
 }
-.ed-brand-country {
-  color: var(--ed-c-ink-mute);
-  justify-self: end;
+/* 「看全部品牌」跨滿一列(OD :497 / :546-552)。 */
+.b-brand-wall li.is-cta {
+  grid-column: 1 / -1;
 }
-.ed-brand-arrow {
-  justify-self: end;
-  font-size: 20px;
-  color: var(--ed-c-ink-mute);
-  transition: transform 0.25s, color 0.2s;
+.b-brand-wall li.is-cta a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 54px;
+  padding: 15px 17px;
+  background: var(--ed-c-action);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
-.ed-brand-list a:hover .ed-brand-arrow {
-  transform: translateX(6px);
-  color: var(--ed-c-ink);
+.b-brand-wall li.is-cta a:hover {
+  background: var(--ed-c-action-hover);
+}
+/* CTA 磚不吃上面那條頂線(它整塊本來就是實心動作色)。 */
+.b-brand-wall li.is-cta a::after {
+  content: none;
 }
 /* 🔴 **本區對 design 真權威的申報偏離台帳**(鐵則 1 可追性;形式照 `brand-page.css` 檔頭)
- *    ⚠️ **「真權威」在本線指的是 Open Design `pcm-home-redesign`**(Sean 2026-08-03 拍 Q1=B,
- *       鐵則 1 的明文例外)—— 下面拿 `design-reference/styles/home.css` 當比對基準,是因為
- *       首頁那一段的現況出自它、且 OD 尚未覆蓋這一區;**D5 首頁重排時基準要換成 OD**,
- *       不要把這張台帳讀成「design-reference 仍是首頁的真權威」(關卡2 R2 nit)。
- *    —— 與 `design-reference/styles/home.css` 對應區塊的三處差異,都是 D3c-2 依
- *    Sean 2026-08-04 拍板(信箱 `C-31-A`)新增,**設計稿零命中**:
- *      · `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)`(兩處;宣告一字未動,
- *        純選擇器改名 —— 列現在可能是 `<a>` 也可能是 `<span>`)
- *      · `.is-empty` 三條(泛白狀態,設計稿完全沒有這個狀態)
+ *    ✅ **D5f(2026-08-06)已把比對基準換成 OD** —— 上一版這裡拿
+ *       `design-reference/styles/home.css` 當基準,並自己註記「D5 首頁重排時基準要換成 OD」。
+ *       本區整段重寫自 OD 定案稿 ⇒ 基準改為
+ *       `pcm-home-redesign/direction-b-layout-01-graphite-ember.html:459-570` + 套用層 `:694-704`,
+ *       `design-reference` 對本區已完全不適用(它畫的是退場的 17 家文字清單)。
+ *    —— 與 OD 對應區塊的四處差異(前三處是 D3c-2 依 Sean 2026-08-04 拍板 `C-31-A` 新增、
+ *    第四處是 D5f 的實作選擇),**設計稿零命中**:
+ *      · `.b-brand-wall a` → `.b-brand-wall > li > :is(a, span)`(版面那一條;宣告一字未動,
+ *        純選擇器改形 —— 磚現在可能是 `<a>` 也可能是 `<span>`)
+ *      · `.is-empty` 四條(泛白狀態,設計稿完全沒有這個狀態)
  *      · `.ed-sr-only`(只給報讀器的文字,設計稿零命中)
- *    ⇒ 這三處是 repo 先行、設計稿還沒跟進。**回寫債併記 backlog #322**(第二批)。
+ *      · `.b-brand-logo`(設計稿是 `a::before`;改真元素的理由見 `BrandIndex.tsx` 檔頭)
+ *    ⇒ 這四處是 repo 先行、設計稿還沒跟進。**回寫債併記 backlog #322**(第二批)。
+ *
+ * 🔴 **反方向也要記:OD 有、本檔刻意不搬的五條宣告**(R1 F2;鐵則 1 的可追性是雙向的)——
+ *    五條全部是「logo 從 `a::before` 換成真元素」之後的 no-op,逐條驗過才不搬:
+ *      · OD `:490 filter:none` / `:491 opacity:1` —— 本檔 `.b-brand-logo` 對這兩個屬性零宣告,
+ *        計算值本來就是 none / 1;而泛白覆寫 `.b-brand-wall .is-empty .b-brand-logo` = (0,3,0)
+ *        贏 (0,1,0),寫不寫都不影響勝負(真瀏覽器實測泛白磚確實是灰的)。
+ *      · OD `:493 a:hover::before{opacity:1}` —— 同上,opacity 本來就 1。
+ *      · OD `:494 a>*{position:relative;z-index:1}` —— OD 那層是為了讓文字疊在**背景層的
+ *        `::before` logo** 之上;本檔 logo 是排在第二列的獨立 grid item、與文字不重疊。
+ *      · OD `:495 li.is-cta a::before{content:none}` —— 本檔 CTA 磚根本沒有 logo 元素。
+ *    ⚠️ 若哪天把 logo 改回偽元素,這五條要一起搬回來。
+ *
+ * ⚠️ 順帶記(R1 F8,**不是本片造成的**):OD `:926` 的 N°03 表頭也是 `<h2>`,但
+ *    `CategoryGrid.tsx` / `HomeSelect.tsx` 仍是 `<div>` ⇒ 首頁目前只有 N°06 這一顆 `<h2>`。
+ *    H3 分類片會動到 N°03,屆時一起對齊;整站語彙收斂仍掛 #322。
  *
  * ── 目錄零商品的品牌:泛白、不可點(D3c-2;Sean 2026-08-04 拍板 `C-31-A`,
  *    主視窗 `C-33-A` 裁示首頁比照品牌頁磚牆一致執行)────────────────────────
- * 🔴 **「不可點」的語意由元件做**(那幾列渲染成 `<span>` 不是 `<a>`,見 `BrandIndex.tsx`);
+ * 🔴 **「不可點」的語意由元件做**(那幾磚渲染成 `<span>` 不是 `<a>`,見 `BrandIndex.tsx`);
  *    本段只負責**看起來也不可點**。只做視覺不做語意 = 鍵盤與報讀器仍到得了,那是最糟的組合。
  *
  * 🔴🔴 **同一批元素上還有誰在寫同一個屬性**(D3c-1 連兩個真視覺缺陷都是漏了這一步:
- *    改一族選擇器的權重卻沒回頭看它的競爭者)——本段動的三個屬性逐一列過:
- *      · `color`:`.ed-brand-name` / `-tag` / `-country` / `-num` 都是 (0,1,0),
- *        本段 `.ed-brand-list .is-empty .ed-brand-*` = (0,3,0) ⇒ 穩勝、與順序無關。
- *      · `color` 的另一個競爭者 `.ed-brand-list a:hover .ed-brand-arrow` = (0,3,1),
- *        **但它綁 `a`、而泛白列是 `<span>`** ⇒ 永遠不同時匹配、不可能反轉。
+ *    改一族選擇器的權重卻沒回頭看它的競爭者)——本段動的四個屬性逐一列過(D5f 重列):
+ *      · `color`:`.b-brand-tag` = (0,1,0),本段 `.b-brand-wall .is-empty .b-brand-tag`
+ *        = (0,3,0) ⇒ 穩勝、與順序無關。
+ *      · `opacity` / `filter`:`.b-brand-logo` 本身零宣告(它只寫 transform);
+ *        `.b-brand-wall a:hover::before` 那種舊寫法在本檔不存在(logo 已是真元素)。
  *      · `cursor`:全檔本區零其他宣告。
- *    ⇒ 本段刻意用「同前綴 + 多一個 class」的形狀(嚴格更高),不是靠順序 ——
- *      這是 D3c-1 那兩次的修正動作,不是同款寫法。 */
-.ed-brand-list .is-empty { cursor: default; }
-.ed-brand-list .is-empty .ed-brand-name { color: var(--ed-c-ink-mute); }
-.ed-brand-list .is-empty .ed-brand-tag,
-.ed-brand-list .is-empty .ed-brand-country { opacity: .6; }
+ *      · 熔橘頂線 `.b-brand-wall a::after`:綁 `a` ⇒ 泛白磚(`<span>`)**根本不進那條規則**,
+ *        不必也不該寫 `.is-empty::after{content:none}` 去搶(同 `brand-directory.css:207`)。
+ *    ⇒ 本段刻意用「同前綴 + 多一個 class」的形狀(嚴格更高),不是靠順序。
+ *
+ * 🔴 泛白的值沿用 `/brands` 卡片那份(`brand-directory.css:317-321`)—— 同一個 Sean 拍板、
+ *    同一種「logo 磚」載體,不再發明第二套灰階配方。 */
+.b-brand-wall .is-empty { cursor: default; }
+.b-brand-wall .is-empty .b-brand-logo { filter: grayscale(1) brightness(.78) contrast(.92); opacity: .55; }
+.b-brand-wall .is-empty .b-brand-tag { color: var(--ed-c-ink-mute); }
+.b-brand-wall .is-empty .b-brand-top { opacity: .6; }
 
 /* 只給報讀器的文字。名字帶 `ed-` 前綴、不叫 `.sr-only` —— 理由與 `brand-page.css` 的
    `.bp-sr-only` 同一條(2026-08-04 實查:站台級的 `.sr-only` 目前不存在,要放哪、
    用哪個實作是 D5 整站語彙的事,不由單一頁面開先例)。宣告與那支逐字相同。
-   ⚠️ `position:absolute` ⇒ 它**不是 grid item**、不占第五軌,所以泛白列少畫箭頭
-      不會被這一句補回來(兩件事互不影響)。 */
+   ⚠️ `position:absolute` ⇒ 它**不是 grid item**:D5f 之後它掛在 `.b-brand-tag` 裡面,
+      不會把那一格的 `min-height: 38px` 撐開、也不占第三列以外的任何位置。 */
 .ed-sr-only {
   position: absolute;
   width: 1px; height: 1px;
@@ -857,17 +977,38 @@
   border: 0;
 }
 
+/* RWD 三段照 OD :553-570 字面。🔴 三段的磚內版面規則**都要吃 `<span>`**
+   (同為 `> li > :is(a, span)`):只寫 `a` 的話泛白那幾磚在窄螢幕仍套桌機的列高與留白
+   ⇒ 同一面牆兩種尺寸,而 jsdom 對 media query 完全看不到。 */
+@media (max-width: 1200px) {
+  .b-brand-wall { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .b-brand-wall li.is-cta { grid-column: 1 / -1; }
+}
 @media (max-width: 900px) {
-  /* 🔴 這條也要吃 `<span>`:只寫 `a` 的話泛白那幾列在手機上仍套桌機的五軌
-     (`56px 1fr 1fr 80px 40px`)⇒ 同一份清單兩種欄寬、而且沒有任何測試看得到。
-     形狀與上面那條**必須一致**(同為 `> li > :is(a, span)`)—— 理由同上。 */
-  .ed-brand-list > li > :is(a, span) {
-    grid-template-columns: 36px 1fr 32px;
-    gap: 12px;
-    padding: 20px 4px;
+  .b-brands { padding: 44px 0 48px; }
+  .b-brand-wall > li > :is(a, span) {
+    min-height: 154px;
+    padding: 13px 14px;
+    grid-template-rows: auto 52px minmax(40px, auto);
+    gap: 9px;
   }
-  .ed-brand-tag, .ed-brand-country { display: none; }
-  .ed-brand-name { font-size: 22px; }
+  .b-brand-logo { width: 88%; height: 52px; }
+  .b-brand-wall li.is-cta a { padding: 13px 14px; }
+}
+@media (max-width: 700px) {
+  /* 手機固定兩欄,避免三欄把 Logo 與中文介紹一起壓扁(OD :558 註解逐字)。 */
+  .b-brand-wall { grid-template-columns: 1fr 1fr; }
+  .b-brand-wall li.is-cta { grid-column: 1 / -1; }
+  .b-brand-wall > li > :is(a, span) {
+    min-height: 160px;
+    padding: 12px 13px 13px;
+    grid-template-rows: auto 50px minmax(44px, auto);
+    gap: 9px;
+  }
+  .b-brand-logo { width: 90%; height: 50px; }
+  .b-brand-wall li.is-cta a { padding: 12px 13px; }
+  .b-brand-country { letter-spacing: 0.03em; }
+  .b-brand-tag { min-height: 44px; padding-top: 8px; font-size: 14px; line-height: 1.5; }
 }
 
 /* ============================================================
