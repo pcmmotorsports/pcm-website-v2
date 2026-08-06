@@ -11,7 +11,8 @@ export type * from './IAuthService';
 export type * from './IOrderRepository';
 // M-4b E10 A9w4c(後半收尾):`IOrderStatusOptionsRepository` 整支 port 已移除 —— 唯一方法
 // `listOrderStatusOptions` 在 A11a-1 列表重建後零 production 呼叫端,讀取鏈同片退場。
-// 🔴 DB 端 order_status_options 表與 service_role 讀寫權仍在,撤權屬 A9v
+// 🔴 DB 端 order_status_options 表仍在;service_role 的**寫**權由 A9v `20260807120000` 撤除
+// (SELECT 保留),apply 後生效
 //    ⇒ 這裡是「應用層拿不到這張表的讀取介面」,不等於「資料庫讀不到」。
 export type * from './ISheetsAdapter';
 export type * from './ITapPayAdapter';

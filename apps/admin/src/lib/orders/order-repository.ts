@@ -26,7 +26,8 @@ export function getAdminOrderRepository(): SupabaseOrderAdapter {
 
 // M-4b E10 A9w4c(後半收尾):`getAdminOrderStatusOptionsRepository` 已移除 —— A11a-1 列表重建後
 // 零呼叫端,連同 port / adapter / 其測試整條讀取鏈同片退場(A11a plan §3.1 裁定)。
-// 🔴 撤 DB 端 order_status_options 的 service_role 讀寫權屬 A9v,不在本片。
+// 🔴 DB 端 order_status_options 的 service_role **寫**權由 A9v `20260807120000` 撤除
+//    (INSERT + 五個欄級 UPDATE;**SELECT 刻意保留**),apply 後生效。
 
 /**
  * 稽核 log repo(M-4a M0-S2 → D-3b 首個真呼叫端;admin 寫入動作寫 admin_audit_log)。

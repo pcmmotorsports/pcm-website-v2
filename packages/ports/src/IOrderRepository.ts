@@ -119,7 +119,8 @@ export interface IOrderRepository {
   //    九碼 writer 鏈退場的最後一段應用層契約。前置:A9w4a 拆了 server action、A11a 列表重建完成
   //    ⇒ 本 port 方法零 consumer。
   //    ⚠️ **正確讀法 = 「admin 應用層與 port/adapter 都沒有 item workflow 寫入介面」,不是
-  //    「九碼寫不進去」**:DB 端 `admin_update_order_item_workflow` RPC 與其 EXECUTE 權**仍在**,
+  //    「九碼寫不進去」**:DB 端 `admin_update_order_item_workflow` RPC 仍在(**REVOKE 非 DROP**),
+  //    其 EXECUTE 權由 **A9v `20260807120000`** 撤除(apply 後生效),
   //    撤權歸 **A9v**(前置=A11b/c 等全 consumer 清零)。
 
   // TODO M-4a-XX: 補 listByDateRange — 月結統計用
