@@ -7,6 +7,7 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🏁 **2026-08-07 07:55 B 線 B2-S2b 整條結清(9/9+S2b-F 全綠+窄消融對照,`25031f87`,24 顆押 a4a-chain)。** 三支 S1 harness 全前綴庫全綠(60/46/64 全 0 紅)=apply preflight 硬條①成立;⛔ **merge+同批 apply=Sean 手動停點**(Sean 說「排」才動);欠:併發證據 deferred(交棒 1+10)申報+codex 背書(用量牆)。B 轉做 apply 停點 runbook(唯讀)→ writer RPC 片 plan 草稿。
 🌙 **2026-08-07 07:50 D 線 OD 回饋包收割(`docs/reviews/2026-08-07-od-feedback-packet.md`)。** 三層檔案表+OD 稿五問題(交接單不同步×2/末格雙邊框/finder 單斷點/訂單詳情無稿)+偏離6/回寫6/站內債;Sean 帶去 OD 的一頁在此。D 停等 Q3(僅剩 R-2+manifest 收尾);357 檔 5416 綠零變。
 🌙 **2026-08-07 07:45 D 線 D8-b 孤兒刪除收割(−443 行)。** 兩層 consumer 清單(含二階孤兒化檢查:SwatchLightbox/rpm-swatches 有活消費者留下)、357 檔 **5416 綠** −3 檔/−17 條與預登記吻合且前提成立;區間刪除前置驗證第一版誤報後收緊、真擋一次。H 系列+D8 全刪全數完成。D 接 OD 回饋包整理(9 條,manifest 收尾等 R-2 落地後一次收)。
 🌙 **2026-08-07 07:35 D 線 H7 D8 品牌形象區全刪收割(−2933 行)。** 29 檔+dispatcher 刪除、預先登記 Δ 對帳完全一致(360 檔 **5433 綠** −14 檔/−28 條);三支孤兒元件裁 A 一起刪(D8-b 小片);3111 重啟。Sean 肉眼驗=任一商品頁規格分頁下直接接相關商品、無形象區。D 佇列剩:D8-b→R-2(等 Q3)→manifest+OD 回饋包。
