@@ -258,7 +258,9 @@ export type AdminOrderLine = {
   lineTotal: Money;
   /**
    * per-item 訂單處理狀態(M-4a D-2、order_items.workflow_status;soft-ref order_status_options.code)。
-   * NULL=未設定。item 層=唯一操作真相(Sean 2026-07-15 拍板 Q-A=A);整單狀態=顯示端彙總。
+   * NULL=未設定。item 層=唯一操作真相(Sean 2026-07-15 拍板 Q-A=A)。
+   * 🔴 ~~整單狀態=顯示端彙總~~ **A11a-1(2026-08-06)起該彙總已移除**(同 `:331`/`:710` 註記);
+   *    P3 九碼退場後**本欄零 production 讀寫端**、僅存歷史值,欄位凍結不 DROP(撤權見 A9v)。
    * 🔴 純操作/顯示軸:金流真相恆為 order 的 paymentStatus,本欄絕不進金流/對帳/退款判斷。
    */
   workflowStatus: string | null;
@@ -848,29 +850,13 @@ export type AdminOrderDetail = {
   cancellationsTruncated: boolean;
 };
 
-/**
- * OrderStatusOption: 後台訂單處理狀態詞彙(M-4a、order_status_options 表;Sean 可設定+顏色)。
- *
- * Sean 的 Google Sheet 工作方式:單一「訂單狀態」下拉 + 底色(收款×訂定×貨況合併標籤)。
- * `code` = 穩定識別碼(orders.workflow_status soft-ref);`label` = 顯示文字(截圖逐字);
- * `color` = badge 底色 hex;`textColor` = 深底淺字/淺底深字;`sortOrder` = 下拉排序;
- * `isActive` = soft-delete(停用不硬刪,既有單指向不消失、顯示端仍可解析 label)。
- */
-export type OrderStatusOption = {
-  code: string;
-  label: string;
-  /** badge 底色(hex,如 '#FBE4A6';DB CHECK 保證格式) */
-  color: string;
-  /** 字色模式:'light' 深底淺字 / 'dark' 淺底深字 */
-  textColor: 'light' | 'dark';
-  sortOrder: number;
-  isActive: boolean;
-};
-
-// M-4b E10 A9w4c(前半):`OrderStatusOptionUpdate` 已移除 —— 它的唯二引用是 port 與 adapter 的
-// `updateOrderStatusOption` 簽章,兩者同片退場。`OrderStatusOption`(讀模型)保留:**A11a-1(2026-08-06)後
-// 列表側已零引用**;唯一殘留的 writer 鏈帶色下拉(`workflow-status-select.tsx`)**已於 A9w4c 後半刪除**
-// ⇒ 本型別現在只剩 `order_status_options` 讀取鏈在用,而那條鏈的處置見 A11a plan §3.1(尚未執行)。
+// M-4b E10 A9w4c:九碼狀態**詞彙表**的 domain 型別已全數移除
+// (⚠️ 不是「九碼欄位全沒了」:`AdminOrderLine.workflowStatus` 那個欄位仍在,那是**值**、不是詞彙表)。
+// - 前半:`OrderStatusOptionUpdate`(唯二引用=port/adapter 的 `updateOrderStatusOption` 簽章)。
+// - 後半收尾:`OrderStatusOption`(讀模型)—— A11a-1 列表重建後零引用,`order_status_options`
+//   讀取鏈(port / adapter / admin getter / 其測試)同片整條退場(A11a plan §3.1 裁定)。
+// 🔴 DB 端 `order_status_options` 表、資料與 service_role 讀寫權**都還在**,撤權屬 A9v
+//    ⇒ 這裡是「應用層沒有這張表的型別與讀取介面」,不等於「資料庫沒有這張表」。
 
 /**
  * PlaceOrderVehicle: 品項「給哪台車用」(M-4a V-3a;client → server 線契約、選填)。
