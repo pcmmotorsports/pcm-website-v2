@@ -847,7 +847,7 @@ components:
       - "apps/storefront/src/components/ProductPage.tsx"  # Related grid
       - "apps/storefront/src/components/account/tabs/OverviewTab.tsx"  # 為你推薦(2026-08-06 起直接用 ProductCard,不再是自刻卡 + ProductImage)
       - "apps/storefront/src/components/brand/BrandPageProducts.tsx"  # 品牌頁熱門商品 .bp-grid
-      - "apps/storefront/src/components/HomeSelect.tsx"  # 首頁 N°02 橫捲(價格列對齊的基準面)
+      - "apps/storefront/src/components/ProductRail.tsx"  # 首頁 N°02 橫捲(價格列對齊的基準面);2026-08-07 R-1 起 ProductCard 的實例化點在這、不在 HomeSelect
     business_overrides:
       - field: "cardImageTrimZoom"
         design_value: "ProductCard.jsx 真圖 object-fit cover 滿框裁切(design 無去白邊機制、白邊大的原圖商品被切邊/顯小)"
@@ -1469,7 +1469,7 @@ components:
       css: "同檔 `.js-reveal` / `[data-reveal]` 那組(刻意不引行號:該稿仍在被改)"
     related_storefront:
       - "apps/storefront/src/app/page.tsx"  # 掛載點(render 在 HomeFooter 之後,回 null)
-      - "apps/storefront/src/components/HomeSelect.tsx"  # N°02,掛 data-reveal
+      - "apps/storefront/src/components/ProductRail.tsx"  # N°02 的 `data-reveal` 2026-08-07 R-1 起在這顆(且改 opt-in;`HomeSelect` 傳 `reveal` 才種)
       - "apps/storefront/src/components/CategoryGrid.tsx"  # N°03,掛 data-reveal
       - "apps/storefront/src/components/HomeStatement.tsx"  # N°04,掛 data-reveal
       - "apps/storefront/src/components/BrandIndex.tsx"  # N°06,掛 data-reveal
@@ -1527,18 +1527,20 @@ components:
     storefront:
       component: "apps/storefront/src/components/HomeSelect.tsx"
       css: "apps/storefront/src/styles/home.css"  # 全域 import via layout.tsx、非元件獨立 css 檔;.ed-select 家族
-      last_modified_commit: "4833eaf"  # 記可達祖先=D5g 的父 commit(#180 案 A);前錨見下方敘述
-      last_modified_date: "2026-08-05 [D5g 捲動進場]:本區塊加一個 `data-reveal` 屬性,由 `HomeReveal.tsx` (effect-only client 元件)以選擇器找到、捲進視窗才掛 `.is-in` 淡入上移。**內容、版面、連結一律零改動** —— 本片對本元件的唯一異動就是那個屬性。起始隱藏掛在 `body.js-reveal` 底下,JS 沒跑到 / 不支援 IO / 開了減少動效時整塊維持全可見。前:2026-08-05 [D5a 首頁區塊重排連動]:本區塊由第 5 個位置上移到 **N°02**(OD README「區塊順序(第 7 步之後)」定案),版面編號字面 `N°04` → `N°02`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `b-select-title` 那顆 `N°02`)。🔴 README 逐字「編號是**位置標記不是內容 id**」⇒ 編號跟著位置走。元件內部結構與資料流零改動。前:2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
+      last_modified_commit: "0d07b7d4"  # 記可達祖先=R-1 開工時 HEAD(#180 案 A);前錨 4833eaf
+      last_modified_date: "2026-08-07 [R-1 抽 ProductRail;**首頁零變更**]:Sean 拍板品牌頁「熱門商品」與會員中心「為你推薦」都改成 N°02 同款橫捲、且要求**不寫第二套** ⇒ 橫捲機制(軌道 ref / 兩端偵測 / 箭頭步進 / 空錯分支)整組抽到新元件 `components/ProductRail.tsx`,本檔退化成只負責本區字面與資料的薄殼(208 → 約 60 行)。🔴 **DOM 輸出零差異**(逐字比對過、不是只靠測試綠):class / 屬性 / svg / 中文字面 / `key` / `href` 全等;原本的 `tweaks` 物件(`showRedPrice:false`、`badgeStyle:'minimal'`)改為顯式傳入。驗收字面 = `HomeSelect.test.tsx` / `styles/home.test.ts` / `lib/products-featured-limit.test.ts` 三支**一字不改仍綠**(已驗、證據為 `git diff --stat` 空;其後只改了 `home.test.ts` 的一行**註解**跨檔指標,斷言與測試數零變更,已在 STOP 申報)。🔴 **唯一非 DOM 的真差異**:`HomeSelect` 掉了 `'use client'`、由 client component 變回 server component,client 邊界下移到 `ProductRail`(props 全是字串/布林/plain data ⇒ 序列化需求不變、hydration 結果相同)。連動更正 `app/page.tsx` 的 `HomeReveal` 註解 —— 那句「HomeSelect 本來就有 use client」已假,而它本身就是上一輪措辭更正的產物、被同一個坑打第二次。審查另抓到並修:`data-reveal` 由寫死改 **opt-in**(品牌頁 Sean 2026-08-04 拍板 C「捲動揭示先不做」,寫死會種反向屬性)、`emptyText` 改**可省**(不給就整區不渲染;品牌頁現行就是 0 筆不渲染,必填會逼 R-2 替客人編文案)、`badgeStyle` **不給預設**(避免成為 ProductCard 預設之外的第二份)、兩個視覺 prop 的透傳補守門(原本寫死回首頁值仍全綠)。R-1 不碰另外兩區;非首頁還缺 `--ed-*` token 作用域(那些 token 只活在 `.ed-page`),留 R-2 以新增一層 scope class 解決、不動現有規則。前:2026-08-05 [D5g 捲動進場]:本區塊加一個 `data-reveal` 屬性,由 `HomeReveal.tsx` (effect-only client 元件)以選擇器找到、捲進視窗才掛 `.is-in` 淡入上移。**內容、版面、連結一律零改動** —— 本片對本元件的唯一異動就是那個屬性。起始隱藏掛在 `body.js-reveal` 底下,JS 沒跑到 / 不支援 IO / 開了減少動效時整塊維持全可見。前:2026-08-05 [D5a 首頁區塊重排連動]:本區塊由第 5 個位置上移到 **N°02**(OD README「區塊順序(第 7 步之後)」定案),版面編號字面 `N°04` → `N°02`(權威 = OD direction-b-layout-01-graphite-ember.html` 的 `b-select-title` 那顆 `N°02`)。🔴 README 逐字「編號是**位置標記不是內容 id**」⇒ 編號跟著位置走。元件內部結構與資料流零改動。前:2026-07-03 (#5b 修:精選卡點擊導向 —— 原 onClick router.push('/products/'+p.id) 用 hashIdToNumber 雜湊數字、非真 handle → 導向不存在網址 → 404「找不到頁面」(Sean 回報「點進去商品錯誤」);改 href={'/products/'+p.slug} 走 ProductCard href(Next.js Link、SEO 真 anchor)、對齊 ProductsPage:353 / ProductPage 相關商品 slug 導航;移除 useRouter import + 宣告。)"
     design:
       component: "design-reference/components/HomePage.jsx (L197-212 ed-select / The Selection · 編輯精選 section)"
       css: "design-reference/styles/home.css (L457-470 .ed-select / .ed-select-grid)"
     related_storefront:
-      - "apps/storefront/src/components/HomeSelect.tsx"  # N°02 最新商品(D5a 重排後;原 N°04 編輯精選)、4 ProductCard、server-side featured 真資料接入
-      - "apps/storefront/src/components/HomeSelect.test.tsx"  # smoke test(三分支 + #5b slug href regression guard)
+      - "apps/storefront/src/components/HomeSelect.tsx"  # N°02 最新商品(D5a 重排後;原 N°04 編輯精選)、server-side featured 真資料接入;2026-08-07 R-1 後只剩本區字面與資料
+      - "apps/storefront/src/components/HomeSelect.test.tsx"  # smoke test(三分支 + #5b slug href regression guard);R-1 驗收字面=本檔一字不改仍綠
+      - "apps/storefront/src/components/ProductRail.tsx"  # 2026-08-07 R-1 抽出:橫捲機制本體(三區共用;ProductCard 的實例化點與 `+16` 步進都在這)
+      - "apps/storefront/src/components/ProductRail.test.tsx"  # R-1 新增:只守「區塊專屬字面/旗標真的由 props 決定」,機制由首頁那兩支守
     business_overrides:
       - field: "productNavByHandle"
         design_value: "onNav('product', { productId: p.id })(design SPA 原型導航、以 productId 進 in-app 狀態)"
-        storefront_value: "<ProductCard href={`/products/${p.slug}`}>(Next.js Link、真路由以 handle/slug 為 key、SEO anchor)"
+        storefront_value: "<ProductCard href={`/products/${p.slug}`}>(Next.js Link、真路由以 handle/slug 為 key、SEO anchor);🔴 2026-08-07 R-1 起該呼叫點在 `ProductRail.tsx`、不在 `HomeSelect.tsx`(規則字面與值皆未變、只有位置搬了)"
         decided_at: "2026-07-03"
         decision_source: "#5b(Sean 回報首頁精選點擊 404)/ 對齊 ProductsPage:353 既有 slug 導航"
         reason: "真 storefront 路由 key = products.handle(products_handle_key 全域唯一),非 design 原型 productId;hashIdToNumber 數字非合法 handle → 必 404。鐵則 1 例外類別 2(路由技術實作、非視覺偏離)"

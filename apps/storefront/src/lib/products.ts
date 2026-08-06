@@ -256,7 +256,8 @@ export type FeaturedResult = {
  *    10 = 兩頁半的量,既捲得動又不會讓首頁一次拉太多資料。
  * ⚠️ **會員中心那頁是 4 欄 grid**(`account.css` 的 `.acc-rec`)⇒ 10 筆會排成 4+4+2、
  *    最後一列缺兩格。這是 Sean 拍「兩頁一起變多」的直接結果,已在收工信如實回報。
- *    守門在 `lib/products-home-limit.test.ts`(取數必須 > 首頁桌機格數,格數由 CSS 現算)。
+ *    守門在 `lib/products-featured-limit.test.ts`(取數必須 > 首頁桌機格數,格數由 CSS 現算)。
+ *    (2026-08-07 更正:原寫 `products-home-limit.test.ts`,那個檔名不存在。)
  */
 export const FEATURED_LIMIT = 10;
 
