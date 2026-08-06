@@ -65,21 +65,18 @@ const TONE = {
 
 export function ResultBanner({ code }: { code: string | undefined }) {
   if (!code) return null;
-  // 🔴🔴 **已知缺陷,Sean 2026-08-02 拍板 B 刻意退回、不是沒發現**:
-  //    `code` 來自頁面的 `searchParams.r`,是**任意字串**。直接索引時
-  //    `MESSAGES['__proto__']` / `['constructor']` / `['toString']` 取到的是
-  //    **原型鏈上的屬性**且為 truthy ⇒ 下一行的 `if (!msg)` 這道守門形同虛設
-  //    ⇒ 畫出一個 `class="… undefined"` 的空框。
-  //    **無注入風險**(`msg.text` 是 undefined ⇒ React 不渲染任何文字),
-  //    純粹是「守門的名字大於它的實際能力」。
-  //    修法是 `Object.hasOwn(MESSAGES, code)`,S3b-2(`4833cae`)曾修過並已上線,
-  //    Sean 08-02 拍板退回 —— 理由是它不在該片的產物表內、屬鐵則 8「動共用元件」灰區。
-  //    ⇒ 受影響頁面 **6 個**(A9w2 起:原 7 個,`order-statuses` 隨九碼退場已下架):
-  //      orders 列表 / 訂單詳情 / 客戶詳情 / 退款異常清單(本元件;退款異常=M-3 RW4 新增,
-  //      爆炸半徑數字同步更新 —— 這行是那份 plan 的輸入)
-  //      + staff / suppliers(姊妹元件 `settings-result-banner.tsx`)。
-  //    要再修的話,兩支要一起、並且走 plan。
-  const msg = MESSAGES[code];
+  // 🔴 **守門形狀必須是 `Object.hasOwn`,不得退回裸索引 `MESSAGES[code]`**(#332-2,Sean 2026-08-02
+  //    拍板 B 退回過一次、2026-08-06 拍板 Q1=A 修回來):`code` 來自頁面的 `searchParams.r`,
+  //    是**任意字串**。裸索引時 `MESSAGES['__proto__']` / `['constructor']` / `['toString']` /
+  //    `['valueOf']` / `['hasOwnProperty']` 取到的是**原型鏈上的屬性**且為 truthy
+  //    ⇒ 下一行的 `if (!msg)` 這道守門形同虛設 ⇒ 畫出一個 `class="… undefined"` 的空框。
+  //    無注入風險(`msg.text` 是 undefined ⇒ React 不渲染任何文字),但那是
+  //    「守門的名字大於它的實際能力」——`if (!msg)` 承諾擋掉所有非自有 key,實際擋不掉最好猜的那五個。
+  //    ⇒ 回歸測試釘在 `result-banner.test.tsx`(五個向量逐字入測);姊妹元件
+  //    `settings/settings-result-banner.tsx` 同形、測試在 `settings-result-banner.test.tsx`。
+  //    背景與爆炸半徑(本元件 4 頁 + 姊妹元件 2 頁 = **6 頁**)見
+  //    `docs/specs/2026-08-06-result-banner-cleanup-plan.md`。
+  const msg = Object.hasOwn(MESSAGES, code) ? MESSAGES[code] : undefined;
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>

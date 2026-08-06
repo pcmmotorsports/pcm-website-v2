@@ -39,10 +39,11 @@ describe('SUPPLIER_RESULT_MESSAGES', () => {
 
   // ── 驗收 7:未知的 ?r= 值 ⇒ 什麼都不顯示 ─────────────────────────
   // 🔴 `?r=` 是 URL 上的**任意**字串,不是我們的碼表 ⇒ 這條的輸入面是真的、不是假想的。
-  // 🔴 **原型鏈那三個向量(`__proto__` / `constructor` / `toString`)已移除** ——
-  //    Sean 2026-08-02 拍板 B 退回了 `settings-result-banner.tsx` 的 `Object.hasOwn` 修法,
-  //    留著它們會轉紅,而把期望值改成「會畫出一個空框」等於**用測試把缺陷釘成規格**。
-  //    ⇒ 該缺陷的完整描述留在 `settings-result-banner.tsx` 的註解裡(含受影響的 6 個頁面)。
+  // 🔴 **原型鏈那組向量不在本檔**(#332-2 起):守門已於 `settings-result-banner.tsx` 硬化成
+  //    `Object.hasOwn`,而「本元件對任何非自有 key 都不渲染」這個不變量在**元件層**成立、
+  //    與是哪一張碼表無關 ⇒ 五個向量釘在 `components/settings/settings-result-banner.test.tsx`。
+  //    本檔只負責**供應商這張碼表**自己的事(每個碼有文案、staff 專屬碼沒被抄過來、文案措辭)。
+  //    ⇒ 下面的 `nope` / `audit_failed` 留著不動:它們驗的是「一般未知碼」那條路徑。
   it.each(['nope', 'audit_failed'])(
     'should render nothing for the unknown result code %s',
     (code) => {
