@@ -260,3 +260,81 @@ describe('🔴 第3批 · sticky 偏移三處必須同值(漂開不會有任何�
     ).toMatch(/calc\(var\(--shell-header-h\) \+ 58px\)/);
   });
 });
+
+// ══ 商品卡「價格列貼卡底、整排對齊」三件套(2026-08-06,R1 MF3)══
+//
+// 🔴 這三條是**一組**,少任何一條那個版面就不成立,而且三種壞法在三綠與單元測試下全都零轉紅:
+//    ①`.pcard-info{flex:1}` 沒了 → `margin-top:auto` 沒有剩餘空間可分配、推不到卡底
+//    ②`.pcard-name{min-height:2.8em}` 沒了 → 1 行與 2 行品名讓下半部整段位移
+//    ③`.pcard-price-row` 又被補上第二個 `margin-top` → 後者覆蓋 `auto`,貼底整條變死規則
+//    ③正是這次抓到的真缺陷:`margin-top:auto` 與 `margin-top:8px` 同時存在了不知道多久。
+// 真權威 = OD `pcm-account.css` 的「為你推薦」段(2026-08-06 Sean 指示後的新稿)與首頁稿
+//    `direction-b-layout-01-graphite-ember.html`,兩支的 `.pcard-*` 逐字相同。
+// ⚠️ 它擋不住什麼:文字層證得了三條規則在、形狀對,證不了瀏覽器真的把價格排到同一條線上
+//    (那要真瀏覽器量整排卡片的 `.pcard-price-row` top 值)。
+describe('商品卡 · 價格列貼卡底(首頁橫捲 / 商品列表 / 品牌頁 / 會員中心共用)', () => {
+  // 🔴 `.pcard` 自己的 `flex:1` = OD 逐字(鐵則 1 直搬)+ 縱深防禦。
+  //    ⚠️ **不要照抄「少了它首頁就會不齊」那個說法** —— 真瀏覽器四組對照實測:
+  //       min-height ON/flex ON → 0px、ON/OFF → 0px、OFF/ON → 0px、OFF/OFF → 19px。
+  //       兩套機制互相獨立、任一條單獨都夠(現行內容形狀下)。這條守的是「OD 字面別被摘掉」,
+  //       它**不是**目前唯一撐住對齊的那根柱子;真正會壞的組合是兩套一起消失。
+  it('🔴 `.pcard` 自己有 flex:1(OD 字面;與 min-height 互為備援)', () => {
+    expect(
+      block(CARD, 'product-card.css', '.pcard {'),
+      '.pcard 沒有 flex:1 ⇒ OD 字面被摘掉、只剩 min-height 一根柱子撐對齊',
+    ).toMatch(/flex:\s*1\b/);
+  });
+
+  it('🔴 `.pcard-info` 有 flex:1(否則下面那條 margin-top:auto 是空話)', () => {
+    expect(
+      block(CARD, 'product-card.css', '.pcard-info'),
+      '.pcard-info 沒有 flex:1 ⇒ 價格列推不到卡底、整排高低不齊',
+    ).toMatch(/flex:\s*1\b/);
+  });
+
+  it('🔴 `.pcard-name` 有 min-height:2.8em(line-clamp 只管上限、不管下限)', () => {
+    expect(
+      block(CARD, 'product-card.css', '.pcard-name'),
+      '.pcard-name 沒有 min-height ⇒ 一行品名的卡片下半部整段上移',
+    ).toMatch(/min-height:\s*2\.8em/);
+  });
+
+  it('🔴 `.pcard-price-row` 只有**一個** margin-top 且是 auto(重複宣告會讓後者靜默覆蓋)', () => {
+    const body = block(CARD, 'product-card.css', '.pcard-price-row');
+    const marginTops = body.match(/margin-top:/g) ?? [];
+    expect(
+      marginTops.length,
+      `.pcard-price-row 出現 ${marginTops.length} 個 margin-top ⇒ 後者會覆蓋 auto、貼底變死規則`,
+    ).toBe(1);
+    expect(body, '.pcard-price-row 的 margin-top 不是 auto ⇒ 不貼卡底').toMatch(/margin-top:\s*auto/);
+  });
+
+  // 🔴 R2 nit:上面三條都只看 `block()` 取到的**第一個**同名區塊 ⇒ 有人在檔案後段或別支 CSS
+  //    另寫一條 `.pcard-price-row{margin-top:8px}` / `.pcard-info{flex:none}` / `.pcard-name{min-height:0}`
+  //    就能讓 bug 復活而守門全綠 —— 那正是這次抓到的 bug 的下一個變形(它本來就是「同一條規則裡
+  //    寫了兩次 margin-top」)。這條掃**全部**出現位置,不是只掃第一個。
+  it('🔴 這四顆屬性在全站 CSS 裡只有一個定義點(後面沒有人再覆寫回去)', () => {
+    const ALL: Array<[string, string]> = [
+      ['product-card.css', CARD],
+      ['products-page.css', PRODUCTS],
+      ['cart.css', CART],
+      ['filter-cascade.css', CASCADE],
+      ['filter-side.css', SIDE],
+      ['cart-vehicle.css', CART_VEHICLE],
+    ];
+    // 找出每支 CSS 裡所有「選擇器含 .pcard-xxx」的規則,檢查有沒有第二處覆寫承重屬性
+    const overrides: string[] = [];
+    for (const [label, src] of ALL) {
+      for (const m of src.matchAll(/([^{}]*\.pcard(?:-info|-name|-price-row)\b[^{}]*)\{([^}]*)\}/g)) {
+        const selector = m[1]!.trim();
+        const body = m[2]!;
+        const isBase = /^\.pcard(-info|-name|-price-row)$/.test(selector) || selector === '.pcard';
+        if (isBase) continue;
+        if (/flex:|min-height:|margin-top:/.test(body)) {
+          overrides.push(`${label} 的「${selector}」覆寫了承重屬性`);
+        }
+      }
+    }
+    expect(overrides, `有第二處覆寫會讓 base 規則靜默失效:\n${overrides.join('\n')}`).toEqual([]);
+  });
+});

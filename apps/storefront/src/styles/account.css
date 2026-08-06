@@ -8,12 +8,12 @@
  * - overview/orders tab(g-2 加入):.acc-stats / .acc-stat / .acc-stat-v / .acc-stat-sub
  *   / .acc-stat-tier / .acc-section / .acc-section-head / .acc-orders / .acc-order /
  *   .acc-order-l / .acc-order-r / .acc-order-id / .acc-order-meta / .acc-order-total /
- *   .acc-order-status / .acc-order-detail / .acc-order-full / .acc-rec / .acc-rec-item
- *   / .acc-rec-name / .acc-rec-price / .acc-empty(對齊 design L568-695 + L994-1000)
- *   + mobile L909-911
- * - g-2 業務 override:.acc-rec-img wrapper(design `.acc-rec-item img` 直接吃 design 的
- *   靜態 img;PCM 走既有 <ProductImage>(absolute 內 img + parent 需 height/aspect-ratio)
- *   故包 .acc-rec-img wrapper 給 aspect-ratio 1 + margin-bottom)
+ *   .acc-order-status / .acc-order-detail / .acc-order-full / .acc-rec / .acc-empty
+ *   (對齊 design L568-695 + L994-1000)+ mobile L909-911
+ * - 🔴 2026-08-06(Sean 拍板 Q1=A)更正:上一行原本還列著 .acc-rec-item / .acc-rec-name
+ *   / .acc-rec-price,以及下面原有一條「g-2 業務 override:.acc-rec-img wrapper」——
+ *   那四條**已整組刪除**,「為你推薦」改用首頁 N°02 同一顆 ProductCard、卡片外觀吃
+ *   product-card.css。本檔只留 .acc-rec 那層版位格線。
  * - 其餘 tab 專屬樣式(.acc-fav / .acc-bike / .acc-addr / .acc-profile / .acc-inline-form)
  *   隨各自 tab slice(g-3~g-7)加入、本檔不含。
  * - .acc-stub 為 g-1a 暫時 placeholder chrome、g-2 保留(其他 5 tab 仍用、g-3~g-7 各自移除)。
@@ -282,36 +282,14 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
 }
-.acc-rec-item {
-  display: flex;
-  flex-direction: column;
-  color: var(--c-text);
-  /* V-2f:grid item 可收縮(配 mobile .acc-rec minmax(0,1fr))=修會員頁概覽 tab 手機 2 欄推薦品溢出 */
-  min-width: 0;
-}
-/* g-2 業務 override:design `.acc-rec-item img` 預期 design 端的直接 img,storefront 走
- * 既有 <ProductImage>(absolute 內 img、parent 需給 height)。故包 .acc-rec-img wrapper、
- * 對 ProductImage 渲染的 .pcard-gallery 撐高;visual 等價 design 字面。 */
-.acc-rec-img {
-  width: 100%;
-  aspect-ratio: 1;
-  background: var(--c-surface-2);
-  margin-bottom: 8px;
-  position: relative;
-  overflow: hidden;
-}
-.acc-rec-img .pcard-gallery { height: 100%; }
-.acc-rec-name {
-  /* 🔶 R1 9-3:版寬放大後卡片變寬,商品名同比放大並對齊殼 nav 的 14px(順帶併整數)。 */
-  font-size: 14px;
-  line-height: 1.45;
-  min-height: 40px;
-}
-.acc-rec-price {
-  font-size: 13px; /* 🔶 R1 9-3 */
-  color: var(--c-text-2);
-  margin-top: 5px;
-}
+/* 🔴 2026-08-06(Sean 拍板 Q1=A):`.acc-rec-item` / `.acc-rec-img` / `.acc-rec-name`
+   / `.acc-rec-price` 四條**整組刪除** —— 「為你推薦」改用首頁 N°02 同一顆 `ProductCard`,
+   卡片外觀一律吃 `product-card.css` 的 `.pcard*`,本檔不再自畫第二種商品卡。
+   (`.acc-rec` 這層格線留著:它是**版位**、不是卡片外觀,四欄/兩欄的斷點規則仍由本檔管。)
+   🔴 其中 `.acc-rec-price` 的 `color: var(--c-text-2)` 正是 Sean 回報的「價錢顏色不一樣」——
+      它照的是 OD `source/styles/account.css`,而那個目錄是**舊站快照層**、不是新稿定案層。
+      刪掉之後價格吃 `.pcard .price-main` = `--c-red-dark` #c4470c,
+      與 OD 新稿逐字 `.price-main{…color:var(--c-ember-ink)}` 同值。 */
 
 /* acc-empty:對齊 design L994-1000,用於 g-2 訂單 / 推薦空狀態(g-3~g-7 後續 tab 共用) */
 .acc-empty {
@@ -788,8 +766,9 @@
   .acc-order-id, .acc-order-meta { font-size: 14px; }
   .acc-order-total { font-size: 17px; }
   [data-mobile] .acc-rec, .acc-rec { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; } /* 4 張一行;2 欄會讓商品圖大到失衡 */
-  .acc-rec-name { font-size: 14px; min-height: 40px; }
-  .acc-rec-price { font-size: 14px; }
+  /* 🔴 2026-08-06:`.acc-rec-name` / `.acc-rec-price` 兩條斷點覆寫跟著本體一起刪
+     (卡片改吃 `.pcard*`,字級由 `product-card.css` 統一管)。留著的話是**指向不存在元素的死規則**
+     —— 而死規則不會有任何測試轉紅,只會讓下一個人以為這裡還有一套自刻卡。 */
   [data-mobile] .acc-bikes, .acc-bikes { grid-template-columns: 1fr 1fr; }
   [data-mobile] .acc-bike h3, .acc-bike h3 { font-size: 20px; }      /* 手機值 18px */
   .acc-bike-meta { font-size: 14px; }

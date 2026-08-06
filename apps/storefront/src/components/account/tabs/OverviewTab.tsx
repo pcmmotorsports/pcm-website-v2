@@ -5,9 +5,12 @@
 // - acc-section 最近訂單(L498-517):M-3 接真資料 recentOrders(AccountView slice(0,2) 傳入);
 //   對齊 design preview 字面(.acc-order 無 -full、meta「件」、無詳情鈕);0 筆走 acc-empty 空狀態。
 //   不搬 design mock orders 字面(PCM-2026-0042 / NT$ 18,600 / 已出貨)。
-// - acc-section 為你推薦(L519-534):design 用 mock data.products.slice(0,4) + p.image;
-//   g-2 走 fetchFeaturedProducts(server-side、Supabase 真資料)+ <ProductImage>(MockProduct
-//   無 image 欄位、走既有元件、wrapper .acc-rec-img 撐 aspect-ratio)。
+// - acc-section 為你推薦:g-2 走 fetchFeaturedProducts(server-side、Supabase 真資料)。
+//   🔴 2026-08-06 更正(R1 MF1):本段原本寫「+ <ProductImage>(…wrapper .acc-rec-img 撐
+//      aspect-ratio)」與「design 用 mock data.products.slice(0,4)」—— **兩句都已過期**:
+//      卡片改用共用 `ProductCard`(Sean 拍板「格式跟首頁最新商品一樣」),`.acc-rec-img`
+//      wrapper 與 `ProductImage` 直呼都已刪除、高度由 `.pcard-img-wrap` 的 aspect-ratio 給;
+//      顯示筆數也已是 `ACCOUNT_REC_DISPLAY`(8)不是 4。
 //   ⚠️ tier-aware pricing 暫不接(server page.tsx 固定 'general' 公開價、待 M-1-16、見 manifest
 //   featuredProductsViaSupabase business override + codex k2 round1 must-fix#1)、本 tab 收到的
 //   `featured` 已是 general 公開價序列、不傳 stats.tier 影響推薦定價
@@ -20,7 +23,7 @@ import Link from 'next/link';
 import { schemaTierToDesign } from '@pcm/domain';
 import type { MemberTier, OrderListItem } from '@pcm/domain';
 import { TierBadge } from '@/components/TierBadge';
-import { ProductImage } from '@/components/ProductCard';
+import { ProductCard } from '@/components/ProductCard';
 import type { AccountStats } from '@/components/account/AccountView';
 import type { FeaturedResult } from '@/lib/products';
 import { formatOrderDate, orderStatusLabel } from '@/lib/orders/order-display';
@@ -130,12 +133,32 @@ export function OverviewTab({
         )}
       </div>
 
-      {/* acc-section 為你推薦(g-2 走 fetchFeaturedProducts 真資料 + ProductImage 元件)*/}
+      {/* acc-section 為你推薦(g-2 走 fetchFeaturedProducts 真資料;卡片自 2026-08-06 起
+          = 首頁 N°02 同一顆 `ProductCard`,見下方紅字)*/}
       <div className="acc-section">
         <div className="acc-section-head">
           <h2>為你推薦</h2>
           <Link href="/products">更多新品 →</Link>
         </div>
+        {/* 🔴 Sean 2026-08-06 拍板(Q1=A):這一格的卡片格式改成**與首頁 N°02 最新商品同一顆**
+            `ProductCard` —— 原本是本檔自刻的 `.acc-rec-item`(只有圖 + 品名 + 價格,
+            沒有品牌 mono 行、沒有適用車型行、沒有圖框)。
+            🔴 **價格顏色順帶被修好**:自刻版的 `.acc-rec-price` 吃 `--c-text-2`(灰),
+               而 `ProductCard` 吃 `product-card.css` 的 `.pcard .price-main`
+               = `--c-red-dark` #c4470c,與 OD 新稿逐字的 `.price-main` 那條所用的
+               `--c-ember-ink`(#c4470c)同值。Sean 回報的「價錢字體顏色不一樣」就是這一顆。
+            🔴 **本頁的 OD 真權威 = `pcm-account.css`**(`account-page.html` 用 `<link>` 掛它,
+               不是 inline `<style>`)。那支已於 **2026-08-06 同一句 Sean 指示**改成 `.pcard`,
+               檔內註解逐字:「格式要跟首頁的最新商品一樣…原本這裡是自己一套(.acc-rec-img / -name
+               / -price):只有圖、品名、灰色價格,缺品牌 mono 標、缺適用車型、缺分隔線,
+               價格也不是熔橘」⇒ **本片與 OD 一致,不是偏離**(R1 MF4 更正:初稿把它寫成
+               「刻意偏離頁稿」是錯的,而且把來源檔指到了 `source/styles/account.css`)。
+            🔴 `source/styles/` 那個目錄是**舊站快照層**(`--c-red:#dc2626` 緋紅那一版)、不是稿。
+               把它當權威就會搬到過期值 —— 灰價格正是這樣來的。OD 共三層,別再混:
+               `source/styles/*`(舊站快照)/ `pcm-*.css`(各頁新稿樣式)/ 各頁 `<style>`(首頁那類自包含稿)。
+            props 與首頁/品牌頁對齊:`showRedPrice` 與 `badgeStyle` 都用預設
+            (首頁顯式傳的 `false` / `'minimal'` 正是 `ProductCard` 的預設值,
+            品牌頁 `BrandPageProducts.tsx` 也是只傳 `p` + `href`)。 */}
         {featured.error ? (
           <div className="acc-empty">推薦商品載入失敗、請稍後再試</div>
         ) : featured.products.length === 0 ? (
@@ -143,14 +166,7 @@ export function OverviewTab({
         ) : (
           <div className="acc-rec">
             {featured.products.slice(0, ACCOUNT_REC_DISPLAY).map((p) => (
-              <Link key={p.id} href={`/products/${p.slug}`} className="acc-rec-item">
-                <div className="acc-rec-img">
-                  {/* trim 線 S4b(codex MF-2):為你推薦同步吃去白邊 bbox、四消費端一致 */}
-                  <ProductImage tone={p.imgTone} label={p.brand} seed={p.id} image={p.image} trim={p.imageTrim} />
-                </div>
-                <div className="acc-rec-name">{p.name}</div>
-                <div className="acc-rec-price">NT$ {p.price.toLocaleString()}</div>
-              </Link>
+              <ProductCard key={p.id} p={p} href={`/products/${p.slug}`} />
             ))}
           </div>
         )}
