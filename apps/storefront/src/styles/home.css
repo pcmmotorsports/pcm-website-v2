@@ -136,12 +136,23 @@
   max-height: 880px;
   background: #202225;
   color: #fff;
-  overflow: hidden;
+  /* 🔴 **對 OD 的申報偏離(D-128 迴歸修;2026-08-06 Sean 肉眼抓到)**:
+     OD `:117` 這裡是 `overflow:hidden`,而**入口板的下拉選單會被它裁掉** ——
+     真瀏覽器實測(3111 真站、1600 寬、捲到 260):清單 layout 高 280px,但 hero 底緣以下
+     全部被裁,`elementFromPoint` 打到的是下一段 `.b-select` 與商品圖 ⇒ 客人看到「第二項起不見了」。
+     決定性實驗:把 hero 改 `overflow:visible` 後同樣的探針全部打到 `.vsc-option`,還原後又壞。
+     ⚠️ **為什麼 OD 沒踩到**:它的 dock 用的是原生 `<select>`(選單由瀏覽器畫在頁面之外),
+        本 repo 用的是自製 combobox(`.vsc-list` 是頁面內的絕對定位元素)⇒ 這個裁切對它才致命。
+     修法 = **把裁切下放到真正需要它的那一層**(`.b-hero-media`):要被裁的是滿版底圖,
+     不是入口板。實測圖片零溢出(imgTop/imgBottom 與 hero 完全對齊)。 */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
 }
-.b-hero-media { position: absolute; inset: 0; }
+/* 🔴 裁切在這一層:滿版底圖(object-fit: cover)超出時要被切掉,而入口板的下拉不受影響
+   (理由見上方 `.b-hero` 的申報偏離)。 */
+.b-hero-media { position: absolute; inset: 0; overflow: hidden; }
 .b-hero-media img {
   width: 100%; height: 100%;
   object-fit: cover;
