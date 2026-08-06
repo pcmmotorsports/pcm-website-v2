@@ -1,6 +1,7 @@
-# A11c — 訂單列表手機卡片版 slice plan v1
+# A11c — 訂單列表手機卡片版 slice plan v2
 
-> **狀態:⛔ plan 起草、零施工。鐵則 8 ⇒ 等批准。**
+> **狀態:✅ 已實作**(`E-130-A` Q1=A + 分法 A 拍板、`E-131-A` 開跑;plan 主體已核 ⇒ 直接施工不再回核)。
+> v1 → v2 = 實作後的字面對帳,**含兩處被實測推翻的宣稱**(§2.4、§6-9),逐條列在下面不塗改。
 > 派工 = `E-129-A`。上游裁定 = STATUS `:12`(Q2=B:**A11c 先行、A12a 蓋 AdminDataTable**)。
 > **真權威 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md:427`**(§4 通用 UI 規範 第 1 條),逐字:
 >
@@ -62,8 +63,20 @@
 
 `orders-table.test.tsx`(484 行):**`getByText` 系零次**、`container.querySelector*` **24 次**,
 且選擇器全鎖在 `thead th` / `tbody tr td`(抽樣 `:116`/`:123`/`:139`/`:142-144`)。
-⇒ 卡片版若是 `<ul><li>`(非 `<table>`),**既有斷言一格都不會誤命中**,桌機回歸套件保持有效。
+⇒ 卡片版若是 `<ul><li>`(非 `<table>`),**選擇器類**的斷言不會誤命中。
 ⚠️ 反面:既有測試對卡片版**零覆蓋**,新格要自己寫(§6)。
+
+> ### 🔴 v2 更正:上面那句「既有斷言一格都不會誤命中」**被實測推翻**
+>
+> 我偵察時只統計了 `getByText`(0 次)與 `container.querySelector*`(24 次),**漏看了另一族**:
+> `:180` 與 `:464` 用 **`container.innerHTML.split(<字面>).length - 1` 數出現次數**,
+> 當作「訂單層欄只渲染一次」的代理觀察。雙 markup 一加,同一個字面在 container 內出現兩次
+> ⇒ **這兩格實際紅了**(`expected 2 to be 1` ×2)。
+>
+> **修法 = 把計數面鎖進 `<table>`**(`container.querySelector('table')!.innerHTML`),
+> 原斷言的**意圖(桌機表格內只渲染一次)完全保留**、而且比原本更精準;
+> 卡片那一面的同款重複由 A11c 新格 [卡頭欄位各只出現一次] 承重。
+> ⇒ **「既有測試一格不改」這條驗收沒有達成:改了 2 格**(都是加限定範圍,不是放寬)。
 
 ### 2.5 九碼前置已解除
 
@@ -149,7 +162,7 @@ A: A|B
 | **S3** | 槽位樣式**逐字沿用** `admin-data-table.tsx:140-156` 的既有 class 串(`p-3` / `flex items-start justify-between gap-3` / `text-muted-foreground mt-1 text-sm` …)—— 不自創第二套視覺語彙 |
 | **S4** | 空狀態(`:173-179`)**共用**,不複製第二份 |
 | **S5** | 卡片版沿用 `shouldMergeAmount`(`:57-59`)—— 🔴 **不得**在卡片重寫一份金額規則(那條有 Sean `E-115-A` 拍板的語意落差,兩份必漂)|
-| **S6** | 測試:新增卡片版格(§6),既有格**一格不改**|
+| **S6** | 測試:新增卡片版格(§6)。~~既有格一格不改~~ 🔴 **v2 更正:實際改了 4 格** —— 2 格因雙 markup **轉紅**(innerHTML 計數,§2.4)、2 格**沒轉紅但靜默失去判別力**(`container.textContent` 的正向斷言被卡片供應回來,階段 C code-reviewer 抓到)。四處都是**加限定範圍**(鎖進 `<table>`)、意圖不變 |
 | **S7** | 交棒註記:把 `admin-data-table.tsx:16-22` 那條「A13 操作欄一落地就會重現雙渲染問題」明寫進 `orders-table.tsx` 檔頭 —— 本片是第二個踩進雙 markup 的地方,不能只留在共用元件檔裡 |
 
 **不做**(刻意):不碰 `AdminDataTable`、不碰 `order-list-view.ts`、不動桌機外觀、不加任何 client 元件、
@@ -160,7 +173,8 @@ A: A|B
 ## §6 驗收條件(每條可 yes/no)
 
 1. 桌機 markup **逐字元未變** —— `git diff` 對 `<thead>`…`</table>` 區段零差異(除外框 class 加 `hidden md:block`)。
-2. 既有 484 行測試**一格未改、全綠**(§2.4 已證選擇器不會誤命中,但要實跑確認)。
+2. ~~既有 484 行測試一格未改、全綠~~ 🔴 **v2 更正:改了 4 格**(見 §5-S6);測試檔 484 → **673 行**。
+   「全綠」達成、「一格未改」**未達成**。
 3. 卡片版:一張訂單一個 `<li>`;3 品項的單 ⇒ 卡頭欄位**只出現一次**(反面就是 §2.3 那個壞形狀)。
 4. 卡片版金額與桌機**同源**:合併態顯示 `order.total`、非合併態逐品項 `lineTotal`
    —— 用同一組 fixture 斷言兩邊字面相同(擋 S5 那條漂移)。
@@ -169,8 +183,25 @@ A: A|B
 6. 空狀態只有一份 markup(grep「目前沒有符合條件的訂單」恰 1 次)。
 7. **突變證**:把卡片的 `md:hidden` 拿掉 ⇒ 至少一格轉紅(證明新格真的在量卡片、不是恆真)。
 8. 三綠 `--force`(貼 `Cached: 0`)+ 全套測試;Δ 預期先寫、被取代的舊格要扣掉。
-9. **真瀏覽器實看**(`agent-browser` CLI,viewport 390×844):手機下**看不到橫向捲軸**、
-   卡片內容與桌機同一筆訂單一致 —— 這是 §4-1 的直接驗收,文字層測試證不了。
+9. **真瀏覽器實看**(`agent-browser` CLI,viewport 390×844)—— §4-1 的直接驗收,文字層測試證不了。
+
+> ### 🔴 v2 更正:驗收 9 原本的量法**是恆真的**,已換掉
+>
+> 原本打算量「`document.documentElement.scrollWidth > innerWidth`」當「有沒有橫向捲軸」。
+> **負向對照當場打掉它**:把桌機表格放回手機顯示(拿掉 `hidden`)後,該值**仍然是 false**
+> —— 因為桌機外框自帶 `overflow-x-auto`,**捲動發生在那個 div 內部、不會撐大頁面**。
+>
+> **正確的觀察面 = 那個容器自己**:`wrapper.scrollWidth > wrapper.clientWidth` 且 `display !== 'none'`。
+> 實測(390×844,真 Chrome + admin build 出來的真 CSS + 元件真實渲染輸出):
+>
+> | | 桌機容器 display | 容器內橫捲 | 使用者碰得到捲軸 | 卡片 display |
+> |---|---|---|---|---|
+> | **修法前**(突變:拿掉 `hidden`)| `block` | **true**(clientWidth 356 vs scrollWidth **813**)| **是** | — |
+> | **修法後** | `none` | false | **否** | `block` |
+>
+> 813px 的表格塞進 356px 容器 = §4-1 那句「現行訂單列表 13 欄在手機上不可用」的量化版。
+> 🔴 探針頁用的是**元件真實渲染輸出 + build 產物的真 CSS**,不是手組的理想結構
+> (memory `feedback_probe-must-mirror-real-dom-chain`)。
 10. 肉眼驗留給 Sean(我只能寫程式驗)。
 
 ---
@@ -197,7 +228,7 @@ A: A|B
 | # | 假設 | 怎麼驗 |
 |---|---|---|
 | A1 | 卡片版不需要新資料 —— `AdminOrderSummary` 現有欄位夠用 | 開 `packages/domain/src/order/types.ts` 對 §4.1 表逐欄確認(**施工前第一件事**)|
-| A2 | 既有測試選擇器不會誤命中卡片 | ✅ 已驗(§2.4):零 `getByText`、24 個 `container.querySelector` 全鎖 `thead`/`tbody tr td`。仍要實跑複驗 |
+| A2 | 既有測試選擇器不會誤命中卡片 | 🔴 **實測推翻**(§2.4 更正框):偵察只盤了 `getByText` 與 `querySelector` 兩族,**漏了 `innerHTML.split` 計數(2 格,轉紅)與 `container.textContent` 正向斷言(2 格,靜默變弱)**。四格都已鎖進 `<table>` |
 | A3 | 九碼不擋本片 | ✅ 已驗(§2.5):列表側零渲染面 |
 | A4 | `md:` 斷點與既有三個卡片消費端一致 | ✅ 已驗:`admin-data-table.tsx:101/135` 用 `md:block`/`md:hidden`;本片照抄同一顆斷點 |
 | A5 | 頁面層不需要改 | `apps/admin/src/app/orders/page.tsx:76` 只傳 `orders` prop ⇒ 應無需改;**施工前實讀確認** |
@@ -206,7 +237,7 @@ A: A|B
 
 ## §9 誠實邊界
 
-1. **本 plan 零施工、零 commit 到 code**。
+1. ~~本 plan 零施工、零 commit 到 code~~ 🔴 **v2:已施工並 commit**(`E-131-A` 開跑)。本節其餘各條的時態一併以 v2 檔頭為準。
 2. §4 兩題未拍之前 §5 全部作廢重寫 —— 特別是拍 B 的話片型升級、驗收整組要重寫。
 3. §4.1 的槽位提案是**我的資訊架構判斷,不是視覺設計**;Sean 要看實體版本就走 Claude Design,
    我不自己做視覺(分工不變)。

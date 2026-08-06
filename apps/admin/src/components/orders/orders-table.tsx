@@ -29,8 +29,27 @@ import {
 //    Sean Q2b=A:**只顯示 `invoice_status` 三態、不顯示載具別** —— 載具別在 `orders.invoice` jsonb
 //    (`carrier`/`type`),拉進列表會破壞「列表投影零 PII」那條邊界,A9c 也刻意沒把它放進投影。
 //
+// 🔴 **A11c(2026-08-06):手機卡片版**(plan `docs/specs/2026-08-06-e10-a11c-mobile-card-plan.md`;
+//    Q1=A 主視窗裁、槽位分法 Sean 拍 A)。真權威 = 通用 UI 規範
+//    `docs/specs/2026-07-25-admin-backend-rebuild-spec.md:427` 逐字:「**手機版列表一律轉卡片**,
+//    不做橫向捲動表格。主要欄位加粗置頂、次要副行、金額/狀態靠右。(Sean 常用手機遠端操作;
+//    **現行訂單列表 13 欄在手機上不可用**)」—— 那個括號點名的就是本表。
+//
+//    做法 = 桌機表格 `hidden md:block` + 手機卡片 `md:hidden`,**純 CSS 斷點、零 JS、零視窗偵測**,
+//    斷點與槽位語彙(主標 / 靠右 / 副行 / 最小字)逐字照抄 `shared/admin-data-table.tsx:101,135-156`。
+//    🔴 **刻意不接 `AdminDataTable` 本體**:它是**扁平列模型**(一列一 `<tr>`),而本表是
+//    **兩層**(一訂單一 `<tbody>`、訂單層欄 rowSpan 合併)⇒ 今天接不上,除非改它的列模型
+//    (= 動 3 個消費端的共用元件)。遷移歸 A12a,屆時以本片實查為前提重裁。
+//
+// 🔴🔴 **雙 markup 的到期日**(承接 `shared/admin-data-table.tsx:16-22` 的警告,本檔是**第二個**
+//    踩進來的地方,不能只留在共用元件檔裡等人自己發現):桌機列與手機卡各渲染一次 cell、共兩份 DOM。
+//    今天安全,因為**本檔零互動、零 client 邊界**。但 **A13 的操作欄(取消鈕)一落地就會重現
+//    重複表單與重複 client 狀態** ⇒ 屆時改成單一 markup + CSS reflow,或讓帶互動的欄位
+//    只在主標/靠右槽出現一次。**動 A13 前先回來讀這段。**
+//
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
 //    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
+//    ⇒ 卡片版**同樣零 client 邊界**(純 server component、零 `use*`、零 `'use client'`)。
 // V-3b:「年份廠牌車種」= order_items.vehicle_snapshot 逐品項直出、formatOrderItemVehicle 顯示
 //    (dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
@@ -169,8 +188,104 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
   );
 }
 
+/**
+ * A11c 手機卡片:**一張訂單一張卡**(不是一個品項一張卡)。
+ *
+ * 🔴 為什麼單位是訂單:§4-1 說「主要欄位加粗置頂」⇒ 主標 = 訂單編號。一品項一張卡的話,
+ *    3 品項的單會把單號 / 日期 / 客戶**重複三次**,比它要取代的橫捲表更糟。
+ *    ⇒ 卡片本身也是**兩層**(卡頭 = 訂單層、卡內清單 = 品項層),與桌機 rowSpan 是同一個
+ *    資訊結構的兩種畫法 —— 這正是接不上扁平 `AdminDataTable` 的原因。
+ *
+ * 槽位分法 = Sean 2026-08-06 拍 A(plan §4.1)。
+ */
+function OrderCard({ order }: { order: AdminOrderSummary }) {
+  const cancelled = order.cancelledAt !== null;
+  // 與桌機同一條:空 lines(理論不發生)→ 兜一列 null 佔位、顯示「—」。
+  const lines = order.lines.length > 0 ? order.lines : [null];
+  // 🔴 **共用** shouldMergeAmount,不在卡片重寫一份金額規則 —— 那條有 Sean `E-115-A` 拍板的
+  //    語意落差(合併態=訂單的錢、非合併態=品項的錢),兩份實作必然漂。
+  const mergeAmount = shouldMergeAmount(order);
+
+  return (
+    <li className='p-3'>
+      {/* 第一行:主標(單號)+ 靠右(金額 / 發票)—— §4-1「主要欄位加粗置頂、金額/狀態靠右」 */}
+      <div className='flex items-start justify-between gap-3'>
+        <div className='min-w-0 font-medium'>
+          <Link href={`/orders/${order.id}`} className='hover:underline'>
+            {order.displayId}
+          </Link>
+          {cancelled && (
+            <span className='bg-destructive/10 text-destructive ml-2 inline-flex rounded-full px-2 py-0.5 text-xs'>
+              已取消
+            </span>
+          )}
+        </div>
+        <div className='flex shrink-0 items-center gap-2 text-right text-sm'>
+          {mergeAmount && (
+            <span className='tabular-nums'>NT$ {formatOrderAmount(order.total.amount)}</span>
+          )}
+          <span className='text-muted-foreground text-xs'>
+            {INVOICE_STATUS_LABEL[order.invoiceStatus]}
+          </span>
+        </div>
+      </div>
+
+      {/* 副行:訂單層的其餘欄(桌機用 rowSpan 合併的那幾格) */}
+      <div className='text-muted-foreground mt-1 text-sm'>
+        {formatOrderListDate(order.createdAt)}
+        <span className='px-1.5'>·</span>
+        {order.customerName ?? '—'}
+        <span className='px-1.5'>·</span>
+        {MEMBER_TIER_LABEL[order.tierAtCheckout]}
+        <span className='px-1.5'>·</span>
+        {/* 付款軸:只有 unpaid 上紅,與桌機同一條(`refunded`/`partiallyRefunded` 的訊號塌陷
+            是已列的交棒決策題,不在本片自行加色)。 */}
+        <span className={order.paymentStatus === 'unpaid' ? 'text-destructive' : undefined}>
+          {PAYMENT_STATUS_LABEL[order.paymentStatus]}
+        </span>
+      </div>
+
+      {/* 卡內:品項層逐列 */}
+      <ul className='mt-2 space-y-2 border-t pt-2'>
+        {lines.map((line) => {
+          // 料號之外的次要欄:缺值就整段不出現(同 `admin-data-table.tsx:52-61` joinNodes 的語意)
+          const rest = [line?.brand, line ? formatOrderItemVehicle(line.vehicle) : null].filter(
+            (v): v is string => typeof v === 'string' && v !== '',
+          );
+          return (
+            <li key={line ? line.id : 'empty'} className='text-sm'>
+              <div className='flex items-start justify-between gap-3'>
+                <div className='min-w-0 font-medium'>{line?.title ?? '—'}</div>
+                {!mergeAmount && (
+                  <div className='shrink-0 tabular-nums'>
+                    {line ? `NT$ ${formatOrderAmount(line.lineTotal.amount)}` : '—'}
+                  </div>
+                )}
+              </div>
+              <div className='text-muted-foreground text-xs break-all'>
+                <span className='font-mono'>{line?.variantSku ?? '—'}</span>
+                {rest.length > 0 && <span className='px-1.5'>·</span>}
+                {rest.join(' · ')}
+              </div>
+              <div className='text-muted-foreground text-xs tabular-nums'>
+                數量 {line ? line.quantity : '—'}
+                <span className='px-1.5'>·</span>
+                訂貨{' '}
+                {line
+                  ? `${line.quantitySummary.orderedQuantity}/${line.quantitySummary.quantity}`
+                  : '—'}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </li>
+  );
+}
+
 export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
   if (orders.length === 0) {
+    // 空狀態**只有一份 markup**,桌機手機共用(不複製第二份)。
     return (
       <div className='text-muted-foreground rounded-lg border bg-card p-10 text-center text-sm'>
         目前沒有符合條件的訂單。
@@ -179,7 +294,9 @@ export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
   }
 
   return (
-    <div className='overflow-x-auto rounded-lg border bg-card'>
+    <>
+      {/* 桌機(md 以上):既有表格**逐字元未動**,只在外框 class 加 hidden md:block。 */}
+      <div className='hidden overflow-x-auto rounded-lg border bg-card md:block'>
       <table className='w-full border-collapse'>
         <thead>
           <tr>
@@ -203,6 +320,14 @@ export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
           <OrderGroup key={order.id} order={order} />
         ))}
       </table>
-    </div>
+      </div>
+
+      {/* 手機(md 以下):卡片。§4-1「一律轉卡片,不做橫向捲動表格」。 */}
+      <ul className='divide-y rounded-lg border bg-card md:hidden'>
+        {orders.map((order) => (
+          <OrderCard key={order.id} order={order} />
+        ))}
+      </ul>
+    </>
   );
 }
