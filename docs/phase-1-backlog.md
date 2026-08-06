@@ -8972,8 +8972,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #326. 🧰 worktree / 乾淨環境跑 root `pnpm typecheck` 必紅 — root 未宣告 typescript
 
-- **狀態:** ⏳ 待執行(A 窗片 2 發現;2026-08-05;動 root package.json=鐵則 12④ 受審面)
-- **現況**:root script `tsc -p tsconfig.scripts.json --noEmit` 依賴 root `node_modules/.bin/tsc`,
+- **狀態:** ✅ 已修(2026-08-06 主視窗;root `package.json` 宣告 `"typescript": "catalog:"`(=5.9.3),`.bin/tsc` 恢復、`pnpm typecheck` 全綠;codex 對抗審查照 12④ 受審面標記跑訖。E 窗+B 窗同日各撞一次是催修主因;worktree 補救=各自 `pnpm install` 帶入)
+- **原現況**:root script `tsc -p tsconfig.scripts.json --noEmit` 依賴 root `node_modules/.bin/tsc`,
   但 root `package.json` 未宣告 typescript;主庫能跑是因為殘留 2026-07-13 的舊 binary。
   worktree `pnpm install --frozen-lockfile` 回「Already up to date」不會補 ⇒ 任何乾淨 install
   環境(含未來 CI)跑 root typecheck 都紅在最後一步。
