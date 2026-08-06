@@ -47,17 +47,25 @@
    首頁最新商品橫捲(HomeSelect)/ 商品列表(ProductsPage)/ 品牌頁熱門商品(BrandPageProducts)/
    會員中心為你推薦(OverviewTab)/ PDP 相關商品(ProductRelated,由 ProductPage.tsx:206 掛載;
    R1 抓到前一版漏算此面、少算一面)。
-   🔴🔴 誠實申報(R1 抓到、已核實,這裡是說清楚不是修掉):下面 `background:#fff` 目前是**死宣告**——
-   `ProductCard.tsx` 的 `.pcard-gallery`(width/height:100%、inline background 三分支全不透明:
-   真圖+trim=#ffffff / 真圖+contain fallback=--c-surface-2 / 無真圖=漸層)蓋滿整個 padding box,
-   ⇒ 站上實際看得到的圖區底色**不是這裡決定的**。真正可見的 letterbox 底色在 `ProductCard.tsx`
-   (grep `contain fallback` 找),那顆是 **Sean 2026-07-24 拍板 Q1=A** 定的 `--c-surface-2`,
-   與本片拍板 A 的白底正面對沖。⇒ 本片只落地了下面的 `border`;`background:#fff` 要真的生效
-   必須改 `ProductCard.tsx`,等於推翻 2026-07-24 的拍板 —— **已停下、發 Q 給 Sean 確認,不自行推翻**。
+   🔴 2026-08-07 更正(上一片「不再被蓋住」的講法是錯的,這裡重寫):Sean 2026-08-06 拍 A
+   本身就是「正式推翻 07-24 拍板 Q1=A」的動作(依據「本次設計變更以 OD 為權威」)——已改
+   `ProductCard.tsx` 的 `.pcard-gallery` inline background(真圖兩分支皆改 `#ffffff`)。
+   ⚠️ **這條 `background:#fff` 仍然完整被 `.pcard-gallery` 蓋住**(`.pcard-gallery` 是
+   width/height:100% + 三分支 inline background 全不透明,疊在這層之上)——不是「沒被蓋」。
+   兩條真圖路徑(trim / contain fallback)現在都是白,與這層**剛好同色**,所以肉眼看不出被蓋、
+   容易誤讀成「有生效」。漸層(無真圖)分支沒有跟著改——`.pcard-gallery` 那層是彩色漸層、
+   這層是白 ⇒ 兩層不同色,在該狀態下這條依舊被完整蓋住、**零可見貢獻**。
+   它的縱深防禦**只涵蓋一種情況**:gallery 那層日後若改回透明、或整條 background 宣告被拿掉,
+   才輪到這層現形補白。若 gallery 改成「另一個不透明色」(例如灰),這層**擋不住**——父層那個
+   不透明色照樣完整蓋住這條、白底一樣看不到。這正是 R1 上一輪指出的同一種誤判,這裡重申一次
+   避免下一個人再抄錯的講法。
+   保留它的理由 = OD 三稿逐字直搬(鐵則 1)+ 上述那一種縱深防禦,**不是**「站上現在的白底靠它生效」
+   ——真正生效、決定可見底色的一律是 `.pcard-gallery`(ProductCard.tsx,非 hover 態)。
    tokens.css 全域 `* { box-sizing: border-box }` ⇒ 加框不撐大卡片外框、不位移卡片版面;
    但**絕對定位子元素的定位基準(padding edge)會被 border 內縮 1px**(R1 實測):badge/heart
    距外緣由 10px→11px、`.pcard-quick` 底部離卡緣由 0→1px。OD 三稿的 `.pcard-img-wrap` 內只有
-   `<img>`、無這些 overlay,稿上無先例,此為站上既有結構與新框線疊加後才出現的既有影響。 */
+   `<img>`、無這些 overlay,稿上無先例,此為站上既有結構與新框線疊加後才出現的既有影響
+   (hover 遮罩 `::after` 同屬此類「OD 稿查無」的既有結構,見下方該規則旁的說明)。 */
 .pcard-img-wrap {
   position: relative;
   aspect-ratio: 1 / 1;
@@ -66,6 +74,11 @@
   border: 1px solid var(--c-border);
   margin-bottom: 0;
 }
+/* 🔴 2026-08-07(R1 MF5):這條 hover 遮罩與上面漸層 placeholder 分支同屬「OD 稿查無」的既有結構
+   (OD 稿的 .pcard-img-wrap 內只有 <img>),依 D-149-A「查無=STOP 問我,不猜」——與漸層分支一樣
+   本片不處理。它疊在 `.pcard-gallery` 之上(z-index:1、同堆疊脈絡)⇒ hover 時圖區實際可見底色
+   約 `#f5f5f5`(4% 黑疊在白上),**不是**純白;見 ProductCard.tsx `.pcard-gallery` 旁的說明。
+   若 Sean 對「hover 是否該維持純白」有意見,與漸層分支一起裁,不在本片範圍內自行改值。 */
 .pcard-img-wrap::after {
   content: '';
   position: absolute;
