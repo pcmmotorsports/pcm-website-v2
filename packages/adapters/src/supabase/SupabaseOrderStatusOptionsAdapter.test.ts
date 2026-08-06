@@ -96,4 +96,5 @@ describe('SupabaseOrderStatusOptionsAdapter.listOrderStatusOptions', () => {
 // 專屬 helper(`makeUpdateClient` / `makeInsertClient`)、**6 條**測試(update 3 + create 3)
 // 隨 writer 契約一起退場。
 // 它們在 A9w4b(`abfa0d9`)後已是零 production 呼叫端,留著只是在證 mock 鏈的形狀。
-// 🔴 讀取面(`listOrderStatusOptions` 與其 4 條)**完整保留** —— 列表的九碼 cell 仍在用,隨 A11a-c 退場。
+// 🔴 讀取面(`listOrderStatusOptions` 與其 4 條)**完整保留** —— 但 **A11a-1(2026-08-06)起零 production 呼叫端**
+// (列表的九碼 cell 與整單彙總 badge 已下架);讀取鏈本體裁定歸 **A9w4c 後半**收(A11a plan §3.1)。

@@ -1,0 +1,261 @@
+// @vitest-environment jsdom
+import { cleanup, render } from '@testing-library/react';
+import { afterEach, describe, expect, it } from 'vitest';
+import { toMoneyAmount, type AdminOrderLine, type AdminOrderSummary } from '@pcm/domain';
+
+import { OrdersTable } from './orders-table';
+
+afterEach(cleanup);
+
+// M-4b E10 **A11a-1** 的驗收(plan `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §5 的 V1-V5、V7)。
+//
+// 🔴 為什麼這個檔今天才出現:A11a-1 之前 `OrdersTable` **完全沒有元件測試** ——
+//    整張表的欄數、rowSpan 分組、金額合併規則全靠肉眼。而 plan §5 的驗收盲區那段已證:
+//    D1 之後 production **沒有任何多品項單、也沒有任何 `quantity > 1` 的列**
+//    ⇒ V3(rowSpan)與 V4(金額合併)**在真實資料上根本看不到**,只能靠這裡的假資料覆蓋。
+//    Sean 肉眼驗時看到的是「單品項單一切正常」,**合併格效果他這批看不到** —— 這句話要帶進交棒。
+//
+// 🔴 V6(日期格式 `07/25`)與 V8(付款軸小字)**不在本檔** —— 那兩格屬 A11a-2,本片不預埋。
+
+const LINE_BASE: Omit<AdminOrderLine, 'id' | 'quantity' | 'lineTotal'> = {
+  variantSku: 'SKU-001',
+  title: '排氣管',
+  brand: 'Akrapovic',
+  unitPrice: { amount: toMoneyAmount(12000), currency: 'TWD' },
+  vehicle: null,
+  workflowStatus: null,
+  version: 1,
+};
+
+function line(id: string, quantity: number, lineTotal: number): AdminOrderLine {
+  return {
+    ...LINE_BASE,
+    id,
+    quantity,
+    lineTotal: { amount: toMoneyAmount(lineTotal), currency: 'TWD' },
+  };
+}
+
+/**
+ * 🔴 覆寫參數**刻意寫死成本檔真的會覆寫的三個欄位**,不用 `Partial<AdminOrderSummary>`:
+ * 後者展開時每個欄位都可能是 `undefined`,會逼出 `displayPosition` 那類「必填但可為 null」欄的型別錯,
+ * 然後很容易被一個 `as` 壓掉 —— 而那個 `as` 正是上面三個假值混進來的原因。
+ */
+type OrderOverrides = {
+  lines: AdminOrderLine[];
+  total?: AdminOrderSummary['total'];
+  customerName?: string | null;
+};
+
+function order(overrides: OrderOverrides): AdminOrderSummary {
+  return {
+    id: 'ord-1',
+    displayId: 'PCM-0001',
+    createdAt: '2026-08-06T02:00:00.000Z',
+    paymentStatus: 'paid',
+    // 🔴 移除 `as AdminOrderSummary` 之後,tsc 一口氣抓出**三個**假值:
+    //    `tierAtCheckout: 'regular'`(見下)、`fulfillmentStatus: 'pending'`、`orderSource: 'website'`。
+    //    後兩個連測試都抓不到(本表不渲染它們)⇒ **只有型別守得住**。這就是 cast 的代價。
+    fulfillmentStatus: 'notOrdered',
+    orderSource: 'web',
+    paymentChannel: 'tappay',
+    total: { amount: toMoneyAmount(12000), currency: 'TWD' },
+    customerName: '王小明',
+    // 🔴 合法值只有 general / store / premiumStore(`MEMBER_TIER_LABEL`)。
+    //    初版寫了不存在的 `'regular'`,被 V7 抓到 —— 因為它會查表查到 undefined、等級小字整個消失。
+    //    **抓到它的不是 typecheck 而是測試**:下面原本有一個 `as AdminOrderSummary` 把型別檢查壓掉了
+    //    (memory `feedback_fixture-value-makes-guard-vacuous` 的同族:fixture 值讓斷言失去意義)。
+    //    ⇒ cast 已移除,現在 fixture 由 tsc 守門。
+    tierAtCheckout: 'general',
+    cancelledAt: null,
+    displayPosition: null,
+    ...overrides,
+  };
+}
+
+/** 表頭欄名(唯一權威 = 母 plan §5.1a;A11a-1 收工 = 9 欄)。 */
+const EXPECTED_HEADERS = [
+  '訂單編號',
+  '日期',
+  '品牌',
+  '料號',
+  '品名',
+  '年份廠牌車種',
+  '數量',
+  '金額',
+  '客戶',
+];
+
+// ── V1:欄數 ───────────────────────────────────────────────────────────
+describe('V1 — 表頭欄數與內容欄數一致', () => {
+  // 🔴 期望值**不寫死 13**:13 只有在四個加欄子片(A11a-3/-4/-5/-6)全做完才成立。
+  //    A11a-1 收工是 9(plan §3「收工欄數」欄);寫死 13 會讓中間片永遠過不了驗收。
+  it('表頭恰為 9 欄,且欄名與母 plan §5.1a 一致(Q6=A 短字面)', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+
+    expect(headers).toEqual(EXPECTED_HEADERS);
+  });
+
+  it('單品項單:該列 <td> 數 = 9(訂單層與品項層都在同一列)', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const cells = container.querySelectorAll('tbody tr td');
+
+    expect(cells.length).toBe(9);
+  });
+
+  it('三品項單:第一列 <td> 數 + 後續列 <td> 數 = 9 + 品項欄數×2', () => {
+    // 🔴 這條是「表頭與 rowSpan 佔位一致」的真正斷言:訂單層 4 欄(單號/日期/金額合併/客戶)
+    //    只在第一列出現,後兩列各只有 5 個品項欄 ⇒ 總格數 = 9 + 5 + 5。
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
+    const { container } = render(<OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
+    const rows = [...container.querySelectorAll('tbody tr')];
+
+    expect(rows.length).toBe(3);
+    expect(rows[0]!.querySelectorAll('td').length).toBe(9);
+    expect(rows[1]!.querySelectorAll('td').length).toBe(5);
+    expect(rows[2]!.querySelectorAll('td').length).toBe(5);
+  });
+});
+
+// ── V2:九碼零殘留 ─────────────────────────────────────────────────────
+describe('V2 — 九碼零殘留', () => {
+  it('表頭無「商品狀態」與「來源 · 管道」;DOM 內無狀態下拉、無 item_id 隱藏欄、無「存」鈕', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 2, 16000)];
+    const { container } = render(<OrdersTable orders={[order({ lines })]} />);
+    const html = container.innerHTML;
+
+    expect(html).not.toContain('商品狀態');
+    expect(html).not.toContain('來源');
+    expect(container.querySelector('select[name="workflow_status"]')).toBeNull();
+    expect(container.querySelector('input[name="item_id"]')).toBeNull();
+    expect(container.querySelector('form')).toBeNull();
+    // 🔴 整單彙總 badge 的中性字面也一併釘住:它與下拉是**不同的**九碼消費點,
+    //    只查 select 會漏掉「多狀態」那顆 badge 被留下的情況。
+    expect(html).not.toContain('多狀態');
+  });
+});
+
+// ── V3:rowSpan 分組 ───────────────────────────────────────────────────
+describe('V3 — rowSpan 分組', () => {
+  it('多品項單的訂單層格 rowSpan = lines.length,且每格只渲染一次', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
+    const { container } = render(<OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />);
+    const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
+
+    // 訂單層 4 格:單號 / 日期 / 金額(本例合併)/ 客戶
+    expect(spanned.length).toBe(4);
+    expect(spanned.every((td) => td.getAttribute('rowspan') === '3')).toBe(true);
+    // 🔴 「只渲染一次」要另外釘:rowSpan 值對、但每列都畫一次的話上面那條仍會過
+    //    (它只數帶 rowspan 屬性的格子總數 —— 每列都畫會變 12 而不是 4,所以這條其實已被涵蓋)。
+    //    這裡改釘單號文字在整張表只出現一次,那是「重複渲染」最直接的觀察面。
+    expect(container.innerHTML.split('PCM-0001').length - 1).toBe(1);
+  });
+
+  it('單品項單:rowSpan 為 1', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const spanned = [...container.querySelectorAll('tbody td[rowspan]')];
+
+    // 🔴 先釘數量再釘值:`every` 對空陣列恆真 ⇒ 把 rowSpan 整個拿掉時上一版仍會綠(R1 nit)。
+    expect(spanned.length).toBe(3);
+    expect(spanned.every((td) => td.getAttribute('rowspan') === '1')).toBe(true);
+  });
+});
+
+// ── V4:金額合併規則(四格真值表)───────────────────────────────────────
+describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任一列 quantity >1)', () => {
+  // 🔴 這張真值表的價值在 **m×1 那格**:v1 的規則只寫了 `quantity > 1` 半條,
+  //    那樣「3 個品項、每個都買 1 件」的單會**看不到整單總額**。少了這格,錯誤規則全綠。
+  it('1 品項 × 數量 1 → 逐列顯示該列小計(lineTotal)、不合併,且**不是** order.total', () => {
+    // 🔴 `total` 刻意設成 12,100(= lineTotal 12,000 + 運費 100,`HOME_SHIPPING_FEE`)。
+    //    初版兩個值都寫 12,000 ⇒ 把實作改成顯示 `order.total` 也照樣綠 = **這格零判別力**
+    //    (R1 code-reviewer 抓到;memory `feedback_fixture-value-makes-guard-vacuous` 同族)。
+    //    兩值分開之後,這格才真的釘得住「非合併態顯示的是品項的錢、不是訂單的錢」。
+    const { container } = render(
+      <OrdersTable
+        orders={[order({ lines: [line('l1', 1, 12000)], total: { amount: toMoneyAmount(12100), currency: 'TWD' } })]}
+      />,
+    );
+
+    expect(container.textContent).toContain('NT$ 12,000');
+    expect(container.textContent).not.toContain('NT$ 12,100');
+    // 金額格不帶 rowspan ⇒ 訂單層帶 rowspan 的格子只剩 3 個(單號/日期/客戶)
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(3);
+  });
+
+  it('1 品項 × 數量 3 → 合併格顯示整單總額', () => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 3, 36000)], total: { amount: toMoneyAmount(36000), currency: 'TWD' } })]} />,
+    );
+
+    expect(container.textContent).toContain('NT$ 36,000');
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+  });
+
+  it('🔴 3 品項 × 每個數量 1 → 仍要合併並顯示整單總額(規則的另外半條)', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
+    const { container } = render(
+      <OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
+    );
+
+    expect(container.textContent).toContain('NT$ 25,000');
+    // 反面:不得再逐列顯示各列小計
+    expect(container.textContent).not.toContain('NT$ 8,000');
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+  });
+
+  it('2 品項 × 其中一列數量 2 → 合併並顯示整單總額', () => {
+    const lines = [line('l1', 2, 24000), line('l2', 1, 5000)];
+    const { container } = render(
+      <OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(29000), currency: 'TWD' } })]} />,
+    );
+
+    expect(container.textContent).toContain('NT$ 29,000');
+    expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(4);
+  });
+});
+
+// ── V5:空 lines 兜底 ─────────────────────────────────────────────────
+describe('V5 — 空 lines', () => {
+  it('lines 為空仍渲染一列佔位、訂單層格不消失', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [] })]} />);
+    const rows = [...container.querySelectorAll('tbody tr')];
+
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.querySelectorAll('td').length).toBe(9);
+    expect(container.textContent).toContain('PCM-0001');
+    // 🔴 逐格釘品項欄兜底,不用整表 `toContain('—')` —— 後者由「年份廠牌車種」欄
+    //    (fixture `vehicle: null`)恆滿足,證不了品牌/料號/品名真的有兜底(R1 nit)。
+    const tds = [...rows[0]!.querySelectorAll('td')];
+    expect(tds[2]!.textContent).toBe('—'); // 品牌
+    expect(tds[3]!.textContent).toBe('—'); // 料號
+    expect(tds[4]!.textContent).toBe('—'); // 品名
+    expect(tds[6]!.textContent).toBe('—'); // 數量
+  });
+});
+
+// ── V7:客戶格 ────────────────────────────────────────────────────────
+describe('V7 — 客戶格含等級小字,等級不再單獨成欄', () => {
+  it('同一個 <td> 內同時有客戶名與會員等級文字,且表頭無「會員等級」', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const headers = [...container.querySelectorAll('thead th')].map((th) => th.textContent);
+
+    expect(headers).not.toContain('會員等級');
+    // 🔴 用**固定欄索引 8**,不用「最後一個帶 rowspan 的格」:A11a-4/-5/-6 任一片在客戶欄之後
+    //    再加訂單層 rowSpan 欄,後者就會靜默指到別格、這條變成量錯東西(R1 nit)。
+    const customerCell = [...container.querySelectorAll('tbody tr td')][8]!;
+    expect(customerCell.textContent).toContain('王小明');
+    // 🔴 等級文字必須與名字在**同一格**;分成兩格會讓上面那條仍過、但版面回到舊的兩欄
+    expect(customerCell.textContent).not.toBe('王小明');
+  });
+
+  it('客戶名為 null → 顯示「—」但等級小字仍在', () => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], customerName: null })]} />,
+    );
+    const customerCell = [...container.querySelectorAll('tbody tr td')][8]!;
+
+    expect(customerCell.textContent).toContain('—');
+    expect(customerCell.textContent!.length).toBeGreaterThan(1);
+  });
+});

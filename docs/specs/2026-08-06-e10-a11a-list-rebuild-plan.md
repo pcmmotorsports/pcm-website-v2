@@ -1,9 +1,17 @@
 # A11a 訂單列表重建 plan(13 欄骨架 + rowSpan 分組重算)
 
 > **狀態**:**v2**(2026-08-06;v1 起草 → 關卡1 三輪對抗審查 **R1/R2 codex + R3 Fable,共 40 條 must-fix** → 本版折入)。
-> 🔴 **批准狀態:未批准。Sean 尚未拍 Q1-Q8 / Q2b / Q5b 任何一題。**
-> **拍板前可動的只有 `A11a-1` 與 `A11a-2`**(見 §3 的閘門表);其餘子片開工 = 替 Sean 答題。
-> ⚠️ 本檔存在 ≠ 鐵則 8 已過:A11a-1 跨 4-6 檔屬重大改動,**要 Sean 對本 plan 說「批准」才算**。
+> 🏁 **批准狀態:已批准(2026-08-06,`E-114-A`)。Sean 十題全依推薦 —— Q1=A / Q2=A / Q2b=A / Q3=A /
+> Q4=A / Q5=A / Q5b=A / Q6=A / Q7=A / Q8=A**(落檔 memory `project_m4b-a11a-list-rebuild-decisions`)。
+> 鐵則 8 閘已解除。拍板連動的四件事(照本檔自己的機關):
+> ① **Q8=A ⇒ `A11a-1` 與 `A9w4a` 硬綁同一批做完、不得中間收工過夜;§7「A11a-1 後」停點作廢。**
+> ② **Q5b=A ⇒ `A11a-3`(操作欄)整片延後到 A13**(Q4=A 檢視留在編號 + Q5=A 取消鈕不放 = 空欄)。
+> ③ **Q6=A ⇒ 短欄名(商品品牌→品牌、物品名稱→品名、客戶名稱→客戶)併進 `A11a-1` 表頭一次改完。**
+> ④ **Q2b=A ⇒ 同批改母 plan §5.1a `:558` 那列字面**(A 只顯示三態、砍掉「載具別」⇒ 偏離該列原字面,
+>    本檔 §6 自己寫過「選 A 或 C = 同時要改母 plan」,不能只改子 plan)。
+>
+> ✅ **開工前置(§8 第 8 條)已跑,2026-08-06 於 `5ccbe77`**:
+> §1.2 的 13 欄清單 vs 母 plan §5.1a `:542` 現行字面 —— **逐欄一致,內容未腐爛**(H1 這次為真)。
 > **派工**:`E-106-A`(起草)+ `E-110-A`/`E-111-A`(關卡1 與折入)。
 > **基準**:v1 寫於 `dev` = `f8ede20`;**v2 重錨於 `152a2d0`**,所有 `檔案:行號` 於該基準重新親查。
 > **欄位清單唯一權威**:母 plan `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` §5.1a(`:539-570`)。
@@ -226,9 +234,28 @@ v1 的 §7 把它寫成 10 欄,**是算錯了一格**(少扣了會員等級那�
 |---|---|---|
 | `workflowStatusBadge` / `WorkflowStatusBadgeView` | `apps/admin/src/lib/orders/order-list-view.ts` | 連同其單元測試 |
 | `summarizeOrderItemWorkflow` / `OrderWorkflowSummary` | 同上 | 連同其單元測試 |
-| `indexOrderStatusOptions` | 同上 | ⚠️ **先 grep**:若 A11a-4 的訂貨欄或別處仍要用狀態詞彙索引,則保留 |
-| `WorkflowStatusBadge` 元件 | `apps/admin/src/components/orders/workflow-status-badge.tsx` | 整檔刪 |
-| `statusOptions` / `listOrderStatusOptions` 讀取鏈 | `app/orders/page.tsx:46,56,65,89-91`;port/adapter | ⚠️ **A11a-4 的訂貨欄若不需要狀態詞彙**才可一起收;不確定就留到 A11a-4 收工再判 |
+| `indexOrderStatusOptions` | 同上 | ✅ **A11a-1 已刪** —— grep 確認除 orders-table 外零 consumer |
+| ~~`WorkflowStatusBadge` 元件~~ | `apps/admin/src/components/orders/workflow-status-badge.tsx` | 🔴 **本表寫錯,實作時打臉** —— 見下 |
+| `statusOptions` / `listOrderStatusOptions` 讀取鏈 | `app/orders/page.tsx`;port/adapter | ✅ **A11a-1 只收 UI 端**(page.tsx 的雙腿 allSettled 收斂成單一 try);**鏈本體歸 A9w4c 後半** —— 見下 |
+
+🔴 **實作回寫(2026-08-06 A11a-1;本表原本有兩處錯,都是 typecheck 打臉才發現的)**
+
+1. **`workflow-status-badge.tsx` 不能整檔刪。** 本表說它零 consumer,實際 grep 到
+   `apps/admin/src/components/orders/workflow-status-select.tsx:5` 仍 `import { BADGE_TEXT_COLOR }`。
+   而 select 是 **writer 鏈**、歸 A9w4a/A9w4c 後半,本片不得刪。
+   ⇒ 實作採**部分收**:刪掉零 consumer 的 `WorkflowStatusBadge` 元件本體 +
+   `order-list-view.ts` 的 `WorkflowStatusBadgeView` / `workflowStatusBadge()`,
+   **保留 `BADGE_TEXT_COLOR`**,整檔隨 `workflow-status-select.tsx` 在 A9w4c 後半收。
+   ⚠️ 教訓:本表當初只 grep 了「元件名」沒 grep「該檔的其他 export」——
+   **一個檔是不是孤兒,要看它所有 export 的 consumer,不是只看最顯眼那個。**
+
+2. **H6 的兩格已結案(不再往後推)**:
+   - `indexOrderStatusOptions` ⇒ **A11a-1 同片刪**(訂貨欄顯示 `n/m` 取自
+     `order_item_quantity_summary`,與 `order_status_options` 詞彙無關 ⇒ A11a-4 不需要它)。
+   - `listOrderStatusOptions` 讀取鏈(port / adapter / `order-repository.ts` getter)
+     ⇒ **裁定歸 A9w4c 後半**,理由:它是九碼**契約面**,而 A9w4c 那片本來就在收契約與 exports;
+     放進 A11a-1 會把畫面片撐進 `packages/ports` 與 `packages/adapters`(鐵則 4 體積)。
+     **這是「決定了歸誰」不是「還沒決定」** —— H6 要求的結案已達成。
 
 🔴 **`item-workflow-status-cell.tsx` / `workflow-status-select.tsx` / `workflow-select-options.ts` 不在本表** ——
 它們是 **writer 鏈**的一部分(cell 內含 `<form action={updateOrderItemWorkflowAction}>`),

@@ -10,7 +10,6 @@ import type {
   OrderSource,
   PaymentChannel,
   MemberTier,
-  OrderStatusOption,
   OrderItemVehicleSnapshot,
 } from '@pcm/domain';
 import { normalizeOrderNumberSearch } from '@pcm/domain';
@@ -190,65 +189,6 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
     ],
     page,
   );
-}
-
-// ── workflow_status 彩色 badge 檢視模型(M-4a Slice A;純函式、單測)──────────
-// Sean 的主操作狀態欄:label/color 來自 order_status_options(DB 策展),顯示端兜 NULL / 未知 code。
-
-/** badge 檢視模型:known=true 用 DB 色(inline style);known=false 中性灰(Tailwind class)。 */
-export type WorkflowStatusBadgeView = {
-  label: string;
-  /** 底色 hex(known=false 時空字串、元件走中性樣式) */
-  color: string;
-  /** 'light' 深底淺字 / 'dark' 淺底深字 */
-  textColor: 'light' | 'dark';
-  /** false = NULL(未設定)或 code 查無選項(被改碼/停用後刪?soft-delete 下罕見)→ 中性灰兜底 */
-  known: boolean;
-};
-
-/**
- * workflow_status → badge 檢視模型:
- * - NULL → 「未設定」中性灰(新進線上單未 triage 態;對齊 Sean Sheet「新列他手動設狀態」心智);
- * - 選項命中(含 is_active=false 停用者;soft-delete 語意=舊單仍解析得到)→ DB label+color;
- * - 查無 code → 原樣顯示 code 的中性灰(誠實呈現、不編造 label)。
- */
-export function workflowStatusBadge(
-  code: string | null,
-  optionsByCode: ReadonlyMap<string, OrderStatusOption>,
-): WorkflowStatusBadgeView {
-  if (code === null) {
-    return { label: '未設定', color: '', textColor: 'dark', known: false };
-  }
-  const option = optionsByCode.get(code);
-  if (!option) {
-    return { label: code, color: '', textColor: 'dark', known: false };
-  }
-  return { label: option.label, color: option.color, textColor: option.textColor, known: true };
-}
-
-/** options 陣列 → code 索引 Map(頁面查一次、列表逐列 O(1) 解析)。 */
-export function indexOrderStatusOptions(
-  options: OrderStatusOption[],
-): ReadonlyMap<string, OrderStatusOption> {
-  return new Map(options.map((o) => [o.code, o]));
-}
-
-// ── 整單狀態彙總(M-4a D-2;Sean 拍板 Q-A=A 逐字「全同→該色、混合→多狀態、不再手設」)──
-
-/** 整單彙總結果:uniform=全品項同值(含全 NULL=未設定)/ mixed=品項狀態分歧。 */
-export type OrderWorkflowSummary = { kind: 'uniform'; code: string | null } | { kind: 'mixed' };
-
-/**
- * 品項 workflow_status 陣列 → 整單彙總(純函式;orders.workflow_status 停寫、**唯一**整單狀態來源):
- * - 空陣列(理論不發生,create_order 保證 ≥1 line)→ uniform null(顯示「未設定」);
- * - 全同值(含全 NULL)→ uniform 該值;有任一分歧 → mixed(顯示端「多狀態」中性 badge)。
- */
-export function summarizeOrderItemWorkflow(
-  codes: readonly (string | null)[],
-): OrderWorkflowSummary {
-  const first = codes[0];
-  if (first === undefined) return { kind: 'uniform', code: null }; // 空陣列(顯示「未設定」)
-  return codes.every((c) => c === first) ? { kind: 'uniform', code: first } : { kind: 'mixed' };
 }
 
 /**

@@ -1,70 +1,54 @@
 import Link from 'next/link';
-import type { AdminOrderSummary, OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderSummary } from '@pcm/domain';
 import {
-  ORDER_SOURCE_LABEL,
-  PAYMENT_CHANNEL_LABEL,
   MEMBER_TIER_LABEL,
   formatOrderAmount,
   formatOrderDate,
   formatOrderItemVehicle,
-  indexOrderStatusOptions,
-  summarizeOrderItemWorkflow,
-  workflowStatusBadge,
 } from '../../lib/orders/order-list-view';
-import { ItemWorkflowStatusCell } from './item-workflow-status-cell';
-import { WorkflowStatusBadge } from './workflow-status-badge';
 
-// M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)+ D-2 per-item 狀態。
-// 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看狀態);同單分組 = 訂單層欄
-//   (單號 / 會員等級 / 客戶 / 來源·管道)以 rowSpan 合併、品項層欄(品牌 / 料號 / 名稱 /
-//   數量 / 單價 / 總金額 / **商品狀態**)逐列。
-// D-2(拍板 Q-A=A):狀態欄=per-item 逐列各自改(ItemWorkflowStatusCell、item 層樂觀鎖);
-//   整單狀態=彙總顯示掛單號下方(全同→該色 badge、混合→「多狀態」中性)、不再手設。
-// 🔴 鐵則 12:單價 / 總金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進
-//   client bundle;SSO 閘後 admin-only。唯一 client 元件=狀態欄 WorkflowStatusSelect(帶色下拉、
-//   只收 code/label/色值策展資料;寫入仍 <form action={serverAction}>)。
-// V-3b:「年份廠牌車種」欄已點亮 = order_items.vehicle_snapshot(V-3a 落 prod)逐品項直出、
-//   formatOrderItemVehicle 顯示(dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
+// M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
+// 需求(Sean):一張訂單多商品 → 拆多列(各商品到貨時間不同、要個別看);同單分組 = 訂單層欄
+//   (單號 / 日期 / 客戶)以 rowSpan 合併、品項層欄(品牌 / 料號 / 品名 / 車種 / 數量)逐列。
+//
+// 🔴 **M-4b E10 A11a-1(2026-08-06;plan `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md`、
+//    Sean 十題全拍 A)**:九碼三群(整單彙總 badge / per-item 狀態 cell / 表層 props 與衍生)已下架,
+//    這是**列表側最後一個九碼消費端**。同批移除「來源 · 管道」欄(母 plan §5.1a:明細頁已有、
+//    不是每天要看的資訊)、單價與總金額合併為「金額」、會員等級併入客戶格小字。
+//    ⇒ 現為 **9 欄**;訂貨 / 出貨 / 發票 / 操作四欄依 plan 分屬 A11a-4/-6/-5 與 A13,本片不預埋。
+//
+// 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
+//    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
+// V-3b:「年份廠牌車種」= order_items.vehicle_snapshot 逐品項直出、formatOrderItemVehicle 顯示
+//    (dict 年 品牌 車型 / free 年 raw);未帶車款/佔位列 → 「—」。純顯示無價/tier 面。
 
 const TH = 'px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap';
 const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
 
-/** 整單彙總 badge(D-2:全同→該狀態色、混合→「多狀態」中性;orders.workflow_status 停寫、不讀)。 */
-function OrderWorkflowSummaryBadge({
-  order,
-  optionsByCode,
-}: {
-  order: AdminOrderSummary;
-  optionsByCode: ReadonlyMap<string, OrderStatusOption>;
-}) {
-  const summary = summarizeOrderItemWorkflow(order.lines.map((l) => l.workflowStatus));
-  if (summary.kind === 'mixed') {
-    return (
-      <span className='bg-muted text-muted-foreground inline-flex rounded-full px-2 py-0.5 text-xs'>
-        多狀態
-      </span>
-    );
-  }
-  return <WorkflowStatusBadge badge={workflowStatusBadge(summary.code, optionsByCode)} />;
+/**
+ * 金額欄要不要合併成整單總額(母 plan §5.1a 逐字)。
+ *
+ * 🔴 **條件是「品項列 >1 **或** 任一列 `quantity` >1」,兩條缺一不可**:
+ * 只寫 `quantity > 1` 那半條會讓**多品項單看不到整單總額**(母 plan 該列自陳這是 v1 的錯);
+ * 只寫 `lines.length > 1` 則會讓「單品項但買 3 件」的單顯示成單價脈絡。
+ *
+ * 🔴🔴 **已知語意落差,照母 plan 字面實作、不自行改規格(R1 code-reviewer 抓到)**:
+ * 合併態顯示 `order.total`,而 `total = subtotal + shippingFee − discountTotal`
+ * (`packages/domain/src/order/types.ts:131` 逐字);非合併態顯示該列 `lineTotal`,**不含運費與折扣**。
+ * ⇒ 單品項且買 1 件的單只要有運費,同一個「金額」欄在不同單之間的**語意就不一樣**
+ * (一邊是品項的錢、一邊是訂單的錢)。母 plan §5.1a 只規定了「什麼時候顯示整單總額」,
+ * 沒規定非合併態顯示什麼 ⇒ 這是規格缺口,**已列為交棒決策題,不在施工端自行裁定**。
+ */
+function shouldMergeAmount(order: AdminOrderSummary): boolean {
+  return order.lines.length > 1 || order.lines.some((l) => l.quantity > 1);
 }
 
-function OrderGroup({
-  order,
-  optionsByCode,
-  activeOptions,
-  itemStatusFiltered,
-  returnTo,
-}: {
-  order: AdminOrderSummary;
-  optionsByCode: ReadonlyMap<string, OrderStatusOption>;
-  activeOptions: OrderStatusOption[];
-  itemStatusFiltered: boolean;
-  returnTo: string;
-}) {
+function OrderGroup({ order }: { order: AdminOrderSummary }) {
   const cancelled = order.cancelledAt !== null;
   // 品項展開;空陣列(理論不發生,create_order 保證 ≥1 line)→ 兜一列 null 佔位、顯示「—」。
   const rows = order.lines.length > 0 ? order.lines : [null];
   const rowSpan = rows.length;
+  const mergeAmount = shouldMergeAmount(order);
 
   return (
     <tbody>
@@ -83,17 +67,9 @@ function OrderGroup({
                   已取消
                 </span>
               )}
-              {/* 整單彙總(D-2;多品項才有資訊量,單品項與品項列狀態重複、不重複顯示)。
-                  item 狀態篩選作用中不顯示:!inner 投影只回命中品項 → lines 不完整、
-                  彙總會把混合單誤顯為全同(code-reviewer nit-1)。 */}
-              {order.lines.length > 1 && !itemStatusFiltered && (
-                <div className='mt-1'>
-                  <OrderWorkflowSummaryBadge order={order} optionsByCode={optionsByCode} />
-                </div>
-              )}
             </td>
           )}
-          {/* Q2=A(07-16 晨拍板):加回日期欄(created_at 已在投影、訂單層 rowSpan) */}
+          {/* Q2=A(07-16 晨拍板):日期欄(created_at 已在投影、訂單層 rowSpan) */}
           {i === 0 && (
             <td className={`${TD} text-muted-foreground text-xs`} rowSpan={rowSpan}>
               {formatOrderDate(order.createdAt)}
@@ -107,41 +83,25 @@ function OrderGroup({
             {(line && formatOrderItemVehicle(line.vehicle)) || '—'}
           </td>
           <td className={`${TD} text-right tabular-nums`}>{line ? line.quantity : '—'}</td>
-          <td className={`${TD} text-right tabular-nums`}>
-            {line ? `NT$ ${formatOrderAmount(line.unitPrice.amount)}` : '—'}
-          </td>
-          <td className={`${TD} text-right tabular-nums`}>
-            {line ? `NT$ ${formatOrderAmount(line.lineTotal.amount)}` : '—'}
-          </td>
+          {/* 金額:合併態 = 訂單層 rowSpan 顯示整單總額;非合併態 = 逐列顯示該列小計(見 shouldMergeAmount) */}
+          {mergeAmount
+            ? i === 0 && (
+                <td className={`${TD} text-right tabular-nums`} rowSpan={rowSpan}>
+                  NT$ {formatOrderAmount(order.total.amount)}
+                </td>
+              )
+            : (
+                <td className={`${TD} text-right tabular-nums`}>
+                  {line ? `NT$ ${formatOrderAmount(line.lineTotal.amount)}` : '—'}
+                </td>
+              )}
+          {/* 客戶:名字 + 會員等級小字(A11a-1 起等級不再單獨成欄) */}
           {i === 0 && (
-            <>
-              <td className={TD} rowSpan={rowSpan}>
+            <td className={TD} rowSpan={rowSpan}>
+              {order.customerName ?? '—'}
+              <div className='text-muted-foreground text-xs'>
                 {MEMBER_TIER_LABEL[order.tierAtCheckout]}
-              </td>
-              <td className={TD} rowSpan={rowSpan}>
-                {order.customerName ?? '—'}
-              </td>
-            </>
-          )}
-          {/* D-2:狀態欄=per-item 逐列(item 層樂觀鎖;佔位列無 item 可改 → 「—」) */}
-          <td className={TD}>
-            {line ? (
-              <ItemWorkflowStatusCell
-                itemId={line.id}
-                workflowStatus={line.workflowStatus}
-                version={line.version}
-                returnTo={returnTo}
-                optionsByCode={optionsByCode}
-                activeOptions={activeOptions}
-                paymentStatus={order.paymentStatus}
-              />
-            ) : (
-              '—'
-            )}
-          </td>
-          {i === 0 && (
-            <td className={`${TD} text-muted-foreground text-xs`} rowSpan={rowSpan}>
-              {ORDER_SOURCE_LABEL[order.orderSource]} · {PAYMENT_CHANNEL_LABEL[order.paymentChannel]}
+              </div>
             </td>
           )}
         </tr>
@@ -150,25 +110,7 @@ function OrderGroup({
   );
 }
 
-export function OrdersTable({
-  orders,
-  statusOptions,
-  itemStatusFiltered = false,
-  returnTo = '/orders',
-}: {
-  orders: AdminOrderSummary[];
-  statusOptions: OrderStatusOption[];
-  /**
-   * item 狀態篩選作用中(!inner 投影、lines 只含命中品項)→ 整單彙總 badge 停顯(不完整資料不彙總)。
-   * 🔴 **A9w2 起恆為 false**:唯一的 producer 是九碼篩選(A9w2 下架 UI 與 URL 參數,
-   * A9w3 連 `AdminOrderFilter` 上的欄位本身都收掉)
-   * ⇒ 現在沒有任何呼叫端會傳 true。刻意留著不刪,因為整個 `OrdersTable` 的九碼面隨 A11a-c 一起退場,
-   * 這片只砍篩選;讀到這行的人不要以為品項狀態篩選還在。
-   */
-  itemStatusFiltered?: boolean;
-  /** item 改狀態 PRG 回跳連結(帶當前篩選+頁碼、存後不丟狀態;Codex R1 nit-1);action 端站內守門再驗。 */
-  returnTo?: string;
-}) {
+export function OrdersTable({ orders }: { orders: AdminOrderSummary[] }) {
   if (orders.length === 0) {
     return (
       <div className='text-muted-foreground rounded-lg border bg-card p-10 text-center text-sm'>
@@ -177,38 +119,25 @@ export function OrdersTable({
     );
   }
 
-  const optionsByCode = indexOrderStatusOptions(statusOptions);
-  const activeOptions = statusOptions.filter((o) => o.isActive);
-
   return (
     <div className='overflow-x-auto rounded-lg border bg-card'>
       <table className='w-full border-collapse'>
         <thead>
           <tr>
+            {/* Q6=A(Sean 2026-08-06):欄名改短字面 —— 商品品牌→品牌、物品名稱→品名、客戶名稱→客戶。 */}
             <th className={TH}>訂單編號</th>
             <th className={TH}>日期</th>
-            <th className={TH}>商品品牌</th>
+            <th className={TH}>品牌</th>
             <th className={TH}>料號</th>
-            <th className={TH}>物品名稱</th>
+            <th className={TH}>品名</th>
             <th className={TH}>年份廠牌車種</th>
             <th className={`${TH} text-right`}>數量</th>
-            <th className={`${TH} text-right`}>單價</th>
-            <th className={`${TH} text-right`}>總金額</th>
-            <th className={TH}>會員等級</th>
-            <th className={TH}>客戶名稱</th>
-            <th className={TH}>商品狀態</th>
-            <th className={TH}>來源 · 管道</th>
+            <th className={`${TH} text-right`}>金額</th>
+            <th className={TH}>客戶</th>
           </tr>
         </thead>
         {orders.map((order) => (
-          <OrderGroup
-            key={order.id}
-            order={order}
-            optionsByCode={optionsByCode}
-            activeOptions={activeOptions}
-            itemStatusFiltered={itemStatusFiltered}
-            returnTo={returnTo}
-          />
+          <OrderGroup key={order.id} order={order} />
         ))}
       </table>
     </div>
