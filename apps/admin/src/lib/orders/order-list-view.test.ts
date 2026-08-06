@@ -12,6 +12,7 @@ import {
   formatOrderItemVehicle,
   ORDERS_PAGE_SIZE,
   PAYMENT_STATUS_LABEL,
+  INVOICE_STATUS_LABEL,
   FULFILLMENT_STATUS_LABEL,
   ORDER_SOURCE_LABEL,
   PAYMENT_CHANNEL_LABEL,
@@ -154,6 +155,16 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
   });
   it('管道', () => {
     for (const v of PAYMENT_CHANNEL_VALUES) expect(PAYMENT_CHANNEL_LABEL[v]).toBeTruthy();
+  });
+
+  // 🔴 A11a-5 起 `INVOICE_STATUS_LABEL` 住在本檔(原在 order-detail-view.ts)。逐值硬編碼期望、
+  //    不從陣列衍生 —— 而且 **V11 要的「三態各自可辨識」正是靠這三個字面互不相同**:
+  //    把 `voided` 併進「未開立」是 plan 指定的突變靶,這條會紅。
+  it('開票紀錄狀態三值皆有標籤,且三者互不相同', () => {
+    expect(INVOICE_STATUS_LABEL.not_issued).toBe('未開立');
+    expect(INVOICE_STATUS_LABEL.issued).toBe('已開立');
+    expect(INVOICE_STATUS_LABEL.voided).toBe('已作廢');
+    expect(new Set(Object.values(INVOICE_STATUS_LABEL)).size).toBe(3);
   });
 });
 
