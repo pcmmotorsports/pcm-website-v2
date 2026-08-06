@@ -248,10 +248,83 @@ function adminRow(item: AdminItemEmbed): SupabaseAdminOrderRow {
     display_position: null,
     cancelled_at: null,
     tier_at_checkout: 'general',
+    // 🔴 A9c 關卡2 must-fix:本 fixture 原本**整個沒給** `invoice_status`,而尾巴那個
+    //    `as SupabaseAdminOrderRow` 把「必填欄缺席」壓了下去 ⇒ mapper 會輸出 `undefined`
+    //    卻仍宣稱型別是 `InvoiceStatus`,而且沒有任何測試看得見(全綠)。給真值把那條路徑補上。
+    invoice_status: 'voided', // 刻意用第三態:用 DB 預設 `not_issued` 會與「根本沒讀到」難以分辨
     customers: null,
     order_items: [item],
   } as SupabaseAdminOrderRow;
 }
+
+// ── A9c:列表側三軸正規化(**與明細側刻意不同**:列表補 0、明細 fail-closed 回 null)────────
+const listSummaryOf = (over: Partial<AdminItemEmbed>) =>
+  mapSupabaseAdminOrderRowToSummary(adminRow(adminItem(over))).lines[0]!.quantitySummary;
+
+describe('mapSupabaseAdminOrderRowToSummary — A9c 發票三態', () => {
+  it('🔴 `invoice_status` 真的被讀進 `invoiceStatus`(不是型別上宣稱、實際 undefined)', () => {
+    // 關卡2 抓到:fixture 缺這欄時 mapper 會輸出 `undefined` 卻仍宣稱是 `InvoiceStatus`,
+    // 而且**沒有任何測試看得見**。這條就是那個缺口的守門 —— 它同時釘住「有讀」與「值沒被改寫」。
+    const summary = mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({})));
+    expect(summary.invoiceStatus).toBe('voided');
+    expect(summary.invoiceStatus).toBeDefined();
+  });
+});
+
+describe('mapSupabaseAdminOrderRowToSummary — A9c 列表側三軸正規化', () => {
+  it('有摘要列 → 四軸直送 + cancellable = quantity − instock − cancelled', () => {
+    // 對照組:證明「補 0」不是無條件發生。四個值互不相等 ⇒ 任兩軸接錯線都紅。
+    expect(
+      listSummaryOf({
+        quantity: 5,
+        order_item_quantity_summary: [
+          { quantity: 5, ordered_quantity: 4, instock_quantity: 2, cancelled_quantity: 1 },
+        ],
+      } as Partial<AdminItemEmbed>),
+    ).toEqual({
+      quantity: 5,
+      orderedQuantity: 4,
+      instockQuantity: 2,
+      cancelledQuantity: 1,
+      cancellableQuantity: 2,
+    });
+  });
+
+  it('🔴 缺摘要列 → 三軸補 0,但**分母用品項自己的 quantity**(不是 0)', () => {
+    // 母 plan row 26 逐字「無列 = **三個** 0」—— 三個指的是軸;`quantity` 是 `order_items.quantity`
+    // 的去正規化副本。補成 0 會讓訂貨欄顯示「0/0」= 分母憑空消失(A11a-4 才看得到,這裡先釘住)。
+    expect(listSummaryOf({ quantity: 3 })).toEqual({
+      quantity: 3,
+      orderedQuantity: 0,
+      instockQuantity: 0,
+      cancelledQuantity: 0,
+      cancellableQuantity: 3,
+    });
+  });
+
+  it('🔴🔴 壞列(C7 違反 / NaN / 缺欄)也走同一個補 0 出口 —— 刻意的,代價釘在這裡', () => {
+    // 明細側對這些輸入 fail-closed 回 `null`(停用該品項的取消);列表側**沒有動作可停**、
+    // 型別又是非 nullable ⇒ 只能補 0。後果:**「資料損壞」與「真的還沒訂」在列表上長得一模一樣**。
+    // 這條的作用是把代價釘成規格、讓下一個人看得見,而不是讓它靜靜發生。
+    // ⇒ 列表取消入口(A13)進來時**不得**吃本欄,要走明細那支 `| null` 的讀法。
+    const broken: Array<Record<string, unknown>> = [
+      { quantity: 2, ordered_quantity: 0, instock_quantity: 2, cancelled_quantity: 1 }, // C7:2+1 > 2
+      { quantity: Number.NaN, ordered_quantity: 0, instock_quantity: 0, cancelled_quantity: 0 },
+      {}, // 缺欄
+    ];
+    for (const row of broken) {
+      expect(
+        listSummaryOf({ quantity: 2, order_item_quantity_summary: [row] } as Partial<AdminItemEmbed>),
+      ).toEqual({
+        quantity: 2,
+        orderedQuantity: 0,
+        instockQuantity: 0,
+        cancelledQuantity: 0,
+        cancellableQuantity: 2,
+      });
+    }
+  });
+});
 
 const vehOf = (snap: unknown) =>
   mapSupabaseAdminOrderRowToSummary(adminRow(adminItem({ vehicle_snapshot: snap as AdminItemEmbed['vehicle_snapshot'] }))).lines[0]!.vehicle;
@@ -329,7 +402,11 @@ function detailRow(
     invoice: null,
     invoice_number: null,
     invoice_amount: null,
-    invoice_status: 'pending',
+    // 🔴 A9c 關卡2 must-fix:原本寫 `'pending'` —— 那**不是** `orders_invoice_status_check` 的合法值
+    //    (三值只有 `not_issued` / `issued` / `voided`,migration `20260714120000:117`)。
+    //    本檔沒有任何斷言讀這欄,所以這個契約外的值一直被遮著。A9c 讓 `InvoiceStatus` 在列表側
+    //    開始承重 ⇒ 順手改成合法值,免得被當成「原來 pending 也可以」的先例。
+    invoice_status: 'issued',
     cancelled_at: null,
     cancelled_reason: null,
     version: 1,
