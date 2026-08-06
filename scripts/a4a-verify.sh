@@ -3,8 +3,12 @@
 # A4a 驗證 harness:order_item_quantity_summary 重算 trigger 家族
 # ============================================================
 # plan = docs/specs/2026-08-03-e10-a4a-summary-recompute-plan.md §5
-# 用法:先 scripts/d1t2-rehearsal.sh provision <workdir> 且 A4a migration 已套,
+# 用法:先 **PORT=54363** scripts/d1t2-rehearsal.sh provision <workdir> 且 A4a migration 已套,
 #       再 scripts/a4a-verify.sh <workdir>
+# 🔴🔴 **`PORT=54363` 那一段不是可省的**(2026-08-07 S2b-4b 實測踩過同型):`d1t2-rehearsal.sh`
+#    有**它自己的** `PORT="${PORT:-54329}"` 預設。本支改用專屬埠 54363 之後,若 provision 時
+#    沒帶 PORT,cluster 會起在 54329 而本支去連 54363 ⇒ 當場「連不上」。
+#    (姊妹片 `a1-verify.sh` 自己 provision,所以它是 `export PORT` 解決;本支不 provision,只能靠這行用法。)
 # 形狀照 a2b1-verify.sh:三計數器 + 身分閘五重 + case 全 BEGIN…ROLLBACK 零留痕
 # + DB 內突變(anchor 三重 preflight)。例外(誠實列出、各自帶清理與殘留斷言):
 #   R9b/R9c/R10a/N3/N6b/N6c 需要 committed 狀態;N3 是唯一 committed 函式突變
@@ -14,7 +18,11 @@
 set -uo pipefail
 
 WORK="${1:-/tmp/a4a-work}"
-URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
+# 🔴 **專屬埠 54363**(B2-S2b plan §3.6 定案;2026-08-07 S2b-4b 落地)。
+#    原本與 `a1-verify.sh` **共用 54329** —— 兩支併行起跑時後起的那支會撞埠,
+#    而「跑完 teardown」**不解決撞埠**(先起的那支還沒 teardown,後起的照樣撞)⇒ 分埠與 teardown 兩件都要做。
+#    `PORT=` 環境變數仍可覆寫。
+URL="postgresql://postgres@127.0.0.1:${PORT:-54363}/postgres"
 AURL="${URL}?application_name=a4a_sess_a"
 HELPER="public.pcm_a4a_recompute_order_item_summary(uuid)"
 FN_GUARD="public.pcm_a4a_received_quantity_guard()"

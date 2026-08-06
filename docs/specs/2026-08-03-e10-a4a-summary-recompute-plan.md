@@ -119,7 +119,7 @@ break-glass(A2b1 §3.9 同形):單一交易 DISABLE→修資料→ENABLE→重�
 | 檔 | 內容 |
 |---|---|
 | `supabase/migrations/20260803140000_m4b_e10_a4a_quantity_summary_recompute.sql` | §3.6 |
-| `scripts/a4a-verify.sh` | 結構 + 行為 cells + 突變(a2b1 樣板、d1t2 provision、port 54329、LC_ALL=C) |
+| `scripts/a4a-verify.sh` | 結構 + 行為 cells + 突變(a2b1 樣板、d1t2 provision、**port 54363**(2026-08-07 B2-S2b-4b 改;原 54329 與 `a1-verify` 同埠)、LC_ALL=C) |
 | `scripts/a4a-rollback-rehearsal.sh` + `docs/runbooks/a4a-summary-rollback.md` | §6(DoD 硬前置) |
 | `scripts/a4b-concurrency-probe.sh` | §8(A4b 片) |
 | 兄弟修訂:`scripts/a2b1-verify.sh` / `scripts/a2b2-concurrency-probe.sh` / `scripts/a7-behavior-probe.sql` / `scripts/a7t-behavior-probe.sql` / `scripts/s1b-verify.sh` | §7(逐格連動,Sean 拍板後動;s1b/a7t 為實作期追加,見 §7 表尾兩列) |
@@ -166,7 +166,7 @@ N1 DISABLE receipts trigger → R2(row 30 指定突變)/ N2 重算去 cancelled 
 | s1b(🔀 v4 增補;原列「不改」的字面已為假,code-reviewer Important)| 借 d1t2 seed 品項當 fixture(41 筆全 qty=1) | **a2b1(08-03 晨)落地起既有債**:拆兩家 1+1 與 business_key 突變攻擊被 P2B01 先擋(s1b 從不在 a2b1 家族名單、無人發現);家族序跑抓到 | 自建 qty=5 fixture 訂單(仍為真 FK 目標)+ trap 清除;**全部斷言原文不動** = Q2=A 同形 fixture 適配 |
 | a4a-rollback-rehearsal ↔ s1b 交互(🔀 v4 增補,家族序跑實錘)| — | 演練 forward 重放 A1 會把 S1b 修訂過的採購表 COMMENT 蓋回 A1 版 ⇒ s1b 註解斷言紅 | 演練快照 `obj_description` → forward 後還原+回讀斷言;runbook §6 記為 A1 重放已知蓋寫 |
 
-收尾零污染紀律(🔀 v3 家族名單更正):`a4a → a2b1 → a2b2 → a7-behavior-probe(standalone,修訂版)→ a7t-behavior-probe(standalone,修訂版)→ s1b → a1 → a6 → a4a(再一次)` 全序跑(共用 port 54329 ⇒ 一律序跑、不併行),計數器逐一比對釘死值。排除名單與理由:a7-verify(reapply 被 A7b FK 擋、07-31 起既有壞損)/ a7t-verify(reapply 被自家 migration 集合恰等斷言擋)/ a7bt×3(migration 已 git rm)—— 三者皆與 A4a 無關、記債歸 A7/A7c 線。🔴(v4 R3-F5,「縮驗證面前先答誰會發現」總閘)排除期間 **A7/A7-t 守門的突變級覆蓋歸零**:A7-t 四支 trigger 若被弄壞,唯一發現者 = standalone probe 的正向格與 from-zero provision 的檔內 DO —— 此降級明寫進兩處記債,A7 線重建 reapply 時恢復。
+收尾零污染紀律(🔀 v3 家族名單更正):`a4a → a2b1 → a2b2 → a7-behavior-probe(standalone,修訂版)→ a7t-behavior-probe(standalone,修訂版)→ s1b → a1 → a6 → a4a(再一次)` 全序跑(🔴 **2026-08-07 B2-S2b-4b 起 `a4a-verify` 專屬埠 54363、`a1-verify` 專屬埠 54361** —— **`a4a-verify` 的 provision 要手動帶 `PORT=54363`**;`a1-verify` **自己 provision 且 export PORT,免帶、跑完自動 teardown**;其餘家族成員仍在 54329 ⇒ **仍一律序跑、不併行**),計數器逐一比對釘死值。排除名單與理由:a7-verify(reapply 被 A7b FK 擋、07-31 起既有壞損)/ a7t-verify(reapply 被自家 migration 集合恰等斷言擋)/ a7bt×3(migration 已 git rm)—— 三者皆與 A4a 無關、記債歸 A7/A7c 線。🔴(v4 R3-F5,「縮驗證面前先答誰會發現」總閘)排除期間 **A7/A7-t 守門的突變級覆蓋歸零**:A7-t 四支 trigger 若被弄壞,唯一發現者 = standalone probe 的正向格與 from-zero provision 的檔內 DO —— 此降級明寫進兩處記債,A7 線重建 reapply 時恢復。
 
 ## §8 A4b 片(row 31;✅ 實作完成 `scripts/a4b-concurrency-probe.sh` = **33/0、CELL 6、MUT 2**(🔀 codex K2-2 補 SA3b:committed 去 sync 的 proc NKU → 終態 received=1≠3 —— barrier 可被 tuple 鎖代打,承重只能由終態證明);SA2 消融實錘 = 無鎖版終態 (0,0,1) 覆蓋 A 的 ordered、SA2b 純對照 4→2;K2 修法後八支重跑全綠 + 終輪家族序跑,結果見 §10-4)
 

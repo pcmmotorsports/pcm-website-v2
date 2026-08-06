@@ -3,8 +3,24 @@
 # A1 可重現驗證 harness — order_item_quantity_summary
 # ============================================================
 # 對應 = docs/specs/2026-07-30-e10-a1-order-item-summary-columns-plan.md §6
-# 用法:scripts/a1-verify.sh all /tmp/a1v      (從零 provision,最完整)
-#      scripts/a1-verify.sh run /tmp/a1v      (重用既有拋棄式 cluster)
+# 用法:scripts/a1-verify.sh all /tmp/a1v      (從零 provision,最完整;**跑完自動 teardown**)
+#      A1V_KEEP=1 scripts/a1-verify.sh all /tmp/a1v   (跳過 teardown —— 只在要事後翻庫時用,見下方警語)
+#      scripts/a1-verify.sh run /tmp/a1v      (重用既有拋棄式 cluster;**只有前一次帶了 A1V_KEEP=1 才存在**)
+#
+# 🔴 **teardown 不分模式**:`run` 跑完**一樣會**停 cluster + 刪 workdir(除非帶 `A1V_KEEP=1`)。
+#   ⇒ 「`A1V_KEEP=1 all` → `run`」是**一次性**的重用,第二次 `run` 會找不到 workdir。這是刻意的:
+#     `A1V_KEEP` 是唯一的「留著」開關,任何沒帶它的一跑都會把現場收乾淨。
+# 🔴 **失敗時的例外**:`FAIL>0` 時只停 cluster(釋放專屬埠)、**保留 workdir** —— 紅了要留現場。
+#
+# 🔴🔴 **為什麼一定要 teardown(2026-08-07 實測,不是理論)**:本支的 provision 會重放**全部** migration
+#   (含 B2-S2b),但它接著 `drop_a1` 把摘要表整張刪掉、只重套 A1 ⇒ 跑完時庫裡是
+#   **6 支 pcm_a4a 函式 + shipments 重算 trigger 都在,而摘要表沒有 `shipped_quantity`** 這個**斷裂態**。
+#   實跑證據(2026-08-07,port 54361):`information_schema.columns` 只回
+#   `order_item_id,quantity,ordered_quantity,instock_quantity,cancelled_quantity`,
+#   而 `pg_trigger` 裡 `shipments_summary_recompute_ac` 存在。
+#   🔴 **而本支照樣印 PASS=61 / FAIL=0** —— 它自己不走 A4a/S2b 那條路,所以完全看不到自己留下的爛攤子。
+#   ⇒ 這個庫對**任何別的 harness** 都是壞的。plan §3.5a 因此拍板「專屬 port + 跑完即 teardown」,
+#     而**不是**「把庫修回去」(修復程序自己也要被驗證,小線已證那會長出一整層新的假綠面)。
 #
 # ── 這支腳本在證明什麼、不證明什麼(誠實邊界)────────────────
 # 證明:結構/定義字面/ACL/FK 形狀被斷言鎖住,且**每一條斷言都有一個突變能單獨打紅它**;
@@ -32,7 +48,13 @@ MODE="${1:?用法: a1-verify.sh all|run <workdir>}"
 WORK="${2:?缺 workdir(必須是短路徑,例 /tmp/a1v)}"
 MIG="supabase/migrations/20260730150000_m4b_e10_a1_order_item_summary_columns.sql"
 PROBE="scripts/a1-behavior-probe.sql"
-PORT="${PORT:-54329}"
+# 🔴 **專屬埠 54361**(B2-S2b plan §3.6 定案;2026-08-07 S2b-4b 落地)。原與 `a4a-verify.sh` 共用 54329。
+PORT="${PORT:-54361}"
+# 🔴🔴 **必須 export**(2026-08-07 實測,不是預防性):provision 是委派給 `scripts/d1t2-rehearsal.sh`,
+#    而**它有自己的 `PORT="${PORT:-54329}"` 預設**。以前兩支預設同為 54329,靠巧合對上;
+#    本片把預設改成 54361 之後,不 export 就會變成「cluster 起在 54329、本支去連 54361」
+#    ⇒ 第一次實跑當場紅在「連不上 54361(先跑 all 模式)」。
+export PORT
 URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
 export LC_ALL=C
 
@@ -75,7 +97,7 @@ if [ "$MODE" = "all" ]; then
     echo "🔴 $WORK 已存在但沒有本腳本的 ownership marker($MARK)—— 拒絕 rm -rf,請換路徑"; exit 2
   fi
   # 🔴 先停掉可能還活著的舊 cluster,再刪目錄。
-  #    原版直接 rm -rf,把「正在跑的 postmaster 的資料目錄」砍掉 ⇒ 它不會死、繼續佔著 port 54329
+  #    原版直接 rm -rf,把「正在跑的 postmaster 的資料目錄」砍掉 ⇒ 它不會死、繼續佔著本支的 port
   #    ⇒ 下一次 pg_ctl start 撞 "Address already in use"、provision 失敗,
   #      而且會連帶害到共用同一個 port 的 a7 / a7t harness(2026-07-31 實測踩到)。
   if [ -d "$WORK/pgdata" ]; then
@@ -85,7 +107,7 @@ if [ "$MODE" = "all" ]; then
   if psql "$URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
     echo "🔴 port $PORT 上仍有活著的 postmaster,且不是本 workdir 的 pgdata —— 拒絕繼續(先手動停掉)"; exit 2
   fi
-  log "0/9 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
+  log "0/10 provision 拋棄式 PG17(重用 d1t2 的 provision,不複製貼上)"
   rm -rf "$WORK"
   mkdir -p "$WORK" && : > "$MARK"
   scripts/d1t2-rehearsal.sh provision "$WORK" >"$WORK/provision.log" 2>&1 \
@@ -109,6 +131,89 @@ fi
 psql "$URL" -v ON_ERROR_STOP=1 -q -c \
   "CREATE TABLE IF NOT EXISTS public.pcm_a7_probe_allowed (note text);" >/dev/null
 
+# ══ teardown(plan §3.5a;10/10 段與異常退出都走這裡)═══════════════════════
+A1V_TORN=0
+# 🔴🔴 **兩道斷言不得共用同一個觀察源**(R1 must-fix 2):第一版只看「psql 連不連得上」——
+#    cluster 若**從頭就沒活著**,`pg_ctl stop` 有 `|| true`、連不上被當成「已停」⇒ 整段白拿兩分。
+#    ⇒ 改成 **前置條件 + 後置條件 + 第三個獨立來源**:①停之前必須**連得上**(否則判紅)
+#      ②停之後必須**連不上** ③`pg_ctl status` 必須說 not running(不經 psql)。
+# 🔴 R1 nit 7:「埠已釋放」與「連不上」不是同一件事。有 `lsof` 就用它直接量 LISTEN,
+#    沒有就**降級並在訊息裡說明降級**,不宣稱量到了埠。
+a1v_teardown() {
+  [ "$A1V_TORN" = "1" ] && return 0
+  A1V_TORN=1
+  local PGBIN listen
+  PGBIN="$(dirname "$(command -v psql 2>/dev/null || echo /opt/homebrew/opt/postgresql@17/bin/psql)")"
+  # ① 前置:cluster 必須真的活著 —— 否則後面兩道就是恆真。
+  if ! psql "$URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
+    bad "teardown:停之前就連不上 $URL —— cluster 沒活著,後面的「已停」會是恆真,判紅"
+    return 1
+  fi
+  # 🔴 R2 F2:**停 cluster 要排在兩道拒刪檢查之前**。第一版把 marker/symlink 檢查放前面,
+  #    那兩道紅著 return 時 cluster 還活著、埠沒釋放,而 `A1V_TORN=1` 已經把 trap 抑制掉
+  #    ⇒ 檔頭「FAIL>0 也會停 cluster 釋放專屬埠」在那個角落是假的。停 cluster **不需要** marker 保護
+  #    (它只動 `$WORK/pgdata`,不刪任何東西);需要保護的是後面的 `rm -rf`。
+  "$PGBIN/pg_ctl" -D "$WORK/pgdata" stop -m fast >/dev/null 2>&1 || true
+  # 🔴 R1 nit 11:本支會 rm -rf 使用者給的路徑 ⇒ marker 與 symlink 都要擋(比照 b2s2b-verify)。
+  if [ ! -f "$MARK" ]; then
+    bad "teardown:找不到 ownership marker($MARK)—— cluster 已停,但**拒絕 rm -rf**(不確定這個 workdir 是不是我建的)"
+    return 1
+  fi
+  if [ -L "$WORK" ]; then
+    bad "teardown:$WORK 是 symlink —— cluster 已停,但**拒絕 rm -rf**"
+    return 1
+  fi
+  # ② 後置:連不上。③ 獨立來源:pg_ctl status。
+  if psql "$URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
+    bad "teardown:停之後仍連得上 $URL —— postmaster 沒停掉"
+    return 1
+  fi
+  if "$PGBIN/pg_ctl" -D "$WORK/pgdata" status >/dev/null 2>&1; then
+    bad "teardown:pg_ctl status 仍回「running」—— 與 psql 連不上矛盾,判紅(兩個來源必須一致)"
+    return 1
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    listen="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null | tail -n +2)"
+    [ -z "$listen" ] || { bad "teardown:port $PORT 仍有 LISTEN 的行程:$(printf '%s' "$listen" | head -1)"; return 1; }
+    listen="(lsof 實測 port $PORT 無 LISTEN)"
+  else
+    listen="(**降級**:本機沒有 lsof ⇒ 只證到「連不上 + pg_ctl 說 not running」,**沒有直接量埠**)"
+  fi
+  # 🔴 R1 nit 8:紅了就把現場留著。`provision.log` / `apply.log` / `drop.log` 都在 workdir 裡,
+  #    刪掉之後沒人查得下去。埠(共用資源)已經釋放,留一個目錄不影響別人。
+  if [ "$FAIL" -gt 0 ]; then
+    ok "teardown:cluster 已停 $listen;**因為 FAIL=$FAIL,workdir $WORK 刻意保留**供查證(埠已釋放,不影響其他 harness)"
+    return 0
+  fi
+  rm -rf "$WORK"
+  if [ -e "$WORK" ]; then
+    bad "teardown:workdir $WORK 沒刪乾淨"
+    return 1
+  fi
+  ok "teardown:cluster 已停 $listen、workdir 已刪 —— 斷裂態不外流"
+}
+# 🔴🔴 **異常退出也要拆**(R1 must-fix 3):本支在 provision 之後有九處 `exit 1|2`,
+#    第一版沒有 trap ⇒ 中途硬退就把斷裂態的 cluster 留在專屬埠上,而用法註解寫的是「跑完自動 teardown」
+#    —— 那句話在失敗路徑上是假的。這個 trap 只做「停 cluster」,不刪 workdir(異常時現場要留)。
+a1v_trap() {
+  [ "$A1V_TORN" = "1" ] && return 0
+  [ "${A1V_KEEP:-0}" = "1" ] && return 0
+  [ -f "$MARK" ] || return 0
+  [ -d "$WORK/pgdata" ] || return 0
+  A1V_TORN=1
+  local PGBIN
+  PGBIN="$(dirname "$(command -v psql 2>/dev/null || echo /opt/homebrew/opt/postgresql@17/bin/psql)")"
+  "$PGBIN/pg_ctl" -D "$WORK/pgdata" stop -m fast >/dev/null 2>&1 || true
+  # 🔴 R2 F3:**停完要驗,否則訊息就是「量測失敗長得像成功」那一族在異常路徑的殘影**。
+  #    postmaster 卡死時 `pg_ctl stop` 帶 `|| true` 會靜默通過,而訊息卻宣稱埠已釋放。
+  if psql "$URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
+    echo "  🔴 異常退出:**cluster 沒停掉**(port $PORT 仍連得上)—— 請手動 pg_ctl -D $WORK/pgdata stop;workdir 保留。"
+  else
+    echo "  ⚠️  異常退出:已停掉 $WORK 的 cluster(實測 port $PORT 已連不上);**workdir 保留**供查證。"
+  fi
+}
+trap a1v_trap EXIT
+
 # ══ 共用動作 ═══════════════════════════════════════════════════════════════
 drop_a1() {
   psql "$URL" -v ON_ERROR_STOP=1 -q > "$WORK/drop.log" 2>&1 <<'SQL'
@@ -125,7 +230,7 @@ apply_mig() {  # $1 = migration 檔路徑
   return $rc
 }
 
-log "1/9 抓外層 oracle 基準(order_items 的約束 / trigger / ACL,存在 shell 側,突變改不到)"
+log "1/10 抓外層 oracle 基準(order_items 的約束 / trigger / ACL,存在 shell 側,突變改不到)"
 drop_a1
 snapshot "SELECT conname||' :: '||pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.order_items'::regclass ORDER BY conname" "$WORK/oi-constraints.base" "oi-constraints.base"
 snapshot "SELECT tgname||' :: '||tgenabled::text||' :: '||pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.order_items'::regclass AND NOT tgisinternal ORDER BY tgname" "$WORK/oi-triggers.base" "oi-triggers.base"
@@ -144,7 +249,7 @@ fi
 ok "harness 自我測試:壞掉的快照 SQL 會當場中止(不會變成假的零漂移)"
 ok "基準已存檔($(wc -l < "$WORK/oi-constraints.base") 條 order_items 約束)"
 
-log "2/9 套用 A1 + 結構驗收(零突變必須綠)"
+log "2/10 套用 A1 + 結構驗收(零突變必須綠)"
 OUT="$(apply_mig "$MIG")"; RC=$?
 if [ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'A1 結構驗收全數通過'; then
   ok "apply + 結構驗收綠"
@@ -152,7 +257,7 @@ else
   bad "apply 未通過(rc=$RC):$(echo "$OUT" | grep -m1 ERROR)"
 fi
 
-log "3/9 外層比對:order_items 除了新增那把唯一鍵之外,一個 byte 都沒變"
+log "3/10 外層比對:order_items 除了新增那把唯一鍵之外,一個 byte 都沒變"
 snapshot "SELECT conname||' :: '||pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.order_items'::regclass ORDER BY conname" "$WORK/oi-constraints.after" "oi-constraints.after"
 snapshot "SELECT tgname||' :: '||tgenabled::text||' :: '||pg_get_triggerdef(oid) FROM pg_trigger WHERE tgrelid='public.order_items'::regclass AND NOT tgisinternal ORDER BY tgname" "$WORK/oi-triggers.after" "oi-triggers.after"
 snapshot "SELECT coalesce(array_to_string(relacl,','),'(null)') FROM pg_class WHERE oid='public.order_items'::regclass" "$WORK/oi-acl.after" "oi-acl.after"
@@ -170,7 +275,7 @@ diff -q "$WORK/procs.base" "$WORK/procs.after" >/dev/null \
   && ok "本片零新函式(全非系統 schema 的 pg_proc 差集為空)" \
   || bad "本片新增了函式:$(diff "$WORK/procs.base" "$WORK/procs.after" | head -3 | tr '\n' ' ')"
 
-log "4/9 行為探針(零突變必須全綠)"
+log "4/10 行為探針(零突變必須全綠)"
 psql "$URL" -v ON_ERROR_STOP=1 -qtA -f "$PROBE" > "$WORK/probe.out" 2>&1
 if [ $? -eq 0 ] && grep -q '行為探針 15/15 通過' "$WORK/probe.out" && grep -q '零殘留複驗通過' "$WORK/probe.out"; then
   ok "探針 14/14 + 零殘留"
@@ -178,7 +283,7 @@ else
   bad "探針未全綠:$(grep -m1 'ERROR:' "$WORK/probe.out")"
 fi
 
-log "5/9 真 create_order 回歸(證明加唯一鍵沒把結帳弄壞)"
+log "5/10 真 create_order 回歸(證明加唯一鍵沒把結帳弄壞)"
 # fixture 配方沿用 scripts/n3-verify.sh §4.1(已實跑定案),不自己發明。
 # 🔴 誠實:這三件 fixture 是造出來的 ⇒ 本段是**煙霧測試**,不是「結帳真的能用」。
 UID_FIX="$(runsql "SELECT customer_user_id FROM public.customer_addresses ORDER BY id LIMIT 1")"
@@ -230,7 +335,7 @@ s_mut() {  # $1=名稱 $2=DDL $3=期望的第一個 ERROR 片段
   fi
 }
 
-log "6/9 結構突變(每條必須紅在自己那條斷言)"
+log "6/10 結構突變(每條必須紅在自己那條斷言)"
 T=public.order_item_quantity_summary
 for c in oiqs_ordered_nonneg oiqs_instock_nonneg oiqs_cancelled_nonneg \
          oiqs_ordered_le_quantity oiqs_instock_le_ordered \
@@ -358,7 +463,7 @@ b_mut() {  # $1=名稱 $2=sed 表達式 $3=期望探針錯誤片段
   drop_a1; apply_mig "$MIG" >/dev/null
 }
 
-log "6b/9 偷加函式突變(證明 pg_proc 外層基準抓得到「沒掛 trigger 的新函式」)"
+log "6b/10 偷加函式突變(證明 pg_proc 外層基準抓得到「沒掛 trigger 的新函式」)"
 drop_a1
 snapshot "$PROCQ" "$WORK/procs.fnbase" "procs.fnbase"
 awk '/^COMMIT;$/ && !done {print "CREATE FUNCTION public.a1_sneaky_fn() RETURNS integer LANGUAGE sql IMMUTABLE AS $fn$SELECT 1$fn$;"; done=1} {print}' "$MIG" > "$WORK/mig-fn.sql"
@@ -401,7 +506,7 @@ fi
 runsql "DROP SCHEMA IF EXISTS a1_evil CASCADE" >/dev/null
 drop_a1; apply_mig "$MIG" >/dev/null
 
-log "7/9 行為突變(剝掉結構驗收,單獨證明探針的判別力)"
+log "7/10 行為突變(剝掉結構驗收,單獨證明探針的判別力)"
 # 🔴 期望落點是 N1 而不是 N4:把 C5 反向之後,N1(instock=-1, ordered=0)對
 #    `instock >= ordered` 也不成立 ⇒ N1 先撞上、回報的 constraint 變成 oiqs_instock_le_ordered。
 #    探針按序執行 ⇒ 最早受影響的案例才是確定落點。硬要寫 N4 就是在猜。
@@ -423,7 +528,7 @@ b_mut "FK 退化成單欄(去正規化不再被釘死)" \
   's/FOREIGN KEY (order_item_id, quantity)/FOREIGN KEY (order_item_id)/; s/REFERENCES public.order_items (id, quantity)/REFERENCES public.order_items (id)/' \
   "A1-PROBE-FAIL:F1"
 
-log "8/9 探針自身突變(證明探針不會自己假綠)"
+log "8/10 探針自身突變(證明探針不會自己假綠)"
 # 🔴 原版用 sed 改「所有」符合的行,而 N5 與 N6 的判官字串一模一樣
 #    ⇒ 同時改到兩處,判定又只 grep 任意 WRONG-CONSTRAINT ⇒ **N5 的判官死了也會由 N6 代打轉紅**。
 #    改成 perl 只換第一處(= N5),並斷言「恰好一行不同」+ 第一個錯誤精確含 N5。
@@ -444,7 +549,7 @@ else
   fi
 fi
 
-log "9/9 對照組(零突變必須全綠;沒有對照組,全紅毫無意義)"
+log "9/10 對照組(零突變必須全綠;沒有對照組,全紅毫無意義)"
 drop_a1
 OUT="$(apply_mig "$MIG")"; RC=$?
 if [ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'A1 結構驗收全數通過'; then
@@ -452,6 +557,50 @@ if [ "$RC" -eq 0 ] && echo "$OUT" | grep -q 'A1 結構驗收全數通過'; then
   [ $? -eq 0 ] && ok "對照組:結構 + 行為皆綠" || bad "對照組探針紅了:$(grep -m1 ERROR "$WORK/ctrl.out")"
 else
   bad "對照組 apply 失敗"
+fi
+
+# ══ 10/10 teardown(plan §3.5a 拍板)══════════════════════════════════════════
+log "10/10 跑完即 teardown(專屬 port $PORT;不把斷裂態留給下一個人)"
+# 🔴 **先把「斷裂態真的存在」量出來,再拆**:沒有這一步,teardown 只是一個沒人知道為何存在的動作,
+#    下一棒會覺得它多餘而拿掉。這裡不是描述風險,是**觀察**它。
+# 🔴🔴 **量測失敗必須紅,不得長得像「沒有那個斷裂面」**(R1 must-fix 1):第一版把 psql 的錯誤
+#    `2>/dev/null` 吞掉、空字串落進「沒有 trigger」那一支照樣印 ✅ —— 那是本 repo 記過的同一族
+#    (`feedback_guard-checks-existence-not-effect` / 「量測失敗長得像乾淨結果」)。
+#    ⇒ 兩個查詢各自接 rc,任一非零或回空 ⇒ **判紅**,不進分支。
+TD_COLS="$(psql "$URL" -qtAc "SELECT coalesce(string_agg(column_name, ',' ORDER BY ordinal_position), '<無此表>') FROM information_schema.columns WHERE table_schema='public' AND table_name='order_item_quantity_summary'" 2>"$WORK/td-cols.err")"
+TD_COLS_RC=$?
+TD_TRIG="$(psql "$URL" -qtAc "SELECT count(*) FROM pg_trigger WHERE tgname='shipments_summary_recompute_ac' AND NOT tgisinternal" 2>"$WORK/td-trig.err")"
+TD_TRIG_RC=$?
+if [ "$TD_COLS_RC" -ne 0 ] || [ "$TD_TRIG_RC" -ne 0 ] || [ -z "$TD_COLS" ] || [ -z "$TD_TRIG" ]; then
+  bad "斷裂態偵測:量測本身失敗(cols rc=$TD_COLS_RC / trig rc=$TD_TRIG_RC)—— fail-closed 判紅,**不當成「沒有那個斷裂面」**
+     $(head -1 "$WORK/td-cols.err" 2>/dev/null)$(head -1 "$WORK/td-trig.err" 2>/dev/null)"
+else
+  case "$TD_TRIG" in
+    1)
+      case "$TD_COLS" in
+        *shipped_quantity*)
+          bad "斷裂態偵測:S2b trigger 在、摘要表也有 shipped_quantity —— 與 2026-08-07 的實測相反,teardown 的理由要重新查證" ;;
+        *)
+          ok "斷裂態實證:S2b 的 shipments 重算 trigger 存在,但摘要表欄位 = [$TD_COLS](**缺 shipped_quantity**)
+     ⇒ 本支跑完的庫對別的 harness 是壞的 —— teardown 不是可選項,是這一格的理由" ;;
+      esac ;;
+    0)
+      ok "斷裂態偵測:本次 migration 前綴不含 B2-S2b 的重算 trigger(tgcount=0)⇒ 沒有那個斷裂面;teardown 照跑" ;;
+    *)
+      bad "斷裂態偵測:trigger 計數是 [$TD_TRIG](只接受 0 或 1)—— 觀察值超出預期,判紅" ;;
+  esac
+fi
+# 🔴 **這一格今天恆走同一支**(R1 nit 6,誠實列):真實流程下 trigger 恆在、`shipped_quantity` 恆不在。
+#    另外兩支(欄位竟然在 / 計數不是 0 或 1)**沒有任何突變靶證明它們紅得起來** ——
+#    它們是給「哪天 a1-verify 不再 drop 掉摘要表」的保險,不是已被證明的判別力。
+
+if [ "${A1V_KEEP:-0}" = "1" ]; then
+  # 🔴 R1 nit 9:這一支**不計分** ⇒ 帶 A1V_KEEP 時 PASS 會比正常路徑少 1(63 → 62)。寫在這裡,
+  #    免得下一棒拿兩條路徑的 PASS 數互相對照而誤以為有格漏跑。
+  echo "  ⚠️  A1V_KEEP=1 ⇒ **跳過 teardown**(本段少計 1 分)。$WORK 的 cluster 仍活在 port $PORT,"
+  echo "     而且很可能處於上面那個**斷裂態** —— 別讓其他 harness 連上去,查完請自己停掉。"
+else
+  a1v_teardown
 fi
 
 echo

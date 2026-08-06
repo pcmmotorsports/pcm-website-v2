@@ -219,10 +219,11 @@ EXPECT_TMUT=16     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T
                    #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
                    #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)、
                    #   D1 真相式多加總一欄、D2 把 gate 那句註解掉(3b 第三段)
-EXPECT_TOTAL=70    # 25 格 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
+EXPECT_TOTAL=71    # 25 格 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
                    #   + 9 結構突變(含 SMUT-0)+ SMUT-COUNT
                    #   + **3** barrier 突變入 PASS 帳(BMUT-0 / L1 / L2b;**L2a 走待裁、不入帳**)
-                   #   + BMUT-COUNT + BAR-PLAN-SHAPE + SELF-REPORT-BACKTICK + COVERAGE-ACCOUNT + COPIES-DROPPED
+                   #   + BMUT-COUNT + BAR-PLAN-SHAPE + SELF-REPORT-BACKTICK + COVERAGE-ACCOUNT
+                   #   + PORT-DEFAULTS(S2b-4b)+ COPIES-DROPPED
 # 🔴 **待裁格的 key 集合另外凍結**(R2 F1):不入 PASS 帳不代表可以消失 ——
 #    沒有這一組,把那一行 run_bmut 整行刪掉會全綠。
 # 🔴🔴 **機制,不是規則**(機制優先律;R1 nit 13):本檔的「覆蓋 N 格 / 沒靶 M 格」以前是**手寫字面**,
@@ -248,7 +249,7 @@ STRUCT-ORACLE SMUT-0 SMUT-A1 SMUT-A2 SMUT-A3 SMUT-A4 SMUT-A5 SMUT-A6 SMUT-A7 SMU
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
 BMUT-0 BMUT-L1 BMUT-L2B BMUT-COUNT \
 RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
-REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COVERAGE-ACCOUNT COPIES-DROPPED"
+REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COVERAGE-ACCOUNT PORT-DEFAULTS COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -281,7 +282,8 @@ case "$PORT" in
 esac
 [ "$PORT" -ge 1024 ] && [ "$PORT" -le 65535 ] || die "PORT 必須介於 1024-65535(收到:$PORT)"
 # 🔴 54361 / 54363 是 plan §3.6 指派給 a1-verify / a4a-verify 的**專屬埠**(S2b-4b 落地時生效);
-#    現在兩支都還是 `${PORT:-54329}`,但黑名單先寫進去 —— 等 4b 落地才補的話,那一刻就過期了。
+#    🔴 **2026-08-07 S2b-4b 已落地**:`a1-verify.sh` 改預設 **54361**、`a4a-verify.sh` 改預設 **54363**
+#    ⇒ 上面那句「現在兩支都還是 54329」已兌現、不再是預告(本行就是它自己預告要做的那次更新)。
 case "$PORT" in
   54329|54331|54342|54351|54353|54355|54357|54359|54361|54363)
     die "埠 $PORT 是既有 harness / 本夜跑在用的拋棄庫 / plan §3.6 已指派的專屬埠,換一個(建議 54365)" ;;
@@ -2467,6 +2469,33 @@ fi
 #    而且那一格自己還印著「報告字面不會被 shell 靜默改寫」= 恆真的假話。**
 #    (memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`;R1 用活體反例當場打掉。)
 #    ⇒ 不變量是「**任何報告類命令的字串**不得含反引號」,面就畫在那裡:echo / ok / bad / log / die / printf。
+# ══ 埠分配守門(S2b-4b;plan §3.6 的決定做成機制,不只寫在註解)═══════════════
+# 🔴 本片修的 bug 就是「`a1-verify` 與 `a4a-verify` 預設同為 54329」⇒ 併行起跑必撞埠。
+#    光把數字改掉、再寫一行註解說「已分埠」,下一個人複製貼上時照樣會撞回去。
+#    ⇒ 這一格直接讀那兩支的**預設值字面**,斷言:①各自是 plan §3.6 定的值 ②兩者不同
+#    ③兩者都在本檔的埠黑名單裡(本家族不得重用)。
+# 🔴 **抽取前要先剔掉註解行**(第一次實跑當場中):兩支檔案的**註解裡都寫著舊值 54329**
+#    (解釋「以前共用同一埠」),不剔就會抽到註解裡那個數字、報一個假的不符。
+#    這與本檔 `SELF-REPORT-BACKTICK` 踩過的是同一件事:**掃原始碼的守門要先定義「什麼算程式碼」**。
+PD_A1="$(grep -vE '^[[:space:]]*#' scripts/a1-verify.sh | grep -oE 'PORT="\$\{PORT:-[0-9]+\}"' | grep -oE '[0-9]+' | head -1)"
+PD_A4A="$(grep -vE '^[[:space:]]*#' scripts/a4a-verify.sh | grep -oE 'PORT:-[0-9]+' | grep -oE '[0-9]+' | head -1)"
+PD_BL="$(grep -oE '^  543[0-9|]+\)' scripts/b2s2b-verify.sh | head -1)"
+# 🔴 **期望值回讀 plan §3.6 的表,不在這裡硬寫**(R1 nit 14):硬寫的話,ok 訊息說「符合 plan §3.6」
+#    卻在 plan 改值時**不會紅** —— 那句話就是名過其實。回讀之後,兩邊任一方漂移都會紅。
+#    🔴 讀不到(表格被改名/搬走)也要紅,不得因為期望值變空而恆綠。
+PD_PLAN="docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md"
+PD_W_A1="$(grep -E '^\| `scripts/a1-verify\.sh` \|' "$PD_PLAN" | grep -oE '5[0-9]{4}' | head -1)"
+PD_W_A4A="$(grep -E '^\| `scripts/a4a-verify\.sh` \|' "$PD_PLAN" | grep -oE '5[0-9]{4}' | head -1)"
+if [ -z "$PD_W_A1" ] || [ -z "$PD_W_A4A" ]; then
+  bad "埠分配:讀不到 plan §3.6 的埠表(a1=[$PD_W_A1] a4a=[$PD_W_A4A])—— 期望值來源不見了,fail-closed 判紅"
+elif [ "$PD_A1" = "$PD_W_A1" ] && [ "$PD_A4A" = "$PD_W_A4A" ] && [ "$PD_A1" != "$PD_A4A" ] \
+   && printf '%s' "$PD_BL" | grep -q "$PD_A1" && printf '%s' "$PD_BL" | grep -q "$PD_A4A"; then
+  ok PORT-DEFAULTS "埠分配與 plan §3.6 的表逐字相符:a1-verify=$PD_A1 / a4a-verify=$PD_A4A(期望值**回讀自 plan**,非硬寫),兩者不同且都已列進本檔黑名單"
+else
+  bad "埠分配不符:a1-verify 碼內=[$PD_A1] / plan=[$PD_W_A1];a4a-verify 碼內=[$PD_A4A] / plan=[$PD_W_A4A];黑名單行=[$PD_BL]
+     🔴 兩支預設同埠正是 S2b-4b 修掉的那個 bug —— 改回去會讓它們併行起跑時撞埠"
+fi
+
 SELF_BT="$(printf '\140')"
 # 🔴 R2 F2:第一版只掃**行首**,而全檔有 89 個 `… && ok …` / `then ok …` 形的非行首呼叫在面外。
 #    面擴到「命令位置」= 行首、或接在 && / || / ; / then / else / do 之後。

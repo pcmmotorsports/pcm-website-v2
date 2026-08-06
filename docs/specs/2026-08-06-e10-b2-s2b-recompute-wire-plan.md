@@ -579,10 +579,25 @@ codex 關卡1 判 must-fix:v1 同時留下兩套互斥方案 = 把技術決定�
 **代價(誠實列)**:每跑一次 `a1-verify` 要重建一次基準庫 ⇒ **變慢**。
 本線接受這個代價;若日後慢到不可接受,正確的解法是**快取 template 庫**,不是回頭做 manifest。
 
+🔴🔴 **2026-08-07 S2b-4b 落地 + 實測記錄(把「斷裂態」從論證變成觀察)**
+- **斷裂態是真的,而且當時正在發生**:`a1-verify` 的 provision 會重放**全部** migration(含 B2-S2b),
+  但它接著 `drop_a1` 把摘要表整張刪掉、只重套 A1 ⇒ 跑完時庫裡是
+  **6 支 `pcm_a4a` 函式 + `shipments_summary_recompute_ac` 都在,而摘要表沒有 `shipped_quantity`**。
+  實跑證據(port 54361):`information_schema.columns` 只回
+  `order_item_id,quantity,ordered_quantity,instock_quantity,cancelled_quantity`,而該 trigger 存在。
+  🔴 **而 `a1-verify` 照樣印 `PASS=61 / FAIL=0`** —— 它自己不走 A4a/S2b 那條路,看不到自己留下的爛攤子。
+- **落地內容**:新增 `10/10 teardown` 段 —— 先**量**斷裂態(兩個分支都印,不靜默跳過)、再停 cluster、
+  刪 workdir,並斷言「埠真的釋放、workdir 真的不見」。逃生口 `A1V_KEEP=1` 會跳過並印警語。
+  落地後實跑:**`PASS=63 / FAIL=0`**,埠 54361 釋放、workdir 已刪(兩項另在 shell 側複驗)。
+- 🔴 **`export PORT` 是實測踩出來的,不是預防性**:provision 委派給 `scripts/d1t2-rehearsal.sh`,
+  而**它有自己的 `PORT="${PORT:-54329}"` 預設**。以前兩支預設同為 54329 靠巧合對上;
+  改成 54361 之後不 export 就變成「cluster 起在 54329、本支去連 54361」⇒ 第一次實跑當場紅。
+
 ### 3.6 port 54329 撞埠(**v2-R2 定案埠值**)
 
-實查:`scripts/a1-verify.sh:35` 是 `PORT="${PORT:-54329}"`、`scripts/a4a-verify.sh:17` 是
-`postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres` —— **兩支預設同埠**。
+🔴 **以下這段是 2026-08-06 開工當時的實查,已於 2026-08-07 S2b-4b 修掉;保留僅為追溯,行號亦已過期**:
+> 實查:`scripts/a1-verify.sh:35` 是 `PORT="${PORT:-54329}"`、`scripts/a4a-verify.sh:17` 是
+> `postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres` —— **兩支預設同埠**。
 🔴 codex R2 抓:v2 只寫「兩支分埠**或** teardown,擇一即可」—— **teardown 不解決撞埠**
 (兩支併行起跑時,先起的那支還沒 teardown,後起的照樣撞)⇒ **兩件都要做,不是二選一**。
 
@@ -593,6 +608,14 @@ codex 關卡1 判 must-fix:v1 同時留下兩套互斥方案 = 把技術決定�
 | `scripts/a4a-verify.sh` | **54363** |
 | `scripts/b2s2b-verify.sh`(本線新建) | **無預設,硬性要求顯式帶 `PORT`**(比照小線;v2-R3 修正:原本同時寫「預設 54365」與「硬性顯式帶」= 互斥。建議值 54365 寫在用法註解裡,**不是預設值**) |
 兩支都保留 `PORT=` 環境變數覆寫;`b2s2b-verify.sh` 比照小線**硬性要求顯式帶 `PORT`**。
+
+🔴🔴 **2026-08-07 S2b-4b 已落地,並且做成守門而不是註解**:`b2s2b-verify.sh` 新增 `PORT-DEFAULTS` 格,
+直接讀那兩支的**預設值字面**,斷言 ①各自等於本表的值 ②兩者不同 ③兩者都在本檔的埠黑名單裡。
+理由:光改數字再寫一行「已分埠」,下一個人複製貼上照樣撞回去。
+🔴 **抽取器必須先剔掉註解行** —— 兩支的**註解裡都寫著舊值 54329**(解釋歷史),第一次實跑就抽到註解裡那個數字、
+報了一個假的不符。與 `SELF-REPORT-BACKTICK` 踩過的同一件事:**掃原始碼的守門要先定義「什麼算程式碼」**。
+🔴 `a4a-verify.sh` **自己不 provision**(用法是先手動跑 `d1t2-rehearsal.sh provision`)⇒ 它靠**用法那一行**
+帶 `PORT=54363`,不是靠 export;該行已同批更新並實跑驗過(`PASS=66 FAIL=0 SKIP=0`,帶與不帶 `PORT=` 各一次)。
 
 ### 3.6a 🔴 **已作廢(v2-R3)** —— 下面這段是 v1 原文,**擇一即可的結論已被 §3.6 推翻(兩件都要做)**,保留僅為追溯
 
@@ -640,7 +663,7 @@ codex 關卡1 判 must-fix:v1 同時留下兩套互斥方案 = 把技術決定�
 |---|---|
 | 23 | `a4a-verify` 突變靶 **N8** 錨同步 + 驗「突變真的翻面」 |
 | 23b | 收尾零殘留閘擴成**六函式 / 五 trigger** / 四軸 oracle / 候選全集(數字理由同項 21b)。🔴 **本項已拆片(見 §4.99 施工裁決)**:`S2b-4a` 只交付「收尾閘補 trigger 面」(四支,今天就在);六函式/五 trigger 的**第 6/第 5 支**歸 `S2b-1`(它建的物件)、四軸 oracle 與候選全集歸 `S2b-3a`(與項 21 同一處文字)。**單讀本列會高估 4a 的範圍** |
-| 24 | `a1-verify` 依 **§3.5a 拍板(專屬 port + 跑完即 teardown)** 處置 + 活體斷言。🔴 **v2-R2 修正**:v1/v2 這裡原寫「依終態分流」,那是**已被淘汰的 manifest 方案**的一部分(codex R2:被淘汰方案仍是驗收契約)。teardown 之後**沒有終態可分流** —— 每次都是從零 provision 的已知狀態,活體斷言直接驗四欄新值 |
+| 24 | `a1-verify` 依 **§3.5a 拍板(專屬 port + 跑完即 teardown)** 處置 + 活體斷言。🔴 **v2-R2 修正**:v1/v2 這裡原寫「依終態分流」,那是**已被淘汰的 manifest 方案**的一部分(codex R2:被淘汰方案仍是驗收契約)。teardown 之後**沒有終態可分流** —— 每次都是從零 provision 的已知狀態,活體斷言直接驗四欄新值。<br>🔴 **2026-08-07 實測落地**:專屬埠 54361 + `10/10 teardown` 段已加,實跑 `PASS=63 / FAIL=0`、埠釋放、workdir 已刪。**活體斷言不需要新增** —— `scripts/a1-behavior-probe.sql` 的每一筆 upsert 本來就逐欄寫死 `(order_item_id, quantity, ordered_quantity, instock_quantity, cancelled_quantity)` **四個值欄**、全檔零 `shipped` 字樣、零終態分支(實查 16 處全同形)⇒ 它已經是「直接驗四欄新值」的形狀,本片只需**證明並記錄**這件事,不得為了交差再疊一層 |
 | 25a-c | 三支 S1 harness 新格(**v2-R2 把「逐支明列」真的列出來**;codex:上輪只落了要求字面)。**25a** `scripts/b2s1a1-verify.sh`(`shipments`):新 cell = 「`AFTER UPDATE OF shipped_at` 那支重算 trigger 存在且結構逐字」;mutant = 改 `tgtype` 成 BEFORE;預期計數 = 現值 +1 格 +1 靶。**25b** `scripts/b2s1a2-verify.sh`(guards):新 cell = 「X1/X3 仍在且本線未放寬它們」(§0.3 前提的回歸點);mutant = 拿掉 X3;+1 格 +1 靶。**25c** `scripts/b2s1b-verify.sh`(`shipment_items`):新 cell = 「本表**沒有**重算 trigger」(Q1=A 的負向釘死);mutant = 加一支;+1 格 +1 靶。🔴 三支的**具名 key 集合**都要同批更新(W1),不是只加計數。✅ **三個檔名已實查存在**(`ls scripts/b2s1*`,2026-08-06):`b2s1a1-verify.sh` / `b2s1a2-verify.sh` / `b2s1b-verify.sh`(另有 `b2s1-concurrency-probe.sh`,非 harness、不在本項) |
 
 ---
