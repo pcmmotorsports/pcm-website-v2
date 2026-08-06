@@ -70,12 +70,23 @@ describe('VehicleSelect', () => {
   it('A 表字面:aria=選擇廠牌/車型/年份、placeholder=選擇或輸入 X', () => {
     render(<Harness />);
     expect(combo('選擇廠牌').placeholder).toBe('選擇或輸入廠牌');
-    // A5(2026-08-06):車型欄改成跨層可搜尋後 placeholder **刻意不動**(A 表逐字;理由見元件 :264)。
-    // ⇒ 本條維持原字面、零改動,順便擋住「順手把 /products 的例字搬進 finder」。
-    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型');
+    // Sean 2026-08-06 拍板 B:車型欄改成與 CascadeFilterTop 一致 —— 未選廠牌(crossLayer=true,
+    // 本測試在斷言前未做任何互動)時附例字。本條釘的是**新**字面,擋的是「有人改回舊字面」。
+    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型，例:R6');
     expect(combo('選擇年份').placeholder).toBe('選擇或輸入年份');
     // 「品牌」保留給零件品牌,選車三欄不得再出現
     expect(screen.queryByRole('combobox', { name: '選擇品牌' })).toBeNull();
+  });
+
+  // MF6(R1):CascadeFilterTop 的 crossLayer=false 分支有測試釘住(CascadeFilterTop.test.tsx:207),
+  // 本檔原本沒有對應的 —— VehicleSelect.tsx:276 三元式的 false 分支改成任意字串仍全綠,
+  // 淨損一格覆蓋(原本釘該字面的那條被改去釘新字面時一併移走了)。
+  it('已選廠牌後(crossLayer=false),車型欄 placeholder 落回無例字版', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'yamaha' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型');
   });
 
   it('打字 prefix 過濾+點選=選定;下層解鎖', () => {

@@ -134,7 +134,11 @@
   height: 100%;
   position: relative;
   /* Sean 2026-07-24 override design(原 cover):商品照多為非正方形合成圖,cover 會裁掉上下 →
-     改 contain 完整顯示,留白底 letterbox 用 --c-surface-2(對齊目錄卡 .pcard-img-wrap 底色)。 */
+     改 contain 完整顯示,留白底 letterbox 用 --c-surface-2。
+     🔴 2026-08-06 現況更正(R1 抓到,原註解已成假敘述):目錄卡 `.pcard-img-wrap` 的 CSS 宣告
+     已改 `#fff`(拍板 A),但那顆被 `ProductCard.tsx` 的 `.pcard-gallery` inline background 蓋住、
+     實際可見底色仍是 --c-surface-2(2026-07-24 拍板 Q1=A)⇒ 兩邊**目前仍然一致**。若 Sean
+     裁定白底要真正落地(需改 ProductCard.tsx),這裡要一起重估、不能只改一邊。 */
   background: var(--c-surface-2);
 }
 .pd-hero-slide img {

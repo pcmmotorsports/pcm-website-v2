@@ -366,3 +366,40 @@ describe('商品卡價格顏色 · 必須贏過 pricing.css 的通用預設', ()
     ).toMatch(/\.pcard\s+\.price-wrap\s+\.price-main\s*\{[^}]*color:\s*var\(--c-red-dark\)/);
   });
 });
+
+// ══ 商品卡圖框 · 白底加框(2026-08-06,Sean 拍板 A)══
+//
+// 🔴 OD 三支稿(brand-page.html / direction-b-layout-01-graphite-ember.html / pcm-account.css)
+//    逐字一致 `background:#fff;border:1px solid var(--c-border)`,只有 products-list-page.html
+//    一支落單畫灰底無框 —— 與價格色那次同型、同一支稿再度落單,稿自身矛盾已記入 OD 回饋包。
+//    影響五個面:首頁最新商品橫捲(HomeSelect)/ 商品列表(ProductsPage)/ 品牌頁熱門商品
+//    (BrandPageProducts)/ 會員中心為你推薦(OverviewTab)/ PDP 相關商品(ProductRelated,由
+//    ProductPage.tsx:206 掛載;R1 抓到前一版漏算此面)——皆共用 .pcard-img-wrap class。
+// 🔴🔴 這條守門只驗「CSS 宣告存在」,不驗「畫面看得到」:`ProductCard.tsx` 的 `.pcard-gallery`
+//    目前蓋住這個宣告、實際可見底色仍是 --c-surface-2(Sean 2026-07-24 拍板 Q1=A)。詳見
+//    `product-card.css` `.pcard-img-wrap` 上方 🔴🔴 死宣告申報,裁定待 Sean。
+describe('商品卡圖框 · 白底加框(首頁橫捲 / 商品列表 / 品牌頁 / 會員中心 / PDP 相關商品共用)', () => {
+  it('🔴 前提(非獨立防線):.pcard-img-wrap 區塊裡有 background 宣告', () => {
+    // R1 nit:這條被下面「background 是 #fff」那條嚴格蘊含(後者成立 ⇒ 本條必成立)、零額外
+    // 判別力,只在「background 宣告整個消失」時給出更精確的失敗訊息,不是一道獨立防線。
+    const body = block(CARD, 'product-card.css', '.pcard-img-wrap {');
+    expect(body, '.pcard-img-wrap 沒有 background 宣告 ⇒ 守門對象不存在').toMatch(/background:/);
+  });
+
+  it('🔴 background 宣告是 #fff、不是舊的 var(--c-surface-2)(守的是 CSS 宣告、非畫面可見底色——見上方說明)', () => {
+    const body = block(CARD, 'product-card.css', '.pcard-img-wrap {');
+    expect(body, '.pcard-img-wrap 的 background 不是 #fff ⇒ 改回舊灰底也全綠').toMatch(
+      /background:\s*#fff/,
+    );
+    expect(body, '.pcard-img-wrap 仍殘留舊的 var(--c-surface-2) ⇒ 沒真的改掉').not.toMatch(
+      /var\(--c-surface-2\)/,
+    );
+  });
+
+  it('🔴 有 border: 1px solid var(--c-border)', () => {
+    const body = block(CARD, 'product-card.css', '.pcard-img-wrap {');
+    expect(body, '.pcard-img-wrap 沒有 border ⇒ 改回無框也全綠').toMatch(
+      /border:\s*1px solid var\(--c-border\)/,
+    );
+  });
+});
