@@ -346,13 +346,24 @@
   color: var(--ed-c-ink-mute);
   cursor: not-allowed;
 }
+/* 🔴 D-135 插單(Sean 實測抓到):這顆 CTA **整段沒跟稿** —— 站上是「灰底 mute、選到廠牌才變墨黑、
+   hover 純黑」,而 OD `:190-193` 逐字是**熔橘常駐 + 深橘 hover**:
+     `.ed-finder-go{…background:var(--c-red);color:#fff…}` / `:hover{background:var(--c-ember-ink)}`
+   本片照字面搬色(`--c-red` → 本檔同值的 `--ed-c-action`);**啟用邏輯(何時 ready)不動**,那屬車型片。
+   ⚠️ **OD 沒有停用態**(它的 dock 用原生 select,GO 永遠可按)⇒ 照字面搬會讓停用中的按鈕
+      長得和可按的一模一樣 = H6 那族「看起來能按、按了沒反應」的同型。
+      故**補一條 `:disabled`**(沿用站上原本那組灰),並把 hover 收進 `:not(:disabled)`。
+      這是 repo 先行、設計稿還沒有的狀態,回寫債併 OD 回饋包(`D-133-A`)。
+   ⚠️ 幾何差一階:OD `min-height:62px`、本檔 64px —— 64 是站上選車列三格的既有高度,
+      改它會讓 GO 比隔壁格矮兩格線,故不動(申報)。 */
 .ed-finder-go {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 0 32px;
-  background: var(--ed-c-paper-2);
-  color: var(--ed-c-ink-mute);
+  background: var(--ed-c-action);
+  color: #fff;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -360,13 +371,15 @@
   min-height: 64px;
   white-space: nowrap;
 }
-.ed-finder-go.is-ready {
-  background: var(--ed-c-ink);
-  color: #fff;
+.ed-finder-go:hover:not(:disabled) { background: var(--ed-c-action-hover); }
+/* 停用態(OD 無;沿用站上原本那組灰):選到廠牌前按不下去,顏色要說實話。 */
+.ed-finder-go:disabled {
+  background: var(--ed-c-paper-2);
+  color: var(--ed-c-ink-mute);
+  cursor: not-allowed;
 }
-.ed-finder-go.is-ready:hover { background: #000; }
 .ed-finder-go-arrow { transition: transform 0.25s; }
-.ed-finder-go.is-ready:hover .ed-finder-go-arrow { transform: translateX(3px); }
+.ed-finder-go:hover:not(:disabled) .ed-finder-go-arrow { transform: translateX(3px); }
 
 @media (max-width: 900px) {
   .ed-finder-bar { grid-template-columns: 1fr 1fr; }
