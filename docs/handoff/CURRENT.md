@@ -1,5 +1,19 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🪟 **2026-08-07 02:10 第六輪主視窗壓縮 checkpoint(壓縮後/新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md`)。**
+>
+> **現況**:dev=`599496cb` 後續已推(以 `git log` 當場取為準)、樹乾淨、全套 **373 檔 5420 綠+1 todo**(基準當場實跑為準)。白天+今夜連環收割全數入 dev:E 線=A9w4c 後半/讀取鏈退場/A9h-1/A9h-M preserve(migration 未 apply)/channel 閘/A11c 手機卡片/A11b 兩軸膠囊/**A9v(九碼退場線全鏈收束)**;D 線=清尾片/車型解鎖/N°04+N°05 版面壓縮/token 升 :root(追認 A)/價格真因/白底片/手機選單(Sean 抓漏);B 線=S2b 進度 **5.7/9** 押 `a4a-chain` 17 顆不併(4a/1/2a/3a/3b 全結+2b 三分之二)。
+>
+> **三窗進行中**:**B**=2b 之二 項19 barrier(§8.1 唯一預授權 inconclusive,附軌跡進 STOP 裁)→ 之三 項29 → 之四兩靶 → 4b/4c/5;**Sean 口頭「自己繼續不要停」=B 連跑模式,STOP=純報告**。**D**=會員中心批(格狀頁籤照 account-page.html 頁內 style 定案層/新增自動捲+focus/訂單詳情偵察/重機 icon)→ 推薦區橫捲統一(N°02 同款 rail,覆蓋 OD 格狀與 8 筆拍板→全顯 10)→ finder 窄幅修(488 破版)→ 排版六值 → 焦點查修(+preventDefault+裸車型名 blur 兩面)→ H7 → manifest+OD 回饋包。**E**=A9b2-M(產生欄 supplier_order_no_upper+索引,C 案裁定)→ A9b2-A(flag 照 A10c1 前例預設 off)→ A10c2。D/E=**STOP 即等待模式**(每停寫 STOP+掛哨+等 1xx 回信)。
+>
+> **apply 佇列(Sean 手動停點,各自成批)**:①B2 S2b 批(S2b 全齊才 merge+同批 apply,前置閘 `b2s2a-verify.sh gate`+backfill 非空未觀察+本機 PG17 非 Supabase 兩條)②E 線批四支=`20260806200000` preserve+channel 閘/`20260807120000` A9v/A9b2-M(待寫);preflight=pg_proc 實查+PostgREST 具名參數 smoke+正式站 relacl/attacl 唯讀量測+codex 補背書(各片 §8/STOP 列的待補面)。
+>
+> **Sean 肉眼驗清單**:手機選單實點(首輪自驗曾假)/後台訂單手機卡片+膠囊配色/商品卡白底五面/會員中心推薦區/車型欄真資料選車。**零拍板欠帳**(今夜 20+ 板全落 memory:site-redesign-content-pages/a5a-procurement/a11a-list/b2-shipments 各檔)。
+>
+> **今夜協定(全現行,收線立法進 playbook)**:STOP 即等待(B 除外=Sean 口頭連跑)/寫 STOP 前最後一動全量掃信箱/回報信+commit+送信+掛哨同一批、hash commit 後回填、送信前不得開下一片/數字紀律=基準 ff 後實跑落檔、Δ=diff 實數/subagent 授權(D、E 全片型可派 sonnet 主對話親核;B 限機械批次)/跨檔引用一律不引行號改 grep 字面/主視窗每 turn 收尾前全量掃信箱。**哨兵 v2 已修**:rearm=pkill 舊哨+基準取最新已讀信 mtime(吞信 race 根治);樣板在本 session scratchpad `sentinel/sentinel-v2.sh`,新視窗照抄。
+>
+> **別的**:`pcm-official-site`(獨立資料夾 `/Users/sean_1/pcm-official-site/`)已部署 coming-soon 頁上 **pcmmotorsports.com**(站內連結指 shop、LINE/IG/FB 真連結,Vercel CLI 已登入);3111=dev production 預覽(收割即重 build 重啟)、3112=D 工作樹 dev server;商品附件搬遷線已立案(D 線完工後接續,memory);codex 已復役(gpt-5.5,鐵12 關卡2 正牌)。收線待辦=協定立法+B 窗「停/復成對不變式」「plan 改版就地標作廢」等立法候選一併評估。
+
 > 🪟 **2026-08-06 15:40 第六輪主視窗換窗 checkpoint(新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md` 含今日新增:STOP 即掛哨/防撞號/死哨兜底/施工窗小哨樣板尾註 B)。**
 >
 > **現況(15:57 終版)**:dev=`1db1577` 已推、樹乾淨、全套 **374 檔 5351 綠+1 todo**。封板後追加:D 取數收斂(FEATURED_LIMIT=10 兩頁共用+cache key v3)+搜尋鈕熔橘已收割;首頁深對照清單入庫 `docs/reviews/2026-08-06-home-od-deep-diff.md`(D-136 清尾片=N°04 三 icon/頁尾重複句/Fig.01/focus 框);D 佇列=清尾片→車型片 plan(提前)→H7→manifest+OD 回饋包。**待 Sean:會員中心 4+4+2 版面題(D-248 §②,推薦 B 顯示 8 筆)**。白天段連環收割全數落 dev:E 線=#332 全案+A11a-1/2/4/5(列表 11 欄)+A9w4a+A9c;D 線=批5+首頁批 H1-H6+遮蓋修(hero 換裝/磚牆/分類 chip/橫捲全上 3111);B 線=S2a 小線 4 顆(`665934e`/`931ef99`/`26e4963`/`cdf7e89`)🔴 **押在 `a4a-chain` 未併未 apply(Q3=C:S2b 大線全齊才 merge+同批 apply;apply=Sean 手動停點,前置閘=`b2s2a-verify.sh gate`,紅=等 Sean 不設時限)**。
