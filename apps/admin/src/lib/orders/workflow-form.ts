@@ -87,7 +87,8 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
   // workflowStatus、adapter 亦不映射 → admin server 無任何路徑把該 key 送進舊 RPC。
   // 🔴 A9w4a 拆了 item 層 parser、**A9w4c 後半又拆了 port/adapter 方法** ⇒ **admin 應用層與 adapter
   // 都已無任何 workflow_status 寫入面**。⚠️ 但**不是**「九碼寫不進去」:DB 端
-  // `admin_update_order_item_workflow` RPC 與其 EXECUTE 權仍在,撤權歸 **A9v**;orders.workflow_status=停寫欄。
+  // `admin_update_order_item_workflow` RPC 仍在(**REVOKE 非 DROP**);其 EXECUTE 權由
+  // **A9v `20260807120000`** 撤除、**apply 後 service_role 叫不動**;orders.workflow_status=停寫欄。
 
   if (form.has(SHIPPING_METHOD_FIELD)) {
     const raw = (asString(form.get(SHIPPING_METHOD_FIELD)) ?? '').trim();

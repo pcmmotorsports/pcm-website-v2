@@ -490,7 +490,8 @@ export class SupabaseOrderAdapter implements IOrderRepository {
   // 🔴 **`updateAdminOrderItemWorkflow` 實作已於 A9w4c 後半(2026-08-06)具名移除**(port 簽章同批拆)。
   //    九碼 writer 鏈退場的最後一段應用層契約:A9w4a 拆了 server action、A11a 列表重建完成 ⇒ 零 consumer。
   //    ⚠️ **正確讀法 = 「應用層與 adapter 都沒有這個寫入介面」,不是「九碼寫不進去」** ——
-  //    DB 端 `admin_update_order_item_workflow` RPC 與其 EXECUTE 權仍在,撤權歸 **A9v**。
+  //    DB 端 `admin_update_order_item_workflow` RPC 仍在(**REVOKE 非 DROP**);其 EXECUTE 權
+  //    由 **A9v `20260807120000`** 撤除、apply 後 service_role 叫不動。
 
   // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──
   // order_items 無 product_id → domain OrderItem.productId 無法忠實重建(backlog #217);

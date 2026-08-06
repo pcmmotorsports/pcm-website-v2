@@ -858,7 +858,8 @@ export type AdminOrderDetail = {
 // - 前半:`OrderStatusOptionUpdate`(唯二引用=port/adapter 的 `updateOrderStatusOption` 簽章)。
 // - 後半收尾:`OrderStatusOption`(讀模型)—— A11a-1 列表重建後零引用,`order_status_options`
 //   讀取鏈(port / adapter / admin getter / 其測試)同片整條退場(A11a plan §3.1 裁定)。
-// 🔴 DB 端 `order_status_options` 表、資料與 service_role 讀寫權**都還在**,撤權屬 A9v
+// 🔴 DB 端 `order_status_options` 表與資料都還在;service_role 的**寫**權由
+// A9v `20260807120000` 撤除(INSERT + 五個欄級 UPDATE;**SELECT 保留**),apply 後生效
 //    ⇒ 這裡是「應用層沒有這張表的型別與讀取介面」,不等於「資料庫沒有這張表」。
 
 /**

@@ -23,7 +23,8 @@ export { SupabaseVehicleAdapter } from './supabase/SupabaseVehicleAdapter';
 // 鏡像 Address/Customer/Vehicle(非 /server 受控小門〔那是 Wallet service_role 用〕)。
 export { SupabaseOrderAdapter } from './supabase/SupabaseOrderAdapter';
 // M-4b E10 A9w4c(後半收尾):`SupabaseOrderStatusOptionsAdapter` 已隨 port 與讀取鏈整支移除
-// (A11a-1 後零 production 呼叫端)。撤 DB 端讀寫權屬 A9v。
+// (A11a-1 後零 production 呼叫端)。DB 端 service_role 的**寫**權由 A9v `20260807120000`
+// 撤除(SELECT 保留),apply 後生效。
 // M-1-14d-2:SupabaseWalletAdapter 因 addEntry 需 service_role writeClient(金流敏感、server-only
 // 邊界)、不在 root public API export、改從 @pcm/adapters/server export(見 server.ts)。
 export { createSupabaseAnonClient } from './supabase/client';
