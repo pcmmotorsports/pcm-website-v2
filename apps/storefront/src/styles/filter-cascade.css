@@ -254,6 +254,18 @@
 }
 .vsc-option.is-hi { background: var(--c-surface-2); } /* hover 經 onMouseEnter→hi 同源、無雙高亮 */
 .vsc-option[aria-selected='true'] { font-weight: 600; }
+/* A5(2026-08-06,R1 nit):零命中提示的**基礎**樣式。原本全站只有 `.mvs-field .vsc-empty`
+   (products-mobile.css:376)有宣告 —— ADR-0007 當時只有手機選車面板傳 emptyHint。
+   本片讓 `VehicleSelect` 在跨層態也傳,提示於是新出現在首頁 finder / PDP / 購物車三處,
+   吃不到任何規則 ⇒ 真瀏覽器實測是 **16px 近黑字**(瀏覽器預設),看起來像一個候選項而非提示。
+   字級與色票對齊手機面板那顆(13px / --c-text-3);padding 對齊 `.vsc-option`、不用手機的
+   15px 7px(那是全螢幕面板的密度)。`.mvs-field .vsc-empty` 權重 0,2,0 > 本條 0,1,0
+   ⇒ 手機面板不受影響(非同權重、與載入順序無關)。 */
+.vsc-empty {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--c-text-3);
+}
 
 /* 急件1(Sean 手機實測右側露白):V-1b 換裝後兩層逃逸——①`.vsc-input{min-width:132px}`
    宣告在上方 ≤1023px 區塊之後、同 specificity 蓋掉 media 內 `.cft-select{min-width:0}`;

@@ -239,10 +239,9 @@ export function ProductFitmentCheck({
               motoBrands={motoBrands}
               vehicle={sel}
               onPickBrand={(name) => setSel({ brand: name })}
-              onPickModel={(name) => {
-                if (!sel) return;
-                setSel({ brand: sel.brand, model: name });
-                commit({ brandName: sel.brand, modelName: name }); // 選到車型即比對(年份可後補)
+              onPickModel={(p) => {
+                setSel({ brand: p.brand, model: p.model });
+                commit({ brandName: p.brand, modelName: p.model }); // 選到車型即比對(年份可後補)
               }}
               onPickYear={(year) => {
                 if (!sel?.model) return;

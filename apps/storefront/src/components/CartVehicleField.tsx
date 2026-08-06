@@ -144,11 +144,10 @@ export function CartVehicleField({
               motoBrands={motoBrands}
               vehicle={sel}
               onPickBrand={(name) => setSel({ brand: name })}
-              onPickModel={(name) => {
+              onPickModel={(p) => {
                 // commit 移出 setSel updater=純函式(值班台 nit:updater 內呼 onChange 於 StrictMode 雙跑)
-                if (!sel) return;
-                setSel({ brand: sel.brand, model: name });
-                commitDict(sel.brand, name, undefined, 'picker'); // 選到車型即帶入(年份可後補)
+                setSel({ brand: p.brand, model: p.model });
+                commitDict(p.brand, p.model, undefined, 'picker'); // 選到車型即帶入(年份可後補)
               }}
               onPickYear={(year) => {
                 if (!sel?.model) return;
