@@ -112,7 +112,10 @@ export function FeatureEditorial({ focus }: { focus: ResolvedBrandFocus }) {
           <div className="ed-feature-media">
             <img src={focus.photo} alt={focus.name} />
             <div className="ed-feature-caption">
-              <span className="ed-mono">Fig. 01</span>
+              {/* 🔴 D-136 清尾片(2026-08-06):原寫死英文「Fig. 01」= 舊 design-reference 的字面;
+                  OD `.b-feature-cap` 的 mono 小標逐字是中文「品牌焦點」(grep `b-feature-cap` 找)。
+                  它是**固定標籤**不是編號 —— 這一區每 3 天輪播,寫 01 會讓第 7 家品牌也叫 Fig. 01。 */}
+              <span className="ed-mono">品牌焦點</span>
               <span>{focus.caption}</span>
             </div>
           </div>

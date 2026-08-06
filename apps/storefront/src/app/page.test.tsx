@@ -314,6 +314,50 @@ describe('首頁 · 區塊順序(D5a)', () => {
     });
   });
 
+  // ── D-136 清尾片(2026-08-06):首頁頁尾標語 ──
+  //
+  // 🔴 為什麼守在**這一支**而不是 `HomeFooter.test.tsx`:這是**首頁**的不變量,不是那顆共用元件的。
+  //    `HomeFooter` 的預設標語仍是「改裝不只是升級配件…」(OD 另外 13 支頁稿全部逐字保留它);
+  //    只有首頁把它換成服務範圍句、走 `tagline` prop。守在元件層會逼著去改預設值 = 15 頁反向偏離 OD
+  //    (R1 MF1 擋下的第一版正是那樣)。
+  describe('D-136 頁尾標語(首頁專屬,走 tagline prop)', () => {
+    /** 從渲染結果取頁尾標語純文字(去標籤、去空白)。 */
+    function footerTagline(html: string): string {
+      const m = html.match(/<p class="ed-footer-tagline">([\s\S]*?)<\/p>/);
+      expect(m, '找不到 .ed-footer-tagline ⇒ 下面的比對會拿 undefined 去比、恆真').not.toBeNull();
+      return m![1]!.replace(/<[^>]*>/g, '').replace(/\s/g, '');
+    }
+
+    it('🔴 首頁頁尾 = OD 的服務範圍句(不是 HomeFooter 的預設句)', async () => {
+      const text = footerTagline(await homeHtml());
+      expect(text, 'tagline prop 沒接上 ⇒ 首頁掉回共用預設句').toBe('專業重機零件・改裝精品一站式服務');
+    });
+
+    // 🔴 這條才是 OD 註解真正在講的**不變量**:同一頁不把同一句講兩次。
+    //    只釘字面的話,下一個人把舊句抄回來、順手把上面那條一起改掉就全綠了。
+    //    🔴 主標**從同一份渲染結果現取、且輪播每一張都取**(不是只看第一張、也不是讀原始碼):
+    //       hero 換文案時這條自己跟著走;只比第一張的話,頁尾抄第 2/3/4 張的主標仍會全綠。
+    it('🔴 首頁頁尾標語不得重複 hero 任何一張主標(OD 註解明文的設計理由)', async () => {
+      const html = await homeHtml();
+      const titles = [...html.matchAll(/<h1 class="b-hero-title[^"]*">([\s\S]*?)<\/h1>/g)]
+        .map((m) => m[1]!.replace(/<[^>]*>/g, ''))
+        // 標點不參與比對:全形逗號在 hero 與頁尾之間本來就會不同,比標點只會製造假綠
+        .map((t) => t.replace(/[\s，,。、・]/g, ''))
+        .filter((t) => t.length >= 8);
+      expect(titles.length, 'hero 主標一句都沒解析到 ⇒ 下面那圈是空迴圈、恆真').toBeGreaterThan(0);
+
+      const tagline = footerTagline(html).replace(/[，,。、・]/g, '');
+      for (const t of titles) {
+        // 取前 8 字當指紋:整句相等太寬(改一個字就繞過),逐字全等太窄(斷行/標點不同就漏)
+        const fingerprint = t.slice(0, 8);
+        expect(
+          tagline.includes(fingerprint),
+          `頁尾標語含 hero 主標開頭「${fingerprint}」⇒ 同一頁講兩次,正是 OD 註解要避免的`,
+        ).toBe(false);
+      }
+    });
+  });
+
   it('🔴 兩塊深色不相鄰(README「配色的三條規則」的節奏前提)', async () => {
     const html = await homeHtml();
     const order = renderedOrder(html);

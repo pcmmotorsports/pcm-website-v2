@@ -177,6 +177,11 @@ describe('/brands/[slug] · 輸出的 HTML', () => {
       for (const segment of segments) {
         expect(html, `${brand.slug}:頁尾找不到 slogan 片段「${segment}」`).toContain(segment);
       }
+      // 🔴 這裡比的字面必須**跟著 `HomeFooter` 的預設值走**(它比的是「掉回預設值了沒」)。
+      //    D-136 清尾片一度把預設值改成首頁那句、這裡也跟著改 —— 兩邊都改完之後這條仍成立,
+      //    但預設值本身改錯了(R1 MF1);預設值還原後,這一行也一起還原。
+      //    ⚠️ 遺留風險:預設字面在這裡是**第二份手抄**,`HomeFooter` 改預設值時得記得同步改這裡,
+      //       否則這條會靜默恆綠(prop 真的沒接上、頁尾掉回預設,而這條比的是舊字串)。
       expect(html, `${brand.slug}:頁尾還是首頁那句預設標語 ⇒ tagline prop 沒接上`).not.toContain(
         '改裝不只是升級配件',
       );

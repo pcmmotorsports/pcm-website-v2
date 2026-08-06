@@ -10,6 +10,11 @@
 // - 連結:onJumpToOrders / onJumpToWallet 觸發(纯 client setState)
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+// 🔴 jsdom 環境下的 `URL` 是 jsdom 自己那顆(不是 node 的)⇒ `readFileSync(new URL(...))` 會噴
+//    「The URL must be of scheme file」。走 `fileURLToPath` + `join`(repo 既有 jsdom 測試同款)。
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 // next/link mock(避免帶 router context;OverviewTab 只用 Link href)
@@ -147,5 +152,57 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     // slug link
     const firstLink = items[0] as HTMLAnchorElement;
     expect(firstLink.getAttribute('href')).toBe('/products/p-1');
+  });
+
+  // ── 為你推薦顯示筆數(Sean 2026-08-06 拍板 B、主視窗 `D-138-A`)──
+  //
+  // 🔴 為什麼上面那條擋不住:它只餵 4 筆。取數 `FEATURED_LIMIT` 已經是 10,
+  //    4 筆的 fixture 讓任何「截幾筆」的規則都恆真 —— 把 `slice(0, 8)` 整條刪掉,
+  //    上面那條照樣全綠。要測「截斷」就必須餵**多於截斷值**的資料。
+  // 🔴 而且不寫死「8」當唯一答案:另一條釘的是「顯示數整除於每一個斷點的欄數」這個不變量
+  //    (`styles/account.css` 的 `.acc-rec` 有四條 `repeat(N,…)`:桌機 4、手機 2)。
+  //    有人把 grid 改成 3 欄,那條會轉紅告訴他 8 不再排得齊 —— 只斷言 `toBe(8)` 對那件事全盲。
+  describe('為你推薦顯示筆數(4 的倍數、版面排得齊)', () => {
+    function manyProducts(n: number): MockProduct[] {
+      return Array.from({ length: n }, (_, i) => ({
+        id: i + 1, slug: `p-${i + 1}`, brand: `BRAND${i + 1}`, name: `商品 ${i + 1}`, fits: '通用',
+        price: 1000 + i, origPrice: null, isNew: false, isSale: false, inStock: true,
+        category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null,
+      }));
+    }
+
+    it('🔴 給滿 10 筆(=取數上限)時只畫 8 筆 —— 4 欄 grid 不會留 4+4+2 的缺角', () => {
+      const { container } = renderTab({ featured: { products: manyProducts(10), error: false } });
+      const items = container.querySelectorAll('.acc-rec-item');
+      expect(items.length, '顯示層沒有截斷 ⇒ 最後一列缺兩格(Sean 拍板 B 要求切齊)').toBe(8);
+      // 截的是**尾巴**不是頭:第 1 筆還在、第 9 筆不在
+      expect(screen.getByText('商品 1')).toBeTruthy();
+      expect(screen.queryByText('商品 9'), '截錯段落(不是取前 8 筆)').toBeNull();
+    });
+
+    it('🔴 顯示筆數整除於 `.acc-rec` 每一個斷點的欄數(欄數從 CSS 現算、不寫死)', () => {
+      const cssPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'styles', 'account.css');
+      const css = readFileSync(cssPath, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+      const cols = [...css.matchAll(/\.acc-rec\s*\{[^}]*?grid-template-columns:\s*repeat\(\s*(\d+)/g)]
+        .map((m) => Number(m[1]));
+      // 🔴 R1 nit:`cols.length > 0` 只擋「一條都沒解析到」,擋不住**部分解析**
+      //    (`repeat(auto-fit,…)` 或某條被改寫成別的語法 ⇒ 那個斷點靜默漏掉、下面那圈少驗一個)。
+      //    ⇒ 與「`.acc-rec {` 到底出現幾次」對帳:數量對不上就轉紅,而不是安靜地少驗。
+      const declared = (css.match(/\.acc-rec\s*\{/g) ?? []).length;
+      expect(declared, '`.acc-rec` 規則一條都沒有 ⇒ 選擇器被改名了').toBeGreaterThan(1);
+      expect(cols.length, `解析到 ${cols.length} 條欄數、但 .acc-rec 規則有 ${declared} 條 ⇒ 有斷點沒被驗到`)
+        .toBe(declared);
+      const { container } = renderTab({ featured: { products: manyProducts(10), error: false } });
+      const shown = container.querySelectorAll('.acc-rec-item').length;
+      for (const n of cols) {
+        expect(shown % n, `顯示 ${shown} 筆 ÷ ${n} 欄有餘數 ⇒ 那個斷點的最後一列會缺格`).toBe(0);
+      }
+    });
+
+    it('🔴 不足 8 筆時全部畫出來(截斷不能反過來變成「一定要湊 8 筆」)', () => {
+      const { container } = renderTab({ featured: { products: manyProducts(2), error: false } });
+      expect(container.querySelectorAll('.acc-rec-item').length).toBe(2);
+    });
   });
 });

@@ -346,6 +346,20 @@
   color: var(--ed-c-ink-mute);
   cursor: not-allowed;
 }
+/* 🔴 D-136 清尾片(2026-08-06):OD 明文的 WCAG 1.4.11 修正整條漏搬 —— 逐字取 OD
+   `direction-b-layout-01-graphite-ember.html` 的 `.ed-finder-slot:focus-within`
+   (grep 該選擇器找;`brand-page.html` 那份同字面,並附註解逐字說明理由)。
+   稿上理由:上面 `select` 的 `outline:none` 也蓋掉了全域焦點框 ⇒ 焦點框要畫在**整格**上,
+   使用者才看得出「目前在選這一格」,而不是只框住一行文字。
+   ⚠️ 負 offset 是必要的、不是品味:`.ed-finder-bar` 三格是共邊框線的格線,
+      正 offset 會把框畫到隔壁格的線上。
+   ⚠️ 站上這一格現在掛的是 combobox(`.vsc-input--finder`,見本檔最後一段)、不是 OD 的原生
+      `<select>`;`:focus-within` 對兩者都成立(焦點落在格子裡的任何 input 都算),故字面可直接搬。
+   色 = `--ed-c-action-hover`(#c4470c),與 OD 的 `--c-ember-ink` 同值(見本檔檔頭三顆熔橘那段)。 */
+.ed-finder-slot:focus-within {
+  outline: 2px solid var(--ed-c-action-hover);
+  outline-offset: -2px;
+}
 /* 🔴 D-135 插單(Sean 實測抓到):這顆 CTA **整段沒跟稿** —— 站上是「灰底 mute、選到廠牌才變墨黑、
    hover 純黑」,而 OD `:190-193` 逐字是**熔橘常駐 + 深橘 hover**:
      `.ed-finder-go{…background:var(--c-red);color:#fff…}` / `:hover{background:var(--c-ember-ink)}`
@@ -962,6 +976,38 @@
   border-top: 1px solid rgba(255,255,255,0.15);
   border-bottom: 1px solid rgba(255,255,255,0.15);
   margin-bottom: 56px;
+}
+/* 🔴 D-136 清尾片(2026-08-06):三顆服務 icon 整組漏搬(`b-stat-icon` 原本全站零命中)。
+   值逐字取 OD `direction-b-layout-01-graphite-ember.html` 的 `.b-stat-icon` 與 `.b-stat-icon svg`
+   兩條(用 grep `b-stat-icon` 找,不引行號 —— 該稿行號會漂)。
+   ⚠️ 這裡只搬 icon,**不搬 OD 那段「服務砍三成」的版面**(padding / 字級 / `.b-statement-top`
+      標題與 CTA 同列 / `.b-statement-col-head` 編號與 h3 同行都還是站上舊值)——
+      母 plan `docs/specs/2026-08-03-storefront-home-brand-page-wire-plan.md:111` 把 N°04 的範圍
+      寫成「改位置 + 改字面」,版面壓縮不在裡面。已列進 STOP 給主視窗判,不在本片自行擴張。 */
+.b-stat-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.22);
+  color: rgba(255,255,255,0.9);
+  margin-bottom: 14px;
+}
+/* 🔴 描邊規格整條寫在這裡,理由同 `.b-cat-icon svg`(見本檔 N°03 段):本 repo **沒有** OD 那條
+   全域 `svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}`。
+   端點/轉角兩項少寫的話,徽章的緞帶尖角與扳手開口會退成方頭 miter —— 那是 N°03 R1 抓到過的同一個坑,
+   且「量了 fill 與線寬就宣稱搬完」正是量錯東西。
+   ⚠️ 線寬 1.75 = OD 對 `.pcm-search svg` / `.b-cat-icon svg` / `.b-stat-icon svg` **這三顆具名 icon**
+      的覆寫(全域是 1.6);~~「16px 以下」~~ 是本註解初稿自己外推的、OD 沒這句 —— 這兩顆實際是 18px 與 17px。 */
+.b-stat-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .ed-statement-col-num {
   color: rgba(255,255,255,0.4);
