@@ -5,7 +5,7 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**四片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**五片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
@@ -14,10 +14,15 @@
 #     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
 #       T8 位置集合被「刪一格+重複另一格」、T9 標記被刪)。
 #     3a 前段(四處四軸化 + 標記註解)= commit `ff366bf`,不在本檔。
-#   · **S2b-3b 第一段**(本輪)= plan §4 的 **項26 / 26b / 27**:`RB-STOPWRITE`(runbook 停寫在步驟①、
+#   · **S2b-3b 第一段**(commit `5ca71ba`)= plan §4 的 **項26 / 26b / 27**:`RB-STOPWRITE`(runbook 停寫在步驟①、
 #     回權在步驟⑦ 的文字面 + 三發突變 S1/S2/S3)、`B26b-enable-restores`(回權後真的重新跟動)、
 #     `B27-divergence-4th`(從 runbook 抽 SQL 實跑的第四軸驗收)。
-#     🔴 3b 的 **項21b / 22 / 28 / 31 尚未做**(下一段;21b 與 31 共用同一次 rehearsal)。
+#     🔴 3b 的 **項22 / 28 尚未做**(第三段)。
+#   · **S2b-3b 第二段**(本輪)= plan §4 的 **項21b + 項31**:runbook 依賴枚舉四支→**五支**、
+#     步驟④ 的 **DROP 序**補出貨側、Forward 重建清單加 **S2b** + 重放方式;
+#     `b2s2a-verify.sh` 凍結清單與 `rehearse()` 跳點同批更新;
+#     本檔新增 `REH-PRODUCTS` 格(**DROP 清單與 Forward 清單都從 runbook 抽**)
+#     + **兩發負測**:`TMUT-REH`(拿掉 Forward 的 S2b ⇒ 產物斷言紅)、`TMUT-REH2`(拿掉步驟④ 的出貨側 DROP ⇒ 拆除清單計數紅)。
 #
 # 用法:
 #   PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2s2bv   從零 provision post-S2b 基準庫,再跑全部
@@ -40,9 +45,10 @@
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
 # 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **突變覆蓋是 18 格中的 9 格,不是全部**。逐格清單也印在跑完的結語裡。
-#     **有靶的 9 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
-#     + **TRUTH-SYNC**(3a 的守門靶 **T1-T9**)+ **RB-STOPWRITE**(3b 的靶 **S1/S2/S3**)。
+#   ⓐ **突變覆蓋是 19 格中的 10 格,不是全部**。逐格清單也印在跑完的結語裡。
+#     **有靶的 10 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
+#     + **TRUTH-SYNC**(3a 的守門靶 **T1-T9**)+ **RB-STOPWRITE**(3b 的靶 **S1/S2/S3**)
+#     + **REH-PRODUCTS**(3b 第二段的靶 **TMUT-REH**:把 S2b 從 Forward 清單拿掉)。
 #     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
 #     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
 #     不是突變。B12 在靶②④ 下紅在本輪新加的「作廢後必須是 0」中途斷言(那是它自己的內容),
@@ -108,19 +114,21 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=18     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
-                   #   + 同步守門對照組 + 3b 的三格:RB-STOPWRITE 文字面 / 項26b 回權行為 / 項27 divergence 第四軸)
+EXPECT_CELL=19     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
+                   #   + 同步守門對照組 + 3b 第一段三格(RB-STOPWRITE / 項26b / 項27)+ 3b 第二段一格(REH-PRODUCTS))
 EXPECT_MUT=6       # 行為突變靶:MUT0 對照 + 靶①②③④⑤(環境 B;環境 A 結構靶不在本輪,見檔頭 ⓒ)
-EXPECT_TMUT=12     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
-                   #   S1/S2 拿掉 runbook 的停寫/回權(3b)
-EXPECT_TOTAL=42    # 18 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 12 文字層突變 + TMUT-COUNT + COPIES-DROPPED
+EXPECT_TMUT=14     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
+                   #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
+                   #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)
+EXPECT_TOTAL=45    # 19 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 14 文字層突變 + TMUT-COUNT + COPIES-DROPPED
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
 B18-x1-commit-rollback B20-helper-live ABLATION \
 MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
-RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th TMUT-COUNT COPIES-DROPPED"
+RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
+REH-PRODUCTS TMUT-REH TMUT-REH2 TMUT-COUNT COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -348,7 +356,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl' EXIT
+trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -1341,6 +1349,129 @@ else
   bad "項27:期望「前三軸 3/3/0/0 + 舊版 0 + 新版 1/$DIV_ITEM/0/2」,實得「$DIV_PRE + $DIV_OLD + $DIV_NEW」"
 fi
 
+log "6d/8 契約債④:Forward 重建清單的**產物** rehearsal(S2b-3b;plan 項31③④)"
+# 🔴 為什麼這一格非建不可(plan 項31 逐字):`scripts/b2s2a-verify.sh` 的項13 只量**摘要表的欄數與
+#    CHECK 數**,而 S2b **不加欄、不加 CHECK** ⇒ 它對 S2b 的產物**結構上全盲**;
+#    把 S2b 從 runbook 清單拿掉,那一格照樣綠。債④ 真正的守門只能建在這裡。
+# 🔴 重放前**必須先照 runbook 步驟④ 的 DROP 序拆掉五 trigger / 六函式**:
+#    A4a 有 5 個裸 `CREATE FUNCTION`(無 OR REPLACE)⇒ 在已 provision 的庫上直接重放必 `42723`。
+# 🔴 清單**從 runbook 檔內抽**(不是抄一份到這裡)—— 抄一份的話,runbook 漏掉 S2b 本格照樣綠。
+reh_products() {   # $1 = 要照哪一份 runbook → 印出「<helper 四軸?>/<trigger 在?>」或 <異常碼>
+  local rb="$1" db="b2s2b_reh" U migs ts p
+  fresh_db "$db"; U="$FRESH_URL"
+  # ① 照步驟④ 的 DROP 序拆除(出貨側先、helper 最後)+ 摘要表與複合鍵(A1 要重建它們)
+  # 🔴🔴 **DROP 清單從 runbook 步驟④ <u>抽出來</u>,不是手抄**(R1 must-fix 5):
+  #    手抄的話,把 `runbook` 步驟④ 的那兩行出貨側 DROP 刪掉,本格照樣綠 ⇒ **項21b 就沒有守門**,
+  #    只剩散文。抽出來之後,這一格同時守住 21b(拆除清單)與 31(重放清單)——
+  #    「兩項共用同一次 rehearsal」這句才成立。
+  RB2="$rb" OUT="$WORK/reh-drop.sql" python3 - <<'PY' || { printf 'RUNBOOK-DROP-PARSE-FAIL'; drop_db "$db"; return; }
+import io, os, re
+s = io.open(os.environ['RB2'], encoding='utf-8').read()
+i = s.index('## 步驟 ④')
+j = s.index('## 步驟 ⑤', i)
+blocks = re.findall(r'```sql\n(.*?)```', s[i:j], re.S)
+if len(blocks) != 1:
+    raise SystemExit('步驟④ 的 sql 區塊不是恰一個(%d)' % len(blocks))
+sql = blocks[0]
+n_tg = len(re.findall(r'(?m)^DROP TRIGGER ', sql))
+n_fn = len(re.findall(r'(?m)^DROP FUNCTION ', sql))
+if (n_tg, n_fn) != (5, 6):
+    raise SystemExit('步驟④ 列了 %d trigger / %d 函式,plan 項21b 要求 5 / 6' % (n_tg, n_fn))
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(
+    sql + '\nDROP TABLE public.order_item_quantity_summary;\n'
+          'ALTER TABLE public.order_items DROP CONSTRAINT order_items_id_quantity_key;\n')
+PY
+  psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$WORK/reh-drop.sql" > "$WORK/reh-pre.log" 2>&1
+  [ $? -eq 0 ] || { printf 'PRECLEAN-FAIL:%s' "$(tail -1 "$WORK/reh-pre.log")"; drop_db "$db"; return; }
+  # ② 照 runbook 的 Forward 那一行**逐支重放**(這一次不跳過任何一支)
+  migs="$(RB="$rb" python3 - <<'PY'
+import io, os, re
+s = io.open(os.environ['RB'], encoding='utf-8').read()
+m = [l for l in s.split('\n') if l.startswith('**Forward 重建**')]
+if len(m) != 1:
+    raise SystemExit('ERR:Forward 行不是恰一行(%d)' % len(m))
+if '~~' in m[0]:      # 與 b2s2a-verify.sh 的刪除線閘對齊(R1 nit 2:兩支判定不得不一致)
+    raise SystemExit('ERR:Forward 行含刪除線標記')
+print(' '.join(re.findall(r'`(\d{14})`', m[0])))
+PY
+)" || { printf 'RUNBOOK-PARSE-FAIL'; drop_db "$db"; return; }
+  [ -n "$migs" ] || { printf 'RUNBOOK-EMPTY-LIST'; drop_db "$db"; return; }
+  for ts in $migs; do
+    p="$(ls supabase/migrations/${ts}_*.sql 2>/dev/null | head -1)"
+    [ -n "$p" ] || { printf 'NO-SUCH-MIG:%s' "$ts"; drop_db "$db"; return; }
+    psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$p" > "$WORK/reh-$ts.log" 2>&1 \
+      || { printf 'REPLAY-FAIL:%s:%s' "$ts" "$(grep -m1 ERROR "$WORK/reh-$ts.log" | cut -c1-80)"; drop_db "$db"; return; }
+  done
+  # ③ 斷言 **S2b 的產物**(這兩樣才是本格量得到、而項13 量不到的)
+  printf '%s/%s' \
+    "$(q "$U" "SELECT (md5(pg_get_functiondef('${HELPER}'::regprocedure)) = '${MD5_HELPER_4AXIS}')::text")" \
+    "$(q "$U" "SELECT count(*) FROM pg_trigger WHERE tgname='${TG_SS}' AND NOT tgisinternal")"
+  drop_db "$db"
+}
+CELL=$((CELL+1))
+REH_CTL="$(reh_products "$RUNBOOK")"
+# 🔴 `(… = …)::text` 在 psql `-qtA` 下回的是 **`true` / `false`**,不是顯示層的 `t` / `f`
+#    (本輪第一跑實測:期望寫成 t/1 時實得 true/1)。
+if [ "$REH_CTL" = "true/1" ]; then
+  ok REH-PRODUCTS "🔴 債④ rehearsal(**DROP 清單與 Forward 清單都從 runbook 抽**,同時守 21b 與 31):拆除→重放四支之後,**helper 是四軸(md5)且 ${TG_SS} 在** —— 這兩樣是 b2s2a-verify 項13 結構上量不到的。🔴 **只演練「出貨表 0 列」那條路**:副本源自出貨表 0 列的基準庫,而 runbook 說災難重建的**主情境**是出貨線已上線、S2a 必走替代路徑 A ⇒ 本格**不等於**整條步驟⑥ 被演練過"
+else
+  bad "債④ rehearsal:期望「true/1」(helper 四軸 + trigger 在),實得「$REH_CTL」"
+fi
+
+# ── 負測:把 S2b 從 runbook 的 Forward 那一行拿掉 ⇒ 本格必紅 ─────────────────
+# 🔴 取代字串**不得含 14 位數字**(b2s2a 實錘:含數字會被解析成另一支 migration,
+#    拿到 NO-SUCH-MIG 而不是「少一支」)。
+TMUT=$((TMUT+1))
+REH_MUT="$WORK/runbook-no-s2b.md"
+IN="$RUNBOOK" OUT="$REH_MUT" python3 - <<'PY' || die "債④負測:突變產生失敗"
+import io, os
+s = io.open(os.environ['IN'], encoding='utf-8').read()
+src = '、**B2-S2b(`20260806180000`)**四支 migration 檔'
+if s.count(src) != 1:
+    raise SystemExit('錨命中 %d 次(必須恰 1 次)' % s.count(src))
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(s.replace(src, '三支 migration 檔'))
+PY
+cmp -s "$RUNBOOK" "$REH_MUT"; case "$?" in
+  1) : ;;
+  0) bad "債④負測:突變檔與原檔逐字相同 —— 沒改到東西" ;;
+  *) bad "債④負測:cmp 讀不到檔 —— 判紅" ;;
+esac
+REH_NEG="$(reh_products "$REH_MUT")"
+rm -f "$REH_MUT"
+if [ "$REH_NEG" = "false/0" ]; then
+  ok TMUT-REH "🔴 債④負測:把 S2b 從 runbook 的 Forward 行拿掉 ⇒ 重放後 **helper 停在三軸、trigger 不存在**(false/0)—— 正是「漏了它零告警」那個形狀,本格抓得到"
+else
+  bad "債④負測:期望「false/0」(helper 三軸 + trigger 不在),實得「$REH_NEG」—— 拿掉 S2b 竟然沒翻面,本格沒有判別力"
+fi
+
+# ── 負測②:把出貨側那兩行從 runbook 步驟④ 拿掉 ⇒ **項21b 的拆除清單**必須紅 ─────────
+# 🔴 這一發專打 R1 must-fix 5 的修法:上一版 DROP 清單是**手抄**的,刪掉 runbook 那兩行照樣綠
+#    ⇒ 項21b 等於只有散文。改成從 runbook 抽之後,這一發才殺得到。
+TMUT=$((TMUT+1))
+REH_MUT2="$WORK/runbook-no-shipdrop.md"
+IN="$RUNBOOK" OUT="$REH_MUT2" python3 - <<'PYX' || die "項21b 負測:突變產生失敗"
+import io, os
+s = io.open(os.environ['IN'], encoding='utf-8').read()
+src = ('DROP TRIGGER shipments_summary_recompute_ac ON public.shipments;\n'
+       'DROP FUNCTION public.pcm_a4a_shipments_summary_recompute();\n')
+if s.count(src) != 1:
+    raise SystemExit('錨命中 %d 次(必須恰 1 次)' % s.count(src))
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(s.replace(src, ''))
+PYX
+cmp -s "$RUNBOOK" "$REH_MUT2"; case "$?" in
+  1) : ;;
+  0) bad "項21b 負測:突變檔與原檔逐字相同 —— 沒改到東西" ;;
+  *) bad "項21b 負測:cmp 讀不到檔 —— 判紅" ;;
+esac
+REH_NEG2="$(reh_products "$REH_MUT2")"
+rm -f "$REH_MUT2"
+case "$REH_NEG2" in
+  RUNBOOK-DROP-PARSE-FAIL*)
+    ok TMUT-REH2 "🔴 項21b 負測:把出貨側那兩行從 runbook 步驟④ 拿掉 ⇒ 守門紅在**拆除清單只有 4 trigger / 5 函式**(項21b 要求 5/6)—— 證明 21b 的清單真的被守著,不是散文" ;;
+  *)
+    bad "項21b 負測:期望紅在 RUNBOOK-DROP-PARSE-FAIL,實得「$REH_NEG2」—— 拿掉那兩行竟然沒翻面,21b 的清單沒有守門" ;;
+esac
+
 # 🔴 TMUT 計數斷言必須排在**所有**文字層突變之後(S1/S2 在 6c 段)——
 #    上一版把它放在 6b 段尾,S1/S2 還沒跑就先數,當場紅在「只跑了 9 發」(本輪實測)。
 [ "$TMUT" -eq "$EXPECT_TMUT" ] && ok TMUT-COUNT "文字層突變靶跑了 $TMUT 發,與凍結值相符" \
@@ -1423,9 +1554,9 @@ fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
-echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **9 格**被至少一發突變紅過 ——"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **10 格**被至少一發突變紅過 ——"
 echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)"
-echo "   + **RB-STOPWRITE**(靶 S1/S2/S3:拿掉停寫、拿掉回權、把停寫從步驟①搬到⑦)。"
+echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH 拿掉 Forward 的 S2b、TMUT-REH2 拿掉步驟④ 的出貨側 DROP)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"

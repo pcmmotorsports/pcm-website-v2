@@ -51,8 +51,9 @@
 #    **不是**「路徑 A 被實跑演練過」。項13 演練的是整檔重放,那條在主情境根本走不到。
 #    ⇒ 「災難重建已被驗證」這句話**不成立**;成立的是「災難重建的說明不會無聲消失或過期」。
 # 不證明:正式站行為(本機 PG17 非 Supabase);
-#        🔴 rehearsal **跳過 A4a 的重放**(那需要先做 runbook 步驟④ 的 trigger/函式拆除,不在本片)——
-#        跳過的是重放動作,**清單裡有沒有 A4a 仍被斷言**;所以項13 證的是「清單列了哪些 +
+#        🔴 rehearsal **跳過 A4a <u>與 S2b</u> 的重放**(2026-08-06 B2-S2b-3b 補上 S2b:
+#        兩者都需要先做 runbook 步驟④ 的 trigger/函式拆除,不在本片;S2b 另外還會被自己的
+#        三軸指紋閘擋)——跳過的是重放動作,**清單裡有沒有它們仍被斷言**;所以項13 證的是「清單列了哪些 +
 #        列到且重放得動的那些長什麼樣」,不是整條步驟⑥ 都被演練過。
 # 🔴 **也不證明**(Fable R3 F4):migration §4 的三族斷言在本 harness **沒有外部對應格** ——
 #   4b 欄名集合、4e A1 七條定義逐字、4g 摘要表零 trigger。突變環境剝掉 §4 之後那三族零守門。
@@ -1065,7 +1066,7 @@ DROP TABLE public.order_item_quantity_summary;
 ALTER TABLE public.order_items DROP CONSTRAINT order_items_id_quantity_key;
 SQL
   [ $? -eq 0 ] || { REH_OUT="PRECLEAN-FAIL:$(tail -1 "$WORK/reh-preclean.log")"; drop_db "$db"; return; }
-  local migs A4A_SEEN=0; migs="$(runbook_migs "$rb")"
+  local migs A4A_SEEN=0 S2B_SEEN=0; migs="$(runbook_migs "$rb")"
   case "$migs" in ERR:*) REH_OUT="RUNBOOK-$migs"; drop_db "$db"; return ;; esac
   for ts in $migs; do
     # 🔴 A4a 刻意跳過:重放它要先做 runbook 步驟④ 的 trigger/函式拆除,不在本片範圍。
@@ -1073,12 +1074,19 @@ SQL
     # 🔴 A4a 的跳點與 runbook 清單對帳(Fable R3 nit):失配時要紅在「跳點過期」,
     #    不要讓它以 REPLAY-FAIL 的形狀冒出來指錯方向。
     if [ "$ts" = "20260803140000" ]; then A4A_SEEN=1; continue; fi
+    # 🔴 S2b 同樣刻意跳過(2026-08-06 B2-S2b-3b,plan 項31(i)):它的 §1 前置閘 pin **A4a helper 的
+    #    三軸指紋**,而 A4a 在上一行被跳過 ⇒ helper 根本不在,直接重放必 RAISE、紅在 REPLAY-FAIL
+    #    而指錯方向。跳的是「重放動作」,清單裡有沒有它由下面的 S2B_SEEN 顧。
+    #    🔴 本檔量的是**摘要表的欄數與 CHECK 數**,而 S2b 不加欄不加 CHECK ⇒ 它對本檔的觀察值
+    #    結構上全盲;S2b 產物的 rehearsal 斷言在 `scripts/b2s2b-verify.sh`(項31③)。
+    if [ "$ts" = "20260806180000" ]; then S2B_SEEN=1; continue; fi
     p="$(mig_path "$ts")"
     [ -n "$p" ] || { REH_OUT="NO-SUCH-MIG:$ts"; drop_db "$db"; return; }
     psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$p" > "$WORK/reh-$ts.log" 2>&1 \
       || { REH_OUT="REPLAY-FAIL:$ts:$(tail -1 "$WORK/reh-$ts.log")"; drop_db "$db"; return; }
   done
   [ "$A4A_SEEN" = "1" ] || { REH_OUT="A4A-SKIP-STALE(清單裡沒有 20260803140000,跳點該重估)"; drop_db "$db"; return; }
+  [ "$S2B_SEEN" = "1" ] || { REH_OUT="S2B-SKIP-STALE(清單裡沒有 20260806180000,跳點該重估)"; drop_db "$db"; return; }
   REH_OUT="$(q "$U" "SELECT count(*) FROM pg_attribute WHERE attrelid='${SUMMARY}'::regclass AND attnum>0 AND NOT attisdropped")/$(q "$U" "SELECT count(*) FROM pg_constraint WHERE conrelid='${SUMMARY}'::regclass AND contype='c'")"
   drop_db "$db"
 }
@@ -1088,10 +1096,13 @@ SQL
 rehearse "$RUNBOOK"
 ROLL=$((ROLL+1))
 REH_LIST="$(runbook_migs "$RUNBOOK" | tr '\n' ',' | sed 's/,$//')"
-if [ "$REH_OUT" = "6/10" ] && [ "$REH_LIST" = "20260730150000,20260803140000,20260806100000" ]; then
-  ok R13-rehearsal "項13 rehearsal:runbook Forward 清單 = [$REH_LIST],照它重放(A4a 跳過)後 = 6 欄 / 10 CHECK"
+# 🔴 凍結清單 2026-08-06 由 B2-S2b-3b 同批更新(plan 項31):runbook 的 Forward 那一行加了 S2b
+#    ⇒ 這個硬比字串**必須同批加**,否則本格會先紅(而它紅的是「清單變了」,不是「清單錯了」)。
+REH_LIST_FROZEN="20260730150000,20260803140000,20260806100000,20260806180000"
+if [ "$REH_OUT" = "6/10" ] && [ "$REH_LIST" = "$REH_LIST_FROZEN" ]; then
+  ok R13-rehearsal "項13 rehearsal:runbook Forward 清單 = [$REH_LIST],照它重放(A4a / S2b 跳過)後 = 6 欄 / 10 CHECK"
 else
-  bad "項13 rehearsal:觀察值 = $REH_OUT(期望 6/10)/ runbook 清單 = [$REH_LIST](期望 20260730150000,20260803140000,20260806100000)"
+  bad "項13 rehearsal:觀察值 = $REH_OUT(期望 6/10)/ runbook 清單 = [$REH_LIST](期望 $REH_LIST_FROZEN)"
 fi
 
 # 靶⑪:把 S2a 從 **runbook** 的 Forward 那一行拿掉(不是讓腳本少跑一支)⇒ 項13 必須轉紅。
@@ -1333,5 +1344,7 @@ echo "   項15 靠五條路徑互為對照,不是靠外部突變檔);"
 echo "   🔴 **災難日的替代路徑 A 只被「文件還在且數字對得上」釘住,從未被實跑演練**"
 echo "   (項13 演練的是整檔重放,而 runbook 自己說那條在出貨線已上線時必然 abort);"
 echo "   🔴 gate 的第五條路徑只測到 libpq 環境變數,**~/.pgpass 取密機制從未實跑**;"
-echo "   rehearsal **跳過 A4a 的重放**(那需要先做 runbook 步驟④ 的 trigger/函式拆除;清單裡有沒有它仍被斷言)。"
+echo "   rehearsal **跳過 A4a 與 S2b 的重放**(兩者都要先做 runbook 步驟④ 的拆除;清單裡有沒有它們仍被斷言)。"
+echo "   🔴 **本檔對 S2b 的產物結構上全盲**(只量摘要表欄數與 CHECK 數,而 S2b 不加欄不加 CHECK)——"
+echo "      那一面由 scripts/b2s2b-verify.sh 的 REH-PRODUCTS 格承擔(B2-S2b-3b 第二段)。"
 [ "$FAIL" -eq 0 ] || exit 1
