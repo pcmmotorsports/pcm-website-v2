@@ -389,6 +389,63 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(mediaBlock('(max-width: 560px)').replace(/\s+/g, ' '), '≤560 沒退成 1.8 格').toMatch(/flex:\s*0 0 calc\(\(100% - 14px\) \/ 1\.8\)/);
   });
 
+  // ── R-3:rail 在非首頁的 token 作用域 ────────────────────────────────
+  // 🔴 這一條守的是**一個會無聲失效的東西**:`.b-select*` / `.b-carousel*` 吃的 `--ed-*` token
+  //    只定義在 `.ed-page`(首頁專屬)。會員中心與品牌頁沒有那個作用域 ⇒ 少一顆 token,
+  //    對應那條宣告就在計算值階段整條作廢 —— **不會報錯、不會有東西紅,只是版面悄悄不對**。
+  //    ⇒ 清單**用推導的、不寫死**:實際掃出 rail 規則用到哪些 `--ed-*`,逐一要求 `.b-select-inset`
+  //    有宣告。哪天有人往 rail 加一條吃新 token 的規則,這條會逼他同步補進 inset。
+  it('🔴 .b-select-inset 補齊 rail 用到的每一顆 --ed-* token(非首頁沒有 .ed-page 作用域)', () => {
+    // 🔴 掃描範圍走**整份 CSS**(含 @media)而不是 `topLevelCss()` —— 審查抓到:
+    //    `topLevelCss()` 把 @media 剝掉,而 rail 在 @media 裡也有規則,漏掃就會有 token 沒被要求。
+    const railStart = CSS.indexOf('.b-select {');
+    const insetStart = CSS.indexOf('.b-select-inset {');
+    expect(railStart, '找不到 .b-select 規則 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(insetStart, '找不到 .b-select-inset ⇒ 非首頁的 rail 會整組無聲失效').toBeGreaterThan(railStart);
+    const railCss = CSS.slice(railStart, insetStart);
+    const used = [...new Set([...railCss.matchAll(/var\((--ed-[a-z-]+)/g)].map((m) => m[1]!))];
+    // 🔴 審查抓到 `> 3` 太鬆(實際 7,掉 3 顆仍綠)⇒ 改成與「rail 區塊裡出現的 var() 種類數」對帳,
+    //    手法沿用被本片刪掉的那條 `.acc-rec` 守門(解析數 vs 實際出現數,防「部分解析、靜默漏驗」)。
+    const rawVarCount = new Set(
+      [...railCss.matchAll(/var\(\s*(--ed-[a-z-]+)/g)].map((m) => m[1]!),
+    ).size;
+    expect(used.length, `掃到 ${used.length} 顆 token、原始比對得 ${rawVarCount} 顆 ⇒ 掃描漏了`).toBe(rawVarCount);
+    expect(used.length, 'rail 規則裡一顆 --ed-* 都沒掃到 ⇒ 掃描範圍抓錯了').toBeGreaterThan(0);
+    const insetBody = CSS.slice(insetStart, CSS.indexOf('}', insetStart));
+    const missing = used.filter((t) => !insetBody.includes(`${t}:`));
+    expect(
+      missing,
+      `.b-select-inset 少宣告這些 token:${missing.join(', ')} ⇒ 非首頁的對應宣告會無聲作廢`,
+    ).toEqual([]);
+
+    // 🔴 審查抓到:只驗「有宣告」不驗「值對」= 恆真族。`.ed-page` 那邊改了值、inset 沒跟,
+    //    首頁與非首頁會靜默分岔而守門全綠。⇒ 顏色類 token 逐顆比值。
+    //    (`--ed-gutter` / `--ed-max` 是**刻意不同**的版位值,見 home.css 那段註解 ⇒ 排除。)
+    const LAYOUT_ONLY = new Set(['--ed-gutter', '--ed-max']);
+    const edPageBody = CSS.slice(CSS.indexOf('.ed-page {'), CSS.indexOf('}', CSS.indexOf('.ed-page {')));
+    const valueOf = (body: string, token: string) =>
+      new RegExp(`${token}:\\s*([^;]+);`).exec(body)?.[1]?.trim();
+    const drifted = used
+      .filter((t) => !LAYOUT_ONLY.has(t))
+      .map((t) => ({ t, page: valueOf(edPageBody, t), inset: valueOf(insetBody, t) }))
+      .filter((r) => r.page === undefined || r.page !== r.inset);
+    expect(
+      drifted.map((r) => `${r.t}(.ed-page=${r.page} / inset=${r.inset})`),
+      '這些 token 的值與 .ed-page 不一致 ⇒ 首頁與非首頁的 rail 會靜默長得不一樣',
+    ).toEqual([]);
+
+    // 🔴 序:inset 必須排在**所有** `.b-select {` 之後(同 specificity、靠後載勝)。
+    //    審查抓到原本只比 top-level 的第一個 —— 而真正會打架的是
+    //    `@media (max-width: 900px)` 裡那條 `.b-select { padding: 48px 0 52px }`。
+    //    只比 top-level 的話,把 inset 搬到那條 @media 之前照樣綠,而 ≤900px 的 section
+    //    留白會無聲跑回 48/52px。⇒ 用整份 CSS 的**最後一個** `.b-select {` 比。
+    const lastSelectRule = CSS.lastIndexOf('.b-select {');
+    expect(
+      insetStart,
+      '.b-select-inset 排在某條 .b-select 規則(含 @media 內那條)之前 ⇒ 它的 padding/背景會被蓋回去',
+    ).toBeGreaterThan(lastSelectRule);
+  });
+
   it('🔴 箭頭的 disabled 態有樣式(它是本 repo 自己接的線,OD 只畫沒接)', () => {
     const top = topLevelCss().replace(/\s+/g, ' ');
     expect(top, '箭頭沒有 disabled 樣式 ⇒ 到底了看起來還能按')

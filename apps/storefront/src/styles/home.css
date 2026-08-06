@@ -989,6 +989,34 @@
 }
 @media (max-width: 560px) { .b-carousel-item { flex: 0 0 calc((100% - 14px) / 1.8); } }
 
+/* ── rail 在非首頁的 token 作用域(2026-08-07 R-3;R-2 品牌頁也吃這條)──────────
+   🔴 上面整組 `.b-select*` / `.b-carousel*` 吃 7 個 `--ed-*` token,而那些 token 只定義在
+      本檔開頭的 **`.ed-page`**(首頁專屬作用域)。品牌頁與會員中心都沒有 `.ed-page`
+      (`app/brands/[slug]/page.tsx` 的註解已逐字記過為什麼刻意不掛)⇒ 直接把 class 用過去,
+      那些宣告會**整條失效而且無聲**(未定義的 custom property 讓宣告在計算值階段作廢)。
+   🔴 **不能拿全域 token 硬換**:`--ed-c-ink #0a0a0a` ≠ `--c-text #121214`、
+      `--ed-c-rule-control` 全域沒有對應、`--c-surface` / `--c-surface-2` 帶暗色模式覆寫
+      (換過去等於給首頁沒有的行為)。⇒ 顏色那 5 顆**逐字照抄 `.ed-page` 的同一批值**
+      (守門逐顆比值、不只比有沒有宣告);`--ed-gutter` / `--ed-max` 兩顆**刻意不同**,
+      它們是版位值、理由見下面那段。
+   🔴 **純加法**:上面每一條規則一個字都沒動,所以「首頁零變更」是結構性成立的。
+      (R-1 plan 原提「給每個 var 加 fallback」,實作時發現那會讓 `home.test.ts` 斷言的
+       `scroll-padding-left: var(--ed-gutter)` 字面不匹配 = 自己打破自己訂的驗收。)
+   版位:非首頁的 rail 活在別人的容器裡(`.acc-body` / `.bp-products-inner` 的 grid cell)
+   ⇒ 頁面級的 gutter 與 max-width 歸零、上下留白與底色交給容器。
+   ⚠️ 序必須在 `.b-select` 之後:兩者同 specificity(0,1,0)、靠後載勝。 */
+.b-select-inset {
+  --ed-gutter: 0px;
+  --ed-max: none;
+  --ed-c-paper: #ffffff;
+  --ed-c-ink: #0a0a0a;
+  --ed-c-ink-mute: #71717a;
+  --ed-c-rule-control: #909093;
+  --ed-c-sunken: #f3f3f4;
+  padding: 0;
+  background: transparent;
+}
+
 /* ============================================================
    06 · STATEMENT (black slab with service story)
    ============================================================ */

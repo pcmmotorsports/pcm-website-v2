@@ -4,8 +4,9 @@
 // 橫向滑動一列」,並要求**復用整套、不寫第二套**(主視窗 `D-156-A`)。
 // 原本這整套機制寫死在 `HomeSelect.tsx` 裡,區塊專屬字面(標題、連結、aria-label、空/錯文案)
 // 也一起寫死 ⇒ 直接複製給另外兩區就是三份幾乎一樣、各自維護的 JSX+CSS,正是「不寫第二套」要避免的。
-// ⇒ 這一片(R-1)只做「抽出來 + 首頁接回去」,**首頁的輸出一個字都不能變**
-//   (驗收:`HomeSelect.test.tsx` / `home.test.ts` / `products-featured-limit.test.ts` 三支一字不改仍綠)。
+// R-1 只做「抽出來 + 首頁接回去」,驗收=首頁輸出一個字都不變
+//   (`HomeSelect.test.tsx` / `home.test.ts` / `products-featured-limit.test.ts` 三支一字不改仍綠)。
+// R-3 接會員中心「為你推薦」;R-2 接品牌頁「熱門商品」(等 Sean 的取數題)。
 //
 // 🔴 CSS 沿用既有的 `.b-select*` / `.b-carousel*`,**沒有搬檔、沒有改任何一條規則**:
 //    `home.css` 本來就由 `app/layout.tsx` 全域 import ⇒ 那些 class 在每一頁都拿得到。
@@ -16,7 +17,11 @@
 //    也**不能拿全域 token 硬換**:`--ed-c-ink: #0a0a0a` ≠ `--c-text: #121214`、
 //    `--ed-c-rule-control` 全域沒有對應,而 `--c-surface` / `--c-surface-2` 帶暗色模式覆寫、
 //    換過去等於給首頁沒有的行為。
-//    ⇒ 非首頁的用法要**另給一層 token 作用域 class**(純加法、不動現有規則),那部分留 R-2 有真消費者時再加。
+//    ⇒ 非首頁的用法**另給一層 token 作用域 class**:`.b-select-inset`(`home.css`,純加法、
+//    現有規則一個字沒動)⇒ 由 `variant="inset"` 掛上。R-3 真瀏覽器量過三組對照:
+//    有 `.ed-page` / 有 inset 兩組的軌道 padding、snap 對齊、箭頭邊框色與底色全等;
+//    **兩者都沒有的對照組實測整條宣告作廢**(軌道 padding 變 0、`scroll-padding-left` 變 auto、
+//    箭頭邊框掉成文字色、底色透明)—— 那就是「無聲失效」長什麼樣。
 //    (原本 plan 提的是「加 fallback `var(--ed-gutter, 48px)`」——**不可行**:`home.test.ts` 斷言的是
 //     `scroll-padding-left: var(--ed-gutter)` 的字面,加了 fallback 那條正規式就不匹配,
 //     等於自己打破自己訂的「首頁零變更」驗收。)
@@ -34,7 +39,12 @@ export type ProductRailProps = {
   products: MockProduct[];
   /** 取數/查詢失敗。與「取到 0 筆」是兩件事、文案不同(對客人的意思不一樣)。 */
   error?: boolean;
-  /** 標題左側的編號標(首頁 N°02 用;其他區不給就不畫)。 */
+  /**
+   * 標題左側的編號標(首頁 N°02 用;其他區不給就不畫)。
+   * ⚠️ **非首頁請避免使用**:它吃 `.ed-mono`,而那條的選擇器是 `.ed-page .ed-mono`
+   * —— 是**作用域選擇器不是 token**,`.b-select-inset` 原理上補不了。非首頁傳 eyebrow
+   * 會拿到沒有 mono 字體與字距的裸文字,而文字層守門看不見。
+   */
   eyebrow?: string;
   title: string;
   viewAllHref: string;
@@ -56,11 +66,20 @@ export type ProductRailProps = {
    * 品牌頁種一個與拍板反向的屬性,而且三綠不會紅。
    */
   reveal?: boolean;
+  /**
+   * 版位脈絡。`page`(預設)= 首頁那種滿版區塊;`inset` = 活在別人的容器裡
+   * (會員中心 `.acc-body`、品牌頁 `.bp-products-inner` 的 grid cell)。
+   * 🔴 `inset` 不只是版位:rail 的 CSS 吃 7 個只活在 `.ed-page` 的 `--ed-*` token,
+   * 非首頁**不補一份就整組宣告無聲失效**。`.b-select-inset` 在 `home.css` 補齊那批值。
+   */
+  variant?: 'page' | 'inset';
   /** 透傳給 `ProductCard` 的外觀旋鈕(首頁 N°02 有自己的一組)。 */
   showRedPrice?: boolean;
   /**
    * 🔴 **刻意不給預設值**:給了就是 `ProductCard` 預設之外的第二份,ProductCard 改預設時
    * 三區 rail 會靜默停在舊值、與站上其他呼叫點分岔。`undefined` 直接落到 ProductCard 自己的預設。
+   * (⚠️ 精確講:`badgeStyle` 在 ProductCard 有真預設 `'minimal'`;`showRedPrice` **沒有**預設,
+   *  它是靠 `undefined` 落成 falsy。兩者行為都對,但不是同一回事。)
    */
   badgeStyle?: 'minimal' | 'pill' | 'corner' | 'none';
 };
@@ -88,6 +107,7 @@ export function ProductRail({
   emptyText,
   errorText,
   reveal = false,
+  variant = 'page',
   showRedPrice,
   badgeStyle,
 }: ProductRailProps) {
@@ -154,7 +174,10 @@ export function ProductRail({
 
   return (
     // `data-reveal` 走 opt-in:寫死的話 R-2 會在「拍板先不做捲動揭示」的品牌頁種下反向屬性。
-    <section {...(reveal ? { 'data-reveal': true } : {})} className="b-select">
+    <section
+      {...(reveal ? { 'data-reveal': true } : {})}
+      className={variant === 'inset' ? 'b-select b-select-inset' : 'b-select'}
+    >
       {/* 表頭 = OD 的 `.b-select-head`(標題列 + 右側「查看全部 + 左右箭頭」)。 */}
       <div className="b-select-head">
         <h2 className="b-select-title">
