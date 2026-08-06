@@ -413,71 +413,113 @@
 /* ============================================================
    03 · FEATURE (editorial magazine spread)
    ============================================================ */
+/* ── N°05 本月聚焦版面壓縮(2026-08-06;OD 逐字段落標題 `963px 砍半`)────────
+   OD 註解逐字:「改法:直式長文 → 橫向『品牌檔案帶』。ORIGIN/SINCE/CRAFT 從三欄 grid
+   收成一行資料條,圖從 4:3 壓成 16:11,底部補一條該品牌的分類出口 —— 編輯區塊從此有
+   商業出口。」
+   本片只動**版面**(padding/grid/字級尺寸/meta 條/圖片比例)。**刻意不動**兩塊:
+   ①底部分類出口 —— D5e-2b 早就做完(`.ed-feature-actions` 家族),OD 這句話在講
+     的東西本檔已經有了,不是本片要接的線。
+   ②標題/內文的中文排版值(line-height / letter-spacing / text-wrap / body
+     max-width)—— 完整記錄在本檔下方 🔴🔴 開頭那段申報(grep `D5e-2b 刻意未搬`
+     找到,非 technical_overrides 那組欄位)與 manifest `last_modified_date`
+     敘述,理由是它們會改變整個版位的視覺重量、要 Sean 肉眼驗一次,現在仍是
+     「排片待主視窗指派,不是漏掉」;本片只搬跟 963px 砍半直接相關的尺寸壓縮
+     (font-size / margin / spacing),不動那組已標記待審的排版值。 */
 .ed-feature {
   background: var(--ed-c-paper);
-  padding: 140px 0;
+  /* OD `.b-feature` 逐字三條:background;padding:52px 0 56px(舊值 140px 0 是砍半前的
+     直式長文版);border-top:1px solid var(--c-border)——`--c-border`→`--ed-c-rule` 的
+     token 對照見本檔 `.b-cats` 段落上方註解,同一顆值、非本片新開對照。 */
+  padding: 52px 0 56px;
+  border-top: 1px solid var(--ed-c-rule);
 }
 .ed-feature-inner {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   display: grid;
+  /* 5fr 7fr 本來就對:OD 基礎層是 6fr 6fr,但同稿「統一版面層」
+     `.layout-unified .b-feature-inner{grid-template-columns:5fr 7fr}` 蓋掉它
+     ——OD 頁面根一律掛 `layout-unified`,5fr 7fr 才是實際生效值。 */
   grid-template-columns: 5fr 7fr;
-  gap: 80px;
+  /* OD 逐字 gap:48px(砍半前是 80px,間距跟著整段一起壓扁) */
+  gap: 48px;
   align-items: center;
 }
+/* 🔴 申報:OD 全檔查無 `.b-feature-side` 對應規則(OD 只給 reveal 起始態與
+   `order:2`)—— 這條 24px 是本 repo 獨有值、本片未動它,原封不動搬過來。
+   gap 80px→48px 砍半後,這 24px 恰等於新欄距的一半,落在本片自述的
+   「padding/grid」範圍內卻從未被申報過;是否該跟著欄距等比例收、或本來
+   就是獨立值,待下一個動這塊版面的人重估,不在本片自行判斷。 */
 .ed-feature-side {
   padding-right: 24px;
 }
 .ed-feature-num {
   color: var(--ed-c-ink-mute);
-  margin-bottom: 18px;
+  /* OD `.b-feature-num` 逐字 margin-bottom:12px */
+  margin-bottom: 12px;
 }
 .ed-feature-kicker {
   font-size: 13px;
   color: var(--ed-c-ink-mute);
-  margin-bottom: 22px;
+  /* OD `.b-feature-kicker` 逐字 margin-bottom:12px */
+  margin-bottom: 12px;
 }
 .ed-feature-title {
-  font-size: clamp(48px, 5.4vw, 80px);
+  /* OD `.b-feature-title` 逐字 clamp(30px,3.2vw,46px)——963px 砍半後的縮小版 */
+  font-size: clamp(30px, 3.2vw, 46px);
+  /* 🔴 line-height / letter-spacing 刻意維持舊值、不搬 OD 這條的 1.2 / -.01em:
+     那兩顆屬 manifest 記的「D5e-2b 刻意未搬」中文排版組,待主視窗指派、要 Sean 肉眼驗。 */
   line-height: 0.98;
   letter-spacing: -0.02em;
   font-weight: 700;
-  margin: 0 0 32px;
+  /* OD 逐字 margin:0 0 18px(標題縮小後留白跟著等比例收) */
+  margin: 0 0 18px;
 }
 .ed-feature-title em {
   font-size: 0.82em;
   color: var(--ed-c-ink-soft);
 }
 .ed-feature-body {
-  font-size: 16px;
+  /* OD `.b-feature-body` 逐字 font-size:15px */
+  font-size: 15px;
+  /* 🔴 line-height / max-width 刻意維持舊值(1.75 / 34ch)、不搬 OD 的 1.85 / 30em:
+     同上,屬「D5e-2b 刻意未搬」中文排版組,不在本片自行動。 */
   line-height: 1.75;
   color: var(--ed-c-ink-soft);
-  margin: 0 0 40px;
+  /* OD 逐字 margin:0 0 24px */
+  margin: 0 0 24px;
   max-width: 34ch;
 }
 .ed-feature-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-  padding: 24px 0;
+  /* OD `.b-feature-meta` 逐字 gap:0 26px(行距 0、欄距 26px,原本是等距 24px 兩軸都給) */
+  gap: 0 26px;
+  /* OD 逐字 padding:16px 0(原本 24px 0,單行資料條不需要那麼高) */
+  padding: 16px 0;
   border-top: 1px solid var(--ed-c-rule);
   border-bottom: 1px solid var(--ed-c-rule);
-  margin-bottom: 36px;
+  /* OD 逐字 margin-bottom:18px */
+  margin-bottom: 18px;
 }
 .ed-feature-meta-k {
   color: var(--ed-c-ink-mute);
   margin-bottom: 6px;
 }
 .ed-feature-meta-v {
-  font-size: 14px;
-  font-weight: 500;
+  /* OD `.b-feature-meta-v` 逐字 font-size:15px;font-weight:600;line-height:1.3 */
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--ed-c-ink);
 }
 
 .ed-feature-media {
   position: relative;
-  aspect-ratio: 7 / 8;
+  /* OD `.b-feature-media` 逐字 aspect-ratio:16/11(原本 7:8 直式,砍半改橫向壓扁) */
+  aspect-ratio: 16 / 11;
   overflow: hidden;
   background: var(--ed-c-paper-2);
 }
@@ -672,10 +714,13 @@
 .ed-feature-jump a.is-all::after { background: var(--ed-c-ink); }
 
 @media (max-width: 1000px) {
-  .ed-feature { padding: 80px 0; }
-  .ed-feature-inner { grid-template-columns: 1fr; gap: 40px; }
+  /* N°05 版面壓縮片的斷點跟著壓(OD 同段 `@media (max-width:1000px)` 逐字):
+     padding 52px→40px 0 44px、gap 40px→28px、meta 補單欄、圖片比例改 16/10。 */
+  .ed-feature { padding: 40px 0 44px; }
+  .ed-feature-inner { grid-template-columns: 1fr; gap: 28px; }
+  .ed-feature-meta { grid-template-columns: 1fr; gap: 16px; }
   .ed-feature-side { padding-right: 0; order: 2; }
-  .ed-feature-media { order: 1; aspect-ratio: 4/5; }
+  .ed-feature-media { order: 1; aspect-ratio: 16/10; }
 }
 
 /* 手機:兩區改成上下疊。垂直分隔線轉整行水平線 —— 分區訊號留著、只換方向。
