@@ -85,9 +85,7 @@ export function VehicleFinder({
           motoBrands={motoBrands}
           vehicle={vehicle}
           onPickBrand={(name) => setVehicle({ brand: name })}
-          onPickModel={(name) =>
-            setVehicle((v) => (v ? { brand: v.brand, model: name } : v))
-          }
+          onPickModel={(p) => setVehicle({ brand: p.brand, model: p.model })}
           onPickYear={(year) => setVehicle((v) => (v?.model != null ? { ...v, year } : v))}
           onClearBrand={() => setVehicle(null)}
           onClearModel={() => setVehicle((v) => (v ? { brand: v.brand } : v))}
