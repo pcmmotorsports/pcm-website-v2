@@ -24,6 +24,7 @@ const CASCADE = strip(read('filter-cascade.css'));
 const SIDE = strip(read('filter-side.css'));
 const CART = strip(read('cart.css'));
 const CART_VEHICLE = strip(read('cart-vehicle.css'));
+const PRICING = strip(read('pricing.css'));
 
 function block(src: string, label: string, selector: string): string {
   const i = src.indexOf(selector);
@@ -336,5 +337,32 @@ describe('商品卡 · 價格列貼卡底(首頁橫捲 / 商品列表 / 品牌�
       }
     }
     expect(overrides, `有第二處覆寫會讓 base 規則靜默失效:\n${overrides.join('\n')}`).toEqual([]);
+  });
+});
+
+// ══ 商品卡價格顏色 · 同權重撞規則(2026-08-06,Sean 逐字「我們價錢字的顏色要用橘色」)══
+//
+// 🔴 這條守的是一個**靜態讀單一檔案永遠看不出來**的缺陷:
+//    `product-card.css` 的 `.pcard .price-main{color:var(--c-red-dark)}` 與
+//    `pricing.css` 的 `.price-wrap .price-main{color:var(--c-text)}` **權重完全相同**(0,2,0),
+//    而真實 DOM 上兩條同時命中(卡片價格外面包了三級定價元件 `.price-wrap`)
+//    ⇒ 後載入者(`layout.tsx` 裡 pricing.css 排在 product-card.css 之後)贏 ⇒ **整站卡片價格都是墨黑**。
+//    三綠全過、兩個檔案各自讀起來都對、單元測試全綠 —— 只有在真實 DOM 上量 computed 才會現形。
+// ⚠️ 它擋不住什麼:文字層算不出 cascade 勝負。這條驗的是「**有沒有留一條贏得過通用預設的卡片專屬規則**」,
+//    不是「顏色真的畫出來了」。後者要真瀏覽器量(本片已量:卡片內 rgb(196,71,12)、卡片外仍 rgb(18,18,20))。
+describe('商品卡價格顏色 · 必須贏過 pricing.css 的通用預設', () => {
+  it('🔴 前提:pricing.css 真的有一條 `.price-wrap .price-main` 在設 color(沒有的話下面那條恆真)', () => {
+    expect(
+      PRICING,
+      'pricing.css 不再設 .price-wrap .price-main 的 color ⇒ 撞規則消失,下面那條就沒有守護對象了(可以刪)',
+    ).toMatch(/\.price-wrap\s+\.price-main\s*\{[^}]*color:/);
+  });
+
+  it('🔴 `product-card.css` 有一條**含 `.price-wrap`** 的卡片專屬價格色規則(否則墨黑會贏)', () => {
+    expect(
+      CARD,
+      '找不到 `.pcard .price-wrap .price-main` ⇒ 只剩 0,2,0 的 `.pcard .price-main`,'
+        + '與 pricing.css 同權重、且它後載入 ⇒ 卡片價格會靜默變回墨黑',
+    ).toMatch(/\.pcard\s+\.price-wrap\s+\.price-main\s*\{[^}]*color:\s*var\(--c-red-dark\)/);
   });
 });

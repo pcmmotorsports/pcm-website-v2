@@ -228,6 +228,21 @@
    (熱血點綴;現況無促銷、與 is-sale 同色不衝突,
    未來促銷再以 badge/刪除線區隔)。scoped .pcard、不影響詳情頁 pd-price。 */
 .pcard .price-main { color: var(--c-red-dark); } /* 🔶 0c:白底價格 = 文字層(products-list-handoff R1-1 表列逐字)*/
+/* 🔴🔴 2026-08-06(Sean 逐字「我們價錢字的顏色要用橘色」;真瀏覽器實測抓到):
+   **上面那條在真實卡片上從來沒生效過。**
+   真實 DOM 比 OD 稿多包一層三級定價元件 `.price-wrap`:
+     `article.pcard > .pcard-info > .pcard-price-row > span.price-wrap.price-md > span.price-main`
+   於是 `pricing.css` 的 `.price-wrap .price-main{color:var(--c-text,#0a0a0a)}` 與上面那條
+   **權重完全相同**(都是 0,2,0 兩個 class)⇒ 後載入者贏,而 `layout.tsx:39-40` 的 import 順序是
+   product-card.css 在前、pricing.css 在後 ⇒ **墨黑一直贏**。
+   ⚠️ 這就是為什麼「三綠全過、CSS 字面也對」卻整站價格都是黑的 —— 同權重的撞規則,
+      靜態讀單一檔案永遠看不出來,只有在**真實 DOM 上量 computed** 才會現形。
+      (我第一版用注入探針量,探針沒有 `.price-wrap` 那層 ⇒ 量到了理想值、對 Sean 報了錯的結論。)
+   修法=提高一階權重(0,3,0)明確贏過 pricing.css 的通用預設,**只作用在商品卡內**,
+   不動詳情頁主價 `.pd-price`、購物車與結帳金額(那三處 OD 另有說法、屬別片)。
+   ⚠️ OD 在這件事上**自身矛盾**:首頁稿與品牌頁稿的卡片沒有 `.price-wrap`、`.price-main` 是熔橘;
+      而 `products-list-page.html` 的 `.price-wrap .price-main` 寫墨黑。Sean 拍板取熔橘。 */
+.pcard .price-wrap .price-main { color: var(--c-red-dark); }
 /* Font-size variants
    🔴 **第3批實查:這三條是死規則** —— 全樹(`.tsx` / `.ts`)**零處**設定 `data-font-size`,
    設計稿 `products-list-page.html` 也沒有這個屬性。
