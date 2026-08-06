@@ -150,6 +150,21 @@ SQL
 
 # 獨立推導漂移 oracle(R3-F3:逐軸 correlated subquery,與 helper 的 JOIN 形狀不同;A4b 重用)
 # 🔀 codex 關卡2 K2-1:第三式「有活動必有列」—— 缺它的話,刪掉活動品項的摘要列 oracle 仍回 0(假綠)。
+# 🔴 B2-S2b-3a 前段(2026-08-06):**四軸化 + 候選全集補齊**。
+#   ①值分歧那一段(**第二式**)補第四軸 shipped
+#   ②**第三式**(「有活動必有列」)的候選全集補 **`shipment_items`** ——
+#     少了它,只出過貨、沒進過採購/取消的品項(shipment-only)缺摘要列時不會被掃到。
+# 🔴🔴 **第三式刻意 <u>不</u> 補 summary**(R1 must-fix:我上一版補了,而那是**恆 0 的 no-op**):
+#   第三式的 WHERE 是 `NOT EXISTS (… FROM order_item_quantity_summary …)` ⇒
+#   **來自 summary 的候選必然被自己排除**(`order_item_id` 為 NOT NULL,連 NULL 那條縫都沒有)。
+#   plan §3.4 的表寫「本檔缺 summary 與 shipment_items 兩者」——**那個前提是錯的**:
+#   summary-only 的形狀(真相活動全刪、摘要殘留非 0)由**第二式**承重(它全掃 summary、逐軸比真值),
+#   不是第三式。plan 那一格已同批更正。
+# 🔴 `-- SHIPPED-TRUTH-BEGIN/END` 之間是**真相式的受守護區塊**,本 repo 有 6 個副本。
+# 🔴🔴 **現在還沒有守門在比對它們**(R2 must-fix:上一版寫成現在式 = 宣稱超出事實)——
+#   同步守門是 **S2b-3a 後段**的交付物(落在 `scripts/b2s2b-verify.sh`)。
+#   **在它落地之前,改這幾行不會有任何東西轉紅**;落地之後才會「改一處必須同批改凍結表」。
+#   **區塊內刻意零縮排**:縮排差異會讓逐字比對永遠不等,不要順手重排。
 ORACLE_SQL="SELECT (SELECT count(*) FROM public.order_item_procurement p
               WHERE p.received_quantity IS DISTINCT FROM COALESCE((SELECT sum(r.quantity)
                     FROM public.order_item_procurement_receipts r WHERE r.procurement_id = p.id),0))
@@ -157,9 +172,20 @@ ORACLE_SQL="SELECT (SELECT count(*) FROM public.order_item_procurement p
               WHERE s.ordered_quantity   IS DISTINCT FROM COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=s.order_item_id),0)
                  OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=s.order_item_id),0)
                  OR s.instock_quantity   IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
-                       WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=s.order_item_id)),0))
+                       WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=s.order_item_id)),0)
+                 OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = s.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+             )
           + (SELECT count(*) FROM (SELECT p.order_item_id FROM public.order_item_procurement p
-                                   UNION SELECT c.order_item_id FROM public.order_cancellation_items c) x
+                                   UNION SELECT c.order_item_id FROM public.order_cancellation_items c
+                                   UNION SELECT si2.order_item_id FROM public.shipment_items si2) x
               WHERE NOT EXISTS (SELECT 1 FROM public.order_item_quantity_summary s WHERE s.order_item_id = x.order_item_id))"
 
 # ── 單連線 FIFO session(R14 / N3;照 a2b1:146-159)────────────

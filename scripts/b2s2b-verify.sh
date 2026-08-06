@@ -146,7 +146,7 @@ test -f "$MIG" || die "找不到 $MIG"
 
 # 🔴 把受測 migration 釘在已 commit 的那一版:本檔的期望值(四軸指紋、trigger 名、
 #    conname、C9 語意)全部綁在那一版;改了 migration 就必須回頭一起更新,不是把閘拿掉。
-MIG_SHA_FROZEN="dcc32d15058d47ee3b4a562bf25fd830b8a0a0edfa25428a3208c33f7ff4c659"
+MIG_SHA_FROZEN="f7ca9ba5877cea3306efc088764da44a4b7808a68f136fa5141027b5638bff24"
 MIG_SHA_NOW="$(shasum -a 256 "$MIG" | awk '{print $1}')"
 [ "$MIG_SHA_NOW" = "$MIG_SHA_FROZEN" ] || die "受測 migration 已被改動 —— 凍結 sha256 $MIG_SHA_FROZEN / 實測 $MIG_SHA_NOW。
    本 harness 的凍結值全部綁在那一版,逐項是:

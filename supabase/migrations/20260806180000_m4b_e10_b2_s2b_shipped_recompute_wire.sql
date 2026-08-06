@@ -284,12 +284,15 @@ BEGIN
          COALESCE((SELECT sum(cc.cancelled_quantity) FROM public.order_cancellation_items cc
                     WHERE cc.order_item_id = s.order_item_id), 0)
       OR s.shipped_quantity IS DISTINCT FROM
-         COALESCE((SELECT sum(si.shipped_quantity)
-                     FROM public.shipment_items si
-                     JOIN public.shipments sh ON sh.id = si.shipment_id
-                    WHERE si.order_item_id = s.order_item_id
-                      AND sh.deleted_at IS NULL
-                      AND sh.shipped_at IS NOT NULL), 0);
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = s.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+         ;
   IF v_bad <> 0 THEN
     RAISE EXCEPTION 'S2b backfill oracle①:重算後仍有 % 列與獨立四軸公式不符', v_bad USING ERRCODE = 'P2B11';
   END IF;

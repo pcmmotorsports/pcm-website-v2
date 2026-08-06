@@ -16,10 +16,16 @@
 而它們的 `xact_start` 會**晚於** `revoke_at` ⇒ 正好被 (3) 的條件漏掉。⇒ 先單獨跑 (1)、確認回到非交易狀態,
 再跑 (2)。(Dashboard 是否把多句包成單一交易,repo 內未實測 ⇒ 一律當成會包。)
 
-🔴 **契約債(2026-08-06 B2-S2a 補;codex 關卡2 抓)**:本步目前只 REVOKE 採購側(A5a)那一個寫入口。
-**大線 B2-S2b 上線後,出貨側會多一條寫入摘要表的路徑(`shipments` 重算 trigger)**,
-屆時本步必須同批補上停寫動作,否則快照與拆除期間 `shipped_quantity` 仍會被改。
-現況(S2a 只加欄、不接線)尚無此路徑 ⇒ 本步暫時完整。
+🔴🔴 **契約債①(2026-08-06 B2-S2b-3a 前段更新:上一版說「本步暫時完整」,那句<u>已經不成立</u>)**:
+本步目前只 REVOKE 採購側(A5a)那一個寫入口。**出貨側的第二條寫入路徑已經存在** ——
+B2-S2b-1(commit `4ef591b`)建的 `shipments_summary_recompute_ac` 重算 trigger,
+只要有人 `UPDATE shipments SET shipped_at / deleted_at`,摘要表的 `shipped_quantity` 就會被改。
+🔴 **本步還沒有對應的停寫動作**(`ALTER TABLE public.shipments DISABLE TRIGGER shipments_summary_recompute_ac`
++ 步驟⑦ 的對稱 `ENABLE`)—— 那是 plan 項26 / 26b,歸 **S2b-3b**,**尚未落地**。
+⇒ **災難日現況**:②→⑤ 之間若有出貨側寫入,步驟⑤ 會 RAISE(fail-closed,方向對),
+但那一紅的原因是「①的涵蓋面還沒補齊」,不是「④期間有人亂寫」。**兩者處置不同,見步驟⑤ 的指路。**
+🔴 另有**債⑤**(plan §9 交棒 9):`admin_cancel_order` 對 `service_role` 有 EXECUTE,
+它經 A4a trigger 也寫得到摘要表 ⇒ 「A5a 是唯一 service_role 寫入口」這句本來就不精確。
 
 ```sql
 -- (1) 停掉 service_role 應用路徑的唯一寫入口(A5a)。**單獨執行、確認已提交後再做下一步。**
@@ -60,28 +66,58 @@ CREATE TABLE public.a4a_rollback_snapshot AS
     FROM public.order_item_quantity_summary s;
 
 -- divergence 以「活動 ∪ 摘要」全集驅動:有活動但摘要列缺失(snap_* 為 NULL)也是災難形狀
--- 🔴 契約債(2026-08-06 B2-S2a 補;codex 關卡2 抓):本表只對帳 ordered / instock / cancelled **三軸**。
---    大線 B2-S2b 讓 shipped 成為被維護的第四軸之後,**shipped 漂移會在這裡全綠而漏掉**,
---    必須同批把 shipped 的 snap/truth 兩欄加進來。
---    🔴 **S2a 階段的正確說法不是「恆 0 所以無漏」**(codex 關卡2 R2):DB 並未強制它為 0,
---       owner / SECURITY DEFINER 寫進去的非 0 值 A4a 也不會清掉 ⇒ 本表對第四軸**現在就是盲的**。
---       正確說法 = 「S2a 階段沒有 writer 會產生第四軸漂移,所以這個盲點目前不會被觸發」。
+-- ⚠️ 契約債②(2026-08-06 B2-S2b-3a 前段:**只落地一半**):本表原本只對帳 ordered / instock / cancelled
+--    **三軸**,大線讓 shipped 成為被維護的第四軸之後,shipped 漂移會在這裡全綠而漏掉。
+--    ⇒ 已補 `snap_shipped` / `truth_shipped` 兩欄 + WHERE 的第四軸判斷,候選全集也補了 `shipment_items`
+--    (**shipment-only 品項**:有出貨但從沒進過採購/取消/摘要 —— 不補就永遠不會被對帳掃到)。
+-- 🔴 **尚未結清的那一半**:plan §4 項27 的**驗收 fixture**(造只有 shipped 漂移的資料 ⇒ 舊三軸版回 0 列、
+--    四軸版回 1 列且指名該品項)歸 **S2b-3b**,還沒進任何 harness。
+--    ⇒ **不要因為看到欄位已經在就跳過那一格**(這正是 9c 那筆債踩過的形狀)。
+-- 🔴 **前置**:本步驟現在硬相依 **S2a**(`s.shipped_quantity` 欄)與 **B2-S1**(`shipments` / `shipment_items` 兩表)。
+--    對還沒套 S2a 的站,這句 `CREATE TABLE` 會 `42703` ⇒ 照下方「abort 僅限…停下找人」處理,不要自行改寫本段。
+-- 🔴 `-- SHIPPED-TRUTH-BEGIN/END` 之間是**真相式的受守護區塊**:全 repo 共 **6 塊**
+--    (helper 1 / 本檔 3 —— 對帳段的欄位與 WHERE 各一、收尾段一 / `a4a-verify.sh` 的 ORACLE_SQL 1
+--     / migration 的 backfill oracle 1)。
+-- 🔴🔴 **現在還沒有守門在比對它們**(R2 must-fix:上一版寫成現在式 = 宣稱超出事實)——
+--    同步守門是 **S2b-3a 後段**的交付物;**在它落地之前,改這幾行不會有任何東西轉紅**。
+--    區塊內**刻意零縮排**:縮排差異會讓逐字比對永遠不等,**不要順手重排這幾行**。
 CREATE TABLE public.a4a_rollback_divergence AS
   SELECT u.order_item_id,
          s.ordered_quantity AS snap_ordered, s.instock_quantity AS snap_instock, s.cancelled_quantity AS snap_cancelled,
+         s.shipped_quantity AS snap_shipped,
          COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=u.order_item_id),0) AS truth_ordered,
          COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
                     WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=u.order_item_id)),0) AS truth_instock,
-         COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=u.order_item_id),0) AS truth_cancelled
+         COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=u.order_item_id),0) AS truth_cancelled,
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = u.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+           AS truth_shipped
     FROM (SELECT p.order_item_id FROM public.order_item_procurement p
           UNION SELECT c.order_item_id FROM public.order_cancellation_items c
-          UNION SELECT s2.order_item_id FROM public.order_item_quantity_summary s2) u
+          UNION SELECT s2.order_item_id FROM public.order_item_quantity_summary s2
+          UNION SELECT si2.order_item_id FROM public.shipment_items si2) u
     LEFT JOIN public.order_item_quantity_summary s ON s.order_item_id = u.order_item_id
    WHERE s.order_item_id IS NULL
       OR s.ordered_quantity   IS DISTINCT FROM COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=u.order_item_id),0)
       OR s.instock_quantity   IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
                     WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=u.order_item_id)),0)
-      OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=u.order_item_id),0);
+      OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=u.order_item_id),0)
+      OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = u.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+      ;
 
 -- received_quantity drift 另立留檔表(第二形狀來源:累計欄 vs receipts 明細)
 CREATE TABLE public.a4a_rollback_received_drift AS
@@ -148,16 +184,33 @@ DO $s5$
 DECLARE v_bad integer;
 BEGIN
   -- 三形狀分歧(值/缺列/received drift)必須 ⊆ ② 已留檔集合(= ①停寫成立、④期間零新寫入)
+  -- 🔴 2026-08-06 B2-S2b-3a 前段:值分歧補**第四軸 shipped**、候選全集補 `shipment_items`,
+  --    與步驟②的 divergence 表同一組判準(兩處不同步 = 收尾驗證會漏掉出貨側的分歧)。
+  -- 🔴🔴 **災難日看到本步紅在 shipped 時,先看這裡**:步驟① 目前**還沒有**停掉出貨側的寫入路徑
+  --    (`ALTER TABLE public.shipments DISABLE TRIGGER shipments_summary_recompute_ac`,plan 項26,歸 S2b-3b)。
+  --    ⇒ ②→⑤ 之間任何一次 `UPDATE shipments SET shipped_at / deleted_at` 都會經那支 trigger 改摘要,
+  --    本步就會 RAISE。**那一紅通常代表「①的涵蓋面還沒補齊」,不是「④期間有人亂寫」** —— 兩者處置不同。
   SELECT count(*) INTO v_bad
     FROM (SELECT p.order_item_id FROM public.order_item_procurement p
           UNION SELECT c.order_item_id FROM public.order_cancellation_items c
-          UNION SELECT s2.order_item_id FROM public.order_item_quantity_summary s2) u
+          UNION SELECT s2.order_item_id FROM public.order_item_quantity_summary s2
+          UNION SELECT si2.order_item_id FROM public.shipment_items si2) u
     LEFT JOIN public.order_item_quantity_summary s ON s.order_item_id = u.order_item_id
    WHERE (s.order_item_id IS NULL
        OR s.ordered_quantity   IS DISTINCT FROM COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=u.order_item_id),0)
        OR s.instock_quantity   IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
                     WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=u.order_item_id)),0)
-       OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=u.order_item_id),0))
+       OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=u.order_item_id),0)
+       OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = u.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+       )
      AND NOT EXISTS (SELECT 1 FROM public.a4a_rollback_divergence d WHERE d.order_item_id = u.order_item_id);
   IF v_bad <> 0 THEN
     RAISE EXCEPTION '步驟⑤失敗:% 列摘要分歧不在②留檔集合內(④期間有新寫入?)—— 整段回滾、停下清查', v_bad;

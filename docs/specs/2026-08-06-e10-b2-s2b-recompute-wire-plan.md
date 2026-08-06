@@ -193,9 +193,9 @@ v2 先寫「只准一處」(做不到:oracle 必須獨立算才有判別力),再
 | # | 位置 | 角色 | 🔴 **述詞整行凍結**(v2-R3 二複驗:從「凍 RHS」改成「凍**整行**」) |
 |---|---|---|---|
 | 1 | A4a helper 內 | **唯一 writer** | `WHERE oi.id = p_order_item_id` 那一行的**整行字面**(參數名 **`p_order_item_id`**,實查 `20260803140000:140` 函式簽章 + `:156`)|
-| 2 | runbook 初始對帳段 | 獨立 checker | 述詞整行字面(外層別名 `u.order_item_id`,實查 `runbook:76-78`)|
-| 3 | runbook 收尾重驗段 | 獨立 checker | 述詞整行字面(外層別名 `u.order_item_id`,實查 `runbook:152-154`)|
-| 4 | `a4a-verify.sh` 的 `ORACLE_SQL` | harness 側 checker | 述詞整行字面(`s.order_item_id`,實查 `a4a-verify.sh:150`)|
+| 2 | runbook 初始對帳段 | 獨立 checker | 述詞整行字面(外層別名 `u.order_item_id`)。🔴 **本處有<u>兩</u>個標記區塊**:`truth_shipped` 欄位一個、WHERE 判斷一個(位置用 grep 取,見下方位置表)|
+| 3 | runbook 收尾重驗段 | 獨立 checker | 述詞整行字面(外層別名 `u.order_item_id`)|
+| 4 | `a4a-verify.sh` 的 `ORACLE_SQL` | harness 側 checker | 述詞整行字面(`s.order_item_id`)|
 | 5 | 🔴 **本片 migration 內 §3.4 backfill 的值 oracle** | backfill 的獨立 checker(**v1 漏列**) | 由本片決定;🔴 **必須在片內寫死成 harness 的字面常數**,不得執行期自讀檔案再跟自己比(= 恆綠) |
 
 🔴🔴 **為什麼凍「整行」不是凍「RHS」(v2-R3 二複驗 must-fix)**:
@@ -222,7 +222,7 @@ v1 寫「恰四處」而 §3.4 又要求獨立 oracle ⇒ 照 v1 實作出來的
 **守門設計**(R2 #12:光說「逐字同步」沒有判別力):
 - **五處**各加**邊界標記註解**(`-- SHIPPED-TRUTH-BEGIN` / `-- SHIPPED-TRUTH-END`),**標記區內含關聯述詞那一行**(本體 md5 時才把它扣掉,不是不標)。
 - 🔴🔴 **v2-R3 收斂(Fable 翻案條件②:五份 md5 全等照稿不可實作)**:五個實體的**關聯述詞字面本來就不同**
-  (helper 用參數 `p_order_item_id`、`a4a-verify.sh:150` 用 `s.order_item_id`、runbook 用 `u.order_item_id`)——
+  (helper 用參數 `p_order_item_id`、`a4a-verify.sh` 用 `s.order_item_id`、runbook 用 `u.order_item_id`)——
   去空白/小寫的正規化**抹不掉識別字差異**,執行者只能被迫放寬正規化(=喪失判別力)或把標記區縮到瑣碎。
   **決定:把守門拆成兩半,不再追求「整段五份全等」**:
   ① **本體(比 md5)**= 真相式**扣掉關聯述詞那一行**之後的部分(`FROM … JOIN … WHERE s.deleted_at IS NULL
@@ -238,6 +238,44 @@ v1 寫「恰四處」而 §3.4 又要求獨立 oracle ⇒ 照 v1 實作出來的
   🔴 **為什麼不併實體**(Fable 提的另一案:runbook 兩段與 ORACLE_SQL 共用單一 SQL 片段、五處縮成三處):
   那要新增一個「共用片段」的產生/注入機制,而 runbook 是**災難日給人讀的文件**、不該變成需要組裝的模板。
   拆兩半的成本更低、判別力落點更精確。
+
+🔴🔴 **v3 施工裁決(2026-08-06 S2b-3a 前段;Sean 節奏下由主視窗 `B-151-A` 裁 Q1=B + 修正)——
+本節的「本體五份全等」到這裡是第三次改字面,這次改的是<u>分半原則</u>,不再寫死行數。**
+
+**開工偵察發現(逐處親開檔,非推理)**:五處裡有**兩種宿主語法**,逐字全等照原字面做不到 ——
+處 1(helper,唯一 writer,`20260806180000:222-229`)是**語句級聚合**
+(`SELECT COALESCE(sum(…), 0) INTO v_shipped FROM … WHERE …`、shipments 別名 `s`);
+其餘四處是**純量子查詢**(`COALESCE((SELECT sum(…) FROM … WHERE …), 0)`、別名被迫用 `sh`,
+因為外層 `s` 已被摘要表占用)。去空白/小寫的正規化**抹不掉語句形狀與識別字差異**。
+
+**Q1=B 拍板(不動 helper)+ `B-151-A` 修正後的分半原則**:
+
+🔴🔴 **v3.1 再修(3a 前段 R1 must-fix 2:v3 的規則自我否定)**:v3 原寫「**凡含別名**或站點差異的行 → per-site」,
+但實測**六個區塊每一行都含 `si` 或 `sh`** ⇒ 全部落進 per-site 半、**全等半變成空集合**,
+而「兩半行數合計 = 區塊總行數」的完整性斷言 **6+0=6 照樣通過** ⇒ 判別力少一半、零告警。
+**正確的分半順序(先算全等半,不是先看有沒有別名)**:
+
+| 步 | 規則 | 實測值(2026-08-06,六個區塊各恰 6 行) |
+|---|---|---|
+| ① | **全等半 = 五個「嵌入形」新區塊**(runbook ×3、`a4a-verify`、backfill oracle)trim 後**逐字相同**的行 | **5 行**(只有關聯述詞行逐處不同) |
+| ② | 其餘的行 → **per-site 整行字面凍結** | 五個新區塊各 **1 行**(述詞行) |
+| ③ | **helper 那一塊不參與全等半**(宿主語法是語句級聚合、別名 `s`、行尾另有註解)⇒ **整塊 6 行全部 per-site 凍結** | helper **6 行** |
+| ④ | **完整性斷言逐區塊做**:該塊「全等半行數 + per-site 行數 = 該塊總行數」 | 五塊 5+1=6;helper 0+6=6 |
+
+🔴 跨**全部六塊**逐字相同的其實只有 **1 行**(`FROM public.shipment_items si`)——
+所以「五份全等」這個講法**只在五個嵌入形區塊之間成立**,helper 是第六塊、不在其中。
+**不要再把它寫成「六份全等」或「五處全等」含混帶過。**
+
+🔴 **不變量 = 每一行都被某一半凍住、零行漏網** ⇒ 守門格必須有一條
+**「兩半行數合計 = 該處標記區塊總行數」**的完整性斷言(防止有行掉在兩半之間沒人凍)。
+🔴 **抽取時逐行去頭尾空白**:縮排差異不承載任何語意,不去掉的話全等半永遠是空的。
+（新寫的四處**刻意零縮排**,理由寫在各自檔內。）
+🔴 **突變六發要覆蓋兩半各至少一發**(`B-151-A` 逐字)。
+
+🔴 **文字實體實查是「六個」不是「五個」**(本節第三次數錯的同一個地方,這次寫死):
+runbook **初始對帳段有兩個實例** —— `truth_shipped` 欄位一個、WHERE 判斷一個(既有三軸也是這樣重複);
+收尾重驗段 1 個、`a4a-verify` 的 `ORACLE_SQL` 1 個、migration 的 backfill oracle 1 個、helper 1 個
+⇒ **合計 6 個標記區塊**。守門格的位置表與計數一律以 **6** 為準,`§1.1` 標題的「五處」指的是**五個檔內位置**。
 - **五個獨立突變**:逐一改一處,斷言「同步格紅、且指名是哪一處不同」。
   🔴 **v2-R2 修正**:v2 只把 §1.1 的標題改成五處,標記/md5/突變/驗收全留在四份 ⇒ **第五處(backfill oracle)可以漂移而守門仍綠**。
 
@@ -250,13 +288,35 @@ v1 寫「恰四處」而 §3.4 又要求獨立 oracle ⇒ 照 v1 實作出來的
 
 | # | 檔案(寫死) | 段 |
 |---|---|---|
-| 0 | 本片的 migration | **§3.4 backfill 的值 oracle**(第 5 個實體) |
-| 1 | 本片的 migration | helper 函式體 |
-| 2 | `docs/runbooks/a4a-summary-rollback.md` | 初始對帳段 |
-| 3 | `docs/runbooks/a4a-summary-rollback.md` | 收尾重驗段 |
-| 4 | `scripts/a4a-verify.sh` | `ORACLE_SQL` |
+| 0 | 本片的 migration | **§3.4 backfill 的值 oracle**(`DO $backfill$` 內的 oracle①) |
+| 1 | 本片的 migration | helper 函式體(第四軸真相式) |
+| 2 | `docs/runbooks/a4a-summary-rollback.md` | 初始對帳段 —— 🔴 **兩塊**:`truth_shipped` 欄位一塊 + WHERE 判斷一塊 |
+| 3 | `docs/runbooks/a4a-summary-rollback.md` | 收尾重驗段(步驟⑤ 的值分歧判斷) |
+| 4 | `scripts/a4a-verify.sh` | `ORACLE_SQL` 的第二式 |
 
-**負測**:把 plan 檔也丟進集合 ⇒ 該格必須紅在「集合大小 ≠ 5」,而不是紅在 md5 不等。
+🔴🔴 **本表刻意<u>不寫行號</u>(3a 前段實錘:我在同一個 commit 內把行號修對、然後又在上方插了 8 行,
+它們當場再次過期)。權威取法 = 下面這行,任何時候重跑都對:**
+
+```bash
+grep -n 'SHIPPED-TRUTH-BEGIN' docs/runbooks/a4a-summary-rollback.md scripts/a4a-verify.sh \
+  supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
+```
+
+**2026-08-06 3a 前段收工當下的實測**(僅供對照,**過期不修**):runbook 三塊、`a4a-verify` 一塊、
+migration 兩塊,**共 6 塊、每塊恰 6 行**。後段的守門一律**自己 grep 取集合再驗計數**,不吃這裡的數字。
+
+**負測**:把 plan 檔也丟進集合 ⇒ 該格必須紅在「集合大小 ≠ **6**」,而不是紅在 md5 不等。
+🔴 **集合大小是 6 不是 5**(3a 前段實查:六個標記區塊、每塊恰 6 行)—— 上表是**五個檔內位置**,
+而位置 2 內含**兩個**文字實體。本節標題與 §1.1 的「五處」講的是位置,守門的計數一律用 **6**。
+
+🔴🔴 **第 7 個文字實體:刻意<u>不</u>收進受守集合(3a 前段 R1 抓到)**
+
+`scripts/a4b-concurrency-probe.sh` 內有第 7 份漂移 oracle,其註解原本寫「**與 a4a-verify 同一份**」——
+3a 前段把 `a4a-verify` 四軸化之後,**那句就不成立了**(該檔仍是三軸 + 舊候選全集,對 shipped 漂移全盲)。
+**處置(施工裁決)**:①該檔的自述已同批改成事實(不留活字)②**不四軸化** ——
+它是**併發探針**,量的是鎖序與 `40P01`,四軸化不增加它的判別力,而多一個副本就多一處要同步的字面
+③**後段的同步守門不把它算進那 6 塊**;哪天要拿它當漂移證據,**先四軸化再說**。
+🔴 **這一列存在的理由 = 讓下一棒知道它「被看見過而且是被決定不收」,不是被漏掉。**
 
 ---
 
@@ -454,8 +514,15 @@ trigger 建立**之前**、同交易、逐品項呼叫 helper。**兩段 oracle,
 
 | 位置 | 現行候選全集(實查) | 缺什麼 |
 |---|---|---|
-| `docs/runbooks/a4a-summary-rollback.md:76-78` 與 `:152-154` | procurement ∪ cancellation ∪ **summary** | 只缺 `shipment_items` |
-| `scripts/a4a-verify.sh:155` | procurement ∪ cancellation | 缺 **summary 與 `shipment_items` 兩者** |
+| `docs/runbooks/a4a-summary-rollback.md` 步驟②/⑤ 的候選 union | procurement ∪ cancellation ∪ **summary** | 只缺 `shipment_items` |
+| `scripts/a4a-verify.sh` 的 `ORACLE_SQL` **第三式** | procurement ∪ cancellation | 只缺 `shipment_items` |
+
+🔴🔴 **v3.1 更正(3a 前段 R1 must-fix 1;上一版這張表把我自己帶進一個恆真分支)**:本表原寫
+「`a4a-verify.sh` 缺 **summary 與 shipment_items 兩者**」——**「缺 summary」那半是錯的**。
+第三式的 WHERE 是 `NOT EXISTS (… FROM order_item_quantity_summary …)` ⇒ **從 summary 來的候選必然被自己排除**
+(`order_item_id` NOT NULL,連 NULL 那條縫都沒有)⇒ 補進去是**恆 0 的 no-op**。
+summary-only 的形狀(真相活動全刪、摘要殘留非 0)由 `ORACLE_SQL` 的**第二式**承重(它全掃 summary 逐軸比真值)。
+⇒ 3a 前段照本更正只補了 `shipment_items`;**照舊字面做會寫出一個看起來有守、實際恆 0 的分支**。
 
 ⇒ v1 那句「現行 runbook/harness 的候選全集是 procurement ∪ cancellation」**對 runbook 是過期敘述**。
 本片要做的是:runbook 兩處補 `shipment_items`;`a4a-verify.sh` 補 **summary + `shipment_items`**。
@@ -575,7 +642,7 @@ codex 關卡1 判 must-fix:v1 同時留下兩套互斥方案 = 把技術決定�
 |---|---|---|
 | 26 | S2b-3b | 🔴 **債①停寫(v2 重寫)**:停的對象是**本線新增的重算 trigger**,不是 REVOKE 一個不存在的 writer。rollback 步驟①(`runbook:19-22`)補 `ALTER TABLE public.shipments DISABLE TRIGGER shipments_summary_recompute_ac`。**驗收**:①停用後改 `shipped_at` ⇒ 摘要表 `shipped_quantity` **不變**(trigger 沒跑)②拿掉該步驟時這一格**必須翻面**(改了 `shipped_at` 摘要就跟著動)|
 | 26b | S2b-3b | 🔴 **停寫的對稱恢復(codex 關卡1:v1 只有停、沒有復)**:runbook 必須有對應的 **`ENABLE TRIGGER`** 步驟,且排在 rollback 文件的**步驟⑦(最後)**、與既有 GRANT 恢復同一節。**驗收**:恢復後改 `shipped_at` ⇒ 摘要重新跟動。🔴 少了這一步,災難重建成功後**出貨側永久停寫,而三軸對帳仍可能全綠** |
-| 27 | S2b-3b | 🔴 **債②divergence 第四軸**:對帳表(`runbook:63-68`)加 `snap_shipped` / `truth_shipped` 兩欄。驗收 = 造一筆**只有 shipped 漂移、前三軸完全正確**的資料,舊三軸版對帳**回 0 列**(證明它真的瞎)、四軸版**回 1 列且指名該品項**。🔴 這一格與 §4 項 22 的 PR4 造洞法**共用同一個 fixture 紀律**:只動 shipped 真相、前三軸不動 |
+| 27 | S2b-3b | 🔴 **債②divergence 第四軸**:對帳表(`a4a_rollback_divergence` 的 CTAS)加 `snap_shipped` / `truth_shipped` 兩欄。🔴 **v3.1:兩欄與 WHERE 判斷已由 3a 前段落地**(取法:`grep -n snap_shipped docs/runbooks/a4a-summary-rollback.md`;**不寫行號,理由見 §1.1 位置表下方**)。本項**只剩驗收 fixture** —— 不要因為看到欄位已在就登記已完成。驗收 = 造一筆**只有 shipped 漂移、前三軸完全正確**的資料,舊三軸版對帳**回 0 列**(證明它真的瞎)、四軸版**回 1 列且指名該品項**。🔴 這一格與 §4 項 22 的 PR4 造洞法**共用同一個 fixture 紀律**:只動 shipped 真相、前三軸不動 |
 | 28 | S2b-3b | 🔴 **債③(v2 降級為斷言,不改 gate)**:本線 scope 明定**不新增出貨真值表** ⇒ 債③不觸發。**「出貨資料面集合」的定義(本線據此判定)= 「任何持有 `shipped_quantity` 或等價已寄出數量、且會被 §1 真相式讀到的表」,今日恰為 `shipments` 與 `shipment_items` 兩張。** 驗收 = 一格靜態斷言:**資料面集合的 before / after 相等**(不是只看「新建 table」——codex R2:以 `ALTER` 擴既有表、或改真相來源時,新建集合仍為空而該格照樣綠)。具體 = 把「§1 真相式讀到的表 + 持有已寄出數量的欄」在本線前後各枚舉一次,兩份集合逐字相等;且 `gate` 模式的兩個 `count(*)` 查詢**逐字未變**。🔴 **不得改動 gate 已定型的五路徑與零參數 libpq 設計**(那是小線四輪審出來的) |
 | 29 | S2b-2b | 🔴 **stale-high 殘留:本線把它「關閉」的正向證明(v2 重寫)**。codex 關卡1 指出 §0.6b 的因果鏈**只適用尚未四軸化的舊 helper** —— 本線之後每次呼叫 helper 都會**同時重算 instock 與 shipped**,殘留會被當筆校正掉 ⇒「先靜默超出貨、後紅無辜交易」在**本線落地後的正常路徑上不可構造**。🔴🔴 **v2-R3 補:三格必須各自 pin provision 基準**(Fable 翻案條件⑤ —— 不寫死基準,執行者在全前綴庫上照做會卡死)。
 | 格 | 跑在哪個庫 | 為什麼 |
@@ -591,7 +658,7 @@ codex 關卡1 判 must-fix:v1 同時留下兩套互斥方案 = 把技術決定�
 (那就是項 29(c) 本身,而且是正確行為)。**營運端的引導訊息仍必要**(§9 交棒 2),不得因本線而撤掉。
 🔴 (a)(b)(c) 三格**都必須跑出預期觀察值才算過**;不接受「構造不出來也算完成」(codex:那是同一項無論結果如何都能登記完成) |
 | 30 | **S2b-5**(獨立片) | 🔴 **註解蓋寫的常駐守門(9c 交棒;§0.6c)—— v2 重設計,見下方 §4.30**;含 **expected-before / expected-after 兩組凍結值** |
-| 31 | S2b-3b | 🔴 **債④:把本線加進 runbook 的 Forward 重建清單**(`runbook:251`)+ 更新該行下方「6 欄 / 10 條 CHECK」的數字 + **同批擴小線的守門**。🔴🔴 **v2-R2 修正:我上一版把這條寫反了**(codex 關卡1 R2 抓)。實查 `scripts/b2s2a-verify.sh:1086-1091`:項13 是**硬比字串** `"20260730150000,20260803140000,20260806100000"` ⇒ **runbook 漏掉本線時它照樣綠;把本線加進去反而會先紅**。既有守門**擋不住債④,方向還相反**。🔴🔴 **v2-R3 再修(Fable 翻案條件①:上一版的修法照稿仍不可實作)**:實查 `b2s2a-verify.sh:1082`,
+| 31 | S2b-3b | 🔴 **債④:把本線加進 runbook 的 Forward 重建清單**(`runbook:296`)+ 更新該行下方「6 欄 / 10 條 CHECK」的數字 + **同批擴小線的守門**。🔴🔴 **v2-R2 修正:我上一版把這條寫反了**(codex 關卡1 R2 抓)。實查 `scripts/b2s2a-verify.sh:1086-1091`:項13 是**硬比字串** `"20260730150000,20260803140000,20260806100000"` ⇒ **runbook 漏掉本線時它照樣綠;把本線加進去反而會先紅**。既有守門**擋不住債④,方向還相反**。🔴🔴 **v2-R3 再修(Fable 翻案條件①:上一版的修法照稿仍不可實作)**:實查 `b2s2a-verify.sh:1082`,
 `REH_OUT` **只量摘要表的欄數與 CHECK 數**;而**本線不加欄、不加 CHECK** ⇒ 「本線落地後的新數字」**不存在**,
 rehearsal 對 S2b 產物**結構上全盲**。且 `rehearse()` **跳過 A4a**,而本線閘①要求 A4a helper 存在(§3.2)
 ⇒ 把 S2b 加進 Forward 清單後,若照原樣重放,S2b 會因為 helper 不在而 abort。
