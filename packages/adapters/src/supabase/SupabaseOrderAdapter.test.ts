@@ -1293,52 +1293,9 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
   });
 });
 
-// ── updateAdminOrderItemWorkflow:per-item 改狀態(M-4a Slice D-2、走 admin_update_order_item_workflow RPC)──
-
-describe('SupabaseOrderAdapter.updateAdminOrderItemWorkflow', () => {
-  it('wire:p_patch 恰 workflow_status 單鍵(code 設定);回 UPDATED', async () => {
-    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
-    const res = await new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow(
-      'oi-1',
-      3,
-      'shipped_done',
-      'sean',
-      'req-i1',
-    );
-    expect(rpc).toHaveBeenCalledWith('admin_update_order_item_workflow', {
-      p_item_id: 'oi-1',
-      p_expected_version: 3,
-      p_patch: { workflow_status: 'shipped_done' },
-      p_actor: 'sean',
-      p_request_id: 'req-i1',
-    });
-    expect(res).toBe('UPDATED');
-  });
-
-  it('🔴 品項凍結紅線:null=清空語意透傳;wire 恆單鍵、絕不夾帶 quantity/unit_price/line_total/variant 欄', async () => {
-    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
-    await new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow('oi-1', 3, null, 'sean', 'req-i2');
-    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
-    expect(args.p_patch).toEqual({ workflow_status: null }); // 恰單鍵(toEqual=零額外鍵)
-  });
-
-  it('CONFLICT / NOOP 碼直送;RPC error → 裸 throw;非預期碼 → throw 防腐壞', async () => {
-    for (const code of ['CONFLICT', 'NOOP'] as const) {
-      const { client } = makeRpcClient({ data: code, error: null });
-      await expect(
-        new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow('oi-1', 1, 'cancelled', 'sean', 'r'),
-      ).resolves.toBe(code);
-    }
-    const failing = makeRpcClient({ data: null, error: new Error('workflow_status 非有效啟用狀態') });
-    await expect(
-      new SupabaseOrderAdapter(failing.client).updateAdminOrderItemWorkflow('oi-1', 1, 'ghost', 'sean', 'r'),
-    ).rejects.toThrow();
-    const weird = makeRpcClient({ data: 42, error: null });
-    await expect(
-      new SupabaseOrderAdapter(weird.client).updateAdminOrderItemWorkflow('oi-1', 1, null, 'sean', 'r'),
-    ).rejects.toThrow('非預期');
-  });
-});
+// 🔴 `SupabaseOrderAdapter.updateAdminOrderItemWorkflow` 那組 **3 條**測試,隨受測方法一併移除
+//    (A9w4c 後半,2026-08-06)。order 層的 `updateAdminOrderWorkflow` 那組原封保留 —— 兩者是不同的
+//    寫入面,只有 item 那支退場。
 
 // ── M-4b E10 A9b1:單號搜尋(display_id + legacy_display_id 同時比對)───────────
 // 規格 = docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md §5.1 A9b1。

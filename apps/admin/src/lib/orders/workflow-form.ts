@@ -6,28 +6,19 @@ import type { AdminOrderWorkflowPatch, InvoiceStatus } from '@pcm/domain';
 
 // ── 表單欄名(list inline 小 form 與明細頁表單共用)──
 export const ORDER_ID_FIELD = 'order_id';
-// 🔴 A9w4a 後 `ITEM_ID_FIELD` 已零 consumer(唯一 production 使用者 `item-workflow-status-cell.tsx`
-// 與測試側 `workflow-form.test.ts` 的 item 那組 import 皆同片刪除)。
-// **不是無主死碼** —— 它與 `WF_STATUS_FIELD`/`WF_CLEAR_VALUE`/`WF_RECEIVED_UNCONFIRMED` 同屬
-// 九碼詞彙面,plan `2026-08-06-e10-a11a-list-rebuild-plan.md` §4 裁定一併歸 **A9w4c 後半**收。
-export const ITEM_ID_FIELD = 'item_id'; // M-4a D-2:per-item 改狀態表單 target
 export const VERSION_FIELD = 'version';
 export const RETURN_TO_FIELD = 'return_to';
-export const WF_STATUS_FIELD = 'workflow_status';
 export const SHIPPING_METHOD_FIELD = 'shipping_method';
 export const INVOICE_NUMBER_FIELD = 'invoice_number';
 export const INVOICE_AMOUNT_FIELD = 'invoice_amount';
 export const INVOICE_STATUS_FIELD = 'invoice_status';
 
-/** 「清空 workflow_status」的下拉哨兵值(明確清空 vs 未動;'unset' 是篩選哨兵、此處另用避免混淆)。 */
-export const WF_CLEAR_VALUE = '__clear__';
-
-/**
- * paid 且尚未設定狀態時,下拉預選的預設狀態 code(Sean 2026-07-24 已收未定 A 案 Q3=A)。
- * 🔴 純顯示層預設:DB 仍為 null,operator 按「存」才真正寫入(不自動落庫)。
- * 對應 seed 2×4 矩陣 paid×notOrdered → 已收未定(design §6.1)。
- */
-export const WF_RECEIVED_UNCONFIRMED = 'received_unconfirmed';
+// 🔴 **九碼詞彙面四常數已於 A9w4c 後半(2026-08-06)一併移除**(plan §4 裁定):
+//    `ITEM_ID_FIELD` / `WF_STATUS_FIELD` / `WF_CLEAR_VALUE` / `WF_RECEIVED_UNCONFIRMED`。
+//    最後的 consumer(`workflow-select-options.ts`、`workflow-status-select.tsx`)同片刪除。
+//    ⚠️ order 層那條「送 `workflow_status` 一律忽略」的**負向守門測試仍在**、只是改用 wire literal
+//    `'workflow_status'` / `'__clear__'` —— 欄名是 **wire 契約**、不是 TS 常數,而且
+//    `nine-code-retire.test.tsx` 早有「常數名不是欄名」被 R1 抓過的先例,literal 反而更誠實。
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -94,8 +85,9 @@ export function parseWorkflowPatchForm(form: FormLike): ParseResult {
   // 🔴 D-2(Codex R1 must-fix 1):order 層 workflow_status **寫入路徑關死** —— 本 parser 不再讀
   // WF_STATUS_FIELD(手工 POST 加該欄=一律忽略、不進 patch),AdminOrderWorkflowPatch 型別已無
   // workflowStatus、adapter 亦不映射 → admin server 無任何路徑把該 key 送進舊 RPC。
-  // 🔴 A9w4a 後連 item 層 parser 也移除 ⇒ **admin 應用層已無任何 workflow_status 表單解析面**
-  // (殘留的 port/adapter 方法歸 A9w4c 後半、DB 端 RPC EXECUTE 歸 A9v);orders.workflow_status=停寫欄。
+  // 🔴 A9w4a 拆了 item 層 parser、**A9w4c 後半又拆了 port/adapter 方法** ⇒ **admin 應用層與 adapter
+  // 都已無任何 workflow_status 寫入面**。⚠️ 但**不是**「九碼寫不進去」:DB 端
+  // `admin_update_order_item_workflow` RPC 與其 EXECUTE 權仍在,撤權歸 **A9v**;orders.workflow_status=停寫欄。
 
   if (form.has(SHIPPING_METHOD_FIELD)) {
     const raw = (asString(form.get(SHIPPING_METHOD_FIELD)) ?? '').trim();

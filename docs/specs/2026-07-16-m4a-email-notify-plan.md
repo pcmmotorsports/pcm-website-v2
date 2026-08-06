@@ -256,7 +256,7 @@ codex R2-4 親驗:`admin_update_order_workflow`(`order-actions.ts:36-81`)**只�
 **Sean 拍板(07-16 深夜)= B**:原話「每出一批就寄一封(部分出貨也通知,但客人可能收到好幾封)」→ **接受同一訂單多封出貨信**。
 → **觸發點改掛 per-item RPC**:~~`updateOrderItemWorkflowAction`(`order-actions.ts:89`)~~ → `admin_update_order_item_workflow`(`20260716130000`)成功後、app 層寫 outbox(不改 RPC)。欄位=`order_items.workflow_status`(`20260716120000`)。
 
-🔴 **2026-08-06 起此觸發點已不存在**:`updateOrderItemWorkflowAction` 由 **M-4b E10 A9w4a**(九碼退場)具名刪除,連同其 form parser 與唯一呼叫元件。**本線是「暫緩非作廢」(`STATUS.md:6`)⇒ E4 開工前必須先重定觸發點**,不能照本段字面 grep(會 0 命中)。當時尚存的下游:RPC `admin_update_order_item_workflow` 本身(EXECUTE 權歸 A9v 收)與 port/adapter 的 `updateAdminOrderItemWorkflow`(歸 A9w4c 後半收)—— **兩者都排在退場鏈上,E4 不宜直接改掛上去**。詳見 §5 E4 那格與 `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §4。
+🔴 **2026-08-06 起此觸發點已不存在**:`updateOrderItemWorkflowAction` 由 **M-4b E10 A9w4a**(九碼退場)具名刪除,連同其 form parser 與唯一呼叫元件。**本線是「暫緩非作廢」(`STATUS.md:6`)⇒ E4 開工前必須先重定觸發點**,不能照本段字面 grep(會 0 命中)。當時尚存的下游:RPC `admin_update_order_item_workflow` 本身(EXECUTE 權歸 A9v 收)與 port/adapter 的 `updateAdminOrderItemWorkflow`(歸 A9w4c 後半收 —— ✅ **2026-08-06 A9w4c 後半已執行,port/adapter 那支也沒了;現在只剩 DB 端 RPC**)—— **兩者都排在退場鏈上,E4 不宜直接改掛上去**。詳見 §5 E4 那格與 `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §4。
 
 🔴 **連鎖影響(S2=B 造成、E1a schema 必須先解決)**:
 1. **`UNIQUE (event_type, order_id)` 作廢**——它是為「整單一封」設計的,B 案下會**擋掉同訂單的第二封出貨信**。

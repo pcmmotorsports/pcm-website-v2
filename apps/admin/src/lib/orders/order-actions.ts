@@ -15,8 +15,8 @@ import { parseWorkflowPatchForm } from './workflow-form';
 //    `updateOrderItemWorkflowAction`(per-item 九碼寫入 server action)**已具名移除** ——
 //    前置 A11a-1 拆掉列表最後一個消費端後,本檔已無任何九碼寫入面。
 //    ⚠️ **正確讀法 = 「admin 應用層沒有這支 action」,不是「九碼寫不進去」**:
-//    port/adapter 的 `updateAdminOrderItemWorkflow` 仍在(歸 **A9w4c 後半**)、
-//    DB 端 `admin_update_order_item_workflow` RPC 的 EXECUTE 也仍在(歸 **A9v**)。
+//    port/adapter 的 `updateAdminOrderItemWorkflow` **已於 A9w4c 後半(2026-08-06)一併移除**;
+//    **仍在的只剩 DB 端** `admin_update_order_item_workflow` RPC 與其 EXECUTE 權(撤權歸 **A9v**)。
 //
 // 🔴 安全縱深(不只靠 proxy 登入閘;verdict must-fix 2/3):
 //   ① verifySession(cookie) 自驗——admin session 票證無效 → 拒(裸 Route Handler 不吃 Next 內建、

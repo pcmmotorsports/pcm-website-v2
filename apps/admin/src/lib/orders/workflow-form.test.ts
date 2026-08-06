@@ -4,10 +4,8 @@ import { describe, it, expect } from 'vitest';
 import {
   isAllowedOrigin,
   parseWorkflowPatchForm,
-  WF_CLEAR_VALUE,
   ORDER_ID_FIELD,
   VERSION_FIELD,
-  WF_STATUS_FIELD,
   SHIPPING_METHOD_FIELD,
   INVOICE_NUMBER_FIELD,
   INVOICE_AMOUNT_FIELD,
@@ -62,10 +60,13 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
     }
   });
 
+  // 🔴 欄名與哨兵值改用 **wire literal**(A9w4c 後半:`WF_STATUS_FIELD` / `WF_CLEAR_VALUE` 兩常數
+  //    隨九碼詞彙面一併刪除)。這裡量的本來就是「**手工 POST 送這個 wire 欄名**會不會進 patch」——
+  //    欄名是 wire 契約、不是 TS 常數;`nine-code-retire.test.tsx` 早有「常數名不是欄名」被 R1 抓過的先例。
   it('🔴 D-2(Codex R1 must-fix 1):送 workflow_status(code/哨兵/非法形狀)→ 一律忽略、絕不進 patch(orders 層停寫、寫入路徑關死)', () => {
-    for (const v of ['shipped_done', WF_CLEAR_VALUE, '', 'Bad Code!']) {
+    for (const v of ['shipped_done', '__clear__', '', 'Bad Code!']) {
       const r = parseWorkflowPatchForm(
-        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [WF_STATUS_FIELD]: v, [INVOICE_STATUS_FIELD]: 'issued' }),
+        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: v, [INVOICE_STATUS_FIELD]: 'issued' }),
       );
       expect(r.ok).toBe(true);
       if (r.ok) {
@@ -124,13 +125,13 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
 
   it('return_to:站內 /orders 路徑保留;外部/他路徑退 /orders(防 open redirect)', () => {
     const inPath = parseWorkflowPatchForm(
-      form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [WF_STATUS_FIELD]: 'shipped_done', [RETURN_TO_FIELD]: `/orders/${UUID}` }),
+      form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: 'shipped_done', [RETURN_TO_FIELD]: `/orders/${UUID}` }),
     );
     expect(inPath.ok && inPath.returnTo).toBe(`/orders/${UUID}`);
     // nit-6:`..` 站內 redirect gadget(/orders/../../api/sso/start)拒
     for (const evil of ['https://evil.com', '//evil.com', '/customers', '/orders\n/x', '/orders/../../api/sso/start']) {
       const r = parseWorkflowPatchForm(
-        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [WF_STATUS_FIELD]: 'shipped_done', [RETURN_TO_FIELD]: evil }),
+        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: 'shipped_done', [RETURN_TO_FIELD]: evil }),
       );
       expect(r.ok && r.returnTo).toBe('/orders');
     }
