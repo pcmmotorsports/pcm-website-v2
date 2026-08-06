@@ -28,8 +28,7 @@ vi.mock('../../../lib/orders/procurement-actions', () => ({
 }));
 vi.mock('../../../lib/orders/note-actions', () => ({ appendOrderNoteAction: vi.fn() }));
 vi.mock('../../../lib/orders/order-actions', () => ({
-  updateOrderWorkflowAction: vi.fn(),
-  updateOrderItemWorkflowAction: vi.fn(),
+  updateOrderWorkflowAction: vi.fn(), // A9w4a:`updateOrderItemWorkflowAction` 已從該模組具名移除
 }));
 vi.mock('../../../lib/payment/refund-actions', () => ({ initiateRefundAction: vi.fn() }));
 

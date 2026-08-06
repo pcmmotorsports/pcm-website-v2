@@ -37,7 +37,10 @@ const TD = 'px-3 py-2 text-sm whitespace-nowrap align-top';
  * (`packages/domain/src/order/types.ts:131` 逐字);非合併態顯示該列 `lineTotal`,**不含運費與折扣**。
  * ⇒ 單品項且買 1 件的單只要有運費,同一個「金額」欄在不同單之間的**語意就不一樣**
  * (一邊是品項的錢、一邊是訂單的錢)。母 plan §5.1a 只規定了「什麼時候顯示整單總額」,
- * 沒規定非合併態顯示什麼 ⇒ 這是規格缺口,**已列為交棒決策題,不在施工端自行裁定**。
+ * 沒規定非合併態顯示什麼 ⇒ 這是規格缺口,已交棒為決策題。
+ *
+ * 🏁 **Sean 2026-08-06 拍 B:維持現狀、兩種語意並存=知情接受**(E-115-A)。
+ * ⇒ **這不是 bug,勿順手「統一」** —— 要統一得先重拍(改哪一邊、含不含運費/折扣都會動到肉眼驗基準)。
  */
 function shouldMergeAmount(order: AdminOrderSummary): boolean {
   return order.lines.length > 1 || order.lines.some((l) => l.quantity > 1);

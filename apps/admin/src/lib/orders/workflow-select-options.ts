@@ -3,6 +3,10 @@
 //(停用 code 解析得到策展色、未知 code 中性不編造)③active 選項帶各自策展色
 // ④付款↔狀態半邊過濾(已收未定 A 案、Sean 2026-07-24):paid 藏未收半邊、unpaid 藏已收半邊、
 //   cancelled 雙邊恆在、partiallyPaid/refunded 不過濾;**當前值一律保留、不受過濾影響**。
+//
+// 🔴 **A9w4a(2026-08-06)後本檔已零 production consumer** —— 唯一使用者
+// `item-workflow-status-cell.tsx` 同片刪除,現僅剩自身 `.test.ts`。**不是無主死碼**:
+// plan `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §4 裁定隨 **A9w4c 後半**一併收。
 
 import type { OrderStatusOption, PaymentStatus } from '@pcm/domain';
 import { WF_CLEAR_VALUE, WF_RECEIVED_UNCONFIRMED } from './workflow-form';

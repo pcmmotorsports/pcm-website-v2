@@ -105,6 +105,12 @@
 
 🔴 v1 只寫了 `quantity > 1` 那半條,會讓**多品項單看不到總額**。本 plan 依更正後的完整條件施工。
 
+🏁 **語意落差已拍板(Sean 2026-08-06 拍 B,`E-115-A`)**:合併態顯示 `order.total`(含運費、扣折扣)、
+非合併態顯示該列 `lineTotal`(不含運費折扣)⇒ **同一個「金額」欄在不同單之間語意不同**。
+Sean **知情接受、維持現狀**,零程式改動。⇒ **後續施工者不得把它當 bug 順手「統一」** ——
+要統一得先重拍(統一到哪一邊、含不含運費折扣,都會動到肉眼驗基準)。
+落地字面在 `apps/admin/src/components/orders/orders-table.tsx` 的 `shouldMergeAmount` docblock。
+
 ### 2.2 🔴 發票欄沒有主(本 plan 發現的缺口)
 
 §5.1a `:558` 逐字(「新增 | 發票」那列):「新增 | 發票 | 三軸之外的收尾軸(**A11a 前置 = 既有 `pending_invoices` 四欄已在明細頁**);
@@ -278,7 +284,9 @@ A11a-1(九碼三群下架 = 列表最後一個九碼消費端消失)
 A9w4a(item writer 拆除:server action + form parser;高風險、codex 不降級)
    ↓
 A9w4c 後半(item 半:`WF_STATUS_FIELD`/`ITEM_ID_FIELD`/`WF_CLEAR_VALUE`/`WF_RECEIVED_UNCONFIRMED`
-   與 `workflow-select-options.ts`、三支孤兒元件檔一併清)
+   與 `workflow-select-options.ts`、孤兒元件檔一併清;🔴 **2026-08-06 A9w4a 後實剩兩支** ——
+   `workflow-status-select.tsx` / `workflow-status-badge.tsx`,原本第三支
+   `item-workflow-status-cell.tsx` 已由 A9w4a 刪除)
    ↓
 A9v(REVOKE item RPC + 撤 `order_status_options` service_role 寫權 + ACL 終態斷言;
     前置 = 全 consumer 零引用 grep;`order_items.workflow_status` 欄凍結不 DROP)
@@ -317,7 +325,7 @@ backlog 條目 `docs/phase-1-backlog.md:9056` 已標「三筆全清」。**不�
 | # | 驗收條件 | 怎麼測 | 突變靶(把這個改壞,該格必紅) |
 |---|---|---|---|
 | V1 | 表頭欄數 = **§3 表「收工欄數」欄該片的值**,且每列 `<td>`+rowSpan 佔位與表頭一致 | 元件測試數 `<th>` 與各 `<tr>` 的 `<td>`+rowSpan 佔位;**期望值逐片取自 §3,不寫死 13** | 刪一個 `<th>` 不刪對應 `<td>`;或把期望值改回寫死 13 ⇒ A11a-1 那片必紅 |
-| V2 | **九碼零殘留**:無 `select[name="workflow_status"]`、無 `input[name="item_id"]`、無「存」鈕、無「商品狀態」表頭 | 頁層渲染測試(照 `app/orders/[id]/nine-code-retire.test.tsx` 的形狀) | 把 `ItemWorkflowStatusCell` 掛回 `orders-table` |
+| V2 | **九碼零殘留**:無 `select[name="workflow_status"]`、無 `input[name="item_id"]`、無「存」鈕、無「商品狀態」表頭 | 頁層渲染測試(照 `app/orders/[id]/nine-code-retire.test.tsx` 的形狀) | 把 `ItemWorkflowStatusCell` 掛回 `orders-table`;🔴 **A9w4a 已刪該元件 ⇒ 此突變按字面不可執行**,等價突變改為「在列上手寫 `<input name="item_id">` + `<select name="workflow_status">` + 「存」鈕」 |
 | V3 | **rowSpan 分組正確**:多品項單的訂單層格 `rowSpan = lines.length`,且**只在 `i === 0` 渲染一次** | 假資料 3 品項單,斷言 `rowSpan` 值與該格出現次數 | 把 `rowSpan={rowSpan}` 改成 `rowSpan={1}`;或拿掉 `i === 0` 條件 |
 | V4 | **金額合併規則**:單品項且 `quantity=1` → 顯示該列金額;**多品項 或 任一列 `quantity>1`** → 合併格顯示整單總額 | 四格真值表(1×1 / 1×n / m×1 / m×n) | 把條件寫成只有 `quantity > 1`(= v1 的錯)⇒ m×1 那格必紅 |
 | V5 | 空 `lines` 仍渲染一列佔位、訂單層格不消失 | 餵 `lines: []` | 拿掉 `rows.length > 0 ? … : [null]` 兜底 |
