@@ -153,6 +153,12 @@ export type BrandContent = {
   /** 一句話定位,35-50 字。 */
   lede: BrandRichString;
   slogan: BrandRichString;
+  /**
+   * 品牌磚牆(N°06)每一格的一行副標,例:`排氣管、鈦合金消音器`。
+   * 2026-08-06 標點遷移片隨 OD 來源一起進來;**消費端是 D5f 磚牆片**,在那之前無人讀。
+   * 純文字、不走 `BrandRichString`(OD 來源 20 家皆為 plain string,無白名單標記)。
+   */
+  wallTagline: string;
   band?: BrandBand;
   /** 深色場 logo(`assets/brands-dark/`);與磚牆用的 `brands-trim/` 是不同資料夾,不要拿錯。 */
   bandLogo: string;
