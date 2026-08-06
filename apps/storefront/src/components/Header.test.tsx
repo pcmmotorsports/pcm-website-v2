@@ -232,4 +232,144 @@ describe('Header', () => {
       expect(dot?.textContent).toBe('7');
     });
   });
+
+  // 手機選單 MobileMenu(OD `pcm-home-redesign/DESIGN-HANDOFF-2026-08-05.md` §十一)。
+  // 補真站既有導航缺口:手機原本只有搜尋/logo/購物車,品牌/新品/特價/安裝預約/合作店家
+  // 五條在手機上只剩頁尾能到。連結來源=Header 既有的 navItems(不另寫第二份清單)。
+  describe('手機選單 MobileMenu(補真站導航缺口)', () => {
+    // 與上面「導覽列連結目的地」測試同一份 navItems 現況(currentPage 預設 'products'),
+    // 用來驗面板真的讀自 Header 的 navItems、不是另一份手寫清單。
+    const EXPECTED_SHOP = [
+      ['商品目錄', '/products'],
+      ['依車輛搜尋', '/products?pick=vehicle'],
+      ['品牌', '/brands'],
+      ['新品', '/products?filter=new'],
+      ['特價', '/products?filter=sale'],
+    ];
+    const EXPECTED_SERVICE = [
+      ['安裝預約', '/install'],
+      ['合作店家', '/stores'],
+    ];
+    const EXPECTED_ACCOUNT = [
+      ['會員中心', '/account'],
+      ['購物車', '/cart'],
+      ['配送 & 退貨', '/info/shipping'],
+    ];
+
+    function openMenu() {
+      const { container } = renderWithCart(<Header isMobile />);
+      fireEvent.click(screen.getByLabelText('開啟選單'));
+      // MF1 修復後面板 portal 到 document.body、不在 `container` 底下(container 是
+      // RTL 掛 Header 樹的容器,面板已不是它的子孫)—— 查 document 才找得到。
+      const panel = document.querySelector('.pcm-menu-panel');
+      expect(panel, '面板不存在').not.toBeNull();
+      return { container, panel: panel as HTMLElement };
+    }
+
+    function groupLinks(panel: HTMLElement, label: string) {
+      const groups = Array.from(panel.querySelectorAll('.pcm-menu-group'));
+      const group = groups.find((g) => g.querySelector('.pcm-menu-label')?.textContent === label);
+      expect(group, `找不到「${label}」分組`).toBeDefined();
+      return Array.from(group!.querySelectorAll('a')).map((a) => [a.textContent?.trim(), a.getAttribute('href')]);
+    }
+
+    it('桌機不渲染選單鈕(單元測試層可證;≥1080px 自動收起要靠真瀏覽器)', () => {
+      renderWithCart(<Header isMobile={false} />);
+      expect(screen.queryByLabelText('開啟選單'), '桌機不該有選單鈕').toBeNull();
+      expect(document.querySelector('.pcm-menu-panel'), '桌機不該渲染選單面板').toBeNull();
+    });
+
+    it('390px:頁首左側有選單鈕,點了開全屏面板(OD 驗收 #1)', () => {
+      const { panel } = openMenu();
+      expect(panel.classList.contains('is-open')).toBe(true);
+    });
+
+    it('面板分三組(選購/服務/帳戶),每組有 mono 眉標(OD 驗收 #3)', () => {
+      const { panel } = openMenu();
+      const labels = Array.from(panel.querySelectorAll('.pcm-menu-label')).map((el) => el.textContent);
+      expect(labels).toEqual(['選購', '服務', '帳戶']);
+    });
+
+    // 🔴 R1 更正(2026-08-07):本測試名原本宣稱「改成另寫清單…會在此轉紅」,但斷言只是
+    //    拿 DOM 比對同檔硬編碼的 EXPECTED_SHOP/EXPECTED_SERVICE ——在 MobileMenu 內另寫一份
+    //    同值的硬編碼陣列,本測試照樣全綠,守不住「同一份來源」。這條保留(它守的是 Header
+    //    傳對值給 MobileMenu),但改用名實相符的標題;「連結真的來自 navItems 這份來源」的
+    //    防線改在 `MobileMenu.test.tsx` 的 sentinel 測試(傳入明顯非真資料的 navItems)。
+    it('選購+服務兩組連結的值與 Header navItems 一致(僅驗值對,非「來源」——來源防線見 MobileMenu.test.tsx sentinel 測試)', () => {
+      const { panel } = openMenu();
+      expect(groupLinks(panel, '選購')).toEqual(EXPECTED_SHOP);
+      expect(groupLinks(panel, '服務')).toEqual(EXPECTED_SERVICE);
+    });
+
+    it('品牌/安裝預約/合作店家三條都看得到且可點(OD 驗收 #2)', () => {
+      const { panel } = openMenu();
+      const all = [...groupLinks(panel, '選購'), ...groupLinks(panel, '服務')];
+      expect(all).toContainEqual(['品牌', '/brands']);
+      expect(all).toContainEqual(['安裝預約', '/install']);
+      expect(all).toContainEqual(['合作店家', '/stores']);
+    });
+
+    it('帳戶組 = 會員中心/購物車/配送&退貨,查證得到的既有路由(非 navItems)', () => {
+      const { panel } = openMenu();
+      expect(groupLinks(panel, '帳戶')).toEqual(EXPECTED_ACCOUNT);
+    });
+
+    it('特價那條有 is-sale 樣式標記,其餘沒有(OD 驗收 #4)', () => {
+      const { panel } = openMenu();
+      const saleLinks = Array.from(panel.querySelectorAll('.pcm-menu-body a.is-sale')).map((a) => a.textContent?.trim());
+      expect(saleLinks).toEqual(['特價']);
+      const nonSaleWithClass = Array.from(panel.querySelectorAll('.pcm-menu-body a:not(.is-sale)')).map((a) => a.textContent?.trim());
+      expect(nonSaleWithClass).not.toContain('特價');
+      expect(nonSaleWithClass.length).toBe(9); // 5 選購(扣特價=4)+2 服務+3 帳戶 = 9
+    });
+
+    it('底部有熔橘 LINE 鈕(連真 site-config LINE_ADD_URL)與門市地址(OD 驗收 #6)', () => {
+      const { panel } = openMenu();
+      const lineLink = panel.querySelector('.pcm-menu-line');
+      expect(lineLink, '找不到 LINE 鈕').not.toBeNull();
+      expect(lineLink!.getAttribute('href')).toBe('https://lin.ee/R6QZUH2');
+      const store = panel.querySelector('.pcm-menu-store');
+      expect(store?.textContent).toContain('新北市新莊區化成路736巷18號1樓');
+      expect(store?.textContent).toContain('週一-週六 10:00-19:00');
+    });
+
+    it('按 Esc 會收起(OD 驗收 #7、真 keydown handler)', () => {
+      const { panel } = openMenu();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(panel.classList.contains('is-open')).toBe(false);
+    });
+
+    // 🔴 真瀏覽器實測補的洞(2026-08-06,390px):OD §十一 把「焦點管理」列為選單行為之一,
+    //    但第一版收起後 `document.activeElement` 不是開啟鈕 ⇒ 鍵盤/讀屏使用者掉回文件開頭。
+    //    這條釘住「收起後焦點交還」——拿掉 cleanup 裡那行 focus() 就會紅。
+    it('收起後焦點交還開啟鈕(a11y;OD §十一「焦點管理」)', () => {
+      openMenu();
+      const openBtn = screen.getByLabelText('開啟選單');
+      expect(document.activeElement, '開啟時焦點應在面板內、不在開啟鈕上').not.toBe(openBtn);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(document.activeElement, '收起後焦點沒回到開啟鈕 ⇒ 鍵盤使用者失去位置').toBe(openBtn);
+    });
+
+    it('點關閉叉會收起(OD 驗收 #7)', () => {
+      const { panel } = openMenu();
+      fireEvent.click(screen.getByLabelText('關閉選單'));
+      expect(panel.classList.contains('is-open')).toBe(false);
+    });
+
+    it('點任一連結會收起(OD 驗收 #7、真 handler 非假 handler)', () => {
+      const { panel } = openMenu();
+      const brandLink = Array.from(panel.querySelectorAll('a')).find((a) => a.textContent?.trim() === '品牌');
+      expect(brandLink, '找不到品牌連結').toBeDefined();
+      fireEvent.click(brandLink!);
+      expect(panel.classList.contains('is-open')).toBe(false);
+    });
+
+    it('面板開著時背景鎖捲、關閉後解鎖(OD 驗收 #8)', () => {
+      const { panel } = openMenu();
+      expect(document.body.classList.contains('pcm-menu-lock')).toBe(true);
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(panel.classList.contains('is-open')).toBe(false);
+      expect(document.body.classList.contains('pcm-menu-lock')).toBe(false);
+    });
+  });
 });

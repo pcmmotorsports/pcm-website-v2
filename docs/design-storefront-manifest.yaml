@@ -909,8 +909,8 @@ components:
     storefront:
       component: "apps/storefront/src/components/Header.tsx"
       css: "apps/storefront/src/styles/header.css"
-      last_modified_commit: "f08a4c1"  # 記可達祖先(=D3c-5 的父 commit;#180 案 A:不可記本片自己的 hash,amend 後會變 orphan);本次真改見 git log [D3c-5]:導覽列「品牌」改指已落地的 /brands
-      last_modified_date: "2026-08-05 [D3c-5 品牌入口全站收口]:導覽列「品牌」href `/products` → **`/brands`**。🔴 **這是把 2026-07-22 那次的前提翻回來** —— 當時改指 /products 的理由是「`/brands` route 不存在、客人按了吃 404」,而那條 route 已於 **D3c-3** 落地、**D3c-4** 進 sitemap ⇒ 前提消失。`Header.test.tsx` 的導覽對照表同片改(整表 7 個 href 的 `toEqual`;⚠️ 原本那條「明確斷言不得再出現 /brands」**已刪除** —— 它在前提消失後會從守門變成共犯)。同片一併改的還有 `HomeFooter`「品牌專區」與 `BrandIndex` 表頭「品牌專區」,首頁三個入口現在同一個目的地。⚠️ /install 與 /stores **仍是已知死連結**(backlog #269、待 Sean 定內容),測試刻意鎖住現況。前:2026-07-22 (導覽列「品牌」死連結修正:href 由不存在的 /brands 改為 /products;非新拍板、是漏改的第二個消費端)。前:2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
+      last_modified_commit: "90564d2c"  # 記可達祖先(=本片開工前 HEAD;本 worktree 尚未 commit,先記已知可達祖先避免 orphan);本次真改:手機分支加選單鈕 + <MobileMenu>(見下方 mobileMenuAddition)
+      last_modified_date: "2026-08-06 [手機選單補真站導航缺口]:手機分支左側新增選單鈕(`.pcm-menu-btn`)+ `<MobileMenu navItems={navItems}>`,用同一個 `.pcm-header-left` 容器包住選單鈕與搜尋鈕(對齊 OD `pcm-menu.css` 的 `.pcm-header-left{gap:4px}` 手機縮排規則)。連結來源=既有 `navItems`(本檔第 107-128 行,不新寫第二份清單);真權威 = Open Design `pcm-home-redesign/DESIGN-HANDOFF-2026-08-05.md` §十一。詳見下方 `mobileMenuAddition` business_override 與新元件條目 `MobileMenu`。前:2026-08-05 [D3c-5 品牌入口全站收口]:導覽列「品牌」href `/products` → **`/brands`**。🔴 **這是把 2026-07-22 那次的前提翻回來** —— 當時改指 /products 的理由是「`/brands` route 不存在、客人按了吃 404」,而那條 route 已於 **D3c-3** 落地、**D3c-4** 進 sitemap ⇒ 前提消失。`Header.test.tsx` 的導覽對照表同片改(整表 7 個 href 的 `toEqual`;⚠️ 原本那條「明確斷言不得再出現 /brands」**已刪除** —— 它在前提消失後會從守門變成共犯)。同片一併改的還有 `HomeFooter`「品牌專區」與 `BrandIndex` 表頭「品牌專區」,首頁三個入口現在同一個目的地。⚠️ /install 與 /stores **仍是已知死連結**(backlog #269、待 Sean 定內容),測試刻意鎖住現況。前:2026-07-22 (導覽列「品牌」死連結修正:href 由不存在的 /brands 改為 /products;非新拍板、是漏改的第二個消費端)。前:2026-06-04 (Header SSR 適配:layout server UA 經 MobileContext 下傳、isMobile=isMobileProp ?? (ctxMobile||autoMobile),修 iPhone 卡桌機 header + 可水平平移;前序 M-1-14e-f1-a D-f=A)"
     design:
       component: "design-reference/components/Header.jsx"
       css: "design-reference/styles/header.css"
@@ -933,6 +933,29 @@ components:
         decided_at: "2026-06-04"
         decision_source: "Sean 2026-06-04 真機驗 iPhone 卡桌機 header + 可水平平移 → 批准修 Header(plan A、不過 OD:Header 歸 design-reference 非 OD daemon、且不改視覺);本修補上 design 預留的 isMobileProp 的 layout→Header server UA 來源"
         reason: "design demo 無 SSR 不暴露此問題;storefront Next SSR 首屏需正確 header、純 client 切換對 iPhone 不可靠(SSR 桌機→client 切換時序);全站 Header(首頁/列表/商品/帳號)受益"
+      - field: "mobileMenuAddition"
+        design_value: "OD `pcm-shell.js` 用 DOM 掃描 `.pcm-nav` 生成面板連結(原型無 React、只能讀已渲染的 DOM)"
+        storefront_value: "改用 React:`<MobileMenu navItems={navItems}>` 直接吃 Header 既有的 `navItems` 常數 prop(不掃 DOM、不寫第二份清單);開關狀態走 `useState` + 真 Esc `keydown`/連結點擊 handler,非 OD 的 vanilla JS DOM 操作"
+        decided_at: "2026-08-06"
+        decision_source: "主對話 D-147-A(Sean 當面點名);OD `DESIGN-HANDOFF-2026-08-05.md` §十一「真站怎麼接」逐字:「連結來源用同一份 navItems 常數,不要再手寫一份;pcm-shell.js 是原型用的近似實作,不要照搬」"
+        reason: "真站 Header 是 client component、有 React state 可用,DOM 掃描是原型在純靜態 HTML 下的權宜機制;單一來源的意圖相同,實作機制對齊真站現有架構"
+
+  MobileMenu:
+    storefront:
+      component: "apps/storefront/src/components/MobileMenu.tsx"
+      css: "apps/storefront/src/styles/pcm-menu.css"
+      last_modified_commit: "90564d2c"  # 記可達祖先(本片開工前 HEAD、本 worktree 尚未 commit)
+      last_modified_date: "2026-08-07 [R1 FAIL 修復,真瀏覽器 390px 實測抓到]:①面板改用 `createPortal(panel, document.body)` 掛到 `document.body`(mounted state + useEffect 防 SSR/hydration mismatch)——原本 render 在 `.pcm-header-left` 裡面,被 `header.css` 的 `.pcm-header{backdrop-filter:blur(12px)}` 建立的 containing block 裁成 390×68、十條連結全部看不見;漢堡鈕留在 header,只有面板走 portal。②新增 `matchMedia('(min-width: 1080px)')` 監聽(掛載即查一次 + change 事件),命中就 `setOpen(false)`——原本掛載看 UA(Header 的 ctxMobile,SSR 一次決定不隨 resize 變)、隱藏看 viewport(CSS `@media max-width:1079px`),平板 UA 拉寬會讓漢堡鈕被 CSS 藏起來但元件不 unmount,面板與 `body.pcm-menu-lock` 卡在開著的狀態鎖死頁面;斷點值與 `pcm-menu.css` 的 `max-width:1079px` 互補同源。③nit 順手清:點連結導覽不再搶焦點(只有 Esc/關閉叉交還焦點給開啟鈕)、面板內加 Tab focus trap、開啟鈕補 `aria-controls`(`useId` 產穩定 id)、漢堡鈕補 `data-tip`。新增 `MobileMenu.test.tsx` 直接單元測試(不經 Header)鎖三條:面板父節點=`document.body`、matchMedia change 收起、sentinel navItems 證明連結來源。前:2026-08-06 [新增]:手機頁首選單鈕 + 全屏面板(三組:選購/服務/帳戶 + 底部 LINE 鈕與門市資訊)。補真站既有導航缺口——Header.tsx 的 isMobile 分支原本只 render 搜尋鈕/logo/購物車鈕,品牌/新品/特價/安裝預約/合作店家五條在手機上只剩頁尾能到。選購+服務兩組連結直接吃 Header 傳入的 `navItems`(單一來源);帳戶三條(會員中心/購物車/配送&退貨)不在 navItems,查證得到既有路由 `/account`、`/cart`、`/info/shipping`(HomeFooter.tsx:93 現行連結)後手寫;底部 LINE 連結與門市地址/營業時間讀 `lib/site-config.ts` 既有 SSoT(`SOCIAL_URLS.line`/`STORE_ADDRESS`/`OPENING_HOURS`,與 HomeFooter 頁尾同源)。TabBar 五格維持不動(OD 🔴 已定案,選單是補充不是取代)。"
+    design:
+      component: "N/A(pcm-shell.js 是原型近似實作,依 OD 明文不照搬;僅 CSS 逐字搬)"
+      css: "open-design: pcm-home-redesign/pcm-menu.css(逐字複製進 apps/storefront/src/styles/pcm-menu.css)"
+    business_overrides:
+      - field: "colorTokenCheck"
+        design_value: "無需替換——`pcm-menu.css` 本身就是用 `var(--c-red-dark)`/`var(--c-red)` 標特價與 LINE 鈕,不是 `--c-ember-ink`"
+        storefront_value: "逐字沿用,`--c-red-dark`(`tokens.css:81` `#c4470c`)與 `--c-red`(`tokens.css:79` `#f26722`)全站 `:root` 可用,無 scope 限制"
+        decided_at: "2026-08-06"
+        decision_source: "主對話交辦提醒的 `--c-ember-ink` scope 陷阱經檢查後不適用本檔(該 token 只在 `brand-page.css` 的 `.bp-page` scope,`pcm-menu.css` 未引用它)"
+        reason: "避免誤植不存在於全站 scope 的 token 導致樣式靜默失效;本檔查證後確認無此風險,紀錄查證過程供後續核對"
 
   HomeHero:
     storefront:

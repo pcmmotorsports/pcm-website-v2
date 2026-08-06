@@ -24,6 +24,7 @@ import type { MouseEvent } from 'react';
 import { useCart } from '@/contexts/CartContext';
 import { useServerMobile } from '@/contexts/MobileContext';
 import { createBrowserSupabaseClient } from '@/lib/supabase/browser';
+import { MobileMenu } from '@/components/MobileMenu';
 
 // 🔶 R2-3(2026-08-05,第0批 0b):頁首 logo 由文字改品牌圖檔。
 // 真權威 = OD `pcm-home-redesign/products-list-page.html:380` 逐字
@@ -145,11 +146,18 @@ export function Header({
       <div className="pcm-header-inner">
         {isMobile ? (
           <>
-            <button className="pcm-icon-btn" aria-label="搜尋商品" data-tip="搜尋" onClick={() => openSearch()}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
-                <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
-              </svg>
-            </button>
+            <div className="pcm-header-left">
+              {/* 手機選單(OD `pcm-home-redesign/DESIGN-HANDOFF-2026-08-05.md` §十一):
+                  補真站既有導航缺口——手機原本只有搜尋/logo/購物車,品牌/新品/特價/
+                  安裝預約/合作店家五條只剩頁尾能到。連結來源=同一份 navItems(下方定義),
+                  不另寫第二份清單。TabBar 五格維持不動,選單是補充不是取代。 */}
+              <MobileMenu navItems={navItems} />
+              <button className="pcm-icon-btn" aria-label="搜尋商品" data-tip="搜尋" onClick={() => openSearch()}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+                  <circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>
+                </svg>
+              </button>
+            </div>
             <Link href="/" className="pcm-logo" aria-label="PCM MOTOR PARTS 首頁">
               <img src={HEADER_LOGO.src} width={HEADER_LOGO.w} height={HEADER_LOGO.h} alt="PCM MOTOR PARTS" />
             </Link>
