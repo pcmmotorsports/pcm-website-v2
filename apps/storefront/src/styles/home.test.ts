@@ -307,6 +307,28 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       .toContain('html[data-mobile="true"] .b-dock');
   });
 
+  // 🔴 D-135 插單的守門:搜尋部品鈕照 OD 熔橘常駐,而**停用態要說實話**。
+  //    這條擋兩個方向:①退回舊的「灰底、選到才墨黑」(那是整段沒跟稿的原狀)
+  //    ②照 OD 字面搬色卻**忘了停用態** ⇒ 按不下去的按鈕長得跟可按的一樣(H6 死按鈕同型)。
+  it('🔴 搜尋鈕:可按=熔橘常駐、hover 深橘、停用=灰且不吃 hover', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const base = top.match(/\.ed-finder-go\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(base, '找不到 .ed-finder-go 規則').not.toBe('');
+    expect(base, '底色不是熔橘 ⇒ 整段又退回沒跟稿的灰').toMatch(/background:\s*var\(--ed-c-action\)/);
+    expect(base, '字色不是白').toMatch(/color:\s*#fff/);
+    expect(top, 'hover 不是深橘').toMatch(/\.ed-finder-go:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--ed-c-action-hover\)/);
+    const dis = top.match(/\.ed-finder-go:disabled\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(dis, '沒有停用態 ⇒ 按不下去的按鈕長得跟可按的一樣').not.toBe('');
+    expect(dis, '停用態沒有換底色').toMatch(/background:\s*var\(--ed-c-paper-2\)/);
+    expect(dis, '停用態沒有換游標').toMatch(/cursor:\s*not-allowed/);
+    // 🔴 hover 一族必須排除 disabled,否則停用中的按鈕滑過去會亮成深橘
+    const hovers = [...top.matchAll(/([^{}]*\.ed-finder-go[^{}]*:hover[^{}]*)\{/g)].map((m) => m[1]!.trim());
+    expect(hovers.length, '找不到 hover 規則').toBeGreaterThanOrEqual(2);
+    for (const sel of hovers) {
+      expect(sel.includes(':not(:disabled)'), `${sel} 沒有排除 disabled`).toBe(true);
+    }
+  });
+
   // 🔴 D-128 迴歸修的守門:hero **不得**裁切(裁切在媒體層)。
   //    這條擋的是「有人為了防溢出把 overflow:hidden 加回 .b-hero」——那會再一次把入口板的
   //    下拉選單切掉,而且**單元測試與截圖都看不到**(要下拉展開、而且要捲到 hero 底緣進入視窗才看得見)。
