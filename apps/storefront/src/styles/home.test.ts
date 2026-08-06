@@ -307,6 +307,22 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       .toContain('html[data-mobile="true"] .b-dock');
   });
 
+  // 🔴 D-128 迴歸修的守門:hero **不得**裁切(裁切在媒體層)。
+  //    這條擋的是「有人為了防溢出把 overflow:hidden 加回 .b-hero」——那會再一次把入口板的
+  //    下拉選單切掉,而且**單元測試與截圖都看不到**(要下拉展開、而且要捲到 hero 底緣進入視窗才看得見)。
+  //    ⚠️ 它擋不住什麼:文字層只知道宣告寫了什麼,不知道實際有沒有被裁 ——
+  //       真正的判別力在真瀏覽器的 `elementFromPoint` 探針(本片已跑,結果寫在 commit body)。
+  it('🔴 `.b-hero` 不得 overflow:hidden(下拉會被裁);裁切要在 `.b-hero-media`', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const hero = top.match(/\.b-hero\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(hero, '找不到 .b-hero 規則').not.toBe('');
+    expect(hero, 'hero 又把 overflow 收成 hidden/clip ⇒ 入口板的下拉選單會被裁掉')
+      .not.toMatch(/overflow:\s*(hidden|clip)/);
+    const media = top.match(/\.b-hero-media\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(media, '找不到 .b-hero-media 規則').not.toBe('');
+    expect(media, '媒體層沒有裁切 ⇒ 滿版底圖可能溢出 hero').toMatch(/overflow:\s*hidden/);
+  });
+
   // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。
   //    `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」—— 那顆 token 正是為了
   //    同款「兩處各寫一個數字、差 4px」的事故才立的。

@@ -26,7 +26,7 @@ import { HomeStatement } from '@/components/HomeStatement';
 import { BrandIndex } from '@/components/BrandIndex';
 import { HomeFooter } from '@/components/HomeFooter';
 import { HomeReveal } from '@/components/HomeReveal';
-import { fetchFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
+import { fetchHomeFeaturedProducts, fetchVehicleTaxonomy, fetchCategories } from '@/lib/products';
 import { fetchBrandsWithProducts } from '@/lib/brand-products';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import { BRAND_FOCUS } from '@/data/brand-focus';
@@ -89,7 +89,9 @@ export default async function HomePage({
   //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 15 分鐘
   //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:115`)。
   const [featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
-    fetchFeaturedProducts(),
+    // H6 連動(Sean 2026-08-06 拍板):首頁取數獨立提高到 `HOME_FEATURED_LIMIT`,
+    // 讓 OD 的 5 格橫捲真的捲得動;會員中心「為你推薦」維持 4 筆、不受影響。
+    fetchHomeFeaturedProducts(),
     fetchVehicleTaxonomy(),
     fetchCategories(),
     (async () => {

@@ -30,6 +30,8 @@ vi.mock('@/components/Header', () => ({
 //    這正是 memory `feedback_fixture-value-makes-guard-vacuous` 那一族。
 vi.mock('@/lib/products', () => ({
   fetchFeaturedProducts: () => Promise.resolve({ products: [], error: false }),
+  // H6/D-131:首頁改用自己的取數(會員中心那支維持 4 筆、兩支都要 mock)
+  fetchHomeFeaturedProducts: () => Promise.resolve({ products: [], error: false }),
   fetchVehicleTaxonomy: () => Promise.resolve([]),
   fetchCategories: () =>
     Promise.resolve([
