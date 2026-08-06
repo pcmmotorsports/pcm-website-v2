@@ -5,7 +5,7 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**五片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**六片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
@@ -17,8 +17,9 @@
 #   · **S2b-3b 第一段**(commit `5ca71ba`)= plan §4 的 **項26 / 26b / 27**:`RB-STOPWRITE`(runbook 停寫在步驟①、
 #     回權在步驟⑦ 的文字面 + 三發突變 S1/S2/S3)、`B26b-enable-restores`(回權後真的重新跟動)、
 #     `B27-divergence-4th`(從 runbook 抽 SQL 實跑的第四軸驗收)。
-#     🔴 3b 的 **項22 / 28 尚未做**(第三段)。
-#   · **S2b-3b 第二段**(本輪)= plan §4 的 **項21b + 項31**:runbook 依賴枚舉四支→**五支**、
+#   · **S2b-3b 第三段**(本輪)= plan §4 的 **項22(PR4 造洞實證)+ 項28(出貨資料面集合斷言)**。
+#     ⇒ **3b 七項(21b / 22 / 26 / 26b / 27 / 28 / 31)全部結清。**
+#   · **S2b-3b 第二段**(commit `94e78e92`)= plan §4 的 **項21b + 項31**:runbook 依賴枚舉四支→**五支**、
 #     步驟④ 的 **DROP 序**補出貨側、Forward 重建清單加 **S2b** + 重放方式;
 #     `b2s2a-verify.sh` 凍結清單與 `rehearse()` 跳點同批更新;
 #     本檔新增 `REH-PRODUCTS` 格(**DROP 清單與 Forward 清單都從 runbook 抽**)
@@ -45,20 +46,24 @@
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
 # 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **突變覆蓋是 19 格中的 10 格,不是全部**。逐格清單也印在跑完的結語裡。
-#     **有靶的 10 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
+#   ⓐ **突變覆蓋是 21 格中的 11 格,不是全部**。逐格清單也印在跑完的結語裡。
+#     **有靶的 11 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
 #     + **TRUTH-SYNC**(3a 的守門靶 **T1-T9**)+ **RB-STOPWRITE**(3b 的靶 **S1/S2/S3**)
-#     + **REH-PRODUCTS**(3b 第二段的靶 **TMUT-REH**:把 S2b 從 Forward 清單拿掉)。
+#     + **REH-PRODUCTS**(3b 第二段的靶 **TMUT-REH / TMUT-REH2**)。
+#     + **B28-datasurface**(3b 第三段的靶 **D1/D2**:真相式多加總一欄、把 gate 那句註解掉)。
+#     🔴 **B22-pr4-hole 沒有靶**(靶要重建庫、成本高;它自帶對照:同一筆資料舊三軸回 0、四軸 RAISE)。
 #     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
 #     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
 #     不是突變。B12 在靶②④ 下紅在本輪新加的「作廢後必須是 0」中途斷言(那是它自己的內容),
 #     但它宣稱的另一半「**unvoid 真的回升**」仍**沒有**任何一發靶殺得到 —— 本線的靶動不到
 #     「只壞 unvoid、不壞 void」那條路。兩者都逐字寫在這裡,不要在報告裡簡化成「7 格已證」。
-#     **沒靶的 9 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
+#     **沒靶的 10 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
 #     那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b = S2b-4c 的範圍)、
 #     B12c-append-only(結構面)/ B15 / B18 / **ABLATION**(B10 的負向對照)/
-#     **B26b-enable-restores** / **B27-divergence-4th** —— 後兩格自帶對照(ABLATION 的 0/3、
-#     舊三軸述詞的 0 列),但**沒有**外部突變檔證明它們。
+#     **B26b-enable-restores** / **B27-divergence-4th** / **B22-pr4-hole** ——
+#     前三格自帶對照(ABLATION 的 0/3、舊三軸述詞的 0 列),B22 自帶對照(同一筆資料舊三軸回 0、
+#     四軸 RAISE),但**都沒有**外部突變檔證明它們(B22 的靶要重建庫,成本高)。
+#     🔴 **B28-datasurface 不在這裡** —— 它有靶(D1/D2),靶是純文字、零 DB 成本。
 #   ⓑ **plan §5 環境B 九列只做了五列**(逐列交代,不含糊):
 #     做了列 1-4(拿掉 trigger / 漏 `deleted_at IS NULL` / 漏 `shipped_at IS NOT NULL` / 漏 `deleted_at` 事件面)
 #     與增補靶末列(`ON CONFLICT` 漏 `shipped_quantity`)。
@@ -114,13 +119,15 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=19     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
-                   #   + 同步守門對照組 + 3b 第一段三格(RB-STOPWRITE / 項26b / 項27)+ 3b 第二段一格(REH-PRODUCTS))
+EXPECT_CELL=21     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
+                   #   + 同步守門對照組 + 3b 第一段三格(RB-STOPWRITE / 項26b / 項27)
+                   #   + 3b 第二段一格(REH-PRODUCTS)+ 3b 第三段兩格(項22 / 項28))
 EXPECT_MUT=6       # 行為突變靶:MUT0 對照 + 靶①②③④⑤(環境 B;環境 A 結構靶不在本輪,見檔頭 ⓒ)
-EXPECT_TMUT=14     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
+EXPECT_TMUT=16     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
                    #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
-                   #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)
-EXPECT_TOTAL=45    # 19 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 14 文字層突變 + TMUT-COUNT + COPIES-DROPPED
+                   #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)、
+                   #   D1 真相式多加總一欄、D2 把 gate 那句註解掉(3b 第三段)
+EXPECT_TOTAL=49    # 21 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT + COPIES-DROPPED
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
@@ -128,7 +135,7 @@ B18-x1-commit-rollback B20-helper-live ABLATION \
 MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
 RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
-REH-PRODUCTS TMUT-REH TMUT-REH2 TMUT-COUNT COPIES-DROPPED"
+REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -356,7 +363,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh' EXIT
+trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -1444,6 +1451,211 @@ else
   bad "債④負測:期望「false/0」(helper 三軸 + trigger 不在),實得「$REH_NEG」—— 拿掉 S2b 竟然沒翻面,本格沒有判別力"
 fi
 
+log "6e/8 項22 PR4 造洞實證 + 項28 出貨資料面集合(S2b-3b 第三段)"
+
+# ══ 項22:只動 shipped 真相、前三軸完全不動 ⇒ 舊三軸 oracle 通過、四軸版必 RAISE ═════
+# 🔴 plan 逐字:DISABLE **五支** → 只動 shipped 真相 → ENABLE → 舊三軸 oracle **通過**、四軸版 **必 RAISE**。
+#    「只動 shipped」是紀律:v2 原本引用的「DELETE receipt」會讓舊 oracle 先紅在 instock drift,
+#    **測不到 shipped 軸**(R1 #12)。本格用「先建好正確四軸 → 停 trigger → 再出一箱 → 復原」造洞。
+# 🔴 四軸版的 SQL **從 migration 檔內抽**(backfill oracle①),不是抄一份到這裡 ——
+#    抄一份的話 migration 改壞了本格照樣綠。
+CELL=$((CELL+1))
+fresh_db b2s2b_pr4; PR4_URL="$FRESH_URL"
+MIG_IN="$MIG" OUT="$WORK/oracle4.sql" python3 - <<'PY' || die "項22:抽不出 migration 的 backfill oracle①"
+import io, os
+s = io.open(os.environ['MIG_IN'], encoding='utf-8').read()
+i = s.index('  SELECT count(*) INTO v_bad')
+# 🔴 終錨要含 `END IF;` —— 切在 RAISE 之後會留下**沒收尾的 IF**,整段 42601
+# (本輪第一跑實測:抽出來的 DO 區塊語法不完整,四軸 oracle 根本沒跑到)。
+j = s.index('END IF;', s.index("USING ERRCODE = 'P2B11';", i)) + len('END IF;')
+body = s[i:j]
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(
+    'DO $o4$\nDECLARE v_bad integer;\nBEGIN\n' + body + '\n  RAISE NOTICE \'ORACLE4:CLEAN\';\nEND\n$o4$;\n')
+PY
+# fixture:trigger 全開時建出**四軸完全正確**的一列(quantity 4 / ordered 3 / instock 3 / shipped 2)
+psql -X "$PR4_URL" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<SQL || die "項22:fixture 建立失敗"
+DO \$fx\$
+$DECLS
+BEGIN
+$FIXTURE
+$STOCK_I4
+$MK_DRAFT
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 2);
+$SHIP_NOW
+END
+\$fx\$;
+SQL
+PR4_BEFORE="$(psql -X "$PR4_URL" -qtAc "SELECT ordered_quantity::text||'/'||instock_quantity::text||'/'||cancelled_quantity::text||'/'||shipped_quantity::text FROM ${SUMMARY} s JOIN public.order_items oi ON oi.id=s.order_item_id WHERE oi.variant_sku='S2BV-P4'" 2>&1)"
+# 造洞:停五支 → **只**再出一箱(shipped 真相 2→3;前三軸的來源表一個字都沒動)→ 復原五支
+psql -X "$PR4_URL" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<SQL || die "項22:造洞失敗"
+ALTER TABLE public.order_item_procurement          DISABLE TRIGGER order_item_procurement_received_quantity_guard_bt;
+ALTER TABLE public.order_item_procurement          DISABLE TRIGGER order_item_procurement_summary_recompute_zc;
+ALTER TABLE public.order_item_procurement_receipts DISABLE TRIGGER order_item_procurement_receipts_received_sync_ac;
+ALTER TABLE public.order_cancellation_items        DISABLE TRIGGER order_cancellation_items_summary_recompute_ac;
+ALTER TABLE public.shipments                       DISABLE TRIGGER ${TG_SS};
+DO \$hole\$
+DECLARE v_cust uuid; v_i4 uuid; v_ship uuid;
+BEGIN
+  SELECT customer_user_id INTO v_cust FROM public.orders WHERE display_id = 'PCM-9994-0001';
+  SELECT id INTO v_i4 FROM public.order_items WHERE variant_sku = 'S2BV-P4';
+  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code)
+  VALUES ('BCDFGW', v_cust, '{"name":"a","phone":"0900000000","line":"x"}'::jsonb, 'hct') RETURNING id INTO v_ship;
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 1);
+  UPDATE public.shipments SET shipped_at = now(), tracking_number = 'PR4' WHERE id = v_ship;
+END
+\$hole\$;
+ALTER TABLE public.order_item_procurement          ENABLE TRIGGER order_item_procurement_received_quantity_guard_bt;
+ALTER TABLE public.order_item_procurement          ENABLE TRIGGER order_item_procurement_summary_recompute_zc;
+ALTER TABLE public.order_item_procurement_receipts ENABLE TRIGGER order_item_procurement_receipts_received_sync_ac;
+ALTER TABLE public.order_cancellation_items        ENABLE TRIGGER order_cancellation_items_summary_recompute_ac;
+ALTER TABLE public.shipments                       ENABLE TRIGGER ${TG_SS};
+SQL
+PR4_AFTER="$(psql -X "$PR4_URL" -qtAc "SELECT ordered_quantity::text||'/'||instock_quantity::text||'/'||cancelled_quantity::text||'/'||shipped_quantity::text FROM ${SUMMARY} s JOIN public.order_items oi ON oi.id=s.order_item_id WHERE oi.variant_sku='S2BV-P4'" 2>&1)"
+# 舊三軸 oracle(手寫,當**對照**):必須回 0 —— 證明它對這個洞真的瞎
+PR4_OLD="$(psql -X "$PR4_URL" -qtAc "SELECT count(*) FROM ${SUMMARY} s
+  WHERE s.ordered_quantity   IS DISTINCT FROM COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=s.order_item_id),0)
+     OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=s.order_item_id),0)
+     OR s.instock_quantity   IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
+           WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=s.order_item_id)),0)" 2>&1)"
+# 四軸 oracle(**從 migration 抽的原文**):必須 RAISE P2B11
+# 🔴 `-f <檔>` 時 psql 的錯誤行**帶檔名前綴**(`psql:/tmp/…:32: ERROR:  …`)
+#    ⇒ 錨在行首的 `^ERROR:` 抓不到、那一維會靜默變空(本輪第一跑實測)。改成不錨行首。
+PR4_NEW="$(psql -X "$PR4_URL" -v ON_ERROR_STOP=0 -v VERBOSITY=verbose -qtA -f "$WORK/oracle4.sql" 2>&1 | grep -m1 'ERROR:' | sed -n 's/.*ERROR:  \([0-9A-Z]*\).*/\1/p')"
+drop_db b2s2b_pr4
+PR4_OBS="${PR4_BEFORE}|${PR4_AFTER}|${PR4_OLD}|${PR4_NEW}"
+if [ "$PR4_OBS" = "3/3/0/2|3/3/0/2|0|P2B11" ]; then
+  ok B22-pr4-hole "🔴 項22 PR4 造洞:停五支 trigger 後**只**多出一箱(shipped 真相 2→3;前三軸來源表一個字沒動)⇒ 摘要前後皆 3/3/0/2、**舊三軸 oracle 回 0(真的瞎)**、**migration 檔內的四軸 oracle① RAISE P2B11**"
+else
+  bad "項22:期望「3/3/0/2|3/3/0/2|0|P2B11」,實得「$PR4_OBS」
+     (四維 = 造洞前摘要 / 造洞後摘要 / 舊三軸 oracle 列數 / 四軸 oracle 的 SQLSTATE)"
+fi
+
+# ══ 項28:出貨資料面集合 before/after 相等 + gate 兩個 count(*) 逐字未變 ═══════════
+# 🔴 plan 定義逐字:「任何持有 `shipped_quantity` 或等價已寄出數量、**且會被 §1 真相式讀到**的表」,
+#    今日恰為 `shipments` 與 `shipment_items` 兩張。
+# 🔴 **不能只看「有沒有新建 table」**(codex R2):以 `ALTER` 擴既有表、或改真相來源時,
+#    新建集合仍為空而該格照樣綠。⇒ 改成**枚舉集合本身**,兩份逐字相等。
+# 🔴 集合從**真相式區塊的文字**推導(`FROM` / `JOIN` 的表名),不是寫死一份 —— 真相來源改了它就會變。
+# 🔴🔴 **表 <u>與欄</u> 都要枚舉**(R1 must-fix 4;plan 逐字:「§1 真相式讀到的**表** + 持有已寄出數量的**欄**」)。
+#    只枚舉表時,審查實測示範過一發活的 fail-open:把 `sum(si.shipped_quantity)` 改成
+#    `sum(si.shipped_quantity)+COALESCE(si.shipped_qty_b,0)`(= 以 ALTER 擴既有表)⇒ **表集合逐字不變、本格照樣綠**
+#    —— 那正是 plan 點名這一格存在的理由。
+# 🔴 推導**同時吃三份真相式副本**(migration / runbook / a4a-verify),不是只吃被 `MIG_SHA_FROZEN`
+#    釘死的那一份(R1 important 7:只吃 migration 時,本 harness 內它必然是常數 = 零判別力)。
+# 🔴 凍結值 = **實測值**(2026-08-07 全 token 掃描)。含述詞欄與外層別名是刻意的:
+#    判別面取嚴格超集,真相式動任何一欄/任何一個關聯參照都會翻面。
+DATASURF_FROZEN="COL:<未知別名:s>.order_item_id|COL:<未知別名:u>.order_item_id|COL:public.shipment_items.order_item_id|COL:public.shipment_items.shipment_id|COL:public.shipment_items.shipped_quantity|COL:public.shipments.deleted_at|COL:public.shipments.id|COL:public.shipments.shipped_at|TAB:public.shipment_items|TAB:public.shipments"
+datasurface_check() {   # $1 = migration、$2 = runbook、$3 = a4a-verify → 印集合;crash 時印空
+  M1="$1" M2="$2" M3="$3" python3 - <<'PY'
+import io, os, re
+out = set()
+for key in ('M1', 'M2', 'M3'):
+    lines = io.open(os.environ[key], encoding='utf-8').read().split('\n')
+    # 🔴 **逐行精確比對**,不可用子字串 find:runbook 的散文裡有一句提到
+    #    `-- SHIPPED-TRUTH-BEGIN/END`,子字串會命中它的前綴 ⇒ 區塊一路吃到下面的真 END,
+    #    把 divergence 的前三軸來源表全部拖進集合(本輪第一跑實測)。
+    #    `b2s2b-truth-sync.py` 從一開始就是逐行 `strip() ==`,這裡對齊它。
+    blocks, st = [], None
+    for n, l in enumerate(lines):
+        t = l.strip()
+        if t == '-- SHIPPED-TRUTH-BEGIN':
+            st = n
+        elif t == '-- SHIPPED-TRUTH-END' and st is not None:
+            blocks.append('\n'.join(lines[st + 1:n])); st = None
+    for blk in blocks:
+        # ①表:FROM / JOIN 後的限定名(不帶 public. 前綴的來源會讓集合縮 ⇒ fail-closed)
+        alias = {}
+        for tab, al in re.findall(r'(?:FROM|JOIN)\s+(public\.\w+)\s+(\w+)', blk):
+            out.add('TAB:' + tab)
+            alias[al] = tab
+        # ②欄:掃區塊內**每一個** `<alias>.<col>` token(R2 F3:只認 `sum(...)` / `COALESCE(...)`
+        #    兩形時,`+ max(si.x)`、`+ sh.adjust_qty`、無別名子查詢三種加欄寫法都繞得過)。
+        #    掃全部 token ⇒ 判別面是嚴格超集;代價是集合會含述詞欄(deleted_at / shipped_at / id …),
+        #    那沒關係 —— 凍結值照實寫,真相式動任何一欄都會翻面。
+        for al, col in re.findall(r'\b(\w+)\.(\w+)\b', blk):
+            if al in alias:
+                out.add('COL:' + alias[al] + '.' + col)
+            elif al != 'public':
+                out.add('COL:<未知別名:' + al + '>.' + col)
+print('|'.join(sorted(out)))
+PY
+}
+# 🔴 gate 那兩句:**連賦值形狀一起釘住**(R1 important 5 實測:只比表名時,把整行註解掉
+#    `grep -c` 仍回 1 ⇒ gate 的那道已經死了而本格照樣綠;`grep -c` 數的是行數不是出現次數)。
+# 🔴🔴 **改成整行字面比對**(R2 must-fix 2:上一版用 ERE 且**尾端沒錨**,實測把 query 改成
+#    `SELECT count(*) FROM public.shipments WHERE false`(⇒ gate 恆讀 0、有真資料也放行)
+#    照樣命中、本格照樣綠 —— 而 plan 逐字要求「兩個 count(*) 查詢**逐字未變**」)。
+#    `grep -cxF` = 整行、固定字串、不解析正規式 ⇒ 「逐字」這兩個字才名副其實。
+# 🔴 代價要講明:任何合法重排(多一格空白、換旗標順序)都會誤紅 = fail-closed,
+#    處置是回頭同批更新這兩個常數,不是把閘放寬。
+cat > "$WORK/gate-ship.txt" <<'GATELINE1'
+  gn_ship="$(psql -X "$@" -qtAc 'SELECT count(*) FROM public.shipments' 2>&1)";      rc_ship=$?
+GATELINE1
+cat > "$WORK/gate-item.txt" <<'GATELINE2'
+  gn_item="$(psql -X "$@" -qtAc 'SELECT count(*) FROM public.shipment_items' 2>&1)"; rc_item=$?
+GATELINE2
+gate_shape_check() {   # $1 = b2s2a-verify 路徑 -> 印 "<ship>/<item>"
+  printf '%s/%s' "$(grep -cxFf "$WORK/gate-ship.txt" "$1")" "$(grep -cxFf "$WORK/gate-item.txt" "$1")"
+}
+CELL=$((CELL+1))
+DATASURF_NOW="$(datasurface_check "$MIG" "$RUNBOOK" scripts/a4a-verify.sh 2>"$WORK/ds.err")"
+GATE_NOW="$(gate_shape_check scripts/b2s2a-verify.sh)"
+if [ "$DATASURF_NOW" = "$DATASURF_FROZEN" ] && [ "$GATE_NOW" = "1/1" ]; then
+  ok B28-datasurface "🔴 項28 債③:出貨資料面集合(**表 + 欄**,從 migration / runbook / a4a-verify **三份**真相式副本推導)= [$DATASURF_NOW] 與凍結值逐字相等 ⇒ 本線沒有新增出貨真值面;gate 那兩句**整行字面**(`grep -cxF`)逐字未變"
+else
+  bad "項28:資料面集合 = [$DATASURF_NOW]
+     期望 [$DATASURF_FROZEN]
+     gate 形狀 = $GATE_NOW(期望 1/1)$(head -2 "$WORK/ds.err" 2>/dev/null | tr '\n' ' ')"
+fi
+
+# ── 兩發突變:B28 的靶是純文字、零 DB 成本(R1 important 6:「沒有靶」不成立為「構造不出」)──
+run_dsmut() {   # $1 = 靶名、$2 = 目標檔、$3 = 原字面、$4 = 新字面、$5 = 期望結果(SET-CHANGED / GATE-DEAD)、$6 = key
+  local name="$1" f="$2" src="$3" dst="$4" want="$5" key="$6" tmp="$WORK/ds-$6" got
+  TMUT=$((TMUT+1))
+  cp "$f" "$tmp" || { bad "$name:複製失敗"; return; }
+  SRC="$src" DST="$dst" F="$tmp" python3 - <<'PY' || { bad "$name:突變產生失敗(錨命中次數不是 1?)"; rm -f "$tmp"; return; }
+import io, os
+p = os.environ['F']; s = io.open(p, encoding='utf-8').read()
+src, dst = os.environ['SRC'], os.environ['DST']
+n = s.count(src)
+if n != 1:
+    raise SystemExit('錨命中 %d 次(必須恰 1 次)' % n)
+io.open(p, 'w', encoding='utf-8').write(s.replace(src, dst))
+PY
+  cmp -s "$f" "$tmp"; case "$?" in
+    1) : ;;
+    0) bad "$name:突變檔與原檔逐字相同 —— 沒改到東西"; rm -f "$tmp"; return ;;
+    *) bad "$name:cmp 讀不到檔 —— 判紅"; rm -f "$tmp"; return ;;
+  esac
+  case "$want" in
+    SET-CHANGED) got="$(datasurface_check "$tmp" "$RUNBOOK" scripts/a4a-verify.sh 2>/dev/null)"
+                 if [ -n "$got" ] && [ "$got" != "$DATASURF_FROZEN" ]; then
+                   ok "$key" "$name ⇒ 資料面集合真的變了(不再等於凍結值)⇒ 本格抓得到"
+                 else bad "$name:集合竟然沒變(實得 [$got])—— 這一發殺不到,本格對它全盲"; fi ;;
+    GATE-DEAD)   got="$(gate_shape_check "$tmp")"
+                 if [ "$got" != "1/1" ]; then
+                   ok "$key" "$name ⇒ gate 形狀斷言翻面($got ≠ 1/1)⇒ 「整行被註解掉照樣綠」那個洞已補"
+                 else bad "$name:gate 形狀竟然仍是 1/1 —— 只比表名的老毛病還在"; fi ;;
+  esac
+  rm -f "$tmp"
+}
+# 靶D1:**以 ALTER 擴既有表**(plan 點名的那個 fail-open)—— 真相式多加總一個欄
+run_dsmut "靶D1-真相式多加總一個欄(ALTER 擴既有表)" "$MIG" \
+'COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = s.order_item_id' \
+'COALESCE((SELECT sum(si.shipped_quantity) + COALESCE(si.shipped_qty_b, 0)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = s.order_item_id' \
+  SET-CHANGED TMUT-D1
+# 靶D2:把 gate 的 shipments 那一句**整行註解掉**(R1 實測:舊寫法 grep -c 仍回 1)
+run_dsmut "靶D2-把 gate 的 shipments 那句註解掉" scripts/b2s2a-verify.sh \
+'  gn_ship="$(psql -X "$@" -qtAc' \
+'  # gn_ship="$(psql -X "$@" -qtAc' \
+  GATE-DEAD TMUT-D2
+
 # ── 負測②:把出貨側那兩行從 runbook 步驟④ 拿掉 ⇒ **項21b 的拆除清單**必須紅 ─────────
 # 🔴 這一發專打 R1 must-fix 5 的修法:上一版 DROP 清單是**手抄**的,刪掉 runbook 那兩行照樣綠
 #    ⇒ 項21b 等於只有散文。改成從 runbook 抽之後,這一發才殺得到。
@@ -1554,19 +1766,21 @@ fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
-echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **10 格**被至少一發突變紅過 ——"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **11 格**被至少一發突變紅過 ——"
 echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)"
-echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH 拿掉 Forward 的 S2b、TMUT-REH2 拿掉步驟④ 的出貨側 DROP)。"
+echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH / TMUT-REH2)+ **B28-datasurface**(靶 D1/D2)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"
 echo "     · **B12** 在靶②④ 下紅的是「作廢後必須是 0」那道中途斷言;它宣稱的另一半"
 echo "       「**unvoid 真的回升**」**沒有**任何一發靶殺得到(本線的靶動不到「只壞 unvoid」那條路)。"
-echo "   **另外 9 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
+echo "   **另外 10 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
 echo "   ①B12b-x3 / B12b-x1 / B12c-blocks —— 驗的是 **S1b** 的守門(X3 / X1 / append-only),"
 echo "     本檔的突變全在 S2b 那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b(S2b-4c)的範圍。"
 echo "   ②B12c-append-only(結構面)/ B15 / B18 —— 各自開副本庫或只查 catalog,無對應靶。"
 echo "   ③**ABLATION** —— 消融格本身無靶;它是 B10 的負向對照(同路徑 2/3 vs 0/3)。"
-echo "   ④**B26b-enable-restores / B27-divergence-4th**(3b)—— 兩格都自帶對照(ABLATION 的 0/3、舊三軸版的 0 列),但**沒有**外部突變檔證明它們。"
+echo "   ④**B26b-enable-restores / B27-divergence-4th**(3b 第一段)—— 兩格自帶對照(ABLATION 的 0/3、舊三軸述詞的 0 列),但**沒有**外部突變檔。"
+echo "   ⑤**B22-pr4-hole**(3b 第三段)—— 自帶對照(同一筆資料舊三軸回 0、四軸 RAISE),但**沒有**外部突變檔(靶要重建庫、成本高)。"
+echo "   🔴 **B28-datasurface 不在沒靶那份** —— 它有 D1/D2 兩發(真相式多加總一欄、把 gate 那句註解掉)。"
 echo "   🔴 plan §5 環境B **九列只做了五列**、環境A 矩陣與項19 / 項29 都不在本輪(見檔頭 ⓑⓒ)。"
 [ "$FAIL" -eq 0 ] || exit 1
