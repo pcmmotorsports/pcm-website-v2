@@ -5,7 +5,7 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**九片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**十一片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
@@ -15,7 +15,11 @@
 #     + 八發靶(A1-A8)+ 零突變對照 SMUT-0。詳見下方 ⓒ。
 #   · **S2b-2b 第二段之二**(commit `9f48bf9`)= **項19 barrier**:三 session 真併發編排(`barrier_oracle`)
 #     + 零突變對照 BMUT-0 + 三發靶(L1 / L2a / L2b)。**標 `inconclusive`**,詳見下方 ⓓ。
-#   · **S2b-2b 第二段之三**(本輪)= **項29 stale-high 三格**:(a) 前態可達(**pre-S2b 基準**)/
+#   · **S2b-4b**(commit `f70ff20e`)= 本檔新增 `PORT-DEFAULTS` 格(讀 `a1-verify` / `a4a-verify` 的預設埠字面,
+#     期望值**回讀自 plan §3.6 的表**);a1/a4a 兩支的分埠與 teardown 改在那兩支檔案裡,不在本檔。
+#   · **S2b-5**(本輪)= **項30 註解蓋寫守門**:`6h/8` 段,expected-before / after 兩組凍結指紋
+#     + 三邊同源 + before 分支實跑 + 維度格 + 負測ⓐⓑⓒ。詳見下方 ⓖ。
+#   · **S2b-2b 第二段之三**(commit `18d35294`)= **項29 stale-high 三格**:(a) 前態可達(**pre-S2b 基準**)/
 #     (b) 本線自癒 /(c) 真超出貨仍紅。詳見下方 ⓔ。
 #   · **S2b-3a 後段**(commit `b3340ac`)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 對照組格)
 #     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
@@ -36,7 +40,8 @@
 #   PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2s2bv   從零 provision post-S2b 基準庫,再跑全部
 #   PORT=54365 scripts/b2s2b-verify.sh run /tmp/b2s2bv   重用既有基準庫
 #   🔴 PORT **無預設、必須顯式帶**(plan §3.6:a1/a4a 共用 54329 的同埠地雷;建議值 54365)。
-#      本家族已占用、不得重用:54329 / 54331 / 54342 / 54351 / 54353 / 54355 / 54357 / 54359。
+#      本家族已占用、不得重用:54329 / 54331 / 54342 / 54351 / 54353 / 54355 / 54357 / 54359
+#      / **54361(a1-verify)/ 54363(a4a-verify)**(S2b-4b 分埠後新增;與程式的黑名單同步)。
 #
 # ── 這支腳本在證明什麼 ──────────────────────────────────────
 # 證明:S2b-1 接上去的第四軸**在真的跑起來時**行為正確 —— 由**外部** oracle 回查落庫值,
@@ -219,11 +224,13 @@ EXPECT_TMUT=16     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T
                    #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
                    #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)、
                    #   D1 真相式多加總一欄、D2 把 gate 那句註解掉(3b 第三段)
-EXPECT_TOTAL=71    # 25 格 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
+EXPECT_TOTAL=78    # 25 格 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
                    #   + 9 結構突變(含 SMUT-0)+ SMUT-COUNT
                    #   + **3** barrier 突變入 PASS 帳(BMUT-0 / L1 / L2b;**L2a 走待裁、不入帳**)
                    #   + BMUT-COUNT + BAR-PLAN-SHAPE + SELF-REPORT-BACKTICK + COVERAGE-ACCOUNT
-                   #   + PORT-DEFAULTS(S2b-4b)+ COPIES-DROPPED
+                   #   + PORT-DEFAULTS(S2b-4b)
+                   #   + 項30 註解蓋寫守門**七格**(S2b-5:三邊同源 / 常設格 / before 分支 / 維度 / 負測ⓐⓑⓒ)
+                   #   + COPIES-DROPPED
 # 🔴 **待裁格的 key 集合另外凍結**(R2 F1):不入 PASS 帳不代表可以消失 ——
 #    沒有這一組,把那一行 run_bmut 整行刪掉會全綠。
 # 🔴🔴 **機制,不是規則**(機制優先律;R1 nit 13):本檔的「覆蓋 N 格 / 沒靶 M 格」以前是**手寫字面**,
@@ -249,7 +256,8 @@ STRUCT-ORACLE SMUT-0 SMUT-A1 SMUT-A2 SMUT-A3 SMUT-A4 SMUT-A5 SMUT-A6 SMUT-A7 SMU
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
 BMUT-0 BMUT-L1 BMUT-L2B BMUT-COUNT \
 RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
-REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COVERAGE-ACCOUNT PORT-DEFAULTS COPIES-DROPPED"
+REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COVERAGE-ACCOUNT PORT-DEFAULTS \
+CFP-SAMESOURCE CFP-DISPATCH CFP-BEFORE-BRANCH CFP-DIMENSIONS CFP-MUT-A CFP-MUT-B CFP-MUT-C COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -486,7 +494,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar' EXIT
+trap 'drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar; drop_db b2s2b_cfp' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -2451,6 +2459,188 @@ fi
 drop_db b2s2b_abl
 
 # ══ 收尾:副本清除 + 格數與具名 key 集合自斷言(W1)═══════════════════════════
+# ══ 6h/8:項30 註解蓋寫守門(S2b-5;plan §4.30)═════════════════════════════════
+# 🔴 **為什麼不放在 migration 結尾**(codex 關卡1 打掉 v1):檔內斷言只保護它自己那一支——
+#    下一支 migration 在它 COMMIT **之後**蓋寫 COMMENT,不會觸發任何東西。⇒ 守門必須是**外部 oracle**,
+#    在整條 migration 前綴套完之後對**真實 catalog** 取指紋。
+# 🟡 **它擋的是「蓋寫後沒有人回來更新凍結值」,不是「禁止蓋寫」** —— 有意的蓋寫照樣可以發生,
+#    只是必須有人回來改常數。**fail-visible,不是 fail-closed**;寫清楚免得下一棒以為註解被鎖死了。
+#   ⓖ ✅ **項30 註解蓋寫守門已做**(S2b-5,即本段):七格 —— 三邊同源 / 常設格(兩組凍結值 + 分流)/
+#     before 分支實跑 / 維度格 / 負測ⓐⓑⓒ。**plan 要求的「ledger 尾」沒有另開一格**,理由見下方。
+log "6h/8 項30 註解蓋寫守門(S2b-5;expected-before / after 兩組凍結值)"
+
+# 🔴 **兩組期望值,不是一組**(plan §4.30 must-fix):小線那句受保護的註解**逐字寫著**
+#    「大線 B2-S2b,**尚未施工**」與 A4a「**完全不碰本欄**」—— 本線落地後這兩句就是假的。
+#    若守門仍要求等於小線指紋,等於**把已知假字面凍結起來**:功能接線正確而 catalog 仍宣稱沒有 writer。
+CFP_BEFORE="f5798812892bb484b52083ad068a48a6"   # 小線 B2-S2a 的值(與 b2s2a-verify.sh 的 COMMENT_FP 同值)
+CFP_AFTER="f2794c052c359f08c366429090e8fa53"    # 本線改寫欄註解 + 表註解之後的值
+
+# 🔴 **分流判準不得依受守的 COMMENT 本身、也不得依 live 指紋**(兩者都是被守護物 ⇒ 自我引用,
+#    實作者會退化成 live 自算 = 恆綠)。判準 = **catalog 內是否存在本線的產物**:
+#    `shipments_summary_recompute_ac` 在 ⇒ after,不在 ⇒ before。它與 COMMENT 文字**完全無關**。
+cfp_expected() {   # $1 = 庫 URL
+  local n
+  n="$(psql -X "$1" -qtAc "SELECT count(*) FROM pg_trigger WHERE tgname='${TG_SS}' AND NOT tgisinternal" 2>/dev/null)"
+  case "$n" in
+    1) printf '%s' "$CFP_AFTER" ;;
+    0) printf '%s' "$CFP_BEFORE" ;;
+    *) printf 'DISPATCH-ERR' ;;
+  esac
+}
+# 🔴 七個物件**逐物件列名**(plan 禁寫「七物件」這種會過期的集合描述);
+#    第七個是 `COL:shipment_items.shipped_quantity` —— **不在摘要表上**,v1 的「摘要表七物件」是錯的。
+# 🔴 **七列的 SQL 只寫一份**(`cfp_rows_sql`),指紋與維度格都從它衍生 ——
+#    第一版把 md5 包裝寫死在 `cfp_sql` 裡,維度格只好用 sed 把包裝剝掉,**剝失敗時回空字串**
+#    (第一次實跑實錘:`有 [] 個物件取不到 COMMENT`)。共用一份就沒有那道剝除。
+cfp_rows_sql() {
+  printf '%s' \
+"SELECT 1 AS i, COALESCE(col_description('${SUMMARY}'::regclass,(SELECT attnum FROM pg_attribute WHERE attrelid='${SUMMARY}'::regclass AND attname='shipped_quantity')),'-') AS c
+ UNION ALL SELECT 2, COALESCE(obj_description('${SUMMARY}'::regclass,'pg_class'),'-')
+ UNION ALL SELECT 3, COALESCE(col_description('${SUMMARY}'::regclass,(SELECT attnum FROM pg_attribute WHERE attrelid='${SUMMARY}'::regclass AND attname='quantity')),'-')
+ UNION ALL SELECT 4, COALESCE((SELECT obj_description(oid,'pg_constraint') FROM pg_constraint WHERE conrelid='${SUMMARY}'::regclass AND conname='order_item_quantity_summary_item_fk'),'-')
+ UNION ALL SELECT 5, COALESCE((SELECT obj_description(oid,'pg_constraint') FROM pg_constraint WHERE conrelid='${SUMMARY}'::regclass AND conname='oiqs_instock_cancelled_le_quantity'),'-')
+ UNION ALL SELECT 6, COALESCE((SELECT obj_description(oid,'pg_constraint') FROM pg_constraint WHERE conrelid='${SUMMARY}'::regclass AND conname='oiqs_cancelled_shipped_le_quantity'),'-')
+ UNION ALL SELECT 7, COALESCE(col_description('public.shipment_items'::regclass,(SELECT attnum FROM pg_attribute WHERE attrelid='public.shipment_items'::regclass AND attname='shipped_quantity')),'-')"
+}
+cfp_sql() { printf "SELECT md5(string_agg(t.c, E'\\n' ORDER BY t.i)) FROM (%s) t" "$(cfp_rows_sql)"; }
+cfp_of() { psql -X "$1" -qtAc "$(cfp_sql)" 2>/dev/null; }
+
+# ── 同源斷言:清單與 `b2s2a-verify.sh` 的 `fp_sql()` 不一致即紅 ────────────────
+# 🔴 plan 逐字:「清單與 `b2s2a-verify.sh` 的 `fp_sql()` **同源**,兩處不一致即紅」。
+#    做法 = 從那支抽出它 `fp_sql()` 用到的 key 序列,與本檔凍結的序列逐字比;
+#    順序也比 —— 指紋是 `ORDER BY i` 的字串接合,**換順序就換值**。
+CFP_KEYS_FROZEN="COL:summary.shipped_quantity TABLE:summary COL:summary.quantity FK:summary.item_fk C:oiqs_instock_cancelled_le_quantity C:oiqs_cancelled_shipped_le_quantity COL:shipment_items.shipped_quantity"
+CFP_KEYS_SIS="$(sed -n '/^fp_sql() {/,/^}/p' scripts/b2s2a-verify.sh | grep -oE 'comment_sql [A-Za-z0-9:._]+' | sed 's/^comment_sql //' | tr '\n' ' ' | sed 's/ *$//')"
+CFP_SIS_FP="$(grep -oE '^COMMENT_FP="[0-9a-f]{32}"' scripts/b2s2a-verify.sh | grep -oE '[0-9a-f]{32}' | head -1)"
+# 🔴🔴 **第三邊:本檔自己的 `cfp_sql` 也要進來比**(R1 must-fix 3)。第一版只比
+#    「姊妹檔抽出的序列 vs 一個手寫凍結字串」—— 在 `cfp_sql` 裡加第八個物件、再照守門提示重凍
+#    `CFP_AFTER`,六格會全綠而兩支真的分歧了。**那正是本格宣稱要抓的東西。**
+#    ⇒ 從本檔 `cfp_sql` 的函式體抽出它實際查的物件識別碼,三邊(姊妹檔 / 凍結字串 / 本檔實作)一起比。
+CFP_KEYS_SELF="$(sed -n '/^cfp_rows_sql() {/,/^}/p' "$SELF_PATH" \
+  | grep -oE "attname='[^']+'|conname='[^']+'|attrelid='[^']+'|conrelid='[^']+'|'pg_class'" | tr '\n' ' ' | sed 's/ *$//')"
+# 🔴 R2 F3:pattern **必須捕 relation 限定詞**(`attrelid=` / `conrelid=`)—— 只捕 `conname` 時,
+#    把 row 4-6 的 `conrelid='…'::regclass AND` 整段拿掉,抽取序列不變、今天的指紋也不變
+#    (conname 現況全域唯一)⇒ 七格全綠而兩支的量測述詞已經分歧,日後他表出現同名 constraint 就靜默量錯。
+# 🔴 `${SUMMARY}` 要跳脫成 `\${SUMMARY}` —— 這個凍結值是**原始碼字面**,不是展開後的值;
+#    用雙引號包而不跳脫時 shell 會當場展開,與 sed 抽出來的字面永遠對不上(實跑當場紅)。
+CFP_KEYS_SELF_FROZEN="attrelid='\${SUMMARY}' attname='shipped_quantity' 'pg_class' attrelid='\${SUMMARY}' attname='quantity' conrelid='\${SUMMARY}' conname='order_item_quantity_summary_item_fk' conrelid='\${SUMMARY}' conname='oiqs_instock_cancelled_le_quantity' conrelid='\${SUMMARY}' conname='oiqs_cancelled_shipped_le_quantity' attrelid='public.shipment_items' attname='shipped_quantity'"
+if [ "$CFP_KEYS_SIS" = "$CFP_KEYS_FROZEN" ] && [ "$CFP_SIS_FP" = "$CFP_BEFORE" ] \
+   && [ "$CFP_KEYS_SELF" = "$CFP_KEYS_SELF_FROZEN" ]; then
+  # 🔴 R1 nit 10:plan §4.30「守什麼」那列**明文禁止**用「七物件」這種會過期的集合描述
+  #    ⇒ PASS 訊息也要逐物件列名,不能只有 bad 分支才看得到。
+  ok CFP-SAMESOURCE "項30 同源(**三邊**:姊妹檔 fp_sql / 本檔凍結清單 / 本檔 cfp_sql 實作)逐字同序 —— COL:summary.shipped_quantity、TABLE:summary、COL:summary.quantity、FK:summary.item_fk、C:oiqs_instock_cancelled_le_quantity、C:oiqs_cancelled_shipped_le_quantity、COL:shipment_items.shipped_quantity;且姊妹檔 COMMENT_FP = 本檔 expected-before"
+else
+  bad "項30 同源不符:
+     姊妹檔清單 [$CFP_KEYS_SIS]
+     本檔凍結   [$CFP_KEYS_FROZEN]
+     本檔 cfp_sql 實查 [$CFP_KEYS_SELF]
+     本檔 cfp_sql 凍結 [$CFP_KEYS_SELF_FROZEN]
+     姊妹檔 COMMENT_FP [$CFP_SIS_FP] / 本檔 expected-before [$CFP_BEFORE]
+     🔴 兩處各自演化 = 兩份指紋守著不同的東西,而且誰也不會發現"
+fi
+
+# ── ledger 尾:**不另開一格**(R1 must-fix 1)────────────────────────────────
+# 🔴 plan §4.30 末段要求「守門必須在要驗的前綴全部套完之後才跑」。我原本為它另開一格
+#    (比 `ls supabase/migrations/*.sql | sort | tail -1` 與 `$MIG`)—— **那一格近乎恆真**:
+#    本檔的 **`NEWEST_TS`** 閘(grep 這個字找得到 —— **不寫行號**,R2 抓到我寫的 318 從來就是錯的)
+#    早就在同一份 `ls` 上 `die` 了,「有更新的 migration」那條路根本走不到這裡;
+#    唯一可紅的情境是「同時間戳撞檔名」,而我的 bad 訊息描述的正是那條不可達的路。
+#    ⇒ **拿掉那一格**,在這裡留指標。(本 repo 的紀律:負測構造不出來 ⇒ 先懷疑守門是 no-op。)
+#    DB 那一面由 `BASE-POST`(helper 四軸指紋)證,不是由檔名序證 —— 兩者不可互相冒領。
+
+# ── 常設格本體 ───────────────────────────────────────────────────────────────
+CFP_WANT="$(cfp_expected "$BASE_URL")"
+CFP_GOT="$(cfp_of "$BASE_URL")"
+if [ "$CFP_WANT" = "DISPATCH-ERR" ] || [ -z "$CFP_GOT" ]; then
+  bad "項30:分流或取指紋失敗(want=[$CFP_WANT] got=[$CFP_GOT])—— fail-closed 判紅"
+elif [ "$CFP_GOT" = "$CFP_WANT" ]; then
+  ok CFP-DISPATCH "項30 註解指紋相符:本線產物在 ⇒ 走 **expected-after**([$CFP_WANT]);七個物件的 COMMENT 逐字未被蓋寫"
+else
+  bad "項30 註解指紋不符:期望 [$CFP_WANT] 實得 [$CFP_GOT]
+     🔴 有人蓋寫了七個被守物件之一的 COMMENT 而沒有回來更新凍結值(這道是 fail-visible,不是禁止蓋寫)"
+fi
+
+# ── before 分支:對 **pre 基準庫**跑一次(R1 must-fix 5)────────────────────────
+# 🔴 第一版的 `0)` 分支**全程零執行** —— BASE 與兩個突變庫的 trigger 都在,
+#    把 `0)` 改成任意值都零紅 ⇒「兩組期望值分流」只有一半被跑過。`b2s2b_pre` 就在旁邊。
+CFP_PRE_WANT="$(cfp_expected "$PRE_URL")"
+CFP_PRE_GOT="$(cfp_of "$PRE_URL")"
+if [ "$CFP_PRE_WANT" = "$CFP_BEFORE" ] && [ "$CFP_PRE_GOT" = "$CFP_BEFORE" ]; then
+  ok CFP-BEFORE-BRANCH "項30 before 分支實跑:pre 基準庫沒有本線的 trigger ⇒ 分流走 expected-before,且它的實際指紋逐字 = [$CFP_BEFORE]"
+else
+  bad "項30 before 分支:pre 基準庫的分流或指紋不對(want=[$CFP_PRE_WANT] got=[$CFP_PRE_GOT] / 凍結 before=[$CFP_BEFORE])
+     🔴 兩組期望值的分流有一半沒被跑過 = 那一半可以被改成任意值而零紅"
+fi
+
+# ── 維度格:七個物件都必須真的有 COMMENT(R1 must-fix 4)───────────────────────
+# 🔴 指紋是七段字串的接合;某一段若退化成 `'-'`(attname 打錯 / 欄改名 / conname 改名),
+#    指紋只會漂**一次**,重凍 `CFP_AFTER` 之後那一維就**永久失明**,而且沒有任何格會紅。
+#    ⇒ 直接斷言「零個 `-`」。姊妹檔用 `R12b-fpdim` 擋這一族,本檔原本沒有對應。
+CFP_DASH="$(psql -X "$BASE_URL" -qtAc "SELECT count(*) FROM ($(cfp_rows_sql)) t WHERE t.c = '-'" 2>/dev/null)"
+if [ "$CFP_DASH" = "0" ]; then
+  ok CFP-DIMENSIONS "項30 維度:七個被守物件**全部真的有 COMMENT**(零個退化成 '-')⇒ 七段都對指紋有貢獻,不是有幾段恆為 '-' 的裝飾"
+else
+  bad "項30 維度:有 [$CFP_DASH] 個物件取不到 COMMENT(值為 '-')
+     🔴 那幾維對指紋**永久失明** —— 多半是 attname / conname 打錯或物件被改名,而不是註解真的被刪"
+fi
+
+# ── 負測ⓒ:把 expected-after 誤填成 expected-before ────────────────────────────
+# 🔴 這一發**專打**「凍結已知假字面」那條:沒有它,兩組期望值的分流可能整條沒接上而沒人知道。
+# 🔴 R2 F4:`CFP_GOT` 若取指紋失敗而為空,「空 != before」會成立 ⇒ 常設格紅了本格卻仍綠。加前提。
+if [ -n "$CFP_GOT" ] && [ "$CFP_BEFORE" != "$CFP_AFTER" ] && [ "$CFP_GOT" != "$CFP_BEFORE" ]; then
+  ok CFP-MUT-C "項30 負測ⓒ:兩組期望值**不相等**,且本線已套的庫拿 expected-before 去比**會紅** ⇒ 分流真的接上了(誤填會被抓到)"
+else
+  bad "項30 負測ⓒ:expected-before 與 after 相等,或本線已套卻仍等於 before
+     🔴 那代表分流沒接上 / 兩組值其實是同一組 ⇒ 這道守門在凍結一句已知為假的敘述"
+fi
+
+# ── 負測ⓐ:在**本線 migration 內**插一句蓋寫 COMMENT ⇒ 必紅 ────────────────────
+# 🔴 **蓋寫必須插在第 6 節「之後」**(第一次實跑實錘):插在 `-- ══ 6. 註解` 之前時,
+#    第 6 節會把表註解**再設回正確值** ⇒ 指紋不變、這一發沒有翻面。
+#    ⇒ 錨改用檔尾那一行,確保它是**最後一句**跑到的 COMMENT。
+make_mutant_or_die "$WORK/cfp-a.sql" \
+'--   · A8a2 多品項取消的取鎖順序未驗(plan §9 交棒 6)' \
+"--   · A8a2 多品項取消的取鎖順序未驗(plan §9 交棒 6)
+COMMENT ON TABLE public.order_item_quantity_summary IS '被蓋寫了';"
+run_cfp_mut() {   # $1 = 靶名、$2 = 要套的檔(可空 = 只套 mut0)、$3 = key、$4 = 套完再跑的 SQL(可空)
+  local name="$1" file="$2" key="$3" extra="$4" db="b2s2b_cfp" U got want
+  psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $db" >/dev/null 2>&1
+  # 🔴 R1 nit 13:與 `run_mutant` / `run_smut` 同形 —— 複製失敗先 `sleep 1` 重試一次,
+  #    否則同一顆 TEMPLATE 來源在兩處有不同行為,會產生偶發假紅。
+  psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+    || { sleep 1; psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+         || { bad "$name:複製 pre 副本失敗"; return; }; }
+  U="postgresql://postgres@127.0.0.1:${PORT}/$db"
+  if ! psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$file" > "$WORK/cfp-$key.log" 2>&1; then
+    bad "$name:套不上去($(grep -m1 ERROR "$WORK/cfp-$key.log" | cut -c1-90))—— 套不上去 ≠ 抓到"
+    drop_db "$db"; return
+  fi
+  if [ -n "$extra" ]; then
+    psql -X "$U" -v ON_ERROR_STOP=1 -q -c "$extra" >/dev/null 2>&1 \
+      || { bad "$name:後續的蓋寫語句沒套上"; drop_db "$db"; return; }
+  fi
+  want="$(cfp_expected "$U")"; got="$(cfp_of "$U")"
+  drop_db "$db"
+  # 🔴🔴 **fail-open**(R1 must-fix 2):`cfp_expected` 在 psql 掛掉時回 `DISPATCH-ERR`,
+  #    那是個**合法的非 md5 字串**、必然 `!= got` ⇒ 第一版會判 ok。常設格有擋這條,這裡漏了。
+  if [ "$want" = "DISPATCH-ERR" ] || [ -z "$got" ] || [ -z "$want" ]; then
+    bad "$name:分流或取指紋失敗(want=[$want] got=[$got])—— fail-closed 判紅,**不當成「翻面了」**"
+  elif [ "$got" != "$want" ]; then
+    ok "$key" "$name ⇒ 指紋真的翻面(期望 [$want] 實得 [$got])"
+  else
+    bad "$name 沒有翻面:want=[$want] got=[$got] —— 那代表這道守門對蓋寫是瞎的"
+  fi
+}
+run_cfp_mut "項30 負測ⓐ-在本線 migration 內蓋寫表註解" "$WORK/cfp-a.sql" CFP-MUT-A ""
+# ── 負測ⓑ:**守門跑完之後**再套一支只含一句蓋寫的 throwaway migration ⇒ 重跑必紅 ──
+# 🔴 這才是「日後蓋寫」的真實形狀(codex R2:v2 沿用了 migration 內設計的措辭,對外部 oracle 無語意)。
+# 🔴 **ⓐ 與 ⓑ 對外部 oracle 其實不可區分**(R1 nit 8,誠實列):守門沒有時序面 ——
+#    「migration 內蓋寫」與「下一支 migration 蓋寫」對它都只是「量測時 DB 裡有一句被蓋寫的 COMMENT」。
+#    兩發真正的差別是**打不同的物件**(ⓐ 打 TABLE:summary、ⓑ 打 COL:summary.shipped_quantity)。
+#    ⇒ 靶名保留 plan 的措辭(它描述的是**現實中的兩種發生方式**),但不得宣稱本守門分得出時序。
+run_cfp_mut "項30 負測ⓑ-守門跑完後由下一支 migration 蓋寫(對本守門 = 打第 1 個物件)" "$WORK/mut0.sql" CFP-MUT-B \
+  "COMMENT ON COLUMN public.order_item_quantity_summary.shipped_quantity IS '下一支 migration 蓋寫的';"
+
 log "收尾"
 # 🔴 `b2s2b_pre` **不是副本、是常駐的 pre-S2b 基準庫**(突變環境的 TEMPLATE 來源),
 #    每輪重用 ⇒ 必須排除,否則這一格永遠紅(本輪實測)。排除的是**具名的那一個**,
