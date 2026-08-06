@@ -50,8 +50,10 @@ export class ProcurementCallerBugError extends Error {
 /**
  * 🔴 **RPC 的 RAISE 面有兩個 SQLSTATE,兩個都當呼叫端 bug**(逐條對照 migration `:32`):
  *   ① `P0001` = actor(`:189-197`)/ request_id(`:200-208`)缺失或非法 + 常數自檢 + 兩圈未收斂的防衛枝
- *      **+ preserve 矛盾意圖**(A9h-M `20260806200000` 步 1p:`preserveOptionalFields: true` 卻同時
- *      送了 submittedAt / supplierOrderNo / exceptionReason / expectedArrivalDate 任一非 null)。
+ *      **+ preserve 的三道閘**(A9h-M `20260806200000`):步 1n 旗標本身是 null(三值邏輯會靜默降級成
+ *      不保留)、步 1p 矛盾意圖(`preserveOptionalFields: true` 卻同時送了 submittedAt /
+ *      supplierOrderNo / exceptionReason / expectedArrivalDate 任一非 null)、
+ *      步 5p 保留模式下 contactChannel 留空(正規化後為空亦算)。
  *      🔴 新增這個來源**不需要改下面的判別式**(它只看 `code`)—— 但這行枚舉必須跟上,
  *      否則它會從「誠實邊界」退化成「過期的宣稱」。
  *   ② `P2B02` = 隔離閘(`:170-175`:非 read committed 拒收)。
@@ -119,6 +121,10 @@ export interface UpsertItemProcurementArgs {
    * `false` = 全量 payload(明細頁單列表單):四個選填欄送什麼就寫什麼、**送 null 就是清空**。
    * `true`  = 批次(A9h)沒有那四欄的入口 ⇒ 保留該列現值。
    *    🔴 此時那四欄**必須全部送 null**,否則 RPC 判定矛盾意圖並 RAISE(→ `ProcurementCallerBugError`)。
+   *    🔴 **且 `contactChannel` 必須非空**(Sean 2026-08-06 拍板;migration 步 5p):
+   *       它**不在**保留集合裡(批次共用欄、員工會選)⇒ 送 null 會**清掉各列既有管道**,
+   *       與那四欄是同一種病 ⇒ 由 DB 層 RAISE,不靠批次 UI 自律。
+   *       正規化後為空(例:`'   '`)一樣算沒送。
    */
   preserveOptionalFields: boolean;
 }
@@ -132,6 +138,8 @@ export interface UpsertItemProcurementArgs {
  *    這正是 `database.types.ts` 那些 `| null` 手動校正要保護的東西。
  * 🔴 **`preserveOptionalFields: true` 時語意不同**(A9h-M):那四欄的 null **不是清空、是保留**。
  *    「送 null = 清空」只在 `false` 下成立 —— 這行以前是無條件寫的,現在不是。
+ *    ⚠️ `true` 另有一條**必填**約束(`contactChannel` 不得為空)—— 逐字見
+ *    `UpsertItemProcurementArgs.preserveOptionalFields` 的 JSDoc,此處不重述免兩份漂移。
  */
 export async function upsertItemProcurement(
   args: UpsertItemProcurementArgs,

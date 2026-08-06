@@ -34,22 +34,32 @@
 --      四處各自枚舉參數正是關卡1 F1「漏掉 contact_channel」那條的病根)。
 --   M3 稽核 after 改記 effective 值(否則 preserve 後資料列留舊值、稽核記 NULL = 兩者矛盾)。
 --   M4 preserve=true 而那四個參數任一非 NULL ⇒ **fail-loud RAISE**(Q1=A);
---      旗標本身為 NULL 亦 RAISE(三值邏輯會讓它靜默降級成不保留 —— 見步 1n)。
+--      旗標本身為 NULL 亦 RAISE(三值邏輯會讓它靜默降級成不保留 —— 見步 1n);
+--      preserve=true 而 channel 正規化後為 NULL 亦 RAISE(Sean 2026-08-06 拍板 —— 見步 5p)。
 --   ⇒ `p_preserve_optional_fields = false` 時,17 個固定碼與全部副作用**逐字不變**。
 --
 -- 🔴 檢查順序(相對基底只插入 1p / 11p 兩步,**既有步號不重新編號**):
 --   0 隔離閘 → 0b 拉回 IMMEDIATE → 1 actor/request → **1n 旗標非 NULL → 1p preserve 矛盾意圖** → 2 鍵 NULL →
---   3 allocated → 4 reply → 5 channel → 6 單號 → 7 異常原因 → 8 送出時間 → 9 預計到貨 →
+--   3 allocated → 4 reply → 5 channel →(**5p 保留模式下 channel 必填**)→ 6 單號 → 7 異常原因 → 8 送出時間 → 9 預計到貨 →
 --   10 品項存在 → 11 鎖列 →(**11p effective 值**)→(11a 同值 no-op)→(11g 供應商閘)→
 --   (11b 更新 / 11c 新建)→ 12 稽核。
 --
 -- 🔴 RAISE 面(= caller bug,非固定碼)新增一項:
---   actor/request_id 缺失或非法 + **保留旗標為 NULL** + **preserve 矛盾意圖** + 隔離閘 P2B02 + 防衛枝。
+--   actor/request_id 缺失或非法 + **保留旗標為 NULL** + **preserve 矛盾意圖** + **保留模式下 channel 留空**
+--   + 隔離閘 P2B02 + 防衛枝。
 --   前者與後者同為 P0001 ⇒ 呼叫端 `procurement-repository.ts` 的判別式**不需改**(只看 code)。
 --
 -- 🔴 誠實邊界(基底的六條全部續存,不重複抄;本片新增兩條):
 --   · M4 比對的是**原始參數**、不是正規化後的值 —— 送 '   ' 這種肉眼全空的字串 + preserve=true
 --     一樣 RAISE。刻意從嚴:合法呼叫端(批次送 NULL 字面、單列送 false)構造不出這個面。
+--   · **`contact_channel` 不進保留集合、但在保留模式下必填**(步 5p)—— 兩者不衝突:
+--     不保留 = 批次送什麼就寫什麼(員工可整批改管道);必填 = 不准不送(不送會清空)。
+--   · ⚠️ **步 5p 的響度順序與步 1p 不同,是刻意的**(關卡2 N2):1p 排在固定碼**之前**
+--     (RAISE 面比固定碼更響),5p 卻排在步 2-5 的固定碼**之後** —— 因為拍板字面是
+--     「**正規化後** NULL ⇒ RAISE」,而正規化就發生在步 5,擺前面就沒有正規化值可比。
+--     代價:批次同時漏 channel 又送壞 allocated 時,呼叫端先看到 `INVALID_ALLOCATED`、
+--     修完重送才撞這道 RAISE(**兩段式發現**)。全程零寫入、零資料損失 ⇒ 接受;
+--     寫在這裡是為了日後 debug 不把它誤當成 bug。
 --   · preserve=true 對**新建路徑**無效(沒有舊值可保留)。步 1p 已保證此時那四個參數皆為 NULL
 --     ⇒ 新列插 NULL,與基底行為一致。
 -- ============================================================
@@ -232,6 +242,18 @@ BEGIN
   IF v_channel IS NOT NULL
      AND (pg_catalog.char_length(v_channel) > v_text_max OR v_channel ~ '[[:cntrl:]]') THEN
     RETURN 'INVALID_CONTACT_CHANNEL';
+  END IF;
+
+  -- 步 5p. A9h-M:保留模式下**聯絡管道必填**(Sean 2026-08-06 拍板,推翻本檔原案)。
+  -- 🔴 為什麼要在 DB 層擋(而不是只靠批次 UI 必填):`contact_channel` 刻意**不在**保留集合裡
+  --    (它是批次共用欄、員工會選)⇒ 批次漏送它就會**靜默清掉各列既有的管道**
+  --    —— 與本片要修的那四欄是**同一種病、只是換一欄**。UI 必填擋不住 PostgREST 直呼與
+  --    日後的 coordinator bug,而症狀同樣是零錯誤零固定碼。
+  -- 🔴 位置在**正規化之後**(不同於步 1p 比對原始參數):拍板字面是「正規化後 NULL ⇒ RAISE」
+  --    ⇒ 送 '   ' 這種肉眼全空的字串在這裡已收斂成 NULL、照樣擋下。
+  -- 🔴 只在 preserve=true 下成立:單列表單(preserve=false)本來就可以把管道清空,不受影響。
+  IF p_preserve_optional_fields AND v_channel IS NULL THEN
+    RAISE EXCEPTION 'admin_upsert_item_procurement: 保留模式下聯絡管道必填(留空會靜默清掉各列既有管道)';
   END IF;
 
   v_order_no := pg_catalog.btrim(p_supplier_order_no, v_ws);
@@ -477,8 +499,9 @@ COMMENT ON FUNCTION public.admin_upsert_item_procurement(uuid, uuid, integer, te
   'false(預設、明細頁單列表單)= 全量 payload —— 選填欄 NULL = 寫成 NULL(員工清得掉某一欄);'
   'true(A9h 批次;那四欄在批次畫面沒有入口)= submitted_at / supplier_order_no / exception_reason / '
   'expected_arrival_date 保留該列現值,同值比較與稽核 after 一律以實際寫入值為準。'
-  'true 時再提供那四欄任一非 NULL = 呼叫端矛盾意圖 ⇒ RAISE(P0001,非固定碼);'
-  'contact_channel **不在**保留集合內(它是批次共用欄、員工會選 ⇒ 保留會打壞批次改管道)。'
+  'true 時再提供那四欄任一非 NULL = 呼叫端矛盾意圖 ⇒ RAISE(P0001,非固定碼);旗標本身為 NULL 亦 RAISE。'
+  'contact_channel **不在**保留集合內(它是批次共用欄、員工會選 ⇒ 保留會打壞批次改管道),'
+  '但 true 時它**必填** —— 正規化後為 NULL ⇒ RAISE(留空會靜默清掉各列既有管道;Sean 2026-08-06 拍板)。'
   '同 payload 重放 = NO_CHANGE(零寫入零稽核不動日期),**且不受供應商事後停用影響**。'
   '回 17 固定碼:CREATED / UPDATED / NO_CHANGE / ORDER_ITEM_NOT_FOUND / SUPPLIER_NOT_FOUND / '
   'SUPPLIER_INACTIVE / OVER_ALLOCATION / ALLOCATED_BELOW_RECEIVED / INVALID_INPUT / INVALID_ALLOCATED / '
@@ -814,8 +837,8 @@ BEGIN
     -- 而且沒有任何行為測試會紅 —— 這條是承重的)。
     n_args     integer := (SELECT pronargs        FROM pg_catalog.pg_proc WHERE oid = v_oid);
     n_defs     integer := (SELECT pronargdefaults FROM pg_catalog.pg_proc WHERE oid = v_oid);
-    -- 旗標恰 4 次 = 簽章 1 + 步 1n NULL 閘 1 + 步 1p 矛盾閘 1 + 步 11p 分流 1。
-    -- 拿掉其中任一道都會掉到 3 ⇒ 紅。
+    -- 旗標恰 5 次 = 簽章 1 + 步 1n NULL 閘 1 + 步 1p 矛盾閘 1 + 步 5p channel 必填閘 1 + 步 11p 分流 1。
+    -- 拿掉其中任一道都會掉到 4 ⇒ 紅。
     -- ⚠️ 誠實界(關卡2 F6):這是**存在性**計數,對「保留選擇器、改壞值」型突變是盲的
     --    (例如把步 11p 的條件反轉、或把 v_eff_* 交叉指派)—— 那一族由
     --    scripts/a5a-verify.sh 的 P 區行為格 + M9/M10 常駐突變格承重,不是這裡。
@@ -852,8 +875,8 @@ BEGIN
     IF pg_catalog.strpos(v_def, 'p_preserve_optional_fields boolean default false') = 0 THEN
       RAISE EXCEPTION 'A9h-M 異常 — preserve 旗標的預設值必須逐字為 false(寫成 true ⇒ 明細頁單列表單靜默失去清空能力、零測試會紅);拒繼續';
     END IF;
-    IF n_pres <> 4 THEN
-      RAISE EXCEPTION 'A9h-M 錨異常 — p_preserve_optional_fields 應恰 4 次(簽章 / 步 1n NULL 閘 / 步 1p 矛盾閘 / 步 11p 分流),實 % 次;少一次 = 其中一道被拿掉;拒繼續', n_pres;
+    IF n_pres <> 5 THEN
+      RAISE EXCEPTION 'A9h-M 錨異常 — p_preserve_optional_fields 應恰 5 次(簽章 / 步 1n NULL 閘 / 步 1p 矛盾閘 / 步 5p channel 必填閘 / 步 11p 分流),實 % 次;少一次 = 其中一道被拿掉;拒繼續', n_pres;
     END IF;
     IF n_m1 <> 1 THEN
       RAISE EXCEPTION 'A9h-M 錨異常 — UPDATE 的四個選填欄必須寫入 v_eff_* (M1);拒繼續';
