@@ -32,7 +32,6 @@ import { ProductFitments } from './ProductFitments';
 import { ProductFitmentCheck, type PdpUrlVehicleState } from './ProductFitmentCheck';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { GarageChipItem } from './GarageChips';
-import { BrandShowcase } from './BrandShowcase';
 import { ProductTabs } from './ProductTabs';
 import { ProductFAQ } from './ProductFAQ';
 import { ProductRelated } from './ProductRelated';
@@ -193,15 +192,16 @@ export function ProductPage({
             改長頁全展開 + sticky 跳轉列;四段 description/specs/install/warranty 全常駐可見(h2 landmark、
             section id pd-sec-*)。內容 byte 不變、僅呈現型態改;RPM 內容一字不變、只是不再被分頁藏。 */}
         <ProductTabs product={product} />
-        {/* #270 B S3(Sean 2026-07-08 拍 B、一致性):品牌形象區統一搬到規格分頁「之下」(三家品牌
-            RPM/GB/Bonamici 頁面結構一致、讓客人先確認相容/規格再看品牌行銷)。BrandShowcase 依 brandSlug
-            分派:rpm-carbon → N°01 ProductHighlights + N°02 ProductSwatchWall + ProductSpotlight(自帶
-            hasSpotlight+brandSlug 雙守門);gb-racing/bonamici → 各自 Showcase(S4/S5 補);未知 → null。
-            🔴 RPM 內容 byte 不變、只是位置由規格之上搬到規格之下(RPM byte 鐵律此線解除但僅搬位置)。
-            OD 模板原順序(Fitments→N°01→N°02→Tabs)於此 supersede:改 Fitments→Tabs→BrandShowcase。 */}
-        <BrandShowcase product={product} />
+        {/* 🔴 2026-08-07 H7:**品牌形象區(D8)整組刪除,此處版位刻意留空。**
+            Sean 在選項明寫「= 推翻 07-08 #270 B S3 拍板」之後仍選 C ⇒ 非誤拍。
+            原本這裡是 `<BrandShowcase product={product} />`,依 brandSlug 分派到 14 支各家
+            `*Showcase.tsx`(rpm-carbon 走 ProductHighlights + SwatchWall + Spotlight,
+            gb-racing/bonamici 各自一支,未知 → null)。**那 15 支元件 + 14 支 test 已全數刪除。**
+            ⚠️ **版位空缺 = Sean 知情接受**:詳情頁批會照 OD 詳情頁稿重建這一段,
+            不是漏掉、也不要有人「順手補一個回來」。
+            順序影響:原本是 Fitments → Tabs → BrandShowcase,現在 Fitments → Tabs → 相關商品。 */}
 
-        {/* N°03 相關商品(R3、鐵則 6 抽 ProductRelated 子元件、對齊 S3 抽 BrandShowcase 精神);
+        {/* N°03 相關商品(R3、鐵則 6 抽 ProductRelated 子元件);
             內容由 server 推薦引擎供給、情境化標題 + carousel + hasMore CTA 皆在子元件。related 空 → 隱藏。 */}
         <ProductRelated
           related={relatedProducts}

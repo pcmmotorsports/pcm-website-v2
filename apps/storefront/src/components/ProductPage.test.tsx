@@ -271,42 +271,19 @@ describe('ProductPage', () => {
     expect(document.querySelector('.pd-related')).toBeNull();
   });
 
-  // 🔴 P0-C 去碳品牌切換骨架(F1 回歸網):RPM 頁渲染碳纖維專屬區、非 RPM 頁空白(Q2=B)。
-  //   守門用 brandSlug(≠ product.brand 顯示名);此測釘死「RPM 見、非 RPM 不見」防 F1 恆 false 回歸。
-  it('RPM 品牌(brandSlug=rpm-carbon)→ 渲染碳纖維專屬區(N°01 + N°02 + 服務橫條泰國原廠卡)', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
-    render(<ProductPage product={rpm} tier="general" related={[]} />);
-    // N°01「為什麼選 RPM Carbon」(ProductHighlights、整段守門 mount;字面為該區 h2 專屬)
-    expect(screen.getByText('為什麼選 RPM Carbon')).toBeDefined();
-    // N°02 紋路牆(ProductSwatchWall、整段守門 mount;'亮光款'/'消光款' 為 SwatchWall 專屬字面)
-    expect(screen.getByText('亮光款')).toBeDefined();
-    expect(screen.getByText('消光款')).toBeDefined();
-    // 服務橫條「泰國原廠」卡(卡級守門顯;此字面僅 ProductServices)
-    expect(screen.getByText('泰國原廠')).toBeDefined();
-  });
-
-  it('非 RPM 品牌(brandSlug=gb-racing)→ RPM 碳纖專屬區不 mount、改渲染 GB 形象區、通用服務卡照顯', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
-    render(<ProductPage product={nonRpm} tier="general" related={[]} />);
-    // RPM 碳纖專屬整段(N°01/N°02)+ 泰國原廠卡皆不 mount(P0-C-a 守門;ProductTabs 去碳為 P0-C-b、故不驗其碳字)
-    expect(screen.queryByText('為什麼選 RPM Carbon')).toBeNull();
-    expect(screen.queryByText('亮光款')).toBeNull();
-    expect(screen.queryByText('消光款')).toBeNull();
-    expect(screen.queryByText('泰國原廠')).toBeNull();
-    // #270 B S4:改渲染 GB Racing 專屬形象區(N°01 為什麼選 GB Racing + N°02 工程血統)
-    expect(screen.getByText('為什麼選 GB Racing')).toBeDefined();
-    expect(screen.getByText('FIM 唯一認證的引擎防護')).toBeDefined();
-    // 但 3 張通用服務承諾卡仍全顯(不誤藏、非 RPM 商品也要看到 PCM 服務)
-    expect(screen.getByText('滿額免運')).toBeDefined();
-    expect(screen.getByText('專業安裝')).toBeDefined();
-    expect(screen.getByText('LINE 諮詢')).toBeDefined();
-  });
-
-  // 🔴 #270 B S3(Sean 拍 B 一致性 + codex 關卡1 must-fix 補 DOM 順序斷言):品牌形象區統一搬到規格
-  //   分頁「之下」。順序鎖:規格(.pd-spec-section)< 品牌形象 N°01(#pd-h-rpm)< 相關商品 N°03
-  //   (.pd-related)< FAQ N°04(#pd-h-faq)。防未來誤把形象區搬回規格上方 / 順序漂移。
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 2026-08-07 H7:品牌形象區(D8)整組刪除 ⇒ 本區原本 7 條測試中,有 6 條斷言的是
+  //    **已經不存在的東西**(RPM 碳纖專屬區 / GB 形象區 / Bonamici 形象區 / 三者的 DOM 順序)。
+  //    Sean 在選項明寫「= 推翻 07-08 #270 B S3 拍板」之後仍選 C ⇒ 非誤拍,版位空缺是知情接受。
+  //    ⇒ 那 6 條**不是刪掉了事**,改成兩件更該守的事:
+  //      ①**正面釘住「刻意留空」**:三個品牌都不得再冒出形象區 —— 擋的是有人「順手補一個回來」。
+  //      ②DOM 順序仍要守,但鏈條少一環:規格 < 相關商品 < FAQ(品牌不再影響順序 ⇒ 三條併一條)。
+  //    ⚠️ 這 6 條是**動手前的預期 Δ 沒算到的**:我的 consumer 清單只查了「誰 import Showcase」,
+  //       `ProductPage.test.tsx` 我看到的是註解、沒查它有沒有**斷言**。已在 STOP 據實申報。
+  // ══════════════════════════════════════════════════════════════════════
+  // 🔴 這顆 helper 是 H7 改寫時**被我的區間替換連帶吃掉的**(它夾在要換掉的那批測試中間)——
+  //    `expectBefore is not defined` 紅了才發現。原封還原,一個字沒改。
+  //    ⇒ 這正是本片刪除紀律要防的「起訖索引切段落會靜默吃掉鄰居」,而我在同一片裡又踩了一次。
   // a 在 DOM 排在 b 之前(a.compareDocumentPosition(b) 含 FOLLOWING=4 → b 在 a 之後)
   const expectBefore = (a: Element | null, b: Element | null, la: string, lb: string) => {
     expect(a, `${la} 應存在`).not.toBeNull();
@@ -314,72 +291,69 @@ describe('ProductPage', () => {
     expect(a!.compareDocumentPosition(b!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   };
 
-  it('RPM 頁 DOM 順序:規格區 < 品牌形象 N°01 < 相關商品 N°03 < FAQ N°04', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
-    render(<ProductPage product={rpm} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
-    const spec = document.querySelector('.pd-spec-section');
-    const showcase = document.getElementById('pd-h-rpm'); // N°01「為什麼選 RPM Carbon」heading
-    const related = document.querySelector('.pd-related');
-    const faq = document.getElementById('pd-h-faq'); // N°04 常見問題 heading
-    expectBefore(spec, showcase, '規格區', '品牌形象 N°01');
-    expectBefore(showcase, related, '品牌形象 N°01', '相關商品 N°03');
-    expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
-  });
+  it.each([['rpm-carbon'], ['gb-racing'], ['bonamici']])(
+    '🔴 H7:%s 頁不得再渲染品牌形象區(版位刻意留空,詳情頁批照 OD 稿重建)',
+    (slug) => {
+      mockSearchParams = new URLSearchParams('from=catalog');
+      render(
+        <ProductPage product={{ ...MOCK_PRODUCTS[0]!, brandSlug: slug }} tier="general" related={[]} />,
+      );
+      // 三支已刪 showcase 的專屬字面 / heading id,一個都不該回來。
+      expect(screen.queryByText('為什麼選 RPM Carbon'), 'RPM 形象區又出現了').toBeNull();
+      expect(screen.queryByText('為什麼選 GB Racing'), 'GB 形象區又出現了').toBeNull();
+      expect(screen.queryByText('為什麼選 Bonamici'), 'Bonamici 形象區又出現了').toBeNull();
+      for (const id of ['pd-h-rpm', 'pd-h-gb01', 'pd-h-bona01']) {
+        expect(document.getElementById(id), `形象區 heading #${id} 又出現了`).toBeNull();
+      }
+      // 前提:頁面本身仍完整渲染(否則上面全 null 只是因為整頁沒 render = 恆真)。
+      expect(document.querySelector('.pd-spec-section'), '規格區不見了 ⇒ 本條前提失效').not.toBeNull();
+    },
+  );
 
-  it('GB 頁 DOM 順序(#270 B S4):規格區 < 品牌形象 N°01(GB)< 相關商品 N°03 < FAQ N°04', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const gb = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing' };
-    render(<ProductPage product={gb} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
-    const spec = document.querySelector('.pd-spec-section');
-    const showcase = document.getElementById('pd-h-gb01'); // N°01「為什麼選 GB Racing」heading
-    const related = document.querySelector('.pd-related');
-    const faq = document.getElementById('pd-h-faq');
-    expectBefore(spec, showcase, '規格區', 'GB 品牌形象 N°01');
-    expectBefore(showcase, related, 'GB 品牌形象 N°01', '相關商品 N°03');
-    expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
-  });
+  it.each([['rpm-carbon'], ['gb-racing'], ['bonamici']])(
+    'H7 後 DOM 順序(%s):規格區 < 相關商品 N°03 < FAQ N°04(品牌不再影響順序)',
+    (slug) => {
+      mockSearchParams = new URLSearchParams('from=catalog');
+      render(
+        <ProductPage
+          product={{ ...MOCK_PRODUCTS[0]!, brandSlug: slug }}
+          tier="general"
+          related={MOCK_PRODUCTS.slice(1, 3)}
+        />,
+      );
+      const spec = document.querySelector('.pd-spec-section');
+      const related = document.querySelector('.pd-related');
+      const faq = document.getElementById('pd-h-faq');
+      expectBefore(spec, related, '規格區', '相關商品 N°03');
+      expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
+    },
+  );
 
-  it('Bonamici 頁 DOM 順序(#270 B S5):規格區 < 品牌形象 N°01(Bonamici)< 相關商品 N°03 < FAQ N°04', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const bona = { ...MOCK_PRODUCTS[0]!, brandSlug: 'bonamici' };
-    render(<ProductPage product={bona} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
-    const spec = document.querySelector('.pd-spec-section');
-    const showcase = document.getElementById('pd-h-bona01'); // N°01「為什麼選 Bonamici」heading
-    const related = document.querySelector('.pd-related');
-    const faq = document.getElementById('pd-h-faq');
-    expectBefore(spec, showcase, '規格區', 'Bonamici 品牌形象 N°01');
-    expectBefore(showcase, related, 'Bonamici 品牌形象 N°01', '相關商品 N°03');
-    expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
-  });
-
-  it('RPM 頁 related 為空時:品牌形象 N°01 仍在規格之下、且在 FAQ 之前', () => {
+  it('H7 後 related 為空時:規格區仍在 FAQ 之前(頁面結構不因少一區而塌)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' };
     render(<ProductPage product={rpm} tier="general" related={[]} />);
-    expect(document.querySelector('.pd-related')).toBeNull(); // related 空 → N°03 不渲染
-    const spec = document.querySelector('.pd-spec-section');
-    const showcase = document.getElementById('pd-h-rpm');
-    const faq = document.getElementById('pd-h-faq');
-    expectBefore(spec, showcase, '規格區', '品牌形象 N°01');
-    expectBefore(showcase, faq, '品牌形象 N°01', 'FAQ N°04');
-  });
-
-  it('RPM hasSpotlight=true → Spotlight 渲染且排在規格之下(reorder 後仍顯、雙守門通過)', () => {
-    mockSearchParams = new URLSearchParams('from=catalog');
-    const rpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon', hasSpotlight: true };
-    render(<ProductPage product={rpm} tier="general" related={[]} />);
-    const spec = document.querySelector('.pd-spec-section');
-    const spotlight = document.querySelector('.pd-spotlight');
-    expectBefore(spec, spotlight, '規格區', 'Spotlight'); // 存在 + 在規格之下
+    expect(document.querySelector('.pd-related')).toBeNull();
+    expectBefore(
+      document.querySelector('.pd-spec-section'),
+      document.getElementById('pd-h-faq'),
+      '規格區',
+      'FAQ N°04',
+    );
   });
 
   it('非 RPM(gb-racing)hasSpotlight=true → Spotlight 仍不渲染(brandSlug 第二道守門)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     const nonRpm = { ...MOCK_PRODUCTS[0]!, brandSlug: 'gb-racing', hasSpotlight: true };
     render(<ProductPage product={nonRpm} tier="general" related={[]} />);
-    // #270 B S4:BrandShowcase gb-racing → GbRacingShowcase(有 GB 形象區);但 RPM 的 ProductSpotlight
-    //   雙守門(brandSlug≠rpm-carbon)仍不渲染、RPM 的 N°01(pd-h-rpm 專屬 heading)亦不顯
+    // 🔴 2026-08-07 H7 更正:原註解寫「BrandShowcase gb-racing → GbRacingShowcase(有 GB 形象區)」
+    //   —— 那條分派鏈已整組刪除。
+    // ⚠️ **而且本條現在是恆真的**:`ProductSpotlight` 原本只由 `BrandShowcase` 分派渲染,
+    //   dispatcher 刪掉之後它**零消費者** ⇒ `.pd-spotlight` 對任何品牌都不會出現,
+    //   這條「非 RPM 不渲染」自然永遠成立、失去判別力。
+    //   **刻意留著不動**:它的去留綁在「三支孤兒元件(ProductHighlights / ProductSwatchWall /
+    //   ProductSpotlight)要不要一起刪」那個決策上 —— 那不在 H7 的授權範圍(規格只列了
+    //   15 支 Showcase + 14 支 test + dispatcher),已列 STOP 給主視窗裁,拍板後同片處理。
     expect(document.querySelector('.pd-spotlight')).toBeNull();
     expect(document.getElementById('pd-h-rpm')).toBeNull(); // RPM N°01 亦不顯(GB 用 pd-h-gb01)
     // 規格區仍在、且在 FAQ 之前(頁面結構完整)
