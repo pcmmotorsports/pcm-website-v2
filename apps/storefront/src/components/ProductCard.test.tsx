@@ -41,6 +41,28 @@ describe('ProductCard', () => {
     expect(anchor!.getAttribute('href')).toBe(`/products/${product.slug}?from=catalog`);
   });
 
+  // 🔴 2026-08-07 焦點查修片:卡內按鈕不得觸發外層 `<a>` 的原生導航。
+  //    這個組合(**有 href** 且 **點卡內按鈕**)原本零覆蓋 —— 上面兩條各測一半、沒有交叉:
+  //    「收藏鈕點擊」那條沒傳 href、「href 存在」那條沒點按鈕 ⇒ 少了 `preventDefault` 也全綠。
+  //    量的是 `defaultPrevented`(瀏覽器是否會執行 `<a>` 的 default action),
+  //    不是「有沒有呼叫某個函式」—— 後者是形狀、前者才是行為。
+  it.each([
+    ['收藏', 'pcard-heart'],
+    ['+ 加入購物車', 'pcard-quick-btn'],
+  ])('有 href 時點「%s」不得觸發外層 <a> 的原生導航(defaultPrevented)', (label, cls) => {
+    const { container } = render(<ProductCard p={product} href={`/products/${product.slug}`} />);
+    const btn = container.querySelector(`.${cls}`) as HTMLElement;
+    expect(btn, `找不到 .${cls} ⇒ 本條前提失效`).not.toBeNull();
+    // 前提:它真的在一顆 <a> 裡面,否則這條測的東西不存在。
+    expect(btn.closest('a'), `.${cls} 不在 <a> 內 ⇒ 本條前提失效`).not.toBeNull();
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    btn.dispatchEvent(ev);
+    expect(
+      ev.defaultPrevented,
+      `點「${label}」沒有 preventDefault ⇒ 會連帶跳去商品頁(stopPropagation 擋不掉 <a> 的 default action)`,
+    ).toBe(true);
+  });
+
   it('should fall back to article + onClick when href is absent', () => {
     render(<ProductCard p={product} />);
     expect(screen.getByText(product.name).closest('a')).toBeNull();

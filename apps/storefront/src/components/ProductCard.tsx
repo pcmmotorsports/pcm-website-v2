@@ -230,9 +230,17 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         {badge && <div className="pcard-badge">{badge}</div>}
         {/* 沒貨徽章移除(M-1-13e-pre-3、Sean 2026-05-21 業務拍板「不顯示有無庫存」、
             storefront 偏離 design 字面 L101-103、backlog #161 追蹤 Claude Design 補對齊) */}
+        {/* 🔴 2026-08-07 焦點查修片:補 `e.preventDefault()`。
+            有 `href` 時整張卡被 `<Link>` 包成一顆真 `<a>`(見本檔下方 `display: contents` 那層),
+            這兩顆按鈕是 `<a>` 的**後代** ⇒ 點它們時,`<a>` 的**原生導航 default action** 照樣會發生。
+            `stopPropagation()` 擋的是「事件往上傳給祖先的 handler」,**擋不掉元素自己的 default action**
+            —— 兩者是不同機制,這正是 Next.js `<Link>` 包可點擊元素的已知坑。
+            ⇒ 少了 `preventDefault`,點「收藏」會同時跳去商品頁。四個掛載面同形
+            (`ProductsPage` / `BrandPageProducts` / `ProductRail` / `ProductRelated`)。
+            ⚠️ 既有測試從沒測過「有 href **且** 點按鈕」這個組合(兩個 case 各測一半、沒交叉)⇒ 本片補上。 */}
         <button
           className="pcard-heart"
-          onClick={(e) => { e.stopPropagation(); setLiked(!liked); }}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLiked(!liked); }}
           aria-label="收藏"
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill={liked ? 'var(--c-red)' : 'none'} stroke={liked ? 'var(--c-red)' : 'currentColor'} strokeWidth="1.6">
@@ -246,7 +254,11 @@ export function ProductCard({ p, showRedPrice, badgeStyle = 'minimal', compact =
         </div>
         {/* hover quick-add */}
         <div className={`pcard-quick ${hover ? 'is-visible' : ''}`}>
-          <button className="pcard-quick-btn" onClick={(e) => e.stopPropagation()}>
+          {/* 同上:`preventDefault` 擋原生導航、`stopPropagation` 擋祖先 handler,兩個都要。 */}
+          <button
+            className="pcard-quick-btn"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          >
             + 加入購物車
           </button>
         </div>
