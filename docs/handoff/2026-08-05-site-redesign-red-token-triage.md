@@ -113,6 +113,10 @@ generic monospace。設計端 `pcm-content.css:7,84` 已標明改 `var(--f-mono)
 它們現在守的是**架構分離**而不是顏色正確性。三支的 scope 因此變成冗餘(同值),
 但**移除是另一片**:`brand-page.css` / `brand-directory.css` 的 scope 內還有 `--cat-*` /
 `--ember` / `--f-serif` / `--ease` 等非站台 token,要收要整組一起評估。
+> 🔶 2026-08-06 補記(歷史檔,本行只加註記、不改上文內容):`--f-serif` 與 `--c-graphite`
+> 已於本日升上 `tokens.css` 的 `:root`,不再是「非站台 token」;上文這句對 `--f-serif`
+> 已過期,對其餘 `--cat-*` / `--ember` / `--ease` 仍成立。詳見 `brand-page.css` 檔頭與
+> `docs/phase-1-backlog.md` 對應條目的同日更正。
 
 ### 3-3 ✅ 三題已裁(`D-105-A`,2026-08-05;原 `D-201-Q` / `D-202-Q`)
 

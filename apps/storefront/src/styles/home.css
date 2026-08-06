@@ -51,9 +51,17 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+/* 🔶 2026-08-06:原本這裡硬寫一份 serif 堆疊,是 --f-serif 這顆值的第三份拷貝
+   (另兩份在 tokens.css :root 與 brand-page.css .bp-page)。--f-serif 升上 :root
+   後這裡改吃 token,三份拷貝收斂成一份定義 + 兩份 scope 覆寫(tokens.css :root 與
+   brand-page.css .bp-page 兩處同值已有分岔守門釘住,見 brand-page.test.ts
+   「品牌頁 CSS · tokens.css :root 分岔守門」describe)。這是本片讓 token 升級
+   真的承重的地方 —— `.ed-statement-h em` 那三條新宣告本身其實是冗餘(見下方
+   該規則的註解)。不帶 fallback:同檔 `.ed-statement-h em` 與 brand-page.css:266
+   的既有用法都不帶,`.ed-page` 是頁面根 scope、:root 一定在。 */
 .ed-page em {
   font-style: italic;
-  font-family: "Noto Serif TC", "Cormorant Garamond", Georgia, serif;
+  font-family: var(--f-serif);
   font-weight: 400;
 }
 
@@ -946,12 +954,14 @@
 /* 🔴 N°04 版面壓縮片(2026-08-06):OD `.b-statement` 那段(grep `853px 砍半` 找;稿內舊編號
    `B-5 · 服務`、以本檔 markup N°04 為準)逐字「853px 砍半」——標題與 CTA 併成同一列(省一整條
    CTA 行)、整段高度砍約三成。「逐字」只指這句「853px 砍半」引文與本片實際搬動的那些值(padding /
-   `.b-statement-top` / `.b-statement-col-head` 等)——`.ed-statement-h em` 的
-   `rgba(255,255,255,0.62)` 本片未動也未申報,OD 字面其實是 `.64`(與 `--f-serif` 那題一併留給
-   後續片)。`background: #202225` 維持字面(不改 `var(--c-graphite)`):那顆 token 目前只在
-   `.bp-page` scope 定義(`brand-page.css:74`),首頁直接引用會靜默失效,升 token 不在本片範圍。 */
+   `.b-statement-top` / `.b-statement-col-head` 等)。
+   🔶 2026-08-06 主視窗就地裁定接續片:`--c-graphite` 與 `--f-serif` 已升上 tokens.css
+   的 `:root`(見該檔),`background` 已改吃 `var(--c-graphite)`。⚠️ **R1 打掉的前提**:
+   下面 `.ed-statement-h em` 的 font 三條**不是**在補一個真的會失效的 `em`——`.ed-page em`
+   (本檔上方)早就把同一組值套到這個元素上了,三條新宣告 computed 值零變化,詳見該規則
+   自己的註解。本片對這個元素的**唯一實際視覺變更**是 color 的 alpha `0.62 → 0.64`。 */
 .ed-statement {
-  background: #202225;
+  background: var(--c-graphite, #202225);
   color: #fff;
   padding: 56px 0 60px;
 }
@@ -981,8 +991,20 @@
   margin: 0;
   max-width: 18ch;
 }
+/* 🔴 誠實邊界(R1 must-fix,主對話已親驗):`.ed-page` 早就宣告了 `.ed-page em`
+   (font-style: italic / font-family: var(--f-serif) / font-weight: 400,見本檔上方),
+   而 `app/page.tsx` 的根 div 就是 `.ed-page`、`.ed-statement` 在它裡面 ⇒ 下面這三條
+   宣告的 computed 值與 `.ed-page em` **完全相同**、現況下是冗餘,不是「少了它現在就會壞」。
+   保留的理由是**鐵則 1 直搬 OD 字面 + 縱深防禦**:哪天 `.ed-statement` 被搬出
+   `.ed-page` 的 scope,或 `.ed-page em` 被改掉,這三條就是唯一還站著的定義
+   (同款處置見 `product-card.css` 的 `.pcard{flex:1}` 那段——OD 直搬 + 縱深防禦、
+   不是現在會壞)。本片對這個元素**唯一實際的視覺變更**是 color 的 alpha
+   `0.62 → 0.64`(OD 字面本來就是 `.64`)。 */
 .ed-statement-h em {
-  color: rgba(255,255,255,0.62);
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-weight: 400;
+  color: rgba(255,255,255,0.64);
 }
 .ed-statement-grid {
   display: grid;

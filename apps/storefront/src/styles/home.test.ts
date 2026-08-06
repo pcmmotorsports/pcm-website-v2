@@ -550,7 +550,9 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
   it('🔴 N°04 服務宣言 = 石墨 #202225(不是重排前的純黑 #0a0a0a)', () => {
     const rule = CSS.match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
     expect(rule, '找不到 .ed-statement 規則').not.toBe('');
-    expect(rule, '服務宣言不是石墨 #202225').toMatch(/background:\s*#202225/);
+    // 2026-08-06:background 已改吃 var(--c-graphite, #202225)(token 升 :root 片)——
+    // 字面值不變,只是多了一層 var()/fallback,故放寬成兩種寫法都收、字面色值不放寬。
+    expect(rule, '服務宣言不是石墨 #202225').toMatch(/background:\s*(?:#202225|var\(--c-graphite,\s*#202225\))/);
     expect(rule, '還留著重排前的純黑').not.toMatch(/background:\s*#0a0a0a/);
   });
 
@@ -1047,6 +1049,32 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
         expect(rule, '700 斷點裡找不到單欄 ⇒ 手機沒有壓成單欄')
           .toMatch(/grid-template-columns:\s*1fr\s*;/);
       }
+    });
+
+    it('🔴 `.ed-statement-h em` 照 OD 補齊字體(2026-08-06:token 升 :root 片)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement-h em\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement-h em 規則').not.toBe('');
+      expect(rule, '沒有 font-family: var(--f-serif) ⇒ 沒吃到升上 :root 的字體 token').toMatch(/font-family:\s*var\(--f-serif\)/);
+      expect(rule, '沒有 font-style: italic').toMatch(/font-style:\s*italic/);
+      expect(rule, 'color 還是舊值 0.62,OD 字面是 0.64').toMatch(/color:\s*rgba\(255,\s*255,\s*255,\s*0\.64\)/);
+      expect(rule, '還留著舊值 0.62').not.toMatch(/0\.62/);
+    });
+
+    it('🔴 `.ed-statement` background 吃 var(--c-graphite) 且帶 fallback', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement 規則').not.toBe('');
+      const bg = rule.match(/background:\s*([^;]+);/)?.[1] ?? '';
+      expect(bg, 'background 沒有吃 var(--c-graphite)').toMatch(/^var\(--c-graphite/);
+      // 🔴 R1 nit:只驗 toContain(',') 的話 var(--c-graphite, #000) 照樣綠(fallback 值錯也放行)。
+      // 釘死字面值 #202225(石墨,本檔既有慣例)。
+      expect(bg, 'fallback 不是 #202225 ⇒ token 讀不到時會退回錯的顏色').toMatch(/^var\(--c-graphite,\s*#202225\)$/);
+    });
+
+    it('🔴 `.ed-page em` 照升級後的 token 走(不是硬寫的字面值,2026-08-06 token 升 :root 片)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-page em\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-page em 規則').not.toBe('');
+      expect(rule, '沒有 font-family: var(--f-serif) ⇒ 沒吃到升上 :root 的字體 token').toMatch(/font-family:\s*var\(--f-serif\)/);
+      expect(rule, '還留著硬寫的字面值 ⇒ --f-serif 這顆值的第三份拷貝又漂走了').not.toMatch(/"Noto Serif TC"/);
     });
   });
 });

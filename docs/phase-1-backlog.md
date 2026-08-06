@@ -8455,6 +8455,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - **`.bp-page` scope 上機制、不靠人記**:整頁色票(`--cat-*` / `--c-sunken` / 全套灰階)
     都掛在 `.bp-page`,而那個 class 由路由**手掛**;漏掛時只有兩處有 fallback(`--c-graphite`
     與 chip 的 `--c-border-control`),其餘整組沉默降級、沒有任何東西會紅。
+    🔶 **2026-08-06 更正**:`--c-graphite` 已升上 `tokens.css` 的 `:root`(首頁 N°04 片)——
+    `.bp-page` 漏掛時 `var(--c-graphite, …)` 現在會先吃到繼承自 `:root` 的同值,不再是「沉默
+    降級成看不見」;明寫的 fallback 值變成第二層防線,不是唯一防線。`--cat-*` / `--c-sunken` /
+    `--c-border-control` 等其餘 token 未升級,原本描述的風險對它們仍成立、機制建議不變。
     ⇒ 機制優先律:抽一個 `BrandPageRoot` wrapper 讓 scope 跟元件走,或補一條 route-level
     斷言「route 輸出的 HTML 含 `.bp-page`」。
 - **不修會痛在:**

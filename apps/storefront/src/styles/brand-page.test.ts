@@ -19,6 +19,14 @@ const CSS_RAW = readFileSync(
   'utf8',
 );
 
+// 🔶 2026-08-06 升級片:--c-graphite / --f-serif 同時定義在 tokens.css 的 :root。
+// 分岔守門(見檔尾)要比對兩處字面值,故也讀這個檔。
+const TOKENS_CSS_RAW = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.css'),
+  'utf8',
+);
+const TOKENS_CSS = TOKENS_CSS_RAW.replace(/\/\*[\s\S]*?\*\//g, '');
+
 /**
  * 🔴 剝掉 `/* … *\/` 註解後再做任何結構斷言。
  *
@@ -221,7 +229,9 @@ describe('品牌頁 CSS · 窄螢幕橫幅', () => {
 
 describe('品牌頁 CSS · 深底元件的 fallback', () => {
   it('🔴 每一處 var(--c-graphite) 都要帶 fallback(scope 漏掛 ⇒ 深底配白字變全白)', () => {
-    // `--c-graphite` 只存在於 `.bp-page` 這個 scope,而這些元件是 fragment、scope 由外層路由掛。
+    // 🔶 2026-08-06 升級:`--c-graphite` 現在**也**定義在 tokens.css 的 `:root`
+    // (首頁 N°04 要用)——但這些品牌頁元件是 fragment、scope 由外層路由掛,
+    // 不能保證 `.bp-page` 一定包住它們;fallback 是縱深防禦、不是唯一防線。
     // D3 接線漏掛的話 var() 無值 ⇒ 背景失效、配上寫死的 color:#fff = 整塊看不見。
     // 一個 fallback 換掉那個失敗模式;逐處數,不是只驗「有一處有」。
     const uses = CSS.match(/var\(--c-graphite[^)]*\)/g) ?? [];
@@ -236,8 +246,10 @@ describe('品牌頁 CSS · 色票 scope', () => {
     //    與設計的熔橘 `#f26722` 值不同,寫進 `:root` 會讓每一頁的按鈕/價格當場變色。
     //    0c 把站台換成熔橘之後兩者**同值** ⇒ 這條反面斷言不再擋得住視覺缺陷,
     //    現在守的是**架構分離**(品牌頁色票不外洩到 `:root`)。仍留著:
-    //    本檔 scope 內還有 `--cat-*` / `--f-serif` / `--ease` 等**不是**站台 token 的東西,
+    //    本檔 scope 內還有 `--cat-*` / `--ease` 等**不是**站台 token 的東西,
     //    一旦有人把整塊搬進 `:root`,那些才是真的會污染全站。
+    //    🔶 2026-08-06:`--f-serif` 已從這份例子清單移除 —— 它與下面斷言的
+    //    `--c-graphite` 一起升上 tokens.css 的 :root 了,不再是「不是站台 token」的例子。
     expect(CSS).toContain('.bp-page {');
     expect(CSS).not.toMatch(/^\s*:root\s*\{/m);
     // 🔴 D2e-1 起本檔有**兩塊** `.bp-page {`(色票 + 分類色碼)⇒ 改用 bpPageScopes()。
@@ -1162,5 +1174,93 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
 
   it('箭頭的 hover 位移在 reduced-motion 下被關掉(設計稿 :867)', () => {
     expect(neutralisedIn(rules, '.bp-prod-head .ed-link:hover .ed-link-arrow', 'transform')).toBe(true);
+  });
+});
+
+/**
+ * 取 tokens.css 第一個 `:root { … }` 區塊的內容(大括號配對計數,同 bpPageScopes() 的做法)。
+ * 🔴 不能用整檔正規式硬撈:tokens.css 還有 `[data-theme="dark"] { … }` 與
+ *    `@media (max-width: 1079px) { :root { --shell-header-h: 69px; } }` 兩塊——
+ *    後者字面上也含 `:root {`,但 indexOf 抓到的是**第一個**出現位置(檔案開頭那個),
+ *    不會誤取到 media query 裡嵌套的那份。
+ */
+function tokensRootScope(): string {
+  const start = TOKENS_CSS.indexOf(':root {');
+  if (start === -1) return '';
+  const open = TOKENS_CSS.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < TOKENS_CSS.length; i++) {
+    if (TOKENS_CSS[i] === '{') depth++;
+    else if (TOKENS_CSS[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) return '';
+  return TOKENS_CSS.slice(open + 1, end);
+}
+
+/** 從一段 CSS scope 文字裡抽出某顆 token 的宣告值(不含結尾分號)。 */
+function tokenValue(scope: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = scope.match(new RegExp(`${escaped}:\\s*([^;]+);`));
+  return m ? m[1]!.trim() : null;
+}
+
+describe('品牌頁 CSS · tokens.css :root 分岔守門(2026-08-06 token 升級片)', () => {
+  it('🔴 --c-graphite 與 --f-serif 在 tokens.css :root 與 brand-page.css .bp-page 必須逐字同值', () => {
+    // 兩處分岔 ⇒ 品牌頁與其他頁的同一顆 token 會是不同值,而且兩邊各自的測試都會是綠的
+    // (brand-page.test.ts 只驗 .bp-page 那份、home.test.ts 只驗 :root 那份,誰都看不到對方)。
+    const rootScope = tokensRootScope();
+    expect(rootScope, 'tokens.css 抓不到 :root 區塊 ⇒ 下面的比對是空字串比空字串,恆真').not.toBe('');
+    const bpScope = bpPageScopes();
+    expect(bpScope, 'brand-page.css 抓不到 .bp-page 區塊 ⇒ 下面的比對恆真').not.toBe('');
+    for (const name of ['--c-graphite', '--f-serif']) {
+      const rootVal = tokenValue(rootScope, name);
+      const bpVal = tokenValue(bpScope, name);
+      expect(rootVal, `tokens.css :root 沒有 ${name} ⇒ 升級片沒做完`).not.toBeNull();
+      expect(bpVal, `brand-page.css .bp-page 沒有 ${name} ⇒ 本地定義被誤刪`).not.toBeNull();
+      expect(
+        rootVal,
+        `${name} 兩處分岔(tokens.css :root = ${rootVal}, brand-page.css .bp-page = ${bpVal})` +
+          ' ⇒ 品牌頁與其他頁的同一顆 token 會是不同值,而且兩邊各自的測試都會是綠的',
+      ).toBe(bpVal);
+    }
+  });
+});
+
+/**
+ * 取 tokens.css `[data-theme="dark"] { … }` 區塊的內容(大括號配對計數,
+ * 同 tokensRootScope() 的做法)。`indexOf('[data-theme="dark"] {')` 抓精確帶大括號的
+ * 字面,不會誤取到 `[data-theme="dark"] .ph { … }` 那條巢狀選擇器不同的規則。
+ */
+function tokensDarkScope(): string {
+  const start = TOKENS_CSS.indexOf('[data-theme="dark"] {');
+  if (start === -1) return '';
+  const open = TOKENS_CSS.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < TOKENS_CSS.length; i++) {
+    if (TOKENS_CSS[i] === '{') depth++;
+    else if (TOKENS_CSS[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) return '';
+  return TOKENS_CSS.slice(open + 1, end);
+}
+
+describe('tokens.css · 深色模式不得覆寫固定深色場 token(R1 nit)', () => {
+  it('🔴 [data-theme="dark"] 區塊內不得出現 --c-graphite 或 --f-serif', () => {
+    // --c-graphite 是固定的品牌深色場(搭配寫死的 color:#fff),不是隨主題翻轉的介面色;
+    // --f-serif 是字體、無深淺變體。日後有人往 [data-theme="dark"] 加同名 token 會讓
+    // 這兩顆在深色模式下悄悄變成別的值,而分岔守門(上面那個 describe)只比對
+    // :root 與 .bp-page,看不到 [data-theme="dark"] 這一層。
+    const darkScope = tokensDarkScope();
+    expect(darkScope, 'tokens.css 抓不到 [data-theme="dark"] 區塊 ⇒ 下面的負向斷言恆真').not.toBe('');
+    expect(darkScope, '[data-theme="dark"] 不該覆寫 --c-graphite').not.toContain('--c-graphite');
+    expect(darkScope, '[data-theme="dark"] 不該覆寫 --f-serif').not.toContain('--f-serif');
   });
 });
