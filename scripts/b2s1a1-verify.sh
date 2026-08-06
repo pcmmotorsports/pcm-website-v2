@@ -153,6 +153,24 @@ expect_landed() {
 CUST="$(qs "SELECT customer_user_id FROM public.orders GROUP BY 1 ORDER BY count(*) DESC LIMIT 1;")"
 [ -n "$CUST" ] || { echo "🔴 備庫裡沒有 orders 列,無法造 fixture"; exit 1; }
 ITEM="$(qs "SELECT oi.id FROM public.order_items oi JOIN public.orders o ON o.id=oi.order_id WHERE o.customer_user_id='$CUST' ORDER BY oi.id LIMIT 1;")"
+# 🔴🔴 **2026-08-07 B2-S2b-F:fixture 對齊 C9**(主視窗 `B-162-A` 裁 Q1=A)。大線 B2-S2b 把
+#    `shipped_quantity` 接上四軸重算之後,C9(`shipped <= instock`)才真的會發火 —— 而本支「加品項 +
+#    設 shipped_at」的 fixture **完全沒有到貨**(receipts)⇒ instock = 0 ⇒ 重算算出 shipped 1 > 0,
+#    A8 判別力正測紅在 `23514 / oiqs_shipped_le_instock`。
+#    🔴 不是大線的 bug —— 是本支的 fixture **早於 C9**(Sean Q1=A:沒到貨就不可能出貨)。
+#    與本支 v5.4「fixture 全面合法化」同一條路:那次補的是 X1(零品項),這次補的是 C9(零到貨)。
+# 🔴 值:採購 1 + 到貨 1 ⇒ instock = 1,出貨量也是 1 = **C9 的邊界**。該品項 `quantity = 1`(實查),
+#    C7(`instock + cancelled <= quantity`)讓 instock 不可能超過 1 ⇒ 等號是資料逼出來的;邊界值讓 off-by-one 當場紅。
+SUP="$(qs "SELECT id FROM public.suppliers ORDER BY id LIMIT 1;")"
+[ -n "$SUP" ] || { echo "🔴 備庫裡沒有 suppliers 列,無法造合法的到貨 fixture(C9 需要 instock >= shipped)"; exit 1; }
+# 🔴 R2 F4:到貨用 **CTE `RETURNING`** 鎖定剛插入的那一列 —— 用 `(order_item_id, supplier_id)` 撈時,
+#    該鍵若已有第二列 procurement 會各插一筆到貨、instock 變倍數而撞 C7,且**歸因錯人**。
+STOCK="WITH p AS (
+    INSERT INTO public.order_item_procurement (order_item_id,supplier_id,allocated_quantity)
+    VALUES ('$ITEM','$SUP',1) RETURNING id
+  )
+  INSERT INTO public.order_item_procurement_receipts (procurement_id,quantity,received_at,received_by)
+  SELECT p.id,1,now(),'b2s1a1_verify' FROM p;"
 [ -n "$ITEM" ] || { echo "🔴 該客人沒有 order_items,無法造合法的已出貨 fixture"; exit 1; }
 # 🔴 用單引號、**不要用 `$$` dollar-quote**:整段 SQL 已經被外層的 `DO $$ … $$` 包住,
 #    再用 `$$` 包 JSON 會提前結束外層引號(實際踩過:`syntax error at or near "{"`)。
@@ -230,6 +248,7 @@ expect_sqlstate 23514 "INSERT INTO public.shipments (shipment_reference,customer
 #    那在三片齊全的世界 **commit 不了**(X1 會擋),它看似通過只因每格 ROLLBACK、X1 從未發火。
 #    改成合法順序:建草稿 → 加品項 → 出貨 → 強制 deferred。
 expect_landed "INSERT INTO public.shipments (shipment_reference,customer_user_id,recipient_snapshot,carrier_code,carrier_note) VALUES ('BCDFGQ','$CUST',$SNAP,'other','客人自取') RETURNING id INTO v_id;
+  $STOCK
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM',1);
   UPDATE public.shipments SET shipped_at=now() WHERE id=v_id;" \
   "SELECT shipped_at IS NOT NULL FROM public.shipments WHERE shipment_reference='BCDFGQ'" "true" \
@@ -396,6 +415,7 @@ MUT="$(q "BEGIN;
   DO \$\$ DECLARE v_id uuid; v_got text; BEGIN
     INSERT INTO public.shipments (shipment_reference,customer_user_id,recipient_snapshot,carrier_code,carrier_note)
       VALUES ('ZZZZZW','$CUST',$SNAP,'other','客人自取') RETURNING id INTO v_id;
+    $STOCK
     INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM',1);
     UPDATE public.shipments SET shipped_at=now() WHERE id=v_id;
     SELECT (shipped_at IS NOT NULL)::text INTO v_got FROM public.shipments WHERE id=v_id;

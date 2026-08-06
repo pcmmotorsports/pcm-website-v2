@@ -102,6 +102,9 @@ ITEM="$(qs "SELECT oi.id FROM public.order_items oi JOIN public.orders o ON o.id
 [ -n "$ITEM" ] || { echo "🔴 該客人沒有 order_items,無法造合法的已出貨 fixture"; exit 1; }
 # A2 的 customer_user_id 欄格要換成**另一位真實存在**的客人(FK 擋掉隨機 uuid ⇒ 會紅在 23503、量錯東西)
 CUST2="$(qs "SELECT customer_user_id FROM public.orders WHERE customer_user_id <> '$CUST' LIMIT 1;")"
+# 🔴 B2-S2b-F:fixture 補到貨需要一個供應商(見下方 STOCK)。
+SUP="$(qs "SELECT id FROM public.suppliers ORDER BY id LIMIT 1;")"
+[ -n "$SUP" ] || { echo "🔴 備庫裡沒有 suppliers 列,無法造合法的到貨 fixture(C9 需要 instock >= shipped)"; exit 1; }
 [ -n "$CUST2" ] || { echo "🔴 需要第二位客人才能測 A2 的 customer_user_id 欄"; exit 1; }
 SNAP="'{\"name\":\"王小明\",\"phone\":\"0900000000\",\"line\":\"lineid\"}'::jsonb"
 SNAP2="'{\"name\":\"李小華\",\"phone\":\"0911111111\",\"line\":\"other\"}'::jsonb"
@@ -145,7 +148,27 @@ expect_landed() {
 #    ⇒ 全部改成合法順序:**草稿 → 加品項 → 才進入已出貨 / 已送單 / 已作廢**。
 #    🔴 只改 fixture 不夠,`expect_landed` 同時補了 `SET CONSTRAINTS ALL IMMEDIATE`(見該函式),
 #    否則 X1 依然不會發火、fixture 合不合法根本觀察不到。
-ADDITEM="INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM',1);"
+# 🔴🔴 **2026-08-07 B2-S2b-F:fixture 對齊 C9**(主視窗 `B-162-A` 裁 Q1=A)。
+#    大線 B2-S2b 把 `shipped_quantity` 接上四軸重算之後,C9(`shipped <= instock`)才真的會發火 ——
+#    而本支的 fixture 是「加品項 + 設 shipped_at」但**完全沒有到貨**(receipts)⇒ instock = 0
+#    ⇒ 重算算出 shipped 1 > instock 0,**25 條斷言全部紅在 `23514 / oiqs_shipped_le_instock`**。
+#    🔴 那不是大線的 bug —— 是本支的 fixture **早於 C9 這條規則**(Sean Q1=A 拍的強制點:沒到貨就不可能出貨)。
+#    ⇒ 修法 = 讓 fixture 成為**合法世界裡的一列**:出貨之前先有採購與到貨。
+#    這與 v5.4「fixture 全面合法化」是同一條路 —— 那次補的是 X1(零品項),這次補的是 C9(零到貨)。
+# 🔴 `ADDITEM` 是**唯一咽喉**:所有 fixture(DRAFT / SHIPPED / VOIDED / SUBMITTED / OTHER_* / F9SHIPPED)
+#    都經過它 ⇒ 補在這裡一處,25 條全部歸位,**不動任何一條斷言、不動任何期望值**。
+# 🔴 值:採購 1 + 到貨 1 ⇒ instock = 1,而出貨量也是 1 —— **刻意停在 C9 的邊界**(shipped = instock)。
+#    這是本 fixture 能取到的最強值:該品項 `quantity = 1`(實查),C7(`instock + cancelled <= quantity`)
+#    讓 instock 不可能超過 1 ⇒ 等號是資料逼出來的,不是我隨手選的;而且邊界值讓任何 off-by-one 當場紅。
+# 🔴 R2 F4:到貨用 **CTE `RETURNING`** 鎖定剛插入的那一列 —— 用 `(order_item_id, supplier_id)` 撈時,
+#    該鍵若已有第二列 procurement 會各插一筆到貨、instock 變倍數而撞 C7,且**歸因錯人**。
+STOCK="WITH p AS (
+    INSERT INTO public.order_item_procurement (order_item_id,supplier_id,allocated_quantity)
+    VALUES ('$ITEM','$SUP',1) RETURNING id
+  )
+  INSERT INTO public.order_item_procurement_receipts (procurement_id,quantity,received_at,received_by)
+  SELECT p.id,1,now(),'b2s1a2_verify' FROM p;"
+ADDITEM="$STOCK INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM',1);"
 DRAFT="$(mk "" "") $ADDITEM"
 SHIPPED="$DRAFT UPDATE public.shipments SET tracking_number='T111',shipped_at=now() WHERE id=v_id;"
 VOIDED="$DRAFT UPDATE public.shipments SET deleted_at=now(),void_reason='打錯了' WHERE id=v_id;"

@@ -107,6 +107,38 @@ ITEM1B="$(qs "SELECT oi.id FROM public.order_items oi JOIN public.orders o ON o.
           FROM public.order_items oi2 JOIN public.orders o2 ON o2.id=oi2.order_id WHERE oi2.id='$ITEM1A')
   ORDER BY oi.id LIMIT 1;")"
 ITEM2="$(qs "SELECT oi.id FROM public.order_items oi JOIN public.orders o ON o.id=oi.order_id WHERE o.customer_user_id='$CUST2' ORDER BY oi.id LIMIT 1;")"
+# 🔴🔴 **2026-08-07 B2-S2b-F:fixture 對齊 C9**(主視窗 `B-162-A` 裁 Q1=A)。大線 B2-S2b 把
+#    `shipped_quantity` 接上四軸重算之後,C9(`shipped <= instock`)才真的會發火 —— 而本支
+#    「加品項 → 設 shipped_at」的 fixture **完全沒有到貨** ⇒ instock = 0 ⇒ 重算算出 shipped > 0,
+#    **三條**斷言紅在 `23514 / oiqs_shipped_le_instock`,**第四條(barrier 方向甲)是連帶紅**
+#    (它紅在 `UNBLOCKED=false`、不帶該 SQLSTATE)。不是大線的 bug,是 fixture **早於 C9**。
+# 🔴 **`STOCK1A` 為什麼要先把 `quantity` 提到 2**:主流程正測那格的出貨量是 **2**
+#    (oracle 逐字 `true/1/2` —— 2 是刻意選的,讓「列數 1」與「數量 2」在觀察值裡分得開)。
+#    而 C7(`instock + cancelled <= quantity`)讓 instock 不可能超過 `quantity`,種子裡該客人
+#    **21 個品項的 quantity 全是 1**(實查)⇒ 不提高訂購量就湊不出 instock=2。
+#    🔴 把出貨量改成 1 是**動斷言**、而且會讓 oracle 退化成 `true/1/1`(列數與數量不可分)⇒ 不採。
+#    ⇒ 提高的是**訂購量**(連同 `line_total` 一起,否則撞 `order_items_line_balances`),
+#      這仍然是 fixture 的一部分:訂 2、到 2、出 2 才是合法世界裡的一列。
+SUP="$(qs "SELECT id FROM public.suppliers ORDER BY id LIMIT 1;")"
+[ -n "$SUP" ] || { echo "🔴 備庫裡沒有 suppliers 列,無法造合法的到貨 fixture(C9 需要 instock >= shipped)"; exit 1; }
+# 🔴 摘要列是**惰性建立**的:只有在「本支讓它從無到有」時才可以刪 ⇒ 先記下它原本在不在。
+#    這個值同時是下面那道前提斷言的觀察值,所以必須在**第一次用到之前**取得(第一次實跑當場
+#    紅在 `SUMM_PREEXISTED: unbound variable` —— 我原本把它放在 barrier 那一段旁邊)。
+SUMM_PREEXISTED="$(qs "SELECT EXISTS(SELECT 1 FROM public.order_item_quantity_summary WHERE order_item_id='$ITEM1A')::text")"
+# 🔴 `EXISTS(...)::text` 在 PG 回的是 **`true` / `false`**,不是 `t` / `f`(`qs` 走 `-qtA`,
+#    不經 psql 的 boolean 顯示縮寫)。第一版拿 `'f'` 比 ⇒ 前提斷言**恆假**、清理條件**恆不成立**
+#    ⇒ 摘要列永遠不刪、殘留檢查連紅三次。實跑當場中,不是推理出來的。
+# 🔴🔴 **前提斷言**(R1 important A):`STOCK1A` 會把 `order_items.quantity` 提到 2,而摘要表對
+#    `order_items(id, quantity)` 有**複合 FK** ⇒ 若 `$ITEM1A` **已經有**一列摘要(quantity=1),
+#    這個 UPDATE 會撞 `23503 / order_item_quantity_summary_item_fk`,而且**四格全部歸因錯人**
+#    (訊息指 FK、完全不指向 fixture)。前提消失是靜默的 ⇒ 先斷言,不要等它紅在別的地方。
+[ "$SUMM_PREEXISTED" = "false" ] \
+  && ok "🔴 STOCK1A 的前提:品項 $ITEM1A 目前**沒有**摘要列 ⇒ 把訂購量提到 2 不會撞摘要表的複合 FK" \
+  || bad "🔴🔴 STOCK1A 前提不成立:品項 $ITEM1A 已經有一列摘要 ⇒ 下面把 quantity 改成 2 會紅在 23503 / order_item_quantity_summary_item_fk,而那個錯誤**指向 FK、不指向 fixture**。先清掉那列(或換一顆品項)再跑。"
+STOCK1A="UPDATE public.order_items SET quantity=2, line_total=unit_price*2 WHERE id='$ITEM1A';
+  INSERT INTO public.order_item_procurement (order_item_id,supplier_id,allocated_quantity) VALUES ('$ITEM1A','$SUP',2);
+  INSERT INTO public.order_item_procurement_receipts (procurement_id,quantity,received_at,received_by)
+  SELECT p.id,2,now(),'b2s1b_verify' FROM public.order_item_procurement p WHERE p.order_item_id='$ITEM1A' AND p.supplier_id='$SUP';"
 [ -n "$CUST2" ] && [ -n "$ITEM1B" ] && [ -n "$ITEM2" ] \
   || { echo "🔴 fixture 不足(需要兩位客人;其中一位要有**兩張收件地址不同**的訂單 —— 項 23 的前提)"; exit 1; }
 
@@ -199,6 +231,7 @@ expect_constraint() {
 
 log "2/6 X3 已寄出/已作廢禁加品項 + 主流程正測(§4 項 20/21)"
 expect_constraint P0001 shipment_items_parent_open "$MKDRAFT
+  $STOCK1A
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM1A',1);
   UPDATE public.shipments SET shipped_at=now(),tracking_number='T1' WHERE id=v_id;
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM1B',1);" \
@@ -208,6 +241,7 @@ expect_constraint P0001 shipment_items_parent_open "$MKDRAFT
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM1A',1);" \
   "🔴 X3 已作廢後加品項 被擋(歸因到 parent_open)"
 expect_landed "$MKDRAFT
+  $STOCK1A
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM1A',2);
   UPDATE public.shipments SET shipped_at=now(),tracking_number='T2' WHERE id=v_id;" \
   "SELECT (SELECT shipped_at IS NOT NULL FROM public.shipments WHERE id=v_id)::text || '/' ||
@@ -240,6 +274,7 @@ log "4/6 🔴 項 24 作廢重開(Sean Q1=A 拍板流程的唯一 DB 層驗收)"
 #    oracle 逐項回查**兩張包裹與兩組品項的終態**:舊包裹已作廢且仍留著出貨事實、新包裹已出貨、
 #    同一個 order_item 確實同時存在於兩張包裹(= UNIQUE 只鎖 (shipment_id, order_item_id) 的證據)。
 expect_landed "$MKDRAFT
+  $STOCK1A
   INSERT INTO public.shipment_items (shipment_id,order_item_id,shipped_quantity) VALUES (v_id,'$ITEM1A',1);
   UPDATE public.shipments SET shipped_at=now(),tracking_number='T3' WHERE id=v_id;
   UPDATE public.shipments SET deleted_at=now(),void_reason='選錯快遞商' WHERE id=v_id;
@@ -463,6 +498,9 @@ log "8/6 🔴🔴 併發 barrier:parent guard 的 FOR NO KEY UPDATE 是承重件
 #    (codex K2-R2 must-fix 3/4:突變與還原都是 autocommit,沒有 trap 的話一次 Ctrl-C
 #     就會把 parent guard 永久留在「沒有鎖原語」的突變版,而那正是本節要保護的東西)。
 BARRIER_REF="BZZZZZ"
+# 🔴 B2-S2b-F:barrier 的已提交到貨,其 procurement id 記在這裡(與 BARRIER_IDFILE 同手法,
+#    才跨得過 subshell 與 trap);cleanup **按 id 刪**,不用 (item,supplier) 當條件刪別人的列。
+BARRIER_PROCFILE="$(mktemp)"
 # 🔴🔴 fixture id 存**檔案**不存變數(codex K2-R2 B):`R="$(barrier_run …)"` 是 command
 #    substitution ⇒ 整個函式跑在 **subshell** 裡,它對變數的賦值**傳不回父 shell**
 #    ⇒ 父層 EXIT trap 看到的 BARRIER_FIX_ID 永遠是空的,中斷時清不掉那張已 COMMIT 的 fixture。
@@ -510,6 +548,32 @@ CLEAN
       echo "🔴🔴 barrier:fixture 清理失敗,shipment id=$fid 仍留在庫裡(ID 檔保留供追查)" >&2
     fi
   fi
+  # 🔴 B2-S2b-F:對稱刪掉 barrier 用的已提交到貨(冪等:比對得到才刪)。
+  #    順序 = 先 receipts 再 procurement(FK);刪完 A4a 會把 instock 重算回 0。
+  # 🔴🔴 **連摘要列一起刪 —— 這是實跑抓到的殘留**(2026-08-07):A4a 是**惰性建列**,
+  #    barrier 的到貨會順手建出一列 `quantity=1` 的摘要,而刪掉採購/到貨**不會刪掉那一列**。
+  #    摘要表對 `order_items(id, quantity)` 有**複合 FK** ⇒ 下一次跑時,fixture 的
+  #    `UPDATE order_items SET quantity=2` 會撞 `23503 / order_item_quantity_summary_item_fk`
+  #    ⇒ **第一次跑全綠、第二次跑三格紅**,而且錯誤指向 FK、完全不指向 barrier。
+  #    🔴 只刪**四軸皆 0** 的那種列:它是惰性建列的產物、不帶任何資訊;非 0 的列代表真有數量,不碰。
+  local pid
+  pid="$(cat "$BARRIER_PROCFILE" 2>/dev/null || true)"
+  if [ -n "$pid" ]; then
+    if psql "$URL" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<STOCKCLEAN
+BEGIN;
+DELETE FROM public.order_item_procurement_receipts WHERE procurement_id='$pid';
+DELETE FROM public.order_item_procurement WHERE id='$pid';
+DELETE FROM public.order_item_quantity_summary
+ WHERE order_item_id='$ITEM1A' AND '$SUMM_PREEXISTED' = 'false'
+   AND ordered_quantity=0 AND instock_quantity=0 AND cancelled_quantity=0 AND shipped_quantity=0;
+COMMIT;
+STOCKCLEAN
+    then
+      : > "$BARRIER_PROCFILE"
+    else
+      echo "🔴🔴 barrier:到貨 fixture 清理失敗,procurement id=$pid 仍留在庫裡(ID 檔保留供追查)" >&2
+    fi
+  fi
   rm -f "/tmp/b2barrier_a_$$.out" "/tmp/b2barrier_b_$$.out"
 }
 # 🔴 ID 檔本身也要收(本支第一版漏了 ⇒ 每跑一次就在 /tmp 留一個空檔案)。
@@ -518,6 +582,13 @@ CLEAN
 #    第一版無條件 rm ⇒ cleanup 失敗(fixture 還在庫裡)時,唯一的追查指標也被抹掉,
 #    而正常路徑全綠不會讓這條失敗路徑轉紅 —— 正是 R3 那條「覆蓋面靜默流失」的同型。
 barrier_drop_idfile() {
+  # 🔴 R2 F2:`BARRIER_PROCFILE` 也是 mktemp 出來的 ⇒ 一起收,否則每跑一次漏一個空檔
+  #    (本檔 :579 自己記過「第一版漏 ID 檔」,同型不得復發)。
+  if [ -s "$BARRIER_PROCFILE" ]; then
+    echo "🔴🔴 barrier:到貨 ID 檔非空 ⇒ 到貨 fixture 沒清乾淨,保留 $BARRIER_PROCFILE 供追查" >&2
+  else
+    rm -f "$BARRIER_PROCFILE"
+  fi
   if [ -s "$BARRIER_IDFILE" ]; then
     echo "🔴🔴 barrier:ID 檔非空 ⇒ fixture 沒清乾淨,保留 $BARRIER_IDFILE 供追查(內容=$(cat "$BARRIER_IDFILE"))" >&2
   else
@@ -534,6 +605,38 @@ trap 'barrier_restore_guard; barrier_cleanup; barrier_drop_idfile; exit 130' INT
 # $1 = 方向(jia = guard 先取鎖 / yi = guard 撞別人的鎖);回傳 "BLOCKED=… BLOCKER_IS_A=…"
 barrier_run() {
   local dir="$1" apid bpid blocked blocker unblocked timedout fix_id
+  # 🔴 B2-S2b-F:barrier 的 fixture 是**已 COMMIT** 的 ⇒ 到貨也必須是已 COMMIT 的。
+  #    方向甲的 session B 會 `UPDATE … shipped_at` ⇒ 觸發四軸重算 ⇒ 沒到貨就撞 C9(instock=0)。
+  #    本輪只出 1 件、`$ITEM1A` 的 quantity=1 ⇒ 採購 1 + 到貨 1 剛好在 C7 的上限內。
+  #    🔴 由 `barrier_cleanup` 對稱刪除(那支每輪都跑、也掛在 EXIT / INT / TERM trap 上)。
+  # 🔴 R1 must-fix 1:**只能刪自己建的那一列** —— 用 `RETURNING id` 把 procurement id 記到檔案裡
+  #    (與 `BARRIER_IDFILE` 同一個手法,才跨得過 subshell 與 trap),cleanup 按 id 刪。
+  #    第一版用 `(order_item_id, supplier_id)` 當條件:實測會把**別條線先種的**同鍵列一起刪光 = 刪別人的資料。
+  # 🔴 R1 important B:到貨的 `INSERT … SELECT` 也要**鎖定剛插入的那一列**,否則該 (item,supplier)
+  #    有第二列 procurement 時會各插一筆到貨、instock 變倍數(今天種子 0 列所以潛伏)。
+  # 🔴 R1 must-fix 2:這支 psql **必須接離開碼** —— 同一支檔的 `barrier_cleanup` 才因為
+  #    「吞掉錯誤」吃過 K2-R3 must-fix,同形不得回歸。
+  BARRIER_PROC_ID="$(psql "$URL" -v ON_ERROR_STOP=1 -qtA 2>/dev/null <<STOCKSQL
+WITH p AS (
+  INSERT INTO public.order_item_procurement (order_item_id,supplier_id,allocated_quantity)
+  VALUES ('$ITEM1A','$SUP',1) RETURNING id
+), r AS (
+  INSERT INTO public.order_item_procurement_receipts (procurement_id,quantity,received_at,received_by)
+  SELECT p.id,1,now(),'b2s1b_barrier' FROM p RETURNING procurement_id
+)
+SELECT procurement_id FROM r;
+STOCKSQL
+)"
+  if [ -z "$BARRIER_PROC_ID" ]; then
+    # 🔴🔴 R2 F1:**這裡不能呼叫 `bad`** —— 本函式跑在 `R="$(barrier_run …)"` 的 command substitution 裡,
+    #    `bad` 的訊息會被**捕進 $R**、永遠不顯示,FAIL 計數也丟在 subshell 裡。
+    #    ⇒ 診斷走 **stderr**(不會被 `$( )` 捕走),並回一個**任何 case 都不匹配**的字串,
+    #      讓呼叫端的 `*)` 收尾分支去 `bad` —— 那才是有 FAIL 計數、印得出來的地方。
+    echo "🔴🔴 barrier[$dir]:已提交到貨建不起來 —— 沒有它,方向甲的 B 會紅在 C9 而不是待測的 barrier 行為" >&2
+    printf 'STOCKFAIL=true'
+    return 0
+  fi
+  printf '%s' "$BARRIER_PROC_ID" > "$BARRIER_PROCFILE"
   fix_id="$(qs "INSERT INTO public.shipments (shipment_reference,customer_user_id,recipient_snapshot,carrier_code,carrier_note)
                 VALUES ('$BARRIER_REF','$CUST1',$SNAP,'other','barrier fixture') RETURNING id;")"
   printf '%s' "$fix_id" > "$BARRIER_IDFILE"   # 讓父層 trap 跨得過 subshell 看到它
@@ -599,6 +702,10 @@ SQLB
 
 BASE_SHIPMENTS="$(qs "SELECT count(*) FROM public.shipments")"
 BASE_ITEMS="$(qs "SELECT count(*) FROM public.shipment_items")"
+# 🔴 B2-S2b-F:本片讓 barrier 也會動到到貨三表 ⇒ 基線一併記,殘留檢查才看得到它們。
+BASE_PROC="$(qs "SELECT count(*) FROM public.order_item_procurement")"
+BASE_RCPT="$(qs "SELECT count(*) FROM public.order_item_procurement_receipts")"
+BASE_SUMM="$(qs "SELECT count(*) FROM public.order_item_quantity_summary")"
 
 # 🔴 每一輪 barrier 跑完都要重驗基線與 trigger 狀態(codex K2-R2 must-fix 5:
 #    原本只在正常版之後驗一次,突變版之後那次 teardown 失敗會完全沒人發現)。
@@ -607,6 +714,13 @@ barrier_residue_check() {
   [ "$(qs "SELECT count(*) FROM public.shipments")" = "$BASE_SHIPMENTS" ] && [ "$(qs "SELECT count(*) FROM public.shipment_items")" = "$BASE_ITEMS" ] \
     && ok "barrier[$tag] 列數回到基線($BASE_SHIPMENTS / $BASE_ITEMS)⇒ fixture 已收乾淨、零留痕" \
     || bad "barrier[$tag] teardown 沒收乾淨 — shipments=$(qs "SELECT count(*) FROM public.shipments")(基線 $BASE_SHIPMENTS)、items=$(qs "SELECT count(*) FROM public.shipment_items")(基線 $BASE_ITEMS)"
+  # 🔴 R1 must-fix 3:本片把 barrier 的**已提交破壞面**從 2 張表擴到 5 張 ⇒ 殘留檢查也要跟著擴,
+  #    否則新三表清理失敗是**零轉紅**的(本檔自己記過「修 finding 造成的覆蓋面流失是靜默的」)。
+  [ "$(qs "SELECT count(*) FROM public.order_item_procurement")" = "$BASE_PROC" ] \
+    && [ "$(qs "SELECT count(*) FROM public.order_item_procurement_receipts")" = "$BASE_RCPT" ] \
+    && [ "$(qs "SELECT count(*) FROM public.order_item_quantity_summary")" = "$BASE_SUMM" ] \
+    && ok "barrier[$tag] 到貨三表也回到基線(proc $BASE_PROC / rcpt $BASE_RCPT / summary $BASE_SUMM)⇒ 本片新增的已提交破壞面也零留痕" \
+    || bad "🔴 barrier[$tag] 到貨三表沒收乾淨 — proc=$(qs "SELECT count(*) FROM public.order_item_procurement")(基線 $BASE_PROC)/ rcpt=$(qs "SELECT count(*) FROM public.order_item_procurement_receipts")(基線 $BASE_RCPT)/ summary=$(qs "SELECT count(*) FROM public.order_item_quantity_summary")(基線 $BASE_SUMM)"
   [ "$(qs "SELECT count(*) FROM pg_trigger WHERE tgrelid IN ('public.shipments'::regclass,'public.shipment_items'::regclass) AND NOT tgisinternal AND tgenabled <> 'O'")" = "0" ] \
     && ok "barrier[$tag] 後兩表所有 trigger 都回到啟用('O')⇒ 沒有把守門留在關閉狀態" \
     || bad "🔴🔴 barrier[$tag]:有 trigger 停在非啟用狀態 — teardown 把守門關掉沒開回來"
