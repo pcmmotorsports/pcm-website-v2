@@ -3,8 +3,11 @@
  * 直接搬 design-reference/styles/account.css @ 25d3a2a:
  * - 殼:.acc-main / .acc-head / .acc-avatar / .acc-email / .acc-logout / .acc-layout
  *   / .acc-nav / .acc-nav-icon / .acc-body(L478-566 字面不動)
- * - mobile:[data-mobile="true"] 的 acc-* 殼規則(L881-908 字面不動;全站 data-mobile
- *   啟動機制為既有跨頁現象、非本 slice scope)
+ * - mobile:[data-mobile="true"] 的 acc-* 殼規則(全站 data-mobile 啟動機制為既有跨頁現象、
+ *   非本 slice scope)
+ *   🔴 2026-08-07 更正:上一行原本寫「L881-908 字面不動」—— **已不成立**。分頁列那一段
+ *   現在整組來自 OD `pcm-home-redesign/pcm-account.css` 的網格版(Sean 拍板推翻緩議),
+ *   不是 design-reference 的字面。其餘 acc-* 殼規則仍照舊。
  * - overview/orders tab(g-2 加入):.acc-stats / .acc-stat / .acc-stat-v / .acc-stat-sub
  *   / .acc-stat-tier / .acc-section / .acc-section-head / .acc-orders / .acc-order /
  *   .acc-order-l / .acc-order-r / .acc-order-id / .acc-order-meta / .acc-order-total /
@@ -478,6 +481,20 @@
   border-top: 3px solid var(--c-text, #0a0a0a);
   margin: 4px 0 16px;
   background: var(--c-surface, #fff);
+  /* g-5c/g-6c 手機捲動修復:`.pcm-header` 是 position: sticky,沒有這個、捲到位仍會被壓在底下。
+     來源實查(非憑感覺;🔴 R2 抓到我原本在這裡引了 6 個跨檔行號,與同片 auth-account.test.ts
+     裡「用 grep 找、不引行號」的規矩自相矛盾 ⇒ 全改成可 grep 的選擇器):
+     - 桌機 = `.pcm-header-inner` 的 padding 14px 上下 ⇒ 14×2,加 `.pcm-icon-btn` 的 44px
+       (header 內最高的子元素),加 `.pcm-header` 的 border-bottom 1px = 73px。
+     - 手機 `@media (max-width: 1079px)` 把該 padding 覆寫成 12px ⇒ 12×2+44+1 = 69px,小於桌機。
+     取較大者(捲過頭比被遮住好)= 73px;實際取 76px = 73 + 3px 緩衝,順帶與
+     `product-page.css` 的 `.pd-sec`(grep `scroll-margin-top`)既有的 76px 對齊。
+     ⚠️ `.pd-sec` 那顆 76 的推導過程沒留在檔裡 ⇒ 這裡是「數值一致」,不是「查證過它同源」。 */
+  scroll-margin-top: 76px;
+  /* 本層被程式化 focus(見 use-reveal-form.ts)。它 `tabIndex=-1`、Tab 走不到,
+     鍵盤開表單時卻可能被 UA 的 `:focus-visible` 在整張表單外框畫一圈 —— 那不是可互動元素該有的
+     視覺。焦點只為了讓讀屏知道開了什麼,不需要外框。🔴 R2 抓到這是本片新引進、原本沒被決定的視覺。 */
+  outline: none;
 }
 .acc-inline-form-inner {
   display: flex;
@@ -641,38 +658,45 @@
   .acc-head h1 { font-size: 22px; word-break: break-word; }
   .acc-head-actions { grid-column: 1 / -1; }
   .acc-layout { grid-template-columns: 1fr; gap: 20px; }
+  /* 分頁列(2026-08-05 Sean:「讓客人更容易看出來有很多分頁」;2026-08-07 Sean 推翻緩議、正式跟上)
+     原本是橫向捲動列 + `scrollbar-width: none`,第 4 個分頁之後直接被切掉,而且**沒有任何
+     可捲動的視覺提示**(沒捲軸、沒漸層、沒箭頭)→ 客人不知道還有「我的愛車 / 收件地址 /
+     個人資料」三個分頁。改成網格全部露出來:手機 2 欄、平板 4 欄,一眼看得完、不用捲。
+     搬自 OD `pcm-home-redesign/pcm-account.css` 的 `@media (max-width: 1079px)` 區塊
+     (grep `.acc-nav {` 在該區塊內那一條;🔴 依本 repo 規矩不引行號 —— OD 稿會改、行號必漂)。
+     🔴 這一版第4批當時就照設計稿實作過,但因為「手機導覽改網格不在交接單 §三/§九 任何一列」
+     被刻意緩議、退回舊的橫捲版,並在下面的「前提」測試留了一句「哪天真站跟上了,這條會紅」——
+     2026-08-07 Sean 手機實測後親自拍板推翻緩議,這裡就是兌現那句話。 */
   .acc-nav {
     position: static;
-    flex-direction: row;
-    overflow-x: auto;
-    scrollbar-width: none;
-    border: 0;
-    border-bottom: 1px solid var(--c-border);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+    border: 1px solid var(--c-border);
+    border-radius: 0;
   }
-  .acc-nav::-webkit-scrollbar { display: none; }
   .acc-nav button {
-    flex: 0 0 auto;
-    padding: 10px 14px;
-    border-bottom: 0;
-    border-right: 0;
+    padding: 12px 14px;
+    border-right: 1px solid var(--c-border);
+    border-bottom: 1px solid var(--c-border);
     white-space: nowrap;
-    font-size: 13px; /* 🔶 第4批 §三-5:12.5 → 13(整數化) */
+    font-size: 14px;
+    min-height: 46px;                       /* 觸控目標 */
   }
+  /* 🔴 這三條的數學**硬綁「剛好 7 顆分頁」**:2 欄下第 7 顆落單在第 4 列左半格
+     (它的 border-right 是一條懸空的半格分隔線 —— 審查真瀏覽器量過,OD 原稿同款、不是搬錯)。
+     加第 8 顆會讓邊框整組錯亂而文字層全綠 ⇒ 守門已把 NAV 長度釘成 7(見 auth-account.test.ts)。 */
+  .acc-nav button:nth-child(2n) { border-right: 0; }
+  .acc-nav button:last-child { border-bottom: 0; }
+  .acc-nav button:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
   .acc-nav button.is-active {
-    background: transparent;
-    color: var(--c-text);
-    border-bottom: 2px solid var(--c-text);
+    background: var(--c-text);
+    color: #fff;
   }
-  /* 🔴🔴 **本批新造的 regression,R1 抓到** —— 桌機的 `.is-active` 是**黑底**,所以圖示用
-     半透明白;但 ≤1079px 的 `.is-active` 是**透明底 + 底部黑線**(見上方),白圖示畫在
-     `--c-bg: #ffffff` 上 = **直接隱形**。改圖示之前那七顆是字元、繼承 button 的 `--c-text`,
-     所以看得見;我把顏色階搬進來時只想到桌機。
-     ⚠️ 設計稿 `pcm-account.css:630-633` **逐字記載過這個 bug**(「Sean 截圖裡『總覽』沒有圖示
-     就是這個」),但它的修法是把手機 active 改成**黑底**(整條導覽改成 2 欄網格)——
-     **那個手機導覽改版不在交接單 §三 / §九 的任何一列**,真站現況是橫捲列。
-     ⇒ 這裡採**對準真站實況**的最小修法:透明底 ⇒ 圖示跟著文字走墨色。
-     設計稿那條「手機導覽改網格」已列進 STOP 給設計端。 */
-  .acc-nav button.is-active .acc-nav-icon { color: var(--c-text); }
+  /* 圖示翻回半透明白(對齊桌機;OD 同區塊內 grep `.is-active .acc-nav-icon`)。
+     守的不變量是「圖示與所在底色要有對比」:上面這條翻回黑底之後,原本為了配透明底才改的
+     墨色圖示會畫在黑底上直接隱形 —— 是同一個對比 bug 換個方向再犯一次,這裡跟著翻回去。 */
+  .acc-nav button.is-active .acc-nav-icon { color: rgba(255,255,255,0.75); }
 
   /* overview / orders tab mobile(對齊 design L909-911)*/
   .acc-stats { grid-template-columns: 1fr; }
@@ -698,30 +722,33 @@
 [data-mobile="true"] .acc-head h1 { font-size: 22px; word-break: break-word; }
 [data-mobile="true"] .acc-head-actions { grid-column: 1 / -1; }
 [data-mobile="true"] .acc-layout { grid-template-columns: 1fr; gap: 20px; }
+/* [data-mobile] 兜底那一路,逐條鏡像上面 @media (max-width: 1079px) 的分頁列改版
+   (原因見上方那段長註解;這裡不重複)——兩路不同步是這個檔歷史上出過事的地方(見 MF1/MF7)。 */
 [data-mobile="true"] .acc-nav {
   position: static;
-  flex-direction: row;
-  overflow-x: auto;
-  scrollbar-width: none;
-  border: 0;
-  border-bottom: 1px solid var(--c-border);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: visible;
+  border: 1px solid var(--c-border);
+  border-radius: 0;
 }
-[data-mobile="true"] .acc-nav::-webkit-scrollbar { display: none; }
 [data-mobile="true"] .acc-nav button {
-  flex: 0 0 auto;
-  padding: 10px 14px;
-  border-bottom: 0;
-  border-right: 0;
+  padding: 12px 14px;
+  border-right: 1px solid var(--c-border);
+  border-bottom: 1px solid var(--c-border);
   white-space: nowrap;
-  font-size: 13px; /* 🔶 第4批 §三-5:12.5 → 13(整數化;[data-mobile] 兜底那一路) */
+  font-size: 14px;
+  min-height: 46px;
 }
+[data-mobile="true"] .acc-nav button:nth-child(2n) { border-right: 0; }
+[data-mobile="true"] .acc-nav button:last-child { border-bottom: 0; }
+[data-mobile="true"] .acc-nav button:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
 [data-mobile="true"] .acc-nav button.is-active {
-  background: transparent;
-  color: var(--c-text);
-  border-bottom: 2px solid var(--c-text);
+  background: var(--c-text);
+  color: #fff;
 }
-/* 同 MF1,`[data-mobile]` 兜底那一路(0,2,0 ⇒ 也贏過全域那條)。 */
-[data-mobile="true"] .acc-nav button.is-active .acc-nav-icon { color: var(--c-text); }
+/* 同 MF1,`[data-mobile]` 兜底那一路(0,2,0 ⇒ 也贏過全域那條)。圖示翻回半透明白理由同上。 */
+[data-mobile="true"] .acc-nav button.is-active .acc-nav-icon { color: rgba(255,255,255,0.75); }
 /* overview / orders tab mobile(對齊 design L909-911)*/
 [data-mobile="true"] .acc-stats { grid-template-columns: 1fr; }
 /* 同 MF7,`[data-mobile]` 兜底那一路。 */
@@ -744,9 +771,13 @@
    🔴 位置與提權的理由同 `auth.css` 的平板段:必須排在上面那組 `@media (max-width: 1079px)`
    **之後**(它完整涵蓋平板區間、同 specificity 後載勝),且與 `[data-mobile="true"]`(0,2,0)
    撞到的選擇器要提權。守門 = `styles/auth-account.test.ts`。
-   ⚠️ **刻意不搬設計稿的 `.acc-nav` 4 欄網格那 6 條**:真站的手機/平板導覽是**橫捲列**
-   (`overflow-x: auto` + 透明底 active),設計稿把它整條改成網格 —— 那是版位改版、
-   不在交接單任何一列,已列進 STOP 給設計端。這裡只搬「字級與版位被手機值壓過頭」那部分。 */
+   🔴 2026-08-07 更正:上一段原本寫「刻意不搬設計稿的 `.acc-nav` 4 欄網格」,理由是版位改版
+   不在交接單任何一列。Sean 手機實測後親自拍板推翻那個緩議 ⇒ **這裡現在搬了**,4 欄網格
+   全數對齊 OD 平板段(grep `repeat(4, minmax` 在 OD 的 `@media (min-width: 600px)` 區塊內;
+   🔴 不引行號,理由同上)。`.acc-nav` 相關幾乎每一條都用雙選擇器提權——
+   不只是「跟慣例」,是真的會出事:Android 平板 UA 判 data-mobile=true 時,同一顆 button
+   會同時吃到上面 `[data-mobile="true"]` 那組**未加斷點限制**的 nth-child 規則,沒提權的話
+   specificity 算下來 4 欄的邊框位置在 Android 平板上會跟手機 2 欄版對不上。 */
 @media (min-width: 600px) and (max-width: 1079px) {
   [data-mobile] .acc-main, .acc-main { padding: 32px 28px 56px; }
   [data-mobile] .acc-head, .acc-head { grid-template-columns: 64px 1fr auto; gap: 20px; padding-bottom: 26px; margin-bottom: 28px; }
@@ -755,7 +786,16 @@
   [data-mobile] .acc-head-actions, .acc-head-actions { grid-column: auto; } /* 平板寬度夠,登出鈕回到同一列 */
   .acc-email { font-size: 14px; }
 
-  [data-mobile] .acc-nav button, .acc-nav button { font-size: 15px; min-height: 52px; }
+  [data-mobile] .acc-nav, .acc-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  [data-mobile] .acc-nav button, .acc-nav button { font-size: 15px; min-height: 52px; border-right: 1px solid var(--c-border); }
+  [data-mobile] .acc-nav button:nth-child(2n), .acc-nav button:nth-child(2n) { border-right: 1px solid var(--c-border); }
+  [data-mobile] .acc-nav button:nth-child(4n), .acc-nav button:nth-child(4n) { border-right: 0; }
+  [data-mobile] .acc-nav button:nth-last-child(-n+3), .acc-nav button:nth-last-child(-n+3) { border-bottom: 0; }
+  [data-mobile] .acc-nav button:last-child, .acc-nav button:last-child { grid-column: span 2; }   /* 7 個分頁 ÷ 4 欄 = 末格留白,讓最後一顆補滿 */
+  /* ⚠️ 已知小瑕疵(**源自 OD、不在 storefront 私改**,依鐵則 1 回報設計端):第 7 顆 span 2 之後
+     右緣就是容器邊,但它仍吃 `border-right: 1px` ⇒ 第 2 列右緣是 2px、第 1 列是 1px。
+     審查用真瀏覽器量過 OD 原稿是同樣數字。修法(給 OD):`:last-child { border-right: 0 }`。
+     已列 OD 回饋包。 */
   .acc-nav-icon, .acc-nav-icon svg { width: 19px; height: 19px; }
 
   [data-mobile] .acc-stats, .acc-stats { grid-template-columns: repeat(3, 1fr); }
