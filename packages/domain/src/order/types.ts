@@ -234,17 +234,6 @@ export type AdminOrderFilter = {
 };
 
 /**
- * workflow_status code 合法形狀(對齊 DB CHECK orders_workflow_status_format)。
- *
- * 🔴 **A9w3 起零 consumer,字面務必別再讀成「單一來源」**:原本唯一的 consumer 是 adapter
- * `.or()` 字串內插前的 fail-closed 再驗,那整段隨九碼篩選下推在 A9w3 移除。
- * item writer 那條線驗形狀用的是 `apps/admin/src/lib/orders/workflow-form.ts:29` 的 local
- * `WF_CODE_RE`(字面相同的**另一份**、從未 import 本常數)⇒ 改這裡不會影響任何守門。
- * 暫留不刪(A9w4c 前半未處置 ⇒ 已立案 backlog #332 隨九碼死碼收尾片收);合併那兩份 RE 是另一件事、不在退場片範圍。
- */
-export const WORKFLOW_STATUS_CODE_RE = /^[a-z0-9_]{1,64}$/;
-
-/**
  * AdminOrderLine: 後台訂單列表「每商品一列」品項投影(M-4a Slice D-1a;order_items 內嵌展開)。
  *
  * 🔴 鐵則 12:`unitPrice`/`lineTotal` = 該單**成交價**(下單當下實際賣價、integer 元位 → Money),

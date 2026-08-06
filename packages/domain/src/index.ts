@@ -28,9 +28,6 @@ export { AuthError } from './identity/auth';
 export type { NotOwnedResource } from './identity/ownership';
 export { NotOwnedError } from './identity/ownership';
 
-// admin 訂單篩選 code 形狀守門(M-4a D-1b;解析層與 adapter .or 內插前共用單一來源)
-export { WORKFLOW_STATUS_CODE_RE } from './order/types';
-
 // 單號搜尋正規化與形狀守門(M-4b E10 A9b1;解析層與 adapter .or 內插前共用單一來源)
 export type { OrderNumberSearch } from './order/order-number-search';
 export {
