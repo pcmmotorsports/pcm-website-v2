@@ -24,7 +24,8 @@ export const REFUND_FAILED_REASON_LABEL: Record<string, string> = {
 
 /** 狀態字面(未知狀態=S6 allowlist 之外的未來值,原樣顯示——顯示層不猜語意)。
  *  Object.hasOwn:值域雖受 DB CHECK 限制,`obj[key]` 吃原型鏈是本 repo 記過的同型事故
- *  (result-banner 五頁全中,memory reference_js-index-lookup-hits-prototype-chain)。 */
+ *  (result-banner 曾六頁中招、2026-08-06 #332-2 已全數硬化,
+ *  memory reference_js-index-lookup-hits-prototype-chain 有時間軸)。 */
 export function refundStatusLabel(status: string): string {
   return Object.hasOwn(REFUND_STATUS_LABEL, status) ? REFUND_STATUS_LABEL[status]! : status;
 }
