@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # ============================================================
-# B2-S2b 可重現驗證 harness ── 行為段(S2b-2a 建檔)
+# B2-S2b 可重現驗證 harness ── 行為段(S2b-2a 建檔)+ 行為突變矩陣(S2b-2b 第一段)
 # ============================================================
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
-# 本片 = S2b-2a,認領 plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
+#
+# 本檔由兩片累積而成,**兩片的範圍分開寫,不要混成一句**:
+#   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
+#   · **S2b-2b 第一段**(本輪)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 的逐字定義)
+#     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
+#     🔴 2b 依鐵則 4(片 15-45 分)切成兩段;**第二段**做:環境 A(結構)突變矩陣、項19 barrier、
+#     項29 stale-high。切法已報 STOP 由主視窗裁定。
 #
 # 用法:
 #   PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2s2bv   從零 provision post-S2b 基準庫,再跑全部
@@ -26,27 +32,40 @@
 #   ⑤helper 四軸活體:蓋掉摘要四軸 → 直呼 helper → 四軸新值全對(項20;輸出的 `quantity`
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
-# 🔴 **本片不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **零突變靶**。plan §4.99 把 §5 兩環境突變矩陣認領給 **S2b-2b** ⇒ 本片這 13 格
-#     只被對照組證明「可以滿足」,**不是**被證明「壞了會紅」。判別力要等 2b 的矩陣。
+# 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
+#   ⓐ **突變覆蓋是 14 格中的 7 格,不是全部**。逐格清單也印在跑完的結語裡。
+#     **有靶的 7 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20。
+#     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
+#     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
+#     不是突變。B12 在靶②④ 下紅在本輪新加的「作廢後必須是 0」中途斷言(那是它自己的內容),
+#     但它宣稱的另一半「**unvoid 真的回升**」仍**沒有**任何一發靶殺得到 —— 本線的靶動不到
+#     「只壞 unvoid、不壞 void」那條路。兩者都逐字寫在這裡,不要在報告裡簡化成「7 格已證」。
+#     **沒靶的 7 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
+#     那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b = S2b-4c 的範圍)、
+#     B12c-append-only(結構面)/ B15 / B18 / **ABLATION**(消融格本身無靶,它是 B10 的負向對照)。
+#   ⓑ **plan §5 環境B 九列只做了五列**(逐列交代,不含糊):
+#     做了列 1-4(拿掉 trigger / 漏 `deleted_at IS NULL` / 漏 `shipped_at IS NOT NULL` / 漏 `deleted_at` 事件面)
+#     與增補靶末列(`ON CONFLICT` 漏 `shipped_quantity`)。
+#     **沒做**:列 5/6(oracle = 項19 barrier,見 ⓒ)、**列 7「backfill 漏候選品項」**
+#     (oracle = 項17 差集段,在 migration 檔內;要在 pre 庫上先造出貨資料才構造得出來)、
+#     **列 8/9(五份真相式本體 / 第 5 處述詞改恆等式)** —— 那兩列的 oracle 是項21,認領給 **S2b-3a**。
+#   ⓒ **環境 A(結構)突變矩陣、項19 barrier、項29 stale-high 都不在本輪**。
+#     環境A 的七個靶需要一組**外部結構 oracle**(本檔沒有;S2b-1 的結構驗收在 migration 檔內、
+#     突變時會被剝掉)⇒ 連同項19、項29 留給 **S2b-2b 第二段**。
 #     (memory `feedback_guard-checks-existence-not-effect`:存在性斷言對「還在但失效」全盲。)
-#   ⓑ **併發面**(項19 barrier)與 **stale-high**(項29)不在本片 —— 都在 2b。
-#   ⓒ **正式站行為**:本機 PG17,不是 Supabase;RLS / ACL 的實際行為未驗。
-#   ⓓ 本檔跑的是 `all` 模式從零 provision 的**全前綴**庫(含 S2b)。
-#     plan §2.2 的 W2(pre 狀態基準庫)把本片列進適用範圍,**但本片逐格檢查後沒有一格需要
-#     pre-S2b 庫**(項14/15 要 C9 = S2a 產物 + shipped writer = S2b 產物,兩者都在 post 側;
-#     其餘各格同理)⇒ 本片 DoD 記 `W2: N/A(本片不建 pre 基準庫)`。
-#     🔴 **這是對凍結 plan 的偏離,已同批改 plan §2.2 的 W2 適用列**(不留活字);
-#     偏離與理由一起寫進 STOP,不是只寫在這裡。
-#     🔴 **pre-S2b 基準庫仍然要有人建** —— plan §4 項29(a) 明文要跑在 pre-S2b 庫上,
-#     那是 **S2b-2b** 的事;它要在本檔加 cutoff 前綴機制時,照 `b2s2a-verify.sh:274-280`
-#     的字面(**只重放時間戳早於本檔的 migration 前綴**,不是「全部減本檔」)寫。
+#   ⓓ **正式站行為**:本機 PG17,不是 Supabase;RLS / ACL 的實際行為未驗。
+#   ⓔ **W2 的落點**(對凍結 plan 的偏離,已同批改 plan §2.2 的 W2 適用列,不留活字):
+#     **S2b-2a** 判 `W2: N/A` —— 它那 13 格逐格檢查後沒有一格需要 pre-S2b 庫。
+#     **S2b-2b(本輪)判 W2 適用**,並且真的建了 `b2s2b_pre`(`all` 模式,只重放時間戳早於本檔
+#     的前綴)—— 因為突變的對象是 migration 檔本身,必須有一座「還沒套它」的庫才套得上突變版。
+#     ⇒ plan `:322` 把 2a 與 2b 並列在 W2 適用範圍**只有 2a 那半不成立**,2b 這半是對的。
 #
 # 🔴🔴 **永久警語 ①:期望值一律正向寫死,不得由受測 DB 自算** 🔴🔴
 #   小線 R1 實錘:「對照組自己算出來再跟自己比」= 恆綠。本檔每一格的 `exp` 都是常數字面。
 #
 # 🔴🔴 **永久警語 ②:0 值格必須先證明 fixture 真的建起來了** 🔴🔴
-#   期望值含 0 的有**四格**:項10b(`1/0/3`)、項11(`0/3`)、項11b(`0/3`)、項18(`0/0/0/3`)。
+#   期望值含 0 的有**五格**:項10b(`1/0/3`)、項11(`0/3`)、項11b(`0/3`)、項18(`0/0/0/3`)、
+#   **ABLATION(`0/3`)**(2b R2 nit 1:枚舉寫下即過期,這一條就是實例)。
 #   這些 0 在「fixture 根本沒建成」時**同樣會出現** ⇒ 每一格的 oracle 都**併回非 0 的存在性維度**,
 #   而且 11 / 11b / 12 另外在 body 內先斷言「作廢前 shipped 真的是 2」(`PRE_SHIPPED_2`)——
 #   光靠 instock 那一維不夠:它是 **receipts 軸**寫的,證不到「作廢事件觸發了重算」。
@@ -79,12 +98,14 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=13     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20)
-EXPECT_TOTAL=16    # 上列 + ID-GATE + BASE-POST + COPIES-DROPPED
-EXPECT_PASS_KEYS="ID-GATE BASE-POST \
+EXPECT_CELL=14     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證)
+EXPECT_MUT=6       # 突變靶:MUT0 對照 + 靶①②③④⑤(環境 B = 行為;環境 A 結構靶不在本輪,見檔頭 ⓒ)
+EXPECT_TOTAL=25    # 上列 14 + ID-GATE + BASE-POST + PRE-BASE + 6 發突變 + MUT-COUNT + COPIES-DROPPED
+EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
-B18-x1-commit-rollback B20-helper-live COPIES-DROPPED"
+B18-x1-commit-rollback B20-helper-live ABLATION \
+MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -134,6 +155,17 @@ MIG_SHA_NOW="$(shasum -a 256 "$MIG" | awk '{print $1}')"
      ④append-only 三支的 triggerdef 全等字面 ⑤EXPECT_CELL / EXPECT_TOTAL / EXPECT_PASS_KEYS
    改了 migration 就必須回頭把這些一起更新。"
 
+# 🔴 「post-S2b」= **本檔就是 migration 目錄的時間序尾端**。
+#    provision 迴圈套的是 `*.sql` 全部、沒有時間戳上界 ⇒ 日後新增更晚的 migration 會被**靜默**
+#    納入「post-S2b 基準庫」,定義就漂了(plan §2.2 W2 對 pre 側的同一個警告,對稱適用)。
+# 🔴 **兩個模式都要驗**(2b R1 nit 4):原本只寫在 `all` 分支內 ⇒ `run` 會在已漂移的
+#    base + pre 上全綠零告警,而這道 die 訊息正是為那個情境寫的。
+NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
+[ "$NEWEST_TS" = "20260806180000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是本片的 20260806180000 ——
+   本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
+   處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
+
 MARK="$WORK/.b2s2b-throwaway"
 MARK_SIG="b2s2b-verify.sh throwaway cluster — 本目錄可被本腳本 rm -rf"
 CIDFILE="$WORK/cluster-id"
@@ -165,7 +197,7 @@ if [ "$MODE" = "all" ]; then
   if psql -X "$BASE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
     die "埠 $PORT 上仍有活著的 postmaster 且不是本 workdir 的 —— 不硬殺別人的,停下"
   fi
-  log "0/6 provision post-S2b 基準庫(port ${PORT};**全前綴、含 ${MIG##*/}**)"
+  log "0a/8 provision post-S2b 基準庫(port ${PORT};**全前綴、含 ${MIG##*/}**)"
   rm -rf "$WORK"; mkdir -p "$WORK"; printf '%s\n' "$MARK_SIG" > "$MARK"
   "$PGBIN/initdb" --version | grep -q ' 17\.' || die "PATH 的 initdb 非 PG17"
   psql -X --version | grep -q ' 17\.' || die "PATH 的 psql 非 PG17(協定相容但錯誤字面可能漂)"
@@ -189,20 +221,40 @@ if [ "$MODE" = "all" ]; then
     fi
     psql -X "$BASE_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || die "migration 失敗:$f"
   done
-  # 🔴 「post-S2b」= **本檔就是 migration 目錄的時間序尾端**(R1 nit 12):
-  #    上面那個迴圈套的是 `*.sql` 全部、沒有時間戳上界 ⇒ 日後新增更晚的 migration 會被**靜默**
-  #    納入「post-S2b 基準庫」,定義就漂了(plan §2.2 W2 對 pre 側的同一個警告,對稱適用)。
-  #    ⇒ 在這裡把它變成 fail-visible:尾端不是本檔就停,由人決定要不要重新定義基準。
-  NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
-  [ "$NEWEST_TS" = "20260806180000" ] \
-    || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是本片的 20260806180000 ——
-   本檔的「post-S2b 基準庫」定義已經漂了(它會把更晚的 migration 一起套進來)。
-   處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
   # fixture 的上游來源 = d1t2 seed(customers / orders / order_items / suppliers / staff)。
   pnpm exec tsx scripts/d1t2-seed.ts > "$WORK/seed.sql" 2>"$WORK/seed.err" \
     || die "seed 產生失敗(見 $WORK/seed.err)"
   test -s "$WORK/seed.sql" || die "seed.sql 為空"
   psql -X "$BASE_URL" -v ON_ERROR_STOP=1 -q -f "$WORK/seed.sql" >/dev/null || die "seed 套用失敗"
+  # ── 🔴 S2b-2b:pre-S2b 基準庫(突變環境的 TEMPLATE 來源)────────────────────
+  # 為什麼一定要它:突變的對象是**本片 migration 檔本身** ⇒ 必須有一座「還沒套它」的庫
+  #   才套得上突變版。post 庫上做不到(套第二次會撞既有物件)。
+  # 🔴 定義逐字照 `scripts/b2s2a-verify.sh:274-280` 的永久警語①:
+  #   **只重放時間戳早於本檔的 migration 前綴**,不是「全部減本檔」——
+  #   後者在日後新增更晚的 migration 之後會把它們一起套進「pre」,定義靜默漂移。
+  #   (上面那道「時間序尾端必須是本檔」的閘擋的是 post 側的同一種漂移,兩邊都要。)
+  log "0b/8 provision pre-S2b 基準庫 b2s2b_pre(只重放時間戳 < 20260806180000 的前綴)"
+  psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS b2s2b_pre" >/dev/null 2>&1
+  psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE b2s2b_pre" >/dev/null \
+    || die "建 b2s2b_pre 失敗"
+  PRE_URL="postgresql://postgres@127.0.0.1:${PORT}/b2s2b_pre"
+  psql -X "$PRE_URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql || die "pre:shim 失敗"
+  for f in supabase/migrations/*.sql; do
+    case "$f" in *20260723120000*) continue ;; esac
+    # 🔴 檔名必須時間戳開頭(2b R1 nit 7:post 迴圈有這道、pre 漏抄):
+    #    非時間戳檔名在 LC_ALL=C 下 `\<` 會比成 false ⇒ **靜默 continue**,那一支就沒進 pre 庫。
+    case "$(basename "$f")" in
+      [0-9]*) : ;;
+      *) die "pre:migration 檔名不是時間戳開頭:$f" ;;
+    esac
+    TS="${f##*/}"; TS="${TS%%_*}"
+    [ "$TS" \< "20260806180000" ] || continue
+    if [ "$f" = "$FIRST_FITMENTS" ]; then
+      psql -X "$PRE_URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql || die "pre:fitments bootstrap 失敗"
+    fi
+    psql -X "$PRE_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null || die "pre:migration 失敗:$f"
+  done
+  psql -X "$PRE_URL" -v ON_ERROR_STOP=1 -q -f "$WORK/seed.sql" >/dev/null || die "pre:seed 套用失敗"
   psql -X "$BASE_URL" -qtAc 'SELECT system_identifier FROM pg_control_system()' > "$CIDFILE"
 else
   [ -f "$MARK" ] || die "run 模式需要既有基準庫($WORK 缺 marker);先跑 all"
@@ -246,6 +298,27 @@ done
   || die "基準庫的出貨表非 0 列 —— 上一輪留痕,重跑 all"
 ok BASE-POST "基準庫確認為 post-S2b(helper 四軸指紋逐字相符 + ${TG_SS} 在 + C9 在 + seed 齊 + 出貨表 0 列)"
 
+# ══ 0e. pre-S2b 基準庫真的是 pre(突變環境的前提)═══════════════════════════
+# 🔴 `run` 模式重用舊 cluster 時,這座庫可能根本不存在或是舊版 ⇒ 在這裡就擋掉,
+#    不要等到突變段才紅在「套不上去」。
+PRE_URL="postgresql://postgres@127.0.0.1:${PORT}/b2s2b_pre"
+psql -X "$PRE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1 \
+  || die "連不上 pre-S2b 基準庫 b2s2b_pre —— 先跑 all(run 模式不會建它)"
+# 🔴 兩向都要驗:**S2a 在**(否則本片 migration 的前置閘會擋、突變全部紅在閘而不是紅在 oracle)
+#                **S2b 不在**(否則它根本不是 pre,突變版套不上去)。
+[ "$(q "$PRE_URL" "SELECT count(*) FROM pg_attribute WHERE attrelid='${SUMMARY}'::regclass AND attname='shipped_quantity' AND NOT attisdropped")" = "1" ] \
+  || die "pre 基準庫沒有 shipped_quantity 欄 —— 它連 S2a 都沒套,不是 pre-S2b"
+[ "$(q "$PRE_URL" "SELECT count(*) FROM pg_trigger WHERE tgname='${TG_SS}' AND NOT tgisinternal")" = "0" ] \
+  || die "pre 基準庫已經有 ${TG_SS} —— 它不是 pre-S2b,整段突變矩陣的判別力歸零"
+[ "$(q "$PRE_URL" 'SELECT count(*) FROM public.order_items')" -gt 0 ] 2>/dev/null \
+  || die "pre 基準庫沒有 seed(order_items 0 列)—— 突變環境跑不出 fixture"
+# 🔴 pre 是**六發突變副本的 TEMPLATE**(2b R1 nit 6):它一髒,整個矩陣一次被污染,
+#    而症狀會長得像「某幾發突變沒抓到」。與 base 側同一道起跑閘,不能只有 base 有。
+[ "$(q "$PRE_URL" 'SELECT count(*) FROM public.shipments')" = "0" ] \
+  && [ "$(q "$PRE_URL" 'SELECT count(*) FROM public.shipment_items')" = "0" ] \
+  || die "pre 基準庫的出貨表非 0 列 —— 它被污染過,整個突變矩陣的判別力歸零;重跑 all"
+ok PRE-BASE "pre-S2b 基準庫確認(S2a 的 shipped_quantity 欄**在** + ${TG_SS} **不在** + seed 齊 + 出貨表 0 列)"
+
 # ══ 共用:從基準庫複製一份乾淨副本(只給需要真 COMMIT / DDL 的格用)═════════════
 FRESH_URL=""
 fresh_db() {   # $1 = db 名 → 設 FRESH_URL
@@ -260,7 +333,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_c9; drop_db b2s2b_x1' EXIT
+trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -298,10 +371,26 @@ DECLS='DECLARE v_cust uuid; v_order uuid; v_i4 uuid; v_i6 uuid; v_sup uuid; v_st
 #    → 由呼叫端給的 oracle 回查落庫值 → 與**寫死的期望常數**比對。
 #    ⚠️ `SET CONSTRAINTS ALL IMMEDIATE` **不等於真 COMMIT**(b2s1b 檔頭同一句誠實邊界):
 #       它證明「這個終態通得過所有延遲約束」,不證明正式站 commit 一定沒事。項18 才是真 COMMIT。
+# ── 🔴 S2b-2b:同一組格要跑在**兩種庫**上 ────────────────────────────────────
+#   ①`report` 模式 = 對照組(post-S2b 基準庫):逐格 ok/bad,計入 PASS/CELL。
+#   ②`collect` 模式 = 突變環境(pre-S2b 副本 + 突變版 migration):**不計入 PASS/CELL**,
+#     只把紅掉的格 key 收進 `REDS_IDS`,由突變 runner 與**指定的紅點集合**逐字比對。
+#   🔴 只比「紅了幾格」會被「指定格失效 + 另一格意外轉紅」騙過(小線 codex 關卡2 實錘)
+#     ⇒ 一律比**集合**。
+ORACLE_URL=""; ORACLE_MODE="report"; REDS_IDS=""
+cell_result() {   # $1 = key、$2 = 是否通過(0/1)、$3 = 成功訊息、$4 = 失敗訊息
+  RUN_KEYS="$RUN_KEYS $1"
+  if [ "$ORACLE_MODE" = "collect" ]; then
+    [ "$2" -eq 0 ] || REDS_IDS="$REDS_IDS $1"
+    return 0
+  fi
+  CELL=$((CELL+1))
+  if [ "$2" -eq 0 ]; then ok "$1" "$3"; else bad "$4"; fi
+}
+
 cell_land() {   # $1 = key、$2 = body、$3 = oracle SQL、$4 = 期望值、$5 = 標籤
   local key="$1" body="$2" oracle="$3" want="$4" label="$5" got
-  CELL=$((CELL+1))
-  got="$(psql -X "$BASE_URL" -v ON_ERROR_STOP=0 -qtA 2>&1 <<SQL | sed -n 's/^NOTICE:  GOT:\(.*\)$/\1/p' | head -1
+  got="$(psql -X "$ORACLE_URL" -v ON_ERROR_STOP=0 -qtA 2>&1 <<SQL | sed -n 's/^NOTICE:  GOT:\(.*\)$/\1/p' | head -1
 BEGIN;
 DO \$cell\$
 $DECLS
@@ -318,19 +407,20 @@ END
 ROLLBACK;
 SQL
 )"
+  # 🔴 **空觀察值必須排在相等比對之前**(2b R2 nit 2):放在後面時,未來若有人傳一個空的 `want`,
+  #    「空 == 空」會走進通過那一支 = 潛伏的 fail-open。順序本身就是斷言的一部分。
   if [ -z "$got" ]; then
-    bad "$label —— 🔴 拿不到觀察值(測試自身異常;fail-closed 判紅)"
+    cell_result "$key" 1 "" "$label —— 🔴 拿不到觀察值(測試自身異常;fail-closed 判紅)"
   elif [ "$got" = "$want" ]; then
-    ok "$key" "$label(oracle=$want)"
+    cell_result "$key" 0 "$label(oracle=$want)" ""
   else
-    bad "$label —— 期望 oracle=「$want」,實得「$got」"
+    cell_result "$key" 1 "" "$label —— 期望 oracle=「$want」,實得「$got」"
   fi
 }
 
 cell_err() {   # $1 = key、$2 = 期望 SQLSTATE、$3 = 期望 conname、$4 = body、$5 = 標籤
   local key="$1" want_state="$2" want_con="$3" body="$4" label="$5" got
-  CELL=$((CELL+1))
-  got="$(psql -X "$BASE_URL" -v ON_ERROR_STOP=0 -qtA 2>&1 <<SQL | sed -n 's/^NOTICE:  GOT:\(.*\)$/\1/p' | head -1
+  got="$(psql -X "$ORACLE_URL" -v ON_ERROR_STOP=0 -qtA 2>&1 <<SQL | sed -n 's/^NOTICE:  GOT:\(.*\)$/\1/p' | head -1
 BEGIN;
 DO \$cell\$
 $DECLS
@@ -348,12 +438,13 @@ END
 ROLLBACK;
 SQL
 )"
+  # 🔴 同上:空觀察值排最前(2b R2 nit 2)。
   if [ -z "$got" ]; then
-    bad "$label —— 🔴 拿不到觀察值(測試自身異常;fail-closed 判紅)"
+    cell_result "$key" 1 "" "$label —— 🔴 拿不到觀察值(測試自身異常;fail-closed 判紅)"
   elif [ "$got" = "${want_state}|${want_con}" ]; then
-    ok "$key" "$label(${want_state} / CONSTRAINT=${want_con})"
+    cell_result "$key" 0 "$label(${want_state} / CONSTRAINT=${want_con})" ""
   else
-    bad "$label —— 期望「${want_state}|${want_con}」,實得「$got」"
+    cell_result "$key" 1 "" "$label —— 期望「${want_state}|${want_con}」,實得「$got」"
   fi
 }
 
@@ -379,8 +470,10 @@ STOCK_I4="  INSERT INTO public.order_item_procurement (order_item_id, supplier_i
 #    instock 那一維恆為 3 且來自另一條軸 ⇒ 它非 0 就證明這一列真的被 helper 寫過。
 SHIPPED_OF_I4="SELECT shipped_quantity::text || '/' || instock_quantity::text FROM ${SUMMARY} WHERE order_item_id = v_i4"
 
-log "1/6 項 10 / 10b:出貨跟動 + 草稿箱不算"
-
+# ══ 行為 oracle:同一組格,跑在對照組庫與每一個突變庫上 ═══════════════════════
+# 🔴 每格各自包成一支函式**放在它原本的位置**(不搬動),由下方 `beh_oracle` 依序呼叫。
+#    這樣「格的定義」只有一份 —— plan §2 不拆 2b 的理由正是「拆開會讓 fixture 定義出現兩份」。
+CELL_B10() {
 # ── 項10:建箱掛品項 → UPDATE shipped_at → shipped = 該量 ──────────────────
 cell_land B10-shipped-lands \
 "$STOCK_I4
@@ -389,7 +482,9 @@ $MK_DRAFT
 $SHIP_NOW" \
   "$SHIPPED_OF_I4" "2/3" \
   "項10 正測:進貨 3 → 建箱掛品項(2)→ 設 shipped_at ⇒ 摘要 shipped/instock 落庫 = 2/3"
+}
 
+CELL_B10b() {
 # ── 項10b:草稿箱(有品項、未設 shipped_at)⇒ shipped 仍 0 ────────────────
 # 🔴 這一格的 0 **不能單獨當觀察值**(永久警語②):沒建成 fixture 時同樣是 0/沒有列。
 #    ⇒ oracle 回「品項列數 / shipped / instock」三維,期望 `1/0/3` —— 前後兩維非 0,
@@ -398,10 +493,10 @@ $SHIP_NOW" \
 #    摘要列**不是**它建的 —— `STOCK_I4` 的 `INSERT order_item_procurement` 就已觸發
 #    `order_item_procurement_summary_recompute_zc`(`20260803140000:409-413`)建好了列
 #    (instock=3、shipped=0)。`PERFORM` 的真正作用是**把最後一次重算挪到掛品項之後**。
-#    少了它,「真相式漏掉 `shipped_at IS NOT NULL`」那個突變(2b 靶⑥,唯一 oracle = 本格)
+#    少了它,「真相式漏掉 `shipped_at IS NOT NULL`」那個突變(2b 靶③,唯一 oracle = 本格)
 #    會存活而本格照樣綠 —— 因為最後一次重算發生在品項還不存在的時候。**它是本格的判別力本身。**
 # 🔴 這一格也要進貨 3:草稿箱裡放的量刻意也是 **3**,讓「真相式漏掉 shipped_at IS NOT NULL」
-#    這個突變(2b 的靶⑥)算出來的是**合法的 3**、只在值上翻面 —— 沒有庫存的話它會紅在 C9,
+#    這個突變(2b 的靶③)算出來的是**合法的 3**、只在值上翻面 —— 沒有庫存的話它會紅在 C9,
 #    那是紅對了但**紅在別的理由**,靶就殺不到這一格(memory `feedback_negative-test-...`)。
 cell_land B10b-draft-not-counted \
 "$STOCK_I4
@@ -411,8 +506,7 @@ $MK_DRAFT
   "(SELECT count(*) FROM public.shipment_items WHERE order_item_id = v_i4)::text || '/' ||
    ($SHIPPED_OF_I4)" "1/0/3" \
   "項10b 草稿箱格:掛了品項(1 列、量 3、庫存 3)但沒設 shipped_at ⇒ 真相式的 shipped_at IS NOT NULL 把它排除,shipped = 0"
-
-log "2/6 項 11 / 12:作廢退量(含 submitted 態)+ unvoid 回升"
+}
 
 # 🔴 三格共用的前提斷言(R1 nit 6):作廢/unvoid **之前** shipped 必須真的是 2。
 #    少了它,期望值 0 的那兩格會與「這條路徑從頭到尾沒把 shipped 寫上去」共用同一個觀察值;
@@ -423,6 +517,7 @@ PRE_SHIPPED_2="  SELECT shipped_quantity INTO v_n FROM ${SUMMARY} WHERE order_it
     RAISE EXCEPTION '前提破了:作廢/unvoid 之前 shipped 應為 2,實為 %(這條路徑沒把 shipped 寫上去,不是作廢的事)', COALESCE(v_n::text, '<無列>');
   END IF;"
 
+CELL_B11() {
 # ── 項11:已出貨 → 作廢 ⇒ 退量 ────────────────────────────────────────────
 cell_land B11-void-returns \
 "$STOCK_I4
@@ -433,7 +528,9 @@ $PRE_SHIPPED_2
   UPDATE public.shipments SET deleted_at = now(), void_reason = '裝錯箱' WHERE id = v_ship;" \
   "$SHIPPED_OF_I4" "0/3" \
   "項11 Q3=A 退量:已出貨(2)後作廢 ⇒ 摘要 shipped 退回 0(instock 仍 3 ⇒ 這一列真的被重算過,不是沒建)"
+}
 
+CELL_B11b() {
 # ── 項11b:submitted 態(已送新竹)+ 已出貨 → 作廢 ⇒ 一樣退量 ─────────────
 # 🔴 X4 要求 submitted 必須有非空白的 hct_request_id;X1 要求離開草稿態時必有品項。
 cell_land B11b-void-submitted \
@@ -446,12 +543,18 @@ $PRE_SHIPPED_2
   UPDATE public.shipments SET deleted_at = now(), void_reason = '客戶取消' WHERE id = v_ship;" \
   "$SHIPPED_OF_I4" "0/3" \
   "項11 第二半:submitted(已送新竹)且已出貨的箱子作廢 ⇒ 一樣退回 0(狀態欄不影響真相式)"
+}
 
+CELL_B12() {
 # ── 項12:由「已出貨作廢態」unvoid ⇒ 回升 ────────────────────────────────
 # 🔴 X7 是雙向配對((deleted_at IS NULL) = (void_reason IS NULL))⇒ unvoid 必須兩欄一起清。
 # 🔴 plan 項12 的字面是「unvoid 回升(**含**由已出貨作廢態 unvoid)」—— 本格做的就是括號內那個。
 #    另一個可能的讀法(從未出貨的作廢箱 unvoid)**刻意不做**:那條路徑的觀察值是 0 → 0,
 #    真相式怎麼寫都成立 = 恆真格,加了只是把格數變好看。理由寫在這裡,不是省略。
+# 🔴🔴 **中途斷言不可省**(2b R1 must-fix 4:本格原本是恆綠格):
+#    只斷言「最後是 2」時,任何讓 void 與 unvoid **都不發火**的突變(例如靶④ 拿掉
+#    `deleted_at` 事件面)會讓值全程凍在 2 ⇒ 本格照樣綠,而它宣稱在證的「unvoid 回升」
+#    根本沒被觀察到。⇒ 中間插一道「作廢後必須是 0」,讓 2 → 0 → 2 三個點都被釘住。
 cell_land B12-unvoid-restores \
 "$STOCK_I4
 $MK_DRAFT
@@ -459,12 +562,16 @@ $MK_DRAFT
 $SHIP_NOW
 $PRE_SHIPPED_2
   UPDATE public.shipments SET deleted_at = now(), void_reason = '誤作廢' WHERE id = v_ship;
+  SELECT shipped_quantity INTO v_n FROM ${SUMMARY} WHERE order_item_id = v_i4;
+  IF v_n IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION '項12 中途斷言破了:作廢後 shipped 應為 0,實為 %(value 全程凍住 ⇒ 本格量不到 unvoid 回升)', COALESCE(v_n::text, '<無列>');
+  END IF;
   UPDATE public.shipments SET deleted_at = NULL, void_reason = NULL WHERE id = v_ship;" \
   "$SHIPPED_OF_I4" "2/3" \
   "項12 unvoid 回升:由已出貨作廢態 unvoid ⇒ shipped 回到 2(deleted_at 事件面真的掛上了)"
+}
 
-log "3/6 項 12b / 12c:§0.3 前提(shipped 只能經 UPDATE 升值)的釘死"
-
+CELL_B12b_x3() {
 # ── 項12b 第一格:INSERT 帶 shipped_at + 加品項 ⇒ 必被 X3 擋 ────────────────
 cell_err B12b-x3-blocks P0001 shipment_items_parent_open \
 "  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code, tracking_number, shipped_at)
@@ -472,51 +579,18 @@ cell_err B12b-x3-blocks P0001 shipment_items_parent_open \
   RETURNING id INTO v_ship;
   INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 2);" \
   "🔴 項12b-①:INSERT 一筆帶 shipped_at 的包裹再加品項 ⇒ 被 X3 擋(這條倒了,shipped 會有 UPDATE 以外的來源)"
+}
 
+CELL_B12b_x1() {
 # ── 項12b 第二格:INSERT 帶 shipped_at 但不加品項 ⇒ COMMIT 時必被 X1 擋 ────
 cell_err B12b-x1-blocks P0001 shipments_items_presence \
 "  INSERT INTO public.shipments (shipment_reference, customer_user_id, recipient_snapshot, carrier_code, tracking_number, shipped_at)
   VALUES ('BCDFGK', v_cust, '{\"name\":\"王小明\",\"phone\":\"0900000000\",\"line\":\"lineid\"}'::jsonb, 'hct', 'S2BT3', now())
   RETURNING id INTO v_ship;" \
   "🔴 項12b-②:同一筆 INSERT 但不加品項 ⇒ 延遲檢查 X1 擋下(兩條路都不通 = §0.3 前提成立)"
+}
 
-# ── 項12c:append-only 三支存在且結構逐字 ─────────────────────────────────
-# 🔴 為什麼要單獨一格(plan §4 項12c / Fable 翻案條件③):X3 / X1 只擋「加品項」與「零品項出貨」,
-#    **改/刪已寄出箱的品項**是這三支在擋。它們被放寬時,shipped 真值變動不經 UPDATE shipments
-#    ⇒ 本線 trigger 不發火、摘要靜默漂移,而項 10-12 全綠。
-# 🔴 `tgenabled` 是 "char" 不是 text,不 cast 會 42725 operator is not unique(2026-08-06 實錘)。
-# 🔴🔴 **必須連函式本體一起 pin**(R1 must-fix 2):三支 trigger 指的是同一支函式,
-#    把 `pcm_b2_shipment_items_append_only()` 的 body 換成 `RETURN NEW`,
-#    `tgname / tgenabled / pg_get_triggerdef` **逐字都不會變** ⇒ 只比外殼的話本格全綠,
-#    而「改/刪已寄出箱品項」已經全面放行。這正是 memory
-#    `feedback_guard-checks-existence-not-effect` 那一族(存在性斷言對「還在但失效」全盲)。
-#    ⇒ 外殼 + 本體 md5 兩層,再配下方 B12c-blocks 一格**行為**證據(結構永遠證不到「真的會擋」)。
-APPEND_ONLY_FN="public.pcm_b2_shipment_items_append_only()"
-APPEND_ONLY_EXPECT="shipment_items_block_delete_bd|O|CREATE TRIGGER shipment_items_block_delete_bd BEFORE DELETE ON public.shipment_items FOR EACH ROW EXECUTE FUNCTION pcm_b2_shipment_items_append_only()
-shipment_items_block_truncate_bt|O|CREATE TRIGGER shipment_items_block_truncate_bt BEFORE TRUNCATE ON public.shipment_items FOR EACH STATEMENT EXECUTE FUNCTION pcm_b2_shipment_items_append_only()
-shipment_items_block_update_bu|O|CREATE TRIGGER shipment_items_block_update_bu BEFORE UPDATE ON public.shipment_items FOR EACH ROW EXECUTE FUNCTION pcm_b2_shipment_items_append_only()
-FN|cf589a111f46fd9ce9f2fc960b21c5ad"
-CELL=$((CELL+1))
-# 🔴 兩段**分開查再在 shell 併**:`ORDER BY` 之後接 `UNION ALL` 在 PG 是語法錯(本輪實測),
-#    而把 ORDER BY 塞進子查詢又是靠未保證的順序保留 —— 兩個都不做。
-APPEND_ONLY_TG="$(psql -X "$BASE_URL" -qtA -c \
-  "SELECT t.tgname || '|' || t.tgenabled::text || '|' || pg_get_triggerdef(t.oid)
-     FROM pg_trigger t
-    WHERE t.tgrelid = 'public.shipment_items'::regclass
-      AND t.tgname LIKE 'shipment_items_block_%'
-      AND NOT t.tgisinternal
-    ORDER BY t.tgname" 2>&1)"
-APPEND_ONLY_FP="$(psql -X "$BASE_URL" -qtA -c \
-  "SELECT 'FN|' || md5(pg_get_functiondef('${APPEND_ONLY_FN}'::regprocedure))" 2>&1)"
-APPEND_ONLY_NOW="$APPEND_ONLY_TG
-$APPEND_ONLY_FP"
-if [ "$APPEND_ONLY_NOW" = "$APPEND_ONLY_EXPECT" ]; then
-  ok B12c-append-only "🔴 項12c 結構面:append-only 三支(delete/update/truncate)全在、全 enabled=O、triggerdef 逐字全等,**且函式本體 md5 逐字相符**(換 body 保留外殼那一發殺得死)"
-else
-  bad "項12c:append-only 的外殼或本體不符(**全等比對**,不是存在性)。實得:
-$APPEND_ONLY_NOW"
-fi
-
+CELL_B12c_blocks() {
 # ── 項12c 行為面:三支真的會擋 ────────────────────────────────────────────
 # 🔴 結構面(上一格)證不到「它真的會擋」—— 只有把一筆已入箱的品項拿去 UPDATE 才證得到。
 #    這一格是「守門畫在不變量成立的面」的行為那半:改壞 body 而保留外殼時,上一格靠 md5 紅、
@@ -526,8 +600,7 @@ cell_err B12c-blocks P0001 shipment_items_append_only \
   INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 2);
   UPDATE public.shipment_items SET shipped_quantity = 9 WHERE shipment_id = v_ship;" \
   "🔴 項12c 行為面:改一筆已入箱品項的數量 ⇒ append-only 擋下(P0001 + conname)——「改箱」這條路真的不通"
-
-log "4/6 項 14 / 15:C9 負測 + C9 承重性"
+}
 
 # ── 項14:C9 擋得住重算寫出來的超額 shipped ────────────────────────────────
 # fixture 四值互異 4 / 2 / 1 / 3(plan §4 項14 逐字):
@@ -552,9 +625,12 @@ $SHIP_NOW
   DELETE FROM public.order_item_procurement_receipts r
    USING public.order_item_procurement p
    WHERE r.procurement_id = p.id AND p.order_item_id = v_i4 AND r.quantity = 1;"
+CELL_B14() {
 cell_err B14-c9-neg 23514 oiqs_shipped_le_instock "$C9_BODY" \
   "🔴 項14 C9 負測:instock 3→2(刪掉 quantity=1 那筆到貨)而 shipped 已是 3 ⇒ 重算被 C9 擋(23514 + conname)"
+}
 
+CELL_B15() {
 # ── 項15:C9 承重性 —— DROP 掉之後同一條路徑必須**全綠** ────────────────────
 # 🔴 仍被擋 = C9 不是承重件、§1 的蘊含圖錯了(plan §4 項15 逐字)。
 #    走 fresh copy 而不是交易內 DDL:DROP CONSTRAINT 後要跑的是**同一段 body**,
@@ -592,9 +668,9 @@ else
   bad "項15 C9 承重性:期望「3/2」(全綠且呈超額),實得「$C9_OFF_GOT」—— 仍被擋代表承重件不是 C9,§1 蘊含圖要重畫"
 fi
 drop_db b2s2b_c9
+}
 
-log "5/6 項 18:X1 在 COMMIT 失敗 ⇒ 摘要與品項兩邊都回滾(真 COMMIT)"
-
+CELL_B18() {
 # ── 項18 ─────────────────────────────────────────────────────────────────
 # 🔴 這是全檔唯一用**真 COMMIT** 的一格:X1 是 DEFERRED,它的失敗只在 COMMIT 當下發生。
 #    `SET CONSTRAINTS ALL IMMEDIATE` 證不到「COMMIT 失敗後外面看到什麼」。
@@ -665,9 +741,9 @@ else
      (六維依序 = 交易內觀察到的 shipped / COMMIT 的 SQLSTATE / conname / 交易外 shipments 列數 / shipment_items 列數 / 摘要 shipped/instock)"
 fi
 drop_db b2s2b_x1
+}
 
-log "6/6 項 20:A4a 鏈四軸活體(直呼 helper)"
-
+CELL_B20() {
 # ── 項20 ─────────────────────────────────────────────────────────────────
 # 五值互異 quantity=6 / ordered=5 / instock=4 / cancelled=1 / shipped=2:
 #   C4 5≤6 ✓ C5 4≤5 ✓ C7 4+1≤6 ✓ C6′ 1+2≤6 ✓ C9 2≤4 ✓。
@@ -698,12 +774,286 @@ $SHIP_NOW
            cancelled_quantity::text || '/' || shipped_quantity::text
       FROM ${SUMMARY} WHERE order_item_id = v_i6)" "6/5/4/1/2" \
   "🔴 項20 四軸活體:摘要四軸先被蓋成 0 → 直呼 helper → ordered/instock/cancelled/shipped 回到 5/4/1/2(前綴的 quantity=6 是報表維、由複合 FK 釘死,不具判別力)"
+}
+
+# ── 項12c 結構面:三支 append-only 的外殼 + 函式本體 md5 ────────────────────
+# 🔴 為什麼要這一格(plan §4 項12c / Fable 翻案條件③):X3 / X1 只擋「加品項」與「零品項出貨」,
+#    **改/刪已寄出箱的品項**是這三支在擋。它們被放寬時,shipped 真值變動不經 UPDATE shipments
+#    ⇒ 本線 trigger 不發火、摘要靜默漂移,而項 10-12 全綠。
+# 🔴 `tgenabled` 是 "char" 不是 text,不 cast 會 42725 operator is not unique(2026-08-06 實錘)。
+# 🔴🔴 **必須連函式本體一起 pin**(2a 的 R1 must-fix 2):三支 trigger 指的是同一支函式,
+#    把 body 換成 `RETURN NEW`,`tgname / tgenabled / pg_get_triggerdef` **逐字都不會變**
+#    ⇒ 只比外殼的話本格全綠,而「改/刪已寄出箱品項」已經全面放行
+#    (memory `feedback_guard-checks-existence-not-effect`)。
+# 🔴 本格**只跑在對照組庫**:它驗的是 **S1b** 的產物,S2b 的突變動不到它 ⇒ 放進突變 oracle
+#    只會製造一格恆綠的雜訊。理由寫在這裡,不是漏掉。
+APPEND_ONLY_FN="public.pcm_b2_shipment_items_append_only()"
+APPEND_ONLY_EXPECT="shipment_items_block_delete_bd|O|CREATE TRIGGER shipment_items_block_delete_bd BEFORE DELETE ON public.shipment_items FOR EACH ROW EXECUTE FUNCTION pcm_b2_shipment_items_append_only()
+shipment_items_block_truncate_bt|O|CREATE TRIGGER shipment_items_block_truncate_bt BEFORE TRUNCATE ON public.shipment_items FOR EACH STATEMENT EXECUTE FUNCTION pcm_b2_shipment_items_append_only()
+shipment_items_block_update_bu|O|CREATE TRIGGER shipment_items_block_update_bu BEFORE UPDATE ON public.shipment_items FOR EACH ROW EXECUTE FUNCTION pcm_b2_shipment_items_append_only()
+FN|cf589a111f46fd9ce9f2fc960b21c5ad"
+CELL_B12c_struct() {
+CELL=$((CELL+1))
+# 🔴 兩段**分開查再在 shell 併**:`ORDER BY` 之後接 `UNION ALL` 在 PG 是語法錯(2a 實測),
+#    而把 ORDER BY 塞進子查詢又是靠未保證的順序保留 —— 兩個都不做。
+APPEND_ONLY_TG="$(psql -X "$BASE_URL" -qtA -c \
+  "SELECT t.tgname || '|' || t.tgenabled::text || '|' || pg_get_triggerdef(t.oid)
+     FROM pg_trigger t
+    WHERE t.tgrelid = 'public.shipment_items'::regclass
+      AND t.tgname LIKE 'shipment_items_block_%'
+      AND NOT t.tgisinternal
+    ORDER BY t.tgname" 2>&1)"
+APPEND_ONLY_FP="$(psql -X "$BASE_URL" -qtA -c \
+  "SELECT 'FN|' || md5(pg_get_functiondef('${APPEND_ONLY_FN}'::regprocedure))" 2>&1)"
+APPEND_ONLY_NOW="$APPEND_ONLY_TG
+$APPEND_ONLY_FP"
+if [ "$APPEND_ONLY_NOW" = "$APPEND_ONLY_EXPECT" ]; then
+  ok B12c-append-only "🔴 項12c 結構面:append-only 三支(delete/update/truncate)全在、全 enabled=O、triggerdef 逐字全等,**且函式本體 md5 逐字相符**(換 body 保留外殼那一發殺得死)"
+else
+  bad "項12c:append-only 的外殼或本體不符(**全等比對**,不是存在性)。實得:
+$APPEND_ONLY_NOW"
+fi
+}
+
+# ══ 行為 oracle 的呼叫序(**唯一一份**,對照組與每個突變靶共用)════════════════
+# 🔴 這 10 格是「S2b 的行為面」⇒ 每個突變都要拿它們當 oracle。
+#    B12c 結構面 / B15 / B18 **不在**這裡:前者驗的是 S1b 產物,後兩者自己開副本庫
+#    (`fresh_db` 從 `postgres` 複製),在突變環境下複製到的會是**未突變**的基準庫 ⇒
+#    放進來會是三格恆綠的雜訊。誠實列出,不是漏掉。
+# 🔴 `BEH_KEYS` **必須被比對**,不能只是長得像凍結值(2b R1 nit 1;與 `EXPECT_TOTAL` 同型)——
+#    少呼叫一格時 `collect` 模式不計 CELL、上游的 CELL 斷言看不見它 ⇒ 那一格靜默消失,
+#    而「紅點集合相符」在少了一格的情況下**還是可能成立**。⇒ 每輪逐字對 key 集合。
+BEH_KEYS="B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores B12b-x3-blocks B12b-x1-blocks B12c-blocks B14-c9-neg B20-helper-live"
+RUN_KEYS=""
+beh_oracle() {   # $1 = URL、$2 = 模式(report|collect)
+  ORACLE_URL="$1"; ORACLE_MODE="$2"; REDS_IDS=""; RUN_KEYS=""
+  CELL_B10; CELL_B10b; CELL_B11; CELL_B11b; CELL_B12
+  CELL_B12b_x3; CELL_B12b_x1; CELL_B12c_blocks; CELL_B14; CELL_B20
+  REDS_IDS="$(printf '%s' "$REDS_IDS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
+  local rgot rexp
+  rgot="$(printf '%s' "$RUN_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
+  rexp="$(printf '%s' "$BEH_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
+  [ "$rgot" = "$rexp" ] || bad "🔴 beh_oracle 實際跑過的格集合不符(URL=$1):
+     實際 [$rgot]
+     期望 [$rexp]"
+}
+
+log "1/8 行為對照組(post-S2b 基準庫;10 格)"
+beh_oracle "$BASE_URL" report
+
+log "2/8 只跑在對照組的三格(項12c 結構面 / 項15 C9 承重性 / 項18 真 COMMIT 回滾)"
+CELL_B12c_struct
+CELL_B15
+CELL_B18
+
+# ══ 3/8-6/8:突變矩陣(環境 B = 行為)═══════════════════════════════════════
+# 🔴🔴 **永久警語 ③:突變必須先剝掉 migration 自己的 §5 結構驗收 DO block** 🔴🔴
+#   否則突變會先被 migration 的自我檢查擋下、apply 直接 abort ⇒ 你證明的是
+#   「migration 會自我檢查」(S2b-1 已證),**不是**「本 harness 的 oracle 有判別力」。
+#   剝除本身要有對照組:**MUT0 = 只剝不改,10 格必須全綠**。
+# 🔴 比對象 = **mut0**,不是原檔(plan §2.2 W5 ①):比原檔恆為不同(因為一律先剝 §5)
+#   ⇒ 那道「真的改到東西」的守門會恆真、從來不可能觸發(小線 code-reviewer R1 實錘)。
+# 🔴 `cmp` 的 **rc=2 是讀不到檔、判紅**,不得用 `&&…||…` 把它歸進「有差異」那一支(W5 ③)。
+MUT=0
+STRIP_BEGIN='-- ══ 5. 檔內結構驗收'
+STRIP_END='-- ══ 6. 註解'
+make_mutant() {   # $1 = 輸出檔、$2 = 取代來源(空 = 只剝)、$3 = 取代目標
+  MIG="$MIG" OUT="$1" SRC="$2" DST="$3" SB="$STRIP_BEGIN" SE="$STRIP_END" python3 - <<'PY'
+import io, os
+s = io.open(os.environ['MIG'], encoding='utf-8').read()
+sb, se = os.environ['SB'], os.environ['SE']
+i, j = s.find(sb), s.find(se)
+if i < 0 or j < 0 or j <= i:
+    raise SystemExit('🔴 剝除錨找不到或順序反了 —— migration 的 §5 段落標題被改過了')
+s = s[:i] + s[j:]
+src, dst = os.environ['SRC'], os.environ['DST']
+if src:
+    n = s.count(src)
+    if n != 1:
+        raise SystemExit('🔴 突變錨在剝除後的檔內命中 %d 次(必須恰 1 次):%r' % (n, src[:60]))
+    s = s.replace(src, dst)
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(s)
+PY
+}
+# 🔴 `make_mutant` 的 rc 一定要接(2b R1 nit 3):python 的 SystemExit 若被吞掉,
+#    後面會拿殘留的舊檔繼續跑。所有靶一律走這支 wrapper。
+make_mutant_or_die() { make_mutant "$@" || die "make_mutant 失敗(輸出檔 $1)—— 突變錨可能已隨 migration 改動而失效"; }
+# 🔴 逐發突變:期望紅點集合**寫死**,不是「反正紅了就算抓到」(判定紀律①)。
+run_mutant() {   # $1 = 靶名、$2 = 突變檔、$3 = 期望紅格集合(空 = 應全綠)、$4 = key、$5 = 比對基準檔
+  # 🔴 `$6` 是選用參數 —— `set -u` 下直接引用未給的 `$6` 會整支炸掉,先收進 local 帶預設。
+  local name="$1" file="$2" want="$3" key="$4" basefile="$5" structflag="${6:-}" db="b2s2b_mut" rc
+  MUT=$((MUT+1))
+  # 🔴 產物存在且非空(2b R1 nit 3):`make_mutant` 的 python 若 SystemExit,`run` 模式會拿
+  #    `$WORK` 裡**上一輪殘留的**同名檔去跑而仍可能判過。這道是它的直接守門。
+  [ -s "$file" ] || { bad "$name:突變檔 $file 不存在或為空 —— make_mutant 失敗,這一發沒有跑"; return; }
+  # ①先證「真的改到東西」——rc=0 相同 / rc=1 有差異 / rc=2 讀不到檔(判紅,不歸進「有差異」)
+  if [ -n "$basefile" ]; then
+    cmp -s "$basefile" "$file"; rc=$?
+    case "$rc" in
+      1) : ;;
+      0) bad "$name:突變檔與基準檔**逐字相同** —— sed/replace 沒改到東西,這一發等於沒跑"; return ;;
+      *) bad "$name:cmp 讀不到檔(rc=$rc)—— 判紅,不當成「有差異」"; return ;;
+    esac
+  fi
+  psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $db" >/dev/null 2>&1
+  psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+    || { sleep 1; psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+         || { bad "$name:從 b2s2b_pre 複製副本失敗"; return; }; }
+  local U="postgresql://postgres@127.0.0.1:${PORT}/$db"
+  if ! psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$file" > "$WORK/mut-$key.log" 2>&1; then
+    bad "$name:突變版 migration 套不上去($(grep -m1 ERROR "$WORK/mut-$key.log" | cut -c1-90))
+     🔴 套不上去 ≠ 抓到 —— 這一發沒有量到任何 oracle,不得算過"
+    drop_db "$db"; return
+  fi
+  # 🔴 **MUT0 專用的結構對照**(2b R1 nit 8):行為 10 格看不見「剝多了」——
+  #    若剝除區間不小心吃掉 REVOKE / COMMENT / §5 以外的結構,10 格仍會全綠。
+  #    ⇒ 對照組另外在**突變庫上**驗三件事:helper 四軸指紋、trigger 在、新函式 proacl 非 NULL。
+  #    只對 MUT0 做 —— 靶①-⑤ 本來就會改動這些,對它們做等於要求突變不生效。
+  if [ "$structflag" = "struct" ]; then
+    local smd5 stg sacl
+    smd5="$(q "$U" "SELECT md5(pg_get_functiondef('${HELPER}'::regprocedure))")"
+    stg="$(q "$U" "SELECT count(*) FROM pg_trigger WHERE tgname='${TG_SS}' AND NOT tgisinternal")"
+    sacl="$(q "$U" "SELECT proacl IS NOT NULL FROM pg_proc WHERE oid='public.pcm_a4a_shipments_summary_recompute()'::regprocedure")"
+    if [ "$smd5" != "$MD5_HELPER_4AXIS" ] || [ "$stg" != "1" ] || [ "$sacl" != "t" ]; then
+      bad "$name:**剝多了** —— 剝除 §5 之後的結構與 post 基準不一致
+     helper md5=[$smd5](期望 $MD5_HELPER_4AXIS)/ trigger 數=[$stg](期望 1)/ 新函式 proacl 非 NULL=[$sacl](期望 t)
+     🔴 行為 10 格對這種偏差全盲,所以這道只在 MUT0 上跑"
+      drop_db "$db"; return
+    fi
+  fi
+  beh_oracle "$U" collect
+  drop_db "$db"
+  if [ "$REDS_IDS" = "$want" ]; then
+    if [ -z "$want" ]; then ok "$key" "$name:10 格全綠(對照組成立 —— 剝除 §5 本身不改變任何行為)"
+    else ok "$key" "$name ⇒ 紅點集合逐字相符:[$want]"; fi
+  else
+    bad "$name:紅點集合不符
+     實際 [$REDS_IDS]
+     期望 [$want]"
+  fi
+}
+
+log "3/8 突變對照組 MUT0(只剝 §5、零改動)"
+make_mutant "$WORK/mut0.sql" "" "" || die "mut0 產生失敗(make_mutant 非零退出)"
+test -s "$WORK/mut0.sql" || die "mut0.sql 為空"
+# 🔴 `cmp` 的 rc=2(讀不到檔)不得被 `&&` 歸進「相同/不同」任何一支(本檔 W5 ③ 自己立的規矩;
+#    2b R1 nit 2:run_mutant 三分支寫對了,唯獨這裡沒有)。
+cmp -s "$MIG" "$WORK/mut0.sql"; MUT0_RC=$?
+case "$MUT0_RC" in
+  1) : ;;
+  0) die "mut0 與原檔逐字相同 —— §5 根本沒被剝掉,整段突變在證明 migration 自我檢查而不是本檔 oracle" ;;
+  *) die "mut0 的 cmp 讀不到檔(rc=$MUT0_RC)—— 判紅,不當成「有差異」" ;;
+esac
+run_mutant "MUT0-只剝不改" "$WORK/mut0.sql" "" MUT-0 "" struct
+
+log "4/8 靶① 拿掉 shipments 那支重算 trigger"
+# plan §5 環境B 第一列:唯一 oracle = 項10(shipped 恆 0 且**零錯誤**)。
+make_mutant_or_die "$WORK/mut1.sql" \
+'CREATE CONSTRAINT TRIGGER shipments_summary_recompute_ac
+  AFTER UPDATE OF shipped_at, deleted_at ON public.shipments
+  NOT DEFERRABLE INITIALLY IMMEDIATE
+  FOR EACH ROW
+  EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();' \
+'SELECT 1;'
+run_mutant "靶①-拿掉重算 trigger" "$WORK/mut1.sql" \
+  "B10-shipped-lands B11-void-returns B11b-void-submitted B12-unvoid-restores B14-c9-neg" \
+  MUT-1 "$WORK/mut0.sql"
+
+log "5/8 靶②③ 真相式各漏一條述詞"
+# 🔴 兩發都動 helper 的第四軸真相式(§1),各漏一個過濾條件。
+make_mutant_or_die "$WORK/mut2.sql" \
+'     AND s.deleted_at IS NULL          -- Q3=A:作廢即退量
+     AND s.shipped_at IS NOT NULL;     -- 未寄出的草稿箱不算' \
+'     AND s.shipped_at IS NOT NULL;'
+run_mutant "靶②-真相式漏 deleted_at IS NULL" "$WORK/mut2.sql" \
+  "B11-void-returns B11b-void-submitted B12-unvoid-restores" MUT-2 "$WORK/mut0.sql"
+
+make_mutant_or_die "$WORK/mut3.sql" \
+'     AND s.deleted_at IS NULL          -- Q3=A:作廢即退量
+     AND s.shipped_at IS NOT NULL;     -- 未寄出的草稿箱不算' \
+'     AND s.deleted_at IS NULL;'
+run_mutant "靶③-真相式漏 shipped_at IS NOT NULL" "$WORK/mut3.sql" \
+  "B10b-draft-not-counted" MUT-3 "$WORK/mut0.sql"
+
+log "6/8 靶④ 漏 deleted_at 事件面 / 靶⑤ ON CONFLICT 漏第四軸"
+make_mutant_or_die "$WORK/mut4.sql" \
+'  AFTER UPDATE OF shipped_at, deleted_at ON public.shipments' \
+'  AFTER UPDATE OF shipped_at ON public.shipments'
+run_mutant "靶④-trigger 漏 deleted_at 事件面" "$WORK/mut4.sql" \
+  "B11-void-returns B11b-void-submitted B12-unvoid-restores" MUT-4 "$WORK/mut0.sql"
+# 🔴 **靶②與靶④ 的紅點集合完全相同**(2b R1 nit 9)——「真相式漏述詞」與「trigger 漏事件面」
+#    在本組 oracle 下**區分不了**。兩發都留是刻意的:它們壞的是不同層(函式體 vs trigger 綁定),
+#    未來若有人以「重複靶」為由砍掉一發,另一層就沒有任何靶了。要區分它們需要一格
+#    「作廢後**沒有任何重算被觸發**」的觀察(例如比對 xact 內的 trigger 執行痕跡),本輪沒做。
+
+# plan §5 增補靶最後一列:「helper 的 ON CONFLICT 漏掉 shipped_quantity 欄」,唯一 oracle = 項20。
+# 🔴 這一發專打 §0.6b 的病根(既有 shipped 值被原樣保留 ⇒ stale-high 殘留)。
+make_mutant_or_die "$WORK/mut5.sql" \
+'        cancelled_quantity = EXCLUDED.cancelled_quantity,
+        shipped_quantity   = EXCLUDED.shipped_quantity;' \
+'        cancelled_quantity = EXCLUDED.cancelled_quantity;'
+run_mutant "靶⑤-ON CONFLICT 漏 shipped_quantity" "$WORK/mut5.sql" \
+  "B10-shipped-lands B11-void-returns B11b-void-submitted B12-unvoid-restores B14-c9-neg B20-helper-live" \
+  MUT-5 "$WORK/mut0.sql"
+
+[ "$MUT" -eq "$EXPECT_MUT" ] && ok MUT-COUNT "突變靶跑了 $MUT 發,與凍結值相符" \
+  || bad "突變靶只跑了 $MUT 發,期望 $EXPECT_MUT —— 有靶被刪掉或沒被呼叫"
+
+# 🔴 突變段結束:把全域旗標重設回 report(2b R1 nit 12)——
+#    停在 collect + 已 DROP 的 mut URL 時,日後在這之後加的任何 cell 會**靜默不計** CELL/PASS。
+ORACLE_MODE="report"; ORACLE_URL="$BASE_URL"
+
+log "7/8 S2b-1 消融重證(主視窗 B-147-A ③:推論轉觀察)"
+# 🔴 為什麼要這一格:S2b-1 交付時的行為實證第⑤條(停用本 trigger 後 shipped 不再跟動)
+#    是在**修關卡2 findings 之前**的那座拋棄庫上證的;修完的新庫上只重跑了 ①-④,
+#    ⑤ 因「同一交易內有 pending trigger events 不能 ALTER TABLE」構造不出來。
+#    S2b-1 當時的說法是「修的是閘不是函式本體,所以結論不變」——**那是推論,不是觀察**。
+# 🔴 構造法(plan §4.99 逐字):獨立交易**開頭**先 DISABLE TRIGGER(此時無 pending events),
+#    再跑完整出貨串,斷言 shipped 凍在 0。走 fresh copy,DDL 不碰基準庫。
+CELL=$((CELL+1))
+fresh_db b2s2b_abl; ABL_URL="$FRESH_URL"
+ABL_GOT="$(psql -X "$ABL_URL" -v ON_ERROR_STOP=0 -qtA 2>&1 <<SQL | sed -n 's/^NOTICE:  GOT:\(.*\)$/\1/p' | head -1
+BEGIN;
+ALTER TABLE public.shipments DISABLE TRIGGER ${TG_SS};
+DO \$abl\$
+$DECLS
+BEGIN
+$FIXTURE
+$STOCK_I4
+$MK_DRAFT
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 2);
+$SHIP_NOW
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SELECT ($SHIPPED_OF_I4) INTO v_got;
+  RAISE NOTICE 'GOT:%', COALESCE(v_got, '<NULL>');
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'GOT:ERR:%:%', SQLSTATE, SQLERRM;
+END
+\$abl\$;
+ROLLBACK;
+SQL
+)"
+# 期望 `0/3`:shipped **凍在 0**(trigger 沒跑),instock 仍 3(receipts 軸照常 ⇒ 這一列是真的、
+# 不是「整條路徑都沒跑」)。對照組同一條路徑是 `2/3`(項10),兩者只差在 trigger 有沒有停用。
+if [ "$ABL_GOT" = "0/3" ]; then
+  ok ABLATION "🔴 消融重證(**最終版的庫**):停用 ${TG_SS} 後跑完整出貨串 ⇒ shipped 凍在 0、instock 仍 3;對照組同路徑是 2/3 ⇒ 那 2 確實是這支 trigger 寫的"
+elif [ -z "$ABL_GOT" ]; then
+  bad "消融重證:拿不到觀察值(測試自身異常;fail-closed 判紅)"
+else
+  bad "消融重證:期望「0/3」(shipped 凍在 0),實得「$ABL_GOT」
+     🔴 若得到 2/3,代表**停用這支 trigger 之後摘要仍然跟動** = 有第二條未知的寫入路徑,
+     那會推翻 S2b-1「只掛一支」的整個論證(Fable 當時給的翻案條件,逐字)。"
+fi
+drop_db b2s2b_abl
 
 # ══ 收尾:副本清除 + 格數與具名 key 集合自斷言(W1)═══════════════════════════
 log "收尾"
-LEFT="$(psql -X "$ADMIN_URL" -qtAc "SELECT coalesce(string_agg(datname, ',' ORDER BY datname), '') FROM pg_database WHERE datname LIKE 'b2s2b\\_%'" 2>&1)"
+# 🔴 `b2s2b_pre` **不是副本、是常駐的 pre-S2b 基準庫**(突變環境的 TEMPLATE 來源),
+#    每輪重用 ⇒ 必須排除,否則這一格永遠紅(本輪實測)。排除的是**具名的那一個**,
+#    不是把 pattern 放寬成「開頭是 b2s2b 的都算」—— 後者會把真的殘留副本一起放行。
+LEFT="$(psql -X "$ADMIN_URL" -qtAc "SELECT coalesce(string_agg(datname, ',' ORDER BY datname), '') FROM pg_database WHERE datname LIKE 'b2s2b\\_%' AND datname <> 'b2s2b_pre'" 2>&1)"
 if [ -z "$LEFT" ]; then
-  ok COPIES-DROPPED "本輪建的副本庫已全數清除(b2s2b_% 零殘留)"
+  ok COPIES-DROPPED "本輪建的副本庫已全數清除(b2s2b_% 零殘留;常駐的 b2s2b_pre 不計)"
 else
   bad "副本庫殘留:[$LEFT] —— 下一輪的 TEMPLATE 複製會踩到它"
 fi
@@ -730,5 +1080,17 @@ fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
-echo "🔴 本輪**零突變靶** —— 這 $EXPECT_CELL 格只被證明「可以滿足」,判別力由 S2b-2b 的兩環境突變矩陣接手。"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **7 格**被至少一發突變紅過 ——"
+echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(靶①-⑤ 的紅點集合逐字寫死在上面)。"
+echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
+echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
+echo "       C9 的對照是 B15(消融),不是突變。"
+echo "     · **B12** 在靶②④ 下紅的是「作廢後必須是 0」那道中途斷言;它宣稱的另一半"
+echo "       「**unvoid 真的回升**」**沒有**任何一發靶殺得到(本線的靶動不到「只壞 unvoid」那條路)。"
+echo "   **另外 7 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
+echo "   ①B12b-x3 / B12b-x1 / B12c-blocks —— 驗的是 **S1b** 的守門(X3 / X1 / append-only),"
+echo "     本檔的突變全在 S2b 那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b(S2b-4c)的範圍。"
+echo "   ②B12c-append-only(結構面)/ B15 / B18 —— 各自開副本庫或只查 catalog,無對應靶。"
+echo "   ③**ABLATION** —— 消融格本身無靶;它是 B10 的負向對照(同路徑 2/3 vs 0/3)。"
+echo "   🔴 plan §5 環境B **九列只做了五列**、環境A 矩陣與項19 / 項29 都不在本輪(見檔頭 ⓑⓒ)。"
 [ "$FAIL" -eq 0 ] || exit 1
