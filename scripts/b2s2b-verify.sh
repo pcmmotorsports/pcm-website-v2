@@ -5,16 +5,18 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**八片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**九片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
 #     🔴 2b 依鐵則 4 切段;**第二段**原含三塊 —— 環境 A 矩陣 / 項19 barrier / 項29 stale-high;
-#     再依鐵則 4 拆成三小段,**項19 與項29 仍未做**。
+#     再依鐵則 4 拆成三小段(之一 環境A 矩陣 / 之二 項19 barrier / 之三 項29 stale-high),**三小段都已做**。
 #   · **S2b-2b 第二段之一**(commit `55afe53`)= **環境 A(結構)突變矩陣**:外部結構 oracle **十維**
 #     + 八發靶(A1-A8)+ 零突變對照 SMUT-0。詳見下方 ⓒ。
-#   · **S2b-2b 第二段之二**(本輪)= **項19 barrier**:三 session 真併發編排(`barrier_oracle`)
+#   · **S2b-2b 第二段之二**(commit `9f48bf9`)= **項19 barrier**:三 session 真併發編排(`barrier_oracle`)
 #     + 零突變對照 BMUT-0 + 三發靶(L1 / L2a / L2b)。**標 `inconclusive`**,詳見下方 ⓓ。
+#   · **S2b-2b 第二段之三**(本輪)= **項29 stale-high 三格**:(a) 前態可達(**pre-S2b 基準**)/
+#     (b) 本線自癒 /(c) 真超出貨仍紅。詳見下方 ⓔ。
 #   · **S2b-3a 後段**(commit `b3340ac`)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 對照組格)
 #     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
 #       T8 位置集合被「刪一格+重複另一格」、T9 標記被刪)。
@@ -51,22 +53,27 @@
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
 # 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **突變覆蓋是 22 格中的 12 格,不是全部**。逐格清單也印在跑完的結語裡。
-#     **有靶的 12 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
+#   ⓐ **突變覆蓋是 25 格中的 14 格,不是全部**。🔴 **數字不再手寫** —— 由 `COVERED_CELLS` /
+#     `UNCOVERED_CELLS` 兩個具名集合算出來,並斷言兩者相加 = `EXPECT_CELL`(格 `COVERAGE-ACCOUNT`);
+#     新增一格卻忘了歸類,那一格會當場紅。逐格清單也印在跑完的結語裡。
+#     **有靶的 14 格**(🔴 下面這份是說明用的 prose,**權威清單是 `COVERED_CELLS`**;兩者若不一致以變數為準):B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
 #     + **TRUTH-SYNC**(3a 的守門靶 **T1-T9**)+ **RB-STOPWRITE**(3b 的靶 **S1/S2/S3**)
 #     + **REH-PRODUCTS**(3b 第二段的靶 **TMUT-REH / TMUT-REH2**)。
 #     + **B28-datasurface**(3b 第三段的靶 **D1/D2**)
-#     + **STRUCT-ORACLE**(2b 第二段之一的靶 **A1-A5** + 零突變對照 SMUT-0)。
+#     + **STRUCT-ORACLE**(2b 第二段之一的靶 **A1-A8** + 零突變對照 SMUT-0)
+#     + **B29b-line-self-heals**(靶⑤)+ **B29c-real-overship-still-red**(靶①)(2b 第二段之三)。
 #     🔴 **B22-pr4-hole 沒有靶**(靶要重建庫、成本高;它自帶對照:同一筆資料舊三軸回 0、四軸 RAISE)。
 #     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
 #     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
 #     不是突變。B12 在靶②④ 下紅在本輪新加的「作廢後必須是 0」中途斷言(那是它自己的內容),
 #     但它宣稱的另一半「**unvoid 真的回升**」仍**沒有**任何一發靶殺得到 —— 本線的靶動不到
 #     「只壞 unvoid、不壞 void」那條路。兩者都逐字寫在這裡,不要在報告裡簡化成「7 格已證」。
-#     **沒靶的 10 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
+#     **沒靶的 11 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
 #     那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b = S2b-4c 的範圍)、
 #     B12c-append-only(結構面)/ B15 / B18 / **ABLATION**(B10 的負向對照)/
-#     **B26b-enable-restores** / **B27-divergence-4th** / **B22-pr4-hole** ——
+#     **B26b-enable-restores** / **B27-divergence-4th** / **B22-pr4-hole** /
+#     **B29a-stale-high-reachable**(刻意無外部靶:它與 B29b 是同一段 body 跑在兩個基準上,
+#       觀察值不同 ⇒ **它的對照組就是 B29b**)——
 #     前三格自帶對照(ABLATION 的 0/3、舊三軸述詞的 0 列),B22 自帶對照(同一筆資料舊三軸回 0、
 #     四軸 RAISE),但**都沒有**外部突變檔證明它們(B22 的靶要重建庫,成本高)。
 #     🔴 **B28-datasurface 不在這裡** —— 它有靶(D1/D2),靶是純文字、零 DB 成本。
@@ -76,6 +83,29 @@
 #     **沒做**:列 5/6(oracle = 項19 barrier,見 ⓒ)、**列 7「backfill 漏候選品項」**
 #     (oracle = 項17 差集段,在 migration 檔內;要在 pre 庫上先造出貨資料才構造得出來)、
 #     **列 8/9(五份真相式本體 / 第 5 處述詞改恆等式)** —— 那兩列的 oracle 是項21,認領給 **S2b-3a**。
+#   ⓕ ✅ **項29 stale-high 三格已做**(2b 第二段之三),三格都跑出預期觀察值:
+#     (a) `step2=ok|step3=23514/oiqs_shipped_le_instock` —— 超額出貨**零違規提交**(這就是「靜默」),
+#         紅的是**下一筆無辜的採購更正**,離真凶任意遠;
+#     (b) `step2=ok|step3=ok|0/2` —— 本線重算把殘留 shipped 3 修回真值 0、instock 修回 2,該筆**不紅**;
+#     (c) `23514 / oiqs_shipped_le_instock` —— 真超出貨仍紅,且紅在**出貨那一筆**。
+#     🔴 **(a) 與 (b) 是<u>同一段 body</u> 跑在兩個基準上**(pre-S2b 副本 vs post):
+#       body 逐字相同、觀察值不同 ⇒ 「三格各自 pin 基準」不是裝飾,**基準本身就是判別式**。
+#       這也是 (a) 沒有外部突變靶的原因 —— 它的對照組就是 (b)。
+#     🔴 **(b)(c) 已掛進 `beh_oracle`** ⇒ 現成的靶打得到:靶⑤(ON CONFLICT 漏 shipped)紅 (b)、
+#       靶①(拿掉重算 trigger)紅 (c)。掛進去之前它們**零靶**,只被對照組證明「可以滿足」。
+#     🔴 構造法逐字照小線 C9 註解(`20260806100000_…:139-142`):**不是**直寫 `shipped=3 / instock=2`
+#       (那會當場被 C9 擋下、證明的是「C9 會擋」),而是先讓 **instock 快取 stale-high** 再寫 shipped。
+#     🔴 **四條誠實邊界(R1 nit 7-10,寫在這裡不是藏在別處)**:
+#       ①「零違規提交」的**實際觀察**是「C9 這條**不可 deferred 的 CHECK** 沒有拒絕」——
+#         整格在 `BEGIN … ROLLBACK` 內、step2 又包子交易,本檔量不到真正的 COMMIT。
+#       ②`B29a-…-reachable` 這個名字**超過它證的東西**:前態是靠**直寫快取**造出來的。
+#         plan §0.3 自陳 stale-high「是可達狀態,只是沒有常規 writer」⇒ 本格證的是
+#         「**若**前態成立則會靜默」,**不是**「前態在正式站可達」。
+#       ③`STALE_HIGH_I4` 讓 ordered=3 / instock 快取=3 / shipped=3 **三值相同**,表面違反本檔
+#         「值不得相等」的規矩。**判別力由步驟③ 救回來**(它把 ordered→4、instock→2,三值當場分開)
+#         —— 這個理由寫在這裡,下一棒才知道那三個 3 不是可以隨手改的。
+#       ④(c) 用 `cell_err`,只拿得到**第一個**例外 ⇒「紅在出貨那一筆」目前由 **body 裡沒有更後面的交易**
+#         這個**構造**保證,不是由斷言保證。(審查另以 PG 錯誤 CONTEXT 逐字確認過紅在 `UPDATE shipments`。)
 #   ⓓ ⚠️ **項19 barrier 已做,但整格標 `inconclusive`**(2b 第二段之二;plan §8.1 第二列,
 #     項19 是該規則**唯一**預先授權的一格)。舉證義務照第三列同一標準,逐條寫在這裡:
 #     · **真路徑嘗試被什麼擋住**:出貨 writer RPC **今天不存在**(plan §9 交棒 1 才建)
@@ -121,7 +151,7 @@
 #       **那打的是 tgconstraint 維、不是 tgtype 維;tgtype 維本輪無靶**。
 #     ②「拿掉閘」與③「閘改 pin `prosrc`」**沒做** —— 它們的 oracle 不是 catalog 事實而是「閘會拒絕」,
 #       照 plan §3.2 要走**雙獨立庫**負測,留給後續。
-#     🔴 **項29 stale-high 仍未做**(2b 第二段的第三塊);項19 barrier 見 ⓓ。
+#     ✅ **項29 stale-high 已做**(2b 第二段之三,見 ⓕ);項19 barrier 見 ⓓ。
 #     🔴 **「拿掉閘」「閘改 pin prosrc」兩靶的認領家**(R2 F3:上一版只寫「留給後續」= 活字):
 #       它們要走 plan §3.2 的**雙獨立庫**負測(同一 provision 快照複製兩份、一份 control 一份 mutant),
 #       與本檔「單一 pre 庫複製副本」的骨架不同 ⇒ **認領給 S2b-2b 第二段之四**(項19/項29 之後那一段);
@@ -174,10 +204,11 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=22     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
+EXPECT_CELL=25     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
                    #   + 同步守門對照組 + 3b 第一段三格(RB-STOPWRITE / 項26b / 項27)
                    #   + 3b 第二段一格(REH-PRODUCTS)+ 3b 第三段兩格(項22 / 項28)
-                   #   + 2b 第二段之一一格(STRUCT-ORACLE))
+                   #   + 2b 第二段之一一格(STRUCT-ORACLE)
+                   #   + 2b 第二段之三三格(項29 stale-high:(a) 前態可達 /(b) 自癒 /(c) 真超出貨仍紅))
 EXPECT_SMUT=9      # 環境A 結構突變靶:SMUT-0 零突變對照 + A1 降級成普通 TRIGGER(**不是** BEFORE,那個構造不出)
                    #   / A2 換 tgfoid / A3 tgattr 清空 / A4 search_path 改 public / A5 漏 REVOKE
                    #   / A6 SECURITY INVOKER / A7 DEFERRABLE INITIALLY DEFERRED / A8 多掛 INSERT 事件面(R2 F2 補)
@@ -188,24 +219,36 @@ EXPECT_TMUT=16     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T
                    #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
                    #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)、
                    #   D1 真相式多加總一欄、D2 把 gate 那句註解掉(3b 第三段)
-EXPECT_TOTAL=66    # 22 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
+EXPECT_TOTAL=70    # 25 格 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
                    #   + 9 結構突變(含 SMUT-0)+ SMUT-COUNT
                    #   + **3** barrier 突變入 PASS 帳(BMUT-0 / L1 / L2b;**L2a 走待裁、不入帳**)
-                   #   + BMUT-COUNT + BAR-PLAN-SHAPE + SELF-REPORT-BACKTICK + COPIES-DROPPED
+                   #   + BMUT-COUNT + BAR-PLAN-SHAPE + SELF-REPORT-BACKTICK + COVERAGE-ACCOUNT + COPIES-DROPPED
 # 🔴 **待裁格的 key 集合另外凍結**(R2 F1):不入 PASS 帳不代表可以消失 ——
 #    沒有這一組,把那一行 run_bmut 整行刪掉會全綠。
+# 🔴🔴 **機制,不是規則**(機制優先律;R1 nit 13):本檔的「覆蓋 N 格 / 沒靶 M 格」以前是**手寫字面**,
+#    每加一片就漏改一次(本輪 R1 一次抓到四處自相矛盾)。改成:**兩個具名集合** + 由它們算數字
+#    + 斷言「兩者相加 = `EXPECT_CELL` 且無重複」⇒ 新增一格卻忘了歸類,`COVERAGE-ACCOUNT` 當場紅。
+#    🔴 這道**不驗「歸類正確」**,只驗「每一格都被歸過類、且沒有被算兩次」——
+#       歸錯類仍要靠人讀突變矩陣的實跑輸出。宣稱不得超過這個面。
+COVERED_CELLS="B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
+B14-c9-neg B20-helper-live TRUTH-SYNC RB-STOPWRITE REH-PRODUCTS B28-datasurface STRUCT-ORACLE \
+B29b-line-self-heals B29c-real-overship-still-red"
+UNCOVERED_CELLS="B12b-x3-blocks B12b-x1-blocks B12c-blocks B12c-append-only B15-c9-loadbearing \
+B18-x1-commit-rollback ABLATION B26b-enable-restores B27-divergence-4th B22-pr4-hole B29a-stale-high-reachable"
+nwords() { printf '%s' "$1" | tr ' ' '\n' | grep -vc '^$'; }
 EXPECT_INCONC=1
 EXPECT_INCONC_KEYS="BMUT-L2A-INCONCLUSIVE"
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
 B18-x1-commit-rollback B20-helper-live ABLATION \
+B29a-stale-high-reachable B29b-line-self-heals B29c-real-overship-still-red \
 MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
 STRUCT-ORACLE SMUT-0 SMUT-A1 SMUT-A2 SMUT-A3 SMUT-A4 SMUT-A5 SMUT-A6 SMUT-A7 SMUT-A8 SMUT-COUNT \
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
 BMUT-0 BMUT-L1 BMUT-L2B BMUT-COUNT \
 RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
-REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COPIES-DROPPED"
+REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT SELF-REPORT-BACKTICK BAR-PLAN-SHAPE COVERAGE-ACCOUNT COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -441,7 +484,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar' EXIT
+trap 'drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -472,7 +515,8 @@ FIXTURE="$(printf '%s' "$FIXTURE" | tr '"' "'")"
 #    `order_cancellations.actor` 同樣是 text。宣告成 uuid 會讓**每一格**都紅在 22P02
 #    —— 而且錯因指向 fixture、不指向受測行為(本輪第一跑實錘)。
 DECLS='DECLARE v_cust uuid; v_order uuid; v_i4 uuid; v_i6 uuid; v_sup uuid; v_staff text;
-       v_ship uuid; v_ship2 uuid; v_got text; v_n integer;'
+       v_ship uuid; v_ship2 uuid; v_got text; v_n integer;
+       v_probe text; v_con2 text;'
 
 # ══ 共用:格 runner ═══════════════════════════════════════════════════════════
 # 🔴 兩種形狀共用同一條路徑:body 執行 → SET CONSTRAINTS ALL IMMEDIATE(強制跑掉 DEFERRED 的 X1)
@@ -576,6 +620,38 @@ STOCK_I4="  INSERT INTO public.order_item_procurement (order_item_id, supplier_i
 # 🔴 oracle 一律回**兩維**`shipped/instock`:單看 shipped 時,「摘要列根本沒被重算」與
 #    「重算後正確」在期望值是 0 的那幾格會產生同樣的觀察值(永久警語②)。
 #    instock 那一維恆為 3 且來自另一條軸 ⇒ 它非 0 就證明這一列真的被 helper 寫過。
+# ══ 項29 stale-high 用的共用片段(2b 第二段之三)══════════════════════════════
+# 🔴 **構造法逐字照小線 C9 的註解**(`20260806100000_…:139-142`),不是直寫 shipped:
+#   codex 在 plan v2-R2 抓過 —— 直寫 `shipped=3 / instock=2` 會**當場**被 C9 以 23514 擋下,
+#   那證明的是「C9 會擋」,不是「stale-high 讓超額出貨靜默提交」。
+# 🔴 真正的前態:採購 3 / 到貨**只有 2** ⇒ 真值 instock = 2、快取也是 2;
+#   然後**直寫快取** `instock_quantity = 3` ⇒ 快取 stale-high(3)而真值仍是 2。
+#   摘要表上**沒有任何 trigger**(實查 `pg_trigger` 零列)⇒ 這個直寫不會被就地修正,前態成立。
+STALE_HIGH_I4="  INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity)
+  VALUES (v_i4, v_sup, 3);
+  INSERT INTO public.order_item_procurement_receipts (procurement_id, quantity, received_at, received_by)
+  SELECT p.id, 2, now(), 'b2s2b_verify' FROM public.order_item_procurement p WHERE p.order_item_id = v_i4;
+  UPDATE ${SUMMARY} SET instock_quantity = 3 WHERE order_item_id = v_i4;"
+# 🔴 步驟③ 的「下一筆 A4a 重算」刻意選**採購更正**(改 allocated_quantity)而不是到貨更正:
+#   它會觸發重算、但**不動 instock 的真值** ⇒ 紅或不紅只取決於「重算怎麼處理 shipped」,
+#   不會被「這一步自己改了 instock」污染(fixture 不得讓待測維度與別的維度綁在一起)。
+BUMP_PROCUREMENT="  UPDATE public.order_item_procurement SET allocated_quantity = 4 WHERE order_item_id = v_i4;"
+# 🔴 兩步各自包在**子交易**裡,觀察值同時帶出「步驟② 有沒有過」與「步驟③ 紅在哪」——
+#   plan 項29(a) 逐字要求「斷言紅的是步驟③那筆、不是步驟②」,只比一個 SQLSTATE 分不出來。
+PROBE_2_3="  BEGIN
+    UPDATE ${SUMMARY} SET shipped_quantity = 3 WHERE order_item_id = v_i4;
+    v_probe := 'step2=ok';
+  EXCEPTION WHEN OTHERS THEN
+    v_probe := 'step2=' || SQLSTATE;
+  END;
+  BEGIN
+$BUMP_PROCUREMENT
+    v_probe := v_probe || '|step3=ok';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS v_con2 = CONSTRAINT_NAME;
+    v_probe := v_probe || '|step3=' || SQLSTATE || '/' || COALESCE(NULLIF(v_con2, ''), '<無>');
+  END;"
+
 SHIPPED_OF_I4="SELECT shipped_quantity::text || '/' || instock_quantity::text FROM ${SUMMARY} WHERE order_item_id = v_i4"
 
 # ══ 行為 oracle:同一組格,跑在對照組庫與每一個突變庫上 ═══════════════════════
@@ -924,19 +1000,71 @@ fi
 }
 
 # ══ 行為 oracle 的呼叫序(**唯一一份**,對照組與每個突變靶共用)════════════════
-# 🔴 這 10 格是「S2b 的行為面」⇒ 每個突變都要拿它們當 oracle。
+# 🔴 這一組(格數見 `BEH_KEYS`,執行期由 `$BEH_N` 印出)是「S2b 的行為面」⇒ 每個突變都要拿它們當 oracle。
 #    B12c 結構面 / B15 / B18 **不在**這裡:前者驗的是 S1b 產物,後兩者自己開副本庫
 #    (`fresh_db` 從 `postgres` 複製),在突變環境下複製到的會是**未突變**的基準庫 ⇒
 #    放進來會是三格恆綠的雜訊。誠實列出,不是漏掉。
+CELL_B29a() {
+  local db="b2s2b_29a" saved="$ORACLE_URL"
+  psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $db" >/dev/null 2>&1
+  if ! psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1; then
+    sleep 1
+    psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+      || { bad "項29(a):複製 pre 副本失敗 —— 這一格沒有跑"; return; }
+  fi
+  ORACLE_URL="postgresql://postgres@127.0.0.1:${PORT}/$db"
+  # 🔴 期望值的意義:step2=ok = **超額出貨零違規提交**(這就是「靜默」);
+  #    step3 紅在 23514 / oiqs_shipped_le_instock = **紅在無辜的採購更正那一筆**,離真凶任意遠。
+  cell_land B29a-stale-high-reachable \
+"$STALE_HIGH_I4
+$PROBE_2_3" \
+    "v_probe" "step2=ok|step3=23514/oiqs_shipped_le_instock" \
+    "🔴 項29(a) 前態可達(**pre-S2b 基準**):stale-high 快取讓 shipped=3 零違規寫入,下一筆採購更正才紅"
+  ORACLE_URL="$saved"
+  drop_db "$db"
+}
+CELL_B29b() {
+  # 🔴 本線自癒:同一組前態,套上本線之後第一次重算會**把 shipped 重算成真值**(此處真值 = 0,
+  #    因為沒有任何已寄出的 shipment_items)⇒ 殘留消失、且**那一筆交易不紅**。
+  #    觀察值同時帶 shipped 與 instock 兩維:只看「沒紅」分不出「自癒了」與「重算根本沒跑」。
+  cell_land B29b-line-self-heals \
+"$STALE_HIGH_I4
+$PROBE_2_3" \
+    "v_probe || '|' || (SELECT shipped_quantity::text || '/' || instock_quantity::text FROM ${SUMMARY} WHERE order_item_id = v_i4)" \
+    "step2=ok|step3=ok|0/2" \
+    "🔴 項29(b) 本線自癒:重算把殘留 shipped 3 修回真值 0、instock 修回真值 2,該筆交易不紅"
+}
+CELL_B29c() {
+  # 🔴 負向安全格:真值本身就超出貨(shipment_items 出 3、到貨只有 2)⇒ helper **必紅**,
+  #    而且要斷言紅的是**這一筆**(出貨那一筆),不是後面某筆無辜交易。
+  # 🔴 措辭(plan v2-R3 Fable nit):本線關掉的是「stale-high 讓超額出貨靜默提交」那個**機制**,
+  #    **不是**「紅在無辜到貨更正」這個症狀 —— 合法出貨後把 instock 壓到已出貨量以下,那筆更正**仍會紅**,
+  #    那正是本格,而且是**正確行為**。營運端的引導訊息仍必要(plan §9 交棒 2),不得因本線撤掉。
+  cell_err B29c-real-overship-still-red "23514" "oiqs_shipped_le_instock" \
+"  INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity)
+  VALUES (v_i4, v_sup, 3);
+  INSERT INTO public.order_item_procurement_receipts (procurement_id, quantity, received_at, received_by)
+  SELECT p.id, 2, now(), 'b2s2b_verify' FROM public.order_item_procurement p WHERE p.order_item_id = v_i4;
+$MK_DRAFT
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 3);
+$SHIP_NOW" \
+    "🔴 項29(c) 真超出貨仍紅在出貨那一筆(不是後面某筆無辜交易)"
+}
+
 # 🔴 `BEH_KEYS` **必須被比對**,不能只是長得像凍結值(2b R1 nit 1;與 `EXPECT_TOTAL` 同型)——
 #    少呼叫一格時 `collect` 模式不計 CELL、上游的 CELL 斷言看不見它 ⇒ 那一格靜默消失,
 #    而「紅點集合相符」在少了一格的情況下**還是可能成立**。⇒ 每輪逐字對 key 集合。
-BEH_KEYS="B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores B12b-x3-blocks B12b-x1-blocks B12c-blocks B14-c9-neg B20-helper-live"
+BEH_KEYS="B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores B12b-x3-blocks B12b-x1-blocks B12c-blocks B14-c9-neg B20-helper-live B29b-line-self-heals B29c-real-overship-still-red"
 RUN_KEYS=""
 beh_oracle() {   # $1 = URL、$2 = 模式(report|collect)
   ORACLE_URL="$1"; ORACLE_MODE="$2"; REDS_IDS=""; RUN_KEYS=""
   CELL_B10; CELL_B10b; CELL_B11; CELL_B11b; CELL_B12
   CELL_B12b_x3; CELL_B12b_x1; CELL_B12c_blocks; CELL_B14; CELL_B20
+  # 🔴 項29 的 (b)(c) **掛進突變矩陣**(2b 第二段之三):它們原本只跑對照組 = 零靶。
+  #   掛進來之後現成的靶就打得到:靶① 拿掉 shipments 那支重算 trigger ⇒ (c) 的出貨那筆不再重算、不紅;
+  #   靶⑤ helper 的 ON CONFLICT 漏掉 shipped 欄 ⇒ (b) 的殘留自癒失敗。
+  #   🔴 (a) **掛不進來** —— 它必須跑在 pre-S2b 基準上,而本 oracle 的每個環境都已套上 S2b。
+  CELL_B29b; CELL_B29c
   REDS_IDS="$(printf '%s' "$REDS_IDS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
   local rgot rexp
   rgot="$(printf '%s' "$RUN_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
@@ -946,7 +1074,9 @@ beh_oracle() {   # $1 = URL、$2 = 模式(report|collect)
      期望 [$rexp]"
 }
 
-log "1/8 行為對照組(post-S2b 基準庫;10 格)"
+BEH_N="$(printf '%s' "$BEH_KEYS" | tr ' ' '\n' | grep -vc '^$')"
+# 🔴 格數由 `BEH_KEYS` 算,不手寫(R1 must-fix 4:掛進兩格之後這裡仍印「10 格」)。
+log "1/8 行為對照組(post-S2b 基準庫;$BEH_N 格)"
 beh_oracle "$BASE_URL" report
 
 log "2/8 只跑在對照組的三格(項12c 結構面 / 項15 C9 承重性 / 項18 真 COMMIT 回滾)"
@@ -954,11 +1084,20 @@ CELL_B12c_struct
 CELL_B15
 CELL_B18
 
+log "2b/8 項29 stale-high 殘留:前態可達 / 本線自癒 / 真超出貨仍紅(2b 第二段之三)"
+# 🔴🔴 **三格各自 pin 基準**(plan 項29 v2-R3;Fable 翻案條件⑤):
+#   (a) 只有在 **pre-S2b**(三軸 helper)上才構造得出來 —— 全前綴庫上本線已經把它治好了,
+#       照著做只會卡死。⇒ 它跑在 **b2s2b_pre 的副本**上,不是 BASE。
+#   (b)(c) 跑在 **post**(BASE)上。三格都必須跑出預期觀察值才算過,
+#       **不接受「構造不出來也算完成」**(plan 逐字:那是同一項無論結果如何都能登記完成)。
+# 🔴 (a) 只在這裡跑一次(pre-S2b 副本);(b)(c) 已移進 `beh_oracle`,由突變矩陣一併跑。
+CELL_B29a
+
 # ══ 3/8-6/8:突變矩陣(環境 B = 行為)═══════════════════════════════════════
 # 🔴🔴 **永久警語 ③:突變必須先剝掉 migration 自己的 §5 結構驗收 DO block** 🔴🔴
 #   否則突變會先被 migration 的自我檢查擋下、apply 直接 abort ⇒ 你證明的是
 #   「migration 會自我檢查」(S2b-1 已證),**不是**「本 harness 的 oracle 有判別力」。
-#   剝除本身要有對照組:**MUT0 = 只剝不改,10 格必須全綠**。
+#   剝除本身要有對照組:**MUT0 = 只剝不改,`BEH_KEYS` 那一組必須全綠**(格數見 `$BEH_N`,不手寫)。
 # 🔴 比對象 = **mut0**,不是原檔(plan §2.2 W5 ①):比原檔恆為不同(因為一律先剝 §5)
 #   ⇒ 那道「真的改到東西」的守門會恆真、從來不可能觸發(小線 code-reviewer R1 實錘)。
 # 🔴 `cmp` 的 **rc=2 是讀不到檔、判紅**,不得用 `&&…||…` 把它歸進「有差異」那一支(W5 ③)。
@@ -1013,8 +1152,8 @@ run_mutant() {   # $1 = 靶名、$2 = 突變檔、$3 = 期望紅格集合(空 = 
      🔴 套不上去 ≠ 抓到 —— 這一發沒有量到任何 oracle,不得算過"
     drop_db "$db"; return
   fi
-  # 🔴 **MUT0 專用的結構對照**(2b R1 nit 8):行為 10 格看不見「剝多了」——
-  #    若剝除區間不小心吃掉 REVOKE / COMMENT / §5 以外的結構,10 格仍會全綠。
+  # 🔴 **MUT0 專用的結構對照**(2b R1 nit 8):行為那一組看不見「剝多了」——
+  #    若剝除區間不小心吃掉 REVOKE / COMMENT / §5 以外的結構,行為格仍會全綠。
   #    ⇒ 對照組另外在**突變庫上**驗三件事:helper 四軸指紋、trigger 在、新函式 proacl 非 NULL。
   #    只對 MUT0 做 —— 靶①-⑤ 本來就會改動這些,對它們做等於要求突變不生效。
   if [ "$structflag" = "struct" ]; then
@@ -1025,14 +1164,14 @@ run_mutant() {   # $1 = 靶名、$2 = 突變檔、$3 = 期望紅格集合(空 = 
     if [ "$smd5" != "$MD5_HELPER_4AXIS" ] || [ "$stg" != "1" ] || [ "$sacl" != "t" ]; then
       bad "$name:**剝多了** —— 剝除 §5 之後的結構與 post 基準不一致
      helper md5=[$smd5](期望 $MD5_HELPER_4AXIS)/ trigger 數=[$stg](期望 1)/ 新函式 proacl 非 NULL=[$sacl](期望 t)
-     🔴 行為 10 格對這種偏差全盲,所以這道只在 MUT0 上跑"
+     🔴 行為格($BEH_N 格)對這種偏差全盲,所以這道只在 MUT0 上跑"
       drop_db "$db"; return
     fi
   fi
   beh_oracle "$U" collect
   drop_db "$db"
   if [ "$REDS_IDS" = "$want" ]; then
-    if [ -z "$want" ]; then ok "$key" "$name:10 格全綠(對照組成立 —— 剝除 §5 本身不改變任何行為)"
+    if [ -z "$want" ]; then ok "$key" "$name:$BEH_N 格全綠(對照組成立 —— 剝除 §5 本身不改變任何行為)"
     else ok "$key" "$name ⇒ 紅點集合逐字相符:[$want]"; fi
   else
     bad "$name:紅點集合不符
@@ -1064,7 +1203,7 @@ make_mutant_or_die "$WORK/mut1.sql" \
   EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();' \
 'SELECT 1;'
 run_mutant "靶①-拿掉重算 trigger" "$WORK/mut1.sql" \
-  "B10-shipped-lands B11-void-returns B11b-void-submitted B12-unvoid-restores B14-c9-neg" \
+  "B10-shipped-lands B11-void-returns B11b-void-submitted B12-unvoid-restores B14-c9-neg B29c-real-overship-still-red" \
   MUT-1 "$WORK/mut0.sql"
 
 log "5/8 靶②③ 真相式各漏一條述詞"
@@ -1101,7 +1240,7 @@ make_mutant_or_die "$WORK/mut5.sql" \
         shipped_quantity   = EXCLUDED.shipped_quantity;' \
 '        cancelled_quantity = EXCLUDED.cancelled_quantity;'
 run_mutant "靶⑤-ON CONFLICT 漏 shipped_quantity" "$WORK/mut5.sql" \
-  "B10-shipped-lands B11-void-returns B11b-void-submitted B12-unvoid-restores B14-c9-neg B20-helper-live" \
+  "B10-shipped-lands B11-void-returns B11b-void-submitted B12-unvoid-restores B14-c9-neg B20-helper-live B29b-line-self-heals" \
   MUT-5 "$WORK/mut0.sql"
 
 [ "$MUT" -eq "$EXPECT_MUT" ] && ok MUT-COUNT "突變靶跑了 $MUT 發,與凍結值相符" \
@@ -2356,6 +2495,19 @@ END_ORD="$(q "$BASE_URL" "SELECT count(*) FROM public.orders WHERE display_id = 
 [ "$CELL" -eq "$EXPECT_CELL" ] || bad "只跑了 $CELL 格行為/結構格,期望 $EXPECT_CELL —— 有格被刪掉或沒被呼叫"
 # 🔴 `EXPECT_TOTAL` 原本只出現在下方的 echo、**從未被斷言**,卻被檔頭列進「凍結值」(R1 nit 8)。
 #    key 集合等式已經蘊含它,但一個從不比對的凍結值本身就是誤導 ⇒ 補上。
+COV_N="$(nwords "$COVERED_CELLS")"; UNCOV_N="$(nwords "$UNCOVERED_CELLS")"
+COV_DUP="$(printf '%s %s' "$COVERED_CELLS" "$UNCOVERED_CELLS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
+# 🔴 R2 consider:只驗「計數 + 跨集合重複」擋不住**集合裡放過期或打錯的格名而計數恰好還是 25**
+#    ——那正是本檔 `EXPECT_PASS_KEYS` 那一段自己寫的教訓(只凍總數會被「刪一格 + 重複另一格」湊過去)。
+#    ⇒ 補一道:兩個集合裡的每個名字都**必須真的是本檔會產出的 key**(`EXPECT_PASS_KEYS` 的子集)。
+COV_ALIEN="$(printf '%s %s' "$COVERED_CELLS" "$UNCOVERED_CELLS" | tr ' ' '\n' | grep -v '^$' | sort -u \
+  | comm -23 - <(printf '%s' "$EXPECT_PASS_KEYS" | tr ' ' '\n' | grep -v '^$' | sort -u) | tr '\n' ' ' | sed 's/ *$//')"
+if [ "$((COV_N + UNCOV_N))" -eq "$EXPECT_CELL" ] && [ -z "$COV_DUP" ] && [ -z "$COV_ALIEN" ]; then
+  ok COVERAGE-ACCOUNT "覆蓋帳對得上:有靶 $COV_N + 無靶 $UNCOV_N = $EXPECT_CELL 格、零重複、且兩集合的名字全是真格(EXPECT_PASS_KEYS 的子集)。🔴 **本格不驗「歸類正確」** —— 把一格從有靶挪到無靶仍會綠,那一面要人讀突變矩陣的實跑輸出"
+else
+  bad "覆蓋帳不符:有靶 $COV_N + 無靶 $UNCOV_N = $((COV_N + UNCOV_N)),但 EXPECT_CELL=$EXPECT_CELL;重複項 [$COV_DUP];不存在的格名 [$COV_ALIEN]
+     🔴 多半是新增了一格卻沒歸類 —— 歸進 COVERED_CELLS 或 UNCOVERED_CELLS,不要改數字了事"
+fi
 [ "$PASS" -eq "$EXPECT_TOTAL" ] || bad "PASS=$PASS,期望 $EXPECT_TOTAL —— 總格數與凍結值不符"
 GOT_KEYS="$(printf '%s' "$PASS_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
 EXP_KEYS="$(printf '%s' "$EXPECT_PASS_KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
@@ -2383,22 +2535,25 @@ if [ "$INCONC" -gt 0 ]; then
   echo "   項19-barrier:plan §4 項19 的「翻面必出 40P01」**未滿足**(理由見結語與 plan §4.19);"
   echo "   主視窗已裁 C(維持第三態;B-159-A),**終局判定綁 apply 前 preflight**。離開碼 3 = 無紅但有待裁,不是全過。"
 fi
-echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **12 格**被至少一發突變紅過 ——"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **$COV_N 格**被至少一發突變紅過 ——"
 echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)"
 echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH / TMUT-REH2)+ **B28-datasurface**(靶 D1/D2)"
-echo "   + **STRUCT-ORACLE**(靶 A1-A8 + 零突變對照 SMUT-0)。"
+echo "   + **STRUCT-ORACLE**(靶 A1-A8 + 零突變對照 SMUT-0)"
+echo "   + **B29b-line-self-heals**(靶⑤)+ **B29c-real-overship-still-red**(靶①)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"
 echo "     · **B12** 在靶②④ 下紅的是「作廢後必須是 0」那道中途斷言;它宣稱的另一半"
 echo "       「**unvoid 真的回升**」**沒有**任何一發靶殺得到(本線的靶動不到「只壞 unvoid」那條路)。"
-echo "   **另外 10 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
+echo "   **另外 $UNCOV_N 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
 echo "   ①B12b-x3 / B12b-x1 / B12c-blocks —— 驗的是 **S1b** 的守門(X3 / X1 / append-only),"
 echo "     本檔的突變全在 S2b 那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b(S2b-4c)的範圍。"
 echo "   ②B12c-append-only(結構面)/ B15 / B18 —— 各自開副本庫或只查 catalog,無對應靶。"
 echo "   ③**ABLATION** —— 消融格本身無靶;它是 B10 的負向對照(同路徑 2/3 vs 0/3)。"
 echo "   ④**B26b-enable-restores / B27-divergence-4th**(3b 第一段)—— 兩格自帶對照(ABLATION 的 0/3、舊三軸述詞的 0 列),但**沒有**外部突變檔。"
 echo "   ⑤**B22-pr4-hole**(3b 第三段)—— 自帶對照(同一筆資料舊三軸回 0、四軸 RAISE),但**沒有**外部突變檔(靶要重建庫、成本高)。"
+echo "   ⑥**B29a-stale-high-reachable** —— **刻意無外部靶**:它與 B29b 是同一段 body 跑在兩個基準上,"
+echo "     觀察值不同(pre 紅在 23514 / post 全過)⇒ **它的對照組是 B29b 本身**,不是裝飾格。"
 echo "   🔴 **B28-datasurface 不在沒靶那份** —— 它有 D1/D2 兩發(真相式多加總一欄、把 gate 那句註解掉)。"
 echo "   🔴 plan §5 環境B **九列只做了五列**(見檔頭 ⓑ)。"
 echo "   🔴 環境A **七個靶只做了五個**:「trigger 改 BEFORE」**構造不出來**(PG 不接受 CONSTRAINT TRIGGER 用 BEFORE)"
@@ -2425,7 +2580,9 @@ echo "   🔴🔴 **本編排沒測到的第三個併發面**(已進 plan §9 �
 echo "     一句 UPDATE shipments WHERE 多列 會逐列發火,**跨 shipment 的取鎖順序 = 該 UPDATE 的列序、無排序保證**;"
 echo "     兩個這種語句併發即可能真 40P01。barrier 每個 session 只改一列,看不到這一面。**不宣稱已擋。**"
 echo "   🔴 barrier 的三個情境:A 兩包裹**品項集合相同**、B 先寫者未提交、C **部分重疊 + 三品項**(靶 L2b 在 A 與 C 都翻面)。"
-echo "   🔴 **項29 stale-high 仍未做**(2b 第二段的第三塊)。"
+echo "   ✅ **項29 stale-high 三格已做**:(a) 前態可達(pre-S2b 基準)/(b) 本線自癒 /(c) 真超出貨仍紅。"
+echo "     🔴 (a) 與 (b) 是**同一段 body 跑在兩個基準上**,觀察值不同 ⇒ 基準 pin 本身就是判別式;"
+echo "       (a) 因此**沒有外部突變靶**,它的對照組就是 (b)。(b)(c) 已掛進突變矩陣,由靶⑤ / 靶① 打。"
 # 🔴 離開碼三態:0 = 全過;1 = 有紅;**3 = 無紅但有待裁格**(不得被讀成全過)。
 [ "$FAIL" -eq 0 ] || exit 1
 [ "$INCONC" -eq 0 ] || exit 3
