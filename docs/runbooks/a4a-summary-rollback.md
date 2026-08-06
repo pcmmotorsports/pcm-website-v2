@@ -16,6 +16,11 @@
 而它們的 `xact_start` 會**晚於** `revoke_at` ⇒ 正好被 (3) 的條件漏掉。⇒ 先單獨跑 (1)、確認回到非交易狀態,
 再跑 (2)。(Dashboard 是否把多句包成單一交易,repo 內未實測 ⇒ 一律當成會包。)
 
+🔴 **契約債(2026-08-06 B2-S2a 補;codex 關卡2 抓)**:本步目前只 REVOKE 採購側(A5a)那一個寫入口。
+**大線 B2-S2b 上線後,出貨側會多一條寫入摘要表的路徑(`shipments` 重算 trigger)**,
+屆時本步必須同批補上停寫動作,否則快照與拆除期間 `shipped_quantity` 仍會被改。
+現況(S2a 只加欄、不接線)尚無此路徑 ⇒ 本步暫時完整。
+
 ```sql
 -- (1) 停掉 service_role 應用路徑的唯一寫入口(A5a)。**單獨執行、確認已提交後再做下一步。**
 REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
@@ -55,6 +60,12 @@ CREATE TABLE public.a4a_rollback_snapshot AS
     FROM public.order_item_quantity_summary s;
 
 -- divergence 以「活動 ∪ 摘要」全集驅動:有活動但摘要列缺失(snap_* 為 NULL)也是災難形狀
+-- 🔴 契約債(2026-08-06 B2-S2a 補;codex 關卡2 抓):本表只對帳 ordered / instock / cancelled **三軸**。
+--    大線 B2-S2b 讓 shipped 成為被維護的第四軸之後,**shipped 漂移會在這裡全綠而漏掉**,
+--    必須同批把 shipped 的 snap/truth 兩欄加進來。
+--    🔴 **S2a 階段的正確說法不是「恆 0 所以無漏」**(codex 關卡2 R2):DB 並未強制它為 0,
+--       owner / SECURITY DEFINER 寫進去的非 0 值 A4a 也不會清掉 ⇒ 本表對第四軸**現在就是盲的**。
+--       正確說法 = 「S2a 階段沒有 writer 會產生第四軸漂移,所以這個盲點目前不會被觸發」。
 CREATE TABLE public.a4a_rollback_divergence AS
   SELECT u.order_item_id,
          s.ordered_quantity AS snap_ordered, s.instock_quantity AS snap_instock, s.cancelled_quantity AS snap_cancelled,
@@ -179,17 +190,33 @@ A1/A4a 的動作抵銷 —— 重建完成、對帳綠之後若忘了這一句,�
 ```sql
 -- 前置:步驟③(a) 重跑 = 0;③(b) 清單無其他消費端。
 BEGIN;
-DROP TABLE public.order_item_quantity_summary;   -- 連帶七條 CHECK 與複合 FK(A1 §9 原文)
+DROP TABLE public.order_item_quantity_summary;   -- 連帶**十條** CHECK 與複合 FK(A1 七 + B2-S2a 三;A1 §9 原文寫「七條」已過期)
 ALTER TABLE public.order_items DROP CONSTRAINT order_items_id_quantity_key;
 COMMIT;
 ```
 
-**Forward 重建**(任一時點):依序重放 A1(`20260730150000`)與 A4a(`20260803140000`)migration 檔 → A4a backfill 由真相重算 → 快照/divergence/received_drift 三表事後 `DROP TABLE` 歸檔或清除。
+**Forward 重建**(任一時點):依序重放 A1(`20260730150000`)、A4a(`20260803140000`)、**B2-S2a(`20260806100000`)**三支 migration 檔(**照時間戳序,S2a 排最後** —— 它同時負責把 A1 重放蓋掉的註解再覆寫回來) → A4a backfill 由真相重算 → 快照/divergence/received_drift 三表事後 `DROP TABLE` 歸檔或清除。
+🔴 **S2a 不能漏(2026-08-06 補;漏了零告警)**:A1 只把摘要表重建成**五欄**,而 `db push` **不會重跑已登記在 ledger 的 S2a** ⇒ 摘要表永久少 `shipped_quantity` 一欄與三條 CHECK,沒有任何東西會紅。重建後必須實查 **6 欄 / 10 條 CHECK**。
+🔴 **S2a 重放會被自己的閘擋下(必讀)**:S2a 檔內 §1 是 fail-closed 閘 ——
+「有效已寄出量 <> 0 就 RAISE」。災難重建通常發生在出貨線已上線之後 ⇒ **直接重放該檔必然 abort**。
+那不是故障,是它在說「DEFAULT 0 會寫下錯的真值」。替代路徑(擇一,不得硬繞閘):
+  · **A**(預設):跳過整檔重放,手動在**一個交易內**依序跑該檔的 §2 → §3 → §4:
+    🔴 **必須自己補 `BEGIN;` … `COMMIT;`**(codex 關卡2 R2)—— psql 逐句 autocommit,
+    少了交易邊界時 §4 驗收紅掉,前面的 `ALTER` 與 COMMENT **已經分段提交下去了**,
+    會留下一個「加了欄但沒驗過」的半套狀態。內容 = §2 那**一個 `ALTER TABLE`(四個 ADD:加欄 + C8 + C9 + C6′)**、§3 的七句 COMMENT,
+    🔴 **並且必須把該檔 §4 的結構驗收 DO block 一起跑**(少了它,這條手動路徑**一條驗證都沒有**
+    —— 打錯一個約束名或漏一句 COMMENT 都零告警)。跑完應看到
+    `S2A 結構驗收全數通過(6 欄 / 10 CHECK / 7 註解物件)`;沒看到就是沒過,不得往下走。
+    (§1 的閘刻意**不**跑 —— 走這條路徑的前提就是它會紅。)
+
+    再由大線 B2-S2b 的真值 backfill 從 `shipment_items JOIN shipments` 重算填值。
+  · **B**:先確認出貨表確實無有效已寄出量(例如尚未上線),再整檔重放。
+🔴 **契約債**:此清單是手寫的、沒有機制保證同步 —— **未來任何動到 `order_item_quantity_summary` 的 migration,同一片必須把自己加進本行**,並更新上面那個「幾欄幾條 CHECK」的數字。
 🔴 **A1 重放的已知蓋寫(2026-08-03 家族序跑實錘)**:A1 `:170` 會 `COMMENT ON TABLE order_item_procurement`,把 **S1b 之後修訂的表註解蓋回 A1 版** ⇒ forward 前先快照 `obj_description`、重放後還原(演練腳本已內建);未來任何晚於 A1 且動過相同物件註解/屬性的 migration 同受此約束。
 
 ## 步驟 ⑦(最後一步;前提=⑥ 的 forward 重建完成+對帳綠):A5a 回權
 
-前提逐條 yes 才跑:☐ A1+A4a 已重放 ☐ backfill 對帳綠 ☐ 三張證據表已處置。
+前提逐條 yes 才跑:☐ A1+A4a+**S2a** 已重放(實查 6 欄 / 10 CHECK)☐ backfill 對帳綠 ☐ 三張證據表已處置。
 (⚠️ v4 互指:若走的是 **a7 全回滾**(取消表已 DROP)⇒ A4a 永無法重放、本步前提**永不可滿足**
 ——回權改走 `2026-07-30-a7-rollback.md` 步 8 的 a7 專屬前提,勿在此卡死。)
 
