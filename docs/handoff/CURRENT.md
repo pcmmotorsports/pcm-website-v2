@@ -1,6 +1,18 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🪟🪟🪟🪟 **2026-08-06 凌晨:第五輪換窗 checkpoint(夜跑三窗版;新主視窗只讀本節,舊節按需)。**
+> ☀️ **2026-08-06 08:35 主視窗壓縮前 checkpoint(壓縮後/新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md`,本節只記當下狀態)。**
+>
+> **現況**:dev=`a10ca69` 已推、樹乾淨。夜跑三線**全收割入 dev**(E 九碼 5 片/D 重設計批1-4+三報告/B S2 兩 plan+四輪審查),全套 **369 檔 5238 綠+1 todo**。夜間+晨間 Sean 十二板全落 memory 全執行(見 `project_m4b-b2-shipments-db-decisions` 08-06 兩段、`project_site-redesign-content-pages-decisions`)。
+>
+> **進行中**:**B 窗**=S2a 施工片開工(派工=信箱 `B-136-A`;Q1=A 不改 plan 押 diff 關卡、Q2=A 判準不寫數字、**Q3=C:🔴 migration commit 停在 `a4a-chain` 分支、主視窗絕不併 dev,小線大線全齊才 merge+同批 apply**)。B 掛信箱等待迴圈、活著。
+>
+> **佇列(照序派,單已備或現成)**:①D 收尾小片=`D-118-A`(在信箱未被接,D 窗要 Sean 重開)②批5 /checkout(施工圖=`docs/reviews/2026-08-06-checkout-batch5-recon.md`;含 Q5=A 藏 TabBar+#333 同片評)③/logout 接線片(Q2=A 拍過;鐵則 12② codex 不降級)④詳情頁批(Q4=A;輸入=residual-scan)⑤E 的 #332 plan(`E-107-A`,E 窗最後 commit=`59f7b5a` #332 plan 已寫、STOP 未到)⑥S2b 大線(等 S2a 收完)。
+>
+> **哨兵**:`scratchpad/sentinel/sentinel-v2.sh`(`rearm` 建基準/`watch` run_in_background;發信後必先 rearm;靜默偵測誤報時 `touch -t` 預撥 act-* 戳)。收割筆記=`scratchpad/harvest-notes-tonight.md`。
+>
+> **等 Sean 的**:無拍板欠帳。待辦=OD 帶回包(6 題設計端+5 條交接單過期句,原文在信箱 `D-216-STOP` §七、`D-218-STOP` §六;可整理成一頁給 Sean 帶去 OD)。三筆資料(店家名單/工時費率/首頁家數)照舊佔位。
+>
+> 🪟🪟🪟🪟 **2026-08-06 凌晨:第五輪換窗 checkpoint(夜跑三窗版;舊節按需)。**
 >
 > **你是誰**:pcm-website-v2 主視窗(指揮/收割/裁決,不下場實作)。三條夜跑線經信箱
 > `/Users/sean_1/pcm-mailbox/` 溝通(**先讀 README.md 全文,含補訂 1-7**;🔴 補訂 6=掃信箱用
