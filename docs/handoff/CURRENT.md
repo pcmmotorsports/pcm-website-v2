@@ -16,7 +16,7 @@
 
 > 🪟 **2026-08-06 15:40 第六輪主視窗換窗 checkpoint(新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md` 含今日新增:STOP 即掛哨/防撞號/死哨兜底/施工窗小哨樣板尾註 B)。**
 >
-> **現況(15:57 終版)**:dev=`1db1577` 已推、樹乾淨、全套 **374 檔 5351 綠+1 todo**。封板後追加:D 取數收斂(FEATURED_LIMIT=10 兩頁共用+cache key v3)+搜尋鈕熔橘已收割;首頁深對照清單入庫 `docs/reviews/2026-08-06-home-od-deep-diff.md`(D-136 清尾片=N°04 三 icon/頁尾重複句/Fig.01/focus 框);D 佇列=清尾片→車型片 plan(提前)→H7→manifest+OD 回饋包。**待 Sean:會員中心 4+4+2 版面題(D-248 §②,推薦 B 顯示 8 筆)**。白天段連環收割全數落 dev:E 線=#332 全案+A11a-1/2/4/5(列表 11 欄)+A9w4a+A9c;D 線=批5+首頁批 H1-H6+遮蓋修(hero 換裝/磚牆/分類 chip/橫捲全上 3111);B 線=S2a 小線 4 顆(`665934e`/`931ef99`/`26e4963`/`cdf7e89`)🔴 **押在 `a4a-chain` 未併未 apply(Q3=C:S2b 大線全齊才 merge+同批 apply;apply=Sean 手動停點,前置閘=`b2s2a-verify.sh gate`,紅=等 Sean 不設時限)**。
+> **現況(15:57 終版)**:dev=`1db1577` 已推、樹乾淨、全套 **374 檔 5351 綠+1 todo**。封板後追加:D 取數收斂(FEATURED_LIMIT=10 兩頁共用+cache key v3)+搜尋鈕熔橘已收割;首頁深對照清單入庫 `docs/reviews/2026-08-06-home-od-deep-diff.md`(D-136 清尾片=N°04 三 icon/頁尾重複句/Fig.01/focus 框);D 佇列=清尾片→車型片 plan(提前)→H7→manifest+OD 回饋包。~~待 Sean:會員中心 4+4+2 版面題~~(08-06 拍 B 顯示 8 筆 → 08-07 推薦區改 rail 後理由消失作廢、改全顯 10,見 memory site-redesign 檔)。白天段連環收割全數落 dev:E 線=#332 全案+A11a-1/2/4/5(列表 11 欄)+A9w4a+A9c;D 線=批5+首頁批 H1-H6+遮蓋修(hero 換裝/磚牆/分類 chip/橫捲全上 3111);B 線=S2a 小線 4 顆(`665934e`/`931ef99`/`26e4963`/`cdf7e89`)🔴 **押在 `a4a-chain` 未併未 apply(Q3=C:S2b 大線全齊才 merge+同批 apply;apply=Sean 手動停點,前置閘=`b2s2a-verify.sh gate`,紅=等 Sean 不設時限)**。
 >
 > **三窗進行中**:**B**=S2b 大線 plan 折 21 條 must-fix+重切片(`B-140-A` 裁定;R2 確認輪後放行)/**D**=取數補半步(D-132 兩頁一起)→ H7 D8 全刪(Q2=C,刪除紀律=consumer 清單+預期 Δ 先寫)→ 車型獨立選 plan(`D-129-A`,鐵則 8 回核)→ H7 收尾補整條 H 線 manifest+**OD 回饋包**(`D-133-A`;與夜跑帶回包合併成 OD 更新提示詞交 Sean)/**E**=A9w4c 後半(`E-119-A`,writer 鏈拆除,codex 不降級)→ 其後 A12a→A12b(要 plan)。
 >
