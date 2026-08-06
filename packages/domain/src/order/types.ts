@@ -269,6 +269,20 @@ export type AdminOrderLine = {
    * NULL=下單未帶車款。🔴 純顯示 metadata、無價/tier 面;mapper 防禦解析壞形狀 → null。
    */
   vehicle: OrderItemVehicleSnapshot | null;
+  /**
+   * 品項三軸數量摘要(M-4b E10 **A9c**;列表投影 nested left embed `order_item_quantity_summary`)。
+   *
+   * 🔴 **非 nullable、缺列已由 mapper 正規化成三個 0** —— 母 plan 計數器摘要列 `:335` 逐字
+   * 「由 mapper 在 TS 層正規化成三個 0」+「**A11a-c 只接非 nullable 型別**(正規化在 A9c 的 mapper
+   * 完成,UI 片**不做 join、不做 COALESCE**)」⇒ **UI 端不得寫 `?? 0`**(A11a plan V9 的突變靶)。
+   *
+   * 🔴🔴 **與明細側 `AdminOrderDetailItem.quantitySummary`(`| null`)刻意不同型,不是筆誤**:
+   * 依該欄 docstring 的分用途裁定 —— **純顯示**(本欄:列表只看數字)補 0 可接受;
+   * **守門 / 上限 / 可否取消的判斷**(明細側)絕不可補 0、必須 fail-closed。
+   * ⇒ **本欄不得餵給任何取消或上限判斷**(列表取消入口 = A13,那片要走明細那支、不吃本欄)。
+   * 代價講明白:補 0 之後「資料損壞」與「真的 0」在列表上**長得一樣**。
+   */
+  quantitySummary: AdminOrderItemQuantitySummary;
 };
 
 /**
@@ -295,7 +309,11 @@ export type AdminOrderSummary = {
   id: OrderId;
   /** 人類可讀單號(6 碼亂碼 或 舊 `PCM-YYYY-NNNN`,兩者並存) */
   displayId: DisplayId;
-  /** 下單時間 ISO(orders.created_at 原樣;UI formatOrderDate 格式化) */
+  /**
+   * 下單時間 ISO(orders.created_at 原樣)。UI 走 `formatOrderListDate`(同年 `07/25` / 跨年 `2025/06/27`)——
+   * 🔴 原註寫的 `formatOrderDate` 是 admin 那支,A11a-2 接走呼叫端、**A9c 已刪除**(storefront 的同名
+   * 函式是另一份、不受影響;本型別是 admin 讀模型,別再指到它)。
+   */
   createdAt: string;
   /** 客人顯示名(join customers.name;缺 → null) */
   customerName: string | null;
@@ -319,6 +337,20 @@ export type AdminOrderSummary = {
    * 絕不進非 admin client bundle(本讀模型只由 server component 用)。
    */
   tierAtCheckout: MemberTier;
+  /**
+   * 開票紀錄狀態(M-4b E10 **A9c**;`orders.invoice_status`,DB CHECK 三值 + NOT NULL DEFAULT
+   * `'not_issued'`,migration `20260714120000_m4a_order_workflow_status.sql:108,117`)。
+   *
+   * 🔴 **列表只帶這一欄、不帶載具別**(Sean 2026-08-06 Q2b=A):母 plan §5.1a「新增 | 發票」那列
+   * 原字面是「列表只顯示**載具別**與開立與否」,Q2b=A **砍掉載具別**、只留三態(該列字面已同批更正)。
+   * 理由=載具別在 `orders.invoice` jsonb(`carrier`/`type`),把它拉進列表會破壞
+   * 「列表投影零 PII、兩白名單刻意分立」那條邊界;而 `invoice_status` 是 enum、非 PII。
+   *
+   * 🔴 三態是 `not_issued` / `issued` / `voided`,**沒有「不需開立」** —— 「客人沒填開票需求」與
+   * 「有需求但還沒開」在本欄都是 `not_issued`,要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)。
+   * Q2b=A 明文不分。
+   */
+  invoiceStatus: InvoiceStatus;
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
 };

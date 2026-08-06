@@ -211,6 +211,15 @@ type AdminOrderListItemEmbed = Pick<
   | 'vehicle_snapshot'
 > & {
   product_variants: { products: { brands: { name: string } | null } | null } | null;
+  /**
+   * A9c 三軸內嵌。形狀與明細側同一個內嵌一致(0/1 筆;物件與陣列**都吃** —— 理由見
+   * `mapQuantitySummary` docstring 的「isOneToOne 三個回音不是實測」那段)。
+   * 🔴 **缺列合法、不是錯誤**:`order_item_quantity_summary` 由 A4a trigger 惰性建列。
+   */
+  order_item_quantity_summary?:
+    | SupabaseOrderItemQuantitySummaryRow[]
+    | SupabaseOrderItemQuantitySummaryRow
+    | null;
 };
 
 export type SupabaseAdminOrderRow = Pick<
@@ -226,6 +235,7 @@ export type SupabaseAdminOrderRow = Pick<
   | 'display_position'
   | 'cancelled_at'
   | 'tier_at_checkout'
+  | 'invoice_status' // A9c:開票紀錄三態(NOT NULL DEFAULT 'not_issued';CHECK 三值)
 > & {
   /**
    * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
@@ -270,6 +280,43 @@ function parseVehicleSnapshot(raw: unknown): OrderItemVehicleSnapshot | null {
   return null;
 }
 
+/**
+ * 三軸摘要 → **列表側**非 nullable 形狀(M-4b E10 A9c)。
+ *
+ * 🔴 **刻意複用 `mapQuantitySummary` 再補 0,不另寫第二個 parser**:那支已經硬化過兩層
+ * (MF1 四欄逐一驗、`{}`/`NaN` 當作沒讀到;MF2 C7 不變式違反回 `null` 而非夾成 0)。
+ * 另寫一支等於把那兩層防禦重寫一次、且兩份會漂。
+ *
+ * 🔴🔴 **這裡補 0 是有授權的,但只在「純顯示」成立** —— `AdminOrderDetailItem.quantitySummary`
+ * 的 docstring 逐字分用途:「純顯示…補 0 可接受,最壞只是少顯示一點資訊」/「任何守門、上限、
+ * 可否取消的判斷:**絕不可**補 0」,並直接交代「開 A9c 的人:照 A1 字面補 0 只在列表顯示成立,
+ * **不要**把同一個 `?? 0` 帶進取消流程的任何判斷」。
+ * ⇒ 代價要講明白:補 0 之後,**「缺列 / 資料損壞」與「真的是 0」在列表上長得一模一樣**。
+ * 列表本身沒有取消動作(入口 = A13);**A13 進來時必須走明細那支 `| null` 的讀法、不得吃本函式。**
+ */
+function mapListQuantitySummary(
+  rows:
+    | SupabaseOrderItemQuantitySummaryRow[]
+    | SupabaseOrderItemQuantitySummaryRow
+    | null
+    | undefined,
+  itemQuantity: number,
+): AdminOrderItemQuantitySummary {
+  return (
+    mapQuantitySummary(rows) ?? {
+      // 🔴 **`quantity` 補的是該品項自己的數量、不是 0** —— 母 plan row 26 逐字是「無列 = **三個** 0」,
+      //    三個指的是**軸**(ordered / instock / cancelled);`quantity` 是 `order_items.quantity` 的
+      //    去正規化副本(型別 docstring 逐字「由複合 FK 物理保證等於 order_items.quantity」)。
+      //    補 0 會讓列表顯示「訂貨 0/**0**」而不是「訂貨 0/3」= 分母憑空消失。
+      quantity: itemQuantity,
+      orderedQuantity: 0,
+      instockQuantity: 0,
+      cancelledQuantity: 0,
+      cancellableQuantity: itemQuantity, // = quantity − 0 − 0,與 mapQuantitySummary 的算式一致
+    }
+  );
+}
+
 /** order_items 內嵌 → domain AdminOrderLine:brand 走 variant→product→brand(任一層缺 → null);成交價整數 → Money。 */
 function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
   return {
@@ -283,6 +330,8 @@ function mapAdminOrderLine(item: AdminOrderListItemEmbed): AdminOrderLine {
     workflowStatus: item.workflow_status, // M-4a D-2:per-item 真相;NULL=未設定
     version: item.version, // per-item 改狀態表單樂觀鎖
     vehicle: parseVehicleSnapshot(item.vehicle_snapshot), // V-3b:車款快照直出(NULL=未帶;純顯示)
+    // A9c:三軸。缺列 → 三個軸補 0、分母用本品項 quantity(僅限列表這個純顯示用途,見該函式 docstring)
+    quantitySummary: mapListQuantitySummary(item.order_item_quantity_summary, item.quantity),
   };
 }
 
@@ -309,6 +358,10 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     cancelledAt: row.cancelled_at,
     // (D-2 起不攜 orders.workflow_status/version:per-item 真相在 lines[]、整單=顯示端彙總。)
     tierAtCheckout: row.tier_at_checkout, // M-4a Slice D-1a:會員等級(member_tier enum;顯示端映射一般/車行)
+    // A9c:開票紀錄三態。🔴 **走 `narrowInvoiceStatus`、不是裸 `as`**(關卡2 抓到):同一欄在明細側
+    // (`:710`)本來就用這支,裸 `as` 會讓同檔同欄出現兩種硬度。generated type 是 `string`
+    // ⇒ CHECK 日後放寬或出現第四值時,裸 `as` 會把界外字串當成 enum 傳給 A11a-5 的查表(取到 undefined)。
+    invoiceStatus: narrowInvoiceStatus(row.invoice_status),
     lines: (row.order_items ?? []).map(mapAdminOrderLine), // 每商品一列展開(order_items 缺 → 空陣列、顯示端兜「—」)
   };
 }

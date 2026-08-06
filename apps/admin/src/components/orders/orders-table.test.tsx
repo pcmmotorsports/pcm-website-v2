@@ -19,7 +19,8 @@ afterEach(cleanup);
 //    V6 的**格式真值表**在 `lib/orders/order-list-view.test.ts`(純函式、可注入 `now`);
 //    本檔那條只證**接線**——日期格吃的是 `formatOrderListDate` 而不是 `formatOrderDate`。
 
-const LINE_BASE: Omit<AdminOrderLine, 'id' | 'quantity' | 'lineTotal'> = {
+// `quantitySummary` 也排除:它由 `quantity` 推出(見 `line()`),放進 BASE 會變成寫死的常數。
+const LINE_BASE: Omit<AdminOrderLine, 'id' | 'quantity' | 'lineTotal' | 'quantitySummary'> = {
   variantSku: 'SKU-001',
   title: '排氣管',
   brand: 'Akrapovic',
@@ -35,6 +36,16 @@ function line(id: string, quantity: number, lineTotal: number): AdminOrderLine {
     id,
     quantity,
     lineTotal: { amount: toMoneyAmount(lineTotal), currency: 'TWD' },
+    // 🔴 A9c 起 `quantitySummary` 是**非 nullable**(缺列的正規化是 adapter mapper 的責任、不是 UI 的)。
+    //    這裡刻意由 `quantity` 推出、不寫死常數:寫死會讓「分母接錯線」在 quantity≠1 的 fixture 下仍全綠。
+    //    三軸都給 0 = 「還沒訂、還沒到、沒取消」,對應 A11a-4 訂貨欄要顯示的 `0/quantity`。
+    quantitySummary: {
+      quantity,
+      orderedQuantity: 0,
+      instockQuantity: 0,
+      cancelledQuantity: 0,
+      cancellableQuantity: quantity,
+    },
   };
 }
 
@@ -71,6 +82,8 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
     //    (memory `feedback_fixture-value-makes-guard-vacuous` 的同族:fixture 值讓斷言失去意義)。
     //    ⇒ cast 已移除,現在 fixture 由 tsc 守門。
     tierAtCheckout: 'general',
+    // A9c:開票紀錄三態(`not_issued` / `issued` / `voided`)。發票欄本身屬 A11a-5,本檔不驗顯示。
+    invoiceStatus: 'not_issued',
     cancelledAt: null,
     displayPosition: null,
     ...overrides,

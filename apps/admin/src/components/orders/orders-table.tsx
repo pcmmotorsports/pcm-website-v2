@@ -96,8 +96,8 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
           )}
           {/* Q2=A(07-16 晨拍板):日期欄(created_at 已在投影、訂單層 rowSpan)
               A11a-2:改接 `formatOrderListDate`(同年 `07/25`、跨年 `2025/06/27`)。
-              ⚠️ 這是 admin `formatOrderDate` 的**唯一** production 呼叫端 ⇒ 改接後那支歸零、去留待判
-              (plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
+              ⚠️ 這曾是 admin `formatOrderDate` 的唯一 production 呼叫端;改接後那支歸零,
+              已於 **A9c** 刪除(plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
           {i === 0 && (
             <td className={`${TD} text-muted-foreground text-xs`} rowSpan={rowSpan}>
               {formatOrderListDate(order.createdAt)}

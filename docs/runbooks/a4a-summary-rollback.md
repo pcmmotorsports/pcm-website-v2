@@ -109,7 +109,12 @@ SELECT count(*) FROM pg_catalog.pg_trigger
    AND NOT tgisinternal;
 ```
 
-- (b)**消費端清單(授權時 repo-grep,2026-08-03)**:本片四 trigger + 五函式;A9c(PostgREST 讀模型)未建。🔴 **未來消費端上線片必須回寫本清單**(PostgREST select 字串對 DB 完全不可見,catalog 查不到)。
+- (b)**消費端清單(授權時 repo-grep,2026-08-03;🔴 2026-08-06 由 A9c 回寫)**:本片四 trigger + 五函式;~~A9c(PostgREST 讀模型)未建~~ ⇒ **A9c 已建。PostgREST 讀模型現有兩個消費端,回滾前都要先拆**:
+  - `ADMIN_ORDER_DETAIL_SELECT`(`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`;A9g-1 起)
+  - **`ADMIN_ORDER_LIST_SELECT`(同檔;A9c 2026-08-06 新增)** —— 內嵌 `order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)`
+  - TS 側連帶:`mappers/order.ts` 的 `mapQuantitySummary`(明細,fail-closed 回 `null`)與 `mapListQuantitySummary`(列表,補 0)、`AdminOrderLine.quantitySummary`(**非 nullable**)。
+  🔴 **步驟③「逆序撤消費端」要先把這兩條 select 字串的內嵌拿掉再 DROP 表** —— 漏掉會讓 admin 訂單**列表**與**明細**兩頁一起壞(PostgREST 對不存在的關聯是回錯誤、不是靜默略過)。
+  🔴 **未來消費端上線片必須回寫本清單**(PostgREST select 字串對 DB 完全不可見,catalog 查不到)。
 - (c)反例(僅演練環境;證明「DROP 不會被 DB 自己擋、順序是人的責任」):trigger 在位時 DROP 表 → 下一筆來源 DML 紅 `42P01`。演練腳本自動跑。
 
 ## 步驟 ④:撤 trigger + 函式、標記 stale(與 ②⑤ 同一交易)

@@ -7,7 +7,6 @@ import type { AdminOrderFilter } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
-  formatOrderDate,
   formatOrderListDate,
   formatOrderAmount,
   formatOrderItemVehicle,
@@ -159,10 +158,9 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
 });
 
 describe('格式化', () => {
-  it('formatOrderDate:UTC timestamptz → Asia/Taipei YYYY-MM-DD(避 off-by-one)', () => {
-    expect(formatOrderDate('2099-04-15T16:30:00Z')).toBe('2099-04-16');
-  });
-
+  // 🔴 `formatOrderDate` 的兩條測試隨該函式一併刪除(A9c,主視窗 `E-116-A` 裁定)。
+  //    UTC 邊界 off-by-one 的覆蓋沒有消失 —— 移到下面 V6 那組(`formatOrderListDate` 同樣走
+  //    Asia/Taipei 曆面,且多測了一格真正的跨年邊界)。
   // ── V6:列表日期格式(A11a-2;母 plan §5.1a「改寫 | 日期 → `07/25`」那列逐字)──
   // 🔴 各自對應一種會靜默壞掉的改法:①一律補年份 ②一律不補年份 ③拿 UTC 年份比 ④非法 iso 擲錯。
   it('V6 同年 → `MM/DD`、不帶年份', () => {
@@ -193,13 +191,6 @@ describe('格式化', () => {
     // 但這支是純函式、下一個呼叫端不保證餵的是 DB 值。
     expect(() => formatOrderListDate('not-a-date')).not.toThrow();
     expect(formatOrderListDate('not-a-date')).toBe('not-a-date');
-  });
-
-  it('🔴 formatOrderDate 未被列表格式帶走:仍回完整 `YYYY-MM-DD`', () => {
-    // ⚠️ 保留這條的理由**不是**「明細頁在用」(那是 A11a plan `:185` 的錯誤前提,A11a-2 實查推翻:
-    //    明細頁走 `order-detail-view.ts:38 formatOrderDateTime`)。理由是本支 A11a-2 後 production
-    //    consumer 歸零、去留待判 ⇒ 在它被裁定之前,至少釘住「沒有人順手把它改成列表格式」。
-    expect(formatOrderDate('2026-07-25T03:00:00Z')).toBe('2026-07-25');
   });
 
   it('formatOrderAmount:整數元位千分位(非分、不除 100)', () => {

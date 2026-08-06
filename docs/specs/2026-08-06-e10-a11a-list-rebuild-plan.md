@@ -34,7 +34,8 @@
 ## §0 這份 plan 最重要的一句話
 
 **A11a 照母 plan 字面「13 欄骨架」直接開工會做不完,因為 13 欄裡有 3 欄目前沒有資料源** ——
-「訂貨」要 A9c(未做)、「發票」的欄位不在列表投影(**查無任何片認領**)、「出貨」的資料表在第 2 批。
+「訂貨」要 A9c(~~未做~~ **2026-08-06 已做**)、「發票」的欄位不在列表投影(~~查無任何片認領~~ **Q2=A 併進 A9c、同日已落地**)、「出貨」的資料表在第 2 批。
+🟢 **A9c 落地後,13 欄裡沒有資料源的只剩「出貨」一欄**(仍等第 2 批建表)。
 ⇒ 本 plan 的主要產出不是「怎麼刻表格」,而是**把 A11a 拆成「不吃新資料的骨架」與「吃新資料的三欄」兩段**,
 讓前段今天就能動、後段掛在明確的前置上,而不是開工才發現卡住(那正是 A9w4a 這次踩到的形狀)。
 
@@ -43,6 +44,8 @@
 ## §1 現況與不變量
 
 ### 1.1 現行列表(13 欄,`apps/admin/src/components/orders/orders-table.tsx:188-200`)
+
+> ⚠️ **本節與 §1.2 引用的 `orders-table.tsx` 行號自 A11a-1 起全部失效**(2026-08-06 A9c 實查:該檔現為 **173 行**,`:188-200` 已不存在)。A11a-1/-2 改寫了整張表 ⇒ 這些行號**只能當敘事、不可當座標**;要查現況請 grep 符號名。保留原字面是為了看得懂當初在講哪一段。
 
 訂單編號 / 日期 / 商品品牌 / 料號 / 物品名稱 / 年份廠牌車種 / 數量 / 單價 / 總金額 / 會員等級 /
 客戶名稱 / 商品狀態 / 來源 · 管道
@@ -79,6 +82,11 @@
 
 ## §2 🔴 資料源盤點:13 欄逐欄來源(全部親查於 `f8ede20`)
 
+> 🟢 **2026-08-06 A9c 已落地,本節下列「現況」欄有三格轉綠**:第 10 欄「訂貨」的三軸、第 12 欄「發票」的
+> `invoice_status`(Q2b=A:只三態、不含載具別)已進 `ADMIN_ORDER_LIST_SELECT`;`formatOrderDate` 已刪除
+> (見 §5 A11a-2 那列的更正)。§2.2「發票欄沒有主」與 §2.3「A9c 未做的實證」**均已被 A9c 本身推翻**,
+> 保留原文是為了看得懂當初的推導,**不要再拿它們當現況依據**。
+
 投影權威 = `packages/adapters/src/supabase/SupabaseOrderAdapter.ts:70-71`(`ADMIN_ORDER_LIST_SELECT`);
 型別權威 = `packages/domain/src/order/types.ts` 的 `AdminOrderSummary` / `AdminOrderLine`。
 
@@ -86,7 +94,7 @@
 |---|---|---|---|---|
 | 1 | 訂單編號 | 訂單 | `AdminOrderSummary.displayId`;現行渲染 `orders-table.tsx:78-80` | ✅ 有 |
 | 1b | └ 付款軸小字 | 訂單 | `AdminOrderSummary.paymentStatus` + `PAYMENT_STATUS_LABEL`(`order-list-view.ts`) | ✅ 有(需新渲染) |
-| 2 | 日期 | 訂單 | `createdAt`;現行 `formatOrderDate`(`order-list-view.ts`)回 `YYYY-MM-DD` | ⚠️ **格式要改**(§5.1a `:560`(「改寫 | 日期 → `07/25`」那列):`07/25`、跨年才補年份) |
+| 2 | 日期 | 訂單 | `createdAt`;~~現行 `formatOrderDate` 回 `YYYY-MM-DD`~~ ✅ **A11a-2 起走 `formatOrderListDate`;`formatOrderDate` 已由 A9c 刪除** | ⚠️ **格式要改**(§5.1a `:560`(「改寫 | 日期 → `07/25`」那列):`07/25`、跨年才補年份) |
 | 3 | 品牌 | 品項 | `AdminOrderLine.brand`;`orders-table.tsx:102` | ✅ 有 |
 | 4 | 料號 | 品項 | `variantSku`;`:103` | ✅ 有 |
 | 5 | 品名 | 品項 | `title`;`:104` | ✅ 有 |
@@ -94,9 +102,9 @@
 | 7 | 數量 | 品項 | `quantity`;`:109` | ✅ 有 |
 | 8 | 金額 | 品項/訂單 | `unitPrice` / `lineTotal` / `AdminOrderSummary.total`;`:110-115` | ✅ 有(需合併規則,見 §2.1) |
 | 9 | 客戶(含等級小字) | 訂單 | `customerName` + `tierAtCheckout` + `MEMBER_TIER_LABEL`;`:118-123` | ✅ 有(兩欄併一格) |
-| 10 | **訂貨** | 品項 | `order_item_quantity_summary` 的 `ordered_quantity`/`quantity` | 🔴 **無** —— 不在列表投影;**前置 = A9c**(母 plan row 40(A9c,`:432`)) |
+| 10 | **訂貨** | 品項 | `order_item_quantity_summary` 的 `ordered_quantity`/`quantity` | ✅ **有(A9c 2026-08-06 落地)** —— nested left embed 已進 `ADMIN_ORDER_LIST_SELECT`,型別 `AdminOrderLine.quantitySummary` **非 nullable**(缺列由 mapper 補三軸 0、分母用品項 quantity)|
 | 11 | **出貨** | 品項 | `shipments` / `shipment_items` | 🔴 **無** —— 第 2 批才建表(母 plan §5.2);A11b(row 60,`:452`)定「唯讀灰」 |
-| 12 | **發票** | 訂單 | `orders.invoice` / `invoice_status`(明細投影有:`SupabaseOrderAdapter.ts` 的 `ADMIN_ORDER_DETAIL_SELECT`) | 🔴 **無** —— **不在列表投影,且查無任何片認領**(見 §2.2) |
+| 12 | **發票** | 訂單 | `orders.invoice_status`(三態) | ✅ **有(A9c 2026-08-06 落地,Q2=A)** —— 只加 `invoice_status`,**不加載具別**(Q2b=A;載具別在 `orders.invoice` jsonb,拉進列表會破壞零 PII 邊界)。型別 `AdminOrderSummary.invoiceStatus` |
 | 13 | **操作** | 訂單 | 取消入口 = A13a/A13b(母 plan rows 65-66(A13a/A13b,`:457-458`));檢視入口 = 現行單號連結 | ⚠️ **半有**(取消動作在 A11a 之後才存在) |
 
 ### 2.1 金額合併規則(§5.1a `:553` 逐字(「合併 | 單價 + 總金額 → 金額」那列),含一條 v1 寫錯已更正的半條)
@@ -121,9 +129,12 @@ Sean **知情接受、維持現狀**,零程式改動。⇒ **後續施工者不�
 `ADMIN_ORDER_LIST_SELECT`」(row 40 A9c,`:432`),沒有一片寫「invoice 進列表投影」。
 ⇒ **這是計畫的缺口,不是我看漏**。處置見 §6 決策題 Q2。
 
-### 2.3 A9c 未做的實證(不是推測)
+### 2.3 ~~A9c 未做的實證~~ 【已結案】A9c 於 2026-08-06 落地;以下為當時的實證,存查用
 
 - `ADMIN_ORDER_LIST_SELECT`(`SupabaseOrderAdapter.ts:70-71`)無 `order_item_quantity_summary`。
+- ✅ **本條已由 A9c 結案(2026-08-06)**:該測試已翻面為「🟢 …**已由 A9c 合法解禁**,但只准那四欄」,
+  且標題裡那個過期指標 `master plan :387` **隨標題重寫一併消失**(本檔下面交代的「順手改成 row 40」已達成)。
+  以下為 A9c 之前的原文,存查:
 - 守門測試 `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts:726` 標題**完整逐字**:
   「🟡 三軸數量摘要:admin 列表投影目前也零滲入(**A9c 會合法解禁本條**,見 master plan :387 row 40)」,
   `:727` 註解逐字「A9c 開工時把這條改掉是**預期內**的」⇒ 該測試就是 A9c 的落地訊號,現在仍綠 = A9c 未做。
@@ -182,10 +193,10 @@ A10b(明細頁逐品項採購表單,母 plan row 57(A10b,`:449`) 標 27 項 **5,
 | 子片 | 內容 | 片型 | L 級 | 前置 | 收工欄數 | 估時 |
 |---|---|---|---|---|---|---|
 | **A11a-1** | **九碼三群下架 + 欄骨架收斂**:拆掉整單彙總 badge、per-item cell、表層 props 與衍生;移除「來源 · 管道」欄;單價+總金額 → 「金額」(含 §2.1 合併規則);會員等級併入客戶格小字。**不新增任何吃新資料的欄**。含 §3.1 的孤兒具名移除 | **標準片**;🔴 **跨 4-6 檔**(`app/orders/page.tsx`、`orders-table.tsx`、`lib/orders/order-list-view.ts`、`components/orders/workflow-status-badge.tsx` 整檔刪 + 對應測試檔)⇒ **命中鐵則 8,開工前要有本 plan 當批准依據** | L1 | 無 | **9** | 35-45 分 |
-| **A11a-2** | **訂單編號付款軸小字 + 日期格式**(`07/25`、跨年補 `2025/06/27`);**新增** `formatOrderListDate`、**不改** `formatOrderDate`(明細頁在用) | **標準片**(動共用 helper `order-list-view.ts` + 元件 + 兩邊測試) | L1 | **A11a-1** | **9** | 20-30 分 |
+| **A11a-2** | **訂單編號付款軸小字 + 日期格式**(`07/25`、跨年補 `2025/06/27`);**新增** `formatOrderListDate`、~~**不改** `formatOrderDate`(明細頁在用)~~ 🔴 **括號內是錯的前提**(A11a-2 實查):明細頁走 `order-detail-view.ts` 的 `formatOrderDateTime`,從來不是本支;列表日期格才是它唯一的 production 呼叫端 ⇒ A11a-2 改接後歸零,**已由 A9c 依主視窗裁定(`E-116-A`)刪除** | **標準片**(動共用 helper `order-list-view.ts` + 元件 + 兩邊測試) | L1 | **A11a-1** | **9** | 20-30 分 |
 | **A11a-3** | **操作欄**:檢視入口(見 Q4)+ 取消入口(見 Q5) | 輕量片 | L1 | **A11a-1** + 🔴 **Q4 / Q5(/Q5b)拍板** | **10**(Q5b=A 時本片不做、維持 9) | 15-25 分 |
 | **A11a-4** | **訂貨欄接線**(消費 A9c 的非 nullable 三軸型別;第 1 批只顯示 `n/m` 文字,膠囊樣式屬 A11b) | 標準片 | L1 | 🔴 **A9c** + **A11a-1** | **前一片值 +1** | 25-35 分 |
-| **A11a-5** | **發票欄接線** | 標準片 | L1 | 🔴 **發票欄投影加法(無主,Q2)** + **A11a-1** | **前一片值 +1** | 25-35 分 |
+| **A11a-5** | **發票欄接線** | 標準片 | L1 | ✅ **投影加法已由 A9c 落地(2026-08-06)** + **A11a-1** ⇒ **前置已滿足、可開工** | **前一片值 +1** | 25-35 分 |
 | **A11a-6** | **出貨欄佔位**(第 1 批無資料源:唯讀灰、明示「第 2 批」;**不畫假資料**) | 輕量片 | L1 | 🔴 **A11a-1**(見下方紅字)+ Q3 裁定畫法 | **前一片值 +1** | 15 分 |
 
 🔴 **「收工欄數」怎麼取唯一期望值**(R2 must-fix:寫 `+1` 不是 V1 能直接斷言的數字):
@@ -207,7 +218,7 @@ A11a-4/-5/-6 三片**沒有固定順序**(誰的前置先到位誰先做),所以
 | **A11a-2** | 否 | 無 |
 | **A11a-3** | 🔴 **是** | Q4(檢視怎麼放)+ Q5(取消鈕放不放)+ Q5b(兩者都不放時這欄還加不加) |
 | **A11a-4** | 是 | Q1 + A9c 到位 |
-| **A11a-5** | 是 | Q2 + Q2b + 投影加法到位 |
+| **A11a-5** | ~~是~~ **否(2026-08-06 解閘)** | Q2=A / Q2b=A 已拍;投影加法已由 **A9c** 到位 ⇒ 三個條件全滿足 |
 | **A11a-6** | 是 | Q3 |
 
 ⇒ **拍板前只有 `A11a-1` 與 `A11a-2` 能開工。**

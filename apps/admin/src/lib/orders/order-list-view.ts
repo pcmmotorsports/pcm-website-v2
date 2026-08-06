@@ -191,19 +191,11 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
   );
 }
 
-/**
- * formatOrderDate:ISO timestamptz → `YYYY-MM-DD`(en-CA locale + Asia/Taipei 時區)。
- * 對齊會員側 order-display.formatOrderDate(避免 UTC 邊界 off-by-one);admin 跨 app 不共用該檔、此處重定。
- *
- * 🔴 **A11a-2(2026-08-06)起 production consumer = 0**:唯一呼叫端(列表日期格)已改接
- * `formatOrderListDate`;明細頁用的是 `order-detail-view.ts:38` 的 `formatOrderDateTime`、**從來不是本支**
- * (A11a plan `:185` 括號「明細頁在用」是錯的前提,R1 抓到)。
- * ⇒ 照 plan 字面「不改」保留、**本片不刪**,但它現在是**有主待判**而非活函式:歸屬與去留已列交棒,
- * 不要當成「明細頁的依賴」去維護它。
- */
-export function formatOrderDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
-}
+// 🔴 **`formatOrderDate` 已於 A9c(2026-08-06)刪除**(主視窗裁定,`E-116-A`)。
+// A11a-2 把列表日期格改接 `formatOrderListDate` 之後,它的 production consumer 歸零;
+// A11a plan `:185` 保留它的理由「明細頁在用」是**錯的前提** —— 明細頁走的是
+// `order-detail-view.ts` 的 `formatOrderDateTime`(到分),從來不是本支(只到日)。
+// 會員側 `apps/storefront/src/lib/orders/order-display.ts` 有同名但**另一份**函式,不受影響。
 
 const TAIPEI_YMD = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Taipei',
@@ -212,7 +204,7 @@ const TAIPEI_YMD = new Intl.DateTimeFormat('en-CA', {
   day: '2-digit',
 });
 
-/** Asia/Taipei 曆面的年/月/日。🔴 不切 `formatOrderDate` 的字串 —— 那會在它換格式時靜默切錯。 */
+/** Asia/Taipei 曆面的年/月/日(讀 `formatToParts`,不切任何格式化字串 —— 那會在格式一改就靜默切錯)。 */
 function taipeiParts(d: Date): { year: string; month: string; day: string } {
   const parts = TAIPEI_YMD.formatToParts(d);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
@@ -224,8 +216,8 @@ function taipeiParts(d: Date): { year: string; month: string; day: string } {
  * 母 plan §5.1a「改寫 | 日期 → `07/25`」那列逐字:**同年 `07/25`、跨年才補年份**(`2025/06/27`);
  * 完整時間戳仍在 DB。
  *
- * 🔴 **與 `formatOrderDate` 併存、不取代它**(A11a plan `:185` 逐字「**新增**…**不改**…」)。
- * ⚠️ plan 給的理由「明細頁在用」**不成立** —— 詳見 `formatOrderDate` 自己的 docstring。
+ * 🔴 A11a-2 新增本支時 plan `:185` 要求「不改 `formatOrderDate`(明細頁在用)」;實查那個前提是錯的,
+ * A9c 已依主視窗裁定把 `formatOrderDate` 刪除(見上方註)。本支現為 admin 列表日期的唯一格式化面。
  *
  * 🔴 非法 iso **不 throw**:`formatToParts(Invalid Date)` 會擲 `RangeError`,而本函式在 server component
  * 內呼叫 ⇒ 會把「一格顯示垃圾」升級成「整個 `/orders` 500」。照 `note-timeline.ts:85` 既有慣例原樣回傳。

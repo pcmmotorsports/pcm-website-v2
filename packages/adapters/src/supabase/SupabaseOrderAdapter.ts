@@ -65,10 +65,21 @@ export const ORDER_LIST_SELECT =
  * - M-4a D-2:orders 層 workflow_status / version **退出投影**(per-item 真相移 order_items;
  *   orders.workflow_status 停寫停讀、整單狀態=顯示端彙總);order_items 內嵌加 `id, workflow_status,
  *   version`(per-item 改狀態表單 target + 樂觀鎖)。
+ * - 🔴 **M-4b E10 A9c(2026-08-06)純加法**,兩件:
+ *   ① orders 層加 `invoice_status`(開票紀錄三態 enum;**不加**載具別 —— 那在 `orders.invoice` jsonb,
+ *      Sean Q2b=A 明文砍掉,以免破壞下方「列表零 PII、兩白名單刻意分立」那條邊界。`invoice_status`
+ *      本身是 CHECK 三值 enum、非 PII);
+ *   ② `order_items` 底下加第二個內嵌 `order_item_quantity_summary(…)` —— 三軸(訂貨/到貨/取消)。
+ *      🔴 **必須是 nested left embed**(母 plan 計數器摘要列 `:335` 逐字):本常數是 select **字串**、
+ *      寫不了 SQL `COALESCE`;該表由 A4a trigger **惰性建列**,沒被採購也沒被取消過的品項**沒有那一列**
+ *      ⇒ 缺列回 `null`,正規化成三個 0 是 **mapper 的責任**(見 `mappers/order.ts` 的
+ *      `mapListQuantitySummary`)。形狀與明細投影 `:157` 的同一個內嵌一致(A9g-1 先例)。
+ *   ⚠️ `order_item_quantity_summary` 是 **service_role-only 表**(母 plan row 26 逐字)。本片零權限面改動:
+ *      admin adapter 本來就走 service_role,且明細投影自 A9g-1 起已在讀同一張表。
  * module-level `export const` → 測試 byte-equal + forbidden-token + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
@@ -115,7 +126,8 @@ export const ADMIN_ORDER_LIST_SELECT =
  * 🔴 **同一條紅線**:本表帶的是營運內部數量事實(已訂/已到貨/已取消),
  * **絕不可**被搬進 storefront 的任何投影 —— 客人看得到「已向上游訂了幾件」等於看得到採購節奏。
  * 守門測試用反射盯 `*SELECT*` 匯出、不手寫常數名(見 `SupabaseOrderAdapter.test.ts` 同款);
- * 該處**刻意拆兩條**:storefront 永不放寬 / admin 列表待 A9c(母 plan `:387` row 40)合法解禁。
+ * 該處**刻意拆兩條**:storefront 永不放寬 / admin 列表待 A9c(母 plan **row 40**)合法解禁 —— **A9c 已於
+ * 2026-08-06 落地**。(原寫的 `:387` 是過期行號,現指到 row 23;母 plan 引用一律用 row 號當主錨。)
  * 🔴 **形狀**:`order_item_id` 雖是 PRIMARY KEY(邏輯 1:1),但 FK 是複合鍵
  * `(order_item_id, quantity)`,generated types 的 `order_item_quantity_summary_item_fk.isOneToOne`
  * 逐字為 `false` ⇒ 指向 to-many = 陣列。**但那是規則推導、不是實測到的 wire 回應**
