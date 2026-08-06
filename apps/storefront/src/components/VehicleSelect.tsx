@@ -269,15 +269,11 @@ export function VehicleSelect({
         label="選擇車型"
         value={vehicle?.model ?? null}
         options={modelOptions}
-        /* 🔴 A5 刻意**沒有**跟 CascadeFilterTop 一樣在跨層時改成「選擇或輸入車型，例:R6」——
-           本元件的三欄字面歸 OD `vehicle-picker-design.html` A 表管,A 表對 finder 逐字寫
-           `選擇或輸入車型`(見檔頭 :9-12「實作端逐字照抄」)。統一線 wire plan `:84` 的條件式
-           字面是寫給 `/products` 選車列的,沒有涵蓋 finder / PDP / 購物車這三個掛載點。
-           ⇒ 動首頁文案 = 撞既有拍板,不自行拍板。待決題落在
-           `docs/specs/2026-08-03-vehicle-picker-unification-wire-plan.md:84`(該條式字面的出處)
-           與 STATUS「Sean 待決策」欄;裁定後把結論寫回這裡、不要只留在信箱(信箱是暫態)。
-           跨層的可發現性暫時只靠下面的 emptyHint(零命中才現形),不靠 placeholder。 */
-        placeholder="選擇或輸入車型"
+        /* Sean 2026-08-06 拍板 B(車型欄 placeholder 議題):三個掛載點(finder / PDP / 購物車)
+           改與 `/products` 桌機選車列(CascadeFilterTop)一致 —— 跨層時附例字。
+           OD `vehicle-picker-design.html` A 表對 finder 逐字寫的 `選擇或輸入車型`(不含例字)
+           本身已是 OD 稿的債:與此拍板不符,已記入回饋包待 OD 更新,不是站上偏離。 */
+        placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
         emptyHint={crossLayer ? '查無符合的車款，請調整關鍵字' : undefined}
         onPick={(picked) => {
           const resolved = resolveModelPick(motoBrands, vehicle?.brand ?? null, picked);

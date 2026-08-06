@@ -39,11 +39,31 @@
 .pcard:hover::before { transform: scaleX(1); }
 
 /* ── Image area ── */
+/* 🔴 2026-08-06 Sean 拍板 A(圖框):OD 三支稿(brand-page.html / direction-b-layout-01-
+   graphite-ember.html / pcm-account.css)逐字一致 background:#fff + border,只有
+   products-list-page.html 一支落單畫灰底無框 —— 與價格色那次同型、同一支稿再度落單,
+   稿自身矛盾已記入 OD 回饋包,站上以此拍板為準。
+   影響五個面(皆吃 .pcard-img-wrap,見 manifest ProductCard.related_storefront):
+   首頁最新商品橫捲(HomeSelect)/ 商品列表(ProductsPage)/ 品牌頁熱門商品(BrandPageProducts)/
+   會員中心為你推薦(OverviewTab)/ PDP 相關商品(ProductRelated,由 ProductPage.tsx:206 掛載;
+   R1 抓到前一版漏算此面、少算一面)。
+   🔴🔴 誠實申報(R1 抓到、已核實,這裡是說清楚不是修掉):下面 `background:#fff` 目前是**死宣告**——
+   `ProductCard.tsx` 的 `.pcard-gallery`(width/height:100%、inline background 三分支全不透明:
+   真圖+trim=#ffffff / 真圖+contain fallback=--c-surface-2 / 無真圖=漸層)蓋滿整個 padding box,
+   ⇒ 站上實際看得到的圖區底色**不是這裡決定的**。真正可見的 letterbox 底色在 `ProductCard.tsx`
+   (grep `contain fallback` 找),那顆是 **Sean 2026-07-24 拍板 Q1=A** 定的 `--c-surface-2`,
+   與本片拍板 A 的白底正面對沖。⇒ 本片只落地了下面的 `border`;`background:#fff` 要真的生效
+   必須改 `ProductCard.tsx`,等於推翻 2026-07-24 的拍板 —— **已停下、發 Q 給 Sean 確認,不自行推翻**。
+   tokens.css 全域 `* { box-sizing: border-box }` ⇒ 加框不撐大卡片外框、不位移卡片版面;
+   但**絕對定位子元素的定位基準(padding edge)會被 border 內縮 1px**(R1 實測):badge/heart
+   距外緣由 10px→11px、`.pcard-quick` 底部離卡緣由 0→1px。OD 三稿的 `.pcard-img-wrap` 內只有
+   `<img>`、無這些 overlay,稿上無先例,此為站上既有結構與新框線疊加後才出現的既有影響。 */
 .pcard-img-wrap {
   position: relative;
   aspect-ratio: 1 / 1;
   overflow: hidden;
-  background: var(--c-surface-2);
+  background: #fff;
+  border: 1px solid var(--c-border);
   margin-bottom: 0;
 }
 .pcard-img-wrap::after {
