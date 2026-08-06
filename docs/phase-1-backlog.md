@@ -9094,3 +9094,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **現況**:`packages/adapters/src/supabase/mappers/auth-error.ts:35` `SUPABASE_CODE_MAP[error.code] ?? 'unknown'`——`??` 只擋 null/undefined,擋不住 `__proto__` 等原型鏈 truthy 值。**今天不可觀察**:兩個消費端(`login/actions.ts:65`、`register/actions.ts:68`)走 `authErrorCopy` 的 `switch`+`default`,非預期 code 一律落 default。盤點全文=`docs/reviews/2026-08-06-packages-index-lookup-audit.md`(201 檔母數、含四類未掃形狀)。
 - **修法**:照 repo 唯一主動防禦範本 `ResendEmailSenderAdapter.ts:110-117`(ReadonlyMap+六鍵負測)。
 - **不修會痛在哪**:型別謊言+陷阱——哪天有人把消費端 switch 改成查表就現形;修一行加一測,順手片成本。
+
+### #336. 📧 M-4a E4「order_shipped」通知觸發點隨 A9w4a 拆除 — 重啟時需重定觸發設計
+
+- **狀態:** ⏳ 待執行(2026-08-06 A9w4a code-reviewer 抓到活的下游依賴;M-4a 通知線=暫緩非作廢)
+- **現況**:`2026-07-16-m4a-email-notify-plan.md:257/:363` 的 E4 觸發點逐字掛在 `updateOrderItemWorkflowAction`——該 action 已於 A9w4a(`01478a2`)拆除;plan 兩處已補紅字。殘留的 `admin_update_order_item_workflow` RPC 與 port 方法都在退場鏈上(A9w4c 後半/A9v),**不宜改掛**。
+- **修法方向**:E4 開工時重定觸發點——候選=出貨線 B2 的 `shipped_at` 寫入路徑(S2 之後才存在);與 #334 無關。
+- **不修會痛在哪**:通知線解凍時照舊 plan 施工會掛到不存在的 action 上,或更糟——把觸發器掛回正在退場的 RPC,擋住 A9v。
