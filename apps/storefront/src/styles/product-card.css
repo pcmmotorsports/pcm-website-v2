@@ -8,6 +8,17 @@
   /* V-2f:grid item 可收縮到 track 以下(min-width:auto 的 min-content 會撐爆 minmax 0 track);
      配 .pp-grid repeat(2, minmax(0,1fr)) 讓手機 2 欄卡片實際收進版寬(修 375px 第二欄溢出)。 */
   min-width: 0;
+  /* 🔴 2026-08-06:OD 逐字有這顆(`pcm-account.css` 與首頁稿的 `.pcard` 都是
+     `{display:flex;flex-direction:column;position:relative;min-width:0;flex:1}`),站上漏了 ⇒ 直搬。
+     ⚠️ **誠實邊界(真瀏覽器實測,別照抄 R2 的說法)**:R2 主張「不補這顆的話首頁橫捲永遠不齊」,
+        我用探針量了四種組合,**沒能證實**——
+          min-height ON  + flex ON  → 差 0px      min-height ON  + flex OFF → 差 0px
+          min-height OFF + flex ON  → 差 0px      min-height OFF + flex OFF → 差 19px
+        ⇒ `min-height:2.8em` 與這條 flex 鏈是**兩套互相獨立的機制、任一條單獨都夠**
+          (現行卡片內容形狀下:圖 1:1、品牌 1 行、品名 clamp 2 行、fits nowrap 1 行)。
+        留它的理由是**鐵則 1 直搬 + 縱深防禦**(哪天品名改 clamp 3 行或多一個元素,
+        content 高度就不再天然相等,那時就靠它),**不是**「少了它現在就會壞」。 */
+  flex: 1;
 }
 /* 🔴 點綴方案 A「速度紅線」(Sean 2026-07-08 拍板整頁熱血點綴 A):hover 頂端紅線由左掃出,
    為全站卡片加一點賽車速度感、平時安靜(直角極簡不變)。 */
@@ -151,10 +162,16 @@
 .pcard-quick-btn:hover { background: rgba(212, 212, 216, 0.96); }
 
 /* ── Info area ── */
+/* 🔴 2026-08-06(R1 MF3;Sean「以 OD 為權威」):補 `flex: 1` —— OD 逐字
+   `pcm-account.css` 與首頁稿 `direction-b-layout-01-graphite-ember.html` 的
+   `.pcard-info` 都是 `{padding:12px 0 0;display:flex;flex-direction:column;flex:1}`。
+   少了 `flex:1`,下面 `.pcard-price-row` 的 `margin-top:auto` **推不到卡底**
+   (auto 需要有剩餘空間可分配)⇒ 整排卡片的價格列各自貼在自己文字下方、高低不齊。 */
 .pcard-info {
   padding: 12px 0 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 0;
 }
 .pcard-brand {
@@ -177,6 +194,11 @@
   overflow: hidden;
   text-wrap: pretty;
   margin-bottom: 4px;
+  /* 🔴 2026-08-06(R1 MF3):品名固定佔滿 2 行高。OD 逐字 `min-height:2.8em`,而且稿上
+     **自帶理由註解**:「名稱固定佔滿 2 行高 → 適用車型、分隔線、價格三條線在整排卡片上對齊。
+     不固定的話,1 行與 2 行的品名會讓下半部整段位移、價格高度不齊。」
+     `-webkit-line-clamp: 2` 只管**上限**、不管下限 ⇒ 一行的品名照樣只佔一行。 */
+  min-height: 2.8em;
   transition: color 0.15s;
 }
 .pcard:hover .pcard-name { color: #000; }
@@ -190,6 +212,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 🔴 2026-08-06(R1 MF3):原本這條寫了**兩次 `margin-top`** —— `auto` 在前、`8px` 在後,
+   後者贏 ⇒ OD 要的「價格列貼卡底」整條是**死的**,而畫面上看起來只是「價格離文字近一點」,
+   沒有任何測試看得到。照 OD 逐字只留 `margin-top: auto`(配上面補的 `.pcard-info{flex:1}`)。 */
 .pcard-price-row {
   display: flex;
   align-items: baseline;
@@ -197,7 +222,6 @@
   margin-top: auto;
   padding-top: 6px;
   border-top: 1px solid var(--c-border);
-  margin-top: 8px;
 }
 /* 🔴 方案 A「速度紅線」:卡片價格轉品牌動作色(⚠️ 2026-08-05 第0批 0c 之前這裡是**賽車紅**
    `#dc2626`,0c 之後是**深熔橘** `#c4470c`;下面所有「紅」字是歷史用詞、實際顏色以 token 為準)

@@ -136,7 +136,10 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     expect(screen.getByText('推薦商品載入失敗、請稍後再試')).toBeTruthy();
   });
 
-  it('featured 有商品:列 4 個 acc-rec-item + name + price + slug link', () => {
+  // 🔴 2026-08-06(Sean 拍板 Q1=A)選擇器連動:卡片由自刻的 `.acc-rec-item` 改成
+  //    首頁 N°02 同一顆 `ProductCard`(`.pcard`)⇒ 本檔所有計數選擇器一起換。
+  //    這不是「改期望值遷就實作」:數的是同一件事(畫了幾張卡),換的是卡片元件。
+  it('featured 有商品:列 4 張 ProductCard + name + price + slug link', () => {
     const products: MockProduct[] = [
       { id: 1, slug: 'p-1', brand: 'BRAND1', name: '商品 A', fits: '通用', price: 1200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
       { id: 2, slug: 'p-2', brand: 'BRAND2', name: '商品 B', fits: '通用', price: 3400, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
@@ -144,14 +147,51 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
       { id: 4, slug: 'p-4', brand: 'BRAND4', name: '商品 D', fits: '通用', price: 7800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
     ];
     const { container } = renderTab({ featured: { products, error: false } });
-    const items = container.querySelectorAll('.acc-rec-item');
+    const items = container.querySelectorAll('.pcard');
     expect(items.length).toBe(4);
     expect(screen.getByText('商品 A')).toBeTruthy();
     expect(screen.getByText('NT$ 1,200')).toBeTruthy();
     expect(screen.getByText('NT$ 7,800')).toBeTruthy();
-    // slug link
-    const firstLink = items[0] as HTMLAnchorElement;
-    expect(firstLink.getAttribute('href')).toBe('/products/p-1');
+    // slug link —— `ProductCard` 是把 `.pcard`(article)包在 `<Link>` 裡
+    // (`ProductCard.tsx:247-250`,`display:contents` 的外層 a)⇒ 從卡片往上找 anchor,
+    // 不是直接讀 `.pcard` 的 href(自刻版那時 `.acc-rec-item` 本身就是 a)。
+    expect(items[0]!.closest('a')?.getAttribute('href')).toBe('/products/p-1');
+  });
+
+  // 🔴 Sean 2026-08-06 拍板 Q1=A 的**不變量**:這一格用的必須是**首頁那顆共用商品卡**,
+  //    不是本頁自刻的第二種卡。只斷言「有 4 張 .pcard」擋不住有人在本頁複製一份 pcard 樣式;
+  //    這裡釘的是「卡片內容欄位齊」——品牌行 / 品名 / 適用車型 / 價格,
+  //    正是舊自刻版缺掉、Sean 指出的那幾項(舊版只有品名 + 價格)。
+  //    ⚠️ 它擋不住什麼:證得了結構欄位在,證不了顏色與版面(顏色在 `product-card.css`,
+  //       要真瀏覽器量;本檔是 jsdom、不套 CSS)。
+  it('🔴 用的是首頁同一顆 ProductCard —— 品牌行/適用車型/價格三欄都在(舊自刻版缺前兩項)', () => {
+    const { container } = renderTab({
+      featured: {
+        products: [
+          // 🔴 R1 nit:`fits` 不帶「適用」前綴 —— 元件自己會畫成「適用 {fits}」
+          //    (`ProductCard.tsx` 的 `適用 {formatCardFits(...)}`),真資料也是
+          //    「{廠牌} {車型代號}」或「通用款」(`lib/products.ts`)。帶前綴的 fixture 會畫出「適用 適用 …」。
+          { id: 1, slug: 'p-1', brand: 'RIZOMA', name: '商品 A', fits: 'BMW HP2 Sport', price: 1200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+        ],
+        error: false,
+      },
+    });
+    // 🔴 R1 nit:`.acc-rec` 那層**版位格線**也要釘 —— 它被刪掉的話 8 張卡會變單欄直排,
+    //    而只數 `.pcard` 的斷言全綠(卡片還在、只是排法崩了)。
+    expect(container.querySelector('.acc-rec'), '版位格線 .acc-rec 沒了 ⇒ 卡片會單欄直排').not.toBeNull();
+    const card = container.querySelector('.pcard');
+    expect(card, '不是 ProductCard ⇒ 又長出第二種商品卡').not.toBeNull();
+    expect(card!.querySelector('.pcard-brand')?.textContent, '缺品牌 mono 行').toBe('RIZOMA');
+    expect(card!.querySelector('.pcard-name')?.textContent, '缺品名').toBe('商品 A');
+    expect(card!.querySelector('.pcard-fits')?.textContent, '缺適用車型行(舊自刻版就是沒有這行)')
+      .toContain('BMW HP2 Sport');
+    // 價格走共用的 .price-main(顏色由 product-card.css 統一給,不再是本頁自刻的灰)
+    expect(card!.querySelector('.price-main')?.textContent, '價格不是走共用的 .price-main')
+      .toContain('1,200');
+    // 反面:自刻版那組 class 一個都不許回來
+    for (const dead of ['.acc-rec-item', '.acc-rec-img', '.acc-rec-name', '.acc-rec-price']) {
+      expect(container.querySelector(dead), `自刻卡的 ${dead} 又出現了`).toBeNull();
+    }
   });
 
   // ── 為你推薦顯示筆數(Sean 2026-08-06 拍板 B、主視窗 `D-138-A`)──
@@ -173,7 +213,7 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
 
     it('🔴 給滿 10 筆(=取數上限)時只畫 8 筆 —— 4 欄 grid 不會留 4+4+2 的缺角', () => {
       const { container } = renderTab({ featured: { products: manyProducts(10), error: false } });
-      const items = container.querySelectorAll('.acc-rec-item');
+      const items = container.querySelectorAll('.pcard');
       expect(items.length, '顯示層沒有截斷 ⇒ 最後一列缺兩格(Sean 拍板 B 要求切齊)').toBe(8);
       // 截的是**尾巴**不是頭:第 1 筆還在、第 9 筆不在
       expect(screen.getByText('商品 1')).toBeTruthy();
@@ -194,7 +234,7 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
       expect(cols.length, `解析到 ${cols.length} 條欄數、但 .acc-rec 規則有 ${declared} 條 ⇒ 有斷點沒被驗到`)
         .toBe(declared);
       const { container } = renderTab({ featured: { products: manyProducts(10), error: false } });
-      const shown = container.querySelectorAll('.acc-rec-item').length;
+      const shown = container.querySelectorAll('.pcard').length;
       for (const n of cols) {
         expect(shown % n, `顯示 ${shown} 筆 ÷ ${n} 欄有餘數 ⇒ 那個斷點的最後一列會缺格`).toBe(0);
       }
@@ -202,7 +242,7 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
 
     it('🔴 不足 8 筆時全部畫出來(截斷不能反過來變成「一定要湊 8 筆」)', () => {
       const { container } = renderTab({ featured: { products: manyProducts(2), error: false } });
-      expect(container.querySelectorAll('.acc-rec-item').length).toBe(2);
+      expect(container.querySelectorAll('.pcard').length).toBe(2);
     });
   });
 });

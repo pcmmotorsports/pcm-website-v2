@@ -1414,9 +1414,10 @@
   min-width: 0;
   scroll-snap-align: start;
 }
-.pd-related-grid .pcard-name {
-  min-height: 2.8em; /* 2 行(line-height 1.4)保留、1 行標題卡片不縮短 = 等高 */
-}
+/* 🔴 2026-08-06(R2 nit)整條刪除:`.pd-related-grid .pcard-name{min-height:2.8em}` 已升成
+   `product-card.css` 的 `.pcard-name` base 規則(全站商品卡一致、對齊 OD)。
+   留著就是**同值的第二份**:改 base 值時這裡會被忘記,而它權重更高、會靜默壓過新值。
+   原本存在的理由(相關商品那一排要等高)現已由 base 規則涵蓋。 */
 /* 「查看全部相容商品」(hasMore 才顯) */
 .pd-related-more {
   margin-top: 20px;
