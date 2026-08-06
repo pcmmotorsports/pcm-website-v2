@@ -1,0 +1,107 @@
+/* ============================================================
+   pcm-menu.css — 手機選單(獨立檔,16 支頁面共用)
+   ------------------------------------------------------------
+   為什麼獨立成一支而不是塞進 pcm-shell.css:
+   首頁 / 品牌總覽 / 品牌頁三支是 8/2 定案的**自包含稿**,殼自帶、不吃 pcm-shell.css。
+   選單要在那三支也生效,就不能綁在 shell 裡 —— 抽出來大家各自 <link> 一行,
+   單一來源、不重複維護。命名空間是 .pcm-menu-*,不會跟任何頁的既有樣式打架。
+   搭配 pcm-shell.js 使用(面板 markup 由它生成)。
+   ⚠️ 🔴 上面這句「搭配 pcm-shell.js 使用」是 **OD 原型的做法,本 repo 不適用**——
+      真站面板由 `MobileMenu.tsx` render(React,不是 vanilla JS DOM 操作),CSS 由
+      `app/layout.tsx` 單一 `import`(不是逐頁各自 `<link>` 一行)。原句保留作 OD
+      出處對照,但依此操作會找錯檔。詳見下一段同款標記。
+   ============================================================ */
+
+/* ══ 手機選單(2026-08-05 Sean:「手機版本沒有地方可以看品牌、預約車行、合作店家」)══
+   問題不在設計稿,在**真站本來就缺**:Header.tsx 的 isMobile 分支只 render
+   搜尋鈕 / logo / 購物車鈕,整組 .pcm-nav 根本不輸出;TabBar 五格是
+   首頁 / 商品 / 找車 / 會員 / 購物車。所以品牌、新品、特價、安裝預約、合作店家
+   這五條在手機上**只剩頁尾能到**,要一路捲到最底。
+
+   解法:手機頁首左側加一顆選單鈕,開全屏面板。
+   🟢 面板的連結**不是另寫一份清單** —— 由 pcm-shell.js 讀同一頁 .pcm-nav 裡的
+      <a> 自動生成。桌機改了 nav,手機選單自動跟著改,不會兩邊走鐘。
+   ⚠️ 🔴 上面「由 pcm-shell.js 讀 .pcm-nav 自動生成」同樣是 **OD 原型的機制,本 repo
+      不適用**:真站面板由 `MobileMenu.tsx` 吃 `Header.tsx` 傳入的 `navItems` prop(單一
+      React 常數來源),不是 DOM 掃描。「連結不另寫第二份清單」這個**意圖**兩邊一致,
+      只是原型用 vanilla JS DOM 掃描、真站用 React props——實作機制不同,不照搬。
+   🔴 TabBar 維持五格不動(已定案);選單是補充,不是取代。 */
+
+.pcm-menu-btn { display: none; }
+
+@media (max-width: 1079px) {
+  .pcm-menu-btn { display: flex; }
+  /* 左側兩顆鈕(選單 + 搜尋)緊靠,不吃 .pcm-header-left 的 36px 間距 */
+  .pcm-header-left { gap: 4px; }
+}
+
+.pcm-menu-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: none;
+  flex-direction: column;
+  background: var(--c-surface);
+}
+.pcm-menu-panel.is-open { display: flex; }
+body.pcm-menu-lock { overflow: hidden; }   /* 面板開著時背景不跟著捲 */
+
+.pcm-menu-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--c-border);
+  flex-shrink: 0;
+}
+.pcm-menu-head img { height: 30px; width: auto; display: block; }
+
+.pcm-menu-body { flex: 1; overflow-y: auto; padding: 8px 0 24px; }
+
+.pcm-menu-group + .pcm-menu-group { border-top: 1px solid var(--c-border); margin-top: 8px; padding-top: 8px; }
+.pcm-menu-label {
+  font-family: var(--f-mono);
+  font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--c-text-3);
+  padding: 12px 16px 6px;
+}
+/* 只作用在選單本體的連結 —— 頁首 logo 與底部 LINE 鈕不套(它們不是清單項) */
+.pcm-menu-body a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;              /* 觸控目標 */
+  padding: 0 16px;
+  font-size: 16px;
+  color: var(--c-text);
+  transition: background 0.12s;
+}
+.pcm-menu-body a:active { background: var(--c-surface-2); }
+.pcm-menu-body a::after {
+  content: '';
+  width: 8px; height: 8px;
+  border-right: 1.5px solid var(--c-text-3);
+  border-bottom: 1.5px solid var(--c-text-3);
+  transform: rotate(-45deg);
+  flex-shrink: 0;
+}
+.pcm-menu-body a.is-sale { color: var(--c-red-dark); }
+
+/* 底部聯絡區:選單拉到底一定看得到,不用再回頁尾找 */
+.pcm-menu-foot {
+  border-top: 1px solid var(--c-border);
+  padding: 16px;
+  flex-shrink: 0;
+  background: var(--c-surface-2);
+}
+.pcm-menu-line {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 48px;
+  background: var(--c-red);
+  color: #fff;
+  font-size: 15px;
+}
+.pcm-menu-line:active { background: var(--c-red-dark); }
+.pcm-menu-store { font-size: 13px; line-height: 1.7; color: var(--c-text-2); margin: 12px 0 0; text-align: center; }

@@ -36,6 +36,7 @@ import { MobileTabBar } from '@/components/MobileTabBar';
 import { serializeOrganizationJsonLd } from '@/lib/org-jsonld';
 import '../styles/tokens.css';
 import '../styles/header.css';
+import '../styles/pcm-menu.css'; // A-手機選單(OD DESIGN-HANDOFF-2026-08-05.md §十一):Header 手機分支的全屏選單面板,序在 header 後(殼的一部分、與 header.css 同層)
 import '../styles/product-card.css';
 import '../styles/pricing.css';
 import '../styles/filter-top.css';
