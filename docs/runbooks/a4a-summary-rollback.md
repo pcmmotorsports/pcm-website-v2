@@ -11,7 +11,7 @@
 契約(A4a plan §11 債⑦)結案。A5a 上線後採購側就有一支 writer RPC;
 到貨明細(`order_item_procurement_receipts`)與取消側(`order_cancellation_items`)仍為零寫 GRANT、無 writer。
 
-🔴 **(1) 與 (2) 必須是兩次獨立執行、中間確定已提交** —— 若整段被包在同一個交易裡(Dashboard SQL editor
+🔴 **(1) / (1b) / (2) 必須是<u>三次</u>獨立執行、中間確定已提交**(2026-08-06 R2:(1b) 若與 (2) 併一次跑,`revoke_at` 會在 DISABLE 對他人生效前記下 ⇒ drain 濾不到窗內的出貨寫入) —— 若整段被包在同一個交易裡(Dashboard SQL editor
 把多句當一個交易送出時就會這樣),REVOKE 在提交前對其他連線不生效:那段期間新的 RPC 呼叫照樣進得來,
 而它們的 `xact_start` 會**晚於** `revoke_at` ⇒ 正好被 (3) 的條件漏掉。⇒ 先單獨跑 (1)、確認回到非交易狀態,
 再跑 (2)。(Dashboard 是否把多句包成單一交易,repo 內未實測 ⇒ 一律當成會包。)
@@ -20,10 +20,8 @@
 本步目前只 REVOKE 採購側(A5a)那一個寫入口。**出貨側的第二條寫入路徑已經存在** ——
 B2-S2b-1(commit `4ef591b`)建的 `shipments_summary_recompute_ac` 重算 trigger,
 只要有人 `UPDATE shipments SET shipped_at / deleted_at`,摘要表的 `shipped_quantity` 就會被改。
-🔴 **本步還沒有對應的停寫動作**(`ALTER TABLE public.shipments DISABLE TRIGGER shipments_summary_recompute_ac`
-+ 步驟⑦ 的對稱 `ENABLE`)—— 那是 plan 項26 / 26b,歸 **S2b-3b**,**尚未落地**。
-⇒ **災難日現況**:②→⑤ 之間若有出貨側寫入,步驟⑤ 會 RAISE(fail-closed,方向對),
-但那一紅的原因是「①的涵蓋面還沒補齊」,不是「④期間有人亂寫」。**兩者處置不同,見步驟⑤ 的指路。**
+✅ **停寫動作已補**(2026-08-06 B2-S2b-3b:見下方 **(1b)**;對稱的 `ENABLE` 在**步驟⑦**)。
+🔴 **仍未涵蓋的**:債⑤(下一段)。
 🔴 另有**債⑤**(plan §9 交棒 9):`admin_cancel_order` 對 `service_role` 有 EXECUTE,
 它經 A4a trigger 也寫得到摘要表 ⇒ 「A5a 是唯一 service_role 寫入口」這句本來就不精確。
 
@@ -31,6 +29,27 @@ B2-S2b-1(commit `4ef591b`)建的 `shipments_summary_recompute_ac` 重算 trigger
 -- (1) 停掉 service_role 應用路徑的唯一寫入口(A5a)。**單獨執行、確認已提交後再做下一步。**
 REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
   uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) FROM service_role;
+```
+
+```sql
+-- (1b) 🔴 **停掉出貨側那條寫入路徑**(2026-08-06 B2-S2b-3b:債① 結清)。
+--     REVOKE 對它沒用 —— 它不是 RPC,是掛在 shipments 上的重算 trigger;
+--     `service_role` 對 shipments 只有 SELECT,**沒有可以 REVOKE 的 actor**。
+--     停寫的正確對象就是 trigger 本身。
+-- 🔴 少了這一步:②→⑤ 之間任何一次 `UPDATE shipments SET shipped_at / deleted_at`
+--     都會改到摘要表的 shipped_quantity ⇒ 快照與拆除期間數字仍會動,而步驟⑤ 會紅在
+--     「分歧不在②留檔集合內」——看起來像④期間有人亂寫,實際上是本步沒停乾淨。
+-- 🔴 **步驟⑦ 有對稱的 ENABLE,不做那步會讓出貨側永久停寫、而三軸對帳仍可能全綠。**
+-- 🔴 `ALTER TABLE … DISABLE TRIGGER` 會對 `public.shipments` 取表級鎖,會排在既有寫交易之後。
+--    **鎖等級本輪未實測、標未確認**;保守起見先設等鎖上限,卡住就是「還有出貨交易沒結束」,
+--    等它結束再跑,不要硬等也不要跳過。
+SET lock_timeout = '5s';
+ALTER TABLE public.shipments DISABLE TRIGGER shipments_summary_recompute_ac;
+RESET lock_timeout;
+-- 驗:應回 D(disabled);回 O 代表沒生效,停下不要往下走
+SELECT tgenabled FROM pg_trigger
+ WHERE tgrelid = 'public.shipments'::regclass
+   AND tgname = 'shipments_summary_recompute_ac' AND NOT tgisinternal;
 ```
 
 ```sql
@@ -70,16 +89,18 @@ CREATE TABLE public.a4a_rollback_snapshot AS
 --    **三軸**,大線讓 shipped 成為被維護的第四軸之後,shipped 漂移會在這裡全綠而漏掉。
 --    ⇒ 已補 `snap_shipped` / `truth_shipped` 兩欄 + WHERE 的第四軸判斷,候選全集也補了 `shipment_items`
 --    (**shipment-only 品項**:有出貨但從沒進過採購/取消/摘要 —— 不補就永遠不會被對帳掃到)。
--- 🔴 **尚未結清的那一半**:plan §4 項27 的**驗收 fixture**(造只有 shipped 漂移的資料 ⇒ 舊三軸版回 0 列、
---    四軸版回 1 列且指名該品項)歸 **S2b-3b**,還沒進任何 harness。
---    ⇒ **不要因為看到欄位已經在就跳過那一格**(這正是 9c 那筆債踩過的形狀)。
+-- ✅ **驗收 fixture 已落地**(2026-08-06 B2-S2b-3b):`scripts/b2s2b-verify.sh` 的 `B27-divergence-4th` 格
+--    **從本檔抽出下面這段 SQL 實跑**,造「只有 shipped 漂移、前三軸正確」的資料 ⇒
+--    舊三軸述詞回 0 列、本段回 1 列且指名該品項。⇒ 契約債② 兩半都結清。
+--    🔴 那一格是從**本檔**抽 SQL 去跑的 —— 改壞下面這段,它會紅。
 -- 🔴 **前置**:本步驟現在硬相依 **S2a**(`s.shipped_quantity` 欄)與 **B2-S1**(`shipments` / `shipment_items` 兩表)。
 --    對還沒套 S2a 的站,這句 `CREATE TABLE` 會 `42703` ⇒ 照下方「abort 僅限…停下找人」處理,不要自行改寫本段。
 -- 🔴 `-- SHIPPED-TRUTH-BEGIN/END` 之間是**真相式的受守護區塊**:全 repo 共 **6 塊**
 --    (helper 1 / 本檔 3 —— 對帳段的欄位與 WHERE 各一、收尾段一 / `a4a-verify.sh` 的 ORACLE_SQL 1
 --     / migration 的 backfill oracle 1)。
--- 🔴🔴 **現在還沒有守門在比對它們**(R2 must-fix:上一版寫成現在式 = 宣稱超出事實)——
---    同步守門是 **S2b-3a 後段**的交付物;**在它落地之前,改這幾行不會有任何東西轉紅**。
+-- ✅ **守門已落地**(2026-08-06 S2b-3a 後段,commit `b3340ac`):`scripts/b2s2b-truth-sync.py`
+--    逐塊比對**整塊 6 行的序列**(含順序)⇒ **改這幾行會轉紅**,那是設計、不是故障;
+--    合法變更時要同批改該檔的凍結表。
 --    區塊內**刻意零縮排**:縮排差異會讓逐字比對永遠不等,**不要順手重排這幾行**。
 CREATE TABLE public.a4a_rollback_divergence AS
   SELECT u.order_item_id,
@@ -156,6 +177,10 @@ SELECT count(*) FROM pg_catalog.pg_trigger
    AND NOT tgisinternal;
 ```
 
+- 🔴 **(a2) 出貨側那支不在上面的枚舉裡**(2026-08-06 B2-S2b-3b):`shipments_summary_recompute_ac`
+  掛在 `shipments` 上、由 **B2-S2b** 建,步驟①(1b) 已把它 **DISABLE**(不 DROP)。
+  ⇒ 上面 (a) 那個「= 0 才准走⑥」的枚舉**不涵蓋它**,別把 (a) 歸零讀成「所有寫入摘要表的東西都清乾淨了」。
+  **完整的依賴清單(五 trigger / 六函式)+ DROP 序 = plan 項21b,尚未落地。**
 - (b)**消費端清單(授權時 repo-grep,2026-08-03)**:本片四 trigger + 五函式;A9c(PostgREST 讀模型)未建。🔴 **未來消費端上線片必須回寫本清單**(PostgREST select 字串對 DB 完全不可見,catalog 查不到)。
 - (c)反例(僅演練環境;證明「DROP 不會被 DB 自己擋、順序是人的責任」):trigger 在位時 DROP 表 → 下一筆來源 DML 紅 `42P01`。演練腳本自動跑。
 
@@ -177,6 +202,22 @@ COMMENT ON TABLE public.order_item_quantity_summary IS
 
 = **A4a 單獨回滾的終點**(摘要表凍結保留)。`received_quantity` 同步凍結、直寫守門已除。
 
+🔴🔴 **走到這裡就停的人請讀這段(2026-08-06 B2-S2b-3b 補;R1 抓到的真實可達壞狀態)**:
+你在步驟①(1b) 停掉的 `shipments_summary_recompute_ac` **現在仍是 disabled**,而回權那一句寫在**步驟⑦**、
+⑦ 的前提是⑥ 的 forward 重建 —— **這條路走不到⑦**。
+- ✅ **這是刻意的,不是漏掉**:步驟④ 已 `DROP` 掉 `pcm_a4a_recompute_order_item_summary`,
+  而那支 trigger 的函式體會 `PERFORM` 它 ⇒ **此刻 ENABLE 回去,下一筆出貨 UPDATE 會紅在 `42883`**。
+- 🔴 **所以:重建 A4a(+ S2b)之前<u>不得</u> ENABLE**;重建完成後照**步驟⑦** 那一句回權。
+- 🔴 **這段期間出貨側對摘要表零寫入** —— 摘要表本來就已標 `🛑 STALE`、不得信任,兩者一致;
+  但**別把「三軸對帳全綠」讀成「可以信任了」**,那正是本檔最陰的那個形狀。
+
+🔴🔴 **中止 / 放棄回滾的人請讀這段(2026-08-06 R2 抓;上一版完全沒涵蓋這條路)**:
+①(1b) 的 `DISABLE` 是**單獨提交**的,**不會隨②→⑤ 的回滾一起消失**。
+所以只要你是在 **④ COMMIT 之前**中止(② abort、⑤ RAISE 整段回滾、或單純決定不做了):
+- **helper 還在**(④ 沒提交 ⇒ 沒被 DROP)⇒ **回權是安全的、而且是必要的**。
+- 🔴 **立刻跑步驟⑦ 的那一句 `ENABLE TRIGGER`**(只跑那一句;⑦ 的其餘前提與 A5a 回權另計)。
+- 不跑的話:出貨側**永久停寫**、三軸對帳仍全綠、零告警 —— 同一個最陰形狀,只是從另一條路進來。
+
 ## 步驟 ⑤:凍結值驗證(可直接複製;codex K2-9/K2-R2-2 —— 三形狀、災難日不得未驗證就 COMMIT)
 
 ```sql
@@ -186,10 +227,10 @@ BEGIN
   -- 三形狀分歧(值/缺列/received drift)必須 ⊆ ② 已留檔集合(= ①停寫成立、④期間零新寫入)
   -- 🔴 2026-08-06 B2-S2b-3a 前段:值分歧補**第四軸 shipped**、候選全集補 `shipment_items`,
   --    與步驟②的 divergence 表同一組判準(兩處不同步 = 收尾驗證會漏掉出貨側的分歧)。
-  -- 🔴🔴 **災難日看到本步紅在 shipped 時,先看這裡**:步驟① 目前**還沒有**停掉出貨側的寫入路徑
-  --    (`ALTER TABLE public.shipments DISABLE TRIGGER shipments_summary_recompute_ac`,plan 項26,歸 S2b-3b)。
-  --    ⇒ ②→⑤ 之間任何一次 `UPDATE shipments SET shipped_at / deleted_at` 都會經那支 trigger 改摘要,
-  --    本步就會 RAISE。**那一紅通常代表「①的涵蓋面還沒補齊」,不是「④期間有人亂寫」** —— 兩者處置不同。
+  -- 🔴 **災難日看到本步紅在 shipped 時**:先確認步驟①(1b) 的停寫**真的跑過且回 `D`**
+  --    (2026-08-06 起①(1b) 已補上 `DISABLE TRIGGER shipments_summary_recompute_ac`)。
+  --    跑過還紅 ⇒ 才是「④期間真的有人寫」;沒跑過 ⇒ 回頭補①(1b) 再從②重來。
+  --    🔴 仍未涵蓋的寫入面見步驟① 的**債⑤**(`admin_cancel_order` 對 service_role 有 EXECUTE)。
   SELECT count(*) INTO v_bad
     FROM (SELECT p.order_item_id FROM public.order_item_procurement p
           UNION SELECT c.order_item_id FROM public.order_cancellation_items c
@@ -322,7 +363,15 @@ harness 已交付(`scripts/b2s2a-verify.sh gate`),但那段話在 sha 凍結的�
 
 ## 步驟 ⑦(最後一步;前提=⑥ 的 forward 重建完成+對帳綠):A5a 回權
 
-前提逐條 yes 才跑:☐ A1+A4a+**S2a** 已重放(實查 6 欄 / 10 CHECK)☐ backfill 對帳綠 ☐ 三張證據表已處置。
+前提逐條 yes 才跑:☐ A1+A4a+**S2a** 已重放(實查 6 欄 / 10 CHECK)☐ backfill 對帳綠 ☐ 三張證據表已處置
+☐ 🔴 **S2b(`20260806180000`)已重放**(實查 helper 是**四軸**、`shipments_summary_recompute_ac` 在)。
+🔴🔴 **最後那一格為什麼要獨立列**(2026-08-06 B2-S2b-3b R2 抓):只重放 A4a 復活的是**三軸** helper
+(`20260803140000` 版,函式體**沒有** shipped)。此時跑下面的 ENABLE **不會報錯** ——
+trigger 活了、helper 也在,但它算不出第四軸 ⇒ **shipped 軸靜默停更、而三軸對帳全綠**。
+那正是本檔一再點名的「最陰」形狀。**沒實查到四軸 helper 就不要跑 ENABLE。**
+🔴 **S2b 的重放程序本身還沒寫進本檔**(plan 項31,下一段):注意 `20260806180000` 的
+`CREATE CONSTRAINT TRIGGER` **沒有** `DROP IF EXISTS`,而①(1b) 只 DISABLE 不 DROP
+⇒ 直接整檔重放會撞 `42710`。**照 §6 替代路徑 A 的做法手動挑段跑,不要整檔重放。**
 (⚠️ v4 互指:若走的是 **a7 全回滾**(取消表已 DROP)⇒ A4a 永無法重放、本步前提**永不可滿足**
 ——回權改走 `2026-07-30-a7-rollback.md` 步 8 的 a7 專屬前提,勿在此卡死。)
 
@@ -332,4 +381,23 @@ GRANT EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
 -- 驗:應回 t
 SELECT has_function_privilege('service_role',
   'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)', 'EXECUTE');
+```
+
+```sql
+-- 🔴 **出貨側回權**(2026-08-06 B2-S2b-3b:與步驟①(1b) 對稱;債① 的另一半)。
+-- 🔴 **少了這一步的後果最陰**:出貨側**永久停寫** —— 之後每一次出貨/作廢都不再更新
+--     `shipped_quantity`,而**三軸對帳仍然全綠**(前三軸都對),沒有任何東西會提醒你。
+--     ⇒ 這一步不是收尾整潔,是不變式本身。
+-- ⚠️ 前提:**A4a(+ S2b)已重放**。
+-- 🔴 **更正(R1 抓)**:上一版說「S2b 未重建時這支 trigger 不在 ⇒ 42704」——**不成立**,
+--     本 repo **沒有任何路徑會 DROP 它**(①(1b) 只 DISABLE);它一直在,只是 disabled。
+--     真正的風險是相反的:**helper 還沒重建就 ENABLE**,下一筆出貨 UPDATE 會紅在 `42883`
+--     (trigger 函式體 `PERFORM public.pcm_a4a_recompute_order_item_summary(...)`,步驟④ 已 DROP 它)。
+--     ⇒ 本步驟的前提逐條 yes 之前**不要**跑這一句;走「A4a 單獨回滾、不重建」那條路的,
+--     見**步驟④ 終點**那段(刻意留 disabled)。
+ALTER TABLE public.shipments ENABLE TRIGGER shipments_summary_recompute_ac;
+-- 驗:應回 O(enabled);回 D 代表沒生效,停下 —— 出貨側還是停寫狀態
+SELECT tgenabled FROM pg_trigger
+ WHERE tgrelid = 'public.shipments'::regclass
+   AND tgname = 'shipments_summary_recompute_ac' AND NOT tgisinternal;
 ```

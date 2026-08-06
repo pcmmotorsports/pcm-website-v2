@@ -5,15 +5,19 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**三片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**四片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
 #     🔴 2b 依鐵則 4 切兩段;**第二段**做:環境 A(結構)突變矩陣、項19 barrier、項29 stale-high。**尚未做。**
-#   · **S2b-3a 後段**(本輪)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 本檔的對照組格)
+#   · **S2b-3a 後段**(commit `b3340ac`)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 對照組格)
 #     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
 #       T8 位置集合被「刪一格+重複另一格」、T9 標記被刪)。
 #     3a 前段(四處四軸化 + 標記註解)= commit `ff366bf`,不在本檔。
+#   · **S2b-3b 第一段**(本輪)= plan §4 的 **項26 / 26b / 27**:`RB-STOPWRITE`(runbook 停寫在步驟①、
+#     回權在步驟⑦ 的文字面 + 三發突變 S1/S2/S3)、`B26b-enable-restores`(回權後真的重新跟動)、
+#     `B27-divergence-4th`(從 runbook 抽 SQL 實跑的第四軸驗收)。
+#     🔴 3b 的 **項21b / 22 / 28 / 31 尚未做**(下一段;21b 與 31 共用同一次 rehearsal)。
 #
 # 用法:
 #   PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2s2bv   從零 provision post-S2b 基準庫,再跑全部
@@ -36,17 +40,19 @@
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
 # 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **突變覆蓋是 15 格中的 8 格,不是全部**。逐格清單也印在跑完的結語裡。
-#     **有靶的 8 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
-#     + **TRUTH-SYNC**(3a 後段的守門靶 **T1-T9**,六塊全覆蓋、兩半各有靶,另含位置集合與標記配對兩發)。
+#   ⓐ **突變覆蓋是 18 格中的 9 格,不是全部**。逐格清單也印在跑完的結語裡。
+#     **有靶的 9 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
+#     + **TRUTH-SYNC**(3a 的守門靶 **T1-T9**)+ **RB-STOPWRITE**(3b 的靶 **S1/S2/S3**)。
 #     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
 #     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
 #     不是突變。B12 在靶②④ 下紅在本輪新加的「作廢後必須是 0」中途斷言(那是它自己的內容),
 #     但它宣稱的另一半「**unvoid 真的回升**」仍**沒有**任何一發靶殺得到 —— 本線的靶動不到
 #     「只壞 unvoid、不壞 void」那條路。兩者都逐字寫在這裡,不要在報告裡簡化成「7 格已證」。
-#     **沒靶的 7 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
+#     **沒靶的 9 格**:B12b-x3 / B12b-x1 / B12c-blocks(驗的是 **S1b** 守門,本檔的突變全在 S2b
 #     那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b = S2b-4c 的範圍)、
-#     B12c-append-only(結構面)/ B15 / B18 / **ABLATION**(消融格本身無靶,它是 B10 的負向對照)。
+#     B12c-append-only(結構面)/ B15 / B18 / **ABLATION**(B10 的負向對照)/
+#     **B26b-enable-restores** / **B27-divergence-4th** —— 後兩格自帶對照(ABLATION 的 0/3、
+#     舊三軸述詞的 0 列),但**沒有**外部突變檔證明它們。
 #   ⓑ **plan §5 環境B 九列只做了五列**(逐列交代,不含糊):
 #     做了列 1-4(拿掉 trigger / 漏 `deleted_at IS NULL` / 漏 `shipped_at IS NOT NULL` / 漏 `deleted_at` 事件面)
 #     與增補靶末列(`ON CONFLICT` 漏 `shipped_quantity`)。
@@ -102,16 +108,19 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=15     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證 + 同步守門對照組)
+EXPECT_CELL=18     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
+                   #   + 同步守門對照組 + 3b 的三格:RB-STOPWRITE 文字面 / 項26b 回權行為 / 項27 divergence 第四軸)
 EXPECT_MUT=6       # 行為突變靶:MUT0 對照 + 靶①②③④⑤(環境 B;環境 A 結構靶不在本輪,見檔頭 ⓒ)
-EXPECT_TMUT=9      # 同步守門突變靶:T1-T5 全等半(五個嵌入形塊各一)、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、T8 位置集合、T9 標記被刪
-EXPECT_TOTAL=36    # 15 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 9 守門突變 + TMUT-COUNT + COPIES-DROPPED
+EXPECT_TMUT=12     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
+                   #   S1/S2 拿掉 runbook 的停寫/回權(3b)
+EXPECT_TOTAL=42    # 18 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 12 文字層突變 + TMUT-COUNT + COPIES-DROPPED
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
 B18-x1-commit-rollback B20-helper-live ABLATION \
 MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
-TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 TMUT-COUNT COPIES-DROPPED"
+TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
+RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th TMUT-COUNT COPIES-DROPPED"
 
 # 🔴 helper 四軸指紋:**測量值**,不是 migration 檔內的字面(migration 只在執行期
 #    `RAISE NOTICE` 公告它,`20260806180000_…:462`;全 repo grep 這個字串只命中本行)。
@@ -1164,8 +1173,178 @@ COALESCE((SELECT sum(si.shipped_quantity)' \
 COALESCE((SELECT sum(si.shipped_quantity)' \
   "FILE:a4a-summary-rollback.md rb-step5" TMUT-9
 
-[ "$TMUT" -eq "$EXPECT_TMUT" ] && ok TMUT-COUNT "同步守門突變靶跑了 $TMUT 發,與凍結值相符" \
-  || bad "同步守門突變靶只跑了 $TMUT 發,期望 $EXPECT_TMUT —— 有靶被刪掉或沒被呼叫"
+log "6c/8 債①②:出貨側停寫/回權 + divergence 第四軸(S2b-3b;項26 / 26b / 27)"
+# 🔴 **文字斷言 + 行為斷言兩層,缺一不可**(memory `feedback_guard-checks-existence-not-effect`):
+#    只斷言「runbook 裡有 DISABLE 那行」證不到它有效;只跑 DB 行為證不到災難日的人**會照著做**。
+RUNBOOK="docs/runbooks/a4a-summary-rollback.md"
+# 🔴 trigger 名走 $TG_SS(檔頭單一定義),不在這裡再寫死一份(R1 nit 10)。
+STOPWRITE_DISABLE="ALTER TABLE public.shipments DISABLE TRIGGER ${TG_SS};"
+STOPWRITE_ENABLE="ALTER TABLE public.shipments ENABLE TRIGGER ${TG_SS};"
+
+# ── 項26/26b 的文字面:兩句都在,而且**在對的步驟裡** ──────────────────────────
+# 🔴 只查「檔案裡有這句」不夠:兩句寫在同一個步驟裡也會過,而那是壞的
+#    (停寫寫在步驟⑦ = 災難日根本沒停到)。⇒ 用步驟標題切段,逐段查。
+stopwrite_check() {   # $1 = runbook 路徑 → 印出紅點 key(全綠零輸出)
+  RB="$1" D="$STOPWRITE_DISABLE" E="$STOPWRITE_ENABLE" python3 - <<'PY'
+import io, os, re
+s = io.open(os.environ['RB'], encoding='utf-8').read()
+D, E = os.environ['D'], os.environ['E']
+parts = re.split(r'(?m)^## 步驟 ', s)
+seg = {}
+for p in parts[1:]:
+    seg[p[0]] = p
+reds = []
+if D not in seg.get('①', ''):
+    reds.append('RB-STOPWRITE-disable')
+if E not in seg.get('⑦', ''):
+    reds.append('RB-STOPWRITE-enable')
+# 🔴 兩句都必須**全檔恰一次**:重複寫兩處時,刪掉其中一處的突變會抓不到。
+if s.count(D) != 1:
+    reds.append('RB-STOPWRITE-disable-count')
+if s.count(E) != 1:
+    reds.append('RB-STOPWRITE-enable-count')
+for r in reds:
+    print(r)
+print('OK-SENTINEL')      # 成功哨兵:checker 自己 crash 時不會印它(R2 nit F6)
+PY
+}
+CELL=$((CELL+1))
+# 🔴 認**哨兵**而不是認「輸出為空」:checker 自己 crash 時 stdout 也是空的(R2 nit F6)。
+SW_RAW="$(stopwrite_check "$RUNBOOK" 2>"$WORK/sw.err")"
+SW_CTL="$(printf '%s' "$SW_RAW" | grep -v '^OK-SENTINEL$' | tr '\n' ' ' | sed 's/ *$//')"
+SW_SENT="$(printf '%s' "$SW_RAW" | grep -c '^OK-SENTINEL$')"
+if [ -z "$SW_CTL" ] && [ "$SW_SENT" = "1" ]; then
+  ok RB-STOPWRITE "🔴 項26/26b 文字面:停寫 DISABLE 在**步驟①**、回權 ENABLE 在**步驟⑦**,各全檔恰一次"
+else
+  bad "項26/26b 文字面不符:[$SW_CTL](哨兵=$SW_SENT;0 代表 checker 自己炸了 —— $(head -2 "$WORK/sw.err" 2>/dev/null | tr '\n' ' '))"
+fi
+
+# ── 兩發突變:拿掉任一句,對應那格必須翻面 ────────────────────────────────────
+# 🔴 支援**第二組替換**($6/$7,選用):像「把一句從①搬到⑦」這種突變,單一替換做不出來
+#    —— 只刪不插會讓全檔計數變 0(紅在 count 而不是紅在段落),證不到「切段」那一半。
+run_swmut() {   # $1 靶名、$2 原字面、$3 新字面、$4 期望紅點、$5 key、[$6 第二組原字面、$7 第二組新字面]
+  local name="$1" src="$2" dst="$3" want="$4" key="$5" src2="${6:-}" dst2="${7:-}" f="$WORK/rb-$5.md" got
+  TMUT=$((TMUT+1))
+  SRC="$src" DST="$dst" SRC2="$src2" DST2="$dst2" IN="$RUNBOOK" OUT="$f" python3 - <<'PY' || { bad "$name:突變產生失敗"; return; }
+import io, os
+s = io.open(os.environ['IN'], encoding='utf-8').read()
+pairs = [(os.environ['SRC'], os.environ['DST'])]
+if os.environ.get('SRC2'):
+    pairs.append((os.environ['SRC2'], os.environ['DST2']))
+for src, dst in pairs:
+    n = s.count(src)
+    if n != 1:
+        raise SystemExit('突變錨命中 %d 次(必須恰 1 次):%r' % (n, src[:60]))
+    s = s.replace(src, dst)
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(s)
+PY
+  cmp -s "$RUNBOOK" "$f"; case "$?" in
+    1) : ;;
+    0) bad "$name:突變檔與原檔逐字相同 —— 沒改到東西"; rm -f "$f"; return ;;
+    *) bad "$name:cmp 讀不到檔 —— 判紅"; rm -f "$f"; return ;;
+  esac
+  got="$(stopwrite_check "$f" 2>/dev/null | grep -v '^OK-SENTINEL$' | tr '\n' ' ' | sed 's/ *$//')"
+  rm -f "$f"
+  if [ "$got" = "$want" ]; then ok "$key" "$name ⇒ 紅點逐字相符:[$want]"
+  else bad "$name:紅點不符 —— 實際 [$got] / 期望 [$want]"; fi
+}
+run_swmut "靶S1-拿掉步驟① 的停寫" "$STOPWRITE_DISABLE" '-- (停寫那行被拿掉了)' \
+  "RB-STOPWRITE-disable RB-STOPWRITE-disable-count" TMUT-S1
+run_swmut "靶S2-拿掉步驟⑦ 的回權" "$STOPWRITE_ENABLE" '-- (回權那行被拿掉了)' \
+  "RB-STOPWRITE-enable RB-STOPWRITE-enable-count" TMUT-S2
+# 🔴 **S3 專打「切段」那一半**(R1 important 6):S1/S2 只證明「那句在檔案裡」——
+#    把判定退化成全檔 grep,S1/S2 的紅點集合**逐字不變**(R1 實測)。
+#    這一發把停寫**從步驟①刪掉、改插進步驟⑦**:全檔仍恰一次、但不在①裡
+#    ⇒ 只有真的切段判斷才紅得到「-disable」而不紅「-disable-count」。
+run_swmut "靶S3-把停寫從步驟①搬到步驟⑦" \
+  "$STOPWRITE_DISABLE" '-- (從①移走)' \
+  "RB-STOPWRITE-disable" TMUT-S3 \
+  "$STOPWRITE_ENABLE" "$STOPWRITE_DISABLE
+$STOPWRITE_ENABLE"
+
+# ── 項26b 行為面:**恢復之後真的重新跟動**(項26 的停用面由 ABLATION 格承擔)────────
+# 🔴 這一格是債① 的另一半:停了不恢復 ⇒ 出貨側永久停寫,而三軸對帳仍全綠、零告警。
+CELL=$((CELL+1))
+fresh_db b2s2b_enb; ENB_URL="$FRESH_URL"
+ENB_GOT="$(psql -X "$ENB_URL" -v ON_ERROR_STOP=0 -qtA 2>&1 <<SQL | sed -n 's/^NOTICE:  GOT:\(.*\)$/\1/p' | head -1
+BEGIN;
+ALTER TABLE public.shipments DISABLE TRIGGER ${TG_SS};
+ALTER TABLE public.shipments ENABLE TRIGGER ${TG_SS};
+DO \$enb\$
+$DECLS
+BEGIN
+$FIXTURE
+$STOCK_I4
+$MK_DRAFT
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 2);
+$SHIP_NOW
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SELECT ($SHIPPED_OF_I4) INTO v_got;
+  RAISE NOTICE 'GOT:%', COALESCE(v_got, '<NULL>');
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'GOT:ERR:%:%', SQLSTATE, SQLERRM;
+END
+\$enb\$;
+ROLLBACK;
+SQL
+)"
+if [ "$ENB_GOT" = "2/3" ]; then
+  ok B26b-enable-restores "🔴 項26b:DISABLE → **ENABLE** 之後跑完整出貨串 ⇒ shipped 重新跟動 = 2/3(對照組:只 DISABLE 不 ENABLE 的 ABLATION 格是 0/3)"
+elif [ -z "$ENB_GOT" ]; then
+  bad "項26b:拿不到觀察值(fail-closed 判紅)"
+else
+  bad "項26b:期望「2/3」,實得「$ENB_GOT」—— ENABLE 之後沒有恢復跟動,出貨側等於永久停寫"
+fi
+drop_db b2s2b_enb
+
+# ── 項27:divergence 第四軸的**驗收 fixture** ──────────────────────────────────
+# plan 逐字:造只有 shipped 漂移、前三軸完全正確的資料 ⇒ 舊三軸版**回 0 列**(證明它真的瞎)、
+#           四軸版**回 1 列且指名該品項**。
+# 🔴 受測對象是 **runbook 檔內那段 SQL 本身**(從檔案抽出來跑),不是抄一份到這裡 ——
+#    抄一份的話 runbook 改壞了本格照樣綠。
+CELL=$((CELL+1))
+fresh_db b2s2b_div; DIV_URL="$FRESH_URL"
+RB_IN="$RUNBOOK" OUT="$WORK/rb-div.sql" python3 - <<'PY' || die "項27:抽不出 runbook 的 divergence 段"
+import io, os
+s = io.open(os.environ['RB_IN'], encoding='utf-8').read()
+i = s.index('CREATE TABLE public.a4a_rollback_divergence AS')
+j = s.index('-- received_quantity drift', i)
+io.open(os.environ['OUT'], 'w', encoding='utf-8').write(s[i:j])
+PY
+psql -X "$DIV_URL" -v ON_ERROR_STOP=1 -q >/dev/null 2>&1 <<SQL || die "項27:fixture 建立失敗"
+ALTER TABLE public.shipments DISABLE TRIGGER ${TG_SS};
+DO \$fx\$
+$DECLS
+BEGIN
+$FIXTURE
+$STOCK_I4
+$MK_DRAFT
+  INSERT INTO public.shipment_items (shipment_id, order_item_id, shipped_quantity) VALUES (v_ship, v_i4, 2);
+$SHIP_NOW
+END
+\$fx\$;
+SQL
+DIV_ITEM="$(psql -X "$DIV_URL" -qtAc "SELECT id FROM public.order_items WHERE variant_sku = 'S2BV-P4'" 2>&1)"
+DIV_PRE="$(psql -X "$DIV_URL" -qtAc "SELECT ordered_quantity::text||'/'||instock_quantity::text||'/'||cancelled_quantity::text||'/'||shipped_quantity::text FROM ${SUMMARY} WHERE order_item_id='$DIV_ITEM'" 2>&1)"
+DIV_OLD="$(psql -X "$DIV_URL" -qtAc "SELECT count(*) FROM ${SUMMARY} s
+  WHERE s.ordered_quantity   IS DISTINCT FROM COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=s.order_item_id),0)
+     OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=s.order_item_id),0)
+     OR s.instock_quantity   IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
+           WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=s.order_item_id)),0)" 2>&1)"
+psql -X "$DIV_URL" -v ON_ERROR_STOP=1 -q -f "$WORK/rb-div.sql" >/dev/null 2>"$WORK/rb-div.err" \
+  || die "項27:runbook 的 divergence 段執行失敗($(head -1 "$WORK/rb-div.err"))"
+DIV_NEW="$(psql -X "$DIV_URL" -qtAc "SELECT count(*)::text || '/' || coalesce(max(order_item_id::text),'-') || '/' || coalesce(max(snap_shipped)::text,'-') || '/' || coalesce(max(truth_shipped)::text,'-') FROM public.a4a_rollback_divergence" 2>&1)"
+drop_db b2s2b_div
+if [ "$DIV_PRE" = "3/3/0/0" ] && [ "$DIV_OLD" = "0" ] && [ "$DIV_NEW" = "1/$DIV_ITEM/0/2" ]; then
+  ok B27-divergence-4th "🔴 項27:前三軸完全正確(3/3/0)、只有 shipped 漂移 ⇒ **舊三軸版回 0 列(真的瞎)**、runbook 的四軸版回 **1 列且指名該品項**(snap 0 / truth 2)"
+else
+  bad "項27:期望「前三軸 3/3/0/0 + 舊版 0 + 新版 1/$DIV_ITEM/0/2」,實得「$DIV_PRE + $DIV_OLD + $DIV_NEW」"
+fi
+
+# 🔴 TMUT 計數斷言必須排在**所有**文字層突變之後(S1/S2 在 6c 段)——
+#    上一版把它放在 6b 段尾,S1/S2 還沒跑就先數,當場紅在「只跑了 9 發」(本輪實測)。
+[ "$TMUT" -eq "$EXPECT_TMUT" ] && ok TMUT-COUNT "文字層突變靶跑了 $TMUT 發,與凍結值相符" \
+  || bad "文字層突變靶只跑了 $TMUT 發,期望 $EXPECT_TMUT —— 有靶被刪掉或沒被呼叫"
 
 log "7/8 S2b-1 消融重證(主視窗 B-147-A ③:推論轉觀察)"
 # 🔴 為什麼要這一格:S2b-1 交付時的行為實證第⑤條(停用本 trigger 後 shipped 不再跟動)
@@ -1244,17 +1423,19 @@ fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
-echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **8 格**被至少一發突變紅過 ——"
-echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)。"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **9 格**被至少一發突變紅過 ——"
+echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)"
+echo "   + **RB-STOPWRITE**(靶 S1/S2/S3:拿掉停寫、拿掉回權、把停寫從步驟①搬到⑦)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"
 echo "     · **B12** 在靶②④ 下紅的是「作廢後必須是 0」那道中途斷言;它宣稱的另一半"
 echo "       「**unvoid 真的回升**」**沒有**任何一發靶殺得到(本線的靶動不到「只壞 unvoid」那條路)。"
-echo "   **另外 7 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
+echo "   **另外 9 格沒有對應突變靶**,只被對照組證明「可以滿足」:"
 echo "   ①B12b-x3 / B12b-x1 / B12c-blocks —— 驗的是 **S1b** 的守門(X3 / X1 / append-only),"
 echo "     本檔的突變全在 S2b 那支 migration 上、**結構上動不到它們**;那三發靶是 plan 項25b(S2b-4c)的範圍。"
 echo "   ②B12c-append-only(結構面)/ B15 / B18 —— 各自開副本庫或只查 catalog,無對應靶。"
 echo "   ③**ABLATION** —— 消融格本身無靶;它是 B10 的負向對照(同路徑 2/3 vs 0/3)。"
+echo "   ④**B26b-enable-restores / B27-divergence-4th**(3b)—— 兩格都自帶對照(ABLATION 的 0/3、舊三軸版的 0 列),但**沒有**外部突變檔證明它們。"
 echo "   🔴 plan §5 環境B **九列只做了五列**、環境A 矩陣與項19 / 項29 都不在本輪(見檔頭 ⓑⓒ)。"
 [ "$FAIL" -eq 0 ] || exit 1
