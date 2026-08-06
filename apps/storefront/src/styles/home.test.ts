@@ -546,6 +546,77 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(rule, 'gap 不是 0 ⇒ 12 格之間會裂開、不是一塊完整磚面').toMatch(/gap:\s*0/);
   });
 
+  // ── 2026-08-07 finder 窄幅修(Sean 488px 實測回報破版)────────────────
+  // 🔴 這三條守的東西**原本一條守門都沒有**(偵察實查:`VehicleFinder.test.tsx` 只鎖 placeholder
+  //    字面與 DOM 結構、jsdom 不跑 layout;`home.test.ts` 沒有任何 `.ed-finder-bar` 欄數斷言)。
+  //    ⇒ 修完就有可能無聲回歸。
+  it('🔴 .ed-finder-slot 有 min-width:0(OD 稿有、真站原本搬漏)', () => {
+    const top = topLevelCss();
+    const slot = /\.ed-finder-slot\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    expect(slot, '找不到 .ed-finder-slot 基礎規則 ⇒ 本條前提失效').not.toBe('');
+    expect(slot, 'grid item 少了 min-width:0 ⇒ 收不到內容寬以下(OD 的 slot 與 slot input 兩處都有)')
+      .toMatch(/min-width:\s*0/);
+  });
+
+  it('🔴 ≤900px:年份欄跨滿整排(OD 有 grid-column:span 2、真站原本搬漏 ⇒ 第二欄留空洞)', () => {
+    const narrow = mediaBlock('(max-width: 900px)');
+    expect(narrow, '年份欄沒有跨兩欄 ⇒ 第二排右半格是空洞(真瀏覽器 488px 量到 slot3 只佔 207/414)')
+      .toMatch(/\.ed-finder-slot:nth-of-type\(3\)\s*\{[^}]*grid-column:\s*span 2/);
+    // 前提:這條只在「兩欄」的前提下才有意義。
+    expect(narrow, '≤900px 不是兩欄 ⇒ 本條前提失效')
+      .toMatch(/\.ed-finder-bar\s*\{[^}]*grid-template-columns:\s*1fr 1fr/);
+  });
+
+  it('🔴 ≤560px:三欄各自獨占一排(OD 沒涵蓋這個寬度、按稿意圖外推;不靠刪 placeholder 例字解決)', () => {
+    const tiny = mediaBlock('(max-width: 560px)');
+    // ⚠️ 審查抓到 `tiny.length > 0` 是恆真:`(max-width: 560px)` 這個查詢也命中本檔既有的
+    //    `.b-carousel-item` 那塊 ⇒ 把 finder 的 ≤560 整段刪掉,那條照樣綠、失敗訊息會說謊。
+    //    ⇒ 改成要求那個區塊**真的含有 finder 規則**。
+    expect(tiny, '≤560px 區塊裡沒有 .ed-finder-bar ⇒ 窄幅單欄修正整條不見了(或被切到別的 560 區塊)')
+      .toMatch(/\.ed-finder-bar/);
+    expect(tiny, '≤560px 沒有收成單欄 ⇒ 車型欄的「例:R6」會被切掉')
+      .toMatch(/\.ed-finder-bar\s*\{[^}]*grid-template-columns:\s*1fr\s*[;}]/);
+    // 反面:單欄之後不得殘留「跨兩欄」——那會讓 grid 自動長出第二欄、破版換個方向再來一次。
+    expect(tiny, '≤560px 仍留著 span 2 ⇒ 單欄會被撐成兩欄')
+      .not.toMatch(/grid-column:\s*span 2/);
+    // 單欄之後每一列右緣不該再有欄間分隔線(拿掉這條會多一條孤兒框線,而上面幾條都不會紅)。
+    expect(tiny, '≤560px 沒有解除 slot 的 border-right ⇒ 單欄每列右緣多一條孤兒框線')
+      .toMatch(/\.ed-finder-slot\s*\{[^}]*border-right:\s*0/);
+    // 🔴 序:≤560 必須排在 ≤900 之後(同 specificity、靠後載勝),否則整段被 ≤900 蓋回兩欄。
+    //    ⚠️ 審查抓到我第一版是**恆真**:`CSS.indexOf('@media (max-width: 900px)')` 命中的是
+    //    檔案開頭 `.ed-page { --ed-gutter: 20px }` 那個 900 區塊(offset 幾百),
+    //    根本不是 finder 的那個(offset 七千多)⇒ 把 ≤560 整段搬到 finder 的 900 之前,
+    //    這條照樣綠,而 488px 已經被蓋回兩欄。
+    //    ⇒ 改成比「**含 `.ed-finder-bar` 的那兩個區塊**」的位置。
+    const finder900 = CSS.indexOf('.ed-finder-bar { grid-template-columns: 1fr 1fr; }');
+    const finder560 = CSS.indexOf('.ed-finder-bar { grid-template-columns: 1fr; }');
+    expect(finder900, '找不到 finder 的 ≤900 兩欄規則 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(finder560, '找不到 finder 的 ≤560 單欄規則 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(
+      finder560,
+      'finder 的 ≤560 單欄規則排在 ≤900 兩欄規則之前 ⇒ 會被兩欄那組蓋回去',
+    ).toBeGreaterThan(finder900);
+  });
+
+  it('🔴 chips 的負邊距出血對齊 .b-dock 自己的內距(不是頁面 gutter)', () => {
+    // 🔴 原本吃 `--ed-gutter`(≤900 是 20px),而 `.b-dock` 的左右內距是 16px
+    //    ⇒ 多出 4px、chips 這一列伸出白卡右緣(真瀏覽器 488px 量到 +4)。
+    //    出血要對齊的是**容器自己的內距**,兩者無關、只是碰巧接近。
+    const narrow = mediaBlock('(max-width: 900px)');
+    const pad = /\.b-dock\s*\{[^}]*--dock-pad:\s*([0-9]+px)/.exec(narrow)?.[1];
+    expect(pad, '≤900px 的 .b-dock 沒有宣告 --dock-pad ⇒ 出血失去同源依據').toBeTruthy();
+    // padding 必須真的吃那顆變數(否則兩者會各走各的)
+    expect(narrow, '.b-dock 的 padding 沒有吃 --dock-pad ⇒ 改 padding 時出血不會跟著動')
+      .toMatch(/\.b-dock\s*\{[^}]*padding:[^;]*var\(--dock-pad\)/);
+    const chipsRule = /\.cat-garage--inline\s+\.cat-garage-chips\s*\{[^}]*\}/.exec(narrow)?.[0] ?? '';
+    expect(chipsRule, '找不到 chips 那條規則 ⇒ 本條前提失效').not.toBe('');
+    expect(chipsRule, 'chips 的負邊距沒有吃 --dock-pad ⇒ 又會與白卡邊緣對不齊')
+      .toMatch(/margin-right:\s*calc\(var\(--dock-pad\) \* -1\)/);
+    expect(chipsRule, 'chips 的 padding-right 沒有吃 --dock-pad').toMatch(/padding-right:\s*var\(--dock-pad\)/);
+    // 反面:不得再出現用 gutter 做出血的舊寫法。
+    expect(chipsRule, 'chips 又改回吃 --ed-gutter ⇒ 與 .b-dock 內距脫鉤').not.toMatch(/--ed-gutter/);
+  });
+
   // ── A10:首頁自刻的愛車 chips 家族退場、換全站唯一的 GarageChips ──
   // 🔴 這條守的是「搬家時把行為弄丟」那一族。V-2d② 是 Sean 2026-07-15 真機回報的爆版
   //    (「我的愛車會被推到下一行」),修法是 ≤900px 改單行橫向捲動。換 class 時最容易發生的事
@@ -559,7 +630,8 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(narrow, 'chip 要 flex:0 0 auto 才不會被壓扁')
       .toMatch(/\.cat-garage--inline\s+\.cat-garage-chip\s*\{[^}]*flex\s*:\s*0 0 auto/);
     // 🔴 scope 是承重的:home.css 由 layout.tsx **全域** import,少了 `.b-dock ` 前綴,
-    //    A10b/A10c 把 inline 掛上 PDP §7 與購物車之後,這段捲動與 gutter 出血會潑到那兩處去。
+    //    A10b/A10c 把 inline 掛上 PDP §7 與購物車之後,這段捲動與出血會潑到那兩處去。
+    //    (2026-08-07 更正:出血已改吃 `--dock-pad`、不再是 gutter,上一行的「gutter 出血」字面已過期。)
     // 🔴 H5 突變證抓到的洞(M52 一開始是綠的):上一版用 `toMatch` 找「**有沒有一條**帶前綴的規則」
     //    —— 而這一族有四條,其中 `::-webkit-scrollbar` 那條照樣帶著前綴 ⇒ 把**別條**的前綴拿掉,
     //    斷言仍被那條滿足、全綠。一個實例滿足全族 = 那正是本 repo 記過的假守門形狀。

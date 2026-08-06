@@ -272,7 +272,9 @@
   .b-hero { min-height: 560px; }
   .b-hero-inner { padding-bottom: 20px; }
   .b-hero-title { margin-bottom: 22px; }
-  .b-dock { padding: 16px 16px 14px; }
+  /* `--dock-pad` 與下一行的左右 padding **同源**:chips 那列的負邊距出血要對齊它
+     (見下方 `.cat-garage-chips` 那段的紅字)。改 padding 時這顆要一起改,守門會比對。 */
+  .b-dock { --dock-pad: 16px; padding: 16px var(--dock-pad) 14px; }
 }
 /* 🔴 **本 repo 對 OD 的申報偏離(H5;真瀏覽器實測抓到的真缺陷)**:讓位給固定 TabBar。
    OD 的 hero 高度是 `calc(100svh - <header>)`,**沒有把底部那條固定 TabBar 算進去** ——
@@ -324,6 +326,14 @@
   padding: 14px 20px 12px;
   border-right: 1px solid var(--ed-c-rule);
   cursor: pointer;
+  /* 🔴 2026-08-07:OD `direction-b-layout-01-graphite-ember.html` 的 `.ed-finder-slot` 有這條、
+     真站**搬漏了**(grep `min-width:0` 在該稿的 slot 與 slot input 兩處都有)。
+     grid item 預設 `min-width: auto` = 內容最小尺寸,收不到內容以下。
+     ⚠️ **誠實說明**:實測(真瀏覽器 320-900 掃描)顯示欄位本來就有在正常收縮
+     (320px 時 123px、900px 時 413px)⇒ **補這條不是為了修 Sean 回報的截字**,
+     那是文字比欄寬長、另有修法(見下方 ≤560 那段)。這條純粹是鐵則 1 的保真補件,
+     防的是「哪天有人加一個長字面的子元素、欄位就撐不回去」。 */
+  min-width: 0;
 }
 .ed-finder-slot:last-of-type { border-right: 0; }
 .ed-finder-slot-label {
@@ -406,8 +416,46 @@
 @media (max-width: 900px) {
   .ed-finder-bar { grid-template-columns: 1fr 1fr; }
   .ed-finder-slot:nth-of-type(2) { border-right: 0; }
-  .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); }
+  /* 🔴 2026-08-07:`grid-column: span 2` 是 OD 稿有、真站**搬漏**的那一條。
+     沒有它,年份欄只佔第二排的左半格、**右半格是一個空洞**(真瀏覽器 488px 量到:
+     slot3 在 left:1 寬 207,而 208..415 完全空著)—— 有邊框的格子裡破一個洞,
+     很可能就是 Sean 回報「破版」看到的東西。 */
+  .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); grid-column: span 2; }
   .ed-finder-go { grid-column: span 2; border-top: 1px solid var(--ed-c-ink); justify-content: center; padding: 18px; }
+}
+
+/* ── 窄幅(≤560px):三欄各自獨占一整排 ───────────────────────────────────
+   🔴 **OD 沒有涵蓋這個寬度**:稿對 finder 只有 `max-width: 900px` 一個斷點,
+   0–900 之間全部吃同一組「2 欄」規則。⇒ 以下是**按稿的設計意圖外推**,已在 STOP 申報。
+   推法依據:稿本身的方向就是「愈窄、欄愈少」(桌機 4 欄 → ≤900 兩欄 + 年份跨滿),
+   再窄一級就是每欄獨占一排。
+   (ADR-0007 的手機方向逐字寫「大型欄位方向、不照搬桌機橫列」,方向一致可當佐證 ——
+    ⚠️ 但那條治的是**型錄選車 UX**、不是首頁 dock finder,是「外推之上再借一層」,不是直接授權。)
+   為什麼是 560:真瀏覽器實測 placeholder 文字寬 vs 欄內可用寬 ——
+   車型欄的「選擇或輸入車型，例:R6」實測 **170px**,而 2 欄版在 488px 只給得出 **167px**(截 3px)。
+   2 欄下每多 1px 視窗寬、每欄只多 0.5px ⇒ 補足 3px 需要 +6px 視窗 ⇒ **臨界約 494px**
+   (審查抓到我原本寫「約 540」—— 那個數字推不出來、沒有來源)。
+   560 是本檔既有的斷點(`.b-carousel-item` 那條)⇒ 沿用既有數字、不另造一個,且對 494 留有餘裕。
+   🔴 **不動 placeholder 字面**:「例:R6」是 Sean 2026-08-06 拍板 B 的字面
+   (可驗證出處 = `docs/design-storefront-manifest.yaml` 的 VehicleFinder 條目 B1 段,
+   grep `例:R6`;審查抓到我原本引的是 session 視窗信件代號 —— 下一個 session grep 不到)。 */
+@media (max-width: 560px) {
+  .ed-finder-bar { grid-template-columns: 1fr; }
+  .ed-finder-slot { border-right: 0; }
+  .ed-finder-slot:nth-of-type(2),
+  .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); grid-column: auto; }
+  .ed-finder-go { grid-column: auto; }
+  /* 🔴 **縱向代價:量過了,結論是「不用買回來」**(審查點名要驗、我原本也以為要修)。
+     單欄把 finder 由 3 列變 4 列(bar 高 194 → 259),直覺上會把主 CTA 往下推去撞
+     `.mobile-tabbar` —— 本檔 H5 段就記過那種事故(390×844 曾被蓋 33px)。
+     ⇒ 真瀏覽器改前/改後對照實測(320×568 / 375×667 / 390×844 / 414×736 / 488×871 / 560×900):
+     **「搜尋部品」下緣的位置一模一樣、淨空一律 41px,兩邊零差異**。
+     原因:`.b-dock` 被自己的 `margin-bottom: calc(70px + safe-area)` 釘在 hero 底部,
+     finder 長高只會把 dock 的**頂端**往上推,底緣不動 ⇒ 縱向不是本改動的風險面。
+     ⚠️ 順帶量到、**與本片無關的既有狀況**:320×568(最矮的舊機)改前改後都是被蓋 20px
+     (`goBottom` 兩邊都是 524)—— 那是既有的、不是本片造成,已列 STOP 回報、未在此順手改。
+     ⚠️ 我一度為此加了一組「收緊列高」的 padding 覆寫,量完發現它對淨空零影響
+     ⇒ **整組移除**(建立在錯誤前提上的改動,留著只是多一份 OD 沒授權的密度值)。 */
 }
 
 /* ============================================================
@@ -1573,8 +1621,16 @@
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* 捲動條藏(strip 慣例);仍可滑 */
-    margin-right: calc(var(--ed-gutter) * -1);
-    padding-right: var(--ed-gutter); /* 右緣露半顆=可滑 affordance、沿用 gutter */
+    /* 🔴 2026-08-07 修:原本吃 `--ed-gutter`(≤900 是 20px),但 `.b-dock` 自己的
+       左右內距是 **16px** ⇒ 負邊距比內距多 4px,chips 這一列會**伸出白卡右緣 4px**
+       (真瀏覽器 488px 量到 `chips.right - dock.right = 4`)。
+       出血要對齊的是**容器自己的內距**,不是頁面 gutter —— 兩者無關、只是碰巧接近。
+       ⇒ 改吃 `--dock-pad`(在同一個 @media 裡與 `.b-dock` 的 padding 同源宣告)。
+       ⚠️ 取捨申報:OD 對同型出血(`.b-dock-jump`)是直接寫死 `-16px` / `16px`,沒有變數。
+       多這一層間接換到的是「padding 改了、守門會紅」的耦合證 —— 這是本片刻意付的成本,
+       不是變數比較好看。(`.b-dock-jump` 整族本 repo 不搬,沒有第二個呼叫端要一起改。) */
+    margin-right: calc(var(--dock-pad) * -1);
+    padding-right: var(--dock-pad); /* 右緣露半顆=可滑 affordance */
   }
   .b-dock .cat-garage--inline .cat-garage-chips::-webkit-scrollbar { display: none; }
   /* nowrap 不在這裡 —— 它是**全斷點**的,寫在 filter-cascade.css 的
@@ -1612,6 +1668,11 @@
    是硬寫的 `--ed-c-paper` 白、整個 `.ed-*` 調色盤刻意無深色變體 ⇒ 吃站台層 token 會在深色模式
    把白底上的字變更淡。(實查:repo 目前**沒有**任何切 `data-theme` 的入口 ⇒ 此為防禦、非現況風險;
    同型判斷已有 `brand-page.css` / `products-mobile.css` 兩處先例。) */
+/* 🔴 2026-08-07:OD 的 `.ed-finder-slot input` 也有 `min-width: 0`(與 slot 那條成對)。
+   審查抓到我原本只搬了 slot 那一處、卻在註解裡舉了「兩處都有」當證據 = 舉證兩處只做一處。
+   站上這顆是 combobox 的裸 input,`filter-cascade.css` 在 ≤1023px 已給它 `min-width: 0`,
+   但那是**別支檔的斷點規則**、且只在窄幅生效 ⇒ 這裡補一份無條件的,讓保真與依賴都完整。 */
+.ed-finder-slot .vsc-input--finder { min-width: 0; }
 .ed-finder-slot .vsc-input--finder::placeholder { color: var(--ed-c-ink-mute); opacity: 1; }
 .ed-finder-slot .vsc-input--finder:disabled {
   color: var(--ed-c-ink-mute);
