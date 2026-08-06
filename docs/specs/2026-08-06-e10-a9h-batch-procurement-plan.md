@@ -1,7 +1,16 @@
-# A9h 批次訂貨 coordinator — plan v2(三題已拍,關卡1 前的施工字面)
+# A9h 批次訂貨 coordinator — plan v2(🔴 關卡1 NO-GO,受阻於片界問題)
 
-> **狀態:🏁 §7 三題全拍(`E-123-A`,2026-08-06)、Sean 已批「照流程開」。**
-> **下一關 = 關卡1 一輪 → PASS 即開工 A9h-1。零行 code。**
+> **狀態:🔴 關卡1 NO-GO**(codex `gpt-5.6-sol`,11 must-fix + 1 nit,四個指定面全 FAIL)⇒ **不開工**。
+> findings 全文 + 我的親驗 = `docs/reviews/2026-08-06-e10-a9h-k1-codex.md`。
+>
+> 🔴 **must-fix #1 會改變片界**:批次只填數量 ⇒ A5a 全量覆寫會把
+> `submitted_at` / `supplier_order_no` / `exception_reason` / `expected_arrival_date`
+> **四個人工填寫欄清成 `null`**(我親開 migration `20260803160000:354-360` 證實無條件覆寫)。
+> codex 裁定「警告不能把資料損失變可接受」⇒ 需 A5a 加 `preserve` 模式或另建窄版 patch RPC
+> ⇒ **A9h 不再是純應用層 `A` 型片、要 migration** ⇒ **已送決策題,不自行擴張片界。**
+>
+> 其餘 10 條 must-fix **全掛在簽章上,待 #1 定案後一起折 —— 先折會白折**。
+> §7 三題(`E-123-A`)仍有效,但 **Q1=A 的形狀正是 #1 的來源**。零行 code。
 > 產出視窗 = E(九碼退場窗),依 `E-121-A` ②。
 > 事實全部親查於 worktree `pcm-refund-wire` @ `cb53f65`;引用一律附 `檔案:行號`。
 >
