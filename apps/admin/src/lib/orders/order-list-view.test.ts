@@ -8,6 +8,7 @@ import {
   parseOrderListSearchParams,
   buildOrderListHref,
   formatOrderDate,
+  formatOrderListDate,
   formatOrderAmount,
   formatOrderItemVehicle,
   ORDERS_PAGE_SIZE,
@@ -160,6 +161,45 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
 describe('格式化', () => {
   it('formatOrderDate:UTC timestamptz → Asia/Taipei YYYY-MM-DD(避 off-by-one)', () => {
     expect(formatOrderDate('2099-04-15T16:30:00Z')).toBe('2099-04-16');
+  });
+
+  // ── V6:列表日期格式(A11a-2;母 plan §5.1a「改寫 | 日期 → `07/25`」那列逐字)──
+  // 🔴 各自對應一種會靜默壞掉的改法:①一律補年份 ②一律不補年份 ③拿 UTC 年份比 ④非法 iso 擲錯。
+  it('V6 同年 → `MM/DD`、不帶年份', () => {
+    // 🔴 這裡原本多寫一條 `.not.toContain('2026')`,R1 抓到它被本條 `toBe` **嚴格蘊含**
+    //    (任何多印年份的退化都先讓 `toBe` 紅)⇒ 零判別力、而註解卻宣稱它擋得住某種改法。已刪。
+    expect(formatOrderListDate('2026-07-25T03:00:00Z', new Date('2026-07-30T00:00:00Z'))).toBe(
+      '07/25',
+    );
+  });
+
+  it('V6 跨年 → `YYYY/MM/DD`、補回年份', () => {
+    expect(formatOrderListDate('2025-06-27T03:00:00Z', new Date('2026-07-30T00:00:00Z'))).toBe(
+      '2025/06/27',
+    );
+  });
+
+  it('🔴 V6 年份比較在 Asia/Taipei 曆面做,不是拿 UTC 年份比', () => {
+    // UTC `2025-12-31T16:30Z` 在台北已是 **2026-01-01** ⇒ 相對 2026 是**同年**、不該補 `2025/`。
+    // 拿 UTC 年份比的寫法在這一格會輸出 `2025/01/01`(月日還對、只有年份錯)—— 只有這條抓得到。
+    expect(formatOrderListDate('2025-12-31T16:30:00Z', new Date('2026-03-01T00:00:00Z'))).toBe(
+      '01/01',
+    );
+  });
+
+  it('🔴 非法 iso 不擲錯、原樣回傳(server component 內擲錯 = 整個 /orders 500)', () => {
+    // `Intl.DateTimeFormat.formatToParts(Invalid Date)` 會擲 RangeError ⇒ 必須先擋。
+    // 慣例同 `note-timeline.ts:85`。正常路徑構造不出來(created_at 是 timestamptz NOT NULL),
+    // 但這支是純函式、下一個呼叫端不保證餵的是 DB 值。
+    expect(() => formatOrderListDate('not-a-date')).not.toThrow();
+    expect(formatOrderListDate('not-a-date')).toBe('not-a-date');
+  });
+
+  it('🔴 formatOrderDate 未被列表格式帶走:仍回完整 `YYYY-MM-DD`', () => {
+    // ⚠️ 保留這條的理由**不是**「明細頁在用」(那是 A11a plan `:185` 的錯誤前提,A11a-2 實查推翻:
+    //    明細頁走 `order-detail-view.ts:38 formatOrderDateTime`)。理由是本支 A11a-2 後 production
+    //    consumer 歸零、去留待判 ⇒ 在它被裁定之前,至少釘住「沒有人順手把它改成列表格式」。
+    expect(formatOrderDate('2026-07-25T03:00:00Z')).toBe('2026-07-25');
   });
 
   it('formatOrderAmount:整數元位千分位(非分、不除 100)', () => {

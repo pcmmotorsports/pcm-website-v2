@@ -2,9 +2,10 @@ import Link from 'next/link';
 import type { AdminOrderSummary } from '@pcm/domain';
 import {
   MEMBER_TIER_LABEL,
+  PAYMENT_STATUS_LABEL,
   formatOrderAmount,
-  formatOrderDate,
   formatOrderItemVehicle,
+  formatOrderListDate,
 } from '../../lib/orders/order-list-view';
 
 // M-4a Slice D-1a 訂單列表(server-render;每商品一列、同單分組)。
@@ -16,6 +17,9 @@ import {
 //    這是**列表側最後一個九碼消費端**。同批移除「來源 · 管道」欄(母 plan §5.1a:明細頁已有、
 //    不是每天要看的資訊)、單價與總金額合併為「金額」、會員等級併入客戶格小字。
 //    ⇒ 現為 **9 欄**;訂貨 / 出貨 / 發票 / 操作四欄依 plan 分屬 A11a-4/-6/-5 與 A13,本片不預埋。
+//
+// 🔴 **A11a-2(2026-08-06)**:付款軸小字進訂單編號格、日期改接 `formatOrderListDate`
+//    (同年 `07/25` / 跨年 `2025/06/27`)。**兩者都塞進既有格、欄數仍是 9**(plan `:480` 逐字)。
 //
 // 🔴 鐵則 12:金額 + 會員等級同列 = 經銷價脈絡,全 server-render → 敏感值不序列化進 client bundle;
 //    SSO 閘後 admin-only。**本片拆掉唯一的 client 元件(狀態欄下拉)後,本檔已無任何 client 邊界。**
@@ -70,12 +74,33 @@ function OrderGroup({ order }: { order: AdminOrderSummary }) {
                   已取消
                 </span>
               )}
+              {/* A11a-2:付款軸小字。母 plan §5.1a 三軸落點**整句**逐字 = 「付款 = 訂單層(rowSpan
+                  合併格內小字,『待付款』紅 = design token `--c-red`(#dc2626,`tokens.css:16`)」。
+                  形狀同客戶格的等級小字、**不另立欄**。
+
+                  🔴 **顏色刻意偏離該句字面,理由實查如下(鐵則 11:偏離要寫在字面上)**:
+                  ① `--c-red` 是 **storefront** 的 token,`apps/admin/src/app/globals.css` 全檔無此顆;
+                  ② 它現值已不是 #dc2626 —— `apps/storefront/src/styles/tokens.css:79` 逐字
+                     `--c-red: #f26722`(D 線改成亮熔橘),母 plan 引的 `:16` 行號也已漂掉;
+                  ③ admin 的網站 token 是 `--destructive`(`globals.css:27` → `:91 --color-destructive`)。
+                  ⇒ 照該句的**用意**(用網站 token、不照抄外部 hex)走 admin 自己那顆,不把 `--c-red` 搬進來。
+
+                  🔴 只有 `unpaid` 上紅是照真權威字面(它只點名「待付款」)。`refunded` / `partiallyRefunded`
+                  目前與 `paid` 同灰 = **訊號塌陷**,已列交棒決策題、不在本片自行加色。 */}
+              <div
+                className={`text-xs ${order.paymentStatus === 'unpaid' ? 'text-destructive' : 'text-muted-foreground'}`}
+              >
+                {PAYMENT_STATUS_LABEL[order.paymentStatus]}
+              </div>
             </td>
           )}
-          {/* Q2=A(07-16 晨拍板):日期欄(created_at 已在投影、訂單層 rowSpan) */}
+          {/* Q2=A(07-16 晨拍板):日期欄(created_at 已在投影、訂單層 rowSpan)
+              A11a-2:改接 `formatOrderListDate`(同年 `07/25`、跨年 `2025/06/27`)。
+              ⚠️ 這是 admin `formatOrderDate` 的**唯一** production 呼叫端 ⇒ 改接後那支歸零、去留待判
+              (plan 說的「留給明細頁」是錯的:明細頁走 `formatOrderDateTime`)。 */}
           {i === 0 && (
             <td className={`${TD} text-muted-foreground text-xs`} rowSpan={rowSpan}>
-              {formatOrderDate(order.createdAt)}
+              {formatOrderListDate(order.createdAt)}
             </td>
           )}
           <td className={TD}>{line?.brand ?? '—'}</td>
