@@ -402,8 +402,11 @@ export type AdminProcurementReplyStatus =
  *
  * 🔴 **內部資料,絕不對客**:供應商身分、單號、異常原因一個 byte 都不能走上客人看得到的投影
  * (建表檔 `:16-18`;`orders`/`order_items` 對登入客人整表開放 SELECT)。本型別只走 admin service_role 路徑。
- * 🔴 **全欄都在,是刻意的**:A5a 是**全量 payload**(非 patch),選填欄送 NULL = 寫成 NULL
+ * 🔴 **全欄都在,是刻意的**:A5a 在 `p_preserve_optional_fields = false`(明細頁單列表單走的分支)
+ * 下是**全量 payload**(非 patch),選填欄送 NULL = 寫成 NULL
  * ⇒ 呼叫端契約 = 表單必「全欄 hydrate 自最新列、先讀後送」
+ * (🔴 A9h 批次走 `true`:那四個選填欄的 NULL 是**保留現值**、不是清空 —— A9h-M `20260806200000`。
+ *  批次沒有那四欄的入口,所以它不需要、也不該做全欄 hydrate。)
  * (`20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql:20-24`)。少投影一欄 = A10b 表單
  * 會用 undefined 覆蓋掉那一欄的既有值。
  */
