@@ -318,6 +318,44 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(CSS, '還有寫死頁首高的 hero 高度算式').not.toMatch(/height:\s*calc\(100svh - \d+px\)/);
   });
 
+  // ── H6:N°02 最新商品橫捲軌道 ──────────────────────────────────────────
+  // 🔴 這一族守的是「橫捲之所以能捲」的那幾個宣告 —— 少任何一個都會退回「看起來像橫捲、
+  //    但捲不動 / 不對齊 / 露出捲軸」,而元件測試(jsdom 無 layout)對這些完全看不到。
+  it('🔴 軌道能捲、會 snap、不露捲軸,而且格寬照 OD 的更正版算式', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const track = top.match(/\.b-carousel\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(track, '找不到 .b-carousel 規則').not.toBe('');
+    expect(track, '沒有 overflow-x:auto ⇒ 根本捲不動').toMatch(/overflow-x:\s*auto/);
+    expect(track, '沒有 scroll-snap ⇒ 停在半張卡上').toMatch(/scroll-snap-type:\s*x mandatory/);
+    expect(track, '沒有 scroll-padding-left ⇒ snap 會把卡片切齊到 gutter 之外').toMatch(/scroll-padding-left:\s*var\(--ed-gutter\)/);
+    expect(track, '沒藏捲軸(Firefox)').toMatch(/scrollbar-width:\s*none/);
+    expect(track, '軌道不是 flex ⇒ 卡片會直接堆疊').toMatch(/display:\s*flex/);
+    // 🔴 R1 nit:`HomeSelect.tsx` 的「捲一格 = 卡寬 + 16」把這個 16 抄了第二份 ⇒ 兩邊要一起釘,
+    //    否則改 gap 會讓箭頭步進靜默錯位(每按一次偏 n px),而三綠全綠。
+    expect(track, '軌道間距不是 16px(元件端的步進 +16 會跟著錯)').toMatch(/gap:\s*16px/);
+    expect(top, '沒藏捲軸(WebKit)').toMatch(/\.b-carousel::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
+
+    const item = top.match(/\.b-carousel-item\s*\{[^}]*\}/)?.[0] ?? '';
+    // 🔴 OD :232-236 註解逐字更正過的算式:百分比相對**內容框**,padding 已扣過一次,
+    //    再減 gutter*2 會讓每張卡少 16px、整列短 80px。5 格 4 道間距 = 64px。
+    expect(item, '桌機格寬不是 OD 更正後的 5 格算式').toMatch(/flex:\s*0 0 calc\(\(100% - 64px\) \/ 5\)/);
+    expect(item, '沒有 scroll-snap-align ⇒ snap 沒有對齊點').toMatch(/scroll-snap-align:\s*start/);
+    expect(item, '沒有最小寬 ⇒ 窄螢幕會被壓成一條').toMatch(/min-width:\s*176px/);
+    // 三個窄斷點的格寬(OD :238/:240/:241)
+    expect(mediaBlock('(max-width: 1200px)').replace(/\s+/g, ' '), '≤1200 沒退成 4 格').toMatch(/flex:\s*0 0 calc\(\(100% - 48px\) \/ 4\)/);
+    expect(mediaBlock('(max-width: 900px)').replace(/\s+/g, ' '), '≤900 沒退成 2.4 格(露出下一張的邊 = 可捲的訊號)').toMatch(/flex:\s*0 0 calc\(\(100% - 24px\) \/ 2\.4\)/);
+    expect(mediaBlock('(max-width: 560px)').replace(/\s+/g, ' '), '≤560 沒退成 1.8 格').toMatch(/flex:\s*0 0 calc\(\(100% - 14px\) \/ 1\.8\)/);
+  });
+
+  it('🔴 箭頭的 disabled 態有樣式(它是本 repo 自己接的線,OD 只畫沒接)', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    expect(top, '箭頭沒有 disabled 樣式 ⇒ 到底了看起來還能按')
+      .toMatch(/\.b-select-arrow:disabled\s*\{[^}]*opacity:\s*0?\.35/);
+    expect(top, 'disabled 沒有換游標').toMatch(/\.b-select-arrow:disabled\s*\{[^}]*cursor:\s*not-allowed/);
+    // 🔴 R1 nit:`:hover` 不排除 `:disabled` 的話,已停用的箭頭滑過去仍會亮起來配 `not-allowed` 游標
+    expect(top, 'hover 沒有排除 disabled ⇒ 停用的箭頭滑過去還會亮').toMatch(/\.b-select-arrow:hover:not\(:disabled\)/);
+  });
+
   // ── D5c/H3:N°03 分類 icon chip 磚面 ──────────────────────────────────
   // 🔴 這一族守的是「12 格磚面」的承重值:欄數、格線、色碼。全部是 jsdom 看不到、
   //    元件測試也看不到的東西(元件只知道 DOM 有沒有那個 class 與 attribute)。

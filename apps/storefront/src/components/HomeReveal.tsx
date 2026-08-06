@@ -97,7 +97,7 @@ export function HomeReveal(): null {
     let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
     // ③ 失效保險。🔴 **判準是「observer 到底有沒有接上」,不是「有沒有人進場」**
-    //    (R2 must-fix,實測):第一個目標 `.ed-select` 在桌機 1440x900 的 `top=1130px`、
+    //    (R2 must-fix,實測):第一個目標(N°02 最新商品,H6 後 class 為 `.b-select`) 在桌機 1440x900 的 `top=1130px`、
     //    手機 390x844 的 `top=1238px` —— **都在首屏之外**。所以「一個都沒進場」是
     //    **正常狀態、不是故障訊號**;舊判準會在**每一次正常首載**的第 2 秒把五段一次全開,
     //    使用者只要看 hero 或用選車器超過兩秒才開始滑,進場動畫就等於沒做

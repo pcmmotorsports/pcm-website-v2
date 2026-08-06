@@ -818,22 +818,85 @@
 }
 
 /* ============================================================
-   05 · SELECT (4 featured products)
+   05 · SELECT (N°02 · 最新商品橫捲)
    ============================================================ */
-.ed-select {
-  padding: 100px 0 120px;
+/* H6(2026-08-06;Sean 拍 Q1=B「OD 稿有」升格為拍板依據):4 格靜態 grid(`.ed-select-grid`)
+   → OD 定案稿的橫捲軌道。字面來源 = OD `direction-b-layout-01-graphite-ember.html`
+   CSS `:220-241` + 統一版面層 `:634-636` / `:652`。
+   🔴 統一版面層照 H3/H5 的原則折成基礎規則(OD 頁面根本來就掛 `layout-unified`):
+      `.b-select` 上留白 72→64(≤900 48)、`.b-carousel-wrap` 收進 `--ed-max`、
+      `.b-carousel` 的左右留白改由統一層給。
+   🔴 **軌道寬的算式照 OD 的更正版**(:232-236 註解逐字):`calc((100% - 64px)/5)` ——
+      百分比是相對 flex 容器的**內容框**,padding 已經扣過一次,再減 `--ed-gutter*2`
+      會讓每張卡少 16px、整列短 80px。5 格 4 道間距 = 64px。 */
+.b-select {
+  padding: 64px 0 80px;
   background: var(--ed-c-paper);
 }
-.ed-select-grid {
+.b-select-head {
+  max-width: var(--ed-max);
+  margin: 0 auto 28px;
+  padding: 0 var(--ed-gutter);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.b-select-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.b-select-title .ed-mono { color: var(--ed-c-ink-mute); }
+.b-select-actions { display: flex; align-items: center; gap: 20px; }
+.b-select-nav { display: flex; gap: 8px; }
+.b-select-arrow {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--ed-c-rule-control);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ed-c-paper);
+  transition: background 0.15s, border-color 0.15s;
+}
+.b-select-arrow:hover:not(:disabled) { background: var(--ed-c-sunken); border-color: var(--ed-c-ink); }
+/* 🔴 OD 有畫 `:disabled` 態卻**沒有接線**(原型裡兩顆箭頭是死的,全檔零 JS 命中)——
+   本 repo 接了(捲到頭 / 到底時 disabled),否則就是兩顆看起來能按、按了沒反應的按鈕。 */
+.b-select-arrow:disabled { opacity: 0.35; cursor: not-allowed; }
+.b-carousel-wrap {
+  position: relative;
+  overflow: hidden;
   max-width: var(--ed-max);
   margin: 0 auto;
-  padding: 0 var(--ed-gutter);
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 32px;
 }
-@media (max-width: 1100px) { .ed-select-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 560px) { .ed-select-grid { grid-template-columns: 1fr; } }
+.b-carousel {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding: 0 var(--ed-gutter) 8px;
+  scroll-padding-left: var(--ed-gutter);
+}
+.b-carousel::-webkit-scrollbar { display: none; }
+.b-carousel-item {
+  flex: 0 0 calc((100% - 64px) / 5);
+  scroll-snap-align: start;
+  min-width: 176px;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 1200px) { .b-carousel-item { flex: 0 0 calc((100% - 48px) / 4); } }
+@media (max-width: 900px) {
+  .b-select { padding: 48px 0 52px; }
+  .b-carousel-item { flex: 0 0 calc((100% - 24px) / 2.4); min-width: 160px; }
+}
+@media (max-width: 560px) { .b-carousel-item { flex: 0 0 calc((100% - 14px) / 1.8); } }
 
 /* ============================================================
    06 · STATEMENT (black slab with service story)
