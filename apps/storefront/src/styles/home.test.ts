@@ -253,6 +253,71 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(body).toMatch(/clip-path\s*:\s*inset\(50%\)/);
   });
 
+  // 🔴 H5 突變證抓到的第二個洞(M53 一開始也是綠的):我把這條規則加進 CSS **卻沒寫斷言**。
+  //    它承重的是鍵盤可用性 —— hero 是深色照片場,站台預設的焦點框色 `--ed-c-action-hover`(#c4470c)
+  //    壓在暗照片上幾乎看不見,而切換條是鍵盤使用者**唯一**能操作的東西。
+  it('🔴 hero 深色場的 :focus-visible 換成亮動作色(切換條的焦點框要看得見)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-hero :focus-visible\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 hero 的 focus-visible 覆寫 ⇒ 焦點框會用站台預設色、在暗照片上看不見').not.toBe('');
+    expect(rule, '沒有換成 --ed-c-action(亮熔橘)').toMatch(/outline-color:\s*var\(--ed-c-action\)/);
+  });
+
+  // 🔴 H5 真瀏覽器抓到的真缺陷的守門:入口板要讓位給固定 TabBar。
+  //    OD 的 hero 高度算式沒把 TabBar 算進去 ⇒ 390×844 實測主 CTA 被蓋掉 33px。
+  //    這條守的是「讓位還在、而且在對的斷點」——拿掉或把斷點寫成 900 都會讓 901-1079 那段回到被蓋住。
+  it('🔴 入口板讓位給固定 TabBar,**兩級都要**(手機 70px / 平板 74px;主 CTA 不得被蓋住)', () => {
+    // 🔴 R1 must-fix:第一版只寫了 70px 那一級 ⇒ 600-1079(TabBar 68px、body 讓位 74px)
+    //    淨空只剩 2px。而且當時的斷言拿 `toMatch(/calc\(70px/)` 去掃整份 mobile-tabbar.css,
+    //    被 ≤599 那一級滿足 ⇒ 對 74px 那一塊**完全盲**、「兩邊同字面」是恆真斷言。
+    const TB = readFileSync(new URL('./mobile-tabbar.css', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    /** 從 mobile-tabbar.css 的指定 @media 區塊裡抓 body 的讓位值 —— 兩邊比的是**同一個來源**。
+     *  用大括號走訪(同本檔 `mediaBlock`),不用 `[\s\S]*?\n\}` 那種寫法:後者會停在**內層規則**的收尾。 */
+    const blockOf = (css: string, query: string): string => {
+      const head = `@media ${query} {`;
+      const start = css.indexOf(head);
+      if (start === -1) return '';
+      const open = css.indexOf('{', start);
+      let depth = 0;
+      for (let i = open; i < css.length; i += 1) {
+        if (css[i] === '{') depth += 1;
+        else if (css[i] === '}') {
+          depth -= 1;
+          if (depth === 0) return css.slice(open + 1, i);
+        }
+      }
+      return '';
+    };
+    const bodyPad = (query: string) =>
+      blockOf(TB, query).replace(/\s+/g, ' ').match(/padding-bottom:\s*(calc\([^;}]+\))/)?.[1];
+    const phone = bodyPad('(max-width: 1079px)');
+    const tablet = bodyPad('(min-width: 600px) and (max-width: 1079px)');
+    expect(phone, '在 mobile-tabbar.css 找不到手機那級的 body 讓位值 ⇒ 下面的比對會恆真').toBeTruthy();
+    expect(tablet, '在 mobile-tabbar.css 找不到平板那級的 body 讓位值 ⇒ 下面的比對會恆真').toBeTruthy();
+    expect(phone).not.toBe(tablet); // 前提:兩級真的是不同的值,否則這條測不出「少寫一級」
+
+    const dockMargin = (query: string) => {
+      const block = mediaBlock(query).replace(/\s+/g, ' ');
+      return block.match(/\.b-dock[^{]*\{[^}]*margin-bottom:\s*(calc\([^;}]+\))/)?.[1]?.replace(/\s+/g, ' ');
+    };
+    expect(dockMargin('(max-width: 1079px)'), '手機級讓位不見了或與 body 讓位分家').toBe(phone);
+    expect(dockMargin('(min-width: 600px) and (max-width: 1079px)'), '平板級讓位不見了或與 body 讓位分家').toBe(tablet);
+    // `html[data-mobile="true"]` 兜底:media query 沒命中但 UA hint 命中時 TabBar 照樣 fixed
+    expect(mediaBlock('(max-width: 1079px)').replace(/\s+/g, ' '), '缺 data-mobile 兜底 ⇒ 那條路徑上 CTA 又被蓋回去')
+      .toContain('html[data-mobile="true"] .b-dock');
+  });
+
+  // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。
+  //    `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」—— 那顆 token 正是為了
+  //    同款「兩處各寫一個數字、差 4px」的事故才立的。
+  it('🔴 hero 高度吃 `--shell-header-h`,不得寫死頁首高(px)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-hero\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-hero 規則').not.toBe('');
+    expect(rule, 'hero 高度沒有吃 --shell-header-h').toMatch(/height:\s*calc\(100svh - var\(--shell-header-h\)\)/);
+    // 反面:任何斷點都不得再出現「100svh - 數字px」這種寫死法
+    expect(CSS, '還有寫死頁首高的 hero 高度算式').not.toMatch(/height:\s*calc\(100svh - \d+px\)/);
+  });
+
   // ── D5c/H3:N°03 分類 icon chip 磚面 ──────────────────────────────────
   // 🔴 這一族守的是「12 格磚面」的承重值:欄數、格線、色碼。全部是 jsdom 看不到、
   //    元件測試也看不到的東西(元件只知道 DOM 有沒有那個 class 與 attribute)。
@@ -356,18 +421,25 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       .toMatch(/\.cat-garage--inline\s+\.cat-garage-chips\s*\{[^}]*flex-wrap\s*:\s*nowrap/);
     expect(narrow, 'chip 要 flex:0 0 auto 才不會被壓扁')
       .toMatch(/\.cat-garage--inline\s+\.cat-garage-chip\s*\{[^}]*flex\s*:\s*0 0 auto/);
-    // 🔴 scope 是承重的:home.css 由 layout.tsx **全域** import,少了 `.ed-finder ` 前綴,
+    // 🔴 scope 是承重的:home.css 由 layout.tsx **全域** import,少了 `.b-dock ` 前綴,
     //    A10b/A10c 把 inline 掛上 PDP §7 與購物車之後,這段捲動與 gutter 出血會潑到那兩處去。
-    for (const sel of ['.cat-garage-chips', '.cat-garage-chip']) {
-      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(narrow, `${sel} 的規則沒有鎖在 .ed-finder 底下`)
-        .toMatch(new RegExp(`\\.ed-finder\\s+\\.cat-garage--inline\\s+${esc}`));
+    // 🔴 H5 突變證抓到的洞(M52 一開始是綠的):上一版用 `toMatch` 找「**有沒有一條**帶前綴的規則」
+    //    —— 而這一族有四條,其中 `::-webkit-scrollbar` 那條照樣帶著前綴 ⇒ 把**別條**的前綴拿掉,
+    //    斷言仍被那條滿足、全綠。一個實例滿足全族 = 那正是本 repo 記過的假守門形狀。
+    //    改成**逐條走訪**:narrow 區塊裡任何碰到 `.cat-garage--inline` 的規則,選擇器都必須以 `.b-dock` 起頭。
+    const inlineRules = [...narrow.matchAll(/([^{}]*\.cat-garage--inline[^{}]*)\{/g)]
+      .map((m) => m[1]!.trim());
+    expect(inlineRules.length, '≤900 區塊裡找不到任何愛車列規則 ⇒ 下面那圈恆真').toBeGreaterThanOrEqual(3);
+    for (const sel of inlineRules) {
+      for (const part of sel.split(',').map((x) => x.trim())) {
+        expect(part.startsWith('.b-dock '), `${part} 沒有鎖在 .b-dock 底下 ⇒ 會潑到 PDP §7 與購物車的同名 chips`).toBe(true);
+      }
     }
-    // R2 追加(scope 收緊):**@media 外**那條外距規則同樣承重 —— 少了 `.ed-finder` 前綴,
+    // R2 追加(scope 收緊):**@media 外**那條外距規則同樣承重 —— 少了 `.b-dock` 前綴,
     // PDP §7(自己已有 .pfc-picker 的 10px)與購物車(.cvf-edit 的 gap:10px)會被多疊一層 12px。
     // 上面的迴圈只掃 ≤900px 區塊、掃不到它。
-    expect(CSS, '行內密度的外距規則沒有鎖在 .ed-finder 底下 ⇒ 會潑到 PDP 與購物車')
-      .toMatch(/\.ed-finder\s+\.cat-garage--inline\s*\{[^}]*margin-bottom/);
+    expect(CSS, '行內密度的外距規則沒有鎖在 .b-dock 底下 ⇒ 會潑到 PDP 與購物車')
+      .toMatch(/\.b-dock\s+\.cat-garage--inline\s*\{[^}]*margin-bottom/);
     expect(CSS, '出現了無 scope 的 .cat-garage--inline 外距規則')
       .not.toMatch(/(^|\})\s*\.cat-garage--inline\s*\{[^}]*margin-bottom/m);
   });

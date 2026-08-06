@@ -1,7 +1,7 @@
 // app/page.tsx — 首頁(8 sections compose)
 //
 // 對齊 design-reference/components/HomePage.jsx @ 25d3a2a 字面(M-1-04-mini-slice 修:25d3a2a HomePage.jsx 加 tier prop、storefront 走 server-side cookie + designTierToSchema + tierLabel 預算 conceptually 更佳、不重做):
-//   <Header /> + <HomeHero /> + <VehicleFinder /> + <FeatureEditorial />
+//   <Header /> + <HomeHero>(內含 <VehicleFinder /> 入口板;H5 起 dock 化)</HomeHero> + <FeatureEditorial />
 //   + <CategoryGrid /> + <HomeSelect /> + <HomeStatement /> + <BrandIndex /> + <HomeFooter />
 //
 // page.tsx 本身為 server component(無 'use client'、不傳 callback prop);8 sections + Header + ProductCard
@@ -146,8 +146,13 @@ export default async function HomePage({
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
       <Header currentPage="home" />
-      <HomeHero />
-      <VehicleFinder motoBrands={motoBrands} garage={garage} />
+      {/* 🔴 H5(D6):選車器由「hero 之後的獨立 section」改成**巢狀在 hero 內的入口板**
+          (OD 骨架 :816-836)。以 children 傳入而不是讓 `HomeHero` 自己 import ——
+          `HomeHero` 本片轉成 client component,而選車器要吃 server 端算好的車輛字典與車庫,
+          從這裡傳進去,那些資料就仍然在 server 算(**沒有讓任何一塊多轉 client**)。 */}
+      <HomeHero>
+        <VehicleFinder motoBrands={motoBrands} garage={garage} />
+      </HomeHero>
       {/* D5a(2026-08-05):區塊順序改照 OD `README.md`「區塊順序(第 7 步之後)」定案 ——
           N°01 Hero+選車器 / N°02 最新商品 / N°03 部品分類 / N°04 服務宣言(深) /
           N°05 本月聚焦 / N°06 授權代理(淺灰白) / 頁尾(深)。
