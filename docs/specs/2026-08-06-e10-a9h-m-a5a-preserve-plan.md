@@ -1,14 +1,18 @@
-# A9h-M — A5a 加 preserve 模式(migration 片)plan v2
+# A9h-M — A5a 加 preserve 模式(migration 片)plan v3
 
-> **狀態:關卡1 R1 NO-GO 的 5 條 must-fix + 3 nit 已折入,等 R2。零行 SQL。**
+> **狀態:關卡1 **R1 五條 + R2 兩條** must-fix 全折入。**
+> **⛔ 卡在 §6 兩題(Sean),拍完即可寫 SQL —— R2 明言「修完免 R3」。零行 SQL。**
 > 依 `E-125-A` ②;上游拍板 = Sean `E-124-A:3`(Q4=A)。
 > **片型 = 高風險片**(鐵則 12②③)⇒ **apply = Sean 手動停點**。
-> 事實親查於 `pcm-refund-wire` @ `de29f3d`;引用一律附 `檔案:行號`。**本檔整份重寫、非逐行補丁**
-> ——「四欄」這個錯字面散在 13 處,補丁會漏(本 repo 復發 9+ 次的頭號形狀)。
+> 事實親查於 `pcm-refund-wire`;引用一律附 `檔案:行號`。
+> v2 曾整份重寫(錯字面「四欄」散在 13 處);v3 是 R2 兩條的定點修正。
 >
-> 🔴 **關卡1 R1 由 `adversarial-reviewer`(fable)跑,不是 codex** —— 新 codex 帳號**撞用量牆**
+> 🔴 **關卡1 兩輪都由 `adversarial-reviewer`(fable)跑,不是 codex** —— 新 codex 帳號**撞用量牆**
 > (實測 `You've hit your usage limit ... try again at Sep 5th`,燒 12 萬 token、零 findings)。
 > ⇒ **codex 跨模型背書仍欠著**,清單見 §8。
+>
+> **R2 判定**:R1 五條**全部 CLOSED**(含我對 F1 的反駁被獨立驗證成立);
+> 新抓 2 must-fix(fixture 空洞化、Q2 排序)+ 2 consider + 2 nit,**本 v3 全數折入**。
 
 ---
 
@@ -95,11 +99,12 @@ p_preserve_optional_fields boolean DEFAULT false
 
 | # | 檔案:行號 | 現況(親驗) | 不改會怎樣 |
 |---|---|---|---|
-| **L1** | `scripts/a5a-verify.sh:21` | `FN="public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)"` | regprocedure cast 直接 error ⇒ **整組 144 格驗收全滅**,而 §7 驗收 8/9 正是靠它 |
+| **L1** | `scripts/a5a-verify.sh:21` | `FN="public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)"` | regprocedure cast 直接 error ⇒ **整組 144 格驗收全滅**,而 §7.1 驗收 9 正是靠它(驗收 8 屬 migration 內斷言、非 harness ── R2 nit 6 更正) |
 | **L2** | `docs/runbooks/a4a-summary-rollback.md:21,202,206` | REVOKE / GRANT / 斷言三處同款硬編簽章 | 🔴 **緊急回滾會在唯一需要它的那天噴 undefined function** —— A2b1/A4a 單獨回滾時「A5a 必須同停」的停法就是這三句(同 memory「回滾守門在唯一需要它的那天擋死自己」) |
-| **L3** | `packages/adapters/src/supabase/database.types.ts:2386` | Args 為 11 參,檔頭 `:10` 載明**五處人工校正**;舊 migration `:796-800` 自己把 regen 列為 apply 後硬前置 | TS 端型別與 DB 不符;regen 後**必須重貼那五處校正**,否則校正靜默消失 |
+| **L3** | `packages/adapters/src/supabase/database.types.ts:2386` | Args 為 11 參;🔴 **regen 會沖掉的人工校正不只本函式** —— 檔頭 `:1-4` 自訂「**計數唯一權威在檔頭、下游不得複述數字**」 | TS 端型別與 DB 不符;regen 後**必須照檔頭計數重貼全部校正**,否則校正靜默消失(R2 consider 3:我 v2 寫「五處」是複述數字、正犯該檔禁止的事) |
+| **L4** | `apps/admin/src/lib/orders/procurement-repository.ts:52` | 該處註解枚舉「`P0001` 來源理論上只有 actor / request_id / 常數自檢 / 防衛枝」 | 🔴 **M4 新增一個 P0001 來源後,這句誠實邊界註解失真**(R2 consider 4;與 M8 同族 = 契約註解沒跟上行為)⇒ 同 commit 補上「preserve 矛盾意圖」那一項 |
 
-⇒ **L1/L2 進本片 commit;L3 是 apply 後動作**(regen 需要真 DB),寫進 §7 驗收 11。
+⇒ **L1 / L2 / L4 進本片 commit;L3 是 apply 後動作**(regen 需要真 DB),寫進 §7.2 驗收 12。
 
 ---
 
@@ -127,18 +132,35 @@ p_preserve_optional_fields boolean DEFAULT false
 
 ---
 
-## §6 待定案一題(不影響開工序,但 M4 要它)
+## §6 待定案兩題(同批問;第二題是 R2 must-fix 2)
 
 ```
-Q:preserve=true 但那四欄任一參數非 NULL(矛盾意圖),RPC 該怎麼回?
-A) RAISE(走既有 caller-bug 面 P0001)—— 最 fail-loud;呼叫端 TS 已有 ProcurementCallerBugError 承接
+Q1:preserve=true 但那四欄任一參數非 NULL(矛盾意圖),RPC 該怎麼回?
+A) RAISE(走既有 caller-bug 面 P0001)—— 最 fail-loud;呼叫端 TS 已有
+   ProcurementCallerBugError 承接(procurement-repository.ts:66 只看 code 不看訊息,自動接住)
 B) 新增第 18 個固定碼(如 PRESERVE_WITH_VALUES)—— 可逐列回報不中斷,但動 17 碼全集
-   ⇒ COMMENT 錨 :466-469、驗收 8 字面、TS 的 PROCUREMENT_RESULT_CODES 全連動
+   ⇒ COMMENT 錨、驗收字面、TS 的 PROCUREMENT_RESULT_CODES 全連動
 A: A|B
+
+Q2:批次的「聯絡管道留空」是什麼語意?(🔴 這題不先答,12 參簽章可能白凍結)
+A) 必填 —— A9h-2 的 UI 不准留空,DB 層不動,本片簽章就是最終形狀
+B) 留空 = 各列保留現值 —— 🔴 需要 DB 層第二個旗標 = 第 13 參
+   ⇒ L1/L2/L3 三個連動面全部要再跑一次
+C) 可留空 + 畫面警告 —— 零 DB 改動,但與本檔 §1 自引的裁定
+   「警告不能把資料損失變可接受」自相矛盾
+A: A|B|C
 ```
 
-**我推薦 A**:這是**呼叫端 bug、不是業務狀態**(沒有任何合法情境會同時「送值」與「要求保留」),
-而 B 會把一個編程錯誤混進業務碼集合、還要動 17 碼全集與三處字面錨。
+**Q1 我推薦 A**:這是**呼叫端 bug、不是業務狀態**(沒有任何合法情境會同時「送值」與「要求保留」),
+而 B 會把編程錯誤混進業務碼集合、還要動 17 碼全集與三處字面錨。
+R2 獨立驗證:批次四欄無入口、單列送 `false` ⇒ **構造不出合法情境觸發 RAISE**;
+且批次逐列各自交易,單列 RAISE **不回滾兄弟列** ⇒ 不存在「整批中止」面。
+
+🔴 **Q2 我推薦 A,而且這題必須在寫 SQL 前答** —— 理由不是設計偏好,是**排序**:
+若日後拍 B,DB 要加第 13 參,`scripts/a5a-verify.sh` / `a4a-summary-rollback.md` /
+`database.types.ts` 三個連動面**全部要再改一次**(§4)。現在問是零邊際成本(反正 Q1 就要問 Sean),
+拍完才寫 SQL 就只做一次。
+**若 Sean 選 C,請明載「這是接受風險」** —— 因為它與本檔 §1 引的 R1 裁定直接衝突。
 
 ---
 
@@ -146,7 +168,20 @@ A: A|B
 
 ### 7.1 commit 前可驗(交易模擬 `BEGIN → 套用 → 驗 → ROLLBACK`)
 
-1. `preserve=true` 更新一列 ⇒ **那四欄原值保留**。
+> 🔴🔴 **fixture 前態硬約束(R2 must-fix 1;沒有這段,下面 1/2/4/7 四條全是恆真)**
+>
+> 親驗 `20260803160000:313-321`:同值 no-op 判定對**七欄全部**用 `IS NOT DISTINCT FROM`
+> ⇒ **「四欄都是 NULL 的列 × 送 NULL 參數」本來就回 `NO_CHANGE`**,
+> **preserve 完全沒實作也會全綠**。而用 RPC 自然新建的 fixture 恰好就是四欄 NULL。
+>
+> ⇒ **驗收 1/2/4 的 fixture:那四欄前態必須全部非 NULL 且互不相同**
+> (例如 `submitted_at='2026-08-01T10:00+08'` / `supplier_order_no='SO-A'` /
+> `exception_reason='缺料'` / `expected_arrival_date='2026-08-20'`)。
+> ⇒ **驗收 7 的 channel 參數必須非 NULL 且 ≠ 現值**(否則同樣恆真)。
+> 依據:memory `feedback_fixture-value-makes-guard-vacuous`(fixture 裡「碰巧」的值
+> 會讓整族守門變恆真)。**每格 fixture 前態逐欄寫進 harness、不得沿用自然新建值。**
+
+1. `preserve=true` 更新一列(前態四欄皆非 NULL)⇒ **那四欄原值保留**。
 2. `preserve=false`(或不帶)同輸入 ⇒ 四欄**被寫成 null** —— **證明旗標非恆真**(負向對照)。
 3. 🔴 **清空能力未受損**:單列表單送空值 + `preserve=false` ⇒ 該欄**真的變 null**
    (Sean 硬約束的直接驗收)。
@@ -165,7 +200,8 @@ A: A|B
 
 11. `NOTIFY pgrst, 'reload schema'` 後 **PostgREST 具名參數 smoke**:12 參與 11 參形態各打一次,
     確認 cache 已重載、DEFAULT 參數向後相容。
-12. `database.types.ts` regen + **重貼五處人工校正**(L3),TS 端 typecheck 綠。
+12. `database.types.ts` regen + **照該檔檔頭的計數重貼全部人工校正**(L3;
+    🔴 **不要在這裡複述數字** ── 該檔 `:1-4` 明訂計數唯一權威在檔頭),TS 端 typecheck 綠。
 13. ACL 終態:`PUBLIC`/`anon`/`authenticated` **零 EXECUTE**;`service_role` EXECUTE=true。
 
 ---
@@ -177,6 +213,8 @@ A: A|B
 - 🔴 **回報三綠一律帶 `--force` 或貼 `Cached: 0`**(多 worktree 下 turbo 會跨樹重播快取)。
 - 🔴 **codex 跨模型背書仍欠**(用量牆到 2026-09-05)。R1 替身審查明列**四個面仍需 codex 補**:
   ① SQL 寫出後的關卡2 diff 級審查(鐵則 12 不降級)
+     🔴 含 `scripts/a5a-verify.sh` **改簽章後自身的對帳**(`EXPECTED_TOTAL=144` / `EXPECTED_MUT` 是否仍相符)
+     ── harness 改動後自己假綠是有前科的族(memory `feedback_negative-test-harness-self-false-green`)
   ② ACL/SECDEF 終態的實際字面(鐵則 12② 金權面)
   ③ §1.1 `contact_channel` 定案後的 preserve 集合 × M2/M3 連動
   ④ 若 §6 拍 B(動 17 碼全集),全碼行為矩陣重審
