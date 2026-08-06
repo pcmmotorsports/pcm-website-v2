@@ -468,12 +468,11 @@
    本片只動**版面**(padding/grid/字級尺寸/meta 條/圖片比例)。**刻意不動**兩塊:
    ①底部分類出口 —— D5e-2b 早就做完(`.ed-feature-actions` 家族),OD 這句話在講
      的東西本檔已經有了,不是本片要接的線。
-   ②標題/內文的中文排版值(line-height / letter-spacing / text-wrap / body
-     max-width)—— 完整記錄在本檔下方 🔴🔴 開頭那段申報(grep `D5e-2b 刻意未搬`
-     找到,非 technical_overrides 那組欄位)與 manifest `last_modified_date`
-     敘述,理由是它們會改變整個版位的視覺重量、要 Sean 肉眼驗一次,現在仍是
-     「排片待主視窗指派,不是漏掉」;本片只搬跟 963px 砍半直接相關的尺寸壓縮
-     (font-size / margin / spacing),不動那組已標記待審的排版值。 */
+   ②標題/內文的中文排版值(line-height / letter-spacing / text-wrap / body max-width)
+     —— 當時緩辦、理由是它們會改變整個版位的視覺重量、要 Sean 肉眼驗一次。
+     🔴 **2026-08-07 已解除**:那五個值已照 OD §6-1 全部搬完
+     (完整記錄在本檔下方 grep `排版六值片` 那段)。這裡保留歷史,是為了說明
+     「963px 砍半那片為什麼沒順手改它們」—— 那是片界判斷,不是漏掉。 */
 .ed-feature {
   background: var(--ed-c-paper);
   /* OD `.b-feature` 逐字三條:background;padding:52px 0 56px(舊值 140px 0 是砍半前的
@@ -517,10 +516,20 @@
 .ed-feature-title {
   /* OD `.b-feature-title` 逐字 clamp(30px,3.2vw,46px)——963px 砍半後的縮小版 */
   font-size: clamp(30px, 3.2vw, 46px);
-  /* 🔴 line-height / letter-spacing 刻意維持舊值、不搬 OD 這條的 1.2 / -.01em:
-     那兩顆屬 manifest 記的「D5e-2b 刻意未搬」中文排版組,待主視窗指派、要 Sean 肉眼驗。 */
-  line-height: 0.98;
-  letter-spacing: -0.02em;
+  /* 🔴 2026-08-07 排版六值片:這兩顆**解除緩辦、照 OD 搬**(主視窗指派;
+     解除條件寫在 `home.test.ts` 那組守門的抬頭,今天兌現)。
+     OD `N05-FOCUS-HANDOFF.md` §6-1 逐字給了理由,不是隨意微調:
+       line-height 1.2 —— 「1.02 給單行英文大標的,中文折兩行會黏住」
+       letter-spacing -.01em —— 「負字距是收拉丁字母用的,套方塊字會互相擠」
+     ⚠️ OD 表格的「舊」欄寫 1.02 / -.02em,而真站現值是 **0.98 / -0.02em**(line-height 更緊)。
+     成因不是 OD 寫錯:那一欄講的是**它自己稿的舊值**(OD 的 archive 稿實際就是 1.02),
+     真站則是更早自己調過。⇒ 兩邊起點不同、終點(新值)一致 ⇒ 照新值搬,
+     不去對齊一個真站不存在的舊值。**這個落差不必記回饋包**(OD 沒有錯)。 */
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  /* OD §6-1 第三列:標題斷行加 `text-wrap: balance` ——「避免第二行只吊三個字」。
+     這是新增、真站原本沒有(表格「舊」欄是 —)。 */
+  text-wrap: balance;
   font-weight: 700;
   /* OD 逐字 margin:0 0 18px(標題縮小後留白跟著等比例收) */
   margin: 0 0 18px;
@@ -532,13 +541,23 @@
 .ed-feature-body {
   /* OD `.b-feature-body` 逐字 font-size:15px */
   font-size: 15px;
-  /* 🔴 line-height / max-width 刻意維持舊值(1.75 / 34ch)、不搬 OD 的 1.85 / 30em:
-     同上,屬「D5e-2b 刻意未搬」中文排版組,不在本片自行動。 */
-  line-height: 1.75;
+  /* 🔴 2026-08-07 排版六值片:解除緩辦、照 OD §6-1 搬。
+     line-height 1.85 —— 「中文沒有字母上下伸展,行距要再開」。 */
+  line-height: 1.85;
   color: var(--ed-c-ink-soft);
   /* OD 逐字 margin:0 0 24px */
   margin: 0 0 24px;
-  max-width: 34ch;
+  /* 🔴 OD §6-1:`34ch` → `30em`。理由逐字「`ch` 是拉丁字元寬,15px 下才 330px,
+     中文會折成細長條」——`ch` 量的是「0」的寬度,對中文完全不成比例;`em` 才跟字級同步。
+     ⚠️ 真站舊值是 34ch(OD 表格寫 40ch)⇒ 起點不同、終點照新值。 */
+  max-width: 30em;
+  /* 🔴🔴 **OD 的 `.b-feature-body` 還有一顆 `text-wrap: pretty`,刻意不搬 —— 這是拍過板的。**
+     `[#223]` Sean 拍板(字面在 `product-page.css`,grep `text-wrap:pretty`):
+     pretty 在 iOS WebKit 對 CJK 段落會縮短/平衡每行 → 右側留白,段落看似靠左而清單填滿、
+     兩者寬度不一致(桌機 Chromium 的 pretty 只微調末行,所以看不出來)⇒ **body 文字一律移除**。
+     標題那顆 `balance` 保留(短標題平衡合理、非 Sean 反映的段落)—— 本片正是這樣搬的。
+     ⚠️ 寫在這裡是因為:本片剛好在同一族新增了 `text-wrap`,下一個「照 OD 補完」的人
+     很可能把這顆一起種回來,而那會復辟一個 Sean 否決過的值。 */
 }
 .ed-feature-meta {
   display: grid;
@@ -643,21 +662,26 @@
   }
 }
 
-/* 🔴🔴 **D5e-2b 刻意未搬:OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版調整**(R1 Important:
-   省略要留字面,不能只留在 commit body)。那一節為中文重調了六個值,本片**一個都沒動**:
+/* 🔴🔴 **2026-08-07 排版六值片:上面那五個值已全部搬完,這段申報就地結案。**
 
-     `.ed-feature-title`   line-height 0.98 → 1.2    (1.02 是給單行英文大標的,中文折兩行會黏住)
-     `.ed-feature-title`   letter-spacing -.02em → -.01em (負字距是收拉丁字母用的,套方塊字會互相擠)
-     `.ed-feature-title`   加 `text-wrap: balance`    (避免第二行只吊三個字)
-     `.ed-feature-body`    max-width 34ch → 30em     (`ch` 是拉丁字元寬,中文會折成細長條)
-     `.ed-feature-body`    line-height 1.75 → 1.85   (中文沒有字母上下伸展,行距要再開)
+   歷史(留著,因為它記錄了「為什麼當初刻意不搬」——那是判斷、不是疏漏):
+   D5e-2b 那片只做動線改版四項,OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版是另一組,
+   當時**一個都沒動**,理由是「那五個值會改變整個版位的視覺重量,該讓 Sean 肉眼驗一次,
+   不適合夾在動線片裡順手改掉」;並在 `home.test.ts` 用守門**正面釘住舊值**,
+   抬頭寫明「解除條件:排到中文排版片時要跟著改成新值,那時看到這幾條轉紅是正常訊號」。
 
-   ⚠️ **為什麼這現在比 D5e-1 時更要緊**:D5e-2 之前這個版位只有 RIZOMA 一家佔位,
-      現在跑的是 20 家**真的中文鉤子**(最長「騎了十年賽車,受不了市售腳踏,乾脆自己做。」
-      在 clamp 上界會折成兩到三行)⇒ 標題行距 0.98 的黏行問題是真的會被看到,不是理論。
-   ⇒ **不是漏掉,是片界**:C-109-A 派的 D5e-2b 是「動線改版四項」,排版屬 §6-1 另一組。
-      本片不動的理由是那五個值會改變整個版位的視覺重量,**該讓 Sean 肉眼驗一次**,
-      不適合夾在動線片裡順手改掉。⇒ 已寫進 manifest 條目 + 回報主視窗排片。 */
+   ⇒ **今天就是那一片**(主視窗指派)。五個值逐條搬完、守門同步翻向:
+     `.ed-feature-title`   line-height 0.98 → 1.2
+     `.ed-feature-title`   letter-spacing -0.02em → -0.01em
+     `.ed-feature-title`   加 `text-wrap: balance`
+     `.ed-feature-body`    line-height 1.75 → 1.85
+     `.ed-feature-body`    max-width 34ch → 30em
+   §6-1 表格的第六列「資料條說明句:有 → 拿掉」**真站本來就沒有**
+   (`FeatureEditorial.tsx` 的 meta 條只渲染 label + value 兩層)⇒ 無事可做,非漏做。
+
+   ⚠️ **OD 表格的「舊」欄與真站現值對不上**(OD 寫 1.02 / 40ch / 1.7,真站是 0.98 / 34ch / 1.75)
+      ⇒ 兩邊起點不同、終點一致 ⇒ 照**新值**搬,不去對齊一個真站不存在的舊值。
+   ⚠️ 這一組改的是**視覺重量**,文字層守不住好不好看 —— **要 Sean 肉眼驗**。 */
 
 /* ── D5e-2b 動線區(OD `.b-feature-actions` 家族)────────────────────────
    一行兩區:實心主按鈕 = 去讀品牌故事;右半整排 = 去逛這家的商品。
