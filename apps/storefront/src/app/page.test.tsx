@@ -96,7 +96,7 @@ const SECTION_CLASS = {
   hero: 'b-hero',
   editorial: 'ed-feature',
   cats: 'b-cats',
-  select: 'ed-select',
+  select: 'b-select',
   statement: 'ed-statement',
   brands: 'b-brands',
   footer: 'ed-footer',
