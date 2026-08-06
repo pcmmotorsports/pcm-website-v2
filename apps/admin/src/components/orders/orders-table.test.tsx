@@ -62,6 +62,11 @@ type OrderOverrides = {
   paymentStatus?: AdminOrderSummary['paymentStatus'];
   /** A11a-5 V11:發票欄要能逐三態驗(fixture 預設 `not_issued`)。 */
   invoiceStatus?: AdminOrderSummary['invoiceStatus'];
+  /**
+   * A11c:**已取消 badge 原本在整個回歸網裡零覆蓋** —— 沒有這個覆寫,fixture 構造不出已取消單,
+   * 「不含已取消」那條斷言就**恆真**(把 badge 整段刪掉照樣綠)。階段 C code-reviewer 抓到。
+   */
+  cancelledAt?: AdminOrderSummary['cancelledAt'];
 };
 
 function order(overrides: OrderOverrides): AdminOrderSummary {
@@ -177,7 +182,11 @@ describe('V3 — rowSpan 分組', () => {
     //    (它只數帶 rowspan 屬性的格子總數 —— 訂單層現為 **5** 格,每列都畫會變 **15** 而不是 5,
     //     所以這條其實已被涵蓋。A11a-5 加發票後這兩個數字從 12/4 變成 15/5。)
     //    這裡改釘單號文字在整張表只出現一次,那是「重複渲染」最直接的觀察面。
-    expect(container.innerHTML.split('PCM-0001').length - 1).toBe(1);
+    // 🔴 **A11c:計數面必須鎖進 `<table>`,不能數整個 container** —— 手機卡片是第二份 markup,
+    //    同一個單號本來就會在卡片再出現一次。原斷言的**意圖是「桌機表格內只渲染一次」**,
+    //    鎖進 table 之後意圖不變、而且比原本更精準(卡片的重複渲染另有 A11c 專屬格把關)。
+    const table = container.querySelector('table')!;
+    expect(table.innerHTML.split('PCM-0001').length - 1).toBe(1);
   });
 
   it('單品項單:rowSpan 為 1', () => {
@@ -228,9 +237,14 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
       <OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
     );
 
-    expect(container.textContent).toContain('NT$ 25,000');
+    // 🔴 **A11c:量測面必須鎖進 `<table>`** —— 手機卡片是同一個 container 的第二個供應者,
+    //    合併態的卡片也會渲染 `order.total` ⇒ 不鎖的話「桌機合併格改顯示 lineTotal」這個突變
+    //    會由卡片把 25,000 供應回來、整格靜默全綠(階段 C code-reviewer 抓到)。
+    //    這一族與 `:184`/`:469` 的 innerHTML 計數同因,但它**不會轉紅、只會變弱**。
+    const table = container.querySelector('table')!;
+    expect(table.textContent).toContain('NT$ 25,000');
     // 反面:不得再逐列顯示各列小計
-    expect(container.textContent).not.toContain('NT$ 8,000');
+    expect(table.textContent).not.toContain('NT$ 8,000');
     // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
     expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
   });
@@ -241,7 +255,8 @@ describe('V4 — 金額合併規則(母 plan §5.1a 逐字:品項列 >1 或任�
       <OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(29000), currency: 'TWD' } })]} />,
     );
 
-    expect(container.textContent).toContain('NT$ 29,000');
+    // 🔴 A11c:同上,鎖進 `<table>`(這格連負向斷言都沒有,更需要限定供應者)
+    expect(container.querySelector('table')!.textContent).toContain('NT$ 29,000');
     // 合併態:訂單層 5 格(單號/日期/金額合併/客戶/**發票** A11a-5)
     expect(container.querySelectorAll('tbody td[rowspan]').length).toBe(5);
   });
@@ -461,7 +476,8 @@ describe('V11 — 發票欄顯示 invoice_status 三態,各自可辨識', () => 
     const rows = [...container.querySelectorAll('tbody tr')];
 
     expect([...rows[0]!.querySelectorAll('td')][10]!.getAttribute('rowspan')).toBe('2');
-    expect(container.innerHTML.split('已開立').length - 1).toBe(1); // 整張表只出現一次
+    // 🔴 A11c:同上,鎖進 `<table>`(手機卡片會讓同一字面在 container 內出現第二次)
+    expect(container.querySelector('table')!.innerHTML.split('已開立').length - 1).toBe(1);
     expect(rows[1]!.querySelectorAll('td').length).toBe(6); // 後續列不多一格
   });
 });
@@ -480,5 +496,178 @@ describe('V11b — Q2b=A:列表**不顯示**載具別', () => {
     //    fixture 字面**、不是型別也不是投影 ⇒ **恆真**,已刪。真正的投影守門在
     //    `packages/adapters/src/supabase/SupabaseOrderAdapter.test.ts`(剝掉 `invoice_status` 再查
     //    `invoice` token,A9c 有突變證)。
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// A11c 手機卡片版(2026-08-06)
+// 真權威 = `docs/specs/2026-07-25-admin-backend-rebuild-spec.md:427`(§4 通用 UI 規範 第 1 條):
+//   「手機版列表一律轉卡片,不做橫向捲動表格。主要欄位加粗置頂、次要副行、金額/狀態靠右。」
+// 🔴 本區量的是**卡片那份 markup**;桌機那份由上面既有 25 格承重、本區一格都不碰它。
+// ─────────────────────────────────────────────────────────────
+describe('A11c — 手機卡片版', () => {
+  // 🔴 選擇器刻意**不綁斷點 class**(用結構:卡片是根層唯一的 <ul>)。
+  //    綁 `ul.md\:hidden` 的話,「拿掉 md:hidden」這個突變會讓下面每一格都紅
+  //    ⇒ 7 個紅同一個根因、不是 7 個獨立證據(memory `feedback_negative-test-observation-supplied-by-another-mechanism`)。
+  //    改成結構選擇後,該突變**只紅斷點那一格**,其餘各自量各自的東西。
+  const card = (c: HTMLElement) => c.querySelector(':scope > ul')!;
+
+  it('🔴 兩份 markup 各自帶對斷點:桌機 hidden md:block、手機 md:hidden', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    const desk = container.querySelector('table')!.parentElement!;
+    // 🔴 用 `classList.contains` 而非 `className.toContain`:後者是**子字串**比對
+    //    ⇒ 把 `hidden` 改成 `md:hidden`(= 手機顯示、正好是本片要治的病)也會通過(階段 C nit)。
+    expect(desk.classList.contains('hidden')).toBe(true);
+    expect(desk.classList.contains('md:block')).toBe(true);
+    // 手機那份在桌機要藏起來(否則桌機會同時出現表格與卡片)
+    expect(card(container).classList.contains('md:hidden')).toBe(true);
+  });
+
+  it('🔴 一張訂單一張卡(不是一個品項一張)—— 3 品項單仍只有 1 個卡片 <li>', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
+    const { container } = render(
+      <OrdersTable orders={[order({ lines, total: { amount: toMoneyAmount(25000), currency: 'TWD' } })]} />,
+    );
+    // 卡片的直屬 <li> = 訂單張數
+    expect(card(container).querySelectorAll(':scope > li').length).toBe(1);
+    // 卡內品項清單 = 品項數
+    expect(card(container).querySelectorAll(':scope > li > ul > li').length).toBe(3);
+  });
+
+  it('🔴 卡頭的訂單層欄位在**卡片內**各只出現一次(重複 = 退化成一品項一張卡)', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000), line('l3', 1, 5000)];
+    const { container } = render(
+      <OrdersTable
+        orders={[
+          order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(25000), currency: 'TWD' } }),
+        ]}
+      />,
+    );
+    const html = card(container).innerHTML;
+    for (const token of ['PCM-0001', '已開立', '王小明']) {
+      expect(html.split(token).length - 1).toBe(1);
+    }
+  });
+
+  // ⚠️ 本格只驗**卡片含這些欄位**;「落在哪個槽」文字層證不了,由真瀏覽器實看 + Sean 肉眼驗承重。
+  it('卡片含訂單層全部欄位:單號 / 金額 / 發票 / 日期 / 客戶 / 等級 / 付款軸', () => {
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
+    const { container } = render(
+      <OrdersTable
+        orders={[
+          order({ lines, invoiceStatus: 'issued', total: { amount: toMoneyAmount(20000), currency: 'TWD' } }),
+        ]}
+      />,
+    );
+    const text = card(container).textContent ?? '';
+    expect(text).toContain('PCM-0001');
+    expect(text).toContain('NT$ 20,000'); // 合併態 = 整單總額進卡頭
+    expect(text).toContain('已開立');
+    expect(text).toContain('王小明');
+    // 🔴 字面取自 `MEMBER_TIER_LABEL.general` 實值(是「一般」不是「一般會員」)—— 猜錯過一次
+    expect(text).toContain('一般');
+    expect(text).toContain('已付款');
+  });
+
+  it('卡內品項行帶品名 / 料號 / 數量 / 訂貨 n/m', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 2, 24000)] })]} />);
+    const text = card(container).textContent ?? '';
+    expect(text).toContain('排氣管');
+    expect(text).toContain('SKU-001');
+    expect(text).toContain('數量 2');
+    expect(text).toContain('訂貨 0/2'); // 分母跟著 quantity 走(fixture 由 quantity 推出)
+  });
+
+  it('🔴 金額語意與桌機同源:合併態只在卡頭、非合併態逐品項', () => {
+    // 非合併態 = 單品項且買 1 件 ⇒ 金額走 lineTotal、逐品項顯示。
+    // 🔴 `total` 刻意設 **12,100 ≠ lineTotal 12,000**(照本檔 `:209` 桌機那格的同款做法):
+    //    兩者相等的話,「一律在卡頭顯示 order.total」這個突變也會讓斷言全綠 = 撞號恆真。
+    //    階段 C code-reviewer 抓到我把上一輪已修掉的坑又寫回來。
+    const { container: single } = render(
+      <OrdersTable
+        orders={[order({ lines: [line('l1', 1, 12000)], total: { amount: toMoneyAmount(12100), currency: 'TWD' } })]}
+      />,
+    );
+    expect((card(single).textContent ?? '').split('NT$ 12,000').length - 1).toBe(1);
+    expect(card(single).textContent).not.toContain('NT$ 12,100'); // 非合併態不得顯示整單總額
+
+    // 合併態(多品項)⇒ 整單總額恰一次,且**不逐品項重複金額**
+    const lines = [line('l1', 1, 12000), line('l2', 1, 8000)];
+    const { container: multi } = render(
+      <OrdersTable
+        orders={[order({ lines, total: { amount: toMoneyAmount(20000), currency: 'TWD' } })]} />,
+    );
+    const text = card(multi).textContent ?? '';
+    expect(text.split('NT$ 20,000').length - 1).toBe(1);
+    expect(text).not.toContain('NT$ 12,000');
+    expect(text).not.toContain('NT$ 8,000');
+  });
+
+  // 🔴 正負成對 —— 只有 `not.toContain` 那半邊的話,把 badge 整段刪掉照樣綠(恆真)。
+  it('已取消單:卡頭帶「已取消」標記', () => {
+    const { container } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], cancelledAt: '2026-08-06T03:00:00.000Z' })]} />,
+    );
+    expect(card(container).textContent).toContain('已取消');
+  });
+
+  it('未取消單:卡頭**不得**出現「已取消」(上一格的負向對照)', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    expect(card(container).textContent).not.toContain('已取消');
+  });
+
+  it('🔴 空狀態只有一份 markup(不複製第二份)', () => {
+    const { container } = render(<OrdersTable orders={[]} />);
+    expect((container.innerHTML.split('目前沒有符合條件的訂單').length - 1)).toBe(1);
+    expect(container.querySelector('table')).toBeNull();
+    expect(container.querySelector('ul')).toBeNull(); // 不綁斷點 class,與本區政策一致
+  });
+
+  // 🔴 nit-5:卡片的這兩條分支原本零覆蓋 —— 刪掉 `text-destructive` 三元式或佔位 `[null]`
+  //    都不會有任何一格轉紅(桌機有覆蓋、卡片沒有)。補上正負對照。
+  it('付款軸 unpaid 在卡片上紅、paid 不上紅(刪掉三元式這格會紅)', () => {
+    const { container: unpaid } = render(
+      <OrdersTable orders={[order({ lines: [line('l1', 1, 12000)], paymentStatus: 'unpaid' })]} />,
+    );
+    const red = card(unpaid).querySelector('.text-destructive');
+    expect(red).not.toBeNull();
+    expect(red!.textContent).toContain('待付款');
+
+    const { container: paid } = render(<OrdersTable orders={[order({ lines: [line('l1', 1, 12000)] })]} />);
+    // fixture 預設 paid ⇒ 卡片副行不得有紅字(badge 那顆紅屬已取消、本例未取消)
+    expect(card(paid).querySelector('.text-destructive')).toBeNull();
+  });
+
+  it('空 lines 的佔位:卡內仍出現一列、顯示「—」(不是整段消失)', () => {
+    const { container } = render(<OrdersTable orders={[order({ lines: [] })]} />);
+    const items = card(container).querySelectorAll(':scope > li > ul > li');
+    expect(items.length).toBe(1);
+    expect(items[0]!.textContent).toContain('—');
+  });
+
+  it('🔴 鐵則 12:卡片版維持零 client 邊界(全檔零 use client / 零 hook)', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const raw = await readFile(join(__dirname, 'orders-table.tsx'), 'utf8');
+
+    // 🔴 **必須先剝註解**(同 V9 那格的教訓):本檔的 A11c 檔頭註解裡就逐字寫著
+    //    「零 `use client`」—— 不剝的話這條守門一寫出來就恆紅。守門要量的是**程式碼**,
+    //    不是說明它的那段話。
+    const stripComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+
+    // 前提斷言 ①:真的讀到那個檔(讀空字串/讀錯檔 ⇒ 下面全部恆真)
+    expect(raw).toContain('export function OrdersTable');
+    // 前提斷言 ②:真的讀到**卡片那份**(不然這格只是在守桌機)
+    expect(raw).toContain('function OrderCard');
+    // 前提斷言 ③:剝註解真的有作用 —— 用**合成字串**驗,不拿 production 註解當供應者
+    expect(stripComments("const a = 1; // 'use client'\n/* useState( */")).not.toContain(
+      'use client',
+    );
+
+    const code = stripComments(raw);
+    expect(code).not.toContain('use client');
+    // 🔴 通用式而非枚舉(階段 C nit:枚舉寫下即過期,漏 useRouter/useSearchParams/useActionState…)
+    expect(code).not.toMatch(/\buse[A-Z]\w*\s*\(/);
   });
 });
