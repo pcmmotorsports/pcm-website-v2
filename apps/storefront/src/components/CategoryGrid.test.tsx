@@ -9,10 +9,11 @@
 //   ③ 沒有 icon 的分類**照樣有入口**(不隱藏、不當機),而且看得出來是哪一顆
 //
 // ⚠️ **它擋不住什麼**:①jsdom 不算 cascade ⇒ 色條/框線/欄數在這裡看不到(那半在
-//    `styles/home.test.ts` 與真瀏覽器);②**這支看不到真目錄** ⇒「真的有分類上榜卻沒 icon」
-//    只有真資料的 E2E 抓得到,本檔只能證「發生時的行為是對的」。
+//    `styles/home.test.ts` 與真瀏覽器);②**這支看不到真目錄** ⇒「真目錄上真的有分類上榜卻沒 icon」
+//    要靠接真資料的 E2E,本檔能證的是兩件:發生時的**行為**對(純文字 chip、入口還在),
+//    以及發生時**真的會叫**(執行期告警,見下方那兩條)。
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { CategoryGrid } from './CategoryGrid';
 import type { MockCategory } from '../data/mock-categories';
@@ -117,7 +118,7 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
     }
   });
 
-  it('🔴 沒有 icon 的分類:照樣有入口、不當機,而且標記得出來(暫行做法,Sean 未拍板)', () => {
+  it('🔴 沒有 icon 的分類:照樣有入口、不當機,而且標記得出來(Sean 2026-08-06 拍 A)', () => {
     // OD 沒畫 icon 的那 4 類,以及未來新增的分類,都會走這條路
     const { container } = render(<CategoryGrid categories={mk(BELOW_LINE)} />);
     const chips = [...container.querySelectorAll('.b-cat-chip')];
@@ -128,6 +129,37 @@ describe('CategoryGrid · 12 格磚面(D5c/H3)', () => {
       expect(a.getAttribute('data-cat'), '沒有色碼時不該輸出 data-cat').toBeNull();
       // 入口本身照舊
       expect(a.getAttribute('href')).toMatch(/^\/products\?category=/);
+    }
+  });
+
+  // 🔴 主視窗要求「進榜分類缺 icon = 要被看見」。單元測試看不到真目錄 ⇒ 能驗的是**告警本身**:
+  //    餵一個沒有 icon 的分類進來,server log 要真的叫、而且叫得出是哪一家、幾件。
+  //    拿掉 `warnMissingIcon()` 的呼叫 = 回到靜默,這條會紅。
+  it('🔴 有分類上榜卻查無 icon → 執行期告警真的叫,且報得出分類名與件數', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      render(<CategoryGrid categories={[
+        { id: 'x', name: '煞車系統', count: 285, children: [] },
+        { id: 'y', name: '碳纖維部品', count: 1991, children: [] },
+      ]} />);
+      expect(warn, '缺 icon 卻沒有任何告警 ⇒ 回到靜默').toHaveBeenCalledTimes(1);
+      const msg = String(warn.mock.calls[0]![0]);
+      expect(msg, '沒報出是哪一個分類').toContain('煞車系統');
+      expect(msg, '沒報出件數(判斷急不急要靠它)').toContain('285');
+      // 反面:有 icon 的那家不該被列進去,否則訊息會把人帶錯方向
+      expect(msg).not.toContain('碳纖維部品');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('🔴 全部都有 icon 時**不得**叫(誤報會訓練人忽略這行告警)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      render(<CategoryGrid categories={mk(TOP_11)} />);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
     }
   });
 

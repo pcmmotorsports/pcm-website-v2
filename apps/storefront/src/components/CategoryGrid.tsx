@@ -36,8 +36,14 @@
 //   本片的暫行做法 = **chip 照畫、但不畫 icon 格**(純文字 chip),並掛上 `.b-cat-chip--noicon`
 //   讓它在真瀏覽器 / E2E 掃得出來。**不隱藏那個分類**(客人會少一個入口)、
 //   **也不自己補畫 icon**(那是視覺設計,分工上不是我的)。
-//   🔴 誠實邊界:單元測試**看不到真目錄**,所以「有分類上榜卻沒 icon」這件事**沒有自動轉紅的守門**
-//      —— 只有 class 標記 + 這段註解。要自動抓得靠接真資料的 E2E。已在信箱 `D-239-Q` 問 Sean 長期做法。
+//   ✅ Sean 2026-08-06 拍 **A**(信箱 `D-125-A`):純文字 chip、不留空圖格 —— 即本檔現行做法,零改動。
+//   🔴 **「進榜卻沒 icon 要被看見」怎麼做到的**(主視窗要求掛守門;誠實講清楚哪一半做得到):
+//      · ❌ 單元測試**做不到**:它看不到真目錄(`categories` 是測試自己餵的),
+//        任何「前 11 名都有 icon」的斷言都只是在驗自己剛餵進去的 fixture = 恆真。
+//      · ✅ **執行期告警做得到**:下面 `warnMissingIcon()` 在真的有分類上榜卻查無 icon 時
+//        對 server log 吐一行(含分類名與件數)。真目錄一變,下一次首頁渲染就會叫。
+//        **告警本身有單元測試**(餵一個沒有 icon 的分類 → 斷言真的叫了、且叫對名字)。
+//      · ⏳ 真正的「紅」要靠接真資料的 E2E ⇒ 已在收工信請主視窗立 backlog。
 
 import type { ReactElement } from 'react';
 import Link from 'next/link';
@@ -165,10 +171,29 @@ const CATEGORY_CHIPS: Readonly<Record<string, { cat: number; icon: ReactElement 
   },
 };
 
+/**
+ * 上榜卻查無 icon → 對 server log 吐一行。**這是本片唯一能真的看到真目錄的偵測點**
+ * (單元測試只看得到自己餵的 fixture)。
+ * ⚠️ 它擋不住什麼:①只在首頁被渲染時才叫(首頁有快取 ⇒ 不是即時)②沒有人看 log 就等於沒叫
+ * ③它報的是「查無 icon」,分類**被改名**同樣會走到這裡 —— 那正是最容易靜默的那種變更。
+ */
+function warnMissingIcon(missing: MockCategory[]): void {
+  if (missing.length === 0) return;
+  // 這行就是本片唯一看得到真目錄的偵測點(理由見上方 doc);拿掉它 = 回到靜默。
+  // ⚠️ 不加 `eslint-disable no-console`:本 repo 沒開那條規則,加了會變成「無用指令」警告、
+  //    而 lint 是 `--max-warnings 0` ⇒ 反而讓三綠變紅(第一版真的踩到)。
+  console.warn(
+    `[CategoryGrid] 有 ${missing.length} 個分類上了首頁磚面卻查無 icon(會渲染成純文字 chip):` +
+      missing.map((c) => `${c.name}(${c.count} 件)`).join('、') +
+      ' — 要補 icon 請走設計出稿,不要自己畫(Sean 2026-08-06 拍 A:純文字 chip 是可接受的暫態)',
+  );
+}
+
 export function CategoryGrid({ categories }: { categories: MockCategory[] }) {
   // 依件數遞減取前 11(`buildCategoryTree` 已按群數排序,這裡保守再排一次)。
   const chips = [...categories].sort((a, b) => b.count - a.count).slice(0, WALL_CELLS - 1);
   if (chips.length === 0) return null; // 空 → 整段不渲染(勝過假卡或空磚面)
+  warnMissingIcon(chips.filter((c) => !CATEGORY_CHIPS[c.name]));
 
   // OD `:924` 是 `data-od-id="categories"`(原型標記)、**沒有真 id** ⇒ 這裡也不造一個
   // (R1 nit:第一版加了 `id="categories"`,全 repo 零引用 = 憑空多出的字面)。
