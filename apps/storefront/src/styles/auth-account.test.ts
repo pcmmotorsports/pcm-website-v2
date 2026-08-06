@@ -23,6 +23,7 @@ const ACCOUNT = strip(read('account.css'));
 const CART = strip(read('cart.css'));
 const LAYOUT = read('../app/layout.tsx');
 const ACCOUNT_VIEW = read('../components/account/AccountView.tsx');
+const MOBILE_TABBAR = read('../components/MobileTabBar.tsx');
 
 /** 從指定位置切一個大括號區塊。🔴 **不要用 `[\s\S]*?` 去跨 `@media`** ——
  *  它是 lazy 的沒錯,但只要目標字串在區塊**外面**更近的地方出現,它照樣命中。
@@ -50,6 +51,34 @@ function block(src: string, label: string, selector: string): string {
   const close = src.indexOf('}', open);
   expect(close, `${label} 的 ${selector} 區塊沒有閉合`).toBeGreaterThan(open);
   return src.slice(open + 1, close);
+}
+
+/** 從 anchor 之後找最近一個 `<svg>...</svg>`,回傳內層 markup(不含 `<svg>` 標籤本身)。
+ *  2026-08-07 補:用來把「兩邊是不是同一支 path」的比對建立在**實際讀到的原始碼**上,
+ *  不是各自手抄第三份字面(手抄字面的舊版本就是這條守門「理由欄是假的」的病根)。 */
+function svgInnerAfter(src: string, anchor: string, label: string): string {
+  const at = src.indexOf(anchor);
+  expect(at, `${label}:找不到 anchor「${anchor}」`).toBeGreaterThan(-1);
+  const svgOpen = src.indexOf('<svg', at);
+  expect(svgOpen, `${label}:anchor 後找不到 <svg`).toBeGreaterThan(-1);
+  const tagClose = src.indexOf('>', svgOpen);
+  const svgClose = src.indexOf('</svg>', tagClose);
+  expect(svgClose, `${label}:找不到對應的 </svg>`).toBeGreaterThan(-1);
+  return src.slice(tagClose + 1, svgClose);
+}
+
+/** 抹平 JSX 自閉合(` />`)與 innerHTML 字串(`/>`)之間的空白差異,只留元素/屬性本身可比對。 */
+function normalizeSvgMarkup(s: string): string {
+  return s.replace(/\s+/g, ' ').replace(/ \/>/g, '/>').replace(/>\s+</g, '><').trim();
+}
+
+/** 從 AccountView NAV 陣列的原始碼字面抓某個 id 的 `path:` 字串內容。 */
+function navPathById(src: string, id: string): string {
+  const re = new RegExp(`id:\\s*'${id}'[\\s\\S]*?path:\\s*'([^']*)'`);
+  const m = re.exec(src);
+  const captured = m?.[1];
+  expect(captured, `AccountView NAV 抓不到 id='${id}' 的 path`).not.toBeUndefined();
+  return captured ?? '';
 }
 
 describe('第4批 · IBM Plex Mono 家族(DESIGN-HANDOFF §4-3 逐字「不要改回去」)', () => {
@@ -232,15 +261,45 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
     for (const attr of ['viewBox="0 0 24 24"', 'fill="none"', 'stroke="currentColor"', 'strokeWidth="1.6"']) {
       expect(ACCOUNT_VIEW, `SVG 規格少了 ${attr}(殼的 header / mobile-tabbar 是這一組)`).toContain(attr);
     }
-    // `vehicles` 與 tabbar「找車」、`profile` 與 header 會員鈕是**同一支** path(刻意的)。
-    expect(ACCOUNT_VIEW, 'vehicles 的 path 與 tabbar「找車」不再是同一支').toContain(
-      'M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5',
-    );
-    expect(ACCOUNT_VIEW, 'profile 的 path 與 header 會員鈕不再是同一支').toContain(
-      '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
-    );
     expect(ACCOUNT_VIEW, '圖示沒對讀屏隱藏(旁邊已經有文字 label)').toMatch(
       /className="acc-nav-icon" aria-hidden="true"/,
+    );
+  });
+
+  it('🔴 vehicles 的 path 與 MobileTabBar「找車」是同一支(2026-08-07 Sean 拍板 Q2=A:機車零件站選車/愛車圖示統一用重機;實際讀出兩邊字面比對,不再手抄第三份字面)', () => {
+    // 舊版本這條斷言的訊息宣稱「與 tabbar 不再是同一支」,但比對對象其實是寫死在測試裡
+    // 的汽車 path 字面、根本沒有讀 MobileTabBar.tsx——理由欄是假的(兩者從來沒真的比對過)。
+    // 這裡改成從 MobileTabBar.tsx 實際讀出「找車」tab 的 SVG 內容,正規化空白差異後比對。
+    // 🔴 R2 nit:原本從 `label: '找車'` 起算「之後最近一個 <svg>」。只要有人在 label 與 icon
+    //    之間插一顆 svg、或把 `icon:` 搬到 `label:` 之前,這條就會**靜默比到別支**而不是紅。
+    //    改成先把該 tab 的物件字面切出來(`id: 'vehicle-search'` 到下一個 `id: '`),再在裡面找。
+    const tabStart = MOBILE_TABBAR.indexOf("id: 'vehicle-search'");
+    expect(tabStart, "MobileTabBar 找不到 id: 'vehicle-search' ⇒ 本條前提失效").toBeGreaterThan(-1);
+    const nextTab = MOBILE_TABBAR.indexOf("id: '", tabStart + 5);
+    const tabObject = MOBILE_TABBAR.slice(tabStart, nextTab > -1 ? nextTab : undefined);
+    expect(
+      (tabObject.match(/<svg/g) ?? []).length,
+      '「找車」那筆物件裡不是剛好一顆 <svg> ⇒ 比對對象有歧義',
+    ).toBe(1);
+    const tabbarMoto = normalizeSvgMarkup(
+      svgInnerAfter(tabObject, "label: '找車'", 'MobileTabBar 找車 icon'),
+    );
+    const accountVehicles = normalizeSvgMarkup(navPathById(ACCOUNT_VIEW, 'vehicles'));
+    expect(accountVehicles, 'AccountView vehicles 的 path 與 MobileTabBar「找車」不是同一支').toBe(
+      tabbarMoto,
+    );
+  });
+
+  it('🔴 查證(2026-08-07):profile 的舊斷言訊息「與 header 會員鈕不再是同一支」也是假的,已改成誠實的字面鎖定', () => {
+    // 實查:Header.tsx 會員鈕 = `<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`,
+    // AccountView profile = `<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>`——
+    // circle cy(7 vs 8)、身體線條公式(header 用直線+arc、這裡用三次貝茲弧)都不同,兩邊從來
+    // 不是同一支 path,只是視覺上都畫成「頭圓+肩弧」。舊斷言用的比對字面就是 AccountView 自己
+    // 當下的 path、從沒讀過 Header.tsx,是與 vehicles 那條同形狀的假理由欄。
+    // 對齊 header 不在本次 Q2=A 範圍、不動 production code,這裡退回純字面鎖定(regression pin),
+    // 訊息不再宣稱跨檔同支。
+    expect(ACCOUNT_VIEW, 'profile 的 path 字面被改動了(僅鎖字面防誤改,不宣稱與 header 同一支——查證後從來不是)').toContain(
+      '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
     );
   });
 
@@ -350,5 +409,32 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
     expect(body.slice(0, body.indexOf('}')), '.acc-address 不是 column flex + 12px gap ⇒ 地址卡貼在一起').toMatch(
       /display:\s*flex[\s\S]*flex-direction:\s*column[\s\S]*gap:\s*12px/,
     );
+  });
+
+  // g-5c/g-6c 手機捲動修復(2026-08-07):.acc-inline-form 沒有 scroll-margin-top 的話,
+  // JS 把表單捲到視窗頂端後,表單仍會被 position:sticky 的 header(header.css:3)蓋住開頭幾列。
+  it('🔴 .acc-inline-form 有 scroll-margin-top(沒有它,表單捲到位仍會被 sticky header 蓋住)', () => {
+    const body = block(ACCOUNT, 'account.css', '.acc-inline-form {');
+    const m = /scroll-margin-top:\s*(\d+)px/.exec(body);
+    expect(m, '.acc-inline-form 沒有 scroll-margin-top ⇒ 表單捲到位仍會被 sticky header 蓋住').not.toBeNull();
+    // 🔴 只斷言「> 0」擋不住這條守門自己宣稱要擋的事:1px 也是正數、照樣被 header 蓋住。
+    //    下限要釘**兩個斷點裡較高的那顆** header,不是較矮的:
+    //      桌機 = padding 14×2 + .pcm-icon-btn 44 + border-bottom 1 = 73px
+    //      手機 = padding 12×2 + 44 + 1 = 69px
+    //    🔴 R1 抓到我第一版釘 69(較小者)—— 那樣填 70/71/72 會全綠,但桌機 73px 的 header
+    //    照樣蓋住表單開頭。「至少不被任何一個斷點蓋住」的下限是 max(73, 69) = 73。
+    //    數值來源:header.css 的 `.pcm-header-inner` padding 兩條、`.pcm-icon-btn` 44px、
+    //    `.pcm-header` 的 border-bottom(用 grep 這幾個選擇器找,不引行號)。
+    expect(
+      Number(m?.[1]),
+      'scroll-margin-top 小於桌機 header 實高 73px ⇒ 表單捲到位、開頭仍被蓋住',
+    ).toBeGreaterThanOrEqual(73);
+    // 🔴 base 值對了不代表沒被推翻:任何 @media 把它覆寫成更小值,上面那條照樣綠。
+    //    R2 nit:原本用 `\.acc-inline-form\s*\{`,對 `.acc-inline-form.is-x {`、
+    //    `.acc-inline-form,\n.foo {` 這兩種寫法全盲 ⇒ 放寬成「選擇器串裡含 .acc-inline-form」。
+    const smaller = [...ACCOUNT.matchAll(/\.acc-inline-form[^{;]*\{[^}]*scroll-margin-top:\s*(\d+)px/g)]
+      .map((mm) => Number(mm[1]))
+      .filter((v) => v < 73);
+    expect(smaller, `有 .acc-inline-form 規則把 scroll-margin-top 覆寫成 <73px:${smaller}`).toEqual([]);
   });
 });

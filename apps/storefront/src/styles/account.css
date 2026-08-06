@@ -478,6 +478,20 @@
   border-top: 3px solid var(--c-text, #0a0a0a);
   margin: 4px 0 16px;
   background: var(--c-surface, #fff);
+  /* g-5c/g-6c 手機捲動修復:`.pcm-header` 是 position: sticky,沒有這個、捲到位仍會被壓在底下。
+     來源實查(非憑感覺;🔴 R2 抓到我原本在這裡引了 6 個跨檔行號,與同片 auth-account.test.ts
+     裡「用 grep 找、不引行號」的規矩自相矛盾 ⇒ 全改成可 grep 的選擇器):
+     - 桌機 = `.pcm-header-inner` 的 padding 14px 上下 ⇒ 14×2,加 `.pcm-icon-btn` 的 44px
+       (header 內最高的子元素),加 `.pcm-header` 的 border-bottom 1px = 73px。
+     - 手機 `@media (max-width: 1079px)` 把該 padding 覆寫成 12px ⇒ 12×2+44+1 = 69px,小於桌機。
+     取較大者(捲過頭比被遮住好)= 73px;實際取 76px = 73 + 3px 緩衝,順帶與
+     `product-page.css` 的 `.pd-sec`(grep `scroll-margin-top`)既有的 76px 對齊。
+     ⚠️ `.pd-sec` 那顆 76 的推導過程沒留在檔裡 ⇒ 這裡是「數值一致」,不是「查證過它同源」。 */
+  scroll-margin-top: 76px;
+  /* 本層被程式化 focus(見 use-reveal-form.ts)。它 `tabIndex=-1`、Tab 走不到,
+     鍵盤開表單時卻可能被 UA 的 `:focus-visible` 在整張表單外框畫一圈 —— 那不是可互動元素該有的
+     視覺。焦點只為了讓讀屏知道開了什麼,不需要外框。🔴 R2 抓到這是本片新引進、原本沒被決定的視覺。 */
+  outline: none;
 }
 .acc-inline-form-inner {
   display: flex;

@@ -28,6 +28,7 @@ import { useRouter } from 'next/navigation';
 import type { CustomerVehicle } from '@pcm/domain';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { InlineVehicleForm, type InlineVehicleInitial } from '@/components/account/InlineVehicleForm';
+import { useRevealForm } from '@/components/account/use-reveal-form';
 import {
   addVehicleAction,
   updateVehicleAction,
@@ -45,6 +46,14 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
   const [vehEdit, setVehEdit] = useState<InlineVehicleInitial | null>(null);
   const router = useRouter();
   const [, startTransition] = useTransition();
+  // g-6c 手機捲動修復(Sean 08-06 回報「新增/編輯沒有自動捲到表單」):邏輯與 AddressTab 逐字相同,
+  // 抽在 use-reveal-form.ts(病灶、Q1=A 為何不 focus 輸入欄、preventScroll 的理由都寫在那)。
+  // 兩處 `.acc-inline-form` 包裹層都掛 `tabIndex={-1}` + `role="group"` + `aria-label`:
+  // 焦點落**容器**不落輸入欄 ⇒ 手機不彈鍵盤;讀屏**預期**會念出「新增車輛 / 編輯車輛」
+  // (⚠️ 真機讀屏未實測,iOS VoiceOver 不保證跟著程式化 focus 走 —— 詳見 use-reveal-form.ts);
+  // 沒有 tabIndex 的話 focus() 是 no-op,沒有 role 的話 aria-label 掛在裸 div 上部分讀屏不念。
+  // aria-label 是這裡手寫的第二份字面(真標題在 InlineVehicleForm 的 <h4>)⇒ 有測試釘住兩者同步。
+  const formRef = useRevealForm(vehEdit);
 
   // 刪除:design L399-406 deleteVehicle 內 confirm('確定要刪除這輛車？')確認後刪、直接搬(L602 刪除鈕呼叫 handler);
   // 接 deleteVehicleAction(ownership 由 use-case + RLS 守);ok 才 router.refresh()(清單即時刷新);
@@ -112,7 +121,10 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
             {vehEdit?.id === v.id && (
               <div
                 className="acc-inline-form"
-                ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
+                ref={formRef}
+                tabIndex={-1}
+                role="group"
+                aria-label={vehEdit?.id ? '編輯車輛' : '新增車輛'}
               >
                 <InlineVehicleForm
                   vehicleBrands={vehicleBrands}
@@ -131,7 +143,10 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
         {vehEdit && !vehEdit.id && (
           <div
             className="acc-inline-form"
-            ref={(el) => el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })}
+            ref={formRef}
+            tabIndex={-1}
+            role="group"
+            aria-label={vehEdit?.id ? '編輯車輛' : '新增車輛'}
           >
             <InlineVehicleForm
               vehicleBrands={vehicleBrands}
