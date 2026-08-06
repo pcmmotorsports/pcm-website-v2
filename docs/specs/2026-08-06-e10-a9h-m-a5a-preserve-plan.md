@@ -1,17 +1,19 @@
-# A9h-M — A5a 加 preserve 模式(migration 片)plan v5
+# A9h-M — A5a 加 preserve 模式(migration 片)plan v6
 
 > **狀態:✅ 已實作 —— `supabase/migrations/20260806200000_m4b_e10_a9h_m_a5a_preserve_optional_fields.sql`。**
-> **實跑證據(2026-08-06,拋棄式 PG17 叢集 `/tmp/a9hm-work`,`d1t2-rehearsal.sh provision` 套全序列):**
+> **本輪終態實跑(2026-08-06,拋棄式 PG17 叢集,`d1t2-rehearsal.sh provision` 套全序列):**
 > - migration 檔內 DO 全數通過(單一多載 / 12 參簽章 / `DEFAULT false` / 12 條基底錨 + 4 條 preserve 錨)。
-> - `scripts/a5a-verify.sh` **155 格全綠**(既有 144 格一格未改一格未刪 + 新增 P 區 11 格)、
->   MUT=8 全殺、SKIP=0、零留痕。
-> - **突變證**:把 M2 接線改回參數 ⇒ 同一通呼叫從 `NO_CHANGE` 翻成 `UPDATED`(DDL 交易內 ROLLBACK、零留痕)
->   ⇒ P4 有判別力,不是恆真。
-> - TS 端 typecheck / lint / build 全綠(`--force`、`Cached: 0`);
->   repository 突變(旗標寫死 `false`)⇒ 恰 1 格紅、30 格綠。
+> - `scripts/a5a-verify.sh` **`PASS=166 FAIL=0 SKIP=0 | MUT=13 CELL=149` 全綠**
+>   (既有 **144 格一格未改、一格未刪** + 新增 P 區 17 格 + 常駐突變 M9-M13)、零留痕。
+> - **五個突變證**:M2 接線改回參數 ⇒ `NO_CHANGE` 翻 `UPDATED`;拿掉步 1p ⇒ 矛盾意圖不再 RAISE;
+>   拿掉步 5p ⇒ 批次漏送管道被放行;步 5p 改比原始參數 ⇒ 只紅 P12;步 5p 拿掉 preserve 合取 ⇒ 只紅 P13。
+>   **全部收成常駐格**,不是一次性手動。
+> - TS 端 typecheck / lint / build 全綠(`--force`、`Cached: 0`);全套 372 檔 5363 passed。
+>   repository 突變(旗標寫死 `false`)⇒ 恰 1 格紅、30 格綠;actions 突變(改送 `true`)⇒ 恰 1 格紅、55 綠。
 >
 > **🔴 仍未做**:apply(= Sean 手動停點)、`database.types.ts` 重 gen、PostgREST smoke、codex 背書(§8)。
-> v4 → v5 = 實作完成後的字面對帳(連動面 6→**8**、harness 144→155、假設 A1/A2 實證)。
+> v4 → v5 = 實作後的字面對帳(連動面 6→**8**、假設 A1/A2 實證)。
+> v5 → v6 = **F3 拍板 B 折入**(§10):`contact_channel` 在 preserve=true 下**必填**(步 5p)。
 > 依 `E-125-A` ②;上游拍板 = Sean `E-124-A:3`(Q4=A)。
 > **片型 = 高風險片**(鐵則 12②③)⇒ **apply = Sean 手動停點**。
 > 事實親查於 `pcm-refund-wire`;引用一律附 `檔案:行號`。
@@ -53,10 +55,17 @@ R1 指出 `:357` 的 `contact_channel = v_channel` 與那四欄**同形**、我�
 - `contact_channel`:Q1=A 明訂它是**整批共用欄、員工會選** ⇒ 批次送的是**真實意圖**,
   把它 preserve 掉反而會讓「員工替整批改管道」失效 = 打壞 Q1=A
 
-⇒ **不進 preserve 集合。** 但 R1 指出的相鄰風險是真的,改掛 A9h-2:
+⇒ **不進 preserve 集合。** 但 R1 指出的相鄰風險是真的 ——
+🏁 **2026-08-06 Sean 拍板:改由 DB 層擋(步 5p)**,不再掛給 A9h-2(見 §10 F3)。
+**兩件事不衝突**:*不保留* = 批次送什麼就寫什麼(員工可整批改管道);
+*必填* = 不准不送(不送會清空)。⇒ `contact_channel` 仍**不在**保留集合裡,但 preserve=true 時**必填**。
+
+<details><summary>原判(留紀錄):當時掛給 A9h-2 的寫法</summary>
 
 🔴 **A9h-2 待辦**:若批次 UI 允許聯絡管道**留空**,送 `null` 會清掉各列既有值。
 ⇒ A9h-2 必須**要求必填**、或明確警告。**寫進 §4 認領表,不丟失。**
+
+</details>
 
 ---
 
@@ -119,7 +128,7 @@ p_preserve_optional_fields boolean DEFAULT false
 | # | 檔案:行號 | 現況(親驗) | 不改會怎樣 |
 |---|---|---|---|
 | **L2b** | `docs/runbooks/2026-07-30-a7-rollback.md:96,99` | 🔴 **第二份**回滾 runbook,GRANT + 斷言同款硬編 11 參簽章 | 與 L2 完全相同的失效模式(**災難當天才壞**)。v2 只列了 a4a 那份 ⇒ **漏一半** |
-| **L5** | `apps/admin/src/lib/orders/procurement-repository.ts:124-138` | `rpc()` 逐欄具名送 11 個參數 | 不送新參數 ⇒ 走 DEFAULT `false` = 現行行為(不會壞),**但批次拿不到 preserve** ⇒ A9h-2 無法開工 |
+| **L5** | `apps/admin/src/lib/orders/procurement-repository.ts:124-138` | `rpc()` 逐欄具名送 11 個參數(**改後 12**;本欄是改動前快照)| 不送新參數 ⇒ 走 DEFAULT `false` = 現行行為(不會壞),**但批次拿不到 preserve** ⇒ A9h-2 無法開工 |
 | **L6** | `apps/admin/src/lib/orders/procurement-repository.test.ts:102-116` | `expect(args).toEqual({…11 鍵…})` **精確比對** + `expect(Object.keys(args)).toHaveLength(11)`(註解逐字「參數個數釘死 = 11」) | 🔴 **測試直接紅** —— 這條是好的守門(它就是為了擋「多送/少送讓 PostgREST 找不到多載」),但**它釘的數字要跟著簽章走** |
 
 **A3 的正向結果**:全 migration 樹**零**其他呼叫端(`grep` 排除本檔後零命中)⇒ DB 內部無連動。
@@ -161,7 +170,7 @@ apply 後仍須重 gen 並照檔頭計數重貼既有校正。
 | 12 | action diff 只准加 import+刪函式 vs 還要移除未使用 import | ✅ **已自然消失**(A9h-1 實作時就移除,commit body 具名交代) |
 | nit | 重複列理由自相矛盾 | ➡️ **A9h-2** |
 | nit | §0 兩片 vs §5 三片 | ✅ **已消失** |
-| 🆕 | **批次聯絡管道留空會清掉各列既有值**(本輪 R1 F1 衍生,§1.1) | ➡️ **A9h-2**(必填或警告) |
+| 🆕 | **批次聯絡管道留空會清掉各列既有值**(本輪 R1 F1 衍生,§1.1) | ✅ **本片**(DB 層 backstop = 步 5p,Sean 拍板 B)**+** ➡️ **A9h-2**(UI 必填與明確提示)。🔴 **兩邊都要**:`ProcurementCallerBugError` 在 `procurement-actions.ts` 只會落成泛用 `bug` 態 ⇒ 員工看到的是「請重新整理」而不是「請選聯絡管道」,DB 擋得住資料損失、擋不住體驗 |
 
 ⇒ **本片吃 3 條、A9h-2 吃 8 條、自然消失 3 條。零丟失。**
 
@@ -172,7 +181,7 @@ apply 後仍須重 gen 並照檔頭計數重貼既有校正。
 | 題 | 拍板 | 連動 |
 |---|---|---|
 | **Q1** 矛盾意圖(preserve=true + 那四欄任一參數非 NULL)怎麼回 | 🏁 **A:RAISE 走既有 caller-bug 面 `P0001`**,不新增第 18 碼 | M4;TS 端 `procurement-repository.ts:66` 只看 `code` 不看訊息 ⇒ **自動被 `ProcurementCallerBugError` 承接**、無需改判別式(但 `:52` 的來源枚舉註解要補 = §4 L4) |
-| **Q2** 批次「聯絡管道留空」語意 | 🏁 **A:必填** —— A9h-2 的 UI 不准留空 | **DB 層不動、12 參簽章一次定案**;`contact_channel` 不進 preserve 集合(§1.1)**隨之定案**、不再是待議項 |
+| **Q2** 批次「聯絡管道留空」語意 | 🏁 **A:必填** —— A9h-2 的 UI 不准留空 | **12 參簽章一次定案**(仍成立);`contact_channel` 不進 preserve 集合(§1.1)隨之定案。🔴 **「DB 層不動」那半句已於 2026-08-06 被 Sean 自己推翻**(F3=B:改由 DB 層 RAISE)—— 當時拒的是**第 13 參**,不是拒絕在 12 參內加閘。現行口徑見 **§10 F3** |
 
 **Q1=A 的無誤傷證明**(R2 獨立驗證,我保留):批次那四欄無入口、單列一律送 `false`
 ⇒ **構造不出合法情境觸發 RAISE**;且批次逐列各自交易,單列 RAISE **不回滾兄弟列**
@@ -212,6 +221,9 @@ apply 後仍須重 gen 並照檔頭計數重貼既有校正。
 9. 既有 17 碼在 `preserve=false` 下**逐碼不變** —— `scripts/a5a-verify.sh`(已依 L1 改簽章)
    既有 **144 格一格未改、一格未刪**、全綠。
 10. 交易模擬零留痕。
+11. 🔴 **(v6 新增,F3=B)保留模式下 channel 必填**:preserve=true + channel 送 NULL ⇒ RAISE;
+    送 `'   '`(正規化後 NULL)⇒ 同樣 RAISE;**preserve=false + channel NULL ⇒ 照舊清空**(不外溢)。
+    三條分別對應 harness [P11]/[P12]/[P13],各配一個常駐突變靶 [M11]/[M12]/[M13]。
 
 > ### ✅ 7.1 實跑結果(2026-08-06;拋棄式 PG17 `/tmp/a9hm-work`)
 >
@@ -282,10 +294,36 @@ apply 後仍須重 gen 並照檔頭計數重貼既有校正。
 | **F7** nit | P3 只驗兩欄;`'   '` 從嚴面無對應格 | ✅ P3 改驗四欄;新增 **[P8]** 空白字串 + preserve ⇒ RAISE |
 | **F6** nit | `n_pres=3` 會被函式體註解的無關編輯誤紅 | ✅ 寫進該處誠實界(方向 fail-loud、可接受) |
 
-⇒ **最終 `EXPECTED_TOTAL` 158 / `EXPECTED_CELL` 141 / `EXPECTED_MUT` 10;全新叢集實跑
+⇒ **本輪 `EXPECTED_TOTAL` 158 / `EXPECTED_CELL` 141 / `EXPECTED_MUT` 10;全新叢集實跑
 `PASS=158 FAIL=0 SKIP=0 | MUT=10 CELL=141` ✅**(既有 144 格仍是一格未改、一格未刪)。
 
-### ⛔ F3 —— 我**沒有**折入,要主視窗/Sean 裁
+### 🏁 F3 —— **Sean 2026-08-06 拍 B(推翻我推薦的 A),已折入**(`E-130-A:7`)
+
+拍板逐字:「preserve=true 且 channel 正規化後 NULL ⇒ **DB 層 RAISE**。
+與 Q2=A『DB 層不動』不矛盾 —— 當時拒的是**第 13 參**,這是 **12 參內加閘**。」
+⇒ 我當初的「牴觸拍板」判斷**是錯的**:我把「DB 層不動」讀成「DB 層什麼都不准加」,
+但那句的射程是簽章。**停下來問是對的,推薦 A 的理由不成立。**
+
+**落地**(migration **步 5p**,排在 channel 正規化**之後** —— 拍板字面是「正規化後 NULL」
+⇒ 送 `'   '` 這種肉眼全空的字串已收斂成 NULL、照樣擋):
+- `IF p_preserve_optional_fields AND v_channel IS NULL THEN RAISE …`(走既有 caller-bug 面 `P0001`)。
+- `n_pres` 錨 4 → **5**;COMMENT 與檔頭檢查順序、RAISE 面枚舉同批更新。
+- harness 加 **[P11]**(送 NULL ⇒ RAISE)/ **[P12]**(送 `'   '` ⇒ 同樣 RAISE)/
+  **[P13] 不外溢對照**(preserve=false + channel NULL ⇒ 照舊清空,證明這道閘沒外溢到單列表單);
+  常駐突變 **[M11]**(拿掉該閘)、**[M12]**(改比原始參數 ⇒ 只紅 P12)、**[M13]**(拿掉 preserve 合取 ⇒ 只紅 P13)。
+- TS 端 `UpsertItemProcurementArgs.preserveOptionalFields` 的 JSDoc 與 `isRpcRaise` 上方的
+  `P0001` 來源枚舉同批跟上(契約註解不得落後於行為)。
+
+⇒ **`EXPECTED_TOTAL` 160 → 166 / `EXPECTED_CELL` 143 → 149 / `EXPECTED_MUT` 10 → 13;
+實跑 `PASS=166 FAIL=0 SKIP=0 | MUT=13 CELL=149` ✅。**
+
+**關卡2(`adversarial-reviewer` model:fable;派工前後 4 檔 sha256 全同)判 PASS-with-comments、零 must-fix。**
+consider **C1 已折入**:原本只有 [M11],而 `IF false AND …` 恆假 = **實質整段拿掉**,屬較弱突變、
+殺不出 [P12]/[P13] 的獨有價值 ⇒ 補 **[M12]**(改比原始參數 ⇒ 只紅 P12)與 **[M13]**(拿掉 preserve 合取
+⇒ 只紅 P13),兩者都是「保留選擇器、改壞值」型。nit N1(格數字面)、N2(響度順序,已寫進 migration
+誠實邊界)、N3(本檔舊輪次的「最終」字樣改「本輪」)一併清掉。
+
+<details><summary>原始 F3 決策題(保留當紀錄)</summary>
 
 > preserve=true(批次)時 `contact_channel` 不在保留集**也不擋 NULL** ⇒ A9h-2 coordinator 若漏送
 > channel,會靜默清空各列既有值 —— **與本片修的四欄同型病、只是換一欄**。
@@ -295,6 +333,8 @@ apply 後仍須重 gen 並照檔頭計數重貼既有校正。
 在 DB 層加這道閘 = 直接牴觸該拍板 ⇒ 屬 R3「與拍板矛盾必停問」,不是我可以自己拍的板。
 現況已由 §1.1 掛在 A9h-2 認領表(要求必填或明確警告),**不會丟失**。
 ⇒ **請裁**:(A) 維持原案、由 A9h-2 在 UI/coordinator 層擋;(B) 推翻 Q2=A 的「DB 層不動」、本片或另立小片加閘。
+
+</details>
 
 **其餘**:審查者另**自行全樹掃過** `admin_upsert_item_procurement`(19 檔)⇒ **確認八個連動面無再漏**;
 ACL/SECDEF、步 1p 位置對既有 17 碼可達性、M2 新建枝語意、三個 `EXPECTED_*` 數字 —— 逐面標「打不破」並附試法。
@@ -321,8 +361,9 @@ ACL/SECDEF、步 1p 位置對既有 17 碼可達性、M2 新建枝語意、三�
 **審查者自行核過且判**「乾淨」**的**:preserve=false 下 17 碼逐字不變(新舊函式本體逐行 diff,除 M1-M4 與純註解精簡外零差異)、既有 144 格一格未改一格未刪、M9/M10 anchor 唯一性、`n_pres` 計數、格數算式、零 debug 殘留。
 另指出 **F1 的修法連帶把既有 `[R1]-[R5]`/`[C1,2]` 六格從恆真變成真守門**(方向是強化)。
 
-⇒ **最終:`EXPECTED_TOTAL` 160 / `EXPECTED_CELL` 143 / `EXPECTED_MUT` 10;
-全新叢集實跑 `PASS=160 FAIL=0 SKIP=0 | MUT=10 CELL=143` ✅;三綠 `--force`(Cached: 0)、全套 372 檔 5329 綠。**
+⇒ **本輪(v5 = 階段 C 那一輪)`EXPECTED_TOTAL` 160 / `EXPECTED_CELL` 143 / `EXPECTED_MUT` 10;
+實跑 `PASS=160 FAIL=0 SKIP=0 | MUT=10 CELL=143` ✅。**
+🔴 **這組數字已被 v6 推翻,不是現行值** —— 現行 = **166 / 149 / 13**(見 §10 F3)。
 
 ---
 
