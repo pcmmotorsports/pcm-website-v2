@@ -103,6 +103,24 @@ describe('ProductRail(R-1 抽元件:區塊專屬字面全部由 props 決定)', 
     ).toBeTruthy();
   });
 
+  // 🔴 審查抓到:`variant` 加了卻零守門 —— 把預設從 `'page'` 改成 `'inset'`,首頁會失去
+  //    48px gutter、`64px 0 80px` 留白與白底,而 R-1 那三支驗收檔**全部照樣綠**
+  //    (`home.test.ts` 只讀 CSS 文字、`HomeSelect.test.tsx` 只查 `.b-select-nav`)。
+  //    與上面 `data-reveal` 那條同族:opt-in 的東西要正反各釘一次。
+  it('variant 決定要不要掛 .b-select-inset(預設 page = 不掛)', () => {
+    const one = products.slice(0, 1);
+    const { container, rerender } = render(<ProductRail {...BASE} products={one} />);
+    expect(
+      container.querySelector('section.b-select')?.className,
+      '預設就掛了 inset ⇒ 首頁會失去頁面級 gutter / 留白 / 白底',
+    ).toBe('b-select');
+    rerender(<ProductRail {...BASE} products={one} variant="inset" />);
+    expect(
+      container.querySelector('section.b-select')?.className,
+      'variant=inset 沒有掛上 .b-select-inset ⇒ 非首頁的 --ed-* token 全部無聲失效',
+    ).toBe('b-select b-select-inset');
+  });
+
   // 🔴 審查抓到:`emptyText` 若必填,R-2 會被迫替品牌頁編一句「目前沒有商品」——
   //    而品牌頁現行是 0 筆整區不渲染,註解逐字寫過「對客人說什麼是文案決策」(backlog #315 未拍)。
   it('0 筆且沒給 emptyText → 整區不渲染(不替呼叫端編文案、也不留空骨架)', () => {

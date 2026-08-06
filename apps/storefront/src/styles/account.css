@@ -16,7 +16,7 @@
  * - 🔴 2026-08-06(Sean 拍板 Q1=A)更正:上一行原本還列著 .acc-rec-item / .acc-rec-name
  *   / .acc-rec-price,以及下面原有一條「g-2 業務 override:.acc-rec-img wrapper」——
  *   那四條**已整組刪除**,「為你推薦」改用首頁 N°02 同一顆 ProductCard、卡片外觀吃
- *   product-card.css。本檔只留 .acc-rec 那層版位格線。
+ *   product-card.css。🔴 2026-08-07 R-3:`.acc-rec` 那層版位格線也已整組刪除(改用共用 ProductRail 橫捲)。
  * - 其餘 tab 專屬樣式(.acc-fav / .acc-bike / .acc-addr / .acc-profile / .acc-inline-form)
  *   隨各自 tab slice(g-3~g-7)加入、本檔不含。
  * - .acc-stub 為 g-1a 暫時 placeholder chrome、g-2 保留(其他 5 tab 仍用、g-3~g-7 各自移除)。
@@ -280,15 +280,14 @@
   padding: 20px 0;
 }
 
-.acc-rec {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-}
 /* 🔴 2026-08-06(Sean 拍板 Q1=A):`.acc-rec-item` / `.acc-rec-img` / `.acc-rec-name`
    / `.acc-rec-price` 四條**整組刪除** —— 「為你推薦」改用首頁 N°02 同一顆 `ProductCard`,
    卡片外觀一律吃 `product-card.css` 的 `.pcard*`,本檔不再自畫第二種商品卡。
-   (`.acc-rec` 這層格線留著:它是**版位**、不是卡片外觀,四欄/兩欄的斷點規則仍由本檔管。)
+   🔴 **2026-08-07 R-3:`.acc-rec` 那層版位格線也一起刪了(四條:base + 兩個手機路徑 + 平板)。**
+      上一版這裡寫「格線留著、四欄/兩欄的斷點規則仍由本檔管」—— 已作廢:整區改用共用
+      `ProductRail` 橫捲,版位由 `.b-carousel*` 管,`.acc-rec` 全樹零消費者。
+      留著就是本檔 809 行自己記過的那種**死規則**:「不會有任何測試轉紅,只會讓下一個人
+      以為這裡還有一套自刻卡」。
    🔴 其中 `.acc-rec-price` 的 `color: var(--c-text-2)` 正是 Sean 回報的「價錢顏色不一樣」——
       它照的是 OD `source/styles/account.css`,而那個目錄是**舊站快照層**、不是新稿定案層。
       刪掉之後價格吃 `.pcard .price-main` = `--c-red-dark` #c4470c,
@@ -706,7 +705,6 @@
      一張多出約 60px 空白。R1 9-3 最後一列與 9-4 驗收 #10「stat 單欄不留多餘空白」逐字要求。 */
   .acc-stat { min-height: 0; padding: 18px 18px 16px; }
   .acc-stat-v { font-size: 26px; margin: 8px 0 0; padding-bottom: 6px; }
-  .acc-rec { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* V-2f:minmax(0,…) 讓 track 收縮=修 375px 概覽推薦品第二欄溢出(同 .pp-grid) */
   /* vehicles tab mobile(g-6a、對齊 design L913-914)*/
   .acc-bikes { grid-template-columns: 1fr; }
   .acc-bike h3 { font-size: 18px; }
@@ -754,7 +752,6 @@
 /* 同 MF7,`[data-mobile]` 兜底那一路。 */
 [data-mobile="true"] .acc-stat { min-height: 0; padding: 18px 18px 16px; }
 [data-mobile="true"] .acc-stat-v { font-size: 26px; margin: 8px 0 0; padding-bottom: 6px; }
-[data-mobile="true"] .acc-rec { grid-template-columns: repeat(2, minmax(0, 1fr)); } /* V-2f:同 minmax(0,…) 修概覽推薦品溢出 */
 /* vehicles tab mobile(g-6a、對齊 design L913-914)*/
 [data-mobile="true"] .acc-bikes { grid-template-columns: 1fr; }
 [data-mobile="true"] .acc-bike h3 { font-size: 18px; }
@@ -805,7 +802,6 @@
   .acc-section-head h2 { font-size: 19px; }
   .acc-order-id, .acc-order-meta { font-size: 14px; }
   .acc-order-total { font-size: 17px; }
-  [data-mobile] .acc-rec, .acc-rec { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; } /* 4 張一行;2 欄會讓商品圖大到失衡 */
   /* 🔴 2026-08-06:`.acc-rec-name` / `.acc-rec-price` 兩條斷點覆寫跟著本體一起刪
      (卡片改吃 `.pcard*`,字級由 `product-card.css` 統一管)。留著的話是**指向不存在元素的死規則**
      —— 而死規則不會有任何測試轉紅,只會讓下一個人以為這裡還有一套自刻卡。 */
