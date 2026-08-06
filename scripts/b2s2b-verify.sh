@@ -5,11 +5,14 @@
 # 標的 = supabase/migrations/20260806180000_m4b_e10_b2_s2b_shipped_recompute_wire.sql
 # 片級 plan = docs/specs/2026-08-06-e10-b2-s2b-recompute-wire-plan.md(v2、已凍結)
 #
-# 本檔由**六片**累積而成,**各片的範圍分開寫,不要混成一句**:
+# 本檔由**七片**累積而成,**各片的範圍分開寫,不要混成一句**:
 #   · **S2b-2a**(commit `14daef0`)= 建檔 + plan §4.99 的驗收項 10 / 10b / 11 / 12 / 12b / 12c / 14 / 15 / 18 / 20。
 #   · **S2b-2b 第一段**(commit `3f8dce0`)= ①pre-S2b 基準庫(突變環境的 TEMPLATE 來源;plan §2.2 W2 逐字定義)
 #     ②**環境 B(行為)突變矩陣**:MUT0 對照 + 五發靶 ③**S2b-1 消融重證**(主視窗 `B-147-A` ③)。
-#     🔴 2b 依鐵則 4 切兩段;**第二段**做:環境 A(結構)突變矩陣、項19 barrier、項29 stale-high。**尚未做。**
+#     🔴 2b 依鐵則 4 切段;**第二段**原含三塊 —— 環境 A 矩陣 / 項19 barrier / 項29 stale-high;
+#     再依鐵則 4 拆成三小段,**項19 與項29 仍未做**。
+#   · **S2b-2b 第二段之一**(本輪)= **環境 A(結構)突變矩陣**:外部結構 oracle **十維**
+#     + 八發靶(A1-A8)+ 零突變對照 SMUT-0。詳見下方 ⓒ。
 #   · **S2b-3a 後段**(commit `b3340ac`)= **真相式六塊同步守門**(`scripts/b2s2b-truth-sync.py` + 對照組格)
 #     + **九發守門突變**(T1-T5 全等半逐塊各一、T6/T7 per-site 半(helper 與 backfill 的述詞恆等式)、
 #       T8 位置集合被「刪一格+重複另一格」、T9 標記被刪)。
@@ -17,7 +20,7 @@
 #   · **S2b-3b 第一段**(commit `5ca71ba`)= plan §4 的 **項26 / 26b / 27**:`RB-STOPWRITE`(runbook 停寫在步驟①、
 #     回權在步驟⑦ 的文字面 + 三發突變 S1/S2/S3)、`B26b-enable-restores`(回權後真的重新跟動)、
 #     `B27-divergence-4th`(從 runbook 抽 SQL 實跑的第四軸驗收)。
-#   · **S2b-3b 第三段**(本輪)= plan §4 的 **項22(PR4 造洞實證)+ 項28(出貨資料面集合斷言)**。
+#   · **S2b-3b 第三段**(commit `482ce423`)= plan §4 的 **項22(PR4 造洞實證)+ 項28(出貨資料面集合斷言)**。
 #     ⇒ **3b 七項(21b / 22 / 26 / 26b / 27 / 28 / 31)全部結清。**
 #   · **S2b-3b 第二段**(commit `94e78e92`)= plan §4 的 **項21b + 項31**:runbook 依賴枚舉四支→**五支**、
 #     步驟④ 的 **DROP 序**補出貨側、Forward 重建清單加 **S2b** + 重放方式;
@@ -46,11 +49,12 @@
 #     前綴是報表維,由 A1 複合 FK 釘死、不具判別力)。
 #
 # 🔴 **本檔不證明**(逐條寫死,不留給下一棒推測):
-#   ⓐ **突變覆蓋是 21 格中的 11 格,不是全部**。逐格清單也印在跑完的結語裡。
-#     **有靶的 11 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
+#   ⓐ **突變覆蓋是 22 格中的 12 格,不是全部**。逐格清單也印在跑完的結語裡。
+#     **有靶的 12 格**:B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)
 #     + **TRUTH-SYNC**(3a 的守門靶 **T1-T9**)+ **RB-STOPWRITE**(3b 的靶 **S1/S2/S3**)
 #     + **REH-PRODUCTS**(3b 第二段的靶 **TMUT-REH / TMUT-REH2**)。
-#     + **B28-datasurface**(3b 第三段的靶 **D1/D2**:真相式多加總一欄、把 gate 那句註解掉)。
+#     + **B28-datasurface**(3b 第三段的靶 **D1/D2**)
+#     + **STRUCT-ORACLE**(2b 第二段之一的靶 **A1-A5** + 零突變對照 SMUT-0)。
 #     🔴 **B22-pr4-hole 沒有靶**(靶要重建庫、成本高;它自帶對照:同一筆資料舊三軸回 0、四軸 RAISE)。
 #     🔴 **其中 B14 只紅在它自己的「前提斷言」那一段**(靶①⑤ 都讓 shipped 根本沒被寫上去)——
 #     也就是說 B14 的 C9 判別 oracle **從未被任何一發突變證明有判別力**;它的對照是 B15(消融),
@@ -70,9 +74,18 @@
 #     **沒做**:列 5/6(oracle = 項19 barrier,見 ⓒ)、**列 7「backfill 漏候選品項」**
 #     (oracle = 項17 差集段,在 migration 檔內;要在 pre 庫上先造出貨資料才構造得出來)、
 #     **列 8/9(五份真相式本體 / 第 5 處述詞改恆等式)** —— 那兩列的 oracle 是項21,認領給 **S2b-3a**。
-#   ⓒ **環境 A(結構)突變矩陣、項19 barrier、項29 stale-high 都不在本輪**。
-#     環境A 的七個靶需要一組**外部結構 oracle**(本檔沒有;S2b-1 的結構驗收在 migration 檔內、
-#     突變時會被剝掉)⇒ 連同項19、項29 留給 **S2b-2b 第二段**。
+#   ⓒ ✅ **環境 A(結構)突變矩陣已做**(2b 第二段之一):外部結構 oracle **十維** + 五發靶 + 零突變對照。
+#     🔴 **但 plan §5 環境A 的七個靶只做了五個**:
+#     ①「trigger 改 `BEFORE`」**構造不出來** —— PG 文法不接受 `CREATE CONSTRAINT TRIGGER … BEFORE`
+#       (實測 `syntax error at or near "BEFORE"`)⇒ 換成「降級成普通 TRIGGER」,
+#       **那打的是 tgconstraint 維、不是 tgtype 維;tgtype 維本輪無靶**。
+#     ②「拿掉閘」與③「閘改 pin `prosrc`」**沒做** —— 它們的 oracle 不是 catalog 事實而是「閘會拒絕」,
+#       照 plan §3.2 要走**雙獨立庫**負測,留給後續。
+#     🔴 **項19 barrier 與項29 stale-high 仍未做**(2b 第二段的另外兩塊)。
+#     🔴 **「拿掉閘」「閘改 pin prosrc」兩靶的認領家**(R2 F3:上一版只寫「留給後續」= 活字):
+#       它們要走 plan §3.2 的**雙獨立庫**負測(同一 provision 快照複製兩份、一份 control 一份 mutant),
+#       與本檔「單一 pre 庫複製副本」的骨架不同 ⇒ **認領給 S2b-2b 第二段之四**(項19/項29 之後那一段);
+#       若屆時仍不做,必須進 STOP 讓主視窗裁,不得默默蒸發。
 #     (memory `feedback_guard-checks-existence-not-effect`:存在性斷言對「還在但失效」全盲。)
 #   ⓓ **正式站行為**:本機 PG17,不是 Supabase;RLS / ACL 的實際行為未驗。
 #   ⓔ **W2 的落點**(對凍結 plan 的偏離,已同批改 plan §2.2 的 W2 適用列,不留活字):
@@ -119,20 +132,26 @@ ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
-EXPECT_CELL=21     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
+EXPECT_CELL=22     # 行為/結構格(項 10 / 10b / 11 ×2 / 12 / 12b ×2 / 12c ×2 / 14 / 15 / 18 / 20 + 消融重證
                    #   + 同步守門對照組 + 3b 第一段三格(RB-STOPWRITE / 項26b / 項27)
-                   #   + 3b 第二段一格(REH-PRODUCTS)+ 3b 第三段兩格(項22 / 項28))
-EXPECT_MUT=6       # 行為突變靶:MUT0 對照 + 靶①②③④⑤(環境 B;環境 A 結構靶不在本輪,見檔頭 ⓒ)
+                   #   + 3b 第二段一格(REH-PRODUCTS)+ 3b 第三段兩格(項22 / 項28)
+                   #   + 2b 第二段之一一格(STRUCT-ORACLE))
+EXPECT_SMUT=9      # 環境A 結構突變靶:SMUT-0 零突變對照 + A1 降級成普通 TRIGGER(**不是** BEFORE,那個構造不出)
+                   #   / A2 換 tgfoid / A3 tgattr 清空 / A4 search_path 改 public / A5 漏 REVOKE
+                   #   / A6 SECURITY INVOKER / A7 DEFERRABLE INITIALLY DEFERRED / A8 多掛 INSERT 事件面(R2 F2 補)
+EXPECT_MUT=6       # **行為**突變靶:MUT0 對照 + 靶①②③④⑤(環境 B);環境 A 的結構靶另計於 EXPECT_SMUT
 EXPECT_TMUT=16     # 文字層突變靶:T1-T5 全等半、T6/T7 per-site 半、T8 位置集合、T9 標記被刪、
                    #   S1/S2/S3 停寫/回權/搬段(3b 第一段)、
                    #   REH 拿掉 Forward 清單的 S2b、REH2 拿掉步驟④ 的出貨側 DROP(3b 第二段)、
                    #   D1 真相式多加總一欄、D2 把 gate 那句註解掉(3b 第三段)
-EXPECT_TOTAL=49    # 21 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT + COPIES-DROPPED
+EXPECT_TOTAL=60    # 22 + ID-GATE + BASE-POST + PRE-BASE + 6 行為突變 + MUT-COUNT + 16 文字層突變 + TMUT-COUNT
+                   #   + 6 結構突變(含 SMUT-0)+ SMUT-COUNT + COPIES-DROPPED
 EXPECT_PASS_KEYS="ID-GATE BASE-POST PRE-BASE \
 B10-shipped-lands B10b-draft-not-counted B11-void-returns B11b-void-submitted B12-unvoid-restores \
 B12b-x3-blocks B12b-x1-blocks B12c-append-only B12c-blocks B14-c9-neg B15-c9-loadbearing \
 B18-x1-commit-rollback B20-helper-live ABLATION \
 MUT-0 MUT-1 MUT-2 MUT-3 MUT-4 MUT-5 MUT-COUNT \
+STRUCT-ORACLE SMUT-0 SMUT-A1 SMUT-A2 SMUT-A3 SMUT-A4 SMUT-A5 SMUT-A6 SMUT-A7 SMUT-A8 SMUT-COUNT \
 TRUTH-SYNC TMUT-1 TMUT-2 TMUT-3 TMUT-4 TMUT-5 TMUT-6 TMUT-7 TMUT-8 TMUT-9 \
 RB-STOPWRITE TMUT-S1 TMUT-S2 TMUT-S3 B26b-enable-restores B27-divergence-4th \
 REH-PRODUCTS TMUT-REH TMUT-REH2 B22-pr4-hole B28-datasurface TMUT-D1 TMUT-D2 TMUT-COUNT COPIES-DROPPED"
@@ -363,7 +382,7 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4' EXIT
+trap 'drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
@@ -1032,6 +1051,168 @@ run_mutant "靶⑤-ON CONFLICT 漏 shipped_quantity" "$WORK/mut5.sql" \
 # 🔴 突變段結束:把全域旗標重設回 report(2b R1 nit 12)——
 #    停在 collect + 已 DROP 的 mut URL 時,日後在這之後加的任何 cell 會**靜默不計** CELL/PASS。
 ORACLE_MODE="report"; ORACLE_URL="$BASE_URL"
+
+log "6f/8 環境 A(結構)突變矩陣(S2b-2b 第二段;plan §5 環境A)"
+# 🔴 **為什麼需要一組<u>外部</u>結構 oracle**:環境A 的靶要改 migration,而突變一律先剝掉它自己的
+#    §5 結構驗收(永久警語③)—— 剝掉之後 catalog 面就沒有任何東西在看了。
+#    S2b-1 的結構驗收寫在 migration 檔內,對突變環境**結構上不可用** ⇒ 這裡另建一份。
+# 🔴 期望值是**實測常數**(2026-08-07 對 post-S2b 基準庫量得),不是執行期自算再跟自己比。
+# 🔴🔴 **逐維查詢、每維各自接 psql 的離開碼**(R1 Critical A):上一版把兩組維度串成一條字串
+#    且用 `2>&1` —— 查詢壞掉時**錯誤訊息本身**變成觀察值,非空、不等於凍結值,
+#    於是產出的紅點**剛好就是五發靶期望的那一個** ⇒ 靶全部 vacuous pass。
+#    (memory `reference_pg-sql-percent-escape-and-rollback-safe-counter` ④ 記的同一族,今天第二次。)
+# 🔴 **per-dim key**:A1/A2/A3 原本共用單一 `SA-trigger`,機器分不出它們動到哪一維
+#    ⇒ 錨失效而改到別維時仍全綠。改成一維一個 key,want 自然變成互不相同的集合。
+so_reds=""
+so_dim() {   # $1 = key、$2 = SQL、$3 = 期望值;查詢非零退出 ⇒ 紅在 `<key>-ERR`(與值不符可分辨)
+  local v rc
+  v="$(psql -X "$SO_URL" -qtAc "$2" 2>"$WORK/so-$1.err")"; rc=$?
+  if [ "$rc" -ne 0 ]; then so_reds="$so_reds ${1}-ERR"
+  elif [ "$v" != "$3" ]; then so_reds="$so_reds $1"; fi
+}
+SO_URL=""
+struct_oracle() {   # $1 = URL → 印紅點 key(全綠零輸出)
+  SO_URL="$1"; so_reds=""
+  local T="FROM pg_trigger t WHERE t.tgname='${TG_SS}' AND NOT t.tgisinternal"
+  local F="FROM pg_proc p WHERE p.oid='public.pcm_a4a_shipments_summary_recompute()'::regprocedure"
+  # ── trigger 五維(物件不存在時每維都回 0 列 ⇒ 空字串 ⇒ 五維齊紅,與查詢壞掉的 -ERR 可分辨)
+  so_dim SA-tgtype       "SELECT t.tgtype::text $T" '17'
+  so_dim SA-tgfoid       "SELECT (SELECT p2.proname FROM pg_proc p2 WHERE p2.oid=t.tgfoid) $T" 'pcm_a4a_shipments_summary_recompute'
+  so_dim SA-tgattr       "SELECT coalesce(array_to_string(ARRAY(SELECT a.attname FROM unnest(t.tgattr) k JOIN pg_attribute a ON a.attrelid=t.tgrelid AND a.attnum=k ORDER BY a.attname),','),'<NULL>') $T" 'deleted_at,shipped_at'
+  so_dim SA-tgdefer      "SELECT t.tgdeferrable::text || '|' || t.tginitdeferred::text $T" 'false|false'
+  so_dim SA-tgconstraint "SELECT (t.tgconstraint <> 0)::text $T" 'true'
+  # ── 函式五維(函式不存在時 `::regprocedure` 直接丟錯 ⇒ 五維齊紅在 -ERR)
+  so_dim SA-proconfig    "SELECT array_to_string(p.proconfig,',') $F" 'search_path="",lock_timeout=5s'
+  so_dim SA-secdef       "SELECT p.prosecdef::text $F" 'true'
+  so_dim SA-aclnotnull   "SELECT (p.proacl IS NOT NULL)::text $F" 'true'
+  so_dim SA-grantee0     "SELECT (SELECT count(*) FROM aclexplode(p.proacl) a WHERE a.grantee <> p.proowner)::text $F" '0'
+  # 🔴 **這一維非有不可**(R1 Important):`aclexplode(NULL)` 回**零列** ⇒ 漏 REVOKE(proacl 為 NULL、
+  #    PUBLIC 仍有 EXECUTE)時上面那維同樣是 `0`,與健康態不可分。四角色點名才殺得到那個形狀。
+  so_dim SA-rolesnone    "SELECT has_function_privilege('anon','public.pcm_a4a_shipments_summary_recompute()','EXECUTE')::text || '|' || has_function_privilege('authenticated','public.pcm_a4a_shipments_summary_recompute()','EXECUTE')::text || '|' || has_function_privilege('service_role','public.pcm_a4a_shipments_summary_recompute()','EXECUTE')::text || '|' || has_function_privilege('authenticator','public.pcm_a4a_shipments_summary_recompute()','EXECUTE')::text" 'false|false|false|false'
+  printf '%s' "$(printf '%s' "$so_reds" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
+}
+CELL=$((CELL+1))
+SA_CTL="$(struct_oracle "$BASE_URL")"
+if [ -z "$SA_CTL" ]; then
+  ok STRUCT-ORACLE "🔴 環境A 外部結構 oracle 對照組全綠:**十維逐維各自接 rc**(trigger 的 tgtype / tgfoid / tgattr / deferrable 對 / constraint-ness;函式的 proconfig / secdef / proacl 非 NULL / owner 外 grantee 數 / 四角色點名)"
+else
+  bad "環境A 結構 oracle 對照組竟然有紅點:[$SA_CTL]"
+fi
+
+# 🔴 五發靶:每發改 migration **一處**、套到 pre-S2b 副本、期望只紅指定那一維。
+#    比對象 = **mut0**(只剝 §5 的基準;plan §2.2 W5 ①),不是原檔。
+run_smut() {   # $1 = 靶名、$2 = 突變檔、$3 = 期望紅點、$4 = key
+  local name="$1" file="$2" want="$3" key="$4" db="b2s2b_smut" U got rc
+  SMUT=$((SMUT+1))
+  [ -s "$file" ] || { bad "$name:突變檔不存在或為空"; return; }
+  if [ "$key" != "SMUT-0" ]; then   # 🔴 對照組本來就等於 mut0,不套這道
+    cmp -s "$WORK/mut0.sql" "$file"; rc=$?
+    case "$rc" in
+      1) : ;;
+      0) bad "$name:與 mut0 逐字相同 —— 沒改到東西"; return ;;
+      *) bad "$name:cmp 讀不到檔(rc=$rc)—— 判紅"; return ;;
+    esac
+  fi
+  psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $db" >/dev/null 2>&1
+  psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+    || { sleep 1; psql -X "$ADMIN_URL" -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE $db TEMPLATE b2s2b_pre" >/dev/null 2>&1 \
+         || { bad "$name:複製 pre 副本失敗"; return; }; }
+  U="postgresql://postgres@127.0.0.1:${PORT}/$db"
+  if ! psql -X "$U" -v ON_ERROR_STOP=1 -q -f "$file" > "$WORK/smut-$key.log" 2>&1; then
+    bad "$name:突變版 migration 套不上去($(grep -m1 ERROR "$WORK/smut-$key.log" | cut -c1-90))
+     🔴 套不上去 ≠ 抓到 —— 沒有量到任何 oracle,不得算過"
+    drop_db "$db"; return
+  fi
+  got="$(struct_oracle "$U")"
+  drop_db "$db"
+  if [ "$got" = "$want" ]; then ok "$key" "$name ⇒ 紅點逐字相符:[$want]"
+  else bad "$name:紅點不符 —— 實際 [$got] / 期望 [$want]"; fi
+}
+SMUT=0
+# 🔴 **零突變對照組**(R1 Important;本檔永久警語③ 立的規矩):五發靶跑在「pre 庫 + 剝了 §5 的突變版」,
+#    而凍結值量在「post base + 未剝」。沒有這一格就沒有任何東西證明**那兩個環境的 catalog 是同一個**
+#    —— 若有差異,A1-A5 會一起 vacuous pass。
+run_smut "SMUT0-只剝 §5、零改動(對照組)" "$WORK/mut0.sql" "" SMUT-0
+# 🔴🔴 **plan §5 環境A 列的第一個靶「trigger 改 `BEFORE`」<u>構造不出來</u>**(2026-08-07 實測):
+#    PG 的文法**不接受** `CREATE CONSTRAINT TRIGGER … BEFORE` ——
+#    實跑 `CREATE CONSTRAINT TRIGGER zz_probe BEFORE UPDATE ON public.shipments …`
+#    得到 `ERROR: syntax error at or near "BEFORE"`;同一句改成普通 `CREATE TRIGGER` 就過。
+#    ⇒ 那個靶對「constraint trigger」這個形狀是**不可達**的,不是我沒寫好。
+# 🔴 **換成打同一個面、而且構造得出的靶**:把 `CONSTRAINT TRIGGER` **降級成普通 TRIGGER**
+#    (`tgconstraint` 由非 0 變 0 —— 那是 oracle 的第六維)。這個突變也正好解鎖 BEFORE:
+#    普通 trigger 之後就能改 BEFORE,所以它是「改 BEFORE」在真實世界裡唯一的前置條件。
+#    🔴 語意差別不是裝飾:constraint trigger 才有 `SET CONSTRAINTS` 的可延遲語意與
+#    「與 X1 的發火序」契約(plan §3.3);降成普通 trigger 之後那些全部沒了。
+make_mutant_or_die "$WORK/smut1.sql" \
+'CREATE CONSTRAINT TRIGGER shipments_summary_recompute_ac
+  AFTER UPDATE OF shipped_at, deleted_at ON public.shipments
+  NOT DEFERRABLE INITIALLY IMMEDIATE
+  FOR EACH ROW' \
+'CREATE TRIGGER shipments_summary_recompute_ac
+  AFTER UPDATE OF shipped_at, deleted_at ON public.shipments
+  FOR EACH ROW'
+run_smut "靶A1-CONSTRAINT TRIGGER 降級成普通 TRIGGER" "$WORK/smut1.sql" "SA-tgconstraint" SMUT-A1
+
+make_mutant_or_die "$WORK/smut2.sql" \
+'  EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();' \
+'  EXECUTE FUNCTION public.pcm_a4a_procurement_summary_recompute();'
+run_smut "靶A2-trigger 指向另一支函式" "$WORK/smut2.sql" "SA-tgfoid" SMUT-A2
+
+make_mutant_or_die "$WORK/smut3.sql" \
+'  AFTER UPDATE OF shipped_at, deleted_at ON public.shipments' \
+'  AFTER UPDATE ON public.shipments'
+run_smut "靶A3-UPDATE OF 改成任意 UPDATE" "$WORK/smut3.sql" "SA-tgattr" SMUT-A3
+
+make_mutant_or_die "$WORK/smut4.sql" \
+"SET search_path = ''          -- 🔴 新建函式一律 ''" \
+'SET search_path = public      -- 🔴 新建函式一律 '"''"''
+run_smut "靶A4-新函式 search_path 改 public" "$WORK/smut4.sql" "SA-proconfig" SMUT-A4
+
+make_mutant_or_die "$WORK/smut5.sql" \
+'REVOKE ALL ON FUNCTION public.pcm_a4a_shipments_summary_recompute()
+  FROM PUBLIC, anon, authenticated, service_role;' \
+'-- (REVOKE 被拿掉了)'
+# 🔴🔴 **實測推翻了我與審查共同的假設**(2026-08-07):我們都以為「漏 REVOKE ⇒ `proacl` 為 NULL」,
+#    於是預期紅在 `SA-aclnotnull`。**實跑不是那樣** —— 在本 shim 環境下,
+#    `proacl = {=X/postgres,postgres=X/postgres,anon=X/postgres,authenticated=X/postgres,service_role=X/postgres}`
+#    ⇒ **非 NULL、owner 外 grantee = 4**。真正翻面的是 `SA-grantee0` 與 `SA-rolesnone`。
+# 🔴 連帶結論:審查說「`SA-grantee0` 對 A5 零判別力(因為 `aclexplode(NULL)` 回 0 列)」——
+#    **在這個環境下不成立**,它有判別力;反而是 **`SA-aclnotnull` 這一維沒有任何靶**(見結語的無靶清單)。
+run_smut "靶A5-新函式漏 REVOKE" "$WORK/smut5.sql" "SA-grantee0 SA-rolesnone" SMUT-A5
+
+# ── R2 F2 補的三發:那三維本來被我列進「無靶」,但**構造得出便宜的靶** ──────────
+# 🔴 判準與 B28 那次一致:「沒有靶」不成立為「構造不出」。plan §5 沒列這三個,是我加的。
+make_mutant_or_die "$WORK/smut6.sql" \
+'CREATE FUNCTION public.pcm_a4a_shipments_summary_recompute()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER' \
+'CREATE FUNCTION public.pcm_a4a_shipments_summary_recompute()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER'
+run_smut "靶A6-新函式改 SECURITY INVOKER" "$WORK/smut6.sql" "SA-secdef" SMUT-A6
+
+# 🔴 tgdefer 這一維直接承載 X1 的發火序契約(migration 檔頭:重算 NOT DEFERRABLE ⇒ 排在 X1 之前)。
+make_mutant_or_die "$WORK/smut7.sql" \
+'  NOT DEFERRABLE INITIALLY IMMEDIATE
+  FOR EACH ROW
+  EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();' \
+'  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW
+  EXECUTE FUNCTION public.pcm_a4a_shipments_summary_recompute();'
+run_smut "靶A7-trigger 改成 DEFERRABLE INITIALLY DEFERRED" "$WORK/smut7.sql" "SA-tgdefer" SMUT-A7
+
+# 🔴 tgtype:plan 指定的「改 BEFORE」構造不出(PG 文法),但**加一個事件面**構造得出(17→21)。
+make_mutant_or_die "$WORK/smut8.sql" \
+'  AFTER UPDATE OF shipped_at, deleted_at ON public.shipments
+  NOT DEFERRABLE' \
+'  AFTER INSERT OR UPDATE OF shipped_at, deleted_at ON public.shipments
+  NOT DEFERRABLE'
+run_smut "靶A8-trigger 多掛 INSERT 事件面(tgtype 17→21)" "$WORK/smut8.sql" "SA-tgtype" SMUT-A8
+
+[ "$SMUT" -eq "$EXPECT_SMUT" ] && ok SMUT-COUNT "環境A 結構突變靶跑了 $SMUT 發,與凍結值相符" \
+  || bad "環境A 結構突變靶只跑了 $SMUT 發,期望 $EXPECT_SMUT"
 
 log "6b/8 真相式六塊同步守門(S2b-3a 後段;plan §1.1 v3.1)"
 # 🔴 守門本體在 `scripts/b2s2b-truth-sync.py`(抽取 + 判定,純文字、不碰 DB)。
@@ -1766,9 +1947,10 @@ fi
 
 echo
 echo "PASS=$PASS FAIL=$FAIL (CELL=$CELL / 期望 $EXPECT_CELL、總格 $EXPECT_TOTAL)"
-echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **11 格**被至少一發突變紅過 ——"
+echo "🔴 突變覆蓋(**逐格,不四捨五入**):$EXPECT_CELL 格裡 **12 格**被至少一發突變紅過 ——"
 echo "   B10 / B10b / B11 / B11b / B12 / B14 / B20(行為靶①-⑤)+ **TRUTH-SYNC**(守門靶 T1-T9,六塊全覆蓋)"
-echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH / TMUT-REH2)+ **B28-datasurface**(靶 D1/D2)。"
+echo "   + **RB-STOPWRITE**(靶 S1/S2/S3)+ **REH-PRODUCTS**(靶 TMUT-REH / TMUT-REH2)+ **B28-datasurface**(靶 D1/D2)"
+echo "   + **STRUCT-ORACLE**(靶 A1-A5 + 零突變對照 SMUT-0)。"
 echo "   🔴 但「被紅過」≠「它自己的判別 oracle 被證明有效」,兩格要降級敘述:"
 echo "     · **B14** 在靶①⑤ 下紅的是**前提斷言**(shipped 根本沒被寫上去),它的 C9 判別 oracle 無靶;"
 echo "       C9 的對照是 B15(消融),不是突變。"
@@ -1782,5 +1964,15 @@ echo "   ③**ABLATION** —— 消融格本身無靶;它是 B10 的負向對照
 echo "   ④**B26b-enable-restores / B27-divergence-4th**(3b 第一段)—— 兩格自帶對照(ABLATION 的 0/3、舊三軸述詞的 0 列),但**沒有**外部突變檔。"
 echo "   ⑤**B22-pr4-hole**(3b 第三段)—— 自帶對照(同一筆資料舊三軸回 0、四軸 RAISE),但**沒有**外部突變檔(靶要重建庫、成本高)。"
 echo "   🔴 **B28-datasurface 不在沒靶那份** —— 它有 D1/D2 兩發(真相式多加總一欄、把 gate 那句註解掉)。"
-echo "   🔴 plan §5 環境B **九列只做了五列**、環境A 矩陣與項19 / 項29 都不在本輪(見檔頭 ⓑⓒ)。"
+echo "   🔴 plan §5 環境B **九列只做了五列**(見檔頭 ⓑ)。"
+echo "   🔴 環境A **七個靶只做了五個**:「trigger 改 BEFORE」**構造不出來**(PG 不接受 CONSTRAINT TRIGGER 用 BEFORE)"
+echo "     ⇒ 換成「降級成普通 TRIGGER」= 打 tgconstraint 維,**tgtype 維本輪無靶**;"
+echo "     「拿掉閘」「閘改 pin prosrc」兩靶未做(oracle 是「閘會拒絕」、要走雙獨立庫負測)。"
+echo "   🔴 結構 oracle **十維裡只剩一維無靶**(九維有靶):"
+echo "     ⇒ 有靶 = tgconstraint(A1)/ tgfoid(A2)/ tgattr(A3)/ proconfig(A4)/ grantee0+rolesnone(A5)"
+echo "            / secdef(A6)/ tgdefer(A7)/ tgtype(A8)。"
+echo "       🔴 **無靶只剩 `SA-aclnotnull`** —— 在本 shim 環境下它**構造不出紅**:"
+echo "         shim 的 ALTER DEFAULT PRIVILEGES 讓新函式出生就有非 NULL 的 proacl。"
+echo "         它**不是裝飾維**,是給 plain-PG(無 default ACL)的環境保險 —— 那裡漏 REVOKE ⇒ proacl 為 NULL。"
+echo "   🔴 **項19 barrier 與項29 stale-high 仍未做**(2b 第二段的另外兩塊)。"
 [ "$FAIL" -eq 0 ] || exit 1
