@@ -319,9 +319,19 @@ v1 寫「恰四處」而 §3.4 又要求獨立 oracle ⇒ 照 v1 實作出來的
 | 工法 | 適用 | N/A 時怎麼記 |
 |---|---|---|
 | W1 / W5 | **每一片**(只要有斷言或突變) | 無 N/A |
-| W2 | 只有**需要 pre 狀態基準庫**的片(S2b-2a/2b、4b) | 其餘片在 DoD 欄寫 `W2: N/A(本片不建基準庫)` |
+| W2 | 只有**需要 pre 狀態基準庫**的片(~~S2b-2a~~/2b、4b;**2a 已改判 N/A,見本表下方裁決**) | 其餘片在 DoD 欄寫 `W2: N/A(本片不建基準庫)` |
 | W3 | 只有**守門用 Python 寫**的片 | 寫 `W3: N/A(本片無 Python 守門)`;**若改用 shell,等價要求 = 守門不得只靠 `set -e` 之外的隱含中止** |
 | W4 | **審查流程**,不是產品驗收 ⇒ 不進片級 DoD | 落點改為 §10 送審指引;片級 DoD **不列 W4** |
+
+🔴 **S2b-2a 施工裁決(2026-08-06 開工當下;`B-140-A` 授權切片判斷,已報 STOP)**:上表原把 **2a** 列進 W2 適用範圍,
+但 2a 認領的 13 格**逐格檢查後沒有一格需要 pre-S2b 庫** —— 項14/15 要的 C9 是**小線**產物、
+shipped 的 writer 是**本線**產物,兩者都只存在於 post 側;項10/10b/11/12/18/20 全部量的是本線落地後的行為;
+項12b/12c 量的是 X1/X3/append-only,那三支在 pre/post 都在,斷言的是「本線**沒有**放寬它們」⇒ 也在 post 側。
+⇒ **2a 的 DoD 記 `W2: N/A(本片不建 pre 基準庫)`**;`scripts/b2s2b-verify.sh` 的 `all` 模式是**全前綴**(含本線)。
+🔴 **pre-S2b 基準庫的需求沒有消失,只是不在 2a** —— §4 項29(a) 明文要跑在 pre-S2b 庫上,由 **S2b-2b** 建;
+建的時候照 `scripts/b2s2a-verify.sh:274-280` 的逐字定義(**只重放時間戳早於本檔的前綴**,不是「全部減本檔」)。
+🔴 2a 另外補了一道 `all` 模式的閘:migration 目錄的時間序尾端**必須是 `20260806180000`**,
+否則 die —— 否則日後更晚的 migration 會被靜默套進「post-S2b 基準庫」,那是 W2 警告的同一種定義漂移、方向相反。
 
 🔴 **封窗(v2 重寫;codex 關卡1:v1 依賴的 quarantine 機制已作廢)**:
 沒有 quarantine 目錄、也沒有 gate commit —— 小線最終是 **migration 直接進正式目錄、只押分支**。
@@ -535,7 +545,7 @@ codex 關卡1 判 must-fix:v1 同時留下兩套互斥方案 = 把技術決定�
 | 10 | 正測:建箱掛品項 → `UPDATE shipped_at` → `shipped_quantity` = 該量 |
 | 10b | 🔴 **草稿箱格**(R2 #8):掛了品項但**不設** `shipped_at` ⇒ 摘要 `shipped` 仍為 **0** |
 | 11 / 12 | Q3=A 退量(含 `submitted` 態作廢)/ unvoid 回升(含「由已出貨作廢態 unvoid」) |
-| 12c | 🔴 **§0.3 前提釘死的第二半(v2-R3 補;Fable 翻案條件③)**:v1/v2 只 pin 了 X3 / X1,**漏了 append-only 三支** —— 實查 `20260805170200:115-126` 的 `shipment_items_block_delete_bd` / `_block_update_bu` / `_block_truncate_bt`,**它們才是「改/刪已寄出箱品項」的唯一擋點**。少了這一格:未來任何片放寬 append-only(「整箱作廢重開」的替代方案很自然會想改它),**shipped 真值變動不經 `shipments` UPDATE ⇒ 本線 trigger 不發火 ⇒ 摘要靜默漂移**,而 12b / 25b 全綠。⇒ 本格斷言三支都在且結構逐字;**§9 交棒 3(放寬 X1/X3 的片)一併改成「放寬 X1/X3 <u>或 append-only 三支</u>」** |
+| 12c | 🔴 **§0.3 前提釘死的第二半(v2-R3 補;Fable 翻案條件③)**:v1/v2 只 pin 了 X3 / X1,**漏了 append-only 三支** —— 實查 `20260805170200:115-126` 的 `shipment_items_block_delete_bd` / `_block_update_bu` / `_block_truncate_bt`,**它們才是「改/刪已寄出箱品項」的唯一擋點**。少了這一格:未來任何片放寬 append-only(「整箱作廢重開」的替代方案很自然會想改它),**shipped 真值變動不經 `shipments` UPDATE ⇒ 本線 trigger 不發火 ⇒ 摘要靜默漂移**,而 12b / 25b 全綠。⇒ 本格斷言三支都在且結構逐字;**§9 交棒 3(放寬 X1/X3 的片)一併改成「放寬 X1/X3 <u>或 append-only 三支</u>」**。🔴 **S2b-2a 實作時強化成三層(R1 must-fix 2;本行同批更新,不留活字)**:①三支 triggerdef 逐字 + `tgenabled` ②**函式本體 md5**(只比外殼時,把 body 換成 `RETURN NEW` 會讓 triggerdef 逐字不變 ⇒ 全綠而守門已失效)③**行為格**:UPDATE 一筆已入箱品項必得 `P0001 / shipment_items_append_only`。**S2b-2b 設突變靶時以這三層為紅點面,不是只有結構那一層。** |
 | 12b | 🔴 **§0.3 前提釘死**:`INSERT shipments`(帶 `shipped_at`)+ 加品項 ⇒ **必被 X3 擋**;不加品項 ⇒ **COMMIT 時必被 X1 擋**。兩格都要 |
 | 14 / 15 | C9 負測(fixture 四值互異 `4/2/1/3`、receipts **2+1** 刪 `quantity=1` 那筆)/ C9 承重性(DROP 後必須**全綠**) |
 | 17 | backfill 兩段 oracle(§3.4),含 shipment-only 候選 |
