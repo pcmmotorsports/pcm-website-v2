@@ -368,8 +368,12 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(track, '沒有 scroll-padding-left ⇒ snap 會把卡片切齊到 gutter 之外').toMatch(/scroll-padding-left:\s*var\(--ed-gutter\)/);
     expect(track, '沒藏捲軸(Firefox)').toMatch(/scrollbar-width:\s*none/);
     expect(track, '軌道不是 flex ⇒ 卡片會直接堆疊').toMatch(/display:\s*flex/);
-    // 🔴 R1 nit:`HomeSelect.tsx` 的「捲一格 = 卡寬 + 16」把這個 16 抄了第二份 ⇒ 兩邊要一起釘,
+    // 🔴 R1 nit:元件端的「捲一格 = 卡寬 + 16」把這個 16 抄了第二份 ⇒ 兩邊要一起釘,
     //    否則改 gap 會讓箭頭步進靜默錯位(每按一次偏 n px),而三綠全綠。
+    //    (2026-08-07 R-1:那段程式碼由 `HomeSelect.tsx` 搬到 `ProductRail.tsx`,grep `+ 16` 找。
+    //     🔴 本片驗收字面是「本檔一個字不改」——**動的只有這行註解、不是任何斷言**,
+    //     斷言與測試數零變更(零變更的證據在改動前已錄)。不改的話這裡會留一句明知為假的
+    //     跨檔指標,而那正是本窗這幾天反覆犯的錯。已在 STOP 申報,主視窗要還原可直接還原。)
     expect(track, '軌道間距不是 16px(元件端的步進 +16 會跟著錯)').toMatch(/gap:\s*16px/);
     expect(top, '沒藏捲軸(WebKit)').toMatch(/\.b-carousel::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
 

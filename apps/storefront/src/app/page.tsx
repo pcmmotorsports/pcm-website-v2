@@ -183,9 +183,12 @@ export default async function HomePage({
       {/* D5g:捲動進場控制器。**不 render 任何東西、不包住任何 children**(回 null)——
           **`HomeReveal` 沒有讓任何一塊多轉 client**
           (handoff §6-4 逐字「不要為此把整個資料渲染改成 client」)。
-          ⚠️ 措辭更正(R2 must-fix):原本這裡寫「五個區塊全部維持 server component」是**假的** ——
-             `HomeSelect.tsx:15` 本來就有 `'use client'`(它用 client component `ProductCard`),
-             與本片無關。R1 那輪我只改了 `HomeReveal.tsx` 與 manifest,**漏了這個呼叫點**。
+          ⚠️ 措辭更正(R2 must-fix):原本這裡寫「五個區塊全部維持 server component」是**假的**。
+          ⚠️ **再更正(2026-08-07 R-1)**:上一版把它改寫成「`HomeSelect.tsx:15` 本來就有 `'use client'`」,
+             那句現在也假了 —— R-1 把橫捲機制抽到 `ProductRail.tsx`,`HomeSelect` **不再是 client
+             component**(只剩字面與資料、不再 import `ProductCard`),client 邊界下移到 `ProductRail`。
+             🔴 同一句被同一個坑打第二次,兩次都是「引別的檔的行號 + 描述那個檔當下的狀態」。
+             ⇒ 現行事實:client 的是 `HomeReveal` 與 `ProductRail`,其餘首頁區塊是 server component。
           🔴 位置放最後只是慣例;它靠選擇器找元素,與 DOM 順序無關。 */}
       <HomeReveal />
     </div>
