@@ -17,6 +17,27 @@ describe('HomeStatement', () => {
     expect(screen.getByText('原廠授權')).toBeDefined();
   });
 
+  // 🔴 D-136 清尾片(2026-08-06):三顆 icon 原本是**整組漏搬**(`b-stat-icon` 全站零命中),
+  //    而三格的文字全都在、三綠全綠 ⇒ 沒有任何測試會紅。這條把「每一格都要有 icon」釘住。
+  //    ⚠️ 它擋不住什麼:證得了元素在、path 有畫,證不了描邊規格生效(那在 `styles/home.test.ts`)
+  //    也證不了 icon 長得對(那要真瀏覽器)。
+  it('🔴 三格各帶一顆 icon,且對讀屏隱藏(它是裝飾、旁邊的 h3 才是內容)', () => {
+    const { container } = render(<HomeStatement />);
+    const cols = [...container.querySelectorAll('.ed-statement-col')];
+    expect(cols.length, '三欄結構本身沒了 ⇒ 下面逐格檢查會是空迴圈').toBe(3);
+    for (const [i, col] of cols.entries()) {
+      const icon = col.querySelector('.b-stat-icon');
+      expect(icon, `第 ${i + 1} 格沒有 icon`).not.toBeNull();
+      expect(icon!.getAttribute('aria-hidden'), `第 ${i + 1} 格的 icon 沒有對讀屏隱藏`).toBe('true');
+      // 空的 <span> 也會通過上面兩條 —— icon 必須真的畫得出線
+      const paths = icon!.querySelectorAll('svg path, svg circle');
+      expect(paths.length, `第 ${i + 1} 格的 icon 是空殼(svg 裡沒有任何 path/circle)`).toBeGreaterThan(0);
+    }
+    // 三顆是**不同**的圖(授權徽章 / 扳手 / 對話框):同一顆複製三次也會通過上面那圈
+    const shapes = cols.map((c) => c.querySelector('.b-stat-icon svg')!.innerHTML.replace(/\s+/g, ''));
+    expect(new Set(shapes).size, '三格的 icon 圖形不是三個不同的(有人複製貼上了)').toBe(3);
+  });
+
   // ── 對外家數宣稱(D5d 起;2026-08-05 文案片把最後一顆也拿掉) ──
   // 🔴 這條是**機制**、不是文案測試:首頁對外報的家數必須真(廣告不實風險)。歷來三顆:
   //    第 01 格「8 大品牌」(repo 舊字面)/「17 家品牌」(design 稿)—— 兩個都查不到來源;

@@ -949,4 +949,52 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
       expect(links, '頁尾連結字級不是 14px').toMatch(/font-size:\s*14px/);
     });
   });
+
+  // ══ D-136 清尾片(2026-08-06):深對照報告點名的兩條 CSS 漏搬 ══
+  describe('D-136 清尾片', () => {
+    // 🔴 三顆服務 icon 的描邊規格。與 `.b-cat-icon svg` 是同一族的同一個坑:
+    //    本 repo 沒有 OD 那條全域 `svg{}`,規格漏一項就退回瀏覽器預設 ——
+    //    fill 退成黑色實心(徽章變一坨黑塊)、端點/轉角退成方頭 miter(緞帶尖角、扳手開口變方的)。
+    //    N°03 的 R1 實錘:真瀏覽器只量了 fill 與線寬、沒量端點兩項 = 量錯東西。
+    it('🔴 `.b-stat-icon` 34×34 描邊圓框,svg 五項描邊規格一項不缺', () => {
+      const box = topLevelCss().replace(/\s+/g, ' ').match(/\.b-stat-icon\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(box, '找不到 .b-stat-icon 規則 ⇒ 三顆 icon 沒有框、貼著文字浮著').not.toBe('');
+      expect(box, '尺寸不是 OD 的 34px').toMatch(/width:\s*34px/);
+      expect(box, '尺寸不是 OD 的 34px').toMatch(/height:\s*34px/);
+      // 深底上的框線與 icon 色都是低透明度白;掉了框線 = 圓框消失,掉了 color = icon 用繼承的純白、過亮
+      expect(box, '沒有框線 ⇒ 圓框整個不見(icon 直接浮在黑底上)').toMatch(/border:\s*1px solid rgba\(255,255,255,0?\.22\)/);
+      expect(box, 'icon 色不是 OD 的 rgba(255,255,255,.9)').toMatch(/color:\s*rgba\(255,255,255,0?\.9\)/);
+
+      const svg = topLevelCss().replace(/\s+/g, ' ').match(/\.b-stat-icon svg\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(svg, '找不到 .b-stat-icon svg 規則 ⇒ 五項規格全退回瀏覽器預設').not.toBe('');
+      expect(svg, 'svg 尺寸不是 OD 的 18px').toMatch(/width:\s*18px/);
+      expect(svg, '沒有 fill:none ⇒ 線圖會變成實心黑塊').toMatch(/fill:\s*none/);
+      expect(svg, '沒有 stroke:currentColor ⇒ 線條不跟著 .b-stat-icon 的色走').toMatch(/stroke:\s*currentColor/);
+      expect(svg, '線寬不是 OD 對小尺寸 icon 的補重值 1.75').toMatch(/stroke-width:\s*1\.75/);
+      expect(svg, '端點沒有圓頭 ⇒ 徽章緞帶與扳手開口的尖角變方頭').toMatch(/stroke-linecap:\s*round/);
+      expect(svg, '轉角沒有圓角 ⇒ 同上').toMatch(/stroke-linejoin:\s*round/);
+    });
+
+    // 🔴 選車器格子的鍵盤焦點框(OD 明文的 WCAG 1.4.11 修正)。
+    //    ⚠️ 它擋不住什麼:文字層只證「規則在、形狀對」,證不了 cascade 真的贏
+    //    ——「格子裡的 input 自帶 outline:none 又蓋回去」這種只有真瀏覽器 Tab 一輪才看得到。
+    it('🔴 `.ed-finder-slot:focus-within` 焦點框存在、有顏色、且 offset 是負的', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-finder-slot:focus-within\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到焦點框規則 ⇒ 鍵盤使用者選車時看不出焦點在哪一格').not.toBe('');
+      // 「有 outline 宣告」不夠:`outline: none` 也是一條 outline 宣告,而那正是要防的那件事
+      expect(rule, 'outline 被寫成 none / 0 ⇒ 等於沒修').not.toMatch(/outline:\s*(none|0)\b/);
+      expect(rule, '焦點框不是 2px 實線').toMatch(/outline:\s*2px solid/);
+      // 🔴 顏色也要釘:退成站台預設的近黑 `--c-text` 的話,框仍然「存在」但在白格線上幾乎看不見
+      //    (`brand-page.css` 那組焦點框事故就是「畫出來了但看不見」)。
+      //    ⚠️ 已知語意耦合(R1 nit):實作借用了 hover 那顆 `--ed-c-action-hover` 當焦點色
+      //       —— 兩者在 OD 同值(`--c-ember-ink` #c4470c),但日後只改 hover 會讓焦點框跟著位移。
+      //       token 的**值**另有守門(本檔「熔橘三顆」那條),此處只釘「焦點框吃的是熔橘那族、不是墨黑」。
+      expect(rule, '焦點框沒吃熔橘動作色 ⇒ 退回近黑預設、壓在格線上看不出來')
+        .toMatch(/outline:\s*2px solid var\(--ed-c-action(-hover)?\)/);
+      // 🔴 負 offset 是必要的、不是品味:三格是共邊框線的格線,正 offset 會把框畫到隔壁格的線上
+      const offset = rule.match(/outline-offset:\s*(-?\d+)px/)?.[1];
+      expect(offset, '沒有寫 outline-offset ⇒ 吃站台預設的正 offset,框會壓到隔壁格').toBeDefined();
+      expect(Number(offset), `outline-offset 是 ${offset}px(不是負值)⇒ 框畫在格線外`).toBeLessThan(0);
+    });
+  });
 });

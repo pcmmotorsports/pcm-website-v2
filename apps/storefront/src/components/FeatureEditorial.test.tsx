@@ -134,6 +134,19 @@ describe('FeatureEditorial', () => {
     expect(divider?.getAttribute('aria-hidden')).toBe('true');
   });
 
+  // 🔴 D-136 清尾片(2026-08-06):mono 小標原本寫死英文「Fig. 01」(舊 design-reference 字面),
+  //    OD `.b-feature-cap` 逐字是中文「品牌焦點」。這一區每 3 天輪播 ⇒ 寫 01 的話第 7 家也叫 Fig. 01,
+  //    是**假編號**。
+  //    ⚠️ R1 nit 更正:初稿在同一條裡多加了 `not.toMatch(/\d/)`,但它被上一行的 `toBe('品牌焦點')`
+  //       嚴格蘊含 = 對程式碼零額外判別力(被嚴格蘊含的斷言正是「守門是不是 no-op」那族的症狀)。
+  //       真要釘「不得帶編號」得改測「輪播到第 N 家時這顆標籤不變」,那要另一組 fixture、不在本片。
+  it('🔴 圖說 mono 小標 = OD 字面「品牌焦點」(不是寫死的假編號 Fig. 01)', () => {
+    const { container } = render(<FeatureEditorial focus={focus} />);
+    const mono = container.querySelector('.ed-feature-caption .ed-mono');
+    expect(mono, '找不到圖說的 mono 小標').not.toBeNull();
+    expect(mono!.textContent).toBe('品牌焦點');
+  });
+
   it('圖說吃 caption(產地),圖的 alt 吃品牌名', () => {
     const { container } = render(<FeatureEditorial focus={focus} />);
     expect(container.querySelector('.ed-feature-caption')?.textContent).toContain('義大利');

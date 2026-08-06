@@ -171,7 +171,15 @@ export default async function HomePage({
              真的變 null 的話那條會紅、不會靜默少一段。 */}
       {focus && <FeatureEditorial focus={focus} />}
       <BrandIndex availableSlugs={brandsWithProducts} />
-      <HomeFooter />
+      {/* 🔴 D-136 清尾片(2026-08-06):**首頁**頁尾標語走 OD 字面「專業重機零件・改裝精品/一站式服務」。
+          OD 頁尾自帶註解逐字說明理由:「這裡原本是『改裝不只是升級配件,是風格與態度的延伸』,
+          但那句已經升上 hero 當主標了,同一頁講兩次會稀釋掉它。改放服務範圍。」
+          🔴 只改**這一頁**、走 D3a 的 `tagline` prop:OD 另外 13 支頁稿全部逐字保留那句當預設值
+             (`products-list-handoff.md` 逐字「首頁=服務範圍句、其他頁=預設句」)⇒
+             改 `HomeFooter` 的預設值會一次動到 24 個掛載點、把 15 頁改成反向偏離 OD(R1 MF1 擋下的第一版)。
+          守門在 `app/page.test.tsx`(字面 + 不得與 hero 主標重複),不在 `HomeFooter.test.tsx`
+          —— 這是**首頁**的不變量,不是那顆共用元件的。 */}
+      <HomeFooter tagline={<>專業重機零件・改裝精品<br/>一站式服務</>} />
       {/* D5g:捲動進場控制器。**不 render 任何東西、不包住任何 children**(回 null)——
           **`HomeReveal` 沒有讓任何一塊多轉 client**
           (handoff §6-4 逐字「不要為此把整個資料渲染改成 client」)。

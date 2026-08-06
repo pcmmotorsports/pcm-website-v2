@@ -34,6 +34,15 @@ export type OverviewTabProps = {
   onJumpToWallet: () => void;
 };
 
+// 🔴 會員中心「為你推薦」顯示筆數(Sean 2026-08-06 拍板 B,主視窗 `D-138-A`;
+//    落 memory `project_site-redesign-content-pages-decisions`)。
+//    背景:取數 `FEATURED_LIMIT` 從 4 提高到 10 之後,這一格的 4 欄 grid 會排成 4+4+2、
+//    最後一列缺兩格。Sean 拍板「這頁切成 4 的倍數」⇒ **顯示層**截 8。
+//    🔴 **不動 `FEATURED_LIMIT`、不動取數鏈** —— 首頁仍 10 筆,兩頁共用同一支取數的守門
+//    (`lib/products-featured-limit.test.ts`)必須繼續綠。這裡是「拿到 10 筆、這一頁只畫 8 筆」。
+//    8 同時是桌機 4 欄與手機 2 欄(`styles/account.css` 的 `.acc-rec`)的倍數,兩個斷點都排得齊。
+const ACCOUNT_REC_DISPLAY = 8;
+
 // tier sub 字面對齊 design AccountPages.jsx L477-481
 function tierSubLabel(tier: MemberTier): string {
   const designKey = schemaTierToDesign(tier); // 'general' | 'store' | 'premium_store'
@@ -133,7 +142,7 @@ export function OverviewTab({
           <div className="acc-empty">推薦商品即將上架</div>
         ) : (
           <div className="acc-rec">
-            {featured.products.map((p) => (
+            {featured.products.slice(0, ACCOUNT_REC_DISPLAY).map((p) => (
               <Link key={p.id} href={`/products/${p.slug}`} className="acc-rec-item">
                 <div className="acc-rec-img">
                   {/* trim 線 S4b(codex MF-2):為你推薦同步吃去白邊 bbox、四消費端一致 */}
