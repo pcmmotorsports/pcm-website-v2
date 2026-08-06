@@ -9087,3 +9087,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **現況**:E 窗指認失敗檔=`apps/storefront/src/components/CheckoutView.test.tsx`(單檔重跑 61/61 綠、全套重跑兩次全綠);D 窗同日也見一次 1 failed 但沒抓到測試名。兩窗當時的改動都與 storefront 結帳零交集。
 - **修法方向**:下一個遇到的人先把失敗測試名記下來;對照 #330(note-compose-form confirm 閘懸案)同族=「多次 submit/非同步 race」候選;抓到簽名前不動測試。
 - **不修會痛在哪**:非決定性紅會讓「全套 N 綠」失去收割對帳的意義——每次紅都要人工判斷 flake 還是真回歸,判斷疲勞後遲早把真紅當 flake 放行。
+
+### #335. 🧬 auth-error.ts 原型鏈查表 — 全 repo 最後一筆同型命中(當前不可觀察)
+
+- **狀態:** ⏳ 待執行(2026-08-06 E 線 packages 盤點發現;併進下一個動 `packages/adapters/supabase/` 的片、不單開)
+- **現況**:`packages/adapters/src/supabase/mappers/auth-error.ts:35` `SUPABASE_CODE_MAP[error.code] ?? 'unknown'`——`??` 只擋 null/undefined,擋不住 `__proto__` 等原型鏈 truthy 值。**今天不可觀察**:兩個消費端(`login/actions.ts:65`、`register/actions.ts:68`)走 `authErrorCopy` 的 `switch`+`default`,非預期 code 一律落 default。盤點全文=`docs/reviews/2026-08-06-packages-index-lookup-audit.md`(201 檔母數、含四類未掃形狀)。
+- **修法**:照 repo 唯一主動防禦範本 `ResendEmailSenderAdapter.ts:110-117`(ReadonlyMap+六鍵負測)。
+- **不修會痛在哪**:型別謊言+陷阱——哪天有人把消費端 switch 改成查表就現形;修一行加一測,順手片成本。
