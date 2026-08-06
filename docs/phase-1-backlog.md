@@ -9055,18 +9055,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #332. 🧹 九碼退場殘餘死碼收尾片 — 三筆「無主」死碼集中收,走 plan
 
-- **狀態:** 🔶 部分完成(筆①已清;筆②③=#332-2 等 Sean 拍 plan §6 Q1/Q2)。plan=`docs/specs/2026-08-06-result-banner-cleanup-plan.md`(2026-08-06 落檔;E 裁定三筆均不依賴 A9w4a/c,~~A11 全鏈完成後排~~ 敘事序非依賴序)
+- **狀態:** ✅ 三筆全清(#332-1 純刪死碼;#332-2 兩支 banner 硬化 + 死詞彙清除,Sean 2026-08-06 拍 plan §6 Q1=A / Q2=A)。plan=`docs/specs/2026-08-06-result-banner-cleanup-plan.md`(2026-08-06 落檔;E 裁定三筆均不依賴 A9w4a/c,~~A11 全鏈完成後排~~ 敘事序非依賴序)
 - **內容(三筆,拆 #332-1/#332-2 兩片)**:
   ① ✅ **已清(`85f12c1`,dev `e635bf5`)**:`WORKFLOW_STATUS_CODE_RE` export 與過期註解純刪 14 行,
   Δ 對帳 0/0、全樹 grep 剩 2 處歷史敘事註解(=plan M2 預期字面)。~~合併它與 `workflow-form.ts` 的同字面
   local RE 一併評~~ → plan §2.3 裁定**不合併**(三份 RE 對齊三個不同 DB 契約,且 `workflow-form.ts:29` 已排定隨 A9w4c 後半整檔刪除)。
-  ② `settings-result-banner.tsx` 的預設 `MESSAGES`(order-statuses CRUD 詞彙)——A9w2 刪掉唯一
-  吃預設值的頁面後成死碼;codex A9w4b 關卡2 R2 已同意降 nit 收此處。
-  ③ 兩支 result-banner 的 `Object.hasOwn` 修法(memory `reference_js-index-lookup-hits-prototype-chain`)
-  ——Sean 2026-08-02 拍板 B 逐字「要再修的話,兩支元件要一起、並且走 plan」;`messages` 是否轉必填
-  (props 介面改動=鐵則 12⑥)在該 plan 一起裁。
-- **不修會痛在哪**:死詞彙是「看起來有守門」的假安心(下個人以為預設文案有人維護);
-  `__proto__` 族查詢參數在五個頁面仍畫得出空 banner 框;零 consumer export 誘導未來誤用。
+  ② ✅ **已清(#332-2)**:`settings-result-banner.tsx` 的預設 `MESSAGES`(order-statuses CRUD 詞彙)
+  ——A9w2 刪掉唯一吃預設值的頁面後成死碼;整份刪除,`messages` 依 Sean 2026-08-06 拍板 **Q2=A**
+  轉必填(漏帶=編譯期報錯,不再靜默套一份沒人維護的詞彙)。
+  ③ ✅ **已清(#332-2)**:兩支 result-banner 的 `Object.hasOwn` 修法
+  (memory `reference_js-index-lookup-hits-prototype-chain`)——Sean 2026-08-02 拍板 B 逐字
+  「要再修的話,兩支元件要一起、並且走 plan」,2026-08-06 拍板 **Q1=A** 依該 plan 兩支一起修;
+  五個原型鏈向量逐字入測,兩支各自釘在自己的元件層測試檔。
+- **當初不修會痛在哪(留存)**:死詞彙是「看起來有守門」的假安心(下個人以為預設文案有人維護);
+  `__proto__` 族查詢參數在 **6 個**頁面畫得出空 banner 框(A9w2 前為 7 個;08-02 事故當下記為 5 個,
+  之後 RW4 退款異常清單 +1、S3b 供應商頁 +1);零 consumer export 誘導未來誤用。
 
 ### #333. 📐 TabBar 讓位 padding 與「藏 TabBar」不同步 — 藏的頁面底部留 70px 死空間
 

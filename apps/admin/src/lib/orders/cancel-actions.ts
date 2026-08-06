@@ -35,11 +35,13 @@ import { cancelOrder } from './cancel-repository';
 //
 // ⚠️ **成功導頁後畫面上不會有任何提示**:`order_cancelled` 要等**片 9** 才接進
 //   `result-banner.tsx`(Phase 2,plan §3 逐字「本期零行」)。這是 DAG 序,不是漏做。
-//   🔴 **不要照抄「banner 用 `Object.hasOwn` 所以未知碼安全」那句** —— 那是假的
-//   (code-reviewer 抓到我原本這樣寫):`result-banner.tsx:82` 是裸的 `MESSAGES[code]`,
-//   `hasOwn` 修法 Sean 2026-08-02 拍板 B **退回**(理由與受影響的 7 個頁面逐字記在 `:68-80`)。
-//   `order_cancelled` 這個字面不在原型鏈上 ⇒ 走 `if (!msg) return null` 靜默不顯示,
-//   結論成立、但**理由是「這個字串剛好不毒」,不是「那道守門硬化過」**。
+//   ⓘ **未知碼靜默不顯示,現在由守門本身承擔**(#332-2,Sean 2026-08-06 拍板 Q1=A):
+//   `result-banner.tsx` 的查表已硬化成 `Object.hasOwn(MESSAGES, code)`
+//   ⇒ 任何非自有 key(含 `__proto__` 那族)都走 `return null`。
+//   歷史註記:2026-08-02 拍板 B 曾把這個修法退回,那段期間本檔逐字警告過
+//   「不要照抄『banner 用 hasOwn 所以未知碼安全』」—— 當時那句話是假的(裸索引),
+//   `order_cancelled` 之所以安全只是**因為這個字串剛好不在原型鏈上**。現在理由變成守門本身,
+//   兩者結論相同但**依據不同**:片 9 接線時可以依賴守門,不必再論證字串「剛好不毒」。
 
 const ORDERS_PATH = '/orders';
 
