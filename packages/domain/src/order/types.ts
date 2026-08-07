@@ -66,7 +66,9 @@ export type FulfillmentStatus = 'notOrdered' | 'ordered' | 'inStock' | 'shipped'
  * - `store` 合作店家自取(免運)
  *
  * (舊 4 種 home/cvs/store/express 已於 S2-a 作廢、Sean 拍 A 對齊 design;plan v6 §3.1。
- *  超商取貨 fulfillment_method 留 Phase 2、plan v6 §3.3。)
+ *  ~~超商取貨 fulfillment_method 留 Phase 2、plan v6 §3.3。~~
+ *  🔴 2026-08-07 Sean 拍板 Q17=B「我不做超商取貨」⇒ **上面那句 Phase 2 之說作廢**,
+ *  不要再依它規劃;同日已移除 ProductFAQ 對客顯示的「超商取貨 $60」字面。)
  */
 export type ShippingMethod = 'home' | 'store';
 
