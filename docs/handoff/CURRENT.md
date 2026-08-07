@@ -6,7 +6,7 @@
 >
 > **三窗進行中**:**B**=2b 之二 項19 barrier(§8.1 唯一預授權 inconclusive,附軌跡進 STOP 裁)→ 之三 項29 → 之四兩靶 → 4b/4c/5;**Sean 口頭「自己繼續不要停」=B 連跑模式,STOP=純報告**。**D**=會員中心批(格狀頁籤照 account-page.html 頁內 style 定案層/新增自動捲+focus/訂單詳情偵察/重機 icon)→ 推薦區橫捲統一(N°02 同款 rail,覆蓋 OD 格狀與 8 筆拍板→全顯 10)→ finder 窄幅修(488 破版)→ 排版六值 → 焦點查修(+preventDefault+裸車型名 blur 兩面)→ H7 → manifest+OD 回饋包。**E**=A9b2-M(產生欄 supplier_order_no_upper+索引,C 案裁定)→ A9b2-A(flag 照 A10c1 前例預設 off)→ A10c2。D/E=**STOP 即等待模式**(每停寫 STOP+掛哨+等 1xx 回信)。
 >
-> **apply 佇列(Sean 手動停點,各自成批)**:①B2 S2b 批(S2b 全齊才 merge+同批 apply,前置閘 `b2s2a-verify.sh gate`+backfill 非空未觀察+本機 PG17 非 Supabase 兩條)②E 線批四支=`20260806200000` preserve+channel 閘/`20260807120000` A9v/A9b2-M(待寫);preflight=pg_proc 實查+PostgREST 具名參數 smoke+正式站 relacl/attacl 唯讀量測+codex 補背書(各片 §8/STOP 列的待補面)。
+> **apply 佇列(Sean 手動停點,各自成批)**:①B2 S2b 批(S2b 全齊才 merge+同批 apply,前置閘 `b2s2a-verify.sh gate`+backfill 非空未觀察+本機 PG17 非 Supabase 兩條)②E 線批~~四支~~**兩支**(08-07 更正:a9h_m 已 09:45 緊急 apply、channel 閘=its 步 5p 隨之上線;餘 a9v+a9b2_m,runbook=docs/reviews/2026-08-07-e-batch-apply-runbook.md)=`20260806200000` preserve+channel 閘/`20260807120000` A9v/A9b2-M(待寫);preflight=pg_proc 實查+PostgREST 具名參數 smoke+正式站 relacl/attacl 唯讀量測+codex 補背書(各片 §8/STOP 列的待補面)。
 >
 > **Sean 肉眼驗清單**:手機選單實點(首輪自驗曾假)/後台訂單手機卡片+膠囊配色/商品卡白底五面/會員中心推薦區/車型欄真資料選車。**零拍板欠帳**(今夜 20+ 板全落 memory:site-redesign-content-pages/a5a-procurement/a11a-list/b2-shipments 各檔)。
 >
