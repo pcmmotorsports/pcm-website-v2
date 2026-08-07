@@ -1,6 +1,16 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🪟 **2026-08-07 02:10 第六輪主視窗壓縮 checkpoint(壓縮後/新主視窗讀本節;工法權威=`docs/runbooks/night-run-command-playbook.md`)。**
+> 🪟🪟 **2026-08-07 11:15 第六輪主視窗第二次壓縮 checkpoint(壓縮後讀本節;工法權威=playbook;掃信一律 `ls -lt` 非 `-lT`)。**
+>
+> **現況**:dev=收割 v4.2 後那顆(`git log` 當場取為準)、待推 1 顆、樹僅兩顆舊 png、全套 **359 檔 5485 綠+1 todo**。日間段全數落 dev:B2-S2b 兩支+a9h_m **已 apply 正式站**(a9h=活體事故 09:45 緊急修復,教訓在 memory a5a 檔);D 線=會員中心批/rail 三片/finder/排版六值/焦點修/H7+D8-b 全刪/編號片全收;E 線=搜尋三片(flag off)+記憶分檔(19.6→11.0KB,**下個 session 開場核對 hook 數字=硬前置**,詳 `reference_memory-index-trim-ceiling`)+兩份 apply runbook+立法草稿 23 條(`docs/reviews/2026-08-07-night-legislation-draft.md`,落檔=主視窗收線工作)。
+>
+> **⛔ 等 Sean 兩件**:①**Q9 出貨功能開工**(writer RPC plan v4.2 已定稿:五輪審 24 must-fix 收斂,`docs/specs/2026-08-07-e10-b2-shipping-writer-rpc-plan-draft.md`+R3 全文 `docs/reviews/2026-08-07-writer-rpc-plan-r3-findings.md`;點頭後 B 開 W0b=`pcm_b2_shipping_idempotency` 建表,14 片 DAG,W6a 早期探針,已知洞=漏掛 GET DIAGNOSTICS 無守門 W4 時裁)②**「排 E 批」**=a9v+a9b2_m 兩支 apply(runbook=`docs/reviews/2026-08-07-e-batch-apply-runbook.md`;流程同前兩次:唯讀 preflight→暫移 .env.local→db push→還原→read-back;apply 後序=重生型別→形狀實跑→才開 flag)。
+>
+> **三窗現況**:**B**=候場等 Q9(前置全綠;熱身 harness 17/0 在其 scratchpad;`scripts/b2s1-concurrency-probe.sh` 未追蹤維持原狀、去留=W6a 第一動);**D**=blur 邊角片施工中(Q6=A 提示/Q7=A 已選還原+三連動),收工後 manifest 收尾(含 H7 遺債 16 條+ProductRail 條目)=D 線收工;**E**=待命掛哨。**D/E=STOP 即等待、B=候場**;信箱協定照舊(第一動實跑掃信貼輸出/暫存→mv 回填 hash/防撞號 test -e)。
+>
+> **主視窗自身紀律(本夜新增)**:每處理完一封 STOP、回信未發不得開下一件;發信前再掃一次信箱;跳號要先 test -e。收割循環照舊(merge --no-ff→三綠 force→全套精確調和→STATUS 同批→push 持續授權→發信→rearm 哨兵)。哨兵樣板=本 session scratchpad `sentinel/sentinel-v2.sh`(rearm 自清+已讀基準),新窗照抄。
+>
+> **Sean 肉眼驗清單(3111 現役)**:商品頁編號 01/02/會員中心格狀+捲動+重機 icon/品牌頁橫捲 10 筆/finder 窄幅零截字/N°05 排版/收藏鈕不跳頁/車型欄留字。codex 牆至 09-05(此帳號),替身鏈=opus/fable、補跑清單累加中。零拍板欠帳(Q1-Q9 全落 memory)。
 >
 > **現況**:dev=`599496cb` 後續已推(以 `git log` 當場取為準)、樹乾淨、全套 **373 檔 5420 綠+1 todo**(基準當場實跑為準)。白天+今夜連環收割全數入 dev:E 線=A9w4c 後半/讀取鏈退場/A9h-1/A9h-M preserve(migration 未 apply)/channel 閘/A11c 手機卡片/A11b 兩軸膠囊/**A9v(九碼退場線全鏈收束)**;D 線=清尾片/車型解鎖/N°04+N°05 版面壓縮/token 升 :root(追認 A)/價格真因/白底片/手機選單(Sean 抓漏);B 線=S2b 進度 **5.7/9** 押 `a4a-chain` 17 顆不併(4a/1/2a/3a/3b 全結+2b 三分之二)。
 >
