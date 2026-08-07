@@ -284,3 +284,21 @@ describe('GarageChips 副註的兩種密度(設計稿 §B)', () => {
     );
   });
 });
+
+// Part B(債④,2026-08-07 Q22=A):`ProductsMobileControls` 會渲染
+// `<div className="pmc-skip-notice">`。元件測試守的是「提示有沒有出現」,守不到
+// 「CSS 認不認帳」—— class 掛上但規則被刪掉時,提示會以裸文字畫出來、沒有任何測試會紅。
+// 🔴 這裡**只釘規則存在與它承載的兩個決定**(次要文字色、字級小於車名那行),
+//    不釘 padding / line-height —— 那些是我自己挑的值、沒有外部契約,釘了只是凍結任意選擇。
+describe('債④ 略過提示的樣式(pmc-skip-notice)', () => {
+  const rule = MOBILE.match(/\.pmc-skip-notice\s*\{[^}]*\}/)?.[0] ?? '';
+
+  it('🔴 規則必須存在,且是次要文字色 + 比車名那行小一階', () => {
+    expect(rule, '.pmc-skip-notice 的 CSS 規則不見了 ⇒ 提示會變成沒有樣式的裸文字').not.toBe('');
+    expect(rule, '提示搶了主要文字色 ⇒ 會跟車名一樣重、看起來像錯誤而不是附註').toMatch(
+      /color:\s*var\(--c-text-3\)/,
+    );
+    const size = Number(rule.match(/font-size:\s*(\d+)px/)?.[1] ?? NaN);
+    expect(size, '提示字級沒有小於 .pmc-compact-name 繼承的 13px ⇒ 兩行同重、分不出主從').toBeLessThan(13);
+  });
+});

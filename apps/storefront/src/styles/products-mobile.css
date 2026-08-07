@@ -82,6 +82,17 @@
   border-left: 1px solid var(--c-border);
 }
 
+/* Part B(債④,2026-08-07 Q22=A):套用時被略過的草稿提示(「照樣讓他走、走完講一聲」)。
+   抄自 .pmc-compact:水平 padding 沿用同一節奏(14px),字級比 .pmc-compact-name(繼承 13px)
+   小一階,顏色用既有次要文字色 token(同 .mvs-lead p 的 var(--c-text-3) 用法)—— 不發明新值。 */
+.pmc-skip-notice {
+  padding: 6px 14px 10px;
+  color: var(--c-text-3);
+  font-size: 12px;
+  line-height: 1.4;
+  border-bottom: 1px solid var(--c-border);
+}
+
 .pmc-eyebrow {
   display: block;
   margin-bottom: 4px;

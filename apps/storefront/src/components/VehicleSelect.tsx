@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
+import type { VehicleDraftField } from '@/lib/vehicle-draft-notice';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
 import { modelFieldOptions, resolveModelPick } from '@/lib/vehicle-options';
 
@@ -314,6 +315,7 @@ export function VehicleSelect({
   onClearModel,
   onClearYear,
   variant = 'catalog',
+  onDraftTextChange,
 }: {
   motoBrands: MockMotoBrand[];
   vehicle: { brand: string; model?: string; year?: number } | null;
@@ -330,6 +332,13 @@ export function VehicleSelect({
   onClearYear: () => void;
   /** 掛載點外殼:'catalog'(預設、cft 小框)/'finder'(首頁 design slot 版型) */
   variant?: 'catalog' | 'finder';
+  /** Part B(Sean 2026-08-07 Q22=A):把三欄各自「打了字但沒選中」的草稿回報給外層。
+   *  🔴 為何三欄殼也要這個:出口(購物車「完成」/ PDP 選完車翻面)會**卸載整組欄位**,
+   *  父層若拿不到草稿就只能靜默丟掉客人打的字。內層 `Combo` 早有 `onDraftTextChange`,
+   *  但本殼原本沒有轉發 ⇒ 走本殼的三個掛載面(finder / PDP / 購物車)一個字都拿不到。
+   *  ⚠️ 契約與內層同:**卸載時不會回報**,父層手上仍是最後一次回報的字。
+   *  不傳=行為零變動(`VehicleFinder` 就不傳)。 */
+  onDraftTextChange?: (field: VehicleDraftField, text: string) => void;
 }) {
   const curBrand = vehicle ? motoBrands.find((b) => b.name === vehicle.brand) : undefined;
   const models = curBrand?.models ?? [];
@@ -347,6 +356,27 @@ export function VehicleSelect({
     motoBrands,
     vehicle?.brand ?? null,
   );
+  // Part B:穩定的具名 handler,不在 JSX 裡寫 inline arrow —— `Combo` 內部把
+  // `onDraftTextChange` 收進 `reportRef` 並用 `useEffect(..., [onDraftTextChange])` 同步,
+  // inline arrow 每 render 新 identity 會讓那道 effect 每 render 都跑(見 Combo :105-107 債)。
+  // ⚠️ 下面 `onDraftTextChange ? reportX : undefined` 那個三元**沒有測試守著**:以外部可觀察
+  //    行為為觀察點,「傳 undefined」與「傳一個內部再 `?.()` no-op 的 callback」分不開
+  //    (2026-08-07 重跑:四個掛載面測試 78/78 全綠——78=本 diff 現況,含 Part B 新增測試;
+  //    typecheck/lint 用 `turbo run typecheck lint --force` 全域跑過,18/18 task 綠)。分得開的觀察點
+  //    只有 `Combo` 內 `reportRef.current` 是否為 `undefined` = 實作細節,不值得綁測試。
+  //    留三元是為了讓「不傳=行為零變動」在**讀 code 時**成立,不是因為它被測到了。
+  const reportBrand = useCallback(
+    (t: string) => onDraftTextChange?.('brand', t),
+    [onDraftTextChange],
+  );
+  const reportModel = useCallback(
+    (t: string) => onDraftTextChange?.('model', t),
+    [onDraftTextChange],
+  );
+  const reportYear = useCallback(
+    (t: string) => onDraftTextChange?.('year', t),
+    [onDraftTextChange],
+  );
 
   return (
     <>
@@ -360,6 +390,7 @@ export function VehicleSelect({
         variant={variant}
         slotLabel="廠牌"
         emptyHint={VEHICLE_EMPTY_HINTS.brand}
+        onDraftTextChange={onDraftTextChange ? reportBrand : undefined}
       />
       <Combo
         label="選擇車型"
@@ -378,6 +409,7 @@ export function VehicleSelect({
         onClear={onClearModel}
         variant={variant}
         slotLabel="車型 · 可不選"
+        onDraftTextChange={onDraftTextChange ? reportModel : undefined}
       />
       <Combo
         label="選擇年份"
@@ -390,6 +422,7 @@ export function VehicleSelect({
         variant={variant}
         slotLabel="年份 · 可不選"
         emptyHint={VEHICLE_EMPTY_HINTS.year}
+        onDraftTextChange={onDraftTextChange ? reportYear : undefined}
       />
     </>
   );

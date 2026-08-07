@@ -7,13 +7,14 @@
 // 🔴 車種鐵律:picker/typeahead/garage 命中恆字典字面(kind:'dict');自由輸入明標 kind:'free'、零猜。
 // §7 商品頁比對只認 kind:'dict';free 恆走「人工確認」路(不在本元件、在 V-2b)。
 
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CartItemVehicle } from '@/contexts/CartContext';
 import type { UIFitment } from '@/data/mock-products';
 import { GarageChips, type GarageChipItem } from './GarageChips';
 import { VehicleSelect } from './VehicleSelect';
 import { checkFitment, type FitmentCheckStatus } from '@/lib/fitment-match';
+import { formatSkippedDraftNotice, type VehicleDraftField, type VehicleDraftTexts } from '@/lib/vehicle-draft-notice';
 // V-2h/MF-6:formatCartVehicle 抽到無依賴 lib(供結帳商品複查免拉整個 client 元件;U2a 起消費端 =
 // CheckoutStep2ReviewSections);此處 re-export 保 back-compat。
 import { formatCartVehicle } from '@/lib/cart-vehicle-format';
@@ -34,6 +35,10 @@ export function cartVehicleFitStatus(
     year: v.year,
   });
 }
+
+// Part B 改動 A:自由輸入出口(記下 / garage 零命中記下)= 整台車已改用自由文字記下,
+// 三層字典欄位在這條路上都不再是「沒值」的層,故整批排除(見 `done()` 呼叫端)。
+const ALL_LAYERS_MOOT = { brand: true, model: true, year: true } as const;
 
 const SOURCE_NOTE: Record<CartItemVehicle['source'], string> = {
   search: '來自你的搜尋',
@@ -73,6 +78,12 @@ export function CartVehicleField({
   const [sel, setSel] = useState<LocalSel>(null);
   const [freetext, setFreetext] = useState('');
   // A10c:建議清單 state 與決策腦呼叫已搬進 GarageChips(全站單一份),本檔不再自持。
+  // Part B(債⑤):三層各自「打了字但沒選中」的草稿(VehicleSelect 回報)+ 出口離開時組的提示。
+  const [draftText, setDraftText] = useState<VehicleDraftTexts>({});
+  const [skipNotice, setSkipNotice] = useState<string | null>(null);
+  const onDraftTextChange = useCallback((field: VehicleDraftField, text: string) => {
+    setDraftText((d) => ({ ...d, [field]: text }));
+  }, []);
 
   const commitDict = (
     brand: string,
@@ -88,10 +99,19 @@ export function CartVehicleField({
     if (value?.kind === 'dict') setSel({ brand: value.brand, model: value.model, year: value.year });
     else setSel(null);
     setFreetext(value?.kind === 'free' ? value.raw : '');
+    setDraftText({});
+    setSkipNotice(null);
     setEditing(true);
   };
 
-  const done = () => {
+  // Part B(債⑤):出口動作已經給了值的層要從草稿裡排除(見檔頭核心規則),剩下的才算
+  // 「被丟棄」。`filled` = 呼叫端自己剛填了哪幾層(各出口給值的來源不同 —— 完成鈕看 `sel`、
+  // 車庫套用看套用進去的那筆、自由輸入整層作廢 —— 不能通通看 `sel`:`sel` 只對完成鈕那條路
+  // 成立,車庫套用/自由輸入都不動 `sel`,原本共用 `sel` 會把明明有值的層誤判成被丟棄)。
+  const done = (filled: Partial<Record<VehicleDraftField, unknown>> = sel ?? {}) => {
+    const remaining: VehicleDraftTexts = { ...draftText };
+    for (const f of ['brand', 'model', 'year'] as const) if (filled[f]) delete remaining[f];
+    setSkipNotice(formatSkippedDraftNotice(remaining));
     setEditing(false);
   };
 
@@ -99,7 +119,7 @@ export function CartVehicleField({
     const raw = freetext.trim();
     if (raw === '') return;
     onChange({ kind: 'free', raw, source: 'freetext' });
-    done();
+    done(ALL_LAYERS_MOOT);
   };
 
   return (
@@ -115,7 +135,7 @@ export function CartVehicleField({
           )}
           {SOURCE_NOTE[value.source] && <span className="cvf-note">{SOURCE_NOTE[value.source]}</span>}
           <button type="button" className="cvf-link" onClick={startEdit}>更改</button>
-          <button type="button" className="cvf-link" onClick={() => onChange(null)}>清除</button>
+          <button type="button" className="cvf-link" onClick={() => { setSkipNotice(null); onChange(null); }}>清除</button>
         </div>
       ) : editing ? (
         <div className="cvf-edit">
@@ -130,11 +150,13 @@ export function CartVehicleField({
             variant="inline"
             onApply={(a) => {
               commitDict(a.brand, a.model, a.year, 'garage');
-              done();
+              // ⚠️ a.year 可能 undefined(無年份的愛車)—— 那時年份層動作後仍無值,
+              // 年份草稿應該被報出來,不無條件排除(保留 filled 只帶「真的有值」的層)。
+              done({ brand: a.brand, model: a.model, year: a.year });
             }}
             renderNoMatch={(raw) => (
               <button type="button" className="cvf-link"
-                onClick={() => { onChange({ kind: 'free', raw, source: 'garage' }); done(); }}>
+                onClick={() => { onChange({ kind: 'free', raw, source: 'garage' }); done(ALL_LAYERS_MOOT); }}>
                 以自由輸入記下「{raw}」(下單後人工確認)
               </button>
             )}
@@ -157,6 +179,7 @@ export function CartVehicleField({
               onClearBrand={() => setSel(null)}
               onClearModel={() => setSel((v) => (v ? { brand: v.brand } : v))}
               onClearYear={() => setSel((v) => (v ? { brand: v.brand, model: v.model } : v))}
+              onDraftTextChange={onDraftTextChange}
             />
           </div>
           <div className="cvf-free">
@@ -171,12 +194,17 @@ export function CartVehicleField({
             />
             <button type="button" className="cvf-link" onClick={submitFreetext} disabled={freetext.trim() === ''}>記下</button>
           </div>
-          <button type="button" className="cvf-link cvf-done" onClick={done}>完成</button>
+          {/* 🔴 必須是 `() => done()`、不能直接 `onClick={done}`:done 的參數是「填了哪幾層」,
+              直接當 handler 會把 click 的 SyntheticEvent 當成 filled 傳進去 —— event 沒有
+              brand/model/year 屬性,`filled[f]` 恆 undefined 看似巧合沒事,但那是意外不是設計,
+              未來 done() 簽章一變就炸。 */}
+          <button type="button" className="cvf-link cvf-done" onClick={() => done()}>完成</button>
         </div>
       ) : (
         <button type="button" className="cvf-add" onClick={startEdit}>+ 選擇車款</button>
       )}
       {hint && !value && !editing && <div className="cvf-hint">{hint}</div>}
+      {!editing && skipNotice && <div className="cvf-note" role="status">{skipNotice}</div>}
     </div>
   );
 }

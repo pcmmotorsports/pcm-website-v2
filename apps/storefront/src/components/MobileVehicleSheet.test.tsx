@@ -41,11 +41,13 @@ function renderSheet({
   garage = [] as GarageChipItem[],
   dispatch = vi.fn<(action: CascadeFilterAction) => void>(),
   onClose = vi.fn<() => void>(),
+  onApplied,
 }: {
   cascade?: CascadeFilterState;
   garage?: GarageChipItem[];
   dispatch?: Mock<(action: CascadeFilterAction) => void>;
   onClose?: Mock<() => void>;
+  onApplied?: Mock<(skippedNotice: string | null) => void>;
 } = {}) {
   const utils = render(
     <MobileVehicleSheet
@@ -55,6 +57,7 @@ function renderSheet({
       cascade={cascade}
       dispatch={dispatch}
       garage={garage}
+      onApplied={onApplied}
     />,
   );
   return { ...utils, dispatch, onClose };
@@ -348,5 +351,49 @@ describe('MobileVehicleSheet(ADR-0007 手機選車面板)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ── Part B 債④:套用時把被略過的草稿回報給父層(Sean 2026-08-07 Q22=A) ──
+  describe('onApplied:被略過的草稿提示', () => {
+    it('選了廠牌、車型欄打字沒選中 → onApplied 收到略過提示', () => {
+      const onApplied = vi.fn<(skippedNotice: string | null) => void>();
+      renderSheet({ onApplied });
+      pickOption(brandField(), 'Yamaha', 'Yamaha');
+      fireEvent.change(modelField(), { target: { value: 'MT-0' } });
+      fireEvent.blur(modelField());
+
+      fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+      expect(onApplied).toHaveBeenCalledWith('「MT-0」沒有對應到車型，已略過');
+    });
+
+    // 🔴 反向(防假警報)+ M1 判別力:三欄該選的都選定了 = 沒有任何東西被丟棄。
+    //    單純「選完就送出」測不出排除規則有沒有被拿掉 —— 選定當下 VehicleCombo 自己的
+    //    `useEffect([value])` 早把 draftText 清成 ''(見 VehicleSelect.tsx:131-138),
+    //    此時就算把排除規則整段拿掉,formatSkippedDraftNotice 內建的空字串過濾照樣濾光、
+    //    這條測試依然綠(同族陷阱見 CartVehicleField.test.tsx 的「M1 判別力測試」註解)。
+    //    真正吃到排除規則的路徑:選定後**再打字但不確認**(不 blur、不選)—— `draft.model`
+    //    沒變(仍是舊值)、`draftText.model` 卻留著新字,只有「`draft.model !== null`」這條
+    //    才擋得住它混進提示。
+    it('反向:廠牌與車型都選定(選定後再打字未確認)→ onApplied 收到 null', () => {
+      const onApplied = vi.fn<(skippedNotice: string | null) => void>();
+      renderSheet({ onApplied });
+      pickOption(brandField(), 'Yamaha', 'Yamaha');
+      pickOption(modelField(), 'MT-09 SP', 'MT-09 SP');
+      fireEvent.change(modelField(), { target: { value: 'zzz' } }); // 不 blur、不選
+
+      fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+      expect(onApplied).toHaveBeenCalledWith(null);
+    });
+
+    // 🔴 反向:沒選廠牌(canApply=false、早退)⇒ 根本沒有「走完」,onApplied 不該被叫。
+    it('反向:沒選廠牌 → 套用鈕停用、onApplied 完全沒被呼叫', () => {
+      const onApplied = vi.fn<(skippedNotice: string | null) => void>();
+      renderSheet({ onApplied });
+      const apply = screen.getByRole('button', { name: '查看適用商品' }) as HTMLButtonElement;
+      expect(apply.disabled).toBe(true);
+
+      fireEvent.click(apply);
+      expect(onApplied).not.toHaveBeenCalled();
+    });
   });
 });
