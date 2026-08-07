@@ -1042,6 +1042,13 @@ M-1-04 刀 3-a 主刀(`eb5196e`)Code 在 commit body 完整誠實揭示:「指�
 **事故脈絡:**
 M-1-05 刀 1 spike(2026-05-12)揭示:repo 內 `supabase/migrations/20260510134708_products_public_view.sql` 已 commit + push 落地、但 dev DB 未 apply、Code 跑 spike 撞 view 不存在 raise;Sean 跑 `supabase db push --include-all` 補 apply 落地後三重驗證(list_migrations / pg_class / information_schema 13 欄)綠、刀 1.5(`e2ac99a`)收工;Claude.ai 規劃刀 1 時憑印象認為「migration commit 落地 = DB 落地」、未區分兩階段、指令字面「驗證 view 已建」未含 apply 步驟、撞 raise 才修正認知。
 
+**🔴 2026-08-07 擴寫(A9h 正式站活體事故):**
+上述原始事故是「migration 自己沒 apply」;本次擴寫的是**相鄰但不同**的洞 —— **應用層與 migration 是一組、卻只上了應用層那一半**。
+A9h-1 應用層(12 參 rpc 呼叫)於 2026-08-06 夜先上線、對應的 `a9h_m` migration 未 apply ⇒ **正式站採購 upsert 回 `PGRST202`、壞約 8 小時**(夜間無人使用故未被投訴),`STATUS.md` 2026-08-07 09:45 條逐字有記。
+🔴 **它不是被任何守門抓到的** —— 是 B 窗做型別重生時才被挖出來,主視窗三方親驗後由 Sean 拍 Q8=A 單獨 apply `20260806200000` 修復。
+兩個加重情節:①**手寫型別補丁**(在 `database.types.ts` 手寫 12 參「讓 typecheck 反映合約」)實測**零保護力**(rpc 呼叫路徑本來就沒有型別守門),而且**它讓 typecheck 綠 = 恰好蓋掉「DB 還沒有這個東西」的訊號**;②repo 側 hook 對此**沒有觀測點**:deploy 發生在 Vercel、apply 發生在 Sean 手動 `db push`,**兩者都不經過 git**。
+夜跑收線立法彙整(`docs/reviews/2026-08-07-night-legislation-draft.md` §5.5)回讀原始教訓時,另抓到一個**會立錯法的細節**:原文含「**(或掛 flag)**」這個限定 —— 事故不是「不准分兩次上」(分兩次上是常態、也無法避免),而是「**先上的那半沒有 flag 保護**」。省掉這三個字會禁掉一個合法且必要的做法。
+
 **規則:**
 - **commit 落地 ≠ apply 落地**:Supabase migration 兩階段、commit 進 git ≠ DB 已套用、必明確區分
 - **Claude.ai 引用「落地」字面時必區分**:
@@ -1049,7 +1056,16 @@ M-1-05 刀 1 spike(2026-05-12)揭示:repo 內 `supabase/migrations/2026051013470
   - 「apply 落地」= DB 已套用(`supabase migration list` / `information_schema.tables` 可見)
 - **slice 指令字面紀律**:涉 view / table / column 行為時、必明示驗證階段(commit-only 還是含 apply);若需 apply 落地、必含 Step「Sean 手動跑 supabase db push」(對齊四方分工、Code 不代跑)
 - **commit body 字面紀律**:commit message 寫「新增 X view」時、body 必揭示 apply 狀態(「待 Sean push apply」/「已 apply at <timestamp>」)
-- **enforce:** Claude.ai 寫 slice 指令引「migration 已落地」前自檢「指的是 commit 還是 apply?」、不明確即補字面;Code 偵察揭示「commit 落地但 apply 未落」立即 raise multi-select(對齊「事實 > 字面」鐵則 11)
+- 🔴 **跨 apply 停點的片:應用層不得先於 migration apply 上線 —— 或掛 flag(2026-08-07 A9h 擴寫)**
+  - **「或掛 flag」不得省**:分兩次上線是常態且無法避免,病不在分兩次,而在**先上的那半沒有保護**。
+    合法做法 = 應用層先上但走 feature flag(預設 off)、migration apply 後才開 flag;非法做法 = 應用層直接上、裸奔等 migration
+  - **手寫型別補丁不算保護,而且會加重事故**:在 `database.types.ts` 手寫新簽章「讓 typecheck 反映合約」實測零保護力
+    (rpc 呼叫路徑無型別守門),且**讓 typecheck 變綠 = 蓋掉「DB 還沒有這個東西」的訊號**
+  - **機制觀測點在部署後、不在 repo 側**:repo hook 看不到 Vercel deploy 與手動 `db push`(兩者都不經 git)。
+    可用的觀測點 = **apply 後對新簽章跑一次 PostgREST 具名參數 smoke**(回 `P0001` 之類的守門錯誤 = 函式在;回 `PGRST202` = 函式不在)。
+    此 smoke 於 2026-08-07 已實跑並關閉 a9h 缺口(`STATUS.md` 當日「E 批兩支已 apply」條),**應登記為 apply 停點的固定步驟、而非一次性補驗**
+  - repo 側做得到的那半:diff 同時含 `supabase/migrations/*` 與其消費端應用層檔時,commit body 必須寫出 apply 順序聲明
+- **enforce:** Claude.ai 寫 slice 指令引「migration 已落地」前自檢「指的是 commit 還是 apply?」、不明確即補字面;Code 偵察揭示「commit 落地但 apply 未落」立即 raise multi-select(對齊「事實 > 字面」鐵則 11);**跨 apply 停點的片,plan 必須明寫「先上的那半靠什麼保護」,答不出來 = 不准開工**
 
 **規範定位:** 對齊 working-style §6.3 第 40 條(本條對應)+ lessons §12-3 維度 A「字面 vs 事實守則」延伸(commit 字面 vs apply 事實)+ CLAUDE.md「Sean 手動跑 push / Code 不代跑」四方分工延伸(手動跑包含 supabase db push)
 
@@ -1213,6 +1229,72 @@ M-1-13H 商品頁全面改版 plan 階段(2026-05-21、本 PRD `docs/specs/M-1-1
 **跨專案適用:** 適用所有「Cowork(規劃層)+ Code(偵察層)+ design-reference(視覺真權威)三層協作」的專案;Phase 2 vehicle-service-ecosystem 啟動時、相同模式 grep design-reference 既有 + storefront 既有雙端字面;適用所有「demo 變體 vs 正式元件」辨識場景(不限 VariantCFull、Phase 2 可能還有 VariantD/E/F 等 demo 變體)
 
 **首例:** 2026-05-21 M-1-13H plan 階段對話、Sean 質疑 Q4 raise 錯誤;Cowork bash grep design-reference + apps/storefront/src 5 處字面實況查證、確認 Sean 對、自我糾正;本條 §12-37 自身落地驗證 = Cowork 實況查證 + Sean 確認 + 寫 PRD `docs/specs/M-1-13H-product-page-overhaul-plan.md` + 寫 lessons §12-37;commit slice-doc chore TBD 落地後即首例 anchor
+
+---
+
+### 12-38. DB 約束保證「不可能發生」的事若真的發生了 = 假設破了、該吵不該吞
+
+**事故脈絡:**
+E 線 A9b2-A 兩段式搜尋(2026-08-07 夜跑、收割見 STATUS「09:10 雙收割」條)實作供應商單號 probe 時,對「DB 約束保證形狀正確」的回傳值做了 `ShapeError` fail-loud 處理而非靜默略過。此形狀的反面在本 repo 反覆出現:上游用 `.filter(Boolean)` / `?? []` / 空 `catch {}` 把「不該存在的值」濾掉,結果**不是錯誤訊息、而是「查無此單」** —— 使用者看到的是一個語意完全正確、但事實上錯誤的空結果。夜跑主視窗於 `E-143-A` 指名此形狀進立法候選。根因:當一個不變量由 DB 約束(CHECK / NOT NULL / FK / 產生欄)保證時,應用層拿到違反該不變量的值,唯一正確的解讀是「我對系統的假設破了」,而不是「這筆資料髒、濾掉就好」。濾掉的那一刻,**事故從「會被發現的錯誤」變成「不會被發現的錯誤」**。
+
+**規則:**
+- 由 DB 約束 / 型別 / 產生欄保證的不變量被違反時,**一律 fail-loud**(拋具名錯誤、寫 log、讓呼叫端看得見),不得靜默吞掉
+- 禁止用下列寫法處理「理應不可能」的值:`.filter(Boolean)`、`?? []`、`|| []`、空 `catch {}`、`if (!x) return`(無 log 無拋錯)
+- 判準一句話:**「這個值不該存在」與「這個值可以沒有」是兩件事** —— 後者用預設值,前者用拋錯
+- 寫 fallback 前先問「若這條路真的被走到,我希望三個月後的自己看到什麼?」;答案是「什麼都看不到」就是錯的
+- **enforce:** review 時凡見到對「約束保證欄位」的靜默過濾,一律要求改成 fail-loud 或說明為何該值可合法缺席;說不出來 = must-fix
+
+**規範定位:** 對齊鐵則 11「字面 vs 事實守則」(靜默吞錯 = 系統的行為字面與事實不符)+ memory `feedback_control-named-beyond-its-actual-power`(防護命名超過實際能力族)+ §12-3 維度 A「不憑記憶寫死」延伸(此處是不憑假設吞掉違反假設的證據)
+
+**教訓來源:** E 線 A9b2-A(2026-08-07)`ShapeError` fail-loud 實作;反面形狀 = `.filter(Boolean)` 把違反約束的列濾成「查無此單」,使用者看到語意正確但事實錯誤的空結果;夜跑主視窗 `E-143-A` 指名進立法候選
+
+**跨專案適用:** 適用所有「DB 約束 + 應用層讀取」的專案(PCM 網站 / 報價單 / 未來 Phase 2);亦適用非 DB 的不變量來源(型別系統、schema validation、外部 API 合約)
+
+**首例:** E 線 A9b2-A(2026-08-07 夜跑)fail-loud 實作為正面首例;本立法 commit 即條文 anchor
+
+---
+
+### 12-39. 斷言要寫在 round-trip 不變量上、不是寫在實作細節上
+
+**事故脈絡:**
+E 線 A10c2(2026-08-07 夜跑、收割見 STATUS「10:00 三片線到齊」條)抓到一個**跨片復活**的 bug:`too_long` 的處理在 A9b1 修過一次,到 A10c2 又復活,兩片同根因、最後雙修。根因不在修法錯,而在**斷言寫錯了位置** —— 原本的測試斷言的是「截到某個長度」這種實作細節,而真正要守的不變量是「**帶下去的值不會復活**」(round-trip:進去什麼、出來就該還是什麼,或明確被拒絕)。斷言寫在實作細節上時,只要有人改了那個數字或換了實作路徑,守門就失守,而測試仍然全綠 —— 因為它守的是「當時怎麼做」,不是「必須成立什麼」。夜跑主視窗於 `E-144-A` 指名此形狀進立法候選。
+
+**規則:**
+- 斷言優先寫在**不變量**上,而非實作細節上。判別法:問「如果有人用完全不同的方式重寫這段,這條斷言還該成立嗎?」——答「不該」的就是實作細節斷言
+- 典型的實作細節斷言(易失守):截斷長度、迴圈次數、中間變數的值、特定錯誤訊息字串、呼叫順序
+- 典型的不變量斷言(該寫的):round-trip(寫入→讀出相等)、冪等(做兩次 = 做一次)、守恆(總量不變)、單調(只增不減)、**「被拒絕的值不會以其他路徑復活」**
+- 同一根因跨片復活 = 強訊號,代表**第一次修的是症狀不是不變量**;此時要回頭補不變量層的斷言,而不是在第二片再修一次症狀
+- **enforce:** 同一 bug 在不同片復發第 2 次,禁止只做第二次症狀修復,必須同批補上 round-trip 或等價的不變量測試
+
+**規範定位:** 對齊 memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`(守門畫在不變量成立的面)+ `feedback_assertion-measures-the-wrong-thing`(斷言量錯東西三形狀)+ 鐵則 10 三視角之「bug 可追蹤性」
+
+**教訓來源:** E 線 A9b1 → A10c2 `too_long` 跨片復活(2026-08-07 夜跑,雙修);夜跑主視窗 `E-144-A` 指名進立法候選
+
+**跨專案適用:** 適用所有有測試的專案;特別適用「同一資料在多片之間流動」的管線(rpm 同步管線 / 訂單狀態機 / 出貨流程)
+
+**首例:** E 線 A10c2(2026-08-07 夜跑)跨片復活與雙修;本立法 commit 即條文 anchor
+
+---
+
+### 12-40. 停 / 復是成對不變式 —— 補了停,必須枚舉「復」的所有路徑
+
+**事故脈絡:**
+B 線 2026-08-07 夜跑(`B-154-A` 回報)出現一類形狀:為某個狀態補上了「停用 / 鎖定 / 攔截」的守門,但**沒有把對應的「恢復 / 解鎖 / 放行」路徑全部枚舉**,導致從某些路徑進來的操作可以繞過停用狀態、或停用後無法正確恢復。此形狀與單純的「漏改一處」不同:它的病根是**把成對的不變式當成單向的功能來做** —— 實作者的心智模型停在「我要擋住 X」,而不是「停與復必須恆為一組、且對所有入口一致」。這類缺口在測試上特別難被抓到,因為「停」那條路走得通、測試就綠了,而「復」的漏網路徑往往在別的檔、由別的人在別的時間寫。
+
+**規則:**
+- 凡新增或修改成對操作的一半(停用/啟用、鎖定/解鎖、隱藏/顯示、attach/detach、開/關 flag),**必須先 grep 全樹枚舉另一半的所有路徑**,逐一確認一致
+- 枚舉結果寫進 plan 或 commit body(「復的路徑共 N 條:…」),**不得只寫「已補上停用」**
+- 測試必須含**成對測試**:停 → 驗停生效 → 復 → 驗復生效 → 再停(第三步是關鍵,只做前兩步證不到狀態機沒有單向陷阱)
+- 判準一句話:**「我擋住了 X」不等於「X 進不來」** —— 前者是動作、後者是不變量,要守的是後者
+- **enforce:** review 見到只補單邊的成對操作,要求補上另一半的路徑枚舉;枚舉不出來 = must-fix(代表作者不知道有幾條路)
+
+**規範定位:** 對齊 memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`(不變量面 vs 動作面)+ §12-39(不變量斷言)+ 鐵則 10 三視角之「擴充性」(日後新增第 N 條路徑時,成對性是否仍成立)
+
+**教訓來源:** B 線 2026-08-07 夜跑(`B-154-A`)補了停、未補所有路徑的復;形狀與 W0b F4「守門畫在刪除路、不變量卻是鍵寫下不再變」同族(同線第三例)
+
+**跨專案適用:** 適用所有含狀態切換的系統:訂單狀態機、出貨/取消、會員 tier 升降、feature flag 開關、供應商停用/啟用
+
+**首例:** B 線 `B-154-A`(2026-08-07 夜跑)為事故源;本立法 commit 即條文 anchor
 
 ---
 

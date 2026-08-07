@@ -73,7 +73,10 @@ export interface SourceProductRow {
 // P0-A-3(多供應商去碳):補 description(依 syncDescription 決定寫不寫、§2.9 F2)+ major_category_zh(per-group 分類與副標來源)
 //   + category_zh(97 子類、Phase 0 不 seed、先攜帶備用)。description 仍受 supplier-config 旗標 gate:rpm=false 不寫、byte 等價。
 // A/#270:補 highlights_zh(賣點條列 jsonb 字串陣列)→ products.highlights;與 description 同 syncDescription gate(rpm 不寫)。
-// #270 安裝資源:補 pdf_urls / video_urls(text[])→ products.manuals / video_url;syncInstallResources gate(gbracing/bonamici 才寫)。
+// #270 安裝資源:補 pdf_urls / video_urls(text[])→ products.manuals / video_url;受 syncInstallResources gate。
+//   ⚠️ 該旗標逐家設定、**真權威在 `scripts/supplier-config.ts`**(勿在此處複述名單:本註解曾停在
+//   #270 剛上線的兩家試點時期、寫「gbracing/bonamici 才寫」而過期近一個月)。現況為多數供應商 true、
+//   rpm 等少數 false。行為讀設定不讀註解,故該過期字面未致錯,但會誤導讀它的人。
 const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, description, ' +
   'vehicle_label, fitment_parsed, category_zh, major_category_zh, major_category_v2_zh, sub_category_v2_zh, ' +
