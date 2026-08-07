@@ -18,7 +18,7 @@
 //   🔴 `onPickModel` 簽章因此改傳 `{ brand, model }`(而非單純 `name`):跨層選取若只回傳
 //   model 名稱,呼叫端沒有管道拿到字典回填的 brand,選車就會卡在「有車型無廠牌」的壞態。
 
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
 import { modelFieldOptions, resolveModelPick } from '@/lib/vehicle-options';
@@ -68,6 +68,13 @@ type ComboProps = {
    *  .cft-bar 是 sticky top:69px(filter-cascade.css:4-7)⇒ focus 當下就在視野內,
    *  不需要另外 scrollIntoView。 */
   autoFocus?: boolean;
+  /** Q8=A(Sean 2026-08-07):把「客人打了什麼但還沒選中」回報給外層。
+   *  🔴 為何需要:`text` 是本元件內部 state,父層看不到 ⇒ 「清除」鈕算不出畫面上還有沒有字、
+   *  切換輸入模式時也接不住那串字。不傳=行為零變動(既有掛載點不需改)。
+   *  ⚠️ 契約:**元件卸載時不會回報** —— 卸載後父層手上仍是最後一次回報的字。條件渲染本元件
+   *  的掛載點要自己在卸載那條路上清掉自己的 state(手機面板是顯式 `setDraftText(EMPTY_TEXT)`,
+   *  車庫表單是 remount 後由 mount effect 補報 `''`)。 */
+  onDraftTextChange?: (text: string) => void;
 };
 
 // V-1c++:車庫「新增車輛」表單重用同一 combobox 原型(打字過濾/鍵盤/唯一精確命中),
@@ -88,10 +95,24 @@ function Combo({
   slotLabel,
   emptyHint,
   autoFocus,
+  onDraftTextChange,
 }: ComboProps) {
   const [text, setText] = useState<string | null>(null); // null=未編輯(顯 value)
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
+  // Q8=A:回報 callback 收進 ref —— `changeText` 的 identity 因此恆定,下面那道
+  // `useEffect([value, changeText])` 才能把它正常列進 deps,不必掛 exhaustive-deps 抑制。
+  // 🔴 為何不直接 `useEffect([text, onDraftTextChange])` 自動回報:掛載點傳的是 inline arrow
+  //    (每 render 新 identity),而 `setDraftText(c => ({ ...c, brand: t }))` 恆產生新物件、
+  //    React 不會 bail out ⇒ 無限 render 迴圈。這條路封死,別當成「更乾淨的寫法」改回去。
+  const reportRef = useRef(onDraftTextChange);
+  useEffect(() => {
+    reportRef.current = onDraftTextChange;
+  }, [onDraftTextChange]);
+  const changeText = useCallback((next: string | null) => {
+    setText(next);
+    reportRef.current?.(next ?? '');
+  }, []);
   // 🔴 Q7=A 的守門畫在**不變量的面**,不是只畫在 `commit()`。
   //    不變量(⚠️ 只在**穩定態**成立,審查 N1):blur 之後、或 `value` 變動之後,
   //    `text` 與 `value` 不得同時非空且相異。**正在打字的當下不算** —— 已選 Yamaha 又輸入 `kawa`
@@ -107,13 +128,13 @@ function Combo({
   //    ⚠️ 這**不會**吃掉 Q4=B 的留字:打字只動 `text`、不動 `value`;跨層草稿留在車型欄時去選廠牌,
   //       動到的是**廠牌欄**的 `value`、車型欄的 `value` 仍是 null ⇒ 車型草稿照樣留著(有守門盯)。
   useEffect(() => {
-    setText(null);
+    changeText(null);
     // 審查 N3:`value` 從外部變動時欄位可能仍聚焦且清單開著 —— 草稿清掉後查詢字串變空、
     //   清單會瞬間攤成全清單,而 `hi` 還停在舊的篩選結果索引上
     //   ⇒ `aria-activedescendant` 可能指向不存在的 option id。一併收掉。
     setOpen(false);
     setHi(0);
-  }, [value]);
+  }, [value, changeText]);
   const inputRef = useRef<HTMLInputElement>(null); // V-2d④:點選選定後主動 blur 收手機鍵盤
   const shown = text ?? value ?? '';
   const list = filterVehicleOptions(options, text ?? '', (n) => n);
@@ -128,7 +149,7 @@ function Combo({
   const optionId = (i: number) => `${listboxId}-opt-${i}`;
 
   const pick = (name: string) => {
-    setText(null);
+    changeText(null);
     setOpen(false);
     // 重選同值=只關列表不 dispatch(code-reviewer R1:select-brand/model 同值會 cascade reset
     // 清下層;舊原生 select 選同項不觸發 change、此為行為等價守門)
@@ -139,14 +160,14 @@ function Combo({
     setOpen(false);
     if (text === null) return;
     if (text.trim() === '') {
-      setText(null);
+      changeText(null);
       if (value !== null) onClear();
       return;
     }
     const exact = uniqueExactMatch(options, text, (n) => n);
     if (exact !== null) {
       // 唯一精確命中 → 套用,並把草稿清掉讓顯示值回到 `value`(所見=已選)。
-      setText(null);
+      changeText(null);
       if (exact !== value) onPick(exact);
       return;
     }
@@ -158,7 +179,7 @@ function Combo({
     //    ⇒ 畫面說一套、系統算另一套。Sean 拍 Q4=B 的動機是「打了字滑開就無聲消失」,
     //    而「已經選好一台車、滑開後回到那台車」不是消失、是回到你選的東西 ⇒ 不在 Q4=B 要修的範圍。
     if (value !== null) {
-      setText(null);
+      changeText(null);
       return;
     }
 
@@ -182,7 +203,7 @@ function Combo({
       if (open && target !== undefined) pick(target);
       else commit();
     } else if (e.key === 'Escape') {
-      setText(null);
+      changeText(null);
       setOpen(false);
     }
   };
@@ -223,7 +244,7 @@ function Combo({
           setHi(-1); // 未導航態:Enter 走 commit、不誤選首項(R1 minor)
         }}
         onChange={(e) => {
-          setText(e.target.value);
+          changeText(e.target.value);
           setOpen(true);
           setHi(0);
         }}

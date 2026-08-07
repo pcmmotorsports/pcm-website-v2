@@ -96,6 +96,9 @@ export function InlineVehicleForm({
   );
   const [brandName, setBrandName] = useState<string | null>(initialDict?.brand ?? null);
   const [modelName, setModelName] = useState<string | null>(initialDict?.model ?? null);
+  // Q8=A:接住 VehicleCombo 回報的「打了字但沒選中」草稿 —— 切到自行輸入時要帶得走。
+  const [brandText, setBrandText] = useState('');
+  const [modelText, setModelText] = useState('');
   const [name, setName] = useState(veh.name ?? '');
   const [year, setYear] = useState(veh.year ?? '');
   const [engine, setEngine] = useState(veh.engine ?? '');
@@ -187,6 +190,7 @@ export function InlineVehicleForm({
                 setBrandName(null);
                 setModelName(null);
               }}
+              onDraftTextChange={setBrandText}
             />
           </label>
           <label>
@@ -202,6 +206,7 @@ export function InlineVehicleForm({
               variant="form"
               onPick={(n) => setModelName(n)}
               onClear={() => setModelName(null)}
+              onDraftTextChange={setModelText}
             />
             {fieldErrors.name && <span className="auth-field-err">{fieldErrors.name}</span>}
           </label>
@@ -209,13 +214,30 @@ export function InlineVehicleForm({
             type="button"
             className="acc-veh-mode-toggle"
             onClick={() => {
-              // 已選齊 → 帶入組合字面當自由輸入初值(V-1d 指示「客人可改顯示名」);未選齊保留原值。
-              // 🔴 已知缺口(Sean 2026-08-07 Q4=B 的連帶,同 MobileVehicleSheet「清除」那顆的根因):
-              //    Q4=B 起「打了字沒選中、blur 也不清掉」,但那個草稿是 VehicleCombo 的**內部 state**、
-              //    本元件看不到 ⇒ 客人打了一半切到自由輸入,那串字**無聲消失** —— 正是 Q4=B 要消滅的觀感、
-              //    只是換了個觸發點。修法要動共用 VehicleCombo 的介面(四個掛載點),已提 D-274-STOP
-              //    給主視窗裁,本片不自行擴大。
-              if (brandName !== null && modelName !== null) setName(vehicleLabel(brandName, modelName));
+              // 三段語意(R3 對抗審查覆核 2026-08-07:註解改誠實,行為不動):
+              // ①已選齊(廠牌+車型都選定)→ 無條件以組合字面覆蓋 name,**包含蓋掉客人手打的自由文字**。
+              //   這是 HEAD 既有行為、V-1d「客人可改顯示名」的刻意設計,本片原樣保留、不擴不縮。
+              //   🔴已申報的不對稱:選齊會蓋、未選齊(③)不蓋 —— 不是漏寫守門,是刻意如此。
+              // ②未選齊、且自由輸入欄目前是空的 → 帶入「看得見什麼就帶什麼」的組合字面
+              //   (Q8=A 收缺口②,Sean 2026-08-07:客人打到一半的字不再無聲消失)。
+              // ③未選齊、但自由輸入欄已有字 → 保留原字,不覆蓋。
+              //   守門 name.trim() === '' 是 R2 對抗審查抓到回歸後補的:少了它,「打了自由文字
+              //   → 切回清單只選廠牌 → 再切回自行輸入」會把客人打好的車名蓋成廠牌名。
+              //   🔴R3 抓到這道守門的代價,兩種損失分開看、**都不取決於有沒有選齊**:
+              //   (a) name 非空且未選齊 → 走③:草稿被丟掉、原名留著 = 缺口② 在這條路上完全沒收。
+              //       而「name 非空」正是**每一條編輯既有愛車的路徑**的常態(還有任何曾在自由欄
+              //       打過字的新增路徑)⇒ 缺口② 實際只收到「全新、從沒打過字」那一種情形。
+              //   (b) 選齊 → 走①:反過來是客人手打的原名被字典字面蓋掉。
+              //   兩者都是已知且刻意的現況(HEAD 既有行為 + ① 的設計選擇疊加而成),各有測試釘住;
+              //   等 Sean 拍板要不要改,**不要當漏洞順手「修好」**。
+              if (brandName !== null && modelName !== null) {
+                setName(vehicleLabel(brandName, modelName));
+              } else {
+                const composed = [brandName ?? brandText.trim(), modelName ?? modelText.trim()]
+                  .filter((s) => s !== '')
+                  .join(' ');
+                if (composed !== '' && name.trim() === '') setName(composed);
+              }
               setMode('free');
               setFieldErrors({});
             }}
