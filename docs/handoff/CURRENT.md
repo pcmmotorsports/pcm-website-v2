@@ -1,6 +1,18 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🧭 **2026-08-07 20:40 主視窗壓縮前 checkpoint(壓縮後讀本節;第一動=全量掃兩個信箱+重掛哨兵)。**
+> 🧭 **2026-08-08 02:45 主視窗第二次壓縮前 checkpoint(壓縮後讀本節;第一動=全量掃兩個信箱、確認背景鬧鐘/哨兵活著——壓縮不殺背景任務,重開才殺)。**
+>
+> **現況**:dev 頂端見 `git log`(未推約 24+ 顆,Sean 手動推)、全套 **382 檔 5677 綠+1 todo**、樹乾淨(僅 Sean 兩顆 untracked png)。**夜跑兩窗現役**:**D**(舊窗被 D-219-A 哨兵喚醒自續,勿再開新窗)=忘記密碼片 Fable 審查→commit(**Q29=A**:Fable 代 codex、審過即收,codex 恢復後補背書)→ 接年份欄修活+Q28 片(規格=D-218-A+memory Q28);**B**=W7c(災難日 runbook,備料=B-294⑨)→W7→**W7d**(主視窗裁:兩 writer 補 40P01 handler+s2b position 錨,apply 前最後窗口;規格=B-215-A②),開工令=B-216-A(第一動 merge dev 同步八檔重釘)。**E/附件窗已收線**(三片全收:null 活雷拆/doc_type 正名/sound_clips 三件套未 apply;無可跑工勿開)。
+>
+> **背景任務**:①信箱哨兵(scratchpad/sentinel.sh,監 pcm-mailbox+OD outbox)②**03:35 鬧鐘**(alarm-0335.sh)=akrapovic 回填驗證(唯讀:pdf_docs 635 群/sound_clips 364 群/doc_type 三值抽查;查法照 E-266 的 PostgREST anon 打報價單 view)。
+>
+> **今夜拍板全落檔**(memory site-redesign 檔+STATUS):Q23-Q29 全拍;**商品頁 OD 優化收回**(fitment 以下+檔案位置照現站、**全站熔橘色票仍依 OD**、其他頁照舊 OD);SMTP=Gmail Workspace(步驟已給 Sean);忘記密碼四前置全綠(SITE_URL=shop.pcmmotorsports.com/allow-list 有/OTP=3600/模板英文→OD 出中文文案)。**codex=免費帳號鎖到 9/5**,13+ 片補審清單前置=Sean 登回付費帳號。
+>
+> **Sean 早上清單**:①push(24+ 顆)②apply 批=出貨線九支+`20260808000000` sound_clips(preflight=b2s2b 全套+supabase migration list 實查;觀測點=PostgREST 具名 select sound_clips 200)③codex 付費帳號登回→補審清單(現 14+ 片)④SMTP 設定(Gmail 應用程式密碼,步驟在對話)⑤肉眼驗積欠清單見 STATUS。**回拋報價單側三條**(lightech/cncracing 接檔名擴不擴/pdf 897vs719/聲音檔數差)=Sean 轉貼。
+>
+> **工法補遺**:釘值檔現八支、跨線落 migration 必同批重釘(今晚真實發火一次,主視窗代跑 `b736bf8b`);掃信=date+find 同行整塊貼(D 窗四錘後機制);codex exec 必 `< /dev/null`+模型名查 models_cache.json;基準重置空檔會吞信(今晚吞兩封)⇒ **touch baseline 前先 ls 最新三封對照已處理集**。
+>
+> 🧭 **2026-08-07 20:40 主視窗壓縮前 checkpoint(舊節,按需讀)。**
 >
 > **現況**:dev=`2d40acf1`、**未推 38 顆**(Sean 手動推,已提醒)、樹僅 Sean 兩顆 untracked png、全套 **380 檔 5611 綠+1 todo**、三綠 20/20。**「不推 main」停點已解除**(Showcase 還原片已收割)。**零拍板欠帳**(今日 Q10-Q22 全落 memory site-redesign / attachments / b2-shipments 各檔)。
 >
