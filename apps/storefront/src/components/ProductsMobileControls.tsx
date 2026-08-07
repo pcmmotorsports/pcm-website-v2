@@ -13,7 +13,7 @@
 // 🔴 同一時間只開一個面板(單一 `panel` state):否則兩個面板各自鎖/解 body overflow,
 //    先關的那個會把還開著的那個解鎖 = 背景跟著捲。
 
-import { useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import {
   clearCategory,
   clearVehicle,
@@ -60,16 +60,34 @@ export function ProductsMobileControls({
    *  🔴 由 ProductsPage 閘在「server UA 判定為手機」,**不可只看 URL**:
    *  本元件在桌機也會 mount(只是被 .pmc-root{display:none} 藏起來),而
    *  MobileVehicleSheet 開啟時會 `document.body.style.overflow='hidden'`
-   *  (MobileVehicleSheet.tsx:78-84)—— 那條 effect 不管 CSS 可見性照跑,
+   *  (MobileVehicleSheet.tsx:99-105)—— 那條 effect 不管 CSS 可見性照跑,
    *  所以純看 URL 會讓桌機客人進到一個「看不到面板、卻整頁捲不動」的死狀態。 */
   openVehicleOnMount?: boolean;
 }) {
   // 🔴 initializer 而非 effect:effect 版會在客人手動關掉面板後、下一次 re-render 又把它打開
-  //    (同一個理由讓 MobileVehicleSheet.tsx:72-75 的草稿也選了 initializer)。
+  //    (同一個理由讓 MobileVehicleSheet.tsx:89-93 的草稿也選了 initializer)。
   const [panel, setPanel] = useState<Panel>(openVehicleOnMount ? 'vehicle' : null);
   const closePanel = () => setPanel(null);
+  // Part B(債④):套用選車草稿時被略過的欄位提示(MobileVehicleSheet onApplied 回報)。
+  // 🔴 兩個「重開選車面板」入口 + 「清除車輛」都要清掉,否則舊提示會被下一輪動作沿用。
+  const [skipNotice, setSkipNotice] = useState<string | null>(null);
+  const openVehiclePanel = () => {
+    setSkipNotice(null);
+    setPanel('vehicle');
+  };
 
   const vehicle = cascade.vehicle;
+  // 🔴 對抗審查抓到的殘留提示:提示原本只由三個入口清(兩個開面板 + 清除車輛),但 ActiveChips
+  //    的車輛膠囊 ×(`ActiveChips.tsx:41` 直接 dispatch clearVehicle)不經過它們 ⇒ 車清掉了、
+  //    提示還掛著。用「vehicle 轉場成 null 就清」而非「vehicle 為 null 就不渲染」——
+  //    後者(render-gate `vehicle && skipNotice`)在 `FrozenCascadeHarness`(dispatch 是 mock、
+  //    cascade.vehicle 全程凍結不動)那個既有測試會整個炸掉,因為 `vehicle` 從未變化過
+  //    (effect 靠 deps 比較觸發,凍結場景下不會誤清剛設定的提示)。只蓋到「車被清空」這條路——
+  //    back/forward 換成另一台車(vehicle 從 A 直接變 B、未經過 null)仍會殘留舊提示
+  //    (未收,已記 backlog)。
+  useEffect(() => {
+    if (!vehicle) setSkipNotice(null);
+  }, [vehicle]);
   const vehicleTitle = vehicle
     ? vehicle.model != null
       ? vehicleLabel(vehicle.brand, vehicle.model)
@@ -93,6 +111,7 @@ export function ProductsMobileControls({
   const clearVehicleAndCategory = () => {
     dispatch(clearVehicle());
     dispatch(clearCategory());
+    setSkipNotice(null);
     closePanel();
   };
 
@@ -111,7 +130,7 @@ export function ProductsMobileControls({
               <span className="pmc-eyebrow">適用車輛</span>
               <p>先選車，只看裝得上的零件</p>
             </div>
-            <button type="button" className="pmc-vehicle-cta" onClick={() => setPanel('vehicle')}>
+            <button type="button" className="pmc-vehicle-cta" onClick={openVehiclePanel}>
               選擇車輛
             </button>
           </div>
@@ -134,10 +153,13 @@ export function ProductsMobileControls({
               {vehicle?.year != null && `・${vehicle.year}`}
             </span>
             <div className="pmc-compact-actions">
-              <button type="button" onClick={() => setPanel('vehicle')}>更換</button>
+              <button type="button" onClick={openVehiclePanel}>更換</button>
               <button type="button" onClick={clearVehicleAndCategory}>清除</button>
             </div>
           </div>
+        )}
+        {skipNotice && (
+          <div className="pmc-skip-notice" role="status">{skipNotice}</div>
         )}
         <div className="pmc-tools">
           {data.categories.length > 0 && (
@@ -171,6 +193,7 @@ export function ProductsMobileControls({
           cascade={cascade}
           dispatch={dispatch}
           garage={garage}
+          onApplied={setSkipNotice}
         />
       )}
 

@@ -24,7 +24,7 @@
 //   aria label 由裸名詞改成「選擇廠牌/車型/年份」(A 表:aria 統一「選擇 X」),
 //   廠牌欄 emptyHint 的「品牌」殘留改「廠牌」。可見欄標(廠牌 / 車型 · 可不選)與
 //   placeholder、跨層直搜、無年份出口**逐字不動** —— 全站規範就是照它寫的。
-//   🔴 :170 那顆「清除」= 只清草稿(spec §4-2),不得被「清除車輛」的統一文案吃掉。
+//   🔴 :202-222 那顆「清除」= 只清草稿(spec §4-2),不得被「清除車輛」的統一文案吃掉。
 
 import { Fragment, useEffect, useState, type Dispatch, type FocusEvent } from 'react';
 import {
@@ -39,6 +39,7 @@ import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { modelFieldOptions, resolveModelPick, yearsNewestFirst } from '@/lib/vehicle-options';
 import { VehicleCombo, VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
+import { formatSkippedDraftNotice, type VehicleDraftTexts } from '@/lib/vehicle-draft-notice';
 
 /** 面板內的未套用選擇。字典字面 + 已驗年份;null=該層未定。 */
 type VehicleDraft = { brand: string | null; model: string | null; year: number | null };
@@ -70,6 +71,7 @@ export function MobileVehicleSheet({
   cascade,
   dispatch,
   garage = [],
+  onApplied,
 }: {
   open: boolean;
   onClose: () => void;
@@ -78,6 +80,11 @@ export function MobileVehicleSheet({
   dispatch: Dispatch<CascadeFilterAction>;
   /** V-1e:登入會員愛車(未登入/讀取失敗=[] → 整區不顯示) */
   garage?: GarageChipItem[];
+  /** Part B(Sean 2026-08-07 Q22=A):套用時把「打了字但沒選中、因此被略過」的草稿提示回報給父層。
+   *  🔴 為何回報給父層而不是自己顯示:`applyDraft` 的最後一件事就是 `onClose()`、本面板整個卸載
+   *  ⇒ 提示畫在這裡客人根本看不到。它必須長在面板關掉之後還在的地方(= `ProductsMobileControls`)。
+   *  `null` = 沒有任何被略過的草稿(父層據此不渲染)。不傳=行為零變動。 */
+  onApplied?: (skippedNotice: string | null) => void;
 }) {
   // 草稿以「開面板當下已套用的車」為起點(= 預覽的 openVehicleSheet 語意:更換時看到目前的車)。
   // 🔴 用 useState initializer 而非 open→prefill 的 effect:宿主是「開才 mount」,initializer
@@ -138,6 +145,16 @@ export function MobileVehicleSheet({
     if (draft.model !== null) dispatch(selectVehicleModel(draft.model));
     // 年份留空或該車型無年份 → 不 dispatch(= 不限年份;對齊 V-1f 與桌機 modelNoYears)
     if (draft.year !== null) dispatch(selectVehicleYear(draft.year));
+
+    // Part B(債④):套用完的每一層排除掉(該層已經有值、沒有被丟棄)——
+    // brand 恆有值(canApply 已保證、上面的早退也再次確認)⇒ 恆排除;
+    // model/year 依當下 draft 是否已定。剩下的才是「打了字但沒選中、真的被丟掉」的草稿。
+    const remaining: VehicleDraftTexts = { ...draftText };
+    delete remaining.brand;
+    if (draft.model !== null) delete remaining.model;
+    if (draft.year !== null) delete remaining.year;
+    onApplied?.(formatSkippedDraftNotice(remaining));
+
     onClose();
   };
 

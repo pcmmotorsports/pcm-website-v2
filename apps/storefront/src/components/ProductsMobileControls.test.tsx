@@ -11,7 +11,13 @@
 import { useReducer, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { cascadeFilterReducer, makeInitialCascadeState } from '@pcm/ui';
+import {
+  cascadeFilterReducer,
+  makeInitialCascadeState,
+  selectVehicleBrand,
+  type CascadeFilterAction,
+  type CascadeFilterState,
+} from '@pcm/ui';
 import { ProductsMobileControls } from './ProductsMobileControls';
 import { makeFacetCountResolver, type VehicleFacetCounts } from '@/lib/vehicle-facet-display';
 import { makeInitialExtraFilters, type ProductExtraFilters } from './filter-state';
@@ -76,6 +82,32 @@ function applyVehicle() {
   fireEvent.change(year, { target: { value: '2022' } });
   fireEvent.mouseDown(screen.getByRole('option', { name: '2022' }));
   fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+}
+
+// Part B(債④):CTA「選擇車輛」只在 vehicleTitle===null 時渲染,而套用選車草稿一定會
+// dispatch 品牌(見 MobileVehicleSheet applyDraft)⇒ 真的走 reducer 會讓 CTA 立刻換成「更換」。
+// 要在 CTA 仍在畫面上時觀察到提示,得凍結 cascade(dispatch 不接真 reducer)——
+// 不是造假情境,是隔離「CTA 入口本身有沒有清提示」這件事,不被「vehicleTitle 也剛好變了」污染。
+function FrozenCascadeHarness({
+  cascade = makeInitialCascadeState(),
+  dispatch = vi.fn<(action: CascadeFilterAction) => void>(),
+}: {
+  cascade?: CascadeFilterState;
+  dispatch?: (action: CascadeFilterAction) => void;
+}) {
+  const [extras, setExtras] = useState<ProductExtraFilters>(makeInitialExtraFilters);
+  return (
+    <ProductsMobileControls
+      data={data}
+      cascade={cascade}
+      dispatch={dispatch}
+      extras={extras}
+      setExtras={setExtras}
+      resultCount={161}
+      sort="recommend"
+      setSort={vi.fn()}
+    />
+  );
 }
 
 beforeEach(() => {
@@ -276,5 +308,73 @@ describe('ProductsMobileControls(ADR-0007 手機三入口)', () => {
     fireEvent.click(screen.getByRole('button', { name: '類別' }));
     const active = screen.getByText('碳纖維部品').closest('button');
     expect(active?.className).not.toContain('is-active');
+  });
+
+  // ── Part B 債④:套用時被略過的草稿提示 —— 兩個「重開選車面板」入口各測一次 ──
+  describe('選車草稿被略過的提示', () => {
+    it('CTA 入口(選擇車輛):提示出現後再次打開面板 ⇒ 提示消失', () => {
+      render(<FrozenCascadeHarness />);
+      fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
+      const brand = screen.getByLabelText('選擇廠牌') as HTMLInputElement;
+      fireEvent.change(brand, { target: { value: 'Yamaha' } });
+      fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+      const model = screen.getByLabelText('選擇車型') as HTMLInputElement;
+      fireEvent.change(model, { target: { value: 'MT-0' } });
+      fireEvent.blur(model);
+      fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+
+      expect(screen.getByText(/沒有對應到車型/)).toBeTruthy();
+      // cascade 凍結(dispatch 不接真 reducer)⇒ vehicleTitle 仍是 null ⇒ CTA 入口仍在畫面上
+      expect(screen.getByRole('button', { name: '選擇車輛' })).toBeTruthy();
+
+      fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
+      expect(screen.queryByText(/沒有對應到車型/)).toBeNull();
+    });
+
+    it('黏頂列「更換」入口:提示出現後再次打開面板 ⇒ 提示消失', () => {
+      const { container } = render(<Harness />);
+      fireEvent.click(screen.getByRole('button', { name: '選擇車輛' }));
+      const brand = screen.getByLabelText('選擇廠牌') as HTMLInputElement;
+      fireEvent.change(brand, { target: { value: 'Yamaha' } });
+      fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+      const model = screen.getByLabelText('選擇車型') as HTMLInputElement;
+      fireEvent.change(model, { target: { value: 'MT-0' } });
+      fireEvent.blur(model);
+      fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+
+      expect(screen.getByText(/沒有對應到車型/)).toBeTruthy();
+      // 真實 reducer 已 dispatch 品牌 ⇒ vehicleTitle 非 null ⇒ CTA 換成黏頂「更換」
+      const compactChange = [...container.querySelectorAll('.pmc-compact button')]
+        .find((b) => b.textContent === '更換') as HTMLElement;
+
+      fireEvent.click(compactChange);
+      expect(screen.queryByText(/沒有對應到車型/)).toBeNull();
+    });
+
+    // 🔴 F2a 回歸(對抗審查 must-fix):提示原本只由本元件自己的三個入口清 ——
+    //    ActiveChips 的車輛膠囊 × 直接 dispatch clearVehicle,不經過那三個入口,
+    //    車清掉了、提示還掛著。用 FrozenCascadeHarness 的既有手法(dispatch 凍結)
+    //    先製造出提示,再用 rerender 把 `cascade.vehicle` 換成 null(模擬外部清除,
+    //    不呼叫本元件的「清除」鈕)⇒ 提示要跟著消失。
+    it('F2a:提示出現後車輛被外部清空(非本元件清除鈕)⇒ 提示消失', () => {
+      // 🔴 只 dispatch brand、不連 model:model 欄若預先有值,`Combo.commit()` 的 Q7=A
+      //    規則(已選定 → 打字未命中就還原成已選那個)會讓底下打的 'MT-0' 直接被蓋掉,
+      //    永遠留不住草稿、也就永遠等不到提示 —— 必須讓 model 欄從空值起跑(Q4=B 留字路徑)。
+      const cascade: CascadeFilterState = cascadeFilterReducer(makeInitialCascadeState(), selectVehicleBrand('Yamaha'));
+      const dispatch = vi.fn();
+      const { container, rerender } = render(<FrozenCascadeHarness cascade={cascade} dispatch={dispatch} />);
+
+      const compactChange = [...container.querySelectorAll('.pmc-compact button')]
+        .find((b) => b.textContent === '更換') as HTMLElement;
+      fireEvent.click(compactChange);
+      const model = screen.getByLabelText('選擇車型') as HTMLInputElement;
+      fireEvent.change(model, { target: { value: 'MT-0' } });
+      fireEvent.blur(model);
+      fireEvent.click(screen.getByRole('button', { name: '查看適用商品' }));
+      expect(screen.getByText(/沒有對應到車型/)).toBeTruthy();
+
+      rerender(<FrozenCascadeHarness cascade={{ ...cascade, vehicle: null }} dispatch={dispatch} />);
+      expect(screen.queryByText(/沒有對應到車型/)).toBeNull();
+    });
   });
 });
