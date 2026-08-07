@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 //
-// ProductFAQ smoke test — N°02 常見問題手風琴 + FAQPage JSON-LD(OD-10;編號沿革見元件檔頭)。
-// 驗 eyebrow 02 / 5 個 details / 保固 item 共用 rpm-policies 字面(與 ProductTabs 同源)/
+// ProductFAQ smoke test — N°04 常見問題手風琴 + FAQPage JSON-LD(OD-10)。
+// 驗 eyebrow 04 / 5 個 details / 保固 item 共用 rpm-policies 字面(與 ProductTabs 同源)/
 // FAQPage JSON-LD 合法且 5 題。prop-less 純 presentational、原生 <details>、不需 router / matchMedia stub。
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,11 +13,9 @@ import { RPM_WARRANTY_PARAGRAPHS } from '../data/rpm-policies';
 afterEach(cleanup);
 
 describe('ProductFAQ', () => {
-  // Sean 2026-08-07 拍板 Q5=A:H7 整組刪掉商品頁品牌形象區後只剩 03/04、01/02 吊空 ⇒ 純重編號。
-  // 本條期望值由 `04` 翻成 `02`(舊值見 git history;相對順序未變、沿革全文見元件檔頭)。
-  it('renders N°02 eyebrow (eb-no 02 + 常見問題 label)', () => {
+  it('renders N°04 eyebrow (eb-no 04 + 常見問題 label)', () => {
     const { container } = render(<ProductFAQ />);
-    expect(container.querySelector('.pd-eb-no')?.textContent, 'Q5=A 後 FAQ 的編號是 02').toBe('02');
+    expect(container.querySelector('.pd-eb-no')?.textContent).toBe('04');
     expect(container.querySelector('.pd-eb-label')?.textContent).toContain('常見問題');
     expect(screen.getByText('下單前常被問到的問題')).toBeDefined();
   });

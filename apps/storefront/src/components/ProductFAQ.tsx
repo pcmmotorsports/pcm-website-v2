@@ -1,25 +1,14 @@
-// ProductFAQ.tsx — 商品詳細頁 N°02「常見問題」FAQ 手風琴 + FAQPage JSON-LD
+// ProductFAQ.tsx — 商品詳細頁 N°04「常見問題」FAQ 手風琴 + FAQPage JSON-LD
 //
 // OD-10(視覺真權威 OD product-detail-rpm-template.html §N°FAQ、鐵則 1 直接搬;
-//   Sean 2026-06-02 Q1 override + FAQPage JSON-LD 同格式;該 override 的內容見下方「編號沿革」):
-// - 結構 + 字面直接搬 OD 模板 FAQ:eyebrow(義體數字 + 金線 + N° 常見問題)+ h2 / lead +
+//   Sean 2026-06-02 Q1 override:N°03 留相關商品、FAQ 變 N°04 放下面 + FAQPage JSON-LD 同格式):
+// - 結構 + 字面直接搬 OD 模板 FAQ:eyebrow(義體 04 + 金線 + N° 常見問題)+ h2 / lead +
 //   .faq-list > details.faq-item(原生 <details>/<summary>、純 CSS 手風琴、+→× 旋轉、無需 JS)。
 // - **RPM 共用區塊**(OD 模板註「RPM 共用」、全站政策性 FAQ)→ prop-less、純 presentational、無 hooks。
 //   原生 <details> 不需 'use client';由 client parent ProductPage import 進 client bundle、仍 SSR 出 HTML。
 // - FAQPage JSON-LD(GEO/SEO):<script type="application/ld+json"> 隨 section SSR 進初始 HTML、
 //   答案文字由同一份 FAQ_ITEMS 結構衍生(plainAnswer)、與畫面內容單一真相、不會漂移。
-// - 🔴 編號沿革(三段,別再往回改;數字有變、相對順序從頭到尾沒變):
-//   ① OD 模板原 eb-no「03」
-//   ② Sean 2026-06-02 Q1 override → 排 **N°04**。⚠️ 這個 override **包含編號指派本身**
-//      (manifest `ProductFAQ.business_overrides` 的欄位名逐字就是 `faqSectionNumber`、
-//      reason 寫「storefront 既有相關商品 section 佔 N°03、FAQ 接其後」)。
-//   ③ **Sean 2026-08-07 拍板 Q5=A 起為 N°02** —— 這是**部分推翻** ②:被推翻的是「排 N°04」
-//      那個數字,存活的是「FAQ 接在相關商品之後」那個順序。別把 ② 讀成「完全沒受影響」。
-//   起因:**H7(`c4a47484`,2026-08-07)整組刪除商品頁的品牌形象區**(dispatcher + 各家 showcase)
-//   之後,商品頁只剩 03/04 兩個編號、01/02 吊空,**所有品牌**(含 RPM)看到的頁面都從「03」開始。
-//   ⚠️ 別把這件事記到 D8-b(`acb87ea3`)頭上 —— 那片只刪 H7 之後變成零消費者的孤兒檔、**對渲染結果零影響**。
-//   Q5=A 只重編號、零內容變動(不復原被刪的那些區塊)。
-//   ⇒ 商品頁現在只有兩個編號區:相關商品 N°01、常見問題 N°02(連續、無空號)。
+// - 編號:OD 模板原 eb-no「03」、本站 Sean Q1 override 為 N°04(相關商品佔 N°03)。
 //
 // 🔴 FAQ item「保固與退換貨」**直接共用 @/data/rpm-policies 的 RPM_WARRANTY_PARAGRAPHS**、
 //   與 ProductTabs 保固 pane(OD-8)同一份(Sean 2026-06-03 釘:別寫分歧版本;鑑賞期免除是法律主張、
@@ -122,7 +111,7 @@ export function ProductFAQ() {
       />
       <div className="pd-section-head">
         <div className="pd-eyebrow">
-          <span className="pd-eb-no">02</span>
+          <span className="pd-eb-no">04</span>
           <span className="pd-eb-sep" aria-hidden="true" />
           <span className="pd-eb-label">{'N°  常見問題'}</span>
         </div>

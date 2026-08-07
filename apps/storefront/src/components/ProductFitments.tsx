@@ -15,7 +15,7 @@
 // - unconfirmed:UIFitment 仍帶此欄(S6 toUIProduct 映射、harmless 公開資料),但前台**不顯**「未確認」標
 //   (Sean 2026-06-03 拍「不該」— 下單前 LINE 本就會確認車款合用、標製造多餘焦慮;OD-12b 移除)。
 // - 空狀態:product.fitments 缺 / 空陣列(mock 商品、通用款、無 fitments 的真品)→ 返 null 整段不渲染
-//   (沿用相關商品區條件渲染範式 ProductPage、避免空表;規格 tab 交叉引用同步條件顯)。
+//   (沿用相關商品 N°03 條件渲染範式 ProductPage、避免空表;規格 tab 交叉引用同步條件顯)。
 //
 // 年式格式(忠實 UIFitment 三態、不壓平):
 // - 無 yearStart → '—'(無年份資料、不杜撰)
