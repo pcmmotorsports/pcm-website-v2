@@ -11,7 +11,7 @@ import { describe, it, expect } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { VariantRow } from './rpm-transform';
 import * as rpmLoad from './rpm-load';
-import { groupByKeySignature } from './rpm-load';
+import { groupByKeySignature, stripColumnIfMissing } from './rpm-load';
 
 describe('#260 groupByKeySignature(依 own key 集合分 uniform 批)', () => {
   const ids = (groups: { external_id: string }[][]) => groups.map((g) => g.map((r) => r.external_id));
@@ -74,6 +74,57 @@ describe('#260 groupByKeySignature(依 own key 集合分 uniform 批)', () => {
 
   it('空輸入 → 空陣列(呼叫端 for-of 自然不跑、不送空 upsert)', () => {
     expect(groupByKeySignature([])).toEqual([]);
+  });
+});
+
+describe('stripColumnIfMissing(跨 apply 停點護欄:欄還沒 apply 時剝 key、不炸整批)', () => {
+  // 情境:應用層先 merge、migration 還沒 apply,而 rpm-sync cron 每日帶 --confirm-write 跑。
+  // 沒有這道護欄 → 帶新 key 的列撞 PGRST204 → 該組整組拒寫 → 該供應商每日紅到有人 apply 為止。
+  const clientWith = (error: { code?: string; message: string } | null) =>
+    ({
+      from: () => ({ select: () => ({ limit: () => Promise.resolve({ data: error ? null : [], error }) }) }),
+    }) as unknown as SupabaseClient;
+
+  it('🔴 欄不存在(42703)→ 剝掉該 key、其餘欄原封不動、回傳剝除列數', async () => {
+    const rows = [
+      { external_id: 'A', manuals: [], sound_clips: [{ title: 'x', url: 'https://d/a.wav' }] },
+      { external_id: 'B', manuals: [] }, // 本來就沒這 key
+    ];
+    const n = await stripColumnIfMissing(clientWith({ code: '42703', message: 'column does not exist' }), 'products', rows, 'sound_clips');
+    expect(n).toBe(1);
+    expect(Object.hasOwn(rows[0]!, 'sound_clips')).toBe(false);
+    expect(rows[0]).toEqual({ external_id: 'A', manuals: [] }); // 只剝那一個 key
+    expect(rows[1]).toEqual({ external_id: 'B', manuals: [] });
+  });
+
+  it('PGRST204 與「訊息含欄名」兩種形狀也認得(PostgREST 對缺欄的回報不只一種)', async () => {
+    for (const err of [{ code: 'PGRST204', message: 'x' }, { code: 'XXXXX', message: "column products.sound_clips does not exist" }]) {
+      const rows = [{ external_id: 'A', sound_clips: [] }];
+      await stripColumnIfMissing(clientWith(err), 'products', rows, 'sound_clips');
+      expect(Object.hasOwn(rows[0]!, 'sound_clips')).toBe(false);
+    }
+  });
+
+  it('🔴 fail-closed:非「欄不存在」的錯誤一律 throw,不得被當成缺欄而靜默丟資料', async () => {
+    // 沒有這道判別,一次網路抖動/權限錯誤就會被當成「欄不存在」→ 真資料被靜默剝掉、還印綠燈
+    const rows = [{ external_id: 'A', sound_clips: [{ title: 'x', url: 'https://d/a.wav' }] }];
+    await expect(
+      stripColumnIfMissing(clientWith({ code: '57014', message: 'statement timeout' }), 'products', rows, 'sound_clips'),
+    ).rejects.toThrow(/拒絕繼續/);
+    expect(Object.hasOwn(rows[0]!, 'sound_clips')).toBe(true); // throw 前不得動到資料
+  });
+
+  it('欄存在(無 error)→ 零剝除、資料原封不動', async () => {
+    const rows = [{ external_id: 'A', sound_clips: [{ title: 'x', url: 'https://d/a.wav' }] }];
+    expect(await stripColumnIfMissing(clientWith(null), 'products', rows, 'sound_clips')).toBe(0);
+    expect(Object.hasOwn(rows[0]!, 'sound_clips')).toBe(true);
+  });
+
+  it('🔴 沒有任何列帶該 key → 完全不打 DB(每日 14 家有 13 家沒聲音欄、不該為此多打 13 次)', async () => {
+    let called = 0;
+    const spy = { from: () => { called++; return { select: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }) }; } } as unknown as SupabaseClient;
+    expect(await stripColumnIfMissing(spy, 'products', [{ external_id: 'A' }], 'sound_clips')).toBe(0);
+    expect(called).toBe(0);
   });
 });
 

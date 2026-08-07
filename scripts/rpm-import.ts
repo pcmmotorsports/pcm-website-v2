@@ -51,6 +51,7 @@ import {
   resolveIdOrNull,
   upsertBatched,
   groupByKeySignature,
+  stripColumnIfMissing,
   splitVariantSyncWork,
   syncVariantGroupAtomic,
 } from './rpm-load';
@@ -506,6 +507,11 @@ async function main(): Promise<void> {
   //       description(per-row、視來源空否)、manuals / video_url(per-row、來源 null 防清空,見 rpm-transform
   //       transformGroup 內註)。舊註「manuals/video_url 屬供應商級、天然 uniform、不需納入」自該次改動起作廢。
   //       新增任何條件省 key 欄不需再改這裡(signature 自動涵蓋)。
+  // 🔴 跨 apply 停點護欄(見 rpm-load.stripColumnIfMissing 的完整理由):sound_clips 的 DB 欄由
+  //    20260808000000 migration 建立。本檔可能先於 apply 被 merge 進 dev,而 rpm-sync cron 每日
+  //    帶 --confirm-write 跑 —— 探測必須在分批之前跑完,否則剝 key 會改變 key-signature、分組失效。
+  await stripColumnIfMissing(target, 'products', productRows, 'sound_clips');
+
   const savedProducts: Record<string, unknown>[] = [];
   for (const group of groupByKeySignature(productRows)) {
     savedProducts.push(

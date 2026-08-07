@@ -78,6 +78,53 @@ export function groupByKeySignature<T extends object>(rows: T[]): T[][] {
 }
 
 /**
+ * 跨 apply 停點護欄:目標表還沒有某個新欄時,把該 key 從所有列剝掉、其餘欄照常同步。回傳剝掉的列數。
+ *
+ * 🔴 為什麼要做成機制而不是寫註解(Fable 對抗審 F2、2026-08-08):
+ *   `.github/workflows/rpm-sync.yml:48` 每日 cron 在 default branch(dev)帶 `--confirm-write` 跑
+ *   rpm-import,matrix 含 akrapovic(:72)。只要「應用層先 merge、migration 還沒 apply」,
+ *   帶新 key 的列就會撞 PGRST204/42703 ⇒ 該 signature 組整組拒寫、job 中斷 ⇒ 該供應商當日停在
+ *   「部分群新值、部分群舊值」的混天狀態,而且每天紅到有人 apply 為止。
+ *   這正是 memory `feedback_app-layer-must-not-ship-before-migration-apply` 記的 A9h 事故形狀
+ *   (08-07 正式站壞約 8 小時、當夜唯一逃逸出審查鏈的一條);**註解與交接檔擋不住 cron,只有 code 擋得住**。
+ *   apply 之後探測自然通過、資料自動開始流 —— 不需要有人記得回來翻旗標(旗標會被忘記,探測不會)。
+ *
+ * 🔴 fail-closed:只有在錯誤確實指向「這個欄不存在」時才剝 key;其他錯誤(連線/權限/逾時)一律 throw,
+ *   否則一次網路抖動就會被當成「欄不存在」而靜默丟掉真資料。
+ */
+export async function stripColumnIfMissing<T extends object>(
+  tgt: SupabaseClient,
+  table: string,
+  rows: T[],
+  column: string,
+): Promise<number> {
+  if (!rows.some((r) => Object.hasOwn(r, column))) return 0; // 沒人要寫這欄 → 不必探測
+  const { error } = await tgt.from(table).select(column).limit(1);
+  if (!error) return 0;
+  // 已知形狀走錯誤碼(PG 42703 / PostgREST PGRST204);訊息比對是備援,**必須同時**命中欄名與
+  // 「找不到這個東西」的措辭 —— 只比對欄名太寬,未來某個逾時/權限訊息碰巧含欄名就會被靜默剝掉。
+  const missing =
+    error.code === '42703' ||
+    error.code === 'PGRST204' ||
+    (error.message.includes(column) && /does not exist|could not find|unknown column/i.test(error.message));
+  if (!missing) {
+    throw new Error(`${table}.${column} 欄探測失敗(非「欄不存在」)、拒絕繼續:${error.code ?? ''} ${error.message}`);
+  }
+  let stripped = 0;
+  for (const r of rows) {
+    if (Object.hasOwn(r, column)) {
+      delete (r as Record<string, unknown>)[column];
+      stripped++;
+    }
+  }
+  console.warn(
+    `⚠️ ${table}.${column} 欄不存在(migration 尚未 apply)⇒ 本次同步略過該欄 ${stripped} 列、其餘欄照常寫入。` +
+      `apply 後本探測自動通過、資料開始流;在那之前前台看不到該欄內容=預期內。`,
+  );
+  return stripped;
+}
+
+/**
  * 分批 upsert(冪等 onConflict)。給 `select` 則每批 `.select(select)` 累積回傳 rows
  * (用於 products 收 id↔external_id 對照、免事後大 `.in(933 值)` 超 GET URL 上限)。
  */
