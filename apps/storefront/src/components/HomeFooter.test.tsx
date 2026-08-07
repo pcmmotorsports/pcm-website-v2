@@ -110,7 +110,12 @@ describe('HomeFooter', () => {
   // 🔴 D3a 加了 optional `tagline`(品牌頁的頁尾標語每家不同,設計稿
   //    `pcm-home-redesign/brand-page.html:1510-1512` 註解 + `:2029` 灌值)。這兩條是成對的:
   //    只留下面那條的話,有人把預設值刪掉、讓首頁頁尾標語變空也會全綠。
-  it('🔴 不給 tagline 時,首頁那句預設標語字面完全不變', () => {
+  // 🔴 D-136 清尾片 R1 MF1(2026-08-06):**這條的期望值不要改**。
+  //    首頁頁尾標語當天照 OD 改成「專業重機零件・改裝精品/一站式服務」,但那是**首頁一頁**的事,
+  //    走 `app/page.tsx` 的 `tagline` prop、守門在 `app/page.test.tsx`。
+  //    OD 另外 13 支頁稿全部逐字保留下面這句當預設值 ⇒ 這顆共用元件的預設值不變、本條不動。
+  //    (第一版把預設值改掉、也把本條期望值一起改掉了 —— 那會讓 15 頁反向偏離 OD。)
+  it('🔴 不給 tagline 時,那句預設標語字面完全不變', () => {
     const { container } = render(<HomeFooter />);
     const p = container.querySelector('.ed-footer-tagline')!;
     expect(p.textContent).toContain('改裝不只是升級配件,');

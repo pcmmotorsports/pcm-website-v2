@@ -65,10 +65,21 @@ export const ORDER_LIST_SELECT =
  * - M-4a D-2:orders 層 workflow_status / version **退出投影**(per-item 真相移 order_items;
  *   orders.workflow_status 停寫停讀、整單狀態=顯示端彙總);order_items 內嵌加 `id, workflow_status,
  *   version`(per-item 改狀態表單 target + 樂觀鎖)。
+ * - 🔴 **M-4b E10 A9c(2026-08-06)純加法**,兩件:
+ *   ① orders 層加 `invoice_status`(開票紀錄三態 enum;**不加**載具別 —— 那在 `orders.invoice` jsonb,
+ *      Sean Q2b=A 明文砍掉,以免破壞下方「列表零 PII、兩白名單刻意分立」那條邊界。`invoice_status`
+ *      本身是 CHECK 三值 enum、非 PII);
+ *   ② `order_items` 底下加第二個內嵌 `order_item_quantity_summary(…)` —— 三軸(訂貨/到貨/取消)。
+ *      🔴 **必須是 nested left embed**(母 plan 計數器摘要列 `:335` 逐字):本常數是 select **字串**、
+ *      寫不了 SQL `COALESCE`;該表由 A4a trigger **惰性建列**,沒被採購也沒被取消過的品項**沒有那一列**
+ *      ⇒ 缺列回 `null`,正規化成三個 0 是 **mapper 的責任**(見 `mappers/order.ts` 的
+ *      `mapListQuantitySummary`)。形狀與明細投影 `:157` 的同一個內嵌一致(A9g-1 先例)。
+ *   ⚠️ `order_item_quantity_summary` 是 **service_role-only 表**(母 plan row 26 逐字)。本片零權限面改動:
+ *      admin adapter 本來就走 service_role,且明細投影自 A9g-1 起已在讀同一張表。
  * module-level `export const` → 測試 byte-equal + forbidden-token + spy 守門。
  */
 export const ADMIN_ORDER_LIST_SELECT =
-  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))))';
+  'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity))';
 
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
@@ -115,7 +126,8 @@ export const ADMIN_ORDER_LIST_SELECT =
  * 🔴 **同一條紅線**:本表帶的是營運內部數量事實(已訂/已到貨/已取消),
  * **絕不可**被搬進 storefront 的任何投影 —— 客人看得到「已向上游訂了幾件」等於看得到採購節奏。
  * 守門測試用反射盯 `*SELECT*` 匯出、不手寫常數名(見 `SupabaseOrderAdapter.test.ts` 同款);
- * 該處**刻意拆兩條**:storefront 永不放寬 / admin 列表待 A9c(母 plan `:387` row 40)合法解禁。
+ * 該處**刻意拆兩條**:storefront 永不放寬 / admin 列表待 A9c(母 plan **row 40**)合法解禁 —— **A9c 已於
+ * 2026-08-06 落地**。(原寫的 `:387` 是過期行號,現指到 row 23;母 plan 引用一律用 row 號當主錨。)
  * 🔴 **形狀**:`order_item_id` 雖是 PRIMARY KEY(邏輯 1:1),但 FK 是複合鍵
  * `(order_item_id, quantity)`,generated types 的 `order_item_quantity_summary_item_fk.isOneToOne`
  * 逐字為 `false` ⇒ 指向 to-many = 陣列。**但那是規則推導、不是實測到的 wire 回應**
@@ -185,7 +197,7 @@ const CANCELLATION_ITEMS_EMBED_PATH = 'order_cancellations.order_cancellation_it
  * - **admin(M-4a)**:`apps/admin` `order-repository.ts` 注 **service_role** client(BYPASSRLS 看全單
  *   =後台預期;`20260611120000` admin 唯讀保留 SELECT)——「零 service_role」舊字面已不成立。
  *   admin 讀=`listOrderSummariesForAdmin`/`findAdminOrderDetail`/`listSummariesByCustomer`(白名單投影);
- *   admin 寫=`updateAdminOrderWorkflow`/`updateAdminOrderItemWorkflow`(owner RPC+同交易 audit,
+ *   admin 寫=`updateAdminOrderWorkflow`(owner RPC+同交易 audit;item 層那支已於 A9w4c 後半移除,
  *   非裸 UPDATE);會員歸屬縱深靠各方法顯式 `.eq()`。
  * - 建單 `placeOrder` 呼 `create_order` SECURITY DEFINER RPC(migration 20260604130000):
  *   authenticated 對 orders/order_items 僅 SELECT、無直接 INSERT → 建單只能走本 RPC;
@@ -475,36 +487,11 @@ export class SupabaseOrderAdapter implements IOrderRepository {
     throw new Error('admin_update_order_workflow RPC 回傳非預期碼');
   }
 
-  /**
-   * 後台 per-item 改狀態(M-4a Slice D-2;走 admin_update_order_item_workflow owner RPC、鏡像 Slice C)。
-   *
-   * 🔴 wire 縱深:patch jsonb **只**建 `workflow_status` 單鍵(RPC 端白名單亦僅此鍵;
-   * 品項凍結欄 quantity/unit_price/line_total/variant_* 型別層+wire 層+RPC 白名單三層皆無路可進)。
-   * null=清空(回未設定)、code=設定(RPC 端驗 is_active)。
-   * 回 'UPDATED'/'CONFLICT'/'NOOP';error → 裸 throw(caller server action 收斂固定碼)。
-   */
-  async updateAdminOrderItemWorkflow(
-    itemId: string,
-    expectedVersion: number,
-    workflowStatus: string | null,
-    actor: string,
-    requestId: string,
-  ): Promise<AdminOrderWorkflowResult> {
-    const { data, error } = await this.supabase.rpc('admin_update_order_item_workflow', {
-      p_item_id: itemId,
-      p_expected_version: expectedVersion,
-      p_patch: { workflow_status: workflowStatus } as Json,
-      p_actor: actor,
-      p_request_id: requestId,
-    });
-    if (error) {
-      throw error;
-    }
-    if (data === 'UPDATED' || data === 'CONFLICT' || data === 'NOOP') {
-      return data;
-    }
-    throw new Error('admin_update_order_item_workflow RPC 回傳非預期碼');
-  }
+  // 🔴 **`updateAdminOrderItemWorkflow` 實作已於 A9w4c 後半(2026-08-06)具名移除**(port 簽章同批拆)。
+  //    九碼 writer 鏈退場的最後一段應用層契約:A9w4a 拆了 server action、A11a 列表重建完成 ⇒ 零 consumer。
+  //    ⚠️ **正確讀法 = 「應用層與 adapter 都沒有這個寫入介面」,不是「九碼寫不進去」** ——
+  //    DB 端 `admin_update_order_item_workflow` RPC 仍在(**REVOKE 非 DROP**);其 EXECUTE 權
+  //    由 **A9v `20260807120000`** 撤除、apply 後 service_role 叫不動。
 
   // ── 讀路徑(完整 Order):延 stage ③ 訂單查詢(deferred-stub、Q6=A 本片不啟用)──
   // order_items 無 product_id → domain OrderItem.productId 無法忠實重建(backlog #217);

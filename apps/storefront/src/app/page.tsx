@@ -1,7 +1,7 @@
 // app/page.tsx — 首頁(8 sections compose)
 //
 // 對齊 design-reference/components/HomePage.jsx @ 25d3a2a 字面(M-1-04-mini-slice 修:25d3a2a HomePage.jsx 加 tier prop、storefront 走 server-side cookie + designTierToSchema + tierLabel 預算 conceptually 更佳、不重做):
-//   <Header /> + <HomeHero /> + <VehicleFinder /> + <FeatureEditorial />
+//   <Header /> + <HomeHero>(內含 <VehicleFinder /> 入口板;H5 起 dock 化)</HomeHero> + <FeatureEditorial />
 //   + <CategoryGrid /> + <HomeSelect /> + <HomeStatement /> + <BrandIndex /> + <HomeFooter />
 //
 // page.tsx 本身為 server component(無 'use client'、不傳 callback prop);8 sections + Header + ProductCard
@@ -89,6 +89,8 @@ export default async function HomePage({
   //   與另四支並行 ⇒ 對本頁 TTFB 幾乎沒有影響。代價是「上架後恢復可點」最長延遲 15 分鐘
   //   (`revalidateTag('catalog')` 尚未接,`lib/products.ts:115`)。
   const [featured, motoBrands, categories, garage, brandsWithProducts] = await Promise.all([
+    // H6 連動(Sean 2026-08-06 拍板、`D-132-A` 更正):取數提高到 `FEATURED_LIMIT`,
+    // 讓 OD 的 5 格橫捲真的捲得動;**會員中心「為你推薦」共用同一個數字、一起變多**。
     fetchFeaturedProducts(),
     fetchVehicleTaxonomy(),
     fetchCategories(),
@@ -146,8 +148,13 @@ export default async function HomePage({
   return (
     <div data-screen-label="Home" data-tier={tier} className="ed-page">
       <Header currentPage="home" />
-      <HomeHero />
-      <VehicleFinder motoBrands={motoBrands} garage={garage} />
+      {/* 🔴 H5(D6):選車器由「hero 之後的獨立 section」改成**巢狀在 hero 內的入口板**
+          (OD 骨架 :816-836)。以 children 傳入而不是讓 `HomeHero` 自己 import ——
+          `HomeHero` 本片轉成 client component,而選車器要吃 server 端算好的車輛字典與車庫,
+          從這裡傳進去,那些資料就仍然在 server 算(**沒有讓任何一塊多轉 client**)。 */}
+      <HomeHero>
+        <VehicleFinder motoBrands={motoBrands} garage={garage} />
+      </HomeHero>
       {/* D5a(2026-08-05):區塊順序改照 OD `README.md`「區塊順序(第 7 步之後)」定案 ——
           N°01 Hero+選車器 / N°02 最新商品 / N°03 部品分類 / N°04 服務宣言(深) /
           N°05 本月聚焦 / N°06 授權代理(淺灰白) / 頁尾(深)。
@@ -164,13 +171,24 @@ export default async function HomePage({
              真的變 null 的話那條會紅、不會靜默少一段。 */}
       {focus && <FeatureEditorial focus={focus} />}
       <BrandIndex availableSlugs={brandsWithProducts} />
-      <HomeFooter />
+      {/* 🔴 D-136 清尾片(2026-08-06):**首頁**頁尾標語走 OD 字面「專業重機零件・改裝精品/一站式服務」。
+          OD 頁尾自帶註解逐字說明理由:「這裡原本是『改裝不只是升級配件,是風格與態度的延伸』,
+          但那句已經升上 hero 當主標了,同一頁講兩次會稀釋掉它。改放服務範圍。」
+          🔴 只改**這一頁**、走 D3a 的 `tagline` prop:OD 另外 13 支頁稿全部逐字保留那句當預設值
+             (`products-list-handoff.md` 逐字「首頁=服務範圍句、其他頁=預設句」)⇒
+             改 `HomeFooter` 的預設值會一次動到 24 個掛載點、把 15 頁改成反向偏離 OD(R1 MF1 擋下的第一版)。
+          守門在 `app/page.test.tsx`(字面 + 不得與 hero 主標重複),不在 `HomeFooter.test.tsx`
+          —— 這是**首頁**的不變量,不是那顆共用元件的。 */}
+      <HomeFooter tagline={<>專業重機零件・改裝精品<br/>一站式服務</>} />
       {/* D5g:捲動進場控制器。**不 render 任何東西、不包住任何 children**(回 null)——
           **`HomeReveal` 沒有讓任何一塊多轉 client**
           (handoff §6-4 逐字「不要為此把整個資料渲染改成 client」)。
-          ⚠️ 措辭更正(R2 must-fix):原本這裡寫「五個區塊全部維持 server component」是**假的** ——
-             `HomeSelect.tsx:15` 本來就有 `'use client'`(它用 client component `ProductCard`),
-             與本片無關。R1 那輪我只改了 `HomeReveal.tsx` 與 manifest,**漏了這個呼叫點**。
+          ⚠️ 措辭更正(R2 must-fix):原本這裡寫「五個區塊全部維持 server component」是**假的**。
+          ⚠️ **再更正(2026-08-07 R-1)**:上一版把它改寫成「`HomeSelect.tsx:15` 本來就有 `'use client'`」,
+             那句現在也假了 —— R-1 把橫捲機制抽到 `ProductRail.tsx`,`HomeSelect` **不再是 client
+             component**(只剩字面與資料、不再 import `ProductCard`),client 邊界下移到 `ProductRail`。
+             🔴 同一句被同一個坑打第二次,兩次都是「引別的檔的行號 + 描述那個檔當下的狀態」。
+             ⇒ 現行事實:client 的是 `HomeReveal` 與 `ProductRail`,其餘首頁區塊是 server component。
           🔴 位置放最後只是慣例;它靠選擇器找元素,與 DOM 順序無關。 */}
       <HomeReveal />
     </div>

@@ -259,7 +259,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))))',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity))',
     );
   });
 
@@ -285,9 +285,20 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       'cart_session_id',
       'address_id',
     ];
+    // 🔴 **A9c 只放行 `invoice_status` 這一欄,`invoice` 家族其餘全部仍禁**(Sean Q2b=A:列表只顯示
+    //    未開/已開/作廢三態、**砍掉載具別**)。做法是先把該欄剝掉再查 `invoice` 這個 token ——
+    //    不是把 `invoice` 從清單拿掉。差別在判別力:剝掉之後,`invoice`(jsonb,含 carrier/taxId/title)、
+    //    `invoice_number`、`invoice_amount` 任一誤入**仍會被擋下**;整條拿掉則全開。
+    //    突變證:把投影裡的 `invoice_status` 換成 `invoice`,本測試轉紅。
+    const projection = ADMIN_ORDER_LIST_SELECT.split('invoice_status').join('');
     for (const token of forbidden) {
-      expect(ADMIN_ORDER_LIST_SELECT).not.toContain(token);
+      expect(projection).not.toContain(token);
     }
+    // 剝除法自身的前提:被剝的那欄真的在投影裡(不在 = 上面整段變成量一個沒改過的字串)。
+    expect(ADMIN_ORDER_LIST_SELECT).toContain('invoice_status');
+    // ⚠️ 誠實邊界(關卡2 nit):本條**被上面那條 byte-equal 嚴格蘊含** —— 投影是整串比對,任何改動
+    //    都會先讓它紅。保留的理由只有一個:失敗訊息會說出**為什麼**不能加那些欄,byte-equal 只會說
+    //    「兩個長字串不一樣」。不宣稱它擋得住 byte-equal 擋不住的東西。
   });
 
   it('🔴 D-1a 每商品一列:投影確含 tier_at_checkout + order_items 成交價 + brand join(brands(name))', () => {
@@ -316,6 +327,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           display_position: null,
           cancelled_at: null,
           tier_at_checkout: 'store', // 車行
+          // 🔴 A9c:刻意用 `issued` 而非 DB 預設 `not_issued` —— 用預設值會讓「mapper 根本沒讀這欄、
+          //    下游自己填了預設」與「真的讀到了」長得一樣(fixture 值讓斷言失去意義的同族)。
+          invoice_status: 'issued',
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
           order_items: [
             {
@@ -329,6 +343,10 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               version: 3,
               vehicle_snapshot: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' }, // V-3b
               product_variants: { products: { brands: { name: 'Bonamici' } } }, // variant→product→brand
+              // 🔴 A9c:本品項**有**摘要列。四個值刻意互不相等且非 0 ⇒ 任兩軸接錯線都會紅。
+              order_item_quantity_summary: [
+                { quantity: 2, ordered_quantity: 2, instock_quantity: 1, cancelled_quantity: 0 },
+              ],
             },
             {
               id: 'oi-2',
@@ -341,6 +359,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               version: 1,
               vehicle_snapshot: null, // V-3b:未帶車款
               product_variants: null, // variant_id null(supplier_slug+sku 型)→ brand null 容缺
+              // 🔴 A9c:本品項**刻意沒有** `order_item_quantity_summary` 鍵 —— 該表由 A4a trigger
+              //    惰性建列,沒被採購也沒被取消過的品項就是沒有那一列。這一格量的是列表側的正規化:
+              //    三軸補 0、**但分母 `quantity` 必須是品項自己的 1**(補 0 會變「0/0」= 分母憑空消失)。
             },
           ],
         },
@@ -387,6 +408,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           displayPosition: null,
           cancelledAt: null,
           tierAtCheckout: 'store',
+          invoiceStatus: 'issued', // A9c:三態直送(非 DB 預設值 ⇒ 真的讀到了)
           lines: [
             {
               id: 'oi-1',
@@ -399,6 +421,14 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               workflowStatus: 'received_confirmed',
               version: 3,
               vehicle: { kind: 'dict', brand: 'Yamaha', model: 'MT-09 SP', year: 2021, source: 'search' },
+              // A9c 有摘要列:四軸直送 + `cancellableQuantity = 2 − 1 − 0`(算式與明細側同一支)
+              quantitySummary: {
+                quantity: 2,
+                orderedQuantity: 2,
+                instockQuantity: 1,
+                cancelledQuantity: 0,
+                cancellableQuantity: 1,
+              },
             },
             {
               id: 'oi-2',
@@ -411,6 +441,15 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
               workflowStatus: null,
               version: 1,
               vehicle: null,
+              // 🔴 A9c 缺摘要列 → 列表側正規化:三軸 0,**分母是品項自己的 `quantity: 1`、不是 0**。
+              //    若這裡寫成 `quantity: 0`,列表的訂貨欄(A11a-4)會顯示「0/0」。
+              quantitySummary: {
+                quantity: 1,
+                orderedQuantity: 0,
+                instockQuantity: 0,
+                cancelledQuantity: 0,
+                cancellableQuantity: 1,
+              },
             },
           ],
         },
@@ -466,6 +505,9 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           display_position: 3,
           cancelled_at: '2099-05-02T00:00:00Z',
           tier_at_checkout: 'general', // 一般
+          // 🔴 A9c 關卡2/R1 連動:本 fixture 原本沒有這欄,`toEqual` 對 `undefined` 屬性是**盲的**
+          //    ⇒ 「mapper 根本沒讀到」一路全綠。改用 `narrowInvoiceStatus` 後才被逼出來。
+          invoice_status: 'not_issued',
           customers: null,
           order_items: null, // embed 缺 → lines []
         },
@@ -481,6 +523,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       id: 'o2',
       displayId: 'PCM-2099-0002',
       createdAt: '2099-05-01T00:00:00Z',
+      invoiceStatus: 'not_issued', // A9c
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',
       fulfillmentStatus: 'notOrdered',
@@ -705,7 +748,8 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
   //    等於看得到採購節奏。守門形狀逐字照上面那條 A9a-2(反射取全部投影、不手寫常數名),
   //    理由相同:手寫清單只擋得住今天存在的那三條,日後新增第四條投影不會有任何測試轉紅。
   // 🔴 這條**刻意分兩段**(關卡A R1 I-3):三軸欄位對 storefront 與 admin 列表是**不同**的東西。
-  //    master plan `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md:387` row 40(A9c)
+  //    master plan `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md` **row 40**(A9c;原寫的
+  //    `:387` 是過期行號、現指到 row 23 —— 用 row 號當主錨)
   //    明寫「三軸欄位進 `ADMIN_ORDER_LIST_SELECT`」= 已排定的合法去處。
   //    若把兩者寫成同一個「全部列表都禁」的迴圈,A9c 當天這條必紅,而**最省事的修法是刪掉整段**
   //    —— 連 storefront 那半永久性的保護一起陪葬。所以先把「永不放寬」與「待 A9c 解禁」拆開。
@@ -723,9 +767,9 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     }
   });
 
-  it('🟡 三軸數量摘要:admin 列表投影目前也零滲入(**A9c 會合法解禁本條**,見 master plan :387 row 40)', () => {
-    // 🔴 本條與上一條的差別是**壽命**,不是嚴格度:A9c 開工時把這條改掉是預期內的,
-    //    改它的人請只改這條、不要順手把上面 storefront 那條一起拿掉。
+  it('🟢 三軸數量摘要:admin 列表投影**已由 A9c 合法解禁**,但只准那四欄', () => {
+    // 🔴 本條與上一條的差別是**壽命**,不是嚴格度。A9c(2026-08-06)如期把它翻面;
+    //    **上面 storefront 那條原封未動** —— 前一棒逐字交代「改它的人請只改這條」,照辦。
     const adminListSelects = Object.entries(adapterModule).filter(
       ([name, value]) =>
         name.includes('SELECT') &&
@@ -735,10 +779,18 @@ describe('SupabaseOrderAdapter.findAdminOrderDetail + ADMIN_ORDER_DETAIL_SELECT 
     );
     // 🔴 前提斷言(同 A9a-2):反射真的抓到全部該抓的;抓到 0 條 = 下面迴圈空轉 = 恆真守門。
     expect(adminListSelects.map(([name]) => name).sort()).toEqual(['ADMIN_ORDER_LIST_SELECT']);
-    for (const [name, value] of adminListSelects) {
-      for (const token of ['order_item_quantity_summary', 'instock_quantity']) {
-        expect(`${name}:${value}`).not.toContain(token);
-      }
+    for (const [, value] of adminListSelects) {
+      const projection = String(value); // filter 已保證是 string,Object.entries 的型別不會 narrow
+      // 🔴 **解禁 ≠ 開放**:內嵌逐字只有那四欄。用完整片段比對、不是 `toContain('order_item_quantity_summary')`
+      //    —— 後者對「多帶一欄」完全盲,該表日後加欄時會靜默滲進 admin 列表投影。
+      expect(projection).toContain(
+        'order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)',
+      );
+      // 且**只內嵌一次**:重複內嵌會讓 PostgREST 回意料外的形狀,而 mapper 只讀第一筆。
+      expect(projection.split('order_item_quantity_summary').length - 1).toBe(1);
+      // ⚠️ 誠實邊界(關卡2 nit):這兩條同樣被 byte-equal 蘊含,留的是失敗訊息的可讀性,
+      //    不是額外的判別力。真正**獨立**的價值在反射前提斷言(上面那條 `toEqual([...])`):
+      //    日後新增第四條 admin 列表投影常數時,只有它會轉紅。
     }
     // ⚠️ 誠實邊界(同 A9a-2 那條):這兩條守門**只**看得到本檔的投影常數 ——
     //    別的檔案自己寫 inline `select('…')` 打這張表,這裡完全擋不到。
@@ -1241,52 +1293,9 @@ describe('SupabaseOrderAdapter.updateAdminOrderWorkflow', () => {
   });
 });
 
-// ── updateAdminOrderItemWorkflow:per-item 改狀態(M-4a Slice D-2、走 admin_update_order_item_workflow RPC)──
-
-describe('SupabaseOrderAdapter.updateAdminOrderItemWorkflow', () => {
-  it('wire:p_patch 恰 workflow_status 單鍵(code 設定);回 UPDATED', async () => {
-    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
-    const res = await new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow(
-      'oi-1',
-      3,
-      'shipped_done',
-      'sean',
-      'req-i1',
-    );
-    expect(rpc).toHaveBeenCalledWith('admin_update_order_item_workflow', {
-      p_item_id: 'oi-1',
-      p_expected_version: 3,
-      p_patch: { workflow_status: 'shipped_done' },
-      p_actor: 'sean',
-      p_request_id: 'req-i1',
-    });
-    expect(res).toBe('UPDATED');
-  });
-
-  it('🔴 品項凍結紅線:null=清空語意透傳;wire 恆單鍵、絕不夾帶 quantity/unit_price/line_total/variant 欄', async () => {
-    const { client, rpc } = makeRpcClient({ data: 'UPDATED', error: null });
-    await new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow('oi-1', 3, null, 'sean', 'req-i2');
-    const args = rpc.mock.calls[0]?.[1] as { p_patch: Record<string, unknown> };
-    expect(args.p_patch).toEqual({ workflow_status: null }); // 恰單鍵(toEqual=零額外鍵)
-  });
-
-  it('CONFLICT / NOOP 碼直送;RPC error → 裸 throw;非預期碼 → throw 防腐壞', async () => {
-    for (const code of ['CONFLICT', 'NOOP'] as const) {
-      const { client } = makeRpcClient({ data: code, error: null });
-      await expect(
-        new SupabaseOrderAdapter(client).updateAdminOrderItemWorkflow('oi-1', 1, 'cancelled', 'sean', 'r'),
-      ).resolves.toBe(code);
-    }
-    const failing = makeRpcClient({ data: null, error: new Error('workflow_status 非有效啟用狀態') });
-    await expect(
-      new SupabaseOrderAdapter(failing.client).updateAdminOrderItemWorkflow('oi-1', 1, 'ghost', 'sean', 'r'),
-    ).rejects.toThrow();
-    const weird = makeRpcClient({ data: 42, error: null });
-    await expect(
-      new SupabaseOrderAdapter(weird.client).updateAdminOrderItemWorkflow('oi-1', 1, null, 'sean', 'r'),
-    ).rejects.toThrow('非預期');
-  });
-});
+// 🔴 `SupabaseOrderAdapter.updateAdminOrderItemWorkflow` 那組 **3 條**測試,隨受測方法一併移除
+//    (A9w4c 後半,2026-08-06)。order 層的 `updateAdminOrderWorkflow` 那組原封保留 —— 兩者是不同的
+//    寫入面,只有 item 那支退場。
 
 // ── M-4b E10 A9b1:單號搜尋(display_id + legacy_display_id 同時比對)───────────
 // 規格 = docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md §5.1 A9b1。

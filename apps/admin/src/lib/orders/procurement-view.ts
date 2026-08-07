@@ -77,6 +77,8 @@ export function toTaipeiInputValue(iso: string | null): string {
  *
  * 🔴 **這是 A5a 全量 payload 契約的承重**(`20260803160000:19-24`:表單必全欄 hydrate 自最新列、
  *    先讀後送)。少填一欄 = 那一欄被送成 NULL = 靜默清掉既有事實。
+ *    🔴 承重成立的前提 = 本路徑送 `preserveOptionalFields: false`(明細頁單列表單一律如此)。
+ *    A9h 批次走 `true`、靠 DB 保留那四欄而不靠 hydrate,但它不經過本函式(A9h-M `20260806200000`)。
  *    ⇒ 逐欄對應、不用 spread;新增欄位時型別會逼你來改這裡。
  * 選中的供應商在本品項還沒有採購列(= 新建)→ 回全空 + 該 supplierId。
  */

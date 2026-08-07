@@ -80,7 +80,7 @@ function topLevelCss(): string {
   }
 }
 
-describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
+describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () => {
   it('🔴 註解符號成對(未閉合的 /* 會讓瀏覽器吞掉後半個檔,而剝註解的守門照樣全綠)', () => {
     const open = RAW.match(/\/\*/g)?.length ?? 0;
     const close = RAW.match(/\*\//g)?.length ?? 0;
@@ -120,64 +120,128 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   });
 
   // 🔴 這條守兩件事,兩件都是「壞了也沒有任何其他測試會紅」:
-  //    ① 退回只寫 `a` ⇒ 泛白那幾列整個沒有 grid(五格擠成一行)。
-  //    ② 寫成**後代**選擇器 `.ed-brand-list :is(a, span)` ⇒ 列內每一個 `<span>`
-  //       (編號/名稱/標語/國別)也被套上 `display:grid` + 26px padding,整排爆掉。
-  //       ②是本片第一版真的寫錯的形狀,不是假想。
-  it('🔴 品牌清單的版面規則吃 `<a>` 與 `<span>` 兩種,而且是**子**選擇器', () => {
+  //    ① 退回只寫 `a` ⇒ 泛白那幾磚整個沒有 grid(三層塌成一行、min-height 也不生效)。
+  //    ② 寫成**後代**選擇器 `.b-brand-wall :is(a, span)` ⇒ 磚內每一個 `<span>`
+  //       (編號/產地/logo/品類描述)也被套上 `display:grid` + padding,整面牆爆掉。
+  //       ②是 D3c-2 第一版真的寫錯的形狀,不是假想。
+  //    ⚠️ D5f 起錨點從欄寬(`grid-template-columns`)換成**列高**(`grid-template-rows`):
+  //       磚牆的欄數寫在 `.b-brand-wall` 自己身上,磚內版面是三列 —— 沿用舊錨點會零命中而恆綠。
+  it('🔴 品牌磚的版面規則吃 `<a>` 與 `<span>` 兩種,而且是**子**選擇器', () => {
     const layout = [
-      ...CSS.matchAll(/([^{}]*\.ed-brand-list[^{}]*)\{([^}]*grid-template-columns[^}]*)\}/g),
+      ...CSS.matchAll(/([^{}]*\.b-brand-wall[^{}]*)\{([^}]*grid-template-rows[^}]*)\}/g),
       // 🔴 正規化空白再比(關卡2 R1 nit):逐字比 `:is(a, span)` 的話,把 CSS 排版成
       //    `:is(a,span)` 會轉紅 —— 行為零變化的假紅會訓練人忽略這條守門。
     ].map((m) => m[1]!.trim().replace(/\s+/g, ' ').replace(/,\s*/g, ', '));
-    expect(layout.length, '找不到 .ed-brand-list 的欄寬規則').toBe(2); // 基礎 + ≤900
+    expect(layout.length, '找不到 .b-brand-wall 的磚內列高規則').toBe(3); // 基礎 + ≤900 + ≤700
     for (const selector of layout) {
       expect(
         selector,
-        `${selector} 不是 \`> li > :is(a, span)\` ⇒ 泛白列沒有 grid、或列內 span 被誤套`,
-      ).toBe('.ed-brand-list > li > :is(a, span)');
+        `${selector} 不是 \`> li > :is(a, span)\` ⇒ 泛白磚沒有 grid、或磚內 span 被誤套`,
+      ).toBe('.b-brand-wall > li > :is(a, span)');
     }
   });
 
-  it('🔴 兩條裡有一條在 `@media (max-width: 900px)` 內(手機欄寬 jsdom 完全看不到)', () => {
-    // 🔴 與上一條同樣要**正規化空白再比**(關卡2 R2 nit:R1 那次只補進上一條,
-    //    這條還留著含空白的逐字比對 ⇒ 把 ≤900 那條排版成 `:is(a,span)` 會誤紅)。
-    const narrow = mediaBlock('(max-width: 900px)').replace(/\s+/g, ' ').replace(/,\s*/g, ', ');
-    expect(narrow.length, '找不到 ≤900 區塊').toBeGreaterThan(0);
-    expect(narrow, '≤900 區塊裡的品牌清單規則不是兩型別子選擇器').toContain(
-      '.ed-brand-list > li > :is(a, span)',
-    );
-    // 宣告這一半用 `\s*`(正規化只收斂了空白數量,沒有替我補上冒號後的空格)。
-    expect(narrow).toMatch(/grid-template-columns:\s*36px/);
+  it('🔴 三條裡有兩條在窄斷點內(≤900 / ≤700;jsdom 對 media query 完全看不到)', () => {
+    // 🔴 與上一條同樣要**正規化空白再比**(關卡2 R2 nit)。
+    for (const [query, rows] of [
+      ['(max-width: 900px)', /grid-template-rows:\s*auto 52px/],
+      ['(max-width: 700px)', /grid-template-rows:\s*auto 50px/],
+    ] as const) {
+      const narrow = mediaBlock(query).replace(/\s+/g, ' ').replace(/,\s*/g, ', ');
+      expect(narrow.length, `找不到 ${query} 區塊`).toBeGreaterThan(0);
+      expect(narrow, `${query} 區塊裡的磚版面規則不是兩型別子選擇器`).toContain(
+        '.b-brand-wall > li > :is(a, span)',
+      );
+      expect(narrow, `${query} 的磚內列高不對`).toMatch(rows);
+    }
   });
 
-  // 🔴 泛白那一半原本零守門:整段刪掉,元件測試(語意層)仍全綠、列看起來與可點列一模一樣,
+  // 🔴 欄數是這面牆的承重值:20 家 ÷ 5 欄 = 剛好四列、CTA 另起一列跨滿(OD :464/:497)。
+  //    欄數被改掉不會有任何元件測試轉紅,而版面會出現半空的最後一列。
+  it('🔴 磚牆欄數 = 5 / ≤1200 → 4 / ≤700 → 2,且 CTA 磚在每一段都跨滿一列', () => {
+    const cols = (css: string) =>
+      css.replace(/\s+/g, ' ').match(/\.b-brand-wall\s*\{[^}]*grid-template-columns:\s*([^;}]+)/)?.[1]?.trim();
+    expect(cols(topLevelCss()), '桌機欄數不是 5').toBe('repeat(5, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 1200px)')), '≤1200 欄數不是 4').toBe('repeat(4, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 700px)')), '≤700 欄數不是 2').toBe('1fr 1fr');
+    // CTA 跨滿:欄數換了而它沒跟著,最後一列會出現一塊寬度不對的動作磚
+    for (const css of [topLevelCss(), mediaBlock('(max-width: 1200px)'), mediaBlock('(max-width: 700px)')]) {
+      expect(css.replace(/\s+/g, ' '), 'CTA 磚沒有跨滿一列')
+        .toMatch(/\.b-brand-wall li\.is-cta\s*\{[^}]*grid-column:\s*1 \/ -1/);
+    }
+  });
+
+  // 🔴 泛白那一半原本零守門:整段刪掉,元件測試(語意層)仍全綠、磚看起來與可點磚一模一樣,
   //    但語意上不可點 = 對客人最糟的組合(同 brand-page.css `.is-empty` 那條的理由)。
   it('🔴 `.is-empty` 的泛白規則都在,且形狀是「同前綴 + 多一個 class」(嚴格更高、不靠順序)', () => {
     const rules = [...CSS.matchAll(/([^{}]*\.is-empty[^{}]*)\{([^}]*)\}/g)]
       .map((m) => ({ selector: m[1]!.trim(), body: m[2]! }))
-      .filter((r) => r.selector.includes('.ed-brand-list'));
-    expect(rules.length, '.ed-brand-list 的 .is-empty 規則不見了').toBe(3);
+      .filter((r) => r.selector.includes('.b-brand-wall'));
+    expect(rules.length, '.b-brand-wall 的 .is-empty 規則不見了').toBe(4);
     for (const r of rules) {
-      // 每一段(逗號清單要逐段看,不能只看第一段 —— 關卡2 R1 nit:第二段被改成裸
-      // `.is-empty .ed-brand-country` 這種會跨檔洩漏的形狀時,只檢查第一段仍全綠)
-      // 都必須以 `.ed-brand-list .is-empty` 起頭 —— 這個形狀嚴格包含競爭者
-      // (`.ed-brand-name` 等 (0,1,0)),所以勝負與規則順序無關,不會像 D3c-1 那樣反轉。
+      // 每一段(逗號清單要逐段看,不能只看第一段 —— 關卡2 R1 nit:某一段被改成裸
+      // `.is-empty .b-brand-tag` 這種會跨檔洩漏的形狀時,只檢查第一段仍全綠)
+      // 都必須以 `.b-brand-wall .is-empty` 起頭 —— 這個形狀嚴格包含競爭者
+      // (`.b-brand-tag` 等 (0,1,0)),所以勝負與規則順序無關,不會像 D3c-1 那樣反轉。
       for (const part of r.selector.split(',').map((s) => s.trim().replace(/\s+/g, ' '))) {
-        expect(part.startsWith('.ed-brand-list .is-empty'), `${part} 前綴不對`).toBe(true);
+        expect(part.startsWith('.b-brand-wall .is-empty'), `${part} 前綴不對`).toBe(true);
       }
     }
     const body = rules.map((r) => r.body).join(' ');
     expect(body, '游標沒有改掉').toMatch(/cursor\s*:\s*default/);
-    expect(body, '品牌名沒有轉淡').toMatch(/color\s*:\s*var\(--ed-c-ink-mute\)/);
-    // 🔴 標語與國別那條原本零斷言(關卡2 R1 nit:把 `.6` 改成 `1` ⇒ 兩格不再轉淡、
-    //    而 11 條新守門全綠)。這是本支唯一「拿掉之後真缺陷會靜默通過」的洞。
-    expect(body, '標語 / 國別沒有轉淡').toMatch(/opacity\s*:\s*\.6/);
+    // 🔴 逐條都要有斷言:值被改成不生效的那一種(grayscale(0) / opacity 1)是**看得見**的回歸,
+    //    而元件層完全看不到(它只驗語意)。這是「改壞值、保留選擇器」那種突變唯一會紅的地方。
+    expect(body, 'logo 沒有轉灰').toMatch(/filter\s*:\s*grayscale\(1\)/);
+    expect(body, 'logo 沒有降透明度').toMatch(/opacity\s*:\s*\.55/);
+    expect(body, '品類描述沒有轉淡').toMatch(/color\s*:\s*var\(--ed-c-ink-mute\)/);
+    expect(body, '編號 / 產地那一列沒有轉淡').toMatch(/opacity\s*:\s*\.6/);
+  });
+
+  // 🔴 hover 回饋(底色 + 熔橘頂線)**只能綁 `<a>`**:裸 `:hover` 對泛白磚的 `<span>` 照樣命中
+  //    —— `brand-directory.css` 就是這樣翻過車的(真瀏覽器實測泛白卡 hover 底色會翻白)。
+  //    這條同時是上面那族的配套:綁型別之後,`.is-empty` 不必再寫覆寫去搶權重。
+  it('🔴 磚牆的 hover 一族綁 `a`,不得出現吃得到 `<span>` 的裸 `:hover`', () => {
+    // 🔴 R1 F5:掃**整份 CSS**、不是只掃全斷點層 —— 裸 `:hover` 寫進任一 `@media` 一樣會
+    //    讓泛白磚在那個斷點有回饋,而只掃 `topLevelCss()` 的版本對它全綠。
+    const hovers = [...CSS.matchAll(/([^{}]*\.b-brand-wall[^{}]*:hover[^{}]*)\{/g)]
+      .map((m) => m[1]!.trim().replace(/\s+/g, ' '));
+    expect(hovers.length, '磚牆的 hover 規則不見了').toBeGreaterThanOrEqual(3);
+    for (const sel of hovers) {
+      expect(/(^|[\s>])a[.:]?[^\s>]*:hover/.test(sel), `${sel} 的 :hover 沒有綁在 a 上`).toBe(true);
+    }
+  });
+
+  // 🔴 logo 展示格的幾何是**與校正值綁在一起**的:`data/brand-trim-logo-scale.ts` 那 20 個值
+  //    是照「高 54px、寬 86%」目視校出來的,格子一改尺寸,20 家的目視大小就全部不對
+  //    —— 而元件測試只看得到 inline style 的字串,對這件事全盲。
+  it('🔴 logo 展示格 = 高 54px / 寬 86% / contain,且真的吃 `--logo-scale`', () => {
+    const rule = topLevelCss().match(/\.b-brand-logo\s*\{[^}]*\}/)?.[0]?.replace(/\s+/g, ' ') ?? '';
+    expect(rule, '找不到 .b-brand-logo 規則(全斷點層)').not.toBe('');
+    expect(rule, '格高不是 54px').toMatch(/height:\s*54px/);
+    expect(rule, '格寬不是 86%').toMatch(/width:\s*86%/);
+    // `contain` 之外的值(cover)會把 logo 裁掉、而且每一家裁的位置不同
+    expect(rule, 'background-size 不是 contain').toMatch(/background-size:\s*contain/);
+    // 🔴 元件端逐家算出來的 `--logo-scale` 若沒人讀,20 個值就是白寫的(而畫面只是「都一樣大」)
+    expect(rule, '沒有讀 --logo-scale ⇒ 逐家光學校正等於沒接上').toMatch(/transform:\s*scale\(var\(--logo-scale, 1\)\)/);
+  });
+
+  // 🔴 R1 F4:上面那條只讀全斷點層 ⇒ **窄斷點的 logo 尺寸零守門**,把 ≤900 / ≤700 改壞不會紅,
+  //    而那條的訊息卻寫「格子一改尺寸,20 家目視大小全部不對」= 宣稱大於判別力。這條補上兩段。
+  it('🔴 窄斷點的 logo 展示格尺寸照 OD(≤900 = 88%/52px、≤700 = 90%/50px)', () => {
+    for (const [query, w, h] of [
+      ['(max-width: 900px)', /width:\s*88%/, /height:\s*52px/],
+      ['(max-width: 700px)', /width:\s*90%/, /height:\s*50px/],
+    ] as const) {
+      const rule = mediaBlock(query).replace(/\s+/g, ' ').match(/\.b-brand-logo\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, `${query} 裡找不到 .b-brand-logo 規則`).not.toBe('');
+      expect(rule, `${query} 的 logo 格寬不對`).toMatch(w);
+      expect(rule, `${query} 的 logo 格高不對`).toMatch(h);
+    }
   });
 
   // 🔴 收**全部**碰到 `.ed-sr-only` 的規則、不是 `match()` 拿第一條(關卡2 R1 nit;
   //    姊妹檔 `brand-page.test.ts` 逐字記過同一個坑):日後補一條更具體的覆寫
-  //    (例如 `.ed-brand-list .ed-sr-only { position: static }`)會把那句只給報讀器的話
+  //    (例如 `.b-brand-wall .ed-sr-only { position: static }`)會把那句只給報讀器的話
   //    變成畫面上看得見的文字,而只看第一條的守門照樣綠。
   it('🔴 `.ed-sr-only` 是「看不見但唸得到」,不是 display:none / visibility:hidden,且全檔只有一條', () => {
     const all = [...CSS.matchAll(/([^{}]*\.ed-sr-only[^{}]*)\{([^}]*)\}/g)];
@@ -187,6 +251,370 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
       .not.toMatch(/display\s*:\s*none|visibility\s*:\s*hidden/);
     expect(body).toMatch(/position\s*:\s*absolute/);
     expect(body).toMatch(/clip-path\s*:\s*inset\(50%\)/);
+  });
+
+  // 🔴 H5 突變證抓到的第二個洞(M53 一開始也是綠的):我把這條規則加進 CSS **卻沒寫斷言**。
+  //    它承重的是鍵盤可用性 —— hero 是深色照片場,站台預設的焦點框色 `--ed-c-action-hover`(#c4470c)
+  //    壓在暗照片上幾乎看不見,而切換條是鍵盤使用者**唯一**能操作的東西。
+  it('🔴 hero 深色場的 :focus-visible 換成亮動作色(切換條的焦點框要看得見)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-hero :focus-visible\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 hero 的 focus-visible 覆寫 ⇒ 焦點框會用站台預設色、在暗照片上看不見').not.toBe('');
+    expect(rule, '沒有換成 --ed-c-action(亮熔橘)').toMatch(/outline-color:\s*var\(--ed-c-action\)/);
+  });
+
+  // 🔴 H5 真瀏覽器抓到的真缺陷的守門:入口板要讓位給固定 TabBar。
+  //    OD 的 hero 高度算式沒把 TabBar 算進去 ⇒ 390×844 實測主 CTA 被蓋掉 33px。
+  //    這條守的是「讓位還在、而且在對的斷點」——拿掉或把斷點寫成 900 都會讓 901-1079 那段回到被蓋住。
+  it('🔴 入口板讓位給固定 TabBar,**兩級都要**(手機 70px / 平板 74px;主 CTA 不得被蓋住)', () => {
+    // 🔴 R1 must-fix:第一版只寫了 70px 那一級 ⇒ 600-1079(TabBar 68px、body 讓位 74px)
+    //    淨空只剩 2px。而且當時的斷言拿 `toMatch(/calc\(70px/)` 去掃整份 mobile-tabbar.css,
+    //    被 ≤599 那一級滿足 ⇒ 對 74px 那一塊**完全盲**、「兩邊同字面」是恆真斷言。
+    const TB = readFileSync(new URL('./mobile-tabbar.css', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    /** 從 mobile-tabbar.css 的指定 @media 區塊裡抓 body 的讓位值 —— 兩邊比的是**同一個來源**。
+     *  用大括號走訪(同本檔 `mediaBlock`),不用 `[\s\S]*?\n\}` 那種寫法:後者會停在**內層規則**的收尾。 */
+    const blockOf = (css: string, query: string): string => {
+      const head = `@media ${query} {`;
+      const start = css.indexOf(head);
+      if (start === -1) return '';
+      const open = css.indexOf('{', start);
+      let depth = 0;
+      for (let i = open; i < css.length; i += 1) {
+        if (css[i] === '{') depth += 1;
+        else if (css[i] === '}') {
+          depth -= 1;
+          if (depth === 0) return css.slice(open + 1, i);
+        }
+      }
+      return '';
+    };
+    const bodyPad = (query: string) =>
+      blockOf(TB, query).replace(/\s+/g, ' ').match(/padding-bottom:\s*(calc\([^;}]+\))/)?.[1];
+    const phone = bodyPad('(max-width: 1079px)');
+    const tablet = bodyPad('(min-width: 600px) and (max-width: 1079px)');
+    expect(phone, '在 mobile-tabbar.css 找不到手機那級的 body 讓位值 ⇒ 下面的比對會恆真').toBeTruthy();
+    expect(tablet, '在 mobile-tabbar.css 找不到平板那級的 body 讓位值 ⇒ 下面的比對會恆真').toBeTruthy();
+    expect(phone).not.toBe(tablet); // 前提:兩級真的是不同的值,否則這條測不出「少寫一級」
+
+    const dockMargin = (query: string) => {
+      const block = mediaBlock(query).replace(/\s+/g, ' ');
+      return block.match(/\.b-dock[^{]*\{[^}]*margin-bottom:\s*(calc\([^;}]+\))/)?.[1]?.replace(/\s+/g, ' ');
+    };
+    expect(dockMargin('(max-width: 1079px)'), '手機級讓位不見了或與 body 讓位分家').toBe(phone);
+    expect(dockMargin('(min-width: 600px) and (max-width: 1079px)'), '平板級讓位不見了或與 body 讓位分家').toBe(tablet);
+    // `html[data-mobile="true"]` 兜底:media query 沒命中但 UA hint 命中時 TabBar 照樣 fixed
+    expect(mediaBlock('(max-width: 1079px)').replace(/\s+/g, ' '), '缺 data-mobile 兜底 ⇒ 那條路徑上 CTA 又被蓋回去')
+      .toContain('html[data-mobile="true"] .b-dock');
+  });
+
+  // 🔴 D-135 插單的守門:搜尋部品鈕照 OD 熔橘常駐,而**停用態要說實話**。
+  //    這條擋兩個方向:①退回舊的「灰底、選到才墨黑」(那是整段沒跟稿的原狀)
+  //    ②照 OD 字面搬色卻**忘了停用態** ⇒ 按不下去的按鈕長得跟可按的一樣(H6 死按鈕同型)。
+  it('🔴 搜尋鈕:可按=熔橘常駐、hover 深橘、停用=灰且不吃 hover', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const base = top.match(/\.ed-finder-go\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(base, '找不到 .ed-finder-go 規則').not.toBe('');
+    expect(base, '底色不是熔橘 ⇒ 整段又退回沒跟稿的灰').toMatch(/background:\s*var\(--ed-c-action\)/);
+    expect(base, '字色不是白').toMatch(/color:\s*#fff/);
+    expect(top, 'hover 不是深橘').toMatch(/\.ed-finder-go:hover:not\(:disabled\)\s*\{[^}]*background:\s*var\(--ed-c-action-hover\)/);
+    const dis = top.match(/\.ed-finder-go:disabled\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(dis, '沒有停用態 ⇒ 按不下去的按鈕長得跟可按的一樣').not.toBe('');
+    expect(dis, '停用態沒有換底色').toMatch(/background:\s*var\(--ed-c-paper-2\)/);
+    expect(dis, '停用態沒有換游標').toMatch(/cursor:\s*not-allowed/);
+    // 🔴 hover 一族必須排除 disabled,否則停用中的按鈕滑過去會亮成深橘
+    const hovers = [...top.matchAll(/([^{}]*\.ed-finder-go[^{}]*:hover[^{}]*)\{/g)].map((m) => m[1]!.trim());
+    expect(hovers.length, '找不到 hover 規則').toBeGreaterThanOrEqual(2);
+    for (const sel of hovers) {
+      expect(sel.includes(':not(:disabled)'), `${sel} 沒有排除 disabled`).toBe(true);
+    }
+  });
+
+  // 🔴 D-128 迴歸修的守門:hero **不得**裁切(裁切在媒體層)。
+  //    這條擋的是「有人為了防溢出把 overflow:hidden 加回 .b-hero」——那會再一次把入口板的
+  //    下拉選單切掉,而且**單元測試與截圖都看不到**(要下拉展開、而且要捲到 hero 底緣進入視窗才看得見)。
+  //    ⚠️ 它擋不住什麼:文字層只知道宣告寫了什麼,不知道實際有沒有被裁 ——
+  //       真正的判別力在真瀏覽器的 `elementFromPoint` 探針(本片已跑,結果寫在 commit body)。
+  it('🔴 `.b-hero` 不得 overflow:hidden(下拉會被裁);裁切要在 `.b-hero-media`', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const hero = top.match(/\.b-hero\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(hero, '找不到 .b-hero 規則').not.toBe('');
+    expect(hero, 'hero 又把 overflow 收成 hidden/clip ⇒ 入口板的下拉選單會被裁掉')
+      .not.toMatch(/overflow:\s*(hidden|clip)/);
+    const media = top.match(/\.b-hero-media\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(media, '找不到 .b-hero-media 規則').not.toBe('');
+    expect(media, '媒體層沒有裁切 ⇒ 滿版底圖可能溢出 hero').toMatch(/overflow:\s*hidden/);
+  });
+
+  // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。
+  //    `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」—— 那顆 token 正是為了
+  //    同款「兩處各寫一個數字、差 4px」的事故才立的。
+  it('🔴 hero 高度吃 `--shell-header-h`,不得寫死頁首高(px)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-hero\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-hero 規則').not.toBe('');
+    expect(rule, 'hero 高度沒有吃 --shell-header-h').toMatch(/height:\s*calc\(100svh - var\(--shell-header-h\)\)/);
+    // 反面:任何斷點都不得再出現「100svh - 數字px」這種寫死法
+    expect(CSS, '還有寫死頁首高的 hero 高度算式').not.toMatch(/height:\s*calc\(100svh - \d+px\)/);
+  });
+
+  // ── H6:N°02 最新商品橫捲軌道 ──────────────────────────────────────────
+  // 🔴 這一族守的是「橫捲之所以能捲」的那幾個宣告 —— 少任何一個都會退回「看起來像橫捲、
+  //    但捲不動 / 不對齊 / 露出捲軸」,而元件測試(jsdom 無 layout)對這些完全看不到。
+  it('🔴 軌道能捲、會 snap、不露捲軸,而且格寬照 OD 的更正版算式', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const track = top.match(/\.b-carousel\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(track, '找不到 .b-carousel 規則').not.toBe('');
+    expect(track, '沒有 overflow-x:auto ⇒ 根本捲不動').toMatch(/overflow-x:\s*auto/);
+    expect(track, '沒有 scroll-snap ⇒ 停在半張卡上').toMatch(/scroll-snap-type:\s*x mandatory/);
+    expect(track, '沒有 scroll-padding-left ⇒ snap 會把卡片切齊到 gutter 之外').toMatch(/scroll-padding-left:\s*var\(--ed-gutter\)/);
+    expect(track, '沒藏捲軸(Firefox)').toMatch(/scrollbar-width:\s*none/);
+    expect(track, '軌道不是 flex ⇒ 卡片會直接堆疊').toMatch(/display:\s*flex/);
+    // 🔴 R1 nit:元件端的「捲一格 = 卡寬 + 16」把這個 16 抄了第二份 ⇒ 兩邊要一起釘,
+    //    否則改 gap 會讓箭頭步進靜默錯位(每按一次偏 n px),而三綠全綠。
+    //    (2026-08-07 R-1:那段程式碼由 `HomeSelect.tsx` 搬到 `ProductRail.tsx`,grep `+ 16` 找。
+    //     🔴 本片驗收字面是「本檔一個字不改」——**動的只有這行註解、不是任何斷言**,
+    //     斷言與測試數零變更(零變更的證據在改動前已錄)。不改的話這裡會留一句明知為假的
+    //     跨檔指標,而那正是本窗這幾天反覆犯的錯。已在 STOP 申報,主視窗要還原可直接還原。)
+    expect(track, '軌道間距不是 16px(元件端的步進 +16 會跟著錯)').toMatch(/gap:\s*16px/);
+    expect(top, '沒藏捲軸(WebKit)').toMatch(/\.b-carousel::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
+
+    const item = top.match(/\.b-carousel-item\s*\{[^}]*\}/)?.[0] ?? '';
+    // 🔴 OD :232-236 註解逐字更正過的算式:百分比相對**內容框**,padding 已扣過一次,
+    //    再減 gutter*2 會讓每張卡少 16px、整列短 80px。5 格 4 道間距 = 64px。
+    expect(item, '桌機格寬不是 OD 更正後的 5 格算式').toMatch(/flex:\s*0 0 calc\(\(100% - 64px\) \/ 5\)/);
+    expect(item, '沒有 scroll-snap-align ⇒ snap 沒有對齊點').toMatch(/scroll-snap-align:\s*start/);
+    expect(item, '沒有最小寬 ⇒ 窄螢幕會被壓成一條').toMatch(/min-width:\s*176px/);
+    // 三個窄斷點的格寬(OD :238/:240/:241)
+    expect(mediaBlock('(max-width: 1200px)').replace(/\s+/g, ' '), '≤1200 沒退成 4 格').toMatch(/flex:\s*0 0 calc\(\(100% - 48px\) \/ 4\)/);
+    expect(mediaBlock('(max-width: 900px)').replace(/\s+/g, ' '), '≤900 沒退成 2.4 格(露出下一張的邊 = 可捲的訊號)').toMatch(/flex:\s*0 0 calc\(\(100% - 24px\) \/ 2\.4\)/);
+    expect(mediaBlock('(max-width: 560px)').replace(/\s+/g, ' '), '≤560 沒退成 1.8 格').toMatch(/flex:\s*0 0 calc\(\(100% - 14px\) \/ 1\.8\)/);
+  });
+
+  // ── R-3:rail 在非首頁的 token 作用域 ────────────────────────────────
+  // 🔴 這一條守的是**一個會無聲失效的東西**:`.b-select*` / `.b-carousel*` 吃的 `--ed-*` token
+  //    只定義在 `.ed-page`(首頁專屬)。會員中心與品牌頁沒有那個作用域 ⇒ 少一顆 token,
+  //    對應那條宣告就在計算值階段整條作廢 —— **不會報錯、不會有東西紅,只是版面悄悄不對**。
+  //    ⇒ 清單**用推導的、不寫死**:實際掃出 rail 規則用到哪些 `--ed-*`,逐一要求 `.b-select-inset`
+  //    有宣告。哪天有人往 rail 加一條吃新 token 的規則,這條會逼他同步補進 inset。
+  it('🔴 .b-select-inset 補齊 rail 用到的每一顆 --ed-* token(非首頁沒有 .ed-page 作用域)', () => {
+    // 🔴 掃描範圍走**整份 CSS**(含 @media)而不是 `topLevelCss()` —— 審查抓到:
+    //    `topLevelCss()` 把 @media 剝掉,而 rail 在 @media 裡也有規則,漏掃就會有 token 沒被要求。
+    const railStart = CSS.indexOf('.b-select {');
+    const insetStart = CSS.indexOf('.b-select-inset {');
+    expect(railStart, '找不到 .b-select 規則 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(insetStart, '找不到 .b-select-inset ⇒ 非首頁的 rail 會整組無聲失效').toBeGreaterThan(railStart);
+    const railCss = CSS.slice(railStart, insetStart);
+    const used = [...new Set([...railCss.matchAll(/var\((--ed-[a-z-]+)/g)].map((m) => m[1]!))];
+    // 🔴 審查抓到 `> 3` 太鬆(實際 7,掉 3 顆仍綠)⇒ 改成與「rail 區塊裡出現的 var() 種類數」對帳,
+    //    手法沿用被本片刪掉的那條 `.acc-rec` 守門(解析數 vs 實際出現數,防「部分解析、靜默漏驗」)。
+    const rawVarCount = new Set(
+      [...railCss.matchAll(/var\(\s*(--ed-[a-z-]+)/g)].map((m) => m[1]!),
+    ).size;
+    expect(used.length, `掃到 ${used.length} 顆 token、原始比對得 ${rawVarCount} 顆 ⇒ 掃描漏了`).toBe(rawVarCount);
+    expect(used.length, 'rail 規則裡一顆 --ed-* 都沒掃到 ⇒ 掃描範圍抓錯了').toBeGreaterThan(0);
+    const insetBody = CSS.slice(insetStart, CSS.indexOf('}', insetStart));
+    const missing = used.filter((t) => !insetBody.includes(`${t}:`));
+    expect(
+      missing,
+      `.b-select-inset 少宣告這些 token:${missing.join(', ')} ⇒ 非首頁的對應宣告會無聲作廢`,
+    ).toEqual([]);
+
+    // 🔴 審查抓到:只驗「有宣告」不驗「值對」= 恆真族。`.ed-page` 那邊改了值、inset 沒跟,
+    //    首頁與非首頁會靜默分岔而守門全綠。⇒ 顏色類 token 逐顆比值。
+    //    (`--ed-gutter` / `--ed-max` 是**刻意不同**的版位值,見 home.css 那段註解 ⇒ 排除。)
+    const LAYOUT_ONLY = new Set(['--ed-gutter', '--ed-max']);
+    const edPageBody = CSS.slice(CSS.indexOf('.ed-page {'), CSS.indexOf('}', CSS.indexOf('.ed-page {')));
+    const valueOf = (body: string, token: string) =>
+      new RegExp(`${token}:\\s*([^;]+);`).exec(body)?.[1]?.trim();
+    const drifted = used
+      .filter((t) => !LAYOUT_ONLY.has(t))
+      .map((t) => ({ t, page: valueOf(edPageBody, t), inset: valueOf(insetBody, t) }))
+      .filter((r) => r.page === undefined || r.page !== r.inset);
+    expect(
+      drifted.map((r) => `${r.t}(.ed-page=${r.page} / inset=${r.inset})`),
+      '這些 token 的值與 .ed-page 不一致 ⇒ 首頁與非首頁的 rail 會靜默長得不一樣',
+    ).toEqual([]);
+
+    // 🔴 序:inset 必須排在**所有** `.b-select {` 之後(同 specificity、靠後載勝)。
+    //    審查抓到原本只比 top-level 的第一個 —— 而真正會打架的是
+    //    `@media (max-width: 900px)` 裡那條 `.b-select { padding: 48px 0 52px }`。
+    //    只比 top-level 的話,把 inset 搬到那條 @media 之前照樣綠,而 ≤900px 的 section
+    //    留白會無聲跑回 48/52px。⇒ 用整份 CSS 的**最後一個** `.b-select {` 比。
+    const lastSelectRule = CSS.lastIndexOf('.b-select {');
+    expect(
+      insetStart,
+      '.b-select-inset 排在某條 .b-select 規則(含 @media 內那條)之前 ⇒ 它的 padding/背景會被蓋回去',
+    ).toBeGreaterThan(lastSelectRule);
+  });
+
+  it('🔴 箭頭的 disabled 態有樣式(它是本 repo 自己接的線,OD 只畫沒接)', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    expect(top, '箭頭沒有 disabled 樣式 ⇒ 到底了看起來還能按')
+      .toMatch(/\.b-select-arrow:disabled\s*\{[^}]*opacity:\s*0?\.35/);
+    expect(top, 'disabled 沒有換游標').toMatch(/\.b-select-arrow:disabled\s*\{[^}]*cursor:\s*not-allowed/);
+    // 🔴 R1 nit:`:hover` 不排除 `:disabled` 的話,已停用的箭頭滑過去仍會亮起來配 `not-allowed` 游標
+    expect(top, 'hover 沒有排除 disabled ⇒ 停用的箭頭滑過去還會亮').toMatch(/\.b-select-arrow:hover:not\(:disabled\)/);
+  });
+
+  // ── D5c/H3:N°03 分類 icon chip 磚面 ──────────────────────────────────
+  // 🔴 這一族守的是「12 格磚面」的承重值:欄數、格線、色碼。全部是 jsdom 看不到、
+  //    元件測試也看不到的東西(元件只知道 DOM 有沒有那個 class 與 attribute)。
+  it('🔴 磚面欄數 = 6 / ≤1400 → 4 / ≤900 → 3 / ≤640 → 2(12 格要能整除,不然最後一列缺角)', () => {
+    const cols = (css: string) =>
+      css.replace(/\s+/g, ' ').match(/\.b-cat-list\s*\{[^}]*grid-template-columns:\s*([^;}]+)/)?.[1]?.trim();
+    expect(cols(topLevelCss()), '桌機不是 6 欄').toBe('repeat(6, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 1400px)')), '≤1400 不是 4 欄').toBe('repeat(4, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 900px)')), '≤900 不是 3 欄').toBe('repeat(3, minmax(0, 1fr))');
+    expect(cols(mediaBlock('(max-width: 640px)')), '≤640 不是 2 欄').toBe('1fr 1fr');
+  });
+
+  // 🔴 第 12 格是**另一個 class**(`.b-cat-more`,不是 `.b-cat-chip` 的修飾):
+  //    格線與最小高度那條漏掉它,磚面右下角會塌一塊 —— 而 11 顆 chip 都是好的,
+  //    截圖不看右下角就發現不了。OD :644 也是把兩個選擇器並列的。
+  it('🔴 格線與最小高度同時吃 `.b-cat-chip` 與 `.b-cat-more`(第 12 格不能掉隊)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ')
+      .match(/\.b-cat-chip,\s*\.b-cat-more\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到兩個選擇器並列的框線規則 ⇒ 第 12 格可能沒有格線').not.toBe('');
+    expect(rule, '沒有右框線').toMatch(/border-right:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, '沒有下框線').toMatch(/border-bottom:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, '沒有最小高度 ⇒ 空一點的格子會比鄰居矮').toMatch(/min-height:\s*64px/);
+  });
+
+  // 🔴 色碼:11 條逐一比對,而且**必須綁 `[data-cat="N"]`**。
+  //    退化成 `:nth-child(N)` 是最自然的寫法、也最錯:那會把顏色綁回**名次**,
+  //    OD :927-929 逐字說「名次會變 → 色碼綁分類 id,不能綁位置」。
+  it('🔴 11 條分類色碼綁 `data-cat`、逐條對到自己的 `--cat-N`,且不得改綁位置', () => {
+    const css = topLevelCss().replace(/\s+/g, ' ');
+    for (let n = 1; n <= 11; n += 1) {
+      expect(
+        css,
+        `--cat-${n} 的色條規則不見了或對錯 token`,
+      ).toMatch(new RegExp(`\\.b-cat-chip\\[data-cat="${n}"\\]\\s*\\{[^}]*inset 3px 0 0 var\\(--cat-${n}\\)`));
+    }
+    expect(css, '色碼被改綁位置選擇器 ⇒ 顏色會跟著名次跑').not.toMatch(/\.b-cat-chip:nth-(child|of-type)\([^)]*\)\s*\{[^}]*--cat-/);
+  });
+
+  // 🔴 兩份色票必須逐字相同:同一個分類在首頁 chip 與品牌頁 chips 上是同一個顏色。
+  //    這條是「重複定義」的配套 —— 沒有它,兩邊分家不會有任何訊號。
+  it('🔴 `--cat-1..11` 與 `brand-page.css` 的那份逐顆相同(11/11)', () => {
+    const BP = readFileSync(new URL('./brand-page.css', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    // 🔴 R1 nit:`Object.fromEntries` 對同名 key 靜默取最後一顆 ⇒ 同一檔裡出現兩次 `--cat-3`
+    //    時,長度仍是 11、比到的是後寫的那顆。先擋重複,再比值。
+    const grab = (s: string) => {
+      const hits = [...s.matchAll(/--cat-(\d+):\s*(#[0-9a-fA-F]{3,8})/g)].map((m) => [m[1]!, m[2]!.toLowerCase()] as const);
+      expect(new Set(hits.map((h) => h[0])).size, `色票有重複定義的編號:${hits.map((h) => h[0]).join(',')}`).toBe(hits.length);
+      return Object.fromEntries(hits);
+    };
+    const home = grab(CSS);
+    const brand = grab(BP);
+    // 前提斷言:兩邊都真的有 11 顆,否則下面的比對可能在比兩個空物件
+    expect(Object.keys(home), 'home.css 的色票不是 11 顆').toHaveLength(11);
+    expect(Object.keys(brand), 'brand-page.css 的色票不是 11 顆').toHaveLength(11);
+    expect(home, '兩份分類色票分家 ⇒ 同名分類在首頁與品牌頁會是兩種顏色').toEqual(brand);
+  });
+
+  // 🔴 icon 方塊:底色若退回 `--ed-c-paper-2`(#f7f7f8)會與白底 chip 幾乎沒有分界,
+  //    那個方塊就白畫了;`--ed-c-sunken` 是本片為此新增的一階深色(OD `--c-sunken` 字面)。
+  it('🔴 icon 方塊 28×28、底色是 --ed-c-sunken 且該 token **的值**是 #f3f3f4', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-cat-icon\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-cat-icon 規則').not.toBe('');
+    expect(rule).toMatch(/width:\s*28px/);
+    expect(rule).toMatch(/height:\s*28px/);
+    expect(rule, 'icon 方塊沒有底色 ⇒ 與白底 chip 沒有分界').toMatch(/background:\s*var\(--ed-c-sunken\)/);
+    // 🔴 R1 must-fix:上一版只驗「有定義而且是個 hex」= **恆真族** —— 把 `--ed-c-sunken` 的值
+    //    改成 `#f7f7f8`(正是這條自己命名的那個威脅)選擇器全留、整組照樣全綠。
+    //    值本身就是承重的:比 paper-2 深一階才看得出 icon 方塊的邊界。
+    expect(CSS, '--ed-c-sunken 不是 OD 的 #f3f3f4 ⇒ icon 方塊與白底 chip 沒有分界').toMatch(/--ed-c-sunken:\s*#f3f3f4/i);
+    // 🔴 icon 規格四件(OD :57 的全域 `svg{}` + :58 的線寬)。本 repo 沒有等價全域規則,
+    //    少任何一項都會退回瀏覽器預設:fill 退成黑色實心、端點退成方頭。
+    const svg = topLevelCss().replace(/\s+/g, ' ').match(/\.b-cat-icon svg\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(svg, 'icon 的 svg 沒有 fill:none ⇒ 線圖會變成實心色塊').toMatch(/fill:\s*none/);
+    expect(svg, 'icon 的 svg 沒有 stroke:currentColor ⇒ 線條不會跟著文字色').toMatch(/stroke:\s*currentColor/);
+    expect(svg, '線寬不是 OD :58 的 1.75(小尺寸補視覺重量那顆)').toMatch(/stroke-width:\s*1\.75/);
+    expect(svg, '端點沒有圓頭 ⇒ 六角螺帽 / 護盾的尖角會變方頭(R1 抓到的真缺陷)')
+      .toMatch(/stroke-linecap:\s*round/);
+    expect(svg, '轉角沒有圓角 ⇒ 同上').toMatch(/stroke-linejoin:\s*round/);
+  });
+
+  // 🔴 R1 nit:磚面的**上緣與左緣**格線在 `.b-cat-list` 自己身上(右/下在每一格上)。
+  //    掉了不會有任何測試紅,而畫面是「磚面缺了兩條邊」—— 與「右下角塌一塊」同族的鏡像。
+  it('🔴 磚面的上緣 / 左緣格線在 `.b-cat-list` 上(右下在格子上,四邊要湊得齊)', () => {
+    const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-cat-list\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-cat-list 規則').not.toBe('');
+    expect(rule, '磚面沒有上緣格線').toMatch(/border-top:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, '磚面沒有左緣格線').toMatch(/border-left:\s*1px solid var\(--ed-c-rule\)/);
+    expect(rule, 'gap 不是 0 ⇒ 12 格之間會裂開、不是一塊完整磚面').toMatch(/gap:\s*0/);
+  });
+
+  // ── 2026-08-07 finder 窄幅修(Sean 488px 實測回報破版)────────────────
+  // 🔴 這三條守的東西**原本一條守門都沒有**(偵察實查:`VehicleFinder.test.tsx` 只鎖 placeholder
+  //    字面與 DOM 結構、jsdom 不跑 layout;`home.test.ts` 沒有任何 `.ed-finder-bar` 欄數斷言)。
+  //    ⇒ 修完就有可能無聲回歸。
+  it('🔴 .ed-finder-slot 有 min-width:0(OD 稿有、真站原本搬漏)', () => {
+    const top = topLevelCss();
+    const slot = /\.ed-finder-slot\s*\{[^}]*\}/.exec(top)?.[0] ?? '';
+    expect(slot, '找不到 .ed-finder-slot 基礎規則 ⇒ 本條前提失效').not.toBe('');
+    expect(slot, 'grid item 少了 min-width:0 ⇒ 收不到內容寬以下(OD 的 slot 與 slot input 兩處都有)')
+      .toMatch(/min-width:\s*0/);
+  });
+
+  it('🔴 ≤900px:年份欄跨滿整排(OD 有 grid-column:span 2、真站原本搬漏 ⇒ 第二欄留空洞)', () => {
+    const narrow = mediaBlock('(max-width: 900px)');
+    expect(narrow, '年份欄沒有跨兩欄 ⇒ 第二排右半格是空洞(真瀏覽器 488px 量到 slot3 只佔 207/414)')
+      .toMatch(/\.ed-finder-slot:nth-of-type\(3\)\s*\{[^}]*grid-column:\s*span 2/);
+    // 前提:這條只在「兩欄」的前提下才有意義。
+    expect(narrow, '≤900px 不是兩欄 ⇒ 本條前提失效')
+      .toMatch(/\.ed-finder-bar\s*\{[^}]*grid-template-columns:\s*1fr 1fr/);
+  });
+
+  it('🔴 ≤560px:三欄各自獨占一排(OD 沒涵蓋這個寬度、按稿意圖外推;不靠刪 placeholder 例字解決)', () => {
+    const tiny = mediaBlock('(max-width: 560px)');
+    // ⚠️ 審查抓到 `tiny.length > 0` 是恆真:`(max-width: 560px)` 這個查詢也命中本檔既有的
+    //    `.b-carousel-item` 那塊 ⇒ 把 finder 的 ≤560 整段刪掉,那條照樣綠、失敗訊息會說謊。
+    //    ⇒ 改成要求那個區塊**真的含有 finder 規則**。
+    expect(tiny, '≤560px 區塊裡沒有 .ed-finder-bar ⇒ 窄幅單欄修正整條不見了(或被切到別的 560 區塊)')
+      .toMatch(/\.ed-finder-bar/);
+    expect(tiny, '≤560px 沒有收成單欄 ⇒ 車型欄的「例:R6」會被切掉')
+      .toMatch(/\.ed-finder-bar\s*\{[^}]*grid-template-columns:\s*1fr\s*[;}]/);
+    // 反面:單欄之後不得殘留「跨兩欄」——那會讓 grid 自動長出第二欄、破版換個方向再來一次。
+    expect(tiny, '≤560px 仍留著 span 2 ⇒ 單欄會被撐成兩欄')
+      .not.toMatch(/grid-column:\s*span 2/);
+    // 單欄之後每一列右緣不該再有欄間分隔線(拿掉這條會多一條孤兒框線,而上面幾條都不會紅)。
+    expect(tiny, '≤560px 沒有解除 slot 的 border-right ⇒ 單欄每列右緣多一條孤兒框線')
+      .toMatch(/\.ed-finder-slot\s*\{[^}]*border-right:\s*0/);
+    // 🔴 序:≤560 必須排在 ≤900 之後(同 specificity、靠後載勝),否則整段被 ≤900 蓋回兩欄。
+    //    ⚠️ 審查抓到我第一版是**恆真**:`CSS.indexOf('@media (max-width: 900px)')` 命中的是
+    //    檔案開頭 `.ed-page { --ed-gutter: 20px }` 那個 900 區塊(offset 幾百),
+    //    根本不是 finder 的那個(offset 七千多)⇒ 把 ≤560 整段搬到 finder 的 900 之前,
+    //    這條照樣綠,而 488px 已經被蓋回兩欄。
+    //    ⇒ 改成比「**含 `.ed-finder-bar` 的那兩個區塊**」的位置。
+    const finder900 = CSS.indexOf('.ed-finder-bar { grid-template-columns: 1fr 1fr; }');
+    const finder560 = CSS.indexOf('.ed-finder-bar { grid-template-columns: 1fr; }');
+    expect(finder900, '找不到 finder 的 ≤900 兩欄規則 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(finder560, '找不到 finder 的 ≤560 單欄規則 ⇒ 本條前提失效').toBeGreaterThan(-1);
+    expect(
+      finder560,
+      'finder 的 ≤560 單欄規則排在 ≤900 兩欄規則之前 ⇒ 會被兩欄那組蓋回去',
+    ).toBeGreaterThan(finder900);
+  });
+
+  it('🔴 chips 的負邊距出血對齊 .b-dock 自己的內距(不是頁面 gutter)', () => {
+    // 🔴 原本吃 `--ed-gutter`(≤900 是 20px),而 `.b-dock` 的左右內距是 16px
+    //    ⇒ 多出 4px、chips 這一列伸出白卡右緣(真瀏覽器 488px 量到 +4)。
+    //    出血要對齊的是**容器自己的內距**,兩者無關、只是碰巧接近。
+    const narrow = mediaBlock('(max-width: 900px)');
+    const pad = /\.b-dock\s*\{[^}]*--dock-pad:\s*([0-9]+px)/.exec(narrow)?.[1];
+    expect(pad, '≤900px 的 .b-dock 沒有宣告 --dock-pad ⇒ 出血失去同源依據').toBeTruthy();
+    // padding 必須真的吃那顆變數(否則兩者會各走各的)
+    expect(narrow, '.b-dock 的 padding 沒有吃 --dock-pad ⇒ 改 padding 時出血不會跟著動')
+      .toMatch(/\.b-dock\s*\{[^}]*padding:[^;]*var\(--dock-pad\)/);
+    const chipsRule = /\.cat-garage--inline\s+\.cat-garage-chips\s*\{[^}]*\}/.exec(narrow)?.[0] ?? '';
+    expect(chipsRule, '找不到 chips 那條規則 ⇒ 本條前提失效').not.toBe('');
+    expect(chipsRule, 'chips 的負邊距沒有吃 --dock-pad ⇒ 又會與白卡邊緣對不齊')
+      .toMatch(/margin-right:\s*calc\(var\(--dock-pad\) \* -1\)/);
+    expect(chipsRule, 'chips 的 padding-right 沒有吃 --dock-pad').toMatch(/padding-right:\s*var\(--dock-pad\)/);
+    // 反面:不得再出現用 gutter 做出血的舊寫法。
+    expect(chipsRule, 'chips 又改回吃 --ed-gutter ⇒ 與 .b-dock 內距脫鉤').not.toMatch(/--ed-gutter/);
   });
 
   // ── A10:首頁自刻的愛車 chips 家族退場、換全站唯一的 GarageChips ──
@@ -201,18 +629,26 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
       .toMatch(/\.cat-garage--inline\s+\.cat-garage-chips\s*\{[^}]*flex-wrap\s*:\s*nowrap/);
     expect(narrow, 'chip 要 flex:0 0 auto 才不會被壓扁')
       .toMatch(/\.cat-garage--inline\s+\.cat-garage-chip\s*\{[^}]*flex\s*:\s*0 0 auto/);
-    // 🔴 scope 是承重的:home.css 由 layout.tsx **全域** import,少了 `.ed-finder ` 前綴,
-    //    A10b/A10c 把 inline 掛上 PDP §7 與購物車之後,這段捲動與 gutter 出血會潑到那兩處去。
-    for (const sel of ['.cat-garage-chips', '.cat-garage-chip']) {
-      const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      expect(narrow, `${sel} 的規則沒有鎖在 .ed-finder 底下`)
-        .toMatch(new RegExp(`\\.ed-finder\\s+\\.cat-garage--inline\\s+${esc}`));
+    // 🔴 scope 是承重的:home.css 由 layout.tsx **全域** import,少了 `.b-dock ` 前綴,
+    //    A10b/A10c 把 inline 掛上 PDP §7 與購物車之後,這段捲動與出血會潑到那兩處去。
+    //    (2026-08-07 更正:出血已改吃 `--dock-pad`、不再是 gutter,上一行的「gutter 出血」字面已過期。)
+    // 🔴 H5 突變證抓到的洞(M52 一開始是綠的):上一版用 `toMatch` 找「**有沒有一條**帶前綴的規則」
+    //    —— 而這一族有四條,其中 `::-webkit-scrollbar` 那條照樣帶著前綴 ⇒ 把**別條**的前綴拿掉,
+    //    斷言仍被那條滿足、全綠。一個實例滿足全族 = 那正是本 repo 記過的假守門形狀。
+    //    改成**逐條走訪**:narrow 區塊裡任何碰到 `.cat-garage--inline` 的規則,選擇器都必須以 `.b-dock` 起頭。
+    const inlineRules = [...narrow.matchAll(/([^{}]*\.cat-garage--inline[^{}]*)\{/g)]
+      .map((m) => m[1]!.trim());
+    expect(inlineRules.length, '≤900 區塊裡找不到任何愛車列規則 ⇒ 下面那圈恆真').toBeGreaterThanOrEqual(3);
+    for (const sel of inlineRules) {
+      for (const part of sel.split(',').map((x) => x.trim())) {
+        expect(part.startsWith('.b-dock '), `${part} 沒有鎖在 .b-dock 底下 ⇒ 會潑到 PDP §7 與購物車的同名 chips`).toBe(true);
+      }
     }
-    // R2 追加(scope 收緊):**@media 外**那條外距規則同樣承重 —— 少了 `.ed-finder` 前綴,
+    // R2 追加(scope 收緊):**@media 外**那條外距規則同樣承重 —— 少了 `.b-dock` 前綴,
     // PDP §7(自己已有 .pfc-picker 的 10px)與購物車(.cvf-edit 的 gap:10px)會被多疊一層 12px。
     // 上面的迴圈只掃 ≤900px 區塊、掃不到它。
-    expect(CSS, '行內密度的外距規則沒有鎖在 .ed-finder 底下 ⇒ 會潑到 PDP 與購物車')
-      .toMatch(/\.ed-finder\s+\.cat-garage--inline\s*\{[^}]*margin-bottom/);
+    expect(CSS, '行內密度的外距規則沒有鎖在 .b-dock 底下 ⇒ 會潑到 PDP 與購物車')
+      .toMatch(/\.b-dock\s+\.cat-garage--inline\s*\{[^}]*margin-bottom/);
     expect(CSS, '出現了無 scope 的 .cat-garage--inline 外距規則')
       .not.toMatch(/(^|\})\s*\.cat-garage--inline\s*\{[^}]*margin-bottom/m);
   });
@@ -247,13 +683,18 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
   it('🔴 N°04 服務宣言 = 石墨 #202225(不是重排前的純黑 #0a0a0a)', () => {
     const rule = CSS.match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
     expect(rule, '找不到 .ed-statement 規則').not.toBe('');
-    expect(rule, '服務宣言不是石墨 #202225').toMatch(/background:\s*#202225/);
+    // 2026-08-06:background 已改吃 var(--c-graphite, #202225)(token 升 :root 片)——
+    // 字面值不變,只是多了一層 var()/fallback,故放寬成兩種寫法都收、字面色值不放寬。
+    expect(rule, '服務宣言不是石墨 #202225').toMatch(/background:\s*(?:#202225|var\(--c-graphite,\s*#202225\))/);
     expect(rule, '還留著重排前的純黑').not.toMatch(/background:\s*#0a0a0a/);
   });
 
   it('🔴 N°06 授權代理 = 淺灰白 --ed-c-paper-2(不是純白)', () => {
-    const rule = CSS.match(/\.ed-brands\s*\{[^}]*\}/)?.[0] ?? '';
-    expect(rule, '找不到 .ed-brands 規則').not.toBe('');
+    // ⚠️ D5f 把這一區換成磚牆 ⇒ 錨點由 `.ed-brands` 改 `.b-brands`。OD 的**基礎層**這一格
+    //    是 `var(--c-surface)`(純白),淺灰白來自套用層(:695)—— 折成一層時挑錯邊
+    //    正好會退回純白、而「節奏」那條肉眼才看得出來,故這條守的是折疊結果。
+    const rule = CSS.match(/\.b-brands\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(rule, '找不到 .b-brands 規則').not.toBe('');
     expect(rule, '授權代理不是淺灰白').toMatch(/background:\s*var\(--ed-c-paper-2\)/);
     // 前提:這個 token 真的有定義,否則 var() 會 fallback 成透明 = 看起來像白、守門卻綠
     expect(CSS, '--ed-c-paper-2 沒有定義 ⇒ var() 會落空').toMatch(/--ed-c-paper-2:\s*#[0-9a-f]{3,8}/i);
@@ -641,6 +1082,277 @@ describe('首頁 CSS · 品牌清單(D3c-2 兩型別列)', () => {
       const links = CSS.match(/\.ed-footer-cols a,[\s\S]*?\}/)?.[0] ?? '';
       expect(links, '找不到 .ed-footer-cols 連結規則').not.toBe('');
       expect(links, '頁尾連結字級不是 14px').toMatch(/font-size:\s*14px/);
+    });
+  });
+
+  // ══ D-136 清尾片(2026-08-06):深對照報告點名的兩條 CSS 漏搬 ══
+  describe('D-136 清尾片', () => {
+    // 🔴 三顆服務 icon 的描邊規格。與 `.b-cat-icon svg` 是同一族的同一個坑:
+    //    本 repo 沒有 OD 那條全域 `svg{}`,規格漏一項就退回瀏覽器預設 ——
+    //    fill 退成黑色實心(徽章變一坨黑塊)、端點/轉角退成方頭 miter(緞帶尖角、扳手開口變方的)。
+    //    N°03 的 R1 實錘:真瀏覽器只量了 fill 與線寬、沒量端點兩項 = 量錯東西。
+    it('🔴 `.b-stat-icon` 34×34 描邊圓框,svg 五項描邊規格一項不缺', () => {
+      const box = topLevelCss().replace(/\s+/g, ' ').match(/\.b-stat-icon\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(box, '找不到 .b-stat-icon 規則 ⇒ 三顆 icon 沒有框、貼著文字浮著').not.toBe('');
+      expect(box, '尺寸不是 OD 的 34px').toMatch(/width:\s*34px/);
+      expect(box, '尺寸不是 OD 的 34px').toMatch(/height:\s*34px/);
+      // 深底上的框線與 icon 色都是低透明度白;掉了框線 = 圓框消失,掉了 color = icon 用繼承的純白、過亮
+      expect(box, '沒有框線 ⇒ 圓框整個不見(icon 直接浮在黑底上)').toMatch(/border:\s*1px solid rgba\(255,255,255,0?\.22\)/);
+      expect(box, 'icon 色不是 OD 的 rgba(255,255,255,.9)').toMatch(/color:\s*rgba\(255,255,255,0?\.9\)/);
+
+      const svg = topLevelCss().replace(/\s+/g, ' ').match(/\.b-stat-icon svg\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(svg, '找不到 .b-stat-icon svg 規則 ⇒ 五項規格全退回瀏覽器預設').not.toBe('');
+      expect(svg, 'svg 尺寸不是 OD 的 18px').toMatch(/width:\s*18px/);
+      expect(svg, '沒有 fill:none ⇒ 線圖會變成實心黑塊').toMatch(/fill:\s*none/);
+      expect(svg, '沒有 stroke:currentColor ⇒ 線條不跟著 .b-stat-icon 的色走').toMatch(/stroke:\s*currentColor/);
+      expect(svg, '線寬不是 OD 對小尺寸 icon 的補重值 1.75').toMatch(/stroke-width:\s*1\.75/);
+      expect(svg, '端點沒有圓頭 ⇒ 徽章緞帶與扳手開口的尖角變方頭').toMatch(/stroke-linecap:\s*round/);
+      expect(svg, '轉角沒有圓角 ⇒ 同上').toMatch(/stroke-linejoin:\s*round/);
+    });
+
+    // 🔴 選車器格子的鍵盤焦點框(OD 明文的 WCAG 1.4.11 修正)。
+    //    ⚠️ 它擋不住什麼:文字層只證「規則在、形狀對」,證不了 cascade 真的贏
+    //    ——「格子裡的 input 自帶 outline:none 又蓋回去」這種只有真瀏覽器 Tab 一輪才看得到。
+    it('🔴 `.ed-finder-slot:focus-within` 焦點框存在、有顏色、且 offset 是負的', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-finder-slot:focus-within\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到焦點框規則 ⇒ 鍵盤使用者選車時看不出焦點在哪一格').not.toBe('');
+      // 「有 outline 宣告」不夠:`outline: none` 也是一條 outline 宣告,而那正是要防的那件事
+      expect(rule, 'outline 被寫成 none / 0 ⇒ 等於沒修').not.toMatch(/outline:\s*(none|0)\b/);
+      expect(rule, '焦點框不是 2px 實線').toMatch(/outline:\s*2px solid/);
+      // 🔴 顏色也要釘:退成站台預設的近黑 `--c-text` 的話,框仍然「存在」但在白格線上幾乎看不見
+      //    (`brand-page.css` 那組焦點框事故就是「畫出來了但看不見」)。
+      //    ⚠️ 已知語意耦合(R1 nit):實作借用了 hover 那顆 `--ed-c-action-hover` 當焦點色
+      //       —— 兩者在 OD 同值(`--c-ember-ink` #c4470c),但日後只改 hover 會讓焦點框跟著位移。
+      //       token 的**值**另有守門(本檔「熔橘三顆」那條),此處只釘「焦點框吃的是熔橘那族、不是墨黑」。
+      expect(rule, '焦點框沒吃熔橘動作色 ⇒ 退回近黑預設、壓在格線上看不出來')
+        .toMatch(/outline:\s*2px solid var\(--ed-c-action(-hover)?\)/);
+      // 🔴 負 offset 是必要的、不是品味:三格是共邊框線的格線,正 offset 會把框畫到隔壁格的線上
+      const offset = rule.match(/outline-offset:\s*(-?\d+)px/)?.[1];
+      expect(offset, '沒有寫 outline-offset ⇒ 吃站台預設的正 offset,框會壓到隔壁格').toBeDefined();
+      expect(Number(offset), `outline-offset 是 ${offset}px(不是負值)⇒ 框畫在格線外`).toBeLessThan(0);
+    });
+  });
+
+  describe('🔴 N°04 版面壓縮片:N°04 服務版面壓縮(OD `:438-464` 逐字)', () => {
+    it('`.ed-statement` padding 是砍半後的 56px 0 60px,不是舊的 140px 0', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement 規則').not.toBe('');
+      expect(rule, 'padding 還是舊的 140px 0 ⇒ 壓縮沒生效').toMatch(/padding:\s*56px 0 60px/);
+      expect(rule, 'padding 不該再出現舊值 140px').not.toMatch(/140px/);
+    });
+
+    it('`.b-statement-top` 存在且是 flex(標題與 CTA 併同一列)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-statement-top\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .b-statement-top ⇒ 標題與 CTA 還在各自佔一整段').not.toBe('');
+      expect(rule, '不是 flex ⇒ 併不成同一列').toMatch(/display:\s*flex/);
+    });
+
+    it('`.b-statement-col-head` 存在且是 baseline 對齊的 flex(編號與 h3 併同一行)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.b-statement-col-head\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .b-statement-col-head ⇒ 編號還是獨佔一行').not.toBe('');
+      expect(rule, '沒有 display:flex ⇒ 就算有 align-items:baseline 也不會生效,編號與 h3 各佔一行(本片要修的缺陷本身)').toMatch(/display:\s*flex/);
+      expect(rule, '沒有 align-items:baseline ⇒ 編號與標題文字基線對不齊').toMatch(/align-items:\s*baseline/);
+    });
+
+    it('`.ed-statement-grid` 沒有 border-bottom(OD 只留 border-top)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement-grid\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement-grid 規則').not.toBe('');
+      expect(rule, 'border-bottom 沒刪乾淨 ⇒ 三欄下面多一條不該有的線').not.toMatch(/border-bottom/);
+      expect(rule, 'border-top 不見了 ⇒ OD 這條要留著').toMatch(/border-top:\s*1px solid/);
+    });
+
+    it('單欄斷點在 700、不在 900(平板 768 仍撐三欄)', () => {
+      const at900 = mediaBlock('(max-width: 900px)').replace(/\s+/g, ' ');
+      const at700 = mediaBlock('(max-width: 700px)').replace(/\s+/g, ' ');
+      // 前提斷言(R1 nit):把 `@media (max-width: 900px) {` 手改成 `@media (max-width:900px) {`
+      // (合法 CSS、只是少一個空格)會讓 mediaBlock() 的字面比對落空、回傳空字串,下面的負向
+      // 斷言就會恆真通過。先證明真的抓到了 900 區塊。
+      expect(at900, '900 斷點抓到空字串 ⇒ mediaBlock() 沒抓到區塊,下面的負向斷言恆真').toContain('.ed-statement');
+      // 逐條掃(R1 nit):原本只取第一個 .ed-statement-grid,日後在 900 區塊較後面新增一條
+      // 壓單欄的規則會被漏檢。改用 matchAll 逐條斷言。
+      const gridIn900 = [...at900.matchAll(/\.ed-statement-grid\s*\{[^}]*\}/g)].map((m) => m[0]);
+      const gridIn700 = [...at700.matchAll(/\.ed-statement-grid\s*\{[^}]*\}/g)].map((m) => m[0]);
+      expect(gridIn900.length, '900 斷點裡找不到任何 .ed-statement-grid 規則 ⇒ 下面迴圈是空迴圈,負向斷言恆真').toBeGreaterThan(0);
+      expect(gridIn700.length, '700 斷點裡找不到任何 .ed-statement-grid 規則').toBeGreaterThan(0);
+      for (const rule of gridIn900) {
+        expect(rule, '900 斷點裡 .ed-statement-grid 不該壓成單欄 ⇒ 平板還撐得住三欄')
+          .not.toMatch(/grid-template-columns:\s*1fr\s*;/);
+      }
+      for (const rule of gridIn700) {
+        expect(rule, '700 斷點裡找不到單欄 ⇒ 手機沒有壓成單欄')
+          .toMatch(/grid-template-columns:\s*1fr\s*;/);
+      }
+    });
+
+    it('🔴 `.ed-statement-h em` 照 OD 補齊字體(2026-08-06:token 升 :root 片)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement-h em\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement-h em 規則').not.toBe('');
+      expect(rule, '沒有 font-family: var(--f-serif) ⇒ 沒吃到升上 :root 的字體 token').toMatch(/font-family:\s*var\(--f-serif\)/);
+      expect(rule, '沒有 font-style: italic').toMatch(/font-style:\s*italic/);
+      expect(rule, 'color 還是舊值 0.62,OD 字面是 0.64').toMatch(/color:\s*rgba\(255,\s*255,\s*255,\s*0\.64\)/);
+      expect(rule, '還留著舊值 0.62').not.toMatch(/0\.62/);
+    });
+
+    it('🔴 `.ed-statement` background 吃 var(--c-graphite) 且帶 fallback', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-statement\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-statement 規則').not.toBe('');
+      const bg = rule.match(/background:\s*([^;]+);/)?.[1] ?? '';
+      expect(bg, 'background 沒有吃 var(--c-graphite)').toMatch(/^var\(--c-graphite/);
+      // 🔴 R1 nit:只驗 toContain(',') 的話 var(--c-graphite, #000) 照樣綠(fallback 值錯也放行)。
+      // 釘死字面值 #202225(石墨,本檔既有慣例)。
+      expect(bg, 'fallback 不是 #202225 ⇒ token 讀不到時會退回錯的顏色').toMatch(/^var\(--c-graphite,\s*#202225\)$/);
+    });
+
+    it('🔴 `.ed-page em` 照升級後的 token 走(不是硬寫的字面值,2026-08-06 token 升 :root 片)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-page em\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-page em 規則').not.toBe('');
+      expect(rule, '沒有 font-family: var(--f-serif) ⇒ 沒吃到升上 :root 的字體 token').toMatch(/font-family:\s*var\(--f-serif\)/);
+      expect(rule, '還留著硬寫的字面值 ⇒ --f-serif 這顆值的第三份拷貝又漂走了').not.toMatch(/"Noto Serif TC"/);
+    });
+  });
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 N°05 本月聚焦版面壓縮片(2026-08-06;OD 逐字段落標題 `963px 砍半`)。
+  //    本組只釘「版面/尺寸」類的值(padding/grid/字級/meta 條/圖片比例)。
+  //    🔴 **2026-08-07 更新:中文排版那組的緩辦已解除。**
+  //    本組原本除了版面值,還「反過來釘住」中文排版的**舊**值(標題 line-height/letter-spacing、
+  //    內文 line-height/max-width),擋的是「有人做版面壓縮時順手把那組也改了」;
+  //    抬頭當時寫死解除條件:「排到中文排版片時要跟著改成新值,那時看到轉紅是正常訊號」。
+  //    ⇒ 排版六值片已兌現:下面兩條測試現在釘的是 **OD §6-1 的新值**(共五條斷言,
+  //    含新增的 `text-wrap: balance`),並各加一條「舊值不得復辟」的反面斷言。
+  //    歷史與「為什麼當初刻意不搬」留在 `home.css`(grep `排版六值片`)。
+  // ══════════════════════════════════════════════════════════════════════════
+  describe('🔴 N°05 本月聚焦版面壓縮片:963px 砍半(OD 逐字段落標題 `963px 砍半`)', () => {
+    it('`.ed-feature` padding 是砍半後的 52px 0 56px,不是舊的 140px 0;OD 逐字第三條 border-top 也要在', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature 規則').not.toBe('');
+      expect(rule, 'padding 還是舊的直式長文版 140px 0 ⇒ 壓縮沒生效').toMatch(/padding:\s*52px 0 56px/);
+      expect(rule, 'padding 不該再出現舊值 140px').not.toMatch(/140px/);
+      expect(rule, '缺少 OD `.b-feature` 逐字第三條 border-top ⇒ N°05 上緣少一條區塊分隔線').toMatch(/border-top:\s*1px solid var\(--ed-c-rule\)/);
+    });
+
+    it('`.ed-feature-inner` gap 壓成 48px(不是舊的 80px),欄比例維持 OD 統一版面層的 5fr 7fr', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-inner\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-inner 規則').not.toBe('');
+      expect(rule, 'gap 還是舊值 80px').toMatch(/gap:\s*48px/);
+      expect(rule, 'gap 不該再出現舊值 80px').not.toMatch(/80px/);
+      expect(rule, '欄比例不是 OD 統一版面層生效值 5fr 7fr').toMatch(/grid-template-columns:\s*5fr 7fr/);
+    });
+
+    it('`.ed-feature-media` aspect-ratio 是 16/11(不是砍半前的 7/8)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-media\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-media 規則').not.toBe('');
+      expect(rule, 'aspect-ratio 不是 16/11 ⇒ 圖還是直式,沒壓成橫向').toMatch(/aspect-ratio:\s*16\s*\/\s*11/);
+      expect(rule, 'aspect-ratio 不該再出現舊值 7/8').not.toMatch(/7\s*\/\s*8/);
+    });
+
+    it('`.ed-feature-num` / `.ed-feature-kicker` margin-bottom 砍成 12px(不是舊的 18px/22px)', () => {
+      const num = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-num\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(num, '找不到 .ed-feature-num 規則').not.toBe('');
+      expect(num, 'margin-bottom 還是舊值 18px ⇒ 壓縮沒生效').toMatch(/margin-bottom:\s*12px/);
+      const kicker = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-kicker\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(kicker, '找不到 .ed-feature-kicker 規則').not.toBe('');
+      expect(kicker, 'margin-bottom 還是舊值 22px ⇒ 壓縮沒生效').toMatch(/margin-bottom:\s*12px/);
+    });
+
+    it('`.ed-feature-title` 字級與留白砍半(clamp(30px,3.2vw,46px) / margin 0 0 18px)+ 中文排版三值照 OD §6-1(2026-08-07 解除緩辦)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-title\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-title 規則').not.toBe('');
+      expect(rule, 'font-size 還是舊的巨大字級 clamp(48px,5.4vw,80px)').toMatch(/font-size:\s*clamp\(30px,\s*3\.2vw,\s*46px\)/);
+      expect(rule, 'margin 還是舊值 0 0 32px').toMatch(/margin:\s*0 0 18px/);
+      // 🔴 **2026-08-07 翻向**:這兩顆原本釘的是「緩辦中的舊值」(0.98 / -0.02em),
+      //    抬頭寫明「排到中文排版片時要跟著改成新值,那時看到轉紅是正常訊號」——**今天兌現**。
+      //    現在釘的是 OD `N05-FOCUS-HANDOFF.md` §6-1 的新值。歷史留在 `home.css` 那段申報。
+      expect(rule, 'line-height 沒搬到 OD §6-1 的 1.2 ⇒ 中文標題折兩行會黏住').toMatch(/line-height:\s*1\.2/);
+      expect(rule, 'letter-spacing 沒搬到 -0.01em ⇒ 負字距套方塊字會互相擠').toMatch(/letter-spacing:\s*-0\.01em/);
+      expect(rule, '缺 text-wrap: balance ⇒ 第二行可能只吊三個字(§6-1 第三列)').toMatch(/text-wrap:\s*balance/);
+      // 反面:舊值不得復辟(這一族在本 repo 出過「搬一半」的事)。
+      expect(rule, 'line-height 又回到緩辦期的 0.98').not.toMatch(/line-height:\s*0\.98/);
+      expect(rule, 'letter-spacing 又回到緩辦期的 -0.02em').not.toMatch(/letter-spacing:\s*-0\.02em/);
+    });
+
+    it('`.ed-feature-body` 字級與留白砍半(font-size 15px / margin 0 0 24px)+ 中文排版兩值照 OD §6-1(2026-08-07 解除緩辦)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-body\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-body 規則').not.toBe('');
+      expect(rule, 'font-size 還是舊值 16px').toMatch(/font-size:\s*15px/);
+      expect(rule, 'margin 還是舊值 0 0 40px').toMatch(/margin:\s*0 0 24px/);
+      // 🔴 **2026-08-07 翻向**(同上,解除條件兌現)。
+      expect(rule, 'line-height 沒搬到 OD §6-1 的 1.85 ⇒ 中文行距不夠開').toMatch(/line-height:\s*1\.85/);
+      expect(rule, 'max-width 沒搬到 30em ⇒ `ch` 量的是拉丁字元寬,中文會折成細長條').toMatch(/max-width:\s*30em/);
+      // 反面:`ch` 不得回來(這是本組最容易被改回去的一顆 —— 兩者長得都像「30 幾個字」)。
+      expect(rule, 'max-width 又用回 ch 單位 ⇒ 中文下不成比例').not.toMatch(/max-width:\s*[\d.]+ch/);
+    });
+
+    // 🔴 審查抓到的潛在缺口:上面五條全走 `topLevelCss()`(它**刻意剝掉 @media**)
+    //    ⇒ 把 `line-height: 0.98` 塞進某個 `@media` 裡的 `.ed-feature-title`,五條照樣全綠、
+    //    而窄幅就復辟了舊值。這正是本檔開頭記過的假綠形狀(「別用 [\s\S]*? 跨 @media」那條)。
+    //    現況:@media 內零 `.ed-feature-title/-body` 覆寫(已查)⇒ 這條是把現況釘住。
+    it('🔴 中文排版那五顆不得躲進 @media 復辟舊值(五條主斷言都剝掉 @media、看不到那裡)', () => {
+      // 🔴 不能用 `CSS.replace(topLevelCss(), '')` 減掉頂層 —— `topLevelCss()` 回的是**重組後的
+      //    字串**、不是 `CSS` 的字面子字串,`replace` 減不掉,結果會拿基礎規則來比、假紅。
+      //    (我第一版就是這樣,守門紅了才發現紅的是自己。)⇒ 改用大括號走訪器只取 @media 內容。
+      const mediaBodies: string[] = [];
+      for (let k = CSS.indexOf('@media'); k > -1; k = CSS.indexOf('@media', k + 6)) {
+        const open = CSS.indexOf('{', k);
+        if (open < 0) break;
+        let depth = 0;
+        for (let i = open; i < CSS.length; i += 1) {
+          if (CSS[i] === '{') depth += 1;
+          else if (CSS[i] === '}') {
+            depth -= 1;
+            if (depth === 0) { mediaBodies.push(CSS.slice(open + 1, i)); break; }
+          }
+        }
+      }
+      expect(mediaBodies.length, '一個 @media 區塊都沒切出來 ⇒ 本條前提失效').toBeGreaterThan(3);
+      const inMedia = mediaBodies.join('\n');
+      for (const sel of ['.ed-feature-title', '.ed-feature-body']) {
+        const rules = [...inMedia.matchAll(new RegExp(`\\${sel}\\s*\\{([^}]*)\\}`, 'g'))].map((m) => m[1]!);
+        for (const body of rules) {
+          expect(
+            body,
+            `@media 內的 ${sel} 覆寫了 line-height ⇒ 主斷言看不到、窄幅會是另一個值`,
+          ).not.toMatch(/line-height:/);
+          expect(
+            body,
+            `@media 內的 ${sel} 覆寫了 letter-spacing / max-width / text-wrap ⇒ 同上`,
+          ).not.toMatch(/letter-spacing:|max-width:|text-wrap:/);
+        }
+      }
+    });
+
+    it('`.ed-feature-meta` 從留白較寬的三欄條壓成單行資料條(gap 0 26px / padding 16px 0 / margin-bottom 18px)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-meta\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-meta 規則').not.toBe('');
+      expect(rule, 'gap 沒有壓成單行資料條的 0 26px').toMatch(/gap:\s*0 26px/);
+      expect(rule, 'padding 還是舊值 24px 0').toMatch(/padding:\s*16px 0/);
+      expect(rule, 'margin-bottom 還是舊值 36px').toMatch(/margin-bottom:\s*18px/);
+    });
+
+    it('`.ed-feature-meta-v` 字級提到 15px / 600 / line-height 1.3(OD 逐字)', () => {
+      const rule = topLevelCss().replace(/\s+/g, ' ').match(/\.ed-feature-meta-v\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(rule, '找不到 .ed-feature-meta-v 規則').not.toBe('');
+      expect(rule, 'font-size 還是舊值 14px').toMatch(/font-size:\s*15px/);
+      expect(rule, 'font-weight 還是舊值 500').toMatch(/font-weight:\s*600/);
+      expect(rule, '沒有補 line-height:1.3').toMatch(/line-height:\s*1\.3/);
+    });
+
+    it('1000px 斷點跟著壓(padding 40px 0 44px / gap 28px / meta 補單欄 / 圖比例 16/10)', () => {
+      const at1000 = mediaBlock('(max-width: 1000px)').replace(/\s+/g, ' ');
+      expect(at1000, '1000 斷點抓到空字串 ⇒ mediaBlock() 沒抓到區塊,下面斷言恆真').toContain('.ed-feature');
+      const feature = at1000.match(/\.ed-feature\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(feature, '1000 斷點找不到 .ed-feature 規則').not.toBe('');
+      expect(feature, 'padding 還是舊值 80px 0').toMatch(/padding:\s*40px 0 44px/);
+      const inner = at1000.match(/\.ed-feature-inner\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(inner, '1000 斷點找不到 .ed-feature-inner 規則').not.toBe('');
+      expect(inner, 'gap 還是舊值 40px').toMatch(/gap:\s*28px/);
+      const meta = at1000.match(/\.ed-feature-meta\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(meta, '1000 斷點缺少 .ed-feature-meta 單欄覆寫 ⇒ 手機/平板資料條還是三欄擠成一團').not.toBe('');
+      expect(meta, '沒有壓成單欄').toMatch(/grid-template-columns:\s*1fr/);
+      expect(meta, 'gap 沒有補 16px').toMatch(/gap:\s*16px/);
+      const media = at1000.match(/\.ed-feature-media\s*\{[^}]*\}/)?.[0] ?? '';
+      expect(media, '1000 斷點找不到 .ed-feature-media 規則').not.toBe('');
+      expect(media, 'aspect-ratio 不是 16/10').toMatch(/aspect-ratio:\s*16\/10/);
     });
   });
 });

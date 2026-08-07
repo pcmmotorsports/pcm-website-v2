@@ -171,8 +171,19 @@ cascade 與這兩條既有斷言的切片邊界。
 ⇒ **≤900px**:buybar(z=100)壓在 TabBar(z=40)上面。buybar 高度由 `padding 12+12` + 內容(10px 眉標 + 22px 價 + 2px)推算 ≈ **60px 上下,比 TabBar 的 64px 矮** ⇒ 幾何上 TabBar 有機會從 buybar 上緣**露出幾個 px**,body 也多留了 ~10px 空。
 ⇒ **901–1079px**:TabBar 顯示、buybar `display:none`、桌機動作列 `.co-actions` 顯示 ⇒ 這一段沒問題。
 
-**設計稿那邊**:`checkout-page.html` **整頁沒有 TabBar 的 markup**(grep 零命中),
-`pcm-shell.css:112` 的 TabBar 規則與真站字面同(同 z-index 40)⇒ 設計端是「結帳頁沒有 TabBar」的世界觀。
+**設計稿那邊**:~~`checkout-page.html` **整頁沒有 TabBar 的 markup**(grep 零命中),
+`pcm-shell.css:112` 的 TabBar 規則與真站字面同(同 z-index 40)⇒ 設計端是「結帳頁沒有 TabBar」的世界觀。~~
+
+> 🔴🔴 **2026-08-06 更正(R3 對抗審查抓到,已親自複驗)**:上面那段**整段是錯的**。
+> 我用 camelCase `TabBar` 做**大小寫敏感** grep,漏掉小寫的 `mobile-tabbar`。
+> 實際上 `checkout-page.html:123-128` 有**完整的五顆 tab**、購物車那顆還是 `is-active`,
+> 而且與 `:87` 的 `.co-mobile-buybar` **同時存在於同一頁**。
+> ⇒ 設計端的答案是「**buybar 蓋在 TabBar 上**」,不是「結帳頁不放 TabBar」。
+> Sean 的 **Q5=A 是在這個假前提上拍的**,已回報並重新出題(第5批 STOP 的 Q6)。
+> ✅ **2026-08-06 Q6=A 覆核結果:維持藏起來**,但理由改成產品選擇 ——「結帳流程中不給岔出去的入口」,
+> 與設計稿脫鉤。⇒ 本站在這一點上是**知情偏離設計稿**,不是對齊;程式碼註解已同步改寫。
+> 教訓與 memory `feedback_assert-scope-only-after-reading-source-file` 同型:
+> 斷言「查無」之前,grep 要先窮舉大小寫與命名變體(`TabBar` / `tabbar` / `tab-bar`)。
 
 **這題我不自己決定**:要不要把 `/checkout` 加進 `MobileTabBar` 的 hidden 判定,
 是「結帳流程中要不要保留全站導覽」的產品選擇(離開結帳 vs 不給離開)。**記在 STOP 留白。**

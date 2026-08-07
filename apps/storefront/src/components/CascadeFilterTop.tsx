@@ -86,8 +86,16 @@ export function CascadeFilterTop({
       <div className="cft-inner">
         <div className="cft-cascade">
           <span className="cft-icon" aria-hidden="true">
+            {/* 原為汽車 path,2026-08-07 Sean 拍板 Q2=A:機車零件站的選車/愛車圖示統一用重機;
+                path 複用 MobileTabBar「找車」那支。strokeWidth="1.8" 是本區既有慣例、不動,
+                只用 <g> 承接讓四個子圖形共用同一組線條屬性。 */}
             <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5" />
+              <g strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+                <circle cx="6" cy="17" r="3" />
+                <circle cx="18" cy="17" r="3" />
+                <path d="M6 17h8l-2-6h-3L6 17Z" />
+                <path d="m14 11 1-3h3" />
+              </g>
             </svg>
           </span>
           <span className="cft-picker-title">

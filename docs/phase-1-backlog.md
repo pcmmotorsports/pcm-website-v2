@@ -8455,6 +8455,10 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   - **`.bp-page` scope 上機制、不靠人記**:整頁色票(`--cat-*` / `--c-sunken` / 全套灰階)
     都掛在 `.bp-page`,而那個 class 由路由**手掛**;漏掛時只有兩處有 fallback(`--c-graphite`
     與 chip 的 `--c-border-control`),其餘整組沉默降級、沒有任何東西會紅。
+    🔶 **2026-08-06 更正**:`--c-graphite` 已升上 `tokens.css` 的 `:root`(首頁 N°04 片)——
+    `.bp-page` 漏掛時 `var(--c-graphite, …)` 現在會先吃到繼承自 `:root` 的同值,不再是「沉默
+    降級成看不見」;明寫的 fallback 值變成第二層防線,不是唯一防線。`--cat-*` / `--c-sunken` /
+    `--c-border-control` 等其餘 token 未升級,原本描述的風險對它們仍成立、機制建議不變。
     ⇒ 機制優先律:抽一個 `BrandPageRoot` wrapper 讓 scope 跟元件走,或補一條 route-level
     斷言「route 輸出的 HTML 含 `.bp-page`」。
 - **不修會痛在:**
@@ -8972,8 +8976,8 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #326. 🧰 worktree / 乾淨環境跑 root `pnpm typecheck` 必紅 — root 未宣告 typescript
 
-- **狀態:** ⏳ 待執行(A 窗片 2 發現;2026-08-05;動 root package.json=鐵則 12④ 受審面)
-- **現況**:root script `tsc -p tsconfig.scripts.json --noEmit` 依賴 root `node_modules/.bin/tsc`,
+- **狀態:** ✅ 已修(2026-08-06 主視窗;root `package.json` 宣告 `"typescript": "catalog:"`(=5.9.3),`.bin/tsc` 恢復、`pnpm typecheck` 全綠;codex 對抗審查照 12④ 受審面標記跑訖。E 窗+B 窗同日各撞一次是催修主因;worktree 補救=各自 `pnpm install` 帶入)
+- **原現況**:root script `tsc -p tsconfig.scripts.json --noEmit` 依賴 root `node_modules/.bin/tsc`,
   但 root `package.json` 未宣告 typescript;主庫能跑是因為殘留 2026-07-13 的舊 binary。
   worktree `pnpm install --frozen-lockfile` 回「Already up to date」不會補 ⇒ 任何乾淨 install
   環境(含未來 CI)跑 root typecheck 都紅在最後一步。
@@ -9055,18 +9059,21 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 
 ### #332. 🧹 九碼退場殘餘死碼收尾片 — 三筆「無主」死碼集中收,走 plan
 
-- **狀態:** ⏳ 待執行(2026-08-06 E 線收割時立案;A11 全鏈完成後排)
-- **內容(三筆,一片收完)**:
-  ① `packages/domain/src/order/types.ts` 的 `WORKFLOW_STATUS_CODE_RE` export——A9w3 起全 repo 零
-  consumer,A9w4c 前半明文未處置(兩處註解已改指本條);合併它與 `workflow-form.ts` 的同字面
-  local RE 一併評。
-  ② `settings-result-banner.tsx` 的預設 `MESSAGES`(order-statuses CRUD 詞彙)——A9w2 刪掉唯一
-  吃預設值的頁面後成死碼;codex A9w4b 關卡2 R2 已同意降 nit 收此處。
-  ③ 兩支 result-banner 的 `Object.hasOwn` 修法(memory `reference_js-index-lookup-hits-prototype-chain`)
-  ——Sean 2026-08-02 拍板 B 逐字「要再修的話,兩支元件要一起、並且走 plan」;`messages` 是否轉必填
-  (props 介面改動=鐵則 12⑥)在該 plan 一起裁。
-- **不修會痛在哪**:死詞彙是「看起來有守門」的假安心(下個人以為預設文案有人維護);
-  `__proto__` 族查詢參數在五個頁面仍畫得出空 banner 框;零 consumer export 誘導未來誤用。
+- **狀態:** ✅ 三筆全清(#332-1 純刪死碼;#332-2 兩支 banner 硬化 + 死詞彙清除,Sean 2026-08-06 拍 plan §6 Q1=A / Q2=A)。plan=`docs/specs/2026-08-06-result-banner-cleanup-plan.md`(2026-08-06 落檔;E 裁定三筆均不依賴 A9w4a/c,~~A11 全鏈完成後排~~ 敘事序非依賴序)
+- **內容(三筆,拆 #332-1/#332-2 兩片)**:
+  ① ✅ **已清(`85f12c1`,dev `e635bf5`)**:`WORKFLOW_STATUS_CODE_RE` export 與過期註解純刪 14 行,
+  Δ 對帳 0/0、全樹 grep 剩 2 處歷史敘事註解(=plan M2 預期字面)。~~合併它與 `workflow-form.ts` 的同字面
+  local RE 一併評~~ → plan §2.3 裁定**不合併**(三份 RE 對齊三個不同 DB 契約,且 `workflow-form.ts:29` 已排定隨 A9w4c 後半整檔刪除)。
+  ② ✅ **已清(#332-2)**:`settings-result-banner.tsx` 的預設 `MESSAGES`(order-statuses CRUD 詞彙)
+  ——A9w2 刪掉唯一吃預設值的頁面後成死碼;整份刪除,`messages` 依 Sean 2026-08-06 拍板 **Q2=A**
+  轉必填(漏帶=編譯期報錯,不再靜默套一份沒人維護的詞彙)。
+  ③ ✅ **已清(#332-2)**:兩支 result-banner 的 `Object.hasOwn` 修法
+  (memory `reference_js-index-lookup-hits-prototype-chain`)——Sean 2026-08-02 拍板 B 逐字
+  「要再修的話,兩支元件要一起、並且走 plan」,2026-08-06 拍板 **Q1=A** 依該 plan 兩支一起修;
+  五個原型鏈向量逐字入測,兩支各自釘在自己的元件層測試檔。
+- **當初不修會痛在哪(留存)**:死詞彙是「看起來有守門」的假安心(下個人以為預設文案有人維護);
+  `__proto__` 族查詢參數在 **6 個**頁面畫得出空 banner 框(A9w2 前為 7 個;08-02 事故當下記為 5 個,
+  之後 RW4 退款異常清單 +1、S3b 供應商頁 +1);零 consumer export 誘導未來誤用。
 
 ### #333. 📐 TabBar 讓位 padding 與「藏 TabBar」不同步 — 藏的頁面底部留 70px 死空間
 
@@ -9077,3 +9084,31 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   ——一處守門取代逐頁覆寫;動 `MobileTabBar.tsx`+殼層 CSS,走標準片+完整 pnpm test。
 - **不修會痛在哪**:每新增一個藏 TabBar 的頁面就重演一次「底部神祕空白」,深色頁直接露白條,
   三綠與單元測試全盲、只有真瀏覽器看得到。
+
+### #334. 🎲 CheckoutView.test.tsx 非決定性 1 紅 — 同日兩窗各目擊一次、皆無法重現
+
+- **狀態:** ⏳ 待執行(2026-08-06 立案;E 窗與 D 窗同日各見一次全套 1 failed)
+- **現況**:E 窗指認失敗檔=`apps/storefront/src/components/CheckoutView.test.tsx`(單檔重跑 61/61 綠、全套重跑兩次全綠);D 窗同日也見一次 1 failed 但沒抓到測試名。兩窗當時的改動都與 storefront 結帳零交集。
+- **修法方向**:下一個遇到的人先把失敗測試名記下來;對照 #330(note-compose-form confirm 閘懸案)同族=「多次 submit/非同步 race」候選;抓到簽名前不動測試。
+- **不修會痛在哪**:非決定性紅會讓「全套 N 綠」失去收割對帳的意義——每次紅都要人工判斷 flake 還是真回歸,判斷疲勞後遲早把真紅當 flake 放行。
+
+### #335. 🧬 auth-error.ts 原型鏈查表 — 全 repo 最後一筆同型命中(當前不可觀察)
+
+- **狀態:** ⏳ 待執行(2026-08-06 E 線 packages 盤點發現;併進下一個動 `packages/adapters/supabase/` 的片、不單開)
+- **現況**:`packages/adapters/src/supabase/mappers/auth-error.ts:35` `SUPABASE_CODE_MAP[error.code] ?? 'unknown'`——`??` 只擋 null/undefined,擋不住 `__proto__` 等原型鏈 truthy 值。**今天不可觀察**:兩個消費端(`login/actions.ts:65`、`register/actions.ts:68`)走 `authErrorCopy` 的 `switch`+`default`,非預期 code 一律落 default。盤點全文=`docs/reviews/2026-08-06-packages-index-lookup-audit.md`(201 檔母數、含四類未掃形狀)。
+- **修法**:照 repo 唯一主動防禦範本 `ResendEmailSenderAdapter.ts:110-117`(ReadonlyMap+六鍵負測)。
+- **不修會痛在哪**:型別謊言+陷阱——哪天有人把消費端 switch 改成查表就現形;修一行加一測,順手片成本。
+
+### #336. 📧 M-4a E4「order_shipped」通知觸發點隨 A9w4a 拆除 — 重啟時需重定觸發設計
+
+- **狀態:** ⏳ 待執行(2026-08-06 A9w4a code-reviewer 抓到活的下游依賴;M-4a 通知線=暫緩非作廢)
+- **現況**:`2026-07-16-m4a-email-notify-plan.md:257/:363` 的 E4 觸發點逐字掛在 `updateOrderItemWorkflowAction`——該 action 已於 A9w4a(`01478a2`)拆除;plan 兩處已補紅字。殘留的 `admin_update_order_item_workflow` RPC 與 port 方法都在退場鏈上(A9w4c 後半/A9v),**不宜改掛**。
+- **修法方向**:E4 開工時重定觸發點——候選=出貨線 B2 的 `shipped_at` 寫入路徑(S2 之後才存在);與 #334 無關。
+- **不修會痛在哪**:通知線解凍時照舊 plan 施工會掛到不存在的 action 上,或更糟——把觸發器掛回正在退場的 RPC,擋住 A9v。
+
+### #337. 🧪 首頁分類區「進榜分類缺 icon」E2E 轉紅 — 需真資料環境
+
+- **狀態:** ⏳ 待執行(2026-08-06 H3 補片立案;D worktree 無 DB 做不了)
+- **現況**:單元測試對「真目錄前 11 名都有 icon」結構上恆真(categories 是 fixture 餵的)⇒ 刻意不掛;現行防線=執行期告警(上榜查無 icon 即 server log 含分類名+件數,自身有正反測+3 突變紅)。告警擋不住:首頁快取非即時/沒人看 log 等於沒叫/不分新分類與改名。
+- **修法方向**:接真 DB 的 E2E(對 production build 抓 server log 或渲染斷言);與 #288(E2E 基建)同族可併評。
+- **不修會痛在哪**:分類改名或新分類竄榜時,首頁那一格靜默變純文字 chip,只有翻 log 才知道。

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // VehicleSelect smoke — V-1b 可打字三層 combobox(prefix 過濾/鍵盤選/blur 唯一精確命中/清空連動)。
 
-import { useReducer } from 'react';
+import { useReducer, useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import {
@@ -24,7 +24,16 @@ const BRANDS: MockMotoBrand[] = [
       { id: 'mt-09-sp', name: 'MT-09 SP', years: [2021, 2022] },
     ],
   },
-  { id: 'kawasaki', name: 'Kawasaki', models: [{ id: 'z900', name: 'Z900', years: [] }] },
+  {
+    id: 'kawasaki',
+    name: 'Kawasaki',
+    models: [
+      { id: 'z900', name: 'Z900', years: [] },
+      // 跨廠牌撞名(R1 nit):Yamaha 與 Kawasaki 都有 R6,消歧正是跨層搜尋存在的理由——
+      // 少了這一維,反查廠牌的邏輯錯拿到「隨便一家有 R6 的廠牌」測試也會綠。
+      { id: 'kawa-r6', name: 'R6', years: [2019] },
+    ],
+  },
 ] as MockMotoBrand[];
 
 function Harness() {
@@ -35,7 +44,12 @@ function Harness() {
       motoBrands={BRANDS}
       vehicle={vehicle}
       onPickBrand={(n) => dispatch(selectVehicleBrand(n))}
-      onPickModel={(n) => dispatch(selectVehicleModel(n))}
+      onPickModel={(p) => {
+        // 跨層選取(未選廠牌直接打車型)時 reducer 的 select-model 是 no-op,先立廠牌再立車型
+        // (與 CascadeFilterTop.pickModel 同型)。
+        if (p.brand !== vehicle?.brand) dispatch(selectVehicleBrand(p.brand));
+        dispatch(selectVehicleModel(p.model));
+      }}
       onPickYear={(y) => dispatch(selectVehicleYear(y))}
       onClearBrand={() => dispatch(clearVehicle())}
       onClearModel={() => vehicle && dispatch(selectVehicleBrand(vehicle.brand))}
@@ -56,16 +70,32 @@ describe('VehicleSelect', () => {
   it('A 表字面:aria=選擇廠牌/車型/年份、placeholder=選擇或輸入 X', () => {
     render(<Harness />);
     expect(combo('選擇廠牌').placeholder).toBe('選擇或輸入廠牌');
-    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型');
+    // Sean 2026-08-06 拍板 B:車型欄改成與 CascadeFilterTop 一致 —— 未選廠牌(crossLayer=true,
+    // 本測試在斷言前未做任何互動)時附例字。本條釘的是**新**字面,擋的是「有人改回舊字面」。
+    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型，例:R6');
     expect(combo('選擇年份').placeholder).toBe('選擇或輸入年份');
     // 「品牌」保留給零件品牌,選車三欄不得再出現
     expect(screen.queryByRole('combobox', { name: '選擇品牌' })).toBeNull();
   });
 
+  // MF6(R1):CascadeFilterTop 的 crossLayer=false 分支有測試釘住(CascadeFilterTop.test.tsx:207),
+  // 本檔原本沒有對應的 —— VehicleSelect.tsx:276 三元式的 false 分支改成任意字串仍全綠,
+  // 淨損一格覆蓋(原本釘該字面的那條被改去釘新字面時一併移走了)。
+  it('已選廠牌後(crossLayer=false),車型欄 placeholder 落回無例字版', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'yamaha' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+    expect(combo('選擇車型').placeholder).toBe('選擇或輸入車型');
+  });
+
   it('打字 prefix 過濾+點選=選定;下層解鎖', () => {
     render(<Harness />);
     const brand = combo('選擇廠牌');
-    expect(combo('選擇車型').disabled).toBe(true);
+    // A5:車型欄不再鎖廠牌(本片主體),未選廠牌時改跨層可搜尋——見下方新 describe。
+    // 「下層解鎖」的判別力因此改交給年份欄:未選車型前年份欄恆鎖(disabled===true、
+    // 與是否已選廠牌無關),留住原本那半的證據(年份欄真正的解鎖斷言見 :95 起選定車型後)。
+    expect(combo('選擇年份').disabled).toBe(true);
     fireEvent.change(brand, { target: { value: 'ya' } });
     fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
     expect(brand.value).toBe('Yamaha');
@@ -146,7 +176,9 @@ describe('VehicleSelect', () => {
     fireEvent.change(brand, { target: { value: '' } });
     fireEvent.blur(brand);
     expect(brand.value).toBe('');
-    expect(combo('選擇車型').disabled).toBe(true);
+    // A5:disabled 恆 false、已無判別力(nit)——改守它真正要證的連動:
+    // 清 brand = cascade 全清,車型欄的值也要跟著清空。
+    expect(combo('選擇車型').value).toBe('');
   });
 
   it('V-2d④:點選選定後主動 blur 收鍵盤(rAF 後);鍵盤 Enter 選定不 blur=桌機流不變', async () => {
@@ -165,5 +197,73 @@ describe('VehicleSelect', () => {
     await new Promise((r) => requestAnimationFrame(() => r(null)));
     expect((combo('選擇車型') as HTMLInputElement).value).toBe('R6');
     expect(document.activeElement).toBe(model); // Enter 路徑不 blur
+  });
+});
+
+// A5(2026-08-06):未選廠牌時車型欄跨層搜尋(打車型直達車款),選定同時回填廠牌。
+// 用獨立 spy harness(而非上面共用的 reducer Harness)才能直接斷言 onPickModel 收到的物件字面,
+// 不繞經 reducer 往返觀察間接效果。
+function SpyHarness({
+  onPick,
+  initial = null,
+}: {
+  onPick: (pick: { brand: string; model: string }) => void;
+  initial?: { brand: string; model?: string; year?: number } | null;
+}) {
+  const [vehicle, setVehicle] = useState(initial);
+  return (
+    <VehicleSelect
+      motoBrands={BRANDS}
+      vehicle={vehicle}
+      onPickBrand={(name) => setVehicle({ brand: name })}
+      onPickModel={(p) => {
+        onPick(p);
+        setVehicle({ brand: p.brand, model: p.model });
+      }}
+      onPickYear={() => {}}
+      onClearBrand={() => setVehicle(null)}
+      onClearModel={() => setVehicle((v) => (v ? { brand: v.brand } : v))}
+      onClearYear={() => {}}
+    />
+  );
+}
+
+describe('VehicleSelect 跨層車型(A5:未選廠牌可直接打車型)', () => {
+  it('未選廠牌時,車型欄選項為跨廠牌攤平的「品牌 車型」label', () => {
+    render(<SpyHarness onPick={() => {}} />);
+    const model = combo('選擇車型');
+    expect(model.disabled).toBe(false); // 本片主體:車型欄不再鎖廠牌
+    fireEvent.focus(model);
+    expect(screen.getByRole('option', { name: 'Yamaha R6' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Kawasaki Z900' })).toBeTruthy();
+  });
+
+  it('未選廠牌時直接選跨廠牌車型 ⇒ onPickModel 同時收到正確 brand 與 model', () => {
+    const picks: { brand: string; model: string }[] = [];
+    render(<SpyHarness onPick={(p) => picks.push(p)} />);
+    const model = combo('選擇車型');
+    fireEvent.focus(model);
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Kawasaki Z900' }));
+    expect(picks).toEqual([{ brand: 'Kawasaki', model: 'Z900' }]);
+  });
+
+  it('已選廠牌時,車型欄選項退回該廠牌自己的車型,onPickModel 的 brand=已選廠牌', () => {
+    const picks: { brand: string; model: string }[] = [];
+    render(<SpyHarness onPick={(p) => picks.push(p)} initial={{ brand: 'Yamaha' }} />);
+    const model = combo('選擇車型');
+    fireEvent.focus(model);
+    expect(screen.getByRole('option', { name: 'R6' })).toBeTruthy(); // 非跨層:裸車型名
+    expect(screen.queryByRole('option', { name: 'Kawasaki Z900' })).toBeNull();
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'R6' }));
+    expect(picks).toEqual([{ brand: 'Yamaha', model: 'R6' }]);
+  });
+
+  it('跨廠牌撞名(兩廠牌都有 R6)⇒ 選 Kawasaki R6 反查到正確廠牌,不誤配到 Yamaha', () => {
+    const picks: { brand: string; model: string }[] = [];
+    render(<SpyHarness onPick={(p) => picks.push(p)} />);
+    const model = combo('選擇車型');
+    fireEvent.focus(model);
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Kawasaki R6' }));
+    expect(picks).toEqual([{ brand: 'Kawasaki', model: 'R6' }]);
   });
 });

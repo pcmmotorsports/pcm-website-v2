@@ -254,7 +254,9 @@ LINE 會員 `customers.email` = `line_{sub}@line.pcmmotorsports.local`(`apps/sto
 ### 3.7 `order_shipped` — **Sean 已拍 S2=B:每出一批寄一封(部分出貨也通知)**
 codex R2-4 親驗:`admin_update_order_workflow`(`order-actions.ts:36-81`)**只改 workflow、配送方式、發票欄位**;**D2 per-item 落地後,訂單層 workflow 已不代表出貨** → **現況不存在「整單轉 shipped」事件**(v2/v3 前版字面已作廢)。
 **Sean 拍板(07-16 深夜)= B**:原話「每出一批就寄一封(部分出貨也通知,但客人可能收到好幾封)」→ **接受同一訂單多封出貨信**。
-→ **觸發點改掛 per-item RPC**:`updateOrderItemWorkflowAction`(`order-actions.ts:89`)→ `admin_update_order_item_workflow`(`20260716130000`)成功後、app 層寫 outbox(不改 RPC)。欄位=`order_items.workflow_status`(`20260716120000`)。
+→ **觸發點改掛 per-item RPC**:~~`updateOrderItemWorkflowAction`(`order-actions.ts:89`)~~ → `admin_update_order_item_workflow`(`20260716130000`)成功後、app 層寫 outbox(不改 RPC)。欄位=`order_items.workflow_status`(`20260716120000`)。
+
+🔴 **2026-08-06 起此觸發點已不存在**:`updateOrderItemWorkflowAction` 由 **M-4b E10 A9w4a**(九碼退場)具名刪除,連同其 form parser 與唯一呼叫元件。**本線是「暫緩非作廢」(`STATUS.md:6`)⇒ E4 開工前必須先重定觸發點**,不能照本段字面 grep(會 0 命中)。當時尚存的下游:RPC `admin_update_order_item_workflow` 本身(EXECUTE 權歸 A9v 收)與 port/adapter 的 `updateAdminOrderItemWorkflow`(歸 A9w4c 後半收 —— ✅ **2026-08-06 A9w4c 後半已執行,port/adapter 那支也沒了;現在只剩 DB 端 RPC**)—— **兩者都排在退場鏈上,E4 不宜直接改掛上去**。詳見 §5 E4 那格與 `docs/specs/2026-08-06-e10-a11a-list-rebuild-plan.md` §4。
 
 🔴 **連鎖影響(S2=B 造成、E1a schema 必須先解決)**:
 1. **`UNIQUE (event_type, order_id)` 作廢**——它是為「整單一封」設計的,B 案下會**擋掉同訂單的第二封出貨信**。
@@ -360,7 +362,7 @@ v1 存全快照 → PII 落第二張表且清理 job 不做=無限期滯留。
 | **E2a-2** | 🔴 **v3.2 拆出**:對帳補寄(§3.5b;**Q4=A 固定下界走 env、未設即 skip 並明說**)+ **五訊號**掛 anomaly-alert **獨立管道**(🔴 不可放進 sweeper 自我監看)+ **Q3=A ineligible gate**(`payment_status='refunded' OR cancelled_at IS NOT NULL`;🔴 **今日命中率 0** —— 兩者皆「有欄位、零程式寫入」,Sean 退款目前人工在 TapPay 後台做 → 待**退款線第一段**〔後台取消訂單〕落地才生效)+ 單測 | code-reviewer + codex 關卡2 |
 | **E2b** | 啟用 `pg_cron`/`pg_net` + Vault + `SECURITY DEFINER` wrapper + `cron.schedule('*/5 * * * *')` + **三 schema REVOKE/斷言**(§4.2)+ 連通實證 | 🔴 db push + 值班台驗;**依賴 E2a 已部署** |
 | **E3** | `order_created`(§3.3 述詞)+ after() + 文案(**寄出前給 Sean 過目**)。⚠️ 前置=親驗全部 paid transition 發生地 | 鐵則 12 → codex 關卡2 |
-| **E4** | `order_shipped`(**S2=B:每批一封**)= 掛 `updateOrderItemWorkflowAction`(`order-actions.ts:89`)成功後寫 outbox + after() + 模板。⚠️ **前置=偵察「一批」的定義**(讀 admin 出貨 UI/action 本體、確認能否一次出多項)+ 定 `dedup_key` 算法(§3.7-2) | code-reviewer(不改 RPC、不動 schema) |
+| **E4** | `order_shipped`(**S2=B:每批一封**)= ~~掛 `updateOrderItemWorkflowAction`(`order-actions.ts:89`)成功後~~ 寫 outbox + after() + 模板。🔴 **觸發點已於 2026-08-06 隨 M-4b E10 A9w4a 移除(九碼退場),E4 開工需重定**(§3.7-2 上方紅字有完整交代;不要照舊字面 grep)。⚠️ 原前置仍成立:偵察「一批」的定義 + 定 `dedup_key` 算法(§3.7-2) | code-reviewer(不改 RPC、不動 schema) |
 
 ### 5.1 storefront service_role 邊界(Fable R1-MF4;v1 引用失真已更正)
 v1 引 `packages/adapters/src/supabase/client.ts:60-65` 稱「兩 app 已共用」→ **該檔 `:56` 字面正是禁令**:「`apps/storefront/` **不可呼叫此 factory**(對齊 PRD §7.3)」;唯一例外=`line-admin.ts:21`(檔內鎖死+受控 eslint 例外註解)。

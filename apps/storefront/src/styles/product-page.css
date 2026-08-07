@@ -134,7 +134,12 @@
   height: 100%;
   position: relative;
   /* Sean 2026-07-24 override design(原 cover):商品照多為非正方形合成圖,cover 會裁掉上下 →
-     改 contain 完整顯示,留白底 letterbox 用 --c-surface-2(對齊目錄卡 .pcard-img-wrap 底色)。 */
+     改 contain 完整顯示,留白底 letterbox 用 --c-surface-2。
+     🔴 2026-08-07 現況更正:07-24 這顆灰底拍板已被 **Sean 2026-08-06 拍 A 正式推翻**
+     (依據「本次設計變更以 OD 為權威」)——但只在**目錄卡**(ProductCard.tsx `.pcard-gallery`)
+     落地成白底,詳情頁 hero(這裡)**刻意維持灰底不動**:主視窗 D-149-A 明文,詳情頁 hero 的
+     連帶評估歸詳情頁批處理、本片不動它的值。⇒ 目錄卡已白、詳情頁 hero 仍灰、**兩邊現在不一致**
+     ——這是已知且刻意的暫時狀態,待詳情頁批統一。 */
   background: var(--c-surface-2);
 }
 .pd-hero-slide img {
@@ -1414,9 +1419,10 @@
   min-width: 0;
   scroll-snap-align: start;
 }
-.pd-related-grid .pcard-name {
-  min-height: 2.8em; /* 2 行(line-height 1.4)保留、1 行標題卡片不縮短 = 等高 */
-}
+/* 🔴 2026-08-06(R2 nit)整條刪除:`.pd-related-grid .pcard-name{min-height:2.8em}` 已升成
+   `product-card.css` 的 `.pcard-name` base 規則(全站商品卡一致、對齊 OD)。
+   留著就是**同值的第二份**:改 base 值時這裡會被忘記,而它權重更高、會靜默壓過新值。
+   原本存在的理由(相關商品那一排要等高)現已由 base 規則涵蓋。 */
 /* 「查看全部相容商品」(hasMore 才顯) */
 .pd-related-more {
   margin-top: 20px;

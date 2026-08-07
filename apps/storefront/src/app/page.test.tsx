@@ -78,9 +78,9 @@ async function homeHtml(
 /** N°05 那一段的切片(切界理由見下方那條測試的紅字)。 */
 function featureSection(html: string): string {
   const start = html.indexOf('class="ed-feature"');
-  const end = html.indexOf('class="ed-brands"');
+  const end = html.indexOf('class="b-brands"');
   expect(start, '找不到 ed-feature 區塊').toBeGreaterThanOrEqual(0);
-  expect(end, '找不到 ed-brands(切界抓不到下界)').toBeGreaterThan(start);
+  expect(end, '找不到 b-brands(切界抓不到下界)').toBeGreaterThan(start);
   return html.slice(start, end);
 }
 
@@ -89,13 +89,16 @@ function featureSection(html: string): string {
  * 用 class 而不是文字內容當錨 —— 文字會因為 D5b-D5f 的字面統一一直變,class 是結構。
  */
 const SECTION_CLASS = {
-  hero: 'ed-hero',
-  finder: 'ed-finder',
+  // 🔴 H5:選車器 dock 化之後,`finder` **不再是與 hero 並列的 section** ——
+  //    它是 `.b-hero` 裡面的 `.b-dock`。所以它從這張順序表拿掉,改由下面那條
+  //    「dock 必須是 hero 的後代」單獨守;留在表裡的話 `indexOf` 只會證明「dock 出現在 hero 之後」,
+  //    而**巢狀與不巢狀都滿足那個條件** = 搬進去沒有真的被驗到。
+  hero: 'b-hero',
   editorial: 'ed-feature',
-  cats: 'ed-cats',
-  select: 'ed-select',
+  cats: 'b-cats',
+  select: 'b-select',
   statement: 'ed-statement',
-  brands: 'ed-brands',
+  brands: 'b-brands',
   footer: 'ed-footer',
 } as const;
 
@@ -113,14 +116,14 @@ function renderedOrder(html: string): string[] {
 }
 
 describe('首頁 · 區塊順序(D5a)', () => {
-  it('🔴 八個 section 全部有渲染出來(少一個 = 下面的順序斷言會變成弱斷言)', async () => {
+  it('🔴 七個 section 全部有渲染出來(少一個 = 下面的順序斷言會變成弱斷言)', async () => {
     const html = await homeHtml();
     const order = renderedOrder(html);
-    // 前提斷言:順序斷言只有在「八個都在」時才有意義。
+    // 前提斷言:順序斷言只有在「七個都在」時才有意義。
     // 少了任何一個,`toEqual` 比的就是一個較短的陣列 —— 那不是「順序對」,是「東西不見了」。
     expect(order, `渲染出來的 section 少了:${
       Object.keys(SECTION_CLASS).filter((k) => !order.includes(k)).join(', ') || '(無)'
-    }`).toHaveLength(8);
+    }`).toHaveLength(7);
   });
 
   it('🔴 順序 = OD README「區塊順序(第 7 步之後)」定案', async () => {
@@ -129,8 +132,7 @@ describe('首頁 · 區塊順序(D5a)', () => {
     //              N°04 服務宣言 / N°05 本月聚焦 / N°06 授權代理 / 頁尾
     // 節奏 = 白/白/深/白/淺灰白/深,沒有任何兩塊深色相鄰。
     expect(renderedOrder(html)).toEqual([
-      'hero',
-      'finder',
+      'hero', // N°01 Hero + 選車器 dock(H5 起 dock 巢狀在 hero 內、不再是獨立 section)
       'select', // N°02 最新商品(D5a 由第 5 上移)
       'cats', // N°03 部品分類
       'statement', // N°04 服務宣言(深)
@@ -146,9 +148,28 @@ describe('首頁 · 區塊順序(D5a)', () => {
   //    這條守的就是「順序搬了、編號沒跟上」——原本**零守門**,所以我改壞了也全綠。
   it('🔴 版面上看得見的 N° 編號 = 單調遞增 01..06(編號跟著位置走,不是跟著內容)', async () => {
     const html = await homeHtml();
-    // 只取 `N°0X` 這種版面編號(finder 自己的 `01 ·` 是另一套、brief 問題 6 的撞號,不在本片範圍)
     const nums = [...html.matchAll(/N°(\d{2})/g)].map((m) => m[1]!);
+    // 🔴 H5 之後 `N°01` 的載體從 hero 的頁腳換成**入口板的表頭**(OD :818 字面),
+    //    但序列本身一個字都沒變 —— R1 抓到第一版把 `01 ·` 舊字面留著、還把「只到 02-06」
+    //    寫進這條守門 = 把一個未申報的偏離鎖進測試裡。
     expect(nums, `抓到的編號序列 = ${nums.join(',')}`).toEqual(['01', '02', '03', '04', '05', '06']);
+    // 01 那一號要在 hero 的 section 內(它是入口板的表頭,不是別處飄來的)
+    const heroStart = html.indexOf('class="b-hero"');
+    expect(html.indexOf('N°01'), 'N°01 不在 hero 裡 ⇒ 入口板表頭的編號掉了').toBeGreaterThan(heroStart);
+  });
+
+  // 🔴 H5 的承重斷言:選車器**真的巢狀在 hero 裡**,不是排在 hero 後面。
+  //    順序表證不了這件事(巢狀與並列都會讓 dock 出現在 hero 之後)⇒ 這條比切界。
+  it('🔴 選車器 dock 是 `.b-hero` 的**後代**(dock 化的唯一硬證據)', async () => {
+    const html = await homeHtml();
+    const heroStart = html.indexOf('class="b-hero"');
+    const heroEnd = html.indexOf('</section>', heroStart);
+    const dock = html.indexOf('class="b-dock"');
+    expect(heroStart, '找不到 .b-hero').toBeGreaterThanOrEqual(0);
+    expect(dock, '找不到 .b-dock ⇒ 選車器沒渲染出來').toBeGreaterThanOrEqual(0);
+    expect(dock > heroStart && dock < heroEnd, 'dock 落在 hero 的 <section> 之外 ⇒ 它只是排在 hero 後面、沒有巢狀進去').toBe(true);
+    // 錨點跟著搬:`Header` 首頁那顆「依車輛搜尋」導 `/#vehicle-finder`,目的地現在是 hero 這個 section
+    expect(html.slice(heroStart - 120, heroStart), 'id="vehicle-finder" 沒有掛在 hero section 上').toContain('id="vehicle-finder"');
   });
 
   // 🔴 D5d R3 的盲點修正:Q1=B 的不變量是「**首頁**對外不報品牌家數」,
@@ -235,7 +256,7 @@ describe('首頁 · 區塊順序(D5a)', () => {
 
     expect(section, '標題沒有帶當期品牌名 ⇒ PIN 沒接上').toContain(`${expected.name}.`);
     // D5e-2b:主按鈕目的地由 legacy `/products?brand=` 改成品牌介紹頁 `/brands/<slug>`。
-    // 切界已收到 `ed-brands` 之前 ⇒ 這條不會被 BrandIndex 的同形連結滿足(R3 F5 那個理由)。
+    // 切界已收到 `b-brands` 之前 ⇒ 這條不會被 BrandIndex 的同形連結滿足(R3 F5 那個理由)。
     expect(section, '主按鈕沒指向當期品牌的介紹頁').toContain(`/brands/${expected.slug}`);
     // 領頭「全部商品」與分類列都掛在同一個當期 slug 上。
     expect(section, '分類列的領頭沒指向當期品牌').toContain(`/products?pbrand=${expected.slug}`);
@@ -290,6 +311,50 @@ describe('首頁 · 區塊順序(D5a)', () => {
       //    前者讓陣列變成一條沒人測過的路徑,後者會餵進 `'a,b'` 這種永遠找不到的 slug。
       const section = featureSection(await homeHtml({ focus: [other.slug, current.slug] }));
       expect(showsCurrent(section), '陣列參數被當成單一 slug 用了 ⇒ 收窄失效').toBe(true);
+    });
+  });
+
+  // ── D-136 清尾片(2026-08-06):首頁頁尾標語 ──
+  //
+  // 🔴 為什麼守在**這一支**而不是 `HomeFooter.test.tsx`:這是**首頁**的不變量,不是那顆共用元件的。
+  //    `HomeFooter` 的預設標語仍是「改裝不只是升級配件…」(OD 另外 13 支頁稿全部逐字保留它);
+  //    只有首頁把它換成服務範圍句、走 `tagline` prop。守在元件層會逼著去改預設值 = 15 頁反向偏離 OD
+  //    (R1 MF1 擋下的第一版正是那樣)。
+  describe('D-136 頁尾標語(首頁專屬,走 tagline prop)', () => {
+    /** 從渲染結果取頁尾標語純文字(去標籤、去空白)。 */
+    function footerTagline(html: string): string {
+      const m = html.match(/<p class="ed-footer-tagline">([\s\S]*?)<\/p>/);
+      expect(m, '找不到 .ed-footer-tagline ⇒ 下面的比對會拿 undefined 去比、恆真').not.toBeNull();
+      return m![1]!.replace(/<[^>]*>/g, '').replace(/\s/g, '');
+    }
+
+    it('🔴 首頁頁尾 = OD 的服務範圍句(不是 HomeFooter 的預設句)', async () => {
+      const text = footerTagline(await homeHtml());
+      expect(text, 'tagline prop 沒接上 ⇒ 首頁掉回共用預設句').toBe('專業重機零件・改裝精品一站式服務');
+    });
+
+    // 🔴 這條才是 OD 註解真正在講的**不變量**:同一頁不把同一句講兩次。
+    //    只釘字面的話,下一個人把舊句抄回來、順手把上面那條一起改掉就全綠了。
+    //    🔴 主標**從同一份渲染結果現取、且輪播每一張都取**(不是只看第一張、也不是讀原始碼):
+    //       hero 換文案時這條自己跟著走;只比第一張的話,頁尾抄第 2/3/4 張的主標仍會全綠。
+    it('🔴 首頁頁尾標語不得重複 hero 任何一張主標(OD 註解明文的設計理由)', async () => {
+      const html = await homeHtml();
+      const titles = [...html.matchAll(/<h1 class="b-hero-title[^"]*">([\s\S]*?)<\/h1>/g)]
+        .map((m) => m[1]!.replace(/<[^>]*>/g, ''))
+        // 標點不參與比對:全形逗號在 hero 與頁尾之間本來就會不同,比標點只會製造假綠
+        .map((t) => t.replace(/[\s，,。、・]/g, ''))
+        .filter((t) => t.length >= 8);
+      expect(titles.length, 'hero 主標一句都沒解析到 ⇒ 下面那圈是空迴圈、恆真').toBeGreaterThan(0);
+
+      const tagline = footerTagline(html).replace(/[，,。、・]/g, '');
+      for (const t of titles) {
+        // 取前 8 字當指紋:整句相等太寬(改一個字就繞過),逐字全等太窄(斷行/標點不同就漏)
+        const fingerprint = t.slice(0, 8);
+        expect(
+          tagline.includes(fingerprint),
+          `頁尾標語含 hero 主標開頭「${fingerprint}」⇒ 同一頁講兩次,正是 OD 註解要避免的`,
+        ).toBe(false);
+      }
     });
   });
 

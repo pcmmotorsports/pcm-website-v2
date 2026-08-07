@@ -4,12 +4,8 @@ import { describe, it, expect } from 'vitest';
 import {
   isAllowedOrigin,
   parseWorkflowPatchForm,
-  parseItemWorkflowForm,
-  WF_CLEAR_VALUE,
   ORDER_ID_FIELD,
-  ITEM_ID_FIELD,
   VERSION_FIELD,
-  WF_STATUS_FIELD,
   SHIPPING_METHOD_FIELD,
   INVOICE_NUMBER_FIELD,
   INVOICE_AMOUNT_FIELD,
@@ -53,16 +49,24 @@ describe('isAllowedOrigin — fail-closed', () => {
 });
 
 describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
-  it('order_id 非 UUID / version 非法 → ok:false', () => {
+  it('order_id 非 UUID / version 非法(含上下界)→ ok:false;邊界內 → ok:true', () => {
     expect(parseWorkflowPatchForm(form({ [ORDER_ID_FIELD]: 'PCM-1', [VERSION_FIELD]: '1' })).ok).toBe(false);
-    expect(parseWorkflowPatchForm(form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '0' })).ok).toBe(false);
-    expect(parseWorkflowPatchForm(form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: 'x' })).ok).toBe(false);
+    // 🔴 **上界那兩格是 A9w4a(2026-08-06)補的**:原本只有 item 層那組測到 `2147483647`,
+    //    本片刪掉 item parser 後,order 層的 `> 2147483646` 變成零覆蓋 —— 把那條 clause 整個拿掉
+    //    也會全綠(codex 關卡2 must-fix)。正負兩格併存才擋得住「上界改成 2147483645」這種退化。
+    expect(parseWorkflowPatchForm(form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '2147483646' })).ok).toBe(true);
+    for (const bad of ['0', '-1', '1.5', 'x', '', '2147483647']) {
+      expect(parseWorkflowPatchForm(form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: bad })).ok).toBe(false);
+    }
   });
 
+  // 🔴 欄名與哨兵值改用 **wire literal**(A9w4c 後半:`WF_STATUS_FIELD` / `WF_CLEAR_VALUE` 兩常數
+  //    隨九碼詞彙面一併刪除)。這裡量的本來就是「**手工 POST 送這個 wire 欄名**會不會進 patch」——
+  //    欄名是 wire 契約、不是 TS 常數;`nine-code-retire.test.tsx` 早有「常數名不是欄名」被 R1 抓過的先例。
   it('🔴 D-2(Codex R1 must-fix 1):送 workflow_status(code/哨兵/非法形狀)→ 一律忽略、絕不進 patch(orders 層停寫、寫入路徑關死)', () => {
-    for (const v of ['shipped_done', WF_CLEAR_VALUE, '', 'Bad Code!']) {
+    for (const v of ['shipped_done', '__clear__', '', 'Bad Code!']) {
       const r = parseWorkflowPatchForm(
-        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [WF_STATUS_FIELD]: v, [INVOICE_STATUS_FIELD]: 'issued' }),
+        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: v, [INVOICE_STATUS_FIELD]: 'issued' }),
       );
       expect(r.ok).toBe(true);
       if (r.ok) {
@@ -121,63 +125,18 @@ describe('parseWorkflowPatchForm — 形狀守門 + 未提供≠清空', () => {
 
   it('return_to:站內 /orders 路徑保留;外部/他路徑退 /orders(防 open redirect)', () => {
     const inPath = parseWorkflowPatchForm(
-      form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [WF_STATUS_FIELD]: 'shipped_done', [RETURN_TO_FIELD]: `/orders/${UUID}` }),
+      form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: 'shipped_done', [RETURN_TO_FIELD]: `/orders/${UUID}` }),
     );
     expect(inPath.ok && inPath.returnTo).toBe(`/orders/${UUID}`);
     // nit-6:`..` 站內 redirect gadget(/orders/../../api/sso/start)拒
     for (const evil of ['https://evil.com', '//evil.com', '/customers', '/orders\n/x', '/orders/../../api/sso/start']) {
       const r = parseWorkflowPatchForm(
-        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', [WF_STATUS_FIELD]: 'shipped_done', [RETURN_TO_FIELD]: evil }),
+        form({ [ORDER_ID_FIELD]: UUID, [VERSION_FIELD]: '5', workflow_status: 'shipped_done', [RETURN_TO_FIELD]: evil }),
       );
       expect(r.ok && r.returnTo).toBe('/orders');
     }
   });
 });
 
-// ── parseItemWorkflowForm — per-item 改狀態表單(M-4a Slice D-2;鏡像 order 層、單欄必送)──
-
-describe('parseItemWorkflowForm — 形狀守門(item 層)', () => {
-  const base = { [ITEM_ID_FIELD]: UUID, [VERSION_FIELD]: '3' };
-
-  it('合法 code → 設定;__clear__ 哨兵 → null(清空);returnTo 站內守門', () => {
-    const set = parseItemWorkflowForm(form({ ...base, [WF_STATUS_FIELD]: 'shipped_done' }));
-    expect(set).toEqual({
-      ok: true,
-      itemId: UUID,
-      expectedVersion: 3,
-      workflowStatus: 'shipped_done',
-      returnTo: '/orders',
-    });
-    const clear = parseItemWorkflowForm(
-      form({ ...base, [WF_STATUS_FIELD]: WF_CLEAR_VALUE, [RETURN_TO_FIELD]: `/orders/${UUID}` }),
-    );
-    expect(clear).toEqual({
-      ok: true,
-      itemId: UUID,
-      expectedVersion: 3,
-      workflowStatus: null,
-      returnTo: `/orders/${UUID}`,
-    });
-  });
-
-  it('item_id 非 UUID / version 非法(0、負、非整數、超界)→ ok:false', () => {
-    expect(parseItemWorkflowForm(form({ [ITEM_ID_FIELD]: 'not-uuid', [VERSION_FIELD]: '3', [WF_STATUS_FIELD]: 'x' })).ok).toBe(false);
-    for (const v of ['0', '-1', '1.5', 'abc', '2147483647', '']) {
-      expect(parseItemWorkflowForm(form({ [ITEM_ID_FIELD]: UUID, [VERSION_FIELD]: v, [WF_STATUS_FIELD]: 'x' })).ok).toBe(false);
-    }
-  });
-
-  it('workflow_status 缺欄 / 空 / 非法形狀(大寫、空白、注入字元)→ ok:false(單欄必送、不靜默吞)', () => {
-    expect(parseItemWorkflowForm(form(base)).ok).toBe(false);
-    for (const bad of ['', 'BAD CODE', 'ghost!', 'a'.repeat(65), 'x;drop']) {
-      expect(parseItemWorkflowForm(form({ ...base, [WF_STATUS_FIELD]: bad })).ok).toBe(false);
-    }
-  });
-
-  it('return_to 外部/他路徑/`..` gadget → 退 /orders(與 order 層共用守門)', () => {
-    for (const evil of ['https://evil.com', '//evil.com', '/customers', '/orders/../../api/sso/start']) {
-      const r = parseItemWorkflowForm(form({ ...base, [WF_STATUS_FIELD]: 'shipped_done', [RETURN_TO_FIELD]: evil }));
-      expect(r.ok && r.returnTo).toBe('/orders');
-    }
-  });
-});
+// 🔴 `parseItemWorkflowForm — 形狀守門(item 層)` 4 條:**A9w4a(2026-08-06)隨受測函式一併移除**
+//    (母 plan row 53)。order 層的 return_to / version 守門仍在上方 `parseWorkflowPatchForm` 那組。

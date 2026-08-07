@@ -81,6 +81,33 @@ describe('MobileTabBar', () => {
     expect(nav?.className).not.toContain('is-hidden');
   });
 
+  // 🔶 第5批(Sean 2026-08-06 拍板 Q5=A):結帳流程不給全站導覽。
+  //    🔴 **理由是產品選擇、與設計稿脫鉤**(Q6=A 覆核維持):結帳流程中不給岔出去的入口。
+  //    設計稿 `checkout-page.html:123-128` **其實有** TabBar 且與 buybar 同時存在 ——
+  //    Q5 當初是在「設計稿沒有 TabBar」這個假前提上拍的(大小寫敏感 grep 漏掉小寫字面),
+  //    更正後 Sean 仍維持藏起來 ⇒ 本站在這一點上是**知情偏離**,不是對齊。
+  //    🔴 `/checkout/callback` 也要藏:它渲染 `CheckoutSuccess`、同樣掛 `.co-page`,
+  //    而 checkout.css 那條讓位 padding 歸零規則是以 `.co-page` 為條件 ——
+  //    兩邊涵蓋的路徑集合不一致的話,會出現「TabBar 在、底部 padding 卻沒了」
+  //    (最後一條 tab 被自己蓋住)。
+  it.each([['/checkout'], ['/checkout/callback']])('🔴 %s → tabbar 隱藏(Q5=A)', (path) => {
+    const { container } = renderAt(path);
+    const nav = container.querySelector('nav.mobile-tabbar');
+    expect(nav?.className).toContain('is-hidden');
+  });
+
+  // 反面:購物車**不是**結帳流程,天地要留著。沒有這條的話,把上面寫成 `startsWith('/c')`
+  // 之類的過寬判定不會有任何東西紅(/cart /coming-soon 全被吃掉)。
+  it('/cart → tabbar **不**隱藏(購物車不在結帳流程內)', () => {
+    const { container } = renderAt('/cart');
+    const nav = container.querySelector('nav.mobile-tabbar');
+    expect(nav?.className).not.toContain('is-hidden');
+  });
+
+  // ⚠️ 上面所有 hidden 斷言守的都只是「class 有沒有掛上」。**class 有掛 ≠ CSS 認帳** ——
+  //    R2 抓到 `.is-hidden` 在真手機 UA 上曾經是 no-op,而這裡全綠。
+  //    合約的另一半(CSS 那半)在 `styles/mobile-tabbar.test.ts`,兩邊合起來才完整。
+
   it('/account → 會員 tab is-active', () => {
     const { container } = renderAt('/account');
     const accountTab = container.querySelector('a[href="/account"]');

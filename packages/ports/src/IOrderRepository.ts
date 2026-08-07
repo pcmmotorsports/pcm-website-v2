@@ -95,7 +95,7 @@ export interface IOrderRepository {
 
   /**
    * 後台改單(M-4a Slice C;D-2 起 admin 路徑只映射 shipping_method / 發票紀錄三欄=4 欄,
-   * workflow_status 寫入面移 item 層 updateAdminOrderItemWorkflow;order 層 RPC 白名單已收窄
+   * workflow_status 的 item 層寫入面已於 A9w4c 後半移除(見下方註);order 層 RPC 白名單已收窄
    * =送該 key 即 RAISE、20260716130000 §4)。
    *
    * 🔴 走 owner SECURITY DEFINER RPC `admin_update_order_workflow`(orders 對 service_role 已 REVOKE
@@ -115,26 +115,13 @@ export interface IOrderRepository {
     requestId: string,
   ): Promise<AdminOrderWorkflowResult>;
 
-  /**
-   * 後台 per-item 改狀態(M-4a Slice D-2;設 order_items.workflow_status 單欄)。
-   *
-   * 🔴 走 owner SECURITY DEFINER RPC `admin_update_order_item_workflow`(order_items 對 service_role
-   * 已 REVOKE 直寫〔20260611120000 §4〕→ 唯一寫入車道;鏡像 Slice C):RPC 內鎖 item 列 + 樂觀鎖
-   * `version=expectedVersion` + 讀 before → UPDATE(SET 字面恰 workflow_status+version+updated_at、
-   * 🔴 品項凍結欄 quantity / unit_price / line_total / variant_sku / variant_id / product_snapshot
-   * 與金流欄一律不動)→ 同交易寫 admin_audit_log(target=`order_item:<id>`)。
-   *
-   * - `workflowStatus`:code=設定(RPC 端驗 order_status_options.is_active、僅實際變更時)/ null=清空;
-   * - 回 `'UPDATED'` / `'CONFLICT'`(版本不符或查無 item → UI 重載)/ `'NOOP'`(與現值相同);
-   * - RPC 端輸入非法(未知 code / 非白名單 key)→ throw(caller 收斂固定錯誤碼)。
-   */
-  updateAdminOrderItemWorkflow(
-    itemId: string,
-    expectedVersion: number,
-    workflowStatus: string | null,
-    actor: string,
-    requestId: string,
-  ): Promise<AdminOrderWorkflowResult>;
+  // 🔴 **`updateAdminOrderItemWorkflow` 已於 A9w4c 後半(2026-08-06)具名移除** ——
+  //    九碼 writer 鏈退場的最後一段應用層契約。前置:A9w4a 拆了 server action、A11a 列表重建完成
+  //    ⇒ 本 port 方法零 consumer。
+  //    ⚠️ **正確讀法 = 「admin 應用層與 port/adapter 都沒有 item workflow 寫入介面」,不是
+  //    「九碼寫不進去」**:DB 端 `admin_update_order_item_workflow` RPC 仍在(**REVOKE 非 DROP**),
+  //    其 EXECUTE 權由 **A9v `20260807120000`** 撤除(apply 後生效),
+  //    撤權歸 **A9v**(前置=A11b/c 等全 consumer 清零)。
 
   // TODO M-4a-XX: 補 listByDateRange — 月結統計用
 }

@@ -10,9 +10,14 @@
 // - 連結:onJumpToOrders / onJumpToWallet 觸發(纯 client setState)
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// (2026-08-07 R-3:原本這裡還 import `node:fs` / `node:url` / `node:path` 去讀 `account.css`
+//  現算 `.acc-rec` 欄數。那條「顯示筆數整除欄數」守門已隨版位改 rail 一起移除 ⇒ 四個 import
+//  與它們的說明註解跟著清掉,不留無指涉的殘留。)
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
-// next/link mock(避免帶 router context;OverviewTab 只用 Link href)
+// next/link mock(避免帶 router context)。
+// 🔴 2026-08-07 R-3:消費者換人了 —— `OverviewTab` 自己已不再用 `Link`,
+//    是它渲染的 `ProductRail`(「更多新品」那顆 CTA)在用,mock 仍然必要。
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>
@@ -131,7 +136,10 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
     expect(screen.getByText('推薦商品載入失敗、請稍後再試')).toBeTruthy();
   });
 
-  it('featured 有商品:列 4 個 acc-rec-item + name + price + slug link', () => {
+  // 🔴 2026-08-06(Sean 拍板 Q1=A)選擇器連動:卡片由自刻的 `.acc-rec-item` 改成
+  //    首頁 N°02 同一顆 `ProductCard`(`.pcard`)⇒ 本檔所有計數選擇器一起換。
+  //    這不是「改期望值遷就實作」:數的是同一件事(畫了幾張卡),換的是卡片元件。
+  it('featured 有商品:列 4 張 ProductCard + name + price + slug link', () => {
     const products: MockProduct[] = [
       { id: 1, slug: 'p-1', brand: 'BRAND1', name: '商品 A', fits: '通用', price: 1200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
       { id: 2, slug: 'p-2', brand: 'BRAND2', name: '商品 B', fits: '通用', price: 3400, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
@@ -139,13 +147,91 @@ describe('OverviewTab(g-2 真資料、對齊 design AccountPages.jsx L467-535)',
       { id: 4, slug: 'p-4', brand: 'BRAND4', name: '商品 D', fits: '通用', price: 7800, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
     ];
     const { container } = renderTab({ featured: { products, error: false } });
-    const items = container.querySelectorAll('.acc-rec-item');
+    const items = container.querySelectorAll('.pcard');
     expect(items.length).toBe(4);
     expect(screen.getByText('商品 A')).toBeTruthy();
     expect(screen.getByText('NT$ 1,200')).toBeTruthy();
     expect(screen.getByText('NT$ 7,800')).toBeTruthy();
-    // slug link
-    const firstLink = items[0] as HTMLAnchorElement;
-    expect(firstLink.getAttribute('href')).toBe('/products/p-1');
+    // slug link —— `ProductCard` 是把 `.pcard`(article)包在 `<Link>` 裡
+    // (`ProductCard.tsx 的外層 Link(grep display: 'contents' 找、不引行號)`,`display:contents` 的外層 a)⇒ 從卡片往上找 anchor,
+    // 不是直接讀 `.pcard` 的 href(自刻版那時 `.acc-rec-item` 本身就是 a)。
+    expect(items[0]!.closest('a')?.getAttribute('href')).toBe('/products/p-1');
+  });
+
+  // 🔴 Sean 2026-08-06 拍板 Q1=A 的**不變量**:這一格用的必須是**首頁那顆共用商品卡**,
+  //    不是本頁自刻的第二種卡。只斷言「有 4 張 .pcard」擋不住有人在本頁複製一份 pcard 樣式;
+  //    這裡釘的是「卡片內容欄位齊」——品牌行 / 品名 / 適用車型 / 價格,
+  //    正是舊自刻版缺掉、Sean 指出的那幾項(舊版只有品名 + 價格)。
+  //    ⚠️ 它擋不住什麼:證得了結構欄位在,證不了顏色與版面(顏色在 `product-card.css`,
+  //       要真瀏覽器量;本檔是 jsdom、不套 CSS)。
+  it('🔴 用的是首頁同一顆 ProductCard —— 品牌行/適用車型/價格三欄都在(舊自刻版缺前兩項)', () => {
+    const { container } = renderTab({
+      featured: {
+        products: [
+          // 🔴 R1 nit:`fits` 不帶「適用」前綴 —— 元件自己會畫成「適用 {fits}」
+          //    (`ProductCard.tsx` 的 `適用 {formatCardFits(...)}`),真資料也是
+          //    「{廠牌} {車型代號}」或「通用款」(`lib/products.ts`)。帶前綴的 fixture 會畫出「適用 適用 …」。
+          { id: 1, slug: 'p-1', brand: 'RIZOMA', name: '商品 A', fits: 'BMW HP2 Sport', price: 1200, origPrice: null, isNew: false, isSale: false, inStock: true, category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null },
+        ],
+        error: false,
+      },
+    });
+    // 🔴 R1 nit 的精神保留、對象換掉:原本釘的是 `.acc-rec` 那層**版位格線**(它被刪掉的話卡片
+    //    會變單欄直排,而只數 `.pcard` 的斷言全綠)。2026-08-07 R-3 版位由 grid 換成共用 rail
+    //    ⇒ 對應的承重層變成 `.b-carousel-item`(軌道格),照樣要釘。
+    expect(container.querySelector('.acc-rec'), 'grid 版位殘留 ⇒ R-3 應已整區換成 rail').toBeNull();
+    expect(
+      container.querySelector('.b-select-inset .b-carousel-item'),
+      '軌道格 .b-carousel-item 沒了 ⇒ 卡片會失去橫捲版位;`.b-select-inset` 沒了 ⇒ rail 的 --ed-* token 全部無聲失效',
+    ).not.toBeNull();
+    const card = container.querySelector('.pcard');
+    expect(card, '不是 ProductCard ⇒ 又長出第二種商品卡').not.toBeNull();
+    expect(card!.querySelector('.pcard-brand')?.textContent, '缺品牌 mono 行').toBe('RIZOMA');
+    expect(card!.querySelector('.pcard-name')?.textContent, '缺品名').toBe('商品 A');
+    expect(card!.querySelector('.pcard-fits')?.textContent, '缺適用車型行(舊自刻版就是沒有這行)')
+      .toContain('BMW HP2 Sport');
+    // 價格走共用的 .price-main(顏色由 product-card.css 統一給,不再是本頁自刻的灰)
+    expect(card!.querySelector('.price-main')?.textContent, '價格不是走共用的 .price-main')
+      .toContain('1,200');
+    // 反面:自刻版那組 class 一個都不許回來
+    for (const dead of ['.acc-rec-item', '.acc-rec-img', '.acc-rec-name', '.acc-rec-price']) {
+      expect(container.querySelector(dead), `自刻卡的 ${dead} 又出現了`).toBeNull();
+    }
+  });
+
+  // ── 為你推薦顯示筆數 ──
+  //
+  // 🔴 2026-08-07 R-3:這裡原本有兩條守門,理由都是**版面**:
+  //    ①「給滿 10 筆時只畫 8 筆」②「顯示筆數整除 `.acc-rec` 每個斷點的欄數」。
+  //    兩條的共同前提是「這區是 grid、有列、最後一列會缺角」。
+  //    ⇒ 本片把版位換成橫捲 rail,**rail 沒有列、不存在缺角** ⇒ 兩條的前提整個消失,
+  //    連同 `ACCOUNT_REC_DISPLAY = 8` 一起移除。**是理由消失而作廢,不是被忘記。**
+  //    接手的守門:`lib/products-featured-limit.test.ts`(取數必須 > 桌機軌道格數,格數由 CSS 現算)
+  //    —— 首頁與本頁現在是同一顆 rail、同一個取數,那支一支就夠,本頁不需要再抄一份。
+  //    這裡改守「不再截斷」這個新的不變量。
+  describe('為你推薦顯示筆數(rail 全顯、不截斷)', () => {
+    function manyProducts(n: number): MockProduct[] {
+      return Array.from({ length: n }, (_, i) => ({
+        id: i + 1, slug: `p-${i + 1}`, brand: `BRAND${i + 1}`, name: `商品 ${i + 1}`, fits: '通用',
+        price: 1000 + i, origPrice: null, isNew: false, isSale: false, inStock: true,
+        category: '操控部品', color: 'silver', imgTone: 'cool', originalPrice: null, tierLabel: null,
+      }));
+    }
+
+    it('🔴 給滿 10 筆(=取數上限)全部畫出來 —— 顯示層不再截斷', () => {
+      const { container } = renderTab({ featured: { products: manyProducts(10), error: false } });
+      expect(
+        container.querySelectorAll('.pcard').length,
+        '顯示層還在截斷 ⇒ 客人滑到底會少看到商品(截 8 那條拍板的理由已隨 grid 一起作廢)',
+      ).toBe(10);
+      // 首尾都在:證明不是「取前 N 筆」也不是「取後 N 筆」。
+      expect(screen.getByText('商品 1')).toBeTruthy();
+      expect(screen.getByText('商品 10')).toBeTruthy();
+    });
+
+    it('🔴 少量商品照樣全畫(不會反過來變成「一定要湊滿幾筆」)', () => {
+      const { container } = renderTab({ featured: { products: manyProducts(2), error: false } });
+      expect(container.querySelectorAll('.pcard').length).toBe(2);
+    });
   });
 });

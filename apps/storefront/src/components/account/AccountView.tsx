@@ -66,8 +66,26 @@ export type AccountProfile = { name: string; phone: string; birthday: string };
 //    🔴 幾何字元的問題不是「不好看」而是**每個字元的字體覆蓋率與基線都不同** ——
 //    `◈` `▸` 這種在部分系統字體裡沒有、會 fallback 到別支字體或顯示成豆腐,
 //    而且七顆的視覺大小完全不一致(`♡` 明顯比 `□` 大一圈)。
-//    path 字面逐字搬自設計稿 `account-page.html:139-145`;`vehicles` 與 tabbar「找車」、
-//    `profile` 與 header 會員鈕是**同一支** path(刻意的,不要各畫各的)。
+//    path 字面逐字搬自設計稿 `account-page.html` 的 NAV 陣列(grep `const NAV =`;不引行號)
+//    —— **`vehicles` 那一筆除外**,見下方 Q2=A 申報。`vehicles` 與 tabbar「找車」
+//    是**同一支** path(刻意的,不要各畫各的)。
+//    🔴 查證更正(2026-08-07):原註解另外宣稱 `profile` 與 header 會員鈕也是同一支——
+//    實查是假的,兩邊 circle cy(7 vs 8)與身體弧線公式(header 用弧線 arc、這裡用三次貝茲)
+//    從來就不同,只是視覺上都是「頭圓+肩弧」看起來像。未強制對齊(不在本次 Q2=A 範圍),
+//    對應測試已把「同一支」的錯誤宣稱改成純字面鎖定,不再假稱跨檔同支。
+//    ⚠️ **R2 補**:這條的病根與 `vehicles` **完全同形** —— OD 交接單 icon 表的同一行,
+//    文字同時宣稱「vehicles=機車、與 tabbar 同一支」與「profile=人像、與 header 同一支」,
+//    而 OD 自己的落地稿兩處都對不上。⇒ **兩條一起進 OD 回饋包**,不只報 vehicles 那條。
+//    ⚠️ 另外:「會員/個人資料」這顆人像 icon 全站有**三種**不同字面(header 會員鈕 / 本檔 profile /
+//    MobileTabBar「會員」),要不要統一不在本次射程,已列回饋包供 Sean 裁。
+//
+// 🔴 2026-08-07 Sean 拍板 Q2=A(**對 OD 稿的偏離,申報如下**):
+//    機車零件站的選車/愛車圖示統一用重機;`vehicles` 的 path 改複用 MobileTabBar「找車」那支
+//    (不自畫新 icon)。三處同批換:本檔 + `CascadeFilterTop.tsx` + `GarageChips.tsx`。
+//    ⚠️ **OD 稿的該顆 SVG 畫的是汽車** ⇒ 這是 Sean 口頭覆蓋設計稿,**已列 OD 回饋包請 OD 同步**。
+//    ⚠️ 但 OD 交接單 `account-page-handoff.md` 的 icon 表**文字寫的是「vehicles=機車、與 tabbar
+//    『找車』同一支」**(grep `vehicles`)—— 也就是 OD 自己的文字說明與落地 SVG 互相矛盾,
+//    Sean 的口頭與那份文字說明其實同向。回饋包一併把這條矛盾回報給 OD。
 const NAV = [
   {
     id: 'overview',
@@ -92,7 +110,8 @@ const NAV = [
   {
     id: 'vehicles',
     label: '我的愛車',
-    path: '<path d="M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5"/>',
+    // 原為汽車 path,2026-08-07 Sean 拍板 Q2=A 換成重機(複用 tabbar「找車」那支)。
+    path: '<circle cx="6" cy="17" r="3"/><circle cx="18" cy="17" r="3"/><path d="M6 17h8l-2-6h-3L6 17Z"/><path d="m14 11 1-3h3"/>',
   },
   {
     id: 'address',

@@ -19,6 +19,14 @@ const CSS_RAW = readFileSync(
   'utf8',
 );
 
+// 🔶 2026-08-06 升級片:--c-graphite / --f-serif 同時定義在 tokens.css 的 :root。
+// 分岔守門(見檔尾)要比對兩處字面值,故也讀這個檔。
+const TOKENS_CSS_RAW = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), 'tokens.css'),
+  'utf8',
+);
+const TOKENS_CSS = TOKENS_CSS_RAW.replace(/\/\*[\s\S]*?\*\//g, '');
+
 /**
  * 🔴 剝掉 `/* … *\/` 註解後再做任何結構斷言。
  *
@@ -221,7 +229,9 @@ describe('品牌頁 CSS · 窄螢幕橫幅', () => {
 
 describe('品牌頁 CSS · 深底元件的 fallback', () => {
   it('🔴 每一處 var(--c-graphite) 都要帶 fallback(scope 漏掛 ⇒ 深底配白字變全白)', () => {
-    // `--c-graphite` 只存在於 `.bp-page` 這個 scope,而這些元件是 fragment、scope 由外層路由掛。
+    // 🔶 2026-08-06 升級:`--c-graphite` 現在**也**定義在 tokens.css 的 `:root`
+    // (首頁 N°04 要用)——但這些品牌頁元件是 fragment、scope 由外層路由掛,
+    // 不能保證 `.bp-page` 一定包住它們;fallback 是縱深防禦、不是唯一防線。
     // D3 接線漏掛的話 var() 無值 ⇒ 背景失效、配上寫死的 color:#fff = 整塊看不見。
     // 一個 fallback 換掉那個失敗模式;逐處數,不是只驗「有一處有」。
     const uses = CSS.match(/var\(--c-graphite[^)]*\)/g) ?? [];
@@ -236,8 +246,10 @@ describe('品牌頁 CSS · 色票 scope', () => {
     //    與設計的熔橘 `#f26722` 值不同,寫進 `:root` 會讓每一頁的按鈕/價格當場變色。
     //    0c 把站台換成熔橘之後兩者**同值** ⇒ 這條反面斷言不再擋得住視覺缺陷,
     //    現在守的是**架構分離**(品牌頁色票不外洩到 `:root`)。仍留著:
-    //    本檔 scope 內還有 `--cat-*` / `--f-serif` / `--ease` 等**不是**站台 token 的東西,
+    //    本檔 scope 內還有 `--cat-*` / `--ease` 等**不是**站台 token 的東西,
     //    一旦有人把整塊搬進 `:root`,那些才是真的會污染全站。
+    //    🔶 2026-08-06:`--f-serif` 已從這份例子清單移除 —— 它與下面斷言的
+    //    `--c-graphite` 一起升上 tokens.css 的 :root 了,不再是「不是站台 token」的例子。
     expect(CSS).toContain('.bp-page {');
     expect(CSS).not.toMatch(/^\s*:root\s*\{/m);
     // 🔴 D2e-1 起本檔有**兩塊** `.bp-page {`(色票 + 分類色碼)⇒ 改用 bpPageScopes()。
@@ -764,9 +776,26 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
     for (const dead of ['.bp-slot', '.bp-bar']) {
       expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
     }
-    // 反面前提:已落地的那三個**必須在**,否則上面那句「清單縮小」是在描述一個不存在的狀態。
-    for (const live of ['.bp-products', '.bp-prod-head', '.bp-grid']) {
-      expect(CSS, `${live} 不見了 ⇒ D3b 的商品區樣式被整段拿掉`).toContain(live);
+    // 反面前提:商品區的外殼**必須在**,否則上面那句「清單縮小」是在描述一個不存在的狀態。
+    for (const live of ['.bp-products', '.bp-products-inner']) {
+      expect(CSS, `${live} 不見了 ⇒ 商品區樣式被整段拿掉`).toContain(live);
+    }
+    // 🔴 2026-08-07 R-2:`.bp-prod-head` / `.bp-grid` 由「必須在」翻成「**不得再有規則**」——
+    //    商品區改用共用 `ProductRail`,表頭與版位都歸它,那兩族已成死 CSS 整組刪除。
+    //    只比字串會被註解裡的歷史說明騙到 ⇒ 用解析出來的**規則選擇器**判。
+    const parsed = cssRules(); // `rules` 是另一個 describe 的區域變數,這裡就地解析
+    // 🔴 前提:解析器要真的解得出規則,否則下面 `[]` 是因為沒東西可比 ⇒ 恆真(審查抓到)。
+    expect(parsed.length, 'cssRules() 解析不出任何規則 ⇒ 本條恆真、失去判別力').toBeGreaterThan(20);
+    for (const dead of ['.bp-prod-head', '.bp-grid']) {
+      // 🔴 用**詞邊界**比而不是 `startsWith`(審查抓到兩個洞):
+      //    `startsWith` 讓 `.bp-products-inner .bp-grid { … }` 這種「重生在後代位置」溜過去,
+      //    而且 `.bp-gridxyz` 會誤報。
+      const re = new RegExp(`\\${dead}(?![\\w-])`);
+      const live = parsed.filter((r) => r.selector.split(',').some((x) => re.test(x.trim())));
+      expect(
+        live.map((r) => r.selector),
+        `${dead} 又長回規則了 ⇒ 與 rail 版位並存會有兩套版位`,
+      ).toEqual([]);
     }
   });
 });
@@ -1012,51 +1041,13 @@ describe('品牌頁 CSS · 註解沒有提早關閉(D3b)', () => {
 
 describe('品牌頁 CSS · 商品區(D3b)', () => {
   const rules = cssRules();
-  const gridRules = rules.filter((r) => r.selector.split(',').map((s) => s.trim()).includes('.bp-grid'));
+  // (R-2:原本這裡有個 `gridRules`,三條 `.bp-grid` 守門移除後已零使用 ⇒ 一併刪,不留死碼。)
 
-  it('🔴 前提:`.bp-grid` 三個斷點各有一條欄數規則(基礎 / ≤1180 / ≤620)', () => {
-    // 沒有這條,下面「欄數對」可能只是因為某個斷點根本沒寫規則 ⇒ 恆真。
-    const at = gridRules.map((r) => r.at.join('|'));
-    expect(at).toHaveLength(3);
-    expect(at.filter((a) => a === '')).toHaveLength(1); // 基礎規則(不在任何 @media 內)
-    expect(at.some((a) => a.includes('1180'))).toBe(true);
-    expect(at.some((a) => a.includes('620'))).toBe(true);
-  });
-
-  it('🔴 欄數 5 → 3 → 2(設計稿 :727 / :882 / :931)', () => {
-    const colsAt = (needle: string) =>
-      gridRules.find((r) => (needle === '' ? r.at.length === 0 : r.at.join('|').includes(needle)))
-        ?.body.match(/grid-template-columns\s*:\s*repeat\(\s*(\d+)/)?.[1];
-    expect(colsAt('')).toBe('5');
-    expect(colsAt('1180')).toBe('3');
-    expect(colsAt('620')).toBe('2');
-  });
-
-  it('🔴 多出來的格是 `display:none`,不是讓它換行', () => {
-    // 選擇器用 `> :nth-child()`(申報偏離):設計稿寫 `.bp-grid .bp-slot:nth-child(...)`,
-    // 而正式站的子元素是 ProductCard 的 `.pcard` ⇒ 寫 `.bp-slot` 那兩條永遠不生效。
-    const hidden = rules.filter(
-      (r) => /^\.bp-grid\s*>\s*:nth-child\(/.test(r.selector) && /display\s*:\s*none/.test(r.body),
-    );
-    // 🔴 選擇器**必須以 `.pcard` 結尾**:`ProductCard` 的 `<Link>` 帶 inline style
-    //    `display: contents`(`ProductCard.tsx:248`),inline style 贏過樣式表 ⇒ 直接關那個
-    //    子元素是沒有用的。D3b 第一版就是這樣、而且**本檔當時全綠** —— 文字層守門看得到
-    //    「規則在不在」,看不到「規則有沒有真的生效」。這條只是把已知的修法釘住,
-    //    真正的驗證是真瀏覽器量可見張數(見 C-29-STOP 的量測)。
-    for (const r of hidden) {
-      const parts = r.selector.split(',').map((x) => x.trim());
-      // 兩種 DOM 形狀各要有一條:①直接子代(ProductCard 不傳 href 時)②包一層 Link 時的 .pcard
-      expect(parts.some((x) => /:nth-child\([^)]*\)$/.test(x)), `${r.selector} 缺「直接子代」那條`).toBe(true);
-      expect(parts.some((x) => /\.pcard$/.test(x)), `${r.selector} 缺「.pcard」那條`).toBe(true);
-    }
-    expect(hidden).toHaveLength(2);
-    const byBreakpoint = Object.fromEntries(
-      hidden.map((r) => [r.at.join('|').match(/(\d+)px/)?.[1], r.selector]),
-    );
-    // ≤1180 剩 3 欄 ⇒ 藏第 4 個起;≤620 剩 2 欄 ⇒ 藏第 3 個起。數字錯開就是多一排或少一張。
-    expect(byBreakpoint['1180']).toContain('n + 4');
-    expect(byBreakpoint['620']).toContain('n + 3');
-  });
+  // 🔴 2026-08-07 R-2:原本這裡有三條守 `.bp-grid` 的測試(三斷點各一條欄數規則 / 欄數 5→3→2 /
+  //    多出來的格 display:none)。商品區改用共用 `ProductRail` 橫捲之後,**判別對象整組不存在**
+  //    ⇒ 三條一併移除,改由上面那條「`.bp-grid` 不得再長回規則」接手。
+  //    ⚠️ 連帶的**行為變更**已在 `BrandPageProducts.tsx` 申報:原本窄螢幕是**隱藏**多出來的格
+  //    (≤1180 剩 3、≤620 剩 2),客人在手機上看不到第 4 筆之後;rail 化之後手機也滑得到全部。
 
   it('🔴 骨架槽的 class 一條都沒搬(設計稿 :730-740 刻意不搬)', () => {
     for (const dead of ['.bp-slot', '.bp-slot-img', '.bp-slot-info', '.bp-bar']) {
@@ -1082,13 +1073,19 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
   //    而那個 token 只宣告在 `home.css:8` 的 `.ed-page` 內 —— 本頁刻意不掛 `.ed-page`
   //    ⇒ 沒補的話 `border-bottom` 整條 IACVT、底線消失,而**所有 CSS 文字守門照樣綠**
   //    (它們看得到「規則在不在」,看不到「token 有沒有值」)。
-  it('🔴 `.bp-page` 有補 `--ed-c-ink`(否則「查看全部」的底線會整條消失)', () => {
-    const scope = rules.filter((r) => r.selector.split(',').map((x) => x.trim()).includes('.bp-page'));
-    expect(scope.length, '找不到 .bp-page 的色票區').toBeGreaterThan(0);
+  // 🔴 2026-08-07 R-2 更正:這條原本的失敗訊息是「否則『查看全部』的底線會整條消失」——
+  //    **現在為假**。品牌頁唯一的 `.ed-link` 已搬進 rail,而 `.b-select-inset` 自己就宣告了
+  //    `--ed-c-ink`(`home.css`,grep `b-select-inset`),它是更近的祖先 ⇒ `.bp-page` 那份被完全遮蔽。
+  //    ⇒ 這條不是刪掉,是**把守的東西換成仍然成立的那個**:品牌頁上讀得到 `--ed-c-ink` 的
+  //    來源必須存在(現在是 `.b-select-inset` 供的;`.bp-page` 那份留著當兜底、不強制)。
+  it('🔴 品牌頁上的 `.ed-link` 讀得到 `--ed-c-ink`(供給者是 rail 的 inset 作用域)', () => {
+    const home = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'home.css'), 'utf8');
+    const inset = home.match(/\.b-select-inset\s*\{[^}]*\}/);
+    expect(inset, 'home.css 找不到 .b-select-inset ⇒ 品牌頁的 rail token 作用域不見了').not.toBeNull();
     expect(
-      scope.some((r) => /--ed-c-ink\s*:/.test(r.body)),
-      '.bp-page 沒宣告 --ed-c-ink ⇒ .ed-link 的 border-bottom 會退回 none',
-    ).toBe(true);
+      inset![0],
+      '.b-select-inset 沒宣告 --ed-c-ink ⇒ 品牌頁「查看全部」的底線會退回 none',
+    ).toMatch(/--ed-c-ink\s*:/);
   });
 
   // 🔴 **合約的另一半**(R3 Fable consider F2):上一條釘的是「`.bp-page` 有宣告 `--ed-c-ink`」,
@@ -1160,7 +1157,104 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
     ).toBe(true);
   });
 
-  it('箭頭的 hover 位移在 reduced-motion 下被關掉(設計稿 :867)', () => {
-    expect(neutralisedIn(rules, '.bp-prod-head .ed-link:hover .ed-link-arrow', 'transform')).toBe(true);
+  // 🔴 2026-08-07 R-2 **更正**:我一度把這條整條刪掉,理由寫「rail 的箭頭動效屬
+  //    `.b-select-arrow` 家族」——**那是錯的,而且那個錯誤判斷正是回歸沒被發現的原因**。
+  //    被守的是 `.ed-link-arrow`(「查看全部」那顆箭頭),`.b-select-arrow` 是左右導覽鈕、
+  //    它只 transition background/border-color、沒有 transform。兩顆是不同的東西,
+  //    而 rail 仍然渲染同一顆 `.ed-link-arrow` ⇒ 刪掉等於讓 reduced-motion 使用者的位移回來。
+  //    ⇒ 保護留著、選擇器跟著表頭換成 `.b-select-inset`。
+  it('「查看全部」箭頭的 hover 位移在 reduced-motion 下被關掉(R-2 後選擇器換成 rail 的)', () => {
+    expect(
+      neutralisedIn(rules, '.b-select-inset .ed-link:hover .ed-link-arrow', 'transform'),
+      'reduced-motion 下箭頭仍會位移 ⇒ 站台層那條 translateX 全站沒有 reduce 保護,品牌頁這道是唯一的',
+    ).toBe(true);
+  });
+});
+
+/**
+ * 取 tokens.css 第一個 `:root { … }` 區塊的內容(大括號配對計數,同 bpPageScopes() 的做法)。
+ * 🔴 不能用整檔正規式硬撈:tokens.css 還有 `[data-theme="dark"] { … }` 與
+ *    `@media (max-width: 1079px) { :root { --shell-header-h: 69px; } }` 兩塊——
+ *    後者字面上也含 `:root {`,但 indexOf 抓到的是**第一個**出現位置(檔案開頭那個),
+ *    不會誤取到 media query 裡嵌套的那份。
+ */
+function tokensRootScope(): string {
+  const start = TOKENS_CSS.indexOf(':root {');
+  if (start === -1) return '';
+  const open = TOKENS_CSS.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < TOKENS_CSS.length; i++) {
+    if (TOKENS_CSS[i] === '{') depth++;
+    else if (TOKENS_CSS[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) return '';
+  return TOKENS_CSS.slice(open + 1, end);
+}
+
+/** 從一段 CSS scope 文字裡抽出某顆 token 的宣告值(不含結尾分號)。 */
+function tokenValue(scope: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = scope.match(new RegExp(`${escaped}:\\s*([^;]+);`));
+  return m ? m[1]!.trim() : null;
+}
+
+describe('品牌頁 CSS · tokens.css :root 分岔守門(2026-08-06 token 升級片)', () => {
+  it('🔴 --c-graphite 與 --f-serif 在 tokens.css :root 與 brand-page.css .bp-page 必須逐字同值', () => {
+    // 兩處分岔 ⇒ 品牌頁與其他頁的同一顆 token 會是不同值,而且兩邊各自的測試都會是綠的
+    // (brand-page.test.ts 只驗 .bp-page 那份、home.test.ts 只驗 :root 那份,誰都看不到對方)。
+    const rootScope = tokensRootScope();
+    expect(rootScope, 'tokens.css 抓不到 :root 區塊 ⇒ 下面的比對是空字串比空字串,恆真').not.toBe('');
+    const bpScope = bpPageScopes();
+    expect(bpScope, 'brand-page.css 抓不到 .bp-page 區塊 ⇒ 下面的比對恆真').not.toBe('');
+    for (const name of ['--c-graphite', '--f-serif']) {
+      const rootVal = tokenValue(rootScope, name);
+      const bpVal = tokenValue(bpScope, name);
+      expect(rootVal, `tokens.css :root 沒有 ${name} ⇒ 升級片沒做完`).not.toBeNull();
+      expect(bpVal, `brand-page.css .bp-page 沒有 ${name} ⇒ 本地定義被誤刪`).not.toBeNull();
+      expect(
+        rootVal,
+        `${name} 兩處分岔(tokens.css :root = ${rootVal}, brand-page.css .bp-page = ${bpVal})` +
+          ' ⇒ 品牌頁與其他頁的同一顆 token 會是不同值,而且兩邊各自的測試都會是綠的',
+      ).toBe(bpVal);
+    }
+  });
+});
+
+/**
+ * 取 tokens.css `[data-theme="dark"] { … }` 區塊的內容(大括號配對計數,
+ * 同 tokensRootScope() 的做法)。`indexOf('[data-theme="dark"] {')` 抓精確帶大括號的
+ * 字面,不會誤取到 `[data-theme="dark"] .ph { … }` 那條巢狀選擇器不同的規則。
+ */
+function tokensDarkScope(): string {
+  const start = TOKENS_CSS.indexOf('[data-theme="dark"] {');
+  if (start === -1) return '';
+  const open = TOKENS_CSS.indexOf('{', start);
+  let depth = 0;
+  let end = -1;
+  for (let i = open; i < TOKENS_CSS.length; i++) {
+    if (TOKENS_CSS[i] === '{') depth++;
+    else if (TOKENS_CSS[i] === '}') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) return '';
+  return TOKENS_CSS.slice(open + 1, end);
+}
+
+describe('tokens.css · 深色模式不得覆寫固定深色場 token(R1 nit)', () => {
+  it('🔴 [data-theme="dark"] 區塊內不得出現 --c-graphite 或 --f-serif', () => {
+    // --c-graphite 是固定的品牌深色場(搭配寫死的 color:#fff),不是隨主題翻轉的介面色;
+    // --f-serif 是字體、無深淺變體。日後有人往 [data-theme="dark"] 加同名 token 會讓
+    // 這兩顆在深色模式下悄悄變成別的值,而分岔守門(上面那個 describe)只比對
+    // :root 與 .bp-page,看不到 [data-theme="dark"] 這一層。
+    const darkScope = tokensDarkScope();
+    expect(darkScope, 'tokens.css 抓不到 [data-theme="dark"] 區塊 ⇒ 下面的負向斷言恆真').not.toBe('');
+    expect(darkScope, '[data-theme="dark"] 不該覆寫 --c-graphite').not.toContain('--c-graphite');
+    expect(darkScope, '[data-theme="dark"] 不該覆寫 --f-serif').not.toContain('--f-serif');
   });
 });

@@ -41,6 +41,28 @@ describe('ProductCard', () => {
     expect(anchor!.getAttribute('href')).toBe(`/products/${product.slug}?from=catalog`);
   });
 
+  // 🔴 2026-08-07 焦點查修片:卡內按鈕不得觸發外層 `<a>` 的原生導航。
+  //    這個組合(**有 href** 且 **點卡內按鈕**)原本零覆蓋 —— 上面兩條各測一半、沒有交叉:
+  //    「收藏鈕點擊」那條沒傳 href、「href 存在」那條沒點按鈕 ⇒ 少了 `preventDefault` 也全綠。
+  //    量的是 `defaultPrevented`(瀏覽器是否會執行 `<a>` 的 default action),
+  //    不是「有沒有呼叫某個函式」—— 後者是形狀、前者才是行為。
+  it.each([
+    ['收藏', 'pcard-heart'],
+    ['+ 加入購物車', 'pcard-quick-btn'],
+  ])('有 href 時點「%s」不得觸發外層 <a> 的原生導航(defaultPrevented)', (label, cls) => {
+    const { container } = render(<ProductCard p={product} href={`/products/${product.slug}`} />);
+    const btn = container.querySelector(`.${cls}`) as HTMLElement;
+    expect(btn, `找不到 .${cls} ⇒ 本條前提失效`).not.toBeNull();
+    // 前提:它真的在一顆 <a> 裡面,否則這條測的東西不存在。
+    expect(btn.closest('a'), `.${cls} 不在 <a> 內 ⇒ 本條前提失效`).not.toBeNull();
+    const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+    btn.dispatchEvent(ev);
+    expect(
+      ev.defaultPrevented,
+      `點「${label}」沒有 preventDefault ⇒ 會連帶跳去商品頁(stopPropagation 擋不掉 <a> 的 default action)`,
+    ).toBe(true);
+  });
+
   it('should fall back to article + onClick when href is absent', () => {
     render(<ProductCard p={product} />);
     expect(screen.getByText(product.name).closest('a')).toBeNull();
@@ -63,6 +85,10 @@ describe('ProductCard', () => {
     expect(imgs.some((el) => el.getAttribute('src')?.includes('images.unsplash.com'))).toBe(true);
   });
 
+  // 🔴 2026-08-07(R1 MF3):以下幾條(trim/contain/漸層)量的是 jsdom 產出的 React inline style
+  // **字串**(`el.style.background` 等),沒有 cascade/合成/真瀏覽器——不是「畫面實測」。本片沒有
+  // 任何真瀏覽器證據(本機三條路由都渲染不出商品卡、無法起站量測),實際外觀待 Sean 在有資料的
+  // 站上看。products-r1.test.ts 那邊若引用這裡,引的也只是「字面對不對」,不是「畫面對不對」。
   // trim 線 S4b:去白邊模式 vs cover fallback
   it('should apply trim positioning and white background when p.imageTrim resolves', () => {
     const realUrl = 'https://cdn.shopify.com/s/files/test-trim.jpg';
@@ -76,6 +102,7 @@ describe('ProductCard', () => {
     expect(img.style.transformOrigin).toBe('35% 35%');
     expect(img.style.objectFit).toBe('');
     const gallery = img.closest('.pcard-gallery') as HTMLElement;
+    expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
     expect(gallery.style.background).toContain('255, 255, 255');
   });
 
@@ -92,8 +119,23 @@ describe('ProductCard', () => {
       expect(img.style.objectFit).toBe('contain');
       expect(img.style.width).toBe('100%');
       const gallery = img.closest('.pcard-gallery') as HTMLElement;
-      // 真圖 contain fallback letterbox 底 = --c-surface-2 淺灰(Sean Q1=A);彩色漸層只留 placeholder 路徑
-      expect(gallery.style.background).toContain('--c-surface-2');
+      // 圖框白底(Sean 2026-08-06 拍 A、推翻 07-24 拍板 Q1=A 的 --c-surface-2 灰底 letterbox)
+      expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
+      expect(gallery.style.background, 'contain fallback 應是純白 #ffffff').toContain('255, 255, 255');
+      expect(gallery.style.background, '不該殘留舊的 --c-surface-2 灰底').not.toContain('--c-surface-2');
     }
+  });
+
+  // 圖框白底(2026-08-06 拍 A)· 漸層 placeholder 分支釘住不變(本片刻意不動、見 ProductCard.tsx 元件註解)
+  it('should keep the colored gradient background for the no-real-image placeholder path (untouched by 08-06 white-card change)', () => {
+    render(<ProductCard p={{ ...product, image: null }} />);
+    const img = screen.getAllByAltText(product.brand).find((el) => el.getAttribute('src')?.includes('images.unsplash.com'))!;
+    const gallery = img.closest('.pcard-gallery') as HTMLElement;
+    expect(gallery.style.background, '前提(非獨立防線,被下面的 toContain 嚴格蘊含):gallery 有算出 background(非空字串)').not.toBe('');
+    expect(gallery.style.background, 'placeholder 分支應仍是 linear-gradient、不是純白').toContain('linear-gradient');
+    // 🔴 2026-08-07(R1 nit):這條前提是 PALETTES(見 ProductCard.tsx)六色沒有一個含
+    // rgb(255, 255, 255) —— 日後有人加一個含白的 palette(例如更淺的 cool 色),這條會無聲失效
+    // (linear-gradient 字串裡混進 '255, 255, 255' 也一樣通過上面那條 toContain)。
+    expect(gallery.style.background, 'placeholder 分支不該被誤改成 #fff').not.toContain('255, 255, 255');
   });
 });

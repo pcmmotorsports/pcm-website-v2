@@ -1,55 +1,41 @@
 // app/dev-preview/brands/[slug]/page.tsx — 單一品牌完整版面 demo(2026-07-10 夜、#212 方向3)
 //
-// 渲染:①來源規模列(報價單 view 真資料 snapshot)②品牌形象版面(showcase 元件、與正式商品頁同一份)
+// 渲染:①來源規模列(報價單 view 真資料 snapshot)〔②品牌形象版面已於 2026-08-07 H7 隨 showcase 元件整組移除〕
 // ③代表商品條(真商品圖/名/價/分類=接線後商品頁素材)④安裝資源 sample(該家來源真有影片才渲染;
 //   驗混格式 youtube/vimeo facade——mp4 來源今晚全家皆 0、fixture 層由 InstallResources.test 覆蓋)。
 // dev-preview/* 屬開發臨時驗證頁、M-6 前移除(backlog #147)。
 
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import type { ReactNode } from 'react';
 // pd-* 樣式在 ProductPage.tsx 才 import(非全域);demo 頁獨立渲染 showcase → 必須自帶,否則裸奔
 import '@/styles/product-page.css';
 import { InstallResources } from '@/components/InstallResources';
-import { EvotechShowcase } from '@/components/EvotechShowcase';
-import { LightechShowcase } from '@/components/LightechShowcase';
-import { CncRacingShowcase } from '@/components/CncRacingShowcase';
-import { EaziGripShowcase } from '@/components/EaziGripShowcase';
-import { SamcoShowcase } from '@/components/SamcoShowcase';
-import { MotogadgetShowcase } from '@/components/MotogadgetShowcase';
-import { Front3dShowcase } from '@/components/Front3dShowcase';
-import { MateryaShowcase } from '@/components/MateryaShowcase';
-import { EbcShowcase } from '@/components/EbcShowcase';
-import { KspeedShowcase } from '@/components/KspeedShowcase';
-import { ExtremeComponentsShowcase } from '@/components/ExtremeComponentsShowcase';
 import { BRAND_FIXTURES } from '../fixtures';
 
 export const metadata = { robots: { index: false } };
 
-const SHOWCASES: Record<string, () => ReactNode> = {
-  evotech: () => <EvotechShowcase />,
-  lightech: () => <LightechShowcase />,
-  'cnc-racing': () => <CncRacingShowcase />,
-  'eazi-grip': () => <EaziGripShowcase />,
-  samco: () => <SamcoShowcase />,
-  motogadget: () => <MotogadgetShowcase />,
-  front3d: () => <Front3dShowcase />,
-  materya: () => <MateryaShowcase />,
-  ebc: () => <EbcShowcase />,
-  'k-speed': () => <KspeedShowcase />,
-  extreme: () => <ExtremeComponentsShowcase />,
-};
+// 🔴 2026-08-07 H7:品牌形象版面(showcase 元件)整組刪除 ⇒ 本頁的區塊②連同 11 個
+//    `<XxxShowcase />` 一起撤。原本那顆 `SHOWCASES` map **同時是三件事**:
+//    區塊②的渲染來源、`generateStaticParams` 的 key 來源、以及 404 閘門 ——
+//    刪掉渲染那一份就不能不管另外兩個,否則路由與守門會一起塌。
+//    ⇒ 用明列 slug 的常數接手那兩個責任。
+//    ⚠️ **刻意不改用 `Object.keys(BRAND_FIXTURES)`**:那支的物件形狀我沒有完整確認
+//    (grep 撈到疑似巢狀的 `vehicle` / `products` 兩個 key),拿它當路由來源等於賭。
+//    明列 11 個 slug 與原本 map 的 key 逐字相同 ⇒ 路由與 404 行為**可證等價**。
+const DEMO_SLUGS = [
+  'evotech', 'lightech', 'cnc-racing', 'eazi-grip', 'samco', 'motogadget',
+  'front3d', 'materya', 'ebc', 'k-speed', 'extreme',
+] as const;
 
 export function generateStaticParams() {
-  return Object.keys(SHOWCASES).map((slug) => ({ slug }));
+  return DEMO_SLUGS.map((slug) => ({ slug }));
 }
 
 export default async function BrandDemoPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   // Object.hasOwn:擋 constructor/__proto__ 等原型鏈 key(命中繼承成員 → 下行取值 TypeError 500 而非 404;
   // 對齊 supplier-config fail-closed 慣例、adversarial F5)
-  if (!Object.hasOwn(SHOWCASES, slug) || !Object.hasOwn(BRAND_FIXTURES, slug)) notFound();
-  const render = SHOWCASES[slug]!;
+  if (!(DEMO_SLUGS as readonly string[]).includes(slug) || !Object.hasOwn(BRAND_FIXTURES, slug)) notFound();
   const fixture = BRAND_FIXTURES[slug]!;
 
   // 安裝資源 sample:該家來源真有影片才示範(cnc=Vimeo、ebc=YouTube;fixture snapshot 真 URL)
@@ -73,8 +59,10 @@ export default async function BrandDemoPage({ params }: { params: Promise<{ slug
         <span style={{ color: 'var(--c-text-3)' }}>{fixture.topCats.map((c) => `${c.cat} ${c.groups}`).join(' · ')}</span>
       </div>
 
-      {/* 品牌形象版面(與正式商品頁同一份元件) */}
-      {render()}
+      {/* 🔴 2026-08-07 H7:原本這裡是區塊②「品牌形象版面(與正式商品頁同一份元件)」——
+          `*Showcase.tsx` 整組刪除後一併撤。本頁剩下的三個區塊(來源規模列 / 代表商品條 /
+          安裝資源 sample)都與 showcase 無關,所以**清引用、不整頁下架**。
+          (整頁何時下架是 backlog #147 / M-6 在追的獨立議題,不夾帶進本片。) */}
 
       {/* 代表商品條(報價單 view 真資料 snapshot;接線後商品頁的實際素材長相) */}
       <section className="pd-section" aria-label="代表商品(真資料 snapshot)">

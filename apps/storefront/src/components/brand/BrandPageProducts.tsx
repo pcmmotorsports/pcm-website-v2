@@ -1,27 +1,18 @@
 // BrandPageProducts.tsx — 品牌介紹頁的商品區(D3b;2026-08-04)
 //
-// 版面字面搬自 Open Design `pcm-home-redesign/brand-page.html`(骨架 `:1470-1489`、
-// CSS `:717-727` + RWD `:882-883` / `:908` / `:921-922` / `:939` / `:949`;
-// 鐵則 1 例外 = Sean 08-03 拍 Q1=B,本線 design 真權威在 OD)。
+// 🔴 **2026-08-07 R-2:本區已改用共用 `ProductRail` 橫捲**,以下檔頭的歷史說明多數已作廢,
+//    保留是為了記錄「D3b 當時為什麼那樣搬」,不是現況描述:
 //
-// 🔴 **卡片不照設計稿搬**:設計稿那 5 個 `.bp-slot` 是**骨架槽**,它自己的註解(`:1468-1469`)
-//    逐字寫「正式頁面這一區直接用既有的商品列表元件,不是新做的」⇒ 本檔用既有 `ProductCard`。
-//    所以 `.bp-slot` / `.bp-bar` 那組宣告(設計稿 `:731-741`)**刻意不搬**,只搬欄線與標題列。
+// 〔歷史〕版面字面搬自 Open Design `pcm-home-redesign/brand-page.html`;卡片刻意不照稿搬
+//    (稿的 5 個 `.bp-slot` 是骨架槽,它自己的註解逐字寫「正式頁面這一區直接用既有的商品列表元件」)
+//    ⇒ 用既有 `ProductCard`,`.bp-slot` / `.bp-bar` 那組宣告不搬。**這條至今成立。**
+// 〔已作廢〕`.bp-prod-head`(自刻表頭)與 `.bp-grid`(5 欄版位)連同窄螢幕那套
+//    `nth-child(n+4) display:none` 的「選擇器改名」申報 —— **CSS 已整組刪除**,
+//    表頭與版位都歸 rail。RWD 來源列的那幾條稿行號同樣不再對應任何規則。
 //
-// 🔴 **選擇器改名**(申報偏離,同 #311 的處理):設計稿的窄螢幕隱藏規則寫的是
-//    `.bp-grid .bp-slot:nth-child(n+4)`,而我們的子元素是 `ProductCard` 的 `.pcard`
-//    ⇒ 改成 `.bp-grid > :nth-child(n+4)`。**宣告一字未動、意圖逐字保留**
-//    (「窄螢幕少顯示幾格」而不是「換行擠成兩排」);寫成 `.bp-slot` 的話那兩條規則
-//    在正式站永遠不生效 —— 而畫面會多長出一排,沒有任何測試看得到。
-//
-// 資料由呼叫端傳入(`lib/brand-products.fetchBrandTopProducts`)—— 本檔是同步元件,
-// 因為 `BrandPageRoot` 要留在 jsdom 測得動的形狀(async server component 進不了
-// @testing-library 的 render)。撈資料屬 route 的責任,這也是 Next.js 的慣例分工。
-
-import Link from 'next/link';
 import type { MockProduct } from '@/data/mock-products';
 import type { BrandContent } from '@/data/brand-content-types';
-import { ProductCard } from '@/components/ProductCard';
+import { ProductRail } from '@/components/ProductRail';
 import { brandCatalogueUrl } from '@/lib/brand-url';
 
 export function BrandPageProducts({ brand, products }: { brand: BrandContent; products: MockProduct[] }) {
@@ -34,26 +25,36 @@ export function BrandPageProducts({ brand, products }: { brand: BrandContent; pr
     <section className="bp-products">
       <div className="bp-products-inner">
         <div className="bp-sec-label">Products</div>
-        <div>
-          <div className="bp-prod-head">
-            <div>
-              <h2>熱門商品</h2>
-            </div>
-            {/* 設計稿 `:1478` 的 href 是佔位 `/products`,執行期由 `:2028` 換成
-                `catalogue(brand.slug)` ⇒ 正式站直接用同式的 `brandCatalogueUrl`。 */}
-            <Link className="ed-link ed-link-sm" href={brandCatalogueUrl(brand.slug)}>
-              <span>查看全部</span>
-              <span className="ed-link-arrow" aria-hidden="true">
-                →
-              </span>
-            </Link>
-          </div>
-          <div className="bp-grid">
-            {products.map((product) => (
-              <ProductCard key={product.id} p={product} href={`/products/${product.slug}`} />
-            ))}
-          </div>
-        </div>
+        {/* 🔴 2026-08-07 R-2:本區由 5 欄 grid 改成**與首頁 N°02 同一顆 `ProductRail`**
+            (Sean 拍板「品牌頁熱門商品與會員中心為你推薦都改成首頁那款橫向滑動一列」)。
+            ⇒ 原本自己的 `.bp-prod-head`(標題 + 查看全部)與 `.bp-grid` 一起交給 rail ——
+              「查看全部 + 左右箭頭」是一組,箭頭本來就住在 rail 的表頭裡。
+            三個 prop 的給法各有理由,不是隨手:
+              · `variant="inset"` —— rail 的 CSS 吃 7 個只活在 `.ed-page` 的 `--ed-*` token,
+                本頁沒有那個作用域,不給 inset 的話整組宣告會**無聲失效**(見 `home.css` 的
+                `.b-select-inset`;R-3 真瀏覽器量過三組對照)。
+              · **不給 `reveal`** —— 品牌頁 Sean 2026-08-04 拍板 C「捲動揭示先不做」(backlog #316)。
+              · **不給 `emptyText`** —— 本檔 0 筆時整區不 render(見上方 early return);
+                rail 的 `emptyText` 可省正是為了這個情境,不必替客人編一句文案。
+            ⚠️ **連帶的行為變更(申報)**:原本窄螢幕是用 `nth-child(n+4) display:none`
+            **隱藏**多出來的格(≤1180 剩 3、≤620 剩 2),客人在手機上根本看不到第 4 筆之後;
+            改 rail 之後**手機也滑得到全部** —— 這是產品面的改善,但確實是行為變更。 */}
+        <ProductRail
+          products={products}
+          title="熱門商品"
+          // 設計稿的 href 是佔位 `/products`,執行期換成 `catalogue(brand.slug)`
+          // ⇒ 正式站直接用同式的 `brandCatalogueUrl`。
+          viewAllHref={brandCatalogueUrl(brand.slug)}
+          viewAllLabel="查看全部"
+          ariaLabel={`${brand.name} 熱門商品橫捲`}
+          // ⚠️ **`errorText` 在本頁結構性不可達**(審查抓到):`fetchBrandTopProducts` 撈失敗時
+          //    回的是空陣列而不是錯誤旗標 ⇒ 會走成 0 筆 → 上面的 early return → **整區不 render**。
+          //    ⇒ 撈失敗時品牌頁是「整區消失」,而首頁/會員中心是「顯示錯誤文案」——**三區行為分岔**。
+          //    仍然把文案傳進去:哪天取數鏈改成會回報錯誤,這裡就立刻是對的、不必再找一次。
+          //    這個分岔本身要不要收斂是產品題,已回報主視窗、本片未自行改行為。
+          errorText="商品載入失敗、請稍後再試"
+          variant="inset"
+        />
       </div>
     </section>
   );

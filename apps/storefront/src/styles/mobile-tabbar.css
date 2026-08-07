@@ -102,8 +102,21 @@ html[data-mobile="true"] body {
   white-space: nowrap;
 }
 
-/* product 詳情頁讓位 sticky buy bar */
-.mobile-tabbar.is-hidden {
+/* 讓位給頁面自己的 fixed 底欄 / 刻意零站內導覽的頁面(`MobileTabBar.tsx` 的 hidden 判定)。
+ *
+ * 🔴 2026-08-06 第5批修:原本只有裸的 `.mobile-tabbar.is-hidden` = **(0,2,0)**,
+ *    打不過本檔 `:42` 的 `html[data-mobile="true"] .mobile-tabbar { display: flex }` = **(0,2,1)**
+ *    (class 欄同為 2、元素欄 1 > 0;@media 不加權重、序在前也沒用)
+ *    ⇒ **`is-hidden` 在真手機 UA 上一直是 no-op**。真瀏覽器實測 `getComputedStyle().display`
+ *    在 `html[data-mobile="true"]` 下回傳 `flex`,不是 `none`。
+ *    受害範圍不只結帳:`/products/[slug]` 與 `/coming-soon` 的「藏 TabBar」從上線起就沒生效過
+ *    (`/coming-soon` 更慘 —— `coming-soon.css:267` 那條讓位歸零**有**生效,等於 TabBar 還在、
+ *     底部讓位卻沒了,頁尾被蓋)。
+ *    ⚠️ 元件測試對這個**完全盲**:它們只斷言 `className` 掛上了 `is-hidden`,
+ *    class 有掛而 CSS 不認帳,文字層與 jsdom 都看不到 cascade 的勝負。
+ *    修法照本檔平板段(`@media (min-width: 600px) and (max-width: 1079px)` 那段)自己已經在用的雙選擇器 idiom:與兜底同權重再加一個 class ⇒ (0,3,1)。 */
+.mobile-tabbar.is-hidden,
+html[data-mobile="true"] .mobile-tabbar.is-hidden {
   display: none;
 }
 

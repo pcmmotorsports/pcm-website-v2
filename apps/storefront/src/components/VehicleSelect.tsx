@@ -11,10 +11,17 @@
 //   🔴 finder 變體原本三欄 placeholder 都是 `—`(設計稿 C2 Before/After 兩張圖皆如此畫),
 //   A 表標題逐字寫「實作端逐字照抄」⇒ 以 A 表為準,`—` 退場(A 計畫 §2.1 註)。
 //   本檔一改擴散到四個掛載點(首頁 finder / PDP §7 / 購物車 / 帳號表單)。
+//
+// A5(2026-08-06,選車引擎統一 B′續):未選廠牌時車型欄改跨層搜尋(打 r6 直達車款)、
+//   選定同時回填廠牌 —— 與 `/products` 桌機選車列(CascadeFilterTop)共用同一顆
+//   `lib/vehicle-options`(modelFieldOptions/resolveModelPick),不建立第二套車款比對邏輯。
+//   🔴 `onPickModel` 簽章因此改傳 `{ brand, model }`(而非單純 `name`):跨層選取若只回傳
+//   model 名稱,呼叫端沒有管道拿到字典回填的 brand,選車就會卡在「有車型無廠牌」的壞態。
 
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
+import { modelFieldOptions, resolveModelPick } from '@/lib/vehicle-options';
 
 type ComboProps = {
   label: string;
@@ -216,7 +223,9 @@ export function VehicleSelect({
   motoBrands: MockMotoBrand[];
   vehicle: { brand: string; model?: string; year?: number } | null;
   onPickBrand: (name: string) => void;
-  onPickModel: (name: string) => void;
+  /** 車型欄選定。跨層(未選廠牌直接打車型)時 brand 由字典回填 ⇒ 一律同時給 brand+model。
+   *  🔴 刻意不留 `(name: string)` 舊簽章:留著的話跨廠牌選取會在呼叫端的 `if (!sel) return` 靜默沒作用。 */
+  onPickModel: (pick: { brand: string; model: string }) => void;
   onPickYear: (year: number) => void;
   /** 清 brand=全清 */
   onClearBrand: () => void;
@@ -233,6 +242,16 @@ export function VehicleSelect({
     vehicle?.model != null ? models.find((m) => m.name === vehicle.model) : undefined;
   const years = curModel?.years ?? [];
   const modelNoYears = curModel !== undefined && years.length === 0;
+  // 未選廠牌時車型欄跨層搜尋(打 r6 直達車款),選定同時補上廠牌 —— 與 CascadeFilterTop
+  // 共用同一顆 lib/vehicle-options(A5,不建立第二套車款比對邏輯)。
+  // ⚠️ 申報一個順帶的行為變動(R1 nit):`brand 有值但不在字典`(字典改名/下架後,購物車
+  //   `startEdit` 從既存 cart 值回填 sel 即可達)這個狀態,舊行為=車型欄空清單、使用者卡死;
+  //   新行為=`modelFieldOptions` 找不到該 brand ⇒ 回跨層全清單,選取會把那個壞廠牌換掉。
+  //   新行為較好(給得出路),但它不是本片的目標、是 modelFieldOptions 語意帶進來的,故明寫。
+  const { crossLayer, options: modelOptions } = modelFieldOptions(
+    motoBrands,
+    vehicle?.brand ?? null,
+  );
 
   return (
     <>
@@ -249,10 +268,17 @@ export function VehicleSelect({
       <Combo
         label="選擇車型"
         value={vehicle?.model ?? null}
-        options={models.map((m) => m.name)}
-        disabled={!vehicle}
-        placeholder="選擇或輸入車型"
-        onPick={onPickModel}
+        options={modelOptions}
+        /* Sean 2026-08-06 拍板 B(車型欄 placeholder 議題):三個掛載點(finder / PDP / 購物車)
+           改與 `/products` 桌機選車列(CascadeFilterTop)一致 —— 跨層時附例字。
+           OD `vehicle-picker-design.html` A 表對 finder 逐字寫的 `選擇或輸入車型`(不含例字)
+           本身已是 OD 稿的債:與此拍板不符,已記入回饋包待 OD 更新,不是站上偏離。 */
+        placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
+        emptyHint={crossLayer ? '查無符合的車款，請調整關鍵字' : undefined}
+        onPick={(picked) => {
+          const resolved = resolveModelPick(motoBrands, vehicle?.brand ?? null, picked);
+          if (resolved) onPickModel(resolved);
+        }}
         onClear={onClearModel}
         variant={variant}
         slotLabel="車型 · 可不選"

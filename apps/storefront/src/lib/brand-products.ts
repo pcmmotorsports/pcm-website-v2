@@ -9,14 +9,16 @@
 //    既有的 `dev-preview/brands/[slug]` 用的是 `BRAND_FIXTURES` 靜態快照(計畫 §5.3 註記),
 //    那是舊 showcase 線的東西,本線不沿用。
 //
-// 🔴 `perPage: 5` 是白名單外的值,但**不是特殊路徑**(信箱 C-26-A 特別要求確認):
+// 🔴 `perPage: BRAND_PRODUCT_SLOTS`(2026-08-07 R-2 起 = **10**,原為 5)是白名單外的值,
+//    但**不是特殊路徑**(信箱 C-26-A 特別要求確認):
 //    `CATALOG_PER_PAGE_VALUES`([25,50,75,100])只在 `parseCatalogQuery` 把關**使用者輸入**;
 //    本檔是自己組 `CatalogQuery` 物件,不經過那道。RPC 側對 `p_limit` 的處理是
 //    `LIMIT LEAST(GREATEST(p_limit, 1), 100)`(migration `20260719150000_catalog_product_image_trim.sql:110,172`)
-//    ⇒ 5 落在 [1,100] 內、被原值採用,與白名單值走的是同一條 SQL、無 clamp、無降級。
+//    ⇒ **10(以及原本的 5)都落在 [1,100] 內**、被原值採用,與白名單值走的是同一條 SQL、無 clamp、無降級。
+//    ⚠️ 這段的論證不綁死某個數字,但**改常數時要回來確認它仍在 [1,100]**。
 //
 // ⚠️ 每個品牌會多出一組 `unstable_cache` 鍵(key = `JSON.stringify(query)`,見 `lib/products.ts`)。
-//    20 家 × 一組、每組只有 5 筆卡片 DTO,離單條 2MB 上限很遠
+//    20 家 × 一組、每組 **10 筆**(R-2 起;原 5 筆)卡片 DTO,離單條 2MB 上限仍很遠
 //    (memory `reference_next16-unstable-cache-force-dynamic-2mb`)。
 
 import type { MockProduct } from '@/data/mock-products';

@@ -1,5 +1,5 @@
 import 'server-only';
-import { SupabaseOrderAdapter, SupabaseOrderStatusOptionsAdapter } from '@pcm/adapters';
+import { SupabaseOrderAdapter } from '@pcm/adapters';
 import { createSupabaseServiceClient } from '@pcm/adapters/server';
 import { SupabaseAuditLogRepository } from '../audit/supabase-repository';
 import type { AuditLogInserter } from '../audit/repository';
@@ -24,13 +24,10 @@ export function getAdminOrderRepository(): SupabaseOrderAdapter {
   return new SupabaseOrderAdapter(createSupabaseServiceClient());
 }
 
-/**
- * 訂單處理狀態詞彙 repo(M-4a Slice A;order_status_options 對 client 全鎖 → 必走 service_role)。
- * 呼叫端(/orders server component)僅用 `listOrderStatusOptions`(具名白名單投影)。
- */
-export function getAdminOrderStatusOptionsRepository(): SupabaseOrderStatusOptionsAdapter {
-  return new SupabaseOrderStatusOptionsAdapter(createSupabaseServiceClient());
-}
+// M-4b E10 A9w4c(後半收尾):`getAdminOrderStatusOptionsRepository` 已移除 —— A11a-1 列表重建後
+// 零呼叫端,連同 port / adapter / 其測試整條讀取鏈同片退場(A11a plan §3.1 裁定)。
+// 🔴 DB 端 order_status_options 的 service_role **寫**權由 A9v `20260807120000` 撤除
+//    (INSERT + 五個欄級 UPDATE;**SELECT 刻意保留**),apply 後生效。
 
 /**
  * 稽核 log repo(M-4a M0-S2 → D-3b 首個真呼叫端;admin 寫入動作寫 admin_audit_log)。

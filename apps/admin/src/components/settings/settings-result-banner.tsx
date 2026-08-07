@@ -5,18 +5,11 @@ export type SettingsResultMessages = Readonly<
   Record<string, { text: string; tone: 'ok' | 'warn' | 'error' }>
 >;
 
-const MESSAGES: SettingsResultMessages = {
-  saved: { text: '已儲存變更。', tone: 'ok' },
-  created: { text: '已新增狀態選項。', tone: 'ok' },
-  notfound: { text: '找不到該狀態選項(可能已被移除),未儲存。', tone: 'warn' },
-  duplicate: { text: '代碼(code)已存在,請換一個,未新增。', tone: 'warn' },
-  invalid: {
-    text: '輸入格式不正確(代碼須小寫英數底線、標籤 1–32 字、顏色須 #RRGGBB、排序須非負整數)。',
-    tone: 'warn',
-  },
-  denied: { text: '沒有權限或登入狀態已失效,未儲存。', tone: 'error' },
-  error: { text: '儲存失敗,請稍後再試或聯絡系統維護。', tone: 'error' },
-};
+// 🔴 **本元件刻意沒有預設碼表**(#332-2,Sean 2026-08-06 拍板 Q2=A):原本的預設 `MESSAGES` 是
+//    `order-statuses` 設定頁的專用詞彙,那頁在 A9w2 隨九碼退場下架後就零 caller ⇒ 是死詞彙,
+//    不是 fallback。留著的代價是「看起來有人在維護的預設文案」這種假安心。
+//    ⇒ `messages` 為**必填**:哪個頁面用本元件,就自己帶自己的碼表,漏帶 = **編譯期報錯**,
+//    不會靜默套到一份沒人維護的詞彙上。
 
 const TONE = {
   ok: 'border-green-500/30 bg-green-500/5 text-green-700',
@@ -26,27 +19,24 @@ const TONE = {
 
 export function SettingsResultBanner({
   code,
-  messages = MESSAGES,
+  messages,
 }: {
   code: string | undefined;
-  messages?: SettingsResultMessages;
+  messages: SettingsResultMessages;
 }) {
   if (!code) return null;
-  // 🔴🔴 **已知缺陷,Sean 2026-08-02 拍板 B 刻意退回、不是沒發現**:
-  //    `code` 來自 URL 的 `?r=`,是**任意字串**。直接索引時 `messages['__proto__']` /
-  //    `['constructor']` / `['toString']` 會取到**原型鏈上的屬性**且為 truthy
-  //    ⇒ 下一行的 `if (!msg)` 這道守門形同虛設 ⇒ 畫出一個 `class="… undefined"` 的空框
-  //    (`msg.text` 是 undefined ⇒ **不會注入任何文字**,純粹是「守門的名字大於它的能力」)。
-  //    修法是 `Object.hasOwn(messages, code)`,S3b-2(`4833cae`)曾修過並已上線,
-  //    Sean 08-02 拍板退回 —— 理由是它不在該片的產物表內、屬鐵則 8「動共用元件」灰區。
-  //    ⇒ 受影響頁面 **6 個**(A9w2 起:原 7 個,`order-statuses` 隨九碼退場已下架;
-  //      數字為實測 import 端 —— 本元件 2 頁 + 姊妹元件 4 頁):
-  //      staff / **suppliers**(本元件)
-  //      + orders 列表 / 訂單詳情 / 客戶詳情 / 退款異常清單(姊妹元件 `orders/result-banner.tsx`)。
-  //    🔴 退回時 `lib/supplier-result-messages.test.tsx` 的三個原型鏈向量也一起拿掉了 ——
-  //    留著會轉紅,而把它們改成「期望畫出空框」等於用測試把缺陷釘成規格。
-  //    要再修的話,兩支元件要一起、並且走 plan。
-  const msg = messages[code];
+  // 🔴 **守門形狀必須是 `Object.hasOwn`,不得退回裸索引 `messages[code]`**(#332-2,Sean 2026-08-02
+  //    拍板 B 退回過一次、2026-08-06 拍板 Q1=A 修回來):`code` 來自 URL 的 `?r=`,是**任意字串**。
+  //    裸索引時 `messages['__proto__']` / `['constructor']` / `['toString']` / `['valueOf']` /
+  //    `['hasOwnProperty']` 會取到**原型鏈上的屬性**且為 truthy ⇒ 下一行的 `if (!msg)` 這道守門
+  //    形同虛設 ⇒ 畫出一個 `class="… undefined"` 的空框(`msg.text` 是 undefined
+  //    ⇒ **不會注入任何文字**,純粹是「守門的名字大於它的能力」)。
+  //    ⇒ 回歸測試釘在 `settings-result-banner.test.tsx`(五個向量逐字入測,**元件層**——
+  //    不變量是「本元件對任何非自有 key 都不渲染」,與是哪張碼表無關);姊妹元件
+  //    `orders/result-banner.tsx` 同形、測試在 `orders/result-banner.test.tsx`。
+  //    背景與爆炸半徑(本元件 2 頁 + 姊妹元件 4 頁 = **6 頁**)見
+  //    `docs/specs/2026-08-06-result-banner-cleanup-plan.md`。
+  const msg = Object.hasOwn(messages, code) ? messages[code] : undefined;
   if (!msg) return null;
   return (
     <div className={`rounded-lg border p-3 text-sm ${TONE[msg.tone]}`} role='status'>

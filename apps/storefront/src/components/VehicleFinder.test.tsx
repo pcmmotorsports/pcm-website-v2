@@ -54,10 +54,10 @@ describe('VehicleFinder(V-1c combobox 版)', () => {
     // A3(選車引擎統一 B′):slot 標籤照 OD A 表 —— 車=廠牌;車型/年份標「· 可不選」
     expect(labels).toEqual(['廠牌', '車型 · 可不選', '年份 · 可不選']);
     // 🔴 finder 變體的 placeholder:A3 前是三個 `—`(設計稿 C2 兩張圖皆如此畫),改採 A 表定版。
-    //    這是本批**唯一改到首頁首屏可見字面**的地方,沒有這行斷言就完全沒有守門(改回去全綠)。
+    //    Sean 2026-08-06 拍板 B:車型欄未選廠牌(本測試 fixture 恆未選)時附例字,與 /products 一致。
     expect([...container.querySelectorAll<HTMLInputElement>('.ed-finder-slot .vsc-input--finder')]
       .map((e) => e.placeholder))
-      .toEqual(['選擇或輸入廠牌', '選擇或輸入車型', '選擇或輸入年份']);
+      .toEqual(['選擇或輸入廠牌', '選擇或輸入車型，例:R6', '選擇或輸入年份']);
     expect(container.querySelector('.ed-finder-slot .vsc-input--finder')).toBeTruthy();
     expect(container.querySelector('.ed-finder-bar .cft-select')).toBeNull(); // 型錄樣式不得滲入首頁
   });

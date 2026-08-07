@@ -12,10 +12,12 @@ import type { ReactNode } from 'react';
 //   - 篩選 pill / 批次選取 = 後續片,先不投機抽象
 //
 // ponytail: 桌機列與手機卡各渲染一次 cell(共兩份 DOM),換來零 JS、零視窗偵測、
-//   server component 直出。單頁 20-50 列的量級可忽略。若日後拿去接 orders-table
-//   (內含 ItemWorkflowStatusCell:包 <form action> 的 Server Component,巢狀
-//   WorkflowStatusSelect 才是 client 元件),雙渲染會產出重複表單與重複 client 狀態 →
-//   屆時改成單一 markup + CSS reflow,或讓帶互動的欄位只在 title/trailing 槽出現一次。
+//   server component 直出。單頁 20-50 列的量級可忽略。
+//   ⚠️ **本段原本的理由已過期**(A11a-1,2026-08-06):`orders-table` 曾內含 `ItemWorkflowStatusCell`
+//   (包 `<form action>` 的 Server Component、巢狀 client 下拉),雙渲染會產出重複表單與重複 client 狀態。
+//   **那個 cell 已下架,orders-table 現在零互動、零 client 邊界** ⇒ 這個特定阻礙不再成立。
+//   但雙渲染對「任何帶互動的欄位」的顧慮仍在:A11a-3 的操作欄(取消鈕)一落地就會重現同一個問題
+//   ⇒ 屆時改成單一 markup + CSS reflow,或讓帶互動的欄位只在 title/trailing 槽出現一次。
 
 export type AdminColumn<T> = {
   /** React key 與除錯用;不顯示。 */

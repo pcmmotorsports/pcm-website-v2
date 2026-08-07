@@ -18,12 +18,21 @@ set -uo pipefail
 WORK="${1:-/tmp/a5a-work}"
 URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
 AURL="${URL}?application_name=a5a_sess_a"
-FN="public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)"
-MIGFILE="supabase/migrations/20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql"
+# 🔴 A9h-M(20260806200000)把簽章從 11 參改成 12 參(尾端 p_preserve_optional_fields boolean
+#    DEFAULT false)⇒ 本字串必須跟著走,否則 regprocedure cast 直接 error、整組驗收全滅。
+#    144 格的 RPC 呼叫本身**不受影響**:它們送 11 個位置參數,第 12 參走 DEFAULT。
+FN="public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)"
+# MIGFILE = **定義當前函式形狀**的那一支(A9h-M 之後不再是基底 A5a);
+# 只供下方存在性閘與人讀,本腳本不套用它。
+MIGFILE="supabase/migrations/20260806200000_m4b_e10_a9h_m_a5a_preserve_optional_fields.sql"
 PASS=0; FAIL=0; SKIP=0; MUT=0; CELL=0
-EXPECTED_TOTAL=144
-EXPECTED_MUT=8
-EXPECTED_CELL=127
+# 🔴 A9h-M 新增:P 區 **17** 格(preserve 模式)+ M 區 **5** 個常駐突變格(M9-M13)。
+#    既有 144 格**一格未改、一格未刪** ⇒「舊 144 全綠」仍是有效的回歸訊號,
+#    格數閘負責證明沒有偷刪。算式 = 144 + 17 + 5 = 166(CELL = 127 + 17 + 5 = 149)。
+#    🔴 算式寫在這裡是刻意的:本片實測兩次都是靠這個閘抓到自己把格數宣稱錯。
+EXPECTED_TOTAL=166
+EXPECTED_MUT=13
+EXPECTED_CELL=149
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
@@ -42,7 +51,7 @@ case "$DATADIR" in "$WORK"/*) : ;; *) echo "🔴 data_directory=$DATADIR 不在 
 [ "$(q "SHOW default_transaction_isolation")" = "read committed" ] || { echo "🔴 非 RC;拒跑"; exit 1; }
 [ "$(q "SHOW lc_messages")" = "C" ] || { echo "🔴 lc_messages 非 C;紅色判定依賴英文 ERROR 前綴;拒跑"; exit 1; }
 [ "$(q "SELECT count(*) FROM pg_proc WHERE oid = '$FN'::regprocedure")" = "1" ] \
-  || { echo "🔴 A5a 未套(函式不在);先 psql -f $MIGFILE"; exit 1; }
+  || { echo "🔴 A5a 12 參簽章不在(基底或 A9h-M 未套);先 scripts/d1t2-rehearsal.sh provision \"$WORK\" —— 🔴 不要單獨 psql -f 某一支,兩支必須依版本序套用"; exit 1; }
 [ "$(q "SELECT count(*) FROM pg_trigger WHERE tgname IN ('order_item_procurement_allocation_guard_ac','order_item_procurement_summary_recompute_zc') AND NOT tgisinternal AND tgenabled='O'")" = "2" ] \
   || { echo "🔴 A2b1/A4a trigger 不在或非 enabled O(上一輪突變殘留?);拒跑"; exit 1; }
 
@@ -84,6 +93,13 @@ SQL
 }
 
 # raise_case label 期望SQLSTATE(空=任意) setup 呼叫引數 —— 斷言 RPC 丟例外(RAISE 面)
+# 🔴🔴 **哨兵的 ERRCODE 必須是 `A5AX1`、不能用預設**(A9h-M 關卡2 F1 實錘):
+#   plpgsql 裸 `RAISE EXCEPTION` 的 SQLSTATE **就是 P0001**。哨兵寫在
+#   `EXCEPTION WHEN SQLSTATE 'P0001'` 的區塊裡 ⇒ RPC **沒有**丟例外時,哨兵自己丟的 P0001
+#   會被自己的 handler 接住、照樣印 A5A_RAISE_OK ⇒ **凡期望碼 = P0001 的格全部恆真**
+#   (守門存在、但對「規則被拿掉」完全看不見 —— memory feedback_guard-checks-existence-not-effect)。
+#   `A5AX1` 是本 harness 專用的自訂 SQLSTATE,RPC 與上游 trigger 都不會產生它
+#   ⇒ 哨兵一旦發火就逃出 handler、psql 非零退出、該格判紅。
 raise_case() {
   local label="$1" state="$2" setup="$3" call="$4" out
   out="$(psql "$URL" -v ON_ERROR_STOP=1 -tAX <<SQL 2>&1
@@ -94,7 +110,8 @@ DECLARE v_got text;
 BEGIN
   BEGIN
     v_got := public.admin_upsert_item_procurement($call);
-    RAISE EXCEPTION 'A5A_NOT_RAISED:竟回傳 %', coalesce(v_got, '<NULL>');
+    RAISE EXCEPTION 'A5A_NOT_RAISED:竟回傳 %', coalesce(v_got, '<NULL>')
+      USING ERRCODE = 'A5AX1';
   EXCEPTION WHEN SQLSTATE '${state:-P0001}' THEN
     RAISE NOTICE 'A5A_RAISE_OK';
   END;
@@ -563,7 +580,7 @@ END \$b\$;"
 cell $(( (PASS+FAIL) - PRE ))
 
 echo
-echo "== B-INV. 輸入驗證碼面(38 cells;每碼至少一案可達 + 端點/隱形字/時區漂移)=="
+echo "== B-INV. 輸入驗證碼面(36 cells;每碼至少一案可達 + 端點/隱形字/時區漂移)=="
 PRE=$((PASS+FAIL))
 code_case "[I1] order_item_id NULL" INVALID_INPUT "" "NULL::uuid, '$SA'::uuid, 2, 'no_reply', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-i1'"
 code_case "[I2] supplier_id NULL" INVALID_INPUT "" "'$ITEM5'::uuid, NULL::uuid, 2, 'no_reply', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-i2'"
@@ -816,7 +833,204 @@ END \$b\$;"
 cell $(( (PASS+FAIL) - PRE ))
 
 echo
-echo "== M. 突變(8;殺不死 = 該格紅)=="
+echo "== P. preserve 模式(17 cells;A9h-M 20260806200000)=="
+# 🔴🔴 **fixture 前態硬約束** —— 本區**每一格**的判別力都押在這一句上:
+#   A5a 的同值 no-op(基底 :313-321)對七欄全用 IS NOT DISTINCT FROM ⇒
+#   「四欄皆 NULL 的列 × 送 NULL 參數」本來就回 NO_CHANGE。用 RPC 自然新建的列**恰好**四欄皆 NULL
+#   ⇒ 若拿那種列當 fixture,**preserve 一行都沒實作,下面每一格照樣全綠**。
+#   ⇒ 一律以 $C_FULL 建前態:四欄非 NULL 且互不相同(line / 2026-07-01 10:00+08 / SO-123 / 缺貨等待 / 2026-09-01)。
+#   依據 memory feedback_fixture-value-makes-guard-vacuous。
+#
+# 🔴 **本區位置是承重的:必須排在 D 區之前。** D 區的 barrier 格會真的 commit 採購列
+#   (跨連線才觀察得到鎖)⇒ 排在它後面的話,($ITEM5,$SA) 已有已提交的列,下面每格的
+#   $MK_FULL 就不是「建一列乾淨前態」而是撞上既有累計 ⇒ **實測全部紅在 OVER_ALLOCATION**。
+#   [P0] 把這個前提釘死,免得日後有人搬動分區後只看到看不懂的 OVER_ALLOCATION。
+PRE=$((PASS+FAIL))
+
+[ "$(q "SELECT count(*) FROM public.order_item_procurement WHERE order_item_id='$ITEM5'")" = "0" ] \
+  && ok "[P0] 前提:本區開跑時該品項零已提交採購列(下面 16 格的 fixture 前態才成立)" \
+  || bad "[P0] 前提破:該品項已有已提交採購列 —— 本區被排到會 commit 的分區(D)之後了,下面 16 格全部無意義"
+
+# 保留呼叫:四欄一律送 NULL(批次沒有那四欄的入口);只有第 12 參與 allocated 在各格間變動。
+P_KEEP="'$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', 'line', NULL, NULL, NULL, NULL, 'sean', 'a5a-p1'"
+
+case_ok "[P1] preserve=true 更新 ⇒ 四欄原值保留(且回 UPDATED)" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; r public.order_item_procurement%ROWTYPE;
+BEGIN
+  v_got := public.admin_upsert_item_procurement($P_KEEP, true);
+  IF v_got <> 'UPDATED' THEN RAISE EXCEPTION 'P1 期望 UPDATED 實得 %', v_got; END IF;
+  SELECT * INTO r FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  IF r.allocated_quantity <> 3 THEN RAISE EXCEPTION 'P1 allocated 未更新:%', r.allocated_quantity; END IF;
+  IF r.submitted_at IS DISTINCT FROM TIMESTAMPTZ '2026-07-01 10:00+08'
+     OR r.supplier_order_no IS DISTINCT FROM 'SO-123'
+     OR r.exception_reason IS DISTINCT FROM '缺貨等待'
+     OR r.expected_arrival_date IS DISTINCT FROM DATE '2026-09-01' THEN
+    RAISE EXCEPTION 'P1 四欄未保留:% / % / % / %',
+      r.submitted_at, r.supplier_order_no, r.exception_reason, r.expected_arrival_date;
+  END IF;
+END \$p\$;"
+
+case_ok "[P2] 🔴 負向對照:同一通呼叫 preserve=false ⇒ 四欄被寫成 NULL(證明旗標非恆真)" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; r public.order_item_procurement%ROWTYPE;
+BEGIN
+  v_got := public.admin_upsert_item_procurement($P_KEEP, false);
+  IF v_got <> 'UPDATED' THEN RAISE EXCEPTION 'P2 期望 UPDATED 實得 %', v_got; END IF;
+  SELECT * INTO r FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  IF r.submitted_at IS NOT NULL OR r.supplier_order_no IS NOT NULL
+     OR r.exception_reason IS NOT NULL OR r.expected_arrival_date IS NOT NULL THEN
+    RAISE EXCEPTION 'P2 四欄竟被保留(preserve=false 應清空):% / % / % / %',
+      r.submitted_at, r.supplier_order_no, r.exception_reason, r.expected_arrival_date;
+  END IF;
+END \$p\$;"
+
+case_ok "[P3] 🔴 省略第 12 參(11 位置參數)⇒ 走 DEFAULT false = 清空(向後相容 + DEFAULT 值實證)" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; r public.order_item_procurement%ROWTYPE;
+BEGIN
+  v_got := public.admin_upsert_item_procurement($P_KEEP);
+  IF v_got <> 'UPDATED' THEN RAISE EXCEPTION 'P3 期望 UPDATED 實得 %', v_got; END IF;
+  SELECT * INTO r FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  -- 四欄全驗(關卡2 F7:只驗兩欄雖然殺得掉 DEFAULT=true,但逐欄才擋得住「只漏接一欄」)
+  IF r.submitted_at IS NOT NULL OR r.supplier_order_no IS NOT NULL
+     OR r.exception_reason IS NOT NULL OR r.expected_arrival_date IS NOT NULL THEN
+    RAISE EXCEPTION 'P3 DEFAULT 竟不是 false(舊呼叫端會靜默失去清空能力):% / % / % / %',
+      r.submitted_at, r.supplier_order_no, r.exception_reason, r.expected_arrival_date;
+  END IF;
+END \$p\$;"
+
+raise_case "[P8] 矛盾閘比對**原始參數**:送肉眼全空的字串(正規化後會變 NULL)+ preserve=true ⇒ 仍 RAISE" "P0001" \
+  "$MK_FULL" \
+  "'$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', 'line', NULL, '   ', NULL, NULL, 'sean', 'a5a-p8', true"
+
+case_ok "[P4] 🔴 preserve=true 且只有那四欄「不同」⇒ NO_CHANGE、status_changed_at 不推進、零稽核" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; v_ts0 timestamptz; v_ts1 timestamptz; v_a0 bigint; v_a1 bigint;
+BEGIN
+  SELECT status_changed_at INTO v_ts0 FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  SELECT count(*) INTO v_a0 FROM public.admin_audit_log;
+  -- allocated / reply / channel 全部與現值相同,只有那四欄送 NULL(= 保留後等於現值)
+  v_got := public.admin_upsert_item_procurement(
+    '$ITEM5'::uuid, '$SA'::uuid, 2, 'confirmed', 'line', NULL, NULL, NULL, NULL, 'sean', 'a5a-p4', true);
+  IF v_got <> 'NO_CHANGE' THEN
+    RAISE EXCEPTION 'P4 期望 NO_CHANGE 實得 %(比較基準沒改成 effective 值 ⇒ 每次批次都會白推戳記與稽核)', v_got;
+  END IF;
+  SELECT status_changed_at INTO v_ts1 FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  SELECT count(*) INTO v_a1 FROM public.admin_audit_log;
+  IF v_ts1 IS DISTINCT FROM v_ts0 THEN RAISE EXCEPTION 'P4 status_changed_at 被推進'; END IF;
+  IF v_a1 <> v_a0 THEN RAISE EXCEPTION 'P4 稽核竟增加 % 筆', v_a1 - v_a0; END IF;
+END \$p\$;"
+
+case_ok "[P5] 🔴 稽核 after 記 effective 值(非 NULL)—— 否則資料列與稽核當場矛盾" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; v_after jsonb;
+BEGIN
+  v_got := public.admin_upsert_item_procurement($P_KEEP, true);
+  IF v_got <> 'UPDATED' THEN RAISE EXCEPTION 'P5 期望 UPDATED 實得 %', v_got; END IF;
+  SELECT after INTO v_after FROM public.admin_audit_log
+   WHERE request_id='a5a-p1' ORDER BY id DESC LIMIT 1;
+  IF v_after IS NULL THEN RAISE EXCEPTION 'P5 找不到本次稽核'; END IF;
+  IF v_after->>'supplier_order_no' IS DISTINCT FROM 'SO-123'
+     OR v_after->>'exception_reason' IS DISTINCT FROM '缺貨等待'
+     OR (v_after->>'expected_arrival_date') IS DISTINCT FROM '2026-09-01'
+     OR (v_after->>'submitted_at') IS NULL THEN
+    RAISE EXCEPTION 'P5 稽核 after 記的是參數而非實際寫入值:%', v_after;
+  END IF;
+END \$p\$;"
+
+# P6a-d:矛盾意圖逐欄各一格 —— 少測一欄,就等於沒證明那一欄在閘裡。
+for pair in \
+  "submitted_at|TIMESTAMPTZ '2026-07-02 09:00+08', NULL, NULL, NULL" \
+  "supplier_order_no|NULL, 'SO-999', NULL, NULL" \
+  "exception_reason|NULL, NULL, '臨時改單', NULL" \
+  "expected_arrival_date|NULL, NULL, NULL, DATE '2026-10-01'"
+do
+  fld="${pair%%|*}"; opt="${pair#*|}"
+  raise_case "[P6-$fld] preserve=true 卻送了 $fld ⇒ RAISE(矛盾意圖,不得靜默丟棄)" "P0001" \
+    "$MK_FULL" \
+    "'$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', 'line', $opt, 'sean', 'a5a-p6', true"
+done
+
+case_ok "[P7] contact_channel **不在**保留集合:preserve=true 下仍由參數決定(四欄同時仍保留)" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; r public.order_item_procurement%ROWTYPE;
+BEGIN
+  v_got := public.admin_upsert_item_procurement(
+    '$ITEM5'::uuid, '$SA'::uuid, 2, 'confirmed', 'fax', NULL, NULL, NULL, NULL, 'sean', 'a5a-p7', true);
+  IF v_got <> 'UPDATED' THEN RAISE EXCEPTION 'P7 期望 UPDATED 實得 %(channel 改動應被視為有變更)', v_got; END IF;
+  SELECT * INTO r FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  IF r.contact_channel IS DISTINCT FROM 'fax' THEN
+    RAISE EXCEPTION 'P7 channel 竟被保留成 %(它是批次共用欄、員工會選)', r.contact_channel;
+  END IF;
+  IF r.supplier_order_no IS DISTINCT FROM 'SO-123' THEN
+    RAISE EXCEPTION 'P7 四欄在 channel 改動時竟沒保留:%', r.supplier_order_no;
+  END IF;
+END \$p\$;"
+
+# 🔴 [P9] 三值邏輯(SOP 階段 C code-reviewer MF1):旗標**本身**為 NULL 時,
+#   `NULL AND (…)` 與 `NULL AND v_exists` 都不成立 ⇒ 矛盾閘不發火、又走 ELSE 枝取參數
+#   ⇒ 四欄被清空且**完全靜默**(零錯誤、零固定碼,連稽核與資料列都還互相一致)。步 1n 擋這條。
+raise_case "[P9] 🔴 保留旗標**本身**送 NULL ⇒ RAISE(不得靠三值邏輯靜默降級成不保留)" "P0001" \
+  "$MK_FULL" \
+  "'$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', 'line', NULL, NULL, NULL, NULL, 'sean', 'a5a-p9', NULL"
+
+case_ok "[P10] preserve=true 對**新建**路徑無效:沒有舊值可保留 ⇒ 四欄插 NULL(與基底一致)" "
+DO \$p\$
+DECLARE v_got text; r public.order_item_procurement%ROWTYPE;
+BEGIN
+  -- 刻意不先建列 ⇒ 走 11c 新建枝。檔頭宣稱過這件事,但先前零行為證據。
+  v_got := public.admin_upsert_item_procurement(
+    '$ITEM1'::uuid, '$SA'::uuid, 1, 'no_reply', 'line', NULL, NULL, NULL, NULL, 'sean', 'a5a-p10', true);
+  IF v_got <> 'CREATED' THEN RAISE EXCEPTION 'P10 期望 CREATED 實得 %', v_got; END IF;
+  SELECT * INTO r FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM1' AND supplier_id='$SA';
+  IF r.submitted_at IS NOT NULL OR r.supplier_order_no IS NOT NULL
+     OR r.exception_reason IS NOT NULL OR r.expected_arrival_date IS NOT NULL THEN
+    RAISE EXCEPTION 'P10 新建列的四欄竟非 NULL(檔頭「新建路徑不受 preserve 影響」不成立)';
+  END IF;
+END \$p\$;"
+
+# 🔴 P11-P13:保留模式下 channel 必填(步 5p;Sean 2026-08-06 拍板,推翻本片原案)。
+#   病灶與那四欄**同型**:channel 不在保留集合 ⇒ 批次漏送就靜默清掉各列既有管道。
+#   P13 是**不外溢**對照 —— 這道閘只准在 preserve=true 下生效,單列表單照樣清得掉。
+raise_case "[P11] 🔴 preserve=true + channel 送 NULL ⇒ RAISE(留空會靜默清掉各列既有管道)" "P0001" \
+  "$MK_FULL" \
+  "'$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-p11', true"
+
+raise_case "[P12] preserve=true + channel 送肉眼全空字串(正規化後 = NULL)⇒ 同樣 RAISE" "P0001" \
+  "$MK_FULL" \
+  "'$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', '   ', NULL, NULL, NULL, NULL, 'sean', 'a5a-p12', true"
+
+case_ok "[P13] 🔴 不外溢:preserve=false + channel NULL ⇒ 照舊清空(單列表單的清空能力未被這道閘波及)" "
+$MK_FULL
+DO \$p\$
+DECLARE v_got text; r public.order_item_procurement%ROWTYPE;
+BEGIN
+  v_got := public.admin_upsert_item_procurement(
+    '$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-p13', false);
+  IF v_got <> 'UPDATED' THEN RAISE EXCEPTION 'P13 期望 UPDATED 實得 %(閘外溢到 preserve=false)', v_got; END IF;
+  SELECT * INTO r FROM public.order_item_procurement
+   WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+  IF r.contact_channel IS NOT NULL THEN
+    RAISE EXCEPTION 'P13 channel 竟沒被清空:%', r.contact_channel;
+  END IF;
+END \$p\$;"
+cell $(( (PASS+FAIL) - PRE ))
+
+echo "== M. 突變(13;殺不死 = 該格紅)=="
 PRE=$((PASS+FAIL))
 MUTATED=1
 mutate_fn "[M1] 拿掉供應商停用檢查 ⇒ 停用後新建竟成功" \
@@ -894,6 +1108,64 @@ mutate_fn "[M8] 拿掉入口 SET CONSTRAINTS ⇒ deferred 下 P2B01 逃出 catch
      v_got := public.admin_upsert_item_procurement('$ITEM5'::uuid, '$SA'::uuid, 9, 'no_reply', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-m8');
      IF v_got = 'CREATED' THEN RAISE NOTICE 'A5A_FLIP_OK';
      ELSE RAISE EXCEPTION '未翻面:%(deferred 下超量竟仍被當場擋)', v_got; END IF;
+   END \$m\$;"
+
+# 🔴 M9/M10 = A9h-M 的常駐突變(關卡2 F4:P4/P6 原本只有一次性手動突變證,不可重放
+#    ⇒ 偏離「每條新斷言配自己的突變」紀律)。兩者都是**保留選擇器、改壞值**型,
+#    刻意不用「整段刪掉」那種較弱的突變。
+mutate_fn "[M9] 同值比較基準改回參數 ⇒ preserve 重放從 NO_CHANGE 翻成 UPDATED" \
+  "IS NOT DISTINCT FROM v_eff_submitted_at" "IS NOT DISTINCT FROM p_submitted_at" 1 \
+  "$MK_FULL" \
+  "DO \$m\$ DECLARE v_got text; BEGIN
+     v_got := public.admin_upsert_item_procurement('$ITEM5'::uuid, '$SA'::uuid, 2, 'confirmed', 'line', NULL, NULL, NULL, NULL, 'sean', 'a5a-m9', true);
+     IF v_got = 'UPDATED' THEN RAISE NOTICE 'A5A_FLIP_OK';
+     ELSE RAISE EXCEPTION '未翻面:%(M2 接線壞掉卻仍回 NO_CHANGE = P4 沒有判別力)', v_got; END IF;
+   END \$m\$;"
+mutate_fn "[M10] 拿掉步 1p 矛盾閘 ⇒ 送了單號又要求保留,值被靜默丟棄" \
+  "IF p_preserve_optional_fields
+     AND (p_submitted_at IS NOT NULL" \
+  "IF false
+     AND (p_submitted_at IS NOT NULL" 1 \
+  "$MK_FULL" \
+  "DO \$m\$ DECLARE v_got text; r public.order_item_procurement%ROWTYPE; BEGIN
+     v_got := public.admin_upsert_item_procurement('$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', 'line', NULL, 'SO-999', NULL, NULL, 'sean', 'a5a-m10', true);
+     SELECT * INTO r FROM public.order_item_procurement WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+     IF v_got = 'UPDATED' AND r.supplier_order_no = 'SO-123' THEN RAISE NOTICE 'A5A_FLIP_OK';
+     ELSE RAISE EXCEPTION '未翻面:% / 單號=%(閘沒了卻仍拒收 = P6 沒有判別力)', v_got, r.supplier_order_no; END IF;
+   END \$m\$;"
+mutate_fn "[M11] 拿掉步 5p 的 channel 必填閘 ⇒ 批次漏送管道竟被放行、既有管道被清空" \
+  "IF p_preserve_optional_fields AND v_channel IS NULL THEN" \
+  "IF false AND v_channel IS NULL THEN" 1 \
+  "$MK_FULL" \
+  "DO \$m\$ DECLARE v_got text; r public.order_item_procurement%ROWTYPE; BEGIN
+     v_got := public.admin_upsert_item_procurement('$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-m11', true);
+     SELECT * INTO r FROM public.order_item_procurement WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+     IF v_got = 'UPDATED' AND r.contact_channel IS NULL THEN RAISE NOTICE 'A5A_FLIP_OK';
+     ELSE RAISE EXCEPTION '未翻面:% / channel=%(閘沒了卻仍拒收 = P11 沒有判別力)', v_got, r.contact_channel; END IF;
+   END \$m\$;"
+# 🔴 M12/M13(關卡2 C1):M11 的 `IF false AND …` 恆假 = **實質整段拿掉**,屬較弱的突變
+#   ⇒ 殺不出 P12 / P13 各自的獨有價值。這兩靶才是「**保留選擇器、改壞值**」型:
+#   M12 只換判斷對象(正規化值 → 原始參數)、M13 只拿掉 preserve 合取,各自只紅一格。
+mutate_fn "[M12] 步 5p 改比**原始參數**而非正規化值 ⇒ 肉眼全空的 channel 穿閘、寫入時才被清空" \
+  "IF p_preserve_optional_fields AND v_channel IS NULL THEN" \
+  "IF p_preserve_optional_fields AND p_contact_channel IS NULL THEN" 1 \
+  "$MK_FULL" \
+  "DO \$m\$ DECLARE v_got text; r public.order_item_procurement%ROWTYPE; BEGIN
+     v_got := public.admin_upsert_item_procurement('$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', '   ', NULL, NULL, NULL, NULL, 'sean', 'a5a-m12', true);
+     SELECT * INTO r FROM public.order_item_procurement WHERE order_item_id='$ITEM5' AND supplier_id='$SA';
+     IF v_got = 'UPDATED' AND r.contact_channel IS NULL THEN RAISE NOTICE 'A5A_FLIP_OK';
+     ELSE RAISE EXCEPTION '未翻面:% / channel=%(比原始參數竟仍擋得住 = P12 沒有判別力)', v_got, r.contact_channel; END IF;
+   END \$m\$;"
+mutate_fn "[M13] 步 5p 拿掉 preserve 合取 ⇒ 閘外溢、單列表單再也清不掉管道" \
+  "IF p_preserve_optional_fields AND v_channel IS NULL THEN" \
+  "IF v_channel IS NULL THEN" 1 \
+  "$MK_FULL" \
+  "DO \$m\$ DECLARE v_got text; BEGIN
+     BEGIN
+       v_got := public.admin_upsert_item_procurement('$ITEM5'::uuid, '$SA'::uuid, 3, 'confirmed', NULL, NULL, NULL, NULL, NULL, 'sean', 'a5a-m13', false);
+       RAISE EXCEPTION '未翻面:preserve=false 竟仍放行(回 %)= P13 沒有判別力', v_got;
+     EXCEPTION WHEN SQLSTATE 'P0001' THEN RAISE NOTICE 'A5A_FLIP_OK';
+     END;
    END \$m\$;"
 MUTATED=0
 [ "$(q "SELECT md5(pg_get_functiondef('$FN'::regprocedure))")" = "$MD5_FN" ] \
@@ -993,6 +1265,7 @@ grep -q 'D4_CODE=ALLOCATED_BELOW_RECEIVED' "$WORK/a5a-d4.txt" \
 close1
 cell $(( (PASS+FAIL) - PRE ))
 
+echo
 # ── 收尾:清理 + 零留痕斷言 ──────────────────────────────────
 echo
 echo "== 收尾 =="

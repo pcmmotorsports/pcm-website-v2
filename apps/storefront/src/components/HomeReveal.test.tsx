@@ -64,8 +64,8 @@ function mountTargets(): HTMLElement[] {
     return el;
   };
   return [
-    mk('ed-select', true), mk('ed-cats', true),
-    mk('ed-statement', true), mk('ed-brands', true),
+    mk('b-select', true), mk('b-cats', true),
+    mk('ed-statement', true), mk('b-brands', true),
     mk('ed-feature', false),
   ];
 }
@@ -186,7 +186,7 @@ describe('🔴 HomeReveal · 失效與退場(內容一定要看得見)', () => {
   });
 
   // 🔴🔴 **這條原本把 bug 寫成正確行為**(R2 must-fix)。舊版斷言「2 秒後一個都沒進場就全開」,
-  //    而實測第一個目標 `.ed-select` 在桌機與手機**都在首屏之外** ⇒「沒人進場」是**正常狀態**,
+  //    而實測第一個目標(N°02,H6 後 class 為 `.b-select`) 在桌機與手機**都在首屏之外** ⇒「沒人進場」是**正常狀態**,
   //    舊判準會在每一次正常首載的第 2 秒把五段一次全開 = 進場動畫等於沒做。
   //    正確判準:**observer 接上了就什麼都不做**,只有它根本沒接上才補救。
   it('🔴 observer 正常接上 ⇒ 保險到期時**什麼都不做**(首屏外的區塊要留給捲動去掀)', () => {

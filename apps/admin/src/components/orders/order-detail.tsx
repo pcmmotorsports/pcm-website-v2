@@ -5,9 +5,9 @@ import {
   ORDER_SOURCE_LABEL,
   PAYMENT_CHANNEL_LABEL,
   formatOrderAmount,
+  INVOICE_STATUS_LABEL, // A11a-5 起共用(原在 order-detail-view.ts,依該檔頭宣告的慣例搬來)
 } from '../../lib/orders/order-list-view';
 import {
-  INVOICE_STATUS_LABEL,
   invoiceTypeLabel,
   shippingMethodLabel,
   formatOrderDateTime,
@@ -28,8 +28,9 @@ import type { SupplierOption } from '../../lib/orders/procurement-suppliers';
 // M-4b E10 A9w1(P3 九碼退場):本頁的九碼**全部下架** —— 品項列的 `ItemWorkflowStatusCell`
 // 與 header 的整單彙總 badge(`summarizeOrderItemWorkflow` + `workflowStatusBadge`)一併移除,
 // 品項列改顯示 A9g-1 三軸數量摘要;`statusOptions` prop 隨之消失(頁層不再讀狀態詞彙)。
-// 列表側的九碼 cell **不在本片**(隨 A11a-c 重建自然退場;母 plan
-// `docs/specs/2026-07-28-e10-order-closure-master-plan-v2.md:416` row 50 逐字)。
+// 列表側的九碼 cell 當時**不在本片** —— 🏁 已於 **A11a-1(2026-08-06)**隨列表重建退場。
+// ⚠️ 上一段提到的 `summarizeOrderItemWorkflow` / `workflowStatusBadge` 兩個具名**現已不存在**
+// (A11a-1 同片刪);保留這段是歷史敘述,別照著去 grep。
 // 🔴 PII 邊界:本頁顯示客人姓名/電話/email+收件快照(admin-only、service_role、明細專用白名單);
 // 仍零成本/經銷價(品項單價=該單成交價)、零 tappay_rec_trade_id。
 

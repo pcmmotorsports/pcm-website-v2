@@ -41,14 +41,13 @@ const ASSET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../publi
 const BY_SLUG = new Map(BRAND_CONTENT.map((b) => [b.slug, b]));
 
 /**
- * CJK 全形括號正規化。
+ * CJK 全形括號正規化 —— **已不再用於比對,只留給下面那條反向守門**。
  *
- * 🔴 **只有這一族要正規化,而且是刻意的**:2026-08-05 Sean 拍板標點改全形,OD 端已全面套用,
- *    但 `brand-content.ts` **這一片不准動**(handoff §十 + 驗收第 12 條「除了新增 `wallTagline`
- *    外一個字都沒動」)⇒ LIGHTECH 的 Racing 值在兩邊必然差一對括號:
- *    本檔 `（2026 SYNC SPEEDRS）`、`brand-content.ts` `(2026 SYNC SPEEDRS)`。
- *    ⇒ 比對時把括號寬度抹平,**其餘一個字都不放寬**(不是抽樣、不是模糊比對)。
- *    那一顆另有下面「全形標點」那條單獨釘住,所以抹平不會讓它變成沒人管。
+ * 🔶 2026-08-06 標點遷移片(H1):`brand-content.ts` 已隨 OD 來源重產成全形,
+ *    LIGHTECH 的 Racing 那對括號兩邊終於一致 ⇒ 原本「比對時抹平括號寬度」的**放寬已拆除**,
+ *    事實比對回到逐字嚴格相等。
+ *    (原因記在這裡而不是刪光:這個放寬存在過、而且它的射程曾經被單獨釘住;
+ *     下面那條反向守門就是那條斷言翻面來的,不是新發明的。)
  */
 const normalizeBrackets = (s: string) => s.replace(/（/g, '(').replace(/）/g, ')');
 
@@ -81,10 +80,8 @@ describe('N°05 覆蓋層 · 20 家逐一保真(非抽樣)', () => {
         const readable = brand.facts.map((f) => `[${f[0]} | ${f[1]}]`).join(' ');
         expect(overlay.facts, `${slug} 的事實不是恰好三則`).toHaveLength(3);
         for (const [label, value] of overlay.facts) {
-          // 逐欄比:標籤要完全相同,值只抹平 CJK 括號寬度(理由見 normalizeBrackets)。
-          const hit = brand.facts.some(
-            (f) => f[0] === label && normalizeBrackets(f[1]) === normalizeBrackets(value),
-          );
+          // 逐欄比:標籤與值都要**完全相同**(2026-08-06 起不再抹平括號寬度)。
+          const hit = brand.facts.some((f) => f[0] === label && f[1] === value);
           expect(
             hit,
             `${slug} 的事實 [${label} | ${value}] 在 BRAND_CONTENT 找不到相同的一對`
@@ -140,7 +137,13 @@ describe('N°05 覆蓋層 · 20 家逐一保真(非抽樣)', () => {
         //    `技術支援（2026 SYNC SPEEDRS）` 就是實例 —— 左括號前是「援」⇒ 整對全形是對的,
         //    但右括號前面是 `S`。把右括號也照「前一字」判,會判出一條**要求把資料改錯**的紅
         //    (實測會紅在 lightech)。⇒ 只判左括號與其餘標點。
-        for (const m of text.matchAll(/[，：；（。、！？]/g)) {
+        // 🔴 2026-08-06 標點遷移片同步收窄:`。！？`(句末終止符)與 `、`(列舉頓號)**移出射程**。
+        //    它們的寬度由**句子的語言**決定,不由前一個 token 決定 —— 中文句子以拉丁縮寫收尾
+        //    (`…採用 GP。`)或列舉拉丁品牌名(`Ducati、Aprilia`)都是對的排版。
+        //    ⚠️ 本檔今天沒踩到純粹是**資料碰巧**:BRAND_FOCUS 的 title/body/facts 裡剛好沒有
+        //    「拉丁字 + 頓號」。同一條規則套到 `brand-content.ts` 全欄立刻紅 55 處(實測),
+        //    那 55 處全部是對的排版 ⇒ 原字元類會逼人把資料改錯。這是「fixture 碰巧讓守門看似成立」。
+        for (const m of text.matchAll(/[，：；（]/g)) {
           const prev = text.slice(0, m.index).replace(/\s+$/, '').at(-1);
           // 只在「前一個字是拉丁字母或數字」時判違規;前面是中文或字串開頭都不管。
           if (prev && /[A-Za-z0-9]/.test(prev)) {
@@ -154,9 +157,11 @@ describe('N°05 覆蓋層 · 20 家逐一保真(非抽樣)', () => {
     );
   });
 
-  it('🔴 LIGHTECH 那顆刻意的全形括號還在(它是唯一與 brand-content.ts 不同的一顆)', () => {
-    // 上面的事實比對把括號寬度抹平了 ⇒ 若沒有這條,有人把它「對齊」成半形也不會紅。
-    // 這條單獨把它釘住:全形是新規則、是對的那一版;半形是 `brand-content.ts` 尚未遷移的舊版。
+  it('🔴 LIGHTECH 那顆全形括號還在(2026-08-06 起兩邊一致,不再是「唯一不同的一顆」)', () => {
+    // ⚠️ 標題與理由已更新:標點遷移片之後 `brand-content.ts` 也是全形 ⇒
+    //    ①它**不再是**「唯一與 brand-content.ts 不同的一顆」②上面的事實比對**不再抹平**括號寬度。
+    // 這條仍有獨立判別力:上面那條比的是「兩邊相等」,**兩邊同時被改回半形時它照樣綠**;
+    // 只有這條會紅(它釘的是「全形這個絕對值」,不是相對關係)。
     const racing = BRAND_FOCUS['lightech']!.facts.find(([label]) => label === 'Racing');
     expect(racing, 'lightech 的 Racing 那則不見了').toBeDefined();
     expect(racing![1], 'lightech 的括號被改回半形 ⇒ 違反 2026-08-05 全形拍板').toContain(
@@ -203,11 +208,13 @@ describe('N°05 覆蓋層 · 20 家逐一保真(非抽樣)', () => {
     }
   });
 
-  // 🔴 R1 nit:`normalizeBrackets` 套用在 20 家身上,但只有 LIGHTECH 那一顆需要它。
-  //    今天它「恰好最窄」(R1 實測:把它換成 identity,只有 lightech 一條紅),
-  //    但那是**今天的資料碰巧**,不是被釘住的性質 —— 第 21 家出現括號寬度分歧時,
-  //    會被這個放寬**靜默吸收**,而沒有任何一條會紅。這條把「唯一例外」本身變成斷言。
-  it('🔴 括號寬度正規化只對 LIGHTECH 一家有作用(放寬的射程被釘住,不會靜默吸收下一家)', () => {
+  // 🔴 **這條是原本那條「正規化只對 LIGHTECH 一家有作用」翻面來的**(2026-08-06 標點遷移片)。
+  //    原條斷言 `['lightech']`;遷移把那個分歧消掉之後它**自己轉紅了** —— 那正是它設計的樣子
+  //    (前提消失要紅、不是靜默失效)。現在倒過來守:**不得再有任何一家需要靠括號寬度才對得上**。
+  //    ⚠️ 誠實記一筆(R1 nit):它的失敗條件是 `:85` 嚴格比對失敗條件的**真子集**
+  //    ⇒ `:85` 綠的時候它不可能紅,**增量判別力為 0**。留著是為了錯誤訊息會直接指出
+  //    「問題出在括號寬度」,而不是丟一句「那一對找不到」讓人自己找。不要當成多守一層。
+  it('🔴 不得再有任何品牌靠括號寬度正規化才對得上(放寬已拆除,不准回來)', () => {
     const needsNormalizing = Object.entries(BRAND_FOCUS)
       .filter(([slug, overlay]) => {
         const source = BY_SLUG.get(slug)!.facts.map((f) => `${f[0]} ${f[1]}`);
@@ -221,8 +228,8 @@ describe('N°05 覆蓋層 · 20 家逐一保真(非抽樣)', () => {
       .map(([slug]) => slug);
     expect(
       needsNormalizing,
-      '靠括號寬度正規化才過關的品牌不只 LIGHTECH 一家 ⇒ 要嘛是新的刻意偏離(請比照 LIGHTECH'
-        + '單獨釘住並在檔頭說明),要嘛是抄錯了括號寬度。放寬不該無聲擴大。',
-    ).toEqual(['lightech']);
+      '又有品牌的括號寬度在 BRAND_FOCUS 與 BRAND_CONTENT 之間對不上 ⇒ 要嘛 brand-content.ts 被改回半形,'
+        + '要嘛 BRAND_FOCUS 那邊抄錯了寬度。標點遷移之後這裡應該永遠是空的。',
+    ).toEqual([]);
   });
 });

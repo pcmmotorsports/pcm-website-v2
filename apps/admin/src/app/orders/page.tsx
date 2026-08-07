@@ -1,8 +1,5 @@
-import type { AdminOrderSummary, OrderStatusOption, Paginated } from '@pcm/domain';
-import {
-  getAdminOrderRepository,
-  getAdminOrderStatusOptionsRepository,
-} from '@/lib/orders/order-repository';
+import type { AdminOrderSummary, Paginated } from '@pcm/domain';
+import { getAdminOrderRepository } from '@/lib/orders/order-repository';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
@@ -15,7 +12,8 @@ import { ListPagination } from '@/components/shared/list-pagination';
 
 // M-4a 後台訂單列表(server component、篩選 + server 端分頁)。
 // A9w2:原本的主狀態軸 `workflow_status` 已隨九碼退場下架 ⇒ 篩選 = 付款/出貨(單選)+
-// 來源/管道(多勾選)+ 單號搜尋(flag);列表的九碼 cell 仍在,隨 A11a-c 退場。
+// 來源/管道(多勾選)+ 單號搜尋(flag)。
+// A11a-1(2026-08-06):列表的九碼 cell 與整單彙總 badge 已下架 ⇒ 本頁不再讀狀態詞彙。
 // 讀 searchParams → 動態渲染;force-dynamic 確保不被靜態預渲染(避免 build 期執行 DB 查詢)。
 export const dynamic = 'force-dynamic';
 
@@ -39,32 +37,21 @@ export default async function OrdersPage({
 
   // 🔴 防禦:讀取失敗(env 未設 / DB 錯 / migration 未 apply)→ 顯錯誤態、頁面仍 200(不 500);
   //    server log 留鑑識,不把 DB error 原文冒到瀏覽器(避免洩漏)。
-  //    訂單與狀態詞彙**分開容錯**:orders 失敗 = 整頁錯誤態;order_status_options 失敗 = 降級
-  //    (badge 兜中性灰顯示 code)、列表仍可用 —— 詞彙表壞不該擋營運看單。
-  //    A9w2:詞彙的**唯一**去處自此只剩列表的九碼 cell(篩選列已下架),隨 A11a-c 一起退場。
+  //    🔴 **A11a-1(2026-08-06)**:狀態詞彙(`order_status_options`)那一路**整條移除** ——
+  //    它在本頁的唯一用途是餵列表的九碼 cell 與整單彙總 badge,兩者已隨本片下架
+  //    ⇒ 原本的「訂單與詞彙分開容錯」雙腿 `Promise.allSettled` 收斂成單一 try/catch。
+  //    讀取鏈本體(port / adapter / repository getter)的處置見 plan §3.1 裁定:歸 A9w4c 後半。
   let result: Paginated<AdminOrderSummary> | null = null;
-  let statusOptions: OrderStatusOption[] = [];
   let loadFailed = false;
-  // async closure 包住:repo 建構(env 缺 requireEnv)是**同步 throw**,直接放進 allSettled 陣列
-  // 會在陣列組建期炸出(繞過 allSettled)→ 500;包成 async IIFE 讓同步 throw 變 rejection 被接住。
-  const [ordersSettled, optionsSettled] = await Promise.allSettled([
-    (async () =>
-      getAdminOrderRepository().listOrderSummariesForAdmin(filter, {
-        limit: ORDERS_PAGE_SIZE,
-        offset,
-      }))(),
-    (async () => getAdminOrderStatusOptionsRepository().listOrderStatusOptions())(),
-  ]);
-  if (ordersSettled.status === 'fulfilled') {
-    result = ordersSettled.value;
-  } else {
-    console.error('[admin/orders] 訂單列表載入失敗', ordersSettled.reason);
+  try {
+    // repo 建構(env 缺 requireEnv)是**同步 throw** ⇒ 必須在 try 內建構,不能先建構再 await。
+    result = await getAdminOrderRepository().listOrderSummariesForAdmin(filter, {
+      limit: ORDERS_PAGE_SIZE,
+      offset,
+    });
+  } catch (e) {
+    console.error('[admin/orders] 訂單列表載入失敗', e);
     loadFailed = true;
-  }
-  if (optionsSettled.status === 'fulfilled') {
-    statusOptions = optionsSettled.value;
-  } else {
-    console.error('[admin/orders] 訂單狀態詞彙載入失敗(badge 降級中性灰)', optionsSettled.reason);
   }
 
   const orders = result?.items ?? [];
@@ -86,11 +73,7 @@ export default async function OrdersPage({
         </div>
       ) : (
         <>
-          <OrdersTable
-            orders={orders}
-            statusOptions={statusOptions}
-            returnTo={buildOrderListHref(filter, page)}
-          />
+          <OrdersTable orders={orders} />
           <ListPagination
             page={page}
             total={total}

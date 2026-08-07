@@ -26,7 +26,7 @@ import type { CSSProperties } from 'react';
 import Link from 'next/link';
 import '@/styles/brand-directory.css';
 import { BRAND_CONTENT } from '@/data/brand-content';
-import { BRAND_DIRECTORY_LOGO_SCALE } from '@/data/brand-directory-scale';
+import { BRAND_TRIM_LOGO_SCALE } from '@/data/brand-trim-logo-scale';
 import { brandAsset, brandTrimLogo } from '@/lib/brand-asset';
 import { brandCatalogueUrl, brandIntroUrl } from '@/lib/brand-url';
 
@@ -40,7 +40,7 @@ function BrandCard({ brand, index, isEmpty }: {
   // 🔴 設計稿 :181 無條件輸出 `--logo-scale`;照做(與品牌頁磚牆「只在 !== 1 時輸出」
   //    的處理不同 —— 那是各自設計稿的寫法,不是我在兩邊挑不同做法)。
   const logoStyle = {
-    '--logo-scale': BRAND_DIRECTORY_LOGO_SCALE[brand.slug] ?? 1,
+    '--logo-scale': BRAND_TRIM_LOGO_SCALE[brand.slug] ?? 1,
     backgroundImage: `url('${brandTrimLogo(brand.slug)}')`,
   } as CSSProperties;
 

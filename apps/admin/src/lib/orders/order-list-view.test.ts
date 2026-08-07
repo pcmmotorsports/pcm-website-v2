@@ -3,15 +3,16 @@
 // 通用分頁數學 / parsePage 的測試在 ../shared/list-params.test.ts。
 
 import { describe, it, expect } from 'vitest';
-import type { AdminOrderFilter, OrderStatusOption } from '@pcm/domain';
+import type { AdminOrderFilter } from '@pcm/domain';
 import {
   parseOrderListSearchParams,
   buildOrderListHref,
-  formatOrderDate,
+  formatOrderListDate,
   formatOrderAmount,
   formatOrderItemVehicle,
   ORDERS_PAGE_SIZE,
   PAYMENT_STATUS_LABEL,
+  INVOICE_STATUS_LABEL,
   FULFILLMENT_STATUS_LABEL,
   ORDER_SOURCE_LABEL,
   PAYMENT_CHANNEL_LABEL,
@@ -19,9 +20,6 @@ import {
   FULFILLMENT_STATUS_VALUES,
   ORDER_SOURCE_VALUES,
   PAYMENT_CHANNEL_VALUES,
-  workflowStatusBadge,
-  indexOrderStatusOptions,
-  summarizeOrderItemWorkflow,
 } from './order-list-view';
 
 describe('parseOrderListSearchParams — 白名單守門', () => {
@@ -130,50 +128,6 @@ describe('buildOrderListHref — 訂單連結(保留篩選、page=1 省略)', ()
   });
 });
 
-// ── workflow_status badge 檢視模型(M-4a Slice A;篩選選項那組隨 A9w2 下架)──
-
-const OPTIONS: OrderStatusOption[] = [
-  { code: 'received_confirmed', label: '已收已定', color: '#FBE4A6', textColor: 'dark', sortOrder: 10, isActive: true },
-  { code: 'unpaid_shipped', label: '未收出貨', color: '#A52A2A', textColor: 'light', sortOrder: 50, isActive: true },
-  { code: 'retired_code', label: '停用中', color: '#CCCCCC', textColor: 'dark', sortOrder: 99, isActive: false },
-];
-
-describe('workflowStatusBadge — NULL / 命中 / 停用 / 未知 code 兜底', () => {
-  const byCode = indexOrderStatusOptions(OPTIONS);
-
-  it('NULL → 「未設定」中性(known=false)', () => {
-    expect(workflowStatusBadge(null, byCode)).toEqual({
-      label: '未設定',
-      color: '',
-      textColor: 'dark',
-      known: false,
-    });
-  });
-
-  it('命中選項 → DB label/color/textColor(known=true)', () => {
-    expect(workflowStatusBadge('unpaid_shipped', byCode)).toEqual({
-      label: '未收出貨',
-      color: '#A52A2A',
-      textColor: 'light',
-      known: true,
-    });
-  });
-
-  it('停用選項(is_active=false)仍解析 label/color(soft-delete:舊單不變裸 code)', () => {
-    expect(workflowStatusBadge('retired_code', byCode).label).toBe('停用中');
-    expect(workflowStatusBadge('retired_code', byCode).known).toBe(true);
-  });
-
-  it('查無 code → 原樣顯示 code 的中性兜底(誠實、不編造 label)', () => {
-    expect(workflowStatusBadge('ghost_code', byCode)).toEqual({
-      label: 'ghost_code',
-      color: '',
-      textColor: 'dark',
-      known: false,
-    });
-  });
-});
-
 describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
   it('付款狀態', () => {
     for (const v of PAYMENT_STATUS_VALUES) expect(PAYMENT_STATUS_LABEL[v]).toBeTruthy();
@@ -202,11 +156,52 @@ describe('標籤覆蓋 — 每個 enum 值皆有中文標籤', () => {
   it('管道', () => {
     for (const v of PAYMENT_CHANNEL_VALUES) expect(PAYMENT_CHANNEL_LABEL[v]).toBeTruthy();
   });
+
+  // 🔴 A11a-5 起 `INVOICE_STATUS_LABEL` 住在本檔(原在 order-detail-view.ts)。逐值硬編碼期望、
+  //    不從陣列衍生 —— 而且 **V11 要的「三態各自可辨識」正是靠這三個字面互不相同**:
+  //    把 `voided` 併進「未開立」是 plan 指定的突變靶,這條會紅。
+  it('開票紀錄狀態三值皆有標籤,且三者互不相同', () => {
+    expect(INVOICE_STATUS_LABEL.not_issued).toBe('未開立');
+    expect(INVOICE_STATUS_LABEL.issued).toBe('已開立');
+    expect(INVOICE_STATUS_LABEL.voided).toBe('已作廢');
+    expect(new Set(Object.values(INVOICE_STATUS_LABEL)).size).toBe(3);
+  });
 });
 
 describe('格式化', () => {
-  it('formatOrderDate:UTC timestamptz → Asia/Taipei YYYY-MM-DD(避 off-by-one)', () => {
-    expect(formatOrderDate('2099-04-15T16:30:00Z')).toBe('2099-04-16');
+  // 🔴 `formatOrderDate` 的兩條測試隨該函式一併刪除(A9c,主視窗 `E-116-A` 裁定)。
+  //    UTC 邊界 off-by-one 的覆蓋沒有消失 —— 移到下面 V6 那組(`formatOrderListDate` 同樣走
+  //    Asia/Taipei 曆面,且多測了一格真正的跨年邊界)。
+  // ── V6:列表日期格式(A11a-2;母 plan §5.1a「改寫 | 日期 → `07/25`」那列逐字)──
+  // 🔴 各自對應一種會靜默壞掉的改法:①一律補年份 ②一律不補年份 ③拿 UTC 年份比 ④非法 iso 擲錯。
+  it('V6 同年 → `MM/DD`、不帶年份', () => {
+    // 🔴 這裡原本多寫一條 `.not.toContain('2026')`,R1 抓到它被本條 `toBe` **嚴格蘊含**
+    //    (任何多印年份的退化都先讓 `toBe` 紅)⇒ 零判別力、而註解卻宣稱它擋得住某種改法。已刪。
+    expect(formatOrderListDate('2026-07-25T03:00:00Z', new Date('2026-07-30T00:00:00Z'))).toBe(
+      '07/25',
+    );
+  });
+
+  it('V6 跨年 → `YYYY/MM/DD`、補回年份', () => {
+    expect(formatOrderListDate('2025-06-27T03:00:00Z', new Date('2026-07-30T00:00:00Z'))).toBe(
+      '2025/06/27',
+    );
+  });
+
+  it('🔴 V6 年份比較在 Asia/Taipei 曆面做,不是拿 UTC 年份比', () => {
+    // UTC `2025-12-31T16:30Z` 在台北已是 **2026-01-01** ⇒ 相對 2026 是**同年**、不該補 `2025/`。
+    // 拿 UTC 年份比的寫法在這一格會輸出 `2025/01/01`(月日還對、只有年份錯)—— 只有這條抓得到。
+    expect(formatOrderListDate('2025-12-31T16:30:00Z', new Date('2026-03-01T00:00:00Z'))).toBe(
+      '01/01',
+    );
+  });
+
+  it('🔴 非法 iso 不擲錯、原樣回傳(server component 內擲錯 = 整個 /orders 500)', () => {
+    // `Intl.DateTimeFormat.formatToParts(Invalid Date)` 會擲 RangeError ⇒ 必須先擋。
+    // 慣例同 `note-timeline.ts:85`。正常路徑構造不出來(created_at 是 timestamptz NOT NULL),
+    // 但這支是純函式、下一個呼叫端不保證餵的是 DB 值。
+    expect(() => formatOrderListDate('not-a-date')).not.toThrow();
+    expect(formatOrderListDate('not-a-date')).toBe('not-a-date');
   });
 
   it('formatOrderAmount:整數元位千分位(非分、不除 100)', () => {
@@ -217,29 +212,6 @@ describe('格式化', () => {
 
   it('ORDERS_PAGE_SIZE = 20', () => {
     expect(ORDERS_PAGE_SIZE).toBe(20);
-  });
-});
-
-// ── summarizeOrderItemWorkflow — 整單彙總(M-4a D-2;拍板 Q-A=A 全同→該值、混合→多狀態)──
-
-describe('summarizeOrderItemWorkflow — 整單狀態彙總', () => {
-  it('全同值 → uniform 該值;全 NULL → uniform null(未設定)', () => {
-    expect(summarizeOrderItemWorkflow(['shipped_done', 'shipped_done'])).toEqual({
-      kind: 'uniform',
-      code: 'shipped_done',
-    });
-    expect(summarizeOrderItemWorkflow([null, null])).toEqual({ kind: 'uniform', code: null });
-    expect(summarizeOrderItemWorkflow(['cancelled'])).toEqual({ kind: 'uniform', code: 'cancelled' });
-  });
-
-  it('任一分歧(含 NULL 與 code 混)→ mixed', () => {
-    expect(summarizeOrderItemWorkflow(['shipped_done', 'cancelled'])).toEqual({ kind: 'mixed' });
-    expect(summarizeOrderItemWorkflow(['shipped_done', null])).toEqual({ kind: 'mixed' });
-    expect(summarizeOrderItemWorkflow([null, 'shipped_done', null])).toEqual({ kind: 'mixed' });
-  });
-
-  it('空陣列(理論不發生)→ uniform null 兜底', () => {
-    expect(summarizeOrderItemWorkflow([])).toEqual({ kind: 'uniform', code: null });
   });
 });
 

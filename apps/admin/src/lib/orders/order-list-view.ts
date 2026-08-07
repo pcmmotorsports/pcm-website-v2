@@ -10,8 +10,8 @@ import type {
   OrderSource,
   PaymentChannel,
   MemberTier,
-  OrderStatusOption,
   OrderItemVehicleSnapshot,
+  InvoiceStatus,
 } from '@pcm/domain';
 import { normalizeOrderNumberSearch } from '@pcm/domain';
 import {
@@ -83,6 +83,52 @@ export const PAYMENT_STATUS_LABEL: Record<PaymentStatus, string> = {
   partiallyRefunded: '已退部分',
 };
 
+// ── 狀態膠囊配色(M-4b E10 A11b,2026-08-07:訂單列表付款軸/訂貨軸從純文字改膠囊上色)──
+// 出貨軸本片不做(A11b plan §1:`AdminOrderItemQuantitySummary` 無 shipped 欄,前置 = A11a-6)。
+// 形狀逐字元同 `notes-timeline.tsx:89`(含 `font-medium`);`customer-detail-sections.tsx:23` 那族
+// 少一個 `font-medium`、不是同款。Record 驅動配色的先例 =
+// `notes-timeline.tsx:15-19`,語彙 = 綠完成 / 琥珀進行中或要注意 / 灰中性或未開始 / 紅要處理。
+
+/** 共用膠囊形狀。桌機與卡片兩份 markup 都套同一顆 class 常數,不各自組一份字串。 */
+export const STATUS_CAPSULE = 'inline-flex rounded-full px-2 py-0.5 text-xs font-medium';
+
+/**
+ * 付款軸五態配色。**訊號塌陷解除**的精確意思 = `refunded` / `partiallyRefunded` 不再與 `paid`
+ * 同灰(那正是 A11a-1 登記的病)。`unpaid` 沿用既有唯一上紅那態的顏色,顏色本身不變。
+ *
+ * 🔴 **不是「五態兩兩可辨」** —— 本表只有 **4 個色相**,`partiallyPaid` 與 `partiallyRefunded`
+ *    **同為琥珀**(兩者標籤不同、讀得出來,且都屬「未結、要看一下」)。要五色互異得引入
+ *    repo 目前沒有的第 5 色相 = 視覺決定,未經 Sean 拍板不要自己加。
+ */
+export const PAYMENT_STATUS_CAPSULE: Record<PaymentStatus, string> = {
+  paid: 'bg-emerald-100 text-emerald-700',
+  unpaid: 'bg-destructive/10 text-destructive',
+  partiallyPaid: 'bg-amber-100 text-amber-700',
+  refunded: 'bg-muted text-muted-foreground',
+  partiallyRefunded: 'bg-amber-100 text-amber-700',
+};
+
+/**
+ * 訂貨軸完成度配色(依 `orderedQuantity` vs `quantity` 三段):
+ * `ordered === 0` 灰(還沒開始)/ `0 < ordered < quantity` 琥珀(部分)/
+ * `ordered >= quantity` 綠(齊了)。回傳**已組好含 `STATUS_CAPSULE` 的完整 class**,
+ * 呼叫端直接套用、不用自己拼字串(桌機/卡片一致性由此保證)。
+ *
+ * ⚠️ **誠實邊界:兩個分支邊界在可達資料上構造不出來,`>=` 是 fail-safe、不是因為測過** ——
+ *    超訂(`ordered > quantity`)被 A1 的 `oiqs_ordered_le_quantity` CHECK 擋在 DB;
+ *    `quantity === 0` 被 `order_items.quantity > 0` CHECK 擋住。日後那兩道 CHECK 若鬆綁,
+ *    這裡的行為(超訂顯綠 / 0/0 顯灰)要重新評估。
+ */
+export function orderedCapsuleClass(ordered: number, quantity: number): string {
+  const color =
+    ordered === 0
+      ? 'bg-muted text-muted-foreground'
+      : ordered >= quantity
+        ? 'bg-emerald-100 text-emerald-700'
+        : 'bg-amber-100 text-amber-700';
+  return `${STATUS_CAPSULE} ${color}`;
+}
+
 export const FULFILLMENT_STATUS_LABEL: Record<FulfillmentStatus, string> = {
   notOrdered: '未訂貨',
   ordered: '已向廠商訂貨',
@@ -112,6 +158,21 @@ export const MEMBER_TIER_LABEL: Record<MemberTier, string> = {
   general: '一般',
   store: '車行',
   premiumStore: '車行',
+};
+
+/**
+ * 開票紀錄狀態標籤(`orders.invoice_status`;DB CHECK 三值)。
+ *
+ * 🔴 **明細與列表共用**(A11a-5 起):原本住在 `order-detail-view.ts`,但該檔檔頭逐字宣告
+ * 「列表共用標籤(付款/出貨/來源/管道)仍在 `order-list-view.ts`、本檔不重定義」——
+ * 發票欄進列表之後它就成了共用標籤,依那條慣例搬過來。
+ * ⇒ **不要在任何一邊另抄一份三態中文**:A11a plan V11 要的是「三態各自可辨識、且 `voided`
+ * 不與 `not_issued` 同字面」,共用一個 `Record<InvoiceStatus, string>` 讓這件事結構上成立。
+ */
+export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
+  not_issued: '未開立',
+  issued: '已開立',
+  voided: '已作廢',
 };
 
 function toOptions<T extends string>(
@@ -192,71 +253,48 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
   );
 }
 
-// ── workflow_status 彩色 badge 檢視模型(M-4a Slice A;純函式、單測)──────────
-// Sean 的主操作狀態欄:label/color 來自 order_status_options(DB 策展),顯示端兜 NULL / 未知 code。
+// 🔴 **`formatOrderDate` 已於 A9c(2026-08-06)刪除**(主視窗裁定,`E-116-A`)。
+// A11a-2 把列表日期格改接 `formatOrderListDate` 之後,它的 production consumer 歸零;
+// A11a plan `:185` 保留它的理由「明細頁在用」是**錯的前提** —— 明細頁走的是
+// `order-detail-view.ts` 的 `formatOrderDateTime`(到分),從來不是本支(只到日)。
+// 會員側 `apps/storefront/src/lib/orders/order-display.ts` 有同名但**另一份**函式,不受影響。
 
-/** badge 檢視模型:known=true 用 DB 色(inline style);known=false 中性灰(Tailwind class)。 */
-export type WorkflowStatusBadgeView = {
-  label: string;
-  /** 底色 hex(known=false 時空字串、元件走中性樣式) */
-  color: string;
-  /** 'light' 深底淺字 / 'dark' 淺底深字 */
-  textColor: 'light' | 'dark';
-  /** false = NULL(未設定)或 code 查無選項(被改碼/停用後刪?soft-delete 下罕見)→ 中性灰兜底 */
-  known: boolean;
-};
+const TAIPEI_YMD = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Taipei',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+});
 
-/**
- * workflow_status → badge 檢視模型:
- * - NULL → 「未設定」中性灰(新進線上單未 triage 態;對齊 Sean Sheet「新列他手動設狀態」心智);
- * - 選項命中(含 is_active=false 停用者;soft-delete 語意=舊單仍解析得到)→ DB label+color;
- * - 查無 code → 原樣顯示 code 的中性灰(誠實呈現、不編造 label)。
- */
-export function workflowStatusBadge(
-  code: string | null,
-  optionsByCode: ReadonlyMap<string, OrderStatusOption>,
-): WorkflowStatusBadgeView {
-  if (code === null) {
-    return { label: '未設定', color: '', textColor: 'dark', known: false };
-  }
-  const option = optionsByCode.get(code);
-  if (!option) {
-    return { label: code, color: '', textColor: 'dark', known: false };
-  }
-  return { label: option.label, color: option.color, textColor: option.textColor, known: true };
-}
-
-/** options 陣列 → code 索引 Map(頁面查一次、列表逐列 O(1) 解析)。 */
-export function indexOrderStatusOptions(
-  options: OrderStatusOption[],
-): ReadonlyMap<string, OrderStatusOption> {
-  return new Map(options.map((o) => [o.code, o]));
-}
-
-// ── 整單狀態彙總(M-4a D-2;Sean 拍板 Q-A=A 逐字「全同→該色、混合→多狀態、不再手設」)──
-
-/** 整單彙總結果:uniform=全品項同值(含全 NULL=未設定)/ mixed=品項狀態分歧。 */
-export type OrderWorkflowSummary = { kind: 'uniform'; code: string | null } | { kind: 'mixed' };
-
-/**
- * 品項 workflow_status 陣列 → 整單彙總(純函式;orders.workflow_status 停寫、**唯一**整單狀態來源):
- * - 空陣列(理論不發生,create_order 保證 ≥1 line)→ uniform null(顯示「未設定」);
- * - 全同值(含全 NULL)→ uniform 該值;有任一分歧 → mixed(顯示端「多狀態」中性 badge)。
- */
-export function summarizeOrderItemWorkflow(
-  codes: readonly (string | null)[],
-): OrderWorkflowSummary {
-  const first = codes[0];
-  if (first === undefined) return { kind: 'uniform', code: null }; // 空陣列(顯示「未設定」)
-  return codes.every((c) => c === first) ? { kind: 'uniform', code: first } : { kind: 'mixed' };
+/** Asia/Taipei 曆面的年/月/日(讀 `formatToParts`,不切任何格式化字串 —— 那會在格式一改就靜默切錯)。 */
+function taipeiParts(d: Date): { year: string; month: string; day: string } {
+  const parts = TAIPEI_YMD.formatToParts(d);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return { year: get('year'), month: get('month'), day: get('day') };
 }
 
 /**
- * formatOrderDate:ISO timestamptz → `YYYY-MM-DD`(en-CA locale + Asia/Taipei 時區)。
- * 對齊會員側 order-display.formatOrderDate(避免 UTC 邊界 off-by-one);admin 跨 app 不共用該檔、此處重定。
+ * formatOrderListDate:**列表專用**日期字面(M-4b E10 A11a-2)。
+ * 母 plan §5.1a「改寫 | 日期 → `07/25`」那列逐字:**同年 `07/25`、跨年才補年份**(`2025/06/27`);
+ * 完整時間戳仍在 DB。
+ *
+ * 🔴 A11a-2 新增本支時 plan `:185` 要求「不改 `formatOrderDate`(明細頁在用)」;實查那個前提是錯的,
+ * A9c 已依主視窗裁定把 `formatOrderDate` 刪除(見上方註)。本支現為 admin 列表日期的唯一格式化面。
+ *
+ * 🔴 非法 iso **不 throw**:`formatToParts(Invalid Date)` 會擲 `RangeError`,而本函式在 server component
+ * 內呼叫 ⇒ 會把「一格顯示垃圾」升級成「整個 `/orders` 500」。照 `note-timeline.ts:85` 既有慣例原樣回傳。
+ *
+ * 🔴 `now` 可注入:「同年」是相對**當下**的判斷,綁死真時鐘會讓斷言在跨年那天自己變色,
+ * 而且跨年那一格根本構造不出來。production 呼叫端不帶第二參數、走真時鐘。
+ * 🔴 年份比較在 **Asia/Taipei 曆面**做、不是拿 UTC 年份比:UTC `2025-12-31T16:30Z` 在台北已是 2026-01-01,
+ * 用 UTC 年份會把它誤判成跨年、多印一個 `2025/`。
  */
-export function formatOrderDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+export function formatOrderListDate(iso: string, now: Date = new Date()): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  const t = taipeiParts(parsed);
+  const current = taipeiParts(now);
+  return t.year === current.year ? `${t.month}/${t.day}` : `${t.year}/${t.month}/${t.day}`;
 }
 
 /** 金額顯示:orders 金額為 integer 元位(非分;migration 20260604120000 註解「金額一律 integer 元位」)→ 千分位。 */

@@ -116,8 +116,27 @@ export function MobileTabBar() {
   //    頁面 import 不到、擋不掉 ⇒ 唯一能擋的地方就是這裡。
   //    ⚠️ 只認 `/coming-soon` 這一條**精確路徑**,不用 startsWith:`/stores` `/install` 雖然
   //    渲染同一個元件,但它們是站內頁、TabBar 要留著。
+  // 🔶 第5批新增第三個 hidden 情境:`/checkout`(Sean 2026-08-06 拍板 Q5=A,同日 Q6=A 覆核維持)。
+  //
+  // 🔴 **理由是產品選擇,與設計稿脫鉤 —— 不要再寫成「設計稿沒有 TabBar」**:
+  //    結帳流程中不給岔出去的入口。
+  //    設計稿 `checkout-page.html:123-128` **其實有**完整五顆 tab、購物車那顆 `is-active`,
+  //    且與 `:87` 的 `.co-mobile-buybar` 同時存在(= 設計端是「buybar 蓋在 TabBar 上」)。
+  //    Q5 當初是在「設計稿沒有 TabBar」這個**假前提**上拍的(我用 camelCase `TabBar` 做
+  //    大小寫敏感 grep、漏掉小寫的 `mobile-tabbar`);更正後重問,Sean 仍維持藏起來。
+  //    ⇒ 本站在這一點上**知情偏離設計稿**,不是對齊。
+  //
+  //    次要理由(仍成立):真站 ≤900px 的 `.co-mobile-buybar`(z-index 100、fixed bottom)
+  //    壓在 TabBar(z-index 40)上面,兩條列疊在同一個底部。
+  //    ⚠️ 這裡用 `startsWith` 是**刻意的**,與上面 `/coming-soon` 用精確路徑的理由相反:
+  //    `/checkout/callback`(付款返回)渲染的是 `CheckoutSuccess`、同樣掛 `.co-page`,
+  //    而 checkout.css 那條讓位 padding 的歸零規則是**以 `.co-page` 為條件**。
+  //    兩邊涵蓋的路徑集合必須一致 —— 不一致的症狀是「TabBar 在、底部 padding 卻沒了」
+  //    (最後一條 tab 被自己蓋住)或反過來多一條死空間。
   const hidden =
-    (pathname.startsWith('/products/') && segments.length >= 2) || pathname === '/coming-soon';
+    (pathname.startsWith('/products/') && segments.length >= 2) ||
+    pathname === '/coming-soon' ||
+    pathname.startsWith('/checkout');
 
   return (
     <nav className={`mobile-tabbar ${hidden ? 'is-hidden' : ''}`} aria-label="主導航">

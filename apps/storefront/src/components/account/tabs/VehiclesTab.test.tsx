@@ -30,7 +30,7 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn() }),
 }));
 
-// jsdom 不實作 scrollIntoView(g-6c inline-form 包裹層 ref 觸發會爆);就地補。
+// jsdom 不實作 scrollIntoView(g-6c inline-form 包裹層的開表單 effect 觸發會爆);就地補。
 Element.prototype.scrollIntoView = vi.fn();
 
 beforeEach(() => {
@@ -38,6 +38,8 @@ beforeEach(() => {
   mockDeleteVehicleAction.mockReset().mockResolvedValue({ ok: true });
   // jsdom confirm 預設未實作;預設放行、單一測試 mockReturnValueOnce(false) 覆寫驗取消。
   vi.spyOn(window, 'confirm').mockReturnValue(true);
+  // 開表單捲動修復(2026-08-07):每測試前清空呼叫紀錄,避免跨測試累積污染斷言。
+  (Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>).mockClear();
 });
 
 import { VehiclesTab } from './VehiclesTab';
@@ -161,5 +163,116 @@ describe('VehiclesTab(g-6a 唯讀 + g-6b 新增 + g-6c 編輯/刪除)', () => {
   it('純 prop 驅動:空 prop 無任何 .acc-bike 卡(不洩 design mock 愛車)', () => {
     const { container } = render(<VehiclesTab vehicles={[]} />);
     expect(container.querySelectorAll('.acc-bike').length).toBe(0);
+  });
+
+  // 手機捲動修復(Sean 08-06 回報「新增/編輯沒有自動捲到表單」)—— 根因是 block:'nearest' 在
+  // 元素已露一點點時完全不捲;下面兩條分別鎖住「捲去哪」與「捲完之後誰拿到焦點」,
+  // 不是只斷言「有被呼叫過」(那樣把 'start' 改回 'nearest' 照樣綠)。
+  it('g-6c 開表單 → scrollIntoView 帶 block:"start"(非 "nearest"),且捲的是 .acc-inline-form 本身', () => {
+    render(<VehiclesTab vehicles={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    const spy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
+    // 🔴 R1 抓到:mock 掛在 Element.prototype 上,只斷言「有人用 start 捲過」的話,
+    //    把 ref 移到 .acc-section(整個分頁)照樣綠 —— 捲錯元素但測試看不出來。
+    const target = spy.mock.contexts[0] as HTMLElement | undefined;
+    expect(target?.className, 'scrollIntoView 捲的不是 .acc-inline-form 包裹層').toContain(
+      'acc-inline-form',
+    );
+  });
+
+  // 🔴 Sean 2026-08-07 拍板 Q1=A:焦點落**容器**、不落輸入欄(與 ADR-0007「手機不會在開面板時
+  //    自動跳鍵盤」一致)。正面 + 反面各釘一次,只寫正面的話改成 focus 第一個 input 照樣綠。
+  it('g-6c 開表單 → 焦點落 .acc-inline-form 容器(帶 preventScroll),且沒有任何輸入欄被聚焦', () => {
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      const { container } = render(<VehiclesTab vehicles={[]} />);
+      fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+      const wrap = container.querySelector('.acc-inline-form') as HTMLElement;
+      expect(document.activeElement, '焦點不在表單容器上').toBe(wrap);
+      // (R2 nit:原本這裡還有一條 `tagName === 'DIV'`,上一行 `toBe(wrap)` 成立時它恆真 ⇒ 刪掉。)
+      expect(wrap.getAttribute('tabindex'), '容器沒有 tabindex=-1 ⇒ focus() 是 no-op').toBe('-1');
+      const idx = focusSpy.mock.contexts.indexOf(wrap);
+      expect(idx, '容器從來沒被 focus() 呼叫過').toBeGreaterThanOrEqual(0);
+      expect(
+        focusSpy.mock.calls[idx]?.[0],
+        'focus 容器的那一次沒帶 preventScroll ⇒ 會與 smooth 捲動打架',
+      ).toMatchObject({ preventScroll: true });
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
+  // 🔴 dict 模式(有字典 = **正式站預設**)另走一條:它的第一欄是 VehicleCombo 不是原生 input。
+  //    Q1=A 之下焦點本來就不該碰任何一種輸入欄 —— 這條把「連 combobox 也不准被聚焦」釘死,
+  //    否則哪天有人改回「focus 第一個 input」,只有 free 模式那條會紅、dict 這條會漏。
+  it('g-6c dict 模式(有字典 = 正式站預設)開表單 → 焦點仍在容器,combobox 不被聚焦', () => {
+    const brands = [
+      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'r6', name: 'YZF-R6', years: [2020] }] },
+    ];
+    const { container } = render(<VehiclesTab vehicles={[]} vehicleBrands={brands} />);
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    const combos = screen.getAllByRole('combobox');
+    expect(combos.length, 'dict 模式沒渲染出 combobox ⇒ 本條前提失效').toBeGreaterThan(0);
+    expect(document.activeElement, '焦點跑到 combobox 上了').not.toBe(combos[0]);
+    expect(document.activeElement).toBe(container.querySelector('.acc-inline-form'));
+  });
+
+  // aria-label 是**在 VehiclesTab 手寫的第二份字面**,真正的標題在 InlineVehicleForm 的 <h4>。
+  it('g-6c 容器 aria-label 與表單 <h4> 標題同字面(新增/編輯兩態)', () => {
+    const { container } = render(<VehiclesTab vehicles={[makeVeh()]} />);
+    fireEvent.click(screen.getByRole('button', { name: '＋ 新增車輛' }));
+    let wrap = container.querySelector('.acc-inline-form') as HTMLElement;
+    expect(wrap.getAttribute('aria-label')).toBe(container.querySelector('.acc-inline-form h4')?.textContent);
+    expect(wrap.getAttribute('aria-label')).toBe('新增車輛');
+    fireEvent.click(screen.getByRole('button', { name: '編輯' }));
+    wrap = container.querySelector('.acc-inline-form') as HTMLElement;
+    expect(wrap.getAttribute('aria-label')).toBe(container.querySelector('.acc-inline-form h4')?.textContent);
+    expect(wrap.getAttribute('aria-label')).toBe('編輯車輛');
+  });
+
+  // 🔴 R1 抓到:上面全走「新增」路徑,但 Sean 回報的症狀含**編輯**,而編輯態的表單是
+  //    渲染在該筆卡片底下的**另一個 JSX 節點**(共用同一顆 ref)。編輯路徑要自己一條。
+  // 🔴 R2 抓到:本片把焦點從觸發鈕搶走卻沒還 ⇒ 關掉表單後焦點掉到 <body>。
+  it('g-6c 關掉表單 → 焦點還給觸發它的那顆鈕(不是掉到 body)', () => {
+    render(<VehiclesTab vehicles={[]} />);
+    const addBtn = screen.getByRole('button', { name: '＋ 新增車輛' });
+    addBtn.focus();
+    fireEvent.click(addBtn);
+    expect(document.activeElement, '開表單時焦點沒進容器 ⇒ 本條前提失效').not.toBe(addBtn);
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+    expect(document.activeElement, '關表單後焦點沒還給「＋ 新增車輛」鈕').toBe(addBtn);
+  });
+
+  // 🔴 R2 抓到:`useRevealForm` 的**存在理由**(依賴收 state 物件本身、不是 boolean)原本零覆蓋 ——
+  //    把依賴改成 `[!!openState]` 時上面每一條都照樣綠,因為它們全是 `null → 物件`(boolean 也會翻)。
+  //    只有「開著編輯 A、直接點編輯 B」才是 `物件 → 另一個物件`,boolean 在那裡不變、effect 不重跑。
+  it('g-6c 開著編輯 A 直接點編輯 B → 重新捲到 B 並聚焦 B(依賴收物件、不是 boolean)', () => {
+    const spy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
+    const { container } = render(
+      <VehiclesTab vehicles={[makeVeh({ id: 'v-1', name: '甲車' }), makeVeh({ id: 'v-2', name: '乙車' })]} />,
+    );
+    fireEvent.click(screen.getAllByRole('button', { name: '編輯' })[0]!);
+    const firstWrap = container.querySelector('.acc-inline-form') as HTMLElement;
+    const callsAfterA = spy.mock.contexts.length;
+    fireEvent.click(screen.getAllByRole('button', { name: '編輯' })[1]!);
+    const secondWrap = container.querySelector('.acc-inline-form') as HTMLElement;
+    expect(secondWrap, 'A→B 之後表單容器沒有換成新的節點 ⇒ 本條前提失效').not.toBe(firstWrap);
+    expect(
+      spy.mock.contexts.length,
+      'A→B 沒有再捲一次 ⇒ effect 沒重跑(依賴退化成 boolean 了)',
+    ).toBeGreaterThan(callsAfterA);
+    expect(spy.mock.contexts.at(-1), '最後一次捲的不是 B 的表單容器').toBe(secondWrap);
+    expect(document.activeElement, 'A→B 之後焦點沒跟到 B 的表單容器').toBe(secondWrap);
+  });
+
+  it('g-6c 點「編輯」→ 同樣捲到該筆的 .acc-inline-form 並聚焦容器', () => {
+    const spy = Element.prototype.scrollIntoView as ReturnType<typeof vi.fn>;
+    const { container } = render(<VehiclesTab vehicles={[makeVeh({ id: 'v-1' })]} />);
+    fireEvent.click(screen.getByRole('button', { name: '編輯' }));
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ block: 'start' }));
+    const wrap = container.querySelector('.acc-inline-form') as HTMLElement;
+    expect(spy.mock.contexts[0], '編輯態捲的不是該筆的 .acc-inline-form').toBe(wrap);
+    expect(document.activeElement, '編輯態焦點沒落在表單容器上').toBe(wrap);
   });
 });

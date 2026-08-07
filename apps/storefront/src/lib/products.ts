@@ -247,14 +247,30 @@ export type FeaturedResult = {
  *
  * 「最新商品」以 created_at 遞減取代舊 id 升冪 placeholder(前菜 D);真「featured 旗標」策展仍留 #205。
  */
+/**
+ * 「最新商品」取幾筆。**首頁 N°02 橫捲與會員中心「為你推薦」共用同一個數字**
+ * (Sean 2026-08-06 拍板:兩頁一起提高;信箱 `D-132-A` 更正了前一版「會員中心維持 4 筆」)。
+ *
+ * 🔴 **下限是「桌機格數 + 1」而不是隨便一個數**:首頁 OD 軌道桌機 5 格,取滿 5 筆只是剛好填平、
+ *    軌道仍然捲不動(`scrollWidth == clientWidth`)⇒ 客人看不出「右邊還有」。要有第 6 筆才捲得動。
+ *    10 = 兩頁半的量,既捲得動又不會讓首頁一次拉太多資料。
+ * ⚠️ 這裡原本寫「**會員中心那頁是 4 欄 grid**(`account.css` 的 `.acc-rec`)⇒ 10 筆會排成
+ *    4+4+2、最後一列缺兩格」—— **2026-08-07 R-3 起已作廢**:會員中心「為你推薦」也改成
+ *    與首頁同一顆 `ProductRail` 橫捲,沒有「列」也就沒有缺角,顯示層不再截斷、全顯 10 筆。
+ *    守門在 `lib/products-featured-limit.test.ts`(取數必須 > 首頁桌機格數,格數由 CSS 現算)。
+ *    (2026-08-07 更正:原寫 `products-home-limit.test.ts`,那個檔名不存在。)
+ */
+export const FEATURED_LIMIT = 10;
+
 const getFeaturedUIProductsCached = unstable_cache(
   async (): Promise<MockProduct[]> => {
     const client = createSupabaseAnonClient();
     const adapter = new SupabaseProductAdapter(client);
-    const products = await adapter.listAllProducts({ limit: 4, orderBy: 'created_desc' });
+    const products = await adapter.listAllProducts({ limit: FEATURED_LIMIT, orderBy: 'created_desc' });
     return products.map((p) => toUIProduct(p, 'general'));
   },
-  ['featured-ui-products-v2'],
+  // 🔴 cache key 換版:上一版快取的是 4 筆,不換 key 的話舊快取會讓提高後的筆數**在 15 分鐘內看不到**。
+  ['featured-ui-products-v3'],
   { revalidate: CATALOG_REVALIDATE_SECONDS, tags: ['catalog'] },
 );
 

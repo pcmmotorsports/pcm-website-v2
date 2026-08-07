@@ -314,6 +314,15 @@ describe('upsertItemProcurementAction — 解析與 log', () => {
       expect.objectContaining({ requestId: 'req-http-1', actor: 'sean' }),
     );
   });
+
+  // 🔴 A9h-M(關卡2 F5):明細頁單列表單**有**那四個欄位 ⇒ 必須送 false,員工清空某欄才真的清得掉。
+  //    改成 true 會讓「清空」靜默失效、畫面與回傳碼都看不出來 ⇒ 用斷言釘死,不靠註解(機制優先律)。
+  it('🔴 單列表單一律送 preserveOptionalFields: false(改成 true = 清空能力靜默失效)', async () => {
+    await upsertItemProcurementAction(IDLE, fd());
+    expect(mocks.upsertItemProcurement).toHaveBeenCalledWith(
+      expect.objectContaining({ preserveOptionalFields: false }),
+    );
+  });
 });
 
 describe('upsertItemProcurementAction — 品項歸屬驗證(關卡2 codex R2 MF4)', () => {

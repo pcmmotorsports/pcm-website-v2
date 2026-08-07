@@ -1,6 +1,7 @@
 // order-detail-view.ts — 後台訂單明細「顯示層」純工具(M-4a Slice B)。
-// 明細專屬:id 形狀守門 / 發票·出貨標籤 / 日期時間格式化。列表共用標籤(付款/出貨/來源/管道)
-// 仍在 order-list-view.ts、本檔不重定義。無 server-only、無 @/ → 可單測。
+// 明細專屬:id 形狀守門 / 開票**需求型式**·出貨標籤 / 日期時間格式化。列表共用標籤
+// (付款/出貨/來源/管道,**A11a-5 起加開票紀錄狀態 `INVOICE_STATUS_LABEL`**)在 order-list-view.ts、
+// 本檔不重定義。無 server-only、無 @/ → 可單測。
 
 import type { InvoiceStatus } from '@pcm/domain';
 
@@ -12,11 +13,9 @@ export function isOrderId(raw: string): boolean {
 }
 
 /** 開票紀錄狀態標籤(orders.invoice_status 三值)。 */
-export const INVOICE_STATUS_LABEL: Record<InvoiceStatus, string> = {
-  not_issued: '未開立',
-  issued: '已開立',
-  voided: '已作廢',
-};
+// 🔴 `INVOICE_STATUS_LABEL` **已於 A11a-5(2026-08-06)搬到 `order-list-view.ts`** ——
+// 它自 A11a-5 起是明細與列表**共用**的標籤,而本檔檔頭宣告的慣例逐字是「列表共用標籤仍在
+// order-list-view.ts、本檔不重定義」⇒ 照那條慣例搬,不是改掉慣例來遷就 import 方向。
 
 /** 結帳開票需求型式標籤(invoice jsonb.type;未知值原樣顯示、不編造)。 */
 export function invoiceTypeLabel(type: string | null): string | null {

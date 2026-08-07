@@ -25,7 +25,10 @@
 // D3a(2026-08-04):加 optional `tagline` —— 設計稿的頁尾標語**每頁不同**
 // (`pcm-home-redesign/brand-page.html:1510-1512` 逐字:「首頁講品牌態度、品牌總覽講選部品、
 //  這一頁講『這家品牌』—— 20 家各一句」;灌值在 `:2029` `$('bp-footer-slogan').innerHTML = brand.slogan`)。
-// 不給 prop 時字面完全不變(首頁與其餘既有掛載點零影響、`HomeFooter.test.tsx` 有守)。
+// 不給 prop 時字面完全不變(既有掛載點零影響、`HomeFooter.test.tsx` 有守)。
+// 🔴 2026-08-06(D-136 清尾片)更正:上一行原本寫「**首頁**與其餘既有掛載點零影響」——
+//    **首頁自本日起有給 prop 了**(OD 把首頁頁尾改成服務範圍句、理由見 `app/page.tsx` 那段註解),
+//    首頁不再走預設值。其餘 23 個沒給 prop 的掛載點仍然零影響。
 
 
 import type { ReactNode } from 'react';
@@ -54,6 +57,13 @@ export function HomeFooter({ tagline }: { tagline?: ReactNode }) {
           <div className="ed-footer-logo">
             <img src={FOOTER_LOGO.src} width={FOOTER_LOGO.w} height={FOOTER_LOGO.h} alt="PCM MOTOR PARTS" />
           </div>
+          {/* 🔴 D-136 清尾片 R1 MF1(2026-08-06):**這顆預設值不要改成首頁那句**。
+              首頁頁尾標語確實已由 OD 改成「專業重機零件・改裝精品/一站式服務」,但那是**首頁一頁**的事
+              —— OD 另外 13 支頁稿(register / login / cart / checkout / account / products-list /
+              install / stores / logout / not-found / terms / privacy / info-shipping)**全部逐字保留**
+              下面這句預設值,`products-list-handoff.md` 也逐字寫「首頁=服務範圍句、其他頁=預設句」。
+              本片第一版把它改在這裡 = 一次動到 24 個沒給 prop 的掛載點、15 頁反向偏離 OD(R1 擋下)。
+              ⇒ 首頁那句走 D3a 早就建好的 `tagline` prop(`app/page.tsx`),與 brands / brands-slug 同款。 */}
           <p className="ed-footer-tagline">
             {tagline ?? (
               <>

@@ -12,9 +12,10 @@ import { REFUND_SUBMITTED_RESULT_CODE } from '../../lib/payment/refund-action-st
 
 // M-4b E10 A9d2-1:本片只加一個成功碼 ⇒ 本檔只測那一格 + 既有行為不被打壞。
 //
-// 🔴 **刻意不測原型鏈那組向量**(`?r=__proto__` 等):那個修正 Sean 2026-08-02 拍板 **B 退回**
-//    (見本元件 `:29-40` 的註解),把它寫成測試等於用測試把「已被退回的修法」釘成規格。
-//    本檔測的是「加了一個 key 之後,那個 key 真的顯示得出來、其他 key 沒被打壞」。
+// 🔴 原型鏈那組向量(`?r=__proto__` 等)**已於 #332-2 補上**(Sean 2026-08-06 拍板 Q1=A;
+//    2026-08-02 拍板 B 曾把修法退回、當時這裡逐字寫著「刻意不測」)⇒ 見本檔最後一個 describe。
+//    姊妹元件 `settings/settings-result-banner.tsx` 有同形的一組,在
+//    `settings/settings-result-banner.test.tsx` —— 兩支各自在自己的元件層被釘住。
 
 afterEach(cleanup);
 
@@ -67,5 +68,43 @@ describe('ResultBanner — A10b 新增的三個採購成功碼', () => {
       PROCUREMENT_NO_CHANGE_RESULT_CODE,
     ].map((c) => render(<ResultBanner code={c} />).container.textContent);
     expect(new Set(texts).size).toBe(3);
+  });
+});
+
+// 🔴 這五個字串是**原型鏈上真的存在且 truthy** 的屬性名 ⇒ 裸索引 `MESSAGES[code]` 會取到它們、
+//    讓 `if (!msg) return null` 整道守門失效(memory `reference_js-index-lookup-hits-prototype-chain`)。
+//    逐字寫死、**不從任何 API 導出** —— 這組向量的價值就在「攻擊者最好猜的那幾個」是**具體哪幾個**。
+//    砍短這個陣列 = 測試數對不上,是刻意設計的突變靶。
+//    ⚠️ `prototype` 不在本組:它不是 plain object 繼承得到的屬性(`({}).prototype === undefined`),
+//    放進來會是一格恆綠、沒有判別力的假向量。
+//    ⚠️ 這份陣列與 `settings/settings-result-banner.test.tsx` 的那份**刻意各留一份** ——
+//    兩支元件是獨立的守門面,共用一個常數會讓「其中一支被改回裸索引」時的失敗訊息指錯地方。
+const PROTOTYPE_CHAIN_KEYS = [
+  '__proto__',
+  'constructor',
+  'toString',
+  'valueOf',
+  'hasOwnProperty',
+] as const;
+
+describe('ResultBanner — 非自有 key 一律不渲染(#332-2)', () => {
+  it.each(PROTOTYPE_CHAIN_KEYS)(
+    '原型鏈屬性名 %s 當作 ?r= 傳進來時什麼都不畫',
+    (code) => {
+      const { container } = render(<ResultBanner code={code} />);
+
+      // 🔴 這條比「查不到文字」嚴格:守門失效時畫出來的是一個 `class="… undefined"` 的**空框**
+      //    (`msg.text` 是 undefined ⇒ 沒有文字),只斷言 textContent 為空會**照樣綠**。
+      expect(container.innerHTML).toBe('');
+    },
+  );
+
+  // 🔴 與姊妹元件的測試對稱補上(R1 nit 8):既有的 `缺 code → 不渲染` 只覆蓋 `undefined`,
+  //    沒有覆蓋「有值但不是自有 key」。⚠️ 這條**不是**「修法沒被寫成只擋那五個」的證據
+  //    —— 黑名單式實作下 `'nope'` 一樣回 null、本條照樣綠。
+  it('一般的未知碼同樣什麼都不畫', () => {
+    const { container } = render(<ResultBanner code='nope' />);
+
+    expect(container.innerHTML).toBe('');
   });
 });

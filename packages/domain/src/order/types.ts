@@ -234,17 +234,6 @@ export type AdminOrderFilter = {
 };
 
 /**
- * workflow_status code 合法形狀(對齊 DB CHECK orders_workflow_status_format)。
- *
- * 🔴 **A9w3 起零 consumer,字面務必別再讀成「單一來源」**:原本唯一的 consumer 是 adapter
- * `.or()` 字串內插前的 fail-closed 再驗,那整段隨九碼篩選下推在 A9w3 移除。
- * item writer 那條線驗形狀用的是 `apps/admin/src/lib/orders/workflow-form.ts:29` 的 local
- * `WF_CODE_RE`(字面相同的**另一份**、從未 import 本常數)⇒ 改這裡不會影響任何守門。
- * 暫留不刪(A9w4c 前半未處置 ⇒ 已立案 backlog #332 隨九碼死碼收尾片收);合併那兩份 RE 是另一件事、不在退場片範圍。
- */
-export const WORKFLOW_STATUS_CODE_RE = /^[a-z0-9_]{1,64}$/;
-
-/**
  * AdminOrderLine: 後台訂單列表「每商品一列」品項投影(M-4a Slice D-1a;order_items 內嵌展開)。
  *
  * 🔴 鐵則 12:`unitPrice`/`lineTotal` = 該單**成交價**(下單當下實際賣價、integer 元位 → Money),
@@ -269,7 +258,9 @@ export type AdminOrderLine = {
   lineTotal: Money;
   /**
    * per-item 訂單處理狀態(M-4a D-2、order_items.workflow_status;soft-ref order_status_options.code)。
-   * NULL=未設定。item 層=唯一操作真相(Sean 2026-07-15 拍板 Q-A=A);整單狀態=顯示端彙總。
+   * NULL=未設定。item 層=唯一操作真相(Sean 2026-07-15 拍板 Q-A=A)。
+   * 🔴 ~~整單狀態=顯示端彙總~~ **A11a-1(2026-08-06)起該彙總已移除**(同 `:331`/`:710` 註記);
+   *    P3 九碼退場後**本欄零 production 讀寫端**、僅存歷史值,欄位凍結不 DROP(撤權見 A9v)。
    * 🔴 純操作/顯示軸:金流真相恆為 order 的 paymentStatus,本欄絕不進金流/對帳/退款判斷。
    */
   workflowStatus: string | null;
@@ -280,6 +271,20 @@ export type AdminOrderLine = {
    * NULL=下單未帶車款。🔴 純顯示 metadata、無價/tier 面;mapper 防禦解析壞形狀 → null。
    */
   vehicle: OrderItemVehicleSnapshot | null;
+  /**
+   * 品項三軸數量摘要(M-4b E10 **A9c**;列表投影 nested left embed `order_item_quantity_summary`)。
+   *
+   * 🔴 **非 nullable、缺列已由 mapper 正規化成三個 0** —— 母 plan 計數器摘要列 `:335` 逐字
+   * 「由 mapper 在 TS 層正規化成三個 0」+「**A11a-c 只接非 nullable 型別**(正規化在 A9c 的 mapper
+   * 完成,UI 片**不做 join、不做 COALESCE**)」⇒ **UI 端不得寫 `?? 0`**(A11a plan V9 的突變靶)。
+   *
+   * 🔴🔴 **與明細側 `AdminOrderDetailItem.quantitySummary`(`| null`)刻意不同型,不是筆誤**:
+   * 依該欄 docstring 的分用途裁定 —— **純顯示**(本欄:列表只看數字)補 0 可接受;
+   * **守門 / 上限 / 可否取消的判斷**(明細側)絕不可補 0、必須 fail-closed。
+   * ⇒ **本欄不得餵給任何取消或上限判斷**(列表取消入口 = A13,那片要走明細那支、不吃本欄)。
+   * 代價講明白:補 0 之後「資料損壞」與「真的 0」在列表上**長得一樣**。
+   */
+  quantitySummary: AdminOrderItemQuantitySummary;
 };
 
 /**
@@ -306,7 +311,11 @@ export type AdminOrderSummary = {
   id: OrderId;
   /** 人類可讀單號(6 碼亂碼 或 舊 `PCM-YYYY-NNNN`,兩者並存) */
   displayId: DisplayId;
-  /** 下單時間 ISO(orders.created_at 原樣;UI formatOrderDate 格式化) */
+  /**
+   * 下單時間 ISO(orders.created_at 原樣)。UI 走 `formatOrderListDate`(同年 `07/25` / 跨年 `2025/06/27`)——
+   * 🔴 原註寫的 `formatOrderDate` 是 admin 那支,A11a-2 接走呼叫端、**A9c 已刪除**(storefront 的同名
+   * 函式是另一份、不受影響;本型別是 admin 讀模型,別再指到它)。
+   */
   createdAt: string;
   /** 客人顯示名(join customers.name;缺 → null) */
   customerName: string | null;
@@ -321,7 +330,7 @@ export type AdminOrderSummary = {
   /** 取消時間 ISO(非 null = 已取消;本片純顯示,取消功能留取消片) */
   cancelledAt: string | null;
   // (M-4a D-2 起本讀模型**不再攜** orders.workflow_status / orders.version:per-item 真相移至
-  //  lines[].workflowStatus/version;整單狀態=顯示端由 lines 彙總〔全同→該值、混合→多狀態〕;
+  //  lines[].workflowStatus/version;~~整單狀態=顯示端由 lines 彙總~~(**A11a-1 已移除該彙總**);
   //  列表 order 層 inline 改單退場 → 不需 orders.version。明細頁改 shipping/invoice 仍用
   //  AdminOrderDetail.version。)
   /**
@@ -330,6 +339,20 @@ export type AdminOrderSummary = {
    * 絕不進非 admin client bundle(本讀模型只由 server component 用)。
    */
   tierAtCheckout: MemberTier;
+  /**
+   * 開票紀錄狀態(M-4b E10 **A9c**;`orders.invoice_status`,DB CHECK 三值 + NOT NULL DEFAULT
+   * `'not_issued'`,migration `20260714120000_m4a_order_workflow_status.sql:108,117`)。
+   *
+   * 🔴 **列表只帶這一欄、不帶載具別**(Sean 2026-08-06 Q2b=A):母 plan §5.1a「新增 | 發票」那列
+   * 原字面是「列表只顯示**載具別**與開立與否」,Q2b=A **砍掉載具別**、只留三態(該列字面已同批更正)。
+   * 理由=載具別在 `orders.invoice` jsonb(`carrier`/`type`),把它拉進列表會破壞
+   * 「列表投影零 PII、兩白名單刻意分立」那條邊界;而 `invoice_status` 是 enum、非 PII。
+   *
+   * 🔴 三態是 `not_issued` / `issued` / `voided`,**沒有「不需開立」** —— 「客人沒填開票需求」與
+   * 「有需求但還沒開」在本欄都是 `not_issued`,要分只能推論 `invoice` jsonb 是否為空(推論、非欄位)。
+   * Q2b=A 明文不分。
+   */
+  invoiceStatus: InvoiceStatus;
   /** 該單品項展開(M-4a Slice D-1a「每商品一列」、同單分組顯示;空陣列顯示端兜一列「—」)。 */
   lines: AdminOrderLine[];
 };
@@ -347,7 +370,9 @@ export type InvoiceStatus = 'not_issued' | 'issued' | 'voided';
  * 🔴 型別層**無** payment/fulfillment/金額 total 欄(金流紅線:改單絕不碰金流真相軸)。
  * 🔴 D-2 起型別層**亦無 workflowStatus**(orders.workflow_status 停寫=雙層強制:TS 層關死
  * 〔Codex R1 must-fix 1〕+ DB 層 RPC 白名單收窄、送到即 RAISE〔Fable 關卡1 REQUIRED-2、
- * 20260716130000 §4〕;狀態唯一寫入面=item 層 updateAdminOrderItemWorkflow)。
+ * 20260716130000 §4〕;~~狀態唯一寫入面=item 層 updateAdminOrderItemWorkflow~~ —— 🔴 **A9w4c 後半
+ * (2026-08-06)已把該 port/adapter 方法移除,admin 應用層與 adapter 皆無 workflow_status 寫入面**;
+ * DB 端 RPC 與 EXECUTE 權仍在、撤權歸 A9v)。
  */
 export type AdminOrderWorkflowPatch = {
   shippingMethod?: string;
@@ -377,8 +402,11 @@ export type AdminProcurementReplyStatus =
  *
  * 🔴 **內部資料,絕不對客**:供應商身分、單號、異常原因一個 byte 都不能走上客人看得到的投影
  * (建表檔 `:16-18`;`orders`/`order_items` 對登入客人整表開放 SELECT)。本型別只走 admin service_role 路徑。
- * 🔴 **全欄都在,是刻意的**:A5a 是**全量 payload**(非 patch),選填欄送 NULL = 寫成 NULL
+ * 🔴 **全欄都在,是刻意的**:A5a 在 `p_preserve_optional_fields = false`(明細頁單列表單走的分支)
+ * 下是**全量 payload**(非 patch),選填欄送 NULL = 寫成 NULL
  * ⇒ 呼叫端契約 = 表單必「全欄 hydrate 自最新列、先讀後送」
+ * (🔴 A9h 批次走 `true`:那四個選填欄的 NULL 是**保留現值**、不是清空 —— A9h-M `20260806200000`。
+ *  批次沒有那四欄的入口,所以它不需要、也不該做全欄 hydrate。)
  * (`20260803160000_m4b_e10_a5a_admin_upsert_item_procurement.sql:20-24`)。少投影一欄 = A10b 表單
  * 會用 undefined 覆蓋掉那一欄的既有值。
  */
@@ -825,28 +853,14 @@ export type AdminOrderDetail = {
   cancellationsTruncated: boolean;
 };
 
-/**
- * OrderStatusOption: 後台訂單處理狀態詞彙(M-4a、order_status_options 表;Sean 可設定+顏色)。
- *
- * Sean 的 Google Sheet 工作方式:單一「訂單狀態」下拉 + 底色(收款×訂定×貨況合併標籤)。
- * `code` = 穩定識別碼(orders.workflow_status soft-ref);`label` = 顯示文字(截圖逐字);
- * `color` = badge 底色 hex;`textColor` = 深底淺字/淺底深字;`sortOrder` = 下拉排序;
- * `isActive` = soft-delete(停用不硬刪,既有單指向不消失、顯示端仍可解析 label)。
- */
-export type OrderStatusOption = {
-  code: string;
-  label: string;
-  /** badge 底色(hex,如 '#FBE4A6';DB CHECK 保證格式) */
-  color: string;
-  /** 字色模式:'light' 深底淺字 / 'dark' 淺底深字 */
-  textColor: 'light' | 'dark';
-  sortOrder: number;
-  isActive: boolean;
-};
-
-// M-4b E10 A9w4c(前半):`OrderStatusOptionUpdate` 已移除 —— 它的唯二引用是 port 與 adapter 的
-// `updateOrderStatusOption` 簽章,兩者同片退場。`OrderStatusOption`(讀模型)保留:列表的九碼
-// badge 與下拉仍在用,隨 A11a-c 退場。
+// M-4b E10 A9w4c:九碼狀態**詞彙表**的 domain 型別已全數移除
+// (⚠️ 不是「九碼欄位全沒了」:`AdminOrderLine.workflowStatus` 那個欄位仍在,那是**值**、不是詞彙表)。
+// - 前半:`OrderStatusOptionUpdate`(唯二引用=port/adapter 的 `updateOrderStatusOption` 簽章)。
+// - 後半收尾:`OrderStatusOption`(讀模型)—— A11a-1 列表重建後零引用,`order_status_options`
+//   讀取鏈(port / adapter / admin getter / 其測試)同片整條退場(A11a plan §3.1 裁定)。
+// 🔴 DB 端 `order_status_options` 表與資料都還在;service_role 的**寫**權由
+// A9v `20260807120000` 撤除(INSERT + 五個欄級 UPDATE;**SELECT 保留**),apply 後生效
+//    ⇒ 這裡是「應用層沒有這張表的型別與讀取介面」,不等於「資料庫沒有這張表」。
 
 /**
  * PlaceOrderVehicle: 品項「給哪台車用」(M-4a V-3a;client → server 線契約、選填)。

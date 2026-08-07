@@ -8,6 +8,17 @@
   /* V-2f:grid item 可收縮到 track 以下(min-width:auto 的 min-content 會撐爆 minmax 0 track);
      配 .pp-grid repeat(2, minmax(0,1fr)) 讓手機 2 欄卡片實際收進版寬(修 375px 第二欄溢出)。 */
   min-width: 0;
+  /* 🔴 2026-08-06:OD 逐字有這顆(`pcm-account.css` 與首頁稿的 `.pcard` 都是
+     `{display:flex;flex-direction:column;position:relative;min-width:0;flex:1}`),站上漏了 ⇒ 直搬。
+     ⚠️ **誠實邊界(真瀏覽器實測,別照抄 R2 的說法)**:R2 主張「不補這顆的話首頁橫捲永遠不齊」,
+        我用探針量了四種組合,**沒能證實**——
+          min-height ON  + flex ON  → 差 0px      min-height ON  + flex OFF → 差 0px
+          min-height OFF + flex ON  → 差 0px      min-height OFF + flex OFF → 差 19px
+        ⇒ `min-height:2.8em` 與這條 flex 鏈是**兩套互相獨立的機制、任一條單獨都夠**
+          (現行卡片內容形狀下:圖 1:1、品牌 1 行、品名 clamp 2 行、fits nowrap 1 行)。
+        留它的理由是**鐵則 1 直搬 + 縱深防禦**(哪天品名改 clamp 3 行或多一個元素,
+        content 高度就不再天然相等,那時就靠它),**不是**「少了它現在就會壞」。 */
+  flex: 1;
 }
 /* 🔴 點綴方案 A「速度紅線」(Sean 2026-07-08 拍板整頁熱血點綴 A):hover 頂端紅線由左掃出,
    為全站卡片加一點賽車速度感、平時安靜(直角極簡不變)。 */
@@ -28,13 +39,46 @@
 .pcard:hover::before { transform: scaleX(1); }
 
 /* ── Image area ── */
+/* 🔴 2026-08-06 Sean 拍板 A(圖框):OD 三支稿(brand-page.html / direction-b-layout-01-
+   graphite-ember.html / pcm-account.css)逐字一致 background:#fff + border,只有
+   products-list-page.html 一支落單畫灰底無框 —— 與價格色那次同型、同一支稿再度落單,
+   稿自身矛盾已記入 OD 回饋包,站上以此拍板為準。
+   影響五個面(皆吃 .pcard-img-wrap,見 manifest ProductCard.related_storefront):
+   首頁最新商品橫捲(HomeSelect)/ 商品列表(ProductsPage)/ 品牌頁熱門商品(BrandPageProducts)/
+   會員中心為你推薦(OverviewTab)/ PDP 相關商品(ProductRelated,由 ProductPage.tsx:206 掛載;
+   R1 抓到前一版漏算此面、少算一面)。
+   🔴 2026-08-07 更正(上一片「不再被蓋住」的講法是錯的,這裡重寫):Sean 2026-08-06 拍 A
+   本身就是「正式推翻 07-24 拍板 Q1=A」的動作(依據「本次設計變更以 OD 為權威」)——已改
+   `ProductCard.tsx` 的 `.pcard-gallery` inline background(真圖兩分支皆改 `#ffffff`)。
+   ⚠️ **這條 `background:#fff` 仍然完整被 `.pcard-gallery` 蓋住**(`.pcard-gallery` 是
+   width/height:100% + 三分支 inline background 全不透明,疊在這層之上)——不是「沒被蓋」。
+   兩條真圖路徑(trim / contain fallback)現在都是白,與這層**剛好同色**,所以肉眼看不出被蓋、
+   容易誤讀成「有生效」。漸層(無真圖)分支沒有跟著改——`.pcard-gallery` 那層是彩色漸層、
+   這層是白 ⇒ 兩層不同色,在該狀態下這條依舊被完整蓋住、**零可見貢獻**。
+   它的縱深防禦**只涵蓋一種情況**:gallery 那層日後若改回透明、或整條 background 宣告被拿掉,
+   才輪到這層現形補白。若 gallery 改成「另一個不透明色」(例如灰),這層**擋不住**——父層那個
+   不透明色照樣完整蓋住這條、白底一樣看不到。這正是 R1 上一輪指出的同一種誤判,這裡重申一次
+   避免下一個人再抄錯的講法。
+   保留它的理由 = OD 三稿逐字直搬(鐵則 1)+ 上述那一種縱深防禦,**不是**「站上現在的白底靠它生效」
+   ——真正生效、決定可見底色的一律是 `.pcard-gallery`(ProductCard.tsx,非 hover 態)。
+   tokens.css 全域 `* { box-sizing: border-box }` ⇒ 加框不撐大卡片外框、不位移卡片版面;
+   但**絕對定位子元素的定位基準(padding edge)會被 border 內縮 1px**(R1 實測):badge/heart
+   距外緣由 10px→11px、`.pcard-quick` 底部離卡緣由 0→1px。OD 三稿的 `.pcard-img-wrap` 內只有
+   `<img>`、無這些 overlay,稿上無先例,此為站上既有結構與新框線疊加後才出現的既有影響
+   (hover 遮罩 `::after` 同屬此類「OD 稿查無」的既有結構,見下方該規則旁的說明)。 */
 .pcard-img-wrap {
   position: relative;
   aspect-ratio: 1 / 1;
   overflow: hidden;
-  background: var(--c-surface-2);
+  background: #fff;
+  border: 1px solid var(--c-border);
   margin-bottom: 0;
 }
+/* 🔴 2026-08-07(R1 MF5):這條 hover 遮罩與上面漸層 placeholder 分支同屬「OD 稿查無」的既有結構
+   (OD 稿的 .pcard-img-wrap 內只有 <img>),依 D-149-A「查無=STOP 問我,不猜」——與漸層分支一樣
+   本片不處理。它疊在 `.pcard-gallery` 之上(z-index:1、同堆疊脈絡)⇒ hover 時圖區實際可見底色
+   約 `#f5f5f5`(4% 黑疊在白上),**不是**純白;見 ProductCard.tsx `.pcard-gallery` 旁的說明。
+   若 Sean 對「hover 是否該維持純白」有意見,與漸層分支一起裁,不在本片範圍內自行改值。 */
 .pcard-img-wrap::after {
   content: '';
   position: absolute;
@@ -151,10 +195,16 @@
 .pcard-quick-btn:hover { background: rgba(212, 212, 216, 0.96); }
 
 /* ── Info area ── */
+/* 🔴 2026-08-06(R1 MF3;Sean「以 OD 為權威」):補 `flex: 1` —— OD 逐字
+   `pcm-account.css` 與首頁稿 `direction-b-layout-01-graphite-ember.html` 的
+   `.pcard-info` 都是 `{padding:12px 0 0;display:flex;flex-direction:column;flex:1}`。
+   少了 `flex:1`,下面 `.pcard-price-row` 的 `margin-top:auto` **推不到卡底**
+   (auto 需要有剩餘空間可分配)⇒ 整排卡片的價格列各自貼在自己文字下方、高低不齊。 */
 .pcard-info {
   padding: 12px 0 0;
   display: flex;
   flex-direction: column;
+  flex: 1;
   gap: 0;
 }
 .pcard-brand {
@@ -177,6 +227,11 @@
   overflow: hidden;
   text-wrap: pretty;
   margin-bottom: 4px;
+  /* 🔴 2026-08-06(R1 MF3):品名固定佔滿 2 行高。OD 逐字 `min-height:2.8em`,而且稿上
+     **自帶理由註解**:「名稱固定佔滿 2 行高 → 適用車型、分隔線、價格三條線在整排卡片上對齊。
+     不固定的話,1 行與 2 行的品名會讓下半部整段位移、價格高度不齊。」
+     `-webkit-line-clamp: 2` 只管**上限**、不管下限 ⇒ 一行的品名照樣只佔一行。 */
+  min-height: 2.8em;
   transition: color 0.15s;
 }
 .pcard:hover .pcard-name { color: #000; }
@@ -190,6 +245,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 🔴 2026-08-06(R1 MF3):原本這條寫了**兩次 `margin-top`** —— `auto` 在前、`8px` 在後,
+   後者贏 ⇒ OD 要的「價格列貼卡底」整條是**死的**,而畫面上看起來只是「價格離文字近一點」,
+   沒有任何測試看得到。照 OD 逐字只留 `margin-top: auto`(配上面補的 `.pcard-info{flex:1}`)。 */
 .pcard-price-row {
   display: flex;
   align-items: baseline;
@@ -197,13 +255,27 @@
   margin-top: auto;
   padding-top: 6px;
   border-top: 1px solid var(--c-border);
-  margin-top: 8px;
 }
 /* 🔴 方案 A「速度紅線」:卡片價格轉品牌動作色(⚠️ 2026-08-05 第0批 0c 之前這裡是**賽車紅**
    `#dc2626`,0c 之後是**深熔橘** `#c4470c`;下面所有「紅」字是歷史用詞、實際顏色以 token 為準)
    (熱血點綴;現況無促銷、與 is-sale 同色不衝突,
    未來促銷再以 badge/刪除線區隔)。scoped .pcard、不影響詳情頁 pd-price。 */
 .pcard .price-main { color: var(--c-red-dark); } /* 🔶 0c:白底價格 = 文字層(products-list-handoff R1-1 表列逐字)*/
+/* 🔴🔴 2026-08-06(Sean 逐字「我們價錢字的顏色要用橘色」;真瀏覽器實測抓到):
+   **上面那條在真實卡片上從來沒生效過。**
+   真實 DOM 比 OD 稿多包一層三級定價元件 `.price-wrap`:
+     `article.pcard > .pcard-info > .pcard-price-row > span.price-wrap.price-md > span.price-main`
+   於是 `pricing.css` 的 `.price-wrap .price-main{color:var(--c-text,#0a0a0a)}` 與上面那條
+   **權重完全相同**(都是 0,2,0 兩個 class)⇒ 後載入者贏,而 `layout.tsx:39-40` 的 import 順序是
+   product-card.css 在前、pricing.css 在後 ⇒ **墨黑一直贏**。
+   ⚠️ 這就是為什麼「三綠全過、CSS 字面也對」卻整站價格都是黑的 —— 同權重的撞規則,
+      靜態讀單一檔案永遠看不出來,只有在**真實 DOM 上量 computed** 才會現形。
+      (我第一版用注入探針量,探針沒有 `.price-wrap` 那層 ⇒ 量到了理想值、對 Sean 報了錯的結論。)
+   修法=提高一階權重(0,3,0)明確贏過 pricing.css 的通用預設,**只作用在商品卡內**,
+   不動詳情頁主價 `.pd-price`、購物車與結帳金額(那三處 OD 另有說法、屬別片)。
+   ⚠️ OD 在這件事上**自身矛盾**:首頁稿與品牌頁稿的卡片沒有 `.price-wrap`、`.price-main` 是熔橘;
+      而 `products-list-page.html` 的 `.price-wrap .price-main` 寫墨黑。Sean 拍板取熔橘。 */
+.pcard .price-wrap .price-main { color: var(--c-red-dark); }
 /* Font-size variants
    🔴 **第3批實查:這三條是死規則** —— 全樹(`.tsx` / `.ts`)**零處**設定 `data-font-size`,
    設計稿 `products-list-page.html` 也沒有這個屬性。

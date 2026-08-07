@@ -27,8 +27,10 @@ B2-S2b-1(commit `4ef591b`)建的 `shipments_summary_recompute_ac` 重算 trigger
 
 ```sql
 -- (1) 停掉 service_role 應用路徑的唯一寫入口(A5a)。**單獨執行、確認已提交後再做下一步。**
+-- 🔴 簽章 = 12 參(A9h-M 20260806200000 起;末參 p_preserve_optional_fields boolean)。
+--    型別清單少一個 boolean ⇒ 本句當場 undefined function、回滾在唯一需要它的那天卡死。
 REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
-  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) FROM service_role;
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text, boolean) FROM service_role;
 ```
 
 ```sql
@@ -187,7 +189,18 @@ SELECT count(*) FROM pg_catalog.pg_trigger
   步驟④ 再連同它的函式一起 **DROP** ⇒ 上面 (a) 的枚舉**已含它**、歸零才是真的歸零。
   🔴 **兩者不可互相取代**:只 DISABLE 不 DROP ⇒ 依賴沒清零、⑥ 不該放行;
   只 DROP 不先 DISABLE ⇒ ②→⑤ 視窗仍會被寫。
-- (b)**消費端清單(授權時 repo-grep,2026-08-03;2026-08-06 B2-S2b-3b 更新為 <u>五 trigger + 六函式</u>)**:A4a 四 trigger + 五函式,加 **B2-S2b 的 `shipments_summary_recompute_ac` + `pcm_a4a_shipments_summary_recompute()`**;A9c(PostgREST 讀模型)未建。🔴 **未來消費端上線片必須回寫本清單**(PostgREST select 字串對 DB 完全不可見,catalog 查不到)。
+- (b)**消費端清單(授權時 repo-grep,2026-08-03;2026-08-06 B2-S2b-3b 更新為 <u>五 trigger + 六函式</u>;🔴 2026-08-06 由 A9c 回寫 PostgREST 側)**
+  🔴 **本條 2026-08-07 由 B2-S2b 與 A9c <u>兩線 union 合併</u>**(merge 衝突,主視窗 `B-167-A` 裁 Q1=A):
+  兩側改的是同一份清單但**不同的東西**,少任何一半災難當天都會做錯事 —— DB 側少了會不停出貨側的寫入,
+  PostgREST 側少了會在 DROP 表之後把 admin 兩頁弄壞,而且 **catalog 查不到、沒有任何守門會紅**。
+  - **DB 側**:A4a 四 trigger + 五函式,加 **B2-S2b 的 `shipments_summary_recompute_ac` +
+    `pcm_a4a_shipments_summary_recompute()`** ⇒ 合計 **五 trigger + 六函式**。
+  - **PostgREST 讀模型**:~~A9c 未建~~ ⇒ **A9c 已建,現有兩個消費端,回滾前都要先拆**:
+    - `ADMIN_ORDER_DETAIL_SELECT`(`packages/adapters/src/supabase/SupabaseOrderAdapter.ts`;A9g-1 起)
+    - **`ADMIN_ORDER_LIST_SELECT`(同檔;A9c 2026-08-06 新增)** —— 內嵌 `order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity)`
+    - TS 側連帶:`mappers/order.ts` 的 `mapQuantitySummary`(明細,fail-closed 回 `null`)與 `mapListQuantitySummary`(列表,補 0)、`AdminOrderLine.quantitySummary`(**非 nullable**)。
+  🔴 **步驟③「逆序撤消費端」要先把這兩條 select 字串的內嵌拿掉再 DROP 表** —— 漏掉會讓 admin 訂單**列表**與**明細**兩頁一起壞(PostgREST 對不存在的關聯是回錯誤、不是靜默略過)。
+  🔴 **未來消費端上線片必須回寫本清單**(PostgREST select 字串對 DB 完全不可見,catalog 查不到)。
 - (c)反例(僅演練環境;證明「DROP 不會被 DB 自己擋、順序是人的責任」):trigger 在位時 DROP 表 → 下一筆來源 DML 紅 `42P01`。演練腳本自動跑。
 
 ## 步驟 ④:撤 trigger + 函式、標記 stale(與 ②⑤ 同一交易)
@@ -423,11 +436,12 @@ helper 此刻是**四軸** ⇒ **最先紅的是它自己的 §1 前置閘(`P2B1
 ——回權改走 `2026-07-30-a7-rollback.md` 步 8 的 a7 專屬前提,勿在此卡死。)
 
 ```sql
+-- 🔴 簽章 = 12 參(A9h-M 20260806200000 起;末參 p_preserve_optional_fields boolean)。
 GRANT EXECUTE ON FUNCTION public.admin_upsert_item_procurement(
-  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) TO service_role;
+  uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text, boolean) TO service_role;
 -- 驗:應回 t
 SELECT has_function_privilege('service_role',
-  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text)', 'EXECUTE');
+  'public.admin_upsert_item_procurement(uuid,uuid,integer,text,text,timestamptz,text,text,date,text,text,boolean)', 'EXECUTE');
 ```
 
 ```sql

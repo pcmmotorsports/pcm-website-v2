@@ -24,6 +24,7 @@ const CASCADE = strip(read('filter-cascade.css'));
 const SIDE = strip(read('filter-side.css'));
 const CART = strip(read('cart.css'));
 const CART_VEHICLE = strip(read('cart-vehicle.css'));
+const PRICING = strip(read('pricing.css'));
 
 function block(src: string, label: string, selector: string): string {
   const i = src.indexOf(selector);
@@ -258,5 +259,155 @@ describe('🔴 第3批 · sticky 偏移三處必須同值(漂開不會有任何�
       block(PRODUCTS, 'products-page.css', '.pp-layout[data-filter-style="top"] .pp-head'),
       'top 模式的偏移被連坐改掉了 ⇒ 那條 bar 沒有變高',
     ).toMatch(/calc\(var\(--shell-header-h\) \+ 58px\)/);
+  });
+});
+
+// ══ 商品卡「價格列貼卡底、整排對齊」三件套(2026-08-06,R1 MF3)══
+//
+// 🔴 這三條是**一組**,少任何一條那個版面就不成立,而且三種壞法在三綠與單元測試下全都零轉紅:
+//    ①`.pcard-info{flex:1}` 沒了 → `margin-top:auto` 沒有剩餘空間可分配、推不到卡底
+//    ②`.pcard-name{min-height:2.8em}` 沒了 → 1 行與 2 行品名讓下半部整段位移
+//    ③`.pcard-price-row` 又被補上第二個 `margin-top` → 後者覆蓋 `auto`,貼底整條變死規則
+//    ③正是這次抓到的真缺陷:`margin-top:auto` 與 `margin-top:8px` 同時存在了不知道多久。
+// 真權威 = OD `pcm-account.css` 的「為你推薦」段(2026-08-06 Sean 指示後的新稿)與首頁稿
+//    `direction-b-layout-01-graphite-ember.html`,兩支的 `.pcard-*` 逐字相同。
+// ⚠️ 它擋不住什麼:文字層證得了三條規則在、形狀對,證不了瀏覽器真的把價格排到同一條線上
+//    (那要真瀏覽器量整排卡片的 `.pcard-price-row` top 值)。
+describe('商品卡 · 價格列貼卡底(首頁橫捲 / 商品列表 / 品牌頁 / 會員中心共用)', () => {
+  // 🔴 `.pcard` 自己的 `flex:1` = OD 逐字(鐵則 1 直搬)+ 縱深防禦。
+  //    ⚠️ **不要照抄「少了它首頁就會不齊」那個說法** —— 真瀏覽器四組對照實測:
+  //       min-height ON/flex ON → 0px、ON/OFF → 0px、OFF/ON → 0px、OFF/OFF → 19px。
+  //       兩套機制互相獨立、任一條單獨都夠(現行內容形狀下)。這條守的是「OD 字面別被摘掉」,
+  //       它**不是**目前唯一撐住對齊的那根柱子;真正會壞的組合是兩套一起消失。
+  it('🔴 `.pcard` 自己有 flex:1(OD 字面;與 min-height 互為備援)', () => {
+    expect(
+      block(CARD, 'product-card.css', '.pcard {'),
+      '.pcard 沒有 flex:1 ⇒ OD 字面被摘掉、只剩 min-height 一根柱子撐對齊',
+    ).toMatch(/flex:\s*1\b/);
+  });
+
+  it('🔴 `.pcard-info` 有 flex:1(否則下面那條 margin-top:auto 是空話)', () => {
+    expect(
+      block(CARD, 'product-card.css', '.pcard-info'),
+      '.pcard-info 沒有 flex:1 ⇒ 價格列推不到卡底、整排高低不齊',
+    ).toMatch(/flex:\s*1\b/);
+  });
+
+  it('🔴 `.pcard-name` 有 min-height:2.8em(line-clamp 只管上限、不管下限)', () => {
+    expect(
+      block(CARD, 'product-card.css', '.pcard-name'),
+      '.pcard-name 沒有 min-height ⇒ 一行品名的卡片下半部整段上移',
+    ).toMatch(/min-height:\s*2\.8em/);
+  });
+
+  it('🔴 `.pcard-price-row` 只有**一個** margin-top 且是 auto(重複宣告會讓後者靜默覆蓋)', () => {
+    const body = block(CARD, 'product-card.css', '.pcard-price-row');
+    const marginTops = body.match(/margin-top:/g) ?? [];
+    expect(
+      marginTops.length,
+      `.pcard-price-row 出現 ${marginTops.length} 個 margin-top ⇒ 後者會覆蓋 auto、貼底變死規則`,
+    ).toBe(1);
+    expect(body, '.pcard-price-row 的 margin-top 不是 auto ⇒ 不貼卡底').toMatch(/margin-top:\s*auto/);
+  });
+
+  // 🔴 R2 nit:上面三條都只看 `block()` 取到的**第一個**同名區塊 ⇒ 有人在檔案後段或別支 CSS
+  //    另寫一條 `.pcard-price-row{margin-top:8px}` / `.pcard-info{flex:none}` / `.pcard-name{min-height:0}`
+  //    就能讓 bug 復活而守門全綠 —— 那正是這次抓到的 bug 的下一個變形(它本來就是「同一條規則裡
+  //    寫了兩次 margin-top」)。這條掃**全部**出現位置,不是只掃第一個。
+  it('🔴 這四顆屬性在全站 CSS 裡只有一個定義點(後面沒有人再覆寫回去)', () => {
+    const ALL: Array<[string, string]> = [
+      ['product-card.css', CARD],
+      ['products-page.css', PRODUCTS],
+      ['cart.css', CART],
+      ['filter-cascade.css', CASCADE],
+      ['filter-side.css', SIDE],
+      ['cart-vehicle.css', CART_VEHICLE],
+    ];
+    // 找出每支 CSS 裡所有「選擇器含 .pcard-xxx」的規則,檢查有沒有第二處覆寫承重屬性
+    const overrides: string[] = [];
+    for (const [label, src] of ALL) {
+      for (const m of src.matchAll(/([^{}]*\.pcard(?:-info|-name|-price-row)\b[^{}]*)\{([^}]*)\}/g)) {
+        const selector = m[1]!.trim();
+        const body = m[2]!;
+        const isBase = /^\.pcard(-info|-name|-price-row)$/.test(selector) || selector === '.pcard';
+        if (isBase) continue;
+        if (/flex:|min-height:|margin-top:/.test(body)) {
+          overrides.push(`${label} 的「${selector}」覆寫了承重屬性`);
+        }
+      }
+    }
+    expect(overrides, `有第二處覆寫會讓 base 規則靜默失效:\n${overrides.join('\n')}`).toEqual([]);
+  });
+});
+
+// ══ 商品卡價格顏色 · 同權重撞規則(2026-08-06,Sean 逐字「我們價錢字的顏色要用橘色」)══
+//
+// 🔴 這條守的是一個**靜態讀單一檔案永遠看不出來**的缺陷:
+//    `product-card.css` 的 `.pcard .price-main{color:var(--c-red-dark)}` 與
+//    `pricing.css` 的 `.price-wrap .price-main{color:var(--c-text)}` **權重完全相同**(0,2,0),
+//    而真實 DOM 上兩條同時命中(卡片價格外面包了三級定價元件 `.price-wrap`)
+//    ⇒ 後載入者(`layout.tsx` 裡 pricing.css 排在 product-card.css 之後)贏 ⇒ **整站卡片價格都是墨黑**。
+//    三綠全過、兩個檔案各自讀起來都對、單元測試全綠 —— 只有在真實 DOM 上量 computed 才會現形。
+// ⚠️ 它擋不住什麼:文字層算不出 cascade 勝負。這條驗的是「**有沒有留一條贏得過通用預設的卡片專屬規則**」,
+//    不是「顏色真的畫出來了」。後者要真瀏覽器量(本片已量:卡片內 rgb(196,71,12)、卡片外仍 rgb(18,18,20))。
+describe('商品卡價格顏色 · 必須贏過 pricing.css 的通用預設', () => {
+  it('🔴 前提:pricing.css 真的有一條 `.price-wrap .price-main` 在設 color(沒有的話下面那條恆真)', () => {
+    expect(
+      PRICING,
+      'pricing.css 不再設 .price-wrap .price-main 的 color ⇒ 撞規則消失,下面那條就沒有守護對象了(可以刪)',
+    ).toMatch(/\.price-wrap\s+\.price-main\s*\{[^}]*color:/);
+  });
+
+  it('🔴 `product-card.css` 有一條**含 `.price-wrap`** 的卡片專屬價格色規則(否則墨黑會贏)', () => {
+    expect(
+      CARD,
+      '找不到 `.pcard .price-wrap .price-main` ⇒ 只剩 0,2,0 的 `.pcard .price-main`,'
+        + '與 pricing.css 同權重、且它後載入 ⇒ 卡片價格會靜默變回墨黑',
+    ).toMatch(/\.pcard\s+\.price-wrap\s+\.price-main\s*\{[^}]*color:\s*var\(--c-red-dark\)/);
+  });
+});
+
+// ══ 商品卡圖框 · 白底加框(2026-08-06,Sean 拍板 A)══
+//
+// 🔴 OD 三支稿(brand-page.html / direction-b-layout-01-graphite-ember.html / pcm-account.css)
+//    逐字一致 `background:#fff;border:1px solid var(--c-border)`,只有 products-list-page.html
+//    一支落單畫灰底無框 —— 與價格色那次同型、同一支稿再度落單,稿自身矛盾已記入 OD 回饋包。
+//    影響五個面:首頁最新商品橫捲(HomeSelect)/ 商品列表(ProductsPage)/ 品牌頁熱門商品
+//    (BrandPageProducts)/ 會員中心為你推薦(OverviewTab)/ PDP 相關商品(ProductRelated,由
+//    ProductPage.tsx:206 掛載;R1 抓到前一版漏算此面)——皆共用 .pcard-img-wrap class。
+// 🔴 這條守門只驗「CSS 宣告存在」,不驗「畫面看得到」——2026-08-07 更正(R1 MF1/MF2/MF3,
+//    上一版這裡的講法有兩處錯):
+//    ①`ProductCard.tsx` 的 `.pcard-gallery` inline background 已跟進改 `#ffffff`(Sean 08-06 拍 A
+//      推翻 07-24 拍板 Q1=A)——但這裡的 `background:#fff` **仍然被 `.pcard-gallery` 完整蓋住**
+//      (該層 width/height:100% + 三分支全不透明),只是兩條真圖路徑現在同色、看不出被蓋。
+//      它是**縱深防禦**(gallery 若改回透明或整條 background 被拿掉才輪到它現形),不是「不再被蓋」;
+//      對「gallery 改成別的不透明色」零保護。
+//    ②`ProductCard.test.tsx` 是 `@vitest-environment jsdom` 的**單元測試**,量的是 React 產出的
+//      inline style **字串**,沒有 cascade/合成/真瀏覽器——**不是畫面實測**。本片沒有任何真瀏覽器
+//      證據(本機三條路由都渲染不出商品卡,見 ProductCard.test.tsx 對應說明),實際外觀待 Sean
+//      在有資料的站上看。
+describe('商品卡圖框 · 白底加框(首頁橫捲 / 商品列表 / 品牌頁 / 會員中心 / PDP 相關商品共用)', () => {
+  it('🔴 前提(非獨立防線):.pcard-img-wrap 區塊裡有 background 宣告', () => {
+    // R1 nit:這條被下面「background 是 #fff」那條嚴格蘊含(後者成立 ⇒ 本條必成立)、零額外
+    // 判別力,只在「background 宣告整個消失」時給出更精確的失敗訊息,不是一道獨立防線。
+    const body = block(CARD, 'product-card.css', '.pcard-img-wrap {');
+    expect(body, '.pcard-img-wrap 沒有 background 宣告 ⇒ 守門對象不存在').toMatch(/background:/);
+  });
+
+  it('🔴 background 宣告是 #fff、不是舊的 var(--c-surface-2)(守的是 CSS 宣告、非畫面可見底色——見上方說明)', () => {
+    const body = block(CARD, 'product-card.css', '.pcard-img-wrap {');
+    expect(body, '.pcard-img-wrap 的 background 不是 #fff ⇒ 改回舊灰底也全綠').toMatch(
+      /background:\s*#fff/,
+    );
+    expect(body, '.pcard-img-wrap 仍殘留舊的 var(--c-surface-2) ⇒ 沒真的改掉').not.toMatch(
+      /var\(--c-surface-2\)/,
+    );
+  });
+
+  it('🔴 有 border: 1px solid var(--c-border)', () => {
+    const body = block(CARD, 'product-card.css', '.pcard-img-wrap {');
+    expect(body, '.pcard-img-wrap 沒有 border ⇒ 改回無框也全綠').toMatch(
+      /border:\s*1px solid var\(--c-border\)/,
+    );
   });
 });

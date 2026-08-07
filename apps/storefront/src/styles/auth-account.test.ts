@@ -23,6 +23,7 @@ const ACCOUNT = strip(read('account.css'));
 const CART = strip(read('cart.css'));
 const LAYOUT = read('../app/layout.tsx');
 const ACCOUNT_VIEW = read('../components/account/AccountView.tsx');
+const MOBILE_TABBAR = read('../components/MobileTabBar.tsx');
 
 /** 從指定位置切一個大括號區塊。🔴 **不要用 `[\s\S]*?` 去跨 `@media`** ——
  *  它是 lazy 的沒錯,但只要目標字串在區塊**外面**更近的地方出現,它照樣命中。
@@ -50,6 +51,34 @@ function block(src: string, label: string, selector: string): string {
   const close = src.indexOf('}', open);
   expect(close, `${label} 的 ${selector} 區塊沒有閉合`).toBeGreaterThan(open);
   return src.slice(open + 1, close);
+}
+
+/** 從 anchor 之後找最近一個 `<svg>...</svg>`,回傳內層 markup(不含 `<svg>` 標籤本身)。
+ *  2026-08-07 補:用來把「兩邊是不是同一支 path」的比對建立在**實際讀到的原始碼**上,
+ *  不是各自手抄第三份字面(手抄字面的舊版本就是這條守門「理由欄是假的」的病根)。 */
+function svgInnerAfter(src: string, anchor: string, label: string): string {
+  const at = src.indexOf(anchor);
+  expect(at, `${label}:找不到 anchor「${anchor}」`).toBeGreaterThan(-1);
+  const svgOpen = src.indexOf('<svg', at);
+  expect(svgOpen, `${label}:anchor 後找不到 <svg`).toBeGreaterThan(-1);
+  const tagClose = src.indexOf('>', svgOpen);
+  const svgClose = src.indexOf('</svg>', tagClose);
+  expect(svgClose, `${label}:找不到對應的 </svg>`).toBeGreaterThan(-1);
+  return src.slice(tagClose + 1, svgClose);
+}
+
+/** 抹平 JSX 自閉合(` />`)與 innerHTML 字串(`/>`)之間的空白差異,只留元素/屬性本身可比對。 */
+function normalizeSvgMarkup(s: string): string {
+  return s.replace(/\s+/g, ' ').replace(/ \/>/g, '/>').replace(/>\s+</g, '><').trim();
+}
+
+/** 從 AccountView NAV 陣列的原始碼字面抓某個 id 的 `path:` 字串內容。 */
+function navPathById(src: string, id: string): string {
+  const re = new RegExp(`id:\\s*'${id}'[\\s\\S]*?path:\\s*'([^']*)'`);
+  const m = re.exec(src);
+  const captured = m?.[1];
+  expect(captured, `AccountView NAV 抓不到 id='${id}' 的 path`).not.toBeUndefined();
+  return captured ?? '';
 }
 
 describe('第4批 · IBM Plex Mono 家族(DESIGN-HANDOFF §4-3 逐字「不要改回去」)', () => {
@@ -232,15 +261,45 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
     for (const attr of ['viewBox="0 0 24 24"', 'fill="none"', 'stroke="currentColor"', 'strokeWidth="1.6"']) {
       expect(ACCOUNT_VIEW, `SVG 規格少了 ${attr}(殼的 header / mobile-tabbar 是這一組)`).toContain(attr);
     }
-    // `vehicles` 與 tabbar「找車」、`profile` 與 header 會員鈕是**同一支** path(刻意的)。
-    expect(ACCOUNT_VIEW, 'vehicles 的 path 與 tabbar「找車」不再是同一支').toContain(
-      'M3 13l2-7h14l2 7M5 13h14M5 13v5a1 1 0 001 1h2a1 1 0 001-1v-1h6v1a1 1 0 001 1h2a1 1 0 001-1v-5',
-    );
-    expect(ACCOUNT_VIEW, 'profile 的 path 與 header 會員鈕不再是同一支').toContain(
-      '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
-    );
     expect(ACCOUNT_VIEW, '圖示沒對讀屏隱藏(旁邊已經有文字 label)').toMatch(
       /className="acc-nav-icon" aria-hidden="true"/,
+    );
+  });
+
+  it('🔴 vehicles 的 path 與 MobileTabBar「找車」是同一支(2026-08-07 Sean 拍板 Q2=A:機車零件站選車/愛車圖示統一用重機;實際讀出兩邊字面比對,不再手抄第三份字面)', () => {
+    // 舊版本這條斷言的訊息宣稱「與 tabbar 不再是同一支」,但比對對象其實是寫死在測試裡
+    // 的汽車 path 字面、根本沒有讀 MobileTabBar.tsx——理由欄是假的(兩者從來沒真的比對過)。
+    // 這裡改成從 MobileTabBar.tsx 實際讀出「找車」tab 的 SVG 內容,正規化空白差異後比對。
+    // 🔴 R2 nit:原本從 `label: '找車'` 起算「之後最近一個 <svg>」。只要有人在 label 與 icon
+    //    之間插一顆 svg、或把 `icon:` 搬到 `label:` 之前,這條就會**靜默比到別支**而不是紅。
+    //    改成先把該 tab 的物件字面切出來(`id: 'vehicle-search'` 到下一個 `id: '`),再在裡面找。
+    const tabStart = MOBILE_TABBAR.indexOf("id: 'vehicle-search'");
+    expect(tabStart, "MobileTabBar 找不到 id: 'vehicle-search' ⇒ 本條前提失效").toBeGreaterThan(-1);
+    const nextTab = MOBILE_TABBAR.indexOf("id: '", tabStart + 5);
+    const tabObject = MOBILE_TABBAR.slice(tabStart, nextTab > -1 ? nextTab : undefined);
+    expect(
+      (tabObject.match(/<svg/g) ?? []).length,
+      '「找車」那筆物件裡不是剛好一顆 <svg> ⇒ 比對對象有歧義',
+    ).toBe(1);
+    const tabbarMoto = normalizeSvgMarkup(
+      svgInnerAfter(tabObject, "label: '找車'", 'MobileTabBar 找車 icon'),
+    );
+    const accountVehicles = normalizeSvgMarkup(navPathById(ACCOUNT_VIEW, 'vehicles'));
+    expect(accountVehicles, 'AccountView vehicles 的 path 與 MobileTabBar「找車」不是同一支').toBe(
+      tabbarMoto,
+    );
+  });
+
+  it('🔴 查證(2026-08-07):profile 的舊斷言訊息「與 header 會員鈕不再是同一支」也是假的,已改成誠實的字面鎖定', () => {
+    // 實查:Header.tsx 會員鈕 = `<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>`,
+    // AccountView profile = `<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>`——
+    // circle cy(7 vs 8)、身體線條公式(header 用直線+arc、這裡用三次貝茲弧)都不同,兩邊從來
+    // 不是同一支 path,只是視覺上都畫成「頭圓+肩弧」。舊斷言用的比對字面就是 AccountView 自己
+    // 當下的 path、從沒讀過 Header.tsx,是與 vehicles 那條同形狀的假理由欄。
+    // 對齊 header 不在本次 Q2=A 範圍、不動 production code,這裡退回純字面鎖定(regression pin),
+    // 訊息不再宣稱跨檔同支。
+    expect(ACCOUNT_VIEW, 'profile 的 path 字面被改動了(僅鎖字面防誤改,不宣稱與 header 同一支——查證後從來不是)').toContain(
+      '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/>',
     );
   });
 
@@ -250,30 +309,41 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
     );
     // 🔴 **R1 must-fix**:初版寫成「全域比對半透明白」,那等於把一個 bug 釘成正確答案 ——
     //    未來有人加手機段修它,這條會轉紅逼他改回來。
-    //    守的不變量其實是「**圖示顏色要與它所在的底色有對比**」,而底色分兩種:
-    //    桌機 active = 黑底 ⇒ 半透明白;≤1079px active = 透明底(白)⇒ 墨色。
+    //    守的不變量其實是「**圖示顏色要與它所在的底色有對比**」。
+    //    ⚠️ 這行原本接著寫「≤1079px active = 透明底(白)⇒ 墨色」—— 那是 2026-08-07 之前的事實,
+    //    翻向後與下方斷言直接矛盾(審查抓到)。**現況:三個斷點的 active 全是黑底 ⇒ 全部半透明白。**
+    //    透明底那段歷史留在下面「前提」測試裡,不在這裡重述。
     const desktopIcon = /\n\.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*rgba\(255,\s*255,\s*255,\s*0\.75\)/;
     expect(ACCOUNT, '桌機 active(黑底)的圖示不是半透明白').toMatch(desktopIcon);
-    // 兩條手機路徑都要把它翻回墨色,否則白圖示畫在白底上 = 直接隱形。
+    // 🔴 2026-08-07 翻向:手機分頁列改成 OD 的黑底網格(見下面「前提」測試),原本這裡斷言
+    // 兩條手機路徑「翻回墨色」——那是配透明底才需要的修法,底色已經翻回黑底,守的不變量
+    // 沒變(圖示要與所在底色有對比),但底色翻了、對比的那一側也要跟著翻回半透明白。
     const mobileSeg = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
     expect(mobileSeg.length, '切不出 @media (max-width: 1079px) 區塊 ⇒ 本條前提失效').toBeGreaterThan(0);
-    expect(mobileSeg, '@media 那一路沒把 active 圖示翻回墨色 ⇒ 手機上白圖示畫在白底、直接隱形').toMatch(
-      /\.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*var\(--c-text\)/,
+    expect(mobileSeg, '@media 那一路沒把 active 圖示翻回半透明白 ⇒ 黑底上墨色圖示看不清').toMatch(
+      /\.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*rgba\(255,\s*255,\s*255,\s*0\.75\)/,
     );
-    expect(ACCOUNT, '[data-mobile] 那一路沒把 active 圖示翻回墨色').toMatch(
-      /\[data-mobile="true"\] \.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*var\(--c-text\)/,
+    expect(ACCOUNT, '[data-mobile] 那一路沒把 active 圖示翻回半透明白').toMatch(
+      /\[data-mobile="true"\] \.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*rgba\(255,\s*255,\s*255,\s*0\.75\)/,
     );
     // 反面:身分色規則 —— 側欄 active 的**黑底**不得改熔橘(R1 9-5 明文)。
     expect(block(ACCOUNT, 'account.css', '.acc-nav button.is-active {'), 'active 的黑底被改成熔橘了')
       .not.toMatch(/var\(--c-red/);
   });
 
-  it('🔴 前提 — 手機 active 真的是透明底(設計稿把它改成黑底網格了,真站沒跟)', () => {
-    // 設計稿 `pcm-account.css:626-633` 把手機導覽整條改成 2 欄網格 + 黑底 active,
-    // 那樣半透明白圖示就重新成立。**那個改版不在交接單任何一列**,真站現況是橫捲列。
-    // 哪天真站跟上了,上面兩條「翻回墨色」就該回頭改成半透明白 —— 這條會在那時候紅。
+  it('🔴 前提 — 手機 active 是設計稿的黑底網格(2026-08-07 翻向;歷史見下方)', () => {
+    // 【歷史,保留給下一個人看】第4批當時這條斷言的是「手機 active 真的是透明底」——
+    // 設計稿 OD `pcm-home-redesign/pcm-account.css`(grep `repeat(2, minmax`)把手機導覽整條改成 2 欄網格
+    // + 黑底 active,那樣半透明白圖示就重新成立;但那個改版當時不在交接單任何一列、
+    // 真站現況是橫捲列 + 透明底,所以上面兩條圖示測試改守「翻回墨色」,並在這裡寫死
+    // 「哪天真站跟上了,這條會紅」當作伏筆。
+    // 【2026-08-07 兌現】Sean 手機實測後親自拍板推翻緩議 ⇒ 真站跟上了 OD 的網格 + 黑底 active,
+    // 上面兩條圖示測試已經改守「翻回半透明白」——這條前提測試同步翻向,改守黑底、不是透明底。
     const seg = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
-    expect(seg, '手機 active 已改成黑底 ⇒ 回頭把圖示改回半透明白').toMatch(
+    expect(seg, '手機 active 不是黑底 ⇒ 分頁列改版沒跟上、上面兩條圖示測試的前提不成立').toMatch(
+      /\.acc-nav button\.is-active\s*\{[^}]*background:\s*var\(--c-text\)/,
+    );
+    expect(seg, '手機 active 還留著舊的透明底(改版沒做乾淨)').not.toMatch(
       /\.acc-nav button\.is-active\s*\{[^}]*background:\s*transparent/,
     );
   });
@@ -284,6 +354,111 @@ describe('第4批 · /account 側欄圖示改 inline SVG(R1 9-2)', () => {
     const usages = [...ACCOUNT_VIEW.matchAll(/dangerouslySetInnerHTML=\{\{\s*__html:\s*([^}]+)\}\}/g)];
     expect(usages.length, `dangerouslySetInnerHTML 的用量不是 1(實際 ${usages.length})`).toBe(1);
     expect(usages[0]?.[1]?.trim(), 'dangerouslySetInnerHTML 的來源不是 NAV 的 t.path').toBe('t.path');
+  });
+});
+
+describe('2026-08-07 · 分頁列改成 OD 網格(Sean 手機實測後拍板推翻緩議)', () => {
+  it('🔴 手機段 .acc-nav 是 2 欄網格', () => {
+    const mobileSeg = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
+    const nav = block(mobileSeg, '手機段 .acc-nav', '.acc-nav {');
+    expect(nav, '手機 .acc-nav 不是 grid').toMatch(/display:\s*grid/);
+    expect(nav, '手機 .acc-nav 不是 2 欄').toMatch(
+      /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+    );
+  });
+
+  it('🔴 平板段 .acc-nav 覆寫成 4 欄網格', () => {
+    const tabletSeg = mediaBlockAt(ACCOUNT, '@media (min-width: 600px) and (max-width: 1079px)');
+    expect(tabletSeg.length, '切不出平板段 ⇒ 本條前提失效').toBeGreaterThan(0);
+    expect(tabletSeg, '平板段沒有把 .acc-nav 覆寫成 4 欄(且沒對 [data-mobile] 提權)').toMatch(
+      /\[data-mobile\] \.acc-nav,\s*\.acc-nav\s*\{\s*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/,
+    );
+  });
+
+  // 🔴 審查抓到:`[data-mobile="true"]` 那一路的 grid **完全沒有守門** —— 把它的 `display: grid`
+  //    與 `repeat(2, …)` 兩行刪掉,5440 條照樣全綠。而 account.css 那裡的註解自稱「逐條鏡像」,
+  //    MF1/MF7 兩次事故都是「只改一路、漏改另一路」這個形狀。⇒ 兩路的 grid 各釘一次。
+  it('🔴 [data-mobile] 兜底那一路也是 2 欄網格(不能只有 @media 那路)', () => {
+    const nav = block(ACCOUNT, '[data-mobile] .acc-nav', '[data-mobile="true"] .acc-nav {');
+    expect(nav, '[data-mobile] 那路的 .acc-nav 不是 grid ⇒ Android 手機 UA 走這條、會看到舊版面').toMatch(
+      /display:\s*grid/,
+    );
+    expect(nav, '[data-mobile] 那路的 .acc-nav 不是 2 欄').toMatch(
+      /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/,
+    );
+  });
+
+  it('🔴 兩路都不得再出現橫向捲動殘留(overflow-x / scrollbar-width / ::-webkit-scrollbar)', () => {
+    const mobileSeg = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
+    expect(mobileSeg, '手機段還留著 overflow-x(橫捲殘留)').not.toMatch(/overflow-x/);
+    expect(mobileSeg, '手機段還留著 scrollbar-width(橫捲殘留)').not.toMatch(/scrollbar-width/);
+    expect(mobileSeg, '手機段還留著 ::-webkit-scrollbar(橫捲殘留)').not.toMatch(/::-webkit-scrollbar/);
+    // 審查抓到:上面三條只掃 @media 區塊,`[data-mobile]` 那一路的橫捲殘留回來不會紅。
+    const dmNav = ACCOUNT.slice(ACCOUNT.indexOf('[data-mobile="true"] .acc-nav {'));
+    const dmSeg = dmNav.slice(0, dmNav.indexOf('[data-mobile="true"] .acc-stats'));
+    expect(dmSeg.length, '切不出 [data-mobile] 的 .acc-nav 段 ⇒ 本條前提失效').toBeGreaterThan(0);
+    expect(dmSeg, '[data-mobile] 那路還留著 overflow-x / scrollbar 殘留').not.toMatch(
+      /overflow-x|scrollbar-width|::-webkit-scrollbar/,
+    );
+  });
+
+  // 🔴 審查抓到並**用真瀏覽器證明**:768px + data-mobile=true 下,把平板段任一條 nth-child 的
+  //    雙選擇器改回單選擇器,`[data-mobile="true"]` 那組(未加斷點限制、specificity 較高)就壓過來
+  //    —— 實測第 2、6 顆的 border-right 由 1px 變 0px,欄 2|3 的分隔線整條消失,而文字層不會紅。
+  //    既有的提權迴圈清單漏了這四條 ⇒ 補上。
+  it('🔴 平板段四條 nth-child 規則都必須雙選擇器提權(否則 Android 平板格線錯位)', () => {
+    const tabletSeg = mediaBlockAt(ACCOUNT, '@media (min-width: 600px) and (max-width: 1079px)');
+    expect(tabletSeg.length, '切不出平板段 ⇒ 本條前提失效').toBeGreaterThan(0);
+    // 選擇器字面直接拿來組正規式會被 `(2n)` 這種括號當成群組(第一版就是這樣紅的)⇒ 先跳脫。
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const sel of [
+      'button:nth-child(2n)',
+      'button:nth-child(4n)',
+      'button:nth-last-child(-n+3)',
+      'button:last-child',
+    ]) {
+      const e = esc(sel);
+      expect(
+        tabletSeg,
+        `平板段的 .acc-nav ${sel} 沒有對 [data-mobile] 提權 ⇒ Android 平板會被兜底那組壓過去`,
+      ).toMatch(new RegExp(`\\[data-mobile\\] \\.acc-nav ${e},\\s*\\.acc-nav ${e}\\s*\\{`));
+    }
+  });
+
+  // 🔴 上面整組 nth-child 數學硬綁「剛好 7 顆分頁」:2 欄下最後一顆落單、4 欄下最後一顆 span 2。
+  //    加第 8 顆會讓邊框錯亂,而文字層全綠(同 memory feedback_ui-count-change-check-hardcoded-css-track-counts)。
+  //    ⇒ 把 NAV 長度釘成前提;哪天要加分頁,這條會先紅、逼人回頭重算格線。
+  it('🔴 前提 — AccountView 的 NAV 剛好 7 顆(CSS 的 nth-child 格線數學綁死這個數字)', () => {
+    const paths = [...ACCOUNT_VIEW.matchAll(/^\s*id:\s*'/gm)];
+    expect(
+      paths.length,
+      `NAV 不是 7 筆(實際 ${paths.length})⇒ account.css 的 :nth-child(2n)/(4n)/:nth-last-child(-n+3)/:last-child span 2 那組格線數學要重算`,
+    ).toBe(7);
+  });
+
+  it('🔴 [data-mobile] 那一路與 @media 那一路的 active 底色 / 圖示色一致(這個檔歷史上出過事的地方)', () => {
+    // 兩路各自獨立維護(SSR UA 兜底 vs @media),歷史上不只一次只改一路、漏改另一路
+    // (MF1/MF7 都是這個形狀)。這裡直接比對兩邊實際字面,而不是各自對常數斷言。
+    const mobileSeg = mediaBlockAt(ACCOUNT, '@media (max-width: 1079px)');
+    const mediaActiveBg = /\.acc-nav button\.is-active\s*\{[^}]*background:\s*([^;]+);/.exec(
+      mobileSeg,
+    )?.[1]?.trim();
+    const dmActiveBg = /\[data-mobile="true"\] \.acc-nav button\.is-active\s*\{[^}]*background:\s*([^;]+);/.exec(
+      ACCOUNT,
+    )?.[1]?.trim();
+    expect(mediaActiveBg, '@media 路徑抓不到 active 底色 ⇒ 本條前提失效').toBeTruthy();
+    expect(dmActiveBg, '[data-mobile] 路徑抓不到 active 底色 ⇒ 本條前提失效').toBeTruthy();
+    expect(dmActiveBg, '兩路 active 底色不一致').toBe(mediaActiveBg);
+
+    const mediaIcon = /\.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*([^;]+);/.exec(
+      mobileSeg,
+    )?.[1]?.trim();
+    const dmIcon = /\[data-mobile="true"\] \.acc-nav button\.is-active \.acc-nav-icon\s*\{\s*color:\s*([^;]+);/.exec(
+      ACCOUNT,
+    )?.[1]?.trim();
+    expect(mediaIcon, '@media 路徑抓不到 active 圖示色 ⇒ 本條前提失效').toBeTruthy();
+    expect(dmIcon, '[data-mobile] 路徑抓不到 active 圖示色 ⇒ 本條前提失效').toBeTruthy();
+    expect(dmIcon, '兩路 active 圖示色不一致').toBe(mediaIcon);
   });
 });
 
@@ -338,5 +513,44 @@ describe('🔴 第4批 · 突變 M3/M4/M5 抓到的三組「我根本沒寫斷�
     expect(tier, 'tier-badge-lg 不再是 40px/14px ⇒ 上面那條選的階要重想').toMatch(
       /\.tier-badge-lg\s*\{[^}]*height:\s*40px[^}]*font-size:\s*14px/,
     );
+  });
+
+  // 🔴 M6(2026-08-06 cssdiff 補漏,不是突變抓到的 —— 是**結構比對**抓到的)
+  //    第4批當時逐點對照舊稿,結論寫成「.acc-address 容器 design 無規則、不發明」並落成註解。
+  //    對現行真權威(OD `pcm-account.css:392`)那句是錯的:它有 12px 的 column gap。
+  //    症狀=地址卡零間距貼在一起,而所有既有斷言(全是逐點值)對「少了一整條規則」全盲。
+  it('M6 — .acc-address 是 12px column gap 的 flex 欄(OD pcm-account.css:392 直搬)', () => {
+    const body = ACCOUNT.slice(ACCOUNT.indexOf('.acc-address'));
+    expect(ACCOUNT.indexOf('.acc-address'), 'account.css 找不到 .acc-address 容器規則').toBeGreaterThan(-1);
+    expect(body.slice(0, body.indexOf('}')), '.acc-address 不是 column flex + 12px gap ⇒ 地址卡貼在一起').toMatch(
+      /display:\s*flex[\s\S]*flex-direction:\s*column[\s\S]*gap:\s*12px/,
+    );
+  });
+
+  // g-5c/g-6c 手機捲動修復(2026-08-07):.acc-inline-form 沒有 scroll-margin-top 的話,
+  // JS 把表單捲到視窗頂端後,表單仍會被 position:sticky 的 header(header.css:3)蓋住開頭幾列。
+  it('🔴 .acc-inline-form 有 scroll-margin-top(沒有它,表單捲到位仍會被 sticky header 蓋住)', () => {
+    const body = block(ACCOUNT, 'account.css', '.acc-inline-form {');
+    const m = /scroll-margin-top:\s*(\d+)px/.exec(body);
+    expect(m, '.acc-inline-form 沒有 scroll-margin-top ⇒ 表單捲到位仍會被 sticky header 蓋住').not.toBeNull();
+    // 🔴 只斷言「> 0」擋不住這條守門自己宣稱要擋的事:1px 也是正數、照樣被 header 蓋住。
+    //    下限要釘**兩個斷點裡較高的那顆** header,不是較矮的:
+    //      桌機 = padding 14×2 + .pcm-icon-btn 44 + border-bottom 1 = 73px
+    //      手機 = padding 12×2 + 44 + 1 = 69px
+    //    🔴 R1 抓到我第一版釘 69(較小者)—— 那樣填 70/71/72 會全綠,但桌機 73px 的 header
+    //    照樣蓋住表單開頭。「至少不被任何一個斷點蓋住」的下限是 max(73, 69) = 73。
+    //    數值來源:header.css 的 `.pcm-header-inner` padding 兩條、`.pcm-icon-btn` 44px、
+    //    `.pcm-header` 的 border-bottom(用 grep 這幾個選擇器找,不引行號)。
+    expect(
+      Number(m?.[1]),
+      'scroll-margin-top 小於桌機 header 實高 73px ⇒ 表單捲到位、開頭仍被蓋住',
+    ).toBeGreaterThanOrEqual(73);
+    // 🔴 base 值對了不代表沒被推翻:任何 @media 把它覆寫成更小值,上面那條照樣綠。
+    //    R2 nit:原本用 `\.acc-inline-form\s*\{`,對 `.acc-inline-form.is-x {`、
+    //    `.acc-inline-form,\n.foo {` 這兩種寫法全盲 ⇒ 放寬成「選擇器串裡含 .acc-inline-form」。
+    const smaller = [...ACCOUNT.matchAll(/\.acc-inline-form[^{;]*\{[^}]*scroll-margin-top:\s*(\d+)px/g)]
+      .map((mm) => Number(mm[1]))
+      .filter((v) => v < 73);
+    expect(smaller, `有 .acc-inline-form 規則把 scroll-margin-top 覆寫成 <73px:${smaller}`).toEqual([]);
   });
 });

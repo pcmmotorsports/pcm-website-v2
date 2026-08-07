@@ -49,6 +49,13 @@
 
 ### 3.1 簽章(11 參數,RETURNS text)
 
+> 🔴 **本節的 11 參簽章與「全量 payload」語意自 A9h-M(`20260806200000`)起已過期** ——
+> 現行 = **12 參**(末參 `p_preserve_optional_fields boolean DEFAULT false`),
+> 且「選填欄 NULL = 寫成 NULL」只在該旗標為 `false` 時成立。
+> 本節保留原字面當歷史紀錄;**要照它重生任何 SQL 或文件之前,先看
+> `docs/specs/2026-08-06-e10-a9h-m-a5a-preserve-plan.md`**。
+> (與 §6 同一個理由:這裡是簽章字面的**源頭段**,不標的話會被照抄回去。)
+
 ```sql
 public.admin_upsert_item_procurement(
   p_order_item_id         uuid,
@@ -226,6 +233,8 @@ public.admin_upsert_item_procurement(
 
 `docs/runbooks/a4a-summary-rollback.md` 步驟① 改為:
 1. `REVOKE EXECUTE ON FUNCTION public.admin_upsert_item_procurement(uuid, uuid, integer, text, text, timestamptz, text, text, date, text, text) FROM service_role;`
+   > 🔴 **本行的 11 參型別清單自 A9h-M(`20260806200000`)起已過期** —— 現行簽章是 12 參(末參 `p_preserve_optional_fields boolean`)。
+   > 本節保留原字面當歷史紀錄;**要執行請一律照 `docs/runbooks/a4a-summary-rollback.md` 的現行版**,別從這裡複製。
 2. **drain 斷言**(R1-18;🔀 v3 R2-7:查 query 字面會命中自己、且漏掉「呼完 RPC 換跑別的 SQL 還沒 COMMIT」的舊交易 ⇒ 改錨交易起點):REVOKE 後記下 `SELECT now() AS revoke_at`,快照前反覆跑
    `SELECT count(*) FROM pg_stat_activity WHERE pid <> pg_backend_pid() AND xact_start IS NOT NULL AND xact_start < <revoke_at>` 直到 0 —— 任何在 REVOKE 前開始的交易(無論現在跑什麼)都可能已通過 EXECUTE 檢查,必須等它們全部終結。
 3. 停寫前提口徑對齊 K15(R1-19):殘餘寫入面 = owner 手動 SQL + pg_cron job + 持 owner 憑證的服務,非只「手動」。

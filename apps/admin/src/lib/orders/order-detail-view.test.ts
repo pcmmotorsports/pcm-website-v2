@@ -3,7 +3,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   isOrderId,
-  INVOICE_STATUS_LABEL,
   invoiceTypeLabel,
   shippingMethodLabel,
   formatOrderDateTime,
@@ -23,11 +22,8 @@ describe('isOrderId — 路由 id 形狀守門(非法直接 404、不打 DB)', (
 });
 
 describe('標籤', () => {
-  it('開票紀錄狀態三值皆有標籤', () => {
-    expect(INVOICE_STATUS_LABEL.not_issued).toBe('未開立');
-    expect(INVOICE_STATUS_LABEL.issued).toBe('已開立');
-    expect(INVOICE_STATUS_LABEL.voided).toBe('已作廢');
-  });
+  // 🔴 `INVOICE_STATUS_LABEL` 三值標籤那條**隨常數搬到 `order-list-view.test.ts`**
+  //    (A11a-5:發票欄進列表後它成了共用標籤)。測試跟著程式碼走,不留在這裡。
 
   it('開票需求型式:personal/company 中文、未知值原樣、null 透傳', () => {
     expect(invoiceTypeLabel('personal')).toBe('個人(二聯)');

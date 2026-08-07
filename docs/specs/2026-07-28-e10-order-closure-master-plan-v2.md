@@ -485,7 +485,14 @@ v1 最大的漏是**沒把 2026-07-26 UX 審查已核准的條目排進片**。�
 
 🔴 **高風險(判準:M / T / runbook / R 一律;A 型命中「service_role-only 表讀取投影」「server action 授權邊界」或「共用金流 adapter」才算)**:
 M 7 + T 5 + runbook 14 + R 6 + A 10(A9a / A9b2 / **S3a**(~~A5c~~ 2026-08-01 作廢) / A9g 讀 service_role-only 表;A9d1 / A9d2 / A9h / **A9w4a / A9w4b(R18 補列 —— server action 授權邊界)** 是授權邊界;A15 動共用金流 adapter)= **42 片**。
-A9b1 / A9c / A9s / A9r / A9w3 / A9w4c 不算(只動客人可讀表或退場中投影,無權限面);docs / D / U 不算。
+~~A9b1 / A9c / A9s / A9r / A9w3 / A9w4c 不算(只動客人可讀表或退場中投影,無權限面)~~;docs / D / U 不算。
+
+> 🔴 **2026-08-06 A9c 實作時發現本行對 A9c 的排除是假前提,已更正**:A9c 做的是把
+> `order_item_quantity_summary`(**service_role-only 表**,本檔 row 26 逐字)加進 `ADMIN_ORDER_LIST_SELECT`
+> ⇒ **逐字命中上一行判準的「service_role-only 表讀取投影」**,不是「客人可讀表或退場中投影」。
+> ⇒ **A9c 應歸高風險**(實際施工已從嚴跑 codex 關卡2,程序無違反)。**其餘五片(A9b1/A9s/A9r/A9w3/A9w4c)未重新盤點,排除是否成立不明。**
+> ⚠️ 上一行的 **「A 10 / 共 42 片」兩個數字因此已不準,本次刻意不改** —— 我只驗了 A9c 一片,
+> 改總數需要重盤全部 A 片。**要用那兩個數字的人請以判準逐片重判,不要信這行的計數。**
 
 ⚠️ **同一段話我在 R3 與 R4 各寫錯一次片型分佈**(R3 寫 R5/A7/U10、R4 寫 M5/A7)。
 ⇒ **這兩個數字一律以 `awk` 當場數為準,禁止手算後直接寫進文件。**
@@ -562,11 +569,16 @@ schema 片與 RPC 片**一律不宣稱任何項變綠**,綠燈落在**同時具�
 | 移除 | 商品狀態(9 碼下拉) | 退場,原地換成訂貨 + 出貨兩欄 |
 | 🔴 移除 | **來源 · 管道** | Sean 07-29 拍 A0b-1=B。明細頁 `order-detail.tsx:203-206` 已有,不是每天要看的資訊 ⇒ 列表讓位給三軸 |
 | 🔴 保留 | **年份廠牌車種** | Sean 07-29 拍 A0b-1=B。V-3b 專門做的欄(`orders-table.tsx:104-107`,`vehicle_snapshot` 逐品項直出);員工揀貨與確認相容性會看,拿掉等於每筆多點一次明細頁 |
-| 新增 | 發票 | 三軸之外的收尾軸(A11a 前置 = 既有 `pending_invoices` 四欄已在明細頁);列表只顯示載具別與開立與否 |
+| 新增 | 發票 | 三軸之外的收尾軸(A11a 前置 = 既有 `pending_invoices` 四欄已在明細頁);~~列表只顯示載具別與開立與否~~ 🔴 **2026-08-06 Sean 拍 Q2b=A 改寫本格**:列表只顯示 `orders.invoice_status` **三態**(未開 `not_issued` / 已開 `issued` / 作廢 `voided`)、**砍掉載具別**。①載具別在 `orders.invoice` jsonb(`carrier`/`type`),拉進列表會破壞「列表投影零 PII、與明細白名單刻意分立」那條邊界(兩個 SELECT 常數的 docstring);`invoice_status` 是 CHECK 三值 enum、非 PII。②原字面**漏了 `voided`(作廢)**這第三態,與「未開」是完全不同的事實。③現行資料模型**分不出「不需開立」**——「客人沒填開票需求」與「有需求還沒開」在本欄都是 `not_issued`,要分只能推論 jsonb 是否為空(推論、非欄位),Q2b=A 明文不分。**投影加法已由 A9c 落地**;顯示層屬 A11a-5 |
 | 新增 | 操作 | 取消 / 檢視入口。第 1 批「取消訂單」這個動作第一次存在(27 項第 19 項),需要列表層入口 |
 | 改寫 | 日期 → `07/25` | **跨年才補年份**(`2025/06/27`);完整時間戳仍在 DB |
 
-**三軸落點**:付款 = 訂單層(rowSpan 合併格內小字,「待付款」紅 = **design token `--c-red`(#dc2626,`tokens.css:16`)** —— 🔴 復盤L2 抓:原寫的 `#E73928` 在 design-reference/packages/apps **零命中**,且 `2026-07-12-search-vehicle-work-plan.md:92` 早有先例裁定「品牌色 hex 是外部色、用網站 token 不照抄」)/ 訂貨、出貨 = **品項層**膠囊。
+**三軸落點**:付款 = 訂單層(rowSpan 合併格內小字,「待付款」紅 = ~~**design token `--c-red`(#dc2626,`tokens.css:16`)**~~ —— 🔴 復盤L2 抓:原寫的 `#E73928` 在 design-reference/packages/apps **零命中**,且 `2026-07-12-search-vehicle-work-plan.md:92` 早有先例裁定「品牌色 hex 是外部色、用網站 token 不照抄」)/ 訂貨、出貨 = **品項層**膠囊。
+
+> 🔴 **`--c-red` 那個引用已於 2026-08-06(A11a-2 / A9c)實查更正,兩處都錯**:①位置不是 `tokens.css:16`,現行在 `apps/storefront/src/styles/tokens.css:79`;②值也不是 `#dc2626`,逐字為 `--c-red: #f26722`(D 線改成亮熔橘)。更重要的是 ③**它是 storefront 的 token,`apps/admin/src/app/globals.css` 全檔沒有這一顆** ⇒ admin 後台照這句字面根本做不出來。
+> ⇒ **admin 側的等價落點 = `--destructive`**(`globals.css:27` → `:91 --color-destructive` → Tailwind `text-destructive`,全 app 20+ 檔先例)。A11a-2 已照此實作。本句的**用意**(用網站 token、不照抄外部 hex)不變,變的只是「哪個網站的 token」。
+
+
 🔴 **膠囊顯示 `n/m` 不是二元**(#44):`已訂 2/3` 這種混合態必須看得出來,滿量才變純色(訂貨黃、出貨綠;未做灰)。
 🔴 快遞單號在列表點一下即複製、**單號本身就是按鈕**、不另加圖示(第 2 批生效)。
 ⚠️ 「列高/欄寬不增加」= **待實作時實測**,不是已驗事實(#67)。

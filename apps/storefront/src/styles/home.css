@@ -29,6 +29,19 @@
   /* 控制項邊界專用線(OD `--c-border-control`):比 `--ed-c-rule` 深,對白底 3.18:1。
      用在「這條線本身就是可點的唯一訊號」的地方(見 `.ed-feature-jump a::after`)。 */
   --ed-c-rule-control: #909093;
+  /* 沉場(OD `--c-sunken` `#f3f3f4` 逐字):比 `--ed-c-paper-2`(#f7f7f8)深一階。
+     D5f/H3 新增 —— N°03 的 icon 方塊與 chip hover 底都吃它:用 paper-2 的話
+     icon 方塊與白底 chip 幾乎沒有分界,那個方塊就白畫了。 */
+  --ed-c-sunken: #f3f3f4;
+  /* 分類色碼 · **綁分類不綁排序位置**(OD `:35-38` 註解逐字)。
+     🔴 值與 `styles/brand-page.css` 的 `.bp-page` 那份**必須逐字相同**(2026-08-06 實測 11/11 零差異)
+        —— 同一個分類在首頁 chip 與品牌頁 chips 上是同一個顏色,分家 = 客人看到同名分類兩種色。
+        守門在 `styles/home.test.ts`(逐顆比對兩檔),不是靠人記得。
+     ⚠️ 為什麼是第二份而不是抽進 `tokens.css`:那會把頁面級色票升成站台級,屬 #322 的收斂債、
+        不是本片順手做的事;在收斂之前用守門把兩份釘在一起。 */
+  --cat-1: #9aa3ab; --cat-2: #7a6552; --cat-3: #232629; --cat-4: #5c6656;
+  --cat-5: #2f6ea8; --cat-6: #9c7f43; --cat-7: #3f7d80; --cat-8: #6e6e73;
+  --cat-9: #545a63; --cat-10: #7a5347; --cat-11: #6a5f86;
 }
 @media (max-width: 900px) { .ed-page { --ed-gutter: 20px; } }
 
@@ -38,9 +51,17 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
+/* 🔶 2026-08-06:原本這裡硬寫一份 serif 堆疊,是 --f-serif 這顆值的第三份拷貝
+   (另兩份在 tokens.css :root 與 brand-page.css .bp-page)。--f-serif 升上 :root
+   後這裡改吃 token,三份拷貝收斂成一份定義 + 兩份 scope 覆寫(tokens.css :root 與
+   brand-page.css .bp-page 兩處同值已有分岔守門釘住,見 brand-page.test.ts
+   「品牌頁 CSS · tokens.css :root 分岔守門」describe)。這是本片讓 token 升級
+   真的承重的地方 —— `.ed-statement-h em` 那三條新宣告本身其實是冗餘(見下方
+   該規則的註解)。不帶 fallback:同檔 `.ed-statement-h em` 與 brand-page.css:266
+   的既有用法都不帶,`.ed-page` 是頁面根 scope、:root 一定在。 */
 .ed-page em {
   font-style: italic;
-  font-family: "Noto Serif TC", "Cormorant Garamond", Georgia, serif;
+  font-family: var(--f-serif);
   font-weight: 400;
 }
 
@@ -79,157 +100,218 @@
   gap: 24px;
   margin-bottom: 56px;
 }
+/* `margin: 0` 是 OD `:76` 的字面(那邊的 N°03 / N°06 表頭就是 `<h2>`)——
+   D5f 把 N°06 的表頭改成 `<h2>` 之後,少了它會多出 UA 的標題外距。
+   其餘還是 `<div>` 的區塊不受影響(`<div>` 本來就沒有外距)。 */
 .ed-section-label {
   display: flex;
   align-items: baseline;
   gap: 14px;
   font-size: 15px;
   font-weight: 500;
+  margin: 0;
 }
 .ed-section-label .ed-mono {
   color: var(--ed-c-ink-mute);
 }
 
 /* ============================================================
-   01 · HERO
+   01 · HERO (N°01 · 四張實拍輪播 + 選車器入口板)
    ============================================================ */
-.ed-hero {
+/* D6/H5(2026-08-06):單張 Unsplash 庫存圖的 `.ed-hero*` 整段退場,換 OD 定案稿的
+   `.b-hero*`(四張輪播 + 切換條 + 巢狀入口板)。字面來源 = OD
+   `direction-b-layout-01-graphite-ember.html` CSS `:112-176` + **統一版面層** `:627-634`
+   + 窄螢幕 `:200-215` + `:663`。
+   🔴 統一版面層照 H3 立下的原則**折成基礎規則**(OD 頁面根 `:742` 本來就掛 `layout-unified`)。
+      折疊差異三條(統一層贏):`.b-hero-inner` 下留白 40px→36px(≤900 再 24px→20px)、
+      `.b-hero-title` 多一條 `max-width:13ch`(CJK 版仍是 14em)、`.b-dock` 留白 20/22/18→18/20/20。
+   🔴 **`.b-dock-jump`(熱門分類四連結)整族不搬**:統一層 `:633` 逐字 `display:none`
+      ⇒ 定案版面下它根本不顯示。搬進來等於做一塊看不見的東西,而且 OD 那四個件數是
+      2026-08-01 的寫死快照(同 N°03 的教訓)。
+   ⚠️ token 對照:OD `--c-graphite`#202225 → 本檔沿用 OD 值(hero 底色是照片載入前的底,
+      不是本檔既有的 `#0a0a0a` 純黑);`--c-red`#f26722 → `--ed-c-action`(同值)。 */
+.b-hero {
   position: relative;
-  height: calc(100vh - 68px);
-  min-height: 640px;
-  max-height: 860px;
-  background: #0a0a0a;
+  min-height: 600px;
+  /* 🔴 R1 must-fix:第一版把 OD 的 `69px` / ≤900 的 `65px` **寫死**搬進來,而本 repo 的頁首高
+     是站台 token `--shell-header-h`(`tokens.css:27` 桌機 73px、`:226` ≤1079 改 69px)——
+     兩邊差 4px,而且 `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」
+     (那顆 token 正是為了同款 4px 事故才立的)。⇒ 改吃 token,連 ≤900 的高度覆寫一起刪
+     (token 自己在 ≤1079 就換值了,不需要本檔再寫第二個斷點)。
+     ⚠️ 我原本拿真瀏覽器量到的「1440 → hero 831px」當佐證 —— 831 = 900−69 **正是這個 bug 的症狀**,
+        不是它的反證。量到的數字要對得上「應該是多少」才算驗證。 */
+  height: calc(100svh - var(--shell-header-h));
+  max-height: 880px;
+  background: #202225;
   color: #fff;
-  overflow: hidden;
-}
-.ed-hero-media {
-  position: absolute; inset: 0;
-}
-.ed-hero-media img {
-  width: 100%; height: 100%; object-fit: cover;
-  filter: brightness(0.72) contrast(1.05);
-}
-.ed-hero-tint {
-  position: absolute; inset: 0;
-  background:
-    linear-gradient(180deg, rgba(0,0,0,0.12) 0%, transparent 25%, transparent 55%, rgba(0,0,0,0.55) 100%),
-    linear-gradient(100deg, rgba(0,0,0,0.4) 0%, transparent 45%);
-}
-.ed-hero-inner {
-  position: relative;
-  max-width: var(--ed-max);
-  margin: 0 auto;
-  padding: 0 var(--ed-gutter);
-  height: 100%;
+  /* 🔴 **對 OD 的申報偏離(D-128 迴歸修;2026-08-06 Sean 肉眼抓到)**:
+     OD `:117` 這裡是 `overflow:hidden`,而**入口板的下拉選單會被它裁掉** ——
+     真瀏覽器實測(3111 真站、1600 寬、捲到 260):清單 layout 高 280px,但 hero 底緣以下
+     全部被裁,`elementFromPoint` 打到的是下一段 `.b-select` 與商品圖 ⇒ 客人看到「第二項起不見了」。
+     決定性實驗:把 hero 改 `overflow:visible` 後同樣的探針全部打到 `.vsc-option`,還原後又壞。
+     ⚠️ **為什麼 OD 沒踩到**:它的 dock 用的是原生 `<select>`(選單由瀏覽器畫在頁面之外),
+        本 repo 用的是自製 combobox(`.vsc-list` 是頁面內的絕對定位元素)⇒ 這個裁切對它才致命。
+     修法 = **把裁切下放到真正需要它的那一層**(`.b-hero-media`):要被裁的是滿版底圖,
+     不是入口板。實測圖片零溢出(imgTop/imgBottom 與 hero 完全對齊)。 */
+  overflow: visible;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding-bottom: 80px;
 }
-.ed-hero-eyebrow {
+/* 🔴 裁切在這一層:滿版底圖(object-fit: cover)超出時要被切掉,而入口板的下拉不受影響
+   (理由見上方 `.b-hero` 的申報偏離)。 */
+.b-hero-media { position: absolute; inset: 0; overflow: hidden; }
+.b-hero-media img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  filter: brightness(0.82) contrast(1.02);
+}
+/* 輪播:四張疊著淡入淡出。用 opacity 不用 display,才有得過場(OD :122 註解)。 */
+.b-hero-slide {
+  position: absolute; inset: 0;
+  opacity: 0;
+  transition: opacity 0.9s ease;
+}
+.b-hero-slide.is-on { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  /* 🔴 這條只關掉**過場動畫**;「完全不自動輪播」那一半在 `HomeHero.tsx` 用 matchMedia 做,
+     兩邊缺一不可:只留 CSS 的話圖仍會每 6.5 秒硬切,對前庭障礙使用者一樣是移動。 */
+  .b-hero-slide { transition: none; }
+}
+.b-hero-nav { display: flex; gap: 8px; margin: 0 0 24px; }
+/* 多了切換條就得把標題的下緣收回來,不然標題到入口板之間會多出一段空檔(OD :126-127)。 */
+.b-hero-inner:has(.b-hero-nav) .b-hero-title { margin-bottom: 20px; }
+.b-hero-tick {
+  position: relative;
+  width: 34px; height: 3px;
+  padding: 0; border: 0; border-radius: 2px;
+  cursor: pointer;
+  background: rgba(255,255,255,0.3);
+  transition: background 0.2s, width 0.2s;
+}
+.b-hero-tick:hover { background: rgba(255,255,255,0.55); }
+.b-hero-tick.is-on { background: var(--ed-c-action); width: 46px; }
+/* 命中區拉到 44px 高但視覺仍是 3px 的細條 —— 手指點得到,畫面不會變粗(OD :135)。 */
+.b-hero-tick::after {
+  content: "";
+  position: absolute; left: 0; right: 0; top: -20px; bottom: -20px;
+}
+/* 🔴 深色場的焦點框要換色(OD :52-53):預設的 `--c-ember-ink`(#c4470c)壓在照片上看不清楚。
+   切換條是鍵盤使用者唯一能操作的東西,焦點框看不見等於不能用。 */
+.b-hero :focus-visible { outline-color: var(--ed-c-action); }
+/* 這兩道漸層是 hero 唯一的可讀性保險(OD :146-148):底圖是一面照片牆不是一張照片,
+   所以左側那道比一般 hero 重。改數值要同步 OD `assets/hero/build-hero-wall.py` 的 TINT_H / TINT_V,
+   不然那支腳本量出來的對比度就對不上實際畫面。 */
+.b-hero-tint {
+  position: absolute; inset: 0;
+  background:
+    linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 28%, transparent 42%, rgba(0,0,0,0.72) 100%),
+    linear-gradient(100deg, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.45) 34%, transparent 62%);
+}
+.b-hero-inner {
+  position: relative;
+  max-width: var(--ed-max);
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 var(--ed-gutter) 36px;
+}
+.b-hero-eyebrow {
   display: flex; align-items: center; gap: 10px;
   font-family: var(--f-mono);
   font-size: 11px;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  opacity: 0.9;
-  margin-bottom: 28px;
+  opacity: 0.92;
+  margin-bottom: 20px;
 }
-.ed-hero-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: var(--ed-c-accent);
-}
-.ed-hero-title {
-  font-size: clamp(48px, 8.5vw, 120px);
-  line-height: 0.94;
+.b-hero-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ed-c-action); }
+.b-hero-title {
+  font-size: clamp(26px, 5.6vw, 72px);
+  line-height: 0.98;
   font-weight: 700;
   letter-spacing: -0.03em;
-  margin: 0 0 44px;
-  max-width: 14ch;
+  margin: 0 0 28px;
+  max-width: 13ch;
 }
-.ed-hero-title > span { display: block; }
-.ed-hero-italic {
-  font-family: "Noto Serif TC", "Cormorant Garamond", Georgia, serif;
-  font-style: italic;
-  font-weight: 400;
+/* 🔴 中文標題版。三個值都跟拉丁字母版不一樣,**不要合併**(OD :163-168 逐字):
+   行高 .98 是為拉丁字母的 x-height 調的,中文字面撐滿字身框、壓到 .98 會黏在一起 → 1.12。
+   字距 -.03em 對中文太緊(中文本來就沒有字母間隙可收)→ -.02em。
+   max-width 用 em 不用 ch:ch 是「0」的寬度、約半個中文字,16ch 只有 8 個字會提早斷行。
+   clamp 下限 26px 是算出來的:最長那行 12 字,360px 螢幕扣掉左右留白只剩 320px,
+   12 × 26 × 0.98 = 306px 剛好進得去;放到 28px 就會在 iPhone SE 溢出。 */
+.b-hero-title--cjk { line-height: 1.12; letter-spacing: -0.02em; max-width: 14em; }
+
+/* 入口板(選車器 dock;內容由 `VehicleFinder.tsx` 渲染、以 children 傳進 `HomeHero`)。 */
+.b-dock {
+  background: #fff;
+  color: var(--ed-c-ink);
+  padding: 18px 20px 20px;
+  box-shadow: 0 -1px 0 rgba(0,0,0,0.06), 0 18px 48px rgba(0,0,0,0.28);
 }
-.ed-hero-foot {
+.b-dock-head {
   display: flex;
-  align-items: flex-end;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 24px;
+  gap: 16px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
 }
-.ed-hero-foot .ed-link {
-  color: #fff;
-  border-color: rgba(255,255,255,0.5);
-  font-size: 15px;
-}
-.ed-hero-foot .ed-link:hover { border-color: #fff; }
-.ed-hero-meta {
-  display: flex; align-items: center; gap: 10px;
-  font-family: var(--f-mono);
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  opacity: 0.7;
-}
-
-.ed-hero-scroll {
-  position: absolute;
-  right: var(--ed-gutter);
-  bottom: 32px;
+.b-dock-label {
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  align-items: baseline;
   gap: 12px;
-  font-family: var(--f-mono);
-  font-size: 10px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.7);
-  writing-mode: vertical-rl;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
 }
-.ed-hero-scroll-line {
-  width: 1px;
-  height: 48px;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.6), transparent);
-  animation: edScrollLine 2.4s ease-in-out infinite;
+.b-dock-label .ed-mono { color: var(--ed-c-ink-mute); }
+.b-dock-hint { font-size: 13px; color: var(--ed-c-ink-mute); }
+
+@media (max-width: 900px) {
+  /* 高度不再於此覆寫:`--shell-header-h` 在 ≤1079 自己就換成 69px(見上方 R1 修正)。 */
+  .b-hero { min-height: 560px; }
+  .b-hero-inner { padding-bottom: 20px; }
+  .b-hero-title { margin-bottom: 22px; }
+  /* `--dock-pad` 與下一行的左右 padding **同源**:chips 那列的負邊距出血要對齊它
+     (見下方 `.cat-garage-chips` 那段的紅字)。改 padding 時這顆要一起改,守門會比對。 */
+  .b-dock { --dock-pad: 16px; padding: 16px var(--dock-pad) 14px; }
 }
-@keyframes edScrollLine {
-  0%, 100% { opacity: 0.3; transform: scaleY(0.5); transform-origin: top; }
-  50% { opacity: 1; transform: scaleY(1); }
+/* 🔴 **本 repo 對 OD 的申報偏離(H5;真瀏覽器實測抓到的真缺陷)**:讓位給固定 TabBar。
+   OD 的 hero 高度是 `calc(100svh - <header>)`,**沒有把底部那條固定 TabBar 算進去** ——
+   而 TabBar 在 ≤1079px 是 `position: fixed; bottom: 0; height: 64px`(本 repo 與 OD 同款)。
+   2026-08-06 真瀏覽器 390×844 實測:入口板的主按鈕「搜尋部品」下緣 813px、TabBar 上緣 780px
+   ⇒ **主 CTA 被蓋掉 33px**。OD 原型同一個算式、同一個結果(它自己也沒處理)。
+   修法刻意選**加在 dock 下方的外距**、不是改 hero 高度算式:
+     · 改高度會動到整段版面節奏(標題與圖的比例),那是視覺決定、該 Sean 拍;
+     · 外距只把入口板抬到 TabBar 上緣,照片仍然滿版、dock 仍然疊在圖上 ⇒ 構圖不變。
+   數值 `70px + safe-area` = 與 `mobile-tabbar.css` 給 `body` 的讓位值**同一個字面**,不另開一套。
+   ⚠️ 斷點用 1079 不是 900:TabBar 從 1079 起就出現了(`mobile-tabbar.css`),
+      只補 ≤900 的話 901-1079 那一段照樣被蓋。 */
+@media (max-width: 1079px) {
+  .b-dock,
+  html[data-mobile="true"] .b-dock { margin-bottom: calc(70px + env(safe-area-inset-bottom)); }
+}
+/* 🔴 R1 must-fix:平板那一段的 TabBar **是 68px 不是 64px**,而 `mobile-tabbar.css:139-158` 給 body 的
+   讓位值也跟著是 `calc(74px + env(...))` ⇒ 只寫 70px 的話 600-1079 淨空只剩 2px。
+   兩級的值逐字對齊那支檔的兩級,不是我自己挑的數字。
+   ⚠️ `html[data-mobile="true"]` 兜底同樣照抄:media query 沒命中但 UA hint 命中時 TabBar 照樣 fixed
+   (`mobile-tabbar.css:13` 與 `:56-57` 逐字寫了這條路徑的存在理由),漏了它那條路上 CTA 又會被蓋回去。 */
+@media (min-width: 600px) and (max-width: 1079px) {
+  .b-dock,
+  html[data-mobile="true"] .b-dock { margin-bottom: calc(74px + env(safe-area-inset-bottom)); }
 }
 
 /* ============================================================
-   02 · VEHICLE FINDER (inline bar, understated)
+   02 · VEHICLE FINDER (選車列本體;外框與表頭見 01 區的 `.b-dock*`)
    ============================================================ */
-.ed-finder {
-  background: var(--ed-c-paper);
-  border-bottom: 1px solid var(--ed-c-rule);
-  padding: 40px 0 48px;
-}
-.ed-finder-inner {
-  max-width: var(--ed-max);
-  margin: 0 auto;
-  padding: 0 var(--ed-gutter);
-}
-.ed-finder-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 20px;
-  flex-wrap: wrap;
-}
-.ed-finder-label {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  font-size: 14px;
-  font-weight: 500;
-}
-.ed-finder-label .ed-mono { color: var(--ed-c-ink-mute); }
-.ed-finder-hint { font-size: 12.5px; color: var(--ed-c-ink-mute); }
+/* 🔴 H5(2026-08-06):選車器 dock 化 ⇒ **容器層那五條規則整組退場**
+   (`.ed-finder` / `.ed-finder-inner` / `.ed-finder-head` / `.ed-finder-label` / `.ed-finder-hint`)
+   —— 它們畫的是「hero 之後那一段白底區塊」,而入口板現在疊在 hero 圖片下緣、由 `.b-dock*` 負責。
+   ⚠️ **底下這一族(`.ed-finder-bar` / `-slot` / `-go`)一個字都沒動**:OD 的 dock 裡用的
+      正是同一組 class(骨架 :821-826)⇒ 選車列本體是原地不動搬進 dock 的。
+   🔴 原本鎖在 `.ed-finder` 底下的兩族(愛車 chips 的窄螢幕捲動與外距)**scope 改成 `.b-dock`**:
+      那個前綴是承重的(少了它,規則會潑到 PDP §7 與購物車的同名 chips),不是可有可無的裝飾。
+      守門在 `styles/home.test.ts`(V-2d② 那條),本片同步改。 */
 
 .ed-finder-bar {
   display: grid;
@@ -244,6 +326,14 @@
   padding: 14px 20px 12px;
   border-right: 1px solid var(--ed-c-rule);
   cursor: pointer;
+  /* 🔴 2026-08-07:OD `direction-b-layout-01-graphite-ember.html` 的 `.ed-finder-slot` 有這條、
+     真站**搬漏了**(grep `min-width:0` 在該稿的 slot 與 slot input 兩處都有)。
+     grid item 預設 `min-width: auto` = 內容最小尺寸,收不到內容以下。
+     ⚠️ **誠實說明**:實測(真瀏覽器 320-900 掃描)顯示欄位本來就有在正常收縮
+     (320px 時 123px、900px 時 413px)⇒ **補這條不是為了修 Sean 回報的截字**,
+     那是文字比欄寬長、另有修法(見下方 ≤560 那段)。這條純粹是鐵則 1 的保真補件,
+     防的是「哪天有人加一個長字面的子元素、欄位就撐不回去」。 */
+  min-width: 0;
 }
 .ed-finder-slot:last-of-type { border-right: 0; }
 .ed-finder-slot-label {
@@ -274,13 +364,38 @@
   color: var(--ed-c-ink-mute);
   cursor: not-allowed;
 }
+/* 🔴 D-136 清尾片(2026-08-06):OD 明文的 WCAG 1.4.11 修正整條漏搬 —— 逐字取 OD
+   `direction-b-layout-01-graphite-ember.html` 的 `.ed-finder-slot:focus-within`
+   (grep 該選擇器找;`brand-page.html` 那份同字面,並附註解逐字說明理由)。
+   稿上理由:上面 `select` 的 `outline:none` 也蓋掉了全域焦點框 ⇒ 焦點框要畫在**整格**上,
+   使用者才看得出「目前在選這一格」,而不是只框住一行文字。
+   ⚠️ 負 offset 是必要的、不是品味:`.ed-finder-bar` 三格是共邊框線的格線,
+      正 offset 會把框畫到隔壁格的線上。
+   ⚠️ 站上這一格現在掛的是 combobox(`.vsc-input--finder`,見本檔最後一段)、不是 OD 的原生
+      `<select>`;`:focus-within` 對兩者都成立(焦點落在格子裡的任何 input 都算),故字面可直接搬。
+   色 = `--ed-c-action-hover`(#c4470c),與 OD 的 `--c-ember-ink` 同值(見本檔檔頭三顆熔橘那段)。 */
+.ed-finder-slot:focus-within {
+  outline: 2px solid var(--ed-c-action-hover);
+  outline-offset: -2px;
+}
+/* 🔴 D-135 插單(Sean 實測抓到):這顆 CTA **整段沒跟稿** —— 站上是「灰底 mute、選到廠牌才變墨黑、
+   hover 純黑」,而 OD `:190-193` 逐字是**熔橘常駐 + 深橘 hover**:
+     `.ed-finder-go{…background:var(--c-red);color:#fff…}` / `:hover{background:var(--c-ember-ink)}`
+   本片照字面搬色(`--c-red` → 本檔同值的 `--ed-c-action`);**啟用邏輯(何時 ready)不動**,那屬車型片。
+   ⚠️ **OD 沒有停用態**(它的 dock 用原生 select,GO 永遠可按)⇒ 照字面搬會讓停用中的按鈕
+      長得和可按的一模一樣 = H6 那族「看起來能按、按了沒反應」的同型。
+      故**補一條 `:disabled`**(沿用站上原本那組灰),並把 hover 收進 `:not(:disabled)`。
+      這是 repo 先行、設計稿還沒有的狀態,回寫債併 OD 回饋包(`D-133-A`)。
+   ⚠️ 幾何差一階:OD `min-height:62px`、本檔 64px —— 64 是站上選車列三格的既有高度,
+      改它會讓 GO 比隔壁格矮兩格線,故不動(申報)。 */
 .ed-finder-go {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   padding: 0 32px;
-  background: var(--ed-c-paper-2);
-  color: var(--ed-c-ink-mute);
+  background: var(--ed-c-action);
+  color: #fff;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -288,89 +403,190 @@
   min-height: 64px;
   white-space: nowrap;
 }
-.ed-finder-go.is-ready {
-  background: var(--ed-c-ink);
-  color: #fff;
+.ed-finder-go:hover:not(:disabled) { background: var(--ed-c-action-hover); }
+/* 停用態(OD 無;沿用站上原本那組灰):選到廠牌前按不下去,顏色要說實話。 */
+.ed-finder-go:disabled {
+  background: var(--ed-c-paper-2);
+  color: var(--ed-c-ink-mute);
+  cursor: not-allowed;
 }
-.ed-finder-go.is-ready:hover { background: #000; }
 .ed-finder-go-arrow { transition: transform 0.25s; }
-.ed-finder-go.is-ready:hover .ed-finder-go-arrow { transform: translateX(3px); }
+.ed-finder-go:hover:not(:disabled) .ed-finder-go-arrow { transform: translateX(3px); }
 
 @media (max-width: 900px) {
   .ed-finder-bar { grid-template-columns: 1fr 1fr; }
   .ed-finder-slot:nth-of-type(2) { border-right: 0; }
-  .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); }
+  /* 🔴 2026-08-07:`grid-column: span 2` 是 OD 稿有、真站**搬漏**的那一條。
+     沒有它,年份欄只佔第二排的左半格、**右半格是一個空洞**(真瀏覽器 488px 量到:
+     slot3 在 left:1 寬 207,而 208..415 完全空著)—— 有邊框的格子裡破一個洞,
+     很可能就是 Sean 回報「破版」看到的東西。 */
+  .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); grid-column: span 2; }
   .ed-finder-go { grid-column: span 2; border-top: 1px solid var(--ed-c-ink); justify-content: center; padding: 18px; }
+}
+
+/* ── 窄幅(≤560px):三欄各自獨占一整排 ───────────────────────────────────
+   🔴 **OD 沒有涵蓋這個寬度**:稿對 finder 只有 `max-width: 900px` 一個斷點,
+   0–900 之間全部吃同一組「2 欄」規則。⇒ 以下是**按稿的設計意圖外推**,已在 STOP 申報。
+   推法依據:稿本身的方向就是「愈窄、欄愈少」(桌機 4 欄 → ≤900 兩欄 + 年份跨滿),
+   再窄一級就是每欄獨占一排。
+   (ADR-0007 的手機方向逐字寫「大型欄位方向、不照搬桌機橫列」,方向一致可當佐證 ——
+    ⚠️ 但那條治的是**型錄選車 UX**、不是首頁 dock finder,是「外推之上再借一層」,不是直接授權。)
+   為什麼是 560:真瀏覽器實測 placeholder 文字寬 vs 欄內可用寬 ——
+   車型欄的「選擇或輸入車型，例:R6」實測 **170px**,而 2 欄版在 488px 只給得出 **167px**(截 3px)。
+   2 欄下每多 1px 視窗寬、每欄只多 0.5px ⇒ 補足 3px 需要 +6px 視窗 ⇒ **臨界約 494px**
+   (審查抓到我原本寫「約 540」—— 那個數字推不出來、沒有來源)。
+   560 是本檔既有的斷點(`.b-carousel-item` 那條)⇒ 沿用既有數字、不另造一個,且對 494 留有餘裕。
+   🔴 **不動 placeholder 字面**:「例:R6」是 Sean 2026-08-06 拍板 B 的字面
+   (可驗證出處 = `docs/design-storefront-manifest.yaml` 的 VehicleFinder 條目 B1 段,
+   grep `例:R6`;審查抓到我原本引的是 session 視窗信件代號 —— 下一個 session grep 不到)。 */
+@media (max-width: 560px) {
+  .ed-finder-bar { grid-template-columns: 1fr; }
+  .ed-finder-slot { border-right: 0; }
+  .ed-finder-slot:nth-of-type(2),
+  .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); grid-column: auto; }
+  .ed-finder-go { grid-column: auto; }
+  /* 🔴 **縱向代價:量過了,結論是「不用買回來」**(審查點名要驗、我原本也以為要修)。
+     單欄把 finder 由 3 列變 4 列(bar 高 194 → 259),直覺上會把主 CTA 往下推去撞
+     `.mobile-tabbar` —— 本檔 H5 段就記過那種事故(390×844 曾被蓋 33px)。
+     ⇒ 真瀏覽器改前/改後對照實測(320×568 / 375×667 / 390×844 / 414×736 / 488×871 / 560×900):
+     **「搜尋部品」下緣的位置一模一樣、淨空一律 41px,兩邊零差異**。
+     原因:`.b-dock` 被自己的 `margin-bottom: calc(70px + safe-area)` 釘在 hero 底部,
+     finder 長高只會把 dock 的**頂端**往上推,底緣不動 ⇒ 縱向不是本改動的風險面。
+     ⚠️ 順帶量到、**與本片無關的既有狀況**:320×568(最矮的舊機)改前改後都是被蓋 20px
+     (`goBottom` 兩邊都是 524)—— 那是既有的、不是本片造成,已列 STOP 回報、未在此順手改。
+     ⚠️ 我一度為此加了一組「收緊列高」的 padding 覆寫,量完發現它對淨空零影響
+     ⇒ **整組移除**(建立在錯誤前提上的改動,留著只是多一份 OD 沒授權的密度值)。 */
 }
 
 /* ============================================================
    03 · FEATURE (editorial magazine spread)
    ============================================================ */
+/* ── N°05 本月聚焦版面壓縮(2026-08-06;OD 逐字段落標題 `963px 砍半`)────────
+   OD 註解逐字:「改法:直式長文 → 橫向『品牌檔案帶』。ORIGIN/SINCE/CRAFT 從三欄 grid
+   收成一行資料條,圖從 4:3 壓成 16:11,底部補一條該品牌的分類出口 —— 編輯區塊從此有
+   商業出口。」
+   本片只動**版面**(padding/grid/字級尺寸/meta 條/圖片比例)。**刻意不動**兩塊:
+   ①底部分類出口 —— D5e-2b 早就做完(`.ed-feature-actions` 家族),OD 這句話在講
+     的東西本檔已經有了,不是本片要接的線。
+   ②標題/內文的中文排版值(line-height / letter-spacing / text-wrap / body max-width)
+     —— 當時緩辦、理由是它們會改變整個版位的視覺重量、要 Sean 肉眼驗一次。
+     🔴 **2026-08-07 已解除**:那五個值已照 OD §6-1 全部搬完
+     (完整記錄在本檔下方 grep `排版六值片` 那段)。這裡保留歷史,是為了說明
+     「963px 砍半那片為什麼沒順手改它們」—— 那是片界判斷,不是漏掉。 */
 .ed-feature {
   background: var(--ed-c-paper);
-  padding: 140px 0;
+  /* OD `.b-feature` 逐字三條:background;padding:52px 0 56px(舊值 140px 0 是砍半前的
+     直式長文版);border-top:1px solid var(--c-border)——`--c-border`→`--ed-c-rule` 的
+     token 對照見本檔 `.b-cats` 段落上方註解,同一顆值、非本片新開對照。 */
+  padding: 52px 0 56px;
+  border-top: 1px solid var(--ed-c-rule);
 }
 .ed-feature-inner {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   display: grid;
+  /* 5fr 7fr 本來就對:OD 基礎層是 6fr 6fr,但同稿「統一版面層」
+     `.layout-unified .b-feature-inner{grid-template-columns:5fr 7fr}` 蓋掉它
+     ——OD 頁面根一律掛 `layout-unified`,5fr 7fr 才是實際生效值。 */
   grid-template-columns: 5fr 7fr;
-  gap: 80px;
+  /* OD 逐字 gap:48px(砍半前是 80px,間距跟著整段一起壓扁) */
+  gap: 48px;
   align-items: center;
 }
+/* 🔴 申報:OD 全檔查無 `.b-feature-side` 對應規則(OD 只給 reveal 起始態與
+   `order:2`)—— 這條 24px 是本 repo 獨有值、本片未動它,原封不動搬過來。
+   gap 80px→48px 砍半後,這 24px 恰等於新欄距的一半,落在本片自述的
+   「padding/grid」範圍內卻從未被申報過;是否該跟著欄距等比例收、或本來
+   就是獨立值,待下一個動這塊版面的人重估,不在本片自行判斷。 */
 .ed-feature-side {
   padding-right: 24px;
 }
 .ed-feature-num {
   color: var(--ed-c-ink-mute);
-  margin-bottom: 18px;
+  /* OD `.b-feature-num` 逐字 margin-bottom:12px */
+  margin-bottom: 12px;
 }
 .ed-feature-kicker {
   font-size: 13px;
   color: var(--ed-c-ink-mute);
-  margin-bottom: 22px;
+  /* OD `.b-feature-kicker` 逐字 margin-bottom:12px */
+  margin-bottom: 12px;
 }
 .ed-feature-title {
-  font-size: clamp(48px, 5.4vw, 80px);
-  line-height: 0.98;
-  letter-spacing: -0.02em;
+  /* OD `.b-feature-title` 逐字 clamp(30px,3.2vw,46px)——963px 砍半後的縮小版 */
+  font-size: clamp(30px, 3.2vw, 46px);
+  /* 🔴 2026-08-07 排版六值片:這兩顆**解除緩辦、照 OD 搬**(主視窗指派;
+     解除條件寫在 `home.test.ts` 那組守門的抬頭,今天兌現)。
+     OD `N05-FOCUS-HANDOFF.md` §6-1 逐字給了理由,不是隨意微調:
+       line-height 1.2 —— 「1.02 給單行英文大標的,中文折兩行會黏住」
+       letter-spacing -.01em —— 「負字距是收拉丁字母用的,套方塊字會互相擠」
+     ⚠️ OD 表格的「舊」欄寫 1.02 / -.02em,而真站現值是 **0.98 / -0.02em**(line-height 更緊)。
+     成因不是 OD 寫錯:那一欄講的是**它自己稿的舊值**(OD 的 archive 稿實際就是 1.02),
+     真站則是更早自己調過。⇒ 兩邊起點不同、終點(新值)一致 ⇒ 照新值搬,
+     不去對齊一個真站不存在的舊值。**這個落差不必記回饋包**(OD 沒有錯)。 */
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  /* OD §6-1 第三列:標題斷行加 `text-wrap: balance` ——「避免第二行只吊三個字」。
+     這是新增、真站原本沒有(表格「舊」欄是 —)。 */
+  text-wrap: balance;
   font-weight: 700;
-  margin: 0 0 32px;
+  /* OD 逐字 margin:0 0 18px(標題縮小後留白跟著等比例收) */
+  margin: 0 0 18px;
 }
 .ed-feature-title em {
   font-size: 0.82em;
   color: var(--ed-c-ink-soft);
 }
 .ed-feature-body {
-  font-size: 16px;
-  line-height: 1.75;
+  /* OD `.b-feature-body` 逐字 font-size:15px */
+  font-size: 15px;
+  /* 🔴 2026-08-07 排版六值片:解除緩辦、照 OD §6-1 搬。
+     line-height 1.85 —— 「中文沒有字母上下伸展,行距要再開」。 */
+  line-height: 1.85;
   color: var(--ed-c-ink-soft);
-  margin: 0 0 40px;
-  max-width: 34ch;
+  /* OD 逐字 margin:0 0 24px */
+  margin: 0 0 24px;
+  /* 🔴 OD §6-1:`34ch` → `30em`。理由逐字「`ch` 是拉丁字元寬,15px 下才 330px,
+     中文會折成細長條」——`ch` 量的是「0」的寬度,對中文完全不成比例;`em` 才跟字級同步。
+     ⚠️ 真站舊值是 34ch(OD 表格寫 40ch)⇒ 起點不同、終點照新值。 */
+  max-width: 30em;
+  /* 🔴🔴 **OD 的 `.b-feature-body` 還有一顆 `text-wrap: pretty`,刻意不搬 —— 這是拍過板的。**
+     `[#223]` Sean 拍板(字面在 `product-page.css`,grep `text-wrap:pretty`):
+     pretty 在 iOS WebKit 對 CJK 段落會縮短/平衡每行 → 右側留白,段落看似靠左而清單填滿、
+     兩者寬度不一致(桌機 Chromium 的 pretty 只微調末行,所以看不出來)⇒ **body 文字一律移除**。
+     標題那顆 `balance` 保留(短標題平衡合理、非 Sean 反映的段落)—— 本片正是這樣搬的。
+     ⚠️ 寫在這裡是因為:本片剛好在同一族新增了 `text-wrap`,下一個「照 OD 補完」的人
+     很可能把這顆一起種回來,而那會復辟一個 Sean 否決過的值。 */
 }
 .ed-feature-meta {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-  padding: 24px 0;
+  /* OD `.b-feature-meta` 逐字 gap:0 26px(行距 0、欄距 26px,原本是等距 24px 兩軸都給) */
+  gap: 0 26px;
+  /* OD 逐字 padding:16px 0(原本 24px 0,單行資料條不需要那麼高) */
+  padding: 16px 0;
   border-top: 1px solid var(--ed-c-rule);
   border-bottom: 1px solid var(--ed-c-rule);
-  margin-bottom: 36px;
+  /* OD 逐字 margin-bottom:18px */
+  margin-bottom: 18px;
 }
 .ed-feature-meta-k {
   color: var(--ed-c-ink-mute);
   margin-bottom: 6px;
 }
 .ed-feature-meta-v {
-  font-size: 14px;
-  font-weight: 500;
+  /* OD `.b-feature-meta-v` 逐字 font-size:15px;font-weight:600;line-height:1.3 */
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--ed-c-ink);
 }
 
 .ed-feature-media {
   position: relative;
-  aspect-ratio: 7 / 8;
+  /* OD `.b-feature-media` 逐字 aspect-ratio:16/11(原本 7:8 直式,砍半改橫向壓扁) */
+  aspect-ratio: 16 / 11;
   overflow: hidden;
   background: var(--ed-c-paper-2);
 }
@@ -446,21 +662,26 @@
   }
 }
 
-/* 🔴🔴 **D5e-2b 刻意未搬:OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版調整**(R1 Important:
-   省略要留字面,不能只留在 commit body)。那一節為中文重調了六個值,本片**一個都沒動**:
+/* 🔴🔴 **2026-08-07 排版六值片:上面那五個值已全部搬完,這段申報就地結案。**
 
-     `.ed-feature-title`   line-height 0.98 → 1.2    (1.02 是給單行英文大標的,中文折兩行會黏住)
-     `.ed-feature-title`   letter-spacing -.02em → -.01em (負字距是收拉丁字母用的,套方塊字會互相擠)
-     `.ed-feature-title`   加 `text-wrap: balance`    (避免第二行只吊三個字)
-     `.ed-feature-body`    max-width 34ch → 30em     (`ch` 是拉丁字元寬,中文會折成細長條)
-     `.ed-feature-body`    line-height 1.75 → 1.85   (中文沒有字母上下伸展,行距要再開)
+   歷史(留著,因為它記錄了「為什麼當初刻意不搬」——那是判斷、不是疏漏):
+   D5e-2b 那片只做動線改版四項,OD `N05-FOCUS-HANDOFF.md` §6-1 的中文排版是另一組,
+   當時**一個都沒動**,理由是「那五個值會改變整個版位的視覺重量,該讓 Sean 肉眼驗一次,
+   不適合夾在動線片裡順手改掉」;並在 `home.test.ts` 用守門**正面釘住舊值**,
+   抬頭寫明「解除條件:排到中文排版片時要跟著改成新值,那時看到這幾條轉紅是正常訊號」。
 
-   ⚠️ **為什麼這現在比 D5e-1 時更要緊**:D5e-2 之前這個版位只有 RIZOMA 一家佔位,
-      現在跑的是 20 家**真的中文鉤子**(最長「騎了十年賽車,受不了市售腳踏,乾脆自己做。」
-      在 clamp 上界會折成兩到三行)⇒ 標題行距 0.98 的黏行問題是真的會被看到,不是理論。
-   ⇒ **不是漏掉,是片界**:C-109-A 派的 D5e-2b 是「動線改版四項」,排版屬 §6-1 另一組。
-      本片不動的理由是那五個值會改變整個版位的視覺重量,**該讓 Sean 肉眼驗一次**,
-      不適合夾在動線片裡順手改掉。⇒ 已寫進 manifest 條目 + 回報主視窗排片。 */
+   ⇒ **今天就是那一片**(主視窗指派)。五個值逐條搬完、守門同步翻向:
+     `.ed-feature-title`   line-height 0.98 → 1.2
+     `.ed-feature-title`   letter-spacing -0.02em → -0.01em
+     `.ed-feature-title`   加 `text-wrap: balance`
+     `.ed-feature-body`    line-height 1.75 → 1.85
+     `.ed-feature-body`    max-width 34ch → 30em
+   §6-1 表格的第六列「資料條說明句:有 → 拿掉」**真站本來就沒有**
+   (`FeatureEditorial.tsx` 的 meta 條只渲染 label + value 兩層)⇒ 無事可做,非漏做。
+
+   ⚠️ **OD 表格的「舊」欄與真站現值對不上**(OD 寫 1.02 / 40ch / 1.7,真站是 0.98 / 34ch / 1.75)
+      ⇒ 兩邊起點不同、終點一致 ⇒ 照**新值**搬,不去對齊一個真站不存在的舊值。
+   ⚠️ 這一組改的是**視覺重量**,文字層守不住好不好看 —— **要 Sean 肉眼驗**。 */
 
 /* ── D5e-2b 動線區(OD `.b-feature-actions` 家族)────────────────────────
    一行兩區:實心主按鈕 = 去讀品牌故事;右半整排 = 去逛這家的商品。
@@ -565,10 +786,13 @@
 .ed-feature-jump a.is-all::after { background: var(--ed-c-ink); }
 
 @media (max-width: 1000px) {
-  .ed-feature { padding: 80px 0; }
-  .ed-feature-inner { grid-template-columns: 1fr; gap: 40px; }
+  /* N°05 版面壓縮片的斷點跟著壓(OD 同段 `@media (max-width:1000px)` 逐字):
+     padding 52px→40px 0 44px、gap 40px→28px、meta 補單欄、圖片比例改 16/10。 */
+  .ed-feature { padding: 40px 0 44px; }
+  .ed-feature-inner { grid-template-columns: 1fr; gap: 28px; }
+  .ed-feature-meta { grid-template-columns: 1fr; gap: 16px; }
   .ed-feature-side { padding-right: 0; order: 2; }
-  .ed-feature-media { order: 1; aspect-ratio: 4/5; }
+  .ed-feature-media { order: 1; aspect-ratio: 16/10; }
 }
 
 /* 手機:兩區改成上下疊。垂直分隔線轉整行水平線 —— 分區訊號留著、只換方向。
@@ -589,89 +813,281 @@
 }
 
 /* ============================================================
-   04 · CATEGORIES (minimal, type-led tiles)
+   04 · CATEGORIES (N°03 · icon chip 磚面,12 格 = 11 分類 + 全部分類)
    ============================================================ */
-.ed-cats {
-  background: var(--ed-c-paper);
-  padding: 100px 0 120px;
+/* D5c/H3(2026-08-06):8 張 Unsplash 裝飾圖卡(`.ed-cats` / `.ed-cat-grid`)整段退場。
+   字面來源 = OD `direction-b-layout-01-graphite-ember.html` CSS `:275-289`
+   + **統一版面層** `:640-672`。
+   🔴 **統一版面層在本檔折成基礎規則**:OD 那層掛在 `.layout-unified` 上,而 OD 的頁面根
+      `:742` 逐字是 `<div class="ed-page layout-unified">` ⇒ **它就是定案版面、不是變體**。
+      本 repo 沒有那個切換器,照抄一個永遠為真的前綴只會讓下一個人以為還有另一種版面。
+      折疊後的差異逐條列(全部是統一層贏):
+        · `.b-cat-list`:基礎 `flex-wrap` → 統一層 `display:grid` 6 欄 + `gap:0` + 上/左框線
+        · `.b-cat-chip` / `.b-cat-more`:基礎自帶 `border` → 統一層 `border:0` + 右/下框線 + `min-height:64px`
+        · `.b-cat-label`:基礎 `white-space:nowrap` → 統一層 `normal` + `line-height:1.35`
+        · RWD 斷點整組換人:基礎只有 ≤900;統一層是 ≤1400→4 欄、≤900→3 欄、≤640→2 欄
+      ⚠️ 代價:回 OD 對字面時 `:275-289` 單看會覺得好幾條不一樣,要一起看 `:640-672`。
+   ⚠️ token 對照(值不同的都是本檔既有的一階差,不是本片新開的):
+      OD `--c-border`#e5e5e7 → `--ed-c-rule`#e4e4e7 / `--c-text`#121214 → `--ed-c-ink`#0a0a0a;
+      **`--c-text-2`#52545a 直接用站台同名同值那顆**(`tokens.css:44`,R1 更正:第一版換成
+      `--ed-c-ink-soft` 並宣稱是既有一階差,那是錯的);`--c-border-control`#909093 與
+      `--c-sunken`#f3f3f4 兩顆**同值**(後者本片新增 `--ed-c-sunken`)。
+      `.b-cats-note` 與 `.b-cat-count` 的 `--ed-c-ink-mute` 是 OD 自己就寫 `ed-` 前綴那顆、逐字相同。 */
+.b-cats {
+  padding: 44px 0 48px;
   border-top: 1px solid var(--ed-c-rule);
+  background: var(--ed-c-paper);
 }
-.ed-cat-grid {
+.b-cats .ed-section-head {
+  margin-bottom: 20px;
+}
+/* 排序說明放在標題列右側(OD :277 註解:原本墊在標題下面會把整個頁首撐高)。 */
+.b-cats-note {
+  font-size: 13px;
+  color: var(--ed-c-ink-mute);
+  margin: 0;
+}
+/* 12 格 = 11 個分類 + 1 個「全部分類」,桌機 6×2 收成一塊完整磚面、不留破口(OD :639)。 */
+.b-cat-list {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1px;
-  background: var(--ed-c-rule);
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0;
   border-top: 1px solid var(--ed-c-rule);
+  border-left: 1px solid var(--ed-c-rule);
+}
+/* 🔴 兩型別一起吃版面規則的理由與品牌磚牆那條不同:這裡兩顆都是 `<a>`,但
+   `.b-cat-more` 是**另一個 class**(不是 `.b-cat-chip` 的修飾) ⇒ 漏掉它,第 12 格
+   會沒有格線與最小高度、磚面右下角塌一塊。OD :644 就是把兩個選擇器並列的。 */
+.b-cat-chip,
+.b-cat-more {
+  min-height: 64px;
+  border: 0;
+  border-right: 1px solid var(--ed-c-rule);
   border-bottom: 1px solid var(--ed-c-rule);
 }
-.ed-cat {
-  display: flex;
-  flex-direction: column;
-  background: var(--ed-c-paper);
-  transition: background 0.2s;
-}
-.ed-cat:hover { background: var(--ed-c-paper-2); }
-.ed-cat-media {
-  aspect-ratio: 4 / 3;
-  overflow: hidden;
-  background: var(--ed-c-paper-2);
-}
-.ed-cat-media img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  filter: grayscale(0.1);
-  transition: transform 0.7s ease, filter 0.4s;
-}
-.ed-cat:hover .ed-cat-media img {
-  transform: scale(1.04);
-  filter: grayscale(0);
-}
-.ed-cat-foot {
-  padding: 20px 22px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.ed-cat-name {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+.b-cat-chip {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
-  font-size: 18px;
-  font-weight: 600;
+  padding: 12px 18px 12px 14px;
+  background: var(--ed-c-paper);
+  transition: border-color 0.15s, background 0.15s;
+}
+.b-cat-chip:hover {
+  background: var(--ed-c-sunken);
+}
+/* 色碼:綁分類、不綁名次(元件端由分類名查表求出 `data-cat`)。
+   ⚠️ 沒有色碼的分類**不輸出 `data-cat`** ⇒ 這一族選擇器整組不命中 = 那顆 chip 沒有色條,
+      不是畫一條透明的。`0` 這個哨兵值刻意沒有對應規則。 */
+.b-cat-chip[data-cat="1"] { box-shadow: inset 3px 0 0 var(--cat-1); }
+.b-cat-chip[data-cat="2"] { box-shadow: inset 3px 0 0 var(--cat-2); }
+.b-cat-chip[data-cat="3"] { box-shadow: inset 3px 0 0 var(--cat-3); }
+.b-cat-chip[data-cat="4"] { box-shadow: inset 3px 0 0 var(--cat-4); }
+.b-cat-chip[data-cat="5"] { box-shadow: inset 3px 0 0 var(--cat-5); }
+.b-cat-chip[data-cat="6"] { box-shadow: inset 3px 0 0 var(--cat-6); }
+.b-cat-chip[data-cat="7"] { box-shadow: inset 3px 0 0 var(--cat-7); }
+.b-cat-chip[data-cat="8"] { box-shadow: inset 3px 0 0 var(--cat-8); }
+.b-cat-chip[data-cat="9"] { box-shadow: inset 3px 0 0 var(--cat-9); }
+.b-cat-chip[data-cat="10"] { box-shadow: inset 3px 0 0 var(--cat-10); }
+.b-cat-chip[data-cat="11"] { box-shadow: inset 3px 0 0 var(--cat-11); }
+.b-cat-icon {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ed-c-sunken);
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+/* 🔴 OD 的 icon 規格是**一條全域 `svg{}`**(`:57` 逐字:
+      `fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round`)
+      + `:58` 針對小尺寸把線寬補到 1.75。本 repo **沒有**等價的全域 svg 規則
+      (2026-08-06 實查 styles 目錄下每一支 .css 皆零命中,其他地方的 icon 一律在 JSX 逐支寫 attribute)
+      ⇒ 整條規格要收進這裡,少一項就退回瀏覽器預設。
+   ⚠️ R1 抓到的真缺陷:第一版只搬了 `fill` / `stroke` / `stroke-width`,**漏掉兩個端點屬性**
+      ⇒ 端點退成 `butt`、轉角退成 `miter`:六角螺帽的 6 個尖角、護盾底部的尖、碳纖斜紋與
+      散熱鰭片的線頭全部變方頭。真瀏覽器那道量了 `fill:none` 與線寬、**沒量這兩個** = 量錯東西。 */
+.b-cat-icon svg {
+  width: 17px;
+  height: 17px;
+  /* OD `:283` 用 `var(--c-text-2)`(#52545a)。本 repo `tokens.css:44` 有**同名同值**那顆
+     ⇒ 直接用站台 token,不另造 `--ed-c-*` 分身。
+     ⚠️ R1 更正:第一版寫 `--ed-c-ink-soft`(#3f3f46)並宣稱「本檔既有的一階差」——**不成立**,
+        OD 自己也有 `--ed-c-ink-soft`(#3f4046)卻刻意沒用在這裡,那是換色不是搬字面。
+     ⚠️ `--c-text-2` 在 `[data-theme="dark"]`(opt-in 屬性、storefront 目前不設)下會翻成 #a1a1aa;
+        真要上深色模式時這顆 icon 會跟著走,方向正確。 */
+  color: var(--c-text-2);
+  stroke-width: 1.75;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.b-cat-chip:hover .b-cat-icon svg {
   color: var(--ed-c-ink);
-  letter-spacing: -0.005em;
 }
-.ed-cat-count {
-  color: var(--ed-c-ink-mute);
+/* 統一版面層讓標籤可以換行、不靠 nowrap 硬撐(OD :656-658:6 欄在 1440 以下會把
+   最長的「騎士用品與配件」推出格線)。 */
+.b-cat-label {
+  font-size: 14px;
+  font-weight: 500;
+  white-space: normal;
+  line-height: 1.35;
+  min-width: 0;
 }
-.ed-cat-en {
+.b-cat-count {
+  font-family: var(--f-mono);
+  font-size: 10px;
   color: var(--ed-c-ink-mute);
+  margin-left: 6px;
+}
+.b-cat-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--ed-c-paper);
+  /* OD `:287` 同樣是 `--c-text-2`(理由與上面 icon 描邊那條同一條)。 */
+  color: var(--c-text-2);
+  font-size: 13px;
+  font-weight: 500;
+  transition: border-color 0.15s, color 0.15s;
+}
+.b-cat-more:hover {
+  color: var(--ed-c-ink);
 }
 
-@media (max-width: 1100px) { .ed-cat-grid { grid-template-columns: repeat(3, 1fr); } }
-@media (max-width: 760px) { .ed-cat-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 1400px) {
+  .b-cat-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .b-cats { padding: 36px 0 40px; }
+  .b-cat-list { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .b-cat-chip, .b-cat-more { min-height: 60px; }
+  .b-cat-chip { padding: 10px 14px 10px 12px; }
+  .b-cat-icon { width: 24px; height: 24px; }
+  .b-cat-icon svg { width: 15px; height: 15px; }
+  .b-cat-label { font-size: 13px; }
+}
+@media (max-width: 640px) {
+  /* 兩欄 + 件數換行:12 格在手機是 6 列而不是 12 列,件數也不用被截掉(OD :667)。 */
+  .b-cat-list { grid-template-columns: 1fr 1fr; }
+  .b-cat-count { display: block; margin-left: 0; margin-top: 2px; }
+}
 
 /* ============================================================
-   05 · SELECT (4 featured products)
+   05 · SELECT (N°02 · 最新商品橫捲)
    ============================================================ */
-.ed-select {
-  padding: 100px 0 120px;
+/* H6(2026-08-06;Sean 拍 Q1=B「OD 稿有」升格為拍板依據):4 格靜態 grid(`.ed-select-grid`)
+   → OD 定案稿的橫捲軌道。字面來源 = OD `direction-b-layout-01-graphite-ember.html`
+   CSS `:220-241` + 統一版面層 `:634-636` / `:652`。
+   🔴 統一版面層照 H3/H5 的原則折成基礎規則(OD 頁面根本來就掛 `layout-unified`):
+      `.b-select` 上留白 72→64(≤900 48)、`.b-carousel-wrap` 收進 `--ed-max`、
+      `.b-carousel` 的左右留白改由統一層給。
+   🔴 **軌道寬的算式照 OD 的更正版**(:232-236 註解逐字):`calc((100% - 64px)/5)` ——
+      百分比是相對 flex 容器的**內容框**,padding 已經扣過一次,再減 `--ed-gutter*2`
+      會讓每張卡少 16px、整列短 80px。5 格 4 道間距 = 64px。 */
+.b-select {
+  padding: 64px 0 80px;
   background: var(--ed-c-paper);
 }
-.ed-select-grid {
+.b-select-head {
+  max-width: var(--ed-max);
+  margin: 0 auto 28px;
+  padding: 0 var(--ed-gutter);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.b-select-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+}
+.b-select-title .ed-mono { color: var(--ed-c-ink-mute); }
+.b-select-actions { display: flex; align-items: center; gap: 20px; }
+.b-select-nav { display: flex; gap: 8px; }
+.b-select-arrow {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--ed-c-rule-control);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ed-c-paper);
+  transition: background 0.15s, border-color 0.15s;
+}
+.b-select-arrow:hover:not(:disabled) { background: var(--ed-c-sunken); border-color: var(--ed-c-ink); }
+/* 🔴 OD 有畫 `:disabled` 態卻**沒有接線**(原型裡兩顆箭頭是死的,全檔零 JS 命中)——
+   本 repo 接了(捲到頭 / 到底時 disabled),否則就是兩顆看起來能按、按了沒反應的按鈕。 */
+.b-select-arrow:disabled { opacity: 0.35; cursor: not-allowed; }
+.b-carousel-wrap {
+  position: relative;
+  overflow: hidden;
   max-width: var(--ed-max);
   margin: 0 auto;
-  padding: 0 var(--ed-gutter);
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 32px;
 }
-@media (max-width: 1100px) { .ed-select-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 560px) { .ed-select-grid { grid-template-columns: 1fr; } }
+.b-carousel {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  padding: 0 var(--ed-gutter) 8px;
+  scroll-padding-left: var(--ed-gutter);
+}
+.b-carousel::-webkit-scrollbar { display: none; }
+.b-carousel-item {
+  flex: 0 0 calc((100% - 64px) / 5);
+  scroll-snap-align: start;
+  min-width: 176px;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 1200px) { .b-carousel-item { flex: 0 0 calc((100% - 48px) / 4); } }
+@media (max-width: 900px) {
+  .b-select { padding: 48px 0 52px; }
+  .b-carousel-item { flex: 0 0 calc((100% - 24px) / 2.4); min-width: 160px; }
+}
+@media (max-width: 560px) { .b-carousel-item { flex: 0 0 calc((100% - 14px) / 1.8); } }
+
+/* ── rail 在非首頁的 token 作用域(2026-08-07 R-3;R-2 品牌頁也吃這條)──────────
+   🔴 上面整組 `.b-select*` / `.b-carousel*` 吃 7 個 `--ed-*` token,而那些 token 只定義在
+      本檔開頭的 **`.ed-page`**(首頁專屬作用域)。品牌頁與會員中心都沒有 `.ed-page`
+      (`app/brands/[slug]/page.tsx` 的註解已逐字記過為什麼刻意不掛)⇒ 直接把 class 用過去,
+      那些宣告會**整條失效而且無聲**(未定義的 custom property 讓宣告在計算值階段作廢)。
+   🔴 **不能拿全域 token 硬換**:`--ed-c-ink #0a0a0a` ≠ `--c-text #121214`、
+      `--ed-c-rule-control` 全域沒有對應、`--c-surface` / `--c-surface-2` 帶暗色模式覆寫
+      (換過去等於給首頁沒有的行為)。⇒ 顏色那 5 顆**逐字照抄 `.ed-page` 的同一批值**
+      (守門逐顆比值、不只比有沒有宣告);`--ed-gutter` / `--ed-max` 兩顆**刻意不同**,
+      它們是版位值、理由見下面那段。
+   🔴 **純加法**:上面每一條規則一個字都沒動,所以「首頁零變更」是結構性成立的。
+      (R-1 plan 原提「給每個 var 加 fallback」,實作時發現那會讓 `home.test.ts` 斷言的
+       `scroll-padding-left: var(--ed-gutter)` 字面不匹配 = 自己打破自己訂的驗收。)
+   版位:非首頁的 rail 活在別人的容器裡(`.acc-body` / `.bp-products-inner` 的 grid cell)
+   ⇒ 頁面級的 gutter 與 max-width 歸零、上下留白與底色交給容器。
+   ⚠️ 序必須在 `.b-select` 之後:兩者同 specificity(0,1,0)、靠後載勝。 */
+.b-select-inset {
+  --ed-gutter: 0px;
+  --ed-max: none;
+  --ed-c-paper: #ffffff;
+  --ed-c-ink: #0a0a0a;
+  --ed-c-ink-mute: #71717a;
+  --ed-c-rule-control: #909093;
+  --ed-c-sunken: #f3f3f4;
+  padding: 0;
+  background: transparent;
+}
 
 /* ============================================================
    06 · STATEMENT (black slab with service story)
@@ -680,173 +1096,368 @@
    石墨是 direction-b「graphite ember」定案的深色場色票;純黑只是重排前的舊值。
    ⚠️ 頁尾也要回石墨 —— 那是 **D7**,D5a 當下不動;**D7 已於 2026-08-05 第0批 0b 落地**
       (主視窗 `D-107-A` 裁 A 案),見本檔「08 · FOOTER」段。 */
+/* 🔴 N°04 版面壓縮片(2026-08-06):OD `.b-statement` 那段(grep `853px 砍半` 找;稿內舊編號
+   `B-5 · 服務`、以本檔 markup N°04 為準)逐字「853px 砍半」——標題與 CTA 併成同一列(省一整條
+   CTA 行)、整段高度砍約三成。「逐字」只指這句「853px 砍半」引文與本片實際搬動的那些值(padding /
+   `.b-statement-top` / `.b-statement-col-head` 等)。
+   🔶 2026-08-06 主視窗就地裁定接續片:`--c-graphite` 與 `--f-serif` 已升上 tokens.css
+   的 `:root`(見該檔),`background` 已改吃 `var(--c-graphite)`。⚠️ **R1 打掉的前提**:
+   下面 `.ed-statement-h em` 的 font 三條**不是**在補一個真的會失效的 `em`——`.ed-page em`
+   (本檔上方)早就把同一組值套到這個元素上了,三條新宣告 computed 值零變化,詳見該規則
+   自己的註解。本片對這個元素的**唯一實際視覺變更**是 color 的 alpha `0.62 → 0.64`。 */
 .ed-statement {
-  background: #202225;
+  background: var(--c-graphite, #202225);
   color: #fff;
-  padding: 140px 0;
+  padding: 56px 0 60px;
 }
 .ed-statement-inner {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
 }
+/* 🔴 新容器,標題與 CTA 併同一列(OD `.b-statement-top` 逐字);本檔 `b-` 前綴慣例(同 `.b-stat-icon`)。 */
+.b-statement-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 40px;
+  flex-wrap: wrap;
+  margin-bottom: 34px;
+}
 .ed-statement-tag {
   color: rgba(255,255,255,0.55);
-  margin-bottom: 32px;
+  margin-bottom: 16px;
 }
 .ed-statement-h {
-  font-size: clamp(40px, 5.2vw, 76px);
-  line-height: 1.02;
+  font-size: clamp(28px, 3.4vw, 44px);
+  line-height: 1.08;
   letter-spacing: -0.02em;
   font-weight: 700;
-  margin: 0 0 80px;
+  margin: 0;
   max-width: 18ch;
 }
+/* 🔴 誠實邊界(R1 must-fix,主對話已親驗):`.ed-page` 早就宣告了 `.ed-page em`
+   (font-style: italic / font-family: var(--f-serif) / font-weight: 400,見本檔上方),
+   而 `app/page.tsx` 的根 div 就是 `.ed-page`、`.ed-statement` 在它裡面 ⇒ 下面這三條
+   宣告的 computed 值與 `.ed-page em` **完全相同**、現況下是冗餘,不是「少了它現在就會壞」。
+   保留的理由是**鐵則 1 直搬 OD 字面 + 縱深防禦**:哪天 `.ed-statement` 被搬出
+   `.ed-page` 的 scope,或 `.ed-page em` 被改掉,這三條就是唯一還站著的定義
+   (同款處置見 `product-card.css` 的 `.pcard{flex:1}` 那段——OD 直搬 + 縱深防禦、
+   不是現在會壞)。本片對這個元素**唯一實際的視覺變更**是 color 的 alpha
+   `0.62 → 0.64`(OD 字面本來就是 `.64`)。 */
 .ed-statement-h em {
-  color: rgba(255,255,255,0.62);
+  font-family: var(--f-serif);
+  font-style: italic;
+  font-weight: 400;
+  color: rgba(255,255,255,0.64);
 }
 .ed-statement-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 48px;
-  padding: 48px 0;
+  gap: 36px;
+  padding: 30px 0 4px;
   border-top: 1px solid rgba(255,255,255,0.15);
-  border-bottom: 1px solid rgba(255,255,255,0.15);
-  margin-bottom: 56px;
 }
+/* 🔴 D-136 清尾片(2026-08-06):三顆服務 icon 整組漏搬(`b-stat-icon` 原本全站零命中)。
+   值逐字取 OD `direction-b-layout-01-graphite-ember.html` 的 `.b-stat-icon` 與 `.b-stat-icon svg`
+   兩條(用 grep `b-stat-icon` 找,不引行號 —— 該稿行號會漂)。
+   ⚠️ 本段落原本只搬 icon、版面壓縮那半列進 STOP 給主視窗判——**N°04 版面壓縮片(同日稍晚)已補完**,
+      padding / 字級 / `.b-statement-top` 標題與 CTA 同列 / `.b-statement-col-head` 編號與 h3
+      同行都已是壓縮後的新值,不再是站上舊值(見上方 `.ed-statement` 與下方兩條新容器)。 */
+.b-stat-icon {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255,255,255,0.22);
+  color: rgba(255,255,255,0.9);
+  margin-bottom: 14px;
+}
+/* 🔴 描邊規格整條寫在這裡,理由同 `.b-cat-icon svg`(見本檔 N°03 段):本 repo **沒有** OD 那條
+   全域 `svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}`。
+   端點/轉角兩項少寫的話,徽章的緞帶尖角與扳手開口會退成方頭 miter —— 那是 N°03 R1 抓到過的同一個坑,
+   且「量了 fill 與線寬就宣稱搬完」正是量錯東西。
+   ⚠️ 線寬 1.75 = OD 對 `.pcm-search svg` / `.b-cat-icon svg` / `.b-stat-icon svg` **這三顆具名 icon**
+      的覆寫(全域是 1.6);~~「16px 以下」~~ 是本註解初稿自己外推的、OD 沒這句 —— 這兩顆實際是 18px 與 17px。 */
+.b-stat-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* 🔴 編號與 h3 併同一行(OD `.b-statement-col-head` 逐字);本檔 `b-` 前綴慣例。 */
+.b-statement-col-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+/* 🔴 OD 抄漏值(核對 `.b-statement-col-num` / `.b-statement-col h3` / `.b-statement-col p` 三條後
+   補上,不在 Sean 給的表裡):`margin-bottom:16px` 是舊直排版面(編號獨佔一行)留下的間距,併同一行後
+   改由 `.b-statement-col-head` 的 `margin-bottom:8px` 接手,原值留著會在編號右側多墊出一截、把段落
+   再往下推 16px。OD 這條只有 color。 */
 .ed-statement-col-num {
   color: rgba(255,255,255,0.4);
-  margin-bottom: 16px;
 }
+/* 🔴 OD 抄漏值(核對 `.b-statement-col h3` 那條後補上):字級 22px→18px、`margin:0 0 14px`→`margin:0`、
+   移除 `letter-spacing:-0.005em`(OD 沒有這條)—— 三欄壓縮後標題與內文比例也要跟著縮小,
+   舊字級配新間距會讓標題明顯過大、和「砍三成」的意圖矛盾。 */
 .ed-statement-col h3 {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 600;
-  margin: 0 0 14px;
-  letter-spacing: -0.005em;
+  margin: 0;
 }
+/* 🔴 OD 抄漏值(核對 `.b-statement-col p` 那條後補上):字級 15px→14px。 */
 .ed-statement-col p {
-  font-size: 15px;
+  font-size: 14px;
   line-height: 1.65;
   color: rgba(255,255,255,0.7);
   margin: 0;
 }
 .ed-statement-cta {
   display: flex;
-  gap: 40px;
+  gap: 28px;
   flex-wrap: wrap;
   align-items: center;
 }
 @media (max-width: 900px) {
-  .ed-statement { padding: 80px 0; }
-  .ed-statement-grid { grid-template-columns: 1fr; gap: 36px; }
+  .ed-statement { padding: 44px 0 48px; }
+  .b-statement-top { gap: 26px; margin-bottom: 26px; }
+  /* 平板還撐得住三欄(768 時每欄約 233px,OD 原句;本 repo 實算 226.7px —— gutter 20 內容 728px,
+     減 2×24 gap 除 3);原本 900 就壓成單欄,右側空一大片(OD 那段 media query 的註解逐字,
+     grep `每欄約` 找)。 */
+  .ed-statement-grid { gap: 24px; }
+}
+@media (max-width: 700px) {
+  .ed-statement-grid { grid-template-columns: 1fr; gap: 26px; }
 }
 
 /* ============================================================
-   07 · BRAND INDEX (typographic list, hovers to underline)
+   07 · BRAND WALL (N°06 授權代理:20 家 logo 磚牆)
    ============================================================ */
+/* D5f(2026-08-06):17 家純文字清單 `.ed-brands` / `.ed-brand-list` 整段退場,
+   換成 OD 定案稿的 20 家 logo 磚牆。字面來源 =
+   `direction-b-layout-01-graphite-ember.html` CSS `:459-570`
+   + 「石墨 + 熔橘 · 套用層」`:694-704`。
+   🔴 **兩層在本檔折成一層**(repo 沒有 OD 那個「先畫深色場、再整段改淺」的沿革層)——
+      逐條對照,套用層贏的值直接寫進基礎規則:
+        · `.b-brands` 底色:基礎 `var(--c-surface)`(#ffffff)→ 套用層 `var(--ed-c-paper-2)` ✅ 用後者
+        · `a:hover` 底色:基礎 `var(--ed-c-paper-2)` → 套用層 `var(--ed-c-paper)` ✅ 用後者
+        · `.b-brand-tag` 顏色:基礎 `var(--ed-c-ink)` → 套用層 `var(--ed-c-ink-soft)` ✅ 用後者
+        · CTA 磚底色:基礎 `var(--ed-c-ink)` → 套用層 `var(--c-red)` ✅ 用後者(本檔 = `--ed-c-action`)
+        · 套用層的 `.b-brand-wall a{background-image:none}` 是為了取消深色場的漸層 ——
+          基礎層在本檔就沒有那個宣告,**故不搬**(搬了會覆蓋掉 logo 的 background-image)。
+      ⚠️ 折疊的代價:日後回 OD 對字面時,只讀 `:459-570` 會覺得上面那四處都不一樣。所以列在這裡。
+   ⚠️ token 對照:OD `--c-red` = `#f26722`,本檔用同值的 `--ed-c-action`
+      (理由見本檔 `:16` 那段:`--ed-c-action-active` 站台沒有對應顆)。 */
 /* D5a:N°06 授權代理由白改淺灰白 —— 用 **token `--ed-c-paper-2`**(OD README 表只寫 token 名、不寫 hex;
    現值 `#f7f7f8`,OD 稿 direction-b 的對應色為 `#f6f6f7`、差一階 —— 本片不動該 token,
    要不要收斂由 Sean 定)。表逐字:
    「08-02 改淺,原色 logo 可讀性」)。這一格是節奏「白 白 深 白 淺灰白 深」的倒數第二塊,
    用來把頁尾那塊深色墊出來、避免整頁收尾三連白。 */
-.ed-brands {
-  padding: 100px 0 120px;
+.b-brands {
+  padding: 52px 0 60px;
   background: var(--ed-c-paper-2);
 }
-.ed-brand-list {
+.b-brands .ed-section-head {
+  margin-bottom: 24px;
+}
+/* 20 家固定排成 5 × 4;CTA 另起一列跨滿(OD :467-469 註解逐字)。
+   `list-style: none` 是本檔既有慣例(OD 靠 reset;退場的 `.ed-brand-list` 當初也補了同族三行)。 */
+.b-brand-wall {
   max-width: var(--ed-max);
   margin: 0 auto;
   padding: 0 var(--ed-gutter);
   list-style: none;
-  border-top: 1px solid var(--ed-c-rule);
-}
-.ed-brand-list li {
-  border-bottom: 1px solid var(--ed-c-rule);
-}
-/* 🔴 選擇器是 `> li > :is(a, span)` 而不是 `a`(D3c-2):目錄零商品的品牌那幾列渲染成
-   `<span>`(見 `BrandIndex.tsx`),沿用 `a` 的話那幾列會整個沒有 grid = 五格擠成一行文字。
-   🔴🔴 **一定要是子選擇器**:寫成後代的 `.ed-brand-list :is(a, span)` 會把**列內每一個
-      `<span>`**(編號 / 名稱 / 標語 / 國別 / 那句只給報讀器的話)也一起套上 `display: grid`
-      與 26px padding —— 整排版面當場爆掉。這是本片第一版真的寫錯、動手時抓到的。
-   ⚠️ 只有**版面**這一條改成兩型別;下面的 `a:hover` 一族**刻意維持只給 `<a>`** ——
-      不可點的列本來就不該有 hover 回饋。特異度 (0,1,2) 仍輸給 `a:hover` 的 (0,2,1),
-      hover 位移不受影響。 */
-.ed-brand-list > li > :is(a, span) {
   display: grid;
-  grid-template-columns: 56px 1fr 1fr 80px 40px;
-  align-items: center;
-  gap: 24px;
-  padding: 26px 8px;
-  transition: padding 0.25s ease;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border-top: 1px solid var(--ed-c-rule);
+  border-left: 1px solid var(--ed-c-rule);
 }
-.ed-brand-list a:hover {
-  padding-left: 24px;
-  padding-right: 0;
+.b-brand-wall li {
+  border-right: 1px solid var(--ed-c-rule);
+  border-bottom: 1px solid var(--ed-c-rule);
+  min-width: 0;
 }
-.ed-brand-num {
+/* 一格三層(OD :467-469 註解逐字):① 編號 / 產地 ② 固定高度 Logo 展示區 ③ 品類描述。
+   英文品牌名不再重複顯示,完整名稱留在 `aria-label`。
+   🔴 選擇器是 `> li > :is(a, span)` 而不是 `a`(承 D3c-2 的教訓,本片沿用):目錄零商品的
+      品牌那幾磚渲染成 `<span>`(見 `BrandIndex.tsx`),沿用 `a` 的話那幾磚整個沒有 grid ——
+      三層會塌成一行、而且 `min-height` 也不生效,那一列會比別列矮。
+   🔴🔴 **一定要是子選擇器**:寫成後代的 `.b-brand-wall :is(a, span)` 會把磚內每一個
+      `<span>`(編號 / 產地 / logo / 品類描述 / 那句只給報讀器的話)也套上 `display: grid`
+      與 14px padding ⇒ 整面牆爆掉。D3c-2 第一版真的寫錯過,不是假想。
+   ⚠️ 只有**版面**這一條吃兩型別;`a:hover` 與 `a::after`(熔橘頂線)一族**刻意只給 `<a>`**
+      —— 不可點的磚本來就不該有 hover 回饋,而且綁型別之後泛白磚永遠不進那些規則,
+      不必再寫 `.is-empty` 覆寫去搶權重(同 `brand-directory.css:207` 那條的處理)。 */
+.b-brand-wall > li > :is(a, span) {
+  display: grid;
+  grid-template-rows: auto 54px minmax(38px, auto);
+  gap: 10px;
+  height: 100%;
+  min-height: 158px;
+  padding: 14px 16px;
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.18s;
+}
+.b-brand-wall a:hover {
+  background-color: var(--ed-c-paper);
+}
+/* hover 熔橘細線:沿用商品卡 `.pcard::before` 的同一個語彙(OD :476 註解逐字;
+   OD 基礎層寫 `--c-red`,本檔用同值的 `--ed-c-action`)。 */
+.b-brand-wall a::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--ed-c-action);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.b-brand-wall a:hover::after {
+  transform: scaleX(1);
+}
+/* Logo 展示列。OD 是 `a::before` + 20 條 `data-od-id` 選擇器餵 background-image 與
+   `--logo-scale`(:487-537);本 repo 改成真的 DOM 元素 + inline 兩個值(理由見
+   `BrandIndex.tsx` 檔頭第 2 條)。**幾何與 20 個校正值一字未改** ——
+   校正值住 `data/brand-trim-logo-scale.ts`,與 `/brands` 卡片共用同一份。
+   ⚠️ `--logo-scale` 的預設值 1 寫在這裡的 `var()` 第二引數:元件端漏帶時是「稍微小一點」、
+      不是消失 ⇒ 判別力靠 `BrandIndex.test.tsx` 的鍵集合守門,不是靠肉眼。 */
+.b-brand-logo {
+  grid-row: 2;
+  width: 86%;
+  height: 54px;
+  justify-self: center;
+  align-self: center;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  transform: scale(var(--logo-scale, 1));
+  transform-origin: center;
+  pointer-events: none;
+  transition: transform 0.2s ease;
+}
+.b-brand-top {
+  grid-row: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.b-brand-num,
+.b-brand-country {
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
   color: var(--ed-c-ink-mute);
 }
-.ed-brand-name {
-  font-size: 28px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--ed-c-ink);
-}
-.ed-brand-tag {
-  font-size: 14px;
+.b-brand-tag {
+  grid-row: 3;
+  align-self: stretch;
+  min-height: 38px;
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-top: 1px solid var(--ed-c-rule);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
+  letter-spacing: 0.015em;
   color: var(--ed-c-ink-soft);
 }
-.ed-brand-country {
-  color: var(--ed-c-ink-mute);
-  justify-self: end;
+/* 「看全部品牌」跨滿一列(OD :497 / :546-552)。 */
+.b-brand-wall li.is-cta {
+  grid-column: 1 / -1;
 }
-.ed-brand-arrow {
-  justify-self: end;
-  font-size: 20px;
-  color: var(--ed-c-ink-mute);
-  transition: transform 0.25s, color 0.2s;
+.b-brand-wall li.is-cta a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 54px;
+  padding: 15px 17px;
+  background: var(--ed-c-action);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
-.ed-brand-list a:hover .ed-brand-arrow {
-  transform: translateX(6px);
-  color: var(--ed-c-ink);
+.b-brand-wall li.is-cta a:hover {
+  background: var(--ed-c-action-hover);
+}
+/* CTA 磚不吃上面那條頂線(它整塊本來就是實心動作色)。 */
+.b-brand-wall li.is-cta a::after {
+  content: none;
 }
 /* 🔴 **本區對 design 真權威的申報偏離台帳**(鐵則 1 可追性;形式照 `brand-page.css` 檔頭)
- *    ⚠️ **「真權威」在本線指的是 Open Design `pcm-home-redesign`**(Sean 2026-08-03 拍 Q1=B,
- *       鐵則 1 的明文例外)—— 下面拿 `design-reference/styles/home.css` 當比對基準,是因為
- *       首頁那一段的現況出自它、且 OD 尚未覆蓋這一區;**D5 首頁重排時基準要換成 OD**,
- *       不要把這張台帳讀成「design-reference 仍是首頁的真權威」(關卡2 R2 nit)。
- *    —— 與 `design-reference/styles/home.css` 對應區塊的三處差異,都是 D3c-2 依
- *    Sean 2026-08-04 拍板(信箱 `C-31-A`)新增,**設計稿零命中**:
- *      · `.ed-brand-list a` → `.ed-brand-list > li > :is(a, span)`(兩處;宣告一字未動,
- *        純選擇器改名 —— 列現在可能是 `<a>` 也可能是 `<span>`)
- *      · `.is-empty` 三條(泛白狀態,設計稿完全沒有這個狀態)
+ *    ✅ **D5f(2026-08-06)已把比對基準換成 OD** —— 上一版這裡拿
+ *       `design-reference/styles/home.css` 當基準,並自己註記「D5 首頁重排時基準要換成 OD」。
+ *       本區整段重寫自 OD 定案稿 ⇒ 基準改為
+ *       `pcm-home-redesign/direction-b-layout-01-graphite-ember.html:459-570` + 套用層 `:694-704`,
+ *       `design-reference` 對本區已完全不適用(它畫的是退場的 17 家文字清單)。
+ *    —— 與 OD 對應區塊的四處差異(前三處是 D3c-2 依 Sean 2026-08-04 拍板 `C-31-A` 新增、
+ *    第四處是 D5f 的實作選擇),**設計稿零命中**:
+ *      · `.b-brand-wall a` → `.b-brand-wall > li > :is(a, span)`(版面那一條;宣告一字未動,
+ *        純選擇器改形 —— 磚現在可能是 `<a>` 也可能是 `<span>`)
+ *      · `.is-empty` 四條(泛白狀態,設計稿完全沒有這個狀態)
  *      · `.ed-sr-only`(只給報讀器的文字,設計稿零命中)
- *    ⇒ 這三處是 repo 先行、設計稿還沒跟進。**回寫債併記 backlog #322**(第二批)。
+ *      · `.b-brand-logo`(設計稿是 `a::before`;改真元素的理由見 `BrandIndex.tsx` 檔頭)
+ *    ⇒ 這四處是 repo 先行、設計稿還沒跟進。**回寫債併記 backlog #322**(第二批)。
+ *
+ * 🔴 **反方向也要記:OD 有、本檔刻意不搬的五條宣告**(R1 F2;鐵則 1 的可追性是雙向的)——
+ *    五條全部是「logo 從 `a::before` 換成真元素」之後的 no-op,逐條驗過才不搬:
+ *      · OD `:490 filter:none` / `:491 opacity:1` —— 本檔 `.b-brand-logo` 對這兩個屬性零宣告,
+ *        計算值本來就是 none / 1;而泛白覆寫 `.b-brand-wall .is-empty .b-brand-logo` = (0,3,0)
+ *        贏 (0,1,0),寫不寫都不影響勝負(真瀏覽器實測泛白磚確實是灰的)。
+ *      · OD `:493 a:hover::before{opacity:1}` —— 同上,opacity 本來就 1。
+ *      · OD `:494 a>*{position:relative;z-index:1}` —— OD 那層是為了讓文字疊在**背景層的
+ *        `::before` logo** 之上;本檔 logo 是排在第二列的獨立 grid item、與文字不重疊。
+ *      · OD `:495 li.is-cta a::before{content:none}` —— 本檔 CTA 磚根本沒有 logo 元素。
+ *    ⚠️ 若哪天把 logo 改回偽元素,這五條要一起搬回來。
+ *
+ * ⚠️ 順帶記(R1 F8,**不是本片造成的**):OD `:926` 的 N°03 表頭也是 `<h2>`,但
+ *    `CategoryGrid.tsx` / `HomeSelect.tsx` 仍是 `<div>` ⇒ 首頁目前只有 N°06 這一顆 `<h2>`。
+ *    H3 分類片會動到 N°03,屆時一起對齊;整站語彙收斂仍掛 #322。
  *
  * ── 目錄零商品的品牌:泛白、不可點(D3c-2;Sean 2026-08-04 拍板 `C-31-A`,
  *    主視窗 `C-33-A` 裁示首頁比照品牌頁磚牆一致執行)────────────────────────
- * 🔴 **「不可點」的語意由元件做**(那幾列渲染成 `<span>` 不是 `<a>`,見 `BrandIndex.tsx`);
+ * 🔴 **「不可點」的語意由元件做**(那幾磚渲染成 `<span>` 不是 `<a>`,見 `BrandIndex.tsx`);
  *    本段只負責**看起來也不可點**。只做視覺不做語意 = 鍵盤與報讀器仍到得了,那是最糟的組合。
  *
  * 🔴🔴 **同一批元素上還有誰在寫同一個屬性**(D3c-1 連兩個真視覺缺陷都是漏了這一步:
- *    改一族選擇器的權重卻沒回頭看它的競爭者)——本段動的三個屬性逐一列過:
- *      · `color`:`.ed-brand-name` / `-tag` / `-country` / `-num` 都是 (0,1,0),
- *        本段 `.ed-brand-list .is-empty .ed-brand-*` = (0,3,0) ⇒ 穩勝、與順序無關。
- *      · `color` 的另一個競爭者 `.ed-brand-list a:hover .ed-brand-arrow` = (0,3,1),
- *        **但它綁 `a`、而泛白列是 `<span>`** ⇒ 永遠不同時匹配、不可能反轉。
+ *    改一族選擇器的權重卻沒回頭看它的競爭者)——本段動的四個屬性逐一列過(D5f 重列):
+ *      · `color`:`.b-brand-tag` = (0,1,0),本段 `.b-brand-wall .is-empty .b-brand-tag`
+ *        = (0,3,0) ⇒ 穩勝、與順序無關。
+ *      · `opacity` / `filter`:`.b-brand-logo` 本身零宣告(它只寫 transform);
+ *        `.b-brand-wall a:hover::before` 那種舊寫法在本檔不存在(logo 已是真元素)。
  *      · `cursor`:全檔本區零其他宣告。
- *    ⇒ 本段刻意用「同前綴 + 多一個 class」的形狀(嚴格更高),不是靠順序 ——
- *      這是 D3c-1 那兩次的修正動作,不是同款寫法。 */
-.ed-brand-list .is-empty { cursor: default; }
-.ed-brand-list .is-empty .ed-brand-name { color: var(--ed-c-ink-mute); }
-.ed-brand-list .is-empty .ed-brand-tag,
-.ed-brand-list .is-empty .ed-brand-country { opacity: .6; }
+ *      · 熔橘頂線 `.b-brand-wall a::after`:綁 `a` ⇒ 泛白磚(`<span>`)**根本不進那條規則**,
+ *        不必也不該寫 `.is-empty::after{content:none}` 去搶(同 `brand-directory.css:207`)。
+ *    ⇒ 本段刻意用「同前綴 + 多一個 class」的形狀(嚴格更高),不是靠順序。
+ *
+ * 🔴 泛白的值沿用 `/brands` 卡片那份(`brand-directory.css:317-321`)—— 同一個 Sean 拍板、
+ *    同一種「logo 磚」載體,不再發明第二套灰階配方。 */
+.b-brand-wall .is-empty { cursor: default; }
+.b-brand-wall .is-empty .b-brand-logo { filter: grayscale(1) brightness(.78) contrast(.92); opacity: .55; }
+.b-brand-wall .is-empty .b-brand-tag { color: var(--ed-c-ink-mute); }
+.b-brand-wall .is-empty .b-brand-top { opacity: .6; }
 
 /* 只給報讀器的文字。名字帶 `ed-` 前綴、不叫 `.sr-only` —— 理由與 `brand-page.css` 的
    `.bp-sr-only` 同一條(2026-08-04 實查:站台級的 `.sr-only` 目前不存在,要放哪、
    用哪個實作是 D5 整站語彙的事,不由單一頁面開先例)。宣告與那支逐字相同。
-   ⚠️ `position:absolute` ⇒ 它**不是 grid item**、不占第五軌,所以泛白列少畫箭頭
-      不會被這一句補回來(兩件事互不影響)。 */
+   ⚠️ `position:absolute` ⇒ 它**不是 grid item**:D5f 之後它掛在 `.b-brand-tag` 裡面,
+      不會把那一格的 `min-height: 38px` 撐開、也不占第三列以外的任何位置。 */
 .ed-sr-only {
   position: absolute;
   width: 1px; height: 1px;
@@ -857,17 +1468,38 @@
   border: 0;
 }
 
+/* RWD 三段照 OD :553-570 字面。🔴 三段的磚內版面規則**都要吃 `<span>`**
+   (同為 `> li > :is(a, span)`):只寫 `a` 的話泛白那幾磚在窄螢幕仍套桌機的列高與留白
+   ⇒ 同一面牆兩種尺寸,而 jsdom 對 media query 完全看不到。 */
+@media (max-width: 1200px) {
+  .b-brand-wall { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .b-brand-wall li.is-cta { grid-column: 1 / -1; }
+}
 @media (max-width: 900px) {
-  /* 🔴 這條也要吃 `<span>`:只寫 `a` 的話泛白那幾列在手機上仍套桌機的五軌
-     (`56px 1fr 1fr 80px 40px`)⇒ 同一份清單兩種欄寬、而且沒有任何測試看得到。
-     形狀與上面那條**必須一致**(同為 `> li > :is(a, span)`)—— 理由同上。 */
-  .ed-brand-list > li > :is(a, span) {
-    grid-template-columns: 36px 1fr 32px;
-    gap: 12px;
-    padding: 20px 4px;
+  .b-brands { padding: 44px 0 48px; }
+  .b-brand-wall > li > :is(a, span) {
+    min-height: 154px;
+    padding: 13px 14px;
+    grid-template-rows: auto 52px minmax(40px, auto);
+    gap: 9px;
   }
-  .ed-brand-tag, .ed-brand-country { display: none; }
-  .ed-brand-name { font-size: 22px; }
+  .b-brand-logo { width: 88%; height: 52px; }
+  .b-brand-wall li.is-cta a { padding: 13px 14px; }
+}
+@media (max-width: 700px) {
+  /* 手機固定兩欄,避免三欄把 Logo 與中文介紹一起壓扁(OD :558 註解逐字)。 */
+  .b-brand-wall { grid-template-columns: 1fr 1fr; }
+  .b-brand-wall li.is-cta { grid-column: 1 / -1; }
+  .b-brand-wall > li > :is(a, span) {
+    min-height: 160px;
+    padding: 12px 13px 13px;
+    grid-template-rows: auto 50px minmax(44px, auto);
+    gap: 9px;
+  }
+  .b-brand-logo { width: 90%; height: 50px; }
+  .b-brand-wall li.is-cta a { padding: 12px 13px; }
+  .b-brand-country { letter-spacing: 0.03em; }
+  .b-brand-tag { min-height: 44px; padding-top: 8px; font-size: 14px; line-height: 1.5; }
 }
 
 /* ============================================================
@@ -1008,23 +1640,31 @@
    新版 heading(我的愛車 + 副註)自成一列、chips 在下一列 ⇒ 規則只掛 chips 那一列
    (`.cat-garage-chips`),heading 不參與捲動。負 margin 的 gutter 出血照舊。 */
 @media (max-width: 900px) {
-  .ed-finder .cat-garage--inline .cat-garage-chips {
+  .b-dock .cat-garage--inline .cat-garage-chips {
     flex-wrap: nowrap;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: none; /* 捲動條藏(strip 慣例);仍可滑 */
-    margin-right: calc(var(--ed-gutter) * -1);
-    padding-right: var(--ed-gutter); /* 右緣露半顆=可滑 affordance、沿用 gutter */
+    /* 🔴 2026-08-07 修:原本吃 `--ed-gutter`(≤900 是 20px),但 `.b-dock` 自己的
+       左右內距是 **16px** ⇒ 負邊距比內距多 4px,chips 這一列會**伸出白卡右緣 4px**
+       (真瀏覽器 488px 量到 `chips.right - dock.right = 4`)。
+       出血要對齊的是**容器自己的內距**,不是頁面 gutter —— 兩者無關、只是碰巧接近。
+       ⇒ 改吃 `--dock-pad`(在同一個 @media 裡與 `.b-dock` 的 padding 同源宣告)。
+       ⚠️ 取捨申報:OD 對同型出血(`.b-dock-jump`)是直接寫死 `-16px` / `16px`,沒有變數。
+       多這一層間接換到的是「padding 改了、守門會紅」的耦合證 —— 這是本片刻意付的成本,
+       不是變數比較好看。(`.b-dock-jump` 整族本 repo 不搬,沒有第二個呼叫端要一起改。) */
+    margin-right: calc(var(--dock-pad) * -1);
+    padding-right: var(--dock-pad); /* 右緣露半顆=可滑 affordance */
   }
-  .ed-finder .cat-garage--inline .cat-garage-chips::-webkit-scrollbar { display: none; }
+  .b-dock .cat-garage--inline .cat-garage-chips::-webkit-scrollbar { display: none; }
   /* nowrap 不在這裡 —— 它是**全斷點**的,寫在 filter-cascade.css 的
      `.cat-garage--inline .cat-garage-chip`(只放這裡的話桌機長車名照樣折行撐高)。 */
-  .ed-finder .cat-garage--inline .cat-garage-chip { flex: 0 0 auto; }
+  .b-dock .cat-garage--inline .cat-garage-chip { flex: 0 0 auto; }
   /* 建議清單維持 wrap(明選清單要一次看全、與愛車列非同病;V-2d② 原註逐字保留) */
 }
 /* 行內密度在首頁 finder 內的間距:原 `.ed-finder-garage` 有 margin-bottom:12px,
    換 class 後由此接手(GarageChips 本身不帶外距,免得四個掛載點互相牽動)。 */
-.ed-finder .cat-garage--inline { margin-bottom: 12px; }
+.b-dock .cat-garage--inline { margin-bottom: 12px; }
 
 /* ── V-1c 視覺回歸修(Sean 回饋「首頁欄位很醜」):combobox 在 finder 變體沿 design
    .ed-finder-slot select 外觀(無框線/透明底/同字級/右側 chevron),版型回 slot 結構 ── */
@@ -1052,6 +1692,11 @@
    是硬寫的 `--ed-c-paper` 白、整個 `.ed-*` 調色盤刻意無深色變體 ⇒ 吃站台層 token 會在深色模式
    把白底上的字變更淡。(實查:repo 目前**沒有**任何切 `data-theme` 的入口 ⇒ 此為防禦、非現況風險;
    同型判斷已有 `brand-page.css` / `products-mobile.css` 兩處先例。) */
+/* 🔴 2026-08-07:OD 的 `.ed-finder-slot input` 也有 `min-width: 0`(與 slot 那條成對)。
+   審查抓到我原本只搬了 slot 那一處、卻在註解裡舉了「兩處都有」當證據 = 舉證兩處只做一處。
+   站上這顆是 combobox 的裸 input,`filter-cascade.css` 在 ≤1023px 已給它 `min-width: 0`,
+   但那是**別支檔的斷點規則**、且只在窄幅生效 ⇒ 這裡補一份無條件的,讓保真與依賴都完整。 */
+.ed-finder-slot .vsc-input--finder { min-width: 0; }
 .ed-finder-slot .vsc-input--finder::placeholder { color: var(--ed-c-ink-mute); opacity: 1; }
 .ed-finder-slot .vsc-input--finder:disabled {
   color: var(--ed-c-ink-mute);
