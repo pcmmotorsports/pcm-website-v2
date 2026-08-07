@@ -9145,7 +9145,25 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   只有 Δ 對帳抓得到)。它現在靠人每次記得手動比對;漏一次就是靜默吃掉相鄰內容,而且**事後看 diff 也不容易發現**
   (被吃掉的那段在 diff 裡長得像「本來就沒有」)。
 
-### #340. 🧪 lint-staged → check-syntax-nonts 的接線缺「真效果測」— 現有只是存在性釘
+### #340. ✅ 已完成(2026-08-07)lint-staged → check-syntax-nonts 的接線「真效果測」
+
+> **銷帳**:`scripts/check-syntax-nonts.gate.test.ts`(**9 格**)。在拋棄式 scratch git repo 實跑 `lint-staged`。
+> 格數組成:前提存在性釘 1 + 壞檔被擋 3(三種副檔名各一,斷 `exit=1` **且** stderr 含
+> `檢查 1 檔、1 個不過` ⇒ 同時釘住「跑到了 / 是這支判的」)+ 好檔放行 3 + glob 挑檔 1 + husky 呼叫釘 1。
+> 🔴 **關鍵設計**:scratch repo 的 lint-staged 設定與被呼叫的腳本路徑,**都是從主 repo 的
+> `package.json` 讀進去/抽出來**,不手抄、不硬編 —— 手抄等於測自己抄的那份,就又變回存在性釘了。
+>
+> **突變證據(精確口徑,別引用成比實際更強)**:
+> - glob 打成 `slq` → **紅 2 格** = `bad.sql` 效果格 + 前提存在性釘;`.sh`/`.yaml` 仍在涵蓋內故正確地綠
+> - entry 整條刪 → **紅 4 格** = 三個壞檔效果格 + 前提釘
+> - glob 放寬成 `*` → `beforeAll` throw、9 格顯示 skipped,**但 exit=1**(已實測,非假綠)
+> - 「glob 挑檔」那格的斷言判別力另以 probe 實證:真 glob 下 lint-staged 輸出
+>   `could not find any staged files`,放寬成 `*` 後該句消失 ⇒ 斷言會紅
+>
+> ⚠️ **仍未覆蓋**:`.husky/pre-commit` 有沒有被 husky 真的安裝、hook 有沒有執行權限 —— 那格只是存在性釘。
+> 下方為原始立案內容,保留。
+
+### ~~#340(原始立案)~~ 🧪 lint-staged → check-syntax-nonts 的接線缺「真效果測」— 現有只是存在性釘
 
 - **來源**:2026-08-07 三綠補洞片(`34099c01` / `b171fc01`)Fable R2 F2。
 - **現況**:`scripts/check-syntax-nonts.test.ts` 有一格讀 `package.json` 斷言
