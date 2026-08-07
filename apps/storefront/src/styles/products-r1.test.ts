@@ -159,17 +159,30 @@ describe('第3批 · R1-2 快加鈕黑→灰(Sean 逐字「黑色看不清楚」
 });
 
 describe('第3批 · R1-3 選車列彈性欄位(Sean 圈圖親自解鎖 B′ C1)', () => {
-  it('🔴 欄位由固定 184px 改成彈性等寬(flex 1 1 0 / min 150 / max 236)', () => {
+  it('🔴 欄位由固定 184px 改成彈性等寬(flex 1 1 0 / min 150 / **無成長上限**)', () => {
     const body = block(CASCADE, 'filter-cascade.css', '.cft-cascade .vsc {');
     expect(body, '欄位不是彈性').toMatch(/flex:\s*1 1 0/);
     expect(body, '少了收縮下限').toMatch(/min-width:\s*150px/);
-    expect(body, '少了成長上限 ⇒ 1440 下三欄會拉得過寬').toMatch(/max-width:\s*236px/);
+    // 🔴 Q15(Sean 2026-08-07)**把這條翻正**:原本這裡釘 `max-width: 236px`,理由寫
+    //    「少了成長上限 ⇒ 1440 下三欄會拉得過寬」—— 真瀏覽器實測(1440 訪客態)是**相反**的:
+    //    三欄被夾在 236px、內容右緣留 438px 空白,那正是 Sean 要修掉的東西。
+    //    上限本來就多餘,因為列寬自己封頂(下一個 it 守那條)。
+    expect(body, '成長上限又回來了 ⇒ 1440 訪客態右側會再空 438px').not.toMatch(/max-width:/);
     // 反面:184px 的固定寬不得復活(那正是「右側大片死空間」的來源)。
     // 🔴 N2:舊寫法是 `width: 184px; min-width: 184px` 兩行一組(1220 段是 156)。
     //    只鎖 `min-width` 的話,單寫回一行 `width: 184px` 就能把彈性打死而不紅。兩種都鎖。
     expect(CASCADE, '固定 184px 欄寬又回來了').not.toMatch(/(min-)?width:\s*184px/);
     expect(CASCADE, '1220 斷點那組固定 156px 覆寫又回來了 ⇒ 會蓋掉彈性').not.toMatch(
       /(min-)?width:\s*156px/,
+    );
+  });
+
+  it('🔴 Q15 連坐:三欄的天花板改由列寬承擔 ⇒ `.cft-inner` 的 1440 封頂變成承重、不得移除', () => {
+    // 拿掉 `.cft-cascade .vsc` 的 max-width 之後,唯一還在限制欄寬的就是這條。
+    // 它若被刪(或改成 --shell-max: none),三欄會跟著超寬螢幕一路長,那是真的「拉得過寬」。
+    const body = block(CASCADE, 'filter-cascade.css', '.cft-inner {');
+    expect(body, '.cft-inner 少了 --shell-bar-max 封頂 ⇒ 三欄會跟著螢幕無限長').toMatch(
+      /max-width:\s*var\(--shell-bar-max\)/,
     );
   });
 
