@@ -28,7 +28,12 @@
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(2026-08-05 重 gen〔A9d2-2 開工前,取消線 UI 接線〕:
+// 反映 LIVE prod schema(🔴 **2026-08-07 重 gen** —— B2-S2a/S2b 兩支 + A9h-M 三支 apply 之後;
+//   本次新增:摘要表第四軸 `shipped_quantity`、`shipments` / `shipment_items` **兩張表首次進型別**
+//   (在此之前整條 B2-S1 線的表從未被重生進來)、`admin_upsert_item_procurement` 12 參。
+//   🔴 `a9v`(20260807120000)/ `a9b2_m`(20260807130000)**仍 pending** ⇒ 其產物**不在本檔=正確**,不得手補。
+//   ── 以下為上一輪 2026-08-05 重 gen 的紀錄,保留供追溯 ──
+//   (2026-08-05 重 gen〔A9d2-2 開工前,取消線 UI 接線〕:
 //   **A8c1/A8c2/A8a1/A8a2 四片皆已 apply** ——
 //   **新增** public.admin_cancel_order(uuid, uuid, text, text, text, jsonb) → jsonb
 //   = 訂單取消的**唯一寫入路徑**(SECURITY DEFINER owner RPC、search_path=''、lock_timeout=5s、
@@ -70,7 +75,15 @@
 //   p_supplier_order_no / p_exception_reason / p_expected_arrival_date —— migration `:228-289` 逐欄可為 NULL、
 //   正規化後肉眼全空亦收斂成 NULL;其餘六參數函式內 fail-closed 拒 NULL、型別非 null 是對的)。
 //   當初刻意延後的理由 = 呼叫端不存在時補了也沒有 typecheck 會守住;A10b 就是第一個呼叫端。檔頭計數見上。
-//   🔴 2026-08-06 A9h-M(`20260806200000`)**尚未 apply、本檔尚未重 gen**:該片把本函式改成
+//   🏁 **2026-08-07 更新:A9h-M 已 apply、本檔已重 gen** ⇒ 12 參是**生成的**,不再是手寫補丁。
+//   🔴🔴 **那個手寫補丁留下一個教訓,寫在這裡免得下次再做**:它的理由逐字是「好讓 typecheck 反映真實合約」,
+//     但 2026-08-07 實測(移除該參數後 `pnpm typecheck` 仍 **RC=0**)證明**它零保護力** ——
+//     這條呼叫路徑今天沒有被生成型別守住。更糟的是它**掩蓋了一次正式站事故**:
+//     型別檔宣稱 12 參,讓所有人以為合約已對齊,而正式站 `pronargs=11`
+//     ⇒ 採購 upsert 自 A9h-1 上線起在正式站是壞的(PGRST202),直到 2026-08-07 緊急 apply 才修復。
+//     ⇒ **「為了讓 typecheck 反映未 apply 的合約而手寫補型別」= 防護命名超過實際能力 + 遮蔽真實狀態,不要再做。**
+//   ── 以下為當時的原文,保留供追溯 ──
+//   (🔴 2026-08-06 A9h-M(`20260806200000`)**尚未 apply、本檔尚未重 gen**:該片把本函式改成
 //   **12 參**(尾端 `p_preserve_optional_fields boolean DEFAULT false`)。此刻先以手寫方式補進
 //   Args(照 DEFAULT 參數該有的可省略形狀)好讓 typecheck 反映真實合約;**apply 後仍須重 gen**
 //   並照檔頭計數重貼校正 —— 本片沒有新增校正項,計數不變。
@@ -706,6 +719,7 @@ export type Database = {
           order_item_id: string
           ordered_quantity: number
           quantity: number
+          shipped_quantity: number
         }
         Insert: {
           cancelled_quantity?: number
@@ -713,6 +727,7 @@ export type Database = {
           order_item_id: string
           ordered_quantity?: number
           quantity: number
+          shipped_quantity?: number
         }
         Update: {
           cancelled_quantity?: number
@@ -720,6 +735,7 @@ export type Database = {
           order_item_id?: string
           ordered_quantity?: number
           quantity?: number
+          shipped_quantity?: number
         }
         Relationships: [
           {
@@ -2064,6 +2080,107 @@ export type Database = {
           },
         ]
       }
+      shipment_items: {
+        Row: {
+          created_at: string
+          id: string
+          order_item_id: string
+          shipment_id: string
+          shipped_quantity: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          order_item_id: string
+          shipment_id: string
+          shipped_quantity: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          order_item_id?: string
+          shipment_id?: string
+          shipped_quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipment_items_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shipment_items_shipment_id_fkey"
+            columns: ["shipment_id"]
+            isOneToOne: false
+            referencedRelation: "shipments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      shipments: {
+        Row: {
+          carrier_code: string
+          carrier_note: string | null
+          created_at: string
+          customer_user_id: string
+          deleted_at: string | null
+          hct_raw_response: Json | null
+          hct_request_id: string | null
+          hct_status: string
+          id: string
+          recipient_snapshot: Json
+          shipment_reference: string
+          shipped_at: string | null
+          tracking_number: string | null
+          updated_at: string
+          void_reason: string | null
+        }
+        Insert: {
+          carrier_code: string
+          carrier_note?: string | null
+          created_at?: string
+          customer_user_id: string
+          deleted_at?: string | null
+          hct_raw_response?: Json | null
+          hct_request_id?: string | null
+          hct_status?: string
+          id?: string
+          recipient_snapshot: Json
+          shipment_reference: string
+          shipped_at?: string | null
+          tracking_number?: string | null
+          updated_at?: string
+          void_reason?: string | null
+        }
+        Update: {
+          carrier_code?: string
+          carrier_note?: string | null
+          created_at?: string
+          customer_user_id?: string
+          deleted_at?: string | null
+          hct_raw_response?: Json | null
+          hct_request_id?: string | null
+          hct_status?: string
+          id?: string
+          recipient_snapshot?: Json
+          shipment_reference?: string
+          shipped_at?: string | null
+          tracking_number?: string | null
+          updated_at?: string
+          void_reason?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "shipments_customer_user_id_fkey"
+            columns: ["customer_user_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["user_id"]
+          },
+        ]
+      }
       staff: {
         Row: {
           created_at: string
@@ -2580,6 +2697,7 @@ export type Database = {
         Args: { p_order_item_id: string }
         Returns: undefined
       }
+      pcm_b2_is_blank: { Args: { t: string }; Returns: boolean }
       pcm_generate_display_id: { Args: never; Returns: string }
       pcm_order_refundable_remaining: {
         Args: { p_order_id: string }
