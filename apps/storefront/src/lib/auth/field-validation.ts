@@ -25,8 +25,12 @@ import type { LoginInput as LoginData, RegisterInput as RegisterData } from '@pc
 
 export type RegisterField = 'name' | 'email' | 'phone' | 'password' | 'agree';
 export type LoginField = 'email' | 'password';
+export type ForgotField = 'email';
+export type ResetPasswordField = 'password' | 'confirm';
 export type RegisterFieldErrors = Partial<Record<RegisterField, string>>;
 export type LoginFieldErrors = Partial<Record<LoginField, string>>;
+export type ForgotFieldErrors = Partial<Record<ForgotField, string>>;
+export type ResetPasswordFieldErrors = Partial<Record<ResetPasswordField, string>>;
 
 // 可顯示欄位 allowlist:zod issue 只在這些欄才塞 fieldErrors(防契約外 key、如 login.remember 型別錯)。
 const REGISTER_FIELDS: ReadonlySet<RegisterField> = new Set(['name', 'email', 'phone', 'password', 'agree']);
@@ -135,5 +139,73 @@ export function validateLogin(input: unknown): {
     ok,
     fieldErrors: fe,
     data: ok ? parsed.data : undefined,
+  };
+}
+
+/**
+ * 忘記密碼逐欄驗證(email 單一欄、忘記密碼片新)。
+ * - email:trim 後空 → 沿用 LOGIN_PRESENCE.email(「請填寫 Email」);非空但格式錯 → 沿用
+ *   LoginInput.email 的 zod「Email 格式不正確」(重用 LoginInput.shape.email、不另寫一份 regex)。
+ */
+export function validateForgot(input: unknown): {
+  ok: boolean;
+  fieldErrors: ForgotFieldErrors;
+  data?: { email: string };
+} {
+  const o = (input ?? {}) as Record<string, unknown>;
+  const fe: ForgotFieldErrors = {};
+
+  if (!str(o.email).trim()) fe.email = LOGIN_PRESENCE.email;
+
+  const parsed = LoginInput.shape.email.safeParse(o.email);
+  if (!parsed.success && !fe.email) {
+    fe.email = parsed.error.issues[0]?.message ?? 'Email 格式不正確';
+  }
+
+  const ok = parsed.success && Object.keys(fe).length === 0;
+  return {
+    ok,
+    fieldErrors: fe,
+    data: ok && parsed.success ? { email: parsed.data } : undefined,
+  };
+}
+
+/**
+ * 重設密碼逐欄驗證(password + confirm 兩欄、忘記密碼片新)。
+ * Sean 2026-08-07 Q24-e 拍板「照稿用」逐字文案,confirm 兩句不可改寫。
+ * - password:trim 後空(含純空白)→「請填寫密碼」;非空但 <8 → 沿用 LoginInput.password 的 zod
+ *   「密碼至少 8 碼」(重用 LoginInput.shape.password、不另寫一份 min(8));傳出值不 trim
+ *   (允許密碼含空白字元、只擋「純空白=沒填」,對齊既有規則)。
+ * - confirm:trim 後空 →「請再輸入一次密碼」;非空但 !== password(🔴 用未 trim 的原值比對)
+ *   →「兩次輸入的密碼不一樣」。
+ */
+export function validateResetPassword(input: unknown): {
+  ok: boolean;
+  fieldErrors: ResetPasswordFieldErrors;
+  data?: { password: string };
+} {
+  const o = (input ?? {}) as Record<string, unknown>;
+  const fe: ResetPasswordFieldErrors = {};
+  const password = str(o.password);
+  const confirm = str(o.confirm);
+
+  if (!password.trim()) {
+    fe.password = '請填寫密碼';
+  } else {
+    const parsed = LoginInput.shape.password.safeParse(password);
+    if (!parsed.success) fe.password = parsed.error.issues[0]?.message ?? '密碼至少 8 碼';
+  }
+
+  if (!confirm.trim()) {
+    fe.confirm = '請再輸入一次密碼';
+  } else if (confirm !== password) {
+    fe.confirm = '兩次輸入的密碼不一樣';
+  }
+
+  const ok = Object.keys(fe).length === 0;
+  return {
+    ok,
+    fieldErrors: fe,
+    data: ok ? { password } : undefined,
   };
 }

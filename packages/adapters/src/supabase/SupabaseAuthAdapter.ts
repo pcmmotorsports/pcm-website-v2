@@ -83,4 +83,22 @@ export class SupabaseAuthAdapter implements IAuthService {
       throw mapSupabaseAuthError(error);
     }
   }
+
+  /** 寄出忘記密碼重設信。redirectTo 由呼叫端組好、本 adapter 不碰站台設定。 */
+  async sendPasswordResetEmail(params: { email: string; redirectTo: string }): Promise<void> {
+    const { error } = await this.supabase.auth.resetPasswordForEmail(params.email, {
+      redirectTo: params.redirectTo,
+    });
+    if (error) {
+      throw mapSupabaseAuthError(error);
+    }
+  }
+
+  /** 更新目前(recovery session)使用者密碼。 */
+  async updatePassword(newPassword: string): Promise<void> {
+    const { error } = await this.supabase.auth.updateUser({ password: newPassword });
+    if (error) {
+      throw mapSupabaseAuthError(error);
+    }
+  }
 }

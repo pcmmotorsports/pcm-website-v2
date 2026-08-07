@@ -79,3 +79,39 @@ describe('SupabaseAuthAdapter.signOut', () => {
     await expect(makeAdapter({ signOut }).signOut()).rejects.toBeInstanceOf(AuthError);
   });
 });
+
+describe('SupabaseAuthAdapter.sendPasswordResetEmail', () => {
+  const PARAMS = { email: 'a@b.com', redirectTo: 'https://shop.pcmmotorsports.com/reset-password' };
+
+  it('成功 resolve undefined、轉呼 resetPasswordForEmail(email, { redirectTo })', async () => {
+    const resetPasswordForEmail = vi.fn().mockResolvedValue({ data: {}, error: null });
+    await expect(makeAdapter({ resetPasswordForEmail }).sendPasswordResetEmail(PARAMS)).resolves.toBeUndefined();
+    expect(resetPasswordForEmail).toHaveBeenCalledWith('a@b.com', { redirectTo: PARAMS.redirectTo });
+  });
+
+  it('error(over_email_send_rate_limit) → throw AuthError(rate_limited)', async () => {
+    const resetPasswordForEmail = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: 'over_email_send_rate_limit', message: 'rate limited' },
+    });
+    await expect(makeAdapter({ resetPasswordForEmail }).sendPasswordResetEmail(PARAMS))
+      .rejects.toMatchObject({ code: 'rate_limited' });
+  });
+});
+
+describe('SupabaseAuthAdapter.updatePassword', () => {
+  it('成功 resolve undefined、轉呼 updateUser({ password })', async () => {
+    const updateUser = vi.fn().mockResolvedValue({ data: { user: USER }, error: null });
+    await expect(makeAdapter({ updateUser }).updatePassword('newpass123')).resolves.toBeUndefined();
+    expect(updateUser).toHaveBeenCalledWith({ password: 'newpass123' });
+  });
+
+  it('error(same_password) → throw AuthError(password_same_as_current)', async () => {
+    const updateUser = vi.fn().mockResolvedValue({
+      data: { user: null },
+      error: { code: 'same_password', message: 'same as current' },
+    });
+    await expect(makeAdapter({ updateUser }).updatePassword('newpass123'))
+      .rejects.toMatchObject({ code: 'password_same_as_current' });
+  });
+});

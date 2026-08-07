@@ -307,3 +307,127 @@
   .auth-card.lo-card { padding: 32px 22px; }
   .auth-card.lo-card h1 { font-size: 24px; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   忘記密碼 / 重設密碼(/login/forgot、/login/reset)—— 2026-08-08 接線片
+   🔴 **逐字直接搬自 OD `pcm-auth.css` 的新增末段(鐵則 1:直接搬、不翻譯)**。
+      稿由主視窗自 OD 專案代取、放 `pcm-mailbox/附件-D-忘記密碼-pcm-auth.css`,
+      本區塊 = 該檔 :84-197 原樣複製,**一個字元未改**(接上時以 `diff` 驗過 byte-identical)。
+   ⚠️ 稿內註解一併保留 —— 它記著三個「刻意不那樣做」的設計決定(不用左側色條 callout /
+      不用漸層彩條強度條 / 動作不寫成 `<a href="#">`),那些理由比樣式本身更容易被後人改掉。
+   ✅ 所用 7 個 token(--c-text / -2 / -3 / --c-border / --c-border-strong /
+      --c-surface-2 / --c-red-dark)接上前逐一 grep 過 `tokens.css`,全部站上已有。
+   ══════════════════════════════════════════════════════════════════════ */
+/* 回登入:卡片左上角的返回。密碼流程是死路一條,一定要留退路。 */
+.auth-back {
+  display: inline-flex; align-items: center; gap: 5px;
+  min-height: 44px;                       /* 觸控下限 */
+  margin: -10px 0 4px -4px; padding: 0 4px;
+  font-size: 13px; font-weight: 500;
+  color: var(--c-text-2);
+  transition: color 0.15s;
+}
+.auth-back:hover { color: var(--c-text); }
+.auth-back:focus-visible { outline: 2px solid var(--c-text); outline-offset: 2px; }
+
+/* 結果卡的圖示。實心方塊 + 反白圖形,不用 emoji。 */
+.auth-icon-ok, .auth-icon-warn {
+  display: flex; align-items: center; justify-content: center;
+  width: 46px; height: 46px;
+  margin-bottom: 18px;
+  color: #fff;
+}
+.auth-icon-ok   { background: var(--c-text); }
+.auth-icon-warn { background: var(--c-red-dark); }
+
+/* 說明清單。刻意**不用左側色條 callout**(全站避開的罐頭樣式),
+   用細線分隔 + 方點,份量剛好是「順帶說明」。 */
+.auth-steps {
+  list-style: none;
+  margin: 18px 0 22px;
+  padding: 0;
+  border-top: 1px solid var(--c-border);
+}
+.auth-steps li {
+  position: relative;
+  padding: 11px 0 11px 18px;
+  border-bottom: 1px solid var(--c-border);
+  font-size: 14px; line-height: 1.65;
+  color: var(--c-text-2);
+}
+.auth-steps li::before {
+  content: ""; position: absolute; left: 0; top: 19px;
+  width: 5px; height: 5px; background: var(--c-border-strong);
+}
+.auth-steps b { color: var(--c-text); font-weight: 600; }
+
+/* 次要說明段(社交登入沒有密碼 / 其他裝置會被登出)。 */
+.auth-note {
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  font-size: 13px; line-height: 1.7;
+  color: var(--c-text-2);
+}
+.auth-note b { color: var(--c-text); font-weight: 600; }
+
+.auth-hint { margin: 10px 0 0; font-size: 13px; line-height: 1.65; color: var(--c-text-3); }
+.auth-hint b { color: var(--c-text-2); font-weight: 600; }
+
+/* 描邊款主鈕(再寄一次)。一個畫面只有一顆實心主鈕,這顆是次要動作。 */
+.auth-submit-ghost {
+  background: transparent;
+  color: var(--c-text);
+  border: 1px solid var(--c-border-strong);
+}
+.auth-submit-ghost:hover { background: var(--c-surface-2); border-color: var(--c-text); }
+
+/* 用 <a> 當主鈕時補回按鈕的排版(.auth-submit 是給 <button> 寫的)。 */
+.auth-submit-link {
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; text-decoration: none;
+}
+
+/* 密碼欄 + 顯示/隱藏眼睛 */
+.auth-input-wrap { position: relative; display: block; }
+.auth-input-wrap input { width: 100%; padding-right: 46px; }
+.auth-eye {
+  position: absolute; right: 1px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px;              /* 觸控下限 */
+  border: 0; background: transparent;
+  color: var(--c-text-3); cursor: pointer;
+  transition: color 0.15s;
+}
+.auth-eye:hover { color: var(--c-text); }
+.auth-eye[aria-pressed="true"] { color: var(--c-text); }
+.auth-eye:focus-visible { outline: 2px solid var(--c-text); outline-offset: -2px; }
+
+/* 密碼強度:三段實心格。刻意不做漸層彩條 —— 那個看起來像遊戲血條,
+   而且顏色會讓人以為「黃色=不安全」,實際上 8 碼就已經通過規則了。 */
+.auth-meter { display: flex; align-items: center; gap: 10px; margin: -6px 0 18px; }
+.auth-meter-bars { display: flex; gap: 4px; flex: 0 0 auto; }
+.auth-meter-bar {
+  width: 26px; height: 4px;
+  background: var(--c-border);
+  transition: background 0.15s;
+}
+.auth-meter-bar.is-on { background: var(--c-text-3); }
+.auth-meter[data-level="1"] .auth-meter-bar.is-on { background: var(--c-red-dark); }
+.auth-meter[data-level="3"] .auth-meter-bar.is-on { background: var(--c-text); }
+.auth-meter-t { font-size: 12px; color: var(--c-text-3); }
+.auth-meter[data-level="1"] .auth-meter-t { color: var(--c-red-dark); }
+
+/* 長得像連結的按鈕。用在「換一個 Email」這種 **JS 動作**上 ——
+   全站盤點的教訓:動作不要寫成 <a href="#">,那是點下去什麼都不會發生的死連結,
+   而且鍵盤與螢幕閱讀器會把它當成可跳轉的連結。 */
+.auth-linkbtn {
+  border: 0; background: none; padding: 0;
+  font-family: inherit; font-size: inherit;
+  color: var(--c-red-dark); font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+.auth-linkbtn:hover { color: var(--c-text); }
+.auth-linkbtn:focus-visible { outline: 2px solid var(--c-text); outline-offset: 2px; }

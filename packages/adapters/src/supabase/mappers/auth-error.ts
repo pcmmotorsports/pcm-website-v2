@@ -28,6 +28,10 @@ const SUPABASE_CODE_MAP: Record<string, AuthErrorCode> = {
   email_exists: 'email_already_registered',
   weak_password: 'password_too_weak',
   email_not_confirmed: 'email_confirmation_required',
+  // 忘記密碼片新增(sendPasswordResetEmail / updatePassword、supabase-js v2 error-codes.ts 實測字面):
+  over_email_send_rate_limit: 'rate_limited',
+  over_request_rate_limit: 'rate_limited',
+  same_password: 'password_same_as_current',
 };
 
 export function mapSupabaseAuthError(error: SupabaseAuthErrorLike): AuthError {

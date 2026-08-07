@@ -24,6 +24,15 @@ describe('mapSupabaseAuthError', () => {
     expect(mapSupabaseAuthError({ code: 'email_not_confirmed' }).code).toBe('email_confirmation_required');
   });
 
+  it('over_email_send_rate_limit / over_request_rate_limit → rate_limited(忘記密碼片新)', () => {
+    expect(mapSupabaseAuthError({ code: 'over_email_send_rate_limit' }).code).toBe('rate_limited');
+    expect(mapSupabaseAuthError({ code: 'over_request_rate_limit' }).code).toBe('rate_limited');
+  });
+
+  it('same_password → password_same_as_current(忘記密碼片新)', () => {
+    expect(mapSupabaseAuthError({ code: 'same_password' }).code).toBe('password_same_as_current');
+  });
+
   it('未知 code → unknown', () => {
     expect(mapSupabaseAuthError({ code: 'some_future_code' }).code).toBe('unknown');
   });

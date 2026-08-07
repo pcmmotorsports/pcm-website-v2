@@ -16,6 +16,10 @@ export { loginCustomer } from './login-customer';
 export { logoutCustomer } from './logout-customer';
 export { updateProfile } from './update-profile';
 
+// 忘記密碼片新:寄重設信 / 設定新密碼(薄編排、走 IAuthService、對齊 login/logout use-case 樣式)。
+export { requestPasswordReset } from './request-password-reset';
+export { resetPassword } from './reset-password';
+
 export { addAddress, type AddressCreateInput } from './add-address';
 export { updateAddress, type AddressPatch } from './update-address';
 export { deleteAddress } from './delete-address';
