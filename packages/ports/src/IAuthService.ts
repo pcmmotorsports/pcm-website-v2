@@ -23,4 +23,21 @@ export interface IAuthService {
   signUp(params: AuthSignUpParams): Promise<AuthResult>;
   signInWithPassword(creds: AuthCredentials): Promise<AuthResult>;
   signOut(): Promise<void>;
+
+  /**
+   * 寄出忘記密碼重設信(忘記密碼片新)。
+   *
+   * `redirectTo` 由**呼叫端**用 `resolveSiteUrl()` 組好絕對網址傳進來;本 port 與其實作
+   * 皆不碰站台設定(對齊本檔既有邊界:認證動作以外的關注點不進本層)。
+   * 失敗照樣 throw AuthError(不吞錯)——「不洩漏帳號是否存在」是呼叫端(server action)
+   * 的責任、不在本層做:本層如實回報 Supabase 結果,避免安全決策同時藏在兩層。
+   */
+  sendPasswordResetEmail(params: { email: string; redirectTo: string }): Promise<void>;
+
+  /**
+   * 更新目前 session 使用者的密碼(忘記密碼片新、reset-password 頁使用)。
+   * 依賴注入 client 已帶有效 recovery session(由 Supabase reset link 建立);
+   * 本層不驗證 / 不建立 session,只轉呼 Supabase。失敗 throw AuthError。
+   */
+  updatePassword(newPassword: string): Promise<void>;
 }

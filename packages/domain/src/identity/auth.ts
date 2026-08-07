@@ -62,6 +62,8 @@ export type AuthErrorCode =
   | 'email_already_registered'
   | 'password_too_weak'
   | 'email_confirmation_required'
+  | 'rate_limited'
+  | 'password_same_as_current'
   | 'unknown';
 
 /**
