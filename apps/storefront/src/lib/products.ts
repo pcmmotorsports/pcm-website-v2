@@ -175,7 +175,11 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     //   無圖 → null、ProductImage fallback seed placeholder。修首頁/卡片「通用機車生活照」根因
     //   (原只設 imgTone:'neutral'、ProductImage 用 seed 生成 unsplash 通用照)。
     image: product.images[0] ?? null,
-    // trim 線 S4a:卡片首圖去白邊 bbox(domain cardImageTrim 已經 parseImageTrim 收斂;無=undefined → cover fallback)。
+    // trim 線 S4a:卡片首圖去白邊 bbox(domain cardImageTrim 已經 parseImageTrim 收斂;無=undefined)。
+    //   🔴 2026-08-07 更正:原註解寫「→ cover fallback」是**過期字面**。實際 fallback 是
+    //   **contain**(`ProductCard.tsx:154-157` 的 inline `objectFit: 'contain'`;Sean 2026-07-24
+    //   override design 原 cover,理由=非正方形合成圖 cover 會裁掉上下)。行為一直是對的、
+    //   只有這句註解停在改判之前;由設計端 OD 查證信反推查出。
     imageTrim: product.cardImageTrim,
     // M-1-16c-3:商品圖全陣列(ProductGallery 詳情頁用;image 為其第一張)。
     images: product.images,
