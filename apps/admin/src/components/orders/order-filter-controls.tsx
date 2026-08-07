@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH } from '@pcm/domain';
 import type { FilterOption } from '../../lib/shared/list-params';
 import { buildListHref } from '../../lib/shared/list-params';
 import {
@@ -10,6 +11,7 @@ import {
   ORDER_SOURCE_PARAM,
   PAYMENT_CHANNEL_PARAM,
   ORDER_NUMBER_PARAM,
+  SUPPLIER_ORDER_NO_PARAM,
 } from '../../lib/orders/order-list-view';
 import { MultiCheckFilter } from '../shared/multi-check-filter';
 import { AutoApplySelect } from '../shared/auto-apply-select';
@@ -18,8 +20,8 @@ import { AutoApplySelect } from '../shared/auto-apply-select';
 // 🔴 競態設計:各軸值收成**單一 client state、URL 全量由 state 導出**(buildListHref、page 恆回 1、
 //   r 不帶=清 stale banner)——不讀 useSearchParams/window.location 當基底,RSC 往返(數百 ms)中
 //   快速連勾/跨軸交錯也不會用 stale 快照互相蓋寫,checkbox/select 顯示同源自 state=無延遲窗回彈。
-//   前提:/orders 的 query 全集=**五**篩選軸(付款 / 出貨 / 來源 / 管道 /
-//   **單號搜尋 order_no**,M-4b E10 A10c1 新增)+page+r,無其他要保留的鍵
+//   前提:/orders 的 query 全集=**六**個鍵(付款 / 出貨 / 來源 / 管道 /
+//   **單號搜尋 order_no**,M-4b E10 A10c1 新增;**供應商單號 supplier_no**,A10c2 新增)+page+r,無其他要保留的鍵
 //   (A9w2:原第六軸「商品狀態 workflow_status」隨九碼退場已下架 —— state、URL 參數、
 //    MultiCheckFilter 三處同時移除;少移一處都會留下「改別軸就把它丟掉」或「丟不掉」的半殘狀態)
 //   (新增鍵時須進 state 或此處明列 —— 漏了就是「改任一篩選就把該鍵丟掉」的 fail-open)。
@@ -40,6 +42,12 @@ type FilterState = {
    * 本檔頂部的前提註解早就寫死了這條規則。
    */
   no: string;
+  /**
+   * 供應商單號搜尋詞(M-4b E10 A10c2;'' = 不搜尋)。
+   * 🔴 進 state 的理由與 `no` 逐字相同:不進 state 的鍵會在「改任一其他篩選 / 翻頁」時
+   * 被靜默丟掉 ⇒ 搜尋詞消失、列表變回全部訂單(fail-open)。
+   */
+  supplierNo: string;
 };
 
 function href(state: FilterState): string {
@@ -51,6 +59,7 @@ function href(state: FilterState): string {
       [ORDER_SOURCE_PARAM, state.src],
       [PAYMENT_CHANNEL_PARAM, state.ch],
       [ORDER_NUMBER_PARAM, state.no || undefined],
+      [SUPPLIER_ORDER_NO_PARAM, state.supplierNo || undefined],
     ],
     1,
   );
@@ -67,6 +76,7 @@ export function OrderFilterControls({
   channelOptions,
   initial,
   orderNumberSearchEnabled = false,
+  supplierOrderNoSearchEnabled = false,
 }: {
   paymentOptions: FilterOption[];
   fulfillmentOptions: FilterOption[];
@@ -78,12 +88,19 @@ export function OrderFilterControls({
    * 🔴 預設 false —— DB 前置(D0 的 `orders.legacy_display_id`)未 apply 前不得開。
    */
   orderNumberSearchEnabled?: boolean;
+  /**
+   * 供應商單號搜尋是否啟用(M-4b E10 A10c2;§7.1 逐批啟用閘)。
+   * 🔴 預設 false —— DB 前置(A9b2-M 的產生欄 `supplier_order_no_upper`)未 apply 前不得開,
+   * 開了會讓**整個訂單列表**進錯誤態、不只搜尋壞掉。
+   */
+  supplierOrderNoSearchEnabled?: boolean;
 }) {
   const router = useRouter();
   const [state, setState] = useState(initial);
   // 搜尋框是「打字中」的暫存值,跟其他軸不同:其他軸是選了即時生效,
   // 單號要按 Enter 才送出(每打一個字就發一次查詢既吵又慢)。
   const [draftNo, setDraftNo] = useState(initial.no);
+  const [draftSupplierNo, setDraftSupplierNo] = useState(initial.supplierNo);
   // server prop 變動時的採用規則(值班台 R2 nit-1):只採用「非我方推送期的外部值」
   // (lastPushedKey===null)或「我方最終推送的收斂回音」(initialKey===lastPushedKey、=no-op);
   // 被超越舊導航若仍被 commit,其舊回音一律不採,避免瞬窗蓋掉本地更新值。
@@ -99,6 +116,9 @@ export function OrderFilterControls({
       //    無條件 setDraftNo 會踩到這個窗:先改別軸(replace 在途)→ 使用者邊等邊打字 →
       //    收斂回音進來被採用 → 打到一半的字被清空。
       if (initial.no !== state.no) setDraftNo(initial.no);
+      // 兩個搜尋框各自判斷:只在「外部真的換了**這一個**」時才重設它的草稿,
+      // 否則改 A 框會把 B 框打到一半的字清掉。
+      if (initial.supplierNo !== state.supplierNo) setDraftSupplierNo(initial.supplierNo);
     }
   }
 
@@ -115,7 +135,11 @@ export function OrderFilterControls({
           className='flex flex-col gap-1'
           onSubmit={(e) => {
             e.preventDefault();
-            apply({ ...state, no: draftNo.trim() });
+            const next = draftNo.trim();
+            // 🔴 打了幾個空白按 Enter → state 變 ''、URL 不帶鍵、列表回全部,
+            //    而框裡那幾個空白還留著 ⇒ 畫面像「搜尋中」、結果是全部。當場收斂草稿。
+            setDraftNo(next);
+            apply({ ...state, no: next });
           }}
         >
           <label
@@ -145,6 +169,49 @@ export function OrderFilterControls({
               日後多加一個欄位就會靜默失效。這顆按鈕同時給觸控與螢幕閱讀器一個明確入口。 */}
           <button type='submit' className='sr-only'>
             搜尋訂單編號
+          </button>
+        </form>
+      )}
+
+      {supplierOrderNoSearchEnabled && (
+        <form
+          className='flex flex-col gap-1'
+          onSubmit={(e) => {
+            e.preventDefault();
+            const next = draftSupplierNo.trim();
+            // 同上(兩軸一起改,免得不對稱)
+            setDraftSupplierNo(next);
+            apply({ ...state, supplierNo: next });
+          }}
+        >
+          <label
+            htmlFor='supplier-order-no-search'
+            className='text-muted-foreground text-xs font-medium'
+          >
+            供應商單號
+          </label>
+          {/* 🔴 三個細節逐條沿用上面那個框(不是排版偏好,是踩過的坑):
+              ① 不給 name —— form 無 action,hydration 完成前按 Enter 會走原生 GET,
+                 而原生送出只帶 form 內欄位 ⇒ 其他篩選軸會被清掉。
+              ② 用 type='text' 不用 type='search' —— 原生的 × 與 Esc 只觸發 onChange 清草稿、
+                 不送出,使用者以為取消了、實際列表還篩著。
+              ③ 顯式 submit 按鈕 —— 只有「恰好一個欄位」時 Enter 才隱式送出。 */}
+          <input
+            id='supplier-order-no-search'
+            type='text'
+            autoComplete='off'
+            value={draftSupplierNo}
+            onChange={(e) => setDraftSupplierNo(e.target.value)}
+            maxLength={MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH}
+            placeholder='輸入供應商單號後按 Enter'
+            aria-describedby='supplier-order-no-search-hint'
+            className='border-input bg-background h-9 w-44 rounded-md border px-3 text-sm'
+          />
+          <span id='supplier-order-no-search-hint' className='sr-only'>
+            不分大小寫;此搜尋不區分供應商,兩家供應商使用相同單號時會一起列出
+          </span>
+          <button type='submit' className='sr-only'>
+            搜尋供應商單號
           </button>
         </form>
       )}

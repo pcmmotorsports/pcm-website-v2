@@ -154,7 +154,13 @@ export function normalizeSupplierOrderNoSearch(
     return {
       kind: 'invalid',
       reason: 'too_long',
-      input: trimmed.slice(0, MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH),
+      // 🔴 **截到 MAX + 1、不是 MAX**(階段 C must-fix 1)。
+      //    截到剛好 MAX 的話,這個值**自己會通過下一次正規化** —— 而呼叫鏈真的會再正規化一次
+      //    (parse 層把 `input` 放進 filter、adapter 收到後重跑 `normalizeSupplierOrderNoSearch`)
+      //    ⇒ 橫幅說「太長」、列表卻老老實實顯示「前 32 字」的**真實命中**,
+      //    翻頁後 URL 只剩截斷值、警告消失,只留一份看起來完全正常但不是使用者搜的結果。
+      //    多留一個字 ⇒ 再正規化必然仍是 `too_long`,長度依然有界(不會把上萬字帶進 URL)。
+      input: trimmed.slice(0, MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH + 1),
     };
   }
 

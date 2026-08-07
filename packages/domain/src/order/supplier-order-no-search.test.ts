@@ -53,13 +53,30 @@ describe('normalizeSupplierOrderNoSearch(M-4b E10 A9b2-A)', () => {
   });
 
   describe('invalid — 每格都斷言 reason,不是只斷言 kind', () => {
-    it('超長 → too_long,且 input 截到上限(不把超長字串原樣帶進 URL)', () => {
-      const input = 'x'.repeat(MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH + 1);
+    it('超長 → too_long,且 input 截到 **上限+1**(不把超長字串原樣帶進 URL)', () => {
+      const input = 'x'.repeat(MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH + 5);
       expect(normalizeSupplierOrderNoSearch(input)).toEqual({
         kind: 'invalid',
         reason: 'too_long',
-        input: 'x'.repeat(MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH),
+        input: 'x'.repeat(MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH + 1),
       });
+    });
+
+    it('🔴🔴 `too_long` 的 input 再正規化一次**必須仍是 invalid** —— 這是真正要守的不變量', () => {
+      // 呼叫鏈真的會再正規化一次:parse 層把 `input` 放進 filter → adapter 收到後重跑本函式。
+      // 若截到剛好 MAX,那個值自己會通過 ⇒ 橫幅說「太長」、列表卻顯示「前 32 字」的真實命中,
+      // 翻頁後警告還會消失(URL 只剩截斷值)。實測(修前)= `kind:'ok'`。
+      // 🔴 這一格才是不變量本身;只斷言「截到某長度」會把實作細節當規格,改個數字就失守。
+      for (const raw of [
+        'PO-' + 'A'.repeat(40),
+        'x'.repeat(MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH + 1),
+        ' ' + 'z'.repeat(200) + ' ',
+      ]) {
+        const first = normalizeSupplierOrderNoSearch(raw);
+        expect(first.kind).toBe('invalid');
+        const carried = (first as { input: string }).input;
+        expect(normalizeSupplierOrderNoSearch(carried).kind).toBe('invalid');
+      }
     });
 
     it.each([

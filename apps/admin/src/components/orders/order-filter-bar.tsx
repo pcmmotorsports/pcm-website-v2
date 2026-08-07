@@ -17,10 +17,13 @@ import {
 export function OrderFilterBar({
   filter,
   orderNumberSearchEnabled = false,
+  supplierOrderNoSearchEnabled = false,
 }: {
   filter: AdminOrderFilter;
   /** M-4b E10 A10c1 單號搜尋開關(§7.1 逐批啟用閘;D0 apply 前一律 false)。 */
   orderNumberSearchEnabled?: boolean;
+  /** M-4b E10 A10c2 供應商單號搜尋開關(A9b2-M `20260807130000` apply 前一律 false)。 */
+  supplierOrderNoSearchEnabled?: boolean;
 }) {
   return (
     <div className='bg-card text-card-foreground flex flex-wrap items-end gap-3 rounded-lg border p-4'>
@@ -30,12 +33,14 @@ export function OrderFilterBar({
         sourceOptions={ORDER_SOURCE_OPTIONS}
         channelOptions={PAYMENT_CHANNEL_OPTIONS}
         orderNumberSearchEnabled={orderNumberSearchEnabled}
+        supplierOrderNoSearchEnabled={supplierOrderNoSearchEnabled}
         initial={{
           pay: filter.paymentStatus ?? '',
           ful: filter.fulfillmentStatus ?? '',
           src: filter.orderSources ?? [],
           ch: filter.paymentChannels ?? [],
           no: filter.orderNumber ?? '',
+          supplierNo: filter.supplierOrderNo ?? '',
         }}
       />
       <a

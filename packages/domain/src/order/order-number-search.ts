@@ -66,7 +66,13 @@ export function normalizeOrderNumberSearch(raw: string | null | undefined): Orde
 
   // 長度上限先於一切(理由見 MAX_ORDER_NUMBER_SEARCH_LENGTH)
   if (trimmed.length > MAX_ORDER_NUMBER_SEARCH_LENGTH) {
-    return { kind: 'invalid', input: trimmed.slice(0, MAX_ORDER_NUMBER_SEARCH_LENGTH) };
+    // 🔴 **截到 MAX + 1、不是 MAX**(A9b2-A 階段 C 在 A9b2 那支抓到同形狀 bug,根因一致 ⇒ 一起修)。
+    //    截到剛好 MAX 的話這個值自己會通過下一次正規化,而呼叫鏈真的會再跑一次
+    //    (`order-list-view.ts` 把 `input` 放進 filter → adapter 重跑 `normalizeOrderNumberSearch`)
+    //    ⇒ 「太長」的輸入會被靜默改寫成「前 32 字」去查,而使用者以為那就是他搜的東西。
+    //    實測(修前):`'PCM-2026-' + '1'.repeat(40)` → invalid → 再正規化 → `kind:'ok'`。
+    //    多留一個字 ⇒ 再正規化必然仍 invalid,長度依然有界。
+    return { kind: 'invalid', input: trimmed.slice(0, MAX_ORDER_NUMBER_SEARCH_LENGTH + 1) };
   }
 
   // 🔴 非 ASCII 一律先擋,再 toUpperCase。

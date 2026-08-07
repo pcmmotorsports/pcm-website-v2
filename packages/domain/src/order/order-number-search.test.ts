@@ -93,9 +93,14 @@ describe('normalizeOrderNumberSearch(E10 A9b1 單號搜尋形狀守門)', () => 
     const huge = `PCM-2026-${'9'.repeat(3000)}`;
     const r = normalizeOrderNumberSearch(huge);
     expect(r.kind).toBe('invalid');
-    // 回報用的 input 也要截斷,不要把 3000 字帶進錯誤訊息或畫面
+    // 回報用的 input 也要截斷,不要把 3000 字帶進錯誤訊息或畫面。
+    // 🔴 上界是 **MAX + 1** 不是 MAX:截到剛好 MAX 的話,那個值自己會通過下一次正規化,
+    //    而呼叫鏈真的會再跑一次(`order-list-view.ts` 放進 filter → adapter 重跑)
+    //    ⇒ 「太長」會被靜默改寫成「前 32 字」去查(A9b2-A 階段 C 在同形狀的姊妹函式抓到)。
     if (r.kind === 'invalid') {
-      expect(r.input.length).toBeLessThanOrEqual(MAX_ORDER_NUMBER_SEARCH_LENGTH);
+      expect(r.input.length).toBeLessThanOrEqual(MAX_ORDER_NUMBER_SEARCH_LENGTH + 1);
+      // 🔴 真正的不變量:帶下去的值再正規化一次**必須仍是 invalid**(修前實測為 `ok`)。
+      expect(normalizeOrderNumberSearch(r.input).kind).toBe('invalid');
     }
     // 邊界:剛好上限內的合法值仍要通過
     expect(normalizeOrderNumberSearch(`PCM-2026-${'9'.repeat(4)}`).kind).toBe('ok');
