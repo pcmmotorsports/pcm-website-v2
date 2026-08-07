@@ -262,7 +262,12 @@ C="$(capstmt "INSERT INTO public.shipment_items(shipment_id,order_item_id,shippe
 #    首跑就是紅在它、而不是 C9 ⇒ 那不是本格要的結論(判準第三句)。⇒ 一併給單號,讓 C9 成為唯一可紅的那道。
 C="$(capstmt "UPDATE public.shipments SET shipped_at = now(), tracking_number = 'TRACK-1' WHERE id='$SHIP5'")"
 case "$C" in
-  23514*oiqs_shipped_le_instock*) ok W3B2-M3-WINDOW-RAW "🔴 到**出貨那一刻**才炸,而且是 **raw 23514**(實得 [$C])= M3 窗口存在、已釘成可觀察事實;W3-3 落地後改本格期望值" ;;
+  # 🔴🔴 **W3-3 落地後,本格的期望值「不改」——而且這件事要說清楚**(開工令 B-197-A ④ 要我改,
+  #    實際檢查後**不該改**):本格走的是**繞過 RPC 的直寫 UPDATE**,量的是**裸 DB 面**,
+  #    而 W3-3 的轉譯掛在 `admin_mark_shipment_shipped` 的**執行路徑上** ⇒ 直寫這條路本來就不經過它。
+  #    ⇒ 這裡**仍然**、也**應該**是 raw 23514;真正驗「RPC 路徑已轉譯」的是 `w3c3-verify.sh` 的
+  #      `W3C3-TRANSLATE-C9`。兩格量的是兩個不同的面,不得互相冒領。
+  23514*oiqs_shipped_le_instock*) ok W3B2-M3-WINDOW-RAW "🔴 到**出貨那一刻**才炸、且是 **raw 23514**(實得 [$C])= 裸 DB 面的窗口;RPC 路徑的轉譯由 w3c3 的 W3C3-TRANSLATE-C9 驗,兩面不互相冒領" ;;
   *) bad W3B2-M3-WINDOW-RAW "實得 [$C](期望 raw 23514 oiqs_shipped_le_instock)⇒ 窗口的形狀與檔頭描述不符" ;;
 esac
 
