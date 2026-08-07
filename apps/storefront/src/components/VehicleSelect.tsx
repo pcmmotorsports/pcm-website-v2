@@ -135,6 +135,17 @@ function Combo({
     setOpen(false);
     setHi(0);
   }, [value, changeText]);
+  // 🔴 債③(2026-08-07):`disabled` 轉 true = 這欄現在無效 ⇒ 丟掉草稿。與上面那道
+  //    「`value` 外部變動就丟」是同一類事件、不變量的另一個面 —— 而上面那道**蓋不到**這格:
+  //    車型欄停用時它自己的 `value` 是 `null → null`、deps 沒變(這就是債③ 的機制本身)。
+  //    不用顯示層 `shown = disabled ? …` 遮字:內部 `text` 與父層 `draftText` 仍握著幽靈字,
+  //    下游「改用自行輸入」照樣把它組進車名。要真的丟掉。
+  //    ⚠️ 不吃 Q4=B 留字:欄位停用 ⟺ 它的選項空間整份換掉(車型停用=廠牌被清、年份停用=車型沒選)。
+  //    ⚠️ `if (disabled)` 的判別力**靠回報次數**那條負測 —— 無條件版在每次「停用→啟用」會多噴一次
+  //       `''`(值一樣、只有次數分得開)。完整論證與突變表在 manifest 的 VehicleFinder 條目。
+  useEffect(() => {
+    if (disabled) changeText(null);
+  }, [disabled, changeText]);
   const inputRef = useRef<HTMLInputElement>(null); // V-2d④:點選選定後主動 blur 收手機鍵盤
   const shown = text ?? value ?? '';
   const list = filterVehicleOptions(options, text ?? '', (n) => n);

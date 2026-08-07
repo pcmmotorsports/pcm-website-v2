@@ -474,3 +474,88 @@ describe('VehicleCombo — onDraftTextChange(Q8=A)', () => {
     expect(onDraftTextChange).toHaveBeenLastCalledWith('ka');
   });
 });
+
+// 債③(2026-08-07,Sean Q8=A 那族的第 3 條):`disabled` 轉 true 沒有丟草稿的守門(VehicleSelect.tsx:130-137
+// 那道 effect 只看 `value`、看不到 `disabled`)。車庫表單選了廠牌 → 車型欄打字沒選中 → 把廠牌欄清空
+// ⇒ 車型欄變 disabled 卻仍顯示那串字、父層的草稿也還握著它。
+describe('債③ 停用欄位不得殘留草稿字', () => {
+  function DisabledDebtHarness({ onDraft }: { onDraft: (s: string) => void }) {
+    const [brandName, setBrandName] = useState<string | null>(null);
+    const [modelName, setModelName] = useState<string | null>(null);
+    const cur = brandName !== null ? BRANDS.find((b) => b.name === brandName) : undefined;
+    return (
+      <>
+        <VehicleCombo
+          label="選擇廠牌"
+          value={brandName}
+          options={BRANDS.map((b) => b.name)}
+          placeholder="選擇或輸入廠牌"
+          variant="form"
+          onPick={(n) => {
+            setBrandName(n);
+            setModelName(null);
+          }}
+          onClear={() => {
+            setBrandName(null);
+            setModelName(null);
+          }}
+        />
+        <VehicleCombo
+          label="選擇車型"
+          value={modelName}
+          options={cur?.models.map((m) => m.name) ?? []}
+          disabled={brandName === null}
+          placeholder="選擇或輸入車型"
+          variant="form"
+          onPick={(n) => setModelName(n)}
+          onClear={() => setModelName(null)}
+          onDraftTextChange={onDraft}
+        />
+      </>
+    );
+  }
+
+  it('🔴 停用轉態時丟掉草稿 —— 欄位清空、且父層收到空字串', () => {
+    const onDraft = vi.fn();
+    render(<DisabledDebtHarness onDraft={onDraft} />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'Yamaha' } });
+    fireEvent.blur(brand);
+    const model = combo('選擇車型');
+    expect(model.disabled, '前提:選了廠牌後車型欄要真的解鎖,否則本條在測空氣').toBe(false);
+    fireEvent.change(model, { target: { value: 'ZZZ-不存在' } });
+    fireEvent.blur(model);
+    expect(
+      model.value,
+      '前提:Q4=B 留字要成立(非唯一/零命中不清空),否則本條測不到停用轉態這件事',
+    ).toBe('ZZZ-不存在');
+    fireEvent.change(brand, { target: { value: '' } });
+    fireEvent.blur(brand);
+    expect(combo('選擇車型').disabled, '前提:廠牌清空後車型欄要真的變 disabled').toBe(true);
+    expect(
+      combo('選擇車型').value,
+      '車型欄停用了卻還顯示殘字 ⇒ 客人看到一個灰掉但沒被清空的欄位',
+    ).toBe('');
+    expect(
+      onDraft,
+      '父層(草稿回報)仍握著停用前的殘字 ⇒ 下游「改用自行輸入」會把它組進車名',
+    ).toHaveBeenLastCalledWith('');
+  });
+
+  it('🔴 if (disabled) 的判別力:停用→啟用那一拍不得再回報一次', () => {
+    const onDraft = vi.fn();
+    render(<DisabledDebtHarness onDraft={onDraft} />);
+    expect(combo('選擇車型').disabled, '前提:掛載時未選廠牌,車型欄要是停用態').toBe(true);
+    const before = onDraft.mock.calls.length;
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'Yamaha' } });
+    fireEvent.blur(brand);
+    expect(combo('選擇車型').disabled, '前提:選了廠牌後車型欄要真的解鎖,證明停用→啟用這個轉態發生了').toBe(
+      false,
+    );
+    expect(
+      onDraft.mock.calls.length - before,
+      '停用→啟用這一拍不得多噴回報 —— 無條件版 `changeText(null)` 會在這裡多噴一次空字串,值與 before 分不開、只有次數分得開',
+    ).toBe(0);
+  });
+});

@@ -150,6 +150,24 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     );
   });
 
+  // 🔴 債③(2026-08-07):上一條測的是「車型欄還在啟用狀態」的殘字。這條測的是它的姊妹情境——
+  //    車型欄的殘字**先留著、再把廠牌清空讓車型欄變 disabled**,殘字仍不得被組進車名。
+  it('🔴 債③ 下游:停用欄位上的殘字不得被組進車名', () => {
+    renderForm({ vehicleBrands: BRANDS });
+    pickByTyping('選擇廠牌', 'Yamaha');
+    const model = combo('選擇車型');
+    fireEvent.change(model, { target: { value: 'zzz' } });
+    fireEvent.blur(model);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: '' } });
+    fireEvent.blur(brand);
+    fireEvent.click(screen.getByText(/改用自行輸入/));
+    expect(
+      (screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement).value,
+      "修好前這裡會是 'zzz' —— 一個灰掉的停用欄位上的殘字被存成客人的車名",
+    ).toBe('');
+  });
+
   it('兩欄都選齊 → 改用自行輸入帶入組合字面(仍走 vehicleLabel 格式)', () => {
     renderForm({ vehicleBrands: BRANDS });
     pickByTyping('選擇廠牌', 'Yamaha');
