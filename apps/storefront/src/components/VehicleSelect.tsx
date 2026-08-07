@@ -149,6 +149,11 @@ function Combo({
   const optionId = (i: number) => `${listboxId}-opt-${i}`;
 
   const pick = (name: string) => {
+    // ⚠️ `changeText(null)` **刻意排在 `onPick` 之前**(R4 跨模型輪指出這個順序是承重的、原本沒人寫):
+    //    先回報草稿清空,父層才收到新 `value`。倒過來的話中間會有一拍「父層 draftText 還是舊字、
+    //    value 已經是新的」—— 那一拍若被拿去組字面(如 InlineVehicleForm 的 composed),會組出
+    //    「Yamaha kawa」這種半新半舊的字。目前沒有呼叫端在那一拍讀值 ⇒ 不是現行 bug;但收同族債
+    //    ③④⑤⑥ 那片若讓 draftText 承擔更多職責,要先補一格突變把這個順序釘住。
     changeText(null);
     setOpen(false);
     // 重選同值=只關列表不 dispatch(code-reviewer R1:select-brand/model 同值會 cascade reset

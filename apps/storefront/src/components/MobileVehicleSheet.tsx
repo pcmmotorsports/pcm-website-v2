@@ -192,8 +192,12 @@ export function MobileVehicleSheet({
                 setDraftText(EMPTY_TEXT);
                 // Q8=A:光清 state 清不掉三顆 VehicleCombo 內部的 `text` —— 沒選中那欄的
                 // `value` 是 null→null(deps 沒變),`useEffect(..., [value])` 那道清草稿的
-                // 守門蓋不到。用 React 官方的 key-reset 手法整批 remount 三顆欄位是唯一能
-                // 保證清乾淨的路;Fragment 不產生 DOM 節點,`.mvs-field` 結構與 CSS 零影響。
+                // 守門蓋不到。用 React 官方的 key-reset 手法整批 remount 三顆欄位。
+                // ⚠️ 精確說法是「**不動 VehicleCombo 現行 API 的前提下**唯一的路」——
+                //    把 text 升成 controlled prop、或給它 imperative clear() 同樣做得到
+                //    (R4 跨模型輪:別用「唯一」二字把那個未來形狀封死;它正是同族債
+                //    ③④⑤⑥ 要全收時的終局形狀)。
+                // Fragment 不產生 DOM 節點,`.mvs-field` 結構與 CSS 零影響。
                 setComboSeq((s) => s + 1);
               }}
             >
