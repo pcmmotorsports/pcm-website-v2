@@ -71,7 +71,10 @@ export const brandVehiclePickUrl = (slug: string): string =>
 export const brandIntroUrl = (slug: string): string => `/brands/${encodeURIComponent(slug)}`;
 
 /**
- * 品牌介紹頁商品區的格數(D3b)。設計稿 `brand-page.html:727` 的 `.bp-grid` 是 `repeat(5, 1fr)`、
+ * 品牌介紹頁商品區的**取數**。
+ * ⚠️ **2026-08-07 R-2 起這不再是「格數」** —— 版位改成橫捲 rail、沒有欄數概念。
+ * 以下這段講「5 同時是撈幾筆與排幾欄」的歷史說明**整段作廢**,保留是為了說明它從何而來:
+ * 〔歷史〕設計稿 `brand-page.html:727` 的 `.bp-grid` 是 `repeat(5, 1fr)`、
  * 骨架也畫 5 個槽(`:1481-1485`)⇒ 這個 5 同時是「撈幾筆」與「排幾欄」。
  *
  * 🔴 **為什麼放這支檔**:它要同時被 `lib/brand-products.ts`(server,會 import `server-only`)
@@ -79,8 +82,13 @@ export const brandIntroUrl = (slug: string): string => `/brands/${encodeURICompo
  *    整支測試載入即爆(實測 `This module cannot be imported from a Client Component module.`)。
  *    本檔本來就是「零依賴、品牌專屬、server/client 兩邊都能用」的落點,不必為它另開一支檔
  *    (關卡2 R1 nit 7)。
- * ⚠️ 窄螢幕是**隱藏**多出來的格(≤1180 剩 3、≤620 剩 2),不是換行 ⇒ 撈的筆數固定 5、
- *    由 CSS 決定看得到幾個。改這個數字要**同時**改 `styles/brand-page.css` 的 `.bp-grid` 欄數
- *    與那兩條 `:nth-child`(`styles/brand-page.test.ts` 有字面守門會轉紅提醒)。
+ * 🔴 **2026-08-07 R-2 改 10**(Sean 拍板 Q3=A):本區由 5 欄 grid 改成與首頁 N°02 同一顆
+ *    橫捲 rail ⇒ 上一版那句「窄螢幕是**隱藏**多出來的格(≤1180 剩 3、≤620 剩 2),不是換行,
+ *    撈的筆數固定 5、由 CSS 決定看得到幾個」**整段作廢** —— rail 沒有「隱藏多餘格」這回事,
+ *    撈幾筆就滑得到幾筆。
+ *    為什麼是 10:桌機 rail 一排剛好 5 格,取 5 筆的話 `scrollWidth === clientWidth`、
+ *    **左右箭頭整組不會出現也捲不動** = 改了個看不出差別的版面。10 與首頁 `FEATURED_LIMIT`、
+ *    會員中心一致,三區同一個數字最好解釋。
+ *    不足 10 → 顯示實際筆數;0 筆 → 整區不 render(兩者皆照舊)。
  */
-export const BRAND_PRODUCT_SLOTS = 5;
+export const BRAND_PRODUCT_SLOTS = 10;

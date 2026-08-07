@@ -254,25 +254,38 @@ describe('BrandPageRoot · 商品區(D3b)', () => {
 
   it(`🔴 有商品 → 渲染 ${BRAND_PRODUCT_SLOTS} 張既有 ProductCard(不是設計稿的骨架槽)`, () => {
     const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
-    expect(container.querySelectorAll('.bp-grid > *')).toHaveLength(BRAND_PRODUCT_SLOTS);
+    // R-2:版位換 rail ⇒ 數的是軌道格。(我第一版漏改這行、只改了下面那條祖孫斷言 ——
+    //  又一次「只改了看到的那幾行」,測試紅了才抓到。)
+    expect(container.querySelectorAll('.b-carousel-item')).toHaveLength(BRAND_PRODUCT_SLOTS);
     // 卡片必須是既有元件的 `.pcard`(設計稿 :1468-1469 逐字:「直接用既有的商品列表元件」)
     expect(container.querySelectorAll('.pcard')).toHaveLength(BRAND_PRODUCT_SLOTS);
     // 反向:骨架槽的 class 一個都不該出現 —— 出現就代表有人把設計稿的假卡片也搬進來了
     expect(container.querySelectorAll('.bp-slot, .bp-bar, .bp-slot-img, .bp-slot-info')).toHaveLength(0);
-    // 🔴 **祖孫關係**要釘住(關卡2 R1 must-fix 2):窄螢幕的隱藏規則其中一條是
-    //    `.bp-grid > :nth-child(n+4) .pcard`,它成立的前提是「卡片被包在一層裡」。
-    //    哪天 ProductCard 不再包 `<Link>`(`href` 是 optional),那條就落空、而 CSS 文字守門
-    //    與上面兩條計數斷言**全都不會紅**。這一行把那個前提變成會紅的東西。
+    // 🔴 2026-08-07 R-2:版位由 `.bp-grid` 改成共用 `ProductRail` 的橫捲軌道。
+    //    原本這裡釘的是「`.bp-grid > * > .pcard` 祖孫關係」——那是為了讓窄螢幕的
+    //    `nth-child(n+4) display:none` 隱藏規則成立;rail 沒有隱藏規則、那個前提消失。
+    //    ⇒ 改釘 rail 的承重層:每張卡都住在軌道格 `.b-carousel-item` 裡,
+    //    而且整區掛著 `.b-select-inset`(少了它,rail 的 --ed-* token 會整組無聲失效)。
+    //    ⚠️ 中間那層 `> * >` **不能省**:`ProductCard` 帶 `href` 時會包一層 `<Link>`,
+    //    結構是「軌道格 > a > .pcard」。我第一版寫成直接子選擇器 ⇒ 0 命中、測試紅了才發現。
+    //    原本那條釘的也正是這個祖孫關係,形狀保留。
     expect(
-      container.querySelectorAll('.bp-grid > * > .pcard'),
-      'ProductCard 不再包一層 ⇒ CSS 的後代選擇器落空、窄螢幕會變回 5 張',
+      container.querySelectorAll('.b-select-inset .b-carousel-item > * > .pcard'),
+      '卡片不在 rail 的軌道格裡、或整區少了 .b-select-inset ⇒ 版位或 token 會靜默壞掉',
     ).toHaveLength(BRAND_PRODUCT_SLOTS);
+    // 反面:grid 版位不得殘留(留著就是死 CSS + 兩套版位並存的錯覺)。
+    expect(container.querySelector('.bp-grid'), 'grid 版位殘留 ⇒ R-2 應已整區換成 rail').toBeNull();
   });
 
   it('標題是 h2「熱門商品」(設計稿 :1476);區塊落在分類與磚牆之間(設計稿 :1470-1489)', () => {
     const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
-    const head = container.querySelector('.bp-prod-head h2')!;
+    // R-2:表頭由自刻的 `.bp-prod-head` 換成 rail 自己的 `.b-select-head`(標題 + 查看全部 + 箭頭一組)。
+    const head = container.querySelector('.b-select-title')!;
     expect(head.textContent).toBe('熱門商品');
+    // 🔴 測試名說「標題是 **h2**」⇒ 就要驗 tagName(審查抓到):選擇器由帶標籤的
+    //    `.bp-prod-head h2` 換成純 class 之後,rail 哪天把它改成 <div> 也會全綠、名字說謊。
+    expect(head.tagName, '標題不是 h2 ⇒ 測試名在說謊、頁面標題階層也塌了').toBe('H2');
+    expect(container.querySelector('.bp-prod-head'), '自刻表頭殘留 ⇒ 應已交給 rail').toBeNull();
     // 位置:用 compareDocumentPosition 驗真實順序,不是靠我在測試裡自己排一次
     const sections = [...container.querySelectorAll('.bp-cats, .bp-products, .bp-others')].map(
       (el) => [...el.classList].find((c) => c.startsWith('bp-')),
@@ -282,10 +295,11 @@ describe('BrandPageRoot · 商品區(D3b)', () => {
 
   it('🔴「查看全部」指向該品牌的目錄網址(設計稿 :2028 的 `catalogue(brand.slug)`)', () => {
     const { container } = render(<BrandPageRoot brand={AKRAPOVIC} products={PRODUCTS} availableSlugs={ALL_SLUGS} />);
-    const link = container.querySelector('.bp-prod-head a')!;
+    // R-2:連結搬進 rail 的表頭,選擇器跟著換;**目標網址與字面一字未變**。
+    const link = container.querySelector('.b-select-head a')!;
     expect(link.getAttribute('href')).toBe('/products?pbrand=akrapovic');
     expect(link.textContent).toContain('查看全部');
     // 箭頭是純裝飾 ⇒ 必須對輔助技術隱藏(設計稿 :1478 的 `aria-hidden="true"`)
-    expect(container.querySelector('.bp-prod-head .ed-link-arrow')!.getAttribute('aria-hidden')).toBe('true');
+    expect(container.querySelector('.b-select-head .ed-link-arrow')!.getAttribute('aria-hidden')).toBe('true');
   });
 });
