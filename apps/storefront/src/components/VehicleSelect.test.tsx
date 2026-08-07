@@ -2,7 +2,7 @@
 // VehicleSelect smoke — V-1b 可打字三層 combobox(prefix 過濾/鍵盤選/blur 唯一精確命中/清空連動)。
 
 import { useReducer, useState } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import {
   cascadeFilterReducer,
@@ -12,7 +12,7 @@ import {
   selectVehicleYear,
   clearVehicle,
 } from '@pcm/ui';
-import { VehicleSelect } from './VehicleSelect';
+import { VehicleCombo, VehicleSelect } from './VehicleSelect';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 
 const BRANDS: MockMotoBrand[] = [
@@ -405,5 +405,72 @@ describe('VehicleSelect 跨層車型(A5:未選廠牌可直接打車型)', () => 
     fireEvent.focus(model);
     fireEvent.mouseDown(screen.getByRole('option', { name: 'Kawasaki R6' }));
     expect(picks).toEqual([{ brand: 'Kawasaki', model: 'R6' }]);
+  });
+});
+
+// Q8=A(Sean 2026-08-07):`onDraftTextChange` 是把 `Combo` 內部 text state 回報給外層的
+// 唯一出口(MobileVehicleSheet 的「清除」鈕、InlineVehicleForm 的「改用自行輸入」都靠它接住
+// 客人打了但沒選中的字)。直接用 VehicleCombo(不透過 VehicleSelect)—— VehicleSelect 那三顆
+// Combo 刻意不傳這個新 prop、零改動。
+describe('VehicleCombo — onDraftTextChange(Q8=A)', () => {
+  const OPTIONS = ['Yamaha', 'Kawasaki'];
+
+  function DraftProbe({
+    value,
+    onDraftTextChange,
+  }: {
+    value: string | null;
+    onDraftTextChange: (text: string) => void;
+  }) {
+    return (
+      <VehicleCombo
+        label="測試欄位"
+        value={value}
+        options={OPTIONS}
+        placeholder="輸入"
+        onPick={() => {}}
+        onClear={() => {}}
+        variant="form"
+        onDraftTextChange={onDraftTextChange}
+      />
+    );
+  }
+
+  it('打字 → 收到那串字', () => {
+    const onDraftTextChange = vi.fn();
+    render(<DraftProbe value={null} onDraftTextChange={onDraftTextChange} />);
+    fireEvent.change(combo('測試欄位'), { target: { value: 'kawa' } });
+    expect(onDraftTextChange).toHaveBeenLastCalledWith('kawa');
+  });
+
+  it('點選選項 → 收到空字串(草稿被吃掉、回到已選值)', () => {
+    const onDraftTextChange = vi.fn();
+    render(<DraftProbe value={null} onDraftTextChange={onDraftTextChange} />);
+    fireEvent.change(combo('測試欄位'), { target: { value: 'ya' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: 'Yamaha' }));
+    expect(onDraftTextChange).toHaveBeenLastCalledWith('');
+  });
+
+  it('value 從外部變動(rerender 換 prop)→ 收到空字串', () => {
+    const onDraftTextChange = vi.fn();
+    const { rerender } = render(<DraftProbe value={null} onDraftTextChange={onDraftTextChange} />);
+    fireEvent.change(combo('測試欄位'), { target: { value: 'kawa' } });
+    expect(onDraftTextChange).toHaveBeenLastCalledWith('kawa');
+    onDraftTextChange.mockClear();
+    // 外部把 value 從 null 換成 Yamaha(不是本欄自己 commit 出來的)——`useEffect(..., [value])`
+    // 那道守門要接手把過期草稿丟掉,而不是只靠 commit() 的路徑。
+    rerender(<DraftProbe value="Yamaha" onDraftTextChange={onDraftTextChange} />);
+    expect(onDraftTextChange).toHaveBeenLastCalledWith('');
+  });
+
+  it('blur 後非唯一命中且該欄未選定(Q4=B 留字)→ 最後收到的仍是那串字、不是空字串', () => {
+    const onDraftTextChange = vi.fn();
+    render(<DraftProbe value={null} onDraftTextChange={onDraftTextChange} />);
+    const input = combo('測試欄位');
+    // `ka` 只是 Kawasaki 的**子字串**;`uniqueExactMatch`(vehicle-match.ts:36-45)要的是
+    // 正規化後**完全相等** ⇒ 對不上任何選項 = 非唯一精確命中 ⇒ 走 Q4=B 留字那條。
+    fireEvent.change(input, { target: { value: 'ka' } });
+    fireEvent.blur(input);
+    expect(onDraftTextChange).toHaveBeenLastCalledWith('ka');
   });
 });

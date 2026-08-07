@@ -26,7 +26,7 @@
 //   placeholder、跨層直搜、無年份出口**逐字不動** —— 全站規範就是照它寫的。
 //   🔴 :170 那顆「清除」= 只清草稿(spec §4-2),不得被「清除車輛」的統一文案吃掉。
 
-import { useEffect, useState, type Dispatch, type FocusEvent } from 'react';
+import { Fragment, useEffect, useState, type Dispatch, type FocusEvent } from 'react';
 import {
   selectVehicleBrand,
   selectVehicleModel,
@@ -44,6 +44,11 @@ import { GarageChips, type GarageChipItem } from './GarageChips';
 type VehicleDraft = { brand: string | null; model: string | null; year: number | null };
 
 const EMPTY_DRAFT: VehicleDraft = { brand: null, model: null, year: null };
+
+/** Q8=A(Sean 2026-08-07):三顆 VehicleCombo 各自回報的「打了字但沒選中」草稿(三檔 setState 疊加)。
+ *  空字串=沒在打字 —— 與 `EMPTY_DRAFT` 同構,獨立一份 state(不是 draft 的第四欄),因為它追蹤
+ *  的是子元件內部草稿字、不是已選定值。 */
+const EMPTY_TEXT = { brand: '', model: '', year: '' };
 
 function draftFromVehicle(vehicle: VehicleSelection | null): VehicleDraft {
   if (!vehicle) return EMPTY_DRAFT;
@@ -79,6 +84,9 @@ export function MobileVehicleSheet({
   //    自然在每次開啟時跑一次;寫成 effect 就得掛 exhaustive-deps disable 去避免「面板開著時
   //    背景車變動把客人打到一半的草稿蓋掉」。
   const [draft, setDraft] = useState<VehicleDraft>(() => draftFromVehicle(cascade.vehicle));
+  const [draftText, setDraftText] = useState(EMPTY_TEXT);
+  // Q8=A:remount 三顆 VehicleCombo 逼它們丟掉內部草稿字(見下方 Fragment key)。
+  const [comboSeq, setComboSeq] = useState(0);
 
   // 面板開著時鎖背景捲動(對齊 FilterDrawer 既有做法;同一時間只會有一個面板開著)。
   useEffect(() => {
@@ -103,6 +111,10 @@ export function MobileVehicleSheet({
   const { crossLayer, options: modelOptions } = modelFieldOptions(motoBrands, draft.brand);
 
   const hasDraft = draft.brand !== null || draft.model !== null || draft.year !== null;
+  // Q8=A:`hasDraft` 只看已選定值,看不到「打了字但沒選中」的草稿(三顆 VehicleCombo 的
+  // 內部 state)⇒ 兩件事重新合流,「清除」的可按條件是兩者任一。
+  const hasTypedText = Object.values(draftText).some((t) => t.trim() !== '');
+  const canClear = hasDraft || hasTypedText;
   // Sean 2026-07-30 手機實測回饋:**選了廠牌就可以送出**,不必三欄全填。
   //   廠牌 → 看該廠牌全部商品 / 廠牌+車型 → 不限年份 / 三欄全填 → 最精確。
   // 🔴 這不是新語意:`cascadeFilterReducer` 的 vehicle 本來就允許只到某一層,桌機選車列也
@@ -163,64 +175,85 @@ export function MobileVehicleSheet({
             onApplied={onClose}
           />
 
-          {/* ADR-0007 手機決定 5:同列最右側「清除」= 只清草稿、不動已套用車輛 */}
+          {/* ADR-0007 手機決定 5:同列最右側「清除」= 只清草稿、不動已套用車輛
+              Q8=A:清除鈕本身留在 Fragment 外、不被 remount ⇒ remount 不會讓焦點更糟。
+              🔴 別再用「按完焦點仍留在鈕上」當理由(本片自己撤回過、manifest 同步記載):
+              iOS/macOS Safari 點 button 不給焦點,而客人剛在打字 ⇒ tap 當下 input 先 blur、
+              activeElement 落 body。真瀏覽器未量。 */}
           <div className="mvs-lead">
             <p>可直接選擇，也可輸入搜尋</p>
             <button
               type="button"
               className="mvs-clear-draft"
               aria-label="清除車輛輸入欄位"
-              disabled={!hasDraft}
-              onClick={() => setDraft(EMPTY_DRAFT)}
+              disabled={!canClear}
+              onClick={() => {
+                setDraft(EMPTY_DRAFT);
+                setDraftText(EMPTY_TEXT);
+                // Q8=A:光清 state 清不掉三顆 VehicleCombo 內部的 `text` —— 沒選中那欄的
+                // `value` 是 null→null(deps 沒變),`useEffect(..., [value])` 那道清草稿的
+                // 守門蓋不到。用 React 官方的 key-reset 手法整批 remount 三顆欄位。
+                // ⚠️ 精確說法是「**不動 VehicleCombo 現行 API 的前提下**唯一的路」——
+                //    把 text 升成 controlled prop、或給它 imperative clear() 同樣做得到
+                //    (R4 跨模型輪:別用「唯一」二字把那個未來形狀封死;它正是同族債
+                //    ③④⑤⑥ 要全收時的終局形狀)。
+                // Fragment 不產生 DOM 節點,`.mvs-field` 結構與 CSS 零影響。
+                setComboSeq((s) => s + 1);
+              }}
             >
               清除
             </button>
           </div>
 
-          <div className="mvs-field">
-            <span className="mvs-field-label">廠牌</span>
-            <VehicleCombo
-              label="選擇廠牌"
-              value={draft.brand}
-              options={motoBrands.map((brand) => brand.name)}
-              placeholder="選擇或輸入廠牌"
-              emptyHint={VEHICLE_EMPTY_HINTS.brand}
-              onPick={(name) => setDraft({ brand: name, model: null, year: null })}
-              onClear={() => setDraft(EMPTY_DRAFT)}
-              variant="form"
-            />
-          </div>
+          <Fragment key={comboSeq}>
+            <div className="mvs-field">
+              <span className="mvs-field-label">廠牌</span>
+              <VehicleCombo
+                label="選擇廠牌"
+                value={draft.brand}
+                options={motoBrands.map((brand) => brand.name)}
+                placeholder="選擇或輸入廠牌"
+                emptyHint={VEHICLE_EMPTY_HINTS.brand}
+                onPick={(name) => setDraft({ brand: name, model: null, year: null })}
+                onClear={() => setDraft(EMPTY_DRAFT)}
+                onDraftTextChange={(t) => setDraftText((c) => ({ ...c, brand: t }))}
+                variant="form"
+              />
+            </div>
 
-          <div className="mvs-field">
-            <span className="mvs-field-label">車型<small>可不選</small></span>
-            <VehicleCombo
-              label="選擇車型"
-              value={draft.model}
-              options={modelOptions}
-              placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
-              emptyHint={crossLayer ? VEHICLE_EMPTY_HINTS.modelCrossLayer : VEHICLE_EMPTY_HINTS.model}
-              onPick={pickModelOption}
-              onClear={() => setDraft((current) => ({ ...current, model: null, year: null }))}
-              variant="form"
-            />
-          </div>
+            <div className="mvs-field">
+              <span className="mvs-field-label">車型<small>可不選</small></span>
+              <VehicleCombo
+                label="選擇車型"
+                value={draft.model}
+                options={modelOptions}
+                placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
+                emptyHint={crossLayer ? VEHICLE_EMPTY_HINTS.modelCrossLayer : VEHICLE_EMPTY_HINTS.model}
+                onPick={pickModelOption}
+                onClear={() => setDraft((current) => ({ ...current, model: null, year: null }))}
+                onDraftTextChange={(t) => setDraftText((c) => ({ ...c, model: t }))}
+                variant="form"
+              />
+            </div>
 
-          <div className="mvs-field">
-            <span className="mvs-field-label">年份<small>可不選</small></span>
-            <VehicleCombo
-              label="選擇年份"
-              value={draft.year != null ? String(draft.year) : null}
-              options={years.map(String)}
-              disabled={draft.model === null || modelHasNoYears}
-              placeholder={
-                modelHasNoYears ? '不限年份' : draft.model === null ? '請先選擇車型' : '選擇或輸入年份'
-              }
-              emptyHint={VEHICLE_EMPTY_HINTS.year}
-              onPick={(year) => setDraft((current) => ({ ...current, year: Number(year) }))}
-              onClear={() => setDraft((current) => ({ ...current, year: null }))}
-              variant="form"
-            />
-          </div>
+            <div className="mvs-field">
+              <span className="mvs-field-label">年份<small>可不選</small></span>
+              <VehicleCombo
+                label="選擇年份"
+                value={draft.year != null ? String(draft.year) : null}
+                options={years.map(String)}
+                disabled={draft.model === null || modelHasNoYears}
+                placeholder={
+                  modelHasNoYears ? '不限年份' : draft.model === null ? '請先選擇車型' : '選擇或輸入年份'
+                }
+                emptyHint={VEHICLE_EMPTY_HINTS.year}
+                onPick={(year) => setDraft((current) => ({ ...current, year: Number(year) }))}
+                onClear={() => setDraft((current) => ({ ...current, year: null }))}
+                onDraftTextChange={(t) => setDraftText((c) => ({ ...c, year: t }))}
+                variant="form"
+              />
+            </div>
+          </Fragment>
         </div>
 
         <footer className="mvs-foot">
