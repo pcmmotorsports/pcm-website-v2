@@ -54,7 +54,7 @@ export type RecommendationPlacement =
 export type RecommendationRequest = {
   placement: RecommendationPlacement;
   context: RecommendationContext;
-  /** 回傳上限(相關商品區 N°01 = 8、plan Q2=A;Q5=A 前該區編號為 N°03);hasMore 供前端決定「查看全部」 */
+  /** 回傳上限(N°03 = 8、plan Q2=A);hasMore 供前端決定「查看全部」 */
   limit: number;
 };
 
