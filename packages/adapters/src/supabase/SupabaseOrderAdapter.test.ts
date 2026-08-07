@@ -12,10 +12,16 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { IOrderRepository } from '@pcm/ports';
 import type { AdminOrderFilter, PlaceOrderInput } from '@pcm/domain';
 import {
+  SupplierOrderNoSearchTooManyError,
+  SupplierOrderNoSearchShapeError,
+} from '@pcm/domain';
+import {
   SupabaseOrderAdapter,
   ORDER_LIST_SELECT,
   ADMIN_ORDER_LIST_SELECT,
   ADMIN_ORDER_DETAIL_SELECT,
+  SUPPLIER_ORDER_NO_MATCH_CAP,
+  SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT,
 } from './SupabaseOrderAdapter';
 import * as adapterModule from './SupabaseOrderAdapter';
 import { ORDER_NOTES_EMBED_LIMIT } from './mappers/order-notes';
@@ -1409,5 +1415,242 @@ describe('SupabaseOrderAdapter — A9b1 單號搜尋守門', () => {
     );
     expect(res).toEqual({ items: [], total: 0 });
     expect(from).not.toHaveBeenCalled();
+  });
+});
+
+// ── M-4b E10 A9b2-A:依供應商單號跨單搜尋(兩段式查詢)──────────────
+// 🔴 這裡**另立** client harness、不改 `makeAdminListClient` —— 本片對既有路徑零行為改動,
+//    既有那些測試必須一格不動仍綠(改了就分不清「新片沒壞東西」還是「我把斷言改成配合新行為」)。
+// mock:from('order_item_procurement').select(...).limit(n).filter(col,'eq',v) → 終端 await
+//       from('orders') 那半邊與 makeAdminListClient 同形。
+function makeSupplierSearchClient(opts: {
+  proc: { data: unknown; error: unknown };
+  list?: { data: unknown; error: unknown; count: number | null };
+}) {
+  const procFilter = vi.fn().mockResolvedValue(opts.proc);
+  const procLimit = vi.fn().mockReturnValue({ filter: procFilter });
+  const procOrder = vi.fn().mockReturnValue({ limit: procLimit });
+  const procSelect = vi.fn().mockReturnValue({ order: procOrder });
+
+  const listResult = opts.list ?? { data: [], error: null, count: 0 };
+  const range = vi.fn().mockResolvedValue(listResult);
+  const order = vi.fn();
+  order.mockReturnValue({ order, range });
+  const eq = vi.fn();
+  const inFn = vi.fn();
+  const or = vi.fn();
+  const builder = { eq, is: vi.fn(), in: inFn, or, order };
+  or.mockReturnValue(builder);
+  eq.mockReturnValue(builder);
+  inFn.mockReturnValue(builder);
+  const listSelect = vi.fn().mockReturnValue(builder);
+
+  const from = vi.fn((table: string) =>
+    table === 'order_item_procurement' ? { select: procSelect } : { select: listSelect },
+  );
+  return {
+    client: { from } as unknown as SupabaseClient,
+    from,
+    procSelect,
+    procOrder,
+    procLimit,
+    procFilter,
+    listSelect,
+    eq,
+    or,
+    in: inFn,
+    range,
+  };
+}
+
+const procRow = (orderId: string) => ({ order_items: { order_id: orderId } });
+
+describe('SupabaseOrderAdapter.listOrderSummariesForAdmin — A9b2-A 供應商單號搜尋', () => {
+  it('命中 → 第一段對採購表 eq 比對大寫欄;第二段 .in(id) 且**投影仍是主常數**', async () => {
+    const h = makeSupplierSearchClient({
+      proc: { data: [procRow('o-1'), procRow('o-2')], error: null },
+      list: { data: [], error: null, count: 0 },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: ' so-123 ' },
+      { limit: 20 },
+    );
+    // 第一段:比對的是 A9b2-M 的產生欄、值是正規化後的大寫形(不是使用者原輸入)
+    expect(h.procSelect).toHaveBeenCalledWith('order_items!inner(order_id)');
+    expect(h.procFilter).toHaveBeenCalledWith('supplier_order_no_upper', 'eq', 'SO-123');
+    // 🔴 第二段的投影一個字都沒動(鐵則 12 byte-lock 白名單不因搜尋而換版本)
+    expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    expect(h.in).toHaveBeenCalledWith('id', ['o-1', 'o-2']);
+  });
+
+  it('同一張訂單有多列採購 → id 去重後才進 .in', async () => {
+    const h = makeSupplierSearchClient({
+      proc: { data: [procRow('o-1'), procRow('o-1'), procRow('o-2')], error: null },
+    });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(h.in).toHaveBeenCalledWith('id', ['o-1', 'o-2']);
+  });
+
+  it('零命中 → 回零筆,且**第二段完全沒被打**(省一次往返、不押 .in([]) 的行為)', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-NOPE' },
+      { limit: 20 },
+    );
+    expect(res).toEqual({ items: [], total: 0 });
+    expect(h.listSelect).not.toHaveBeenCalled();
+    expect(h.from).not.toHaveBeenCalledWith('orders');
+  });
+
+  it('🔴 fail-closed:不合法輸入 → 回零筆,且**兩段都沒被打**(不得退化成不篩選)', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
+    const res = await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-123ß' }, // 非 ASCII
+      { limit: 20 },
+    );
+    expect(res).toEqual({ items: [], total: 0 });
+    expect(h.from).not.toHaveBeenCalled();
+  });
+
+  it('🔴 去重後訂單數超過上限 → 擲 TooMany,**不截斷**假裝那就是全部', async () => {
+    const rows = Array.from({ length: SUPPLIER_ORDER_NO_MATCH_CAP + 1 }, (_, i) =>
+      procRow(`o-${i}`),
+    );
+    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+        { supplierOrderNo: 'SO-MANY' },
+        { limit: 20 },
+      ),
+    ).rejects.toBeInstanceOf(SupplierOrderNoSearchTooManyError);
+    // 截斷式實作會走完第二段 ⇒ 這條把「悄悄回前 N 筆」那個修法釘死
+    expect(h.listSelect).not.toHaveBeenCalled();
+  });
+
+  it('🔴🔴 採購列觸頂、但去重後訂單數遠低於上限 → **仍須擲錯**(階段 C must-fix 的觀察面)', async () => {
+    // 這一格就是舊版(只有一道 `.limit(CAP+1)` + `ids.length > CAP`)會**全綠**的情境:
+    // 列被截斷 ⇒ 我們根本不知道真正的訂單集合,而去重後只有 3 筆、遠低於 CAP
+    // ⇒ 舊版會安靜地回那 3 張訂單,員工以為那就是全部 —— 正是這個上限本來要防的病。
+    // 一張 PO 覆蓋大量列完全正常:A2 的業務鍵是 (order_item_id, supplier_canonical_key),
+    // 一單多品項就是多列。
+    const rows = Array.from({ length: SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT + 1 }, (_, i) =>
+      procRow(`o-${i % 3}`),
+    );
+    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+        { supplierOrderNo: 'SO-WIDE' },
+        { limit: 20 },
+      ),
+    ).rejects.toBeInstanceOf(SupplierOrderNoSearchTooManyError);
+    expect(h.listSelect).not.toHaveBeenCalled();
+  });
+
+  it('採購列剛好觸頂上限、訂單數合法 → 正常查(邊界不誤殺;刻意取 +1 才分辨得出)', async () => {
+    const rows = Array.from({ length: SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT }, (_, i) =>
+      procRow(`o-${i % 10}`),
+    );
+    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-EDGE' },
+      { limit: 20 },
+    );
+    expect(h.procLimit).toHaveBeenCalledWith(SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT + 1);
+    expect(h.listSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 第一段必須帶確定性排序 —— 沒有它,分頁每頁可能拿到不同的 id 集合', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-1' },
+      { limit: 20 },
+    );
+    expect(h.procOrder).toHaveBeenCalledWith('id', { ascending: true });
+  });
+
+  it('與其他篩選併用 → 同一個 query 同時下推(不是二選一)', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-1', paymentStatus: 'paid' },
+      { limit: 20 },
+    );
+    expect(h.in).toHaveBeenCalledWith('id', ['o-1']);
+    expect(h.eq).toHaveBeenCalledWith('payment_status', 'paid');
+  });
+
+  it('第一段 DB error → 裸 throw(對齊本檔既有慣例,不吞成零筆)', async () => {
+    const boom = { message: 'boom' };
+    const h = makeSupplierSearchClient({ proc: { data: null, error: boom } });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+        { supplierOrderNo: 'SO-1' },
+        { limit: 20 },
+      ),
+    ).rejects.toBe(boom);
+  });
+
+  it('🔴 回傳形狀不符(embed 回陣列)→ 擲 ShapeError,**不是靜默濾掉變成查無此單**', async () => {
+    // Fable F1:DB 約束保證每列都萃得出 order_id(order_item_id NOT NULL + order_items.order_id
+    // NOT NULL + !inner)⇒ 萃不出來只代表**我的形狀假設破了**。濾掉的話會回零筆、員工以為
+    // 真的沒這張單,而 mock 餵的是符合假設的形狀 ⇒ 測試全綠、功能壞掉。
+    const h = makeSupplierSearchClient({
+      proc: { data: [{ order_items: [{ order_id: 'o-1' }] }], error: null },
+    });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+        { supplierOrderNo: 'SO-1' },
+        { limit: 20 },
+      ),
+    ).rejects.toBeInstanceOf(SupplierOrderNoSearchShapeError);
+    expect(h.listSelect).not.toHaveBeenCalled();
+  });
+
+  it('🔴 **部分**列萃不出 id → 一樣擲 ShapeError(不是「全部失敗才算」)', async () => {
+    // 只在「全部萃不出」時擲的話,部分失敗仍會靜默少回訂單 —— 同一個病的小一號版本。
+    const h = makeSupplierSearchClient({
+      proc: { data: [procRow('o-1'), { order_items: null }], error: null },
+    });
+    await expect(
+      new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+        { supplierOrderNo: 'SO-1' },
+        { limit: 20 },
+      ),
+    ).rejects.toBeInstanceOf(SupplierOrderNoSearchShapeError);
+  });
+
+  it('去重後訂單數**恰好**等於上限 → 不誤殺(邊界的另一側)', async () => {
+    const rows = Array.from({ length: SUPPLIER_ORDER_NO_MATCH_CAP }, (_, i) => procRow(`o-${i}`));
+    const h = makeSupplierSearchClient({ proc: { data: rows, error: null } });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-EXACT' },
+      { limit: 20 },
+    );
+    expect(h.listSelect).toHaveBeenCalledTimes(1);
+    expect(h.in).toHaveBeenCalledWith(
+      'id',
+      Array.from({ length: SUPPLIER_ORDER_NO_MATCH_CAP }, (_, i) => `o-${i}`),
+    );
+  });
+
+  it('與訂單編號搜尋併用 → 兩條都下推到同一個 query(不是二選一)', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [procRow('o-1')], error: null } });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin(
+      { supplierOrderNo: 'SO-1', orderNumber: 'PCM-2026-0001' },
+      { limit: 20 },
+    );
+    expect(h.in).toHaveBeenCalledWith('id', ['o-1']);
+    expect(h.or).toHaveBeenCalledWith(
+      'display_id.eq.PCM-2026-0001,legacy_display_id.eq.PCM-2026-0001',
+    );
+  });
+
+  it('沒給 supplierOrderNo → 完全不碰採購表(既有路徑零行為改動)', async () => {
+    const h = makeSupplierSearchClient({ proc: { data: [], error: null } });
+    await new SupabaseOrderAdapter(h.client).listOrderSummariesForAdmin({}, { limit: 20 });
+    expect(h.from).not.toHaveBeenCalledWith('order_item_procurement');
+    expect(h.listSelect).toHaveBeenCalledWith(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
   });
 });

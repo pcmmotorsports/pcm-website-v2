@@ -231,6 +231,25 @@ export type AdminOrderFilter = {
    * - 🔴 **格式不符時 adapter 回零筆、不得退化成不篩選** —— 打錯字靜默列出全部訂單是 fail-open。
    */
   orderNumber?: string;
+  /**
+   * 供應商單號跨單搜尋(M-4b E10 A9b2-A):到貨登錄時靠供應商給的單號反查是哪幾張訂單
+   * (UX §2 #7;母 plan `:431` row 39)。
+   *
+   * - `undefined` / 空字串 = 不篩;
+   * - 值由 {@link normalizeSupplierOrderNoSearch} 正規化後才可進 adapter
+   *   (trim + 擋非 ASCII/PostgREST 保留字元 + 轉大寫);
+   * - 🔴 **不合法時 adapter 回零筆、不得退化成不篩選**(同 `orderNumber` 的理由)。
+   *
+   * 🔴 **下推方式與 `orderNumber` 不同、不要照抄**:本欄的真相在 `order_item_procurement`,
+   * 而列表投影 `ADMIN_ORDER_LIST_SELECT` **沒有內嵌那張表** ⇒ adapter 走**兩段式查詢**
+   * (先查採購表拿 order_id、再 `.in('id', …)`),**列表投影一個字都不動**。
+   * 理由見 `docs/specs/2026-08-07-e10-a9b2-a-supplier-order-no-search-plan.md` §1。
+   *
+   * 🔴 **啟用前置**:DB 側的 `supplier_order_no_upper` 產生欄由 A9b2-M(`20260807130000`)建立、
+   * **尚未 apply**;在那之前本欄零 producer(URL 參數與 flag 在 A10c2)——
+   * 未 apply 時打這條 filter 會 PostgREST 42703 ⇒ 整個列表進錯誤態(D0/A10c1 同族)。
+   */
+  supplierOrderNo?: string;
 };
 
 /**
