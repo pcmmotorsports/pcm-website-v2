@@ -175,8 +175,11 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     ).toBe('我的小雞');
   });
 
-  // R3 對抗審查(2026-08-07)釘現況、非規格:要改語意先問 Sean —— 主對話會另外拿去問。
-  it('現況釘樁(非規格,要改先問 Sean):編輯態 name 恆非空 → 缺口②刻意未收,廠牌打字未選中切自行輸入不吃草稿', () => {
+  // 🔴 這兩條原本是 R3 對抗審查(2026-08-07)釘的「現況、非規格」樁,已於同日**轉正**:
+  //    Sean 2026-08-07 傍晚拍 **Q10=A(維持現況)**⇒ 下面兩條描述的行為**就是規格**,不再是待決的現況。
+  //    ⚠️ Q10=A **不等於**同根因的債③④⑤⑥消失 —— 那四條是「靜默丟/殘留」問題、與這裡的
+  //    「誰蓋誰」覆蓋規則正交,補片照舊(6 掛載面全掃)。
+  it('規格(Sean 08-07 拍 Q10=A):編輯態 name 恆非空 → 不吃清單那邊的草稿,廠牌打字未選中切自行輸入保留原車名', () => {
     renderForm({ vehicleBrands: BRANDS, veh: { id: 'v1', name: '我的檔車' } });
     expect((screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement).value).toBe(
       '我的檔車',
@@ -188,11 +191,11 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     fireEvent.click(screen.getByText(/改用自行輸入/));
     expect(
       (screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement).value,
-      "現況釘樁,非規格:veh.name 非空(每條編輯路徑)⇒ name.trim()===''守門恆假,缺口②等於沒收;要改語意先問 Sean",
+      "規格(Q10=A):veh.name 非空(每條編輯路徑)⇒ name.trim()==='' 守門恆假,清單那邊的草稿刻意不帶入;絕不覆蓋客人已打好的車名",
     ).toBe('我的檔車');
   });
 
-  it('已申報的不對稱(非規格,要改先問 Sean):選齊時 branch① 對編輯態 name 仍無條件覆蓋(HEAD 既有行為/V-1d 設計)', () => {
+  it('規格(Q10=A):選齊時 branch① 對編輯態 name 仍無條件覆蓋 —— 與上一條構成刻意保留的不對稱(V-1d 設計)', () => {
     renderForm({ vehicleBrands: BRANDS, veh: { id: 'v1', name: '我的檔車' } });
     fireEvent.click(screen.getByText(/改用清單選車/));
     pickByTyping('選擇廠牌', 'Yamaha');
@@ -200,7 +203,7 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     fireEvent.click(screen.getByText(/改用自行輸入/));
     expect(
       (screen.getByPlaceholderText('YAMAHA YZF-R6') as HTMLInputElement).value,
-      '現況釘樁,非規格:branch①的覆蓋是 HEAD 既有行為/V-1d 刻意設計,與 branch③不覆蓋構成已申報的不對稱;要改語意先問 Sean',
+      '規格(Q10=A):branch① 的覆蓋是 V-1d「客人可改顯示名」的刻意設計,與 branch③ 不覆蓋構成 Sean 已拍板保留的不對稱',
     ).toBe('Yamaha YZF-R6');
   });
 

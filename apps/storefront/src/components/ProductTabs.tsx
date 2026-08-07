@@ -3,15 +3,19 @@
 // 🔴 #270 中段 B 收合改良(Sean 2026-07-09 肉眼驗 demo 拍板「B 收合」+ 「文字往右延伸填滿、整個面板重排、
 //    重點紅色點綴、影片大 PDF 小」):由「長頁全展開 + sticky 跳轉列」改 **收合手風琴 <details>**。
 //    - 每段 = <details class="pd-sec">(商品介紹預設 open;其餘收合、點標題展開)。收合時標題右側 hint chip
-//      提示裡面有什麼(「重點 4 項」「9 項規格」「影片 · 說明書 · 步驟」…)。
+//      提示裡面有什麼(「重點 4 項」「9 項規格」「步驟」…)。
 //    - 展開後版面依內容型態分排(Sean 2026-07-10 看四版比較拍 V1「整合式左條」,取代改法 A 右側面板 —
 //      因文字型段內容稀疏時「主文左 / 面板右」兩塊對望突兀、加框沒加分):
 //    - 文字型段(商品介紹/保固)= 單欄流 pd-sec-flow + 左條 callout;商品介紹重點 → 紅色左條(pd-callout-hl、
-//      方形紅點),保固退換要點 → 中性金色左條;規格 → 桌機兩欄(pd-specs-2col);安裝 → 主文左 + 資源側欄右
-//      (sec-split-media、影片大 PDF 小 chip);手機一律單欄堆疊。
+//      方形紅點),保固退換要點 → 中性金色左條;規格 → 桌機兩欄(pd-specs-2col);安裝 → 主文全寬(不再分欄);
+//      手機一律單欄堆疊。
 //    動機:①減少滑動(Sean 反映「不要滑這麼長」)②填滿右側留白 ③重點視覺層次(紅)④全品牌一致。
 //    SEO/GEO 保留:內容全在 DOM(<details> 收合僅視覺、爬蟲仍讀得到)、h2 標題常駐可見 landmark、
 //    商品介紹預設展開。取代原 S2 長頁 + 跳轉列(Baymard tabs 漏看已由「收合但標題+hint 常駐」緩解)。
+//
+// 🔴 2026-08-07 Sean 拍板:「安裝資源」面板(InstallResources)從「安裝須知」右側欄搬到「商品介紹」段
+//    下方直接可見(pd-desc-res)——**本片=位置搬移的過渡版,不重新設計元件長相**,OD 正式稿回來再另開片
+//    替換長相。安裝段因此不再分欄(拆掉 pd-sec-split/pd-sec-main/pd-sec-side)、主文直接全寬。
 //
 // 內容邏輯(全不變、只換外層容器與分欄;RPM 內容 byte 不變):
 // - 介紹(商品專屬):碳纖通用框架(RPM、byte 不變)/ 非 RPM 渲染真 description;重點清單移入紅色左條 callout。
@@ -19,8 +23,8 @@
 // - 規格:品牌 / 型號 / 分類 / 適用車款 動態;材質·紋路·表面·產地·特殊樣式 = RPM 碳纖列 isRpmCarbon 守門
 //   (byte 不變)、非 RPM 資料驅動 buildSpecRows(P0-C-b2);產地「泰國」RPM-only 覆蓋。桌機兩欄填滿。
 //   OD-12:「適用車款」列交叉引用上方 ProductFitments 表(僅有 fitments 時顯、避 dangling)。
-// - 安裝(全品牌通用去碳、Sean Q2=A):meta 3 欄 + 1 段說明 + 3 點清單;安裝資源(影片大/PDF 小)入右側欄
-//   (有資源才排側欄、無則主文全寬);預約安裝 CTA router.push('/install') 全寬置段尾。
+// - 安裝(全品牌通用去碳、Sean Q2=A):meta 3 欄 + 1 段說明 + 3 點清單、主文全寬(安裝資源已搬到商品介紹段);
+//   預約安裝 CTA router.push('/install') 全寬置段尾。
 // - 保固(全品牌通用單一真相 rpm-policies、P0-C-b1):政策段落主文 + 退換要點左條 callout;含《消保法》§19。
 //
 // 'use client' 必要:安裝 CTA onClick → router.push('/install')(對齊 ADR-0006 §1「Hooks/事件 → 'use client'」)。
@@ -110,10 +114,10 @@ export function ProductTabs({ product }: ProductTabsProps) {
 
   // 收合 hint(標題右、展開後 CSS 隱藏):告訴客人裡面有什麼。
   const specRowCount = isRpmCarbon ? 9 : 4 + specRows.length; // 品牌/型號/分類 + 資料驅動列 + 適用車款(RPM 另含碳纖列共 9)
-  const installHintParts: string[] = [];
-  if (product.videoUrl) installHintParts.push('影片');
-  if ((product.manuals?.length ?? 0) > 0) installHintParts.push('說明書');
-  installHintParts.push('步驟');
+  // 🔴 2026-08-07 Sean 拍板:安裝資源(影片/說明書)搬到「商品介紹」段(見下方 pd-desc-res),
+  //   安裝段 hint 若仍寫「影片 · 說明書」會是假的(客人展開安裝須知找不到、資源已不在這段);
+  //   舊條件式 array 已無條件分支可挑、直接給定字面(installHintParts 殘骸清除)。
+  const installHint = '步驟';
   const showResources = hasInstallResources(product.manuals, product.videoUrl);
 
   const hasDescription = Boolean(product.description?.trim());
@@ -178,6 +182,15 @@ export function ProductTabs({ product }: ProductTabsProps) {
                   ))}
                 </ul>
               </div>
+              {/* 🔴 2026-08-07 Sean 拍板:安裝資源面板從「安裝須知」右側欄搬到「商品介紹」段下方直接可見
+                  (位置搬移的過渡版,不重新設計元件長相;OD 正式稿回來再換長相另開片替換)。
+                  showResources 與 InstallResources 元件自身 return null 同源 ⇒ 零檔案商品不會出現空區塊。
+                  InstallResources.tsx 本身不動、原樣重用。 */}
+              {showResources && (
+                <div className="pd-desc-res">
+                  <InstallResources manuals={product.manuals} videoUrl={product.videoUrl} />
+                </div>
+              )}
             </div>
           </div>
         </details>
@@ -260,49 +273,41 @@ export function ProductTabs({ product }: ProductTabsProps) {
           </div>
         </details>
 
-        {/* ── 安裝須知 ── 主文左 + 安裝資源側欄右(有資源才排側欄)+ 全寬 CTA ── */}
+        {/* ── 安裝須知 ── 主文全寬(安裝資源已搬到商品介紹段)+ 全寬 CTA ── */}
         <details className="pd-sec" id="pd-sec-install">
           <summary className="pd-sec-sum">
             <span className="pd-sec-head">
               <span className="pd-sec-eyebrow">Install</span>
               <h2 id="pd-sec-install-title" className="pd-sec-title">安裝須知</h2>
             </span>
-            <span className="pd-sec-hint">{installHintParts.join(' · ')}</span>
+            <span className="pd-sec-hint">{installHint}</span>
             <span className="pd-sec-chev" aria-hidden="true" />
           </summary>
           <div className="pd-sec-inner">
-            <div className={showResources ? 'pd-sec-split pd-sec-split-media' : undefined}>
-              <div className="pd-sec-main">
-                <div className="pd-install-meta">
-                  <div>
-                    <span>難度</span>
-                    <strong>因品而異</strong>
-                  </div>
-                  <div>
-                    <span>建議</span>
-                    <strong>交給專業技師</strong>
-                  </div>
-                  <div>
-                    <span>工具</span>
-                    <strong>基本機車手工具</strong>
-                  </div>
-                </div>
-                <p className="pd-body">
-                  每件部品的安裝方式略有不同，原則上都是<strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成部品受損。如果不確定，可以預約 PCM 合作店家協助處理。
-                </p>
-                <ul className="pd-list">
-                  <li>裝前先把原廠零件螺絲位置記清楚或拍照</li>
-                  <li>鎖螺絲時對角分段鎖緊，避免單點受力</li>
-                  <li>第一次騎乘後再檢查一次螺絲扭力</li>
-                </ul>
+            {/* 🔴 2026-08-07:安裝資源側欄已搬到「商品介紹」段(見上方 pd-desc-res)、本段不再分欄,
+                主文直接全寬(拆掉原 pd-sec-split/pd-sec-main/pd-sec-side 三層 wrapper)。 */}
+            <div className="pd-install-meta">
+              <div>
+                <span>難度</span>
+                <strong>因品而異</strong>
               </div>
-              {/* 安裝資源:影片大 + PDF 小(見 InstallResources);有資源才渲染側欄(hasInstallResources 同判) */}
-              {showResources && (
-                <div className="pd-sec-side">
-                  <InstallResources manuals={product.manuals} videoUrl={product.videoUrl} />
-                </div>
-              )}
+              <div>
+                <span>建議</span>
+                <strong>交給專業技師</strong>
+              </div>
+              <div>
+                <span>工具</span>
+                <strong>基本機車手工具</strong>
+              </div>
             </div>
+            <p className="pd-body">
+              每件部品的安裝方式略有不同，原則上都是<strong>對應原廠孔位、直接鎖上</strong>，不需要改裝線組。建議由有經驗的技師安裝，鎖緊力道要適中，避免過度鎖付造成部品受損。如果不確定，可以預約 PCM 合作店家協助處理。
+            </p>
+            <ul className="pd-list">
+              <li>裝前先把原廠零件螺絲位置記清楚或拍照</li>
+              <li>鎖螺絲時對角分段鎖緊，避免單點受力</li>
+              <li>第一次騎乘後再檢查一次螺絲扭力</li>
+            </ul>
             {/* 預約安裝 CTA:全寬置段尾(深色滿版條、沿用 router.push('/install')) */}
             <div className="pd-install-cta">
               <div>

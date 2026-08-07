@@ -184,7 +184,8 @@ export type MockProduct = {
   hasSpotlight?: boolean;
   /**
    * 安裝說明書下載清單(#270 安裝資源)。
-   * ProductTabs「安裝須知」→「安裝資源」渲染下載按鈕;空 / 省略 → 不渲染該欄。
+   * ProductTabs「商品介紹」段下方渲染下載按鈕(2026-08-07 起;原掛在「安裝須知」分頁、已搬遷);
+   *   空 / 省略 → 不渲染該欄。
    * 🟢 #270 S2 已接線:toUIProduct ← domain product.manuals(來源 products.manuals ← 報價單 pdf_urls);有來源即顯。
    */
   manuals?: ProductManual[];

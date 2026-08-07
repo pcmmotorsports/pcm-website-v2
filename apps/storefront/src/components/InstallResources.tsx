@@ -1,11 +1,14 @@
-// InstallResources.tsx — 安裝須知側欄的「安裝資源」面板(安裝影片大 + 說明書 PDF 小 chip)。
+// InstallResources.tsx — 「安裝資源」面板(安裝影片大 + 說明書 PDF 小 chip)。
+// 🔴 2026-08-07 Sean 拍板搬位置:本元件已從「安裝須知」段側欄搬到「商品介紹」段下方(ProductTabs.tsx
+//   pd-desc-res),邏輯本身零變動、只是被誰在哪裡呼叫變了(見下方檔頭其餘段落「側欄」字面為歷史敘述)。
 //
 // #270 / Sean 2026-07-08 Q1/Q2/Q3=A + 2026-07-09 中段 B 收合改良:
 // - 影片用 facade(縮圖 + 紅播放鈕、點擊才載 iframe → 省流量、不拖慢整頁)、桌機/手機同一 inline 換入。
-// - 中段 B 版面(Sean 2026-07-09 拍板「影片欄位大、說明書等下載按鈕小」):影片置側欄頂、16:9 大尺寸;
-//   說明書 PDF 改「小型下載 chip」列(不再與影片左右並排)。整塊坐落於安裝段右側欄 .pd-panel。
+// - 中段 B 版面(Sean 2026-07-09 拍板「影片欄位大、說明書等下載按鈕小」):影片置面板頂、16:9 大尺寸;
+//   說明書 PDF 改「小型下載 chip」列(不再與影片左右並排)。整塊坐落於 .pd-panel(2026-08-07 起位於
+//   商品介紹段內 pd-desc-res,原坐落安裝段右側欄、已搬遷)。
 // - 皆 optional:兩者皆無 → 回 null 整區不渲染(hasInstallResources 同一判準、ProductTabs 據此決定
-//   安裝段是否排側欄:有資源→sec-split-media 兩欄;無資源→主文全寬)。
+//   商品介紹段是否渲染 .pd-desc-res 面板;安裝段版面已與資源有無脫鉤,恆為主文全寬)。
 // 🟢 #270 S2 已接線(2026-07-09):product.manuals / videoUrl 由 toUIProduct ← domain ← products.manuals/video_url
 //   (來源報價單 pdf_urls/video_urls、rpm 同步管線)。有來源商品即顯、無資料不渲染(optional)。
 // 🟢 2026-07-10 混格式放寬(品牌放量 kickoff §2、報價單 INSTALL_RESOURCES_EMBED_GUIDE §4):影片欄是混格式——
@@ -123,7 +126,8 @@ function validDocs(manuals?: ProductManual[]): ProductManual[] {
 
 /**
  * 是否有可渲染的安裝資源(可解析影片〔youtube/vimeo/直檔〕或 ≥1 個 http(s) 說明書)。
- * ProductTabs 用此決定安裝段版面:有→右側欄(sec-split-media);無→主文全寬。
+ * ProductTabs 用此決定商品介紹段是否渲染 .pd-desc-res 面板(2026-08-07 起;原用於決定安裝段是否
+ * 排右側欄,搬遷後安裝段版面恆為主文全寬、與此判準脫鉤)。
  * 與元件本體 return null 條件同源、不會漂移。
  */
 export function hasInstallResources(manuals?: ProductManual[], videoUrl?: string): boolean {
@@ -149,7 +153,7 @@ export function InstallResources({ manuals, videoUrl }: InstallResourcesProps) {
         <video className="pd-res-video" src={video.src} controls preload="metadata" playsInline />
       )}
 
-      {/* youtube / vimeo(大):側欄頂 16:9 facade;點擊才換入 iframe(省流量) */}
+      {/* youtube / vimeo(大):面板頂 16:9 facade;點擊才換入 iframe(省流量) */}
       {(video?.kind === 'youtube' || video?.kind === 'vimeo') &&
         (videoOpen ? (
           <iframe
