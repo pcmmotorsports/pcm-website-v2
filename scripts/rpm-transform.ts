@@ -19,6 +19,11 @@
 import type { FitmentSpec } from '@pcm/domain';
 import type { SourceProductRow, SourceFitmentEntry } from './rpm-fetch';
 import type { VariantImageStrategy } from './supplier-config';
+// 附件正規化(2026-08-08 拆出、鐵則 6):說明書標籤改吃 doc_type、影片挑選原樣搬移。
+import { normalizeManuals, pickInstallVideo, type SourcePdfDoc, type InstallManual } from './rpm-attachments';
+
+// 型別 re-export:InstallManual 原本定義在本檔、外部依此路徑引用,搬家後保留出口不破呼叫端。
+export type { InstallManual } from './rpm-attachments';
 
 // ── constants ──
 const PLACEHOLDER_IMAGE = '/placeholder-product.png';
@@ -213,108 +218,11 @@ export interface GroupTransformContext {
   handlePrefix: string; // handle = `${handlePrefix}-${mainSku.toLowerCase()}`(rpm→'rpm')
   subtitleTag: string; // 副標分類詞:rpm=分類 rawPath「碳纖維部品」、per-group=major_category_zh
   syncDescription: boolean; // true 才把來源 description 寫進 products.description(rpm=false)
-  syncInstallResources: boolean; // #270:true 才把 pdf_urls/video_urls 寫進 products.manuals/video_url(rpm/cnc=false)
-}
-
-/** 安裝說明書項(#270;= DB products.manuals jsonb 元素形狀;label 由 transform 生成、sizeKB 來源無故省)。 */
-export interface InstallManual {
-  label: string;
-  url: string;
-}
-
-// http(s) URL 驗證:new URL() 嚴驗(protocol http/https + hostname 非空)、比裸 regex 擋掉 'https://'(無 host)等髒值
-//   (codex/ultra 關卡2 nit;與 UI InstallResources 的 /^https?:\/\//i 為雙層,transform 為寫入前更嚴的第一層)。
-function isHttpUrl(u: string): boolean {
-  try {
-    const parsed = new URL(u.trim());
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '';
-  } catch {
-    return false;
-  }
-}
-
-// 安裝說明書正規化:跨變體裸 URL → 乾淨 InstallManual[]。
-// 🔴 群級彙整(codex 關卡1 must-fix):吃 variants.flatMap(pdf_urls)、非單一 basis 列(某變體有 PDF、basis 沒有 → 不可漏)。
-// 濾 http(s) → 去重保序(同群多變體常帶重複 URL)→ 依數量生 label(D1=A:1 份「安裝說明書」、多份「安裝說明書 N」)。
-export function normalizeManuals(rawUrls: (string | null | undefined)[]): InstallManual[] {
-  const clean = [...new Set(rawUrls.filter((u): u is string => typeof u === 'string' && isHttpUrl(u)).map((u) => u.trim()))];
-  if (clean.length === 1) return [{ label: '安裝說明書', url: clean[0]! }];
-  return clean.map((url, i) => ({ label: `安裝說明書 ${i + 1}`, url }));
-}
-
-// YouTube videoId 抽取:🔴 與 UI apps/storefront/src/components/InstallResources.tsx parseYoutubeId 邏輯對齊(改一邊要同步另一邊)。
-//   host 白名單(去 www.)youtu.be / youtube.com / m.youtube.com;抽 watch?v= / embed|shorts / youtu.be 路徑;id 需合 ^[\w-]{6,}$。
-//   transform 多一道 protocol http(s) 守衛(擋 javascript://youtu.be/... 偽裝、寫入前更嚴);抽不到(頻道/播放清單等)→ null。
-function extractYoutubeId(url: string): string | null {
-  let id: string | null = null;
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-    const host = u.hostname.replace(/^www\./, '');
-    if (host === 'youtu.be') {
-      id = u.pathname.split('/')[1] ?? null;
-    } else if (host === 'youtube.com' || host === 'm.youtube.com') {
-      if (u.pathname === '/watch') {
-        id = u.searchParams.get('v');
-      } else {
-        const m = u.pathname.match(/^\/(?:embed|shorts)\/([^/?]+)/);
-        id = m ? (m[1] ?? null) : null;
-      }
-    }
-  } catch {
-    return null;
-  }
-  return id && /^[\w-]{6,}$/.test(id) ? id : null;
-}
-
-// Vimeo id 抽取:host 白名單(去 www.)vimeo.com / player.vimeo.com;id 必純數字路徑段
-//   (擋 /channels/staffpicks 等非影片路徑)。http(s) 守衛同 extractYoutubeId。
-//   unlisted 型 vimeo.com/<id>/<hash> 同樣命中(segs[0]=id);管線存原始 URL、privacy hash 隨 URL
-//   保留到 UI 端由 parseVimeo 抽出附 ?h=(embed 權限)。
-//   🔴 與 UI InstallResources.tsx parseVimeo 邏輯對齊(改一邊要同步另一邊)。
-function extractVimeoId(url: string): string | null {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-    const host = u.hostname.replace(/^www\./, '');
-    if (host !== 'vimeo.com' && host !== 'player.vimeo.com') return null;
-    const segs = u.pathname.split('/').filter(Boolean);
-    const id = host === 'player.vimeo.com' ? (segs[0] === 'video' ? (segs[1] ?? null) : null) : (segs[0] ?? null);
-    return id && /^\d+$/.test(id) ? id : null;
-  } catch {
-    return null;
-  }
-}
-
-// 影片直檔判定:http(s) + pathname 副檔名白名單(query 不干擾;Evotech cdn.shopify/S3 .mp4 在名單內)。
-//   🔴 刻意窄於嵌入指南 §4「其餘一律視為 file」——寫入管線 fail-closed、任意網頁 URL 不當影片寫入。
-//   🔴 與 UI InstallResources.tsx parseVideoFileSrc 對齊(改一邊要同步另一邊)。
-const VIDEO_FILE_EXTS = ['.mp4', '.webm', '.m4v', '.mov'];
-function isVideoFileUrl(url: string): boolean {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
-    const p = u.pathname.toLowerCase();
-    return VIDEO_FILE_EXTS.some((ext) => p.endsWith(ext));
-  } catch {
-    return false;
-  }
-}
-
-// 安裝影片挑選:跨變體裸 URL → 第一支「可解析」的影片(youtube videoId / vimeo 數字 id / 直檔副檔名)。
-// 🔴 2026-07-10 混格式放寬(品牌放量 kickoff §2、supersede D2=A「第一支 YouTube」):evotech mp4 /
-//    lightech·cncracing Vimeo 納入;UI InstallResources resolveVideo 同步三分流。多支=follow-up 記 backlog。
-// 🔴 ultra/codex 關卡2 must-fix 沿用:頻道/播放清單 URL(host 符合但無 id)不佔位、續試下一支,避免靜默吃掉後面真影片。
-// 🔴 群級彙整(同 normalizeManuals)。
-export function pickInstallVideo(rawUrls: (string | null | undefined)[]): string | null {
-  for (const raw of rawUrls) {
-    if (typeof raw !== 'string') continue;
-    const trimmed = raw.trim();
-    if (extractYoutubeId(trimmed) !== null || extractVimeoId(trimmed) !== null || isVideoFileUrl(trimmed)) {
-      return trimmed;
-    }
-  }
-  return null;
+  syncInstallResources: boolean; // #270:true 才把來源附件寫進 products.manuals/video_url(rpm/cnc=false)
+  // 合約 v5 §3(2026-08-08):同一類多份文件怎麼區分 —— true=標籤後括號接檔名(gbracing/evotech,
+  //   它們的多份是不同車款、客人要靠檔名挑自己那台);false=同類內編號(akrapovic 檔名是 GUID、接了更糟)。
+  //   供應商級決定、真權威在 supplier-config.appendManualFilename;不看檔名長相猜。
+  appendManualFilename: boolean;
 }
 
 // 賣點條列正規化:來源 jsonb → 乾淨 string[](濾非字串與純空白;非陣列/null → [])。
@@ -376,7 +284,22 @@ export function transformGroup(
   // 賣點:群內第一個非空賣點陣列(product-level、群內應一致;防呆 first non-empty、正規化為 string[])。
   const highlights = variants.map((v) => normalizeHighlights(v.highlights_zh)).find((h) => h.length > 0) ?? [];
   // 安裝資源(#270):群級彙整跨全變體(codex 關卡1 must-fix、非單一 basis 列)→ UI 形狀。
-  const manuals = normalizeManuals(variants.flatMap((v) => v.pdf_urls ?? []));
+  //
+  // 🔴 兩欄擇一、**逐列**擇一(合約 v5 §7「兩欄擇一,絕對不要合併」;主視窗 E-174-A Q1=A 裁定):
+  //    該列有 pdf_docs 就只用 pdf_docs、否則只用 pdf_urls,同一列永遠不會兩欄都取
+  //    ⇒ 建構上不可能出現同一份文件列兩次(那正是「絕不合併」要防的事)。
+  //    為何要 fallback 而不是只讀 pdf_docs:2026-08-08 00:0x 實查,pdf_docs 非 null 的只有
+  //    akrapovic 635 列,gbracing/evotech/lightech/cncracing/bonamici 共 5,049 群整欄還是 null
+  //    ⇒ 只讀 pdf_docs 會讓那五家命中下方 pdfSeen 的省 key 而【凍結】,與交接檔 §5 自己寫的
+  //    「照 ?? "install" 就會維持現狀」相牴觸。各家 fetcher 回填 pdf_docs 後這條 fallback 自動失效。
+  //    🔴 用 `.length` 而不是 `!= null` 當擇一條件(Fable 對抗審 C4):若來源違約給出 `pdf_docs=[]`
+  //    卻同時有 pdf_urls(兩欄「建構上必然相等」被打破),`!= null` 會擇中空陣列 ⇒ 寫 manuals=[]
+  //    ⇒ 清空既有說明書 = 正是片 1 要防的災難形狀。改看 length 後空的 pdf_docs 退回 pdf_urls
+  //    (保留文件=安全方向);兩欄都空時仍寫 [](真的沒有),語意不變。
+  const pdfDocs: SourcePdfDoc[] = variants.flatMap((v) =>
+    v.pdf_docs?.length ? v.pdf_docs : (v.pdf_urls ?? []).map((url) => ({ url })),
+  );
+  const manuals = normalizeManuals(pdfDocs, { appendFilename: ctx.appendManualFilename });
   const videoUrl = pickInstallVideo(variants.flatMap((v) => v.video_urls ?? []));
   // 🔴 來源 null ≠ 空陣列(2026-08-07 報價單交接檔 §7 第三點):官方詳情 API 暫掛時這幾欄會【整批變 null、
   //    隔天自癒】。改前 `?? []` 把 null 壓成 [] 照樣寫入 = 一次上游故障清光客人全部說明書。
@@ -386,7 +309,9 @@ export function transformGroup(
   //    ⚠️ 這使 manuals/video_url 從「供應商級 all-or-nothing」變成【per-row 條件省 key】 ⇒ rpm-import 寫入段
   //      必須按 key-signature 分 uniform 批(見 rpm-load.groupByKeySignature);混批會讓省 key 列吃 postgrest
   //      `?columns` 聯集 + defaultToNull 被寫 NULL,而 products.manuals 是 NOT NULL ⇒ 23502 整批全敗。
-  const pdfSeen = variants.some((v) => v.pdf_urls != null);
+  //    🔴 2026-08-08:pdfSeen 要看【兩欄】—— 來源改吃 pdf_docs 後,若只看 pdf_docs,五家 pdf_docs 仍 null
+  //      的供應商會被判成「來源沒說話」而凍結,連 pdf_urls 的更新也吃不到。任一欄非 null = 來源有說話。
+  const pdfSeen = variants.some((v) => v.pdf_docs != null || v.pdf_urls != null);
   const videoSeen = variants.some((v) => v.video_urls != null);
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶

@@ -2,7 +2,8 @@
 //
 // InstallResources 混格式影片測試 — youtube/vimeo(iframe facade)+ .mp4 直檔(<video>)三分流
 // (2026-07-10 品牌放量 kickoff §2、報價單 INSTALL_RESOURCES_EMBED_GUIDE §4/§5 驗收案例的 fixture 層)。
-// 與 scripts/rpm-transform.test.ts pickInstallVideo 系列成對:管線挑得出的 URL、UI 必渲染得出來。
+// 與 scripts/rpm-attachments.test.ts pickInstallVideo 系列成對:管線挑得出的 URL、UI 必渲染得出來。
+// (2026-08-08 該系列自 rpm-transform.test.ts 隨函式搬家、行為未改;指標同步更新。)
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';

@@ -72,6 +72,16 @@ export interface SupplierConfig {
    *   前提:報價單 storefront_catalog_v 已曝露 pdf_urls/video_urls(20260709 報價單側 migration)。
    */
   syncInstallResources: boolean;
+  /**
+   * 同一類說明書有多份時,標籤怎麼區分(合約 v5 §3、交接檔 `2026-08-07-f-line-attachments-final-handoff.md`)。
+   * true  → 標籤後括號接檔名,例「安裝說明書(1198 2007-2013)」。**只給 gbracing / evotech** ——
+   *         它們的多份是【不同車款】的同一種文件,客人得靠檔名挑自己那台,沒有檔名就挑不出來。
+   * false → 同類內編號「安裝說明書 1…N」。akrapovic 必須是 false:它的檔名是 GUID,
+   *         接了會變「安裝說明書(ffdd4e47-…)」= 比編號更糟(交接檔 §3 明文)。
+   * 🔴 這是**供應商級決定、不是看檔名長相猜**;新供應商預設 false(保守:編號永遠不會更糟)。
+   * 零附件的供應商此旗標無作用(normalizeManuals 收不到任何 doc)。
+   */
+  appendManualFilename: boolean;
   /** 分類策略(見 CategoryStrategy)。 */
   categoryStrategy: CategoryStrategy;
   /**
@@ -103,6 +113,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'rpm',
     syncDescription: false,
     syncInstallResources: false, // 🔴 rpm 無安裝資源來源 + byte 凍結:不寫、products.manuals/video_url 維持 DEFAULT
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'fixed', rawPath: '碳纖維部品' },
     variantImages: 'sku-prefix-pool', // 🔴 byte 錨:群共用圖池+sku 前綴過濾 = 現行行為
     writeAllowed: true, // 現役每日同步(rpm-sync.yml)
@@ -114,6 +125,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'gbracing',
     syncDescription: true,
     syncInstallResources: true, // #270:有 PDF 來源(fetcher gbracing.eu)且已同步 → 寫 manuals/video_url
+    appendManualFilename: true, // 合約 v5 §3:多份=不同車款的同一種文件,客人靠檔名挑自己那台
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // view images=該列自己的圖(單變體家、942 群全單變體)
     writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
@@ -125,6 +137,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'bonamici',
     syncDescription: true,
     syncInstallResources: true, // #270:有 PDF 來源(fetcher bonamiciracing.it)且已同步 → 寫 manuals/video_url
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 每變體 1 張自身圖(URL 含自身 sku 目錄、1710/1710 非空)
     writeAllowed: true, // 試點寫入授權(Sean 2026-07-05 拍 gbracing+bonamici 上架)
@@ -139,6 +152,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'cncracing',
     syncDescription: true,
     syncInstallResources: true, // #270+放量 kickoff §2:Vimeo 影片(55 群)+PDF(1,008 群)confirm-write 時回填
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant', // 首張 variante/ 變體圖+群情境照(4376/4376 非空)
     writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
@@ -155,6 +169,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'evotech',
     syncDescription: true, // 3,435/3,460 群有繁中描述
     syncInstallResources: true,
+    appendManualFilename: true, // 合約 v5 §3:多份=不同車款的同一種文件,客人靠檔名挑自己那台
     categoryStrategy: { kind: 'per-group' }, // 12 大類
     variantImages: 'per-variant', // 1:1 單變體家(3,460 群=3,460 變體)
     writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
@@ -165,6 +180,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'lightech',
     syncDescription: true, // 4,553/4,566
     syncInstallResources: true, // PDF 2,019 群;影片截面 0(Vimeo 預期、晚到自然補)
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 10 大類
     variantImages: 'per-variant', // 抽群實測:同群各色各自 1 張圖(0011M04COB/NER 各異)
     // ✅ 2026-07-24 Sean 批首灌後開寫。前置全清:商品圖 12k 已轉存 R2(0 http)、spec color
@@ -178,6 +194,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'eazigrip',
     syncDescription: true, // 1,740/1,740
     syncInstallResources: true,
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:BUNAPR001 四色各自 1 張圖
     writeAllowed: true, // ✅ 2026-07-11 #274 全清:view 去重+尾 hyphen 源頭正規化(報價單 5a23541)
@@ -189,6 +206,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'samco',
     syncDescription: true, // 1,403/1,403
     syncInstallResources: true,
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:AGU-1 19 色各自圖組(BK/RD 檔名各異)
     writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫(⚠ 變體王 14,165、乾跑先驗)
@@ -199,6 +217,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'motogadget',
     syncDescription: true, // 907/912
     syncInstallResources: true,
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 5 大類
     variantImages: 'per-variant', // 1:1 單變體家(912=912)
     writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
@@ -209,6 +228,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'front3d',
     syncDescription: true, // 108/108
     syncInstallResources: true,
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 1:1 單變體家(108=108)
     writeAllowed: true, // ✅ 2026-07-11 Sean 批 demo(晨報 Q1=A)後開寫
@@ -219,6 +239,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'materya',
     syncDescription: true, // 51/54
     syncInstallResources: true,
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 抽群實測:MTY001/MTY011 各色各自圖
     writeAllowed: true, // ✅ 2026-07-11 #274 源頭分群治本上 prod(87fe84a)+ 乾跑全綠(54 群/88 變體、handle 0)後開寫
@@ -230,6 +251,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'ebc',
     syncDescription: true, // 68/68
     syncInstallResources: true, // 影片 45 群(YouTube watch 型、scout 實查)
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 1 大類(煞車系統)
     variantImages: 'per-variant', // 抽群實測:群內各變體同一張圖(per-variant 直用等價)
     writeAllowed: true, // ✅ 2026-07-11 #274 源頭填 spec(tier 材質軸、5fa0ad3)上 prod + 乾跑全綠(68 群/112 變體、pv_spec 撞鍵 0)後開寫
@@ -242,6 +264,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'akrapovic',
     syncDescription: true, // 642/648
     syncInstallResources: true, // PDF 說明書 635 群;video 0
+    appendManualFilename: false, // 同類多份用編號(檔名是 GUID、接了更糟)
     categoryStrategy: { kind: 'per-group' }, // 10 對(排氣系統 7 子類為主)
     variantImages: 'per-variant', // 1:1 單變體家(648=648)
     // ✅ 2026-07-19 Sean 批首灌後開寫。四道前置全過:乾跑全綠 / Codex R1 四 must-fix 清完
@@ -261,6 +284,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'extreme',
     syncDescription: true, // 712/712 繁中描述
     syncInstallResources: false, // 靜態 fixture、pdf/video 皆 0、無安裝資源來源
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' }, // 3 大類
     variantImages: 'per-variant', // 每變體自身圖(檔名含自身 sku,如 ped-gp_evo_cbr100020_bd_*)
     // ✅ 2026-07-24 Sean 批首灌後開寫。前置全清:65 腳踏 4 軸 spec pv_spec 撞鍵 0、v2 分類
@@ -278,6 +302,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: 'kspeed',
     syncDescription: true, // 988/989 繁中描述
     syncInstallResources: true, // 影片 57 群
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant',
     // ✅ 2026-07-24 Sean 批首灌後開寫。乾跑全綠:960 群/989 變體、category 960/960 對上
@@ -296,6 +321,7 @@ export const SUPPLIER_CONFIGS: Record<string, SupplierConfig> = {
     handlePrefix: '__gated_canary__',
     syncDescription: false,
     syncInstallResources: false,
+    appendManualFilename: false, // 同類多份用編號
     categoryStrategy: { kind: 'per-group' },
     variantImages: 'per-variant',
     writeAllowed: false, // 🔴 永久鎖定 = guard 測試靶;勿開寫

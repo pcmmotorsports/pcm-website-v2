@@ -42,6 +42,12 @@ export interface SourceProductRow {
   description: string | null; // 來源繁中描述(P0-A-3 起攜帶;僅 supplier-config.syncDescription=true 才寫進 products.description、§2.9 F2)
   highlights_zh: string[] | null; // 來源賣點條列(jsonb 字串陣列;A/#270、與 description 同 syncDescription gate→products.highlights、rpm 不寫)
   pdf_urls: string[] | null; // 說明書 PDF 連結(text[] 裸 URL;#270 安裝資源、syncInstallResources gate→products.manuals、rpm 不寫)
+  // 合約 v5 第 29 欄(報價單側 2026-08-07 上正式庫):結構化說明書,URL 串與 pdf_urls 建構上必然相等。
+  // 🔴 **兩欄擇一、絕不合併**(合併=每份文件出現兩次);transformGroup 逐列優先 pdf_docs、否則 pdf_urls。
+  // 🔴 doc_type/type_id 皆 optional 是**實查事實**不是防禦性寬鬆:2026-08-08 00:0x 唯讀實查,
+  //    akrapovic 635 列只有 {url,type_id}、全庫帶 doc_type 的 0 列;其餘五家整欄 null。
+  //    各家 fetcher 下次跑過才回填 ⇒ 過渡期靠 rpm-attachments 的 `?? 'install'`。
+  pdf_docs: { doc_type?: string | null; type_id?: number | null; url: string }[] | null;
   video_urls: string[] | null; // 安裝影片連結(text[] 多支可能含 Vimeo;#270、pickInstallVideo 取第一支 YouTube→products.video_url)
   vehicle_label: string | null; // 適用車款(subtitle 用;通用件可能 null)
   fitment_parsed: SourceFitmentEntry[] | null;
@@ -81,7 +87,7 @@ const VIEW_COLS =
   'supplier_slug, main_sku, sku, product_name, product_name_zh, description, ' +
   'vehicle_label, fitment_parsed, category_zh, major_category_zh, major_category_v2_zh, sub_category_v2_zh, ' +
   'spec, price_retail, image_url, images, stock_status, ' +
-  'highlights_zh, pdf_urls, video_urls, delisted_at';
+  'highlights_zh, pdf_urls, pdf_docs, video_urls, delisted_at';
 
 // ── source fetch(分頁 + 重試、全程 .eq('supplier_slug', supplierSlug);讀乾淨 view 取代 raw 兩查)──
 const MAX_RETRY = 3; // S5:每頁最多嘗試次數(初次 + 2 重試)

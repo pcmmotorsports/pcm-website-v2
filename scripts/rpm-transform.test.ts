@@ -13,8 +13,6 @@ import {
   variantSortKey,
   normalizeHandleSegment,
   resolveFitmentYears,
-  normalizeManuals,
-  pickInstallVideo,
   liveVariantsOf,
   type GroupTransformContext,
 } from './rpm-transform';
@@ -51,7 +49,7 @@ function runGroup(
 // ── RPM fixtures(= golden capture 用的同一組;涵蓋 string/number/null 價、圖池前綴過濾、fitment 去重、有/無車款)──
 const APRILIA: SourceProductRow[] = [
   {
-    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-G-F', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-G-F', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Front Fender', product_name_zh: '前土除',
     description: '碳纖維前土除,100% 手工。', category_zh: '土除', major_category_zh: '車殼外觀',
     vehicle_label: 'Aprilia RS660',
@@ -62,7 +60,7 @@ const APRILIA: SourceProductRow[] = [
     stock_status: 'in_stock',
   },
   {
-    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-M-F', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-M-F', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Front Fender', product_name_zh: '前土除',
     description: '碳纖維前土除,100% 手工。', category_zh: '土除', major_category_zh: '車殼外觀',
     vehicle_label: 'Aprilia RS660',
@@ -74,7 +72,7 @@ const APRILIA: SourceProductRow[] = [
     stock_status: 'low',
   },
   {
-    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-T-G', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-T-G', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Front Fender', product_name_zh: '',
     description: '碳纖維前土除,100% 手工。', category_zh: '土除', major_category_zh: '車殼外觀',
     vehicle_label: 'Aprilia RS660',
@@ -87,7 +85,7 @@ const APRILIA: SourceProductRow[] = [
 ];
 const UNIV: SourceProductRow[] = [
   {
-    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-A', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Bolt Kit', product_name_zh: '螺絲組',
     description: '通用碳纖維螺絲。', category_zh: '螺絲', major_category_zh: '周邊配件',
     vehicle_label: null,
@@ -98,7 +96,7 @@ const UNIV: SourceProductRow[] = [
     stock_status: 'in_stock',
   },
   {
-    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-B', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-B', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Bolt Kit', product_name_zh: '螺絲組',
     description: '通用碳纖維螺絲。', category_zh: '螺絲', major_category_zh: '周邊配件',
     vehicle_label: null,
@@ -113,7 +111,7 @@ const UNIV: SourceProductRow[] = [
 // rpm ctx = 現況鏡射;subtitleTag = 分類 rawPath「碳纖維部品」(Sean 拍板、副標隨分類名)
 const RPM_CTX: GroupTransformContext = {
   brandId: 'brand-rpm', categoryId: 'cat-carbon', handlePrefix: 'rpm',
-  subtitleTag: '碳纖維部品', syncDescription: false, syncInstallResources: false,
+  subtitleTag: '碳纖維部品', syncDescription: false, syncInstallResources: false, appendManualFilename: false,
 };
 
 // golden(去碳前現況實跑觀測、subtitle 依拍板 碳纖維→碳纖維部品)
@@ -188,7 +186,7 @@ describe('🔴 RPM byte 回歸鎖(去碳後 rpm 路徑逐欄不變、唯副標�
 
 describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
   const gbBase: SourceProductRow = {
-    supplier_slug: 'gbracing', main_sku: 'GB-001', sku: 'GB-001', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'gbracing', main_sku: 'GB-001', sku: 'GB-001', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Crankcase Cover', product_name_zh: '曲軸箱護蓋',
     description: '曲軸箱護蓋,CNC 切削。', category_zh: '引擎護蓋', major_category_zh: '操控部品',
     vehicle_label: 'Yamaha R1', fitment_parsed: null,
@@ -198,7 +196,7 @@ describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
   };
   const GB_CTX: GroupTransformContext = {
     brandId: 'brand-gb', categoryId: 'cat-ops', handlePrefix: 'gbracing',
-    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true,
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true, appendManualFilename: false,
   };
 
   it('per-group 副標 = major_category_zh、無「碳纖維」字樣、handle 用供應商前綴', () => {
@@ -260,7 +258,7 @@ describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
 describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前綴過濾不變', () => {
   // bonamici 真形狀(2026-07-04 view 實測):URL 含自身 sku 目錄、sku 後跟 / . 而非 '-'
   const boVariant: SourceProductRow = {
-    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Oil Cap', product_name_zh: '機油蓋',
     description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
     vehicle_label: null, fitment_parsed: null,
@@ -395,7 +393,7 @@ describe('resolveFitmentYears(year_str fallback、修 gbracing 年份掉落)', (
 // A/#270:賣點條列 highlights_zh → products.highlights(供應商級 syncDescription gate + 正規化 + rpm 凍結)
 describe('A/#270 highlights 賣點條列', () => {
   const gbHl: SourceProductRow = {
-    supplier_slug: 'gbracing', main_sku: 'GB-HL', sku: 'GB-HL', highlights_zh: ['6AL-4V G5 鈦合金,輕量耐腐蝕', 'DLC 黑鈦塗層'], pdf_urls: null, video_urls: null,
+    supplier_slug: 'gbracing', main_sku: 'GB-HL', sku: 'GB-HL', highlights_zh: ['6AL-4V G5 鈦合金,輕量耐腐蝕', 'DLC 黑鈦塗層'], pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Bolt', product_name_zh: '鈦合金螺絲',
     description: '鈦合金螺絲。', category_zh: '螺絲', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -404,7 +402,7 @@ describe('A/#270 highlights 賣點條列', () => {
   };
   const GB_HL_CTX: GroupTransformContext = {
     brandId: 'brand-gb', categoryId: 'cat-ops', handlePrefix: 'gbracing',
-    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true,
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true, appendManualFilename: false,
   };
 
   it('syncDescription=true → 展開 highlights key、值 = 正規化 string[]', () => {
@@ -436,84 +434,11 @@ describe('A/#270 highlights 賣點條列', () => {
 
 // #270 安裝資源:pdf_urls/video_urls → products.manuals/video_url(供應商級 gate + 群級彙整 + 形狀轉換)
 describe('#270 安裝資源 manuals/video_url', () => {
-  // ── normalizeManuals(裸 URL → InstallManual[]、D1=A label 規則)──
-  describe('normalizeManuals', () => {
-    it('單份 → label「安裝說明書」(無編號)', () => {
-      expect(normalizeManuals(['https://x.com/a.pdf'])).toEqual([{ label: '安裝說明書', url: 'https://x.com/a.pdf' }]);
-    });
-    it('多份 → label「安裝說明書 N」編號', () => {
-      expect(normalizeManuals(['https://x.com/a.pdf', 'https://x.com/b.pdf'])).toEqual([
-        { label: '安裝說明書 1', url: 'https://x.com/a.pdf' },
-        { label: '安裝說明書 2', url: 'https://x.com/b.pdf' },
-      ]);
-    });
-    it('濾非 http(s)(擋 javascript: 等注入、與 UI 白名單雙層)', () => {
-      expect(normalizeManuals(['javascript:alert(1)', 'ftp://x/a.pdf', 'https://x.com/a.pdf'])).toEqual([
-        { label: '安裝說明書', url: 'https://x.com/a.pdf' },
-      ]);
-    });
-    it('去重保序(同群多變體常帶重複 URL)', () => {
-      expect(normalizeManuals(['https://x.com/a.pdf', 'https://x.com/a.pdf', 'https://x.com/b.pdf'])).toEqual([
-        { label: '安裝說明書 1', url: 'https://x.com/a.pdf' },
-        { label: '安裝說明書 2', url: 'https://x.com/b.pdf' },
-      ]);
-    });
-    it('全空 / 全非法 → []', () => {
-      expect(normalizeManuals([])).toEqual([]);
-      expect(normalizeManuals([null, undefined, '', '  ', 'notaurl'])).toEqual([]);
-    });
-    it('new URL 嚴驗:無 host 的 https:// / http:// 濾除(codex/ultra 關卡2 nit)', () => {
-      expect(normalizeManuals(['https://', 'http://'])).toEqual([]);
-    });
-  });
-
-  // ── pickInstallVideo(裸 URL → 第一支可解析的 youtube/vimeo/影片直檔;2026-07-10 混格式放寬、supersede D2=A YouTube-only)──
-  describe('pickInstallVideo', () => {
-    const YT = 'https://youtu.be/dQw4w9WgXcQ'; // 11 碼合法 id
-    it('取能解析的 YouTube(youtube.com watch / youtu.be)', () => {
-      expect(pickInstallVideo(['https://youtube.com/watch?v=dQw4w9WgXcQ'])).toBe('https://youtube.com/watch?v=dQw4w9WgXcQ');
-      expect(pickInstallVideo([YT])).toBe(YT);
-    });
-    it('www. 前綴 normalize(與 UI parseYoutubeId 對齊、避免 www.youtu.be false-negative)', () => {
-      expect(pickInstallVideo(['https://www.youtube.com/watch?v=dQw4w9WgXcQ'])).toBe('https://www.youtube.com/watch?v=dQw4w9WgXcQ');
-      expect(pickInstallVideo(['https://www.youtu.be/dQw4w9WgXcQ'])).toBe('https://www.youtu.be/dQw4w9WgXcQ');
-    });
-    it('Vimeo 可解析(vimeo.com/<數字> / player.vimeo.com/video/<數字>;lightech·cncracing 來源型)', () => {
-      expect(pickInstallVideo(['https://vimeo.com/123456'])).toBe('https://vimeo.com/123456');
-      expect(pickInstallVideo(['https://player.vimeo.com/video/123456'])).toBe('https://player.vimeo.com/video/123456');
-      expect(pickInstallVideo(['https://www.vimeo.com/123456'])).toBe('https://www.vimeo.com/123456');
-    });
-    it('影片直檔可解析(副檔名白名單;evotech cdn.shopify/S3 mp4 型)、白名單外網頁 URL 跳過', () => {
-      const MP4 = 'https://cdn.shopify.com/videos/c/o/v/abc123.mp4';
-      expect(pickInstallVideo([MP4])).toBe(MP4);
-      expect(pickInstallVideo(['https://x.s3.eu-west-2.amazonaws.com/v.MP4?sig=1'])).toBe(
-        'https://x.s3.eu-west-2.amazonaws.com/v.MP4?sig=1',
-      ); // 大小寫 + query 不干擾(pathname 判定)
-      expect(pickInstallVideo(['https://example.com/page.html', MP4])).toBe(MP4); // 任意網頁不當影片(fail-closed)
-    });
-    it('多支混合 → 取第一支可解析(任意型、先到先得;vimeo 現可解析)', () => {
-      expect(pickInstallVideo(['https://vimeo.com/1', YT])).toBe('https://vimeo.com/1');
-      expect(pickInstallVideo(['https://example.com/', YT, 'https://vimeo.com/123456'])).toBe(YT);
-    });
-    it('🔴 host 符合但無 id(頻道/播放清單/短 id/非數字 vimeo 路徑)→ 跳過續試下一支(ultra/codex 關卡2 must-fix)', () => {
-      // 頻道 URL host=youtube.com 但路徑非 watch/embed/shorts → 解不出 id → 不佔位、續試取後面真影片
-      expect(pickInstallVideo(['https://youtube.com/channel/UC1234ABCD', YT])).toBe(YT);
-      expect(pickInstallVideo(['https://www.youtube.com/@brandname'])).toBeNull();
-      expect(pickInstallVideo(['https://youtu.be/ab12'])).toBeNull(); // id <6 碼不合法
-      expect(pickInstallVideo(['https://vimeo.com/channels/staffpicks'])).toBeNull(); // 非數字段=非影片
-    });
-    it('全空 / 壞 URL / 偽裝 scheme → null(不 throw)', () => {
-      expect(pickInstallVideo([])).toBeNull();
-      expect(pickInstallVideo([null, '', 'not a url'])).toBeNull();
-      expect(pickInstallVideo(['javascript://youtu.be/dQw4w9WgXcQ'])).toBeNull(); // protocol 守衛擋偽裝
-      expect(pickInstallVideo(['javascript://vimeo.com/123456'])).toBeNull();
-      expect(pickInstallVideo(['file:///tmp/x.mp4'])).toBeNull(); // 直檔也守 http(s)
-    });
-  });
-
+  // ── normalizeManuals / pickInstallVideo 的單元測已於 2026-08-08 隨函式搬到 rpm-attachments.test.ts
+  //    (rpm-transform.ts 破 400 行、鐵則 6 拆檔)。本區只留 transformGroup 層的接線行為。
   // ── transformGroup:群級彙整跨全變體(codex 關卡1 must-fix)+ 供應商級 gate ──
   const irBase: SourceProductRow = {
-    supplier_slug: 'gbracing', main_sku: 'GB-IR', sku: 'GB-IR', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'gbracing', main_sku: 'GB-IR', sku: 'GB-IR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Case', product_name_zh: '護蓋',
     description: null, category_zh: '護蓋', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -522,7 +447,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
   };
   const GB_IR_CTX: GroupTransformContext = {
     brandId: 'brand-gb', categoryId: 'cat-ops', handlePrefix: 'gbracing',
-    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true,
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: true, appendManualFilename: false,
   };
 
   it('🔴 群級彙整:某變體有 PDF、另一變體沒有 → 仍收(非只看 basis / 第一列)', () => {
@@ -578,7 +503,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
   });
 
   it('🔴 兩欄各判各的(反向):影片有值 + PDF 全 null → 只展開 video_url', () => {
-    const videoOnly = [{ ...irBase, pdf_urls: null, video_urls: ['https://youtu.be/dQw4w9WgXcQ'] }];
+    const videoOnly = [{ ...irBase, pdf_urls: null, pdf_docs: null, video_urls: ['https://youtu.be/dQw4w9WgXcQ'] }];
     const { product } = runGroup('GB-IR', videoOnly, null, GB_IR_CTX);
     expect(Object.hasOwn(product, 'video_url')).toBe(true);
     expect(product.video_url).toBe('https://youtu.be/dQw4w9WgXcQ');
@@ -601,11 +526,104 @@ describe('#270 安裝資源 manuals/video_url', () => {
     expect('manuals' in product).toBe(false);
     expect('video_url' in product).toBe(false);
   });
+
+  // ── 合約 v5:pdf_docs 接線 + 兩欄逐列擇一(2026-08-08、主視窗 E-174-A Q1=A)──
+  // 🔴 「絕不合併」在這層的意思:同一列永遠只取一欄 ⇒ 建構上不可能同一份文件列兩次。
+  //    實查佐證(2026-08-08 00:0x):pdf_docs 的 URL 串與 pdf_urls 相等,合併會讓每份文件出現兩次。
+
+  it('🔴 該列有 pdf_docs → 只用 pdf_docs,同一列的 pdf_urls 完全不看(絕不合併)', () => {
+    // ⚠️ 這條測試的形狀是被突變逼出來的:原本寫成「兩欄裝同一個 URL」,結果把實作改成
+    //    【合併兩欄】也照樣全綠 —— URL 去重會把合併產生的重複項吃掉,觀察值由別的機制供應
+    //    ⇒ 零判別力。改成「pdf_urls 多帶一個 pdf_docs 沒有的 URL」才分得出擇一 vs 合併:
+    //    擇一 ⇒ 只有 x.pdf;合併 ⇒ 會多出 stale.pdf。
+    const both = [{
+      ...irBase,
+      pdf_docs: [{ doc_type: 'parts_diagram', url: 'https://gb.eu/x.pdf' }],
+      pdf_urls: ['https://gb.eu/x.pdf', 'https://gb.eu/stale.pdf'],
+    }];
+    const { product } = runGroup('GB-IR', both, null, GB_IR_CTX);
+    expect(product.manuals).toEqual([{ label: '零件分解圖', url: 'https://gb.eu/x.pdf' }]);
+  });
+
+  it('🔴 該列 pdf_docs=null → 退回 pdf_urls(裸 URL 走 ?? install)= 五家 5,049 群今日行為不變', () => {
+    // 2026-08-08 實查:gbracing/evotech/lightech/cncracing/bonamici 的 pdf_docs 整欄仍 null
+    const legacy = [{ ...irBase, pdf_docs: null, pdf_urls: ['https://gb.eu/m.pdf'] }];
+    const { product } = runGroup('GB-IR', legacy, null, GB_IR_CTX);
+    expect(product.manuals).toEqual([{ label: '安裝說明書', url: 'https://gb.eu/m.pdf' }]);
+  });
+
+  it('🔴 逐列擇一、非群級擇一:A 列有 pdf_docs、B 列只有 pdf_urls → 兩列各走各的', () => {
+    // A 列的 pdf_urls 刻意多帶一個 pdf_docs 沒有的 URL(同上一條的理由:否則合併與擇一無法分辨)
+    const mixed = [
+      { ...irBase, sku: 'A', pdf_docs: [{ doc_type: 'other', url: 'https://gb.eu/a.pdf' }], pdf_urls: ['https://gb.eu/a.pdf', 'https://gb.eu/a-stale.pdf'] },
+      { ...irBase, sku: 'B', pdf_docs: null, pdf_urls: ['https://gb.eu/b.pdf'] },
+    ];
+    const { product } = runGroup('GB-IR', mixed, null, GB_IR_CTX);
+    expect(product.manuals).toEqual([
+      { label: '文件', url: 'https://gb.eu/a.pdf' },       // A 走 pdf_docs 的 doc_type
+      { label: '安裝說明書', url: 'https://gb.eu/b.pdf' }, // B 走 pdf_urls 的 ?? install
+    ]);
+  });
+
+  it('🔴 pdfSeen 看兩欄:pdf_docs=null 但 pdf_urls 有值 → 仍展開 key(不可誤判成「來源沒說話」而凍結)', () => {
+    const legacy = [{ ...irBase, pdf_docs: null, pdf_urls: [] }];
+    const { product } = runGroup('GB-IR', legacy, null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(true); // 來源說「沒有」⇒ 照寫空
+    expect(product.manuals).toEqual([]);
+  });
+
+  it('🔴 兩欄皆 null 才算來源沒說話 → 省 key(片 1 防清空仍成立)', () => {
+    const { product } = runGroup('GB-IR', [{ ...irBase, pdf_docs: null, pdf_urls: null }], null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(false);
+  });
+
+  it('🔴 驗收硬項:三欄皆 null(=7 家零附件的來源形狀)→ 省 key ⇒ DB 終態不變', () => {
+    // 交接檔 §6:eazigrip/samco/rpm/motogadget/extreme/front3d/materya 共 5,554 群三欄恆 null。
+    // 口徑=**DB 終態**逐位不變(主視窗 E-173-A Q2=A):省 key ⇒ ON CONFLICT 不覆寫 ⇒ 既有 [] 原地不動;
+    // 新列吃 products.manuals 的 DEFAULT '[]'。payload 本身與片 1 前不同,那正是片 1 要修的行為。
+    //
+    // ⚠️ 誠實邊界(Fable 對抗審 N2):原本寫成迴圈跑七個 supplier_slug,但 transformGroup 根本不看
+    //    supplier_slug(gate 一律來自 ctx)⇒ 那是同一條路徑重跑七次、測試名宣稱大於事實。這裡只驗
+    //    真正的不變式一次;「那七家的來源確實三欄皆 null」是**報價單側的事實**,單元測證不到,
+    //    靠交接檔 §6 與 2026-08-08 00:0x 唯讀實查背書。
+    const row = { ...irBase, pdf_docs: null, pdf_urls: null, video_urls: null };
+    // 刻意用 syncInstallResources=true 的 ctx:證明「省 key」是來源 null 決定的,不是靠 gate 關著才碰巧沒事
+    const { product } = runGroup('X', [row], null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(false);
+    expect(Object.hasOwn(product, 'video_url')).toBe(false);
+  });
+
+  it('🔴 違約形狀:pdf_docs=[] 但 pdf_urls 有值 → 退回 pdf_urls,不得寫 [] 清空(Fable 對抗審 C4)', () => {
+    // 合約說故障時是 null 不是 [],但安全不能只靠上游守約 —— 這條把安全方向釘死。
+    const rogue = [{ ...irBase, pdf_docs: [], pdf_urls: ['https://gb.eu/m.pdf'] }];
+    const { product } = runGroup('GB-IR', rogue, null, GB_IR_CTX);
+    expect(product.manuals).toEqual([{ label: '安裝說明書', url: 'https://gb.eu/m.pdf' }]);
+  });
+
+  it('兩欄都空 → 仍寫 [](真的沒有;上一條的 fallback 不會反過來讓空值寫不進去)', () => {
+    const { product } = runGroup('GB-IR', [{ ...irBase, pdf_docs: [], pdf_urls: [] }], null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(true);
+    expect(product.manuals).toEqual([]);
+  });
+
+  it('🔴 appendManualFilename 由 ctx 供給、逐家不同:同一批來源在兩家產出不同標籤', () => {
+    const docs = [
+      { doc_type: 'install', url: 'https://gb.eu/f/1198 2007-2013.pdf' },
+      { doc_type: 'install', url: 'https://gb.eu/f/899 2012-2014.pdf' },
+    ];
+    const rows = [{ ...irBase, pdf_docs: docs }];
+    const appended = runGroup('GB-IR', rows, null, { ...GB_IR_CTX, appendManualFilename: true }).product;
+    const numbered = runGroup('GB-IR', rows, null, { ...GB_IR_CTX, appendManualFilename: false }).product;
+    expect(appended.manuals!.map((m) => m.label)).toEqual([
+      '安裝說明書(1198 2007-2013)', '安裝說明書(899 2012-2014)',
+    ]);
+    expect(numbered.manuals!.map((m) => m.label)).toEqual(['安裝說明書 1', '安裝說明書 2']);
+  });
 });
 
 describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
   const dBase: SourceProductRow = {
-    supplier_slug: 'bonamici', main_sku: 'BON-D', sku: 'BON-D-A', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'bonamici', main_sku: 'BON-D', sku: 'BON-D-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Rearset', product_name_zh: '腳踏後移',
     description: null, category_zh: '腳踏', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -614,7 +632,7 @@ describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
   };
   const D_CTX: GroupTransformContext = {
     brandId: 'brand-bon', categoryId: 'cat-ops', handlePrefix: 'bonamici',
-    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false,
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
   };
 
   it('來源未投影此欄(舊 view / 舊 fixture)→ null,行為與改前一致', () => {
@@ -686,7 +704,7 @@ describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
 
 describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商品卡價格洩漏已剔除的停產變體)', () => {
   const pBase: SourceProductRow = {
-    supplier_slug: 'cncracing', main_sku: 'PR320', sku: 'PR320-A', highlights_zh: null, pdf_urls: null, video_urls: null,
+    supplier_slug: 'cncracing', main_sku: 'PR320', sku: 'PR320-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
     product_name: 'Lever', product_name_zh: '拉桿',
     description: null, category_zh: '拉桿', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -695,7 +713,7 @@ describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商
   };
   const P_CTX: GroupTransformContext = {
     brandId: 'brand-cnc', categoryId: 'cat-ops', handlePrefix: 'cncracing',
-    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false,
+    subtitleTag: '操控部品', syncDescription: true, syncInstallResources: false, appendManualFilename: false,
   };
 
   it('停產的最低價變體不可決定群價(群層必須吃 liveVariantsOf 的結果)', () => {

@@ -15,8 +15,9 @@
 //   youtube(Bonamici)/vimeo(Lightech·CNC)= iframe facade 點擊載入;.mp4 直檔(Evotech cdn.shopify/S3)
 //   = <video controls preload="metadata" playsInline>。resolveVideo 三分流;Vimeo facade 無外部縮圖
 //   (Vimeo 無免驗證縮圖端點、vumbnail 等第三方服務不引入)、用 facade 深色底 + 標籤。
-//   🔴 與管線 scripts/rpm-transform.ts pickInstallVideo 家族(extractYoutubeId/extractVimeoId/isVideoFileUrl)
-//   邏輯對齊,改一邊要同步另一邊。
+//   🔴 與管線 scripts/rpm-attachments.ts pickInstallVideo 家族(extractYoutubeId/extractVimeoId/isVideoFileUrl)
+//   邏輯對齊,改一邊要同步另一邊。(2026-08-08:該家族自 scripts/rpm-transform.ts 搬到 rpm-attachments.ts、
+//   行為未改;此處指標同步更新,否則「改一邊要同步另一邊」的規則自己先失聯。)
 //
 // 'use client' 必要:facade 播放 onClick → useState 換入 iframe。
 
