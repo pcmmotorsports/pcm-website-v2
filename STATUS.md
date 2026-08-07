@@ -7,6 +7,7 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🏁 **2026-08-07 08:50 B 線 B2-S2b 全線 27 顆併回 dev(merge `52b8f074`)。** 含兩支 migration(S2a 摘要欄+S2b 重算接線,**未 apply**)+apply runbook 308 行+全套 harness;B 窗 merge 前置四步全綠(union 解災難 runbook 衝突、NEWEST_TS 改釘、MD5 實測同值=dev 三支不碰 helper)。⛔ **下一步=Sean 手動 db push 兩支**(E 三支暫移不混批,指令塊已交付);post-apply read-back 待跑。B 接 writer RPC 片偵察+plan。
 🌙 **2026-08-07 08:35 D 線 R-2 收割=rail 統一線三片收齊(品牌頁 5→10 Q3=A)。** 357 檔 **5413 綠** Δ=−3 吻合;審查抓回一條 a11y 回歸(reduce-motion 保護誤刪、理由本身錯=已復原+突變證);「選擇器列表混活規則」教訓入立法候選;品牌頁撈失敗整區消失 vs 他區錯誤文案=行為分岔記債。3111 已重啟,Sean 驗品牌頁橫捲/箭頭/查看全部。Sean 五題全拍(Q1-Q5)、三窗全速。
 🏁 **2026-08-07 07:55 B 線 B2-S2b 整條結清(9/9+S2b-F 全綠+窄消融對照,`25031f87`,24 顆押 a4a-chain)。** 三支 S1 harness 全前綴庫全綠(60/46/64 全 0 紅)=apply preflight 硬條①成立;⛔ **merge+同批 apply=Sean 手動停點**(Sean 說「排」才動);欠:併發證據 deferred(交棒 1+10)申報+codex 背書(用量牆)。B 轉做 apply 停點 runbook(唯讀)→ writer RPC 片 plan 草稿。
 🌙 **2026-08-07 07:50 D 線 OD 回饋包收割(`docs/reviews/2026-08-07-od-feedback-packet.md`)。** 三層檔案表+OD 稿五問題(交接單不同步×2/末格雙邊框/finder 單斷點/訂單詳情無稿)+偏離6/回寫6/站內債;Sean 帶去 OD 的一頁在此。D 停等 Q3(僅剩 R-2+manifest 收尾);357 檔 5416 綠零變。
