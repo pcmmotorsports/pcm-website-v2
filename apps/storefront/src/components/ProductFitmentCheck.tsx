@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { UIFitment } from '@/data/mock-products';
 import { checkFitment, type FitmentCheckStatus, type FitmentCheckVehicle } from '@/lib/fitment-match';
-import { readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
+import { clearVehicleContext, readVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 import { slugify } from '@/lib/vehicle-taxonomy';
 import { vehicleLabel } from '@/lib/vehicle-match';
 import { VehicleSelect } from './VehicleSelect';
@@ -98,6 +98,10 @@ export function ProductFitmentCheck({
   );
   const [editing, setEditing] = useState(false);
   const [sel, setSel] = useState<{ brand: string; model?: string; year?: number } | null>(null);
+  // Q27 A2:使用者一旦動過 picker(碰過任一 onPick/onClear),就以 sel 為準;沒動過且 qualified
+  // 才用 chosen 回填。理由:沒有這旗標的話,qualified 態按「清除廠牌」⇒ setSel(null) ⇒ 下一輪
+  // render 立刻又用 chosen 回填、欄位永遠清不掉。旗標讓「使用者碰過」與「還沒碰過」分得開。
+  const [selTouched, setSelTouched] = useState(false);
   // A10b:建議清單 state 與決策腦呼叫已搬進 GarageChips(全站單一份),本檔不再自持。
   // V-2d③(Sean 07-15 真機:「手機放直的很不好看」):手機預設收合=單顆入口鈕+愛車 chips 在前,
   // 點開才展三層選單(CSS ≤1023px 生效;桌機恆展開、.pfc-expand 不顯)。§7 判定/文案四態零動、只動殼。
@@ -159,6 +163,7 @@ export function ProductFitmentCheck({
     setChosen(c);
     setEditing(false);
     setSel(null);
+    setSelTouched(false); // 回到「未碰過」,下一輪 qualified 才能再回填
     setPickerOpen(false); // 下次進 picker(更改以外路徑)回收合預設
 
     // 寫 context=全站連動(brandId/modelId 用 slugify(name)=taxonomy slug 空間;附名稱字面欄)
@@ -182,9 +187,24 @@ export function ProductFitmentCheck({
 
   const status: FitmentCheckStatus | null = chosen ? checkFitment(fitments, toCheckVehicle(chosen)) : null;
 
+  // Q27 A1:qualified 態要同時看到結果框與 picker(補年份),其餘三態逐字不變(二選一)。
+  // 🔴 直接寫在 JSX 條件式(不抽 const)——`chosen && !editing` 讓 TS 在該分支內把 `chosen` narrow
+  // 成非 null,抽成獨立 boolean 變數會丟失這個 narrowing。
+  // Q27 A2:qualified 且使用者還沒碰過 picker → 用 chosen 回填廠牌/車型(不帶 year,那正是要補的格);
+  // 使用者碰過(selTouched)或已有 sel → 一律以 sel 為準(見上方 selTouched 註解)。
+  const pickerVehicle =
+    selTouched || sel
+      ? sel
+      : status === 'qualified' && chosen
+        ? { brand: chosen.brandName, model: chosen.modelName }
+        : null;
+  // Q27 A4:qualified 時 picker 在手機(≤1023px)強制展開,否則客人看不到補年份的欄位。
+  const pickerEffectivelyOpen = pickerOpen || status === 'qualified';
+  const pickerLabel = status === 'qualified' ? '選一下年份，就能給你確定的答案' : '確認是否適用你的車';
+
   return (
     <div className="pfc">
-      {chosen && !editing ? (
+      {chosen && !editing && (
         <div className={`pfc-result pfc-${status}`} role="status">
           <span className="pfc-badge" aria-hidden="true">
             {status === 'match' ? '✓' : status === 'no-match' ? '✗' : '?'}
@@ -210,19 +230,41 @@ export function ProductFitmentCheck({
               </>
             )}
           </div>
-          {/* 更改車款=明確要改 → 直接展開選單(V-2d③ 收合入口只擋首見的高牆) */}
-          <button type="button" className="pfc-link" onClick={() => { setSel(null); setPickerOpen(true); setEditing(true); }}>更改車款</button>
+          {/* Q28②(D-221-A ①-2):「清除車輛」= 現行「更改車款」的展開行為 + `setChosen(null)`(清掉判定結果 ——
+              **這才是與舊「更改車款」真正的行為差**,舊的只清 `sel`、判定結果留著)+ 清 `vehicle-context` 鏡
+              + 🔴 **清 URL**(`onPersistVehicle?.(null)`)。
+              🔴 **URL 那一下是承重的,不是順手**(D-222-A ① 裁 A):本站架構 **URL 才是真相源**
+              (`products-url-state.tsx:325` 逐字「鏡恆跟隨 URL 真相」)⇒ 只清鏡不清 URL 的話,
+              mount initializer 會從 URL 把車寫回來 —— **狀態根本沒被清過,只是畫面暫時看不到**,
+              而 Sean 拍板這條的原話抱怨正是「舊車跟著跑」。拿掉這行 = 把拍板做成裝飾。
+              (prop 契約本就寫 null=清除、父層支援;URL 變更後 reactive effect 走 absent 分支冪等、不打架。) */}
+          <button
+            type="button"
+            className="pfc-link"
+            onClick={() => {
+              setSel(null);
+              setSelTouched(false);
+              setPickerOpen(true);
+              setEditing(true);
+              setChosen(null);
+              clearVehicleContext();
+              onPersistVehicle?.(null);
+            }}
+          >
+            清除車輛
+          </button>
         </div>
-      ) : (
-        <div className={`pfc-picker${pickerOpen ? ' pfc-picker-open' : ''}`}>
-          <div className="pfc-picker-label">確認是否適用你的車</div>
+      )}
+      {(!chosen || editing || status === 'qualified') && (
+        <div className={`pfc-picker${pickerEffectivelyOpen ? ' pfc-picker-open' : ''}`}>
+          <div className="pfc-picker-label">{pickerLabel}</div>
           {/* MF-2:URL 車款對不到 taxonomy(壞/過期連結)→ 提示重新選車、不顯任何過期舊車判定 */}
           {urlInvalid && (
             <p className="pfc-sub pfc-invalid" role="status">先前的車款連結已失效,請重新選擇你的車。</p>
           )}
           {/* A10b:自刻的 chips + 建議清單退場,換全站唯一的 GarageChips(設計稿 C4 After 行內密度)。
               PDP 沒有 cascade reducer、走 `commit()` ⇒ 用 A9 的互斥 `onApply` 出口。
-              🔴 只換 chips 這一區;上面 :196-223 的四態判定文案逐字不動(§7 正確性紅線:
+              🔴 只換 chips 這一區;上面 :213-229 的四態判定文案逐字不動(§7 正確性紅線:
                  錯誤的 ✓ 比空白更糟),`先前的車款連結已失效` 三態提示也留在原地。 */}
           <GarageChips
             garage={garage}
@@ -234,23 +276,31 @@ export function ProductFitmentCheck({
           <button type="button" className="pfc-expand" onClick={() => setPickerOpen(true)}>
             選擇車款,確認是否適用
           </button>
+          {/* ⚠️ `onPickModel` / `onPickYear` 兩條走 `commit()` 的路**刻意不寫** `setSel`/`setSelTouched` ——
+              `commit()` 同批次就把兩者設回 `null`/`false`,寫了永遠觀察不到,只會讓後人以為那兩行承重(審查 N2)。 */}
           <div className="pfc-select">
             <VehicleSelect
               motoBrands={motoBrands}
-              vehicle={sel}
-              onPickBrand={(name) => setSel({ brand: name })}
+              vehicle={pickerVehicle}
+              onPickBrand={(name) => { setSel({ brand: name }); setSelTouched(true); }}
               onPickModel={(p) => {
-                setSel({ brand: p.brand, model: p.model });
                 commit({ brandName: p.brand, modelName: p.model }); // 選到車型即比對(年份可後補)
               }}
               onPickYear={(year) => {
-                if (!sel?.model) return;
-                setSel({ ...sel, year });
-                commit({ brandName: sel.brand, modelName: sel.model, year });
+                // 🔴 Q27 A3:qualified 回填讓這條路第一次可達 —— 讀 `pickerVehicle`(回填值),
+                // 不是 `sel`(未碰過時仍是 null,讀 sel 會早退、回填等於白做)。
+                if (!pickerVehicle?.model) return;
+                commit({ brandName: pickerVehicle.brand, modelName: pickerVehicle.model, year });
               }}
-              onClearBrand={() => setSel(null)}
-              onClearModel={() => setSel((v) => (v ? { brand: v.brand } : v))}
-              onClearYear={() => setSel((v) => (v ? { brand: v.brand, model: v.model } : v))}
+              onClearBrand={() => { setSel(null); setSelTouched(true); }}
+              onClearModel={() => {
+                setSel(pickerVehicle ? { brand: pickerVehicle.brand } : null);
+                setSelTouched(true);
+              }}
+              onClearYear={() => {
+                setSel(pickerVehicle ? { brand: pickerVehicle.brand, model: pickerVehicle.model } : null);
+                setSelTouched(true);
+              }}
             />
           </div>
         </div>

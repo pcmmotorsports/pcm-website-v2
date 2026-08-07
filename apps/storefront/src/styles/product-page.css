@@ -1979,6 +1979,8 @@
   border: 1px dashed var(--c-border);
   border-radius: 8px;
 }
+/* Q27 A5:qualified 態結果框與 picker 同時出現時要有間距;其餘三態只 render 一塊、這條不生效。 */
+.pfc-result + .pfc-picker { margin-top: 10px; }
 .pfc-picker-label { font-size: 13px; font-weight: 600; color: var(--c-text); margin-bottom: 10px; }
 /* A10b:`.pfc-garage` / `.pfc-garage-label` 已隨自刻 chips 一起退場(換全站唯一的 GarageChips)。
    外距由行內密度自己帶:GarageChips 不含外距(免得四個掛載點互相牽動),故在此掛一條。 */
