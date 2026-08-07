@@ -1,6 +1,18 @@
 # CURRENT HANDOFF — pcm-website-v2
 
-> 🔄 **2026-08-07 12:45 帳號切換 checkpoint(Sean 切 Max 帳號;切換後各窗對話原地續跑,主視窗第一動=讀本節+全量掃信箱 `ls -lt`+重掛哨兵)。**
+> 🧭 **2026-08-07 20:40 主視窗壓縮前 checkpoint(壓縮後讀本節;第一動=全量掃兩個信箱+重掛哨兵)。**
+>
+> **現況**:dev=`2d40acf1`、**未推 38 顆**(Sean 手動推,已提醒)、樹僅 Sean 兩顆 untracked png、全套 **380 檔 5611 綠+1 todo**、三綠 20/20。**「不推 main」停點已解除**(Showcase 還原片已收割)。**零拍板欠帳**(今日 Q10-Q22 全落 memory site-redesign / attachments / b2-shipments 各檔)。
+>
+> **兩線施工中**:**B**(`pcm-a4a-chain`)=出貨線 DB 施工面全結(12/14、五 writer+冪等+轉譯+禁批次機制版全落地),正在報剩餘拓樸(W6b/c 併發驗證+W7 收尾/災難 runbook)後自行續跑;migration pending 批 **九支**(`20260807140000`-`230000`)、⛔ **apply=Sean 停點,preflight 必跑 b2s2b 全套**(現只重釘未重跑)+三釘值檔同批重釘制+E 窗清單 §2。**D**(`pcm-site-redesign`)=6 掛載面補片 Part A 施工中(停用欄丟草稿);Part B 已放行(Q22=A 走完講一聲,三出口同做法,**props 介面從嚴=明日 codex**);其後=忘記密碼接線片(高風險 auth,OD 稿在其信箱,接線者要重讀全文)。**E/F 已收線關窗。**
+>
+> **明日две件**:①**codex 已恢復 ⇒ 執行 `docs/reviews/2026-08-08-codex-backfill-checklist.md`**(W 線八片補審+preflight 可勾清單;第三模型角度=「結論寫反」類自審難察覺的)②**akrapovic 資料回填驗證**(Sean 請報價單側提前跑;跑完=唯讀驗 view 兩欄:pdf_docs 635 群/sound_clips 364 群/形狀抽查)→ 通過後**開網站側接線線**(五件工作+三規則全在 memory `project_product-attachments-relocation-line` F 線完工節;🔴 活雷=importer 會把 null 寫成 manuals=[] 清光說明書,接線第一件拆它)。
+>
+> **OD 雙向信箱**(`~/Library/Application Support/Open Design/namespaces/release-stable/data/projects/pcm-home-redesign/mailbox/`;協定=README,回信在原檔加節+改狀態):今日已通多輪;OD 手上=品牌介紹段補深+視覺渲染確認(其截圖服務壞、Sean 開稿親看);網站端欠=帶 `special` 的 RPM 商品 handle 一支(查到給)。**Sean 肉眼驗清單**:商品頁安裝段主文變寬/介紹下方附件面板/六家零檔案無空區塊/FAQ 運費格(只剩宅配 $100)/Q15 已驗過。
+>
+> **工法**(不變):收割=merge --no-ff→三綠 force→全套精確調和(**exit code 雙軌驗**)→STATUS 同 commit;哨兵=scratchpad `sentinel/watch.sh`(印全量清單版),**發信後必 pkill+touch baseline+重掛 run_in_background**(今日主視窗漏掛一次+head 截斷漏讀兩次=活教訓);決策題出題前 **grep STATUS+CURRENT 兩處**拍板紀錄(Q14 殭屍題教訓);出貨線 harness 九支+w6a rig 全在 `scripts/`。
+>
+> 🔄 **2026-08-07 12:45 帳號切換 checkpoint(舊節,按需讀)。**
 >
 > **現況**:dev=`5699769a` 已推、樹乾淨、全套 **359 檔 5493 綠+1 todo**、三綠 20/20。白天段全收:E 批兩支(a9v+a9b2_m)**已 apply 正式站**(preflight 8+read-back 8/8+P6 PostgREST smoke 關 a9h 缺口)、**搜尋 flag Sean 已設**(⚠️ Vercel 免費方案 100 次/天部署額度當日用罄、redeploy 被擋 ⇒ **flag 待下一次成功部署才生效**,env 已存不會丟;Sean 07-25 拍暫不升 Pro 維持);D 之 blur 片收割(merge `1ae7793f`);B 之 W0b 收割(merge `4dcc9905`,主視窗獨立重跑 46/0;migration `20260807140000` **pending=W 線批勿混**)。
 >
