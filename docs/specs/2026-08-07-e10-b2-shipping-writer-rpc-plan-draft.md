@@ -251,6 +251,116 @@ C. 用 `admin_audit_log.request_id` —— 🔴 **不可行**:無 UNIQUE、語�
 3. **同鍵並發回填競態**:第二個同鍵請求撞唯一鍵 ⇒ **那是正常路、要轉重放**(見 §1d),不是錯誤。
    `shipment_id` 的回填必須**在同一交易內**完成,否則會有「鍵列在、`shipment_id` 仍 NULL」的中間態被讀到。
 
+## §1c-1 🔴 **W0b 表定義草稿**(主視窗 `B-181-A` ③ 指派,供 Sean 白話簡報)
+
+> 🔴 **這是草稿、不是 migration**:本 plan 不產 `.sql` 檔、不 apply。
+> 欄位/慣例照 `supabase/migrations/20260805170000_m4b_e10_b2_s1a1_shipments.sql` 的樣板(親讀,非憑記憶)。
+> 🔴 **設計主張**:R3 的 **B2 / C3 / D2** 三條在 v4 §9 是「散文要求」——
+> 這裡把它們**做成表自己帶的機制**(CHECK / trigger / 凍結格),照機制優先律,不靠註解與人記得。
+
+### 白話(給 Sean 看的一段)
+
+出貨的每個動作(建箱、掛品項、出貨、作廢、復原)都會帶一把**收據號碼**。
+這張新表就是**收據存根簿**:記下「這把號碼我處理過了、結果是這個」。
+網路斷線或員工手滑按兩次,系統拿同一把號碼來,就**直接回上次的結果、不會重做一次**。
+**存根永遠不清**——清掉的那天,同一把號碼會被當成新的,就會**真的多出一箱貨**。
+
+### 表(草稿 DDL)
+
+```sql
+CREATE TABLE public.shipping_write_idempotency (
+  action           text NOT NULL,
+  idempotency_key  text NOT NULL,
+  payload_hash     text NOT NULL,
+  shipment_id      uuid NULL,
+  result_snapshot  jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+
+  CONSTRAINT shipping_write_idem_pk
+    PRIMARY KEY (action, idempotency_key),
+
+  CONSTRAINT shipping_write_idem_action_known
+    CHECK (action IN ('create_shipment','add_items','ship','void','unvoid')),
+
+  CONSTRAINT shipping_write_idem_key_not_blank
+    CHECK (NOT public.pcm_b2_is_blank(idempotency_key)
+           AND length(idempotency_key) <= 200),
+
+  CONSTRAINT shipping_write_idem_hash_sha256
+    CHECK (payload_hash ~ '^[0-9a-f]{64}$'),
+
+  CONSTRAINT shipping_write_idem_snapshot_no_derived
+    CHECK (NOT (result_snapshot ?| ARRAY[
+      'shipped_quantity','instock_quantity','cancelled_quantity',
+      'quantity','procured_quantity'
+    ]))
+);
+```
+
+| 要素(§1c) | 落在哪 |
+|---|---|
+| 鍵 `(action, idempotency_key)` 全域唯一 | `shipping_write_idem_pk` ⇒ **§1d 分派就認這個 conname** |
+| 關聯 `shipment_id` 先無後回填 | 可為 NULL 的欄 + 同交易回填(§1c 面 3) |
+| 重放證據 `payload_hash` | sha256 格式 CHECK,照 A8a1 樣板 |
+| 產物快照 | `result_snapshot` + **禁衍生欄 CHECK** |
+
+### 🔴 三條 R3 findings 在這裡變成機制
+
+1. **B2(快照禁含重算衍生欄)⇒ `shipping_write_idem_snapshot_no_derived`。**
+   R3 只要求「快照只含不可變事實」。**寫成註解的話,第一個趕工的人就會塞 `shipped_quantity` 進去**,
+   而後果要到災難日 forward 之後才爆(同鍵合法重試被不變式重驗判不一致 ⇒ `RAISE` 永久擋死)。
+   ⇒ 做成 CHECK,塞進去**當場 `23514`**。
+   🔴 **誠實邊界**:黑名單只擋**這五個鍵名**。改名或巢狀塞(`{"a":{"shipped_quantity":1}}`)**擋不到**
+   (`?|` 只看 top-level key)。它擋的是「順手塞」,不是「刻意繞」——**不得被讀成後者**。
+2. **D2(永不清理要效果斷言)⇒ 兩發具名 trigger,不是註解:**
+   ```sql
+   CREATE FUNCTION public.pcm_b2_shipping_idem_no_purge() RETURNS trigger
+   LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
+   BEGIN
+     RAISE EXCEPTION '出貨冪等存根禁止刪除或清空:冪等鍵是稽核證據、不是快取'
+       USING ERRCODE = 'P0001', CONSTRAINT = 'shipping_write_idem_no_purge';
+   END $$;
+
+   CREATE TRIGGER shipping_write_idem_block_delete
+     BEFORE DELETE ON public.shipping_write_idempotency
+     FOR EACH ROW EXECUTE FUNCTION public.pcm_b2_shipping_idem_no_purge();
+
+   CREATE TRIGGER shipping_write_idem_block_truncate
+     BEFORE TRUNCATE ON public.shipping_write_idempotency
+     FOR EACH STATEMENT EXECUTE FUNCTION public.pcm_b2_shipping_idem_no_purge();
+   ```
+   🔴 **`TRUNCATE` 那發非有不可**:`DELETE` trigger **不會**被 `TRUNCATE` 觸發。
+   只掛 `DELETE` 就是「防護被命名成超出它實際能力的樣子」(memory
+   `feedback_control-named-beyond-its-actual-power`)——一句 `TRUNCATE` 照樣清光。
+   🔴 **突變靶(D2 要的)**:拿掉 `BEFORE TRUNCATE` 那發 ⇒ 負測的 `TRUNCATE` 必須**由紅轉綠**。
+   兩發共用同一個函式,所以**不能**用「函式在不在」當斷言——那對「少掛一發 trigger」全盲。
+   🔴 **誠實邊界**:`DROP TABLE` 與 owner 的 `ALTER TABLE … DISABLE TRIGGER` 都**擋不住**。
+   這張表和 `shipments` 一樣,DB 層擋不住 owner(S1a-1 檔頭已立此誠實邊界)。
+3. **C3(W0b 的守門函式不在五支凍結集合)⇒ W0b 自帶凍結格:**
+   `pcm_b2_shipping_idem_no_purge` 的 `proname / prosecdef / proconfig` + **兩發 trigger 各自的 `tgtype`**
+   進 W0b 的結構 oracle。🔴 **`tgtype` 必須逐發量**:它是 `BEFORE DELETE ROW` 與
+   `BEFORE TRUNCATE STATEMENT` 的唯一判別處,只數「trigger 數 = 2」對「兩發都掛成 DELETE」全盲。
+
+### ACL / RLS
+
+```sql
+REVOKE ALL ON TABLE public.shipping_write_idempotency FROM PUBLIC, anon, authenticated, service_role;
+ALTER TABLE public.shipping_write_idempotency ENABLE ROW LEVEL SECURITY;
+```
+
+🔴 **service_role 也不給** —— 五支 RPC 是 `SECURITY DEFINER`、以 owner 身分寫這張表,
+應用連線**沒有任何理由**直接碰它。給了就等於留一條繞過 RPC 的寫入路。
+🔴 **零 policy 的 RLS 是縱深防禦、不是主鎖**;主鎖是 ACL。
+且 **owner 不受兩者限制**(不 FORCE)——與 S1a-1 同一條誠實邊界,**不得讀成「沒有東西寫得進去」**。
+
+### 🔴 三個我沒有自己拍的題(進 Sean 白話簡報或主視窗裁)
+
+| 題 | 選項 | 我的推薦 |
+|---|---|---|
+| **W-a 表名** | `shipping_write_idempotency` / `pcm_b2_shipping_idempotency` | 前者。既有業務表(`shipments`)不帶前綴,`pcm_*` 前綴慣例是**函式**在用 |
+| **W-b `shipment_id` 要不要 FK** | 要 / 不要 | **不要**。FK 會在寫鍵列時對 `shipments` 取 `KEY SHARE`,而 §6a 組② 的判別力論證正是建立在「`KEY SHARE` 不與 `NKU` 衝突」上 ⇒ 加 FK 等於**在 barrier 的證明面上多一個變數**。存根簿是機械帳表,參照完整性由 RPC 保證 |
+| **W-c `action` 的五個字面** | 見上 CHECK | 🔴 **卡在 Q7 五支的最終函式名** —— 兩處字面必須同源,現在是我暫擬的。W1 定名後**同一 commit** 回填 |
+
 ## §1d 🔴 M1(R2 must-fix):**兩個 UNIQUE 都丟 `23505`,不分派就是災難**
 
 | 撞到誰 | 意義 | 正解 |
@@ -435,6 +545,42 @@ S2b plan §9 **交棒 5** 逐字:「Sean apply 之後:`database.types.ts` 重生
 
 🔴 **四組都要有「翻面靶真的翻面」的證據**,否則就是 S2b 項19 那種「編排可行性證明」而非併發證據。
 🔴 **B2 / B3 依賴 W3c(unvoid writer)存在** ⇒ 片序上 **W3c 必須排在 W6 之前**。
+
+## §6b 🔴 W6 的起手位置**比 plan 一路假設的要好** —— 已有五支同型 rig
+
+寫 §1c-1 時 `git status` 冒出一個未追蹤檔,順手查來歷,**查出一件影響 W6 估時的事**。
+
+**已進版控的 barrier rig(`git ls-files` 實查)**:
+
+| 檔 | 行數 | 關係 |
+|---|---|---|
+| `scripts/a7t-concurrency-probe.sh` | 245 | **母形狀**:自建拋棄式 cluster、自拆、可觀察 barrier、預期會漏的格算 PASS |
+| `scripts/a2b2-concurrency-probe.sh` | 353 | 同族 |
+| `scripts/a4b-concurrency-probe.sh` | 424 | 同族 |
+| `scripts/s2c-concurrency.sh` | 533 | 同族 |
+
+**外加一支未進版控的**:`scripts/b2s1-concurrency-probe.sh`(568 行、30KB、2026-08-05、**從未 commit**)
+—— 檔頭自述「**B2-S2 併發證據 harness、出貨數量軸的超量防護、實跑兩次翻案後的定案**」,
+且「形狀照抄 `a7t-concurrency-probe.sh`」。**它就是為本片這條軸寫的。**
+
+🔴 **這修正了一個 plan 與 R3 共有的隱含前提**:A2 說「W6 估 45 分 = 4-6 倍低估」,
+論據是「S2b 一組 barrier 就吃整片還 inconclusive」。那個論據**成立**,
+但整串討論(我的 §6a、R3 的 A1、主視窗的乙案裁定)**都預設 rig 要從零長出來**。
+實況是 **`W6a` 開工時手上有一支同軸的 568 行 rig**。
+
+🔴 **但它不是可以直接用的資產,三個保留**:
+
+1. **它沒進版控** ⇒ 不是資產,是**某個 session 的遺留物**。任何 `git clean` 或換 worktree 就沒了。
+   ⇒ **W6a 的第一動 = 判它去留**(採用就 commit 進來、不採用就明說為什麼),不是默默讀它。
+2. **它的被測物是 S2 的 trigger 層,不是本片的 RPC 層** ⇒ 正好撞 R3 **A3**:
+   W4 之後 RPC 先取鎖,**trigger 序的觀察面會消失**。照抄它的斷言**必全綠、零判別力**。
+   ⇒ 可搬的是**編排骨架**(fifo 餵 psql、`pg_blocking_pids` 輪詢、自建自拆),
+   **不可搬的是斷言**。這條界線 W6a 驗收要寫死。
+3. **「實跑兩次翻案後的定案」= 它自己的假設被推翻過兩次** ⇒ 它的結論**不得當前提引用**,
+   要引就引它的**實測輸出**,不是它的散文。
+
+**估時**:v4 §10-1 已寫「W6a 完成前所有估時不作數」,本節**不改那條**——
+有 rig 可抄會讓 W6a 快一些,但 R3 A2 的低估論據沒被推翻,兩件事不互相抵銷。
 
 ## §7 🔴 關卡1 折入帳(F1-F10 逐條落點,便於複核)
 
