@@ -1,7 +1,8 @@
 # 忘記密碼接線片 · plan v2(2026-08-07,site-redesign 窗)
 
 > **狀態:v2 **已批准**(Sean 2026-08-07 深夜 Q24-a,逐字「依照建議」;信箱 `D-207-A`)。
-> 🔴 **但仍不可開工** —— §4-B 未答 + §5 四條 dashboard 前置未做 + §3-5 兩項實測未做。**三者齊了才開工。**
+> 🔴 **開工前置:三類剩一類**(2026-08-08 凌晨更新)—— §4-B ✅ 已答(`NEXT_PUBLIC_SITE_URL` = `https://shop.pcmmotorsports.com`)、§5 四條 dashboard ✅ 已回(兩條達成、兩條判定不擋開工)、**§3-5 ①✅ 已驗證 / ②⏳ 卡 Sean 一個 dashboard 讀值**。
+> ⚠️ 剩的那一格擋的**不是整片**,只擋「稿上『1 小時內有效』能不能照留」——若現值不是 3600 秒,先回 OD 改字面再動手。詳 §4a / §3-5。
 > 高風險片(鐵則 12 ② auth),對抗審查不降級。
 > v1 寫的時候**拿不到稿**;主視窗 `D-204-A` 代取到手(路徑在 8 層深、我的 `-maxdepth 5` 搆不到),
 > 四個附件在 `pcm-mailbox/`:`附件-D-忘記密碼-OD信全文.md` / `-handoff.md` /
@@ -45,8 +46,10 @@
 - `lib/auth/field-validation.ts` — 逐欄錯雙通道(`fieldErrors` / `formError`);密碼規則 **≥8 碼**(`:75`/`:115`)。
 - `lib/site-url.ts:6-10` — `resolveSiteUrl()`:設了 `NEXT_PUBLIC_SITE_URL` 用它;未設且非 prod → localhost;
   **未設且 prod → `undefined`**。
-  ⚠️ **正式站設了沒 = 未確認**(Vercel 後台的值,`.env*` 在禁止清單、本機看不到)。
-  repo 內只有條件句(「未設會怎樣」),**不是「現在未設」**,不可當事實引用。見 §4-B(Sean 正在查 Vercel)。
+  ✅ **正式站已設** = `https://shop.pcmmotorsports.com`(Sean 2026-08-08 凌晨查 Vercel 後台回報,`D-211-A`)
+  ⇒ prod 走第一條分支、不會落到 `undefined`。
+  ⚠️ **來源紀律照舊**:這個值來自 Sean 讀 dashboard,不是 repo 可驗事實(`.env*` 在禁止清單、本機看不到);
+  repo 內只有條件句(「未設會怎樣」)。日後若有人要重新確認,**去 Vercel 後台看,不要從 repo 推**。
 
 ---
 
@@ -126,7 +129,33 @@ OD 逐字:「不能讓人填完兩次新密碼才說過期,那是把人耍一輪
 **已拍板走 A**(少寫一份、少一面攻擊面)。**A 對客人看到的東西零差異 ⇒ 不需要回 OD 改稿。**
 🔴 無論哪案,`<origin>` **絕不可從 request header 組**(§1-4 那條 codex must-fix),只能來自 `resolveSiteUrl()`。
 
-### 3-5 🔴 「其他裝置會被登出」這句 —— **OD 說是 Supabase 預設,我沒有驗證**
+### 3-5 ✅① 已驗證 / ⏳② 還差一個 dashboard 讀值(2026-08-08 凌晨更新)
+
+**① 「改完密碼,其他裝置會被登出」= 真的,稿上那句字面照留。**
+主對話**親讀原始碼**(非引用 subagent 回報):`supabase/auth` repo `internal/models/user.go:455-461` 逐字 ——
+`sessionID == nil → Logout(tx, u.ID)`(全踢)/ `else → LogoutAllExceptMe(tx, *sessionID, u.ID)`(踢其他)。
+本片流程正好落在 else:客人點信中連結 → `exchangeCodeForSession` 建**新** session → 用它 `updateUser({password})`
+⇒ **其他裝置全踢、當前這台留著**,與稿的描述一致。同函式還會 `ClearAllOneTimeTokensForUser`(recovery token 一併作廢)。
+⚠️ 兩點如實記:(a) 這是讀 **master 分支**原始碼,不是對本專案實跑;(b) `supabase/auth#1579` 顯示這是**行為變更**
+(回報者稱 v2.149 之前不撤銷),**確切生效版號查無 changelog 佐證 = 未確認**。
+⇒ 若日後客訴「其他裝置沒被登出」,先查 hosted 版本,再考慮顯式 `signOut({ scope: 'others' })`
+(該 API 存在,`scope` 三值 `global`/`local`/`others`,依據 supabase.com/docs/reference/javascript/auth-signout)。
+
+**② 「1 小時內有效」= 只是預設值,而且本專案可能被調過 ⇒ 這句還不能照留。**
+官方逐字:「a user can only request an OTP once every 60 seconds, and they expire after **1 hour**」,
+且同頁明說「The Email OTP Expiration setting **also governs** … password recovery … links」
+(來源 supabase.com/docs/guides/auth/auth-email-passwordless)⇒ 重設連結吃的就是這顆設定。
+🔴 **但它是專案層可調的**(dashboard:**Authentication → Sign In / Providers → Email → Email OTP expiration**;
+CLI 對應 `auth.email.otp_expiry`,預設 `3600`)。
+⇒ **本機查不到本專案現值**,需要 Sean 開後台讀一個數字。**讀到 3600 才可以照留「1 小時」;不是 3600 就要回 OD 改字面。**
+⚠️ 另有一則 2022 年舊討論(`supabase/auth#6603`)聲稱雲端寫死 24 小時、不可調,**與現行官方文件矛盾**;
+判為已過期、以現行文件為準,但兩者都列出備查。
+
+---
+
+#### (以下為 v2 原文,保留備查)
+
+#### ⛔【已被上方取代,勿引用】3-5 v2 原文:「其他裝置會被登出」—— OD 說是 Supabase 預設,我沒有驗證
 
 稿的 reset 狀態 A 有一句可見文案:「改完密碼之後,**其他裝置上的登入會被登出**,需要用新密碼重新登入一次。」
 OD 說那是 Supabase 撤銷 session 的預設行為。
@@ -160,7 +189,7 @@ OD 說那是 Supabase 撤銷 session 的預設行為。
 | 題 | 結果 | 連動 |
 | --- | --- | --- |
 | **A. plan 是否批准** | ✅ **批准**(含 §3-4 A 案沿用 `/auth/callback`、§6 不拆片,全照本檔) | 開工前提之一達成 |
-| **B. `NEXT_PUBLIC_SITE_URL` 正式站設了沒** | 🔴 **未答** —— Sean 要親自去 Vercel 後台查 | **查到前本片不可開工**(沒有它就組不出重設信的絕對網址) |
+| **B. `NEXT_PUBLIC_SITE_URL` 正式站設了沒** | ✅ **已設**,值 = `https://shop.pcmmotorsports.com`(Sean 2026-08-08 凌晨查 Vercel 回報,信箱 `D-211-A`) | **開工阻斷解除**;重設信絕對網址組得出來 |
 | **C. `/login/reset` 完成後導去哪** | ✅ **導回登入頁**(照稿狀態 C 的「前往登入」) | 無 |
 | **D. 「再寄一次」冷卻秒數** | ✅ **60 秒 + IP 層** | 🔴 **要回報 OD 補畫倒數態**(秒數定了他才畫得出);走 OD 信箱、排開工時 |
 | **E. 兩句新錯誤字面** | ✅ **照稿用**:「請再輸入一次密碼」/「兩次輸入的密碼不一樣」 | 併進 `field-validation.ts` 既有那份、不寫第二套 |
@@ -169,17 +198,25 @@ OD 說那是 Supabase 撤銷 session 的預設行為。
 
 ## §4a 🔴 開工前置檢查表(三類全綠才動手)
 
-- [ ] **§4-B** `NEXT_PUBLIC_SITE_URL` 正式站的值(Sean 查 Vercel)
-- [ ] **§5** 四條 dashboard 動作(Sean)
-- [ ] **§3-5** 兩項實測:①改密碼是否真的撤銷其他 session ②recovery link 是否真的 1 小時
-      —— **兩項都是「設計端轉述的 Supabase 預設」,不是可以相信的前提**;若①為否,稿上那句可見文案就是說謊。
+- [x] **§4-B** `NEXT_PUBLIC_SITE_URL` = `https://shop.pcmmotorsports.com`(Sean 2026-08-08 凌晨查 Vercel,`D-211-A`)
+- [x] **§5** 四條 dashboard 動作(Sean 2026-08-08 凌晨回報,`D-211-A`)—— **兩條達成、兩條判定不擋開工**,逐條見 §5
+- [x] **§3-5 ①** 改密碼是否真的撤銷其他 session —— ✅ **是**,主對話親讀 `supabase/auth` 原始碼確認,稿上那句照留(詳 §3-5)
+- [ ] **§3-5 ②** recovery link 是否真的 1 小時 —— ⏳ **卡 Sean 一個 dashboard 讀值**:
+      3600 秒只是**預設**、而且是**專案可調的** ⇒ 請開
+      **Authentication → Sign In / Providers → Email → Email OTP expiration** 看現值。
+      **=3600 → 稿上「1 小時」照留;≠3600 → 回 OD 改字面。**
+
+🔴 **本表剩最後一格,而且它擋的不是整片** —— 只擋「稿上『1 小時內有效』這句能不能照留」。
+若現值不是 3600,順序是**先回 OD 改字面、再動手**,不要先寫完程式再回頭改文案。
 
 ## §5 外部硬前置(Sean 的 dashboard 動作,我做不了)
 
-- [ ] Supabase:Redirect URL allow-list 加 `/auth/callback`(§3-4 A 案)
-- [ ] Supabase:重設信模板文案(OD 未設計,§3-7)
-- [ ] Supabase:SMTP 是否已接自有寄件網域(§3-7)
-- [ ] Vercel:`NEXT_PUBLIC_SITE_URL`(§4-B,Sean 正在查)
+**全數已回(Sean 2026-08-08 凌晨,信箱 `D-211-A`):**
+
+- [x] Supabase:Redirect URL allow-list —— `https://shop.pcmmotorsports.com/auth/callback` **已在清單** ⇒ §3-4 A 案路徑暢通
+- [x] Vercel:`NEXT_PUBLIC_SITE_URL` —— **已設** `https://shop.pcmmotorsports.com`(同 §4-B)
+- [x] Supabase:重設信模板文案 —— 現為**預設英文**;Sean 拍板要中文,已向 OD 要文案(OD 稿 §八自己提議過)。**不擋開工**:英文模板先能動,文案到了 Sean 貼進後台。⚠️ 這代表**上線前有一個文案停點**,不是本片內就完結。
+- [x] Supabase:SMTP —— **關**,用 Supabase 預設寄件。Sean 說可以開 ⇒ 記為後續改善項、**不擋開工**。🔴 但預設寄件**額度嚴且容易進垃圾桶**(§3-7 原本就點出這點),**上線前必須重評**,不得因為「開工沒擋到」就當它解決了。
 
 ## §6 片界 —— ✅ 不拆已批准
 
