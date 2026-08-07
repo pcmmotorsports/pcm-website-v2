@@ -8810,11 +8810,15 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **優先級:** 🟡 D5 開工前(D5 要重排首頁、會大量讀 OD;那時兩邊不一致最容易誤判)
 - **問題:**
   - #319 是**第一批**(D2f 五處)、已於 2026-08-04 回寫完成並結案。
-    **本條是第二批** —— D3b 與 D3c-1 又長出四處 repo 先行、OD 未跟進的偏離:
-    1. **D3b · 選擇器改名**:設計稿的窄螢幕隱藏規則寫 `.bp-grid .bp-slot:nth-child(n+4)`,
-       正式站的子元素是 `ProductCard`(`.pcard`)且外面包一層 inline `display:contents` 的
-       `<Link>` ⇒ 改成 `.bp-grid > :nth-child(n+4), .bp-grid > :nth-child(n+4) .pcard`。
-       **宣告一字未動**,只是選擇器對得上正式站的 DOM。
+    **本條是第二批** —— D3b 與 D3c-1 又長出四處 repo 先行、OD 未跟進的偏離(⚠️ 第 1 項已於 2026-08-07 失效、**實際待回寫剩三處**,見該項):
+    1. ~~**D3b · 選擇器改名**:設計稿的窄螢幕隱藏規則寫 `.bp-grid .bp-slot:nth-child(n+4)`,
+       正式站改成 `.bp-grid > :nth-child(n+4), .bp-grid > :nth-child(n+4) .pcard`。~~
+       ✅ **本項已失效、不必回寫**(2026-08-07 manifest 收尾片查證):
+       **R-2 把品牌頁熱門商品整區改成共用的 `<ProductRail variant="inset">`**,
+       `.bp-grid` 磚牆整族退場 —— 實查 `brand-page.css` **剝掉註解後 `.bp-grid` / `.bp-slot` 零命中**
+       ⇒ 正式站已經沒有這個選擇器了,沒有東西要回寫給 OD。
+       ⚠️ 本條其餘各項(尤其第 2 項 `.bp-page` 的 `--ed-c-ink`)**仍然成立**:
+       同一次實查確認 `--ed-c-ink` 在 `brand-page.css` 仍有一條活宣告。
     2. **D3b · `.bp-page` 補一份 `--ed-c-ink`**:設計稿靠外層 `.ed-page` 提供這個 token,
        正式站的品牌頁**刻意不掛 `.ed-page`**(它在 storefront 是首頁專屬的 token 作用域)
        ⇒ 不補的話「查看全部」的底線整條消失。
