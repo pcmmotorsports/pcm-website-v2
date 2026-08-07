@@ -18,7 +18,8 @@
 import { readFileSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
+import { resolve } from 'node:path';
+import { parseAllDocuments } from 'yaml';
 
 type Failure = { file: string; line: number | null; reason: string };
 
@@ -49,7 +50,12 @@ function checkShell(file: string): Failure | null {
 
 /**
  * .yaml/.yml → 用 repo 既有的 `yaml` 套件(package.json 已列,零新依賴)解析。
- * parse 丟例外即不過;`yaml` 的錯誤物件帶 `linePos`,取第一個位置當行號。
+ *
+ * 🔴 用 `parseAllDocuments` 而非 `parse`:`parse` 遇到 `---` 分隔的**合法多文件 YAML**
+ *   (k8s manifest、docker-compose 等常見)會丟 `Source contains multiple documents` ——
+ *   那是**能力限制被回報成語法錯**,屬「誤擋合法檔 ⇒ 逼人 `--no-verify` ⇒ gate 可信度歸零」那族。
+ *   (2026-08-07 Fable R2 F1,已實測復現)
+ * 錯誤收在每個 doc 的 `.errors`(不丟例外),故逐 doc 檢查;`catch` 保留當保險。
  */
 function checkYaml(file: string): Failure | null {
   let text: string;
@@ -59,12 +65,16 @@ function checkYaml(file: string): Failure | null {
     return { file, line: null, reason: `讀不到檔:${(e as Error).message}` };
   }
   try {
-    parseYaml(text);
+    for (const doc of parseAllDocuments(text)) {
+      const err = doc.errors[0];
+      if (err) {
+        return { file, line: err.linePos?.[0]?.line ?? null, reason: err.message };
+      }
+    }
     return null;
   } catch (e) {
     const err = e as { message?: string; linePos?: Array<{ line: number }> };
-    const line = err.linePos?.[0]?.line ?? null;
-    return { file, line, reason: err.message ?? String(e) };
+    return { file, line: err.linePos?.[0]?.line ?? null, reason: err.message ?? String(e) };
   }
 }
 
@@ -213,7 +223,10 @@ export type { Failure };
  *   經 symlink 或改名呼叫時判斷為 false ⇒ 整支 CLI 不跑、exit 0、**連一行輸出都沒有**
  *   —— 防假綠的計數器自己被同一個洞繞過(2026-08-07 code-reviewer must-fix 1,已實測復現)。
  * 改用 realpath 比對:symlink 兩端都正規化到同一個真實路徑。
- * realpath 失敗(檔被刪等)→ 退回字串比對,**不靜默當作「不是直接執行」**。
+ * realpath 失敗(檔被刪等)→ 退回**絕對路徑**比對。
+ * 🔴 fallback 必須先 `resolve()`:gate 實際呼叫時 argv1 常是相對路徑
+ *   (`tsx scripts/check-syntax-nonts.ts`),裸字串比對必 false = 恰好又是靜默不跑
+ *   —— 那會讓上面那句「不靜默」變成宣稱大於能力(2026-08-07 Fable R2 F7)。
  */
 const invokedDirectly = ((): boolean => {
   const argv1 = process.argv[1];
@@ -222,7 +235,7 @@ const invokedDirectly = ((): boolean => {
   try {
     return realpathSync(argv1) === realpathSync(self);
   } catch {
-    return argv1 === self;
+    return resolve(argv1) === resolve(self);
   }
 })();
 

@@ -7,7 +7,7 @@
 //   每組都配一個「合法版本必須綠」的正向對照,否則守門恆假也會全綠。
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -82,6 +82,18 @@ describe('.yaml — 用既有 yaml 套件 parse', () => {
   it('.yml 副檔名走同一條路(分流表遺漏 .yml 會在這裡紅)', () => {
     const f = w('broken.yml', 'title: "壞掉 "的" 引號"\n');
     expect(checkOne(f)).not.toBeNull();
+  });
+
+  // 🔴 釘住 Fable R2 F1:`---` 分隔的多文件 YAML 是**合法語法**(k8s manifest 類常見),
+  //    早期用 `parse` 會丟 multiple documents 而誤擋。誤擋合法檔會逼人 --no-verify。
+  it('🔴 合法多文件 YAML(--- 分隔)→ 綠(防誤擋)', () => {
+    const f = w('multi-ok.yaml', 'doc: 1\n---\ndoc: 2\n---\ndoc: 3\n');
+    expect(checkYaml(f)).toBeNull();
+  });
+
+  it('🔴 多文件 YAML 裡「第二份」壞掉 → 仍要紅(改 parseAllDocuments 別漏檢後面幾份)', () => {
+    const f = w('multi-bad.yaml', 'doc: 1\n---\na:\n  b: 1\n   c: 2\n');
+    expect(checkYaml(f)).not.toBeNull();
   });
 });
 
@@ -211,5 +223,19 @@ describe('CLI 端到端(commit gate 實際走的路徑)', () => {
     const r = run(SCRIPT, []);
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/跳過/);
+  });
+
+  // 🔴 釘住 Fable R2 F2:`package.json` 的 glob → 腳本那一層,是全系統唯一零測試的接線。
+  //    把 entry 整行刪掉、或 glob 打成 `slq`,底下所有格照樣全綠零訊號
+  //    = feedback_guard-checks-existence-not-effect 的形狀(守門存在 ≠ 守門接著)。
+  //    ⚠️ 這是**存在性釘**,只擋「被編輯掉/打錯字」;它證明不了 lint-staged 真的會呼叫成功
+  //    (真效果測需在 scratch repo 實跑 lint-staged,已列 backlog、本片不做)。
+  it('🔴 package.json 的 lint-staged 接線字面沒有被改掉(存在性釘,非效果證明)', () => {
+    const pkg = JSON.parse(
+      readFileSync(resolve(process.cwd(), 'package.json'), 'utf8'),
+    ) as { 'lint-staged'?: Record<string, string> };
+    expect(pkg['lint-staged']?.['*.{sh,yaml,yml,sql}']).toBe(
+      'tsx scripts/check-syntax-nonts.ts',
+    );
   });
 });
