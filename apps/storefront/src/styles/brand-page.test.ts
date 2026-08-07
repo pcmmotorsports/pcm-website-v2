@@ -776,9 +776,26 @@ describe('品牌頁 CSS · 分類 chips 與磚牆(D2e-1)', () => {
     for (const dead of ['.bp-slot', '.bp-bar']) {
       expect(CSS, `${dead} 不該出現在本檔`).not.toContain(dead);
     }
-    // 反面前提:已落地的那三個**必須在**,否則上面那句「清單縮小」是在描述一個不存在的狀態。
-    for (const live of ['.bp-products', '.bp-prod-head', '.bp-grid']) {
-      expect(CSS, `${live} 不見了 ⇒ D3b 的商品區樣式被整段拿掉`).toContain(live);
+    // 反面前提:商品區的外殼**必須在**,否則上面那句「清單縮小」是在描述一個不存在的狀態。
+    for (const live of ['.bp-products', '.bp-products-inner']) {
+      expect(CSS, `${live} 不見了 ⇒ 商品區樣式被整段拿掉`).toContain(live);
+    }
+    // 🔴 2026-08-07 R-2:`.bp-prod-head` / `.bp-grid` 由「必須在」翻成「**不得再有規則**」——
+    //    商品區改用共用 `ProductRail`,表頭與版位都歸它,那兩族已成死 CSS 整組刪除。
+    //    只比字串會被註解裡的歷史說明騙到 ⇒ 用解析出來的**規則選擇器**判。
+    const parsed = cssRules(); // `rules` 是另一個 describe 的區域變數,這裡就地解析
+    // 🔴 前提:解析器要真的解得出規則,否則下面 `[]` 是因為沒東西可比 ⇒ 恆真(審查抓到)。
+    expect(parsed.length, 'cssRules() 解析不出任何規則 ⇒ 本條恆真、失去判別力').toBeGreaterThan(20);
+    for (const dead of ['.bp-prod-head', '.bp-grid']) {
+      // 🔴 用**詞邊界**比而不是 `startsWith`(審查抓到兩個洞):
+      //    `startsWith` 讓 `.bp-products-inner .bp-grid { … }` 這種「重生在後代位置」溜過去,
+      //    而且 `.bp-gridxyz` 會誤報。
+      const re = new RegExp(`\\${dead}(?![\\w-])`);
+      const live = parsed.filter((r) => r.selector.split(',').some((x) => re.test(x.trim())));
+      expect(
+        live.map((r) => r.selector),
+        `${dead} 又長回規則了 ⇒ 與 rail 版位並存會有兩套版位`,
+      ).toEqual([]);
     }
   });
 });
@@ -1024,51 +1041,13 @@ describe('品牌頁 CSS · 註解沒有提早關閉(D3b)', () => {
 
 describe('品牌頁 CSS · 商品區(D3b)', () => {
   const rules = cssRules();
-  const gridRules = rules.filter((r) => r.selector.split(',').map((s) => s.trim()).includes('.bp-grid'));
+  // (R-2:原本這裡有個 `gridRules`,三條 `.bp-grid` 守門移除後已零使用 ⇒ 一併刪,不留死碼。)
 
-  it('🔴 前提:`.bp-grid` 三個斷點各有一條欄數規則(基礎 / ≤1180 / ≤620)', () => {
-    // 沒有這條,下面「欄數對」可能只是因為某個斷點根本沒寫規則 ⇒ 恆真。
-    const at = gridRules.map((r) => r.at.join('|'));
-    expect(at).toHaveLength(3);
-    expect(at.filter((a) => a === '')).toHaveLength(1); // 基礎規則(不在任何 @media 內)
-    expect(at.some((a) => a.includes('1180'))).toBe(true);
-    expect(at.some((a) => a.includes('620'))).toBe(true);
-  });
-
-  it('🔴 欄數 5 → 3 → 2(設計稿 :727 / :882 / :931)', () => {
-    const colsAt = (needle: string) =>
-      gridRules.find((r) => (needle === '' ? r.at.length === 0 : r.at.join('|').includes(needle)))
-        ?.body.match(/grid-template-columns\s*:\s*repeat\(\s*(\d+)/)?.[1];
-    expect(colsAt('')).toBe('5');
-    expect(colsAt('1180')).toBe('3');
-    expect(colsAt('620')).toBe('2');
-  });
-
-  it('🔴 多出來的格是 `display:none`,不是讓它換行', () => {
-    // 選擇器用 `> :nth-child()`(申報偏離):設計稿寫 `.bp-grid .bp-slot:nth-child(...)`,
-    // 而正式站的子元素是 ProductCard 的 `.pcard` ⇒ 寫 `.bp-slot` 那兩條永遠不生效。
-    const hidden = rules.filter(
-      (r) => /^\.bp-grid\s*>\s*:nth-child\(/.test(r.selector) && /display\s*:\s*none/.test(r.body),
-    );
-    // 🔴 選擇器**必須以 `.pcard` 結尾**:`ProductCard` 的 `<Link>` 帶 inline style
-    //    `display: contents`(`ProductCard.tsx 的 display: 'contents' 那行(grep 找、不引行號)`),inline style 贏過樣式表 ⇒ 直接關那個
-    //    子元素是沒有用的。D3b 第一版就是這樣、而且**本檔當時全綠** —— 文字層守門看得到
-    //    「規則在不在」,看不到「規則有沒有真的生效」。這條只是把已知的修法釘住,
-    //    真正的驗證是真瀏覽器量可見張數(見 C-29-STOP 的量測)。
-    for (const r of hidden) {
-      const parts = r.selector.split(',').map((x) => x.trim());
-      // 兩種 DOM 形狀各要有一條:①直接子代(ProductCard 不傳 href 時)②包一層 Link 時的 .pcard
-      expect(parts.some((x) => /:nth-child\([^)]*\)$/.test(x)), `${r.selector} 缺「直接子代」那條`).toBe(true);
-      expect(parts.some((x) => /\.pcard$/.test(x)), `${r.selector} 缺「.pcard」那條`).toBe(true);
-    }
-    expect(hidden).toHaveLength(2);
-    const byBreakpoint = Object.fromEntries(
-      hidden.map((r) => [r.at.join('|').match(/(\d+)px/)?.[1], r.selector]),
-    );
-    // ≤1180 剩 3 欄 ⇒ 藏第 4 個起;≤620 剩 2 欄 ⇒ 藏第 3 個起。數字錯開就是多一排或少一張。
-    expect(byBreakpoint['1180']).toContain('n + 4');
-    expect(byBreakpoint['620']).toContain('n + 3');
-  });
+  // 🔴 2026-08-07 R-2:原本這裡有三條守 `.bp-grid` 的測試(三斷點各一條欄數規則 / 欄數 5→3→2 /
+  //    多出來的格 display:none)。商品區改用共用 `ProductRail` 橫捲之後,**判別對象整組不存在**
+  //    ⇒ 三條一併移除,改由上面那條「`.bp-grid` 不得再長回規則」接手。
+  //    ⚠️ 連帶的**行為變更**已在 `BrandPageProducts.tsx` 申報:原本窄螢幕是**隱藏**多出來的格
+  //    (≤1180 剩 3、≤620 剩 2),客人在手機上看不到第 4 筆之後;rail 化之後手機也滑得到全部。
 
   it('🔴 骨架槽的 class 一條都沒搬(設計稿 :730-740 刻意不搬)', () => {
     for (const dead of ['.bp-slot', '.bp-slot-img', '.bp-slot-info', '.bp-bar']) {
@@ -1094,13 +1073,19 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
   //    而那個 token 只宣告在 `home.css:8` 的 `.ed-page` 內 —— 本頁刻意不掛 `.ed-page`
   //    ⇒ 沒補的話 `border-bottom` 整條 IACVT、底線消失,而**所有 CSS 文字守門照樣綠**
   //    (它們看得到「規則在不在」,看不到「token 有沒有值」)。
-  it('🔴 `.bp-page` 有補 `--ed-c-ink`(否則「查看全部」的底線會整條消失)', () => {
-    const scope = rules.filter((r) => r.selector.split(',').map((x) => x.trim()).includes('.bp-page'));
-    expect(scope.length, '找不到 .bp-page 的色票區').toBeGreaterThan(0);
+  // 🔴 2026-08-07 R-2 更正:這條原本的失敗訊息是「否則『查看全部』的底線會整條消失」——
+  //    **現在為假**。品牌頁唯一的 `.ed-link` 已搬進 rail,而 `.b-select-inset` 自己就宣告了
+  //    `--ed-c-ink`(`home.css`,grep `b-select-inset`),它是更近的祖先 ⇒ `.bp-page` 那份被完全遮蔽。
+  //    ⇒ 這條不是刪掉,是**把守的東西換成仍然成立的那個**:品牌頁上讀得到 `--ed-c-ink` 的
+  //    來源必須存在(現在是 `.b-select-inset` 供的;`.bp-page` 那份留著當兜底、不強制)。
+  it('🔴 品牌頁上的 `.ed-link` 讀得到 `--ed-c-ink`(供給者是 rail 的 inset 作用域)', () => {
+    const home = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'home.css'), 'utf8');
+    const inset = home.match(/\.b-select-inset\s*\{[^}]*\}/);
+    expect(inset, 'home.css 找不到 .b-select-inset ⇒ 品牌頁的 rail token 作用域不見了').not.toBeNull();
     expect(
-      scope.some((r) => /--ed-c-ink\s*:/.test(r.body)),
-      '.bp-page 沒宣告 --ed-c-ink ⇒ .ed-link 的 border-bottom 會退回 none',
-    ).toBe(true);
+      inset![0],
+      '.b-select-inset 沒宣告 --ed-c-ink ⇒ 品牌頁「查看全部」的底線會退回 none',
+    ).toMatch(/--ed-c-ink\s*:/);
   });
 
   // 🔴 **合約的另一半**(R3 Fable consider F2):上一條釘的是「`.bp-page` 有宣告 `--ed-c-ink`」,
@@ -1172,8 +1157,17 @@ describe('品牌頁 CSS · 商品區(D3b)', () => {
     ).toBe(true);
   });
 
-  it('箭頭的 hover 位移在 reduced-motion 下被關掉(設計稿 :867)', () => {
-    expect(neutralisedIn(rules, '.bp-prod-head .ed-link:hover .ed-link-arrow', 'transform')).toBe(true);
+  // 🔴 2026-08-07 R-2 **更正**:我一度把這條整條刪掉,理由寫「rail 的箭頭動效屬
+  //    `.b-select-arrow` 家族」——**那是錯的,而且那個錯誤判斷正是回歸沒被發現的原因**。
+  //    被守的是 `.ed-link-arrow`(「查看全部」那顆箭頭),`.b-select-arrow` 是左右導覽鈕、
+  //    它只 transition background/border-color、沒有 transform。兩顆是不同的東西,
+  //    而 rail 仍然渲染同一顆 `.ed-link-arrow` ⇒ 刪掉等於讓 reduced-motion 使用者的位移回來。
+  //    ⇒ 保護留著、選擇器跟著表頭換成 `.b-select-inset`。
+  it('「查看全部」箭頭的 hover 位移在 reduced-motion 下被關掉(R-2 後選擇器換成 rail 的)', () => {
+    expect(
+      neutralisedIn(rules, '.b-select-inset .ed-link:hover .ed-link-arrow', 'transform'),
+      'reduced-motion 下箭頭仍會位移 ⇒ 站台層那條 translateX 全站沒有 reduce 保護,品牌頁這道是唯一的',
+    ).toBe(true);
   });
 });
 

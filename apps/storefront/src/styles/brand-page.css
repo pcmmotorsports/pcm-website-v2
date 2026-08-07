@@ -30,7 +30,8 @@
  *      也不在上面那三類裡,是**別條線**的東西(選車統一線 / 既有站台元件),不要拿這句去停止追查。
  *    ⚠️ `.bp-slot` / `.bp-bar`(設計稿 :731-741)**不屬本檔、也永遠不會屬本檔** ——
  *       那是設計稿的骨架槽,正式站那一區用既有 `ProductCard.tsx`(計畫 :180)。
- *       `.bp-products` / `.bp-products-inner` / `.bp-prod-head` / `.bp-grid` 已由 D3b 搬入。
+ *       `.bp-products` / `.bp-products-inner` 由 D3b 搬入;`.bp-prod-head` / `.bp-grid`
+ *       已於 2026-08-07 R-2 **整組刪除**(商品區改用共用 `ProductRail` 橫捲,表頭與版位都歸它)。
  *
  * 🔴 **反方向:本檔有兩處是設計稿沒有的**(D2f;Sean 2026-08-04 拍 A 的四條繼承瑕疵修正)——
  *    上面那句講的是「設計稿有而本檔沒搬」,這裡是「本檔有而設計稿沒有」,兩張清單別混:
@@ -640,13 +641,6 @@
   padding-left: var(--shell-x); padding-right: var(--shell-x);
   display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 56px;
 }
-.bp-prod-head {
-  display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 24px; margin-bottom: 28px;
-}
-.bp-prod-head h2 { font-size: 22px; letter-spacing: -.01em; font-weight: 600; margin: 0; }
-.bp-prod-head .ed-link { flex: none; white-space: nowrap; }
-.bp-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
 
 /* ══ 品牌磚牆(D2e-1)═════════════════════════════════════════════
  * 位置理由同上。
@@ -864,7 +858,6 @@
 .bp-others-name { transition: color var(--dur-hover) var(--ease); }
 /* 商品區「查看全部」的箭頭(D3b;設計稿 :858)。位移本身由 `home.css:48` 的
    `.ed-link:hover .ed-link-arrow` 提供,本條只給它一個**品牌頁節奏**的過渡時間。 */
-.bp-prod-head .ed-link-arrow { transition: transform var(--dur-hover) var(--ease); }
 
 /* ── 減少動態:位移與縮放全拿掉,元素直接就定位 ──────────────────
  * 設計稿 :860-866。**這一層是有 scope 的**(沒有 `*`、沒有 `!important`)⇒ 影響面只有品牌頁。
@@ -891,9 +884,19 @@
   /* D2c-2 影片淡入(Sean 拍板 Q1=B 的那一條)。用 `animation: none` 整條拿掉,
      不用「把時間縮到 0」那種寫法 —— 理由同上面 `both` 那段(delay 期間仍會隱形 + 無單位 0 不合法)。 */
   .bp-film-frame > iframe, .bp-film-frame > video { animation: none; }
-  /* 商品區箭頭的 hover 位移(D3b;設計稿 :867)。位移來源在 `home.css:48`,那是站台層、
-     不歸本檔管 ⇒ 這裡用同樣有 scope 的選擇器把它在品牌頁上關掉。 */
-  .bp-prod-head .ed-link:hover .ed-link-arrow { transform: none; }
+  /* 商品區「查看全部」箭頭的 hover 位移(D3b;設計稿 :867)。位移來源是站台層的
+     `home.css` 那條 `.ed-link:hover .ed-link-arrow { transform: translateX(4px) }`(grep 找),
+     不歸本檔管 ⇒ 這裡用同樣有 scope 的選擇器把它在品牌頁上關掉。
+     🔴 **2026-08-07 R-2 差點在這裡造成 a11y 回歸**:原本的選擇器是
+     `.bp-prod-head .ed-link:hover .ed-link-arrow`,我刪 `.bp-prod-head` 那族時把它一起刪了,
+     理由還寫成「rail 的箭頭動效屬 `.b-select-arrow` 家族」—— **那是錯的**:
+     被刪的守的是 `.ed-link-arrow`(查看全部那顆),`.b-select-arrow` 是左右導覽鈕、
+     它只 transition background/border-color、根本沒有 transform。兩顆是不同的東西。
+     ⇒ 表頭改由 rail 提供之後,選擇器跟著換成 `.b-select-inset`,**保護本身必須留著**。
+     ⚠️ 站台層的那條位移在**全站**都沒有 reduce 保護(`home.css` 兩個 reduce 區塊只管
+     `.b-hero-slide` 與 `.js-reveal`)—— 那是**既有缺口、非本片造成**,同 #318 的形狀:
+     全站級的一次拍板不夾帶進本片,已回報主視窗。 */
+  .b-select-inset .ed-link:hover .ed-link-arrow { transform: none; }
 }
 
 /* ══ RWD ══════════════════════════════════════════════════════════
@@ -928,9 +931,6 @@
         ⇒ 兩種 DOM 形狀各給一條,不對子元素長什麼樣做假設。
         ⚠️ 這個坑**文字層守門看不到**:規則在檔案裡、選擇器形狀也對,測試照樣綠 ——
         D3b 第一版就是這樣過的,是真瀏覽器量出「1180 應該剩 3 張卻看到 5 張」才抓到。 */
-  .bp-grid { grid-template-columns: repeat(3, 1fr); }
-  .bp-grid > :nth-child(n + 4),
-  .bp-grid > :nth-child(n + 4) .pcard { display: none; }
 }
 
 /* 直式影片在手機與平板走滿版 —— 2026-08-03 Sean:「直版影片在手機跟平板上可以盡量放大滿版」。
@@ -1056,9 +1056,12 @@
      還原成設計稿的同一條列表。
      ⚠️ 這與「About 正文維持靠左」那條例外不衝突:h2 是三個字的標題、chips 是短標籤,
         不是中文長段落。 */
-  .bp-prod-head, .bp-others h2 { text-align: center; }
   /* 設計稿 :922 獨立一條(標題列從 flex-end 收成置中)。 */
-  .bp-prod-head { align-items: center; }
+  /* 🔴 2026-08-07 R-2:原字面是 `.bp-prod-head, .bp-others h2 { text-align: center }`
+     —— 一條**選擇器列表**。R-2 刪 `.bp-prod-head` 那族時我整條刪掉,連帶殺了還活著的
+     `.bp-others h2`(磚牆標題置中),`brand-page.test.ts` 的 ≤960 收欄守門紅了才發現。
+     ⇒ 只留活著的那一半。**選擇器是列表時,不能用「這條提到某某」當刪除依據。** */
+  .bp-others h2 { text-align: center; }
   .bp-chips { justify-content: center; }
   /* ⚠️ 與 ≤1180 那條**值完全相同**(設計稿 :879 與 :912 各寫了一次)。逐字搬、不自行合併:
      ≤1180 已涵蓋 ≤960 ⇒ 這條在 cascade 上是 no-op,但它是設計稿的字面,
@@ -1077,15 +1080,10 @@
   .bp-pull { font-size: 19px; margin: 28px 0; }
   .bp-aside { grid-template-columns: 1fr; }
   /* 商品區 3 欄 → 2 欄(D3b;設計稿 :931-932)。選擇器改名理由同 ≤1180 那段。 */
-  .bp-grid { grid-template-columns: repeat(2, 1fr); }
-  .bp-grid > :nth-child(n + 3),
-  .bp-grid > :nth-child(n + 3) .pcard { display: none; }
   /* 🔴 設計稿在 ≤620 對 `.bp-prod-head` 寫了**兩條**(:939 與 :949),而且後面那條把
      前面的 `align-items` 蓋掉。逐字搬、不自行合併成一條 —— 合併就是「翻譯」,
      而且哪天上面那條被改,兩者的先後關係就是設計稿要表達的東西。
      :949 的原註解逐字:「窄欄裡 flex 會把『查看全部』壓成一行一個字」。 */
-  .bp-prod-head { align-items: center; text-align: center; }
-  .bp-prod-head { flex-direction: column; align-items: flex-start; gap: 14px; }
   /* 數字條再收成單欄(D2d-1)。左右 padding 收回 0,否則單欄下數字會離左緣一段。
      🔴 **最後一行是刻意偏離設計稿字面**(:1183-1185 沒有)—— Sean 2026-08-04 拍 A(backlog #310)。
         ≤1024 的 `.bp-nums[data-n="4"] .bp-num:nth-last-child(2){border-bottom:0}` 在這裡
