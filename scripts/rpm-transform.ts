@@ -157,19 +157,22 @@ export interface ProductRow {
   //    rpm=false → **全批一致省 key** → upsert `?columns` 聯集不含 description → 現有描述不覆寫、byte 等價(回歸鎖驗)。
   //    試點=true → 帶來源繁中 description;來源 null/空白 → 省 key。
   //    ✅ load 層混批 NULL-clobber 已修(#260、Sean 拍 ①保留現值):rpm-import 寫入段以 rpm-load
-  //       partitionByKeyPresence 按 description key 分兩 uniform 批 upsert → 省 key 列不再被
-  //       `?columns` 聯集 + defaultToNull(親驗 PostgrestQueryBuilder.ts:1087-1090)寫 NULL。
-  //       ⚠️ 未來新增其他「條件省 key」欄位須一併納入 partition 依據(否則混批 NULL-clobber 重現)。
+  //       groupByKeySignature 依 own key 集合分 uniform 批 upsert → 省 key 列不再被
+  //       `?columns` 聯集 + defaultToNull(親驗 postgrest-js 2.105.3 `src/PostgrestQueryBuilder.ts:1359-1362`
+  //       的 upsert 路徑;:1087-1090 是 insert 路徑、別引錯)寫 NULL。
+  //       ✅ 2026-08-07 起新增「條件省 key」欄位**不需**再改分批依據(signature 分組自動涵蓋);
+  //          原註要求「一併納入 partition」是單 key 二分時代的規矩、已隨 partitionByKeyPresence 移除。
   description?: string;
   // 🔴 highlights 為 optional(供應商級條件、依 supplier-config.syncDescription):true → 展開 string[]
   //    (賣點條列、來源 highlights_zh 正規化);false(rpm)→ 省 key → 凍結現值不覆寫。
   //    與 description(per-row 條件、視來源空否)不同:highlights 在單一 supplier run 內 all-or-nothing
-  //    (只看 syncDescription)→ 對 rpm-import description partition 天然 uniform、不需額外 partition(見該處註)。
+  //    (只看 syncDescription)→ 自然落在單一 key-signature 組,無須為它做任何額外處理。
   highlights?: string[];
-  // 🔴 安裝資源(#270)為 optional(供應商級條件、依 supplier-config.syncInstallResources):true → 展開
-  //    manuals(恆陣列、可 [])+ video_url(恆值、可 null);false(rpm/cnc)→ 省 key → 凍結不碰。
-  //    來源即真相(空來源寫 []/null 是正確語意、非誤覆寫);單一 run all-or-nothing → 同 highlights、
-  //    對 rpm-import description partition 天然 uniform、不需額外 partition(見該處註、codex 關卡1 確認)。
+  // 🔴 安裝資源(#270)為 optional,**兩層** gate(2026-08-07 修正,原註「供應商級 all-or-nothing、天然 uniform、
+  //    不需 partition」已作廢):①供應商級 supplier-config.syncInstallResources(false=rpm/cnc → 省 key → 凍結)
+  //    ②per-row 來源 null 防清空(整群 pdf_urls/video_urls 皆 null → 省該 key → 保留現值;來源給 [] 才寫 [])。
+  //    ⇒ 兩 key **不再恆出現、不再同進退**,單一 run 內 presence 逐列變動 ⇒ rpm-import 寫入段必須
+  //      groupByKeySignature 分 uniform 批(見 transformGroup 內註與 rpm-load)。
   manuals?: InstallManual[];
   video_url?: string | null;
   price_general: number | null;
@@ -375,6 +378,16 @@ export function transformGroup(
   // 安裝資源(#270):群級彙整跨全變體(codex 關卡1 must-fix、非單一 basis 列)→ UI 形狀。
   const manuals = normalizeManuals(variants.flatMap((v) => v.pdf_urls ?? []));
   const videoUrl = pickInstallVideo(variants.flatMap((v) => v.video_urls ?? []));
+  // 🔴 來源 null ≠ 空陣列(2026-08-07 報價單交接檔 §7 第三點):官方詳情 API 暫掛時這幾欄會【整批變 null、
+  //    隔天自癒】。改前 `?? []` 把 null 壓成 [] 照樣寫入 = 一次上游故障清光客人全部說明書。
+  //    改後:整群皆 null(來源沒說話)→ 省 key → upsert `?columns` 不含此欄 → ON CONFLICT 不覆寫 → 保留現值;
+  //    來源給空陣列(明確說「沒有」)→ some(!= null) 為真 → 照寫 [](真空是真相、不保留舊值)。
+  //    兩欄分開判:PDF 端故障不該連累影片欄(改前兩者綁同一個展開、一起被清)。
+  //    ⚠️ 這使 manuals/video_url 從「供應商級 all-or-nothing」變成【per-row 條件省 key】 ⇒ rpm-import 寫入段
+  //      必須按 key-signature 分 uniform 批(見 rpm-load.groupByKeySignature);混批會讓省 key 列吃 postgrest
+  //      `?columns` 聯集 + defaultToNull 被寫 NULL,而 products.manuals 是 NOT NULL ⇒ 23502 整批全敗。
+  const pdfSeen = variants.some((v) => v.pdf_urls != null);
+  const videoSeen = variants.some((v) => v.video_urls != null);
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
@@ -382,14 +395,16 @@ export function transformGroup(
     title: basis.product_name_zh || basis.product_name, // 中文部位詞優先、回退英文
     subtitle: buildSubtitle(vehicleLabel, ctx.subtitleTag),
     // 🔴 description 條件寫入(§2.9 F2):syncDescription 且來源非空才展開 key。
-    //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。混批 NULL-clobber 已由 load 層 partition 修(見 ProductRow 註、#260)。
+    //    rpm(false)→ 展開 {} → 無此 key → byte 等價(回歸鎖驗)。混批 NULL-clobber 已由 load 層 groupByKeySignature 修(見 ProductRow 註、#260)。
     ...(ctx.syncDescription && description != null ? { description } : {}),
     // 🔴 highlights 供應商級條件寫入:syncDescription=true 才展開 key(rpm=false → 無 key → 凍結不碰);
-    //    all-or-nothing per run → rpm-import description partition 天然 uniform(見該處寫入段註)。
+    //    all-or-nothing per run → 自然落單一 key-signature 組、無須額外處理(見 rpm-import 寫入段註)。
     ...(ctx.syncDescription ? { highlights } : {}),
-    // 🔴 安裝資源(#270)供應商級條件寫入:syncInstallResources=true 才展開 manuals+video_url 兩 key(rpm/cnc=false → 無 key → 凍結);
-    //    gate 下兩 key 恆出現(manuals 恆陣列、video_url 恆 null|string)→ 單一 run uniform → 免 partition(codex 關卡1 確認)。
-    ...(ctx.syncInstallResources ? { manuals, video_url: videoUrl } : {}),
+    // 🔴 安裝資源(#270)條件寫入:①供應商級 syncInstallResources(rpm/cnc=false → 無 key → 凍結)
+    //    ②per-row 來源 null 防清空(pdfSeen/videoSeen、見上方註)。兩層皆過才展開該 key。
+    //    ⚠️ 兩 key 不再恆同進退 ⇒ rpm-import 寫入段必須 groupByKeySignature 分批(見上方註,不是 nit)。
+    ...(ctx.syncInstallResources && pdfSeen ? { manuals } : {}),
+    ...(ctx.syncInstallResources && videoSeen ? { video_url: videoUrl } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
     price_by_tier: {

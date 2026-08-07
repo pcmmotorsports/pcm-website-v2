@@ -45,7 +45,7 @@
 | 風險面 | 驗證方法 | 結論 |
 |---|---|---|
 | 經銷價洩漏 | 兩側 view SELECT 逐欄比對 + toUIProduct strip 回歸網(M-11) | ✅ 只多 manuals/video_url 末欄、price_by_tier/price_store/metadata/delisted_at 全排除、security_invoker 保留 |
-| NULL-clobber / rpm byte 凍結 | opus lens 逐 partition 推演 + golden byte 鎖 | ✅ syncInstallResources 供應商級 uniform → 免 partition;rpm 省 key、golden 不含新欄 |
+| NULL-clobber / rpm byte 凍結 | opus lens 逐 partition 推演 + golden byte 鎖 | ~~✅ syncInstallResources 供應商級 uniform → 免 partition~~;rpm 省 key、golden 不含新欄 · 🔴 **2026-08-07 前半結論作廢**:其前提「來源即真相」被報價單側實證推翻(上游詳情 API 暫掛會讓來源這兩欄整批變 null),現行契約=來源 null 省 key 保留現值 ⇒ 兩 key 不再 uniform,寫入端已改 `groupByKeySignature` 分批 |
 | 群級彙整 | tsx 實測「某變體有 PDF、basis 沒有」 | ✅ variants.flatMap 跨全變體、去重保序 |
 | 影片形狀 | tsx 實測頻道 URL | ✅ 取第一支「能解析出 id」的 YouTube(對齊 UI parseYoutubeId、頻道 URL 不佔位) |
 | mapper guard | 髒 jsonb 逐案測試 | ✅ 缺 label/url/非物件/sizeKB 非 number → 收斂乾淨 ProductManual[] |

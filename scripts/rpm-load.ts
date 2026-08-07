@@ -45,22 +45,36 @@ export async function resolveIdOrNull(
 }
 
 /**
- * 按某 key「是否存在於物件」把 rows 分兩組(#260、Sean 拍 ①「保留現值」)。
- * 背景:postgrest-js `.upsert(陣列)` 的 `?columns` 取**全批 key 聯集** + `defaultToNull=true` →
+ * 依「own key 集合」把 rows 分成數個 uniform 組(#260 保留現值;2026-08-07 取代原 partitionByKeyPresence)。
+ *
+ * 背景:postgrest-js `.upsert(陣列)` 的 `?columns` 取**全批 key 聯集**(親驗 v2.105.3
+ *   `@supabase/postgrest-js/src/PostgrestQueryBuilder.ts:1359-1362`)+ `defaultToNull=true` →
  *   同批混「有此 key」與「省此 key」兩種列時,省 key 列會被寫 **NULL**(非保留現值)。
- * 解:呼叫端把 productRows 依 description key 是否存在分兩組、各自成 uniform 批 upsert →
- *   「省 key」列落在「該批 columns 不含此 key」的批 → ON CONFLICT DO UPDATE 不覆寫該欄 → 保留現值。
- * 🔴 rpm(syncDescription=false)全批一致省 description → withKey 空 → 現行單批行為 byte 等價。
- * Object.hasOwn:只認 own key(對齊 getSupplierConfig fail-closed 慣例、不吃原型鏈成員)。
+ *   products.manuals 是 `jsonb NOT NULL DEFAULT '[]'`(20260709120000 migration)⇒ 那不是「寫錯值」,
+ *   是 23502、整個 500 列批全敗。
+ *
+ * 解:同組內每列 key 集合完全相同 ⇒ 該批 `?columns` 恰等於這組的 key ⇒ 省 key 欄不進 ON CONFLICT DO UPDATE
+ *   ⇒ 保留現值。
+ *
+ * 🔴 為何不是原本的「按單一 key 二分」:條件省 key 的欄已達三個(description per-row、manuals/video_url
+ *   per-row 來源 null 防清空),二分只治一軸,另兩軸仍混批 → 手工巢狀要 2³=8 批且每新增一欄翻倍。
+ *   按 signature 分組是同一件事的一般解,新增條件欄自動涵蓋、不需再改這裡。
+ * 🔴 rpm(syncDescription=false + syncInstallResources=false)全批一致省同樣三 key → 只會有一組 →
+ *   單批行為與改前 byte 等價。
+ * Object.keys:只列 own enumerable key(對齊 getSupplierConfig fail-closed 慣例、不吃原型鏈成員);
+ *   排序後 join 讓 key 順序不同但集合相同的列落同一組(`{a,b}` 與 `{b,a}` 的 `?columns` 聯集本就相同)。
+ * 分隔符用 \u0000(NUL):欄名不可能含它,避免 `a,b` 與 `a` + `,b` 這類 signature 撞號。
+ * 回傳保持**首見順序**、組內保持原順序(upsert 批次順序可預期、方便對帳)。
  */
-export function partitionByKeyPresence<T extends object>(
-  rows: T[],
-  key: string,
-): { withKey: T[]; withoutKey: T[] } {
-  const withKey: T[] = [];
-  const withoutKey: T[] = [];
-  for (const r of rows) (Object.hasOwn(r, key) ? withKey : withoutKey).push(r);
-  return { withKey, withoutKey };
+export function groupByKeySignature<T extends object>(rows: T[]): T[][] {
+  const groups = new Map<string, T[]>();
+  for (const r of rows) {
+    const sig = Object.keys(r).sort().join('\u0000');
+    const g = groups.get(sig);
+    if (g) g.push(r);
+    else groups.set(sig, [r]);
+  }
+  return [...groups.values()];
 }
 
 /**

@@ -50,7 +50,7 @@ import {
   resolveId,
   resolveIdOrNull,
   upsertBatched,
-  partitionByKeyPresence,
+  groupByKeySignature,
   splitVariantSyncWork,
   syncVariantGroupAtomic,
 } from './rpm-load';
@@ -498,22 +498,19 @@ async function main(): Promise<void> {
   }
 
   // 寫入:products(每批 .select 累積 id↔external_id 對照)→ product_variants;onConflict 複合鍵(S3a)
-  // 🔴 #260(保留現值 ①):按 description key 是否存在分兩 uniform 批 upsert,避免 postgrest `?columns` 全批聯集 +
-  //    defaultToNull 把「省 key」列寫成 NULL(rpm 全省 key → withKey 空 → 現行單批行為 byte 等價;
-  //    試點來源空描述列落 withoutKey 批、不覆寫現值)。source-權威鏡射 ② 若採用另議、見 backlog #260。
-  //    ⚠️ 本 partition 只治「同一 run 內 row 間 presence 會變動」的條件寫欄(description 因來源可空而 per-row 變動)。
-  //       例外:highlights(A/#270)與 manuals/video_url(#270 安裝資源)亦條件省 key,但均屬「供應商級」
-  //       (依 ctx.syncDescription / ctx.syncInstallResources、單一 run all-or-nothing、非 per-row)→ 對本 partition
-  //       天然 uniform、不需納入(codex 關卡1 確認)。未來新增「per-row 變動」的省 key 欄才需一併納入 partition。
-  const { withKey: prodWithDesc, withoutKey: prodWithoutDesc } = partitionByKeyPresence(productRows, 'description');
-  const savedProducts = [
-    ...(prodWithDesc.length
-      ? await upsertBatched(target, 'products', prodWithDesc, 'supplier_slug,external_id', 'id, external_id')
-      : []),
-    ...(prodWithoutDesc.length
-      ? await upsertBatched(target, 'products', prodWithoutDesc, 'supplier_slug,external_id', 'id, external_id')
-      : []),
-  ];
+  // 🔴 #260(保留現值 ①):把 productRows 依「own key 集合」分成數個 uniform 組各自 upsert,避免 postgrest
+  //    `?columns` 全批聯集 + defaultToNull 把「省 key」列寫成 NULL(rpm 全批省同樣的 key → 只有一組 →
+  //    現行單批行為 byte 等價)。source-權威鏡射 ② 若採用另議、見 backlog #260。
+  //    ⚠️ 2026-08-07 由「只按 description 二分」改為 groupByKeySignature 全 key 分組:條件省 key 的欄已達三個 ——
+  //       description(per-row、視來源空否)、manuals / video_url(per-row、來源 null 防清空,見 rpm-transform
+  //       transformGroup 內註)。舊註「manuals/video_url 屬供應商級、天然 uniform、不需納入」自該次改動起作廢。
+  //       新增任何條件省 key 欄不需再改這裡(signature 自動涵蓋)。
+  const savedProducts: Record<string, unknown>[] = [];
+  for (const group of groupByKeySignature(productRows)) {
+    savedProducts.push(
+      ...(await upsertBatched(target, 'products', group, 'supplier_slug,external_id', 'id, external_id')),
+    );
+  }
   const idByExtId = new Map(savedProducts.map((r) => [r.external_id as string, r.id as string]));
 
   // transition hazard 群完整排除一般 orphan delete / bulk upsert，交給單一 RPC 原子處理。

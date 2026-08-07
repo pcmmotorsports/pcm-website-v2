@@ -547,12 +547,52 @@ describe('#270 安裝資源 manuals/video_url', () => {
     expect(product.video_url).toBe('https://youtu.be/dQw4w9WgXcQ');
   });
 
-  it('syncInstallResources=true 但來源全空 → manuals=[] / video_url=null(key 恆在、正確語意)', () => {
-    const { product } = runGroup('GB-IR', [irBase], null, GB_IR_CTX);
-    expect('manuals' in product).toBe(true);
-    expect('video_url' in product).toBe(true);
+  // ── 來源 null 防清空(2026-08-07)──
+  // 🔴 這組取代原本那條「來源全空 → manuals=[] / video_url=null(key 恆在)」——那條把 bug 釘死成契約:
+  //    官方詳情 API 暫掛時來源這兩欄會整批變 null,寫 [] 就等於清光客人全部說明書(報價單交接檔 §7)。
+  //    新契約:null(來源沒說話)⇒ 省 key 保留現值;[](來源說「沒有」)⇒ 照寫。
+  //    ⚠️ 一律用 Object.hasOwn 斷 key 不存在,不用 `product.manuals === undefined` ——
+  //       後者對「key 在、值 undefined」也綠 = 假綠,而值 undefined 進 upsert 仍會被 postgrest 當欄位送出。
+
+  it('🔴 來源 pdf_urls/video_urls 整群皆 null → 省兩 key(保留現值、不清空)', () => {
+    const { product } = runGroup('GB-IR', [irBase], null, GB_IR_CTX); // irBase 兩欄皆 null
+    expect(Object.hasOwn(product, 'manuals')).toBe(false);
+    expect(Object.hasOwn(product, 'video_url')).toBe(false);
+  });
+
+  it('🔴 來源給空陣列(明確「沒有」)→ 兩 key 照寫 [] / null(真空是真相、不保留舊值)', () => {
+    const emptyArr = [{ ...irBase, pdf_urls: [], video_urls: [] }];
+    const { product } = runGroup('GB-IR', emptyArr, null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(true);
+    expect(Object.hasOwn(product, 'video_url')).toBe(true);
     expect(product.manuals).toEqual([]);
     expect(product.video_url).toBeNull();
+  });
+
+  it('🔴 兩欄各判各的:PDF 有值 + 影片全 null → 只展開 manuals(單欄故障不連累另一欄)', () => {
+    const pdfOnly = [{ ...irBase, pdf_urls: ['https://gb.eu/m.pdf'], video_urls: null }];
+    const { product } = runGroup('GB-IR', pdfOnly, null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(true);
+    expect(product.manuals).toEqual([{ label: '安裝說明書', url: 'https://gb.eu/m.pdf' }]);
+    expect(Object.hasOwn(product, 'video_url')).toBe(false);
+  });
+
+  it('🔴 兩欄各判各的(反向):影片有值 + PDF 全 null → 只展開 video_url', () => {
+    const videoOnly = [{ ...irBase, pdf_urls: null, video_urls: ['https://youtu.be/dQw4w9WgXcQ'] }];
+    const { product } = runGroup('GB-IR', videoOnly, null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'video_url')).toBe(true);
+    expect(product.video_url).toBe('https://youtu.be/dQw4w9WgXcQ');
+    expect(Object.hasOwn(product, 'manuals')).toBe(false);
+  });
+
+  it('群級判定用 some 不用 every:群內一列 null、另一列有值 → 仍展開(彙整行為不變)', () => {
+    const mixed = [
+      { ...irBase, sku: 'GB-IR-A', pdf_urls: null },
+      { ...irBase, sku: 'GB-IR-B', pdf_urls: ['https://gb.eu/m.pdf'] },
+    ];
+    const { product } = runGroup('GB-IR', mixed, null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'manuals')).toBe(true);
+    expect(product.manuals).toEqual([{ label: '安裝說明書', url: 'https://gb.eu/m.pdf' }]);
   });
 
   it('🔴 syncInstallResources=false(rpm)→ 省 manuals/video_url key(凍結不覆寫、byte 錨延伸)', () => {

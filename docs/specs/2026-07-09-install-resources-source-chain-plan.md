@@ -63,7 +63,8 @@
 - **供應商 gate**:`SupplierConfig` 新增獨立布林 `syncInstallResources`(**不搭 syncDescription 便車**——安裝資源=實體資產是否存在,與「繁中翻譯是否備妥」正交)。
   - 預設:rpm=`false`(無來源、byte 凍結)、cncracing=`false`(未寫入授權)、**gbracing=`true`、bonamici=`true`**(有 PDF 來源且已在網站同步)。
   - 寫入式:`...(ctx.syncInstallResources ? { manuals, video_url } : {})`(照抄 highlights 展開式)。
-- **NULL-clobber:本欄天生免 partition**(比 highlights 更簡單)。理由:gate=true 時 `manuals`(恆具體陣列、可 `[]`)+ `video_url`(恆具體值、可 `null`)**兩 key 恆出現、單一 run 內 uniform**;且來源即真相(來源無 PDF ⇒ 網站該顯空 ⇒ 寫 `[]`/`null` 是**正確語意**,非誤覆寫),不需 `partitionByKeyPresence`。gate=false 時兩 key 皆省 → 凍結。
+- ~~**NULL-clobber:本欄天生免 partition**(比 highlights 更簡單)。理由:gate=true 時 `manuals`(恆具體陣列、可 `[]`)+ `video_url`(恆具體值、可 `null`)**兩 key 恆出現、單一 run 內 uniform**;且來源即真相(來源無 PDF ⇒ 網站該顯空 ⇒ 寫 `[]`/`null` 是**正確語意**,非誤覆寫),不需 `partitionByKeyPresence`。gate=false 時兩 key 皆省 → 凍結。~~
+  > 🔴 **2026-08-07 追加式更正(本條已作廢)**:「來源即真相」這個前提錯了 —— 報價單側交接檔實證,官方詳情 API 暫掛時 `pdf_urls`/`video_urls` 會**整批變 null、隔天自癒**,把 null 當「網站該顯空」寫 `[]` = 一次上游故障清光客人全部說明書。現行契約:**來源 null ⇒ 省 key 保留現值;來源給 `[]` 才寫 `[]`**。兩 key 因此變成 per-row 條件省 key、不再 uniform,寫入端已改 `groupByKeySignature` 分批(`scripts/rpm-load.ts`),`partitionByKeyPresence` 已移除。
 
 ---
 
