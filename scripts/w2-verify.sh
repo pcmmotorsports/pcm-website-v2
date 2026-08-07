@@ -33,7 +33,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W2DB:-/tmp/w2db}"; SOCK="${W2SOCK:-/tmp/w2sk}"; P="${W2PORT:-54383}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=62   # 🔴 量出來的,不是估的。全綠時 PASS = 62 + CELL-ACCOUNT + CELL-KEYSET = 64。
+EXPECT_TOTAL=67   # 🔴 量出來的,不是估的。全綠時 PASS = 67 + CELL-ACCOUNT + CELL-KEYSET = 69。
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -105,7 +105,7 @@ case "$OUT" in
   *) ok DDL-SYNTAX "migration 實檔在 PG $(Q "SHOW server_version") 實跑成功(5 helper + 表級守門 + 5 支 REPLACE + 檔內斷言)" ;;
 esac
 
-HELPERS="pcm_b2_shipping_idem_payload_hash pcm_b2_shipping_idem_response pcm_b2_shipping_idem_claim pcm_b2_shipping_idem_record pcm_b2_shipping_idem_require_complete"
+HELPERS="pcm_b2_shipping_idem_payload_hash pcm_b2_shipping_idem_response pcm_b2_shipping_idem_claim pcm_b2_shipping_idem_record pcm_b2_shipping_idem_require_complete pcm_b2_shipping_idem_bad_snapshot_cols pcm_b2_shipping_idem_insert_guard"
 FIVE="admin_create_shipment admin_add_shipment_items admin_mark_shipment_shipped admin_void_shipment admin_unvoid_shipment"
 
 # ── fixture(最小可用:auth.users → customers → shipments,**draft 態**)──
@@ -128,6 +128,7 @@ DEFTRG="pcm_b2_shipping_idem_require_complete"
 # 🔴 種鍵列必須繞過那發 DEFERRED 閘(它正確地不准 commit 出 shipment_id 仍 NULL 的列)。
 #    只在種資料時關、種完立刻開;**閘自身的判別力由 `W2-DEFERRED-COMPLETE` 與 `TMUT-DEFERRED` 兩格證**,
 #    不是靠「我沒關過它」。
+INSTRG="pcm_b2_shipping_idem_block_bad_snapshot_insert"
 plant() { # $1=action $2=key $3=hash $4=shipment_id(或 NULL) $5=snapshot
   Q "ALTER TABLE public.pcm_b2_shipping_idempotency DISABLE TRIGGER $DEFTRG" >/dev/null
   Q "INSERT INTO public.pcm_b2_shipping_idempotency(action,idempotency_key,payload_hash,shipment_id,result_snapshot) VALUES('$1','$2','$3',$4,'$5'::jsonb)"
@@ -137,15 +138,17 @@ plant() { # $1=action $2=key $3=hash $4=shipment_id(或 NULL) $5=snapshot
 
 echo "══ 1. 五支 helper:存在 / 屬性 / 零 GRANT ═══════════════════"
 FN_SET="$(Q "SELECT pg_catalog.string_agg(p.proname,',' ORDER BY p.proname) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'pcm\_b2\_shipping\_idem\_%'")"
-EXP_HELPERS="pcm_b2_shipping_idem_claim,pcm_b2_shipping_idem_freeze_identity,pcm_b2_shipping_idem_no_purge,pcm_b2_shipping_idem_payload_hash,pcm_b2_shipping_idem_record,pcm_b2_shipping_idem_require_complete,pcm_b2_shipping_idem_response"
+EXP_HELPERS="pcm_b2_shipping_idem_bad_snapshot_cols,pcm_b2_shipping_idem_claim,pcm_b2_shipping_idem_freeze_identity,pcm_b2_shipping_idem_insert_guard,pcm_b2_shipping_idem_no_purge,pcm_b2_shipping_idem_payload_hash,pcm_b2_shipping_idem_record,pcm_b2_shipping_idem_require_complete,pcm_b2_shipping_idem_response"
 # 🔴 期望集合含 W0b 的兩支 trigger 函式 —— 同族同前綴,不列進來會被讀成「多出來的」;
 #    列進來的好處:W0b 的守門函式被誰刪掉,本格也紅(兩片共用同一個凍結面)。
-[ "$FN_SET" = "$EXP_HELPERS" ] && ok W2-FN-SET "冪等族函式集合恰為 7 支(W2 五支 + W0b 兩支)✓" \
+[ "$FN_SET" = "$EXP_HELPERS" ] && ok W2-FN-SET "冪等族函式集合恰為 9 支(W2 七支 + W0b 兩支)✓" \
                               || bad W2-FN-SET "集合 [$FN_SET] != 期望 [$EXP_HELPERS]"
 for fn in $HELPERS; do
   V="$(Q "SELECT prosecdef::text||'|'||pg_catalog.array_to_string(proconfig,',')||'|'||provolatile::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
   case "$fn" in
     pcm_b2_shipping_idem_payload_hash|pcm_b2_shipping_idem_response) E='false|search_path=""|i' ;;
+    # 🔴 STABLE 不是 VOLATILE:它讀 catalog(shipments 的欄名)⇒ 同交易內可快取、但不能標 IMMUTABLE。
+    pcm_b2_shipping_idem_bad_snapshot_cols)                          E='false|search_path=""|s' ;;
     *)                                                               E='false|search_path=""|v' ;;
   esac
   [ "$V" = "$E" ] && ok "W2-PROPS-$fn" "SECURITY INVOKER + search_path='' + volatility 逐字 ✓" \
@@ -340,6 +343,12 @@ CT="$(capstmt "TRUNCATE public.pcm_b2_shipping_idempotency")"
 [ "$CT" = "P0001|pcm_b2_shipping_idem_no_purge" ] || NP_BAD="$NP_BAD TRUNCATE(實得[${CT:-無錯誤}])"
 [ -z "$NP_BAD" ] && ok W2-W0B-INHERITED-NOPURGE "W0b 的『永不清理』在 W2 之後**兩發都仍在**(DELETE + TRUNCATE 各自被擋)✓" \
                  || bad W2-W0B-INHERITED-NOPURGE "🔴 W0b 的 no_purge 在 W2 之後有缺:$NP_BAD" 
+# 🔴🔴 跨模型審查(Fable)F2:**INSERT 面**的繞道 —— 直寫一句 INSERT(shipment_id 非 NULL
+#    + 快照含可變欄)原本零錯誤 commit,之後同鍵合法重試永久 P2B24。UPDATE 面擋得住不代表擋得住。
+C="$(capstmt "INSERT INTO public.pcm_b2_shipping_idempotency(action,idempotency_key,payload_hash,shipment_id,result_snapshot) VALUES('unvoid','insBypassK','$HASH_UNVOID','$SHIP','{\"shipped_at\":\"x\"}'::jsonb)")"
+[ "$C" = "P2B25|pcm_b2_w2_snapshot_mutable_col" ] \
+  && ok W2-SNAPSHOT-INSERT-BLOCKED "🔴 **直寫 INSERT 的繞道也被擋**(同一個 conname)⇒ 快照契約兩面都掛,不是只掛 UPDATE ✓" \
+  || bad W2-SNAPSHOT-INSERT-BLOCKED "🔴 實得 [$C] ⇒ INSERT 面是開的,守門只搬了一半"
 # 🔴 R2-F5:非 object 的 snapshot 不得讓信封的 `||` 翻成陣列串接
 C="$(cap "public.pcm_b2_shipping_idem_response('$SHIP'::uuid,'[]'::jsonb,false)")"
 [ "$C" = "P2B25|pcm_b2_w2_response_not_object" ] \
@@ -501,10 +510,20 @@ case "$M" in
 esac
 # ⑧ 快照守門的靶:把 trigger 函式換成只凍身分(不管快照)⇒ 兩格必翻面
 Q "CREATE OR REPLACE FUNCTION public.pcm_b2_shipping_idem_freeze_identity() RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS \$m\$ BEGIN RETURN NEW; END \$m\$" >/dev/null
-M="$(cap "(UPDATE public.pcm_b2_shipping_idempotency SET result_snapshot='{\"shipped_at\":\"x\"}'::jsonb WHERE action='unvoid' AND idempotency_key='rOK')")"
-case "$M" in
-  P2B25*) bad TMUT-SNAPSHOT-GUARD "拿掉快照守門後仍擋 [$M] ⇒ 那兩格守的不是這段" ;;
-  *)      ok  TMUT-SNAPSHOT-GUARD "🔴 把 trigger 換成只放行 ⇒ 可變欄與竄改快照**都通過了**(實得 [${M:-無錯誤}])= 表級守門那族有判別力" ;;
+# 🔴🔴 **跨模型審查(Fable)F1:本格原本用 `cap`(=`PERFORM (UPDATE …)`)餵語句 ⇒ 保證 42601 語法錯誤,
+#    那句 UPDATE **從未執行**;實得 `42601|(null)` 落進 `*)` ⇒ **不管突變成不成功本格都綠 = 恆真**。
+#    本檔 :58-61 自己寫下過這個坑、也修了另外兩處,**唯獨漏了這一格**,而 PASS 行印出的
+#    `實得 [42601|(null)]` 就擺在實跑輸出裡沒人看。⇒ 換 `capstmt`。
+# 🔴 F7:再拆成兩發各自歸屬 —— 同一句 UPDATE 會同時打 write-once 與 mutable-col 兩族,
+#    守門在場時只會紅在先檢查的那一道,消融歸因是合併的。
+#    ⇒ ①打**未完成列**(shipment_id NULL)的 mutable-col ②打**已完成列**的 write-once。
+plant unvoid mutSnapK "$HASH_UNVOID" "NULL" '{}' >/dev/null
+MA="$(capstmt "UPDATE public.pcm_b2_shipping_idempotency SET result_snapshot='{\"shipped_at\":\"x\"}'::jsonb WHERE action='unvoid' AND idempotency_key='mutSnapK'")"
+MB="$(capstmt "UPDATE public.pcm_b2_shipping_idempotency SET result_snapshot='{\"id\":\"$SHIP\"}'::jsonb WHERE action='unvoid' AND idempotency_key='rOK'")"
+case "$MA:$MB" in
+  *P2B25*) bad TMUT-SNAPSHOT-GUARD "拿掉快照守門後仍擋(mutable=[$MA] write-once=[$MB])⇒ 那兩格守的不是這段" ;;
+  :)       ok  TMUT-SNAPSHOT-GUARD "🔴 把 trigger 換成只放行 ⇒ **可變欄(未完成列)與竄改快照(已完成列)兩發都通過** = 表級守門那族有判別力" ;;
+  *)       bad TMUT-SNAPSHOT-GUARD "🔴 突變後實得非空且非 P2B25(mutable=[$MA] write-once=[$MB])⇒ 分不出是守門還是我的 SQL 壞了" ;;
 esac
 # ⑨ 🔴 指紋族(**必須最後**,理由見本節開頭):換成常數指紋 ⇒ 注入格由紅轉綠
 Q "CREATE OR REPLACE FUNCTION public.pcm_b2_shipping_idem_payload_hash(p_action text, p_payload jsonb) RETURNS text LANGUAGE sql IMMUTABLE SECURITY INVOKER SET search_path='' AS \$m\$ SELECT pg_catalog.repeat('a',64) \$m\$" >/dev/null
@@ -522,7 +541,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-DEFERRED TMUT-DISPATCH TMUT-HASH TMUT-INCOMPLETE TMUT-INVARIANT TMUT-RECORD-ROWCOUNT TMUT-SHIPCOLS TMUT-SNAPSHOT-GUARD W2-ACLSET-pcm_b2_shipping_idem_claim W2-ACLSET-pcm_b2_shipping_idem_payload_hash W2-ACLSET-pcm_b2_shipping_idem_record W2-ACLSET-pcm_b2_shipping_idem_require_complete W2-ACLSET-pcm_b2_shipping_idem_response W2-CONC-BLOCKED W2-CONC-REPLAY W2-DEFERRED-ALLOWS-NORMAL W2-DEFERRED-COMPLETE W2-DISPATCH-FOREIGN-23505 W2-FN-SET W2-HASH-ACTION W2-HASH-CANONICAL W2-HASH-INJECT W2-HASH-NULL-VS-EMPTY W2-PROPS-pcm_b2_shipping_idem_claim W2-PROPS-pcm_b2_shipping_idem_payload_hash W2-PROPS-pcm_b2_shipping_idem_record W2-PROPS-pcm_b2_shipping_idem_require_complete W2-PROPS-pcm_b2_shipping_idem_response W2-RECORD-NO-SUCH-SHIPMENT W2-RECORD-NULL W2-RECORD-OK W2-RECORD-REPOINT-BLOCKED W2-RECORD-ROWCOUNT W2-REPLAY-IGNORES-NONCOLS W2-REPLAY-INCOMPLETE W2-REPLAY-INVARIANT W2-REPLAY-MISMATCH W2-REPLAY-OK W2-REPLAY-PRODUCT-GONE W2-RESPONSE-NOT-OBJECT W2-RESPONSE-SHAPE W2-SHIPCOLS-FROZEN W2-SIG-admin_add_shipment_items W2-SIG-admin_create_shipment W2-SIG-admin_mark_shipment_shipped W2-SIG-admin_unvoid_shipment W2-SIG-admin_void_shipment W2-SNAPSHOT-BYPASS-BLOCKED W2-SNAPSHOT-MUTABLE-COL W2-SNAPSHOT-WRITE-ONCE W2-SNAPSHOTABLE-REALLY-IMMUTABLE W2-W0B-INHERITED-IDENTITY W2-W0B-INHERITED-NOPURGE W2-WIRED-admin_add_shipment_items W2-WIRED-admin_create_shipment W2-WIRED-admin_mark_shipment_shipped W2-WIRED-admin_unvoid_shipment W2-WIRED-admin_void_shipment W2-WRITE-ONCE-EMPTY-SNAPSHOT"
+KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-DEFERRED TMUT-DISPATCH TMUT-HASH TMUT-INCOMPLETE TMUT-INVARIANT TMUT-RECORD-ROWCOUNT TMUT-SHIPCOLS TMUT-SNAPSHOT-GUARD W2-ACLSET-pcm_b2_shipping_idem_bad_snapshot_cols W2-ACLSET-pcm_b2_shipping_idem_claim W2-ACLSET-pcm_b2_shipping_idem_insert_guard W2-ACLSET-pcm_b2_shipping_idem_payload_hash W2-ACLSET-pcm_b2_shipping_idem_record W2-ACLSET-pcm_b2_shipping_idem_require_complete W2-ACLSET-pcm_b2_shipping_idem_response W2-CONC-BLOCKED W2-CONC-REPLAY W2-DEFERRED-ALLOWS-NORMAL W2-DEFERRED-COMPLETE W2-DISPATCH-FOREIGN-23505 W2-FN-SET W2-HASH-ACTION W2-HASH-CANONICAL W2-HASH-INJECT W2-HASH-NULL-VS-EMPTY W2-PROPS-pcm_b2_shipping_idem_bad_snapshot_cols W2-PROPS-pcm_b2_shipping_idem_claim W2-PROPS-pcm_b2_shipping_idem_insert_guard W2-PROPS-pcm_b2_shipping_idem_payload_hash W2-PROPS-pcm_b2_shipping_idem_record W2-PROPS-pcm_b2_shipping_idem_require_complete W2-PROPS-pcm_b2_shipping_idem_response W2-RECORD-NO-SUCH-SHIPMENT W2-RECORD-NULL W2-RECORD-OK W2-RECORD-REPOINT-BLOCKED W2-RECORD-ROWCOUNT W2-REPLAY-IGNORES-NONCOLS W2-REPLAY-INCOMPLETE W2-REPLAY-INVARIANT W2-REPLAY-MISMATCH W2-REPLAY-OK W2-REPLAY-PRODUCT-GONE W2-RESPONSE-NOT-OBJECT W2-RESPONSE-SHAPE W2-SHIPCOLS-FROZEN W2-SIG-admin_add_shipment_items W2-SIG-admin_create_shipment W2-SIG-admin_mark_shipment_shipped W2-SIG-admin_unvoid_shipment W2-SIG-admin_void_shipment W2-SNAPSHOT-BYPASS-BLOCKED W2-SNAPSHOT-INSERT-BLOCKED W2-SNAPSHOT-MUTABLE-COL W2-SNAPSHOT-WRITE-ONCE W2-SNAPSHOTABLE-REALLY-IMMUTABLE W2-W0B-INHERITED-IDENTITY W2-W0B-INHERITED-NOPURGE W2-WIRED-admin_add_shipment_items W2-WIRED-admin_create_shipment W2-WIRED-admin_mark_shipment_shipped W2-WIRED-admin_unvoid_shipment W2-WIRED-admin_void_shipment W2-WRITE-ONCE-EMPTY-SNAPSHOT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else

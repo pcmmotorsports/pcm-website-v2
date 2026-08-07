@@ -407,6 +407,57 @@ COMMENT ON FUNCTION public.pcm_b2_shipping_idem_record(text, text, uuid, jsonb) 
 -- 🔴 兩條都是**表級不變量**,不是函式的內務 ⇒ 搬進 W0b 既有那發 trigger 的函式體
 --    (memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`,本線第 N 次)。
 -- 🔴 `CREATE OR REPLACE` 只換函式體,**trigger 本身不動**(仍是 W0b 建的、仍是 ENABLE ALWAYS)。
+-- 🔴 **跨模型審查(Fable)F2:快照欄位契約原本只掛在 UPDATE 面 —— INSERT 面是開的。**
+--    W0b 的 `block_identity_update` 是 `BEFORE UPDATE`(`…w0b.sql:182-184`),W0b 的 CHECK 只擋
+--    五個 summary 衍生鍵與 object 型別 ⇒ 五支是 SECURITY DEFINER、以 owner 執行,
+--    body 裡一句 **INSERT**(`shipment_id` 非 NULL + 快照含 `shipped_at`)就**零錯誤 commit**:
+--    DEFERRED 閘看 shipment_id 非 NULL 放行、mutable-col 守門根本不觸發
+--    ⇒ 之後同鍵的合法重試永久 `P2B24`。
+--    🔴 這與 R1-F5 自己的威脅模型**完全同型**,而我當時只搬了一半 ——
+--       harness 的 `plant()` 走的正是這條 INSERT 路,可構造性早就擺在眼前。
+--    ⇒ 判斷抽成本函式,`BEFORE INSERT` 與 `BEFORE UPDATE` 兩發共用,不各寫各的。
+CREATE FUNCTION public.pcm_b2_shipping_idem_bad_snapshot_cols(p_snapshot jsonb)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = ''
+AS $fn$
+  -- 欄名從 catalog 取、不手抄:shipments 改欄名時本守門不會靜默失效。
+  SELECT pg_catalog.string_agg(e.key, ', ' ORDER BY e.key)
+    FROM pg_catalog.jsonb_each(p_snapshot) e
+   WHERE e.key = ANY (SELECT a.attname::text FROM pg_catalog.pg_attribute a
+                       WHERE a.attrelid = 'public.shipments'::pg_catalog.regclass
+                         AND a.attnum > 0 AND NOT a.attisdropped)
+     AND NOT (e.key = ANY (ARRAY['id','shipment_reference','customer_user_id']));
+$fn$;
+
+COMMENT ON FUNCTION public.pcm_b2_shipping_idem_bad_snapshot_cols(jsonb) IS
+  'W2 快照欄位契約的**唯一判斷處**(跨模型審查 F2)。回傳違規鍵清單、無違規回 NULL。'
+  '🔴 白名單三欄的權威 = …s1a2.sql:155-158 的 pcm_b2_shipments_immutable_guard 所凍的四欄減 created_at。'
+  '🔴 由 BEFORE INSERT 與 BEFORE UPDATE **兩發** trigger 共用 —— 只掛一面等於沒掛(INSERT 繞得過去)。';
+
+CREATE FUNCTION public.pcm_b2_shipping_idem_insert_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE v_bad text;
+BEGIN
+  v_bad := public.pcm_b2_shipping_idem_bad_snapshot_cols(NEW.result_snapshot);
+  IF v_bad IS NOT NULL THEN
+    RAISE EXCEPTION '出貨冪等存根:快照不得含會被改動的 shipments 欄(%)—— 放進去會讓合法的後續動作把不變式打成不一致,永久擋死那把鍵的重試', v_bad
+      USING ERRCODE = 'P2B25', CONSTRAINT = 'pcm_b2_w2_snapshot_mutable_col';
+  END IF;
+  RETURN NEW;
+END
+$$;
+
+COMMENT ON FUNCTION public.pcm_b2_shipping_idem_insert_guard() IS
+  'W2 快照欄位契約的 **INSERT 面**(跨模型審查 F2)。UPDATE 面在 pcm_b2_shipping_idem_freeze_identity。'
+  '🔴 兩面共用 pcm_b2_shipping_idem_bad_snapshot_cols(),conname 也刻意相同 ⇒ 呼叫端不必分辨從哪一面被擋。';
+
 CREATE OR REPLACE FUNCTION public.pcm_b2_shipping_idem_freeze_identity()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -419,9 +470,7 @@ DECLARE
   --    🔴 這份清單會過期 —— shipments 或 s1a2 的凍結集合改了,沒人會想到來改它。
   --      ⇒ `w2-verify.sh` 的 `W2-SNAPSHOTABLE-REALLY-IMMUTABLE` 格**逐欄實測**:
   --        對 draft 態的列改該欄,必須被擋。清單裡混進可變欄 ⇒ 當場紅。
-  c_snapshotable constant text[] := ARRAY['id','shipment_reference','customer_user_id'];
-  v_ship_cols text[];
-  v_bad_keys  text;
+  v_bad_keys text;
 BEGIN
   IF NEW.action IS DISTINCT FROM OLD.action
      OR NEW.idempotency_key IS DISTINCT FROM OLD.idempotency_key
@@ -449,15 +498,9 @@ BEGIN
   END IF;
 
   -- 🔴 W2 新增②:快照不得含**會被改動的 shipments 欄**(理由見檔頭 R1-F1 那節)。
-  --    欄名從 catalog 取、不手抄:shipments 改欄名時本守門不會靜默失效。
-  SELECT pg_catalog.array_agg(a.attname::text) INTO v_ship_cols
-    FROM pg_catalog.pg_attribute a
-   WHERE a.attrelid = 'public.shipments'::pg_catalog.regclass
-     AND a.attnum > 0 AND NOT a.attisdropped;
-  SELECT pg_catalog.string_agg(e.key, ', ' ORDER BY e.key) INTO v_bad_keys
-    FROM pg_catalog.jsonb_each(NEW.result_snapshot) e
-   WHERE e.key = ANY (v_ship_cols)
-     AND NOT (e.key = ANY (c_snapshotable));
+  --    🔴 判斷本身抽成 `pcm_b2_shipping_idem_bad_snapshot_cols()`,因為 **INSERT 面也要用同一條**
+  --       (跨模型審查 F2)。兩個 trigger 共用一份邏輯,不各寫各的。
+  v_bad_keys := public.pcm_b2_shipping_idem_bad_snapshot_cols(NEW.result_snapshot);
   IF v_bad_keys IS NOT NULL THEN
     RAISE EXCEPTION '出貨冪等存根:快照不得含會被改動的 shipments 欄(%)—— 放進去會讓合法的後續動作把不變式打成不一致,永久擋死那把鍵的重試', v_bad_keys
       USING ERRCODE = 'P2B25', CONSTRAINT = 'pcm_b2_w2_snapshot_mutable_col';
@@ -506,6 +549,12 @@ COMMENT ON FUNCTION public.pcm_b2_shipping_idem_require_complete() IS
   '🔴 重讀表而非用 NEW:deferred trigger 的 NEW 是觸發當下的列版本(shipment_id 仍 NULL),用它會誤殺正常流程。'
   '🔴 它讓 claim() 裡的 P2B23 在正常情況下不可達 —— 兩層刻意都留,harness 用「拆掉本層才構造得出 P2B23」證各自的判別力。';
 
+CREATE TRIGGER pcm_b2_shipping_idem_block_bad_snapshot_insert
+  BEFORE INSERT ON public.pcm_b2_shipping_idempotency
+  FOR EACH ROW EXECUTE FUNCTION public.pcm_b2_shipping_idem_insert_guard();
+ALTER TABLE public.pcm_b2_shipping_idempotency
+  ENABLE ALWAYS TRIGGER pcm_b2_shipping_idem_block_bad_snapshot_insert;
+
 CREATE CONSTRAINT TRIGGER pcm_b2_shipping_idem_require_complete
   AFTER INSERT ON public.pcm_b2_shipping_idempotency
   DEFERRABLE INITIALLY DEFERRED
@@ -524,12 +573,16 @@ REVOKE ALL ON FUNCTION public.pcm_b2_shipping_idem_response(uuid, jsonb, boolean
 REVOKE ALL ON FUNCTION public.pcm_b2_shipping_idem_claim(text, text, text)         FROM PUBLIC, anon, authenticated, authenticator, service_role;
 REVOKE ALL ON FUNCTION public.pcm_b2_shipping_idem_record(text, text, uuid, jsonb) FROM PUBLIC, anon, authenticated, authenticator, service_role;
 REVOKE ALL ON FUNCTION public.pcm_b2_shipping_idem_require_complete()              FROM PUBLIC, anon, authenticated, authenticator, service_role;
+REVOKE ALL ON FUNCTION public.pcm_b2_shipping_idem_bad_snapshot_cols(jsonb)        FROM PUBLIC, anon, authenticated, authenticator, service_role;
+REVOKE ALL ON FUNCTION public.pcm_b2_shipping_idem_insert_guard()                  FROM PUBLIC, anon, authenticated, authenticator, service_role;
 
 ALTER FUNCTION public.pcm_b2_shipping_idem_payload_hash(text, jsonb)       OWNER TO postgres;
 ALTER FUNCTION public.pcm_b2_shipping_idem_response(uuid, jsonb, boolean)  OWNER TO postgres;
 ALTER FUNCTION public.pcm_b2_shipping_idem_claim(text, text, text)         OWNER TO postgres;
 ALTER FUNCTION public.pcm_b2_shipping_idem_record(text, text, uuid, jsonb) OWNER TO postgres;
 ALTER FUNCTION public.pcm_b2_shipping_idem_require_complete()              OWNER TO postgres;
+ALTER FUNCTION public.pcm_b2_shipping_idem_bad_snapshot_cols(jsonb)        OWNER TO postgres;
+ALTER FUNCTION public.pcm_b2_shipping_idem_insert_guard()                  OWNER TO postgres;
 
 -- ── 8. 五支 RPC:接上冪等層 ──────────────────────────────────
 -- 🔴 **簽章一字不動**(W1 已凍結):帶 DEFAULT 的參數若改了,`CREATE OR REPLACE` 會變成**新 overload**,
@@ -687,7 +740,9 @@ DECLARE
   v_n   bigint;
   c_helpers constant text[] := ARRAY['pcm_b2_shipping_idem_payload_hash','pcm_b2_shipping_idem_response',
                                      'pcm_b2_shipping_idem_claim','pcm_b2_shipping_idem_record',
-                                     'pcm_b2_shipping_idem_require_complete'];
+                                     'pcm_b2_shipping_idem_require_complete',
+                                     'pcm_b2_shipping_idem_bad_snapshot_cols',
+                                     'pcm_b2_shipping_idem_insert_guard'];
   c_rpcs    constant text[] := ARRAY['admin_create_shipment','admin_add_shipment_items',
                                      'admin_mark_shipment_shipped','admin_void_shipment','admin_unvoid_shipment'];
 BEGIN
@@ -708,8 +763,8 @@ BEGIN
     JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = ANY (c_helpers);
   -- 🔴 迴圈若一支都沒跑到,上面每個 IF 都不會執行 ⇒ 恆真。這道擋的就是那個。
-  IF v_n <> 5 THEN
-    RAISE EXCEPTION 'W2 斷言:五支 helper 不齊(實得 %)', v_n USING ERRCODE = 'P2B20';
+  IF v_n <> 7 THEN
+    RAISE EXCEPTION 'W2 斷言:七支 helper 不齊(實得 %)', v_n USING ERRCODE = 'P2B20';
   END IF;
 
   -- ② 五支 RPC 各自**恰好一個** signature(無 overload)。
@@ -749,6 +804,7 @@ BEGIN
   FOR r IN SELECT pg_catalog.unnest(ARRAY['pcm_b2_shipping_idem_block_delete',
                                           'pcm_b2_shipping_idem_block_truncate',
                                           'pcm_b2_shipping_idem_block_identity_update',
+                                          'pcm_b2_shipping_idem_block_bad_snapshot_insert',
                                           'pcm_b2_shipping_idem_require_complete']) AS sig
   LOOP
     SELECT pg_catalog.count(*) INTO v_n
@@ -763,14 +819,14 @@ BEGIN
   SELECT pg_catalog.count(*) INTO v_n
     FROM pg_catalog.pg_trigger t
    WHERE t.tgrelid = 'public.pcm_b2_shipping_idempotency'::pg_catalog.regclass AND NOT t.tgisinternal;
-  IF v_n <> 4 THEN
-    v_bad := v_bad || '鍵表 trigger 數 = ' || v_n || '(期望 4)';
+  IF v_n <> 5 THEN
+    v_bad := v_bad || '鍵表 trigger 數 = ' || v_n || '(期望 5)';
   END IF;
 
   IF v_bad <> '' THEN
     RAISE EXCEPTION 'W2 斷言失敗:%', v_bad USING ERRCODE = 'P2B20';
   END IF;
-  RAISE NOTICE 'W2 斷言通過:五支 helper 零 GRANT + 五支 RPC 無 overload + ACL 未漂 + 鍵表四發 trigger 皆 ALWAYS';
+  RAISE NOTICE 'W2 斷言通過:七支 helper 零 GRANT + 五支 RPC 無 overload + ACL 未漂 + 鍵表五發 trigger 皆 ALWAYS';
 END
 $$;
 
