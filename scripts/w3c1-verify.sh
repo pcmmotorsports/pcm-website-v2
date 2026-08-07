@@ -102,16 +102,21 @@ mkitem() { # $1=order_item_id $2=到貨數量 $3=sku
   [ "$N" = "$2" ] || die "FIXTURE_FAIL(instock $1): 實得 [$N] 期望 [$2]"
 }
 mkbox() { Q "SELECT ('$(Q "SELECT public.admin_create_shipment('$1','$CUST','$SNAP'::jsonb,'hct')")'::jsonb ->> 'shipment_id')"; }
-mkfull() { # $1=idem 前綴 $2=order_item_id $3=數量 → 印 shipment_id(已掛品項)
-  B="$(mkbox "$1")"; case "$B" in ????????-*) : ;; *) die "FIXTURE_FAIL(box $1): $B" ;; esac
+# 🔴🔴 **`die` 絕不可以放在 `$( )` 裡**(W3c-2 實錘,回頭修本檔的同型):
+#    `mkfull` 被 `B="$(mkfull …)"` 呼叫 ⇒ 跑在**子 shell** ⇒ `die` 的 `exit 1` 只結束子 shell、
+#    **腳本照樣往下跑**,但 `die` 裡的 `pg_ctl stop` **已經把伺服器關掉了**
+#    ⇒ 後面每格對死連線發問、`cap()` 回空字串、被讀成「無例外」= 一整排假 FAIL,真因印在最後一行。
+mkfull() { # $1=前綴 $2=oi $3=數量 → 印 shipment_id;失敗印空字串、原因寫進 $D/mkfull.err
+  B="$(mkbox "$1")"
+  case "$B" in ????????-*) : ;; *) printf 'FIXTURE_FAIL(box %s): %s\n' "$1" "$B" >> "$D/mkfull.err"; return ;; esac
   R="$(QM "SELECT public.admin_add_shipment_items('$1-i','$B','[{\"order_item_id\":\"$2\",\"quantity\":$3}]'::jsonb)" | tr '\n' ' ')"
-  case "$R" in *ERROR*) die "FIXTURE_FAIL(add $1): $R" ;; esac
+  case "$R" in *ERROR*) printf 'FIXTURE_FAIL(add %s): %s\n' "$1" "$R" >> "$D/mkfull.err"; return ;; esac
   printf '%s' "$B"
 }
 OI1='bbbbbbbb-0000-0000-0000-000000000001'; mkitem "$OI1" 5 SKU-1
 
 echo "══ 1. 作廢成功路徑 + 冪等 ═════════════════════════════════"
-BOX1="$(mkfull v1 "$OI1" 2)"
+BOX1="$(mkfull v1 "$OI1" 2)"; case "$BOX1" in ????????-*) : ;; *) die "FIXTURE_FAIL: $(tail -1 "$D/mkfull.err" 2>/dev/null)" ;; esac
 R1="$(Q "SELECT public.admin_void_shipment('vd-1','$BOX1','裝錯東西')")"
 case "$R1" in
   *'"idempotent": false'*) ok W3C1-VOID-OK "作廢成功,回 record() 的信封 ✓" ;;
@@ -125,7 +130,7 @@ SAME="$(Q "SELECT (('$R1'::jsonb - 'idempotent') = ('$R2'::jsonb - 'idempotent')
 
 echo "══ 2. 🔴 退量:不是本片寫的,但要證它真的發生 ═════════════"
 # 🔴 本片零行退量程式碼 —— 它在 S2b 的重算裡。本格量的是**結果**,不是我寫了什麼。
-BOX2="$(mkfull v2 "$OI1" 3)"
+BOX2="$(mkfull v2 "$OI1" 3)"; case "$BOX2" in ????????-*) : ;; *) die "FIXTURE_FAIL: $(tail -1 "$D/mkfull.err" 2>/dev/null)" ;; esac
 Q "SELECT public.admin_mark_shipment_shipped('sp-2','$BOX2','TRACK-2')" >/dev/null
 BEFORE="$(Q "SELECT shipped_quantity::text FROM public.order_item_quantity_summary WHERE order_item_id='$OI1'")"
 Q "SELECT public.admin_void_shipment('vd-2','$BOX2','出貨後發現裝錯')" >/dev/null
@@ -175,7 +180,7 @@ M="$(Q "SELECT void_reason FROM public.shipments WHERE id='$BOX1'")"
 # ③ 退量族:把重算 trigger 拆掉 ⇒ 退量格必須翻面
 Q "CREATE OR REPLACE FUNCTION public.admin_void_shipment(p_idempotency_key text, p_shipment_id uuid, p_void_reason text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN UPDATE public.shipments SET deleted_at=now(), void_reason=p_void_reason WHERE id=p_shipment_id AND deleted_at IS NULL; RETURN '{}'::jsonb; END \$m\$" >/dev/null
 OI2='bbbbbbbb-0000-0000-0000-000000000002'; mkitem "$OI2" 5 SKU-2
-BOX3="$(mkfull v3 "$OI2" 3)"
+BOX3="$(mkfull v3 "$OI2" 3)"; case "$BOX3" in ????????-*) : ;; *) die "FIXTURE_FAIL: $(tail -1 "$D/mkfull.err" 2>/dev/null)" ;; esac
 Q "SELECT public.admin_mark_shipment_shipped('sp-3','$BOX3','TRACK-3')" >/dev/null
 # 🔴 跨模型審查 F3:前面兩發突變把 RPC 換掉了、沒還原 ⇒ 這一發若直接跑,
 #    消融**一次改了兩個變數**(拆 trigger + 用 mutant RPC)⇒ 它證的是「mutant 不退量」,
