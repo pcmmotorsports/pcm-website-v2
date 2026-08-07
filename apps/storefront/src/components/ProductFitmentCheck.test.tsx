@@ -111,7 +111,7 @@ describe('ProductFitmentCheck（§7）', () => {
     setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
     expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
-    expect(screen.getByText('更改車款')).toBeTruthy();
+    expect(screen.getByText('清除車輛')).toBeTruthy(); // Q28②:「更改車款」已改字面(行為亦不同,見專屬測試)
     cleanup();
 
     render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} urlVehicle="invalid" />);
@@ -244,5 +244,111 @@ describe('ProductFitmentCheck（§7）', () => {
     );
     fireEvent.click(screen.getByText('2022 MT 09'));
     expect(onPersist).toHaveBeenCalledWith('yamaha:mt-09-2:2022'); // 序號存活;slugify 會塌成 mt-09
+  });
+
+  // ── Q27(D-218-A):qualified 態年份欄修活 —— 結果框+picker 同時顯示、picker 用 chosen 回填 ──
+
+  it('Q27 A1/A2:qualified 態 ⇒ 結果框與 picker 同時顯示、picker 用 chosen 回填(年份欄可用)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09' }); // 無年份 → qualified
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(screen.getByText('此商品適用 YAMAHA MT-09,但有年份限制')).toBeTruthy(); // 結果框仍在
+    const brand = screen.getByRole('combobox', { name: '選擇廠牌' }) as HTMLInputElement;
+    const model = screen.getByRole('combobox', { name: '選擇車型' }) as HTMLInputElement;
+    const year = screen.getByRole('combobox', { name: '選擇年份' }) as HTMLInputElement;
+    expect(brand.value).toBe('YAMAHA'); // 回填,不是空的
+    expect(model.value).toBe('MT-09');
+    expect(year.disabled).toBe(false); // 年份欄可用(沒回填的話會是 disabled)
+  });
+
+  it('Q27 A4:qualified 態 picker label 換句、手機強制展開(不用點擊)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09' });
+    const { container } = render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(screen.getByText('選一下年份，就能給你確定的答案')).toBeTruthy();
+    expect(container.querySelector('.pfc-picker')!.classList.contains('pfc-picker-open')).toBe(true);
+  });
+
+  it('Q27 A3:qualified → 補年份(範圍內)→ 判定變 match、picker 收起(onPickYear 首次可達)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09' });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    const year = screen.getByRole('combobox', { name: '選擇年份' });
+    fireEvent.change(year, { target: { value: '2022' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: '2022' }));
+    expect(screen.getByText(/適用你的 2022 YAMAHA MT-09/)).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: '選擇年份' })).toBeNull(); // picker 收起
+  });
+
+  it('Q27 A3:qualified → 補年份(範圍外)→ 判定變 no-match、picker 收起', () => {
+    const brandsWithOldYear: MockMotoBrand[] = [
+      { id: 'yamaha', name: 'YAMAHA', models: [{ id: 'mt-09', name: 'MT-09', years: [2019, 2021, 2022, 2023, 2024] }] },
+    ] as MockMotoBrand[];
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09' });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={brandsWithOldYear} />);
+    const year = screen.getByRole('combobox', { name: '選擇年份' });
+    fireEvent.change(year, { target: { value: '2019' } });
+    fireEvent.mouseDown(screen.getByRole('option', { name: '2019' }));
+    expect(screen.getByText(/未列於適用清單/)).toBeTruthy();
+    expect(screen.queryByRole('combobox', { name: '選擇年份' })).toBeNull();
+  });
+
+  it('🔴 Q27 A2 selTouched:qualified 態清除廠牌 ⇒ 真的清空(不被回填立刻填回)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09' });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    const brand = screen.getByRole('combobox', { name: '選擇廠牌' }) as HTMLInputElement;
+    expect(brand.value).toBe('YAMAHA'); // 前提:確實回填了
+    fireEvent.change(brand, { target: { value: '' } });
+    fireEvent.blur(brand);
+    expect(brand.value, '清空後被回填立刻填回 ⇒ selTouched 沒生效').toBe('');
+  });
+
+  it('Q27 反向:match/no-match 態不與 picker 同時顯示(只有 qualified 才會)', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }); // match
+    const { container: c1 } = render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(c1.querySelector('.pfc-picker')).toBeNull();
+    cleanup();
+
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2019 }); // no-match
+    const { container: c2 } = render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(c2.querySelector('.pfc-picker')).toBeNull();
+  });
+
+  // ── Q28②(memory `project_site-redesign-content-pages-decisions.md:105` + `D-221-A` ①-2)──
+
+  it('Q28②:結果框鈕改「清除車輛」、點下去清 vehicle-context 且 chosen 被清掉', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 }); // match 態
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(screen.queryByText('更改車款')).toBeNull(); // 舊字面不在
+    fireEvent.click(screen.getByText('清除車輛'));
+    expect(window.sessionStorage.getItem(VEHICLE_CONTEXT_KEY)).toBeNull(); // context 被清
+    expect(screen.queryByText(/適用你的 2022 YAMAHA MT-09/)).toBeNull(); // 結果框消失(chosen 被清)
+    expect(screen.getByText('確認是否適用你的車')).toBeTruthy(); // 回到現選入口
+  });
+
+  // 🔴 D-222-A ① 裁 A 補的兩格。理由:本站 **URL 才是真相源**
+  //    (`products-url-state.tsx:325` 逐字「鏡恆跟隨 URL 真相」)⇒ 只清鏡不清 URL,
+  //    mount initializer 會把車寫回來 = 狀態根本沒被清過,只是畫面暫時看不到。
+  it('🔴 Q28②:「清除車輛」必須以 null 呼叫 onPersistVehicle(= 清 URL 參數)', () => {
+    const onPersistVehicle = vi.fn();
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} onPersistVehicle={onPersistVehicle} />);
+    fireEvent.click(screen.getByText('清除車輛'));
+    // `null` 是 prop 契約的「清除」語意;傳別的值或不傳 = URL 沒清 = 重載車會回來。
+    expect(onPersistVehicle).toHaveBeenCalledWith(null);
+  });
+
+  it('🔴 Q28②:清除後「重載」(URL 已無車輛參數)⇒ 車不得回來', () => {
+    setContext({ brandName: 'YAMAHA', modelName: 'MT-09', year: 2022 });
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} onPersistVehicle={vi.fn()} />);
+    fireEvent.click(screen.getByText('清除車輛'));
+    cleanup();
+
+    // 模擬重載:URL 已被上一步清掉(urlVehicle 不傳),重新 mount 走 initializer + mount effect。
+    // 🔴 **這條擋不住什麼,要講清楚**(實跑突變確認,不是推測):
+    //    拿掉 `onPersistVehicle?.(null)` ⇒ 本條**照樣綠**;拿掉 `clearVehicleContext()` ⇒ 本條才紅。
+    //    ⇒ 它守的是**鏡**那一半,不是 URL 那一半 —— 單元測試裡 URL 不是真的,
+    //    「重載後 URL 還帶著車」這個情境**在 jsdom 構造不出來**。
+    //    URL 那一半由上一條(`toHaveBeenCalledWith(null)`)在**接縫**上守,真正的端到端要真瀏覽器。
+    render(<ProductFitmentCheck fitments={FITMENTS} motoBrands={BRANDS} />);
+    expect(screen.queryByText(/適用你的 2022 YAMAHA MT-09/)).toBeNull();
+    expect(screen.getByText('確認是否適用你的車')).toBeTruthy();
   });
 });
