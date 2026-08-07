@@ -173,9 +173,23 @@ BOX6="$(mkbox mk6)"
 D1="$(QM "SELECT public.admin_add_shipment_items('d1','$BOX6','[{\"order_item_id\":\"$OI2\",\"quantity\":1}]'::jsonb)" | tr '\n' ' ')"
 case "$D1" in *ERROR*) die "CELL_SETUP_FAIL(d1): $D1" ;; esac
 C="$(cap "public.admin_add_shipment_items('d2','$BOX6','[{\"order_item_id\":\"$OI2\",\"quantity\":1}]'::jsonb)")"
+# 🔴🔴 **這格的期望值「不會」翻面 —— 而我一度以為它會,還真的去改了它。**
+#    W3-3 落檔時我在這格寫「接上轉譯那天本格會紅」。W4-2 確實把轉譯接上了,
+#    於是我把期望值改成 P2B29,**而且連 `PREFIX_TS` 也一起往後推**(想把 W4-2 拉進這一疊)
+#    —— **結果整支 harness 紅在 DDL-SYNTAX**。
+#    🔴 **因果要寫準(跨模型審查 F7)**:紅在 DDL-SYNTAX 的**不是**改期望值那個動作 ——
+#       只改期望值字串只會紅在本格(走「實得 23505」那個 bad 分支)。
+#       紅 DDL-SYNTAX 的是**動 `PREFIX_TS`**:前綴把 W3-3 自己也重放了一次,
+#       `CREATE FUNCTION pcm_b2_shipping_human_error` 撞 42723(already exists)⇒ 被測物整檔跑不起來。
+#    真正的原因:本檔是**前綴重放**(`PREFIX_TS` = 本片自己),它測的是「W3-3 當時那一疊」,
+#    而 W4-2 的薄封裝**不在那一疊裡** ⇒ 在本檔的前綴下,「同箱補掛仍是 raw 23505」**永遠是真的**。
+#    ⇒ 期望值維持 raw;那句「接上轉譯那天本格會紅」是**當時寫錯的預測**,已在此更正。
+#    ⇒ 「已經接上了」的證據在 `scripts/w4b-verify.sh` 的 `W4B-23505-TRANSLATED`
+#      與線級 `w5-line-verify.sh` 的 `LINE-23505-TRANSLATED`(它重放整個目錄)
+#      —— **兩個面各自有各自的 harness,不互相冒領。**
 case "$C" in
-  23505*) ok W3C3-ADDITEMS-23505-STILL-RAW "🔴 同箱補掛今天**仍是 raw 23505**(實得 [$C])= 偏離申報釘成事實;接上轉譯那天本格會紅" ;;
-  P2B29*) bad W3C3-ADDITEMS-23505-STILL-RAW "🔴 已經被轉譯了 ⇒ 偏離申報過期,改本格期望值與檔頭 §3" ;;
+  23505*) ok W3C3-ADDITEMS-23505-STILL-RAW "🔴 在**本檔的前綴**(到 W3-3 為止)下,同箱補掛仍是 raw 23505(實得 [$C])= 當時的事實被釘住;接上轉譯的證據在 w4b/w5,不在這裡" ;;
+  P2B29*) bad W3C3-ADDITEMS-23505-STILL-RAW "🔴 前綴裡竟然有轉譯 ⇒ 前綴重放的界線漂了" ;;
   *)      bad W3C3-ADDITEMS-23505-STILL-RAW "實得 [$C]" ;;
 esac
 # 🔴 ② 交棒 10:本 RPC 一次只動一箱是**契約不是 DB 守門** —— owner 一句多列 UPDATE 照樣做得到。

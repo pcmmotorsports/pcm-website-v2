@@ -76,7 +76,7 @@ QM() { psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1; }
 # 🔴 **第一次重釘(W4-1 落檔)**:本檔與 `w5-line-verify.sh` 是同族(都釘在線的尖端)——
 #    W4-1 那次我重釘了 W5、**忘了這一支**,是它自己 die 才發現。
 #    ⇒ 新片落檔要**同批重釘兩個檔**;這條與 b2s2b 的釘值屬同一族欠款。
-LINE_TIP="20260807220000"
+LINE_TIP="20260807230000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 

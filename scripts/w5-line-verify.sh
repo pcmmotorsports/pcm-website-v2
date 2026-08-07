@@ -33,7 +33,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W5DB:-/tmp/w5db}"; SOCK="${W5SOCK:-/tmp/w5sk}"; P="${W5PORT:-54399}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=22   # 🔴 量出來的。全綠時 PASS = 22 + CELL-ACCOUNT + CELL-KEYSET = 24。
+EXPECT_TOTAL=28   # 🔴 量出來的。全綠時 PASS = 28 + CELL-ACCOUNT + CELL-KEYSET = 30。
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -59,7 +59,7 @@ cap() {
 # 🔴🔴 **第三次重釘(W4-1 落檔)**:W4-1 把 W0b 那兩支 trigger 函式的 REVOKE 補上了
 #    ⇒ **下面的 `ACL_EXEMPT` 具名例外必須撤掉**。當初留例外時就寫了「修掉那天本格會紅、逼人回收例外」——
 #    這次就是那一天。例外留著不撤 = 它會從「誠實的記帳」變成「永久的謊」。
-LINE_TIP="20260807220000"
+LINE_TIP="20260807230000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
@@ -122,6 +122,24 @@ done
 [ -z "$HBAD" ] && ok LINE-HELPER-ACL "**十支 helper 全部**零 GRANT 且 proacl 非 NULL(W4-1 補完 W0b 那兩支之後,具名例外已撤)✓" \
                 || bad LINE-HELPER-ACL "$HBAD"
 # 🔴 鍵表的五發 trigger 全 ALWAYS
+# 🔴🔴 **W4-2 落檔補的兩格(跨模型審查 F3 點名的尖端盲區)**:
+#    上面的 helper 集合凍結用的 pattern 是 `pcm_b2_shipping_%`,而 W4-2 的兩支叫
+#    `pcm_b2_add_items_impl` / `pcm_b2_shipments_no_batch_update` ⇒ **不在 pattern 內、整組全盲**。
+#    失敗情境:下一片落檔那天起 w4b 的前綴 < 尖端,之後任何片 `CREATE OR REPLACE` 掉薄封裝、
+#    或 `DROP`/降級禁批次 trigger ⇒ **零 harness 會紅**(w4b 在自己前綴永遠綠、w5 看不見)。
+#    🔴 **殘餘**:再新增一支別的 `pcm_b2_*` helper 仍然逃得掉(逐名凍結不是 pattern 凍結)。寫下來,不假裝關完。
+W4B_FN="pcm_b2_add_items_impl,pcm_b2_shipments_no_batch_update"
+WBAD=""
+for fn in $(printf '%s' "$W4B_FN" | tr ',' ' '); do
+  V="$(Q "SELECT (p.proacl IS NOT NULL)::text || ':' || (SELECT pg_catalog.count(*)::text FROM pg_catalog.aclexplode(p.proacl) a WHERE a.grantee <> p.proowner) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
+  [ "$V" = "true:0" ] || WBAD="$WBAD $fn($V)"
+done
+[ -z "$WBAD" ] && ok LINE-W4B-HELPERS "W4-2 兩支新 helper 在尖端**存在且零 GRANT**(proacl 非 NULL)✓" || bad LINE-W4B-HELPERS "$WBAD"
+nbstate() { Q "SELECT coalesce(pg_catalog.string_agg(t.tgenabled::text, ','),'(無)') FROM pg_catalog.pg_trigger t WHERE t.tgrelid='public.shipments'::pg_catalog.regclass AND t.tgname='shipments_no_batch_update_as' AND NOT t.tgisinternal"; }
+NB="$(nbstate)"
+[ "$NB" = "A" ] \
+  && ok LINE-NOBATCH-TRIGGER "🔴 禁批次那發(shipments_no_batch_update_as)在尖端**存在且 ENABLE ALWAYS** ⇒ 被 DROP 或降級時本格會紅 ✓" \
+  || bad LINE-NOBATCH-TRIGGER "實得 [$NB](期望 A)"
 # 🔴 `tgenabled` 是 `"char"` 型別,`text || "char"` 的運算子**不唯一** ⇒ 要顯式 `::text`(首跑實錘)。
 trgstate() { Q "SELECT pg_catalog.string_agg(t.tgname||':'||t.tgenabled::text, ',' ORDER BY t.tgname) FROM pg_catalog.pg_trigger t WHERE t.tgrelid='public.pcm_b2_shipping_idempotency'::pg_catalog.regclass AND NOT t.tgisinternal"; }
 TRG="$(trgstate)"
@@ -169,6 +187,12 @@ else
   #    讓 shipped(3)≠ instock(4)≠ 訂購量(10),三個數字互相分得開。
   R="$(QM "SELECT public.admin_add_shipment_items('e2e-2','$SHIP','[{\"order_item_id\":\"$OI1\",\"quantity\":3},{\"order_item_id\":\"$OI2\",\"quantity\":3}]'::jsonb)" | tr '\n' ' ')"
   case "$R" in *ERROR*) bad E2E-ADD "掛品項失敗:$R" ;; *) ok E2E-ADD "②掛兩個品項(一個部分、一個掛滿)成功 ✓" ;; esac
+  # 🔴 F3/F4:W4-2 的 23505 轉譯在**尖端**是否還在。w4b 只證了「它自己的前綴」那一刻;
+  #    下一片落檔後 w4b 的前綴就 < 尖端 ⇒ 沒有這一格的話,薄封裝被誰蓋掉不會有人紅。
+  C="$(cap "public.admin_add_shipment_items('e2e-2b','$SHIP','[{\"order_item_id\":\"$OI1\",\"quantity\":1}]'::jsonb)")"
+  [ "$C" = "P2B29|pcm_b2_w4b_translated" ] \
+    && ok LINE-23505-TRANSLATED "🔴 同箱補掛在**尖端**仍被轉譯成 P2B29(W4-2 的薄封裝沒被後面的片蓋掉)✓" \
+    || bad LINE-23505-TRANSLATED "實得 [$C](期望 P2B29|pcm_b2_w4b_translated)"
   R="$(QM "SELECT public.admin_mark_shipment_shipped('e2e-3','$SHIP','TRACK-E2E')" | tr '\n' ' ')"
   case "$R" in *ERROR*) bad E2E-SHIP "出貨失敗:$R" ;; *) ok E2E-SHIP "③出貨成功 ⇒ **一條線從頭到尾走得通**(全程只走 RPC、零直寫)✓" ;; esac
   V="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
@@ -241,6 +265,41 @@ for fn in $(printf '%s' "$HELPERS_EXP" | tr ',' ' '); do
   esac
 done
 [ -z "$ABAD" ] && ok TMUT-HELPER-ACL "🔴 **十支逐一** GRANT ⇒ 每支的觀察值都翻面 = 零 GRANT 那族整族有判別力" || bad TMUT-HELPER-ACL "有成員不敏感:$ABAD"
+# ③-b 🔴 W4-2 兩個新不變量的靶(F3 同批補;沒有靶的話上面兩格只是「看起來有守」)
+Q "ALTER TABLE public.shipments ENABLE REPLICA TRIGGER shipments_no_batch_update_as" >/dev/null
+M="$(nbstate)"
+[ "$M" != "A" ] && ok TMUT-NOBATCH-TRIGGER "🔴 把禁批次那發降成 REPLICA ⇒ 啟用態真的變了(實得 [$M])= LINE-NOBATCH-TRIGGER 抓得到「被降級」" || bad TMUT-NOBATCH-TRIGGER "降級後啟用態沒變 ⇒ 該格恆真"
+Q "ALTER TABLE public.shipments ENABLE ALWAYS TRIGGER shipments_no_batch_update_as" >/dev/null
+# 🔴 **草稿箱**(E2E 那個已出貨,補掛會先撞 frozen_after_ship、走不到 23505)。本段必須排在 ④ 之前:
+#    ④ 會把 admin_create_shipment 換成回空信封的殘廢版,之後就建不出箱子了。
+MBOX="$(Q "SELECT ('$(Q "SELECT public.admin_create_shipment('mut-2a','$CUST','$SNAP'::jsonb,'hct')")'::jsonb ->> 'shipment_id')")"
+case "$MBOX" in ????????-*) : ;; *) die "MUT_FIXTURE_FAIL(mbox): $MBOX" ;; esac
+Q "SELECT public.admin_add_shipment_items('mut-2b','$MBOX','[{\"order_item_id\":\"$OI1\",\"quantity\":1}]'::jsonb)" >/dev/null
+# 🔴 **首跑實錘**:直接打同一箱同一品項,紅的是 **P2B27(超過到貨量)** 不是 23505 ——
+#    OI1 的 instock=4、E2E 已出 3、草稿箱又佔 1 ⇒ 可用量 0,**前緣先擋、根本走不到 UNIQUE**。
+#    ⇒ 突變要打的那條路必須先通:補一筆到貨讓 instock 到 10,可用量才夠。
+#    (這正是判準四句第三條:「我的 SQL 寫壞了」不得與「被別的守門擋住」共用同一句結論。)
+Q "INSERT INTO public.order_item_procurement_receipts(procurement_id,quantity,received_at,received_by) SELECT id,6,now(),'mut' FROM public.order_item_procurement WHERE order_item_id='$OI1'" >/dev/null
+# 🔴 把薄封裝換成「沒有 handler 的封裝」⇒ 轉譯格必須翻回 raw 23505(形狀照 ④ TMUT-E2E)
+Q "CREATE OR REPLACE FUNCTION public.admin_add_shipment_items(p_idempotency_key text, p_shipment_id uuid, p_items jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN RETURN public.pcm_b2_add_items_impl(p_idempotency_key, p_shipment_id, p_items); END \$m\$" >/dev/null
+M="$(cap "public.admin_add_shipment_items('mut-2c','$MBOX','[{\"order_item_id\":\"$OI1\",\"quantity\":1}]'::jsonb)")"
+case "$M" in
+  23505*) ok TMUT-23505-TRANSLATED "🔴 拿掉薄封裝的 handler ⇒ 同箱補掛**又變回 raw 23505**(實得 [$M])= LINE-23505-TRANSLATED 有判別力" ;;
+  *)      bad TMUT-23505-TRANSLATED "拿掉 handler 後實得 [$M] ⇒ 那格守的不是這段" ;;
+esac
+# 🔴 helper ACL 那兩支同樣逐支打(家族格的靶不得只打一個成員)
+WMBAD=""
+for fn in $(printf '%s' "$W4B_FN" | tr ',' ' '); do
+  SIG="$(Q "SELECT p.oid::regprocedure::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
+  Q "GRANT EXECUTE ON FUNCTION $SIG TO anon" >/dev/null
+  G="$(Q "SELECT pg_catalog.count(*)::text FROM pg_catalog.pg_proc p, pg_catalog.aclexplode(p.proacl) a WHERE p.proname='$fn' AND a.grantee <> p.proowner")"
+  [ "$G" = "1" ] || WMBAD="$WMBAD $fn($G)"
+  Q "REVOKE ALL ON FUNCTION $SIG FROM anon" >/dev/null
+done
+# 🔴 **此後 `admin_add_shipment_items` 是殘廢版(無 handler)**,與 ④ 之後的 `admin_create_shipment` 同樣單向不還原。
+#    現行後續格只讀 ACL / regprocedure,不受影響;**再往後加格的人請先還原或另建 fixture**。
+[ -z "$WMBAD" ] && ok TMUT-W4B-HELPERS "🔴 **兩支逐一** GRANT ⇒ 觀察值都翻面 = LINE-W4B-HELPERS 有判別力" || bad TMUT-W4B-HELPERS "有成員不敏感:$WMBAD"
+
 # ④ 端到端族:把建箱換成靜默回傳 ⇒ E2E 那族必須看得出來
 Q "CREATE OR REPLACE FUNCTION public.admin_create_shipment(p_idempotency_key text, p_customer_user_id uuid, p_recipient_snapshot jsonb, p_carrier_code text, p_carrier_note text DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$m\$ BEGIN RETURN '{}'::jsonb; END \$m\$" >/dev/null
 M="$(Q "SELECT ('$(Q "SELECT public.admin_create_shipment('mut-1','$CUST','$SNAP'::jsonb,'hct')")'::jsonb ->> 'shipment_id')")"
@@ -258,9 +317,13 @@ for fn in $(printf '%s' "$FIVE" | tr ',' ' '); do
 done
 [ -z "$RBAD" ] && ok TMUT-RPC-ACL "🔴 **五支逐一** GRANT 給 anon ⇒ 每支的觀察值都翻面 = LINE-RPC-ACL 整族有判別力" || bad TMUT-RPC-ACL "有成員不敏感:$RBAD"
 # ⑥ 🔴 F2:第 3 節的線級不變式原本整族零靶 ⇒ 補兩發(各自只動自己那一格要看的東西)
+# 🔴🔴 **R2 抓到的恆真(本片自己造的)**:③-b 為了構造 23505 建了 `mut-2a` / `mut-2b` 兩把鍵,
+#    它們成功後各寫一列進鍵表 ⇒ 到這裡鍵表是**七列、action 重複**,`M` 在突變**還沒生效前**就已 ≠ 五列基準
+#    ⇒ 下面兩格雙雙**恆真**(綠不反證)。這正是 12 行前那段註解記過的坑再犯一次,這次來源是 fixture 不是期望值。
+#    ⇒ 兩格的觀察範圍一律收成 `idempotency_key LIKE 'e2e-%'`(只看端到端那五把鍵),與突變段的 fixture 隔離。
 Q "ALTER TABLE public.pcm_b2_shipping_idempotency DISABLE TRIGGER pcm_b2_shipping_idem_block_identity_update" >/dev/null
-Q "UPDATE public.pcm_b2_shipping_idempotency SET shipment_id = NULL WHERE action='ship'" >/dev/null
-M="$(Q "SELECT pg_catalog.string_agg(action||':'||(shipment_id IS NOT NULL)::text, ',' ORDER BY action) FROM public.pcm_b2_shipping_idempotency")"
+Q "UPDATE public.pcm_b2_shipping_idempotency SET shipment_id = NULL WHERE action='ship' AND idempotency_key LIKE 'e2e-%'" >/dev/null
+M="$(Q "SELECT pg_catalog.string_agg(action||':'||(shipment_id IS NOT NULL)::text, ',' ORDER BY action) FROM public.pcm_b2_shipping_idempotency WHERE idempotency_key LIKE 'e2e-%'")"
 # 🔴🔴 **跨模型審查 F1**:我把 `LINE-IDEM-COMPLETE` 的期望值從三列改成四列,
 #    **卻沒改它配對的這個靶** ⇒ 基準字串還是舊三列,而鍵表現在恆有四列
 #    ⇒ `M != 舊三列` **恆真**,突變就算完全沒生效本格照樣綠 = 判別力歸零。
@@ -268,8 +331,8 @@ M="$(Q "SELECT pg_catalog.string_agg(action||':'||(shipment_id IS NOT NULL)::tex
 [ "$M" != "add_items:true,create_shipment:true,ship:true,unvoid:true,void:true" ] \
   && ok TMUT-IDEM-COMPLETE "🔴 把一列的 shipment_id 打回 NULL ⇒ 觀察值真的變了(實得 [$M])= LINE-IDEM-COMPLETE 抓得到半成品" \
   || bad TMUT-IDEM-COMPLETE "打回 NULL 後觀察值沒變 ⇒ 該格恆真"
-Q "UPDATE public.pcm_b2_shipping_idempotency SET result_snapshot = '{\"only_one_key\":1}'::jsonb WHERE action='ship'" >/dev/null
-M="$(Q "SELECT pg_catalog.count(DISTINCT k)::text FROM (SELECT pg_catalog.string_agg(key,',' ORDER BY key) AS k FROM public.pcm_b2_shipping_idempotency i, pg_catalog.jsonb_object_keys(i.result_snapshot) key GROUP BY i.action) t")"
+Q "UPDATE public.pcm_b2_shipping_idempotency SET result_snapshot = '{\"only_one_key\":1}'::jsonb WHERE action='ship' AND idempotency_key LIKE 'e2e-%'" >/dev/null
+M="$(Q "SELECT pg_catalog.count(DISTINCT k)::text FROM (SELECT pg_catalog.string_agg(key,',' ORDER BY key) AS k FROM public.pcm_b2_shipping_idempotency i, pg_catalog.jsonb_object_keys(i.result_snapshot) key WHERE i.idempotency_key LIKE 'e2e-%' GROUP BY i.action) t")"
 [ "$M" != "1" ] \
   && ok TMUT-SNAPSHOT-SHAPE "🔴 把一支的快照改成別的鍵集合 ⇒ 形狀種類數變成 $M = LINE-SNAPSHOT-SHAPE 抓得到「有片自己漂了」" \
   || bad TMUT-SNAPSHOT-SHAPE "改了鍵集合之後種類數仍是 1 ⇒ 該格恆真"
@@ -292,7 +355,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE"
+KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-23505-TRANSLATED LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-NOBATCH-TRIGGER LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE LINE-W4B-HELPERS TMUT-23505-TRANSLATED TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-NOBATCH-TRIGGER TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE TMUT-W4B-HELPERS"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else
