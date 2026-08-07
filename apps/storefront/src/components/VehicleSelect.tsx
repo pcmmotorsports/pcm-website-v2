@@ -103,9 +103,26 @@ function Combo({
       return;
     }
     const exact = uniqueExactMatch(options, text, (n) => n);
-    setText(null);
-    if (exact !== null && exact !== value) onPick(exact);
-    // 非唯一命中 → 還原顯示已選值(不猜、不半套);重新 focus/打字即再開清單明選
+    if (exact !== null) {
+      // 唯一精確命中 → 套用,並把草稿清掉讓顯示值回到 `value`(所見=已選)。
+      setText(null);
+      if (exact !== value) onPick(exact);
+      return;
+    }
+    // 🔴 **非唯一命中 → 不套用,但也不把使用者打的字丟掉**(Sean 2026-08-07 拍板 Q4=B)。
+    //    上一版這裡是 `setText(null)`,顯示值會瞬間跳回已選值(或空)——
+    //    客人打了字、滑開,字就**無聲消失**,而且沒有任何提示告訴他「還沒選到」。
+    //    ⚠️ 零猜鐵律**沒有鬆動**:這裡仍然不 `onPick`、不半套;`value` 一個字沒動。
+    //    改的只是「不丟字」——草稿留在欄位裡,客人看得到自己打了什麼。
+    //
+    //    ⚠️ **本片只做到這裡,兩個已知缺口留給 Sean 拍板(D-272-STOP),不要在這裡自行補**:
+    //    ①**零命中沒有出路**:重新 focus 時 `listOpen` 要 `list.length > 0`、零命中提示要
+    //      掛載點有傳 `emptyHint`,而本檔只有車型欄的 crossLayer 態傳(見下方 `:crossLayer ? ... : undefined`)
+    //      ⇒ 廠牌欄/年份欄/非跨層車型欄打了查無的字,重新 focus 只剩自己那串字、無清單無提示。
+    //      (「B 案不需要新文案」這個前提在這幾格**不成立**。)
+    //    ②**顯示 ≠ 已選**:這欄若本來就選定了車,打一段非唯一的字再 blur,欄位顯示草稿、
+    //      而年份欄與 PDP 適用判定仍走舊的 `value` ⇒ 畫面說一套、系統算另一套。
+    //      Sean 拍的是「不清掉字」,沒拍「已選定的車可以被矛盾文字遮住」。
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
