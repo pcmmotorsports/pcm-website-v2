@@ -1,5 +1,8 @@
-# B2 出貨 writer RPC 片 —— plan **v4**(2026-08-07)
+# B2 出貨 writer RPC 片 —— plan **v4.1**(2026-08-07,定稿候選)
 
+> 🔴 **v4.1 = 折入 confirmation 輪(fresh fable、FAIL 1 = 收斂)**:唯一 must-fix 見 **§11**。
+> 🔴 **估時全域失效**:**`W6a` 完成前,本 plan 的所有估時都不作數**(R3 A2 + D4;C-2 要求複寫在此)。
+> 🔴 **v4.1 對 confirmation 的 n-2 有一處<u>實測推翻</u>**(§11 末),證據 = 拋棄庫實跑輸出。
 > 🔴 **v4 = 折入 R3(opus 四角度、FAIL 12)+ 乙案合流(W6a 早期探針)**。
 > R3 全文 = `docs/reviews/2026-08-07-writer-rpc-plan-r3-findings.md`;逐條折入帳見 **§9**。
 > 🔴 **v4 對 R3 有兩處<u>更正</u>**(D1 的修法、D3 的形狀歸屬),證據在 §9,**不是打折扣、是換修法**。
@@ -242,7 +245,7 @@ C. 用 `admin_audit_log.request_id` —— 🔴 **不可行**:無 UNIQUE、語�
 | 鍵 | `(action, idempotency_key)` **全域唯一** |
 | 關聯 | `shipment_id`(**建箱時先無、產出後回填**) |
 | 重放證據 | `payload_hash`(sha256,照 A8a1 樣板) |
-| 產物快照 | 產物集,供「部分成功重試」做不變式重驗 |
+| 產物快照 | 產物集,供「部分成功重試」做不變式重驗。🔴 **只含 `shipments`/`shipment_items` 的不可變事實,禁含任何重算衍生欄**(R3 **B2**,C-1 回填) |
 
 **🔴 三個必須先寫死的面**(`B-174-A` 點名 R2 會攻):
 1. **清理策略 = 永不清理**(N2)。🔴 **冪等鍵是稽核證據,不是快取** —— 任何 TTL / 清理排程都會把
@@ -250,6 +253,12 @@ C. 用 `admin_audit_log.request_id` —— 🔴 **不可行**:無 UNIQUE、語�
 2. **hash 比對時機** = **取得鍵列之後、任何寫入之前**;不符立即 RAISE,不得先寫再回滾。
 3. **同鍵並發回填競態**:第二個同鍵請求撞唯一鍵 ⇒ **那是正常路、要轉重放**(見 §1d),不是錯誤。
    `shipment_id` 的回填必須**在同一交易內**完成,否則會有「鍵列在、`shipment_id` 仍 NULL」的中間態被讀到。
+4. 🔴 **鍵列 INSERT 必須在產號重試迴圈<u>之外</u>**(R3 **C1**,C-1 回填)——
+   放在迴圈內,第二圈會撞到自己上一圈寫的鍵列 ⇒ 誤判成併發、轉重放 ⇒ 回傳 `shipment_id` NULL 的半成品。
+   併:**重放路徑對 `shipment_id IS NULL` 必須 fail-closed `RAISE`**,不得回半成品。
+5. 🔴 **快照禁含重算衍生欄**(R3 **B2**,同上)——災難日 forward 後,含衍生欄的快照會讓
+   **合法的同鍵重試**被不變式重驗判成不一致 ⇒ `RAISE` **永久擋死唯一一條合法重試路**(A7b D8 同型)。
+   機制落點見 §1c-1 的 `CHECK … snapshot_no_derived`,**不是只靠這條散文**。
 
 ## §1c-1 🔴 **W0b 表定義草稿**(主視窗 `B-181-A` ③ 指派,供 Sean 白話簡報)
 
@@ -268,7 +277,7 @@ C. 用 `admin_audit_log.request_id` —— 🔴 **不可行**:無 UNIQUE、語�
 ### 表(草稿 DDL)
 
 ```sql
-CREATE TABLE public.shipping_write_idempotency (
+CREATE TABLE public.pcm_b2_shipping_idempotency (
   action           text NOT NULL,
   idempotency_key  text NOT NULL,
   payload_hash     text NOT NULL,
@@ -276,20 +285,20 @@ CREATE TABLE public.shipping_write_idempotency (
   result_snapshot  jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at       timestamptz NOT NULL DEFAULT now(),
 
-  CONSTRAINT shipping_write_idem_pk
+  CONSTRAINT pcm_b2_shipping_idem_pk
     PRIMARY KEY (action, idempotency_key),
 
-  CONSTRAINT shipping_write_idem_action_known
+  CONSTRAINT pcm_b2_shipping_idem_action_known
     CHECK (action IN ('create_shipment','add_items','ship','void','unvoid')),
 
-  CONSTRAINT shipping_write_idem_key_not_blank
+  CONSTRAINT pcm_b2_shipping_idem_key_not_blank
     CHECK (NOT public.pcm_b2_is_blank(idempotency_key)
            AND length(idempotency_key) <= 200),
 
-  CONSTRAINT shipping_write_idem_hash_sha256
+  CONSTRAINT pcm_b2_shipping_idem_hash_sha256
     CHECK (payload_hash ~ '^[0-9a-f]{64}$'),
 
-  CONSTRAINT shipping_write_idem_snapshot_no_derived
+  CONSTRAINT pcm_b2_shipping_idem_snapshot_no_derived
     CHECK (NOT (result_snapshot ?| ARRAY[
       'shipped_quantity','instock_quantity','cancelled_quantity',
       'quantity','procured_quantity'
@@ -299,14 +308,14 @@ CREATE TABLE public.shipping_write_idempotency (
 
 | 要素(§1c) | 落在哪 |
 |---|---|
-| 鍵 `(action, idempotency_key)` 全域唯一 | `shipping_write_idem_pk` ⇒ **§1d 分派就認這個 conname** |
+| 鍵 `(action, idempotency_key)` 全域唯一 | `pcm_b2_shipping_idem_pk` ⇒ **§1d 分派就認這個 conname** |
 | 關聯 `shipment_id` 先無後回填 | 可為 NULL 的欄 + 同交易回填(§1c 面 3) |
 | 重放證據 `payload_hash` | sha256 格式 CHECK,照 A8a1 樣板 |
 | 產物快照 | `result_snapshot` + **禁衍生欄 CHECK** |
 
 ### 🔴 三條 R3 findings 在這裡變成機制
 
-1. **B2(快照禁含重算衍生欄)⇒ `shipping_write_idem_snapshot_no_derived`。**
+1. **B2(快照禁含重算衍生欄)⇒ `pcm_b2_shipping_idem_snapshot_no_derived`。**
    R3 只要求「快照只含不可變事實」。**寫成註解的話,第一個趕工的人就會塞 `shipped_quantity` 進去**,
    而後果要到災難日 forward 之後才爆(同鍵合法重試被不變式重驗判不一致 ⇒ `RAISE` 永久擋死)。
    ⇒ 做成 CHECK,塞進去**當場 `23514`**。
@@ -318,18 +327,25 @@ CREATE TABLE public.shipping_write_idempotency (
    LANGUAGE plpgsql SECURITY INVOKER SET search_path = '' AS $$
    BEGIN
      RAISE EXCEPTION '出貨冪等存根禁止刪除或清空:冪等鍵是稽核證據、不是快取'
-       USING ERRCODE = 'P0001', CONSTRAINT = 'shipping_write_idem_no_purge';
+       USING ERRCODE = 'P0001', CONSTRAINT = 'pcm_b2_shipping_idem_no_purge';
    END $$;
 
-   CREATE TRIGGER shipping_write_idem_block_delete
-     BEFORE DELETE ON public.shipping_write_idempotency
+   CREATE TRIGGER pcm_b2_shipping_idem_block_delete
+     BEFORE DELETE ON public.pcm_b2_shipping_idempotency
      FOR EACH ROW EXECUTE FUNCTION public.pcm_b2_shipping_idem_no_purge();
 
-   CREATE TRIGGER shipping_write_idem_block_truncate
-     BEFORE TRUNCATE ON public.shipping_write_idempotency
+   CREATE TRIGGER pcm_b2_shipping_idem_block_truncate
+     BEFORE TRUNCATE ON public.pcm_b2_shipping_idempotency
      FOR EACH STATEMENT EXECUTE FUNCTION public.pcm_b2_shipping_idem_no_purge();
    ```
    🔴 **`TRUNCATE` 那發非有不可**:`DELETE` trigger **不會**被 `TRUNCATE` 觸發。
+   🏁 **這條已實測、不再是假設**(2026-08-07 拋棄庫 PG 17.10,埠 54367,跑完自拆、工作樹零留痕):
+   | 情境 | 實測結果 |
+   |---|---|
+   | 只掛 `BEFORE DELETE`,跑 `DELETE` | `ERROR: BLOCKED` ✅ 擋住 |
+   | 只掛 `BEFORE DELETE`,跑 `TRUNCATE` | **無錯誤、剩餘列數 = 0** 🔴 **清光了** |
+   | 補掛 `BEFORE TRUNCATE` 後再跑 `TRUNCATE` | `ERROR: BLOCKED`、剩餘列數 = 2 ✅ **靶會翻面** |
+   ⇒ 第二列證明「只掛 DELETE 擋不住」,第三列證明 **D2 的突變靶真的有判別力**(拿掉那發會由紅轉綠)。
    只掛 `DELETE` 就是「防護被命名成超出它實際能力的樣子」(memory
    `feedback_control-named-beyond-its-actual-power`)——一句 `TRUNCATE` 照樣清光。
    🔴 **突變靶(D2 要的)**:拿掉 `BEFORE TRUNCATE` 那發 ⇒ 負測的 `TRUNCATE` 必須**由紅轉綠**。
@@ -344,8 +360,8 @@ CREATE TABLE public.shipping_write_idempotency (
 ### ACL / RLS
 
 ```sql
-REVOKE ALL ON TABLE public.shipping_write_idempotency FROM PUBLIC, anon, authenticated, service_role;
-ALTER TABLE public.shipping_write_idempotency ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.pcm_b2_shipping_idempotency FROM PUBLIC, anon, authenticated, service_role;
+ALTER TABLE public.pcm_b2_shipping_idempotency ENABLE ROW LEVEL SECURITY;
 ```
 
 🔴 **service_role 也不給** —— 五支 RPC 是 `SECURITY DEFINER`、以 owner 身分寫這張表,
@@ -357,8 +373,8 @@ ALTER TABLE public.shipping_write_idempotency ENABLE ROW LEVEL SECURITY;
 
 | 題 | 選項 | 我的推薦 |
 |---|---|---|
-| **W-a 表名** | `shipping_write_idempotency` / `pcm_b2_shipping_idempotency` | 前者。既有業務表(`shipments`)不帶前綴,`pcm_*` 前綴慣例是**函式**在用 |
-| **W-b `shipment_id` 要不要 FK** | 要 / 不要 | **不要**。FK 會在寫鍵列時對 `shipments` 取 `KEY SHARE`,而 §6a 組② 的判別力論證正是建立在「`KEY SHARE` 不與 `NKU` 衝突」上 ⇒ 加 FK 等於**在 barrier 的證明面上多一個變數**。存根簿是機械帳表,參照完整性由 RPC 保證 |
+| **W-a 表名** | 🏁 **已定 = `pcm_b2_shipping_idempotency`**(主視窗 `B-183-A` ②:自取、照 repo `pcm_b2_*` 族)。理由更正:它**不是業務表**、是機械帳表,跟著 `pcm_b2_*` 族比跟著 `shipments` 對 | — |
+| **W-b `shipment_id` 要不要 FK** | 🏁 **已定 = 不加**(主視窗 `B-183-A` ②核可)。理由:FK 會在寫鍵列時對 `shipments` 取 `KEY SHARE`,而 §6a 組② 的判別力論證正建立在「`KEY SHARE` 不與 `NKU` 衝突」上 ⇒ 加 FK 等於**在 barrier 的證明面上多一個變數**。🔴 **主視窗補的前提(必須寫進表註解)**:`shipments` **無硬刪路徑**(soft delete only)⇒ 孤兒鍵不可達;**未來若出現硬刪,本裁定同步重估** | — |
 | **W-c `action` 的五個字面** | 見上 CHECK | 🔴 **卡在 Q7 五支的最終函式名** —— 兩處字面必須同源,現在是我暫擬的。W1 定名後**同一 commit** 回填 |
 
 ## §1d 🔴 M1(R2 must-fix):**兩個 UNIQUE 都丟 `23505`,不分派就是災難**
@@ -406,14 +422,14 @@ B. **證明這條路不可達**(附證據片)。🔴 本線已有前例:「構�
 
 | 片 | 內容 | 鐵則 12? | 估時 |
 |---|---|---|---|
-| **W0** | 🔴 **`shipment_reference` 產號 + 撞號重試**(關卡1 **F2**;v1 零設計)。實查:`shipments.shipment_reference` 是 **NOT NULL + UNIQUE + `^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$`**(`…s1a1_shipments.sql:82,99,100`);而 **N3a `public.pcm_generate_display_id()` 產的正是「固定 6 碼、同一個 28 字母表」的<u>候選值</u>**(`20260730120000:62`、COMMENT `:123-124`)⇒ **字母表與長度逐字相符,可直接用**。🔴 它只是**候選** ⇒ 唯一性由 UNIQUE 約束強制 ⇒ **RPC 必須接 `23505` 並重試**(master plan 工作項 2 標題行逐字「由 N3a 產生、**重試在本層**」)。N3a **零 GRANT、owner-only**(`:同檔 ACL 段`)⇒ 本 RPC 是 SECURITY DEFINER owner=postgres,**呼得到、不需加 GRANT**。 | **是** | 40 分 |
+| ~~**W0**~~ | 🔴 **已降級併入 W1**(R2 N4)—— 本列僅存內容說明、**不是獨立片**,片序以 §2a 為準。原文:`shipment_reference` 產號 + 撞號重試(關卡1 **F2**;v1 零設計)。實查:`shipments.shipment_reference` 是 **NOT NULL + UNIQUE + `^[23456789BCDFGHJKMNPQRSTVWXYZ]{6}$`**(`…s1a1_shipments.sql:82,99,100`);而 **N3a `public.pcm_generate_display_id()` 產的正是「固定 6 碼、同一個 28 字母表」的<u>候選值</u>**(`20260730120000:62`、COMMENT `:123-124`)⇒ **字母表與長度逐字相符,可直接用**。🔴 它只是**候選** ⇒ 唯一性由 UNIQUE 約束強制 ⇒ **RPC 必須接 `23505` 並重試**(master plan 工作項 2 標題行逐字「由 N3a 產生、**重試在本層**」)。N3a **零 GRANT、owner-only**(`:同檔 ACL 段`)⇒ 本 RPC 是 SECURITY DEFINER owner=postgres,**呼得到、不需加 GRANT**。 | **是** | 40 分 |
 | **W1** | RPC 骨架:簽章 + `SECURITY DEFINER` + `search_path=''` + `lock_timeout` + 隔離閘 + ACL(REVOKE 全部 / GRANT service_role)+ 檔內結構驗收 | **是**(權限 + DB 寫入) | 45 分 |
 | **W2** | 冪等層:`p_idempotency_key` + payload_hash + 產物集不變式重驗(照 A8a1 樣板) | **是** | 45 分 |
 | **W3** | 業務層 A:建箱 / 掛品項 / 出貨三個動作 + 交棒 1 的 `增量 ≤ instock − shipped` **訊息層**前緣拒絕 + 交棒 2 的引導訊息 | **是** | 45 分 |
 | **W3c** | 🔴 **業務層 B:作廢 + unvoid 兩個 writer**(關卡1 **F1**)。v1 漏了它們,而 **DoD③ 三組 barrier <u>全部</u>是 ×unvoid**、交棒 2 的引導訊息要員工「**先作廢包裹**」、S1a-1 拍過 Q3=A 作廢退量(soft delete 可 unvoid)。**不補 ⇒ W6 退化回 owner 直寫模擬 = S2b §8.1 要進 STOP 的同一個坑。** | **是** | 45 分 |
 | **W4** | 多品項取鎖:`ORDER BY order_item_id` + `40P01` 重試;**Q3=A 的「禁止批次」契約守門** | **是** | 40 分 |
 | **W5** | harness 建檔:結構格 + 行為格(外部 oracle,照 `b2s2b-verify.sh` 形狀) | 否 | 45 分 |
-| **W6** | 🔴 **真併發證據**:master plan DoD 的**三組 barrier 負測** + 項19 移交的真路徑併發 + 冪等重放 oracle | 否 | 45 分 |
+| ~~**W6**~~ | 🔴 **已拆成 W6a/W6b/W6c**(R3 A2 + 乙案)—— 本列僅存內容說明、**不是獨立片**,片序以 §2a 為準。原文:真併發證據 = master plan DoD 的**三組 barrier 負測** + 項19 移交的真路徑併發 + 冪等重放 oracle | 否 | 45 分 |
 | **W7** | 突變矩陣(每條斷言一發靶)+ 覆蓋帳 | 否 | 45 分 |
 | **W7b** | 🔴 **交棒 6 清償**(關卡1 **F5**:v1 把它列進範圍表卻**零片認領**)。a8a2 已釘 `ORDER BY oi.id` + NKU ⇒ 清償便宜,**補一格**斷言取鎖序,不是重寫。 | 否 | 20 分 |
 | **W7c** | 🔴 **runbook 義務**(關卡1 **F6**:v1 低估成「改一句字面」)。writer 上線後 `docs/runbooks/a4a-summary-rollback.md` **步驟① 要新增「REVOKE 出貨 RPC 的 EXECUTE」**、**步驟⑦ 對應回權**;且 shipments 側那句「**沒有可以 REVOKE 的 actor**」**會變成假的**。⇒ 要有片認領 + `REH-*` 那組守門重跑當裁判。 | 否 | 40 分 |
@@ -422,6 +438,8 @@ B. **證明這條路不可達**(附證據片)。🔴 本線已有前例:「構�
 | **W0b** | (**只在 Q6=A 時存在**)冪等落腳表 migration —— 🔴 動 schema ⇒ 鐵則 12 全套 + 過 Sean | **是** | 45 分 |
 
 ### §2a 🔴 **最終片序表(DAG 重對)**
+
+> 🔴 **表內「估時」一欄在 §2 舊表;那些數字在 `W6a` 完成前一律不作數**(C-2)。
 
 片界到此已**變第四次**(v1 八片 → v2 加四片 → v3 加 W0b・W0 降級 → v3.1 冒出 `W3c < W6`)
 ⇒ 這一版不再只列片名,把**依賴**寫出來,片序才有判別力。
@@ -438,8 +456,8 @@ B. **證明這條路不可達**(附證據片)。🔴 本線已有前例:「構�
 | **W6a** | **W3c**, W2, W5 | 🔴 **早期判別力探針**(主視窗 `B-180-A` ②裁乙 + R3 A2 拆片合流):只跑組①`2×unvoid`。**不依賴 W4** —— 它的靶是 RPC 自己的取鎖 `ORDER BY`,W3c 一到就構造得出 |
 | **W6b** | W6a, W4, W3 | 組②`INSERT×unvoid` + 組③`cancel×unvoid`。要等 W4 的取鎖序落定 |
 | **W6c** | W6b, W2 | 冪等重放 oracle + **三表 Δ=0 / audit 增量凍結**(R3 D5) |
-| **W7** | W5, W6 | 突變矩陣要先有格可打 |
-| **W7b** | W5 | 交棒 6(a8a2 取鎖序)—— 只需 harness 骨架 |
+| **W7** | W5, **W6c** | 突變矩陣要先有格可打(依賴的是 **W6c**,不是已拆掉的 W6) |
+| **W7b** | W5, **W3c**, **W4** | 交棒 6(a8a2 取鎖序)。🔴 依賴補正(n-3):R3 **D4** 把它從「結構錨」改成**跨函式行為格**(a8a2 × 出貨重算真併發)⇒ 需要 W3c 的 writer 與 W4 的取鎖序都在 |
 | **W7c** | **W1** | runbook 的 REVOKE 清單 = 五支函式名 ⇒ 骨架定案才寫得出 |
 | **W8** | W3, W3c | admin 呼叫端要五支都在(型別重生 ✅ `3d123ac5` 已完成) |
 
@@ -629,7 +647,7 @@ R2(fresh fable,審 dev `3e624824`)判 **F1-F6 全數 FOLDED**(含 N3a 字母表�
    而且 Q6=A 會多一片 migration(W0b)⇒ **片界會再變一次**。
 3. 🔴 **開工前先把 §4.1(交棒 5)派給誰** —— 它不在本片範圍,但本片 W8 卡在它上面。
 
-— a4a-chain 施工窗,2026-08-07(草稿,未批准)
+<!-- 🔴 舊草稿的結尾簽名(§6 下一步)。§7 之後為歷次審查折入帳,文件<u>未</u>在此結束。n-3 同族殘影,保留原字面僅作追溯。 -->
 
 
 ---
@@ -737,5 +755,77 @@ grep 全 plan:`position(` **零命中**;「禁批次」只在 §1 Q3=A 與 §2 W
    它跟 §6a 一樣是**設計**,confirmation 輪應該當新面審,不能因為它掛在「更正」名下就放行。
 4. **R3 其餘十條我是照收的** —— 我只親驗了它給的四個 `檔案:行號`(兩對兩錯)。
    B1/B2 的災難日推理、C1 的迴圈引爆我**沒有實測**,是讀 plan 與 runbook 推得合理即收。
+
+---
+
+## §11 🔴 confirmation 輪折入帳(FAIL 1 = 收斂;主視窗 `B-182-A`)
+
+### must-fix-1 —— **我的「更正二」擋不住體內一句多列**(v4 新面,非重複層)
+
+我在 v4 §9 更正二寫:禁批次守門 = ①簽章只收單一 `p_shipment_id` ②`= ANY(p_ids)` 突變靶,
+並自標「零實測背書、請當新面審」。**審查者攻進來了,而且是對的**:
+
+> 簽章單數型別層擋得住 `p_ids = ANY(...)`,
+> 但擋不住**函式體內**一句 `UPDATE public.shipments … WHERE order_id = v_order_id`(**同單多箱**)——
+> 它完全合法、簽章仍是單數,而**跨 shipment 的取鎖序 = 該 UPDATE 的列序、無排序保證**
+> ⇒ **交棒 10 的風險原封不動還在**,Q3=A 要的「證明 RPC 內沒有那種語句」那格**根本沒被交付**。
+
+🔴 **這正是我自己在 §9 更正二裡引的那條教訓反過來咬**:
+我批評 R3 的文字層守門、改用「型別層 + 突變靶」,但**型別層只看得到簽章、看不到函式體內**——
+守門又一次畫在**比不變量窄的面**上(memory `feedback_guard-drawn-at-narrowest-surface-not-invariant`)。
+
+**修法(W4 行為層守門,取代 v4 §9 更正二的兩層)**:
+
+| 層 | 內容 | 靶 |
+|---|---|---|
+| **行為層(新;承重件)** | 五支函式內**每一句** `UPDATE public.shipments …` 之後立刻 `GET DIAGNOSTICS v_n = ROW_COUNT`;**`v_n <> 1` 即 `RAISE`**(fail-closed,具名 conname) | 把某句的 `WHERE` 改成會命中多列(如 `WHERE order_id = v_order_id`)⇒ **該格必紅** |
+| 簽章層(保留、降為第二道) | 只收單一 `p_shipment_id` | 塞 `= ANY(p_ids)` 形狀 ⇒ **簽章格必紅**(靶與行為層格**分開記名**,不共用一格) |
+
+🔴 **為什麼行為層才是承重件**:它守的是**不變量本身**(「一次動一箱」),
+而不是「語句長什麼樣」。`WHERE` 怎麼寫、用不用 `ANY`、是不是同單多箱 —— 一律被 `ROW_COUNT <> 1` 接住。
+🔴 **`<> 1` 不是 `<= 1`**:0 列也要紅(該箱不存在或被別人搶走 = fail-closed),不得靜默通過。
+🔴 **兩個靶必須紅在<u>不同</u>格**:共用一格的話,行為層格綠了會掩蓋簽章層失效(反之亦然)。
+
+### considers / nits
+
+| # | 折入 |
+|---|---|
+| **C-1** | ✅ B2 / C1 / C4 的藥**回填設計節字面**:§1c 四要素表(產物快照欄)+ §1c 面 4/面 5 新增(C1 迴圈外、B2 禁衍生欄)。原本只在 §9 帳表 ⇒ 按節施工會漏 |
+| **C-2** | ✅ 「`W6a` 完成前估時不作數」複寫到**抬頭 🔴 區** + **§2a 表頭** |
+| **n-1** | ✅ W7c 集合格期望值**寫死 = `{service_role}`**,且 **grantee `0`(PUBLIC)顯式列入比對集合**。🔴 **審查者這條是對的,已實測**(見下) |
+| **n-2** | 🔴 **實測推翻,見下** |
+| **n-3** | ✅ §2 舊表 `W0` / `W6` 標成殘影(僅存內容說明、非獨立片);`W7` 依賴 `W6` → **`W6c`**;`W7b` 依賴補 **`W3c` + `W4`**(D4 把它改成跨函式行為格後才對) |
+
+### 🔴 n-1 / n-2 的實測(拋棄庫 PG 17.10,埠 54367,自建自拆、工作樹零留痕)
+
+| 量什麼 | 實測輸出 | 判定 |
+|---|---|---|
+| 新函式未動 ACL 的 `proacl` | `NULL` | — |
+| **下一次 `GRANT` 之後的 `proacl`** | `{=X/postgres,postgres=X/postgres}` | 🏁 **v4 §9「更正一」再度證實**:一旦 W1 下了 GRANT,`proacl` **必然非 NULL** ⇒ `proacl IS NOT NULL` 恆真 |
+| `aclexplode` 的 grantee 清單 | `0,10` | PUBLIC = **grantee `0`** |
+| `aclexplode` **join `pg_roles`** 後列數 | **`1`**(非 2) | 🏁 **n-1 正確**:join `pg_roles` **靜默丟掉 PUBLIC 那列** ⇒ 集合比對若 join 了 `pg_roles`,對「PUBLIC 有 EXECUTE」**全盲** |
+| `has_function_privilege('public', fn, 'EXECUTE')` | **`t`(不報錯)** | 🔴 **n-2 被推翻** |
+| 對照組 `has_function_privilege('nosuchrole', …)` | `ERROR: role "nosuchrole" does not exist` | 對照組行為正常 ⇒ 上一列的 `t` **不是錯誤被吞** |
+
+**n-2 的處理**:`has_function_privilege('public', …)` **可以用、不報錯**,v4 §9 更正一的「PUBLIC 點名」機制**成立**。
+🔴 **但 n-1 的結論不受影響、且更重要**:點名格**只能驗你點到的名字**,
+**第五個意外角色只有集合比對抓得到**。⇒ W7c 驗收**兩格都要**:
+①集合比對(顯式含 grantee `0`、**不得 join `pg_roles`**)②四角色 + PUBLIC 點名。
+**這句寫進 W7c 驗收字面**,理由是兩格覆蓋不同的失效形狀,不得互相充數。
+
+---
+
+## §12 🔴 v4.1 的誠實邊界(定稿候選)
+
+1. **must-fix-1 的修法沒有實測背書** —— 與它取代的那版同性質。
+   但這次**有一件事變了**:`ROW_COUNT <> 1` 是**執行期事實**,不是文字或型別,
+   它的突變靶(把 `WHERE` 改成命中多列)在 W4 當場就能跑。⇒ 風險從「設計對不對」降成「實作有沒有漏掛某一句」。
+   🔴 **「有沒有漏掛某一句」本身沒有守門** —— 五支裡漏掛一句 `GET DIAGNOSTICS`,這格照樣綠。
+   這是 v4.1 **已知未關的洞**,W4 開工時要嘛補一格「`UPDATE public.shipments` 出現次數 = `GET DIAGNOSTICS` 出現次數」,
+   要嘛明寫接受。**現在不假裝它關上了。**
+2. **§11 的實測只涵蓋兩條 PG 語意**(TRUNCATE trigger / `has_function_privilege('public')`)
+   與兩條 ACL 事實(`proacl` 物化 / join `pg_roles` 丟列)。**其餘 confirmation findings 我照收未實測。**
+3. §1c-1 的 DDL **仍然一行都沒跑過**(§10-1 那條未變)。表名改成 `pcm_b2_shipping_idempotency` 後尤然。
+4. 🔴 **本版是「定稿候選」不是「已定稿」** —— 定稿以主視窗口頭確認為準(`B-182-A` 定稿程序)。
 
 — a4a-chain 施工窗,2026-08-07(草稿,未批准)
