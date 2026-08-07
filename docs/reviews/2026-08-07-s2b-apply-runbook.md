@@ -35,8 +35,12 @@ comm -13 <(git ls-tree -r --name-only HEAD supabase/migrations/ | sort) \
 … 20260805170200 (S1b) → 20260806100000 (S2a) → 20260806180000 (S2b)
   → 20260806200000 (a9h_m) → 20260807120000 (a9v) → 20260807130000 (a9b2_m)
 ```
-⇒ **若 dev 那三支已經套進正式站,而我們兩支在其後才套,實際套用序 ≠ 檔名序。**
-**這件事我查不到答案**(我沒有正式站的可見度,也不該去查)⇒ **列為 apply 前必須由 Sean / 主視窗確認的一條**,見 §3 P0。
+🟢 **2026-08-07 已答:無倒掛**(主視窗 `B-166-A` ①,以 `supabase migration list` 當場輸出佐證)——
+remote 已套的最新是 **`20260805170200`**,`20260806200000` / `20260807120000` / `20260807130000`
+**三支全部 pending 未 apply**。⇒ 合併後的 pending 集 = 我們兩支 + E 三支,**檔名序 = 未來實際套用序**,
+我們兩支排前**是正確的**。
+🔴 **E 三支本批不套**(它們有自己的 preflight 未跑)⇒ Sean push 時暫移出 `migrations/`、push 完還原;
+那是主視窗與 Sean 的動作,**本文件不含該指令**。
 
 ### 0.2 **合併之後 `b2s2b-verify.sh` 會直接 `die`** —— 而且那是設計好的
 
@@ -51,7 +55,13 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 > 「本檔的『post-S2b 基準庫』與『pre-S2b 前綴』兩個定義都已經漂了。
 > 處置 = 決定基準要不要含那些新片,並同批更新本行與 `MD5_HELPER_4AXIS`,**不是把這道閘拿掉**。」
 
-⇒ **merge 之後、跑任何 harness 之前,必須先做這個決定**,見 §3 P1。
+🟢 **2026-08-07 已做**(主視窗 `B-166-A` ②-2 拍 P1 = **基準含 dev 三支**;理由:它們 pending、未來必套,
+基準含它們 = 對齊未來現實)。實際動作與結果:
+- `NEWEST_TS` 釘值由 `20260806180000` **改成 `20260807130000`**(閘沒被拿掉,只換釘值)。
+- `MD5_HELPER_4AXIS` **重量後與原值相同**:`4ac2989a58985beae91a491a816086f7`
+  (量法 = 對已套完全前綴的庫跑
+  `SELECT md5(pg_get_functiondef('public.pcm_a4a_recompute_order_item_summary(uuid)'::regprocedure))`)
+  ⇒ **dev 三支確實不碰 helper** —— §0.3 的無衝突分析**由此被實測佐證**,不再只是讀 code 推論。
 
 ### 0.3 🟢 已查證**無功能衝突**(不要因為 0.1/0.2 就以為兩邊打架)
 
@@ -137,25 +147,21 @@ cd /Users/sean_1/pcm-a4a-chain && git push origin a4a-chain
 
 **為什麼是第一條**:§0.1 的時間戳倒掛只有在「dev 三支已套、我們兩支未套」時才是問題。
 
-- **要確認什麼**:正式站的 migration ledger 裡,`20260806200000` / `20260807120000` / `20260807130000` 是否已套。
-- **誰做**:Sean 或主視窗(我沒有正式站可見度,也不該去查)。
-- **紅了怎麼辦**(= 三支已套):**停下來討論**,不要直接套我們兩支。
-  兩條路:①接受亂序並逐條論證無依賴(§0.3 已證 `a9h_m` 與本線無功能衝突,但**只證了那一支**)
-  ②把我們兩支的時間戳往後改(**會改 migration 檔名 ⇒ 本線所有凍結的路徑字面同批更新**,成本高)。
-  🔴 **這一題不屬執行者可拍的板。**
+🟢 **已答(2026-08-07,`B-166-A`):三支全 pending 未 apply、remote 最新已套 `20260805170200` ⇒ 無倒掛。**
+- **這一條因此已結案**,保留在清單裡是為了讓下一次 apply 的人知道**要重問一次**
+  (pending 集會隨時間變,今天的答案不能當成永久事實)。
+- 🔴 重問的方式 = `supabase migration list`,由 **Sean 或主視窗**跑(執行者沒有正式站可見度)。
 
 ### P1 🔴 merge 之後:處理 `NEWEST_TS` 與 `MD5_HELPER_4AXIS`
 
 ```bash
 cd /Users/sean_1/pcm-a4a-chain && ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1
 ```
-- **預期**:併 dev 之後會印 `20260807130000`(不再是 `20260806180000`)。
-- **要做的決定**:「post-S2b 基準庫」要不要含 dev 那三支?
-  - 含 ⇒ 把 `scripts/b2s2b-verify.sh` 裡 `NEWEST_TS` 那一行的釘值改成新的尾端,並**同批**重新量 `MD5_HELPER_4AXIS`
-    (量法寫在該檔該常數的註解裡:對已套完全前綴的庫跑
-    `SELECT md5(pg_get_functiondef('public.pcm_a4a_recompute_order_item_summary(uuid)'::regprocedure))`)。
-  - 不含 ⇒ 需要一個「只重放到 `20260806180000`」的 provision 模式,**本線沒有做這件事**。
-- 🔴 **不得把這道閘拿掉**(它的 die 訊息逐字這樣寫)。
+🟢 **已做(2026-08-07)**:決定 = **含 dev 三支**;`NEWEST_TS` 已改釘 `20260807130000`、
+`MD5_HELPER_4AXIS` 重量後**與原值相同**(`4ac2989a58985beae91a491a816086f7`)。
+- **預期輸出**:上面那條指令印 `20260807130000`。
+- **這一條同樣保留在清單裡**:下次若 dev 又往前走,尾端會再漂 ⇒ 屆時**重做同一個決定**,
+  🔴 **不得把這道閘拿掉**(它的 die 訊息逐字這樣寫)。
 
 ### P2 S2a 的 apply 前置閘(既有,唯讀)
 
@@ -177,7 +183,7 @@ cd /Users/sean_1/pcm-a4a-chain && PORT=<未占用埠> scripts/d1t2-rehearsal.sh 
   && U="postgresql://postgres@127.0.0.1:<同一埠>/postgres" \
   && scripts/b2s1a1-verify.sh "$U" && scripts/b2s1a2-verify.sh "$U" && scripts/b2s1b-verify.sh "$U"
 ```
-- **預期(2026-08-07 實跑,連跑兩輪一致)**:
+- **預期(2026-08-07 實跑;merge 前連跑兩輪、merge 後再跑一輪,三次一致)**:
   `b2s1a1` **PASS=60 / FAIL=0**、`b2s1a2` **PASS=46 / FAIL=0**、`b2s1b` **PASS=64 / FAIL=0**。
 - 🔴 **埠不得用**(逐字取自 `scripts/b2s2b-verify.sh` 用法區的黑名單):
   `54329 / 54331 / 54342 / 54351 / 54353 / 54355 / 54357 / 54359 / 54361(a1-verify)/ 54363(a4a-verify)`。
@@ -202,7 +208,8 @@ cd /Users/sean_1/pcm-a4a-chain && PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2
 echo "rc=$?"
 python3 scripts/b2s2b-truth-sync.py .
 ```
-- **預期(2026-08-07 實跑)**:`PASS=78 FAIL=0 INCONCLUSIVE=1`、`CELL=25`、**離開碼 3**;truth-sync rc=0。
+- **預期(2026-08-07 實跑;**併 dev 之後重跑,數字未變**)**:`PASS=78 FAIL=0 INCONCLUSIVE=1`、`CELL=25`、
+  **離開碼 3**;truth-sync rc=0。
   (腳本實印的那一行帶尾綴 `(CELL=$CELL / 期望 25、總格 78)` ⇒ 上面是**摘要不是逐字輸出**。
   三個值各自有凍結常數佐證:`EXPECT_TOTAL=78` / `EXPECT_CELL=25` / `EXPECT_INCONC=1`。)
 - 🔴 **離開碼 3 不是失敗** —— 三態是 `0=全過 / 1=有紅 / 3=無紅但有待裁`。
@@ -246,6 +253,10 @@ cd /Users/sean_1/pcm-a4a-chain && codex exec -m gpt-5.5 -s read-only "<審查指
 - **必補範圍(動到 migration 的兩顆)**:**`4ef591b2`**(S2b-1 接線)與 **`ff366bff`**(四軸化 + 標記)。
   `665934ec`(S2a-1)**不在**待補之列 —— 它已經跑過正牌 codex 兩輪。
   其餘 harness/docs 顆是否要補,由主視窗判。
+🔴🔴 **2026-08-07 定調(主視窗 `B-166-A` ③-2)**:額度牆到 **2026-09-05** ⇒ **apply 前補不了**。
+⇒ **`R1 + R2`(code-reviewer / opus + adversarial-reviewer / fable)為<u>現行背書</u>**;
+codex 三顆(`665934ec` 已完成不在內 ⇒ 實為 **`4ef591b2`** 與 **`ff366bff`** 兩顆必補)
+列**牆解除後補跑清單**;**apply 與否連同這條風險由主視窗白話給 Sean 裁**。
 
 ---
 
@@ -262,7 +273,10 @@ cd /Users/sean_1/pcm-a4a-chain && codex exec -m gpt-5.5 -s read-only "<審查指
 
 - **序不可倒**:S2b 的檔內有片序的**物理**保證(grep `片序不可倒` 找得到,逐字:
   「片序不可倒的**物理**保證。三段任一不符即 RAISE、整檔回滾。」)⇒ 倒著套會當場 RAISE。
-- **與 dev 三支的相對序**:見 §0.1 + P0。
+- **與 dev 三支的相對序**:見 §0.1 + P0 —— **無倒掛**,而且 **E 三支本批不套**
+  (Sean push 時暫移出 `migrations/`、push 完還原;那是主視窗與 Sean 的動作)。
+- 🔴 **merge 已完成**(2026-08-07,merge commit 在本分支;runbook 的消費端清單衝突以 **union** 解,
+  主視窗 `B-167-A` 裁 Q1=A)⇒ 本文件所列的數字都是**併後**重跑的。
 
 ---
 
