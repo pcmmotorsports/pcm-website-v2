@@ -18,7 +18,13 @@ import type {
 // A9w3:`WORKFLOW_STATUS_CODE_RE` 的唯一用途是九碼篩選的字串內插守門,篩選整段已移除
 // ⇒ import 一併收掉。🔴 domain 端的 export 暫留(A9w4c 前半未處置,已立案 backlog #332),但**不是**因為還有人在用 ——
 //    本片後它全 repo 零 consumer;item writer 驗形狀用的是 workflow-form.ts 自己的 local RE。
-import { toMoneyAmount, normalizeOrderNumberSearch } from '@pcm/domain';
+import {
+  toMoneyAmount,
+  normalizeOrderNumberSearch,
+  normalizeSupplierOrderNoSearch,
+  SupplierOrderNoSearchTooManyError,
+  SupplierOrderNoSearchShapeError,
+} from '@pcm/domain';
 import type { Database, Json } from './database.types';
 import {
   mapPlaceOrderToCreateOrderArgs,
@@ -84,6 +90,62 @@ export const ADMIN_ORDER_LIST_SELECT =
 // M-4b E10 A9w3(九碼契約收縮):`ADMIN_ORDER_LIST_SELECT_ITEM_STATUS_FILTERED`
 // (`order_items!inner(...)` 版投影)已移除 —— 它的唯一用途是九碼篩選,而該篩選在 A9w2 下架
 // (URL 參數與 UI 皆已不存在)⇒ 留著就是一份沒有呼叫端、卻仍要維護「與主常數逐欄相同」的白名單。
+// 🔴 A9b2-A 刻意**不把它復活**:供應商單號搜尋改走兩段式查詢,
+//    `ADMIN_ORDER_LIST_SELECT` 一個字都不動(理由見 `listOrderSummariesForAdmin` 內註解)。
+
+/**
+ * 供應商單號搜尋(A9b2-A)**去重後訂單數**的上限。
+ *
+ * 🔴 **推導自實測的 URL 長度**(同 A9b1 `MAX_ORDER_NUMBER_SEARCH_LENGTH` 的形狀)。
+ * 第二段是 `.in('id', ids)`,值會 append 進 GET query string —— 但 query string **不只有它**,
+ * 還有整條 `select` 投影。當場量(`URLSearchParams` 編碼後):
+ *
+ * 量法(可重現):`new URLSearchParams()` 依序 append `select`(本檔的 `ADMIN_ORDER_LIST_SELECT`,
+ * 原始 446 字)、`order=created_at.desc`、`id=in.(n 筆 UUID)`,取 `.toString().length`。
+ *
+ * | n | 完整 query string bytes |
+ * |---|---|
+ * | 0(只有 `select` + `order`)| 551 |
+ * | **100** | **4,461** |
+ * | 200 | 8,361 |
+ *
+ * ⚠️ **原本這裡寫 200、並宣稱「≈7.8KB、低於 8KB 且留兩倍餘裕」——那是錯的**(階段 C must-fix):
+ * 我只算了 `in` 這一項、**漏算 `select`**,實際 8,361 bytes 已經越過自己引用的 8KB 線。
+ * ⇒ 改成 **100**(4,461 bytes),這才是真的留兩倍餘裕。
+ * (🔴 二修:第一版的分項表 550 + 7,802 **自己加不起來** = 8,352 ≠ 8,361,因為漏算了參數名與 `&`
+ *  —— Fable F3。改成直接列「完整 query string 長度」,不再拆分項,免得再出現加不起來的字面。)
+ *
+ * 超過時**擲 {@link SupplierOrderNoSearchTooManyError}、不截斷**(截斷 = 讓使用者以為那就是全部)。
+ * ⚠️ 誠實邊界:8KB 是常見的伺服器預設,**未在正式站的 PostgREST 前緣實測過真實上限**。
+ */
+export const SUPPLIER_ORDER_NO_MATCH_CAP = 100;
+
+/**
+ * 第一段查詢的**採購列**取數上限(與 {@link SUPPLIER_ORDER_NO_MATCH_CAP} 是**兩個不同的量**)。
+ *
+ * 🔴 **為什麼要分兩道**(階段 C must-fix 的根因):`.limit()` 限的是**採購列數**,
+ * 而 URL 長度取決於**去重後的訂單數**。原本只有一道 `.limit(CAP+1)` + `ids.length > CAP` 判斷 ——
+ * 兩邊量的不是同一件事 ⇒ 「列被截斷、但去重後 ≤ CAP」時**不擲錯、靜默少回訂單**,
+ * 正是這個上限本來要防的病。(一張 PO 覆蓋 80 張訂單共 250 列完全正常:
+ * A2 的業務鍵是 `(order_item_id, supplier_canonical_key)`,一單多品項就是多列。)
+ * ⇒ 現在:**列數觸頂 = 明示擲錯**(不知道真集合)、**去重後訂單數超標 = 明示擲錯**(URL 會爆)。
+ *
+ * 🔴 **取值必須嚴格低於伺服器 `max-rows`**(2026-08-02 production 實測 **1000**,
+ * 見 `mappers/order-cancellations.ts:31`)—— 否則截斷發生在伺服器那一側,
+ * `rows.length` 永遠碰不到我的上限,**這道偵測就變成恆假**。500 留一半餘裕。
+ * (`max-rows` 日後被調低於本值時本判定同樣看不見 —— 同 backlog **#325** 的漂移問題。)
+ */
+export const SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT = 500;
+
+/**
+ * A9b2-A 第一段查詢的回傳列形狀:`order_item_procurement` → `order_items!inner(order_id)`。
+ *
+ * 🔴 走 `as unknown as` cast 的理由與本檔其他 embed 一致:forward FK 的 many-to-one embed
+ * 在生成型別上推斷不穩(而且 `supplier_order_no_upper` 在 A9b2-M apply 前根本不在型別裡)。
+ * 🔴 `order_items` 宣告成**可選**是為了讓「形狀不符」在型別上表達得出來 —— 但 runtime 的處置是
+ * **擲 {@link SupplierOrderNoSearchShapeError}、不是靜默濾掉**(Fable F1;理由見查詢處註解)。
+ */
+type SupplierOrderNoProbeRow = { order_items?: { order_id?: string | null } | null };
 
 /**
  * admin 訂單「明細」投影白名單(M-4a Slice B、後台 /orders/[id] 明細頁;service_role 全表)。
@@ -341,9 +403,87 @@ export class SupabaseOrderAdapter implements IOrderRepository {
       return { items: [], total: 0 };
     }
 
+    // 供應商單號搜尋(M-4b E10 A9b2-A)= **兩段式**,不是內嵌欄下推。
+    // 🔴 為什麼不下推:本欄的真相在 `order_item_procurement`,而 `ADMIN_ORDER_LIST_SELECT`
+    //    **沒有內嵌那張表**(明細投影才有)⇒ 內嵌 filter 這條路要先復活 A9w3 刻意刪掉的
+    //    `!inner` 版投影(見上方 :89-91)、動到鐵則 12 的 byte-equal 守門,
+    //    而且會押在「不加 !inner 時內嵌欄 filter 是否影響最上層」這個**本專案無法實測**的
+    //    PostgREST 行為上(本機叢集是裸 PG、沒有 PostgREST)。
+    //    ⇒ 改成先對採購表**自己**做 top-level 查詢拿 order_id,語意無歧義。
+    //    路線裁定與完整理由:`docs/specs/2026-08-07-e10-a9b2-a-supplier-order-no-search-plan.md` §1。
+    // 🔴🔴 **runtime 前置(與 A9b1 同族)**:本路徑要求 A9b2-M 已 apply
+    //    (`supabase/migrations/20260807130000_m4b_e10_a9b2_m_supplier_order_no_upper.sql`)。
+    //    `supplier_order_no_upper` 目前**不在** database.types.ts(欄位尚未 apply、型別未重生)
+    //    ⇒ 用 `.filter()` 而非 `.eq()`(`.filter` 的 column 收 `string`、不吃生成型別);
+    //    兩者序列化**完全相同**(`@supabase/postgrest-js@2.105.3/src/PostgrestFilterBuilder.ts`
+    //    `.eq` :172 與 `.filter` 皆為 `searchParams.append(column, \`op.${value}\`)`)。
+    //    未 apply 時打這條 ⇒ PostgREST 42703 ⇒ 裸 throw ⇒ 整個列表進錯誤態
+    //    ⇒ **A9b2-M apply 之前不得開 A10c2 的 flag**(本片零 producer)。
+    // 🔴 值的安全性押在**正規化層**:`normalizeSupplierOrderNoSearch` 已擋掉 `,` `(` `)` `"` `\`
+    //    —— 因為 `.eq`/`.filter` **不會**替保留字元加引號:那組字元定義在 `:36`
+    //    (字面是 `new RegExp('[,()]')`),而只有 `.in()` `:815` 與 `.notIn()` `:843` 在用它。
+    // 🔴 **本搜尋沒有供應商維度**:`supplier_order_no` 在 DB 層無跨供應商唯一性
+    //    (A2 `:70` 的業務鍵是 `(order_item_id, supplier_canonical_key)`)⇒ 兩家供應商用同一組
+    //    單號時會一起回來。**A10c2 必須在結果列顯示供應商讓人眼消歧**(完整理由與失敗情境見
+    //    `packages/domain/src/order/supplier-order-no-search.ts` 檔頭的誠實邊界段)。
+    const supplierSearch = normalizeSupplierOrderNoSearch(filter.supplierOrderNo);
+    if (supplierSearch.kind === 'invalid') {
+      return { items: [], total: 0 };
+    }
+    let supplierOrderIds: string[] | null = null;
+    if (supplierSearch.kind === 'ok') {
+      const { data: procRows, error: procError } = await this.supabase
+        .from('order_item_procurement')
+        .select('order_items!inner(order_id)')
+        // 🔴 排序不是排版:沒有 `.order()` 時 PostgREST 在 `limit` 下回**哪些**列未定義。
+        //    ⚠️ **誠實界(Fable F4)**:兩道界修完後「凡截斷必擲錯」⇒ 沒擲錯時拿到的必是完整集合,
+        //    所以「分頁不同頁拿到不同 id 集合」這個失敗模式**現在已不可達**。本行留作縱深 ——
+        //    日後若有人把截斷改回靜默容忍,它是第二道防線。
+        //    (同款理由的本檔既有先例:下方列表查詢的 `id` 次鍵排序,Fable D-2 verdict n1。)
+        .order('id', { ascending: true })
+        // 多取一筆才分辨得出「剛好觸頂」與「超過」(只取上限時兩者長得一樣)。
+        .limit(SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT + 1)
+        .filter('supplier_order_no_upper', 'eq', supplierSearch.value);
+      if (procError) {
+        throw procError;
+      }
+      const rows = (procRows as unknown as SupplierOrderNoProbeRow[] | null) ?? [];
+      // 🔴 **第一道:採購列被截斷 ⇒ 明示擲錯**。截斷之後我們**不知道真正的訂單集合**,
+      //    此時去重結果可能仍 ≤ CAP ⇒ 看起來一切正常、實際少回訂單(階段 C must-fix 的病灶)。
+      if (rows.length > SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT) {
+        throw new SupplierOrderNoSearchTooManyError(SUPPLIER_ORDER_NO_PROBE_ROW_LIMIT);
+      }
+      // 🔴 **萃不出 id ⇒ 擲錯,不是把那列濾掉**(Fable 對抗審查 F1)。
+      //    DB 約束保證這不可能發生(`order_item_id` NOT NULL `20260729020000:43` +
+      //    `order_items.order_id` NOT NULL `20260604120000:142` + `!inner`)⇒ 萃不出來只代表
+      //    **回傳形狀與假設不符**(例如 embed 回陣列而非物件)。濾掉的話會靜默變成「查無此單」,
+      //    而且 mock 餵的是符合假設的形狀 ⇒ **測試全綠、功能壞掉**。
+      //    🔴 判斷是**逐列**的、不是「全部都萃不出才算」:FK 保證**每一列**都萃得出來,
+      //    所以只要少一列就代表假設破了。若只在「全部失敗」時擲,部分失敗仍會靜默少回訂單。
+      const extracted = rows
+        .map((row) => row.order_items?.order_id)
+        .filter((id): id is string => typeof id === 'string' && id !== '');
+      if (extracted.length !== rows.length) {
+        throw new SupplierOrderNoSearchShapeError(rows.length);
+      }
+      const ids = Array.from(new Set(extracted));
+      // 🔴 **第二道:去重後訂單數超過上限 ⇒ 明示擲錯,不截斷假裝那就是全部**
+      //    (Sean 2026-08-07 Q1=A「不默默降級」的同一精神;主視窗 E-142-A 批准)。
+      //    這一道守的是**第二段的 URL 長度**,與上一道守的「集合完整性」是兩件事。
+      if (ids.length > SUPPLIER_ORDER_NO_MATCH_CAP) {
+        throw new SupplierOrderNoSearchTooManyError(SUPPLIER_ORDER_NO_MATCH_CAP);
+      }
+      // 零命中 ⇒ 直接回零筆、**不打第二段**(省一次往返,且不押 `.in('id', [])` 的行為)。
+      if (ids.length === 0) {
+        return { items: [], total: 0 };
+      }
+      supplierOrderIds = ids;
+    }
+
     let query = this.supabase
       .from('orders')
       .select(ADMIN_ORDER_LIST_SELECT, { count: 'exact' });
+    if (supplierOrderIds) query = query.in('id', supplierOrderIds);
     if (filter.paymentStatus) query = query.eq('payment_status', filter.paymentStatus);
     if (filter.fulfillmentStatus) query = query.eq('fulfillment_status', filter.fulfillmentStatus);
     if (orderNumberSearch.kind === 'ok') {

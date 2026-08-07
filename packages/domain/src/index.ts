@@ -36,6 +36,20 @@ export {
   ORDER_NUMBER_RE,
 } from './order/order-number-search';
 
+// 供應商單號搜尋正規化(M-4b E10 A9b2-A;解析層與 adapter .eq 比對前共用單一來源)
+// 🔴 與 A9b1 分立、不合併:兩者的合法形狀完全不同(訂單編號有格式、供應商單號沒有),
+//    合成一支會讓其中一邊的守門變成裝飾。
+export type {
+  SupplierOrderNoSearch,
+  SupplierOrderNoSearchInvalidReason,
+} from './order/supplier-order-no-search';
+export {
+  normalizeSupplierOrderNoSearch,
+  MAX_SUPPLIER_ORDER_NO_SEARCH_LENGTH,
+  SupplierOrderNoSearchTooManyError,
+  SupplierOrderNoSearchShapeError,
+} from './order/supplier-order-no-search';
+
 // order entity runtime helper(M-3-S1)
 export type { OrderErrorCode } from './order/errors';
 export { OrderError } from './order/errors';
