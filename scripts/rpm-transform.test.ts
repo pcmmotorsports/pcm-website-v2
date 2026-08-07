@@ -49,7 +49,7 @@ function runGroup(
 // ── RPM fixtures(= golden capture 用的同一組;涵蓋 string/number/null 價、圖池前綴過濾、fitment 去重、有/無車款)──
 const APRILIA: SourceProductRow[] = [
   {
-    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-G-F', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-G-F', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Front Fender', product_name_zh: '前土除',
     description: '碳纖維前土除,100% 手工。', category_zh: '土除', major_category_zh: '車殼外觀',
     vehicle_label: 'Aprilia RS660',
@@ -60,7 +60,7 @@ const APRILIA: SourceProductRow[] = [
     stock_status: 'in_stock',
   },
   {
-    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-M-F', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-M-F', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Front Fender', product_name_zh: '前土除',
     description: '碳纖維前土除,100% 手工。', category_zh: '土除', major_category_zh: '車殼外觀',
     vehicle_label: 'Aprilia RS660',
@@ -72,7 +72,7 @@ const APRILIA: SourceProductRow[] = [
     stock_status: 'low',
   },
   {
-    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-T-G', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'APRILIA-01', sku: 'APRILIA-01-T-G', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Front Fender', product_name_zh: '',
     description: '碳纖維前土除,100% 手工。', category_zh: '土除', major_category_zh: '車殼外觀',
     vehicle_label: 'Aprilia RS660',
@@ -85,7 +85,7 @@ const APRILIA: SourceProductRow[] = [
 ];
 const UNIV: SourceProductRow[] = [
   {
-    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Bolt Kit', product_name_zh: '螺絲組',
     description: '通用碳纖維螺絲。', category_zh: '螺絲', major_category_zh: '周邊配件',
     vehicle_label: null,
@@ -96,7 +96,7 @@ const UNIV: SourceProductRow[] = [
     stock_status: 'in_stock',
   },
   {
-    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-B', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'rpm', main_sku: 'UNIV-CARBON', sku: 'UNIV-CARBON-B', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Bolt Kit', product_name_zh: '螺絲組',
     description: '通用碳纖維螺絲。', category_zh: '螺絲', major_category_zh: '周邊配件',
     vehicle_label: null,
@@ -186,7 +186,7 @@ describe('🔴 RPM byte 回歸鎖(去碳後 rpm 路徑逐欄不變、唯副標�
 
 describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
   const gbBase: SourceProductRow = {
-    supplier_slug: 'gbracing', main_sku: 'GB-001', sku: 'GB-001', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'gbracing', main_sku: 'GB-001', sku: 'GB-001', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Crankcase Cover', product_name_zh: '曲軸箱護蓋',
     description: '曲軸箱護蓋,CNC 切削。', category_zh: '引擎護蓋', major_category_zh: '操控部品',
     vehicle_label: 'Yamaha R1', fitment_parsed: null,
@@ -258,7 +258,7 @@ describe('去碳:per-group / config 驅動(GB/Bonamici 形狀)', () => {
 describe('W3(#267):variantImages 策略 — 非 RPM per-variant 直用、RPM 前綴過濾不變', () => {
   // bonamici 真形狀(2026-07-04 view 實測):URL 含自身 sku 目錄、sku 後跟 / . 而非 '-'
   const boVariant: SourceProductRow = {
-    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'bonamici', main_sku: '0025', sku: '0025_BR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Oil Cap', product_name_zh: '機油蓋',
     description: null, category_zh: '引擎部品', major_category_zh: '引擎部品',
     vehicle_label: null, fitment_parsed: null,
@@ -393,7 +393,7 @@ describe('resolveFitmentYears(year_str fallback、修 gbracing 年份掉落)', (
 // A/#270:賣點條列 highlights_zh → products.highlights(供應商級 syncDescription gate + 正規化 + rpm 凍結)
 describe('A/#270 highlights 賣點條列', () => {
   const gbHl: SourceProductRow = {
-    supplier_slug: 'gbracing', main_sku: 'GB-HL', sku: 'GB-HL', highlights_zh: ['6AL-4V G5 鈦合金,輕量耐腐蝕', 'DLC 黑鈦塗層'], pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'gbracing', main_sku: 'GB-HL', sku: 'GB-HL', highlights_zh: ['6AL-4V G5 鈦合金,輕量耐腐蝕', 'DLC 黑鈦塗層'], pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Bolt', product_name_zh: '鈦合金螺絲',
     description: '鈦合金螺絲。', category_zh: '螺絲', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -438,7 +438,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
   //    (rpm-transform.ts 破 400 行、鐵則 6 拆檔)。本區只留 transformGroup 層的接線行為。
   // ── transformGroup:群級彙整跨全變體(codex 關卡1 must-fix)+ 供應商級 gate ──
   const irBase: SourceProductRow = {
-    supplier_slug: 'gbracing', main_sku: 'GB-IR', sku: 'GB-IR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'gbracing', main_sku: 'GB-IR', sku: 'GB-IR', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Case', product_name_zh: '護蓋',
     description: null, category_zh: '護蓋', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -606,6 +606,35 @@ describe('#270 安裝資源 manuals/video_url', () => {
     expect(product.manuals).toEqual([]);
   });
 
+  // ── 排氣聲浪接線(片 3a)──
+  it('🔴 sound_clips 群級彙整跨變體 + 存原文;來源 null → 省 key(防清空同族)', () => {
+    const withSound = [
+      { ...irBase, sku: 'A', sound_clips: [{ title: 'Stock exhaust; BMW S 1000 RR', url: 'https://d1s.net/a.wav' }] },
+      { ...irBase, sku: 'B', sound_clips: [{ title: 'Complete; BMW S 1000 RR', url: 'https://d1s.net/b.wav' }] },
+    ];
+    const { product } = runGroup('GB-IR', withSound, null, GB_IR_CTX);
+    expect(product.sound_clips).toEqual([
+      { title: 'Stock exhaust; BMW S 1000 RR', url: 'https://d1s.net/a.wav' },
+      { title: 'Complete; BMW S 1000 RR', url: 'https://d1s.net/b.wav' },
+    ]);
+    // 來源整群 null → 省 key(irBase 的 sound_clips 為 null)
+    expect(Object.hasOwn(runGroup('GB-IR', [irBase], null, GB_IR_CTX).product, 'sound_clips')).toBe(false);
+  });
+
+  it('🔴 sound_clips 來源給 [] → 照寫 [](真空是真相);且與 pdf/video 各判各的', () => {
+    const empty = [{ ...irBase, sound_clips: [], pdf_urls: null, video_urls: null }];
+    const { product } = runGroup('GB-IR', empty, null, GB_IR_CTX);
+    expect(Object.hasOwn(product, 'sound_clips')).toBe(true);
+    expect(product.sound_clips).toEqual([]);
+    expect(Object.hasOwn(product, 'manuals')).toBe(false); // 聲音有話說不代表 PDF 也有
+    expect(Object.hasOwn(product, 'video_url')).toBe(false);
+  });
+
+  it('🔴 syncInstallResources=false(rpm)→ 連 sound_clips key 一起省(凍結不覆寫)', () => {
+    const rpmSound = [{ ...irBase, supplier_slug: 'rpm', sound_clips: [{ title: 'x', url: 'https://d1s.net/a.wav' }] }];
+    expect(Object.hasOwn(runGroup('X', rpmSound, null, RPM_CTX).product, 'sound_clips')).toBe(false);
+  });
+
   it('🔴 appendManualFilename 由 ctx 供給、逐家不同:同一批來源在兩家產出不同標籤', () => {
     const docs = [
       { doc_type: 'install', url: 'https://gb.eu/f/1198 2007-2013.pdf' },
@@ -623,7 +652,7 @@ describe('#270 安裝資源 manuals/video_url', () => {
 
 describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
   const dBase: SourceProductRow = {
-    supplier_slug: 'bonamici', main_sku: 'BON-D', sku: 'BON-D-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'bonamici', main_sku: 'BON-D', sku: 'BON-D-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Rearset', product_name_zh: '腳踏後移',
     description: null, category_zh: '腳踏', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,
@@ -704,7 +733,7 @@ describe('下架權威鏡射(合約 §10、view v3 投影 delisted_at)', () => {
 
 describe('🔴 群層與變體層必須用同一個變體集合(對抗審查:商品卡價格洩漏已剔除的停產變體)', () => {
   const pBase: SourceProductRow = {
-    supplier_slug: 'cncracing', main_sku: 'PR320', sku: 'PR320-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null,
+    supplier_slug: 'cncracing', main_sku: 'PR320', sku: 'PR320-A', highlights_zh: null, pdf_urls: null, pdf_docs: null, video_urls: null, sound_clips: null,
     product_name: 'Lever', product_name_zh: '拉桿',
     description: null, category_zh: '拉桿', major_category_zh: '操控部品',
     vehicle_label: null, fitment_parsed: null,

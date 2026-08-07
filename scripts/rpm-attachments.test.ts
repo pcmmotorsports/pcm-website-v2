@@ -5,7 +5,7 @@
 //    拿它判種類會讓五家七千多份說明書全變通稱 —— 比錯標更糟)。
 
 import { describe, it, expect } from 'vitest';
-import { normalizeManuals, pickInstallVideo, filenameLabelOf, isHttpUrl } from './rpm-attachments';
+import { normalizeManuals, normalizeSoundClips, pickInstallVideo, filenameLabelOf, isHttpUrl } from './rpm-attachments';
 
 const NUM = { appendFilename: false }; // akrapovic 型:同類多份用編號
 const FILE = { appendFilename: true }; // gbracing / evotech 型:同類多份接檔名
@@ -179,6 +179,70 @@ describe('filenameLabelOf / isHttpUrl(helper 直測)', () => {
     expect(isHttpUrl('http://x.com/a')).toBe(true);
     expect(isHttpUrl('https://')).toBe(false);
     expect(isHttpUrl('javascript:alert(1)')).toBe(false);
+  });
+});
+
+describe('normalizeSoundClips — 排氣聲浪(片 3a;Sean 08-08 拍 Q25=A 存原文)', () => {
+  it('🔴 title 存**英文原文原樣**,不中文化、不改字面', () => {
+    // Sean 08-08 Q25=A:719 段實測 112 種型別詞、260 段(36%)塞不進交接檔說的三個中文值,
+    // 硬壓會讓 14 群撞名 ⇒ DB 存原文(可逆),中文化留給顯示層(片 3b)。
+    const src = [
+      { title: 'Stock exhaust; BMW S 1000 RR', url: 'https://d1s.net/a.wav' },
+      { title: 'Complete; APRILIA TUAREG 660', url: 'https://d1s.net/b.wav' },
+      { title: 'Slip-On wo insert', url: 'https://d1s.net/c.mp3' },
+    ];
+    expect(normalizeSoundClips(src).map((c) => c.title)).toEqual([
+      'Stock exhaust; BMW S 1000 RR', 'Complete; APRILIA TUAREG 660', 'Slip-On wo insert',
+    ]);
+  });
+
+  it('🔴 無標題段回 title:null,**不在管線塞「聲音檔 N」**(那是顯示層的中性 fallback)', () => {
+    // 在管線塞會讓「真的沒標題」與「標題就叫聲音檔 1」永久無法分辨;實測約 3.8% 段落無標題。
+    const src = [
+      { title: null, url: 'https://d1s.net/a.wav' },
+      { url: 'https://d1s.net/b.wav' }, // 連 key 都沒有
+      { title: 123 as unknown as string, url: 'https://d1s.net/c.wav' }, // 非字串
+    ];
+    expect(normalizeSoundClips(src)).toEqual([
+      { title: null, url: 'https://d1s.net/a.wav' },
+      { title: null, url: 'https://d1s.net/b.wav' },
+      { title: null, url: 'https://d1s.net/c.wav' },
+    ]);
+  });
+
+  it('依 URL 去重保序(群級彙整跨變體)', () => {
+    const src = [
+      { title: 'A', url: 'https://d1s.net/a.wav' },
+      { title: 'A 重複', url: 'https://d1s.net/a.wav' }, // 同 URL → 保留先到的那筆
+      { title: 'B', url: 'https://d1s.net/b.wav' },
+    ];
+    expect(normalizeSoundClips(src)).toEqual([
+      { title: 'A', url: 'https://d1s.net/a.wav' },
+      { title: 'B', url: 'https://d1s.net/b.wav' },
+    ]);
+  });
+
+  it('🔴 濾非 http(s) 與無 host(擋 javascript: 注入 —— 音檔 URL 會被前台餵給 <audio src>)', () => {
+    const src = [
+      { title: 'x', url: 'javascript:alert(1)' },
+      { title: 'x', url: 'ftp://x/a.wav' },
+      { title: 'x', url: 'https://' },
+      { title: 'x', url: 'file:///tmp/a.wav' },
+      { title: 'ok', url: 'https://d1s.net/a.wav' },
+    ];
+    expect(normalizeSoundClips(src)).toEqual([{ title: 'ok', url: 'https://d1s.net/a.wav' }]);
+  });
+
+  it('元素 null / 缺 url / url 非字串 → 跳過不 throw;空輸入 → []', () => {
+    const src = [null, undefined, {} as never, { url: 5 as unknown as string }, { title: 'ok', url: 'https://d1s.net/a.wav' }];
+    expect(normalizeSoundClips(src)).toEqual([{ title: 'ok', url: 'https://d1s.net/a.wav' }]);
+    expect(normalizeSoundClips([])).toEqual([]);
+  });
+
+  it('title 原樣保留前後空白與分號逗號冒號三種分隔符(不 trim、不切段)', () => {
+    // 實測分隔符:分號 623 / 逗號 37 / 無分隔 32,另有冒號型;切段是顯示層的事,管線不動字面
+    const src = [{ title: '  Stock: HONDA CBR1000RR-R  ', url: 'https://d1s.net/a.wav' }];
+    expect(normalizeSoundClips(src)[0]!.title).toBe('  Stock: HONDA CBR1000RR-R  ');
   });
 });
 

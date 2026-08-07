@@ -127,6 +127,46 @@ export function normalizeManuals(
   return out;
 }
 
+// ── 排氣聲浪音檔(片 3a)──
+
+/** 來源 storefront_catalog_v.sound_clips 元素(第 30 欄、合約 v5 §4)。title 約 3.8% 為 null。 */
+export interface SourceSoundClip {
+  title?: string | null;
+  url: string;
+}
+
+/** products.sound_clips jsonb 元素。title 保留**來源英文原文**、不在管線中文化(理由見 normalizeSoundClips)。 */
+export interface SoundClip {
+  title: string | null;
+  url: string;
+}
+
+/**
+ * 排氣聲浪正規化:群級彙整過的來源 clips → 乾淨 SoundClip[]。
+ * 濾非 http(s) → 依 URL 去重保序 → **title 原樣搬運**(非字串一律收斂成 null)。
+ *
+ * 🔴 **刻意不做中文化**(2026-08-08 實測推翻交接檔 §4 的「三種中文名」前提):
+ *   719 段實查出 **112 種型別詞**(小寫正規化後 93 種),前四大 = Stock exhaust 315 / Slip-On 98 /
+ *   Complete 60 / Stock 23。交接檔說的三值(原廠排氣/含消音塞/不含消音塞)混了兩個軸 ——
+ *   ①原廠 vs 改裝產品線 ②消音塞有無(後者只是修飾詞、約 40 段才有)⇒ **260 段(36%)對不上任何一值**,
+ *   硬壓會讓 14 群出現同名段落、客人無法比較,正是這條線要消滅的病換個欄位重演。
+ *   ⇒ DB 存原文(可逆),中文化留給顯示層(片 3b、口徑待 Sean 拍板)。
+ * 🔴 無標題段回 `title: null`,**不在此塞「聲音檔 N」** —— 那是顯示層的中性 fallback,
+ *   在管線塞會讓「真的沒標題」與「標題就叫聲音檔 1」永久無法分辨。
+ */
+export function normalizeSoundClips(clips: (SourceSoundClip | null | undefined)[]): SoundClip[] {
+  const seen = new Set<string>();
+  const out: SoundClip[] = [];
+  for (const c of clips) {
+    if (!c || typeof c.url !== 'string' || !isHttpUrl(c.url)) continue;
+    const url = c.url.trim();
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push({ title: typeof c.title === 'string' ? c.title : null, url });
+  }
+  return out;
+}
+
 // ── 安裝影片 ──
 // YouTube videoId 抽取:🔴 與 UI apps/storefront/src/components/InstallResources.tsx parseYoutubeId 邏輯對齊(改一邊要同步另一邊)。
 //   host 白名單(去 www.)youtu.be / youtube.com / m.youtube.com;抽 watch?v= / embed|shorts / youtu.be 路徑;id 需合 ^[\w-]{6,}$。

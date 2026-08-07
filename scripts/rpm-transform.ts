@@ -20,7 +20,14 @@ import type { FitmentSpec } from '@pcm/domain';
 import type { SourceProductRow, SourceFitmentEntry } from './rpm-fetch';
 import type { VariantImageStrategy } from './supplier-config';
 // 附件正規化(2026-08-08 拆出、鐵則 6):說明書標籤改吃 doc_type、影片挑選原樣搬移。
-import { normalizeManuals, pickInstallVideo, type SourcePdfDoc, type InstallManual } from './rpm-attachments';
+import {
+  normalizeManuals,
+  normalizeSoundClips,
+  pickInstallVideo,
+  type SourcePdfDoc,
+  type InstallManual,
+  type SoundClip,
+} from './rpm-attachments';
 
 // 型別 re-export:InstallManual 原本定義在本檔、外部依此路徑引用,搬家後保留出口不破呼叫端。
 export type { InstallManual } from './rpm-attachments';
@@ -173,13 +180,14 @@ export interface ProductRow {
   //    與 description(per-row 條件、視來源空否)不同:highlights 在單一 supplier run 內 all-or-nothing
   //    (只看 syncDescription)→ 自然落在單一 key-signature 組,無須為它做任何額外處理。
   highlights?: string[];
-  // 🔴 安裝資源(#270)為 optional,**兩層** gate(2026-08-07 修正,原註「供應商級 all-or-nothing、天然 uniform、
-  //    不需 partition」已作廢):①供應商級 supplier-config.syncInstallResources(false=rpm/cnc → 省 key → 凍結)
-  //    ②per-row 來源 null 防清空(整群 pdf_urls/video_urls 皆 null → 省該 key → 保留現值;來源給 [] 才寫 [])。
-  //    ⇒ 兩 key **不再恆出現、不再同進退**,單一 run 內 presence 逐列變動 ⇒ rpm-import 寫入段必須
-  //      groupByKeySignature 分 uniform 批(見 transformGroup 內註與 rpm-load)。
+  // 🔴 附件三欄為 optional,**兩層** gate(2026-08-07 修正,原註「供應商級 all-or-nothing、天然 uniform、
+  //    不需 partition」已作廢):①供應商級 supplier-config.syncInstallResources ②per-row 來源 null 防清空。
+  //    ⇒ 三 key **不再恆出現、不再同進退**,單一 run 內 presence 逐列變動 ⇒ 寫入端必須 groupByKeySignature
+  //      分 uniform 批(見 transformGroup 內註與 rpm-load)。
+  //    ⚠️ sound_clips 的 DB 欄由 20260808000000 migration 建立;**apply 前不得跑 importer**(欄不存在=整批失敗)。
   manuals?: InstallManual[];
   video_url?: string | null;
+  sound_clips?: SoundClip[];
   price_general: number | null;
   price_store: number | null;
   price_by_tier: Record<string, { amount: number; currency: string }>;
@@ -301,18 +309,16 @@ export function transformGroup(
   );
   const manuals = normalizeManuals(pdfDocs, { appendFilename: ctx.appendManualFilename });
   const videoUrl = pickInstallVideo(variants.flatMap((v) => v.video_urls ?? []));
-  // 🔴 來源 null ≠ 空陣列(2026-08-07 報價單交接檔 §7 第三點):官方詳情 API 暫掛時這幾欄會【整批變 null、
-  //    隔天自癒】。改前 `?? []` 把 null 壓成 [] 照樣寫入 = 一次上游故障清光客人全部說明書。
-  //    改後:整群皆 null(來源沒說話)→ 省 key → upsert `?columns` 不含此欄 → ON CONFLICT 不覆寫 → 保留現值;
-  //    來源給空陣列(明確說「沒有」)→ some(!= null) 為真 → 照寫 [](真空是真相、不保留舊值)。
-  //    兩欄分開判:PDF 端故障不該連累影片欄(改前兩者綁同一個展開、一起被清)。
-  //    ⚠️ 這使 manuals/video_url 從「供應商級 all-or-nothing」變成【per-row 條件省 key】 ⇒ rpm-import 寫入段
-  //      必須按 key-signature 分 uniform 批(見 rpm-load.groupByKeySignature);混批會讓省 key 列吃 postgrest
-  //      `?columns` 聯集 + defaultToNull 被寫 NULL,而 products.manuals 是 NOT NULL ⇒ 23502 整批全敗。
-  //    🔴 2026-08-08:pdfSeen 要看【兩欄】—— 來源改吃 pdf_docs 後,若只看 pdf_docs,五家 pdf_docs 仍 null
-  //      的供應商會被判成「來源沒說話」而凍結,連 pdf_urls 的更新也吃不到。任一欄非 null = 來源有說話。
+  // 🔴 來源 null ≠ 空陣列(交接檔 §7):官方詳情 API 暫掛時附件欄會【整批變 null、隔天自癒】。
+  //    整群皆 null(來源沒說話)→ 省 key → ON CONFLICT 不覆寫 → 保留現值;來源給 [](明確說「沒有」)→ 照寫 []。
+  //    三欄**各判各的**:一欄故障不連累另外兩欄。pdfSeen 看 pdf_docs/pdf_urls 兩欄(只看前者會讓
+  //    pdf_docs 仍 null 的五家被誤判成「沒說話」而凍結)。
+  //    ⚠️ 這三欄是【per-row 條件省 key】⇒ rpm-import 寫入段必須 groupByKeySignature 分 uniform 批;
+  //      混批會讓省 key 列被寫 NULL,而 products.manuals/sound_clips 是 NOT NULL ⇒ 23502 整批全敗。
   const pdfSeen = variants.some((v) => v.pdf_docs != null || v.pdf_urls != null);
   const videoSeen = variants.some((v) => v.video_urls != null);
+  const soundClips = normalizeSoundClips(variants.flatMap((v) => v.sound_clips ?? []));
+  const soundSeen = variants.some((v) => v.sound_clips != null);
   return {
     supplier_slug: basis.supplier_slug, // view 過濾值、顯式帶
     external_id: mainSku, // 🔴 乾淨主料號、無前綴(view.main_sku 已大寫、對齊 S3a 洗淨值)
@@ -325,11 +331,11 @@ export function transformGroup(
     // 🔴 highlights 供應商級條件寫入:syncDescription=true 才展開 key(rpm=false → 無 key → 凍結不碰);
     //    all-or-nothing per run → 自然落單一 key-signature 組、無須額外處理(見 rpm-import 寫入段註)。
     ...(ctx.syncDescription ? { highlights } : {}),
-    // 🔴 安裝資源(#270)條件寫入:①供應商級 syncInstallResources(rpm/cnc=false → 無 key → 凍結)
-    //    ②per-row 來源 null 防清空(pdfSeen/videoSeen、見上方註)。兩層皆過才展開該 key。
-    //    ⚠️ 兩 key 不再恆同進退 ⇒ rpm-import 寫入段必須 groupByKeySignature 分批(見上方註,不是 nit)。
+    // 🔴 附件三欄條件寫入:①供應商級 syncInstallResources(rpm/cnc=false → 無 key → 凍結)
+    //    ②per-row 來源 null 防清空(見上方註)。兩層皆過才展開該 key、三 key 不同進退。
     ...(ctx.syncInstallResources && pdfSeen ? { manuals } : {}),
     ...(ctx.syncInstallResources && videoSeen ? { video_url: videoUrl } : {}),
+    ...(ctx.syncInstallResources && soundSeen ? { sound_clips: soundClips } : {}),
     price_general: priceGeneral,
     price_store: null, // 🔴 Q2=A 獨立經銷欄留 NULL(view 無經銷價、絕不接)
     price_by_tier: {
