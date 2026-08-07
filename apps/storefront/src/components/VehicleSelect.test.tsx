@@ -102,16 +102,32 @@ describe('VehicleSelect', () => {
     expect(combo('選擇車型').disabled).toBe(false);
   });
 
-  it('blur 唯一精確命中自動套用(全形/大小寫正規化);非唯一 → 還原不猜', () => {
+  // 🔴 **2026-08-07 Sean 拍板 Q4=B,本條守的不變量跟著換。**
+  //    舊版守的是「非唯一 → **還原不猜**」——`value` 不動 **而且**把使用者打的字清掉。
+  //    Sean 回報那是「打了字、滑開就無聲消失」⇒ 新的不變量是
+  //    「**不套用,但也不丟字**」:零猜的部分一字未改(仍不 `onPick`、`value` 不動),
+  //    改的只是草稿留在欄位裡。⇒ 這條分成兩半各自釘,別再混成一句。
+  it('blur 唯一精確命中自動套用(全形/大小寫正規化)', () => {
     render(<Harness />);
     const brand = combo('選擇廠牌');
     fireEvent.change(brand, { target: { value: 'ＹＡＭＡＨＡ' } });
     fireEvent.blur(brand);
     expect(brand.value).toBe('Yamaha');
+  });
+
+  it('🔴 blur 非唯一命中 → 不套用(零猜)**但保留使用者打的字**(Q4=B;舊行為是清空)', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'yamaha' } });
+    fireEvent.blur(brand);
     const model = combo('選擇車型');
     fireEvent.change(model, { target: { value: 'r' } }); // R6 與 MT-09 SP 皆非精確 → 不套用
     fireEvent.blur(model);
-    expect(model.value).toBe('');
+    // ①不丟字(這是 Q4=B 改的那一半)
+    expect(model.value, '打的字被清掉了 ⇒ 客人不知道自己輸入過什麼、也不知道還沒選到').toBe('r');
+    // ②仍然零猜:年份欄的啟用與否綁在「車型有沒有真的被選定」上 ⇒ 沒選定就仍是 disabled。
+    //   這條是「不丟字」與「不套用」的分界線 —— 少了它,哪天有人把不丟字做成「順便套用」也全綠。
+    expect(combo('選擇年份').disabled, '車型沒被套用,年份欄卻開了 ⇒ 零猜鐵律被破').toBe(true);
   });
 
   it('鍵盤 ArrowDown+Enter 選 highlight 項;年份選定', () => {
