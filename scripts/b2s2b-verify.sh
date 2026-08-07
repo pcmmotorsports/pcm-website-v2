@@ -348,8 +348,8 @@ NEWEST_TS="$(ls supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail
 #    🔴 **本次施工窗只重釘、未重跑**(全跑成本高、且主視窗 `B-199-A` ④ 已裁「收割不重跑它、
 #       職責由 W5 線級接手一半、**apply 前 preflight 重釘+全跑一次**」)⇒ 這條仍是 apply 前的欠款,
 #       不得因為釘值更新了就當它已驗。
-[ "$NEWEST_TS" = "20260807230000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260807230000 ——
+[ "$NEWEST_TS" = "20260808000000" ] \
+  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260808000000 ——
    本檔的「post-S2b 基準庫」與「pre-S2b 前綴」兩個定義都已經漂了。
    處置 = 決定基準要不要含那些新片,並同批更新本行與 MD5_HELPER_4AXIS,**不是把這道閘拿掉**。"
 

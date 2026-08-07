@@ -82,7 +82,7 @@ cap() {
 
 # 🔴 **第四個釘值檔**(b2s2b / w5 / w6a / 本檔)—— 新片落檔要**同批重釘四個**。
 #    機制承接仍在 backlog;在那之前這行是人工紀律,而人工紀律已經漏過一次(W4-1 漏了 w6a)。
-LINE_TIP="20260807230000"
+LINE_TIP="20260808000000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
