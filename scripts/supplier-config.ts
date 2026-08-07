@@ -63,8 +63,11 @@ export interface SupplierConfig {
   /**
    * 是否把來源 pdf_urls/video_urls 同步進 products.manuals/video_url(#270 安裝資源)。
    * 🔴 獨立於 syncDescription:安裝資源=實體資產是否存在,與「繁中翻譯是否備妥」正交
-   *   (某供應商描述已備但沒影片、或反之)。true → transform 展開 manuals+video_url 兩 key
-   *   (供應商級 all-or-nothing、單一 run uniform → 免 partition);false → 省 key → 凍結不碰。
+   *   (某供應商描述已備但沒影片、或反之)。true → transform **可能**展開 manuals / video_url 兩 key;
+   *   false → 一律省 key → 凍結不碰。
+   *   🔴 2026-08-07 更正:true 不代表兩 key 必出現 —— 還要過第二層 per-row 閘「來源該欄非 null」
+   *   (整群 null=官方 API 暫掛,省 key 保留現值;來源給 [] 才寫 [])。故本旗標**不再**保證單一 run
+   *   uniform,寫入端已改 groupByKeySignature 分批(rpm-load);原註「all-or-nothing → 免 partition」作廢。
    *   rpm/cncracing=false(rpm 無來源+byte 凍結、cnc 未 writeAllowed);gbracing/bonamici=true(有 PDF 來源且已同步)。
    *   前提:報價單 storefront_catalog_v 已曝露 pdf_urls/video_urls(20260709 報價單側 migration)。
    */

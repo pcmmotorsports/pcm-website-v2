@@ -1,52 +1,79 @@
-// rpm-load.test.ts — #260 partitionByKeyPresence(保留現值:省 key 列不被混批寫 NULL)
+// rpm-load.test.ts — #260 groupByKeySignature(保留現值:省 key 列不被混批寫 NULL)
 //
 // 背景:postgrest-js `.upsert(陣列)` 的 `?columns` 取全批 key 聯集 + defaultToNull=true →
-//   同批混「有 description / 省 description key」→ 省 key 列被寫 NULL(非保留現值)。
-//   partitionByKeyPresence 把兩者分兩 uniform 批,呼叫端各自 upsert → 省 key 落「該批 columns 不含此 key」批 → 保留現值。
+//   同批混「有某 key / 省該 key」→ 省 key 列被寫 NULL(非保留現值)。products.manuals 是 NOT NULL ⇒ 23502 整批全敗。
+//   groupByKeySignature 依 own key 集合分成數個 uniform 組,呼叫端逐組 upsert → 省 key 落「該批 columns 不含此 key」
+//   的組 → ON CONFLICT DO UPDATE 不覆寫該欄 → 保留現值。
+// 2026-08-07:取代原 partitionByKeyPresence(單 key 二分)。條件省 key 欄已達三個(description / manuals /
+//   video_url),二分只治一軸、另兩軸仍混批。
 
 import { describe, it, expect } from 'vitest';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { VariantRow } from './rpm-transform';
 import * as rpmLoad from './rpm-load';
-import { partitionByKeyPresence } from './rpm-load';
+import { groupByKeySignature } from './rpm-load';
 
-describe('#260 partitionByKeyPresence(description key-signature 分批)', () => {
-  it('混批 → 分「有 key」與「省 key」兩組(依原順序)', () => {
+describe('#260 groupByKeySignature(依 own key 集合分 uniform 批)', () => {
+  const ids = (groups: { external_id: string }[][]) => groups.map((g) => g.map((r) => r.external_id));
+
+  it('混批 → 依 key 集合分組(組序=首見順序、組內保原順序)', () => {
     const rows = [
       { external_id: 'A', description: 'x' },
       { external_id: 'B' }, // 省 key
       { external_id: 'C', description: 'y' },
     ];
-    const { withKey, withoutKey } = partitionByKeyPresence(rows, 'description');
-    expect(withKey.map((r) => r.external_id)).toEqual(['A', 'C']);
-    expect(withoutKey.map((r) => r.external_id)).toEqual(['B']);
+    expect(ids(groupByKeySignature(rows))).toEqual([['A', 'C'], ['B']]);
   });
 
-  it('🔴 rpm 情境:全批省 description → withKey 空(現行單批 byte 等價)', () => {
+  it('🔴 rpm 情境:全批省同樣的 key → 只有一組(現行單批 byte 等價)', () => {
     const rpm = [{ external_id: 'R1' }, { external_id: 'R2' }];
-    const { withKey, withoutKey } = partitionByKeyPresence(rpm, 'description');
-    expect(withKey).toEqual([]);
-    expect(withoutKey).toHaveLength(2);
+    const groups = groupByKeySignature(rpm);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toHaveLength(2);
   });
 
-  it('全批有 description → withoutKey 空', () => {
-    const { withKey, withoutKey } = partitionByKeyPresence([{ description: 'a' }, { description: 'b' }], 'description');
-    expect(withKey).toHaveLength(2);
-    expect(withoutKey).toEqual([]);
+  it('🔴 三軸各自變動(description × manuals × video_url)→ 每種 key 組合各自成組、無混批', () => {
+    // 這是 2026-08-07 換掉單 key 二分的理由:按 description 二分的話,下面 A/B 會落同一批,
+    // B 的 manuals 就被 ?columns 聯集 + defaultToNull 寫成 NULL → products.manuals NOT NULL → 23502。
+    const rows = [
+      { external_id: 'A', description: 'd', manuals: [], video_url: null },
+      { external_id: 'B', description: 'd' }, // 來源 pdf/video 皆 null → 兩 key 皆省
+      { external_id: 'C', description: 'd', manuals: [] }, // 只有 pdf 有話說
+      { external_id: 'D', manuals: [], video_url: null }, // 來源無描述
+    ];
+    const groups = groupByKeySignature(rows);
+    expect(ids(groups)).toEqual([['A'], ['B'], ['C'], ['D']]);
+    // 每組內 key 集合必一致(= 該批 ?columns 恰等於組內 key,省 key 欄不進 ON CONFLICT DO UPDATE)
+    for (const g of groups) {
+      const sigs = new Set(g.map((r) => Object.keys(r).sort().join(' ')));
+      expect(sigs.size).toBe(1);
+    }
   });
 
-  it('顯式帶 undefined ≠ 省 key(Object.hasOwn 語意:key 存在即算「有」)', () => {
-    // transform 是「省 key」而非「帶 undefined」;此測釘死 hasOwn 語意、防未來改成帶 undefined 靜默破功
-    const { withKey, withoutKey } = partitionByKeyPresence([{ description: undefined }, {}], 'description');
-    expect(withKey).toHaveLength(1); // 顯式 undefined key 算存在
-    expect(withoutKey).toHaveLength(1); // 真省 key
+  it('key 集合相同但**宣告順序**不同 → 同一組(?columns 是集合、與順序無關)', () => {
+    const rows = [
+      { external_id: 'A', description: 'x', manuals: [] },
+      { manuals: [], external_id: 'B', description: 'y' },
+    ];
+    expect(ids(groupByKeySignature(rows))).toEqual([['A', 'B']]);
   });
 
-  it('不吃原型鏈成員(Object.hasOwn、非 `in`)', () => {
-    const row = Object.create({ description: 'inherited' }) as { description?: string };
-    const { withKey, withoutKey } = partitionByKeyPresence([row], 'description');
-    expect(withKey).toEqual([]); // 繼承的 description 不算 own key
-    expect(withoutKey).toHaveLength(1);
+  it('顯式帶 undefined ≠ 省 key(Object.keys 語意:key 存在即算「有」)', () => {
+    // transform 是「省 key」而非「帶 undefined」;此測釘死語意、防未來改成帶 undefined 靜默破功
+    // (帶 undefined 的 key 仍會進 ?columns → 仍被寫 NULL,分錯組=防護失效)
+    const groups = groupByKeySignature([{ description: undefined }, {}]);
+    expect(groups).toHaveLength(2);
+  });
+
+  it('不吃原型鏈成員(Object.keys own-only、非 `in`)', () => {
+    const inherited = Object.create({ description: 'inherited' }) as { description?: string };
+    const plain = {};
+    // 繼承的 description 不算 own key → 與空物件同組(postgrest 送出的也只有 own key)
+    expect(groupByKeySignature([inherited, plain])).toHaveLength(1);
+  });
+
+  it('空輸入 → 空陣列(呼叫端 for-of 自然不跑、不送空 upsert)', () => {
+    expect(groupByKeySignature([])).toEqual([]);
   });
 });
 
