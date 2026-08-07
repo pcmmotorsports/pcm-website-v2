@@ -56,7 +56,10 @@ cap() {
 #    ⇒ 物件集合不變(仍是五支),但**端到端多了一段作廢**(void 從「只有存在性」變成有行為)。
 # 🔴 **第二次重釘(W3c-2 落檔)**:unvoid 也有行為了 ⇒ 端到端補「復原」那一步,
 #    鍵表期望值四列 → **五列**、誠實邊界那句「unvoid 只有存在性」作廢。
-LINE_TIP="20260807210000"
+# 🔴🔴 **第三次重釘(W4-1 落檔)**:W4-1 把 W0b 那兩支 trigger 函式的 REVOKE 補上了
+#    ⇒ **下面的 `ACL_EXEMPT` 具名例外必須撤掉**。當初留例外時就寫了「修掉那天本格會紅、逼人回收例外」——
+#    這次就是那一天。例外留著不撤 = 它會從「誠實的記帳」變成「永久的謊」。
+LINE_TIP="20260807220000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
@@ -101,7 +104,7 @@ done
 #    🔴 **但我的線級宣稱「十支零 GRANT」是假的** ⇒ 據實編碼成**具名例外**,不假裝它零 GRANT。
 #    ⇒ 修法是一行 REVOKE,最省的落點是 W4 的 migration(順路)。STOP 列為欠款;
 #      修掉的那天本格會紅(例外清單對不上)、逼人回來拿掉例外 —— 與 M3 窗口同一形狀。
-ACL_EXEMPT="pcm_b2_shipping_idem_freeze_identity pcm_b2_shipping_idem_no_purge"
+ACL_EXEMPT=""   # 🔴 W4-1 已補 REVOKE ⇒ 例外清空(見上面第三次重釘的說明)
 HBAD=""
 for fn in $(printf '%s' "$HELPERS_EXP" | tr ',' ' '); do
   NULLACL="$(Q "SELECT (p.proacl IS NULL)::text FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
@@ -116,7 +119,7 @@ for fn in $(printf '%s' "$HELPERS_EXP" | tr ',' ' '); do
     *) { [ "$NULLACL" = "false" ] && [ "$G" = "0" ]; } || HBAD="$HBAD $fn(null=$NULLACL,g=$G)" ;;
   esac
 done
-[ -z "$HBAD" ] && ok LINE-HELPER-ACL "八支 helper 零 GRANT 且 proacl 非 NULL;**W0b 的兩支 trigger 函式是已知缺口**(w0b:210 只 REVOKE 表)⇒ 具名例外、不假裝它零 GRANT ✓" \
+[ -z "$HBAD" ] && ok LINE-HELPER-ACL "**十支 helper 全部**零 GRANT 且 proacl 非 NULL(W4-1 補完 W0b 那兩支之後,具名例外已撤)✓" \
                 || bad LINE-HELPER-ACL "$HBAD"
 # 🔴 鍵表的五發 trigger 全 ALWAYS
 # 🔴 `tgenabled` 是 `"char"` 型別,`text || "char"` 的運算子**不唯一** ⇒ 要顯式 `::text`(首跑實錘)。
