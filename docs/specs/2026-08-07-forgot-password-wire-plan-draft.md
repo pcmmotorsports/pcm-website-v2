@@ -1,6 +1,8 @@
 # 忘記密碼接線片 · plan v2(2026-08-07,site-redesign 窗)
 
-> **狀態:草稿 v2、未批准。** 高風險片(鐵則 12 ② auth),對抗審查不降級。
+> **狀態:v2 **已批准**(Sean 2026-08-07 深夜 Q24-a,逐字「依照建議」;信箱 `D-207-A`)。
+> 🔴 **但仍不可開工** —— §4-B 未答 + §5 四條 dashboard 前置未做 + §3-5 兩項實測未做。**三者齊了才開工。**
+> 高風險片(鐵則 12 ② auth),對抗審查不降級。
 > v1 寫的時候**拿不到稿**;主視窗 `D-204-A` 代取到手(路徑在 8 層深、我的 `-maxdepth 5` 搆不到),
 > 四個附件在 `pcm-mailbox/`:`附件-D-忘記密碼-OD信全文.md` / `-handoff.md` /
 > `-forgot-password-page.html` / `-reset-password-page.html`。**本檔 v2 已讀完四份**,v1 的 §6 缺口清掉。
@@ -44,7 +46,7 @@
 - `lib/site-url.ts:6-10` — `resolveSiteUrl()`:設了 `NEXT_PUBLIC_SITE_URL` 用它;未設且非 prod → localhost;
   **未設且 prod → `undefined`**。
   ⚠️ **正式站設了沒 = 未確認**(Vercel 後台的值,`.env*` 在禁止清單、本機看不到)。
-  repo 內只有條件句(「未設會怎樣」),**不是「現在未設」**,不可當事實引用。見 §4-A。
+  repo 內只有條件句(「未設會怎樣」),**不是「現在未設」**,不可當事實引用。見 §4-B(Sean 正在查 Vercel)。
 
 ---
 
@@ -100,10 +102,10 @@
 - **Supabase 的 429 也要收斂成同一句** —— 否則節流本身變成探測管道。
 - **不能靠回應時間洩漏** —— 寄信成功/失敗不得改變 server action 的回傳形狀。
 
-### 3-2 「再寄一次」節流(稿等我們給數字)
+### 3-2 「再寄一次」節流 —— ✅ 秒數已定
 
-OD 建議:**同 Email 60 秒一次 + IP 層限制**;倒數期間鈕 disable 並顯示剩幾秒。
-🔴 **倒數 UI 稿沒畫** —— 因為秒數要我們先定。⇒ §4-C。
+**同 Email 60 秒一次 + IP 層限制**(Sean Q24-D 照 OD 建議拍板);倒數期間鈕 disable 並顯示剩幾秒。
+🔴 **倒數 UI 稿沒畫**(OD 當時在等秒數)⇒ **秒數定了,開工時要回報 OD 補畫倒數態**,走 OD 信箱。
 
 ### 3-3 token 必須在**渲染前**驗
 
@@ -111,7 +113,7 @@ OD 逐字:「不能讓人填完兩次新密碼才說過期,那是把人耍一輪
 而且狀態 B **不是邊緣案例、是最常發生的**(隔天才點、點第二次、複製時斷行)。
 ⇒ `/login/reset` 由 **server 端先驗 recovery session**,無效直接渲染狀態 B;不是 client 端事後才判。
 
-### 3-4 `redirectTo` 從哪來 —— 🔴 我與稿有一處分歧,要決定
+### 3-4 `redirectTo` 從哪來 —— ✅ A 案已批准(與稿的分歧,Sean Q24-a 依建議)
 
 稿的接線對照寫 `resetPasswordForEmail(email, { redirectTo: '<origin>/login/reset' })` —— **直接指 `/login/reset`**。
 但真站已有一支**被 codex 審過**的 `app/auth/callback/route.ts` 在做 `exchangeCodeForSession` + `sanitizeNextParam`。
@@ -121,7 +123,7 @@ OD 逐字:「不能讓人填完兩次新密碼才說過期,那是把人耍一輪
 | **A(建議)** | `redirectTo = <base>/auth/callback?next=/login/reset` | 沿用已審過的交換與白名單;`/login/reset` 只讀 session、不碰 code |
 | B | 照稿直指 `/login/reset` | 該頁得自己做 code 交換 = **把一段安全敏感邏輯複製第二份** |
 
-**推薦 A**(少寫一份、少一面攻擊面)。**A 對客人看到的東西零差異 ⇒ 不需要回 OD 改稿。**
+**已拍板走 A**(少寫一份、少一面攻擊面)。**A 對客人看到的東西零差異 ⇒ 不需要回 OD 改稿。**
 🔴 無論哪案,`<origin>` **絕不可從 request header 組**(§1-4 那條 codex must-fix),只能來自 `resolveSiteUrl()`。
 
 ### 3-5 🔴 「其他裝置會被登出」這句 —— **OD 說是 Supabase 預設,我沒有驗證**
@@ -153,29 +155,38 @@ OD 說那是 Supabase 撤銷 session 的預設行為。
 
 ---
 
-## §4 待決題(plan 批准後一次批次問 Sean)
+## §4 拍板結果(Sean 2026-08-07 深夜 Q24,信箱 `D-207-A`)
 
-- **A. `NEXT_PUBLIC_SITE_URL` 正式站設了沒?** 沒設 → 重設信連結組不出絕對網址,本片直接卡住。
-- **B. `/login/reset` 完成後導去哪?** 稿的狀態 C 是「前往登入」⇒ 預設照稿;確認即可。
-- **C. 節流秒數?** OD 建議 60 秒 + IP 層。定了 OD 才畫得出倒數 UI。
-- **D. 兩句新錯誤字面**(註冊頁沒有確認密碼欄、沒有現成的):
-  「請再輸入一次密碼」/「兩次輸入的密碼不一樣」—— 稿已擬,確認即可。
+| 題 | 結果 | 連動 |
+| --- | --- | --- |
+| **A. plan 是否批准** | ✅ **批准**(含 §3-4 A 案沿用 `/auth/callback`、§6 不拆片,全照本檔) | 開工前提之一達成 |
+| **B. `NEXT_PUBLIC_SITE_URL` 正式站設了沒** | 🔴 **未答** —— Sean 要親自去 Vercel 後台查 | **查到前本片不可開工**(沒有它就組不出重設信的絕對網址) |
+| **C. `/login/reset` 完成後導去哪** | ✅ **導回登入頁**(照稿狀態 C 的「前往登入」) | 無 |
+| **D. 「再寄一次」冷卻秒數** | ✅ **60 秒 + IP 層** | 🔴 **要回報 OD 補畫倒數態**(秒數定了他才畫得出);走 OD 信箱、排開工時 |
+| **E. 兩句新錯誤字面** | ✅ **照稿用**:「請再輸入一次密碼」/「兩次輸入的密碼不一樣」 | 併進 `field-validation.ts` 既有那份、不寫第二套 |
 
-⚠️ **v1 的「改完要不要踢其他裝置」已從待決題移除** —— 它不是選擇題,是 §3-5 的**驗證項**。
+⚠️ **v1 的「改完要不要踢其他裝置」不在本表** —— 它不是選擇題,是 §3-5 的**驗證項**,見下。
+
+## §4a 🔴 開工前置檢查表(三類全綠才動手)
+
+- [ ] **§4-B** `NEXT_PUBLIC_SITE_URL` 正式站的值(Sean 查 Vercel)
+- [ ] **§5** 四條 dashboard 動作(Sean)
+- [ ] **§3-5** 兩項實測:①改密碼是否真的撤銷其他 session ②recovery link 是否真的 1 小時
+      —— **兩項都是「設計端轉述的 Supabase 預設」,不是可以相信的前提**;若①為否,稿上那句可見文案就是說謊。
 
 ## §5 外部硬前置(Sean 的 dashboard 動作,我做不了)
 
 - [ ] Supabase:Redirect URL allow-list 加 `/auth/callback`(§3-4 A 案)
 - [ ] Supabase:重設信模板文案(OD 未設計,§3-7)
 - [ ] Supabase:SMTP 是否已接自有寄件網域(§3-7)
-- [ ] Vercel:`NEXT_PUBLIC_SITE_URL`(§4-A)
+- [ ] Vercel:`NEXT_PUBLIC_SITE_URL`(§4-B,Sean 正在查)
 
-## §6 片界建議
+## §6 片界 —— ✅ 不拆已批准
 
 **不拆、一片做完**。兩頁互為前提(只做前半=白畫面),拆點會落在「使用者收信之後」這條動線上、
 拆了會產生一個不可驗的中間態。體積超過鐵則 4 的 45 分鐘是必然,**寧可一片長,不切在動線中間**。
-若 Sean 批准時要求拆,建議拆點 = **「後端(port/adapter/use-case/action)」與「兩頁 UI」**,
-而不是「forgot 一片、reset 一片」。
+(Q24-a 已批「不拆」。備選拆點留檔備查:若日後真要拆,拆點是**「後端(port/adapter/use-case/action)」與「兩頁 UI」**,
+而不是「forgot 一片、reset 一片」。)
 
 ## §7 收工銷帳
 
@@ -183,4 +194,4 @@ memory `project_m4b-admin-preview-decisions` 記的「前台忘記密碼死連�
 
 ---
 
-**未批准、未開工、零程式碼改動。** — site-redesign 窗,2026-08-07
+**已批准(Q24-a)、未開工(卡 §4a 三類前置)、零程式碼改動。** — site-redesign 窗,2026-08-07
