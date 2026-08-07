@@ -18,7 +18,8 @@
     "prepare": "husky"
   },
   "lint-staged": {
-    "*.{ts,tsx}": "eslint --max-warnings 0 --no-error-on-unmatched-pattern --no-warn-ignored"
+    "*.{ts,tsx}": "eslint --max-warnings 0 --no-error-on-unmatched-pattern --no-warn-ignored",
+    "*.{sh,yaml,yml,sql}": "tsx scripts/check-syntax-nonts.ts"
   },
   "devDependencies": {
     "@pcm/domain": "workspace:^",

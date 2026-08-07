@@ -50,11 +50,42 @@ L1 規則層(本檔)+ L2 工具層(busboy-end pre-flight)+ L3 設施層(GitHub A
 | lint | `pnpm lint` | no error / no warning |
 | build | `pnpm build` | 所有動到 .ts / .tsx 的 package / app 跑通 |
 
+🔴 **三項全部只讀 `.ts` / `.tsx`。** 動到 `.sh` / `.yaml` / `.yml` / `.sql` 的 slice,
+三綠對那些檔的判別力是**零** —— 見 §2.2a。
+
 ### 2.2 三項缺一不可
 
 - 三項全綠才允許 commit、不允許「typecheck 過、lint 紅、之後修」一類延期
-- build 在純文件 slice(只動 .md / .json schema)可省、但 typecheck + lint 仍跑(確認 monorepo 設定未被前一輪副作用波及)
+- build 在**純文件 slice**可省、但 typecheck + lint 仍跑(確認 monorepo 設定未被前一輪副作用波及)。
+  🔴 **「純文件」= 只動 `.md` / `.json schema`;`.sh` / `.yaml` / `.sql` 不算純文件**,
+  它們有自己的守門(§2.2a),不得以「純文件片」為由跳過
 - 三項任一紅 → 修紅再 commit、不繞道、不 disable / skip / ignore
+
+### 2.2a 非 TS 檔的語法守門(2026-08-07 Sean 拍 A 補洞)
+
+**背景(兩次實錘,同一個結構缺口)**:①B 線 W0b/W1 純 `.sql` / `.sh` 片「三綠全過」是恆真
+②D 線 manifest YAML 被插入未跳脫雙引號打壞、**四綠仍全 `exit=0`**。
+偵察出處 `docs/reviews/2026-08-07-night-legislation-draft.md` §5.6 補-1/補-2。
+
+| 副檔名 | 檢查 | 抓得到 | 🔴 抓不到 |
+|---|---|---|---|
+| `.sh` | `bash -n`(shell 內建、零依賴) | 語法錯、未閉合區塊/引號 | 邏輯錯、runtime 行為 |
+| `.yaml` / `.yml` | repo 既有 `yaml` 套件 parse | parse 不過(含未跳脫引號、縮排錯) | schema 對不對、欄位語意 |
+| `.sql` | **只做配對平衡**(引號 / dollar-quote / 括號) | 「整個檔讀不進去」那類 | **語法、欄名、型別、語意一律抓不到** |
+
+- 實作 `scripts/check-syntax-nonts.ts`,掛在既有 `lint-staged`(`package.json`),
+  **隨 `.husky/pre-commit` 自動跑,不需另記一道手動步驟**。
+- 🔴 **只認副檔名**:`.husky/pre-commit`、`.husky/pre-push` 這種**無副檔名的 shell 腳本收不到**
+  (lint-staged glob 與分流表都靠副檔名)。改那些檔要自己跑 `bash -n`,不要以為 gate 罩得到。
+- 🔴 **`.sql` 那格刻意不是語法檢查**:`psql` 無離線 parse 模式;真 parser 要新增依賴且 PG 方言覆蓋不全;
+  拋棄式 PG 實跑做得到但**成本不該進全域 commit gate**(留在該片自己的 harness)。
+  ⇒ **不得因為這格綠就宣稱「SQL 已驗」**;動 migration 仍照既有規矩走該片 harness 與對抗審查。
+- 守門自己的負向測試在 `scripts/check-syntax-nonts.test.ts`(**23 格**),
+  其中 6 格是 **CLI 端到端**(`spawnSync` 量 exit code)—— 純函式全綠但 CLI 整支不跑,
+  失敗形狀正是「靜默全綠」,即本節要補的洞本身。
+  🔴 **突變覆蓋的精確範圍(不要讀成「每一格都有」)**:5 個突變分別紅 3 / 3 / 1 / 1 / 1 格,
+  合計釘住 9 格;其餘為正向對照格(合法輸入必須綠),**結構上不存在只紅它的移除式突變**。
+- 新增檢查項時**必須同步補負測 + 一個只紅它的突變**,否則等於沒加。
 
 ### 2.3 為何要 build 也跑
 
