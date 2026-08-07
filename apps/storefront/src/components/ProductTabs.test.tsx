@@ -10,7 +10,7 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 
 const mockPush = vi.fn();
 vi.mock('next/navigation', () => ({
@@ -233,6 +233,16 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
     expect(sec?.querySelector('.pd-step')).toBeNull();
   });
 
+  // 🔴 code-reviewer nit:安裝段 hint 由「影片 · 說明書 · 步驟」改成只有「步驟」(2026-08-07,資源已
+  //   搬到商品介紹段、安裝段 hint 不能再講影片/說明書),但改動前零測試釘住,改回去不會有東西紅。
+  it('install section hint(收合標題右)文字為「步驟」、不含「影片」「說明書」', () => {
+    render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
+    const hint = document.getElementById('pd-sec-install')?.querySelector('.pd-sec-hint');
+    expect(hint?.textContent).toBe('步驟');
+    expect(hint?.textContent).not.toContain('影片');
+    expect(hint?.textContent).not.toContain('說明書');
+  });
+
   // 安裝去碳對 RPM 也生效(全品牌通用、Sean Q2=A)
   it('install section 去碳 also applies to RPM (universal, no 碳纖 words)', () => {
     render(<ProductTabs product={{ ...MOCK_PRODUCTS[0]!, brandSlug: 'rpm-carbon' }} />);
@@ -252,10 +262,12 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
   });
 
   // ── #270 安裝資源(說明書 PDF 小 chip + 影片 facade、影片大 PDF 小)── optional、無資料整區不顯 ──
-  describe('安裝資源 (InstallResources)', () => {
+  // 🔴 2026-08-07 Sean 拍板搬位置:面板從「安裝須知」右側欄搬到「商品介紹」段下方直接可見(過渡版、
+  //   不重新設計長相)。斷言值(有影片/有說明書時渲染什麼)不動,動的是「在哪裡找」。
+  describe('安裝資源 (InstallResources,已搬到商品介紹段)', () => {
     it('無 manuals / videoUrl → 整區不渲染(不是每個商品都有)', () => {
       render(<ProductTabs product={MOCK_PRODUCTS[0]!} />);
-      const sec = document.getElementById('pd-sec-install');
+      const sec = document.getElementById('pd-sec-description');
       expect(sec?.querySelector('.pd-res')).toBeNull();
       expect(sec?.textContent).not.toContain('安裝資源');
     });
@@ -278,7 +290,7 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
     it('videoUrl 非法(抽不到 id)→ 不渲染影片', () => {
       const p = { ...MOCK_PRODUCTS[0]!, videoUrl: 'https://example.com/not-a-video' };
       render(<ProductTabs product={p} />);
-      const sec = document.getElementById('pd-sec-install');
+      const sec = document.getElementById('pd-sec-description');
       expect(sec?.querySelector('.pd-res-facade')).toBeNull();
       expect(sec?.querySelector('.pd-res')).toBeNull(); // 無 docs 又無有效影片 → 整區不顯
     });
@@ -294,7 +306,7 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
       };
       render(<ProductTabs product={p} />);
       openAll();
-      const sec = document.getElementById('pd-sec-install');
+      const sec = document.getElementById('pd-sec-description');
       const docs = sec?.querySelectorAll('.pd-ir-doc-sm');
       expect(docs?.length).toBe(3);
       expect(screen.getByText('安裝說明書')).toBeDefined();
@@ -326,8 +338,48 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
       openAll();
       expect(document.querySelector('.pd-res-facade')).not.toBeNull();
       expect(document.querySelectorAll('.pd-ir-doc-sm').length).toBe(1);
-      // 安裝段排側欄(有資源)
-      expect(document.getElementById('pd-sec-install')?.querySelector('.pd-sec-split-media')).not.toBeNull();
+      // 面板在商品介紹段(過渡版位置)
+      expect(document.getElementById('pd-sec-description')?.querySelector('.pd-desc-res')).not.toBeNull();
+    });
+
+    // 新增:面板出現在商品介紹內、不在安裝段內(DOM 包含關係)
+    it('面板出現在 #pd-sec-description 內、不在 #pd-sec-install 內', () => {
+      const p = {
+        ...MOCK_PRODUCTS[0]!,
+        videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+        manuals: [{ label: '安裝說明書', url: 'https://cdn.example.com/a.pdf' }],
+      };
+      render(<ProductTabs product={p} />);
+      openAll();
+      const descriptionEl = document.getElementById('pd-sec-description') as HTMLElement;
+      const installEl = document.getElementById('pd-sec-install') as HTMLElement;
+      expect(within(descriptionEl).getByText('安裝資源')).toBeDefined();
+      expect(within(installEl).queryByText('安裝資源')).toBeNull();
+      expect(installEl.querySelector('.pd-res')).toBeNull();
+    });
+
+    // 新增:零檔案商品 → 商品介紹段內不出現空區塊(showResources 渲染閘生效)
+    it('零檔案商品(無 manuals、無 videoUrl)→ 商品介紹段內不出現 .pd-res / 「安裝資源」字樣', () => {
+      const p = { ...MOCK_PRODUCTS[0]!, manuals: [], videoUrl: undefined };
+      render(<ProductTabs product={p} />);
+      const descriptionEl = document.getElementById('pd-sec-description') as HTMLElement;
+      expect(descriptionEl.querySelector('.pd-res')).toBeNull();
+      expect(descriptionEl.querySelector('.pd-desc-res')).toBeNull();
+      expect(within(descriptionEl).queryByText('安裝資源')).toBeNull();
+    });
+
+    // 新增:安裝段不再有側欄(pd-sec-split/pd-sec-split-media/pd-sec-side 三層 wrapper 已拆)
+    it('安裝段不再有側欄(#pd-sec-install 內查無 .pd-sec-side / .pd-sec-split)', () => {
+      const p = {
+        ...MOCK_PRODUCTS[0]!,
+        videoUrl: 'https://youtu.be/dQw4w9WgXcQ',
+        manuals: [{ label: '安裝說明書', url: 'https://cdn.example.com/a.pdf' }],
+      };
+      render(<ProductTabs product={p} />);
+      openAll();
+      const installEl = document.getElementById('pd-sec-install') as HTMLElement;
+      expect(installEl.querySelector('.pd-sec-side')).toBeNull();
+      expect(installEl.querySelector('.pd-sec-split')).toBeNull();
     });
   });
 });

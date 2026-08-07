@@ -1560,20 +1560,14 @@
 
 .pd-sec-inner { padding: 2px 0 28px; }
 
-/* 安裝段展開內容:主文左 + 資源側欄右(桌機 ≥900);手機單欄堆疊。
-   3 軌 grid[主文 col1 | 彈性空隙 1fr | 資源面板 col3 貼右緣]。
-   🔴 僅安裝段用(sec-split-media);商品介紹/保固已改單欄流 .pd-sec-flow(V1、Sean 2026-07-10)。 */
-.pd-sec-split { display: grid; gap: 22px; }
-@media (min-width: 900px) {
-  .pd-sec-split {
-    grid-template-columns: minmax(0, 640px) 1fr minmax(300px, 360px);
-    column-gap: 40px; align-items: start;
-  }
-  .pd-sec-split > .pd-sec-main { grid-column: 1; }
-  .pd-sec-split > .pd-sec-side { grid-column: 3; }
-  /* 安裝:資源側(大影片)給更多寬度 → 影片欄大、文字在左。 */
-  .pd-sec-split-media { grid-template-columns: minmax(0, 560px) 1fr minmax(400px, 480px); }
-}
+/* 🔴 2026-08-07:.pd-sec-split / .pd-sec-split-media / .pd-sec-main / .pd-sec-side(安裝段主文左 +
+   資源側欄右的 3 軌 grid)已隨「安裝資源搬到商品介紹段」死碼、全 repo 零使用、整組刪除。
+   🔴 安裝段**沒有**改用 .pd-sec-flow(R2 跨模型審查抓到本片原本在這裡寫錯):它現在完全沒有 wrapper,
+   主文直接平鋪在 .pd-sec-inner 底下、吃可用全寬(.pd-sec-inner 無水平 padding)。這收斂到
+   「無資源商品」本來就有的渲染(舊 wrapper 是條件掛載、無資源分支一直是這樣)⇒ 不是新版面。
+   ⚠️ 但**有資源商品的安裝段主文因此變寬了**:被刪的第一軌 minmax(0, 560px) 同時是它的寬度上限,
+   刪掉後寬桌機主文會放到接近滿版。行為已申報、守門零覆蓋,列入 Sean 肉眼驗。
+   ⚠️ 也別把 .pd-sec-flow 講成「全寬」——它是**收窄**用的(960px + .pd-body 64ch)。 */
 
 /* ── V1 整合式單欄流(商品介紹 / 保固;Sean 2026-07-10 看四版比較拍 V1、取代改法 A 右側面板)──
    文字型段不再左右分欄(內容稀疏時兩塊對望突兀、加框沒加分):主文單欄靠左收窄易讀,
@@ -1595,7 +1589,20 @@
 }
 .pd-callout .pd-list { margin: 0; max-width: 74ch; }
 
-/* 安裝資源側欄面板 .pd-panel(僅安裝段用):輕 surface-2 底、細框、直角、mono 小標 + 金線。 */
+/* 🔴 2026-08-07 Sean 拍板位置搬移(過渡版,不重新設計元件長相;OD 正式稿落地時預期被替換):
+   InstallResources 面板從安裝段右側欄搬到商品介紹段(.pd-sec-flow 內、重點 callout 之後)。
+   .pd-desc-res 僅維持搬移前的視覺 —— 側欄原本是 minmax(400px, 480px)、手機全寬(見上方已刪的
+   pd-sec-split-media),Q11=A 維持現狀大小不放大。margin-top 沿用 .pd-callout 的垂直間距慣例
+   (同為 .pd-sec-flow 內、緊接前一元素的區塊)。 */
+.pd-desc-res { max-width: 480px; margin-top: 26px; }
+/* 🔴 code-reviewer must-fix(08-07):480px 若無斷點,<900px 也會封頂 —— 但舊 .pd-sec-split 的
+   minmax(400px, 480px) 只在 @media (min-width: 900px) 內生效,<900px 時 .pd-sec-split 無 grid
+   template = 單欄滿版無上限。Q11=A「維持搬移前的視覺」因此要分兩段:≥900px 480px 封頂(上面那行)、
+   <900px 解除封頂維持滿版。斷點 899/900 與舊規則同源,不自造新數字。 */
+@media (max-width: 899px) { .pd-desc-res { max-width: none; } }
+
+/* 安裝資源面板 .pd-panel(InstallResources 元件自帶外觀、原樣重用,現位於商品介紹段內):
+   輕 surface-2 底、細框、直角、mono 小標 + 金線。 */
 .pd-panel { background: var(--c-surface-2); border: 1px solid var(--c-border); padding: 16px 18px; }
 .pd-panel-label {
   display: flex; align-items: center; gap: 8px;
@@ -1669,7 +1676,8 @@
 .pd-install-btn:hover { background: #fff; }
 
 /* ========= 安裝資源:影片大 + 說明書 PDF 小 chip(#270 中段 B、Sean 2026-07-09) ========= */
-/* 坐落安裝段右側欄 .pd-panel:影片 facade 16:9 置頂(大)、PDF 下載 chip 列於下(小)。
+/* 坐落 .pd-panel(2026-08-07 起位於商品介紹段內 .pd-desc-res,原坐落安裝段右側欄、已搬遷):
+   影片 facade 16:9 置頂(大)、PDF 下載 chip 列於下(小)。
    .pd-res 為 marker(整區存在性測試用)、面板樣式由 .pd-panel 提供。 */
 .pd-res-facade {
   display: block; width: 100%; padding: 0; border: 1px solid var(--c-border);
