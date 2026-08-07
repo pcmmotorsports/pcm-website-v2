@@ -20,7 +20,7 @@ const PROPS = {
     { value: 'manual_line', label: 'LINE' },
   ],
   channelOptions: [{ value: 'tappay', label: '線上刷卡' }],
-  initial: { pay: '', ful: '', src: [], ch: [], no: '' },
+  initial: { pay: '', ful: '', src: [], ch: [], no: '', supplierNo: '' },
 };
 
 beforeEach(() => replace.mockClear());
@@ -254,5 +254,76 @@ describe('OrderFilterControls — A10c1 邊界', () => {
       <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
     );
     expect((getByLabelText('訂單編號') as HTMLInputElement).type).toBe('text');
+  });
+});
+
+describe('OrderFilterControls — A10c2 供應商單號搜尋', () => {
+  it('flag 未開 → 完全不渲染(A9b2-M apply 前的預設狀態)', () => {
+    const { queryByLabelText } = render(<OrderFilterControls {...PROPS} />);
+    expect(queryByLabelText('供應商單號')).toBeNull();
+  });
+
+  it('🔴 兩個 flag 互相獨立 —— 開單號搜尋不會順便把供應商搜尋也開出來', () => {
+    const { queryByLabelText } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled />,
+    );
+    expect(queryByLabelText('訂單編號')).not.toBeNull();
+    expect(queryByLabelText('供應商單號')).toBeNull();
+  });
+
+  it('flag 開啟 → 輸入後按 Enter 才送出(打字中不查詢)', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} supplierOrderNoSearchEnabled />,
+    );
+    const input = getByLabelText('供應商單號');
+    fireEvent.change(input, { target: { value: 'SO-123' } });
+    expect(replace).not.toHaveBeenCalled();
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace.mock.calls[0]?.[0]).toContain('supplier_no=SO-123');
+  });
+
+  it('🔴 兩個搜尋框各自獨立的 form —— 在供應商框按 Enter 不得把訂單編號清掉', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} orderNumberSearchEnabled supplierOrderNoSearchEnabled />,
+    );
+    const orderInput = getByLabelText('訂單編號');
+    fireEvent.change(orderInput, { target: { value: 'YWP3PC' } });
+    fireEvent.submit(orderInput.closest('form') as HTMLFormElement);
+    replace.mockClear();
+
+    const supplierInput = getByLabelText('供應商單號');
+    fireEvent.change(supplierInput, { target: { value: 'SO-1' } });
+    fireEvent.submit(supplierInput.closest('form') as HTMLFormElement);
+
+    const href = replace.mock.calls[0]?.[0] as string;
+    expect(href).toContain('supplier_no=SO-1');
+    // 漏掉這半邊 = 搜了供應商單號就把訂單編號靜默丟掉(href 由 state 全量導出的老坑)
+    expect(href).toContain('order_no=YWP3PC');
+  });
+
+  it('🔴 送出後再改其他篩選,供應商單號不得被丟掉', () => {
+    const { getByLabelText, getAllByRole } = render(
+      <OrderFilterControls {...PROPS} supplierOrderNoSearchEnabled />,
+    );
+    const input = getByLabelText('供應商單號');
+    fireEvent.change(input, { target: { value: 'SO-1' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    replace.mockClear();
+
+    const paySelect = getAllByRole('combobox')[0];
+    if (!paySelect) throw new Error('付款狀態 select 不存在');
+    fireEvent.change(paySelect, { target: { value: 'paid' } });
+    expect(replace.mock.calls[0]?.[0]).toContain('supplier_no=SO-1');
+  });
+
+  it('送出前 trim(貼上時常帶前後空白)', () => {
+    const { getByLabelText } = render(
+      <OrderFilterControls {...PROPS} supplierOrderNoSearchEnabled />,
+    );
+    const input = getByLabelText('供應商單號');
+    fireEvent.change(input, { target: { value: '  SO-9  ' } });
+    fireEvent.submit(input.closest('form') as HTMLFormElement);
+    expect(replace.mock.calls[0]?.[0]).toContain('supplier_no=SO-9');
   });
 });

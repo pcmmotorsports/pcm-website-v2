@@ -13,7 +13,8 @@ import type {
   OrderItemVehicleSnapshot,
   InvoiceStatus,
 } from '@pcm/domain';
-import { normalizeOrderNumberSearch } from '@pcm/domain';
+import { normalizeOrderNumberSearch, normalizeSupplierOrderNoSearch } from '@pcm/domain';
+import type { SupplierOrderNoSearch } from '@pcm/domain';
 import {
   pickEnum,
   pickEnumMulti,
@@ -38,6 +39,8 @@ export const PAYMENT_CHANNEL_PARAM = 'payment_channel';
  * 讓 D1 改號後客人手上的舊單號仍查得到(合約 = A9b1)。
  */
 export const ORDER_NUMBER_PARAM = 'order_no';
+/** 供應商單號搜尋 query param(M-4b E10 A10c2;與 A9b1 的 `order_no` **分立**、語意完全不同)。 */
+export const SUPPLIER_ORDER_NO_PARAM = 'supplier_no';
 
 // ── 值域(對齊 domain enum + DB CHECK;解析時白名單守門,非法值忽略)──
 
@@ -201,11 +204,24 @@ type RawSearchParams = Record<string, string | string[] | undefined>;
  */
 export function parseOrderListSearchParams(
   raw: RawSearchParams,
-  options?: { orderNumberSearchEnabled?: boolean },
+  options?: { orderNumberSearchEnabled?: boolean; supplierOrderNoSearchEnabled?: boolean },
 ): {
   filter: AdminOrderFilter;
   page: number;
+  /**
+   * 供應商單號搜尋的正規化結果(M-4b E10 A10c2)。
+   *
+   * 🔴 **為什麼要一起回傳、而不是讓頁面自己再 normalize 一次**:Sean Q1=A 要求
+   * 「非 ASCII 要**明示**是什麼問題」,而 adapter 對三種 invalid 一視同仁(都回零筆)——
+   * 理由只有正規化那一刻知道。若頁面自己再跑一次,就變成**兩個呼叫點各自正規化**,
+   * 哪天其中一邊改了參數(例如 flag 判斷)兩邊就會不一致 ⇒ 顯示的理由與實際篩的東西對不上。
+   * flag 未開時恆為 `empty`(與 `filter.supplierOrderNo` 同一個閘)。
+   */
+  supplierOrderNoSearch: SupplierOrderNoSearch;
 } {
+  const supplierOrderNoSearch: SupplierOrderNoSearch = options?.supplierOrderNoSearchEnabled
+    ? normalizeSupplierOrderNoSearch(firstValue(raw[SUPPLIER_ORDER_NO_PARAM]))
+    : { kind: 'empty' };
   const filter: AdminOrderFilter = {
     paymentStatus: pickEnum(raw[PAYMENT_STATUS_PARAM], PAYMENT_STATUS_VALUES),
     fulfillmentStatus: pickEnum(raw[FULFILLMENT_STATUS_PARAM], FULFILLMENT_STATUS_VALUES),
@@ -214,8 +230,9 @@ export function parseOrderListSearchParams(
     orderNumber: options?.orderNumberSearchEnabled
       ? parseOrderNumberParam(raw[ORDER_NUMBER_PARAM])
       : undefined,
+    supplierOrderNo: supplierOrderNoToFilterValue(supplierOrderNoSearch),
   };
-  return { filter, page: parsePage(raw.page) };
+  return { filter, page: parsePage(raw.page), supplierOrderNoSearch };
 }
 
 /**
@@ -236,6 +253,26 @@ function parseOrderNumberParam(raw: string | string[] | undefined): string | und
   return parsed.kind === 'ok' ? parsed.value : parsed.input;
 }
 
+/**
+ * 供應商單號搜尋參數解析(M-4b E10 A10c2)。
+ *
+ * 🔴 **flag 未開時整個不解析**(同 A10c1 的理由,但前置不同):本功能的 DB 前置是
+ * A9b2-M 的產生欄 `order_item_procurement.supplier_order_no_upper`
+ * (`supabase/migrations/20260807130000_…`)。未 apply 就開 ⇒ PostgREST 42703 ⇒
+ * **整個訂單列表**(不只搜尋)進錯誤態。⇒ A9b2-M apply 之前 flag 一律 off。
+ *
+ * 🔴 **`invalid` 不吞掉、原樣往下傳**:adapter 對 invalid 會 fail-closed 回零筆。
+ * 這裡若把它當成 `undefined`,就變成「打錯字 = 不篩選 = 列出全部訂單」的 fail-open。
+ *
+ * 🔴 **`firstValue` 是必要的、不是排版**:`?supplier_no=a&supplier_no=b` 解析出來是**陣列**,
+ * 而 `normalizeSupplierOrderNoSearch` 對非字串回 `empty` = 不篩選 = **列出全部訂單**。
+ * 少了這道收斂,一條手打的 URL 就能把搜尋變成 fail-open(Fable F6)。
+ */
+function supplierOrderNoToFilterValue(parsed: SupplierOrderNoSearch): string | undefined {
+  if (parsed.kind === 'empty') return undefined;
+  return parsed.kind === 'ok' ? parsed.value : parsed.input;
+}
+
 /** 建 `/orders?...` 連結(分頁 / 篩選保留;page=1 省略);多勾選軸=同鍵重複 param;走共用 buildListHref。 */
 export function buildOrderListHref(filter: AdminOrderFilter, page: number): string {
   return buildListHref(
@@ -248,6 +285,7 @@ export function buildOrderListHref(filter: AdminOrderFilter, page: number): stri
       // 🔴 分頁與 returnTo 都走這裡:漏列 = 翻頁或改狀態回跳時搜尋詞被靜默丟掉、
       //    列表突然變成全部訂單(fail-open)。
       [ORDER_NUMBER_PARAM, filter.orderNumber],
+      [SUPPLIER_ORDER_NO_PARAM, filter.supplierOrderNo],
     ],
     page,
   );
