@@ -31,7 +31,7 @@ import { useRouter } from 'next/navigation';
 import type { VehicleInput } from '@pcm/schemas';
 import type { AddVehicleActionResult, VehicleFieldErrors } from '@/app/account/vehicle/actions';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
-import { VehicleCombo } from '@/components/VehicleSelect';
+import { VehicleCombo, VEHICLE_EMPTY_HINTS } from '@/components/VehicleSelect';
 import { vehicleLabel } from '@/lib/vehicle-match';
 
 // 表單初值(新增:id 缺/null + isPrimary 由 parent 依清單空否帶入;編輯〔g-6c〕:帶完整 CustomerVehicle 值)。
@@ -175,6 +175,9 @@ export function InlineVehicleForm({
               value={brandName}
               options={vehicleBrands.map((b) => b.name)}
               placeholder="選擇或輸入廠牌"
+              /* Q6=A(審查 F2 抓到我漏了這第四個消費端):打了查無的字、blur 也不清掉 ⇒
+                 沒有 emptyHint 的話重新 focus 只剩自己那串字、無清單無提示 = 死路。 */
+              emptyHint={VEHICLE_EMPTY_HINTS.brand}
               variant="form"
               onPick={(n) => {
                 setBrandName(n);
@@ -194,6 +197,8 @@ export function InlineVehicleForm({
               options={modelOptions}
               disabled={brandName === null}
               placeholder="選擇或輸入車型"
+              /* 本欄非跨層(要先選廠牌才啟用)⇒ 用「車型」那句、不是跨層的「車款」。 */
+              emptyHint={VEHICLE_EMPTY_HINTS.model}
               variant="form"
               onPick={(n) => setModelName(n)}
               onClear={() => setModelName(null)}
@@ -205,6 +210,11 @@ export function InlineVehicleForm({
             className="acc-veh-mode-toggle"
             onClick={() => {
               // 已選齊 → 帶入組合字面當自由輸入初值(V-1d 指示「客人可改顯示名」);未選齊保留原值。
+              // 🔴 已知缺口(Sean 2026-08-07 Q4=B 的連帶,同 MobileVehicleSheet「清除」那顆的根因):
+              //    Q4=B 起「打了字沒選中、blur 也不清掉」,但那個草稿是 VehicleCombo 的**內部 state**、
+              //    本元件看不到 ⇒ 客人打了一半切到自由輸入,那串字**無聲消失** —— 正是 Q4=B 要消滅的觀感、
+              //    只是換了個觸發點。修法要動共用 VehicleCombo 的介面(四個掛載點),已提 D-274-STOP
+              //    給主視窗裁,本片不自行擴大。
               if (brandName !== null && modelName !== null) setName(vehicleLabel(brandName, modelName));
               setMode('free');
               setFieldErrors({});

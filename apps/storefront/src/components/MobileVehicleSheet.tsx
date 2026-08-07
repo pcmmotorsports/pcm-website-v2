@@ -37,7 +37,7 @@ import {
 } from '@pcm/ui';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { modelFieldOptions, resolveModelPick, yearsNewestFirst } from '@/lib/vehicle-options';
-import { VehicleCombo } from './VehicleSelect';
+import { VehicleCombo, VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
 
 /** 面板內的未套用選擇。字典字面 + 已驗年份;null=該層未定。 */
@@ -184,7 +184,7 @@ export function MobileVehicleSheet({
               value={draft.brand}
               options={motoBrands.map((brand) => brand.name)}
               placeholder="選擇或輸入廠牌"
-              emptyHint="查無符合的廠牌，請調整關鍵字"
+              emptyHint={VEHICLE_EMPTY_HINTS.brand}
               onPick={(name) => setDraft({ brand: name, model: null, year: null })}
               onClear={() => setDraft(EMPTY_DRAFT)}
               variant="form"
@@ -198,7 +198,7 @@ export function MobileVehicleSheet({
               value={draft.model}
               options={modelOptions}
               placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
-              emptyHint={crossLayer ? '查無符合的車款，請調整關鍵字' : '查無符合的車型，請調整關鍵字'}
+              emptyHint={crossLayer ? VEHICLE_EMPTY_HINTS.modelCrossLayer : VEHICLE_EMPTY_HINTS.model}
               onPick={pickModelOption}
               onClear={() => setDraft((current) => ({ ...current, model: null, year: null }))}
               variant="form"
@@ -215,7 +215,7 @@ export function MobileVehicleSheet({
               placeholder={
                 modelHasNoYears ? '不限年份' : draft.model === null ? '請先選擇車型' : '選擇或輸入年份'
               }
-              emptyHint="查無符合的年份，請調整關鍵字"
+              emptyHint={VEHICLE_EMPTY_HINTS.year}
               onPick={(year) => setDraft((current) => ({ ...current, year: Number(year) }))}
               onClear={() => setDraft((current) => ({ ...current, year: null }))}
               variant="form"

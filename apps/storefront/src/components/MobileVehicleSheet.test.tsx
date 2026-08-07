@@ -166,10 +166,55 @@ describe('MobileVehicleSheet(ADR-0007 手機選車面板)', () => {
     expect(dispatch).not.toHaveBeenCalled();
   });
 
-  it('草稿全空時「清除」停用', () => {
+  // 🔴 本條的不變量在 Sean 2026-08-07 Q4=B 之後**變窄了**,測試跟著改寫(D-273 佇列指派)。
+  //    舊的寫法只驗「什麼都沒動 → 停用」,而它當時**被讀成**「畫面上沒東西可清 → 停用」。
+  //    Q4=B 起「打了字沒選中、blur 也不清掉」⇒ 那兩件事分家了:
+  //    `hasDraft`(MobileVehicleSheet.tsx:105)只看 `draft.brand/model/year`,
+  //    也就是**已套用進草稿的值**,看不到 VehicleCombo 內部那個「打了但沒選中」的 `text`。
+  //    ⇒ 下面第二條把這個分家釘出來,避免它以「測試沒紅」的形式繼續隱形。
+  it('什麼都沒動時「清除」停用', () => {
     renderSheet();
     const clear = screen.getByRole('button', { name: '清除車輛輸入欄位' }) as HTMLButtonElement;
     expect(clear.disabled).toBe(true);
+  });
+
+  // 🔴 **這條釘的是一個已知缺口,不是「正確行為」** —— 別把它當成規格。
+  //    現況:欄位裡看得見使用者打的字,而 aria-label 寫著「清除車輛輸入欄位」的那顆鈕是停用的。
+  //    根因:草稿是 VehicleCombo 的內部 state,父層看不到(InlineVehicleForm「改用自行輸入」
+  //    會讓草稿無聲消失,是同一個根因的另一個症狀)。
+  //    修法需要動共用的 VehicleCombo 介面(四個掛載點),已提 D-274-STOP 給主視窗裁,本片不自行擴大。
+  //    ⚠️ 哪天真的修好了,這條會轉紅 —— 那時請把它改成「有可見輸入 → 清除可按」,不要把斷言改回去。
+  it('🔴 已知缺口:打了字沒選中時,欄位有字但「清除」仍停用(草稿在子元件內部、父層看不到)', () => {
+    renderSheet();
+    const brand = brandField();
+    fireEvent.change(brand, { target: { value: 'zzzz' } });
+    fireEvent.blur(brand);
+    expect(brand.value, '前提:Q4=B 之後打了字不會被 blur 清掉').toBe('zzzz');
+    const clear = screen.getByRole('button', { name: '清除車輛輸入欄位' }) as HTMLButtonElement;
+    expect(clear.disabled, '缺口若已修好請改斷言方向、別把期望值改回 true').toBe(true);
+  });
+
+  // 🔴 **同一個缺口的第二個症狀,比上面那個嚴重**(審查 N2 抓到我只寫了一半):
+  //    只要有任何一欄「真的選定了」,「清除」就是**可按**的 —— 按下去清掉 `draft`,
+  //    但另一欄那個「打了字沒選中」的草稿**還留在畫面上**,而鈕已經變回停用。
+  //    ⇒ 客人按了「清除車輛輸入欄位」,欄位裡卻還有字,而且再也按不掉。
+  //    為什麼上面那道 `value` 變動就丟草稿的 effect 蓋不到:被清的那一欄 `value` 是
+  //    `null → null`(它本來就沒選定)⇒ deps 沒變、effect 不跑。
+  //    ⚠️ 同上:這條釘的是現況、不是規格。修好時請改斷言方向,別把期望值改回去。
+  it('🔴 已知缺口(較嚴重):按下「清除」後,沒選中的那一欄草稿仍留在畫面上', () => {
+    renderSheet();
+    pickOption(brandField(), 'Yamaha', 'Yamaha'); // 廠牌真的選定 ⇒ 清除鈕啟用
+    const model = modelField();
+    fireEvent.change(model, { target: { value: 'zzz' } }); // 車型只打字、沒選中
+    fireEvent.blur(model);
+    const clear = screen.getByRole('button', { name: '清除車輛輸入欄位' }) as HTMLButtonElement;
+    expect(clear.disabled, '前提:清除鈕要是可按的,否則測不到「按下去之後」').toBe(false);
+    fireEvent.click(clear);
+    expect(brandField().value, '廠牌是選定值 ⇒ value 變動、effect 有清掉').toBe('');
+    expect(
+      modelField().value,
+      '缺口若已修好請改成 toBe(\'\')、別把期望值改回 zzz',
+    ).toBe('zzz');
   });
 
   it('選車草稿在按下套用前不動 cascade', () => {

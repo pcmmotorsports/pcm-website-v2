@@ -79,7 +79,8 @@ describe('VehicleSelect', () => {
   });
 
   // MF6(R1):CascadeFilterTop 的 crossLayer=false 分支有測試釘住(CascadeFilterTop.test.tsx:207),
-  // 本檔原本沒有對應的 —— VehicleSelect.tsx:276 三元式的 false 分支改成任意字串仍全綠,
+  // 本檔原本沒有對應的 —— VehicleSelect.tsx 那個 placeholder 三元式的 false 分支改成任意字串仍全綠,
+  // (原註解寫死行號 :276,早已因後續片位移;行號會過期、grep `crossLayer ? '選擇或輸入車型` 才找得到)
   // 淨損一格覆蓋(原本釘該字面的那條被改去釘新字面時一併移走了)。
   it('已選廠牌後(crossLayer=false),車型欄 placeholder 落回無例字版', () => {
     render(<Harness />);
@@ -128,6 +129,129 @@ describe('VehicleSelect', () => {
     // ②仍然零猜:年份欄的啟用與否綁在「車型有沒有真的被選定」上 ⇒ 沒選定就仍是 disabled。
     //   這條是「不丟字」與「不套用」的分界線 —— 少了它,哪天有人把不丟字做成「順便套用」也全綠。
     expect(combo('選擇年份').disabled, '車型沒被套用,年份欄卻開了 ⇒ 零猜鐵律被破').toBe(true);
+  });
+
+  // 🔴 Sean 2026-08-07 拍板 Q7=A:Q4=B 的「不丟字」**只適用還沒選到東西的欄位**。
+  //    欄位已經選定了車 → blur 仍然照舊還原成已選那台(畫面=事實)。少了這條,
+  //    畫面會顯示草稿、而年份欄與 PDP 適用判定仍走舊的 `value` = 畫面說一套系統算另一套。
+  it('🔴 Q7=A:已選定的欄位 blur 非唯一 → 還原成已選那台(不留字)', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'Yamaha' } });
+    fireEvent.blur(brand);
+    expect(brand.value, '前提:廠牌已真的選定').toBe('Yamaha');
+    // 已選定的欄位再打一段非唯一的字
+    fireEvent.change(brand, { target: { value: 'kawa' } });
+    fireEvent.blur(brand);
+    expect(brand.value, '已選定的欄位被草稿遮住 ⇒ 畫面與實際選定不一致').toBe('Yamaha');
+    // 零猜同時仍成立:沒有偷偷把 Kawasaki 套上去。
+    // ⚠️ 審查 F3:原本這裡量的是 `combo('選擇車型').disabled` —— 車型欄**從不傳 `disabled`**
+    //    (跨層設計使然)⇒ 那個值恆為 false、對「廠牌有沒有被誤套用」零判別力。
+    //    改量車型清單的內容:清單還是 Yamaha 的,才證明廠牌真的沒被換掉。
+    fireEvent.focus(combo('選擇車型'));
+    expect(screen.getByRole('option', { name: 'MT-09 SP' }), '車型清單不是 Yamaha 的').toBeDefined();
+    expect(
+      screen.queryByRole('option', { name: 'Z900' }),
+      '車型清單跑出 Kawasaki 的車 ⇒ 廠牌被草稿誤套用了',
+    ).toBeNull();
+  });
+
+  // 🔴 Sean 2026-08-07 拍板 Q6=A:留字之後點回欄位、零命中要有出路。
+  //    `CascadeFilterTop` 與 `MobileVehicleSheet` 三欄本來就都傳 emptyHint,只有本元件沒跟上。
+  //    ⚠️ 這條逐欄各驗一次 —— 只驗一欄的話,另外兩欄漏傳照樣全綠(補洞別數總數)。
+  it('🔴 Q6=A:廠牌/車型/年份三欄零命中都給出路提示(逐欄各驗一次)', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.focus(brand);
+    fireEvent.change(brand, { target: { value: 'zzzz' } });
+    expect(screen.getByRole('status').textContent, '廠牌欄零命中無提示').toBe(
+      '查無符合的廠牌，請調整關鍵字',
+    );
+    // 選定 Yamaha + MT-09 SP 讓年份欄開啟,並讓車型欄脫離跨層態
+    fireEvent.change(brand, { target: { value: 'Yamaha' } });
+    fireEvent.blur(brand);
+    const model = combo('選擇車型');
+    fireEvent.focus(model);
+    fireEvent.change(model, { target: { value: 'zzzz' } });
+    expect(screen.getByRole('status').textContent, '車型欄(非跨層)零命中無提示').toBe(
+      '查無符合的車型，請調整關鍵字',
+    );
+    fireEvent.change(model, { target: { value: 'MT-09 SP' } });
+    fireEvent.blur(model);
+    const year = combo('選擇年份');
+    expect(year.disabled, '前提:年份欄要真的開著,否則 showEmptyHint 被 disabled 短路=恆真').toBe(false);
+    fireEvent.focus(year);
+    fireEvent.change(year, { target: { value: '1999' } });
+    expect(screen.getByRole('status').textContent, '年份欄零命中無提示').toBe(
+      '查無符合的年份，請調整關鍵字',
+    );
+  });
+
+  // 🔴 跨層殘留=**刻意保留**,不是漏做(D-273-STOP ⑦ item 5 的判斷,寫成守門免得日後被當 bug「修掉」)。
+  //    情境:還沒選廠牌時直接在車型欄打字 → blur 留字 → 再去選廠牌。
+  //    留著才是對的:客人打的「Z900」在選了 Kawasaki 之後**正好對得上**,清掉等於製造 Sean
+  //    這次要消滅的那個「無聲消失」。而 Q7=A 不觸發,因為車型欄根本還沒選定任何值(沒有東西可還原)。
+  //    出路由 Q6=A 的零命中提示提供,不會變成死路。
+  it('🔴 跨層草稿在選定廠牌後刻意保留(不是漏做;清掉才會製造無聲消失)', () => {
+    render(<Harness />);
+    const model = combo('選擇車型');
+    fireEvent.change(model, { target: { value: 'Z9' } }); // 跨層:尚未選廠牌
+    fireEvent.blur(model);
+    expect(model.value, '跨層草稿被清掉了').toBe('Z9');
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'Kawasaki' } });
+    fireEvent.blur(brand);
+    expect(combo('選擇車型').value, '選了廠牌之後草稿被清掉 ⇒ 客人打的字無聲消失').toBe('Z9');
+    // 且它現在對得上 Kawasaki 的 Z900 ⇒ 重新 focus 就能明選
+    fireEvent.focus(combo('選擇車型'));
+    expect(screen.getByRole('option', { name: 'Z900' }), 'Z9 應該篩得出 Z900').toBeDefined();
+  });
+
+  // 🔴 審查 F1 實錘(我把 Q7=A 的守門畫在 `commit()` 這個最窄的面,而不變量的面在別處)。
+  //    `value` 會從**外部**變動、不經過 `commit()`:跨層在車型欄選一台別廠牌的車,
+  //    `resolveModelPick` 會回填廠牌 ⇒ 廠牌欄的 `value` 被改掉、草稿卻還留著。
+  //    修法=`value` 一變就丟草稿(畫在不變量面)。這條就是那個實測可達路徑。
+  it('🔴 F1:廠牌草稿 + 跨層選別廠牌的車回填廠牌 → 草稿讓位給真值', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'kawa' } }); // 非唯一、廠牌尚未選定 ⇒ Q4=B 留字
+    fireEvent.blur(brand);
+    expect(brand.value, '前提:Q4=B 的留字要成立,否則本條測不到東西').toBe('kawa');
+    const model = combo('選擇車型');
+    // 🔴 跨層的選項字面是「品牌 車型」label(`lib/vehicle-options.modelFieldOptions` 走
+    //    `garage-chip.flattenVehicleModels`),**不是裸車型名**。第一版我打了裸 `Z900`
+    //    ⇒ 沒有精確命中、`onPickModel` 根本沒被呼叫、廠牌從頭到尾是 null
+    //    ⇒ 測試「紅」代表的是**前提沒成立**,不是抓到 bug。下面兩道前提斷言就是為了擋這個。
+    fireEvent.change(model, { target: { value: 'Kawasaki Z900' } });
+    fireEvent.blur(model);
+    expect(combo('選擇車型').value, '前提①:跨層選車要真的選定,否則本條在測空氣').toBe('Z900');
+    // 前提②:廠牌真的落進 cascade。⚠️ 不能用「年份欄開了」當前提 —— 本 fixture 的 Z900
+    //    `years: []` ⇒ 年份欄恆 disabled(第一版我就踩了這個)。改量車型欄的 placeholder:
+    //    它由 `crossLayer` 決定,而 `crossLayer` 只看 cascade 裡的廠牌、不看輸入框顯示什麼。
+    expect(
+      combo('選擇車型').placeholder,
+      '前提②:車型欄還在跨層態 ⇒ 廠牌沒真的落進 cascade,本條在測空氣',
+    ).toBe('選擇或輸入車型');
+    expect(
+      combo('選擇廠牌').value,
+      '廠牌欄顯示 kawa、實際已選 Kawasaki ⇒ 畫面說一套系統算另一套',
+    ).toBe('Kawasaki');
+  });
+
+  // 🔴 這條專門保住「唯一精確命中分支那個 `setText(null)`」的判別力。
+  //    上面那道 `value` 變動就丟草稿的 effect,會順便提供「草稿被清掉」這個觀察 ⇒
+  //    只要 `onPick` 有發生,拿掉分支內的 `setText(null)` 也照樣全綠(前一片實測過:全 357 檔皆綠)。
+  //    唯一區分得出來的路徑=**打的字正規化後就等於已選值**:`exact === value` ⇒ 不 `onPick`、
+  //    `value` 不變、effect 不跑,只有分支內那行能把欄位帶回字典字面。
+  it('🔴 已選 Yamaha 再打全形ＹＡＭＡＨＡ → 回到字典字面(唯一命中分支自己的守門)', () => {
+    render(<Harness />);
+    const brand = combo('選擇廠牌');
+    fireEvent.change(brand, { target: { value: 'Yamaha' } });
+    fireEvent.blur(brand);
+    expect(brand.value, '前提:已選定 Yamaha').toBe('Yamaha');
+    fireEvent.change(brand, { target: { value: 'ＹＡＭＡＨＡ' } }); // 正規化後 === value ⇒ 不觸發 onPick
+    fireEvent.blur(brand);
+    expect(brand.value, '欄位停在全形草稿 ⇒ 唯一命中分支的 setText(null) 沒作用').toBe('Yamaha');
   });
 
   it('鍵盤 ArrowDown+Enter 選 highlight 項;年份選定', () => {
