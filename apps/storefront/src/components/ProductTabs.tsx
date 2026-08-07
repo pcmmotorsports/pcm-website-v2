@@ -321,7 +321,7 @@ export function ProductTabs({ product }: ProductTabsProps) {
         </details>
 
         {/* ── 保固與退換 ── 單欄流 + 退換要點左條 callout ── */}
-        {/* ⚠️ 政策字面來自共用 @/data/rpm-policies(單一真相、與 N°04 FAQ ProductFAQ 共用、不分歧);
+        {/* ⚠️ 政策字面來自共用 @/data/rpm-policies(單一真相、與 FAQ 區 ProductFAQ 共用、不分歧);
             含《消保法》第 19 條鑑賞期(L1 法律政策、Sean 仍在確認準確性、改字面只動 rpm-policies)。 */}
         <details className="pd-sec" id="pd-sec-warranty">
           <summary className="pd-sec-sum">

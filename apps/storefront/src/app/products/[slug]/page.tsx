@@ -78,7 +78,7 @@ export default async function ProductSlugRoute({ params, searchParams }: Props) 
     notFound();
   }
 
-  // R3/N°03 推薦引擎接線(取代 C5 fetchRelatedProducts 同分類版、對齊 plan §5 資料流):
+  // R3/N°01 推薦引擎接線(Q5=A 前為 N°03;取代 C5 fetchRelatedProducts 同分類版、對齊 plan §5 資料流):
   //   ① 讀 ?vehicle → 用 cached vehicle taxonomy 把 slug 解回原始車廠/車型名(codex #2 linchpin:
   //      URL 存 taxonomy 去重後 slug id〔含碰撞序號〕、product_fitments 存原始名、禁裸 slugify 現算;
   //      複用 /products 列表端同一 parseVehicleFromUrl + 同一 buildVehicleTaxonomy 衍生源=id 空間一致)。

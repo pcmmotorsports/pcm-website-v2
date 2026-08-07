@@ -6,7 +6,7 @@ import { ProductCard } from './ProductCard';
 import type { MockProduct } from '@/data/mock-products';
 
 /**
- * N°03 相關商品區(R3、自 ProductPage 抽出——鐵則 6:ProductPage 破 400 行必拆,
+ * N°01 相關商品區(R3、自 ProductPage 抽出——鐵則 6:ProductPage 破 400 行必拆,
  * 對齊 #270 B S3 抽 BrandShowcase 同精神)。
  *
  * 內容由 server 端推薦引擎(RuleBasedRecommendationEngine)供給、經 toUIProduct('general') strip;
@@ -65,7 +65,7 @@ export function ProductRelated({ related, hasMore, moreHref, hasVehicle, vehicle
       <div className="pd-section-head">
         <div>
           <div className="pd-eyebrow">
-            <span className="pd-eb-no">03</span>
+            <span className="pd-eb-no">01</span>
             <span className="pd-eb-sep" aria-hidden="true" />
             <span className="pd-eb-label">{'N°  相關商品'}</span>
           </div>

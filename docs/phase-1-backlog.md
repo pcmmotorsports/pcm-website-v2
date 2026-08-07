@@ -5390,7 +5390,7 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **估時:** 1-2 hr(featured 旗標 migration + 後台標記 + adapter method + featured 改查 + 三綠)
 - **依賴:** 多分類上架 / 後台精選控制需求
 - **發現於:** 2026-06-01 / M-1-16b 肉眼驗 featured 空白(featured 查不存在的「操控部品」)/ Sean 拍 A 暫改 category、B 正解留 backlog
-- **相關:** apps/storefront/src/lib/products.ts `fetchFeaturedProducts` / HomeSelect N°04 編輯精選 / SupabaseProductAdapter
+- **相關:** apps/storefront/src/lib/products.ts `fetchFeaturedProducts` / HomeSelect N°02 編輯精選 / SupabaseProductAdapter
 
 ---
 
