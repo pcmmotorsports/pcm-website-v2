@@ -8,7 +8,7 @@
 >
 > **今夜拍板全落檔**(memory site-redesign 檔+STATUS):Q23-Q29 全拍;**商品頁 OD 優化收回**(fitment 以下+檔案位置照現站、**全站熔橘色票仍依 OD**、其他頁照舊 OD);SMTP=Gmail Workspace(步驟已給 Sean);忘記密碼四前置全綠(SITE_URL=shop.pcmmotorsports.com/allow-list 有/OTP=3600/模板英文→OD 出中文文案)。**codex=免費帳號鎖到 9/5**,13+ 片補審清單前置=Sean 登回付費帳號。
 >
-> **Sean 早上清單**:①push(24+ 顆)②apply 批=出貨線九支+`20260808000000` sound_clips(preflight=b2s2b 全套+supabase migration list 實查;觀測點=PostgREST 具名 select sound_clips 200)③codex 付費帳號登回→補審清單(現 14+ 片)④SMTP 設定(Gmail 應用程式密碼,步驟在對話)⑤肉眼驗積欠清單見 STATUS。**回拋報價單側三條**(lightech/cncracing 接檔名擴不擴/pdf 897vs719/聲音檔數差)=Sean 轉貼。
+> **Sean 早上清單**:①push(24+ 顆)②apply 批=出貨線九支+`20260808000000` sound_clips(preflight=b2s2b 全套+supabase migration list 實查;觀測點=PostgREST 具名 select sound_clips 200)③codex 付費帳號登回→補審清單(現 14+ 片)④SMTP 設定(Gmail 應用程式密碼,步驟在對話)⑤肉眼驗積欠清單見 STATUS ⑥`claude update`(2.1.222→2.1.224;升完主視窗跑 SendMessage 跨窗喚醒試點,驗收=a.對窗真醒見全文 b.回訊收得到 c.背景 session 收工不 push;三過才改夜跑 playbook、diff 給 Sean)。**回拋報價單側三條**(lightech/cncracing 接檔名擴不擴/pdf 897vs719/聲音檔數差)=Sean 轉貼。
 >
 > **工法補遺**:釘值檔現八支、跨線落 migration 必同批重釘(今晚真實發火一次,主視窗代跑 `b736bf8b`);掃信=date+find 同行整塊貼(D 窗四錘後機制);codex exec 必 `< /dev/null`+模型名查 models_cache.json;基準重置空檔會吞信(今晚吞兩封)⇒ **touch baseline 前先 ls 最新三封對照已處理集**。
 >
