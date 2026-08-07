@@ -68,16 +68,14 @@ capstmt() {
 W2MIG="${W2MIG:-$REPO/supabase/migrations/20260807160000_m4b_e10_b2_w2_shipping_idempotency_layer.sql}"
 [ -f "$W2MIG" ] || die "W2_MIG_MISSING: $W2MIG"
 
-# 🔴🔴 **R3-D2:時間序尾端閘(形狀照 `scripts/b2s2b-verify.sh` 的 NEWEST_TS)。**
-#    本檔的重放順序是「先套所有不是 W2 的 migration、**最後才套 W2**」。
-#    W3 的時戳排在 W2 之後 ⇒ **W3 一落檔,它對五支的 body 就會被 W2 覆蓋回冪等層版本**,
-#    而本檔照樣全綠 —— 測的是一個現實中不存在的狀態。b2s2b 有這道閘,首版的本檔沒有。
-#    處置 = 決定新片要不要進本檔的基準,並同批更新這行,**不是把閘拿掉**。
-NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
-[ "$NEWEST_TS" = "20260807160000" ] \
-  || die "migration 目錄的時間序尾端是 $NEWEST_TS,不是釘住的 20260807160000 ——
-   本檔「W2 最後套」的重放順序已經不對:比 W2 晚的片會被 W2 覆蓋掉,而本檔會照樣全綠。
-   處置 = 重排重放順序或重釘本行,**不是把這道閘拿掉**。"
+# 🔴🔴 **前綴重放(取代原本的 NEWEST_TS 尾端閘)。**
+#    原本的做法是「先套所有不是被測物的 migration、最後才套被測物」——
+#    那在**被測物之後又多了片**的當天就會出錯:更晚的片會先被套、再被被測物覆蓋回舊版,
+#    而本檔照樣全綠(測的是一個現實中不存在的狀態)。W3-1 落檔當天這道閘真的響了。
+#    ⇒ 處置照該閘 die 訊息的字面:**重排重放順序** —— 只重放 `TS <= 被測物` 的前綴,
+#      被測物自然就是尖端。本檔因此**不再對「目錄尾端」有意見**,新增更晚的片不會再誤紅。
+#    🔴 代價寫明:本檔**證不了**「被測物在更晚的片之上仍成立」—— 那是那些片自己的 harness 的事。
+PREFIX_TS="20260807160000"
 
 # ── 0. 全套 migration 重放(W2 的檔**先不套**,留給 DDL-SYNTAX 格當被測物)──
 cd "$REPO" || die "CD_FAIL"
@@ -88,7 +86,9 @@ for f in supabase/migrations/*.sql; do
   case "$(basename "$f")" in [0-9]*) : ;; *) die "MIG_NAME_NOT_TS: $f" ;; esac
   # 🔴 被測物留到下面才套。**比 basename、不比路徑** —— 迴圈給相對路徑、`$W2MIG` 是絕對路徑,
   #    直接比會永遠不相等 ⇒ W2 被套兩次、DDL-SYNTAX 紅在「already exists」而非真語法問題(首跑實錘)。
-  [ "$(basename "$f")" = "$(basename "$W2MIG")" ] && continue
+  TS="${f##*/}"; TS="${TS%%_*}"   # 🔴 原本誤寫成 %%%%_*(永不匹配)⇒ TS=完整檔名,下面的 `=` 分支是死的、被測物是靠字典序**碰巧**被排除。Fable 用 od 驗位元組抓到。
+  [ "$TS" \> "$PREFIX_TS" ] && continue          # 前綴外的片不套
+  [ "$TS" = "$PREFIX_TS" ] && continue            # 被測物留到 DDL-SYNTAX 才套
   if [ "$f" = "$FIRST_FITMENTS" ]; then
     psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f scripts/d1-fitments-bootstrap.sql >/dev/null || die "FITBOOT_FAIL"
   fi
