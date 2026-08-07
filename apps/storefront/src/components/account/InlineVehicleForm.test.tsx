@@ -52,6 +52,28 @@ function pickByTyping(label: string, text: string) {
 }
 
 describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
+  // 🔴 Sean 2026-08-07 Q6=A(審查 F2 抓到我漏了這個消費端):Q4=B 起「打了查無的字、blur 也不清掉」,
+  //    欄位沒傳 `emptyHint` 的話重新 focus 只剩自己那串字、無清單無提示 = 死路。
+  //    ⚠️ 兩欄各驗一次 —— 只驗廠牌的話,車型欄漏傳照樣全綠。
+  it('🔴 Q6=A:廠牌欄與車型欄零命中都給出路提示(兩欄各驗一次)', () => {
+    renderForm({ vehicleBrands: BRANDS });
+    const brand = combo('選擇廠牌');
+    fireEvent.focus(brand);
+    fireEvent.change(brand, { target: { value: 'zzzz' } });
+    expect(screen.getByRole('status').textContent, '廠牌欄零命中無提示').toBe(
+      '查無符合的廠牌，請調整關鍵字',
+    );
+    // 車型欄要先選定廠牌才啟用(disabled 會讓 showEmptyHint 短路 ⇒ 不先選就是恆真)
+    pickByTyping('選擇廠牌', BRANDS[0]!.name);
+    const model = combo('選擇車型');
+    expect(model.disabled, '前提:車型欄要真的啟用,否則本斷言恆真').toBe(false);
+    fireEvent.focus(model);
+    fireEvent.change(model, { target: { value: 'zzzz' } });
+    expect(screen.getByRole('status').textContent, '車型欄零命中無提示').toBe(
+      '查無符合的車型，請調整關鍵字',
+    );
+  });
+
   // A6(選車引擎統一 B′):欄標與 aria 走 A 表「廠牌」;placeholder 由範例值(YAMAHA / YZF-R6)
   // 換成提示字 —— 範例值長得像已填好的值。原本這兩個 placeholder 零守門,改回去照樣全綠。
   it('A 表字面:欄標=廠牌、placeholder=提示字而非範例值', () => {

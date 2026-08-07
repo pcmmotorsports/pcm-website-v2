@@ -37,7 +37,7 @@ import {
 } from '@pcm/ui';
 import type { CascadeControlledProps } from './filter-state';
 import type { FilterTopData } from './FilterTop';
-import { VehicleCombo } from './VehicleSelect';
+import { VehicleCombo, VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
 import { modelFieldOptions, resolveModelPick, yearsNewestFirst } from '@/lib/vehicle-options';
 
@@ -107,7 +107,7 @@ export function CascadeFilterTop({
             value={vehicle?.brand ?? null}
             options={data.motoBrands.map((brand) => brand.name)}
             placeholder="選擇或輸入廠牌"
-            emptyHint="查無符合的廠牌，請調整關鍵字"
+            emptyHint={VEHICLE_EMPTY_HINTS.brand}
             onPick={(name) => dispatch(selectVehicleBrand(name))}
             onClear={() => dispatch(clearVehicle())}
             variant="catalog"
@@ -118,7 +118,7 @@ export function CascadeFilterTop({
             value={vehicle?.model ?? null}
             options={modelOptions}
             placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
-            emptyHint={crossLayer ? '查無符合的車款，請調整關鍵字' : '查無符合的車型，請調整關鍵字'}
+            emptyHint={crossLayer ? VEHICLE_EMPTY_HINTS.modelCrossLayer : VEHICLE_EMPTY_HINTS.model}
             onPick={pickModel}
             onClear={() => {
               if (vehicle) dispatch(selectVehicleBrand(vehicle.brand));
@@ -131,7 +131,7 @@ export function CascadeFilterTop({
             options={years.map(String)}
             disabled={!vehicle || vehicle.model == null || modelHasNoYears}
             placeholder={modelHasNoYears ? '不限年份' : '選擇或輸入年份'}
-            emptyHint="查無符合的年份，請調整關鍵字"
+            emptyHint={VEHICLE_EMPTY_HINTS.year}
             onPick={(year) => dispatch(selectVehicleYear(Number(year)))}
             onClear={() => {
               if (vehicle?.model != null) dispatch(selectVehicleModel(vehicle.model));

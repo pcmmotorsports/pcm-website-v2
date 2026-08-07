@@ -18,10 +18,29 @@
 //   🔴 `onPickModel` 簽章因此改傳 `{ brand, model }`(而非單純 `name`):跨層選取若只回傳
 //   model 名稱,呼叫端沒有管道拿到字典回填的 brand,選車就會卡在「有車型無廠牌」的壞態。
 
-import { useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { filterVehicleOptions, uniqueExactMatch } from '@/lib/vehicle-match';
 import { modelFieldOptions, resolveModelPick } from '@/lib/vehicle-options';
+
+/** 🔴 零命中提示四句 —— **全站選車欄位的單一真相**。
+ *  Sean 2026-08-07 拍板 Q6=A:Q4=B 之後「打了查無的字、blur 也不清掉」,但重新 focus 時
+ *  `listOpen` 需要 `list.length > 0`、提示則需要掛載點有傳 `emptyHint` ⇒ 沒傳的格子是
+ *  「留了字卻沒留出路」:畫面只剩自己打的那串字,無清單、無提示。拍板字面是**復用既有句、不寫新句**。
+ *  ⚠️ 查證後才發現:`CascadeFilterTop`(桌機選車列,註解逐字「A 表要求三欄同式」)與
+ *  `MobileVehicleSheet`(手機面板)**三欄本來就都傳了**,沒跟上的是 `VehicleSelect`(finder / PDP /
+ *  購物車)與 `InlineVehicleForm`(車庫表單)⇒ Q6=A 等於「把漏的兩個補齊」,一個新字都不用寫。
+ *  🔴 合併前這四句是**逐檔硬編**的,分佈我連錯兩次(第一次說「三句三檔」、第二次說「兩檔」)——
+ *  正解是 `車款` 那句 **4 檔**、`廠牌/車型/年份` 三句 **3 檔**,第四檔是 `FilterDrawerVehicleTab`
+ *  (它不走 VehicleCombo、自己畫 `.fd-veh-empty`,兩次 grep 都被我漏掉)。
+ *  ⇒ 現在**四個檔全部吃這個常數**,敘述不必再靠人數對:改文案只有這一處。 */
+export const VEHICLE_EMPTY_HINTS = {
+  brand: '查無符合的廠牌，請調整關鍵字',
+  /** 跨層(還沒選廠牌、可直接打車型名)時搜的是「車款」而非某廠牌底下的「車型」 */
+  modelCrossLayer: '查無符合的車款，請調整關鍵字',
+  model: '查無符合的車型，請調整關鍵字',
+  year: '查無符合的年份，請調整關鍵字',
+} as const;
 
 type ComboProps = {
   label: string;
@@ -73,6 +92,28 @@ function Combo({
   const [text, setText] = useState<string | null>(null); // null=未編輯(顯 value)
   const [open, setOpen] = useState(false);
   const [hi, setHi] = useState(0);
+  // 🔴 Q7=A 的守門畫在**不變量的面**,不是只畫在 `commit()`。
+  //    不變量(⚠️ 只在**穩定態**成立,審查 N1):blur 之後、或 `value` 變動之後,
+  //    `text` 與 `value` 不得同時非空且相異。**正在打字的當下不算** —— 已選 Yamaha 又輸入 `kawa`
+  //    尚未 blur 時本來就相異,那是編輯態、不是矛盾。照「任何時刻都不得相異」補守門會擋掉正常編輯。
+  //    只在 blur 當下比對 `value` 不夠 —— `value` 會從**外部**變動,而那些路徑不經過 `commit()`:
+  //    ① 跨層在車型欄選一台別廠牌的車 ⇒ `resolveModelPick` 回填廠牌(`lib/vehicle-options.ts`),
+  //       廠牌欄的 `value` 就這樣被改掉、草稿卻還留著(**實測可達**:打 `kawa` → blur →
+  //       跨層選 `Kawasaki Z900` ⇒ 欄位顯示 `kawa`、已選卻是 `Kawasaki`。
+  //       ⚠️ 跨層的選項字面是「品牌 車型」label、**不是裸車型名** —— 我第一次寫探針打了裸 `Z900`,
+  //       沒命中、`onPickModel` 根本沒被呼叫,那次的「紅」是前提沒成立而不是抓到 bug。)
+  //    ② `GarageChips` 一鍵套用愛車、③ URL 同步 —— 都直接 dispatch 進 cascade。
+  //    ⇒ `value` 一變就丟掉過期草稿。
+  //    ⚠️ 這**不會**吃掉 Q4=B 的留字:打字只動 `text`、不動 `value`;跨層草稿留在車型欄時去選廠牌,
+  //       動到的是**廠牌欄**的 `value`、車型欄的 `value` 仍是 null ⇒ 車型草稿照樣留著(有守門盯)。
+  useEffect(() => {
+    setText(null);
+    // 審查 N3:`value` 從外部變動時欄位可能仍聚焦且清單開著 —— 草稿清掉後查詢字串變空、
+    //   清單會瞬間攤成全清單,而 `hi` 還停在舊的篩選結果索引上
+    //   ⇒ `aria-activedescendant` 可能指向不存在的 option id。一併收掉。
+    setOpen(false);
+    setHi(0);
+  }, [value]);
   const inputRef = useRef<HTMLInputElement>(null); // V-2d④:點選選定後主動 blur 收手機鍵盤
   const shown = text ?? value ?? '';
   const list = filterVehicleOptions(options, text ?? '', (n) => n);
@@ -109,20 +150,20 @@ function Combo({
       if (exact !== value) onPick(exact);
       return;
     }
-    // 🔴 **非唯一命中 → 不套用,但也不把使用者打的字丟掉**(Sean 2026-08-07 拍板 Q4=B)。
-    //    上一版這裡是 `setText(null)`,顯示值會瞬間跳回已選值(或空)——
-    //    客人打了字、滑開,字就**無聲消失**,而且沒有任何提示告訴他「還沒選到」。
-    //    ⚠️ 零猜鐵律**沒有鬆動**:這裡仍然不 `onPick`、不半套;`value` 一個字沒動。
-    //    改的只是「不丟字」——草稿留在欄位裡,客人看得到自己打了什麼。
-    //
-    //    ⚠️ **本片只做到這裡,兩個已知缺口留給 Sean 拍板(D-272-STOP),不要在這裡自行補**:
-    //    ①**零命中沒有出路**:重新 focus 時 `listOpen` 要 `list.length > 0`、零命中提示要
-    //      掛載點有傳 `emptyHint`,而本檔只有車型欄的 crossLayer 態傳(見下方 `:crossLayer ? ... : undefined`)
-    //      ⇒ 廠牌欄/年份欄/非跨層車型欄打了查無的字,重新 focus 只剩自己那串字、無清單無提示。
-    //      (「B 案不需要新文案」這個前提在這幾格**不成立**。)
-    //    ②**顯示 ≠ 已選**:這欄若本來就選定了車,打一段非唯一的字再 blur,欄位顯示草稿、
-    //      而年份欄與 PDP 適用判定仍走舊的 `value` ⇒ 畫面說一套、系統算另一套。
-    //      Sean 拍的是「不清掉字」,沒拍「已選定的車可以被矛盾文字遮住」。
+    // 🔴 **非唯一命中**(Sean 2026-08-07 Q4=B「不丟字」+ Q7=A「已選定的照舊還原」合成的兩段)。
+    //    零猜鐵律在兩段裡都沒有鬆動:自始至終不 `onPick`、不半套,`value` 一個字沒動。
+
+    // 【Q7=A】這欄**已經選定**了東西 → 還原成已選那個(畫面=事實)。
+    //    為什麼不是一律留字:留字會讓欄位顯示草稿、而年份欄與 PDP 適用判定仍走舊的 `value`
+    //    ⇒ 畫面說一套、系統算另一套。Sean 拍 Q4=B 的動機是「打了字滑開就無聲消失」,
+    //    而「已經選好一台車、滑開後回到那台車」不是消失、是回到你選的東西 ⇒ 不在 Q4=B 要修的範圍。
+    if (value !== null) {
+      setText(null);
+      return;
+    }
+
+    // 【Q4=B】這欄**還沒選到任何東西** → 留字。客人看得到自己打了什麼,
+    //    重新 focus 時:有命中就開清單明選;零命中則由 `emptyHint` 給出路(Q6=A 起三格全傳)。
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -281,6 +322,7 @@ export function VehicleSelect({
         onClear={onClearBrand}
         variant={variant}
         slotLabel="廠牌"
+        emptyHint={VEHICLE_EMPTY_HINTS.brand}
       />
       <Combo
         label="選擇車型"
@@ -291,7 +333,7 @@ export function VehicleSelect({
            OD `vehicle-picker-design.html` A 表對 finder 逐字寫的 `選擇或輸入車型`(不含例字)
            本身已是 OD 稿的債:與此拍板不符,已記入回饋包待 OD 更新,不是站上偏離。 */
         placeholder={crossLayer ? '選擇或輸入車型，例:R6' : '選擇或輸入車型'}
-        emptyHint={crossLayer ? '查無符合的車款，請調整關鍵字' : undefined}
+        emptyHint={crossLayer ? VEHICLE_EMPTY_HINTS.modelCrossLayer : VEHICLE_EMPTY_HINTS.model}
         onPick={(picked) => {
           const resolved = resolveModelPick(motoBrands, vehicle?.brand ?? null, picked);
           if (resolved) onPickModel(resolved);
@@ -310,6 +352,7 @@ export function VehicleSelect({
         onClear={onClearYear}
         variant={variant}
         slotLabel="年份 · 可不選"
+        emptyHint={VEHICLE_EMPTY_HINTS.year}
       />
     </>
   );

@@ -36,6 +36,7 @@ import type { MockMotoBrand, MockMotoModel } from '@/data/mock-moto-brands';
 import { filterVehicleOptions } from '@/lib/vehicle-match';
 import { flattenVehicleModels, type FlatVehicleEntry } from '@/lib/garage-chip';
 import { GarageChips, type GarageChipItem } from './GarageChips';
+import { VEHICLE_EMPTY_HINTS } from './VehicleSelect';
 
 export function FilterDrawerVehicleTab({
   motoBrands,
@@ -127,7 +128,7 @@ export function FilterDrawerVehicleTab({
               </button>
             ))}
             {crossResults.length === 0 && (
-              <div className="fd-veh-empty">查無符合的車款，請調整關鍵字</div>
+              <div className="fd-veh-empty">{VEHICLE_EMPTY_HINTS.modelCrossLayer}</div>
             )}
           </>
         ) : !vehBrand ? (
@@ -140,7 +141,7 @@ export function FilterDrawerVehicleTab({
                 {chevron}
               </button>
             ))}
-            {brands.length === 0 && <div className="fd-veh-empty">查無符合的廠牌，請調整關鍵字</div>}
+            {brands.length === 0 && <div className="fd-veh-empty">{VEHICLE_EMPTY_HINTS.brand}</div>}
           </>
         ) : !vehModel ? (
           <>
@@ -156,7 +157,7 @@ export function FilterDrawerVehicleTab({
                 {chevron}
               </button>
             ))}
-            {models.length === 0 && <div className="fd-veh-empty">查無符合的車型，請調整關鍵字</div>}
+            {models.length === 0 && <div className="fd-veh-empty">{VEHICLE_EMPTY_HINTS.model}</div>}
           </>
         ) : (
           <>
@@ -189,7 +190,7 @@ export function FilterDrawerVehicleTab({
                     )}
                   </button>
                 ))}
-                {years.length === 0 && <div className="fd-veh-empty">查無符合的年份，請調整關鍵字</div>}
+                {years.length === 0 && <div className="fd-veh-empty">{VEHICLE_EMPTY_HINTS.year}</div>}
               </>
             )}
           </>
