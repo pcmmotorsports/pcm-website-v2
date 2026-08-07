@@ -33,7 +33,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W5DB:-/tmp/w5db}"; SOCK="${W5SOCK:-/tmp/w5sk}"; P="${W5PORT:-54399}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=21   # 🔴 量出來的。全綠時 PASS = 21 + CELL-ACCOUNT + CELL-KEYSET = 23。
+EXPECT_TOTAL=22   # 🔴 量出來的。全綠時 PASS = 22 + CELL-ACCOUNT + CELL-KEYSET = 24。
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -54,7 +54,9 @@ cap() {
 # 🔴🔴 **第一次重釘(W3c-1 落檔)—— 這道閘照設計 die 了,處置就是這裡寫的**:
 #    重釘 + 把新片的物件加進 oracle。W3c-1 是 `CREATE OR REPLACE` 既有的 `admin_void_shipment`
 #    ⇒ 物件集合不變(仍是五支),但**端到端多了一段作廢**(void 從「只有存在性」變成有行為)。
-LINE_TIP="20260807200000"
+# 🔴 **第二次重釘(W3c-2 落檔)**:unvoid 也有行為了 ⇒ 端到端補「復原」那一步,
+#    鍵表期望值四列 → **五列**、誠實邊界那句「unvoid 只有存在性」作廢。
+LINE_TIP="20260807210000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
@@ -72,7 +74,7 @@ for f in supabase/migrations/*.sql; do
   fi
   psql -X -h "$SOCK" -p $P -U postgres -d postgres -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null 2>"$D/err" || die "MIG_FAIL: $f :: $(cat "$D/err")"
 done
-ok LINE-REPLAY "**整個 migration 目錄**(無前綴、含尖端 $LINE_TIP)從零重放成功 ⇒ 五支 writer **存在且可疊**。🔴 誠實邊界:下面的端到端**行為**測 create/add/ship/void **四支**(W3c-1 已落地);**unvoid 仍只有集合與 ACL 的存在性**(它的 writer 是 W3c-2、還沒落地)"
+ok LINE-REPLAY "**整個 migration 目錄**(無前綴、含尖端 $LINE_TIP)從零重放成功 ⇒ 五支 writer **存在且可疊**。🔴 五支 writer **全部**在端到端裡有行為(W3c-2 落檔後,unvoid 也有了)"
 
 echo "══ 1. 結構 oracle:出貨線的物件集合凍結 ═══════════════════"
 # 🔴 一份清單、一個權威。各片自己的凍結格守的是各片;本格守的是**線的完整性**
@@ -176,19 +178,26 @@ fi
   V2="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
   case "$R:$V2" in
     *ERROR*) bad E2E-VOID "作廢失敗:$R" ;;
-    *":${OI1}x0,${OI2}x0") ok E2E-VOID "⑤作廢成功且**退量真的發生**(3/3 → 0/0)⇒ 四支 writer 串起來的一整條線走得通 ✓" ;;
+    *":${OI1}x0,${OI2}x0") ok E2E-VOID "⑤作廢成功且**退量真的發生**(3/3 → 0/0)✓" ;;
     *) bad E2E-VOID "作廢後摘要實得 [$V2](期望全 0)" ;;
+  esac
+  R="$(QM "SELECT public.admin_unvoid_shipment('e2e-5','$SHIP')" | tr '\n' ' ')"
+  V3="$(Q "SELECT pg_catalog.string_agg(order_item_id::text||'x'||shipped_quantity::text, ',' ORDER BY order_item_id) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$OI1','$OI2')")"
+  case "$R:$V3" in
+    *ERROR*) bad E2E-UNVOID "復原失敗:$R" ;;
+    *":${OI1}x3,${OI2}x3") ok E2E-UNVOID "⑥復原成功且**回加真的發生**(0/0 → 3/3)⇒ **五支 writer 串起來的一整條線走得通**(建箱→掛品項→出貨→作廢→復原)✓" ;;
+    *) bad E2E-UNVOID "復原後摘要實得 [$V3](期望回到 3/3)" ;;
   esac
 
 echo "══ 3. 🔴 線級不變式(跨片,各片自己看不到的)═══════════════"
 # 🔴 冪等鍵表:每個動作各一列、且**全部都有 shipment_id**(DEFERRED 閘的線級後果)
 IDEM="$(Q "SELECT pg_catalog.string_agg(action||':'||(shipment_id IS NOT NULL)::text, ',' ORDER BY action) FROM public.pcm_b2_shipping_idempotency")"
-[ "$IDEM" = "add_items:true,create_shipment:true,ship:true,void:true" ] \
-  && ok LINE-IDEM-COMPLETE "端到端跑完後,鍵表**四列**全部都有 shipment_id(零半成品)⇒ 四支的回填都真的發生了 ✓" \
+[ "$IDEM" = "add_items:true,create_shipment:true,ship:true,unvoid:true,void:true" ] \
+  && ok LINE-IDEM-COMPLETE "端到端跑完後,鍵表**五列**全部都有 shipment_id(零半成品)⇒ 五支的回填都真的發生了 ✓" \
   || bad LINE-IDEM-COMPLETE "鍵表實得 [$IDEM]"
 # 🔴 三支的回傳信封形狀一致(W2 的 R1-F4 契約在**線級**成立)
 SHAPES="$(Q "SELECT pg_catalog.count(DISTINCT k)::text FROM (SELECT pg_catalog.string_agg(key,',' ORDER BY key) AS k FROM public.pcm_b2_shipping_idempotency i, pg_catalog.jsonb_object_keys(i.result_snapshot) key GROUP BY i.action) t")"
-[ "$SHAPES" = "1" ] && ok LINE-SNAPSHOT-SHAPE "四支寫下的快照**鍵集合完全相同** ⇒ to_jsonb 同源的形狀契約在線級成立(W3-2/W3-3/W3c-1 沒有各自漂)✓" \
+[ "$SHAPES" = "1" ] && ok LINE-SNAPSHOT-SHAPE "五支寫下的快照**鍵集合完全相同** ⇒ to_jsonb 同源的形狀契約在線級成立(W3-2/W3-3/W3c-1/W3c-2 沒有各自漂)✓" \
                     || bad LINE-SNAPSHOT-SHAPE "快照鍵集合有 $SHAPES 種不同形狀 ⇒ 有片沒照 W3-1 的形狀抄"
 # 🔴 重放:三支都再打一次同鍵,產物一律零增長
 B4="$(Q "SELECT pg_catalog.count(*)::text FROM public.shipments")|$(Q "SELECT pg_catalog.count(*)::text FROM public.shipment_items")"
@@ -196,7 +205,7 @@ Q "SELECT public.admin_create_shipment('e2e-1','$CUST','$SNAP'::jsonb,'hct')" >/
 Q "SELECT public.admin_add_shipment_items('e2e-2','$SHIP','[{\"order_item_id\":\"$OI1\",\"quantity\":4},{\"order_item_id\":\"$OI2\",\"quantity\":3}]'::jsonb)" >/dev/null 2>&1
 Q "SELECT public.admin_mark_shipment_shipped('e2e-3','$SHIP','TRACK-E2E')" >/dev/null 2>&1
 AF="$(Q "SELECT pg_catalog.count(*)::text FROM public.shipments")|$(Q "SELECT pg_catalog.count(*)::text FROM public.shipment_items")"
-[ "$B4" = "$AF" ] && ok LINE-REPLAY-NO-GROWTH "🔴 四支(建箱/掛品項/出貨/作廢)各再打一次同鍵 ⇒ 包裹數與品項數**零增長**($AF)= 這條線的 at-most-once 在端到端成立 ✓" \
+[ "$B4" = "$AF" ] && ok LINE-REPLAY-NO-GROWTH "🔴 五支(建箱/掛品項/出貨/作廢/復原)各再打一次同鍵 ⇒ 包裹數與品項數**零增長**($AF)= 這條線的 at-most-once 在端到端成立 ✓" \
                   || bad LINE-REPLAY-NO-GROWTH "🔴 重放後產物長大了:$B4 → $AF"
 
 echo "══ 4. 🔴 突變靶 ═══════════════════════════════════════════"
@@ -253,7 +262,7 @@ M="$(Q "SELECT pg_catalog.string_agg(action||':'||(shipment_id IS NOT NULL)::tex
 #    **卻沒改它配對的這個靶** ⇒ 基準字串還是舊三列,而鍵表現在恆有四列
 #    ⇒ `M != 舊三列` **恆真**,突變就算完全沒生效本格照樣綠 = 判別力歸零。
 #    改斷言就要改它的靶,這兩個是一對。
-[ "$M" != "add_items:true,create_shipment:true,ship:true,void:true" ] \
+[ "$M" != "add_items:true,create_shipment:true,ship:true,unvoid:true,void:true" ] \
   && ok TMUT-IDEM-COMPLETE "🔴 把一列的 shipment_id 打回 NULL ⇒ 觀察值真的變了(實得 [$M])= LINE-IDEM-COMPLETE 抓得到半成品" \
   || bad TMUT-IDEM-COMPLETE "打回 NULL 後觀察值沒變 ⇒ 該格恆真"
 Q "UPDATE public.pcm_b2_shipping_idempotency SET result_snapshot = '{\"only_one_key\":1}'::jsonb WHERE action='ship'" >/dev/null
@@ -280,7 +289,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP]"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-VOID LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE"
+KEYS_FROZEN="E2E-ADD E2E-CREATE E2E-SHIP E2E-SUMMARY E2E-UNVOID E2E-VOID LINE-HELPER-ACL LINE-HELPER-SET LINE-IDEM-COMPLETE LINE-IDEM-TRIGGERS LINE-REPLAY LINE-REPLAY-NO-GROWTH LINE-RPC-ACL LINE-RPC-SET LINE-SNAPSHOT-SHAPE TMUT-E2E TMUT-HELPER-ACL TMUT-IDEM-COMPLETE TMUT-RPC-ACL TMUT-RPC-SET TMUT-SNAPSHOT-SHAPE TMUT-TRIGGER-STATE"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單"; PASS=$((PASS+1))
 else
