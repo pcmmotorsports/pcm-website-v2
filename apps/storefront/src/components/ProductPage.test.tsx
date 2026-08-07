@@ -163,14 +163,17 @@ describe('ProductPage', () => {
     ).toBeDefined();
   });
 
-  // OD-9:N°03 相關商品 section 換 OD N° 巢狀 eyebrow(03 + 金線 + N° 相關商品、對齊 N°01/N°02)。
+  // OD-9:相關商品 section 換 OD N° 巢狀 eyebrow(義體數字 + 金線 + N° 相關商品)。
+  // ⚠️ OD-9 當時寫的「對齊 N°01/N°02」指的是品牌形象區那兩節(RPM=Highlights/SwatchWall,
+  //    其餘品牌各有自己的 showcase),**H7 已整組刪除**、不再存在。
   // R3:related 由 server 推薦引擎 prop 傳入;傳非空 fixture → section 渲染。無車 → 標題「同款推薦」(L1)。
-  it('should render N°03 related section with OD nested eyebrow (related prop 非空、無車標題)', () => {
+  // Sean 2026-08-07 拍板 Q5=A:相關商品由 N°03 改 N°01(理由同 ProductFAQ.test 那條)。
+  it('should render N°01 related section with OD nested eyebrow (related prop 非空、無車標題)', () => {
     mockSearchParams = new URLSearchParams('from=catalog');
     render(<ProductPage product={MOCK_PRODUCTS[0]!} tier="general" related={MOCK_PRODUCTS.slice(1, 3)} />);
     const related = document.querySelector('.pd-related');
     expect(related).not.toBeNull();
-    expect(related!.querySelector('.pd-eb-no')?.textContent).toBe('03');
+    expect(related!.querySelector('.pd-eb-no')?.textContent, 'Q5=A 後相關商品的編號是 01').toBe('01');
     expect(related!.querySelector('.pd-eb-label')?.textContent).toContain('相關商品');
     expect(within(related as HTMLElement).getByText('同款推薦')).toBeDefined();
   });
@@ -311,7 +314,7 @@ describe('ProductPage', () => {
   );
 
   it.each([['rpm-carbon'], ['gb-racing'], ['bonamici']])(
-    'H7 後 DOM 順序(%s):規格區 < 相關商品 N°03 < FAQ N°04(品牌不再影響順序)',
+    'H7 後 DOM 順序(%s):規格區 < 相關商品 N°01 < FAQ N°02(品牌不再影響順序)',
     (slug) => {
       mockSearchParams = new URLSearchParams('from=catalog');
       render(
@@ -324,8 +327,8 @@ describe('ProductPage', () => {
       const spec = document.querySelector('.pd-spec-section');
       const related = document.querySelector('.pd-related');
       const faq = document.getElementById('pd-h-faq');
-      expectBefore(spec, related, '規格區', '相關商品 N°03');
-      expectBefore(related, faq, '相關商品 N°03', 'FAQ N°04');
+      expectBefore(spec, related, '規格區', '相關商品 N°01');
+      expectBefore(related, faq, '相關商品 N°01', 'FAQ N°02');
     },
   );
 
@@ -338,7 +341,7 @@ describe('ProductPage', () => {
       document.querySelector('.pd-spec-section'),
       document.getElementById('pd-h-faq'),
       '規格區',
-      'FAQ N°04',
+      'FAQ N°02',
     );
   });
 

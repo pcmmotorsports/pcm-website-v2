@@ -1399,7 +1399,7 @@
    用既有 <ProductCard>(.pcard 樣式在 product-card.css、Q4 不動)、本段只提供 grid container;
    不複製 design demo .vcf-related-card / .vcf-related-img / .vcf-related-brand 等 hardcoded 卡片樣式
    (對應 Q4 + lessons §12-37、demo 自包含寫法不取代正式元件) */
-/* 🔴 R3 / N°03(plan §5、Baymard product-page-suggestions + NN-g mobile-carousels):
+/* 🔴 R3 / N°01(Q5=A 前為 N°03;plan §5、Baymard product-page-suggestions + NN-g mobile-carousels):
    由 grid 改「橫向 scroll-snap carousel」——不自動輪播、半露邊緣暗示可滑、桌機露 ~4、平板/手機半露;
    卡片沿用 <ProductCard>(.pcard、product-card.css 不動)。斷點沿用全頁 1079/540。 */
 .pd-related-grid {
@@ -1440,7 +1440,7 @@
 .pd-related-more-link:hover {
   border-color: var(--c-text);
 }
-/* 🔴 N°03 動作色左右導覽箭頭(Sean 2026-07-08:客人不知可左右滑 → 有色箭頭提示;
+/* 🔴 N°01 相關商品的動作色左右導覽箭頭(Q5=A 前為 N°03;Sean 2026-07-08:客人不知可左右滑 → 有色箭頭提示;
    ⚠️ 0c 已由賽車紅換熔橘)——放標題右上、
    可捲動才顯、next 初次微動提示、邊界該側 disabled。 */
 .pd-related .pd-section-head {
@@ -1866,7 +1866,7 @@
 }
 
 /* ===================================================================
-   FAQ accordion(OD §10、N°04 ProductFAQ)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
+   FAQ accordion(OD §10、N°02 ProductFAQ;Q5=A 前為 N°04)— 原生 <details> 純 CSS 手風琴、+→× 旋轉
 =================================================================== */
 .faq-list { display: flex; flex-direction: column; border-top: 1px solid var(--c-border); }
 .faq-item { border-bottom: 1px solid var(--c-border); }

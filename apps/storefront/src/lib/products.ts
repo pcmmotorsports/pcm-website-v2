@@ -230,7 +230,9 @@ export type FeaturedResult = {
 };
 
 /**
- * 撈首頁「最新商品」4 件(對齊 HomeSelect N°04、CTA「查看所有新品」)。
+ * 撈首頁「最新商品」4 件(對齊 HomeSelect N°02、CTA「查看所有新品」)。
+ * ⚠️ 原本寫 N°04 = D5a 把該區由第 5 上移到第 2 之後沒同步的過期字面(三來源:`app/page.tsx` 區塊表、
+ *    `styles/home.css` 的 `05 · SELECT (N°02 …)` 段標、`app/page.test.tsx` 的順序斷言註解)。
  *
  * 行為(M-4a 前菜 D:改「最新商品」——created_at 遞減前 4;取代舊「id 升冪前 4」placeholder):
  *   - getFeaturedUIProductsCached()(perf/P3:unstable_cache 900s;內層

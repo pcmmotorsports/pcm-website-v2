@@ -6,7 +6,7 @@ import { RuleBasedRecommendationEngine } from './rule-based-engine';
 import type { VehicleSelection } from './types';
 
 /**
- * N°03 相關商品推薦 server 端接線(R3、對齊 plan §5 資料流)。
+ * N°01 相關商品推薦 server 端接線(R3、對齊 plan §5 資料流;Q5=A 前為 N°03)。
  *
  * 職責:把 route 已知的 handle + 選定車輛,轉成 domain 反查 → 引擎排序 → client 安全 UIProduct 清單。
  *
@@ -21,7 +21,7 @@ import type { VehicleSelection } from './types';
  *
  * @param handle    當前商品 handle(= slug);一律排除自身
  * @param vehicle   選定車輛(URL ?vehicle 經 taxonomy 解回原始名);undefined = Case B 同品牌
- * @param limit     上限(N°03 = 8、plan Q2=A)
+ * @param limit     上限(相關商品區 = 8、plan Q2=A)
  */
 export async function fetchRecommendedProducts(
   handle: string,

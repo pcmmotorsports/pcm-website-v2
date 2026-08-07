@@ -1,7 +1,9 @@
 // ProductPage.tsx — 商品詳細頁主元件(client、'use client')。
 //
 // 組裝層:pd-main(ProductGallery + ProductInfo)+ ProductBreadcrumb(麵包屑 + vehicle pill)+ 各 N° section
-//   (ProductServices / Highlights / SwatchWall / Spotlight / Tabs / 相關商品 N°03 / ProductFAQ N°04)
+//   (ProductFitmentCheck / ProductFitments / Tabs / 相關商品 N°01 / ProductFAQ N°02);⚠️ 原本這行還列 ProductServices / Highlights /
+//   SwatchWall / Spotlight —— 後三者是品牌形象區、**H7 已整組刪除**,ProductServices 則早已改由
+//   ProductInfo 掛載(`ProductInfo.tsx:393`),都不再由本檔組裝。
 //   + mobile buybar;各 section 拆獨立子元件(鐵則 6)、本檔只負責資料 / 狀態 / 組裝。
 // V-2h/MF-3 前置:麵包屑 + vehicle pill 抽出 ProductBreadcrumb.tsx(拆前 401 行 > 400;byte 等價搬移)。
 // selectedVariant 狀態在此(受控源頭、OD-4a):ProductInfo picker 改它、ProductGallery 隨它換圖、
@@ -41,7 +43,7 @@ import '@/styles/product-page.css';
 export type ProductPageProps = {
   product: MockProduct;
   tier: MemberTier;
-  /** R3/N°03:推薦引擎相關商品(server 端 RuleBasedRecommendationEngine 已排自身 + 排序 + 取前 limit、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
+  /** R3/N°01:推薦引擎相關商品(server 端 RuleBasedRecommendationEngine 已排自身 + 排序 + 取前 limit、toUIProduct 'general' strip);空 → 相關商品區隱藏。 */
   related: MockProduct[];
   /** R3:引擎回傳 hasMore(去重排自身後候選 > limit)→ true 才顯「查看全部相容」。 */
   relatedHasMore?: boolean;
@@ -143,12 +145,14 @@ export function ProductPage({
   // M-1-13e-b:hasDiscount derived(對齊 design L140 字面)— Mobile sticky bar mbb-orig 三元判斷用
   const hasDiscount = product.origPrice != null && product.origPrice > product.price;
 
-  // 🔴 P0-C 去碳品牌切換守門:RPM Carbon 商品才渲染碳纖維專屬區塊(N°01 為什麼選 RPM Carbon /
-  //   N°02 紋路牆 / 服務橫條泰國原廠卡 / Spotlight 碳纖維工藝);非 RPM = 空白(Q2=B、不猜產地材質)。
+  // 🔴 P0-C 去碳品牌切換守門。⚠️ 這條原本管的是碳纖維專屬區塊(N°01 為什麼選 RPM Carbon /
+  //   N°02 紋路牆 / Spotlight 碳纖維工藝)—— **那些區塊 H7 已整組刪除**;現在唯一的消費者是
+  //   下傳給 ProductInfo 的 `isRpmCarbon`(服務橫條的泰國原廠卡卡級守門)。
+  //   非 RPM = 不顯該卡(Q2=B、不猜產地材質)。
   //   🔴 F1:守門用 brandSlug(≠ product.brand 顯示名 'RPM CARBON');brand 恆 false → RPM 碳段全消失=回歸。
   const isRpmCarbon = product.brandSlug === RPM_CARBON_BRAND_SLUG;
 
-  // R3/N°03(取代 C5/#258 同分類版):Related 由 server 端推薦引擎(RuleBasedRecommendationEngine)供給——
+  // R3/N°01(取代 C5/#258 同分類版):Related 由 server 端推薦引擎(RuleBasedRecommendationEngine)供給——
   //   Case A 反查選定車相容池 / Case B 同品牌,已排自身 + 排序 + 取前 limit(8)+ toUIProduct 'general' strip →
   //   `related` prop 交 <ProductRelated>(鐵則 6 抽出子元件)渲染;hasMore/情境化標題由 route 傳 prop。
   const relatedProducts = related;
@@ -201,7 +205,7 @@ export function ProductPage({
             不是漏掉、也不要有人「順手補一個回來」。
             順序影響:原本是 Fitments → Tabs → BrandShowcase,現在 Fitments → Tabs → 相關商品。 */}
 
-        {/* N°03 相關商品(R3、鐵則 6 抽 ProductRelated 子元件);
+        {/* N°01 相關商品(R3、鐵則 6 抽 ProductRelated 子元件);
             內容由 server 推薦引擎供給、情境化標題 + carousel + hasMore CTA 皆在子元件。related 空 → 隱藏。 */}
         <ProductRelated
           related={relatedProducts}
@@ -211,7 +215,8 @@ export function ProductPage({
           vehicleParam={relatedVehicleParam}
         />
 
-        {/* N°04 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10、Sean Q1 override 排 N°04) */}
+        {/* N°02 常見問題(RPM 共用、非條件)+ FAQPage JSON-LD(OD-10;Sean Q1 override 原指派 N°04,
+            Q5=A 部分推翻成 N°02——數字換掉、「FAQ 接相關商品之後」的順序存活;沿革見 ProductFAQ 檔頭) */}
         <ProductFAQ />
       </main>
 

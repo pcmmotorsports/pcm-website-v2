@@ -1,7 +1,7 @@
 // rpm-policies.ts — RPM 共用政策文案「單一真相」(結構化 runs、純資料無 React 依賴)
 //
 // ⚠️ 保固 / 退換 / 鑑賞期政策由 ProductTabs(OD-8 保固分頁、Sean 指定為 canonical「那份」)、
-//    ProductFAQ(OD-10 N°04「保固與退換貨」)與 InfoShippingPage(A2 /info/shipping 退換貨 tab、
+//    ProductFAQ(OD-10 N°02「保固與退換貨」;Q5=A 前為 N°04)與 InfoShippingPage(A2 /info/shipping 退換貨 tab、
 //    2026-07-03 第三消費端)**共用同一份**、不得各自抄一份分歧版本
 //    (Sean 2026-06-03 釘:該鑑賞期免除是對客戶的法律主張、Sean 仍在確認準確性 →
 //     改字面只動本檔這一處、三處同步渲染、永不漂移)。

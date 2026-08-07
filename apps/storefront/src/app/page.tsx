@@ -9,7 +9,7 @@
 // 此偏離 d1 指令 Step 4.2 字面「HomeHero / FeatureEditorial / HomeStatement / HomeFooter Server Component」
 // 是 design 字面 vs Next.js 16 server-client boundary 衝突的 trade-off、commit body 揭示。
 //
-// d2 揭示(2026-05-09):N°04 真資料 server-side fetch、HomeSelect 接 props.featured(FeaturedResult
+// d2 揭示(2026-05-09):N°02 最新商品區真資料 server-side fetch、HomeSelect 接 props.featured(FeaturedResult
 // = MockProduct[] + error flag)、priceByTier server-side strip 在 lib/products.ts toUIProduct 落實。
 // 真實狀態:Supabase products 表 0 row(M-1-16 種子前)、HomeSelect 必走 Q-empty=b 分支。
 
