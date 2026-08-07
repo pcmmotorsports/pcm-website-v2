@@ -44,7 +44,14 @@ case "$DATADIR" in "$WORK"/*) : ;; *) echo "🔴 data_directory=$DATADIR 不在 
 [ "$(q "SELECT strpos(pg_get_functiondef('$HELPER'::regprocedure),'FOR NO KEY UPDATE') > 0")" = "t" ] \
   || { echo "🔴 helper 缺 NKU 錨 —— 上一輪 crash 的 mutant 殘留?先還原再跑"; exit 1; }
 
-# 漂移 oracle(與 a4a-verify 同一份獨立推導 SQL;R3-F3)
+# 漂移 oracle(獨立推導 SQL;R3-F3)
+# 🔴🔴 **2026-08-06 B2-S2b-3a 前段更正:這裡原本寫「與 a4a-verify 同一份」—— 那句從此不成立。**
+#   `scripts/a4a-verify.sh` 的 ORACLE_SQL 已**四軸化**(補 shipped)且第三式候選全集補了 `shipment_items`;
+#   **本檔仍是三軸 + 舊候選全集,對 shipped 漂移全盲。**
+#   刻意不在本輪同批改:本檔是**併發探針**,量的是鎖序與 40P01,四軸化不增加它的判別力,
+#   而多一個副本就多一處要同步的字面。⇒ 已登記進 plan §1.1 位置表當**第 7 個文字實體**
+#   (標「刻意不收 + 理由」),後段的同步守門**不會**把它算進受守集合。
+#   🔴 哪天要拿本檔當漂移證據,**先四軸化再說** —— 它現在證不到第四軸。
 ORACLE_SQL="SELECT (SELECT count(*) FROM public.order_item_procurement p
               WHERE p.received_quantity IS DISTINCT FROM COALESCE((SELECT sum(r.quantity)
                     FROM public.order_item_procurement_receipts r WHERE r.procurement_id = p.id),0))

@@ -3,18 +3,26 @@
 # A4a 驗證 harness:order_item_quantity_summary 重算 trigger 家族
 # ============================================================
 # plan = docs/specs/2026-08-03-e10-a4a-summary-recompute-plan.md §5
-# 用法:先 scripts/d1t2-rehearsal.sh provision <workdir> 且 A4a migration 已套,
+# 用法:先 **PORT=54363** scripts/d1t2-rehearsal.sh provision <workdir> 且 A4a migration 已套,
 #       再 scripts/a4a-verify.sh <workdir>
+# 🔴🔴 **`PORT=54363` 那一段不是可省的**(2026-08-07 S2b-4b 實測踩過同型):`d1t2-rehearsal.sh`
+#    有**它自己的** `PORT="${PORT:-54329}"` 預設。本支改用專屬埠 54363 之後,若 provision 時
+#    沒帶 PORT,cluster 會起在 54329 而本支去連 54363 ⇒ 當場「連不上」。
+#    (姊妹片 `a1-verify.sh` 自己 provision,所以它是 `export PORT` 解決;本支不 provision,只能靠這行用法。)
 # 形狀照 a2b1-verify.sh:三計數器 + 身分閘五重 + case 全 BEGIN…ROLLBACK 零留痕
 # + DB 內突變(anchor 三重 preflight)。例外(誠實列出、各自帶清理與殘留斷言):
 #   R9b/R9c/R10a/N3/N6b/N6c 需要 committed 狀態;N3 是唯一 committed 函式突變
-#   (跨連線才觀察得到鎖),trap 還原、收尾比對五函式 md5。
+#   (跨連線才觀察得到鎖),trap 還原、收尾比對六函式 md5 + 五 trigger 定義與啟用態(S2b-4a 項 23b)。
 # 🔴 突變格語意 = 「攻擊 SQL 在 mutant 下觀察到行為翻面」則 ok;沒翻面 = 該格紅。
 # ============================================================
 set -uo pipefail
 
 WORK="${1:-/tmp/a4a-work}"
-URL="postgresql://postgres@127.0.0.1:${PORT:-54329}/postgres"
+# 🔴 **專屬埠 54363**(B2-S2b plan §3.6 定案;2026-08-07 S2b-4b 落地)。
+#    原本與 `a1-verify.sh` **共用 54329** —— 兩支併行起跑時後起的那支會撞埠,
+#    而「跑完 teardown」**不解決撞埠**(先起的那支還沒 teardown,後起的照樣撞)⇒ 分埠與 teardown 兩件都要做。
+#    `PORT=` 環境變數仍可覆寫。
+URL="postgresql://postgres@127.0.0.1:${PORT:-54363}/postgres"
 AURL="${URL}?application_name=a4a_sess_a"
 HELPER="public.pcm_a4a_recompute_order_item_summary(uuid)"
 FN_GUARD="public.pcm_a4a_received_quantity_guard()"
@@ -26,11 +34,14 @@ TG_ZC="order_item_procurement_summary_recompute_zc"
 TG_RC="order_item_procurement_receipts_received_sync_ac"
 TG_CC="order_cancellation_items_summary_recompute_ac"
 GUARD_A2B1="order_item_procurement_allocation_guard_ac"
+# 🔴 B2-S2b-1 登記(plan 項 23b 的「第 6 支函式 / 第 5 支 trigger」;建物件的片負責把自己登記進守門)
+FN_SHIP="public.pcm_a4a_shipments_summary_recompute()"
+TG_SS="shipments_summary_recompute_ac"
 MIGFILE="supabase/migrations/20260803140000_m4b_e10_a4a_quantity_summary_recompute.sql"
 PASS=0; FAIL=0; SKIP=0; MUT=0; CELL=0
-EXPECTED_TOTAL=65
+EXPECTED_TOTAL=66
 EXPECTED_MUT=10
-EXPECTED_CELL=40
+EXPECTED_CELL=41
 
 ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
@@ -137,12 +148,31 @@ SQL
 )"
   local rc=$?
   MUT=$((MUT+1))
+  # 🔴 形狀債(R2 nit,2026-08-06):綠判定是掃**整份 stdout+stderr** 找 A4A_FLIP_OK。
+  # 若哪天某格的 setup/attack/mut_to 字面本身含這個字串,錯誤訊息回顯就會構成假綠。
+  # 現況全格已逐項確認不含(本檔唯一產生該字串的地方是各格自己的 RAISE NOTICE);
+  # 新增格時請確認同一件事,或把判定改成只認最後一行。
   if [ $rc -eq 0 ] && printf '%s' "$out" | grep -q 'A4A_FLIP_OK'; then ok "$label"
   else bad "$label — $(printf '%s' "$out" | grep -m1 -E 'ERROR|A4A_' | cut -c1-160)"; fi
 }
 
 # 獨立推導漂移 oracle(R3-F3:逐軸 correlated subquery,與 helper 的 JOIN 形狀不同;A4b 重用)
 # 🔀 codex 關卡2 K2-1:第三式「有活動必有列」—— 缺它的話,刪掉活動品項的摘要列 oracle 仍回 0(假綠)。
+# 🔴 B2-S2b-3a 前段(2026-08-06):**四軸化 + 候選全集補齊**。
+#   ①值分歧那一段(**第二式**)補第四軸 shipped
+#   ②**第三式**(「有活動必有列」)的候選全集補 **`shipment_items`** ——
+#     少了它,只出過貨、沒進過採購/取消的品項(shipment-only)缺摘要列時不會被掃到。
+# 🔴🔴 **第三式刻意 <u>不</u> 補 summary**(R1 must-fix:我上一版補了,而那是**恆 0 的 no-op**):
+#   第三式的 WHERE 是 `NOT EXISTS (… FROM order_item_quantity_summary …)` ⇒
+#   **來自 summary 的候選必然被自己排除**(`order_item_id` 為 NOT NULL,連 NULL 那條縫都沒有)。
+#   plan §3.4 的表寫「本檔缺 summary 與 shipment_items 兩者」——**那個前提是錯的**:
+#   summary-only 的形狀(真相活動全刪、摘要殘留非 0)由**第二式**承重(它全掃 summary、逐軸比真值),
+#   不是第三式。plan 那一格已同批更正。
+# 🔴 `-- SHIPPED-TRUTH-BEGIN/END` 之間是**真相式的受守護區塊**,本 repo 有 6 個副本。
+# 🔴🔴 **現在還沒有守門在比對它們**(R2 must-fix:上一版寫成現在式 = 宣稱超出事實)——
+#   同步守門是 **S2b-3a 後段**的交付物(落在 `scripts/b2s2b-verify.sh`)。
+#   **在它落地之前,改這幾行不會有任何東西轉紅**;落地之後才會「改一處必須同批改凍結表」。
+#   **區塊內刻意零縮排**:縮排差異會讓逐字比對永遠不等,不要順手重排。
 ORACLE_SQL="SELECT (SELECT count(*) FROM public.order_item_procurement p
               WHERE p.received_quantity IS DISTINCT FROM COALESCE((SELECT sum(r.quantity)
                     FROM public.order_item_procurement_receipts r WHERE r.procurement_id = p.id),0))
@@ -150,9 +180,20 @@ ORACLE_SQL="SELECT (SELECT count(*) FROM public.order_item_procurement p
               WHERE s.ordered_quantity   IS DISTINCT FROM COALESCE((SELECT sum(p.allocated_quantity) FROM public.order_item_procurement p WHERE p.order_item_id=s.order_item_id),0)
                  OR s.cancelled_quantity IS DISTINCT FROM COALESCE((SELECT sum(c.cancelled_quantity) FROM public.order_cancellation_items c WHERE c.order_item_id=s.order_item_id),0)
                  OR s.instock_quantity   IS DISTINCT FROM COALESCE((SELECT sum(r.quantity) FROM public.order_item_procurement_receipts r
-                       WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=s.order_item_id)),0))
+                       WHERE r.procurement_id IN (SELECT p2.id FROM public.order_item_procurement p2 WHERE p2.order_item_id=s.order_item_id)),0)
+                 OR s.shipped_quantity   IS DISTINCT FROM
+-- SHIPPED-TRUTH-BEGIN
+COALESCE((SELECT sum(si.shipped_quantity)
+FROM public.shipment_items si
+JOIN public.shipments sh ON sh.id = si.shipment_id
+WHERE si.order_item_id = s.order_item_id
+AND sh.deleted_at IS NULL
+AND sh.shipped_at IS NOT NULL), 0)
+-- SHIPPED-TRUTH-END
+             )
           + (SELECT count(*) FROM (SELECT p.order_item_id FROM public.order_item_procurement p
-                                   UNION SELECT c.order_item_id FROM public.order_cancellation_items c) x
+                                   UNION SELECT c.order_item_id FROM public.order_cancellation_items c
+                                   UNION SELECT si2.order_item_id FROM public.shipment_items si2) x
               WHERE NOT EXISTS (SELECT 1 FROM public.order_item_quantity_summary s WHERE s.order_item_id = x.order_item_id))"
 
 # ── 單連線 FIFO session(R14 / N3;照 a2b1:146-159)────────────
@@ -275,9 +316,39 @@ MD5_GUARD="$(q "SELECT md5(pg_get_functiondef('$FN_GUARD'::regprocedure))")"
 MD5_PROC="$(q "SELECT md5(pg_get_functiondef('$FN_PROC'::regprocedure))")"
 MD5_RCPT="$(q "SELECT md5(pg_get_functiondef('$FN_RCPT'::regprocedure))")"
 MD5_CANC="$(q "SELECT md5(pg_get_functiondef('$FN_CANC'::regprocedure))")"
+MD5_SHIP="$(q "SELECT md5(pg_get_functiondef('$FN_SHIP'::regprocedure))")"   # B2-S2b-1 第 6 支
 psql "$URL" -tAX -c "SELECT pg_get_functiondef('$HELPER'::regprocedure)" > "$ORIGDEF_FILE" 2>/dev/null
-[ -n "$MD5_HELPER" ] && [ -s "$ORIGDEF_FILE" ] && ok "五函式 md5 基準 + helper 原始定義已存(N3 還原用)" \
-  || bad "md5 基準/原始定義取得失敗"
+
+# 🔴 S2b-4a 項 23b:trigger 定義 + 啟用態的**收尾漂移基準**。
+# 收尾零殘留閘原本只比五支**函式**的 md5,trigger 一支都沒守 —— 而 N7 會在交易內
+# DROP + CREATE 回 $TG_CC。那個 ROLLBACK 哪天沒生效,收尾照樣報全綠。
+# 🔴 這裡刻意**不**重複驗名字/形狀/啟用態:[A1]-[A5](本檔 `grep -n '\[A1\]'` 起算的那五格)
+#    已守過 A1 四支同名唯一、A2 表函式映射、A3 tgtype、A4 deferrability + 全 enabled O、A5 constraint-ness。
+#    🔴 但兩者**不是同一個面**,別當成完全等價:A1-A5 用 **tgname 白名單**取集合,本 SQL 用
+#    **`proname LIKE 'pcm_a4a%'`** 取集合(所以「多出一支掛在 a4a 函式上的 trigger」只有本式看得見);
+#    且 A1-A5 跑在本基準擷取**之後**。本基準職責單一 = 給收尾比「跑前 vs 跑後」,不重做開跑時的結構守門。
+# 🔴 S2b-1 **已落地**,本集合現在是**五支**(多一支 shipments 的 `AFTER UPDATE OF shipped_at` 重算 trigger)。
+#    本 SQL 用 `proname LIKE 'pcm_a4a%'` 取集合 ⇒ **新 trigger 函式沿用 pcm_a4a 前綴是契約**,
+#    換前綴的那天這一式就看不見它了(migration 的 COMMENT 也寫了同一句)。
+#    🔴 更正(S2b-1 落地時改寫,不留活字):4a 原本寫「A1 的『四支』計數改五是 S2b-1 的範圍」——
+#    **S2b-1 最後沒有動 A1**,改走 `[A12]` 獨立格路線(理由見該格註解:A1-A5 的字面已被多輪突變證明過,
+#    retrofit 進去等於重開它們的判別力問題)。**A1 蓄意凍在四支,不是欠改。**
+# 🔴 `tgenabled` 是 `"char"` 不是 text:少了 ::text 這句會 `operator is not unique` 整句 ERROR,
+#    而 q() 把 stderr 併進 stdout ⇒ 基準與收尾各拿到**同一段錯誤訊息**、比對永遠相等 = 守門恆綠。
+#    2026-08-06 本片實測踩到:全綠但閘是死的,靠「把 bug 放回去」的負測才抓出來。
+TG_DEF_SQL="SELECT coalesce(string_agg(t.tgname||'::'||t.tgenabled::text||'::'||md5(pg_get_triggerdef(t.oid)), '|' ORDER BY t.tgname), '') FROM pg_trigger t
+              JOIN pg_proc p ON p.oid = t.tgfoid
+             WHERE p.proname LIKE 'pcm_a4a%' AND NOT t.tgisinternal"
+TG_DEF0="$(q "$TG_DEF_SQL")"
+# 🔴 fail-closed:不能只驗「非空」—— 錯誤訊息也是非空字串,正是上面那個坑放行的原因。
+#    改驗形狀:恰五段(A4a 四支 + B2-S2b 一支)、每段三個欄位、且第一個欄位是預期的 trigger 名。
+#    🔴 形狀只在**基準**這端驗、收尾那端只比字串:不對稱但仍 fail-closed ——
+#    收尾若整句爆掉,拿到的錯誤訊息 ≠ 已驗過形狀的基準 ⇒ 紅。反過來才會漏,而反過來被本式擋掉。
+TG_DEF0_SHAPE="$(printf '%s' "$TG_DEF0" | awk -F'|' '{n=NF; ok=(n==5); for(i=1;i<=n;i++){c=split($i,a,"::"); if(c!=3) ok=0} print (ok?"5x3":"bad:"n)}')"
+[ -n "$MD5_HELPER" ] && [ -s "$ORIGDEF_FILE" ] \
+  && [ "$TG_DEF0_SHAPE" = "5x3" ] && [ "${TG_DEF0%%::*}" = "$TG_CC" ] \
+  && ok "六函式 md5 + 五 trigger 定義基準已取(形狀 5x3 已驗)、helper 原始定義已存(N3 還原用)" \
+  || bad "md5/trigger 基準或原始定義取得失敗 —— trigger 基準形狀 [$TG_DEF0_SHAPE]"
 
 # 常用 SQL 片段
 CANCEL_2="INSERT INTO public.order_cancellations (id, order_id, reason_code, idempotency_key, payload_hash, actor)
@@ -313,7 +384,7 @@ printf '%s' "$o" | grep -q 'ORACLE_RED=1' && ok "H4b oracle 消融(刪列向):�
   || bad "H4b oracle 刪列向失敗 — 缺列竟回 0(K2-1 假綠形狀)"
 
 echo
-echo "== A. 結構格(11 cells;與 migration 檔內 DO 獨立重證)=="
+echo "== A. 結構格(12 cells;與 migration 檔內 DO 獨立重證)=="
 PRE_CELL=$((PASS+FAIL))
 [ "$(q "SELECT count(*) FROM pg_trigger WHERE tgname IN ('$TG_BT','$TG_ZC','$TG_RC','$TG_CC') AND NOT tgisinternal")" = "4" ] \
   && ok "[A1] 四支 trigger 存在且同名唯一" || bad "[A1] trigger 數不為 4"
@@ -334,6 +405,18 @@ PRE_CELL=$((PASS+FAIL))
                  WHERE t.tgname IN ('$TG_ZC','$TG_RC','$TG_CC') AND NOT t.tgisinternal) = 3
         AND (SELECT tgconstraint = 0 FROM pg_trigger WHERE tgname='$TG_BT' AND NOT tgisinternal)")" = "t" ] \
   && ok "[A5] 三支 constraint trigger + bt 為一般 trigger" || bad "[A5] constraint-ness 不符"
+# 🔴 [A12] B2-S2b-1 的第 5 支 trigger(plan 項 23b 登記)。獨立一格、不改 A1-A5 的凍結字面 ——
+#    那四支的斷言已被多輪突變證明過,retrofit 進去等於重開它們的判別力問題。
+# 🔴 定義比對用**全等**不用 `LIKE`(codex 關卡2 must-fix):`LIKE '%…%'` 只看事件面那一段,
+#    trigger 被重建成「同事件面 + `WHEN false`」照樣過,但它**永遠不會重算** —— 那正是本格要擋的東西。
+[ "$(q "SELECT (t.tgrelid::regclass::text = 'shipments')
+            AND (t.tgfoid::regproc::text = 'pcm_a4a_shipments_summary_recompute')
+            AND (t.tgconstraint <> 0) AND NOT t.tgdeferrable AND NOT t.tginitdeferred
+            AND (t.tgenabled = 'O')
+            AND (pg_get_triggerdef(t.oid) = 'CREATE CONSTRAINT TRIGGER shipments_summary_recompute_ac AFTER UPDATE OF shipped_at, deleted_at ON public.shipments NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION pcm_a4a_shipments_summary_recompute()')
+          FROM pg_trigger t WHERE t.tgname='$TG_SS' AND NOT t.tgisinternal")" = "t" ] \
+  && ok "[A12] 第 5 支 shipments 重算 trigger 形狀逐字(B2-S2b-1)" \
+  || bad "[A12] shipments 重算 trigger 缺或形狀不符 —— 實得 [$(q "SELECT coalesce(pg_get_triggerdef(oid),'<不存在>') FROM pg_trigger WHERE tgname='$TG_SS' AND NOT tgisinternal")]"
 [ "$(q "SELECT g.tgname < z.tgname FROM pg_trigger g, pg_trigger z
         WHERE g.tgrelid='public.order_item_procurement'::regclass AND g.tgname='$GUARD_A2B1' AND NOT g.tgisinternal
           AND z.tgrelid='public.order_item_procurement'::regclass AND z.tgname='$TG_ZC' AND NOT z.tgisinternal")" = "t" ] \
@@ -342,14 +425,23 @@ PRE_CELL=$((PASS+FAIL))
         FROM pg_proc WHERE oid IN ('$HELPER'::regprocedure,'$FN_GUARD'::regprocedure,'$FN_PROC'::regprocedure,'$FN_RCPT'::regprocedure,'$FN_CANC'::regprocedure)")" = "t" ] \
   && [ "$(q "SELECT bool_and(proconfig @> ARRAY['lock_timeout=5s']) FROM pg_proc
              WHERE oid IN ('$HELPER'::regprocedure,'$FN_PROC'::regprocedure,'$FN_RCPT'::regprocedure,'$FN_CANC'::regprocedure)")" = "t" ] \
-  && ok "[A7] 五函式 SECDEF+search_path;四支帶 lock_timeout" || bad "[A7] 函式頭不符"
+  && [ "$(q "SELECT prosecdef AND proconfig @> ARRAY['search_path=\"\"'] AND proconfig @> ARRAY['lock_timeout=5s']
+             FROM pg_proc WHERE oid='$FN_SHIP'::regprocedure")" = "t" ] \
+  && ok "[A7] 六函式函式頭:五支 SECDEF+search_path(public, pg_temp)、四支 lock_timeout;第 6 支 SECDEF+search_path='' " \
+  || bad "[A7] 函式頭不符"
+# 🔴 第 6 支必須納入 ACL 面(codex 關卡2 must-fix):原本 A7/A8 只涵蓋五支,
+#    新函式若在**開跑前**就已漂移,收尾的 md5 只會把那個壞狀態當成基準 = 漂移閘看不見它。
+#    🔴 它的 search_path 是 ''(與另外五支不同),所以 A7 那半得另立一條、不能併進 bool_and。
 [ "$(q "SELECT count(*) FROM pg_proc p, aclexplode(p.proacl) a
-        WHERE p.oid IN ('$HELPER'::regprocedure,'$FN_GUARD'::regprocedure,'$FN_PROC'::regprocedure,'$FN_RCPT'::regprocedure,'$FN_CANC'::regprocedure)
+        WHERE p.oid IN ('$HELPER'::regprocedure,'$FN_GUARD'::regprocedure,'$FN_PROC'::regprocedure,'$FN_RCPT'::regprocedure,'$FN_CANC'::regprocedure,'$FN_SHIP'::regprocedure)
           AND a.grantee <> p.proowner")" = "0" ] \
   && [ "$(q "SELECT bool_or(has_function_privilege(r, f, 'EXECUTE'))
              FROM unnest(ARRAY['anon','authenticated','service_role']) r,
-                  unnest(ARRAY['$HELPER','$FN_GUARD','$FN_PROC','$FN_RCPT','$FN_CANC']) f")" = "f" ] \
-  && ok "[A8] 五函式 ACL allowlist + 三 role 顯式否定" || bad "[A8] 函式 ACL 不符"
+                  unnest(ARRAY['$HELPER','$FN_GUARD','$FN_PROC','$FN_RCPT','$FN_CANC','$FN_SHIP']) f")" = "f" ] \
+  && [ "$(q "SELECT bool_and(proacl IS NOT NULL) FROM pg_proc
+             WHERE oid IN ('$HELPER'::regprocedure,'$FN_GUARD'::regprocedure,'$FN_PROC'::regprocedure,'$FN_RCPT'::regprocedure,'$FN_CANC'::regprocedure,'$FN_SHIP'::regprocedure)")" = "t" ] \
+  && ok "[A8] 六函式零 grantee(proacl 非 NULL 已併驗,防 aclexplode(NULL) 恆綠)+ 三 role 顯式否定" \
+  || bad "[A8] 函式 ACL 不符"
 [ "$(q "SELECT (length(d) - length(replace(d,'FOR NO KEY UPDATE','')))/length('FOR NO KEY UPDATE') = 1
         AND strpos(d,'received_quantity') = 0
         AND strpos(d,'FOR NO KEY UPDATE') < strpos(d,'sum(p.allocated_quantity)')
@@ -743,13 +835,33 @@ MUT=$((MUT+1))
 printf '%s' "$o" | grep -q 'A4A_FLIP_OK' && ok "突變 N7 trigger 砍 DELETE 事件 ⇒ 刪取消不回算(R6 翻面)" \
   || bad "突變 N7 — $(printf '%s' "$o" | grep -m1 -E 'ERROR|A4A_' | cut -c1-160)"
 
-# N8 upsert 加 WHERE false ⇒ R5 翻面(更新失效、惰性建列仍在)
-mutate_fn "突變 N8 upsert DO UPDATE 加 WHERE false ⇒ alloc 3→4 摘要凍在 3(R5 翻面)" "$HELPER" \
-"cancelled_quantity = EXCLUDED.cancelled_quantity" "cancelled_quantity = EXCLUDED.cancelled_quantity WHERE false" \
+# N8 upsert 的 ordered 軸被改寫回自值 ⇒ R5 翻面
+# 🔴 S2b-4a 項 23(封窗案 A):舊錨是「在 SET 清單的最後一個元素後面接 WHERE false」,
+#    那個形狀把「cancelled_quantity 必須是最後一欄」寫死成了突變的前提。
+#    S2b-1 四軸化會在它後面追加 shipped_quantity,突變於是產出
+#      cancelled_quantity = EXCLUDED.cancelled_quantity WHERE false, shipped_quantity = ...
+#    ⇒ 42601 syntax_error(2026-08-06 於 port 54357 實測確認)。
+#    🔴 而且**錨仍然命中**,所以 mut_block 的三重 preflight 一個都擋不下來 —— 它壞在下游 EXECUTE。
+#    新錨改成「就地把 ordered 這一軸的 RHS 換成自值」:不依賴欄序、不新增子句,
+#    在三軸現況、以及**手造的四軸版**(probe 內把 shipped_quantity 追加進 SET 清單再套上)
+#    兩個版本上都恰命中 1 次且產出合法 SQL —— 2026-08-06 於 port 54357 實跑。
+#    🔴 誠實界:四軸 helper 此刻**尚不存在**(S2b-1 才建),上句的「四軸版」是 probe 手造的,
+#    不是對真的 S2b-1 產物測的;S2b-1 落地後這一格是它的回歸點。
+# 🔴 判定維持**fail-closed 正向形**(`IF v = 3 THEN 綠 ELSE 炸`),不寫成 `IF v <> 3 THEN 炸`:
+#    摘要列不存在時 v 是 NULL,`NULL <> 3` 求值為 NULL ⇒ IF 不觸發 ⇒ 直接落到 NOTICE = 全綠。
+#    本片一度真的寫成後者,審查抓出、實測確認(對不存在的 id 跑同形 DO 塊會印 A4A_FLIP_OK)。
+#    NULL 另外單獨擋:那才是「helper 整支沒跑」的觀察面。
+# 🔴 本格的**配對正向格 = `[R5]`(`grep -n '\[R5\]'`,同一個 $ITEM5、同一句 SET allocated_quantity=4)**。
+#    單看本格無法區分「突變生效」與「zc trigger 對 UPDATE 根本不觸發」——
+#    那個因果基礎由同一 run 的 R5 提供。**刪或改 R5 會靜默抽走本格唯一的因果基礎,而三綠不會變色**
+#    ⇒ 動 R5 的人請一併重估本格(R2 nit,2026-08-06)。
+mutate_fn "突變 N8 upsert 的 ordered 軸改寫回自值 ⇒ alloc 3→4 摘要凍在 3(R5 翻面)" "$HELPER" \
+"= EXCLUDED.ordered_quantity" "= order_item_quantity_summary.ordered_quantity" \
 "INSERT INTO public.order_item_procurement (order_item_id, supplier_id, allocated_quantity) VALUES ('$ITEM5','$S1',3);" \
 "UPDATE public.order_item_procurement SET allocated_quantity=4 WHERE order_item_id='$ITEM5';
 DO \$n8\$ DECLARE v integer; BEGIN
   SELECT ordered_quantity INTO v FROM public.order_item_quantity_summary WHERE order_item_id='$ITEM5';
+  IF v IS NULL THEN RAISE EXCEPTION 'N8:摘要列不存在 —— helper 整支沒跑,不是翻面'; END IF;
   IF v = 3 THEN RAISE NOTICE 'A4A_FLIP_OK'; ELSE RAISE EXCEPTION 'N8:未翻面(v=%)', v; END IF; END \$n8\$;" 1
 
 # N-self 突變機械自檢:錯 anchor 必炸
@@ -801,6 +913,15 @@ q "DELETE FROM public.order_item_procurement WHERE order_item_id='$ITEM5'" >/dev
 q "DELETE FROM public.order_item_quantity_summary WHERE order_item_id='$ITEM5'" >/dev/null
 
 echo
+# 🔴 本閘的兩發負測(R2 nit:原本只存在於敘述,重跑者得靠猜)。把下面任一行**貼在本註解正下方**、
+#    跑一次、再刪掉;預期兩發都是「恰紅一條」且 bad 訊息顯示 trigger漂移[YES]:
+#    A(只動啟用態,證 tgenabled 分量):
+#      q "ALTER TABLE public.order_cancellation_items DISABLE TRIGGER $TG_CC" >/dev/null
+#    B(只動定義、啟用態仍 O,證 md5(pg_get_triggerdef) 分量):
+#      q "DROP TRIGGER $TG_CC ON public.order_cancellation_items" >/dev/null
+#      q "CREATE CONSTRAINT TRIGGER $TG_CC AFTER INSERT ON public.order_cancellation_items NOT DEFERRABLE INITIALLY IMMEDIATE FOR EACH ROW EXECUTE FUNCTION pcm_a4a_cancellation_summary_recompute()" >/dev/null
+#    🔴 兩發都會**留痕**(committed DDL),跑完必須把 trigger 還原成原定義再繼續用那座庫。
+#    🔴 兩發必須跑在**同一版腳本**上才算等長同形(R2 抓到我第一次沒做到)。
 echo "== 收尾:零殘留與計數 =="
 [ "$(q "SELECT count(*) FROM public.order_item_procurement")" = "$PROC_N0" ] \
   && [ "$(q "SELECT count(*) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$ITEM5','$ITEM3')")" = "0" ] \
@@ -808,9 +929,11 @@ echo "== 收尾:零殘留與計數 =="
   && [ "$(q "SELECT md5(pg_get_functiondef('$FN_PROC'::regprocedure))")" = "$MD5_PROC" ] \
   && [ "$(q "SELECT md5(pg_get_functiondef('$FN_RCPT'::regprocedure))")" = "$MD5_RCPT" ] \
   && [ "$(q "SELECT md5(pg_get_functiondef('$FN_CANC'::regprocedure))")" = "$MD5_CANC" ] \
+  && [ "$(q "SELECT md5(pg_get_functiondef('$FN_SHIP'::regprocedure))")" = "$MD5_SHIP" ] \
+  && [ "$(q "$TG_DEF_SQL")" = "$TG_DEF0" ] \
   && [ "$(q "$ORACLE_SQL")" = "0" ] \
-  && ok "零殘留:proc 計數復歸、fixture 摘要清空、五函式 md5 = 基準、oracle 0" \
-  || bad "殘留或函式漂移"
+  && ok "零殘留:proc 計數復歸、fixture 摘要清空、六函式 md5 = 基準、五 trigger 定義+啟用態 = 基準、oracle 0" \
+  || bad "殘留或漂移 —— proc計數[$(q "SELECT count(*) FROM public.order_item_procurement")/$PROC_N0] fixture摘要[$(q "SELECT count(*) FROM public.order_item_quantity_summary WHERE order_item_id IN ('$ITEM5','$ITEM3')")] trigger漂移[$([ "$(q "$TG_DEF_SQL")" = "$TG_DEF0" ] && echo no || echo YES)] oracle[$(q "$ORACLE_SQL")]"
 
 echo
 echo "== 結果:PASS=$PASS FAIL=$FAIL SKIP=$SKIP(CELL=$CELL MUT=$MUT)=="
