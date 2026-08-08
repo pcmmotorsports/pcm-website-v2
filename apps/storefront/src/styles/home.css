@@ -274,7 +274,14 @@
   .b-hero-title { margin-bottom: 22px; }
   /* `--dock-pad` 與下一行的左右 padding **同源**:chips 那列的負邊距出血要對齊它
      (見下方 `.cat-garage-chips` 那段的紅字)。改 padding 時這顆要一起改,守門會比對。 */
-  .b-dock { --dock-pad: 16px; padding: 16px var(--dock-pad) 14px; }
+  /* 🔴 2026-08-08(Sean 手機截圖:「選車卡太大、把 hero 背景整個吃掉」)——**只壓上下內距,
+     左右仍吃 `--dock-pad`**(chips 出血同源,守門 `home.test.ts:601` 比對的是那一半)。
+     真瀏覽器 390×844 量測(3113 production build):白卡原本 **358px = hero 775px 的 46%**,
+     車圖只露得出車頭、整流罩與彩繪被蓋掉。本次三處合計省 **36px**(→322px、42%),
+     車頭下緣與彩繪露出來。⚠️ 主 CTA 到 TabBar 的淨空從 41px → **39px**(仍安全;
+     本檔 H5 段記過「被蓋 33px」那次事故,39 > 0 且鈕本身 64px 高)。 */
+  .b-dock { --dock-pad: 16px; padding: 14px var(--dock-pad) 12px; }
+  .b-dock-head { margin-bottom: 10px; }
 }
 /* 🔴 **本 repo 對 OD 的申報偏離(H5;真瀏覽器實測抓到的真缺陷)**:讓位給固定 TabBar。
    OD 的 hero 高度是 `calc(100svh - <header>)`,**沒有把底部那條固定 TabBar 算進去** ——
@@ -422,6 +429,16 @@
      很可能就是 Sean 回報「破版」看到的東西。 */
   .ed-finder-slot:nth-of-type(3) { border-top: 1px solid var(--ed-c-rule); grid-column: span 2; }
   .ed-finder-go { grid-column: span 2; border-top: 1px solid var(--ed-c-ink); justify-content: center; padding: 18px; }
+  /* 🔴 2026-08-08 選車卡比例(同上段):三個欄位是白卡裡最肥的一塊(真瀏覽器量得 **194px**
+     = 卡片 358px 的 54%),每格 64-65px。壓上下內距 14/12 → 10/8、label 下距 4 → 2,
+     每格 → **54px**(落檔後真 build 實測值,非估算)、三格共省 **33px**;連同上段的卡片內距與標題下距,合計 **36px**。
+     ⚠️ **`.vsc-input` 的 16px 字級不能動**:<16px 會讓 iOS Safari 聚焦時自動縮放整頁
+     (V-2d④ Sean 真機回報過「畫面好像會滑動」),所以只壓內距、不壓字級。
+     ⚠️ **`.ed-finder-go` 的高度改不動**:它有 `min-height: 64px`(:403)、壓 padding 是**無效規則** ——
+     我第一版就寫了那條、實測量到高度沒變才發現。要縮主 CTA 得改 min-height,而那是視覺重量的決定
+     (實測 52 → 實際只省 7px,不划算)⇒ 不做。 */
+  .ed-finder-slot { padding: 10px 20px 8px; }
+  .ed-finder-slot-label { margin-bottom: 2px; }
 }
 
 /* ── 窄幅(≤560px):三欄各自獨占一整排 ───────────────────────────────────
