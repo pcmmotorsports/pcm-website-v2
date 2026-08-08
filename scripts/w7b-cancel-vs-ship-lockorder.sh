@@ -163,18 +163,58 @@
 set -u
 export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
-D="${W7BDB:-/tmp/w7bdb}"; SOCK="${W7BSOCK:-/tmp/w7bsk}"; P="${W7BPORT:-54426}"
+# 🔴 54426 → 54427(2026-08-08 trap 掃掠一併修):原本與 `w6c-idem-replay.sh:94` **預設埠相同**。
+#    `record all` 是序列跑所以現在不咬人,但兩支並排跑就撞、症狀是後起的那支 START_FAIL。
+#    全線預設埠逐支查過(54329/54375/54383/54393/54395/54397/54399/54401-54403/54407/54409/54411/54421/54422/54425),54427 未被佔用。
+D="${W7BDB:-/tmp/w7bdb}"; SOCK="${W7BSOCK:-/tmp/w7bsk}"; P="${W7BPORT:-54427}"
 PASS=0; FAIL=0; KEYS=""
 EXPECT_TOTAL=9    # 🔴 量出來的(R1 移除 OVERLAP-CONTENTION 後由 10 降為 9)。全綠時 PASS = 9 + CELL-ACCOUNT + CELL-KEYSET = 11。
 BASE_ROUNDS=6; MUT_ROUNDS=5   # 🔴 基線輪數**不得少於**消融輪數(R3 nit-7):不准假綠的是基線,它的樣本反而更該厚
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-30s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-30s %s\n' "$1" "$2"; }
 
+# ══ 🔴 W7 跟片(2026-08-08):路徑閘 + trap teardown + fail-closed 殘留檢查 ══
+#   參考實作 = scripts/w7d1-verify.sh(關卡2 兩輪審過);四件一起做,少任何一件都留破口。
+#   🔴 **為什麼一定要 trap**(實測,不是推論):本檔 `set -u`,而**頂層**的 unbound variable
+#      會讓 shell 當場中止 —— `die()` 不會跑、檔尾也到不了 ⇒ **留一支活叢集**。
+#      B-301 的前置證據:在 w3c1 的 provision 之後注入一個頂層 unbound,
+#      實測留下 `postgres -D /tmp/w3vdb -p 54401`(PID 69587)。Ctrl-C 同理。
+#   🔴 trap 裝在 `pg_ctl start` **之前**:`-w start` 可能「postmaster 已起、只是等待逾時」
+#      就走 START_FAIL 分支 ⇒ 那條路原本也漏。
+#   🔴 `stop` 失敗時**不刪 datadir**,否則會變成「postmaster 還活著、資料目錄卻沒了」。
+#   🔴 殘留用 `postmaster.pid` + `pgrep` 綁本 datadir,**不用 TCP 埠** ——
+#      本檔的 server 是 `listen_addresses=`(只開 unix socket)⇒ TCP 恆為 0、零判別力。
+# 🔴 `/private/tmp` 也要收:macOS 的 `/tmp` 是 `/private/tmp` 的 symlink,
+#    而本線有 harness 的預設 datadir 就落在 scratchpad 的 `/private/tmp/...`(w0b:32)
+#    ⇒ 只認字面 `/tmp/` 會把合法路徑擋掉。**這道閘是本次掃掠自己踩到的**,已修。
+case "$D"    in /tmp/?*|/private/tmp/?*) : ;; *) echo "REFUSE: datadir 必須在 /tmp 或 /private/tmp 底下(現為 [$D])"; exit 1 ;; esac
+case "$SOCK" in /tmp/?*|/private/tmp/?*) : ;; *) echo "REFUSE: socket 目錄必須在 /tmp 或 /private/tmp 底下(現為 [$SOCK])"; exit 1 ;; esac
+case "$D"    in *..*) echo "REFUSE: datadir 不得含 .. (現為 [$D])"; exit 1 ;; esac
+case "$SOCK" in *..*) echo "REFUSE: socket 目錄不得含 .. (現為 [$SOCK])"; exit 1 ;; esac
+case "$D$SOCK" in *[!A-Za-z0-9/._-]*) echo "REFUSE: 路徑只允許 A-Za-z0-9/._- (pgrep -f 會把其餘字元當 regex ⇒ 殘留那道靜默失效)"; exit 1 ;; esac
+teardown() {
+  pg_ctl -D "$D" -w stop >/dev/null 2>&1
+  LEFTOVER="$(pgrep -f "postgres.*$D" 2>/dev/null | wc -l | tr -d ' ')"
+  if [ -f "$D/postmaster.pid" ] || [ "$LEFTOVER" != "0" ]; then
+    echo "🔴 TEARDOWN_WARN:postmaster 沒停乾淨(殘留程序 $LEFTOVER 支)⇒ **保留 datadir 與 socket 目錄供診斷**:$D / $SOCK"
+    return
+  fi
+  rm -rf "$D" "$SOCK"
+  # 🔴 rm 之後**實測 -e**、不要只印「已收」——「宣稱」不是「檢查」(本 repo 記過的恆真格家族)。
+  if [ -e "$D" ] || [ -e "$SOCK" ]; then
+    echo "🔴 TEARDOWN_WARN:rm 之後仍看得到 資料目錄=$([ -e "$D" ] && echo 殘留 || echo 0) / socket 目錄=$([ -e "$SOCK" ] && echo 殘留 || echo 0)"
+    return
+  fi
+  echo "  teardown:postmaster 已停、殘留程序 0、datadir 與 socket 目錄已收(-e 實測)"
+}
+trap teardown EXIT
+
 rm -rf "$D" "$SOCK"; mkdir -p "$SOCK"
-initdb -D "$D" -U postgres --no-sync -A trust -E UTF8 --locale=C >/dev/null 2>&1 || { echo INITDB_FAIL; exit 1; }
+initdb -D "$D" -U postgres --no-sync -A trust -E UTF8 --locale=C >/dev/null 2>"$SOCK/initdb.err" \
+  || { echo INITDB_FAIL; cat "$SOCK/initdb.err" 2>/dev/null; exit 1; }   # 🔴 R2 nit:原本 stderr 直接丟 /dev/null ⇒ 失敗只拿到六個字。隔壁 START_FAIL 有 cat log,這裡對齊。
 pg_ctl -D "$D" -o "-p $P -k $SOCK -c listen_addresses=" -l "$D/log" -w start >/dev/null 2>&1 \
-  || { echo START_FAIL; cat "$D/log"; exit 1; }
-die() { echo "$1"; pg_ctl -D "$D" -w stop >/dev/null 2>&1; rm -rf "$D" "$SOCK"; exit 1; }
+  || { echo START_FAIL; cat "$D/log" 2>/dev/null; exit 1; }
+die() { echo "$1"; exit 1; }   # 🔴 收尾一律交給 EXIT 的 trap teardown(單一離場路徑)
 Q()  { psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1 | tr -d '\n'; }
 QM() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1 | tr '\n' ' '; }
 
@@ -514,11 +554,14 @@ else
   printf '  FAIL %-30s %s\n' "CELL-KEYSET" "格名集合漂了:[$KEYS_NOW]"; FAIL=$((FAIL+1))
 fi
 
-pg_ctl -D "$D" -w stop >/dev/null 2>&1; rm -rf "$D" "$SOCK"
+# 🔴 原本這裡有一份行內收尾;已交給 EXIT 的 trap teardown,避免兩條收尾路徑各走各的。
 echo
 # 🔴 **離場清點量的是資料目錄與 socket 目錄,不是 TCP 埠**(R1 審查 nit-1):
 #    本檔的 cluster 以 `listen_addresses=`(空)啟動、**從不開 TCP** ⇒ `lsof -iTCP:$P` 永遠 0 行,
 #    那個數字對「有沒有殘留」**零判別力**(恆真)。改量真的會殘留的兩個東西。
 #    🔴 同線 w6b*/w6c 印的是那個恆真的埠數;本檔不跟進,據實換掉。
-echo "════ PASS=$PASS FAIL=$FAIL ════  殘留清點:資料目錄 $([ -e "$D" ] && echo 殘留 || echo 0) / socket 目錄 $([ -e "$SOCK" ] && echo 殘留 || echo 0) / 本檔 postgres 行程 $(pgrep -f "postgres.*$D" 2>/dev/null | wc -l | tr -d ' ')"
+#    🔴 **2026-08-08 W7 跟片再修一次**:本檔的清點方向本來就是對的(上面那段 R1 nit-1 的理由仍成立),
+#    但收尾改成 EXIT 的 trap teardown 之後,**這一行會跑在 teardown 之前** ⇒ 資料目錄必然還在、會誤報「殘留」。
+#    ⇒ 清點整個移進 teardown(停完才量),這裡只留指路。
+echo "════ PASS=$PASS FAIL=$FAIL ════  (殘留檢查見下一行 teardown 輸出)"
 [ "$FAIL" -eq 0 ] || exit 1

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ══════════════════════════════════════════════════════════════════════════
-# W7 · 出貨 writer 線的**跑過帳**(covering account = 「這 17 支到底有沒有被跑過」)
+# W7 · 出貨 writer 線的**跑過帳**(covering account = 「這 18 支到底有沒有被跑過」)
 #
-#   check(預設):驗收據 —— 17 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
+#   check(預設):驗收據 —— 18 支每支都有一張、都綠、跑的是**現在這個版本**的 harness、
 #                 跑的時候 migration 尾碼**就是現行的**。任何一條不成立就紅。
 #   record <支|all>:真的跑 harness、把結果寫成收據。慢(每支要 initdb + 重放全套 migration),
 #                 這是 **apply preflight 的本分**,不是每次 commit 都要做的事。
@@ -22,7 +22,7 @@
 #     (前一版要同步約 16 處字面 + 兩次心算加總 = 本 repo 復發第一名那個病的最大化版本)。
 #
 # ══ 🔴 證得了什麼 / 證不了什麼 ═══════════════════════════════════════════
-#   ✅ 這 17 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
+#   ✅ 這 18 支**被跑過**、跑的是現在這份程式碼、當時 migration 尾碼是現行的、結果全綠。
 #   ❌ **證不了**那些格「有判別力」—— 那是各支自己的靶在證(全線現況見 matrix.md §1)。
 #   ❌ **證不了**「該有的守門都想到了」。欠款清單在 matrix.md §3。
 #   ❌ 收據是**自陳**:它證的是「有人跑了並記下結果」,不是「結果沒被手改」。
@@ -30,7 +30,7 @@
 #
 # 用法:
 #   bash scripts/w7-coverage.sh              驗收據(快,<1s)
-#   bash scripts/w7-coverage.sh record all   跑全線 17 支並重寫收據(慢,~15-25 分)
+#   bash scripts/w7-coverage.sh record all   跑全線 18 支並重寫收據(慢,~15-25 分)
 #   bash scripts/w7-coverage.sh record w2-verify.sh   只重跑一支
 # ══════════════════════════════════════════════════════════════════════════
 set -u
@@ -43,7 +43,7 @@ MODE="${1:-check}"
 
 # 目錄裡的 W 線 harness 檔案集合。🔴 排除本檔自己(它沒有被測物、不是 harness)與收據檔。
 # 🔴 `^w[0-9]` 是命名慣例不是機制:未來若有人把 harness 取成別的開頭,它對本檔隱形。
-#    今天 17 支全部符合(逐支實查),這是**慣例債**、寫下來不假裝沒有。
+#    今天 18 支全部符合(逐支實查),這是**慣例債**、寫下來不假裝沒有。
 harness_set() { ls "$SCRIPTS" 2>/dev/null | grep -E '^w[0-9].*\.sh$' | grep -v '^w7-coverage\.sh$' | sort; }
 # 現行 migration 時間序尾碼(與 b2s2b-verify.sh 的 NEWEST_TS 閘同一個量法)
 newest_ts() { ls "$REPO"/supabase/migrations/*.sql 2>/dev/null | sed 's|.*/||; s|_.*||' | sort | tail -1; }
@@ -83,7 +83,10 @@ EXPECT_TOTAL=24   # 🔴 量出來的(**18** 逐支 + SET-MATCH + 四發靶 + NO
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-28s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-28s %s\n' "$1" "$2"; }
 rm -rf "$TMPD"; mkdir -p "$TMPD"
-trap 'rm -rf "$TMPD"' EXIT INT TERM
+# 🔴 R2 nit(2026-08-08):原本掛 `EXIT INT TERM`,那正是我在 18 支 harness **拒絕**的雙跑形狀。
+#    bash 3.2.57 實測:掛上 INT/TERM 後,被中斷的腳本**退出碼被洗成 0**(130→0、143→0)
+#    ⇒ 一次 Ctrl-C 的 `check` 會回 exit 0 = fail-open。EXIT 單掛就接得到 INT/TERM/HUP/QUIT,不需要它們。
+trap 'rm -rf "$TMPD"' EXIT
 
 TS_NOW="$(newest_ts)"
 

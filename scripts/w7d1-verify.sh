@@ -35,10 +35,14 @@ bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-36s %s\n' "$1" "$2";
 #    誤指到 repo 或家目錄時下面那句 `rm -rf` 會直接刪掉它。這道閘沒有成本,不設才是問題。
 # 🔴 白名單**與**路徑穿越各擋一次:`/tmp/?*` 單獨用擋不住 `/tmp/../Users/…`
 #    (`?` 吃到 `.`、`*` 吃掉其餘)—— 關卡2 R2 抓到。
-case "$D"    in /tmp/?*) : ;; *) echo "REFUSE: W7D1DB 必須是 /tmp 底下的路徑(現為 [$D])"; exit 1 ;; esac
-case "$SOCK" in /tmp/?*) : ;; *) echo "REFUSE: W7D1SOCK 必須是 /tmp 底下的路徑(現為 [$SOCK])"; exit 1 ;; esac
+# 🔴 `/private/tmp` 也要收:macOS 的 `/tmp` 是 `/private/tmp` 的 symlink,
+#    而本線有 harness 的預設 datadir 就落在 scratchpad 的 `/private/tmp/...`(w0b:32)
+#    ⇒ 只認字面 `/tmp/` 會把合法路徑擋掉。**這道閘是本次掃掠自己踩到的**,已修。
+case "$D"    in /tmp/?*|/private/tmp/?*) : ;; *) echo "REFUSE: datadir 必須在 /tmp 或 /private/tmp 底下(現為 [$D])"; exit 1 ;; esac
+case "$SOCK" in /tmp/?*|/private/tmp/?*) : ;; *) echo "REFUSE: socket 目錄必須在 /tmp 或 /private/tmp 底下(現為 [$SOCK])"; exit 1 ;; esac
 case "$D"    in *..*) echo "REFUSE: W7D1DB 不得含 .. (現為 [$D])"; exit 1 ;; esac
 case "$SOCK" in *..*) echo "REFUSE: W7D1SOCK 不得含 .. (現為 [$SOCK])"; exit 1 ;; esac
+case "$D$SOCK" in *[!A-Za-z0-9/._-]*) echo "REFUSE: 路徑只允許 A-Za-z0-9/._- (pgrep -f 會把其餘字元當 regex ⇒ 殘留那道靜默失效)"; exit 1 ;; esac
 
 # 🔴 誰起的誰收(b2s2b teardown 欠款那條教訓,dbc9a1f5)。三個修正都來自關卡2:
 #   ① trap **裝在 `pg_ctl start` 之前** —— 原本裝在 start 成功之後,
@@ -47,21 +51,26 @@ case "$SOCK" in *..*) echo "REFUSE: W7D1SOCK 不得含 .. (現為 [$SOCK])"; exi
 #   ③ 殘留檢查改用 **postmaster.pid + pgrep 綁本 datadir**,不用 TCP 埠 ——
 #      本檔的 server 是 `listen_addresses=`(只開 unix socket)⇒ **TCP 永遠是 0**,
 #      拿它當「殘留 0」的證據是**零判別力**(關卡2 抓到,原版真的這樣寫)。
-LEFTOVER="(未量)"
 teardown() {
   pg_ctl -D "$D" -w stop >/dev/null 2>&1
   LEFTOVER="$(pgrep -f "postgres.*$D" 2>/dev/null | wc -l | tr -d ' ')"
   if [ -f "$D/postmaster.pid" ] || [ "$LEFTOVER" != "0" ]; then
-    echo "🔴 TEARDOWN_WARN:postmaster 沒停乾淨(殘留程序 $LEFTOVER 支)⇒ **保留 datadir 供診斷**:$D"
+    echo "🔴 TEARDOWN_WARN:postmaster 沒停乾淨(殘留程序 $LEFTOVER 支)⇒ **保留 datadir 與 socket 目錄供診斷**:$D / $SOCK"
     return
   fi
   rm -rf "$D" "$SOCK"
-  echo "  teardown:postmaster 已停、殘留程序 0、datadir 已收"
+  # 🔴 rm 之後**實測 -e**、不要只印「已收」——「宣稱」不是「檢查」(本 repo 記過的恆真格家族)。
+  if [ -e "$D" ] || [ -e "$SOCK" ]; then
+    echo "🔴 TEARDOWN_WARN:rm 之後仍看得到 資料目錄=$([ -e "$D" ] && echo 殘留 || echo 0) / socket 目錄=$([ -e "$SOCK" ] && echo 殘留 || echo 0)"
+    return
+  fi
+  echo "  teardown:postmaster 已停、殘留程序 0、datadir 與 socket 目錄已收(-e 實測)"
 }
 trap teardown EXIT
 
 rm -rf "$D" "$SOCK"; mkdir -p "$SOCK"
-initdb -D "$D" -U postgres --no-sync -A trust -E UTF8 --locale=C >/dev/null 2>&1 || { echo INITDB_FAIL; exit 1; }
+initdb -D "$D" -U postgres --no-sync -A trust -E UTF8 --locale=C >/dev/null 2>"$SOCK/initdb.err" \
+  || { echo INITDB_FAIL; cat "$SOCK/initdb.err" 2>/dev/null; exit 1; }   # 🔴 R2 nit:原本 stderr 直接丟 /dev/null ⇒ 失敗只拿到六個字。隔壁 START_FAIL 有 cat log,這裡對齊。
 pg_ctl -D "$D" -o "-p $P -k $SOCK -c listen_addresses=" -l "$D/log" -w start >/dev/null 2>&1 \
   || { echo START_FAIL; cat "$D/log" 2>/dev/null; exit 1; }
 die() { echo "$1"; exit 1; }
