@@ -83,6 +83,20 @@ const {
   tapActiveRef: { current: [] as boolean[] },
 }));
 
+// 2026-08-08 結帳頁就地改地址:`CheckoutStep1` 從此 import 三個 server action。
+// 在 client 元件 import server action 是站上既有 pattern(`AddressTab` 同樣做),但 vitest 不走
+// Next 的轉換、會直接載入 server 模組並撞 `server-only` ⇒ 照 `AddressTab.test` 的既有慣例 mock 掉。
+const { mockAddAddress, mockUpdateAddress, mockDeleteAddress } = vi.hoisted(() => ({
+  mockAddAddress: vi.fn(),
+  mockUpdateAddress: vi.fn(),
+  mockDeleteAddress: vi.fn(),
+}));
+vi.mock('@/app/account/address/actions', () => ({
+  addAddressAction: mockAddAddress,
+  updateAddressAction: mockUpdateAddress,
+  deleteAddressAction: mockDeleteAddress,
+}));
+
 vi.mock('@/contexts/CartContext', () => ({
   useCart: () => cartRef.current,
 }));

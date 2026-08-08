@@ -1,8 +1,15 @@
 'use client';
 
-import Link from 'next/link';
+import { useState, useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { FREE_SHIPPING_THRESHOLD } from '@pcm/domain';
 import type { CustomerAddress } from '@pcm/domain';
+import {
+  addAddressAction,
+  updateAddressAction,
+  deleteAddressAction,
+} from '@/app/account/address/actions';
+import { InlineAddressForm, type InlineAddressInitial } from '@/components/account/InlineAddressForm';
 
 export type CheckoutStep1Props = {
   addresses: CustomerAddress[];
@@ -34,6 +41,40 @@ export function CheckoutStep1({
   onNext,
   nextDisabled,
 }: CheckoutStep1Props) {
+  const router = useRouter();
+  // 單一 inline 表單狀態,形狀對齊 `AddressTab`(同時只開一個:新增 or 編輯某一筆)。
+  const [addrEdit, setAddrEdit] = useState<InlineAddressInitial | null>(null);
+  const [, startTransition] = useTransition();
+
+  // 🔴 存檔成功的收尾由**本層**做(元件續存),不是表單自己 —— 理由與 `AddressTab` 同,
+  //   見 `InlineAddressForm` 的 `onSaved` 註解(P-205-STOP ③「新增後不刷新」)。
+  //   結帳頁多一件事:**新增成功要自動選中那筆**(主視窗裁定)——客人在結帳頁按新增,
+  //   多半就是要用那張;`shippingAddrId` 是 `CheckoutView` 的 lazy init state,
+  //   重讀清單不會讓它自己指過去,所以要靠 action 回傳的 `id`(編輯不回 id ⇒ 維持原選取)。
+  const handleSaved = (result: { id?: string }) => {
+    setAddrEdit(null);
+    if (result.id) onShippingAddressChange(result.id);
+    router.refresh();
+  };
+
+  // 🔴 結帳頁**獨有**的邊界(會員中心沒有「當前選中」的概念):刪掉的若正是選中那張,
+  //   `shippingAddrId` 會指向一個不存在的 id ⇒ 下一步的 `nextDisabled` 仍是 false、
+  //   卻帶著一個查無的地址往結帳走。落回「其餘地址裡的預設/第一張」;都沒了就清空
+  //   (`CheckoutView` 的 `nextDisabled` 會擋住下一步,客人被迫先新增一張)。
+  const handleDelete = (id: string) => {
+    if (!confirm('確定要刪除這筆地址?')) return;
+    startTransition(async () => {
+      const result = await deleteAddressAction(id);
+      if (!result.ok) return; // 失敗不刷新、卡片留著(不偽裝成功,對齊 AddressTab)
+      if (id === shippingAddrId) {
+        const rest = addresses.filter((a) => a.id !== id);
+        const fallback = rest.find((a) => a.isDefault)?.id ?? rest[0]?.id;
+        onShippingAddressChange(fallback ?? '');
+      }
+      router.refresh();
+    });
+  };
+
   return (
     <>
       <section className="co-section">
@@ -59,11 +100,59 @@ export function CheckoutStep1({
                 </div>
                 <div className="co-addr-line">{address.line}</div>
               </div>
+              {/* 🔴 Sean:就地改、不把客人帶離購物車。這兩顆在 <label> 內 ⇒ 點它們會連帶觸發
+                  label 的 radio 選取 —— `preventDefault` 擋掉(客人是要改這張,不是要選它)。 */}
+              <span className="co-addr-actions">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setAddrEdit(addrEdit?.id === address.id ? null : address);
+                  }}
+                >
+                  修改
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleDelete(address.id);
+                  }}
+                >
+                  刪除
+                </button>
+              </span>
             </label>
           ))}
-          <Link href="/account" className="co-addr-add">
-            ＋ 到會員中心新增 / 管理收件地址
-          </Link>
+          {addrEdit?.id && (
+            <div className="co-addr-form" role="group" aria-label="編輯地址">
+              <InlineAddressForm
+                addr={addrEdit}
+                onClose={() => setAddrEdit(null)}
+                // id 綁 closure(對齊 AddressTab 的既有做法:表單保持 generic、action 由呼叫端帶 id)
+                onSubmit={(input) => updateAddressAction(addrEdit.id!, input)}
+                onSaved={handleSaved}
+              />
+            </div>
+          )}
+          {/* ~~到會員中心新增 / 管理收件地址(<Link>,會把客人帶離結帳)~~ → 就地新增 */}
+          <button
+            type="button"
+            className="co-addr-add"
+            onClick={() => setAddrEdit({ isDefault: addresses.length === 0 })}
+          >
+            ＋ 新增收件人地址
+          </button>
+          {addrEdit && !addrEdit.id && (
+            <div className="co-addr-form" role="group" aria-label="新增地址">
+              <InlineAddressForm
+                addr={addrEdit}
+                onClose={() => setAddrEdit(null)}
+                onSubmit={addAddressAction}
+                onSaved={handleSaved}
+              />
+            </div>
+          )}
         </div>
 
         {notificationEmailEnabled && (

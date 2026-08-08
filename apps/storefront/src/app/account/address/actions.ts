@@ -35,11 +35,22 @@ export type AddressFieldErrors = {
   invoice?: AddressInvoiceFieldErrors;
 };
 
-// #181 雙通道 + ok 標(同 updateProfileAction 形狀;client 收 ok=true 後 router.refresh + 收合表單)。
+// #181 雙通道 + ok 標(同 updateProfileAction 形狀;client 收 ok=true 後由父層收尾——見
+// InlineAddressForm 的 onSaved 註解,2026-08-08 起不再由表單自己 refresh)。
 export type AddAddressActionResult = {
   fieldErrors?: AddressFieldErrors;
   formError?: string;
   ok?: true;
+  /**
+   * 新建立那筆的 id(**只有新增成功時有**;`updateAddressAction` 不回)。
+   *
+   * 2026-08-08 結帳頁 inline 新增:客人在結帳頁按「新增收件人地址」多半就是要用那張
+   * ⇒ 存檔後要**自動選中它**(主視窗裁定)。而結帳頁的 `shippingAddrId` 是 lazy init
+   * (只在 mount 算一次),重讀清單不會讓它自己指到新的那筆 ⇒ 需要 id 才選得中。
+   * 🔴 **additive**:`addAddress` use-case 本來就回傳 `CustomerAddress`,這裡只是不再把它丟掉;
+   *   會員中心兩個分頁不看這個欄位、行為零變化。
+   */
+  id?: string;
 };
 
 // g-5c 更新結果同新增形狀(InlineAddressForm onSubmit 共用此型別、編輯重用同表單)。
@@ -90,14 +101,16 @@ export async function addAddressAction(input: unknown): Promise<AddAddressAction
 
   // 信任邊界 ③/④/⑤:addAddress 用 currentUserId 填 customerUserId(不信 input)、isDefault swap、
   // RLS / DB CHECK 守;parsed.data shape 等同 AddressCreateInput(已 strip id/customerUserId/時間欄)。
+  let created;
   try {
-    await addAddress(await getAddressRepo(), user.id, parsed.data);
+    created = await addAddress(await getAddressRepo(), user.id, parsed.data);
   } catch {
     // RLS / CHECK / 連線異常拋 PostgrestError;不上洩原始 error、formError 包用戶字面。
     return { formError: '儲存失敗,請稍後再試' };
   }
 
-  return { ok: true };
+  // id 回傳給呼叫端(結帳頁要用它自動選中新地址;會員中心忽略)。見型別上的註解。
+  return { ok: true, id: created.id };
 }
 
 /**

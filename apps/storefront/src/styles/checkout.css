@@ -176,7 +176,9 @@
 .co-addr-list { display: flex; flex-direction: column; gap: 8px; }
 .co-addr {
   display: grid;
-  grid-template-columns: 20px 1fr;
+  /* 🔴 2026-08-08 第三欄=就地「修改 / 刪除」(Sean:不把客人帶離購物車)。
+     原本是 `20px 1fr` 兩欄;不加這一欄的話新元素會被 grid 擠到下一列、卡在地址文字底下。 */
+  grid-template-columns: 20px 1fr auto;
   gap: 12px;
   align-items: start;
   padding: 16px;
@@ -232,6 +234,31 @@
   transition: border-color 0.15s;
 }
 .co-addr-add:hover { border-color: var(--c-text); }
+
+/* 🔴 2026-08-08 結帳頁就地改地址(Sean 第二件交辦)。
+   design-reference 的結帳頁**沒有**這組(它的地址卡是唯讀、唯一出口是連去會員中心)⇒
+   視覺語彙直接沿用會員中心那組(`account.css` 的 `.acc-addr-actions`:12px、次級色、底線),
+   不另發明一套。⚠️ 本 worktree 的 `design-reference` submodule 是空目錄、**無法比對稿**,
+   這條依據是站上既有樣式,已記進 manifest business_override。 */
+.co-addr-actions {
+  display: flex;
+  gap: 14px;
+  align-self: start;
+}
+.co-addr-actions button {
+  font-size: 12px;
+  color: var(--c-text-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
+}
+.co-addr-actions button:hover { color: var(--c-text); }
+/* inline 表單容器:跨滿三欄(表單本身的樣式沿用 `.acc-inline-form-inner`,由元件自帶)。 */
+.co-addr-form {
+  border: 1px solid var(--c-border);
+  background: var(--c-surface);
+  padding: 16px;
+}
 
 /* B-3 business override:design-reference 沒有通知 Email；沿用既有 auth-field 視覺語言。 */
 .co-notification-email { margin: 18px 0 0; }
