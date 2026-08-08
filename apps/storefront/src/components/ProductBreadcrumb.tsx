@@ -13,6 +13,7 @@ import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import type { MockProduct } from '@/data/mock-products';
 import { MOCK_MOTO_BRANDS } from '@/data/mock-moto-brands';
 import { slugify } from '@/lib/vehicle-taxonomy';
+import { navigateToCatalog } from '@/lib/catalog-navigation';
 
 type Crumb = { label: string; href?: string; current?: boolean };
 
@@ -131,7 +132,9 @@ export function ProductBreadcrumb({ product }: { product: MockProduct }) {
   // SPA onNav('products', { vehicle }) 轉譯成 URL push;屬合理 URL 轉譯、行為對等)
   const handleVehicleNavigate = () => {
     if (!vehicle) return;
-    router.push(`/products?vehicle=${encodeURIComponent(vehicle)}`);
+    // 🔴 走 navigateToCatalog、不裸 push:PDP 通常已經被捲到很下面,落地不歸零的話
+    //    首排商品會被黏頂篩選列蓋住(與首頁 finder 同一根因;D-310-A Bug 2)。
+    navigateToCatalog(router, `/products?vehicle=${encodeURIComponent(vehicle)}`);
   };
 
   return (
