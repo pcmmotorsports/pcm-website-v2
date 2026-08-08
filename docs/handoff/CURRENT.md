@@ -1,5 +1,29 @@
 # CURRENT HANDOFF — pcm-website-v2
 
+> 🧭 **2026-08-08 18:05 主視窗壓縮前 checkpoint(壓縮後讀本節;第一動=掃 pcm-mailbox 全量+確認哨兵活著+讀背景任務 `beatqbqm2` 刷新片三綠結果)。**
+>
+> **現況**:dev 頂端見 `git log`(未推 **15+ 顆**,今日全 D 線收割+W7d-1+正式站事故落檔);哨兵樣板=本 session scratchpad `sentinel.sh`(基準 mail-baseline;死了重掛)。全套約 **392 檔 5824 綠**(刷新片 merge 後待背景三綠確認)。
+>
+> **🎉 正式站三活體事故全解(端到端驗證通過,STATUS 頂條)**:Google 登入(Supabase Site URL 改好)/刷卡 3DS(TapPay 後台開通,Sean 實刷跳 3D+取消回購物車)/email 登入(正式站 uitest 實測成功;本機 3111 那個 500=本機環境特有,正式站乾淨)。
+>
+> **🔴 我接手中的一件(壓縮後續完)**:D 的「會員中心新增地址後不刷新」修法=**刷新時序片已 merge `a9201753`**(為驗根因才併);背景 `beatqbqm2` 跑三綠+全套。**根因驗證未完成**——方法=①`beatqbqm2` 綠後 rebuild 3111(殺舊 next-server 起新 `PORT=3111 pnpm start`)②用 uitest(`uitest@pcmmotorsports.com`/`PCMtest-89c978c3`)真登入 3111 或正式站→/account 新增地址→**看清單即時刷新沒有**(D 可反駁預測:刷新=根因成立/不刷新=改查 RSC 快取,D 修法要重來)。⚠️ 本機 3111 email 登入曾 500(build 老舊?)→ rebuild 後應解;沒解就用正式站 uitest 驗(但修法未上正式站→需 push dev:main,D 警告未驗不鋪金流動線,故優先本機)。**驗過才准 D 接結帳頁那半**(D-246-STOP 等此)。
+>
+> **Sean 四拍板(全落檔)**:①**#342 加購鈕補兩面=要**(商品目錄+品牌頁走 RPC 無 variantCount 現一律導頁;補齊要 RPC 帶變體數=鐵則12③+8;派 D 排隊)②**HCT 出貨定義=包含新竹送單成功**(落 memory shipments 檔+codex findings #3 MF-1;出貨線做到該段執行)③**doc_id 排序鍵=要**(回報價單側加 `pdf_docs→{doc_id,type_id,url}` 穩定排序;Sean 轉貼,文案見 STATUS/本檔下)④**D 刷新驗證=主視窗自接**(上條)。
+>
+> **選車卡微調拍板(D-247-A 派工中)**:Sean 選 **37%**(收提示行)+選車三欄位高度再降+欄位內字級再縮;做梯度版截圖給 Sean 挑(放 `~/pcm-截圖/選車卡比例/` 續編號);底線=字級勿破年長可讀、觸控勿破 44px。
+>
+> **工人窗兩線**:**D**(`pcm-site-redesign`)=checkout 地址 inline 片(刷新時序 commit 已交等我驗根因→驗過接結帳頁那半,含「刪當前選中地址→shippingAddrId 落回」守門;plan=`docs/specs/2026-08-08-checkout-address-inline-plan.md`)→選車卡微調 D-247。**B**(`pcm-a4a-chain`)=W7d-1 已收割(`07c3eb64`,五步全綠+ACL 極性翻正);續跑 **16 檔 trap teardown 掃掠**(B-301-Q,Sean 指示續、B-230-A 確認不重工);未動=W7d-2(a8a2 錨重建)/W7d-3/W7 假綠家族全線掃。**P 窗已關**(全站 UI/UX 掃測完,報告 `docs/reviews/2026-08-08-full-site-ui-sweep.md`,三 A 級=搜尋空殼/收藏兩端沒接線/account 新增不刷新〔D 正修〕)。
+>
+> **codex 補審七片全收束**(`docs/reviews/2026-08-08-codex-backfill-findings.md`):全 FAIL 但 runtime 主邏輯未被擊破,債在證明品質(轉譯層 fail-open→W7d 修/harness 假綠家族→W7 跟片/指紋 scale→併 W8);全趕在 migration apply 前。
+>
+> **待 Sean(非阻塞)**:doc_id 轉貼報價單側(文案下)/選車卡微調挑圖(D 交梯度版後)/推 dev·dev:main(15+ 顆)。**回報價單側 doc_id 文案**:「同意加 `pdf_docs→{doc_id, type_id, url}`,doc_id=官方文件 Id 當穩定排序鍵,讓文件編號重同步不跳動。這是我們要的,請動手。」
+>
+> **搜尋線**(P 掃測 A 級,已拍 A 排 M-4b 後):單一入口 memory `project_storefront-keyword-search-line`(料號第一優先/口語同義詞/PGroonga;codex MVP 五步已在檔)。
+>
+> **工法補遺**:SendMessage=死 session socket 回 success 但零收件(memory `reference_sendmessage-success-not-delivery`)⇒ 位址當下 ListAgents 取、信箱唯一正式通道、只當門鈴;掃信 date+find 同行整塊貼;撥 baseline 前先 ls 對照已處理集(今日吞 B-296 一次);STATUS Edit 錨點勿跨條目吃鄰條開頭(今日踩一次)。
+
+
+
 > 🧭 **2026-08-08 02:45 主視窗第二次壓縮前 checkpoint(壓縮後讀本節;第一動=全量掃兩個信箱、確認背景鬧鐘/哨兵活著——壓縮不殺背景任務,重開才殺)。**
 >
 > **現況**:dev 頂端見 `git log`(未推約 24+ 顆,Sean 手動推)、全套 **382 檔 5677 綠+1 todo**、樹乾淨(僅 Sean 兩顆 untracked png)。**夜跑兩窗現役**:**D**(舊窗被 D-219-A 哨兵喚醒自續,勿再開新窗)=忘記密碼片 Fable 審查→commit(**Q29=A**:Fable 代 codex、審過即收,codex 恢復後補背書)→ 接年份欄修活+Q28 片(規格=D-218-A+memory Q28);**B**=W7c(災難日 runbook,備料=B-294⑨)→W7→**W7d**(主視窗裁:兩 writer 補 40P01 handler+s2b position 錨,apply 前最後窗口;規格=B-215-A②),開工令=B-216-A(第一動 merge dev 同步八檔重釘)。**E/附件窗已收線**(三片全收:null 活雷拆/doc_type 正名/sound_clips 三件套未 apply;無可跑工勿開)。
