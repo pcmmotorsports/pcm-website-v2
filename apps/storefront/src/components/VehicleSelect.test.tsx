@@ -467,7 +467,7 @@ describe('VehicleCombo — onDraftTextChange(Q8=A)', () => {
     const onDraftTextChange = vi.fn();
     render(<DraftProbe value={null} onDraftTextChange={onDraftTextChange} />);
     const input = combo('測試欄位');
-    // `ka` 只是 Kawasaki 的**子字串**;`uniqueExactMatch`(vehicle-match.ts:36-45)要的是
+    // `ka` 只是 Kawasaki 的**子字串**;`uniqueExactMatch`(vehicle-match.ts:62-71,2026-08-08 加 `looseVehicleKey` 註解後推移)要的是
     // 正規化後**完全相等** ⇒ 對不上任何選項 = 非唯一精確命中 ⇒ 走 Q4=B 留字那條。
     fireEvent.change(input, { target: { value: 'ka' } });
     fireEvent.blur(input);
