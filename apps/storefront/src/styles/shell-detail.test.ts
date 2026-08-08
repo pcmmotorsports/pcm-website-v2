@@ -159,16 +159,18 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
     'products-mobile.css',
   ] as const;
 
-  it('🔴 token 定義:桌機 73px、≤1079 覆寫 69px', () => {
+  it('🔴 token 定義:桌機 73px、≤1079 覆寫 60px', () => {
     expect(CSS['tokens.css'], '找不到 --shell-header-h 定義').toMatch(/--shell-header-h:\s*73px/);
     const mobile = mediaBlock('tokens.css', '(max-width: 1079px)');
     expect(mobile, 'tokens.css 找不到 ≤1079 的覆寫段').not.toBe('');
-    expect(mobile, '手機/平板沒把頁首高覆寫成 69px').toMatch(/--shell-header-h:\s*69px/);
+    // 🔴 2026-08-09:69 → 60(Sean 看過四張梯度截圖後挑 `3-`)。
+    //    **斷言跟著行為改、不是放寬**:寫回 69 一樣紅。
+    expect(mobile, '手機/平板沒把頁首高覆寫成 60px').toMatch(/--shell-header-h:\s*60px/);
   });
 
-  // 前提:73 / 69 這兩個數字不是憑空來的,而是 padding + 44 + 1px 框線算出來的。
+  // 前提:73 / 60 這兩個數字不是憑空來的,而是 padding + 44 + 1px 框線算出來的。
   // `header.css` 的 padding 或按鈕尺寸一改,token 就說謊了 —— 那時要當場紅在這裡。
-  it('🔴 前提 — 73/69 的算式成分還在(padding 14/12、按鈕 44、下框線 1px)', () => {
+  it('🔴 前提 — 73/60 的算式成分還在(padding 14/7.5、按鈕 44、下框線 1px)', () => {
     // 🔴 要比**整個 shorthand**,不是只比第一值(D-111-A nit 2):
     //    `/padding:\s*14px/` 對 `padding: 14px 20px 16px` 照樣命中,而那會讓實高變成
     //    14+44+16+1 = **75**、token 說謊 73,且沒有任何東西會紅。
@@ -176,15 +178,61 @@ describe('頁首高度單一來源 --shell-header-h(0b:40→44 的連動)', () =
     expect(block('header.css', '.pcm-header-inner'), '頁首桌機 padding 不是「14px + --shell-x」兩值形式')
       .toMatch(/padding:\s*14px\s+var\(--shell-x\)\s*;/);
     const mobileHeader = mediaBlock('header.css', '(max-width: 1079px)');
-    expect(mobileHeader, '頁首 ≤1079 段不見了 ⇒ 手機值 69 的算式失效')
-      .toMatch(/padding:\s*12px\s+16px\s*;/);
-    expect(block('header.css', '.pcm-icon-btn'), '按鈕高不是 44 ⇒ 兩個 token 值都要重算')
+    // 🔴 2026-08-09 **刻意不再釘手機 padding 的數值**,只釘形狀(兩值、左右 16px)。
+    //    理由:下面那條「算式自己算一次」如果連 padding 也被逐字釘死,它就被這幾條**嚴格蘊含**
+    //    —— 四個成分都固定的話,加起來當然等於 token,那條會變成**恆真、零判別力**
+    //    (寫不出只紅它的突變 = 守門是 no-op,本週已踩過三次)。
+    //    把數值交給算式那條去守 ⇒ 「padding 改 8px 卻忘了同步 token」現在只有它會紅。
+    expect(mobileHeader, '頁首 ≤1079 段的 padding 不是「上下 + 左右 16px」兩值形式')
+      .toMatch(/padding:\s*[0-9.]+px\s+16px\s*;/);
+    // 按鈕 44px 留逐字釘:它的理由**不是算式**,是觸控無障礙底線(獨立於頁首高度)。
+    expect(block('header.css', '.pcm-icon-btn'), '按鈕高不是 44 ⇒ 破觸控無障礙底線(與頁首高度無關的獨立理由)')
       .toMatch(/height:\s*44px/);
-    expect(block('header.css', '.pcm-header {'), '頁首下框線不是 1px ⇒ 兩個 token 值都要重算')
-      .toMatch(/border-bottom:\s*1px/);
   });
 
-  // 🔴 兩處斷點必須同值:`header.css` 在 1079 把 padding 收成 12,token 也在 1079 換成 69。
+  // 🔴🔴 2026-08-09 新增:**算式自己算一次**,不是逐個比字面。
+  //    上面那條釘的是「成分還在」,但成分對不代表加起來等於 token —— 有人把 padding 改成 9px、
+  //    token 忘了跟著改,上面那條會紅沒錯;可是有人**兩邊都改、卻算錯**(例如 padding 8 配 token 60),
+  //    上面那組逐字比對就完全看不出來。這條把加法真的做一遍。
+  it('🔴 手機頁首:padding×2 + 鈕高 + 下框線 == --shell-header-h(token 不准說謊)', () => {
+    const num = (re: RegExp, hay: string, what: string) => {
+      const m = re.exec(hay);
+      expect(m, `抓不到${what} ⇒ 本條前提失效`).not.toBeNull();
+      return Number(m?.[1]);
+    };
+    const mobileHeader = mediaBlock('header.css', '(max-width: 1079px)');
+    const pad = num(/padding:\s*([0-9.]+)px\s+[0-9.]+px\s*;/, mobileHeader, '手機 padding');
+    const btn = num(/height:\s*([0-9.]+)px/, block('header.css', '.pcm-icon-btn'), '按鈕高');
+    const border = num(/border-bottom:\s*([0-9.]+)px/, block('header.css', '.pcm-header {'), '下框線');
+    const token = num(
+      /--shell-header-h:\s*([0-9.]+)px/,
+      mediaBlock('tokens.css', '(max-width: 1079px)'),
+      '手機 token',
+    );
+    expect(
+      pad * 2 + btn + border,
+      `算出來是 ${pad * 2 + btn + border}px,token 卻宣告 ${token}px ⇒ 全站 sticky 偏移會差 ${Math.abs(pad * 2 + btn + border - token)}px,而畫面不會有任何錯誤`,
+    ).toBe(token);
+  });
+
+  // 🔴 LOGO 置中(Sean 2026-08-09 拍板)。原本是 flex + space-between ⇒ 左邊兩顆鈕、右邊一顆,
+  //    LOGO 落在剩餘空間的中央 = 對視窗**偏右 24px**(390 與 768 實測皆 24)。
+  //    釘的是「三欄 grid + 左右各佔一等份」這個**結構**,不是某個位移數字 ——
+  //    位移是結果、CSS 測不到;結構在,置中就成立,而且兩側鈕數量再變也不會失準。
+  it('🔴 手機頁首 LOGO 對視窗置中(三欄 grid、左右等寬)', () => {
+    const mobileHeader = mediaBlock('header.css', '(max-width: 1079px)');
+    expect(mobileHeader, '頁首手機段不是 grid ⇒ 退回 flex 的話 LOGO 會再次偏右').toMatch(
+      /\.pcm-header-inner\s*\{[^}]*display:\s*grid/,
+    );
+    expect(
+      mobileHeader,
+      '三欄不是「1fr auto 1fr」⇒ 左右不等寬,中欄就不是對視窗置中',
+    ).toMatch(/grid-template-columns:\s*1fr\s+auto\s+1fr/);
+    expect(mobileHeader, '左欄沒有靠左').toMatch(/\.pcm-header-left\s*\{[^}]*justify-self:\s*start/);
+    expect(mobileHeader, '右欄沒有靠右').toMatch(/\.pcm-header-right\s*\{[^}]*justify-self:\s*end/);
+  });
+
+  // 🔴 兩處斷點必須同值:`header.css` 在 1079 收 padding,token 也在 1079 換值。
   //    只改一邊的話,中間那一段(例如改成 1023)token 會說謊 —— 症狀只有「sticky 差幾像素」。
   it('🔴 前提 — token 的斷點與 header padding 的斷點同為 1079px', () => {
     expect(mediaBlock('tokens.css', '(max-width: 1079px)'), 'token 斷點不是 1079').not.toBe('');
