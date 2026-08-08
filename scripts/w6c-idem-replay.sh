@@ -110,7 +110,7 @@ QF() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 #    🔴 本片**沒有新 migration** ⇒ 七個同值、其餘六個零改動(落檔申報)。
 #    (`scripts/w4b-verify.sh` 用的是 `PREFIX_TS` 前綴重放錨,逐字寫明「不再對目錄尾端有意見」
 #      ⇒ 它**不在**這七個之內,別把它一起改。)
-LINE_TIP="20260808000000"
+LINE_TIP="20260808100000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 

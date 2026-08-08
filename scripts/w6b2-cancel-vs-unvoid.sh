@@ -69,8 +69,11 @@
 #           🔴 但引用它必須連兩個限定詞一起讀:**今天正式站構造不出來**(應用 role 對 receipts 零寫入權)
 #           且**只對未付款單成立** ⇒ 那是**第 2 批到貨 writer 的開工硬前置**,不是「線上現在有洞」。
 #   · `W6B2-LOSER-HUMAN` 量的是 **C6′ 的轉譯**,而 C6′ 只在突變後可觀察
-#     ⇒ 這一格**只能在突變過的 schema 上跑**,檔內已標。它證「是人話」,不證「引導是對的」
-#     (W6b-1 F3 那筆欠款同族,見 `B-289-STOP` ④)。
+#     ⇒ 這一格**只能在突變過的 schema 上跑**,檔內已標。
+#     🔴 **2026-08-08 W7d-1 更新**:它以前只證「是人話」、不證「引導是對的」(W6b-1 F3 同族欠款)。
+#        W7d-1 讓 `admin_unvoid_shipment` 在自己的 handler 覆寫 C9 補救方向之後,
+#        本格的判定式改認覆寫字面 ⇒ **連方向一起證了**,那筆欠款在這條路上結清。
+#     🔴 但**證據等級仍只到「序列流程」** —— 驗訊息的 `seq_c6p` 是取消先提交再呼 unvoid,不是併發臂。
 #
 # ══ 🔴 判準四句(承自 w0b/w1/w2/w3*/w5/w6a/w6b1)══════════════════
 #   🔴 消融必須由紅轉綠,否則判別力歸屬錯。
@@ -100,7 +103,7 @@ QF() { psql -X -v VERBOSITY=verbose -h "$SOCK" -p $P -U postgres -d postgres -qt
 
 # 🔴 **第五個釘值檔**(b2s2b / w5 / w6a / w6b1 / 本檔)—— 新片落檔要**同批重釘五個**。
 #    機制承接仍在 backlog;在那之前這行是人工紀律,而人工紀律已經漏過一次(W4-1 漏了 w6a)。
-LINE_TIP="20260808000000"
+LINE_TIP="20260808100000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
@@ -210,7 +213,20 @@ side() { case "$1" in *ERROR*) printf 'ERR' ;; *idempotent*) printf 'OK' ;; *) p
 bizrej() { case "$1" in *P0001*) case "$1" in *"admin_cancel_order: 取消失敗"*) printf 'BIZ'; return ;; esac ;; esac; printf 'NO'; }
 # 🔴 C6′ 的兩種面貌要分開認,**不能共用一個 `human`**:
 #    轉譯過的 = P2B29 + C6′ 專屬引導句;raw 的 = 23514 + conname。混在一起就分不出轉譯層有沒有作用。
-c6p_human() { case "$1" in *"已取消 + 已出貨"*) case "$1" in *P2B29*) printf 'HUMAN'; return ;; esac ;; esac; printf 'NO'; }
+# 🔴🔴 W7d-1(2026-08-08)改了這條路上的期望字面,而且是**往好的方向**:
+#   原本比對共用轉譯層那句「已取消 + 已出貨…①先作廢這個包裹」——
+#   但走到這裡的是**復原側的輸家**,那箱**本來就是作廢態** ⇒ 教它「先作廢」= 方向寫反
+#   (B-220-A MF-1 / 教錯動作家族第三例)。W7d-1 讓 admin_unvoid_shipment 在自己 handler 內覆寫。
+#   ⇒ 期望字面改認覆寫後那句的指紋「它現在就是作廢狀態」。
+# 🔴 **本格因此升級**:原本自認「只證是人話、不證引導正確」(同 W6b-1 F3),
+#   現在那句人話明文寫著「不要再去作廢它」⇒ **連方向一起證了**,該筆債在這條路上結清。
+# 🔴 消融語意零改:覆寫排在 `IF v_msg IS NULL THEN RAISE;` **之後**
+#   ⇒ 把轉譯層換成回 NULL 的 mutant 時照舊落 raw 23514,`c6p_raw` 不受影響。
+# 🔴 **證據等級要說準**(關卡2 抓到我把它寫高了):驗這句訊息的 `seq_c6p` 是
+#   「取消**先提交**、再呼 unvoid」的**序列**流程,**不是** barrier 併發。
+#   ⇒ 它證的是「C6′ 在復原側浮出時,員工看到的是方向正確的人話」,
+#     **不證**「真併發下也會這樣」。本檔的併發臂在別的格,不要拿這一格去頂。
+c6p_human() { case "$1" in *P2B29*) case "$1" in *"它現在就是作廢狀態"*) printf 'HUMAN'; return ;; esac ;; esac; printf 'NO'; }
 c6p_raw()   { case "$1" in *oiqs_cancelled_shipped_le_quantity*) case "$1" in *23514*) printf 'RAW'; return ;; esac ;; esac; printf 'NO'; }
 conname()   { printf '%s' "$1" | sed -n 's/.*CONSTRAINT NAME:  *\([a-z0-9_]*\).*/\1/p' | head -1; }
 
@@ -405,7 +421,7 @@ seq_c6p() { # $1=代號 → 印復原那一筆的完整輸出;前置失敗則印
 }
 TH="$(seq_c6p t1)"; case "$TH" in SEQFAIL\|*) die "SEQ_C6P_FAIL: ${TH#SEQFAIL|}" ;; esac
 [ "$(c6p_human "$TH")" = "HUMAN" ] \
-  && ok W6B2-LOSER-HUMAN "🔴 C6′ 紅在復原側時帶的是**人話**(P2B29 + 「已取消 + 已出貨」引導句、…w3c3…sql:87 那條映射),不是 raw 23514 ✓(🔴 只證是人話、不證引導正確,同 W6b-1 F3)" \
+  && ok W6B2-LOSER-HUMAN "🔴 C6′ 紅在復原側時帶的是**方向正確的人話**(P2B29 + W7d-1 的復原方向覆寫、含指紋「它現在就是作廢狀態」——即判定式驗的那一句),不是 raw 23514、也不再是教錯方向的「先作廢」✓(🔴 序列流程,不是併發臂;見上方註解)" \
   || bad W6B2-LOSER-HUMAN "復原側的 C6′ 錯誤不是人話:[$TH]"
 MUTOUT="$(QM "CREATE OR REPLACE FUNCTION public.pcm_b2_shipping_human_error(p_sqlstate text, p_conname text) RETURNS text LANGUAGE sql IMMUTABLE SECURITY INVOKER SET search_path='' AS \$m\$ SELECT NULL::text \$m\$")"
 case "$MUTOUT" in *ERROR*) die "MUT_APPLY_FAIL(translation): $MUTOUT" ;; esac

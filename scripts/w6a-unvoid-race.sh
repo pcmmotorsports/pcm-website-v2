@@ -11,6 +11,20 @@
 #     抓得到 ⇒ W6b/W6c 可以拿它當底座繼續堆證據。
 #     抓不到 ⇒ **現在就要知道**,而不是等 W6c 堆完才發現整座 rig 是空的。
 #
+# ══ 🔴🔴 W7d-1(2026-08-08)之後,「有沒有死結」的觀察點變了 ═══════
+#   W7d-1 給 admin_unvoid_shipment 補了 40P01 有界重試 ⇒ **真死結會被吸收、不再浮到 client**。
+#   本檔原本三個地方都只認「輸出裡有沒有 40P01」:
+#     `sidewise0`(基準分類器)/ `sidewise`(有序輪分類器)/ 突變輪的 HIT 掃描。
+#   若只改突變輪那一個,**基準輪會變成瞎的** —— 基準宣稱「零 40P01」,而被吸收的死結它看不見
+#   ⇒ 那會是「修實例不修類」。三處**一起**改成同時認 `W7D1-RETRY` 這個 NOTICE
+#   (writer 每吸收一次死結就發一行;NOTICE 不隨子交易回滾撤回,race2 的 psql 都帶 2>&1 收得到)。
+#   🔴 **但「偵測到死結」與「重試把它吸收了」是兩件事**(關卡2 抓到我把它們混為一談):
+#      三次全撞、最後以 `P2B28` 耗盡收場,一樣會有 NOTICE、一樣會讓 `HIT=1`。
+#      ⇒ 另設 `ABSORB` 旗標:**看到重試 NOTICE 且沒有以 P2B28 收場**才算「重試之後真的成功」。
+#      `TMUT-LOCK-ORDER` 的訊息依 `ABSORB` **動態措辭** —— 沒觀察到吸收時,它只宣稱「死結被偵測到」,
+#      並明寫**不得**被引用為「重試會吸收死結」的證據。
+#      (`add × ship` 那一對仍然無人演示,見 W7d-1 migration 檔頭。)
+#
 # ══ 🔴 被測的那條不變量 ═════════════════════════════════════════
 #   `pcm_a4a_shipments_summary_recompute()`(`…s2b.sql:338-345`)逐字:
 #     `SELECT DISTINCT si.order_item_id … ORDER BY si.order_item_id` → 逐個 `recompute(order_item_id)`,
@@ -76,7 +90,7 @@ QM() { psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA -c "$1" 2>&1; }
 # 🔴 **第一次重釘(W4-1 落檔)**:本檔與 `w5-line-verify.sh` 是同族(都釘在線的尖端)——
 #    W4-1 那次我重釘了 W5、**忘了這一支**,是它自己 die 才發現。
 #    ⇒ 新片落檔要**同批重釘兩個檔**;這條與 b2s2b 的釘值屬同一族欠款。
-LINE_TIP="20260808000000"
+LINE_TIP="20260808100000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] || die "migration 尾端是 $NEWEST_TS,不是釘住的 $LINE_TIP —— 本檔跑在線的尖端,重釘後再跑。"
 
@@ -172,7 +186,7 @@ B1="$(race_once base)"
                 || bad W6A-BARRIER "barrier 沒成立(兩邊沒同時卡上)⇒ 下面的觀察不是併發證據"
 OUTA="$(cat "$D/a.base")"; OUTB="$(cat "$D/b.base")"
 # 🔴 判準與 §2 同款(逐邊、要求成功證據)—— 兩格不同款會讓「哪一格比較嚴」變成偶然。
-sidewise0() { case "$1" in *40P01*|*deadlock*) printf 'DEADLOCK' ;; *idempotent*) printf 'OK' ;; *) printf 'BAD' ;; esac; }
+sidewise0() { case "$1" in *40P01*|*deadlock*|*W7D1-RETRY*) printf 'DEADLOCK' ;; *idempotent*) printf 'OK' ;; *) printf 'BAD' ;; esac; }
 case "$(sidewise0 "$OUTA"):$(sidewise0 "$OUTB")" in
   DEADLOCK:*|*:DEADLOCK) bad W6A-BASELINE-NO-DEADLOCK "🔴 基準就死結了" ;;
   OK:OK)                 ok  W6A-BASELINE-NO-DEADLOCK "取鎖序在場 ⇒ 兩個 unvoid 併發**逐一都成功、零 40P01** ✓" ;;
@@ -268,7 +282,7 @@ OA="$(cat "$D/a.ord")"; OB="$(cat "$D/b.ord")"
 #    —— 那是**存在量詞**,不是「兩邊都成功」。一邊成功、另一邊在 psql client 層失敗
 #    (輸出是小寫 `psql: error:`、不含大寫 ERROR)⇒ 本格照樣綠,而訊息寫著「兩邊都真的成功」。
 #    ⇒ **逐邊各自判**。這是本檔第五次踩「判定式比宣稱寬」。
-sidewise() { case "$1" in *40P01*|*deadlock*) printf 'DEADLOCK' ;; *idempotent*) printf 'OK' ;; *) printf 'BAD' ;; esac; }
+sidewise() { case "$1" in *40P01*|*deadlock*|*W7D1-RETRY*) printf 'DEADLOCK' ;; *idempotent*) printf 'OK' ;; *) printf 'BAD' ;; esac; }
 SA="$(sidewise "$OA")"; SB="$(sidewise "$OB")"
 case "$SA:$SB" in
   DEADLOCK:*|*:DEADLOCK) bad W6A-ORDERED-NO-DEADLOCK "🔴 **正確序**下也死結了:A=$SA B=$SB" ;;
@@ -277,7 +291,7 @@ case "$SA:$SB" in
 esac
 
 # ── ② 突變(亂序 + 同一套同步點):等長同形,唯一的差是序 ──
-HIT=0; ROUNDS=0; SYNCOK=0; RAN=0
+HIT=0; ROUNDS=0; SYNCOK=0; RAN=0; ABSORB=0
 install_probe "pg_catalog.random()"
 for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
   ROUNDS=$i
@@ -285,7 +299,13 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
   S="$(race2 "m$i")"
   [ "$S" = "1" ] && SYNCOK=1
   OA="$(cat "$D/a.m$i")"; OB="$(cat "$D/b.m$i")"
-  case "$OA$OB" in *40P01*|*deadlock*) HIT=1 ;; esac
+  case "$OA$OB" in *40P01*|*deadlock*|*W7D1-RETRY*) HIT=1 ;; esac
+  # 🔴 關卡2 must-fix:HIT 只證「死結發生過」。**「被吸收」是另一件事** ——
+  #    三次全撞、最後以 P2B28 耗盡也會有 NOTICE、也會讓 HIT=1。
+  #    ⇒ 另設 ABSORB:看到重試 NOTICE **且**沒有以 P2B28 收場,才算「重試之後真的成功了」。
+  case "$OA$OB" in
+    *W7D1-RETRY*) case "$OA$OB" in *P2B28*) : ;; *) ABSORB=1 ;; esac ;;
+  esac
   # 🔴 同族(跨模型審查):RAN 也曾是單邊量詞 ⇒ 逐邊都 OK 才算「兩邊都執行了」
   [ "$(sidewise "$OA")" != "BAD" ] && [ "$(sidewise "$OB")" != "BAD" ] && RAN=1
   [ "$HIT" = "1" ] && break
@@ -296,7 +316,9 @@ done
 [ "$SYNCOK" = "1" ] && ok W6A-SYNC-REACHED "至少有一輪**兩邊都卡在迴圈中途的同步點**上 ⇒ 編排真的把交錯製造出來了(不是先後執行)✓" \
                     || bad W6A-SYNC-REACHED "🔴 沒有任何一輪讓兩邊同時卡在同步點 ⇒ 下面那格量到的不是交錯"
 if [ "$HIT" = "1" ]; then
-  ok TMUT-LOCK-ORDER "🔴🔴 同一套同步點、只把迭代序打亂 ⇒ 第 $ROUNDS 輪抓到 **40P01 真死結** = 這套編排**對「序不穩定」型的退化有判別力**。
+  ABSORB_NOTE="$([ "${ABSORB:-0}" = "1" ] && printf '而且**重試之後真的成功了**(有 W7D1-RETRY 且未以 P2B28 收場)⇒ 這是 W7d-1 那個重試目前**唯一的真死結證據**' || printf '🔴 但**本輪沒有觀察到「重試後成功」**(未見 NOTICE,或見到卻以 P2B28 耗盡收場)⇒ 本格只證死結被偵測到,**不得引用為「重試會吸收死結」的證據**')"
+  ok TMUT-LOCK-ORDER "🔴🔴 同一套同步點、只把迭代序打亂 ⇒ 第 $ROUNDS 輪抓到 **40P01 真死結**(浮出的錯誤或被吸收的 W7D1-RETRY NOTICE)= 這套編排**對「序不穩定」型的退化有判別力**。
+     $ABSORB_NOTE。
      🔴 **不得讀成更強**(跨模型審查):兩型**真實**回歸本編排抓不到 ——
        ①「拿掉 ORDER BY」在本環境被 Sort+Unique 遮蔽(planner 行為、非 SQL 語意),小表環境永遠構造不出;
        ②「改成另一個固定序」兩邊會一起改、自身一致無死結,危險在**跨路徑**(unvoid × cancel、backfill 升序 vs A8a2 未驗)。

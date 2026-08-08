@@ -76,7 +76,10 @@ fi
 
 # ══════════════════════════ check 模式 ═══════════════════════════════════
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=23   # 🔴 量出來的(17 逐支 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 23 + 2 = 25。
+EXPECT_TOTAL=24   # 🔴 量出來的(**18** 逐支 + SET-MATCH + 四發靶 + NO-WRITEBACK)。全綠 PASS = 24 + 2 = 26。
+                  # 🔴 W7d-1(2026-08-08)新增 scripts/w7d1-verify.sh ⇒ harness_set() 的 ^w[0-9] 自動撈得到它,
+                  #    但**格數與 KEYS_FROZEN 是手動字面**、不會自己長 —— 關卡2 抓到這個漏。
+                  #    ⇒ 以後每新增一支 w 開頭的 harness,這兩個字面都要一起改(這正是本檔在守的那種帳)。
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-28s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-28s %s\n' "$1" "$2"; }
 rm -rf "$TMPD"; mkdir -p "$TMPD"
@@ -202,7 +205,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-28s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
+KEYS_FROZEN="COV-NO-WRITEBACK RECEIPT-w0b RECEIPT-w1 RECEIPT-w2 RECEIPT-w3a RECEIPT-w3b2 RECEIPT-w3c1 RECEIPT-w3c2 RECEIPT-w3c3 RECEIPT-w4a RECEIPT-w4b RECEIPT-w5 RECEIPT-w6a RECEIPT-w6b1 RECEIPT-w6b2 RECEIPT-w6b3 RECEIPT-w6c RECEIPT-w7b RECEIPT-w7d1 SET-MATCH TMUT-COV-MISSING TMUT-COV-RED TMUT-COV-STALE TMUT-COV-TSDRIFT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-28s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else

@@ -59,7 +59,7 @@ cap() {
 # 🔴🔴 **第三次重釘(W4-1 落檔)**:W4-1 把 W0b 那兩支 trigger 函式的 REVOKE 補上了
 #    ⇒ **下面的 `ACL_EXEMPT` 具名例外必須撤掉**。當初留例外時就寫了「修掉那天本格會紅、逼人回收例外」——
 #    這次就是那一天。例外留著不撤 = 它會從「誠實的記帳」變成「永久的謊」。
-LINE_TIP="20260808000000"
+LINE_TIP="20260808100000"
 NEWEST_TS="$(ls "$REPO"/supabase/migrations/*.sql | sed 's|.*/||; s|_.*||' | sort | tail -1)"
 [ "$NEWEST_TS" = "$LINE_TIP" ] \
   || die "migration 目錄的尾端是 $NEWEST_TS,不是本檔釘住的 $LINE_TIP ——
