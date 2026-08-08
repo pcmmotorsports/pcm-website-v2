@@ -119,6 +119,9 @@ memory `:105` 逐字:
 
 **Sean 看到的現象(跳回列表/切商品不同步)是真的,但機制不是「沒寫」,是「沒人讀」**:
 - `/products` 的車輛狀態**只從 URL 初始化**(`products-url-state.tsx` → `parseVehicleFromUrl`)
+  🔴 **2026-08-08 已由 Q28① 推翻,勿再當現況引用**:`useDeepLinkRestore` 現在在 URL 無車時會回退讀鏡
+  (`parseVehicleFromUrl(...) ?? vehicleFromContext(...)`)。本段是**當時**的病因診斷快照、刻意保留原文;
+  現況以 `docs/specs/2026-08-08-q28a-products-read-vehicle-context-plan.md` 為準。
 - `vehicle-context` 在該檔的定位逐字是「**鏡恆跟隨 URL 真相**」(`:325`)—— 它是鏡子,不是來源
 - ⇒ 從 PDP 跳回**沒有車輛參數**的 `/products`,清單當然不反映 PDP 的選擇
 

@@ -253,7 +253,12 @@ export function ProductsPage({ products, total, error, categories, brands: serve
   // 繼承件也命中);取代舊 client matchesVehicle。詳 products-url-state.useVehicleUrlSync。
   useVehicleUrlSync(cascade.vehicle, motoBrands);
   // V-1a:第三參數=還原窗口守衛對照表(與 useDeepLinkRestore 同源;memo 穩定 identity 免 effect 空轉)
-  const restoreSources = useMemo(() => ({ categories, productBrands: brands }), [categories, brands]);
+  // Q28① R1 MF-1:多帶 motoBrands = 讓該 hook 用與 useVehicleUrlSync 同一支 resolveVehicleForUrl
+  // 判斷「vehicle 這輪會不會被寫進 URL」,鏡入站時讓路一輪、不覆蓋掉那個 replace。
+  const restoreSources = useMemo(
+    () => ({ categories, productBrands: brands, motoBrands }),
+    [categories, brands, motoBrands],
+  );
   useCatalogFilterUrlSync(cascade, extras, restoreSources);
   // #306:URL → 件數 → resolver(整條在 lib/vehicle-facet-display 的 useFacetCountResolver;
   //   抽出去的理由 = 鐵則 6,本檔曾一度到 405 行)。輸入只認 URL、不看 cascade:後者要等
