@@ -1,0 +1,44 @@
+/* ios-zoom-guard.css — 手機端「可輸入欄一律 ≥16px」的單一防線。
+ *
+ * 🔴 為什麼需要一條全站規則,而不是逐個表單修:
+ *   iOS Safari 在**聚焦 input/select/textarea 且該欄字級 <16px** 時會自動放大整頁,
+ *   而且**放大之後不會自己復原** —— 使用者要手動雙指縮回。這不是樣式偏好,是平台行為。
+ *   Sean 2026-08-08 手機實測回報:「會員區編輯地址/車款後整頁被放大,要手動縮回」。
+ *
+ * 🔴 根因(實查、非推測):`account.css` 那條 16px 覆寫**存在**,但寫在
+ *   `@media (min-width: 600px) and (max-width: 1079px)` 裡面 = **只涵蓋平板**。
+ *   iPhone 390px 不匹配 `min-width: 600px` ⇒ 覆寫從來沒生效過,欄位落在基礎值 14px。
+ *   這是「規則存在但畫錯生效範圍」那族 —— 逐檔補 16px 只會再犯一次,故改成一條全站防線。
+ *
+ * 🔴 稽核當下(2026-08-08)在 390px 會生效且 <16px 的可輸入欄共 **7 處**:
+ *   `.acc-profile input`(14)/ `.acc-inline-form-inner input`(14)/ `.auth-field input`(14)/
+ *   `.cvf-free-input`(13)/ `.fd-search input`(13)/ `.ft-price-custom input`(13)/
+ *   `.pcm-search input`(13);另 `.cft-cascade .vsc-input`(15)與 `.ed-finder-slot .vsc-input--finder`(15)
+ *   各自已有 ≤1023 的 16px 覆寫、本檔只是再保一層。
+ *   ⇒ **登入/註冊/忘記密碼、會員資料、地址、愛車、購物車車款欄、搜尋、篩選抽屜、價格自訂**全中,
+ *      不是只有 Sean 點名的會員區。
+ *
+ * 🔴 specificity 怎麼贏的(不用 `!important`):
+ *   · `input:not([type='checkbox']):not([type='radio'])` = **(0,2,1)**,與現存最高的
+ *     `.acc-inline-form-inner input:not([type="checkbox"])` = (0,2,1) **同分**,靠 source order 取勝;
+ *     勝過 `.cft-cascade .vsc-input` = (0,2,0)。
+ *   · `select:not([multiple])` = (0,1,1),與 `.ed-finder-slot select` = (0,1,1) 同分,同樣靠 source order。
+ *   ⚠️ 所以**本檔必須是 `layout.tsx` 最後 import 的樣式**;搬走或插隊 = 這條靜靜失效
+ *      (有守門盯著 import 順序,見 `ios-zoom-guard.test.ts`)。
+ *   不用 `!important` 的理由:個別欄位若真有理由要更大,照常用更高 specificity 蓋回去,
+ *   不必跟 `!important` 打架。
+ *
+ * ⚠️ 斷點取 1023 而非 599:平板直向也是觸控 Safari、同樣會放大;與 `filter-cascade.css` /
+ *    `home.css` 既有的兩條 16px 覆寫**同一個斷點值**,不另開一套。
+ *
+ * ⚠️ 排除的只有兩種、而且是**語意上真的不會觸發縮放**的:checkbox 與 radio 沒有文字輸入游標。
+ *    `[multiple]` 的 select 是清單框、不彈鍵盤。**沒有為了湊 specificity 而排除 disabled/readonly**
+ *    —— readonly 欄位在 iOS 仍可聚焦、仍會放大,排掉它是拿正確性換分數。
+ */
+@media (max-width: 1023px) {
+  input:not([type='checkbox']):not([type='radio']),
+  select:not([multiple]),
+  textarea {
+    font-size: 16px;
+  }
+}

@@ -57,6 +57,10 @@ import '../styles/pages-shipping.css'; // A2:/info/shipping(design pages.css 抽
 import '../styles/coming-soon.css'; // 第2批:/coming-soon /stores /install(.cs-* 色票 scope 在 .cs-page、零 cascade 交互)
 import '../styles/tier.css';
 import '../styles/mobile-tabbar.css';
+// 🔴 **必須排在所有樣式的最後一支**:它靠「同 specificity 時 source order 勝出」蓋掉各表單自訂的
+//    14/13/15px 欄位字級(iOS Safari 聚焦 <16px 的欄位會自動放大整頁、且不會自己復原)。
+//    被插隊 = 這條靜靜失效、沒有任何畫面會報錯。守門 `ios-zoom-guard.test.ts` 比對本檔的位置。
+import '../styles/ios-zoom-guard.css';
 
 // A6(2026-07-03):補 SEO 基本件 —— metadataBase(OG/canonical 絕對網址解析基底、
 // resolveSiteUrl prod-safe:NEXT_PUBLIC_SITE_URL 未設時 prod 省略、不吐 localhost)

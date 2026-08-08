@@ -1421,6 +1421,22 @@ components:
 
   # ---- 全站 RWD 系列(#192) ----
 
+  MobileInputZoomGuard:
+    storefront:
+      component: "(無元件;純樣式防線)apps/storefront/src/app/layout.tsx 最後一支樣式 import"
+      css: "apps/storefront/src/styles/ios-zoom-guard.css"
+      last_modified_commit: "318964a2"  # 記可達祖先=iOS 縮放防線片的父 commit(#180 案 A)(新增條目、無前錨)
+      last_modified_date: "2026-08-09 [手機可輸入欄一律 >=16px —— Sean 手機實測回報「會員區編輯地址/車款後整頁被放大,要手動縮回」]:iOS Safari 聚焦字級 <16px 的 input/select/textarea 會自動放大整頁且**不會自己復原**,這是平台行為、不是樣式偏好。🔴 **根因(實查非推測)**:`account.css` 的 16px 覆寫**本來就存在**,但寫在 `@media (min-width: 600px) and (max-width: 1079px)` 裡 = 只涵蓋平板;iPhone 390px 不匹配 `min-width: 600px` ⇒ 覆寫從來沒生效過,欄位落在基礎值 14px。這是「規則存在但畫錯生效範圍」那族。🔴 **稽核結果:全站 7 處中招**,不是只有 Sean 點名的會員區 —— `.acc-profile input`(14)/`.acc-inline-form-inner input`(14)/`.auth-field input`(14,登入·註冊·忘記密碼全中)/`.cvf-free-input`(13)/`.fd-search input`(13)/`.ft-price-custom input`(13)/`.pcm-search input`(13)。故修法**不逐檔補**,改為一條全站防線(機制優先律)。specificity 靠兩個語意正確的 `:not()` 打平既有最高分再以 source order 取勝,**不用 !important**;因此本檔必須是 layout 最後一支 import(守門會比對位置)。真瀏覽器實測(390px:/login /register /login/forgot / /products 全數 0 個 <16px 可輸入欄;桌機 1280 字級完全不變;另注入 `.acc-inline-form-inner`/`.acc-profile`/`.cft-cascade`/`.ed-finder-slot select`/textarea 打平那幾格皆量到 16px)。"
+    design:
+      component: "(無對應稿)repo 先行 —— OD 稿沒有涵蓋 iOS 聚焦縮放這個平台行為"
+      css: "(無對應稿)"
+    related_storefront:
+      - "apps/storefront/src/styles/account.css"  # 被蓋掉的 14px 基礎值 + 那條只涵蓋平板的 16px 覆寫
+      - "apps/storefront/src/styles/auth.css"  # .auth-field input 14px
+      - "apps/storefront/src/styles/home.css"  # .ed-finder-slot 既有的 <=1023 16px 覆寫(本防線再保一層)
+      - "apps/storefront/src/styles/filter-cascade.css"  # .vsc-input 既有的 <=1023 16px 覆寫
+
+
   MobileTabBar:
     storefront:
       component: "apps/storefront/src/components/MobileTabBar.tsx"
