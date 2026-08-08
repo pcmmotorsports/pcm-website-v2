@@ -90,6 +90,18 @@ describe('LoginPage', () => {
     expect(link?.getAttribute('href')).toBe('/register');
   });
 
+  // 🔴 2026-08-08(Sean 正式站回報「重新申請密碼功能無法使用」):這顆原本是 <a href="#"> 死連結 ——
+  //    /login/forgot 早就做完上線了,只有登入頁這個入口沒接。斷言刻意寫成**兩條**:
+  //    ①href 必須正好是 /login/forgot(值錯就紅)②不得退回 `#`(把入口改回死連結那個突變要紅)。
+  //    只留 ① 也殺得死 `#`,留 ② 是因為它把「本片存在的理由」寫成可執行的字面(同 ForgotPasswordPage.test 的先例)。
+  it('🔴「忘記密碼？」連到 /login/forgot,不是死連結 href="#"', () => {
+    renderPage();
+    const link = screen.getByText('忘記密碼？').closest('a');
+    expect(link, '找不到「忘記密碼？」連結 ⇒ 本條前提失效(字面被改過?)').not.toBeNull();
+    expect(link?.getAttribute('href')).toBe('/login/forgot');
+    expect(link?.getAttribute('href'), '退回 <a href="#"> 死連結 ⇒ 客人按了原地不動').not.toBe('#');
+  });
+
   it('oauthError prop(/auth/callback 失敗導回)→ 頂部顯示「Google 登入失敗，請重試」(f1-c、formError 通道)', () => {
     renderPage('oauth');
     expect(screen.getByText('Google 登入失敗，請重試')).toBeDefined();

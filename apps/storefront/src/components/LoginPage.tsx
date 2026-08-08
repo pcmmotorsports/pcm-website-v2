@@ -12,7 +12,11 @@
 //   · LINE(f2-b 接線):onClick 純導航 window.location.href='/api/auth/line/start'(自寫 OAuth、Supabase 不內建 LINE)。
 // - oauthError prop(f1-c/f2-b):/auth/callback 失敗導 ?error=oauth、/api/auth/line/callback 失敗導 ?error=line →
 //   login/page.tsx(server)讀 searchParams 傳入 → oauthErrorCopy 依 code 分流(Google / LINE / 通用)顯示於 formError 頂部通道。
-// - 忘記密碼?維持 design <a href="#">(該流程不在 f1 scope)。
+// - 忘記密碼?→ <Link href="/login/forgot">(2026-08-08 修;與上面「建立帳號」同一條路由 adaptation)。
+//   🔴 這裡原本是 <a href="#"> 配一句「該流程不在 f1 scope」的暫緩理由 —— **那個理由後來失效了**:
+//      /login/forgot、/login/reset、兩支 action、兩支頁面測試都已做完並上線,只有登入頁這個**入口**
+//      從沒接上去 ⇒ 正式站客人按「忘記密碼?」原地不動(Sean 回報「重新申請密碼功能無法使用」)。
+//      教訓:**暫緩理由建立在「當時不可達」之上時要寫明失效條件**,否則條件變了沒人回來改。
 //
 // #181 business override(鐵則 1 設計為基底、Sean 2026-05-25 Q1=B/Q2=B 拍板):
 // - 全欄必填標(Q1=B):Email/密碼 label 加全形「（必填）」(與註冊頁 4 欄統一)。
@@ -141,7 +145,7 @@ export function LoginPage({ oauthError, next }: { oauthError?: string; next?: st
                 />
                 <span>記住我</span>
               </label>
-              <a href="#" className="auth-forgot">忘記密碼？</a>
+              <Link href="/login/forgot" className="auth-forgot">忘記密碼？</Link>
             </div>
             <button type="submit" className="auth-submit" disabled={pending}>登入</button>
           </form>
