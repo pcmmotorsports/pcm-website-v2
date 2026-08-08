@@ -602,28 +602,42 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
   //
   // 🔴 這族守的是**比例**,而 CSS 字面測不到比例 —— 所以釘的是「那三個把卡撐高的值不得被調回去」,
   //    並把真瀏覽器量到的數字寫在斷言訊息裡當依據(390×844 production build 實測:
-  //    白卡 358px → **322px**,佔 hero 775px 的 46% → **42%**;每個欄位 64px → **54px**)。
+  //    白卡 358px → 322px → **254px**,佔 hero 775px 的 46% → 42% → **32.8%**;
+  //    每個欄位 64px → 54px → **45-46px**)。第二輪的值 = Sean 看過 4-/5-/6- 三張梯度截圖後拍板 `5-`。
   //    ⚠️ 誠實邊界:改回舊值時本族會紅,但「卡到底佔多少比例」jsdom 量不到 —— 那格靠 Sean 肉眼驗。
   it('🔴 ≤900 選車卡:上下內距與欄位內距壓過(不得調回原值,會再把 hero 背景吃掉)', () => {
     const narrow = mediaBlock('(max-width: 900px)');
     // 卡片自己的上下內距(左右仍吃 --dock-pad、由下一條守)
-    expect(narrow, '.b-dock 上下內距被調回 16/14 ⇒ 白卡又長回去')
-      .toMatch(/\.b-dock\s*\{[^}]*padding:\s*14px\s+var\(--dock-pad\)\s+12px/);
-    expect(narrow, '.b-dock-head 的下距被調回 12px').toMatch(/\.b-dock-head\s*\{[^}]*margin-bottom:\s*10px/);
-    // 三個欄位是卡片裡最肥的一塊(實測 194px = 卡片的 54%)
-    expect(narrow, '.ed-finder-slot 上下內距被調回 14/12 ⇒ 每格長回 64px、三格多 30px')
-      .toMatch(/\.ed-finder-slot\s*\{[^}]*padding:\s*10px\s+20px\s+8px/);
-    expect(narrow, '.ed-finder-slot-label 下距被調回 4px').toMatch(/\.ed-finder-slot-label\s*\{[^}]*margin-bottom:\s*2px/);
+    expect(narrow, '.b-dock 上下內距被調回 ⇒ 白卡又長回去')
+      .toMatch(/\.b-dock\s*\{[^}]*padding:\s*12px\s+var\(--dock-pad\)\s+10px/);
+    expect(narrow, '.b-dock-head 的下距被調回').toMatch(/\.b-dock-head\s*\{[^}]*margin-bottom:\s*8px/);
+    // 提示行手機收起 = Sean 拍板的 37% 版起算點(桌機仍保留,故只在本區塊守)
+    expect(narrow, '.b-dock-hint 又在手機顯示出來 ⇒ 白卡多一行、退回 42%')
+      .toMatch(/\.b-dock-hint\s*\{[^}]*display:\s*none/);
+    // 三個欄位是卡片裡最肥的一塊(第一輪實測 194px = 卡片的 54%)
+    expect(narrow, '.ed-finder-slot 上下內距被調回 ⇒ 每格長回去')
+      .toMatch(/\.ed-finder-slot\s*\{[^}]*padding:\s*6px\s+20px\s+5px/);
+    expect(narrow, '.ed-finder-slot-label 的字級/下距被調回')
+      .toMatch(/\.ed-finder-slot-label\s*\{[^}]*font-size:\s*9px[^}]*margin-bottom:\s*1px/);
   });
 
   // 🔴 反面:**字級不准被一起壓下去**。`.vsc-input` <16px 會讓 iOS Safari 聚焦時自動縮放整頁
   //    (V-2d④ Sean 真機回報過「畫面好像會滑動」)—— 縮卡片高度時最容易順手犯的就是這個。
+  //
+  // 🔴 2026-08-08 補:**這條的第一版是恆真的**。它只掃 `(max-width: 900px)` 區塊裡的 `.vsc-input`
+  //    規則,而 16px 那條宣告在 `(max-width: 1023px)` ⇒ 掃出來是空陣列、迴圈一次都沒跑,
+  //    把字級改成 15px 它照樣綠。同日 Sean 看過梯度 `6-`(16→15px 只換到 3px 高度)後**否決**,
+  //    這條正是那個決定的守門 ⇒ 必須真的殺得死突變,故改成「先證存在、再逐斷點掃上限」。
   it('🔴 壓卡片高度不得動到輸入框字級(iOS 16px 防縮放鐵律)', () => {
-    const narrow = mediaBlock('(max-width: 900px)');
-    const slotRules = narrow.match(/\.vsc-input[^{]*\{[^}]*\}/g) ?? [];
-    for (const rule of slotRules) {
-      const fs = /font-size:\s*([0-9.]+)px/.exec(rule)?.[1];
-      if (fs) expect(Number(fs), `≤900 的 .vsc-input 字級被壓到 ${fs}px(<16 會觸發 iOS 自動縮放)`).toBeGreaterThanOrEqual(16);
+    // ① 那條規則必須存在且是 16px(前提斷言:不在了就不是「沒被壓低」,是整條不見了)
+    expect(mediaBlock('(max-width: 1023px)'), '≤1023 找不到 .vsc-input--finder 的 16px 宣告 ⇒ 防 iOS 縮放那條不見了')
+      .toMatch(/\.ed-finder-slot\s+\.vsc-input--finder\s*\{[^}]*font-size:\s*16px/);
+    // ② 任何手機斷點都不准把它壓到 16 以下(含未來新增的更窄斷點)
+    for (const q of ['(max-width: 1023px)', '(max-width: 900px)', '(max-width: 560px)']) {
+      for (const rule of mediaBlock(q).match(/\.vsc-input[^{]*\{[^}]*\}/g) ?? []) {
+        const fs = /font-size:\s*([0-9.]+)px/.exec(rule)?.[1];
+        if (fs) expect(Number(fs), `${q} 的 .vsc-input 字級被壓到 ${fs}px(<16 會觸發 iOS 自動縮放)`).toBeGreaterThanOrEqual(16);
+      }
     }
   });
 
