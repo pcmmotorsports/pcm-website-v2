@@ -49,6 +49,7 @@ import {
 import { CheckoutPaymentFeedback } from '@/components/CheckoutPaymentFeedback';
 import type { ResolvedCartLineView } from '@/hooks/useResolvedCart';
 import type { CheckoutPaymentErrors } from '@/lib/checkout/validate-checkout-payment';
+import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
 
 /** 發票草稿:對齊 CheckoutInput.invoice zod(b2-a)+ CustomerAddress.invoice 真資料形狀。 */
 export type InvoiceDraft = CustomerAddress['invoice'];
@@ -144,6 +145,13 @@ export function CheckoutStep2({
       </section>
 
       {/* ===== N°03 · INVOICE 發票資訊 ===== */}
+      {/* 🔴 整段先隱藏(Sean 2026-08-08 拍板;開關 `@/lib/invoice-visibility`)。
+          `invoice` state 與送出的 payload **完全不動** —— 隱藏期間值一律停在 `DEFAULT_INVOICE`
+          (個人發票),`orders.invoice` 是 NOT NULL Json、照常寫得進去。
+          ⚠️ 隱藏期間 `useInvoiceAutofill` 也一起停(見該檔註解):否則地址上存的 company 發票
+          會被搬進草稿,而 company 在 server 是 fail-closed 驗證(統編 8 碼)⇒ 錯誤會出現在
+          **一個已經看不見的欄位上**,客人卡在付款鍵前面沒東西可修。 */}
+      {!INVOICE_FIELDS_HIDDEN && (
       <section className="co-section">
         <div className="co-section-head">
           <div className="ap-mono">N°03 · INVOICE</div>
@@ -256,6 +264,7 @@ export function CheckoutStep2({
           )}
         </div>
       </section>
+      )}
 
       {/* ===== N°04 · PAYMENT METHOD 付款方式(唯一真卡輸入表面)===== */}
       <section className="co-section">

@@ -18,12 +18,17 @@
 //   (此刻不可動作)朗讀,handler 由 `step > s.n` 守門 no-op;
 //   **未完成步驟**才是真的不可用 → 保留原生 `disabled`(不可 tab、不可點)。
 
+import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
+
 /** 結帳步驟 domain(U1 起只有兩步;唯一型別來源、消費端不得自行擴充第三步)。 */
 export type CheckoutStep = 1 | 2;
 
+// 🔴 第二步的字面跟著發票欄位的顯示狀態走(Sean 2026-08-08 拍板先隱藏發票)。
+//    發票整段藏起來之後,步驟條還寫「發票與付款」= **字面說謊**,客人點進去找不到發票。
+//    掛同一顆開關而不是直接改字串:重開發票時字面自己跟著回來,不留一個要人記得改回去的地方。
 const STEPS: { n: CheckoutStep; l: string }[] = [
   { n: 1, l: '收件資料' },
-  { n: 2, l: '發票與付款' },
+  { n: 2, l: INVOICE_FIELDS_HIDDEN ? '付款' : '發票與付款' },
 ];
 
 export type CheckoutStepIndicatorProps = {

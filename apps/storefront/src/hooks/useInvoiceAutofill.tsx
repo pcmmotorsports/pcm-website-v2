@@ -7,6 +7,7 @@
 import { useEffect, useRef } from 'react';
 import type { CustomerAddress } from '@pcm/domain';
 import type { InvoiceDraft } from '@/components/CheckoutStep2';
+import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
 
 /** 發票草稿預設(對齊 design defaultInvoice L69、CheckoutInput.invoice zod);模組層常數穩定參照。 */
 export const DEFAULT_INVOICE: InvoiceDraft = {
@@ -30,6 +31,11 @@ export function useInvoiceAutofill(opts: {
   const invoiceRef = useRef(invoice);
   invoiceRef.current = invoice;
   useEffect(() => {
+    // 🔴 發票欄位隱藏期間不帶入(Sean 2026-08-08 拍板;理由全文見 `@/lib/invoice-visibility`)。
+    //    一句話版:帶入會把地址上的 company 發票搬進草稿,而 company 在 server 是 fail-closed
+    //    驗證(統編 8 碼)⇒ 錯誤會落在一個**已經看不見**的欄位上,客人卡在付款鍵前面無路可走。
+    //    停掉之後草稿一律停在 `DEFAULT_INVOICE`(個人),payload 照常送、地址資料一字未動。
+    if (INVOICE_FIELDS_HIDDEN) return;
     if (invoiceOverride) return;
     const addr = addresses.find((a) => a.id === shippingAddrId);
     if (!addr?.invoice) return;

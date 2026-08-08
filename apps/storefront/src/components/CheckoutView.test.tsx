@@ -146,6 +146,12 @@ vi.mock('@/app/checkout/reconcile-actions', () => ({
 
 import { CheckoutView } from './CheckoutView';
 
+// 🔴 2026-08-08 發票欄位「先隱藏」(Sean 拍板):同 CheckoutStep2.test —— 本檔的發票/步驟字面斷言
+//    是「重開之後該長什麼樣」的規格,把開關 mock 成 false 讓它們照常跑、照常擋回歸。
+//    現在到底藏起來了沒 → `invoice-hidden.test.tsx`(那支用真常數、不 mock)。
+vi.mock('@/lib/invoice-visibility', () => ({ INVOICE_FIELDS_HIDDEN: false }));
+
+
 beforeAll(() => {
   window.matchMedia = vi.fn().mockImplementation((query: string) => ({
     matches: false,

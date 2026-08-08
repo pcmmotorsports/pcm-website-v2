@@ -5,6 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CustomerAddress } from '@pcm/domain';
 import { CheckoutStep1 } from './CheckoutStep1';
 
+// 🔴 2026-08-08 發票欄位「先隱藏」(Sean 拍板):本檔的發票斷言**刻意把開關 mock 成 false**。
+//    理由:這些斷言是「發票重開之後該長什麼樣」的規格 —— 刪掉的話重開時沒有東西守著,
+//    skip 掉的話它們會靜靜腐爛。mock 成 false 讓它們**照常跑、照常擋回歸**。
+//    ⚠️ 「現在到底藏起來了沒」由 `invoice-hidden.test.tsx` 用**真的常數**守(那支不 mock),
+//       兩支合起來才是完整的:一支守隱藏態、一支守重開後的行為。
+vi.mock('@/lib/invoice-visibility', () => ({ INVOICE_FIELDS_HIDDEN: false }));
+
+
 // 2026-08-08 結帳頁就地改地址:`CheckoutStep1` 從此 import 三個 server action。
 // 在 client 元件 import server action 是站上既有 pattern(`AddressTab` 同樣做),但 vitest 不走
 // Next 的轉換、會直接載入 server 模組並撞 `server-only` ⇒ 照 `AddressTab.test` 的既有慣例 mock 掉。

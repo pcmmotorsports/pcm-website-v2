@@ -10,6 +10,7 @@ import {
   deleteAddressAction,
 } from '@/app/account/address/actions';
 import { InlineAddressForm, type InlineAddressInitial } from '@/components/account/InlineAddressForm';
+import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
 
 export type CheckoutStep1Props = {
   addresses: CustomerAddress[];
@@ -210,7 +211,8 @@ export function CheckoutStep1({
       <div className="co-actions">
         <button className="btn-outline co-btn-back" onClick={onBack}>← 返回購物車</button>
         <button className="btn-primary co-btn-next" onClick={onNext} disabled={nextDisabled}>
-          下一步:發票與付款 <span>→</span>
+          {/* 字面跟著發票顯示狀態走(理由同 CheckoutStepIndicator 的 STEPS 註解)。 */}
+          下一步:{INVOICE_FIELDS_HIDDEN ? '付款' : '發票與付款'} <span>→</span>
         </button>
       </div>
     </>
