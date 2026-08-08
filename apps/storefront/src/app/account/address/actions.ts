@@ -32,6 +32,7 @@ export type AddressFieldErrors = {
   name?: string;
   phone?: string;
   line?: string;
+  email?: string;
   invoice?: AddressInvoiceFieldErrors;
 };
 
@@ -88,7 +89,7 @@ export async function addAddressAction(input: unknown): Promise<AddAddressAction
         (p1 === 'carrier' || p1 === 'title' || p1 === 'taxId' || p1 === 'donateCode')
       ) {
         (fieldErrors.invoice ??= {})[p1] = issue.message;
-      } else if (p0 === 'name' || p0 === 'phone' || p0 === 'line') {
+      } else if (p0 === 'name' || p0 === 'phone' || p0 === 'line' || p0 === 'email') {
         fieldErrors[p0] = issue.message;
       }
     }
@@ -146,7 +147,7 @@ export async function updateAddressAction(
         (p1 === 'carrier' || p1 === 'title' || p1 === 'taxId' || p1 === 'donateCode')
       ) {
         (fieldErrors.invoice ??= {})[p1] = issue.message;
-      } else if (p0 === 'name' || p0 === 'phone' || p0 === 'line') {
+      } else if (p0 === 'name' || p0 === 'phone' || p0 === 'line' || p0 === 'email') {
         fieldErrors[p0] = issue.message;
       }
     }

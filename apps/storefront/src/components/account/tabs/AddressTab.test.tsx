@@ -164,7 +164,8 @@ describe('AddressTab(g-5a 唯讀列表 + g-5b 新增 + g-5c 編輯/刪除)', () 
   it('g-5c 編輯 submit → updateAddressAction(該筆 id, payload)(id 綁 parent closure)', async () => {
     renderTab([makeAddr({ id: 'a-99', name: '陳大文', line: '台北市信義區松壽路 9 號' })]);
     fireEvent.click(screen.getByRole('button', { name: '編輯' }));
-    // 既有值已帶入(name/line 必填已滿足)、直接送出
+    // 既有值已帶入(name/line 必填已滿足)、email 為新必填欄需補填才能送出
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(mockUpdateAddressAction).toHaveBeenCalledTimes(1));
     const [addressId, payload] = mockUpdateAddressAction.mock.calls[0]!;
@@ -330,6 +331,7 @@ describe('存檔成功由父層收尾(新增後不刷新的修法)', () => {
     fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), {
       target: { value: '台北市信義區信義路五段7號' },
     });
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByText('儲存'));
 
     await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));

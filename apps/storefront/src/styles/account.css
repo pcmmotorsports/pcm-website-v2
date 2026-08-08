@@ -569,6 +569,17 @@
 }
 .acc-veh-mode-toggle:hover { color: var(--c-text, #0a0a0a); }
 
+/* 欄位下方的常駐提示灰字(M-4b:收件地址 Email 的 40 字元上限說明)。
+ * 形狀刻意與 `.auth-field-err`(auth.css:112-117)對稱 —— 同 margin-top 同 font-size,
+ * 只差顏色 —— 因為兩者共用同一個位置:沒錯時顯灰提示、超長或 server 回錯時就地換成紅字,
+ * 尺寸不一致的話文字會在切換的瞬間跳動。 */
+.acc-field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--c-text-3);
+}
+
 .acc-inline-check {
   flex-direction: row !important;
   align-items: center !important;

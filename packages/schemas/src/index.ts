@@ -17,9 +17,14 @@ import { z } from 'zod';
 export {
   NOTIFICATION_EMAIL_MAX_OCTETS,
   NotificationEmailInput,
+  TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH,
   canonicalizeNotificationEmail,
+  isSyntheticEmailDomain,
 } from './notification-email';
-import { NotificationEmailInput } from './notification-email';
+import {
+  NotificationEmailInput,
+  TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH,
+} from './notification-email';
 
 // === Auth forms ===
 
@@ -91,6 +96,23 @@ export type CheckoutInvoiceInput = z.input<typeof CheckoutInvoiceInput>;
 export type CheckoutInvoice = z.output<typeof CheckoutInvoiceInput>;
 
 // === Address form(design InlineAddressForm L686-757) ===
+/**
+ * 收件地址 Email(M-4b LINE 3DS 修復;plan §2.2)。
+ *
+ * = `NotificationEmailInput`(必填 / canonicalize / printable ASCII / <=254 octets / 基本形狀 /
+ *   **拒 LINE 合成網域**)**再疊一道 TapPay 的總長 <=40**。
+ *
+ * 🔴 為什麼疊而不是改 `NotificationEmailInput` 本體:那支另有訂單通知用途,通知不經 TapPay、
+ *   不該被 40 綁住。**兩個用途兩條規則,不合併**。
+ * 🔴 為什麼在填寫當下就擋、不是付款時才擋:讓客人存一個「之後付款必炸」的 email,
+ *   等於把錯誤延到最不能失敗的那一刻才爆。
+ */
+export const AddressEmailInput = NotificationEmailInput.refine(
+  (value) => value.length <= TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH,
+  { error: `Email 請控制在 ${TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH} 字元內(付款驗證限制)` },
+);
+export type AddressEmailInput = z.infer<typeof AddressEmailInput>;
+
 export const AddressInput = z.object({
   isDefault: z.boolean().default(false),
   // #201:name/line trim 後驗必填(純空白 → reject、入庫去頭尾空白)。對齊 design saveAddress L705
@@ -98,6 +120,9 @@ export const AddressInput = z.object({
   name: z.string().trim().min(1, { error: '請填寫收件人' }),
   phone: z.string().default(''),
   line: z.string().trim().min(1, { error: '請填寫地址' }),
+  // M-4b:付款驗證需要真實 Email(LINE 合成信箱 64 字元恆超 TapPay 40 上限 => 3DS 啟動被拒)。
+  // 必填在此執法 —— `customer_addresses.email` DB 端 nullable 只為既有列,新寫入一律要有值。
+  email: AddressEmailInput,
   invoice: CheckoutInvoiceInput,
 });
 export type AddressInput = z.infer<typeof AddressInput>;

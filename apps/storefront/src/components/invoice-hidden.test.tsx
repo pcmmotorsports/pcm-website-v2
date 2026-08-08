@@ -148,6 +148,7 @@ describe('發票欄位隱藏態(Sean 2026-08-08 拍板「先隱藏」)', () => {
     );
     fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '陳大文' } });
     fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北市' } });
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     const payload = onSubmit.mock.calls[0]?.[0] as { invoice?: { type?: string } } | undefined;
@@ -174,6 +175,8 @@ describe('發票欄位隱藏態(Sean 2026-08-08 拍板「先隱藏」)', () => {
         onSaved={vi.fn()}
       />,
     );
+    // M-4b:這筆 fixture 是「既有地址」(無 email)⇒ 補填才送得出去;不影響本測試要驗的發票保留。
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     const payload = onSubmit.mock.calls[0]?.[0] as { invoice?: { type?: string; taxId?: string } } | undefined;

@@ -6,7 +6,13 @@ import { AddressInput, CheckoutInvoiceInput } from './index';
 // U3a:發票規則改由 canonical `CheckoutInvoiceInput` 提供(原本 Address / Checkout 各抄一份);
 //   本檔以「特徵測試」鎖住重構前後必須相同的行為,詳 checkout.test.ts 的 U3a 等價性說明。
 
-const valid = { name: '王小明', line: '台北市信義區市府路 1 號', invoice: { type: 'personal' } };
+const valid = {
+  name: '王小明',
+  line: '台北市信義區市府路 1 號',
+  // M-4b 起 email 為必填(付款要用);長度 21 < 40 上限,不讓這個 fixture 值本身影響長度測試。
+  email: 'wang.xiaoming@mail.tw',
+  invoice: { type: 'personal' },
+};
 
 /** 取指定 path 的 issue message(path 以 '.' 串接比對,避免只驗 path[0] 漏掉巢狀層)。 */
 function messageAt(result: ReturnType<typeof AddressInput.safeParse>, path: string): string | undefined {
@@ -155,5 +161,65 @@ describe('AddressInput 發票跨欄位規則(U3a canonical schema)', () => {
     for (const p of expected) {
       expect(paths.filter((x) => x === p)).toHaveLength(1);
     }
+  });
+});
+
+// === M-4b:收件地址 Email(LINE 3DS 修復;plan §2.2 / §3)===
+// 🔴 背景:TapPay `cardholder.email` 有**總長 <= 40** 的驗證(2026-08-09 sandbox 對照實測 7 發:
+//    40 字元 Success / 41 字元回 status 521 `Out of range : cardholder > email`;
+//    同網域的短信箱可過 => 被拒的原因是**長度**、不是 `.local` 網域)。
+//    LINE 合成信箱 line_U<32hex>@line.pcmmotorsports.local = 64 字元恆超標 => 3DS 啟動必被拒。
+//
+// 🔴 本組測試的判別力設計(兩條規則各自要有「只紅自己」的負測):
+//    - 「拒合成網域」用一個 **27 字元**(<=40)的合成信箱 => 長度閘不會替它擋,紅的只可能是網域那條。
+//    - 「<=40」用一個 **41 字元的真網域**信箱 => 網域閘不會替它擋,紅的只可能是長度那條。
+//    若兩條都用「64 字元的合成信箱」測,任一條規則被拿掉測試都照樣綠 => 零判別力。
+describe('AddressInput email(M-4b 付款用必填欄)', () => {
+  /** 造一個總長剛好 n 的合法真網域 email(local 部分補 a)。 */
+  function emailOfLength(n: number): string {
+    const domain = 'mail.tw';
+    const local = 'a'.repeat(n - 1 - domain.length);
+    const email = `${local}@${domain}`;
+    // 自我保護:構造錯了就當場失敗,不要讓一個長度不對的字串默默通過長度測試。
+    expect(email).toHaveLength(n);
+    return email;
+  }
+
+  it('缺 email → reject(必填)', () => {
+    const { email: _omitted, ...withoutEmail } = valid;
+    const r = AddressInput.safeParse(withoutEmail);
+    expect(r.success).toBe(false);
+    expect(pathsOf(r)).toContain('email');
+  });
+
+  it('空字串 email → reject「請填寫 Email」', () => {
+    const r = AddressInput.safeParse({ ...valid, email: '' });
+    expect(r.success).toBe(false);
+    expect(messageAt(r, 'email')).toBe('請填寫 Email');
+  });
+
+  it('🔴 LINE 合成網域 → reject(且該值只有 27 字元、擋它的必然是網域那條規則)', () => {
+    const synthetic = 'a@line.pcmmotorsports.local';
+    expect(synthetic.length).toBeLessThanOrEqual(40); // 長度閘不可能替它擋
+    const r = AddressInput.safeParse({ ...valid, email: synthetic });
+    expect(r.success).toBe(false);
+    expect(pathsOf(r)).toContain('email');
+  });
+
+  it('🔴 邊界:總長 40 → 通過(拿掉這條,把 <=40 寫成 <40 的差一錯就沒人會紅)', () => {
+    const r = AddressInput.safeParse({ ...valid, email: emailOfLength(40) });
+    expect(r.success).toBe(true);
+  });
+
+  it('🔴 邊界:總長 41 → reject(真網域、格式合法,唯一被拒的理由是長度)', () => {
+    const overLimit = emailOfLength(41);
+    const r = AddressInput.safeParse({ ...valid, email: overLimit });
+    expect(r.success).toBe(false);
+    expect(messageAt(r, 'email')).toBe('Email 請控制在 40 字元內(付款驗證限制)');
+  });
+
+  it('入庫值:網域轉小寫、local-part 原字面保留(沿用 NotificationEmailInput 的 canonicalize)', () => {
+    const parsed = AddressInput.parse({ ...valid, email: '  Wang.Xiao@Mail.TW  ' });
+    expect(parsed.email).toBe('Wang.Xiao@mail.tw');
   });
 });
