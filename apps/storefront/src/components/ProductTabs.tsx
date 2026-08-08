@@ -38,6 +38,7 @@
 import { useRouter } from 'next/navigation';
 import { RPM_CARBON_BRAND_SLUG, type MockProduct, type UIVariant } from '@/data/mock-products';
 import { InstallResources, hasInstallResources } from './InstallResources';
+import { SoundClips } from './SoundClips';
 import {
   RPM_WARRANTY_PARAGRAPHS,
   RPM_WARRANTY_NOTES,
@@ -191,6 +192,13 @@ export function ProductTabs({ product }: ProductTabsProps) {
                   <InstallResources manuals={product.manuals} videoUrl={product.videoUrl} />
                 </div>
               )}
+              {/* 🔊 附件線 3b:排氣聲浪音檔 —— 與安裝資源同一區的**兄弟面板**,接在它下面。
+                  🔴 外面**刻意不再包一層 `showXxx &&`**:`SoundClips` 自己在 `null` / `[]` /
+                     整欄缺時就 `return null`(單一判準)。外面再放一個條件等於同一件事有兩個真相源,
+                     哪天有人只改一邊就會出現空面板或整區消失。
+                  🔴 也**不包 `.pd-desc-res`**:那層 wrapper 是安裝資源專屬的外距,
+                     而聲音面板自己就是 `.pd-panel`,包進去會多一層留白、與兄弟面板對不齊。 */}
+              <SoundClips clips={product.soundClips} />
             </div>
           </div>
         </details>

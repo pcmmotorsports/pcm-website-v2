@@ -368,6 +368,39 @@ describe('ProductTabs (收合手風琴 <details>)', () => {
       expect(within(descriptionEl).queryByText('安裝資源')).toBeNull();
     });
 
+    // ── 附件線 3b:排氣聲浪音檔掛載(與安裝資源同一區的兄弟面板)──────────────
+    it('🔊 有 soundClips → 商品介紹段內出現「排氣聲浪」面板與 audio,且 preload=none', () => {
+      const p = {
+        ...MOCK_PRODUCTS[0]!,
+        soundClips: [
+          { title: 'Stock', url: 'https://cdn.example/s.wav' },
+          { title: null, url: 'https://cdn.example/n.wav' },
+        ],
+      };
+      render(<ProductTabs product={p} />);
+      const descriptionEl = document.getElementById('pd-sec-description') as HTMLElement;
+      expect(within(descriptionEl).getByText('排氣聲浪')).toBeDefined();
+      const audios = [...descriptionEl.querySelectorAll('audio')];
+      expect(audios.length).toBe(2);
+      // 🔴 WAV 很大:掛載之後也不准 preload(合約 v5;元件端已有專條,這裡守的是「接線沒把它接掉」)
+      for (const a of audios) {
+        expect(a.getAttribute('preload')).toBe('none');
+        expect(a.hasAttribute('autoplay')).toBe(false);
+      }
+    });
+
+    it('🔊 無 soundClips(14 家供應商的常態)→ 整區不渲染、不留空面板', () => {
+      for (const clips of [undefined, [], null as unknown as undefined]) {
+        const p = { ...MOCK_PRODUCTS[0]!, soundClips: clips };
+        const { unmount } = render(<ProductTabs product={p} />);
+        const descriptionEl = document.getElementById('pd-sec-description') as HTMLElement;
+        expect(within(descriptionEl).queryByText('排氣聲浪')).toBeNull();
+        expect(descriptionEl.querySelector('.pd-sound')).toBeNull();
+        expect(descriptionEl.querySelector('audio')).toBeNull();
+        unmount();
+      }
+    });
+
     // 新增:安裝段不再有側欄(pd-sec-split/pd-sec-split-media/pd-sec-side 三層 wrapper 已拆)
     it('安裝段不再有側欄(#pd-sec-install 內查無 .pd-sec-side / .pd-sec-split)', () => {
       const p = {

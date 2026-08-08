@@ -351,3 +351,49 @@ describe('mapSupabaseProductToDomain card_image_trim(trim 線 S4a)', () => {
     ).toBeUndefined();
   });
 });
+
+// ── 附件線 3b:排氣聲浪音檔(products.sound_clips)────────────────────────────
+//
+// 🔴 這族守的是「讀取端逐列原樣透傳、只擋髒數據」。標題**不在這裡中文化**
+//    (Q25=A:DB 存英文原文、中文化在顯示層;資料層烤標籤正是片 2 doc_type 遺失的成因)。
+describe('mapSupabaseProductToDomain · soundClips', () => {
+  const clips = [
+    { title: 'Stock', url: 'https://cdn.example/s.wav' },
+    { title: null, url: 'https://cdn.example/n.wav' },
+  ];
+
+  it('🔴 逐列原樣透傳(title 保留英文原文與 null,不在資料層翻譯)', () => {
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, sound_clips: clips }).soundClips).toEqual(
+      clips,
+    );
+  });
+
+  it('🔴 null(14 家供應商恆 null)/ 整欄缺 / 非陣列 → 空陣列,不 throw', () => {
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, sound_clips: null }).soundClips).toEqual([]);
+    expect(mapSupabaseProductToDomain(baseProductRow).soundClips).toEqual([]);
+    expect(
+      mapSupabaseProductToDomain({ ...baseProductRow, sound_clips: 'junk' as unknown as unknown[] })
+        .soundClips,
+    ).toEqual([]);
+  });
+
+  it('🔴 髒數據逐項擋掉:url 非字串 / 空字串 / 元素非物件 → 丟該項,其餘保留', () => {
+    const dirty = [
+      { title: 'ok', url: 'https://cdn.example/ok.wav' },
+      { title: 'no url', url: 123 },
+      { title: 'empty', url: '   ' },
+      'junk',
+      null,
+    ] as unknown[];
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, sound_clips: dirty }).soundClips).toEqual([
+      { title: 'ok', url: 'https://cdn.example/ok.wav' },
+    ]);
+  });
+
+  it('🔴 title 是髒值(數字/物件)→ 收斂成 null,不讓它被當標題印到畫面上', () => {
+    const dirty = [{ title: 123, url: 'https://cdn.example/a.wav' }] as unknown[];
+    expect(mapSupabaseProductToDomain({ ...baseProductRow, sound_clips: dirty }).soundClips).toEqual([
+      { title: null, url: 'https://cdn.example/a.wav' },
+    ]);
+  });
+});

@@ -195,6 +195,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
     // #270 安裝資源:manuals/videoUrl 透傳 domain → MockProduct(InstallResources 消費、facade 影片 + PDF 下載鈕;無資料整區不渲染)。
     manuals: product.manuals,
     videoUrl: product.videoUrl,
+    // 附件線 3b:排氣聲浪音檔 ← domain product.soundClips(SoundClips 元件消費;空陣列整區不渲染)。
+    // 逐列原樣透傳 —— 不在這裡過濾、也不在這裡中文化,標題的中文化是**顯示層**的事(Q25=A)。
+    soundClips: product.soundClips,
     // M-1-16c-3:變體 server-side strip → UIVariant(只帶 price:number = general、**不帶 priceByTier**;
     //   🔴 經銷結構不進 client bundle;變體無真經銷價〔public view 排除 price_store〕、取 general 防 NT$0,
     //   tier-aware 變體價延 M-2-08;codex 16c-2/16c-3 k1 must-fix)。
