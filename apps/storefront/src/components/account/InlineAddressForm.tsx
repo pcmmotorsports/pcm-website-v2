@@ -50,10 +50,11 @@ export type InlineAddressFormProps = {
    *   ⇒ 改成回報父層,由**存活的父層**發起重讀,與那條已知正常的路徑同形。
    *   ⚠️ 差別在「**誰發出 refresh**」,不在父層那兩行的先後 —— `setXxx(null)` 是 setState、
    *   不是同步 unmount,對調在 React 語意下等價(突變 R3 實測零紅、且那是正確的)。
+   * 參數帶回整個 `result`(新增時含 `id`):結帳頁要靠它自動選中剛新增的地址;會員中心忽略。
    * ⚠️ **根因未經真瀏覽器證實**(本 worktree 無 env、跑不起登入流程):這是「結構類比」修法,
    *   可反駁預測=改完症狀應消失;若沒消失,要改查 RSC payload 快取或 `useTransition` 與 router 的互動。
    */
-  onSaved: () => void;
+  onSaved: (result: AddAddressActionResult) => void;
 };
 
 export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAddressFormProps) {
@@ -96,7 +97,7 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         setFieldErrors({});
       } else if (result.ok) {
         // 成功 → 交給父層收尾(見 onSaved 的註解:重讀指令必須由**不會被這次操作拆掉**的元件發出)。
-        onSaved();
+        onSaved(result);
       }
     });
   };

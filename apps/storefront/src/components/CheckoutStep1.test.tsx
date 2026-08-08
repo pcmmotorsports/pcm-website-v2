@@ -1,9 +1,31 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CustomerAddress } from '@pcm/domain';
 import { CheckoutStep1 } from './CheckoutStep1';
+
+// 2026-08-08 結帳頁就地改地址:`CheckoutStep1` 從此 import 三個 server action。
+// 在 client 元件 import server action 是站上既有 pattern(`AddressTab` 同樣做),但 vitest 不走
+// Next 的轉換、會直接載入 server 模組並撞 `server-only` ⇒ 照 `AddressTab.test` 的既有慣例 mock 掉。
+// `CheckoutStep1` 自 2026-08-08 起用 `useRouter().refresh()` 重讀地址清單(收尾由本層做,
+// 見 InlineAddressForm 的 onSaved 註解)⇒ jsdom 無 app router,照站上慣例 mock。
+const { mockRefresh } = vi.hoisted(() => ({ mockRefresh: vi.fn() }));
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: mockRefresh, push: vi.fn(), replace: vi.fn() }),
+}));
+
+const { mockAddAddress, mockUpdateAddress, mockDeleteAddress } = vi.hoisted(() => ({
+  mockAddAddress: vi.fn(),
+  mockUpdateAddress: vi.fn(),
+  mockDeleteAddress: vi.fn(),
+}));
+vi.mock('@/app/account/address/actions', () => ({
+  addAddressAction: mockAddAddress,
+  updateAddressAction: mockUpdateAddress,
+  deleteAddressAction: mockDeleteAddress,
+}));
+
 
 afterEach(cleanup);
 
@@ -17,17 +39,23 @@ const ADDR = {
 
 function renderStep1(
   notificationEmailEnabled: boolean,
-  opts: { balancePaymentCheckout?: boolean; shipping?: number } = {},
+  opts: {
+    balancePaymentCheckout?: boolean;
+    shipping?: number;
+    addresses?: CustomerAddress[];
+    shippingAddrId?: string;
+  } = {},
 ) {
   const onNotificationEmailChange = vi.fn();
   const onNext = vi.fn();
   const onBack = vi.fn();
+  const onShippingAddressChange = vi.fn();
 
   render(
     <CheckoutStep1
-      addresses={[ADDR]}
-      shippingAddrId={ADDR.id}
-      onShippingAddressChange={vi.fn()}
+      addresses={opts.addresses ?? [ADDR]}
+      shippingAddrId={opts.shippingAddrId ?? ADDR.id}
+      onShippingAddressChange={onShippingAddressChange}
       shipping={opts.shipping ?? 0}
       balancePaymentCheckout={opts.balancePaymentCheckout ?? false}
       notificationEmailEnabled={notificationEmailEnabled}
@@ -40,7 +68,7 @@ function renderStep1(
     />,
   );
 
-  return { onNotificationEmailChange, onNext, onBack };
+  return { onNotificationEmailChange, onNext, onBack, onShippingAddressChange };
 }
 
 describe('CheckoutStep1', () => {
@@ -86,5 +114,129 @@ describe('CheckoutStep1', () => {
     fireEvent.click(screen.getByRole('button', { name: /下一步:發票與付款/ }));
     expect(onBack).toHaveBeenCalledOnce();
     expect(onNext).toHaveBeenCalledOnce();
+  });
+
+  // ── 2026-08-08 結帳頁就地改地址(Sean 第二件交辦:不把客人帶離購物車)────────────────
+  describe('就地新增 / 修改 / 刪除', () => {
+    beforeEach(() => {
+      // jsdom 的 confirm 未實作、預設 falsy ⇒ 刪除會直接早退。照 AddressTab.test 的既有慣例放行。
+      vi.spyOn(window, 'confirm').mockReturnValue(true);
+      mockDeleteAddress.mockReset();
+      mockAddAddress.mockReset();
+      mockUpdateAddress.mockReset();
+      mockRefresh.mockReset();
+    });
+
+    const ADDR2 = { ...ADDR, id: 'addr-2', name: '第二人', isDefault: false } as CustomerAddress;
+
+    // 突變:把「＋ 新增收件人地址」改回 <Link href="/account"> ⇒ 只紅這條
+    it('🔴 底部入口是就地開表單的按鈕,不是連去會員中心的連結', () => {
+      renderStep1(false);
+      const add = screen.getByText('＋ 新增收件人地址');
+      expect(add.tagName, '必須是 <button>(<a> = 會把客人帶離結帳)').toBe('BUTTON');
+      expect(add.closest('a'), '不得包在連結裡').toBeNull();
+      // 舊字面不得殘留
+      expect(screen.queryByText('＋ 到會員中心新增 / 管理收件地址')).toBeNull();
+    });
+
+    // 🔴 主視窗裁定「新增後自動選中」——我實作了卻**忘了寫這條**,突變 C6 零判別力才發現。
+    // 突變:拿掉 handleSaved 裡的 `if (result.id) onShippingAddressChange(result.id)` ⇒ 只紅這條
+    it('🔴 新增成功 → 自動選中剛新增的那張(action 回傳的 id)', async () => {
+      mockAddAddress.mockResolvedValue({ ok: true, id: 'addr-new' });
+      const { onShippingAddressChange } = renderStep1(false);
+      fireEvent.click(screen.getByText('＋ 新增收件人地址'));
+      fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '王小明' } });
+      fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0912345678' } });
+      fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), {
+        target: { value: '台北市信義區信義路五段7號' },
+      });
+      fireEvent.click(screen.getByText('儲存'));
+      await waitFor(() => expect(onShippingAddressChange).toHaveBeenCalledWith('addr-new'));
+    });
+
+    // 編輯不回 id ⇒ 選取不得被動(反向守門)
+    it('編輯成功 → 選取不變(update 不回 id)', async () => {
+      mockUpdateAddress.mockResolvedValue({ ok: true });
+      const { onShippingAddressChange } = renderStep1(false);
+      fireEvent.click(document.querySelector('.co-addr-actions button')!);
+      fireEvent.click(screen.getByText('儲存'));
+      await waitFor(() => expect(mockUpdateAddress).toHaveBeenCalled());
+      expect(onShippingAddressChange).not.toHaveBeenCalled();
+    });
+
+    it('點「＋ 新增收件人地址」→ 就地展開表單(頁面上出現新增地址表單)', () => {
+      renderStep1(false);
+      expect(document.querySelector('.co-addr-form')).toBeNull();
+      fireEvent.click(screen.getByText('＋ 新增收件人地址'));
+      expect(document.querySelector('.co-addr-form')).not.toBeNull();
+      expect(screen.getByText('新增地址')).toBeTruthy();
+    });
+
+    // ⚠️ **誠實降級**:兩顆鈕在 `<label>` 內,真瀏覽器不 `preventDefault` 會連帶把那張地址選起來,
+    //    但 **jsdom 不模擬 label activation** ⇒ 拿掉 `preventDefault` 這條**照樣綠**
+    //    (突變 C2 實測零判別力)。⇒ 本條實際守到的只有「點修改會開該筆的編輯表單」;
+    //    「不連帶選中」那半**沒有自動守門、要真瀏覽器**,已在 STOP 申報、不假裝守住了。
+    it('點「修改」→ 開該筆編輯表單(⚠️「不連帶選中」那半 jsdom 測不到)', () => {
+      const { onShippingAddressChange } = renderStep1(false, {
+        addresses: [ADDR, ADDR2],
+        shippingAddrId: ADDR.id,
+      });
+      const cards = document.querySelectorAll('.co-addr');
+      const editBtn = cards[1]!.querySelector('.co-addr-actions button')!;
+      fireEvent.click(editBtn);
+      expect(screen.getByText('編輯地址')).toBeTruthy();
+      // 這行留著當回歸偵測(真瀏覽器行為由人驗);它在 jsdom 下對 preventDefault 沒有判別力
+      expect(onShippingAddressChange).not.toHaveBeenCalled();
+    });
+
+    // 🔴 結帳頁**獨有**的邊界:會員中心沒有「當前選中」的概念。
+    // 突變:拿掉 handleDelete 裡的 `if (id === shippingAddrId)` 那段 ⇒ 只紅這兩條
+    // 🔴 fixture 要讓「預設那張」**不是**剩下的第一張,否則「看不看 isDefault」分不出來
+    //    ——第一版就是這個形狀:刪完只剩一張,兩種寫法都取到它 ⇒ 突變 C4 零判別力(當場抓到)。
+    it('🔴 刪掉當前選中的地址 → 落回其餘地址的**預設**那張(不是剩下的第一張)', async () => {
+      mockDeleteAddress.mockResolvedValue({ ok: true });
+      const PLAIN2 = { ...ADDR2, id: 'addr-2', isDefault: false } as CustomerAddress;
+      const DEFAULT3 = { ...ADDR2, id: 'addr-3', isDefault: true } as CustomerAddress;
+      const { onShippingAddressChange } = renderStep1(false, {
+        // 刪掉第一張之後 rest = [PLAIN2, DEFAULT3] ⇒ 取第一張會拿到 PLAIN2、取預設才是 DEFAULT3
+        addresses: [ADDR, PLAIN2, DEFAULT3],
+        shippingAddrId: ADDR.id,
+      });
+      const del = document.querySelectorAll('.co-addr')[0]!.querySelectorAll('.co-addr-actions button')[1]!;
+      fireEvent.click(del);
+      await waitFor(() => expect(onShippingAddressChange).toHaveBeenCalledWith(DEFAULT3.id));
+    });
+
+    it('🔴 刪掉唯一一張地址 → 選取清空(讓 nextDisabled 擋住下一步)', async () => {
+      mockDeleteAddress.mockResolvedValue({ ok: true });
+      const { onShippingAddressChange } = renderStep1(false);
+      const del = document.querySelectorAll('.co-addr')[0]!.querySelectorAll('.co-addr-actions button')[1]!;
+      fireEvent.click(del);
+      await waitFor(() => expect(onShippingAddressChange).toHaveBeenCalledWith(''));
+    });
+
+    // 刪的不是選中那張 ⇒ 選取不動(反向守門:防「刪任何一張都重設選取」)
+    it('刪掉**非**當前選中的地址 → 選取不動', async () => {
+      mockDeleteAddress.mockResolvedValue({ ok: true });
+      const { onShippingAddressChange } = renderStep1(false, {
+        addresses: [ADDR, ADDR2],
+        shippingAddrId: ADDR.id,
+      });
+      const del = document.querySelectorAll('.co-addr')[1]!.querySelectorAll('.co-addr-actions button')[1]!;
+      fireEvent.click(del);
+      await waitFor(() => expect(mockDeleteAddress).toHaveBeenCalledWith(ADDR2.id));
+      expect(onShippingAddressChange).not.toHaveBeenCalled();
+    });
+
+    // 刪除失敗不得偽裝成功(對齊 AddressTab:不刷新、卡片留著)
+    it('刪除失敗 → 不動選取、不重讀', async () => {
+      mockDeleteAddress.mockResolvedValue({ formError: '刪除失敗' });
+      const { onShippingAddressChange } = renderStep1(false);
+      const del = document.querySelectorAll('.co-addr')[0]!.querySelectorAll('.co-addr-actions button')[1]!;
+      fireEvent.click(del);
+      await waitFor(() => expect(mockDeleteAddress).toHaveBeenCalled());
+      expect(onShippingAddressChange).not.toHaveBeenCalled();
+      expect(mockRefresh).not.toHaveBeenCalled();
+    });
   });
 });
