@@ -1734,6 +1734,28 @@
   .pd-install-cta { flex-direction: column; align-items: stretch; text-align: center; }
 }
 
+/* ========= 排氣聲浪音檔(附件線片 3b-UI)=========
+   刻意**沿用 `.pd-panel` 外框與 `.pd-panel-label` 眉標**、不自刻一套面板 ——
+   它與「安裝資源」是同一區的兄弟面板,長得不一樣才是不協調。
+   🔴 `<audio controls>` 是原生控制項:各瀏覽器外觀不同,**不試圖重畫**
+      (重畫要自己實作播放/進度/音量與鍵盤操作,是一整片元件的工作量,而且很容易做壞無障礙)。
+      這裡只約束**寬度與垂直節奏**,長相交給瀏覽器。 */
+.pd-sound-list { list-style: none; margin: 0; padding: 0; }
+.pd-sound-item { margin-bottom: 14px; }
+.pd-sound-item:last-child { margin-bottom: 0; }
+.pd-sound-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--c-text);
+}
+.pd-sound-audio {
+  display: block;
+  width: 100%;
+  max-width: 100%; /* 防原生播放器在窄螢幕撐出橫向捲軸 */
+}
+
 /* ========= Lightbox ========= */
 .pd-lightbox {
   position: fixed;
