@@ -52,6 +52,7 @@ function validInput(over: Record<string, unknown> = {}) {
     name: '王小明',
     phone: '0912345678',
     line: '台北市信義區市府路 1 號',
+    email: 'wang.xiaoming@mail.tw', // M-4b 起必填(付款用;21 字元 < 40 上限)
     invoice: { type: 'personal' },
     ...over,
   };
@@ -147,7 +148,14 @@ describe('updateAddressAction(g-5c server action)', () => {
     expect(currentUserId).toBe('user-1'); // server session、非 input 偽造的 customerUserId
     expect(addressId).toBe('addr-1'); // 來自 action 參數(parent closure)
     // patch 只有白名單欄;id/customerUserId/時間欄全被 strip
-    expect(Object.keys(patch).sort()).toEqual(['invoice', 'isDefault', 'line', 'name', 'phone']);
+    expect(Object.keys(patch).sort()).toEqual([
+      'email', // M-4b 新增(付款用);白名單擴一欄,strip 的守門力不變(下方三條 not.toHaveProperty 仍在)
+      'invoice',
+      'isDefault',
+      'line',
+      'name',
+      'phone',
+    ]);
     expect(patch).not.toHaveProperty('id');
     expect(patch).not.toHaveProperty('customerUserId');
     expect(patch).not.toHaveProperty('createdAt');

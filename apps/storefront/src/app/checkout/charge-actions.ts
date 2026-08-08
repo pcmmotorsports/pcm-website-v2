@@ -179,6 +179,13 @@ export async function chargePaymentAction(input: unknown): Promise<ChargePayment
       { user: { id: user.id, email: user.email }, addressId: parsedCheckout.data.addressId },
     );
     if (!built.ok) {
+      // 🔴 M-4b:這一行是本片**唯一**留下的痕跡,不是可有可無的 debug log(R3 換模型審查抓到)。
+      //   修復前,被 TapPay 擋下的客人至少會留下一張 order + 一列 payment_charge_attempts
+      //   (status 521)—— 2026-08-08 就是靠那組 DB 指紋定位到根因的。
+      //   現在改成擋在 placeOrder **之前** ⇒ 零單、零 attempt。沒有這行 log,
+      //   「修好了(沒人被擋)」與「大家被擋在更前面,只是不再產生證據」在觀測上**長得一模一樣**。
+      //   🔴 PII(#16):只記 reason 與 userId,**email 值絕不入 log**。
+      console.error('[checkout] cardholder blocked', { reason: built.reason, userId: user.id });
       return mapCardholderFail(built.reason);
     }
 
@@ -309,7 +316,23 @@ function mapCardholderFail(reason: BuildCardholderFailReason): ChargePaymentActi
       return { fieldErrors: { addressId: '收件地址缺少手機號碼,請補齊後再試' } };
     case 'name_missing':
       return { formError: '會員資料缺少姓名,請至會員中心補齊後再試' };
-    case 'email_missing':
+    // M-4b:引導**去補地址的 Email**,不是「重新登入」——會走到這裡的幾乎都是
+    // LINE 登入 + 新欄之前建的舊地址,他的登入完全正常,叫他重登只會白繞一圈。
+    // ⚠️ 顯示位置(codex 關卡2 糾正,已實查 useChargePayment.tsx:231-241):
+    //   client 會把 fieldErrors **壓成單一訊息**顯示在付款區的錯誤條,
+    //   **不會**變成收件地址欄旁的紅字。所以文案本身必須把「要去哪裡改」講完整
+    //   (現在這句有講),不能依賴它出現在地址欄旁邊。要真的落到地址欄,
+    //   得把 server 的 addressId 錯誤接回 `shipping.address` —— 那是另一片。
+    // ⚠️ 這一碼涵蓋四種情況:沒有值 / 超過 40 字元 / 格式不合 / 合成信箱(R3 審查 C1)。
+    //   所以文案**不能說「缺少」** —— 地址上明明填了一個 45 字元信箱的客人,
+    //   看到「缺少 Email」會以為系統壞了,客服也判不出是哪一種。
+    //   用「無法用於付款驗證」+ 條件說明,四種情況都講得通、且都指向同一個動作。
+    case 'email_unusable':
+      return {
+        fieldErrors: {
+          addressId: '收件地址的 Email 無法用於付款驗證(需 40 字元內的一般信箱),請編輯地址修改後再試',
+        },
+      };
     case 'profile_not_found':
       return { formError: '會員資料異常,請重新登入後再試' };
   }

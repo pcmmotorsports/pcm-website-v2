@@ -22,6 +22,7 @@
 import { useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
 import type { AddressInput } from '@pcm/schemas';
+import { TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH } from '@pcm/schemas';
 import type { AddAddressActionResult, AddressFieldErrors } from '@/app/account/address/actions';
 import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
 
@@ -32,6 +33,9 @@ export type InlineAddressInitial = {
   name?: string;
   phone?: string;
   line?: string;
+  // M-4b:既有地址沒有這個值(DB 端 NULL)⇒ optional,編輯時顯示為空、必須補。
+  // ⚠️ NULL 不代表「一定沒填過」——客人可直接寫 DB(backlog #343);此處只當「沒有值可預填」用。
+  email?: string | null;
   invoice?: Partial<AddressInput['invoice']>;
 };
 
@@ -63,6 +67,7 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
   const [name, setName] = useState(addr.name ?? '');
   const [phone, setPhone] = useState(addr.phone ?? '');
   const [line, setLine] = useState(addr.line ?? '');
+  const [email, setEmail] = useState(addr.email ?? '');
   const [invType, setInvType] = useState<AddressInput['invoice']['type']>(addr.invoice?.type ?? 'personal');
   const [carrier, setCarrier] = useState(addr.invoice?.carrier ?? '');
   const [title, setTitle] = useState(addr.invoice?.title ?? '');
@@ -72,6 +77,12 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
   const [fieldErrors, setFieldErrors] = useState<AddressFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // 只用於顯示層的提早告知(server 端才是驗證權威)。
+  // 🔴 剝空白的方式要與 server 的 canonicalize 一致:**只剝半形空白**,不用 JS 的 trim()
+  //    —— trim() 連 tab / 全形空白一起剝,會讓「tab + 40 字元信箱」在 client 判成沒超長、
+  //    到 server 卻是格式不合,提示與結果對不起來(R3 審查 N1;與 cardholder 那條同源)。
+  const isEmailTooLong =
+    email.replace(/^ +| +$/g, '').length > TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH;
 
   const invTabs = [
     { id: 'personal', label: '個人' },
@@ -88,6 +99,7 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         name,
         phone,
         line,
+        email,
         invoice: { type: invType, carrier, title, taxId, donateCode },
       });
       if (result.fieldErrors) {
@@ -129,6 +141,31 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         <span>地址</span>
         <input value={line} onChange={(e) => setLine(e.target.value)} required placeholder="縣市 / 區 / 路 / 號 / 樓" />
         {fieldErrors.line && <span className="auth-field-err">{fieldErrors.line}</span>}
+      </label>
+      {/* 🔴 M-4b:收件地址自帶 Email(design 原本沒有這欄;plan §2.2)。
+          放在既有三欄之後 —— 不打斷 design AccountPages.jsx L686-757 的收件人/手機/地址順序。
+          上限 40 來自 TapPay `cardholder.email`(sandbox 實測 41 即回 521),字面值 import 自
+          schema 常數、**不在 UI 再抄一個 40**。
+          提示與錯誤共用同一個位置:server 回錯優先(它才是信任邊界),沒有 server 錯時
+          顯示 client 的長度提示 —— 超長轉紅只是**提早告知**,不代替 server 驗證。 */}
+      <label>
+        <span>Email</span>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          placeholder="example@mail.com"
+        />
+        {fieldErrors.email ? (
+          <span className="auth-field-err">{fieldErrors.email}</span>
+        ) : (
+          <span className={isEmailTooLong ? 'auth-field-err' : 'acc-field-hint'}>
+            {isEmailTooLong
+              ? `已超過 ${TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH} 字元,付款會被拒絕`
+              : `${TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH} 字元內(付款驗證限制)`}
+          </span>
+        )}
       </label>
       <label className="acc-inline-check">
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />

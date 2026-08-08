@@ -158,6 +158,10 @@ describe('CheckoutStep1', () => {
       fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), {
         target: { value: '台北市信義區信義路五段7號' },
       });
+      // M-4b:Email 為新必填欄,不填則 form constraint validation 擋住 submit。
+      fireEvent.change(screen.getByPlaceholderText('example@mail.com'), {
+        target: { value: 'wang@mail.tw' },
+      });
       fireEvent.click(screen.getByText('儲存'));
       await waitFor(() => expect(onShippingAddressChange).toHaveBeenCalledWith('addr-new'));
     });
@@ -167,6 +171,10 @@ describe('CheckoutStep1', () => {
       mockUpdateAddress.mockResolvedValue({ ok: true });
       const { onShippingAddressChange } = renderStep1(false);
       fireEvent.click(document.querySelector('.co-addr-actions button')!);
+      // M-4b:既有地址無 email(DB 端 NULL = 從未被要求填過)⇒ 編輯時必須補填才送得出去。
+      fireEvent.change(screen.getByPlaceholderText('example@mail.com'), {
+        target: { value: 'wang@mail.tw' },
+      });
       fireEvent.click(screen.getByText('儲存'));
       await waitFor(() => expect(mockUpdateAddress).toHaveBeenCalled());
       expect(onShippingAddressChange).not.toHaveBeenCalled();

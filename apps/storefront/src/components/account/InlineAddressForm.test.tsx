@@ -53,6 +53,7 @@ function renderForm(
 function fillRequired() {
   fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '王小明' } });
   fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北市' } });
+  fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
 }
 
 describe('InlineAddressForm(g-5b 新增表單)', () => {
@@ -92,6 +93,7 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
     fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '陳大文' } });
     fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0911222333' } });
     fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北市信義區' } });
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'chen@mail.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith({
@@ -99,6 +101,7 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
       name: '陳大文',
       phone: '0911222333',
       line: '台北市信義區',
+      email: 'chen@mail.tw',
       invoice: { type: 'personal', carrier: '', title: '', taxId: '', donateCode: '' },
     });
   });
@@ -111,6 +114,7 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
     fireEvent.change(screen.getByPlaceholderText('8 碼數字'), { target: { value: '12345678' } });
     fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '甲' } });
     fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), { target: { value: '台北' } });
+    fireEvent.change(screen.getByPlaceholderText('example@mail.com'), { target: { value: 'a@b.tw' } });
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
     await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
     expect(onSubmit).toHaveBeenCalledWith({
@@ -118,6 +122,7 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
       name: '甲',
       phone: '',
       line: '台北',
+      email: 'a@b.tw',
       invoice: { type: 'company', carrier: '', title: '賓士機車', taxId: '12345678', donateCode: '' },
     });
   });

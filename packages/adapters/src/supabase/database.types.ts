@@ -28,10 +28,21 @@
 //   勿用 --linked / --db-url(會 parse .env.local、踩 2026-06-17 db push session 的 .env.local 非 ASCII 變數名 parse 失敗坑)。
 //   ✅ 實測 2026-08-01(三次)+ 2026-08-02(第四次):`gen types --project-id` **不受 .env.local 影響**。
 //     需要暫時移開 .env.local 的是 `db push` / `migration list`,不是 gen types。
-// 反映 LIVE prod schema(🔴 **2026-08-07 重 gen** —— B2-S2a/S2b 兩支 + A9h-M 三支 apply 之後;
+// 反映 LIVE prod schema(🔴 **2026-08-09 重 gen** —— M-4b LINE 3DS 修復片,
+//   `20260809004000_m4b_line3ds_address_email`(customer_addresses.email)apply 之後。
+//   本次帶進來的**不只本片的欄**,還有前幾片 apply 但當時沒重 gen 的存量:
+//   `customer_addresses.email`(本片)/ `supplier_order_no_upper` / `pcm_b2_shipping_idempotency` 表 /
+//   `sound_clips` / `admin_add_shipment_items` 與 `pcm_b2_shipping_idem_*` 等 B 線函式。
+//   🔴 那些**不是本片的產物、形狀一律照生成值原樣收下**(主視窗 `P-226-A` ③:只貼回校正、
+//      不順手改別人的形狀)。
+//   🔴 二十一處校正的重貼方式(留給下一個重 gen 的人):**逐函式整塊替換 + 參數名集合比對** ——
+//      先確認該函式在新舊兩版的參數集合完全相同(= 只有校正被沖掉、沒有真的簽章變更),
+//      才用舊版區塊蓋回去;任一函式參數有增減就停下人工判斷,不硬蓋。本次七支全數比對通過。
+//   ── 以下為上一輪 2026-08-07 重 gen 的紀錄,保留供追溯 ──
+//   (2026-08-07 重 gen —— B2-S2a/S2b 兩支 + A9h-M 三支 apply 之後;
 //   本次新增:摘要表第四軸 `shipped_quantity`、`shipments` / `shipment_items` **兩張表首次進型別**
 //   (在此之前整條 B2-S1 線的表從未被重生進來)、`admin_upsert_item_procurement` 12 參。
-//   🔴 `a9v`(20260807120000)/ `a9b2_m`(20260807130000)**仍 pending** ⇒ 其產物**不在本檔=正確**,不得手補。
+//   🔴 `a9v`(20260807120000)/ `a9b2_m`(20260807130000)**仍 pending** ⇒ 其產物**不在本檔=正確**,不得手補。)
 //   ── 以下為上一輪 2026-08-05 重 gen 的紀錄,保留供追溯 ──
 //   (2026-08-05 重 gen〔A9d2-2 開工前,取消線 UI 接線〕:
 //   **A8c1/A8c2/A8a1/A8a2 四片皆已 apply** ——
@@ -244,6 +255,7 @@ export type Database = {
         Row: {
           created_at: string
           customer_user_id: string
+          email: string | null
           id: string
           invoice_carrier: string | null
           invoice_donate_code: string
@@ -259,6 +271,7 @@ export type Database = {
         Insert: {
           created_at?: string
           customer_user_id: string
+          email?: string | null
           id?: string
           invoice_carrier?: string | null
           invoice_donate_code?: string
@@ -274,6 +287,7 @@ export type Database = {
         Update: {
           created_at?: string
           customer_user_id?: string
+          email?: string | null
           id?: string
           invoice_carrier?: string | null
           invoice_donate_code?: string
@@ -624,6 +638,7 @@ export type Database = {
           submitted_at: string | null
           supplier_id: string
           supplier_order_no: string | null
+          supplier_order_no_upper: string | null
         }
         Insert: {
           allocated_quantity: number
@@ -640,6 +655,7 @@ export type Database = {
           submitted_at?: string | null
           supplier_id: string
           supplier_order_no?: string | null
+          supplier_order_no_upper?: string | null
         }
         Update: {
           allocated_quantity?: number
@@ -656,6 +672,7 @@ export type Database = {
           submitted_at?: string | null
           supplier_id?: string
           supplier_order_no?: string | null
+          supplier_order_no_upper?: string | null
         }
         Relationships: [
           {
@@ -1654,6 +1671,33 @@ export type Database = {
         }
         Relationships: []
       }
+      pcm_b2_shipping_idempotency: {
+        Row: {
+          action: string
+          created_at: string
+          idempotency_key: string
+          payload_hash: string
+          result_snapshot: Json
+          shipment_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          idempotency_key: string
+          payload_hash: string
+          result_snapshot?: Json
+          shipment_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          idempotency_key?: string
+          payload_hash?: string
+          result_snapshot?: Json
+          shipment_id?: string | null
+        }
+        Relationships: []
+      }
       pending_invoices: {
         Row: {
           created_at: string
@@ -2009,6 +2053,7 @@ export type Database = {
           price_by_tier: Json
           price_general: number | null
           price_store: number | null
+          sound_clips: Json
           subtitle: string | null
           supplier_slug: string
           title: string
@@ -2033,6 +2078,7 @@ export type Database = {
           price_by_tier: Json
           price_general?: number | null
           price_store?: number | null
+          sound_clips?: Json
           subtitle?: string | null
           supplier_slug?: string
           title: string
@@ -2057,6 +2103,7 @@ export type Database = {
           price_by_tier?: Json
           price_general?: number | null
           price_store?: number | null
+          sound_clips?: Json
           subtitle?: string | null
           supplier_slug?: string
           title?: string
@@ -2366,6 +2413,7 @@ export type Database = {
           images: Json | null
           manuals: Json | null
           price_general: number | null
+          sound_clips: Json | null
           subtitle: string | null
           supplier_slug: string | null
           title: string | null
@@ -2391,6 +2439,14 @@ export type Database = {
       }
     }
     Functions: {
+      admin_add_shipment_items: {
+        Args: {
+          p_idempotency_key: string
+          p_items: Json
+          p_shipment_id: string
+        }
+        Returns: Json
+      }
       admin_adjust_wallet: {
         Args: {
           p_actor: string
@@ -2442,6 +2498,16 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_create_shipment: {
+        Args: {
+          p_carrier_code: string
+          p_carrier_note?: string
+          p_customer_user_id: string
+          p_idempotency_key: string
+          p_recipient_snapshot: Json
+        }
+        Returns: Json
+      }
       admin_finalize_order_refund: {
         // 🔴 手動校正三處(重 gen 後需重貼;RW2c)—— outcome 參數矩陣**強制**互斥:
         //   accepted 必帶 tappay_refund_id + refund_amount_wire、其餘必 NULL;
@@ -2474,6 +2540,14 @@ export type Database = {
         }
         Returns: Json
       }
+      admin_mark_shipment_shipped: {
+        Args: {
+          p_idempotency_key: string
+          p_shipment_id: string
+          p_tracking_number?: string
+        }
+        Returns: Json
+      }
       admin_set_customer_tier: {
         Args: {
           p_actor: string
@@ -2483,6 +2557,10 @@ export type Database = {
           p_tier: string
         }
         Returns: string
+      }
+      admin_unvoid_shipment: {
+        Args: { p_idempotency_key: string; p_shipment_id: string }
+        Returns: Json
       }
       admin_update_order_item_workflow: {
         Args: {
@@ -2551,6 +2629,14 @@ export type Database = {
           p_supplier_id: string | null
         }
         Returns: string
+      }
+      admin_void_shipment: {
+        Args: {
+          p_idempotency_key: string
+          p_shipment_id: string
+          p_void_reason: string
+        }
+        Returns: Json
       }
       begin_charge_attempt: { Args: { p_order_id: string }; Returns: Json }
       catalog_brand_counts: {
@@ -2697,7 +2783,44 @@ export type Database = {
         Args: { p_order_item_id: string }
         Returns: undefined
       }
+      pcm_b2_add_items_impl: {
+        Args: {
+          p_idempotency_key: string
+          p_items: Json
+          p_shipment_id: string
+        }
+        Returns: Json
+      }
       pcm_b2_is_blank: { Args: { t: string }; Returns: boolean }
+      pcm_b2_shipping_human_error: {
+        Args: { p_conname: string; p_sqlstate: string }
+        Returns: string
+      }
+      pcm_b2_shipping_idem_bad_snapshot_cols: {
+        Args: { p_snapshot: Json }
+        Returns: string
+      }
+      pcm_b2_shipping_idem_claim: {
+        Args: { p_action: string; p_hash: string; p_key: string }
+        Returns: Json
+      }
+      pcm_b2_shipping_idem_payload_hash: {
+        Args: { p_action: string; p_payload: Json }
+        Returns: string
+      }
+      pcm_b2_shipping_idem_record: {
+        Args: {
+          p_action: string
+          p_key: string
+          p_shipment_id: string
+          p_snapshot: Json
+        }
+        Returns: Json
+      }
+      pcm_b2_shipping_idem_response: {
+        Args: { p_replay: boolean; p_shipment_id: string; p_snapshot: Json }
+        Returns: Json
+      }
       pcm_generate_display_id: { Args: never; Returns: string }
       pcm_order_refundable_remaining: {
         Args: { p_order_id: string }

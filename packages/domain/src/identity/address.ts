@@ -28,6 +28,20 @@ export type CustomerAddress = {
   name: string; // 收件人
   phone: string;
   line: string; // 地址(縣市 / 區 / 路 / 號 / 樓)
+  /**
+   * 收件人 Email(M-4b LINE 3DS 修復)。付款時 `cardholder.email` 優先取這個值。
+   *
+   * **`string | null`,不跟 phone 一樣在 mapper 壓成空字串**:保留 `null` 是為了不在
+   * mapper 這層抹掉存量資料的原始形狀(新欄之前建的列多半是 `null`),盤點與資料修復用得到。
+   * ⚠️ 但 **`null` 不足以證明「從未填過」** —— 客人可直接打 PostgREST 寫自己的列
+   * (表級 GRANT + RLS own-only,見 backlog #343)。
+   *
+   * ⚠️ **誠實邊界(codex 關卡2 指出、確認屬實)**:目前**沒有任何一條程式分支**真的
+   * 依這個區分做不同的事 —— 結帳端(`cardholder.ts`)與表單端(`InlineAddressForm`)
+   * 都把 null 與 '' 一視同仁當「沒有值」。所以這個區分現在的價值只在**辨識存量資料**
+   * (查 DB 時分得出哪些是舊列),不是行為分支。要真的分流,得先加分支與對應的行為測試。
+   */
+  email: string | null;
   invoice: {
     type: InvoiceType;
     carrier: string; // personal only(手機載具)

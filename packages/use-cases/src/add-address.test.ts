@@ -11,6 +11,7 @@ function addr(over: Partial<CustomerAddress> = {}): CustomerAddress {
     name: 'n',
     phone: '0911',
     line: 'line',
+    email: null,
     invoice: { type: 'personal', carrier: '', title: '', taxId: '', donateCode: '' },
     createdAt: 't',
     updatedAt: 't',
@@ -22,6 +23,7 @@ const INPUT: AddressCreateInput = {
   name: 'n',
   phone: '0911',
   line: 'line',
+  email: 'a@b.tw',
   invoice: { type: 'personal', carrier: '', title: '', taxId: '', donateCode: '' },
 };
 
