@@ -80,6 +80,7 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
     handle: 'handle-000',
     subtitle: '',
     variants: [],
+    variantCount: 0, // 2026-08-08 必填:本 factory 不測變體 ⇒ 填 0(給不出真值就明填、不用 optional 逃避)
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,

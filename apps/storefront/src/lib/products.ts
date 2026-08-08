@@ -207,6 +207,9 @@ export function toUIProduct(product: Product, tier: MemberTier): MockProduct {
       price: v.priceByTier.general.amount,
       images: v.images,
     })),
+    // 2026-08-08 Q28:變體「數量」與變體「資料」是兩件事 —— 列表讀路徑只帶得到前者
+    //   (見 domain Product.variantCount 註解)。卡片的加購/導頁判定只看這個欄位。
+    variantCount: product.variantCount,
     // S6:完整適用車款 ← domain product.fitments(逐欄白名單、供 OD-12 適用車款表(ProductFitments)渲染;
     //   `fits` 單字串仍為卡片用衍生值、兩者並存。全公開車輛相容資訊、無敏感欄)。
     //   yearEnd 條件帶忠實保留 domain 三態、不壓平:null=開放式("2025+")、number=明確迄年、

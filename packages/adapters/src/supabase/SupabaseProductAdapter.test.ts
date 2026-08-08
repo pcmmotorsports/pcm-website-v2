@@ -67,6 +67,19 @@ describe('SupabaseProductAdapter — SELECT 投射經銷價防護(M-11 安全回
     expect(captured.select).toContain('product_variants_public');
     expect(captured.select).not.toContain('product_variants('); // 不直接查 base 變體表
     expect(captured.select).toContain('price_general');
+
+    // 🔴 2026-08-08 R2 must-fix:detail 投射**只能** embed 這個關係一次。
+    //   `PRODUCT_SELECT_DETAIL_VIEW` 自本日起已含 `product_variants_public(id)`(為了 list 的
+    //   variantCount);`..._WITH_VARIANTS` 若仍由它組,展開後會變成
+    //   `…, product_variants_public(id), product_variants_public(id, sku, …)` = 同一關係 embed 兩次。
+    //   PostgREST 對未取別名的重複 embed 行為不確定:報錯 ⇒ 本方法整條 throw = PDP 全掛;
+    //   或解析取到只有 id 的那份 ⇒ PDP `variants=[]`、`cart/actions.ts` 的 fail-closed 失效、
+    //   變體商品以群代表價結帳。
+    //   🔴 補這條的理由是**突變實測**:退回吃 VIEW 的寫法時,全套測試零紅。
+    expect(
+      captured.select.match(/product_variants_public/g)?.length,
+      'detail 投射把 product_variants_public embed 了不只一次(見上方註解:PDP 會掛或拿到空變體)',
+    ).toBe(1);
   });
 
   it('findById:同走 products_public 安全 view、同投射不含經銷欄', async () => {
@@ -229,10 +242,11 @@ describe('SupabaseProductAdapter.listAllByCategory — 分頁迴圈(#220)', () =
 // products_public.range() 依呼叫序回各頁;記錄 eq 是否被呼叫(listAllProducts 不該疊 category_id)。
 function makeAllProductsClient(pageSizes: number[]) {
   const rangeCalls: Array<[number, number]> = [];
+  const selectCalls: string[] = [];
   let eqCalled = false;
   let idx = 0;
   const products = {
-    select() { return products; },
+    select(cols: string) { selectCalls.push(cols); return products; },
     eq() { eqCalled = true; return products; },
     order() { return products; },
     range(from: number, to: number) {
@@ -251,10 +265,35 @@ function makeAllProductsClient(pageSizes: number[]) {
       return products;
     },
   };
-  return { client: client as unknown as SupabaseClient, rangeCalls, eqCalled: () => eqCalled };
+  return { client: client as unknown as SupabaseClient, rangeCalls, selectCalls, eqCalled: () => eqCalled };
 }
 
 describe('SupabaseProductAdapter.listAllProducts — 全目錄分頁(C4/#205)', () => {
+  // 🔴 2026-08-08 Q28:list 投射必須 embed `product_variants_public(id)`。
+  //
+  // 這條守的不是「效能」而是**正確性**:少了它,`variantCount` 恆 0 ⇒ 列表卡片分不出
+  // 「這款真的沒變體」與「有變體但沒帶下來」⇒ 快速加購把有變體商品加成幽靈品項
+  // (購物車 fail-closed 丟掉那行、客人卻看到加購成功、還刪不掉)。
+  // 🔴 **加這條的理由是突變實測**:拿掉 adapter 那段 embed 時,全套測試**沒有任何一條紅**
+  // ——mapper 與卡片的測試都餵自己的 fixture、碰不到真正的投射字串。這是幽靈品項復發的最短路徑。
+  // ⚠️ 同時釘住「只投 id」:多投 spec/images 會讓 :74 那個「避 N+1 jsonb 膨脹」的理由失效。
+  it('🔴 list 投射 embed product_variants_public(id) 且只投 id(幽靈品項回歸守門)', async () => {
+    const { client, selectCalls } = makeAllProductsClient([0]);
+    const adapter = new SupabaseProductAdapter(client);
+
+    await adapter.listAllProducts();
+
+    expect(selectCalls.length).toBeGreaterThan(0);
+    for (const cols of selectCalls) {
+      expect(cols).toContain('product_variants_public(id)');
+      // 只投 id:不得把 detail 那套 7 欄搬進 list 投射
+      expect(cols).not.toContain('product_variants_public(id, sku');
+      for (const heavy of ['spec', 'images', 'price_general']) {
+        expect(cols).not.toContain(`product_variants_public(${heavy}`);
+      }
+    }
+  });
+
   it('跨頁合併全目錄:1000 + 117 → 1117、range 連續非重疊、末頁<1000 即停、無重複 id、且不綁分類(未 .eq category_id / 未查 categories)', async () => {
     const { client, rangeCalls, eqCalled } = makeAllProductsClient([1000, 117]);
     const adapter = new SupabaseProductAdapter(client);

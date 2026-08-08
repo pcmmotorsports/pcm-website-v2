@@ -166,6 +166,59 @@ describe('mapSupabaseProductToDomain 變體整合', () => {
   it('list 路徑(無 embed key)→ variants 空陣列(避 N+1)', () => {
     const p = mapSupabaseProductToDomain(baseProductRow);
     expect(p.variants).toEqual([]);
+    expect(p.variantCount).toBe(0);
+  });
+
+  // ── 2026-08-08 Q28:list 投射改 embed `product_variants_public(id)`(只一欄,為了數 variantCount)──
+  //
+  // 🔴 這族守的是一條真實踩過的坑:列表卡片分不出「這款真的沒變體」與「有變體但沒帶下來」,
+  //    於是把有變體商品加成幽靈品項(購物車 fail-closed 丟掉那行、客人卻看到加購成功)。
+  //    修法是讓 list 也帶得回一個**數量**,但**不讓精簡形狀變成假變體**。
+
+  it('list 路徑(embed 只有 id)→ variantCount 數得出來', () => {
+    const p = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      product_variants_public: [{ id: 'v0' }, { id: 'v1' }, { id: 'v2' }],
+    });
+    expect(p.variantCount).toBe(3);
+  });
+
+  // 🔴 零回歸的關鍵:精簡形狀**不得**進 variants —— 餵給 mapVariantRow 會做出 sku 為空字串的
+  //    垃圾變體,而 sku 會一路進購物車行(`app/cart/actions.ts:167`)。
+  // 突變:拿掉 `.filter(isFullVariantRow)` ⇒ 只紅這條
+  it('🔴 list 路徑(embed 只有 id)→ variants 仍為空(精簡形狀不得變成假變體)', () => {
+    const p = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      product_variants_public: [{ id: 'v0' }, { id: 'v1' }],
+    });
+    expect(p.variants).toEqual([]);
+  });
+
+  // detail 路徑:兩者同一真相。突變:variantCount 改寫死 0 ⇒ 只紅這條與上面 list 那條
+  it('detail 路徑 → variantCount 與 variants.length 一致', () => {
+    const p = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      product_variants_public: [
+        { ...baseVariantRow, id: 'v0', sku: 'B-0', sort_order: 0 },
+        { ...baseVariantRow, id: 'v1', sku: 'B-1', sort_order: 1 },
+      ],
+    });
+    expect(p.variantCount).toBe(2);
+    expect(p.variantCount).toBe(p.variants.length);
+  });
+
+  // 混合形狀(理論上不會發生、但判別函式必須逐筆判而不是看第一筆決定整批)。
+  // 突變:把 filter 改成「看 [0] 決定整批」⇒ 只紅這條
+  it('混合形狀 → 逐筆判別:完整的進 variants、精簡的只算數', () => {
+    const p = mapSupabaseProductToDomain({
+      ...baseProductRow,
+      product_variants_public: [
+        { id: 'lite' },
+        { ...baseVariantRow, id: 'full', sku: 'B-FULL', sort_order: 0 },
+      ],
+    });
+    expect(p.variantCount).toBe(2);
+    expect(p.variants.map((v) => v.sku)).toEqual(['B-FULL']);
   });
 
   // M-1-16c-4b:productCode read/write round-trip(codex 關卡1 must-fix 2 + consider 5)

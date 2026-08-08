@@ -9,11 +9,18 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
 
 import { HomeSelect } from './HomeSelect';
+import { CartProvider } from '@/contexts/CartContext';
 import type { FeaturedResult } from '@/lib/products';
 import { MOCK_PRODUCTS } from '../data/mock-products';
+
+// 2026-08-08 快速加購接線:`HomeSelect` 內部的 `ProductCard` 從此吃 `useCart()`,
+// 無 provider 會 throw(`CartContext.tsx:325-327`)。呼叫端與斷言一字未動,
+// 只補上元件本來就需要的 provider。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 afterEach(cleanup);
 

@@ -27,11 +27,18 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { cleanup, render as rtlRender } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { BrandPageRoot } from './BrandPageRoot';
+import { CartProvider } from '@/contexts/CartContext';
 import { BRAND_CONTENT } from '@/data/brand-content';
 import type { MockProduct } from '@/data/mock-products';
 import { BRAND_PRODUCT_SLOTS } from '@/lib/brand-url';
+
+// 2026-08-08 快速加購接線:`BrandPageRoot` 商品區的 `ProductCard` 從此吃 `useCart()`,
+// 無 provider 會 throw(`CartContext.tsx:325-327`)。呼叫端與斷言一字未動,
+// 只補上元件本來就需要的 provider。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 afterEach(cleanup);
 

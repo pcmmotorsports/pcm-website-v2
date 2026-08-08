@@ -74,6 +74,7 @@ function fakeProduct(overrides: Partial<Product> = {}): Product {
     handle: 'akrapovic-titanium-full-exhaust',
     subtitle: '適用 Panigale V4',
     variants: [fakeVariant()],
+    variantCount: 1, // 2026-08-08 必填:與上面的 variants 一致(detail 路徑兩者同一真相)
     createdAt: new Date('2026-01-01T00:00:00Z'),
     updatedAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
@@ -96,6 +97,16 @@ describe('toUIProduct — 經銷價 strip 最後一哩(M-11 安全回歸)', () =
     for (const key of FORBIDDEN_KEYS) {
       expect(json).not.toContain(key);
     }
+  });
+
+  // 🔴 2026-08-08 R2 must-fix:`variantCount` 是資料面接到 UI 的**唯一一行**(`products.ts` 的
+  //    `variantCount: product.variantCount`),而它原本零守門 —— 刪掉那行,首頁 rail / 相關商品 /
+  //    會員中心推薦會全部退回「所有商品都沒規格」⇒ 卡片直加 ⇒ 幽靈品項復發,而測試全綠。
+  //    (與同片 M20〔adapter 投射字串〕同型:資料在管線上斷掉,兩端各自的 fixture 都測不到。)
+  // 突變:刪掉 toUIProduct 的 `variantCount:` 那行 ⇒ 只紅這條
+  it('🔴 variantCount 從 domain 帶到 UI(卡片「導頁 vs 直加」的唯一依據)', () => {
+    expect(toUIProduct(fakeProduct(), 'general').variantCount).toBe(1);
+    expect(toUIProduct(fakeProduct({ variants: [], variantCount: 0 }), 'general').variantCount).toBe(0);
   });
 
   it('變體只剩 {id,sku,spec,price,images}、price === priceByTier.general.amount(不帶 priceByTier)', () => {

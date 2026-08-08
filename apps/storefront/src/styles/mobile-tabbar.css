@@ -94,6 +94,31 @@ html[data-mobile="true"] body {
   opacity: 0;
   transition: opacity 0.15s;
 }
+/* 購物車件數徽章(2026-08-08 Sean「購物車的數字也要全站連動」)。
+   數值與樣式刻意與桌機 Header 的 `.pcm-cart-dot`(`header.css:157-174`)同一套:
+   同 `--c-red` 底、同 `tabular-nums`(位數變動時寬度不跳)。
+   偏移不同是因為承載元素不同 —— Header 那顆掛在 44px 方形圖示鈕上(top/right 4px),
+   這顆掛在 flex 欄位的 tab 上、要對齊 22px 圖示的右上角,故用 `left:50%` + 正位移。
+   父層 `.mobile-tabbar-btn` 已有 `position: relative`(:73),不需另設。 */
+.mobile-tabbar-cart-dot {
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  margin-left: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--c-red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
 .mobile-tabbar-btn svg {
   display: block;
 }

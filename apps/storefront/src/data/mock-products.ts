@@ -168,6 +168,20 @@ export type MockProduct = {
    */
   variants?: UIVariant[];
   /**
+   * 這款有幾個變體(2026-08-08 Q28 加購鈕線;domain `Product.variantCount` 的 UI 投影)。
+   *
+   * 🔴 **列表卡片只能信這個、不能信 `variants.length`**:列表讀路徑刻意不帶變體資料
+   * (只 embed id 數數量)⇒ `variants` 在卡片上恆為空,「真的沒變體」與「有變體但沒帶下來」
+   * 分不出來。卡片的快速加購靠它決定「直接加入」還是「導去商品頁選規格」。
+   * 🔴 **`undefined` = 不知道,不是「沒有」**(2026-08-08 R2 修過方向;此句原本寫反,R3 抓到)。
+   *   舊 mock 與**走 RPC 的讀路徑**(`/products` 商品目錄、品牌頁 → `lib/catalog-page.ts`
+   *   `catalogRowToUIProduct`,那支 mapper 沒有這個欄位)都會給 `undefined`。
+   *   消費端**必須走安全側**——當作「可能有規格」,不得 `?? 0` 當沒有:
+   *   猜「有規格」最差是多讓客人跳一次商品頁;猜「沒規格」而直接加購,會做出購物車看不到
+   *   **且刪不掉**的幽靈行(server 端 fail-closed 丟整行)。參照 `ProductCard` 的 `hasVariants`。
+   */
+  variantCount?: number;
+  /**
    * 完整適用車款陣列(S6:toUIProduct ← domain `product.fitments` 逐筆映射全車款;
    * 聯集去重已於匯入 mergeFitments 上游完成、本層不再去重)。
    * `fits` 為其衍生單字串(卡片用、取第一筆 brand+model);本欄為 OD-12 適用車款表(ProductFitments)的真資料源。

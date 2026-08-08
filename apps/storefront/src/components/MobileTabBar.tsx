@@ -21,6 +21,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { useCart } from '@/contexts/CartContext';
 
 type Tab = {
   id: string;
@@ -107,6 +108,11 @@ const TABS: Tab[] = [
 
 export function MobileTabBar() {
   const pathname = usePathname() || '/';
+  // Sean 2026-08-08 逐字「購物車的數字也要全站連動」——桌機 Header 的數字早就接了
+  // (`Header.tsx:58,170,219`),手機底欄這顆**從來沒有**徽章 = 全站連動的唯一缺口
+  // (本檔在此之前 `useCart`/`totalQty` grep 命中 0)。
+  // `CartProvider` 在根 layout(`app/layout.tsx:106-109`)包住本元件 ⇒ context 恆可用。
+  const { totalQty } = useCart();
   const segments = pathname.split('/').filter(Boolean);
   // 🔶 第2批新增第二個 hidden 情境:`/coming-soon`(整站上線前的唯一一頁)。
   //    Sean 2026-08-05 的天地規則是**分兩種**的:`/stores` `/install` 是站內頁要保留天地,
@@ -149,6 +155,10 @@ export function MobileTabBar() {
           <Link key={t.id} href={t.href} className={cls}>
             <span className="mobile-tabbar-dot" />
             {t.icon}
+            {/* `totalQty > 0` 守門沿用 Header 同款:SSR / hydrate 前為 0 ⇒ 不顯、無 hydration mismatch。 */}
+            {t.id === 'cart' && totalQty > 0 && (
+              <span className="mobile-tabbar-cart-dot">{totalQty}</span>
+            )}
             <span className="lbl">{t.label}</span>
           </Link>
         );

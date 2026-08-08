@@ -62,8 +62,18 @@ const PRODUCT_SELECT_DETAIL =
  * 🔴 部署順序硬依賴(S4a code-reviewer Critical;同檔 WITH_VARIANTS 註的 42703 實測同理):
  * PostgREST 對 select 指名不存在欄回 42703 error、非「缺鍵優雅降級」→ 本常數上線的環境
  * **必須**已 apply migration 20260719150000,否則所有目錄讀路徑整條 throw。
+ *
+ * 🔴 2026-08-08(Q28 加購鈕線)加 embed `product_variants_public(id)` —— **只有 id 這一欄**:
+ * 列表卡片的快速加購需要知道「這款有沒有變體」,但**不需要變體資料本身**(Sean 拍板:有規格就導
+ * 商品頁選,不在卡片上直接加某個規格)。不帶這個訊息時,「真的沒變體」與「有變體但沒帶下來」
+ * 在卡片端長得一模一樣 ⇒ 有變體商品會被加成幽靈品項(購物車 fail-closed 丟掉那行、客人卻看到
+ * 加購成功)。只投 id 讓 :74 那個「避 N+1 jsonb 膨脹」的理由**仍然成立**(不拖 spec/images jsonb)。
+ * mapper 端由 `isFullVariantRow` 分辨兩種形狀:精簡形狀只進 `variantCount`、不進 `variants`
+ * ⇒ list 路徑的 `variants` 維持 `[]`、零行為回歸。
+ * 部署面:embed 關係已由主視窗對**正式站 PostgREST** 實測(`select=id,product_variants_public(id)`
+ * → HTTP 200、每列帶 `[{id},…]`),42703 那格不會發生。
  */
-const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim`;
+const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim, product_variants_public(id)`;
 
 /**
  * Detail-with-variants projection(M-1-16c-2、backlog #203):PRODUCT_SELECT_DETAIL +
@@ -77,7 +87,13 @@ const PRODUCT_SELECT_DETAIL_VIEW = `${PRODUCT_SELECT_DETAIL}, card_image_trim`;
  *   透過 embed 亦無法 select(實測 PostgreSQL 42703「column does not exist」)→ 經銷價在 DB 層硬擋、
  *   不僅靠 application 投射選擇。PostgREST view↔view 關係已實測偵測成功(不需 product_id fallback)。
  */
-const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL_VIEW}, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
+// 🔴 2026-08-08 R2 must-fix:**不得**由 `PRODUCT_SELECT_DETAIL_VIEW` 組 —— 那個常數自本日起已含
+//   `product_variants_public(id)`,再接一份 7 欄 embed 會讓**同一關係在同一 select 出現兩次**
+//   (展開後 `…, product_variants_public(id), product_variants_public(id, sku, …)`)。
+//   PostgREST 對未取別名的重複 embed 行為不確定:報錯 ⇒ findById/findByHandle 整條 throw = PDP 全掛;
+//   或解析取到只有 id 的那份 ⇒ PDP `variants=[]`、`cart/actions.ts:168` 的 fail-closed 判斷失效、
+//   變體商品以群代表價結帳。故本常數自己接 `card_image_trim`、繞開那個 embed。
+const PRODUCT_SELECT_DETAIL_WITH_VARIANTS = `${PRODUCT_SELECT_DETAIL}, card_image_trim, product_variants_public(id, sku, spec, price_general, availability, images, sort_order)`;
 
 /**
  * SupabaseProductAdapter:Supabase 真實 ProductRepository 實作。
@@ -420,6 +436,10 @@ export class SupabaseProductAdapter implements IProductRepository {
       this.supabase
         .from('products')
         .upsert(row as Database['public']['Tables']['products']['Insert'], { onConflict: 'id' })
+        // 🔴 回讀走 base 表投影(無 embed)⇒ mapper 算出的 `variantCount` **恆為 0、不可信**,
+        //   與 `domain/catalog/types.ts` 對該欄「必填且為真值」的契約不符。
+        //   今天沒有正式呼叫點(grep 只有 in-memory 測試)所以是死路,不是現行 bug;
+        //   **接線前先讓這條投影也帶 embed**,否則存檔回來的 Product 會謊稱「這款沒有變體」。
         .select(PRODUCT_SELECT_DETAIL)
         .single(),
     );
