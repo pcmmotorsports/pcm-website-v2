@@ -32,7 +32,10 @@
   --cs-dim: rgba(255, 255, 255, 0.62);
   --cs-dimmer: rgba(255, 255, 255, 0.42);
 
-  min-height: 100vh;
+  /* `100svh` 而非 `100vh`:理由同 `auth.css` 的 `.ap-page`。
+     本檔下方 `.cs-has-nav` 那段註解其實**早就描述過同一個機制**(「100vh 會讓內容再短也一定
+     多出一段捲動」),只是當時把它當版面問題處理、沒連到 iOS 工具列那一層。 */
+  min-height: 100svh;
   background: var(--cs-ink);
   color: #fff;
   font-family: var(--f-sans);

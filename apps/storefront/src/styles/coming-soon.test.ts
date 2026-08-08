@@ -173,10 +173,15 @@ describe('第2批 · 頁尾只能有一個(R1 抓到的 must-fix)', () => {
     );
   });
 
-  it('🔴 有天地時不吃 100vh(否則 Header + 100vh + HomeFooter 一定多出一段捲動)', () => {
+  // 🔴 2026-08-09 單位更新(斷言跟著行為改、不是遷就實作):`.cs-page` 由 `100vh` 改 `100svh`。
+  //    **意圖沒變** —— 整站版仍然「滿一個視窗高」;變的是用哪個視窗高度。
+  //    iOS 的 `100vh` 是工具列**收起時**的高度,工具列露出時會多撐一段空白
+  //    (本檔下方那條 `.cs-has-nav { min-height: 0 }` 的註解描述的就是同一個機制的另一半)。
+  //    斷言改成釘 `100svh`(更緊、不是放寬):寫回 `100vh` 一樣會紅。詳 `viewport-units.test.ts`。
+  it('🔴 有天地時不吃滿版高(否則 Header + 滿版 + HomeFooter 一定多出一段捲動)', () => {
     expect(CSS, '.cs-has-nav 沒把 min-height 收掉').toMatch(/\.cs-has-nav\s*\{\s*min-height:\s*0/);
-    expect(block(CSS, '.cs-page {'), '整站版不再是滿版 ⇒ 它真的是整頁,100vh 要留著').toMatch(
-      /min-height:\s*100vh/,
+    expect(block(CSS, '.cs-page {'), '整站版不再是滿版 ⇒ 它真的是整頁,滿版高要留著').toMatch(
+      /min-height:\s*100svh/,
     );
   });
 });
