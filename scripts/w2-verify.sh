@@ -16,6 +16,9 @@
 # ══ 第四句(R1-N4 之後補進來,本檔自訂)═══════════════════════════
 #   🔴 **家族格的靶不得只打一個成員** —— 「五格家族用單一成員消融」證的是那一個成員,
 #      不是那一族。本檔的 `TMUT-ACL` / `TMUT-WIRED` 因此逐成員打,全部翻面才算。
+#   🔴 **W7 更正(追加不劃掉)**:上面這句在 W2 落檔時對 `TMUT-WIRED` 是**假的** —— 該靶從未被
+#      寫出來(全 repo grep 只命中這句承諾本身),`W2-WIRED-*` 五格一直是零靶族。
+#      W7 全線覆蓋帳盤點抓到,已於 **§12 的 ⓪**(突變段第一個)補齊,這句自此為真。
 #
 # ══ boolean 寫法 ═══════════════════════════════════════════════
 #   🔴 psql `-qtA` 下 `bool::text` 印 `true`/`false`,裸 boolean 印 `t`/`f`。
@@ -33,7 +36,7 @@ export LC_ALL=C LANG=C
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 D="${W2DB:-/tmp/w2db}"; SOCK="${W2SOCK:-/tmp/w2sk}"; P="${W2PORT:-54383}"
 PASS=0; FAIL=0; KEYS=""
-EXPECT_TOTAL=67   # 🔴 量出來的,不是估的。全綠時 PASS = 67 + CELL-ACCOUNT + CELL-KEYSET = 69。
+EXPECT_TOTAL=68   # 🔴 量出來的,不是估的。全綠時 PASS = 68 + CELL-ACCOUNT + CELL-KEYSET = 70。(W7:67→68,補 `TMUT-WIRED`)
 ok()  { PASS=$((PASS+1)); KEYS="$KEYS $1"; printf '  PASS %-34s %s\n' "$1" "$2"; }
 bad() { FAIL=$((FAIL+1)); KEYS="$KEYS $1"; printf '  FAIL %-34s %s\n' "$1" "$2"; }
 
@@ -204,6 +207,9 @@ HA="$(Q "SELECT (public.pcm_b2_shipping_idem_payload_hash('void', pg_catalog.jso
 echo "══ 4. 🔴 五支**真的接上**冪等層(不是只有骨架還在)════════"
 # 判別力來源:種一列**指紋不符**的鍵列 ⇒ 有接冪等層紅在 P2B22;沒接(維持骨架)紅在 P2B20。
 BOGUS="$(printf 'f%.0s' $(seq 1 64))"
+# 🔴 期望字串抽成**單一來源**:本節的五格與 §12 ⓪ 的 `TMUT-WIRED` 靶必須用同一份判定式。
+#    (R1-F10:首版把它抄了兩份 ⇒ 日後 constraint 改名時,靶與被靶會靜默分家、無人抓得到。)
+WIRED_EXPECT="P2B22|pcm_b2_w2_idem_payload_mismatch"
 i=0
 for fn in $FIVE; do
   i=$((i+1))
@@ -216,7 +222,7 @@ for fn in $FIVE; do
   esac
   plant "$ACT" "wired$i" "$BOGUS" "'$SHIP'" '{}' >/dev/null
   C="$(cap "$CALL")"
-  [ "$C" = "P2B22|pcm_b2_w2_idem_payload_mismatch" ] \
+  [ "$C" = "$WIRED_EXPECT" ] \
     && ok "W2-WIRED-$fn" "種指紋不符的鍵列 ⇒ 紅在 P2B22(不是骨架的 P2B20)= 該支確實走冪等層 ✓" \
     || bad "W2-WIRED-$fn" "實得 [$C](期望 P2B22|pcm_b2_w2_idem_payload_mismatch)⇒ 該支沒接上冪等層"
 done
@@ -435,6 +441,67 @@ EXP_COLS="carrier_code,carrier_note,created_at,customer_user_id,deleted_at,hct_r
 
 echo "══ 12. 🔴 突變靶(家族格逐成員打;R1-N3/N4/N6)══════════════"
 # 🔴 從這裡開始**會破壞被測物**,所有觀察都在本節內取完;不還原(跑完即拆庫)。
+#
+# ⓪ 🔴🔴 WIRED 族的靶 —— **W7 覆蓋帳補**:本檔 `:18` 逐字承諾「本檔的 `TMUT-ACL` / `TMUT-WIRED`
+#    因此逐成員打」,但 `TMUT-WIRED` **從來沒有被寫出來**(W7 全線盤點:全 repo grep 只命中那句
+#    承諾本身)⇒ `W2-WIRED-*` 五格自 W2 落檔起一直是**零靶**族,而它們守的正是「五支 writer 真的
+#    接上冪等層」。承諾與事實的落差由本格清償。
+# 🔴 **排在本節第一個、而且逐支還原**,兩個理由都是實測逼出來的:
+#    ① 首版排在 ⑧ 之後 ⇒ 五支的基準腿全部量到「無錯誤」—— 前面的突變已經把 mismatch 那條路
+#       拆掉了,「突變後變 P2B20」根本不可歸因(判準第三句)。基準腿抓到了它自己要防的東西。
+#    ② 本族的突變是**換掉 writer 本身**;不還原的話,後面 ③-⑧ 那些要呼 writer 的靶量到的是我的
+#       骨架 stub,不是被測物。⇒ 每支「突變 → 觀察 → 還原 → 還原自證」,任一時刻最多一支被改。
+WIRED_BAD=""; j=0
+for fn in $FIVE; do
+  j=$((j+1))
+  case "$fn" in
+    admin_create_shipment)       ACT=create_shipment; CB="public.admin_create_shipment('w7b$j','$CUST','{}'::jsonb,'hct')";  CM="public.admin_create_shipment('w7m$j','$CUST','{}'::jsonb,'hct')";  CR="public.admin_create_shipment('w7r$j','$CUST','{}'::jsonb,'hct')" ;;
+    admin_add_shipment_items)    ACT=add_items;       CB="public.admin_add_shipment_items('w7b$j','$SHIP','[]'::jsonb)";    CM="public.admin_add_shipment_items('w7m$j','$SHIP','[]'::jsonb)";    CR="public.admin_add_shipment_items('w7r$j','$SHIP','[]'::jsonb)" ;;
+    admin_mark_shipment_shipped) ACT=ship;            CB="public.admin_mark_shipment_shipped('w7b$j','$SHIP')";             CM="public.admin_mark_shipment_shipped('w7m$j','$SHIP')";             CR="public.admin_mark_shipment_shipped('w7r$j','$SHIP')" ;;
+    admin_void_shipment)         ACT=void;            CB="public.admin_void_shipment('w7b$j','$SHIP','r')";                 CM="public.admin_void_shipment('w7m$j','$SHIP','r')";                 CR="public.admin_void_shipment('w7r$j','$SHIP','r')" ;;
+    admin_unvoid_shipment)       ACT=unvoid;          CB="public.admin_unvoid_shipment('w7b$j','$SHIP')";                   CM="public.admin_unvoid_shipment('w7m$j','$SHIP')";                   CR="public.admin_unvoid_shipment('w7r$j','$SHIP')" ;;
+  esac
+  # 腿 1(基準):突變前必須是 P2B22,否則本支的翻面不可歸因
+  plant "$ACT" "w7b$j" "$BOGUS" "'$SHIP'" '{}' >/dev/null
+  CBASE="$(cap "$CB")"
+  if [ "$CBASE" != "$WIRED_EXPECT" ]; then
+    WIRED_BAD="$WIRED_BAD $fn(基準腿:突變前實得 [${CBASE:-無錯誤}]、非 P2B22 ⇒ 不可歸因)"; continue
+  fi
+  # 🔴 還原用**原始定義存檔**(不經 `Q()` —— 它會 `tr -d '\n'` 把多行 body 壓成一行)。
+  #    存進 $D(被測叢集的 datadir)⇒ 跟著 `die`/收尾的 `rm -rf "$D"` 一起消失,不另外留垃圾。
+  psql -X -h "$SOCK" -p $P -U postgres -d postgres -qtA \
+    -c "SELECT pg_catalog.pg_get_functiondef(p.oid) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'" > "$D/w7src_$fn.sql" 2>/dev/null
+  # 🔴 R1-F6:`-s` 檢查必須排在補分號**之前** —— 首版反過來寫 ⇒ 檔案永遠 ≥2 bytes、
+  #    這道閘是死碼。`pg_get_functiondef` 真的回空時(psql 錯誤被 2>/dev/null 吞),
+  #    程式會照樣突變、還原時重放一個只有 `;` 的檔。
+  [ -s "$D/w7src_$fn.sql" ] || { WIRED_BAD="$WIRED_BAD $fn(取不到原始定義 ⇒ 不敢突變)"; continue; }
+  printf ';\n' >> "$D/w7src_$fn.sql"
+  # 腿 2(突變):換回骨架版。🔴 簽章用 `pg_get_function_arguments`(**含 DEFAULT**)——
+  #    改用 identity_arguments 會弄丟 `p_carrier_note … DEFAULT NULL` ⇒ 四參數呼叫變 42883,
+  #    那是「我的 SQL 寫壞了」,不是「沒接冪等層」的觀察值(判準第三句)。
+  SIGARGS="$(Q "SELECT pg_catalog.pg_get_function_arguments(p.oid) FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname='$fn'")"
+  Q "CREATE OR REPLACE FUNCTION public.$fn($SIGARGS) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path='' SET lock_timeout='5s' AS \$w7\$ BEGIN RAISE EXCEPTION '尚未實作' USING ERRCODE='P2B20'; END \$w7\$" >/dev/null
+  plant "$ACT" "w7m$j" "$BOGUS" "'$SHIP'" '{}' >/dev/null
+  CMUT="$(cap "$CM")"
+  # 腿 3(還原 + 自證):還原後同一個觀察必須回到 P2B22,否則後面的靶全都量在我的 stub 上
+  psql -X -h "$SOCK" -p $P -U postgres -d postgres -q -f "$D/w7src_$fn.sql" >/dev/null 2>&1
+  plant "$ACT" "w7r$j" "$BOGUS" "'$SHIP'" '{}' >/dev/null
+  CRES="$(cap "$CR")"
+  # 🔴 `RAISE … USING ERRCODE` 的 CONSTRAINT_NAME 是**空字串不是 NULL** ⇒ `cap()` 的
+  #    `coalesce(n,'(null)')` 不觸發、實得 `P2B20|`。首版寫死 `P2B20|(null)` ⇒ 五支全誤紅
+  #    (fail-closed、不是假綠,但仍是「比錯東西」)。改成只釘 SQLSTATE 前綴。
+  case "$CMUT" in P2B20\|*) : ;; *) WIRED_BAD="$WIRED_BAD $fn(突變腿實得 [${CMUT:-無錯誤}]、期望 P2B20)" ;; esac
+  [ "$CRES" = "$WIRED_EXPECT" ] || WIRED_BAD="$WIRED_BAD $fn(還原腿實得 [${CRES:-無錯誤}] ⇒ 被測物沒回來,後面的靶不可信)"
+done
+[ -z "$WIRED_BAD" ] && ok TMUT-WIRED "🔴 **五支逐一**換回骨架版 ⇒ 每一格都從 P2B22 翻成 P2B20、還原後又翻回 P2B22 = 整族有判別力,不是單一成員;三腿(基準/突變/還原)讓歸屬乾淨" \
+                    || bad TMUT-WIRED "有成員不敏感或歸屬不明:$WIRED_BAD"
+# 🔴 誠實界(兩條,都不假裝):
+#   ① 本靶打的是「該支**完全不走**冪等層」(骨架版)。它證不了「部分接線」(例如有 claim
+#      沒有 require_complete)也會被這五格抓到 —— 那個維度今天零覆蓋,W7 矩陣列為欠款。
+#   ② `W2-WIRED-*` 釘的是**可觀察的 SQLSTATE + constraint 名**(R1-F11)。一支根本不呼冪等層、
+#      卻自己 `RAISE … ERRCODE='P2B22' CONSTRAINT 'pcm_b2_w2_idem_payload_mismatch'` 的 writer
+#      一樣會讓那五格全綠。⇒ 這五格證的是「那個錯誤面朝外一致」,不是「內部真的走了那條路」。
+#
 # ① SHIPCOLS 族
 Q "ALTER TABLE public.shipments ADD COLUMN w2mut_col text" >/dev/null
 M="$(Q "SELECT pg_catalog.string_agg(a.attname::text, ',' ORDER BY a.attname) FROM pg_catalog.pg_attribute a WHERE a.attrelid='public.shipments'::pg_catalog.regclass AND a.attnum>0 AND NOT a.attisdropped")"
@@ -541,7 +608,7 @@ fi
 DUP="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | uniq -d | tr '\n' ' ')"
 [ -z "$DUP" ] || { printf '  FAIL %-34s %s\n' "CELL-DUP" "重複格名 [$DUP] ⇒ 覆蓋帳不可信"; FAIL=$((FAIL+1)); }
 KEYS_NOW="$(printf '%s' "$KEYS" | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ *$//')"
-KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-DEFERRED TMUT-DISPATCH TMUT-HASH TMUT-INCOMPLETE TMUT-INVARIANT TMUT-RECORD-ROWCOUNT TMUT-SHIPCOLS TMUT-SNAPSHOT-GUARD W2-ACLSET-pcm_b2_shipping_idem_bad_snapshot_cols W2-ACLSET-pcm_b2_shipping_idem_claim W2-ACLSET-pcm_b2_shipping_idem_insert_guard W2-ACLSET-pcm_b2_shipping_idem_payload_hash W2-ACLSET-pcm_b2_shipping_idem_record W2-ACLSET-pcm_b2_shipping_idem_require_complete W2-ACLSET-pcm_b2_shipping_idem_response W2-CONC-BLOCKED W2-CONC-REPLAY W2-DEFERRED-ALLOWS-NORMAL W2-DEFERRED-COMPLETE W2-DISPATCH-FOREIGN-23505 W2-FN-SET W2-HASH-ACTION W2-HASH-CANONICAL W2-HASH-INJECT W2-HASH-NULL-VS-EMPTY W2-PROPS-pcm_b2_shipping_idem_bad_snapshot_cols W2-PROPS-pcm_b2_shipping_idem_claim W2-PROPS-pcm_b2_shipping_idem_insert_guard W2-PROPS-pcm_b2_shipping_idem_payload_hash W2-PROPS-pcm_b2_shipping_idem_record W2-PROPS-pcm_b2_shipping_idem_require_complete W2-PROPS-pcm_b2_shipping_idem_response W2-RECORD-NO-SUCH-SHIPMENT W2-RECORD-NULL W2-RECORD-OK W2-RECORD-REPOINT-BLOCKED W2-RECORD-ROWCOUNT W2-REPLAY-IGNORES-NONCOLS W2-REPLAY-INCOMPLETE W2-REPLAY-INVARIANT W2-REPLAY-MISMATCH W2-REPLAY-OK W2-REPLAY-PRODUCT-GONE W2-RESPONSE-NOT-OBJECT W2-RESPONSE-SHAPE W2-SHIPCOLS-FROZEN W2-SIG-admin_add_shipment_items W2-SIG-admin_create_shipment W2-SIG-admin_mark_shipment_shipped W2-SIG-admin_unvoid_shipment W2-SIG-admin_void_shipment W2-SNAPSHOT-BYPASS-BLOCKED W2-SNAPSHOT-INSERT-BLOCKED W2-SNAPSHOT-MUTABLE-COL W2-SNAPSHOT-WRITE-ONCE W2-SNAPSHOTABLE-REALLY-IMMUTABLE W2-W0B-INHERITED-IDENTITY W2-W0B-INHERITED-NOPURGE W2-WIRED-admin_add_shipment_items W2-WIRED-admin_create_shipment W2-WIRED-admin_mark_shipment_shipped W2-WIRED-admin_unvoid_shipment W2-WIRED-admin_void_shipment W2-WRITE-ONCE-EMPTY-SNAPSHOT"
+KEYS_FROZEN="ACL-CONTROL-HAS-PRIV DDL-SYNTAX TMUT-ACL TMUT-DEFERRED TMUT-DISPATCH TMUT-HASH TMUT-INCOMPLETE TMUT-INVARIANT TMUT-RECORD-ROWCOUNT TMUT-SHIPCOLS TMUT-SNAPSHOT-GUARD TMUT-WIRED W2-ACLSET-pcm_b2_shipping_idem_bad_snapshot_cols W2-ACLSET-pcm_b2_shipping_idem_claim W2-ACLSET-pcm_b2_shipping_idem_insert_guard W2-ACLSET-pcm_b2_shipping_idem_payload_hash W2-ACLSET-pcm_b2_shipping_idem_record W2-ACLSET-pcm_b2_shipping_idem_require_complete W2-ACLSET-pcm_b2_shipping_idem_response W2-CONC-BLOCKED W2-CONC-REPLAY W2-DEFERRED-ALLOWS-NORMAL W2-DEFERRED-COMPLETE W2-DISPATCH-FOREIGN-23505 W2-FN-SET W2-HASH-ACTION W2-HASH-CANONICAL W2-HASH-INJECT W2-HASH-NULL-VS-EMPTY W2-PROPS-pcm_b2_shipping_idem_bad_snapshot_cols W2-PROPS-pcm_b2_shipping_idem_claim W2-PROPS-pcm_b2_shipping_idem_insert_guard W2-PROPS-pcm_b2_shipping_idem_payload_hash W2-PROPS-pcm_b2_shipping_idem_record W2-PROPS-pcm_b2_shipping_idem_require_complete W2-PROPS-pcm_b2_shipping_idem_response W2-RECORD-NO-SUCH-SHIPMENT W2-RECORD-NULL W2-RECORD-OK W2-RECORD-REPOINT-BLOCKED W2-RECORD-ROWCOUNT W2-REPLAY-IGNORES-NONCOLS W2-REPLAY-INCOMPLETE W2-REPLAY-INVARIANT W2-REPLAY-MISMATCH W2-REPLAY-OK W2-REPLAY-PRODUCT-GONE W2-RESPONSE-NOT-OBJECT W2-RESPONSE-SHAPE W2-SHIPCOLS-FROZEN W2-SIG-admin_add_shipment_items W2-SIG-admin_create_shipment W2-SIG-admin_mark_shipment_shipped W2-SIG-admin_unvoid_shipment W2-SIG-admin_void_shipment W2-SNAPSHOT-BYPASS-BLOCKED W2-SNAPSHOT-INSERT-BLOCKED W2-SNAPSHOT-MUTABLE-COL W2-SNAPSHOT-WRITE-ONCE W2-SNAPSHOTABLE-REALLY-IMMUTABLE W2-W0B-INHERITED-IDENTITY W2-W0B-INHERITED-NOPURGE W2-WIRED-admin_add_shipment_items W2-WIRED-admin_create_shipment W2-WIRED-admin_mark_shipment_shipped W2-WIRED-admin_unvoid_shipment W2-WIRED-admin_void_shipment W2-WRITE-ONCE-EMPTY-SNAPSHOT"
 if [ "$KEYS_NOW" = "$KEYS_FROZEN" ]; then
   printf '  PASS %-34s %s\n' "CELL-KEYSET" "格名集合逐字符合凍結清單(換格名/換格都紅得到)"; PASS=$((PASS+1))
 else

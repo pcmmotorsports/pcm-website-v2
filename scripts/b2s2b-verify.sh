@@ -39,6 +39,10 @@
 # 用法:
 #   PORT=54365 scripts/b2s2b-verify.sh all /tmp/b2s2bv   從零 provision post-S2b 基準庫,再跑全部
 #   PORT=54365 scripts/b2s2b-verify.sh run /tmp/b2s2bv   重用既有基準庫
+#   🔴 **`all` 跑完會把自己 provision 的叢集停掉**(2026-08-08 W7 順手片補的 teardown;
+#      在此之前每跑一次就留一支活著的 postmaster,B 窗與主視窗各自復現過)。
+#      要接著跑 `run` ⇒ 前一次 `all` 加 `B2S2B_KEEP_CLUSTER=1` 明確保留(收尾自己負責)。
+#      `run` 模式重用的是別人起的叢集,**不收**(誰起的誰收)。
 #   🔴 PORT **無預設、必須顯式帶**(plan §3.6:a1/a4a 共用 54329 的同埠地雷;建議值 54365)。
 #      本家族已占用、不得重用:54329 / 54331 / 54342 / 54351 / 54353 / 54355 / 54357 / 54359
 #      / **54361(a1-verify)/ 54363(a4a-verify)**(S2b-4b 分埠後新增;與程式的黑名單同步)。
@@ -204,8 +208,11 @@ export LC_ALL=C
 # 🔴 使用者 rc 可覆寫 ON_ERROR_STOP / 輸出格式 ⇒ 比對值會漂。每個 psql 呼叫點另外都帶 -X。
 export PSQLRC=/dev/null
 
-BASE_URL="postgresql://postgres@127.0.0.1:${PORT}/postgres"
-ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1"
+# 🔴 `connect_timeout=5`(R1 nit 7):teardown 的 12 個 `drop_db` 排在 `stop_cluster` 之前,
+#    postmaster 若卡在 recovery / 被 SIGSTOP,無 timeout 的 psql 會無限等 ⇒ **teardown 那條末端
+#    永遠跑不到**,欠款照樣復發而且看起來像「腳本掛住了」。
+BASE_URL="postgresql://postgres@127.0.0.1:${PORT}/postgres?connect_timeout=5"
+ADMIN_URL="postgresql://postgres@127.0.0.1:${PORT}/template1?connect_timeout=5"
 
 # ══ 凍結的期望格數 + 具名 key 集合(W1)═══════════════════════════════════════
 # 🔴 只凍結總數擋不住「刪一格 + 重複另一格」(小線同一支腳本上中過三次)⇒ 兩者都凍。
@@ -358,6 +365,63 @@ MARK_SIG="b2s2b-verify.sh throwaway cluster — 本目錄可被本腳本 rm -rf"
 CIDFILE="$WORK/cluster-id"
 PGBIN="$(dirname "$(command -v initdb 2>/dev/null || echo /opt/homebrew/opt/postgresql@17/bin/initdb)")"
 
+# ══ teardown:收掉**本次自己 provision 的**叢集 ═══════════════════════════════
+# 欠款來源=B 窗 `B-295-STOP` ⑥ 自報 + 主視窗 `B-217-A` ③ 當輪立刻復現:
+# 原本的 `trap` 只 `drop_db`、**不停 postmaster** ⇒ 每跑一次留一支活叢集,
+# 要等下一次 `MODE=all` 的 provision 才被停掉;先 `rm -rf` workdir 的話還會變孤兒 postmaster。
+#
+# 🔴 **誰起的誰收**:只收 `all`(叢集是本次自己起的);`run` 重用別人起的 ⇒ 不收。
+# 🔴 `B2S2B_KEEP_CLUSTER=1` 明確保留(給 `all` → `run` 連續調試;收尾自己負責)。
+# 🔴🔴 **四道 ownership 閘,缺一不停**(R1 實測構造出「停到別人的」才補齊的):
+#   ① marker 內容 ② `postmaster.pid` 的埠 ③ cluster-id ④ `SHOW data_directory`
+#   —— 連不上時 ③④ 整包跳過,由 ①② 承重;其中 ② 的獨特貢獻是**把「正在跑的那支 postmaster」
+#   綁到本次 PORT**(① 只證這個 workdir 是本腳本建的,不證跑在上面的是誰)。
+#   R1 構造了「同 workdir、不同 PORT 的第二個視窗」⇒ `BASE_URL` 連不上 ⇒ ④ 被跳過
+#   ⇒ 首版直接把別人的叢集停掉。
+#   ③ 在 provision 中途 die 時可能還沒寫(`cluster-id` 在 ID-GATE 前才落檔)⇒ 不存在時
+#   **不當作通過、改由 ①② 承重**,而不是放行。
+stop_cluster() {
+  [ "$MODE" = "all" ] || return 0
+  if [ "${B2S2B_KEEP_CLUSTER:-0}" = "1" ]; then
+    printf '  NOTE B2S2B_KEEP_CLUSTER=1 ⇒ 保留叢集(自己收:pg_ctl -D %s/pgdata stop)\n' "$WORK"
+    return 0
+  fi
+  [ -d "$WORK/pgdata" ] || return 0
+  [ -f "$WORK/pgdata/PG_VERSION" ] || return 0          # 不是 PG 資料目錄 ⇒ 不碰
+  [ -L "$WORK/pgdata" ] && return 0                     # symlink ⇒ 不碰(同 provision 段紀律)
+  # ① marker:這個 workdir 是不是本腳本建的
+  [ "$(cat "$MARK" 2>/dev/null)" = "$MARK_SIG" ] || {
+    printf '  WARN %s 缺 marker 或內容不符 ⇒ 不是本腳本建的,不收\n' "$WORK"; return 0; }
+  # ② postmaster.pid 第 4 行 = 它正在聽的埠。**連不連得上都成立**。
+  # 🔴 已知殘窗(R2 nit 2,記錄不假裝沒有):對方 postmaster **正在啟動、第 4 行還沒寫**時
+  #    PMPORT 為空 ⇒ 本閘空泛通過。前提(同 workdir 併行)本身就違反 provision 段的
+  #    「先驗再停 + rm -rf marker」紀律、會先在那裡撞上,現實構造不出;不為它加更多機制。
+  PMPORT="$(sed -n 4p "$WORK/pgdata/postmaster.pid" 2>/dev/null)"
+  if [ -n "$PMPORT" ] && [ "$PMPORT" != "$PORT" ]; then
+    printf '  WARN %s/pgdata 上的 postmaster 聽的是埠 %s、本次是 %s ⇒ 別人的,不收\n' "$WORK" "$PMPORT" "$PORT"
+    return 0
+  fi
+  # ③④ 連得上時再加驗 cluster-id 與 datadir(連不上時由 ①② 承重)
+  if psql -X "$BASE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
+    RDD="$(psql -X "$BASE_URL" -qtAc 'SHOW data_directory' 2>/dev/null)"
+    case "$RDD" in
+      "$WORK/pgdata"|"$(cd "$WORK" 2>/dev/null && pwd -P)/pgdata") : ;;
+      *) printf '  WARN 埠 %s 上的 postmaster data_directory=[%s],不是本 workdir ⇒ 不收\n' "$PORT" "$RDD"; return 0 ;;
+    esac
+    if [ -f "$CIDFILE" ]; then
+      RCID="$(psql -X "$BASE_URL" -qtAc 'SELECT system_identifier FROM pg_control_system()' 2>/dev/null)"
+      [ "$RCID" = "$(cat "$CIDFILE" 2>/dev/null)" ] || {
+        printf '  WARN cluster-id 不符(實 %s / 期望 %s)⇒ 不收\n' "$RCID" "$(cat "$CIDFILE" 2>/dev/null)"; return 0; }
+    fi
+  fi
+  "$PGBIN/pg_ctl" -D "$WORK/pgdata" stop -m fast >/dev/null 2>&1 || true
+  # 🔴 **停完要回檢**(R1:首版 `|| true` 吞掉結果、停完不看 ⇒ 只做了動作沒觀察效果,
+  #    `pg_ctl` 逾時 / PGBIN 不對 / 權限不足時欠款原樣復發且零診斷)。
+  if psql -X "$BASE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1; then
+    printf '  WARN teardown 後埠 %s 仍連得上 ⇒ 叢集**沒停成**(datadir %s/pgdata),請手動收\n' "$PORT" "$WORK"
+  fi
+}
+
 # ══ 0b. provision:post-S2b 基準庫(**全前綴**從零重放,含本線)═════════════════
 if [ "$MODE" = "all" ]; then
   if [ -e "$WORK" ]; then
@@ -393,6 +457,13 @@ if [ "$MODE" = "all" ]; then
   "$PGBIN/pg_ctl" -D "$WORK/pgdata" -l "$WORK/pg.log" \
     -o "-p ${PORT} -c unix_socket_directories='${WORK}'" start >/dev/null \
     || { cat "$WORK/pg.log" >&2; die "pg_ctl 啟動失敗"; }
+  # 🔴🔴 **叢集一起來就掛 teardown**(R1 must-fix 1):下面到 `drop_db` 那個完整 trap 之間
+  #    還有十幾個 `die`(shim / migration / seed / pre 基準庫全段)——首版把 trap 只裝在
+  #    那個完整版的位置 ⇒ **provision 中途失敗那條路完全沒被涵蓋**,而那正是最容易踩到的一條。
+  #    R1 實測構造:`PGOPTIONS='-c default_transaction_read_only=on'` ⇒ die 在 shim ⇒ 殘留 1 支。
+  #    ⇒ 這裡先掛「只收叢集」的版本;副本資料庫此時都還不存在,不需要 drop_db。
+  #    後面那個完整 trap 會覆蓋本行(bash 的 trap 是覆蓋不是疊加,兩者都含 stop_cluster)。
+  trap 'stop_cluster' EXIT
   psql -X "$BASE_URL" -v ON_ERROR_STOP=1 -q -f scripts/d1-supabase-shim.sql || die "shim 失敗"
   # 🔴 fitments 相容 stub 的插序沿用 d1t2 家族(public.product_fitments_effective 在 repo 內
   #    沒有任何建立來源,backlog #299)⇒ 這裡的「全綠」不等於「repo 能從零重建正式站 schema」。
@@ -518,9 +589,22 @@ fresh_db() {   # $1 = db 名 → 設 FRESH_URL
   FRESH_URL="postgresql://postgres@127.0.0.1:${PORT}/$1"
 }
 drop_db() { psql -X "$ADMIN_URL" -q -c "DROP DATABASE IF EXISTS $1" >/dev/null 2>&1; }
+# 🔴 `stop_cluster()` 定義在**上方 provision 之前**(叢集一起來就掛得上 trap);
+#    這裡不重複定義,只把它併進完整版的 trap。
+# 🔴 **順序**:`stop_cluster` 必須排在所有 `drop_db` **之後** ——
+#    反過來的話叢集已停、`drop_db` 全部連不上,副本反而殘留。
+# 🔴 `run` 模式不收叢集(誰起的誰收),但收尾講一聲 —— 欠款的原始抱怨正是
+#    「預設留一支沒人知道」,對 `run` 每次都還成立(R1 nit 8)。
+run_mode_notice() {
+  [ "$MODE" = "run" ] || return 0
+  psql -X "$BASE_URL" -qtA -c 'SELECT 1' >/dev/null 2>&1 || return 0
+  printf '  NOTE run 模式重用既有叢集、不代收(誰起的誰收):pg_ctl -D %s/pgdata stop\n' "$WORK"
+}
 # 🔴 任何 `die` 都會跳過下方的 drop_db ⇒ 副本殘留,而下一輪 `CREATE DATABASE … TEMPLATE postgres`
 #    會因為那些副本還連著而失敗、錯因指向「基準庫有連線沒關」= 指錯方向(R1 nit 13)。
-trap 'drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar; drop_db b2s2b_cfp' EXIT
+# 🔴 `trap … EXIT` 對 **exit 0 / 1 / 3 三條路都生效**;本檔的常態出口正是 **exit 3**
+#    (無紅但有待裁格)⇒ 漏掉 teardown 的其實是**最常走的那條**。
+trap 'drop_db b2s2b_29a; drop_db b2s2b_c9; drop_db b2s2b_x1; drop_db b2s2b_mut; drop_db b2s2b_abl; drop_db b2s2b_enb; drop_db b2s2b_div; drop_db b2s2b_reh; drop_db b2s2b_pr4; drop_db b2s2b_smut; drop_db b2s2b_bar; drop_db b2s2b_cfp; run_mode_notice; stop_cluster' EXIT
 
 # ══ 共用:fixture 前奏(每格自己建、隨交易回滾)═══════════════════════════════
 # 🔴 值全部寫死且**互異**:quantity P4=4 / P6=6、receipts 2+1、shipped 2 或 3、cancelled 1。
