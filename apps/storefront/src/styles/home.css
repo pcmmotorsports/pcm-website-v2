@@ -142,7 +142,10 @@
         不是它的反證。量到的數字要對得上「應該是多少」才算驗證。 */
   height: calc(100svh - var(--shell-header-h));
   max-height: 880px;
-  background: #202225;
+  /* 🔴 2026-08-09 顏色 token 靜掃補正:原本裸寫 `#202225`,而**本檔 `:1143` 早就寫成
+     `var(--c-graphite, #202225)`** —— 同色、同用途、兩種寫法 = 檔內自我矛盾。
+     統一成本檔已經在用的那種(值不變、零視覺差)。 */
+  background: var(--c-graphite, #202225);
   color: #fff;
   /* 🔴 **對 OD 的申報偏離(D-128 迴歸修;2026-08-06 Sean 肉眼抓到)**:
      OD `:117` 這裡是 `overflow:hidden`,而**入口板的下拉選單會被它裁掉** ——
@@ -1552,7 +1555,9 @@
    (Sean 08-03 看過拍板)」,把 ≤900 的 40 改成 28 就是動了那組留白。
    ③左右 20px 這件事本檔已由 `--ed-gutter` 在 ≤900 提供,結果相同。 */
 .ed-footer {
-  background: #202225; /* 石墨;原 #0a0a0a 純黑是重排前的舊值(同 D5a 對 N°04 的更正) */
+  /* 石墨;原 #0a0a0a 純黑是重排前的舊值(同 D5a 對 N°04 的更正)。
+     2026-08-09 顏色靜掃:改吃 token,與本檔 `:1143` 的寫法統一(值不變、零視覺差)。 */
+  background: var(--c-graphite, #202225);
   color: #fff;
   padding: 52px 0 0;
   /* self-contained defaults so footer works outside .ed-page wrapper */
