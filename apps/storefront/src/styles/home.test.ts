@@ -1069,7 +1069,10 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     it('🔴 頁尾底色 = 石墨 #202225(不是重排前的純黑 #0a0a0a)', () => {
       const rule = CSS.match(/\.ed-footer\s*\{[^}]*\}/)?.[0] ?? '';
       expect(rule, '找不到 .ed-footer 規則').not.toBe('');
-      expect(rule, '頁尾底色不是石墨').toMatch(/background:\s*#202225/);
+      // 2026-08-09 顏色靜掃:底色改吃 `var(--c-graphite, #202225)`(值不變、與本檔 :1143 統一)
+      // ⇒ 這條**只認「是石墨」**,token 或字面都收;它守的是「不是純黑」,不是某一種寫法。
+      // (「該吃 token 卻裸寫」由 `color-tokens.test.ts` 專責,兩條各守各的、不重疊。)
+      expect(rule, '頁尾底色不是石墨').toMatch(/background:\s*(var\(\s*--c-graphite[^)]*\)|#202225)/);
       // 反面:退回純黑就是 D7 被回滾了,而深底 logo 放純黑上「看起來只是深一點」、沒人會發現。
       expect(rule, '頁尾退回重排前的 #0a0a0a').not.toMatch(/#0a0a0a/);
     });
