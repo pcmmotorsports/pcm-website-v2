@@ -8,9 +8,15 @@ import {
   mapSupabaseAddressToDomain,
 } from './mappers/address';
 
-/** customer_addresses 表投射(對齊 migration 13 欄、invoice 攤平 5 欄)。 */
+/** customer_addresses 表投射(對齊 migration 14 欄、invoice 攤平 5 欄)。
+ *  這是**具名**投射:新增欄位要一起寫進來,否則讀不回來。
+ *  ✅ 漏寫會被 typecheck 擋下 —— Supabase 由投射字串推導 row 型別,少一欄則
+ *     `mapSupabaseAddressToDomain` 讀 `row.email` 當場型別紅(2026-08-09 實測過這個紅)。
+ *     ⚠️ 但**單元測試抓不到**:cardholder 那組測試直接注入 domain 物件、不經本投射。
+ *     (第一版註解寫成「不會報錯、靠測試抓」——兩句都相反,codex 關卡2 糾正。)
+ *  三個 `.select(ADDRESS_SELECT)` 呼叫點共用本常數。 */
 const ADDRESS_SELECT =
-  'id, customer_user_id, is_default, name, phone, line, invoice_type, invoice_carrier, invoice_title, invoice_tax_id, invoice_donate_code, created_at, updated_at';
+  'id, customer_user_id, is_default, name, phone, line, email, invoice_type, invoice_carrier, invoice_title, invoice_tax_id, invoice_donate_code, created_at, updated_at';
 
 /**
  * SupabaseAddressAdapter:Supabase 真實 IAddressRepository 實作(M-1-14d)。

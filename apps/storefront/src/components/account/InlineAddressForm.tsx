@@ -33,7 +33,8 @@ export type InlineAddressInitial = {
   name?: string;
   phone?: string;
   line?: string;
-  // M-4b:既有地址沒有這個值(DB 端 NULL = 從來沒被要求填過)⇒ optional,編輯時顯示為空、必須補。
+  // M-4b:既有地址沒有這個值(DB 端 NULL)⇒ optional,編輯時顯示為空、必須補。
+  // ⚠️ NULL 不代表「一定沒填過」——客人可直接寫 DB(backlog #343);此處只當「沒有值可預填」用。
   email?: string | null;
   invoice?: Partial<AddressInput['invoice']>;
 };
@@ -76,8 +77,12 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
   const [fieldErrors, setFieldErrors] = useState<AddressFieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-  // 只用於顯示層的提早告知(canonicalize 前的原字面長度;server 端才是驗證權威)。
-  const isEmailTooLong = email.trim().length > TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH;
+  // 只用於顯示層的提早告知(server 端才是驗證權威)。
+  // 🔴 剝空白的方式要與 server 的 canonicalize 一致:**只剝半形空白**,不用 JS 的 trim()
+  //    —— trim() 連 tab / 全形空白一起剝,會讓「tab + 40 字元信箱」在 client 判成沒超長、
+  //    到 server 卻是格式不合,提示與結果對不起來(R3 審查 N1;與 cardholder 那條同源)。
+  const isEmailTooLong =
+    email.replace(/^ +| +$/g, '').length > TAPPAY_CARDHOLDER_EMAIL_MAX_LENGTH;
 
   const invTabs = [
     { id: 'personal', label: '個人' },

@@ -9305,3 +9305,29 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   現況五支 writer 都是同一次落檔、同一份樣板,部分接線的機率低。
 - **不修會痛在哪**:未來若有人改寫某一支 writer(W7d 就要動兩支),把冪等層拆成一半,
   現有五格與它們的靶**都不會紅**。今天風險低是因為五支同源;一旦開始分頭演化,這個洞就會張開。
+
+### #343. 🔒 `customer_addresses` 可被客人直接寫入,email 在 DB 層無任何約束
+
+- **來源**:2026-08-09 M-4b LINE 3DS 修復片,codex 關卡2 抓到我在 plan 與 migration 註解裡
+  宣稱「應用層必填 = 全部寫入路徑無旁路」;實查 GRANT 後坐實**該宣稱是錯的**,已就地更正字面。
+- **現況(實查,非推論)**:
+  - `20260523034911_init_customers_and_subtables.sql:236` — `GRANT SELECT, INSERT, UPDATE, DELETE
+    ON TABLE customer_addresses TO authenticated`(表級、全欄)。
+  - 同檔 `:166-179` — RLS own-only 四條(只擋跨會員,不擋值本身)。
+  - ⇒ **登入的客人可以直接打 PostgREST 寫自己的地址列**,把 `email` 塞成 NULL、空字串、
+    畸形字串或超長值,完全繞過 `AddressInput` 這支 zod。
+  - ⇒ 連帶:**NULL 不能證明「這筆地址從未被要求填過」**(本片一度以此為由設計 nullable,
+    字面已更正;見 `20260809030000_*_comment_fix.sql`)。
+- **今天為什麼還安全**:金流端不吃這個保證 —— `lib/payment/cardholder.ts` 的 `pickUsableEmail`
+  對取到的值**用同一支 `AddressEmailInput` 重驗一次**,髒值一律擋下、不送 TapPay
+  (負測:短合成域、畸形格式、tab/全形空白、41 字元,各有一條)。所以髒資料進得了 DB、進不了金流。
+- **要做什麼(擇一,開工前先評估)**:
+  1. 加 CHECK:允許既有列 NULL,但非 NULL 時擋畸形/超長(要先**唯讀盤點既有髒資料**,
+     否則 ALTER 會被現存列擋下)。
+  2. 收回 `authenticated` 的直接 INSERT/UPDATE,改走受驗證的 SECURITY DEFINER RPC。
+- **為什麼不在 M-4b 這片做**:①動既有 GRANT 會影響地址簿現行功能(新增/編輯/刪除四條路徑)
+  ②加 CHECK 前必須盤點正式庫既有髒資料、屬不可逆風險面 ③本片的金流缺口已由出口重驗關上。
+- **不修未來會痛在哪**:第二個消費端出現時就會炸 —— 今天只有 cardholder 在讀這個欄,
+  它自己重驗所以安全;但 B-4 要把地址 email 餵進 `orders.notification_email`(寄信),
+  屆時若那條路徑沒有自己重驗一次,客人塞進去的畸形值就會直接進到寄信系統。
+  **每多一個消費端,就要多記得重驗一次** —— 這正是「約束該畫在資料層」的典型情境。

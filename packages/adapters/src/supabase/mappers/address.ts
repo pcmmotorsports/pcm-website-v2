@@ -35,6 +35,9 @@ export function mapSupabaseAddressToDomain(row: SupabaseAddressRow): CustomerAdd
     name: row.name,
     phone: row.phone ?? '',
     line: row.line,
+    // 🔴 email **不套 `?? ''`**(與上面 phone 刻意不同):null 要原樣傳到 domain,
+    //    因為「從沒填過(null)」與「填了又清空('')」在結帳時的處理不同(見 domain 註解)。
+    email: row.email,
     invoice: {
       type: row.invoice_type,
       carrier: row.invoice_carrier ?? '',
@@ -59,6 +62,7 @@ export function mapAddressToInsertRow(
     name: addr.name,
     phone: addr.phone,
     line: addr.line,
+    email: addr.email,
     invoice_type: addr.invoice.type,
     invoice_carrier: addr.invoice.carrier,
     invoice_title: addr.invoice.title,
@@ -78,6 +82,7 @@ export function mapAddressPatchToRow(patch: Partial<CustomerAddress>): SupabaseA
   if (patch.name !== undefined) row.name = patch.name;
   if (patch.phone !== undefined) row.phone = patch.phone;
   if (patch.line !== undefined) row.line = patch.line;
+  if (patch.email !== undefined) row.email = patch.email;
   if (patch.invoice !== undefined) {
     row.invoice_type = patch.invoice.type;
     row.invoice_carrier = patch.invoice.carrier;

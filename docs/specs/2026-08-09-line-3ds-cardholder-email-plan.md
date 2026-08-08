@@ -1,6 +1,15 @@
-# LINE 身分 3DS 啟動被拒 — cardholder email 修復 plan **v2.1(兩窗合併版)**
+# LINE 身分 3DS 啟動被拒 — cardholder email 修復 **v3(實作後定稿)**
 
-> 狀態:**v2.1 待主視窗終核 → 實作未開工、零 code 改動**。
+> 🔴 **狀態:實作已完成**(2026-08-09 凌晨,worktree `/Users/sean_1/pcm-line3ds`、branch `line3ds-fix`)。
+> migration 已 apply 正式庫;應用層已完成、三綠 + 全套測試綠 + codex 關卡2 兩輪。
+>
+> 🔴 **實作時被推翻的設計(下文 §2.3 / §3 已就地更正,此處先總表,避免有人只讀舊段落)**:
+> | 原設計(v2.1) | 實際實作 | 為什麼改 |
+> |---|---|---|
+> | 順位 1 挑「非空」的地址 email,出口閘只驗「合成域 + 長度」 | `pickUsableEmail` **逐個候選試**,每個都過**整支 `AddressEmailInput`** | 只驗網域+長度會放行 `abc`、`a@b` 等畸形值;且「地址髒就直接擋」會誤擋 session email 完全合格的客人(codex 關卡2 round1 兩條 must-fix) |
+> | 出口閘自己拼條件 | 直接用地址表單的同一支 schema | 兩邊各長一套標準遲早分岔;共用才等於「表單收得下的,金流才送得出去」 |
+> | 靠 NULL vs `''` 區分「沒填過 / 填了又清空」來決定攔不攔人 | **沒有這個分支**,兩者一律當「沒有可用 email」 | 實作後發現沒有任何 code 用到這個區分,而且客人可直接寫 NULL ⇒ 宣稱不成立(round2 must-fix) |
+> | 「應用層必填 = 全寫入路徑無旁路」 | **不成立**,已改為誠實邊界 + backlog #343 | `authenticated` 有表級 INSERT/UPDATE GRANT,PostgREST 直寫繞得過 zod |
 > 片型:**高風險片**(鐵則 12① 錢 + ③ schema/migration)。鐵則 8:**是**。
 > 內容分級:不適用(改的是付款資料來源,非可編輯內容)。
 > 指派:`P-211-A`(v1)→ `P-213-A`(v2 方向拍板)→ `P-217-A`(v2.1 合併令)。前情:`P-208-STOP` / `P-209-STOP` / `P-212-STOP`。
@@ -17,9 +26,10 @@
 | # | 項目 | 誰做 | 狀態 |
 |---|---|---|---|
 | 0-1 | ✅ **TapPay 真實錯誤碼已取得** | P 窗 sandbox 對照 probe(`P-220-A` ③ 授權) | **已清**:`521 Out of range : cardholder > email`,根因=**email 總長 >40 被拒**(見 §1) |
-| 0-2 | ⛔ **D 窗兩片收割**(發票隱藏 `D-309-A` + 手機三 bug;`P-217-A` §3 明定兩片都要) | D 窗 | 未收割 |
-| 0-3 | plan v2.1 過主視窗終核 | 主視窗 | 本檔 |
-| 0-4 | 實作 | P 窗 | 未開工 |
+| 0-2 | ✅ **D 窗兩片收割** | D 窗 | **已清**:已推正式站、實作基底=`ae6e13f8` 之後的 dev |
+| 0-3 | ✅ plan 過主視窗終核 | 主視窗 | **已清**(`P-222-A` ①) |
+| 0-4 | ✅ 實作 | P 窗 | **已完成**:上半片 `a0a17ae1`、下半片見本檔 §5;三綠 + **5893** 測試綠 + codex 兩輪 + 換模型第三輪 + code-reviewer |
+| 0-5 | ⛔ **COMMENT 修正 migration 待 apply** | Sean/主視窗 | `20260809030000_*_comment_fix.sql`(純註解、零結構風險;理由見 §2.1) |
 
 🔴 **兩條與 0-2 綁死的紀律**:
 1. 本 plan 對 `InlineAddressForm.tsx` **一律以符號/區塊指稱、不落行號**——D 窗正在改同一支檔,行號寫下即過期。
@@ -30,6 +40,9 @@
 ---
 
 ## §1 根因鏈(v1 原樣保留,已逐條親驗)
+
+> ⚠️ 本表的行號是**事故當時(2026-08-08)**的樹;修復已改動其中數處(尤其 `cardholder.ts`)。
+> 保留原值是為了讓人對得回當時的證據,**不要拿它當現況行號用**。
 
 | # | 事實 | 證據 |
 |---|---|---|
@@ -70,10 +83,15 @@ ALTER TABLE public.customer_addresses ADD COLUMN email text;
 ```
 
 - **DB 層 nullable、應用層必填**。理由:既有列無值,`NOT NULL` 上不去;而 backfill 一個假值等於製造第二種髒資料。
-- 🔴 **刻意不採本表既有的 `text DEFAULT ''` 慣例**(phone / invoice_* 都是空字串當「沒填」)。
-  理由:本片需要區分「**從來沒被要求填過**」(舊地址 → NULL)與「**填了又清空**」(不該發生,應用層必填會擋)。
-  空字串慣例會讓這兩者長得一樣,而 §2.4 的舊地址升級動線**正是靠這個區分**決定要不要攔人。
-  ⇒ 這是刻意的慣例分歧,commit body 要寫明(鐵則 10 可追蹤性)。
+- **不採本表既有的 `text DEFAULT ''` 慣例**(phone / invoice_* 都是空字串當「沒填」),
+  讓既有列維持 NULL、在**資料上**與「有填過」分得出來。這是刻意的慣例分歧,commit body 有寫明。
+  🔴🔴 **但原本寫在這裡的理由已被推翻,不要再引用**(codex 關卡2 round2 must-fix,已實查):
+  舊字面說「要區分『從沒填過』與『填了又清空』,舊地址升級動線正是靠這個區分決定要不要攔人」——
+  **實作後沒有任何一條分支用到這個區分**:`pickUsableEmail` 把 NULL 與 `''` 一視同仁當「沒有可用 email」;
+  而且 `authenticated` 可直接寫 NULL(見 §2.2 誠實邊界)⇒ NULL 也**證明不了**「從未填過」。
+  ⇒ nullable 的實際價值 = 既有資料相容 + 盤點時分得出存量列,**不是**行為依據。
+  ⚠️ 首版 migration 的 `COMMENT ON COLUMN` 已 apply 且帶著舊字面,改檔案不會改到 DB 上那份 ⇒
+  另建 `20260809030000_*_comment_fix.sql`(§0-5,待 apply)。
 - **不加 UNIQUE**:Sean 拍板「可以接受客人用不同 email」,且同一人多個地址可共用同一 email。
 - **不加 CHECK 驗格式**:格式驗證留在應用層 zod(單一真相,見 §2.2);DB 端加正規式 CHECK 會變成第二處要同步的規則。
 
@@ -114,48 +132,55 @@ domain 型別 `CustomerAddress`(`packages/domain/src/identity/address.ts:24-40`)
 - **寫入路徑盤點=全覆蓋證明(v2.1 合併件①)**:`customer_addresses` 的 DB 存取**全部集中在**
   `SupabaseAddressAdapter.ts` 四處(`:38` list / `:53` insert / `:66` update / `:79` delete),insert/update 皆經
   mapper ← 上述兩支 action ← `AddressInput`;admin 端 `customer-detail-view.ts:41` **僅註解引用、非查詢**;
-  DB trigger 只建 `customers` 不建 addresses ⇒ **「應用層必填」的執法面 = 全部寫入路徑,無旁路**。
+  DB trigger 只建 `customers` 不建 addresses ⇒ 「應用層必填」涵蓋**站上所有程式寫入路徑**。
   ⚠️ 此為本樹 grep 結果,實作日以當日樹複掃一次。
+  🔴🔴 **但「無旁路」這個更強的說法不成立**(2026-08-09 實作時 codex 關卡2 抓到、已實查坐實):
+  `authenticated` 對 `customer_addresses` 有表級 `INSERT/UPDATE` GRANT
+  (`20260523034911_init_customers_and_subtables.sql:236`)+ RLS own-only
+  ⇒ **登入的客人可以直接打 PostgREST 寫自己的列**,塞 NULL/空字串/畸形 email 繞過 zod。
+  ⇒ 因此也**不能假設「NULL 只可能是舊列」**。
+  金流端不依賴這個保證:`buildCardholder` 用同一支 `AddressEmailInput` 對取到的值**重驗一次**,
+  髒值一律擋下不送 TapPay。DB 層補 CHECK 或收回直寫權改走 RPC = **另一片**(動 GRANT 會影響
+  地址簿現行功能、且套用前要先盤點既有髒資料),已列 backlog #343。
 - ⚠️ **必然的連帶效果(要讓 Sean 知道、不是 bug)**:`AddressInput` 是 add / update **共用**的 schema
   ⇒ 加必填後,**舊地址只要被編輯就必須補 email 才存得起來**。這正是 Sean 要的「強制」,但它會讓
   email 登入的老客人在編輯舊地址時也被要求補一次。**這是刻意的,不是 §2.4 要豁免的對象**
   (§2.4 豁免的是「結帳當下不擋人」,不是「編輯時不用填」)。
 
-### 2.3 cardholder 接線:email 來源與 fallback 順序
+### 2.3 cardholder 接線:email 候選順位與唯一驗證閘(**實作後定稿**)
 
-`buildCardholder`(`apps/storefront/src/lib/payment/cardholder.ts:45-76`)目前用 `input.user.email`(`:49`)。
-它已經有 `deps.addresses.listByCustomer` 並挑出選中的地址(`:59-63`)⇒ **選中地址的物件本來就在手上**,不需新增查詢。
+實作在 `apps/storefront/src/lib/payment/cardholder.ts`。原 v2.1 的「順位表 + 出口只驗網域與長度」
+已被 codex 關卡2 兩條 must-fix 推翻,實際落地的是:
 
-**新的 email 決議順序(寫死,不得靠「看起來對」)**:
+```ts
+function pickUsableEmail(candidates) {          // 逐個候選試,取第一個可用
+  for (const candidate of candidates) {
+    const parsed = AddressEmailInput.safeParse(candidate ?? '');   // 整支 schema,不自己拼條件
+    if (parsed.success) return parsed.data;                        // 回傳正規化值
+  }
+  return null;
+}
+const email = pickUsableEmail([address.email, input.user.email]);
+if (email === null) return { ok: false, reason: 'email_unusable' };
+```
 
-| 順位 | 來源 | 適用 |
-|---|---|---|
-| 1 | **選中收件地址的 `email`**(非空) | 所有人(新地址一律有值,schema 已保證 ≤40+非合成) |
-| 2 | session email **且非合成網域且總長 ≤40**(§1 實測後補的第二條件) | email 登入用戶 + 舊地址(§2.4 的豁免路徑) |
-| 3 | 🔴 **擋下,回明確錯誤** | LINE 用戶 + 舊地址;**或 email 用戶 + 舊地址 + session email >40**(後者=既有潛在 bug,本片一併收,引導補地址 email) |
-
-**第 3 順位的擋法(plan 寫死三件事)**:
-
-- **擋在哪層**:`buildCardholder` 回新的 fail reason(例 `email_unusable`)。
-  🔴 選這層的理由:它在 `charge-actions.ts:177` 被呼叫,**早於 `placeOrder`(:250)與任何 TapPay 呼叫**
-  ⇒ 擋下時**零扣款、零垃圾單**,與既有 `mapCardholderFail`(`:181-183`)同一條既有路徑,不新增分支。
-- **客人看到什麼**:不是 generic 錯誤,要能自救。文案方向:
-  「這筆訂單需要您的 Email 才能完成付款驗證,請在收件地址補上 Email」+ 指向該地址的編輯入口。
-  🔴 **與 D 窗的結帳就地編輯地址片天然互補**——客人可以當場補完不用離開結帳。實作時確認該入口已可用。
-- **絕不做的事**:🔴 **任何情況都不得把合成信箱送進 cardholder**。第 3 順位不是「碰運氣送出去」,是明確擋下。
-
-🔴 **出口不變量閘=執行期防線(v2.1 合併件②,舊窗背書採納)**:`buildCardholder` 成功回傳前,
-對**最終選定的 email(不論來自順位 1 或 2)**再過一次 `isSyntheticEmailDomain` **與總長 ≤40** 兩項檢查,任一不過 ⇒ 走順位 3 擋下。
-理由:順位 1 的值「寫入時驗過」是**上游假設**——舊資料、未來新寫入路徑、DB 手動操作都可能繞過它;
-不變量「送 TapPay 的 email 永不為合成域」的執法點必須畫在不變量成立的**最窄面**=cardholder 出口
-(同族教訓 `feedback_guard-drawn-at-narrowest-surface`)。測試層全域斷言(3.1-⑤)保留當第二腿,
-**執行期閘的判別力由 3.1-⑥ 毒地址負測單獨證明**(拿掉此閘只有它紅)。
-
-**合成網域的判斷要用單一真相,不得第三次抄字串**:
-現況該常數已在兩處各自 hardcode(`apps/storefront/src/lib/auth/line.ts:38`、`packages/schemas/src/notification-email.ts:5`,同值)。
-本片**不新增第三處**:把 `notification-email.ts` 的 `isSyntheticEmailDomain`(現為私有 `:21-24`)export 出來給 cardholder 用。
-（把兩處既有重複收斂成一個常數是更乾淨的解,但那擴大了本片範圍 ⇒ **列 backlog、不在本片做**;
-不修未來會痛在哪:改網域時「產生規則」與「排斥規則」會分岔,產生的新網域不再被排斥、修復當場失效。）
+- **候選順位**:選中收件地址的 email → session email。地址 email 是客人為這次收件親手填的、
+  語意最準;session email 對 LINE 身分是 64 字元合成值,對 email 身分才是真值。
+- **驗證用整支 `AddressEmailInput`**(= 地址表單同一支):涵蓋非空 / canonicalize / printable ASCII /
+  ≤254 octets / 基本 email 形狀 / 拒合成網域 / **總長 ≤40**。
+  🔴 只驗「網域 + 長度」會放行 `abc`、`a@b` 這種短而畸形的值。
+- **逐個試而非「第一個非空就定生死」**:地址存著髒 email 而 session 完全合格時,
+  後者能付款成功 —— 直接擋下等於誤傷。
+- 🔴 **本層不得再自己 `.trim()`**:schema 的 canonicalize 只剝半形空白,外層多一道 trim
+  會讓 tab / 全形空白包起來的髒值在金流端被放行、卻是表單會拒的值 ⇒ 兩套標準。
+- **擋下的時序**:`buildCardholder` 在 `charge-actions.ts` 內早於 `placeOrder` 與任何 TapPay 呼叫
+  ⇒ 擋下時**零建單零扣款**(有專屬測試釘住三條路徑都沒被呼叫,見 §3)。
+- **客人看到什麼**:`mapCardholderFail` 的 `email_unusable` →
+  「收件地址的 Email 無法用於付款驗證(需 40 字元內的一般信箱),請編輯地址修改後再試」。
+  🔴 **不能寫成「缺少」**:這一碼涵蓋四種情況(沒值 / 超長 / 畸形 / 合成域),
+  地址上明明填了 45 字元信箱的客人看到「缺少」會以為系統壞了(R3 審查 C1)。
+  ⚠️ 實查 `useChargePayment.tsx:231-241`:client 把 fieldErrors **壓成單一訊息**顯示在付款區錯誤條,
+  **不會**變成地址欄旁紅字 ⇒ 文案本身必須把「要去哪改」講完整。要真的落到地址欄是另一片。
 
 ### 2.4 舊地址優雅升級(不擋 email 登入用戶)
 
@@ -194,55 +219,49 @@ domain 型別 `CustomerAddress`(`packages/domain/src/identity/address.ts:24-40`)
 
 ---
 
-## §3 測試設計
+## §3 測試設計(**實作後定稿**)
 
-### 3.1 補上 LINE × 結帳零交會缺口(`P-209-STOP` 查出)
+實際落點是 `apps/storefront/src/lib/payment/cardholder.test.ts`(不是 v2.1 假定的
+`cardholder.line-identity.test.ts`)+ `charge-actions.test.ts` + `mappers/address.test.ts`
++ `packages/schemas/src/address.test.ts`。
 
-現況:LINE 四支測試 grep `checkout|charge` 全 0;結帳兩支 grep LINE auth 全 0。本片讓兩條線交會。
+### 3.1 涵蓋的情境
 
-新增(暫定 `apps/storefront/src/lib/payment/cardholder.line-identity.test.ts` + charge-actions 層整合):
+| 層 | 情境 | 斷言 |
+|---|---|---|
+| cardholder | LINE × 地址有 email | 送出的是**地址** email 字面 |
+| cardholder | LINE × 舊地址(null) | `email_unusable`,合成信箱不外流 |
+| cardholder | email 身分 × 舊地址 | 回落 session、照常成交 |
+| cardholder | email 身分 × 地址有 email | 用地址的(順位可觀察) |
+| cardholder | **短合成域**毒地址 + session 也不可用 | 擋下 ← 專證「合成域檢查」單獨有效 |
+| cardholder | 地址髒但 session 合格 | **不擋**、回落 session(不誤傷) |
+| cardholder | 畸形 `abc`/`a@b`/含空白/非 ASCII | 擋下 |
+| cardholder | 半形頭尾空白 | 正規化後成交(**不是**畸形) |
+| cardholder | tab / 全形空白包起來 | 擋下(釘住「本層不得再 trim」) |
+| cardholder | 大小寫 `User.Name@MAIL.TW` | 送出 `User.Name@mail.tw` ← 證明用的是 `parsed.data` |
+| cardholder | 長度 40 / 41 | 40 過、41 擋 |
+| cardholder | email 身分 × session 41 字元 | 擋下(既有雷一併收) |
+| charge-actions | `email_unusable` | **零 placeOrder、零 initiatePayment、零 confirmPayment** |
+| mapper | `email: null` | 保持 null(**不**壓成 `''`) |
+| mapper | patch 帶 / 不帶 email | 帶則寫、不帶則不覆寫 |
+| schema | 必填 / 短合成域 / 40 / 41 / canonicalize | 見 `address.test.ts` |
 
-1. **LINE × 有 email 的地址** → 送進 TapPay 的 `cardholder.email` **等於地址的 email**(斷言字面值)。
-2. **LINE × 舊地址(email NULL)** → 回 `email_unusable`、**零 placeOrder 呼叫、零 TapPay 呼叫**(斷言「沒被呼叫」)。
-3. **email 登入 × 舊地址** → 回落 session email、**照常成交**(零回歸,證明豁免生效)。
-4. **email 登入 × 有 email 的地址** → 用地址 email(順位 1 優先於 2)。
-5. **合成信箱不可能出現在出口**:任何情境下送進 TapPay 的 email 都不得匹配合成網域(全域斷言)。
-6. **毒地址負測(v2.1 新增,證出口閘判別力)**:fixture 直接構造一筆 `email` 為合成域字面的地址 row
-   (模擬繞過寫入層驗證的舊/髒資料)→ `buildCardholder` 擋下、零 TapPay 呼叫。
-   🔴 這條的存在理由:①-⑤ 全綠**證不了**出口閘活著(順位 1/2 來源乾淨時它永不觸發)——
-   沒有這條,出口閘就是「構造不出負測的守門」,依 repo 教訓應先懷疑它是 no-op。
-7. **長度邊界(§1 實測後新增)**:地址 email 總長 40 → 通過;41 → 擋下(schema 層與出口閘各一條,兩層分別測)。
-   🔴 邊界值取自 sandbox 實測(40 過 / 41 拒),不是猜的;實測輸出見 P 窗 scratchpad probe。
-8. **email 登入 × 舊地址 × session email 41 字元** → 順位 2 不採用、走順位 3 引導(收既有潛在 bug)。
+### 3.2 突變表(**全部實跑過,不是推論**)
 
-### 3.2 突變表(每條只紅一個)
-
-| 突變 | 應該紅 |
+| 突變 | 實跑結果 |
 |---|---|
-| email 來源改回 `input.user.email` | 3.1-① |
-| 拿掉第 3 順位的擋門(讓它回落 session email) | 3.1-②(且 3.1-⑤ 同時紅) |
-| 把順位 1、2 對調 | 3.1-④ |
-| 拿掉 `notification-email.ts:39` 的 `!isSyntheticEmailDomain` | schema 既有測試 + 3.1-⑤ |
-| 把 `ADDRESS_SELECT` 的 email 拿掉 | 3.1-①(讀不到值 → 退到順位 2/3) |
-| **拿掉 §2.3 出口不變量閘** | **只有 3.1-⑥**(①-⑤ 全綠;紅的唯一性=閘的判別力證明) |
-| 把 ≤40 長度閘改成 ≤254(等於拿掉) | 3.1-⑦、3.1-⑧ |
-| 長度閘寫成 `<40`(差一錯) | 3.1-⑦ 的 40 那格 |
+| 拿掉 `!isSyntheticEmailDomain` | **只紅**短合成域毒地址那條 |
+| `≤40` 改成 `<40`(差一錯) | **只紅**長度邊界那條 |
+| 候選順位對調(session 先) | **只紅 1 條**(順位可觀察那條) |
+| schema 層 `≤40` 改 `<40` | **只紅** schema 邊界那條 |
+| schema 層拿掉合成域檢查 | **只紅** schema 合成域那條 |
 
-### 3.3 🔴 反恆真紀律(本 repo 反覆踩過,寫死)
+🔴 **判別力設計的關鍵教訓(實作時真的踩到)**:第一版毒地址用 64 字元的合成信箱,
+拿掉合成域檢查後**長度閘照樣擋住它、測試仍全綠** ⇒ 那條負測對合成域檢查零判別力。
+改用 27 字元的短合成信箱(過得了長度閘)才殺得動。**兩條規則都能擋的值,證明不了是哪一條在擋。**
 
-1. **斷言 email 的字面值**,不是「有沒有呼叫 TapPay」——後者對「送錯 email」全盲。
-2. **fixture 的 LINE session email 必須真的是 `line_<sub>@line.pcmmotorsports.local` 格式**;
-   圖方便寫成真實信箱 ⇒ 第 3 順位的負測**構造不出來**,整組守門變恆真。
-3. **3.1-② 要斷言「沒被呼叫」**(placeOrder / TapPay 各一),不能只斷言回傳值——
-   回傳值對「擋下了但已經先建了單」全盲,而零垃圾單正是選這一層擋的理由。
-4. 每條新斷言配 §3.2 的突變**實跑一次確認會紅**,不靠推論。
-
-### 3.4 三綠 + 對抗審查
-
-- 鐵則 11:typecheck + lint + build(動 .ts/.tsx)。動 .sql 另有語法守門。
-- 🔴 鐵則 12①③:diff 完成後 **commit 前**跑 codex 對抗審查,findings 修完才 commit,**不 push、不 apply**。
-
----
+🔴 另一條:名為「全域不變量」的成功案抽查**不是**第二腿證據 —— 它餵的全是本來就合格的輸入,
+拿掉防線照樣全綠,已就地降格措辭。
 
 ## §4 影響面與 rollback
 

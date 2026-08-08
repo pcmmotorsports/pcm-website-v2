@@ -59,6 +59,8 @@ function makeAddr(over: Partial<CustomerAddress> = {}): CustomerAddress {
     name: '王小明',
     phone: '0912345678',
     line: '台北市信義區市府路 1 號',
+    // M-4b:null = 新欄之前建的舊地址(最貼近存量資料);編輯時要補填才存得起來。
+    email: null,
     invoice: { type: 'personal', carrier: '', title: '', taxId: '', donateCode: '' },
     createdAt: '2026-01-01T00:00:00Z',
     updatedAt: '2026-01-01T00:00:00Z',

@@ -10,10 +10,14 @@
 --   修法:收件地址自帶 email,cardholder 改用它;順位與擋門見 plan §2.3。
 --
 -- 【形狀】DB 層 nullable、**應用層必填**(zod AddressInput)。
---   刻意**不採**本表既有的 `text DEFAULT ''` 慣例(phone / invoice_* 都是空字串當沒填):
---   本片需要區分「從來沒被要求填過」(既有列 => NULL)與「填了又清空」(應用層必填會擋),
---   plan §2.4 的舊地址升級動線正是靠這個區分決定「結帳當下要不要攔這位客人」。
---   空字串慣例會讓兩者長得一樣,那張矩陣就畫不出來。
+--   不採本表既有的 `text DEFAULT ''` 慣例(phone / invoice_* 都是空字串當沒填),
+--   讓既有列維持 NULL、與「有填過」在**資料上**分得出來。
+--   🔴 **但不要把這個區分講成行為分支**(codex 關卡2 round2 must-fix,原字面已更正):
+--   結帳端把 NULL 與空字串**一視同仁**當「沒有可用 email」,沒有任何分支依這個差別攔或放人;
+--   而且 authenticated 可直接寫 NULL(見下方誠實邊界)⇒ NULL 也不能證明「從未填過」。
+--   ⇒ nullable 的實際價值 = 既有資料相容 + 盤點時分得出存量列,不是行為依據。
+--   ⚠️ 本檔的 `COMMENT ON COLUMN` **已經 apply 到正式庫**,改本檔字面不會改到 DB 上那份;
+--      更正後的欄註解另放 `20260809030000_m4b_line3ds_address_email_comment_fix.sql`(待 apply)。
 --
 --   不加 UNIQUE:Sean 拍板「可以接受客人用不同 email」,同一人多個地址亦可共用同一 email。
 --   不加格式 CHECK:格式規則的單一真相在應用層 zod;DB 端加正規式 = 第二處要同步的規則。
@@ -21,6 +25,16 @@
 -- 【GRANT / RLS】customer_addresses 走**表級** GRANT + own-only policy 四條
 --   (20260523034911_init_customers_and_subtables.sql:236 / :166-179)=> 新欄自動涵蓋、無需另授權。
 --   🔴 但 apply 後仍要**實跑**驗證新欄真的讀寫得到 —— 表級 ACL 攤平看不到欄級差異(既有教訓)。
+--
+-- 🔴🔴 【誠實邊界:應用層必填**不是** DB 層保證】(codex 關卡2 must-fix;已實查 GRANT 坐實)
+--   authenticated 對本表有 INSERT/UPDATE 權限(同檔 :236 表級 GRANT)+ RLS own-only
+--   => 登入的客人**可以直接打 PostgREST 寫自己的列**,塞 NULL、空字串或畸形 email,
+--      完全繞過 zod AddressInput。
+--   ⇒ 不得宣稱「email 必填涵蓋全部寫入路徑」,也不得假設「NULL 只可能是舊列」。
+--   ⇒ 金流端**不依賴**這個保證:cardholder 組裝時用同一支 schema(AddressEmailInput)
+--      把取到的值重驗一次,髒值一律擋下不送 TapPay(lib/payment/cardholder.ts pickUsableEmail)。
+--   ⇒ 要在 DB 層補 CHECK(允許舊列 NULL、擋畸形值)或收回直接寫入權改走 RPC,是**另一片**:
+--      動既有 GRANT 會影響地址簿現行功能,且套用前需先唯讀盤點既有髒資料。已列 backlog #343、不在本片做。
 --
 -- 【rollback】見檔尾。🔴 DROP COLUMN 會丟掉客人已填的 email(不可逆)
 --   => 必須先退應用層、確認不再依賴該欄,才准 drop。

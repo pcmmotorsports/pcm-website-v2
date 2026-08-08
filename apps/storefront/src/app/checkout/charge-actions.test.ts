@@ -230,12 +230,36 @@ describe('chargePaymentAction — 信任邊界(零扣款層)', () => {
   it.each([
     ['address_not_found', { fieldErrors: { addressId: '請重新選擇收件地址' } }],
     ['name_missing', { formError: '會員資料缺少姓名,請至會員中心補齊後再試' }],
-    ['email_missing', { formError: '會員資料異常,請重新登入後再試' }],
+    // M-4b:引導去補**地址的 Email**,不是「重新登入」——會走到這裡的是 LINE 登入 + 舊地址,
+    // 他的登入完全正常。
+    // ⚠️ 顯示位置(codex 關卡2 糾正、已實查 useChargePayment.tsx:231-241):client 會把
+    // fieldErrors **壓成單一訊息**顯示在付款區錯誤條,**不會**變成地址欄旁的紅字 ⇒
+    // 文案本身必須把「要去哪改」講完整,不能靠它出現在地址欄旁邊。
+    [
+      'email_unusable',
+      {
+        fieldErrors: {
+          addressId: '收件地址的 Email 無法用於付款驗證(需 40 字元內的一般信箱),請編輯地址修改後再試',
+        },
+      },
+    ],
     ['profile_not_found', { formError: '會員資料異常,請重新登入後再試' }],
   ])('cardholder fail(%s)→ 對應文案', async (reason, expected) => {
     mockBuildCardholder.mockResolvedValue({ ok: false, reason });
     const action = await getAction();
     expect(await action(validInput())).toEqual(expected);
+  });
+
+  // 🔴 M-4b:plan 宣稱「擋下時零垃圾單、零 TapPay 呼叫」——那是選在 cardholder 這一層擋的**唯一理由**,
+  //    但上面那組 it.each 只驗回傳文案,對「擋下了但已經先建了單」全盲(codex 關卡2 round2 must-fix)。
+  //    這條把三條下游路徑各釘一次;拿掉 buildCardholder 之前的早退,只有它會紅。
+  it('🔴 email_unusable → 零 placeOrder、零 initiatePayment、零 confirmPayment(零垃圾單零扣款)', async () => {
+    mockBuildCardholder.mockResolvedValue({ ok: false, reason: 'email_unusable' });
+    const action = await getAction();
+    await action(validInput());
+    expect(mockPlaceOrder).not.toHaveBeenCalled();
+    expect(mockInitiatePayment).not.toHaveBeenCalled();
+    expect(mockConfirmPayment).not.toHaveBeenCalled();
   });
 
   it('findTotal null(查無/防腐)→ formError 通用、零 confirmPayment(零扣款)', async () => {

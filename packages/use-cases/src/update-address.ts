@@ -4,8 +4,16 @@ import { verifyOwnedThenUnsetOthers, verifyAddressOwned } from './_address-defau
 
 /**
  * AddressPatch:更新地址的白名單欄(信任邊界 — 不含 id / customerUserId / 時間欄,codex 關卡1 finding 4)。
+ *
+ * 🔴 M-4b 補上 `email`:舊地址補 Email 是本次修復的**核心自救動線**(LINE 客人在結帳被擋下後,
+ *   就是靠「編輯地址補 Email」把自己救回來)。漏掉它時 TypeScript **不會報錯** ——
+ *   呼叫端傳的 `patch` 是既有變數、不觸發 excess property check ⇒ 執行期只是「碰巧」還傳得下去。
+ *   哪天有人照這份白名單做一次過濾,補進去的 Email 就會靜默寫不進 DB,
+ *   而症狀會長得像「修復根本沒生效」。(codex 關卡2 must-fix)
  */
-export type AddressPatch = Partial<Pick<CustomerAddress, 'isDefault' | 'name' | 'phone' | 'line' | 'invoice'>>;
+export type AddressPatch = Partial<
+  Pick<CustomerAddress, 'isDefault' | 'name' | 'phone' | 'line' | 'email' | 'invoice'>
+>;
 
 /**
  * updateAddress:更新收件地址 use-case(M-1-14e-2a)。
