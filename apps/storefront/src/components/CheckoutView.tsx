@@ -52,6 +52,7 @@ import { CheckoutStep2, type InvoiceDraft } from '@/components/CheckoutStep2';
 import { CheckoutStepIndicator, type CheckoutStep } from '@/components/CheckoutStepIndicator';
 import { CheckoutTerminalScreen, isTerminalChargeState } from '@/components/CheckoutTerminalScreen';
 import { CheckoutCartNotice } from '@/components/CheckoutCartNotice';
+import { navigateToCatalog } from '@/lib/catalog-navigation';
 import { CheckoutPaymentOverlay } from '@/components/CheckoutPaymentOverlay';
 import { CheckoutSummaryAside } from '@/components/CheckoutSummaryAside';
 import { CheckoutMobileBuybar } from '@/components/CheckoutMobileBuybar';
@@ -261,7 +262,13 @@ export function CheckoutView({
   if (cart.status === 'loading') return <CheckoutCartNotice variant="loading" />;
   // 空車不進結帳(對齊 design 假設「有商品」;導回購物車)。
   if (cart.status === 'empty') {
-    return <CheckoutCartNotice variant="empty" onContinueShopping={() => router.push('/products')} />;
+    return (
+      // 走 navigateToCatalog:落地必須在頂(D-310-A Bug 2;理由見 `lib/catalog-navigation.ts`)。
+      <CheckoutCartNotice
+        variant="empty"
+        onContinueShopping={() => navigateToCatalog(router, '/products')}
+      />
+    );
   }
 
   const { lines, subtotal, shipping, total } = cart;

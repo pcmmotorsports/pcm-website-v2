@@ -25,6 +25,7 @@ import { useResolvedCart } from '@/hooks/useResolvedCart';
 import { isBalancePaymentOnlyCart } from '@/lib/balance-payment';
 import { CartVehicleField } from '@/components/CartVehicleField';
 import { resolveGaragePrefillVehicle } from '@/lib/garage-chip';
+import { navigateToCatalog } from '@/lib/catalog-navigation';
 import type { GarageChipItem } from '@/components/GarageChips';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import type { CartItem, CartItemVehicle } from '@/contexts/CartContext';
@@ -82,7 +83,9 @@ export function CartView({
   }, [cart, motoBrands, garage, setItemVehicle]);
 
   const goCheckout = () => router.push('/checkout');
-  const goContinue = () => router.push('/products');
+  // 🔴 走 navigateToCatalog、不裸 push:購物車捲到下面按「繼續購物」時,落地不歸零同樣會讓
+  //    首排商品被黏頂篩選列蓋住(與首頁 finder 同一根因;D-310-A Bug 2)。
+  const goContinue = () => navigateToCatalog(router, '/products');
 
   if (cart.status === 'loading') {
     return <CartLoading />;

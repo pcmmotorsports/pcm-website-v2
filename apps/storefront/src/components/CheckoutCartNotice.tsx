@@ -7,7 +7,8 @@
 //   `data-screen-label` / class 名 / 文案 / Header / HomeFooter 全部不變。
 //
 // 🔴 空車的「繼續購物」導航**不寫死在本檔**:抽元件不得順手偷換導航方式,
-//   由 CheckoutView 傳 `onContinueShopping`(維持原本的 `router.push('/products')`)。
+//   由 CheckoutView 傳 `onContinueShopping`(2026-08-09 起改走 `navigateToCatalog`、不再裸 push
+//   —— 落地必須在頁面頂端,否則首排商品會被黏頂篩選列蓋住;見 `lib/catalog-navigation.ts`)。
 //   variant='loading' 沒有這個 prop = 型別層擋掉「載入畫面也塞一顆按鈕」的誤用。
 
 import { Header } from '@/components/Header';

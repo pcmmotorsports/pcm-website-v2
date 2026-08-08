@@ -19,6 +19,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { navigateToCatalog } from '@/lib/catalog-navigation';
 import type { MockMotoBrand } from '@/data/mock-moto-brands';
 import { VehicleSelect } from './VehicleSelect';
 import { GarageChips, type GarageChipItem } from './GarageChips';
@@ -128,7 +129,9 @@ export function VehicleFinder({
               modelName: modelObj?.name,
             });
             const params = new URLSearchParams({ vehicle: parts.join(':') });
-            router.push(`/products?${params.toString()}`);
+            // 🔴 走 navigateToCatalog、不裸 push:落地必須在頁面頂端,否則首排商品會被
+            //    黏頂的篩選列蓋掉上半截(D-310-A Bug 2;理由與量測見該檔檔頭)。
+            navigateToCatalog(router, `/products?${params.toString()}`);
           }}>
           <span>搜尋部品</span>
           <span className="ed-finder-go-arrow" aria-hidden="true">→</span>
