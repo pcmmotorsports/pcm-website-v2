@@ -9305,3 +9305,27 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
   現況五支 writer 都是同一次落檔、同一份樣板,部分接線的機率低。
 - **不修會痛在哪**:未來若有人改寫某一支 writer(W7d 就要動兩支),把冪等層拆成一半,
   現有五格與它們的靶**都不會紅**。今天風險低是因為五支同源;一旦開始分頭演化,這個洞就會張開。
+
+### #344. 🛡️ `a8a2:567` 的「零全函式 EXCEPTION handler」守門名不副實 — 只認兩個字面
+
+- **來源**:2026-08-09 W7d-2 撤片偵察副產物(`B-307-STOP` ⑤、`B-308-A` Q2=B 裁准立條)。
+- **現況**:`supabase/migrations/20260805100000_m4b_e10_a8a2_partial_cancel.sql:567`
+
+  ```sql
+  IF position('WHEN OTHERS' in v_def) <> 0 OR position('WHEN unique_violation' in v_def) <> 0 THEN
+    RAISE EXCEPTION 'A8a2 結構 assert:出現全函式 EXCEPTION handler;拒繼續';
+  ```
+
+  錯誤訊息宣稱它擋的是「**全函式 EXCEPTION handler**」,但它實際只比對兩個字面。
+  `WHEN deadlock_detected` / `WHEN check_violation` / `WHEN lock_not_available` /
+  `WHEN raise_exception` 等任何其他 handler **都會靜默通過**。
+- **形狀**:`feedback_control-named-beyond-its-actual-power`(防護的命名超出它真正的能力)。
+  同族還有 `feedback_guard-checks-existence-not-effect`。
+- **要做什麼**:把判準改成「函式體內出現 `EXCEPTION` 區塊就拒」,或明列白名單並讓訊息
+  與實際判準逐字一致(**訊息縮到它真正擋得住的範圍**也是合格修法,不一定要擴大守門)。
+  修完必附負測:塞一個 `WHEN deadlock_detected` handler 進突變體,**該守門要紅**;
+  現況它是綠的,那就是這條的判別力證明。
+- **不修會痛在哪**:下一個想給 `admin_cancel_order` 加 handler 的片(W7d-2 若因失效條件觸發而重開,
+  正是這件事)會讀到「零全函式 EXCEPTION handler」這句 assert 與 `COMMENT ON FUNCTION` 的同款字面,
+  **以為有守門在把關**,於是不再自己檢查;而守門其實放行。
+  這不是「守門太鬆」的一般問題,是**字面誤導後人不去查** —— 危害發生在人身上,不在機器上。
