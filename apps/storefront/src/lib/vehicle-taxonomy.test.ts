@@ -129,3 +129,44 @@ describe('buildVehicleTaxonomy', () => {
     expect(tax[0]!.models).toHaveLength(1);
   });
 });
+
+// ── 2026-08-08 選車欄空格不敏感比對(looseVehicleKey)的**反面**回歸格 ────────────────
+//
+// 🔴 那一片讓「打字過濾」寬鬆到能用「RS6」找到「RS 660」。**節點識別這一層絕不准跟著寬鬆** ——
+//    本檔 :20 逐字:「空白與連字號**不互折**,仍保留兩節點,slug 碰撞加序號保唯一」。
+//    折平的後果不只是清單少一項:`fitment-match` 是以**名稱字面**消歧的
+//    (該檔 :8-10 = codex MF-1 的修復記錄),節點一旦被折,消歧的依據就沒了。
+// 突變:把 `vehicle-taxonomy` 的 key 換成 `looseVehicleKey`(或把去分隔符併進
+//    `normalizeVehicleQuery`)⇒ 只紅這族。
+describe('🔴 空白與連字號不互折(空格比對片的反面守門)', () => {
+  it('「MT 09」與「MT-09」是兩個車型節點、不得被折成一個', () => {
+    const tax = buildVehicleTaxonomy([
+      makeProduct(1, [{ motoBrand: 'YAMAHA', modelCode: 'MT 09', yearStart: 2021 }]),
+      makeProduct(2, [{ motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2021 }]),
+    ]);
+    const yamaha = tax.find((b) => b.name === 'YAMAHA');
+    expect(yamaha, '前提:品牌節點要在').toBeTruthy();
+    expect(yamaha!.models.map((m) => m.name).sort()).toEqual(['MT 09', 'MT-09']);
+    // slug 碰撞加序號保唯一(本檔 :20 的後半句)
+    expect(new Set(yamaha!.models.map((m) => m.id)).size).toBe(2);
+  });
+
+  it('品牌側同樣不折:「Moto Guzzi」與「Moto-Guzzi」是兩個品牌節點', () => {
+    const tax = buildVehicleTaxonomy([
+      makeProduct(1, [{ motoBrand: 'Moto Guzzi', modelCode: 'V7', yearStart: 2021 }]),
+      makeProduct(2, [{ motoBrand: 'Moto-Guzzi', modelCode: 'V7', yearStart: 2021 }]),
+    ]);
+    expect(tax.map((b) => b.name).sort()).toEqual(['Moto Guzzi', 'Moto-Guzzi']);
+    expect(new Set(tax.map((b) => b.id)).size).toBe(2);
+  });
+
+  // 正向對照:真正同字面的仍然要合併(證明上面紅的是「折平」、不是「去重整個壞掉」)
+  it('正向對照:字面完全相同(僅大小寫/全形差異)仍合併成一個節點', () => {
+    const tax = buildVehicleTaxonomy([
+      makeProduct(1, [{ motoBrand: 'YAMAHA', modelCode: 'MT-09', yearStart: 2021 }]),
+      makeProduct(2, [{ motoBrand: 'yamaha', modelCode: 'mt-09', yearStart: 2022 }]),
+    ]);
+    expect(tax).toHaveLength(1);
+    expect(tax[0]!.models).toHaveLength(1);
+  });
+});

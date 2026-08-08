@@ -95,3 +95,35 @@ describe('checkFitment（§7 保守比對）', () => {
     expect(checkFitment([F('YAMAHA', 'MT-09', 2021, 2024)], dict('ＹＡＭＡＨＡ', 'ＭＴ－０９', 2022))).toBe('match');
   });
 });
+
+// ── 2026-08-08 選車欄空格不敏感比對(looseVehicleKey)的**反面**回歸格 ────────────────
+//
+// 🔴 那一片讓「打字過濾」寬鬆到能用「RS6」找到「RS 660」。**這一層絕不准跟著寬鬆** ——
+//    `checkFitment` 決定的是「這個零件裝不裝得上你的車」,而本檔 :3 逐字寫著
+//    「**錯誤的『✓ 適用』比空白更糟(買錯裝不上=信任毀)**」。
+//    「MT 09」與「MT-09」在 taxonomy 是**兩個不同節點**(`vehicle-taxonomy.ts:20` 逐字
+//    「空白與連字號不互折」),把它們折平就是 codex MF-1 那個假 ✓ 的形狀。
+// 突變:把 `checkFitment` 的正規化換成 `looseVehicleKey`(或把去分隔符併進
+//    `normalizeVehicleQuery`)⇒ 只紅這族。
+describe('🔴 分隔符不得被折平(空格比對片的反面守門)', () => {
+  it('選「MT 09」不得命中「MT-09」的 fitment(假 ✓ 回歸格)', () => {
+    expect(checkFitment([F('YAMAHA', 'MT-09', 2021, 2024)], dict('YAMAHA', 'MT 09', 2022)))
+      .toBe('no-match');
+  });
+
+  it('反向同理:選「MT-09」不得命中「MT 09」的 fitment', () => {
+    expect(checkFitment([F('YAMAHA', 'MT 09', 2021, 2024)], dict('YAMAHA', 'MT-09', 2022)))
+      .toBe('no-match');
+  });
+
+  it('品牌側同樣不折:「Moto Guzzi」與「Moto-Guzzi」不得互相命中', () => {
+    expect(checkFitment([F('Moto-Guzzi', 'V7', 2021, 2024)], dict('Moto Guzzi', 'V7', 2022)))
+      .toBe('no-match');
+  });
+
+  // 正向對照:同一個字面照樣要命中(證明上面三條紅的是「折平」、不是「整個比對壞掉」)
+  it('正向對照:字面完全相同仍 match', () => {
+    expect(checkFitment([F('YAMAHA', 'MT 09', 2021, 2024)], dict('YAMAHA', 'MT 09', 2022)))
+      .toBe('match');
+  });
+});
