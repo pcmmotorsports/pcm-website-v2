@@ -98,15 +98,19 @@ export type SupabaseProductRow = {
   brands: SupabaseBrandRow | null;
   categories: SupabaseCategoryRow | null;
   /**
-   * 變體 embed(M-1-16c-2、backlog #203):detail 投射(findById / findByHandle)走
-   * `product_variants_public(...)` embed、回 7 欄(view DDL 10 欄、adapter 只投射 domain 所需 7 欄);
-   * list 路徑(listByCategory/Brand/Fitment/searchByKeyword)不帶變體(避 N+1 jsonb 膨脹)→ 此 key
-   * 在 list 路徑 row 為 undefined。
+   * 變體 embed(M-1-16c-2、backlog #203)。🔴 **兩種形狀**(2026-08-08 Q28 加購鈕線):
+   * - **detail** 投射(findById / findByHandle)走 `product_variants_public(...)` embed、回 **7 欄**
+   *   (view DDL 10 欄、adapter 只投射 domain 所需 7 欄)⇒ 可餵 `mapVariantRow`。
+   * - **list** 投射(listByCategory/Brand/Fitment/searchByKeyword)自 2026-08-08 起 embed **只有 `id`**
+   *   ——只為數出 `variantCount`,**不夠**組 domain 變體。
+   *   ~~list 路徑不帶變體 → 此 key 為 undefined~~(2026-08-08 前的舊行為,已被下面這條取代)。
+   * 兩者用 `isFullVariantRow` 分辨(見該函式);精簡形狀**不得**進 `mapVariantRow`,否則會做出
+   * `sku` 為空字串的垃圾變體、而 sku 會一路進購物車行(`app/cart/actions.ts:167`)。
    *
    * 🔴 經銷價防護:view 物理排除 price_store / metadata、透過 embed 亦無法 select(實測 PG 42703)、
    *   故此 wire 型別本就無敏感欄。
    */
-  product_variants_public?: SupabaseVariantRow[];
+  product_variants_public?: (SupabaseVariantRow | { id: string })[];
 };
 
 /**
@@ -133,6 +137,19 @@ export type SupabaseVariantRow = {
   images: unknown[] | null;
   sort_order: number;
 };
+
+/**
+ * 這個 embed row 是不是**完整**變體(7 欄)?
+ *
+ * 2026-08-08 Q28:list 投射只 embed `id`(為了數 `variantCount`、不為了組變體)。
+ * 判別用 `sku` —— 它是完整投射才有、且 domain 變體必需的欄位(空 sku 的變體會被
+ * `app/cart/actions.ts:167` 當成料號寫進購物車行)。
+ * 🔴 判別條件是**我們自己的投射決定的**(`SupabaseProductAdapter` 兩個常數),不是猜資料;
+ *   改投射欄位時要連同本函式一起看。
+ */
+function isFullVariantRow(v: SupabaseVariantRow | { id: string }): v is SupabaseVariantRow {
+  return 'sku' in v;
+}
 
 /**
  * wire row → domain Product(對齊 docs/specs/M-1-03-main-b-PRD.md §4.1 +
@@ -231,8 +248,13 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
     //   codex 關卡1 consider 2);sku tie-breaker 保確定性(sort_order DB DEFAULT 0 可並列、
     //   PostgREST embed 原始順序不保證、codex 關卡2 consider 1;sku 全表 UNIQUE)。
     variants: (row.product_variants_public ?? [])
+      .filter(isFullVariantRow)
       .map(mapVariantRow)
       .sort((a, b) => a.sortOrder - b.sortOrder || a.sku.localeCompare(b.sku)),
+    // 2026-08-08 Q28:兩條讀路徑都算得出來(detail=7 欄 embed、list=只有 id 的 embed)。
+    // 🔴 **不是** `variants.length` —— list 路徑的 `variants` 刻意維持 `[]`(零行為回歸,
+    //   既有消費者含 cart fail-closed 一字不變),數量只由這個欄位承載。
+    variantCount: (row.product_variants_public ?? []).length,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };

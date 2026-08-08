@@ -7,7 +7,9 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { CartProvider } from '@/contexts/CartContext';
 
 const { pathnameRef } = vi.hoisted(() => ({
   pathnameRef: { current: '/' },
@@ -17,6 +19,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { MobileTabBar } from './MobileTabBar';
+
+// 2026-08-08 快速加購接線:`MobileTabBar` 從此吃 `useCart()`,無 provider 會 throw
+// (`CartContext.tsx:325-327`)。呼叫端與斷言一字未動,只補上元件本來就需要的 provider。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 afterEach(() => {
   cleanup();

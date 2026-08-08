@@ -5,11 +5,25 @@
 // 非 coverage 達標(見 docs/architecture/testing-strategy.md §1 前台 smoke test 慣例)。
 
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { CartProvider } from '@/contexts/CartContext';
 import { ProductCard } from './ProductCard';
 import { MOCK_PRODUCTS } from '../data/mock-products';
 
-const product = MOCK_PRODUCTS[0]!;
+// 2026-08-08 快速加購接線:`ProductCard` 從此吃 `useCart()`(它本來就不是純展示元件——早有
+// hover/liked state),無 provider 會 throw(`CartContext.tsx:325-327`)。
+// 🔴 這裡遮蔽 `render` 而不是逐處包 `<CartProvider>`:呼叫端與**斷言一字未動**,
+// 只補上元件本來就需要的 provider(正式站的在根 layout `app/layout.tsx:106-109`)。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
+
+// 🔴 2026-08-08 加購鈕接線:明確給 `variantCount: 0`(=這是無規格商品)。
+//    缺這個欄位 = **不知道有沒有規格** ⇒ 卡片走安全側「當作有規格、讓外層 <Link> 導去商品頁」,
+//    那條路**刻意不呼叫 `preventDefault`** ⇒ 下面 it.each 的加購那格會紅。
+//    這不是把期望值改掉遷就實作:該條測的意圖是「鈕自己要處理點擊、不得誤跳頁」,
+//    而那個意圖只在鈕真的要處理點擊(無規格=直加)時才成立;
+//    有規格時鈕的職責**就是**讓它跳頁,那一格由 `product-card-quick-add.test.tsx` 正面守。
+const product = { ...MOCK_PRODUCTS[0]!, variantCount: 0 };
 
 afterEach(cleanup);
 

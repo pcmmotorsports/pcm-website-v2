@@ -13,6 +13,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { CartProvider } from '@/contexts/CartContext';
 
 vi.mock('next/navigation', () => ({
   notFound: () => {
@@ -78,9 +79,12 @@ const escapeHtml = (text: string): string =>
 const ALL_AVAILABLE: ReadonlySet<string> = new Set(BRAND_CONTENT.map((b) => b.slug));
 
 const params = (slug: string) => Promise.resolve({ slug });
+// 2026-08-08 快速加購接線:route 輸出的 `ProductCard` 從此吃 `useCart()`,無 provider
+// 會 throw(`CartContext.tsx:325-327`)。這支不是 RTL `render`,是直接呼叫
+// `renderToStaticMarkup`,所以在唯一呼叫點手動包 `<CartProvider>`、斷言一字未動。
 const markupFor = async (slug: string) => {
   if (availableRef.current === null) availableRef.current = ALL_AVAILABLE;
-  return renderToStaticMarkup(await BrandPage({ params: params(slug) }));
+  return renderToStaticMarkup(<CartProvider>{await BrandPage({ params: params(slug) })}</CartProvider>);
 };
 
 describe('/brands/[slug] · 前提', () => {

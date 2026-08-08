@@ -10,9 +10,16 @@
 //    沒有它的話,R-2 / R-3 傳了 props 卻被元件忽略(例如寫死回 N°02 的字面),
 //    只會在真瀏覽器上被看到,jsdom 與型別都不會紅。
 import { afterEach, describe, expect, it } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { CartProvider } from '@/contexts/CartContext';
 import { ProductRail } from './ProductRail';
 import { MOCK_PRODUCTS } from '@/data/mock-products';
+
+// 2026-08-08 快速加購接線:`ProductRail` 內部的 `ProductCard` 從此吃 `useCart()`,
+// 無 provider 會 throw(`CartContext.tsx:325-327`)。呼叫端與斷言一字未動,
+// 只補上元件本來就需要的 provider。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 afterEach(cleanup);
 

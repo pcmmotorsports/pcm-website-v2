@@ -284,6 +284,20 @@ export type Product = {
    * 16a 各 Product 建構點(mapper / test factory)先填 [](型別接通、真讀變體 16c)。
    */
   variants: ProductVariant[];
+  /**
+   * 這個商品有幾個變體(2026-08-08 Q28 加購鈕線)。
+   *
+   * 🔴 **為什麼不是「`variants.length` 就好」**:`variants` 只有 detail 讀路徑會帶
+   * (`SupabaseProductAdapter` 的 `..._WITH_VARIANTS`);list 讀路徑刻意不 embed 完整變體
+   * (避 N+1 jsonb 膨脹)⇒ 在 list 上 `variants` 恆為 `[]`,**「這款真的沒變體」與「有變體但沒帶下來」
+   * 長得一模一樣**。列表卡片的快速加購因此會把有變體商品加成「幽靈品項」:
+   * 購物車 fail-closed 丟掉那行、客人卻看到加購成功(2026-08-08 code-reviewer Critical)。
+   *
+   * 🔴 **必填、刻意不用 optional**:optional 會讓「沒帶到」與「真的沒有」再次分不出來,
+   * 那正是上面那個 bug 的病根。所有 `Product` 建構點都要給值;
+   * 給不出真值的測試假資料填 `0` 並在該處註明。
+   */
+  variantCount: number;
   /** entity 建立時間(adapter 邊界從 wire mapper 填) */
   createdAt: Date;
   /** entity 最後更新時間(adapter 邊界從 wire mapper 填、對齊 IProductRepository.save 樂觀鎖 trigger M-1-03) */

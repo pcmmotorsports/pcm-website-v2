@@ -13,7 +13,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 // (2026-08-07 R-3:原本這裡還 import `node:fs` / `node:url` / `node:path` 去讀 `account.css`
 //  現算 `.acc-rec` 欄數。那條「顯示筆數整除欄數」守門已隨版位改 rail 一起移除 ⇒ 四個 import
 //  與它們的說明註解跟著清掉,不留無指涉的殘留。)
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react';
+import type { ReactElement } from 'react';
+import { CartProvider } from '@/contexts/CartContext';
 
 // next/link mock(避免帶 router context)。
 // 🔴 2026-08-07 R-3:消費者換人了 —— `OverviewTab` 自己已不再用 `Link`,
@@ -47,6 +49,12 @@ const SAMPLE_RECENT: OrderListItem[] = [
     itemCount: 3,
   },
 ];
+
+// 2026-08-08 快速加購接線:`OverviewTab` 渲染的 `ProductRail` → `ProductCard` 從此吃
+// `useCart()`,無 provider 會 throw(`CartContext.tsx:325-327`)。
+// 本檔既有的 `renderTab`(:59-69)內部就是呼叫 `render(...)`,所以遮蔽這個名字同時涵蓋它,
+// 呼叫端與斷言一字未動。
+const render = (ui: ReactElement) => rtlRender(ui, { wrapper: CartProvider });
 
 function renderTab(overrides: Partial<React.ComponentProps<typeof OverviewTab>> = {}) {
   const props: React.ComponentProps<typeof OverviewTab> = {
