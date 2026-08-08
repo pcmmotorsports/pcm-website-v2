@@ -1419,6 +1419,19 @@ components:
         note: "新增地址 inline 表單(design InlineAddressForm)延後、e1 連 /account 管理"
         plan: "後續評估是否在 checkout 內接 InlineAddressForm + addAddressAction(需處理 router.refresh 後 step state + 新地址自動選中)"
 
+  SoundClips:
+    storefront:
+      component: "apps/storefront/src/components/SoundClips.tsx + apps/storefront/src/lib/sound-clip-title.ts"
+      css: "apps/storefront/src/styles/product-page.css"  # .pd-sound* 家族;沿用 .pd-panel / .pd-panel-label 外框與眉標
+      last_modified_commit: "bcd846a7"  # 記可達祖先=聲音檔 3b-UI 片的父 commit(#180 案 A)(新增條目、無前錨)
+      last_modified_date: "2026-08-09 [排氣聲浪音檔顯示層(附件線片 3b-UI)]:資料形狀 `products.sound_clips jsonb [{title:str|null,url}]`,**僅 akrapovic 有值**(364 群、最多 6 段)、其餘 14 家恆 null,🔴 **null 不等於 []**(活雷)。🔴 **本片純顯示層、fixtures 驅動、不碰 DB**:片 3a 的 migration **尚未 apply**、`database.types.ts` 型別滯後,元件收 typed props、不 import adapter;真正接進商品頁是 apply + 重 gen 之後的另一小片。🔴 **Q25=A**(Sean 08-08 拍板):DB 存英文原文不動、**中文化在顯示層做** —— 對照表獨立檔 `lib/sound-clip-title.ts`,**沒命中就逐字顯示英文原文、絕不編造**(排氣型號猜錯的代價同車種鐵律)。對照表刻意只收語意明確的詞(消音塞有無、材質、原廠對照音),**刻意不翻產品線名**(Slip-On/Evolution/Racing 是 Akrapovic 商標,翻了等於替原廠發明譯名);⚠️ **上線前要拿真資料補**(實測型別詞 112 種、~4% 無標題、分隔符逗號分號並存)。🔴 **禁 autoplay、`preload=none`**(WAV 檔大,合約 v5 明文;守門有專條)。空狀態 null/[]/整欄缺 → **整區不渲染**(同 InstallResources 慣例,零附件不得留空面板)。預覽頁 `dev-preview/sound-clips`(fixtures;🔴 該頁要自己 import product-page.css —— 它不在 layout 全域清單裡,第一版就是漏了這條、截圖拍出裸清單)。真瀏覽器實測 390/1280:面板 1、audio 6、preload 全 none、零 autoplay、零橫向溢出。"
+    design:
+      component: "(無對應稿)商品頁 OD 優化全案已收回 ⇒ 照現站 .pd-panel 風格自建(D-321-A ①)"
+      css: "(無對應稿)"
+    related_storefront:
+      - "apps/storefront/src/components/InstallResources.tsx"  # 兄弟面板;空狀態「整區不渲染」的慣例來源
+      - "supabase/migrations/20260808000000_products_add_sound_clips_expose_view.sql"  # 片 3a,尚未 apply
+
   # ---- 全站 RWD 系列(#192) ----
 
   MobileInputZoomGuard:
