@@ -29,15 +29,18 @@ afterEach(cleanup);
 
 function renderForm(props: { vehicleBrands?: MockMotoBrand[]; veh?: Record<string, unknown> } = {}) {
   const onSubmit = vi.fn().mockResolvedValue({ ok: true as const });
+  const onClose = vi.fn();
+  const onSaved = vi.fn();
   const utils = render(
     <InlineVehicleForm
       veh={props.veh ?? {}}
-      onClose={vi.fn()}
+      onClose={onClose}
+      onSaved={onSaved}
       onSubmit={onSubmit}
       vehicleBrands={props.vehicleBrands}
     />,
   );
-  return { onSubmit, ...utils };
+  return { onSubmit, onClose, onSaved, ...utils };
 }
 
 function combo(label: string) {
@@ -283,5 +286,22 @@ describe('InlineVehicleForm — 車型字典雙下拉(V-1c++)', () => {
     expect(screen.getByPlaceholderText('YAMAHA YZF-R6')).toBeTruthy();
     expect(screen.queryByText(/改用清單選車/)).toBeNull();
     expect(screen.queryByRole('combobox', { name: '選擇廠牌' })).toBeNull();
+  });
+});
+
+// 🔴 2026-08-08(P-205-STOP ③「新增後不刷新」,兩處同形狀復現):成功後的收尾**交給父層**。
+//    舊寫法 `router.refresh(); onClose();` 兩行都在本元件自己的 transition 裡,而 onClose 會讓
+//    父層把本元件 unmount = 發出重讀指令的元件把自己拆掉。對照組:同頁「刪除」的 transition
+//    掛在父層、元件續存,那條一直正常。
+//    ⚠️ 本檔原本**完全沒有**收尾行為的斷言 ⇒ 只改 AddressForm 那半的話,這一半的突變殺不死。
+// 突變:把 `onSaved()` 換回 `router.refresh(); onClose();` ⇒ 只紅這族
+describe('存檔成功的收尾交給父層', () => {
+  it('🔴 ok=true → 只呼叫 onSaved();本元件不得自己 close', async () => {
+    const { onSaved, onClose } = renderForm({ vehicleBrands: BRANDS });
+    pickByTyping('選擇廠牌', 'Yamaha');
+    pickByTyping('選擇車型', 'YZF-R6');
+    fireEvent.click(screen.getByText('儲存'));
+    await vi.waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

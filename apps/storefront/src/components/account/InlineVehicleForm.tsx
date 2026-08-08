@@ -11,7 +11,9 @@
 // storefront 技術實作 adaptation(鐵則 1 例外類別 2、非視覺偏離):
 // - design L776 onSave(form) localStorage mock → onSubmit prop(g-6b 傳 addVehicleAction、g-6c 傳 updateVehicleAction);
 //   form 保持 generic、不 hardcode action → 可重用(veh.id 僅決定 heading 字面,id 綁定由 parent closure 處理)
-// - controlled state + useTransition;成功 ok → router.refresh()〔g-4c pattern、重讀 page server component 即時刷新清單〕+ onClose()
+// - controlled state + useTransition;成功 ok → ~~router.refresh() + onClose()~~ → **onSaved()**
+//   (2026-08-08:重讀指令改由父層發出,舊寫法會讓發指令的元件在同一個 transition 內被自己拆掉;
+//    見 InlineAddressForm 的 onSaved 註解與 P-205-STOP ③)
 //
 // V-1c++(Sean 07-16 實測回饋二輪):車型欄改「字典雙下拉(品牌/車型 VehicleCombo)為主、
 // 自行輸入為 fallback」——與首頁選車同一 combobox 原型(打字過濾/可捲全清單、無 8 筆截斷),
@@ -52,6 +54,8 @@ export type InlineVehicleInitial = {
 export type InlineVehicleFormProps = {
   veh: InlineVehicleInitial;
   onClose: () => void;
+  /** 存檔成功後由**父層**收尾(關表單 + 重讀清單);理由見 `InlineAddressForm` 的 onSaved 註解。 */
+  onSaved: () => void;
   // g-6b 傳 addVehicleAction;g-6c 編輯傳 (input) => updateVehicleAction(veh.id!, input)(id 綁定在 parent closure)。
   onSubmit: (input: VehicleInput) => Promise<AddVehicleActionResult>;
   /**
@@ -77,6 +81,7 @@ function parseDictName(
 export function InlineVehicleForm({
   veh,
   onClose,
+  onSaved,
   onSubmit,
   vehicleBrands = [],
 }: InlineVehicleFormProps) {
@@ -146,9 +151,11 @@ export function InlineVehicleForm({
         setFormError(result.formError);
         setFieldErrors({});
       } else if (result.ok) {
-        // g-4c pattern:重跑 page.tsx server component 重讀 vehicles → 清單即時更新;再收合表單。
-        router.refresh();
-        onClose();
+        // 成功 → 交給父層收尾。理由同 `InlineAddressForm` 的 `onSaved` 註解:
+        // 舊寫法 `router.refresh(); onClose();` 兩行都在本元件自己的 transition 裡,
+        // 而 onClose 會讓父層把本元件 unmount = 發出重讀指令的元件把自己拆掉。
+        // P 掃測(`P-205-STOP` ③)兩處同形狀復現,對照組是同頁「刪除」(transition 在父層)正常。
+        onSaved();
       }
     });
   };

@@ -11,7 +11,8 @@
 // storefront 技術實作 adaptation(鐵則 1 例外類別 2、非視覺偏離):
 // - design L706 onSave(form) localStorage mock → onSubmit prop(g-5b 傳 addAddressAction、g-5c 傳 updateAddressAction);
 //   form 保持 generic、不 hardcode action → 可重用(addr.id 僅決定 heading 字面,id 綁定由 parent closure 處理)
-// - controlled state + useTransition;成功 ok → router.refresh()〔g-4c pattern、重讀 page server component 即時刷新清單〕+ onClose()
+// - controlled state + useTransition;成功 ok → ~~router.refresh() + onClose()~~ → **onSaved()**
+//   (2026-08-08:重讀指令改由父層發出;見下方 onSaved 註解與 P-205-STOP ③)
 //
 // #181 雙通道(沿用 ProfileTab pattern、含巢狀 invoice):
 // - fieldErrors 逐欄(.auth-field-err 顯各 input 下方);invoice 欄錯〔title/taxId/donateCode〕顯對應 tab 下的 input
@@ -20,7 +21,6 @@
 
 import { useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
 import type { AddressInput } from '@pcm/schemas';
 import type { AddAddressActionResult, AddressFieldErrors } from '@/app/account/address/actions';
 
@@ -39,10 +39,24 @@ export type InlineAddressFormProps = {
   onClose: () => void;
   // g-5b 傳 addAddressAction;g-5c 編輯傳 (input) => updateAddressAction(addr.id!, input)(id 綁定在 parent closure)。
   onSubmit: (input: AddressInput) => Promise<AddAddressActionResult>;
+  /**
+   * 存檔成功後由**父層**收尾(關表單 + 重讀清單)。
+   *
+   * 🔴 **為什麼不是本元件自己 `router.refresh(); onClose();`**(2026-08-08 前的寫法):
+   *   那兩行都跑在**本元件自己的** `startTransition` 裡,而 `onClose()` 會讓父層把本元件 unmount ——
+   *   等於「發出重讀指令的元件,在同一個 transition 內把自己拆掉」。
+   *   P 掃測(`P-205-STOP` ③)實測症狀:**存檔後清單仍顯示「尚未新增」,重整才看得到**;
+   *   而**同頁的「刪除」正常刷新** —— 差別正是刪除的 transition 掛在父層 `AddressTab`、元件續存。
+   *   ⇒ 改成回報父層,由**存活的父層**發起重讀,與那條已知正常的路徑同形。
+   *   ⚠️ 差別在「**誰發出 refresh**」,不在父層那兩行的先後 —— `setXxx(null)` 是 setState、
+   *   不是同步 unmount,對調在 React 語意下等價(突變 R3 實測零紅、且那是正確的)。
+   * ⚠️ **根因未經真瀏覽器證實**(本 worktree 無 env、跑不起登入流程):這是「結構類比」修法,
+   *   可反駁預測=改完症狀應消失;若沒消失,要改查 RSC payload 快取或 `useTransition` 與 router 的互動。
+   */
+  onSaved: () => void;
 };
 
-export function InlineAddressForm({ addr, onClose, onSubmit }: InlineAddressFormProps) {
-  const router = useRouter();
+export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAddressFormProps) {
   const [isDefault, setIsDefault] = useState(!!addr.isDefault);
   const [name, setName] = useState(addr.name ?? '');
   const [phone, setPhone] = useState(addr.phone ?? '');
@@ -81,9 +95,8 @@ export function InlineAddressForm({ addr, onClose, onSubmit }: InlineAddressForm
         setFormError(result.formError);
         setFieldErrors({});
       } else if (result.ok) {
-        // g-4c pattern:重跑 page.tsx server component 重讀 addresses → 清單即時更新;再收合表單。
-        router.refresh();
-        onClose();
+        // 成功 → 交給父層收尾(見 onSaved 的註解:重讀指令必須由**不會被這次操作拆掉**的元件發出)。
+        onSaved();
       }
     });
   };
