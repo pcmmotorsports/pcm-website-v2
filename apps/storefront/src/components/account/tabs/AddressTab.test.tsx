@@ -22,12 +22,16 @@ const { mockUpdateAddressAction, mockDeleteAddressAction } = vi.hoisted(() => ({
   mockDeleteAddressAction: vi.fn(),
 }));
 vi.mock('@/app/account/address/actions', () => ({
-  addAddressAction: vi.fn(),
+  addAddressAction: mockAddAddressAction,
   updateAddressAction: mockUpdateAddressAction,
   deleteAddressAction: mockDeleteAddressAction,
 }));
+const { mockRefresh, mockAddAddressAction } = vi.hoisted(() => ({
+  mockRefresh: vi.fn(),
+  mockAddAddressAction: vi.fn(),
+}));
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
+  useRouter: () => ({ refresh: mockRefresh }),
 }));
 
 // jsdom 不實作 scrollIntoView(g-5c inline-form 包裹層的開表單 effect 觸發會爆);本 repo 無全域 setupFiles、就地補。
@@ -301,5 +305,35 @@ describe('AddressTab(g-5a 唯讀列表 + g-5b 新增 + g-5c 編輯/刪除)', () 
     const wrap = container.querySelector('.acc-inline-form') as HTMLElement;
     expect(spy.mock.contexts[0], '編輯態捲的不是該筆的 .acc-inline-form').toBe(wrap);
     expect(document.activeElement, '編輯態焦點沒落在表單容器上').toBe(wrap);
+  });
+});
+
+// 🔴 2026-08-08(P-205-STOP ③):存檔成功的收尾**由本層做**,且順序是「先關表單、再重讀」——
+//    `setAddrEdit(null)` 把表單 unmount 之後,`router.refresh()` 由**存活的本元件**發出,
+//    與同檔已知正常的「刪除」路徑同形。舊寫法兩件事都在表單自己的 transition 裡 =
+//    發出重讀指令的元件把自己拆掉。
+// ⚠️ **順序不是契約、也守不到**:`setAddrEdit(null)` 是 setState、不是同步 unmount ⇒ 兩行對調在
+//    React 語意下等價,突變實測(R3)**零測試會紅,而那是正確的**、不是守門缺口。
+//    本族真正守得住的是「子層不自己 refresh(R1/R2)」與「父層有 refresh(R4)」;
+//    「這樣改就修好了那個 bug」**要真瀏覽器**(本 worktree 無 env ⇒ 主視窗認領驗證)。
+describe('存檔成功由父層收尾(新增後不刷新的修法)', () => {
+  it('🔴 表單回報 onSaved → 表單收合 + router.refresh() 被呼叫', async () => {
+    mockRefresh.mockClear();
+    mockAddAddressAction.mockResolvedValue({ ok: true });
+    renderTab([]);
+    fireEvent.click(screen.getByText('＋ 新增地址'));
+    expect(document.querySelector('.acc-inline-form'), '前提:表單要真的開了').not.toBeNull();
+
+    // 欄位選取沿用 InlineAddressForm.test 的既有慣例(placeholder,非 label)
+    fireEvent.change(screen.getByPlaceholderText('王小明'), { target: { value: '王小明' } });
+    fireEvent.change(screen.getByPlaceholderText('0912 345 678'), { target: { value: '0912345678' } });
+    fireEvent.change(screen.getByPlaceholderText('縣市 / 區 / 路 / 號 / 樓'), {
+      target: { value: '台北市信義區信義路五段7號' },
+    });
+    fireEvent.click(screen.getByText('儲存'));
+
+    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
+    // 表單已收合(= 父層 setAddrEdit(null) 有跑)
+    expect(document.querySelector('.acc-inline-form')).toBeNull();
   });
 });

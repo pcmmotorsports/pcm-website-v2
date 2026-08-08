@@ -58,6 +58,17 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
   // 刪除:design L399-406 deleteVehicle 內 confirm('確定要刪除這輛車？')確認後刪、直接搬(L602 刪除鈕呼叫 handler);
   // 接 deleteVehicleAction(ownership 由 use-case + RLS 守);ok 才 router.refresh()(清單即時刷新);
   // 失敗時 design 無刪除錯誤 UI、不刷新留卡片(graceful、不偽裝成功)。
+  // 🔴 存檔成功的收尾**由本層(父層)做**,不在表單元件內(2026-08-08、P-205-STOP ③)。
+  //   關鍵差別是**發出 `router.refresh()` 的是誰**:本層的閉包(元件續存)vs 表單自己
+  //   (下一拍就被 `setXxx(null)` unmount)。這與同檔已知正常的「刪除」路徑同形。
+  //   ⚠️ **順序不重要,別把它當契約**:`setXxx(null)` 是 setState、**不是同步 unmount**,
+  //   兩行對調在 React 語意下等價 —— 突變實測(R3 對調)**零測試會紅,而那是正確的**,
+  //   不是守門缺口。我原本在這裡寫過「順序刻意」,那句是我沒想清楚,已刪。
+  const handleSaved = () => {
+    setVehEdit(null);
+    router.refresh();
+  };
+
   const handleDelete = (id: string) => {
     // 同步、user gesture 內彈確認(對齊 design L400 原字面);取消即不刪。
     if (!confirm('確定要刪除這輛車？')) return;
@@ -130,6 +141,7 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
                   vehicleBrands={vehicleBrands}
                   veh={vehEdit}
                   onClose={() => setVehEdit(null)}
+                  onSaved={handleSaved}
                   // id 綁 parent closure(對齊 InlineVehicleForm 註解設計:form 保持 generic、action 由 parent 帶 id)。
                   onSubmit={(input) => updateVehicleAction(v.id, input)}
                 />
@@ -152,6 +164,7 @@ export function VehiclesTab({ vehicles, vehicleBrands = [] }: VehiclesTabProps) 
               vehicleBrands={vehicleBrands}
               veh={vehEdit}
               onClose={() => setVehEdit(null)}
+                  onSaved={handleSaved}
               onSubmit={addVehicleAction}
             />
           </div>

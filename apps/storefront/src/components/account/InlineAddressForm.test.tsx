@@ -8,7 +8,7 @@
 // - submit → onSubmit 收正確 shape { isDefault, name, phone, line, invoice:{type,...} }
 // - 設預設勾選 → submit payload isDefault=true
 // - #181:server 回 fieldErrors.invoice.taxId → 統一編號欄 .auth-field-err 紅字;name 錯 → 收件人欄紅字
-// - ok=true → router.refresh() + onClose() 被呼叫(g-4c pattern:清單即時刷新 + 收合)
+// - ok=true → **onSaved()** 被呼叫(2026-08-08 起;~~router.refresh() + onClose()~~ 改由父層收尾,見該條註解)
 // - 純 onSubmit 驅動(不寫 design localStorage mock)
 //
 // mock next/navigation(useRouter().refresh、jsdom 無 router);onSubmit/onClose 由 test 傳 vi.fn()。
@@ -34,8 +34,9 @@ function renderForm(
     .fn<InlineAddressFormProps['onSubmit']>()
     .mockResolvedValue(opts.result ?? { ok: true });
   const onClose = vi.fn<() => void>();
-  render(<InlineAddressForm addr={opts.addr ?? { isDefault: false }} onSubmit={onSubmit} onClose={onClose} />);
-  return { onSubmit, onClose };
+  const onSaved = vi.fn<() => void>();
+  render(<InlineAddressForm addr={opts.addr ?? { isDefault: false }} onSubmit={onSubmit} onClose={onClose} onSaved={onSaved} />);
+  return { onSubmit, onClose, onSaved };
 }
 
 // 填必填欄(收件人/地址),使原生 required 驗證放行、form onSubmit 觸發(jsdom 對 required 空欄會擋送出)。
@@ -130,22 +131,30 @@ describe('InlineAddressForm(g-5b 新增表單)', () => {
     expect(err.classList.contains('auth-field-err')).toBe(true);
   });
 
-  it('#181 server 回 formError → 頂部 .auth-err、不呼叫 router.refresh / onClose', async () => {
-    const { onClose } = renderForm({ result: { formError: '儲存失敗,請稍後再試' } });
+  it('#181 server 回 formError → 頂部 .auth-err、不呼叫 onSaved / onClose', async () => {
+    const { onClose, onSaved } = renderForm({ result: { formError: '儲存失敗,請稍後再試' } });
     fillRequired();
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
     const err = await screen.findByText('儲存失敗,請稍後再試');
     expect(err.classList.contains('auth-err')).toBe(true);
-    expect(mockRefresh).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+    expect(mockRefresh).not.toHaveBeenCalled();
   });
 
-  it('ok=true → router.refresh() + onClose() 被呼叫(g-4c pattern)', async () => {
-    const { onClose } = renderForm({ result: { ok: true } });
+  // 🔴 2026-08-08(P-205-STOP ③「新增後不刷新」):成功後的收尾**交給父層**,本元件不自己
+  //   `router.refresh()` 也不自己 `onClose()` —— 舊寫法那兩行都在本元件的 transition 裡,
+  //   而 onClose 會讓父層把本元件 unmount = 發出重讀指令的元件把自己拆掉。
+  //   對照組:同頁「刪除」的 transition 掛在父層、元件續存,那條一直是正常的。
+  // 突變:把 `onSaved()` 換回 `router.refresh(); onClose();` ⇒ 只紅這條
+  it('🔴 ok=true → 只呼叫 onSaved();本元件不得自己 refresh 或 close', async () => {
+    const { onClose, onSaved } = renderForm({ result: { ok: true } });
     fillRequired();
     fireEvent.click(screen.getByRole('button', { name: '儲存' }));
-    await waitFor(() => expect(mockRefresh).toHaveBeenCalledTimes(1));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    // 反面:重讀與收合都不再由本元件發起(父層 onSaved 才是那兩件事的唯一出口)
+    expect(mockRefresh).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('取消鈕 → onClose()(不 submit)', () => {
