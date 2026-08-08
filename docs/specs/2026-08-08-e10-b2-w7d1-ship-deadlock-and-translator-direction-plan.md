@@ -322,11 +322,44 @@ R1 自己在 R1-5 正確指出了前綴重放,兩條結論互相矛盾;我親驗
 - 🔴 **`[R2-consider-2]`**:`…w4b….sql:264-269` 那個**已 apply**的 add 重試迴圈**沒有 NOTICE、
   沒有任何 harness 格觀察它的迭代** —— 依本片自己的 `[R1-7]` 論證,那是一個「從未被證明會迴圈的迴圈」,
   而它在錢邊路徑上。本片不改它(forward-only),但**立 backlog**,否則同類缺口無人記帳。
+
+  **2026-08-09 補正(W7d-2 偵察副產物,`B-307-STOP` ④ → `B-308-A` 裁准落檔)**:
+  環的 **A 側(add)確實已經有重試迴圈**,主對話親讀 `…w4b….sql:263-270` 確認 ——
+  `EXCEPTION WHEN deadlock_detected` + `c_max_deadlock_tries` + 耗盡碼 `P2B28`
+  + `CONSTRAINT 'pcm_b2_w3b2_deadlock_exhausted'`。
+  ⇒ **環的兩側(add 與 ship 三支)現在都有重試了**,不是缺口。
+  本條要記的缺口**始終只有觀察面**:A 側那個迴圈**沒有 `W7D1-RETRY` 之類的 NOTICE**,
+  所以與 ship 三支不同,**沒有任何 harness 能看見它到底有沒有迭代過**。
+  (W7d-2 的偵察 subagent 曾把這條標成「A 側是否要補重試,未確認」= **問錯問題**;
+  已補則已補,欠的是判別力不是功能。)
 - 🔴 **`[R2-consider-1]`**:根治法(讓 add 在鎖 OI **之前**先預鎖 parent shipment ⇒ 全線 S→OI 同序、
   環類根除、重試降回真第二道)本片**不採**,理由=要重貼已 apply 的 impl、且對未來未知的環沒有韌性。
   **這段理由要寫進 migration 檔頭**,否則後人照抄「固有」二字不再質疑。
-- **W7d-2** = `admin_cancel_order` 補 handler(鐵則 12 ① 錢類;`…a8a2….sql:520-590` 的 `position()` 錨群 +
-  `scripts/a8a2-verify.sh:1461-1479` 每跑複驗 ⇒ 包迴圈要重建整批錨)。
+- ~~**W7d-2** = `admin_cancel_order` 補 handler~~ 🛑 **2026-08-09 撤片**(`B-307-STOP` → `B-308-A` Q1=A 裁准)。
+  **撤回理由**:`admin_cancel_order` **不在任何死結環上**。全函式體(`…a8a2….sql:80-490`)只取兩把鎖 ——
+  `:190 orders FOR UPDATE` 與 `:370 order_items FOR NO KEY UPDATE`,**從不鎖 `shipments` /
+  `shipment_items` / `order_item_procurement`**,而那三張正是本片 §1.1 那個 `add × ship` 環的資源。
+  含 trigger 展開後它多出第五張被鎖的表 `oiqs`(經 `order_cancellation_items_summary_recompute_ac`,
+  NOT DEFERRABLE),但 oiqs 的三個寫入點全在同一支 recompute helper 家族、且該 helper
+  **恆先鎖 `order_items`(`…s2b….sql:198`)再寫 oiqs(`:232`)** ⇒ 方向與 cancel 一致,不成反向對。
+  它持 `order_items` 後不再等任何人 ⇒ 與 ship 側只是**單向等待,不是環**。
+  四條承重事實由主對話逐條親驗(order_items 零 trigger / oiqs 零 trigger / cancel 恰 2 鎖點 / oiqs 單一 writer 家族)。
+
+  🔴 **失效條件(此撤回不是恆真,是時點觀察)**:上述結論成立的前提=`admin_cancel_order`
+  **含 trigger 展開後不取得 `shipments` / `shipment_items` / `order_item_procurement` 家族的任何鎖**。
+  **未來任何片讓 cancel 直接、或經新掛的 trigger 間接取得這三張表的鎖,本撤片理由即失效、W7d-2 重開。**
+  (memory `feedback_withdrawal-reason-needs-expiry-condition`;判斷方法見
+  `reference_function-body-scan-blind-to-trigger-locks` 的四步掃法 —— 只讀函式體會漏掉 trigger 取的鎖。)
+
+  **未做的代價量測留檔備查**(若失效條件觸發、重開時直接用):`…a8a2….sql` 檔內約 30 個 `position()` 錨
+  含多行錨把縮排寫死(`E'ORDER BY oi.id\n   FOR NO KEY UPDATE;'`)+ 十步全序錨;
+  `scripts/a8a2-verify.sh` 1489 行 / `EXPECTED_TOTAL=74` 格 / `gen_mutant` **28 個 `sub()` 精確替換**
+  (`src.count(anchor) != 1` 即 `sys.exit`)/ `MD5_NEW` + `CMT_MD5_NEW` 兩個整體 md5 釘值四處比對。
+  ⇒ **包一層 LOOP 推移縮排 = 那 28 個錨當場全失效**,重開時預算要含整批錨重建。
+
+  **副產物已立條**:`…a8a2….sql:567` 的「零全函式 EXCEPTION handler」assert **名不副實**
+  (只認 `WHEN OTHERS` 與 `WHEN unique_violation` 兩個字面,`WHEN deadlock_detected` 靜默通過)
+  ⇒ backlog **#344**(`B-308-A` Q2=B 裁准,排 W7 假綠家族)。
 - **W7d-3** = `s2b` position 結構錨(`B-215-A` ②-②)+ backlog #341-1(`w0b` `KEYS_FROZEN`)。
 - **W7 跟片** = harness 假綠家族:`B-220` MF-2/3/nit-4、`B-224` MF-2/7/8、`B-226` W5 三條(teardown 出口 exit 0)、
   `B-227` W3c-1 三條、**`B-298-Q` 我判定的 `W3B2-QTY-SCALE` 空值假綠**、
