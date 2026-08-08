@@ -9,6 +9,7 @@ import {
   type Product,
   type ProductAvailability,
   type ProductManual,
+  type ProductSoundClip,
   type ProductVariant,
 } from '@pcm/domain';
 
@@ -57,6 +58,14 @@ export type SupabaseProductRow = {
   // #270 安裝資源。manuals jsonb 來源 shape 不保證(元素可能缺 label/url)→ unknown[]、mapper guard 收斂 ProductManual[];video_url 單支影片 URL(2026-07-10 起混格式 youtube/vimeo/mp4、UI 三分流)或 null。
   manuals: unknown[] | null;
   video_url: string | null;
+  /**
+   * 排氣聲浪音檔 jsonb(附件線片 3b;`products.sound_clips`、形狀 `[{title,url}]`)。
+   * `unknown[]` 的理由同 manuals:jsonb 來源 shape 不保證,交給 mapper runtime guard 收斂。
+   * 🔴 `null` 是**正常值**(14 家供應商恆 null,只有 akrapovic 有值);
+   *    「`null` ≠ `[]`」那條規矩是**寫入端**的事,讀取端兩者都收斂成空陣列(見 domain 註解)。
+   * optional:舊 fixture / 既有測試的 row 物件可能整個沒有這個鍵。
+   */
+  sound_clips?: unknown[] | null;
   /**
    * 卡片首圖去白邊 bbox jsonb(trim 線 S4a;products_public.card_image_trim 末欄、
    * migration 20260719150000)。optional:save 路徑回讀 base products 表無此欄(row 物件層缺鍵
@@ -237,6 +246,22 @@ export function mapSupabaseProductToDomain(row: SupabaseProductRow): Product {
       : [],
     // #270 安裝影片:單支影片 URL(2026-07-10 起混格式 youtube/vimeo/mp4);空字串/非字串→undefined(對齊 domain Product.videoUrl optional)。
     videoUrl: typeof row.video_url === 'string' && row.video_url.trim() !== '' ? row.video_url : undefined,
+    // 🔴 附件線片 3b:排氣聲浪音檔。guard 與 manuals 同款(jsonb 元素 shape 不保證)——
+    //    只收「url 是非空字串」的項;`title` **保留原值**(英文原文、可為 null;中文化在顯示層做,
+    //    Q25=A —— 資料層烤標籤正是片 2 doc_type 遺失的成因,同錯不再犯)。
+    //    非字串的 title 收斂成 null,不讓 `123` 這種髒值一路漏到畫面上被當標題印出來。
+    //    恆陣列 never null(`null`=14 家 / `[]`=akrapovic 但該群無音檔 ⇒ 對前台是同一件事)。
+    soundClips: Array.isArray(row.sound_clips)
+      ? row.sound_clips.reduce<ProductSoundClip[]>((acc, c) => {
+          if (c && typeof c === 'object') {
+            const { title, url } = c as Record<string, unknown>;
+            if (typeof url === 'string' && url.trim() !== '') {
+              acc.push({ title: typeof title === 'string' ? title : null, url });
+            }
+          }
+          return acc;
+        }, [])
+      : [],
     images: row.images,
     // trim 線 S4a:卡片首圖去白邊 bbox → domain 共用 parseImageTrim 收斂(髒數據/缺鍵/save 路徑=undefined、前端 fallback cover)。
     cardImageTrim: parseImageTrim(row.card_image_trim) ?? undefined,

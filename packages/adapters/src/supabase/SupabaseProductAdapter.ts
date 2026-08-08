@@ -49,8 +49,22 @@ import {
  *
  * 對齊 docs/architecture/supabase-schema-design.md §3.3 + §4.3 JOIN strategy。
  */
+/**
+ * 🔴 2026-08-09 附件線片 3b-wire 加 `sound_clips`(排氣聲浪音檔)。
+ * **加在 base-safe 的這一顆、不是下面兩顆 VIEW 常數** —— 與 `card_image_trim` 的處置刻意不同:
+ *   · `card_image_trim` 是 **view 衍生欄**(base 表沒有 ⇒ save() 選它會 42703)⇒ 只能放 VIEW 常數;
+ *   · `sound_clips` 是 **base `products` 表的真欄位**(migration 20260808000000
+ *     `ALTER TABLE products ADD COLUMN sound_clips`),base 與 view 兩邊都在,同 `manuals` 一樣
+ *     ⇒ 放這裡讓「讀路徑」與「save() 回讀」拿到同一個形狀,不會出現
+ *       「存完之後回傳的 domain 物件音檔憑空變空」。
+ * ⚠️ 部署順序硬依賴:PostgREST 對不存在的欄位是 **42703 整條 throw、不是缺鍵優雅降級**
+ *    ⇒ 本常數上線的環境必須已 apply 該 migration
+ *    (主視窗 2026-08-09 實查:已 apply、akrapovic 抽樣 107/200 群有值)。
+ * ⚠️ **只讀不寫**:save() 的 upsert payload **不含** sound_clips —— 那一欄由 rpm 同步管線寫,
+ *    網站端寫進去等於兩個來源搶同一欄。
+ */
 const PRODUCT_SELECT_DETAIL =
-  'id, external_id, title, subtitle, description, highlights, manuals, video_url, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
+  'id, external_id, title, subtitle, description, highlights, manuals, video_url, sound_clips, handle, fitments, images, availability, brand_id, category_id, price_general, created_at, updated_at, brands(id, name, slug, premium_extra_pct), categories(raw_path, segments)';
 
 /**
  * View-read projection(trim 線 S4a):PRODUCT_SELECT_DETAIL + `card_image_trim`

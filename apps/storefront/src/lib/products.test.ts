@@ -69,6 +69,7 @@ function fakeProduct(overrides: Partial<Product> = {}): Product {
     description: '全段鈦合金、輕量化 35%',
     highlights: [],
     manuals: [],
+    soundClips: [],
     images: ['https://example.com/img1.jpg'],
     availability: 'in-stock',
     handle: 'akrapovic-titanium-full-exhaust',
@@ -205,5 +206,36 @@ describe('toUIProduct — null 車款名 fitments 消毒(急件2)', () => {
     );
     expect(ui.fitments).toEqual([]);
     expect(ui.fits).toBe('通用款');
+  });
+});
+
+// ── 附件線 3b:domain → UI 那一跳的透傳守門 ──────────────────────────────────
+//
+// 🔴 這族存在的理由是**突變抓出來的**:mapper 端(adapter)與畫面端(ProductTabs)各自有測試,
+//    但把 `toUIProduct` 裡的 `soundClips: product.soundClips` 整行刪掉,**兩端測試全綠**
+//    —— 因為畫面端的測試是直接把 soundClips 放在 mock product 上、根本沒經過這一跳。
+//    接線斷在中間一層、兩頭都看不到,正式站就會安靜地沒有聲音檔。
+describe('toUIProduct — 附件線 3b:soundClips 透傳', () => {
+  it('🔴 domain 有音檔 → UI 物件原樣帶著(中間這一跳不得漏接)', () => {
+    const clips = [
+      { title: 'Stock', url: 'https://cdn.example/s.wav' },
+      { title: null, url: 'https://cdn.example/n.wav' },
+    ];
+    const ui = toUIProduct({ ...fakeProduct(), soundClips: clips }, 'general');
+    expect(ui.soundClips, 'soundClips 沒被透傳 ⇒ 商品頁永遠不會出現聲音面板').toEqual(clips);
+  });
+
+  it('🔴 domain 是空陣列 → UI 也是空陣列(不變成 undefined 讓下游多一種形狀要處理)', () => {
+    expect(toUIProduct({ ...fakeProduct(), soundClips: [] }, 'general').soundClips).toEqual([]);
+  });
+
+  it('🔴 標題不在這一層被翻譯(中文化是顯示層的事;Q25=A)', () => {
+    const ui = toUIProduct(
+      { ...fakeProduct(), soundClips: [{ title: 'Slip-On Line', url: 'https://cdn.example/a.wav' }] },
+      'general',
+    );
+    expect(ui.soundClips?.[0]?.title, '在 toUIProduct 就翻譯了 ⇒ 資料層烤標籤,片 2 doc_type 遺失同型').toBe(
+      'Slip-On Line',
+    );
   });
 });

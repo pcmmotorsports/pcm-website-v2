@@ -75,6 +75,7 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
     description: '',
     highlights: [],
     manuals: [],
+    soundClips: [],
     images: [],
     availability: 'in-stock',
     handle: 'handle-000',

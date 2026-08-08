@@ -225,6 +225,17 @@ export type ProductManual = {
   sizeKB?: number;
 };
 
+/**
+ * 排氣聲浪音檔項(附件線片 3b;來源 `products.sound_clips` jsonb `[{title,url}]`)。
+ * `title` 是**英文原文**、可為 null(實測約 4% 無標題)—— 中文化在**顯示層**做
+ * (Q25=A;`apps/storefront/src/lib/sound-clip-title.ts`),資料層不烤標籤
+ * (片 2 的 doc_type 遺失就是烤標籤造成的,同錯不再犯)。
+ */
+export type ProductSoundClip = {
+  title: string | null;
+  url: string;
+};
+
 export type Product = {
   // 既有 6 欄位(M-0-04 / M-0-10b 落地、本 slice 不動)
   id: ProductId;
@@ -255,6 +266,14 @@ export type Product = {
   manuals: ProductManual[];
   /** 安裝影片(#270:單一 YouTube URL、前台 facade;無影片=undefined) */
   videoUrl?: string;
+  /**
+   * 排氣聲浪音檔(附件線片 3b;來源 `products.sound_clips`)。
+   * 🔴 **無音檔 = 空陣列、恆非 null**,與同型的 `manuals` / `highlights` 同一慣例。
+   * DB 端「`null` ≠ `[]`」那條規矩是**寫入端**的事(14 家恆 null、只有 akrapovic 有值);
+   * 讀進 domain 之後兩者對前台是同一件事(整區不渲染)⇒ 收斂成一種形狀,
+   * 少一個「有人把判斷式寫成 `!clips.length` 然後在 null 上炸掉」的機會。
+   */
+  soundClips: ProductSoundClip[];
   /** 商品圖片 URL 陣列、來源含廠商 URL 與 Supabase Storage 上傳(對齊 ADR-0004 Q2=A2、上傳機制 M-1-13 / M-1-16 落地) */
   images: string[];
   /**

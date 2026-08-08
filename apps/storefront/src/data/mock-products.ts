@@ -90,6 +90,18 @@ export type ProductManual = {
 };
 
 /**
+ * 排氣聲浪音檔項(附件線 3b:僅 akrapovic 有值、每群最多 6 段)。
+ * `title` = **英文原文**、可為 null(實測約 4% 無標題);中文化在顯示層做(Q25=A,
+ * `lib/sound-clip-title.ts`)—— 資料層不烤標籤。
+ * 🟢 UI 自控形狀、與 domain `ProductSoundClip` 結構等價(刻意解耦、同 ProductManual 慣例);
+ *    也與 `components/SoundClips.tsx` 的 `SoundClip` 結構等價(TS 結構型別 ⇒ 可互通)。
+ */
+export type ProductSoundClip = {
+  title: string | null;
+  url: string;
+};
+
+/**
  * 卡片首圖去白邊 bbox(trim 線 S4a;0..1 比例 + rotate 後原圖 px)。
  * 🟢 UI 自控形狀、與 domain ImageTrim 結構等價(刻意解耦、同 ProductManual/UIFitment 慣例);
  * 值一律經 domain parseImageTrim 收斂後才進本型別(兩條卡片資料路單一來源)。
@@ -209,6 +221,13 @@ export type MockProduct = {
    * 🟢 #270 S2 已接線:toUIProduct ← domain product.videoUrl(來源 products.video_url ← 報價單 video_urls 取首支可解析影片)。
    */
   videoUrl?: string;
+  /**
+   * 排氣聲浪音檔(附件線 3b;← domain `product.soundClips` ← `products.sound_clips`)。
+   * `SoundClips` 元件在「商品介紹」段下方渲染(與安裝資源同一區的兄弟面板);
+   * 空 / 省略 → **整區不渲染**。標題是**英文原文**、中文化在顯示層做(Q25=A)。
+   * 實況:僅 akrapovic 有值(主視窗抽樣 107/200 群),其餘 14 家恆無。
+   */
+  soundClips?: ProductSoundClip[];
 };
 
 export const MOCK_PRODUCTS: MockProduct[] = [
