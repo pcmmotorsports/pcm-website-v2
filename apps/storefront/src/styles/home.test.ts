@@ -345,6 +345,24 @@ describe('首頁 CSS · 品牌磚牆(D3c-2 兩型別 / D5f 磚牆重寫)', () =>
     expect(media, '媒體層沒有裁切 ⇒ 滿版底圖可能溢出 hero').toMatch(/overflow:\s*hidden/);
   });
 
+  // 🔴 2026-08-09 全站視覺掃測抓到的**唯一客觀不協調**:切換條的命中區,
+  //    註解宣稱「拉到 44px」、實際 `top/bottom: -20px` 配 3px 細條 = **43px**,少 1px。
+  //    ⇒ 守門**把高度算出來**、不是比對那兩個字面 —— 換一種寫法(例如改用 padding)照樣擋得住,
+  //    而且 44 這個數字的來源是觸控無障礙底線、不是某個人的品味。
+  it('🔴 hero 切換條的命中區 ≥44px(細條本體 3px,靠 ::after 外擴)', () => {
+    const top = topLevelCss().replace(/\s+/g, ' ');
+    const bar = top.match(/\.b-hero-tick\s*\{[^}]*\}/)?.[0] ?? '';
+    const hit = top.match(/\.b-hero-tick::after\s*\{[^}]*\}/)?.[0] ?? '';
+    expect(bar, '找不到 .b-hero-tick 本體 ⇒ 本條前提失效').not.toBe('');
+    expect(hit, '命中區 ::after 整條不見了 ⇒ 切換條回到 3px、手指按不到').not.toBe('');
+    const barH = Number(/height:\s*([0-9.]+)px/.exec(bar)?.[1]);
+    const top_ = Number(/top:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    const bottom = Number(/bottom:\s*(-?[0-9.]+)px/.exec(hit)?.[1]);
+    expect(Number.isFinite(barH) && Number.isFinite(top_) && Number.isFinite(bottom), '算式成分抓不到').toBe(true);
+    const hitH = barH + -top_ + -bottom;
+    expect(hitH, `命中區算出來 ${hitH}px < 44px 觸控底線(細條 ${barH}px + 上下各外擴)`).toBeGreaterThanOrEqual(44);
+  });
+
   // 🔴 R1 must-fix:hero 高度必須吃站台 token,不得寫死頁首高。
   //    `tokens.css:25` 逐字要求「消費端一律 `var(--shell-header-h)`」—— 那顆 token 正是為了
   //    同款「兩處各寫一個數字、差 4px」的事故才立的。

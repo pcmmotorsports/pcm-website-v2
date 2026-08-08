@@ -191,10 +191,15 @@
 }
 .b-hero-tick:hover { background: rgba(255,255,255,0.55); }
 .b-hero-tick.is-on { background: var(--ed-c-action); width: 46px; }
-/* 命中區拉到 44px 高但視覺仍是 3px 的細條 —— 手指點得到,畫面不會變粗(OD :135)。 */
+/* 命中區拉到 44px 高但視覺仍是 3px 的細條 —— 手指點得到,畫面不會變粗(OD :135)。
+   🔴 2026-08-09 全站視覺掃測抓到:原本寫 `-20px`,而細條本體只有 3px ⇒ 命中區實測
+   **43px**,比這行註解自己宣稱的 44 少 1px。這是**註解宣稱與實際值的自我矛盾**、不是品味問題,
+   ⇒ 直接補正成 `-20.5px`(3 + 20.5×2 = **44**)。
+   `.5` 的理由與頁首 padding 同款:整數只能得到 43 或 45,而 44 正是那條底線本身。
+   守門釘的是**算出來的高度**、不是這兩個字面(見 `home.test.ts`),換算法照樣擋得住。 */
 .b-hero-tick::after {
   content: "";
-  position: absolute; left: 0; right: 0; top: -20px; bottom: -20px;
+  position: absolute; left: 0; right: 0; top: -20.5px; bottom: -20.5px;
 }
 /* 🔴 深色場的焦點框要換色(OD :52-53):預設的 `--c-ember-ink`(#c4470c)壓在照片上看不清楚。
    切換條是鍵盤使用者唯一能操作的東西,焦點框看不見等於不能用。 */
