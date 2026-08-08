@@ -50,6 +50,9 @@ const EXTRAS: ProductExtraFilters = {
 const RESTORE_SOURCES = {
   categories: [{ id: 'ride', name: '操控部品', children: [] }],
   productBrands: [{ id: 'akrapovic' }, { id: 'bonamici' }],
+  // Q28①:hook 新增的第三份對照表(判斷 vehicle 這輪會不會被寫進 URL);本檔案例 cascade.vehicle 恆 null
+  // ⇒ 讓路守衛不觸發、行為與本片前逐字相同。
+  motoBrands: [],
 };
 
 const cascade = (
@@ -142,8 +145,8 @@ describe('useCatalogFilterUrlSync — segment key 碰撞才 refresh', () => {
     // 另::219-220 重建 pbrand 會把它排到尾端(?pbrand=x&page=2 → ?page=2&pbrand=x),
     // 故比較必須正規化;否則純順序差異也會多送一次導覽 + 多查一次全型錄。
     window.history.replaceState(null, '', '/products?pbrand=akrapovic&page=2');
-    const sourcesA = { categories: [], productBrands: [{ id: 'akrapovic' }] };
-    const sourcesB = { categories: [], productBrands: [{ id: 'akrapovic' }] }; // 值同、identity 不同
+    const sourcesA = { categories: [], productBrands: [{ id: 'akrapovic' }], motoBrands: [] };
+    const sourcesB = { categories: [], productBrands: [{ id: 'akrapovic' }], motoBrands: [] }; // 值同、identity 不同
 
     const { rerender } = renderHook(
       ({ sources }: { sources: typeof sourcesA }) =>

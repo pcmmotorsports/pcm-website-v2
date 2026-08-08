@@ -55,6 +55,13 @@ const v = parseVehicleFromUrl(searchParams, motoBrands)
 `vehicleFromContext` 新增於 `lib/vehicle-url.ts`(與 `parseVehicleFromUrl` 同檔、同一套 taxonomy 驗證):
 讀 `readVehicleContext()` → `brandName`/`modelName` **逐一對照 `motoBrands` 驗存在** → 查無即回 `null`(零猜,對齊既有 fail-safe)。
 
+🔴 **2026-08-08 施工註(字面校正)**:實作是**先用 `brandId`/`modelId` 查 taxonomy、再用
+`brandName`/`modelName` 複驗**(不是只比名稱)。兩道都要的理由是 R1 N-2 抓到的:鏡的 id 是
+`ProductFitmentCheck.tsx:171-172` 的**裸 `slugify(name)`**,taxonomy id 卻是
+`vehicle-taxonomy.ts:111,115` 的 `uniqueId(slugify(name))`(#211 兩名撞同 slug 時加序號)⇒
+只比 id 會在撞號時 `find` 到**第一筆=另一台車**、自動套錯車。名稱欄缺(舊鏡)則不驗、相容照舊。
+年份軸另見 §6 的 R1 MF-4:年份不在該車型清單 ⇒ **丟年份、保留車款**(不整筆丟)。
+
 **為什麼是這裡而不是別處**:它是全站唯一的「入站還原」點、mount-only、
 且已經有 `skipPageResetOnce` / `brandAppliedOnce` 兩道 StrictMode 保護,不必另建一套。
 
@@ -101,8 +108,19 @@ Sean 逐字:「PDP 適用性檢查選好的車 = **全站狀態,必須同步**�
 
 ### 5-5 不受影響
 
-`useVehicleUrlSync` 的還原窗口守衛、`brandAppliedOnce`、`useBrowseUrlSync`、
-`useCatalogFilterUrlSync`、PDP 側全部零改動。
+~~`useVehicleUrlSync` 的還原窗口守衛、`brandAppliedOnce`、`useBrowseUrlSync`、
+`useCatalogFilterUrlSync`、PDP 側全部零改動。~~
+
+🔴 **2026-08-08 施工中被 R1(code-reviewer)推翻,追加式更正、原文劃線保留**:
+- `useCatalogFilterUrlSync` **不是零改動**:它與 `useVehicleUrlSync` 在「鏡入站」這輪會**各送一個
+  `router.replace`**,而它讀的是尚未含 `vehicle` 的舊網址 ⇒ 後送的把前送的覆蓋掉、`?vehicle=` 永久消失
+  (兩支 hook 的 deps 此時都不會再變=**不會自癒**;終態=畫面顯示已選車、server 卻沒收到 vehicle)。
+  已加「vehicle 讓路守衛」+ `restoreSources.motoBrands`;守門=`use-deep-link-restore.test` MF-1/MF-1b。
+- `useVehicleUrlSync` 的解析段抽成 `lib/vehicle-url.resolveVehicleForUrl`(**邏輯零動**),
+  好讓上面那道守衛用**同一個**判斷(否則 taxonomy 查無那格會被永久 hold、五軸同步整個死掉)。
+  還原窗口守衛本身仍零改動。
+- `ProductsPage.tsx` 的 `restoreSources` memo 多帶一個 `motoBrands`。
+- `brandAppliedOnce`、`useBrowseUrlSync`、PDP 側**維持零改動**(這半句仍成立)。
 
 ### 5-6 🔴 「URL 帶壞車參數」會被折進「URL 乾淨」同一格(主視窗初核補,`D-224-A` ②)
 
@@ -132,8 +150,22 @@ Sean 逐字:「PDP 適用性檢查選好的車 = **全站狀態,必須同步**�
    否則日後有人「順手」讓壞參數短路掉鏡,行為就悄悄變了)。
    **突變**:讓壞參數短路鏡(`parseVehicleFromUrl` 回 null 時直接 return)⇒ 只紅這條
 
+### §6 施工後追加(R1 code-reviewer 抓到的三條 must-fix + 一條 nit,各配只紅自己的突變)
+
+9. **MF-1**:`?pmin=1000&pmax=5000` 進站 + 鏡有車 ⇒ `?vehicle=` 不得被 `useCatalogFilterUrlSync`
+   覆蓋掉(突變:拿掉讓路守衛 ⇒ 只紅這條與 MF-1b)
+10. **MF-1b**:車入站後型錄重匯拿掉該車款(cascade 有車、taxonomy 已無)⇒ 讓路守衛**不得永久 hold**、
+    五軸照常同步(突變:守衛條件放寬成只看 `cascade.vehicle` ⇒ 只紅這條)
+11. **MF-3**:`?category=…&page=3` + 鏡有車(混合來源)⇒ 仍回第 1 頁;`skipPageResetOnce` 是單一共用
+    旗標、一次 key 變動只消化得掉一次(突變:條件退回只看 URL 有無來源 ⇒ 只紅這條)
+12. **MF-4**:鏡的年份已不在該車型年份清單 ⇒ 丟年份、保留廠牌車款(突變:不驗 year ⇒ 只紅這條)
+13. **N-2**:鏡的 `brandName`/`modelName` 對不上該 id 的物件 ⇒ null(id 撞號不套錯車;兩道複驗各配一發)
+
 ⚠️ **真瀏覽器**:§5-1 的「URL 被改寫」與 §6-5 都值得真瀏覽器走一次;
-`/products` 在本 worktree 可否渲染要開工時確認,不行就在 STOP 明說只有單元測試。
+~~`/products` 在本 worktree 可否渲染要開工時確認,不行就在 STOP 明說只有單元測試。~~
+🔴 **開工時已確認:起不來**——worktree 無 `.env.local` ⇒ 實測 `/products` 回 200 但顯「載入失敗、
+請稍後再試」、選車器 `vsc-option` **0 個**(taxonomy 撈 0 筆)⇒ 本片正向行為在真瀏覽器**零覆蓋**,
+只有 jsdom。§5-1 的 URL 改寫與 §6-5 清除不復活**留給 Sean 肉眼驗**。
 
 ## §7 Rollback
 

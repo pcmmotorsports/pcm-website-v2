@@ -9133,6 +9133,23 @@ WO-5(2026-05-19)落地:148 條中 115 條待執行已逐條標記(P1-now 17 / P1
 - **不修會痛在哪**:員工照搜尋結果把 A 供應商的貨,登記到其實屬於 B 供應商的那張訂單上。
   常駐提醒只是「請自己核對」,擋不住趕時間時的誤操作;而到貨登錄正是這個搜尋唯一的用途(UX §2 #7)。
 
+### #341. 🧱 `products-url-state.tsx` 479 行(>400)— 四支互相咬合的 URL 同步 hook 待拆
+
+- **狀態:** ⏳ 待執行(2026-08-08 Q28① 立案;鐵則 6「判斷不拆 → 寫理由」的那個理由就在下面)
+- **現況**:該檔 **479 行**(Q28① 前 449、更早 379),內容=URL parsers + `useBrowseUrlState` /
+  `useBrowseUrlSync` / `useCatalogFilterUrlSync` / `useVehicleUrlSync` / `useDeepLinkRestore` /
+  `usePageResetOnFilterChange`。鐵則 6 對元件檔的線是 400、對 hook 檔是「>200 評估拆分」,兩條都過了。
+- **為何不在 Q28① 順手拆**:那一片的 R1 剛好證明這幾支 hook 之間有**非顯而易見的競態**——
+  `useVehicleUrlSync` 與 `useCatalogFilterUrlSync` 會在同一輪各送一個 `router.replace`、後送的覆蓋先送的
+  (Q28① MF-1)。在同一個 commit 裡疊上「搬檔案」的風險,等於把一個剛被實證過脆弱的接縫再動一次,
+  而搬移本身**不會**有測試告訴你搬壞了(hook 的相對呼叫序、`window.location` 的讀取時機都不在斷言裡)。
+- **修法方向**:單獨開一片**純搬移**(零行為變更):按「URL 讀」/「URL 寫」/「入站還原」三組拆,
+  每組一檔;驗收=全套回歸 Δ=0 + `use-deep-link-restore.test.tsx` 的 15 案全綠(它是目前唯一
+  把五支 hook 串起來跑的 harness、拆檔後要跟著改 import 但斷言一字不動)。
+- **不修會痛在哪**:每加一條 URL 軸都要在這 479 行裡找「該插在哪一個 effect 的哪一行之前」,
+  而該檔已經有三處註解在寫「**不得**在本行之前再新增任何 `params.set/delete`」這種順序契約
+  (`:272-274` 是其中最嚴的一條)。檔案越長,下一個人越可能插錯位置、而三綠不會紅。
+
 ### #339. ✅ 已完成(2026-08-07)guarded-edit 進 repo + 三條防護做進腳本本體
 
 > **銷帳**:`scripts/guarded-edit.sh` + `scripts/guarded-edit.test.ts`(10 格)。
