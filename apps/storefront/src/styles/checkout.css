@@ -21,7 +21,9 @@
    不搬(plan v6 §3.2 不做):co-wallet-*(儲值金 #202)/ co-coupon(優惠券)。
    Q1=A 只宅配:co-pickup-*(合作店家取貨地圖選店)不搬。 */
 
-.co-page { min-height: 100vh; background: var(--c-bg); }
+/* `100svh` 而非 `100vh`:理由同 `auth.css` 的 `.ap-page`(iOS 的 100vh 是工具列**收起時**的高度,
+   工具列露出時會在頁尾之後撐出一段捲得到卻空白的區域)。 */
+.co-page { min-height: 100svh; background: var(--c-bg); }
 .co-main {
   max-width: var(--content-max);
   margin: 0 auto;

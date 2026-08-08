@@ -9,8 +9,15 @@
  */
 
 /* ===== base(account.css L5-16)===== */
+/* 🔴 2026-08-09:`100vh` → `100svh`(Sean 手機回報「捲到底 TabBar 下方一大塊白區」的候選根因)。
+   iOS Safari 的 `100vh` = **large viewport**(工具列收起時的高度);工具列露出時它比看得見的區域
+   還高 ⇒ 頁面容器在頁尾之後撐出一段捲得到、卻什麼都沒有的空白。`100svh` = small viewport
+   (工具列露出時),取它就不會多撐。**與 `home.css` 的 hero 同一個選擇**(該處逐字 `calc(100svh - …)`),
+   不另開一套。
+   ⚠️ **本條沒有在 iOS 上驗過** —— 本 worktree 只有 Chromium,而 Chromium 的 vh==svh、量不出差別
+      ⇒ 屬候選修法;可反駁預測寫在 D-314-STOP。 */
 .ap-page {
-  min-height: 100vh;
+  min-height: 100svh;
   background: var(--c-bg);
 }
 
@@ -31,7 +38,7 @@
 
 /* ===== auth(account.css L326-476)===== */
 .auth-main {
-  min-height: calc(100vh - 68px);
+  min-height: calc(100svh - 68px); /* 同 `.ap-page`:iOS 的 100vh 會多撐一段空白 */
   display: flex;
   align-items: flex-start;
   justify-content: center;
