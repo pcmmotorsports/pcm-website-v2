@@ -23,6 +23,7 @@ import { useState, useTransition } from 'react';
 import type { FormEvent } from 'react';
 import type { AddressInput } from '@pcm/schemas';
 import type { AddAddressActionResult, AddressFieldErrors } from '@/app/account/address/actions';
+import { INVOICE_FIELDS_HIDDEN } from '@/lib/invoice-visibility';
 
 // 表單初值(新增:id 缺/null + isDefault 由 parent 依清單空否帶入;編輯〔g-5c〕:帶完整 CustomerAddress 值)。
 export type InlineAddressInitial = {
@@ -134,6 +135,13 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
         <span>設為預設地址</span>
       </label>
 
+      {/* 🔴 發票整段先隱藏(Sean 2026-08-08 拍板;開關在 `@/lib/invoice-visibility`,重開翻一個字)。
+          用**條件渲染**不用 CSS display:none —— 藏起來的 input 仍在 DOM 裡,會繼續參與表單驗證與
+          `fieldErrors.invoice.*` 的紅字渲染,等於留一組看不見卻擋得住儲存的欄位。
+          ⚠️ **state 與送出 payload 一律不動**:`invType`/`carrier`/`title`/`taxId`/`donateCode` 照常
+          從 `addr.invoice` 初始化、照常送出 ⇒ 既有地址存的發票設定原封留著,重開就回來。 */}
+      {!INVOICE_FIELDS_HIDDEN && (
+      <>
       <div className="acc-inline-divider">
         <span className="ap-mono">INVOICE · 此地址預設發票</span>
       </div>
@@ -193,6 +201,8 @@ export function InlineAddressForm({ addr, onClose, onSubmit, onSaved }: InlineAd
             <span className="auth-field-err">{fieldErrors.invoice.donateCode}</span>
           )}
         </label>
+      )}
+      </>
       )}
 
       <div className="acc-inline-actions">

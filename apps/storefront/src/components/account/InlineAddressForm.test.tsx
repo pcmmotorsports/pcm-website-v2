@@ -24,6 +24,14 @@ vi.mock('next/navigation', () => ({
 import { InlineAddressForm, type InlineAddressFormProps } from './InlineAddressForm';
 import type { AddAddressActionResult } from '@/app/account/address/actions';
 
+// 🔴 2026-08-08 發票欄位「先隱藏」(Sean 拍板):本檔的發票斷言**刻意把開關 mock 成 false**。
+//    理由:這些斷言是「發票重開之後該長什麼樣」的規格 —— 刪掉的話重開時沒有東西守著,
+//    skip 掉的話它們會靜靜腐爛。mock 成 false 讓它們**照常跑、照常擋回歸**。
+//    ⚠️ 「現在到底藏起來了沒」由 `invoice-hidden.test.tsx` 用**真的常數**守(那支不 mock),
+//       兩支合起來才是完整的:一支守隱藏態、一支守重開後的行為。
+vi.mock('@/lib/invoice-visibility', () => ({ INVOICE_FIELDS_HIDDEN: false }));
+
+
 beforeEach(() => mockRefresh.mockReset());
 afterEach(cleanup);
 
