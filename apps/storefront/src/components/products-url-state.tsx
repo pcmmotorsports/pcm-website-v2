@@ -26,7 +26,12 @@ import type { ProductExtraFilters } from './filter-state';
 import { clearVehicleContext, writeVehicleContext } from '@/lib/vehicle-context';
 // 🔴 R3:SearchParamsLike + parseVehicleFromUrl 抽到無 hooks 的 @/lib/vehicle-url(供詳情頁 Server
 //   Component 共用、本檔含 hooks 不可被 server import);本檔 re-export parseVehicleFromUrl 保 back-compat。
-import { parseVehicleFromUrl, type SearchParamsLike } from '@/lib/vehicle-url';
+import {
+  parseVehicleFromUrl,
+  vehicleFromContext,
+  resolveVehicleForUrl,
+  type SearchParamsLike,
+} from '@/lib/vehicle-url';
 import { CATALOG_DEFAULT_PER_PAGE } from '@/lib/catalog-query';
 export { parseVehicleFromUrl };
 
@@ -203,6 +208,8 @@ export function useCatalogFilterUrlSync(
   restoreSources: {
     categories: { id: string; name: string; children?: { id: string; name: string }[] }[];
     productBrands: { id: string }[];
+    // Q28① R1 MF-1:判斷 vehicle 這輪會不會被 useVehicleUrlSync 寫進 URL(見下方 hold 守衛)
+    motoBrands: MockMotoBrand[];
   },
 ): void {
   const router = useRouter();
@@ -240,6 +247,27 @@ export function useCatalogFilterUrlSync(
       return;
     }
     const params = new URLSearchParams(window.location.search);
+    // 🔴 Q28① R1 MF-1 —— vehicle 讓路守衛(本 effect 與 useVehicleUrlSync 的 replace 競態):
+    //   `router.replace` 是 App Router 導覽、**非同步**(force-dynamic 要 RSC 往返才更新
+    //   window.location)。Q28① 讓車可以從鏡入站 ⇒ 出現「cascade 有車、URL 還沒有」這個新狀態,
+    //   而本 effect 這輪讀到的 `params` 是那份**尚未含 vehicle** 的舊網址 ⇒ 照它算出的 next
+    //   一送出去,就把 useVehicleUrlSync 剛送出的那個 replace 覆蓋掉、`?vehicle=` 永久消失
+    //   (兩支 hook 的 deps 此時都不會再變 ⇒ **不會自癒**)。終態=畫面顯示已選車、server 卻沒收到
+    //   vehicle ⇒ 清單根本沒被車輛篩選,比不做這片更糟。
+    //   ⚠️ 只在「URL 上有本 effect 會改寫的五軸、而 state 對不上」時才真的撞得到(否則下方 :278
+    //   的等值早退會先收手);最短觸發=`/products?pmin=1000&pmax=5000` + 鏡有車(extras 從不從
+    //   URL 還原,`filter-state.ts:63-71`)。長版 `?brand=&model=` 入站同形。
+    //   讓路一輪即可:vehicle 的 replace 落地後 server 回新 props ⇒ restoreSources 換 identity
+    //   ⇒ 本 effect 重跑,那時 `params` 已含 vehicle。
+    //   🔴 判斷用與 useVehicleUrlSync **同一支** resolveVehicleForUrl:taxonomy 查無時它同樣不寫 URL,
+    //   若這裡改用「cascade.vehicle 非 null」這種較寬的條件,那格會被永久 hold、分類/價格同步整個死掉。
+    if (
+      cascade.vehicle &&
+      !params.has('vehicle') &&
+      resolveVehicleForUrl(cascade.vehicle, restoreSources.motoBrands)
+    ) {
+      return;
+    }
     const stateHasAny = cascade.category !== null || cascade.brands.length > 0;
     if (stateHasAny) {
       pendingRestoreRef.current = false; // 還原已消化(或使用者自選)
@@ -348,17 +376,12 @@ export function useVehicleUrlSync(
     }
     let next: string | null = null;
     if (vehicle) {
-      const brandObj = motoBrands.find((b) => b.name === vehicle.brand);
-      if (!brandObj) return; // taxonomy 查無(清單空/資料缺)→ 保守不動 URL(鏡同、不寫不清)
-      const modelObj =
-        vehicle.model != null ? brandObj.models?.find((m) => m.name === vehicle.model) : null;
-      if (vehicle.model != null && !modelObj) return;
-      const segs = [brandObj.id];
-      if (modelObj) {
-        segs.push(modelObj.id);
-        if (vehicle.year != null) segs.push(String(vehicle.year));
-      }
-      next = segs.join(':');
+      // Q28① R1 MF-1:解析抽到 lib/vehicle-url.resolveVehicleForUrl(邏輯零動),
+      // 讓 useCatalogFilterUrlSync 能用**同一個**判斷決定要不要讓路,見該 hook 的 hold 守衛。
+      const resolved = resolveVehicleForUrl(vehicle, motoBrands);
+      if (!resolved) return; // taxonomy 查無(清單空/資料缺)→ 保守不動 URL(鏡同、不寫不清)
+      const { brandObj, modelObj } = resolved;
+      next = resolved.segment;
       // V-2c R2:鏡恆跟隨 URL 真相 — 與寫 URL 同一時機單點寫鏡(避免雙寫競態);修「型錄換車/
       // 清車不寫鏡 → PDP §7 顯舊車+購物車帶錯車」。名稱字面自 taxonomy(brandName/modelName=
       // V-2a REQUIRED-3 additive 欄);brand-only 也寫(鏡跟 URL、消費端名稱不齊自然零猜)。
@@ -395,8 +418,13 @@ export function useVehicleUrlSync(
 /**
  * mount 時把 URL 深連結(vehicle / category / brand)還原成 cascade 篩選(#6 + Q4-S5;自 ProductsPage
  * 抽出=鐵則 6 檔案上限)。三來源各對照真實清單驗證、查無 fail-safe 忽略;只入站不回寫 URL。
- * 🔴 skipPageResetOnce:標記「本波 cascade 變更源自 URL 還原、非使用者操作」→ usePageResetOnFilterChange
+ * 🔴 Q28①(2026-08-08):**車輛多一個回退來源**——URL 無車時讀全站選車鏡(vehicle-context),
+ *    讓 PDP 選的車跳回列表能同步。URL 恆優先;鏡走 `vehicleFromContext` 同一套 taxonomy 驗證。
+ *    ⚠️ 由此本 hook 不再是「純 URL 入站」:鏡入站後 useVehicleUrlSync 會把車回寫 URL
+ *    (裸 `/products` → `/products?vehicle=…`),Sean 已拍板接受這個行為改變。
+ * 🔴 skipPageResetOnce:標記「本波 cascade 變更源自 **URL** 還原、非使用者操作」→ usePageResetOnFilterChange
  *    跳過一次(否則 ?vehicle=…&page=3 back 會被 mount dispatch 誤重置回第 1 頁)。
+ *    **鏡入站不設**(拍板 A):那是篩選條件真的變了、照通則回第 1 頁。
  * 🔴 brandAppliedOnce:toggleBrand 非冪等(strict mode dev effect 雙跑會 toggle 掉)→ 守一次;
  *    vehicle/category 為冪等 select、不需守(維持原行為)。
  */
@@ -411,11 +439,24 @@ export function useDeepLinkRestore(opts: {
 }): void {
   useEffect(() => {
     const { searchParams, motoBrands, categories, productBrands, dispatch, skipPageResetOnce, brandAppliedOnce } = opts;
-    const v = parseVehicleFromUrl(searchParams, motoBrands);
+    const urlVehicle = parseVehicleFromUrl(searchParams, motoBrands);
+    // Q28①:URL 沒有車才回退讀全站選車鏡(URL 恆為第一真相、鏡不得覆蓋)。
+    // 🔴 `?vehicle=garbage` 與「沒有 vehicle 參數」在 parseVehicleFromUrl 回同一個 null(簽章上分不出),
+    //    ⇒ 壞參數落到鏡、並由 useVehicleUrlSync 把 URL 改寫乾淨。Sean 08-08 拍板 A:合意,壞參數視同無車。
+    const v = urlVehicle ?? vehicleFromContext(motoBrands);
     const urlCategory = parseCategoryFromUrl(searchParams, categories);
     const urlBrands = parseBrandFiltersFromUrl(searchParams, productBrands);
     if (!v && !urlCategory && urlBrands.length === 0) return;
-    skipPageResetOnce.current = true;
+    // 🔴 車一旦來自鏡就不 skip 頁碼重置(Sean 08-08 拍板 A):`?page=3` 是使用者深連結指名的那一頁,
+    //    鏡入站則是「篩選條件真的變了」⇒ 照通則回第 1 頁(否則停在第 3 頁但清單已被車輛篩過=可能整頁空的)。
+    // 🔴 R1 MF-3:條件不能只寫「URL 有任何來源」——`skipPageResetOnce` 是**單一共用旗標**、而下面
+    //    這批 dispatch 會被 React 批次成一次 `filterResetKey` 變動、只消化得掉一次 skip。
+    //    `/products?category=X&page=3` + 鏡有車 這格若讓 urlCategory 把旗標設起來,鏡入站的頁碼重置
+    //    就被同一次消化吃掉 ⇒ 停在第 3 頁卻已被鏡的車篩過 = 拍板 A 明文要避免的「可能整頁空的」。
+    const vehicleFromMirror = urlVehicle == null && v != null;
+    if (!vehicleFromMirror && (urlVehicle || urlCategory || urlBrands.length > 0)) {
+      skipPageResetOnce.current = true;
+    }
     if (v) {
       dispatch(selectVehicleBrand(v.brand));
       if (v.model) dispatch(selectVehicleModel(v.model));
