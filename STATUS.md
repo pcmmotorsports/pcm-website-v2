@@ -7,6 +7,9 @@
 🔴 **E8 未完成**:操作者身分仍是使用者**自己下拉挑的、系統未驗證**(`apps/admin/src/lib/session/actor.ts:6` 自陳非授權邊界);後台唯一入口是報價單站的**共用密碼**登入(`ADMIN_PASSWORD` 單一 env;🔴 **TOTP 實查為關閉狀態**——`auth_state.require_2fa=false`、`totp_devices` 0 列、`recovery_codes` 0 列,詳 memory `project_quote-2fa-deployed-but-dormant`)再 SSO 過來,SSO payload **不帶是誰**(`apps/admin/src/lib/session/session.ts:11` 逐字)⇒ **目前沒有「每個員工的帳號密碼」這個東西**。真認證=報價單端跨 repo 線、尚未開工。
 
 ## 最後更新
+🗂️ **2026-08-09 16:35 P 之 L3 收割(未付款 1 天自動失效)+Sean 實測彈窗抓三族 bug(D 修中)。** ①**L3 收割**:`pcm_cron.expire_unpaid_orders`(unpaid+未取消+超 1 天+無非終態 attempt→cancelled_at+payment_expired,每小時 pg_cron;不刪資料不動庫存);拆 L3a 函式/L3b 排程兩支(pg_cron 依賴隔離=排練環境才驗得到函式行為);真 DB harness **25 格+突變 5 中**;三輪審查 33 條 must-fix 全折(codex 抓「migration 無 BEGIN=整檔 ROLLBACK 是假的」「staged 是舊快照」等)。**L2 假『已驗』帳結清**(D 區真 PG 補證)。🔴 **兩支未 apply(L3a 必先於 L3b)=待 Sean**;⚠️ L3b 斷言擋不住「scheduler 沒在跑」等四情況,上線後要查 `cron.job_run_details` 才算真的在跑。上線當下影響=0 筆(存量 0,純預防)。②**Sean 實測建箱彈窗抓三族 bug**(D-364-A 插件,D 停 2c 修中):白字白底一片(token 家族、查掃描器為何漏罩新檔)/`[object Object]` 錯誤渲染/待付款單可勾(先查 DB 閘字面、DB 沒擋則回 Sean 拍業務規則)。③P 接 L6(admin 列表隱藏 tappay×unpaid;⚠️ 與 D 修 bug 同域 orders-table,commit 前 rebase、衝突主視窗解)。④playbook 增補:/tmp 中繼檔坑(P 兩次實錘、codex 空 prompt 照回話)。
+**Sean 待決策**:L3 兩支 migration apply(A=現在/B=等)。
+
 🗂️ **2026-08-09 16:15 🎉 出貨 2b 全線收官(勾單→彈窗→建箱一條龍上線)+巡邏兵 2.0 接 GitHub。** ①**D 之 2b-2b-1+2b-2b-2 收割**:窄 DTO 資料源(零金額+server-only 機制擋)+彈窗成箱收官——冪等鍵開窗生成一次三支共用(守門釘生成點恰一)、掛品項失敗=半成品帶箱號明示員工(DB 禁刪、收拾=作廢);D 自報兩案:server-only 全域 alias 差點拆掉 brand-products 的驗證機制(全套跑完才現形,撤全域改各檔 mock)+誤用 git stash 彈出他人 WIP(已還原零損失)⇒ **playbook 新增「多窗共用 clone 禁 stash」**。②🔴 **write smoke 未跑成=改期不改口**:原定「uitest 建箱→作廢→回可選」需一張**已付款測試單**,現庫無(測試單已全清)⇒ 併入 Sean 對出貨功能的肉眼驗收(2c 完+推上後 Sean 實際點一輪=同時是 write smoke);在那之前**冪等層/RPC 參數/`!inner` 語意=僅 mock 級證據**,帳上掛著。③**巡邏兵 2.0**:Sean 改 8 項檢查+GitHub App 接通+異常自動開 site-patrol issue(主視窗心跳自動看)+真壞 vs 雲端 IP 被擋分辨+email/push 通知打開(原全關);試跑發射中。④D 接 2c(詳情頁出貨卡+作廢/復原=出貨線最後一片)。
 **Sean 待決策**:無;待 Sean 動作=出貨功能上線後手機/桌機實點一輪(=write smoke)。
 
