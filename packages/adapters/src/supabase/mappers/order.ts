@@ -236,6 +236,7 @@ export type SupabaseAdminOrderRow = Pick<
   | 'cancelled_at'
   | 'tier_at_checkout'
   | 'invoice_status' // A9c:開票紀錄三態(NOT NULL DEFAULT 'not_issued';CHECK 三值)
+  | 'customer_user_id' // 2b-0:同客人閘的識別;非成本欄、orders 自己的欄位(理由見 AdminOrderSummary.customerUserId)
 > & {
   /**
    * 內嵌 customers(name):orders.customer_user_id → customers(user_id) 為 forward FK(orders 持 FK 欄)=
@@ -348,6 +349,7 @@ export function mapSupabaseAdminOrderRowToSummary(row: SupabaseAdminOrderRow): A
     id: row.id,
     displayId: row.display_id,
     createdAt: row.created_at,
+    customerUserId: row.customer_user_id,
     customerName: customerNameFromEmbed(row.customers),
     paymentStatus: row.payment_status,
     fulfillmentStatus: row.fulfillment_status,
