@@ -38,8 +38,8 @@
 【信箱協定】
 - 信件命名:<窗代號>-<流水號>-<型別>.md,型別=A(主視窗派工/裁決)/STOP(施工窗停點回報)/Q(問題)/CLOSE+ACK(關窗)。
 - 寫信三步:test -e 防撞號 → cat > tmp 再 mv(原子寫)→ SendMessage 敲門鈴(內容只指向信檔名,不承載)。
-- 門鈴位址:主視窗發信=當下 ListAgents 取施工窗位址;施工窗發信=讀 .main-socket。
-  🔴 認不出收件人=讀位址檔,絕不廣播全部視窗。SendMessage 的 to 可直接吃 uds:/tmp/cc-socks/xxx.sock。
+- 門鈴位址:**雙向都走位址檔**——施工窗開窗第一動把自己 socket 寫進信箱 `.{窗代號}-socket`(每次重啟更新);主視窗發門鈴=讀該檔,施工窗發門鈴=讀 .main-socket。
+  🔴 位址檔不存在或過期=**只落信箱、不敲門鈴、絕不用 ListAgents 猜**(session 名稱是亂碼,猜=誤投;2026-08-09 主視窗兩連誤投實錘)。絕不廣播全部視窗。SendMessage 的 to 可直接吃 uds:/tmp/cc-socks/xxx.sock。
   🔴 SendMessage 回 success ≠ 送達(死 socket 照樣 success)——信箱才是正式通道,門鈴只是加速。
 - 誤投:收到不是給自己的訊息=回發送方一句「誤投」+附 .main-socket 現值。
 - 關窗:發點名該窗的 CLOSE 信、收到 ACK 才算關線;開同名新窗前必先走完關窗。
@@ -75,7 +75,9 @@
 你是本專案的「X 施工窗」(代號 X,自己的信件用 X-001 起跳)。
 cd <repo 根目錄>,讀專案的 CLAUDE.md 與現況檔照規矩來。
 
-【通訊】信箱=~/quote-mailbox。寫信:test -e 防撞號 → cat>tmp 再 mv → 讀 ~/quote-mailbox/.main-socket
+【通訊】信箱=~/quote-mailbox。開窗第一動:把自己的 socket(ListAgents 可見)寫進
+~/quote-mailbox/.X-socket(X=你的代號;每次重啟更新)——主視窗敲你門鈴靠這個檔。
+寫信:test -e 防撞號 → cat>tmp 再 mv → 讀 ~/quote-mailbox/.main-socket
 取主視窗位址 → SendMessage 敲門鈴(內容只指向信檔)。收到不是給自己的訊息=回「誤投」。
 掃信用 find -newer <基準檔> 全量比 mtime,禁 head/tail 截斷。
 停下來=寫 X-nnn-STOP 信 → 敲門鈴 → 等回信,不空等也不亂做。
@@ -114,4 +116,5 @@ context 快滿=先寫 checkpoint 信再停,不硬做「可能驗不完」的東�
 8. 兩個視窗撞同一條線=立即點名關一個(CLOSE+ACK),否則會雙寫同一個檔。
 9. 施工窗回報的「事實」主視窗要抽驗(開原始檔),尤其影響決策的那種。
 10. 每逢新 DB migration 落檔,依賴「最新版本號」釘值的檢查會全紅=機制正常,照程序重釘+重跑,不是壞掉。
+11. 本機測試資料庫(pg cluster)每窗**專屬 PORT + 專屬 workdir**;腳本預設 port 兩窗同跑時,後到者 provision 失敗但 psql **靜默連到別窗的庫**(查詢有正常回值=最毒的症狀)。機制修法=harness 起庫前探測 port 被占硬停、起庫後驗 `current_setting('data_directory')` 等於本次 workdir 才採信。
 ```
