@@ -71,7 +71,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 | 失敗 | `redirect(detail?r=<碼>&rt=<token>)` | 🔴 **只有 B 類帶 `rt`**;A 類只帶 `r` |
 | 導頁目標 | 讀 client 送的 orderId | 🔴 **授權後才跑的 envelope parser**(`readRedirectTargetOrderId`)取 `order_id`;驗不過 → `/orders`。完整 parser 失敗只回 `{ok:false}`、拿不到 orderId ⇒ envelope 是必要的、不是可選。<br>⚠️ **D2a 申報偏離**:`E-014-A` 追加的字面要求驗「uuid **+ 該單存在且本 actor 看得到**」,**實作只驗 uuid 形狀**。理由:①本 repo 沒有 per-order 授權,actor 是自選未驗證(`session/actor.ts` 自陳非授權邊界)⇒ 以它為準的存在性檢查=假守門 ②目的地頁對查無的單自己 `notFound()`,在失敗路徑上多打一次 DB 是把同一判斷做兩遍。**只宣稱一條:導頁目標永遠是 uuid 形狀的自家路徑(開放重導向面關掉)**。已於 D2a 收工信申報 |
 | history | 宣稱 replace ⇒ 重播不了 | 🔴 **不宣稱**。用 replace(能生效就生效),但**安全論證不靠它**:重播/重整只會重跑 §1c 的帳本核對,看到的永遠是帳本的真話 |
-| canonical 清除 | 「看過即清除」 | 保留,但**降級為 UX**(不再是安全前提)。清除機制 client/server 兩案在 D5 第一動實測後挑 |
+| canonical 清除 | 「看過即清除」 | 保留,但**降級為 UX**(不再是安全前提)。<br>🔴 **v3.4:「兩案實測後挑」這條偏離已由主視窗核准**(2026-08-10,D5 施工中回報)—— **server 案在結構上就不成立、沒有可比的量**:server 要清 query 只有 `redirect()`,而 redirect 發生在渲染期 ⇒ 面板還沒送到瀏覽器就換頁,員工**永遠看不到那則訊息**;那不是「效果較差」是「把功能刪掉」。⇒ 照 `E-031-A` 先例:**把「為什麼不需要量」寫進實作檔頭**,不起真 admin 量。實作 = client `history.replaceState`(`cancel-result-url-cleanup.tsx`)。<br>⚠️ 仍未驗證的是**它與 Next App Router 內部狀態的互動**(`useSearchParams()` / 內部 canonical 是否同步),已在該檔標未確認並交 D6 在真 admin 上看。 |
 | 表單狀態 | 零 client state | 不變 |
 | 面板位置 | 頁層、資格閘外 | 不變(關單後義務 5 的比對仍要在) |
 
@@ -86,7 +86,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 | `match_same_actor` | 找到 `idempotencyKey === rt` 且 `actor` = 本人 | 「你剛才那筆**已經寫進去了**」 |
 | `match_other_actor` | 找到但 actor 不同 | 「找到相符紀錄,但登記人不是你,請與同事確認」 |
 | `miss_truncated` | 沒找到 **且** `cancellationsTruncated` | 🔴 「**可能在沒列出的那批**裡,無法斷定」(義務 5 的第三分支) |
-| `miss_complete` | 沒找到 且未截斷 | 「這筆**沒有寫進去**,可以重送」 |
+| `miss_complete` | 沒找到 且未截斷 | 🔴 **v3.4 更正(`E-044-Q` 裁 A;D5 落地時同步)**:原字面「這筆**沒有寫進去**,可以重送」**是斷言句、已停用** —— 它踩在兩個沒人量過的前提上(跨單 token / 導頁後讀取新鮮度,backlog **#357**),說錯的代價是第二筆刪不掉的取消。現行字面 = 「**目前查不到這筆**;請重新整理本單再確認一次,仍然沒有才重新送一次」。<br>🔴 並且**結果頁那一次渲染一律不給表單**(D5 `cancelFormsAllowedOnResultPage`)—— 重新整理讓網址回 canonical 才會把表單帶回來,**重整本身就是重開表單的機制**。 |
 
 🔴 **fail-closed**:`rt` 缺失 / 非 uuid / B 類碼但拿不到帳本 ⇒ 一律 `unreadable` 文案,**不得**當成「沒失敗」而把表單開回去。
 🔴 **偽造 URL 的上限**:持舊 token 的人組 `r=order_cancel_retry&rt=<舊>` 只能讓自己看到 `match_*`——那是帳本裡本來就有的真話。
@@ -137,7 +137,7 @@ A 類兩碼(denied/invalid)被偽造時說的是「取消**沒有**送出」= �
 | **D3** | 帳本 classifier(純函式) | §1c 五分類 | 五格各一測 + fail-closed 三格(rt 缺 / 非 uuid / 帳本 null);突變:拿掉 `truncated` 判斷 → `miss_truncated` 那格轉紅 | 35m |
 | **D4** | 兩支表單元件 | §2-3 的整單 form / 部分 form,零 client state | ①兩支各自 hidden `cancel_mode` 值正確 ②部分那支**零 radio、零 name=cancel_mode 的可編輯控制項**(原始碼層守門)③整單那支零品項欄 ④select 有空 placeholder + required ⑤🔴 **導頁 URL 只准經 `notSentResultQuery` / `sentResultQuery` / `cancelledResultQuery` 三支建構器組**——手拼 `?r=…` 編得過(窄 R3 F1:那兩顆常數為了 banner 與 D5 必須公開匯出、收不掉),所以約束放這裡 ⑥🔴🔴 **token 生成硬驗收(D2b 移交過來的義務)**:兩次獨立 server render 必須拿到**兩顆不同的合法 uuid**,且產生點**不得落在任何快取層**(`unstable_cache` / `React.cache` 會把 token 凍住 ⇒ 兩個人拿到同一把、第二個人直接撞冪等格)。**舊守門隨 D2b 刪掉,這條沒補上就是守門在移交途中掉一段** | 40m |
 | **D5** | 帳本核對面板 + canonical 清除 + 🔴**成功訊息**(URL 同樣只准經三支建構器組讀/組) | 吃 D3 的 classifier 結果算文案;🔴 **成功訊息由 D1 移交到這裡**(§1a 下方);清除機制 client/server **第一動先實測兩案再挑** | ①五分類各自文案正確 ②B 類碼但拿不到帳本 → `unreadable`、**表單不開回去** ③清除後重整不再出現面板 ④🔴 **偽造 `?r=order_cancelled` 對一張沒被取消的單不得顯示「已完成」** | 40m |
-| **D6-a** | 接線 + 真瀏覽器負測(**元件層**;`E-031-A` Q=A) | 掛 `CancelReviewSection` + 兩支 form 進 `order-detail.tsx`;頁層讀 `r`/`rt`;面板掛**資格閘之外**;§2-3 的 bfcache 負測 | ①RPC 關單後面板仍在 ②真瀏覽器負測綠 ③突變(併回單一 radio)→ 轉紅 | 45m + Q2 基建未知 |
+| **D6-a** | 接線 + 真瀏覽器負測(**元件層**;`E-031-A` Q=A) | 掛 `CancelReviewSection` + 兩支 form 進 `order-detail.tsx`;頁層讀 `r`/`rt`(🔴 **用 `CANCEL_RESULT_PARAM` / `CANCEL_REQUEST_TOKEN_PARAM` 兩顆常數,不再手打字面**);面板掛**資格閘之外**;§2-3 的 bfcache 負測 | ①RPC 關單後面板仍在 ②真瀏覽器負測綠 ③突變(併回單一 radio)→ 轉紅 ④🔴🔴 **兩支表單必須由 `mayReopenCancelForms(verdict)` 閘住** —— 這是 D5 驗收②「表單不開回去」的**執行點**。D5 只提供那支純函式,**在 D6 呼叫它之前,義務 B 仍然是零守門**(D5 收工信已認列)。照本列原字面接線(只寫「掛兩支 form」)的話,B 類失敗含 `unreadable` 之後表單原樣開著、員工直接重送 = **第二筆刪不掉的取消**。⑤突變:拿掉那道閘 → 必須轉紅 | 45m + Q2 基建未知 |
 
 🔴 **D6 的真瀏覽器負測是本線唯一可主張「不會誤送整單取消」的證據**,基建成本未知 ⇒ `E-022-A` Q2=A:**D5 後先跑 30 分探針、結果落信再定 D6 形狀**;證據落地前不接線。
 估時合計 D1-D5 = 30+40+35+40+40 = **185m**,D6 = 45m + 基建。
@@ -155,6 +155,7 @@ D4 實查:取消線自己零手拼(`cancel-actions.ts:127/150/200/224` 全走三
 兩支表單元件零 `?r=`,已由 `cancel-order-forms.test.tsx` 的原始碼層測試釘住)。
 
 🔴 **內容分級(鐵則 9)**:新增的失敗文案與結果碼 = **L1**(年 0-1 次改、hardcode 可),不需後台 CRUD。
+🔴 **D5 補分級(2026-08-10,R2 codex 抓到 D4 那段仍沒涵蓋 D5)**:D5 面板的**全部員工可見文字**同樣是 **L1** —— 五分類的標題與指示句、成功訊息、以及「請重新整理再確認」這類操作指引。理由同下:它們是**流程說明**、不是營運內容,改動頻率同失敗文案(年 0-1 次、通常伴隨流程本身變更)。⚠️ 其中 `miss_complete` 與 `match_other_actor` 兩格的措辭**由 `E-044-Q` 裁決綁住**(不得寫成斷言句 / 要容得下「認不出你是誰」)⇒ 改那兩句不是純文案調整,要回頭看那份裁決。
 🔴 **D4 補分級(2026-08-10,R2 codex 抓到原句只涵蓋「失敗文案與結果碼」、沒涵蓋表單自己的字)**:
 D4 新增的**全部員工可見文字**同樣是 **L1** —— 兩支表單的區塊標題、警語(「會把還沒取消的數量全部取消掉…」)、
 送出鈕文字、欄位 label 與 placeholder、品項列的「買 N 件,這次可取消 M 件」。
