@@ -265,7 +265,7 @@ function makeAdminListClient(result: { data: unknown; error: unknown; count: num
 describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SELECT 守門', () => {
   it('🔴 鐵則 12:ADMIN_ORDER_LIST_SELECT byte-equal 白名單(每商品一列:tier + customers(name) + order_items 成交價+per-item 狀態 + V-3b vehicle_snapshot + brand join;D-2 起 orders 層 workflow_status/version 退出投影)', () => {
     expect(ADMIN_ORDER_LIST_SELECT).toBe(
-      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity))',
+      'id, display_id, created_at, payment_status, fulfillment_status, total, order_source, payment_channel, display_position, cancelled_at, tier_at_checkout, invoice_status, customer_user_id, customers(name), order_items(id, variant_sku, quantity, unit_price, line_total, product_snapshot, workflow_status, version, vehicle_snapshot, product_variants(products(brands(name))), order_item_quantity_summary(quantity, ordered_quantity, instock_quantity, cancelled_quantity))',
     );
   });
 
@@ -336,6 +336,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           // 🔴 A9c:刻意用 `issued` 而非 DB 預設 `not_issued` —— 用預設值會讓「mapper 根本沒讀這欄、
           //    下游自己填了預設」與「真的讀到了」長得一樣(fixture 值讓斷言失去意義的同族)。
           invoice_status: 'issued',
+          customer_user_id: 'cu-list-A', // 2b-0:同客人閘的識別(兩個 fixture 刻意不同值:撞號的話 mapper 硬寫死也會全綠)
           customers: { name: '王小明' }, // forward FK many-to-one → 單物件
           order_items: [
             {
@@ -405,6 +406,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           id: 'o1',
           displayId: 'PCM-2099-0001',
           createdAt: '2099-04-15T10:00:00Z',
+          customerUserId: 'cu-list-A',
           customerName: '王小明',
           paymentStatus: 'paid',
           fulfillmentStatus: 'notOrdered',
@@ -514,6 +516,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
           // 🔴 A9c 關卡2/R1 連動:本 fixture 原本沒有這欄,`toEqual` 對 `undefined` 屬性是**盲的**
           //    ⇒ 「mapper 根本沒讀到」一路全綠。改用 `narrowInvoiceStatus` 後才被逼出來。
           invoice_status: 'not_issued',
+          customer_user_id: 'cu-list-B', // 2b-0:同客人閘的識別(兩個 fixture 刻意不同值:撞號的話 mapper 硬寫死也會全綠)
           customers: null,
           order_items: null, // embed 缺 → lines []
         },
@@ -530,6 +533,7 @@ describe('SupabaseOrderAdapter.listOrderSummariesForAdmin + ADMIN_ORDER_LIST_SEL
       displayId: 'PCM-2099-0002',
       createdAt: '2099-05-01T00:00:00Z',
       invoiceStatus: 'not_issued', // A9c
+      customerUserId: 'cu-list-B',
       customerName: null, // join 缺 → null 防禦
       paymentStatus: 'unpaid',
       fulfillmentStatus: 'notOrdered',

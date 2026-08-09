@@ -338,6 +338,18 @@ export type AdminOrderSummary = {
    * 函式是另一份、不受影響;本型別是 admin 讀模型,別再指到它)。
    */
   createdAt: string;
+  /**
+   * 客人 id(`orders.customer_user_id` 原樣)。**2b-0 為了出貨動線的「同一箱只能裝同一位客人」閘而加。**
+   *
+   * 🔴 **不能用 `customerName` 代替**:①姓名不唯一(同名的兩個人會被判成同一位客人 ⇒ 讓員工把兩個人的
+   * 東西裝進同一箱、再被 DB `pcm_b2_w3b2_item_not_customers` 退件)②`customerName` 可為 null,
+   * 而 `null === null` 為真 ⇒ 兩張無名單被判成同一人,**這個 bug 零症狀**直到有人按下去。
+   * 另:`admin_create_shipment` 的 `p_customer_user_id` 本來就要它。
+   *
+   * 🔴 非成本欄、不新增 join ——`orders` 自己的欄位;`ADMIN_ORDER_LIST_SELECT` 的 forbidden 清單
+   * (price_store / price_by_tier / price_general / cost / address_id …)逐字比對零碰撞。
+   */
+  customerUserId: string;
   /** 客人顯示名(join customers.name;缺 → null) */
   customerName: string | null;
   paymentStatus: PaymentStatus;

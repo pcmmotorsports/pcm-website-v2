@@ -88,6 +88,7 @@ function order(overrides: OrderOverrides): AdminOrderSummary {
     orderSource: 'web',
     paymentChannel: 'tappay',
     total: { amount: toMoneyAmount(12000), currency: 'TWD' },
+    customerUserId: 'cu-fixture-1',
     customerName: '王小明',
     // 🔴 合法值只有 general / store / premiumStore(`MEMBER_TIER_LABEL`)。
     //    初版寫了不存在的 `'regular'`,被 V7 抓到 —— 因為它會查表查到 undefined、等級小字整個消失。
