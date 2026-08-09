@@ -880,8 +880,16 @@ export type AdminOrderDetail = {
    * 🔴 與 orders 層 `cancelledAt` / `cancelledReason` 的關係(R1 nit 12):兩者是**不同軸**——
    * 那兩欄只在**整單關閉**時才寫(A8a1 / A8a2 累積到全量時),而本歷程**每次取消都有一列**。
    * ⇒ 「`cancelledAt` 是 null 但 `cancellations` 非空」= 部分取消,**正常**、不是矛盾;
-   *   反過來「`cancelledAt` 有值但 `cancellations` 是 `[]`」= 資料矛盾(該單關過但零歷程列),
-   *   不是截斷也不是沒讀到 —— 那是要回報的異常,不要靜默當成沒取消過。
+   *   反過來「`cancelledAt` 有值但 `cancellations` 是 `[]`」**曾經**一律當資料矛盾(該單關過但零歷程列)。
+   *   🔴🔴 **2026-08-09 起這句話有例外、不得再一律當異常**(P 窗生命週期線 L3,Sean 拍 Q1=A;
+   *   主視窗裁示 `E-003-A` §4.2):未付款逾時的**自動失效**會寫
+   *   `cancelled_at` + `cancelled_reason = 'payment_expired'` 而**完全不碰取消帳本**
+   *   ⇒ 那種單的 `cancellations` 本來就是 `[]`,**正常**。
+   *   ⇒ 判別法:先看 `cancelledReason`,是 `'payment_expired'` ⇒「未付款自動失效」;
+   *     其餘才是「關過卻零歷程列」的真異常。落地在
+   *     `apps/admin/src/lib/orders/cancel-view.ts` 的 `PAYMENT_EXPIRED_CANCEL_REASON`
+   *     (該檔把兩者分成 `payment_expired` / `already_cancelled` 兩個碼、文案不同)。
+   *   ⚠️ L3 施工中、尚未 apply ⇒ 現階段正式庫還看不到那個值;先接住是為了它上線那天不用回頭改。
    */
   cancellationsTruncated: boolean;
 };
