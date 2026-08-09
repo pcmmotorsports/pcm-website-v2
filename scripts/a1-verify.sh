@@ -195,6 +195,16 @@ a1v_teardown() {
 # 🔴🔴 **異常退出也要拆**(R1 must-fix 3):本支在 provision 之後有九處 `exit 1|2`,
 #    第一版沒有 trap ⇒ 中途硬退就把斷裂態的 cluster 留在專屬埠上,而用法註解寫的是「跑完自動 teardown」
 #    —— 那句話在失敗路徑上是假的。這個 trap 只做「停 cluster」,不刪 workdir(異常時現場要留)。
+# 🔴 W7 跟片③(2026-08-09,B-226 MF-3):本片把 19 支 w 線 harness 的 teardown 殘留出口改成
+#    fail-closed(`exit 9`),**本檔刻意不改**。理由=實驗打回,不是漏掉:
+#    下面的殘留分支被 `A1V_TORN`/`A1V_KEEP` 兩道擋住,只有「正常 teardown 從沒跑過」才進得來,
+#    而那只發生在中途 `exit 1|2`(已非 0);正常路徑的殘留由 `a1v_teardown` 自己的後置檢查
+#    `bad` 成 FAIL ⇒ 尾端 `exit 1`(實測:把 :156 的 stop 換成 true ⇒ PASS=62/FAIL=1、exit=1)。
+#    ⇒ 在此加 `exit 9` 是到不了的死碼。
+# 🔴 **失效條件(這是時點觀察,不是恆真)** —— 下列任一成立,本段理由當場作廢、要回頭補:
+#    ① `trap a1v_trap EXIT` 之後新增任何可達的 `exit 0`(現況全檔 `exit 0` 零命中)
+#    ② `a1v_teardown` 在 `A1V_TORN=1` 那句**之前**多一條 `return`
+#    ③ `bad()` 不再累加 FAIL(尾端 `exit 1` 就不成立了)
 a1v_trap() {
   [ "$A1V_TORN" = "1" ] && return 0
   [ "${A1V_KEEP:-0}" = "1" ] && return 0
