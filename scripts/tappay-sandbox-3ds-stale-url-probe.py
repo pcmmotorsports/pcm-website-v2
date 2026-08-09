@@ -85,11 +85,19 @@ def redact(obj):
     return obj
 
 
-def cmd_create(key, mid, amount):
+def cmd_create(key, mid, amount, prime_path=None):
     if not (1 <= amount <= 6):
         sys.exit("🔴 金額閘:只允許 1-6 元")
+    # 🔴 固定測試 prime 做不出 3DS(前代實測:回 auth_code、無 payment_url)⇒ 要 3DS 必須餵
+    # TPDirect SDK 產的 prime。prime 走檔案不走 argv(不落 shell history / 不進終端)。
+    prime = TEST_PRIME
+    if prime_path:
+        with open(prime_path, encoding="utf-8") as fh:
+            prime = json.load(fh)["prime"].strip()
+        if not prime or prime == TEST_PRIME:
+            sys.exit("🔴 prime 檔為空或仍是固定測試 prime —— 拒跑")
     body = {
-        "prime": TEST_PRIME,
+        "prime": prime,
         "partner_key": key,
         "merchant_id": mid,
         "amount": amount,
@@ -97,8 +105,11 @@ def cmd_create(key, mid, amount):
         "details": "L4 stale-3ds-url probe",
         "cardholder": {"phone_number": "+886900000000", "name": "L4 Probe",
                        "email": "l4probe@example.com"},
-        # 🔴 3DS 啟動:回 payment_url 跳轉、不請款
-        "three_domain_secret": True,
+        # 🔴 3DS 啟動:回 payment_url 跳轉、不請款。
+        # 🔴🔴 欄名是 `three_domain_secure`(對齊 TapPayChargeAdapter.ts:188 正式路徑字面)。
+        # 前代寫成 `three_domain_secret` ⇒ TapPay 靜默忽略未知欄 ⇒ 直接授權、無 payment_url,
+        # 卻被誤判成「固定測試 prime 做不出 3DS」。錯字不報錯,只是安靜地不做那件事。
+        "three_domain_secure": True,
         "result_url": {
             "frontend_redirect_url": "https://example.com/l4-probe/front",
             "backend_notify_url": "https://example.com/l4-probe/back",
@@ -139,10 +150,13 @@ def main():
     globals()["urllib"].parse = _up  # post() 用得到
     key, mid = load_env()
     if len(sys.argv) < 2:
-        sys.exit("用法:create <amount> | query <rec_trade_id> | refund <rec_trade_id> <bank_refund_id>")
+        sys.exit("用法:create <amount> [prime.json] | query <rec_trade_id> | "
+                 "refund <rec_trade_id> <bank_refund_id>")
     cmd = sys.argv[1]
     if cmd == "create":
-        cmd_create(key, mid, int(sys.argv[2]) if len(sys.argv) > 2 else 1)
+        cmd_create(key, mid,
+                   int(sys.argv[2]) if len(sys.argv) > 2 else 1,
+                   sys.argv[3] if len(sys.argv) > 3 else None)
     elif cmd == "query":
         cmd_query(key, mid, sys.argv[2])
     elif cmd == "refund":
